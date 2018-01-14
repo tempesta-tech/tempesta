@@ -192,7 +192,7 @@ TEST(tfw_sched_hash, sched_srv_one_srv_max_conn)
 
 		for (j = 0; j < srv->conn_n; ++j) {
 			TfwSrvConn *srv_conn =
-				sg->sched->sched_srv_conn(msg, srv, false);
+				sg->sched->sched_srv_conn(msg, srv);
 
 			EXPECT_NOT_NULL(srv_conn);
 			if (!srv_conn)
@@ -244,7 +244,7 @@ TEST(tfw_sched_hash, sched_srv_max_srv_max_conn)
 
 			for (j = 0; j < TFW_TEST_SG_MAX_CONN_N; ++j) {
 				TfwSrvConn *srv_conn =
-					sg->sched->sched_srv_conn(msg, srv, false);
+					sg->sched->sched_srv_conn(msg, srv);
 
 				EXPECT_NOT_NULL(srv_conn);
 				if (!srv_conn)

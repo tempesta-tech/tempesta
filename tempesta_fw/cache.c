@@ -629,7 +629,7 @@ __send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 	TdbVRec *trec = &ce->trec;
 	TDB *db = node_db();
 
-	if (!(resp = (TfwHttpResp *)tfw_http_msg_alloc(Conn_Srv)))
+	if (!(resp = (TfwHttpResp *)tfw_http_msg_alloc(Conn_Srv, HTTP_MSG_DEFAULT)))
 		goto err_create;
 
 	if (tfw_http_prep_304((TfwHttpMsg *)resp, req, &it,
@@ -1515,7 +1515,8 @@ tfw_cache_build_resp(TfwCacheEntry *ce)
 	 * is used for sending response data only, so don't initialize
 	 * connection and GFSM fields.
 	 */
-	if (!(resp = ((TfwHttpResp *)tfw_http_msg_alloc(Conn_Srv))))
+	if (!(resp = ((TfwHttpResp *)tfw_http_msg_alloc(Conn_Srv,
+							HTTP_MSG_DEFAULT))))
 		return NULL;
 	if (tfw_http_msg_setup((TfwHttpMsg *)resp, &it, ce->hdr_len + 2))
 		goto free;

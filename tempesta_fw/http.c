@@ -20,6 +20,7 @@
  */
 #include <linux/string.h>
 #include <linux/vmalloc.h>
+#include <linux/crc32.h>
 
 #include "cache.h"
 #include "classifier.h"
@@ -742,26 +743,11 @@ tfw_http_error_resp_switch(TfwHttpReq *req, int status, const char *reason)
 	tfw_http_send_resp(req, code);
 }
 
-static TfwHttpMsg *
-tfw_http_alloc_hmonitor_req(void)
-{
-	TfwHttpMsg *hm;
-
-	if (!(hm = (TfwHttpMsg *)tfw_pool_new(TfwHttpReq, TFW_POOL_ZERO)))
-		return NULL;
-
-	ss_skb_queue_head_init(&hm->msg.skb_list);
-	INIT_LIST_HEAD(&hm->msg.seq_list);
-	INIT_LIST_HEAD(&((TfwHttpReq *)hm)->fwd_list);
-	INIT_LIST_HEAD(&((TfwHttpReq *)hm)->nip_list);
-	hm->destructor = tfw_http_req_destruct;
-
-	return hm;
-}
-
 static inline void
 tfw_http_srv_hmonitor(TfwHttpResp *resp)
 {
+	u32 crc32;
+	char *body_cstr;
 	TfwServer *srv = (TfwServer *)resp->conn->peer;
 
 	if (!test_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->hm_flags))
@@ -777,9 +763,22 @@ tfw_http_srv_hmonitor(TfwHttpResp *resp)
 		return;
 	}
 
-	if (!tfw_srv_suspended(srv) ||
-	    !tfw_apm_hm_srv_alive(resp->status, &resp->body, srv->apmref))
+	if (!tfw_srv_suspended(srv))
 		return;
+
+	if (!tfw_apm_hm_srv_status_alive(resp->status, srv->apmref)) {
+		body_cstr = tfw_pool_alloc(resp->pool, resp->body.len + 1);
+		if (unlikely(!body_cstr)) {
+			TFW_ERR("Can't allocate memory for hmonitor"
+				" crc32 verification\n");
+			return;
+		}
+		tfw_str_to_cstr(&resp->body, body_cstr, resp->body.len + 1);
+		crc32 = crc32(0, body_cstr, resp->body.len);
+		tfw_pool_free(resp->pool, body_cstr, resp->body.len + 1);
+		if (!tfw_apm_hm_srv_crc32_alive(crc32, srv->apmref))
+			return;
+	}
 
 	tfw_srv_mark_alive(srv);
 }
@@ -880,7 +879,7 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv,
 	if (tfw_connection_send((TfwConn *)srv_conn, (TfwMsg *)req)) {
 		TFW_DBG2("%s: Forwarding error: conn=[%p] req=[%p]\n",
 			 __func__, srv_conn, req);
-		if (!req->conn) {
+		if (req->flags & TFW_HTTP_HMONITOR) {
 			tfw_http_req_delist(srv_conn, req);
 			tfw_http_msg_free((TfwHttpMsg *)req);
 		}
@@ -1236,7 +1235,9 @@ tfw_http_conn_resched(struct list_head *sch_queue, struct list_head *equeue,
 			continue;
 		}
 
-		if (!req->conn && sch_conn->peer != prev_conn->peer) {
+		if (req->flags & TFW_HTTP_HMONITOR
+		    && sch_conn->peer != prev_conn->peer)
+		{
 				list_del_init(&req->fwd_list);
 				tfw_http_msg_free((TfwHttpMsg *)req);
 		}
@@ -1399,7 +1400,8 @@ tfw_http_req_destruct(void *msg)
 static TfwMsg *
 tfw_http_conn_msg_alloc(TfwConn *conn)
 {
-	TfwHttpMsg *hm = tfw_http_msg_alloc(TFW_CONN_TYPE(conn));
+	TfwHttpMsg *hm = tfw_http_msg_alloc(TFW_CONN_TYPE(conn),
+					    HTTP_MSG_DEFAULT);
 	if (unlikely(!hm))
 		return NULL;
 
@@ -2170,7 +2172,7 @@ static void
 tfw_http_cli_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
 				int status, const char *msg)
 {
-	if (!req->conn) {
+	if (req->flags & TFW_HTTP_HMONITOR) {
 		tfw_http_msg_free((TfwHttpMsg *)req);
 		return;
 	}
@@ -2194,7 +2196,7 @@ static void
 tfw_http_srv_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
 				int status, const char *msg)
 {
-	if (!req->conn) {
+	if (req->flags & TFW_HTTP_HMONITOR) {
 		tfw_http_msg_free((TfwHttpMsg *)req);
 		return;
 	}
@@ -2700,11 +2702,10 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	}
 
 	/*
-	 * If request does not have linked connection, it means that
-	 * it is health monitor request and its response need not to
+	 * Health monitor request means that its response need not to
 	 * send anywhere.
 	 */
-	if (!req->conn) {
+	if (req->flags & TFW_HTTP_HMONITOR) {
 		tfw_http_drop_hmonitor_resp(req, (TfwHttpResp *)hmresp);
 		return 0;
 	}
@@ -2990,16 +2991,17 @@ tfw_http_srv_hmonitor_send(TfwServer *srv, char *data, unsigned long len)
 	};
 	LIST_HEAD(equeue);
 
-	if (!(hmreq = tfw_http_alloc_hmonitor_req()))
+	if (!(hmreq = tfw_http_msg_alloc(Conn_HttpClnt, HTTP_MSG_LIGHT)))
 		return;
 	if (tfw_http_msg_setup(hmreq, &it, msg.len))
 		goto cleanup;
 	if (tfw_http_msg_write(&it, hmreq, &msg))
 		goto cleanup;
 
+	hmreq->flags |= TFW_HTTP_HMONITOR;
 	((TfwHttpReq *)hmreq)->jrxtstamp = jiffies;
 
-	srv_conn = srv->sg->sched->sched_srv_conn((TfwMsg *)hmreq, srv, true);
+	srv_conn = srv->sg->sched->sched_srv_conn((TfwMsg *)hmreq, srv);
 	if (!srv_conn) {
 		TFW_WARN_ADDR("Unable to find connection for health"
 			      " monitoring of backend server", &srv->addr);
@@ -3353,9 +3355,7 @@ tfw_cfgop_resp_body(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	if (tfw_cfgop_parse_http_status(ce->vals[0], &code)) {
 		TFW_ERR_NL("Unable to parse 'response_body' value: '%s'\n",
-			   ce->vals[0]
-			   ? ce->vals[0]
-			   : "No value specified");
+			   ce->vals[0]);
 		return -EINVAL;
 	}
 
