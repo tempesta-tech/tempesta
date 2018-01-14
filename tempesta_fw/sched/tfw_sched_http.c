@@ -165,7 +165,7 @@ tfw_sched_http_sched_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 }
 
 static TfwSrvConn *
-tfw_sched_http_sched_srv_conn(TfwMsg *msg, TfwServer *sg, bool hmonitor)
+tfw_sched_http_sched_srv_conn(TfwMsg *msg, TfwServer *sg)
 {
 	WARN_ONCE(true, "tfw_sched_http can't select connection from a server"
 			"\n");

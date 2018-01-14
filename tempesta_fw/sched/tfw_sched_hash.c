@@ -157,10 +157,11 @@ __is_conn_suitable(TfwSrvConn *conn, bool hmonitor)
  *    a matching one with the highest weight. That adds some overhead.
  */
 static inline TfwSrvConn *
-__find_best_conn(TfwMsg *msg, TfwHashConnList *cl, bool hmonitor)
+__find_best_conn(TfwMsg *msg, TfwHashConnList *cl)
 {
 	ssize_t l_idx, r_idx, idx;
 	TfwSrvConn *conn;
+	bool hmonitor = ((TfwHttpReq *)msg)->flags & TFW_HTTP_HMONITOR;
 	unsigned long msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
 	unsigned long best_hash = (~0UL ^ msg_hash);
 
@@ -215,7 +216,7 @@ tfw_sched_hash_get_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 	cl = rcu_dereference(sg->sched_data);
 
 	if (likely(cl))
-		srv_conn = __find_best_conn(msg, cl, false);
+		srv_conn = __find_best_conn(msg, cl);
 
 	rcu_read_unlock();
 	return srv_conn;
@@ -226,7 +227,7 @@ tfw_sched_hash_get_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
  * in a group.
  */
 static TfwSrvConn *
-tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwServer *srv, bool hmonitor)
+tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwServer *srv)
 {
 	TfwHashConnList *cl;
 	TfwSrvConn *srv_conn = NULL;
@@ -235,7 +236,7 @@ tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwServer *srv, bool hmonitor)
 	cl = rcu_dereference(srv->sched_data);
 
 	if (likely(cl))
-		srv_conn = __find_best_conn(msg, cl, hmonitor);
+		srv_conn = __find_best_conn(msg, cl);
 
 	rcu_read_unlock();
 	return srv_conn;

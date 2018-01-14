@@ -292,7 +292,7 @@ test_sched_srv_one_srv_zero_conn(struct TestSchedHelper *sched_helper)
 
 	for (i = 0; i < sched_helper->conn_types; ++i) {
 		TfwMsg *msg = sched_helper->get_sched_arg(i);
-		TfwSrvConn *srv_conn = sg->sched->sched_srv_conn(msg, srv, false);//!!!
+		TfwSrvConn *srv_conn = sg->sched->sched_srv_conn(msg, srv);
 
 		EXPECT_NULL(srv_conn);
 		sched_helper->free_sched_arg(msg);
@@ -329,7 +329,7 @@ test_sched_srv_max_srv_zero_conn(struct TestSchedHelper *sched_helper)
 
 		list_for_each_entry(srv, &sg->srv_list, list) {
 			TfwSrvConn *srv_conn =
-				sg->sched->sched_srv_conn(msg, srv, false);//!!!
+				sg->sched->sched_srv_conn(msg, srv);
 
 			EXPECT_NULL(srv_conn);
 			/*
@@ -389,7 +389,7 @@ test_sched_srv_offline_srv(struct TestSchedHelper *sched_helper)
 		TfwMsg *msg = sched_helper->get_sched_arg(i);
 
 		list_for_each_entry(srv, &sg->srv_list, list) {
-			srv_conn = sg->sched->sched_srv_conn(msg, srv, false);//!!!
+			srv_conn = sg->sched->sched_srv_conn(msg, srv);
 
 			if (srv == offline_srv)
 				EXPECT_NULL(srv_conn);
