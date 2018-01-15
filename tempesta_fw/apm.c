@@ -1006,7 +1006,7 @@ tfw_apm_hm_timer_cb(unsigned long data)
 {
 	TfwServer *srv = (TfwServer *)data;
 	TfwApmData *apmdata = (TfwApmData *)srv->apmref;
-	TfwApmHM *hm = apmdata->hmctl.hm;
+	TfwApmHM *hm = READ_ONCE(apmdata->hmctl.hm);
 	unsigned long now;
 
 	BUG_ON(!hm);
@@ -1217,17 +1217,18 @@ void
 tfw_apm_hm_srv_rcount_update(TfwStr *uri_path, void *apmref)
 {
 	TfwApmHMCtl *hmctl = &((TfwApmData *)apmref)->hmctl;
+	TfwApmHM *hm = READ_ONCE(hmctl->hm);
 	tfw_str_eq_flags_t flags = TFW_STR_EQ_CASEI;
 
-	BUG_ON(!hmctl->hm);
-	if (tfw_str_eq_cstr(uri_path, hmctl->hm->url, hmctl->hm->urlsz, flags))
+	BUG_ON(!hm);
+	if (tfw_str_eq_cstr(uri_path, hm->url, hm->urlsz, flags))
 		atomic64_inc(&hmctl->rcount);
 }
 
 bool
 tfw_apm_hm_srv_status_alive(int status, void *apmref)
 {
-	TfwApmHM *hm = ((TfwApmData *)apmref)->hmctl.hm;
+	TfwApmHM *hm = READ_ONCE(((TfwApmData *)apmref)->hmctl.hm);
 
 	BUG_ON(!hm);
 	if (hm->codes && test_bit(HTTP_CODE_BIT_NUM(status), hm->codes))//!!! maybe range validation is necessary
@@ -1239,7 +1240,7 @@ tfw_apm_hm_srv_status_alive(int status, void *apmref)
 bool
 tfw_apm_hm_srv_crc32_alive(u32 crc32, void *apmref)
 {
-	TfwApmHM *hm = ((TfwApmData *)apmref)->hmctl.hm;
+	TfwApmHM *hm = READ_ONCE(((TfwApmData *)apmref)->hmctl.hm);
 
 	BUG_ON(!hm);
 	if (hm->crc32 && crc32 == hm->crc32)
@@ -1312,7 +1313,7 @@ tfw_apm_hm_enable_srv(const char *name, TfwServer *srv)
 			" server's health monitoring\n");
 		return false;
 	}
-	
+
 	BUG_ON(!srv->apmref);
 	hmctl = &((TfwApmData *)srv->apmref)->hmctl;
 	list_for_each_entry(hm, &tfw_hm_list, list) {
@@ -1320,7 +1321,7 @@ tfw_apm_hm_enable_srv(const char *name, TfwServer *srv)
 			       (unsigned long *)&srv->hm_flags));
 		if (strcasecmp(name, hm->name))
 			continue;
-		WRITE_ONCE(hmctl->hm, hm);//!!!
+		WRITE_ONCE(hmctl->hm, hm);
 		atomic64_set(&hmctl->rcount, 0);
 		clear_bit(TFW_SRV_B_SUSPEND,
 			  (unsigned long *)&srv->hm_flags);
@@ -1378,11 +1379,9 @@ tfw_apm_hm_stats(void *apmref)
 	TfwHMStats *stats;
 	TfwHMCodeStats *rsums;
 	TfwApmHMCtl *hmctl = &((TfwApmData *)apmref)->hmctl;
+	TfwApmHM *hm = READ_ONCE(hmctl->hm);
 
-	if (!hmctl->hm)
-		return NULL;
-
-	BUG_ON(!hmctl->hmstats);
+	BUG_ON(!hmctl->hmstats || !hm);
 	size = sizeof(TfwHMStats) + sizeof(TfwHMCodeStats) * tfw_hm_codes_cnt;
 	if (!(stats = kmalloc(size, GFP_KERNEL)))
 		return NULL;
@@ -1396,7 +1395,7 @@ tfw_apm_hm_stats(void *apmref)
 	stats->rsums = rsums;
 	stats->ccnt = tfw_hm_codes_cnt;
 
-	rtime = (long)hmctl->hm->tmt - (jiffies - READ_ONCE(hmctl->jtmstamp))
+	rtime = (long)hm->tmt - (jiffies - READ_ONCE(hmctl->jtmstamp))
 					/ HZ;
 	stats->rtime = rtime < 0 ? 0 : rtime;
 

@@ -784,7 +784,7 @@ tfw_http_srv_hmonitor(TfwHttpResp *resp)
 }
 
 static inline void
-tfw_http_srv_hmonitor_update(TfwHttpReq *req, TfwServer *srv)
+tfw_http_srv_hm_update(TfwServer *srv, TfwHttpReq *req)
 {
 	if (test_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->hm_flags))
 		tfw_apm_hm_srv_rcount_update(&req->uri_path, srv->apmref);
@@ -1220,29 +1220,33 @@ tfw_http_conn_resched(struct list_head *sch_queue, struct list_head *equeue,
 {
 	TfwSrvConn *sch_conn;
 	TfwHttpReq *req, *tmp;
+	TfwServer *srv = (TfwServer *)prev_conn->peer;
 
 	/*
 	 * Process the complete queue and re-schedule all requests
-	 * to other servers/connections. If other server is scheduled,
-	 * then evict health monitoring requests.
+	 * to other servers/connections. Health monitoring requests
+	 * must be re-scheduled to the same server (other servers
+	 * may not have enabled health monitor).
 	 */
 	list_for_each_entry_safe(req, tmp, sch_queue, fwd_list) {
-		if (!(sch_conn = tfw_sched_get_srv_conn((TfwMsg *)req))) {
+		if (req->flags & TFW_HTTP_HMONITOR) {
+			sch_conn = srv->sg->sched->sched_srv_conn((TfwMsg *)req,
+								  srv);
+			if (!sch_conn) {
+				list_del_init(&req->fwd_list);
+				tfw_http_msg_free((TfwHttpMsg *)req);
+				continue;
+			}
+		} else if (!(sch_conn = tfw_sched_get_srv_conn((TfwMsg *)req))) {
 			TFW_DBG("Unable to find a backend server\n");
 			__tfw_http_req_error(req, equeue, 502,
 					     "request dropped: unable to find"
 					     " an available back end server");
 			continue;
+			tfw_http_srv_hm_update((TfwServer *)sch_conn->peer,
+					       req);
 		}
 
-		if (req->flags & TFW_HTTP_HMONITOR
-		    && sch_conn->peer != prev_conn->peer)
-		{
-				list_del_init(&req->fwd_list);
-				tfw_http_msg_free((TfwHttpMsg *)req);
-		}
-
-		tfw_http_srv_hmonitor_update(req, (TfwServer *)sch_conn->peer);
 		tfw_http_req_fwd(sch_conn, req, equeue);
 		tfw_srv_conn_put(sch_conn);
 	}
@@ -2059,7 +2063,7 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 		goto send_500;
 
 	/* Account current request in APM health monitoring statistics */
-	tfw_http_srv_hmonitor_update(req, (TfwServer *)srv_conn->peer);
+	tfw_http_srv_hm_update((TfwServer *)srv_conn->peer, req);
 
 	/* Forward request to the server. */
 	tfw_http_req_fwd(srv_conn, req, &equeue);
