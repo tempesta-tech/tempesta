@@ -1736,16 +1736,20 @@ tfw_cfgop_cleanup_srv_cfgs(bool reconf_failed)
 {
 	TfwCfgSrvGroup *sg_cfg, *tmp;
 
+	/*
+	 * Default group may exist in sg_cfg_list if configuration parsing
+	 * failed just before cfgend.
+	 */
+	if (tfw_cfg_sg_def && list_empty(&tfw_cfg_sg_def->list))
+		tfw_cfgop_cleanup_srv_cfg(tfw_cfg_sg_def, reconf_failed);
+	tfw_cfg_sg_def = NULL;
+
 	list_for_each_entry_safe(sg_cfg, tmp, &sg_cfg_list, list)
 		tfw_cfgop_cleanup_srv_cfg(sg_cfg, reconf_failed);
 	INIT_LIST_HEAD(&sg_cfg_list);
 
 	if (tfw_cfg_sg_opts) {
 		tfw_cfgop_cleanup_srv_cfg(tfw_cfg_sg_opts, true);
-		tfw_cfg_sg_opts = NULL;
-	}
-	if (tfw_cfg_sg_def) {
-		tfw_cfgop_cleanup_srv_cfg(tfw_cfg_sg_def, reconf_failed);
 		tfw_cfg_sg_opts = NULL;
 	}
 	tfw_cfg_sg = NULL;

@@ -35,7 +35,7 @@ TfwStr *
 tfw_http_msg_make_hdr(TfwPool *pool, const char *name, const char *val)
 {
 	size_t n_len = strlen(name);
-	size_t v_len = strlen(val);
+	size_t v_len = val ? strlen(val) : 0;
 	const TfwStr tmp_hdr = {
 		.ptr = (TfwStr []){
 			{ .ptr = (void *)name,	.len = n_len },
@@ -44,26 +44,48 @@ tfw_http_msg_make_hdr(TfwPool *pool, const char *name, const char *val)
 		},
 		.len = n_len + SLEN(S_DLM) + v_len,
 		.eolen = 2,
-		.flags = 3 << TFW_STR_CN_SHIFT
+		.flags = (val ? 3 : 2) << TFW_STR_CN_SHIFT
 	};
-	TfwStr *hdr;
 
-	hdr = (TfwStr *)tfw_pool_alloc(pool, tmp_hdr.len + sizeof(TfwStr));
-	if (!hdr)
-		return NULL;
-	TFW_STR_INIT(hdr);
-	hdr->ptr = (void *)(hdr + 1);
-	hdr->len = tmp_hdr.len;
-	hdr->eolen = 2;
-	if (tfw_strcpy(hdr, &tmp_hdr)) {
-		kfree(hdr);
-		return NULL;
-	}
-
-	return hdr;
+	return tfw_strdup(pool, &tmp_hdr);
 }
 EXPORT_SYMBOL(tfw_http_msg_make_hdr);
 
+/**
+ * Get header id in header table for header @hdr.
+ */
+unsigned int
+tfw_http_msg_is_spec_hdr(const TfwStr *hdr)
+{
+	static const TfwStr spec_hdrs[] = {
+	#define TfwStr_string(v) { (v), NULL, sizeof(v) - 1, 0 }
+		[TFW_HTTP_HDR_HOST]	= TfwStr_string("Host:"),
+		[TFW_HTTP_HDR_CONTENT_LENGTH] = TfwStr_string("Content-Length:"),
+		[TFW_HTTP_HDR_CONTENT_TYPE] = TfwStr_string("Content-Type:"),
+		[TFW_HTTP_HDR_SERVER]	= TfwStr_string("Server:"),
+		[TFW_HTTP_HDR_COOKIE]	= TfwStr_string("Cookie:"),
+		[TFW_HTTP_HDR_ETAG]	= TfwStr_string("ETag:"),
+		[TFW_HTTP_HDR_CONNECTION] = TfwStr_string("Connection:"),
+		[TFW_HTTP_HDR_X_FORWARDED_FOR] = TfwStr_string("X-Forwarded-For:"),
+		[TFW_HTTP_HDR_KEEP_ALIVE] = TfwStr_string("Keep-Alive:"),
+		[TFW_HTTP_HDR_TRANSFER_ENCODING] = TfwStr_string("Transfer-Encoding:"),
+	#undef TfwStr_string
+	};
+	DEFINE_TFW_STR(user_agent, "User-Agent:");
+	DEFINE_TFW_STR(if_none_match, "If-None-Match:");
+
+	int i;
+
+	for (i = 0; i < TFW_HTTP_HDR_RAW; ++i)
+		if (!tfw_stricmpspn(hdr, &spec_hdrs[i], ':'))
+			return i;
+	if (!tfw_stricmpspn(hdr, &user_agent, ':'))
+		return TFW_HTTP_HDR_USER_AGENT;
+	if (!tfw_stricmpspn(hdr, &if_none_match, ':'))
+		return TFW_HTTP_HDR_IF_NONE_MATCH;
+
+	return TFW_HTTP_HDR_RAW;
+}
 
 /**
  * Find @hdr in @array. @array must be in lowercase and sorted in alphabetical
@@ -248,7 +270,7 @@ __hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
 {
 	unsigned int id = tfw_http_msg_hdr_lookup(hm, hdr);
 
-	if ((id <  hm->h_tbl->off) && __hdr_is_singular(hdr))
+	if ((id < hm->h_tbl->off) && __hdr_is_singular(hdr))
 		hm->flags |= TFW_HTTP_FIELD_DUPENTRY;
 
 	return id;
@@ -520,39 +542,28 @@ __hdr_del(TfwHttpMsg *hm, unsigned int hid)
  * substitute.
  */
 static int
-__hdr_sub(TfwHttpMsg *hm, char *name, size_t n_len, char *val, size_t v_len,
-	  unsigned int hid)
+__hdr_sub(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid)
 {
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 	TfwStr *dst, *tmp, *end, *orig_hdr = &ht->tbl[hid];
-	TfwStr hdr = {
-		.ptr = (TfwStr []){
-			{ .ptr = name,	.len = n_len },
-			{ .ptr = S_DLM,	.len = SLEN(S_DLM) },
-			{ .ptr = val,	.len = v_len },
-		},
-		.len = n_len + SLEN(S_DLM) + v_len,
-		.eolen = 2,
-		.flags = 3 << TFW_STR_CN_SHIFT
-	};
 
 	TFW_STR_FOR_EACH_DUP(dst, orig_hdr, end) {
-		if (dst->len < hdr.len)
+		if (dst->len < hdr->len)
 			continue;
 		/*
 		 * Adjust @dst to have no more than @hdr.len bytes and rewrite
 		 * the header in-place. Do not call @ss_skb_cutoff_data if no
 		 * adjustment is needed.
 		 */
-		if (dst->len != hdr.len
-		    && ss_skb_cutoff_data(&hm->msg.skb_list, dst, hdr.len, 0))
+		if (dst->len != hdr->len
+		    && ss_skb_cutoff_data(&hm->msg.skb_list, dst, hdr->len, 0))
 			return TFW_BLOCK;
-		if (tfw_strcpy(dst, &hdr))
+		if (tfw_strcpy(dst, hdr))
 			return TFW_BLOCK;
 		goto cleanup;
 	}
 
-	if (__hdr_expand(hm, orig_hdr, &hdr, false))
+	if (__hdr_expand(hm, orig_hdr, hdr, false))
 		return TFW_BLOCK;
 	dst = TFW_STR_DUP(orig_hdr) ? __TFW_STR_CH(orig_hdr, 0) : orig_hdr;
 
@@ -566,6 +577,76 @@ cleanup:
 
 	*orig_hdr = *dst;
 	return TFW_PASS;
+}
+
+/**
+ * Transform HTTP message @hm header with identifier @hid.
+ * @hdr must be compaund string and containt two or three parts:
+ * header name, colon and header value. If @hdr value is empty,
+ * then the header will be deleted from @hm.
+ * If @hm already has the header it will be replaced by the new header
+ * unless @append.
+ * If @append is true, then @val will be concatenated to current
+ * header with @hid and @name, otherwise a new header will be created
+ * if the message has no the header.
+ *
+ * Note: The substitute string @hdr should have CRLF as EOL. The original
+ * string @orig_hdr may have a single LF as EOL. We may want to follow
+ * the EOL pattern of the original. For that, the EOL of @hdr needs
+ * to be made the same as in the original header field string.
+ */
+int
+tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid,
+			  bool append)
+{
+	TfwHttpHdrTbl *ht = hm->h_tbl;
+	TfwStr *orig_hdr;
+	const TfwStr *s_val = TFW_STR_CHUNK(hdr, 2);
+
+	/* Firstly, get original message header to transform. */
+	if (hid < TFW_HTTP_HDR_RAW) {
+		orig_hdr = &ht->tbl[hid];
+		if (TFW_STR_EMPTY(orig_hdr) && !s_val)
+			/* Not found, nothing to delete. */
+			return 0;
+	} else {
+		hid = __hdr_lookup(hm, hdr);
+		if (hid == ht->off && !s_val)
+			/* Not found, nothing to delete. */
+			return 0;
+		if (hid == ht->size)
+			if (tfw_http_msg_grow_hdr_tbl(hm))
+				return -ENOMEM;
+		orig_hdr = &ht->tbl[hid];
+	}
+
+	if (unlikely(append && hid < TFW_HTTP_HDR_NONSINGULAR)) {
+		TFW_WARN("Appending to nonsingular header %d\n", hid);
+		return -ENOENT;
+	}
+
+	if (TFW_STR_EMPTY(orig_hdr)) {
+		if (unlikely(!s_val))
+			return 0;
+		return __hdr_add(hm, hdr, hid);
+	}
+
+	if (!s_val)
+		return __hdr_del(hm, hid);
+
+	if (append) {
+		TfwStr hdr_app = {
+			.ptr = (TfwStr []){
+				{ .ptr = ", ",		.len = 2 },
+				{ .ptr = s_val->ptr,	.len = s_val->len }
+			},
+			.len = s_val->len + 2,
+			.flags = 2 << TFW_STR_CN_SHIFT
+		};
+		return __hdr_expand(hm, orig_hdr, &hdr_app, true);
+	}
+
+	return __hdr_sub(hm, hdr, hid);
 }
 
 /**
@@ -589,8 +670,6 @@ int
 tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 		      char *val, size_t v_len, unsigned int hid, bool append)
 {
-	TfwHttpHdrTbl *ht = hm->h_tbl;
-	TfwStr *orig_hdr;
 	TfwStr new_hdr = {
 		.ptr = (TfwStr []){
 			{ .ptr = name,	.len = n_len },
@@ -604,50 +683,7 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 
 	BUG_ON(!val && v_len);
 
-	/* Firstly, get original message header to transform. */
-	if (hid < TFW_HTTP_HDR_RAW) {
-		orig_hdr = &ht->tbl[hid];
-		if (TFW_STR_EMPTY(orig_hdr) && !val)
-			/* Not found, nothing to delete. */
-			return 0;
-	} else {
-		hid = __hdr_lookup(hm, &new_hdr);
-		if (hid == ht->off && !val)
-			/* Not found, nothing to delete. */
-			return 0;
-		if (hid == ht->size)
-			if (tfw_http_msg_grow_hdr_tbl(hm))
-				return -ENOMEM;
-		orig_hdr = &ht->tbl[hid];
-	}
-
-	if (unlikely(append && hid < TFW_HTTP_HDR_NONSINGULAR)) {
-		TFW_WARN("Appending to nonsingular header %d\n", hid);
-		return -ENOENT;
-	}
-
-	if (TFW_STR_EMPTY(orig_hdr)) {
-		if (unlikely(!val))
-			return 0;
-		return __hdr_add(hm, &new_hdr, hid);
-	}
-
-	if (!val)
-		return __hdr_del(hm, hid);
-
-	if (append) {
-		TfwStr hdr_app = {
-			.ptr = (TfwStr []){
-				{ .ptr = ", ",	.len = 2 },
-				{ .ptr = val,	.len = v_len }
-			},
-			.len = v_len + 2,
-			.flags = 2 << TFW_STR_CN_SHIFT
-		};
-		return __hdr_expand(hm, orig_hdr, &hdr_app, true);
-	}
-
-	return __hdr_sub(hm, name, n_len, val, v_len, hid);
+	return tfw_http_msg_hdr_xfrm_str(hm, &new_hdr, hid, append);
 }
 
 /**

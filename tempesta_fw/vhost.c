@@ -93,7 +93,8 @@ static size_t		tfw_location_sz = 0;	/* Current size. */
  */
 static TfwCaPolicy	*tfw_capolicy_dflt[TFW_CAPOLICY_ARRAY_SZ];
 static TfwNipDef	*tfw_nipdef_dflt[TFW_NIPDEF_ARRAY_SZ];
-static TfwStr		*tfw_usr_hdrs_dflt[TFW_USRHDRS_ARRAY_SZ];
+static TfwHdrModsDesc	tfw_hmods_req_dflt[TFW_USRHDRS_ARRAY_SZ];
+static TfwHdrModsDesc	tfw_hmods_resp_dflt[TFW_USRHDRS_ARRAY_SZ];
 
 static TfwLocation tfw_location_dflt = {
 	.op = TFW_HTTP_MATCH_O_WILDCARD,
@@ -103,8 +104,7 @@ static TfwLocation tfw_location_dflt = {
 	.capo_sz = 0,
 	.nipdef = tfw_nipdef_dflt,
 	.nipdef_sz = 0,
-	.usr_hdrs = tfw_usr_hdrs_dflt,
-	.usr_hdrs_sz = 0,
+	.mod_hdrs = { {0, tfw_hmods_req_dflt}, {0, tfw_hmods_resp_dflt}}
 };
 
 /* Pool for 'hdr_add' directive (TfwLocation->usr_hdrs) */
@@ -319,6 +319,29 @@ tfw_vhost_match(TfwStr *arg)
 	return &tfw_vhost_dflt;
 }
 
+/**
+ * Find a headers modification description according to target message type
+ * and current location.
+ *
+ * @req		- http request to deturmine location;
+ * @msg_type	- Target message type (TFW_HTTP_MSG_REQ or TFW_HTTP_MSG_RESP).
+ */
+TfwHdrMods*
+tfw_vhost_get_hdr_mods(TfwMsg *msg, int msg_type)
+{
+	TfwHttpReq *req = (TfwHttpReq *)msg;
+	TfwLocation *loc = req->location;
+
+	/* TODO #862: req->location must be the full set of options. */
+	if (!loc || !loc->mod_hdrs[msg_type].sz)
+		loc = req->vhost->loc_dflt;
+	if (!loc || !loc->mod_hdrs[msg_type].sz)
+		loc = (tfw_vhost_get_default())->loc_dflt;
+	BUG_ON(!loc);
+
+	return &loc->mod_hdrs[msg_type];
+}
+
 /*
  * Configuration processing.
  */
@@ -493,11 +516,13 @@ tfw_cfgop_out_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_usr_hdrs_add(TfwLocation *loc, const char *name, const char *value)
+tfw_cfgop_mod_hdr_add(TfwHdrMods *h_mods, const char *name, const char *value,
+		      bool append)
 {
 	TfwStr *hdr;
+	TfwHdrModsDesc *desc = &h_mods->hdrs[h_mods->sz];
 
-	if (loc->usr_hdrs_sz == TFW_USRHDRS_ARRAY_SZ) {
+	if (h_mods->sz == TFW_USRHDRS_ARRAY_SZ) {
 		TFW_WARN_NL("Too lot of custom headers, %d supported.\n",
 			    TFW_USRHDRS_ARRAY_SZ);
 		return -EINVAL;
@@ -506,15 +531,26 @@ tfw_usr_hdrs_add(TfwLocation *loc, const char *name, const char *value)
 		TFW_WARN_NL("Can't create header.\n");
 		return -ENOMEM;
 	}
-	loc->usr_hdrs[loc->usr_hdrs_sz++] = hdr;
+	desc->hdr = hdr;
+	desc->append = append;
+	desc->hid = tfw_http_msg_is_spec_hdr(hdr);
+	++h_mods->sz;
 
 	return 0;
 }
 
+/**
+ * Parse '[req|resp]_hdr_[add|set] directives. @append is set to true for 'add'.
+ * @msg_type is responsible for req or resp.
+ * Both directives has two parameters: header name and it's value. Value
+ * is optional for 'set' directive.
+ */
 static int
-tfw_cfgop_hdr_add(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_mod_hdr(TfwCfgSpec *cs, TfwCfgEntry *ce, int msg_type, bool append)
 {
 	TfwLocation *loc = tfwcfg_this_location;
+	const char *name;
+	const char *value = NULL;
 
 	BUG_ON(!tfwcfg_this_location);
 
@@ -523,26 +559,81 @@ tfw_cfgop_hdr_add(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			   cs->name);
 		return -EINVAL;
 	}
-	if (ce->val_n != 2) {
-		TFW_ERR_NL("%s: Invalid number of arguments.\n", cs->name);
+	switch (ce->val_n)
+	{
+	case 2:
+		break;
+	case 1:
+		if (!append)
+			break;
+		/* Fall through */
+	default:
+		TFW_ERR_NL("%s: Invalid number of values.\n", cs->name);
 		return -EINVAL;
 	}
 
-	return tfw_usr_hdrs_add(loc, ce->vals[0], ce->vals[1]);
+	name = ce->vals[0];
+	if (ce->val_n == 2)
+		value = ce->vals[1];
+
+	return tfw_cfgop_mod_hdr_add(&loc->mod_hdrs[msg_type], name, value,
+				     append);
 }
 
 static int
-tfw_cfgop_in_hdr_add(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_in_req_hdr_add(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return tfw_cfgop_hdr_add(cs, ce);
+	return tfw_cfgop_mod_hdr(cs, ce, TFW_HTTP_MSG_REQ, true);
 }
 
 static int
-tfw_cfgop_out_hdr_add(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_in_req_hdr_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_cfgop_mod_hdr(cs, ce, TFW_HTTP_MSG_REQ, false);
+}
+
+static int
+tfw_cfgop_out_req_hdr_add(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	if (!tfwcfg_this_location)
 		tfwcfg_this_location = &tfw_location_dflt;
-	return tfw_cfgop_hdr_add(cs, ce);
+	return tfw_cfgop_in_req_hdr_add(cs, ce);
+}
+
+static int
+tfw_cfgop_out_req_hdr_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	if (!tfwcfg_this_location)
+		tfwcfg_this_location = &tfw_location_dflt;
+	return tfw_cfgop_in_req_hdr_set(cs, ce);
+}
+
+static int
+tfw_cfgop_in_resp_hdr_add(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_cfgop_mod_hdr(cs, ce, TFW_HTTP_MSG_RESP, true);
+}
+
+static int
+tfw_cfgop_in_resp_hdr_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_cfgop_mod_hdr(cs, ce, TFW_HTTP_MSG_RESP, false);
+}
+
+static int
+tfw_cfgop_out_resp_hdr_add(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	if (!tfwcfg_this_location)
+		tfwcfg_this_location = &tfw_location_dflt;
+	return tfw_cfgop_in_resp_hdr_add(cs, ce);
+}
+
+static int
+tfw_cfgop_out_resp_hdr_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	if (!tfwcfg_this_location)
+		tfwcfg_this_location = &tfw_location_dflt;
+	return tfw_cfgop_in_resp_hdr_set(cs, ce);
 }
 
 /*
@@ -733,7 +824,7 @@ tfw_location_new(tfw_match_t op, const char *arg, size_t len)
 	char *argmem, *data;
 	size_t size = sizeof(TfwCaPolicy *) * TFW_CAPOLICY_ARRAY_SZ
 		    + sizeof(TfwNipDef *) * TFW_NIPDEF_ARRAY_SZ
-		    + sizeof(TfwStr *) * TFW_USRHDRS_ARRAY_SZ;
+		    + sizeof(TfwHdrModsDesc) * TFW_USRHDRS_ARRAY_SZ * 2;
 
 	if (tfw_location_sz == TFW_LOCATION_ARRAY_SZ)
 		return NULL;
@@ -753,8 +844,10 @@ tfw_location_new(tfw_match_t op, const char *arg, size_t len)
 	loc->capo_sz = 0;
 	loc->nipdef = (TfwNipDef **)(loc->capo + TFW_CAPOLICY_ARRAY_SZ);
 	loc->nipdef_sz = 0;
-	loc->usr_hdrs = (TfwStr **)(loc->nipdef + TFW_NIPDEF_ARRAY_SZ);
-	loc->usr_hdrs_sz = 0;
+	loc->mod_hdrs[TFW_HTTP_MSG_REQ].hdrs =
+			(TfwHdrModsDesc *)(loc->nipdef + TFW_NIPDEF_ARRAY_SZ);
+	loc->mod_hdrs[TFW_HTTP_MSG_RESP].hdrs =
+			loc->mod_hdrs[TFW_HTTP_MSG_REQ].hdrs + TFW_USRHDRS_ARRAY_SZ;
 	memcpy((void *)loc->arg, (void *)arg, len + 1);
 
 	return loc;
@@ -844,7 +937,7 @@ tfw_cfgop_cleanup_locache(TfwCfgSpec *cs)
 			if (loc->nipdef[k])
 				kfree(loc->nipdef[k]);
 		}
-		/* Free both loc->capo and loc->nipdef. */
+		/* Free loc->capo, loc->nipdef and loc->mod_hdrs. */
 		if (loc->capo) {
 			kfree(loc->capo);
 			loc->capo = NULL;
@@ -1072,9 +1165,33 @@ static TfwCfgSpec tfw_vhost_location_specs[] = {
 		.allow_repeat = true,
 	},
 	{
-		.name = "hdr_add",
+		.name = "req_hdr_add",
 		.deflt = NULL,
-		.handler = tfw_cfgop_in_hdr_add,
+		.handler = tfw_cfgop_in_req_hdr_add,
+		.cleanup = tfw_cfgop_cleanup_locache,
+		.allow_none = true,
+		.allow_repeat = true,
+	},
+	{
+		.name = "req_hdr_set",
+		.deflt = NULL,
+		.handler = tfw_cfgop_in_req_hdr_set,
+		.cleanup = tfw_cfgop_cleanup_locache,
+		.allow_none = true,
+		.allow_repeat = true,
+	},
+	{
+		.name = "resp_hdr_add",
+		.deflt = NULL,
+		.handler = tfw_cfgop_in_resp_hdr_add,
+		.cleanup = tfw_cfgop_cleanup_locache,
+		.allow_none = true,
+		.allow_repeat = true,
+	},
+	{
+		.name = "resp_hdr_set",
+		.deflt = NULL,
+		.handler = tfw_cfgop_in_resp_hdr_set,
 		.cleanup = tfw_cfgop_cleanup_locache,
 		.allow_none = true,
 		.allow_repeat = true,
@@ -1132,9 +1249,33 @@ static TfwCfgSpec tfw_vhost_specs[] = {
 		.allow_repeat = true,
 	},
 	{
-		.name = "hdr_add",
+		.name = "req_hdr_add",
 		.deflt = NULL,
-		.handler = tfw_cfgop_out_hdr_add,
+		.handler = tfw_cfgop_out_req_hdr_add,
+		.cleanup = tfw_cfgop_cleanup_locache,
+		.allow_none = true,
+		.allow_repeat = true,
+	},
+	{
+		.name = "req_hdr_set",
+		.deflt = NULL,
+		.handler = tfw_cfgop_out_req_hdr_set,
+		.cleanup = tfw_cfgop_cleanup_locache,
+		.allow_none = true,
+		.allow_repeat = true,
+	},
+	{
+		.name = "resp_hdr_add",
+		.deflt = NULL,
+		.handler = tfw_cfgop_out_resp_hdr_add,
+		.cleanup = tfw_cfgop_cleanup_locache,
+		.allow_none = true,
+		.allow_repeat = true,
+	},
+	{
+		.name = "resp_hdr_set",
+		.deflt = NULL,
+		.handler = tfw_cfgop_out_resp_hdr_set,
 		.cleanup = tfw_cfgop_cleanup_locache,
 		.allow_none = true,
 		.allow_repeat = true,

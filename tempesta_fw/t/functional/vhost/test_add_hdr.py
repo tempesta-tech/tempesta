@@ -8,23 +8,24 @@ __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
-class TestAddHeader(functional.FunctionalTest):
+class TestReqAddHeader(functional.FunctionalTest):
 
     location = '/'
+    directive = 'req_hdr_add'
 
     def config_append_directive(self, hdrs, location=None):
         if location is not None:
             self.config = self.config + ('location prefix "%s" {\n' % location)
         for (name, val) in hdrs:
-            self.config = self.config + ('hdr_add %s "%s";\n' % (name, val))
+            self.config = self.config + ('%s %s "%s";\n' % (self.directive, name, val))
         if location is not None:
             self.config = self.config + '}\n'
 
     def make_chain(self, hdrs):
         self.msg_chain = chains.proxy()
         for (name, val) in hdrs:
-            self.msg_chain.response.headers[name] = val
-        self.msg_chain.response.update()
+            self.msg_chain.fwd_request.headers[name] = val
+        self.msg_chain.fwd_request.update()
 
     def add_hdrs(self, hdrs, location=None):
         self.config = ''
@@ -66,5 +67,93 @@ class TestAddHeader(functional.FunctionalTest):
         self.config_append_directive(o_hdrs, self.location)
         self.make_chain(o_hdrs)
         self.generic_test_routine(self.config, [self.msg_chain])
+
+
+class TestRespAddHeader(TestReqAddHeader):
+
+    directive = 'resp_hdr_add'
+
+    def make_chain(self, hdrs):
+        self.msg_chain = chains.proxy()
+        for (name, val) in hdrs:
+            self.msg_chain.response.headers[name] = val
+        self.msg_chain.response.update()
+
+
+class TestReqSetHeader(TestReqAddHeader):
+
+    directive = 'req_hdr_set'
+
+    def make_chain(self, hdrs):
+        orig_hdrs = [('X-My-Hdr', 'original text'),
+                     ('X-My-Hdr-2', 'other original text')]
+        self.msg_chain = chains.proxy()
+        for (name, val) in orig_hdrs:
+            self.msg_chain.request.headers[name] = val
+            self.msg_chain.fwd_request.headers[name] = val
+        for (name, val) in hdrs:
+            self.msg_chain.fwd_request.headers[name] = val
+        self.msg_chain.request.update()
+        self.msg_chain.fwd_request.update()
+
+
+class TestRespSetHeader(TestReqSetHeader):
+
+    directive = 'resp_hdr_set'
+
+    def make_chain(self, hdrs):
+        orig_hdrs = [('X-My-Hdr', 'original text'),
+                     ('X-My-Hdr-2', 'other original text')]
+        self.msg_chain = chains.proxy()
+        for (name, val) in orig_hdrs:
+            self.msg_chain.server_response.headers[name] = val
+            self.msg_chain.response.headers[name] = val
+        for (name, val) in hdrs:
+                self.msg_chain.response.headers[name] = val
+        self.msg_chain.server_response.update()
+        self.msg_chain.response.update()
+
+
+class TestReqDelHeader(TestReqAddHeader):
+
+    directive = 'req_hdr_set'
+
+    def config_append_directive(self, hdrs, location=None):
+        if location is not None:
+            self.config = self.config + ('location prefix "%s" {\n' % location)
+        for (name, val) in hdrs:
+            self.config = self.config + ('%s %s;\n' % (self.directive, name))
+        if location is not None:
+            self.config = self.config + '}\n'
+
+    def make_chain(self, hdrs):
+        orig_hdrs = [('X-My-Hdr', 'original text'),
+                     ('X-My-Hdr-2', 'other original text')]
+        self.msg_chain = chains.proxy()
+        for (name, val) in orig_hdrs:
+            self.msg_chain.request.headers[name] = val
+            self.msg_chain.fwd_request.headers[name] = val
+        for (name, val) in hdrs:
+            del self.msg_chain.fwd_request.headers[name]
+        self.msg_chain.request.update()
+        self.msg_chain.fwd_request.update()
+
+
+class TestRespDelHeader(TestReqDelHeader):
+
+    directive = 'resp_hdr_set'
+
+    def make_chain(self, hdrs):
+        orig_hdrs = [('X-My-Hdr', 'original text'),
+                     ('X-My-Hdr-2', 'other original text')]
+        self.msg_chain = chains.proxy()
+        for (name, val) in orig_hdrs:
+            self.msg_chain.server_response.headers[name] = val
+            self.msg_chain.response.headers[name] = val
+        for (name, val) in hdrs:
+            del self.msg_chain.response.headers[name]
+        self.msg_chain.server_response.update()
+        self.msg_chain.response.update()
+
 
 # TODO: add tests for different vhosts, when vhosts will be implemented.
