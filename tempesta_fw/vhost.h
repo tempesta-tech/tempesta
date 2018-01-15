@@ -22,8 +22,9 @@
 
 #include "str.h"
 #include "addr.h"
+#include "msg.h"
 
-/*
+/**
  * Non-Idempotent Request definition.
  *
  * @method	- One bit for each value defined in tfw_http_meth_t.
@@ -44,7 +45,7 @@ typedef enum {
 	TFW_D_CACHE_FULFILL,
 } tfw_capo_t;
 
-/*
+/**
  * Cache Policy.
  *
  * @cmd	- One of defined in tfw_capo_t.
@@ -59,7 +60,30 @@ typedef struct {
 	const char	*arg;
 } TfwCaPolicy;
 
-/*
+/**
+ * Headers modification description.
+ *
+ * @hdr		- Header string, see @tfw_http_msg_hdr_xfrm_str();
+ * @add_hdrs	- Headers to modify;
+ */
+typedef struct {
+	TfwStr		*hdr;
+	unsigned int	hid;
+	bool		append;
+} TfwHdrModsDesc;
+
+/**
+ * Headers modification before forwarding HTTP message.
+ *
+ * @sz		- Number of headers to modify;
+ * @hdrs	- Headers to modify;
+ */
+typedef struct {
+	size_t		sz;
+	TfwHdrModsDesc	*hdrs;
+} TfwHdrMods;
+
+/**
  * Group of policies by specific location.
  *
  * @op		- Match operator: eq, prefix, suffix, etc.
@@ -69,6 +93,7 @@ typedef struct {
  * @nipdef_sz	- Size of @nipdef array.
  * @capo	- Array of pointers to Cache Policy definitions.
  * @nipdef	- Array of pointers to Non-Idempotent Request definitions.
+ * @mod_hdrs	- Modification of request/response headers before forwarding.
  */
 typedef struct {
 	short		op;
@@ -76,10 +101,9 @@ typedef struct {
 	size_t		len;
 	size_t		capo_sz;
 	size_t		nipdef_sz;
-	size_t		usr_hdrs_sz;
 	TfwCaPolicy	**capo;
 	TfwNipDef	**nipdef;
-	TfwStr		**usr_hdrs;
+	TfwHdrMods	mod_hdrs[TFW_HTTP_MSG_NUM];
 } TfwLocation;
 
 /* Cache purge configuration modes. */
@@ -87,7 +111,7 @@ enum {
 	TFW_D_CACHE_PURGE_INVALIDATE,
 };
 
-/*
+/**
  * Virtual host defined by directives and policies.
  * @loc		- Array of groups of policies by specific location.
  * @loc_dflt	- Group of default policies.
@@ -114,5 +138,6 @@ TfwCaPolicy *tfw_capolicy_match(TfwLocation *loc, TfwStr *arg);
 TfwLocation *tfw_location_match(TfwVhost *vhost, TfwStr *arg);
 TfwVhost *tfw_vhost_match(TfwStr *arg);
 TfwVhost *tfw_vhost_get_default(void);
+TfwHdrMods *tfw_vhost_get_hdr_mods(TfwMsg *msg, int msg_type);
 
 #endif /* __TFW_VHOST_H__ */

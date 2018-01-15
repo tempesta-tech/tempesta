@@ -1726,27 +1726,23 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 }
 
 static int
-tfw_http_add_loc_hdrs(TfwHttpMsg *hm, TfwHttpReq *req)
+tfw_http_set_loc_hdrs(TfwHttpMsg *hm, TfwHttpReq *req)
 {
-	int i, r;
-	TfwLocation *loc = req->location;
+	int r;
+	size_t i;
+	int msg_type = (hm == (TfwHttpMsg *)req) ? TFW_HTTP_MSG_REQ
+						 : TFW_HTTP_MSG_RESP;
+	TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods((TfwMsg *)req, msg_type);
 
-	/* TODO #862: req->location must be the full set of options. */
-	if (!loc || !loc->usr_hdrs_sz)
-		loc = req->vhost->loc_dflt;
-	if (!loc || !loc->usr_hdrs_sz)
-		loc = (tfw_vhost_get_default())->loc_dflt;
-	BUG_ON(!loc);
-
-	for (i = 0; i < loc->usr_hdrs_sz; ++i) {
-		r = tfw_http_msg_hdr_add(hm, loc->usr_hdrs[i]);
+	for (i = 0; i < h_mods->sz; ++i) {
+		TfwHdrModsDesc *d = &h_mods->hdrs[i];
+		r = tfw_http_msg_hdr_xfrm_str(hm, d->hdr, d->hid, d->append);
 		if (r) {
-			TFW_ERR("can't add location header to msg %p\n", hm);
+			TFW_ERR("can't update location-specific header in msg %p\n",
+				hm);
 			return r;
 		}
-		else {
-			TFW_DBG2("added location header to msg %p\n", hm);
-		}
+		TFW_DBG2("updated location-specific header in msg %p\n", hm);
 	}
 
 	return 0;
@@ -1770,6 +1766,10 @@ tfw_http_adjust_req(TfwHttpReq *req)
 		return r;
 
 	r = tfw_http_msg_del_hbh_hdrs(hm);
+	if (r < 0)
+		return r;
+
+	r = tfw_http_set_loc_hdrs(hm, req);
 	if (r < 0)
 		return r;
 
@@ -1805,7 +1805,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 	if (r < 0)
 		return r;
 
-	r = tfw_http_add_loc_hdrs(hm, req);
+	r = tfw_http_set_loc_hdrs(hm, req);
 	if (r < 0)
 		return r;
 
