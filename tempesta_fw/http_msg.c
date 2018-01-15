@@ -140,7 +140,6 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 		[TFW_HTTP_HDR_X_FORWARDED_FOR] = SLEN("X-Forwarded-For:"),
 		[TFW_HTTP_HDR_KEEP_ALIVE] = SLEN("Keep-Alive:"),
 		[TFW_HTTP_HDR_TRANSFER_ENCODING] = SLEN("Transfer-Encoding:"),
-		[TFW_HTTP_HDR_USER_AGENT] = SLEN("User-Agent:"),
 		[TFW_HTTP_HDR_SERVER]	= SLEN("Server:"),
 		[TFW_HTTP_HDR_COOKIE]	= SLEN("Cookie:"),
 		[TFW_HTTP_HDR_ETAG]	= SLEN("ETag:"),
