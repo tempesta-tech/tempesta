@@ -616,6 +616,8 @@ tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid,
 		if (hid == ht->size)
 			if (tfw_http_msg_grow_hdr_tbl(hm))
 				return -ENOMEM;
+		if (hid == ht->off)
+			++ht->off;
 		orig_hdr = &ht->tbl[hid];
 	}
 
