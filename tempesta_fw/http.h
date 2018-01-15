@@ -171,7 +171,8 @@ typedef struct {
  * for unconditionally hop-by-hop header or in __parse_connection() otherwize.
  * If the header is end-to-end it must be listed in __hbh_parser_add_data().
  *
- * Note: don't forget to update __http_msg_hdr_val() upon adding a new header.
+ * Note: don't forget to update __http_msg_hdr_val() and
+ * tfw_http_msg_is_spec_hdr() upon adding a new header.
  *
  * Cookie: singular according to RFC 6265 5.4.
  *

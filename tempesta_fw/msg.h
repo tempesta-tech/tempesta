@@ -50,4 +50,11 @@ typedef struct {
 	size_t			len;
 } TfwMsg;
 
+enum {
+	TFW_HTTP_MSG_REQ,
+	TFW_HTTP_MSG_RESP,
+
+	TFW_HTTP_MSG_NUM
+};
+
 #endif /* __TFW_MSG_H__ */

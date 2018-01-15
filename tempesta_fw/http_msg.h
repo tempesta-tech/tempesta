@@ -30,6 +30,7 @@
 #define SLEN(s)			(sizeof(s) - 1)
 
 TfwStr *tfw_http_msg_make_hdr(TfwPool *pool, const char *name, const char *val);
+unsigned int tfw_http_msg_is_spec_hdr(const TfwStr *hdr);
 
 const TfwStr *__tfw_http_msg_find_hdr(const TfwStr *hdr, const TfwStr array[],
 				      size_t size);
@@ -73,6 +74,8 @@ int __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str, void *data,
 
 unsigned int tfw_http_msg_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr);
 int tfw_http_msg_hdr_add(TfwHttpMsg *hm, const TfwStr *hdr);
+int tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr,
+			      unsigned int hid, bool append);
 int tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 			  char *val, size_t v_len, unsigned int hid, bool append);
 
