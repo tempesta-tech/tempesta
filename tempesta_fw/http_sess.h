@@ -92,7 +92,7 @@ enum {
 };
 
 int tfw_http_sess_obtain(TfwHttpReq *req);
-int tfw_http_sess_resp_process(TfwHttpResp *resp, TfwHttpReq *req);
+int tfw_http_sess_resp_process(TfwHttpResp *resp);
 void tfw_http_sess_put(TfwHttpSess *sess);
 
 /* Sticky sessions scheduling routines. */

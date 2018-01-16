@@ -307,6 +307,8 @@ typedef struct {
 #define TFW_HTTP_HAS_HDR_LMODIFIED	0x040000 /* Has Last-Modified: header */
 /* It is stale, but pass with a warning */
 #define TFW_HTTP_RESP_STALE		0x080000
+/* Response is fully processed and ready to be forwarded to the client. */
+#define TFW_HTTP_RESP_READY		0x100000
 
 /*
  * The structure to hold data for an HTTP error response.
@@ -320,6 +322,10 @@ typedef struct {
 	unsigned short	status;
 }TfwHttpError;
 
+typedef struct tfw_http_msg_t	TfwHttpMsg;
+typedef struct tfw_http_req_t	TfwHttpReq;
+typedef struct tfw_http_resp_t	TfwHttpResp;
+
 /**
  * Common HTTP message members.
  *
@@ -328,6 +334,9 @@ typedef struct {
  * @h_tbl		- table of message's HTTP headers in internal form;
  * @parser		- parser state data while a message is parsed;
  * @httperr		- HTTP error data used to form an error response;
+ * @pair		- the message paired with this one;
+ * @req			- the request paired with this response;
+ * @resp		- the response paired with this request;
  * @cache_ctl		- cache control data for a message;
  * @version		- HTTP version (1.0 and 1.1 are only supported);
  * @flags		- message related flags. The flags are tested
@@ -357,6 +366,11 @@ typedef struct {
 	TfwPool		*pool;						\
 	TfwHttpHdrTbl	*h_tbl;						\
 	union {								\
+		TfwHttpMsg	*pair;					\
+		TfwHttpReq	*req;					\
+		TfwHttpResp	*resp;					\
+	};								\
+	union {								\
 		TfwHttpParser	parser;					\
 		TfwHttpError	httperr;				\
 	};								\
@@ -374,9 +388,9 @@ typedef struct {
  * A helper structure for operations common for requests and responses.
  * Just don't want to use explicit inheritance.
  */
-typedef struct {
+struct tfw_http_msg_t {
 	TFW_HTTP_MSG_COMMON;
-} TfwHttpMsg;
+};
 
 #define __MSG_STR_START(m)		(&(m)->crlf)
 
@@ -415,12 +429,11 @@ typedef struct {
  * @tm_header	- time HTTP header started coming;
  * @tm_bchunk	- time previous chunk of HTTP body had come at;
  * @hash	- hash value for caching calculated for the request;
- * @resp	- the response paired with this request;
  * @retries	- the number of re-send attempts;
  *
  * TfwStr members must be the first for efficient scanning.
  */
-typedef struct {
+struct tfw_http_req_t {
 	TFW_HTTP_MSG_COMMON;
 	TfwVhost		*vhost;
 	TfwLocation		*location;
@@ -440,9 +453,8 @@ typedef struct {
 	unsigned long		tm_header;
 	unsigned long		tm_bchunk;
 	unsigned long		hash;
-	TfwHttpMsg		*resp;
 	unsigned short		retries;
-} TfwHttpReq;
+};
 
 #define TFW_HTTP_REQ_STR_START(r)	__MSG_STR_START(r)
 #define TFW_HTTP_REQ_STR_END(r)		((&(r)->uri_path) + 1)
@@ -453,14 +465,14 @@ typedef struct {
  *
  * @jrxtstamp	- time the message has been received, in jiffies;
  */
-typedef struct {
+struct tfw_http_resp_t {
 	TFW_HTTP_MSG_COMMON;
 	TfwStr			s_line;
 	unsigned short		status;
 	time_t			date;
 	time_t			last_modified;
 	unsigned long		jrxtstamp;
-} TfwHttpResp;
+};
 
 #define TFW_HTTP_RESP_STR_START(r)	__MSG_STR_START(r)
 #define TFW_HTTP_RESP_STR_END(r)	((&(r)->body) + 1)
@@ -535,7 +547,7 @@ tfw_current_timestamp(void)
 	return ts.tv_sec;
 }
 
-typedef void (*tfw_http_cache_cb_t)(TfwHttpReq *, TfwHttpResp *);
+typedef void (*tfw_http_cache_cb_t)(TfwHttpMsg *);
 
 /* Internal (parser) HTTP functions. */
 void tfw_http_init_parser_req(TfwHttpReq *req);
@@ -548,7 +560,7 @@ bool tfw_http_parse_terminate(TfwHttpMsg *hm);
 int tfw_http_msg_process(void *conn, const TfwFsmData *data);
 unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
 void tfw_http_req_destruct(void *msg);
-void tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp);
+void tfw_http_resp_fwd(TfwHttpResp *resp);
 void tfw_http_resp_build_error(TfwHttpReq *req);
 int tfw_cfgop_parse_http_status(const char *status, int *out);
 void tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len);
@@ -556,7 +568,7 @@ void tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len);
 /*
  * Functions to send an HTTP error response to a client.
  */
-int tfw_http_prep_redirect(TfwHttpMsg *resp, TfwHttpReq *req,
+int tfw_http_prep_redirect(TfwHttpMsg *resp,
 			   unsigned short status, TfwStr *cookie, TfwStr *body);
 int tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, void *msg_it,
 		      size_t hdrs_size);

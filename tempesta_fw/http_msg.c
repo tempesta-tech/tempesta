@@ -635,6 +635,11 @@ tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid,
 	TfwStr *orig_hdr = NULL;
 	const TfwStr *s_val = TFW_STR_CHUNK(hdr, 2);
 
+	if (unlikely(!ht)) {
+		TFW_WARN("Try to adjust lightweight response.");
+		return -EINVAL;
+	}
+
 	/* Firstly, get original message header to transform. */
 	if (hid < TFW_HTTP_HDR_RAW) {
 		orig_hdr = &ht->tbl[hid];
@@ -917,12 +922,33 @@ next_frag:
 }
 
 void
+tfw_http_msg_pair(TfwHttpResp *resp, TfwHttpReq *req)
+{
+	if (unlikely(resp->pair || req->pair))
+		TFW_WARN("Response-Request pairing is broken!\n");
+
+	resp->req = req;
+	req->resp = resp;
+}
+
+static void
+tfw_http_msg_unpair(TfwHttpMsg *msg)
+{
+	if (!msg->pair)
+		return;
+
+	msg->pair->pair = NULL;
+	msg->pair = NULL;
+}
+
+void
 tfw_http_msg_free(TfwHttpMsg *m)
 {
 	TFW_DBG3("Free msg=%p\n", m);
 	if (!m)
 		return;
 
+	tfw_http_msg_unpair(m);
 	ss_skb_queue_purge(&m->msg.skb_list);
 
 	if (m->destructor)
@@ -977,3 +1003,4 @@ __tfw_http_msg_alloc(int type, bool full)
 
 	return hm;
 }
+
