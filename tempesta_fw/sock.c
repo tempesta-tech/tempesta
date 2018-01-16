@@ -86,7 +86,7 @@ static const char *ss_statename[] = {
 #endif
 
 #ifdef CONFIG_DEBUG_SPINLOCK
-#define TFW_VALIDATE_SK_LOCK_OWNER(sk)					\
+#define TFW_VALIDATE_SK_LOCK_OWNER(sk)	\
 	BUG_ON(sk->sk_lock.slock.rlock.owner_cpu != raw_smp_processor_id())
 #else
 #define TFW_VALIDATE_SK_LOCK_OWNER(sk)

@@ -841,7 +841,7 @@ EXPORT_SYMBOL(tfw_http_msg_free);
  * That allows for a shorter (limited) initialization.
  */
 TfwHttpMsg *
-tfw_http_msg_alloc_err_resp(void)//!!!
+tfw_http_msg_alloc_err_resp(void)
 {
 	TfwHttpMsg *hm;
 

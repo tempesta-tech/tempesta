@@ -1231,7 +1231,7 @@ tfw_apm_hm_srv_status_alive(int status, void *apmref)
 	TfwApmHM *hm = READ_ONCE(((TfwApmData *)apmref)->hmctl.hm);
 
 	BUG_ON(!hm);
-	if (hm->codes && test_bit(HTTP_CODE_BIT_NUM(status), hm->codes))//!!! maybe range validation is necessary
+	if (hm->codes && test_bit(HTTP_CODE_BIT_NUM(status), hm->codes))
 		return true;
 
 	return false;
