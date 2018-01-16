@@ -268,7 +268,7 @@ tfw_srv_conn_need_resched(TfwSrvConn *srv_conn)
 static inline void
 tfw_srv_mark_alive(TfwServer *srv)
 {
-	if (test_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->hm_flags))//!!!
+	if (test_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->hm_flags))
 		clear_bit(TFW_SRV_B_SUSPEND, (unsigned long *)&srv->hm_flags);
 }
 
