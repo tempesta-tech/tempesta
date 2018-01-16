@@ -4259,6 +4259,22 @@ tfw_http_init_parser_resp(TfwHttpResp *resp)
 			 (0x1 << TFW_HTTP_HDR_SERVER);
 }
 
+/**
+ * Adjust parser for response according to it's request.
+ */
+static void
+tfw_http_adj_parser_resp(TfwHttpResp *resp)
+{
+	TfwHttpReq *req = resp->req;
+
+	/* Can happen only in unittests. */
+	if (unlikely(!req))
+		return;
+
+	if (req->method == TFW_HTTP_METH_HEAD)
+		resp->flags |= TFW_HTTP_VOID_BODY;
+}
+
 int
 tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 {
@@ -4280,6 +4296,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	__FSM_STATE(Resp_0) {
 		if (unlikely(IS_CRLF(c)))
 			__FSM_MOVE_nofixup(Resp_0);
+		tfw_http_adj_parser_resp(resp);
 		/* fall through */
 	}
 

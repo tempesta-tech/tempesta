@@ -110,6 +110,11 @@ do_split_and_parse(unsigned char *str, int type)
 			test_resp_free(resp);
 
 		resp = test_resp_alloc(len);
+		/*
+		 * TODO: Parsing of some responses requires knowledge about
+		 * corresponding request. See tfw_http_adj_parser_resp().
+		 * TFW_HTTP_RESP_BIND_REQ(resp, req);
+		 */
 	}
 	else {
 		BUG();
