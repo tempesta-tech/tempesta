@@ -10,6 +10,8 @@ __license__ = 'GPL2'
 
 class FunctionalTest(unittest.TestCase):
 
+    tfw_clnt_msg_otherr = False
+
     def create_client(self):
         """ Override to set desired list of benchmarks and their options. """
         self.client = deproxy.Client()
@@ -24,7 +26,7 @@ class FunctionalTest(unittest.TestCase):
         """ Add all servers to default server group with default scheduler. """
         sg = tempesta.ServerGroup('default')
         for s in self.servers:
-            sg.add_server(s.ip, s.port, s.conns_n)
+            sg.add_server(s.ip, s.port, s.hm, s.conns_n)
         self.tempesta.config.add_sg(sg)
 
     def create_servers(self):
@@ -74,8 +76,9 @@ class FunctionalTest(unittest.TestCase):
                          msg=(msg % 'requests'))
         self.assertEqual(self.tempesta.stats.srv_msg_parsing_errors, 0,
                          msg=(msg % 'responses'))
-        self.assertEqual(self.tempesta.stats.cl_msg_other_errors, 0,
-                         msg=(msg % 'requests'))
+        if not self.tfw_clnt_msg_otherr:
+            self.assertEqual(self.tempesta.stats.cl_msg_other_errors, 0,
+                             msg=(msg % 'requests'))
         self.assertEqual(self.tempesta.stats.srv_msg_other_errors, 0,
                          msg=(msg % 'responses'))
 
