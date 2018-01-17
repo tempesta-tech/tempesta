@@ -145,12 +145,13 @@ class ServerGroup(object):
         # Server group options, inserted after servers.
         self.options = ''
 
-    def add_server(self, ip, port, conns=server_conns_default()):
+    def add_server(self, ip, port, hm, conns=server_conns_default()):
         error.assertTrue(conns <= server_conns_max())
         error.assertTrue(len(self.servers) < servers_in_group())
         conns_str = (' conns_n=%d' % conns if (conns != server_conns_default())
                      else '')
-        self.servers.append('server %s:%d%s;' % (ip, port, conns_str))
+        hmonitor_str = (' health=%s' % hm if hm else '')
+        self.servers.append('server %s:%d%s%s;' % (ip, port, conns_str, hmonitor_str))
 
     def get_config(self):
         sg = ''

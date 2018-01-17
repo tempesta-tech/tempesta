@@ -283,6 +283,11 @@ class Tempesta(object):
                                       err_msg=(self.err_msg % 'get stats of'))
         self.stats.parse(stdout)
 
+    def get_server_stats(self, path):
+        cmd = 'cat /proc/tempesta/servers/%s' % (path)
+        return self.node.run_cmd(cmd,
+                                 err_msg=(self.err_msg % 'get stats of'))
+
 
 class TempestaFI(Tempesta):
     """ Tempesta class for testing with fault injection."""
