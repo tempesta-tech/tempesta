@@ -145,7 +145,7 @@ class ServerGroup(object):
         # Server group options, inserted after servers.
         self.options = ''
 
-    def add_server(self, ip, port, hm, conns=server_conns_default()):
+    def add_server(self, ip, port, conns=server_conns_default(), hm=None):
         error.assertTrue(conns <= server_conns_max())
         error.assertTrue(len(self.servers) < servers_in_group())
         conns_str = (' conns_n=%d' % conns if (conns != server_conns_default())

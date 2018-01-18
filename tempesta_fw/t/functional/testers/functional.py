@@ -26,7 +26,7 @@ class FunctionalTest(unittest.TestCase):
         """ Add all servers to default server group with default scheduler. """
         sg = tempesta.ServerGroup('default')
         for s in self.servers:
-            sg.add_server(s.ip, s.port, s.hm, s.conns_n)
+            sg.add_server(s.ip, s.port, s.conns_n, s.hm)
         self.tempesta.config.add_sg(sg)
 
     def create_servers(self):
