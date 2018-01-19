@@ -2110,7 +2110,7 @@ tfw_sock_srv_start(void)
 
 	if ((r = tfw_cfg_srv_set_health()))
 		return r;
-	
+
 	tfw_sg_apply_reconfig(&orphan_sgs);
 	list_for_each_entry_safe(sg, tmp_sg, &orphan_sgs, list)
 		if ((r = tfw_sock_srv_grace_shutdown_sg(sg)))
