@@ -39,7 +39,7 @@ def make_502_expected():
         date=deproxy.HttpMessage.date_time_string()
     )
     return response
-    
+
 
 class TestHealthMonitor(functional.FunctionalTest):
 
