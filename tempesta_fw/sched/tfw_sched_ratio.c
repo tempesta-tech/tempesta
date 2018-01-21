@@ -1,7 +1,7 @@
 /**
  *              Tempesta FW
  *
- * Copyright (C) 2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2017-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -991,7 +991,7 @@ tfw_sched_ratio_cleanup(TfwRatio *ratio)
 static void
 tfw_sched_ratio_del_grp(TfwSrvGroup *sg)
 {
-	TfwRatio *ratio = rcu_dereference(sg->sched_data);
+	TfwRatio *ratio = rcu_dereference_check(sg->sched_data, 1);
 	TfwServer *srv;
 
 	rcu_assign_pointer(sg->sched_data, NULL);
@@ -1238,7 +1238,7 @@ tfw_sched_ratio_add_grp(TfwSrvGroup *sg, void *arg)
 static int
 tfw_sched_ratio_add_srv(TfwServer *srv)
 {
-	TfwRatioSrvDesc *srvdesc = rcu_dereference(srv->sched_data);
+	TfwRatioSrvDesc *srvdesc = rcu_dereference_check(srv->sched_data, 1);
 	int r;
 
 	if (unlikely(srvdesc))
@@ -1264,7 +1264,7 @@ tfw_sched_ratio_put_srv_data(struct rcu_head *rcu)
 static void
 tfw_sched_ratio_del_srv(TfwServer *srv)
 {
-	TfwRatioSrvDesc *srvdesc = rcu_dereference(srv->sched_data);
+	TfwRatioSrvDesc *srvdesc = rcu_dereference_check(srv->sched_data, 1);
 
 	rcu_assign_pointer(srv->sched_data, NULL);
 	if (srvdesc)
