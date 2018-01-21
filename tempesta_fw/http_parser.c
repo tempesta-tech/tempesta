@@ -282,6 +282,43 @@ do {									\
 	}								\
 } while (0)
 
+/* This macros is like __FSM_MOVE_nofixup_n(), but for interior states. */
+#define __FSM_I_MOVE_nofixup_n(to, n)					\
+do {									\
+	parser->_i_st = to;						\
+	p += n;								\
+	if (unlikely(__data_off(p) >= len)) {				\
+		__fsm_const_state = to; /* start from state @to next time */\
+		__FSM_EXIT(TFW_POSTPONE);				\
+	}								\
+	goto to;							\
+} while (0)
+
+#define __FSM_I_MOVE_offset_fn(to, n)					\
+do {									\
+	parser->_i_st = to;						\
+	p += n;								\
+	if (unlikely(__data_off(p) >= len)) {				\
+		__fsm_const_state = to; /* start from state @to next time */\
+		/* Close currently parsed field chunk on offset ptr @c_data. */\
+		__msg_hdr_chunk_fixup(c_data, data + len - c_data);	\
+		__FSM_EXIT(TFW_POSTPONE);				\
+	}								\
+	goto to;							\
+} while (0)
+
+#define __FSM_I_MATCH_MOVE_offset(alphabet, to)				\
+do {									\
+	__fsm_n = __data_remain(p);					\
+	__fsm_sz = tfw_match_##alphabet(p, __fsm_n);			\
+	if (unlikely(__fsm_sz == __fsm_n)) {				\
+		__msg_hdr_chunk_fixup(c_data, data + len - c_data);	\
+		parser->_i_st = to;					\
+		__fsm_const_state = to;					\
+		__FSM_EXIT(TFW_POSTPONE);				\
+	}								\
+} while (0)
+
 /* Conditional transition from state @st to @st_next. */
 #define __FSM_TX_COND(st, condition, st_next, field) 			\
 __FSM_STATE(st) {							\
@@ -297,6 +334,13 @@ __FSM_STATE(st) {							\
 	TFW_PARSER_BLOCK(st);						\
 }
 
+#define __FSM_I_TX_COND_nofixup(st, condition, st_next)			\
+__FSM_STATE(st) {							\
+	if (likely(condition))						\
+		__FSM_I_MOVE_nofixup_n(st_next, 1);			\
+	return CSTR_NEQ;						\
+}
+
 /* Automaton transition from state @st to @st_next on character @ch. */
 #define __FSM_TX(st, ch, st_next)					\
 	__FSM_TX_COND(st, c == (ch), st_next, NULL)
@@ -304,12 +348,16 @@ __FSM_STATE(st) {							\
 	__FSM_TX_COND(st, c == (ch), st_next, field)
 #define __FSM_TX_nofixup(st, ch, st_next)				\
 	__FSM_TX_COND_nofixup(st, c == (ch), st_next)
+#define __FSM_I_TX_nofixup(st, ch, st_next)				\
+	__FSM_I_TX_COND_nofixup(st, c == (ch), st_next)
 
-/* Case-insensitive version of __FSM_TX(). */
+/* Case-insensitive version of __FSM_TX() or __FSM_I_TX(). */
 #define __FSM_TX_LC(st, ch, st_next) 					\
 	__FSM_TX_COND(st, TFW_LC(c) == (ch), st_next)
 #define __FSM_TX_LC_nofixup(st, ch, st_next) 				\
 	__FSM_TX_COND_nofixup(st, TFW_LC(c) == (ch), st_next)
+#define __FSM_I_TX_LC_nofixup(st, ch, st_next)				\
+	__FSM_I_TX_COND_nofixup(st, TFW_LC(c) == (ch), st_next)
 
 /* Automaton transition with alphabet checking and fallback state. */
 #define __FSM_TX_AF(st, ch, st_next, st_fallback)			\
@@ -1579,6 +1627,14 @@ enum {
 	Req_HdrPragm,
 	Req_HdrPragma,
 	Req_HdrPragmaV,
+	Req_HdrR,
+	Req_HdrRe,
+	Req_HdrRef,
+	Req_HdrRefe,
+	Req_HdrRefer,
+	Req_HdrRefere,
+	Req_HdrReferer,
+	Req_HdrRefererV,
 	Req_HdrT,
 	Req_HdrTr,
 	Req_HdrTra,
@@ -2247,6 +2303,113 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 	}
 
 	} /* FSM END */
+done:
+	return r;
+}
+
+/**
+ * Function for parsing 'Referer' header value. This is a partial
+ * copy from parsing procedure for request start line URI with some 
+ * simplifications according to RFC 7231 chapter 5.5.2.
+ */
+static int
+__req_parse_referer(TfwHttpMsg *hm, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	unsigned char *c_data = data;
+	__FSM_DECLARE_VARS(hm);
+
+	__FSM_START(parser->_i_st) {
+
+	__FSM_STATE(Req_Uri) {
+		if (likely(c == '/')) {
+			__FSM_I_MOVE_offset_fn(Req_UriAbsPath, 1);
+		}
+		if (likely(__data_available(p, 7)
+			   && C4_INT_LCM(p, 'h', 't', 't', 'p')
+			   && *(p + 4) == ':'
+			   && *(p + 5) == '/'
+			   && *(p + 6) == '/'))
+		{
+			__FSM_I_MOVE_nofixup_n(Req_UriAuthorityStart, 7);
+		}
+		if (likely(TFW_LC(c) == 'h')) {
+			__FSM_I_MOVE_nofixup_n(Req_UriSchH, 1);
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_I_TX_LC_nofixup(Req_UriSchH, 't', Req_UriSchHt);
+	__FSM_I_TX_LC_nofixup(Req_UriSchHt, 't', Req_UriSchHtt);
+	__FSM_I_TX_LC_nofixup(Req_UriSchHtt, 'p', Req_UriSchHttp);
+	__FSM_I_TX_nofixup(Req_UriSchHttp, ':', Req_UriSchHttpColon);
+	__FSM_I_TX_nofixup(Req_UriSchHttpColon, '/', Req_UriSchHttpColonSlash);
+	__FSM_I_TX_nofixup(Req_UriSchHttpColonSlash, '/',
+			   Req_UriAuthorityStart);
+
+	__FSM_STATE(Req_UriAuthorityStart) {
+		/* Skip URI scheme 'http://' token. */
+		c_data = p;
+		if (likely(isalnum(c) || c == '.' || c == '-')) {
+			__FSM_I_MOVE_offset_fn(Req_UriAuthority, 1);
+		} else if (likely(c == '/')) {
+			__FSM_I_MOVE_offset_fn(Req_UriAbsPath, 1);
+		} else if (c == '[') {
+			__FSM_I_MOVE_offset_fn(Req_UriAuthorityIPv6, 1);
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_UriAuthority) {
+		if (likely(isalnum(c) || c == '.' || c == '-')) {
+			__FSM_I_MOVE_offset_fn(Req_UriAuthority, 1);
+		}
+		__FSM_JMP(Req_UriAuthorityEnd);
+	}
+
+	__FSM_STATE(Req_UriAuthorityIPv6) {
+		if (likely(isxdigit(c) || c == ':')) {
+			__FSM_I_MOVE_offset_fn(Req_UriAuthorityIPv6, 1);
+		} else if(c == ']') {
+			__FSM_I_MOVE_offset_fn(Req_UriAuthorityEnd, 1);
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_UriAuthorityEnd) {
+		if (likely(c == '/')) {
+			__FSM_I_MOVE_offset_fn(Req_UriAbsPath, 1);
+		} else if (c == ':') {
+			__FSM_I_MOVE_offset_fn(Req_UriPort, 1);
+		}
+		__FSM_JMP(I_EoL);
+	}
+
+	__FSM_STATE(Req_UriPort) {
+		if (likely(isdigit(c))) {
+			__FSM_I_MOVE_offset_fn(Req_UriPort, 1);
+		} else if (likely(c == '/')) {
+			__FSM_I_MOVE_offset_fn(Req_UriAbsPath, 1);
+		}
+		__FSM_JMP(I_EoL);
+	}
+
+	__FSM_STATE(Req_UriAbsPath) {
+		__FSM_I_MATCH_MOVE_offset(uri, Req_UriAbsPath);
+		p += __fsm_sz;
+		__FSM_JMP(I_EoL);
+	}
+
+	__FSM_STATE(I_EoL) {
+		__msg_hdr_chunk_fixup(c_data, p - c_data);
+		if (IS_CRLFWS(c)) {
+			return __data_off(p);
+		}
+		return CSTR_NEQ;
+
+	}
+	} /* FSM END */
+
 done:
 	return r;
 }
@@ -3278,6 +3441,17 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				__FSM_MOVE_n(RGen_OWS, 7);
 			}
 			__FSM_MOVE(Req_HdrP);
+		case 'r':
+			if (likely(__data_available(p, 8)
+				   && C4_INT_LCM(p + 1, 'e', 'f', 'e', 'r')
+				   && TFW_LC(*(p + 5)) == 'e'
+				   && TFW_LC(*(p + 6)) == 'r'
+				   && *(p + 1) == ':'))
+			{
+				parser->_i_st = Req_HdrRefererV;
+				__FSM_MOVE_n(RGen_OWS, 8);
+			}
+			__FSM_MOVE(Req_HdrR);
 		case 't':
 			if (likely(__data_available(p, 18)
 				   && C8_INT_LCM(p, 't', 'r', 'a', 'n',
@@ -3388,6 +3562,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	/* 'Pragma:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrPragmaV, Req_I_Pragma,
 				  req, __req_parse_pragma);
+
+	/* 'Referer:*OWS' is read, process field-value. */
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrRefererV, Req_Uri, msg,
+				     __req_parse_referer, TFW_HTTP_HDR_REFERER, 0);
 
 	/* 'Transfer-Encoding:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrTransfer_EncodingV, I_TransEncod,
@@ -3733,6 +3911,15 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Req_HdrPrag, 'm', Req_HdrPragm, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrPragm, 'a', Req_HdrPragma, RGen_HdrOther);
 	__FSM_TX_AF_OWS(Req_HdrPragma, ':', Req_HdrPragmaV, RGen_HdrOther);
+
+	/* Referer header processing. */
+	__FSM_TX_AF(Req_HdrR, 'e', Req_HdrRe, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrRe, 'f', Req_HdrRef, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrRef, 'e', Req_HdrRefe, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrRefe, 'r', Req_HdrRefer, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrRefer, 'e', Req_HdrRefere, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrRefere, 'r', Req_HdrReferer, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Req_HdrReferer, ':', Req_HdrRefererV, RGen_HdrOther);
 
 	/* Transfer-Encoding header processing. */
 	__FSM_TX_AF(Req_HdrT, 'r', Req_HdrTr, RGen_HdrOther);
