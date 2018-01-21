@@ -1498,6 +1498,63 @@ TEST(http_parser, if_none_match)
 #undef ETAG_3
 }
 
+TEST(http_parser, referer)
+{
+	TfwHttpHdrTbl *ht;
+	TfwStr h_referer;
+
+	/*
+	 * URI scheme 'http://' is skipped during
+	 * parsing of 'Referer' header.
+	 */
+	const char *s_referer1 =
+		"tempesta-tech.com:8080"
+		"/cgi-bin/show.pl?entry=tempesta";
+	const char *s_referer2 =
+		"/cgi-bin/show.pl?entry=tempesta";
+	const char *s_referer3 =
+		"[2001:0db8:11a3:09d7:1f34:8a2e:07a0:765d]"
+		":8080/cgi-bin/show.pl?entry=tempesta";
+
+	FOR_REQ("GET /foo HTTP/1.1\r\n"
+		"Referer: http://tempesta-tech.com:8080"
+		"/cgi-bin/show.pl?entry=tempesta\r\n"
+		"\r\n")
+	{
+		ht = req->h_tbl;
+		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_REFERER],
+					 TFW_HTTP_HDR_REFERER,
+					 &h_referer);
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_referer, s_referer1,
+					    strlen(s_referer1), 0));
+	}
+
+	FOR_REQ("GET /foo HTTP/1.1\r\n"
+		"Referer: /cgi-bin/show.pl?entry=tempesta\r\n"
+		"\r\n")
+	{
+		ht = req->h_tbl;
+		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_REFERER],
+					 TFW_HTTP_HDR_REFERER,
+					 &h_referer);
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_referer, s_referer2,
+					    strlen(s_referer2), 0));
+	}
+
+	FOR_REQ("GET /foo HTTP/1.1\r\n"
+		"Referer: http://[2001:0db8:11a3:09d7:1f34:8a2e:07a0:765d]:8080"
+		"/cgi-bin/show.pl?entry=tempesta\r\n"
+		"\r\n")
+	{
+		ht = req->h_tbl;
+		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_REFERER],
+					 TFW_HTTP_HDR_REFERER,
+					 &h_referer);
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_referer, s_referer3,
+					    strlen(s_referer3), 0));
+	}
+}
+
 TEST(http_parser, req_hop_by_hop)
 {
 	TfwHttpHdrTbl *ht;
@@ -1897,6 +1954,7 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, cookie);
 	TEST_RUN(http_parser, etag);
 	TEST_RUN(http_parser, if_none_match);
+	TEST_RUN(http_parser, referer);
 	TEST_RUN(http_parser, req_hop_by_hop);
 	TEST_RUN(http_parser, resp_hop_by_hop);
 	TEST_RUN(http_parser, fuzzer);
