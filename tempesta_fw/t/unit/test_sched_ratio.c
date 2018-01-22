@@ -40,20 +40,13 @@
 
 #include "../../sched/tfw_sched_ratio.c"
 
+#include "helpers.h"
 #include "sched_helper.h"
 #include "server.h"
 #include "test.h"
 
-static TfwMsg *
-sched_ratio_get_arg(size_t conn_type __attribute__((unused)))
-{
-	return NULL;
-}
-
-static void
-sched_ratio_free_arg(TfwMsg *msg __attribute__((unused)))
-{
-}
+static TfwMsg *sched_ratio_get_arg(size_t conn_type);
+static void sched_ratio_free_arg(TfwMsg *msg);
 
 static struct TestSchedHelper sched_helper_ratio = {
 	.sched = "ratio",
@@ -62,6 +55,26 @@ static struct TestSchedHelper sched_helper_ratio = {
 	.get_sched_arg = &sched_ratio_get_arg,
 	.free_sched_arg = &sched_ratio_free_arg,
 };
+
+static TfwMsg *
+sched_ratio_get_arg(size_t conn_type)
+{
+	static char *str = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
+	TfwHttpReq *req = NULL;
+
+	BUG_ON(conn_type >= sched_helper_ratio.conn_types);
+
+	req = test_req_alloc(strlen(str));
+	tfw_http_parse_req(req, str, strlen(str));
+
+	return (TfwMsg *)req;
+}
+
+static void
+sched_ratio_free_arg(TfwMsg *msg)
+{
+	test_req_free((TfwHttpReq *)msg);
+}
 
 TEST(tfw_sched_ratio, sched_sg_one_srv_max_conn)
 {
@@ -89,8 +102,10 @@ TEST(tfw_sched_ratio, sched_sg_one_srv_max_conn)
 		for (j = 0; j < srv->conn_n; ++j) {
 			srv_conn = sg->sched->sched_sg_conn(msg, sg);
 			EXPECT_NOT_NULL(srv_conn);
-			if (!srv_conn)
+			if (!srv_conn) {
+				sched_helper_ratio.free_sched_arg(msg);
 				goto err;
+			}
 
 			conn_acc_check ^= (long long)srv_conn;
 			tfw_srv_conn_put(srv_conn);
@@ -141,8 +156,10 @@ TEST(tfw_sched_ratio, sched_sg_max_srv_max_conn)
 		for (j = 0; j < TFW_TEST_SG_MAX_CONN_N; ++j) {
 			srv_conn = sg->sched->sched_sg_conn(msg, sg);
 			EXPECT_NOT_NULL(srv_conn);
-			if (!srv_conn)
+			if (!srv_conn) {
+				sched_helper_ratio.free_sched_arg(msg);
 				goto err;
+			}
 
 			conn_acc_check ^= (long long)srv_conn;
 			tfw_srv_conn_put(srv_conn);
@@ -182,8 +199,10 @@ TEST(tfw_sched_ratio, sched_srv_one_srv_max_conn)
 		for (j = 0; j < srv->conn_n; ++j) {
 			srv_conn = sg->sched->sched_srv_conn(msg, srv);
 			EXPECT_NOT_NULL(srv_conn);
-			if (!srv_conn)
+			if (!srv_conn) {
+				sched_helper_ratio.free_sched_arg(msg);
 				goto err;
+			}
 			EXPECT_EQ((TfwServer *)srv_conn->peer, srv);
 
 			conn_acc_check ^= (long long)srv_conn;
@@ -244,8 +263,10 @@ TEST(tfw_sched_ratio, sched_srv_max_srv_max_conn)
 			for (j = 0; j < srv->conn_n; ++j) {
 				srv_conn = sg->sched->sched_srv_conn(msg, srv);
 				EXPECT_NOT_NULL(srv_conn);
-				if (!srv_conn)
+				if (!srv_conn) {
+					sched_helper_ratio.free_sched_arg(msg);
 					goto err;
+				}
 				EXPECT_EQ((TfwServer *)srv_conn->peer, srv);
 
 				conn_acc_check ^= (long long)srv_conn;
