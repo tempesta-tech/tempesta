@@ -294,25 +294,30 @@ do {									\
 	goto to;							\
 } while (0)
 
-#define __FSM_I_MOVE_offset_fn(to, n)					\
+/*
+ * Macros below is like __FSM_MOVE_nf(), but for interior
+ * states and for creation chunk's @ptr not from beginning @data
+ * but from some offset.
+ */
+#define __FSM_I_MOVE_offset_fn(to, n, off_ptr)				\
 do {									\
 	parser->_i_st = to;						\
 	p += n;								\
 	if (unlikely(__data_off(p) >= len)) {				\
 		__fsm_const_state = to; /* start from state @to next time */\
-		/* Close currently parsed field chunk on offset ptr @c_data. */\
-		__msg_hdr_chunk_fixup(c_data, data + len - c_data);	\
+		/* Close currently parsed field chunk on @off_ptr. */	\
+		__msg_hdr_chunk_fixup(off_ptr, data + len - off_ptr);	\
 		__FSM_EXIT(TFW_POSTPONE);				\
 	}								\
 	goto to;							\
 } while (0)
 
-#define __FSM_I_MATCH_MOVE_offset(alphabet, to)				\
+#define __FSM_I_MATCH_MOVE_offset(alphabet, to, off_ptr)		\
 do {									\
 	__fsm_n = __data_remain(p);					\
 	__fsm_sz = tfw_match_##alphabet(p, __fsm_n);			\
 	if (unlikely(__fsm_sz == __fsm_n)) {				\
-		__msg_hdr_chunk_fixup(c_data, data + len - c_data);	\
+		__msg_hdr_chunk_fixup(off_ptr, data + len - off_ptr);	\
 		parser->_i_st = to;					\
 		__fsm_const_state = to;					\
 		__FSM_EXIT(TFW_POSTPONE);				\
@@ -2316,14 +2321,14 @@ static int
 __req_parse_referer(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
 	int r = CSTR_NEQ;
-	unsigned char *c_data = data;
+	unsigned char *off_ptr = data;
 	__FSM_DECLARE_VARS(hm);
 
 	__FSM_START(parser->_i_st) {
 
 	__FSM_STATE(Req_Uri) {
 		if (likely(c == '/')) {
-			__FSM_I_MOVE_offset_fn(Req_UriAbsPath, 1);
+			__FSM_I_MOVE_offset_fn(Req_UriAbsPath, 1, off_ptr);
 		}
 		if (likely(__data_available(p, 7)
 			   && C4_INT_LCM(p, 'h', 't', 't', 'p')
@@ -2349,59 +2354,62 @@ __req_parse_referer(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 	__FSM_STATE(Req_UriAuthorityStart) {
 		/* Skip URI scheme 'http://' token. */
-		c_data = p;
+		off_ptr = p;
 		if (likely(isalnum(c) || c == '.' || c == '-')) {
-			__FSM_I_MOVE_offset_fn(Req_UriAuthority, 1);
+			__FSM_I_MOVE_offset_fn(Req_UriAuthority, 1, off_ptr);
 		} else if (likely(c == '/')) {
-			__FSM_I_MOVE_offset_fn(Req_UriAbsPath, 1);
+			__FSM_I_MOVE_offset_fn(Req_UriAbsPath, 1, off_ptr);
 		} else if (c == '[') {
-			__FSM_I_MOVE_offset_fn(Req_UriAuthorityIPv6, 1);
+			__FSM_I_MOVE_offset_fn(Req_UriAuthorityIPv6, 1,
+					       off_ptr);
 		}
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(Req_UriAuthority) {
 		if (likely(isalnum(c) || c == '.' || c == '-')) {
-			__FSM_I_MOVE_offset_fn(Req_UriAuthority, 1);
+			__FSM_I_MOVE_offset_fn(Req_UriAuthority, 1, off_ptr);
 		}
 		__FSM_JMP(Req_UriAuthorityEnd);
 	}
 
 	__FSM_STATE(Req_UriAuthorityIPv6) {
 		if (likely(isxdigit(c) || c == ':')) {
-			__FSM_I_MOVE_offset_fn(Req_UriAuthorityIPv6, 1);
+			__FSM_I_MOVE_offset_fn(Req_UriAuthorityIPv6, 1,
+					       off_ptr);
 		} else if(c == ']') {
-			__FSM_I_MOVE_offset_fn(Req_UriAuthorityEnd, 1);
+			__FSM_I_MOVE_offset_fn(Req_UriAuthorityEnd, 1,
+					       off_ptr);
 		}
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(Req_UriAuthorityEnd) {
 		if (likely(c == '/')) {
-			__FSM_I_MOVE_offset_fn(Req_UriAbsPath, 1);
+			__FSM_I_MOVE_offset_fn(Req_UriAbsPath, 1, off_ptr);
 		} else if (c == ':') {
-			__FSM_I_MOVE_offset_fn(Req_UriPort, 1);
+			__FSM_I_MOVE_offset_fn(Req_UriPort, 1, off_ptr);
 		}
 		__FSM_JMP(I_EoL);
 	}
 
 	__FSM_STATE(Req_UriPort) {
 		if (likely(isdigit(c))) {
-			__FSM_I_MOVE_offset_fn(Req_UriPort, 1);
+			__FSM_I_MOVE_offset_fn(Req_UriPort, 1, off_ptr);
 		} else if (likely(c == '/')) {
-			__FSM_I_MOVE_offset_fn(Req_UriAbsPath, 1);
+			__FSM_I_MOVE_offset_fn(Req_UriAbsPath, 1, off_ptr);
 		}
 		__FSM_JMP(I_EoL);
 	}
 
 	__FSM_STATE(Req_UriAbsPath) {
-		__FSM_I_MATCH_MOVE_offset(uri, Req_UriAbsPath);
+		__FSM_I_MATCH_MOVE_offset(uri, Req_UriAbsPath, off_ptr);
 		p += __fsm_sz;
 		__FSM_JMP(I_EoL);
 	}
 
 	__FSM_STATE(I_EoL) {
-		__msg_hdr_chunk_fixup(c_data, p - c_data);
+		__msg_hdr_chunk_fixup(off_ptr, p - off_ptr);
 		if (IS_CRLFWS(c)) {
 			return __data_off(p);
 		}
