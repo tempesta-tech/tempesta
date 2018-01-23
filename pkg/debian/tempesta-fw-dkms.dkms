@@ -24,7 +24,7 @@ BUILT_MODULE_LOCATION[3]="tempesta_fw/sched"
 DEST_MODULE_LOCATION[3]="/kernel/net"
 STRIP[3]=no
 
-BUILT_MODULE_NAME[4]="tfw_sched_rr"
+BUILT_MODULE_NAME[4]="tfw_sched_ratio"
 BUILT_MODULE_LOCATION[4]="tempesta_fw/sched"
 DEST_MODULE_LOCATION[4]="/kernel/net"
 STRIP[4]=no
@@ -42,5 +42,5 @@ STRIP[6]=no
 
 REMAKE_INITRD=no
 AUTOINSTALL=yes
-BUILD_EXCLUSIVE_KERNEL="^4.8.0-tempesta*"
+BUILD_EXCLUSIVE_KERNEL="^4.9.0-tempesta*"
 BUILD_EXCLUSIVE_ARCH="x86_64"
