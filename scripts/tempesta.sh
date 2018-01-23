@@ -73,7 +73,7 @@ load_one_module()
 	fi
 
 	MOD_PATH_NAME="$1"; shift;
-	MOD_NAME="$(basename ${MOD_PATH_NAME%%.*})";
+	MOD_NAME="$(basename ${MOD_PATH_NAME%%.ko})";
 
 	lsmod | grep -w "${MOD_NAME}" 2>&1 > /dev/null || {
 		echo "Loading module ${MOD_NAME} $@";
