@@ -24,12 +24,12 @@ declare -r DOWNLOAD_DIR=tfw_downloads
 
 declare -r GITHUB_USER="tempesta-tech"
 declare -r GITHUB_REPO_TEMPESTA="tempesta"
-declare -r GITHUB_REPO_LINUX="linux-4.8.15-tfw"
+declare -r GITHUB_REPO_LINUX="linux-4.9.35-tfw"
 
 #TODO: currently Debian 9 is the only supported distribution, other
 # distributions may have other names.
 # Don't install packages with debug symbols.
-declare -a FILES_LINUX=("linux-image-[\d.]+-tempesta(.bpo)?-amd64-unsigned"
+declare -a FILES_LINUX=("linux-image-[\d.]+-tempesta(.bpo)?-amd64_"
                         "linux-kbuild-[\d.]+_[\d.]+"
                         "linux-headers-[\d.]+-tempesta"
                         "linux-compiler")
@@ -133,7 +133,7 @@ tfw_install_deps()
 	echo "to enable 'kdump-tools' by default in the next dialogue."
 	read -n 1 -s -p "Press any key to continue..."
 	# curl and wget are required for the script itself.
-	apt-get ${APT_OPTS} install -y dkms libboost-dev libboost-program-options-dev kdump-tools curl wget
+	apt-get ${APT_OPTS} install -y dkms libboost-dev libboost-program-options-dev kdump-tools curl wget ethtool bc
 
 	echo ""
 }
