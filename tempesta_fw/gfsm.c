@@ -3,31 +3,63 @@
  *
  * Generic Finite State Machine (GFSM).
  *
- * GFSM is a generic extension of hooks for traditional HTTP processing phases.
- * The basic concept is that there are number of processing FSMs (HTTP, ICAP,
- * some other module processing etc.) which can switch between each other
- * saving current FSM state in states stack.
+ * GFSM is a replacement for traditional HTTP processing phases to build
+ * arbitrary graph of traffic processing modules. The basic concept is that
+ * there are number of processing FSMs, such as:
+ *   - HTTP, TLS, ICAP, and other network protocol processing state machines;
+ *   - security rules enforcement modules and traffic classifiers;
+ *   - loadable TL programs;
+ *   - user-space modules such as FastCGI or REST.
+ *
+ * The FSMs are essencially subroutines in sense of Knuth definition of
+ * coroutines, i.e. a subroutine can:
+ *   1. call other subroutine;
+ *   2. yield control to other subroutine.
+ *
+ * GFSM is a voluntary (co-operative) data-driven scheduler for the subroutines.
+ * While traditional preemptive (time-sharing) scheduler cares about fair time
+ * slice sharing among processes, GFSM cares about processing hot (in sence of
+ * CPU caches) data by all subroutines, who, and only who, are interested in
+ * the data. I.e. when a packet arrives, all subroutines interested in
+ * processing the packet are called immediatelly while the packet data resides
+ * in CPU caches. A data is considered interesting for a subroutine if the
+ * subroutine subscribed (hooked) for the states of other FSM or a network
+ * packet reception (tfw_gfsm_dispatch()).
+ *
+ * Subroutines are registered in GFSM in order according to their priorities.
+ * A subroutine registering as well as unregistering can be done in run-time
+ * (crucial for TL loadable programs). A subroutine (especially security
+ * enforcement) can stop current data processing by blocking return code, so
+ * all subroutines with lower priorities won't see the data.
  *
  * GFSM example for simplified HTTP/ICAP interoperability:
- * 1. softirq1 receives HTTP request and calls GFSM to switch to ICAP FSM;
- * 2. ICAP FSM sends the request to ICAP server in the same softirq1.
- *    softirq1 forgets about the request and goes to process other packets.
- *    However, current HTTP FSM state must be saved, so it can continue to
- *    process the request later;
- * 3. softirq2 receives response from ICAP server and calls GFSM to switch
- *    to HTTP FSM back;
- * 4. HTTP continues to process the request: cache it, forward it to
- *    an upstream etc.
+ *   1. softirq1 receives HTTP request and calls GFSM to switch to ICAP FSM;
+ *   2. ICAP FSM sends the request to ICAP server in the same softirq1.
+ *      softirq1 forgets about the request and goes to process other packets.
+ *      However, current HTTP FSM state must be saved, so it can continue to
+ *      process the request later;
+ *   3. softirq2 receives response from ICAP server and calls GFSM to switch
+ *      to HTTP FSM back;
+ *   4. HTTP continues to process the request: cache it, forward it to
+ *      an upstream etc.
+ *
+ * Tempesta FW receives control on TCP socket callbacks, so GFSM subroutines
+ * works at L4-L7. While L3 data is available for the subroutines, pure L3
+ * logic should be processed using nftables and/or eBPF to get more
+ * performance.
  *
  * GFSM stores FSM states in an array w/ free organisation to allow graph-like
  * FSM switching scheme. The entry point to GFSM is defined by current
  * connection type and the next GFSM trasitions by registered FSM hooks for
  * currently running FSM.
  *
- * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * A subroutine yields it's control flow by moving to the next state using
+ * tfw_gfsm_move().
  *
- * This program is free software; you can redistribute it and/or modify it
+ * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ *
+ * This program is free software; you cana redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License,
  * or (at your option) any later version.
@@ -125,9 +157,20 @@ tfw_gfsm_switch(TfwGState *st, int state, int prio)
 	return fsm_next;
 }
 
+/**
+ * TODO #77 (User-kernel space transport): user-space processing is an
+ * asynchronous operation which can be called at different states of different
+ * FSMs, so GFSM must introdufe SLEAL logic:
+ *   1. an FSM (responsible for user-space message mapping) can return
+ *      TFW_STEAL;
+ *   2. getting the return code from gfsm_move() current FSM must finish
+ *      the message processing logic and return with stored current state;
+ *   3. when a user-space program finish GFSM must unwing the call stack and
+ *      call the original FSM at the same state, so it can finish the message
+ *      processing.
+ */
 static int
-__gfsm_fsm_exec(TfwGState *st, int fsm_id, struct sk_buff *skb,
-		unsigned int off)
+__gfsm_fsm_exec(TfwGState *st, int fsm_id, const TfwFsmData *data)
 {
 	int r, slot, dummy;
 
@@ -138,7 +181,7 @@ __gfsm_fsm_exec(TfwGState *st, int fsm_id, struct sk_buff *skb,
 
 	TFW_DBG3("GFSM exec fsm %d, state %#x\n", fsm_id, st->states[slot]);
 
-	r = fsm_htbl[fsm_id](st->obj, skb, off);
+	r = fsm_htbl[fsm_id](st->obj, data);
 
 	/* If current FSM finishes, remove its state. */
 	if ((st->states[slot] & TFW_GFSM_STATE_MASK) == TFW_GFSM_STATE_LAST) {
@@ -155,16 +198,16 @@ __gfsm_fsm_exec(TfwGState *st, int fsm_id, struct sk_buff *skb,
  * Dispatch connection data to proper FSM by application protocol type.
  */
 int
-tfw_gfsm_dispatch(TfwGState *st, void *obj, struct sk_buff *skb,
-		  unsigned int off)
+tfw_gfsm_dispatch(TfwGState *st, void *obj, const TfwFsmData *data)
 {
 	int fsm_id = TFW_FSM_TYPE(((SsProto *)obj)->type);
 
-	return __gfsm_fsm_exec(st, fsm_id, skb, off);
+	return __gfsm_fsm_exec(st, fsm_id, data);
 }
 
 /**
- * Move the FSM to new state @state and call all registered hooks for it.
+ * Move the FSM with descriptor @st to new the state @state and call all
+ * registered hooks for it.
  *
  * Iterates over all priorities for current state of top (current) FSM and
  * switch to the registered FSMs.
@@ -173,8 +216,7 @@ tfw_gfsm_dispatch(TfwGState *st, void *obj, struct sk_buff *skb,
  * has 32-bit states bitmap), so we use this fact to speedup the iteration.
  */
 int
-tfw_gfsm_move(TfwGState *st, unsigned short state, struct sk_buff *skb,
-	      unsigned int off)
+tfw_gfsm_move(TfwGState *st, unsigned short state, const TfwFsmData *data)
 {
 	int r = TFW_PASS, p, fsm;
 	unsigned int *hooks = fsm_hooks_bm[FSM(st)];
@@ -207,7 +249,7 @@ tfw_gfsm_move(TfwGState *st, unsigned short state, struct sk_buff *skb,
 		if (FSM_STATE(st) & TFW_GFSM_ONSTACK)
 			continue;
 
-		switch (__gfsm_fsm_exec(st, fsm, skb, off)) {
+		switch (__gfsm_fsm_exec(st, fsm, data)) {
 		case TFW_BLOCK:
 			return TFW_BLOCK;
 		case TFW_POSTPONE:
@@ -229,6 +271,9 @@ EXPORT_SYMBOL(tfw_gfsm_move);
  * @hndl_fsm_id at state @st0.
  * @return resulting priority at which the hook was registered or
  * negative value of failure.
+ *
+ * TODO #102 (TL) run-time FSM registration & unregistration, see concept.tl
+ * for the discussion.
  */
 int
 tfw_gfsm_register_hook(int fsm_id, int prio, int state,
