@@ -127,15 +127,17 @@ class Wrk(Client):
         Client.__init__(self, binary='wrk', uri=uri, ssl=ssl)
         self.threads = threads
         self.script = ''
+        self.scriptdir = ''.join([os.path.dirname(os.path.realpath(__file__)), '/../wrk/'])
 
-    def set_script(self, script):
+    def set_script(self, script, scriptdir = None):
         self.script = script
+        if scriptdir != None:
+            self.scriptdir = scriptdir
 
     def append_script_option(self):
         if not self.script:
             return
-        path = ''.join([os.path.dirname(os.path.realpath(__file__)),
-                        '/../wrk/', self.script, '.lua'])
+        path = ''.join([self.scriptdir, self.script, '.lua'])
         script_path = os.path.abspath(path)
         assert os.path.isfile(script_path), \
                'No script found: %s !' % script_path
