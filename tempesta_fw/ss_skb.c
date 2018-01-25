@@ -7,7 +7,7 @@
  * on top on native Linux socket buffers. The helpers provide common and
  * convenient wrappers for skb processing.
  *
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -401,8 +401,8 @@ __split_linear_data(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	int tail_len = (char *)skb_tail_pointer(skb) - pspt;
 	int tail_off = pspt - (char *)page_address(page);
 
-	TFW_DBG("[%d]: %s: skb [%p] pspt [%p] len [%d] tail_len [%d]\n",
-		smp_processor_id(), __func__, skb, pspt, len, tail_len);
+	TFW_DBG3("[%d]: %s: skb [%p] pspt [%p] len [%d] tail_len [%d]\n",
+		 smp_processor_id(), __func__, skb, pspt, len, tail_len);
 	BUG_ON(!skb->head_frag);
 	BUG_ON(tail_len <= 0);
 	BUG_ON(!(alloc | tail_len));
@@ -505,9 +505,9 @@ __split_pgfrag_add(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 	struct sk_buff *skb_dst, *skb_new;
 	skb_frag_t *frag_dst, *frag = &skb_shinfo(skb)->frags[i];
 
-	TFW_DBG("[%d]: %s: skb [%p] i [%d] off [%d] len [%d] fragsize [%d]\n",
-		smp_processor_id(), __func__,
-		skb, i, off, len, skb_frag_size(frag));
+	TFW_DBG3("[%d]: %s: skb [%p] i [%d] off [%d] len [%d] fragsize [%d]\n",
+		 smp_processor_id(), __func__,
+		 skb, i, off, len, skb_frag_size(frag));
 
 	/*
 	 * Make a fragment that can hold @len bytes. If @off is
@@ -589,9 +589,9 @@ __split_pgfrag_del(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 	skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
 	struct skb_shared_info *si = skb_shinfo(skb);
 
-	TFW_DBG("[%d]: %s: skb [%p] i [%d] off [%d] len [%d] fragsize [%d]\n",
-		smp_processor_id(), __func__,
-		skb, i, off, len, skb_frag_size(frag));
+	TFW_DBG3("[%d]: %s: skb [%p] i [%d] off [%d] len [%d] fragsize [%d]\n",
+		 smp_processor_id(), __func__,
+		 skb, i, off, len, skb_frag_size(frag));
 
 	if (unlikely(off + len > skb_frag_size(frag))) {
 		TFW_WARN("Attempt to delete too much\n");
@@ -697,12 +697,12 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	unsigned int d_size;
 	struct skb_shared_info *si = skb_shinfo(skb);
 
-	TFW_DBG("[%d]: %s: in: len [%d] pspt [%p], skb [%p]: head [%p]"
-		" data [%p] tail [%p] end [%p] len [%u] data_len [%u]"
-		" truesize [%u] nr_frags [%u]\n",
-		smp_processor_id(), __func__, len, pspt, skb, skb->head,
-		skb->data, skb_tail_pointer(skb), skb_end_pointer(skb),
-		skb->len, skb->data_len, skb->truesize, si->nr_frags);
+	TFW_DBG3("[%d]: %s: in: len [%d] pspt [%p], skb [%p]: head [%p]"
+		 " data [%p] tail [%p] end [%p] len [%u] data_len [%u]"
+		 " truesize [%u] nr_frags [%u]\n",
+		 smp_processor_id(), __func__, len, pspt, skb, skb->head,
+		 skb->data, skb_tail_pointer(skb), skb_end_pointer(skb),
+		 skb->len, skb->data_len, skb->truesize, si->nr_frags);
 	BUG_ON(!len);
 
 	/*
@@ -775,12 +775,12 @@ append:
 	__it_next_data(skb, i + 1, it);
 
 done:
-	TFW_DBG("[%d]: %s: out: res [%p], skb [%p]: head [%p] data [%p]"
-		" tail [%p] end [%p] len [%u] data_len [%u]"
-		" truesize [%u] nr_frags [%u]\n",
-		smp_processor_id(), __func__, it->ptr, skb, skb->head,
-		skb->data, skb_tail_pointer(skb), skb_end_pointer(skb),
-		skb->len, skb->data_len, skb->truesize, si->nr_frags);
+	TFW_DBG3("[%d]: %s: out: res [%p], skb [%p]: head [%p] data [%p]"
+		 " tail [%p] end [%p] len [%u] data_len [%u]"
+		 " truesize [%u] nr_frags [%u]\n",
+		 smp_processor_id(), __func__, it->ptr, skb, skb->head,
+		 skb->data, skb_tail_pointer(skb), skb_end_pointer(skb),
+		 skb->len, skb->data_len, skb->truesize, si->nr_frags);
 
 	if (ret < 0)
 		return ret;
