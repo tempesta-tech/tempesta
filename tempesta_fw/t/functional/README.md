@@ -83,8 +83,8 @@ That can be done using `ssh-copy-id`.
 
 ### Configuration
 
-Testing framework is configured via `tests_config.ini' file. Example
-configuration is described in `tests_config.ini.sample' file.
+Testing framework is configured via `tests_config.ini` file. Example
+configuration is described in `tests_config.ini.sample` file.
 You can also create default tests configuration by calling:
 
 ```sh
