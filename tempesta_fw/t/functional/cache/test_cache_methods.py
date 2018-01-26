@@ -3,13 +3,14 @@
 from __future__ import print_function
 from helpers import tf_cfg, chains
 from testers import functional
+from . import age
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
 
-class TestCacheMethods(functional.FunctionalTest):
+class TestCacheMethods(age.TestCacheAge):
 
     messages = 10
 
@@ -96,7 +97,7 @@ class TestCacheMethodsNC(TestCacheMethods):
     allow_method_caching = False
 
 
-class TestMultipleMethods(functional.FunctionalTest):
+class TestMultipleMethods(age.TestCacheAge):
     """TempestaFW must return cached responses to exactly matching request
     methods only. I.e. if we receive HEAD requests, we must not return response
     cached for GET method.

@@ -3,6 +3,7 @@
 from __future__ import print_function
 from helpers import tf_cfg, deproxy, chains
 from testers import functional
+from . import age
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -10,7 +11,7 @@ __license__ = 'GPL2'
 
 # TODO: add tests for 'cache_purge_acl'
 
-class TestPurge(functional.FunctionalTest):
+class TestPurge(age.TestCacheAge):
 
     config = ('cache 2;\n'
               'cache_fulfill * *;\n'
