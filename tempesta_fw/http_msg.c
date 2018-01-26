@@ -551,7 +551,7 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 		      char *val, size_t v_len, unsigned int hid, bool append)
 {
 	TfwHttpHdrTbl *ht = hm->h_tbl;
-	TfwStr *orig_hdr;
+	TfwStr *orig_hdr = NULL;
 	TfwStr new_hdr = {
 		.ptr = (TfwStr []){
 			{ .ptr = name,	.len = n_len },
@@ -579,7 +579,10 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 		if (hid == ht->size)
 			if (tfw_http_msg_grow_hdr_tbl(hm))
 				return -ENOMEM;
-		orig_hdr = &ht->tbl[hid];
+		if (hid == ht->off)
+			++ht->off;
+		else
+			orig_hdr = &ht->tbl[hid];
 	}
 
 	if (unlikely(append && hid < TFW_HTTP_HDR_NONSINGULAR)) {
@@ -587,7 +590,7 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 		return -ENOENT;
 	}
 
-	if (TFW_STR_EMPTY(orig_hdr)) {
+	if (!orig_hdr || TFW_STR_EMPTY(orig_hdr)) {
 		if (unlikely(!val))
 			return 0;
 		return __hdr_add(hm, &new_hdr, hid);

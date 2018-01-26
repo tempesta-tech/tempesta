@@ -1545,6 +1545,7 @@ tfw_cache_build_resp(TfwCacheEntry *ce)
 				  ce->status_len, &resp->s_line))
 		goto err;
 
+	resp->h_tbl->off = ce->hdr_num;
 	for (h = 0; h < ce->hdr_num; ++h) {
 		TFW_STR_INIT(resp->h_tbl->tbl + h);
 		if (tfw_cache_build_resp_hdr(db, resp, resp->h_tbl->tbl + h,
@@ -1569,6 +1570,23 @@ err:
 free:
 	tfw_http_msg_free((TfwHttpMsg *)resp);
 	return NULL;
+}
+
+static inline bool
+tfw_cache_set_hdr_age(TfwHttpMsg *hmresp, TfwCacheEntry *ce)
+{
+	size_t digs;
+	char cstr_age[TFW_ULTOA_BUF_SIZ] = {0};
+	time_t age = tfw_cache_entry_age(ce);
+
+	if (!(digs = tfw_ultoa(age, cstr_age, TFW_ULTOA_BUF_SIZ)))
+		return false;
+
+	if (tfw_http_msg_hdr_xfrm(hmresp, "Age", sizeof("Age") - 1,
+				  cstr_age, digs, TFW_HTTP_HDR_RAW, 0))
+		return false;
+
+	return true;
 }
 
 static void
@@ -1597,12 +1615,20 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	if (!tfw_handle_validation_req(req, ce))
 		goto put;
 
+	resp = tfw_cache_build_resp(ce);
 	/*
-	 * TODO: RFC7234 4 Constructing Responses from Caches:
+	 * RFC 7234 p.4 Constructing Responses from Caches:
 	 * When a stored response is used to satisfy a request without
 	 * validation, a cache MUST generate an Age header field.
 	 */
-	resp = tfw_cache_build_resp(ce);
+	if (resp && !tfw_cache_set_hdr_age((TfwHttpMsg *)resp, ce)) {
+		TFW_WARN("Unable to add Age: header, cached"
+			 " response [%p] dropped\n", resp);
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
+		tfw_http_msg_free((TfwHttpMsg *)resp);
+		resp = NULL;
+		goto out;
+	}
 	if (lifetime > ce->lifetime)
 		resp->flags |= TFW_HTTP_RESP_STALE;
 out:
