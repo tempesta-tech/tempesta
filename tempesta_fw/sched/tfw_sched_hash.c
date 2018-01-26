@@ -19,7 +19,7 @@
  * server unless it is offline.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -244,14 +244,13 @@ static void
 tfw_sched_hash_del_grp(TfwSrvGroup *sg)
 {
 	TfwServer *srv;
-	TfwHashConnList *cl = rcu_dereference(sg->sched_data);
-
-	list_for_each_entry(srv, &sg->srv_list, list)
-		rcu_assign_pointer(srv->sched_data, NULL);
+	TfwHashConnList *cl = rcu_dereference_check(sg->sched_data, 1);
 
 	rcu_assign_pointer(sg->sched_data, NULL);
-
+	list_for_each_entry(srv, &sg->srv_list, list)
+		rcu_assign_pointer(srv->sched_data, NULL);
 	synchronize_rcu();
+
 	if (cl)
 		kfree(cl);
 }
@@ -384,7 +383,7 @@ static int
 tfw_sched_hash_add_srv(TfwServer *srv)
 {
 	size_t size, seed, seed_inc = 0;
-	TfwHashConnList *cl = rcu_dereference(srv->sched_data);
+	TfwHashConnList *cl = rcu_dereference_check(srv->sched_data, 1);
 
 	if (unlikely(cl))
 		return -EEXIST;
@@ -413,7 +412,7 @@ tfw_sched_hash_put_srv_data(struct rcu_head *rcu)
 static void
 tfw_sched_hash_del_srv(TfwServer *srv)
 {
-	TfwHashConnList *cl = rcu_dereference(srv->sched_data);
+	TfwHashConnList *cl = rcu_dereference_check(srv->sched_data, 1);
 
 	rcu_assign_pointer(srv->sched_data, NULL);
 	if (cl)
