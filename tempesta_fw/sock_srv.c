@@ -1791,9 +1791,30 @@ tfw_cfgop_grace_time(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return tfw_cfgop_intval(cs, ce, &tfw_cfg_grace_time_reconfig);
 }
 
+/* Forward declaration */
+static TfwMod tfw_sock_srv_mod;
+
 static int
 tfw_sock_srv_cfgstart(void)
 {
+	TfwCfgSpec *cfg_spec;
+	TfwMod srv_mod;
+	struct list_head mod_list;
+
+	/*
+	 * Two new server group is created there. It's almost like call
+	 * 'srg_group` directive, so force to cleanup if configuration
+	 * parsing has failed and no real 'srv_group' directives hve met.
+	 */
+	srv_mod = tfw_sock_srv_mod;
+	INIT_LIST_HEAD(&srv_mod.list);
+	INIT_LIST_HEAD(&mod_list);
+	list_add(&srv_mod.list, &mod_list);
+	cfg_spec = tfw_cfg_spec_find(srv_mod.specs, "srv_group");
+	BUG_ON(!cfg_spec);
+	cfg_spec->__called_now = true;
+	cfg_spec->__called_cfg = true;
+
 	INIT_LIST_HEAD(&sg_cfg_list);
 	if (!(tfw_cfg_sg_opts = __tfw_cfgop_new_sg_cfg(TFW_CFG_SG_OPTS_NAME)))
 		return -ENOMEM;
@@ -2213,7 +2234,7 @@ static TfwCfgSpec tfw_sock_srv_specs[] = {
 	{ 0 }
 };
 
-TfwMod tfw_sock_srv_mod = {
+static TfwMod tfw_sock_srv_mod = {
 	.name		= "sock_srv",
 	.cfgstart	= tfw_sock_srv_cfgstart,
 	.cfgend		= tfw_sock_srv_cfgend,
