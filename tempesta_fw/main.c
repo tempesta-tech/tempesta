@@ -121,6 +121,7 @@ tfw_cleanup(struct list_head *mod_list)
 	ss_synchronize();
 	tfw_cfg_cleanup(mod_list);
 	tfw_sg_wait_release();
+	TFW_LOG("Configuration is cleaned.\n");
 }
 
 static inline void
@@ -237,6 +238,7 @@ stop_mods:
 	WRITE_ONCE(tfw_reconfig, false);
 	tfw_mods_stop(mod_list);
 cleanup:
+	TFW_LOG("Configuration parsing has failed. Clean up...\n");
 	tfw_cleanup(mod_list);
 	return ret;
 }
