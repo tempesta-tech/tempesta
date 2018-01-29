@@ -207,10 +207,10 @@ class HeaderCollection(object):
 class HttpMessage(object):
     __metaclass__ = abc.ABCMeta
 
-    def __init__(self, message_text=None, body_parsing=True, body_void=False):
+    def __init__(self, message_text=None, body_parsing=True, method="GET"):
         self.msg = ''
+        self.method = method
         self.body_parsing = True
-        self.body_void = body_void # For responses to HEAD requests
         self.headers = HeaderCollection()
         self.trailer = HeaderCollection()
         self.body = ''
@@ -222,7 +222,7 @@ class HttpMessage(object):
         self.body_parsing = body_parsing
         stream = StringIO(message_text)
         self.__parse(stream)
-        self.__set_str_msg()
+        self.build_message()
 
     def __parse(self, stream):
         self.parse_firstline(stream)
@@ -230,11 +230,15 @@ class HttpMessage(object):
         self.body = ''
         self.parse_body(stream)
 
-    def __set_str_msg(self):
+    def build_message(self):
         self.msg = str(self)
 
     @abc.abstractmethod
     def parse_firstline(self, stream):
+        pass
+
+    @abc.abstractmethod
+    def parse_body(self, stream):
         pass
 
     def get_firstline(self):
@@ -243,20 +247,19 @@ class HttpMessage(object):
     def parse_headers(self, stream):
         self.headers = HeaderCollection.from_stream(stream)
 
-    def parse_body(self, stream):
-        if self.body_parsing and 'Transfer-Encoding' in self.headers:
-            enc = self.headers['Transfer-Encoding']
-            option = enc.split(',')[-1] # take the last option
+    def read_encoded_body(self, stream):
+        """ RFC 7230. 3.3.3 #3 """
+        enc = self.headers['Transfer-Encoding']
+        option = enc.split(',')[-1] # take the last option
 
-            if option.strip().lower() == 'chunked':
-                self.read_chunked_body(stream)
-            else:
-                error.bug('Not implemented!')
-        elif self.body_parsing and 'Content-Length' in self.headers:
-            length = int(self.headers['Content-Length'])
-            self.read_sized_body(stream, length)
+        if option.strip().lower() == 'chunked':
+            self.read_chunked_body(stream)
         else:
-            self.body = stream.read()
+            error.bug('Not implemented!')
+
+    def read_rest_body(self, stream):
+        """ RFC 7230. 3.3.3 #7 """
+        self.body = stream.read()
 
     def read_chunked_body(self, stream):
         while True:
@@ -278,11 +281,10 @@ class HttpMessage(object):
         # Parsing trailer will eat last CRLF
         self.parse_trailer(stream)
 
-    def read_sized_body(self, stream, size):
-        if self.body_void:
-            return
-        if size == 0:
-            return
+    def read_sized_body(self, stream):
+        """ RFC 7230. 3.3.3 #5 """
+        size = int(self.headers['Content-Length'])
+
         self.body = stream.read(size)
         if len(self.body) != size:
             raise ParseError(("Wrong body size: expect %d but got %d!"
@@ -379,6 +381,19 @@ class Request(HttpMessage):
     def get_firstline(self):
         return ' '.join([self.method, self.uri, self.version])
 
+    def parse_body(self, stream):
+        """ RFC 7230 3.3.3 """
+        # 3.3.3 3
+        if 'Transfer-Encoding' in self.headers:
+            self.read_encoded_body(stream)
+            return
+        # 3.3.3 5
+        if 'Content-Length' in self.headers:
+            self.read_sized_body(stream)
+            return
+        # 3.3.3 6
+        self.body = ''
+
     def __eq__(self, other):
         return ((self.method == other.method)
                 and (self.version == other.version)
@@ -422,6 +437,31 @@ class Response(HttpMessage):
         except:
             raise ParseError('Invalid Status code!')
 
+    def parse_body(self, stream):
+        """ RFC 7230 3.3.3 """
+        # 3.3.3 1
+        if self.method == "HEAD":
+            return
+        code = int(self.status)
+        if code >= 100 and code <= 199 or \
+            code == 204 or code == 304:
+            return
+        # 3.3.3 2
+        if self.method == "CONNECT" and code >= 200 and code <= 299:
+            error.bug('Not implemented!')
+            return
+        # 3.3.3 3
+        if 'Transfer-Encoding' in self.headers:
+            self.read_encoded_body(stream)
+            return
+        # TODO: check 3.3.3 4
+        # 3.3.3 5
+        if 'Content-Length' in self.headers:
+            self.read_sized_body(stream)
+            return
+        # 3.3.3 7
+        self.read_rest_body(stream)
+
     def get_firstline(self):
         status = int(self.status)
         reason = BaseHTTPRequestHandler.responses[status][0]
@@ -438,12 +478,12 @@ class Response(HttpMessage):
 
     @staticmethod
     def create(status, headers, version='HTTP/1.1', date=False,
-               srv_version=None, body=None, body_void=False):
+               srv_version=None, body=None, method='GET'):
         reason = BaseHTTPRequestHandler.responses
         first_line = ' '.join([version, str(status), reason[status][0]])
         msg = HttpMessage.create(first_line, headers, date=date,
                                  srv_version=srv_version, body=body)
-        return Response(msg, body_void=body_void)
+        return Response(msg, method=method)
 
 #-------------------------------------------------------------------------------
 # HTTP Client/Server
@@ -481,10 +521,10 @@ class Client(asyncore.dispatcher, stateful.Stateful):
     def clear(self):
         self.request_buffer = ''
 
-    def set_request(self, request):
-        if request:
-            self.request = request
-            self.request_buffer = request.msg
+    def set_request(self, request_chain):
+        if request_chain:
+            self.request = request_chain.request
+            self.request_buffer = request_chain.msg
 
     def set_tester(self, tester):
         self.tester = tester
@@ -502,8 +542,7 @@ class Client(asyncore.dispatcher, stateful.Stateful):
         tf_cfg.dbg(4, '\tDeproxy: Client: Receive response from Tempesta.')
         tf_cfg.dbg(5, self.response_buffer)
         try:
-            response = Response(self.response_buffer,
-                                body_void=(self.request.method == 'HEAD'))
+            response = Response(self.response_buffer, method=self.request.method)
             self.response_buffer = self.response_buffer[len(response.msg):]
         except IncompliteMessage:
             return
@@ -512,6 +551,9 @@ class Client(asyncore.dispatcher, stateful.Stateful):
                            '<<<<<\n%s>>>>>'
                            % self.response_buffer))
             raise
+        if len(self.response_buffer) > 0:
+            # TODO: take care about pipelined case
+            raise ParseError('Garbage after response end:\n```\n%s\n```\n' % self.response_buffer)
         if self.tester:
             self.tester.recieved_response(response)
         self.response_buffer = ''
@@ -530,6 +572,7 @@ class Client(asyncore.dispatcher, stateful.Stateful):
     def handle_error(self):
         _, v, _ = sys.exc_info()
         error.bug('\tDeproxy: Client: %s' % v)
+
 
 
 class ServerConnection(asyncore.dispatcher_with_send):
@@ -732,7 +775,7 @@ class Deproxy(stateful.Stateful):
         for self.current_chain in self.message_chains:
             self.recieved_chain = MessageChain.empty()
             self.client.clear()
-            self.client.set_request(self.current_chain.request)
+            self.client.set_request(self.current_chain)
             self.loop()
             self.check_expectations()
 
