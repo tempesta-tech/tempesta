@@ -703,9 +703,7 @@ parse_cfg_entry(TfwCfgParserState *ps)
 	}
 
 	FSM_STATE(PS_EXIT) {
-		/* Cleanup entry on error */
-		if (ps->err)
-			entry_reset(&ps->e);
+		/* Cleanup of entry is done in tfw_cfg_parse_mods() */
 		TFW_DBG3("pfsm: exit\n");
 	}
 }
@@ -1376,7 +1374,7 @@ print_parse_error(const TfwCfgParserState *ps)
 	 * by @spec_finish_handling() function.
 	 */
 	if (!ps->e.line) {
-		TFW_ERR_NL("configuration parsing error");
+		TFW_ERR_NL("configuration parsing error\n");
 		return;
 	}
 
@@ -1426,7 +1424,7 @@ tfw_cfg_parse_mods(const char *cfg_text, struct list_head *mod_list)
 	do {
 		parse_cfg_entry(&ps);
 		if (ps.err) {
-			TFW_ERR("syntax error\n");
+			TFW_ERR_NL("syntax error\n");
 			goto err;
 		}
 		if (!ps.e.name)
@@ -1438,7 +1436,7 @@ tfw_cfg_parse_mods(const char *cfg_text, struct list_head *mod_list)
 				break;
 		}
 		if (!matching_spec) {
-			TFW_ERR("don't know how to handle: '%s'\n", ps.e.name);
+			TFW_ERR_NL("don't know how to handle: '%s'\n", ps.e.name);
 			goto err;
 		}
 
