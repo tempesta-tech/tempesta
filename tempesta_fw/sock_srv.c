@@ -1804,7 +1804,7 @@ tfw_sock_srv_cfgstart(void)
 	/*
 	 * Two new server group is created there. It's almost like call
 	 * 'srg_group` directive, so force to cleanup if configuration
-	 * parsing has failed and no real 'srv_group' directives hve met.
+	 * parsing has failed and no real 'srv_group' directives had met.
 	 */
 	srv_mod = tfw_sock_srv_mod;
 	INIT_LIST_HEAD(&srv_mod.list);
