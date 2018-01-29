@@ -6,7 +6,6 @@ __license__ = 'GPL2'
 
 import unittest
 import body_generator
-import os
 
 from testers import stress
 from helpers import tf_cfg, control, tempesta, remote, wrk
@@ -14,9 +13,7 @@ from helpers import tf_cfg, control, tempesta, remote, wrk
 class RequestTestBase(stress.StressTest):
     """ Test long request """
     config = "cache 0;\n"
-    root = "/tmp/long_body/"
     script = None
-    scriptdir = root + "scripts/"
     wrk = None
     clients = []
     generator = None
@@ -25,25 +22,14 @@ class RequestTestBase(stress.StressTest):
         """ Create wrk client with long request body """
         self.generator = wrk.ScriptGenerator()
         self.generator.set_body(body_generator.generate_body(length))
-        if not os.path.exists(self.root):
-            os.mkdir(self.root)
-        elif not os.path.isdir(self.root):
-            raise Exception("%s already exists" % self.root)
 
-        if not os.path.exists(self.scriptdir):
-            os.mkdir(self.scriptdir)
-        elif not os.path.isdir(self.scriptdir):
-            raise Exception("%s already exists" % self.scriptdir)
+        filename = self.script + ".lua"
+        self.generator.make_config(filename)
 
-        self.generator.make_config(self.scriptdir + self.script + ".lua")
         self.wrk = control.Wrk()
-        self.wrk.set_script(self.script, self.scriptdir)
-        self.clients = [self.wrk]
+        self.wrk.set_script(self.script, need_copy=False)
 
-    def tearDown(self):
-        super(RequestTestBase, self).tearDown()
-        self.generator.remove_config()
-        os.rmdir(self.scriptdir)
+        self.clients = [self.wrk]
 
 class RequestTest1k(RequestTestBase):
     """ Test long request """
