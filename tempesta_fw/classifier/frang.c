@@ -1397,7 +1397,7 @@ err_fsm:
 static void __exit
 frang_exit(void)
 {
-	TFW_DBG("Frang module exit");
+	TFW_DBG("Frang module exit\n");
 	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio1, TFW_HTTP_FSM_REQ_CHUNK);
 	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio0, TFW_HTTP_FSM_REQ_MSG);
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_REQ);

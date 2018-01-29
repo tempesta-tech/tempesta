@@ -733,7 +733,7 @@ spec_find(TfwCfgSpec specs[], const char *name)
 }
 
 static void
-spec_start_handling(TfwCfgSpec specs[])
+__spec_start_handling(TfwCfgSpec *parent, TfwCfgSpec specs[])
 {
 	TfwCfgSpec *spec;
 
@@ -747,27 +747,51 @@ spec_start_handling(TfwCfgSpec specs[])
 		if (spec->handler == &tfw_cfg_handle_children)
 			BUG_ON(!spec->cleanup);
 		spec->__called_now = false;
+		if (parent && spec->allow_reconfig && !parent->allow_reconfig) {
+			spec->allow_reconfig = false;
+			TFW_ERR_NL("Reconfiguration ability for directive '%s' "
+				   "is disabled: parent directive '%s' "
+				   "doesn't allow reconfiguration!\n",
+				   spec->name, parent->name);
+		}
 	}
+}
+
+static void
+spec_start_handling(TfwCfgSpec specs[])
+{
+	__spec_start_handling(NULL, specs);
 }
 
 static int
 spec_handle_entry(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry)
 {
 	int r;
+	bool dont_reconfig = tfw_runstate_is_reconfig() && !spec->allow_reconfig;
 
-	if (tfw_runstate_is_reconfig() && !spec->allow_reconfig) {
-		TFW_DBG2("skip spec '%s': reconfig not allowed\n", spec->name);
-		return 0;
-	}
 	if (!spec->allow_repeat && spec->__called_now) {
 		TFW_ERR_NL("duplicate entry: '%s', only one such entry is"
 			   " allowed.\n", parsed_entry->name);
 		return -EINVAL;
 	}
+	spec->__called_now = true;
 
+	/*
+	 * Continue parsing configuration section, if the whole section is
+	 * not allowed to be applied in reconfig, tfw_cfg_handle_children()
+	 * will handle it.
+	 */
+	if (dont_reconfig && (spec->handler != &tfw_cfg_handle_children)) {
+		TFW_DBG2("skip spec '%s': reconfig not allowed\n", spec->name);
+		return 0;
+	}
 	TFW_DBG2("spec handle: '%s'\n", spec->name);
 	r = spec->handler(spec, parsed_entry);
-	spec->__called_now = true;
+	if (dont_reconfig) {
+		TFW_DBG2("spec '%s' skipped: reconfig not allowed\n", spec->name);
+		return r;
+	}
+
 	spec->__called_cfg = true;
 	if (r)
 		TFW_DBG("configuration handler returned error: %d\n", r);
@@ -1104,6 +1128,7 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 	TfwCfgSpec *nested_specs = cs->dest;
 	TfwCfgSpec *matching_spec;
 	int ret;
+	bool run_hooks = !tfw_runstate_is_reconfig() || cs->allow_reconfig;
 
 	BUG_ON(!nested_specs);
 	BUG_ON(!cs->cleanup);
@@ -1114,7 +1139,7 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 	}
 
 	/* Call TfwCfgSpecChild->begin_hook before parsing anything. */
-	ret = (cse && cse->begin_hook) ? cse->begin_hook(cs, e) : 0;
+	ret = (run_hooks && cse && cse->begin_hook) ? cse->begin_hook(cs, e) : 0;
 	if (ret)
 		return ret;
 
@@ -1169,7 +1194,7 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 		return ret;
 
 	/* Children entries are parsed, call TfwCfgSpecChild->finish_hook. */
-	ret = (cse && cse->finish_hook) ? cse->finish_hook(cs) : 0;
+	ret = (run_hooks && cse && cse->finish_hook) ? cse->finish_hook(cs) : 0;
 	return ret;
 }
 EXPORT_SYMBOL(tfw_cfg_handle_children);
@@ -1305,7 +1330,6 @@ tfw_cfg_set_str(TfwCfgSpec *cs, TfwCfgEntry *e)
 
 	BUG_ON(!cs);
 	BUG_ON(!cs->dest);
-	BUG_ON(cs->__called_now);
 	BUG_ON(cs->cleanup);
 
 	r = tfw_cfg_check_single_val(e);
