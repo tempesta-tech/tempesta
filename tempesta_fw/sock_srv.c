@@ -1757,11 +1757,9 @@ tfw_cfgop_cleanup_srv_cfgs(bool reconf_failed)
 
 /**
  * Clean everything produced during parsing "server" and "srv_group" entries.
- *
- * Live reconfiguration may fail: on parsing stage
  */
 static void
-tfw_cfgop_cleanup_srv_groups(TfwCfgSpec *cs)
+__tfw_cfgop_cleanup_srv_groups(void)
 {
 	/*
 	 * Configuration failed before tfw_sock_srv_start():
@@ -1782,6 +1780,12 @@ tfw_cfgop_cleanup_srv_groups(TfwCfgSpec *cs)
 	 */
 }
 
+static void
+tfw_cfgop_cleanup_srv_groups(TfwCfgSpec *cs)
+{
+	__tfw_cfgop_cleanup_srv_groups();
+}
+
 /**
  * Parse graceful shutdown time.
  */
@@ -1791,30 +1795,9 @@ tfw_cfgop_grace_time(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return tfw_cfgop_intval(cs, ce, &tfw_cfg_grace_time_reconfig);
 }
 
-/* Forward declaration */
-static TfwMod tfw_sock_srv_mod;
-
 static int
 tfw_sock_srv_cfgstart(void)
 {
-	TfwCfgSpec *cfg_spec;
-	TfwMod srv_mod;
-	struct list_head mod_list;
-
-	/*
-	 * Two new server group is created there. It's almost like call
-	 * 'srg_group` directive, so force to cleanup if configuration
-	 * parsing has failed and no real 'srv_group' directives had met.
-	 */
-	srv_mod = tfw_sock_srv_mod;
-	INIT_LIST_HEAD(&srv_mod.list);
-	INIT_LIST_HEAD(&mod_list);
-	list_add(&srv_mod.list, &mod_list);
-	cfg_spec = tfw_cfg_spec_find(srv_mod.specs, "srv_group");
-	BUG_ON(!cfg_spec);
-	cfg_spec->__called_now = true;
-	cfg_spec->__called_cfg = true;
-
 	INIT_LIST_HEAD(&sg_cfg_list);
 	if (!(tfw_cfg_sg_opts = __tfw_cfgop_new_sg_cfg(TFW_CFG_SG_OPTS_NAME)))
 		return -ENOMEM;
@@ -1827,6 +1810,18 @@ tfw_sock_srv_cfgstart(void)
 	memset(&tfw_cfg_is_set, 0, sizeof(tfw_cfg_is_set));
 
 	return 0;
+}
+
+static void
+tfw_sock_srv_cfgclean(void)
+{
+	/*
+	 * Two new server group are created in cfgstart(). It's almost like
+	 * processing of 'srv_group` directive, so cleanup is required even
+	 * if configuration isn't parsed successfully and no real 'srv_group'
+	 * directives was met.
+	 */
+	__tfw_cfgop_cleanup_srv_groups();
 }
 
 static int
@@ -2238,6 +2233,7 @@ static TfwMod tfw_sock_srv_mod = {
 	.name		= "sock_srv",
 	.cfgstart	= tfw_sock_srv_cfgstart,
 	.cfgend		= tfw_sock_srv_cfgend,
+	.cfgclean	= tfw_sock_srv_cfgclean,
 	.start		= tfw_sock_srv_start,
 	.stop		= tfw_sock_srv_stop,
 	.specs		= tfw_sock_srv_specs,
