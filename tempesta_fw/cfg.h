@@ -202,6 +202,8 @@ typedef struct {
  * reconfiguration. At least to a degree where it's able to report that
  * the value of that directive has changed, but a live reconfiguration
  * is not supported for the directive.
+ * NOTE: Enabling @allow_reconfig for a directive requires enabling
+ * @allow_reconfig for a parent directive if applied.
  *
  * @__called_now is an internal field. It's set when @handler is invoked
  * during the parsing process that is controlled by current set (array)

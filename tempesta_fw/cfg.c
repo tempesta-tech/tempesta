@@ -746,14 +746,8 @@ __spec_start_handling(TfwCfgSpec *parent, TfwCfgSpec specs[])
 		BUG_ON(!spec->handler);
 		if (spec->handler == &tfw_cfg_handle_children)
 			BUG_ON(!spec->cleanup);
+		BUG_ON(parent && spec->allow_reconfig && !parent->allow_reconfig);
 		spec->__called_now = false;
-		if (parent && spec->allow_reconfig && !parent->allow_reconfig) {
-			spec->allow_reconfig = false;
-			TFW_ERR_NL("Reconfiguration ability for directive '%s' "
-				   "is disabled: parent directive '%s' "
-				   "doesn't allow reconfiguration!\n",
-				   spec->name, parent->name);
-		}
 	}
 }
 
@@ -1144,7 +1138,7 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 		return ret;
 
 	/* Prepare child TfwCfgSpec for parsing. */
-	spec_start_handling(nested_specs);
+	__spec_start_handling(cs, nested_specs);
 
 	/*
 	 * We get to this function when the caller finds
@@ -1493,8 +1487,11 @@ tfw_cfg_cleanup(struct list_head *mod_list)
 	TfwMod *mod;
 
 	TFW_DBG3("Configuration cleanup...\n");
-	MOD_FOR_EACH_REVERSE(mod, mod_list)
+	MOD_FOR_EACH_REVERSE(mod, mod_list) {
 		spec_cleanup(mod->specs);
+		if (mod->cfgclean)
+			mod->cfgclean();
+	}
 }
 
 int
