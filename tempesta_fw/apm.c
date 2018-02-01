@@ -1411,6 +1411,115 @@ tfw_apm_hm_stats(void *apmref)
 
 #define TFW_APM_MIN_TMINTRVL	5	/* Minimum time interval (secs). */
 
+#define TFW_APM_DFLT_REQ	"\"GET / HTTTP/1.0\r\n\r\n\""
+#define TFW_APM_DFLT_URL	"\"/\""
+
+static int
+tfw_cfgop_apm_add_hm(const char *name)
+{
+	int size = strlen(name) + 1;
+	BUG_ON(tfw_hm_entry);
+	tfw_hm_entry = kzalloc(sizeof(TfwApmHM) + size, GFP_KERNEL);
+	if (!tfw_hm_entry) {
+		TFW_ERR_NL("Can't allocate health check entry '%s'\n", name);
+		return -ENOMEM;
+	}
+	INIT_LIST_HEAD(&tfw_hm_entry->list);
+	tfw_hm_entry->name = (char *)(tfw_hm_entry + 1);
+	memcpy(tfw_hm_entry->name, name, size);
+	list_add(&tfw_hm_entry->list, &tfw_hm_list);
+
+	return 0;
+}
+
+static int
+tfw_cfgop_apm_add_hm_req(const char *req_cstr, TfwApmHM *hm_entry)
+{
+	unsigned long size;
+
+	size = strlen(req_cstr);
+	hm_entry->req = (char *)__get_free_pages(GFP_KERNEL,
+						     get_order(size));
+	if (!hm_entry->req) {
+		TFW_ERR_NL("Can't allocate memory for helth"
+			   " monitoring request\n");
+		return -ENOMEM;
+	}
+	memcpy(hm_entry->req, req_cstr, size);
+	hm_entry->reqsz = size;
+
+	return 0;
+}
+
+static int
+tfw_cfgop_apm_add_hm_url(const char *url, TfwApmHM *hm_entry)
+{
+	char *mptr;
+	int size;
+
+	size = strlen(url);
+	mptr = kzalloc(size, GFP_KERNEL);
+	if (!mptr) {
+		TFW_ERR_NL("Can't allocate memory for '%s'\n", url);
+		return -ENOMEM;
+	}
+	memcpy(mptr, url, size);
+	hm_entry->url = mptr;
+	hm_entry->urlsz = size;
+
+	return 0;
+}
+
+static void
+tfw_cfgop_cleanup_apm_hm(TfwCfgSpec *cs)
+{
+	TfwApmHM *hm, *tmp;
+
+	if (list_empty(&tfw_hm_list))
+		return;
+
+	list_for_each_entry_safe(hm, tmp, &tfw_hm_list, list) {
+		free_pages((unsigned long)hm->req, get_order(hm->reqsz));
+		kfree(hm->url);
+		list_del(&hm->list);
+		kfree(hm);
+	}
+	INIT_LIST_HEAD(&tfw_hm_list);
+}
+
+static int
+tfw_apm_cfgstart(void)
+{
+	int r;
+	TfwCfgSpec *cs = NULL;
+
+	if (tfw_runstate_is_reconfig())
+		return 0;
+
+	/* Create 'auto' health monitor for default mode. */
+	if ((r = tfw_cfgop_apm_add_hm("auto")))
+		goto cleanup;
+
+	if ((r = tfw_cfgop_apm_add_hm_req(TFW_APM_DFLT_REQ, tfw_hm_entry)))
+		goto cleanup;
+
+	if((r = tfw_cfgop_apm_add_hm_url(TFW_APM_DFLT_URL, tfw_hm_entry)))
+		goto cleanup;
+
+	/*
+	 * Default values for health response code is 200, and
+	 * for monitor request timeout is 10s.
+	 */
+	__set_bit(HTTP_CODE_BIT_NUM(200), tfw_hm_entry->codes);
+	tfw_hm_entry->tmt = 10;
+	tfw_hm_entry = NULL;
+
+	return 0;
+cleanup:
+	tfw_cfgop_cleanup_apm_hm(cs);
+	return r;
+}
+
 static int
 tfw_apm_cfgend(void)
 {
@@ -1561,7 +1670,6 @@ static int
 tfw_cfgop_begin_apm_hm(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	TfwApmHM *hm;
-	size_t size;
 
 	if (tfw_cfg_check_val_n(ce, 1))
 		return -EINVAL;
@@ -1579,20 +1687,7 @@ tfw_cfgop_begin_apm_hm(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		}
 	}
 
-	BUG_ON(tfw_hm_entry);
-	size = strlen(ce->vals[0]) + 1;
-	tfw_hm_entry = kzalloc(sizeof(TfwApmHM) + size, GFP_KERNEL);
-	if (!tfw_hm_entry) {
-		TFW_ERR_NL("Can't allocate health check entry '%s'\n",
-			   ce->vals[0]);
-		return -ENOMEM;
-	}
-	INIT_LIST_HEAD(&tfw_hm_entry->list);
-	tfw_hm_entry->name = (char *)(tfw_hm_entry + 1);
-	memcpy(tfw_hm_entry->name, ce->vals[0], size);
-	list_add(&tfw_hm_entry->list, &tfw_hm_list);
-
-	return 0;
+	return tfw_cfgop_apm_add_hm(ce->vals[0]);
 }
 
 static int
@@ -1614,48 +1709,21 @@ tfw_cfgop_finish_apm_hm(TfwCfgSpec *cs)
 static int
 tfw_cfgop_apm_hm_request(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	unsigned long size;
-
-	BUG_ON(!tfw_hm_entry);
 	if (tfw_cfg_check_single_val(ce))
 		return -EINVAL;
 
-	size = strlen(ce->vals[0]);
-	tfw_hm_entry->req = (char *)__get_free_pages(GFP_KERNEL,
-						     get_order(size));
-	if (!tfw_hm_entry->req) {
-		TFW_ERR_NL("Can't allocate memory for helth"
-			   " monitoring request\n");
-		return -ENOMEM;
-	}
-	memcpy(tfw_hm_entry->req, ce->vals[0], size);
-	tfw_hm_entry->reqsz = size;
-
-	return 0;
+	BUG_ON(!tfw_hm_entry);
+	return tfw_cfgop_apm_add_hm_req(ce->vals[0], tfw_hm_entry);
 }
 
 static int
 tfw_cfgop_apm_hm_req_url(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	char *mptr;
-	int size;
-
-	BUG_ON(!tfw_hm_entry);
 	if (tfw_cfg_check_single_val(ce))
 		return -EINVAL;
 
-	size = strlen(ce->vals[0]);
-	mptr = kzalloc(size, GFP_KERNEL);
-	if (!mptr) {
-		TFW_ERR_NL("Can't allocate memory for '%s'\n",
-			   ce->vals[0]);
-		return -ENOMEM;
-	}
-	memcpy(mptr, ce->vals[0], size);
-	tfw_hm_entry->url = mptr;
-	tfw_hm_entry->urlsz = size;
-
-	return 0;
+	BUG_ON(!tfw_hm_entry);
+	return tfw_cfgop_apm_add_hm_url(ce->vals[0], tfw_hm_entry);
 }
 
 static int
@@ -1672,6 +1740,7 @@ tfw_cfgop_apm_hm_resp_code(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		TFW_ERR_NL("Unexpected attributes\n");
 		return -EINVAL;
 	}
+
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		if (tfw_cfgop_parse_http_status(val, &code)
 		    || tfw_cfg_check_range(code, HTTP_CODE_MIN, HTTP_CODE_MAX))
@@ -1723,34 +1792,17 @@ tfw_cfgop_apm_hm_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
-static void
-tfw_cfgop_cleanup_apm_hm(TfwCfgSpec *cs)
-{
-	TfwApmHM *hm, *tmp;
-
-	if (list_empty(&tfw_hm_list))
-		return;
-
-	list_for_each_entry_safe(hm, tmp, &tfw_hm_list, list) {
-		free_pages((unsigned long)hm->req, get_order(hm->reqsz));
-		kfree(hm->url);
-		list_del(&hm->list);
-		kfree(hm);
-	}
-	INIT_LIST_HEAD(&tfw_hm_list);
-}
-
 static TfwCfgSpec tfw_apm_hm_specs[] = {
 	{
 		.name		= "request",
-		.deflt		= "\"GET / HTTTP/1.0\r\n\r\n\"",
+		.deflt		= TFW_APM_DFLT_REQ,
 		.handler	= tfw_cfgop_apm_hm_request,
 		.allow_none	= false,
 		.allow_repeat	= false,
 	},
 	{
 		.name		= "request_url",
-		.deflt		= NULL,
+		.deflt		= TFW_APM_DFLT_URL,//!!!
 		.handler	= tfw_cfgop_apm_hm_req_url,
 		.allow_none	= false,
 		.allow_repeat	= false,
@@ -1813,9 +1865,10 @@ static TfwCfgSpec tfw_apm_specs[] = {
 };
 
 TfwMod tfw_apm_mod = {
-	.name	= "apm",
-	.cfgend	= tfw_apm_cfgend,
-	.specs	= tfw_apm_specs,
+	.name		= "apm",
+	.cfgstart	= tfw_apm_cfgstart,
+	.cfgend		= tfw_apm_cfgend,
+	.specs		= tfw_apm_specs,
 };
 
 int
