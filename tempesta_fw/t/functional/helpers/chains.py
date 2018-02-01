@@ -33,6 +33,27 @@ def make_502_expected():
     )
     return response
 
+def response_500():
+    date = deproxy.HttpMessage.date_time_string()
+    headers = [
+        'Date: %s' % date,
+        'Content-Length: 0',
+        'Connection: keep-alive'
+    ]
+    response = deproxy.Response.create(status=500, headers=headers)
+    return response
+
+def response_502():
+    date = deproxy.HttpMessage.date_time_string()
+    headers = [
+        'Date: %s' % date,
+        'Content-Length: 0',
+        'Connection: keep-alive'
+    ]
+    response = deproxy.Response.create(status=502, headers=headers)
+    return response
+
+
 def base(uri='/', method='GET', forward=True, date=None):
     """Base message chain. Looks like simple Curl request to Tempesta and
     response for it.
@@ -196,14 +217,33 @@ def base(uri='/', method='GET', forward=True, date=None):
                                       server_response=backend_resp)
     return copy.copy(base_chain)
 
-def response_403(date = None):
+def response_403(date=None, connection=None):
     if date is None:
         date = deproxy.HttpMessage.date_time_string()
-    resp = deproxy.Response.create(status=403,
+    if connection is None:
+        resp = deproxy.Response.create(status=403,
+                                       headers=['Content-Length: 0'],
+                                       date=date,
+                                       body='')
+    else:
+        resp = deproxy.Response.create(status=403,
+                                       headers=[
+                                           'Content-Length: 0',
+                                           'Connection: %s' % connection
+                                       ],
+                                       date=date,
+                                       body='')
+    return resp
+
+def response_400(date=None):
+    if date is None:
+        date = deproxy.HttpMessage.date_time_string()
+    resp = deproxy.Response.create(status=400,
                                    headers=['Content-Length: 0'],
                                    date=date,
                                    body='')
     return resp
+
 
 def base_chunked(uri='/'):
     """Same as chains.base(), but returns a copy of message chain with
