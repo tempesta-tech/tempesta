@@ -524,7 +524,7 @@ class Client(asyncore.dispatcher, stateful.Stateful):
     def set_request(self, request_chain):
         if request_chain:
             self.request = request_chain.request
-            self.request_buffer = request_chain.msg
+            self.request_buffer = request_chain.request.msg
 
     def set_tester(self, tester):
         self.tester = tester
