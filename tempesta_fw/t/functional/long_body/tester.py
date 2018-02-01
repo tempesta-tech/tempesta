@@ -13,7 +13,7 @@ class ClientMultipleResponses(deproxy.Client):
     def set_request(self, request_chain):
         if request_chain != None:
             self.method = request_chain.method
-            self.request_buffer = self.request_buffer + request_chain.request.msg
+            self.request_buffer = request_chain.request.msg
 
     def handle_read(self):
         self.response_buffer += self.recv(deproxy.MAX_MESSAGE_SIZE)
