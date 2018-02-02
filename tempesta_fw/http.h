@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -529,7 +529,7 @@ int tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len);
 bool tfw_http_parse_terminate(TfwHttpMsg *hm);
 
 /* External HTTP functions. */
-int tfw_http_msg_process(void *conn, struct sk_buff *skb, unsigned int off);
+int tfw_http_msg_process(void *conn, const TfwFsmData *data);
 unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
 void tfw_http_req_destruct(void *msg);
 void tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp);

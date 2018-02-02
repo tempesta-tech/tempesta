@@ -2,15 +2,12 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License,
  * or (at your option) any later version.
- *
- * Since all protocol FSMs should be able to jump between states of different
- * FSMs, all the FSM states are defined here.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
@@ -24,6 +21,7 @@
 #ifndef __TFW_GFSM_H__
 #define __TFW_GFSM_H__
 
+#include "msg.h"
 #include "sync_socket.h"
 
 /*
@@ -35,6 +33,9 @@
  *
  * Maximum number of different states for each FSM = (1 << 5 = 32).
  * States 0 and 31 are reserved as initial and accepting for automaton.
+ *
+ * TODO #102 (TL) many FSMs (user programs) can be registered and run
+ * simultaneously. See concept.tl for the discussion.
  */
 #define TFW_GFSM_STATE_BITS	5
 #define TFW_GFSM_STATE_N	(1 << TFW_GFSM_STATE_BITS)
@@ -83,7 +84,7 @@ enum {
 	TFW_FSM_HTTP,
 	TFW_FSM_HTTPS,
 
-	/* Request connection limiting classifier */
+	/* Security rules enforcement. */
 	TFW_FSM_FRANG_REQ,
 	TFW_FSM_FRANG_RESP,
 
@@ -130,16 +131,50 @@ enum {
 };
 
 /**
- * Generic FSM state representation for all running FSMs.
+ * An input data for a subroutine (FSM) to process.
  *
- * @curr	- index of current FSM in @states;
- * @obj		- an object processed by FSMs (derived from SsProto);
- * @states	- all FSM states;
+ * Typically an FSM works solely on L4 or L7, however, in future, there could be
+ * quite complex FSMs which need access to input data on all layers, e.g.
+ * loadable user custom modules. Usually L4 data is provided to FSMs for
+ * protocol handlers while L7 is for application layer FSMs, e.g. Frang security
+ * limits enforcing module. HTTP FSM processes L4 data and creates L7 data
+ * for further processing by other FSMs. So for futher extensions we handle all
+ * layers data in the structure instead of using a union to keep one layer data
+ * at a time.
+ *
+ * GFSM resides at the top of classes hirarchy, so use generic message classes.
+ *
+ * @skb		- currently processed skb by the TCP/IP stack;
+ * @off		- data offset within the @skb;
+ * @req		- a request associated with current state of an FSM;
+ * @resp	- a response associated with the state;
  */
 typedef struct {
-	/* The two belows should be on the same cache line. */
+	/* L4 (TCP) members. */
+	struct sk_buff	*skb;
+	unsigned int	off;
+
+	/* L7 members. */
+	TfwMsg		*req;
+	TfwMsg		*resp;
+} TfwFsmData;
+
+/**
+ * Generic FSM state representation for all running FSMs.
+ * The first two members should be on the same cache line.
+ *
+ * The GFSM describes only states for a subroutines, which can be hookable
+ * by subroutines (i.e. yield states). The states are a subset of all the
+ * states of an object @obj associated with the subroutine.
+ *
+ * @curr	- index of current FSM in @states;
+ * @obj		- an object associated with the FSM,
+ *		  e.g. a connection descriptor;
+ * @states	- all FSM states, i.e. the FSM states set;
+ */
+typedef struct {
 	char		curr;
-	void		*obj; /* object which state we track */
+	void		*obj;
 	unsigned short	states[TFW_GFSM_FSM_NUM];
 } TfwGState;
 
@@ -147,14 +182,11 @@ typedef struct {
 				 & ((TFW_GFSM_FSM_MASK << TFW_GFSM_FSM_SHIFT) \
 				    | TFW_GFSM_STATE_MASK))
 
-typedef int (*tfw_gfsm_handler_t)(void *obj, struct sk_buff *skb,
-				  unsigned int off);
+typedef int (*tfw_gfsm_handler_t)(void *obj, const TfwFsmData *data);
 
 void tfw_gfsm_state_init(TfwGState *st, void *obj, int st0);
-int tfw_gfsm_dispatch(TfwGState *st, void *obj, struct sk_buff *skb,
-		      unsigned int off);
-int tfw_gfsm_move(TfwGState *st, unsigned short state, struct sk_buff *skb,
-		  unsigned int off);
+int tfw_gfsm_dispatch(TfwGState *st, void *obj, const TfwFsmData *data);
+int tfw_gfsm_move(TfwGState *st, unsigned short state, const TfwFsmData *data);
 
 int tfw_gfsm_register_hook(int fsm_id, int prio, int state,
 			   unsigned short hndl_fsm_id, int st0);
