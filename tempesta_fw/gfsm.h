@@ -133,7 +133,7 @@ enum {
 /**
  * An input data for a subroutine (FSM) to process.
  *
- * Typically an FSM works solely on L4 or L7, however, in futuer, there could be
+ * Typically an FSM works solely on L4 or L7, however, in future, there could be
  * quite complex FSMs which need access to input data on all layers, e.g.
  * loadable user custom modules. Usually L4 data is provided to FSMs for
  * protocol handlers while L7 is for application layer FSMs, e.g. Frang security
