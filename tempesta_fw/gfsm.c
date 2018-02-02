@@ -21,7 +21,7 @@
  * slice sharing among processes, GFSM cares about processing hot (in sence of
  * CPU caches) data by all subroutines, who, and only who, are interested in
  * the data. I.e. when a packet arrives, all subroutines interested in
- * processing the packet are called immediatelly while the packet data resides
+ * processing the packet are called immediately while the packet data resides
  * in CPU caches. A data is considered interesting for a subroutine if the
  * subroutine subscribed (hooked) for the states of other FSM or a network
  * packet reception (tfw_gfsm_dispatch()).
@@ -59,7 +59,7 @@
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
- * This program is free software; you cana redistribute it and/or modify it
+ * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License,
  * or (at your option) any later version.
@@ -160,12 +160,12 @@ tfw_gfsm_switch(TfwGState *st, int state, int prio)
 /**
  * TODO #77 (User-kernel space transport): user-space processing is an
  * asynchronous operation which can be called at different states of different
- * FSMs, so GFSM must introdufe SLEAL logic:
+ * FSMs, so GFSM must introduce STEAL logic:
  *   1. an FSM (responsible for user-space message mapping) can return
  *      TFW_STEAL;
  *   2. getting the return code from gfsm_move() current FSM must finish
  *      the message processing logic and return with stored current state;
- *   3. when a user-space program finish GFSM must unwing the call stack and
+ *   3. when a user-space program finish GFSM must unwind the call stack and
  *      call the original FSM at the same state, so it can finish the message
  *      processing.
  */

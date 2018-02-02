@@ -558,7 +558,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 static unsigned int
 frang_resp_quantum(void)
 {
-	return jiffies / HZ * FRANG_FREQ / frang_cfg.http_resp_code_block->tf;
+	return jiffies * FRANG_FREQ / (frang_cfg.http_resp_code_block->tf * HZ);
 }
 
 static int
