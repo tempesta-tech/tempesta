@@ -1200,9 +1200,9 @@ tfw_apm_del_srv(TfwServer *srv)
 	if (!data)
 		return;
 
-	/* Stop health monitor timer. */
+	/* Stop health monitor. */
 	if (test_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->hm_flags))
-		tfw_apm_hm_stop_timer(data);
+		tfw_apm_hm_disable_srv(srv);
 
 	/* Stop the timer and the percentile calculation. */
 	clear_bit(TFW_APM_DATA_F_REARM, &data->flags);
@@ -1301,51 +1301,40 @@ tfw_apm_hm_srv_limit(int status, void *apmref)
 	return false;
 }
 
-bool
-tfw_apm_hm_enable_srv(const char *name, TfwServer *srv)
+void
+tfw_apm_hm_enable_srv(TfwServer *srv, void *hmref)
 {
 	TfwApmHMCtl *hmctl;
-	TfwApmHM *hm;
 	unsigned long now;
-
-	if (!tfw_hm_codes_cnt) {
-		TFW_ERR("No response codes specified for"
-			" server's health monitoring\n");
-		return false;
-	}
+	TfwApmHM *hm = hmref;
 
 	BUG_ON(!srv->apmref);
+	BUG_ON(!hm);
+	BUG_ON(test_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->hm_flags));
+
+	/* Set new health monitor for server. */
 	hmctl = &((TfwApmData *)srv->apmref)->hmctl;
-	list_for_each_entry(hm, &tfw_hm_list, list) {
-		BUG_ON(test_bit(TFW_SRV_B_HMONITOR,
-			       (unsigned long *)&srv->hm_flags));
-		if (strcasecmp(name, hm->name))
-			continue;
-		WRITE_ONCE(hmctl->hm, hm);
-		atomic64_set(&hmctl->rcount, 0);
-		clear_bit(TFW_SRV_B_SUSPEND,
-			  (unsigned long *)&srv->hm_flags);
-		/* Start server's health monitoring timer. */
-		atomic_set(&hmctl->rearm, 1);
-		smp_mb__after_atomic();
-		setup_timer(&hmctl->timer, tfw_apm_hm_timer_cb,
-			    (unsigned long)srv);
-		now = jiffies;
-		mod_timer(&hmctl->timer, now + hm->tmt * HZ);
-		WRITE_ONCE(hmctl->jtmstamp, now);
-		set_bit(TFW_SRV_B_HMONITOR,
-			(unsigned long *)&srv->hm_flags);
-		return true;
-	}
-	TFW_ERR_NL("health monitor with name"
-		   " '%s' does not exist\n", name);
-	return false;
+	WRITE_ONCE(hmctl->hm, hm);
+
+	/* Init server's health control fields. */
+	atomic64_set(&hmctl->rcount, 0);
+	clear_bit(TFW_SRV_B_SUSPEND, (unsigned long *)&srv->hm_flags);
+
+	/* Start server's health monitoring timer. */
+	atomic_set(&hmctl->rearm, 1);
+	smp_mb__after_atomic();
+	setup_timer(&hmctl->timer, tfw_apm_hm_timer_cb, (unsigned long)srv);
+	now = jiffies;
+	mod_timer(&hmctl->timer, now + hm->tmt * HZ);
+	WRITE_ONCE(hmctl->jtmstamp, now);
+
+	/* Activate server's health monitor. */
+	set_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->hm_flags);
 }
 
 void
 tfw_apm_hm_disable_srv(TfwServer *srv)
 {
-	BUG_ON(!test_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->hm_flags));
 	clear_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->hm_flags);
 	tfw_apm_hm_stop_timer((TfwApmData *)srv->apmref);
 }
@@ -1400,6 +1389,28 @@ tfw_apm_hm_stats(void *apmref)
 	stats->rtime = rtime < 0 ? 0 : rtime;
 
 	return stats;
+}
+
+bool
+tfw_apm_get_hm(const char *name, void **res_hm)
+{
+	TfwApmHM *hm;
+
+	if (!tfw_hm_codes_cnt) {
+		TFW_ERR("No response codes specified for"
+			" server's health monitoring\n");
+		return false;
+	}
+	list_for_each_entry(hm, &tfw_hm_list, list) {
+		if (!strcasecmp(name, hm->name)) {
+			*res_hm = hm;//!!! (void *)
+			return true;
+		}
+	}
+	TFW_ERR_NL("health monitor with name"
+		   " '%s' does not exist\n", name);
+
+	return false;
 }
 
 
