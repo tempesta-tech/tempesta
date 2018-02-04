@@ -602,7 +602,7 @@ tfw_sock_srv_del_conns(void *psrv)
 }
 
 static int
-tfw_sock_srv_start_srv(TfwServer *srv)
+tfw_sock_srv_start_srv(TfwServer *srv, void *hm)
 {
 	int r;
 
@@ -614,6 +614,8 @@ tfw_sock_srv_start_srv(TfwServer *srv)
 		return r;
 	if ((r = tfw_sock_srv_connect_srv(srv)))
 		return r;
+	if (hm)
+		tfw_apm_hm_enable_srv(srv, hm);
 
 	return 0;
 }
@@ -800,6 +802,7 @@ static struct kmem_cache *tfw_sg_cfg_cache;
  * @sticky_flags	- sticky sessions processing flags;
  * @sched_flags		- scheduler flags;
  * @sched_arg		- scheduler init argument.
+ * @hm_name		- name of group's health monitor;
  */
 typedef struct {
 	TfwSrvGroup		*orig_sg;
@@ -810,6 +813,7 @@ typedef struct {
 	unsigned int		sticky_flags;
 	unsigned int		sched_flags;
 	void			*sched_arg;
+	char			*hm_name;
 } TfwCfgSrvGroup;
 
 /* Currently parsed Server group. */
@@ -841,19 +845,6 @@ static struct {
 	bool sticky_flags	: 1;
 	bool sched		: 1;
 } __attribute__((packed)) tfw_cfg_is_set;
-
-typedef struct {
-	struct list_head	list;
-	char			*name;
-	TfwServer		*srv;
-	unsigned int		flags;
-} TfwSrvHealth;
-
-/* Types of configuration for server health monitor. */
-#define TFW_SRV_HEALTH_ENABLE		0x0001
-#define TFW_SRV_HEALTH_DISABLE		0x0002
-
-static struct list_head tfw_cfg_health_lst = LIST_HEAD_INIT(tfw_cfg_health_lst);
 
 /* Please keep the condition in these three macros in sync. */
 #define TFW_CFGOP_HAS_DFLT(ce, v)					\
@@ -959,88 +950,34 @@ tfw_cfgop_lookup_sg_cfg(const char *name)
 	return NULL;
 }
 
-static int
-tfw_cfgop_srv_create_health(const char *hname, TfwServer *new_srv,
-			    TfwServer *orig_srv)
+static void
+tfw_cfgop_update_srv_health(TfwServer *srv, const char *hname, void *hm)
 {
-	TfwSrvHealth *health;
-	TfwServer *srv;
-	size_t size = 0;
-	bool orig_hm = false;
-
-	if (orig_srv)
-		orig_hm = test_bit(TFW_SRV_B_HMONITOR,
-				   (unsigned long *)&orig_srv->hm_flags);
+	bool orig_hm = test_bit(TFW_SRV_B_HMONITOR,
+				(unsigned long *)&srv->hm_flags);
 
 	/*
 	 * Nothing to do if the same server with the same
 	 * hmonitor, or the same server without hmonitor (and
-	 * new hmonitor is not specified), or new server
-	 * without hmonitor at all.
+	 * new hmonitor is not specified).
 	 */
-	if ((hname && orig_hm && tfw_apm_hm_srv_eq(hname, orig_srv))
-	    || (!hname && orig_srv && !orig_hm)
-	    || (!hname && !orig_srv))
-		return 0;
-
-	if (hname)
-		size = strlen(hname) + 1;
-	health = kzalloc(sizeof(TfwSrvHealth) + size, GFP_KERNEL);
-	if (!health) {
-		TFW_ERR_NL("can't allocate memory for server health entry\n");
-		return -ENOMEM;
-	}
-
-	if (hname) {
-		if (orig_hm)
-			health->flags |= TFW_SRV_HEALTH_DISABLE;
-		health->flags |= TFW_SRV_HEALTH_ENABLE;
-		health->name = (char *)(health + 1);
-		memcpy(health->name, hname, size);
-		srv = orig_srv ? : new_srv;
-	} else {
-		srv = orig_srv;
-		health->flags |= TFW_SRV_HEALTH_DISABLE;
-	}
-
-	INIT_LIST_HEAD(&health->list);
-	health->srv = srv;
-	list_add_tail(&health->list, &tfw_cfg_health_lst);
-
-	return 0;
-}
-
-static int
-tfw_cfg_srv_set_health(void)
-{
-	TfwSrvHealth *hth;
-
-	list_for_each_entry(hth, &tfw_cfg_health_lst, list) {
-		if (hth->flags & TFW_SRV_HEALTH_DISABLE)
-			tfw_apm_hm_disable_srv(hth->srv);
-		if ((hth->flags & TFW_SRV_HEALTH_ENABLE)) {
-			BUG_ON(!hth->name);
-			if (!tfw_apm_hm_enable_srv(hth->name, hth->srv))
-				return -EINVAL;
-		}
-	}
-	return 0;
-}
-
-static void
-tfw_clean_srvs_health_cfg(void)
-{
-	TfwSrvHealth *hth, *tmp;
-
-	if (list_empty(&tfw_cfg_health_lst))
+	if ((hname && orig_hm && tfw_apm_hm_srv_eq(hname, srv))
+	    || (!hname && !orig_hm))
 		return;
 
-	list_for_each_entry_safe(hth, tmp, &tfw_cfg_health_lst, list) {
-		list_del(&hth->list);
-		kfree(hth);
-	}
+	/*
+	 * If health monitor was enabled, it must be switched
+	 * off at first.
+	 */
+	if (orig_hm)
+		tfw_apm_hm_disable_srv(srv);
 
-	INIT_LIST_HEAD(&tfw_cfg_health_lst);
+	/*
+	 * Enable server's health monitor, if it had been specified
+	 * in new configuration for current server group.
+	 */
+	if (hname)
+		tfw_apm_hm_enable_srv(srv, hm);
 }
 
 static int
@@ -1235,19 +1172,30 @@ tfw_cfgop_out_conn_retries(TfwCfgSpec *cs, TfwCfgEntry *ce)
 				      &tfw_cfg_sg_opts->parsed_sg->max_recns);
 }
 
+static bool
+tfw_cfgop_sg_set_hm(TfwCfgSrvGroup *sg_cfg, const char *hname)
+{
+	size_t size = strlen(hname) + 1;
+	sg_cfg->hm_name = kmalloc(size, GFP_KERNEL);
+	if (!sg_cfg->hm_name)
+		return false;
+
+	memcpy(sg_cfg->hm_name, hname, size);
+
+	return true;
+}
+
 /**
  * Mark @sg_cfg as requiring scheduler update if the @srv wasn't present in
- * previous configuration or if it's options changed. Return @orig_srv (if
- * it present in previous configuration), caller is responsible for putting
- * it back.
+ * previous configuration or if it's options changed.
  */
-static TfwServer *
+static void
 tfw_cfgop_server_orig_lookup(TfwCfgSrvGroup *sg_cfg, TfwServer *srv)
 {
 	TfwServer *orig_srv;
 
 	if (!sg_cfg->orig_sg)
-		return NULL;
+		return;
 
 	orig_srv = tfw_server_lookup(sg_cfg->orig_sg, &srv->addr);
 	if (!orig_srv) {
@@ -1263,14 +1211,15 @@ tfw_cfgop_server_orig_lookup(TfwCfgSrvGroup *sg_cfg, TfwServer *srv)
 	orig_srv->flags |= TFW_CFG_F_KEEP;
 	srv->flags |= TFW_CFG_F_KEEP;
 
-	return orig_srv;
+	tfw_server_put(orig_srv);
+
+	return;
 changed:
 	orig_srv->flags |= TFW_CFG_F_MOD;
 	srv->flags |= TFW_CFG_F_MOD;
+	tfw_server_put(orig_srv);
 done:
 	sg_cfg->reconf_flags |= TFW_CFG_MDF_SG_SRV;
-
-	return orig_srv;
 }
 
 /* Default and maximum values for "server" options. */
@@ -1286,10 +1235,10 @@ static int
 tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwCfgSrvGroup *sg_cfg)
 {
 	TfwAddr addr;
-	TfwServer *srv, *orig_srv;
-	int i, r, conns_n = 0, weight = 0;
-	bool has_conns_n = false, has_weight = false, has_health = false;
-	const char *key, *val, *hname = NULL;
+	TfwServer *srv;
+	int i, conns_n = 0, weight = 0;
+	bool has_conns_n = false, has_weight = false;
+	const char *key, *val;
 
 	if (ce->val_n != 1) {
 		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
@@ -1332,13 +1281,6 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwCfgSrvGroup *sg_cfg)
 				return -EINVAL;
 			}
 			has_weight = true;
-		} else if (!strcasecmp(key, "health")) {
-			if (has_health) {
-				TFW_ERR_NL("Duplicate argument: '%s'\n", key);
-				return -EINVAL;
-			}
-			hname = val;
-			has_health = true;
 		} else {
 			TFW_ERR_NL("Unsupported argument: '%s'\n", key);
 			return -EINVAL;
@@ -1371,15 +1313,11 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwCfgSrvGroup *sg_cfg)
 	srv->weight = weight;
 	srv->conn_n = conns_n;
 	tfw_sg_add_srv(sg_cfg->parsed_sg, srv);
-
-	orig_srv = tfw_cfgop_server_orig_lookup(sg_cfg, srv);
-	r = tfw_cfgop_srv_create_health(hname, srv, orig_srv);
+	tfw_cfgop_server_orig_lookup(sg_cfg, srv);
 
 	tfw_server_put(srv);
-	if (orig_srv)
-		tfw_server_put(orig_srv);
 
-	return r;
+	return 0;
 }
 
 /**
@@ -1459,8 +1397,9 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
 		return -EINVAL;
 	}
-	if (ce->attr_n) {
-		TFW_ERR_NL("Arguments may not have the \'=\' sign\n");
+	if (ce->attr_n > 1) {
+		TFW_ERR_NL("Invalid number of key=value pairs: %zu\n",
+			   ce->attr_n);
 		return -EINVAL;
 	}
 
@@ -1479,6 +1418,19 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		if (!sg_cfg) {
 			TFW_ERR_NL("Unable to create a group: '%s'\n",
 				   ce->vals[0]);
+			return -ENOMEM;
+		}
+	}
+	if (ce->attr_n == 1) {
+		if  (strcasecmp(ce->attrs[0].key, "health")) {
+			TFW_ERR_NL("Unsupported attribute: '%s'\n",
+				   ce->attrs[0].key);
+			return -EINVAL;
+		}
+		if (!tfw_cfgop_sg_set_hm(sg_cfg, ce->attrs[0].val)) {
+			TFW_ERR_NL("Unable to add group's health"
+				   " monitor name: '%s'\n",
+				   ce->attrs[0].val);
 			return -ENOMEM;
 		}
 	}
@@ -1838,6 +1790,8 @@ tfw_cfgop_cleanup_srv_cfg(TfwCfgSrvGroup *sg_cfg, bool release_parsed)
 		kfree(sg_cfg->sched_arg);
 	list_del_init(&sg_cfg->list);
 
+	if (sg_cfg->hm_name)
+		kfree(sg_cfg->hm_name);
 	kmem_cache_free(tfw_sg_cfg_cache, sg_cfg);
 }
 
@@ -1846,7 +1800,9 @@ tfw_cfgop_cleanup_srv_cfgs(bool reconf_failed)
 {
 	TfwCfgSrvGroup *sg_cfg, *tmp;
 
-	tfw_clean_srvs_health_cfg();
+	if (tfw_cfg_sg_def && list_empty(&tfw_cfg_sg_def->list))
+		tfw_cfgop_cleanup_srv_cfg(tfw_cfg_sg_def, reconf_failed);
+	tfw_cfg_sg_def = NULL;
 
 	list_for_each_entry_safe(sg_cfg, tmp, &sg_cfg_list, list)
 		tfw_cfgop_cleanup_srv_cfg(sg_cfg, reconf_failed);
@@ -1854,10 +1810,6 @@ tfw_cfgop_cleanup_srv_cfgs(bool reconf_failed)
 
 	if (tfw_cfg_sg_opts) {
 		tfw_cfgop_cleanup_srv_cfg(tfw_cfg_sg_opts, true);
-		tfw_cfg_sg_opts = NULL;
-	}
-	if (tfw_cfg_sg_def) {
-		tfw_cfgop_cleanup_srv_cfg(tfw_cfg_sg_def, reconf_failed);
 		tfw_cfg_sg_opts = NULL;
 	}
 	tfw_cfg_sg = NULL;
@@ -1982,7 +1934,7 @@ tfw_cfgop_update_srv(TfwServer *orig_srv, TfwCfgSrvGroup *sg_cfg)
 }
 
 static int
-tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
+tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg, void *hm)
 {
 	TfwServer *srv, *tmp;
 	TfwSrvGroup *sg = sg_cfg->orig_sg;
@@ -2023,7 +1975,7 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
 		tfw_sg_put(sg_cfg->parsed_sg);
 		tfw_server_put(srv);
 
-		if ((r = tfw_sock_srv_start_srv(srv)))
+		if ((r = tfw_sock_srv_start_srv(srv, hm)))
 			return r;
 		srv->flags &= ~TFW_CFG_M_ACTION;
 	}
@@ -2048,12 +2000,40 @@ tfw_cfgop_sg_start_sched(TfwCfgSrvGroup *sg_cfg, TfwSrvGroup *sg)
 	return 0;
 }
 
+/**
+ * Update health monitors for 'old' servers - servers which were
+ * in previous configuration of server group (in reconfiguration case)
+ * and still remain in new configuration too.
+ */
+static void
+tfw_cfgop_update_sg_health(TfwCfgSrvGroup *sg_cfg, void *hm)
+{
+	TfwServer *srv;
+	TfwSrvGroup *sg = sg_cfg->orig_sg;
+
+	read_lock(&sg->lock);
+	list_for_each_entry(srv, &sg->srv_list, list) {
+		/*
+		 * Server was not found in new configuration, so
+		 * later (in 'tfw_cfgop_update_sg_srv_list()') it
+		 * will be stopped and removed.
+		 */
+		if (!(srv->flags & TFW_CFG_M_ACTION))
+			continue;
+
+		tfw_cfgop_update_srv_health(srv, sg_cfg->hm_name, hm);
+	}
+	read_unlock(&sg->lock);
+}
+
 static int
-tfw_cfgop_update_sg_cfg(TfwCfgSrvGroup *sg_cfg)
+tfw_cfgop_update_sg_cfg(TfwCfgSrvGroup *sg_cfg, void *hm)
 {
 	int r;
 
 	TFW_DBG2("Update group '%s'\n", sg_cfg->orig_sg->name);
+
+	tfw_cfgop_update_sg_health(sg_cfg, hm);
 
 	if (!(sg_cfg->reconf_flags &
 	      (TFW_CFG_MDF_SG_SRV | TFW_CFG_MDF_SG_SCHED)))
@@ -2071,27 +2051,50 @@ tfw_cfgop_update_sg_cfg(TfwCfgSrvGroup *sg_cfg)
 	tfw_cfgop_sg_copy_opts(sg_cfg->orig_sg, sg_cfg->parsed_sg);
 
 	if (sg_cfg->reconf_flags & TFW_CFG_MDF_SG_SRV)
-		if ((r = tfw_cfgop_update_sg_srv_list(sg_cfg)))
+		if ((r = tfw_cfgop_update_sg_srv_list(sg_cfg, hm)))
 			return r;
 
 	return tfw_cfgop_sg_start_sched(sg_cfg, sg_cfg->orig_sg);
+}
+
+
+/**
+ * Iterate over all servers of newly parsed server group @sg and start
+ * each server with health monitor enabling (if configured).
+ */
+static int
+tfw_cfgop_start_new_sg_cfg(TfwCfgSrvGroup *sg_cfg, void *hm)
+{
+	TfwServer *srv;
+	TfwSrvGroup *sg = sg_cfg->parsed_sg;
+	int ret = 0;
+
+	TFW_DBG2("Setup new group '%s' to use after reconfiguration\n",
+		 sg->name);
+	write_lock(&sg->lock);
+	list_for_each_entry(srv, &sg->srv_list, list)
+		if ((ret = tfw_sock_srv_start_srv(srv, hm)))
+			break;
+	write_unlock(&sg->lock);
+	return ret;
 }
 
 static int
 tfw_cfgop_start_sg_cfg(TfwCfgSrvGroup *sg_cfg)
 {
 	int r;
-	TfwSrvGroup *sg = sg_cfg->parsed_sg;
+	void *hm = NULL;
+
+	if (sg_cfg->hm_name && !tfw_apm_get_hm(sg_cfg->hm_name, &hm))
+		return -EINVAL;
 
 	if (sg_cfg->orig_sg)
-		return tfw_cfgop_update_sg_cfg(sg_cfg);
+		return tfw_cfgop_update_sg_cfg(sg_cfg, hm);
 
-	TFW_DBG2("Setup new group '%s' to use after reconfiguration\n",
-		 sg->name);
-	if ((r = __tfw_sg_for_each_srv(sg, tfw_sock_srv_start_srv)))
+	if ((r = tfw_cfgop_start_new_sg_cfg(sg_cfg, hm)))
 		return r;
 
-	return tfw_cfgop_sg_start_sched(sg_cfg, sg);
+	return tfw_cfgop_sg_start_sched(sg_cfg, sg_cfg->parsed_sg);
 }
 
 static int
@@ -2107,9 +2110,6 @@ tfw_sock_srv_start(void)
 	list_for_each_entry(sg_cfg, &sg_cfg_list, list)
 		if ((r = tfw_cfgop_start_sg_cfg(sg_cfg)))
 			return r;
-
-	if ((r = tfw_cfg_srv_set_health()))
-		return r;
 
 	tfw_sg_apply_reconfig(&orphan_sgs);
 	list_for_each_entry_safe(sg, tmp_sg, &orphan_sgs, list)
