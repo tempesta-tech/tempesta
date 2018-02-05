@@ -20,7 +20,6 @@
  */
 #include <linux/string.h>
 #include <linux/vmalloc.h>
-#include <linux/crc32.h>
 
 #include "cache.h"
 #include "classifier.h"
@@ -761,24 +760,9 @@ tfw_http_hm_control(TfwHttpResp *resp)
 		return;
 	}
 
-	if (!tfw_srv_suspended(srv))
+	if (!tfw_srv_suspended(srv) ||
+	    !tfw_apm_hm_srv_alive(resp->status, &resp->body, srv->apmref))
 		return;
-
-	if (!tfw_apm_hm_srv_status_alive(resp->status, srv->apmref)) {
-		u32 crc32;
-		char *body_cstr = tfw_pool_alloc(resp->pool,
-						 resp->body.len + 1);
-		if (unlikely(!body_cstr)) {
-			TFW_ERR("Can't allocate memory for hmonitor"
-				" crc32 verification\n");
-			return;
-		}
-		tfw_str_to_cstr(&resp->body, body_cstr, resp->body.len + 1);
-		crc32 = crc32(0, body_cstr, resp->body.len);
-		tfw_pool_free(resp->pool, body_cstr, resp->body.len + 1);
-		if (!tfw_apm_hm_srv_crc32_alive(crc32, srv->apmref))
-			return;
-	}
 
 	tfw_srv_mark_alive(srv);
 }
