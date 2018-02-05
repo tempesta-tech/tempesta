@@ -21,6 +21,7 @@
 #include <linux/bug.h>
 #include <linux/kernel.h>
 #include <linux/ctype.h>
+#include <linux/crc32.h>
 
 #include "htype.h"
 #include "str.h"
@@ -667,6 +668,26 @@ tfw_str_next_str_val(const TfwStr *str)
 	return r_str;
 }
 EXPORT_SYMBOL(tfw_str_next_str_val);
+
+/**
+ * Function for crc32 calculation from TfwStr object.
+ */
+int
+tfw_str_crc32_calc(const TfwStr *str)
+{
+	const TfwStr *c, *end;
+	unsigned long len = 0;
+	u32 crc = 0;
+
+	BUG_ON(str->len && !str->ptr);
+	TFW_STR_FOR_EACH_CHUNK(c, str, end) {
+		crc = crc32(crc, c->ptr, c->len);
+		len += c->len;//!!!
+	}
+	BUG_ON(len != str->len);
+	return crc;
+}
+EXPORT_SYMBOL(tfw_str_crc32_calc);
 
 #ifdef DEBUG
 void

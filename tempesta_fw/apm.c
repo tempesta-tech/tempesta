@@ -1225,7 +1225,7 @@ tfw_apm_hm_srv_rcount_update(TfwStr *uri_path, void *apmref)
 }
 
 bool
-tfw_apm_hm_srv_status_alive(int status, void *apmref)
+tfw_apm_hm_srv_alive(int status, TfwStr *body, void *apmref)
 {
 	TfwApmHM *hm = READ_ONCE(((TfwApmData *)apmref)->hmctl.hm);
 
@@ -1233,16 +1233,8 @@ tfw_apm_hm_srv_status_alive(int status, void *apmref)
 	if (hm->codes && test_bit(HTTP_CODE_BIT_NUM(status), hm->codes))
 		return true;
 
-	return false;
-}
-
-bool
-tfw_apm_hm_srv_crc32_alive(u32 crc32, void *apmref)
-{
-	TfwApmHM *hm = READ_ONCE(((TfwApmData *)apmref)->hmctl.hm);
-
-	BUG_ON(!hm);
-	if (hm->crc32 && crc32 == hm->crc32)
+	if (hm->crc32 && body->len &&
+	    tfw_str_crc32_calc(body) == hm->crc32)
 		return true;
 
 	return false;
