@@ -1011,7 +1011,7 @@ tfw_apm_hm_timer_cb(unsigned long data)
 
 	BUG_ON(!hm);
 	if (!atomic64_read(&apmdata->hmctl.rcount))
-		tfw_http_srv_hmonitor_send(srv, hm->req, hm->reqsz);
+		tfw_http_hm_srv_send(srv, hm->req, hm->reqsz);
 
 	atomic64_set(&apmdata->hmctl.rcount, 0);
 
@@ -1218,10 +1218,9 @@ tfw_apm_hm_srv_rcount_update(TfwStr *uri_path, void *apmref)
 {
 	TfwApmHMCtl *hmctl = &((TfwApmData *)apmref)->hmctl;
 	TfwApmHM *hm = READ_ONCE(hmctl->hm);
-	tfw_str_eq_flags_t flags = TFW_STR_EQ_CASEI;
 
 	BUG_ON(!hm);
-	if (tfw_str_eq_cstr(uri_path, hm->url, hm->urlsz, flags))
+	if (tfw_str_eq_cstr(uri_path, hm->url, hm->urlsz, TFW_STR_EQ_CASEI))
 		atomic64_inc(&hmctl->rcount);
 }
 
@@ -1353,7 +1352,6 @@ tfw_apm_hm_srv_eq(const char *name, TfwServer *srv)
 	return false;
 }
 
-
 /*
  * Calculation of general health monitoring statistics (for procfs).
  * Function allocates new TfwHMStats object which must be freed by
@@ -1403,7 +1401,7 @@ tfw_apm_get_hm(const char *name, void **res_hm)
 	}
 	list_for_each_entry(hm, &tfw_hm_list, list) {
 		if (!strcasecmp(name, hm->name)) {
-			*res_hm = hm;//!!! (void *)
+			*res_hm = hm;
 			return true;
 		}
 	}
@@ -1452,7 +1450,7 @@ tfw_cfgop_apm_add_hm_req(const char *req_cstr, TfwApmHM *hm_entry)
 	hm_entry->req = (char *)__get_free_pages(GFP_KERNEL,
 						     get_order(size));
 	if (!hm_entry->req) {
-		TFW_ERR_NL("Can't allocate memory for helth"
+		TFW_ERR_NL("Can't allocate memory for health"
 			   " monitoring request\n");
 		return -ENOMEM;
 	}
@@ -1624,7 +1622,6 @@ tfw_cfgop_apm_server_failover(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	if (tfw_cfg_check_val_n(ce, 3))
 		return -EINVAL;
-
 	if (ce->attr_n) {
 		TFW_ERR_NL("Unexpected attributes\n");
 		return -EINVAL;
@@ -1684,7 +1681,6 @@ tfw_cfgop_begin_apm_hm(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	if (tfw_cfg_check_val_n(ce, 1))
 		return -EINVAL;
-
 	if (ce->attr_n) {
 		TFW_ERR_NL("Unexpected attributes\n");
 		return -EINVAL;
@@ -1707,8 +1703,8 @@ tfw_cfgop_finish_apm_hm(TfwCfgSpec *cs)
 	BUG_ON(!tfw_hm_entry);
 	BUG_ON(list_empty(&tfw_hm_list));
 	if (!tfw_hm_entry->codes && !tfw_hm_entry->crc32) {
-		TFW_ERR_NL("Response codes and crc32 values are not"
-			   " configured for '%s'\n", cs->name);
+		TFW_ERR_NL("At least one of 'resp_code' or 'resp_crc32' values"
+			   " must be configured for '%s'\n", cs->name);
 		return -EINVAL;
 	}
 
@@ -1769,9 +1765,9 @@ static int
 tfw_cfgop_apm_hm_resp_crc32(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	u32 crc32;
+
 	if (tfw_cfg_check_single_val(ce))
 		return -EINVAL;
-
 	if (tfw_cfg_parse_int(ce->vals[0], &crc32)) {
 		TFW_ERR_NL("Unable to parse crc32 value: '%s'\n", ce->vals[0]);
 		return -EINVAL;
@@ -1789,7 +1785,6 @@ tfw_cfgop_apm_hm_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	if (tfw_cfg_check_single_val(ce))
 		return -EINVAL;
-
 	if (tfw_cfg_parse_int(ce->vals[0], &timeout)) {
 		TFW_ERR_NL("Unable to parse http timeout value: '%s'\n",
 			   ce->vals[0]);
@@ -1813,7 +1808,7 @@ static TfwCfgSpec tfw_apm_hm_specs[] = {
 	},
 	{
 		.name		= "request_url",
-		.deflt		= TFW_APM_DFLT_URL,//!!!
+		.deflt		= TFW_APM_DFLT_URL,
 		.handler	= tfw_cfgop_apm_hm_req_url,
 		.allow_none	= false,
 		.allow_repeat	= false,
