@@ -732,7 +732,7 @@ spec_find(TfwCfgSpec specs[], const char *name)
 	return NULL;
 }
 
-static void
+static int
 __spec_start_handling(TfwCfgSpec *parent, TfwCfgSpec specs[])
 {
 	TfwCfgSpec *spec;
@@ -746,9 +746,16 @@ __spec_start_handling(TfwCfgSpec *parent, TfwCfgSpec specs[])
 		BUG_ON(!spec->handler);
 		if (spec->handler == &tfw_cfg_handle_children)
 			BUG_ON(!spec->cleanup);
-		BUG_ON(parent && spec->allow_reconfig && !parent->allow_reconfig);
-		spec->__called_now = false;
+		if (parent && !parent->allow_reconfig && spec->allow_reconfig) {
+			TFW_WARN_NL("Directive '%s' doesn't allow "
+				    "reconfiguration required for directive '%s'"
+				    "\n",
+				    parent->name, spec->name);
+			return -EINVAL;
+		}
 	}
+
+	return 0;
 }
 
 static void
@@ -1138,7 +1145,8 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 		return ret;
 
 	/* Prepare child TfwCfgSpec for parsing. */
-	__spec_start_handling(cs, nested_specs);
+	if ((ret = __spec_start_handling(cs, nested_specs)))
+		return ret;
 
 	/*
 	 * We get to this function when the caller finds
