@@ -1737,7 +1737,7 @@ tfw_cfgop_cleanup_srv_cfgs(bool reconf_failed)
 	TfwCfgSrvGroup *sg_cfg, *tmp;
 
 	/*
-	 * Default group may exist in sg_cfg_list if configuration parsing
+	 * Default group may be present in sg_cfg_list if configuration parsing
 	 * failed just before cfgend.
 	 */
 	if (tfw_cfg_sg_def && list_empty(&tfw_cfg_sg_def->list))
@@ -1757,11 +1757,9 @@ tfw_cfgop_cleanup_srv_cfgs(bool reconf_failed)
 
 /**
  * Clean everything produced during parsing "server" and "srv_group" entries.
- *
- * Live reconfiguration may fail: on parsing stage
  */
 static void
-tfw_cfgop_cleanup_srv_groups(TfwCfgSpec *cs)
+__tfw_cfgop_cleanup_srv_groups(void)
 {
 	/*
 	 * Configuration failed before tfw_sock_srv_start():
@@ -1780,6 +1778,12 @@ tfw_cfgop_cleanup_srv_groups(TfwCfgSpec *cs)
 	 * Active configuration will be cleaned up if tfw_sock_srv_stop()
 	 * was called.
 	 */
+}
+
+static void
+tfw_cfgop_cleanup_srv_groups(TfwCfgSpec *cs)
+{
+	__tfw_cfgop_cleanup_srv_groups();
 }
 
 /**
@@ -1806,6 +1810,18 @@ tfw_sock_srv_cfgstart(void)
 	memset(&tfw_cfg_is_set, 0, sizeof(tfw_cfg_is_set));
 
 	return 0;
+}
+
+static void
+tfw_sock_srv_cfgclean(void)
+{
+	/*
+	 * Two new server group are created in cfgstart(). It's almost like
+	 * processing of 'srv_group` directive, so cleanup is required even
+	 * if configuration isn't parsed successfully and no real 'srv_group'
+	 * directives was met.
+	 */
+	__tfw_cfgop_cleanup_srv_groups();
 }
 
 static int
@@ -2213,10 +2229,11 @@ static TfwCfgSpec tfw_sock_srv_specs[] = {
 	{ 0 }
 };
 
-TfwMod tfw_sock_srv_mod = {
+static TfwMod tfw_sock_srv_mod = {
 	.name		= "sock_srv",
 	.cfgstart	= tfw_sock_srv_cfgstart,
 	.cfgend		= tfw_sock_srv_cfgend,
+	.cfgclean	= tfw_sock_srv_cfgclean,
 	.start		= tfw_sock_srv_start,
 	.stop		= tfw_sock_srv_stop,
 	.specs		= tfw_sock_srv_specs,

@@ -24,7 +24,7 @@
  * Or, that singular header fields may not be duplicated in an HTTP header.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -57,7 +57,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta static limiting classifier");
-MODULE_VERSION("0.2.0");
+MODULE_VERSION("0.3.0");
 MODULE_LICENSE("GPL");
 
 /* We account users with FRANG_FREQ frequency per second. */
@@ -78,14 +78,13 @@ typedef struct {
  *   responses longer than 68 years;
  */
 typedef struct {
-	long		cnt;
+	unsigned int	cnt;
 	unsigned int	ts;
 } __attribute__((packed)) FrangRespCodeStat;
 
 #define FRANG_HTTP_CODE_MIN 100
 #define FRANG_HTTP_CODE_MAX 599
 #define FRANG_HTTP_CODE_BIT_NUM(code) ((code) - FRANG_HTTP_CODE_MIN)
-#define FRANG_RESP_TIME_PERIOD (1 << (sizeof(int) * 8 - 1))
 
 /**
  * Response code block setting
@@ -174,6 +173,17 @@ do {									\
 #define frang_limmsg(lim_name, curr_val, lim, addr)			\
 	frang_msg(lim_name " exceeded", (addr), ": %ld (lim=%ld)\n",	\
 		  (long)curr_val, (long)lim)
+
+#ifdef DEBUG
+#define frang_dbg(fmt_msg, addr, ...)					\
+do {									\
+	char abuf[TFW_ADDR_STR_BUF_SIZE] = {0};				\
+	tfw_addr_fmt_v6(&(addr)->v6.sin6_addr, 0, abuf);		\
+	TFW_DBG("frang: " fmt_msg, abuf, ##__VA_ARGS__);		\
+} while (0)
+#else
+#define frang_dbg(...)
+#endif
 
 static int
 frang_conn_limit(FrangAcc *ra, struct sock *unused)
@@ -541,18 +551,21 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	return ret;
 }
 
+/**
+ * Monotonically increasing time quantums. The configured time frame is devided
+ * by FRANG_FREQ slots to get the quantums granularity.
+ */
 static unsigned int
 frang_resp_quantum(void)
 {
-	return ((jiffies / HZ) % FRANG_RESP_TIME_PERIOD) * FRANG_FREQ
-		/ frang_cfg.http_resp_code_block->tf;
+	return jiffies * FRANG_FREQ / (frang_cfg.http_resp_code_block->tf * HZ);
 }
 
 static int
 frang_bad_resp_limit(FrangAcc *ra)
 {
 	FrangRespCodeStat *stat = ra->resp_code_stat;
-	long cnt = 0;
+	unsigned long cnt = 0;
 	const unsigned int ts = frang_resp_quantum();
 	int i = 0;
 
@@ -682,15 +695,18 @@ do {									\
 } while (0)
 
 static int
-frang_http_req_process(FrangAcc *ra, TfwConn *conn, struct sk_buff *skb,
-		       unsigned int off)
+frang_http_req_process(FrangAcc *ra, TfwConn *conn, const TfwFsmData *data)
 {
 	int r = TFW_PASS;
-	TfwHttpReq *req = container_of(conn->msg, TfwHttpReq, msg);
+	TfwHttpReq *req = (TfwHttpReq *)data->req;
+	struct sk_buff *skb = data->skb;
 	struct sk_buff *head_skb = ss_skb_peek(&req->msg.skb_list);
 	__FRANG_FSM_INIT();
 
 	BUG_ON(!ra);
+	BUG_ON(req != container_of(conn->msg, TfwHttpReq, msg));
+	frang_dbg("check request for client %s, acc=%p\n",
+		  &FRANG_ACC2CLI(ra)->addr, ra);
 
 	spin_lock(&ra->lock);
 
@@ -915,7 +931,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, struct sk_buff *skb,
 
 	/* All limits are verified for current request. */
 	__FRANG_FSM_STATE(Frang_Req_Done) {
-		tfw_gfsm_move(&conn->state, TFW_FRANG_REQ_FSM_DONE, skb, off);
+		tfw_gfsm_move(&conn->state, TFW_FRANG_REQ_FSM_DONE, data);
 		__FRANG_FSM_EXIT();
 	}
 
@@ -928,13 +944,13 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, struct sk_buff *skb,
 }
 
 static int
-frang_http_req_handler(void *obj, struct sk_buff *skb, unsigned int off)
+frang_http_req_handler(void *obj, const TfwFsmData *data)
 {
 	int r;
 	TfwConn *conn = (TfwConn *)obj;
 	FrangAcc *ra = conn->sk->sk_security;
 
-	r = frang_http_req_process(ra, conn, skb, off);
+	r = frang_http_req_process(ra, conn, data);
 	if (r == TFW_BLOCK && frang_cfg.ip_block)
 		tfw_filter_block_ip(&FRANG_ACC2CLI(ra)->addr.v6.sin6_addr);
 
@@ -954,15 +970,17 @@ frang_resp_code_range(const int n)
  * for collecting purposes only.
  */
 static int
-frang_resp_handler(void *obj, struct sk_buff *skb, unsigned int off)
+frang_resp_handler(void *obj, const TfwFsmData *data)
 {
-	TfwHttpReq *req = (TfwHttpReq *)obj;
-	TfwHttpResp *resp = (TfwHttpResp *)req->resp;
+	TfwHttpReq *req = (TfwHttpReq *)data->req;
+	TfwHttpResp *resp = (TfwHttpResp *)data->resp;
 	FrangAcc *ra = (FrangAcc *)req->conn->sk->sk_security;
 	FrangRespCodeStat *stat = ra->resp_code_stat;
 	const FrangHttpRespCodeBlock *conf = frang_cfg.http_resp_code_block;
-	unsigned int ts;
-	int i;
+	unsigned int ts, i;
+
+	frang_dbg("client %s check response %d, acc=%p\n",
+		  &FRANG_ACC2CLI(ra)->addr, resp->status, ra);
 
 	if (!frang_resp_code_range(resp->status)
 	    || !test_bit(FRANG_HTTP_CODE_BIT_NUM(resp->status), conf->codes))
@@ -974,9 +992,10 @@ frang_resp_handler(void *obj, struct sk_buff *skb, unsigned int off)
 	i = ts % FRANG_FREQ;
 	if (ts != stat[i].ts) {
 		stat[i].ts = ts;
-		stat[i].cnt = 0;
+		stat[i].cnt = 1;
+	} else {
+		++stat[i].cnt;
 	}
-	++stat[i].cnt;
 
 	spin_unlock(&ra->lock);
 
@@ -1186,6 +1205,7 @@ frang_set_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (frang_parse_ushort(ce->vals[ce->val_n - 2], &cb->limit)
 	    || frang_parse_ushort(ce->vals[ce->val_n - 1], &cb->tf))
 		return -EINVAL;
+
 	return frang_register_fsm_resp();
 }
 
@@ -1372,6 +1392,7 @@ frang_init(void)
 				       TFW_FRANG_REQ_FSM_INIT);
 	if (prio0 < 0) {
 		TFW_ERR("frang: can't register gfsm msg hook\n");
+		r = prio0;
 		goto err_hook;
 	}
 	prio1 = tfw_gfsm_register_hook(TFW_FSM_HTTP,
@@ -1380,6 +1401,7 @@ frang_init(void)
 				       TFW_FRANG_REQ_FSM_INIT);
 	if (prio1 < 0) {
 		TFW_ERR("frang: can't register gfsm chunk hook\n");
+		r = prio1;
 		goto err_hook2;
 	}
 
@@ -1397,7 +1419,7 @@ err_fsm:
 static void __exit
 frang_exit(void)
 {
-	TFW_DBG("Frang module exit");
+	TFW_DBG("Frang module exit\n");
 	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio1, TFW_HTTP_FSM_REQ_CHUNK);
 	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio0, TFW_HTTP_FSM_REQ_MSG);
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_REQ);
