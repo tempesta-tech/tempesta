@@ -102,7 +102,7 @@ tfw_http_sticky_send_302(TfwHttpReq *req, StickyVal *sv)
 	TfwHttpMsg *hmresp;
 	char buf[sizeof(*sv) * 2];
 
-	if (!(hmresp = tfw_http_msg_alloc(Conn_Srv, HTTP_MSG_DEFAULT)))
+	if (!(hmresp = tfw_http_msg_alloc_light(Conn_Srv)))
 		return -ENOMEM;
 	/*
 	 * Form the cookie as:

@@ -836,30 +836,13 @@ tfw_http_msg_free(TfwHttpMsg *m)
 EXPORT_SYMBOL(tfw_http_msg_free);
 
 /**
- * Allocate a new error response message.
- * This type of message is not parsed or adjusted before it's sent out.
- * That allows for a shorter (limited) initialization.
- */
-TfwHttpMsg *
-tfw_http_msg_alloc_err_resp(void)
-{
-	TfwHttpMsg *hm;
-
-	if (!(hm = (TfwHttpMsg *)tfw_pool_new(TfwHttpResp, TFW_POOL_ZERO)))
-		return NULL;
-	ss_skb_queue_head_init(&hm->msg.skb_list);
-
-	return hm;
-}
-
-/**
  * Allocate a new HTTP message.
- * @intent indicates how complex a message object is needed. When
- * HTTP_MSG_DEFAULT specified, the allocated message is set up and
- * initialized with full support for parsing and subsequent adjustment.
+ * @full indicates how complex a message object is needed. When @full
+ * is true, the message is set up and initialized with full support
+ * for parsing and subsequent adjustment.
  */
 TfwHttpMsg *
-tfw_http_msg_alloc(int type, int intent)
+__tfw_http_msg_alloc(int type, bool full)
 {
 	TfwHttpMsg *hm = (type & Conn_Clnt)
 			 ? (TfwHttpMsg *)tfw_pool_new(TfwHttpReq,
@@ -869,8 +852,9 @@ tfw_http_msg_alloc(int type, int intent)
 	if (!hm)
 		return NULL;
 
-	if (intent != HTTP_MSG_LIGHT) {
-		hm->h_tbl = (TfwHttpHdrTbl *)tfw_pool_alloc(hm->pool, TFW_HHTBL_SZ(1));
+	if (full) {
+		hm->h_tbl = (TfwHttpHdrTbl *)tfw_pool_alloc(hm->pool,
+							    TFW_HHTBL_SZ(1));
 		if (unlikely(!hm->h_tbl)) {
 			TFW_WARN("Insufficient memory to create message\n");
 			tfw_pool_destroy(hm->pool);
@@ -879,20 +863,20 @@ tfw_http_msg_alloc(int type, int intent)
 		hm->h_tbl->size = __HHTBL_SZ(1);
 		hm->h_tbl->off = TFW_HTTP_HDR_RAW;
 		memset(hm->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwStr));
+
+		if (type & Conn_Clnt)
+			tfw_http_init_parser_req((TfwHttpReq *)hm);
+		else
+			tfw_http_init_parser_resp((TfwHttpResp *)hm);
 	}
 
 	ss_skb_queue_head_init(&hm->msg.skb_list);
 
 	if (type & Conn_Clnt) {
-		tfw_http_init_parser_req((TfwHttpReq *)hm);
-
 		INIT_LIST_HEAD(&hm->msg.seq_list);
 		INIT_LIST_HEAD(&((TfwHttpReq *)hm)->fwd_list);
 		INIT_LIST_HEAD(&((TfwHttpReq *)hm)->nip_list);
 		hm->destructor = tfw_http_req_destruct;
-	}
-	else {
-		tfw_http_init_parser_resp((TfwHttpResp *)hm);
 	}
 
 	return hm;
