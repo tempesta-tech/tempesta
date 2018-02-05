@@ -3,7 +3,7 @@
  *
  * Transport Layer Security (TLS) implementation.
  *
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -90,15 +90,16 @@ ttls_ssl_close_notify(TfwTlsContext *tls)
 }
 
 /**
- * Decrypted response messages should be directly placed in TDB area
+ * TODO Decrypted response messages should be directly placed in TDB area
  * to avoid copying.
  */
 static int
-tfw_tls_msg_process(void *conn, struct sk_buff *skb, unsigned int off)
+tfw_tls_msg_process(void *conn, const TfwFsmData *data)
 {
 	int r;
 	TfwConn *c = conn;
 	TfwTlsContext *tls = tfw_tls_context(c);
+	struct sk_buff *skb = data->skb;
 
 	tls_dbg(c, "=>");
 
@@ -109,6 +110,7 @@ tfw_tls_msg_process(void *conn, struct sk_buff *skb, unsigned int off)
 		return TFW_PASS; /* more data needed */
 	} else if (r == 0) {
 		struct sk_buff *nskb;
+		TfwFsmData data = {};
 
 		nskb = alloc_skb(MAX_TCP_HEADER + MAX_TLS_PAYLOAD, GFP_ATOMIC);
 		if (unlikely(!nskb))
@@ -132,7 +134,9 @@ tfw_tls_msg_process(void *conn, struct sk_buff *skb, unsigned int off)
 
 		skb_trim(nskb, r);
 
-		r = tfw_gfsm_move(&c->state, TFW_TLS_FSM_DATA_READY, nskb, 0);
+		/* FIXME skb leakage: seems either @skb or @nskb isn't freed. */
+		data.skb = nskb;
+		r = tfw_gfsm_move(&c->state, TFW_TLS_FSM_DATA_READY, &data);
 		if (r == TFW_BLOCK)
 			return TFW_BLOCK;
 

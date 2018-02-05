@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * TODO Stress/overload module for the local system (issue #100).
+ * TODO Stress/overload module for the local system (issue #488).
  *
  * Copyright (C) 2012-2013 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015 Tempesta Technologies, Inc.
