@@ -59,12 +59,20 @@
  * @start and @stop callbacks are invoked when corresponding events are
  * received via sysctl. The @start is called after the configuration is
  * parsed and all @specs are handled by modules.
+ *
+ * @cfgstart, @cfgend and @cfgclean are optional callbacks that are invoked
+ * during configuration parsing. @cfgstart is called just before parsing if
+ * additional initialization is required. @cfgend is called after
+ * configuration was successfully parsed till the end. It's helpful for a
+ * module, that require configuration information from other modules.
+ * @cfgclean is called as the final step during configuration cleanup.
  */
 /**
  * @list	- member in the list of modules;
  * @name	- module name, [A-Za-z0-9_], starts with a letter;
  * @cfgstart	- called before configuration is parsed;
- * @cfgend	- called after configuration is parsed;
+ * @cfgend	- called after configuration is fully parsed;
+ * @cfgclean	- called after @specs was cleaned to finish cleanup process;
  * @start	- called to start or reconfig a module;
  * @stop	- called to stop a module when Tempesta is stopped;
  * @specs	- array of configuration directives specifications
@@ -75,6 +83,7 @@ typedef struct {
 	const char		*name;
 	int			(*cfgstart)(void);
 	int			(*cfgend)(void);
+	void			(*cfgclean)(void);
 	int			(*start)(void);
 	void			(*stop)(void);
 	TfwCfgSpec		*specs;
