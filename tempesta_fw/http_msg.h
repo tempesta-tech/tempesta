@@ -38,12 +38,6 @@ typedef struct {
 	struct sk_buff	*skb;
 } TfwMsgIter;
 
-/* Flags for specification of HTTP message creation type. */
-enum {
-	HTTP_MSG_DEFAULT,	/* Full http message object. */
-	HTTP_MSG_LIGHT		/* Message object without headers table. */
-};
-
 static inline void
 __tfw_http_msg_set_str_data(TfwStr *str, void *data, struct sk_buff *skb)
 {
@@ -66,6 +60,20 @@ static inline void
 tfw_http_msg_srvhdr_val(TfwStr *hdr, unsigned id, TfwStr *val)
 {
 	__http_msg_hdr_val(hdr, id, val, false);
+}
+
+TfwHttpMsg *__tfw_http_msg_alloc(int type, bool full);
+
+static inline TfwHttpMsg *
+tfw_http_msg_alloc(int type)
+{
+	return __tfw_http_msg_alloc(type, true);
+}
+
+static inline TfwHttpMsg *
+tfw_http_msg_alloc_light(int type)
+{
+	return __tfw_http_msg_alloc(type, false);
 }
 
 int __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str, void *data,
@@ -94,11 +102,7 @@ int tfw_http_msg_add_data(TfwMsgIter *it, TfwHttpMsg *hm, TfwStr *field,
 
 void tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start);
 int tfw_http_msg_hdr_close(TfwHttpMsg *hm, unsigned int id);
-
 int tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm);
-
-TfwHttpMsg *tfw_http_msg_alloc(int type, int intent);
-TfwHttpMsg *tfw_http_msg_alloc_err_resp(void);
 void tfw_http_msg_free(TfwHttpMsg *m);
 
 #endif /* __TFW_HTTP_MSG_H__ */
