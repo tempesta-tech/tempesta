@@ -573,11 +573,10 @@ class ServerConnection(asyncore.dispatcher_with_send):
 
 class Server(asyncore.dispatcher):
 
-    def __init__(self, port, host=None, conns_n=None, keep_alive=None, hm=None):
+    def __init__(self, port, host=None, conns_n=None, keep_alive=None):
         asyncore.dispatcher.__init__(self)
         self.tester = None
         self.port = port
-        self.hm = hm
         self.connections = []
         if conns_n is None:
             conns_n = tempesta.server_conns_default()

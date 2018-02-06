@@ -137,7 +137,8 @@ class StagedDeproxy(deproxy.Deproxy):
              " stages = %d, total stages count = %d"
              % (self.stages_processed, self.stages_n))
 
-    def set_stages(self, stages):
+    def configure(self, sg_name, stages):
+        self.sg_name = sg_name
         self.stages = stages
         self.stages_n = len(stages)
         self.current_stage = self.stages.pop(0)
@@ -152,13 +153,15 @@ class StagedDeproxy(deproxy.Deproxy):
         return True
 
     def get_server_path(self):
-        return 'default/%s:%s' % (self.servers[0].ip, self.servers[0].port)
+        return '%s/%s:%s' % (self.sg_name, self.servers[0].ip,
+                             self.servers[0].port)
 
 
 class TestHealthMonitor(functional.FunctionalTest):
 
     tfw_clnt_msg_otherr = True
     messages = 500000
+    srv_group = 'srv_grp1'
 
     def create_tester(self, messages):
         """
@@ -183,7 +186,7 @@ class TestHealthMonitor(functional.FunctionalTest):
         ch_disabled.server_response = make_response(200, expected=False)
         ch_disabled.response = make_502_expected()
         self.tester = StagedDeproxy(messages, self.client, self.servers)
-        self.tester.set_stages([
+        self.tester.configure(self.srv_group, [
             Stage(
                 self.tester, self.tempesta,
                 self.client, ch_enabled,
@@ -213,7 +216,13 @@ class TestHealthMonitor(functional.FunctionalTest):
 
     def create_servers(self):
         p = tempesta.upstream_port_start_from()
-        self.servers = [deproxy.Server(port=p, conns_n=3, hm='h_monitor1')]
+        self.servers = [deproxy.Server(port=p, conns_n=3)]
+
+    def configure_tempesta(self):
+        sg = tempesta.ServerGroup(self.srv_group, hm='h_monitor1')
+        for s in self.servers:
+            sg.add_server(s.ip, s.port, s.conns_n)
+        self.tempesta.config.add_sg(sg)
 
     def assert_tempesta(self):
         self.tester.assert_stages()
@@ -228,6 +237,9 @@ class TestHealthMonitor(functional.FunctionalTest):
         directives and options.
         """
         config = (
+            'sched_http_rules {\n'
+            'match srv_grp1 * * * ;\n'
+            '}\n'
             'server_failover_http 404 300 10;\n'
             'health_check h_monitor1 {\n'
             'request "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";\n'

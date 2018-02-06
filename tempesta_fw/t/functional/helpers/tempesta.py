@@ -137,21 +137,21 @@ class Stats(object):
 
 class ServerGroup(object):
 
-    def __init__(self, name='default', sched='ratio'):
+    def __init__(self, name='default', sched='ratio', hm=None):
         self.name = name
+        self.hm = hm
         self.implicit = (name == 'default')
         self.sched = sched
         self.servers = []
         # Server group options, inserted after servers.
         self.options = ''
 
-    def add_server(self, ip, port, conns=server_conns_default(), hm=None):
+    def add_server(self, ip, port, conns=server_conns_default()):
         error.assertTrue(conns <= server_conns_max())
         error.assertTrue(len(self.servers) < servers_in_group())
         conns_str = (' conns_n=%d' % conns if (conns != server_conns_default())
                      else '')
-        hmonitor_str = (' health=%s' % hm if hm else '')
-        self.servers.append('server %s:%d%s%s;' % (ip, port, conns_str, hmonitor_str))
+        self.servers.append('server %s:%d%s;' % (ip, port, conns_str))
 
     def get_config(self):
         sg = ''
@@ -159,8 +159,10 @@ class ServerGroup(object):
             sg = '\n'.join(['sched %s;' % self.sched] + self.servers
                            + [self.options])
         else:
+            hm_str = (' health=%s' % self.hm if self.hm else '')
             sg = '\n'.join(
-                ['srv_group %s {' % self.name] + ['sched %s;' % self.sched] +
+                ['srv_group %s%s {' % (self.name, hm_str)] +
+                ['sched %s;' % self.sched] +
                 self.servers + [self.options] + ['}'])
         return sg
 
