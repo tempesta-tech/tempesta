@@ -3044,8 +3044,10 @@ tfw_http_req_key_calc(TfwHttpReq *req)
 
 	req->hash = tfw_hash_str(&req->uri_path);
 
-	tfw_http_msg_clnthdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
-				 TFW_HTTP_HDR_HOST, &host);
+	TFW_STR_INIT(&host);
+	if (!(req->flags & TFW_HTTP_HMONITOR))
+		tfw_http_msg_clnthdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
+					 TFW_HTTP_HDR_HOST, &host);
 	if (!TFW_STR_EMPTY(&host))
 		req->hash ^= tfw_hash_str(&host);
 
