@@ -118,9 +118,14 @@ tfw_cleanup(struct list_head *mod_list)
 	 * Wait until all network activity is stopped
 	 * before data in modules can be cleaned up safely.
 	 */
-	ss_synchronize();
+	if (!tfw_runstate_is_reconfig())
+		ss_synchronize();
+
 	tfw_cfg_cleanup(mod_list);
-	tfw_sg_wait_release();
+
+	if (!tfw_runstate_is_reconfig())
+		tfw_sg_wait_release();
+	TFW_LOG("New configuration is cleaned.\n");
 }
 
 static inline void
@@ -237,6 +242,7 @@ stop_mods:
 	WRITE_ONCE(tfw_reconfig, false);
 	tfw_mods_stop(mod_list);
 cleanup:
+	TFW_LOG("Configuration parsing has failed. Clean up...\n");
 	tfw_cleanup(mod_list);
 	return ret;
 }
