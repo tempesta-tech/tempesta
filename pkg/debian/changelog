@@ -1,3 +1,13 @@
+tempesta-fw-dkms (0.5.0pre8) stretch; urgency=medium
+
+  * Update supported Linux kernel to 4.9.35
+  * Fix memory leaks under high load
+  * Add predictive and dynamic ratio scheduler
+  * On-the-fly reconfiguration
+  * A lot of other bug fixes and improvements
+
+ -- Tempeststa Technologies, Inc. <info@tempesta-tech.com>  Tue, 23 Jan 2018 08:58:30 +0500
+
 tempesta-fw-dkms (0.5.0) stretch; urgency=medium
 
   * Initial release

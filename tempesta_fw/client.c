@@ -4,7 +4,7 @@
  * Clients handling.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -73,6 +73,7 @@ tfw_client_put(TfwClient *cli)
 
 	spin_unlock(cli->hb_lock);
 
+	TFW_DBG("free client: cli=%p\n", cli);
 	kmem_cache_free(cli_cache, cli);
 	TFW_DEC_STAT_BH(clnt.online);
 }
@@ -86,10 +87,10 @@ EXPORT_SYMBOL(tfw_client_put);
  * The returned TfwClient reference must be released via tfw_client_put()
  * when the @sk is closed.
  *
- * TODO #100: evict connections and/or clients and drop their accouning.
- * For now a client is freed immediately when the last its connection is closed,
- * probably we should evict clients after some timeout to keep their classifier
- * statistic for following sessions...
+ * TODO #488 (#100): evict connections and/or clients and drop their accounting.
+ * For now a client is freed immediately when the last of its connections is
+ * closed, probably we should evict clients after some timeout to keep their
+ * classifier statistic for following sessions...
  */
 TfwClient *
 tfw_client_obtain(struct sock *sk, void (*init)(TfwClient *))
