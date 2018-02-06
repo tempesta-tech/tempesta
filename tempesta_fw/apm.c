@@ -1167,7 +1167,7 @@ cleanup:
 
 static inline void
 tfw_apm_hm_stop_timer(TfwApmData *data) {
-	BUG_ON(!data);	
+	BUG_ON(!data);
 	atomic_set(&data->hmctl.rearm, 0);
 	smp_mb__after_atomic();
 	del_timer_sync(&data->hmctl.timer);
@@ -1472,7 +1472,7 @@ tfw_cfgop_apm_add_hm_url(const char *url, TfwApmHM *hm_entry)
 }
 
 static void
-tfw_cfgop_cleanup_apm_hm(TfwCfgSpec *cs)
+__tfw_cfgop_cleanup_apm_hm(void)
 {
 	TfwApmHM *hm, *tmp;
 
@@ -1486,6 +1486,12 @@ tfw_cfgop_cleanup_apm_hm(TfwCfgSpec *cs)
 		kfree(hm);
 	}
 	INIT_LIST_HEAD(&tfw_hm_list);
+}
+
+static void
+tfw_cfgop_cleanup_apm_hm(TfwCfgSpec *cs)
+{
+	__tfw_cfgop_cleanup_apm_hm();
 }
 
 static int
@@ -1560,6 +1566,16 @@ tfw_apm_cfgend(void)
 	tfw_apm_jtmwindow = tfw_apm_jtmintrvl * tfw_apm_tmwscale;
 
 	return 0;
+}
+
+static void
+tfw_apm_cfgclean(void)
+{
+	/*
+	 * Removal of default 'auto' health monitor, which is
+	 * created in cfgstart().
+	 */
+	__tfw_cfgop_cleanup_apm_hm();
 }
 
 /**
@@ -1866,6 +1882,7 @@ TfwMod tfw_apm_mod = {
 	.name		= "apm",
 	.cfgstart	= tfw_apm_cfgstart,
 	.cfgend		= tfw_apm_cfgend,
+	.cfgclean	= tfw_apm_cfgclean,
 	.specs		= tfw_apm_specs,
 };
 
