@@ -172,7 +172,7 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 	TfwSrvConn *srv_conn;
 	TfwServer *srv = seq->private;
 	unsigned int qsize[srv->conn_n];
-	bool hm = test_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->hm_flags);
+	bool hm = test_bit(TFW_SRV_B_HMONITOR, &srv->hm_flags);
 	unsigned int val[ARRAY_SIZE(tfw_pstats_ith)] = { 0 };
 	TfwPrcntlStats pstats = {
 		.ith = tfw_pstats_ith,
@@ -212,8 +212,7 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 	if (hm) {
 		TfwHMStats *hm_stats;
 		seq_printf(seq, "HTTP availability\t: %d\n",
-				!test_bit(TFW_SRV_B_SUSPEND,
-					  (unsigned long *)&srv->hm_flags));
+				!tfw_srv_suspended(srv));
 		if ((hm_stats = tfw_apm_hm_stats(srv->apmref))) {
 			seq_printf(seq, "\tTime until next health"
 					" checking\t: %u\n",

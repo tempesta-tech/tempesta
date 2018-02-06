@@ -65,7 +65,7 @@ typedef struct {
 	atomic64_t		refcnt;
 	unsigned int		weight;
 	unsigned int		flags;
-	unsigned int		hm_flags;
+	unsigned long		hm_flags;
 	void			(*cleanup)(void *);
 } TfwServer;
 
@@ -263,20 +263,18 @@ tfw_srv_conn_need_resched(TfwSrvConn *srv_conn)
 }
 
 /*
- * Put server into alive or suspended (exluded from processing) state.
+ * Put server into alive or suspended (excluded from processing) state.
  */
 static inline void
 tfw_srv_mark_alive(TfwServer *srv)
 {
-	if (test_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->hm_flags))
-		clear_bit(TFW_SRV_B_SUSPEND, (unsigned long *)&srv->hm_flags);
+	clear_bit(TFW_SRV_B_SUSPEND, &srv->hm_flags);
 }
 
 static inline void
 tfw_srv_mark_suspended(TfwServer *srv)
 {
-	if (test_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->hm_flags))
-		set_bit(TFW_SRV_B_SUSPEND, (unsigned long *)&srv->hm_flags);
+	set_bit(TFW_SRV_B_SUSPEND, &srv->hm_flags);
 }
 
 /*
@@ -285,8 +283,8 @@ tfw_srv_mark_suspended(TfwServer *srv)
 static inline bool
 tfw_srv_suspended(TfwServer *srv)
 {
-	return test_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->hm_flags)
-		&& test_bit(TFW_SRV_B_SUSPEND, (unsigned long *)&srv->hm_flags);
+	return test_bit(TFW_SRV_B_HMONITOR, &srv->hm_flags)
+		&& test_bit(TFW_SRV_B_SUSPEND, &srv->hm_flags);
 }
 
 /* Server group routines. */
