@@ -747,7 +747,7 @@ tfw_http_hm_control(TfwHttpResp *resp)
 {
 	TfwServer *srv = (TfwServer *)resp->conn->peer;
 
-	if (!test_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->hm_flags))
+	if (!test_bit(TFW_SRV_B_HMONITOR, &srv->hm_flags))
 		return;
 
 	if (tfw_apm_hm_srv_limit(resp->status, srv->apmref)) {
@@ -770,7 +770,7 @@ tfw_http_hm_control(TfwHttpResp *resp)
 static inline void
 tfw_http_hm_srv_update(TfwServer *srv, TfwHttpReq *req)
 {
-	if (test_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->hm_flags))
+	if (test_bit(TFW_SRV_B_HMONITOR, &srv->hm_flags))
 		tfw_apm_hm_srv_rcount_update(&req->uri_path, srv->apmref);
 }
 

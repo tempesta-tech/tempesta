@@ -1201,7 +1201,7 @@ tfw_apm_del_srv(TfwServer *srv)
 		return;
 
 	/* Stop health monitor. */
-	if (test_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->hm_flags))
+	if (test_bit(TFW_SRV_B_HMONITOR, &srv->hm_flags))
 		tfw_apm_hm_disable_srv(srv);
 
 	/* Stop the timer and the percentile calculation. */
@@ -1301,7 +1301,7 @@ tfw_apm_hm_enable_srv(TfwServer *srv, void *hmref)
 
 	BUG_ON(!srv->apmref);
 	BUG_ON(!hm);
-	BUG_ON(test_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->hm_flags));
+	BUG_ON(test_bit(TFW_SRV_B_HMONITOR, &srv->hm_flags));
 
 	/* Set new health monitor for server. */
 	hmctl = &((TfwApmData *)srv->apmref)->hmctl;
@@ -1309,7 +1309,7 @@ tfw_apm_hm_enable_srv(TfwServer *srv, void *hmref)
 
 	/* Init server's health control fields. */
 	atomic64_set(&hmctl->rcount, 0);
-	clear_bit(TFW_SRV_B_SUSPEND, (unsigned long *)&srv->hm_flags);
+	clear_bit(TFW_SRV_B_SUSPEND, &srv->hm_flags);
 
 	/* Start server's health monitoring timer. */
 	atomic_set(&hmctl->rearm, 1);
@@ -1320,13 +1320,13 @@ tfw_apm_hm_enable_srv(TfwServer *srv, void *hmref)
 	WRITE_ONCE(hmctl->jtmstamp, now);
 
 	/* Activate server's health monitor. */
-	set_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->hm_flags);
+	set_bit(TFW_SRV_B_HMONITOR, &srv->hm_flags);
 }
 
 void
 tfw_apm_hm_disable_srv(TfwServer *srv)
 {
-	clear_bit(TFW_SRV_B_HMONITOR, (unsigned long *)&srv->hm_flags);
+	clear_bit(TFW_SRV_B_HMONITOR, &srv->hm_flags);
 	tfw_apm_hm_stop_timer((TfwApmData *)srv->apmref);
 }
 

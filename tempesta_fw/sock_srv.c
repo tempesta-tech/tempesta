@@ -953,8 +953,7 @@ tfw_cfgop_lookup_sg_cfg(const char *name)
 static void
 tfw_cfgop_update_srv_health(TfwServer *srv, const char *hname, void *hm)
 {
-	bool orig_hm = test_bit(TFW_SRV_B_HMONITOR,
-				(unsigned long *)&srv->hm_flags);
+	bool orig_hm = test_bit(TFW_SRV_B_HMONITOR, &srv->hm_flags);
 
 	/*
 	 * Nothing to do if the same server with the same
