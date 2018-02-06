@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -2284,11 +2284,14 @@ tfw_http_hm_drop_resp(TfwHttpReq *req, TfwHttpResp *resp)
  * TODO enter the function depending on current GFSM state.
  */
 static int
-tfw_http_req_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
+tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 {
 	int r = TFW_BLOCK;
+	struct sk_buff *skb = data->skb;
+	unsigned int off = data->off;
 	unsigned int data_off = off;
 	unsigned int skb_len = skb->len;
+	TfwFsmData data_up;
 
 	BUG_ON(!conn->msg);
 	BUG_ON(data_off >= skb_len);
@@ -2326,6 +2329,16 @@ tfw_http_req_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 			 skb_len - off, data_off - off, req->msg.len,
 			 req->version, r);
 
+		/*
+		 * We have to keep @data the same to pass it as is to FSMs
+		 * registered with lower priorities after us, but we must
+		 * feed the new data version to FSMs registered on our states.
+		 */
+		data_up.skb = skb;
+		data_up.off = off;
+		data_up.req = (TfwMsg *)req;
+		data_up.resp = NULL;
+
 		switch (r) {
 		default:
 			TFW_ERR("Unrecognized HTTP request "
@@ -2337,8 +2350,8 @@ tfw_http_req_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 			tfw_client_drop(req, 403, "failed to parse request");
 			return TFW_BLOCK;
 		case TFW_POSTPONE:
-			r = tfw_gfsm_move(&conn->state,
-					  TFW_HTTP_FSM_REQ_CHUNK, skb, off);
+			r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK,
+					  &data_up);
 			TFW_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
 			if (r == TFW_BLOCK) {
 				TFW_INC_STAT_BH(clnt.msgs_filtout);
@@ -2363,8 +2376,7 @@ tfw_http_req_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 			       && (req->content_length != req->body.len));
 		}
 
-		r = tfw_gfsm_move(&conn->state,
-				  TFW_HTTP_FSM_REQ_MSG, skb, off);
+		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_MSG, &data_up);
 		TFW_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
 		/* Don't accept any following requests from the peer. */
 		if (r == TFW_BLOCK) {
@@ -2615,21 +2627,21 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
  * in case of an error.
  */
 static int
-tfw_http_resp_gfsm(TfwHttpMsg *hmresp, struct sk_buff *skb, unsigned int off)
+tfw_http_resp_gfsm(TfwHttpMsg *hmresp, const TfwFsmData *data)
 {
 	int r;
 	TfwHttpReq *req;
 
 	BUG_ON(!hmresp->conn);
 
-	r = tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG, skb, off);
+	r = tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG, data);
 	TFW_DBG3("TFW_HTTP_FSM_RESP_MSG return code %d\n", r);
 	if (r == TFW_BLOCK)
 		goto error;
 	/* Proceed with the next GSFM processing */
 
-	r = tfw_gfsm_move(&hmresp->conn->state,
-			  TFW_HTTP_FSM_LOCAL_RESP_FILTER, skb, off);
+	r = tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_LOCAL_RESP_FILTER,
+			  data);
 	TFW_DBG3("TFW_HTTP_FSM_LOCAL_RESP_FILTER return code %d\n", r);
 	if (r == TFW_PASS)
 		return TFW_PASS;
@@ -2661,9 +2673,7 @@ static int
 tfw_http_resp_cache(TfwHttpMsg *hmresp)
 {
 	TfwHttpReq *req;
-	TfwGState *state;
-	TfwHttpMsg *prev_resp;
-	void *prev_state_obj;
+	TfwFsmData data;
 	time_t timestamp = tfw_current_timestamp();
 
 	/*
@@ -2702,20 +2712,14 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	}
 
 	/*
-	 * This hook isn't in tfw_http_resp_fwd() because it isn't needed
-	 * to count responses from a cache.
-	 * FSM needs TfwHttpReq to record data. It needs TfwHttpResp as well.
-	 * It will be added to the request later in tfw_http_resp_fwd(), but it's
-	 * needed now. Save previous (NULL) value for the sake of safety
+	 * This hook isn't in tfw_http_resp_fwd() because responses from the
+	 * cache shouldn't be accounted.
 	 */
-	state = &hmresp->conn->state;
-	prev_state_obj = state->obj;
-	state->obj = req;
-	prev_resp = req->resp;
-	req->resp = hmresp;
-	tfw_gfsm_move(state, TFW_HTTP_FSM_RESP_MSG_FWD, NULL, 0);
-	state->obj = prev_state_obj;
-	req->resp = prev_resp;
+	data.skb = NULL;
+	data.off = 0;
+	data.req = (TfwMsg *)req;
+	data.resp = (TfwMsg *)hmresp;
+	tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG_FWD, &data);
 
 	/*
 	 * Complete HTTP message has been collected and processed
@@ -2742,9 +2746,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 static void
 tfw_http_resp_terminate(TfwHttpMsg *hm)
 {
-	struct sk_buff *skb = ss_skb_peek_tail(&hm->msg.skb_list);
-
-	BUG_ON(!skb);
+	TfwFsmData data;
 
 	/*
 	 * Note that in this case we don't have data to process.
@@ -2753,7 +2755,13 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 	 * sent to the client. The full skb->len is used as the
 	 * offset to mark this case in the post-processing phase.
 	 */
-	if (tfw_http_resp_gfsm(hm, skb, skb->len) != TFW_PASS)
+	data.skb = ss_skb_peek_tail(&hm->msg.skb_list);
+	BUG_ON(!data.skb);
+	data.off = data.skb->len;
+	data.req = NULL;
+	data.resp = (TfwMsg *)hm;
+
+	if (tfw_http_resp_gfsm(hm, &data) != TFW_PASS)
 		return;
 	tfw_http_resp_cache(hm);
 }
@@ -2763,13 +2771,16 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
  * TODO enter the function depending on current GFSM state.
  */
 static int
-tfw_http_resp_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
+tfw_http_resp_process(TfwConn *conn, const TfwFsmData *data)
 {
 	int r = TFW_BLOCK;
+	struct sk_buff *skb = data->skb;
+	unsigned int off = data->off;
 	unsigned int data_off = off;
 	unsigned int skb_len = skb->len;
 	TfwHttpReq *bad_req;
 	TfwHttpMsg *hmresp;
+	TfwFsmData data_up;
 	bool filtout = false;
 
 	BUG_ON(!conn->msg);
@@ -2808,6 +2819,16 @@ tfw_http_resp_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 			 skb_len - off, data_off - off, hmresp->msg.len,
 			 hmresp->version, r);
 
+		/*
+		 * We have to keep @data the same to pass it as is to FSMs
+		 * registered with lower priorities after us, but we must
+		 * feed the new data version to FSMs registered on our states.
+		 */
+		data_up.skb = skb;
+		data_up.off = off;
+		data_up.req = NULL;
+		data_up.resp = (TfwMsg *)hmresp;
+
 		switch (r) {
 		default:
 			TFW_ERR("Unrecognized HTTP response "
@@ -2826,8 +2847,8 @@ tfw_http_resp_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 			TFW_INC_STAT_BH(serv.msgs_parserr);
 			goto bad_msg;
 		case TFW_POSTPONE:
-			r = tfw_gfsm_move(&conn->state,
-					  TFW_HTTP_FSM_RESP_CHUNK, skb, off);
+			r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_RESP_CHUNK,
+					  &data_up);
 			TFW_DBG3("TFW_HTTP_FSM_RESP_CHUNK return code %d\n", r);
 			if (r == TFW_BLOCK) {
 				TFW_INC_STAT_BH(serv.msgs_filtout);
@@ -2863,7 +2884,7 @@ tfw_http_resp_process(TfwConn *conn, struct sk_buff *skb, unsigned int off)
 		 * Drop server connection in case of serious error or security
 		 * event.
 		 */
-		r = tfw_http_resp_gfsm(hmresp, skb, off);
+		r = tfw_http_resp_gfsm(hmresp, &data_up);
 		if (unlikely(r < TFW_PASS))
 			return TFW_BLOCK;
 
@@ -2944,25 +2965,25 @@ bad_msg:
  * @return status (application logic decision) of the message processing.
  */
 int
-tfw_http_msg_process(void *conn, struct sk_buff *skb, unsigned int off)
+tfw_http_msg_process(void *conn, const TfwFsmData *data)
 {
 	TfwConn *c = (TfwConn *)conn;
 
 	if (unlikely(!c->msg)) {
 		c->msg = tfw_http_conn_msg_alloc(c);
 		if (!c->msg) {
-			__kfree_skb(skb);
+			__kfree_skb(data->skb);
 			return -ENOMEM;
 		}
 		TFW_DBG2("Link new msg %p with connection %p\n", c->msg, c);
 	}
 
-	TFW_DBG2("Add skb %p to message %p\n", skb, c->msg);
-	ss_skb_queue_tail(&c->msg->skb_list, skb);
+	TFW_DBG2("Add skb %p to message %p\n", data->skb, c->msg);
+	ss_skb_queue_tail(&c->msg->skb_list, data->skb);
 
 	return (TFW_CONN_TYPE(c) & Conn_Clnt)
-		? tfw_http_req_process(c, skb, off)
-		: tfw_http_resp_process(c, skb, off);
+		? tfw_http_req_process(c, data)
+		: tfw_http_resp_process(c, data);
 }
 
 /**
@@ -3398,6 +3419,7 @@ int __init
 tfw_http_init(void)
 {
 	int r;
+
 	/* Make sure @req->httperr doesn't take too much space. */
 	BUILD_BUG_ON(FIELD_SIZEOF(TfwHttpMsg, httperr)
 		     > FIELD_SIZEOF(TfwHttpMsg, parser));
@@ -3408,13 +3430,16 @@ tfw_http_init(void)
 
 	tfw_connection_hooks_register(&http_conn_hooks, TFW_FSM_HTTP);
 
-	/* Must be last call - we can't unregister the hook. */
 	ghprio = tfw_gfsm_register_hook(TFW_FSM_TLS,
 					TFW_GFSM_HOOK_PRIORITY_ANY,
 					TFW_TLS_FSM_DATA_READY,
 					TFW_FSM_HTTP, TFW_HTTP_FSM_INIT);
-	if (ghprio < 0)
+	if (ghprio < 0) {
+		tfw_connection_hooks_unregister(TFW_FSM_HTTP);
+		tfw_gfsm_unregister_fsm(TFW_FSM_HTTP);
 		return ghprio;
+	}
+
 	tfw_mod_register(&tfw_http_mod);
 
 	return 0;
