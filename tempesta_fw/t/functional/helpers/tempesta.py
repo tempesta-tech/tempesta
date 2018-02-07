@@ -155,13 +155,14 @@ class ServerGroup(object):
 
     def get_config(self):
         sg = ''
+        if self.hm:
+            self.options += (' health %s;' % self.hm)
         if (self.name == 'default') and self.implicit:
             sg = '\n'.join(['sched %s;' % self.sched] + self.servers
                            + [self.options])
         else:
-            hm_str = (' health=%s' % self.hm if self.hm else '')
             sg = '\n'.join(
-                ['srv_group %s%s {' % (self.name, hm_str)] +
+                ['srv_group %s {' % self.name] +
                 ['sched %s;' % self.sched] +
                 self.servers + [self.options] + ['}'])
         return sg
