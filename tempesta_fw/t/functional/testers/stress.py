@@ -10,8 +10,8 @@ class StressTest(unittest.TestCase):
     """ Test Suite to use HTTP benchmarks as a clients. Can be used for
     functional testing of schedulers and stress testing for other components.
     """
-
-    backend_connection_errors = 0
+    client_502_errors = 0
+    bce = 0
     pipelined_req = 1
     tfw_msg_errors = False
 
@@ -110,14 +110,12 @@ class StressTest(unittest.TestCase):
         cl_conn_cnt = 0
 
         # number of added errors
-        bce = self.tempesta.stats.cl_msg_other_errors - self.backend_connection_errors
-        total_err = 0
         for c in self.clients:
             req, err, _ = c.results()
             cl_req_cnt += req
             cl_conn_cnt += c.connections * self.pipelined_req
-            total_err += err
-        self.assertLessEqual(total_err, bce, msg='HTTP client detected errors')
+        
+        self.assertLessEqual(self.client_502_errors, self.bce, msg='HTTP client detected errors')
         exp_min = cl_req_cnt
         # Positive allowance: this means some responses are missed by the client.
         # It is believed (nobody actually checked though...) that wrk does not
@@ -144,7 +142,7 @@ class StressTest(unittest.TestCase):
         if self.tfw_msg_errors:
             return
 
-        self.assertTrue(self.tempesta.stats.cl_msg_other_errors <= 0,
+        self.assertTrue(self.tempesta.stats.cl_msg_other_errors == self.client_502_errors,
                         msg=(msg % 'requests'))
         # See comment on "positive allowance" in `assert_clients()`
         expected_err = cl_conn_cnt
@@ -160,6 +158,17 @@ class StressTest(unittest.TestCase):
     def servers_get_stats(self):
         control.servers_get_stats(self.servers)
 
+    def __stats(self):
+        self.tempesta.get_stats()
+        self.bce = self.tempesta.stats.cl_msg_other_errors
+        total_err = 0
+        for c in self.clients:
+            req, err = c.results()
+            total_err += err
+
+        # TODO: calculate 502 separatly
+        self.client_502_errors = total_err
+
     def generic_test_routine(self, tempesta_defconfig):
         """ Make necessary updates to configs of servers, create tempesta config
         and run the routine in you `test_*()` function.
@@ -171,15 +180,13 @@ class StressTest(unittest.TestCase):
         self.tempesta.start()
 
         self.tempesta.get_stats()
-        self.backend_connection_errors = self.tempesta.stats.cl_msg_other_errors
 
         control.clients_run_parallel(self.clients)
         self.show_performance()
 
         # Tempesta statistics is valuable to client assertions.
-        self.tempesta.get_stats()
-
         tf_cfg.dbg(3, "Tempesta stats: %s" % self.tempesta.stats.raw)
+        self.__stats()
 
         self.assert_clients()
         self.assert_tempesta()
