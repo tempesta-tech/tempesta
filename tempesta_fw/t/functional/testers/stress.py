@@ -11,6 +11,7 @@ class StressTest(unittest.TestCase):
     functional testing of schedulers and stress testing for other components.
     """
 
+    backend_connection_errors = 0
     pipelined_req = 1
     tfw_msg_errors = False
 
@@ -127,6 +128,9 @@ class StressTest(unittest.TestCase):
         """ Assert that tempesta had no errors during test. """
         msg = 'Tempesta have errors in processing HTTP %s.'
         cl_conn_cnt = 0
+        # number of added errors
+        bce = self.tempesta.get_stats().cl_msg_other_errors - self.backend_connection_errors
+
         for c in self.clients:
             cl_conn_cnt += c.connections
         self.assertEqual(self.tempesta.stats.cl_msg_parsing_errors, 0,
@@ -161,6 +165,8 @@ class StressTest(unittest.TestCase):
         self.configure_tempesta()
         control.servers_start(self.servers)
         self.tempesta.start()
+
+        self.backend_connection_errors = self.tempesta.get_stats().cl_msg_other_errors
 
         control.clients_run_parallel(self.clients)
         self.show_performance()
