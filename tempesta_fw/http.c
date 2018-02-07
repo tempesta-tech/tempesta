@@ -2324,7 +2324,7 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	 * to prevail over cache misses, so this is not a frequent path.
 	 */
 	if (!(srv_conn = tfw_sched_get_srv_conn((TfwMsg *)req))) {
-		TFW_DBG("Unable to find a backend server\n");
+		TFW_WARN("Unable to find a backend server\n");
 		goto send_502;
 	}
 
