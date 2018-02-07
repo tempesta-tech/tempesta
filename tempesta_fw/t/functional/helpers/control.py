@@ -368,13 +368,13 @@ class TempestaFI(Tempesta):
 class Nginx(stateful.Stateful):
     listen_port = 0
 
-    def __init__(self, listen_port, workers=1):
+    def __init__(self, listen_port, workers=1, code=None):
         self.listen_port = listen_port
         self.node = remote.server
         self.workdir = tf_cfg.cfg.get('Server', 'workdir')
         self.ip = tf_cfg.cfg.get('Server', 'ip')
         self.config = nginx.Config(self.workdir, workers)
-        self.config.add_server(self.ip, self.listen_port)
+        self.config.add_server(self.ip, self.listen_port, code)
         self.clear_stats()
         # Configure number of connections used by TempestaFW.
         self.conns_n = tempesta.server_conns_default()
