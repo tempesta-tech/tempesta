@@ -1503,17 +1503,13 @@ TEST(http_parser, referer)
 	TfwHttpHdrTbl *ht;
 	TfwStr h_referer;
 
-	/*
-	 * URI scheme 'http://' is skipped during
-	 * parsing of 'Referer' header.
-	 */
 	const char *s_referer1 =
-		"tempesta-tech.com:8080"
+		"http://tempesta-tech.com:8080"
 		"/cgi-bin/show.pl?entry=tempesta";
 	const char *s_referer2 =
 		"/cgi-bin/show.pl?entry=tempesta";
 	const char *s_referer3 =
-		"[2001:0db8:11a3:09d7:1f34:8a2e:07a0:765d]"
+		"http://[2001:0db8:11a3:09d7:1f34:8a2e:07a0:765d]"
 		":8080/cgi-bin/show.pl?entry=tempesta";
 
 	FOR_REQ("GET /foo HTTP/1.1\r\n"
@@ -1530,7 +1526,7 @@ TEST(http_parser, referer)
 	}
 
 	FOR_REQ("GET /foo HTTP/1.1\r\n"
-		"Referer: /cgi-bin/show.pl?entry=tempesta\r\n"
+		"Referer:  /cgi-bin/show.pl?entry=tempesta\r\n"
 		"\r\n")
 	{
 		ht = req->h_tbl;
