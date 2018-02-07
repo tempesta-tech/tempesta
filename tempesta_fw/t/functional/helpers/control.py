@@ -152,7 +152,6 @@ class Wrk(Client):
         return Client.form_command(self)
 
     def parse_out(self, stdout, stderr):
-        print ("wrk: %s" % stdout)
         m = re.search(r'(\d+) requests in ', stdout)
         if m:
             self.requests = int(m.group(1))

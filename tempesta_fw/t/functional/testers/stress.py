@@ -125,7 +125,6 @@ class StressTest(unittest.TestCase):
         # it and does not account for those requests.
         # So, [0; concurrent_connections] responses will be missed by the client.
         exp_max = cl_req_cnt + cl_conn_cnt
-        print ("%i %i %i" % (exp_min, self.tempesta.stats.cl_msg_received, exp_max))
         self.assertTrue(
             self.tempesta.stats.cl_msg_received >= exp_min and
             self.tempesta.stats.cl_msg_received <= exp_max
@@ -180,9 +179,7 @@ class StressTest(unittest.TestCase):
         # Tempesta statistics is valuable to client assertions.
         self.tempesta.get_stats()
 
-        print (self.tempesta.stats.raw)
-
-        
+        tf_cfg.dbg(3, "Tempesta stats: %s" % self.tempesta.stats.raw)
 
         self.assert_clients()
         self.assert_tempesta()
