@@ -47,6 +47,7 @@ def version():
 class Stats(object):
     """ Parser for TempestaFW performance statistics (/proc/tempesta/perfstat).
     """
+    raw = ""
 
     def __init__(self):
         self.clear()
@@ -77,6 +78,7 @@ class Stats(object):
         self.srv_rx_bytes = 0
 
     def parse(self, stats):
+        self.raw = stats
         self.ss_pfl_hits = self.parse_option(stats, 'SS pfl hits')
         self.ss_pfl_misses = self.parse_option(stats, 'SS pfl misses')
 

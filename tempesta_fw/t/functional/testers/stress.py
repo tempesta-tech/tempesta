@@ -107,6 +107,11 @@ class StressTest(unittest.TestCase):
         """ Check benchmark result: no errors happen, no packet loss. """
         cl_req_cnt = 0
         cl_conn_cnt = 0
+
+        # number of added errors
+        bce = self.tempesta.stats.cl_msg_other_errors
+        print ("Has %i errors" % bce)
+
         for c in self.clients:
             req, err, _ = c.results()
             cl_req_cnt += req
@@ -119,6 +124,7 @@ class StressTest(unittest.TestCase):
         # it and does not account for those requests.
         # So, [0; concurrent_connections] responses will be missed by the client.
         exp_max = cl_req_cnt + cl_conn_cnt
+        print ("%i %i %i" % (exp_min, self.tempesta.stats.cl_msg_received, exp_max))
         self.assertTrue(
             self.tempesta.stats.cl_msg_received >= exp_min and
             self.tempesta.stats.cl_msg_received <= exp_max
@@ -128,8 +134,6 @@ class StressTest(unittest.TestCase):
         """ Assert that tempesta had no errors during test. """
         msg = 'Tempesta have errors in processing HTTP %s.'
         cl_conn_cnt = 0
-        # number of added errors
-        bce = self.tempesta.get_stats().cl_msg_other_errors - self.backend_connection_errors
 
         for c in self.clients:
             cl_conn_cnt += c.connections
@@ -166,13 +170,18 @@ class StressTest(unittest.TestCase):
         control.servers_start(self.servers)
         self.tempesta.start()
 
-        self.backend_connection_errors = self.tempesta.get_stats().cl_msg_other_errors
+        self.tempesta.get_stats()
+        self.backend_connection_errors = self.tempesta.stats.cl_msg_other_errors
 
         control.clients_run_parallel(self.clients)
         self.show_performance()
 
         # Tempesta statistics is valuable to client assertions.
         self.tempesta.get_stats()
+
+        print (self.tempesta.stats.raw)
+
+        
 
         self.assert_clients()
         self.assert_tempesta()
