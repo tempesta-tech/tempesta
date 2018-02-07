@@ -1142,6 +1142,47 @@ tfw_cfgop_out_sticky_sess(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return tfw_cfgop_sticky_sess(cs, ce, &tfw_cfg_sg_opts->sticky_flags);
 }
 
+static bool
+tfw_cfgop_sg_set_hm_name(TfwCfgSrvGroup *sg_cfg, const char *hname)
+{
+	size_t size = strlen(hname) + 1;
+	sg_cfg->hm_name = kmalloc(size, GFP_KERNEL);
+	if (!sg_cfg->hm_name)
+		return false;
+
+	memcpy(sg_cfg->hm_name, hname, size);
+
+	return true;
+}
+
+static inline int
+tfw_cfgop_health_monitor(TfwCfgSpec *cs, TfwCfgEntry *ce,
+			 TfwCfgSrvGroup *sg_cfg)
+{
+	if (tfw_cfg_check_single_val(ce))
+		return -EINVAL;
+	if (!tfw_cfgop_sg_set_hm_name(sg_cfg, ce->vals[0])) {
+		TFW_ERR_NL("Unable to add group's health"
+			   " monitor name: '%s'\n",
+			   ce->vals[0]);
+		return -ENOMEM;
+	}
+
+	return 0;
+}
+
+static int
+tfw_cfgop_in_health_monitor(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_cfgop_health_monitor(cs, ce, tfw_cfg_sg);
+}
+
+static int
+tfw_cfgop_out_health_monitor(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_cfgop_health_monitor(cs, ce, tfw_cfg_sg_def);
+}
+
 static int
 tfw_cfgop_conn_retries(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned int *recns)
 {
@@ -1169,19 +1210,6 @@ tfw_cfgop_out_conn_retries(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	tfw_cfg_is_set.max_recns = 1;
 	return tfw_cfgop_conn_retries(cs, ce,
 				      &tfw_cfg_sg_opts->parsed_sg->max_recns);
-}
-
-static bool
-tfw_cfgop_sg_set_hm(TfwCfgSrvGroup *sg_cfg, const char *hname)
-{
-	size_t size = strlen(hname) + 1;
-	sg_cfg->hm_name = kmalloc(size, GFP_KERNEL);
-	if (!sg_cfg->hm_name)
-		return false;
-
-	memcpy(sg_cfg->hm_name, hname, size);
-
-	return true;
 }
 
 /**
@@ -1396,7 +1424,7 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
 		return -EINVAL;
 	}
-	if (ce->attr_n > 1) {
+	if (ce->attr_n) {
 		TFW_ERR_NL("Invalid number of key=value pairs: %zu\n",
 			   ce->attr_n);
 		return -EINVAL;
@@ -1417,19 +1445,6 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		if (!sg_cfg) {
 			TFW_ERR_NL("Unable to create a group: '%s'\n",
 				   ce->vals[0]);
-			return -ENOMEM;
-		}
-	}
-	if (ce->attr_n == 1) {
-		if  (strcasecmp(ce->attrs[0].key, "health")) {
-			TFW_ERR_NL("Unsupported attribute: '%s'\n",
-				   ce->attrs[0].key);
-			return -EINVAL;
-		}
-		if (!tfw_cfgop_sg_set_hm(sg_cfg, ce->attrs[0].val)) {
-			TFW_ERR_NL("Unable to add group's health"
-				   " monitor name: '%s'\n",
-				   ce->attrs[0].val);
 			return -ENOMEM;
 		}
 	}
@@ -2228,6 +2243,14 @@ static TfwCfgSpec tfw_srv_group_specs[] = {
 		.allow_repeat = false,
 		.allow_reconfig = true,
 	},
+	{
+		.name = "health",
+		.deflt = NULL,
+		.handler = tfw_cfgop_in_health_monitor,
+		.allow_none = true,
+		.allow_repeat = false,
+		.allow_reconfig = true,
+	},
 	{ 0 }
 };
 
@@ -2311,6 +2334,15 @@ static TfwCfgSpec tfw_sock_srv_specs[] = {
 		.name = "sticky_sessions",
 		.deflt = TFW_CFG_DFLT_VAL,
 		.handler = tfw_cfgop_out_sticky_sess,
+		.cleanup = tfw_cfgop_cleanup_srv_groups,
+		.allow_none = true,
+		.allow_repeat = false,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "health",
+		.deflt = NULL,
+		.handler = tfw_cfgop_out_health_monitor,
 		.cleanup = tfw_cfgop_cleanup_srv_groups,
 		.allow_none = true,
 		.allow_repeat = false,
