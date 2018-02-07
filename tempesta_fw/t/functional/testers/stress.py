@@ -110,14 +110,14 @@ class StressTest(unittest.TestCase):
         cl_conn_cnt = 0
 
         # number of added errors
-        bce = self.tempesta.stats.cl_msg_other_errors
-        print ("Has %i errors" % bce)
-
+        bce = self.tempesta.stats.cl_msg_other_errors - self.backend_connection_errors
+        total_err = 0
         for c in self.clients:
             req, err, _ = c.results()
             cl_req_cnt += req
             cl_conn_cnt += c.connections * self.pipelined_req
-            self.assertEqual(err, 0, msg='HTTP client detected errors')
+            total_err += err
+        self.assertLessEqual(total_err, bce, msg='HTTP client detected errors')
         exp_min = cl_req_cnt
         # Positive allowance: this means some responses are missed by the client.
         # It is believed (nobody actually checked though...) that wrk does not
