@@ -29,7 +29,8 @@ class StressTest(unittest.TestCase):
         """ Add all servers to default server group with default scheduler. """
         sg = tempesta.ServerGroup('default')
         for s in self.servers:
-            sg.add_server(s.ip, s.config.port, s.conns_n)
+            for listener in s.config.listeners:
+                sg.add_server(s.ip, listener.port, s.conns_n)
         self.tempesta.config.add_sg(sg)
 
     def create_servers(self):
