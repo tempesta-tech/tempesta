@@ -26,6 +26,9 @@ class HttpRules(functional.FunctionalTest):
         '  match hdr_h_p  hdr_host  prefix  "bar.";\n'
         '  match hdr_h_e  hdr_host  eq      "buzz.natsys-lab.com";\n'
         '  match hdr_h_s  hdr_host  suffix  "natsys-lab.com";\n'
+        '  match hdr_r_e  hdr_ref   eq      "example.com";\n'
+        '  match hdr_r_s  hdr_ref   suffix  ".com";\n'
+        '  match hdr_r_p  hdr_ref   prefix  "http://example.com";\n'
         '}\n'
         '\n')
 
@@ -57,6 +60,10 @@ class HttpRules(functional.FunctionalTest):
             (('hdr_h_p'), ('/'), ('host'), ('bar.example.com')),
             (('hdr_h_s'), ('/'), ('host'), ('test.natsys-lab.com')),
             (('hdr_h_e'), ('/'), ('host'), ('buzz.natsys-lab.com')),
+            (('hdr_r_e'), ('/'), ('referer'), ('example.com')),
+            (('hdr_r_s'), ('/'), ('referer'), ('http://example.com')),
+            (('hdr_r_p'), ('/'), ('referer'),
+             ('http://example.com/cgi-bin/show.pl')),
             (('default'), ('/'), None, None)]
 
         for group, uri, header, value in server_options:
