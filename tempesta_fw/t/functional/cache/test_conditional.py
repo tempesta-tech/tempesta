@@ -3,7 +3,6 @@
 from __future__ import print_function
 from helpers import tf_cfg, deproxy, chains
 from testers import functional
-from . import age
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -12,7 +11,7 @@ __license__ = 'GPL2'
 # TODO: Check that all headers that must be present in 304 response are there.
 # Not implemented since some of them (at least Vary) affect cache behaviour.
 
-class TestConditional(age.TestCacheAge):
+class TestConditional(functional.FunctionalTest):
 
     config = ('cache 2;\n'
               'cache_fulfill * *;\n'

@@ -3,7 +3,6 @@
 from __future__ import print_function
 from testers import functional
 from helpers import chains
-from . import age
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -11,7 +10,7 @@ __license__ = 'GPL2'
 
 # TODO: add tests for RFC compliance
 
-class TestCacheDisabled(age.TestCacheAge):
+class TestCacheDisabled(functional.FunctionalTest):
 
     messages = 10
 
