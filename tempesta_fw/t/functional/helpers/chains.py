@@ -68,6 +68,10 @@ def base(uri='/', method='GET', forward=True, date=None):
         'Server: Tempesta FW/%s' % tempesta.version(),
         'Via: 1.1 tempesta_fw (Tempesta FW %s)' % tempesta.version()
     ]
+    if not forward:
+        tempesta_resp_headers_addn += [
+            'Age: 0'
+        ]
     # response headers added in backend->tempesta
     backend_resp_headers_addn = [
         'Server: Deproxy Server'
