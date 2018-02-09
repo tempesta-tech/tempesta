@@ -1579,6 +1579,14 @@ enum {
 	Req_HdrPragm,
 	Req_HdrPragma,
 	Req_HdrPragmaV,
+	Req_HdrR,
+	Req_HdrRe,
+	Req_HdrRef,
+	Req_HdrRefe,
+	Req_HdrRefer,
+	Req_HdrRefere,
+	Req_HdrReferer,
+	Req_HdrRefererV,
 	Req_HdrT,
 	Req_HdrTr,
 	Req_HdrTra,
@@ -1813,6 +1821,8 @@ enum {
 	Req_I_CookieVal,
 	Req_I_CookieSemicolon,
 	Req_I_CookieSP,
+	/* Referer header */
+	Req_I_Referer,
 
 	Req_I_EoT,
 };
@@ -2247,6 +2257,36 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 	}
 
 	} /* FSM END */
+done:
+	return r;
+}
+
+static int
+__req_parse_referer(TfwHttpMsg *hm, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(hm);
+
+	__FSM_START(parser->_i_st) {
+
+	__FSM_STATE(Req_I_Referer) {
+		__FSM_I_MATCH_MOVE(uri, Req_I_Referer);
+		if (IS_WS(*(p + __fsm_sz)))
+			__FSM_I_MOVE_n(Req_I_EoT, __fsm_sz + 1);
+		if (IS_CRLF(*(p + __fsm_sz)))
+			return __data_off(p + __fsm_sz);
+		return CSTR_NEQ;
+	}
+	__FSM_STATE(Req_I_EoT) {
+		if (IS_WS(c))
+			__FSM_I_MOVE(Req_I_EoT);
+		if (IS_CRLF(c))
+			return __data_off(p);
+		return CSTR_NEQ;
+	}
+
+	} /* FSM END */
+
 done:
 	return r;
 }
@@ -3278,6 +3318,17 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				__FSM_MOVE_n(RGen_OWS, 7);
 			}
 			__FSM_MOVE(Req_HdrP);
+		case 'r':
+			if (likely(__data_available(p, 8)
+				   && C4_INT_LCM(p + 1, 'e', 'f', 'e', 'r')
+				   && TFW_LC(*(p + 5)) == 'e'
+				   && TFW_LC(*(p + 6)) == 'r'
+				   && *(p + 7) == ':'))
+			{
+				parser->_i_st = Req_HdrRefererV;
+				__FSM_MOVE_n(RGen_OWS, 8);
+			}
+			__FSM_MOVE(Req_HdrR);
 		case 't':
 			if (likely(__data_available(p, 18)
 				   && C8_INT_LCM(p, 't', 'r', 'a', 'n',
@@ -3388,6 +3439,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	/* 'Pragma:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrPragmaV, Req_I_Pragma,
 				  req, __req_parse_pragma);
+
+	/* 'Referer:*OWS' is read, process field-value. */
+	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrRefererV, Req_I_Referer, msg,
+				   __req_parse_referer, TFW_HTTP_HDR_REFERER);
 
 	/* 'Transfer-Encoding:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrTransfer_EncodingV, I_TransEncod,
@@ -3733,6 +3788,15 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Req_HdrPrag, 'm', Req_HdrPragm, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrPragm, 'a', Req_HdrPragma, RGen_HdrOther);
 	__FSM_TX_AF_OWS(Req_HdrPragma, ':', Req_HdrPragmaV, RGen_HdrOther);
+
+	/* Referer header processing. */
+	__FSM_TX_AF(Req_HdrR, 'e', Req_HdrRe, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrRe, 'f', Req_HdrRef, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrRef, 'e', Req_HdrRefe, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrRefe, 'r', Req_HdrRefer, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrRefer, 'e', Req_HdrRefere, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrRefere, 'r', Req_HdrReferer, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Req_HdrReferer, ':', Req_HdrRefererV, RGen_HdrOther);
 
 	/* Transfer-Encoding header processing. */
 	__FSM_TX_AF(Req_HdrT, 'r', Req_HdrTr, RGen_HdrOther);

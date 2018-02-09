@@ -83,6 +83,7 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 		[TFW_HTTP_HDR_SERVER]	= SLEN("Server:"),
 		[TFW_HTTP_HDR_COOKIE]	= SLEN("Cookie:"),
 		[TFW_HTTP_HDR_ETAG]	= SLEN("ETag:"),
+		[TFW_HTTP_HDR_REFERER]	= SLEN("Referer:"),
 	};
 
 	TfwStr *c, *end;
