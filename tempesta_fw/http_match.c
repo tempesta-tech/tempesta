@@ -181,8 +181,9 @@ match_hdr(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
 	static const tfw_http_hdr_t id_tbl[] = {
 		[0 ... _TFW_HTTP_MATCH_F_COUNT] = -1,
-		[TFW_HTTP_MATCH_F_HDR_CONN] = TFW_HTTP_HDR_CONNECTION,
-		[TFW_HTTP_MATCH_F_HDR_HOST] = TFW_HTTP_HDR_HOST,
+		[TFW_HTTP_MATCH_F_HDR_CONN]	= TFW_HTTP_HDR_CONNECTION,
+		[TFW_HTTP_MATCH_F_HDR_HOST]	= TFW_HTTP_HDR_HOST,
+		[TFW_HTTP_MATCH_F_HDR_REFERER]	= TFW_HTTP_HDR_REFERER,
 	};
 
 	const TfwHttpMatchArg *arg = &rule->arg;
@@ -339,6 +340,7 @@ static const match_fn match_fn_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
 	[TFW_HTTP_MATCH_F_WILDCARD]	= match_wildcard,
 	[TFW_HTTP_MATCH_F_HDR_CONN]	= match_hdr,
 	[TFW_HTTP_MATCH_F_HDR_HOST]	= match_hdr,
+	[TFW_HTTP_MATCH_F_HDR_REFERER]	= match_hdr,
 	[TFW_HTTP_MATCH_F_HDR_RAW]	= match_hdr_raw,
 	[TFW_HTTP_MATCH_F_HOST]		= match_host,
 	[TFW_HTTP_MATCH_F_METHOD]	= match_method,
