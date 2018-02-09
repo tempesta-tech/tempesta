@@ -2280,9 +2280,8 @@ __req_parse_referer(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_EoT) {
 		if (IS_WS(c))
 			__FSM_I_MOVE(Req_I_EoT);
-		if (IS_CRLF(c)) {
+		if (IS_CRLF(c))
 			return __data_off(p);
-		}
 		return CSTR_NEQ;
 	}
 
