@@ -1505,7 +1505,7 @@ TEST(http_parser, referer)
 
 	const char *s_referer1 =
 		"http://tempesta-tech.com:8080"
-		"/cgi-bin/show.pl?entry=tempesta";
+		"/cgi-bin/show.pl?entry=tempesta      ";
 	const char *s_referer2 =
 		"/cgi-bin/show.pl?entry=tempesta";
 	const char *s_referer3 =
@@ -1513,8 +1513,8 @@ TEST(http_parser, referer)
 		":8080/cgi-bin/show.pl?entry=tempesta";
 
 	FOR_REQ("GET /foo HTTP/1.1\r\n"
-		"Referer: http://tempesta-tech.com:8080"
-		"/cgi-bin/show.pl?entry=tempesta\r\n"
+		"Referer:    http://tempesta-tech.com:8080"
+		"/cgi-bin/show.pl?entry=tempesta      \r\n"
 		"\r\n")
 	{
 		ht = req->h_tbl;
