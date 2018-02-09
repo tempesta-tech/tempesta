@@ -180,6 +180,14 @@ class HeaderCollection(object):
                         ts_received <= ts_expected + self.expected_time_delta):
                     return False
 
+            # Special-case "Age:" header if both headers must have it:
+            if (len(h_expected.get('age', [])) == 1 and
+                len(h_received.get('age', [])) == 1):
+                age_expected = int(h_expected.pop('age')[0])
+                age_received = int(h_received.pop('age')[0])
+                if not (age_expected <= age_received):
+                    return False
+
         return h_self == h_other
 
     def __ne__(self, other):

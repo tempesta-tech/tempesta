@@ -1572,7 +1572,7 @@ free:
 	return NULL;
 }
 
-static inline bool
+static inline int
 tfw_cache_set_hdr_age(TfwHttpMsg *hmresp, TfwCacheEntry *ce)
 {
 	size_t digs;
@@ -1580,13 +1580,10 @@ tfw_cache_set_hdr_age(TfwHttpMsg *hmresp, TfwCacheEntry *ce)
 	time_t age = tfw_cache_entry_age(ce);
 
 	if (!(digs = tfw_ultoa(age, cstr_age, TFW_ULTOA_BUF_SIZ)))
-		return false;
+		return -E2BIG;
 
-	if (tfw_http_msg_hdr_xfrm(hmresp, "Age", sizeof("Age") - 1,
-				  cstr_age, digs, TFW_HTTP_HDR_RAW, 0))
-		return false;
-
-	return true;
+	return tfw_http_msg_hdr_xfrm(hmresp, "Age", sizeof("Age") - 1,
+				     cstr_age, digs, TFW_HTTP_HDR_RAW, 0);
 }
 
 static void
@@ -1621,7 +1618,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	 * When a stored response is used to satisfy a request without
 	 * validation, a cache MUST generate an Age header field.
 	 */
-	if (resp && !tfw_cache_set_hdr_age((TfwHttpMsg *)resp, ce)) {
+	if (resp && tfw_cache_set_hdr_age((TfwHttpMsg *)resp, ce)) {
 		TFW_WARN("Unable to add Age: header, cached"
 			 " response [%p] dropped\n", resp);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
