@@ -45,7 +45,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta hash-based scheduler");
-MODULE_VERSION("0.4.2");
+MODULE_VERSION("0.4.3");
 MODULE_LICENSE("GPL");
 
 typedef struct {
@@ -247,12 +247,15 @@ tfw_sched_hash_del_grp(TfwSrvGroup *sg)
 	TfwHashConnList *cl = rcu_dereference_check(sg->sched_data, 1);
 
 	rcu_assign_pointer(sg->sched_data, NULL);
-	list_for_each_entry(srv, &sg->srv_list, list)
+	list_for_each_entry(srv, &sg->srv_list, list) {
+		WARN_ON_ONCE(rcu_dereference_check(srv->sched_data, 1)
+			     && !cl);
 		rcu_assign_pointer(srv->sched_data, NULL);
-	synchronize_rcu();
+	}
+	if (!cl)
+		return;
 
-	if (cl)
-		kfree(cl);
+	kfree_rcu(cl, rcu);
 }
 
 static int
@@ -442,6 +445,9 @@ void
 tfw_sched_hash_exit(void)
 {
 	TFW_DBG("sched_hash: exit\n");
+
+	/* Wait for outstanding RCU callbacks to complete. */
+	rcu_barrier();
 	tfw_sched_unregister(&tfw_sched_hash);
 }
 module_exit(tfw_sched_hash_exit);
