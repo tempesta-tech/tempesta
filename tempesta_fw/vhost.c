@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -74,7 +74,7 @@ static size_t		tfw_capolicy_sz = 0;	/* Current size. */
  * definition.
  */
 #define TFW_NIPDEF_ARRAY_SZ	(64)
-
+/* Max number of headers allowed for end user to modify. */
 #define TFW_USRHDRS_ARRAY_SZ	(64)
 
 /*
@@ -517,7 +517,7 @@ tfw_cfgop_out_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 static int
 tfw_cfgop_mod_hdr_add(TfwHdrMods *h_mods, const char *name, const char *value,
-		      bool append)
+		      int msg_type, bool append)
 {
 	TfwStr *hdr;
 	TfwHdrModsDesc *desc = &h_mods->hdrs[h_mods->sz];
@@ -533,7 +533,7 @@ tfw_cfgop_mod_hdr_add(TfwHdrMods *h_mods, const char *name, const char *value,
 	}
 	desc->hdr = hdr;
 	desc->append = append;
-	desc->hid = tfw_http_msg_is_spec_hdr(hdr);
+	desc->hid = tfw_http_msg_spec_hid(hdr, msg_type);
 	++h_mods->sz;
 
 	return 0;
@@ -577,7 +577,7 @@ tfw_cfgop_mod_hdr(TfwCfgSpec *cs, TfwCfgEntry *ce, int msg_type, bool append)
 		value = ce->vals[1];
 
 	return tfw_cfgop_mod_hdr_add(&loc->mod_hdrs[msg_type], name, value,
-				     append);
+				     msg_type, append);
 }
 
 static int

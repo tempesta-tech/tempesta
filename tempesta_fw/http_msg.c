@@ -4,7 +4,7 @@
  * HTTP message manipulation helpers for the protocol processing.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -52,49 +52,14 @@ tfw_http_msg_make_hdr(TfwPool *pool, const char *name, const char *val)
 EXPORT_SYMBOL(tfw_http_msg_make_hdr);
 
 /**
- * Get header id in header table for header @hdr.
- */
-unsigned int
-tfw_http_msg_is_spec_hdr(const TfwStr *hdr)
-{
-	static const TfwStr spec_hdrs[] = {
-	#define TfwStr_string(v) { (v), NULL, sizeof(v) - 1, 0 }
-		[TFW_HTTP_HDR_HOST]	= TfwStr_string("Host:"),
-		[TFW_HTTP_HDR_CONTENT_LENGTH] = TfwStr_string("Content-Length:"),
-		[TFW_HTTP_HDR_CONTENT_TYPE] = TfwStr_string("Content-Type:"),
-		[TFW_HTTP_HDR_SERVER]	= TfwStr_string("Server:"),
-		[TFW_HTTP_HDR_COOKIE]	= TfwStr_string("Cookie:"),
-		[TFW_HTTP_HDR_ETAG]	= TfwStr_string("ETag:"),
-		[TFW_HTTP_HDR_CONNECTION] = TfwStr_string("Connection:"),
-		[TFW_HTTP_HDR_X_FORWARDED_FOR] = TfwStr_string("X-Forwarded-For:"),
-		[TFW_HTTP_HDR_KEEP_ALIVE] = TfwStr_string("Keep-Alive:"),
-		[TFW_HTTP_HDR_TRANSFER_ENCODING] = TfwStr_string("Transfer-Encoding:"),
-	#undef TfwStr_string
-	};
-	DEFINE_TFW_STR(user_agent, "User-Agent:");
-	DEFINE_TFW_STR(if_none_match, "If-None-Match:");
-
-	int i;
-
-	for (i = 0; i < TFW_HTTP_HDR_RAW; ++i)
-		if (!tfw_stricmpspn(hdr, &spec_hdrs[i], ':'))
-			return i;
-	if (!tfw_stricmpspn(hdr, &user_agent, ':'))
-		return TFW_HTTP_HDR_USER_AGENT;
-	if (!tfw_stricmpspn(hdr, &if_none_match, ':'))
-		return TFW_HTTP_HDR_IF_NONE_MATCH;
-
-	return TFW_HTTP_HDR_RAW;
-}
-
-/**
  * Find @hdr in @array. @array must be in lowercase and sorted in alphabetical
  * order. Similar to bsearch().
  */
-const TfwStr *
-__tfw_http_msg_find_hdr(const TfwStr *hdr, const TfwStr array[], size_t size)
+const void *
+__tfw_http_msg_find_hdr(const TfwStr *hdr, const void *array, size_t n,
+			size_t member_sz)
 {
-	size_t start = 0, end = size;
+	size_t start = 0, end = n;
 	int result, fc;
 	const TfwStr *h;
 
@@ -106,7 +71,7 @@ __tfw_http_msg_find_hdr(const TfwStr *hdr, const TfwStr array[], size_t size)
 
 	while (start < end) {
 		size_t mid = start + (end - start) / 2;
-		const TfwStr *sh = &array[mid];
+		const TfwStr *sh = (array + mid * member_sz);
 		int sc = *(unsigned char *)sh->ptr;
 
 		result = fc - sc;
@@ -124,6 +89,58 @@ __tfw_http_msg_find_hdr(const TfwStr *hdr, const TfwStr array[], size_t size)
 	return NULL;
 }
 EXPORT_SYMBOL(__tfw_http_msg_find_hdr);
+
+/**
+ * Get header id in header table for header @hdr.
+ *
+ * TODO: return error if header is not allowed in @msg_type.
+ */
+unsigned int
+tfw_http_msg_spec_hid(const TfwStr *hdr, int msg_type)
+{
+	typedef struct {
+		TfwStr		hdr;	/* Header name. */
+		unsigned int	id;	/* id in TfwHttpHdrTbl */
+	} TfwHdrDef;
+	#define TfwStrHdr(v, id) {{ (v), NULL, sizeof(v) - 1, 0 }, (id) }
+	static TfwHdrDef resp_hdrs[] = {
+		TfwStrHdr("Connection:",	TFW_HTTP_HDR_CONNECTION),
+		TfwStrHdr("Content-Length:",	TFW_HTTP_HDR_CONTENT_LENGTH),
+		TfwStrHdr("Content-Type:",	TFW_HTTP_HDR_CONTENT_TYPE),
+		TfwStrHdr("Cookie:",		TFW_HTTP_HDR_COOKIE),
+		TfwStrHdr("ETag:",		TFW_HTTP_HDR_ETAG),
+		TfwStrHdr("Host:",		TFW_HTTP_HDR_HOST),
+		TfwStrHdr("Keep-Alive:",	TFW_HTTP_HDR_KEEP_ALIVE),
+		TfwStrHdr("Referer:",		TFW_HTTP_HDR_REFERER),
+		TfwStrHdr("Server:",		TFW_HTTP_HDR_SERVER),
+		TfwStrHdr("Transfer-Encoding:",	TFW_HTTP_HDR_TRANSFER_ENCODING),
+		TfwStrHdr("X-Forwarded-For:",	TFW_HTTP_HDR_X_FORWARDED_FOR),
+	};
+	static TfwHdrDef req_hdrs[] = {
+		TfwStrHdr("Connection:",	TFW_HTTP_HDR_CONNECTION),
+		TfwStrHdr("Content-Length:",	TFW_HTTP_HDR_CONTENT_LENGTH),
+		TfwStrHdr("Content-Type:",	TFW_HTTP_HDR_CONTENT_TYPE),
+		TfwStrHdr("Cookie:",		TFW_HTTP_HDR_COOKIE),
+		TfwStrHdr("Host:",		TFW_HTTP_HDR_HOST),
+		TfwStrHdr("If-None-Match:",	TFW_HTTP_HDR_IF_NONE_MATCH),
+		TfwStrHdr("Keep-Alive:",	TFW_HTTP_HDR_KEEP_ALIVE),
+		TfwStrHdr("Referer:",		TFW_HTTP_HDR_REFERER),
+		TfwStrHdr("Transfer-Encoding:",	TFW_HTTP_HDR_TRANSFER_ENCODING),
+		TfwStrHdr("User-Agent:",	TFW_HTTP_HDR_USER_AGENT),
+		TfwStrHdr("X-Forwarded-For:",	TFW_HTTP_HDR_X_FORWARDED_FOR),
+	};
+	#undef TfwStrHdr
+	const TfwHdrDef *def = NULL;
+	const TfwHdrDef *array = (msg_type == TFW_HTTP_MSG_REQ) ? req_hdrs
+								: resp_hdrs;
+
+	BUILD_BUG_ON(ARRAY_SIZE(resp_hdrs) != TFW_HTTP_HDR_RAW);
+	BUILD_BUG_ON(ARRAY_SIZE(req_hdrs) != TFW_HTTP_HDR_RAW);
+	def = (TfwHdrDef *)__tfw_http_msg_find_hdr(hdr, array, TFW_HTTP_HDR_RAW,
+						  sizeof(TfwHdrDef));
+
+	return def ? def->id : TFW_HTTP_HDR_RAW;
+}
 
 /**
  * Fills @val with second part of special HTTP header containing the header
@@ -149,6 +166,7 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 	TfwStr *c, *end;
 	int nlen;
 
+	BUILD_BUG_ON(ARRAY_SIZE(hdr_lens) != TFW_HTTP_HDR_RAW);
 	/* Empty and plain strings don't have header value part. */
 	if (unlikely(TFW_STR_PLAIN(hdr))) {
 		TFW_STR_INIT(val);
@@ -653,21 +671,7 @@ tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid,
 }
 
 /**
- * Transform HTTP message @hm header with identifier @hid.
- * Raw header transforers must provide the header name by @name and @n_len.
- * If @val is NULL, then the header will be deleted from @hm.
- * If @hm already has the header it will be replaced by the new header
- * unless @append.
- * If @append is true, then @val will be concatenated to current
- * header with @hid and @name, otherwise a new header will be created
- * if the message has no the header.
- *
- * Note: The substitute string @new_hdr has CRLF as EOL. The original
- * string @orig_hdr may have a single LF as EOL. We may want to follow
- * the EOL pattern of the original. For that, the EOL of @new_hdr needs
- * to be made the same as in the original header field string.
- *
- * TODO accept TfwStr as header value.
+ * Same as @tfw_http_msg_hdr_xfrm_str() but use c-strings as argument.
  */
 int
 tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,

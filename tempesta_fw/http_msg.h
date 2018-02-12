@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -30,12 +30,13 @@
 #define SLEN(s)			(sizeof(s) - 1)
 
 TfwStr *tfw_http_msg_make_hdr(TfwPool *pool, const char *name, const char *val);
-unsigned int tfw_http_msg_is_spec_hdr(const TfwStr *hdr);
+unsigned int tfw_http_msg_spec_hid(const TfwStr *hdr, int msg_type);
 
-const TfwStr *__tfw_http_msg_find_hdr(const TfwStr *hdr, const TfwStr array[],
-				      size_t size);
+const void *__tfw_http_msg_find_hdr(const TfwStr *hdr, const void *array,
+				    size_t n, size_t member_sz);
 #define tfw_http_msg_find_hdr(hdr, array)				\
-	__tfw_http_msg_find_hdr(hdr, array, ARRAY_SIZE(array))
+	(TfwStr *)__tfw_http_msg_find_hdr(hdr, array,			\
+					  ARRAY_SIZE(array), sizeof(TfwStr))
 
 typedef struct {
 	unsigned int	frag;
