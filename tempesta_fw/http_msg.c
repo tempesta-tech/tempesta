@@ -634,7 +634,7 @@ tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid,
 		return __hdr_add(hm, hdr, hid);
 	}
 
-	if (!val)
+	if (!s_val)
 		return __hdr_del(hm, hid);
 
 	if (append) {
