@@ -143,6 +143,7 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 		[TFW_HTTP_HDR_SERVER]	= SLEN("Server:"),
 		[TFW_HTTP_HDR_COOKIE]	= SLEN("Cookie:"),
 		[TFW_HTTP_HDR_ETAG]	= SLEN("ETag:"),
+		[TFW_HTTP_HDR_REFERER]	= SLEN("Referer:"),
 	};
 
 	TfwStr *c, *end;
@@ -599,7 +600,7 @@ tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid,
 			  bool append)
 {
 	TfwHttpHdrTbl *ht = hm->h_tbl;
-	TfwStr *orig_hdr;
+	TfwStr *orig_hdr = NULL;
 	const TfwStr *s_val = TFW_STR_CHUNK(hdr, 2);
 
 	/* Firstly, get original message header to transform. */
@@ -618,7 +619,8 @@ tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid,
 				return -ENOMEM;
 		if (hid == ht->off)
 			++ht->off;
-		orig_hdr = &ht->tbl[hid];
+		else
+			orig_hdr = &ht->tbl[hid];
 	}
 
 	if (unlikely(append && hid < TFW_HTTP_HDR_NONSINGULAR)) {
@@ -626,13 +628,13 @@ tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid,
 		return -ENOENT;
 	}
 
-	if (TFW_STR_EMPTY(orig_hdr)) {
+	if (!orig_hdr || TFW_STR_EMPTY(orig_hdr)) {
 		if (unlikely(!s_val))
 			return 0;
 		return __hdr_add(hm, hdr, hid);
 	}
 
-	if (!s_val)
+	if (!val)
 		return __hdr_del(hm, hid);
 
 	if (append) {

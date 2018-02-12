@@ -753,6 +753,7 @@ __spec_start_handling(TfwCfgSpec *parent, TfwCfgSpec specs[])
 				    parent->name, spec->name);
 			return -EINVAL;
 		}
+		spec->__called_now = false;
 	}
 
 	return 0;
