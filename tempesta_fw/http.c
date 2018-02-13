@@ -2242,7 +2242,7 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 		case TFW_BLOCK:
 			TFW_DBG2("Block invalid HTTP request\n");
 			TFW_INC_STAT_BH(clnt.msgs_parserr);
-			tfw_client_drop(req, 403, "failed to parse request");
+			tfw_client_drop(req, 400, "failed to parse request");
 			return TFW_BLOCK;
 		case TFW_POSTPONE:
 			r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK,
@@ -2833,7 +2833,7 @@ bad_msg:
 					     "response blocked:"
 					     " filtered out");
 		else
-			tfw_srv_client_drop(bad_req, 500,
+			tfw_srv_client_drop(bad_req, 502,
 					    "response dropped:"
 					    " processing error");
 	}
