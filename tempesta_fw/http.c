@@ -1167,6 +1167,9 @@ tfw_http_conn_resched(struct list_head *sch_queue, struct list_head *equeue)
 	TfwSrvConn *sch_conn;
 	TfwHttpReq *req, *tmp;
 
+	if (list_empty(&sch_queue))
+		return;
+
 	/*
 	 * Process the complete queue and re-schedule all requests
 	 * to other servers/connections.
@@ -1234,20 +1237,30 @@ tfw_http_conn_evict_timeout(TfwSrvConn *srv_conn, struct list_head *equeue)
 		tfw_http_req_evict_timeout(srv_conn, srv, req, equeue);
 }
 
+/**
+ * Process forwarding queue of a server connection to be releases.
+ * All the queued requests are either evicted by the timeout or rescheduled
+ * to other connections or servers.
+ */
 static void
-tfw_http_conn_release_closed(TfwSrvConn *srv_conn, bool resched)
+tfw_http_conn_shrink_fwd_queue(TfwSrvConn *srv_conn, bool resched)
 {
 	LIST_HEAD(equeue);
 	LIST_HEAD(sch_queue);
 
+	spin_lock(&srv_conn->fwd_qlock);
+	if (list_empty(&srv_conn->fwd_queue)) {
+		spin_unlock(&srv_conn->fwd_qlock);
+		return;
+	}
+
 	tfw_http_conn_evict_timeout(srv_conn, &equeue);
 	if (unlikely(resched))
 		tfw_http_conn_collect(srv_conn, &sch_queue, &equeue);
+
 	spin_unlock(&srv_conn->fwd_qlock);
 
-	if (!list_empty(&sch_queue))
-		tfw_http_conn_resched(&sch_queue, &equeue);
-
+	tfw_http_conn_resched(&sch_queue, &equeue);
 	tfw_http_req_zap_error(&equeue);
 }
 
@@ -1279,17 +1292,17 @@ tfw_http_conn_repair(TfwConn *conn)
 	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
-	spin_lock(&srv_conn->fwd_qlock);
-
-	if (list_empty(&srv_conn->fwd_queue)) {
-		spin_unlock(&srv_conn->fwd_qlock);
-		return;
-	}
-
 	/* See if requests need to be rescheduled. */
 	if (unlikely(!tfw_srv_conn_live(srv_conn))) {
 		bool resched = tfw_srv_conn_need_resched(srv_conn);
-		return tfw_http_conn_release_closed(srv_conn, resched);
+		tfw_http_conn_shrink_fwd_queue(srv_conn, resched);
+		return;
+	}
+
+	spin_lock(&srv_conn->fwd_qlock);
+	if (list_empty(&srv_conn->fwd_queue)) {
+		spin_unlock(&srv_conn->fwd_qlock);
+		return;
 	}
 
 	/* Treat a non-idempotent request if any. */
