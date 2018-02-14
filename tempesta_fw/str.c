@@ -676,15 +676,12 @@ int
 tfw_str_crc32_calc(const TfwStr *str)
 {
 	const TfwStr *c, *end;
-	unsigned long len = 0;
 	u32 crc = 0;
 
 	BUG_ON(str->len && !str->ptr);
-	TFW_STR_FOR_EACH_CHUNK(c, str, end) {
+	TFW_STR_FOR_EACH_CHUNK(c, str, end)
 		crc = crc32(crc, c->ptr, c->len);
-		len += c->len;//!!!
-	}
-	BUG_ON(len != str->len);
+
 	return crc;
 }
 EXPORT_SYMBOL(tfw_str_crc32_calc);

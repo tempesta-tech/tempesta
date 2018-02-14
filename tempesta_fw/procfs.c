@@ -172,7 +172,7 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 	TfwSrvConn *srv_conn;
 	TfwServer *srv = seq->private;
 	unsigned int qsize[srv->conn_n];
-	bool hm = test_bit(TFW_SRV_B_HMONITOR, &srv->hm_flags);
+	bool hm = test_bit(TFW_SRV_B_HMONITOR, &srv->flags);
 	unsigned int val[ARRAY_SIZE(tfw_pstats_ith)] = { 0 };
 	TfwPrcntlStats pstats = {
 		.ith = tfw_pstats_ith,

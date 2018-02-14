@@ -49,8 +49,7 @@ typedef struct tfw_scheduler_t TfwScheduler;
  * @sess_n	- number of pinned sticky sessions;
  * @refcnt	- number of users of the server structure instance;
  * @weight	- static server weight for load balancers;
- * @flags	- server related flags: TFW_CFG_M_ACTION;
- * @hm_flags	- server's health monitor atomic flags;
+ * @flags	- server related flags: TFW_CFG_M_ACTION and HM atomic flags;
  * @cleanup	- called right before server is destroyed;
  */
 typedef struct {
@@ -64,15 +63,26 @@ typedef struct {
 	atomic64_t		sess_n;
 	atomic64_t		refcnt;
 	unsigned int		weight;
-	unsigned int		flags;
-	unsigned long		hm_flags;
+	unsigned long		flags;
 	void			(*cleanup)(void *);
 } TfwServer;
 
+/*
+ * Bits and corresponding flags for server's health monitor states.
+ * These flags are intended for @flags field of 'TfwServer' structure.
+ * NOTE: In cfg.h for this field there are also flags definitions, which
+ * are responsible for server's configuration processing.
+ */
 enum {
-	TFW_SRV_B_HMONITOR = 0,	/* Health monitor is enabled for the server. */
-	TFW_SRV_B_SUSPEND	/* Server is excluded from processing. */
+	/* Health monitor is enabled for the server. */
+	TFW_SRV_B_HMONITOR = 0x8,
+
+	/* Server is excluded from processing. */
+	TFW_SRV_B_SUSPEND
 };
+
+#define	TFW_SRV_F_HMONITOR	(1 << TFW_SRV_B_HMONITOR)
+#define	TFW_SRV_F_SUSPEND	(1 << TFW_SRV_B_SUSPEND)
 
 /**
  * The servers group with the same load balancing, failovering and eviction
@@ -268,13 +278,7 @@ tfw_srv_conn_need_resched(TfwSrvConn *srv_conn)
 static inline void
 tfw_srv_mark_alive(TfwServer *srv)
 {
-	clear_bit(TFW_SRV_B_SUSPEND, &srv->hm_flags);
-}
-
-static inline void
-tfw_srv_mark_suspended(TfwServer *srv)
-{
-	set_bit(TFW_SRV_B_SUSPEND, &srv->hm_flags);
+	clear_bit(TFW_SRV_B_SUSPEND, &srv->flags);
 }
 
 /*
@@ -283,8 +287,7 @@ tfw_srv_mark_suspended(TfwServer *srv)
 static inline bool
 tfw_srv_suspended(TfwServer *srv)
 {
-	return test_bit(TFW_SRV_B_HMONITOR, &srv->hm_flags)
-		&& test_bit(TFW_SRV_B_SUSPEND, &srv->hm_flags);
+	return test_bit(TFW_SRV_B_SUSPEND, &srv->flags);
 }
 
 /* Server group routines. */

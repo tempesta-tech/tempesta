@@ -742,23 +742,39 @@ tfw_http_error_resp_switch(TfwHttpReq *req, int status, const char *reason)
 	tfw_http_send_resp(req, code);
 }
 
+static bool
+tfw_http_hm_suspend(TfwHttpResp *resp, TfwServer *srv)
+{
+	unsigned long old_flags, flags = READ_ONCE(srv->flags);
+
+	if (!(flags & TFW_SRV_F_HMONITOR))
+		return true;
+
+	if (!tfw_apm_hm_srv_limit(resp->status, srv->apmref))
+		return false;
+
+	do {
+		old_flags = cmpxchg(&srv->flags, flags,
+				    flags | TFW_SRV_F_SUSPEND);
+		if (likely(old_flags == flags)) {
+			TFW_WARN_ADDR("server has been suspended: limit"
+				      " for bad responses is exceeded",
+				      &srv->addr);
+			break;
+		}
+		flags = old_flags;
+	} while (flags & TFW_SRV_F_HMONITOR);
+
+	return true;
+}
+
 static void
 tfw_http_hm_control(TfwHttpResp *resp)
 {
 	TfwServer *srv = (TfwServer *)resp->conn->peer;
 
-	if (!test_bit(TFW_SRV_B_HMONITOR, &srv->hm_flags))
+	if (tfw_http_hm_suspend(resp, srv))
 		return;
-
-	if (tfw_apm_hm_srv_limit(resp->status, srv->apmref)) {
-		if (!tfw_srv_suspended(srv)) {
-			tfw_srv_mark_suspended(srv);
-			TFW_WARN_ADDR("server has been suspended: limit"
-				      " for bad responses is exceeded",
-				      &srv->addr);
-		}
-		return;
-	}
 
 	if (!tfw_srv_suspended(srv) ||
 	    !tfw_apm_hm_srv_alive(resp->status, &resp->body, srv->apmref))
@@ -770,7 +786,7 @@ tfw_http_hm_control(TfwHttpResp *resp)
 static inline void
 tfw_http_hm_srv_update(TfwServer *srv, TfwHttpReq *req)
 {
-	if (test_bit(TFW_SRV_B_HMONITOR, &srv->hm_flags))
+	if (test_bit(TFW_SRV_B_HMONITOR, &srv->flags))
 		tfw_apm_hm_srv_rcount_update(&req->uri_path, srv->apmref);
 }
 
@@ -3044,10 +3060,11 @@ tfw_http_req_key_calc(TfwHttpReq *req)
 
 	req->hash = tfw_hash_str(&req->uri_path);
 
-	TFW_STR_INIT(&host);
-	if (!(req->flags & TFW_HTTP_HMONITOR))
-		tfw_http_msg_clnthdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
-					 TFW_HTTP_HDR_HOST, &host);
+	if (req->flags & TFW_HTTP_HMONITOR)
+		return req->hash;
+
+	tfw_http_msg_clnthdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
+				 TFW_HTTP_HDR_HOST, &host);
 	if (!TFW_STR_EMPTY(&host))
 		req->hash ^= tfw_hash_str(&host);
 

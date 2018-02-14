@@ -277,6 +277,17 @@ __setup_retry_timer(TfwSrvConn *srv_conn)
 		    (unsigned long)srv_conn);
 }
 
+static inline void
+tfw_srv_reset_cfg_actions(TfwServer *srv)
+{
+	unsigned long flags, new_flags;
+
+	do {
+		new_flags = flags = READ_ONCE(srv->flags);
+		new_flags &= ~TFW_CFG_M_ACTION;
+	} while (cmpxchg(&srv->flags, flags, new_flags) != flags);
+}
+
 void
 tfw_srv_conn_release(TfwSrvConn *srv_conn)
 {
@@ -683,7 +694,7 @@ tfw_sock_srv_grace_shutdown_srv(TfwSrvGroup *sg, TfwServer *srv)
 
 	tfw_server_get(srv);
 	__tfw_sg_del_srv(sg, srv, false);
-	srv->flags |= TFW_CFG_F_DEL;
+	set_bit(TFW_CFG_B_DEL, &srv->flags);
 
 	if (!tfw_cfg_grace_time) {
 		r = tfw_sock_srv_disconnect_srv(srv);
@@ -953,7 +964,7 @@ tfw_cfgop_lookup_sg_cfg(const char *name)
 static void
 tfw_cfgop_update_srv_health(TfwServer *srv, const char *hname, void *hm)
 {
-	bool orig_hm = test_bit(TFW_SRV_B_HMONITOR, &srv->hm_flags);
+	bool orig_hm = test_bit(TFW_SRV_B_HMONITOR, &srv->flags);
 
 	/*
 	 * Nothing to do if the same server with the same
@@ -1226,7 +1237,7 @@ tfw_cfgop_server_orig_lookup(TfwCfgSrvGroup *sg_cfg, TfwServer *srv)
 
 	orig_srv = tfw_server_lookup(sg_cfg->orig_sg, &srv->addr);
 	if (!orig_srv) {
-		srv->flags |= TFW_CFG_F_ADD;
+		set_bit(TFW_CFG_B_ADD, &srv->flags);
 		goto done;
 	}
 	if (orig_srv->conn_n != srv->conn_n)
@@ -1235,15 +1246,15 @@ tfw_cfgop_server_orig_lookup(TfwCfgSrvGroup *sg_cfg, TfwServer *srv)
 		goto changed;
 
 	/* Server is not changed and can be reused. */
-	orig_srv->flags |= TFW_CFG_F_KEEP;
-	srv->flags |= TFW_CFG_F_KEEP;
+	set_bit(TFW_CFG_B_KEEP, &orig_srv->flags);
+	set_bit(TFW_CFG_B_KEEP, &srv->flags);
 
 	tfw_server_put(orig_srv);
 
 	return;
 changed:
-	orig_srv->flags |= TFW_CFG_F_MOD;
-	srv->flags |= TFW_CFG_F_MOD;
+	set_bit(TFW_CFG_B_MOD, &orig_srv->flags);
+	set_bit(TFW_CFG_B_MOD, &srv->flags);
 	tfw_server_put(orig_srv);
 done:
 	sg_cfg->reconf_flags |= TFW_CFG_MDF_SG_SRV;
@@ -1992,7 +2003,7 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg, void *hm)
 				return r;
 			}
 		/* Nothing to do if TFW_CFG_F_KEEP is set. */
-		srv->flags &= ~TFW_CFG_M_ACTION;
+		tfw_srv_reset_cfg_actions(srv);
 	}
 	write_unlock(&sg->lock);
 
@@ -2011,7 +2022,7 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg, void *hm)
 
 		if ((r = tfw_sock_srv_start_srv(srv, hm)))
 			return r;
-		srv->flags &= ~TFW_CFG_M_ACTION;
+		tfw_srv_reset_cfg_actions(srv);
 	}
 
 	return 0;
@@ -2119,7 +2130,7 @@ tfw_cfgop_start_sg_cfg(TfwCfgSrvGroup *sg_cfg)
 	int r;
 	void *hm = NULL;
 
-	if (sg_cfg->hm_name && !tfw_apm_get_hm(sg_cfg->hm_name, &hm))
+	if (sg_cfg->hm_name && !(hm = tfw_apm_get_hm(sg_cfg->hm_name)))
 		return -EINVAL;
 
 	if (sg_cfg->orig_sg)
