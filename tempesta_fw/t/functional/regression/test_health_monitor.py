@@ -5,6 +5,7 @@ Tests for health monitoring functionality.
 from __future__ import print_function
 import re
 import copy
+import binascii
 from testers import functional
 from helpers import deproxy, chains, tempesta
 
@@ -44,15 +45,14 @@ def make_502_expected():
 
 class Stage(object):
 
-    def __init__(self, tester, tempesta, client, chain, state, trans=False):
+    def __init__(self, tester, tempesta, client, chain, state, trans=None):
         self.trans_response = None
         self.chain = chain
         self.state = state
         self.tester = tester
         self.tempesta = tempesta
         self.client = client
-        if trans:
-            self.trans_response = make_response(200)
+        self.trans_response = trans
 
     def prepare(self):
         self.tester.current_chain = copy.copy(self.chain)
@@ -63,7 +63,7 @@ class Stage(object):
     def check_transition(self, messages):
         expected = None
         if self.trans_response:
-            expected = self.trans_response
+            expected = copy.copy(self.trans_response)
         else:
             temp_chain = copy.copy(self.chain)
             expected = temp_chain.response
@@ -158,59 +158,100 @@ class StagedDeproxy(deproxy.Deproxy):
 
 
 class TestHealthMonitor(functional.FunctionalTest):
+    """ Test for health monitor functionality with stress option.
+    Testing process is divided into several stages:
+    1. Create one message chain for enabled HM server's state:
+    404 response will be returning until configured limit is
+    reached (at this time HM will disable the server).
+    2. Create another message chain - for disabled HM state:
+    502 response will be returning by Tempesta until HM
+    request will be sent to server after configured
+    timeout (200 response will be returned and HM will
+    enable the server).
+    3. Create five Stages with alternated two message chains:
+    so five transitions 'enabled=>disabled/disabled=>enabled'
+    must be passed through. Particular Stage objects are
+    constructed in create_tester() method and then inserted
+    into special StagedDeproxy tester.
+    4. Each Stage must verify server's HTTP avalability state
+    in 'check_transition()' method.
+    """
 
     tfw_clnt_msg_otherr = True
     messages = 500000
     srv_group = 'srv_grp1'
+    resp_codes_list = ['200']
+    crc_check = False
+
+    def create_chains(self):
+        self.ch_enabled = chains.base(uri='/page.html')
+        self.ch_enabled.server_response = make_response(404, expected=False)
+        self.ch_enabled.response = make_response(404)
+        self.ch_disabled = chains.base()
+        # Make 200 status expected once for transition purpose.
+        self.trans_resp = self.ch_disabled.response
+        self.ch_disabled.response = make_502_expected()
+
+    def init(self):
+        self.create_chains()
+        if self.crc_check:
+            resp_body = self.ch_disabled.server_response.body
+            self.crc32 = hex(~binascii.crc32(resp_body, 0xffffffff) & 0xffffffff)
+
+    def get_config(self):
+        crc32_conf = ''
+        rcodes_conf = ''
+        if self.crc_check:
+            crc32_conf = 'resp_crc32 %s;\n' % self.crc32
+        if self.resp_codes_list:
+            rcodes_conf = 'resp_code %s;\n' % ' '.join(self.resp_codes_list)
+        config = (
+            'server_failover_http 404 300 10;\n'
+            'cache 0;\n'
+        )
+        hm_config = ''.join(
+            [
+                'health_check h_monitor1 {\n',
+                'request "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";\n',
+                'request_url "/page.html";\n',
+                'timeout 15;\n'
+            ]
+            + [crc32_conf] + [rcodes_conf] + ['}\n']
+        )
+        rules_config = ''.join(
+            ['sched_http_rules {\n'] +
+            ['match %s * * * ;\n' % self.srv_group] +
+            ['}\n']
+        )
+        return config + hm_config + rules_config
 
     def create_tester(self, messages):
-        """
-        1. Create one message chain for enabled HM server's state:
-        404 response will be returning until configured limit is
-        reached (at this time HM will disable the server).
-        2. Create another message chain - for disabled HM state:
-        502 response will be returning by Tempesta until HM
-        request will be sent to server after configured
-        timeout (200 response will be returned and HM will
-        enable the server).
-        3. Create five Stages with alternated two message chains:
-        so five transitions 'enabled=>disabled/disabled=>enabled'
-        must be passed through.
-        4. Each Stage must verify server's HTTP avalability state
-        in 'check_transition()' method.
-        """
-        ch_enabled = chains.base(uri='/page.html')
-        ch_enabled.server_response = make_response(404, expected=False)
-        ch_enabled.response = make_response(404)
-        ch_disabled = chains.base()
-        ch_disabled.server_response = make_response(200, expected=False)
-        ch_disabled.response = make_502_expected()
         self.tester = StagedDeproxy(messages, self.client, self.servers)
         self.tester.configure(self.srv_group, [
             Stage(
                 self.tester, self.tempesta,
-                self.client, ch_enabled,
+                self.client, self.ch_enabled,
                 True
             ),
             Stage(
                 self.tester, self.tempesta,
-                self.client, ch_disabled,
+                self.client, self.ch_disabled,
                 False
             ),
             Stage(
                 self.tester, self.tempesta,
-                self.client, ch_enabled,
-                True, trans=True
+                self.client, self.ch_enabled,
+                True, trans=self.trans_resp
             ),
             Stage(
                 self.tester, self.tempesta,
-                self.client, ch_disabled,
+                self.client, self.ch_disabled,
                 False
             ),
             Stage(
                 self.tester, self.tempesta,
-                self.client, ch_enabled,
-                True, trans=True
+                self.client, self.ch_enabled,
+                True, trans=self.trans_resp
             )
         ])
 
@@ -236,21 +277,12 @@ class TestHealthMonitor(functional.FunctionalTest):
         """Test health monitor functionality with all new configuration
         directives and options.
         """
-        config = (
-            'sched_http_rules {\n'
-            'match srv_grp1 * * * ;\n'
-            '}\n'
-            'server_failover_http 404 300 10;\n'
-            'health_check h_monitor1 {\n'
-            'request "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";\n'
-            'request_url "/page.html";\n'
-            'resp_code 200;\n'
-            'resp_crc32 3456;\n'
-            'timeout 15;\n'
-            '}\n'
-            'cache 0;\n'
-        )
-        self.generic_test_routine(config, self.messages)
+        self.init()
+        self.generic_test_routine(self.get_config(), self.messages)
 
+
+class TestHealthMonitorCRCOnly(TestHealthMonitor):
+    resp_codes_list = None
+    crc_check = True
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
