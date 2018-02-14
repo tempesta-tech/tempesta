@@ -1092,6 +1092,17 @@ tfw_cfg_parse_int(const char *s, int *out_int)
 }
 EXPORT_SYMBOL(tfw_cfg_parse_int);
 
+int
+tfw_cfg_parse_uint(const char *s, unsigned int *out_uint)
+{
+	int base = detect_base(&s);
+
+	if (!base)
+		return -EINVAL;
+	return kstrtouint(s, base, out_uint);
+}
+EXPORT_SYMBOL(tfw_cfg_parse_uint);
+
 void
 tfw_cfg_cleanup_children(TfwCfgSpec *cs)
 {

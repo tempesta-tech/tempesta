@@ -885,6 +885,18 @@ TEST(tfw_str_eq_cstr_off, compound)
 
 }
 
+TEST(tfw_str_crc32, plain_compound)
+{
+	TfwStr *str_pln = make_plain_str(foxstr);
+	TfwStr *str_cmpnd = make_compound_str(foxstr);
+	u32 crc_pln, crc_cmpnd;
+
+	crc_pln = tfw_str_crc32_calc(str_pln);
+	crc_cmpnd = tfw_str_crc32_calc(str_cmpnd);
+
+	EXPECT_EQ(crc_pln, crc_cmpnd);
+}
+
 TEST_SUITE(tfw_str)
 {
 	TEST_SETUP(create_str_pool);
@@ -933,4 +945,6 @@ TEST_SUITE(tfw_str)
 	TEST_RUN(tfw_str_eq_cstr_off, plain);
 	TEST_RUN(tfw_str_eq_cstr_pos, compound);
 	TEST_RUN(tfw_str_eq_cstr_off, compound);
+
+	TEST_RUN(tfw_str_crc32, plain_compound);
 }

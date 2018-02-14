@@ -1201,7 +1201,7 @@ tfw_apm_del_srv(TfwServer *srv)
 		return;
 
 	/* Stop health monitor. */
-	if (test_bit(TFW_SRV_B_HMONITOR, &srv->hm_flags))
+	if (test_bit(TFW_SRV_B_HMONITOR, &srv->flags))
 		tfw_apm_hm_disable_srv(srv);
 
 	/* Stop the timer and the percentile calculation. */
@@ -1301,15 +1301,13 @@ tfw_apm_hm_enable_srv(TfwServer *srv, void *hmref)
 
 	BUG_ON(!srv->apmref);
 	BUG_ON(!hm);
-	BUG_ON(test_bit(TFW_SRV_B_HMONITOR, &srv->hm_flags));
+	WARN_ON_ONCE(test_bit(TFW_SRV_B_HMONITOR, &srv->flags));
+	WARN_ON_ONCE(test_bit(TFW_SRV_B_SUSPEND, &srv->flags));
 
 	/* Set new health monitor for server. */
 	hmctl = &((TfwApmData *)srv->apmref)->hmctl;
 	WRITE_ONCE(hmctl->hm, hm);
-
-	/* Init server's health control fields. */
 	atomic64_set(&hmctl->rcount, 0);
-	clear_bit(TFW_SRV_B_SUSPEND, &srv->hm_flags);
 
 	/* Start server's health monitoring timer. */
 	atomic_set(&hmctl->rearm, 1);
@@ -1320,13 +1318,14 @@ tfw_apm_hm_enable_srv(TfwServer *srv, void *hmref)
 	WRITE_ONCE(hmctl->jtmstamp, now);
 
 	/* Activate server's health monitor. */
-	set_bit(TFW_SRV_B_HMONITOR, &srv->hm_flags);
+	set_bit(TFW_SRV_B_HMONITOR, &srv->flags);
 }
 
 void
 tfw_apm_hm_disable_srv(TfwServer *srv)
 {
-	clear_bit(TFW_SRV_B_HMONITOR, &srv->hm_flags);
+	clear_bit(TFW_SRV_B_HMONITOR, &srv->flags);
+	tfw_srv_mark_alive(srv);
 	tfw_apm_hm_stop_timer((TfwApmData *)srv->apmref);
 }
 
@@ -1381,26 +1380,24 @@ tfw_apm_hm_stats(void *apmref)
 	return stats;
 }
 
-bool
-tfw_apm_get_hm(const char *name, void **res_hm)
+void *
+tfw_apm_get_hm(const char *name)
 {
 	TfwApmHM *hm;
 
 	if (!tfw_hm_codes_cnt) {
 		TFW_ERR("No response codes specified for"
 			" server's health monitoring\n");
-		return false;
+		return NULL;
 	}
 	list_for_each_entry(hm, &tfw_hm_list, list) {
-		if (!strcasecmp(name, hm->name)) {
-			*res_hm = hm;
-			return true;
-		}
+		if (!strcasecmp(name, hm->name))
+			return hm;
 	}
 	TFW_ERR_NL("health monitor with name"
 		   " '%s' does not exist\n", name);
 
-	return false;
+	return NULL;
 }
 
 
@@ -1776,7 +1773,7 @@ tfw_cfgop_apm_hm_resp_crc32(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	if (tfw_cfg_check_single_val(ce))
 		return -EINVAL;
-	if (tfw_cfg_parse_int(ce->vals[0], &crc32)) {
+	if (tfw_cfg_parse_uint(ce->vals[0], &crc32)) {
 		TFW_ERR_NL("Unable to parse crc32 value: '%s'\n", ce->vals[0]);
 		return -EINVAL;
 	}
