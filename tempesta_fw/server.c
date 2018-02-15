@@ -4,7 +4,7 @@
  * Servers handling.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -542,7 +542,8 @@ tfw_sg_wait_release(void)
 		schedule();
 		if (time_is_before_jiffies(tend)) {
 			TFW_WARN_NL("pending for server callbacks to complete "
-				    "for 5s\n");
+				    "for 5s, %ld server groups still exist\n",
+				    atomic64_read(&act_sg_n));
 			tend = jiffies + HZ * 5;
 		}
 	}
