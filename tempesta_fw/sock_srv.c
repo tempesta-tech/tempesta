@@ -4,7 +4,7 @@
  * Handling server connections.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -701,7 +701,7 @@ tfw_sock_srv_grace_shutdown_srv(TfwSrvGroup *sg, TfwServer *srv)
 	return r;
 }
 
-static int
+static void
 tfw_sock_srv_grace_shutdown_sg(TfwSrvGroup *sg)
 {
 	TfwServer *srv, *srv_tmp;
@@ -714,8 +714,6 @@ tfw_sock_srv_grace_shutdown_sg(TfwSrvGroup *sg)
 	write_unlock(&sg->lock);
 
 	tfw_sg_put(sg);
-
-	return 0;
 }
 
 /**
@@ -1904,6 +1902,7 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
 		if (!(srv->flags & TFW_CFG_M_ACTION)) {
 			if ((r = tfw_sock_srv_grace_shutdown_srv(sg, srv))) {
 				write_unlock(&sg->lock);
+				TFW_ERR("graceful server shutdown failed\n");
 				return r;
 			}
 			continue;
@@ -1911,6 +1910,7 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
 		else if (srv->flags & TFW_CFG_F_MOD)
 			if ((r = tfw_cfgop_update_srv(srv, sg_cfg))) {
 				write_unlock(&sg->lock);
+				TFW_ERR("server config update failed\n");
 				return r;
 			}
 		/* Nothing to do if TFW_CFG_F_KEEP is set. */
@@ -1931,8 +1931,10 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
 		tfw_sg_put(sg_cfg->parsed_sg);
 		tfw_server_put(srv);
 
-		if ((r = tfw_sock_srv_start_srv(srv)))
+		if ((r = tfw_sock_srv_start_srv(srv))) {
+			TFW_ERR("cannot establish new server connection\n");
 			return r;
+		}
 		srv->flags &= ~TFW_CFG_M_ACTION;
 	}
 
@@ -2017,8 +2019,7 @@ tfw_sock_srv_start(void)
 
 	tfw_sg_apply_reconfig(&orphan_sgs);
 	list_for_each_entry_safe(sg, tmp_sg, &orphan_sgs, list)
-		if ((r = tfw_sock_srv_grace_shutdown_sg(sg)))
-			return r;
+		tfw_sock_srv_grace_shutdown_sg(sg);
 
 	tfw_http_sess_use_sticky_sess(tfw_cfg_use_sticky_sess);
 	tfw_cfgop_cleanup_srv_cfgs(false);
