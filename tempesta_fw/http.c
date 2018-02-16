@@ -701,7 +701,8 @@ tfw_http_req_err(TfwSrvConn *srv_conn, TfwHttpReq *req,
 		 struct list_head *eq, unsigned short status,
 		 const char *reason)
 {
-	tfw_http_req_delist(srv_conn, req);
+	if (srv_conn)
+		tfw_http_req_delist(srv_conn, req);
 	__tfw_http_req_err(req, eq, status, reason);
 }
 
@@ -1195,8 +1196,7 @@ tfw_http_conn_shrink_fwdq(TfwSrvConn *srv_conn)
 	    : list_first_entry(fwdq, TfwHttpReq, fwd_list);
 
 	list_for_each_entry_safe_from(req, tmp, fwdq, fwd_list)
-		if (tfw_http_req_evict_timeout(srv_conn, srv, req, &eq))
-			continue;
+		tfw_http_req_evict_timeout(srv_conn, srv, req, &eq);
 
 	spin_unlock(&srv_conn->fwd_qlock);
 
@@ -1213,7 +1213,6 @@ tfw_http_conn_shrink_fwdq_resched(TfwSrvConn *srv_conn)
 {
 	LIST_HEAD(eq);
 	LIST_HEAD(schq);
-	LIST_HEAD(dummy);
 	TfwHttpReq *req, *tmp;
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
 
@@ -1228,7 +1227,6 @@ tfw_http_conn_shrink_fwdq_resched(TfwSrvConn *srv_conn)
 	list_splice_tail_init(&srv_conn->fwd_queue, &schq);
 	srv_conn->qsize = 0;
 	srv_conn->msg_sent = NULL;
-	list_splice_tail_init(&srv_conn->nip_queue, &dummy);
 	INIT_LIST_HEAD(&srv_conn->nip_queue);
 	clear_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
 
@@ -1242,12 +1240,13 @@ tfw_http_conn_shrink_fwdq_resched(TfwSrvConn *srv_conn)
 	 * and seems doesn't improve anything.
 	 */
 	list_for_each_entry_safe(req, tmp, &schq, fwd_list) {
-		if (tfw_http_req_evict(srv_conn, srv, req, &eq))
+		INIT_LIST_HEAD(&req->nip_list);
+		if (tfw_http_req_evict(NULL, srv, req, &eq))
 			continue;
 		if (unlikely(tfw_http_req_is_nip(req)
 			     && !(srv->sg->flags & TFW_SRV_RETRY_NIP)))
 		{
-			tfw_http_nip_req_resched_err(srv_conn, req, &eq);
+			tfw_http_nip_req_resched_err(NULL, req, &eq);
 			continue;
 		}
 		tfw_http_req_resched(req, &eq);
