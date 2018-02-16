@@ -1691,14 +1691,14 @@ __tfw_http_resp_pair_free(TfwHttpReq *req)
 /*
  * Drop client connection's resources.
  *
- * Desintegrate the client connection's @seq_list. Requests that have
- * a paired response can be freed. Move those to @zap_queue for doing
- * that without the lock. Requests without a paired response have not
- * been answered yet. They are held in the lists of server connections
- * until responses come. Don't free those requests.
+ * Desintegrate the client connection's @seq_list. Requests without a paired
+ * response have not been answered yet. They are held in the lists of server
+ * connections until responses come. Don't free those requests.
+ * A paired response may be in use until TFW_HTTP_RESP_READY flag is not set.
  *
- * If a response comes after @seq_list is desintegrated, then both the
- * request and the response are dropped at the sight of an empty list.
+ * If a response comes or gets ready to forward after @seq_list is
+ * desintegrated, then both the request and the response are dropped at the
+ *  sight of an empty list.
  *
  * Locking is necessary as @seq_list is constantly probed from server
  * connection threads.
@@ -1708,7 +1708,6 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 {
 	TfwHttpReq *req, *tmp;
 	struct list_head *seq_queue = &cli_conn->seq_queue;
-	LIST_HEAD(zap_queue);
 
 	TFW_DBG2("%s: conn=[%p]\n", __func__, cli_conn);
 	BUG_ON(!(TFW_CONN_TYPE(cli_conn) & Conn_Clnt));
@@ -1723,19 +1722,9 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 	 * condition with freeing of a request in tfw_http_resp_fwd().
 	 */
 	spin_lock(&cli_conn->seq_qlock);
-	list_for_each_entry_safe(req, tmp, seq_queue, msg.seq_list) {
-		if (req->resp)
-			list_move_tail(&req->msg.seq_list, &zap_queue);
-		else
-			list_del_init(&req->msg.seq_list);
-	}
+	list_for_each_entry_safe(req, tmp, seq_queue, msg.seq_list)
+		list_del_init(&req->msg.seq_list);
 	spin_unlock(&cli_conn->seq_qlock);
-
-	list_for_each_entry_safe(req, tmp, &zap_queue, msg.seq_list) {
-		BUG_ON(!list_empty_careful(&req->fwd_list));
-		BUG_ON(!list_empty_careful(&req->nip_list));
-		__tfw_http_resp_pair_free(req);
-	}
 }
 
 /*
