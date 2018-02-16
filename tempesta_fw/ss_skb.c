@@ -984,7 +984,7 @@ ss_skb_split(struct sk_buff *skb, int len)
 }
 
 static inline int
-__coalesce_frag(SsSkbList *skb_list, skb_frag_t *frag)
+__coalesce_frag(SsSkbList *skb_list, skb_frag_t *frag, const struct sk_buff *orig_skb)
 {
 	struct sk_buff *skb = ss_skb_peek_tail(skb_list);
 
@@ -993,6 +993,7 @@ __coalesce_frag(SsSkbList *skb_list, skb_frag_t *frag)
 		if (!skb)
 			return -ENOMEM;
 		ss_skb_queue_tail(skb_list, skb);
+		skb->mark = orig_skb->mark;
 	}
 
 	skb_shinfo(skb)->frags[skb_shinfo(skb)->nr_frags++] = *frag;
@@ -1015,12 +1016,12 @@ ss_skb_queue_coalesce_tail(SsSkbList *skb_list, const struct sk_buff *skb)
 		head_frag.page.p = virt_to_page(skb->head);
 		head_frag.page_offset = skb->data -
 			(unsigned char *)page_address(head_frag.page.p);
-		if (__coalesce_frag(skb_list, &head_frag))
+		if (__coalesce_frag(skb_list, &head_frag, skb))
 			return -ENOMEM;
 	}
 
 	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
-		if (__coalesce_frag(skb_list, &skb_shinfo(skb)->frags[i]))
+		if (__coalesce_frag(skb_list, &skb_shinfo(skb)->frags[i], skb))
 			return -ENOMEM;
 	}
 
@@ -1121,6 +1122,7 @@ ss_skb_unroll_slow(SsSkbList *skb_list, struct sk_buff *skb)
 		goto cleanup;
 
 	skb_walk_frags(skb, f_skb) {
+		f_skb->mark = skb->mark;
 		if (ss_skb_queue_coalesce_tail(skb_list, f_skb))
 			goto cleanup;
 	}
@@ -1187,6 +1189,7 @@ ss_skb_unroll(SsSkbList *skb_list, struct sk_buff *skb)
 			atomic_sub(1 << SKB_DATAREF_SHIFT,
 				   &skb_shinfo(f_skb)->dataref);
 		}
+		f_skb->mark = skb->mark;
 		ss_skb_adjust_data_len(skb, -f_skb->len);
 		ss_skb_queue_tail(skb_list, f_skb);
 	}

@@ -41,6 +41,12 @@ int ghprio; /* GFSM hook priority. */
 
 unsigned short tfw_blk_flags = TFW_BLK_ERR_REPLY;
 
+/* Array of whitelist marks for request's skb. */
+static struct {
+	unsigned int *mrks;
+	unsigned int sz;
+} tfw_wl_marks;
+
 #define S_CRLFCRLF		"\r\n\r\n"
 #define S_HTTP			"http://"
 
@@ -740,6 +746,23 @@ tfw_http_error_resp_switch(TfwHttpReq *req, int status, const char *reason)
 	}
 
 	tfw_http_send_resp(req, code);
+}
+
+static inline void
+tfw_http_mark_wl_new_msg(TfwConn *conn, TfwHttpMsg *msg,
+			 const struct sk_buff *skb)
+{
+	int i;
+
+	if (!tfw_wl_marks.mrks || !(TFW_CONN_TYPE(conn) & Conn_Clnt))
+		return;
+
+	for (i = 0; i < tfw_wl_marks.sz; ++i) {
+		if (tfw_wl_marks.mrks[i] == skb->mark) {
+			msg->flags |= TFW_HTTP_WHITELIST;
+			break;
+		}
+	}
 }
 
 /*
@@ -1559,6 +1582,9 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 	shm = (TfwHttpMsg *)tfw_http_conn_msg_alloc(hm->conn);
 	if (unlikely(!shm))
 		return NULL;
+
+	/* New message created, so maybe it should be in whitelist. */
+	tfw_http_mark_wl_new_msg(hm->conn, shm, *skb);
 
 	/*
 	 * The sibling message is set up to start with a new SKB.
@@ -2855,6 +2881,7 @@ tfw_http_msg_process(void *conn, const TfwFsmData *data)
 			__kfree_skb(data->skb);
 			return -ENOMEM;
 		}
+		tfw_http_mark_wl_new_msg(c, (TfwHttpMsg *)c->msg, data->skb);
 		TFW_DBG2("Link new msg %p with connection %p\n", c->msg, c);
 	}
 
@@ -3228,6 +3255,43 @@ tfw_cfgop_resp_body(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return ret;
 }
 
+static int
+tfw_cfgop_whitelist_mark(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	unsigned int i;
+	const char *val;
+
+	if (!ce->val_n) {
+		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
+		return -EINVAL;
+	}
+	if (ce->attr_n) {
+		TFW_ERR_NL("Unexpected attributes\n");
+		return -EINVAL;
+	}
+
+	tfw_wl_marks.sz = ce->val_n;
+	if (!(tfw_wl_marks.mrks = kmalloc(ce->val_n, GFP_KERNEL)))
+		return -ENOMEM;
+
+	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
+		if (tfw_cfg_parse_int(val, &tfw_wl_marks.mrks[i])) {
+			TFW_ERR_NL("Unable to parse whitelist"
+				   " mark value: '%s'\n", val);
+			kfree(tfw_wl_marks.mrks);
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
+static void
+tfw_cfgop_cleanup_whitelist_mark(TfwCfgSpec *cs)
+{
+	kfree(tfw_wl_marks.mrks);
+}
+
 static TfwCfgSpec tfw_http_specs[] = {
 	{
 		.name = "block_action",
@@ -3243,6 +3307,13 @@ static TfwCfgSpec tfw_http_specs[] = {
 		.allow_repeat = true,
 		.allow_none = true,
 		.cleanup = tfw_cfgop_cleanup_resp_body,
+	},
+	{
+		.name = "whitelist_mark",
+		.deflt = NULL,
+		.handler = tfw_cfgop_whitelist_mark,
+		.allow_none = true,
+		.cleanup = tfw_cfgop_cleanup_whitelist_mark,
 	},
 	{ 0 }
 };

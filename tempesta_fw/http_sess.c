@@ -489,7 +489,7 @@ tfw_http_sticky_req_process(TfwHttpReq *req, StickyVal *sv)
 int
 tfw_http_sess_resp_process(TfwHttpResp *resp, TfwHttpReq *req)
 {
-	if (!tfw_cfg_sticky.enabled)
+	if (!tfw_cfg_sticky.enabled || req->flags & TFW_HTTP_WHITELIST)
 		return 0;
 	BUG_ON(!req->sess);
 
@@ -558,7 +558,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	struct hlist_node *tmp;
 	StickyVal sv = { };
 
-	if (!tfw_cfg_sticky.enabled)
+	if (!tfw_cfg_sticky.enabled || req->flags & TFW_HTTP_WHITELIST)
 		return 0;
 
 	if ((r = tfw_http_sticky_req_process(req, &sv)))
