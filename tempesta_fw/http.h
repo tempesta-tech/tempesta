@@ -294,6 +294,7 @@ typedef struct {
 #define TFW_HTTP_URI_FULL		0x000400
 #define TFW_HTTP_NON_IDEMP		0x000800
 #define TFW_HTTP_SUSPECTED		0x001000
+#define TFW_HTTP_WHITELIST		0x002000
 
 /* Response flags */
 #define TFW_HTTP_VOID_BODY		0x010000	/* Resp has no body */

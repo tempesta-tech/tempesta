@@ -950,6 +950,9 @@ frang_http_req_handler(void *obj, const TfwFsmData *data)
 	TfwConn *conn = (TfwConn *)obj;
 	FrangAcc *ra = conn->sk->sk_security;
 
+	if (((TfwHttpReq *)data->req)->flags & TFW_HTTP_WHITELIST)
+		return TFW_PASS;
+
 	r = frang_http_req_process(ra, conn, data);
 	if (r == TFW_BLOCK && frang_cfg.ip_block)
 		tfw_filter_block_ip(&FRANG_ACC2CLI(ra)->addr.v6.sin6_addr);
