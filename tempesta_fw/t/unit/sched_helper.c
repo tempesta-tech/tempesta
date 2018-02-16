@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -57,7 +57,7 @@ test_create_sg(const char *name)
 
 	kernel_fpu_end();
 
-	sg = tfw_sg_new(name, GFP_ATOMIC);
+	sg = tfw_sg_new(name, strlen(name), GFP_ATOMIC);
 	BUG_ON(!sg);
 
 	sg->max_qsize = 100;
