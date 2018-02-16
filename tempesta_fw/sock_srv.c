@@ -888,14 +888,14 @@ tfw_cfgop_sg_copy_sched_arg(void **to, void *from)
 }
 
 static TfwCfgSrvGroup *
-__tfw_cfgop_new_sg_cfg(const char *name)
+__tfw_cfgop_new_sg_cfg(const char *name, unsigned int len)
 {
 	TfwCfgSrvGroup *sg_cfg = kmem_cache_alloc(tfw_sg_cfg_cache, GFP_KERNEL);
 	if (!sg_cfg)
 		return NULL;
 
 	memset(sg_cfg, 0, sizeof(TfwCfgSrvGroup));
-	sg_cfg->parsed_sg = tfw_sg_new(name, GFP_KERNEL);
+	sg_cfg->parsed_sg = tfw_sg_new(name, len, GFP_KERNEL);
 	if (!sg_cfg->parsed_sg) {
 		kmem_cache_free(tfw_sg_cfg_cache, sg_cfg);
 		return NULL;
@@ -906,12 +906,12 @@ __tfw_cfgop_new_sg_cfg(const char *name)
 }
 
 static TfwCfgSrvGroup *
-tfw_cfgop_new_sg_cfg(const char *name)
+tfw_cfgop_new_sg_cfg(const char *name, size_t len)
 {
-	TfwCfgSrvGroup *sg_cfg = __tfw_cfgop_new_sg_cfg(name);
+	TfwCfgSrvGroup *sg_cfg = __tfw_cfgop_new_sg_cfg(name, len);
 	if (!sg_cfg)
 		return NULL;
-	sg_cfg->orig_sg = tfw_sg_lookup(name);
+	sg_cfg->orig_sg = tfw_sg_lookup(name, len);
 	list_add(&sg_cfg->list, &sg_cfg_list);
 
 	return sg_cfg;
@@ -924,21 +924,25 @@ tfw_cfgop_new_sg_cfg(const char *name)
 static TfwCfgSrvGroup *
 tfw_cfgop_new_sg_cfg_def(void)
 {
-	TfwCfgSrvGroup *sg_cfg = __tfw_cfgop_new_sg_cfg(TFW_CFG_SG_DFT_NAME);
+	TfwCfgSrvGroup *sg_cfg;
+
+	sg_cfg = __tfw_cfgop_new_sg_cfg(TFW_CFG_SG_DFT_NAME,
+					sizeof(TFW_CFG_SG_DFT_NAME) - 1);
 	if (!sg_cfg)
 		return NULL;
-	sg_cfg->orig_sg = tfw_sg_lookup(TFW_CFG_SG_DFT_NAME);
+	sg_cfg->orig_sg = tfw_sg_lookup(TFW_CFG_SG_DFT_NAME,
+					sizeof(TFW_CFG_SG_DFT_NAME));
 
 	return sg_cfg;
 }
 
 static TfwCfgSrvGroup*
-tfw_cfgop_lookup_sg_cfg(const char *name)
+tfw_cfgop_lookup_sg_cfg(const char *name, unsigned int len)
 {
 	TfwCfgSrvGroup *sg_cfg;
 
 	list_for_each_entry(sg_cfg, &sg_cfg_list, list)
-		if (!strcasecmp(sg_cfg->parsed_sg->name, name))
+		if (tfw_sg_name_match(sg_cfg->parsed_sg, name, len))
 			return sg_cfg;
 
 	return NULL;
@@ -1342,7 +1346,9 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	TfwCfgSrvGroup *sg_cfg;
 	TfwSrvGroup *sg;
+	unsigned int nlen;
 
+	BUILD_BUG_ON(TFW_CFG_ENTRY_VAL_MAX < sizeof(TFW_CFG_SG_DFT_NAME));
 	if (ce->val_n != 1) {
 		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
 		return -EINVAL;
@@ -1352,18 +1358,21 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	}
 
-	if (tfw_cfgop_lookup_sg_cfg(ce->vals[0])) {
+	nlen = strlen(ce->vals[0]);
+	if (tfw_cfgop_lookup_sg_cfg(ce->vals[0], nlen)) {
 		TFW_ERR_NL("Group '%s' already exists in configuration"
 			   "\n", ce->vals[0]);
 		return -EINVAL;
 	}
-	if (!strcasecmp(ce->vals[0], TFW_CFG_SG_DFT_NAME)) {
+	if (!memcmp(ce->vals[0], TFW_CFG_SG_DFT_NAME,
+		    sizeof(TFW_CFG_SG_DFT_NAME)))
+	{
 		sg_cfg = tfw_cfg_sg_def;
 		tfw_cfg_sg_def = NULL;
 		list_add(&sg_cfg->list, &sg_cfg_list);
 	}
 	else {
-		sg_cfg = tfw_cfgop_new_sg_cfg(ce->vals[0]);
+		sg_cfg = tfw_cfgop_new_sg_cfg(ce->vals[0], nlen);
 		if (!sg_cfg) {
 			TFW_ERR_NL("Unable to create a group: '%s'\n",
 				   ce->vals[0]);
@@ -1796,8 +1805,11 @@ tfw_cfgop_grace_time(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_sock_srv_cfgstart(void)
 {
+	unsigned int nlen = sizeof(TFW_CFG_SG_OPTS_NAME) - 1;
 	INIT_LIST_HEAD(&sg_cfg_list);
-	if (!(tfw_cfg_sg_opts = __tfw_cfgop_new_sg_cfg(TFW_CFG_SG_OPTS_NAME)))
+
+	tfw_cfg_sg_opts = __tfw_cfgop_new_sg_cfg(TFW_CFG_SG_OPTS_NAME, nlen);
+	if (!tfw_cfg_sg_opts)
 		return -ENOMEM;
 	if (!(tfw_cfg_sg_def = tfw_cfgop_new_sg_cfg_def())) {
 		tfw_cfgop_cleanup_srv_cfg(tfw_cfg_sg_opts, true);
@@ -2008,8 +2020,9 @@ tfw_sock_srv_start(void)
 {
 	int r;
 	TfwCfgSrvGroup *sg_cfg;
-	TfwSrvGroup *sg, *tmp_sg;
-	LIST_HEAD(orphan_sgs);
+	TfwSrvGroup *sg;
+	struct hlist_node *tmp;
+	HLIST_HEAD(orphan_sgs);
 
 	tfw_cfg_grace_time = tfw_cfg_grace_time_reconfig;
 
@@ -2018,7 +2031,7 @@ tfw_sock_srv_start(void)
 			return r;
 
 	tfw_sg_apply_reconfig(&orphan_sgs);
-	list_for_each_entry_safe(sg, tmp_sg, &orphan_sgs, list)
+	hlist_for_each_entry_safe(sg, tmp, &orphan_sgs, list)
 		tfw_sock_srv_grace_shutdown_sg(sg);
 
 	tfw_http_sess_use_sticky_sess(tfw_cfg_use_sticky_sess);
