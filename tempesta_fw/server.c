@@ -22,10 +22,11 @@
  */
 #include <linux/slab.h>
 
+#include "apm.h"
+#include "client.h"
+#include "hash.h"
 #include "log.h"
 #include "server.h"
-#include "client.h"
-#include "apm.h"
 
 /* Use SLAB for frequent server allocations in forward proxy mode. */
 static struct kmem_cache *srv_cache;
@@ -35,18 +36,20 @@ static atomic64_t act_sg_n = ATOMIC64_INIT(0);
 /*
  * Server group management.
  *
- * There are two lists of server groups:
- * sg_list		- list of active groups,
- * sg_list_reconfig	- list of groups filled during configuration parsing.
+ * There are two lists of server groups (hashes are used to speedup lookups
+ * in installations with thousands of server groups):
+ *
+ * sg_hash		- list of active groups,
+ * sg_hash_reconfig	- list of groups filled during configuration parsing.
  *
  * On the TempestaFW start or live reconfiguration a new configuration is
  * parsed and all server groups declared in the configuration are added into
- * sg_list_reconfig. If the configuration is valid sg_list_reconfig replaces
- * sg_list by tfw_sg_apply_reconfig(). Otherwize reconfig list is cleared by
+ * sg_hash_reconfig. If the configuration is valid sg_hash_reconfig replaces
+ * sg_hash by tfw_sg_apply_reconfig(). Otherwize reconfig list is cleared by
  * sock_srv.c
  *
- * The same server group instance may be listed in both sg_list and
- * sg_list_reconfig lists. That's why TfwSrvGroup has members .list and
+ * The same server group instance may be listed in both sg_hash and
+ * sg_hash_reconfig lists. That's why TfwSrvGroup has members .list and
  * .list_reconfig.
  *
  * The list of active server groups may change only during configuration
@@ -59,8 +62,9 @@ static atomic64_t act_sg_n = ATOMIC64_INIT(0);
  * When a server connection is scheduled for connect it increments server's
  * reference count and decrements it after inteded disconnect.
  */
-static LIST_HEAD(sg_list);
-static LIST_HEAD(sg_list_reconfig);
+#define TFW_SG_HBITS	10
+static DECLARE_HASHTABLE(sg_hash, TFW_SG_HBITS);
+static DECLARE_HASHTABLE(sg_hash_reconfig, TFW_SG_HBITS);
 static DEFINE_RWLOCK(sg_lock);
 
 void
@@ -132,13 +136,17 @@ tfw_server_stop_sched(TfwServer *srv)
  * The search is performed across active groups list.
  */
 TfwSrvGroup *
-tfw_sg_lookup(const char *name)
+tfw_sg_lookup(const char *name, unsigned int len)
 {
 	TfwSrvGroup *sg;
+	unsigned long key = 0, crc_tmp = 0;
+
+	__tdb_hash_calc(&key, &crc_tmp, name, len);
+	key ^= crc_tmp;
 
 	read_lock(&sg_lock);
-	list_for_each_entry(sg, &sg_list, list) {
-		if (!strcasecmp(sg->name, name)) {
+	hash_for_each_possible(sg_hash, sg, list, key) {
+		if (tfw_sg_name_match(sg, name, len)) {
 			tfw_sg_get(sg);
 			read_unlock(&sg_lock);
 			return sg;
@@ -157,13 +165,17 @@ EXPORT_SYMBOL(tfw_sg_lookup);
  * is performed across reconfig list.
  */
 TfwSrvGroup *
-tfw_sg_lookup_reconfig(const char *name)
+tfw_sg_lookup_reconfig(const char *name, unsigned int len)
 {
 	TfwSrvGroup *sg;
+	unsigned long key = 0, crc_tmp = 0;
+
+	__tdb_hash_calc(&key, &crc_tmp, name, len);
+	key ^= crc_tmp;
 
 	read_lock(&sg_lock);
-	list_for_each_entry(sg, &sg_list_reconfig, list_reconfig) {
-		if (!strcasecmp(sg->name, name)) {
+	hash_for_each_possible(sg_hash_reconfig, sg, list_reconfig, key) {
+		if (tfw_sg_name_match(sg, name, len)) {
 			tfw_sg_get(sg);
 			read_unlock(&sg_lock);
 			return sg;
@@ -180,7 +192,7 @@ EXPORT_SYMBOL(tfw_sg_lookup_reconfig);
  * This function is called only on configuration processing.
  */
 TfwSrvGroup *
-tfw_sg_new(const char *name, gfp_t flags)
+tfw_sg_new(const char *name, unsigned int len, gfp_t flags)
 {
 	TfwSrvGroup *sg;
 	size_t name_size = strlen(name) + 1;
@@ -191,11 +203,12 @@ tfw_sg_new(const char *name, gfp_t flags)
 	if (!sg)
 		return NULL;
 
-	INIT_LIST_HEAD(&sg->list);
-	INIT_LIST_HEAD(&sg->list_reconfig);
+	INIT_HLIST_NODE(&sg->list);
+	INIT_HLIST_NODE(&sg->list_reconfig);
 	INIT_LIST_HEAD(&sg->srv_list);
 	rwlock_init(&sg->lock);
 	atomic64_set(&sg->refcnt, 1);
+	sg->nlen = len;
 	memcpy(sg->name, name, name_size);
 
 	atomic64_inc(&act_sg_n);
@@ -211,16 +224,21 @@ tfw_sg_new(const char *name, gfp_t flags)
 int
 tfw_sg_add_reconfig(TfwSrvGroup *sg)
 {
+	unsigned long key = 0, crc_tmp = 0;
+
+	__tdb_hash_calc(&key, &crc_tmp, sg->name, sg->nlen);
+	key ^= crc_tmp;
+
 	TFW_DBG("Add new server group: '%s'\n", sg->name);
 
-	if (tfw_sg_lookup_reconfig(sg->name)) {
+	if (tfw_sg_lookup_reconfig(sg->name, sg->nlen)) {
 		TFW_ERR("duplicate server group: '%s'\n", sg->name);
 		return -EINVAL;
 	}
 
 	tfw_sg_get(sg);
 	write_lock(&sg_lock);
-	list_add(&sg->list_reconfig, &sg_list_reconfig);
+	hash_add(sg_hash_reconfig, &sg->list_reconfig, key);
 	write_unlock(&sg_lock);
 
 	return 0;
@@ -235,27 +253,32 @@ tfw_sg_add_reconfig(TfwSrvGroup *sg)
  * responsible for destroying them.
  */
 void
-tfw_sg_apply_reconfig(struct list_head *del_sg)
+tfw_sg_apply_reconfig(struct hlist_head *del_sg)
 {
-	TfwSrvGroup *sg, *tmp;
+	int i;
+	unsigned long key = 0, crc_tmp = 0;
+	struct hlist_node *tmp;
+	TfwSrvGroup *sg;
 
 	TFW_DBG("Apply reconfig groups\n");
 
 	write_lock(&sg_lock);
 
-	list_for_each_entry_safe(sg, tmp, &sg_list, list) {
-		if (list_empty(&sg->list_reconfig)) {
-			list_del_init(&sg->list);
-			list_add(&sg->list, del_sg);
+	hash_for_each_safe(sg_hash, i, tmp, sg, list) {
+		if (hlist_unhashed(&sg->list_reconfig)) {
+			hash_del(&sg->list);
+			hlist_add_head(&sg->list, del_sg);
 		}
 		else {
-			list_del_init(&sg->list_reconfig);
+			hash_del(&sg->list_reconfig);
 			tfw_sg_put(sg);
 		}
 	}
-	list_for_each_entry_safe(sg, tmp, &sg_list_reconfig, list_reconfig) {
-		list_del_init(&sg->list_reconfig);
-		list_add(&sg->list, &sg_list);
+	hash_for_each_safe(sg_hash_reconfig, i, tmp, sg, list_reconfig) {
+		hash_del(&sg->list_reconfig);
+		__tdb_hash_calc(&key, &crc_tmp, sg->name, sg->nlen);
+		key ^= crc_tmp;
+		hash_add(sg_hash, &sg->list, key);
 	}
 
 	write_unlock(&sg_lock);
@@ -271,43 +294,16 @@ tfw_sg_apply_reconfig(struct list_head *del_sg)
 void
 tfw_sg_drop_reconfig(void)
 {
-	TfwSrvGroup *sg, *tmp;
+	int i;
+	TfwSrvGroup *sg;
+	struct hlist_node *tmp;
 
 	write_lock(&sg_lock);
-	list_for_each_entry_safe(sg, tmp, &sg_list_reconfig, list_reconfig) {
-		list_del_init(&sg->list_reconfig);
+	hash_for_each_safe(sg_hash_reconfig, i, tmp, sg, list_reconfig) {
+		hash_del(&sg->list_reconfig);
 		tfw_sg_put(sg);
 	}
 	write_unlock(&sg_lock);
-}
-
-/**
- * Remove a Server Group from the list.
- * This function is called only on configuration processing.
- */
-void
-tfw_sg_del(TfwSrvGroup *sg)
-{
-	BUG_ON(list_empty_careful(&sg->list));
-
-	write_lock(&sg_lock);
-	list_del_init(&sg->list);
-	write_unlock(&sg_lock);
-	tfw_sg_put(sg);
-}
-
-unsigned int
-tfw_sg_count(void)
-{
-	unsigned int count = 0;
-	TfwSrvGroup *sg;
-
-	read_lock(&sg_lock);
-	list_for_each_entry(sg, &sg_list, list)
-		++count;
-	read_unlock(&sg_lock);
-
-	return count;
 }
 
 /**
@@ -402,11 +398,11 @@ __tfw_sg_for_each_srv(TfwSrvGroup *sg, int (*cb)(TfwServer *srv))
 int
 tfw_sg_for_each_sg(int (*cb)(TfwSrvGroup *sg))
 {
-	int ret = 0;
+	int i, ret = 0;
 	TfwSrvGroup *sg;
 
 	write_lock(&sg_lock);
-	list_for_each_entry(sg, &sg_list, list)
+	hash_for_each(sg_hash, i, sg, list)
 		if ((ret = cb(sg)))
 			break;
 	write_unlock(&sg_lock);
@@ -421,11 +417,11 @@ tfw_sg_for_each_sg(int (*cb)(TfwSrvGroup *sg))
 int
 tfw_sg_for_each_srv(int (*cb)(TfwServer *srv))
 {
-	int ret = 0;
+	int i, ret = 0;
 	TfwSrvGroup *sg;
 
 	write_lock(&sg_lock);
-	list_for_each_entry(sg, &sg_list, list)
+	hash_for_each(sg_hash, i, sg, list)
 		if ((ret = __tfw_sg_for_each_srv(sg, cb)))
 			break;
 	write_unlock(&sg_lock);
@@ -438,11 +434,11 @@ tfw_sg_for_each_srv(int (*cb)(TfwServer *srv))
 int
 tfw_sg_for_each_srv_reconfig(int (*cb)(TfwServer *srv))
 {
-	int ret = 0;
+	int i, ret = 0;
 	TfwSrvGroup *sg;
 
 	write_lock(&sg_lock);
-	list_for_each_entry(sg, &sg_list_reconfig, list_reconfig)
+	hash_for_each(sg_hash_reconfig, i, sg, list_reconfig)
 		if ((ret = __tfw_sg_for_each_srv(sg, cb)))
 			break;
 	write_unlock(&sg_lock);
@@ -486,16 +482,18 @@ tfw_sg_release(TfwSrvGroup *sg)
 void
 tfw_sg_release_all(void)
 {
-	TfwSrvGroup *sg, *sg_tmp;
+	int i;
+	TfwSrvGroup *sg;
+	struct hlist_node *tmp;
 
 	write_lock(&sg_lock);
 
-	list_for_each_entry_safe(sg, sg_tmp, &sg_list, list) {
+	hash_for_each_safe(sg_hash, i, tmp, sg, list) {
 		tfw_sg_release(sg);
-		list_del_init(&sg->list);
+		hash_del(&sg->list);
 		tfw_sg_put(sg);
 	}
-	INIT_LIST_HEAD(&sg_list);
+	hash_init(sg_hash);
 
 	write_unlock(&sg_lock);
 }
@@ -507,16 +505,18 @@ tfw_sg_release_all(void)
 void
 __tfw_sg_release_all_reconfig(void)
 {
-	TfwSrvGroup *sg, *sg_tmp;
+	int i;
+	TfwSrvGroup *sg;
+	struct hlist_node *tmp;
 
 	write_lock(&sg_lock);
 
-	list_for_each_entry_safe(sg, sg_tmp, &sg_list_reconfig, list_reconfig) {
+	hash_for_each_safe(sg_hash_reconfig, i, tmp, sg, list_reconfig) {
 		tfw_sg_release(sg);
-		list_del_init(&sg->list_reconfig);
+		hash_del(&sg->list_reconfig);
 		tfw_sg_put(sg);
 	}
-	INIT_LIST_HEAD(&sg_list_reconfig);
+	hash_init(sg_hash_reconfig);
 
 	write_unlock(&sg_lock);
 }
