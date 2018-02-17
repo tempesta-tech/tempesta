@@ -1,5 +1,5 @@
 __author__ = 'Tempesta Technologies, Inc.'
-__copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
+__copyright__ = 'Copyright (C) 2017-2018 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
 import asyncore
@@ -42,8 +42,10 @@ class ClientMultipleResponses(deproxy.Client):
 class BadLengthMessageChain(deproxy.MessageChain):
     def __init__(self, request, expected_responses, forwarded_request=None,
                  server_response=None):
-        deproxy.MessageChain.__init__(self, request=request, forwarded_request=forwarded_request,
-                                      server_response=server_response, expected_response = None)
+        deproxy.MessageChain.__init__(self, request=request,
+                                      forwarded_request=forwarded_request,
+                                      server_response=server_response,
+                                      expected_response = None)
         self.responses = expected_responses
         self.method = request.method
 
@@ -70,10 +72,12 @@ class BadLengthDeproxy(deproxy.Deproxy):
             self.check_expectations()
 
     def check_expectations(self):
-        self.__compare_messages(self.current_chain.fwd_request, self.recieved_chain.fwd_request, 'fwd_request')
+        self.__compare_messages(self.current_chain.fwd_request,
+                                self.recieved_chain.fwd_request, 'fwd_request')
         nexpected = len(self.current_chain.responses)
         nrecieved = len(self.recieved_chain.responses)
-        assert nexpected == nrecieved, ("Expected %i responses, but recieved %i" % (nexpected, nrecieved))
+        assert nexpected == nrecieved, \
+            ("Expected %i responses, but recieved %i" % (nexpected, nrecieved))
         for i in range(nexpected):
             expected = self.current_chain.responses[i]
             recieved = self.recieved_chain.responses[i]

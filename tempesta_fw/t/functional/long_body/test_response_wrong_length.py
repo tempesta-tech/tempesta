@@ -1,7 +1,7 @@
 """ Testing for missing or wrong body length in response """
 
 __author__ = 'Tempesta Technologies, Inc.'
-__copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
+__copyright__ = 'Copyright (C) 2017-2018 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
 import unittest
@@ -144,7 +144,8 @@ class TesterSecondBodyLength(deproxy.Deproxy):
         base = self.create_base()
         cl = base[0].server_response.headers['Content-Length']
         length = int(cl)
-        base[0].server_response.headers.add('Content-Length', "%i" % (length - 1))
+        base[0].server_response.headers.add('Content-Length',
+                                            "%i" % (length - 1))
         base[0].server_response.build_message()
 
         base[0].response = chains.response_502()
@@ -180,8 +181,8 @@ class ResponseCorrectEmptyBodyLength(functional.FunctionalTest):
     def create_client(self):
         self.client = deproxy.Client()
 
-    def create_tester(self, message_chain):
-        self.tester = TesterCorrectEmptyBodyLength(message_chain, self.client, self.servers)
+    def create_tester(self):
+        self.tester = TesterCorrectEmptyBodyLength(self.client, self.servers)
 
     def test(self):
         """ Test """
@@ -190,8 +191,8 @@ class ResponseCorrectEmptyBodyLength(functional.FunctionalTest):
 class ResponseCorrectBodyLength(ResponseCorrectEmptyBodyLength):
     """ Correct body length """
 
-    def create_tester(self, message_chain):
-        self.tester = TesterCorrectBodyLength(message_chain, self.client, self.servers)
+    def create_tester(self):
+        self.tester = TesterCorrectBodyLength(self.client, self.servers)
 
 class ResponseMissingEmptyBodyLength(ResponseCorrectEmptyBodyLength):
     """ Missing body length """
@@ -200,20 +201,20 @@ class ResponseMissingEmptyBodyLength(ResponseCorrectEmptyBodyLength):
         port = tempesta.upstream_port_start_from()
         self.servers = [deproxy.Server(port=port, keep_alive=1)]
 
-    def create_tester(self, message_chain):
-        self.tester = TesterMissingEmptyBodyLength(message_chain, self.client, self.servers)
+    def create_tester(self):
+        self.tester = TesterMissingEmptyBodyLength(self.client, self.servers)
 
 class ResponseMissingBodyLength(ResponseMissingEmptyBodyLength):
     """ Missing body length """
 
-    def create_tester(self, message_chain):
-        self.tester = TesterMissingBodyLength(message_chain, self.client, self.servers)
+    def create_tester(self):
+        self.tester = TesterMissingBodyLength(self.client, self.servers)
 
 class ResponseSmallBodyLength(ResponseCorrectEmptyBodyLength):
     """ Small body length """
 
-    def create_tester(self, message_chain):
-        self.tester = TesterSmallBodyLength(message_chain, self.client, self.servers)
+    def create_tester(self):
+        self.tester = TesterSmallBodyLength(self.client, self.servers)
 
     def assert_tempesta(self):
         msg = 'Tempesta have errors in processing HTTP %s.'
@@ -229,8 +230,8 @@ class ResponseSmallBodyLength(ResponseCorrectEmptyBodyLength):
 class ResponseForbiddenZeroBodyLength(ResponseCorrectEmptyBodyLength):
     """ Forbidden body length """
 
-    def create_tester(self, message_chain):
-        self.tester = TesterForbiddenZeroBodyLength(message_chain, self.client, self.servers)
+    def create_tester(self):
+        self.tester = TesterForbiddenZeroBodyLength(self.client, self.servers)
 
     def assert_tempesta(self):
         msg = 'Tempesta have errors in processing HTTP %s.'
@@ -247,12 +248,14 @@ class ResponseForbiddenZeroBodyLength(ResponseCorrectEmptyBodyLength):
 class ResponseForbiddenPositiveBodyLength(ResponseForbiddenZeroBodyLength):
     """ Forbidden body length """
 
-    def create_tester(self, message_chain):
-        self.tester = TesterForbiddenPositiveBodyLength(message_chain, self.client, self.servers)
+    def create_tester(self):
+        self.tester = TesterForbiddenPositiveBodyLength(self.client,
+                                                        self.servers)
 
 class ResponseDuplicateBodyLength(ResponseCorrectEmptyBodyLength):
-    def create_tester(self, message_chain):
-        self.tester = TesterDuplicateBodyLength(message_chain, self.client, self.servers)
+    def create_tester(self):
+        self.tester = TesterDuplicateBodyLength(self.client, self.servers)
+
     def assert_tempesta(self):
         msg = 'Tempesta have errors in processing HTTP %s.'
         self.assertEqual(self.tempesta.stats.cl_msg_parsing_errors, 0,
@@ -265,9 +268,9 @@ class ResponseDuplicateBodyLength(ResponseCorrectEmptyBodyLength):
                          msg=(msg % 'responses'))
 
 class ResponseSecondBodyLength(ResponseDuplicateBodyLength):
-    def create_tester(self, message_chain):
-        self.tester = TesterSecondBodyLength(message_chain, self.client, self.servers)
+    def create_tester(self):
+        self.tester = TesterSecondBodyLength(self.client, self.servers)
 
 class ResponseInvalidBodyLength(ResponseDuplicateBodyLength):
-    def create_tester(self, message_chain):
-        self.tester = TesterInvalidBodyLength(message_chain, self.client, self.servers)
+    def create_tester(self):
+        self.tester = TesterInvalidBodyLength(self.client, self.servers)
