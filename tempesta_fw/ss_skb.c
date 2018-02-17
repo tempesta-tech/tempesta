@@ -1189,6 +1189,14 @@ ss_skb_unroll(SsSkbList *skb_list, struct sk_buff *skb)
 			atomic_sub(1 << SKB_DATAREF_SHIFT,
 				   &skb_shinfo(f_skb)->dataref);
 		}
+		/*
+		 * GRO procedures for ingress packets take place in network
+		 * stack before Netfilter hooks; thereby Mangle table (with
+		 * MARK action) is processed only in PREROUTING chain first
+		 * time. So Netfilter marks are set only for the main skb,
+		 * but not for the ones from 'frag_list'. This is a problem
+		 * when we track whitelist requests during HTTP processing.
+		 */
 		f_skb->mark = skb->mark;
 		ss_skb_adjust_data_len(skb, -f_skb->len);
 		ss_skb_queue_tail(skb_list, f_skb);
