@@ -278,7 +278,6 @@ int tfw_sg_for_each_srv_reconfig(int (*cb)(TfwServer *srv));
 void tfw_sg_destroy(TfwSrvGroup *sg);
 void tfw_sg_release(TfwSrvGroup *sg);
 void tfw_sg_release_all(void);
-void __tfw_sg_release_all_reconfig(void);
 void tfw_sg_wait_release(void);
 
 static inline bool
@@ -296,13 +295,9 @@ tfw_sg_get(TfwSrvGroup *sg)
 static inline void
 tfw_sg_put(TfwSrvGroup *sg)
 {
-	long rc;
-
 	if (unlikely(!sg))
 		return;
-
-	rc = atomic64_dec_return(&sg->refcnt);
-	if (likely(rc))
+	if (likely(atomic64_dec_return(&sg->refcnt)))
 		return;
 	tfw_sg_destroy(sg);
 }

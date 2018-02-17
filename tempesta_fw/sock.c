@@ -205,12 +205,12 @@ ss_turnstile_push(long ticket, SsWork *sw, int cpu)
 		return -ENOMEM;
 	cn->ticket = ticket;
 	memcpy(&cn->sw, sw, sizeof(*sw));
-	spin_lock(&cb->lock);
+	spin_lock_bh(&cb->lock);
 	list_add(&cn->list, &cb->head);
 	cb->size++;
 	if (cb->turn > ticket)
 		cb->turn = ticket;
-	spin_unlock(&cb->lock);
+	spin_unlock_bh(&cb->lock);
 
 	tfw_raise_softirq(cpu, iw, ss_ipi);
 
