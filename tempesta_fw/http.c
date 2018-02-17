@@ -414,10 +414,10 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 static inline void
 tfw_http_conn_req_clean(TfwHttpReq *req)
 {
-	spin_lock(&((TfwCliConn *)req->conn)->seq_qlock);
+	spin_lock_bh(&((TfwCliConn *)req->conn)->seq_qlock);
 	if (likely(!list_empty(&req->msg.seq_list)))
 		list_del_init(&req->msg.seq_list);
-	spin_unlock(&((TfwCliConn *)req->conn)->seq_qlock);
+	spin_unlock_bh(&((TfwCliConn *)req->conn)->seq_qlock);
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 }
 
@@ -942,17 +942,17 @@ tfw_http_req_fwd(TfwSrvConn *srv_conn, TfwHttpReq *req, struct list_head *eq)
 	TFW_DBG2("%s: srv_conn=[%p], req=[%p]\n", __func__, srv_conn, req);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
-	spin_lock(&srv_conn->fwd_qlock);
+	spin_lock_bh(&srv_conn->fwd_qlock);
 	list_add_tail(&req->fwd_list, &srv_conn->fwd_queue);
 	srv_conn->qsize++;
 	if (tfw_http_req_is_nip(req))
 		tfw_http_req_nip_enlist(srv_conn, req);
 	if (tfw_http_conn_on_hold(srv_conn)) {
-		spin_unlock(&srv_conn->fwd_qlock);
+		spin_unlock_bh(&srv_conn->fwd_qlock);
 		return;
 	}
 	tfw_http_conn_fwd_unsent(srv_conn, eq);
-	spin_unlock(&srv_conn->fwd_qlock);
+	spin_unlock_bh(&srv_conn->fwd_qlock);
 }
 
 /*
@@ -1154,9 +1154,9 @@ tfw_http_conn_shrink_fwdq(TfwSrvConn *srv_conn)
 
 	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 
-	spin_lock(&srv_conn->fwd_qlock);
+	spin_lock_bh(&srv_conn->fwd_qlock);
 	if (list_empty(fwdq)) {
-		spin_unlock(&srv_conn->fwd_qlock);
+		spin_unlock_bh(&srv_conn->fwd_qlock);
 		return;
 	}
 
@@ -1198,7 +1198,7 @@ tfw_http_conn_shrink_fwdq(TfwSrvConn *srv_conn)
 	list_for_each_entry_safe_from(req, tmp, fwdq, fwd_list)
 		tfw_http_req_evict_timeout(srv_conn, srv, req, &eq);
 
-	spin_unlock(&srv_conn->fwd_qlock);
+	spin_unlock_bh(&srv_conn->fwd_qlock);
 
 	tfw_http_req_zap_error(&eq);
 }
@@ -1218,10 +1218,10 @@ tfw_http_conn_shrink_fwdq_resched(TfwSrvConn *srv_conn)
 
 	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 
-	spin_lock(&srv_conn->fwd_qlock);
+	spin_lock_bh(&srv_conn->fwd_qlock);
 
 	if (list_empty(&srv_conn->fwd_queue)) {
-		spin_unlock(&srv_conn->fwd_qlock);
+		spin_unlock_bh(&srv_conn->fwd_qlock);
 		return;
 	}
 	list_splice_tail_init(&srv_conn->fwd_queue, &schq);
@@ -1230,7 +1230,7 @@ tfw_http_conn_shrink_fwdq_resched(TfwSrvConn *srv_conn)
 	INIT_LIST_HEAD(&srv_conn->nip_queue);
 	clear_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
 
-	spin_unlock(&srv_conn->fwd_qlock);
+	spin_unlock_bh(&srv_conn->fwd_qlock);
 
 	/*
 	 * Evict timed-out requests and requests with depleted number of re-send
@@ -1859,10 +1859,10 @@ tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
 	 * as long as @req that holds a reference to the connection is
 	 * not freed.
 	 */
-	spin_lock(&cli_conn->seq_qlock);
+	spin_lock_bh(&cli_conn->seq_qlock);
 	if (unlikely(list_empty(seq_queue))) {
 		BUG_ON(!list_empty(&req->msg.seq_list));
-		spin_unlock(&cli_conn->seq_qlock);
+		spin_unlock_bh(&cli_conn->seq_qlock);
 		TFW_DBG2("%s: The client's request missing: conn=[%p]\n",
 			 __func__, cli_conn);
 		ss_close_sync(cli_conn->sk, true);
@@ -1880,7 +1880,7 @@ tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
 		req_retent = &req->msg.seq_list;
 	}
 	if (!req_retent) {
-		spin_unlock(&cli_conn->seq_qlock);
+		spin_unlock_bh(&cli_conn->seq_qlock);
 		return;
 	}
 	__list_cut_position(&ret_queue, seq_queue, req_retent);
@@ -1907,12 +1907,12 @@ tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
 	 * Also, please see the issue #687.
 	 */
 	tfw_cli_conn_get(cli_conn);
-	spin_lock(&cli_conn->ret_qlock);
-	spin_unlock(&cli_conn->seq_qlock);
+	spin_lock_bh(&cli_conn->ret_qlock);
+	spin_unlock_bh(&cli_conn->seq_qlock);
 
 	__tfw_http_resp_fwd(cli_conn, &ret_queue);
 
-	spin_unlock(&cli_conn->ret_qlock);
+	spin_unlock_bh(&cli_conn->ret_qlock);
 	tfw_cli_conn_put(cli_conn);
 
 	/* Zap request/responses that were not sent due to an error. */

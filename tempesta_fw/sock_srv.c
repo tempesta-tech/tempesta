@@ -1760,6 +1760,9 @@ tfw_cfgop_cleanup_srv_cfgs(bool reconf_failed)
 		tfw_cfg_sg_opts = NULL;
 	}
 	tfw_cfg_sg = NULL;
+
+	/* Wait for all memory freeing RCU callbacks. */
+	rcu_barrier_bh();
 }
 
 /**
@@ -2029,6 +2032,9 @@ tfw_sock_srv_start(void)
 	list_for_each_entry(sg_cfg, &sg_cfg_list, list)
 		if ((r = tfw_cfgop_start_sg_cfg(sg_cfg)))
 			return r;
+
+	/* Wait for all memory freeing RCU callbacks. */
+	rcu_barrier_bh();
 
 	tfw_sg_apply_reconfig(&orphan_sgs);
 	hlist_for_each_entry_safe(sg, tmp, &orphan_sgs, list)

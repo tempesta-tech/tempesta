@@ -137,8 +137,8 @@ tfw_sched_http_sched_grp(TfwMsg *msg)
 	TfwHttpMatchList *active_rules;
 	TfwSrvConn *srv_conn = NULL;
 
-	rcu_read_lock();
-	active_rules = rcu_dereference(tfw_rules);
+	rcu_read_lock_bh();
+	active_rules = rcu_dereference_bh(tfw_rules);
 
 	if(!active_rules || list_empty(&active_rules->list))
 		goto done;
@@ -153,7 +153,7 @@ tfw_sched_http_sched_grp(TfwMsg *msg)
 	srv_conn = tfw_sched_http_get_srv_conn(msg, rule->main_sg,
 					       rule->backup_sg);
 done:
-	rcu_read_unlock();
+	rcu_read_unlock_bh();
 	return srv_conn;
 }
 
@@ -179,7 +179,6 @@ static TfwScheduler tfw_sched_http = {
 	.sched_sg_conn	= tfw_sched_http_sched_sg_conn,
 	.sched_srv_conn	= tfw_sched_http_sched_srv_conn,
 };
-
 
 /*
  * ------------------------------------------------------------------------
@@ -408,7 +407,7 @@ tfw_cfgop_replace_active_rules(TfwHttpMatchList *new_rules)
 	TfwHttpMatchList *active_rules = tfw_rules;
 
 	rcu_assign_pointer(tfw_rules, new_rules);
-	synchronize_rcu();
+	synchronize_rcu_bh();
 
 	tfw_cfgop_free_rules(active_rules);
 }
