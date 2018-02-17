@@ -671,7 +671,7 @@ tfw_sched_ratio_calc_tmfn(TfwRatio *ratio,
 	 */
 	crtodata = ratio->rtodata;
 	rcu_assign_pointer(ratio->rtodata, nrtodata);
-	call_rcu(&crtodata->rcu, tfw_sched_ratio_rtodata_put);
+	call_rcu_bh(&crtodata->rcu, tfw_sched_ratio_rtodata_put);
 
 rearm:
 	smp_mb();
@@ -860,8 +860,8 @@ tfw_sched_ratio_sched_srv_conn(TfwMsg *msg, TfwServer *srv)
 	TfwRatioSrvDesc *srvdesc;
 	TfwSrvConn *srv_conn = NULL;
 
-	rcu_read_lock();
-	srvdesc = rcu_dereference(srv->sched_data);
+	rcu_read_lock_bh();
+	srvdesc = rcu_dereference_bh(srv->sched_data);
 	if (unlikely(!srvdesc))
 		goto done;
 
@@ -873,7 +873,7 @@ rerun:
 		goto rerun;
 	}
 done:
-	rcu_read_unlock();
+	rcu_read_unlock_bh();
 	return srv_conn;
 }
 
@@ -905,14 +905,14 @@ tfw_sched_ratio_sched_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 	TfwSrvConn *srv_conn;
 	TfwRatioData *rtodata;
 
-	rcu_read_lock();
-	ratio = rcu_dereference(sg->sched_data);
+	rcu_read_lock_bh();
+	ratio = rcu_dereference_bh(sg->sched_data);
 	if (unlikely(!ratio)) {
-		rcu_read_unlock();
+		rcu_read_unlock_bh();
 		return NULL;
 	}
 
-	rtodata = rcu_dereference(ratio->rtodata);
+	rtodata = rcu_dereference_bh(ratio->rtodata);
 	BUG_ON(!rtodata);
 rerun:
 	/*
@@ -947,7 +947,7 @@ rerun:
 	while (attempts--) {
 		srvdesc = tfw_sched_ratio_next_srv(ratio, rtodata);
 		if ((srv_conn = __sched_srv(srvdesc, skipnip, &nipconn))) {
-			rcu_read_unlock();
+			rcu_read_unlock_bh();
 			return srv_conn;
 		}
 	}
@@ -957,7 +957,7 @@ rerun:
 		goto rerun;
 	}
 
-	rcu_read_unlock();
+	rcu_read_unlock_bh();
 	return NULL;
 }
 
@@ -992,14 +992,14 @@ tfw_sched_ratio_cleanup_rcu_cb(struct rcu_head *rcu)
 static void
 tfw_sched_ratio_del_grp(TfwSrvGroup *sg)
 {
-	TfwRatio *ratio = rcu_dereference_check(sg->sched_data, 1);
+	TfwRatio *ratio = rcu_dereference_bh_check(sg->sched_data, 1);
 	TfwServer *srv;
 
-	rcu_assign_pointer(sg->sched_data, NULL);
+	RCU_INIT_POINTER(sg->sched_data, NULL);
 	list_for_each_entry(srv, &sg->srv_list, list) {
-		WARN_ON_ONCE(rcu_dereference_check(srv->sched_data, 1)
+		WARN_ON_ONCE(rcu_dereference_bh_check(srv->sched_data, 1)
 			     && !ratio);
-		rcu_assign_pointer(srv->sched_data, NULL);
+		RCU_INIT_POINTER(srv->sched_data, NULL);
 	}
 	if (!ratio)
 		return;
@@ -1016,7 +1016,7 @@ tfw_sched_ratio_del_grp(TfwSrvGroup *sg)
 	}
 
 	/* Release all memory allocated for the group. */
-	call_rcu(&ratio->rcu, tfw_sched_ratio_cleanup_rcu_cb);
+	call_rcu_bh(&ratio->rcu, tfw_sched_ratio_cleanup_rcu_cb);
 }
 
 static int
@@ -1238,7 +1238,7 @@ tfw_sched_ratio_add_grp(TfwSrvGroup *sg, void *arg)
 static int
 tfw_sched_ratio_add_srv(TfwServer *srv)
 {
-	TfwRatioSrvDesc *srvdesc = rcu_dereference_check(srv->sched_data, 1);
+	TfwRatioSrvDesc *srvdesc = rcu_dereference_bh_check(srv->sched_data, 1);
 	int r;
 
 	if (unlikely(srvdesc))
@@ -1255,13 +1255,20 @@ tfw_sched_ratio_add_srv(TfwServer *srv)
 }
 
 static void
+tfw_sched_ratio_put_srv_data(struct rcu_head *rcu)
+{
+	TfwRatioSrvDesc *srvdesc = container_of(rcu, TfwRatioSrvDesc, rcu);
+	kfree(srvdesc);
+}
+
+static void
 tfw_sched_ratio_del_srv(TfwServer *srv)
 {
-	TfwRatioSrvDesc *srvdesc = rcu_dereference_check(srv->sched_data, 1);
+	TfwRatioSrvDesc *srvdesc = rcu_dereference_bh_check(srv->sched_data, 1);
 
-	rcu_assign_pointer(srv->sched_data, NULL);
+	RCU_INIT_POINTER(srv->sched_data, NULL);
 	if (srvdesc)
-		kfree_rcu(srvdesc, rcu);
+		call_rcu_bh(&srvdesc->rcu, tfw_sched_ratio_put_srv_data);
 }
 
 static TfwScheduler tfw_sched_ratio = {
@@ -1289,7 +1296,7 @@ tfw_sched_ratio_exit(void)
 	TFW_DBG("%s: exit\n", tfw_sched_ratio.name);
 
 	/* Wait for outstanding RCU callbacks to complete. */
-	rcu_barrier();
+	rcu_barrier_bh();
 	tfw_sched_unregister(&tfw_sched_ratio);
 }
 module_exit(tfw_sched_ratio_exit);

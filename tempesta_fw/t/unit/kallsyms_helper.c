@@ -1,7 +1,7 @@
 /**
  *              Tempesta FW
  *
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -17,7 +17,6 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #include <linux/string.h>
 #include <linux/kallsyms.h>
 #include <linux/module.h>
@@ -30,13 +29,13 @@ typedef struct {
 } Symdata;
 
 static int
-get_sym(void *data, const char *namebuf, struct module *owner, unsigned long addr)
+get_sym(void *data, const char *namebuf, struct module *owner,
+        unsigned long addr)
 {
 	Symdata *symdata = data;
 
-	if (strcmp(namebuf, symdata->name) || !strcmp(owner->name, THIS_MODULE->name)) {
+	if (strcmp(namebuf, symdata->name))
 		return 0;
-	}
 
 	symdata->addr = addr;
 	return 1;
@@ -47,7 +46,9 @@ get_sym_ptr(const char *name)
 {
 	Symdata symdata = { .addr = 0, .name = name };
 
+	mutex_lock(&module_mutex);
 	kallsyms_on_each_symbol(get_sym, &symdata);
+	mutex_unlock(&module_mutex);
 
 	return (void *)symdata.addr;
 }

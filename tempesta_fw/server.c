@@ -226,15 +226,15 @@ tfw_sg_add_reconfig(TfwSrvGroup *sg)
 {
 	unsigned long key = 0, crc_tmp = 0;
 
-	__tdb_hash_calc(&key, &crc_tmp, sg->name, sg->nlen);
-	key ^= crc_tmp;
-
 	TFW_DBG("Add new server group: '%s'\n", sg->name);
 
 	if (tfw_sg_lookup_reconfig(sg->name, sg->nlen)) {
 		TFW_ERR("duplicate server group: '%s'\n", sg->name);
 		return -EINVAL;
 	}
+
+	__tdb_hash_calc(&key, &crc_tmp, sg->name, sg->nlen);
+	key ^= crc_tmp;
 
 	tfw_sg_get(sg);
 	write_lock(&sg_lock);
@@ -482,41 +482,29 @@ tfw_sg_release(TfwSrvGroup *sg)
 void
 tfw_sg_release_all(void)
 {
-	int i;
+	int i, rs = 0;
 	TfwSrvGroup *sg;
 	struct hlist_node *tmp;
 
+repeat:
 	write_lock(&sg_lock);
 
 	hash_for_each_safe(sg_hash, i, tmp, sg, list) {
 		tfw_sg_release(sg);
 		hash_del(&sg->list);
 		tfw_sg_put(sg);
+		if (!(++rs % 1000)) {
+			write_unlock(&sg_lock);
+			/*
+			 * Wait for all memory freeing RCU callbacks.
+			 * Do it once per a while to avoid CPU
+			 * starvation due to heavy RCU workload.
+			 */
+			rcu_barrier_bh();
+			goto repeat;
+		}
 	}
 	hash_init(sg_hash);
-
-	write_unlock(&sg_lock);
-}
-
-/**
- * Release all reconfig server groups with all servers.
- * ONLY for unittests.
- */
-void
-__tfw_sg_release_all_reconfig(void)
-{
-	int i;
-	TfwSrvGroup *sg;
-	struct hlist_node *tmp;
-
-	write_lock(&sg_lock);
-
-	hash_for_each_safe(sg_hash_reconfig, i, tmp, sg, list_reconfig) {
-		tfw_sg_release(sg);
-		hash_del(&sg->list_reconfig);
-		tfw_sg_put(sg);
-	}
-	hash_init(sg_hash_reconfig);
 
 	write_unlock(&sg_lock);
 }
