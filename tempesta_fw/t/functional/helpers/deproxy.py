@@ -521,10 +521,10 @@ class Client(asyncore.dispatcher, stateful.Stateful):
     def clear(self):
         self.request_buffer = ''
 
-    def set_request(self, request_chain):
-        if request_chain:
-            self.request = request_chain.request
-            self.request_buffer = request_chain.request.msg
+    def set_request(self, message_chain):
+        if message_chain:
+            self.request = message_chain.request
+            self.request_buffer = message_chain.request.msg
 
     def set_tester(self, tester):
         self.tester = tester
@@ -542,7 +542,8 @@ class Client(asyncore.dispatcher, stateful.Stateful):
         tf_cfg.dbg(4, '\tDeproxy: Client: Receive response from Tempesta.')
         tf_cfg.dbg(5, self.response_buffer)
         try:
-            response = Response(self.response_buffer, method=self.request.method)
+            response = Response(self.response_buffer,
+                                method=self.request.method)
             self.response_buffer = self.response_buffer[len(response.msg):]
         except IncompliteMessage:
             return
@@ -553,7 +554,8 @@ class Client(asyncore.dispatcher, stateful.Stateful):
             raise
         if len(self.response_buffer) > 0:
             # TODO: take care about pipelined case
-            raise ParseError('Garbage after response end:\n```\n%s\n```\n' % self.response_buffer)
+            raise ParseError('Garbage after response end:\n```\n%s\n```\n' % \
+                             self.response_buffer)
         if self.tester:
             self.tester.recieved_response(response)
         self.response_buffer = ''
