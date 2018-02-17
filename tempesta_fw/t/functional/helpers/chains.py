@@ -239,7 +239,8 @@ def response_400(date=None):
     if date is None:
         date = deproxy.HttpMessage.date_time_string()
     resp = deproxy.Response.create(status=400,
-                                   headers=['Content-Length: 0'],
+                                   headers=['Content-Length: 0',
+                                            'Connection: keep-alive'],
                                    date=date,
                                    body='')
     return resp

@@ -1,7 +1,7 @@
 """ Testing for missing or wrong body length in request """
 
 __author__ = 'Tempesta Technologies, Inc.'
-__copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
+__copyright__ = 'Copyright (C) 2017-2018 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
 import unittest
@@ -118,8 +118,8 @@ class RequestCorrectBodyLength(functional.FunctionalTest):
     def create_client(self):
         self.client = tester.ClientMultipleResponses()
 
-    def create_tester(self, message_chain):
-        self.tester = TesterCorrectBodyLength(message_chain, self.client, self.servers)
+    def create_tester(self):
+        self.tester = TesterCorrectBodyLength(self.client, self.servers)
 
     def test(self):
         """ Test """
@@ -128,8 +128,8 @@ class RequestCorrectBodyLength(functional.FunctionalTest):
 class RequestMissingBodyLength(RequestCorrectBodyLength):
     """ Wrong body length """
 
-    def create_tester(self, message_chain):
-        self.tester = TesterMissingBodyLength(message_chain, self.client, self.servers)
+    def create_tester(self):
+        self.tester = TesterMissingBodyLength(self.client, self.servers)
 
     def assert_tempesta(self):
         msg = 'Tempesta have errors in processing HTTP %s.'
@@ -144,8 +144,8 @@ class RequestMissingBodyLength(RequestCorrectBodyLength):
 
 class RequestSmallBodyLength(RequestMissingBodyLength):
     """ Wrong body length """
-    def create_tester(self, message_chain):
-        self.tester = TesterSmallBodyLength(message_chain, self.client, self.servers)
+    def create_tester(self):
+        self.tester = TesterSmallBodyLength(self.client, self.servers)
 
 class RequestDuplicateBodyLength(functional.FunctionalTest):
     config = 'cache 0;\nblock_action error reply;\nblock_action attack reply;\n'
@@ -153,8 +153,8 @@ class RequestDuplicateBodyLength(functional.FunctionalTest):
     def create_client(self):
         self.client = deproxy.Client()
 
-    def create_tester(self, message_chain):
-        self.tester = TesterDuplicateBodyLength(message_chain, self.client, self.servers)
+    def create_tester(self):
+        self.tester = TesterDuplicateBodyLength(self.client, self.servers)
 
     def test(self):
         """ Test """
@@ -172,8 +172,9 @@ class RequestDuplicateBodyLength(functional.FunctionalTest):
                          msg=(msg % 'responses'))
 
 class RequestSecondBodyLength(RequestDuplicateBodyLength):
-    def create_tester(self, message_chain):
-        self.tester = TesterSecondBodyLength(message_chain, self.client, self.servers)
+    def create_tester(self):
+        self.tester = TesterSecondBodyLength(self.client, self.servers)
+
     def assert_tempesta(self):
         msg = 'Tempesta have errors in processing HTTP %s.'
         self.assertEqual(self.tempesta.stats.cl_msg_parsing_errors, 1,
@@ -186,5 +187,5 @@ class RequestSecondBodyLength(RequestDuplicateBodyLength):
                          msg=(msg % 'responses'))
 
 class RequestInvalidBodyLength(RequestSecondBodyLength):
-    def create_tester(self, message_chain):
-        self.tester = TesterInvalidBodyLength(message_chain, self.client, self.servers)
+    def create_tester(self):
+        self.tester = TesterInvalidBodyLength(self.client, self.servers)

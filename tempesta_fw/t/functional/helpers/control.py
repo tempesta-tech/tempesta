@@ -127,7 +127,9 @@ class Wrk(Client):
         Client.__init__(self, binary='wrk', uri=uri, ssl=ssl)
         self.threads = threads
         self.script = ''
-        self.local_scriptdir = ''.join([os.path.dirname(os.path.realpath(__file__)), '/../wrk/'])
+        self.local_scriptdir = ''.join([
+                            os.path.dirname(os.path.realpath(__file__)),
+                            '/../wrk/'])
         self.copy_script = True
 
     def set_script(self, script, need_copy=True):
