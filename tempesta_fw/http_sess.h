@@ -78,6 +78,19 @@ struct tfw_http_sess_t {
 	TfwStickyConn		st_conn;
 };
 
+enum {
+	/* Internal error, may be any number < 0. */
+	TFW_HTTP_SESS_FAILURE = -1,
+	/* Session successfuly obtained. */
+	TFW_HTTP_SESS_SUCCESS = 0,
+	/* Can't obtain session: new client; redirect message sent. */
+	TFW_HTTP_SESS_REDIRECT_SENT,
+	/* Sticky cookie violated, client must be blocked. */
+	TFW_HTTP_SESS_VIOLATE,
+	/* JS challenge enabled, but request is not challengable. */
+	TFW_HTTP_SESS_JS_NOT_SUPPORTED
+};
+
 int tfw_http_sess_obtain(TfwHttpReq *req);
 int tfw_http_sess_resp_process(TfwHttpResp *resp, TfwHttpReq *req);
 void tfw_http_sess_put(TfwHttpSess *sess);
