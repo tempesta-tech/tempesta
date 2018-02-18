@@ -47,14 +47,14 @@ void test_call_teardown_fn(void);
 #define TEST_LOG_LF(...) 	\
 do {				\
 	TEST_LOG(__VA_ARGS__);	\
-	printk("\n");		\
+	printk(KERN_CONT "\n");	\
 } while (0)
 
 #define TEST_ERR(...) printk(KERN_ERR  TEST_BANNER __VA_ARGS__)
 #define TEST_ERR_LF(...) 	\
 do {				\
 	TEST_ERR(__VA_ARGS__);	\
-	printk("\n");		\
+	printk(KERN_CONT "\n");	\
 } while (0)
 
 #if defined(DEBUG) && (DEBUG >= 1)
