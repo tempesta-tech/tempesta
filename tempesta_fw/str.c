@@ -672,7 +672,7 @@ EXPORT_SYMBOL(tfw_str_next_str_val);
 /**
  * Function for crc32 calculation from TfwStr object.
  */
-int
+u32
 tfw_str_crc32_calc(const TfwStr *str)
 {
 	const TfwStr *c, *end;

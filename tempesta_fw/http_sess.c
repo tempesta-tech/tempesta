@@ -754,7 +754,7 @@ tfw_http_sess_get_srv_conn(TfwMsg *msg)
 			 * the server instance. unpin_srv() will be called in
 			 * session destructor (tfw_http_sess_put()).
 			 */
-			if (unlikely(srv->flags & TFW_CFG_F_DEL)) {
+			if (unlikely(test_bit(TFW_CFG_B_DEL, &srv->flags))) {
 				TFW_LOG("sticky sched: server %s"
 					" was removed, set session expired\n",
 					addr_str);

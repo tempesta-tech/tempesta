@@ -747,6 +747,11 @@ tfw_http_hm_suspend(TfwHttpResp *resp, TfwServer *srv)
 {
 	unsigned long old_flags, flags = READ_ONCE(srv->flags);
 
+#define TFW_WARN_SUSPEND(status, addr_ptr)				\
+	TFW_WITH_ADDR_FMT(addr_ptr, addr,				\
+			  TFW_WARN("server '%s' has been suspended:"	\
+				   " limit for bad responses (status:"	\
+				   " '%u') is exceeded\n", addr, status))
 	if (!(flags & TFW_SRV_F_HMONITOR))
 		return true;
 
@@ -757,14 +762,12 @@ tfw_http_hm_suspend(TfwHttpResp *resp, TfwServer *srv)
 		old_flags = cmpxchg(&srv->flags, flags,
 				    flags | TFW_SRV_F_SUSPEND);
 		if (likely(old_flags == flags)) {
-			TFW_WARN_ADDR("server has been suspended: limit"
-				      " for bad responses is exceeded",
-				      &srv->addr);
+			TFW_WARN_SUSPEND(resp->status, &srv->addr);
 			break;
 		}
 		flags = old_flags;
 	} while (flags & TFW_SRV_F_HMONITOR);
-
+#undef TFW_WARN_SUSPEND
 	return true;
 }
 
