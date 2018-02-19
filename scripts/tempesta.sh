@@ -3,7 +3,7 @@
 # Tempesta FW service script.
 #
 # Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+# Copyright (C) 2015-2018 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -21,6 +21,7 @@
 
 . "$(dirname $0)/tfw_lib.sh"
 
+script_path="$(dirname $0)"
 tdb_path=${TDB_PATH:="$TFW_ROOT/tempesta_db/core"}
 tfw_path=${TFW_PATH:="$TFW_ROOT/tempesta_fw"}
 tls_path=${TLS_PATH:="$TFW_ROOT/tls"}
@@ -137,6 +138,41 @@ setup()
 	sysctl -w net.ipv4.tcp_max_syn_backlog=131072 >/dev/null
 }
 
+# Configuration directory may provide a lot of html templates, optimize them.
+update_html_templates()
+{
+	compile=1
+	cfg_dir=`dirname $tfw_cfg_path`
+	d_min=`perl -ne 'print "$1\n" if /delay_min=(\d+)/' $tfw_cfg_path`
+	d_range=`perl -ne 'print "$1\n" if /delay_range=(\d+)/' $tfw_cfg_path`
+
+	cookie=`perl -ne 'print "$1\n" if /name=([\w_]+)/' $tfw_cfg_path`
+
+	# Set default values
+	if [[ -z $d_min ]]; then
+		compile=
+		d_min="0"
+	fi
+	if [[ -z $d_range ]]; then
+		compile=
+		d_range="0"
+	fi
+	if [[ -z $cookie ]]; then
+		cookie="__tfw"
+	fi
+
+	# Force template compilation if .html files defined in config file
+	if grep -q "\.html" $tfw_cfg_path; then
+		compile=1
+	fi
+	if [[ -z $compile ]]; then
+		return
+	fi
+
+	echo "...compile html templates"
+	$script_path/perl/compile.pl $cfg_dir $cookie $d_min $d_range
+}
+
 start()
 {
 	echo "Starting Tempesta..."
@@ -158,6 +194,7 @@ start()
 		rm -f /opt/tempesta/db/*.tdb;
 	}
 
+	update_html_templates
 	echo "...start Tempesta FW"
 	sysctl -w net.tempesta.state=start >/dev/null
 	if [ $? -ne 0 ]; then
@@ -182,6 +219,7 @@ stop()
 
 reload()
 {
+	update_html_templates
 	echo "Running live reconfiguration of Tempesta..."
 	sysctl -w net.tempesta.state=start >/dev/null
 	if [ $? -ne 0 ]; then
