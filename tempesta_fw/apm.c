@@ -379,7 +379,6 @@ totals:
 /*
  * Structure for health monitor settings.
  *
- * @codes	- HTTP response codes bitmap (signals that backend server alive);
  * @list	- entry in list of all health monitors;
  * @name	- health monitor's name;
  * @url		- url for requests which will be used in health monitoring;
@@ -387,10 +386,12 @@ totals:
  * @req		- full test request health monitoring;
  * @reqsz	- length of @req string (without terminating zero);
  * @crc32	- crc32 value for verification of response body checksum;
+ * @codes	- pointer to HTTP response codes bitmap (signals that
+ *		  backend server alive);
  * @tmt		- timeout between health monitoring requests;
+ * @auto_crc	- flag for enabling of crc32 generation from first response;
  */
 typedef struct {
-	DECLARE_BITMAP(codes, 512);
 	struct list_head	list;
 	char			*name;
 	char			*req;
@@ -398,6 +399,7 @@ typedef struct {
 	char			*url;
 	int			urlsz;
 	u32			crc32;
+	long			*codes;
 	unsigned short		tmt;
 	bool			auto_crc:1;
 } TfwApmHM;
@@ -1497,6 +1499,20 @@ tfw_cfgop_apm_add_hm_url(const char *url, TfwApmHM *hm_entry)
 	return 0;
 }
 
+static inline int
+tfw_cfgop_apm_alloc_hm_codes(TfwApmHM *hm_entry)
+{
+	tfw_hm_entry->codes = kzalloc(BITS_TO_LONGS(512) * sizeof(long),
+				      GFP_KERNEL);
+	if (!tfw_hm_entry->codes) {
+		TFW_ERR_NL("Can't allocate memory for HTTP codes"
+			   " field for '%s' health check entry\n",
+			   tfw_hm_entry->name);
+		return -ENOMEM;
+	}
+	return 0;
+}
+
 static void
 __tfw_cfgop_cleanup_apm_hm(void)
 {
@@ -1508,6 +1524,7 @@ __tfw_cfgop_cleanup_apm_hm(void)
 	list_for_each_entry_safe(hm, tmp, &tfw_hm_list, list) {
 		free_pages((unsigned long)hm->req, get_order(hm->reqsz));
 		kfree(hm->url);
+		kfree(hm->codes);
 		list_del(&hm->list);
 		kfree(hm);
 	}
@@ -1573,7 +1590,10 @@ tfw_apm_cfgend(void)
 	if ((r = tfw_cfgop_apm_add_hm_req(TFW_APM_DFLT_REQ, tfw_hm_entry)))
 		return r;
 
-	if((r = tfw_cfgop_apm_add_hm_url(TFW_APM_DFLT_URL, tfw_hm_entry)))
+	if ((r = tfw_cfgop_apm_add_hm_url(TFW_APM_DFLT_URL, tfw_hm_entry)))
+		return r;
+
+	if ((r = tfw_cfgop_apm_alloc_hm_codes(tfw_hm_entry)))
 		return r;
 
 	/*
@@ -1774,7 +1794,7 @@ tfw_cfgop_apm_hm_req_url(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_cfgop_apm_hm_resp_code(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	int i, code;
+	int r, i, code;
 	const char *val;
 
 	if (!ce->val_n) {
@@ -1786,12 +1806,16 @@ tfw_cfgop_apm_hm_resp_code(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	}
 
+	if ((r = tfw_cfgop_apm_alloc_hm_codes(tfw_hm_entry)))
+		return r;
+
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		if (tfw_cfgop_parse_http_status(val, &code)
 		    || tfw_cfg_check_range(code, HTTP_CODE_MIN, HTTP_CODE_MAX))
 		{
 			TFW_ERR_NL("Unable to parse http code value: '%s'\n",
 				   val);
+			kfree(tfw_hm_entry->codes);
 			return -EINVAL;
 		}
 		__set_bit(HTTP_CODE_BIT_NUM(code), tfw_hm_entry->codes);
