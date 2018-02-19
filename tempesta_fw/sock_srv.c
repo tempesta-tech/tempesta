@@ -1997,7 +1997,7 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg, void *hm)
 			}
 			continue;
 		}
-		else if (srv->flags & TFW_CFG_F_MOD)
+		else if (test_bit(TFW_CFG_B_MOD, &srv->flags))
 			if ((r = tfw_cfgop_update_srv(srv, sg_cfg))) {
 				write_unlock(&sg->lock);
 				return r;
@@ -2009,7 +2009,7 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg, void *hm)
 
 	/* Add new servers. */
 	list_for_each_entry_safe(srv, tmp, &sg_cfg->parsed_sg->srv_list, list) {
-		if (!(srv->flags & TFW_CFG_F_ADD))
+		if (!test_bit(TFW_CFG_B_ADD, &srv->flags))
 			continue;
 
 		/* The server was not used yet, save to change it's group. */
