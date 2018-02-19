@@ -399,6 +399,7 @@ typedef struct {
 	int			urlsz;
 	u32			crc32;
 	unsigned short		tmt;
+	bool			auto_crc:1;
 } TfwApmHM;
 
 /*
@@ -465,7 +466,11 @@ typedef struct {
 
 /* Entry for configuration of separate health monitors. */
 static TfwApmHM			*tfw_hm_entry;
-/* Total count of monitred HTTP codes. */
+/* Entry for configuration of default 'auto' health monitor. */
+static TfwApmHM			*tfw_hm_default;
+/* Flag for explicit creation of default health monitor. */
+static bool			tfw_hm_expl_def;
+/* Total count of monitored HTTP codes. */
 static unsigned int		tfw_hm_codes_cnt;
 
 static LIST_HEAD(tfw_hm_list);
@@ -1228,15 +1233,38 @@ bool
 tfw_apm_hm_srv_alive(int status, TfwStr *body, void *apmref)
 {
 	TfwApmHM *hm = READ_ONCE(((TfwApmData *)apmref)->hmctl.hm);
+	u32 crc32 = 0;
 
 	BUG_ON(!hm);
-	if (hm->codes && test_bit(HTTP_CODE_BIT_NUM(status), hm->codes))
-		return true;
+	if (hm->codes && !test_bit(HTTP_CODE_BIT_NUM(status), hm->codes)) {
+		TFW_WARN_NL("Response for health monitor '%s': status"
+			 " '%d' mismatched\n", hm->name, status);
+		return false;
+	}
 
-	if (hm->crc32 && body->len &&
-	    tfw_str_crc32_calc(body) == hm->crc32)
+	if (!body->len) {
+		if (hm->crc32 != 0)
+			goto crc_err;
 		return true;
+	}
 
+	/*
+	 * Special case for 'auto' monitor: generate crc32
+	 * from body of first response and store it into monitor.
+	 */
+	if (!hm->crc32 && hm->auto_crc) {
+		hm->crc32 = tfw_str_crc32_calc(body);
+	} else if (hm->crc32) {
+		crc32 = tfw_str_crc32_calc(body);
+		if (hm->crc32 != crc32)
+			goto crc_err;
+	}
+
+	return true;
+crc_err:
+	TFW_WARN_NL("Response for health monitor '%s': crc32"
+		 " value '%u' mismatched (expected value:"
+		 " '%u')\n", hm->name, crc32, hm->crc32);
 	return false;
 }
 
@@ -1409,6 +1437,7 @@ tfw_apm_get_hm(const char *name)
 
 #define TFW_APM_MIN_TMINTRVL	5	/* Minimum time interval (secs). */
 
+#define TFW_APM_HM_AUTO		"auto"
 #define TFW_APM_DFLT_REQ	"\"GET / HTTTP/1.0\r\n\r\n\""
 #define TFW_APM_DFLT_URL	"\"/\""
 
@@ -1492,42 +1521,10 @@ tfw_cfgop_cleanup_apm_hm(TfwCfgSpec *cs)
 }
 
 static int
-tfw_apm_cfgstart(void)
-{
-	int r;
-	TfwCfgSpec *cs = NULL;
-
-	if (tfw_runstate_is_reconfig())
-		return 0;
-
-	/* Create 'auto' health monitor for default mode. */
-	if ((r = tfw_cfgop_apm_add_hm("auto")))
-		goto cleanup;
-
-	if ((r = tfw_cfgop_apm_add_hm_req(TFW_APM_DFLT_REQ, tfw_hm_entry)))
-		goto cleanup;
-
-	if((r = tfw_cfgop_apm_add_hm_url(TFW_APM_DFLT_URL, tfw_hm_entry)))
-		goto cleanup;
-
-	/*
-	 * Default values for health response code is 200, and
-	 * for monitor request timeout is 10s.
-	 */
-	__set_bit(HTTP_CODE_BIT_NUM(200), tfw_hm_entry->codes);
-	tfw_hm_entry->tmt = 10;
-	tfw_hm_entry = NULL;
-
-	return 0;
-cleanup:
-	tfw_cfgop_cleanup_apm_hm(cs);
-	return r;
-}
-
-static int
 tfw_apm_cfgend(void)
 {
 	unsigned int jtmwindow;
+	int r;
 
 	if (tfw_runstate_is_reconfig())
 		return 0;
@@ -1562,6 +1559,32 @@ tfw_apm_cfgend(void)
 	}
 	tfw_apm_jtmwindow = tfw_apm_jtmintrvl * tfw_apm_tmwscale;
 
+	/*
+	 * Create 'auto' health monitor for default mode
+	 * if explicit one have not been created during
+	 * configuration parsing stage.
+	 */
+	if (tfw_hm_expl_def)
+		return 0;
+
+	if ((r = tfw_cfgop_apm_add_hm(TFW_APM_HM_AUTO)))
+		return r;
+
+	if ((r = tfw_cfgop_apm_add_hm_req(TFW_APM_DFLT_REQ, tfw_hm_entry)))
+		return r;
+
+	if((r = tfw_cfgop_apm_add_hm_url(TFW_APM_DFLT_URL, tfw_hm_entry)))
+		return r;
+
+	/*
+	 * Default values for health response code is 200, for
+	 * crc32 is 'auto', and for monitor request timeout is 10s.
+	 */
+	__set_bit(HTTP_CODE_BIT_NUM(200), tfw_hm_entry->codes);
+	tfw_hm_entry->auto_crc = true;
+	tfw_hm_entry->tmt = 10;
+	tfw_hm_entry = NULL;
+
 	return 0;
 }
 
@@ -1570,7 +1593,7 @@ tfw_apm_cfgclean(void)
 {
 	/*
 	 * Removal of default 'auto' health monitor, which is
-	 * created in cfgstart().
+	 * created in cfgend().
 	 */
 	__tfw_cfgop_cleanup_apm_hm();
 }
@@ -1683,6 +1706,7 @@ static int
 tfw_cfgop_begin_apm_hm(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	TfwApmHM *hm;
+	int r;
 
 	if (tfw_cfg_check_val_n(ce, 1))
 		return -EINVAL;
@@ -1699,7 +1723,15 @@ tfw_cfgop_begin_apm_hm(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		}
 	}
 
-	return tfw_cfgop_apm_add_hm(ce->vals[0]);
+	if ((r = tfw_cfgop_apm_add_hm(ce->vals[0])))
+		return r;
+
+	if (!strcasecmp(ce->vals[0], TFW_APM_HM_AUTO)) {
+		tfw_hm_default = tfw_hm_entry;
+		tfw_hm_expl_def = true;
+	}
+
+	return 0;
 }
 
 static int
@@ -1708,12 +1740,13 @@ tfw_cfgop_finish_apm_hm(TfwCfgSpec *cs)
 	BUG_ON(!tfw_hm_entry);
 	BUG_ON(list_empty(&tfw_hm_list));
 	if (!tfw_hm_entry->codes && !tfw_hm_entry->crc32) {
-		TFW_ERR_NL("At least one of 'resp_code' or 'resp_crc32' values"
-			   " must be configured for '%s'\n", cs->name);
+		TFW_ERR_NL("At least one of 'resp_code' or 'resp_crc32'"
+			   " explicit (not 'auto') values must be"
+			   " configured for '%s'\n", cs->name);
 		return -EINVAL;
 	}
-
 	tfw_hm_entry = NULL;
+	tfw_hm_default = NULL;
 
 	return 0;
 }
@@ -1773,6 +1806,13 @@ tfw_cfgop_apm_hm_resp_crc32(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	if (tfw_cfg_check_single_val(ce))
 		return -EINVAL;
+
+	if (!strcasecmp(ce->vals[0], TFW_APM_HM_AUTO)) {
+		if (tfw_hm_default)
+			tfw_hm_default->auto_crc = true;
+		return 0;
+	}
+
 	if (tfw_cfg_parse_uint(ce->vals[0], &crc32)) {
 		TFW_ERR_NL("Unable to parse crc32 value: '%s'\n", ce->vals[0]);
 		return -EINVAL;
@@ -1877,7 +1917,6 @@ static TfwCfgSpec tfw_apm_specs[] = {
 
 TfwMod tfw_apm_mod = {
 	.name		= "apm",
-	.cfgstart	= tfw_apm_cfgstart,
 	.cfgend		= tfw_apm_cfgend,
 	.cfgclean	= tfw_apm_cfgclean,
 	.specs		= tfw_apm_specs,
