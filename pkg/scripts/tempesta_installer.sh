@@ -133,7 +133,9 @@ tfw_install_deps()
 	echo "to enable 'kdump-tools' by default in the next dialogue."
 	read -n 1 -s -p "Press any key to continue..."
 	# curl and wget are required for the script itself.
-	apt-get ${APT_OPTS} install -y dkms libboost-dev libboost-program-options-dev kdump-tools curl wget ethtool bc
+	apt-get ${APT_OPTS} install -y dkms libboost-dev libboost-program-options-dev \
+            kdump-tools curl wget ethtool bc libcss-minifier-xs-perl \
+            libjavascript-minifier-xs-perl libtemplate-perl
 
 	echo ""
 }
