@@ -82,6 +82,14 @@ load_one_module()
 	}
 }
 
+check_frang_required()
+{
+	if grep -q -E "^\s*frang_limits" $tfw_cfg_path; then
+		frang_enable=1
+		echo "Force loading frang: it used in configuration"
+	fi
+}
+
 # The separate load_modules/unload_modules routines are used for unit testing.
 load_modules()
 {
@@ -105,6 +113,7 @@ load_modules()
 			error "cannot load tempesta scheduler module"
 	done
 
+	check_frang_required
 	if [ "$frang_enable" ]; then
 		echo "Load Frang"
 		load_one_module "$class_path/$frang_mod.ko" ||
