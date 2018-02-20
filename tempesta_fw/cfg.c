@@ -64,7 +64,7 @@
  *  - Improve efficiency: too many memory allocations and data copying.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1471,6 +1471,8 @@ tfw_cfg_parse_mods(const char *cfg_text, struct list_head *mod_list)
 		if (r)
 			goto err;
 		entry_reset(&ps.e);
+
+		tfw_srv_loop_sched_rcu();
 	} while (ps.t);
 
 	MOD_FOR_EACH(mod, mod_list) {
@@ -1500,6 +1502,7 @@ tfw_cfg_cleanup(struct list_head *mod_list)
 		spec_cleanup(mod->specs);
 		if (mod->cfgclean)
 			mod->cfgclean();
+		tfw_srv_loop_sched_rcu();
 	}
 }
 

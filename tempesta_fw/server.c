@@ -21,6 +21,7 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include <linux/slab.h>
+#include <linux/rwsem.h>
 
 #include "apm.h"
 #include "client.h"
@@ -65,7 +66,12 @@ static atomic64_t act_sg_n = ATOMIC64_INIT(0);
 #define TFW_SG_HBITS	10
 static DECLARE_HASHTABLE(sg_hash, TFW_SG_HBITS);
 static DECLARE_HASHTABLE(sg_hash_reconfig, TFW_SG_HBITS);
-static DEFINE_RWLOCK(sg_lock);
+/*
+ * The lock is used in process context only (e.g. (re-)configuration or
+ * procfs), so it should be sleepable and don't care too much about
+ * concurrencty.
+ */
+static DECLARE_RWSEM(sg_sem);
 
 void
 tfw_server_destroy(TfwServer *srv)
@@ -84,7 +90,7 @@ tfw_server_destroy(TfwServer *srv)
 TfwServer *
 tfw_server_create(const TfwAddr *addr)
 {
-	TfwServer *srv = kmem_cache_alloc(srv_cache, GFP_ATOMIC | __GFP_ZERO);
+	TfwServer *srv = kmem_cache_alloc(srv_cache, GFP_KERNEL | __GFP_ZERO);
 	if (!srv)
 		return NULL;
 
@@ -100,14 +106,18 @@ tfw_server_lookup(TfwSrvGroup *sg, TfwAddr *addr)
 {
 	TfwServer *srv;
 
-	read_lock(&sg->lock);
-	list_for_each_entry(srv, &sg->srv_list, list)
+	down_read(&sg_sem);
+
+	list_for_each_entry(srv, &sg->srv_list, list) {
 		if (tfw_addr_eq(&srv->addr, addr)) {
 			tfw_server_get(srv);
-			read_unlock(&sg->lock);
+			up_read(&sg_sem);
 			return srv;
 		}
-	read_unlock(&sg->lock);
+		tfw_srv_loop_sched_rcu();
+	}
+
+	up_read(&sg_sem);
 
 	return NULL;
 }
@@ -144,18 +154,19 @@ tfw_sg_lookup(const char *name, unsigned int len)
 	__tdb_hash_calc(&key, &crc_tmp, name, len);
 	key ^= crc_tmp;
 
-	read_lock(&sg_lock);
+	down_read(&sg_sem);
 	hash_for_each_possible(sg_hash, sg, list, key) {
 		if (tfw_sg_name_match(sg, name, len)) {
 			tfw_sg_get(sg);
-			read_unlock(&sg_lock);
+			up_read(&sg_sem);
 			return sg;
 		}
+		tfw_srv_loop_sched_rcu();
 	}
-	read_unlock(&sg_lock);
+	up_read(&sg_sem);
+
 	return NULL;
 }
-EXPORT_SYMBOL(tfw_sg_lookup);
 
 /**
  * Look up Server Group by name, and return it to caller.
@@ -173,15 +184,17 @@ tfw_sg_lookup_reconfig(const char *name, unsigned int len)
 	__tdb_hash_calc(&key, &crc_tmp, name, len);
 	key ^= crc_tmp;
 
-	read_lock(&sg_lock);
+	down_read(&sg_sem);
 	hash_for_each_possible(sg_hash_reconfig, sg, list_reconfig, key) {
 		if (tfw_sg_name_match(sg, name, len)) {
 			tfw_sg_get(sg);
-			read_unlock(&sg_lock);
+			up_read(&sg_sem);
 			return sg;
 		}
+		tfw_srv_loop_sched_rcu();
 	}
-	read_unlock(&sg_lock);
+	up_read(&sg_sem);
+
 	return NULL;
 }
 EXPORT_SYMBOL(tfw_sg_lookup_reconfig);
@@ -206,7 +219,6 @@ tfw_sg_new(const char *name, unsigned int len, gfp_t flags)
 	INIT_HLIST_NODE(&sg->list);
 	INIT_HLIST_NODE(&sg->list_reconfig);
 	INIT_LIST_HEAD(&sg->srv_list);
-	rwlock_init(&sg->lock);
 	atomic64_set(&sg->refcnt, 1);
 	sg->nlen = len;
 	memcpy(sg->name, name, name_size);
@@ -237,9 +249,9 @@ tfw_sg_add_reconfig(TfwSrvGroup *sg)
 	key ^= crc_tmp;
 
 	tfw_sg_get(sg);
-	write_lock(&sg_lock);
+	down_write(&sg_sem);
 	hash_add(sg_hash_reconfig, &sg->list_reconfig, key);
-	write_unlock(&sg_lock);
+	up_write(&sg_sem);
 
 	return 0;
 }
@@ -262,7 +274,7 @@ tfw_sg_apply_reconfig(struct hlist_head *del_sg)
 
 	TFW_DBG("Apply reconfig groups\n");
 
-	write_lock(&sg_lock);
+	down_write(&sg_sem);
 
 	hash_for_each_safe(sg_hash, i, tmp, sg, list) {
 		if (hlist_unhashed(&sg->list_reconfig)) {
@@ -273,15 +285,17 @@ tfw_sg_apply_reconfig(struct hlist_head *del_sg)
 			hash_del(&sg->list_reconfig);
 			tfw_sg_put(sg);
 		}
+		tfw_srv_loop_sched_rcu();
 	}
 	hash_for_each_safe(sg_hash_reconfig, i, tmp, sg, list_reconfig) {
 		hash_del(&sg->list_reconfig);
 		__tdb_hash_calc(&key, &crc_tmp, sg->name, sg->nlen);
 		key ^= crc_tmp;
 		hash_add(sg_hash, &sg->list, key);
+		tfw_srv_loop_sched_rcu();
 	}
 
-	write_unlock(&sg_lock);
+	up_write(&sg_sem);
 }
 
 /**
@@ -298,12 +312,13 @@ tfw_sg_drop_reconfig(void)
 	TfwSrvGroup *sg;
 	struct hlist_node *tmp;
 
-	write_lock(&sg_lock);
+	down_write(&sg_sem);
 	hash_for_each_safe(sg_hash_reconfig, i, tmp, sg, list_reconfig) {
 		hash_del(&sg->list_reconfig);
 		tfw_sg_put(sg);
+		tfw_srv_loop_sched_rcu();
 	}
-	write_unlock(&sg_lock);
+	up_write(&sg_sem);
 }
 
 /**
@@ -319,10 +334,10 @@ tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv)
 	srv->sg = sg;
 
 	TFW_DBG2("Add new backend server to group '%s'\n", sg->name);
-	write_lock(&sg->lock);
+	down_write(&sg_sem);
 	list_add(&srv->list, &sg->srv_list);
 	++sg->srv_n;
-	write_unlock(&sg->lock);
+	up_write(&sg_sem);
 }
 
 /**
@@ -341,11 +356,11 @@ __tfw_sg_del_srv(TfwSrvGroup *sg, TfwServer *srv, bool lock)
 	TFW_DBG2("Remove backend server from group '%s'\n", sg->name);
 
 	if (lock)
-		write_lock(&sg->lock);
+		down_write(&sg_sem);
 	list_del_init(&srv->list);
 	--sg->srv_n;
 	if (lock)
-		write_unlock(&sg->lock);
+		up_write(&sg_sem);
 	tfw_server_put(srv);
 }
 
@@ -377,36 +392,22 @@ tfw_sg_stop_sched(TfwSrvGroup *sg)
  * @cb is considered as updater, so write lock is used.
  */
 int
-__tfw_sg_for_each_srv(TfwSrvGroup *sg, int (*cb)(TfwServer *srv))
+__tfw_sg_for_each_srv(TfwSrvGroup *sg,
+		      int (*cb)(TfwSrvGroup *sg, TfwServer *srv, void *data),
+		      void *data)
 {
-	int ret = 0;
-	TfwServer *srv;
+	int r = 0;
+	TfwServer *srv, *tmp;
 
-	write_lock(&sg->lock);
-	list_for_each_entry(srv, &sg->srv_list, list)
-		if ((ret = cb(srv)))
+	down_write(&sg_sem);
+	list_for_each_entry_safe(srv, tmp, &sg->srv_list, list) {
+		if ((r = cb(sg, srv, data)))
 			break;
-	write_unlock(&sg->lock);
-	return ret;
-}
+		tfw_srv_loop_sched_rcu();
+	}
+	up_write(&sg_sem);
 
-/**
- * Iterate over all the active server groups and call @cb for each server group.
- * @cb is called under spin-lock, so can't sleep.
- * @cb is considered as updater, so write lock is used.
- */
-int
-tfw_sg_for_each_sg(int (*cb)(TfwSrvGroup *sg))
-{
-	int i, ret = 0;
-	TfwSrvGroup *sg;
-
-	write_lock(&sg_lock);
-	hash_for_each(sg_hash, i, sg, list)
-		if ((ret = cb(sg)))
-			break;
-	write_unlock(&sg_lock);
-	return ret;
+	return r;
 }
 
 /**
@@ -415,17 +416,28 @@ tfw_sg_for_each_sg(int (*cb)(TfwSrvGroup *sg))
  * @cb is considered as updater, so write lock is used.
  */
 int
-tfw_sg_for_each_srv(int (*cb)(TfwServer *srv))
+tfw_sg_for_each_srv(int (*sg_cb)(TfwSrvGroup *sg),
+		    int (*srv_cb)(TfwServer *srv))
 {
-	int i, ret = 0;
+	int i, r = 0;
 	TfwSrvGroup *sg;
+	TfwServer *srv, *tmp;
 
-	write_lock(&sg_lock);
-	hash_for_each(sg_hash, i, sg, list)
-		if ((ret = __tfw_sg_for_each_srv(sg, cb)))
-			break;
-	write_unlock(&sg_lock);
-	return ret;
+	down_write(&sg_sem);
+	hash_for_each(sg_hash, i, sg, list) {
+		if (sg_cb && (r = sg_cb(sg)))
+			goto end;
+		list_for_each_entry_safe(srv, tmp, &sg->srv_list, list) {
+			if ((r = srv_cb(srv)))
+				goto end;
+			tfw_srv_loop_sched_rcu();
+		}
+		tfw_srv_loop_sched_rcu();
+	}
+end:
+	up_write(&sg_sem);
+
+	return r;
 }
 
 /**
@@ -434,15 +446,21 @@ tfw_sg_for_each_srv(int (*cb)(TfwServer *srv))
 int
 tfw_sg_for_each_srv_reconfig(int (*cb)(TfwServer *srv))
 {
-	int i, ret = 0;
+	int i, r = 0;
 	TfwSrvGroup *sg;
+	TfwServer *srv, *tmp;
 
-	write_lock(&sg_lock);
-	hash_for_each(sg_hash_reconfig, i, sg, list_reconfig)
-		if ((ret = __tfw_sg_for_each_srv(sg, cb)))
-			break;
-	write_unlock(&sg_lock);
-	return ret;
+	down_write(&sg_sem);
+	hash_for_each(sg_hash_reconfig, i, sg, list_reconfig) {
+		list_for_each_entry_safe(srv, tmp, &sg->srv_list, list)
+			if ((r = cb(srv)))
+				goto end;
+		tfw_srv_loop_sched_rcu();
+	}
+end:
+	up_write(&sg_sem);
+
+	return r;
 }
 
 /**
@@ -470,10 +488,12 @@ tfw_sg_release(TfwSrvGroup *sg)
 
 	tfw_sg_stop_sched(sg);
 
-	write_lock(&sg->lock);
-	list_for_each_entry_safe(srv, srv_tmp, &sg->srv_list, list)
+	down_write(&sg_sem);
+	list_for_each_entry_safe(srv, srv_tmp, &sg->srv_list, list) {
 		__tfw_sg_del_srv(sg, srv, false);
-	write_unlock(&sg->lock);
+		tfw_srv_loop_sched_rcu();
+	}
+	up_write(&sg_sem);
 }
 
 /**
@@ -482,31 +502,26 @@ tfw_sg_release(TfwSrvGroup *sg)
 void
 tfw_sg_release_all(void)
 {
-	int i, rs = 0;
+	int i;
 	TfwSrvGroup *sg;
 	struct hlist_node *tmp;
+	TfwServer *srv, *srv_tmp;
 
-repeat:
-	write_lock(&sg_lock);
+	down_write(&sg_sem);
 
 	hash_for_each_safe(sg_hash, i, tmp, sg, list) {
-		tfw_sg_release(sg);
+		tfw_sg_stop_sched(sg);
+		list_for_each_entry_safe(srv, srv_tmp, &sg->srv_list, list) {
+			__tfw_sg_del_srv(sg, srv, false);
+			tfw_srv_loop_sched_rcu();
+		}
 		hash_del(&sg->list);
 		tfw_sg_put(sg);
-		if (!(++rs % 1000)) {
-			write_unlock(&sg_lock);
-			/*
-			 * Wait for all memory freeing RCU callbacks.
-			 * Do it once per a while to avoid CPU
-			 * starvation due to heavy RCU workload.
-			 */
-			rcu_barrier_bh();
-			goto repeat;
-		}
+		tfw_srv_loop_sched_rcu();
 	}
 	hash_init(sg_hash);
 
-	write_unlock(&sg_lock);
+	up_write(&sg_sem);
 }
 
 /**

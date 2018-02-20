@@ -79,7 +79,6 @@ typedef struct {
  * @list_reconfig - member pointer in the reconfig server groups list;
  *		  See 'Server group management' comment in server.c;
  * @srv_list	- list of servers belonging to the group;
- * @lock	- synchronizes the group readers with updaters;
  * @sched	- requests scheduling handler;
  * @sched_data	- private scheduler data for the server group;
  * @srv_n	- configured number of servers in the group;
@@ -96,7 +95,6 @@ struct tfw_srv_group_t {
 	struct hlist_node	list;
 	struct hlist_node	list_reconfig;
 	struct list_head	srv_list;
-	rwlock_t		lock;
 	TfwScheduler		*sched;
 	void __rcu		*sched_data;
 	size_t			srv_n;
@@ -271,9 +269,11 @@ void __tfw_sg_del_srv(TfwSrvGroup *sg, TfwServer *srv, bool lock);
 #define tfw_sg_del_srv(sg, srv)	__tfw_sg_del_srv(sg, srv, true)
 int tfw_sg_start_sched(TfwSrvGroup *sg, TfwScheduler *sched, void *arg);
 void tfw_sg_stop_sched(TfwSrvGroup *sg);
-int __tfw_sg_for_each_srv(TfwSrvGroup *sg, int (*cb)(TfwServer *srv));
-int tfw_sg_for_each_sg(int (*cb)(TfwSrvGroup *sg));
-int tfw_sg_for_each_srv(int (*cb)(TfwServer *srv));
+int __tfw_sg_for_each_srv(TfwSrvGroup *sg,
+			  int (*cb)(TfwSrvGroup *, TfwServer *, void *),
+			  void *data);
+int tfw_sg_for_each_srv(int (*sg_cb)(TfwSrvGroup *sg),
+			int (*srv_cb)(TfwServer *srv));
 int tfw_sg_for_each_srv_reconfig(int (*cb)(TfwServer *srv));
 void tfw_sg_destroy(TfwSrvGroup *sg);
 void tfw_sg_release(TfwSrvGroup *sg);
