@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -100,5 +100,20 @@ void tfw_mod_unregister(TfwMod *mod);
 TfwMod *tfw_mod_find(const char *name);
 
 bool tfw_runstate_is_reconfig(void);
+
+/**
+ * For !CONFIG_PREEMPT kernels, a CPU looping anywhere in the kernel without
+ * invoking schedule() can lead to RCU CPU stall, so the function call the
+ * scheduler and waits for RCU callbacks to catch up the calling context
+ * (e.g. massive server groups updates on configuration reload).
+ * Should be used from process context only and for potentially long running
+ * loops.
+ */
+static inline void
+tfw_srv_loop_sched_rcu(void)
+{
+	cond_resched_rcu_qs();
+	rcu_barrier_bh();
+}
 
 #endif /* __TEMPESTA_FW_H__ */

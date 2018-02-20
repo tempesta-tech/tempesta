@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -282,7 +282,7 @@ tfw_procfs_sg_create(TfwSrvGroup *sg)
 	if (!(tfw_procfs_sgstats = proc_mkdir(sg->name, tfw_procfs_srvstats)))
 		return -ENOENT;
 
-	return __tfw_sg_for_each_srv(sg, tfw_procfs_srv_create);
+	return 0;
 }
 
 static int
@@ -317,7 +317,8 @@ tfw_procfs_start(void)
 	tfw_procfs_cleanup();
 	if (!(tfw_procfs_srvstats = proc_mkdir("servers", tfw_procfs_tempesta)))
 		return -ENOENT;
-	return tfw_sg_for_each_sg(tfw_procfs_sg_create);
+
+	return tfw_sg_for_each_srv(tfw_procfs_sg_create, tfw_procfs_srv_create);
 }
 
 static void
