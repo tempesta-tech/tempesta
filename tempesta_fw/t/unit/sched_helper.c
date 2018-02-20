@@ -100,27 +100,34 @@ test_sg_release_all_reconfig(void)
 	int i = 0;
 	TfwSrvGroup *sg = NULL;
 	struct hlist_node *tmp;
-	rwlock_t *sg_lock = get_sym_ptr("sg_lock");
+	struct rw_semaphore *sg_sem = get_sym_ptr("sg_sem");
 	struct hlist_head *sg_hash_reconfig = get_sym_ptr("sg_hash_reconfig");
 	/* XXX check that TFW_SG_HBITS from server.c is exactly 10. */
 	size_t TFW_SG_HBITS = 10;
 
-	if (!sg_lock || !sg_hash_reconfig) {
+	if (!sg_sem || !sg_hash_reconfig) {
 		pr_warn("%s: cannot resolve necessary symbols:"
-			" sg_lock=%p sg_hash_reconfig=%p."
-			" Memory leak is possible.\n",
-			__func__, sg_lock, sg_hash_reconfig);
+			" sg_sem=%p sg_hash_reconfig=%p\n",
+			__func__, sg_sem, sg_hash_reconfig);
 		return;
 	}
 
-	write_lock(sg_lock);
+	down_write(sg_sem);
 
 	/* Copy of hash_for_each_safe() which needs localy defined hash. */
         for ( ; !sg && i < (1 << TFW_SG_HBITS); i++) {
                 hlist_for_each_entry_safe(sg, tmp, &sg_hash_reconfig[i],
 					  list_reconfig)
 		{
-			tfw_sg_release(sg);
+			TfwServer *srv, *srv_tmp;
+
+			tfw_sg_stop_sched(sg);
+			list_for_each_entry_safe(srv, srv_tmp,
+						 &sg->srv_list, list)
+			{
+				__tfw_sg_del_srv(sg, srv, false);
+				tfw_srv_loop_sched_rcu();
+			}
 			hash_del(&sg->list_reconfig);
 			/* Copy & paste from inlined tfw_sg_put(). */
 			if (sg && !atomic64_dec_return(&sg->refcnt))
@@ -129,7 +136,7 @@ test_sg_release_all_reconfig(void)
 	}
 	__hash_init(sg_hash_reconfig, 1 << TFW_SG_HBITS);
 
-	write_unlock(sg_lock);
+	up_write(sg_sem);
 }
 
 void
