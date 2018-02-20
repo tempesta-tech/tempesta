@@ -49,7 +49,6 @@ tfw_http_msg_make_hdr(TfwPool *pool, const char *name, const char *val)
 
 	return tfw_strdup(pool, &tmp_hdr);
 }
-EXPORT_SYMBOL(tfw_http_msg_make_hdr);
 
 /**
  * Find @hdr in @array. @array must be in lowercase and sorted in alphabetical
@@ -90,56 +89,71 @@ __tfw_http_msg_find_hdr(const TfwStr *hdr, const void *array, size_t n,
 }
 EXPORT_SYMBOL(__tfw_http_msg_find_hdr);
 
-/**
- * Get header id in header table for header @hdr.
- *
- * TODO: return error if header is not allowed in @msg_type.
- */
-unsigned int
-tfw_http_msg_spec_hid(const TfwStr *hdr, int msg_type)
-{
-	typedef struct {
-		TfwStr		hdr;	/* Header name. */
-		unsigned int	id;	/* id in TfwHttpHdrTbl */
-	} TfwHdrDef;
-	#define TfwStrHdr(v, id) {{ (v), NULL, sizeof(v) - 1, 0 }, (id) }
-	static TfwHdrDef resp_hdrs[] = {
-		TfwStrHdr("Connection:",	TFW_HTTP_HDR_CONNECTION),
-		TfwStrHdr("Content-Length:",	TFW_HTTP_HDR_CONTENT_LENGTH),
-		TfwStrHdr("Content-Type:",	TFW_HTTP_HDR_CONTENT_TYPE),
-		TfwStrHdr("Cookie:",		TFW_HTTP_HDR_COOKIE),
-		TfwStrHdr("ETag:",		TFW_HTTP_HDR_ETAG),
-		TfwStrHdr("Host:",		TFW_HTTP_HDR_HOST),
-		TfwStrHdr("Keep-Alive:",	TFW_HTTP_HDR_KEEP_ALIVE),
-		TfwStrHdr("Referer:",		TFW_HTTP_HDR_REFERER),
-		TfwStrHdr("Server:",		TFW_HTTP_HDR_SERVER),
-		TfwStrHdr("Transfer-Encoding:",	TFW_HTTP_HDR_TRANSFER_ENCODING),
-		TfwStrHdr("X-Forwarded-For:",	TFW_HTTP_HDR_X_FORWARDED_FOR),
-	};
-	static TfwHdrDef req_hdrs[] = {
-		TfwStrHdr("Connection:",	TFW_HTTP_HDR_CONNECTION),
-		TfwStrHdr("Content-Length:",	TFW_HTTP_HDR_CONTENT_LENGTH),
-		TfwStrHdr("Content-Type:",	TFW_HTTP_HDR_CONTENT_TYPE),
-		TfwStrHdr("Cookie:",		TFW_HTTP_HDR_COOKIE),
-		TfwStrHdr("Host:",		TFW_HTTP_HDR_HOST),
-		TfwStrHdr("If-None-Match:",	TFW_HTTP_HDR_IF_NONE_MATCH),
-		TfwStrHdr("Keep-Alive:",	TFW_HTTP_HDR_KEEP_ALIVE),
-		TfwStrHdr("Referer:",		TFW_HTTP_HDR_REFERER),
-		TfwStrHdr("Transfer-Encoding:",	TFW_HTTP_HDR_TRANSFER_ENCODING),
-		TfwStrHdr("User-Agent:",	TFW_HTTP_HDR_USER_AGENT),
-		TfwStrHdr("X-Forwarded-For:",	TFW_HTTP_HDR_X_FORWARDED_FOR),
-	};
-	#undef TfwStrHdr
-	const TfwHdrDef *def = NULL;
-	const TfwHdrDef *array = (msg_type == TFW_HTTP_MSG_REQ) ? req_hdrs
-								: resp_hdrs;
+typedef struct {
+	TfwStr			hdr;	/* Header name. */
+	unsigned int		id;	/* id in TfwHttpHdrTbl */
+} TfwHdrDef;
+#define TfwStrDefV(v, id)	{{ (v), NULL, sizeof(v) - 1, 0 }, (id) }
 
-	BUILD_BUG_ON(ARRAY_SIZE(resp_hdrs) != TFW_HTTP_HDR_RAW);
-	BUILD_BUG_ON(ARRAY_SIZE(req_hdrs) != TFW_HTTP_HDR_RAW);
+static inline unsigned int
+__tfw_http_msg_spec_hid(const TfwStr *hdr, const TfwHdrDef array[])
+{
+	const TfwHdrDef *def;
+	/* TODO: return error if @hdr can't be applied to response or client. */
 	def = (TfwHdrDef *)__tfw_http_msg_find_hdr(hdr, array, TFW_HTTP_HDR_RAW,
-						  sizeof(TfwHdrDef));
+						   sizeof(TfwHdrDef));
 
 	return def ? def->id : TFW_HTTP_HDR_RAW;
+}
+
+/**
+ * Get header id in response header table for header @hdr.
+ */
+unsigned int
+tfw_http_msg_resp_spec_hid(const TfwStr *hdr)
+{
+	static const TfwHdrDef resp_hdrs[] = {
+		TfwStrDefV("Connection:",	TFW_HTTP_HDR_CONNECTION),
+		TfwStrDefV("Content-Length:",	TFW_HTTP_HDR_CONTENT_LENGTH),
+		TfwStrDefV("Content-Type:",	TFW_HTTP_HDR_CONTENT_TYPE),
+		TfwStrDefV("Cookie:",		TFW_HTTP_HDR_COOKIE),
+		TfwStrDefV("ETag:",		TFW_HTTP_HDR_ETAG),
+		TfwStrDefV("Host:",		TFW_HTTP_HDR_HOST),
+		TfwStrDefV("Keep-Alive:",	TFW_HTTP_HDR_KEEP_ALIVE),
+		TfwStrDefV("Referer:",		TFW_HTTP_HDR_REFERER),
+		TfwStrDefV("Server:",		TFW_HTTP_HDR_SERVER),
+		TfwStrDefV("Transfer-Encoding:",TFW_HTTP_HDR_TRANSFER_ENCODING),
+		TfwStrDefV("X-Forwarded-For:",	TFW_HTTP_HDR_X_FORWARDED_FOR),
+	};
+
+	BUILD_BUG_ON(ARRAY_SIZE(resp_hdrs) != TFW_HTTP_HDR_RAW);
+
+	return __tfw_http_msg_spec_hid(hdr, resp_hdrs);
+}
+
+/**
+ * Get header id in requestf header table for header @hdr.
+ */
+unsigned int
+tfw_http_msg_req_spec_hid(const TfwStr *hdr)
+{
+	static const TfwHdrDef req_hdrs[] = {
+		TfwStrDefV("Connection:",	TFW_HTTP_HDR_CONNECTION),
+		TfwStrDefV("Content-Length:",	TFW_HTTP_HDR_CONTENT_LENGTH),
+		TfwStrDefV("Content-Type:",	TFW_HTTP_HDR_CONTENT_TYPE),
+		TfwStrDefV("Cookie:",		TFW_HTTP_HDR_COOKIE),
+		TfwStrDefV("Host:",		TFW_HTTP_HDR_HOST),
+		TfwStrDefV("If-None-Match:",	TFW_HTTP_HDR_IF_NONE_MATCH),
+		TfwStrDefV("Keep-Alive:",	TFW_HTTP_HDR_KEEP_ALIVE),
+		TfwStrDefV("Referer:",		TFW_HTTP_HDR_REFERER),
+		TfwStrDefV("Transfer-Encoding:",TFW_HTTP_HDR_TRANSFER_ENCODING),
+		TfwStrDefV("User-Agent:",	TFW_HTTP_HDR_USER_AGENT),
+		TfwStrDefV("X-Forwarded-For:",	TFW_HTTP_HDR_X_FORWARDED_FOR),
+	};
+
+	BUILD_BUG_ON(ARRAY_SIZE(req_hdrs) != TFW_HTTP_HDR_RAW);
+
+	return __tfw_http_msg_spec_hid(hdr, req_hdrs);
 }
 
 /**
