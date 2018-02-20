@@ -327,19 +327,18 @@ tfw_vhost_match(TfwStr *arg)
  * @msg_type	- Target message type (TFW_HTTP_MSG_REQ or TFW_HTTP_MSG_RESP).
  */
 TfwHdrMods*
-tfw_vhost_get_hdr_mods(TfwMsg *msg, int msg_type)
+tfw_vhost_get_hdr_mods(TfwLocation *req_lc, TfwVhost *req_vh, int mod_type)
 {
-	TfwHttpReq *req = (TfwHttpReq *)msg;
-	TfwLocation *loc = req->location;
+	TfwLocation *loc = req_lc;
 
 	/* TODO #862: req->location must be the full set of options. */
-	if (!loc || !loc->mod_hdrs[msg_type].sz)
-		loc = req->vhost->loc_dflt;
-	if (!loc || !loc->mod_hdrs[msg_type].sz)
+	if (!loc || !loc->mod_hdrs[mod_type].sz)
+		loc = req_vh->loc_dflt;
+	if (!loc || !loc->mod_hdrs[mod_type].sz)
 		loc = (tfw_vhost_get_default())->loc_dflt;
 	BUG_ON(!loc);
 
-	return &loc->mod_hdrs[msg_type];
+	return &loc->mod_hdrs[mod_type];
 }
 
 /*
@@ -517,7 +516,7 @@ tfw_cfgop_out_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 static int
 tfw_cfgop_mod_hdr_add(TfwHdrMods *h_mods, const char *name, const char *value,
-		      int msg_type, bool append)
+		      int mod_type, bool append)
 {
 	TfwStr *hdr;
 	TfwHdrModsDesc *desc = &h_mods->hdrs[h_mods->sz];
@@ -533,7 +532,9 @@ tfw_cfgop_mod_hdr_add(TfwHdrMods *h_mods, const char *name, const char *value,
 	}
 	desc->hdr = hdr;
 	desc->append = append;
-	desc->hid = tfw_http_msg_spec_hid(hdr, msg_type);
+	desc->hid = (mod_type == TFW_VHOST_HDRMOD_RESP)
+			? tfw_http_msg_resp_spec_hid(hdr)
+			: tfw_http_msg_req_spec_hid(hdr);
 	++h_mods->sz;
 
 	return 0;
@@ -546,7 +547,7 @@ tfw_cfgop_mod_hdr_add(TfwHdrMods *h_mods, const char *name, const char *value,
  * is optional for 'set' directive.
  */
 static int
-tfw_cfgop_mod_hdr(TfwCfgSpec *cs, TfwCfgEntry *ce, int msg_type, bool append)
+tfw_cfgop_mod_hdr(TfwCfgSpec *cs, TfwCfgEntry *ce, int mod_type, bool append)
 {
 	TfwLocation *loc = tfwcfg_this_location;
 	const char *name;
@@ -576,20 +577,20 @@ tfw_cfgop_mod_hdr(TfwCfgSpec *cs, TfwCfgEntry *ce, int msg_type, bool append)
 	if (ce->val_n == 2)
 		value = ce->vals[1];
 
-	return tfw_cfgop_mod_hdr_add(&loc->mod_hdrs[msg_type], name, value,
-				     msg_type, append);
+	return tfw_cfgop_mod_hdr_add(&loc->mod_hdrs[mod_type], name, value,
+				     mod_type, append);
 }
 
 static int
 tfw_cfgop_in_req_hdr_add(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return tfw_cfgop_mod_hdr(cs, ce, TFW_HTTP_MSG_REQ, true);
+	return tfw_cfgop_mod_hdr(cs, ce, TFW_VHOST_HDRMOD_REQ, true);
 }
 
 static int
 tfw_cfgop_in_req_hdr_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return tfw_cfgop_mod_hdr(cs, ce, TFW_HTTP_MSG_REQ, false);
+	return tfw_cfgop_mod_hdr(cs, ce, TFW_VHOST_HDRMOD_REQ, false);
 }
 
 static int
@@ -611,13 +612,13 @@ tfw_cfgop_out_req_hdr_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_cfgop_in_resp_hdr_add(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return tfw_cfgop_mod_hdr(cs, ce, TFW_HTTP_MSG_RESP, true);
+	return tfw_cfgop_mod_hdr(cs, ce, TFW_VHOST_HDRMOD_RESP, true);
 }
 
 static int
 tfw_cfgop_in_resp_hdr_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return tfw_cfgop_mod_hdr(cs, ce, TFW_HTTP_MSG_RESP, false);
+	return tfw_cfgop_mod_hdr(cs, ce, TFW_VHOST_HDRMOD_RESP, false);
 }
 
 static int
@@ -844,10 +845,10 @@ tfw_location_new(tfw_match_t op, const char *arg, size_t len)
 	loc->capo_sz = 0;
 	loc->nipdef = (TfwNipDef **)(loc->capo + TFW_CAPOLICY_ARRAY_SZ);
 	loc->nipdef_sz = 0;
-	loc->mod_hdrs[TFW_HTTP_MSG_REQ].hdrs =
+	loc->mod_hdrs[TFW_VHOST_HDRMOD_REQ].hdrs =
 			(TfwHdrModsDesc *)(loc->nipdef + TFW_NIPDEF_ARRAY_SZ);
-	loc->mod_hdrs[TFW_HTTP_MSG_RESP].hdrs =
-			loc->mod_hdrs[TFW_HTTP_MSG_REQ].hdrs + TFW_USRHDRS_ARRAY_SZ;
+	loc->mod_hdrs[TFW_VHOST_HDRMOD_RESP].hdrs =
+			loc->mod_hdrs[TFW_VHOST_HDRMOD_REQ].hdrs + TFW_USRHDRS_ARRAY_SZ;
 	memcpy((void *)loc->arg, (void *)arg, len + 1);
 
 	return loc;

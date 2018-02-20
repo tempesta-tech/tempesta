@@ -83,6 +83,13 @@ typedef struct {
 	TfwHdrModsDesc	*hdrs;
 } TfwHdrMods;
 
+enum {
+	TFW_VHOST_HDRMOD_REQ,
+	TFW_VHOST_HDRMOD_RESP,
+
+	TFW_VHOST_HDRMOD_NUM
+};
+
 /**
  * Group of policies by specific location.
  *
@@ -103,7 +110,7 @@ typedef struct {
 	size_t		nipdef_sz;
 	TfwCaPolicy	**capo;
 	TfwNipDef	**nipdef;
-	TfwHdrMods	mod_hdrs[TFW_HTTP_MSG_NUM];
+	TfwHdrMods	mod_hdrs[TFW_VHOST_HDRMOD_NUM];
 } TfwLocation;
 
 /* Cache purge configuration modes. */
@@ -138,6 +145,7 @@ TfwCaPolicy *tfw_capolicy_match(TfwLocation *loc, TfwStr *arg);
 TfwLocation *tfw_location_match(TfwVhost *vhost, TfwStr *arg);
 TfwVhost *tfw_vhost_match(TfwStr *arg);
 TfwVhost *tfw_vhost_get_default(void);
-TfwHdrMods *tfw_vhost_get_hdr_mods(TfwMsg *msg, int msg_type);
+TfwHdrMods *tfw_vhost_get_hdr_mods(TfwLocation *req_lc, TfwVhost *req_vh,
+				   int mod_type);
 
 #endif /* __TFW_VHOST_H__ */

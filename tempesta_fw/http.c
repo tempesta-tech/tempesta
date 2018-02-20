@@ -1730,9 +1730,10 @@ tfw_http_set_loc_hdrs(TfwHttpMsg *hm, TfwHttpReq *req)
 {
 	int r;
 	size_t i;
-	int msg_type = (hm == (TfwHttpMsg *)req) ? TFW_HTTP_MSG_REQ
-						 : TFW_HTTP_MSG_RESP;
-	TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods((TfwMsg *)req, msg_type);
+	int mod_type = (hm == (TfwHttpMsg *)req) ? TFW_VHOST_HDRMOD_REQ
+						 : TFW_VHOST_HDRMOD_RESP;
+	TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location, req->vhost,
+						    mod_type);
 
 	for (i = 0; i < h_mods->sz; ++i) {
 		TfwHdrModsDesc *d = &h_mods->hdrs[i];
