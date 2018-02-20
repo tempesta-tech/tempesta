@@ -20,6 +20,8 @@
  */
 #include <linux/string.h>
 #include <linux/vmalloc.h>
+#include <linux/sort.h>
+#include <linux/bsearch.h>
 
 #include "cache.h"
 #include "classifier.h"
@@ -748,21 +750,25 @@ tfw_http_error_resp_switch(TfwHttpReq *req, int status, const char *reason)
 	tfw_http_send_resp(req, code);
 }
 
+static int
+tfw_http_marks_cmp(const void *l, const void *r)
+{
+	unsigned int m1 = *(unsigned int *)l;
+	unsigned int m2 = *(unsigned int *)r;
+
+	return (m1 < m2) ? -1 : (m1 > m2);
+}
+
 static inline void
 tfw_http_mark_wl_new_msg(TfwConn *conn, TfwHttpMsg *msg,
 			 const struct sk_buff *skb)
 {
-	int i;
-
 	if (!tfw_wl_marks.mrks || !(TFW_CONN_TYPE(conn) & Conn_Clnt))
 		return;
 
-	for (i = 0; i < tfw_wl_marks.sz; ++i) {
-		if (tfw_wl_marks.mrks[i] == skb->mark) {
-			msg->flags |= TFW_HTTP_WHITELIST;
-			break;
-		}
-	}
+	if (bsearch(&skb->mark, tfw_wl_marks.mrks, tfw_wl_marks.sz,
+		    sizeof(tfw_wl_marks.mrks[0]), tfw_http_marks_cmp))
+		msg->flags |= TFW_HTTP_WHITELIST;
 }
 
 /*
@@ -3282,6 +3288,9 @@ tfw_cfgop_whitelist_mark(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			return -EINVAL;
 		}
 	}
+
+	sort(tfw_wl_marks.mrks, tfw_wl_marks.sz, sizeof(tfw_wl_marks.mrks[0]),
+	     tfw_http_marks_cmp, NULL);
 
 	return 0;
 }
