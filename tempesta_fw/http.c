@@ -1292,9 +1292,9 @@ tfw_http_conn_repair(TfwConn *conn)
 		return;
 	}
 
-	spin_lock(&srv_conn->fwd_qlock);
+	spin_lock_bh(&srv_conn->fwd_qlock);
 	if (list_empty(&srv_conn->fwd_queue)) {
-		spin_unlock(&srv_conn->fwd_qlock);
+		spin_unlock_bh(&srv_conn->fwd_qlock);
 		return;
 	}
 
@@ -1313,7 +1313,7 @@ tfw_http_conn_repair(TfwConn *conn)
 		tfw_srv_conn_reenable_if_done(srv_conn);
 	}
 
-	spin_unlock(&srv_conn->fwd_qlock);
+	spin_unlock_bh(&srv_conn->fwd_qlock);
 
 	tfw_http_req_zap_error(&eq);
 }

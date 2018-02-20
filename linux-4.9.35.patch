@@ -1,5 +1,5 @@
 diff --git a/Documentation/kernel-parameters.txt b/Documentation/kernel-parameters.txt
-index 86a6746..fcd8903 100644
+index 86a6746f..fcd8903a 100644
 --- a/Documentation/kernel-parameters.txt
 +++ b/Documentation/kernel-parameters.txt
 @@ -4051,6 +4051,12 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
@@ -16,7 +16,7 @@ index 86a6746..fcd8903 100644
  			Specify "mem" (for Suspend-to-RAM) or "standby" (for
  			standby suspend) or "freeze" (for suspend type freeze)
 diff --git a/arch/x86/include/asm/fpu/api.h b/arch/x86/include/asm/fpu/api.h
-index 1429a7c..7963636 100644
+index 1429a7c7..79636368 100644
 --- a/arch/x86/include/asm/fpu/api.h
 +++ b/arch/x86/include/asm/fpu/api.h
 @@ -20,6 +20,10 @@
@@ -31,7 +31,7 @@ index 1429a7c..7963636 100644
  extern void __kernel_fpu_end(void);
  extern void kernel_fpu_begin(void);
 diff --git a/arch/x86/kernel/fpu/core.c b/arch/x86/kernel/fpu/core.c
-index 96d80df..6e1dabb 100644
+index 96d80dfa..6e1dabbe 100644
 --- a/arch/x86/kernel/fpu/core.c
 +++ b/arch/x86/kernel/fpu/core.c
 @@ -110,7 +110,8 @@ bool irq_fpu_usable(void)
@@ -105,7 +105,7 @@ index 96d80df..6e1dabb 100644
  EXPORT_SYMBOL_GPL(kernel_fpu_end);
  
 diff --git a/include/linux/interrupt.h b/include/linux/interrupt.h
-index 72f0721..a70fdce 100644
+index 72f0721f..a70fdced 100644
 --- a/include/linux/interrupt.h
 +++ b/include/linux/interrupt.h
 @@ -431,13 +431,13 @@ extern bool force_irqthreads;
@@ -134,7 +134,7 @@ index 72f0721..a70fdce 100644
  DECLARE_PER_CPU(struct task_struct *, ksoftirqd);
  
 diff --git a/include/linux/net.h b/include/linux/net.h
-index cd0c8bd..df4de18 100644
+index cd0c8bd0..df4de18c 100644
 --- a/include/linux/net.h
 +++ b/include/linux/net.h
 @@ -204,6 +204,8 @@ struct net_proto_family {
@@ -147,7 +147,7 @@ index cd0c8bd..df4de18 100644
  struct kvec;
  
 diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
-index 32810f2..107e395 100644
+index 32810f27..107e395c 100644
 --- a/include/linux/skbuff.h
 +++ b/include/linux/skbuff.h
 @@ -652,8 +652,12 @@ struct sk_buff {
@@ -276,7 +276,7 @@ index 32810f2..107e395 100644
  #endif	/* _LINUX_SKBUFF_H */
 diff --git a/include/linux/tempesta.h b/include/linux/tempesta.h
 new file mode 100644
-index 0000000..55049bd
+index 00000000..55049bd3
 --- /dev/null
 +++ b/include/linux/tempesta.h
 @@ -0,0 +1,54 @@
@@ -335,7 +335,7 @@ index 0000000..55049bd
 +#endif /* __TEMPESTA_H__ */
 +
 diff --git a/include/net/sock.h b/include/net/sock.h
-index 92b2697..1bc3805 100644
+index 92b26970..1bc3805f 100644
 --- a/include/net/sock.h
 +++ b/include/net/sock.h
 @@ -743,6 +743,9 @@ enum sock_flags {
@@ -359,7 +359,7 @@ index 92b2697..1bc3805 100644
  
  static inline struct dst_entry *
 diff --git a/include/net/tcp.h b/include/net/tcp.h
-index 123979f..c67b087 100644
+index 123979fe..c67b087d 100644
 --- a/include/net/tcp.h
 +++ b/include/net/tcp.h
 @@ -329,6 +329,7 @@ bool tcp_check_oom(struct sock *sk, int shift);
@@ -389,7 +389,7 @@ index 123979f..c67b087 100644
  int tcp_read_sock(struct sock *sk, read_descriptor_t *desc,
  		  sk_read_actor_t recv_actor);
 diff --git a/include/uapi/linux/netlink.h b/include/uapi/linux/netlink.h
-index 0dba4e4..82910ff 100644
+index 0dba4e4e..82910ffc 100644
 --- a/include/uapi/linux/netlink.h
 +++ b/include/uapi/linux/netlink.h
 @@ -27,6 +27,7 @@
@@ -401,7 +401,7 @@ index 0dba4e4..82910ff 100644
  #define NETLINK_INET_DIAG	NETLINK_SOCK_DIAG
  
 diff --git a/init/main.c b/init/main.c
-index ae3996a..dd9a8e7 100644
+index ae3996ae..dd9a8e74 100644
 --- a/init/main.c
 +++ b/init/main.c
 @@ -88,6 +88,8 @@
@@ -440,7 +440,7 @@ index ae3996a..dd9a8e7 100644
  
  asmlinkage __visible void __init start_kernel(void)
 diff --git a/kernel/softirq.c b/kernel/softirq.c
-index 744fa61..da91fc7 100644
+index 744fa611..da91fc72 100644
 --- a/kernel/softirq.c
 +++ b/kernel/softirq.c
 @@ -26,6 +26,7 @@
@@ -481,7 +481,7 @@ index 744fa61..da91fc7 100644
  void __raise_softirq_irqoff(unsigned int nr)
  {
 diff --git a/mm/Makefile b/mm/Makefile
-index 295bd7a..20c191e 100644
+index 295bd7a9..20c191e0 100644
 --- a/mm/Makefile
 +++ b/mm/Makefile
 @@ -100,3 +100,4 @@ obj-$(CONFIG_IDLE_PAGE_TRACKING) += page_idle.o
@@ -491,7 +491,7 @@ index 295bd7a..20c191e 100644
 +obj-$(CONFIG_SECURITY_TEMPESTA) += tempesta_mm.o
 diff --git a/mm/tempesta_mm.c b/mm/tempesta_mm.c
 new file mode 100644
-index 0000000..8c976f0
+index 00000000..8c976f0e
 --- /dev/null
 +++ b/mm/tempesta_mm.c
 @@ -0,0 +1,278 @@
@@ -774,7 +774,7 @@ index 0000000..8c976f0
 +EXPORT_SYMBOL(tempesta_get_mapping);
 +
 diff --git a/net/core/dev.c b/net/core/dev.c
-index 2e04fd1..aa05858 100644
+index 2e04fd18..aa05858c 100644
 --- a/net/core/dev.c
 +++ b/net/core/dev.c
 @@ -3863,6 +3863,28 @@ int netif_rx_ni(struct sk_buff *skb)
@@ -842,7 +842,7 @@ index 2e04fd1..aa05858 100644
  			__kfree_skb(skb);
  		}
 diff --git a/net/core/request_sock.c b/net/core/request_sock.c
-index 5d26056..ee02253 100644
+index 5d26056b..ee02253d 100644
 --- a/net/core/request_sock.c
 +++ b/net/core/request_sock.c
 @@ -136,3 +136,4 @@ void reqsk_fastopen_remove(struct sock *sk, struct request_sock *req,
@@ -851,7 +851,7 @@ index 5d26056..ee02253 100644
  }
 +EXPORT_SYMBOL(reqsk_fastopen_remove);
 diff --git a/net/core/skbuff.c b/net/core/skbuff.c
-index fe008f1..a0d768f 100644
+index fe008f1b..a0d768fd 100644
 --- a/net/core/skbuff.c
 +++ b/net/core/skbuff.c
 @@ -79,7 +79,9 @@
@@ -1511,7 +1511,7 @@ index fe008f1..a0d768f 100644
  	skb->end = size;
  #else
 diff --git a/net/core/sock.c b/net/core/sock.c
-index 1989b3d..471c4f6 100644
+index 1989b3dd..471c4f63 100644
 --- a/net/core/sock.c
 +++ b/net/core/sock.c
 @@ -1642,8 +1642,16 @@ void sock_wfree(struct sk_buff *skb)
@@ -1533,7 +1533,7 @@ index 1989b3d..471c4f6 100644
  EXPORT_SYMBOL(sock_wfree);
  
 diff --git a/net/ipv4/inet_connection_sock.c b/net/ipv4/inet_connection_sock.c
-index cf3d567..0f00e28 100644
+index cf3d5674..0f00e280 100644
 --- a/net/ipv4/inet_connection_sock.c
 +++ b/net/ipv4/inet_connection_sock.c
 @@ -797,6 +797,14 @@ struct sock *inet_csk_reqsk_queue_add(struct sock *sk,
@@ -1552,7 +1552,7 @@ index cf3d567..0f00e28 100644
  	if (unlikely(sk->sk_state != TCP_LISTEN)) {
  		inet_child_forget(sk, req, child);
 diff --git a/net/ipv4/inet_hashtables.c b/net/ipv4/inet_hashtables.c
-index ca97835..8427f32 100644
+index ca97835b..8427f323 100644
 --- a/net/ipv4/inet_hashtables.c
 +++ b/net/ipv4/inet_hashtables.c
 @@ -621,7 +621,8 @@ other_parity_scan:
@@ -1566,7 +1566,7 @@ index ca97835..8427f32 100644
  
  	offset++;
 diff --git a/net/ipv4/tcp.c b/net/ipv4/tcp.c
-index 86fbf0f..628b5df 100644
+index 86fbf0f3..628b5df6 100644
 --- a/net/ipv4/tcp.c
 +++ b/net/ipv4/tcp.c
 @@ -592,18 +592,19 @@ int tcp_ioctl(struct sock *sk, int cmd, unsigned long arg)
@@ -1691,7 +1691,7 @@ index 86fbf0f..628b5df 100644
  void tcp_close(struct sock *sk, long timeout)
  {
 diff --git a/net/ipv4/tcp_input.c b/net/ipv4/tcp_input.c
-index 01336aa..3e47409 100644
+index 01336aa5..3e47409b 100644
 --- a/net/ipv4/tcp_input.c
 +++ b/net/ipv4/tcp_input.c
 @@ -642,6 +642,7 @@ new_measure:
@@ -1703,7 +1703,7 @@ index 01336aa..3e47409 100644
  /* There is something which you must keep in mind when you analyze the
   * behavior of the tp->ato delayed ack timeout interval.  When a
 diff --git a/net/ipv4/tcp_ipv4.c b/net/ipv4/tcp_ipv4.c
-index 6988566..d5b80a3 100644
+index 6988566d..d5b80a3a 100644
 --- a/net/ipv4/tcp_ipv4.c
 +++ b/net/ipv4/tcp_ipv4.c
 @@ -62,6 +62,7 @@
@@ -1750,7 +1750,7 @@ index 6988566..d5b80a3 100644
  		goto put_and_exit;
  	*own_req = inet_ehash_nolisten(newsk, req_to_sk(req_unhash));
 diff --git a/net/ipv4/tcp_minisocks.c b/net/ipv4/tcp_minisocks.c
-index 64e1ba4..3a9bd13 100644
+index 64e1ba49..3a9bd131 100644
 --- a/net/ipv4/tcp_minisocks.c
 +++ b/net/ipv4/tcp_minisocks.c
 @@ -343,6 +343,7 @@ void tcp_time_wait(struct sock *sk, int state, int timeo)
@@ -1762,7 +1762,7 @@ index 64e1ba4..3a9bd13 100644
  void tcp_twsk_destructor(struct sock *sk)
  {
 diff --git a/net/ipv4/tcp_output.c b/net/ipv4/tcp_output.c
-index dc4258f..8deac53 100644
+index dc4258fd..8deac539 100644
 --- a/net/ipv4/tcp_output.c
 +++ b/net/ipv4/tcp_output.c
 @@ -391,7 +391,7 @@ static void tcp_ecn_send(struct sock *sk, struct sk_buff *skb,
@@ -1824,7 +1824,7 @@ index dc4258f..8deac53 100644
  /* Send a crossed SYN-ACK during socket establishment.
   * WARNING: This routine must only be called when we have already sent
 diff --git a/net/ipv6/tcp_ipv6.c b/net/ipv6/tcp_ipv6.c
-index 7ac2365..36e2e14 100644
+index 7ac2365a..36e2e14a 100644
 --- a/net/ipv6/tcp_ipv6.c
 +++ b/net/ipv6/tcp_ipv6.c
 @@ -68,6 +68,7 @@
@@ -1863,7 +1863,7 @@ index 7ac2365..36e2e14 100644
  int __net_init tcp6_proc_init(struct net *net)
  {
 diff --git a/net/socket.c b/net/socket.c
-index 6bbccf0..d3b1119 100644
+index 6bbccf05..581a4f18 100644
 --- a/net/socket.c
 +++ b/net/socket.c
 @@ -162,6 +162,12 @@ static const struct file_operations socket_file_ops = {
@@ -1872,7 +1872,7 @@ index 6bbccf0..d3b1119 100644
  
 +const struct net_proto_family *get_proto_family(int family)
 +{
-+	return rcu_dereference(net_families[family]);
++	return rcu_dereference_bh(net_families[family]);
 +}
 +EXPORT_SYMBOL(get_proto_family);
 +
@@ -1880,7 +1880,7 @@ index 6bbccf0..d3b1119 100644
   *	Statistics counters of the socket lists
   */
 diff --git a/security/Kconfig b/security/Kconfig
-index 118f454..9110590 100644
+index 118f4549..91105906 100644
 --- a/security/Kconfig
 +++ b/security/Kconfig
 @@ -164,11 +164,13 @@ source security/tomoyo/Kconfig
@@ -1916,7 +1916,7 @@ index 118f454..9110590 100644
  	default "smack" if DEFAULT_SECURITY_SMACK
  	default "tomoyo" if DEFAULT_SECURITY_TOMOYO
 diff --git a/security/Makefile b/security/Makefile
-index f2d71cd..aa864f0 100644
+index f2d71cdb..aa864f02 100644
 --- a/security/Makefile
 +++ b/security/Makefile
 @@ -9,6 +9,7 @@ subdir-$(CONFIG_SECURITY_TOMOYO)        += tomoyo
@@ -1936,7 +1936,7 @@ index f2d71cd..aa864f0 100644
  
  # Object integrity file lists
 diff --git a/security/security.c b/security/security.c
-index f825304..f103e81 100644
+index f825304f..f103e815 100644
 --- a/security/security.c
 +++ b/security/security.c
 @@ -26,6 +26,7 @@
@@ -1958,7 +1958,7 @@ index f825304..f103e81 100644
  
 diff --git a/security/tempesta/Kconfig b/security/tempesta/Kconfig
 new file mode 100644
-index 0000000..0fa2cb4
+index 00000000..0fa2cb46
 --- /dev/null
 +++ b/security/tempesta/Kconfig
 @@ -0,0 +1,14 @@
@@ -1978,7 +1978,7 @@ index 0000000..0fa2cb4
 +	  If you are unsure how to answer this question, answer N.
 diff --git a/security/tempesta/Makefile b/security/tempesta/Makefile
 new file mode 100644
-index 0000000..4c439ac
+index 00000000..4c439ac0
 --- /dev/null
 +++ b/security/tempesta/Makefile
 @@ -0,0 +1,3 @@
@@ -1987,7 +1987,7 @@ index 0000000..4c439ac
 +tempesta-y := tempesta_lsm.o
 diff --git a/security/tempesta/tempesta_lsm.c b/security/tempesta/tempesta_lsm.c
 new file mode 100644
-index 0000000..d5d3a4b
+index 00000000..d5d3a4be
 --- /dev/null
 +++ b/security/tempesta/tempesta_lsm.c
 @@ -0,0 +1,133 @@
