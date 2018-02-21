@@ -1468,6 +1468,12 @@ enum {
 	/* Headers. */
 	Req_Hdr,
 	Req_HdrA,
+	Req_HdrAc,
+	Req_HdrAcc,
+	Req_HdrAcce,
+	Req_HdrAccep,
+	Req_HdrAccept,
+	Req_HdrAcceptV,
 	Req_HdrAu,
 	Req_HdrAut,
 	Req_HdrAuth,
@@ -1795,8 +1801,12 @@ enum {
 	Req_I_H_v6,
 	Req_I_H_v6_End,
 	Req_I_H_Port,
-	/* Cache-Control header */
+	/* Accept header. */
+	Req_I_Accept,
+	Req_I_AcceptOther,
+	/* Authorization header. */
 	Req_I_Auth,
+	/* Cache-Control header */
 	Req_I_CC,
 	Req_I_CC_m,
 	Req_I_CC_n,
@@ -1826,6 +1836,53 @@ enum {
 
 	Req_I_EoT,
 };
+
+
+static int
+__req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(req);
+
+	__FSM_START(parser->_i_st) {
+
+	__FSM_STATE(Req_I_Accept) {
+		TRY_STR_LAMBDA("text/html", {
+			msg->flags |= TFW_HTTP_ACCEPT_HTML;
+		}, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_MOVE_n(Req_I_AcceptOther, 0);
+	}
+
+	__FSM_STATE(Req_I_AcceptOther) {
+		__FSM_I_MATCH_MOVE(uri, Req_I_AcceptOther);
+		c = *(p + __fsm_sz);
+		if (IS_WS(c) || c == ',')
+			__FSM_I_MOVE_n(I_EoT, __fsm_sz + 1);
+		if (IS_CRLF(c)) {
+			return __data_off(p + __fsm_sz);
+		}
+		return CSTR_NEQ;
+	}
+
+	/* End of term. */
+	__FSM_STATE(I_EoT) {
+		if (IS_WS(c) || c == ',')
+			__FSM_I_MOVE(I_EoT);
+		if (c == ';')
+			__FSM_I_MOVE(Req_I_AcceptOther);
+		if (IS_TOKEN(c))
+			__FSM_I_MOVE_n(Req_I_Accept, 0);
+		if (IS_CRLF(c))
+			return __data_off(p);
+		return CSTR_NEQ;
+	}
+
+	} /* FSM END */
+
+done:
+	return r;
+}
 
 static int
 __req_parse_authorization(TfwHttpReq *req, unsigned char *data, size_t len)
@@ -3207,6 +3264,14 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
 		switch (TFW_LC(c)) {
 		case 'a':
+			if (likely(__data_available(p, 7)
+				   && C4_INT_LCM(p + 1, 'c', 'c', 'e', 'p')
+				   && TFW_LC(*(p + 6)) == 't'
+				   && *(p + 13) == ':'))
+			{
+				parser->_i_st = Req_HdrAcceptV;
+				__FSM_MOVE_n(RGen_OWS, 7);
+			}
 			if (likely(__data_available(p, 14)
 				   && C8_INT_LCM(p + 1, 'u', 't', 'h', 'o',
 							'r', 'i', 'z', 'a')
@@ -3397,6 +3462,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			__FSM_JMP(RGen_HdrOther);
 		}
 	}
+
+	/* 'Accept:*OWS' is read, process field-value. */
+	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrAcceptV, Req_I_Accept,
+				  req, __req_parse_accept);
 
 	/* 'Authorization:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrAuthorizationV, Req_I_Auth,
@@ -3624,8 +3693,25 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		}
 	}
 
+	__FSM_STATE(Req_HdrA) {
+		switch (TFW_LC(c)) {
+		case 'c':
+			__FSM_MOVE(Req_HdrAc);
+		case 'u':
+			__FSM_MOVE(Req_HdrAu);
+		default:
+			__FSM_JMP(RGen_HdrOther);
+		}
+	}
+
+	/* Accept header processing. */
+	__FSM_TX_AF(Req_HdrAc, 'c', Req_HdrAcc, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAcc, 'e', Req_HdrAcce, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAcce, 'p', Req_HdrAccep, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAccep, 't', Req_HdrAccept, RGen_HdrOther);
+	__FSM_TX_AF(Req_HdrAccept, ':', Req_HdrAcceptV, RGen_HdrOther);
+
 	/* Authorization header processing. */
-	__FSM_TX_AF(Req_HdrA, 'u', Req_HdrAu, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrAu, 't', Req_HdrAut, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrAut, 'h', Req_HdrAuth, RGen_HdrOther);
 	__FSM_TX_AF(Req_HdrAuth, 'o', Req_HdrAutho, RGen_HdrOther);
