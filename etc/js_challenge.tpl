@@ -7,6 +7,6 @@
         </h2>
         <p></p>&nbsp;<p></p>
 
-        <script>[% INCLUDE js/js_challenge.js %]</script>
+        <script>[% INCLUDE js_challenge.js.tpl %]</script>
     </body>
 </html>

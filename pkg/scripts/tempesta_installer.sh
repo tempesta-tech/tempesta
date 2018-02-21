@@ -134,8 +134,7 @@ tfw_install_deps()
 	read -n 1 -s -p "Press any key to continue..."
 	# curl and wget are required for the script itself.
 	apt-get ${APT_OPTS} install -y dkms libboost-dev libboost-program-options-dev \
-            kdump-tools curl wget ethtool bc libcss-minifier-xs-perl \
-            libjavascript-minifier-xs-perl libtemplate-perl
+	     kdump-tools curl wget ethtool bc libtemplate-perl
 
 	echo ""
 }

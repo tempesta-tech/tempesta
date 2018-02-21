@@ -35,7 +35,6 @@ tdb_mod=tempesta_db
 tfw_mod=tempesta_fw
 tfw_sched_mod=tfw_sched_$sched
 frang_mod="tfw_frang"
-declare frang_enable=
 declare -r LONG_OPTS="help,load,unload,start,stop,restart,reload"
 
 declare devs=$(ip addr show up | awk '/^[0-9]+/ { sub(/:/, "", $2); print $2}')
@@ -82,14 +81,6 @@ load_one_module()
 	}
 }
 
-check_frang_required()
-{
-	if grep -q -E "^\s*frang_limits" $tfw_cfg_path; then
-		frang_enable=1
-		echo "Force loading frang: it used in configuration"
-	fi
-}
-
 # The separate load_modules/unload_modules routines are used for unit testing.
 load_modules()
 {
@@ -113,8 +104,7 @@ load_modules()
 			error "cannot load tempesta scheduler module"
 	done
 
-	check_frang_required
-	if [ "$frang_enable" ]; then
+	if grep -q -E "^\s*frang_limits" $tfw_cfg_path; then
 		echo "Load Frang"
 		load_one_module "$class_path/$frang_mod.ko" ||
 			error "cannot load $frang_mod module"
@@ -147,39 +137,38 @@ setup()
 	sysctl -w net.ipv4.tcp_max_syn_backlog=131072 >/dev/null
 }
 
-# Configuration directory may provide a lot of html templates, optimize them.
-update_html_templates()
+# JS challenge file is a template file, update it using values defined in
+# TempestaFW configuration file.
+# Don't break start up process if there are errors in configuration file.
+# Handling all the possible cases is too complicated for this script.
+# Let TempestaFW warn user on issues.
+update_js_challenge_template()
 {
-	compile=1
-	cfg_dir=`dirname $tfw_cfg_path`
-	d_min=`perl -ne 'print "$1\n" if /delay_min=(\d+)/' $tfw_cfg_path`
-	d_range=`perl -ne 'print "$1\n" if /delay_range=(\d+)/' $tfw_cfg_path`
-
-	cookie=`perl -ne 'print "$1\n" if /name=([\w_]+)/' $tfw_cfg_path`
-
-	# Set default values
-	if [[ -z $d_min ]]; then
-		compile=
-		d_min="0"
-	fi
-	if [[ -z $d_range ]]; then
-		compile=
-		d_range="0"
-	fi
-	if [[ -z $cookie ]]; then
-		cookie="__tfw"
-	fi
-
-	# Force template compilation if .html files defined in config file
-	if grep -q "\.html" $tfw_cfg_path; then
-		compile=1
-	fi
-	if [[ -z $compile ]]; then
+	if ! grep -q "^\s*js_challenge\s" $tfw_cfg_path; then
+		echo "not found"
 		return
 	fi
-
 	echo "...compile html templates"
-	$script_path/perl/compile.pl $cfg_dir $cookie $d_min $d_range
+	# Cache directive from start to end to simplify extracting values,
+	# checking for line breaks, reordering of options and so on.
+	js_dtv=`grep -m 1 -E '^\s*js_challenge\s[^;]+;' $tfw_cfg_path`
+	c_dtv=`grep --m 1 -E '^\s*sticky\s[^;]+;' $tfw_cfg_path`
+
+	d_min=`echo $js_dtv | perl -ne 'print "$1\n" if /\sdelay_min=(\d+)/'`
+	d_range=`echo $js_dtv | perl -ne 'print "$1\n" if /\sdelay_range=(\d+)/'`
+	template=`echo $js_dtv | perl -ne 'print "$1\n" if /(\/[^;\s]+)/'`
+	cookie=`echo $c_dtv | perl -ne 'print "$1\n" if /\sname=\"?([\w_]+)\"?/'`
+
+	# Set default values
+	template=${template:-"/etc/tempesta/js_challenge.html"}
+	cookie=${cookie:-"__tfw"}
+
+	if [[ -z $d_min || -z $d_range ]]; then
+		echo "Error: 'js_challenge' mandatory options not set!"
+		return
+	fi
+	template=${template%%.html}".tpl"
+	$script_path/update_template.pl $template $cookie $d_min $d_range
 }
 
 start()
@@ -203,7 +192,7 @@ start()
 		rm -f /opt/tempesta/db/*.tdb;
 	}
 
-	update_html_templates
+	update_js_challenge_template
 	echo "...start Tempesta FW"
 	sysctl -w net.tempesta.state=start >/dev/null
 	if [ $? -ne 0 ]; then
@@ -228,7 +217,7 @@ stop()
 
 reload()
 {
-	update_html_templates
+	update_js_challenge_template
 	echo "Running live reconfiguration of Tempesta..."
 	sysctl -w net.tempesta.state=start >/dev/null
 	if [ $? -ne 0 ]; then
@@ -273,10 +262,6 @@ while :; do
 		-d)
 			devs=$2
 			shift 2
-			;;
-		-f)
-			frang_enable=1
-			shift
 			;;
 		--help)
 			usage
