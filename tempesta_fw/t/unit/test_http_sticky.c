@@ -259,7 +259,8 @@ TEST(http_sticky, sending_302_without_preparing)
 	StickyVal sv = {};
 
 	/* Cookie is calculated for zero HMAC. */
-	EXPECT_EQ(tfw_http_sticky_send_302(mock.req, &sv), TFW_PASS);
+	EXPECT_EQ(tfw_http_sticky_send_redirect(mock.req, &sv),
+		  TFW_HTTP_SESS_REDIRECT_SENT);
 
 	EXPECT_TRUE(mock.tfw_connection_send_was_called);
 }
@@ -280,7 +281,8 @@ TEST(http_sticky, sending_302)
 		mock.req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr1;
 
 		EXPECT_EQ(__sticky_calc(mock.req, &sv), 0);
-		EXPECT_EQ(tfw_http_sticky_send_302(mock.req, &sv), 0);
+		EXPECT_EQ(tfw_http_sticky_send_redirect(mock.req, &sv),
+			  TFW_HTTP_SESS_REDIRECT_SENT);
 
 		EXPECT_TRUE(mock.tfw_connection_send_was_called);
 		EXPECT_TRUE(mock.seen_set_cookie_header);
@@ -436,7 +438,7 @@ TEST(http_sticky, req_no_cookie)
 	EXPECT_EQ(http_parse_req_helper(), 0);
 	EXPECT_EQ(http_parse_resp_helper(), 0);
 
-	EXPECT_EQ(tfw_http_sess_obtain(mock.req), 0);
+	EXPECT_EQ(tfw_http_sess_obtain(mock.req), TFW_HTTP_SESS_SUCCESS);
 	EXPECT_EQ(tfw_http_sess_resp_process(mock.resp, mock.req), 0);
 
 	/* with no cookie enforcement, only backend response will be modified */
@@ -475,7 +477,7 @@ TEST(http_sticky, req_have_cookie)
 	EXPECT_EQ(http_parse_req_helper(), 0);
 	EXPECT_EQ(http_parse_resp_helper(), 0);
 
-	EXPECT_EQ(tfw_http_sess_obtain(mock.req), 0);
+	EXPECT_EQ(tfw_http_sess_obtain(mock.req), TFW_HTTP_SESS_SUCCESS);
 	EXPECT_EQ(tfw_http_sess_resp_process(mock.resp, mock.req), 0);
 
 	/* expecting no immediate responses */
@@ -497,7 +499,7 @@ TEST(http_sticky, req_no_cookie_enforce)
 
 	append_string_to_msg((TfwHttpMsg *)mock.req, s_req);
 	EXPECT_EQ(http_parse_req_helper(), 0);
-	EXPECT_EQ(tfw_http_sess_obtain(mock.req), 1);
+	EXPECT_EQ(tfw_http_sess_obtain(mock.req), TFW_HTTP_SESS_REDIRECT_SENT);
 
 	/* in enforce mode, 302 response is sent to a client by Tempesta
 	 * before backend gets anything
@@ -531,7 +533,7 @@ TEST(http_sticky, req_have_cookie_enforce)
 	EXPECT_EQ(http_parse_req_helper(), 0);
 	EXPECT_EQ(http_parse_resp_helper(), 0);
 
-	EXPECT_EQ(tfw_http_sess_obtain(mock.req), 0);
+	EXPECT_EQ(tfw_http_sess_obtain(mock.req), TFW_HTTP_SESS_SUCCESS);
 	EXPECT_EQ(tfw_http_sess_resp_process(mock.resp, mock.req), 0);
 
 	/* expecting no immediate responses */
@@ -573,6 +575,7 @@ TEST_SUITE(http_sticky)
 	ce_sticky.val_n = 0; /* remove "enforce" parameter */
 	tfw_cfgop_sticky(&tfw_http_sess_mod.specs[0], &ce_sticky);
 	tfw_cfgop_sticky_secret(&tfw_http_sess_mod.specs[1], &ce_secret);
+	tfw_http_sess_cfgend();
 
 	tfw_http_sess_start();
 
