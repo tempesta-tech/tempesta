@@ -83,7 +83,7 @@ enum {
 	TFW_HTTP_SESS_FAILURE = -1,
 	/* Session successfuly obtained. */
 	TFW_HTTP_SESS_SUCCESS = 0,
-	/* Can't obtain session: new client; redirect message sent. */
+	/* Can't obtain session: new client; a redirection message sent. */
 	TFW_HTTP_SESS_REDIRECT_SENT,
 	/* Sticky cookie violated, client must be blocked. */
 	TFW_HTTP_SESS_VIOLATE,

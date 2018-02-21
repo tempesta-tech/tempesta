@@ -2188,12 +2188,12 @@ send_503:
 	 * queue on client side by dropping the request.
 	 */
 	HTTP_SEND_RESP(req, 503, "request dropped: can't send JS challenge.");
-	TFW_INC_STAT_BH(clnt.msgs_otherr);
+	TFW_INC_STAT_BH(clnt.msgs_filtout);
 	return;
 drop_503:
 	tfw_srv_client_drop(req, 503, "request dropped: invalid sticky cookie "
 				      "or js challenge");
-	TFW_INC_STAT_BH(clnt.msgs_otherr);
+	TFW_INC_STAT_BH(clnt.msgs_filtout);
 	return;
 send_502:
 	HTTP_SEND_RESP(req, 502, "request dropped: processing error");
