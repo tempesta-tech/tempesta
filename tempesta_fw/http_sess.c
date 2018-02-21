@@ -114,6 +114,7 @@ typedef struct {
 
 static TfwCfgJsCh *tfw_cfg_js_ch = NULL;
 static const unsigned int tfw_cfg_jsch_code_dflt = 503;
+#define TFW_CFG_JS_PATH "/etc/tempesta/js_challenge.html"
 
 static unsigned short tfw_cfg_redirect_st_code;
 static const unsigned short tfw_cfg_redirect_st_code_dflt = 302;
@@ -999,16 +1000,10 @@ tfw_cfgop_jsch_set_delay_limit(TfwCfgSpec *cs, time_t limit)
 }
 
 static int
-tfw_cfgop_jsch_create(TfwCfgSpec *cs, const char *script)
+tfw_cfgop_jsch_set_body(TfwCfgSpec *cs, const char *script)
 {
 	char *body_data;
 	size_t sz;
-
-	tfw_cfg_js_ch = kzalloc(sizeof(TfwCfgJsCh), GFP_KERNEL);
-	if (!tfw_cfg_js_ch) {
-		TFW_ERR_NL("%s: can't alloc memory\n", cs->name);
-		return -ENOMEM;
-	}
 
 	body_data = tfw_http_msg_body_dup(script, &sz);
 	if (!body_data) {
@@ -1029,10 +1024,17 @@ tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	int i, r;
 	const char *key, *val;
 
-	if ((r = tfw_cfg_check_val_n(ce, 1)))
-		return r;
-	if ((r = tfw_cfgop_jsch_create(cs, ce->vals[0])))
-		return r;
+	tfw_cfg_js_ch = kzalloc(sizeof(TfwCfgJsCh), GFP_KERNEL);
+	if (!tfw_cfg_js_ch) {
+		TFW_ERR_NL("%s: can't alloc memory\n", cs->name);
+		return -ENOMEM;
+	}
+
+	if (ce->val_n > 1) {
+		TFW_ERR_NL("invalid number of values; 1 possible, got: %zu\n",
+			   ce->val_n);
+		return -EINVAL;
+	}
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
 		if (!strcasecmp(key, "delay_min")) {
 			r = tfw_cfg_op_jsch_parse_time(cs, key, val,
@@ -1074,7 +1076,8 @@ tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	tfw_cfgop_jsch_set_delay_limit(cs, delay_limit);
 
-	return 0;
+	return tfw_cfgop_jsch_set_body(cs,
+				       ce->val_n ? ce->vals[0] : TFW_CFG_JS_PATH);
 }
 
 static void
@@ -1083,8 +1086,9 @@ tfw_cfgop_js_challenge_cleanup(TfwCfgSpec *cs)
 	if (!tfw_cfg_js_ch)
 		return;
 
-	free_pages((unsigned long)tfw_cfg_js_ch->body.ptr,
-		   get_order(tfw_cfg_js_ch->body.len));
+	if (tfw_cfg_js_ch->body.ptr)
+		free_pages((unsigned long)tfw_cfg_js_ch->body.ptr,
+			   get_order(tfw_cfg_js_ch->body.len));
 	kfree(tfw_cfg_js_ch);
 	tfw_cfg_js_ch = NULL;
 }
