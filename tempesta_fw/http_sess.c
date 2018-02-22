@@ -38,6 +38,7 @@
 #include <linux/hashtable.h>
 #include <linux/slab.h>
 #include <linux/time.h>
+#include <linux/vmalloc.h>
 
 #include "addr.h"
 #include "cfg.h"
@@ -93,14 +94,64 @@ static SessHashBucket sess_hash[SESS_HASH_SZ] = {
 
 static struct kmem_cache *sess_cache;
 
+/**
+ * JavaScript challenge.
+ *
+ * @body	- body (html with JavaScript code);
+ * @delay_min	- minimal timeout to make a client wait;
+ * @delay_range	- allowed time range to recieve and accept client's session;
+ * @delay_limit	- maximum difference between current time and a timestamp
+ *		  specified in the sticky cookie;
+ * @st_code	- status code for response with JS challenge;
+ */
+typedef struct {
+	TfwStr		body;
+	time_t		delay_min;
+	time_t		delay_range;
+	time_t		delay_limit;
+	unsigned short	st_code;
+} TfwCfgJsCh;
+
+static TfwCfgJsCh *tfw_cfg_js_ch = NULL;
+static const unsigned int tfw_cfg_jsch_code_dflt = 503;
+#define TFW_CFG_JS_PATH "/etc/tempesta/js_challenge.html"
+
+static unsigned short tfw_cfg_redirect_st_code;
+static const unsigned short tfw_cfg_redirect_st_code_dflt = 302;
+
+/**
+ * Normal browser must be able to execute the challenge: not all requests
+ * can be challenged, e.g. images - a browser won't execute the JS code if
+ * receives the challenge. Send redirect only for requests with
+ * 'Accept: text/html' and GET method.
+ */
+static bool
+tfw_http_sticky_redirect_allied(TfwHttpReq *req)
+{
+	if (!tfw_cfg_js_ch)
+		return true;
+
+	return (req->method == TFW_HTTP_METH_GET)
+		&& (req->flags & TFW_HTTP_ACCEPT_HTML);
+}
+
 static int
-tfw_http_sticky_send_302(TfwHttpReq *req, StickyVal *sv)
+tfw_http_sticky_send_redirect(TfwHttpReq *req, StickyVal *sv)
 {
 	unsigned long ts_be64 = cpu_to_be64(sv->ts);
 	TfwStr chunks[3], cookie = { 0 };
 	DEFINE_TFW_STR(s_eq, "=");
 	TfwHttpMsg *hmresp;
 	char buf[sizeof(*sv) * 2];
+	TfwStr *body = tfw_cfg_js_ch ? &tfw_cfg_js_ch->body : NULL;
+
+	/*
+	 * TODO: #598 rate limit requests with invalid cookie vaule.
+	 * Non-challengeable requests also must be rate limited.
+	 */
+
+	if (!tfw_http_sticky_redirect_allied(req))
+		return TFW_HTTP_SESS_JS_NOT_SUPPORTED;
 
 	if (!(hmresp = tfw_http_msg_alloc(Conn_Srv)))
 		return -ENOMEM;
@@ -127,14 +178,16 @@ tfw_http_sticky_send_302(TfwHttpReq *req, StickyVal *sv)
 	cookie.len = chunks[0].len + chunks[1].len + chunks[2].len;
 	__TFW_STR_CHUNKN_SET(&cookie, 3);
 
-	if (tfw_http_prep_302(hmresp, req, &cookie)) {
+	if (tfw_http_prep_redirect(hmresp, req, tfw_cfg_redirect_st_code,
+				   &cookie, body))
+	{
 		tfw_http_msg_free(hmresp);
-		return -1;
+		return TFW_HTTP_SESS_FAILURE;
 	}
 
 	tfw_http_resp_fwd(req, (TfwHttpResp *)hmresp);
 
-	return 0;
+	return TFW_HTTP_SESS_REDIRECT_SENT;
 }
 
 static int
@@ -330,7 +383,7 @@ tfw_http_sticky_add(TfwHttpResp *resp, TfwHttpReq *req)
 		.flags = 3 << TFW_STR_CN_SHIFT
 	};
 
-	/* See comment from tfw_http_sticky_send_302(). */
+	/* See comment from tfw_http_sticky_send_redirect(). */
 	bin2hex(buf, &ts_be64, sizeof(ts_be64));
 	bin2hex(&buf[sizeof(ts_be64) * 2], sess->hmac, sizeof(sess->hmac));
 
@@ -355,7 +408,6 @@ tfw_http_sticky_add(TfwHttpResp *resp, TfwHttpReq *req)
 static int
 tfw_http_sticky_notfound(TfwHttpReq *req)
 {
-	int r;
 	StickyVal sv = {};
 
 	/*
@@ -366,15 +418,13 @@ tfw_http_sticky_notfound(TfwHttpReq *req)
 	 * Otherwise, forward the request to a backend server.
 	 */
 	if (!tfw_cfg_sticky.enforce)
-		return 0;
+		return TFW_HTTP_SESS_SUCCESS;
 
 	/* Create Tempesta sticky cookie and store it */
 	if (tfw_http_sticky_calc(req, &sv) != 0)
-		return -1;
+		return TFW_HTTP_SESS_FAILURE;
 
-	r = tfw_http_sticky_send_302(req, &sv);
-
-	return r ? : 1;
+	return tfw_http_sticky_send_redirect(req, &sv);
 }
 
 #define sess_warn(check, addr, fmt, ...)				\
@@ -407,7 +457,7 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 	if (value->len != sizeof(StickyVal) * 2) {
 		sess_warn("bad sticky cookie length", addr, ": %lu(%lu)\n",
 			  value->len, sizeof(StickyVal) * 2);
-		return TFW_BLOCK;
+		return TFW_HTTP_SESS_VIOLATE;
 	}
 
 	TFW_STR_FOR_EACH_CHUNK(c, value, end) {
@@ -420,7 +470,7 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 ts_finished:
 
 	if (__sticky_calc(req, sv))
-		return TFW_BLOCK;
+		return TFW_HTTP_SESS_VIOLATE;
 	for (i = 0, hi = 1; (c) < end; ++(c)) {
 		for ( ; p < (unsigned char *)c->ptr + c->len; ++p) {
 			b = hi ? hex_asc_hi(sv->hmac[i])
@@ -433,7 +483,7 @@ ts_finished:
 					  addr, ": %c(pos=%d),"
 					  " ts=%#lx orig_hmac=[%.*s]\n",
 					  *p, i, sv->ts, n, buf);
-				return TFW_BLOCK;
+				return TFW_HTTP_SESS_VIOLATE;
 			}
 			hi = !hi;
 			i += hi;
@@ -444,7 +494,7 @@ ts_finished:
 	/* Sticky cookie is found and verified, now we can set the flag. */
 	req->flags |= TFW_HTTP_HAS_STICKY;
 
-	return TFW_PASS;
+	return TFW_HTTP_SESS_SUCCESS;
 }
 
 /*
@@ -475,12 +525,12 @@ tfw_http_sticky_req_process(TfwHttpReq *req, StickyVal *sv)
 		 * keep user experience intact.
 		 */
 		if (tfw_http_sticky_verify(req, &cookie_val, sv))
-			return tfw_http_sticky_send_302(req, sv) ? : 1;
-		return 0;
+			return tfw_http_sticky_send_redirect(req, sv);
+		return TFW_HTTP_SESS_SUCCESS;
 	}
 	TFW_WARN("Multiple Tempesta sticky cookies found: %d\n", r);
 
-	return -1;
+	return TFW_HTTP_SESS_FAILURE;
 }
 
 /*
@@ -546,7 +596,31 @@ tfw_http_sess_remove(TfwHttpSess *sess)
 }
 
 /**
+ * Challenged client must not send request before challenging timeout passed.
+ */
+static int
+tfw_http_sess_check_jsch(StickyVal *sv)
+{
+	time_t cur_time, min_time, max_time;
+
+	if (!tfw_cfg_js_ch)
+		return 0;
+
+	cur_time = jiffies;
+	min_time = sv->ts + tfw_cfg_js_ch->delay_min
+			+ sv->ts % tfw_cfg_js_ch->delay_range;
+	max_time = sv->ts + tfw_cfg_js_ch->delay_limit;
+	if ((min_time <= cur_time) && (cur_time <= max_time))
+		return 0;
+
+	TFW_DBG("sess: jsch block: request recieved outside allowed period.\n");
+
+	return TFW_HTTP_SESS_VIOLATE;
+}
+
+/**
  * Obtains appropriate HTTP session for the request based on Sticky cookies.
+ * Return TFW_HTTP_SESS_* enum or error code on internal errors.
  */
 int
 tfw_http_sess_obtain(TfwHttpReq *req)
@@ -559,7 +633,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	StickyVal sv = { };
 
 	if (!tfw_cfg_sticky.enabled || req->flags & TFW_HTTP_WHITELIST)
-		return 0;
+		return TFW_HTTP_SESS_SUCCESS;
 
 	if ((r = tfw_http_sticky_req_process(req, &sv)))
 		return r;
@@ -578,7 +652,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	if (!sv.ts) {
 		/* No sticky cookie in request and no enforcement. */
 		if (tfw_http_sticky_calc(req, &sv))
-			return -1;
+			return TFW_HTTP_SESS_FAILURE;
 	}
 
 	__tdb_hash_calc(&key, &crc_tmp, sv.hmac, sizeof(sv.hmac));
@@ -597,6 +671,11 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 
 		if (!memcmp(sv.hmac, sess->hmac, sizeof(sess->hmac)))
 			goto found;
+	}
+
+	if ((r = tfw_http_sess_check_jsch(&sv))) {
+		spin_unlock(&hb->lock);
+		return r;
 	}
 
 	if (!(sess = kmem_cache_alloc(sess_cache, GFP_ATOMIC))) {
@@ -627,7 +706,7 @@ found:
 
 	req->sess = sess;
 
-	return 0;
+	return TFW_HTTP_SESS_SUCCESS;
 }
 
 static void
@@ -861,6 +940,178 @@ tfw_cfgop_sess_lifetime(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
+tfw_cfg_op_jsch_parse_time(TfwCfgSpec *cs, const char *key, const char *val,
+			   time_t *time)
+{
+	int r, int_val;
+
+	if ((r = tfw_cfg_parse_int(val, &int_val))) {
+		TFW_ERR_NL("%s: can't parse key '%s'\n", cs->name, key);
+		return r;
+	}
+	*time = int_val * HZ / 1000;
+
+	return 0;
+}
+
+static int
+tfw_cfg_op_jsch_parse_resp_code(TfwCfgSpec *cs, const char *val)
+{
+	int r, int_val;
+
+	if ((r = tfw_cfg_parse_int(val, &int_val))) {
+		TFW_ERR_NL("%s: can't parse key 'resp_code'\n", cs->name);
+		return r;
+	}
+	if ((r = tfw_cfg_check_range(int_val, 100, 599)))
+		return r;
+	tfw_cfg_js_ch->st_code = int_val;
+
+	return 0;
+}
+
+static void
+tfw_cfgop_jsch_set_delay_limit(TfwCfgSpec *cs, time_t limit)
+{
+	time_t min_limit = tfw_cfg_js_ch->delay_min + tfw_cfg_js_ch->delay_range;
+	time_t warn_limit = min_limit + HZ / 10; /* 0.1 sec */
+	const time_t def_limit = min_limit + HZ; /* 1 sec. */
+
+	if (!limit) {
+		tfw_cfg_js_ch->delay_limit = def_limit;
+
+		return;
+	}
+	if (limit < min_limit) {
+		TFW_WARN_NL("%s: delay limit is too low, "
+			    "enforce it to minimum possible value "
+			    "'delay_range + delay_min' (%lu)\n",
+			    cs->name, min_limit * 1000 / HZ);
+		tfw_cfg_js_ch->delay_limit = min_limit;
+
+		return;
+	}
+	if (limit < warn_limit)
+		TFW_WARN_NL("%s: delay limit is less than "
+			    "'delay_range + delay_min + 100' (%lu) "
+			    "and should be increased\n",
+			    cs->name, warn_limit * 1000 / HZ);
+	tfw_cfg_js_ch->delay_limit = limit;
+}
+
+static int
+tfw_cfgop_jsch_set_body(TfwCfgSpec *cs, const char *script)
+{
+	char *body_data;
+	size_t sz;
+
+	body_data = tfw_http_msg_body_dup(script, &sz);
+	if (!body_data) {
+		kfree(tfw_cfg_js_ch);
+		tfw_cfg_js_ch = NULL;
+		return -ENOMEM;
+	}
+	tfw_cfg_js_ch->body.len = sz;
+	tfw_cfg_js_ch->body.ptr = body_data;
+
+	return 0;
+}
+
+static int
+tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	time_t delay_limit = 0;
+	int i, r;
+	const char *key, *val;
+
+	tfw_cfg_js_ch = kzalloc(sizeof(TfwCfgJsCh), GFP_KERNEL);
+	if (!tfw_cfg_js_ch) {
+		TFW_ERR_NL("%s: can't alloc memory\n", cs->name);
+		return -ENOMEM;
+	}
+
+	if (ce->val_n > 1) {
+		TFW_ERR_NL("invalid number of values; 1 possible, got: %zu\n",
+			   ce->val_n);
+		return -EINVAL;
+	}
+	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
+		if (!strcasecmp(key, "delay_min")) {
+			r = tfw_cfg_op_jsch_parse_time(cs, key, val,
+						       &tfw_cfg_js_ch->delay_min);
+			if (r)
+				return r;
+		} else if (!strcasecmp(key, "delay_range")) {
+			r = tfw_cfg_op_jsch_parse_time(cs, key, val,
+						       &tfw_cfg_js_ch->delay_range);
+			if (r)
+				return r;
+		} else if (!strcasecmp(key, "delay_limit")) {
+			r = tfw_cfg_op_jsch_parse_time(cs, key, val,
+						       &delay_limit);
+			if (r)
+				return r;
+		} else if (!strcasecmp(key, "resp_code")) {
+			r = tfw_cfg_op_jsch_parse_resp_code(cs, val);
+			if (r)
+				return r;
+		} else {
+			TFW_ERR_NL("%s: unsupported argument: '%s=%s'.\n",
+				   cs->name, key, val);
+			return -EINVAL;
+		}
+	}
+	if (!tfw_cfg_js_ch->delay_min) {
+		TFW_ERR_NL("%s: required argument 'delay_min' not set.\n",
+			   cs->name);
+		return -EINVAL;
+	}
+	if (!tfw_cfg_js_ch->delay_range) {
+		TFW_ERR_NL("%s: required argument 'delay_range' not set.\n",
+			   cs->name);
+		return -EINVAL;
+	}
+	if (!tfw_cfg_js_ch->st_code)
+		tfw_cfg_js_ch->st_code = tfw_cfg_jsch_code_dflt;
+
+	tfw_cfgop_jsch_set_delay_limit(cs, delay_limit);
+
+	return tfw_cfgop_jsch_set_body(cs,
+				       ce->val_n ? ce->vals[0] : TFW_CFG_JS_PATH);
+}
+
+static void
+tfw_cfgop_js_challenge_cleanup(TfwCfgSpec *cs)
+{
+	if (!tfw_cfg_js_ch)
+		return;
+
+	if (tfw_cfg_js_ch->body.ptr)
+		free_pages((unsigned long)tfw_cfg_js_ch->body.ptr,
+			   get_order(tfw_cfg_js_ch->body.len));
+	kfree(tfw_cfg_js_ch);
+	tfw_cfg_js_ch = NULL;
+}
+
+static int
+tfw_http_sess_cfgend(void)
+{
+	if (tfw_cfg_js_ch && TFW_STR_EMPTY(&tfw_cfg_sticky.name)) {
+		TFW_ERR_NL("JavaScript challenge requires sticky cookies "
+			   "enabled\r\n");
+		return -EINVAL;
+	}
+	if (tfw_cfg_js_ch) {
+		tfw_cfg_sticky.enforce = true;
+		tfw_cfg_redirect_st_code = tfw_cfg_js_ch->st_code;
+	} else {
+		tfw_cfg_redirect_st_code = tfw_cfg_redirect_st_code_dflt;
+	}
+
+	return 0;
+}
+
+static int
 tfw_http_sess_start(void)
 {
 	if (tfw_runstate_is_reconfig())
@@ -901,11 +1152,18 @@ static TfwCfgSpec tfw_http_sess_specs[] = {
 		},
 		.allow_none = true,
 	},
+	{
+		.name = "js_challenge",
+		.handler = tfw_cfgop_js_challenge,
+		.cleanup = tfw_cfgop_js_challenge_cleanup,
+		.allow_none = true,
+	},
 	{ 0 }
 };
 
 TfwMod tfw_http_sess_mod = {
 	.name	= "http_sess",
+	.cfgend = tfw_http_sess_cfgend,
 	.start	= tfw_http_sess_start,
 	.stop	= tfw_http_sess_stop,
 	.specs	= tfw_http_sess_specs,
