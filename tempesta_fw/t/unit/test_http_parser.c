@@ -1053,6 +1053,52 @@ TEST(http_parser, folding)
 			 "\n");
 }
 
+TEST(http_parser, accept)
+{
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Accept:  text/html \r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->flags & TFW_HTTP_ACCEPT_HTML);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Accept:  text/html, application/xhtml+xml \r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->flags & TFW_HTTP_ACCEPT_HTML);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Accept:  text/html;q=0.8 \r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->flags & TFW_HTTP_ACCEPT_HTML);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Accept: text/html,application/xhtml+xml,application/xml;"
+		"q=0.9,image/webp,image/apng,*/*;q=0.8\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->flags & TFW_HTTP_ACCEPT_HTML);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Accept:  text/*  \r\n"
+		"\r\n")
+	{
+		EXPECT_FALSE(req->flags & TFW_HTTP_ACCEPT_HTML);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Accept:  text/html, */*  \r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->flags & TFW_HTTP_ACCEPT_HTML);
+	}
+}
+
 TEST(http_parser, empty_host)
 {
 	FOR_REQ("GET / HTTP/1.1\r\n"
@@ -1944,6 +1990,7 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, crlf_trailer);
 	TEST_RUN(http_parser, ows);
 	TEST_RUN(http_parser, folding);
+	TEST_RUN(http_parser, accept);
 	TEST_RUN(http_parser, empty_host);
 	TEST_RUN(http_parser, chunked);
 	TEST_RUN(http_parser, chunk_size);

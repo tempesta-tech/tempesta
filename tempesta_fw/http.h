@@ -294,7 +294,9 @@ typedef struct {
 #define TFW_HTTP_URI_FULL		0x000400
 #define TFW_HTTP_NON_IDEMP		0x000800
 #define TFW_HTTP_SUSPECTED		0x001000
-#define TFW_HTTP_WHITELIST		0x002000
+/* Request stated 'Accept: text/html' header */
+#define TFW_HTTP_ACCEPT_HTML		0x002000
+#define TFW_HTTP_WHITELIST		0x004000
 
 /* Response flags */
 #define TFW_HTTP_VOID_BODY		0x010000	/* Resp has no body */
@@ -489,13 +491,15 @@ typedef struct {
 typedef enum {
 	RESP_200,
 	RESP_4XX_BEGIN,
-	RESP_403	= RESP_4XX_BEGIN,
+	RESP_400	= RESP_4XX_BEGIN,
+	RESP_403,
 	RESP_404,
 	RESP_412,
 	RESP_4XX_END,
 	RESP_5XX_BEGIN	= RESP_4XX_END,
 	RESP_500	= RESP_5XX_BEGIN,
 	RESP_502,
+	RESP_503,
 	RESP_504,
 	RESP_5XX_END,
 	RESP_NUM	= RESP_5XX_END
@@ -540,9 +544,13 @@ void tfw_http_resp_build_error(TfwHttpReq *req);
 /*
  * Functions to send an HTTP error response to a client.
  */
-int tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie);
+int tfw_http_prep_redirect(TfwHttpMsg *resp, TfwHttpReq *req,
+			   unsigned short status, TfwStr *cookie, TfwStr *body);
 int tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, void *msg_it,
 		      size_t hdrs_size);
 void tfw_http_send_resp(TfwHttpReq *req, resp_code_t code);
+
+/* Helper functions */
+char *tfw_http_msg_body_dup(const char *filename, size_t *len);
 
 #endif /* __TFW_HTTP_H__ */
