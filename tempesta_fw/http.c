@@ -3452,7 +3452,8 @@ tfw_cfgop_whitelist_mark(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	}
 
 	tfw_wl_marks.sz = ce->val_n;
-	if (!(tfw_wl_marks.mrks = kmalloc(ce->val_n, GFP_KERNEL)))
+	if (!(tfw_wl_marks.mrks = kmalloc(ce->val_n * sizeof(unsigned int),
+					  GFP_KERNEL)))
 		return -ENOMEM;
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
