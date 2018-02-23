@@ -152,6 +152,14 @@ class Wrk(Client):
         m = re.search(r'Requests\/sec:\s+(\d+)', stdout)
         if m:
             self.rate = int(m.group(1))
+        m = re.search(r'(Socket errors:.+)\n', stdout)
+        if m:
+            tf_cfg.dbg(0, ("WARNING! Socket errors on wrk. "
+                          "Too many concurrent connections?"))
+            err_m = re.search(r'\w+ (\d)+, \w+ (\d)+, \w+ (\d)+, \w+ (\d)+',
+                              m.group(1))
+            self.errors += (int(err_m.group(1)) + int(err_m.group(2))
+                            + int(err_m.group(3)) + int(err_m.group(4)))
         return True
 
 
