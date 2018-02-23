@@ -46,6 +46,7 @@ class Client(object):
         # List of files to be removed from remote node after client finish.
         self.cleanup_files = []
         self.requests = 0
+        self.rate = 0
         self.errors = 0
 
     def set_uri(self, uri):
@@ -61,6 +62,7 @@ class Client(object):
 
     def clear_stats(self):
         self.requests = 0
+        self.rate = 0
         self.errors = 0
 
     def cleanup(self):
@@ -89,7 +91,9 @@ class Client(object):
         return True
 
     def results(self):
-        return self.requests, self.errors
+        if (self.rate == 0):
+            self.rate = self.requests / self.duration
+        return self.requests, self.errors, self.rate
 
     def add_option_file(self, option, filename, content):
         """ Helper for using files as client options: normaly file must be
@@ -145,6 +149,9 @@ class Wrk(Client):
         m = re.search(r'Non-2xx or 3xx responses: (\d+)', stdout)
         if m:
             self.errors = int(m.group(1))
+        m = re.search(r'Requests\/sec:\s+(\d+)', stdout)
+        if m:
+            self.rate = int(m.group(1))
         return True
 
 
