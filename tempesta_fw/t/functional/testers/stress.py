@@ -76,15 +76,17 @@ class StressTest(unittest.TestCase):
         if tf_cfg.v_level() == 2:
             # Go to new line, don't mess up output.
             tf_cfg.dbg(2)
-        req_total = err_total = 0
+        req_total = err_total = rate_total = 0
         for c in self.clients:
-            req, err = c.results()
+            req, err, rate = c.results()
             req_total += req
             err_total += err
-            tf_cfg.dbg(3, '\tClient: errors: %d, requests: %d' % (err, req))
+            rate_total += rate
+            tf_cfg.dbg(3, ('\tClient: errors: %d, requests: %d, rate: %d'
+                           % (err, req, rate)))
         tf_cfg.dbg(
-            2, '\tClients in total: errors: %d, requests: %d' %
-            (err_total, req_total))
+            2, '\tClients in total: errors: %d, requests: %d, rate: %d' %
+            (err_total, req_total, rate_total))
 
 
     def assert_clients(self):
@@ -92,7 +94,7 @@ class StressTest(unittest.TestCase):
         cl_req_cnt = 0
         cl_conn_cnt = 0
         for c in self.clients:
-            req, err = c.results()
+            req, err, _ = c.results()
             cl_req_cnt += req
             cl_conn_cnt += c.connections * self.pipelined_req
             self.assertEqual(err, 0, msg='HTTP client detected errors')
