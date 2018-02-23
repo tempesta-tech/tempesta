@@ -192,6 +192,7 @@ def client_run_blocking(client):
     tf_cfg.dbg(3, '\tRunning HTTP client on %s' % remote.client.host)
     stdout, stderr = remote.client.run_cmd(client.cmd,
                                            timeout=(client.duration + 5))
+    tf_cfg.dbg(3, stdout)
     error.assertTrue(client.parse_out(stdout, stderr))
 
 def __clients_prepare(client):
@@ -202,6 +203,7 @@ def __clients_run(client):
 
 def __clients_parse_output(args):
     client, (stdout, stderr) = args
+    tf_cfg.dbg(3, stdout)
     return client.parse_out(stdout, stderr)
 
 def __clients_cleanup(client):
@@ -211,7 +213,7 @@ def clients_run_parallel(clients):
     tf_cfg.dbg(3, ('\tRunning %d HTTP clients on %s' %
                    (len(clients), remote.client.host)))
     if not clients:
-        return True
+        return
 
     pool = multiprocessing.Pool(len(clients))
     results = pool.map(__clients_prepare, clients)
