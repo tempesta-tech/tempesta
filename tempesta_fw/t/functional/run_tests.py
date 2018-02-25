@@ -170,8 +170,6 @@ if list_tests:
 # Configure environment, connect to the nodes
 #
 
-if os.geteuid() != 0:
-    raise Exception("Tests must be run as root.")
 
 addn_status = ""
 if test_resume:
@@ -187,7 +185,6 @@ Running functional tests%s...
 
 # the default value of fs.nr_open
 nofile = 1048576
-resource.setrlimit(resource.RLIMIT_NOFILE, (nofile, nofile))
 remote.connect()
 
 #

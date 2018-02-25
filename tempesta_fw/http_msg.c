@@ -27,7 +27,7 @@
 #include "ss_skb.h"
 
 /**
- * Build TfwStr repesented HTTP header.
+ * Build TfwStr representing HTTP header.
  * @name	- header name without ':';
  * @value	- header value;
  */
@@ -51,7 +51,7 @@ tfw_http_msg_make_hdr(TfwPool *pool, const char *name, const char *val)
 }
 
 /**
- * Find @hdr in @array. @array must be in lowercase and sorted in alphabetical
+ * Find @hdr in @array. @array must be sorted in alphabetical
  * order. Similar to bsearch().
  */
 const void *
@@ -70,7 +70,7 @@ __tfw_http_msg_find_hdr(const TfwStr *hdr, const void *array, size_t n,
 
 	while (start < end) {
 		size_t mid = start + (end - start) / 2;
-		const TfwStr *sh = (array + mid * member_sz);
+		const TfwStr *sh = array + mid * member_sz;
 		int sc = *(unsigned char *)sh->ptr;
 
 		result = fc - sc;
@@ -113,17 +113,17 @@ unsigned int
 tfw_http_msg_resp_spec_hid(const TfwStr *hdr)
 {
 	static const TfwHdrDef resp_hdrs[] = {
-		TfwStrDefV("Connection:",	TFW_HTTP_HDR_CONNECTION),
-		TfwStrDefV("Content-Length:",	TFW_HTTP_HDR_CONTENT_LENGTH),
-		TfwStrDefV("Content-Type:",	TFW_HTTP_HDR_CONTENT_TYPE),
-		TfwStrDefV("Cookie:",		TFW_HTTP_HDR_COOKIE),
-		TfwStrDefV("ETag:",		TFW_HTTP_HDR_ETAG),
-		TfwStrDefV("Host:",		TFW_HTTP_HDR_HOST),
-		TfwStrDefV("Keep-Alive:",	TFW_HTTP_HDR_KEEP_ALIVE),
-		TfwStrDefV("Referer:",		TFW_HTTP_HDR_REFERER),
-		TfwStrDefV("Server:",		TFW_HTTP_HDR_SERVER),
-		TfwStrDefV("Transfer-Encoding:",TFW_HTTP_HDR_TRANSFER_ENCODING),
-		TfwStrDefV("X-Forwarded-For:",	TFW_HTTP_HDR_X_FORWARDED_FOR),
+		TfwStrDefV("connection:",	TFW_HTTP_HDR_CONNECTION),
+		TfwStrDefV("content-length:",	TFW_HTTP_HDR_CONTENT_LENGTH),
+		TfwStrDefV("content-type:",	TFW_HTTP_HDR_CONTENT_TYPE),
+		TfwStrDefV("cookie:",		TFW_HTTP_HDR_COOKIE),
+		TfwStrDefV("etag:",		TFW_HTTP_HDR_ETAG),
+		TfwStrDefV("host:",		TFW_HTTP_HDR_HOST),
+		TfwStrDefV("keep-alive:",	TFW_HTTP_HDR_KEEP_ALIVE),
+		TfwStrDefV("referer:",		TFW_HTTP_HDR_REFERER),
+		TfwStrDefV("server:",		TFW_HTTP_HDR_SERVER),
+		TfwStrDefV("transfer-encoding:",TFW_HTTP_HDR_TRANSFER_ENCODING),
+		TfwStrDefV("x-forwarded-for:",	TFW_HTTP_HDR_X_FORWARDED_FOR),
 	};
 
 	BUILD_BUG_ON(ARRAY_SIZE(resp_hdrs) != TFW_HTTP_HDR_RAW);
@@ -132,23 +132,23 @@ tfw_http_msg_resp_spec_hid(const TfwStr *hdr)
 }
 
 /**
- * Get header id in requestf header table for header @hdr.
+ * Get header id in request header table for header @hdr.
  */
 unsigned int
 tfw_http_msg_req_spec_hid(const TfwStr *hdr)
 {
 	static const TfwHdrDef req_hdrs[] = {
-		TfwStrDefV("Connection:",	TFW_HTTP_HDR_CONNECTION),
-		TfwStrDefV("Content-Length:",	TFW_HTTP_HDR_CONTENT_LENGTH),
-		TfwStrDefV("Content-Type:",	TFW_HTTP_HDR_CONTENT_TYPE),
-		TfwStrDefV("Cookie:",		TFW_HTTP_HDR_COOKIE),
-		TfwStrDefV("Host:",		TFW_HTTP_HDR_HOST),
-		TfwStrDefV("If-None-Match:",	TFW_HTTP_HDR_IF_NONE_MATCH),
-		TfwStrDefV("Keep-Alive:",	TFW_HTTP_HDR_KEEP_ALIVE),
-		TfwStrDefV("Referer:",		TFW_HTTP_HDR_REFERER),
-		TfwStrDefV("Transfer-Encoding:",TFW_HTTP_HDR_TRANSFER_ENCODING),
-		TfwStrDefV("User-Agent:",	TFW_HTTP_HDR_USER_AGENT),
-		TfwStrDefV("X-Forwarded-For:",	TFW_HTTP_HDR_X_FORWARDED_FOR),
+		TfwStrDefV("connection:",	TFW_HTTP_HDR_CONNECTION),
+		TfwStrDefV("content-length:",	TFW_HTTP_HDR_CONTENT_LENGTH),
+		TfwStrDefV("content-type:",	TFW_HTTP_HDR_CONTENT_TYPE),
+		TfwStrDefV("cookie:",		TFW_HTTP_HDR_COOKIE),
+		TfwStrDefV("host:",		TFW_HTTP_HDR_HOST),
+		TfwStrDefV("if-none-match:",	TFW_HTTP_HDR_IF_NONE_MATCH),
+		TfwStrDefV("keep-alive:",	TFW_HTTP_HDR_KEEP_ALIVE),
+		TfwStrDefV("referer:",		TFW_HTTP_HDR_REFERER),
+		TfwStrDefV("transfer-encoding:",TFW_HTTP_HDR_TRANSFER_ENCODING),
+		TfwStrDefV("user-agent:",	TFW_HTTP_HDR_USER_AGENT),
+		TfwStrDefV("x-forwarded-for:",	TFW_HTTP_HDR_X_FORWARDED_FOR),
 	};
 
 	BUILD_BUG_ON(ARRAY_SIZE(req_hdrs) != TFW_HTTP_HDR_RAW);
@@ -613,7 +613,7 @@ cleanup:
 
 /**
  * Transform HTTP message @hm header with identifier @hid.
- * @hdr must be compaund string and containt two or three parts:
+ * @hdr must be compaund string and contain two or three parts:
  * header name, colon and header value. If @hdr value is empty,
  * then the header will be deleted from @hm.
  * If @hm already has the header it will be replaced by the new header

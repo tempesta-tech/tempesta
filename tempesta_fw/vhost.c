@@ -107,7 +107,7 @@ static TfwLocation tfw_location_dflt = {
 	.mod_hdrs = { {0, tfw_hmods_req_dflt}, {0, tfw_hmods_resp_dflt}}
 };
 
-/* Pool for 'hdr_add' directive (TfwLocation->usr_hdrs) */
+/* Pool for 'hdr_add' directive (TfwLocation->mod_hdrs) */
 static TfwPool *tfw_usr_hdrs_pool;
 
 /*
@@ -323,8 +323,9 @@ tfw_vhost_match(TfwStr *arg)
  * Find a headers modification description according to target message type
  * and current location.
  *
- * @req		- http request to deturmine location;
- * @msg_type	- Target message type (TFW_HTTP_MSG_REQ or TFW_HTTP_MSG_RESP).
+ * @req_lc	- request URI location;
+ * @req_vh	- virtual host for the request;
+ * @mod_type	- Target modification type, TFW_VHOST_HDRMOD_(REQ|RESP).
  */
 TfwHdrMods*
 tfw_vhost_get_hdr_mods(TfwLocation *req_lc, TfwVhost *req_vh, int mod_type)
