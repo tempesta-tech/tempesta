@@ -46,7 +46,7 @@ class Client(object):
         # List of files to be removed from remote node after client finish.
         self.cleanup_files = []
         self.requests = 0
-        self.rate = 0
+        self.rate = -1
         self.errors = 0
 
     def set_uri(self, uri):
@@ -62,7 +62,7 @@ class Client(object):
 
     def clear_stats(self):
         self.requests = 0
-        self.rate = 0
+        self.rate = -1
         self.errors = 0
 
     def cleanup(self):
@@ -91,7 +91,7 @@ class Client(object):
         return True
 
     def results(self):
-        if (self.rate == 0):
+        if (self.rate == -1):
             self.rate = self.requests / self.duration
         return self.requests, self.errors, self.rate
 
@@ -110,7 +110,14 @@ class Client(object):
 
 
 class Wrk(Client):
-    """ wrk - HTTP benchmark utility. """
+    """ wrk - HTTP benchmark utility.
+
+    Wrk counts statistics of bad socket operations: errors on opening, reading
+    from and writing to sockets, error of HTTP message parsing and so on.
+    If FAIL_ON_SOCK_ERR is set assert that none of such errors happened during
+    test, otherwise print warning and count the errors as usual errors.
+    """
+    FAIL_ON_SOCK_ERR=True
 
     def __init__(self, threads=-1, uri='/'):
         Client.__init__(self, 'wrk', uri)
@@ -152,11 +159,14 @@ class Wrk(Client):
         m = re.search(r'Requests\/sec:\s+(\d+)', stdout)
         if m:
             self.rate = int(m.group(1))
-        m = re.search(r'(Socket errors:.+)\n', stdout)
+
+        sock_err_msg = "Socket errors on wrk. Too many concurrent connections?"
+        m = re.search(r'(Socket errors:.+)', stdout)
+        if self.FAIL_ON_SOCK_ERR:
+            assert not m, sock_err_msg
         if m:
-            tf_cfg.dbg(0, ("WARNING! Socket errors on wrk. "
-                          "Too many concurrent connections?"))
-            err_m = re.search(r'\w+ (\d)+, \w+ (\d)+, \w+ (\d)+, \w+ (\d)+',
+            tf_cfg.dbg(1, "WARNING! %s" % sock_err_msg)
+            err_m = re.search(r'\w+ (\d+), \w+ (\d+), \w+ (\d+), \w+ (\d+)',
                               m.group(1))
             self.errors += (int(err_m.group(1)) + int(err_m.group(2))
                             + int(err_m.group(3)) + int(err_m.group(4)))
@@ -200,7 +210,7 @@ def client_run_blocking(client):
     tf_cfg.dbg(3, '\tRunning HTTP client on %s' % remote.client.host)
     stdout, stderr = remote.client.run_cmd(client.cmd,
                                            timeout=(client.duration + 5))
-    tf_cfg.dbg(3, stdout)
+    tf_cfg.dbg(3, stdout, stderr)
     error.assertTrue(client.parse_out(stdout, stderr))
 
 def __clients_prepare(client):
@@ -211,7 +221,7 @@ def __clients_run(client):
 
 def __clients_parse_output(args):
     client, (stdout, stderr) = args
-    tf_cfg.dbg(3, stdout)
+    tf_cfg.dbg(3, stdout, stderr)
     return client.parse_out(stdout, stderr)
 
 def __clients_cleanup(client):
