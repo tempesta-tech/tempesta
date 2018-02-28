@@ -10,9 +10,106 @@ __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
+class TestStateLoader(object):
+
+    def __init__(self, state_file):
+        self.state_file = state_file
+        self.has_file = False
+        self.state = []
+        self.last_id = None
+        self.last_completed = None
+
+    def try_load_state(self):
+        """ Try to load specified state file"""
+        try:
+            with open(self.state_file, 'r') as f:
+                self.state = self.__parse_file(f)
+                self.last_id = self.state['last_id']
+                self.last_completed = self.state['last_completed']
+                return True
+        except IOError as err:
+            if err.errno != errno.ENOENT:
+                raise Exception("Error while loading state")
+            return False
+
+    def __parse_file(self, f):
+        dump = json.load(f)
+        # convert lists to sets where needed
+        dump['inclusions'] = set(dump['inclusions'])
+        dump['exclusions'] = set(dump['exclusions'])
+        return dump
+
+class TestStateSaver(object):
+    def __init__(self, loader, state_file):
+        self.inclusions = set()
+        self.exclusions = set()
+        self.loader = loader
+        self.last_id = loader.last_id
+        self.last_completed = loader.last_completed
+        self.state_file = state_file
+        self.has_file = False
+
+    def advance(self, test, after):
+        self.last_id = test
+        self.last_completed = after
+        with open(self.state_file, 'w') as f:
+            self.__build_file(f)
+
+    def __build_file(self, f):
+        dump = dict()
+        dump['last_id'] = self.last_id
+        dump['last_completed'] = self.last_completed
+        # convert sets to lists where needed
+        dump['inclusions'] = list(self.inclusions)
+        dump['exclusions'] = list(self.exclusions)
+        json.dump(dump, f)
+        self.has_file = True
+
+class TestState(object):
+    """ Parse saved state """
+    has_file = False
+    last_id = None
+    last_completed = False
+
+    state_file = os.path.relpath(os.path.join(
+        os.path.dirname(__file__),
+        '..',
+        'tests_resume.json'
+    ))
+
+    def __init__(self):
+        self.loader = TestStateLoader(self.state_file)
+        self.saver = TestStateSaver(self.loader, self.state_file)
+
+    def load_state(self):
+        """ Load state of test suite from file """
+        self.has_file = self.loader.try_load_state()
+        return self.has_file
+
+    def advance(self, test, after=False):
+        """ Set new state of test suite """
+        self.saver.advance(test, after)
+        self.has_file = self.has_file or self.saver.has_file
+        self.last_id = self.saver.last_id
+        self.last_completed = self.saver.last_completed
+
+    def unlink_file(self):
+        """ Unlink state file """
+        if self.has_file is False:
+            return
+        try:
+            os.unlink(self.state_file)
+            self.has_file = False
+            self.saver.has_file = False
+            self.loader.has_file = False
+        except OSError as exc:
+            if exc.errno != errno.ENOENT:
+                raise
+
 class TestResume:
     # Filter is instantiated by TestResume.filter(), passing instance of the
     # matcher to the instance of the filter.
+
     class Filter:
         def __init__(self, matcher):
             self.matcher = matcher
@@ -21,9 +118,9 @@ class TestResume:
         def __call__(self, test):
             if self.flag:
                 return True
-            if testcase_in(test, [self.matcher.last_id]):
+            if testcase_in(test, [self.matcher.state.last_id]):
                 self.flag = True
-                return not self.matcher.last_completed
+                return not self.matcher.state.last_completed
 
     # Result is instantiated not under our control, so we can't pass a matcher
     # to Result.__init__(). Instead, we dynamically create derived classes
@@ -42,79 +139,39 @@ class TestResume:
             self.matcher.advance(test.id(), after=True)
             return unittest.TextTestResult.stopTest(self, test)
 
-    state_file = os.path.relpath(os.path.join(
-        os.path.dirname(__file__),
-        '..',
-        'tests_resume.json'
-    ))
-
-    def __init__(self, filename=None):
-        self.last_id = None
-        self.last_completed = False
-        if filename is not None:
-            self.state_file = filename
-        self.inclusions = set()
-        self.exclusions = set()
+    def __init__(self, state_reader):
         self.from_file = False
-
-    def unlink_file(self):
-        try:
-            os.unlink(self.state_file)
-        except OSError as e:
-            if e.errno != errno.ENOENT:
-                raise
+        self.state = state_reader
+        if state_reader.has_file is False:
+            self.has_resume = False
+        else:
+            self.has_resume = True
 
     def set_from_file(self):
-        try:
-            with open(self.state_file, 'r') as f:
-                state = self.__parse_file(f)
-        except IOError as e:
-            if e.errno != errno.ENOENT:
-                raise
-            tf_cfg.dbg(2, 'Not resuming from "%s": file does not exist' %
-                          self.state_file)
+        if self.has_resume is False:
+            tf_cfg.dbg(2, "No test_resume.json file")
             return
-        if not (self.inclusions == state['inclusions'] and
-                self.exclusions == state['exclusions']):
+
+        if not (self.state.saver.inclusions == self.state.loader.state['inclusions'] and
+                self.state.saver.exclusions == self.state.loader.state['exclusions']):
             tf_cfg.dbg(1, 'Not resuming from "%s": different filters specified' %
-                          self.state_file)
+                       self.state.state_file)
             return
         # will raise before changing anything if state object is incomplete
-        self.set(test=state['last_id'],
-                 after=state['last_completed'])
+        self.set(test=self.state.loader.last_id,
+                 after=self.state.loader.last_completed)
         self.from_file = True
 
     def set(self, test, after=False):
-        self.last_id = test
-        self.last_completed = after
+        self.state.advance(test, after)
         self.from_file = False
 
     def set_filters(self, inclusions, exclusions):
-        self.inclusions = set(inclusions)
-        self.exclusions = set(exclusions)
-
-    def advance(self, test, after=False):
-        self.last_id = test
-        self.last_completed = after
-        with open(self.state_file, 'w') as f:
-            self.__build_file(f)
+        self.state.saver.inclusions = set(inclusions)
+        self.state.saver.exclusions = set(exclusions)
 
     def __nonzero__(self):
-        return self.last_id is not None
-
-    def __parse_file(self, f):
-        dump = json.load(f)
-        # convert lists to sets where needed
-        for key in ('inclusions', 'exclusions'):
-            dump[key] = set(dump[key])
-        return dump
-
-    def __build_file(self, f):
-        dump = self.__dict__.copy()
-        # convert sets to lists where needed
-        for key in ('inclusions', 'exclusions'):
-            dump[key] = list(dump[key])
-        json.dump(dump, f)
+        return self.state.last_id is not None
 
     def filter(self):
         if self:
@@ -123,7 +180,7 @@ class TestResume:
             return lambda test: True
 
     def resultclass(self):
-        return type('Result', (TestResume.Result,), {'matcher': self})
+        return type('Result', (TestResume.Result,), {'matcher': self.state})
 
 # I'd use a recursive generator, but `yield from` is python 3.3+
 def testsuite_flatten(dest, src):
