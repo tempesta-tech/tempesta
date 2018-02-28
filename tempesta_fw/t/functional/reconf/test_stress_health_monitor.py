@@ -3,6 +3,7 @@ Live reconfiguration stress test for custom server group
 with health monitor.
 """
 
+from helpers import tempesta
 from . import reconf_stress
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -27,6 +28,13 @@ class HealthMonitorCustomSg(reconf_stress.LiveReconfStress):
         '}\n'
         '\n')
 
+    def add_sg(self, config, sg_name, servers):
+        sg = tempesta.ServerGroup(sg_name)
+        for s in servers:
+            sg.add_server(s.ip, s.config.port, s.conns_n)
+        sg.options = ' health %s;' % self.hmonitor
+        config.add_sg(sg)
+
     def test_hm_add_srvs(self):
         self.stress_reconfig_generic(self.configure_srvs_start,
                                      self.configure_srvs_add)
@@ -38,6 +46,27 @@ class HealthMonitorCustomSg(reconf_stress.LiveReconfStress):
     def test_hm_del_add_srvs(self):
         self.stress_reconfig_generic(self.configure_srvs_start,
                                      self.configure_srvs_del_add)
+
+
+class HealthMonitorChangedAutoCustomSg(HealthMonitorCustomSg):
+
+    hmonitor_new = 'auto'
+
+    def set_hmonitor(self, hm):
+        for sg in self.tempesta.config.server_groups:
+            sg.options = ' health %s;' % hm
+
+    def configure_srvs_add(self):
+        reconf_stress.LiveReconfStress.configure_srvs_add(self)
+        self.set_hmonitor(self.hmonitor_new)
+
+    def configure_srvs_del(self):
+        reconf_stress.LiveReconfStress.configure_srvs_del(self)
+        self.set_hmonitor(self.hmonitor_new)
+
+    def configure_srvs_del_add(self):
+        reconf_stress.LiveReconfStress.configure_srvs_del_add(self)
+        self.set_hmonitor(self.hmonitor_new)
 
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
