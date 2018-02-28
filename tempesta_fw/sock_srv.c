@@ -1917,6 +1917,13 @@ static int
 tfw_sock_srv_cfgend(void)
 {
 	int r;
+	TfwCfgSrvGroup *sg_cfg;
+
+	/* Check health monitor existence for configured server groups. */
+	list_for_each_entry(sg_cfg, &sg_cfg_list, list)
+		if (sg_cfg->hm_name && !tfw_apm_check_hm(sg_cfg->hm_name))
+			return -EINVAL;
+
 	/*
 	 * The group 'default' to be created implicitly if at least one server
 	 * is defined outside of any group and there is no explicit 'default'
@@ -2130,8 +2137,8 @@ tfw_cfgop_start_sg_cfg(TfwCfgSrvGroup *sg_cfg)
 	int r;
 	void *hm = NULL;
 
-	if (sg_cfg->hm_name && !(hm = tfw_apm_get_hm(sg_cfg->hm_name)))
-		return -EINVAL;
+	if (sg_cfg->hm_name)
+		hm = tfw_apm_get_hm(sg_cfg->hm_name);
 
 	if (sg_cfg->orig_sg)
 		return tfw_cfgop_update_sg_cfg(sg_cfg, hm);

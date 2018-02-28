@@ -1415,17 +1415,10 @@ tfw_apm_get_hm(const char *name)
 {
 	TfwApmHM *hm;
 
-	if (!tfw_hm_codes_cnt) {
-		TFW_ERR("No response codes specified for"
-			" server's health monitoring\n");
-		return NULL;
-	}
 	list_for_each_entry(hm, &tfw_hm_list, list) {
 		if (!strcasecmp(name, hm->name))
 			return hm;
 	}
-	TFW_ERR_NL("health monitor with name"
-		   " '%s' does not exist\n", name);
 
 	return NULL;
 }
@@ -1442,6 +1435,24 @@ tfw_apm_get_hm(const char *name)
 #define TFW_APM_HM_AUTO		"auto"
 #define TFW_APM_DFLT_REQ	"\"GET / HTTTP/1.0\r\n\r\n\""
 #define TFW_APM_DFLT_URL	"\"/\""
+
+bool
+tfw_apm_check_hm(const char *name)
+{
+	if (!tfw_hm_codes_cnt) {
+		TFW_ERR("No response codes specified for"
+			" server's health monitoring\n");
+		return false;
+	}
+
+	if (!strcasecmp(name, TFW_APM_HM_AUTO) || tfw_apm_get_hm(name))
+		return true;
+
+	TFW_ERR_NL("health monitor with name"
+		   " '%s' does not exist\n", name);
+
+	return false;
+}
 
 static int
 tfw_cfgop_apm_add_hm(const char *name)

@@ -130,10 +130,10 @@ __bsearch(const unsigned long hash, TfwHashConnList *cl)
 static inline int
 __is_conn_suitable(TfwSrvConn *conn, bool hmonitor)
 {
-	return !tfw_srv_conn_restricted(conn)
+	return (hmonitor || !tfw_srv_suspended((TfwServer *)conn->peer))
+		&& !tfw_srv_conn_restricted(conn)
 		&& !tfw_srv_conn_queue_full(conn)
-		&& tfw_srv_conn_get_if_live(conn)
-		&& (hmonitor || !tfw_srv_suspended((TfwServer *)conn->peer));
+		&& tfw_srv_conn_get_if_live(conn);
 }
 
 /**

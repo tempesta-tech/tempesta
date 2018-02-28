@@ -93,5 +93,6 @@ void tfw_apm_hm_disable_srv(TfwServer *srv);
 bool tfw_apm_hm_srv_eq(const char *name, TfwServer *srv);
 TfwHMStats *tfw_apm_hm_stats(void *apmref);
 void *tfw_apm_get_hm(const char *name);
+bool tfw_apm_check_hm(const char *name);
 
 #endif /* __TFW_APM_H__ */
