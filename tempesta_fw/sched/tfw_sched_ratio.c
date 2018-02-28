@@ -859,17 +859,17 @@ tfw_sched_ratio_sched_srv_conn(TfwMsg *msg, TfwServer *srv)
 	TfwRatioSrvDesc *srvdesc;
 	TfwSrvConn *srv_conn = NULL;
 
-	rcu_read_lock();
-	srvdesc = rcu_dereference(srv->sched_data);
-	if (unlikely(!srvdesc))
-		goto done;
-
 	/*
 	 * Bypass the suspend checking if connection is needed for
 	 * helth monitoring of backend server.
 	 */
 	if (!(((TfwHttpReq *)msg)->flags & TFW_HTTP_HMONITOR)
 	    && tfw_srv_suspended(srv))
+		return NULL;
+
+	rcu_read_lock();
+	srvdesc = rcu_dereference(srv->sched_data);
+	if (unlikely(!srvdesc))
 		goto done;
 
 rerun:

@@ -273,7 +273,7 @@ tfw_srv_conn_need_resched(TfwSrvConn *srv_conn)
 }
 
 /*
- * Put server into alive or suspended (excluded from processing) state.
+ * Put server into alive state (in sense of HTTP availability).
  */
 static inline void
 tfw_srv_mark_alive(TfwServer *srv)

@@ -16,6 +16,7 @@ class LiveReconfStress(stress.StressTest):
 
     defconfig = ''
     sg_name = 'default'
+    hmonitor = None
 
     def create_servers(self):
         port = tempesta.upstream_port_start_from()
@@ -44,8 +45,8 @@ class LiveReconfStress(stress.StressTest):
         # united array to start and stop all servers at once
         self.servers = self.rm_srvs + self.const_srvs + self.add_srvs
 
-    def add_sg(self, config, sg_name, servers):
-        sg = tempesta.ServerGroup(sg_name)
+    def add_sg(self, config, sg_name, servers, hmonitor):
+        sg = tempesta.ServerGroup(sg_name, hm=hmonitor)
         for s in servers:
             sg.add_server(s.ip, s.config.port, s.conns_n)
         config.add_sg(sg)
@@ -56,7 +57,7 @@ class LiveReconfStress(stress.StressTest):
         if defconfig is None:
             defconfig = self.defconfig
         config.set_defconfig(defconfig)
-        self.add_sg(config, sg_name, servers)
+        self.add_sg(config, sg_name, servers, self.hmonitor)
         return config
 
     def reconfig(self):
