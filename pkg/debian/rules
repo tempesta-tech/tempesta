@@ -16,7 +16,7 @@ override_dh_auto_install:
 	dh_install tempesta_db usr/src/$(NAME)-$(VERSION)
 	dh_install tls usr/src/$(NAME)-$(VERSION)
 	dh_install Makefile usr/src/$(NAME)-$(VERSION)
-	dh_install etc/tempesta_fw.conf /etc
+	dh_install etc/* /etc/tempesta
 	dh_install scripts /lib/tempesta
 	find "debian/$(DEB_NAME)/usr/src/$(NAME)-$(VERSION)" -name '.git*' -exec rm {} \;
 
