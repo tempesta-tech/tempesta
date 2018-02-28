@@ -4,8 +4,9 @@ from __future__ import print_function
 import abc
 import re
 import os
+import asyncore
 import multiprocessing.dummy as multiprocessing
-from . import tf_cfg, remote, error, nginx, tempesta
+from . import tf_cfg, remote, error, nginx, tempesta, deproxy, stateful
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -14,6 +15,7 @@ __license__ = 'GPL2'
 #-------------------------------------------------------------------------------
 # Clients
 #-------------------------------------------------------------------------------
+
 
 class Client(object):
     __metaclass__ = abc.ABCMeta
@@ -96,7 +98,7 @@ class Client(object):
         copied to remote node, present in command line as parameter and
         removed after client finish.
         """
-        os.path.join(self.workdir, filename)
+        full_name = os.path.join(self.workdir, filename)
         self.files.append((filename, content))
         self.options.append('%s %s' % (option, full_name))
         self.cleanup_files.append(full_name)
@@ -238,10 +240,7 @@ def clients_parallel_load(client, count=None):
 #-------------------------------------------------------------------------------
 # Tempesta
 #-------------------------------------------------------------------------------
-
-
-class Tempesta(object):
-
+class Tempesta(stateful.Stateful):
     def __init__(self):
         self.node = remote.tempesta
         self.workdir = self.node.workdir
@@ -251,8 +250,9 @@ class Tempesta(object):
         self.stats = tempesta.Stats()
         self.host = tf_cfg.cfg.get('Tempesta', 'hostname')
         self.err_msg = ' '.join(["Can't %s TempestaFW on", self.host])
+        self.stop_procedures = [self.stop_tempesta, self.remove_config]
 
-    def start(self):
+    def run_start(self):
         tf_cfg.dbg(3, '\tStarting TempestaFW on %s' % self.host)
         self.stats.clear()
         self.node.copy_file(self.config_name, self.config.get_config())
@@ -261,11 +261,12 @@ class Tempesta(object):
         self.node.run_cmd(cmd, timeout=30, env=env,
                           err_msg=(self.err_msg % 'start'))
 
-    def stop(self):
-        """ Stop and unload all TempestaFW modules. """
+    def stop_tempesta(self):
         tf_cfg.dbg(3, '\tStoping TempestaFW on %s' % self.host)
         cmd = '%s/scripts/tempesta.sh --stop' % self.workdir
         self.node.run_cmd(cmd, timeout=30, err_msg=(self.err_msg % 'stop'))
+
+    def remove_config(self):
         self.node.remove_file(self.config_name)
 
     def reload(self):
@@ -297,6 +298,8 @@ class TempestaFI(Tempesta):
             self.modules_dir = '/lib/modules/$(uname -r)/custom/'
         else:
             self.stap_msg = 'Cannot %s stap %s kernel.'
+        self.stop_procedures = [self.letout, self.letout_finish,
+                                self.stop_tempesta, self.remove_config]
 
     def inject_prepare(self):
         if self.module_stap:
@@ -320,23 +323,16 @@ class TempestaFI(Tempesta):
         if self.module_stap:
             self.node.run_cmd('rm -r %s' % self.modules_dir)
 
-    def start(self):
-        Tempesta.start(self)
+    def run_start(self):
+        Tempesta.run_start(self)
         self.inject_prepare()
         self.inject()
-
-    def stop(self):
-        self.letout()
-        self.letout_finish()
-        Tempesta.stop(self)
-
 
 #-------------------------------------------------------------------------------
 # Server
 #-------------------------------------------------------------------------------
 
-class Nginx(object):
-
+class Nginx(stateful.Stateful):
     def __init__(self, listen_port, workers=1):
         self.node = remote.server
         self.workdir = tf_cfg.cfg.get('Server', 'workdir')
@@ -348,11 +344,12 @@ class Nginx(object):
         self.err_msg = "Can't %s Nginx on %s"
         self.active_conns = 0
         self.requests = 0
+        self.stop_procedures = [self.stop_nginx, self.remove_config]
 
     def get_name(self):
         return ':'.join([self.ip, str(self.config.port)])
 
-    def start(self):
+    def run_start(self):
         tf_cfg.dbg(3, '\tStarting Nginx on %s' % self.get_name())
         self.clear_stats()
         # Copy nginx config to working directory on 'server' host.
@@ -364,10 +361,9 @@ class Nginx(object):
         self.node.run_cmd(cmd, ignore_stderr=True,
                           err_msg=(self.err_msg % ('start', self.get_name())))
 
-    def stop(self):
+    def stop_nginx(self):
         tf_cfg.dbg(3, '\tStoping Nginx on %s' % self.get_name())
         pid_file = os.path.join(self.workdir, self.config.pidfile_name)
-        config_file = os.path.join(self.workdir, self.config.config_name)
         cmd = ' && '.join([
             '[ -e \'%s\' ]' % pid_file,
             'pid=$(cat %s)' % pid_file,
@@ -376,6 +372,10 @@ class Nginx(object):
         ])
         self.node.run_cmd(cmd, ignore_stderr=True,
                           err_msg=(self.err_msg % ('stop', self.get_name())))
+
+    def remove_config(self):
+        tf_cfg.dbg(3, '\tRemoving Nginx config for %s' % self.get_name())
+        config_file = os.path.join(self.workdir, self.config.config_name)
         self.node.remove_file(config_file)
 
     def get_stats(self):
@@ -419,6 +419,11 @@ def servers_start(servers):
     threads = __servers_pool_size(len(servers))
     pool = multiprocessing.Pool(threads)
     pool.map(Nginx.start, servers)
+
+def servers_force_stop(servers):
+    threads = __servers_pool_size(len(servers))
+    pool = multiprocessing.Pool(threads)
+    pool.map(Nginx.force_stop, servers)
 
 def servers_stop(servers):
     threads = __servers_pool_size(len(servers))

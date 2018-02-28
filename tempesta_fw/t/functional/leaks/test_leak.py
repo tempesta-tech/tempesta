@@ -106,8 +106,6 @@ class LeakTest(stress.StressTest):
     def test_kmemleak(self):
         """ Detecting leaks with kmemleak """
         if not has_kmemleak():
-            self.tempesta = None
-            self.servers = None
             return unittest.TestCase.skipTest(self, "No kmemleak")
 
         kml1 = read_kmemleaks()
@@ -118,8 +116,6 @@ class LeakTest(stress.StressTest):
     def test_slab_memory(self):
         """ Detecting leaks with slab memory measure """
         if not has_meminfo():
-            self.tempesta = None
-            self.servers = None
             return unittest.TestCase.skipTest(self, "No meminfo")
 
         used1 = slab_memory()
@@ -132,8 +128,6 @@ class LeakTest(stress.StressTest):
     def test_used_memory(self):
         """ Detecting leaks with total used memory measure """
         if not has_meminfo():
-            self.tempesta = None
-            self.servers = None
             return unittest.TestCase.skipTest(self, "No meminfo")
 
         used1 = used_memory()
