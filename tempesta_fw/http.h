@@ -171,7 +171,8 @@ typedef struct {
  * for unconditionally hop-by-hop header or in __parse_connection() otherwize.
  * If the header is end-to-end it must be listed in __hbh_parser_add_data().
  *
- * Note: don't forget to update __http_msg_hdr_val() upon adding a new header.
+ * Note: don't forget to update __http_msg_hdr_val() and
+ * tfw_http_msg_(resp|req)_spec_hid() upon adding a new header.
  *
  * Cookie: singular according to RFC 6265 5.4.
  *
@@ -185,6 +186,7 @@ typedef enum {
 	TFW_HTTP_HDR_USER_AGENT,
 	TFW_HTTP_HDR_SERVER = TFW_HTTP_HDR_USER_AGENT,
 	TFW_HTTP_HDR_COOKIE,
+	TFW_HTTP_HDR_REFERER,
 	TFW_HTTP_HDR_IF_NONE_MATCH,
 	TFW_HTTP_HDR_ETAG = TFW_HTTP_HDR_IF_NONE_MATCH,
 
@@ -293,7 +295,10 @@ typedef struct {
 #define TFW_HTTP_URI_FULL		0x000400
 #define TFW_HTTP_NON_IDEMP		0x000800
 #define TFW_HTTP_SUSPECTED		0x001000
-#define TFW_HTTP_HMONITOR		0x002000
+/* Request stated 'Accept: text/html' header */
+#define TFW_HTTP_ACCEPT_HTML		0x002000
+/* Request is created by HTTP health monitor. */
+#define TFW_HTTP_HMONITOR		0x004000
 
 /* Response flags */
 #define TFW_HTTP_VOID_BODY		0x010000	/* Resp has no body */
@@ -488,13 +493,15 @@ typedef struct {
 typedef enum {
 	RESP_200,
 	RESP_4XX_BEGIN,
-	RESP_403	= RESP_4XX_BEGIN,
+	RESP_400	= RESP_4XX_BEGIN,
+	RESP_403,
 	RESP_404,
 	RESP_412,
 	RESP_4XX_END,
 	RESP_5XX_BEGIN	= RESP_4XX_END,
 	RESP_500	= RESP_5XX_BEGIN,
 	RESP_502,
+	RESP_503,
 	RESP_504,
 	RESP_5XX_END,
 	RESP_NUM	= RESP_5XX_END
@@ -548,9 +555,13 @@ void tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len);
 /*
  * Functions to send an HTTP error response to a client.
  */
-int tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie);
+int tfw_http_prep_redirect(TfwHttpMsg *resp, TfwHttpReq *req,
+			   unsigned short status, TfwStr *cookie, TfwStr *body);
 int tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, void *msg_it,
 		      size_t hdrs_size);
 void tfw_http_send_resp(TfwHttpReq *req, resp_code_t code);
+
+/* Helper functions */
+char *tfw_http_msg_body_dup(const char *filename, size_t *len);
 
 #endif /* __TFW_HTTP_H__ */

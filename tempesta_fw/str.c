@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -274,6 +274,39 @@ tfw_strcpy(TfwStr *dst, const TfwStr *src)
 	return 0;
 }
 EXPORT_SYMBOL(tfw_strcpy);
+
+/**
+ * Same as tfw_strcpy but allocate chunks to create exact copy of the string,
+ * including number of chunks.
+ */
+TfwStr *
+tfw_strdup(TfwPool *pool, const TfwStr *src)
+{
+	size_t n;
+	TfwStr *dst, *d_c;
+	const TfwStr *s_c, *end;
+	char *data;
+
+	n = (TFW_STR_CHUNKN(src) + 1) * sizeof(TfwStr) + src->len;
+	dst = (TfwStr *)tfw_pool_alloc(pool, n);
+	if (!dst)
+		return NULL;
+
+	*dst = *src;
+	dst->ptr = dst + 1;
+	data = (char *)(TFW_STR_LAST(dst) + 1);
+
+	d_c = TFW_STR_CHUNK(dst, 0);
+	TFW_STR_FOR_EACH_CHUNK(s_c, src, end) {
+		*d_c = *s_c;
+		d_c->ptr = data;
+		memcpy(data, s_c->ptr, s_c->len);
+		data += s_c->len;
+		++d_c;
+	}
+
+	return dst;
+}
 
 /**
  * Function for copying of TfwStr descriptors only.

@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -431,6 +431,37 @@ TEST(tfw_strcat, compound)
 	EXPECT_TRUE(tfw_str_eq_cstr(s1, "abcdefghijklmnop0123456789",
 				    sizeof("abcdefghijklmnop0123456789") - 1,
 				    0));
+}
+
+TEST(tfw_strdup, plain)
+{
+	const char *cstr = "abcdefghijklmnop";
+	TfwStr *copy;
+	TfwStr *s = make_plain_str(cstr);
+
+	copy = tfw_strdup(str_pool, s);
+
+	EXPECT_EQ(TFW_STR_CHUNKN(copy), 0);
+	EXPECT_EQ(tfw_strcmpspn(s, copy, 0), 0);
+}
+
+TEST(tfw_strdup, compound)
+{
+	TFW_STR2(s, "abcdef", "ghijklmnop");
+	TfwStr *copy, *end, *c, *c_copy;
+
+	copy = tfw_strdup(str_pool, s);
+
+	EXPECT_EQ(TFW_STR_CHUNKN(s), TFW_STR_CHUNKN(copy));
+	if (TFW_STR_CHUNKN(s) != TFW_STR_CHUNKN(copy))
+		return;
+
+	/* Same as TFW_STR_FOR_EACH_CHUNK(). */
+	c = s->ptr;
+	c_copy = copy->ptr;
+	end = (TfwStr *)s->ptr + TFW_STR_CHUNKN(s);
+	for ( ; c < end; ++c, ++c_copy)
+		EXPECT_EQ(tfw_strcmpspn(c, c_copy, 0), 0);
 }
 
 /* Case-insensitive comparison. */
@@ -922,6 +953,9 @@ TEST_SUITE(tfw_str)
 
 	TEST_RUN(tfw_strcat, plain);
 	TEST_RUN(tfw_strcat, compound);
+
+	TEST_RUN(tfw_strdup, plain);
+	TEST_RUN(tfw_strdup, compound);
 
 	TEST_RUN(tfw_stricmpspn, returns_true_only_for_equal_tfw_strs);
 	TEST_RUN(tfw_stricmpspn, handles_plain_and_compound_strs);
