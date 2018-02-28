@@ -44,14 +44,17 @@ unsigned short tfw_blk_flags = TFW_BLK_ERR_REPLY;
 #define S_CRLFCRLF		"\r\n\r\n"
 #define S_HTTP			"http://"
 
+#define S_0			"HTTP/1.1 "
 #define S_200			"HTTP/1.1 200 OK"
 #define S_302			"HTTP/1.1 302 Found"
 #define S_304			"HTTP/1.1 304 Not Modified"
+#define S_400			"HTTP/1.1 400 Bad Request"
 #define S_403			"HTTP/1.1 403 Forbidden"
 #define S_404			"HTTP/1.1 404 Not Found"
 #define S_412			"HTTP/1.1 412 Precondition Failed"
 #define S_500			"HTTP/1.1 500 Internal Server Error"
 #define S_502			"HTTP/1.1 502 Bad Gateway"
+#define S_503			"HTTP/1.1 503 Service Unavailable"
 #define S_504			"HTTP/1.1 504 Gateway Timeout"
 
 #define S_F_HOST		"Host: "
@@ -60,17 +63,21 @@ unsigned short tfw_blk_flags = TFW_BLK_ERR_REPLY;
 #define S_F_LOCATION		"Location: "
 #define S_F_CONNECTION		"Connection: "
 #define S_F_ETAG		"ETag: "
+#define S_F_RETRY_AFTER		"Retry-After: "
 
 #define S_V_DATE		"Sun, 06 Nov 1994 08:49:37 GMT"
 #define S_V_CONTENT_LENGTH	"9999"
 #define S_V_CONN_CLOSE		"close"
 #define S_V_CONN_KA		"keep-alive"
+#define S_V_RETRY_AFTER		"10"
 
 #define S_H_CONN_KA		S_F_CONNECTION S_V_CONN_KA S_CRLFCRLF
 #define S_H_CONN_CLOSE		S_F_CONNECTION S_V_CONN_CLOSE S_CRLFCRLF
 
 #define S_200_PART_01		S_200 S_CRLF S_F_DATE
 #define S_200_PART_02		S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
+#define S_400_PART_01		S_400 S_CRLF S_F_DATE
+#define S_400_PART_02		S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
 #define S_403_PART_01		S_403 S_CRLF S_F_DATE
 #define S_403_PART_02		S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
 #define S_404_PART_01		S_404 S_CRLF S_F_DATE
@@ -81,6 +88,9 @@ unsigned short tfw_blk_flags = TFW_BLK_ERR_REPLY;
 #define S_500_PART_02		S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
 #define S_502_PART_01		S_502 S_CRLF S_F_DATE
 #define S_502_PART_02		S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
+#define S_503_PART_01		S_503 S_CRLF S_F_DATE
+#define S_503_PART_02		S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF \
+				S_F_RETRY_AFTER S_V_RETRY_AFTER S_CRLF
 #define S_504_PART_01		S_504 S_CRLF S_F_DATE
 #define S_504_PART_02		S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
 
@@ -99,6 +109,19 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 		.len = SLEN(S_200_PART_01 S_V_DATE S_200_PART_02 S_CRLF),
 		.flags = 5 << TFW_STR_CN_SHIFT
 	},
+	/* Response has invalid syntax, client shouldn't repeat it. */
+	[RESP_400] = {
+		.ptr = (TfwStr []){
+			{ .ptr = S_400_PART_01, .len = SLEN(S_400_PART_01) },
+			{ .ptr = NULL, .len = SLEN(S_V_DATE) },
+			{ .ptr = S_400_PART_02, .len = SLEN(S_400_PART_02) },
+			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
+			{ .ptr = NULL, .len = 0 },
+		},
+		.len = SLEN(S_400_PART_01 S_V_DATE S_400_PART_02 S_CRLF),
+		.flags = 5 << TFW_STR_CN_SHIFT
+	},
+	/* Response is syntactically valid, but refuse to authorize it. */
 	[RESP_403] = {
 		.ptr = (TfwStr []){
 			{ .ptr = S_403_PART_01, .len = SLEN(S_403_PART_01) },
@@ -110,6 +133,7 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 		.len = SLEN(S_403_PART_01 S_V_DATE S_403_PART_02 S_CRLF),
 		.flags = 5 << TFW_STR_CN_SHIFT
 	},
+	/* Can't find the requested resource. */
 	[RESP_404] = {
 		.ptr = (TfwStr []){
 			{ .ptr = S_404_PART_01, .len = SLEN(S_404_PART_01) },
@@ -132,6 +156,7 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 		.len = SLEN(S_412_PART_01 S_V_DATE S_412_PART_02 S_CRLF),
 		.flags = 5 << TFW_STR_CN_SHIFT
 	},
+	/* Internal error in TempestaFW. */
 	[RESP_500] = {
 		.ptr = (TfwStr []){
 			{ .ptr = S_500_PART_01, .len = SLEN(S_500_PART_01) },
@@ -143,6 +168,7 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 		.len = SLEN(S_500_PART_01 S_V_DATE S_500_PART_02 S_CRLF),
 		.flags = 5 << TFW_STR_CN_SHIFT
 	},
+	/* Error (syntax or network) while receiving request from backend. */
 	[RESP_502] = {
 		.ptr = (TfwStr []){
 			{ .ptr = S_502_PART_01, .len = SLEN(S_502_PART_01) },
@@ -154,6 +180,23 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 		.len = SLEN(S_502_PART_01 S_V_DATE S_502_PART_02 S_CRLF),
 		.flags = 5 << TFW_STR_CN_SHIFT
 	},
+	/*
+	 * Sticky cookie or JS challenge failed, refuse to serve the client.
+	 * Add Retry-After header, normal browser will repeat the request
+	 * after given time, 10s by default.
+	 */
+	[RESP_503] = {
+		.ptr = (TfwStr []){
+			{ .ptr = S_503_PART_01, .len = SLEN(S_503_PART_01) },
+			{ .ptr = NULL, .len = SLEN(S_V_DATE) },
+			{ .ptr = S_503_PART_02, .len = SLEN(S_503_PART_02) },
+			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
+			{ .ptr = NULL, .len = 0 },
+		},
+		.len = SLEN(S_503_PART_01 S_V_DATE S_503_PART_02 S_CRLF),
+		.flags = 5 << TFW_STR_CN_SHIFT
+	},
+	/* Can't get a response in time. */
 	[RESP_504] = {
 		.ptr = (TfwStr []){
 			{ .ptr = S_504_PART_01, .len = SLEN(S_504_PART_01) },
@@ -252,41 +295,75 @@ tfw_http_prep_date(char *buf)
 
 unsigned long tfw_hash_str(const TfwStr *str);
 
-#define S_302_PART_01	S_302 S_CRLF S_F_DATE
-#define S_302_PART_02	S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF S_F_LOCATION
-#define S_302_PART_03	S_CRLF S_F_SET_COOKIE
-#define S_302_FIXLEN	SLEN(S_302_PART_01 S_V_DATE S_302_PART_02 S_302_PART_03)
-#define S_302_KEEP	S_CRLF S_H_CONN_KA
-#define S_302_CLOSE	S_CRLF S_H_CONN_CLOSE
-/*
- * HTTP 302 response.
+#define S_REDIR_302	S_302 S_CRLF
+#define S_REDIR_503	S_503 S_CRLF
+#define S_REDIR_GEN	" Redirection" S_CRLF
+#define S_REDIR_P_01	S_F_DATE
+#define S_REDIR_P_02	S_CRLF S_F_LOCATION
+#define S_REDIR_P_03	S_CRLF S_F_SET_COOKIE
+#define S_REDIR_KEEP	S_CRLF S_F_CONNECTION S_V_CONN_KA S_CRLF
+#define S_REDIR_CLOSE	S_CRLF S_F_CONNECTION S_V_CONN_CLOSE S_CRLF
+#define S_REDIR_C_LEN	S_F_CONTENT_LENGTH "0" S_CRLFCRLF
+/**
  * The response redirects the client to the same URI as the original request,
  * but it includes 'Set-Cookie:' header field that sets Tempesta sticky cookie.
+ * If JS challenge is enabled, then body contained JS challenge is provided.
+ * Body string contains the 'Content-Legth' header, CRLF and body itself.
  */
 int
-tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie)
+tfw_http_prep_redirect(TfwHttpMsg *resp, TfwHttpReq *req, unsigned short status,
+		       TfwStr *cookie, TfwStr *body)
 {
-	size_t data_len = S_302_FIXLEN;
+	size_t data_len;
 	int conn_flag = req->flags & __TFW_HTTP_CONN_MASK, ret = 0;
 	TfwMsgIter it;
-	TfwStr rh = {
+	static TfwStr rh_302 = {
+		.ptr = S_REDIR_302, .len = SLEN(S_REDIR_302) };
+	static TfwStr rh_503 = {
+		.ptr = S_REDIR_503, .len = SLEN(S_REDIR_503) };
+	TfwStr rh_gen = {
 		.ptr = (TfwStr []){
-			{ .ptr = S_302_PART_01, .len = SLEN(S_302_PART_01) },
-			{ .ptr = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
-			{ .ptr = S_302_PART_02, .len = SLEN(S_302_PART_02) }
+			{ .ptr = S_0, .len = SLEN(S_0) },
+			{ .ptr = (*this_cpu_ptr(&g_buf) + RESP_BUF_LEN / 2),
+			  .len = 3 },
+			{ .ptr = S_REDIR_GEN, .len = SLEN(S_REDIR_GEN) }
 		},
-		.len = SLEN(S_302_PART_01 S_V_DATE S_302_PART_02),
+		.len = SLEN(S_0 S_REDIR_GEN) + 3,
 		.flags = 3 << TFW_STR_CN_SHIFT
 	};
-	static TfwStr part03 = {
-		.ptr = S_302_PART_03, .len = SLEN(S_302_PART_03) };
-	static TfwStr crlfcrlf = {
-		.ptr = S_CRLFCRLF, .len = SLEN(S_CRLFCRLF) };
+	TfwStr h_common_1 = {
+		.ptr = (TfwStr []){
+			{ .ptr = S_REDIR_P_01, .len = SLEN(S_REDIR_P_01) },
+			{ .ptr = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
+			{ .ptr = S_REDIR_P_02, .len = SLEN(S_REDIR_P_02) }
+		},
+		.len = SLEN(S_REDIR_P_01 S_V_DATE S_REDIR_P_02),
+		.flags = 3 << TFW_STR_CN_SHIFT
+	};
+	static TfwStr h_common_2 = {
+		.ptr = S_REDIR_P_03, .len = SLEN(S_REDIR_P_03) };
+	static TfwStr crlf = {
+		.ptr = S_CRLF, .len = SLEN(S_CRLF) };
 	static TfwStr crlf_keep = {
-		.ptr = S_302_KEEP, .len = SLEN(S_302_KEEP) };
+		.ptr = S_REDIR_KEEP, .len = SLEN(S_REDIR_KEEP) };
 	static TfwStr crlf_close = {
-		.ptr = S_302_CLOSE, .len = SLEN(S_302_CLOSE) };
-	TfwStr host, *crlf = &crlfcrlf;
+		.ptr = S_REDIR_CLOSE, .len = SLEN(S_REDIR_CLOSE) };
+	static TfwStr c_len_crlf = {
+		.ptr = S_REDIR_C_LEN, .len = SLEN(S_REDIR_C_LEN) };
+	TfwStr host, *rh, *cookie_crlf = &crlf, *r_end;
+
+	if (status == 302) {
+		rh = &rh_302;
+	} else if (status == 503) {
+		rh = &rh_503;
+	} else {
+		tfw_ultoa(status, __TFW_STR_CH(&rh_gen, 1)->ptr, 3);
+		rh = &rh_gen;
+	}
+	if (body)
+		r_end = body;
+	else
+		r_end = &c_len_crlf;
 
 	tfw_http_msg_clnthdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
 				 TFW_HTTP_HDR_HOST, &host);
@@ -295,20 +372,23 @@ tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie)
 
 	/* Set "Connection:" header field if needed. */
 	if (conn_flag == TFW_HTTP_CONN_CLOSE)
-		crlf = &crlf_close;
+		cookie_crlf = &crlf_close;
 	else if (conn_flag == TFW_HTTP_CONN_KA)
-		crlf = &crlf_keep;
+		cookie_crlf = &crlf_keep;
 
 	/* Add variable part of data length to get the total */
+	data_len = rh->len + h_common_1.len;
 	data_len += host.len ? host.len + SLEN(S_HTTP) : 0;
-	data_len += req->uri_path.len + cookie->len;
-	data_len += crlf->len;
+	data_len += req->uri_path.len + h_common_2.len + cookie->len;
+	data_len += cookie_crlf->len + r_end->len;
 
 	if (tfw_http_msg_setup(resp, &it, data_len))
 		return TFW_BLOCK;
 
-	tfw_http_prep_date(__TFW_STR_CH(&rh, 1)->ptr);
-	ret = tfw_http_msg_write(&it, resp, &rh);
+	tfw_http_prep_date(__TFW_STR_CH(&h_common_1, 1)->ptr);
+
+	ret = tfw_http_msg_write(&it, resp, rh);
+	ret = tfw_http_msg_write(&it, resp, &h_common_1);
 	/*
 	 * HTTP/1.0 may have no host part, so we create relative URI.
 	 * See RFC 1945 9.3 and RFC 7231 7.1.2.
@@ -319,11 +399,12 @@ tfw_http_prep_302(TfwHttpMsg *resp, TfwHttpReq *req, TfwStr *cookie)
 		ret |= tfw_http_msg_write(&it, resp, &host);
 	}
 	ret |= tfw_http_msg_write(&it, resp, &req->uri_path);
-	ret |= tfw_http_msg_write(&it, resp, &part03);
+	ret |= tfw_http_msg_write(&it, resp, &h_common_2);
 	ret |= tfw_http_msg_write(&it, resp, cookie);
-	ret |= tfw_http_msg_write(&it, resp, crlf);
+	ret |= tfw_http_msg_write(&it, resp, cookie_crlf);
+	ret |= tfw_http_msg_write(&it, resp, r_end);
 
-	return ret ? TFW_BLOCK : TFW_PASS;
+	return ret;
 }
 
 #define S_304_PART_01	S_304 S_CRLF
@@ -712,6 +793,8 @@ tfw_http_enum_resp_code(int status)
 	switch(status) {
 	case 200:
 		return RESP_200;
+	case 400:
+		return RESP_400;
 	case 403:
 		return RESP_403;
 	case 404:
@@ -722,6 +805,8 @@ tfw_http_enum_resp_code(int status)
 		return RESP_500;
 	case 502:
 		return RESP_502;
+	case 503:
+		return RESP_503;
 	case 504:
 		return RESP_504;
 	default:
@@ -1803,6 +1888,30 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 	return r;
 }
 
+static int
+tfw_http_set_loc_hdrs(TfwHttpMsg *hm, TfwHttpReq *req)
+{
+	int r;
+	size_t i;
+	int mod_type = (hm == (TfwHttpMsg *)req) ? TFW_VHOST_HDRMOD_REQ
+						 : TFW_VHOST_HDRMOD_RESP;
+	TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location, req->vhost,
+						    mod_type);
+
+	for (i = 0; i < h_mods->sz; ++i) {
+		TfwHdrModsDesc *d = &h_mods->hdrs[i];
+		r = tfw_http_msg_hdr_xfrm_str(hm, d->hdr, d->hid, d->append);
+		if (r) {
+			TFW_ERR("can't update location-specific header in msg %p\n",
+				hm);
+			return r;
+		}
+		TFW_DBG2("updated location-specific header in msg %p\n", hm);
+	}
+
+	return 0;
+}
+
 /**
  * Adjust the request before proxying it to real server.
  */
@@ -1821,6 +1930,10 @@ tfw_http_adjust_req(TfwHttpReq *req)
 		return r;
 
 	r = tfw_http_msg_del_hbh_hdrs(hm);
+	if (r < 0)
+		return r;
+
+	r = tfw_http_set_loc_hdrs(hm, req);
 	if (r < 0)
 		return r;
 
@@ -1853,6 +1966,10 @@ tfw_http_adjust_resp(TfwHttpResp *resp, TfwHttpReq *req)
 		return r;
 
 	r = tfw_http_add_hdr_via(hm);
+	if (r < 0)
+		return r;
+
+	r = tfw_http_set_loc_hdrs(hm, req);
 	if (r < 0)
 		return r;
 
@@ -2000,6 +2117,95 @@ tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
 	}
 }
 
+static inline void
+tfw_http_req_mark_error(TfwHttpReq *req, int status, const char *msg)
+{
+	TFW_CONN_TYPE(req->conn) |= Conn_Stop;
+	req->flags |= TFW_HTTP_SUSPECTED;
+	tfw_http_error_resp_switch(req, status, msg);
+}
+
+/**
+ * Functions define logging and response behaviour during detection of
+ * malformed or malicious messages. Mark client connection in special
+ * manner to delay its closing until transmission of error response
+ * will be finished.
+ */
+static void
+tfw_http_cli_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
+				int status, const char *msg)
+{
+	if (reply) {
+		TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
+		tfw_connection_unlink_msg(req->conn);
+		spin_lock(&cli_conn->seq_qlock);
+		list_add_tail(&req->msg.seq_list, &cli_conn->seq_queue);
+		spin_unlock(&cli_conn->seq_qlock);
+		tfw_http_req_mark_error(req, status, msg);
+	}
+	else
+		tfw_http_conn_req_clean(req);
+
+	if (!nolog)
+		TFW_WARN_ADDR(msg, &req->conn->peer->addr);
+}
+
+static void
+tfw_http_srv_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
+				int status, const char *msg)
+{
+	if (reply)
+		tfw_http_req_mark_error(req, status, msg);
+	else
+		tfw_http_conn_req_clean(req);
+
+	if (!nolog)
+		TFW_WARN_ADDR(msg, &req->conn->peer->addr);
+}
+
+/**
+ * Wrappers for calling tfw_http_cli_error_resp_and_log() and
+ * tfw_http_srv_error_resp_and_log() functions in client/server
+ * connection contexts depending on configuration settings:
+ * sending response error messages and logging.
+ *
+ * NOTE: tfw_client_drop() and tfw_client_block() must be called
+ * only from client connection context before a request was fully parsed.
+ * Otherwise tfw_srv_client_drop() and tfw_srv_client_block() must be used
+ * only from server connection context.
+ */
+static inline void
+tfw_client_drop(TfwHttpReq *req, int status, const char *msg)
+{
+	tfw_http_cli_error_resp_and_log(tfw_blk_flags & TFW_BLK_ERR_REPLY,
+					tfw_blk_flags & TFW_BLK_ERR_NOLOG,
+					req, status, msg);
+}
+
+static inline void
+tfw_client_block(TfwHttpReq *req, int status, const char *msg)
+{
+	tfw_http_cli_error_resp_and_log(tfw_blk_flags & TFW_BLK_ATT_REPLY,
+					tfw_blk_flags & TFW_BLK_ATT_NOLOG,
+					req, status, msg);
+}
+
+static inline void
+tfw_srv_client_drop(TfwHttpReq *req, int status, const char *msg)
+{
+	tfw_http_srv_error_resp_and_log(tfw_blk_flags & TFW_BLK_ERR_REPLY,
+					tfw_blk_flags & TFW_BLK_ERR_NOLOG,
+					req, status, msg);
+}
+
+static inline void
+tfw_srv_client_block(TfwHttpReq *req, int status, const char *msg)
+{
+	tfw_http_srv_error_resp_and_log(tfw_blk_flags &	TFW_BLK_ATT_REPLY,
+					tfw_blk_flags & TFW_BLK_ATT_NOLOG,
+					req, status, msg);
+}
+
 /**
  * The request is serviced from cache.
  * Send the response as is and unrefer its data.
@@ -2042,10 +2248,20 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	 * not enabled.
 	 */
 	r = tfw_http_sess_obtain(req);
-	if (r < 0)
-		goto send_500;
-	if (r > 0)	/* Response sent, nothing to do. */
+	switch (r)
+	{
+	case TFW_HTTP_SESS_SUCCESS:
+		break;
+	case TFW_HTTP_SESS_REDIRECT_SENT:
+		/* Response sent, nothing to do. */
 		return;
+	case TFW_HTTP_SESS_VIOLATE:
+		goto drop_503;
+	case TFW_HTTP_SESS_JS_NOT_SUPPORTED:
+		goto send_503;
+	default:
+		goto send_500;
+	}
 
 	if (resp) {
 		tfw_http_req_cache_service(req, resp);
@@ -2079,6 +2295,19 @@ tfw_http_req_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	tfw_http_req_zap_error(&equeue);
 	goto conn_put;
 
+send_503:
+	/*
+	 * Requested resource can't be challenged. Don't break response-request
+	 * queue on client side by dropping the request.
+	 */
+	HTTP_SEND_RESP(req, 503, "request dropped: can't send JS challenge.");
+	TFW_INC_STAT_BH(clnt.msgs_filtout);
+	return;
+drop_503:
+	tfw_srv_client_drop(req, 503, "request dropped: invalid sticky cookie "
+				      "or js challenge");
+	TFW_INC_STAT_BH(clnt.msgs_filtout);
+	return;
 send_502:
 	HTTP_SEND_RESP(req, 502, "request dropped: processing error");
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
@@ -2111,6 +2340,8 @@ tfw_http_req_mark_nip(TfwHttpReq *req)
 	 * the current vhost. If there are no entries there either, then
 	 * search in the default location of the default vhost - that is,
 	 * in the global policies.
+	 *
+	 * TODO #862: req->location must be the full set of options.
 	 */
 	if (loc && loc->nipdef_sz) {
 		if (tfw_nipdef_match(loc, req->method, &req->uri_path))
@@ -2165,102 +2396,6 @@ tfw_http_req_set_context(TfwHttpReq *req)
 	req->location = tfw_location_match(req->vhost, &req->uri_path);
 
 	return !req->vhost;
-}
-
-static inline void
-tfw_http_req_mark_error(TfwHttpReq *req, int status, const char *msg)
-{
-	TFW_CONN_TYPE(req->conn) |= Conn_Stop;
-	req->flags |= TFW_HTTP_SUSPECTED;
-	tfw_http_error_resp_switch(req, status, msg);
-}
-
-/**
- * Functions define logging and response behaviour during detection of
- * malformed or malicious messages. Mark client connection in special
- * manner to delay its closing until transmission of error response
- * will be finished.
- */
-static void
-tfw_http_cli_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
-				int status, const char *msg)
-{
-	BUG_ON(req->flags & TFW_HTTP_HMONITOR);
-	if (reply) {
-		TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
-		tfw_connection_unlink_msg(req->conn);
-		spin_lock(&cli_conn->seq_qlock);
-		list_add_tail(&req->msg.seq_list, &cli_conn->seq_queue);
-		spin_unlock(&cli_conn->seq_qlock);
-		tfw_http_req_mark_error(req, status, msg);
-	} else {
-		tfw_http_conn_req_clean(req);
-	}
-
-	if (!nolog)
-		TFW_WARN_ADDR(msg, &req->conn->peer->addr);
-}
-
-static void
-tfw_http_srv_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
-				int status, const char *msg)
-{
-	if (req->flags & TFW_HTTP_HMONITOR) {
-		TFW_WARN("Error on response for health"
-			 " monitoring request: %s", msg);
-		tfw_http_msg_free((TfwHttpMsg *)req);
-		return;
-	}
-
-	if (reply)
-		tfw_http_req_mark_error(req, status, msg);
-	else
-		tfw_http_conn_req_clean(req);
-
-	if (!nolog)
-		TFW_WARN_ADDR(msg, &req->conn->peer->addr);
-}
-
-/**
- * Wrappers for calling tfw_http_cli_error_resp_and_log() and
- * tfw_http_srv_error_resp_and_log() functions in client/server
- * connection contexts depending on configuration settings:
- * sending response error messages and logging.
- *
- * NOTE: tfw_client_drop() and tfw_client_block() must be called
- * only from client connection context, and tfw_srv_client_drop()
- * and tfw_srv_client_block() - only from server connection context.
- */
-static inline void
-tfw_client_drop(TfwHttpReq *req, int status, const char *msg)
-{
-	tfw_http_cli_error_resp_and_log(tfw_blk_flags & TFW_BLK_ERR_REPLY,
-					tfw_blk_flags & TFW_BLK_ERR_NOLOG,
-					req, status, msg);
-}
-
-static inline void
-tfw_client_block(TfwHttpReq *req, int status, const char *msg)
-{
-	tfw_http_cli_error_resp_and_log(tfw_blk_flags & TFW_BLK_ATT_REPLY,
-					tfw_blk_flags & TFW_BLK_ATT_NOLOG,
-					req, status, msg);
-}
-
-static inline void
-tfw_srv_client_drop(TfwHttpReq *req, int status, const char *msg)
-{
-	tfw_http_srv_error_resp_and_log(tfw_blk_flags & TFW_BLK_ERR_REPLY,
-					tfw_blk_flags & TFW_BLK_ERR_NOLOG,
-					req, status, msg);
-}
-
-static inline void
-tfw_srv_client_block(TfwHttpReq *req, int status, const char *msg)
-{
-	tfw_http_srv_error_resp_and_log(tfw_blk_flags &	TFW_BLK_ATT_REPLY,
-					tfw_blk_flags & TFW_BLK_ATT_NOLOG,
-					req, status, msg);
 }
 
 static inline bool
@@ -2366,7 +2501,7 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 		case TFW_BLOCK:
 			TFW_DBG2("Block invalid HTTP request\n");
 			TFW_INC_STAT_BH(clnt.msgs_parserr);
-			tfw_client_drop(req, 403, "failed to parse request");
+			tfw_client_drop(req, 400, "failed to parse request");
 			return TFW_BLOCK;
 		case TFW_POSTPONE:
 			r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK,
@@ -2972,7 +3107,7 @@ bad_msg:
 					     "response blocked:"
 					     " filtered out");
 		else
-			tfw_srv_client_drop(bad_req, 500,
+			tfw_srv_client_drop(bad_req, 502,
 					    "response dropped:"
 					    " processing error");
 	}
@@ -3256,37 +3391,115 @@ tfw_http_set_common_body(int status_code, char *new_length, size_t l_size,
 }
 
 /**
+ * Allocate memory to store `Content-length' header and body located in file
+ * @filename. Memory is allocated via __get_free_pages(), thus free_pages()
+ * must be used on cleanup;
+ * @c_len	- Content-Length header template. __TFW_STR_CH(&c_len, 1) must
+ *		  be NULL, meaning that content-length value must be inserted
+ *		  at that chunk.
+ * @len		- total length of body data including headers.
+ * @body_offset	- the body offset in result;
+ */
+char *
+__tfw_http_msg_body_dup(const char *filename, TfwStr *c_len_hdr, size_t *len,
+			size_t *body_offset)
+{
+	char *body, *b_start, *res = NULL;
+	size_t b_sz, t_sz;
+	char buff[TFW_ULTOA_BUF_SIZ] = {0};
+	TfwStr *cl_buf = __TFW_STR_CH(c_len_hdr, 1);
+
+	body = tfw_cfg_read_file(filename, &b_sz);
+	if (!body) {
+		*len = *body_offset = 0;
+		return NULL;
+	}
+	cl_buf->ptr = buff;
+	cl_buf->len = tfw_ultoa(b_sz, cl_buf->ptr, TFW_ULTOA_BUF_SIZ);
+	if (unlikely(!cl_buf->len)) {
+		TFW_ERR("Can't copy file %s: too big\n", filename);
+		goto err;
+	}
+
+	c_len_hdr->len += cl_buf->len;
+	t_sz = c_len_hdr->len + b_sz;
+	res = (char *)__get_free_pages(GFP_KERNEL, get_order(t_sz));
+	if (!res) {
+		TFW_ERR_NL("Can't allocate memory storing file %s "
+			   "as response body\n", filename);
+		goto err_2;
+	}
+
+	tfw_str_to_cstr(c_len_hdr, res, t_sz);
+	b_start = res + c_len_hdr->len;
+	memcpy(b_start, body, b_sz);
+
+	*len = t_sz;
+	*body_offset = b_start - res;
+err_2:
+	c_len_hdr->len -= cl_buf->len;
+err:
+	cl_buf->ptr = NULL;
+	cl_buf->len = 0;
+	vfree(body);
+
+	return res;
+}
+
+/**
+ * Copy @filename content to allocated memory as compound of
+ * `Content-length' header, crlfcrlf and message body. Memory is allocated
+ * via __get_free_pages(), thus free_pages() must be used on cleanup;
+ * @len		- total length of body data including headers.
+ */
+char *
+tfw_http_msg_body_dup(const char *filename, size_t *len)
+{
+	TfwStr c_len_hdr = {
+		.ptr = (TfwStr []){
+			{ .ptr = S_F_CONTENT_LENGTH,
+			  .len = SLEN(S_F_CONTENT_LENGTH) },
+			{ .ptr = NULL, .len = 0 },
+			{ .ptr = S_CRLFCRLF, .len = SLEN(S_CRLFCRLF) },
+		},
+		.len = SLEN(S_F_CONTENT_LENGTH S_CRLFCRLF),
+		.flags = 3 << TFW_STR_CN_SHIFT
+	};
+	size_t b_off;
+
+	return __tfw_http_msg_body_dup(filename, &c_len_hdr, len, &b_off);
+}
+
+
+/**
  * Set message body for predefined response with corresponding code.
  */
 static int
-tfw_http_config_resp_body(int status_code, const char *src_body, size_t b_size)
+tfw_http_config_resp_body(int status_code, const char *filename)
 {
 	resp_code_t code;
-	size_t digs_count, l_size;
-	char *new_length, *new_body;
-	char buff[TFW_ULTOA_BUF_SIZ] = {0};
+	size_t cl_sz, b_sz, sz, b_off;
+	char *cl, *body;
+	TfwStr c_len_hdr = {
+		.ptr = (TfwStr []){
+			{ .ptr = S_CRLF S_F_CONTENT_LENGTH,
+			  .len = SLEN(S_CRLF S_F_CONTENT_LENGTH) },
+			{ .ptr = NULL, .len = 0 },
+			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
+		},
+		.len = SLEN(S_CRLF S_F_CONTENT_LENGTH S_CRLF),
+		.flags = 3 << TFW_STR_CN_SHIFT
+	};
 
-	if (!(digs_count = tfw_ultoa(b_size, buff, TFW_ULTOA_BUF_SIZ))) {
-		TFW_ERR("too small buffer for Content-Length header\n");
-		return -E2BIG;
-	}
+	if (!(cl = __tfw_http_msg_body_dup(filename, &c_len_hdr, &sz, &b_off)))
+		return -EINVAL;
 
-	l_size = 2 * SLEN(S_CRLF) + SLEN(S_F_CONTENT_LENGTH) + digs_count;
-	new_length = (char *)__get_free_pages(GFP_KERNEL,
-					      get_order(l_size + b_size));
-	if (!new_length) {
-		TFW_ERR("can't allocate memory for Content-Length"
-			"header and body\n");
-		return -ENOMEM;
-	}
-	snprintf(new_length, l_size + 1, "%s%s%s%s",
-		 S_CRLF, S_F_CONTENT_LENGTH , buff, S_CRLF);
-	new_body = new_length + l_size;
-	memcpy(new_body, src_body, b_size);
+	cl_sz = b_off;
+	body = cl + b_off;
+	b_sz = sz - b_off;
 
 	if (status_code == HTTP_STATUS_4XX || status_code == HTTP_STATUS_5XX) {
-		tfw_http_set_common_body(status_code, new_length,
-					 l_size, new_body, b_size);
+		tfw_http_set_common_body(status_code, cl, cl_sz, body, b_sz);
 		return 0;
 	}
 
@@ -3297,7 +3510,7 @@ tfw_http_config_resp_body(int status_code, const char *src_body, size_t b_size)
 		return -EINVAL;
 	}
 
-	tfw_http_set_body(code, new_length, l_size, new_body, b_size);
+	tfw_http_set_body(code, cl, cl_sz, body, b_sz);
 
 	return 0;
 }
@@ -3375,9 +3588,7 @@ tfw_cfgop_parse_http_status(const char *status, int *out)
 static int
 tfw_cfgop_resp_body(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	char *body_data;
-	size_t body_size;
-	int code, ret = 0;
+	int code;
 
 	if (tfw_cfg_check_val_n(ce, 2))
 		return -EINVAL;
@@ -3394,17 +3605,7 @@ tfw_cfgop_resp_body(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	}
 
-	body_data = tfw_cfg_read_file(ce->vals[1], &body_size);
-	if (!body_data) {
-		TFW_ERR_NL("Cannot read file with error response: '%s'\n",
-			   ce->vals[1]);
-		return -EINVAL;
-	}
-
-	ret = tfw_http_config_resp_body(code, body_data, body_size - 1);
-	vfree(body_data);
-
-	return ret;
+	return tfw_http_config_resp_body(code, ce->vals[1]);
 }
 
 static TfwCfgSpec tfw_http_specs[] = {

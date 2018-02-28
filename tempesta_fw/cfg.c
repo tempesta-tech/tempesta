@@ -1576,7 +1576,7 @@ tfw_cfg_read_file(const char *path, size_t *file_size)
 	mm_segment_t oldfs;
 
 	if (!path || !*path) {
-		TFW_ERR("can't open file with empty name\n");
+		TFW_ERR_NL("can't open file with empty name\n");
 		return NULL;
 	}
 
@@ -1587,7 +1587,7 @@ tfw_cfg_read_file(const char *path, size_t *file_size)
 
 	fp = filp_open(path, O_RDONLY, 0);
 	if (IS_ERR_OR_NULL(fp)) {
-		TFW_ERR("can't open file: %s (err: %ld)\n", path, PTR_ERR(fp));
+		TFW_ERR_NL("can't open file: %s (err: %ld)\n", path, PTR_ERR(fp));
 		goto err_open;
 	}
 
@@ -1600,7 +1600,7 @@ tfw_cfg_read_file(const char *path, size_t *file_size)
 
 	out_buf = vmalloc(buf_size);
 	if (!out_buf) {
-		TFW_ERR("can't allocate memory\n");
+		TFW_ERR_NL("can't allocate memory\n");
 		goto err_alloc;
 	}
 
@@ -1611,7 +1611,7 @@ tfw_cfg_read_file(const char *path, size_t *file_size)
 		bytes_read = vfs_read(fp, out_buf + offset, read_size, \
 				      &offset);
 		if (bytes_read < 0) {
-			TFW_ERR("can't read file: %s (err: %zu)\n", path,
+			TFW_ERR_NL("can't read file: %s (err: %zu)\n", path,
 				bytes_read);
 			goto err_read;
 		}
@@ -1619,7 +1619,7 @@ tfw_cfg_read_file(const char *path, size_t *file_size)
 
 	/* Exactly one byte (reserved for '\0') should remain. */
 	if (buf_size - offset - 1) {
-		TFW_ERR("file size changed during the read: '%s'\n,", path);
+		TFW_ERR_NL("file size changed during the read: '%s'\n,", path);
 		goto err_read;
 	}
 

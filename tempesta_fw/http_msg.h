@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -25,13 +25,19 @@
 
 #define S_F_SET_COOKIE		"Set-Cookie: "
 #define S_CRLF			"\r\n"
+#define S_DLM			": "
 
 #define SLEN(s)			(sizeof(s) - 1)
 
-const TfwStr *__tfw_http_msg_find_hdr(const TfwStr *hdr, const TfwStr array[],
-				      size_t size);
+TfwStr *tfw_http_msg_make_hdr(TfwPool *pool, const char *name, const char *val);
+unsigned int tfw_http_msg_resp_spec_hid(const TfwStr *hdr);
+unsigned int tfw_http_msg_req_spec_hid(const TfwStr *hdr);
+
+const void *__tfw_http_msg_find_hdr(const TfwStr *hdr, const void *array,
+				    size_t n, size_t member_sz);
 #define tfw_http_msg_find_hdr(hdr, array)				\
-	__tfw_http_msg_find_hdr(hdr, array, ARRAY_SIZE(array))
+	(TfwStr *)__tfw_http_msg_find_hdr(hdr, array,			\
+					  ARRAY_SIZE(array), sizeof(TfwStr))
 
 typedef struct {
 	unsigned int	frag;
@@ -84,6 +90,8 @@ int __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str, void *data,
 
 unsigned int tfw_http_msg_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr);
 int tfw_http_msg_hdr_add(TfwHttpMsg *hm, const TfwStr *hdr);
+int tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr,
+			      unsigned int hid, bool append);
 int tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 			  char *val, size_t v_len, unsigned int hid, bool append);
 
