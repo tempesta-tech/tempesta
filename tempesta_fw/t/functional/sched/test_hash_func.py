@@ -23,8 +23,8 @@ class HashSchedulerTest(functional.FunctionalTest):
         for sg in self.tempesta.config.server_groups:
             sg.sched = 'hash'
 
-    def create_tester(self, message_chain):
-        self.tester = HashTester(message_chain, self.client, self.servers)
+    def create_tester(self):
+        self.tester = HashTester(self.client, self.servers)
 
     def chains(self):
         chain = chains.base()
