@@ -20,6 +20,8 @@
  */
 #include <linux/string.h>
 #include <linux/vmalloc.h>
+#include <linux/sort.h>
+#include <linux/bsearch.h>
 
 #include "cache.h"
 #include "classifier.h"
@@ -40,6 +42,12 @@ static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_buf);
 int ghprio; /* GFSM hook priority. */
 
 unsigned short tfw_blk_flags = TFW_BLK_ERR_REPLY;
+
+/* Array of whitelist marks for request's skb. */
+static struct {
+	unsigned int *mrks;
+	unsigned int sz;
+} tfw_wl_marks;
 
 #define S_CRLFCRLF		"\r\n\r\n"
 #define S_HTTP			"http://"
@@ -825,6 +833,27 @@ tfw_http_error_resp_switch(TfwHttpReq *req, int status, const char *reason)
 	}
 
 	tfw_http_send_resp(req, code);
+}
+
+static int
+tfw_http_marks_cmp(const void *l, const void *r)
+{
+	unsigned int m1 = *(unsigned int *)l;
+	unsigned int m2 = *(unsigned int *)r;
+
+	return (m1 < m2) ? -1 : (m1 > m2);
+}
+
+static inline void
+tfw_http_mark_wl_new_msg(TfwConn *conn, TfwHttpMsg *msg,
+			 const struct sk_buff *skb)
+{
+	if (!tfw_wl_marks.mrks || !(TFW_CONN_TYPE(conn) & Conn_Clnt))
+		return;
+
+	if (bsearch(&skb->mark, tfw_wl_marks.mrks, tfw_wl_marks.sz,
+		    sizeof(tfw_wl_marks.mrks[0]), tfw_http_marks_cmp))
+		msg->flags |= TFW_HTTP_WHITELIST;
 }
 
 /*
@@ -1644,6 +1673,13 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 	shm = (TfwHttpMsg *)tfw_http_conn_msg_alloc(hm->conn);
 	if (unlikely(!shm))
 		return NULL;
+
+	/*
+	 * New message created, so it should be in whitelist if
+	 * previous message was (for client connections).
+	 */
+	if (TFW_CONN_TYPE(hm->conn) & Conn_Clnt)
+		shm->flags |= hm->flags & TFW_HTTP_WHITELIST;
 
 	/*
 	 * The sibling message is set up to start with a new SKB.
@@ -2998,6 +3034,7 @@ tfw_http_msg_process(void *conn, const TfwFsmData *data)
 			__kfree_skb(data->skb);
 			return -ENOMEM;
 		}
+		tfw_http_mark_wl_new_msg(c, (TfwHttpMsg *)c->msg, data->skb);
 		TFW_DBG2("Link new msg %p with connection %p\n", c->msg, c);
 	}
 
@@ -3437,6 +3474,47 @@ tfw_cfgop_resp_body(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return tfw_http_config_resp_body(code, ce->vals[1]);
 }
 
+static int
+tfw_cfgop_whitelist_mark(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	unsigned int i;
+	const char *val;
+
+	if (!ce->val_n) {
+		TFW_ERR_NL("%s: At least one argument is required", cs->name);
+		return -EINVAL;
+	}
+	if (ce->attr_n) {
+		TFW_ERR_NL("Unexpected attributes\n");
+		return -EINVAL;
+	}
+
+	tfw_wl_marks.sz = ce->val_n;
+	if (!(tfw_wl_marks.mrks = kmalloc(ce->val_n * sizeof(unsigned int),
+					  GFP_KERNEL)))
+		return -ENOMEM;
+
+	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
+		if (tfw_cfg_parse_int(val, &tfw_wl_marks.mrks[i])) {
+			TFW_ERR_NL("Unable to parse whitelist"
+				   " mark value: '%s'\n", val);
+			kfree(tfw_wl_marks.mrks);
+			return -EINVAL;
+		}
+	}
+
+	sort(tfw_wl_marks.mrks, tfw_wl_marks.sz, sizeof(tfw_wl_marks.mrks[0]),
+	     tfw_http_marks_cmp, NULL);
+
+	return 0;
+}
+
+static void
+tfw_cfgop_cleanup_whitelist_mark(TfwCfgSpec *cs)
+{
+	kfree(tfw_wl_marks.mrks);
+}
+
 static TfwCfgSpec tfw_http_specs[] = {
 	{
 		.name = "block_action",
@@ -3452,6 +3530,13 @@ static TfwCfgSpec tfw_http_specs[] = {
 		.allow_repeat = true,
 		.allow_none = true,
 		.cleanup = tfw_cfgop_cleanup_resp_body,
+	},
+	{
+		.name = "whitelist_mark",
+		.deflt = NULL,
+		.handler = tfw_cfgop_whitelist_mark,
+		.allow_none = true,
+		.cleanup = tfw_cfgop_cleanup_whitelist_mark,
 	},
 	{ 0 }
 };
