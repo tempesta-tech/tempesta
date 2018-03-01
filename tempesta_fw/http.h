@@ -297,6 +297,7 @@ typedef struct {
 #define TFW_HTTP_SUSPECTED		0x001000
 /* Request stated 'Accept: text/html' header */
 #define TFW_HTTP_ACCEPT_HTML		0x002000
+#define TFW_HTTP_WHITELIST		0x008000
 
 /* Response flags */
 #define TFW_HTTP_VOID_BODY		0x010000	/* Resp has no body */
