@@ -1419,7 +1419,6 @@ tfw_apm_get_hm(const char *name)
 		if (!strcasecmp(name, hm->name))
 			return hm;
 	}
-
 	return NULL;
 }
 
