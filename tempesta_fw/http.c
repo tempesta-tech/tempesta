@@ -1674,8 +1674,12 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 	if (unlikely(!shm))
 		return NULL;
 
-	/* New message created, so maybe it should be in whitelist. */
-	tfw_http_mark_wl_new_msg(hm->conn, shm, *skb);
+	/*
+	 * New message created, so it should be in whitelist if
+	 * previous message was (for client connections).
+	 */
+	if (TFW_CONN_TYPE(hm->conn) & Conn_Clnt)
+		shm->flags |= hm->flags & TFW_HTTP_WHITELIST;
 
 	/*
 	 * The sibling message is set up to start with a new SKB.
@@ -3443,7 +3447,7 @@ tfw_cfgop_whitelist_mark(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	const char *val;
 
 	if (!ce->val_n) {
-		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
+		TFW_ERR_NL("%s: At least one argument is required", cs->name);
 		return -EINVAL;
 	}
 	if (ce->attr_n) {
