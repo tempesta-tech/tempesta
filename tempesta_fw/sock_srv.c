@@ -2009,6 +2009,8 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg, void *hm)
 				write_unlock(&sg->lock);
 				return r;
 			}
+		tfw_cfgop_update_srv_health(srv, sg_cfg->hm_name, hm);
+
 		/* Nothing to do if TFW_CFG_F_KEEP is set. */
 		tfw_srv_reset_cfg_actions(srv);
 	}
@@ -2085,12 +2087,11 @@ tfw_cfgop_update_sg_cfg(TfwCfgSrvGroup *sg_cfg, void *hm)
 
 	TFW_DBG2("Update group '%s'\n", sg_cfg->orig_sg->name);
 
-	tfw_cfgop_update_sg_health(sg_cfg, hm);
-
 	if (!(sg_cfg->reconf_flags &
 	      (TFW_CFG_MDF_SG_SRV | TFW_CFG_MDF_SG_SCHED)))
 	{
 		tfw_cfgop_sg_copy_opts(sg_cfg->orig_sg, sg_cfg->parsed_sg);
+		tfw_cfgop_update_sg_health(sg_cfg, hm);
 		return 0;
 	}
 
@@ -2102,9 +2103,11 @@ tfw_cfgop_update_sg_cfg(TfwCfgSrvGroup *sg_cfg, void *hm)
 	tfw_sg_stop_sched(sg_cfg->orig_sg);
 	tfw_cfgop_sg_copy_opts(sg_cfg->orig_sg, sg_cfg->parsed_sg);
 
-	if (sg_cfg->reconf_flags & TFW_CFG_MDF_SG_SRV)
+	if (sg_cfg->reconf_flags & TFW_CFG_MDF_SG_SRV) {
 		if ((r = tfw_cfgop_update_sg_srv_list(sg_cfg, hm)))
 			return r;
+	} else
+		tfw_cfgop_update_sg_health(sg_cfg, hm);
 
 	return tfw_cfgop_sg_start_sched(sg_cfg, sg_cfg->orig_sg);
 }
