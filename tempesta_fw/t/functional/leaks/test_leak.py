@@ -85,7 +85,7 @@ class LeakTest(stress.StressTest):
         cl_req_cnt = 0
         cl_conn_cnt = 0
         for client in self.clients:
-            req, err = client.results()
+            req, err, _ = client.results()
             cl_req_cnt += req
             cl_conn_cnt += client.connections * self.pipelined_req
         exp_min = cl_req_cnt
