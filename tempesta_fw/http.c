@@ -1109,7 +1109,7 @@ tfw_http_conn_snip_fwd_queue(TfwSrvConn *srv_conn, struct list_head *out_queue)
  *
  * Note: the re-scheduled request is put at the tail of a new server's
  * connection queue, and NOT according to their original timestamps.
- * That's the intended behaviour. Suche rescheduled requests are unlucky
+ * That's the intended behaviour. Such rescheduled requests are unlucky
  * already. They were delayed by waiting in their original server connections,
  * and then by the time spent on multiple attempts to reconnect. Now they
  * have much greater chance to be evicted when it's their turn to be
@@ -1241,6 +1241,7 @@ tfw_http_conn_shrink_fwdq_resched(TfwSrvConn *srv_conn)
 	 */
 	list_for_each_entry_safe(req, tmp, &schq, fwd_list) {
 		INIT_LIST_HEAD(&req->nip_list);
+		INIT_LIST_HEAD(&req->fwd_list);
 		if (tfw_http_req_evict(NULL, srv, req, &eq))
 			continue;
 		if (unlikely(tfw_http_req_is_nip(req)
@@ -1326,9 +1327,9 @@ tfw_http_req_destruct(void *msg)
 {
 	TfwHttpReq *req = msg;
 
-	BUG_ON(!list_empty(&req->msg.seq_list));
-	BUG_ON(!list_empty(&req->fwd_list));
-	BUG_ON(!list_empty(&req->nip_list));
+	WARN_ON_ONCE(!list_empty(&req->msg.seq_list));
+	WARN_ON_ONCE(!list_empty(&req->fwd_list));
+	WARN_ON_ONCE(!list_empty(&req->nip_list));
 
 	if (req->sess)
 		tfw_http_sess_put(req->sess);
