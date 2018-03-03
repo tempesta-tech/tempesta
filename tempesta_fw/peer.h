@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -51,33 +51,33 @@ tfw_peer_init(TfwPeer *p, const TfwAddr *addr)
 static inline void
 tfw_peer_add_conn(TfwPeer *p, struct list_head *conn_list)
 {
-	spin_lock(&p->conn_lock);
+	spin_lock_bh(&p->conn_lock);
 
 	list_add(conn_list, &p->conn_list);
 
-	spin_unlock(&p->conn_lock);
+	spin_unlock_bh(&p->conn_lock);
 }
 
 static inline void
 tfw_peer_del_conn(TfwPeer *p, struct list_head *conn_list)
 {
-	spin_lock(&p->conn_lock);
+	spin_lock_bh(&p->conn_lock);
 
 	list_del_init(conn_list);
 
-	spin_unlock(&p->conn_lock);
+	spin_unlock_bh(&p->conn_lock);
 }
 
 #define tfw_peer_for_each_conn(p, conn, member, cb)			\
 ({									\
 	int r = 0;							\
-	spin_lock(&(p)->conn_lock);					\
+	spin_lock_bh(&(p)->conn_lock);					\
 	list_for_each_entry(conn, &(p)->conn_list, member) {		\
 		r = (cb)(conn);						\
 		if (unlikely((r)))					\
 			break;						\
 	}								\
-	spin_unlock(&(p)->conn_lock);					\
+	spin_unlock_bh(&(p)->conn_lock);				\
 	r;								\
 })
 
