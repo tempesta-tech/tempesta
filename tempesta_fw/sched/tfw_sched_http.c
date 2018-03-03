@@ -56,7 +56,7 @@
  *   - Extended string matching operators: "regex", "substring".
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -137,8 +137,8 @@ tfw_sched_http_sched_grp(TfwMsg *msg)
 	TfwHttpMatchList *active_rules;
 	TfwSrvConn *srv_conn = NULL;
 
-	rcu_read_lock();
-	active_rules = rcu_dereference(tfw_rules);
+	rcu_read_lock_bh();
+	active_rules = rcu_dereference_bh(tfw_rules);
 
 	if(!active_rules || list_empty(&active_rules->list))
 		goto done;
@@ -153,7 +153,7 @@ tfw_sched_http_sched_grp(TfwMsg *msg)
 	srv_conn = tfw_sched_http_get_srv_conn(msg, rule->main_sg,
 					       rule->backup_sg);
 done:
-	rcu_read_unlock();
+	rcu_read_unlock_bh();
 	return srv_conn;
 }
 
@@ -179,7 +179,6 @@ static TfwScheduler tfw_sched_http = {
 	.sched_sg_conn	= tfw_sched_http_sched_sg_conn,
 	.sched_srv_conn	= tfw_sched_http_sched_srv_conn,
 };
-
 
 /*
  * ------------------------------------------------------------------------
@@ -305,7 +304,7 @@ tfw_cfgop_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 	in_arg = e->vals[3];
 	in_backup_sg = tfw_cfg_get_attr(e, "backup", NULL);
 
-	main_sg = tfw_sg_lookup_reconfig(in_main_sg);
+	main_sg = tfw_sg_lookup_reconfig(in_main_sg, strlen(in_main_sg));
 	if (!main_sg) {
 		TFW_ERR_NL("sched_http: srv_group is not found: '%s'\n",
 			   in_main_sg);
@@ -315,7 +314,8 @@ tfw_cfgop_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 	if (!in_backup_sg) {
 		backup_sg = NULL;
 	} else {
-		backup_sg = tfw_sg_lookup_reconfig(in_backup_sg);
+		backup_sg = tfw_sg_lookup_reconfig(in_backup_sg,
+						   strlen(in_backup_sg));
 		if (!backup_sg) {
 			TFW_ERR_NL("sched_http: backup srv_group is not found:"
 				   " '%s'\n", in_backup_sg);
@@ -407,7 +407,7 @@ tfw_cfgop_replace_active_rules(TfwHttpMatchList *new_rules)
 	TfwHttpMatchList *active_rules = tfw_rules;
 
 	rcu_assign_pointer(tfw_rules, new_rules);
-	synchronize_rcu();
+	synchronize_rcu_bh();
 
 	tfw_cfgop_free_rules(active_rules);
 }
@@ -483,7 +483,8 @@ tfw_sched_http_cfgend(void)
 	 * No default rule specified in the configuration, but there's no
 	 * group 'default' so we would have nowhere to point this rule to.
 	 */
-	if ((sg_default = tfw_sg_lookup_reconfig("default")) == NULL)
+	sg_default = tfw_sg_lookup_reconfig("default", sizeof("default") - 1);
+	if (!sg_default)
 		return 0;
 	tfw_sg_put(sg_default);
 

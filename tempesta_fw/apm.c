@@ -956,6 +956,7 @@ tfw_apm_create(void)
 	int rbufsz = tfw_apm_tmwscale;
 	int psz = ARRAY_SIZE(tfw_pstats_ith);
 
+	might_sleep();
 	if (!tfw_apm_tmwscale) {
 		TFW_ERR("Late initialization of 'apm_stats' option\n");
 		return NULL;
@@ -969,7 +970,7 @@ tfw_apm_create(void)
 		return NULL;
 
 	size = sizeof(TfwApmUBuf);
-	data->ubuf = __alloc_percpu_gfp(size, sizeof(int64_t), GFP_ATOMIC);
+	data->ubuf = __alloc_percpu_gfp(size, sizeof(int64_t), GFP_KERNEL);
 	if (!data->ubuf) {
 		kfree(data);
 		return NULL;
@@ -1004,7 +1005,7 @@ tfw_apm_create(void)
 	for_each_online_cpu(icpu) {
 		TfwApmUBEnt *ubent;
 		TfwApmUBuf *ubuf = per_cpu_ptr(data->ubuf, icpu);
-		ubent = kmalloc_node(size, GFP_ATOMIC, cpu_to_node(icpu));
+		ubent = kmalloc_node(size, GFP_KERNEL, cpu_to_node(icpu));
 		if (!ubent)
 			goto cleanup;
 		for (i = 0; i < 2 * TFW_APM_UBUF_SZ; ++i)

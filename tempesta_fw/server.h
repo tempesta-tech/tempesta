@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -24,6 +24,7 @@
 #include "addr.h"
 #include "connection.h"
 #include "peer.h"
+#include "str.h"
 
 /*
  * Maximum values for the number of upstream servers in a group,
@@ -78,7 +79,6 @@ typedef struct {
  * @list_reconfig - member pointer in the reconfig server groups list;
  *		  See 'Server group management' comment in server.c;
  * @srv_list	- list of servers belonging to the group;
- * @lock	- synchronizes the group readers with updaters;
  * @sched	- requests scheduling handler;
  * @sched_data	- private scheduler data for the server group;
  * @srv_n	- configured number of servers in the group;
@@ -88,13 +88,13 @@ typedef struct {
  * @max_jqage	- maximum age of a request in a server connection, in jiffies;
  * @max_recns	- maximum number of reconnect attempts;
  * @flags	- server group related flags;
+ * @nlen	- name length;
  * @name	- name of the group specified in the configuration;
  */
 struct tfw_srv_group_t {
-	struct list_head	list;
-	struct list_head	list_reconfig;
+	struct hlist_node	list;
+	struct hlist_node	list_reconfig;
 	struct list_head	srv_list;
-	rwlock_t		lock;
 	TfwScheduler		*sched;
 	void __rcu		*sched_data;
 	size_t			srv_n;
@@ -104,6 +104,7 @@ struct tfw_srv_group_t {
 	unsigned long		max_jqage;
 	unsigned int		max_recns;
 	unsigned int		flags;
+	unsigned int		nlen;
 	char			name[0];
 };
 
@@ -256,13 +257,11 @@ tfw_srv_conn_need_resched(TfwSrvConn *srv_conn)
 }
 
 /* Server group routines. */
-TfwSrvGroup *tfw_sg_lookup(const char *name);
-TfwSrvGroup *tfw_sg_lookup_reconfig(const char *name);
-TfwSrvGroup *tfw_sg_new(const char *name, gfp_t flags);
+TfwSrvGroup *tfw_sg_lookup(const char *name, unsigned int len);
+TfwSrvGroup *tfw_sg_lookup_reconfig(const char *name, unsigned int len);
+TfwSrvGroup *tfw_sg_new(const char *name, unsigned int len, gfp_t flags);
 int tfw_sg_add_reconfig(TfwSrvGroup *sg);
-void tfw_sg_del(TfwSrvGroup *sg);
-unsigned int tfw_sg_count(void);
-void tfw_sg_apply_reconfig(struct list_head *del_sg);
+void tfw_sg_apply_reconfig(struct hlist_head *del_sg);
 void tfw_sg_drop_reconfig(void);
 
 void tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv);
@@ -270,14 +269,15 @@ void __tfw_sg_del_srv(TfwSrvGroup *sg, TfwServer *srv, bool lock);
 #define tfw_sg_del_srv(sg, srv)	__tfw_sg_del_srv(sg, srv, true)
 int tfw_sg_start_sched(TfwSrvGroup *sg, TfwScheduler *sched, void *arg);
 void tfw_sg_stop_sched(TfwSrvGroup *sg);
-int __tfw_sg_for_each_srv(TfwSrvGroup *sg, int (*cb)(TfwServer *srv));
-int tfw_sg_for_each_sg(int (*cb)(TfwSrvGroup *sg));
-int tfw_sg_for_each_srv(int (*cb)(TfwServer *srv));
+int __tfw_sg_for_each_srv(TfwSrvGroup *sg,
+			  int (*cb)(TfwSrvGroup *, TfwServer *, void *),
+			  void *data);
+int tfw_sg_for_each_srv(int (*sg_cb)(TfwSrvGroup *sg),
+			int (*srv_cb)(TfwServer *srv));
 int tfw_sg_for_each_srv_reconfig(int (*cb)(TfwServer *srv));
 void tfw_sg_destroy(TfwSrvGroup *sg);
 void tfw_sg_release(TfwSrvGroup *sg);
 void tfw_sg_release_all(void);
-void __tfw_sg_release_all_reconfig(void);
 void tfw_sg_wait_release(void);
 
 static inline bool
@@ -295,15 +295,17 @@ tfw_sg_get(TfwSrvGroup *sg)
 static inline void
 tfw_sg_put(TfwSrvGroup *sg)
 {
-	long rc;
-
 	if (unlikely(!sg))
 		return;
-
-	rc = atomic64_dec_return(&sg->refcnt);
-	if (likely(rc))
+	if (likely(atomic64_dec_return(&sg->refcnt)))
 		return;
 	tfw_sg_destroy(sg);
+}
+
+static inline bool
+tfw_sg_name_match(TfwSrvGroup *sg, const char *name, unsigned int len)
+{
+	return len == sg->nlen && !tfw_stricmp(sg->name, name, len);
 }
 
 /* Scheduler routines. */
