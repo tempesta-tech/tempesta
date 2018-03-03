@@ -7,8 +7,10 @@ import json
 from helpers import tf_cfg
 
 __author__ = 'Tempesta Technologies, Inc.'
-__copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
+__copyright__ = 'Copyright (C) 2017-2018 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
+
+STATE_FILE_NAME = "tests_resume.json"
 
 class TestStateLoader(object):
 
@@ -19,27 +21,31 @@ class TestStateLoader(object):
         self.last_id = None
         self.last_completed = None
 
-    def try_load_state(self):
+    def try_load(self):
         """ Try to load specified state file"""
         try:
-            with open(self.state_file, 'r') as f:
-                self.state = self.__parse_file(f)
+            with open(self.state_file, 'r') as st_file:
+                self.state = self.__parse_file(st_file)
                 self.last_id = self.state['last_id']
                 self.last_completed = self.state['last_completed']
                 return True
         except IOError as err:
             if err.errno != errno.ENOENT:
-                raise Exception("Error while loading state")
-            return False
+                raise Exception("Error loading tests state")
+            else:
+                tf_cfg.dbg(2, "File %s not found" % STATE_FILE_NAME)
+        return False
 
-    def __parse_file(self, f):
-        dump = json.load(f)
+    @staticmethod
+    def __parse_file(st_file):
+        dump = json.load(st_file)
         # convert lists to sets where needed
         dump['inclusions'] = set(dump['inclusions'])
         dump['exclusions'] = set(dump['exclusions'])
         return dump
 
 class TestStateSaver(object):
+
     def __init__(self, loader, state_file):
         self.inclusions = set()
         self.exclusions = set()
@@ -52,17 +58,17 @@ class TestStateSaver(object):
     def advance(self, test, after):
         self.last_id = test
         self.last_completed = after
-        with open(self.state_file, 'w') as f:
-            self.__build_file(f)
+        with open(self.state_file, 'w') as st_file:
+            self.__build_file(st_file)
 
-    def __build_file(self, f):
+    def __build_file(self, st_file):
         dump = dict()
         dump['last_id'] = self.last_id
         dump['last_completed'] = self.last_completed
         # convert sets to lists where needed
         dump['inclusions'] = list(self.inclusions)
         dump['exclusions'] = list(self.exclusions)
-        json.dump(dump, f)
+        json.dump(dump, st_file)
         self.has_file = True
 
 class TestState(object):
@@ -70,21 +76,16 @@ class TestState(object):
     has_file = False
     last_id = None
     last_completed = False
-
-    state_file = os.path.relpath(os.path.join(
-        os.path.dirname(__file__),
-        '..',
-        'tests_resume.json'
-    ))
+    state_file = os.path.relpath(os.path.join(os.path.dirname(__file__),
+                                              '..', STATE_FILE_NAME))
 
     def __init__(self):
         self.loader = TestStateLoader(self.state_file)
         self.saver = TestStateSaver(self.loader, self.state_file)
 
-    def load_state(self):
+    def load(self):
         """ Load state of test suite from file """
-        self.has_file = self.loader.try_load_state()
-        return self.has_file
+        self.has_file = self.loader.try_load()
 
     def advance(self, test, after=False):
         """ Set new state of test suite """
@@ -93,8 +94,8 @@ class TestState(object):
         self.last_id = self.saver.last_id
         self.last_completed = self.saver.last_completed
 
-    def unlink_file(self):
-        """ Unlink state file """
+    def drop(self):
+        """ Clear tests state """
         if self.has_file is False:
             return
         try:
@@ -106,11 +107,11 @@ class TestState(object):
             if exc.errno != errno.ENOENT:
                 raise
 
-class TestResume:
+class TestResume(object):
     # Filter is instantiated by TestResume.filter(), passing instance of the
     # matcher to the instance of the filter.
 
-    class Filter:
+    class Filter(object):
         def __init__(self, matcher):
             self.matcher = matcher
             self.flag = False
@@ -121,6 +122,7 @@ class TestResume:
             if testcase_in(test, [self.matcher.state.last_id]):
                 self.flag = True
                 return not self.matcher.state.last_completed
+            return False
 
     # Result is instantiated not under our control, so we can't pass a matcher
     # to Result.__init__(). Instead, we dynamically create derived classes
@@ -142,14 +144,10 @@ class TestResume:
     def __init__(self, state_reader):
         self.from_file = False
         self.state = state_reader
-        if state_reader.has_file is False:
-            self.has_resume = False
-        else:
-            self.has_resume = True
 
     def set_from_file(self):
-        if self.has_resume is False:
-            tf_cfg.dbg(2, "No test_resume.json file")
+        if not self.state.has_file:
+            tf_cfg.dbg(2, "Not resuming: File %s not found" % STATE_FILE_NAME)
             return
 
         if not (self.state.saver.inclusions == self.state.loader.state['inclusions'] and
@@ -176,8 +174,7 @@ class TestResume:
     def filter(self):
         if self:
             return TestResume.Filter(self)
-        else:
-            return lambda test: True
+        return lambda test: True
 
     def resultclass(self):
         return type('Result', (TestResume.Result,), {'matcher': self.state})
