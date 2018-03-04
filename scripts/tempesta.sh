@@ -145,7 +145,6 @@ setup()
 update_js_challenge_template()
 {
 	if ! grep -q "^\s*js_challenge\s" $tfw_cfg_path; then
-		echo "not found"
 		return
 	fi
 	echo "...compile html templates"

@@ -33,13 +33,13 @@ class TestSticky(functional.FunctionalTest):
         else:
             sg.options = 'sticky_sessions;'
 
-    def create_tester(self, message_chain):
-        self.tester = TesterSticky(message_chain, self.client, self.servers)
+    def create_tester(self):
+        self.tester = TesterSticky(self.client, self.servers)
 
     def chain_failover_ok(self):
         return self.tester.message_chains[1:]
 
-    def chain_failover_fobbiden(self):
+    def chain_failover_forbidden(self):
         chain = deproxy.MessageChain(
             request = self.tester.message_chains[1].request,
             expected_response = cookies.make_502()
@@ -50,13 +50,14 @@ class TestSticky(functional.FunctionalTest):
         self.generic_test_routine(self.config, [])
         message_chains = self.tester.message_chains
         # Shutdown server pinned to session and all its connections.
+        assert self.tester.pinned_srv, 'Pinned server == None'
         self.previous_srv = self.tester.pinned_srv
-        self.previous_srv.handle_close()
+        self.previous_srv.stop()
         self.tester.pinned_srv = None
         self.tester.used_srv = None
         # Set new message chain after shutdown:
         self.tester.message_chains = new_message_chain_provider()
-        self.tester.run()
+        self.tester.start()
         assert not self.tester.pinned_srv is self.previous_srv, \
             'Sticky session is forwarded to offline server'
         # Restore original message chains
@@ -73,17 +74,17 @@ class TestSticky(functional.FunctionalTest):
             self.tester.message_chains = self.tester.message_chains[1:]
         else:
             self.tester.message_chains = new_message_chain_provider()
-        self.tester.run()
+        self.tester.start()
 
     def test(self):
         """Simply sticky connections."""
         self.allow_failover = False
         self.generic_test_routine(self.config, [])
 
-    def test_failover_fobbiden(self):
+    def test_failover_forbidden(self):
         """No Failover: if pinned server goes donw, return 502."""
         self.allow_failover = False
-        self.check_failover(self.chain_failover_fobbiden)
+        self.check_failover(self.chain_failover_forbidden)
 
     def test_failover(self):
         """With Failover: if pinned server goes down use new one."""
@@ -93,7 +94,7 @@ class TestSticky(functional.FunctionalTest):
     def test_back_online_no_failover(self):
         """No Failover: continue use pinned server if it back online."""
         self.allow_failover = False
-        self.check_back_online(self.chain_failover_fobbiden, True)
+        self.check_back_online(self.chain_failover_forbidden, True)
 
     def test_back_online_after_failover(self):
         """With Failover: even if original server returned back proceed with
@@ -107,9 +108,9 @@ class TestStickyEnforcedCookies(TestSticky):
     # Enforce
     config = defconfig % 'enforce'
 
-    def create_tester(self, message_chain):
+    def create_tester(self):
         self.tester = TesterStickyEnforcedCookies(
-            message_chain, self.client, self.servers)
+            self.client, self.servers)
 
 
 class TesterSticky(cookies.TesterUseCookies):

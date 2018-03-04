@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -242,7 +242,7 @@ stop_mods:
 	WRITE_ONCE(tfw_reconfig, false);
 	tfw_mods_stop(mod_list);
 cleanup:
-	TFW_LOG("Configuration parsing has failed. Clean up...\n");
+	TFW_WARN("Configuration parsing has failed. Clean up...\n");
 	tfw_cleanup(mod_list);
 	return ret;
 }

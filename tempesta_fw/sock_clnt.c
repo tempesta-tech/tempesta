@@ -428,13 +428,6 @@ tfw_sock_check_lst(TfwServer *srv)
 	return 0;
 }
 
-int
-tfw_sock_check_listeners(void)
-{
-	TFW_DBG3("Call %s\n", __func__);
-	return tfw_sg_for_each_srv_reconfig(tfw_sock_check_lst);
-}
-
 /*
  * ------------------------------------------------------------------------
  *	configuration handling
@@ -535,7 +528,7 @@ tfw_sock_clnt_cfgend(void)
 	int r;
 
 	TFW_DBG("Checking backends and listeners\n");
-	if ((r = tfw_sock_check_listeners())) {
+	if ((r = tfw_sg_for_each_srv_reconfig(tfw_sock_check_lst))) {
 		TFW_ERR("One of the backends is Tempesta itself!"
 			" Please, fix the configuration.\n");
 		return r;

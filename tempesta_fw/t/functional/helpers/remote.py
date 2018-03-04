@@ -71,7 +71,8 @@ class LocalNode(Node):
                 if not err_msg:
                     err_msg = ("Error running command '%s' on %s" %
                                (cmd, self.host))
-                error.bug(err_msg, stdout=stdout, stderr=stderr)
+                raise Exception("Remote error: %s, stdout = %s, stderr = %s" %
+                                (err_msg, stdout, stderr))
         return stdout, stderr
 
     def mkdir(self, path):

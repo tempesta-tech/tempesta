@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -250,19 +250,34 @@ http_sticky_suite_setup(void)
 static void
 http_sticky_suite_teardown(void)
 {
-	tfw_connection_put(mock.req->conn);
+	if (mock.req) {
+		tfw_connection_put(mock.req->conn);
+		INIT_LIST_HEAD(&mock.req->msg.seq_list);
+		INIT_LIST_HEAD(&mock.req->fwd_list);
+		INIT_LIST_HEAD(&mock.req->nip_list);
+		/* We have no server, so don't try to unpin a server session. */
+		if (mock.req->sess && mock.req->sess->st_conn.srv_conn)
+			mock.req->sess->st_conn.srv_conn = NULL;
+		tfw_http_msg_free((TfwHttpMsg *)mock.req);
+	}
+	tfw_http_msg_free((TfwHttpMsg *)mock.resp);
+
 	memset(&mock, 0, sizeof(mock));
 }
 
 TEST(http_sticky, sending_302_without_preparing)
 {
 	StickyVal sv = {};
+	TfwConn *c = mock.req->conn;
 
 	/* Cookie is calculated for zero HMAC. */
 	EXPECT_EQ(tfw_http_sticky_send_redirect(mock.req, &sv),
 		  TFW_HTTP_SESS_REDIRECT_SENT);
 
 	EXPECT_TRUE(mock.tfw_connection_send_was_called);
+
+	tfw_connection_put(c);
+	mock.req = NULL; /* already freed */
 }
 
 TEST(http_sticky, sending_302)
@@ -271,6 +286,7 @@ TEST(http_sticky, sending_302)
 
 	{
 		StickyVal sv = { .ts = 1 };
+		TfwConn *c = mock.req->conn;
 
 		/*
 		 * Need host header.
@@ -288,6 +304,9 @@ TEST(http_sticky, sending_302)
 		EXPECT_TRUE(mock.seen_set_cookie_header);
 		EXPECT_TRUE(mock.seen_cookie);
 		EXPECT_EQ(mock.http_status, 302);
+
+		tfw_connection_put(c);
+		mock.req = NULL; /* already freed */
 	}
 
 	free_all_str();
@@ -296,6 +315,7 @@ TEST(http_sticky, sending_302)
 TEST(http_sticky, sending_502)
 {
 	StickyVal sv = { .ts = 1 };
+	TfwConn *c = mock.req->conn;
 
 	EXPECT_EQ(__sticky_calc(mock.req, &sv), 0);
 	HTTP_SEND_RESP(mock.req, 502, "sticky calculation");
@@ -305,6 +325,9 @@ TEST(http_sticky, sending_502)
 	EXPECT_FALSE(mock.seen_set_cookie_header);
 	EXPECT_FALSE(mock.seen_cookie);
 	EXPECT_EQ(mock.http_status, 502);
+
+	tfw_connection_put(c);
+	mock.req = NULL; /* already freed */
 }
 
 static void
@@ -496,6 +519,7 @@ TEST(http_sticky, req_have_cookie)
 TEST(http_sticky, req_no_cookie_enforce)
 {
 	const char *s_req = "GET / HTTP/1.0\r\nHost: localhost\r\n\r\n";
+	TfwConn *c = mock.req->conn;
 
 	append_string_to_msg((TfwHttpMsg *)mock.req, s_req);
 	EXPECT_EQ(http_parse_req_helper(), 0);
@@ -507,6 +531,9 @@ TEST(http_sticky, req_no_cookie_enforce)
 	EXPECT_TRUE(mock.tfw_connection_send_was_called);
 	EXPECT_TRUE(mock.seen_set_cookie_header);
 	EXPECT_TRUE(mock.seen_cookie);
+
+	tfw_connection_put(c);
+	mock.req = NULL; /* already freed */
 }
 
 /* request have sticky cookie set; enforce mode activated */
@@ -594,12 +621,13 @@ TEST_SUITE(http_sticky)
 	/* test "enforce" mode */
 	ce_sticky.val_n = 1; /* return "enforce" parameter */
 	tfw_cfgop_sticky(&tfw_http_sess_mod.specs[0], &ce_sticky);
-
 	TEST_RUN(http_sticky, req_no_cookie_enforce);
 	TEST_RUN(http_sticky, req_have_cookie_enforce);
 
 	kernel_fpu_end();
 
+	/* Garbage collect all the sessions. */
+	tfw_cfgop_sticky_cleanup(&tfw_http_sess_mod.specs[0]);
 	tfw_http_sess_stop();
 	tfw_http_sess_exit();
 
