@@ -15,42 +15,13 @@ __license__ = 'GPL2'
 
 CHAIN_TIMEOUT = 100
 
-def make_response(st_code, expected=True):
-    resp_headers = [
-        'Content-Length: 0',
-        'Connection: keep-alive'
-    ]
-    if expected:
-        resp_headers += [
-            'Server: Tempesta FW/%s' % tempesta.version(),
-            'Via: 1.1 tempesta_fw (Tempesta FW %s)' % tempesta.version()
-        ]
-    else:
-        resp_headers += ['Server: Deproxy Server']
-    response = deproxy.Response.create(
-        status=st_code,
-        headers=resp_headers,
-        date=deproxy.HttpMessage.date_time_string()
-    )
-    return response
-
-def make_502_expected():
-    response = deproxy.Response.create(
-        status=502,
-        headers=['Content-Length: 0', 'Connection: keep-alive'],
-        date=deproxy.HttpMessage.date_time_string()
-    )
-    return response
-
-
 class Stage(object):
 
-    def __init__(self, tester, tempesta, client, chain, state, trans=None):
+    def __init__(self, tester, client, chain, state, trans=None):
         self.trans_response = None
         self.chain = chain
         self.state = state
         self.tester = tester
-        self.tempesta = tempesta
         self.client = client
         self.trans_response = trans
 
@@ -73,12 +44,7 @@ class Stage(object):
             (messages[0], messages[1], expected),
             trans=True
         )
-        path = self.tester.get_server_path()
-        stats, _ = self.tempesta.get_server_stats(path)
-        s = r'HTTP availability\s+: (\d+)'
-        m = re.search(s.encode('ascii'), stats)
-        assert m, 'Cannot parse server stats: %s\n' % (stats)
-        num = int(m.group(1))
+        num = self.tester.srv_stats.get_server_health()
         assert (num == 1 and self.state) or (num == 0 and not self.state), \
             ("Incorrect server HTTP availability state:\n"
              "\tnum = %d, self.state = %d\n"
@@ -117,6 +83,7 @@ class StagedDeproxy(deproxy.Deproxy):
         self.stages_n = 0
         self.stages_processed = 0
         self.current_stage = None
+        self.srv_stats = None
 
     def run(self):
         for _ in range(self.message_chains):
@@ -137,12 +104,14 @@ class StagedDeproxy(deproxy.Deproxy):
              " stages = %d, total stages count = %d"
              % (self.stages_processed, self.stages_n))
 
-    def configure(self, sg_name, stages):
-        self.sg_name = sg_name
+    def configure(self, tempesta_obj, sg_name, stages):
         self.stages = stages
         self.stages_n = len(stages)
         self.current_stage = self.stages.pop(0)
         self.stages_processed = 1
+        self.srv_stats = tempesta.ServerStats(tempesta_obj, sg_name,
+                                              self.servers[0].ip,
+                                              self.servers[0].port)
 
     def next_stage(self, messages):
         if not self.stages:
@@ -151,10 +120,6 @@ class StagedDeproxy(deproxy.Deproxy):
         self.current_stage = self.stages.pop(0)
         self.stages_processed += 1
         return True
-
-    def get_server_path(self):
-        return '%s/%s:%s' % (self.sg_name, self.servers[0].ip,
-                             self.servers[0].port)
 
 
 class TestHealthMonitor(functional.FunctionalTest):
@@ -185,18 +150,19 @@ class TestHealthMonitor(functional.FunctionalTest):
 
     def create_chains(self):
         self.ch_enabled = chains.base(uri='/page.html')
-        self.ch_enabled.server_response = make_response(404, expected=False)
-        self.ch_enabled.response = make_response(404)
+        self.ch_enabled.server_response = chains.make_response(404, expected=False)
+        self.ch_enabled.response = chains.make_response(404)
         self.ch_disabled = chains.base()
         # Make 200 status expected once for transition purpose.
         self.trans_resp = self.ch_disabled.response
-        self.ch_disabled.response = make_502_expected()
+        self.ch_disabled.response = chains.make_502_expected()
 
-    def init(self):
+    def setUp(self):
         self.create_chains()
         if self.crc_check:
             resp_body = self.ch_disabled.server_response.body
             self.crc32 = hex(~binascii.crc32(resp_body, 0xffffffff) & 0xffffffff)
+        functional.FunctionalTest.setUp(self)
 
     def get_config(self):
         crc32_conf = ''
@@ -225,34 +191,16 @@ class TestHealthMonitor(functional.FunctionalTest):
         )
         return config + hm_config + rules_config
 
-    def create_tester(self, messages):
-        self.tester = StagedDeproxy(messages, self.client, self.servers)
-        self.tester.configure(self.srv_group, [
-            Stage(
-                self.tester, self.tempesta,
-                self.client, self.ch_enabled,
-                True
-            ),
-            Stage(
-                self.tester, self.tempesta,
-                self.client, self.ch_disabled,
-                False
-            ),
-            Stage(
-                self.tester, self.tempesta,
-                self.client, self.ch_enabled,
-                True, trans=self.trans_resp
-            ),
-            Stage(
-                self.tester, self.tempesta,
-                self.client, self.ch_disabled,
-                False
-            ),
-            Stage(
-                self.tester, self.tempesta,
-                self.client, self.ch_enabled,
-                True, trans=self.trans_resp
-            )
+    def create_tester(self):
+        self.tester = StagedDeproxy(self.client, self.servers)
+        self.tester.configure(self.tempesta, self.srv_group, [
+            Stage(self.tester, self.client, self.ch_enabled, True),
+            Stage(self.tester, self.client, self.ch_disabled, False),
+            Stage(self.tester, self.client, self.ch_enabled, True,
+                  trans=self.trans_resp),
+            Stage(self.tester, self.client, self.ch_disabled, False),
+            Stage(self.tester, self.client, self.ch_enabled, True,
+                  trans=self.trans_resp)
         ])
 
     def create_servers(self):
@@ -277,7 +225,6 @@ class TestHealthMonitor(functional.FunctionalTest):
         """Test health monitor functionality with all new configuration
         directives and options.
         """
-        self.init()
         self.generic_test_routine(self.get_config(), self.messages)
 
 
