@@ -3,7 +3,7 @@ import unittest
 from helpers import tf_cfg, control, tempesta, stateful
 
 __author__ = 'Tempesta Technologies, Inc.'
-__copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
+__copyright__ = 'Copyright (C) 2017-2018 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
 class StressTest(unittest.TestCase):
@@ -61,13 +61,9 @@ class StressTest(unittest.TestCase):
         """ Forcefully stop all servers. """
         # Call functions only if variables not None: there might be an error
         # before tempesta would be created.
-
         if self.tempesta:
-            tf_cfg.dbg(2, "Stopping tempesta")
             self.tempesta.force_stop()
-
         if self.servers:
-            tf_cfg.dbg(2, "Stopping servers")
             control.servers_force_stop(self.servers)
 
     def tearDown(self):
@@ -76,13 +72,9 @@ class StressTest(unittest.TestCase):
         """
         # Call functions only if variables not None: there might be an error
         # before tempesta would be created.
-
         if self.tempesta:
-            tf_cfg.dbg(2, "Stopping tempesta")
             self.tempesta.stop()
-
         if self.servers:
-            tf_cfg.dbg(2, "Stopping servers")
             control.servers_stop(self.servers)
 
         if self.tempesta.state == stateful.STATE_ERROR:
