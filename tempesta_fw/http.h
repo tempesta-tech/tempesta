@@ -299,6 +299,7 @@ typedef struct {
 #define TFW_HTTP_ACCEPT_HTML		0x002000
 /* Request is created by HTTP health monitor. */
 #define TFW_HTTP_HMONITOR		0x004000
+#define TFW_HTTP_WHITELIST		0x008000
 
 /* Response flags */
 #define TFW_HTTP_VOID_BODY		0x010000	/* Resp has no body */

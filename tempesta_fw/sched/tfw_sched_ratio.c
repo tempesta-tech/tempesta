@@ -29,7 +29,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta Ratio Scheduler");
-MODULE_VERSION("0.1.1");
+MODULE_VERSION("0.1.2");
 MODULE_LICENSE("GPL");
 
 #define TFW_SCHED_RATIO_INTVL	(HZ / 20)	/* The timer periodicity. */
@@ -165,6 +165,7 @@ typedef struct {
 /**
  * The main structure for the group.
  *
+ * @rcu		- RCU control structure.
  * @srv_n	- number of upstream servers.
  * @psidx	- APM pstats[] value index for dynamic ratios.
  * @intvl	- interval for re-arming the timer.
@@ -175,6 +176,7 @@ typedef struct {
  * @rtodata	- pointer to the currently used scheduler data.
  */
 typedef struct {
+	struct rcu_head		rcu;
 	size_t			srv_n;
 	size_t			psidx;
 	unsigned int		intvl;
@@ -670,7 +672,7 @@ tfw_sched_ratio_calc_tmfn(TfwRatio *ratio,
 	 */
 	crtodata = ratio->rtodata;
 	rcu_assign_pointer(ratio->rtodata, nrtodata);
-	call_rcu(&crtodata->rcu, tfw_sched_ratio_rtodata_put);
+	call_rcu_bh(&crtodata->rcu, tfw_sched_ratio_rtodata_put);
 
 rearm:
 	smp_mb();
@@ -867,8 +869,8 @@ tfw_sched_ratio_sched_srv_conn(TfwMsg *msg, TfwServer *srv)
 	    && tfw_srv_suspended(srv))
 		return NULL;
 
-	rcu_read_lock();
-	srvdesc = rcu_dereference(srv->sched_data);
+	rcu_read_lock_bh();
+	srvdesc = rcu_dereference_bh(srv->sched_data);
 	if (unlikely(!srvdesc))
 		goto done;
 
@@ -880,7 +882,7 @@ rerun:
 		goto rerun;
 	}
 done:
-	rcu_read_unlock();
+	rcu_read_unlock_bh();
 	return srv_conn;
 }
 
@@ -912,14 +914,14 @@ tfw_sched_ratio_sched_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 	TfwSrvConn *srv_conn;
 	TfwRatioData *rtodata;
 
-	rcu_read_lock();
-	ratio = rcu_dereference(sg->sched_data);
+	rcu_read_lock_bh();
+	ratio = rcu_dereference_bh(sg->sched_data);
 	if (unlikely(!ratio)) {
-		rcu_read_unlock();
+		rcu_read_unlock_bh();
 		return NULL;
 	}
 
-	rtodata = rcu_dereference(ratio->rtodata);
+	rtodata = rcu_dereference_bh(ratio->rtodata);
 	BUG_ON(!rtodata);
 rerun:
 	/*
@@ -957,7 +959,7 @@ rerun:
 			continue;
 
 		if ((srv_conn = __sched_srv(srvdesc, skipnip, &nipconn))) {
-			rcu_read_unlock();
+			rcu_read_unlock_bh();
 			return srv_conn;
 		}
 	}
@@ -967,7 +969,7 @@ rerun:
 		goto rerun;
 	}
 
-	rcu_read_unlock();
+	rcu_read_unlock_bh();
 	return NULL;
 }
 
@@ -979,9 +981,6 @@ tfw_sched_ratio_cleanup(TfwRatio *ratio)
 {
 	size_t si;
 
-	if (!ratio)
-		return;
-
 	/* Data that is shared between pool entries. */
 	for (si = 0; si < ratio->srv_n; ++si)
 		kfree(ratio->srvdesc[si].conn);
@@ -992,24 +991,28 @@ tfw_sched_ratio_cleanup(TfwRatio *ratio)
 	kfree(ratio);
 }
 
+static void
+tfw_sched_ratio_cleanup_rcu_cb(struct rcu_head *rcu)
+{
+	TfwRatio *ratio = container_of(rcu, TfwRatio, rcu);
+	tfw_sched_ratio_cleanup(ratio);
+}
+
 /**
  * Delete a server group from Ratio Scheduler.
- *
- * Note that at this time the group is inactive. That means there are no
- * attempts to schedule to servers in this group and enter RCU read-side
- * critical section. There's no need for synchronize_rcu() to wait for
- * expiration of an RCU grace period.
  */
 static void
 tfw_sched_ratio_del_grp(TfwSrvGroup *sg)
 {
-	TfwRatio *ratio = rcu_dereference_check(sg->sched_data, 1);
+	TfwRatio *ratio = rcu_dereference_bh_check(sg->sched_data, 1);
 	TfwServer *srv;
 
-	rcu_assign_pointer(sg->sched_data, NULL);
-	list_for_each_entry(srv, &sg->srv_list, list)
-		rcu_assign_pointer(srv->sched_data, NULL);
-	synchronize_rcu();
+	RCU_INIT_POINTER(sg->sched_data, NULL);
+	list_for_each_entry(srv, &sg->srv_list, list) {
+		WARN_ON_ONCE(rcu_dereference_bh_check(srv->sched_data, 1)
+			     && !ratio);
+		RCU_INIT_POINTER(srv->sched_data, NULL);
+	}
 	if (!ratio)
 		return;
 	/*
@@ -1024,11 +1027,8 @@ tfw_sched_ratio_del_grp(TfwSrvGroup *sg)
 		del_timer_sync(&ratio->timer);
 	}
 
-	/* Wait for outstanding RCU callbacks to complete. */
-	rcu_barrier();
-
 	/* Release all memory allocated for the group. */
-	tfw_sched_ratio_cleanup(ratio);
+	call_rcu_bh(&ratio->rcu, tfw_sched_ratio_cleanup_rcu_cb);
 }
 
 static int
@@ -1250,7 +1250,7 @@ tfw_sched_ratio_add_grp(TfwSrvGroup *sg, void *arg)
 static int
 tfw_sched_ratio_add_srv(TfwServer *srv)
 {
-	TfwRatioSrvDesc *srvdesc = rcu_dereference_check(srv->sched_data, 1);
+	TfwRatioSrvDesc *srvdesc = rcu_dereference_bh_check(srv->sched_data, 1);
 	int r;
 
 	if (unlikely(srvdesc))
@@ -1276,11 +1276,11 @@ tfw_sched_ratio_put_srv_data(struct rcu_head *rcu)
 static void
 tfw_sched_ratio_del_srv(TfwServer *srv)
 {
-	TfwRatioSrvDesc *srvdesc = rcu_dereference_check(srv->sched_data, 1);
+	TfwRatioSrvDesc *srvdesc = rcu_dereference_bh_check(srv->sched_data, 1);
 
-	rcu_assign_pointer(srv->sched_data, NULL);
+	RCU_INIT_POINTER(srv->sched_data, NULL);
 	if (srvdesc)
-		call_rcu(&srvdesc->rcu, tfw_sched_ratio_put_srv_data);
+		call_rcu_bh(&srvdesc->rcu, tfw_sched_ratio_put_srv_data);
 }
 
 static TfwScheduler tfw_sched_ratio = {
@@ -1306,6 +1306,9 @@ void
 tfw_sched_ratio_exit(void)
 {
 	TFW_DBG("%s: exit\n", tfw_sched_ratio.name);
+
+	/* Wait for outstanding RCU callbacks to complete. */
+	rcu_barrier_bh();
 	tfw_sched_unregister(&tfw_sched_ratio);
 }
 module_exit(tfw_sched_ratio_exit);

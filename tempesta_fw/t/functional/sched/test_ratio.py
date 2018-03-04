@@ -25,6 +25,27 @@ class RatioStressTest(stress.StressTest):
     def test_ratio(self):
         self.generic_test_routine('cache 0;\n')
 
+class RatioDynamicStressTest(RatioStressTest):
+    """Use Ratio Dynamic"""
+    def configure_tempesta(self):
+        stress.StressTest.configure_tempesta(self)
+        for sg in self.tempesta.config.server_groups:
+            sg.sched = 'ratio dynamic'
+
+class RatioPredictStressTest(RatioStressTest):
+    """Use Ratio Predict"""
+    def configure_tempesta(self):
+        stress.StressTest.configure_tempesta(self)
+        for sg in self.tempesta.config.server_groups:
+            sg.sched = 'ratio predict'
+
+class RatioPerfTest(RatioStressTest):
+    """Disable server connections failovering to benchmark ratio scheduler."""
+
+    def create_servers(self):
+        self.create_servers_helper(tempesta.servers_in_group())
+        for s in self.servers:
+            s.config.set_ka(sys.maxsize)
 
 class FairLoadEqualConns(RatioStressTest):
     """ Ratio scheduler loads all the upstream servers in the fair
