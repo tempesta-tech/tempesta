@@ -4,7 +4,7 @@
  * File mapping and IO.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2018 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -204,6 +204,7 @@ tempesta_map_file(struct file *file, unsigned long len, int node)
 			len, (void *)ma->start, addr);
 		fput(file);
 		__ma_free(ma);
+		addr = -EIO;
 		goto err_fs;
 	}
 
@@ -233,8 +234,8 @@ tempesta_unmap_file(struct file *file, unsigned long addr, unsigned long len,
 
 	ma = ma_lookup(addr, node);
 	if (!ma) {
-		TDB_ERR("Cannot sync memory area for %#lx address at node %d\n",
-		     addr, node);
+		TDB_WARN("Cannot sync memory area for %#lx address at node"
+			 " %d\n", addr, node);
 		goto err;
 	}
 
@@ -243,8 +244,8 @@ tempesta_unmap_file(struct file *file, unsigned long addr, unsigned long len,
 
 	r = vfs_write(file, (void *)ma->start, len, &off);
 	if (r != len) {
-		TDB_ERR("Cannot sync mapping %lx of size %lu pages\n",
-			ma->start, ma->pages);
+		TDB_WARN("Cannot sync mapping %lx of size %lu pages\n",
+			 ma->start, ma->pages);
 		goto err_fs;
 	}
 

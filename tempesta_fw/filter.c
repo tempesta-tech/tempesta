@@ -16,7 +16,7 @@
  * application level filters must be implemented.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -297,8 +297,10 @@ tfw_filter_stop(void)
 {
 	if (tfw_runstate_is_reconfig())
 		return;
-	nf_unregister_hooks(tfw_nf_ops, ARRAY_SIZE(tfw_nf_ops));
-	tdb_close(ip_filter_db);
+	if (ip_filter_db) {
+		nf_unregister_hooks(tfw_nf_ops, ARRAY_SIZE(tfw_nf_ops));
+		tdb_close(ip_filter_db);
+	}
 }
 
 static TfwCfgSpec tfw_filter_specs[] = {
