@@ -82,10 +82,6 @@ typedef struct {
 	unsigned int	ts;
 } __attribute__((packed)) FrangRespCodeStat;
 
-#define FRANG_HTTP_CODE_MIN 100
-#define FRANG_HTTP_CODE_MAX 599
-#define FRANG_HTTP_CODE_BIT_NUM(code) ((code) - FRANG_HTTP_CODE_MIN)
-
 /**
  * Response code block setting
  *
@@ -963,7 +959,7 @@ frang_http_req_handler(void *obj, const TfwFsmData *data)
 static int
 frang_resp_code_range(const int n)
 {
-	return n <= FRANG_HTTP_CODE_MAX && n >= FRANG_HTTP_CODE_MIN;
+	return n <= HTTP_CODE_MAX && n >= HTTP_CODE_MIN;
 }
 
 /*
@@ -986,7 +982,7 @@ frang_resp_handler(void *obj, const TfwFsmData *data)
 		  &FRANG_ACC2CLI(ra)->addr, resp->status, ra);
 
 	if (!frang_resp_code_range(resp->status)
-	    || !test_bit(FRANG_HTTP_CODE_BIT_NUM(resp->status), conf->codes))
+	    || !test_bit(HTTP_CODE_BIT_NUM(resp->status), conf->codes))
 		return TFW_PASS;
 
 	spin_lock(&ra->lock);
@@ -1202,7 +1198,7 @@ frang_set_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			return -EINVAL;
 		}
 		/* Atomic restriction isn't needed here */
-		__set_bit(FRANG_HTTP_CODE_BIT_NUM(n), cb->codes);
+		__set_bit(HTTP_CODE_BIT_NUM(n), cb->codes);
 	}
 
 	if (frang_parse_ushort(ce->vals[ce->val_n - 2], &cb->limit)

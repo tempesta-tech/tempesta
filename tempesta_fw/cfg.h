@@ -325,11 +325,20 @@ tfw_cfg_is_dflt_value(TfwCfgEntry *cfg_entry)
  * be reconfigured need to have a configuration flags member that will
  * indicate one of several major actions noted below. Implementation
  * of each action is specific to configuration entry.
+ * NOTE: In server.h there are also flags definitions for the same field;
+ * those flags control the server's health monitor functionality.
  */
-#define TFW_CFG_F_ADD		0x0001	/* Add an entry */
-#define TFW_CFG_F_DEL		0x0002	/* Delete an entry */
-#define TFW_CFG_F_MOD		0x0004	/* Modify an entry */
-#define TFW_CFG_F_KEEP		0x0008	/* Keep an entry */
+enum {
+	TFW_CFG_B_ADD = 0,	/* Add an entry */
+	TFW_CFG_B_DEL,		/* Delete an entry */
+	TFW_CFG_B_MOD,		/* Modify an entry */
+	TFW_CFG_B_KEEP,		/* Keep an entry */
+};
+
+#define TFW_CFG_F_ADD		(1 << TFW_CFG_B_ADD)
+#define TFW_CFG_F_DEL		(1 << TFW_CFG_B_DEL)
+#define TFW_CFG_F_MOD		(1 << TFW_CFG_B_MOD)
+#define TFW_CFG_F_KEEP		(1 << TFW_CFG_B_KEEP)
 #define TFW_CFG_M_ACTION	\
 	(TFW_CFG_F_ADD | TFW_CFG_F_DEL | TFW_CFG_F_MOD | TFW_CFG_F_KEEP)
 
@@ -346,6 +355,7 @@ int tfw_cfg_check_multiple_of(long value, int divisor);
 int tfw_cfg_check_val_n(const TfwCfgEntry *e, int val_n);
 int tfw_cfg_check_single_val(const TfwCfgEntry *e);
 int tfw_cfg_parse_int(const char *s, int *out_int);
+int tfw_cfg_parse_uint(const char *s, unsigned int *out_uint);
 int tfw_cfg_map_enum(const TfwCfgEnum mappings[],
 		     const char *in_name, void *out_int);
 const char *tfw_cfg_get_attr(const TfwCfgEntry *e, const char *attr_key,

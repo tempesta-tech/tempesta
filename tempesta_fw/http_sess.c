@@ -153,7 +153,7 @@ tfw_http_sticky_send_redirect(TfwHttpReq *req, StickyVal *sv)
 	if (!tfw_http_sticky_redirect_allied(req))
 		return TFW_HTTP_SESS_JS_NOT_SUPPORTED;
 
-	if (!(hmresp = tfw_http_msg_alloc(Conn_Srv)))
+	if (!(hmresp = tfw_http_msg_alloc_light(Conn_Srv)))
 		return -ENOMEM;
 	/*
 	 * Form the cookie as:
@@ -738,6 +738,10 @@ __try_conn(TfwMsg *msg, TfwSrvConn *srv_conn)
 	if (unlikely(!srv_conn))
 		return NULL;
 
+	srv = (TfwServer *)srv_conn->peer;
+	if (tfw_srv_suspended(srv))
+		return NULL;
+
 	if (!tfw_srv_conn_restricted(srv_conn)
 	    && !tfw_srv_conn_queue_full(srv_conn)
 	    && !tfw_srv_conn_hasnip(srv_conn)
@@ -750,7 +754,6 @@ __try_conn(TfwMsg *msg, TfwSrvConn *srv_conn)
 	 * Try to sched from the same server. The server may be removed from
 	 * server group, see comment for TfwStickyConn.
 	 */
-	srv = (TfwServer *)srv_conn->peer;
 	return srv->sg->sched->sched_srv_conn(msg, srv);
 }
 
@@ -830,7 +833,7 @@ tfw_http_sess_get_srv_conn(TfwMsg *msg)
 			 * the server instance. unpin_srv() will be called in
 			 * session destructor (tfw_http_sess_put()).
 			 */
-			if (unlikely(srv->flags & TFW_CFG_F_DEL)) {
+			if (unlikely(test_bit(TFW_CFG_B_DEL, &srv->flags))) {
 				TFW_LOG("sticky sched: server %s"
 					" was removed, set session expired\n",
 					addr_str);

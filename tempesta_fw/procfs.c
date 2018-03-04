@@ -172,6 +172,7 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 	TfwSrvConn *srv_conn;
 	TfwServer *srv = seq->private;
 	unsigned int qsize[srv->conn_n];
+	bool hm = test_bit(TFW_SRV_B_HMONITOR, &srv->flags);
 	unsigned int val[ARRAY_SIZE(tfw_pstats_ith)] = { 0 };
 	TfwPrcntlStats pstats = {
 		.ith = tfw_pstats_ith,
@@ -206,6 +207,24 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 			atomic64_read(&srv->sess_n));
 	seq_printf(seq, "Total schedulable connections\t: %zd\n",
 			srv->conn_n - rc);
+
+	seq_printf(seq, "HTTP health monitor is enabled\t: %d\n", hm);
+	if (hm) {
+		TfwHMStats *hm_stats;
+		seq_printf(seq, "HTTP availability\t: %d\n",
+				!tfw_srv_suspended(srv));
+		if ((hm_stats = tfw_apm_hm_stats(srv->apmref))) {
+			seq_printf(seq, "\tTime until next health"
+					" checking\t: %u\n",
+					hm_stats->rtime);
+			for (i = 0; i < hm_stats->ccnt; ++i)
+				seq_printf(seq, "\tHTTP '%d' codes\t: %u\n",
+						hm_stats->rsums[i].code,
+						hm_stats->rsums[i].sum);
+			kfree(hm_stats);
+		}
+	}
+
 	seq_printf(seq, "Maximum forwarding queue size\t: %u\n",
 			srv->sg->max_qsize);
 	for (i = 0; i < srv->conn_n; ++i)

@@ -103,8 +103,10 @@ TEST(tfw_sched_hash, sched_sg_one_srv_max_conn)
 			TfwSrvConn *srv_conn =
 					sg->sched->sched_sg_conn(msg, sg);
 			EXPECT_NOT_NULL(srv_conn);
-			if (!srv_conn)
+			if (!srv_conn) {
+				sched_helper_hash.free_sched_arg(msg);
 				goto err;
+			}
 
 			if (!exp_conn)
 				exp_conn = srv_conn;
@@ -150,8 +152,10 @@ TEST(tfw_sched_hash, sched_sg_max_srv_max_conn)
 			TfwSrvConn *srv_conn =
 					sg->sched->sched_sg_conn(msg, sg);
 			EXPECT_NOT_NULL(srv_conn);
-			if (!srv_conn)
+			if (!srv_conn) {
+				sched_helper_hash.free_sched_arg(msg);
 				goto err;
+			}
 
 			if (!exp_conn)
 				exp_conn = srv_conn;
@@ -192,11 +196,13 @@ TEST(tfw_sched_hash, sched_srv_one_srv_max_conn)
 
 		for (j = 0; j < srv->conn_n; ++j) {
 			TfwSrvConn *srv_conn =
-					sg->sched->sched_srv_conn(msg, srv);
+				sg->sched->sched_srv_conn(msg, srv);
 
 			EXPECT_NOT_NULL(srv_conn);
-			if (!srv_conn)
+			if (!srv_conn) {
+				sched_helper_hash.free_sched_arg(msg);
 				goto err;
+			}
 			EXPECT_EQ((TfwServer *)srv_conn->peer, srv);
 
 			if (!exp_conn)
@@ -247,8 +253,10 @@ TEST(tfw_sched_hash, sched_srv_max_srv_max_conn)
 					sg->sched->sched_srv_conn(msg, srv);
 
 				EXPECT_NOT_NULL(srv_conn);
-				if (!srv_conn)
+				if (!srv_conn) {
+					sched_helper_hash.free_sched_arg(msg);
 					goto err;
+				}
 				EXPECT_EQ((TfwServer *)srv_conn->peer, srv);
 
 				if (!exp_conn)

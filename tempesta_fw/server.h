@@ -50,7 +50,7 @@ typedef struct tfw_scheduler_t TfwScheduler;
  * @sess_n	- number of pinned sticky sessions;
  * @refcnt	- number of users of the server structure instance;
  * @weight	- static server weight for load balancers;
- * @flags	- server related flags: TFW_CFG_M_ACTION.
+ * @flags	- server related flags: TFW_CFG_M_ACTION and HM atomic flags;
  * @cleanup	- called right before server is destroyed;
  */
 typedef struct {
@@ -64,9 +64,26 @@ typedef struct {
 	atomic64_t		sess_n;
 	atomic64_t		refcnt;
 	unsigned int		weight;
-	unsigned int		flags;
+	unsigned long		flags;
 	void			(*cleanup)(void *);
 } TfwServer;
+
+/*
+ * Bits and corresponding flags for server's health monitor states.
+ * These flags are intended for @flags field of 'TfwServer' structure.
+ * NOTE: In cfg.h for this field there are also flags definitions, which
+ * are responsible for server's configuration processing.
+ */
+enum {
+	/* Health monitor is enabled for the server. */
+	TFW_SRV_B_HMONITOR = 0x8,
+
+	/* Server is excluded from processing. */
+	TFW_SRV_B_SUSPEND
+};
+
+#define	TFW_SRV_F_HMONITOR	(1 << TFW_SRV_B_HMONITOR)
+#define	TFW_SRV_F_SUSPEND	(1 << TFW_SRV_B_SUSPEND)
 
 /**
  * The servers group with the same load balancing, failovering and eviction
@@ -254,6 +271,24 @@ tfw_srv_conn_need_resched(TfwSrvConn *srv_conn)
 {
 	TfwSrvGroup *sg = ((TfwServer *)srv_conn->peer)->sg;
 	return ((ACCESS_ONCE(srv_conn->recns) >= sg->max_recns));
+}
+
+/*
+ * Put server into alive state (in sense of HTTP availability).
+ */
+static inline void
+tfw_srv_mark_alive(TfwServer *srv)
+{
+	clear_bit(TFW_SRV_B_SUSPEND, &srv->flags);
+}
+
+/*
+ * Tell if server is suspended.
+ */
+static inline bool
+tfw_srv_suspended(TfwServer *srv)
+{
+	return test_bit(TFW_SRV_B_SUSPEND, &srv->flags);
 }
 
 /* Server group routines. */
