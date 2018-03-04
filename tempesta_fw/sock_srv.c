@@ -277,6 +277,17 @@ __setup_retry_timer(TfwSrvConn *srv_conn)
 		    (unsigned long)srv_conn);
 }
 
+static inline void
+tfw_srv_reset_cfg_actions(TfwServer *srv)
+{
+	unsigned long flags, new_flags;
+
+	do {
+		new_flags = flags = READ_ONCE(srv->flags);
+		new_flags &= ~TFW_CFG_M_ACTION;
+	} while (cmpxchg(&srv->flags, flags, new_flags) != flags);
+}
+
 void
 tfw_srv_conn_release(TfwSrvConn *srv_conn)
 {
@@ -601,7 +612,7 @@ tfw_sock_srv_del_conns(void *psrv)
 }
 
 static int
-tfw_sock_srv_start_srv(TfwSrvGroup *sg, TfwServer *srv, void *data)
+tfw_sock_srv_start_srv(TfwSrvGroup *sg, TfwServer *srv, void *hm)
 {
 	int r;
 
@@ -616,6 +627,8 @@ tfw_sock_srv_start_srv(TfwSrvGroup *sg, TfwServer *srv, void *data)
 		return r;
 	}
 	tfw_sock_srv_connect_srv(srv);
+	if (hm)
+		tfw_apm_hm_enable_srv(srv, hm);
 
 	return 0;
 }
@@ -683,7 +696,7 @@ tfw_sock_srv_grace_shutdown_srv(TfwSrvGroup *sg, TfwServer *srv, void *data)
 
 	tfw_server_get(srv);
 	__tfw_sg_del_srv(sg, srv, false);
-	srv->flags |= TFW_CFG_F_DEL;
+	set_bit(TFW_CFG_B_DEL, &srv->flags);
 
 	if (!tfw_cfg_grace_time) {
 		r = tfw_sock_srv_disconnect_srv(srv);
@@ -794,6 +807,8 @@ static struct kmem_cache *tfw_sg_cfg_cache;
  * @sticky_flags	- sticky sessions processing flags;
  * @sched_flags		- scheduler flags;
  * @sched_arg		- scheduler init argument.
+ * @hm_name		- name of group's health monitor;
+ * @hm_arg		- health monitor argument (for optimization purposes);
  */
 typedef struct {
 	TfwSrvGroup		*orig_sg;
@@ -804,6 +819,8 @@ typedef struct {
 	unsigned int		sticky_flags;
 	unsigned int		sched_flags;
 	void			*sched_arg;
+	char			*hm_name;
+	void			*hm_arg;
 } TfwCfgSrvGroup;
 
 /* Currently parsed Server group. */
@@ -942,6 +959,40 @@ tfw_cfgop_lookup_sg_cfg(const char *name, unsigned int len)
 			return sg_cfg;
 
 	return NULL;
+}
+
+static int
+tfw_cfgop_update_srv_health(TfwSrvGroup *sg, TfwServer *srv, void *data)
+{
+	TfwCfgSrvGroup *sg_cfg = data;
+	bool orig_hm = test_bit(TFW_SRV_B_HMONITOR, &srv->flags);
+
+	/*
+	 * Nothing to do if the same server with the same
+	 * hmonitor, or the same server without hmonitor (and
+	 * new hmonitor is not specified).
+	 */
+	if ((sg_cfg->hm_name
+	     && orig_hm
+	     && tfw_apm_hm_srv_eq(sg_cfg->hm_name, srv))
+	    || (!sg_cfg->hm_name && !orig_hm))
+		return 0;
+
+	/*
+	 * If health monitor was enabled, it must be switched
+	 * off at first.
+	 */
+	if (orig_hm)
+		tfw_apm_hm_disable_srv(srv);
+
+	/*
+	 * Enable server's health monitor, if it had been specified
+	 * in new configuration for current server group.
+	 */
+	if (sg_cfg->hm_name)
+		tfw_apm_hm_enable_srv(srv, sg_cfg->hm_arg);
+
+	return 0;
 }
 
 static int
@@ -1107,6 +1158,46 @@ tfw_cfgop_out_sticky_sess(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return tfw_cfgop_sticky_sess(cs, ce, &tfw_cfg_sg_opts->sticky_flags);
 }
 
+static bool
+tfw_cfgop_sg_set_hm_name(TfwCfgSrvGroup *sg_cfg, const char *hname)
+{
+	size_t size = strlen(hname) + 1;
+	sg_cfg->hm_name = kmalloc(size, GFP_KERNEL);
+	if (!sg_cfg->hm_name)
+		return false;
+
+	memcpy(sg_cfg->hm_name, hname, size);
+
+	return true;
+}
+
+static inline int
+tfw_cfgop_health_monitor(TfwCfgSpec *cs, TfwCfgEntry *ce,
+			 TfwCfgSrvGroup *sg_cfg)
+{
+	if (tfw_cfg_check_single_val(ce))
+		return -EINVAL;
+	if (!tfw_cfgop_sg_set_hm_name(sg_cfg, ce->vals[0])) {
+		TFW_ERR_NL("Unable to add group's health monitor name: '%s'\n",
+			   ce->vals[0]);
+		return -ENOMEM;
+	}
+
+	return 0;
+}
+
+static int
+tfw_cfgop_in_health_monitor(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_cfgop_health_monitor(cs, ce, tfw_cfg_sg);
+}
+
+static int
+tfw_cfgop_out_health_monitor(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_cfgop_health_monitor(cs, ce, tfw_cfg_sg_def);
+}
+
 static int
 tfw_cfgop_conn_retries(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned int *recns)
 {
@@ -1150,7 +1241,7 @@ tfw_cfgop_server_orig_lookup(TfwCfgSrvGroup *sg_cfg, TfwServer *srv)
 
 	orig_srv = tfw_server_lookup(sg_cfg->orig_sg, &srv->addr);
 	if (!orig_srv) {
-		srv->flags |= TFW_CFG_F_ADD;
+		set_bit(TFW_CFG_B_ADD, &srv->flags);
 		goto done;
 	}
 	if (orig_srv->conn_n != srv->conn_n)
@@ -1159,15 +1250,15 @@ tfw_cfgop_server_orig_lookup(TfwCfgSrvGroup *sg_cfg, TfwServer *srv)
 		goto changed;
 
 	/* Server is not changed and can be reused. */
-	orig_srv->flags |= TFW_CFG_F_KEEP;
-	srv->flags |= TFW_CFG_F_KEEP;
+	set_bit(TFW_CFG_B_KEEP, &orig_srv->flags);
+	set_bit(TFW_CFG_B_KEEP, &srv->flags);
 
 	tfw_server_put(orig_srv);
 
 	return;
 changed:
-	orig_srv->flags |= TFW_CFG_F_MOD;
-	srv->flags |= TFW_CFG_F_MOD;
+	set_bit(TFW_CFG_B_MOD, &orig_srv->flags);
+	set_bit(TFW_CFG_B_MOD, &srv->flags);
 	tfw_server_put(orig_srv);
 done:
 	sg_cfg->reconf_flags |= TFW_CFG_MDF_SG_SRV;
@@ -1195,7 +1286,7 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwCfgSrvGroup *sg_cfg)
 		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
 		return -EINVAL;
 	}
-	if (ce->attr_n > 2) {
+	if (ce->attr_n > 3) {
 		TFW_ERR_NL("Invalid number of key=value pairs: %zu\n",
 			   ce->attr_n);
 		return -EINVAL;
@@ -1259,6 +1350,7 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwCfgSrvGroup *sg_cfg)
 		TFW_ERR_NL("Error handling the server: '%s'\n", ce->vals[0]);
 		return -EINVAL;
 	}
+
 	srv->cleanup = tfw_sock_srv_del_conns;
 	srv->weight = weight;
 	srv->conn_n = conns_n;
@@ -1350,7 +1442,8 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	}
 	if (ce->attr_n) {
-		TFW_ERR_NL("Arguments may not have the \'=\' sign\n");
+		TFW_ERR_NL("Invalid number of key=value pairs: %zu\n",
+			   ce->attr_n);
 		return -EINVAL;
 	}
 
@@ -1731,6 +1824,8 @@ tfw_cfgop_cleanup_srv_cfg(TfwCfgSrvGroup *sg_cfg, bool release_parsed)
 		kfree(sg_cfg->sched_arg);
 	list_del_init(&sg_cfg->list);
 
+	if (sg_cfg->hm_name)
+		kfree(sg_cfg->hm_name);
 	kmem_cache_free(tfw_sg_cfg_cache, sg_cfg);
 }
 
@@ -1836,6 +1931,13 @@ static int
 tfw_sock_srv_cfgend(void)
 {
 	int r;
+	TfwCfgSrvGroup *sg_cfg;
+
+	/* Check health monitor existence for configured server groups. */
+	list_for_each_entry(sg_cfg, &sg_cfg_list, list)
+		if (sg_cfg->hm_name && !tfw_apm_check_hm(sg_cfg->hm_name))
+			return -EINVAL;
+
 	/*
 	 * The group 'default' to be created implicitly if at least one server
 	 * is defined outside of any group and there is no explicit 'default'
@@ -1917,8 +2019,10 @@ __tfw_cfgop_update_sg_srv_list(TfwSrvGroup *sg, TfwServer *srv, void *data)
 			return r;
 		}
 	}
+	tfw_cfgop_update_srv_health(NULL, srv, sg_cfg);
+
 	/* Nothing to do if TFW_CFG_F_KEEP is set. */
-	srv->flags &= ~TFW_CFG_M_ACTION;
+	tfw_srv_reset_cfg_actions(srv);
 
 	return 0;
 }
@@ -1927,31 +2031,30 @@ static int
 tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
 {
 	TfwServer *srv, *tmp;
-	TfwSrvGroup *sg = sg_cfg->orig_sg;
 	int r = 0;
 
 	TFW_DBG2("Update server list for group '%s'\n", sg_cfg->orig_sg->name);
 
-	__tfw_sg_for_each_srv(sg, __tfw_cfgop_update_sg_srv_list, sg_cfg);
+	__tfw_sg_for_each_srv(sg_cfg->orig_sg, __tfw_cfgop_update_sg_srv_list, sg_cfg);
 
 	/* Add new servers. */
 	list_for_each_entry_safe(srv, tmp, &sg_cfg->parsed_sg->srv_list, list) {
-		if (!(srv->flags & TFW_CFG_F_ADD))
+		if (!test_bit(TFW_CFG_B_ADD, &srv->flags))
 			continue;
 
 		/* The server was not used yet, save to change it's group. */
 		tfw_server_get(srv);
 		tfw_sg_del_srv(sg_cfg->parsed_sg, srv);
 		srv->sg = NULL;
-		tfw_sg_add_srv(sg, srv);
+		tfw_sg_add_srv(sg_cfg->orig_sg, srv);
 		tfw_sg_put(sg_cfg->parsed_sg);
 		tfw_server_put(srv);
 
-		if ((r = tfw_sock_srv_start_srv(NULL, srv, NULL))) {
+		if ((r = tfw_sock_srv_start_srv(NULL, srv, sg_cfg->hm_arg))) {
 			TFW_ERR("cannot establish new server connection\n");
 			return r;
 		}
-		srv->flags &= ~TFW_CFG_M_ACTION;
+		tfw_srv_reset_cfg_actions(srv);
 		tfw_srv_loop_sched_rcu();
 	}
 
@@ -1975,6 +2078,19 @@ tfw_cfgop_sg_start_sched(TfwCfgSrvGroup *sg_cfg, TfwSrvGroup *sg)
 	return 0;
 }
 
+/**
+ * Update health monitors for 'old' servers - servers which were
+ * in previous configuration of server group (in reconfiguration case)
+ * and still remain in new configuration too.
+ */
+static inline void
+tfw_cfgop_update_sg_health(TfwCfgSrvGroup *sg_cfg)
+{
+	__tfw_sg_for_each_srv(sg_cfg->orig_sg,
+			      tfw_cfgop_update_srv_health,
+			      sg_cfg);
+}
+
 static int
 tfw_cfgop_update_sg_cfg(TfwCfgSrvGroup *sg_cfg)
 {
@@ -1986,8 +2102,10 @@ tfw_cfgop_update_sg_cfg(TfwCfgSrvGroup *sg_cfg)
 	      (TFW_CFG_MDF_SG_SRV | TFW_CFG_MDF_SG_SCHED)))
 	{
 		tfw_cfgop_sg_copy_opts(sg_cfg->orig_sg, sg_cfg->parsed_sg);
+		tfw_cfgop_update_sg_health(sg_cfg);
 		return 0;
 	}
+
 	/*
 	 * Schedulers walk over list of servers, so stop scheduler before
 	 * updating server list. Schedulers may use sg.flags, don't update
@@ -1996,9 +2114,11 @@ tfw_cfgop_update_sg_cfg(TfwCfgSrvGroup *sg_cfg)
 	tfw_sg_stop_sched(sg_cfg->orig_sg);
 	tfw_cfgop_sg_copy_opts(sg_cfg->orig_sg, sg_cfg->parsed_sg);
 
-	if (sg_cfg->reconf_flags & TFW_CFG_MDF_SG_SRV)
+	if (sg_cfg->reconf_flags & TFW_CFG_MDF_SG_SRV) {
 		if ((r = tfw_cfgop_update_sg_srv_list(sg_cfg)))
 			return r;
+	} else
+		tfw_cfgop_update_sg_health(sg_cfg);
 
 	return tfw_cfgop_sg_start_sched(sg_cfg, sg_cfg->orig_sg);
 }
@@ -2009,12 +2129,16 @@ tfw_cfgop_start_sg_cfg(TfwCfgSrvGroup *sg_cfg)
 	int r;
 	TfwSrvGroup *sg = sg_cfg->parsed_sg;
 
+	if (sg_cfg->hm_name)
+		sg_cfg->hm_arg = tfw_apm_get_hm(sg_cfg->hm_name);
+
 	if (sg_cfg->orig_sg)
 		return tfw_cfgop_update_sg_cfg(sg_cfg);
 
 	TFW_DBG2("Setup new group '%s' to use after reconfiguration\n",
 		 sg->name);
-	if ((r = __tfw_sg_for_each_srv(sg, tfw_sock_srv_start_srv, NULL)))
+	if ((r = __tfw_sg_for_each_srv(sg, tfw_sock_srv_start_srv,
+				       sg_cfg->hm_arg)))
 		return r;
 
 	return tfw_cfgop_sg_start_sched(sg_cfg, sg);
@@ -2136,6 +2260,14 @@ static TfwCfgSpec tfw_srv_group_specs[] = {
 		.allow_repeat = false,
 		.allow_reconfig = true,
 	},
+	{
+		.name = "health",
+		.deflt = NULL,
+		.handler = tfw_cfgop_in_health_monitor,
+		.allow_none = true,
+		.allow_repeat = false,
+		.allow_reconfig = true,
+	},
 	{ 0 }
 };
 
@@ -2219,6 +2351,15 @@ static TfwCfgSpec tfw_sock_srv_specs[] = {
 		.name = "sticky_sessions",
 		.deflt = TFW_CFG_DFLT_VAL,
 		.handler = tfw_cfgop_out_sticky_sess,
+		.cleanup = tfw_cfgop_cleanup_srv_groups,
+		.allow_none = true,
+		.allow_repeat = false,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "health",
+		.deflt = NULL,
+		.handler = tfw_cfgop_out_health_monitor,
 		.cleanup = tfw_cfgop_cleanup_srv_groups,
 		.allow_none = true,
 		.allow_repeat = false,
