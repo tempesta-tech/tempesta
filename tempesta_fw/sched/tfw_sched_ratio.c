@@ -25,6 +25,7 @@
 #include "apm.h"
 #include "log.h"
 #include "server.h"
+#include "http.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta Ratio Scheduler");
@@ -860,6 +861,14 @@ tfw_sched_ratio_sched_srv_conn(TfwMsg *msg, TfwServer *srv)
 	TfwRatioSrvDesc *srvdesc;
 	TfwSrvConn *srv_conn = NULL;
 
+	/*
+	 * Bypass the suspend checking if connection is needed for
+	 * helth monitoring of backend server.
+	 */
+	if (!(((TfwHttpReq *)msg)->flags & TFW_HTTP_HMONITOR)
+	    && tfw_srv_suspended(srv))
+		return NULL;
+
 	rcu_read_lock_bh();
 	srvdesc = rcu_dereference_bh(srv->sched_data);
 	if (unlikely(!srvdesc))
@@ -946,6 +955,9 @@ rerun:
 	attempts = ratio->srv_n;
 	while (attempts--) {
 		srvdesc = tfw_sched_ratio_next_srv(ratio, rtodata);
+		if (tfw_srv_suspended(srvdesc->srv))
+			continue;
+
 		if ((srv_conn = __sched_srv(srvdesc, skipnip, &nipconn))) {
 			rcu_read_unlock_bh();
 			return srv_conn;

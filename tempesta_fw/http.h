@@ -297,6 +297,8 @@ typedef struct {
 #define TFW_HTTP_SUSPECTED		0x001000
 /* Request stated 'Accept: text/html' header */
 #define TFW_HTTP_ACCEPT_HTML		0x002000
+/* Request is created by HTTP health monitor. */
+#define TFW_HTTP_HMONITOR		0x004000
 #define TFW_HTTP_WHITELIST		0x008000
 
 /* Response flags */
@@ -513,9 +515,16 @@ do {									\
 } while (0)
 
 enum {
-	HTTP_STATUS_4XX = 4,
+	HTTP_STATUS_1XX = 1,
+	HTTP_STATUS_2XX,
+	HTTP_STATUS_3XX,
+	HTTP_STATUS_4XX,
 	HTTP_STATUS_5XX
 };
+
+#define HTTP_CODE_MIN 100
+#define HTTP_CODE_MAX 599
+#define HTTP_CODE_BIT_NUM(code) ((code) - HTTP_CODE_MIN)
 
 /* Get current timestamp in secs. */
 static inline time_t
@@ -541,6 +550,8 @@ unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
 void tfw_http_req_destruct(void *msg);
 void tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp);
 void tfw_http_resp_build_error(TfwHttpReq *req);
+int tfw_cfgop_parse_http_status(const char *status, int *out);
+void tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len);
 
 /*
  * Functions to send an HTTP error response to a client.

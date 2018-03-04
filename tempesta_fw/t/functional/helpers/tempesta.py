@@ -131,14 +131,30 @@ class Stats(object):
             return int(m.group(1))
         return -1
 
+class ServerStats(object):
+
+    def __init__(self, tempesta, sg_name, srv_ip, srv_port):
+        self.tempesta = tempesta
+        self.path = '%s/%s:%s' % (sg_name, srv_ip, srv_port)
+
+    def get_server_health(self):
+        stats, _ = self.tempesta.get_server_stats(self.path)
+        name = 'HTTP availability'
+        health = Stats.parse_option(stats, name)
+        assert health >= 0, \
+            ('Cannot find "%s" in server stats: %s\n' % (name, stats))
+        return health
+
+
 #-------------------------------------------------------------------------------
 # Config Helpers
 #-------------------------------------------------------------------------------
 
 class ServerGroup(object):
 
-    def __init__(self, name='default', sched='ratio'):
+    def __init__(self, name='default', sched='ratio', hm=None):
         self.name = name
+        self.hm = hm
         self.implicit = (name == 'default')
         self.sched = sched
         self.servers = []
@@ -154,12 +170,15 @@ class ServerGroup(object):
 
     def get_config(self):
         sg = ''
+        if self.hm:
+            self.options += (' health %s;' % self.hm)
         if (self.name == 'default') and self.implicit:
             sg = '\n'.join(['sched %s;' % self.sched] + self.servers
                            + [self.options])
         else:
             sg = '\n'.join(
-                ['srv_group %s {' % self.name] + ['sched %s;' % self.sched] +
+                ['srv_group %s {' % self.name] +
+                ['sched %s;' % self.sched] +
                 self.servers + [self.options] + ['}'])
         return sg
 
