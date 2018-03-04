@@ -10,7 +10,7 @@ import subprocess
 from helpers import tf_cfg, remote, shell, control
 
 __author__ = 'Tempesta Technologies, Inc.'
-__copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
+__copyright__ = 'Copyright (C) 2017-2018 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
 def usage():
@@ -51,12 +51,10 @@ be resumed manually from any given test.
 """)
 
 state_reader = shell.TestState()
-
-if state_reader.load_state() is False:
-    tf_cfg.dbg(2, "No test_resume.json file")
+state_reader.load()
+test_resume = shell.TestResume(state_reader)
 
 fail_fast = False
-test_resume = shell.TestResume(state_reader)
 list_tests = False
 clean_old = False
 
@@ -93,7 +91,7 @@ for opt, arg in options:
     elif opt in ('-a', '--resume-after'):
         test_resume.set(arg, after=True)
     elif opt in ('-n', '--no-resume'):
-        state_reader.unlink_file()
+        state_reader.drop()
     elif opt in ('-l', '--log'):
         tf_cfg.cfg.config['General']['log_file'] = arg
     elif opt in ('-L', '--list'):
@@ -158,7 +156,7 @@ if clean_old:
             tf_cfg.dbg(2, 'stopping')
             test.force_stop()
             break
-    state_reader.unlink_file()
+    state_reader.drop()
     sys.exit(0)
 
 
@@ -188,11 +186,12 @@ else:
 for lst in (inclusions, exclusions):
     lst[:] = [shell.test_id_parse(loader, t) for t in lst]
 
-test_resume.state.advance(shell.test_id_parse(loader, test_resume.state.last_id), test_resume.state.last_completed)
+test_resume.state.advance(shell.test_id_parse(loader, test_resume.state.last_id),
+                          test_resume.state.last_completed)
 
 # if the file was not used, delete it
 if state_reader.has_file and not test_resume.from_file:
-    state_reader.unlink_file()
+    state_reader.drop()
 
 # filter testcases
 resume_filter = test_resume.filter()
@@ -239,7 +238,8 @@ testRunner = unittest.runner.TextTestRunner(verbosity=v_level,
 testRunner.run(testsuite)
 
 # check if we finished running the tests
-if not tests or (test_resume.state.last_id == tests[-1].id() and test_resume.state.last_completed):
-    state_reader.unlink_file()
+if not tests or (test_resume.state.last_id == tests[-1].id()
+                 and test_resume.state.last_completed):
+    state_reader.drop()
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
