@@ -1178,8 +1178,7 @@ tfw_cfgop_health_monitor(TfwCfgSpec *cs, TfwCfgEntry *ce,
 	if (tfw_cfg_check_single_val(ce))
 		return -EINVAL;
 	if (!tfw_cfgop_sg_set_hm_name(sg_cfg, ce->vals[0])) {
-		TFW_ERR_NL("Unable to add group's health"
-			   " monitor name: '%s'\n",
+		TFW_ERR_NL("Unable to add group's health monitor name: '%s'\n",
 			   ce->vals[0]);
 		return -ENOMEM;
 	}
