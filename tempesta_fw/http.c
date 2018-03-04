@@ -1536,9 +1536,13 @@ tfw_http_req_destruct(void *msg)
  *
  * If a paired client request is missing, then it seems upsream server
  * is misbehaving, so the caller has to drop the server connection.
+ *
+ * Pairing is done at the very early stage during response allocaton.
+ * Correct response parsing is only possible when request properties,
+ * such as method, are known.
  */
 static int
-tfw_http_popreq(TfwHttpMsg *hmresp)
+tfw_http_resp_pair(TfwHttpMsg *hmresp)
 {
 	TfwHttpReq *req;
 	TfwSrvConn *srv_conn = (TfwSrvConn *)hmresp->conn;
@@ -1580,7 +1584,7 @@ tfw_http_conn_msg_alloc(TfwConn *conn)
 	if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
 		TFW_INC_STAT_BH(clnt.rx_messages);
 	} else {
-		if (unlikely(tfw_http_popreq(hm))) {
+		if (unlikely(tfw_http_resp_pair(hm))) {
 			tfw_http_conn_msg_free(hm);
 			return NULL;
 		}
@@ -2800,7 +2804,7 @@ tfw_http_resp_cache_cb(TfwHttpMsg *msg)
  * comment to tfw_http_req_fwd(). Also, please see the issue #687.
  */
 static void
-tfw_http_req_resp_recieved(TfwHttpMsg *hmresp)
+tfw_http_popreq(TfwHttpMsg *hmresp)
 {
 	TfwHttpReq *req = hmresp->req;
 	TfwSrvConn *srv_conn = (TfwSrvConn *)hmresp->conn;
@@ -2854,7 +2858,7 @@ tfw_http_resp_gfsm(TfwHttpMsg *hmresp, const TfwFsmData *data)
 		return TFW_PASS;
 	/* Proceed with the error processing */
 error:
-	tfw_http_req_resp_recieved(hmresp);
+	tfw_http_popreq(hmresp);
 	tfw_http_conn_msg_free(hmresp);
 	tfw_srv_client_block(req, 502, "response blocked: filtered out");
 	TFW_INC_STAT_BH(serv.msgs_filtout);
@@ -2889,7 +2893,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 * Response is fully received, delist corresponding request from
 	 * fwd_queue.
 	 */
-	tfw_http_req_resp_recieved(hmresp);
+	tfw_http_popreq(hmresp);
 	/*
 	 * Health monitor request means that its response need not to
 	 * send anywhere.
