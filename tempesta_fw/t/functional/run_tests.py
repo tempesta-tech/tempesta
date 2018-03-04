@@ -128,15 +128,21 @@ loader = unittest.TestLoader()
 tests = []
 shell.testsuite_flatten(tests, loader.discover('.'))
 
-if os.geteuid() != 0:
-    raise Exception("Tests must be run as root.")
+(s_limit, _) = resource.getrlimit(resource.RLIMIT_NOFILE)
+# '4' multiplier is enough to start everything on one host.
+min_limit = int(tf_cfg.cfg.get('General', 'concurrent_connections')) * 4
+if (s_limit < min_limit):
+    if os.geteuid() != 0:
+        print("Too many concurrent connections are requested, root privileges "
+              "are required.")
+        exit(1)
 
-# the default value of fs.nr_open
-nofile = 1048576
-resource.setrlimit(resource.RLIMIT_NOFILE, (nofile, nofile))
+    # the default value of fs.nr_open
+    nofile = 1048576
+    resource.setrlimit(resource.RLIMIT_NOFILE, (nofile, nofile))
+
+
 remote.connect()
-
-
 #
 # Clear garbage after previous run of test suite
 #
