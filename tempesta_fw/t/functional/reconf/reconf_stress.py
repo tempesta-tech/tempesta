@@ -67,12 +67,11 @@ class LiveReconfStress(stress.StressTest):
     def assert_clients(self):
         """ Check benchmark result: 502 errors may happen but only for short
         period of time (during reconfig)."""
-        duration = int(tf_cfg.cfg.get('General', 'Duration'))
         for c in self.clients:
-            req, err = c.results()
+            req, err, rate = c.results()
             # Tempesta must be reconfigured in less that 1sec. Errors must not
             # happen after reconfig has finished.
-            max_err = req / duration
+            max_err = rate
             self.assertTrue((err < max_err), msg='HTTP client detected errors')
 
     def stress_reconfig_generic(self, configure_func, reconfigure_func):

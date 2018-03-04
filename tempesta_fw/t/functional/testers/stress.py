@@ -1,6 +1,6 @@
 from __future__ import print_function
 import unittest
-from helpers import tf_cfg, control, tempesta
+from helpers import tf_cfg, control, tempesta, stateful
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -57,18 +57,39 @@ class StressTest(unittest.TestCase):
         self.create_servers()
         self.create_tempesta()
 
+    def force_stop(self):
+        """ Forcefully stop all servers. """
+        # Call functions only if variables not None: there might be an error
+        # before tempesta would be created.
+
+        if self.tempesta:
+            tf_cfg.dbg(2, "Stopping tempesta")
+            self.tempesta.force_stop()
+
+        if self.servers:
+            tf_cfg.dbg(2, "Stopping servers")
+            control.servers_force_stop(self.servers)
+
     def tearDown(self):
         """ Carefully stop all servers. Error on stop will make next test fail,
         so mark test as failed even if everything other is fine.
         """
         # Call functions only if variables not None: there might be an error
         # before tempesta would be created.
+
         if self.tempesta:
+            tf_cfg.dbg(2, "Stopping tempesta")
             self.tempesta.stop()
-            self.tempesta = None
+
         if self.servers:
+            tf_cfg.dbg(2, "Stopping servers")
             control.servers_stop(self.servers)
-            self.servers = None
+
+        if self.tempesta.state == stateful.STATE_ERROR:
+            raise Exception("Error during stopping tempesta")
+        for server in self.servers:
+            if server.state == stateful.STATE_ERROR:
+                raise Exception("Error during stopping servers")
 
     def show_performance(self):
         if tf_cfg.v_level() < 2:
@@ -76,15 +97,17 @@ class StressTest(unittest.TestCase):
         if tf_cfg.v_level() == 2:
             # Go to new line, don't mess up output.
             tf_cfg.dbg(2)
-        req_total = err_total = 0
+        req_total = err_total = rate_total = 0
         for c in self.clients:
-            req, err = c.results()
+            req, err, rate = c.results()
             req_total += req
             err_total += err
-            tf_cfg.dbg(3, '\tClient: errors: %d, requests: %d' % (err, req))
+            rate_total += rate
+            tf_cfg.dbg(3, ('\tClient: errors: %d, requests: %d, rate: %d'
+                           % (err, req, rate)))
         tf_cfg.dbg(
-            2, '\tClients in total: errors: %d, requests: %d' %
-            (err_total, req_total))
+            2, '\tClients in total: errors: %d, requests: %d, rate: %d' %
+            (err_total, req_total, rate_total))
 
 
     def assert_clients(self):
@@ -92,7 +115,7 @@ class StressTest(unittest.TestCase):
         cl_req_cnt = 0
         cl_conn_cnt = 0
         for c in self.clients:
-            req, err = c.results()
+            req, err, _ = c.results()
             cl_req_cnt += req
             cl_conn_cnt += c.connections * self.pipelined_req
             self.assertEqual(err, 0, msg='HTTP client detected errors')

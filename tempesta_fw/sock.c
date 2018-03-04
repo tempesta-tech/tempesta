@@ -205,12 +205,12 @@ ss_turnstile_push(long ticket, SsWork *sw, int cpu)
 		return -ENOMEM;
 	cn->ticket = ticket;
 	memcpy(&cn->sw, sw, sizeof(*sw));
-	spin_lock(&cb->lock);
+	spin_lock_bh(&cb->lock);
 	list_add(&cn->list, &cb->head);
 	cb->size++;
 	if (cb->turn > ticket)
 		cb->turn = ticket;
-	spin_unlock(&cb->lock);
+	spin_unlock_bh(&cb->lock);
 
 	tfw_raise_softirq(cpu, iw, ss_ipi);
 
@@ -1136,12 +1136,12 @@ ss_sock_create(int family, int type, int protocol, struct sock **res)
 	struct sock *sk = NULL;
 	const struct net_proto_family *pf;
 
-	rcu_read_lock();
+	rcu_read_lock_bh();
 	if ((pf = get_proto_family(family)) == NULL)
 		goto out_rcu_unlock;
 	if (!try_module_get(pf->owner))
 		goto out_rcu_unlock;
-	rcu_read_unlock();
+	rcu_read_unlock_bh();
 
 	ret = ss_inet_create(&init_net, family, type, protocol, &sk);
 	module_put(pf->owner);
@@ -1157,7 +1157,7 @@ out_ret_error:
 	return ret;
 out_rcu_unlock:
 	ret = -EAFNOSUPPORT;
-	rcu_read_unlock();
+	rcu_read_unlock_bh();
 	goto out_ret_error;
 }
 EXPORT_SYMBOL(ss_sock_create);

@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -256,15 +256,10 @@ tfw_srvstats_seq_open(struct inode *inode, struct file *file)
 /*
  * Start/stop routines.
  */
-#define TFW_PROCFS_SG_CNT_MAX		256
-#define TFW_PROCFS_SRV_CNT_MAX		256
-
 static struct proc_dir_entry *tfw_procfs_tempesta;
 static struct proc_dir_entry *tfw_procfs_perfstat;
 static struct proc_dir_entry *tfw_procfs_srvstats;
 static struct proc_dir_entry *tfw_procfs_sgstats;
-static size_t sg_stats_sz = 0;
-static size_t srv_stats_sz = 0;
 
 static struct file_operations tfw_srvstats_fops = {
 	.owner		= THIS_MODULE,
@@ -280,9 +275,6 @@ tfw_procfs_srv_create(TfwServer *srv)
 	struct proc_dir_entry *pfs_srv;
 	char srv_name[TFW_ADDR_STR_BUF_SIZE] = { 0 };
 
-	if (++srv_stats_sz > TFW_PROCFS_SRV_CNT_MAX)
-		return 0;
-
 	tfw_addr_ntop(&srv->addr, srv_name, sizeof(srv_name));
 	pfs_srv = proc_create_data(srv_name, S_IRUGO,
 				   tfw_procfs_sgstats,
@@ -294,14 +286,9 @@ tfw_procfs_srv_create(TfwServer *srv)
 static int
 tfw_procfs_sg_create(TfwSrvGroup *sg)
 {
-	if (++sg_stats_sz > TFW_PROCFS_SG_CNT_MAX)
-		return 0;
-	srv_stats_sz = 0;
-
 	if (!(tfw_procfs_sgstats = proc_mkdir(sg->name, tfw_procfs_srvstats)))
 		return -ENOENT;
-
-	return __tfw_sg_for_each_srv(sg, tfw_procfs_srv_create);
+	return 0;
 }
 
 static int
@@ -324,7 +311,6 @@ tfw_procfs_cleanup(void)
 {
 	remove_proc_subtree("servers", tfw_procfs_tempesta);
 	tfw_procfs_srvstats = NULL;
-	sg_stats_sz = 0;
 }
 
 static int
@@ -336,7 +322,8 @@ tfw_procfs_start(void)
 	tfw_procfs_cleanup();
 	if (!(tfw_procfs_srvstats = proc_mkdir("servers", tfw_procfs_tempesta)))
 		return -ENOENT;
-	return tfw_sg_for_each_sg(tfw_procfs_sg_create);
+
+	return tfw_sg_for_each_srv(tfw_procfs_sg_create, tfw_procfs_srv_create);
 }
 
 static void

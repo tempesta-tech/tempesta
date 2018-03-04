@@ -45,7 +45,7 @@
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION("Tempesta hash-based scheduler");
-MODULE_VERSION("0.4.2");
+MODULE_VERSION("0.4.3");
 MODULE_LICENSE("GPL");
 
 typedef struct {
@@ -212,13 +212,14 @@ tfw_sched_hash_get_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 	TfwHashConnList *cl;
 	TfwSrvConn *srv_conn = NULL;
 
-	rcu_read_lock();
-	cl = rcu_dereference(sg->sched_data);
+	rcu_read_lock_bh();
+	cl = rcu_dereference_bh(sg->sched_data);
 
 	if (likely(cl))
 		srv_conn = __find_best_conn(msg, cl);
 
-	rcu_read_unlock();
+	rcu_read_unlock_bh();
+
 	return srv_conn;
 }
 
@@ -232,29 +233,40 @@ tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwServer *srv)
 	TfwHashConnList *cl;
 	TfwSrvConn *srv_conn = NULL;
 
-	rcu_read_lock();
-	cl = rcu_dereference(srv->sched_data);
+	rcu_read_lock_bh();
+	cl = rcu_dereference_bh(srv->sched_data);
 
 	if (likely(cl))
 		srv_conn = __find_best_conn(msg, cl);
 
-	rcu_read_unlock();
+	rcu_read_unlock_bh();
+
 	return srv_conn;
+}
+
+static void
+tfw_sched_hash_cleanup_rcu_cb(struct rcu_head *rcu)
+{
+	TfwHashConnList *cl = container_of(rcu, TfwHashConnList, rcu);
+	kfree(cl);
 }
 
 static void
 tfw_sched_hash_del_grp(TfwSrvGroup *sg)
 {
 	TfwServer *srv;
-	TfwHashConnList *cl = rcu_dereference_check(sg->sched_data, 1);
+	TfwHashConnList *cl = rcu_dereference_bh_check(sg->sched_data, 1);
 
-	rcu_assign_pointer(sg->sched_data, NULL);
-	list_for_each_entry(srv, &sg->srv_list, list)
-		rcu_assign_pointer(srv->sched_data, NULL);
-	synchronize_rcu();
+	RCU_INIT_POINTER(sg->sched_data, NULL);
+	list_for_each_entry(srv, &sg->srv_list, list) {
+		WARN_ON_ONCE(rcu_dereference_bh_check(srv->sched_data, 1)
+			     && !cl);
+		RCU_INIT_POINTER(srv->sched_data, NULL);
+	}
+	if (!cl)
+		return;
 
-	if (cl)
-		kfree(cl);
+	call_rcu_bh(&cl->rcu, tfw_sched_hash_cleanup_rcu_cb);
 }
 
 static int
@@ -414,11 +426,11 @@ tfw_sched_hash_put_srv_data(struct rcu_head *rcu)
 static void
 tfw_sched_hash_del_srv(TfwServer *srv)
 {
-	TfwHashConnList *cl = rcu_dereference_check(srv->sched_data, 1);
+	TfwHashConnList *cl = rcu_dereference_bh_check(srv->sched_data, 1);
 
-	rcu_assign_pointer(srv->sched_data, NULL);
+	RCU_INIT_POINTER(srv->sched_data, NULL);
 	if (cl)
-		call_rcu(&cl->rcu, tfw_sched_hash_put_srv_data);
+		call_rcu_bh(&cl->rcu, tfw_sched_hash_put_srv_data);
 }
 
 static TfwScheduler tfw_sched_hash = {
@@ -444,6 +456,9 @@ void
 tfw_sched_hash_exit(void)
 {
 	TFW_DBG("sched_hash: exit\n");
+
+	/* Wait for outstanding RCU callbacks to complete. */
+	rcu_barrier_bh();
 	tfw_sched_unregister(&tfw_sched_hash);
 }
 module_exit(tfw_sched_hash_exit);

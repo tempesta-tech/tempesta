@@ -16,9 +16,8 @@ class TestNoCookiesSupport(functional.FunctionalTest):
         'sticky_secret "f00)9eR59*_/22";\n'
         '\n')
 
-    def create_tester(self, message_chain):
-        self.tester = cookies.TesterIgnoreCookies(message_chain, self.client,
-                                                  self.servers)
+    def create_tester(self):
+        self.tester = cookies.TesterIgnoreCookies(self.client, self.servers)
 
     def test(self):
         self.generic_test_routine(self.config, [])
@@ -26,9 +25,8 @@ class TestNoCookiesSupport(functional.FunctionalTest):
 
 class TestCookiesSupport(TestNoCookiesSupport):
 
-    def create_tester(self, message_chain):
-        self.tester = cookies.TesterUseCookies(message_chain, self.client,
-                                               self.servers)
+    def create_tester(self):
+        self.tester = cookies.TesterUseCookies(self.client, self.servers)
 
 
 class TestNoEnforcedCookiesSupport(TestNoCookiesSupport):
@@ -39,15 +37,15 @@ class TestNoEnforcedCookiesSupport(TestNoCookiesSupport):
         'sticky_secret "f00)9eR59*_/22";\n'
         '\n')
 
-    def create_tester(self, message_chain):
-        self.tester = cookies.TesterIgnoreEnforcedCookies(
-            message_chain, self.client, self.servers)
+    def create_tester(self):
+        self.tester = \
+            cookies.TesterIgnoreEnforcedCookies(self.client, self.servers)
 
 
 class TestEnforcedCookiesSupport(TestNoEnforcedCookiesSupport):
 
-    def create_tester(self, message_chain):
-        self.tester = cookies.TesterUseEnforcedCookies(
-            message_chain, self.client, self.servers)
+    def create_tester(self):
+        self.tester = \
+            cookies.TesterUseEnforcedCookies(self.client, self.servers)
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

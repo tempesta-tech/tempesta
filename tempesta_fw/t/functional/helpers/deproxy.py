@@ -8,7 +8,7 @@ import sys
 import time
 import calendar # for calendar.timegm()
 from  BaseHTTPServer import BaseHTTPRequestHandler
-from . import error, tf_cfg, tempesta
+from . import error, tf_cfg, tempesta, stateful
 
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -450,7 +450,7 @@ class Response(HttpMessage):
 #-------------------------------------------------------------------------------
 MAX_MESSAGE_SIZE = 65536
 
-class Client(asyncore.dispatcher):
+class Client(asyncore.dispatcher, stateful.Stateful):
 
     def __init__(self, host=None, port=80):
         asyncore.dispatcher.__init__(self)
@@ -460,10 +460,22 @@ class Client(asyncore.dispatcher):
         self.tester = None
         if host is None:
             host = 'Tempesta'
-        addr = tf_cfg.cfg.get(host, 'ip')
-        tf_cfg.dbg(4, '\tDeproxy: Client: Connect to %s:%d.' % (addr, port))
+        self.addr = tf_cfg.cfg.get(host, 'ip')
+        self.port = port
+        self.stop_procedures = [self.__stop_client]
+        self.orig_addr = ''
+
+    def __stop_client(self):
+        tf_cfg.dbg(4, '\tStop deproxy client')
+        self.close()
+        self.addr = self.orig_addr
+
+    def run_start(self):
+        self.orig_addr = self.addr
+        tf_cfg.dbg(3, '\tStarting deproxy client')
+        tf_cfg.dbg(4, '\tDeproxy: Client: Connect to %s:%d.' % (self.addr, self.port))
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.connect((addr, port))
+        self.connect((self.addr, self.port))
 
     def clear(self):
         self.request_buffer = ''
@@ -579,7 +591,7 @@ class ServerConnection(asyncore.dispatcher_with_send):
                 pass
 
 
-class Server(asyncore.dispatcher):
+class Server(asyncore.dispatcher, stateful.Stateful):
 
     def __init__(self, port, host=None, conns_n=None, keep_alive=None):
         asyncore.dispatcher.__init__(self)
@@ -593,21 +605,16 @@ class Server(asyncore.dispatcher):
         if host is None:
             host = 'Client'
         self.ip = tf_cfg.cfg.get('Client', 'ip')
-        tf_cfg.dbg(4, '\tDeproxy: Server: Start on %s:%d.' % (self.ip, port))
-        self.setup()
+        self.stop_procedures = [self.__stop_server]
 
-    def setup(self):
+    def run_start(self):
+        tf_cfg.dbg(4, '\tDeproxy: Server: Start on %s:%d.' % (self.ip, self.port))
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
         self.set_reuse_addr()
         self.bind((self.ip, self.port))
         self.listen(socket.SOMAXCONN)
 
-    def restart(self):
-        asyncore.dispatcher.__init__(self)
-        self.tester.servers.append(self)
-        self.setup()
-
-    def stop(self):
+    def __stop_server(self):
         tf_cfg.dbg(4, '\tDeproxy: Server: Stop on %s:%d.' % (self.ip,
                                                              self.port))
         self.close()
@@ -636,7 +643,7 @@ class Server(asyncore.dispatcher):
 
     def handle_error(self):
         _, v, _ = sys.exc_info()
-        error.bug('\tDeproxy: Server %s:%d: %s' % (self.ip, self.port, v))
+        raise  Exception('\tDeproxy: Server %s:%d: %s' % (self.ip, self.port, v))
 
     def handle_close(self):
         self.stop()
@@ -665,9 +672,9 @@ class MessageChain(object):
         return MessageChain(Request(), Response())
 
 
-class Deproxy(object):
+class Deproxy(stateful.Stateful):
 
-    def __init__(self, message_chains, client, servers, register=True):
+    def __init__(self, client, servers, register=True, message_chains=None):
         self.message_chains = message_chains
         self.client = client
         self.servers = servers
@@ -681,6 +688,13 @@ class Deproxy(object):
         self.srv_connections = []
         if register:
             self.register_tester()
+        self.stop_procedures = [self.__stop_deproxy]
+
+    def __stop_deproxy(self):
+        tf_cfg.dbg(3, 'Stopping deproxy tester')
+
+    def run_start(self):
+        pass
 
     def register_tester(self):
         self.client.set_tester(self)
@@ -709,6 +723,8 @@ class Deproxy(object):
             pass
 
     def run(self):
+        if self.message_chains is None:
+            return
         for self.current_chain in self.message_chains:
             self.recieved_chain = MessageChain.empty()
             self.client.clear()
@@ -755,10 +771,7 @@ class Deproxy(object):
             'Registered more connections that must be!.'
         return expected_conns_n == len(self.srv_connections)
 
-    def close_all(self):
-        self.client.handle_close()
-        servers = [server for server in self.servers]
-        for server in servers:
-            server.handle_close()
+def finish_all_deproxy():
+    asyncore.close_all()
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

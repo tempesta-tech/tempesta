@@ -7,7 +7,7 @@ import os
 import resource
 import subprocess
 
-from helpers import tf_cfg, remote, shell
+from helpers import tf_cfg, remote, shell, control
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -38,6 +38,7 @@ key, not password. `ssh-copy-id` can be used for that.
 -n, --no-resume                   - Do not resume from state file
 -l, --log <file>                  - Duplcate tests' stderr to this file
 -L, --list                        - List all discovered tests subject to filters
+-C, --clean                       - Stop old instances of Tempesta and Nginx
 
 Non-flag arguments may be used to include/exclude specific tests.
 Specify a dotted-style name or prefix to include every matching test:
@@ -49,16 +50,22 @@ Testsuite execution is automatically resumed if it was interrupted, or it can
 be resumed manually from any given test.
 """)
 
+state_reader = shell.TestState()
+
+if state_reader.load_state() is False:
+    tf_cfg.dbg(2, "No test_resume.json file")
+
 fail_fast = False
-test_resume = shell.TestResume()
+test_resume = shell.TestResume(state_reader)
 list_tests = False
+clean_old = False
 
 try:
-    options, remainder = getopt.getopt(sys.argv[1:], 'hvdt:fr:a:nl:L',
+    options, remainder = getopt.getopt(sys.argv[1:], 'hvdt:fr:a:nl:LC',
                                        ['help', 'verbose', 'defaults',
                                         'duration=', 'failfast', 'resume=',
                                         'resume-after=', 'no-resume', 'log=',
-                                        'list'])
+                                        'list', 'clean'])
 
 except getopt.GetoptError as e:
     print(e)
@@ -86,11 +93,13 @@ for opt, arg in options:
     elif opt in ('-a', '--resume-after'):
         test_resume.set(arg, after=True)
     elif opt in ('-n', '--no-resume'):
-        test_resume.unlink_file()
+        state_reader.unlink_file()
     elif opt in ('-l', '--log'):
         tf_cfg.cfg.config['General']['log_file'] = arg
     elif opt in ('-L', '--list'):
         list_tests = True
+    elif opt in ('-C', '--clean'):
+        clean_old = True
 
 tf_cfg.cfg.check()
 
@@ -109,6 +118,49 @@ v_level = int(tf_cfg.cfg.get('General', 'Verbose')) + 1
 
 # Install Ctrl-C handler for graceful stop.
 unittest.installHandler()
+
+
+#
+# Discover tests, configure environment and run tests
+#
+
+# For the sake of simplicity, Unconditionally discover all tests and filter them
+# afterwards instead of importing individual tests by positive filters.
+loader = unittest.TestLoader()
+tests = []
+shell.testsuite_flatten(tests, loader.discover('.'))
+
+if os.geteuid() != 0:
+    raise Exception("Tests must be run as root.")
+
+# the default value of fs.nr_open
+nofile = 1048576
+resource.setrlimit(resource.RLIMIT_NOFILE, (nofile, nofile))
+remote.connect()
+
+
+#
+# Clear garbage after previous run of test suite
+#
+
+# if we called with -C, just call tearDown for last test
+if clean_old:
+    if state_reader is None or state_reader.loader.last_id is None:
+        tf_cfg.dbg(2, 'No test for clearing')
+        sys.exit(0)
+    tf_cfg.dbg(2, 'Clearing last test: %s' % state_reader.loader.last_id)
+    for test in tests:
+        if test.id() == state_reader.loader.last_id:
+            # We don't have more information about test
+            # So we can use only this
+            tf_cfg.dbg(2, 'setting up')
+            test.setUp()
+            tf_cfg.dbg(2, 'stopping')
+            test.force_stop()
+            break
+    state_reader.unlink_file()
+    sys.exit(0)
+
 
 #
 # Process exclusions/inclusions/resumption
@@ -131,24 +183,16 @@ if not test_resume:
     test_resume.set_from_file()
 else:
     tf_cfg.dbg(2, 'Not resuming from file: next test specified on command line')
-# if the file was not used, delete it
-if not test_resume.from_file:
-    test_resume.unlink_file()
-
-#
-# Discover tests, configure environment and run tests
-#
-
-# For the sake of simplicity, Unconditionally discover all tests and filter them
-# afterwards instead of importing individual tests by positive filters.
-loader = unittest.TestLoader()
-tests = []
-shell.testsuite_flatten(tests, loader.discover('.'))
 
 # Now that we initialized the loader, convert arguments to dotted form (if any).
 for lst in (inclusions, exclusions):
     lst[:] = [shell.test_id_parse(loader, t) for t in lst]
-test_resume.last_id = shell.test_id_parse(loader, test_resume.last_id)
+
+test_resume.state.advance(shell.test_id_parse(loader, test_resume.state.last_id), test_resume.state.last_completed)
+
+# if the file was not used, delete it
+if state_reader.has_file and not test_resume.from_file:
+    state_reader.unlink_file()
 
 # filter testcases
 resume_filter = test_resume.filter()
@@ -170,22 +214,18 @@ if list_tests:
 # Configure environment, connect to the nodes
 #
 
-
 addn_status = ""
 if test_resume:
-    if test_resume.last_completed:
-        addn_status = " (resuming from after %s)" % test_resume.last_id
+    if test_resume.state.last_completed:
+        addn_status = " (resuming from after %s)" % test_resume.state.last_id
     else:
-        addn_status = " (resuming from %s)" % test_resume.last_id
+        addn_status = " (resuming from %s)" % test_resume.state.last_id
 print("""
 ----------------------------------------------------------------------
 Running functional tests%s...
 ----------------------------------------------------------------------
 """ % addn_status, file=sys.stderr)
 
-# the default value of fs.nr_open
-nofile = 1048576
-remote.connect()
 
 #
 # Run the discovered tests
@@ -199,7 +239,7 @@ testRunner = unittest.runner.TextTestRunner(verbosity=v_level,
 testRunner.run(testsuite)
 
 # check if we finished running the tests
-if not tests or (test_resume.last_id == tests[-1].id() and test_resume.last_completed):
-    test_resume.unlink_file()
+if not tests or (test_resume.state.last_id == tests[-1].id() and test_resume.state.last_completed):
+    state_reader.unlink_file()
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

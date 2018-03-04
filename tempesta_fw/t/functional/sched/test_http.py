@@ -83,12 +83,13 @@ class HttpRules(functional.FunctionalTest):
             sg.add_server(s.ip, s.port, s.conns_n)
             self.tempesta.config.add_sg(sg)
 
-    def create_testers(self):
-        self.testers = [
-            HttpSchedTester(server.chains, server.client, [server])
-            for server in self.servers]
-        for tester in self.testers:
+    def create_tester(self):
+        self.testers = []
+        for server in self.servers:
+            tester = HttpSchedTester(server.client, [server])
             tester.response_cb = self.response_recieved
+            tester.message_chains = server.chains
+            self.testers.append(tester)
 
     def routine(self):
         for i in range(self.requests_n):
@@ -103,13 +104,16 @@ class HttpRules(functional.FunctionalTest):
     def init(self):
         self.tempesta.config.set_defconfig(self.config)
 
-        self.create_servers()
         self.configure_tempesta()
+        for server in self.servers:
+            server.start()
 
         self.tempesta.start()
-        self.create_client()
+        for server in self.servers:
+            server.client.start()
 
-        self.create_testers()
+        for tester in self.testers:
+            tester.start()
 
     def test_scheduler(self):
         self.init()
@@ -128,10 +132,15 @@ class HttpRules(functional.FunctionalTest):
         functional.FunctionalTest.setUp(self)
 
     def tearDown(self):
+
         if self.tempesta:
             self.tempesta.stop()
         for tester in self.testers:
-            tester.close_all()
+            tester.stop()
+        for server in self.servers:
+            server.client.stop("Deproxy client")
+        for server in self.servers:
+            server.stop("Deproxy server")
 
 
 class HttpRulesBackupServers(HttpRules):
@@ -160,26 +169,26 @@ class HttpRulesBackupServers(HttpRules):
 
     def create_servers(self):
         port = tempesta.upstream_port_start_from()
-        for group in ['primary', 'backup']:
-            server = self.create_server_helper(group, port)
-            port += 1
-            if group == 'primary':
-                self.main_server = server
-            else:
-                self.backup_server = server
-            self.servers.append(server)
+        self.main_server = self.create_server_helper('primary', port)
+        self.backup_server = self.create_server_helper('backup', port + 1)
+        self.servers.append(self.main_server)
+        self.servers.append(self.backup_server)
 
     def test_scheduler(self):
         self.init()
         # Main server is online, backup server must not recieve traffic.
         self.main_server.tester.message_chains = (
             self.make_chains(empty=False))
+        self.backup_server.tester.message_chains = (
+            self.make_chains(empty=True))
         self.routine()
 
-        # Shutdown main server, responses must be frowarded to backup.
+        # Shutdown main server, responses must be forwarded to backup.
+        self.main_server.tester.client.stop()
+        self.main_server.stop()
         self.main_server.tester.message_chains = (
             self.make_chains(empty=True))
-        self.main_server.tester.close_all()
+
         self.backup_server.tester.message_chains = (
             self.make_chains(empty=False))
         self.routine()
@@ -188,13 +197,17 @@ class HttpRulesBackupServers(HttpRules):
         self.testers.remove(self.main_server.tester)
         self.main_server = self.create_server_helper(
             group=self.main_server.group, port=self.main_server.port)
-        tester = HttpSchedTester(self.make_chains(empty=False),
-                                 deproxy.Client(), [self.main_server])
+        tester = HttpSchedTester(deproxy.Client(), [self.main_server])
         tester.response_cb = self.response_recieved
         self.testers.append(tester)
+
+        self.main_server.tester.message_chains = (
+            self.make_chains(empty=False))
         self.backup_server.tester.message_chains = (
             self.make_chains(empty=True))
 
+        self.main_server.start()
+        self.main_server.tester.client.start()
         self.routine()
 
         # Check tempesta for no errors
