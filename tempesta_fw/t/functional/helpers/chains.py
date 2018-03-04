@@ -6,6 +6,33 @@ __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
+def make_response(st_code, expected=True):
+    resp_headers = [
+        'Content-Length: 0',
+        'Connection: keep-alive'
+    ]
+    if expected:
+        resp_headers += [
+            'Server: Tempesta FW/%s' % tempesta.version(),
+            'Via: 1.1 tempesta_fw (Tempesta FW %s)' % tempesta.version()
+        ]
+    else:
+        resp_headers += ['Server: Deproxy Server']
+    response = deproxy.Response.create(
+        status=st_code,
+        headers=resp_headers,
+        date=deproxy.HttpMessage.date_time_string()
+    )
+    return response
+
+def make_502_expected():
+    response = deproxy.Response.create(
+        status=502,
+        headers=['Content-Length: 0', 'Connection: keep-alive'],
+        date=deproxy.HttpMessage.date_time_string()
+    )
+    return response
+
 def base(uri='/', method='GET', forward=True, date=None):
     """Base message chain. Looks like simple Curl request to Tempesta and
     response for it.
