@@ -68,7 +68,7 @@ tfw_http_msg_srvhdr_val(TfwStr *hdr, unsigned id, TfwStr *val)
 	__http_msg_hdr_val(hdr, id, val, false);
 }
 
-void tfw_http_msg_pair(TfwHttpResp *msg, TfwHttpReq *pair);
+void tfw_http_msg_pair(TfwHttpResp *resp, TfwHttpReq *req);
 TfwHttpMsg *__tfw_http_msg_alloc(int type, bool full);
 
 static inline TfwHttpReq *
