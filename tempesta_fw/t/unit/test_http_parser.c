@@ -27,8 +27,10 @@
 #include "helpers.h"
 #include "fuzzer.h"
 
-TfwHttpReq *req;
-TfwHttpResp *resp;
+static TfwHttpReq *req, *sample_req;
+static TfwHttpResp *resp;
+
+#define SAMPLE_REQ_STR "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
 
 static int
 split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
@@ -55,6 +57,25 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
 		if (r != TFW_POSTPONE)
 			return r;
 	}
+
+	return r;
+}
+
+/**
+ * Response must be paired with request to be parsed correctly. Update sample
+ * request for further response parsing.
+ */
+static int
+set_sample_req(unsigned char *str)
+{
+	size_t len = len = strlen(str);
+	int r;
+
+	if (sample_req)
+		test_req_free(sample_req);
+	sample_req = test_req_alloc(len);
+
+	r = tfw_http_parse_req(sample_req, str, len);
 
 	return r;
 }
@@ -110,11 +131,7 @@ do_split_and_parse(unsigned char *str, int type)
 			test_resp_free(resp);
 
 		resp = test_resp_alloc(len);
-		/*
-		 * TODO: Parsing of some responses requires knowledge about
-		 * corresponding request. See tfw_http_adj_parser_resp().
-		 * TFW_HTTP_RESP_BIND_REQ(resp, req);
-		 */
+		tfw_http_msg_pair(resp, sample_req);
 	}
 	else {
 		BUG();
@@ -1982,6 +1999,14 @@ end:
 
 TEST_SUITE(http_parser)
 {
+	int r;
+
+	if ((r = set_sample_req(SAMPLE_REQ_STR))) {
+		TEST_FAIL("can't parse sample request (code=%d):\n%s",
+			  r, SAMPLE_REQ_STR);
+		return;
+	}
+
 	TEST_RUN(http_parser, leading_eol);
 	TEST_RUN(http_parser, parses_req_method);
 	TEST_RUN(http_parser, parses_req_uri);
