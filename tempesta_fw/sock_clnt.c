@@ -79,9 +79,11 @@ tfw_cli_conn_alloc(int type)
 	/*
 	 * The lock is acquired at only one place where there is no conflict
 	 * with the socket lock, so prevent LOCKDEP complaining the dependency.
+	 * Use subclass > SINGLE_DEPTH_NESTING to avoid collisions with kernel
+	 * and TempestaDB locking subclasses.
 	 */
 	lockdep_init_map(&cli_conn->ret_qlock.dep_map, "cli_conn->ret_qlock",
-			 &__lockdep_no_validate__, SINGLE_DEPTH_NESTING);
+			 &__lockdep_no_validate__, 2);
 #endif
 
 	setup_timer(&cli_conn->timer,
