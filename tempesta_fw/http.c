@@ -1533,7 +1533,7 @@ tfw_http_req_destruct(void *msg)
 		tfw_http_sess_put(req->sess);
 }
 
-/*
+/**
  * Request messages that were forwarded to a backend server are added
  * to and kept in @fwd_queue of the connection @conn for that server.
  * If a paired request is not found, then the response must be deleted.
@@ -1541,9 +1541,11 @@ tfw_http_req_destruct(void *msg)
  * If a paired client request is missing, then it seems upsream server
  * is misbehaving, so the caller has to drop the server connection.
  *
- * Pairing is done at the very early stage during response allocaton.
  * Correct response parsing is only possible when request properties,
- * such as method, are known.
+ * such as method, are known. Thus resp->req pairing is mandatory. In the
+ * same time req->resp pairing is not required until response is ready to
+ * be forwarded to client. It's needed to avoid passing both resp and req
+ * across all functions and creating indirect req<->resp pairing.
  */
 static int
 tfw_http_resp_pair(TfwHttpMsg *hmresp)
