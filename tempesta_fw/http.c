@@ -940,8 +940,9 @@ tfw_http_req_zap_error(struct list_head *eq)
 
 	list_for_each_entry_safe(req, tmp, eq, fwd_list) {
 		list_del_init(&req->fwd_list);
-		tfw_http_error_resp_switch(req, req->httperr.status,
-					   req->httperr.reason);
+		if (!(req->flags & TFW_HTTP_F_REQ_DROP))
+			tfw_http_error_resp_switch(req, req->httperr.status,
+						   req->httperr.reason);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
 }
@@ -990,7 +991,8 @@ static inline bool
 tfw_http_req_evict(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 		   struct list_head *eq)
 {
-	return tfw_http_req_evict_timeout(srv_conn, srv, req, eq)
+	return req->flags & TFW_HTTP_F_REQ_DROP
+	       || tfw_http_req_evict_timeout(srv_conn, srv, req, eq)
 	       || tfw_http_req_evict_retries(srv_conn, srv, req, eq);
 }
 
@@ -1038,6 +1040,8 @@ static inline bool
 tfw_http_req_fwd_single(TfwSrvConn *srv_conn, TfwServer *srv,
 			TfwHttpReq *req, struct list_head *eq)
 {
+	if ((unlikely(req->flags & TFW_HTTP_F_REQ_DROP)))
+		return false;
 	if (tfw_http_req_evict_timeout(srv_conn, srv, req, eq))
 		return false;
 	if (!tfw_http_req_fwd_send(srv_conn, srv, req, eq))
@@ -1726,8 +1730,10 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 	 * condition with freeing of a request in tfw_http_resp_fwd().
 	 */
 	spin_lock(&cli_conn->seq_qlock);
-	list_for_each_entry_safe(req, tmp, seq_queue, msg.seq_list)
+	list_for_each_entry_safe(req, tmp, seq_queue, msg.seq_list) {
+		req->flags |= TFW_HTTP_F_REQ_DROP;
 		list_del_init(&req->msg.seq_list);
+	}
 	spin_unlock(&cli_conn->seq_qlock);
 }
 
@@ -2120,7 +2126,8 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 	if (unlikely(list_empty(seq_queue))) {
 		BUG_ON(!list_empty(&req->msg.seq_list));
 		spin_unlock_bh(&cli_conn->seq_qlock);
-		TFW_DBG2("%s: The client's request missing: conn=[%p]\n",
+		TFW_DBG2("%s: The client was disconnected, drop resp and req: "
+			 "conn=[%p]\n",
 			 __func__, cli_conn);
 		ss_close_sync(cli_conn->sk, true);
 		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
