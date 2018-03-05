@@ -1201,8 +1201,9 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, size_t tot_len)
 
 	/* Write HTTP response body. */
 	ce->body = TDB_OFF(db->hdr, p);
-	if ((n = tfw_cache_strcpy_eol(&p, &trec, &resp->body, &tot_len,
-				      resp->flags & TFW_HTTP_CHUNKED)) < 0) {
+	n = tfw_cache_strcpy_eol(&p, &trec, &resp->body, &tot_len,
+				 resp->flags & TFW_HTTP_F_CHUNKED);
+	if (n < 0) {
 		TFW_ERR("Cache: cannot copy HTTP body\n");
 		return -ENOMEM;
 	}
@@ -1291,7 +1292,7 @@ __cache_entry_size(TfwHttpResp *resp)
 
 	/* Add body size accounting CRLF after the last chunk */
 	size += resp->body.len;
-	if (resp->flags & TFW_HTTP_CHUNKED)
+	if (resp->flags & TFW_HTTP_F_CHUNKED)
 		size += SLEN(S_CRLF);
 
 	return size;
@@ -1629,7 +1630,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 		goto out;
 	}
 	if (lifetime > ce->lifetime)
-		resp->flags |= TFW_HTTP_RESP_STALE;
+		resp->flags |= TFW_HTTP_F_RESP_STALE;
 out:
 	if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED))
 		HTTP_SEND_RESP(req, 504, "resource not cached");
