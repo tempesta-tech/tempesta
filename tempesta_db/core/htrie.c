@@ -247,8 +247,13 @@ tdb_htrie_init_bucket(TdbBucket *b)
 	b->flags = 0;
 	rwlock_init(&b->lock);
 #ifdef CONFIG_LOCKDEP
+	/*
+	 * To lock buckets in a chain for the trie traversal.
+	 * Use subclass > SINGLE_DEPTH_NESTING to avoid collisions with
+	 * kernel and Tempesta FW locking subclasses.
+	 */
 	lockdep_init_map(&b->lock.dep_map, "TdbBucket->lock",
-			 &__lockdep_no_validate__, SINGLE_DEPTH_NESTING);
+			 &__lockdep_no_validate__, 3);
 #endif
 }
 
