@@ -862,15 +862,16 @@ TEST(http_parser, parses_connection_value)
 		"Connection: Keep-Alive\r\n"
 		"\r\n")
 	{
-		EXPECT_EQ(req->flags & __TFW_HTTP_CONN_MASK, TFW_HTTP_CONN_KA);
+		EXPECT_EQ(req->flags & __TFW_HTTP_MSG_M_CONN_MASK,
+			  TFW_HTTP_F_CONN_KA);
 	}
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Connection: Close\r\n"
 		"\r\n")
 	{
-		EXPECT_EQ(req->flags & __TFW_HTTP_CONN_MASK,
-			  TFW_HTTP_CONN_CLOSE);
+		EXPECT_EQ(req->flags & __TFW_HTTP_MSG_M_CONN_MASK,
+			  TFW_HTTP_F_CONN_CLOSE);
 	}
 }
 
@@ -1064,21 +1065,21 @@ TEST(http_parser, accept)
 		"Accept:  text/html \r\n"
 		"\r\n")
 	{
-		EXPECT_TRUE(req->flags & TFW_HTTP_ACCEPT_HTML);
+		EXPECT_TRUE(req->flags & TFW_HTTP_F_ACCEPT_HTML);
 	}
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Accept:  text/html, application/xhtml+xml \r\n"
 		"\r\n")
 	{
-		EXPECT_TRUE(req->flags & TFW_HTTP_ACCEPT_HTML);
+		EXPECT_TRUE(req->flags & TFW_HTTP_F_ACCEPT_HTML);
 	}
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Accept:  text/html;q=0.8 \r\n"
 		"\r\n")
 	{
-		EXPECT_TRUE(req->flags & TFW_HTTP_ACCEPT_HTML);
+		EXPECT_TRUE(req->flags & TFW_HTTP_F_ACCEPT_HTML);
 	}
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
@@ -1086,21 +1087,21 @@ TEST(http_parser, accept)
 		"q=0.9,image/webp,image/apng,*/*;q=0.8\r\n"
 		"\r\n")
 	{
-		EXPECT_TRUE(req->flags & TFW_HTTP_ACCEPT_HTML);
+		EXPECT_TRUE(req->flags & TFW_HTTP_F_ACCEPT_HTML);
 	}
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Accept:  text/*  \r\n"
 		"\r\n")
 	{
-		EXPECT_FALSE(req->flags & TFW_HTTP_ACCEPT_HTML);
+		EXPECT_FALSE(req->flags & TFW_HTTP_F_ACCEPT_HTML);
 	}
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Accept:  text/html, */*  \r\n"
 		"\r\n")
 	{
-		EXPECT_TRUE(req->flags & TFW_HTTP_ACCEPT_HTML);
+		EXPECT_TRUE(req->flags & TFW_HTTP_F_ACCEPT_HTML);
 	}
 }
 
