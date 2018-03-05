@@ -311,6 +311,8 @@ enum {
 	TFW_HTTP_B_HMONITOR,
 	/* Request from whitelist: skip frang and sticky modules processing. */
 	TFW_HTTP_B_WHITELIST,
+	/* Client was disconnected, drop the request. */
+	TFW_HTTP_B_REQ_DROP,
 
 	/* Response flags */
 	TFW_HTTP_FLAGS_RESP,
@@ -343,6 +345,7 @@ enum {
 #define TFW_HTTP_F_ACCEPT_HTML		(1U << TFW_HTTP_B_ACCEPT_HTML)
 #define TFW_HTTP_F_HMONITOR		(1U << TFW_HTTP_B_HMONITOR)
 #define TFW_HTTP_F_WHITELIST		(1U << TFW_HTTP_B_WHITELIST)
+#define TFW_HTTP_F_REQ_DROP		(1U << TFW_HTTP_B_REQ_DROP)
 
 #define TFW_HTTP_F_VOID_BODY		(1U << TFW_HTTP_B_VOID_BODY)
 #define TFW_HTTP_F_HDR_DATE		(1U << TFW_HTTP_B_HDR_DATE)
