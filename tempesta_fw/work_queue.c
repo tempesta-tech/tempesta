@@ -5,7 +5,7 @@
  * complicated MPMC case at http://www.linuxjournal.com/content/lock-free- \
  * multi-producer-multi-consumer-queue-ring-buffer .
  *
- * Copyright (C) 2016-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -63,7 +63,7 @@ void
 tfw_wq_destroy(TfwRBQueue *q)
 {
 	/* Ensure that there is no peding work. */
-	BUG_ON(tfw_wq_size(q));
+	WARN_ON_ONCE(tfw_wq_size(q));
 
 	kfree(q->array);
 	free_percpu(q->heads);
@@ -88,20 +88,27 @@ __tfw_wq_push(TfwRBQueue *q, void *ptr)
 	local_bh_disable();
 
 	head_local = this_cpu_ptr(q->heads);
-	while (1) {
-		head = atomic64_read(&q->head);
+	/*
+	 * Set head guard to make a consumer wait on this position.
+	 * We could update the guard in the loop to allow a consumer to make
+	 * progress if we're got ahead by other producers, but the overhead
+	 * of the atomic write is undesirable.
+	 */
+	head = atomic64_read(&q->head);
+	atomic64_set(head_local, head);
+
+	for ( ; ; head = atomic64_read(&q->head)) {
 		tail = atomic64_read(&q->tail);
-		BUG_ON(head > tail + QSZ);
+		WARN_ON_ONCE(head > tail + QSZ);
 		if (unlikely(head == tail + QSZ))
 			goto full_out;
 
 		/*
 		 * There is an empty slot to push a new item.
-		 * Set a guard for current position and move global head -
-		 * try to acquire current head. If current head position is
-		 * acquired by a competing poroducer, then try again.
+		 * Acquire the current head position and move the global head.
+		 * If current head position is acquired by a competing
+		 * poroducer, then read the current head and try again.
 		 */
-		atomic64_set(head_local, head);
 		if (atomic64_cmpxchg(&q->head, head, head + 1) == head)
 			break;
 	}
@@ -131,7 +138,7 @@ tfw_wq_pop_ticket(TfwRBQueue *q, void *buf, long *ticket)
 	local_bh_disable();
 
 	tail = atomic64_read(&q->tail);
-	BUG_ON(tail > q->last_head);
+	WARN_ON_ONCE(tail > q->last_head);
 	if (unlikely(tail == q->last_head)) {
 		/*
 		 * Actualize @last_head from heads of all current
@@ -152,7 +159,7 @@ tfw_wq_pop_ticket(TfwRBQueue *q, void *buf, long *ticket)
 		}
 
 		/* Second try. */
-		BUG_ON(tail > q->last_head);
+		WARN_ON_ONCE(tail > q->last_head);
 		if (tail == q->last_head)
 			goto out;
 	}
