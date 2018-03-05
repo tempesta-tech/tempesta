@@ -4267,10 +4267,6 @@ tfw_http_adj_parser_resp(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
 
-	/* Can happen only in unittests. */
-	if (unlikely(!req))
-		return;
-
 	if (req->method == TFW_HTTP_METH_HEAD)
 		resp->flags |= TFW_HTTP_F_VOID_BODY;
 }
