@@ -506,7 +506,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 		}
 	}
 
-	if (req->flags & TFW_HTTP_URI_FULL) {
+	if (req->flags & TFW_HTTP_F_URI_FULL) {
 		char *hdrhost;
 
 		/* If host in URI is empty, host header also must be empty. */
@@ -806,7 +806,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, const TfwFsmData *data)
 
 	/* Ensure that singular header fields are not duplicated. */
 	__FRANG_FSM_STATE(Frang_Req_Hdr_FieldDup) {
-		if (req->flags & TFW_HTTP_FIELD_DUPENTRY) {
+		if (req->flags & TFW_HTTP_F_FIELD_DUPENTRY) {
 			frang_msg("duplicate header field found",
 				  &FRANG_ACC2CLI(ra)->addr, "\n");
 			r = TFW_BLOCK;
@@ -946,7 +946,7 @@ frang_http_req_handler(void *obj, const TfwFsmData *data)
 	TfwConn *conn = (TfwConn *)obj;
 	FrangAcc *ra = conn->sk->sk_security;
 
-	if (((TfwHttpReq *)data->req)->flags & TFW_HTTP_WHITELIST)
+	if (((TfwHttpReq *)data->req)->flags & TFW_HTTP_F_WHITELIST)
 		return TFW_PASS;
 
 	r = frang_http_req_process(ra, conn, data);

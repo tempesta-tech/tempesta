@@ -281,34 +281,74 @@ typedef struct {
 	TfwHttpHbhHdrs	hbh_parser;
 } TfwHttpParser;
 
-/* Common flags for requests and responses. */
-#define TFW_HTTP_CONN_CLOSE		0x000001
-#define TFW_HTTP_CONN_KA		0x000002
-#define __TFW_HTTP_CONN_MASK		(TFW_HTTP_CONN_CLOSE | TFW_HTTP_CONN_KA)
-#define TFW_HTTP_CONN_EXTRA		0x000004
-#define TFW_HTTP_CHUNKED		0x000008
+enum {
+	/* Common flags for requests and responses. */
+	TFW_HTTP_FLAGS_COMMON	= 0,
+	/* 'Connection:' header contains 'close'. */
+	TFW_HTTP_B_CONN_CLOSE	= TFW_HTTP_FLAGS_COMMON,
+	/* 'Connection:' header contains 'keep-alive'. */
+	TFW_HTTP_B_CONN_KA,
+	/* 'Connection:' header contains additional terms. */
+	TFW_HTTP_B_CONN_EXTRA,
+	/* Chunked transfer encoding. */
+	TFW_HTTP_B_CHUNKED,
+	/* Singular header presents more than once. */
+	TFW_HTTP_B_FIELD_DUPENTRY,
 
-/* Request flags */
-#define TFW_HTTP_HAS_STICKY		0x000100
-#define TFW_HTTP_FIELD_DUPENTRY		0x000200	/* Duplicate field */
-/* URI has form http://authority/path, not just /path */
-#define TFW_HTTP_URI_FULL		0x000400
-#define TFW_HTTP_NON_IDEMP		0x000800
-#define TFW_HTTP_SUSPECTED		0x001000
-/* Request stated 'Accept: text/html' header */
-#define TFW_HTTP_ACCEPT_HTML		0x002000
-/* Request is created by HTTP health monitor. */
-#define TFW_HTTP_HMONITOR		0x004000
-#define TFW_HTTP_WHITELIST		0x008000
+	/* Request flags. */
+	TFW_HTTP_FLAGS_REQ,
+	/* Sticky cookie is found and verified. */
+	TFW_HTTP_B_HAS_STICKY	= TFW_HTTP_FLAGS_REQ,
+	/* URI has form http://authority/path, not just /path */
+	TFW_HTTP_B_URI_FULL,
+	/* Request is non-idempotent. */
+	TFW_HTTP_B_NON_IDEMP,
+	/* Request was sent by attacker. */
+	TFW_HTTP_B_SUSPECTED,
+	/* Request stated 'Accept: text/html' header */
+	TFW_HTTP_B_ACCEPT_HTML,
+	/* Request is created by HTTP health monitor. */
+	TFW_HTTP_B_HMONITOR,
+	/* Request from whitelist: skip frang and sticky modules processing. */
+	TFW_HTTP_B_WHITELIST,
 
-/* Response flags */
-#define TFW_HTTP_VOID_BODY		0x010000	/* Resp has no body */
-#define TFW_HTTP_HAS_HDR_DATE		0x020000	/* Has Date: header */
-#define TFW_HTTP_HAS_HDR_LMODIFIED	0x040000 /* Has Last-Modified: header */
-/* It is stale, but pass with a warning */
-#define TFW_HTTP_RESP_STALE		0x080000
-/* Response is fully processed and ready to be forwarded to the client. */
-#define TFW_HTTP_RESP_READY		0x100000
+	/* Response flags */
+	TFW_HTTP_FLAGS_RESP,
+	/* Response has no body. */
+	TFW_HTTP_B_VOID_BODY	= TFW_HTTP_FLAGS_RESP,
+	/* Response has header 'Date:'. */
+	TFW_HTTP_B_HDR_DATE,
+	/* Response has header 'Last-Modified:'. */
+	TFW_HTTP_B_HDR_LMODIFIED,
+	/* Response is stale, but pass with a warning. */
+	TFW_HTTP_B_RESP_STALE,
+	/* Response is fully processed and ready to be forwarded to the client. */
+	TFW_HTTP_B_RESP_READY,
+
+	_TFW_HTTP_FLAGS_NUM
+};
+
+#define TFW_HTTP_F_CONN_CLOSE		(1U << TFW_HTTP_B_CONN_CLOSE)
+#define TFW_HTTP_F_CONN_KA		(1U << TFW_HTTP_B_CONN_KA)
+#define __TFW_HTTP_MSG_M_CONN_MASK	\
+	(TFW_HTTP_F_CONN_KA | TFW_HTTP_F_CONN_CLOSE)
+#define TFW_HTTP_F_CONN_EXTRA		(1U << TFW_HTTP_B_CONN_EXTRA)
+#define TFW_HTTP_F_CHUNKED		(1U << TFW_HTTP_B_CHUNKED)
+#define TFW_HTTP_F_FIELD_DUPENTRY	(1U << TFW_HTTP_B_FIELD_DUPENTRY)
+
+#define TFW_HTTP_F_HAS_STICKY		(1U << TFW_HTTP_B_HAS_STICKY)
+#define TFW_HTTP_F_URI_FULL		(1U << TFW_HTTP_B_URI_FULL)
+#define TFW_HTTP_F_NON_IDEMP		(1U << TFW_HTTP_B_NON_IDEMP)
+#define TFW_HTTP_F_SUSPECTED		(1U << TFW_HTTP_B_SUSPECTED)
+#define TFW_HTTP_F_ACCEPT_HTML		(1U << TFW_HTTP_B_ACCEPT_HTML)
+#define TFW_HTTP_F_HMONITOR		(1U << TFW_HTTP_B_HMONITOR)
+#define TFW_HTTP_F_WHITELIST		(1U << TFW_HTTP_B_WHITELIST)
+
+#define TFW_HTTP_F_VOID_BODY		(1U << TFW_HTTP_B_VOID_BODY)
+#define TFW_HTTP_F_HDR_DATE		(1U << TFW_HTTP_B_HDR_DATE)
+#define TFW_HTTP_F_HDR_LMODIFIED	(1U << TFW_HTTP_B_HDR_LMODIFIED)
+#define TFW_HTTP_F_RESP_STALE		(1U << TFW_HTTP_B_RESP_STALE)
+#define TFW_HTTP_F_RESP_READY		(1U << TFW_HTTP_B_RESP_READY)
 
 /*
  * The structure to hold data for an HTTP error response.
