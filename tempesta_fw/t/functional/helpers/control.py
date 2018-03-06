@@ -321,7 +321,6 @@ class DmesgWarningCounter(stateful.Stateful):
         self.__set_ratelimit(self.old_ratelimit, self.ratelimit_burst)
 
 class Tempesta(stateful.Stateful):
-
     def __init__(self):
         self.node = remote.tempesta
         self.workdir = self.node.workdir
