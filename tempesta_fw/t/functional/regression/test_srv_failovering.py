@@ -31,12 +31,16 @@ class FailoveringTest(functional.FunctionalTest):
         self.tempesta.config.set_defconfig('')
 
         self.create_servers()
+        for server in self.servers:
+            server.start()
         self.configure_tempesta()
 
         self.tempesta.start()
         self.create_client()
+        self.client.start()
         chains = [deproxy.MessageChain.empty()]
         self.create_tester()
+        self.tester.start()
 
     def test_on_close(self):
         self.init()
