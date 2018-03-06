@@ -116,7 +116,8 @@ class StressTest(unittest.TestCase):
             cl_conn_cnt += c.connections * self.pipelined_req
             total_err += err
         
-        self.assertLessEqual(total_err, self.bce, msg='HTTP client detected errors')
+        self.assertLessEqual(total_err, self.bce,
+                             msg='HTTP client detected errors')
         exp_min = cl_req_cnt
         # Positive allowance: this means some responses are missed by the client.
         # It is believed (nobody actually checked though...) that wrk does not
@@ -146,8 +147,8 @@ class StressTest(unittest.TestCase):
         self.assertTrue(self.tempesta.stats.cl_msg_other_errors == self.bce,
                         msg=(msg % 'requests'))
         # See comment on "positive allowance" in `assert_clients()`
-        expected_err = cl_conn_cnt
-        self.assertTrue(self.tempesta.stats.srv_msg_other_errors <= expected_err,
+        expect_err = cl_conn_cnt
+        self.assertTrue(self.tempesta.stats.srv_msg_other_errors <= expect_err,
                         msg=(msg % 'responses'))
 
     def assert_servers(self):

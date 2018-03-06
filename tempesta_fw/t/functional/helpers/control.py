@@ -268,22 +268,57 @@ def clients_parallel_load(client, count=None):
 # Tempesta
 #-------------------------------------------------------------------------------
 
-class DmesgWarningCounter(object):
+class DmesgWarningCounter(stateful.Stateful):
     """ Calculate new matches for string in dmesg """
+
     def __init__(self, node, string):
         self.string = string
         self.node = node
-        self.amount = 0
-        self.get_new_count()
+        self.ratelimit_burst = 100000
+        self.ratelimit = 1
+        self.initial_count = 0
+        self.old_ratelimit_burst = 10
+        self.old_ratelimit = 5
+        self.err_msg = "Can't %s warning counter"
+        self.stop_procedures = [self.__stop]
 
-    def get_new_count(self):
+    def __get_count(self):
         """ Return backend connection errors """
         cmd = 'dmesg | grep \"%s\" | wc -l' % self.string
         stdout, _ = self.node.run_cmd(cmd)
-        count = int(stdout)
-        newmatch = count - self.amount
-        self.amount = count
-        return newmatch
+        return int(stdout)
+
+    def get_count(self):
+        return self.__get_count() - self.initial_count
+
+    def __set_ratelimit(self, rl, rlb):
+        cmd = "echo %i > /proc/sys/kernel/printk_ratelimit_burst" % rlb
+        self.node.run_cmd(cmd, timeout=30,
+                          err_msg=(self.err_msg % 'start'))
+        cmd = "echo %i > /proc/sys/kernel/printk_ratelimit" % rl
+        self.node.run_cmd(cmd, timeout=30,
+                          err_msg=(self.err_msg % 'start'))
+
+    def __get_ratelimit(self):
+        cmd = "cat /proc/sys/kernel/printk_ratelimit"
+        stdout, _ = self.node.run_cmd(cmd, timeout=30,
+                          err_msg=(self.err_msg % 'start'))
+        return int(stdout)
+
+    def __get_ratelimit_burst(self):
+        cmd = "cat /proc/sys/kernel/printk_ratelimit_burst"
+        stdout, _ = self.node.run_cmd(cmd, timeout=30,
+                          err_msg=(self.err_msg % 'start'))
+        return int(stdout)
+
+    def run_start(self):
+        self.old_ratelimit_burst = self.__get_ratelimit_burst()
+        self.old_ratelimit = self.__get_ratelimit()
+        self.__set_ratelimit(self.ratelimit, self.ratelimit_burst)
+        self.initial_count = self.__get_count()
+
+    def __stop(self):
+        self.__set_ratelimit(self.old_ratelimit, self.ratelimit_burst)
 
 class Tempesta(stateful.Stateful):
 
@@ -297,41 +332,14 @@ class Tempesta(stateful.Stateful):
         self.host = tf_cfg.cfg.get('Tempesta', 'hostname')
         self.err_msg = ' '.join(["Can't %s TempestaFW on", self.host])
         self.stop_procedures = [self.stop_tempesta, self.remove_config]
-        self.bce_counter = DmesgWarningCounter(self.node, "Unable to find a backend server")
-        self.ratelimit_burst = 100000
-        self.old_ratelimit_burst = 10
-        self.ratelimit = 1
-        self.old_ratelimit = 5
-
-    def set_ratelimit(self, rl, rlb):
-        cmd = "echo %i > /proc/sys/kernel/printk_ratelimit_burst" % rlb
-        self.node.run_cmd(cmd, timeout=30,
-                          err_msg=(self.err_msg % 'start'))
-        cmd = "echo %i > /proc/sys/kernel/printk_ratelimit" % rl
-        self.node.run_cmd(cmd, timeout=30,
-                          err_msg=(self.err_msg % 'start'))
-
-    def get_ratelimit(self):
-        cmd = "cat /proc/sys/kernel/printk_ratelimit"
-        stdout, _ = self.node.run_cmd(cmd, timeout=30,
-                          err_msg=(self.err_msg % 'start'))
-        return int(stdout)
-
-    def get_ratelimit_burst(self):
-        cmd = "cat /proc/sys/kernel/printk_ratelimit_burst"
-        stdout, _ = self.node.run_cmd(cmd, timeout=30,
-                          err_msg=(self.err_msg % 'start'))
-        return int(stdout)
+        self.bce_counter = \
+            DmesgWarningCounter(self.node, "Unable to find a backend server")
 
     def run_start(self):
         tf_cfg.dbg(3, '\tStarting TempestaFW on %s' % self.host)
         self.stats.clear()
         self.node.copy_file(self.config_name, self.config.get_config())
-
-        self.old_ratelimit_burst = self.get_ratelimit_burst()
-        self.old_ratelimit = self.get_ratelimit()
-        self.set_ratelimit(self.ratelimit, self.ratelimit_burst)
-
+        self.bce_counter.start()
         cmd = '%s/scripts/tempesta.sh --start' % self.workdir
         env = { 'TFW_CFG_PATH': self.config_name }
         self.node.run_cmd(cmd, timeout=30, env=env,
@@ -344,8 +352,7 @@ class Tempesta(stateful.Stateful):
 
     def remove_config(self):
         self.node.remove_file(self.config_name)
-
-        self.set_ratelimit(self.old_ratelimit, self.ratelimit_burst)
+        self.bce_counter.stop()
 
     def reload(self):
         """Live reconfiguration"""
@@ -368,7 +375,7 @@ class Tempesta(stateful.Stateful):
                                  err_msg=(self.err_msg % 'get stats of'))
 
     def get_bce(self):
-        return self.bce_counter.get_new_count()
+        return self.bce_counter.get_count()
 
 class TempestaFI(Tempesta):
     """ Tempesta class for testing with fault injection."""
@@ -418,7 +425,6 @@ class TempestaFI(Tempesta):
 #-------------------------------------------------------------------------------
 
 class Nginx(stateful.Stateful):
-    listen_port = 0
 
     def __init__(self, listen_port, workers=1, code=None):
         self.listen_port = listen_port
