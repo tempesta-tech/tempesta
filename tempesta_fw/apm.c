@@ -1529,8 +1529,9 @@ __tfw_cfgop_cleanup_apm_hm(void)
 {
 	TfwApmHM *hm, *tmp;
 
-	if (list_empty(&tfw_hm_list))
-		return;
+	tfw_hm_entry = NULL;
+	tfw_hm_default = NULL;
+	tfw_hm_expl_def = false;
 
 	list_for_each_entry_safe(hm, tmp, &tfw_hm_list, list) {
 		free_pages((unsigned long)hm->req, get_order(hm->reqsz));
@@ -1623,8 +1624,8 @@ static void
 tfw_apm_cfgclean(void)
 {
 	/*
-	 * Removal of default 'auto' health monitor, which is
-	 * created in cfgend().
+	 * 'auto' health monitor may be created implicitly in cfgend(),
+	 * even if no `health_check` directive found.
 	 */
 	__tfw_cfgop_cleanup_apm_hm();
 }
@@ -1731,6 +1732,7 @@ tfw_cfgop_apm_cleanup_server_failover(TfwCfgSpec *cs)
 		kfree(ent);
 	}
 	INIT_LIST_HEAD(&tfw_hm_codes_list);
+	tfw_hm_codes_cnt = 0;
 }
 
 static int
