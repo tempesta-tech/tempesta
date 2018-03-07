@@ -102,6 +102,38 @@ TEST(cstr, simd_match)
 		     "0123456|95");
 }
 
+TEST(cstr, simd_match_ctext_vchar)
+{
+#define N	300
+#define P	23
+
+	int i;
+	char buf[N] = {[0 ... N - 1] = 0xff }; /* fill in with valid chars */
+
+	BUILD_BUG_ON(N < P + 257);
+
+	/* All the allowed characters are matched. */
+	for (i = 0; i <= 0xff; ++i)
+		if (i == 9 || (i >= 0x20 && i != 0x7f))
+			buf[P + i] = i;
+	EXPECT_TRUE(tfw_match_ctext_vchar(buf, N) == N);
+
+	/* Check not allowed characters. */
+	buf[P + 0x7f] = 0x7f;
+	EXPECT_TRUE(tfw_match_ctext_vchar(buf, N) == P + 0x7f);
+	buf[P + 0x1f] = 0x1f;
+	EXPECT_TRUE(tfw_match_ctext_vchar(buf, N) == P + 0x1f);
+	buf[P + 0xa] = 0xa;
+	EXPECT_TRUE(tfw_match_ctext_vchar(buf, N) == P + 0xa);
+	buf[P + 8] = 8;
+	EXPECT_TRUE(tfw_match_ctext_vchar(buf, N) == P + 8);
+	buf[P + 0] = 0;
+	EXPECT_TRUE(tfw_match_ctext_vchar(buf, N) == P);
+
+#undef P
+#undef N
+}
+
 static inline void *
 c_strtolower(unsigned char *dest, const unsigned char *src, size_t len)
 {
@@ -935,6 +967,7 @@ TEST_SUITE(tfw_str)
 
 	TEST_RUN(cstr, tolower);
 	TEST_RUN(cstr, simd_match);
+	TEST_RUN(cstr, simd_match_ctext_vchar);
 	TEST_RUN(cstr, simd_strtolower);
 	TEST_RUN(cstr, simd_stricmp);
 
