@@ -3291,8 +3291,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			case TFW_CHAR4_INT('a', 'c', 'h', 'e'):
 				if (likely(*(p + 5) == '-'
 					   && C8_INT_LCM(p + 6, 'c', 'o', 'n',
-						                't', 'r', 'o',
-								'l', ':')))
+							 't', 'r', 'o',
+							 'l', ':')))
 				{
 					parser->_i_st = Req_HdrCache_ControlV;
 					__FSM_MOVE_n(RGen_OWS, 14);
