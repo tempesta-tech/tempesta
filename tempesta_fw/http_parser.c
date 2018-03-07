@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -3291,8 +3291,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			case TFW_CHAR4_INT('a', 'c', 'h', 'e'):
 				if (likely(*(p + 5) == '-'
 					   && C8_INT_LCM(p + 6, 'c', 'o', 'n',
-						                't', 'r', 'o',
-								'l', ':')))
+							 't', 'r', 'o',
+							 'l', ':')))
 				{
 					parser->_i_st = Req_HdrCache_ControlV;
 					__FSM_MOVE_n(RGen_OWS, 14);
