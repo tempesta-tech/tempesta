@@ -1877,6 +1877,12 @@ tfw_cfgop_cache_methods(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
+static void
+tfw_cfgop_cleanup_cache_methods(TfwCfgSpec *cs)
+{
+	cache_cfg.methods = 0;
+}
+
 static TfwCfgSpec tfw_cache_specs[] = {
 	{
 		.name = "cache",
@@ -1893,6 +1899,7 @@ static TfwCfgSpec tfw_cache_specs[] = {
 		.handler = tfw_cfgop_cache_methods,
 		.allow_none = true,
 		.allow_repeat = false,
+		.cleanup = tfw_cfgop_cleanup_cache_methods,
 	},
 	{
 		.name = "cache_size",
