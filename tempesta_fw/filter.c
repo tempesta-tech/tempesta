@@ -305,21 +305,21 @@ tfw_filter_stop(void)
 
 static TfwCfgSpec tfw_filter_specs[] = {
 	{
-		"filter_tbl_size",
-		"16777216",
-		tfw_cfg_set_int,
-		&filter_cfg.db_size,
-		&(TfwCfgSpecInt) {
+		.name = "filter_tbl_size",
+		.deflt = "16777216",
+		.handler = tfw_cfg_set_int,
+		.dest = &filter_cfg.db_size,
+		.spec_ext = &(TfwCfgSpecInt) {
 			.multiple_of = PAGE_SIZE,
 			.range = { PAGE_SIZE, (1 << 30) },
 		}
 	},
 	{
-		"filter_db",
-		"/opt/tempesta/db/filter.tdb",
-		tfw_cfg_set_str,
-		&filter_cfg.db_path,
-		&(TfwCfgSpecStr) {
+		.name = "filter_db",
+		.deflt = "/opt/tempesta/db/filter.tdb",
+		.handler = tfw_cfg_set_str,
+		.dest = &filter_cfg.db_path,
+		.spec_ext = &(TfwCfgSpecStr) {
 			.len_range = { 1, PATH_MAX },
 		}
 	},
