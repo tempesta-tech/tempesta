@@ -90,6 +90,12 @@ tfw_classifier_add_inport(__be16 port)
 	tfw_inports.ports[tfw_inports.count++] = port;
 }
 
+void
+tfw_classifier_cleanup_inport(void)
+{
+	memset(&tfw_inports, 0, sizeof(tfw_inports));
+}
+
 static int
 tfw_classify_conn_estab(struct sock *sk)
 {
