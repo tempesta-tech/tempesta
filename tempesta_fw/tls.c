@@ -428,14 +428,6 @@ tfw_tls_start(void)
 	return 0;
 }
 
-static void
-tfw_tls_stop(void)
-{
-	if (tfw_runstate_is_reconfig())
-		return;
-
-}
-
 /**
  * Handle 'ssl_certificate <path>' config entry.
  */
@@ -572,7 +564,6 @@ TfwMod tfw_tls_mod = {
 	.name	= "tls",
 	.cfgend = tfw_tls_cfgend,
 	.start	= tfw_tls_start,
-	.stop	= tfw_tls_stop,
 	.specs	= tfw_tls_specs,
 };
 
