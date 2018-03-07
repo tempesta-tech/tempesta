@@ -627,7 +627,7 @@ TEST_SUITE(http_sticky)
 	kernel_fpu_end();
 
 	/* Garbage collect all the sessions. */
-	tfw_cfgop_sticky_cleanup(&tfw_http_sess_mod.specs[0]);
+	tfw_cfgop_cleanup_sticky(&tfw_http_sess_mod.specs[0]);
 	tfw_http_sess_stop();
 	tfw_http_sess_exit();
 
