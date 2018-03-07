@@ -89,7 +89,7 @@ __tfw_wq_push(TfwRBQueue *q, void *ptr)
 
 	head_local = this_cpu_ptr(q->heads);
 	/*
-	 * Set head guard to make a consumer wait on this position.
+	 * Set the head guard to make a consumer wait on this position.
 	 * We could update the guard in the loop to allow a consumer to make
 	 * progress if we're got ahead by other producers, but the overhead
 	 * of the atomic write is undesirable.
@@ -111,6 +111,7 @@ __tfw_wq_push(TfwRBQueue *q, void *ptr)
 		 */
 		if (atomic64_cmpxchg(&q->head, head, head + 1) == head)
 			break;
+		cpu_relax();
 	}
 
 	memcpy(&q->array[head & QMASK], ptr, WQ_ITEM_SZ);
@@ -138,14 +139,17 @@ tfw_wq_pop_ticket(TfwRBQueue *q, void *buf, long *ticket)
 	local_bh_disable();
 
 	tail = atomic64_read(&q->tail);
-	WARN_ON_ONCE(tail > q->last_head);
-	if (unlikely(tail == q->last_head)) {
+	/*
+	 * tail > q->last_head means that some producer is using too old head
+	 * and is going to fail on cmpxchg(). However, we still don't know how
+	 * far we can move, so probably we have to return with nothing now.
+	 */
+	if (unlikely(tail >= q->last_head)) {
 		/*
-		 * Actualize @last_head from heads of all current
-		 * producers. We do it here since atomic reads are
-		 * faster than updates and we can do this only when
-		 * we need a new value, i.e. not so frequently.
-		 * Don't support switching off cpus in runtime.
+		 * Actualize @last_head from heads of all current producers.
+		 * We do it here since atomic reads are faster than updates and
+		 * we can do this only when we need a new value, i.e. not so
+		 * frequently. Don't support switching off cpus in runtime.
 		 */
 		q->last_head = atomic64_read(&q->head);
 		for_each_online_cpu(cpu) {
@@ -159,8 +163,7 @@ tfw_wq_pop_ticket(TfwRBQueue *q, void *buf, long *ticket)
 		}
 
 		/* Second try. */
-		WARN_ON_ONCE(tail > q->last_head);
-		if (tail == q->last_head)
+		if (tail >= q->last_head)
 			goto out;
 	}
 
