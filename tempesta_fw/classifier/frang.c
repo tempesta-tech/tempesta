@@ -1167,7 +1167,7 @@ frang_parse_ushort(const char *s, unsigned short *out)
  * Save response code block configuration
  */
 static int
-frang_set_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce)
+frang_cfgop_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	FrangHttpRespCodeBlock *cb;
 	static const char *error_msg_begin = "frang: http_resp_code_block:";
@@ -1209,7 +1209,7 @@ frang_set_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static void
-frang_free_rsp_code_block(TfwCfgSpec *cs)
+frang_cfgop_cleanup_rsp_code_block(TfwCfgSpec *cs)
 {
 	if(fsm_hook_resp_prio >= 0) {
 		tfw_gfsm_unregister_hook(TFW_FSM_HTTP, fsm_hook_resp_prio,
@@ -1345,10 +1345,10 @@ static TfwCfgSpec frang_limits_specs[] = {
 	{
 		.name = "http_resp_code_block",
 		.deflt = NULL,
-		.handler = frang_set_rsp_code_block,
+		.handler = frang_cfgop_rsp_code_block,
 		.dest = &frang_cfg,
 		.allow_none = 1,
-		.cleanup = frang_free_rsp_code_block,
+		.cleanup = frang_cfgop_cleanup_rsp_code_block,
 	},
 	{ 0 }
 };

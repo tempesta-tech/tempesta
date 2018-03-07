@@ -4,7 +4,7 @@
  * HTTP cache (RFC 7234).
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1877,6 +1877,12 @@ tfw_cfgop_cache_methods(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
+static void
+tfw_cfgop_cleanup_cache_methods(TfwCfgSpec *cs)
+{
+	cache_cfg.methods = 0;
+}
+
 static TfwCfgSpec tfw_cache_specs[] = {
 	{
 		.name = "cache",
@@ -1893,6 +1899,7 @@ static TfwCfgSpec tfw_cache_specs[] = {
 		.handler = tfw_cfgop_cache_methods,
 		.allow_none = true,
 		.allow_repeat = false,
+		.cleanup = tfw_cfgop_cleanup_cache_methods,
 	},
 	{
 		.name = "cache_size",
