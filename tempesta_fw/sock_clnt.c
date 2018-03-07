@@ -363,6 +363,7 @@ tfw_listen_sock_del_all(void)
 	}
 
 	INIT_LIST_HEAD(&tfw_listen_socks);
+	tfw_classifier_cleanup_inport();
 }
 
 /**
