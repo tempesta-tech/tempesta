@@ -418,12 +418,6 @@ tfw_tls_start(void)
 	if (tfw_runstate_is_reconfig())
 		return 0;
 
-	if ((tfw_tls.crt.version && !tfw_tls.key.pk_ctx) ||
-	    (!tfw_tls.crt.version && tfw_tls.key.pk_ctx)) {
-		TFW_ERR("TLS: SSL certificate/key pair is incomplete\n");
-		return -EINVAL;
-	}
-
 	mbedtls_ssl_conf_ca_chain(&tfw_tls.cfg, tfw_tls.crt.next, NULL);
 	r = mbedtls_ssl_conf_own_cert(&tfw_tls.cfg, &tfw_tls.crt, &tfw_tls.key);
 	if (r) {
@@ -432,15 +426,6 @@ tfw_tls_start(void)
 	}
 
 	return 0;
-}
-
-static void
-tfw_tls_stop(void)
-{
-	if (tfw_runstate_is_reconfig())
-		return;
-	mbedtls_x509_crt_free(&tfw_tls.crt);
-	mbedtls_pk_free(&tfw_tls.key);
 }
 
 /**
@@ -487,6 +472,12 @@ tfw_cfgop_ssl_certificate(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
+static void
+tfw_cfgop_cleanup_ssl_certificate(TfwCfgSpec *cs)
+{
+	mbedtls_x509_crt_free(&tfw_tls.crt);
+}
+
 /**
  * Handle 'ssl_certificate_key <path>' config entry.
  */
@@ -531,6 +522,24 @@ tfw_cfgop_ssl_certificate_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
+static void
+tfw_cfgop_cleanup_ssl_certificate_key(TfwCfgSpec *cs)
+{
+	mbedtls_pk_free(&tfw_tls.key);
+}
+
+static int
+tfw_tls_cfgend(void)
+{
+	if ((tfw_tls.crt.version && !tfw_tls.key.pk_ctx) ||
+	    (!tfw_tls.crt.version && tfw_tls.key.pk_ctx)) {
+		TFW_ERR("TLS: SSL certificate/key pair is incomplete\n");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static TfwCfgSpec tfw_tls_specs[] = {
 	{
 		.name = "ssl_certificate",
@@ -538,6 +547,7 @@ static TfwCfgSpec tfw_tls_specs[] = {
 		.handler = tfw_cfgop_ssl_certificate,
 		.allow_none = true,
 		.allow_repeat = false,
+		.cleanup = tfw_cfgop_cleanup_ssl_certificate,
 	},
 	{
 		.name = "ssl_certificate_key",
@@ -545,14 +555,15 @@ static TfwCfgSpec tfw_tls_specs[] = {
 		.handler = tfw_cfgop_ssl_certificate_key,
 		.allow_none = true,
 		.allow_repeat = false,
+		.cleanup = tfw_cfgop_cleanup_ssl_certificate_key,
 	},
 	{ 0 }
 };
 
 TfwMod tfw_tls_mod = {
 	.name	= "tls",
+	.cfgend = tfw_tls_cfgend,
 	.start	= tfw_tls_start,
-	.stop	= tfw_tls_stop,
 	.specs	= tfw_tls_specs,
 };
 

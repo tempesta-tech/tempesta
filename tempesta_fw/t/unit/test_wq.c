@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2017-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -22,13 +22,13 @@
 #include <linux/ctype.h>
 #include <linux/kernel.h>
 #include <linux/kthread.h>
-#include <linux/slab.h>
+#include <linux/vmalloc.h>
 
 #include "test.h"
 #include "work_queue.h"
 
 #define QSZ	2048		/* From work_queue.c */
-#define N	QSZ * 10
+#define N	QSZ * 100
 #define JOB_N	10		/* Jobs per core. */
 
 static const int X_EMPTY = 0;		/* The address skipped by producers. */
@@ -148,7 +148,7 @@ tfw_test_cleanup_prods(TfwTestProducers *prods)
 			kthread_stop(prod->task);
 	}
 	atomic_set(&active_prods, 0);
-	kfree(prods);
+	vfree(prods);
 }
 
 static TfwTestProducers*
@@ -159,8 +159,9 @@ tfw_test_spawn_prods(size_t n)
 	int cpu = -1;
 
 	size = sizeof(TfwTestProducers) + n * sizeof(TfwTestProducer);
-	if (!(prods = kzalloc(size, GFP_KERNEL)))
+	if (!(prods = vmalloc(size)))
 		return NULL;
+	memset(prods, 0, size); /* populate the pages */
 	prods->prods_n = n;
 
 	/* Spawn produces across all available cpus. */
@@ -197,7 +198,7 @@ tfw_test_cleanup_cons(TfwTestConsumers *cons)
 			kthread_stop(con->task);
 	}
 	atomic_set(&active_cons, 0);
-	kfree(cons);
+	vfree(cons);
 }
 
 static TfwTestConsumers*
@@ -209,8 +210,9 @@ tfw_test_spawn_cons(size_t n)
 	size_t size, i;
 
 	size = sizeof(TfwTestConsumers) + n * sizeof(TfwTestConsumer);
-	if (!(cons = kcalloc(cpu_n, size, GFP_KERNEL)))
+	if (!(cons = vmalloc(cpu_n * size)))
 		return NULL;
+	memset(cons, 0, cpu_n * size); /* populate pages */
 	cons->cons_n = n;
 
 	/* Spawn consumers across all available cpus. */
@@ -258,7 +260,7 @@ tfw_test_wq_run(TfwTestProducers *prods, TfwTestConsumers *cons)
 		schedule();
 	for (i = 0; i < cons->cons_n; ++i)
 		wake_up_process(cons->cons[i].task);
-	while(atomic_read(&active_cons))
+	while (atomic_read(&active_cons))
 		schedule();
 
 	tfw_test_assert_prods(prods);
@@ -282,8 +284,8 @@ tfw_test_wq_test(size_t prod_n, size_t con_n)
 
 	tfw_test_wq_run(prods, cons);
 
-	kfree(cons);
-	kfree(prods);
+	vfree(cons);
+	vfree(prods);
 }
 
 TEST(wq, one_prod_one_con)

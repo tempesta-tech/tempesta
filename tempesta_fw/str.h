@@ -203,7 +203,7 @@ typedef struct {
 
 #define DEFINE_TFW_STR(name, val) TfwStr name = { (val), NULL,		\
 						  sizeof(val) - 1, 0 }
-#define TFW_STR_FROM(s)         ((TfwStr){(char*)s, NULL, strlen(s)})
+#define TFW_STR_FROM(s)		((TfwStr){(char*)s, NULL, strlen(s)})
 
 /* Use this with "%.*s" in printing calls. */
 #define PR_TFW_STR(s)		(int)min(20UL, (s)->len), (char *)(s)->ptr

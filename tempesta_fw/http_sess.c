@@ -17,7 +17,7 @@
  * value can be used to cope the non anonymous forward proxy problem and
  * identify real clients.
  *
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -887,7 +887,7 @@ tfw_cfgop_sticky(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static void
-tfw_cfgop_sticky_cleanup(TfwCfgSpec *cs)
+tfw_cfgop_cleanup_sticky(TfwCfgSpec *cs)
 {
 	int i;
 
@@ -899,6 +899,9 @@ tfw_cfgop_sticky_cleanup(TfwCfgSpec *cs)
 		hlist_for_each_entry_safe(sess, tmp, &hb->list, hentry)
 			tfw_http_sess_remove(sess);
 	}
+	memset(tfw_cfg_sticky.name.ptr, 0, STICKY_NAME_MAXLEN + 1);
+	tfw_cfg_sticky.name.len = tfw_cfg_sticky.name_eq.len = 0;
+	tfw_cfg_sticky.enforce = 0;
 }
 
 static int
@@ -933,7 +936,6 @@ tfw_cfgop_sess_lifetime(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 
-	cs->dest = &tfw_cfg_sticky.sess_lifetime;
 	r = tfw_cfg_set_int(cs, ce);
 	/*
 	 * "sess_lifetime 0;" means unlimited session lifetime,
@@ -1087,7 +1089,7 @@ tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static void
-tfw_cfgop_js_challenge_cleanup(TfwCfgSpec *cs)
+tfw_cfgop_cleanup_js_challenge(TfwCfgSpec *cs)
 {
 	if (!tfw_cfg_js_ch)
 		return;
@@ -1139,7 +1141,7 @@ static TfwCfgSpec tfw_http_sess_specs[] = {
 	{
 		.name = "sticky",
 		.handler = tfw_cfgop_sticky,
-		.cleanup = tfw_cfgop_sticky_cleanup,
+		.cleanup = tfw_cfgop_cleanup_sticky,
 		.allow_none = true,
 	},
 	{
@@ -1153,6 +1155,7 @@ static TfwCfgSpec tfw_http_sess_specs[] = {
 		.name = "sess_lifetime",
 		.deflt = "0",
 		.handler = tfw_cfgop_sess_lifetime,
+		.dest = &tfw_cfg_sticky.sess_lifetime,
 		.spec_ext = &(TfwCfgSpecInt) {
 			.range = { 0, INT_MAX },
 		},
@@ -1161,7 +1164,7 @@ static TfwCfgSpec tfw_http_sess_specs[] = {
 	{
 		.name = "js_challenge",
 		.handler = tfw_cfgop_js_challenge,
-		.cleanup = tfw_cfgop_js_challenge_cleanup,
+		.cleanup = tfw_cfgop_cleanup_js_challenge,
 		.allow_none = true,
 	},
 	{ 0 }
