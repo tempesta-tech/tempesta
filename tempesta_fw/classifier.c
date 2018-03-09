@@ -4,7 +4,7 @@
  * Interface to classification modules.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -88,6 +88,12 @@ tfw_classifier_add_inport(__be16 port)
 	BUG_ON(tfw_inports.count == DEF_MAX_PORTS - 1);
 
 	tfw_inports.ports[tfw_inports.count++] = port;
+}
+
+void
+tfw_classifier_cleanup_inport(void)
+{
+	memset(&tfw_inports, 0, sizeof(tfw_inports));
 }
 
 static int

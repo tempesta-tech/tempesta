@@ -41,7 +41,8 @@
 static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_buf);
 int ghprio; /* GFSM hook priority. */
 
-unsigned short tfw_blk_flags = TFW_BLK_ERR_REPLY;
+#define TFW_CFG_BLK_DEF		(TFW_BLK_ERR_REPLY)
+unsigned short tfw_blk_flags = TFW_CFG_BLK_DEF;
 
 /* Array of whitelist marks for request's skb. */
 static struct {
@@ -101,6 +102,7 @@ static struct {
 				S_F_RETRY_AFTER S_V_RETRY_AFTER S_CRLF
 #define S_504_PART_01		S_504 S_CRLF S_F_DATE
 #define S_504_PART_02		S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
+#define S_DEF_PART_02		S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
 
 /*
  * Array with predefined response data
@@ -3338,6 +3340,12 @@ tfw_cfgop_block_action(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
+static void
+tfw_cfgop_cleanup_block_action(TfwCfgSpec *cs)
+{
+	tfw_blk_flags = TFW_CFG_BLK_DEF;
+}
+
 /* Macros specific to *_set_body() functions. */
 #define __TFW_STR_SET_BODY()						\
 	msg->len += l_size - clen_str->len + b_size - body_str->len;	\
@@ -3562,6 +3570,53 @@ tfw_http_config_resp_body(int status_code, const char *filename)
 }
 
 /**
+ * Restore initial Content-Length header value (chunk 4 of http_predef_resps).
+ *
+ * @hdr		- TFW_STR_CLEN_CH(http_predef_resps[@resp_num]);
+ * @resp_num	- response number in resp_code_t.
+*/
+static void
+tfw_cfgop_resp_body_restore_clen(TfwStr *hdr, int resp_num)
+{
+#define CLEN_STR_INIT(s) { hdr->ptr = s; hdr->len = SLEN(s); }
+	switch (resp_num)
+	{
+	case RESP_200:
+		CLEN_STR_INIT(S_200_PART_02);
+		break;
+	case RESP_400:
+		CLEN_STR_INIT(S_400_PART_02);
+		break;
+	case RESP_403:
+		CLEN_STR_INIT(S_403_PART_02);
+		break;
+	case RESP_404:
+		CLEN_STR_INIT(S_404_PART_02);
+		break;
+	case RESP_412:
+		CLEN_STR_INIT(S_412_PART_02);
+		break;
+	case RESP_500:
+		CLEN_STR_INIT(S_500_PART_02);
+		break;
+	case RESP_502:
+		CLEN_STR_INIT(S_502_PART_02);
+		break;
+	case RESP_503:
+		CLEN_STR_INIT(S_503_PART_02);
+		break;
+	case RESP_504:
+		CLEN_STR_INIT(S_504_PART_02);
+		break;
+	default:
+		TFW_WARN("Bug in 'response_body' directive cleanup.");
+		CLEN_STR_INIT(S_DEF_PART_02);
+		break;
+	}
+#undef CLEN_STR_INIT
+}
+
+/**
  * Delete all dynamically allocated message bodies for predefined
  * responses (for the cleanup case during shutdown).
  */
@@ -3587,17 +3642,23 @@ tfw_cfgop_cleanup_resp_body(TfwCfgSpec *cs)
 		clen_str = TFW_STR_CLEN_CH(&http_predef_resps[i]);
 		free_pages((unsigned long)clen_str->ptr,
 			   get_order(clen_str->len + body_str->len));
+		TFW_STR_INIT(body_str);
+		tfw_cfgop_resp_body_restore_clen(clen_str, i);
 	}
 
 	if (body_str_4xx->ptr) {
 		BUG_ON(!clen_str_4xx->ptr);
 		free_pages((unsigned long)clen_str_4xx->ptr,
 			   get_order(clen_str_4xx->len + body_str_4xx->len));
+		TFW_STR_INIT(body_str_4xx);
+		TFW_STR_INIT(clen_str_4xx);
 	}
 	if (body_str_5xx->ptr) {
 		BUG_ON(!clen_str_5xx->ptr);
 		free_pages((unsigned long)clen_str_5xx->ptr,
 			   get_order(clen_str_5xx->len + body_str_5xx->len));
+		TFW_STR_INIT(body_str_5xx);
+		TFW_STR_INIT(clen_str_5xx);
 	}
 }
 
@@ -3693,6 +3754,7 @@ static void
 tfw_cfgop_cleanup_whitelist_mark(TfwCfgSpec *cs)
 {
 	kfree(tfw_wl_marks.mrks);
+	memset(&tfw_wl_marks, 0, sizeof(tfw_wl_marks));
 }
 
 static TfwCfgSpec tfw_http_specs[] = {
@@ -3702,6 +3764,7 @@ static TfwCfgSpec tfw_http_specs[] = {
 		.handler = tfw_cfgop_block_action,
 		.allow_repeat = true,
 		.allow_none = true,
+		.cleanup = tfw_cfgop_cleanup_block_action,
 	},
 	{
 		.name = "response_body",
