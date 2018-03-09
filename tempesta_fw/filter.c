@@ -16,7 +16,7 @@
  * application level filters must be implemented.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -297,27 +297,29 @@ tfw_filter_stop(void)
 {
 	if (tfw_runstate_is_reconfig())
 		return;
-	nf_unregister_hooks(tfw_nf_ops, ARRAY_SIZE(tfw_nf_ops));
-	tdb_close(ip_filter_db);
+	if (ip_filter_db) {
+		nf_unregister_hooks(tfw_nf_ops, ARRAY_SIZE(tfw_nf_ops));
+		tdb_close(ip_filter_db);
+	}
 }
 
 static TfwCfgSpec tfw_filter_specs[] = {
 	{
-		"filter_tbl_size",
-		"16777216",
-		tfw_cfg_set_int,
-		&filter_cfg.db_size,
-		&(TfwCfgSpecInt) {
+		.name = "filter_tbl_size",
+		.deflt = "16777216",
+		.handler = tfw_cfg_set_int,
+		.dest = &filter_cfg.db_size,
+		.spec_ext = &(TfwCfgSpecInt) {
 			.multiple_of = PAGE_SIZE,
 			.range = { PAGE_SIZE, (1 << 30) },
 		}
 	},
 	{
-		"filter_db",
-		"/opt/tempesta/db/filter.tdb",
-		tfw_cfg_set_str,
-		&filter_cfg.db_path,
-		&(TfwCfgSpecStr) {
+		.name = "filter_db",
+		.deflt = "/opt/tempesta/db/filter.tdb",
+		.handler = tfw_cfg_set_str,
+		.dest = &filter_cfg.db_path,
+		.spec_ext = &(TfwCfgSpecStr) {
 			.len_range = { 1, PATH_MAX },
 		}
 	},
