@@ -2688,15 +2688,13 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 			hmsib = tfw_http_msg_create_sibling((TfwHttpMsg *)req,
 							    &skb, data_off,
 							    Conn_Clnt);
-			if (hmsib == NULL) {
+			if (unlikely(!hmsib)) {
 				/*
-				 * Not enough memory. Unfortunately, there's
-				 * no recourse. The caller expects that data
-				 * is processed in full, and can't deal with
-				 * partially processed data.
+				 * Unfortunately, there's no recourse. The
+				 * caller expects that data is processed in
+				 * full, and can't deal with partially
+				 * processed data.
 				 */
-				TFW_WARN("Not enough memory to create"
-					 " a request sibling\n");
 				TFW_INC_STAT_BH(clnt.msgs_otherr);
 				tfw_client_drop(req, 500, "cannot create"
 					      " sibling request");
@@ -3103,11 +3101,8 @@ tfw_http_resp_process(TfwConn *conn, const TfwFsmData *data)
 			 * caller expects that data is processed in full,
 			 * and can't deal with partially processed data.
 			 */
-			if (hmsib == NULL) {
-				TFW_WARN("Insufficient memory "
-					 "to create a response sibling\n");
+			if (unlikely(!hmsib)) {
 				TFW_INC_STAT_BH(serv.msgs_otherr);
-
 				/*
 				 * Unable to create a sibling message.
 				 * Send the parsed response to the client

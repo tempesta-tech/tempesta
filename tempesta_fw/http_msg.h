@@ -76,6 +76,7 @@ tfw_http_msg_alloc_req_light(void)
 {
 	return (TfwHttpReq *)__tfw_http_msg_alloc(Conn_Clnt, false);
 }
+
 static inline TfwHttpResp *
 __tfw_http_msg_alloc_resp(TfwHttpReq *req, bool full)
 {
@@ -85,11 +86,13 @@ __tfw_http_msg_alloc_resp(TfwHttpReq *req, bool full)
 
 	return resp;
 }
+
 static inline TfwHttpResp *
 tfw_http_msg_alloc_resp(TfwHttpReq *req)
 {
 	return __tfw_http_msg_alloc_resp(req, true);
 }
+
 static inline TfwHttpResp *
 tfw_http_msg_alloc_resp_light(TfwHttpReq *req)
 {
