@@ -564,6 +564,9 @@ class ServerConnection(asyncore.dispatcher_with_send):
         self.request_buffer = ''
         if not response:
             return
+        self.send_response(response)
+
+    def send_response(self, response):
         if response.msg:
             tf_cfg.dbg(4, '\tDeproxy: SrvConnection: Send response to Tempesta.')
             tf_cfg.dbg(5, response.msg)
