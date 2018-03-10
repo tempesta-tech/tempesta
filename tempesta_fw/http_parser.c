@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -2740,6 +2740,14 @@ __req_parse_user_agent(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_START(parser->_i_st) {
 
 	__FSM_STATE(Req_I_UserAgent) {
+		/*
+		 * RFC 7231 5.5.3 and RFC 7230 3.2:
+		 *
+		 * 	User-Agent = product *( RWS ( product / comment ) )
+		 * 	product = token ["/" product-version]
+		 * 	product-version = token
+		 * 	comment = "(" *( ctext / quoted-pair / comment ) ")"
+		 */
 		__FSM_I_MATCH_MOVE(ctext_vchar, Req_I_UserAgent);
 		if (IS_CRLF(*(p + __fsm_sz)))
 			return __data_off(p + __fsm_sz);
@@ -4187,8 +4195,12 @@ __resp_parse_server(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	__FSM_STATE(Resp_I_Server) {
 		/*
-		 * Just eat the header value: usually we just replace
-		 * the header value.
+		 * Just eat the header value: usually we just replace the header
+		 * value. RFC 7231 7.4.2 and RFC 7230 3.2:
+		 *
+		 *	Server = product *( RWS ( product / comment ) )
+		 * 	product = token ["/" product-version]
+		 * 	comment = "(" *( ctext / quoted-pair / comment ) ")"
 		 */
 		__FSM_I_MATCH_MOVE(ctext_vchar, Resp_I_Server);
 		if (IS_CRLF(*(p + __fsm_sz)))
@@ -4346,7 +4358,11 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 		}
 	}
 
-	/* Reason-Phrase: just skip. */
+	/*
+	 * Reason-Phrase: just skip. RFC 7230 3.1.2:
+	 *
+	 *	reason-phrase  = *( HTAB / SP / VCHAR / obs-text )
+	 */
 	__FSM_STATE(Resp_ReasonPhrase) {
 		__FSM_MATCH_MOVE_f(ctext_vchar, Resp_ReasonPhrase,
 				   &resp->s_line);

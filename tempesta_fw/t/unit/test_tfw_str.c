@@ -76,6 +76,7 @@ TEST(cstr, simd_match)
 	__test_match("0123456789ab{c}def");
 	__test_match("!#$%&'*+-._();^abcde");
 	__test_match("0123456789abcdefghIjkl|\\Pmdsfdfew34////");
+	__test_match("0123456789abcdefghIjkl|\xfcPmdsfdfew34////");
 	__test_match("0123456789abcdefghIjkl@?Pmdsfdfew34//^//");
 	__test_match("0123456789_0123456789_0123456789_0123456789_|abcdef");
 	__test_match("0123456789_0123456789_^0123456789_0123456789_abcdef");
@@ -110,13 +111,17 @@ TEST(cstr, simd_match_ctext_vchar)
 	int i;
 	char buf[N] = {[0 ... N - 1] = 0xff }; /* fill in with valid chars */
 
-	BUILD_BUG_ON(N < P + 257);
+	BUILD_BUG_ON(N < P + 257 || P < 1);
 
 	/* All the allowed characters are matched. */
 	for (i = 0; i <= 0xff; ++i)
 		if (i == 9 || (i >= 0x20 && i != 0x7f))
 			buf[P + i] = i;
 	EXPECT_TRUE(tfw_match_ctext_vchar(buf, N) == N);
+	/* Check short strings. */
+	EXPECT_TRUE(tfw_match_ctext_vchar(buf + P - 1, 4) == 4);
+	EXPECT_TRUE(tfw_match_ctext_vchar(buf + P - 1, 15) == 15);
+	EXPECT_TRUE(tfw_match_ctext_vchar(buf + P - 1, 29) == 29);
 
 	/* Check not allowed characters. */
 	buf[P + 0x7f] = 0x7f;
@@ -179,7 +184,7 @@ TEST(cstr, simd_strtolower)
 	__test_tolower("AbCdE");
 	__test_tolower("\"abce");
 	__test_tolower("AbCdEm");
-	__test_tolower("AbCdEmN");
+	__test_tolower("AbCdE\xfemN");
 	__test_tolower("heLLo_24!");
 	__test_tolower("!#$%&'*+-._();^abcDe");
 	__test_tolower("0123456789abcDefghIjkl|@?\\PmdSfdfew34//^//");
@@ -224,7 +229,7 @@ TEST(cstr, simd_stricmp)
 	__test_strcmp("ABC[", "abc{");
 	__test_strcmp("ABC{", "abc[");
 	__test_strcmp("AbCdE", "abcde");
-	__test_strcmp("AbCdEm", "abcde");
+	__test_strcmp("AbCdE\xf0m", "abcde");
 	__test_strcmp("AbCdE", "axcde");
 	__test_strcmp("/img/arrow-up.png", "/img/arrow-up.png");
 	__test_strcmp("0123456789abcdefghijklmno", "0123456789abcdefghijklmno");
