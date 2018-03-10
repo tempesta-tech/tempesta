@@ -10,7 +10,7 @@ from helpers import deproxy, tempesta
 from testers import functional
 
 __author__ = 'Tempesta Technologies, Inc.'
-__copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
+__copyright__ = 'Copyright (C) 2017-2018 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
 class FailoveringTest(functional.FunctionalTest):
@@ -31,12 +31,16 @@ class FailoveringTest(functional.FunctionalTest):
         self.tempesta.config.set_defconfig('')
 
         self.create_servers()
+        for server in self.servers:
+            server.start()
         self.configure_tempesta()
 
         self.tempesta.start()
         self.create_client()
-        chains = [deproxy.MessageChain.empty()]
+        self.client.start()
+        # Message chains are not needed for the tester.
         self.create_tester()
+        self.tester.start()
 
     def test_on_close(self):
         self.init()
