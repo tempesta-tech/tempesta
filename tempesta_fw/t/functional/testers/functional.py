@@ -141,13 +141,10 @@ class FunctionalTest(unittest.TestCase):
         for server in self.servers:
             server.start()
 
-        tf_cfg.dbg(3, "Starting tempesta")
         self.tempesta.start()
-        tf_cfg.dbg(3, "Starting client")
         self.client.start()
-        tf_cfg.dbg(3, "Starting tester")
         self.tester.start()
-        tf_cfg.dbg(3, "Starting completed")
+        tf_cfg.dbg(3, "\tStarting completed")
 
         self.tester.run()
 
