@@ -433,6 +433,15 @@ tfw_sched_hash_del_srv(TfwServer *srv)
 		call_rcu_bh(&cl->rcu, tfw_sched_hash_put_srv_data);
 }
 
+void
+tfw_sched_hash_refcnt(bool get)
+{
+	if (get)
+		try_module_get(THIS_MODULE);
+	else
+		module_put(THIS_MODULE);
+}
+
 static TfwScheduler tfw_sched_hash = {
 	.name		= "hash",
 	.list		= LIST_HEAD_INIT(tfw_sched_hash.list),
@@ -442,6 +451,7 @@ static TfwScheduler tfw_sched_hash = {
 	.del_srv	= tfw_sched_hash_del_srv,
 	.sched_sg_conn	= tfw_sched_hash_get_sg_conn,
 	.sched_srv_conn	= tfw_sched_hash_get_srv_conn,
+	.sched_refcnt	= tfw_sched_hash_refcnt,
 };
 
 int
