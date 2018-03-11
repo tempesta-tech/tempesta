@@ -211,7 +211,7 @@ class DontModifyBackend(stress.StressTest):
         self.servers.append(server)
 
         server = control.Nginx(listen_port=self.base_port,
-                               listen_ports=self.num_attempts,
+                               ports_n=self.num_attempts,
                                listen_ip=self.ips[0])
         self.setup_nginx_config(server.config)
         self.servers.append(server)
@@ -219,7 +219,7 @@ class DontModifyBackend(stress.StressTest):
         self.extra_servers_base = len(self.servers)
         for ifc in range(self.num_extra_interfaces):
             server = control.Nginx(listen_port=self.base_port,
-                                   listen_ports=self.num_extra_ports,
+                                   ports_n=self.num_extra_ports,
                                    listen_ip=self.ips[ifc + 1])
             self.setup_nginx_config(server.config)
             self.servers.append(server)

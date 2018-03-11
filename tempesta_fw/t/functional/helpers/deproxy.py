@@ -452,18 +452,16 @@ MAX_MESSAGE_SIZE = 65536
 
 class Client(asyncore.dispatcher, stateful.Stateful):
 
-    def __init__(self, host=None, addr=None, port=80):
+    def __init__(self, addr=None, port=80):
         asyncore.dispatcher.__init__(self)
         self.request = None
         self.request_buffer = ''
         self.response_buffer = ''
         self.tester = None
         if addr is None:
-            if host is None:
-                host = 'Tempesta'
-            addr = tf_cfg.cfg.get(host, 'ip')
+            addr = tf_cfg.cfg.get('Tempesta', 'ip')
         tf_cfg.dbg(4, '\tDeproxy: Client: Connect to %s:%d.' % (addr, port))
-        self.addr = tf_cfg.cfg.get(host, 'ip')
+        self.addr = addr
         self.port = port
         self.stop_procedures = [self.__stop_client]
         self.orig_addr = ''
