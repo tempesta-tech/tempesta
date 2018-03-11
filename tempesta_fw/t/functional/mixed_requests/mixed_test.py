@@ -7,8 +7,13 @@ class MixedRequests(stress.StressTest):
     script = None
     clients_num = int(tf_cfg.cfg.get('General', 'concurrent_connections'))
 
+    def create_servers(self):
+        stress.StressTest.create_servers(self)
+        for server in self.servers:
+            server.config.set_return_code()
+
     def create_clients(self):
-        self.wrk = control.Wrk(threads=self.clients_num)
+        self.wrk = control.Wrk()
         self.wrk.set_script(self.script)
         self.clients = [self.wrk]
 
