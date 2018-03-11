@@ -75,7 +75,7 @@ class MultipleBackends(stress.StressTest):
                                      self.num_interfaces)
         for ip in self.ips:
             server = control.Nginx(listen_port=self.base_port, \
-                                listen_ports=self.num_listeners_per_interface, \
+                                ports_n=self.num_listeners_per_interface, \
                                 listen_ip=ip)
             self.servers.append(server)
 

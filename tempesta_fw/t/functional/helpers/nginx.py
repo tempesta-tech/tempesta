@@ -16,6 +16,11 @@ class Listener(object):
     ip_listen = "0.0.0.0"
     location = ""
     config = ""
+    config_have_status = """
+    location /nginx_status {
+            stub_status on;
+        }
+"""
     config_server_template = """
     server {
         listen        %s;
@@ -23,12 +28,11 @@ class Listener(object):
         location / {
             root %s;
         }
-        location /nginx_status {
-            stub_status on;
-        }
+        %s
     }
 """
-    def __init__(self, ip_listen, port, location, backlog=None):
+    def __init__(self, ip_listen, port, location,
+                 backlog=None, has_status=False):
         if backlog is None:
             listen_str = "%s:%i" % (ip_listen, port)
         else:
@@ -36,7 +40,12 @@ class Listener(object):
         self.ip_listen = ip_listen
         self.port = port
         self.location = location
-        self.config = self.config_server_template % (listen_str, location)
+        if has_status:
+            self.config = self.config_server_template % \
+                (listen_str, location, self.config_have_status)
+        else:
+            self.config = self.config_server_template % \
+                (listen_str, location, "")
 
 class Config(object):
     """ Nginx config file builder. """
@@ -121,7 +130,10 @@ events {
 
     def add_server(self, ip_listen, port):
         """ Add new server listener """
-        listener = Listener(ip_listen, port, self.location)
+        if len(self.listeners) == 0:
+            listener = Listener(ip_listen, port, self.location, has_status=True)
+        else:
+            listener = Listener(ip_listen, port, self.location)
         self.listeners.append(listener)
         self.build_config()
 
