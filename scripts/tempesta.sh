@@ -19,6 +19,9 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
+[ "${TEMPESTA_LCK}" != "$0" ] && \
+    exec env TEMPESTA_LCK="$0" flock -n "/tmp/tempesta-lock-file" "$0" "$@"
+
 . "$(dirname $0)/tfw_lib.sh"
 
 script_path="$(dirname $0)"
