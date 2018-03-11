@@ -13,6 +13,7 @@ class StressTest(unittest.TestCase):
 
     pipelined_req = 1
     tfw_msg_errors = False
+    errors_502 = 0
 
     def create_clients(self):
         """ Override to set desired list of benchmarks and their options. """
@@ -91,7 +92,7 @@ class StressTest(unittest.TestCase):
             tf_cfg.dbg(2)
         req_total = err_total = rate_total = 0
         for c in self.clients:
-            req, err, rate = c.results()
+            req, err, rate, _ = c.results()
             req_total += req
             err_total += err
             rate_total += rate
@@ -101,17 +102,25 @@ class StressTest(unittest.TestCase):
             2, '\tClients in total: errors: %d, requests: %d, rate: %d' %
             (err_total, req_total, rate_total))
 
+    def assert_response(self, req, err, statuses):
+        msg = 'HTTP client detected %i/%i errors. Results: %s' % \
+                (err, req, str(statuses))
+
+        if 502 in statuses.keys():
+            self.errors_502 += statuses[502]
+        self.assertEqual(err, 0, msg=msg)
 
     def assert_clients(self):
         """ Check benchmark result: no errors happen, no packet loss. """
         cl_req_cnt = 0
         cl_conn_cnt = 0
+        self.errors_502 = 0
         for c in self.clients:
-            req, err, _ = c.results()
+            req, err, _, statuses = c.results()
             cl_req_cnt += req
             cl_conn_cnt += c.connections * self.pipelined_req
-            self.assertEqual(err, 0,
-                             msg='Client received non 2xx or 3xx responses')
+            self.assert_response(req, err, statuses)
+
         exp_min = cl_req_cnt
         # Positive allowance: this means some responses are missed by the client.
         # It is believed (nobody actually checked though...) that wrk does not
@@ -137,8 +146,10 @@ class StressTest(unittest.TestCase):
         if self.tfw_msg_errors:
             return
 
-        self.assertTrue(self.tempesta.stats.cl_msg_other_errors <= 0,
-                        msg=(msg % 'requests'))
+        # TODO: with self.errors_502 we should compare special counter for
+        # backend connection error. But it is not present.
+        self.assertTrue(self.tempesta.stats.cl_msg_other_errors == \
+                 self.errors_502, msg=(msg % 'requests'))
         # See comment on "positive allowance" in `assert_clients()`
         expected_err = cl_conn_cnt
         self.assertTrue(self.tempesta.stats.srv_msg_other_errors <= expected_err,

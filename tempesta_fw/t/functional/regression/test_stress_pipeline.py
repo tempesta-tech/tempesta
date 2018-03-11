@@ -56,9 +56,8 @@ class PipelineFaultInjection(stress.StressTest):
         number of requests without responses, but there should be
         no erroneous responses. """
         for c in self.clients:
-            _, err, _ = c.results()
-            self.assertEqual(err, 0,
-                             msg='Client received non 2xx or 3xx responses')
+            req, err, _, statuses = c.results()
+            self.assert_response(req, err, statuses)
 
     def assert_tempesta(self):
         """ Assert that tempesta must have errors for client messages
