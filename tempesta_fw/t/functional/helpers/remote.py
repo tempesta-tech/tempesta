@@ -6,6 +6,7 @@ import os
 import abc
 import paramiko
 import errno
+import shutil
 import subprocess32 as subprocess
 from . import tf_cfg, error
 
@@ -14,7 +15,7 @@ __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
 # Don't remove files from remote node. Helpful for tests development.
-DEBUG_FILES = False
+DEBUG_FILES = True
 # Default timeout for SSH sessions and command processing.
 DEFAULT_TIMEOUT = 5
 
@@ -40,6 +41,10 @@ class Node(object):
 
     @abc.abstractmethod
     def copy_file(self, filename, content):
+        pass
+
+    @abc.abstractmethod
+    def copy_file_to_node(self, file, dest_dir):
         pass
 
     @abc.abstractmethod
@@ -94,6 +99,8 @@ class LocalNode(Node):
         with open(filename, 'w') as f:
             f.write(content)
 
+    def copy_file_to_node(self, file, dest_dir):
+        shutil.copy(file, dest_dir)
 
     def remove_file(self, filename):
         if DEBUG_FILES:
@@ -176,6 +183,15 @@ class RemoteNode(Node):
         except Exception as e:
             error.bug(("Error copying file %s to %s" %
                        (filename, self.host)))
+
+    def copy_file_to_node(self, file, dest_dir):
+        try:
+            sftp = self.ssh.open_sftp()
+            sftp.put(file, dest_dir)
+            sftp.close()
+        except Exception as e:
+            error.bug(("Error copying file %s to %s" %
+                       (file, self.host)))
 
     def remove_file(self, filename):
         if DEBUG_FILES:

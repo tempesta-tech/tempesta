@@ -72,7 +72,8 @@ class LiveReconfStress(stress.StressTest):
             # Tempesta must be reconfigured in less that 1sec. Errors must not
             # happen after reconfig has finished.
             max_err = rate
-            self.assertTrue((err < max_err), msg='HTTP client detected errors')
+            self.assertTrue((err < max_err),
+                            msg='Client received non 2xx or 3xx responses')
 
     def stress_reconfig_generic(self, configure_func, reconfigure_func):
         """Generic test routinr for reconfig.
