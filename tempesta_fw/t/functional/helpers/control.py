@@ -367,23 +367,11 @@ class TempestaFI(Tempesta):
 #-------------------------------------------------------------------------------
 
 class Nginx(stateful.Stateful):
-    first_port = 0
-    config = None
-
-    def __init__(self, listen_port, workers=1, ports_n=1, listen_ip=None):
-        self.first_port = listen_port
+    def __init__(self, listen_port, workers=1):
         self.node = remote.server
         self.workdir = tf_cfg.cfg.get('Server', 'workdir')
-
-        if listen_ip is None:
-            self.ip = tf_cfg.cfg.get('Server', 'ip')
-        else:
-            self.ip = listen_ip
-
-        self.config = nginx.Config(self.workdir, workers)
-        for i in range(ports_n):
-            self.config.add_server(self.ip, listen_port + i)
-
+        self.ip = tf_cfg.cfg.get('Server', 'ip')
+        self.config = nginx.Config(self.workdir, listen_port, workers)
         self.clear_stats()
         # Configure number of connections used by TempestaFW.
         self.conns_n = tempesta.server_conns_default()
@@ -393,7 +381,7 @@ class Nginx(stateful.Stateful):
         self.stop_procedures = [self.stop_nginx, self.remove_config]
 
     def get_name(self):
-        return ':'.join([self.ip, str(self.first_port)])
+        return ':'.join([self.ip, str(self.config.port)])
 
     def run_start(self):
         tf_cfg.dbg(3, '\tStarting Nginx on %s' % self.get_name())
@@ -431,8 +419,7 @@ class Nginx(stateful.Stateful):
         self.stats_ask_times += 1
         # In default tests configuration Nginx status available on
         # `nginx_status` page.
-        listener = self.config.listeners[0]
-        uri = 'http://%s:%d/nginx_status' % (self.node.host, listener.port)
+        uri = 'http://%s:%d/nginx_status' % (self.node.host, self.config.port)
         cmd = 'curl %s' % uri
         out, _ = remote.client.run_cmd(
             cmd, err_msg=(self.err_msg % ('get stats of', self.get_name())))
