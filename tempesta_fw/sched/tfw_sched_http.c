@@ -172,13 +172,10 @@ tfw_sched_http_sched_srv_conn(TfwMsg *msg, TfwServer *sg)
 	return NULL;
 }
 
-void
+static void
 tfw_sched_http_refcnt(bool get)
 {
-	if (get)
-		try_module_get(THIS_MODULE);
-	else
-		module_put(THIS_MODULE);
+	tfw_module_refcnt(THIS_MODULE, get);
 }
 
 static TfwScheduler tfw_sched_http = {
