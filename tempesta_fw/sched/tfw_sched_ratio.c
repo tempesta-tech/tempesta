@@ -1283,13 +1283,10 @@ tfw_sched_ratio_del_srv(TfwServer *srv)
 		call_rcu_bh(&srvdesc->rcu, tfw_sched_ratio_put_srv_data);
 }
 
-void
+static void
 tfw_sched_ratio_refcnt(bool get)
 {
-	if (get)
-		try_module_get(THIS_MODULE);
-	else
-		module_put(THIS_MODULE);
+	tfw_module_refcnt(THIS_MODULE, get);
 }
 
 static TfwScheduler tfw_sched_ratio = {
