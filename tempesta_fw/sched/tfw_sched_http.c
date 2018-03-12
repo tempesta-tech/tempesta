@@ -172,12 +172,19 @@ tfw_sched_http_sched_srv_conn(TfwMsg *msg, TfwServer *sg)
 	return NULL;
 }
 
+static void
+tfw_sched_http_refcnt(bool get)
+{
+	tfw_module_refcnt(THIS_MODULE, get);
+}
+
 static TfwScheduler tfw_sched_http = {
 	.name		= "http",
 	.list		= LIST_HEAD_INIT(tfw_sched_http.list),
 	.sched_grp	= tfw_sched_http_sched_grp,
 	.sched_sg_conn	= tfw_sched_http_sched_sg_conn,
 	.sched_srv_conn	= tfw_sched_http_sched_srv_conn,
+	.sched_refcnt	= tfw_sched_http_refcnt,
 };
 
 /*
