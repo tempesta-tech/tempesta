@@ -1008,6 +1008,14 @@ tfw_http_req_evict_retries(TfwSrvConn *srv_conn, TfwServer *srv,
 }
 
 static inline bool
+tfw_http_req_evict_stale_req(TfwSrvConn *srv_conn, TfwServer *srv,
+			     TfwHttpReq *req, struct list_head *eq)
+{
+	return tfw_http_req_evict_dropped(srv_conn, req, eq)
+	       || tfw_http_req_evict_timeout(srv_conn, srv, req, eq);
+}
+
+static inline bool
 tfw_http_req_evict(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 		   struct list_head *eq)
 {
@@ -1062,7 +1070,7 @@ tfw_http_req_fwd_single(TfwSrvConn *srv_conn, TfwServer *srv,
 {
 	if ((unlikely(req->flags & TFW_HTTP_F_REQ_DROP)))
 		return false;
-	if (tfw_http_req_evict_timeout(srv_conn, srv, req, eq))
+	if (tfw_http_req_evict_stale_req(srv_conn, srv, req, eq))
 		return false;
 	if (!tfw_http_req_fwd_send(srv_conn, srv, req, eq))
 		return false;
@@ -1393,7 +1401,7 @@ tfw_http_conn_shrink_fwdq(TfwSrvConn *srv_conn)
 		     &req->fwd_list != end;
 		     req = tmp, tmp = list_next_entry(tmp, fwd_list))
 		{
-			tfw_http_req_evict_timeout(srv_conn, srv, req, &eq);
+			tfw_http_req_evict_stale_req(srv_conn, srv, req, &eq);
 		}
 		/*
 		 * Process the request that was forwarded last, and then
@@ -1401,7 +1409,7 @@ tfw_http_conn_shrink_fwdq(TfwSrvConn *srv_conn)
 		 * @req is now the same as @srv_conn->msg_sent.
 		 */
 		msg_sent_prev = __tfw_http_conn_msg_sent_prev(srv_conn);
-		if (tfw_http_req_evict_timeout(srv_conn, srv, req, &eq))
+		if (tfw_http_req_evict_stale_req(srv_conn, srv, req, &eq))
 			srv_conn->msg_sent = msg_sent_prev;
 	}
 
@@ -1414,7 +1422,7 @@ tfw_http_conn_shrink_fwdq(TfwSrvConn *srv_conn)
 	    : list_first_entry(fwdq, TfwHttpReq, fwd_list);
 
 	list_for_each_entry_safe_from(req, tmp, fwdq, fwd_list)
-		tfw_http_req_evict_timeout(srv_conn, srv, req, &eq);
+		tfw_http_req_evict_stale_req(srv_conn, srv, req, &eq);
 
 	spin_unlock_bh(&srv_conn->fwd_qlock);
 
