@@ -195,6 +195,7 @@ struct tfw_scheduler_t {
 	TfwSrvConn		*(*sched_grp)(TfwMsg *msg);
 	TfwSrvConn		*(*sched_sg_conn)(TfwMsg *msg, TfwSrvGroup *sg);
 	TfwSrvConn		*(*sched_srv_conn)(TfwMsg *msg, TfwServer *srv);
+	void			(*sched_refcnt)(bool get);
 };
 
 /* Server specific routines. */
@@ -347,6 +348,7 @@ tfw_sg_name_match(TfwSrvGroup *sg, const char *name, unsigned int len)
 TfwSrvConn *tfw_sched_get_srv_conn(TfwMsg *msg);
 TfwSrvConn *__tfw_sched_get_srv_conn(TfwMsg *msg);
 TfwScheduler *tfw_sched_lookup(const char *name);
+void tfw_sched_refcnt_all(bool get);
 int tfw_sched_register(TfwScheduler *sched);
 void tfw_sched_unregister(TfwScheduler *sched);
 
