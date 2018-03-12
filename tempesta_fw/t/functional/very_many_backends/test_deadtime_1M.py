@@ -108,10 +108,10 @@ class DeadtimeClient(stateful.Stateful):
             long_times += 1
         if delay > max_delay:
                 max_delay = delay
-        tf_cfg.dbg(3, "short times: %i" % short_times)
-        tf_cfg.dbg(3, "long times: %i" % long_times)
-        tf_cfg.dbg(3, "max delay: %f" % max_delay)
-        tf_cfg.dbg(3, "min delay: %f" % min_delay)
+        tf_cfg.dbg(3, "number of requests shorter than  1 s: %i" % short_times)
+        tf_cfg.dbg(3, "number of requests longer than 1 s: %i" % long_times)
+        tf_cfg.dbg(3, "max request time: %f" % max_delay)
+        tf_cfg.dbg(3, "min request time: %f" % min_delay)
         if finish_event.is_set():
             tf_cfg.dbg(3, "Finish event recieved")
         else:
@@ -206,11 +206,11 @@ class DontModifyBackend(stress.StressTest):
         self.servers = []
         # default server
         defport=tempesta.upstream_port_start_from()
-        server = control.Nginx(listen_port=defport)
+        server = multi_backend.NginxMP(listen_port=defport)
         self.setup_nginx_config(server.config)
         self.servers.append(server)
 
-        server = control.Nginx(listen_port=self.base_port,
+        server = multi_backend.NginxMP(listen_port=self.base_port,
                                ports_n=self.num_attempts,
                                listen_ip=self.ips[0])
         self.setup_nginx_config(server.config)
@@ -218,19 +218,20 @@ class DontModifyBackend(stress.StressTest):
 
         self.extra_servers_base = len(self.servers)
         for ifc in range(self.num_extra_interfaces):
-            server = control.Nginx(listen_port=self.base_port,
+            server = multi_backend.NginxMP(listen_port=self.base_port,
                                    ports_n=self.num_extra_ports,
                                    listen_ip=self.ips[ifc + 1])
             self.setup_nginx_config(server.config)
             self.servers.append(server)
 
     def pre_test(self):
-        remote.server.run_cmd("sysctl -w net.core.somaxconn=8192")
-        remote.server.run_cmd("sysctl -w net.ipv4.tcp_max_orphans=1000000")
-        remote.tempesta.run_cmd("sysctl -w net.core.somaxconn=8192")
-        remote.tempesta.run_cmd("sysctl -w net.ipv4.tcp_max_orphans=1000000")
-        remote.client.run_cmd("sysctl -w net.core.somaxconn=8192")
-        remote.client.run_cmd("sysctl -w net.ipv4.tcp_max_orphans=1000000")
+        if remote.server != remote.tempesta:
+            remote.server.run_cmd("sysctl -w net.core.somaxconn=8192")
+            remote.server.run_cmd("sysctl -w net.ipv4.tcp_max_orphans=1000000")
+        # tempesta sysctl setups from tempesta.sh
+        if remote.client != remote.tempesta:
+            remote.client.run_cmd("sysctl -w net.core.somaxconn=8192")
+            remote.client.run_cmd("sysctl -w net.ipv4.tcp_max_orphans=1000000")
 
         for server in self.servers:
             server.start()
@@ -245,7 +246,9 @@ class DontModifyBackend(stress.StressTest):
         self.assert_clients()
 
     def assert_clients(self):
-        assert self.client.long_times == 0, 'Too long deadtime'
+        msg = "Reconfiguration took too long time: " \
+              " server group was unavailable more than 1s"
+        self.assertEqual(self.client.long_times, 0, msg)
 
     def reconfigure_tempesta(self, i):
         self.append_server_group(i)
