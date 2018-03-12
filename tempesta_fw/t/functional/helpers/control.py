@@ -25,7 +25,7 @@ class Client(object):
     Also see comment in `Client.add_option_file()` function.
     """
 
-    def __init__(self, binary, uri=''):
+    def __init__(self, binary, uri='', ssl=False):
         """ `uri` must be relative to server root.
 
         DO NOT format command line options in constructor! Instead format them
@@ -36,6 +36,7 @@ class Client(object):
         self.connections = int(tf_cfg.cfg.get('General', 'concurrent_connections'))
         self.duration = int(tf_cfg.cfg.get('General', 'Duration'))
         self.workdir = tf_cfg.cfg.get('Client', 'workdir')
+        self.ssl = ssl
         self.set_uri(uri)
         self.bin = tf_cfg.cfg.get_binary('Client', binary)
         self.cmd = ''
@@ -57,8 +58,9 @@ class Client(object):
         uri field.
         """
         if uri:
+            proto = 'https://' if self.ssl else 'http://'
             server_addr = tf_cfg.cfg.get('Tempesta', 'ip')
-            self.uri = ''.join(['http://', server_addr, uri])
+            self.uri = ''.join([proto, server_addr, uri])
         else:
             self.uri = ''
 
@@ -121,8 +123,8 @@ class Wrk(Client):
     """
     FAIL_ON_SOCK_ERR=True
 
-    def __init__(self, threads=-1, uri='/'):
-        Client.__init__(self, 'wrk', uri)
+    def __init__(self, threads=-1, uri='/', ssl=False):
+        Client.__init__(self, binary='wrk', uri=uri, ssl=ssl)
         self.threads = threads
         self.script = ''
 
@@ -178,8 +180,8 @@ class Wrk(Client):
 class Ab(Client):
     """ Apache benchmark. """
 
-    def __init__(self, uri='/'):
-        Client.__init__(self, 'ab', uri=uri)
+    def __init__(self, uri='/', ssl=False):
+        Client.__init__(self, 'ab', uri=uri, ssl=ssl)
 
     def form_command(self):
         # Don't show progress.

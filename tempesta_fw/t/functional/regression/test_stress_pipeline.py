@@ -57,7 +57,8 @@ class PipelineFaultInjection(stress.StressTest):
         no erroneous responses. """
         for c in self.clients:
             _, err, _ = c.results()
-            self.assertEqual(err, 0, msg='HTTP client detected errors')
+            self.assertEqual(err, 0,
+                             msg='Client received non 2xx or 3xx responses')
 
     def assert_tempesta(self):
         """ Assert that tempesta must have errors for client messages
