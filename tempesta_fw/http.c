@@ -2347,7 +2347,7 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 	TfwSrvConn *srv_conn = NULL;
 	LIST_HEAD(eq);
 
-	TFW_DBG2("%s: req = %p, resp = %p\n", __func__, req, resp);
+	TFW_DBG2("%s: req = %p, resp = %p\n", __func__, req, req->resp);
 
 	/*
 	 * Sticky cookie module used for HTTP session identification may send
