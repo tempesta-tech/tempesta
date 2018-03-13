@@ -161,7 +161,7 @@ __find_best_conn(TfwMsg *msg, TfwHashConnList *cl)
 {
 	ssize_t l_idx, r_idx, idx;
 	TfwSrvConn *conn;
-	bool hmonitor = ((TfwHttpReq *)msg)->flags & TFW_HTTP_HMONITOR;
+	bool hmonitor = ((TfwHttpReq *)msg)->flags & TFW_HTTP_F_HMONITOR;
 	unsigned long msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
 	unsigned long best_hash = (~0UL ^ msg_hash);
 

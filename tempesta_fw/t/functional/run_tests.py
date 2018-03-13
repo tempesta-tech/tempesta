@@ -128,15 +128,32 @@ loader = unittest.TestLoader()
 tests = []
 shell.testsuite_flatten(tests, loader.discover('.'))
 
-if os.geteuid() != 0:
-    raise Exception("Tests must be run as root.")
+root_required = False
 
-# the default value of fs.nr_open
-nofile = 1048576
-resource.setrlimit(resource.RLIMIT_NOFILE, (nofile, nofile))
+# Root is required if too mony concurrent connections are requested
+(s_limit, _) = resource.getrlimit(resource.RLIMIT_NOFILE)
+# '4' multiplier is enough to start everything on one host.
+min_limit = int(tf_cfg.cfg.get('General', 'concurrent_connections')) * 4
+if (s_limit < min_limit):
+    root_required = True
+    print("Root privileges are required: too many concurrent connections.")
+
+# Root is required if Tempesta is started locally
+if tf_cfg.cfg.get('Tempesta', 'hostname') == 'localhost':
+    root_required = True
+    print("Root privileges are required: need access to module loading on "
+          "localhost.")
+
+if root_required:
+    if os.geteuid() != 0:
+        print("Please, run tests as root.")
+        exit(1)
+    # the default value of fs.nr_open
+    nofile = 1048576
+    resource.setrlimit(resource.RLIMIT_NOFILE, (nofile, nofile))
+
+
 remote.connect()
-
-
 #
 # Clear garbage after previous run of test suite
 #

@@ -135,10 +135,9 @@ typedef struct {
 
 /* Work to copy response body to database. */
 typedef struct {
-	TfwHttpReq		*req;
-	TfwHttpResp		*resp;
+	TfwHttpMsg		*msg;
 	tfw_http_cache_cb_t	action;
-	unsigned long		__unused;
+	unsigned long		__unused[2];
 } TfwCWork;
 
 typedef struct {
@@ -386,8 +385,10 @@ tfw_cache_status_bydef(TfwHttpResp *resp)
 }
 
 static bool
-tfw_cache_employ_resp(TfwHttpReq *req, TfwHttpResp *resp)
+tfw_cache_employ_resp(TfwHttpResp *resp)
 {
+	TfwHttpReq *req = resp->req;
+
 #define CC_REQ_DONTCACHE				\
 	(TFW_HTTP_CC_CFG_CACHE_BYPASS | TFW_HTTP_CC_NO_STORE)
 #define CC_RESP_DONTCACHE				\
@@ -629,7 +630,7 @@ __send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 	TdbVRec *trec = &ce->trec;
 	TDB *db = node_db();
 
-	if (!(resp = (TfwHttpResp *)tfw_http_msg_alloc(Conn_Srv)))
+	if (!(resp = tfw_http_msg_alloc_resp_light(req)))
 		goto err_create;
 
 	if (tfw_http_prep_304((TfwHttpMsg *)resp, req, &it,
@@ -653,7 +654,7 @@ __send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 	if (tfw_http_msg_write(&it, (TfwHttpMsg *)resp, &g_crlf))
 		goto err_setup;
 
-	tfw_http_resp_fwd(req, resp);
+	tfw_http_resp_fwd(resp);
 
 	return;
 err_setup:
@@ -1130,9 +1131,9 @@ __save_hdr_304_off(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *hdr, long off)
  * of adjusting skb's.
  */
 static int
-tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
-		    size_t tot_len)
+tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, size_t tot_len)
 {
+	TfwHttpReq *req = resp->req;
 	long n, etag_off = 0;
 	char *p;
 	TdbVRec *trec = &ce->trec, *etag_trec = NULL;
@@ -1200,8 +1201,9 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 
 	/* Write HTTP response body. */
 	ce->body = TDB_OFF(db->hdr, p);
-	if ((n = tfw_cache_strcpy_eol(&p, &trec, &resp->body, &tot_len,
-				      resp->flags & TFW_HTTP_CHUNKED)) < 0) {
+	n = tfw_cache_strcpy_eol(&p, &trec, &resp->body, &tot_len,
+				 resp->flags & TFW_HTTP_F_CHUNKED);
+	if (n < 0) {
 		TFW_ERR("Cache: cannot copy HTTP body\n");
 		return -ENOMEM;
 	}
@@ -1253,8 +1255,9 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwHttpReq *req,
 }
 
 static size_t
-__cache_entry_size(TfwHttpResp *resp, TfwHttpReq *req)
+__cache_entry_size(TfwHttpResp *resp)
 {
+	TfwHttpReq *req = resp->req;
 	size_t size = CE_BODY_SIZE;
 	TfwStr *h, *hdr, *hdr_end, *dup, *dup_end, empty = {};
 
@@ -1289,18 +1292,17 @@ __cache_entry_size(TfwHttpResp *resp, TfwHttpReq *req)
 
 	/* Add body size accounting CRLF after the last chunk */
 	size += resp->body.len;
-	if (resp->flags & TFW_HTTP_CHUNKED)
+	if (resp->flags & TFW_HTTP_F_CHUNKED)
 		size += SLEN(S_CRLF);
 
 	return size;
 }
 
 static void
-__cache_add_node(TDB *db, TfwHttpResp *resp, TfwHttpReq *req,
-		 unsigned long key)
+__cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 {
 	TfwCacheEntry *ce;
-	size_t data_len = __cache_entry_size(resp, req);
+	size_t data_len = __cache_entry_size(resp);
 	size_t len = data_len;
 
 	/* TODO #788: revalidate existing entries before inserting a new one. */
@@ -1316,28 +1318,29 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, TfwHttpReq *req,
 		return;
 
 	TFW_DBG3("cache db=%p resp=%p/req=%p/ce=%p: alloc_len=%lu\n",
-		 db, resp, req, ce, len);
+		 db, resp, resp->req, ce, len);
 
-	if (tfw_cache_copy_resp(ce, resp, req, data_len)) {
+	if (tfw_cache_copy_resp(ce, resp, data_len)) {
 		/* TODO delete the probably partially built TDB entry. */
 	}
 
 }
 
 static void
-tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req, tfw_http_cache_cb_t action)
+tfw_cache_add(TfwHttpResp *resp, tfw_http_cache_cb_t action)
 {
 	unsigned long key;
 	bool keep_skb = false;
+	TfwHttpReq *req = resp->req;
 
-	if (!tfw_cache_employ_resp(req, resp))
+	if (!tfw_cache_employ_resp(resp))
 		goto out;
 
 	key = tfw_http_req_key_calc(req);
 
 	if (cache_cfg.cache == TFW_CACHE_SHARD) {
 		BUG_ON(req->node != numa_node_id());
-		__cache_add_node(node_db(), resp, req, key);
+		__cache_add_node(node_db(), resp, key);
 	} else {
 		int nid;
 		/*
@@ -1345,7 +1348,7 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req, tfw_http_cache_cb_t action)
 		 * rather than in softirq...
 		 */
 		for_each_node_with_cpus(nid)
-			__cache_add_node(c_nodes[nid].db, resp, req, key);
+			__cache_add_node(c_nodes[nid].db, resp, key);
 	}
 
 	/*
@@ -1355,8 +1358,8 @@ tfw_cache_add(TfwHttpResp *resp, TfwHttpReq *req, tfw_http_cache_cb_t action)
 	 */
 
 out:
-	((TfwMsg *)resp)->ss_flags |= keep_skb ? SS_F_KEEP_SKB : 0;
-	action(req, resp);
+	resp->msg.ss_flags |= keep_skb ? SS_F_KEEP_SKB : 0;
+	action((TfwHttpMsg *)resp);
 }
 
 /**
@@ -1501,7 +1504,7 @@ tfw_cache_build_resp_body(TDB *db, TfwHttpResp *resp, TdbVRec *trec,
  * TODO use iterator and passed skbs to be called from net_tx_action.
  */
 static TfwHttpResp *
-tfw_cache_build_resp(TfwCacheEntry *ce)
+tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce)
 {
 	int h;
 	char *p;
@@ -1515,7 +1518,7 @@ tfw_cache_build_resp(TfwCacheEntry *ce)
 	 * is used for sending response data only, so don't initialize
 	 * connection and GFSM fields.
 	 */
-	if (!(resp = ((TfwHttpResp *)tfw_http_msg_alloc(Conn_Srv))))
+	if (!(resp = tfw_http_msg_alloc_resp(req)))
 		return NULL;
 	if (tfw_http_msg_setup((TfwHttpMsg *)resp, &it, ce->hdr_len + 2))
 		goto free;
@@ -1612,7 +1615,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	if (!tfw_handle_validation_req(req, ce))
 		goto put;
 
-	resp = tfw_cache_build_resp(ce);
+	resp = tfw_cache_build_resp(req, ce);
 	/*
 	 * RFC 7234 p.4 Constructing Responses from Caches:
 	 * When a stored response is used to satisfy a request without
@@ -1627,7 +1630,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 		goto out;
 	}
 	if (lifetime > ce->lifetime)
-		resp->flags |= TFW_HTTP_RESP_STALE;
+		resp->flags |= TFW_HTTP_F_RESP_STALE;
 out:
 	if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED))
 		HTTP_SEND_RESP(req, 504, "resource not cached");
@@ -1637,24 +1640,26 @@ out:
 		 * if any with values from cached entries to revalidate stored
 		 * stale responses for both: client and Tempesta.
 		 */
-		action(req, resp);
+		action((TfwHttpMsg *)req);
 put:
 	tfw_cache_dbce_put(ce);
 }
 
 static void
-tfw_cache_do_action(TfwHttpReq *req, TfwHttpResp *resp,
-		    tfw_http_cache_cb_t action)
+tfw_cache_do_action(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 {
-	if (resp) {
-		tfw_cache_add(resp, req, action);
+	TfwHttpReq *req;
+
+	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv) {
+		tfw_cache_add((TfwHttpResp *)msg, action);
+		return;
 	}
-	else if (req->method == TFW_HTTP_METH_PURGE) {
+
+	req = (TfwHttpReq *)msg;
+	if (unlikely(req->method == TFW_HTTP_METH_PURGE))
 		tfw_cache_purge_method(req);
-	}
-	else {
+	else
 		cache_req_process_node(req, action);
-	}
 }
 
 static void
@@ -1666,13 +1671,19 @@ tfw_cache_ipi(struct irq_work *work)
 }
 
 int
-tfw_cache_process(TfwHttpReq *req, TfwHttpResp *resp,
-		  tfw_http_cache_cb_t action)
+tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 {
 	int cpu;
 	unsigned long key;
 	TfwWorkTasklet *ct;
 	TfwCWork cw;
+	TfwHttpResp *resp = NULL;
+	TfwHttpReq *req = (TfwHttpReq *)msg;
+
+	if (TFW_CONN_TYPE(msg->conn) & Conn_Srv) {
+		resp = (TfwHttpResp *)msg;
+		req = resp->req;
+	}
 
 	if (req->method == TFW_HTTP_METH_PURGE)
 		goto do_cache;
@@ -1696,19 +1707,18 @@ do_cache:
 	 * replaced by a local variable here.
 	 */
 	if (likely(req->node == numa_node_id())) {
-		tfw_cache_do_action(req, resp, action);
+		tfw_cache_do_action(msg, action);
 		return 0;
 	}
 
-	cw.req = req;
-	cw.resp = resp;
+	cw.msg = msg;
 	cw.action = action;
 	cpu = tfw_cache_sched_cpu(req);
 	ct = per_cpu_ptr(&cache_wq, cpu);
 
 	TFW_DBG2("Cache: schedule tasklet w/ work: to_cpu=%d from_cpu=%d"
-		 " req=%p resp=%p key=%lx\n", cpu, smp_processor_id(),
-		 cw.req, cw.resp, key);
+		 " msg=%p key=%lx\n", cpu, smp_processor_id(),
+		 cw.msg, key);
 
 	if (tfw_wq_push(&ct->wq, &cw, cpu, &ct->ipi_work, tfw_cache_ipi)) {
 		TFW_WARN("Cache work queue overrun: [%s]\n",
@@ -1718,7 +1728,7 @@ do_cache:
 	return 0;
 
 dont_cache:
-	action(req, resp);
+	action(msg);
 	return 0;
 }
 
@@ -1729,7 +1739,7 @@ tfw_wq_tasklet(unsigned long data)
 	TfwCWork cw;
 
 	while (!tfw_wq_pop(&ct->wq, &cw))
-		tfw_cache_do_action(cw.req, cw.resp, cw.action);
+		tfw_cache_do_action(cw.msg, cw.action);
 }
 
 /**
