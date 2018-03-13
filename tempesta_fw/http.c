@@ -549,8 +549,8 @@ tfw_http_resp_build_error(TfwHttpReq *req)
  * NOTE: This function expects the predefined order of chunks in @msg:
  * the fourth chunk must be CRLF.
  */
-void
-tfw_http_send_resp(TfwHttpReq *req, resp_code_t code)
+static void
+__tfw_http_send_resp(TfwHttpReq *req, resp_code_t code)
 {
 	TfwMsgIter it;
 	TfwHttpMsg *hmresp;
@@ -834,16 +834,24 @@ tfw_http_enum_resp_code(int status)
 }
 
 static inline void
-tfw_http_error_resp_switch(TfwHttpReq *req, int status, const char *reason)
+tfw_http_error_resp_switch(TfwHttpReq *req, int status)
 {
 	resp_code_t code = tfw_http_enum_resp_code(status);
 	if (code == RESP_NUM) {
 		TFW_WARN("Unexpected response error code: [%d]\n", status);
-		tfw_http_send_resp(req, RESP_500);
+		__tfw_http_send_resp(req, RESP_500);
 		return;
 	}
+	__tfw_http_send_resp(req, code);
+}
 
-	tfw_http_send_resp(req, code);
+/* Common interface for sending error responses. */
+void
+tfw_http_send_resp(TfwHttpReq *req, int status, const char *reason)
+{
+	if (!(tfw_blk_flags & TFW_BLK_ERR_NOLOG))
+		TFW_WARN_ADDR(reason, &req->conn->peer->addr);
+	tfw_http_error_resp_switch(req, status);
 }
 
 static bool
@@ -941,8 +949,8 @@ tfw_http_req_zap_error(struct list_head *eq)
 
 	list_for_each_entry_safe(req, tmp, eq, fwd_list) {
 		list_del_init(&req->fwd_list);
-		tfw_http_error_resp_switch(req, req->httperr.status,
-					   req->httperr.reason);
+		tfw_http_send_resp(req, req->httperr.status,
+				   req->httperr.reason);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
 }
@@ -1315,9 +1323,8 @@ tfw_http_req_resched(TfwHttpReq *req, TfwServer *srv, struct list_head *eq)
 		}
 	} else if (!(sch_conn = tfw_sched_get_srv_conn((TfwMsg *)req))) {
 		TFW_DBG("Unable to find a backend server\n");
-		tfw_http_error_resp_switch(req, 502,
-					   "request dropped: unable to find"
-					   " an available back end server");
+		tfw_http_send_resp(req, 502, "request dropped: unable to"
+				   " find an available back end server");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 		return;
 	} else {
@@ -2164,11 +2171,11 @@ tfw_http_resp_fwd(TfwHttpReq *req, TfwHttpResp *resp)
 }
 
 static inline void
-tfw_http_req_mark_error(TfwHttpReq *req, int status, const char *msg)
+tfw_http_req_mark_error(TfwHttpReq *req, int status)
 {
 	TFW_CONN_TYPE(req->conn) |= Conn_Stop;
 	req->flags |= TFW_HTTP_SUSPECTED;
-	tfw_http_error_resp_switch(req, status, msg);
+	tfw_http_error_resp_switch(req, status);
 }
 
 /**
@@ -2190,7 +2197,7 @@ tfw_http_cli_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
 		spin_lock(&cli_conn->seq_qlock);
 		list_add_tail(&req->msg.seq_list, &cli_conn->seq_queue);
 		spin_unlock(&cli_conn->seq_qlock);
-		tfw_http_req_mark_error(req, status, msg);
+		tfw_http_req_mark_error(req, status);
 	}
 	else {
 		tfw_http_conn_req_clean(req);
@@ -2205,7 +2212,7 @@ tfw_http_srv_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
 		TFW_WARN_ADDR(msg, &req->conn->peer->addr);
 
 	if (reply)
-		tfw_http_req_mark_error(req, status, msg);
+		tfw_http_req_mark_error(req, status);
 	else
 		tfw_http_conn_req_clean(req);
 }
@@ -2261,7 +2268,8 @@ static void
 tfw_http_req_cache_service(TfwHttpReq *req, TfwHttpResp *resp)
 {
 	if (tfw_http_adjust_resp(resp, req)) {
-		HTTP_SEND_RESP(req, 500, "response dropped: processing error");
+		tfw_http_send_resp(req, 500, "response dropped:"
+				   " processing error");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 		return;
@@ -2347,7 +2355,8 @@ send_503:
 	 * Requested resource can't be challenged. Don't break response-request
 	 * queue on client side by dropping the request.
 	 */
-	HTTP_SEND_RESP(req, 503, "request dropped: can't send JS challenge.");
+	tfw_http_send_resp(req, 503, "request dropped:"
+			   " can't send JS challenge.");
 	TFW_INC_STAT_BH(clnt.msgs_filtout);
 	return;
 drop_503:
@@ -2356,11 +2365,11 @@ drop_503:
 	TFW_INC_STAT_BH(clnt.msgs_filtout);
 	return;
 send_502:
-	HTTP_SEND_RESP(req, 502, "request dropped: processing error");
+	tfw_http_send_resp(req, 502, "request dropped: processing error");
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 	return;
 send_500:
-	HTTP_SEND_RESP(req, 500, "request dropped: processing error");
+	tfw_http_send_resp(req, 500, "request dropped: processing error");
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 conn_put:
 	tfw_srv_conn_put(srv_conn);
@@ -2689,8 +2698,8 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 		 * Otherwise we lose the reference to it and get a leak.
 		 */
 		if (tfw_cache_process(req, NULL, tfw_http_req_cache_cb)) {
-			HTTP_SEND_RESP(req, 500, "request dropped:"
-				       " processing error");
+			tfw_http_send_resp(req, 500, "request dropped:"
+					   " processing error");
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
 			return TFW_PASS;
 		}
@@ -2743,7 +2752,8 @@ tfw_http_resp_cache_cb(TfwHttpReq *req, TfwHttpResp *resp)
 	 * inter-node data transfers. (see tfw_http_req_cache_cb())
 	 */
 	if (tfw_http_adjust_resp(resp, req)) {
-		HTTP_SEND_RESP(req, 500, "response dropped: processing error");
+		tfw_http_send_resp(req, 500, "response dropped:"
+				   " processing error");
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 		return;
@@ -2932,7 +2942,8 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	if (tfw_cache_process(req, (TfwHttpResp *)hmresp,
 			      tfw_http_resp_cache_cb))
 	{
-		HTTP_SEND_RESP(req, 500, "response dropped: processing error");
+		tfw_http_send_resp(req, 500, "response dropped:"
+				   " processing error");
 		tfw_http_conn_msg_free(hmresp);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		/* Proceed with processing of the next response. */

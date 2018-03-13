@@ -318,7 +318,7 @@ TEST(http_sticky, sending_502)
 	TfwConn *c = mock.req->conn;
 
 	EXPECT_EQ(__sticky_calc(mock.req, &sv), 0);
-	HTTP_SEND_RESP(mock.req, 502, "sticky calculation");
+	tfw_http_send_resp(mock.req, 502, "sticky calculation");
 
 	/* HTTP 502 response have no Set-Cookie header */
 	EXPECT_TRUE(mock.tfw_connection_send_was_called);
