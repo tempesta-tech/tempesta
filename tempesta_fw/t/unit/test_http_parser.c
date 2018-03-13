@@ -27,8 +27,10 @@
 #include "helpers.h"
 #include "fuzzer.h"
 
-TfwHttpReq *req;
-TfwHttpResp *resp;
+static TfwHttpReq *req, *sample_req;
+static TfwHttpResp *resp;
+
+#define SAMPLE_REQ_STR "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
 
 static int
 split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
@@ -55,6 +57,25 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
 		if (r != TFW_POSTPONE)
 			return r;
 	}
+
+	return r;
+}
+
+/**
+ * Response must be paired with request to be parsed correctly. Update sample
+ * request for further response parsing.
+ */
+static int
+set_sample_req(unsigned char *str)
+{
+	size_t len = len = strlen(str);
+	int r;
+
+	if (sample_req)
+		test_req_free(sample_req);
+	sample_req = test_req_alloc(len);
+
+	r = tfw_http_parse_req(sample_req, str, len);
 
 	return r;
 }
@@ -110,6 +131,7 @@ do_split_and_parse(unsigned char *str, int type)
 			test_resp_free(resp);
 
 		resp = test_resp_alloc(len);
+		tfw_http_msg_pair(resp, sample_req);
 	}
 	else {
 		BUG();
@@ -857,15 +879,16 @@ TEST(http_parser, parses_connection_value)
 		"Connection: Keep-Alive\r\n"
 		"\r\n")
 	{
-		EXPECT_EQ(req->flags & __TFW_HTTP_CONN_MASK, TFW_HTTP_CONN_KA);
+		EXPECT_EQ(req->flags & __TFW_HTTP_MSG_M_CONN_MASK,
+			  TFW_HTTP_F_CONN_KA);
 	}
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Connection: Close\r\n"
 		"\r\n")
 	{
-		EXPECT_EQ(req->flags & __TFW_HTTP_CONN_MASK,
-			  TFW_HTTP_CONN_CLOSE);
+		EXPECT_EQ(req->flags & __TFW_HTTP_MSG_M_CONN_MASK,
+			  TFW_HTTP_F_CONN_CLOSE);
 	}
 }
 
@@ -1059,21 +1082,21 @@ TEST(http_parser, accept)
 		"Accept:  text/html \r\n"
 		"\r\n")
 	{
-		EXPECT_TRUE(req->flags & TFW_HTTP_ACCEPT_HTML);
+		EXPECT_TRUE(req->flags & TFW_HTTP_F_ACCEPT_HTML);
 	}
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Accept:  text/html, application/xhtml+xml \r\n"
 		"\r\n")
 	{
-		EXPECT_TRUE(req->flags & TFW_HTTP_ACCEPT_HTML);
+		EXPECT_TRUE(req->flags & TFW_HTTP_F_ACCEPT_HTML);
 	}
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Accept:  text/html;q=0.8 \r\n"
 		"\r\n")
 	{
-		EXPECT_TRUE(req->flags & TFW_HTTP_ACCEPT_HTML);
+		EXPECT_TRUE(req->flags & TFW_HTTP_F_ACCEPT_HTML);
 	}
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
@@ -1081,21 +1104,21 @@ TEST(http_parser, accept)
 		"q=0.9,image/webp,image/apng,*/*;q=0.8\r\n"
 		"\r\n")
 	{
-		EXPECT_TRUE(req->flags & TFW_HTTP_ACCEPT_HTML);
+		EXPECT_TRUE(req->flags & TFW_HTTP_F_ACCEPT_HTML);
 	}
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Accept:  text/*  \r\n"
 		"\r\n")
 	{
-		EXPECT_FALSE(req->flags & TFW_HTTP_ACCEPT_HTML);
+		EXPECT_FALSE(req->flags & TFW_HTTP_F_ACCEPT_HTML);
 	}
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Accept:  text/html, */*  \r\n"
 		"\r\n")
 	{
-		EXPECT_TRUE(req->flags & TFW_HTTP_ACCEPT_HTML);
+		EXPECT_TRUE(req->flags & TFW_HTTP_F_ACCEPT_HTML);
 	}
 }
 
@@ -1976,6 +1999,14 @@ end:
 
 TEST_SUITE(http_parser)
 {
+	int r;
+
+	if ((r = set_sample_req(SAMPLE_REQ_STR))) {
+		TEST_FAIL("can't parse sample request (code=%d):\n%s",
+			  r, SAMPLE_REQ_STR);
+		return;
+	}
+
 	TEST_RUN(http_parser, leading_eol);
 	TEST_RUN(http_parser, parses_req_method);
 	TEST_RUN(http_parser, parses_req_uri);
