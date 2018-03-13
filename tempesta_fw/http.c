@@ -73,6 +73,7 @@ static struct {
 #define S_F_CONNECTION		"Connection: "
 #define S_F_ETAG		"ETag: "
 #define S_F_RETRY_AFTER		"Retry-After: "
+#define S_F_SERVER		"Server: "
 
 #define S_V_DATE		"Sun, 06 Nov 1994 08:49:37 GMT"
 #define S_V_CONTENT_LENGTH	"9999"
@@ -103,6 +104,7 @@ static struct {
 #define S_504_PART_01		S_504 S_CRLF S_F_DATE
 #define S_504_PART_02		S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
 #define S_DEF_PART_02		S_CRLF S_F_CONTENT_LENGTH "0" S_CRLF
+#define S_DEF_PART_03		S_F_SERVER TFW_NAME "/" TFW_VERSION S_CRLF
 
 /*
  * Array with predefined response data
@@ -113,11 +115,13 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 			{ .ptr = S_200_PART_01, .len = SLEN(S_200_PART_01) },
 			{ .ptr = NULL, .len = SLEN(S_V_DATE) },
 			{ .ptr = S_200_PART_02, .len = SLEN(S_200_PART_02) },
+			{ .ptr = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
 			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
 			{ .ptr = NULL, .len = 0 },
 		},
-		.len = SLEN(S_200_PART_01 S_V_DATE S_200_PART_02 S_CRLF),
-		.flags = 5 << TFW_STR_CN_SHIFT
+		.len = SLEN(S_200_PART_01 S_V_DATE S_200_PART_02 S_DEF_PART_03
+			    S_CRLF),
+		.flags = 6 << TFW_STR_CN_SHIFT
 	},
 	/* Response has invalid syntax, client shouldn't repeat it. */
 	[RESP_400] = {
@@ -125,11 +129,13 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 			{ .ptr = S_400_PART_01, .len = SLEN(S_400_PART_01) },
 			{ .ptr = NULL, .len = SLEN(S_V_DATE) },
 			{ .ptr = S_400_PART_02, .len = SLEN(S_400_PART_02) },
+			{ .ptr = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
 			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
 			{ .ptr = NULL, .len = 0 },
 		},
-		.len = SLEN(S_400_PART_01 S_V_DATE S_400_PART_02 S_CRLF),
-		.flags = 5 << TFW_STR_CN_SHIFT
+		.len = SLEN(S_400_PART_01 S_V_DATE S_400_PART_02 S_DEF_PART_03
+			    S_CRLF),
+		.flags = 6 << TFW_STR_CN_SHIFT
 	},
 	/* Response is syntactically valid, but refuse to authorize it. */
 	[RESP_403] = {
@@ -137,11 +143,13 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 			{ .ptr = S_403_PART_01, .len = SLEN(S_403_PART_01) },
 			{ .ptr = NULL, .len = SLEN(S_V_DATE) },
 			{ .ptr = S_403_PART_02, .len = SLEN(S_403_PART_02) },
+			{ .ptr = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
 			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
 			{ .ptr = NULL, .len = 0 },
 		},
-		.len = SLEN(S_403_PART_01 S_V_DATE S_403_PART_02 S_CRLF),
-		.flags = 5 << TFW_STR_CN_SHIFT
+		.len = SLEN(S_403_PART_01 S_V_DATE S_403_PART_02 S_DEF_PART_03
+			    S_CRLF),
+		.flags = 6 << TFW_STR_CN_SHIFT
 	},
 	/* Can't find the requested resource. */
 	[RESP_404] = {
@@ -149,22 +157,26 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 			{ .ptr = S_404_PART_01, .len = SLEN(S_404_PART_01) },
 			{ .ptr = NULL, .len = SLEN(S_V_DATE) },
 			{ .ptr = S_404_PART_02, .len = SLEN(S_404_PART_02) },
+			{ .ptr = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
 			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
 			{ .ptr = NULL, .len = 0 },
 		},
-		.len = SLEN(S_404_PART_01 S_V_DATE S_404_PART_02 S_CRLF),
-		.flags = 5 << TFW_STR_CN_SHIFT
+		.len = SLEN(S_404_PART_01 S_V_DATE S_404_PART_02 S_DEF_PART_03
+			    S_CRLF),
+		.flags = 6 << TFW_STR_CN_SHIFT
 	},
 	[RESP_412] = {
 		.ptr = (TfwStr []){
 			{ .ptr = S_412_PART_01, .len = SLEN(S_412_PART_01) },
 			{ .ptr = NULL, .len = SLEN(S_V_DATE) },
 			{ .ptr = S_412_PART_02, .len = SLEN(S_412_PART_02) },
+			{ .ptr = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
 			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
 			{ .ptr = NULL, .len = 0 },
 		},
-		.len = SLEN(S_412_PART_01 S_V_DATE S_412_PART_02 S_CRLF),
-		.flags = 5 << TFW_STR_CN_SHIFT
+		.len = SLEN(S_412_PART_01 S_V_DATE S_412_PART_02 S_DEF_PART_03
+			    S_CRLF),
+		.flags = 6 << TFW_STR_CN_SHIFT
 	},
 	/* Internal error in TempestaFW. */
 	[RESP_500] = {
@@ -172,11 +184,13 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 			{ .ptr = S_500_PART_01, .len = SLEN(S_500_PART_01) },
 			{ .ptr = NULL, .len = SLEN(S_V_DATE) },
 			{ .ptr = S_500_PART_02, .len = SLEN(S_500_PART_02) },
+			{ .ptr = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
 			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
 			{ .ptr = NULL, .len = 0 },
 		},
-		.len = SLEN(S_500_PART_01 S_V_DATE S_500_PART_02 S_CRLF),
-		.flags = 5 << TFW_STR_CN_SHIFT
+		.len = SLEN(S_500_PART_01 S_V_DATE S_500_PART_02 S_DEF_PART_03
+			    S_CRLF),
+		.flags = 6 << TFW_STR_CN_SHIFT
 	},
 	/* Error (syntax or network) while receiving request from backend. */
 	[RESP_502] = {
@@ -184,11 +198,13 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 			{ .ptr = S_502_PART_01, .len = SLEN(S_502_PART_01) },
 			{ .ptr = NULL, .len = SLEN(S_V_DATE) },
 			{ .ptr = S_502_PART_02, .len = SLEN(S_502_PART_02) },
+			{ .ptr = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
 			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
 			{ .ptr = NULL, .len = 0 },
 		},
-		.len = SLEN(S_502_PART_01 S_V_DATE S_502_PART_02 S_CRLF),
-		.flags = 5 << TFW_STR_CN_SHIFT
+		.len = SLEN(S_502_PART_01 S_V_DATE S_502_PART_02 S_DEF_PART_03
+			    S_CRLF),
+		.flags = 6 << TFW_STR_CN_SHIFT
 	},
 	/*
 	 * Sticky cookie or JS challenge failed, refuse to serve the client.
@@ -200,11 +216,13 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 			{ .ptr = S_503_PART_01, .len = SLEN(S_503_PART_01) },
 			{ .ptr = NULL, .len = SLEN(S_V_DATE) },
 			{ .ptr = S_503_PART_02, .len = SLEN(S_503_PART_02) },
+			{ .ptr = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
 			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
 			{ .ptr = NULL, .len = 0 },
 		},
-		.len = SLEN(S_503_PART_01 S_V_DATE S_503_PART_02 S_CRLF),
-		.flags = 5 << TFW_STR_CN_SHIFT
+		.len = SLEN(S_503_PART_01 S_V_DATE S_503_PART_02 S_DEF_PART_03
+			    S_CRLF),
+		.flags = 6 << TFW_STR_CN_SHIFT
 	},
 	/* Can't get a response in time. */
 	[RESP_504] = {
@@ -212,11 +230,13 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 			{ .ptr = S_504_PART_01, .len = SLEN(S_504_PART_01) },
 			{ .ptr = NULL, .len = SLEN(S_V_DATE) },
 			{ .ptr = S_504_PART_02, .len = SLEN(S_504_PART_02) },
+			{ .ptr = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
 			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
 			{ .ptr = NULL, .len = 0 },
 		},
-		.len = SLEN(S_504_PART_01 S_V_DATE S_504_PART_02 S_CRLF),
-		.flags = 5 << TFW_STR_CN_SHIFT
+		.len = SLEN(S_504_PART_01 S_V_DATE S_504_PART_02 S_DEF_PART_03
+			    S_CRLF),
+		.flags = 6 << TFW_STR_CN_SHIFT
 	}
 };
 
@@ -226,16 +246,18 @@ static TfwStr http_predef_resps[RESP_NUM] = {
  * 1: Start line,
  * 2: Date,
  * 3: Content-Length header,
- * 4: CRLF,
- * 5: Message body.
+ * 4: Server header,
+ * 5: CRLF,
+ * 6: Message body.
  * Some position-dependent macros specific to @http_predef_resps
  * are defined below.
  */
 #define TFW_STR_START_CH(msg)	__TFW_STR_CH(msg, 0)
 #define TFW_STR_DATE_CH(msg)	__TFW_STR_CH(msg, 1)
 #define TFW_STR_CLEN_CH(msg)	__TFW_STR_CH(msg, 2)
-#define TFW_STR_CRLF_CH(msg)	__TFW_STR_CH(msg, 3)
-#define TFW_STR_BODY_CH(msg)	__TFW_STR_CH(msg, 4)
+#define TFW_STR_SRV_CH(msg)	__TFW_STR_CH(msg, 3)
+#define TFW_STR_CRLF_CH(msg)	__TFW_STR_CH(msg, 4)
+#define TFW_STR_BODY_CH(msg)	__TFW_STR_CH(msg, 5)
 
 /*
  * Two static TfwStr structures are needed due to have the opportunity
@@ -557,9 +579,9 @@ __tfw_http_send_resp(TfwHttpReq *req, resp_code_t code)
 	TfwStr *date, *crlf, *body;
 	int conn_flag = req->flags & __TFW_HTTP_CONN_MASK;
 	TfwStr msg = {
-		.ptr = (TfwStr []){ {}, {}, {}, {}, {} },
+		.ptr = (TfwStr []){ {}, {}, {}, {}, {}, {} },
 		.len = 0,
-		.flags = 5 << TFW_STR_CN_SHIFT
+		.flags = 6 << TFW_STR_CN_SHIFT
 	};
 
 	if (tfw_strcpy_desc(&msg, &http_predef_resps[code]))
@@ -588,7 +610,7 @@ __tfw_http_send_resp(TfwHttpReq *req, resp_code_t code)
 	date->ptr = *this_cpu_ptr(&g_buf);
 	tfw_http_prep_date(date->ptr);
 	if (!body->ptr)
-		__TFW_STR_CHUNKN_SET(&msg, 4);
+		__TFW_STR_CHUNKN_SET(&msg, 5);
 
 	if (tfw_http_msg_write(&it, hmresp, &msg))
 		goto err_setup;
