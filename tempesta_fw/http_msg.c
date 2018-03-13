@@ -984,7 +984,8 @@ __tfw_http_msg_alloc(int type, bool full)
 		hm->h_tbl = (TfwHttpHdrTbl *)tfw_pool_alloc(hm->pool,
 							    TFW_HHTBL_SZ(1));
 		if (unlikely(!hm->h_tbl)) {
-			TFW_WARN("Insufficient memory to create %s message\n",
+			TFW_WARN("Insufficient memory to create header table"
+				 " for %s\n",
 				 ((type & Conn_Clnt) ? "request" : "response"));
 			tfw_pool_destroy(hm->pool);
 			return NULL;
