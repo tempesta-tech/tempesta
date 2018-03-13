@@ -945,6 +945,8 @@ tfw_http_req_zap_error(struct list_head *eq)
 		if (!(req->flags & TFW_HTTP_F_REQ_DROP))
 			tfw_http_error_resp_switch(req, req->httperr.status,
 						   req->httperr.reason);
+		else
+			tfw_http_msg_free((TfwHttpMsg *)req);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
 }
@@ -954,14 +956,15 @@ tfw_http_req_zap_error(struct list_head *eq)
  * move the request to the error queue @eq for sending an error response later.
  */
 static inline bool
-tfw_http_req_evict_dropped(TfwSrvConn *srv_conn, TfwHttpReq *req,
-			   struct list_head *eq)
+tfw_http_req_evict_dropped(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
 	if (unlikely(req->flags & TFW_HTTP_F_REQ_DROP)) {
 		TFW_DBG2("%s: Eviction: req=[%p] client disconnected\n",
 			 __func__, req);
-		tfw_http_req_err(srv_conn, req, eq, 403,
-				 "request evicted: client disconnected");
+		if (srv_conn)
+			tfw_http_req_delist(srv_conn, req);
+		tfw_http_msg_free((TfwHttpMsg *)req);
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
 		return true;
 	}
 	return false;
@@ -1011,7 +1014,7 @@ static inline bool
 tfw_http_req_evict_stale_req(TfwSrvConn *srv_conn, TfwServer *srv,
 			     TfwHttpReq *req, struct list_head *eq)
 {
-	return tfw_http_req_evict_dropped(srv_conn, req, eq)
+	return tfw_http_req_evict_dropped(srv_conn, req)
 	       || tfw_http_req_evict_timeout(srv_conn, srv, req, eq);
 }
 
@@ -1019,7 +1022,7 @@ static inline bool
 tfw_http_req_evict(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 		   struct list_head *eq)
 {
-	return tfw_http_req_evict_dropped(srv_conn, req, eq)
+	return tfw_http_req_evict_dropped(srv_conn, req)
 	       || tfw_http_req_evict_timeout(srv_conn, srv, req, eq)
 	       || tfw_http_req_evict_retries(srv_conn, srv, req, eq);
 }
