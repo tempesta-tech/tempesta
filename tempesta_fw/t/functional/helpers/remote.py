@@ -15,7 +15,7 @@ __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
 # Don't remove files from remote node. Helpful for tests development.
-DEBUG_FILES = True
+DEBUG_FILES = False
 # Default timeout for SSH sessions and command processing.
 DEFAULT_TIMEOUT = 5
 
