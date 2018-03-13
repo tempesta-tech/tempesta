@@ -110,7 +110,8 @@ class StressTest(unittest.TestCase):
             req, err, _ = c.results()
             cl_req_cnt += req
             cl_conn_cnt += c.connections * self.pipelined_req
-            self.assertEqual(err, 0, msg='HTTP client detected errors')
+            self.assertEqual(err, 0,
+                             msg='Client received non 2xx or 3xx responses')
         exp_min = cl_req_cnt
         # Positive allowance: this means some responses are missed by the client.
         # It is believed (nobody actually checked though...) that wrk does not

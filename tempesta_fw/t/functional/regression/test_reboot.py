@@ -46,12 +46,15 @@ class RebootUnderLoadTest(stress.StressTest):
         self.tempesta.start()
 
         self.wrk.prepare()
-        r_thread = Thread(target=self.reboot)
-        r_thread.start()
+        self.r_thread = Thread(target=self.reboot)
+        self.r_thread.start()
 
         control.client_run_blocking(self.wrk)
         self.show_performance()
-        r_thread.join()
+
+    def tearDown(self):
+        self.r_thread.join()
+        stress.StressTest.tearDown(self)
 
     def test_proxy(self):
         config = 'cache 0;\n'

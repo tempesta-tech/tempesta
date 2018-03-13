@@ -2243,6 +2243,9 @@ static void
 tfw_http_cli_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
 				int status, const char *msg)
 {
+	if (!nolog)
+		TFW_WARN_ADDR(msg, &req->conn->peer->addr);
+
 	if (reply) {
 		TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
 		tfw_connection_unlink_msg(req->conn);
@@ -2251,24 +2254,22 @@ tfw_http_cli_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
 		spin_unlock(&cli_conn->seq_qlock);
 		tfw_http_req_mark_error(req, status, msg);
 	}
-	else
+	else {
 		tfw_http_conn_req_clean(req);
-
-	if (!nolog)
-		TFW_WARN_ADDR(msg, &req->conn->peer->addr);
+	}
 }
 
 static void
 tfw_http_srv_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
 				int status, const char *msg)
 {
+	if (!nolog)
+		TFW_WARN_ADDR(msg, &req->conn->peer->addr);
+
 	if (reply)
 		tfw_http_req_mark_error(req, status, msg);
 	else
 		tfw_http_conn_req_clean(req);
-
-	if (!nolog)
-		TFW_WARN_ADDR(msg, &req->conn->peer->addr);
 }
 
 /**

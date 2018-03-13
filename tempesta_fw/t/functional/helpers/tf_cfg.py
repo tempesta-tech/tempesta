@@ -11,8 +11,8 @@ __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
 class ConfigError(Exception):
-    def __init__(msg):
-        Exception.__init__("Test configuration error: %s" % msg)
+    def __init__(self, msg):
+        Exception.__init__(self, "Test configuration error: %s" % msg)
 
 class TestFrameworkCfg(object):
 

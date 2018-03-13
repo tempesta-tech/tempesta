@@ -112,6 +112,26 @@ tfw_sched_lookup(const char *name)
 }
 
 /*
+ * Get or put reference count for all registered
+ * scheduler modules.
+ */
+void
+tfw_sched_refcnt_all(bool get)
+{
+	TfwScheduler *sched;
+
+	if (tfw_runstate_is_reconfig())
+		return;
+
+	rcu_read_lock();
+	list_for_each_entry_rcu(sched, &sched_list, list) {
+		if (sched->sched_refcnt)
+			sched->sched_refcnt(get);
+	}
+	rcu_read_unlock();
+}
+
+/*
  * Register a new scheduler.
  * Called only in user context.
  */
