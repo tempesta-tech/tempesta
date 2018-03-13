@@ -12,7 +12,7 @@ from . import error, tf_cfg, tempesta, stateful
 
 
 __author__ = 'Tempesta Technologies, Inc.'
-__copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
+__copyright__ = 'Copyright (C) 2017-2018 Tempesta Technologies, Inc.'
 __license__ = 'GPL2'
 
 #-------------------------------------------------------------------------------
@@ -611,14 +611,14 @@ class Server(asyncore.dispatcher, stateful.Stateful):
         self.stop_procedures = [self.__stop_server]
 
     def run_start(self):
-        tf_cfg.dbg(4, '\tDeproxy: Server: Start on %s:%d.' % (self.ip, self.port))
+        tf_cfg.dbg(3, '\tDeproxy: Server: Start on %s:%d.' % (self.ip, self.port))
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
         self.set_reuse_addr()
         self.bind((self.ip, self.port))
         self.listen(socket.SOMAXCONN)
 
     def __stop_server(self):
-        tf_cfg.dbg(4, '\tDeproxy: Server: Stop on %s:%d.' % (self.ip,
+        tf_cfg.dbg(3, '\tDeproxy: Server: Stop on %s:%d.' % (self.ip,
                                                              self.port))
         self.close()
         connections = [conn for conn in self.connections]
@@ -694,10 +694,10 @@ class Deproxy(stateful.Stateful):
         self.stop_procedures = [self.__stop_deproxy]
 
     def __stop_deproxy(self):
-        tf_cfg.dbg(3, 'Stopping deproxy tester')
+        tf_cfg.dbg(3, '\tStopping deproxy tester')
 
     def run_start(self):
-        pass
+        tf_cfg.dbg(3, '\tStarting deproxy tester')
 
     def register_tester(self):
         self.client.set_tester(self)
