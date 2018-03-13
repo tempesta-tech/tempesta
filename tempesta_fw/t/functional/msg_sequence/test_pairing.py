@@ -73,7 +73,7 @@ class PairingTester(deproxy.Deproxy):
 
     def send_resps(self):
         conn = self.srv_connections[0]
-        for i in range(len(self.message_chains_recv)):
+        for i in range(self.last_req):
             if self.message_chains_recv[i].fwd_request:
                 conn.send_response(self.message_chains[i].server_response)
             else:
@@ -93,8 +93,8 @@ class PairingTester(deproxy.Deproxy):
     def disconnect_srv(self):
         conn = self.srv_connections[0]
         conn.handle_close()
-        self.loop(timeout=0.5)
+        self.loop(timeout=0.1)
 
     def disconnect_clnt(self):
         self.client.handle_close()
-        self.loop(timeout=0.5)
+        self.loop(timeout=0.1)
