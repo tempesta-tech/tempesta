@@ -1717,8 +1717,8 @@ do_cache:
 	ct = per_cpu_ptr(&cache_wq, cpu);
 
 	TFW_DBG2("Cache: schedule tasklet w/ work: to_cpu=%d from_cpu=%d"
-		 " req=%p resp=%p key=%lx\n", cpu, smp_processor_id(),
-		 cw.req, cw.resp, key);
+		 " msg=%p key=%lx\n", cpu, smp_processor_id(),
+		 cw.msg, key);
 
 	if (tfw_wq_push(&ct->wq, &cw, cpu, &ct->ipi_work, tfw_cache_ipi)) {
 		TFW_WARN("Cache work queue overrun: [%s]\n",
