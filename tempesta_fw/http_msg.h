@@ -68,18 +68,35 @@ tfw_http_msg_srvhdr_val(TfwStr *hdr, unsigned id, TfwStr *val)
 	__http_msg_hdr_val(hdr, id, val, false);
 }
 
+void tfw_http_msg_pair(TfwHttpResp *resp, TfwHttpReq *req);
 TfwHttpMsg *__tfw_http_msg_alloc(int type, bool full);
 
-static inline TfwHttpMsg *
-tfw_http_msg_alloc(int type)
+static inline TfwHttpReq *
+tfw_http_msg_alloc_req_light(void)
 {
-	return __tfw_http_msg_alloc(type, true);
+	return (TfwHttpReq *)__tfw_http_msg_alloc(Conn_Clnt, false);
 }
 
-static inline TfwHttpMsg *
-tfw_http_msg_alloc_light(int type)
+static inline TfwHttpResp *
+__tfw_http_msg_alloc_resp(TfwHttpReq *req, bool full)
 {
-	return __tfw_http_msg_alloc(type, false);
+	TfwHttpResp *resp = (TfwHttpResp *)__tfw_http_msg_alloc(Conn_Srv, full);
+	if (resp)
+		tfw_http_msg_pair(resp, req);
+
+	return resp;
+}
+
+static inline TfwHttpResp *
+tfw_http_msg_alloc_resp(TfwHttpReq *req)
+{
+	return __tfw_http_msg_alloc_resp(req, true);
+}
+
+static inline TfwHttpResp *
+tfw_http_msg_alloc_resp_light(TfwHttpReq *req)
+{
+	return __tfw_http_msg_alloc_resp(req, false);
 }
 
 int __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str, void *data,

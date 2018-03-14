@@ -132,7 +132,7 @@ tfw_http_sticky_redirect_allied(TfwHttpReq *req)
 		return true;
 
 	return (req->method == TFW_HTTP_METH_GET)
-		&& (req->flags & TFW_HTTP_ACCEPT_HTML);
+		&& (req->flags & TFW_HTTP_F_ACCEPT_HTML);
 }
 
 static int
@@ -141,9 +141,10 @@ tfw_http_sticky_send_redirect(TfwHttpReq *req, StickyVal *sv)
 	unsigned long ts_be64 = cpu_to_be64(sv->ts);
 	TfwStr chunks[3], cookie = { 0 };
 	DEFINE_TFW_STR(s_eq, "=");
-	TfwHttpMsg *hmresp;
+	TfwHttpResp *resp;
 	char buf[sizeof(*sv) * 2];
 	TfwStr *body = tfw_cfg_js_ch ? &tfw_cfg_js_ch->body : NULL;
+	int r;
 
 	/*
 	 * TODO: #598 rate limit requests with invalid cookie vaule.
@@ -153,7 +154,7 @@ tfw_http_sticky_send_redirect(TfwHttpReq *req, StickyVal *sv)
 	if (!tfw_http_sticky_redirect_allied(req))
 		return TFW_HTTP_SESS_JS_NOT_SUPPORTED;
 
-	if (!(hmresp = tfw_http_msg_alloc_light(Conn_Srv)))
+	if (!(resp = tfw_http_msg_alloc_resp_light(req)))
 		return -ENOMEM;
 	/*
 	 * Form the cookie as:
@@ -178,14 +179,14 @@ tfw_http_sticky_send_redirect(TfwHttpReq *req, StickyVal *sv)
 	cookie.len = chunks[0].len + chunks[1].len + chunks[2].len;
 	__TFW_STR_CHUNKN_SET(&cookie, 3);
 
-	if (tfw_http_prep_redirect(hmresp, req, tfw_cfg_redirect_st_code,
-				   &cookie, body))
-	{
-		tfw_http_msg_free(hmresp);
+	r = tfw_http_prep_redirect((TfwHttpMsg *)resp, tfw_cfg_redirect_st_code,
+				   &cookie, body);
+	if (r) {
+		tfw_http_msg_free((TfwHttpMsg *)resp);
 		return TFW_HTTP_SESS_FAILURE;
 	}
 
-	tfw_http_resp_fwd(req, (TfwHttpResp *)hmresp);
+	tfw_http_resp_fwd(resp);
 
 	return TFW_HTTP_SESS_REDIRECT_SENT;
 }
@@ -364,11 +365,11 @@ tfw_http_sticky_calc(TfwHttpReq *req, StickyVal *sv)
  * to the HTTP response' header block.
  */
 static int
-tfw_http_sticky_add(TfwHttpResp *resp, TfwHttpReq *req)
+tfw_http_sticky_add(TfwHttpResp *resp)
 {
 	static const unsigned int len = sizeof(StickyVal) * 2;
 	int r;
-	TfwHttpSess *sess = req->sess;
+	TfwHttpSess *sess = resp->req->sess;
 	unsigned long ts_be64 = cpu_to_be64(sess->ts);
 	char buf[len];
 	TfwStr set_cookie = {
@@ -492,7 +493,7 @@ ts_finished:
 	BUG_ON(i != STICKY_KEY_MAXLEN);
 
 	/* Sticky cookie is found and verified, now we can set the flag. */
-	req->flags |= TFW_HTTP_HAS_STICKY;
+	req->flags |= TFW_HTTP_F_HAS_STICKY;
 
 	return TFW_HTTP_SESS_SUCCESS;
 }
@@ -537,9 +538,11 @@ tfw_http_sticky_req_process(TfwHttpReq *req, StickyVal *sv)
  * Add Tempesta sticky cookie to an HTTP response if needed.
  */
 int
-tfw_http_sess_resp_process(TfwHttpResp *resp, TfwHttpReq *req)
+tfw_http_sess_resp_process(TfwHttpResp *resp)
 {
-	if (!tfw_cfg_sticky.enabled || req->flags & TFW_HTTP_WHITELIST)
+	TfwHttpReq *req = resp->req;
+
+	if (!tfw_cfg_sticky.enabled || req->flags & TFW_HTTP_F_WHITELIST)
 		return 0;
 	BUG_ON(!req->sess);
 
@@ -549,9 +552,9 @@ tfw_http_sess_resp_process(TfwHttpResp *resp, TfwHttpReq *req)
 	 * it seems that we don't enforce them, we can just set the cookie in
 	 * each response forwarded to the client.
 	 */
-	if (req->flags & TFW_HTTP_HAS_STICKY)
+	if (req->flags & TFW_HTTP_F_HAS_STICKY)
 		return 0;
-	return tfw_http_sticky_add(resp, req);
+	return tfw_http_sticky_add(resp);
 }
 
 /**
@@ -632,7 +635,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	struct hlist_node *tmp;
 	StickyVal sv = { };
 
-	if (!tfw_cfg_sticky.enabled || req->flags & TFW_HTTP_WHITELIST)
+	if (!tfw_cfg_sticky.enabled || req->flags & TFW_HTTP_F_WHITELIST)
 		return TFW_HTTP_SESS_SUCCESS;
 
 	if ((r = tfw_http_sticky_req_process(req, &sv)))
