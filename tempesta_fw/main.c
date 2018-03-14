@@ -182,7 +182,7 @@ tfw_mods_start(struct list_head *mod_list)
 	int ret;
 	TfwMod *mod;
 
-	tfw_sched_refcnt_all(true)
+	tfw_sched_refcnt_all(true);
 
 	TFW_DBG2("starting modules...\n");
 	MOD_FOR_EACH(mod, mod_list) {
