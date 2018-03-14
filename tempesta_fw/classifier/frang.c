@@ -1130,7 +1130,7 @@ frang_register_fsm_resp(void)
 {
 	int r = tfw_gfsm_register_fsm(TFW_FSM_FRANG_RESP, frang_resp_handler);
 	if (r) {
-		TFW_ERR("\nfrang: can't register response fsm");
+		TFW_ERR_NL("\nfrang: can't register response fsm");
 		return r;
 	}
 
@@ -1140,7 +1140,7 @@ frang_register_fsm_resp(void)
 						    TFW_FSM_FRANG_RESP,
 						    TFW_FRANG_RESP_FSM_INIT);
 	if (fsm_hook_resp_prio < 0) {
-		TFW_ERR("\nfrang: can't register gfsm msg fwd hook");
+		TFW_ERR_NL("\nfrang: can't register gfsm msg fwd hook");
 		tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_RESP);
 		return fsm_hook_resp_prio;
 	}
@@ -1381,7 +1381,7 @@ frang_init(void)
 
 	r = tfw_gfsm_register_fsm(TFW_FSM_FRANG_REQ, frang_http_req_handler);
 	if (r) {
-		TFW_ERR("frang: can't register fsm\n");
+		TFW_ERR_NL("frang: can't register fsm\n");
 		goto err_fsm;
 	}
 
@@ -1390,7 +1390,7 @@ frang_init(void)
 				       TFW_HTTP_FSM_REQ_MSG, TFW_FSM_FRANG_REQ,
 				       TFW_FRANG_REQ_FSM_INIT);
 	if (prio0 < 0) {
-		TFW_ERR("frang: can't register gfsm msg hook\n");
+		TFW_ERR_NL("frang: can't register gfsm msg hook\n");
 		r = prio0;
 		goto err_hook;
 	}
@@ -1399,7 +1399,7 @@ frang_init(void)
 				       TFW_HTTP_FSM_REQ_CHUNK, TFW_FSM_FRANG_REQ,
 				       TFW_FRANG_REQ_FSM_INIT);
 	if (prio1 < 0) {
-		TFW_ERR("frang: can't register gfsm chunk hook\n");
+		TFW_ERR_NL("frang: can't register gfsm chunk hook\n");
 		r = prio1;
 		goto err_hook2;
 	}
