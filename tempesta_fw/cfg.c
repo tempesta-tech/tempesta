@@ -118,7 +118,7 @@ alloc_and_copy_literal(const char *src, size_t len)
 
 	dst = kmalloc(len + 1, GFP_KERNEL);
 	if (!dst) {
-		TFW_ERR("can't allocate memory\n");
+		TFW_ERR_NL("can't allocate memory\n");
 		return NULL;
 	}
 
@@ -160,7 +160,7 @@ check_identifier(const char *buf, size_t len)
 	size_t i;
 
 	if (!len) {
-		TFW_ERR("the string is empty\n");
+		TFW_ERR_NL("the string is empty\n");
 		return false;
 	}
 
@@ -168,14 +168,15 @@ check_identifier(const char *buf, size_t len)
 		return true;
 
 	if (!isalpha(buf[0])) {
-		TFW_ERR("the first character is not a letter: '%c'\n", buf[0]);
+		TFW_ERR_NL("the first character is not a letter: '%c'\n",
+			   buf[0]);
 		return false;
 	}
 
 	for (i = 0; i < len; ++i) {
 		if (!isalnum(buf[i]) && buf[i] != '_') {
-			TFW_ERR("invalid character: '%c' in '%.*s'\n",
-				buf[i], (int)len, buf);
+			TFW_ERR_NL("invalid character: '%c' in '%.*s'\n",
+				   buf[i], (int)len, buf);
 			return false;
 		}
 	}
@@ -979,8 +980,8 @@ int
 tfw_cfg_check_range(long value, long min, long max)
 {
 	if (min != max && (value < min || value > max)) {
-		TFW_ERR("the value %ld is out of range: [%ld, %ld]\n",
-			value, min, max);
+		TFW_ERR_NL("the value %ld is out of range: [%ld, %ld]\n",
+			   value, min, max);
 		return -EINVAL;
 	}
 	return 0;
@@ -995,8 +996,8 @@ int
 tfw_cfg_check_multiple_of(long value, int divisor)
 {
 	if (divisor && (value % divisor)) {
-		TFW_ERR("the value of %ld is not a multiple of %d\n",
-			value, divisor);
+		TFW_ERR_NL("the value of %ld is not a multiple of %d\n",
+			   value, divisor);
 		return -EINVAL;
 	}
 	return 0;
@@ -1174,13 +1175,13 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 	while (ps->t && (ps->t != TOKEN_RBRACE)) {
 		parse_cfg_entry(ps);
 		if (ps->err) {
-			TFW_ERR("parser error\n");
+			TFW_ERR_NL("parser error\n");
 			return ps->err;
 		}
 
 		matching_spec = spec_find(nested_specs, ps->e.name);
 		if (!matching_spec) {
-			TFW_ERR("don't know how to handle: %s\n", ps->e.name);
+			TFW_ERR_NL("don't know how to handle: %s\n", ps->e.name);
 			return -EINVAL;
 		}
 
@@ -1196,7 +1197,7 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 	 * Check that we have a '}' here.
 	 */
 	if (ps->t != TOKEN_RBRACE) {
-		TFW_ERR("%s: Missing closing brace.\n", cs->name);
+		TFW_ERR_NL("%s: Missing closing brace.\n", cs->name);
 		return -EINVAL;
 	}
 
@@ -1307,7 +1308,7 @@ val_is_parsed:
 	return 0;
 
 err:
-	TFW_ERR("can't parse integer");
+	TFW_ERR_NL("can't parse integer");
 	return -EINVAL;
 }
 EXPORT_SYMBOL(tfw_cfg_set_int);

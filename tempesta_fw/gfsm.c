@@ -296,8 +296,8 @@ tfw_gfsm_register_hook(int fsm_id, int prio, int state,
 			if (!(fsm_hooks_bm[fsm_id][prio] & st_bit))
 				break;
 		if (prio == TFW_GFSM_HOOK_PRIORITY_NUM) {
-			TFW_ERR("All hook slots for FSM %d are acquired\n",
-				fsm_id);
+			TFW_ERR_NL("All hook slots for FSM %d are acquired\n",
+				   fsm_id);
 			return -EBUSY;
 		}
 	}
@@ -306,7 +306,7 @@ tfw_gfsm_register_hook(int fsm_id, int prio, int state,
 	if (fsm_hooks[fsm_id][shift].fsm_id)
 		return -EBUSY;
 	if (!fsm_htbl[fsm_id]) {
-		TFW_ERR("gfsm: fsm %d is not registered\n", fsm_id);
+		TFW_ERR_NL("gfsm: fsm %d is not registered\n", fsm_id);
 		return -ENOENT;
 	}
 

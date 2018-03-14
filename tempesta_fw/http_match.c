@@ -406,7 +406,7 @@ tfw_http_match_rule_new(TfwHttpMatchList *mlst, size_t arg_len)
 
 	rule = tfw_pool_alloc(mlst->pool, size);
 	if (!rule) {
-		TFW_ERR("Can't allocate a rule for match list: %p\n", mlst);
+		TFW_ERR_NL("Can't allocate a rule for match list: %p\n", mlst);
 		return NULL;
 	}
 
@@ -429,7 +429,7 @@ tfw_http_match_list_alloc(void)
 
 	mlst = tfw_pool_new(TfwHttpMatchList, 0);
 	if (!mlst) {
-		TFW_ERR("Can't create a memory pool\n");
+		TFW_ERR_NL("Can't create a memory pool\n");
 		return NULL;
 	}
 
