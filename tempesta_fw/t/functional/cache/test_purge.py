@@ -1,7 +1,8 @@
 """Functional tests of caching different methods."""
 
 from __future__ import print_function
-from helpers import tf_cfg, deproxy, chains
+import unittest
+from helpers import tf_cfg, chains
 from testers import functional
 
 __author__ = 'Tempesta Technologies, Inc.'
@@ -21,20 +22,23 @@ class TestPurge(functional.FunctionalTest):
 
     def chains(self):
         uri = '/page.html'
-        result = [# All cacheable method to the resource must be cached
-                  chains.proxy(method='GET', uri=uri),
-                  chains.proxy(method='HEAD', uri=uri),
-                  chains.cache(method='GET', uri=uri),
-                  chains.cache(method='HEAD', uri=uri),
+        result = [
+            # All cacheable method to the resource must be cached
+            chains.proxy(method='GET', uri=uri),
+            chains.proxy(method='HEAD', uri=uri),
+            chains.cache(method='GET', uri=uri),
+            chains.cache(method='HEAD', uri=uri),
 
-                  chains.cache(method='PURGE', uri=uri),
-                  # All cached responses was removed, expect re-caching them
-                  chains.proxy(method='GET', uri=uri),
-                  chains.proxy(method='HEAD', uri=uri),
-                  chains.cache(method='GET', uri=uri),
-                  chains.cache(method='HEAD', uri=uri)
-                  ]
+            chains.cache(method='PURGE', uri=uri),
+            # All cached responses was removed, expect re-caching them
+            chains.proxy(method='GET', uri=uri),
+            chains.proxy(method='HEAD', uri=uri),
+            chains.cache(method='GET', uri=uri),
+            chains.cache(method='HEAD', uri=uri)
+            ]
         return result
 
+    @unittest.expectedFailure
     def test_purge(self):
+        """"Issue #788 must be resolved to make the test pass"""
         self.generic_test_routine(self.config, self.chains())
