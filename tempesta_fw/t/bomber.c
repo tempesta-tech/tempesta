@@ -213,7 +213,7 @@ tfw_bmb_connect(TfwBmbTask *task, TfwBmbConn *conn)
 		ss_close_sync(sk, false);
 		conn->sk = NULL;
 		return ret;
-        }
+	}
 
 	return 0;
 }

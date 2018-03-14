@@ -3440,7 +3440,7 @@ tfw_http_set_common_body(int status_code, char *new_length, size_t l_size,
 		msg = &http_5xx_resp_body;
 		break;
 	default:
-		TFW_ERR("undefined HTTP status group: [%d]\n", status_code);
+		TFW_ERR_NL("undefined HTTP status group: [%d]\n", status_code);
 		return -EINVAL;
 	}
 
@@ -3504,7 +3504,7 @@ __tfw_http_msg_body_dup(const char *filename, TfwStr *c_len_hdr, size_t *len,
 	cl_buf->ptr = buff;
 	cl_buf->len = tfw_ultoa(b_sz, cl_buf->ptr, TFW_ULTOA_BUF_SIZ);
 	if (unlikely(!cl_buf->len)) {
-		TFW_ERR("Can't copy file %s: too big\n", filename);
+		TFW_ERR_NL("Can't copy file %s: too big\n", filename);
 		goto err;
 	}
 
@@ -3642,7 +3642,7 @@ tfw_cfgop_resp_body_restore_clen(TfwStr *hdr, int resp_num)
 		CLEN_STR_INIT(S_504_PART_02);
 		break;
 	default:
-		TFW_WARN("Bug in 'response_body' directive cleanup.");
+		TFW_WARN("Bug in 'response_body' directive cleanup.\n");
 		CLEN_STR_INIT(S_DEF_PART_02);
 		break;
 	}
