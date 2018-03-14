@@ -236,6 +236,9 @@ http_sticky_suite_setup(void)
 
 	tfw_connection_revive(&mock.conn_req);
 	mock.conn_req.peer = (TfwPeer *)&mock.client;
+	mock.client.addr.v4.sin_family = AF_INET,
+	mock.client.addr.v4.sin_addr.s_addr = INADDR_ANY,
+	mock.client.addr.v4.sin_port = 0,
 	mock.sock.sk_family = AF_INET;
 	mock.conn_req.sk = &mock.sock;
 

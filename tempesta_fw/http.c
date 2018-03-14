@@ -975,8 +975,8 @@ tfw_http_req_zap_error(struct list_head *eq)
 	list_for_each_entry_safe(req, tmp, eq, fwd_list) {
 		list_del_init(&req->fwd_list);
 		if (!(req->flags & TFW_HTTP_F_REQ_DROP))
-			fw_http_send_resp(req, req->httperr.status,
-					  req->httperr.reason);
+			tfw_http_send_resp(req, req->httperr.status,
+					   req->httperr.reason);
 		else
 			tfw_http_msg_free((TfwHttpMsg *)req);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
