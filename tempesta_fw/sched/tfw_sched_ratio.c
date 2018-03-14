@@ -865,7 +865,7 @@ tfw_sched_ratio_sched_srv_conn(TfwMsg *msg, TfwServer *srv)
 	 * Bypass the suspend checking if connection is needed for
 	 * helth monitoring of backend server.
 	 */
-	if (!(((TfwHttpReq *)msg)->flags & TFW_HTTP_HMONITOR)
+	if (!(((TfwHttpReq *)msg)->flags & TFW_HTTP_F_HMONITOR)
 	    && tfw_srv_suspended(srv))
 		return NULL;
 
