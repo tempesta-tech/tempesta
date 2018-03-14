@@ -24,7 +24,6 @@
 #include "http.h"
 
 bool tfw_cache_msg_cacheable(TfwHttpReq *req);
-int tfw_cache_process(TfwHttpReq *req, TfwHttpResp *resp,
-		      tfw_http_cache_cb_t action);
+int tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action);
 
 #endif /* __TFW_CACHE_H__ */

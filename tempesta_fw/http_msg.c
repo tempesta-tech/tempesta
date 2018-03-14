@@ -303,7 +303,7 @@ __hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
 	unsigned int id = tfw_http_msg_hdr_lookup(hm, hdr);
 
 	if ((id < hm->h_tbl->off) && __hdr_is_singular(hdr))
-		hm->flags |= TFW_HTTP_FIELD_DUPENTRY;
+		hm->flags |= TFW_HTTP_F_FIELD_DUPENTRY;
 
 	return id;
 }
@@ -362,7 +362,7 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm, unsigned int id)
 		 * RFC 7230 3.2.2: duplicate of non-singular special
 		 * header - leave the decision to classification layer.
 		 */
-		hm->flags |= TFW_HTTP_FIELD_DUPENTRY;
+		hm->flags |= TFW_HTTP_F_FIELD_DUPENTRY;
 		goto duplicate;
 	}
 
@@ -634,6 +634,11 @@ tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid,
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 	TfwStr *orig_hdr = NULL;
 	const TfwStr *s_val = TFW_STR_CHUNK(hdr, 2);
+
+	if (unlikely(!ht)) {
+		TFW_WARN("Try to adjust lightweight response.");
+		return -EINVAL;
+	}
 
 	/* Firstly, get original message header to transform. */
 	if (hid < TFW_HTTP_HDR_RAW) {
@@ -917,12 +922,33 @@ next_frag:
 }
 
 void
+tfw_http_msg_pair(TfwHttpResp *resp, TfwHttpReq *req)
+{
+	if (unlikely(resp->pair || req->pair))
+		TFW_WARN("Response-Request pairing is broken!\n");
+
+	resp->req = req;
+	req->resp = resp;
+}
+
+static void
+tfw_http_msg_unpair(TfwHttpMsg *msg)
+{
+	if (!msg->pair)
+		return;
+
+	msg->pair->pair = NULL;
+	msg->pair = NULL;
+}
+
+void
 tfw_http_msg_free(TfwHttpMsg *m)
 {
 	TFW_DBG3("Free msg=%p\n", m);
 	if (!m)
 		return;
 
+	tfw_http_msg_unpair(m);
 	ss_skb_queue_purge(&m->msg.skb_list);
 
 	if (m->destructor)
@@ -945,14 +971,22 @@ __tfw_http_msg_alloc(int type, bool full)
 						      TFW_POOL_ZERO)
 			 : (TfwHttpMsg *)tfw_pool_new(TfwHttpResp,
 						      TFW_POOL_ZERO);
-	if (!hm)
+	if (!hm) {
+		TFW_WARN("Insufficient memory to create %s message\n",
+			 ((type & Conn_Clnt) ? "request" : "response"));
 		return NULL;
+	}
+
+	BUILD_BUG_ON(FIELD_SIZEOF(TfwHttpMsg, flags) * BITS_PER_BYTE
+		     < _TFW_HTTP_FLAGS_NUM);
 
 	if (full) {
 		hm->h_tbl = (TfwHttpHdrTbl *)tfw_pool_alloc(hm->pool,
 							    TFW_HHTBL_SZ(1));
 		if (unlikely(!hm->h_tbl)) {
-			TFW_WARN("Insufficient memory to create message\n");
+			TFW_WARN("Insufficient memory to create header table"
+				 " for %s\n",
+				 ((type & Conn_Clnt) ? "request" : "response"));
 			tfw_pool_destroy(hm->pool);
 			return NULL;
 		}
@@ -977,3 +1011,4 @@ __tfw_http_msg_alloc(int type, bool full)
 
 	return hm;
 }
+

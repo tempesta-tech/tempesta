@@ -210,8 +210,8 @@ http_sticky_suite_setup(void)
 
 	memset(&mock, 0, sizeof(mock));
 
-	mock.req = (TfwHttpReq *)tfw_http_msg_alloc(Conn_Clnt);
-	mock.resp = (TfwHttpResp *)tfw_http_msg_alloc(Conn_Srv);
+	mock.req = (TfwHttpReq *)__tfw_http_msg_alloc(Conn_Clnt, true);
+	mock.resp = tfw_http_msg_alloc_resp(mock.req);
 
 	BUG_ON(!mock.req);
 	BUG_ON(!mock.resp);
@@ -244,7 +244,7 @@ http_sticky_suite_setup(void)
 	mock.req->vhost = tfw_vhost_get_default();
 
 	tfw_http_req_add_seq_queue(mock.req);
-	mock.req->resp = (TfwHttpMsg *)mock.resp;
+	mock.req->resp = mock.resp;
 }
 
 static void
@@ -462,7 +462,7 @@ TEST(http_sticky, req_no_cookie)
 	EXPECT_EQ(http_parse_resp_helper(), 0);
 
 	EXPECT_EQ(tfw_http_sess_obtain(mock.req), TFW_HTTP_SESS_SUCCESS);
-	EXPECT_EQ(tfw_http_sess_resp_process(mock.resp, mock.req), 0);
+	EXPECT_EQ(tfw_http_sess_resp_process(mock.resp), 0);
 
 	/* with no cookie enforcement, only backend response will be modified */
 	EXPECT_FALSE(mock.tfw_connection_send_was_called);
@@ -501,7 +501,7 @@ TEST(http_sticky, req_have_cookie)
 	EXPECT_EQ(http_parse_resp_helper(), 0);
 
 	EXPECT_EQ(tfw_http_sess_obtain(mock.req), TFW_HTTP_SESS_SUCCESS);
-	EXPECT_EQ(tfw_http_sess_resp_process(mock.resp, mock.req), 0);
+	EXPECT_EQ(tfw_http_sess_resp_process(mock.resp), 0);
 
 	/* expecting no immediate responses */
 	EXPECT_FALSE(mock.tfw_connection_send_was_called);
@@ -561,7 +561,7 @@ TEST(http_sticky, req_have_cookie_enforce)
 	EXPECT_EQ(http_parse_resp_helper(), 0);
 
 	EXPECT_EQ(tfw_http_sess_obtain(mock.req), TFW_HTTP_SESS_SUCCESS);
-	EXPECT_EQ(tfw_http_sess_resp_process(mock.resp, mock.req), 0);
+	EXPECT_EQ(tfw_http_sess_resp_process(mock.resp), 0);
 
 	/* expecting no immediate responses */
 	EXPECT_FALSE(mock.tfw_connection_send_was_called);
