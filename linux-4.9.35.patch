@@ -851,7 +851,7 @@ index 5d26056b..ee02253d 100644
  }
 +EXPORT_SYMBOL(reqsk_fastopen_remove);
 diff --git a/net/core/skbuff.c b/net/core/skbuff.c
-index fe008f1b..a0d768fd 100644
+index fe008f1b..2d0d273b 100644
 --- a/net/core/skbuff.c
 +++ b/net/core/skbuff.c
 @@ -79,7 +79,9 @@
@@ -1287,6 +1287,18 @@ index fe008f1b..a0d768fd 100644
  	}
  
  	return __skb_clone(n, skb);
+@@ -1195,9 +1417,9 @@ EXPORT_SYMBOL(__pskb_copy_fclone);
+ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
+ 		     gfp_t gfp_mask)
+ {
+-	int i;
++	int i, osize = skb_end_offset(skb);
+ 	u8 *data;
+-	int size = nhead + skb_end_offset(skb) + ntail;
++	int size = osize + nhead + ntail;
+ 	long off;
+ 
+ 	BUG_ON(nhead < 0);
 @@ -1205,15 +1427,22 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
  	if (skb_shared(skb))
  		BUG();
@@ -1326,7 +1338,14 @@ index fe008f1b..a0d768fd 100644
  	skb->data    += off;
  #ifdef NET_SKBUFF_DATA_USES_OFFSET
  	skb->end      = size;
-@@ -1263,7 +1497,11 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
+@@ -1260,10 +1494,18 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
+ 	skb->hdr_len  = 0;
+ 	skb->nohdr    = 0;
+ 	atomic_set(&skb_shinfo(skb)->dataref, 1);
++
++	if (!skb->sk || skb->destructor == sock_edemux)
++		skb->truesize += size - osize;
++
  	return 0;
  
  nofrags:
@@ -1338,7 +1357,7 @@ index fe008f1b..a0d768fd 100644
  nodata:
  	return -ENOMEM;
  }
-@@ -1372,7 +1610,11 @@ int skb_pad(struct sk_buff *skb, int pad)
+@@ -1372,7 +1614,11 @@ int skb_pad(struct sk_buff *skb, int pad)
  		return 0;
  	}
  
@@ -1350,7 +1369,7 @@ index fe008f1b..a0d768fd 100644
  	if (likely(skb_cloned(skb) || ntail > 0)) {
  		err = pskb_expand_head(skb, 0, ntail, GFP_ATOMIC);
  		if (unlikely(err))
-@@ -1607,7 +1849,13 @@ unsigned char *__pskb_pull_tail(struct sk_buff *skb, int delta)
+@@ -1607,7 +1853,13 @@ unsigned char *__pskb_pull_tail(struct sk_buff *skb, int delta)
  	 * plus 128 bytes for future expansions. If we have enough
  	 * room at tail, reallocate without expansion only if skb is cloned.
  	 */
@@ -1365,7 +1384,7 @@ index fe008f1b..a0d768fd 100644
  
  	if (eat > 0 || skb_cloned(skb)) {
  		if (pskb_expand_head(skb, 0, eat > 0 ? eat + 128 : 0,
-@@ -3463,16 +3711,31 @@ EXPORT_SYMBOL_GPL(skb_gro_receive);
+@@ -3463,16 +3715,31 @@ EXPORT_SYMBOL_GPL(skb_gro_receive);
  
  void __init skb_init(void)
  {
@@ -1402,7 +1421,7 @@ index fe008f1b..a0d768fd 100644
  }
  
  /**
-@@ -4262,7 +4525,15 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen)
+@@ -4262,7 +4529,15 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen)
  {
  	if (head_stolen) {
  		skb_release_head_state(skb);
@@ -1418,7 +1437,7 @@ index fe008f1b..a0d768fd 100644
  	} else {
  		__kfree_skb(skb);
  	}
-@@ -4704,13 +4975,20 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
+@@ -4704,13 +4979,20 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
  
  	if (skb_pfmemalloc(skb))
  		gfp_mask |= __GFP_MEMALLOC;
@@ -1440,7 +1459,7 @@ index fe008f1b..a0d768fd 100644
  
  	/* Copy real data, and all frags */
  	skb_copy_from_linear_data_offset(skb, off, data, new_hlen);
-@@ -4723,7 +5001,11 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
+@@ -4723,7 +5005,11 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
  	if (skb_cloned(skb)) {
  		/* drop the old head gracefully */
  		if (skb_orphan_frags(skb, gfp_mask)) {
@@ -1452,7 +1471,7 @@ index fe008f1b..a0d768fd 100644
  			return -ENOMEM;
  		}
  		for (i = 0; i < skb_shinfo(skb)->nr_frags; i++)
-@@ -4740,7 +5022,11 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
+@@ -4740,7 +5026,11 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
  
  	skb->head = data;
  	skb->data = data;
@@ -1464,7 +1483,7 @@ index fe008f1b..a0d768fd 100644
  #ifdef NET_SKBUFF_DATA_USES_OFFSET
  	skb->end = size;
  #else
-@@ -4828,19 +5114,30 @@ static int pskb_carve_inside_nonlinear(struct sk_buff *skb, const u32 off,
+@@ -4828,19 +5118,30 @@ static int pskb_carve_inside_nonlinear(struct sk_buff *skb, const u32 off,
  
  	if (skb_pfmemalloc(skb))
  		gfp_mask |= __GFP_MEMALLOC;
@@ -1496,7 +1515,7 @@ index fe008f1b..a0d768fd 100644
  		return -ENOMEM;
  	}
  	shinfo = (struct skb_shared_info *)(data + size);
-@@ -4878,8 +5175,12 @@ static int pskb_carve_inside_nonlinear(struct sk_buff *skb, const u32 off,
+@@ -4878,8 +5179,12 @@ static int pskb_carve_inside_nonlinear(struct sk_buff *skb, const u32 off,
  	skb_release_data(skb);
  
  	skb->head = data;
@@ -1762,7 +1781,7 @@ index 64e1ba49..3a9bd131 100644
  void tcp_twsk_destructor(struct sock *sk)
  {
 diff --git a/net/ipv4/tcp_output.c b/net/ipv4/tcp_output.c
-index dc4258fd..8deac539 100644
+index dc4258fd..4e139ec7 100644
 --- a/net/ipv4/tcp_output.c
 +++ b/net/ipv4/tcp_output.c
 @@ -391,7 +391,7 @@ static void tcp_ecn_send(struct sock *sk, struct sk_buff *skb,
@@ -1815,7 +1834,27 @@ index dc4258fd..8deac539 100644
  
  /* Send _single_ skb sitting at the send head. This function requires
   * true push pending frames to setup probe timer etc.
-@@ -2987,6 +2991,7 @@ void tcp_send_active_reset(struct sock *sk, gfp_t priority)
+@@ -2685,9 +2689,19 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
+ 		if (tcp_fragment(sk, skb, len, cur_mss, GFP_ATOMIC))
+ 			return -ENOMEM; /* We'll try again later. */
+ 	} else {
++		int delta_truesize = skb->truesize;
++
+ 		if (skb_unclone(skb, GFP_ATOMIC))
+ 			return -ENOMEM;
+ 
++		delta_truesize -= skb->truesize;
++		sk->sk_wmem_queued -= delta_truesize;
++		if (delta_truesize > 0) {
++			sk_mem_uncharge(sk, delta_truesize);
++			sock_set_flag(sk, SOCK_QUEUE_SHRUNK);
++		} else {
++			sk_mem_charge(sk, -delta_truesize);
++		}
+ 		diff = tcp_skb_pcount(skb);
+ 		tcp_set_skb_tso_segs(skb, cur_mss);
+ 		diff -= tcp_skb_pcount(skb);
+@@ -2987,6 +3001,7 @@ void tcp_send_active_reset(struct sock *sk, gfp_t priority)
  
  	TCP_INC_STATS(sock_net(sk), TCP_MIB_OUTRSTS);
  }
@@ -1862,6 +1901,20 @@ index 7ac2365a..36e2e14a 100644
  
  int __net_init tcp6_proc_init(struct net *net)
  {
+diff --git a/net/netlink/af_netlink.c b/net/netlink/af_netlink.c
+index 246f29d3..84ba6b57 100644
+--- a/net/netlink/af_netlink.c
++++ b/net/netlink/af_netlink.c
+@@ -1210,8 +1210,7 @@ static struct sk_buff *netlink_trim(struct sk_buff *skb, gfp_t allocation)
+ 		skb = nskb;
+ 	}
+ 
+-	if (!pskb_expand_head(skb, 0, -delta, allocation))
+-		skb->truesize -= delta;
++	pskb_expand_head(skb, 0, -delta, allocation);
+ 
+ 	return skb;
+ }
 diff --git a/net/socket.c b/net/socket.c
 index 6bbccf05..581a4f18 100644
 --- a/net/socket.c
@@ -1879,6 +1932,19 @@ index 6bbccf05..581a4f18 100644
  /*
   *	Statistics counters of the socket lists
   */
+diff --git a/net/wireless/util.c b/net/wireless/util.c
+index c921c2ee..95efa237 100644
+--- a/net/wireless/util.c
++++ b/net/wireless/util.c
+@@ -620,8 +620,6 @@ int ieee80211_data_from_8023(struct sk_buff *skb, const u8 *addr,
+ 
+ 		if (pskb_expand_head(skb, head_need, 0, GFP_ATOMIC))
+ 			return -ENOMEM;
+-
+-		skb->truesize += head_need;
+ 	}
+ 
+ 	if (encaps_data) {
 diff --git a/security/Kconfig b/security/Kconfig
 index 118f4549..91105906 100644
 --- a/security/Kconfig
