@@ -37,6 +37,11 @@
 
 #include "sync_socket.h"
 
+#define TFW_WARN_ADDR_STATUS(msg, addr_ptr, status)			\
+	TFW_WITH_ADDR_FMT(addr_ptr, addr_str,				\
+			  TFW_WARN("%s, status %d: %s\n",		\
+				   msg, status, addr_str))
+
 #define RESP_BUF_LEN			128
 static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_buf);
 int ghprio; /* GFSM hook priority. */
@@ -872,7 +877,7 @@ void
 tfw_http_send_resp(TfwHttpReq *req, int status, const char *reason)
 {
 	if (!(tfw_blk_flags & TFW_BLK_ERR_NOLOG))
-		TFW_WARN_ADDR(reason, &req->conn->peer->addr);
+		TFW_WARN_ADDR_STATUS(reason, &req->conn->peer->addr, status);
 	tfw_http_error_resp_switch(req, status);
 }
 
@@ -881,11 +886,6 @@ tfw_http_hm_suspend(TfwHttpResp *resp, TfwServer *srv)
 {
 	unsigned long old_flags, flags = READ_ONCE(srv->flags);
 
-#define TFW_WARN_SUSPEND(status, addr_ptr)				\
-	TFW_WITH_ADDR_FMT(addr_ptr, addr,				\
-			  TFW_WARN("server '%s' has been suspended:"	\
-				   " limit for bad responses (status:"	\
-				   " '%u') is exceeded\n", addr, status))
 	if (!(flags & TFW_SRV_F_HMONITOR))
 		return true;
 
@@ -896,12 +896,14 @@ tfw_http_hm_suspend(TfwHttpResp *resp, TfwServer *srv)
 		old_flags = cmpxchg(&srv->flags, flags,
 				    flags | TFW_SRV_F_SUSPEND);
 		if (likely(old_flags == flags)) {
-			TFW_WARN_SUSPEND(resp->status, &srv->addr);
+			TFW_WARN_ADDR_STATUS("server has been suspended: limit "
+					     "for bad responses is exceeded",
+					     &srv->addr, resp->status);
 			break;
 		}
 		flags = old_flags;
 	} while (flags & TFW_SRV_F_HMONITOR);
-#undef TFW_WARN_SUSPEND
+
 	return true;
 }
 
