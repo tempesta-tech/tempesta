@@ -704,7 +704,7 @@ class Server(asyncore.dispatcher, stateful.Stateful):
              (self.ip, self.port, type(v)))
 
     def handle_close(self):
-        self.stop()
+        self.close()
 
 
 #-------------------------------------------------------------------------------
