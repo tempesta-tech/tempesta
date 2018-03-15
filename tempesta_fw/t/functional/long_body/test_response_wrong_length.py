@@ -148,7 +148,7 @@ class TesterSecondBodyLength(deproxy.Deproxy):
                                             "%i" % (length - 1))
         base[0].server_response.build_message()
 
-        base[0].response = chains.response_502()
+        base[0].response = chains.make_502_expected()
 
         self.message_chains = [base[0]]
         self.cookies = []
@@ -165,7 +165,7 @@ class TesterInvalidBodyLength(deproxy.Deproxy):
         base[0].server_response.headers['Content-Length'] = "invalid"
         base[0].server_response.build_message()
 
-        base[0].response = chains.response_502()
+        base[0].response = chains.make_502_expected()
 
         self.message_chains = [base[0]]
         self.cookies = []
