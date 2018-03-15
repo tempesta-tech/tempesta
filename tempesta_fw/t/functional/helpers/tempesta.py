@@ -194,6 +194,11 @@ class Config(object):
                 return sg
         return None
 
+    def remove_sg(self, name):
+        sg = self.find_sg(name)
+        error.assertFalse(sg is None)
+        self.server_groups.remove(sg)
+
     def add_sg(self, new_sg):
         error.assertTrue(self.find_sg(new_sg.name) is None)
         self.server_groups.append(new_sg)
