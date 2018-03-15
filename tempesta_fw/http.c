@@ -1809,7 +1809,7 @@ tfw_http_conn_send(TfwConn *conn, TfwMsg *msg)
  */
 static TfwHttpMsg *
 tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
-			    unsigned int split_offset, int type)
+			    unsigned int split_offset)
 {
 	TfwHttpMsg *shm;
 	struct sk_buff *nskb;
@@ -1818,8 +1818,18 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 
 	/* The sibling message belongs to the same connection. */
 	shm = (TfwHttpMsg *)tfw_http_conn_msg_alloc(hm->conn);
-	if (unlikely(!shm))
+	if (unlikely(!shm)) {
+		/*
+		 * Split skb to proceed with current message @hm, or rest of
+		 * data in this connection will be attached to the message.
+		 * Don't care about client connection, it must be closed and
+		 * request @hm is to be destroyed and won't be forwarded to
+		 * backend server.
+		 */
+		if (TFW_CONN_TYPE(hm->conn) & Conn_Srv)
+			*skb = ss_skb_split(*skb, split_offset);
 		return NULL;
+	}
 
 	/*
 	 * New message created, so it should be in whitelist if
@@ -2716,8 +2726,7 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 			 * @skb is replaced with pointer to a new SKB.
 			 */
 			hmsib = tfw_http_msg_create_sibling((TfwHttpMsg *)req,
-							    &skb, data_off,
-							    Conn_Clnt);
+							    &skb, data_off);
 			if (unlikely(!hmsib)) {
 				/*
 				 * Unfortunately, there's no recourse. The
@@ -3124,8 +3133,7 @@ tfw_http_resp_process(TfwConn *conn, const TfwFsmData *data)
 		 */
 		if (data_off < skb_len) {
 			hmsib = tfw_http_msg_create_sibling(hmresp, &skb,
-							    data_off,
-							    Conn_Srv);
+							    data_off);
 			/*
 			 * In case of an error there's no recourse. The
 			 * caller expects that data is processed in full,
