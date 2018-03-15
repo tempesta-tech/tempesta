@@ -3,6 +3,7 @@ import unittest
 import copy
 import asyncore
 from helpers import tf_cfg, control, tempesta, deproxy, stateful
+from helpers.deproxy import ParseError
 
 __author__ = 'Tempesta Technologies, Inc.'
 __copyright__ = 'Copyright (C) 2017 Tempesta Technologies, Inc.'
@@ -146,7 +147,10 @@ class FunctionalTest(unittest.TestCase):
         self.tester.start()
         tf_cfg.dbg(3, "\tStarting completed")
 
-        self.tester.run()
+        try:
+            self.tester.run()
+        except ParseError as err:
+            self.assertTrue(False, msg=str(type(err)))
 
         self.tempesta.get_stats()
         self.assert_tempesta()

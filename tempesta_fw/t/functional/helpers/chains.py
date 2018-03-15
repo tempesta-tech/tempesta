@@ -53,14 +53,15 @@ def response_403(date=None, connection=None):
     return deproxy.Response.create(status=403, headers=headers,
                                    date=date, body='')
 
-def response_400(date=None):
+def response_400(date=None, connection=None):
     if date is None:
         date = deproxy.HttpMessage.date_time_string()
-    resp = deproxy.Response.create(status=400,
-                                   headers=['Content-Length: 0',
-                                            'Connection: keep-alive'],
-                                   date=date,
-                                   body='')
+    headers = ['Content-Length: 0']
+    if connection != None:
+        headers.append('Connection: %s' % connection)
+
+    resp = deproxy.Response.create(status=400, headers=headers,
+                                   date=date, body='')
     return resp
 
 def base(uri='/', method='GET', forward=True, date=None):

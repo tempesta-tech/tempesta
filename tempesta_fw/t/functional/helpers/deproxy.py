@@ -547,11 +547,11 @@ class Client(asyncore.dispatcher, stateful.Stateful):
             self.response_buffer = self.response_buffer[len(response.msg):]
         except IncompliteMessage:
             return
-        except ParseError:
+        except ParseError as err:
             tf_cfg.dbg(4, ('Deproxy: Client: Can\'t parse message\n'
                            '<<<<<\n%s>>>>>'
                            % self.response_buffer))
-            raise
+            raise err
         if len(self.response_buffer) > 0:
             # TODO: take care about pipelined case
             raise ParseError('Garbage after response end:\n```\n%s\n```\n' % \
