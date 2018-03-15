@@ -153,25 +153,29 @@ class StressTest(unittest.TestCase):
     def servers_get_stats(self):
         control.servers_get_stats(self.servers)
 
-    def generic_test_routine(self, tempesta_defconfig):
-        """ Make necessary updates to configs of servers, create tempesta config
-        and run the routine in you `test_*()` function.
-        """
+    def generic_start_test(self, tempesta_defconfig):
         # Set defconfig for Tempesta.
         self.tempesta.config.set_defconfig(tempesta_defconfig)
         self.configure_tempesta()
         control.servers_start(self.servers)
         self.tempesta.start()
 
-        control.clients_run_parallel(self.clients)
+    def generic_asserts_test(self):
         self.show_performance()
-
         # Tempesta statistics is valuable to client assertions.
         self.tempesta.get_stats()
 
         self.assert_clients()
         self.assert_tempesta()
         self.assert_servers()
+
+    def generic_test_routine(self, tempesta_defconfig):
+        """ Make necessary updates to configs of servers, create tempesta config
+        and run the routine in you `test_*()` function.
+        """
+        self.generic_start_test(tempesta_defconfig)
+        control.clients_run_parallel(self.clients)
+        self.generic_asserts_test()
 
 if __name__ == '__main__':
     unittest.main()
