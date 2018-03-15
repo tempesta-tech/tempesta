@@ -1818,14 +1818,21 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 
 	/* The sibling message belongs to the same connection. */
 	shm = (TfwHttpMsg *)tfw_http_conn_msg_alloc(hm->conn);
-	if (unlikely(!shm))
+	if (unlikely(!shm)) {
+		/*
+		 * Split skb to proceed with current message @hm, or rest of
+		 * data in this connection will be attached to the message.
+		 */
+		if (type == Conn_Srv)
+			*skb = ss_skb_split(*skb, split_offset);
 		return NULL;
+	}
 
 	/*
 	 * New message created, so it should be in whitelist if
 	 * previous message was (for client connections).
 	 */
-	if (TFW_CONN_TYPE(hm->conn) & Conn_Clnt)
+	if (type == Conn_Clnt)
 		shm->flags |= hm->flags & TFW_HTTP_F_WHITELIST;
 
 	/*
