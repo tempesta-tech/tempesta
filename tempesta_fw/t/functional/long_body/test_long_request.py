@@ -23,11 +23,8 @@ class RequestTestBase(stress.StressTest):
         self.generator = wrk.ScriptGenerator()
         self.generator.set_body(body_generator.generate_body(length))
 
-        filename = self.script + ".lua"
-        self.generator.make_config(filename)
-
         self.wrk = control.Wrk()
-        self.wrk.set_script(self.script, need_copy=False)
+        self.wrk.set_script(self.script, content=self.generator.make_config())
 
         self.clients = [self.wrk]
 
