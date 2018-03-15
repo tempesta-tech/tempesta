@@ -40,6 +40,6 @@ class ScriptGenerator(object):
             name = self.__luaencode(header[0])
             value = self.__luaencode(header[1])
             config += "    [\"%s\"] = \"%s\",\n" % (name, value)
-        config += "},\n"
-        config += "wrk.body = \"%s\",\n" % self.__luaencode(self.body)
+        config += "}\n"
+        config += "wrk.body = \"%s\"\n" % self.__luaencode(self.body)
         return config
