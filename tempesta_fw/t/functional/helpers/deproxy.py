@@ -25,7 +25,6 @@ class ParseError(Exception):
 class IncompliteMessage(ParseError):
     pass
 
-
 class HeaderCollection(object):
     """
     A collection class for HTTP Headers. This class combines aspects of a list
@@ -547,11 +546,11 @@ class Client(asyncore.dispatcher, stateful.Stateful):
             self.response_buffer = self.response_buffer[len(response.msg):]
         except IncompliteMessage:
             return
-        except ParseError as err:
+        except ParseError:
             tf_cfg.dbg(4, ('Deproxy: Client: Can\'t parse message\n'
                            '<<<<<\n%s>>>>>'
                            % self.response_buffer))
-            raise err
+            raise
         if len(self.response_buffer) > 0:
             # TODO: take care about pipelined case
             raise ParseError('Garbage after response end:\n```\n%s\n```\n' % \
@@ -573,7 +572,10 @@ class Client(asyncore.dispatcher, stateful.Stateful):
 
     def handle_error(self):
         _, v, _ = sys.exc_info()
-        error.bug('\tDeproxy: Client: %s' % v)
+        if type(v) == ParseError or type(v) == AssertionError:
+            raise v
+        else:
+            error.bug('\tDeproxy: Client: %s' % v)
 
 
 
@@ -685,14 +687,21 @@ class Server(asyncore.dispatcher, stateful.Stateful):
             self.connections.append(handler)
             assert len(self.connections) <= self.conns_n, \
                 ('Too lot connections, expect %d, got %d'
-                 & (self.conns_n, len(self.connections)))
+                 % (self.conns_n, len(self.connections)))
+
+    def handle_read_event(self):
+        asyncore.dispatcher.handle_read_event(self)
 
     def active_conns_n(self):
         return len(self.connections)
 
     def handle_error(self):
         _, v, _ = sys.exc_info()
-        raise  Exception('\tDeproxy: Server %s:%d: %s' % (self.ip, self.port, v))
+        if type(v) == AssertionError:
+            raise v
+        else:
+            raise  Exception('\tDeproxy: Server %s:%d: %s' % \
+             (self.ip, self.port, type(v)))
 
     def handle_close(self):
         self.stop()
