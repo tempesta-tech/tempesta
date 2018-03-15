@@ -30,7 +30,7 @@ class ScriptGenerator(object):
     def set_body(self, body):
         self.body = body
 
-    def make_config(self, filename):
+    def make_config(self):
         """ Generate config and write it to file """
         config = ""
         config += "wrk.method = \"%s\"\n" % self.request_type
@@ -42,4 +42,4 @@ class ScriptGenerator(object):
             config += "    [\"%s\"] = \"%s\",\n" % (name, value)
         config += "},\n"
         config += "wrk.body = \"%s\",\n" % self.__luaencode(self.body)
-        remote.client.copy_file(filename, config)
+        return config

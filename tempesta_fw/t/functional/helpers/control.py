@@ -132,23 +132,22 @@ class Wrk(Client):
                             '/../wrk/'])
         self.copy_script = True
 
-    def set_script(self, script, need_copy=True):
+    def set_script(self, script, content=None):
         self.script = script + ".lua"
-        self.copy_script = need_copy
-
-    def append_script_option(self):
-        if not self.script:
-            return
-        script_path = self.workdir + "/" + self.script
-
-        if self.copy_script:
+        if content == None:
             local_path = ''.join([self.local_scriptdir, self.script])
             local_script_path = os.path.abspath(local_path)
             assert os.path.isfile(local_script_path), \
                    'No script found: %s !' % local_script_path
             f = open(local_script_path, 'r')
             self.files.append((self.script, f.read()))
+        else:
+            self.node.copy_file(self.script, content)
 
+    def append_script_option(self):
+        if not self.script:
+            return
+        script_path = self.workdir + "/" + self.script
         self.options.append('-s %s' % script_path)
 
     def form_command(self):
