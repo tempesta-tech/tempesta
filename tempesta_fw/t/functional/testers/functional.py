@@ -150,7 +150,7 @@ class FunctionalTest(unittest.TestCase):
         try:
             self.tester.run()
         except ParseError as err:
-            self.assertTrue(False, msg=str(type(err)))
+            self.assertTrue(False, msg=err)
 
         self.tempesta.get_stats()
         self.assert_tempesta()

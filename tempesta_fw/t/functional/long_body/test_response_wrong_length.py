@@ -104,7 +104,7 @@ class TesterForbiddenZeroBodyLength(deproxy.Deproxy):
         base[0].server_response.headers.add('Content-Length', "%i" % base[1])
         base[0].server_response.build_message()
 
-        base[0].response = chains.response_500()
+        base[0].response = chains.make_502_expected()
 
         self.message_chains = [base[0]]
         self.cookies = []
