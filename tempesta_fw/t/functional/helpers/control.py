@@ -127,18 +127,27 @@ class Wrk(Client):
         Client.__init__(self, binary='wrk', uri=uri, ssl=ssl)
         self.threads = threads
         self.script = ''
+        self.local_scriptdir = ''.join([
+                            os.path.dirname(os.path.realpath(__file__)),
+                            '/../wrk/'])
+        self.copy_script = True
 
-    def set_script(self, script):
-        self.script = script
+    def set_script(self, script, content=None):
+        self.script = script + ".lua"
+        if content == None:
+            local_path = ''.join([self.local_scriptdir, self.script])
+            local_script_path = os.path.abspath(local_path)
+            assert os.path.isfile(local_script_path), \
+                   'No script found: %s !' % local_script_path
+            f = open(local_script_path, 'r')
+            self.files.append((self.script, f.read()))
+        else:
+            self.node.copy_file(self.script, content)
 
     def append_script_option(self):
         if not self.script:
             return
-        path = ''.join([os.path.dirname(os.path.realpath(__file__)),
-                        '/../wrk/', self.script, '.lua'])
-        script_path = os.path.abspath(path)
-        assert os.path.isfile(script_path), \
-               'No script found: %s !' % script_path
+        script_path = self.workdir + "/" + self.script
         self.options.append('-s %s' % script_path)
 
     def form_command(self):
