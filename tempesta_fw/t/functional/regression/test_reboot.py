@@ -53,7 +53,8 @@ class RebootUnderLoadTest(stress.StressTest):
         self.show_performance()
 
     def tearDown(self):
-        self.r_thread.join()
+        if hasattr(self, 'r_thread'):
+            self.r_thread.join()
         stress.StressTest.tearDown(self)
 
     def test_proxy(self):
