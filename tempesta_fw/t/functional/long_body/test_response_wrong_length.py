@@ -49,11 +49,32 @@ def generate_chain_204(method='GET'):
     base.server_response.body = ""
     return base
 
+class InvalidResponseServer(deproxy.Server):
+
+    def __stop_server(self):
+        deproxy.Server.__stop_server(self)
+        assert len(self.connections) <= self.conns_n, \
+                ('Too lot connections, expect %d, got %d'
+                 % (self.conns_n, len(self.connections)))
+
+    def handle_accept(self):
+        pair = self.accept()
+        if pair is not None:
+            sock, _ = pair
+            handler = deproxy.ServerConnection(self.tester, server=self,
+                                               sock=sock,
+                                               keep_alive=self.keep_alive)
+            self.connections.append(handler)
+
 class TesterCorrectEmptyBodyLength(deproxy.Deproxy):
     """ Tester """
     def create_base(self):
         base = generate_chain_200(method='GET')
         return (base, len(base.response.body))
+
+    def recieved_response(self, response):
+        """Client received response for its request."""
+        self.recieved_chain.response = response
 
     def __init__(self, *args, **kwargs):
         deproxy.Deproxy.__init__(self, *args, **kwargs)
@@ -128,7 +149,7 @@ class TesterDuplicateBodyLength(deproxy.Deproxy):
         base[0].server_response.headers.add('Content-Length', cl)
         base[0].server_response.build_message()
 
-        base[0].response = chains.response_500()
+        base[0].response = chains.make_502_expected()
 
         self.message_chains = [base[0]]
         self.cookies = []
@@ -178,6 +199,10 @@ class ResponseCorrectEmptyBodyLength(functional.FunctionalTest):
     """ Correct body length """
     config = 'cache 0;\nblock_action error reply;\nblock_action attack reply;\n'
 
+    def create_servers(self):
+        port = tempesta.upstream_port_start_from()
+        self.servers = [InvalidResponseServer(port=port)]
+
     def create_client(self):
         self.client = deproxy.Client()
 
@@ -220,7 +245,7 @@ class ResponseSmallBodyLength(ResponseCorrectEmptyBodyLength):
         msg = 'Tempesta have errors in processing HTTP %s.'
         self.assertEqual(self.tempesta.stats.cl_msg_parsing_errors, 0,
                          msg=(msg % 'requests'))
-        self.assertEqual(self.tempesta.stats.srv_msg_parsing_errors, 1,
+        self.assertEqual(self.tempesta.stats.srv_msg_parsing_errors, 0,
                          msg=(msg % 'responses'))
         self.assertEqual(self.tempesta.stats.cl_msg_other_errors, 0,
                          msg=(msg % 'requests'))
