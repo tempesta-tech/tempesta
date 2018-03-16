@@ -64,7 +64,7 @@ forwarded to server, and vice versa, which server connections are used.
 `python-configparser`, `python-subprocess32`, `wrk`, `ab`, `python-scapy`
 - All hosts except previous one: `sftp-server`
 - Host for running TempestaFW: Linux kernel with Tempesta, TempestaFW sources,
-`systemtap`
+`systemtap`, `tcpdump`
 - Host for running server: `nginx`, web content directory accessible by nginx
 
 `wrk` is an HTTP benchmarking tool, available from [Github](https://github.com/wg/wrk).
