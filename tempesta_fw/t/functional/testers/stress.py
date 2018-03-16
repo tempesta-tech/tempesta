@@ -17,7 +17,9 @@ class StressTest(unittest.TestCase):
 
     def create_clients(self):
         """ Override to set desired list of benchmarks and their options. """
-        self.clients = [control.Wrk()]
+        self.wrk = control.Wrk()
+        self.wrk.set_script("foo", content="")
+        self.clients = [self.wrk]
 
     def create_tempesta(self):
         """ Normally no override is needed.
