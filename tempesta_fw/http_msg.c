@@ -793,7 +793,7 @@ __msg_alloc_skb_data(TfwHttpMsg *hm, size_t len)
  * this function is called to send a response from cache, or to send
  * an error response. An error response is not parsed or adjusted, so
  * a shorter/faster version of message allocation and initialization
- * may be used. (See tfw_http_msg_alloc_err_resp()).
+ * may be used. (See __tfw_http_msg_alloc(full=False)).
  */
 int
 tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len)

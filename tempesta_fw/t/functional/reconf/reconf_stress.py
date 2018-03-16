@@ -83,15 +83,22 @@ class LiveReconfStress(stress.StressTest):
         configure_func()
         self.tempesta.start()
 
-        r_thread = Thread(target=self.reconfig)
-        r_thread.start()
+        self.r_thread = Thread(target=self.reconfig)
+        self.r_thread.start()
 
         control.clients_run_parallel(self.clients)
         self.show_performance()
         self.tempesta.get_stats()
 
-        r_thread.join()
+        self.r_thread.join()
         self.assert_clients()
+
+    def tearDown(self):
+        # Wait for reconfig thread if it's not finished (exception was thrown
+        # during stress_reconfig_generic()
+        if hasattr(self, 'r_thread'):
+            self.r_thread.join()
+        stress.StressTest.tearDown(self)
 
     def configure_srvs_start(self):
         srvs = self.const_srvs + self.rm_srvs

@@ -382,7 +382,7 @@ tfw_listen_sock_start(TfwListenSock *ls)
 
 	r = ss_sock_create(addr->family, SOCK_STREAM, IPPROTO_TCP, &sk);
 	if (r) {
-		TFW_ERR("can't create listening socket (err: %d)\n", r);
+		TFW_ERR_NL("can't create listening socket (err: %d)\n", r);
 		return r;
 	}
 
@@ -410,7 +410,8 @@ tfw_listen_sock_start(TfwListenSock *ls)
 	TFW_DBG("start listening on socket: sk=%p\n", sk);
 	r = ss_listen(sk, TFW_LISTEN_SOCK_BACKLOG_LEN);
 	if (r) {
-		TFW_ERR("can't listen on front-end socket sk=%p (%d)\n", sk, r);
+		TFW_ERR_NL("can't listen on front-end socket sk=%p (%d)\n",
+			   sk, r);
 		return r;
 	}
 
@@ -532,8 +533,8 @@ tfw_sock_clnt_cfgend(void)
 
 	TFW_DBG("Checking backends and listeners\n");
 	if ((r = tfw_sg_for_each_srv_reconfig(tfw_sock_check_lst))) {
-		TFW_ERR("One of the backends is Tempesta itself!"
-			" Please, fix the configuration.\n");
+		TFW_ERR_NL("One of the backends is Tempesta itself!"
+			   " Please, fix the configuration.\n");
 		return r;
 	}
 
