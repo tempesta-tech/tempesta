@@ -37,7 +37,9 @@ class ResponseTestBase(stress.StressTest):
 
     def create_clients(self):
         """ Create wrk with specified uri """
-        self.clients = [control.Wrk(uri=self.uri)]
+        self.wrk = control.Wrk(uri=self.uri)
+        self.wrk.set_script("foo", content="")
+        self.clients = [self.wrk]
 
     def create_servers_with_body(self, length):
         """ Create nginx server with long response body """
