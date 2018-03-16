@@ -466,7 +466,7 @@ tfw_cfgop_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	in_op = ce->vals[1];
 	ret = tfw_cfg_map_enum(tfw_match_enum, in_op, &op);
 	if (ret) {
-		TFW_ERR("Unsupported match OP: '%s %s'\n", cs->name, in_op);
+		TFW_ERR_NL("Unsupported match OP: '%s %s'\n", cs->name, in_op);
 		return -EINVAL;
 	}
 
@@ -990,7 +990,7 @@ tfw_cfgop_cache_purge_acl(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TfwVhost *vhost = &tfw_vhost_dflt;
 
 	if (ce->attr_n) {
-		TFW_ERR("%s: Arguments may not have the \'=\' sign\n",
+		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
 			cs->name);
 		return -EINVAL;
 	}
@@ -1033,7 +1033,7 @@ tfw_cfgop_cache_purge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TfwVhost *vhost = &tfw_vhost_dflt;
 
 	if (ce->attr_n) {
-		TFW_ERR("%s: Arguments may not have the \'=\' sign\n",
+		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
 			cs->name);
 		return -EINVAL;
 	}
@@ -1126,8 +1126,8 @@ tfw_vhost_cfgend(void)
 		return 0;
 
 	if (tfw_vhost_dflt.cache_purge && !tfw_vhost_dflt.cache_purge_acl)
-		TFW_WARN("cache_purge directive works only in combination"
-			 " with cache_purge_acl directive.\n");
+		TFW_WARN_NL("cache_purge directive works only in combination"
+			    " with cache_purge_acl directive.\n");
 	tfw_vhost_dflt.loc_sz = tfw_location_sz;
 
 	return 0;

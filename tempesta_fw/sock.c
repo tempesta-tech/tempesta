@@ -1524,7 +1524,7 @@ tfw_sync_socket_init(void)
 		TfwRBQueue *wq = &per_cpu(si_wq, cpu);
 
 		if ((r = tfw_wq_init(wq, cpu_to_node(cpu)))) {
-			TFW_ERR("Cannot initialize softirq tx work queue\n");
+			TFW_ERR_NL("Cannot initialize softirq tx work queue\n");
 			kmem_cache_destroy(ss_cbacklog_cache);
 			return r;
 		}

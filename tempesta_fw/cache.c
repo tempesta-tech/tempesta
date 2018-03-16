@@ -1790,7 +1790,7 @@ tfw_cache_start(void)
 	cache_mgr_thr = kthread_run(tfw_cache_mgr, NULL, "tfw_cache_mgr");
 	if (IS_ERR(cache_mgr_thr)) {
 		r = PTR_ERR(cache_mgr_thr);
-		TFW_ERR("Can't start cache manager, %d\n", r);
+		TFW_ERR_NL("Can't start cache manager, %d\n", r);
 		goto close_db;
 	}
 #endif
