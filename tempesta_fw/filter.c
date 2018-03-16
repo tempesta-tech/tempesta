@@ -284,7 +284,7 @@ tfw_filter_start(void)
 		return -EINVAL;
 
 	if ((r = nf_register_hooks(tfw_nf_ops, ARRAY_SIZE(tfw_nf_ops)))) {
-		TFW_ERR("can't register netfilter hooks\n");
+		TFW_ERR_NL("can't register netfilter hooks\n");
 		tdb_close(ip_filter_db);
 		return r;
 	}
