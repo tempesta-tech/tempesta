@@ -1,6 +1,6 @@
 -- example script demonstrating HTTP pipelining
 
-init = function(args)
+local_init = function(args)
    local r = {}
    r[1] = wrk.format("GET", "/")
    r[2] = wrk.format("GET", "/")

@@ -51,7 +51,7 @@ local r3 = {
 
 local req
 
-init = function()
+local_init = function()
     local req1 = wrk.format(r1.method, r1.path, r1.headers)
     local req2 = wrk.format(r2.method, r2.path, r2.headers)
     local req3 = wrk.format(r3.method, r3.path, r3.headers)
