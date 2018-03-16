@@ -33,6 +33,37 @@ def make_502_expected():
     )
     return response
 
+def response_500():
+    date = deproxy.HttpMessage.date_time_string()
+    headers = [
+        'Date: %s' % date,
+        'Content-Length: 0',
+        'Connection: keep-alive'
+    ]
+    response = deproxy.Response.create(status=500, headers=headers)
+    return response
+
+def response_403(date=None, connection=None):
+    if date is None:
+        date = deproxy.HttpMessage.date_time_string()
+    headers = ['Content-Length: 0']
+    if connection != None:
+        headers.append('Connection: %s' % connection)
+
+    return deproxy.Response.create(status=403, headers=headers,
+                                   date=date, body='')
+
+def response_400(date=None, connection=None):
+    if date is None:
+        date = deproxy.HttpMessage.date_time_string()
+    headers = ['Content-Length: 0']
+    if connection != None:
+        headers.append('Connection: %s' % connection)
+
+    resp = deproxy.Response.create(status=400, headers=headers,
+                                   date=date, body='')
+    return resp
+
 def base(uri='/', method='GET', forward=True, date=None):
     """Base message chain. Looks like simple Curl request to Tempesta and
     response for it.
@@ -85,7 +116,6 @@ def base(uri='/', method='GET', forward=True, date=None):
     common_resp_date = date
     # response body
     common_resp_body = ''
-    common_resp_body_void = False
     # common part of response headers 
     common_resp_headers = [
         'Connection: keep-alive',
@@ -122,8 +152,6 @@ def base(uri='/', method='GET', forward=True, date=None):
         ]
         if method == "GET":
             common_resp_body = sample_body
-        else:
-            common_resp_body_void = True
 
     elif method == "POST":
         common_req_headers += [
@@ -165,12 +193,13 @@ def base(uri='/', method='GET', forward=True, date=None):
         uri=uri,
         body=common_req_body
     )
+
     tempesta_resp = deproxy.Response.create(
         status=common_resp_code,
         headers=common_resp_headers + tempesta_resp_headers_addn,
         date=common_resp_date,
         body=common_resp_body,
-        body_void=common_resp_body_void
+        method=method,
     )
 
     if forward:
@@ -180,12 +209,13 @@ def base(uri='/', method='GET', forward=True, date=None):
             uri=uri,
             body=common_req_body
         )
+
         backend_resp = deproxy.Response.create(
             status=common_resp_code,
             headers=common_resp_headers + backend_resp_headers_addn,
             date=common_resp_date,
             body=common_resp_body,
-            body_void=common_resp_body_void
+            method=method,
         )
     else:
         tempesta_req = None
@@ -196,7 +226,6 @@ def base(uri='/', method='GET', forward=True, date=None):
                                       forwarded_request=tempesta_req,
                                       server_response=backend_resp)
     return copy.copy(base_chain)
-
 
 def base_chunked(uri='/'):
     """Same as chains.base(), but returns a copy of message chain with

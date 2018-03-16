@@ -29,7 +29,7 @@ class Stage(object):
         self.tester.current_chain = copy.copy(self.chain)
         self.tester.recieved_chain = deproxy.MessageChain.empty()
         self.client.clear()
-        self.client.set_request(self.tester.current_chain.request)
+        self.client.set_request(self.tester.current_chain)
 
     def check_transition(self, messages):
         expected = None
