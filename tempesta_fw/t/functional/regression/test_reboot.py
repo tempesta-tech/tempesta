@@ -24,6 +24,7 @@ class RebootUnderLoadTest(stress.StressTest):
 
     def create_clients(self):
         self.wrk = control.Wrk()
+        self.wrk.set_script("foo", content="")
         r_time = max(self.restart_timeout, 1) * (self.restart_cycles + 1)
         self.wrk.duration = r_time + self.warm_timeout + 1
         self.clients = [self.wrk]
