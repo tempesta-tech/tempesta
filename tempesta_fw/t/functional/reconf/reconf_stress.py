@@ -96,7 +96,8 @@ class LiveReconfStress(stress.StressTest):
     def tearDown(self):
         # Wait for reconfig thread if it's not finished (exception was thrown
         # during stress_reconfig_generic()
-        self.r_thread.join()
+        if hasattr(self, 'r_thread'):
+            self.r_thread.join()
         stress.StressTest.tearDown(self)
 
     def configure_srvs_start(self):
