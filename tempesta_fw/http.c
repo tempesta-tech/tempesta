@@ -1109,8 +1109,6 @@ static inline bool
 tfw_http_req_fwd_single(TfwSrvConn *srv_conn, TfwServer *srv,
 			TfwHttpReq *req, struct list_head *eq)
 {
-	if ((unlikely(req->flags & TFW_HTTP_F_REQ_DROP)))
-		return false;
 	if (tfw_http_req_evict_stale_req(srv_conn, srv, req, eq))
 		return false;
 	if (!tfw_http_req_fwd_send(srv_conn, srv, req, eq))
