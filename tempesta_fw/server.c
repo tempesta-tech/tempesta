@@ -69,7 +69,7 @@ static DECLARE_HASHTABLE(sg_hash_reconfig, TFW_SG_HBITS);
 /*
  * The lock is used in process context only (e.g. (re-)configuration or
  * procfs), so it should be sleepable and don't care too much about
- * concurrencty.
+ * concurrently.
  */
 static DECLARE_RWSEM(sg_sem);
 
@@ -80,6 +80,7 @@ tfw_server_destroy(TfwServer *srv)
 		srv->cleanup(srv);
 	/* Close all connections before freeing the server! */
 	BUG_ON(!list_empty(&srv->conn_list));
+	BUG_ON(timer_pending(&srv->gs_timer));
 
 	tfw_apm_del_srv(srv);
 	if (srv->sg)
