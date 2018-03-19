@@ -72,7 +72,7 @@ class DeadtimeClient(stateful.Stateful):
         for self.current_chain in self.message_chains:
             self.recieved_chain = deproxy.MessageChain.empty()
             self.client.clear()
-            self.client.set_request(self.current_chain.request)
+            self.client.set_request(self.current_chain)
             self.loop(timeout)
 
     def run(self, finish_event):
