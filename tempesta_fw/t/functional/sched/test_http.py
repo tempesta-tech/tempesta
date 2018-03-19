@@ -233,7 +233,7 @@ class HttpSchedTester(deproxy.Deproxy):
 
         self.recieved_chain = deproxy.MessageChain.empty()
         self.client.clear()
-        self.client.set_request(self.current_chain.request)
+        self.client.set_request(self.current_chain)
 
     def recieved_response(self, response):
         # A lot of clients running, dont raise asyncore.ExitNow directly

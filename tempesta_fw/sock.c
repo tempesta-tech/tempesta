@@ -734,7 +734,7 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		if (r < 0) {
 			TFW_DBG2("[%d]: Processing error: sk %p r %d\n",
 			         smp_processor_id(), sk, r);
-			goto out; /* connection dropped */
+			goto out; /* connection must be dropped */
 		}
 	}
 	if (tcp_fin) {
@@ -1524,7 +1524,7 @@ tfw_sync_socket_init(void)
 		TfwRBQueue *wq = &per_cpu(si_wq, cpu);
 
 		if ((r = tfw_wq_init(wq, cpu_to_node(cpu)))) {
-			TFW_ERR("Cannot initialize softirq tx work queue\n");
+			TFW_ERR_NL("Cannot initialize softirq tx work queue\n");
 			kmem_cache_destroy(ss_cbacklog_cache);
 			return r;
 		}

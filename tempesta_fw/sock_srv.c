@@ -2008,14 +2008,14 @@ __tfw_cfgop_update_sg_srv_list(TfwSrvGroup *sg, TfwServer *srv, void *data)
 	/* Server was not found in new configuration. */
 	if (!(srv->flags & TFW_CFG_M_ACTION)) {
 		if ((r = tfw_sock_srv_grace_shutdown_srv(sg, srv, NULL))) {
-			TFW_ERR("graceful server shutdown failed\n");
+			TFW_ERR_NL("graceful server shutdown failed\n");
 			return r;
 		}
 		return 0;
 	}
 	else if (srv->flags & TFW_CFG_F_MOD) {
 		if ((r = tfw_cfgop_update_srv(srv, sg_cfg))) {
-			TFW_ERR("server config update failed\n");
+			TFW_ERR_NL("server config update failed\n");
 			return r;
 		}
 	}
@@ -2051,7 +2051,7 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
 		tfw_server_put(srv);
 
 		if ((r = tfw_sock_srv_start_srv(NULL, srv, sg_cfg->hm_arg))) {
-			TFW_ERR("cannot establish new server connection\n");
+			TFW_ERR_NL("cannot establish new server connection\n");
 			return r;
 		}
 		tfw_srv_reset_cfg_actions(srv);

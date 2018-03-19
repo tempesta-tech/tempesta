@@ -153,3 +153,27 @@ workdir = /tmp/nginx
 #
 resources = /var/www/html/
 
+# If we need to create many aliases of interface to listen > 64k ports
+# we need to specify interface, where aliases will be created
+#
+# ex.: aliases_interface = enp2s0
+#
+# this will create aliases enp2s0:0, enp2s0:1, etc
+#
+aliases_interface = eth0
+
+# Base IP address of interfaces.
+#
+# ex. aliases_base_ip = 192.168.10.1
+#
+# eth0:0 will have ip 192.168.10.1
+# eth0:1 will have ip 192.168.10.2
+#
+# etc
+#
+aliases_base_ip = 192.168.10.1
+
+# Maximal workers amount
+# -1 for unlimited
+
+max_workers = 16

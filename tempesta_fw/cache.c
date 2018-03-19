@@ -620,8 +620,8 @@ tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwStr *hdr,
  * extra headers with tfw_http_adjust_resp(). Use quicker tfw_http_msg_write()
  * instead of tfw_http_msg_add_data() used to build full response.
  */
-void
-__send_304(TfwHttpReq *req, TfwCacheEntry *ce)
+static void
+tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 {
 	TfwHttpResp *resp;
 	TfwMsgIter it;
@@ -629,6 +629,9 @@ __send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 	char *p;
 	TdbVRec *trec = &ce->trec;
 	TDB *db = node_db();
+
+	WARN_ON_ONCE(!list_empty(&req->fwd_list));
+	WARN_ON_ONCE(!list_empty(&req->nip_list));
 
 	if (!(resp = tfw_http_msg_alloc_resp_light(req)))
 		goto err_create;
@@ -688,7 +691,7 @@ tfw_handle_validation_req(TfwHttpReq *req, TfwCacheEntry *ce)
 		if (!tfw_cache_cond_none_match(req, ce)) {
 			if ((req->method == TFW_HTTP_METH_GET)
 			    || (req->method == TFW_HTTP_METH_HEAD))
-				__send_304(req, ce);
+				tfw_cache_send_304(req, ce);
 			else
 				tfw_http_send_resp(req, 412,
 						   "request validation: "
@@ -718,7 +721,7 @@ tfw_handle_validation_req(TfwHttpReq *req, TfwCacheEntry *ce)
 		}
 
 		if (send_304) {
-			__send_304(req, ce);
+			tfw_cache_send_304(req, ce);
 			return false;
 		}
 	}
@@ -1080,7 +1083,8 @@ __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
 
 /**
  * Check if the header @hdr must be present in 304 response. If yes save its
- * offset in cache entry @ce for fast creation of 304 response in __send_304().
+ * offset in cache entry @ce for fast creation of 304 response in
+ * tfw_cahe_send_304().
  */
 static bool
 __save_hdr_304_off(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *hdr, long off)
@@ -1791,7 +1795,7 @@ tfw_cache_start(void)
 	cache_mgr_thr = kthread_run(tfw_cache_mgr, NULL, "tfw_cache_mgr");
 	if (IS_ERR(cache_mgr_thr)) {
 		r = PTR_ERR(cache_mgr_thr);
-		TFW_ERR("Can't start cache manager, %d\n", r);
+		TFW_ERR_NL("Can't start cache manager, %d\n", r);
 		goto close_db;
 	}
 #endif

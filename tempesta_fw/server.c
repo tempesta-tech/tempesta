@@ -547,7 +547,8 @@ tfw_sg_wait_release(void)
 			TFW_WARN_NL("pending for server callbacks to complete "
 				    "for 5s, %ld server groups still exist\n",
 				    atomic64_read(&act_sg_n));
-			tend = jiffies + HZ * 5;
+			__WARN();
+			return;
 		}
 	}
 }
