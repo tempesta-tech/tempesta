@@ -2211,7 +2211,7 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 	 * TODO #687: this is the only place where req_qlock is used. Instead
 	 * of competing for the lock from different softirqs, just process
 	 * the next available response, set a flag for current softirq
-	 * processing ret_queue and make the current softire retry from
+	 * processing ret_queue and make the current softirq retry from
 	 * determination of req_retent.
 	 */
 	tfw_cli_conn_get(cli_conn);
