@@ -995,7 +995,7 @@ tfw_http_req_evict_dropped(TfwSrvConn *srv_conn, TfwHttpReq *req)
 			 __func__, req);
 		if (srv_conn)
 			tfw_http_req_delist(srv_conn, req);
-		tfw_http_msg_free((TfwHttpMsg *)req);
+		tfw_http_conn_msg_free((TfwHttpMsg *)req);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 		return true;
 	}
