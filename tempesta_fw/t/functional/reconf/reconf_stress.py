@@ -68,7 +68,7 @@ class LiveReconfStress(stress.StressTest):
         """ Check benchmark result: 502 errors may happen but only for short
         period of time (during reconfig)."""
         for c in self.clients:
-            req, err, rate = c.results()
+            req, err, rate, _ = c.results()
             # Tempesta must be reconfigured in less that 1sec. Errors must not
             # happen after reconfig has finished.
             max_err = rate
