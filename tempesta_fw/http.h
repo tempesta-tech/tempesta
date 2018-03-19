@@ -563,12 +563,6 @@ typedef enum {
 	RESP_NUM	= RESP_5XX_END
 } resp_code_t;
 
-#define HTTP_SEND_RESP(req, code, reason)				\
-do {									\
-	tfw_http_send_resp(req, RESP_##code);				\
-	TFW_DBG("Send HTTP %s response: %s\n", #code, reason);		\
-} while (0)
-
 enum {
 	HTTP_STATUS_1XX = 1,
 	HTTP_STATUS_2XX,
@@ -615,7 +609,7 @@ int tfw_http_prep_redirect(TfwHttpMsg *resp,
 			   unsigned short status, TfwStr *cookie, TfwStr *body);
 int tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, void *msg_it,
 		      size_t hdrs_size);
-void tfw_http_send_resp(TfwHttpReq *req, resp_code_t code);
+void tfw_http_send_resp(TfwHttpReq *req, int status, const char *reason);
 
 /* Helper functions */
 char *tfw_http_msg_body_dup(const char *filename, size_t *len);
