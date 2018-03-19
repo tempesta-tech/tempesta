@@ -570,7 +570,7 @@ tfw_sched_http_init(void)
 	tfw_mod_register(&tfw_sched_http_mod);
 
 	if ((ret = tfw_sched_register(&tfw_sched_http))) {
-		TFW_ERR("sched_http: Unable to register the module\n");
+		TFW_ERR_NL("sched_http: Unable to register the module\n");
 		tfw_mod_unregister(&tfw_sched_http_mod);
 		return ret;
 	}

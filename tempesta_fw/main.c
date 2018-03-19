@@ -166,8 +166,8 @@ tfw_mods_cfgstart(struct list_head *mod_list)
 			continue;
 		TFW_DBG2("mod_cfgstart(): %s\n", mod->name);
 		if ((ret = mod->cfgstart())) {
-			TFW_ERR("Unable to prepare for the configuration "
-				"of module '%s': %d\n", mod->name, ret);
+			TFW_ERR_NL("Unable to prepare for the configuration "
+				   "of module '%s': %d\n", mod->name, ret);
 			return ret;
 		}
 	}
@@ -182,7 +182,7 @@ tfw_mods_start(struct list_head *mod_list)
 	int ret;
 	TfwMod *mod;
 
-	tfw_sched_refcnt_all(true)
+	tfw_sched_refcnt_all(true);
 
 	TFW_DBG2("starting modules...\n");
 	MOD_FOR_EACH(mod, mod_list) {
@@ -190,8 +190,8 @@ tfw_mods_start(struct list_head *mod_list)
 			continue;
 		TFW_DBG2("mod_start(): %s\n", mod->name);
 		if ((ret = mod->start())) {
-			TFW_ERR("Unable to start module '%s': %d\n",
-				mod->name, ret);
+			TFW_ERR_NL("Unable to start module '%s': %d\n",
+				   mod->name, ret);
 			return ret;
 		}
 	}
@@ -212,8 +212,8 @@ tfw_mods_cfgend(struct list_head *mod_list)
 			continue;
 		TFW_DBG2("mod_cfgend(): %s\n", mod->name);
 		if ((ret = mod->cfgend())) {
-			TFW_ERR("Unable to complete the configuration "
-				"of module '%s': %d\n", mod->name, ret);
+			TFW_ERR_NL("Unable to complete the configuration "
+				   "of module '%s': %d\n", mod->name, ret);
 			return ret;
 		}
 	}
@@ -247,7 +247,7 @@ stop_mods:
 	WRITE_ONCE(tfw_reconfig, false);
 	tfw_mods_stop(mod_list);
 cleanup:
-	TFW_WARN("Configuration parsing has failed. Clean up...\n");
+	TFW_WARN_NL("Configuration parsing has failed. Clean up...\n");
 	tfw_cleanup(mod_list);
 	return ret;
 }
@@ -278,7 +278,7 @@ tfw_ctlfn_state_change(const char *old_state, const char *new_state)
 
 	if (!strcasecmp("stop", new_state)) {
 		if (!READ_ONCE(tfw_started)) {
-			TFW_WARN("Trying to stop an inactive system\n");
+			TFW_WARN_NL("Trying to stop an inactive system\n");
 			return -EINVAL;
 		}
 
@@ -288,8 +288,8 @@ tfw_ctlfn_state_change(const char *old_state, const char *new_state)
 		return 0;
 	}
 
-	TFW_ERR("invalid state: '%s'. Should be either 'start' or 'stop'\n",
-		new_state);
+	TFW_ERR_NL("invalid state: '%s'. Should be either 'start' or 'stop'\n",
+		   new_state);
 
 	return -EINVAL;
 }
@@ -351,8 +351,8 @@ do {								\
 	TFW_DBG("init: %s\n", #mod);				\
 	r = tfw_##mod##_init();					\
 	if (r) {						\
-		TFW_ERR("can't initialize Tempesta FW module: '%s' (%d)\n", \
-			#mod, r);				\
+		TFW_ERR_NL("can't initialize Tempesta FW module: '%s' (%d)\n", \
+			   #mod, r);				\
 		goto err;					\
 	}							\
 	exit_hooks[exit_hooks_n++] = tfw_##mod##_exit;		\
@@ -385,7 +385,7 @@ tfw_init(void)
 	tfw_sysctl_hdr = register_net_sysctl(&init_net, "net/tempesta",
 					     tfw_sysctl_tbl);
 	if (!tfw_sysctl_hdr) {
-		TFW_ERR("can't register sysctl table\n");
+		TFW_ERR_NL("can't register sysctl table\n");
 		return -1;
 	}
 

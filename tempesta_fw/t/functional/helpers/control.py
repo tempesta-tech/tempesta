@@ -51,6 +51,7 @@ class Client(object):
         self.requests = 0
         self.rate = -1
         self.errors = 0
+        self.statuses = {}
 
     def set_uri(self, uri):
         """ For some clients uri is an optional parameter, e.g. for Siege.
@@ -97,7 +98,7 @@ class Client(object):
     def results(self):
         if (self.rate == -1):
             self.rate = self.requests / self.duration
-        return self.requests, self.errors, self.rate
+        return self.requests, self.errors, self.rate, self.statuses
 
     def add_option_file(self, option, filename, content):
         """ Helper for using files as client options: normaly file must be
@@ -127,18 +128,32 @@ class Wrk(Client):
         Client.__init__(self, binary='wrk', uri=uri, ssl=ssl)
         self.threads = threads
         self.script = ''
+        self.local_scriptdir = ''.join([
+                            os.path.dirname(os.path.realpath(__file__)),
+                            '/../wrk/'])
+        self.rs_content = self.read_local_script("results.lua")
 
-    def set_script(self, script):
-        self.script = script
+    def read_local_script(self, filename):
+        local_path = ''.join([self.local_scriptdir, filename])
+        local_script_path = os.path.abspath(local_path)
+        assert os.path.isfile(local_script_path), \
+               'No script found: %s !' % local_script_path
+        f = open(local_script_path, 'r')
+        content = f.read()
+        f.close()
+        return content
+
+    def set_script(self, script, content=None):
+        self.script = script + ".lua"
+
+        if content == None:
+            content = self.read_local_script(self.script)
+        self.node.copy_file(self.script, ''.join([content, self.rs_content]))
 
     def append_script_option(self):
         if not self.script:
             return
-        path = ''.join([os.path.dirname(os.path.realpath(__file__)),
-                        '/../wrk/', self.script, '.lua'])
-        script_path = os.path.abspath(path)
-        assert os.path.isfile(script_path), \
-               'No script found: %s !' % script_path
+        script_path = self.workdir + "/" + self.script
         self.options.append('-s %s' % script_path)
 
     def form_command(self):
@@ -163,6 +178,13 @@ class Wrk(Client):
         m = re.search(r'Requests\/sec:\s+(\d+)', stdout)
         if m:
             self.rate = int(m.group(1))
+        matches = re.findall(r'Status (\d{3}) : (\d+) times', stdout)
+        for match in matches:
+            status = match[0]
+            status = int(status)
+            amount = match[1]
+            amount = int(amount)
+            self.statuses[status] = amount
 
         sock_err_msg = "Socket errors on wrk. Too many concurrent connections?"
         m = re.search(r'(Socket errors:.+)', stdout)
