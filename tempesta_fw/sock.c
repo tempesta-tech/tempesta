@@ -734,7 +734,7 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		if (r < 0) {
 			TFW_DBG2("[%d]: Processing error: sk %p r %d\n",
 			         smp_processor_id(), sk, r);
-			goto out; /* connection dropped */
+			goto out; /* connection must be dropped */
 		}
 	}
 	if (tcp_fin) {
