@@ -146,6 +146,9 @@ tfw_http_sticky_send_redirect(TfwHttpReq *req, StickyVal *sv)
 	TfwStr *body = tfw_cfg_js_ch ? &tfw_cfg_js_ch->body : NULL;
 	int r;
 
+	WARN_ON_ONCE(!list_empty(&req->fwd_list));
+	WARN_ON_ONCE(!list_empty(&req->nip_list));
+
 	/*
 	 * TODO: #598 rate limit requests with invalid cookie vaule.
 	 * Non-challengeable requests also must be rate limited.
