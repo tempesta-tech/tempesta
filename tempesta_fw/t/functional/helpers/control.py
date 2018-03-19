@@ -162,6 +162,8 @@ class Wrk(Client):
         # count for remote node.
         if self.threads == -1:
             self.threads = remote.get_max_thread_count(self.node)
+        if self.threads > self.connections:
+            self.threads = self.connections
         threads = self.threads if self.connections > 1 else 1
         self.options.append('-t %d' % threads)
         self.options.append('-c %d' % self.connections)
