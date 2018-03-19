@@ -28,7 +28,11 @@ def make_response(st_code, expected=True):
 def make_502_expected():
     response = deproxy.Response.create(
         status=502,
-        headers=['Content-Length: 0', 'Connection: keep-alive'],
+        headers=[
+            'Content-Length: 0',
+            'Connection: keep-alive',
+            'Server: Tempesta FW/%s' % tempesta.version()
+        ],
         date=deproxy.HttpMessage.date_time_string()
     )
     return response
