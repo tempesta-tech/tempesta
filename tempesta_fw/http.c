@@ -644,7 +644,6 @@ err_create:
  * make a copy of requests's SKBs in SS layer.
  *
  * TODO: Making a copy of each SKB _IS BAD_. See issues #391 and #488.
- *
  */
 static inline void
 tfw_http_req_init_ss_flags(TfwSrvConn *srv_conn, TfwHttpReq *req)
@@ -793,11 +792,19 @@ __tfw_http_conn_msg_sent_prev(TfwSrvConn *srv_conn)
  * Remove @req from the server connection's forwarding queue.
  */
 static inline void
-tfw_http_req_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
+__http_req_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
 	tfw_http_req_nip_delist(srv_conn, req);
 	list_del_init(&req->fwd_list);
 	srv_conn->qsize--;
+}
+
+static inline void
+tfw_http_req_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
+{
+	spin_lock(&srv_conn->fwd_qlock);
+	__http_req_delist(srv_conn, req);
+	spin_unlock(&srv_conn->fwd_qlock);
 }
 
 /*
@@ -821,7 +828,7 @@ tfw_http_req_err(TfwSrvConn *srv_conn, TfwHttpReq *req,
 		 const char *reason)
 {
 	if (srv_conn)
-		tfw_http_req_delist(srv_conn, req);
+		__http_req_delist(srv_conn, req);
 	__tfw_http_req_err(req, eq, status, reason);
 }
 
@@ -867,8 +874,7 @@ tfw_http_error_resp_switch(TfwHttpReq *req, int status)
 	resp_code_t code = tfw_http_enum_resp_code(status);
 	if (code == RESP_NUM) {
 		TFW_WARN("Unexpected response error code: [%d]\n", status);
-		__tfw_http_send_resp(req, RESP_500);
-		return;
+		code = RESP_500;
 	}
 	__tfw_http_send_resp(req, code);
 }
@@ -978,14 +984,14 @@ tfw_http_req_zap_error(struct list_head *eq)
 			tfw_http_send_resp(req, req->httperr.status,
 					   req->httperr.reason);
 		else
-			tfw_http_msg_free((TfwHttpMsg *)req);
+			tfw_http_conn_msg_free((TfwHttpMsg *)req);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
 }
 
 /*
- * If @req is dropped since the client fisconnected for some reason,
- * move the request to the error queue @eq for sending an error response later.
+ * If @req is dropped since the client was disconnected for some reason,
+ * just free the request w/o connection putting.
  */
 static inline bool
 tfw_http_req_evict_dropped(TfwSrvConn *srv_conn, TfwHttpReq *req)
@@ -994,7 +1000,7 @@ tfw_http_req_evict_dropped(TfwSrvConn *srv_conn, TfwHttpReq *req)
 		TFW_DBG2("%s: Eviction: req=[%p] client disconnected\n",
 			 __func__, req);
 		if (srv_conn)
-			tfw_http_req_delist(srv_conn, req);
+			__http_req_delist(srv_conn, req);
 		tfw_http_conn_msg_free((TfwHttpMsg *)req);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 		return true;
@@ -1081,7 +1087,7 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv,
 		TFW_DBG2("%s: Forwarding error: conn=[%p] req=[%p]\n",
 			 __func__, srv_conn, req);
 		if (req->flags & TFW_HTTP_F_HMONITOR) {
-			tfw_http_req_delist(srv_conn, req);
+			__http_req_delist(srv_conn, req);
 			tfw_http_msg_free((TfwHttpMsg *)req);
 			TFW_WARN_ADDR("Unable to send health"
 				      " monitoring request to server",
@@ -1373,7 +1379,7 @@ tfw_http_req_resched(TfwHttpReq *req, TfwServer *srv, struct list_head *eq)
 							  srv);
 		if (!sch_conn) {
 			list_del_init(&req->fwd_list);
-			tfw_http_msg_free((TfwHttpMsg *)req);
+			tfw_http_conn_msg_free((TfwHttpMsg *)req);
 			TFW_WARN_ADDR("Unable to find connection to"
 				      " reschedule health monitoring"
 				      " request on server", &srv->addr);
@@ -1753,7 +1759,7 @@ tfw_http_conn_release(TfwConn *conn)
  * and the paired response.
  */
 static inline void
-__tfw_http_resp_pair_free(TfwHttpReq *req)
+tfw_http_resp_pair_free(TfwHttpReq *req)
 {
 	list_del_init(&req->msg.seq_list);
 	tfw_http_conn_msg_free(req->pair);
@@ -1840,7 +1846,7 @@ tfw_http_conn_send(TfwConn *conn, TfwMsg *msg)
  */
 static TfwHttpMsg *
 tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
-			    unsigned int split_offset, int type)
+			    unsigned int split_offset)
 {
 	TfwHttpMsg *shm;
 	struct sk_buff *nskb;
@@ -1849,8 +1855,18 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 
 	/* The sibling message belongs to the same connection. */
 	shm = (TfwHttpMsg *)tfw_http_conn_msg_alloc(hm->conn);
-	if (unlikely(!shm))
+	if (unlikely(!shm)) {
+		/*
+		 * Split skb to proceed with current message @hm, or rest of
+		 * data in this connection will be attached to the message.
+		 * Don't care about client connection, it must be closed and
+		 * request @hm is to be destroyed and won't be forwarded to
+		 * backend server.
+		 */
+		if (TFW_CONN_TYPE(hm->conn) & Conn_Srv)
+			*skb = ss_skb_split(*skb, split_offset);
 		return NULL;
+	}
 
 	/*
 	 * New message created, so it should be in whitelist if
@@ -2153,7 +2169,7 @@ __tfw_http_resp_fwd(TfwCliConn *cli_conn, struct list_head *ret_queue)
 			ss_close_sync(cli_conn->sk, true);
 			return;
 		}
-		__tfw_http_resp_pair_free(req);
+		tfw_http_resp_pair_free(req);
 		TFW_INC_STAT_BH(serv.msgs_forwarded);
 	}
 }
@@ -2174,7 +2190,7 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 	LIST_HEAD(ret_queue);
 
 	TFW_DBG2("%s: req=[%p], resp=[%p]\n", __func__, req, resp);
-	WARN_ON(req->resp != resp);
+	WARN_ON_ONCE(req->resp != resp);
 
 	/*
 	 * If the list is empty, then it's either a bug, or the client
@@ -2194,8 +2210,7 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 			 "conn=[%p]\n",
 			 __func__, cli_conn);
 		ss_close_sync(cli_conn->sk, true);
-		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
-		tfw_http_conn_msg_free((TfwHttpMsg *)req);
+		tfw_http_resp_pair_free(req);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return;
 	}
@@ -2233,6 +2248,12 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 	 * better way of doing this that is more effective. Please see
 	 * the TODO comment above and to the function tfw_http_popreq().
 	 * Also, please see the issue #687.
+	 *
+	 * TODO #687: this is the only place where req_qlock is used. Instead
+	 * of competing for the lock from different softirqs, just process
+	 * the next available response, set a flag for current softirq
+	 * processing ret_queue and make the current softirq retry from
+	 * determination of req_retent.
 	 */
 	tfw_cli_conn_get(cli_conn);
 	spin_lock_bh(&cli_conn->ret_qlock);
@@ -2250,7 +2271,7 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 			TFW_DBG2("%s: Forwarding error: conn=[%p] resp=[%p]\n",
 				 __func__, cli_conn, req->resp);
 			BUG_ON(!req->resp);
-			__tfw_http_resp_pair_free(req);
+			tfw_http_resp_pair_free(req);
 			TFW_INC_STAT_BH(serv.msgs_otherr);
 		}
 	}
@@ -2353,9 +2374,12 @@ tfw_srv_client_block(TfwHttpReq *req, int status, const char *msg)
 static void
 tfw_http_req_cache_service(TfwHttpResp *resp)
 {
-	if (tfw_http_adjust_resp(resp)) {
-		TfwHttpReq *req = resp->req;
+	TfwHttpReq *req = resp->req;
 
+	WARN_ON_ONCE(!list_empty(&req->fwd_list));
+	WARN_ON_ONCE(!list_empty(&req->nip_list));
+
+	if (tfw_http_adjust_resp(resp)) {
 		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 		tfw_http_send_resp(req, 500, "response dropped:"
 				   " processing error");
@@ -2364,7 +2388,6 @@ tfw_http_req_cache_service(TfwHttpResp *resp)
 	}
 	tfw_http_resp_fwd(resp);
 	TFW_INC_STAT_BH(clnt.msgs_fromcache);
-	return;
 }
 
 /**
@@ -2749,8 +2772,7 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 			 * @skb is replaced with pointer to a new SKB.
 			 */
 			hmsib = tfw_http_msg_create_sibling((TfwHttpMsg *)req,
-							    &skb, data_off,
-							    Conn_Clnt);
+							    &skb, data_off);
 			if (unlikely(!hmsib)) {
 				/*
 				 * Unfortunately, there's no recourse. The
@@ -2886,7 +2908,7 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
 	spin_lock(&srv_conn->fwd_qlock);
 	if ((TfwMsg *)req == srv_conn->msg_sent)
 		srv_conn->msg_sent = NULL;
-	tfw_http_req_delist(srv_conn, req);
+	__http_req_delist(srv_conn, req);
 	tfw_http_conn_nip_adjust(srv_conn);
 	/*
 	 * Run special processing if the connection is in repair
@@ -2922,14 +2944,13 @@ tfw_http_resp_gfsm(TfwHttpMsg *hmresp, const TfwFsmData *data)
 	TFW_DBG3("TFW_HTTP_FSM_RESP_MSG return code %d\n", r);
 	if (r == TFW_BLOCK)
 		goto error;
-	/* Proceed with the next GSFM processing */
 
 	r = tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_LOCAL_RESP_FILTER,
 			  data);
 	TFW_DBG3("TFW_HTTP_FSM_LOCAL_RESP_FILTER return code %d\n", r);
 	if (r == TFW_PASS)
 		return TFW_PASS;
-	/* Proceed with the error processing */
+
 error:
 	tfw_http_popreq(hmresp);
 	tfw_http_conn_msg_free(hmresp);
@@ -3128,18 +3149,26 @@ tfw_http_resp_process(TfwConn *conn, const TfwFsmData *data)
 			return TFW_PASS;
 		case TFW_PASS:
 			/*
-			 * The response is fully parsed,
-			 * fall through and process it.
+			 * The response is fully parsed, fall through and
+			 * process it. If the response has broken length, then
+			 * block it (the server connection will be dropped).
 			 */
-			if (!(hmresp->flags
-			      & (TFW_HTTP_F_CHUNKED | TFW_HTTP_F_VOID_BODY))
+			if (!(hmresp->flags & (TFW_HTTP_F_CHUNKED
+					       | TFW_HTTP_F_VOID_BODY))
 			    && (hmresp->content_length != hmresp->body.len))
 				goto bad_msg;
 		}
 
 		/*
 		 * Verify response in context of http health monitor,
-		 * and mark server as disabled/enabled
+		 * and mark server as disabled/enabled.
+		 *
+		 * TODO (TBD) Probably we should close server connection here to
+		 * make all queued request be rescheduled to other servers.
+		 * Also it's a common practice to reset and reestablish
+		 * connections with buggy applications. Now we stop scheduling
+		 * new requests to the server and forward all, probably error
+		 * responses, for queued requests to clients.
 		 */
 		tfw_http_hm_control((TfwHttpResp *)hmresp);
 
@@ -3159,8 +3188,7 @@ tfw_http_resp_process(TfwConn *conn, const TfwFsmData *data)
 		 */
 		if (data_off < skb_len) {
 			hmsib = tfw_http_msg_create_sibling(hmresp, &skb,
-							    data_off,
-							    Conn_Srv);
+							    data_off);
 			/*
 			 * In case of an error there's no recourse. The
 			 * caller expects that data is processed in full,
@@ -3207,7 +3235,13 @@ next_resp:
 
 	return r;
 bad_msg:
+	/*
+	 * Send error response for the bad requests if necessary.
+	 * In any case remove the request form forward and nip queues -
+	 * we won't resend it.
+	 */
 	bad_req = hmresp->req;
+	tfw_http_req_delist((TfwSrvConn *)conn, bad_req);
 	tfw_http_conn_msg_free(hmresp);
 	if (filtout)
 		tfw_srv_client_block(bad_req, 502,
@@ -3217,7 +3251,7 @@ bad_msg:
 		tfw_srv_client_drop(bad_req, 502,
 				    "response dropped:"
 				    " processing error");
-	return r;
+	return TFW_BLOCK;
 }
 
 /**
@@ -3467,7 +3501,7 @@ tfw_http_set_common_body(int status_code, char *new_length, size_t l_size,
 		msg = &http_5xx_resp_body;
 		break;
 	default:
-		TFW_ERR("undefined HTTP status group: [%d]\n", status_code);
+		TFW_ERR_NL("undefined HTTP status group: [%d]\n", status_code);
 		return -EINVAL;
 	}
 
@@ -3531,7 +3565,7 @@ __tfw_http_msg_body_dup(const char *filename, TfwStr *c_len_hdr, size_t *len,
 	cl_buf->ptr = buff;
 	cl_buf->len = tfw_ultoa(b_sz, cl_buf->ptr, TFW_ULTOA_BUF_SIZ);
 	if (unlikely(!cl_buf->len)) {
-		TFW_ERR("Can't copy file %s: too big\n", filename);
+		TFW_ERR_NL("Can't copy file %s: too big\n", filename);
 		goto err;
 	}
 
@@ -3669,7 +3703,7 @@ tfw_cfgop_resp_body_restore_clen(TfwStr *hdr, int resp_num)
 		CLEN_STR_INIT(S_504_PART_02);
 		break;
 	default:
-		TFW_WARN("Bug in 'response_body' directive cleanup.");
+		TFW_WARN("Bug in 'response_body' directive cleanup.\n");
 		CLEN_STR_INIT(S_DEF_PART_02);
 		break;
 	}

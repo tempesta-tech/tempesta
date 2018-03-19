@@ -28,7 +28,7 @@ function tfw_pool_destroy(ptr:long) %{
 	}
 %}
 
-probe module("tempesta_fw").function("tfw_http_msg_alloc_err_resp").return
+probe module("tempesta_fw").function("tfw_http_msg_alloc_resp_light").return
 {
 	if ($return != 0) {
 		tfw_pool_destroy($return->pool)

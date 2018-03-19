@@ -1440,8 +1440,8 @@ bool
 tfw_apm_check_hm(const char *name)
 {
 	if (!tfw_hm_codes_cnt) {
-		TFW_ERR("No response codes specified for"
-			" server's health monitoring\n");
+		TFW_ERR_NL("No response codes specified for"
+			   " server's health monitoring\n");
 		return false;
 	}
 
@@ -1561,15 +1561,15 @@ tfw_apm_cfgend(void)
 	if ((tfw_apm_jtmwindow < TFW_APM_MIN_TMWINDOW)
 	    || (tfw_apm_jtmwindow > TFW_APM_MAX_TMWINDOW))
 	{
-		TFW_ERR("apm_stats: window: value '%d' is out of limits.\n",
-			tfw_apm_jtmwindow);
+		TFW_ERR_NL("apm_stats: window: value '%d' is out of limits.\n",
+			   tfw_apm_jtmwindow);
 		return -EINVAL;
 	}
 	if ((tfw_apm_tmwscale < TFW_APM_MIN_TMWSCALE)
 	    || (tfw_apm_tmwscale > TFW_APM_MAX_TMWSCALE))
 	{
-		TFW_ERR("apm_stats: scale: value '%d' is out of limits.\n",
-			tfw_apm_tmwscale);
+		TFW_ERR_NL("apm_stats: scale: value '%d' is out of limits.\n",
+			   tfw_apm_tmwscale);
 		return -EINVAL;
 	}
 
@@ -1582,8 +1582,8 @@ tfw_apm_cfgend(void)
 			    + !!(jtmwindow % tfw_apm_tmwscale);
 
 	if (tfw_apm_jtmintrvl < TFW_APM_MIN_TMINTRVL) {
-		TFW_ERR("apm_stats window=%d scale=%d: scale is too long.\n",
-			tfw_apm_jtmwindow, tfw_apm_tmwscale);
+		TFW_ERR_NL("apm_stats window=%d scale=%d: scale is too long.\n",
+			   tfw_apm_jtmwindow, tfw_apm_tmwscale);
 		return -EINVAL;
 	}
 	tfw_apm_jtmwindow = tfw_apm_jtmintrvl * tfw_apm_tmwscale;

@@ -24,6 +24,7 @@ class RebootUnderLoadTest(stress.StressTest):
 
     def create_clients(self):
         self.wrk = control.Wrk()
+        self.wrk.set_script("foo", content="")
         r_time = max(self.restart_timeout, 1) * (self.restart_cycles + 1)
         self.wrk.duration = r_time + self.warm_timeout + 1
         self.clients = [self.wrk]
@@ -53,7 +54,8 @@ class RebootUnderLoadTest(stress.StressTest):
         self.show_performance()
 
     def tearDown(self):
-        self.r_thread.join()
+        if hasattr(self, 'r_thread'):
+            self.r_thread.join()
         stress.StressTest.tearDown(self)
 
     def test_proxy(self):

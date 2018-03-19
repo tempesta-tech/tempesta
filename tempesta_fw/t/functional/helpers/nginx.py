@@ -14,7 +14,7 @@ class Config(object):
 
     def __init__(self, workdir, port, workers):
         self.port = 80 # keep port linked with default config
-        self.config = """
+        self.config_template = """
 pid /var/run/nginx.pid;
 worker_processes  auto;
 
@@ -46,7 +46,7 @@ http {
         listen        80;
 
         location / {
-            root /srv/http;
+            %s;
         }
         location /nginx_status {
             stub_status on;
@@ -54,6 +54,8 @@ http {
     }
 }
         """
+        location = "root /srv/http"
+        self.config = self.config_template % location
         self.set_port(port)
         self.set_workdir(workdir)
         self.set_workers(workers)
@@ -61,7 +63,7 @@ http {
 
     def __replace(self, exp, value):
         regex = re.compile(exp)
-        self.config = regex.sub(value, self.config)
+        self.config_template = regex.sub(value, self.config_template)
 
     def set_ka(self, req, timeout=65):
         """ Set Keepalive parameters for server. """
@@ -89,7 +91,11 @@ http {
     def set_resourse_location(self, location=''):
         if not location:
             location = tf_cfg.cfg.get('Server', 'resources')
-        self.__replace(r'root[ ]+([\w._/]+);',
-                       ' '.join(['root', location, ';']))
+        location = "root %s" % location
+        self.config = self.config_template % location
+
+    def set_return_code(self, code=200):
+        location = "return %i" % code
+        self.config = self.config_template % location
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4

@@ -383,7 +383,7 @@ tfw_tls_do_init(void)
 					MBEDTLS_SSL_TRANSPORT_STREAM,
 					MBEDTLS_SSL_PRESET_DEFAULT);
 	if (r) {
-		TFW_ERR("TLS: can't set config defaults (%x)\n", -r);
+		TFW_ERR_NL("TLS: can't set config defaults (%x)\n", -r);
 		return -EINVAL;
 	}
 
@@ -421,7 +421,7 @@ tfw_tls_start(void)
 	mbedtls_ssl_conf_ca_chain(&tfw_tls.cfg, tfw_tls.crt.next, NULL);
 	r = mbedtls_ssl_conf_own_cert(&tfw_tls.cfg, &tfw_tls.crt, &tfw_tls.key);
 	if (r) {
-		TFW_ERR("TLS: can't set own certificate (%x)\n", -r);
+		TFW_ERR_NL("TLS: can't set own certificate (%x)\n", -r);
 		return -EINVAL;
 	}
 
@@ -533,7 +533,7 @@ tfw_tls_cfgend(void)
 {
 	if ((tfw_tls.crt.version && !tfw_tls.key.pk_ctx) ||
 	    (!tfw_tls.crt.version && tfw_tls.key.pk_ctx)) {
-		TFW_ERR("TLS: SSL certificate/key pair is incomplete\n");
+		TFW_ERR_NL("TLS: SSL certificate/key pair is incomplete\n");
 		return -EINVAL;
 	}
 

@@ -21,6 +21,7 @@ class StressTls(stress.StressTest):
 
     def create_clients(self):
         wrk = control.Wrk(ssl=True)
+        wrk.set_script("foo", content="")
         # Wrk can't handle very big amound of TLS connections
         wrk.connections = min(
             int(tf_cfg.cfg.get('General', 'concurrent_connections')),
