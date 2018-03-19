@@ -29,8 +29,3 @@ following topics:
 * [Configuration guide](https://github.com/tempesta-tech/tempesta/wiki/Configuration)
 * [Use cases](https://github.com/tempesta-tech/tempesta/wiki/Use-cases)
 * [Performance benchmarks](https://github.com/tempesta-tech/tempesta/wiki/Benchmarks)
-
-
-### Build Status
-
-[![Coverity](https://scan.coverity.com/projects/8336/badge.svg)](https://scan.coverity.com/projects/tempesta-tech-tempesta)
