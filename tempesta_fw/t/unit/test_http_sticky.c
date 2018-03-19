@@ -236,6 +236,9 @@ http_sticky_suite_setup(void)
 
 	tfw_connection_revive(&mock.conn_req);
 	mock.conn_req.peer = (TfwPeer *)&mock.client;
+	mock.client.addr.v4.sin_family = AF_INET,
+	mock.client.addr.v4.sin_addr.s_addr = INADDR_ANY,
+	mock.client.addr.v4.sin_port = 0,
 	mock.sock.sk_family = AF_INET;
 	mock.conn_req.sk = &mock.sock;
 
@@ -318,7 +321,7 @@ TEST(http_sticky, sending_502)
 	TfwConn *c = mock.req->conn;
 
 	EXPECT_EQ(__sticky_calc(mock.req, &sv), 0);
-	HTTP_SEND_RESP(mock.req, 502, "sticky calculation");
+	tfw_http_send_resp(mock.req, 502, "sticky calculation");
 
 	/* HTTP 502 response have no Set-Cookie header */
 	EXPECT_TRUE(mock.tfw_connection_send_was_called);
@@ -485,13 +488,14 @@ TEST(http_sticky, req_have_cookie)
 			    	     /* timestamp */
 			    	     "=0000000000000000"
 				     /*
-				      * HMAC for 24 zero bytes (IPv6 address and
-				      * zero timestamp):
+				      * HMAC for 24 bytes (first two bytes with
+				      * AF_INET value and remaining zero bytes
+				      * of IPv6 address and zero timestamp):
 				      *
-				      * $ dd if=/dev/zero bs=24 count=1 of=z
-				      * $ cat z |openssl sha1 -hmac "top_secret"
+				      * $ perl -e 'print(pack("C[24]", 0x02))' |\
+				      * openssl sha1 -hmac "top_secret"
 				      */
-				     "fce669f4ba84be12e6e04b496e4ff19989ae631d"
+				     "c40fa58c59f09c8ea81223e627c9de12cfa53679"
 			    "\r\n\r\n";
 	const char *s_resp = "HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n";
 
@@ -545,13 +549,14 @@ TEST(http_sticky, req_have_cookie_enforce)
 			    	     /* timestamp */
 			    	     "=0000000000000000"
 				     /*
-				      * HMAC for 24 zero bytes (IPv6 address and
-				      * zero timestamp):
+				      * HMAC for 24 bytes (first two bytes with
+				      * AF_INET value and remaining zero bytes
+				      * of IPv6 address and zero timestamp):
 				      *
-				      * $ dd if=/dev/zero bs=24 count=1 of=z
-				      * $ cat z |openssl sha1 -hmac "top_secret"
+				      * $ perl -e 'print(pack("C[24]", 0x02))' |\
+				      * openssl sha1 -hmac "top_secret"
 				      */
-				     "fce669f4ba84be12e6e04b496e4ff19989ae631d"
+				     "c40fa58c59f09c8ea81223e627c9de12cfa53679"
 			    "\r\n\r\n";
 	const char *s_resp = "HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n";
 
