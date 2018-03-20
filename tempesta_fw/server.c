@@ -69,7 +69,7 @@ static DECLARE_HASHTABLE(sg_hash_reconfig, TFW_SG_HBITS);
 /*
  * The lock is used in process context only (e.g. (re-)configuration or
  * procfs), so it should be sleepable and don't care too much about
- * concurrencty.
+ * concurrently.
  */
 static DECLARE_RWSEM(sg_sem);
 
@@ -80,6 +80,7 @@ tfw_server_destroy(TfwServer *srv)
 		srv->cleanup(srv);
 	/* Close all connections before freeing the server! */
 	BUG_ON(!list_empty(&srv->conn_list));
+	BUG_ON(timer_pending(&srv->gs_timer));
 
 	tfw_apm_del_srv(srv);
 	if (srv->sg)
@@ -527,7 +528,7 @@ tfw_sg_release_all(void)
 /**
  * Wait until all server groups and server are destructed. The function is
  * called after ss_synchronize(): there shouldn't be any active server
- * connections, but this is still possible. The fuction is called after
+ * connections, but this is still possible. The function is called after
  * configuration cleanup: all references taken to servers and groups are
  * already released.
  */
@@ -535,21 +536,32 @@ void
 tfw_sg_wait_release(void)
 {
 	unsigned long tend = jiffies + HZ * 5;
+	long last_n = atomic64_read(&act_sg_n), curr_n;
 
 	might_sleep();
 	/*
 	 * Wait until all server groups will be destroyed, otherwise a crash is
 	 * a matter of time.
 	 */
-	while (atomic64_read(&act_sg_n)) {
+	while ((curr_n = atomic64_read(&act_sg_n))) {
 		schedule();
-		if (time_is_before_jiffies(tend)) {
-			TFW_WARN_NL("pending for server callbacks to complete "
-				    "for 5s, %ld server groups still exist\n",
-				    atomic64_read(&act_sg_n));
-			__WARN();
-			return;
+		if (time_is_after_jiffies(tend))
+			continue;
+		if (curr_n < 0) {
+			TFW_ERR_NL("Bug in server group reference counting!\n");
+			break;
 		}
+		else if (curr_n == last_n) {
+			TFW_ERR_NL("Got stuck in releasing of server groups! "
+				   "%ld server groups was not released.\n",
+				   curr_n);
+			break;
+		}
+		TFW_WARN_NL("pending for server callbacks to complete for 5s, "
+			    "%ld server groups was released, %ld still exist\n",
+			    last_n - curr_n, curr_n);
+		tend = jiffies + HZ * 5;
+		last_n = curr_n;
 	}
 }
 
@@ -566,9 +578,5 @@ tfw_server_init(void)
 void
 tfw_server_exit(void)
 {
-	long leak = atomic64_read(&act_sg_n);
-
 	kmem_cache_destroy(srv_cache);
-	if (leak != 0)
-		TFW_ERR_NL("leakage of %ld TfwSrvGroup!\n", leak);
 }

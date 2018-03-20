@@ -1109,8 +1109,6 @@ static inline bool
 tfw_http_req_fwd_single(TfwSrvConn *srv_conn, TfwServer *srv,
 			TfwHttpReq *req, struct list_head *eq)
 {
-	if ((unlikely(req->flags & TFW_HTTP_F_REQ_DROP)))
-		return false;
 	if (tfw_http_req_evict_stale_req(srv_conn, srv, req, eq))
 		return false;
 	if (!tfw_http_req_fwd_send(srv_conn, srv, req, eq))
@@ -1755,13 +1753,11 @@ tfw_http_conn_release(TfwConn *conn)
 }
 
 /*
- * Deq the request from @seq_queue and free the request
- * and the paired response.
+ * Free the request and the paired response.
  */
 static inline void
 tfw_http_resp_pair_free(TfwHttpReq *req)
 {
-	list_del_init(&req->msg.seq_list);
 	tfw_http_conn_msg_free(req->pair);
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 }
@@ -1803,6 +1799,14 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 	list_for_each_entry_safe(req, tmp, seq_queue, msg.seq_list) {
 		req->flags |= TFW_HTTP_F_REQ_DROP;
 		list_del_init(&req->msg.seq_list);
+		/*
+		 * Response is processed and removed from fwd_queue, need to be
+		 * destroyed.
+		 */
+		if (req->resp && (req->resp->flags & TFW_HTTP_F_RESP_READY)) {
+			tfw_http_resp_pair_free(req);
+			TFW_INC_STAT_BH(serv.msgs_otherr);
+		}
 	}
 	spin_unlock(&cli_conn->seq_qlock);
 }
@@ -2169,6 +2173,7 @@ __tfw_http_resp_fwd(TfwCliConn *cli_conn, struct list_head *ret_queue)
 			ss_close_sync(cli_conn->sk, true);
 			return;
 		}
+		list_del_init(&req->msg.seq_list);
 		tfw_http_resp_pair_free(req);
 		TFW_INC_STAT_BH(serv.msgs_forwarded);
 	}
