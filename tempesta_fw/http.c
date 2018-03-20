@@ -514,6 +514,12 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 
 	if (hm->conn) {
 		/*
+		 * Check that the paired response has been destroyed before
+		 * the request.
+		 */
+		WARN_ON_ONCE((TFW_CONN_TYPE(hm->conn) & Conn_Clnt) && hm->pair);
+
+		/*
 		 * Unlink the connection while there is at least one
 		 * reference. Use atomic exchange to avoid races with
 		 * new messages arriving on the connection.
@@ -1088,6 +1094,7 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv,
 			 __func__, srv_conn, req);
 		if (req->flags & TFW_HTTP_F_HMONITOR) {
 			__http_req_delist(srv_conn, req);
+			WARN_ON_ONCE(req->pair);
 			tfw_http_msg_free((TfwHttpMsg *)req);
 			TFW_WARN_ADDR("Unable to send health"
 				      " monitoring request to server",

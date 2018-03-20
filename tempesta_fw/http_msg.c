@@ -948,9 +948,6 @@ tfw_http_msg_free(TfwHttpMsg *m)
 	if (!m)
 		return;
 
-	/* Check that the paired response was destroyed before request. */
-	WARN_ON_ONCE(m->conn && (TFW_CONN_TYPE(m->conn) & Conn_Clnt) && m->pair);
-
 	tfw_http_msg_unpair(m);
 	ss_skb_queue_purge(&m->msg.skb_list);
 
