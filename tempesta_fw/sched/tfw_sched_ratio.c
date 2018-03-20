@@ -1044,17 +1044,20 @@ tfw_sched_ratio_srvdesc_setup_srv(TfwServer *srv, TfwRatioSrvDesc *srvdesc)
 	conn = srvdesc->conn;
 	list_for_each_entry(srv_conn, &srv->conn_list, list) {
 		if (unlikely(ci++ == srv->conn_n))
-			return -EINVAL;
+			goto err;
 		*conn++ = srv_conn;
 	}
 	if (unlikely(ci != srv->conn_n))
-		return -EINVAL;
+		goto err;
 
 	srvdesc->conn_n = srv->conn_n;
 	srvdesc->srv = srv;
 	atomic64_set(&srvdesc->counter, 0);
 
 	return 0;
+err:
+	kfree(srvdesc->conn);
+	return -EINVAL;
 }
 
 /**
@@ -1258,8 +1261,10 @@ tfw_sched_ratio_add_srv(TfwServer *srv)
 
 	if (!(srvdesc = kzalloc(sizeof(TfwRatioSrvDesc), GFP_KERNEL)))
 		return -ENOMEM;
-	if ((r = tfw_sched_ratio_srvdesc_setup_srv(srv, srvdesc)))
+	if ((r = tfw_sched_ratio_srvdesc_setup_srv(srv, srvdesc))) {
+		kfree(srvdesc);
 		return r;
+	}
 
 	rcu_assign_pointer(srv->sched_data, srvdesc);
 
@@ -1270,6 +1275,7 @@ static void
 tfw_sched_ratio_put_srv_data(struct rcu_head *rcu)
 {
 	TfwRatioSrvDesc *srvdesc = container_of(rcu, TfwRatioSrvDesc, rcu);
+	kfree(srvdesc->conn);
 	kfree(srvdesc);
 }
 
