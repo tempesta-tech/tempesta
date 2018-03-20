@@ -68,7 +68,7 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
 static int
 set_sample_req(unsigned char *str)
 {
-	size_t len = len = strlen(str);
+	size_t len = strlen(str);
 	int r;
 
 	if (sample_req)
