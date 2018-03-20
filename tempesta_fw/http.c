@@ -1753,13 +1753,11 @@ tfw_http_conn_release(TfwConn *conn)
 }
 
 /*
- * Deq the request from @seq_queue and free the request
- * and the paired response.
+ * Free the request and the paired response.
  */
 static inline void
 tfw_http_resp_pair_free(TfwHttpReq *req)
 {
-	list_del_init(&req->msg.seq_list);
 	tfw_http_conn_msg_free(req->pair);
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 }
@@ -2175,6 +2173,7 @@ __tfw_http_resp_fwd(TfwCliConn *cli_conn, struct list_head *ret_queue)
 			ss_close_sync(cli_conn->sk, true);
 			return;
 		}
+		list_del_init(&req->msg.seq_list);
 		tfw_http_resp_pair_free(req);
 		TFW_INC_STAT_BH(serv.msgs_forwarded);
 	}
