@@ -1801,6 +1801,14 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 	list_for_each_entry_safe(req, tmp, seq_queue, msg.seq_list) {
 		req->flags |= TFW_HTTP_F_REQ_DROP;
 		list_del_init(&req->msg.seq_list);
+		/*
+		 * Response is processed and removed from fwd_queue, need to be
+		 * destroyed.
+		 */
+		if (req->resp && (req->resp->flags & TFW_HTTP_F_RESP_READY)) {
+			tfw_http_resp_pair_free(req);
+			TFW_INC_STAT_BH(serv.msgs_otherr);
+		}
 	}
 	spin_unlock(&cli_conn->seq_qlock);
 }
