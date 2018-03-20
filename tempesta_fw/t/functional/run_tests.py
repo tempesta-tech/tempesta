@@ -252,11 +252,17 @@ testRunner = unittest.runner.TextTestRunner(verbosity=v_level,
                                             failfast=fail_fast,
                                             descriptions=False,
                                             resultclass=test_resume.resultclass())
-testRunner.run(testsuite)
+result = testRunner.run(testsuite)
 
 # check if we finished running the tests
 if not tests or (test_resume.state.last_id == tests[-1].id()
                  and test_resume.state.last_completed):
     state_reader.drop()
+
+if len(result.errors) > 0:
+    sys.exit(-1)
+
+if len(result.failures) > 0:
+    sys.exit(1)
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
