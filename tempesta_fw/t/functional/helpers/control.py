@@ -164,6 +164,10 @@ class Wrk(Client):
             self.threads = remote.get_max_thread_count(self.node)
         if self.threads > self.connections:
             self.threads = self.connections
+        if self.connections % self.threads != 0:
+            nc = (self.connections // self.threads) * self.threads
+            tf_cfg.dbg(2, "Warning: only %i connections will be created" % nc)
+
         threads = self.threads if self.connections > 1 else 1
         self.options.append('-t %d' % threads)
         self.options.append('-c %d' % self.connections)
