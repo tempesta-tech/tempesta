@@ -1,3 +1,17 @@
+tempesta-fw-dkms (0.5.0) stretch; urgency=medium
+
+  * Add HTTP health monitoring
+  * Performance optiomistation and fixes for the On-the-fly reconfiguration
+  * Add Referer header support to HTTP match rules
+  * Add JavaScript challenge to Sticky Cookie module
+  * Add user defined headers to forwarded messages
+  * Whitelist requests from web search engines
+  * Protect from manual unloading under load
+  * Fix of response-request pairing for pipelined messages
+  * Many other minor fixes. See git log for more information.
+
+ -- Tempesta Technologies, Inc. <info@tempesta-tech.com>  Wed, 21 Mar 2018 14:48:56 +0500
+
 tempesta-fw-dkms (0.5.0pre8) stretch; urgency=medium
 
   * Update supported Linux kernel to 4.9.35
