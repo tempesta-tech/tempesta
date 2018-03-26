@@ -237,6 +237,7 @@ tfw_start(struct list_head *mod_list)
 	if ((ret = tfw_mods_start(mod_list)))
 		goto stop_mods;
 	tfw_cfg_conclude(mod_list);
+	WRITE_ONCE(tfw_started, true);
 	return 0;
 stop_mods:
 	/*
@@ -246,6 +247,7 @@ stop_mods:
 	 */
 	WRITE_ONCE(tfw_reconfig, false);
 	tfw_mods_stop(mod_list);
+	WRITE_ONCE(tfw_started, false);
 cleanup:
 	TFW_WARN_NL("Configuration parsing has failed. Clean up...\n");
 	tfw_cleanup(mod_list);
@@ -269,8 +271,7 @@ tfw_ctlfn_state_change(const char *old_state, const char *new_state)
 			TFW_LOG("Live reconfiguration of Tempesta.\n");
 		}
 
-		if (!(r = tfw_start(&tfw_mods)))
-			WRITE_ONCE(tfw_started, true);
+		r = tfw_start(&tfw_mods);
 		WRITE_ONCE(tfw_reconfig, false);
 
 		return r;
