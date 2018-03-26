@@ -269,7 +269,7 @@ void
 tfw_sg_apply_reconfig(struct hlist_head *del_sg)
 {
 	int i;
-	unsigned long key = 0, crc_tmp = 0;
+	unsigned long key, crc_tmp;
 	struct hlist_node *tmp;
 	TfwSrvGroup *sg;
 
@@ -289,6 +289,7 @@ tfw_sg_apply_reconfig(struct hlist_head *del_sg)
 		tfw_srv_loop_sched_rcu();
 	}
 	hash_for_each_safe(sg_hash_reconfig, i, tmp, sg, list_reconfig) {
+		key = crc_tmp = 0;
 		hash_del(&sg->list_reconfig);
 		__tdb_hash_calc(&key, &crc_tmp, sg->name, sg->nlen);
 		key ^= crc_tmp;
