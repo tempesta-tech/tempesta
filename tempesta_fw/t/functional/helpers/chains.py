@@ -43,6 +43,7 @@ def response_500():
         'Date: %s' % date,
         'Content-Length: 0',
         'Connection: keep-alive'
+        'Server: Tempesta FW/%s' % tempesta.version()
     ]
     response = deproxy.Response.create(status=500, headers=headers)
     return response
@@ -50,7 +51,10 @@ def response_500():
 def response_403(date=None, connection=None):
     if date is None:
         date = deproxy.HttpMessage.date_time_string()
-    headers = ['Content-Length: 0']
+    headers = [
+        'Content-Length: 0',
+        'Server: Tempesta FW/%s' % tempesta.version()
+    ]
     if connection != None:
         headers.append('Connection: %s' % connection)
 
@@ -60,7 +64,10 @@ def response_403(date=None, connection=None):
 def response_400(date=None, connection=None):
     if date is None:
         date = deproxy.HttpMessage.date_time_string()
-    headers = ['Content-Length: 0']
+    headers = [
+        'Content-Length: 0',
+        'Server: Tempesta FW/%s' % tempesta.version()
+    ]
     if connection != None:
         headers.append('Connection: %s' % connection)
 
