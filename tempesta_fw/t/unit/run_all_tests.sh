@@ -34,3 +34,11 @@ rmmod tfw_fuzzer
 
 echo -e "\n @@@ UNIT TEST OUTPUT SUMMARY (see dmesg for full log):\n"
 dmesg | grep tfw_test
+
+`dmesg | grep tfw_test | tail -n 10 | grep -q "finish - all passed"`
+res=$?
+if [ "$res" != "0" ]
+then
+    echo "Tests failed!"
+    exit 1
+fi
