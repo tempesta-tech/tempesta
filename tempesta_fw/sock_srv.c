@@ -429,7 +429,7 @@ static const SsHooks tfw_sock_srv_ss_hooks = {
 static int
 tfw_sock_srv_disconnect(TfwConn *conn)
 {
-	int ret = 0;
+	int refcnt, ret = 0;
 	struct sock *sk = conn->sk;
 	TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 
@@ -446,7 +446,8 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	 * attached to the connection are released. If the connection is
 	 * closed already, then force the release of attached resources.
 	 */
-	if (atomic_read(&conn->refcnt) != TFW_CONN_DEATHCNT)
+	refcnt = atomic_read(&conn->refcnt);
+	if (refcnt && refcnt != TFW_CONN_DEATHCNT)
 		ret = ss_close_sync(sk, true);
 	else
 		tfw_srv_conn_release(srv_conn);
