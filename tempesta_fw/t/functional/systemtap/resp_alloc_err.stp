@@ -28,9 +28,9 @@ function tfw_pool_destroy(ptr:long) %{
 	}
 %}
 
-probe module("tempesta_fw").function("tfw_http_msg_alloc_resp_light").return
+probe module("tempesta_fw").function("__tfw_http_msg_alloc").return
 {
-	if ($return != 0) {
+	if ((@entry($type) & (0x2 << 0x8)) && !@entry($full) && ($return != 0)) {
 		tfw_pool_destroy($return->pool)
 		$return = 0
 	}
