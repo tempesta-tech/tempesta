@@ -19,6 +19,7 @@ class FailoveringTest(functional.FunctionalTest):
     TODO: Check that TempestaFW keeps configured failovering intervals.
     """
 
+    defconfig = ''
     timeout_limit = 5.0
 
     def create_servers(self):
@@ -28,7 +29,7 @@ class FailoveringTest(functional.FunctionalTest):
         self.tester = FailoverTester(self.client, self.servers)
 
     def init(self):
-        self.tempesta.config.set_defconfig('')
+        self.tempesta.config.set_defconfig(self.defconfig)
 
         self.create_servers()
         for server in self.servers:
@@ -63,6 +64,36 @@ class FailoveringTest(functional.FunctionalTest):
         # Wait for connections failovering.
         self.tester.loop(self.timeout_limit)
         self.assertTrue(self.tester.is_srvs_ready())
+
+class ServerConnectRetriesFailoveringTest(FailoveringTest):
+    """ Failovering with server_connect_retries option """
+
+    defconfig = 'server_connect_retries 2;'
+
+class ServerForwardRetriesFailoveringTest(FailoveringTest):
+    """ Failovering with server_connect_retries option """
+
+    defconfig = 'server_forward_retries 2;'
+
+class ServerForwardTimeoutFailoveringTest(FailoveringTest):
+    """ Failovering with server_connect_retries option """
+
+    defconfig = 'server_forward_timeout 1;'
+
+class ServerRetryNonidempotentFailoveringTest(FailoveringTest):
+    """ Failovering with server_connect_retries option """
+
+    defconfig = 'server_retry_nonidempotent;'
+
+class ServerQueueSizeFailoveringTest(FailoveringTest):
+    """ Failovering with server_connect_retries option """
+
+    defconfig = 'server_queue_size 10;'
+
+class NonidempotaentFailoveringTest(FailoveringTest):
+    """ Failovering with server_connect_retries option """
+
+    defconfig = 'nonidempotent GET prefix \"/users/\";'
 
 
 class FailoverTester(deproxy.Deproxy):
