@@ -304,10 +304,17 @@ tfw_srv_conn_release(TfwSrvConn *srv_conn)
 	 * in deferred context after a short pause (in a timer
 	 * callback). The only reason not to start new reconnect
 	 * attempt is removing server from the current configuration.
+	 *
+	 * TFW_CONN_B_ACTIVE bit is checked here to see if the connection has
+	 * already got a server's reference; if so, then server's reference must
+	 * be put. If bit is not set, this means that connection didn't have
+	 * time to get server (due to some error in sock_srv start
+	 * procedure) and consequently, it needn't to put server here (during
+	 * stop procedure).
 	 */
 	if (likely(!test_bit(TFW_CONN_B_DEL, &srv_conn->flags)))
 		tfw_sock_srv_connect_try_later(srv_conn);
-	else
+	else if (test_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags))
 		tfw_server_put((TfwServer *)srv_conn->peer);
 }
 
@@ -429,7 +436,7 @@ static const SsHooks tfw_sock_srv_ss_hooks = {
 static int
 tfw_sock_srv_disconnect(TfwConn *conn)
 {
-	int refcnt, ret = 0;
+	int ret = 0;
 	struct sock *sk = conn->sk;
 	TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 
@@ -446,8 +453,7 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	 * attached to the connection are released. If the connection is
 	 * closed already, then force the release of attached resources.
 	 */
-	refcnt = atomic_read(&conn->refcnt);
-	if (refcnt && refcnt != TFW_CONN_DEATHCNT)
+	if (atomic_read(&conn->refcnt) != TFW_CONN_DEATHCNT)
 		ret = ss_close_sync(sk, true);
 	else
 		tfw_srv_conn_release(srv_conn);
@@ -470,6 +476,18 @@ tfw_sock_srv_disconnect(TfwConn *conn)
  * for not having a global list of all TfwSrvConn{} objects, and for storing
  * not-yet-established connections in the TfwServer->conn_list.
  */
+
+/*
+ * Get reference to server and mark the connection as active, which means
+ * that server must be put during connection release procedure.
+ */
+static inline void
+tfw_sock_srv_conn_activate(TfwServer *srv, TfwSrvConn *srv_conn)
+{
+	tfw_server_get(srv);
+	set_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags);
+}
+
 static void
 tfw_sock_srv_connect_srv(TfwServer *srv)
 {
@@ -484,7 +502,7 @@ tfw_sock_srv_connect_srv(TfwServer *srv)
 	 * that parallel execution can't happen with the same socket.
 	 */
 	list_for_each_entry(srv_conn, &srv->conn_list, list) {
-		tfw_server_get(srv);
+		tfw_sock_srv_conn_activate(srv, srv_conn);
 		tfw_sock_srv_connect_try_later(srv_conn);
 	}
 }
@@ -540,6 +558,7 @@ tfw_srv_conn_alloc(void)
 	INIT_LIST_HEAD(&srv_conn->fwd_queue);
 	INIT_LIST_HEAD(&srv_conn->nip_queue);
 	spin_lock_init(&srv_conn->fwd_qlock);
+	atomic_set(&srv_conn->refcnt, TFW_CONN_DEATHCNT);
 
 	__setup_retry_timer(srv_conn);
 	ss_proto_init(&srv_conn->proto, &tfw_sock_srv_ss_hooks, Conn_HttpSrv);
@@ -581,6 +600,7 @@ tfw_sock_srv_append_conns_n(TfwServer *srv, size_t conn_n)
 	for (i = 0; i < conn_n; ++i) {
 		if (!(srv_conn = tfw_sock_srv_new_conn(srv)))
 			return -ENOMEM;
+		tfw_sock_srv_conn_activate(srv, srv_conn);
 		tfw_sock_srv_connect_try_later(srv_conn);
 		tfw_srv_loop_sched_rcu();
 	}
@@ -1982,7 +2002,7 @@ tfw_cfgop_update_srv(TfwServer *orig_srv, TfwCfgSrvGroup *sg_cfg)
 	orig_srv->weight = srv->weight;
 
 	if (orig_srv->conn_n < srv->conn_n) {
-		r = tfw_sock_srv_append_conns_n(srv,
+		r = tfw_sock_srv_append_conns_n(orig_srv,
 						srv->conn_n - orig_srv->conn_n);
 		if (r)
 			return r;
@@ -2036,7 +2056,10 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
 
 	TFW_DBG2("Update server list for group '%s'\n", sg_cfg->orig_sg->name);
 
-	__tfw_sg_for_each_srv(sg_cfg->orig_sg, __tfw_cfgop_update_sg_srv_list, sg_cfg);
+	if ((r = __tfw_sg_for_each_srv(sg_cfg->orig_sg,
+				       __tfw_cfgop_update_sg_srv_list,
+				       sg_cfg)))
+		return r;
 
 	/* Add new servers. */
 	list_for_each_entry_safe(srv, tmp, &sg_cfg->parsed_sg->srv_list, list) {
