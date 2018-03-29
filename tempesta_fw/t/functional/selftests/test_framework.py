@@ -1,4 +1,7 @@
-class ExampleTest(object):
+from helpers import chains
+from testers import common
+
+class ExampleTestNginx(common.TempestaTest):
     backends = [
         {
             'id' : 'default_id',
@@ -22,13 +25,37 @@ class ExampleTest(object):
 
     clients = [
         {
+            'id' : 'default_id',
             'type' : 'deproxy',
-            'request_message' : "GET /uri HTTP/1.1\r\nHost: localhost\r\n\r\n",
-            'expected_response_code' : "404",
-            'expected_response_body' : '',
-            'expected_response_headers' : {
-                'Content-Length' : '0',
-                'Server' : 'Tempesta FW/0.5.0',
-            }
         }
     ]
+
+    def test(self):
+        """ Simple test """
+        chain = chains.base(uri = "/path", method = "GET")
+
+class ExampleTestDeproxy(common.TempestaTest):
+    backends = [
+        {
+            'id' : 'default_id',
+            'type' : 'deproxy',
+            'port' : 'default',
+        }
+    ]
+
+    tempesta = {   
+        'listen_ip' : 'default',
+        'listen_port' : 80,
+        'backends' : ['default_id'],
+    }
+
+    clients = [
+        {
+            'id' : 'default_id',
+            'type' : 'deproxy',
+        }
+    ]
+
+    def test(self):
+        """ Simple test """
+        chain = chains.base(uri = "/path", method = "GET")
