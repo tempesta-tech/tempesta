@@ -61,9 +61,11 @@ class CloseClientConnectiononInvalidReq(CloseConnection):
 
     def create_chains(self):
         chain_200 = chains.base(forward=True)
-        chain_200.request.body = ''.join(['Arbitrary data ' for _ in range(300)])
-        chain_200.request.update()
-
+        # Append some garbge to message.
+        chain_200.request.msg += ''.join(['Arbitrary data ' for _ in range(300)])
+        # Body is not declared in the request, so the garbage will be treated
+        # as a new request. 400 response will be sent and client connection
+        # will be closed.
         chain_400 = deproxy.MessageChain(
             request = deproxy.Request(),
             expected_response = chains.response_400())
