@@ -90,6 +90,11 @@ class ServerQueueSizeFailoveringTest(FailoveringTest):
 
     defconfig = 'server_queue_size 10;'
 
+class ServerQueueSize1FailoveringTest(FailoveringTest):
+    """ Failovering with server_connect_retries option """
+
+    defconfig = 'server_queue_size 1;'
+
 class NonidempotaentFailoveringTest(FailoveringTest):
     """ Failovering with server_connect_retries option """
 
