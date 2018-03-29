@@ -2327,7 +2327,7 @@ static TfwCfgSpec tfw_sock_srv_specs[] = {
 		.allow_reconfig = true,
 	},
 	{
-		.name = "server_retry_non_idempotent",
+		.name = "server_retry_nonidempotent",
 		.deflt = TFW_CFG_DFLT_VAL,
 		.handler = tfw_cfgop_out_retry_nip,
 		.cleanup = tfw_cfgop_cleanup_srv_groups,
