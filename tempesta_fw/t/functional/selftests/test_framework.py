@@ -4,11 +4,12 @@ from testers import common
 class ExampleTestNginx(common.TempestaTest):
     backends = [
         {
-            'id' : 'default_id',
+            'id' : 'default_backend',
             'type' : 'nginx',
-            'request_connections' : 200,
+            'keepalive_requests' : 200,
             'servers' : [
                 {
+                    'id' : 'default_server',
                     'ip' : 'default',
                     'port' : 8000,
                     'location' : '/var/www/html',
@@ -17,10 +18,21 @@ class ExampleTestNginx(common.TempestaTest):
         }
     ]
 
-    tempesta = {   
+    tempesta = {
+        'config' : 'cache 0;\n',
         'listen_ip' : 'default',
         'listen_port' : 80,
-        'backends' : ['default_id'],
+        'groups' : [
+            {
+                'name' : 'default',
+                'backends' : [
+                    {
+                        'backend' : 'default_backend',
+                        'port' : 'default_server',
+                    }
+                ],
+            }
+        ],
     }
 
     clients = [
@@ -33,11 +45,14 @@ class ExampleTestNginx(common.TempestaTest):
     def test(self):
         """ Simple test """
         chain = chains.base(uri = "/path", method = "GET")
+        self.start_all_servers()
+        self.start_tempesta()
+        self.start_all_clients()
 
 class ExampleTestDeproxy(common.TempestaTest):
     backends = [
         {
-            'id' : 'default_id',
+            'id' : 'default_backend',
             'type' : 'deproxy',
             'port' : 'default',
         }
@@ -46,7 +61,14 @@ class ExampleTestDeproxy(common.TempestaTest):
     tempesta = {   
         'listen_ip' : 'default',
         'listen_port' : 80,
-        'backends' : ['default_id'],
+        'groups' : [
+            {
+                'name' : 'default',
+                'backends' : [
+                    {'backend' : 'default_backend'}
+                ],
+            }
+        ],
     }
 
     clients = [

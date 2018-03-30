@@ -44,24 +44,32 @@ class ListenerCode(object):
                 (listen_str, code, "")
 
 class NginxConfig(multi_backend.ConfigMultiplePorts):
+    __servers_id = {}
 
-    def add_server_location(self, ip_listen, port, location):
+    def add_server_location(self, ip_listen, port, location, id):
         if len(self.listeners) == 0:
             listener = multi_backend.Listener(ip_listen, port, location,
                                               has_status=True)
         else:
             listener = multi_backend.Listener(ip_listen, port, location)
         self.listeners.append(listener)
+        self.__servers_id[id] = listener
         self.build_config()
 
-    def add_server_code(self, ip_listen, port, code):
+    def add_server_code(self, ip_listen, port, code, id):
         if len(self.listeners) == 0:
             listener = ListenerCode(ip_listen, port, code,
                                               has_status=True)
         else:
             listener = ListenerCode(ip_listen, port, code)
         self.listeners.append(listener)
+        self.__servers_id[id] = listener
         self.build_config()
+
+    def get_server(self, id):
+        if not self.__servers_id.has_key(id):
+            return None
+        return self.__servers_id[id]
 
 class Nginx(control.Nginx):
     """ Nginx class """
@@ -95,18 +103,22 @@ class TempestaTest(unittest.TestCase):
     __clients = {}
     __tempesta = None
 
-    def __create_client_deproxy(self):
+    def __create_client_deproxy(self, client):
         clt = deproxy.Client()
         return clt
+
+    def __create_client_wrk(self, client):
+        wrk = control.Wrk()
+        return wrk
 
     def __create_client(self, client):
         clt = None
         cid = client['id']
         if client['type'] == 'deproxy':
-            clt = self.__create_client_deproxy()
+            clt = self.__create_client_deproxy(client)
+        elif client['type'] == 'wrk':
+            clt = self.__create_client_wrk(client)
         self.__clients[cid] = clt
-
-    
 
     def __create_srv_nginx(self, server):
         srv = Nginx()
@@ -120,16 +132,19 @@ class TempestaTest(unittest.TestCase):
 
             if ip == 'default':
                 ip = tf_cfg.cfg.get('Server', 'ip')
+            sid = lst['id']
             if lst.has_key('location'):
                 location = lst['location']
                 srv.config.add_server_location(ip_listen=ip,
                                                port=port,
-                                               location=location)
+                                               location=location,
+                                               id=sid)
             elif lst.has_key('code'):
                 code = int(lst['code'])
                 srv.config.add_server_code(ip_listen=ip,
                                            port=port,
-                                           code=code)
+                                           code=code,
+                                           id=sid)
         return srv
 
     def __create_srv_deproxy(self, server):
@@ -184,7 +199,28 @@ class TempestaTest(unittest.TestCase):
         return self.__tempesta
 
     def __create_tempesta(self):
+        config = ""
+        if self.tempesta.has_key('config'):
+            config = self.tempesta['config']
         self.__tempesta = control.Tempesta()
+        self.__tempesta.config.set_defconfig(config)
+
+    def start_all_servers(self):
+        for srv in self.__servers:
+            srv.start()
+            if srv.state != stateful.STATE_STARTED:
+                raise Exception("Can not start server")
+
+    def start_tempesta(self):
+        self.__tempesta.start()
+        if self.__tempesta.state != stateful.STATE_STARTED:
+            raise Exception("Can not start Tempesta")
+
+    def start_all_clients(self):
+        for client in self.__clients:
+            client.start()
+            if client.state != stateful.STATE_STARTED:
+                raise Exception("Can not start client")
 
     def setUp(self):
         tf_cfg.dbg(3, '\tInit test case...')
