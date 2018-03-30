@@ -181,12 +181,17 @@ typedef struct {
 
 /* Connection flags are defined by the bit number. */
 enum {
-	TFW_CONN_B_RESEND = 0,	/* Need to re-send requests. */
-	TFW_CONN_B_QFORWD,	/* Need to forward requests in the queue. */
-	TFW_CONN_B_HASNIP,	/* Has non-idempotent requests. */
+	/* Need to re-send requests. */
+	TFW_CONN_B_RESEND = 0,
+	/* Need to forward requests in the queue. */
+	TFW_CONN_B_QFORWD,
+	/* Has non-idempotent requests. */
+	TFW_CONN_B_HASNIP,
 
-	TFW_CONN_B_DEL,		/* Remove connection */
-	TFW_CONN_B_ACTIVE	/* Connection has been got at least once. */
+	/* Remove connection */
+	TFW_CONN_B_DEL,
+	/* Connection is in use or at least scheduled to be established. */
+	TFW_CONN_B_ACTIVE
 };
 
 #define TFW_CONN_F_RESEND	(1 << TFW_CONN_B_RESEND)

@@ -308,9 +308,9 @@ tfw_srv_conn_release(TfwSrvConn *srv_conn)
 	 * TFW_CONN_B_ACTIVE bit is checked here to see if the connection has
 	 * already got a server's reference; if so, then server's reference must
 	 * be put. If bit is not set, this means that connection didn't have
-	 * time to get server (due to some error in sock_srv start
-	 * procedure) and consequently, it needn't to put server here (during
-	 * stop procedure).
+	 * time or was never scheduled to reach server (due to some error in
+	 * sock_srv start procedure) and consequently, it needn't to put
+	 * server here (during stop procedure).
 	 */
 	if (likely(!test_bit(TFW_CONN_B_DEL, &srv_conn->flags)))
 		tfw_sock_srv_connect_try_later(srv_conn);
@@ -558,6 +558,11 @@ tfw_srv_conn_alloc(void)
 	INIT_LIST_HEAD(&srv_conn->fwd_queue);
 	INIT_LIST_HEAD(&srv_conn->nip_queue);
 	spin_lock_init(&srv_conn->fwd_qlock);
+
+	/*
+	 * Initialization into special value for force releasing
+	 * of taken server's reference counter on connection removing.
+	 */
 	atomic_set(&srv_conn->refcnt, TFW_CONN_DEATHCNT);
 
 	__setup_retry_timer(srv_conn);
@@ -2056,9 +2061,10 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
 
 	TFW_DBG2("Update server list for group '%s'\n", sg_cfg->orig_sg->name);
 
-	if ((r = __tfw_sg_for_each_srv(sg_cfg->orig_sg,
-				       __tfw_cfgop_update_sg_srv_list,
-				       sg_cfg)))
+	r = __tfw_sg_for_each_srv(sg_cfg->orig_sg,
+				  __tfw_cfgop_update_sg_srv_list,
+				  sg_cfg);
+	if (r)
 		return r;
 
 	/* Add new servers. */
