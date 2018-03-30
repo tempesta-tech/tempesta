@@ -32,7 +32,7 @@
 
 #define TFW_AUTHOR		"Tempesta Technologies, Inc"
 #define TFW_NAME		"Tempesta FW"
-#define TFW_VERSION		"0.5.0"
+#define TFW_VERSION		"0.6.0"
 
 #define DEF_MAX_PORTS		8
 
