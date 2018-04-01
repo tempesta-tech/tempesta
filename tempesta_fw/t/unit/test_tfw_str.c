@@ -103,6 +103,19 @@ TEST(cstr, simd_match)
 		     "0123456|95");
 }
 
+static void
+__test_ctext_vchar(const char *str, size_t len)
+{
+	int n;
+
+	for (n = 0; n < len; ++n) {
+		unsigned char c = str[n];
+		if (c < '\t' || (c > '\t' && c < ' ') || c == 0x7f)
+			break;
+	}
+	EXPECT_TRUE(tfw_match_ctext_vchar(str, len) == n);
+}
+
 TEST(cstr, simd_match_ctext_vchar)
 {
 #define N	300
@@ -134,9 +147,35 @@ TEST(cstr, simd_match_ctext_vchar)
 	EXPECT_TRUE(tfw_match_ctext_vchar(buf, N) == P + 8);
 	buf[P + 0] = 0;
 	EXPECT_TRUE(tfw_match_ctext_vchar(buf, N) == P);
-
 #undef P
 #undef N
+
+#define __S(s)	s, sizeof(s) - 1
+	__test_ctext_vchar(__S(""));
+	__test_ctext_vchar(__S(" "));
+	__test_ctext_vchar(__S("\x08"));
+	__test_ctext_vchar(__S("a\x00z"));
+	__test_ctext_vchar(__S(" \tx\rz"));
+	__test_ctext_vchar(__S("\t !?@_`~>^Aa\x80\xff\x81\xfe\x00\xa\x1f\x1e"));
+	__test_ctext_vchar(__S("\t !?@_`~>^A}a\x80\xff\x81"
+			       "\xfe\xaa\\Z+'\x7f\x00\x08\xa\x1f\x1\x1e"));
+	__test_ctext_vchar(__S("\t !?@_`~>^A}a\x80\xff\x81"
+			       "\xfe\xaa\\Zz09+'\x7f\x00\x08\xa\x1f\x1\x1e"));
+	__test_ctext_vchar(__S("123456789_123456789_123456789_123456789_"
+			       "abc\x7fmdef"));
+	__test_ctext_vchar(__S("123456789_123456789_123456789_123456789_"
+			       "123456789_123456789_123456789_123456789_"
+			       "abc\x7mdef"));
+	__test_ctext_vchar(__S("123456789_123456789_123456789_123456789_"
+			       "123456789_123456789_123456789_123456789_"
+			       "123456789_123456789_123456789_123456789_"
+			       "abcmdef\x0"));
+	__test_ctext_vchar(__S("123456789_123456789_123456789_123456789_"
+			       "123456789_123456789_123456789_123456789_"
+			       "123456789_123456789_123456789_123456789_"
+			       "123456789_123456789_123456789_123456789_"
+			       "a\x6pbcmdef"));
+#undef __S
 }
 
 static inline void *
