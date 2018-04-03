@@ -14,6 +14,7 @@ class StressTest(unittest.TestCase):
     pipelined_req = 1
     tfw_msg_errors = False
     errors_502 = 0
+    errors_504 = 0
 
     def create_clients(self):
         """ Override to set desired list of benchmarks and their options. """
@@ -107,16 +108,24 @@ class StressTest(unittest.TestCase):
     def assert_response(self, req, err, statuses):
         msg = 'HTTP client detected %i/%i errors. Results: %s' % \
                 (err, req, str(statuses))
+        e_502 = 0
+        e_504 = 0
 
         if 502 in statuses.keys():
-            self.errors_502 += statuses[502]
-        self.assertEqual(err, 0, msg=msg)
+            e_502 = statuses[502]
+        if 504 in statuses.keys():
+            e_504 = statuses[504]
+
+        self.errors_502 += e_502
+        self.errors_504 += e_504
+        self.assertEqual(err, e_502 + e_504, msg=msg)
 
     def assert_clients(self):
         """ Check benchmark result: no errors happen, no packet loss. """
         cl_req_cnt = 0
         cl_conn_cnt = 0
         self.errors_502 = 0
+        self.errors_504 = 0
         for c in self.clients:
             req, err, _, statuses = c.results()
             cl_req_cnt += req
@@ -141,20 +150,31 @@ class StressTest(unittest.TestCase):
         cl_conn_cnt = 0
         for c in self.clients:
             cl_conn_cnt += c.connections
-        self.assertEqual(self.tempesta.stats.cl_msg_parsing_errors, 0,
-                         msg=(msg % 'requests'))
-        self.assertEqual(self.tempesta.stats.srv_msg_parsing_errors, 0,
-                         msg=(msg % 'responses'))
+
+        cl_parsing_err = self.tempesta.stats.cl_msg_parsing_errors
+        srv_parsing_err = self.tempesta.stats.srv_msg_parsing_errors
+        cl_other_err = self.tempesta.stats.cl_msg_other_errors
+        srv_other_err = self.tempesta.stats.srv_msg_other_errors
+
+        tf_cfg.dbg(2, "CL Msg parsing errors: %i" % cl_parsing_err)
+        tf_cfg.dbg(2, "SRV Msg parsing errors: %i" % srv_parsing_err)
+        tf_cfg.dbg(2, "CL Msg other errors: %i" % cl_other_err)
+        tf_cfg.dbg(2, "SRV Msg other errors: %i" % srv_other_err)
+        tf_cfg.dbg(2, "errors 502: %i" % self.errors_502)
+        tf_cfg.dbg(2, "errors 504: %i" % self.errors_504)
+
+        self.assertEqual(cl_parsing_err, 0, msg=(msg % 'requests'))
+        self.assertEqual(srv_parsing_err, 0, msg=(msg % 'responses'))
         if self.tfw_msg_errors:
             return
 
         # TODO: with self.errors_502 we should compare special counter for
         # backend connection error. But it is not present.
-        self.assertTrue(self.tempesta.stats.cl_msg_other_errors == \
-                 self.errors_502, msg=(msg % 'requests'))
+        self.assertTrue(cl_other_err == self.errors_502 + self.errors_504,
+                        msg=(msg % 'requests'))
         # See comment on "positive allowance" in `assert_clients()`
         expected_err = cl_conn_cnt
-        self.assertTrue(self.tempesta.stats.srv_msg_other_errors <= expected_err,
+        self.assertTrue(srv_other_err <= expected_err,
                         msg=(msg % 'responses'))
 
     def assert_servers(self):
