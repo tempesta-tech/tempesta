@@ -71,39 +71,60 @@ ss_skb_queue_empty(const SsSkbList *list)
 static inline void
 ss_skb_queue_tail(SsSkbList *list, struct sk_buff *skb)
 {
-	SsSkbCb *scb = TFW_SKB_CB(skb);
-
 	/* The skb shouldn't be in any other queue. */
-	WARN_ON_ONCE(scb->next || scb->prev);
+	WARN_ON_ONCE(skb->next || skb->prev);
 
-	scb->prev = list->last;
+	skb->prev = list->last;
 	if (ss_skb_queue_empty(list))
 		list->first = skb;
 	else
-		TFW_SKB_CB(list->last)->next = skb;
+		list->last->next = skb;
+	list->last = skb;
+}
+
+/**
+ * Init @list to prepare for skbs from @skb->frag_list.
+ */
+static inline void
+ss_skb_init_from_frag_list(SsSkbList *list, struct sk_buff *skb)
+{
+	WARN_ON_ONCE(skb->next || skb->prev);
+
+	skb->next = skb_shinfo(skb)->frag_list;
+	list->first = list->last = skb;
+}
+
+/**
+ * Move @skb from @frag_list to the tail of @list; this funection
+ * must be used only after @ss_skb_init_from_frag_list() (there is
+ * no need to set @next pointer for each skb as these pointers are
+ * properly set in @frag_list).
+ */
+static inline void
+ss_skb_move_from_frag_list(SsSkbList *list, struct sk_buff *skb)
+{
+	skb->prev = list->last;
 	list->last = skb;
 }
 
 static inline void
 ss_skb_unlink(SsSkbList *list, struct sk_buff *skb)
 {
-	SsSkbCb *scb = TFW_SKB_CB(skb);
-
-	if (scb->next)
-		TFW_SKB_CB(scb->next)->prev = scb->prev;
+	if (skb->next)
+		skb->next->prev = skb->prev;
 	else
-		list->last = scb->prev;
-	if (scb->prev)
-		TFW_SKB_CB(scb->prev)->next = scb->next;
+		list->last = skb->prev;
+	if (skb->prev)
+		skb->prev->next = skb->next;
 	else
-		list->first = scb->next;
-	scb->next = scb->prev = NULL;
+		list->first = skb->next;
+	skb->next = skb->prev = NULL;
 }
 
 static inline struct sk_buff *
 ss_skb_next(struct sk_buff *skb)
 {
-	return TFW_SKB_CB(skb)->next;
+	return skb->next;
 }
 
 static inline struct sk_buff *
