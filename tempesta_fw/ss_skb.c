@@ -236,14 +236,11 @@ __it_next_data(struct sk_buff *skb, int i, TfwStr *it)
 static inline void
 __skb_insert_after(struct sk_buff *skb, struct sk_buff *nskb)
 {
-	SsSkbCb *scb = TFW_SKB_CB(skb);
-	SsSkbCb *nscb = TFW_SKB_CB(nskb);
-
-	nscb->next = scb->next;
-	nscb->prev = skb;
-	scb->next = nskb;
-	if (nscb->next)
-		TFW_SKB_CB(nscb->next)->prev = nskb;
+	nskb->next = skb->next;
+	nskb->prev = skb;
+	skb->next = nskb;
+	if (nskb->next)
+		nskb->next->prev = nskb;
 }
 
 /*
@@ -253,11 +250,11 @@ __skb_insert_after(struct sk_buff *skb, struct sk_buff *nskb)
 static inline void
 __skb_skblist_fixup(SsSkbList *skb_list)
 {
-	SsSkbCb *lscb = TFW_SKB_CB(skb_list->last);
+	struct sk_buff *last = skb_list->last;
 
-	if (lscb->next)
-		skb_list->last = lscb->next;
-	WARN_ON_ONCE(TFW_SKB_CB(skb_list->last)->next);
+	if (last->next)
+		skb_list->last = last->next;
+	WARN_ON_ONCE(skb_list->last->next);
 }
 
 /**
@@ -1177,7 +1174,7 @@ ss_skb_unroll(SsSkbList *skb_list, struct sk_buff *skb)
 	if (unlikely(skb_cloned(skb)))
 		return ss_skb_unroll_slow(skb_list, skb);
 
-	ss_skb_queue_tail(skb_list, skb);
+	ss_skb_init_from_frag_list(skb_list, skb);
 	skb_walk_frags(skb, f_skb) {
 		if (f_skb->nohdr) {
 			/*
@@ -1199,7 +1196,7 @@ ss_skb_unroll(SsSkbList *skb_list, struct sk_buff *skb)
 		 */
 		f_skb->mark = skb->mark;
 		ss_skb_adjust_data_len(skb, -f_skb->len);
-		ss_skb_queue_tail(skb_list, f_skb);
+		ss_skb_move_from_frag_list(skb_list, f_skb);
 	}
 	skb_shinfo(skb)->frag_list = NULL;
 
