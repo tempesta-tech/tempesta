@@ -3,7 +3,7 @@
  *
  * x86-64 SIMD routines for HTTP strings processing.
  *
- * Copyright (C) 2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -45,9 +45,12 @@
  * @QETOKEN	- `token` with double quotes and equal sign;
  * @NCTL	- ASCII VCHAR (RFC RFC 5234, Apendix B.1.) plus SP and HTAB,
  *		  used to accept HTTP header values;
- * @CTVCH	- union of ctext and VCHAR, example usage is User-Agent;
  * @XFF		- ASCII characters for HTTP X-Forwarded-For header (RFC 7239);
  * @CO		- cookie-octet as defined in RFC 6265 4.1.1 plus DQUOTE;
+ * @ZERO	- ASCII zero upper bound for matching 0 < v < SP;
+ * @SP		- ASCII SP low bound for matching 0 < v < SP;
+ * @HTAB	- ASCII HTAB;
+ * @DEL		- ASCII DEL;
  */
 static struct {
 	__m128i A128;
@@ -60,9 +63,12 @@ static struct {
 	__m128i TOKEN128;
 	__m128i QETOKEN128;
 	__m128i NCTL128;
-	__m128i CTVCH128;
 	__m128i XFF128;
 	__m128i CO128;
+	__m128i ZERO128;
+	__m128i SP128;
+	__m128i HTAB128;
+	__m128i DEL128;
 #ifdef AVX2
 	__m256i A256;
 	__m256i a256;
@@ -74,9 +80,12 @@ static struct {
 	__m256i TOKEN256;
 	__m256i QETOKEN256;
 	__m256i NCTL256;
-	__m256i CTVCH256;
 	__m256i XFF256;
 	__m256i CO256;
+	__m256i ZERO256;
+	__m256i SP256;
+	__m256i HTAB256;
+	__m256i DEL256;
 #endif
 } __C;
 
@@ -122,12 +131,6 @@ tfw_str_init_const(void)
 		0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
 		0xfc, 0xfd, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0x7c);
 	/*
-	 * Union of ctext and VCHAR, RFC 7230.
-	 */
-	__C.CTVCH128 = _mm_setr_epi8(
-		0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
-		0xfc, 0xfd, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0x7c);
-	/*
 	 * Alphabet for X-Forwarded-For Node ID (RFC 7239):
 	 *
 	 *	ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
@@ -142,6 +145,13 @@ tfw_str_init_const(void)
 	__C.CO128 = _mm_setr_epi8(
 		0xf8, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
 		0xfc, 0xfc, 0xfc, 0xf4, 0xd8, 0xfc, 0xfc, 0x7c);
+
+	/* ASCII zero character '\0' to use in strict signed comparison. */
+	__C.ZERO128 = _mm_set1_epi8(0 - 0x80);
+	/* ASCII space ' ' to use in signed comparison. */
+	__C.SP128 = _mm_set1_epi8(' ' - 0x80);
+	__C.HTAB128 = _mm_set1_epi8('\t');
+	__C.DEL128 = _mm_set1_epi8(0x7f);
 
 #ifdef AVX2
 	__C.A256 = _mm256_set1_epi8('A' - 0x80);
@@ -174,11 +184,6 @@ tfw_str_init_const(void)
 		0xfc, 0xfd, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0x7c,
 		0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
 		0xfc, 0xfd, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0x7c);
-	__C.CTVCH256 = _mm256_setr_epi8(
-		0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
-		0xfc, 0xfd, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0x7c,
-		0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
-		0xfc, 0xfd, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0x7c);
 	__C.XFF256 = _mm256_setr_epi8(
 		0xa8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8,
 		0xf8, 0xf8, 0xf8, 0x70, 0x50, 0x74, 0x54, 0x70,
@@ -189,6 +194,10 @@ tfw_str_init_const(void)
 		0xfc, 0xfc, 0xfc, 0xf4, 0xd8, 0xfc, 0xfc, 0x7c,
 		0xf8, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
 		0xfc, 0xfc, 0xfc, 0xf4, 0xd8, 0xfc, 0xfc, 0x7c);
+	__C.ZERO256 = _mm256_set1_epi8(0xff - 0x80 + 1);
+	__C.SP256 = _mm256_set1_epi8(' ' - 0x80);
+	__C.HTAB256 = _mm256_set1_epi8('\t');
+	__C.DEL256 = _mm256_set1_epi8(0x7f);
 #endif
 }
 EXPORT_SYMBOL(tfw_str_init_const);
@@ -291,7 +300,6 @@ static const unsigned char nctl[] ____cacheline_aligned = {
 
 /*
  * ASCII codes to accept ctext | VCHAR, e.g. User-Agent.
- * (C representation for __C.CTVCH).
  */
 static const unsigned char ctext_vchar[] ____cacheline_aligned = {
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
@@ -379,6 +387,22 @@ __tzcnt(unsigned long x)
 	return r;
 #else
 	return x ? __ffs(x) : 64;
+#endif
+}
+
+static unsigned int
+__tzcnt32(unsigned int x)
+{
+#ifdef AVX2
+	unsigned int r;
+
+	asm volatile ("tzcnt %1, %0\n"
+		      : "=r"(r)
+		      : "r"(x));
+
+	return r;
+#else
+	return x ? __ffs(0xffffffff00000000UL | x) : 32;
 #endif
 }
 
@@ -1042,6 +1066,89 @@ __tfw_strspn_avx2_128(const char *str, __m256i sm)
 
 	return r0 < 64 ? r0 : 64 + r1;
 }
+
+static inline size_t
+__tfw_match_ctext_vchar32(const char *str)
+{
+	unsigned int r;
+
+	__m256i v = _mm256_lddqu_si256((void *)str);
+
+	__m256i sub = _mm256_sub_epi8(v, __C.ZERO256);
+	__m256i x = _mm256_cmpeq_epi8(v, __C.DEL256);
+	x |= _mm256_cmpgt_epi8(__C.SP256, sub);
+	x ^= _mm256_cmpeq_epi8(v, __C.HTAB256);
+	r = _mm256_movemask_epi8(x);
+
+	return __tzcnt32(r);
+}
+
+static inline size_t
+__tfw_match_ctext_vchar64(const char *str)
+{
+	unsigned long r0, r1;
+
+	__m256i v0 = _mm256_lddqu_si256((void *)str);
+	__m256i v1 = _mm256_lddqu_si256((void *)(str + 32));
+
+	__m256i sub0 = _mm256_sub_epi8(v0, __C.ZERO256);
+	__m256i sub1 = _mm256_sub_epi8(v1, __C.ZERO256);
+
+	__m256i x0 = _mm256_cmpeq_epi8(v0, __C.DEL256);
+	__m256i x1 = _mm256_cmpeq_epi8(v1, __C.DEL256);
+
+	x0 |= _mm256_cmpgt_epi8(__C.SP256, sub0);
+	x1 |= _mm256_cmpgt_epi8(__C.SP256, sub1);
+
+	x0 ^= _mm256_cmpeq_epi8(v0, __C.HTAB256);
+	x1 ^= _mm256_cmpeq_epi8(v1, __C.HTAB256);
+
+	r0 = _mm256_movemask_epi8(x0);
+	r1 = _mm256_movemask_epi8(x1);
+
+	return __tzcnt(r0 | (r1 << 32));
+}
+
+static inline size_t
+__tfw_match_ctext_vchar128(const char *str)
+{
+	unsigned long r0, r1;
+
+	__m256i v0 = _mm256_lddqu_si256((void *)str);
+	__m256i v1 = _mm256_lddqu_si256((void *)(str + 32));
+	__m256i v2 = _mm256_lddqu_si256((void *)(str + 64));
+	__m256i v3 = _mm256_lddqu_si256((void *)(str + 96));
+
+	__m256i sub0 = _mm256_sub_epi8(v0, __C.ZERO256);
+	__m256i sub1 = _mm256_sub_epi8(v1, __C.ZERO256);
+	__m256i sub2 = _mm256_sub_epi8(v2, __C.ZERO256);
+	__m256i sub3 = _mm256_sub_epi8(v3, __C.ZERO256);
+
+	__m256i x0 = _mm256_cmpeq_epi8(v0, __C.DEL256);
+	__m256i x1 = _mm256_cmpeq_epi8(v1, __C.DEL256);
+	__m256i x2 = _mm256_cmpeq_epi8(v2, __C.DEL256);
+	__m256i x3 = _mm256_cmpeq_epi8(v3, __C.DEL256);
+
+	x0 |= _mm256_cmpgt_epi8(__C.SP256, sub0);
+	x1 |= _mm256_cmpgt_epi8(__C.SP256, sub1);
+	x2 |= _mm256_cmpgt_epi8(__C.SP256, sub2);
+	x3 |= _mm256_cmpgt_epi8(__C.SP256, sub3);
+
+	x0 ^= _mm256_cmpeq_epi8(v0, __C.HTAB256);
+	x1 ^= _mm256_cmpeq_epi8(v1, __C.HTAB256);
+	x2 ^= _mm256_cmpeq_epi8(v2, __C.HTAB256);
+	x3 ^= _mm256_cmpeq_epi8(v3, __C.HTAB256);
+
+	r0 = _mm256_movemask_epi8(x1);
+	r1 = _mm256_movemask_epi8(x3);
+	r0 = (r0 << 32) | _mm256_movemask_epi8(x0);
+	r1 = (r1 << 32) | _mm256_movemask_epi8(x2);
+	r0 = __tzcnt(r0);
+	r1 = __tzcnt(r1);
+
+	return r0 < 64 ? r0 : 64 + r1;
+}
+
 #endif
 
 static inline size_t
@@ -1143,6 +1250,100 @@ __tfw_strspn_simd(const char *str, size_t len, const unsigned char *tbl,
 	return !(c0 & c1) ? n + c0 : n + 2 + c2;
 }
 
+static inline size_t
+__tfw_match_ctext_vchar16(const char *str)
+{
+	unsigned int r;
+
+	__m128i v = _mm_lddqu_si128((void *)str);
+
+	__m128i sub = _mm_sub_epi8(v, __C.ZERO128);
+	__m128i x = _mm_cmpeq_epi8(v, __C.DEL128);
+	x |= _mm_cmpgt_epi8(__C.SP128, sub);
+	x ^= _mm_cmpeq_epi8(v, __C.HTAB128);
+	r = 0xffff0000 | _mm_movemask_epi8(x);
+
+	return __tzcnt32(r);
+}
+
+static size_t
+__tfw_match_ctext_vchar(const char *str, size_t len)
+{
+	unsigned char *s = (unsigned char *)str;
+	const unsigned char *end = s + len;
+	unsigned int c0 = 0, c1 = 0, c2 = 0, c3 = 0;
+	size_t n;
+
+	/*
+	 * Avoid heavyweight vector processing for small strings.
+	 * Branch misprediction is more crucial for short strings.
+	 */
+	if (likely(len <= 4)) {
+		switch (len) {
+		case 0:
+			return 0;
+		case 4:
+			c3 = ctext_vchar[s[3]];
+		case 3:
+			c2 = ctext_vchar[s[2]];
+		case 2:
+			c1 = ctext_vchar[s[1]];
+		case 1:
+			c0 = ctext_vchar[s[0]];
+		}
+		return (c0 & c1) == 0 ? c0 : 2 + (c2 ? c2 + c3 : 0);
+	}
+#ifdef AVX2
+	/* Use unlikely() to speedup short strings processing. */
+	for ( ; unlikely(s + 128 <= end); s += 128) {
+		n = __tfw_match_ctext_vchar128(s);
+		if (n < 128)
+			return s - (unsigned char *)str + n;
+	}
+	if (unlikely(s + 64 <= end)) {
+		n = __tfw_match_ctext_vchar64(s);
+		if (n < 64)
+			return s - (unsigned char *)str + n;
+		s += 64;
+	}
+	if (unlikely(s + 32 <= end)) {
+		n = __tfw_match_ctext_vchar32(s);
+		if (n < 32)
+			return s - (unsigned char *)str + n;
+		s += 32;
+	}
+#endif
+	for ( ; unlikely(s + 16 <= end); s += 16) {
+		n = __tfw_match_ctext_vchar16(s);
+		if (n < 16)
+			return s - (unsigned char *)str + n;
+	}
+
+	while (s + 4 <= end) {
+		c0 = ctext_vchar[s[0]];
+		c1 = ctext_vchar[s[1]];
+		c2 = ctext_vchar[s[2]];
+		c3 = ctext_vchar[s[3]];
+		if (!(c0 & c1 & c2 & c3)) {
+			n = s - (unsigned char *)str;
+			return !(c0 & c1) ? n + c0 : n + 2 + (c2 ? c2 + c3 : 0);
+		}
+		s += 4;
+	}
+	c0 = c1 = c2 = 0;
+	switch (end - s) {
+	case 3:
+		c2 = ctext_vchar[s[2]];
+	case 2:
+		c1 = ctext_vchar[s[1]];
+	case 1:
+		c0 = ctext_vchar[s[0]];
+	}
+
+	n = s - (unsigned char *)str;
+	return !(c0 & c1) ? n + c0 : n + 2 + c2;
+}
+
 size_t
 tfw_match_uri(const char *str, size_t len)
 {
@@ -1207,13 +1408,8 @@ EXPORT_SYMBOL(tfw_match_nctl);
 size_t
 tfw_match_ctext_vchar(const char *str, size_t len)
 {
-	size_t r;
-#ifdef AVX2
-	r = __tfw_strspn_simd(str, len, ctext_vchar, __C.CTVCH128,
-				 __C.CTVCH256);
-#else
-	r = __tfw_strspn_simd(str, len, ctext_vchar, __C.CTVCH128);
-#endif
+	size_t r = __tfw_match_ctext_vchar(str, len);
+
 	TFW_DBG3("%s: str[0]=%#x len=%lu r=%lu\n", __func__, str[0], len, r);
 
 	return r;
