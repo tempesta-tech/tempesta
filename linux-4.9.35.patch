@@ -1,5 +1,5 @@
 diff --git a/Documentation/kernel-parameters.txt b/Documentation/kernel-parameters.txt
-index 86a6746f..fcd8903a 100644
+index 86a6746..fcd8903 100644
 --- a/Documentation/kernel-parameters.txt
 +++ b/Documentation/kernel-parameters.txt
 @@ -4051,6 +4051,12 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
@@ -16,7 +16,7 @@ index 86a6746f..fcd8903a 100644
  			Specify "mem" (for Suspend-to-RAM) or "standby" (for
  			standby suspend) or "freeze" (for suspend type freeze)
 diff --git a/arch/x86/include/asm/fpu/api.h b/arch/x86/include/asm/fpu/api.h
-index 1429a7c7..79636368 100644
+index 1429a7c..7963636 100644
 --- a/arch/x86/include/asm/fpu/api.h
 +++ b/arch/x86/include/asm/fpu/api.h
 @@ -20,6 +20,10 @@
@@ -31,7 +31,7 @@ index 1429a7c7..79636368 100644
  extern void __kernel_fpu_end(void);
  extern void kernel_fpu_begin(void);
 diff --git a/arch/x86/kernel/fpu/core.c b/arch/x86/kernel/fpu/core.c
-index 96d80dfa..6e1dabbe 100644
+index 96d80df..6e1dabb 100644
 --- a/arch/x86/kernel/fpu/core.c
 +++ b/arch/x86/kernel/fpu/core.c
 @@ -110,7 +110,8 @@ bool irq_fpu_usable(void)
@@ -105,7 +105,7 @@ index 96d80dfa..6e1dabbe 100644
  EXPORT_SYMBOL_GPL(kernel_fpu_end);
  
 diff --git a/include/linux/interrupt.h b/include/linux/interrupt.h
-index 72f0721f..a70fdced 100644
+index 72f0721..a70fdce 100644
 --- a/include/linux/interrupt.h
 +++ b/include/linux/interrupt.h
 @@ -431,13 +431,13 @@ extern bool force_irqthreads;
@@ -134,7 +134,7 @@ index 72f0721f..a70fdced 100644
  DECLARE_PER_CPU(struct task_struct *, ksoftirqd);
  
 diff --git a/include/linux/net.h b/include/linux/net.h
-index cd0c8bd0..df4de18c 100644
+index cd0c8bd..df4de18 100644
 --- a/include/linux/net.h
 +++ b/include/linux/net.h
 @@ -204,6 +204,8 @@ struct net_proto_family {
@@ -147,24 +147,10 @@ index cd0c8bd0..df4de18c 100644
  struct kvec;
  
 diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
-index 32810f27..107e395c 100644
+index 32810f2..487b29d 100644
 --- a/include/linux/skbuff.h
 +++ b/include/linux/skbuff.h
-@@ -652,8 +652,12 @@ struct sk_buff {
- 	 * layer. Please put your private variables there. If you
- 	 * want to keep them across layers you have to do a skb_clone()
- 	 * first. This is owned by whoever has the skb queued ATM.
-+	 *
-+	 * Tempesta. Extend the control block from original 48 bytes to
-+	 * 64, so we can place our own control block at the end of @cb
-+	 * and safely pass the skb to TCP and IP layers.
- 	 */
--	char			cb[48] __aligned(8);
-+	char			cb[64] __aligned(8);
- 
- 	unsigned long		_skb_refdst;
- 	void			(*destructor)(struct sk_buff *skb);
-@@ -691,8 +695,10 @@ struct sk_buff {
+@@ -691,8 +691,10 @@ struct sk_buff {
  				fclone:2,
  				peeked:1,
  				head_frag:1,
@@ -177,7 +163,7 @@ index 32810f27..107e395c 100644
  	kmemcheck_bitfield_end(flags1);
  
  	/* fields enclosed in headers_start/headers_end are copied
-@@ -711,6 +717,7 @@ struct sk_buff {
+@@ -711,6 +713,7 @@ struct sk_buff {
  #define PKT_TYPE_OFFSET()	offsetof(struct sk_buff, __pkt_type_offset)
  
  	__u8			__pkt_type_offset[0];
@@ -185,7 +171,7 @@ index 32810f27..107e395c 100644
  	__u8			pkt_type:3;
  	__u8			pfmemalloc:1;
  	__u8			ignore_df:1;
-@@ -742,7 +749,11 @@ struct sk_buff {
+@@ -742,7 +745,11 @@ struct sk_buff {
  #ifdef CONFIG_NET_SWITCHDEV
  	__u8			offload_fwd_mark:1;
  #endif
@@ -198,7 +184,7 @@ index 32810f27..107e395c 100644
  
  #ifdef CONFIG_NET_SCHED
  	__u16			tc_index;	/* traffic control index */
-@@ -961,12 +972,6 @@ static inline struct sk_buff *alloc_skb_fclone(unsigned int size,
+@@ -961,12 +968,6 @@ static inline struct sk_buff *alloc_skb_fclone(unsigned int size,
  	return __alloc_skb(size, priority, SKB_ALLOC_FCLONE, NUMA_NO_NODE);
  }
  
@@ -211,7 +197,7 @@ index 32810f27..107e395c 100644
  struct sk_buff *skb_morph(struct sk_buff *dst, struct sk_buff *src);
  int skb_copy_ubufs(struct sk_buff *skb, gfp_t gfp_mask);
  struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t priority);
-@@ -1791,7 +1796,11 @@ static inline struct sk_buff *__skb_dequeue_tail(struct sk_buff_head *list)
+@@ -1791,7 +1792,11 @@ static inline struct sk_buff *__skb_dequeue_tail(struct sk_buff_head *list)
  
  static inline bool skb_is_nonlinear(const struct sk_buff *skb)
  {
@@ -223,7 +209,7 @@ index 32810f27..107e395c 100644
  }
  
  static inline unsigned int skb_headlen(const struct sk_buff *skb)
-@@ -1977,6 +1986,20 @@ static inline unsigned int skb_headroom(const struct sk_buff *skb)
+@@ -1977,6 +1982,20 @@ static inline unsigned int skb_headroom(const struct sk_buff *skb)
  	return skb->data - skb->head;
  }
  
@@ -244,39 +230,9 @@ index 32810f27..107e395c 100644
  /**
   *	skb_tailroom - bytes at buffer end
   *	@skb: buffer to check
-@@ -3873,5 +3896,29 @@ static inline __wsum lco_csum(struct sk_buff *skb)
- 	return csum_partial(l4_hdr, csum_start - l4_hdr, partial);
- }
- 
-+#ifdef CONFIG_SECURITY_TEMPESTA
-+/*
-+ * ------------------------------------------------------------------------
-+ * 		Tempesta FW
-+ * ------------------------------------------------------------------------
-+ */
-+/*
-+ * We use this additional skb list to be able to reference skbs which are
-+ * processed by standard Linux TCP/IP stack w/o skb cloning.
-+ */
-+typedef struct {
-+	struct sk_buff	*next;
-+	struct sk_buff	*prev;
-+} SsSkbCb;
-+
-+#define TFW_SKB_CB(s)		((SsSkbCb *)((s)->cb + sizeof((s)->cb)	\
-+						      - sizeof(SsSkbCb)))
-+#define TFW_SKB_CB_INIT(skb)						\
-+do {									\
-+	TFW_SKB_CB(skb)->prev = NULL;					\
-+	TFW_SKB_CB(skb)->next = NULL;					\
-+} while (0)
-+#endif  /* CONFIG_SECURITY_TEMPESTA */
-+
- #endif	/* __KERNEL__ */
- #endif	/* _LINUX_SKBUFF_H */
 diff --git a/include/linux/tempesta.h b/include/linux/tempesta.h
 new file mode 100644
-index 00000000..55049bd3
+index 0000000..55049bd
 --- /dev/null
 +++ b/include/linux/tempesta.h
 @@ -0,0 +1,54 @@
@@ -335,7 +291,7 @@ index 00000000..55049bd3
 +#endif /* __TEMPESTA_H__ */
 +
 diff --git a/include/net/sock.h b/include/net/sock.h
-index 92b26970..1bc3805f 100644
+index 92b2697..1bc3805 100644
 --- a/include/net/sock.h
 +++ b/include/net/sock.h
 @@ -743,6 +743,9 @@ enum sock_flags {
@@ -359,7 +315,7 @@ index 92b26970..1bc3805f 100644
  
  static inline struct dst_entry *
 diff --git a/include/net/tcp.h b/include/net/tcp.h
-index 123979fe..c67b087d 100644
+index 123979f..c67b087 100644
 --- a/include/net/tcp.h
 +++ b/include/net/tcp.h
 @@ -329,6 +329,7 @@ bool tcp_check_oom(struct sock *sk, int shift);
@@ -389,7 +345,7 @@ index 123979fe..c67b087d 100644
  int tcp_read_sock(struct sock *sk, read_descriptor_t *desc,
  		  sk_read_actor_t recv_actor);
 diff --git a/include/uapi/linux/netlink.h b/include/uapi/linux/netlink.h
-index 0dba4e4e..82910ffc 100644
+index 0dba4e4..82910ff 100644
 --- a/include/uapi/linux/netlink.h
 +++ b/include/uapi/linux/netlink.h
 @@ -27,6 +27,7 @@
@@ -401,7 +357,7 @@ index 0dba4e4e..82910ffc 100644
  #define NETLINK_INET_DIAG	NETLINK_SOCK_DIAG
  
 diff --git a/init/main.c b/init/main.c
-index ae3996ae..dd9a8e74 100644
+index ae3996a..dd9a8e7 100644
 --- a/init/main.c
 +++ b/init/main.c
 @@ -88,6 +88,8 @@
@@ -440,7 +396,7 @@ index ae3996ae..dd9a8e74 100644
  
  asmlinkage __visible void __init start_kernel(void)
 diff --git a/kernel/softirq.c b/kernel/softirq.c
-index 744fa611..da91fc72 100644
+index 744fa61..da91fc7 100644
 --- a/kernel/softirq.c
 +++ b/kernel/softirq.c
 @@ -26,6 +26,7 @@
@@ -481,7 +437,7 @@ index 744fa611..da91fc72 100644
  void __raise_softirq_irqoff(unsigned int nr)
  {
 diff --git a/mm/Makefile b/mm/Makefile
-index 295bd7a9..20c191e0 100644
+index 295bd7a..20c191e 100644
 --- a/mm/Makefile
 +++ b/mm/Makefile
 @@ -100,3 +100,4 @@ obj-$(CONFIG_IDLE_PAGE_TRACKING) += page_idle.o
@@ -491,7 +447,7 @@ index 295bd7a9..20c191e0 100644
 +obj-$(CONFIG_SECURITY_TEMPESTA) += tempesta_mm.o
 diff --git a/mm/tempesta_mm.c b/mm/tempesta_mm.c
 new file mode 100644
-index 00000000..8c976f0e
+index 0000000..8c976f0
 --- /dev/null
 +++ b/mm/tempesta_mm.c
 @@ -0,0 +1,278 @@
@@ -774,7 +730,7 @@ index 00000000..8c976f0e
 +EXPORT_SYMBOL(tempesta_get_mapping);
 +
 diff --git a/net/core/dev.c b/net/core/dev.c
-index 2e04fd18..aa05858c 100644
+index 2e04fd1..aa05858 100644
 --- a/net/core/dev.c
 +++ b/net/core/dev.c
 @@ -3863,6 +3863,28 @@ int netif_rx_ni(struct sk_buff *skb)
@@ -842,7 +798,7 @@ index 2e04fd18..aa05858c 100644
  			__kfree_skb(skb);
  		}
 diff --git a/net/core/request_sock.c b/net/core/request_sock.c
-index 5d26056b..ee02253d 100644
+index 5d26056..ee02253 100644
 --- a/net/core/request_sock.c
 +++ b/net/core/request_sock.c
 @@ -136,3 +136,4 @@ void reqsk_fastopen_remove(struct sock *sk, struct request_sock *req,
@@ -851,7 +807,7 @@ index 5d26056b..ee02253d 100644
  }
 +EXPORT_SYMBOL(reqsk_fastopen_remove);
 diff --git a/net/core/skbuff.c b/net/core/skbuff.c
-index fe008f1b..2d0d273b 100644
+index fe008f1..e48cffd 100644
 --- a/net/core/skbuff.c
 +++ b/net/core/skbuff.c
 @@ -79,7 +79,9 @@
@@ -1253,20 +1209,7 @@ index fe008f1b..2d0d273b 100644
  	/* record skb to CPU local list */
  	nc->skb_cache[nc->skb_count++] = skb;
  
-@@ -837,7 +1047,12 @@ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
- 	new->tstamp		= old->tstamp;
- 	/* We do not copy old->sk */
- 	new->dev		= old->dev;
-+#ifdef CONFIG_SECURITY_TEMPESTA
-+	memcpy(new->cb, old->cb, sizeof(old->cb) - sizeof(SsSkbCb));
-+	TFW_SKB_CB_INIT(new);
-+#else
- 	memcpy(new->cb, old->cb, sizeof(old->cb));
-+#endif
- 	skb_dst_copy(new, old);
- #ifdef CONFIG_XFRM
- 	new->sp			= secpath_get(old->sp);
-@@ -1025,6 +1240,10 @@ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp_mask)
+@@ -1025,6 +1235,10 @@ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp_mask)
  	    atomic_read(&fclones->fclone_ref) == 1) {
  		n = &fclones->skb2;
  		atomic_set(&fclones->fclone_ref, 2);
@@ -1277,7 +1220,7 @@ index fe008f1b..2d0d273b 100644
  	} else {
  		if (skb_pfmemalloc(skb))
  			gfp_mask |= __GFP_MEMALLOC;
-@@ -1035,6 +1254,9 @@ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp_mask)
+@@ -1035,6 +1249,9 @@ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp_mask)
  
  		kmemcheck_annotate_bitfield(n, flags1);
  		n->fclone = SKB_FCLONE_UNAVAILABLE;
@@ -1287,7 +1230,7 @@ index fe008f1b..2d0d273b 100644
  	}
  
  	return __skb_clone(n, skb);
-@@ -1195,9 +1417,9 @@ EXPORT_SYMBOL(__pskb_copy_fclone);
+@@ -1195,9 +1412,9 @@ EXPORT_SYMBOL(__pskb_copy_fclone);
  int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
  		     gfp_t gfp_mask)
  {
@@ -1299,7 +1242,7 @@ index fe008f1b..2d0d273b 100644
  	long off;
  
  	BUG_ON(nhead < 0);
-@@ -1205,15 +1427,22 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
+@@ -1205,15 +1422,22 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
  	if (skb_shared(skb))
  		BUG();
  
@@ -1325,7 +1268,7 @@ index fe008f1b..2d0d273b 100644
  
  	/* Copy only real data... and, alas, header. This should be
  	 * optimized for the cases when header is void.
-@@ -1246,7 +1475,12 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
+@@ -1246,7 +1470,12 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
  	off = (data + nhead) - skb->head;
  
  	skb->head     = data;
@@ -1338,7 +1281,7 @@ index fe008f1b..2d0d273b 100644
  	skb->data    += off;
  #ifdef NET_SKBUFF_DATA_USES_OFFSET
  	skb->end      = size;
-@@ -1260,10 +1494,18 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
+@@ -1260,10 +1489,18 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
  	skb->hdr_len  = 0;
  	skb->nohdr    = 0;
  	atomic_set(&skb_shinfo(skb)->dataref, 1);
@@ -1357,7 +1300,7 @@ index fe008f1b..2d0d273b 100644
  nodata:
  	return -ENOMEM;
  }
-@@ -1372,7 +1614,11 @@ int skb_pad(struct sk_buff *skb, int pad)
+@@ -1372,7 +1609,11 @@ int skb_pad(struct sk_buff *skb, int pad)
  		return 0;
  	}
  
@@ -1369,7 +1312,7 @@ index fe008f1b..2d0d273b 100644
  	if (likely(skb_cloned(skb) || ntail > 0)) {
  		err = pskb_expand_head(skb, 0, ntail, GFP_ATOMIC);
  		if (unlikely(err))
-@@ -1607,7 +1853,13 @@ unsigned char *__pskb_pull_tail(struct sk_buff *skb, int delta)
+@@ -1607,7 +1848,13 @@ unsigned char *__pskb_pull_tail(struct sk_buff *skb, int delta)
  	 * plus 128 bytes for future expansions. If we have enough
  	 * room at tail, reallocate without expansion only if skb is cloned.
  	 */
@@ -1384,7 +1327,7 @@ index fe008f1b..2d0d273b 100644
  
  	if (eat > 0 || skb_cloned(skb)) {
  		if (pskb_expand_head(skb, 0, eat > 0 ? eat + 128 : 0,
-@@ -3463,16 +3715,31 @@ EXPORT_SYMBOL_GPL(skb_gro_receive);
+@@ -3463,16 +3710,31 @@ EXPORT_SYMBOL_GPL(skb_gro_receive);
  
  void __init skb_init(void)
  {
@@ -1421,7 +1364,7 @@ index fe008f1b..2d0d273b 100644
  }
  
  /**
-@@ -4262,7 +4529,15 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen)
+@@ -4262,7 +4524,15 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen)
  {
  	if (head_stolen) {
  		skb_release_head_state(skb);
@@ -1437,7 +1380,7 @@ index fe008f1b..2d0d273b 100644
  	} else {
  		__kfree_skb(skb);
  	}
-@@ -4704,13 +4979,20 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
+@@ -4704,13 +4974,20 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
  
  	if (skb_pfmemalloc(skb))
  		gfp_mask |= __GFP_MEMALLOC;
@@ -1459,7 +1402,7 @@ index fe008f1b..2d0d273b 100644
  
  	/* Copy real data, and all frags */
  	skb_copy_from_linear_data_offset(skb, off, data, new_hlen);
-@@ -4723,7 +5005,11 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
+@@ -4723,7 +5000,11 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
  	if (skb_cloned(skb)) {
  		/* drop the old head gracefully */
  		if (skb_orphan_frags(skb, gfp_mask)) {
@@ -1471,7 +1414,7 @@ index fe008f1b..2d0d273b 100644
  			return -ENOMEM;
  		}
  		for (i = 0; i < skb_shinfo(skb)->nr_frags; i++)
-@@ -4740,7 +5026,11 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
+@@ -4740,7 +5021,11 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
  
  	skb->head = data;
  	skb->data = data;
@@ -1483,7 +1426,7 @@ index fe008f1b..2d0d273b 100644
  #ifdef NET_SKBUFF_DATA_USES_OFFSET
  	skb->end = size;
  #else
-@@ -4828,19 +5118,30 @@ static int pskb_carve_inside_nonlinear(struct sk_buff *skb, const u32 off,
+@@ -4828,19 +5113,30 @@ static int pskb_carve_inside_nonlinear(struct sk_buff *skb, const u32 off,
  
  	if (skb_pfmemalloc(skb))
  		gfp_mask |= __GFP_MEMALLOC;
@@ -1515,7 +1458,7 @@ index fe008f1b..2d0d273b 100644
  		return -ENOMEM;
  	}
  	shinfo = (struct skb_shared_info *)(data + size);
-@@ -4878,8 +5179,12 @@ static int pskb_carve_inside_nonlinear(struct sk_buff *skb, const u32 off,
+@@ -4878,8 +5174,12 @@ static int pskb_carve_inside_nonlinear(struct sk_buff *skb, const u32 off,
  	skb_release_data(skb);
  
  	skb->head = data;
@@ -1530,7 +1473,7 @@ index fe008f1b..2d0d273b 100644
  	skb->end = size;
  #else
 diff --git a/net/core/sock.c b/net/core/sock.c
-index 1989b3dd..471c4f63 100644
+index 1989b3d..471c4f6 100644
 --- a/net/core/sock.c
 +++ b/net/core/sock.c
 @@ -1642,8 +1642,16 @@ void sock_wfree(struct sk_buff *skb)
@@ -1552,7 +1495,7 @@ index 1989b3dd..471c4f63 100644
  EXPORT_SYMBOL(sock_wfree);
  
 diff --git a/net/ipv4/inet_connection_sock.c b/net/ipv4/inet_connection_sock.c
-index cf3d5674..0f00e280 100644
+index cf3d567..0f00e28 100644
 --- a/net/ipv4/inet_connection_sock.c
 +++ b/net/ipv4/inet_connection_sock.c
 @@ -797,6 +797,14 @@ struct sock *inet_csk_reqsk_queue_add(struct sock *sk,
@@ -1571,7 +1514,7 @@ index cf3d5674..0f00e280 100644
  	if (unlikely(sk->sk_state != TCP_LISTEN)) {
  		inet_child_forget(sk, req, child);
 diff --git a/net/ipv4/inet_hashtables.c b/net/ipv4/inet_hashtables.c
-index ca97835b..8427f323 100644
+index ca97835..8427f32 100644
 --- a/net/ipv4/inet_hashtables.c
 +++ b/net/ipv4/inet_hashtables.c
 @@ -621,7 +621,8 @@ other_parity_scan:
@@ -1585,7 +1528,7 @@ index ca97835b..8427f323 100644
  
  	offset++;
 diff --git a/net/ipv4/tcp.c b/net/ipv4/tcp.c
-index 86fbf0f3..628b5df6 100644
+index 86fbf0f..628b5df 100644
 --- a/net/ipv4/tcp.c
 +++ b/net/ipv4/tcp.c
 @@ -592,18 +592,19 @@ int tcp_ioctl(struct sock *sk, int cmd, unsigned long arg)
@@ -1710,7 +1653,7 @@ index 86fbf0f3..628b5df6 100644
  void tcp_close(struct sock *sk, long timeout)
  {
 diff --git a/net/ipv4/tcp_input.c b/net/ipv4/tcp_input.c
-index 01336aa5..3e47409b 100644
+index 01336aa..3e47409 100644
 --- a/net/ipv4/tcp_input.c
 +++ b/net/ipv4/tcp_input.c
 @@ -642,6 +642,7 @@ new_measure:
@@ -1722,7 +1665,7 @@ index 01336aa5..3e47409b 100644
  /* There is something which you must keep in mind when you analyze the
   * behavior of the tp->ato delayed ack timeout interval.  When a
 diff --git a/net/ipv4/tcp_ipv4.c b/net/ipv4/tcp_ipv4.c
-index 6988566d..d5b80a3a 100644
+index 6988566..d5b80a3 100644
 --- a/net/ipv4/tcp_ipv4.c
 +++ b/net/ipv4/tcp_ipv4.c
 @@ -62,6 +62,7 @@
@@ -1769,7 +1712,7 @@ index 6988566d..d5b80a3a 100644
  		goto put_and_exit;
  	*own_req = inet_ehash_nolisten(newsk, req_to_sk(req_unhash));
 diff --git a/net/ipv4/tcp_minisocks.c b/net/ipv4/tcp_minisocks.c
-index 64e1ba49..3a9bd131 100644
+index 64e1ba4..3a9bd13 100644
 --- a/net/ipv4/tcp_minisocks.c
 +++ b/net/ipv4/tcp_minisocks.c
 @@ -343,6 +343,7 @@ void tcp_time_wait(struct sock *sk, int state, int timeo)
@@ -1781,7 +1724,7 @@ index 64e1ba49..3a9bd131 100644
  void tcp_twsk_destructor(struct sock *sk)
  {
 diff --git a/net/ipv4/tcp_output.c b/net/ipv4/tcp_output.c
-index dc4258fd..4e139ec7 100644
+index dc4258f..4e139ec 100644
 --- a/net/ipv4/tcp_output.c
 +++ b/net/ipv4/tcp_output.c
 @@ -391,7 +391,7 @@ static void tcp_ecn_send(struct sock *sk, struct sk_buff *skb,
@@ -1863,7 +1806,7 @@ index dc4258fd..4e139ec7 100644
  /* Send a crossed SYN-ACK during socket establishment.
   * WARNING: This routine must only be called when we have already sent
 diff --git a/net/ipv6/tcp_ipv6.c b/net/ipv6/tcp_ipv6.c
-index 7ac2365a..36e2e14a 100644
+index 7ac2365..36e2e14 100644
 --- a/net/ipv6/tcp_ipv6.c
 +++ b/net/ipv6/tcp_ipv6.c
 @@ -68,6 +68,7 @@
@@ -1902,7 +1845,7 @@ index 7ac2365a..36e2e14a 100644
  int __net_init tcp6_proc_init(struct net *net)
  {
 diff --git a/net/netlink/af_netlink.c b/net/netlink/af_netlink.c
-index 246f29d3..84ba6b57 100644
+index 246f29d..84ba6b5 100644
 --- a/net/netlink/af_netlink.c
 +++ b/net/netlink/af_netlink.c
 @@ -1210,8 +1210,7 @@ static struct sk_buff *netlink_trim(struct sk_buff *skb, gfp_t allocation)
@@ -1916,7 +1859,7 @@ index 246f29d3..84ba6b57 100644
  	return skb;
  }
 diff --git a/net/socket.c b/net/socket.c
-index 6bbccf05..581a4f18 100644
+index 6bbccf0..581a4f1 100644
 --- a/net/socket.c
 +++ b/net/socket.c
 @@ -162,6 +162,12 @@ static const struct file_operations socket_file_ops = {
@@ -1933,7 +1876,7 @@ index 6bbccf05..581a4f18 100644
   *	Statistics counters of the socket lists
   */
 diff --git a/net/wireless/util.c b/net/wireless/util.c
-index c921c2ee..95efa237 100644
+index c921c2e..95efa23 100644
 --- a/net/wireless/util.c
 +++ b/net/wireless/util.c
 @@ -620,8 +620,6 @@ int ieee80211_data_from_8023(struct sk_buff *skb, const u8 *addr,
@@ -1946,7 +1889,7 @@ index c921c2ee..95efa237 100644
  
  	if (encaps_data) {
 diff --git a/security/Kconfig b/security/Kconfig
-index 118f4549..91105906 100644
+index 118f454..9110590 100644
 --- a/security/Kconfig
 +++ b/security/Kconfig
 @@ -164,11 +164,13 @@ source security/tomoyo/Kconfig
@@ -1982,7 +1925,7 @@ index 118f4549..91105906 100644
  	default "smack" if DEFAULT_SECURITY_SMACK
  	default "tomoyo" if DEFAULT_SECURITY_TOMOYO
 diff --git a/security/Makefile b/security/Makefile
-index f2d71cdb..aa864f02 100644
+index f2d71cd..aa864f0 100644
 --- a/security/Makefile
 +++ b/security/Makefile
 @@ -9,6 +9,7 @@ subdir-$(CONFIG_SECURITY_TOMOYO)        += tomoyo
@@ -2002,7 +1945,7 @@ index f2d71cdb..aa864f02 100644
  
  # Object integrity file lists
 diff --git a/security/security.c b/security/security.c
-index f825304f..f103e815 100644
+index f825304..f103e81 100644
 --- a/security/security.c
 +++ b/security/security.c
 @@ -26,6 +26,7 @@
@@ -2024,7 +1967,7 @@ index f825304f..f103e815 100644
  
 diff --git a/security/tempesta/Kconfig b/security/tempesta/Kconfig
 new file mode 100644
-index 00000000..0fa2cb46
+index 0000000..0fa2cb4
 --- /dev/null
 +++ b/security/tempesta/Kconfig
 @@ -0,0 +1,14 @@
@@ -2044,7 +1987,7 @@ index 00000000..0fa2cb46
 +	  If you are unsure how to answer this question, answer N.
 diff --git a/security/tempesta/Makefile b/security/tempesta/Makefile
 new file mode 100644
-index 00000000..4c439ac0
+index 0000000..4c439ac
 --- /dev/null
 +++ b/security/tempesta/Makefile
 @@ -0,0 +1,3 @@
@@ -2053,7 +1996,7 @@ index 00000000..4c439ac0
 +tempesta-y := tempesta_lsm.o
 diff --git a/security/tempesta/tempesta_lsm.c b/security/tempesta/tempesta_lsm.c
 new file mode 100644
-index 00000000..d5d3a4be
+index 0000000..d5d3a4b
 --- /dev/null
 +++ b/security/tempesta/tempesta_lsm.c
 @@ -0,0 +1,133 @@
