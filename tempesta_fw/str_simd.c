@@ -147,7 +147,7 @@ tfw_str_init_const(void)
 		0xfc, 0xfc, 0xfc, 0xf4, 0xd8, 0xfc, 0xfc, 0x7c);
 
 	/* ASCII zero character '\0' to use in strict signed comparison. */
-	__C.ZERO128 = _mm_set1_epi8(0xff - 0x80 + 1);
+	__C.ZERO128 = _mm_set1_epi8(0 - 0x80);
 	/* ASCII space ' ' to use in signed comparison. */
 	__C.SP128 = _mm_set1_epi8(' ' - 0x80);
 	__C.HTAB128 = _mm_set1_epi8('\t');
