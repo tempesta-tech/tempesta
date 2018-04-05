@@ -154,6 +154,17 @@ if root_required:
 
 
 remote.connect()
+
+# configuring TCP for faster reuse the same TCP ports
+remote.server.run_cmd("sysctl -w net.ipv4.tcp_tw_recycle=1")
+remote.server.run_cmd("sysctl -w net.ipv4.tcp_tw_reuse=1")
+remote.server.run_cmd("sysctl -w net.ipv4.tcp_fin_timeout=10")
+remote.tempesta.run_cmd("sysctl -w net.ipv4.tcp_tw_recycle=1")
+remote.tempesta.run_cmd("sysctl -w net.ipv4.tcp_tw_reuse=1")
+remote.tempesta.run_cmd("sysctl -w net.ipv4.tcp_fin_timeout=10")
+remote.client.run_cmd("sysctl -w net.ipv4.tcp_tw_recycle=1")
+remote.client.run_cmd("sysctl -w net.ipv4.tcp_tw_reuse=1")
+remote.client.run_cmd("sysctl -w net.ipv4.tcp_fin_timeout=10")
 #
 # Clear garbage after previous run of test suite
 #
