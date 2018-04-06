@@ -167,6 +167,7 @@ class Wrk(Client):
         threads = self.threads if self.connections > 1 else 1
         self.options.append('-t %d' % threads)
         self.options.append('-c %d' % self.connections)
+        self.options.append('--timeout 5')
         self.append_script_option()
         return Client.form_command(self)
 
