@@ -122,7 +122,7 @@ class Wrk(Client):
     If FAIL_ON_SOCK_ERR is set assert that none of such errors happened during
     test, otherwise print warning and count the errors as usual errors.
     """
-    FAIL_ON_SOCK_ERR=True
+    FAIL_ON_SOCK_ERR=False
 
     def __init__(self, threads=-1, uri='/', ssl=False):
         Client.__init__(self, binary='wrk', uri=uri, ssl=ssl)
