@@ -15,6 +15,7 @@ class StressTest(unittest.TestCase):
     tfw_msg_errors = False
     errors_502 = 0
     errors_504 = 0
+    errors_sock = 0
 
     def create_clients(self):
         """ Override to set desired list of benchmarks and their options. """
@@ -105,20 +106,24 @@ class StressTest(unittest.TestCase):
             2, '\tClients in total: errors: %d, requests: %d, rate: %d' %
             (err_total, req_total, rate_total))
 
-    def assert_response(self, req, err, statuses):
+    def assert_client(self, req, err, statuses):
         msg = 'HTTP client detected %i/%i errors. Results: %s' % \
                 (err, req, str(statuses))
         e_502 = 0
         e_504 = 0
+        e_sock = 0
 
+        if "connect_error" in statuses.keys():
+            e_sock = statuses["connect_error"]
         if 502 in statuses.keys():
             e_502 = statuses[502]
         if 504 in statuses.keys():
             e_504 = statuses[504]
 
+        self.errors_sock += e_sock
         self.errors_502 += e_502
         self.errors_504 += e_504
-        self.assertEqual(err, e_502 + e_504, msg=msg)
+        self.assertEqual(err, e_502 + e_504 + e_sock, msg=msg)
 
     def assert_clients(self):
         """ Check benchmark result: no errors happen, no packet loss. """
@@ -130,7 +135,7 @@ class StressTest(unittest.TestCase):
             req, err, _, statuses = c.results()
             cl_req_cnt += req
             cl_conn_cnt += c.connections * self.pipelined_req
-            self.assert_response(req, err, statuses)
+            self.assert_client(req, err, statuses)
 
         exp_min = cl_req_cnt
         # Positive allowance: this means some responses are missed by the client.
@@ -170,8 +175,8 @@ class StressTest(unittest.TestCase):
 
         # TODO: with self.errors_502 we should compare special counter for
         # backend connection error. But it is not present.
-        self.assertTrue(cl_other_err == self.errors_502 + self.errors_504,
-                        msg=(msg % 'requests'))
+        total = self.errors_502 + self.errors_504 + self.errors_sock
+        self.assertTrue(cl_other_err <= total, msg=(msg % 'requests'))
         # See comment on "positive allowance" in `assert_clients()`
         expected_err = cl_conn_cnt
         self.assertTrue(srv_other_err <= expected_err,
