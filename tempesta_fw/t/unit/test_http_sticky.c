@@ -157,12 +157,12 @@ tfw_connection_send(TfwConn *conn, TfwMsg *msg)
 
 	mock.tfw_connection_send_was_called += 1;
 
-	skb = ss_skb_peek(&msg->skb_list);
+	skb = msg->skb_head;
 	while (skb) {
 		int ret;
 		ret = ss_skb_process(skb, &data_off, tfw_http_parse_resp,
 				     mock.resp);
-		skb = ss_skb_next(skb);
+		skb = skb->next;
 	}
 
 	mock.http_status = mock.resp->status;
@@ -219,12 +219,12 @@ http_sticky_suite_setup(void)
 	skb = alloc_skb(PAGE_SIZE, GFP_ATOMIC);
 	BUG_ON(!skb);
 	skb_reserve(skb, MAX_TCP_HEADER);
-	ss_skb_queue_tail(&mock.req->msg.skb_list, skb);
+	ss_skb_queue_tail(&mock.req->msg.skb_head, skb);
 
 	skb = alloc_skb(PAGE_SIZE, GFP_ATOMIC);
 	BUG_ON(!skb);
 	skb_reserve(skb, MAX_TCP_HEADER);
-	ss_skb_queue_tail(&mock.resp->msg.skb_list, skb);
+	ss_skb_queue_tail(&mock.resp->msg.skb_head, skb);
 
 	tfw_connection_init(&mock.conn_req);
 	tfw_connection_init(&mock.conn_resp);
@@ -343,7 +343,7 @@ append_string_to_msg(TfwHttpMsg *hm, const char *s)
 	BUG_ON(!s);
 	len = strlen(s);
 
-	skb = hm->msg.skb_list.first;
+	skb = hm->msg.skb_head;
 	BUG_ON(!skb);
 
 	ptr = skb_put(skb, len);
@@ -357,13 +357,13 @@ http_parse_helper(TfwHttpMsg *hm, ss_skb_actor_t actor)
 	struct sk_buff *skb;
 	unsigned int off;
 
-	skb = hm->msg.skb_list.first;
+	skb = hm->msg.skb_head;
 	BUG_ON(!skb);
 	off = 0;
 	while (1) {
 		switch (ss_skb_process(skb, &off, actor, hm)) {
 		case TFW_POSTPONE:
-			if (skb == hm->msg.skb_list.last)
+			if (!skb->next)
 				return -1;
 			skb = skb->next;
 			continue;

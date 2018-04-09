@@ -46,113 +46,65 @@ enum {
 	SS_OK		= 0,
 };
 
-typedef struct {
-	struct sk_buff	*first;
-	struct sk_buff	*last;
-} SsSkbList;
-
 typedef int (*ss_skb_actor_t)(void *conn, unsigned char *data, size_t len);
 
 static inline void
-ss_skb_queue_head_init(SsSkbList *list)
-{
-	list->first = list->last = NULL;
-}
-
-static inline int
-ss_skb_queue_empty(const SsSkbList *list)
-{
-	return !list->first;
-}
-
-/**
- * Add new @skb to the @list in FIFO order.
- */
-static inline void
-ss_skb_queue_tail(SsSkbList *list, struct sk_buff *skb)
-{
-	/* The skb shouldn't be in any other queue. */
-	WARN_ON_ONCE(skb->next || skb->prev);
-
-	skb->prev = list->last;
-	if (ss_skb_queue_empty(list))
-		list->first = skb;
-	else
-		list->last->next = skb;
-	list->last = skb;
-}
-
-/**
- * Init @list to prepare for skbs from @skb->frag_list.
- */
-static inline void
-ss_skb_init_from_frag_list(SsSkbList *list, struct sk_buff *skb)
-{
-	WARN_ON_ONCE(skb->next || skb->prev);
-
-	skb->next = skb_shinfo(skb)->frag_list;
-	list->first = list->last = skb;
-}
-
-/**
- * Move @skb from @frag_list to the tail of @list; this funection
- * must be used only after @ss_skb_init_from_frag_list() (there is
- * no need to set @next pointer for each skb as these pointers are
- * properly set in @frag_list).
- */
-static inline void
-ss_skb_move_from_frag_list(SsSkbList *list, struct sk_buff *skb)
-{
-	skb->prev = list->last;
-	list->last = skb;
-}
-
-static inline void
-ss_skb_unlink(SsSkbList *list, struct sk_buff *skb)
+ss_skb_unlink(struct sk_buff **skb_head, struct sk_buff *skb)
 {
 	if (skb->next)
 		skb->next->prev = skb->prev;
-	else
-		list->last = skb->prev;
 	if (skb->prev)
 		skb->prev->next = skb->next;
 	else
-		list->first = skb->next;
+		*skb_head = skb->next;
 	skb->next = skb->prev = NULL;
 }
 
 static inline struct sk_buff *
-ss_skb_next(struct sk_buff *skb)
+ss_skb_peek_tail(struct sk_buff **skb_head)
 {
-	return skb->next;
+	struct sk_buff *skb = *skb_head;
+
+	if (!skb)
+		return NULL;
+	while (skb->next)
+		skb = skb->next;
+	return skb;
+}
+
+/**
+ * Add new @skb to the list in FIFO order.
+ */
+static inline void
+ss_skb_queue_tail(struct sk_buff **skb_head, struct sk_buff *skb)
+{
+	struct sk_buff *tail_skb = ss_skb_peek_tail(skb_head);
+
+	/* The skb shouldn't be in any other queue. */
+	WARN_ON_ONCE(skb->next || skb->prev);
+
+	if (!tail_skb) {
+		*skb_head = skb;
+		return;
+	}
+	tail_skb->next = skb;
+	skb->prev = tail_skb;
 }
 
 static inline struct sk_buff *
-ss_skb_peek(const SsSkbList *list)
+ss_skb_dequeue(struct sk_buff **skb_head)
 {
-	return list->first;
-}
-
-static inline struct sk_buff *
-ss_skb_peek_tail(const SsSkbList *list)
-{
-	return list->last;
-}
-
-static inline struct sk_buff *
-ss_skb_dequeue(SsSkbList *list)
-{
-	struct sk_buff *skb = ss_skb_peek(list);
+	struct sk_buff *skb = *skb_head;
 	if (skb)
-		ss_skb_unlink(list, skb);
+		ss_skb_unlink(skb_head, skb);
 	return skb;
 }
 
 static inline void
-ss_skb_queue_purge(SsSkbList *list)
+ss_skb_queue_purge(struct sk_buff **skb_head)
 {
 	struct sk_buff *skb;
-	while ((skb = ss_skb_dequeue(list)) != NULL)
+	while ((skb = ss_skb_dequeue(skb_head)) != NULL)
 		kfree_skb(skb);
 }
 
@@ -172,7 +124,7 @@ ss_skb_frag_next(struct sk_buff **skb, int *f)
 		return &skb_shinfo(*skb)->frags[*f];
 	}
 
-	*skb = ss_skb_next(*skb);
+	*skb = (*skb)->next;
 	if (!*skb || !skb_shinfo(*skb)->nr_frags)
 		return NULL;
 	*f = 0;
@@ -230,15 +182,14 @@ char *ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf);
 
 struct sk_buff *ss_skb_alloc_pages(size_t len);
 struct sk_buff *ss_skb_split(struct sk_buff *skb, int len);
-int ss_skb_get_room(SsSkbList *skb_list, struct sk_buff *skb,
-		    char *pspt, unsigned int len, TfwStr *it);
-int ss_skb_cutoff_data(SsSkbList *skb_list,
-		       const TfwStr *hdr, int skip, int tail);
+int ss_skb_get_room(struct sk_buff *skb, char *pspt, unsigned int len,
+		    TfwStr *it);
+int ss_skb_cutoff_data(const TfwStr *hdr, int skip, int tail);
 
 int ss_skb_process(struct sk_buff *skb, unsigned int *off,
 		   ss_skb_actor_t actor, void *objdata);
 
-int ss_skb_unroll(SsSkbList *skb_list, struct sk_buff *skb);
+int ss_skb_unroll(struct sk_buff **skb_head, struct sk_buff *skb);
 void ss_skb_init_for_xmit(struct sk_buff *skb);
 void ss_skb_dump(struct sk_buff *skb);
 
