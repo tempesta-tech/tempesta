@@ -58,8 +58,8 @@ enum {
  */
 typedef struct {
 	mbedtls_ssl_context	ssl;
-	SsSkbList		rx_queue;
-	SsSkbList		tx_queue;
+	struct sk_buff		*rx_queue;
+	struct sk_buff		*tx_queue;
 	spinlock_t		lock;
 } TfwTlsContext;
 

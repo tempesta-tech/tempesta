@@ -279,8 +279,7 @@ tfw_tls_conn_init(TfwConn *c)
 
 	mbedtls_ssl_init(&tls->ssl);
 
-	ss_skb_queue_head_init(&tls->rx_queue);
-	ss_skb_queue_head_init(&tls->tx_queue);
+	tls->rx_queue = tls->tx_queue = NULL;
 
 	if (!tfw_tls.crt.version) {
 		TFW_ERR("TLS:%p no certificate specified\n", tls);
@@ -329,7 +328,7 @@ tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 
 	tls_dbg(c, "=>");
 
-	while ((skb = ss_skb_dequeue(&msg->skb_list))) {
+	while ((skb = ss_skb_dequeue(&msg->skb_head))) {
 		if (tfw_tls_send_skb(c, skb)) {
 			kfree_skb(skb);
 			return -EINVAL;
