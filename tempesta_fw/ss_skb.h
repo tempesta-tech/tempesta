@@ -48,47 +48,53 @@ enum {
 
 typedef int (*ss_skb_actor_t)(void *conn, unsigned char *data, size_t len);
 
+/**
+ * Add new @skb to the queue in FIFO order. The queue is implemented as
+ * NULL-terminated list with @skb_head->prev as pointer to the tail skb.
+ */
+static inline void
+ss_skb_queue_tail(struct sk_buff **skb_head, struct sk_buff *skb)
+{
+	/* The skb shouldn't be in any other queue. */
+	WARN_ON_ONCE(skb->next || skb->prev);
+	if (!*skb_head) {
+		*skb_head = skb;
+		skb->prev = skb;
+		return;
+	}
+	WARN_ON_ONCE(!(*skb_head)->prev);
+	skb->prev = (*skb_head)->prev;
+	(*skb_head)->prev->next = skb;
+
+	/* Assign pointer to the new tail skb. */
+	(*skb_head)->prev = skb;
+}
+
 static inline void
 ss_skb_unlink(struct sk_buff **skb_head, struct sk_buff *skb)
 {
+	WARN_ON_ONCE(!(*skb_head)->prev);
+
 	if (skb->next)
 		skb->next->prev = skb->prev;
-	if (skb->prev)
-		skb->prev->next = skb->next;
-	else
+
+	/* Tail skb - set tail pointer to the new tail skb. */
+	if ((*skb_head)->prev == skb)
+		(*skb_head)->prev = skb->prev;
+
+	/* If this is head skb, set head pointer to the new head skb. */
+	if (*skb_head == skb)
 		*skb_head = skb->next;
+	else
+		skb->prev->next = skb->next;
+
 	skb->next = skb->prev = NULL;
 }
 
 static inline struct sk_buff *
 ss_skb_peek_tail(struct sk_buff **skb_head)
 {
-	struct sk_buff *skb = *skb_head;
-
-	if (!skb)
-		return NULL;
-	while (skb->next)
-		skb = skb->next;
-	return skb;
-}
-
-/**
- * Add new @skb to the list in FIFO order.
- */
-static inline void
-ss_skb_queue_tail(struct sk_buff **skb_head, struct sk_buff *skb)
-{
-	struct sk_buff *tail_skb = ss_skb_peek_tail(skb_head);
-
-	/* The skb shouldn't be in any other queue. */
-	WARN_ON_ONCE(skb->next || skb->prev);
-
-	if (!tail_skb) {
-		*skb_head = skb;
-		return;
-	}
-	tail_skb->next = skb;
-	skb->prev = tail_skb;
+	return *skb_head ? (*skb_head)->prev : NULL;
 }
 
 static inline struct sk_buff *
@@ -182,9 +188,10 @@ char *ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf);
 
 struct sk_buff *ss_skb_alloc_pages(size_t len);
 struct sk_buff *ss_skb_split(struct sk_buff *skb, int len);
-int ss_skb_get_room(struct sk_buff *skb, char *pspt, unsigned int len,
-		    TfwStr *it);
-int ss_skb_cutoff_data(const TfwStr *hdr, int skip, int tail);
+int ss_skb_get_room(struct sk_buff *skb_head, struct sk_buff *skb,
+		    char *pspt, unsigned int len, TfwStr *it);
+int ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *hdr,
+		       int skip, int tail);
 
 int ss_skb_process(struct sk_buff *skb, unsigned int *off,
 		   ss_skb_actor_t actor, void *objdata);
