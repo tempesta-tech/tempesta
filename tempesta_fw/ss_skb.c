@@ -243,6 +243,20 @@ __skb_insert_after(struct sk_buff *skb, struct sk_buff *nskb)
 		nskb->next->prev = nskb;
 }
 
+/*
+ * Update the skb list's pointer to the last item
+ * if a new skb has been added at the end of the list.
+ */
+static inline void
+__skb_skblist_fixup(struct sk_buff *skb_head)
+{
+	struct sk_buff *last = skb_head->prev;
+
+	if (last->next)
+		skb_head->prev = last->next;
+	WARN_ON_ONCE(skb_head->prev->next);
+}
+
 /**
  * Similar to skb_shift().
  * Make room for @n fragments starting with slot @from.
@@ -776,8 +790,11 @@ done:
 }
 
 static inline int
-skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
+skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
+	     int len, TfwStr *it)
 {
+	int r;
+
 	if (abs(len) > PAGE_SIZE) {
 		TFW_WARN("Attempt to add or delete too much data: %u\n", len);
 		return -EINVAL;
@@ -789,7 +806,9 @@ skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 		return -EINVAL;
 	}
 
-	return __skb_fragment(skb, pspt, len, it);
+	r = __skb_fragment(skb, pspt, len, it);
+	__skb_skblist_fixup(skb_head);
+	return r;
 }
 
 /**
@@ -800,9 +819,10 @@ skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
  * without the need for further modifications.
  */
 int
-ss_skb_get_room(struct sk_buff *skb, char *pspt, unsigned int len, TfwStr *it)
+ss_skb_get_room(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
+		unsigned int len, TfwStr *it)
 {
-	int r = skb_fragment(skb, pspt, len, it);
+	int r = skb_fragment(skb_head, skb, pspt, len, it);
 	if (r == len)
 		return 0;
 	return r;
@@ -813,7 +833,8 @@ ss_skb_get_room(struct sk_buff *skb, char *pspt, unsigned int len, TfwStr *it)
  * @skip bytes, and also cut off @tail bytes after @hdr.
  */
 int
-ss_skb_cutoff_data(const TfwStr *hdr, int skip, int tail)
+ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *hdr, int skip,
+		   int tail)
 {
 	int r;
 	TfwStr it = {};
@@ -828,7 +849,7 @@ ss_skb_cutoff_data(const TfwStr *hdr, int skip, int tail)
 			continue;
 		}
 		memset(&it, 0, sizeof(TfwStr));
-		r = skb_fragment(c->skb, (char *)c->ptr + skip,
+		r = skb_fragment(skb_head, c->skb, (char *)c->ptr + skip,
 				 skip - c->len, &it);
 		if (r < 0)
 			return r;
@@ -844,7 +865,7 @@ ss_skb_cutoff_data(const TfwStr *hdr, int skip, int tail)
 		void *t_ptr = it.ptr;
 		struct sk_buff *t_skb = it.skb;
 		memset(&it, 0, sizeof(TfwStr));
-		r = skb_fragment(t_skb, t_ptr, -tail, &it);
+		r = skb_fragment(skb_head, t_skb, t_ptr, -tail, &it);
 		if (r < 0) {
 			TFW_WARN("Cannot delete hdr tail\n");
 			return r;
@@ -970,7 +991,7 @@ __coalesce_frag(struct sk_buff **skb_head, skb_frag_t *frag,
 		skb = ss_skb_alloc();
 		if (!skb)
 			return -ENOMEM;
-		ss_skb_queue_tail(skb_head, skb);//!!! maybe should be removed
+		ss_skb_queue_tail(skb_head, skb);
 		skb->mark = orig_skb->mark;
 	}
 
@@ -1179,6 +1200,7 @@ ss_skb_unroll(struct sk_buff **skb_head, struct sk_buff *skb)
 		f_skb->prev = prev_skb;
 		prev_skb = f_skb;
 	}
+	(*skb_head)->prev = prev_skb;
 	skb_shinfo(skb)->frag_list = NULL;
 
 	return 0;
