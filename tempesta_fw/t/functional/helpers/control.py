@@ -199,6 +199,7 @@ class Wrk(Client):
                               m.group(1))
             self.errors += (int(err_m.group(1)) + int(err_m.group(2))
                             + int(err_m.group(3)) + int(err_m.group(4)))
+            # this is wrk-dependent results
             self.statuses["connect_error"] = int(err_m.group(1))
             self.statuses["read_error"] = int(err_m.group(2))
             self.statuses["write_error"] = int(err_m.group(3))
