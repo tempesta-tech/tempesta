@@ -51,14 +51,6 @@ class PipelineFaultInjection(stress.StressTest):
         server.conns_n = 1
         self.servers = [server]
 
-    def assert_clients(self):
-        """ Check results on client side: there may be an undefined
-        number of requests without responses, but there should be
-        no erroneous responses. """
-        for c in self.clients:
-            req, err, _, statuses = c.results()
-            self.assert_response(req, err, statuses)
-
     def assert_tempesta(self):
         """ Assert that tempesta must have errors for client messages
         in this test, as there is fault injected for memory allocation.
