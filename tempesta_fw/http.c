@@ -1848,7 +1848,7 @@ tfw_http_conn_drop(TfwConn *conn)
 static int
 tfw_http_conn_send(TfwConn *conn, TfwMsg *msg)
 {
-	return ss_send(conn->sk, &msg->skb_list, msg->ss_flags);
+	return ss_send(conn->sk, &msg->skb_head, msg->ss_flags);
 }
 
 /**
@@ -1897,7 +1897,7 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 		tfw_http_conn_msg_free(shm);
 		return NULL;
 	}
-	ss_skb_queue_tail(&shm->msg.skb_list, nskb);
+	ss_skb_queue_tail(&shm->msg.skb_head, nskb);
 	*skb = nskb;
 
 	return shm;
@@ -2037,7 +2037,7 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 	int r;
 	char *p, *buf = *this_cpu_ptr(&g_buf);
 
-	p = ss_skb_fmt_src_addr(hm->msg.skb_list.first, buf);
+	p = ss_skb_fmt_src_addr(hm->msg.skb_head, buf);
 
 	r = tfw_http_msg_hdr_xfrm(hm, "X-Forwarded-For",
 				  sizeof("X-Forwarded-For") - 1, buf, p - buf,
@@ -3052,7 +3052,7 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 	 * sent to the client. The full skb->len is used as the
 	 * offset to mark this case in the post-processing phase.
 	 */
-	data.skb = ss_skb_peek_tail(&hm->msg.skb_list);
+	data.skb = ss_skb_peek_tail(&hm->msg.skb_head);
 	BUG_ON(!data.skb);
 	data.off = data.skb->len;
 	data.req = NULL;
@@ -3285,7 +3285,7 @@ tfw_http_msg_process(void *conn, const TfwFsmData *data)
 	}
 
 	TFW_DBG2("Add skb %p to message %p\n", data->skb, c->msg);
-	ss_skb_queue_tail(&c->msg->skb_list, data->skb);
+	ss_skb_queue_tail(&c->msg->skb_head, data->skb);
 
 	return (TFW_CONN_TYPE(c) & Conn_Clnt)
 		? tfw_http_req_process(c, data)

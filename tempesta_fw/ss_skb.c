@@ -224,7 +224,7 @@ __it_next_data(struct sk_buff *skb, int i, TfwStr *it)
 		it->ptr = skb_frag_address(&si->frags[i]);
 		it->skb = skb;
 	} else {
-		it->skb = ss_skb_next(skb);
+		it->skb = skb->next;
 		it->ptr = __skb_data_address(it->skb);
 	}
 }
@@ -241,20 +241,6 @@ __skb_insert_after(struct sk_buff *skb, struct sk_buff *nskb)
 	skb->next = nskb;
 	if (nskb->next)
 		nskb->next->prev = nskb;
-}
-
-/*
- * Update the skb list's pointer to the last item
- * if a new skb has been added at the end of the list.
- */
-static inline void
-__skb_skblist_fixup(SsSkbList *skb_list)
-{
-	struct sk_buff *last = skb_list->last;
-
-	if (last->next)
-		skb_list->last = last->next;
-	WARN_ON_ONCE(skb_list->last->next);
 }
 
 /**
@@ -290,7 +276,7 @@ __extend_pgfrags(struct sk_buff *skb, int from, int n)
 		 * page fragments. Otherwise, allocate a new SKB to hold
 		 * @n_excess page fragments.
 		 */
-		nskb = ss_skb_next(skb);
+		nskb = skb->next;
 		if (nskb && !skb_headlen(nskb)
 		    && (skb_shinfo(nskb)->nr_frags <= MAX_SKB_FRAGS - n_excess))
 		{
@@ -370,7 +356,7 @@ __new_pgfrag(struct sk_buff *skb, int size, int i, int shift)
 	 */
 	if (i == MAX_SKB_FRAGS) {
 		i = 0;
-		skb = ss_skb_next(skb);
+		skb = skb->next;
 	}
 
 	/* Set up the new fragment in slot @i to hold @size bytes. */
@@ -535,7 +521,7 @@ __split_pgfrag_add(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 	 */
 
 	/* New SKB is the next SKB now. */
-	skb_new = ss_skb_next(skb);
+	skb_new = skb->next;
 
 	/* Find the SKB for tail data. */
 	skb_dst = (i < MAX_SKB_FRAGS - 2) ? skb : skb_new;
@@ -636,7 +622,7 @@ __split_pgfrag_del(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 		return -EFAULT;
 
 	/* Find the SKB for tail data. */
-	skb_dst = (i < MAX_SKB_FRAGS - 1) ? skb : ss_skb_next(skb);
+	skb_dst = (i < MAX_SKB_FRAGS - 1) ? skb : skb->next;
 
 	/* Calculate the length of the tail part. */
 	tail_len = skb_frag_size(frag) - off - len;
@@ -790,11 +776,8 @@ done:
 }
 
 static inline int
-skb_fragment(SsSkbList *skb_list, struct sk_buff *skb, char *pspt,
-	     int len, TfwStr *it)
+skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 {
-	int r;
-
 	if (abs(len) > PAGE_SIZE) {
 		TFW_WARN("Attempt to add or delete too much data: %u\n", len);
 		return -EINVAL;
@@ -806,9 +789,7 @@ skb_fragment(SsSkbList *skb_list, struct sk_buff *skb, char *pspt,
 		return -EINVAL;
 	}
 
-	r = __skb_fragment(skb, pspt, len, it);
-	__skb_skblist_fixup(skb_list);
-	return r;
+	return __skb_fragment(skb, pspt, len, it);
 }
 
 /**
@@ -819,10 +800,9 @@ skb_fragment(SsSkbList *skb_list, struct sk_buff *skb, char *pspt,
  * without the need for further modifications.
  */
 int
-ss_skb_get_room(SsSkbList *skb_list, struct sk_buff *skb, char *pspt,
-		unsigned int len, TfwStr *it)
+ss_skb_get_room(struct sk_buff *skb, char *pspt, unsigned int len, TfwStr *it)
 {
-	int r = skb_fragment(skb_list, skb, pspt, len, it);
+	int r = skb_fragment(skb, pspt, len, it);
 	if (r == len)
 		return 0;
 	return r;
@@ -833,7 +813,7 @@ ss_skb_get_room(SsSkbList *skb_list, struct sk_buff *skb, char *pspt,
  * @skip bytes, and also cut off @tail bytes after @hdr.
  */
 int
-ss_skb_cutoff_data(SsSkbList *skb_list, const TfwStr *hdr, int skip, int tail)
+ss_skb_cutoff_data(const TfwStr *hdr, int skip, int tail)
 {
 	int r;
 	TfwStr it = {};
@@ -848,8 +828,8 @@ ss_skb_cutoff_data(SsSkbList *skb_list, const TfwStr *hdr, int skip, int tail)
 			continue;
 		}
 		memset(&it, 0, sizeof(TfwStr));
-		r = skb_fragment(skb_list, c->skb,
-				 (char *)c->ptr + skip, skip - c->len, &it);
+		r = skb_fragment(c->skb, (char *)c->ptr + skip,
+				 skip - c->len, &it);
 		if (r < 0)
 			return r;
 		BUG_ON(r != c->len - skip);
@@ -864,7 +844,7 @@ ss_skb_cutoff_data(SsSkbList *skb_list, const TfwStr *hdr, int skip, int tail)
 		void *t_ptr = it.ptr;
 		struct sk_buff *t_skb = it.skb;
 		memset(&it, 0, sizeof(TfwStr));
-		r = skb_fragment(skb_list, t_skb, t_ptr, -tail, &it);
+		r = skb_fragment(t_skb, t_ptr, -tail, &it);
 		if (r < 0) {
 			TFW_WARN("Cannot delete hdr tail\n");
 			return r;
@@ -981,15 +961,16 @@ ss_skb_split(struct sk_buff *skb, int len)
 }
 
 static inline int
-__coalesce_frag(SsSkbList *skb_list, skb_frag_t *frag, const struct sk_buff *orig_skb)
+__coalesce_frag(struct sk_buff **skb_head, skb_frag_t *frag,
+		const struct sk_buff *orig_skb)
 {
-	struct sk_buff *skb = ss_skb_peek_tail(skb_list);
+	struct sk_buff *skb = ss_skb_peek_tail(skb_head);
 
 	if (!skb || skb_shinfo(skb)->nr_frags == MAX_SKB_FRAGS) {
 		skb = ss_skb_alloc();
 		if (!skb)
 			return -ENOMEM;
-		ss_skb_queue_tail(skb_list, skb);
+		ss_skb_queue_tail(skb_head, skb);//!!! maybe should be removed
 		skb->mark = orig_skb->mark;
 	}
 
@@ -1001,7 +982,7 @@ __coalesce_frag(SsSkbList *skb_list, skb_frag_t *frag, const struct sk_buff *ori
 }
 
 static int
-ss_skb_queue_coalesce_tail(SsSkbList *skb_list, const struct sk_buff *skb)
+ss_skb_queue_coalesce_tail(struct sk_buff **skb_head, const struct sk_buff *skb)
 {
 	int i;
 	skb_frag_t head_frag;
@@ -1013,12 +994,12 @@ ss_skb_queue_coalesce_tail(SsSkbList *skb_list, const struct sk_buff *skb)
 		head_frag.page.p = virt_to_page(skb->head);
 		head_frag.page_offset = skb->data -
 			(unsigned char *)page_address(head_frag.page.p);
-		if (__coalesce_frag(skb_list, &head_frag, skb))
+		if (__coalesce_frag(skb_head, &head_frag, skb))
 			return -ENOMEM;
 	}
 
 	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
-		if (__coalesce_frag(skb_list, &skb_shinfo(skb)->frags[i], skb))
+		if (__coalesce_frag(skb_head, &skb_shinfo(skb)->frags[i], skb))
 			return -ENOMEM;
 	}
 
@@ -1111,22 +1092,22 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
  * currently filled with paged fragments.
  */
 static int
-ss_skb_unroll_slow(SsSkbList *skb_list, struct sk_buff *skb)
+ss_skb_unroll_slow(struct sk_buff **skb_head, struct sk_buff *skb)
 {
 	struct sk_buff *f_skb;
 
-	if (ss_skb_queue_coalesce_tail(skb_list, skb))
+	if (ss_skb_queue_coalesce_tail(skb_head, skb))
 		goto cleanup;
 
 	skb_walk_frags(skb, f_skb) {
 		f_skb->mark = skb->mark;
-		if (ss_skb_queue_coalesce_tail(skb_list, f_skb))
+		if (ss_skb_queue_coalesce_tail(skb_head, f_skb))
 			goto cleanup;
 	}
 
 	/* Copy the IP header contents to the first skb in the chain. */
-	if (skb_list->first)
-		__copy_ip_header(skb_list->first, skb);
+	if (*skb_head)
+		__copy_ip_header(*skb_head, skb);
 
 	/* TODO: Optimize skb reallocation. Consider to place clone's shinfo
 	 * right after the origal's shinfo in case space to the chunk boundary
@@ -1137,15 +1118,14 @@ ss_skb_unroll_slow(SsSkbList *skb_list, struct sk_buff *skb)
 	return 0;
 
 cleanup:
-	ss_skb_queue_purge(skb_list);
+	ss_skb_queue_purge(skb_head);
 	return -ENOMEM;
 }
 
 /*
  * When GRO is used, multiple SKBs may be merged into one big SKB. These
  * SKBs are linked in via frag_list. Interpret the big SKB as a set of
- * separate smaller SKBs for processing. Make the top SKB first in the
- * @skb_list.
+ * separate smaller SKBs for processing. Make the top SKB first as @skb_head.
  *
  * The major reason for splitting a GRO SKB is that the kernel's TCP stack
  * uses skb_split() (called from tso_fragment() or tcp_fragment()) to split
@@ -1165,16 +1145,16 @@ cleanup:
  * for that will require changes in multiple places in Tempesta.
  */
 int
-ss_skb_unroll(SsSkbList *skb_list, struct sk_buff *skb)
+ss_skb_unroll(struct sk_buff **skb_head, struct sk_buff *skb)
 {
-	struct sk_buff *f_skb;
-
-	ss_skb_queue_head_init(skb_list);
+	struct sk_buff *prev_skb, *f_skb;
 
 	if (unlikely(skb_cloned(skb)))
-		return ss_skb_unroll_slow(skb_list, skb);
+		return ss_skb_unroll_slow(skb_head, skb);
 
-	ss_skb_init_from_frag_list(skb_list, skb);
+	WARN_ON_ONCE(skb->next || skb->prev);
+	skb->next = skb_shinfo(skb)->frag_list;
+	*skb_head = prev_skb = skb;
 	skb_walk_frags(skb, f_skb) {
 		if (f_skb->nohdr) {
 			/*
@@ -1196,7 +1176,8 @@ ss_skb_unroll(SsSkbList *skb_list, struct sk_buff *skb)
 		 */
 		f_skb->mark = skb->mark;
 		ss_skb_adjust_data_len(skb, -f_skb->len);
-		ss_skb_move_from_frag_list(skb_list, f_skb);
+		f_skb->prev = prev_skb;
+		prev_skb = f_skb;
 	}
 	skb_shinfo(skb)->frag_list = NULL;
 
