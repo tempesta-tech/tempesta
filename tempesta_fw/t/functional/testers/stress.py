@@ -119,6 +119,7 @@ class StressTest(unittest.TestCase):
         e_write = 0
         e_timeout = 0
 
+        # "named" statuses are wrk-dependent results
         if "connect_error" in statuses.keys():
             e_connect = statuses["connect_error"]
         if "read_error" in statuses.keys():
