@@ -124,10 +124,11 @@ class Wrk(Client):
     """
     FAIL_ON_SOCK_ERR=False
 
-    def __init__(self, threads=-1, uri='/', ssl=False):
+    def __init__(self, threads=-1, uri='/', ssl=False, timeout=60):
         Client.__init__(self, binary='wrk', uri=uri, ssl=ssl)
         self.threads = threads
         self.script = ''
+        self.timeout = timeout
         self.local_scriptdir = ''.join([
                             os.path.dirname(os.path.realpath(__file__)),
                             '/../wrk/'])
@@ -167,7 +168,7 @@ class Wrk(Client):
         threads = self.threads if self.connections > 1 else 1
         self.options.append('-t %d' % threads)
         self.options.append('-c %d' % self.connections)
-        self.options.append('--timeout 5')
+        self.options.append('--timeout %d' % self.timeout)
         self.append_script_option()
         return Client.form_command(self)
 
