@@ -122,12 +122,13 @@ class Wrk(Client):
     If FAIL_ON_SOCK_ERR is set assert that none of such errors happened during
     test, otherwise print warning and count the errors as usual errors.
     """
-    FAIL_ON_SOCK_ERR=True
+    FAIL_ON_SOCK_ERR=False
 
-    def __init__(self, threads=-1, uri='/', ssl=False):
+    def __init__(self, threads=-1, uri='/', ssl=False, timeout=60):
         Client.__init__(self, binary='wrk', uri=uri, ssl=ssl)
         self.threads = threads
         self.script = ''
+        self.timeout = timeout
         self.local_scriptdir = ''.join([
                             os.path.dirname(os.path.realpath(__file__)),
                             '/../wrk/'])
@@ -167,6 +168,7 @@ class Wrk(Client):
         threads = self.threads if self.connections > 1 else 1
         self.options.append('-t %d' % threads)
         self.options.append('-c %d' % self.connections)
+        self.options.append('--timeout %d' % self.timeout)
         self.append_script_option()
         return Client.form_command(self)
 
@@ -198,6 +200,11 @@ class Wrk(Client):
                               m.group(1))
             self.errors += (int(err_m.group(1)) + int(err_m.group(2))
                             + int(err_m.group(3)) + int(err_m.group(4)))
+            # this is wrk-dependent results
+            self.statuses["connect_error"] = int(err_m.group(1))
+            self.statuses["read_error"] = int(err_m.group(2))
+            self.statuses["write_error"] = int(err_m.group(3))
+            self.statuses["timeout_error"] = int(err_m.group(4))
         return True
 
 

@@ -14,6 +14,11 @@ class StressTest(unittest.TestCase):
     pipelined_req = 1
     tfw_msg_errors = False
     errors_502 = 0
+    errors_504 = 0
+    errors_connect = 0
+    errors_read = 0
+    errors_write = 0
+    errors_timeout = 0
 
     def create_clients(self):
         """ Override to set desired list of benchmarks and their options. """
@@ -104,24 +109,59 @@ class StressTest(unittest.TestCase):
             2, '\tClients in total: errors: %d, requests: %d, rate: %d' %
             (err_total, req_total, rate_total))
 
-    def assert_response(self, req, err, statuses):
+    def assert_client(self, req, err, statuses):
         msg = 'HTTP client detected %i/%i errors. Results: %s' % \
                 (err, req, str(statuses))
+        e_502 = 0
+        e_504 = 0
+        e_connect = 0
+        e_read = 0
+        e_write = 0
+        e_timeout = 0
 
+        # "named" statuses are wrk-dependent results
+        if "connect_error" in statuses.keys():
+            e_connect = statuses["connect_error"]
+        if "read_error" in statuses.keys():
+            e_read = statuses["read_error"]
+        if "write_error" in statuses.keys():
+            e_write = statuses["write_error"]
+        if "timeout_error" in statuses.keys():
+            e_timeout = statuses["timeout_error"]
         if 502 in statuses.keys():
-            self.errors_502 += statuses[502]
-        self.assertEqual(err, 0, msg=msg)
+            e_502 = statuses[502]
+        if 504 in statuses.keys():
+            e_504 = statuses[504]
+
+        self.errors_connect += e_connect
+        self.errors_read += e_read
+        self.errors_write += e_write
+        self.errors_timeout += e_timeout
+        self.errors_502 += e_502
+        self.errors_504 += e_504
+        tf_cfg.dbg(2, "errors 502: %i" % e_502)
+        tf_cfg.dbg(2, "errors 504: %i" % e_504)
+        tf_cfg.dbg(2, "errors connect: %i" % e_connect)
+        tf_cfg.dbg(2, "errors read: %i" % e_read)
+        tf_cfg.dbg(2, "errors write: %i" % e_write)
+        tf_cfg.dbg(2, "errors timeout: %i" % e_timeout)
+        self.assertEqual(err, e_502 + e_504 + e_connect, msg=msg)
 
     def assert_clients(self):
         """ Check benchmark result: no errors happen, no packet loss. """
         cl_req_cnt = 0
         cl_conn_cnt = 0
         self.errors_502 = 0
+        self.errors_504 = 0
+        self.errors_connect = 0
+        self.errors_read = 0
+        self.errors_write = 0
+        self.errors_timeout = 0
         for c in self.clients:
             req, err, _, statuses = c.results()
             cl_req_cnt += req
             cl_conn_cnt += c.connections * self.pipelined_req
-            self.assert_response(req, err, statuses)
+            self.assert_client(req, err, statuses)
 
         exp_min = cl_req_cnt
         # Positive allowance: this means some responses are missed by the client.
@@ -137,25 +177,38 @@ class StressTest(unittest.TestCase):
 
     def assert_tempesta(self):
         """ Assert that tempesta had no errors during test. """
-        msg = 'Tempesta have errors in processing HTTP %s.'
+        msg = 'Tempesta have %i errors in processing HTTP %s.'
         cl_conn_cnt = 0
         for c in self.clients:
             cl_conn_cnt += c.connections
-        self.assertEqual(self.tempesta.stats.cl_msg_parsing_errors, 0,
-                         msg=(msg % 'requests'))
-        self.assertEqual(self.tempesta.stats.srv_msg_parsing_errors, 0,
-                         msg=(msg % 'responses'))
+
+        cl_parsing_err = self.tempesta.stats.cl_msg_parsing_errors
+        srv_parsing_err = self.tempesta.stats.srv_msg_parsing_errors
+        cl_other_err = self.tempesta.stats.cl_msg_other_errors
+        srv_other_err = self.tempesta.stats.srv_msg_other_errors
+
+        tf_cfg.dbg(2, "CL Msg parsing errors: %i" % cl_parsing_err)
+        tf_cfg.dbg(2, "SRV Msg parsing errors: %i" % srv_parsing_err)
+        tf_cfg.dbg(2, "CL Msg other errors: %i" % cl_other_err)
+        tf_cfg.dbg(2, "SRV Msg other errors: %i" % srv_other_err)
+
+        err_msg = msg % (cl_parsing_err, 'requests')
+        self.assertEqual(cl_parsing_err, 0, msg=err_msg)
+        err_msg = msg % (srv_parsing_err, 'responses')
+        self.assertEqual(srv_parsing_err, 0, msg=err_msg)
         if self.tfw_msg_errors:
             return
 
         # TODO: with self.errors_502 we should compare special counter for
         # backend connection error. But it is not present.
-        self.assertTrue(self.tempesta.stats.cl_msg_other_errors == \
-                 self.errors_502, msg=(msg % 'requests'))
+        total = self.errors_502 + self.errors_504 + \
+                self.errors_connect + self.errors_timeout
+        err_msg = msg % (cl_other_err, 'requests')
+        self.assertTrue(cl_other_err <= total, msg=err_msg)
         # See comment on "positive allowance" in `assert_clients()`
         expected_err = cl_conn_cnt
-        self.assertTrue(self.tempesta.stats.srv_msg_other_errors <= expected_err,
-                        msg=(msg % 'responses'))
+        err_msg = msg % (srv_other_err, 'responses')
+        self.assertTrue(srv_other_err <= expected_err, msg=err_msg)
 
     def assert_servers(self):
         # Nothing to do for nginx in default configuration.
