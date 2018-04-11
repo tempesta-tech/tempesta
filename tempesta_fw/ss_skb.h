@@ -49,8 +49,7 @@ enum {
 typedef int (*ss_skb_actor_t)(void *conn, unsigned char *data, size_t len);
 
 /**
- * Add new @skb to the queue in FIFO order. The queue is implemented as
- * NULL-terminated list with @skb_head->prev as pointer to the tail skb.
+ * Add new @skb to the queue in FIFO order.
  */
 static inline void
 ss_skb_queue_tail(struct sk_buff **skb_head, struct sk_buff *skb)
@@ -59,35 +58,28 @@ ss_skb_queue_tail(struct sk_buff **skb_head, struct sk_buff *skb)
 	WARN_ON_ONCE(skb->next || skb->prev);
 	if (!*skb_head) {
 		*skb_head = skb;
-		skb->prev = skb;
+		skb->prev = skb->next = skb;
 		return;
 	}
-	WARN_ON_ONCE(!(*skb_head)->prev);
+	skb->next = *skb_head;
 	skb->prev = (*skb_head)->prev;
-	(*skb_head)->prev->next = skb;
-
-	/* Assign pointer to the new tail skb. */
-	(*skb_head)->prev = skb;
+	skb->next->prev = skb->prev->next = skb;
 }
 
 static inline void
 ss_skb_unlink(struct sk_buff **skb_head, struct sk_buff *skb)
 {
-	WARN_ON_ONCE(!(*skb_head)->prev);
-
-	if (skb->next)
+	WARN_ON_ONCE(!skb->prev || !skb->next);
+	/* If this is last skb, set head to NULL. */
+	if (skb->next == skb) {
+		*skb_head = NULL;
+	} else {
+		skb->prev->next = skb->next;
 		skb->next->prev = skb->prev;
-
-	/* Tail skb - set tail pointer to the new tail skb. */
-	if ((*skb_head)->prev == skb)
-		(*skb_head)->prev = skb->prev;
-
-	/* If this is head skb, set head pointer to the new head skb. */
+	}
+	/* If this is head skb and not last, set head to the next skb. */
 	if (*skb_head == skb)
 		*skb_head = skb->next;
-	else
-		skb->prev->next = skb->next;
-
 	skb->next = skb->prev = NULL;
 }
 

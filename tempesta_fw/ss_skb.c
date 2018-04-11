@@ -238,23 +238,7 @@ __skb_insert_after(struct sk_buff *skb, struct sk_buff *nskb)
 {
 	nskb->next = skb->next;
 	nskb->prev = skb;
-	skb->next = nskb;
-	if (nskb->next)
-		nskb->next->prev = nskb;
-}
-
-/*
- * Update the skb list's pointer to the last item
- * if a new skb has been added at the end of the list.
- */
-static inline void
-__skb_skblist_fixup(struct sk_buff *skb_head)
-{
-	struct sk_buff *last = skb_head->prev;
-
-	if (last->next)
-		skb_head->prev = last->next;
-	WARN_ON_ONCE(skb_head->prev->next);
+	nskb->next->prev = nskb->prev->next = nskb;
 }
 
 /**
@@ -265,7 +249,7 @@ __skb_skblist_fixup(struct sk_buff *skb_head)
  * @return 0 on success, -errno on failure.
  */
 static int
-__extend_pgfrags(struct sk_buff *skb, int from, int n)
+__extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 {
 	int i, n_shift, n_excess = 0;
 	struct skb_shared_info *si = skb_shinfo(skb);
@@ -291,10 +275,10 @@ __extend_pgfrags(struct sk_buff *skb, int from, int n)
 		 * @n_excess page fragments.
 		 */
 		nskb = skb->next;
-		if (nskb && !skb_headlen(nskb)
+		if (nskb != skb_head && !skb_headlen(nskb)
 		    && (skb_shinfo(nskb)->nr_frags <= MAX_SKB_FRAGS - n_excess))
 		{
-			int r = __extend_pgfrags(nskb, 0, n_excess);
+			int r = __extend_pgfrags(skb_head, nskb, 0, n_excess);
 			if (r)
 				return r;
 		} else {
@@ -335,7 +319,8 @@ __extend_pgfrags(struct sk_buff *skb, int from, int n)
  * a new fragment in slot @i that can hold @size bytes, and set it up.
  */
 static int
-__new_pgfrag(struct sk_buff *skb, int size, int i, int shift)
+__new_pgfrag(struct sk_buff *skb_head, struct sk_buff *skb, int size,
+	     int i, int shift)
 {
 	int off = 0;
 	skb_frag_t frag;
@@ -358,7 +343,7 @@ __new_pgfrag(struct sk_buff *skb, int size, int i, int shift)
 	}
 
 	/* Make room for @shift fragments starting with slot @i. */
-	if (__extend_pgfrags(skb, i, shift)) {
+	if (__extend_pgfrags(skb_head, skb, i, shift)) {
 		put_page(page);
 		return -ENOMEM;
 	}
@@ -391,7 +376,8 @@ __new_pgfrag(struct sk_buff *skb, int size, int i, int shift)
  * @return pointer to SKB with data at @it->ptr in @it->skb.
  */
 static int
-__split_linear_data(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
+__split_linear_data(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
+		    int len, TfwStr *it)
 {
 	int alloc = len > 0;
 	struct page *page = virt_to_head_page(skb->head);
@@ -443,10 +429,10 @@ __split_linear_data(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	 * rollback.
 	 */
 	if (alloc) {
-		if (__new_pgfrag(skb, len, 0, 1 + !!tail_len))
+		if (__new_pgfrag(skb_head, skb, len, 0, 1 + !!tail_len))
 			return -EFAULT;
 	} else {
-		if (__extend_pgfrags(skb, 0, 1))
+		if (__extend_pgfrags(skb_head, skb, 0, 1))
 			return -EFAULT;
 	}
 
@@ -496,7 +482,8 @@ __split_linear_data(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
  * @return pointer to SKB with data at @it->ptr in @it->skb.
  */
 static int
-__split_pgfrag_add(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
+__split_pgfrag_add(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off,
+		   int len, TfwStr *it)
 {
 	int tail_len;
 	struct sk_buff *skb_dst, *skb_new;
@@ -514,7 +501,7 @@ __split_pgfrag_add(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 	 * a fragment in slot @i+1, and make an extra fragment
 	 * in slot @i+2 to hold the tail data.
 	 */
-	if (__new_pgfrag(skb, len, i + !!off, 1 + !!off))
+	if (__new_pgfrag(skb_head, skb, len, i + !!off, 1 + !!off))
 		return -EFAULT;
 
 	/* If @off is zero, the job is done in __new_pgfrag(). */
@@ -579,7 +566,8 @@ __split_pgfrag_add(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
  * @return pointer to SKB with data at @it->ptr in @it->skb.
  */
 static int
-__split_pgfrag_del(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
+__split_pgfrag_del(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off,
+		   int len, TfwStr *it)
 {
 	int tail_len;
 	struct sk_buff *skb_dst;
@@ -632,7 +620,7 @@ __split_pgfrag_del(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 	 * Make room for a fragment right after the @i fragment
 	 * to move the tail part of data there.
 	 */
-	if (__extend_pgfrags(skb, i + 1, 1))
+	if (__extend_pgfrags(skb_head, skb, i + 1, 1))
 		return -EFAULT;
 
 	/* Find the SKB for tail data. */
@@ -665,11 +653,12 @@ __split_pgfrag_del(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 }
 
 static int
-__split_pgfrag(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
+__split_pgfrag(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off,
+	       int len, TfwStr *it)
 {
 	return len > 0
-		? __split_pgfrag_add(skb, i, off, len, it)
-		: __split_pgfrag_del(skb, i, off, -len, it);
+		? __split_pgfrag_add(skb_head, skb, i, off, len, it)
+		: __split_pgfrag_del(skb_head, skb, i, off, -len, it);
 }
 
 static inline int
@@ -687,7 +676,8 @@ __split_try_tailroom(struct sk_buff *skb, int len, TfwStr *it)
  * Most of the time that is done by fragmenting the @skb.
  */
 static int
-__skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
+__skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
+	       int len, TfwStr *it)
 {
 	int i = -1, ret;
 	long offset;
@@ -719,7 +709,7 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	if (offset >= 0 && offset < d_size) {
 		int t_size = d_size - offset;
 		len = max(len, -t_size);
-		ret = __split_linear_data(skb, pspt, len, it);
+		ret = __split_linear_data(skb_head, skb, pspt, len, it);
 		goto done;
 	}
 
@@ -758,7 +748,7 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 				continue;
 			}
 			len = max(len, -t_size);
-			ret = __split_pgfrag(skb, i, offset, len, it);
+			ret = __split_pgfrag(skb_head, skb, i, offset, len, it);
 			goto done;
 		}
 	}
@@ -768,7 +758,7 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 
 append:
 	/* Add new frag in case of splitting after the last chunk */
-	ret = __new_pgfrag(skb, len, i + 1, 1);
+	ret = __new_pgfrag(skb_head, skb, len, i + 1, 1);
 	__it_next_data(skb, i + 1, it);
 
 done:
@@ -793,8 +783,6 @@ static inline int
 skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	     int len, TfwStr *it)
 {
-	int r;
-
 	if (abs(len) > PAGE_SIZE) {
 		TFW_WARN("Attempt to add or delete too much data: %u\n", len);
 		return -EINVAL;
@@ -806,9 +794,7 @@ skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 		return -EINVAL;
 	}
 
-	r = __skb_fragment(skb, pspt, len, it);
-	__skb_skblist_fixup(skb_head);
-	return r;
+	return  __skb_fragment(skb_head, skb, pspt, len, it);
 }
 
 /**
@@ -1201,6 +1187,7 @@ ss_skb_unroll(struct sk_buff **skb_head, struct sk_buff *skb)
 		prev_skb = f_skb;
 	}
 	(*skb_head)->prev = prev_skb;
+	prev_skb->next = *skb_head;
 	skb_shinfo(skb)->frag_list = NULL;
 
 	return 0;
