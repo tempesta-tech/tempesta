@@ -101,6 +101,11 @@ TEST(cstr, simd_match)
 		     "cccccccccccccccccccccccccccccccc"
 		     "dddddddddddddddddddddddddddddddd"
 		     "0123456|95");
+	__test_match("aaaaaaaaaaaa^aaaaaaaaaaaaaaaaaaa"
+		     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		     "cccccccccccccccccccccccccccccccc"
+		     "dddddddddddddddddddddddddddddddd"
+		     "0123\x98x56|95");
 }
 
 static void
@@ -176,6 +181,95 @@ TEST(cstr, simd_match_ctext_vchar)
 			       "123456789_123456789_123456789_123456789_"
 			       "a\x6pbcmdef"));
 #undef __S
+}
+
+TEST(cstr, simd_match_custom)
+{
+	int i;
+	unsigned char a[256] = {};
+
+	for (i = 0; i < 256; ++i) {
+		if (i == 0x21
+		    || (0x23 <= i && i <= 0x3B)
+		    || i == 0x3D
+		    || (0x3f <= i && i <= 0x5a)
+		    || (0x61 <= i && i <= 0x7A)
+		    || i == 0x5b || i == 0x5d || i == 0x5f
+		    || i == 0x7E || i == 0x98)
+			a[i] = 1;
+	}
+
+	/*
+	 * Set custom alphabet to URI character set plus x98, but use xff
+	 * matcher just because it's different from URI and CTEXT+VCHAR to
+	 * enforce custom matching.
+	 */
+	tfw_init_custom_xff(a, true);
+
+#define __test_custom(s)						\
+do {									\
+	for (i = 0; i < sizeof(s) - 1; ++i)				\
+		if (!a[(unsigned char)(s)[i]])				\
+			break;						\
+	EXPECT_TRUE(tfw_match_xff((s), sizeof(s) - 1) == i);		\
+} while (0)
+
+	__test_custom("");
+	__test_custom(" ");
+	__test_custom("^");
+	__test_custom("a");
+	__test_custom("ab");
+	__test_custom("{a");
+	__test_custom("abc");
+	__test_custom("a}b");
+	__test_custom("abcd");
+	__test_custom("abc}\x98");
+	__test_custom("abcde");
+	__test_custom("\"abce");
+	__test_custom("heLLo_24!");
+	__test_custom("heL\x98o_24!");
+	__test_custom("0123456789ab{c}def");
+	__test_custom("!#$%&'*+-._();^abcde");
+	__test_custom("0123456789abcdefghIjkl|\\Pmdsfdfew34////");
+	__test_custom("0123456789abcdefghIjkl|\xfcPmdsfdfew34////");
+	__test_custom("0123456789abcdefghIjkl@?Pmdsfdfew34//^//");
+	__test_custom("0123456789_0123456789_0123456789_0123456789_|abcdef");
+	__test_custom("0123456789_0123456789_^0123456789_0123456789_abcdef");
+	__test_custom("0123456789_0123456789_0123456789_0123456789_abcdef^");
+	__test_custom("mozilla!5.0_(windows_nt_6.1!_wow64)_applewebkit"
+		      "!535.11_(khtml._like_gecko)_chrome!17.0.963.56_"
+		      "safari!535.11");
+	__test_custom("mozilla!5.0_(windows_nt_6.1!_wow64)_applewebkit!"
+		      "535.^11_(khtml._like_gecko)_chrome!17.0.963.56_"
+		      "safari!535.11");
+	__test_custom("mozilla!5.0_(windows_nt_6.1!_wow64)_applewebkit!"
+		      "535.11_(khtml._like_gecko)_chrome!17.^0.963.56_"
+		      "safari!535.11");
+	__test_custom("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		      "cccccccccccccccccccccccccccccccc"
+		      "dddddddddddddddddddddddddddddddd");
+	__test_custom("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		      "ccccccccccccccc^cccccccccccccccc"
+		      "dddddddddddddddddddddddddddddddd"
+		      "0123456|95");
+	__test_custom("aaaaaaaaaaaa^aaaaaaaaaaaaaaaaaaa"
+		      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		      "cccccccccccccccccccccccccccccccc"
+		      "dddddddddddddddddddddddddddddddd"
+		      "0123456|95");
+	__test_custom("aaaaaaaaaaaa^aaaaaaaaaaaaaaaaaaa"
+		      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		      "cccccccccccccccccccccccccccccccc"
+		      "dddddddddddddddddddddddddddddddd"
+		      "012\x98i456|95");
+	__test_custom("aaaaaaaaaaaa^aaaaaaaaaaaaaaaaaaa"
+		      "bbbbbb\x98tbbbbbbbbbbbbbbbbbbbbbbb"
+		      "cccccccccccccccccccccccccccccccc"
+		      "dddddddddddddddddddddddddddddddd"
+		      "012\x97i456|95");
+#undef __test_custom
 }
 
 static inline void *
@@ -1012,6 +1106,7 @@ TEST_SUITE(tfw_str)
 	TEST_RUN(cstr, tolower);
 	TEST_RUN(cstr, simd_match);
 	TEST_RUN(cstr, simd_match_ctext_vchar);
+	TEST_RUN(cstr, simd_match_custom);
 	TEST_RUN(cstr, simd_strtolower);
 	TEST_RUN(cstr, simd_stricmp);
 
