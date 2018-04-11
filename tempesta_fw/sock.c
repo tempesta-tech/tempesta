@@ -406,7 +406,11 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	};
 
 	BUG_ON(!sk);
-	WARN_ON_ONCE(!*skb_head);
+
+	if (!*skb_head) {
+		WARN_ON_ONCE(1);
+		return 0;
+	}
 
 	cpu = sk->sk_incoming_cpu;
 
@@ -430,7 +434,8 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	 */
 	if (flags & SS_F_KEEP_SKB) {
 		sw.skb_head = NULL;
-		for (skb = *skb_head; skb; skb = skb->next) {
+		skb = *skb_head;
+		do {
 			/* tcp_transmit_skb() will clone the skb. */
 			twin_skb = pskb_copy_for_clone(skb, GFP_ATOMIC);
 			if (!twin_skb) {
@@ -439,7 +444,8 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 				goto err;
 			}
 			ss_skb_queue_tail(&sw.skb_head, twin_skb);
-		}
+			skb = skb->next;
+		} while (skb != *skb_head);
 	} else {
 		sw.skb_head = *skb_head;
 		*skb_head = NULL;
