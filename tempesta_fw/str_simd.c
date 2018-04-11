@@ -1,7 +1,9 @@
 /**
  *		Tempesta FW
  *
- * x86-64 SIMD routines for HTTP strings processing.
+ * x86-64 SIMD routines for HTTP strings processing. See the algorithms'
+ * description and perfomance comparison with other implementations at
+ * http://natsys-lab.blogspot.ru/2016/10/http-strings-processing-using-c-sse42.html
  *
  * Copyright (C) 2016-2018 Tempesta Technologies, Inc.
  *
@@ -39,18 +41,21 @@
  * @LCASE	- 0x20 converting upper case character to lower case;
  * @ARF		- ASCII rows factors;
  * @LSH		- Mask for least sigificant half of bytes;
- * @URI		- ASCII table column bitmaps for HTTP URI abs_path (RFC 3986);
- * @TOKEN	- ASCII table column bitmaps for HTTP token, e.g. header name
+ * @_uri	- ASCII table column bitmaps for HTTP URI abs_path (RFC 3986);
+ * @_token	- ASCII table column bitmaps for HTTP token, e.g. header name
  *		  (RFC 7230 3.2.6);
- * @QETOKEN	- `token` with double quotes and equal sign;
- * @NCTL	- ASCII VCHAR (RFC RFC 5234, Apendix B.1.) plus SP and HTAB,
+ * @_qetoken	- `token` with double quotes and equal sign;
+ * @_nctl	- ASCII VCHAR (RFC RFC 5234, Apendix B.1.) plus SP and HTAB,
  *		  used to accept HTTP header values;
- * @XFF		- ASCII characters for HTTP X-Forwarded-For header (RFC 7239);
- * @CO		- cookie-octet as defined in RFC 6265 4.1.1 plus DQUOTE;
+ * @_xff	- ASCII characters for HTTP X-Forwarded-For header (RFC 7239);
+ * @_cookie	- cookie-octet as defined in RFC 6265 4.1.1 plus DQUOTE;
+ * @C_x_BM_0	- 1st half of ASCII table column bitmaps for custom characters;
+ * @C_x_BM_1	- 2nd half of ASCII table column bitmaps for custom characters;
  * @ZERO	- ASCII zero upper bound for matching 0 < v < SP;
  * @SP		- ASCII SP low bound for matching 0 < v < SP;
  * @HTAB	- ASCII HTAB;
  * @DEL		- ASCII DEL;
+ * @ASCII	- most significant bit to split ASCII table to 2 halves;
  */
 static struct {
 	__m128i A128;
@@ -59,16 +64,31 @@ static struct {
 	__m128i CASE128;
 	__m128i	ARF128;
 	__m128i	LSH128;
-	__m128i URI128;
-	__m128i TOKEN128;
-	__m128i QETOKEN128;
-	__m128i NCTL128;
-	__m128i XFF128;
-	__m128i CO128;
+	__m128i _uri128;
+	__m128i _token128;
+	__m128i _qetoken128;
+	__m128i _nctl128;
+	__m128i _xff128;
+	__m128i _cookie128;
+	__m128i C_uri_BM128_0;
+	__m128i C_uri_BM128_1;
+	__m128i C_token_BM128_0;
+	__m128i C_token_BM128_1;
+	__m128i C_qetoken_BM128_0;
+	__m128i C_qetoken_BM128_1;
+	__m128i C_nctl_BM128_0;
+	__m128i C_nctl_BM128_1;
+	__m128i C_ctext_vchar_BM128_0;
+	__m128i C_ctext_vchar_BM128_1;
+	__m128i C_xff_BM128_0;
+	__m128i C_xff_BM128_1;
+	__m128i C_cookie_BM128_0;
+	__m128i C_cookie_BM128_1;
 	__m128i ZERO128;
 	__m128i SP128;
 	__m128i HTAB128;
 	__m128i DEL128;
+	__m128i ASCII128;
 #ifdef AVX2
 	__m256i A256;
 	__m256i a256;
@@ -76,18 +96,101 @@ static struct {
 	__m256i CASE256;
 	__m256i	ARF256;
 	__m256i	LSH256;
-	__m256i URI256;
-	__m256i TOKEN256;
-	__m256i QETOKEN256;
-	__m256i NCTL256;
-	__m256i XFF256;
-	__m256i CO256;
+	__m256i _uri256;
+	__m256i _token256;
+	__m256i _qetoken256;
+	__m256i _nctl256;
+	__m256i _xff256;
+	__m256i _cookie256;
+	__m256i C_uri_BM256_0;
+	__m256i C_uri_BM256_1;
+	__m256i C_token_BM256_0;
+	__m256i C_token_BM256_1;
+	__m256i C_qetoken_BM256_0;
+	__m256i C_qetoken_BM256_1;
+	__m256i C_nctl_BM256_0;
+	__m256i C_nctl_BM256_1;
+	__m256i C_ctext_vchar_BM256_0;
+	__m256i C_ctext_vchar_BM256_1;
+	__m256i C_xff_BM256_0;
+	__m256i C_xff_BM256_1;
+	__m256i C_cookie_BM256_0;
+	__m256i C_cookie_BM256_1;
 	__m256i ZERO256;
 	__m256i SP256;
 	__m256i HTAB256;
 	__m256i DEL256;
+	__m256i ASCII256;
 #endif
-} __C;
+} __C ____cacheline_aligned __read_mostly;
+
+#if defined(DEBUG) && (DEBUG >= 3)
+#define D(n)	(unsigned int)d[n]
+static void
+tfw_dbg_vprint16(const char *prefix, const __m128i *v)
+{
+	unsigned char *d = (unsigned char *)v;
+
+	__TFW_DBG3("%s: %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x"
+		   " %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x\n",
+		   prefix, D(0), D(1), D(2), D(3), D(4), D(5), D(6), D(7),
+		   D(8), D(9), D(10), D(11), D(12), D(13), D(14), D(15));
+}
+
+static void
+tfw_dbg_vprint32(const char *prefix, const __m256i *v)
+{
+	unsigned char *d = (unsigned char *)v;
+
+	__TFW_DBG3("%s: %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x"
+		   " %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x"
+		   " %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x"
+		   " %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x\n",
+		   prefix, D(0), D(1), D(2), D(3), D(4), D(5), D(6), D(7),
+		   D(8), D(9), D(10), D(11), D(12), D(13), D(14), D(15),
+		   D(16), D(17), D(18), D(19), D(20), D(21), D(22), D(23),
+		   D(24), D(25), D(26), D(27), D(28), D(29), D(30), D(31));
+}
+#else
+#define tfw_dbg_vprint16(...)
+#define tfw_dbg_vprint32(...)
+#endif
+
+static void
+__init_custom_a(const unsigned char *cfg_a, unsigned char *a,
+		   __m128i *bm128_0, __m128i *bm128_1
+#ifdef AVX2
+		   , __m256i *bm256_0, __m256i *bm256_1
+#endif
+		   )
+{
+	unsigned char a0[32] = {}, a1[32];
+	int i;
+
+	memcpy(a, cfg_a, 256);
+
+	/* Initializes an alphabet bit mask a0 by the byte set @a. */
+	for (i = 0; i < 256; ++i) {
+		if (!a[i])
+			continue;
+		a0[(i & 0xf) + 16 * !!(i & 0x80)] |= 1 << ((i & 0x70) >> 4);
+	}
+	/* Split ASCII table to 2 duplicate halves. */
+	memcpy(a1, &a0[16], 16);
+	memcpy(&a1[16], &a0[16], 16);
+	memcpy(&a0[16], a0, 16);
+
+	*bm128_0 = _mm_lddqu_si128((void *)a0);
+	*bm128_1 = _mm_lddqu_si128((void *)a1);
+	tfw_dbg_vprint16("load custom alphabet/0", bm128_0);
+	tfw_dbg_vprint16("load custom alphabet/1", bm128_1);
+#ifdef AVX2
+	*bm256_0 = _mm256_lddqu_si256((void *)a0);
+	*bm256_1 = _mm256_lddqu_si256((void *)a1);
+	tfw_dbg_vprint32("load custom alphabet/0", bm256_0);
+	tfw_dbg_vprint32("load custom alphabet/1", bm256_1);
+#endif
+}
 
 void
 tfw_str_init_const(void)
@@ -98,26 +201,26 @@ tfw_str_init_const(void)
 	__C.CASE128 = _mm_set1_epi8(0x20);
 	__C.ARF128 = _mm_setr_epi8(
 		0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40, 0x80,
-		0, 0, 0, 0, 0, 0, 0, 0);
+		0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40, 0x80);
 	__C.LSH128 = _mm_set1_epi8(0xf);
 	/*
 	 * ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
 	 * !#$%&'*+-._();:@=,/?[]~0123456789
 	 */
-	__C.URI128 = _mm_setr_epi8(
+	__C._uri128 = _mm_setr_epi8(
 		0xb8, 0xfc, 0xf8, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
 		0xfc, 0xfc, 0xfc, 0x7c, 0x54, 0x7c, 0xd4, 0x7c);
 	/*
 	 * ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
 	 * !#$%&'*+-.^_`|~0123456789
 	 */
-	__C.TOKEN128 = _mm_setr_epi8(
+	__C._token128 = _mm_setr_epi8(
 		0xe8, 0xfc, 0xf8, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
 		0xf8, 0xf8, 0xf4, 0x54, 0xd0, 0x54, 0xf4, 0x70);
 	/*
 	 * Token with DQUOTE and "=".
 	 */
-	__C.QETOKEN128 = _mm_setr_epi8(
+	__C._qetoken128 = _mm_setr_epi8(
 		0xe8, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
 		0xf8, 0xf8, 0xf4, 0x54, 0xd0, 0x5c, 0xf4, 0x70);
 	/*
@@ -127,7 +230,7 @@ tfw_str_init_const(void)
 	 *
 	 * , i.e. non-control characters.
 	 */
-	__C.NCTL128 = _mm_setr_epi8(
+	__C._nctl128 = _mm_setr_epi8(
 		0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
 		0xfc, 0xfd, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0x7c);
 	/*
@@ -136,13 +239,13 @@ tfw_str_init_const(void)
 	 *	ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
 	 *	0123456789._-[]:
 	 */
-	__C.XFF128 = _mm_setr_epi8(
+	__C._xff128 = _mm_setr_epi8(
 		0xa8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8,
 		0xf8, 0xf8, 0xf8, 0x70, 0x50, 0x74, 0x54, 0x70);
 	/*
 	 * Cookie-octet w/ DQUOTE: %x21 %x22-2B %x2D-3A %x3C-5B %x5D-7E
 	 */
-	__C.CO128 = _mm_setr_epi8(
+	__C._cookie128 = _mm_setr_epi8(
 		0xf8, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
 		0xfc, 0xfc, 0xfc, 0xf4, 0xd8, 0xfc, 0xfc, 0x7c);
 
@@ -152,6 +255,7 @@ tfw_str_init_const(void)
 	__C.SP128 = _mm_set1_epi8(' ' - 0x80);
 	__C.HTAB128 = _mm_set1_epi8('\t');
 	__C.DEL128 = _mm_set1_epi8(0x7f);
+	__C.ASCII128 = _mm_set1_epi8(0x80);
 
 #ifdef AVX2
 	__C.A256 = _mm256_set1_epi8('A' - 0x80);
@@ -160,36 +264,36 @@ tfw_str_init_const(void)
 	__C.CASE256 = _mm256_set1_epi8(0x20);
 	__C.ARF256 = _mm256_setr_epi8(
 		0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40, 0x80,
-		0, 0, 0, 0, 0, 0, 0, 0,
 		0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40, 0x80,
-		0, 0, 0, 0, 0, 0, 0, 0);
+		0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40, 0x80,
+		0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40, 0x80);
 	__C.LSH256 = _mm256_set1_epi8(0xf);
-	__C.URI256 = _mm256_setr_epi8(
+	__C._uri256 = _mm256_setr_epi8(
 		0xb8, 0xfc, 0xf8, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
 		0xfc, 0xfc, 0xfc, 0x7c, 0x54, 0x7c, 0xd4, 0x7c,
 		0xb8, 0xfc, 0xf8, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
 		0xfc, 0xfc, 0xfc, 0x7c, 0x54, 0x7c, 0xd4, 0x7c);
-	__C.TOKEN256 = _mm256_setr_epi8(
+	__C._token256 = _mm256_setr_epi8(
 		0xe8, 0xfc, 0xf8, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
 		0xf8, 0xf8, 0xf4, 0x54, 0xd0, 0x54, 0xf4, 0x70,
 		0xe8, 0xfc, 0xf8, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
 		0xf8, 0xf8, 0xf4, 0x54, 0xd0, 0x54, 0xf4, 0x70);
-	__C.QETOKEN256 = _mm256_setr_epi8(
+	__C._qetoken256 = _mm256_setr_epi8(
 		0xe8, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
 		0xf8, 0xf8, 0xf4, 0x54, 0xd0, 0x5c, 0xf4, 0x70,
 		0xe8, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
 		0xf8, 0xf8, 0xf4, 0x54, 0xd0, 0x5c, 0xf4, 0x70);
-	__C.NCTL256 = _mm256_setr_epi8(
+	__C._nctl256 = _mm256_setr_epi8(
 		0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
 		0xfc, 0xfd, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0x7c,
 		0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
 		0xfc, 0xfd, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0x7c);
-	__C.XFF256 = _mm256_setr_epi8(
+	__C._xff256 = _mm256_setr_epi8(
 		0xa8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8,
 		0xf8, 0xf8, 0xf8, 0x70, 0x50, 0x74, 0x54, 0x70,
 		0xa8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8, 0xf8,
 		0xf8, 0xf8, 0xf8, 0x70, 0x50, 0x74, 0x54, 0x70);
-	__C.CO256 = _mm256_setr_epi8(
+	__C._cookie256 = _mm256_setr_epi8(
 		0xf8, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
 		0xfc, 0xfc, 0xfc, 0xf4, 0xd8, 0xfc, 0xfc, 0x7c,
 		0xf8, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
@@ -198,9 +302,26 @@ tfw_str_init_const(void)
 	__C.SP256 = _mm256_set1_epi8(' ' - 0x80);
 	__C.HTAB256 = _mm256_set1_epi8('\t');
 	__C.DEL256 = _mm256_set1_epi8(0x7f);
+	__C.ASCII256 = _mm256_set1_epi8(0x80);
 #endif
 }
 EXPORT_SYMBOL(tfw_str_init_const);
+
+/* Tables for custom alphabets. */
+static bool custom_uri_enabled = false;
+static bool custom_token_enabled = false;
+static bool custom_qetoken_enabled = false;
+static bool custom_nctl_enabled = false;
+static bool custom_ctext_vchar_enabled = false;
+static bool custom_xff_enabled = false;
+static bool custom_cookie_enabled = false;
+static unsigned char custom_uri[256] ____cacheline_aligned;
+static unsigned char custom_token[256] ____cacheline_aligned;
+static unsigned char custom_qetoken[256] ____cacheline_aligned;
+static unsigned char custom_nctl[256] ____cacheline_aligned;
+static unsigned char custom_ctext_vchar[256] ____cacheline_aligned;
+static unsigned char custom_xff[256] ____cacheline_aligned;
+static unsigned char custom_cookie[256] ____cacheline_aligned;
 
 /*
  * ASCII codes to accept URI string (C representation for __C.URI).
@@ -355,7 +476,7 @@ static const unsigned char xff[] ____cacheline_aligned = {
  * We add DQUOTES to the set since we don't analyzer cookie value
  * grammar. This is C representation for __C.CO.
  */
-static const unsigned char cookie_octet[] ____cacheline_aligned = {
+static const unsigned char cookie[] ____cacheline_aligned = {
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1,
@@ -965,7 +1086,7 @@ EXPORT_SYMBOL(__tfw_stricmp_avx2_2lc);
 static inline size_t
 __tfw_strspn_avx2_32(const char *str, __m256i sm)
 {
-	unsigned long r;
+	unsigned int r;
 
 	__m256i v = _mm256_lddqu_si256((void *)str);
 	/*
@@ -988,9 +1109,9 @@ __tfw_strspn_avx2_32(const char *str, __m256i sm)
 	 * to 64bit integer.
 	 */
 	v = _mm256_cmpeq_epi8(sbits, _mm256_setzero_si256());
-	r = 0xffffffff00000000UL | _mm256_movemask_epi8(v);
+	r = _mm256_movemask_epi8(v);
 
-	return __tzcnt(r);
+	return __tzcnt32(r);
 }
 
 static inline size_t
@@ -1147,6 +1268,128 @@ __tfw_match_ctext_vchar128(const char *str)
 	r1 = __tzcnt(r1);
 
 	return r0 < 64 ? r0 : 64 + r1;
+}
+
+static inline size_t
+__tfw_match_custom32(const char *str, __m256i *bm256_0, __m256i *bm256_1)
+{
+	unsigned int res;
+
+	__m256i v1 = _mm256_lddqu_si256((void *)str);
+	__m256i v2 = v1 ^ __C.ASCII256;
+
+	__m256i c1 = _mm256_shuffle_epi8(*bm256_0, v1);
+	__m256i c2 = _mm256_shuffle_epi8(*bm256_1, v2);
+
+	__m256i r = _mm256_and_si256(__C.LSH256, _mm256_srli_epi16(v1, 4));
+
+	__m256i cr = c2 | c1;
+
+	__m256i r2 = _mm256_shuffle_epi8(__C.ARF256, r);
+
+	__m256i m = _mm256_and_si256(r2, cr);
+
+	v1 = _mm256_cmpeq_epi8(m, _mm256_setzero_si256());
+	res = _mm256_movemask_epi8(v1);
+
+	return __tzcnt32(res);
+}
+
+static inline size_t
+__tfw_match_custom64(const char *str, __m256i *bm256_0, __m256i *bm256_1)
+{
+	unsigned long res0, res1;
+
+	__m256i v10 = _mm256_lddqu_si256((void *)str);
+	__m256i v11 = _mm256_lddqu_si256((void *)(str + 32));
+
+	__m256i v20 = v10 ^ __C.ASCII256;
+	__m256i v21 = v11 ^ __C.ASCII256;
+
+	__m256i c10 = _mm256_shuffle_epi8(*bm256_0, v10);
+	__m256i c11 = _mm256_shuffle_epi8(*bm256_0, v11);
+	__m256i c20 = _mm256_shuffle_epi8(*bm256_1, v20);
+	__m256i c21 = _mm256_shuffle_epi8(*bm256_1, v21);
+
+	__m256i r10 = _mm256_and_si256(__C.LSH256, _mm256_srli_epi16(v10, 4));
+	__m256i r11 = _mm256_and_si256(__C.LSH256, _mm256_srli_epi16(v11, 4));
+
+	__m256i cr0 = c20 | c10;
+	__m256i cr1 = c21 | c11;
+
+	__m256i r20 = _mm256_shuffle_epi8(__C.ARF256, r10);
+	__m256i r21 = _mm256_shuffle_epi8(__C.ARF256, r11);
+
+	__m256i m0 = _mm256_and_si256(r20, cr0);
+	__m256i m1 = _mm256_and_si256(r21, cr1);
+
+	v10 = _mm256_cmpeq_epi8(m0, _mm256_setzero_si256());
+	v11 = _mm256_cmpeq_epi8(m1, _mm256_setzero_si256());
+
+	res0 = _mm256_movemask_epi8(v10);
+	res1 = _mm256_movemask_epi8(v11);
+
+	return __tzcnt(res0 ^ (res1 << 32));
+}
+
+static inline size_t
+__tfw_match_custom128(const char *str, __m256i *bm256_0, __m256i *bm256_1)
+{
+	unsigned long res0, res1;
+
+	__m256i v10 = _mm256_lddqu_si256((void *)str);
+	__m256i v11 = _mm256_lddqu_si256((void *)(str + 32));
+	__m256i v12 = _mm256_lddqu_si256((void *)(str + 64));
+	__m256i v13 = _mm256_lddqu_si256((void *)(str + 96));
+
+	__m256i v20 = v10 ^ __C.ASCII256;
+	__m256i v21 = v11 ^ __C.ASCII256;
+	__m256i v22 = v12 ^ __C.ASCII256;
+	__m256i v23 = v13 ^ __C.ASCII256;
+
+	__m256i c10 = _mm256_shuffle_epi8(*bm256_0, v10);
+	__m256i c11 = _mm256_shuffle_epi8(*bm256_0, v11);
+	__m256i c12 = _mm256_shuffle_epi8(*bm256_0, v12);
+	__m256i c13 = _mm256_shuffle_epi8(*bm256_0, v13);
+
+	__m256i c20 = _mm256_shuffle_epi8(*bm256_1, v20);
+	__m256i c21 = _mm256_shuffle_epi8(*bm256_1, v21);
+	__m256i c22 = _mm256_shuffle_epi8(*bm256_1, v22);
+	__m256i c23 = _mm256_shuffle_epi8(*bm256_1, v23);
+
+	__m256i r10 = _mm256_and_si256(__C.LSH256, _mm256_srli_epi16(v10, 4));
+	__m256i r11 = _mm256_and_si256(__C.LSH256, _mm256_srli_epi16(v11, 4));
+	__m256i r12 = _mm256_and_si256(__C.LSH256, _mm256_srli_epi16(v12, 4));
+	__m256i r13 = _mm256_and_si256(__C.LSH256, _mm256_srli_epi16(v13, 4));
+
+	__m256i cr0 = c20 | c10;
+	__m256i cr1 = c21 | c11;
+	__m256i cr2 = c22 | c12;
+	__m256i cr3 = c23 | c13;
+
+	__m256i r20 = _mm256_shuffle_epi8(__C.ARF256, r10);
+	__m256i r21 = _mm256_shuffle_epi8(__C.ARF256, r11);
+	__m256i r22 = _mm256_shuffle_epi8(__C.ARF256, r12);
+	__m256i r23 = _mm256_shuffle_epi8(__C.ARF256, r13);
+
+	__m256i m0 = _mm256_and_si256(r20, cr0);
+	__m256i m1 = _mm256_and_si256(r21, cr1);
+	__m256i m2 = _mm256_and_si256(r22, cr2);
+	__m256i m3 = _mm256_and_si256(r23, cr3);
+
+	v10 = _mm256_cmpeq_epi8(m0, _mm256_setzero_si256());
+	v11 = _mm256_cmpeq_epi8(m1, _mm256_setzero_si256());
+	v12 = _mm256_cmpeq_epi8(m2, _mm256_setzero_si256());
+	v13 = _mm256_cmpeq_epi8(m3, _mm256_setzero_si256());
+
+	res0 = _mm256_movemask_epi8(v11);
+	res1 = _mm256_movemask_epi8(v13);
+	res0 = (res0 << 32) | _mm256_movemask_epi8(v10);
+	res1 = (res1 << 32) | _mm256_movemask_epi8(v12);
+	res0 = __tzcnt(res0);
+	res1 = __tzcnt(res1);
+
+	return res0 < 64 ? res0 : 64 + res1;
 }
 
 #endif
@@ -1344,71 +1587,137 @@ __tfw_match_ctext_vchar(const char *str, size_t len)
 	return !(c0 & c1) ? n + c0 : n + 2 + c2;
 }
 
-size_t
-tfw_match_uri(const char *str, size_t len)
+static size_t
+__tfw_match_custom16(const char *str, __m128i *bm128_0, __m128i *bm128_1)
 {
-	size_t r;
-#ifdef AVX2
-	r = __tfw_strspn_simd(str, len, uri, __C.URI128, __C.URI256);
-#else
-	r = __tfw_strspn_simd(str, len, uri, __C.URI128);
-#endif
-	TFW_DBG3("%s: str[0]=%#x len=%lu r=%lu\n", __func__, str[0], len, r);
+	unsigned long res;
 
-	return r;
+	__m128i v1 = _mm_lddqu_si128((void *)str);
+	__m128i v2 = v1 ^ __C.ASCII128;
+
+	__m128i c1 = _mm_shuffle_epi8(*bm128_0, v1);
+	__m128i c2 = _mm_shuffle_epi8(*bm128_1, v2);
+
+	__m128i r = _mm_and_si128(__C.LSH128, _mm_srli_epi16(v1, 4));
+
+	__m128i cr = c2 | c1;
+
+	__m128i r2 = _mm_shuffle_epi8(__C.ARF128, r);
+
+	__m128i m = _mm_and_si128(r2, cr);
+
+	v1 = _mm_cmpeq_epi8(m, _mm_setzero_si128());
+	res = 0xffffffffffff0000UL | _mm_movemask_epi8(v1);
+
+	return __tzcnt(res);
 }
-EXPORT_SYMBOL(tfw_match_uri);
 
-size_t
-tfw_match_token(const char *str, size_t len)
+/**
+ * @return legth of set of custom defined characters in @str.
+ * https://github.com/tempesta-tech/tempesta/issues/628
+ */
+static size_t
+__tfw_match_custom(const char *str, size_t len, const unsigned char *a,
+		 __m128i *bm128_0, __m128i *bm128_1
+#ifdef AVX2
+		 , __m256i *bm256_0, __m256i *bm256_1
+#endif
+		 )
 {
-	size_t r;
+	unsigned char *s = (unsigned char *)str;
+	const unsigned char *end = s + len;
+	unsigned int c0 = 0, c1 = 0, c2 = 0, c3 = 0;
+	size_t n;
+
+	/*
+	 * Avoid heavyweight vector processing for small strings.
+	 * Branch misprediction is more crucial for short strings.
+	 */
+	if (likely(len <= 4)) {
+		switch (len) {
+		case 0:
+			return 0;
+		case 4:
+			c3 = a[s[3]];
+		case 3:
+			c2 = a[s[2]];
+		case 2:
+			c1 = a[s[1]];
+		case 1:
+			c0 = a[s[0]];
+		}
+		return (c0 & c1) == 0 ? c0 : 2 + (c2 ? c2 + c3 : 0);
+	}
 #ifdef AVX2
-	r = __tfw_strspn_simd(str, len, token, __C.TOKEN128, __C.TOKEN256);
-#else
-	r = __tfw_strspn_simd(str, len, token, __C.TOKEN128);
+	/* Use unlikely() to speedup short strings processing. */
+	for ( ; unlikely(s + 128 <= end); s += 128) {
+		n = __tfw_match_custom128(s, bm256_0, bm256_1);
+		if (n < 128)
+			return s - (unsigned char *)str + n;
+	}
+	if (unlikely(s + 64 <= end)) {
+		n = __tfw_match_custom64(s, bm256_0, bm256_1);
+		if (n < 64)
+			return s - (unsigned char *)str + n;
+		s += 64;
+	}
+	if (unlikely(s + 32 <= end)) {
+		n = __tfw_match_custom32(s, bm256_0, bm256_1);
+		if (n < 32)
+			return s - (unsigned char *)str + n;
+		s += 32;
+	}
 #endif
-	TFW_DBG3("%s: str[0]=%#x len=%lu r=%lu\n", __func__, str[0], len, r);
+	for ( ; unlikely(s + 16 <= end); s += 16) {
+		n = __tfw_match_custom16(s, bm128_0, bm128_1);
+		if (n < 16)
+			return s - (unsigned char *)str + n;
+	}
 
-	return r;
+	while (s + 4 <= end) {
+		c0 = a[s[0]];
+		c1 = a[s[1]];
+		c2 = a[s[2]];
+		c3 = a[s[3]];
+		if (!(c0 & c1 & c2 & c3)) {
+			n = s - (unsigned char *)str;
+			return !(c0 & c1) ? n + c0 : n + 2 + (c2 ? c2 + c3 : 0);
+		}
+		s += 4;
+	}
+	c0 = c1 = c2 = 0;
+	switch (end - s) {
+	case 3:
+		c2 = a[s[2]];
+	case 2:
+		c1 = a[s[1]];
+	case 1:
+		c0 = a[s[0]];
+	}
+
+	n = s - (unsigned char *)str;
+	return !(c0 & c1) ? n + c0 : n + 2 + c2;
 }
-EXPORT_SYMBOL(tfw_match_token);
-
-size_t
-tfw_match_qetoken(const char *str, size_t len)
-{
-	size_t r;
-#ifdef AVX2
-	r = __tfw_strspn_simd(str, len, qetoken, __C.QETOKEN128,
-				 __C.QETOKEN256);
-#else
-	r = __tfw_strspn_simd(str, len, qetoken, __C.QETOKEN128);
-#endif
-	TFW_DBG3("%s: str[0]=%#x len=%lu r=%lu\n", __func__, str[0], len, r);
-
-	return r;
-}
-EXPORT_SYMBOL(tfw_match_qetoken);
-
-size_t
-tfw_match_nctl(const char *str, size_t len)
-{
-	size_t r;
-#ifdef AVX2
-	r = __tfw_strspn_simd(str, len, nctl, __C.NCTL128, __C.NCTL256);
-#else
-	r = __tfw_strspn_simd(str, len, nctl, __C.NCTL128);
-#endif
-	TFW_DBG3("%s: str[0]=%#x len=%lu r=%lu\n", __func__, str[0], len, r);
-
-	return r;
-}
-EXPORT_SYMBOL(tfw_match_nctl);
 
 size_t
 tfw_match_ctext_vchar(const char *str, size_t len)
 {
-	size_t r = __tfw_match_ctext_vchar(str, len);
+	size_t r;
+
+	if (custom_cookie_enabled)
+#ifdef AVX2
+		r = __tfw_match_custom(str, len, custom_ctext_vchar,
+				       &__C.C_ctext_vchar_BM128_0,
+				       &__C.C_ctext_vchar_BM128_1,
+				       &__C.C_ctext_vchar_BM256_0,
+				       &__C.C_ctext_vchar_BM256_1);
+#else
+		r = __tfw_match_custom(str, len, custom_ctext_vchar,
+				       &__C.C_ctext_vchar_BM128_0,
+				       &__C.C_ctext_vchar_BM128_1);
+#endif
+	else
+		r = __tfw_match_ctext_vchar(str, len);
 
 	TFW_DBG3("%s: str[0]=%#x len=%lu r=%lu\n", __func__, str[0], len, r);
 
@@ -1416,32 +1725,81 @@ tfw_match_ctext_vchar(const char *str, size_t len)
 }
 EXPORT_SYMBOL(tfw_match_ctext_vchar);
 
-size_t
-tfw_match_xff(const char *str, size_t len)
-{
-	size_t r;
 #ifdef AVX2
-	r = __tfw_strspn_simd(str, len, xff, __C.XFF128, __C.XFF256);
+#define TFW_MATCH(a_name)						\
+size_t tfw_match_##a_name(const char *str, size_t len)			\
+{									\
+	size_t r;							\
+	if (custom_##a_name##_enabled)					\
+		r = __tfw_match_custom(str, len, custom_##a_name,	\
+				       &__C.C_##a_name##_BM128_0,	\
+				       &__C.C_##a_name##_BM128_1,	\
+				       &__C.C_##a_name##_BM256_0,	\
+				       &__C.C_##a_name##_BM256_1);	\
+	else								\
+		r = __tfw_strspn_simd(str, len, a_name,	__C._##a_name##128,\
+				      __C._##a_name##256);\
+	TFW_DBG3("%s: str[0]=%#x len=%lu r=%lu cust=%d\n",		\
+		 __func__, str[0], len, r, custom_##a_name##_enabled);	\
+	return r;							\
+}									\
+EXPORT_SYMBOL(tfw_match_##a_name);
+
+#define TFW_INIT_CUSTOM_A(a_name)					\
+void tfw_init_custom_##a_name(const unsigned char *a, bool enabled)	\
+{									\
+	custom_##a_name##_enabled = enabled;				\
+	if (enabled)							\
+		__init_custom_a(a, custom_##a_name,			\
+				&__C.C_##a_name##_BM128_0,		\
+				&__C.C_##a_name##_BM128_1,		\
+				&__C.C_##a_name##_BM256_0,		\
+				&__C.C_##a_name##_BM256_1);		\
+}									\
+EXPORT_SYMBOL(tfw_init_custom_##a_name);
+
 #else
-	r = __tfw_strspn_simd(str, len, xff, __C.XFF128);
+
+#define TFW_MATCH(a_name)						\
+size_t tfw_match_##a_name(const char *str, size_t len)			\
+{									\
+	size_t r;							\
+	if (custom_##a_name##_enabled)					\
+		r = __tfw_match_custom(str, len, custom_##a_name,	\
+				       &__C.C_##a_name##_BM128_0,	\
+				       &__C.C_##a_name##_BM128_1);	\
+	else								\
+		r = __tfw_strspn_simd(str, len, a_name, __C._##a_name##128);\
+	TFW_DBG3("%s: str[0]=%#x len=%lu r=%lu cust=%d\n",		\
+		 __func__, str[0], len, r, custom_##a_name##_enabled);	\
+	return r;							\
+}									\
+EXPORT_SYMBOL(tfw_match_##a_name);
+
+#define TFW_INIT_CUSTOM_A(a_name)					\
+void tfw_init_custom_##a_name(const unsigned char *a, bool enabled)	\
+{									\
+	custom_##a_name##_enabled = enabled;				\
+	if (enabled)							\
+		__init_custom_a(a, custom_##a_name,			\
+			&__C.C_##a_name##_BM128_0,			\
+			&__C.C_##a_name##_BM128_1);			\
+}									\
+EXPORT_SYMBOL(tfw_init_custom_##a_name);
+
 #endif
-	TFW_DBG3("%s: str[0]=%#x len=%lu r=%lu\n", __func__, str[0], len, r);
 
-	return r;
-}
-EXPORT_SYMBOL(tfw_match_xff);
+TFW_MATCH(uri);
+TFW_MATCH(token);
+TFW_MATCH(qetoken);
+TFW_MATCH(nctl);
+TFW_MATCH(xff);
+TFW_MATCH(cookie);
 
-size_t
-tfw_match_cookie(const char *str, size_t len)
-{
-	size_t r;
-#ifdef AVX2
-	r = __tfw_strspn_simd(str, len, cookie_octet, __C.CO128, __C.CO256);
-#else
-	r = __tfw_strspn_simd(str, len, cookie_octet, __C.CO128);
-#endif
-	TFW_DBG3("%s: str[0]=%#x len=%lu r=%lu\n", __func__, str[0], len, r);
-
-	return r;
-}
-EXPORT_SYMBOL(tfw_match_cookie);
+TFW_INIT_CUSTOM_A(uri);
+TFW_INIT_CUSTOM_A(token);
+TFW_INIT_CUSTOM_A(qetoken);
+TFW_INIT_CUSTOM_A(nctl);
+TFW_INIT_CUSTOM_A(ctext_vchar);
+TFW_INIT_CUSTOM_A(xff);
+TFW_INIT_CUSTOM_A(cookie);
