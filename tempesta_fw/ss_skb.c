@@ -1211,7 +1211,7 @@ ss_skb_dump(struct sk_buff *skb)
 
 	TFW_LOG_NL("SKB (%p) DUMP: len=%u data_len=%u truesize=%u users=%u\n",
 		   skb, skb->len, skb->data_len, skb->truesize,
-		   atomic_read(&skb->users));
+		   refcount_read(&skb->users));
 	TFW_LOG_NL("  head=%p data=%p tail=%x end=%x\n",
 		   skb->head, skb->data, skb->tail, skb->end);
 	TFW_LOG_NL("  nr_frags=%u frag_list=%p next=%p prev=%p\n",

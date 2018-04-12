@@ -266,7 +266,8 @@ tdb_if_check_tblname(const TdbMsg *m)
 }
 
 static int
-tdb_if_proc_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
+tdb_if_proc_msg(struct sk_buff *skb, struct nlmsghdr *nlh,
+		struct netlink_ext_ack *extack)
 {
 	TdbMsg *m;
 
