@@ -76,10 +76,10 @@ ss_skb_unlink(struct sk_buff **skb_head, struct sk_buff *skb)
 	} else {
 		skb->prev->next = skb->next;
 		skb->next->prev = skb->prev;
+		/* If this is head skb and not last, set head to the next skb. */
+		if (*skb_head == skb)
+			*skb_head = skb->next;
 	}
-	/* If this is head skb and not last, set head to the next skb. */
-	if (*skb_head == skb)
-		*skb_head = skb->next;
 	skb->next = skb->prev = NULL;
 }
 

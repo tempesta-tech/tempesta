@@ -230,15 +230,18 @@ __it_next_data(struct sk_buff *skb, int i, TfwStr *it)
 }
 
 /*
- * Insert @nskb in the list after @skb. Note that the list's
- * pointer to the last item is not updated here.
+ * Insert @nskb in the list after @skb. Note that standard
+ * kernel 'skb_insert()' function does not suit here, as it
+ * works with 'sk_buff_head' structure with additional fields
+ * @qlen and @lock; we don't need these fields for our skb
+ * list, so a custom function had been introduced.
  */
 static inline void
 __skb_insert_after(struct sk_buff *skb, struct sk_buff *nskb)
 {
 	nskb->next = skb->next;
 	nskb->prev = skb;
-	nskb->next->prev = nskb->prev->next = nskb;
+	nskb->next->prev = skb->next = nskb;
 }
 
 /**
