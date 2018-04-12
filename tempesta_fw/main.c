@@ -341,7 +341,7 @@ static struct ctl_table tfw_sysctl_tbl[] = {
 		.mode		= 0644,
 		.proc_handler	= tfw_ctlfn_state_io,
 	},
-	{ 0 }
+	{}
 };
 
 #define DO_INIT(mod)						\
