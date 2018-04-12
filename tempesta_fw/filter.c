@@ -283,7 +283,9 @@ tfw_filter_start(void)
 	if (!ip_filter_db)
 		return -EINVAL;
 
-	if ((r = nf_register_hooks(tfw_nf_ops, ARRAY_SIZE(tfw_nf_ops)))) {
+	if ((r = nf_register_net_hooks(&init_net, tfw_nf_ops,
+				       ARRAY_SIZE(tfw_nf_ops))))
+	{
 		TFW_ERR_NL("can't register netfilter hooks\n");
 		tdb_close(ip_filter_db);
 		return r;
@@ -298,7 +300,8 @@ tfw_filter_stop(void)
 	if (tfw_runstate_is_reconfig())
 		return;
 	if (ip_filter_db) {
-		nf_unregister_hooks(tfw_nf_ops, ARRAY_SIZE(tfw_nf_ops));
+		nf_unregister_net_hooks(&init_net, tfw_nf_ops,
+					ARRAY_SIZE(tfw_nf_ops));
 		tdb_close(ip_filter_db);
 	}
 }
