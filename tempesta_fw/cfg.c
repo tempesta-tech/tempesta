@@ -1612,7 +1612,7 @@ tfw_cfg_read_file(const char *path, size_t *file_size)
 	do {
 		TFW_DBG3("read by offset: %d\n", (int)offset);
 		read_size = min((size_t)(buf_size - offset), PAGE_SIZE);
-		bytes_read = kernel_read(fp, out_buf + offset, read_size, \
+		bytes_read = kernel_read(fp, out_buf + offset, read_size,
 					 &offset);
 		if (bytes_read < 0) {
 			TFW_ERR_NL("can't read file: %s (err: %zu)\n", path,
