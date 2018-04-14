@@ -39,9 +39,10 @@ typedef enum {
 
 typedef struct {
 	struct sock	*sk;
-	SsSkbList	skb_list;
+	struct sk_buff	*skb_head;
 	int		flags;
 	SsAction	action;
+	unsigned long	__unused[1];
 } SsWork;
 
 /**
@@ -328,7 +329,7 @@ ss_sock_active(struct sock *sk)
  * @skb_list can be invalid after the function call, don't try to use it.
  */
 static void
-ss_do_send(struct sock *sk, SsSkbList *skb_list, int flags)
+ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct sk_buff *skb;
@@ -342,11 +343,11 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list, int flags)
 
 	/* If the socket is inactive, there's no recourse. Drop the data. */
 	if (unlikely(!ss_sock_active(sk))) {
-		ss_skb_queue_purge(skb_list);
+		ss_skb_queue_purge(skb_head);
 		return;
 	}
 
-	while ((skb = ss_skb_dequeue(skb_list))) {
+	while ((skb = ss_skb_dequeue(skb_head))) {
 		/*
 		 * Zero-sized SKBs may appear when the message headers (or any
 		 * other contents) are modified or deleted by Tempesta. Drop
@@ -387,14 +388,14 @@ ss_do_send(struct sock *sk, SsSkbList *skb_list, int flags)
 }
 
 /**
- * Directly insert all skbs from @skb_list into @sk TCP write queue regardless
+ * Directly insert all skbs from @skb_head into @sk TCP write queue regardless
  * write buffer size. This allows directly forward modified packets without
  * copying. See do_tcp_sendpages() and tcp_sendmsg() in linux/net/ipv4/tcp.c.
  *
  * Can be called in softirq context as well as from kernel thread.
  */
 int
-ss_send(struct sock *sk, SsSkbList *skb_list, int flags)
+ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 {
 	int cpu, r = 0;
 	struct sk_buff *skb, *twin_skb;
@@ -405,7 +406,8 @@ ss_send(struct sock *sk, SsSkbList *skb_list, int flags)
 	};
 
 	BUG_ON(!sk);
-	WARN_ON_ONCE(ss_skb_queue_empty(skb_list));
+	if (WARN_ON_ONCE(!*skb_head))
+		return 0;
 
 	cpu = sk->sk_incoming_cpu;
 
@@ -428,8 +430,9 @@ ss_send(struct sock *sk, SsSkbList *skb_list, int flags)
 	 * and after the transmission.
 	 */
 	if (flags & SS_F_KEEP_SKB) {
-		ss_skb_queue_head_init(&sw.skb_list);
-		for (skb = ss_skb_peek(skb_list); skb; skb = ss_skb_next(skb)) {
+		sw.skb_head = NULL;
+		skb = *skb_head;
+		do {
 			/* tcp_transmit_skb() will clone the skb. */
 			twin_skb = pskb_copy_for_clone(skb, GFP_ATOMIC);
 			if (!twin_skb) {
@@ -437,16 +440,17 @@ ss_send(struct sock *sk, SsSkbList *skb_list, int flags)
 				r = -ENOMEM;
 				goto err;
 			}
-			ss_skb_queue_tail(&sw.skb_list, twin_skb);
-		}
+			ss_skb_queue_tail(&sw.skb_head, twin_skb);
+			skb = skb->next;
+		} while (skb != *skb_head);
 	} else {
-		sw.skb_list = *skb_list;
-		ss_skb_queue_head_init(skb_list);
+		sw.skb_head = *skb_head;
+		*skb_head = NULL;
 	}
 
 	/*
 	 * Schedule the socket for TX softirq processing.
-	 * Only part of @skb_list could be passed to send queue.
+	 * Only part of list pointed by @skb_head could be passed to send queue.
 	 *
 	 * We can't transmit the data escaping the queueing because we have to
 	 * order transmissions and other CPUs can push data to transmit for
@@ -467,7 +471,7 @@ ss_send(struct sock *sk, SsSkbList *skb_list, int flags)
 
 	return 0;
 err:
-	ss_skb_queue_purge(&sw.skb_list);
+	ss_skb_queue_purge(&sw.skb_head);
 	return r;
 }
 EXPORT_SYMBOL(ss_send);
@@ -679,7 +683,7 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 	bool tcp_fin;
 	int r = 0, offset, count;
 	void *conn;
-	SsSkbList skb_list;
+	struct sk_buff *skb_head = NULL;
 	struct tcp_sock *tp = tcp_sk(sk);
 
 	/* Calculate the offset into the SKB. */
@@ -690,12 +694,12 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 	/* SKB may be freed in processing. Save the flag. */
 	tcp_fin = TCP_SKB_CB(skb)->tcp_flags & TCPHDR_FIN;
 
-	if (ss_skb_unroll(&skb_list, skb)) {
+	if (ss_skb_unroll(&skb_head, skb)) {
 		__kfree_skb(skb);
 		return SS_DROP;
 	}
 
-	while ((skb = ss_skb_dequeue(&skb_list))) {
+	while ((skb = ss_skb_dequeue(&skb_head))) {
 		int off;
 
 		WARN_ON_ONCE(skb->tail_lock);
@@ -743,8 +747,8 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		r = SS_DROP;
 	}
 out:
-	if (!ss_skb_queue_empty(&skb_list))
-		ss_skb_queue_purge(&skb_list);
+	if (skb_head)
+		ss_skb_queue_purge(&skb_head);
 
 	return r;
 }
@@ -1320,7 +1324,7 @@ ss_tx_action(void)
 		}
 		switch (sw.action) {
 		case SS_SEND:
-			ss_do_send(sk, &sw.skb_list, sw.flags);
+			ss_do_send(sk, &sw.skb_head, sw.flags);
 			if (!(sw.flags & SS_F_CONN_CLOSE)) {
 				bh_unlock_sock(sk);
 				break;
@@ -1343,7 +1347,7 @@ ss_tx_action(void)
 		}
 dead_sock:
 		sock_put(sk); /* paired with push() calls */
-		while ((skb = ss_skb_dequeue(&sw.skb_list)))
+		while ((skb = ss_skb_dequeue(&sw.skb_head)))
 			kfree_skb(skb);
 	}
 
