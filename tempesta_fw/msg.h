@@ -29,8 +29,8 @@
 
 /**
  * @seq_list	- member in the ordered queue of messages;
- * @skb_list	- list of sk_buff that belong to the message;
  * @ss_flags	- message processing flags;
+ * @skb_head	- head of the list of sk_buff that belong to the message;
  * @len		- total message length;
  *
  * TODO: Currently seq_list is used only in requests. Responses are not
@@ -43,8 +43,8 @@
  */
 typedef struct {
 	struct list_head	seq_list;
+	struct sk_buff		*skb_head;
 	int			ss_flags;
-	SsSkbList		skb_list;
 	size_t			len;
 } TfwMsg;
 
