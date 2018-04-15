@@ -89,13 +89,13 @@ size_t tfw_match_ctext_vchar(const char *s, size_t len);
 size_t tfw_match_xff(const char *s, size_t len);
 size_t tfw_match_cookie(const char *s, size_t len);
 
-void tfw_init_custom_uri(const unsigned char *a, bool enabled);
-void tfw_init_custom_token(const unsigned char *a, bool enabled);
-void tfw_init_custom_qetoken(const unsigned char *a, bool enabled);
-void tfw_init_custom_nctl(const unsigned char *a, bool enabled);
-void tfw_init_custom_ctext_vchar(const unsigned char *a, bool enabled);
-void tfw_init_custom_xff(const unsigned char *a, bool enabled);
-void tfw_init_custom_cookie(const unsigned char *a, bool enabled);
+void tfw_init_custom_uri(const unsigned char *a);
+void tfw_init_custom_token(const unsigned char *a);
+void tfw_init_custom_qetoken(const unsigned char *a);
+void tfw_init_custom_nctl(const unsigned char *a);
+void tfw_init_custom_ctext_vchar(const unsigned char *a);
+void tfw_init_custom_xff(const unsigned char *a);
+void tfw_init_custom_cookie(const unsigned char *a);
 
 #ifdef AVX2
 void __tfw_strtolower_avx2(unsigned char *dest, const unsigned char *src,

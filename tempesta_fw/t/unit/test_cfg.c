@@ -832,6 +832,10 @@ TEST(tfw_cfg_interval, tfw_cfg_parse_intvl)
 	EXPECT_ERROR(r);
 
 	i0 = i1 = 0;
+	r = tfw_cfg_parse_intvl("1-0", &i0, &i1);
+	EXPECT_ERROR(r);
+
+	i0 = i1 = 0;
 	r = tfw_cfg_parse_intvl("7-", &i0, &i1);
 	EXPECT_ERROR(r);
 
