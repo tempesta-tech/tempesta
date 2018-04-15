@@ -204,7 +204,7 @@ TEST(cstr, simd_match_custom)
 	 * matcher just because it's different from URI and CTEXT+VCHAR to
 	 * enforce custom matching.
 	 */
-	tfw_init_custom_xff(a, true);
+	tfw_init_custom_xff(a);
 
 #define __test_custom(s)						\
 do {									\
@@ -269,6 +269,8 @@ do {									\
 		      "cccccccccccccccccccccccccccccccc"
 		      "dddddddddddddddddddddddddddddddd"
 		      "012\x97i456|95");
+
+	tfw_init_custom_xff(NULL);
 #undef __test_custom
 }
 

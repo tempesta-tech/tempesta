@@ -1746,10 +1746,10 @@ size_t tfw_match_##a_name(const char *str, size_t len)			\
 EXPORT_SYMBOL(tfw_match_##a_name);
 
 #define TFW_INIT_CUSTOM_A(a_name)					\
-void tfw_init_custom_##a_name(const unsigned char *a, bool enabled)	\
+void tfw_init_custom_##a_name(const unsigned char *a)			\
 {									\
-	custom_##a_name##_enabled = enabled;				\
-	if (enabled)							\
+	custom_##a_name##_enabled = !!a;				\
+	if (!!a)							\
 		__init_custom_a(a, custom_##a_name,			\
 				&__C.C_##a_name##_BM128_0,		\
 				&__C.C_##a_name##_BM128_1,		\
@@ -1777,10 +1777,10 @@ size_t tfw_match_##a_name(const char *str, size_t len)			\
 EXPORT_SYMBOL(tfw_match_##a_name);
 
 #define TFW_INIT_CUSTOM_A(a_name)					\
-void tfw_init_custom_##a_name(const unsigned char *a, bool enabled)	\
+void tfw_init_custom_##a_name(const unsigned char *a)			\
 {									\
-	custom_##a_name##_enabled = enabled;				\
-	if (enabled)							\
+	custom_##a_name##_enabled = !!a;				\
+	if (!!a)							\
 		__init_custom_a(a, custom_##a_name,			\
 			&__C.C_##a_name##_BM128_0,			\
 			&__C.C_##a_name##_BM128_1);			\

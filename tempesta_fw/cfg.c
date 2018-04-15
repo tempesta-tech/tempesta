@@ -1150,8 +1150,9 @@ _parse_integer(const char *s, unsigned int base, unsigned long *p)
 }
 
 int
-tfw_cfg_parse_intvl(const char *s, unsigned long *i0, unsigned long *i1)
+tfw_cfg_parse_intvl(const char *str, unsigned long *i0, unsigned long *i1)
 {
+	const char *s = str;
 	unsigned long *v = i0;
 	unsigned int r;
 	int base;
@@ -1183,7 +1184,7 @@ tfw_cfg_parse_intvl(const char *s, unsigned long *i0, unsigned long *i1)
 		s += r;
 	}
 	if (v == i1 && !*v) {
-		TFW_ERR_NL("Zero interval left bound in '%s'\n", s);
+		TFW_ERR_NL("Zero interval left bound in '%s'\n", str);
 		return -EINVAL;
 	}
 
