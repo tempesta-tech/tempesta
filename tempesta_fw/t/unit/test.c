@@ -26,7 +26,6 @@
 #define tfw_apm_stats	test_tfw_apm_stats
 
 #include "apm.c"
-#include "vhost.c"
 
 int test_fail_counter;
 test_fixture_fn_t test_setup_fn;
@@ -37,7 +36,7 @@ test_fixture_fn_t test_teardown_fn;
  *
  * The problem with logging is that it is hard to find a real error
  * message among all logs generated during a test run.
- * That happens because:
+ * That happpens because:
  *  - Some tests intentionally make calls with invalid input data.
  *    The code generates TFW_ERR() messages indistinguishable from
  *    real errors.
