@@ -805,7 +805,7 @@ tfw_http_sess_get_srv_conn(TfwMsg *msg)
 	/* The session pinning won't be needed, avoid write_lock(). */
 	if (!st_conn->srv_conn && !tfw_http_sess_has_sticky_sess()) {
 		read_unlock(&st_conn->lock);
-		return __tfw_sched_get_srv_conn(msg);
+		return tfw_vhost_get_srv_conn(msg);
 	}
 
 	if ((srv_conn = __try_conn(msg, st_conn->srv_conn))) {
@@ -856,7 +856,7 @@ tfw_http_sess_get_srv_conn(TfwMsg *msg)
 			 addr_str, srv->sg->name);
 	}
 
-	srv_conn = __tfw_sched_get_srv_conn(msg);
+	srv_conn = tfw_vhost_get_srv_conn(msg);
 	tfw_http_sess_pin_srv(st_conn, srv_conn);
 err:
 	write_unlock(&st_conn->lock);

@@ -613,5 +613,6 @@ void tfw_http_send_resp(TfwHttpReq *req, int status, const char *reason);
 
 /* Helper functions */
 char *tfw_http_msg_body_dup(const char *filename, size_t *len);
+int tfw_http_resp_code_range(const int n);
 
 #endif /* __TFW_HTTP_H__ */

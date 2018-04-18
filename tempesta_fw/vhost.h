@@ -23,6 +23,7 @@
 #include "str.h"
 #include "addr.h"
 #include "msg.h"
+#include "server.h"
 
 /**
  * Non-Idempotent Request definition.
@@ -100,17 +101,25 @@ enum {
  * @nipdef_sz	- Size of @nipdef array.
  * @capo	- Array of pointers to Cache Policy definitions.
  * @nipdef	- Array of pointers to Non-Idempotent Request definitions.
+ * @frang_cfg	- Pointer to location-specific Frang settings structure.
+ * @main_sg	- Main server group to which requsts must be proxied.
+ * @backup_sg	- Backup server group.
+ * @hdrs_pool	- Pointer to parent vhost's pool (for mod. headers allocation).
  * @mod_hdrs	- Modification of request/response headers before forwarding.
  */
 typedef struct {
-	short		op;
-	const char	*arg;
-	size_t		len;
-	size_t		capo_sz;
-	size_t		nipdef_sz;
-	TfwCaPolicy	**capo;
-	TfwNipDef	**nipdef;
-	TfwHdrMods	mod_hdrs[TFW_VHOST_HDRMOD_NUM];
+	short			op;
+	const char		*arg;
+	size_t			len;
+	size_t			capo_sz;
+	size_t			nipdef_sz;
+	TfwCaPolicy		**capo;
+	TfwNipDef		**nipdef;
+	struct frang_cfg_t	*frang_cfg;
+	TfwSrvGroup		*main_sg;
+	TfwSrvGroup		*backup_sg;
+	TfwPool			*hdrs_pool;
+	TfwHdrMods		mod_hdrs[TFW_VHOST_HDRMOD_NUM];
 } TfwLocation;
 
 /* Cache purge configuration modes. */
@@ -118,34 +127,82 @@ enum {
 	TFW_D_CACHE_PURGE_INVALIDATE,
 };
 
+typedef struct tfw_vhost_t TfwVhost;
+
 /**
  * Virtual host defined by directives and policies.
+ *
+ * @list	- Entry in list of all configured virtual hosts.
+ * @name	- Name of virtual host.
  * @loc		- Array of groups of policies by specific location.
- * @loc_dflt	- Group of default policies.
- * @loc_sz	- Size of @loc array.
- * @loc_dflt_sz	- Size of @loc_dflt.
+ * @loc_dflt	- Default policy.
+ * @vhost_dflt	- Pointer to default virtual host with global policies.
+ * @hdrs_pool	- Modification headers allocation pool for vhost's policies.
+ * @refcnt	- Number of users of the virtual host object.
+ * @loc_sz	- Count of elements in @loc array.
+ */
+struct tfw_vhost_t {
+	struct list_head	list;
+	const char		*name;
+	TfwLocation		*loc;
+	TfwLocation		*loc_dflt;
+	TfwVhost		*vhost_dflt;
+	TfwPool			*hdrs_pool;
+	atomic64_t		refcnt;
+	size_t			loc_sz;
+};
+
+/**
+ * Global settings (exist only on top level and are not reconfigurable).
+ *
+ * @hdr_via		- 'Via' header value for HTTP messages.
+ * @capuacl		- Array of addresses permitted for purge configuration.
+ * @hdr_via_len		- Length of 'Via' header value.
+ * @capuacl_sz		- Count of elements in @capuacl array.
+ * @cache_purge		- Enable/disable cache purge configuration.
+ * @cache_purge_mode	- Cache purge configuration mode.
+ * @cache_purge_acl	- Enable/disable ACL for cache purge configuration.
  */
 typedef struct {
-	TfwLocation	*loc;
-	TfwLocation	*loc_dflt;
-	TfwAddr		*capuacl;
-	const char	*hdr_via;
-	size_t		loc_sz;
-	size_t		loc_dflt_sz;
-	size_t		capuacl_sz;
-	size_t		hdr_via_len;
-	u8		cache_purge:1;
-	u8		cache_purge_mode:2;
-	u8		cache_purge_acl:1;
-} TfwVhost;
+	const char		*hdr_via;
+	TfwAddr			*capuacl;
+	size_t			hdr_via_len;
+	size_t			capuacl_sz;
+	u8			cache_purge:1;
+	u8			cache_purge_mode:2;
+	u8			cache_purge_acl:1;
+} TfwGlobal;
+
+void tfw_vhost_destroy(TfwVhost *vhost);
+
+static inline void
+tfw_vhost_get(TfwVhost *vhost)
+{
+	atomic64_inc(&vhost->refcnt);
+}
+
+static inline void
+tfw_vhost_put(TfwVhost *vhost)
+{
+	if (unlikely(!vhost))
+		return;
+	if (likely(atomic64_dec_return(&vhost->refcnt)))
+		return;
+	tfw_vhost_destroy(vhost);
+}
 
 TfwNipDef *tfw_nipdef_match(TfwLocation *loc, unsigned char meth, TfwStr *arg);
-bool tfw_capuacl_match(TfwVhost *vhost, TfwAddr *addr);
+bool tfw_capuacl_match(TfwAddr *addr);
 TfwCaPolicy *tfw_capolicy_match(TfwLocation *loc, TfwStr *arg);
 TfwLocation *tfw_location_match(TfwVhost *vhost, TfwStr *arg);
-TfwVhost *tfw_vhost_match(TfwStr *arg);
-TfwVhost *tfw_vhost_get_default(void);
-TfwHdrMods *tfw_vhost_get_hdr_mods(TfwLocation *req_lc, TfwVhost *req_vh,
+TfwVhost *tfw_vhost_match(TfwMsg *msg);
+TfwVhost *tfw_vhost_lookup(const char *name);
+TfwSrvConn *tfw_vhost_get_srv_conn(TfwMsg *msg);
+TfwVhost *tfw_vhost_new(const char *name);
+TfwVhost *tfw_vhost_default_new(void);
+TfwGlobal *tfw_vhost_get_global(void);
+TfwHdrMods *tfw_vhost_get_hdr_mods(TfwLocation *loc, TfwVhost *vhost,
 				   int mod_type);
+struct frang_cfg_t *tfw_vhost_global_frang_cfg(void);
 
 #endif /* __TFW_VHOST_H__ */

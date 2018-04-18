@@ -37,6 +37,13 @@
 #define module_exit(func)
 #endif
 
+#undef tfw_vhost_lookup
+#define tfw_vhost_lookup		test_tfw_vhost_lookup
+#undef tfw_vhost_destroy
+#define tfw_vhost_destroy		test_tfw_vhost_destroy
+#undef tfw_vhost_global_frang_cfg
+#define tfw_vhost_global_frang_cfg	test_tfw_vhost_global_frang_cfg
+#include "vhost.c"
 #include "../../sched/tfw_sched_http.c"
 
 #include "cfg.h"
@@ -49,24 +56,33 @@ static int
 parse_cfg(const char *cfg_text)
 {
 	struct list_head mod_list;
-	TfwMod sched_mod;
+	TfwMod vhost_mod, sched_mod;
 	int r;
 
 	kernel_fpu_end();
 
-	sched_mod = *tfw_mod_find("tfw_sched_http");
-	
-	INIT_LIST_HEAD(&sched_mod.list);
 	INIT_LIST_HEAD(&mod_list);
+
+	vhost_mod = *tfw_mod_find("vhost");
+	INIT_LIST_HEAD(&vhost_mod.list);
+	list_add(&vhost_mod.list, &mod_list);
+
+	sched_mod = *tfw_mod_find("tfw_sched_http");
+	INIT_LIST_HEAD(&sched_mod.list);
 	list_add(&sched_mod.list, &mod_list);
 
-	r = tfw_cfg_parse_mods(cfg_text, &mod_list);
 	/*
-	 * Only 'tfw_sched_http' is used, start it directly to make HTTP
-	 * scheduler working. cfgend() is not used since implicit default
-	 * match rule is undesirable in the tests.
+	 * Configure and start HTTP scheduler directly. 'cfgend()'
+	 * callback of 'sched_mod' is not used since implicit
+	 * default match rule is undesirable in the tests.
+	 * Also 'vhost_mod' is used for proper configuration
+	 * of http scheduler.
 	 */
-	r &= tfw_sched_http_start();
+	r = tfw_vhost_cfgstart();	
+	r |= tfw_cfg_parse_mods(cfg_text, &mod_list);
+	r |= tfw_vhost_cfgend();
+	r |= tfw_vhost_start();
+	r |= tfw_sched_http_start();
 
 	kernel_fpu_begin();
 
@@ -76,12 +92,14 @@ parse_cfg(const char *cfg_text)
 static void
 cleanup_cfg(void)
 {
-	TfwMod sched_mod;
+	TfwMod sched_mod, vhost_mod;
 
 	kernel_fpu_end();
 
 	sched_mod = *tfw_mod_find("tfw_sched_http");
 	test_spec_cleanup(sched_mod.specs);
+	vhost_mod = *tfw_mod_find("vhost");
+	test_spec_cleanup(vhost_mod.specs);
 
 	kernel_fpu_begin();
 }
@@ -89,8 +107,7 @@ cleanup_cfg(void)
 static void
 test_req(char *req_str, TfwSrvConn *expect_conn)
 {
-	TfwScheduler *sched;
-	TfwSrvConn *srv_conn;
+	TfwSrvConn *srv_conn = NULL;
 	TfwHttpReq *req = test_req_alloc(req_str? strlen(req_str): 1);
 
 	if (req_str) {
@@ -102,8 +119,9 @@ test_req(char *req_str, TfwSrvConn *expect_conn)
 		tfw_http_parse_req(req, req_str_copy, req_str_len);
 	}
 
-	sched = tfw_sched_lookup("http");
-	srv_conn = sched->sched_grp((TfwMsg *)req);
+	req->vhost = tfw_vhost_match((TfwMsg *)req);
+	if (req->vhost)
+		srv_conn = tfw_vhost_get_srv_conn((TfwMsg *)req);
 	EXPECT_EQ(srv_conn, expect_conn);
 
 	test_req_free(req);
@@ -114,7 +132,7 @@ TEST(tfw_sched_http, sched_null_grp)
 {
 	TfwScheduler *sched = tfw_sched_lookup("http");
 
-	EXPECT_TRUE(sched->sched_grp(NULL) == NULL);
+	EXPECT_TRUE(sched->sched_vhost(NULL) == NULL);
 }
 
 TEST(tfw_sched_http, one_wildcard_rule)
@@ -128,7 +146,8 @@ TEST(tfw_sched_http, one_wildcard_rule)
 	expect_conn = test_create_srv_conn(srv);
 	test_start_sg(sg, "ratio", TFW_SG_F_SCHED_RATIO_STATIC);
 
-	if (parse_cfg("sched_http_rules {\nmatch default * * *;\n}\n")) {
+	if (parse_cfg("vhost default {\nproxy_pass default;\n}\n\
+		       sched_http_rules {\nmatch default * * *;\n}\n")) {
 		TEST_FAIL("can't parse rules\n");
 	}
 
@@ -198,16 +217,26 @@ TEST(tfw_sched_http, some_rules)
 	expect_conn10 = test_create_srv_conn(srv);
 	test_start_sg(sg10, "ratio", TFW_SG_F_SCHED_RATIO_STATIC);
 
-	if (parse_cfg("sched_http_rules {\nmatch sg1 uri eq /foo;\n\
-	                                   match sg2 uri prefix /foo/bar;\n\
-	                                   match sg3 host eq natsys-lab.com;\n\
-	                                   match sg4 host prefix natsys-lab;\n\
-	                                   match sg5 hdr_host eq google.com;\n\
-	                                   match sg6 hdr_host prefix google;\n\
-	                                   match sg7 hdr_conn eq close;\n\
-	                                   match sg8 hdr_conn prefix Keep;\n\
-	                                   match sg9 hdr_raw eq User-Agent:Bot;\n\
-	                                   match sg10 hdr_raw prefix X-Forwarded-For;\n}\n")) {
+	if (parse_cfg("vhost vh1 {\nproxy_pass sg1;\n}\n\
+	               vhost vh2 {\nproxy_pass sg2;\n}\n\
+	               vhost vh3 {\nproxy_pass sg3;\n}\n\
+	               vhost vh4 {\nproxy_pass sg4;\n}\n\
+	               vhost vh5 {\nproxy_pass sg5;\n}\n\
+	               vhost vh6 {\nproxy_pass sg6;\n}\n\
+	               vhost vh7 {\nproxy_pass sg7;\n}\n\
+	               vhost vh8 {\nproxy_pass sg8;\n}\n\
+	               vhost vh9 {\nproxy_pass sg9;\n}\n\
+	               vhost vh10 {\nproxy_pass sg10;\n}\n\
+	               sched_http_rules {\nmatch vh1 uri eq /foo;\n\
+	                                   match vh2 uri prefix /foo/bar;\n\
+	                                   match vh3 host eq natsys-lab.com;\n\
+	                                   match vh4 host prefix natsys-lab;\n\
+	                                   match vh5 hdr_host eq google.com;\n\
+	                                   match vh6 hdr_host prefix google;\n\
+	                                   match vh7 hdr_conn eq close;\n\
+	                                   match vh8 hdr_conn prefix Keep;\n\
+	                                   match vh9 hdr_raw eq User-Agent:Bot;\n\
+	                                   match vh10 hdr_raw prefix X-Forwarded-For;\n}\n")) {
 		TEST_FAIL("can't parse rules\n");
 	}
 
@@ -245,52 +274,62 @@ typedef struct {
 
 TestCase test_cases[] = {
 	{
-		.rule_str = "sched_http_rules {\nmatch default uri eq /foo;\n}\n",
+		.rule_str = "vhost default {\nproxy_pass default;\n}\n\
+			     sched_http_rules {\nmatch default uri eq /foo;\n}\n",
 		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\n\r\n",
 		.bad_req_str = "GET http://natsys-lab.com/foo2 HTTP/1.1\r\n\r\n",
 	},
 	{
-		.rule_str = "sched_http_rules {\nmatch default uri prefix /foo;\n}\n",
+		.rule_str = "vhost default {\nproxy_pass default;\n}\n\
+			     sched_http_rules {\nmatch default uri prefix /foo;\n}\n",
 		.good_req_str = "GET http://natsys-lab.com/foo2 HTTP/1.1\r\n\r\n",
 		.bad_req_str = "GET http://natsys-lab.com/bar HTTP/1.1\r\n\r\n",
 	},
 	{
-		.rule_str = "sched_http_rules {\nmatch default host eq natsys-lab.com;\n}\n",
+		.rule_str = "vhost default {\nproxy_pass default;\n}\n\
+			     sched_http_rules {\nmatch default host eq natsys-lab.com;\n}\n",
 		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\n\r\n",
 		.bad_req_str = "GET http://natsys-lab2.com/foo HTTP/1.1\r\n\r\n",
 	},
 	{
-		.rule_str = "sched_http_rules {\nmatch default host prefix natsys-lab;\n}\n",
+		.rule_str = "vhost default {\nproxy_pass default;\n}\n\
+			     sched_http_rules {\nmatch default host prefix natsys-lab;\n}\n",
 		.good_req_str = "GET http://natsys-lab2.com/foo HTTP/1.1\r\n\r\n",
 		.bad_req_str = "GET http://google.com/foo HTTP/1.1\r\n\r\n",
 	},
 	{
-		.rule_str = "sched_http_rules {\nmatch default hdr_host eq natsys-lab.com;\n}\n",
+		.rule_str = "vhost default {\nproxy_pass default;\n}\n\
+			     sched_http_rules {\nmatch default hdr_host eq natsys-lab.com;\n}\n",
 		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nHost: natsys-lab.com\r\n\r\n",
 		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nHost: natsys-lab2.com\r\n\r\n",
 	},
 	{
-		.rule_str = "sched_http_rules {\nmatch default hdr_host prefix natsys-lab;\n}\n",
+		.rule_str = "vhost default {\nproxy_pass default;\n}\n\
+			     sched_http_rules {\nmatch default hdr_host prefix natsys-lab;\n}\n",
 		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nHost: natsys-lab2.com\r\n\r\n",
 		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nHost: google.com\r\n\r\n",
 	},
 	{
-		.rule_str = "sched_http_rules {\nmatch default hdr_conn eq Keep-Alive;\n}\n",
+		.rule_str = "vhost default {\nproxy_pass default;\n}\n\
+			     sched_http_rules {\nmatch default hdr_conn eq Keep-Alive;\n}\n",
 		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nConnection: Keep-Alive\r\n\r\n",
 		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nConnection: close\r\n\r\n",
 	},
 	{
-		.rule_str = "sched_http_rules {\nmatch default hdr_conn prefix Keep;\n}\n",
+		.rule_str = "vhost default {\nproxy_pass default;\n}\n\
+			     sched_http_rules {\nmatch default hdr_conn prefix Keep;\n}\n",
 		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nConnection: Keep-Alive\r\n\r\n",
 		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nConnection: close\r\n\r\n",
 	},
 	{
-		.rule_str = "sched_http_rules {\nmatch default hdr_raw eq User-Agent:Bot;\n}\n",
+		.rule_str = "vhost default {\nproxy_pass default;\n}\n\
+			     sched_http_rules {\nmatch default hdr_raw eq User-Agent:Bot;\n}\n",
 		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nUser-Agent:Bot\r\n\r\n",
 		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nUser-Agent:Tot\r\n\r\n",
 	},
 	{
-		.rule_str = "sched_http_rules {\nmatch default hdr_raw prefix User-Agent;\n}\n",
+		.rule_str = "vhost default {\nproxy_pass default;\n}\n\
+			     sched_http_rules {\nmatch default hdr_raw prefix User-Agent;\n}\n",
 		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nUser-Agent: Bot\r\n\r\n",
 		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nConnection: close\r\n\r\n",
 	},
@@ -335,6 +374,7 @@ TEST_SUITE(sched_http)
 	s = tfw_sched_lookup("ratio");
 	if (!s)
 		tfw_sched_ratio_init();
+	tfw_vhost_init();
 	tfw_sched_http_init();
 	tfw_server_init();
 
