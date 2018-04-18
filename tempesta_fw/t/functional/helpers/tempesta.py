@@ -184,9 +184,10 @@ class ServerGroup(object):
 
 class Config(object):
     """ Creates Tempesta config file. """
-    def __init__(self):
+    def __init__(self, vhost_auto=True):
         self.server_groups = []
         self.defconfig = ''
+        self.vhost_auto_mode = vhost_auto
 
     def find_sg(self, sg_name):
         for sg in self.server_groups:
@@ -203,8 +204,19 @@ class Config(object):
         error.assertTrue(self.find_sg(new_sg.name) is None)
         self.server_groups.append(new_sg)
 
+    def vhosts_auto_config(self):
+        vhosts = []
+        if self.vhost_auto_mode:
+            for sg in self.server_groups:
+                vhosts.append('\n'.join(
+                    ['vhost %s {' % sg.name] +
+                    ['proxy_pass %s;' % sg.name] +
+                    ['}']))
+        return vhosts;
+
     def get_config(self):
         cfg = '\n'.join([sg.get_config() for sg in self.server_groups] +
+                        self.vhosts_auto_config() +
                         [self.defconfig])
         return cfg
 

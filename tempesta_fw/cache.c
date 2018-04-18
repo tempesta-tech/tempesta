@@ -313,8 +313,8 @@ tfw_cache_policy(TfwVhost *vhost, TfwLocation *loc, TfwStr *arg)
 		if ((capo = tfw_capolicy_match(loc, arg)))
 			return capo->cmd;
 	} else {
-		TfwVhost *vhost_dflt = tfw_vhost_get_default();
-		if (vhost == vhost_dflt)
+		TfwVhost *vhost_dflt = vhost->vhost_dflt;
+		if (!vhost_dflt)
 			return TFW_D_CACHE_BYPASS;
 
 		loc = vhost_dflt->loc_dflt;
@@ -1402,23 +1402,23 @@ tfw_cache_purge_method(TfwHttpReq *req)
 {
 	int ret;
 	TfwAddr saddr;
-	TfwVhost *vhost = tfw_vhost_get_default();
+	TfwGlobal *g_vhost = tfw_vhost_get_global();
 
 	/* Deny PURGE requests by default. */
-	if (!(cache_cfg.cache && vhost->cache_purge && vhost->cache_purge_acl)) {
+	if (!(cache_cfg.cache && g_vhost->cache_purge && g_vhost->cache_purge_acl)) {
 		tfw_http_send_resp(req, 403, "purge: not configured");
 		return;
 	}
 
 	/* Accept requests from configured hosts only. */
 	ss_getpeername(req->conn->sk, &saddr);
-	if (!tfw_capuacl_match(vhost, &saddr)) {
+	if (!tfw_capuacl_match(&saddr)) {
 		tfw_http_send_resp(req, 403, "purge: ACL violation");
 		return;
 	}
 
 	/* Only "invalidate" option is implemented at this time. */
-	switch (vhost->cache_purge_mode) {
+	switch (g_vhost->cache_purge_mode) {
 	case TFW_D_CACHE_PURGE_INVALIDATE:
 		ret = tfw_cache_purge_invalidate(req);
 		break;
@@ -1779,11 +1779,11 @@ static int
 tfw_cache_start(void)
 {
 	int i, r = 1;
-	TfwVhost *vhost = tfw_vhost_get_default();
+	TfwGlobal *g_vhost = tfw_vhost_get_global();
 
 	if (tfw_runstate_is_reconfig())
 		return 0;
-	if (!(cache_cfg.cache || vhost->cache_purge))
+	if (!(cache_cfg.cache || g_vhost->cache_purge))
 		return 0;
 
 	for_each_node_with_cpus(i) {

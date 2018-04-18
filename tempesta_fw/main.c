@@ -29,6 +29,7 @@
 #include "str.h"
 #include "sync_socket.h"
 #include "server.h"
+#include "vhost.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION(TFW_NAME);
@@ -125,6 +126,7 @@ tfw_cleanup(struct list_head *mod_list)
 
 	if (!tfw_runstate_is_reconfig())
 		tfw_sg_wait_release();
+
 	TFW_LOG("New configuration is cleaned.\n");
 }
 

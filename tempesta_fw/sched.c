@@ -41,51 +41,33 @@ static LIST_HEAD(sched_list);
 static DEFINE_SPINLOCK(sched_lock);
 
 /**
- * Find an outgoing connection for an HTTP message.
+ * Find target host and outgoing connection for an HTTP message.
  *
  * Where an HTTP message goes in controlled by schedulers. It may
  * or may not depend on properties of HTTP message itself. In any
  * case, schedulers are polled in sequential order until a result
  * is received. Schedulers that distribute HTTP messages among
- * server groups come first in the list. The search stops when
- * these schedulers run out.
+ * vhosts and server groups come first in the list. The search
+ * stops when these schedulers run out.
  */
-TfwSrvConn *
-__tfw_sched_get_srv_conn(TfwMsg *msg)
+TfwVhost *
+tfw_sched_get_vhost(TfwMsg *msg)
 {
-	TfwSrvConn *srv_conn;
+	TfwVhost *vhost;
 	TfwScheduler *sched;
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(sched, &sched_list, list) {
-		if (!sched->sched_grp)
+		if (!sched->sched_vhost)
 			break;
-		if ((srv_conn = sched->sched_grp(msg))) {
+		if ((vhost = sched->sched_vhost(msg))) {
 			rcu_read_unlock();
-			return srv_conn;
+			return vhost;
 		}
 	}
 	rcu_read_unlock();
 
 	return NULL;
-}
-
-/*
- * Find an outgoing server connection for an HTTP message.
- *
- * This function is always called in SoftIRQ context.
- */
-TfwSrvConn *
-tfw_sched_get_srv_conn(TfwMsg *msg)
-{
-	TfwHttpReq *req = (TfwHttpReq *)msg;
-	TfwHttpSess *sess = req->sess;
-
-	/* Sticky cookies are disabled or client doesn't support cookies. */
-	if (!sess)
-		return __tfw_sched_get_srv_conn(msg);
-
-	return tfw_http_sess_get_srv_conn(msg);
 }
 
 /*
@@ -143,7 +125,7 @@ tfw_sched_register(TfwScheduler *sched)
 
 	/* Add group scheduling schedulers at head of the list. */
 	spin_lock(&sched_lock);
-	if (sched->sched_grp)
+	if (sched->sched_vhost)
 		list_add_rcu(&sched->list, &sched_list);
 	else
 		list_add_tail_rcu(&sched->list, &sched_list);
