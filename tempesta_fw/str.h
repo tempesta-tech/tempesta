@@ -78,6 +78,14 @@
  * processing). Softirq context is explicitly protected by kernel_fpu_begin()
  * and kernel_fpu_end(), so you must do the same if you need the functions in
  * some other context. Keep in mind that TfwStr uses the functions as well.
+ *
+ * The functions are optimistic for the data of length 64 and more bytes,
+ * i.e. comapring or matchin long strings you assume that the strings are
+ * matched (in case of tfw_match_*) or the same (in case of tfw_stricmp).
+ * 64 and 128 byte subroutines of the functions load and process 2 and 4
+ * 32-byre registers in parallel utilizing the memory bus and avoiding
+ * conditional branches. However, they may load unnecessary data is the first
+ * 32 bytes contain non-matching data.
  * ------------------------------------------------------------------------
  */
 void tfw_str_init_const(void);
