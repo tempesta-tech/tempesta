@@ -222,8 +222,8 @@ tfw_stats_extend(TfwPcntRanges *rng, unsigned int r_time)
 			break;
 		}
 	}
-	memset(&rng->cnt[TFW_STATS_RLAST][parts], 0,
-	       sizeof(rng->cnt[0][0]) * (TFW_STATS_BCKTS - parts));
+	bzero_fast(&rng->cnt[TFW_STATS_RLAST][parts],
+		   sizeof(rng->cnt[0][0]) * (TFW_STATS_BCKTS - parts));
 }
 
 /**
@@ -778,9 +778,9 @@ tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwPrcntlStats *pstats
 static inline void
 __tfw_apm_rbent_reset(TfwApmRBEnt *crbent, unsigned long jtmistamp)
 {
-	memset(crbent->pcntrng.__reset_from, 0,
-	       offsetof(TfwPcntRanges, __reset_till) -
-	       offsetof(TfwPcntRanges, __reset_from));
+	bzero_fast(crbent->pcntrng.__reset_from,
+		   offsetof(TfwPcntRanges, __reset_till) -
+		   offsetof(TfwPcntRanges, __reset_from));
 	crbent->jtmistamp = jtmistamp;
 	smp_mb__before_atomic();
 	atomic_set(&crbent->reset, 1);
@@ -894,8 +894,8 @@ tfw_apm_calc(TfwApmData *data)
 
 	TFW_DBG3("%s: Percentile values may have changed.\n", __func__);
 	write_lock(&asent->rwlock);
-	memcpy(asent->pstats.val, pstats.val,
-	       asent->pstats.psz * sizeof(asent->pstats.val[0]));
+	memcpy_fast(asent->pstats.val, pstats.val,
+		    asent->pstats.psz * sizeof(asent->pstats.val[0]));
 	atomic_inc(&data->stats.rdidx);
 	write_unlock(&asent->rwlock);
 
@@ -924,8 +924,8 @@ tfw_apm_calc(TfwApmData *data)
 	asent = &data->stats.asent[rdidx % 2];				\
 									\
 	fn_lock(&asent->rwlock);					\
-	memcpy(pstats->val, asent->pstats.val,				\
-	       pstats->psz * sizeof(pstats->val[0]));			\
+	memcpy_fast(pstats->val, asent->pstats.val,			\
+		    pstats->psz * sizeof(pstats->val[0]));		\
 	fn_unlock(&asent->rwlock);					\
 	pstats->seq = rdidx;						\
 									\

@@ -34,7 +34,7 @@ TfwConnHooks *conn_hooks[TFW_CONN_MAX_PROTOS];
 void
 tfw_connection_init(TfwConn *conn)
 {
-	memset(conn, 0, sizeof(*conn));
+	bzero_fast(conn, sizeof(*conn));
 	INIT_LIST_HEAD(&conn->list);
 }
 

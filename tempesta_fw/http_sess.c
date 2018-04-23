@@ -172,7 +172,7 @@ tfw_http_sticky_send_redirect(TfwHttpReq *req, StickyVal *sv)
 	bin2hex(buf, &ts_be64, sizeof(ts_be64));
 	bin2hex(&buf[sizeof(ts_be64) * 2], sv->hmac, sizeof(sv->hmac));
 
-	memset(chunks, 0, sizeof(chunks));
+	bzero_fast(chunks, sizeof(chunks));
 	chunks[0] = tfw_cfg_sticky.name;
 	chunks[1] = s_eq;
 	chunks[2].ptr = buf;
@@ -332,7 +332,7 @@ __sticky_calc(TfwHttpReq *req, StickyVal *sv)
 
 	addr_len = tfw_addr_sa_len(addr);
 
-	memset(desc, 0, sizeof(desc));
+	bzero_fast(desc, sizeof(desc));
 	shash_desc->tfm = tfw_sticky_shash;
 	shash_desc->flags = 0;
 
@@ -675,7 +675,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 			continue;
 		}
 
-		if (!memcmp(sv.hmac, sess->hmac, sizeof(sess->hmac)))
+		if (!memcmp_fast(sv.hmac, sess->hmac, sizeof(sess->hmac)))
 			goto found;
 	}
 
@@ -689,7 +689,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 		return -ENOMEM;
 	}
 
-	memcpy(sess->hmac, sv.hmac, sizeof(sv.hmac));
+	memcpy_fast(sess->hmac, sv.hmac, sizeof(sv.hmac));
 	hlist_add_head(&sess->hentry, &hb->list);
 	/*
 	 * Sessions are removed by the garbage collection above, so the hash

@@ -292,8 +292,8 @@ do {									\
 	dst1 = kmalloc(n * 2, GFP_ATOMIC);				\
 	BUG_ON(!dst1);							\
 	dst2 = dst1 + n;						\
-	dst1 = tfw_strtolower(dst1, s, n);				\
-	dst2 = c_strtolower(dst2, s, n);				\
+	tfw_strtolower(dst1, s, n);					\
+	c_strtolower(dst2, s, n);					\
 	EXPECT_TRUE(!strncmp(dst1, dst2, n));				\
 } while (0)
 

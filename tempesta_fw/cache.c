@@ -849,7 +849,7 @@ tfw_cache_str_write_hdr(const TfwStr *str, char *p)
  */
 static long
 __tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len,
-		   void *cpy(void *dest, const void *src, size_t n))
+		   void cpy(void *dest, const void *src, size_t n))
 {
 	long copied = 0;
 
@@ -883,10 +883,10 @@ __tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len,
 /**
  * We need the function wrapper if memcpy() is defined as __inline_memcpy().
  */
-static void *
+static void
 __tfw_memcpy(void *dst ,const void *src, size_t n)
 {
-	return memcpy(dst, src, n);
+	memcpy_fast(dst, src, n);
 }
 
 static inline long
@@ -1073,7 +1073,7 @@ __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
 					    len);
 		if (!curr_p)
 			return -ENOMEM;
-		memcpy(curr_p, ce->etag.ptr, len);
+		memcpy_fast(curr_p, ce->etag.ptr, len);
 		ce->etag.ptr = curr_p;
 		/* Old ce->etag.ptr will be destroyed with resp. */
 	}

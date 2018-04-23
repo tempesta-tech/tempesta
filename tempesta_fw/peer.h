@@ -45,7 +45,7 @@ tfw_peer_init(TfwPeer *p, const TfwAddr *addr)
 	INIT_LIST_HEAD(&p->conn_list);
 	spin_lock_init(&p->conn_lock);
 
-	memcpy(&p->addr, addr, sizeof(p->addr));
+	memcpy_fast(&p->addr, addr, sizeof(p->addr));
 }
 
 static inline void
