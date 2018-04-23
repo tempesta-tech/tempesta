@@ -111,12 +111,11 @@ void __tfw_strtolower_avx2(unsigned char *dest, const unsigned char *src,
 int __tfw_stricmp_avx2(const char *s1, const char *s2, size_t len);
 int __tfw_stricmp_avx2_2lc(const char *s1, const char *s2, size_t len);
 
-static inline void *
+static inline void
 tfw_strtolower(void *dest, const void *src, size_t len)
 {
 	__tfw_strtolower_avx2((unsigned char *)dest, (const unsigned char *)src,
 			      len);
-	return dest;
 }
 
 /**
@@ -141,7 +140,7 @@ tfw_stricmp_2lc(const char *s1, const char *s2, size_t len)
 }
 #else
 
-static inline void *
+static inline void
 tfw_strtolower(void *dest, const void *src, size_t len)
 {
 	int i;
@@ -150,8 +149,6 @@ tfw_strtolower(void *dest, const void *src, size_t len)
 
 	for (i = 0; i < len; ++i)
 		d[i] = tolower(s[i]);
-
-	return dest;
 }
 
 static inline int
@@ -234,7 +231,7 @@ typedef struct {
 /* Compound string contains at least 2 chunks. */
 #define TFW_STR_CHUNKN_INIT(s)	__TFW_STR_CHUNKN_SET(s, 2)
 
-#define TFW_STR_INIT(s)		memset(s, 0, sizeof(TfwStr))
+#define TFW_STR_INIT(s)		bzero_fast(s, sizeof(TfwStr))
 
 #define TFW_STR_EMPTY(s)	(!((s)->flags | (s)->len))
 #define TFW_STR_PLAIN(s)	(!((s)->flags & __TFW_STR_COMPOUND))

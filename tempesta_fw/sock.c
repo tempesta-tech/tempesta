@@ -205,7 +205,7 @@ ss_turnstile_push(long ticket, SsWork *sw, int cpu)
 	if (!cn)
 		return -ENOMEM;
 	cn->ticket = ticket;
-	memcpy(&cn->sw, sw, sizeof(*sw));
+	memcpy_fast(&cn->sw, sw, sizeof(*sw));
 	spin_lock_bh(&cb->lock);
 	list_add(&cn->list, &cb->head);
 	cb->size++;
@@ -285,7 +285,7 @@ ss_wq_pop(SsWork *sw, long *ticket)
 		}
 		spin_unlock(&cb->lock);
 		if (cn) {
-			memcpy(sw, &cn->sw, sizeof(*sw));
+			memcpy_fast(sw, &cn->sw, sizeof(*sw));
 			kmem_cache_free(ss_cbacklog_cache, cn);
 			return 0;
 		}

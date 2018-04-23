@@ -160,7 +160,7 @@ __str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag, int n)
 	}
 
 	str = (TfwStr *)str->ptr + TFW_STR_CHUNKN(str) - n;
-	memset(str, 0, sizeof(TfwStr) * n);
+	bzero_fast(str, sizeof(TfwStr) * n);
 
 	return str;
 }
@@ -212,13 +212,13 @@ tfw_strcpy(TfwStr *dst, const TfwStr *src)
 
 	switch (mode) {
 	case 3: /* The both are plain. */
-		memcpy(dst->ptr, src->ptr, min(src->len, dst->len));
+		memcpy_fast(dst->ptr, src->ptr, min(src->len, dst->len));
 		break;
 	case 1: /* @src is compound, @dst is plain. */
 		n1 = TFW_STR_CHUNKN(src);
 		end = (TfwStr *)src->ptr + n1;
 		for (c1 = (TfwStr *)src->ptr; c1 < end; ++c1) {
-			memcpy((char *)dst->ptr + o2, c1->ptr, c1->len);
+			memcpy_fast((char *)dst->ptr + o2, c1->ptr, c1->len);
 			o2 += c1->len;
 		}
 		BUG_ON(o2 != src->len);
@@ -227,7 +227,7 @@ tfw_strcpy(TfwStr *dst, const TfwStr *src)
 		for (c2 = (TfwStr *)dst->ptr; o1 < src->len; ++c2) {
 			/* Update length of the last chunk. */
 			c2->len = min(c2->len, src->len - o1);
-			memcpy(c2->ptr, (char *)src->ptr + o1, c2->len);
+			memcpy_fast(c2->ptr, (char *)src->ptr + o1, c2->len);
 			++chunks;
 			o1 += c2->len;
 		}
@@ -240,7 +240,8 @@ tfw_strcpy(TfwStr *dst, const TfwStr *src)
 		end = c1 + n1 - 1;
 		while (1) {
 			int _n = min(c1->len - o1, c2->len - o2);
-			memcpy((char *)c2->ptr + o2, (char *)c1->ptr + o1, _n);
+			memcpy_fast((char *)c2->ptr + o2, (char *)c1->ptr + o1,
+				    _n);
 			if (c1 == end && _n == c1->len - o1) {
 				/* Adjust @dst last chunk length. */
 				c2->len = o2 + _n;
@@ -300,7 +301,7 @@ tfw_strdup(TfwPool *pool, const TfwStr *src)
 	TFW_STR_FOR_EACH_CHUNK(s_c, src, end) {
 		*d_c = *s_c;
 		d_c->ptr = data;
-		memcpy(data, s_c->ptr, s_c->len);
+		memcpy_fast(data, s_c->ptr, s_c->len);
 		data += s_c->len;
 		++d_c;
 	}
