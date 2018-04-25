@@ -1874,7 +1874,7 @@ tfw_http_conn_drop(TfwConn *conn)
 static int
 tfw_http_conn_send(TfwConn *conn, TfwMsg *msg)
 {
-	return ss_send(conn->sk, &msg->skb_list, msg->ss_flags);
+	return ss_send(conn->sk, &msg->skb_head, msg->ss_flags);
 }
 
 /**
@@ -1923,7 +1923,7 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 		tfw_http_conn_msg_free(shm);
 		return NULL;
 	}
-	ss_skb_queue_tail(&shm->msg.skb_list, nskb);
+	ss_skb_queue_tail(&shm->msg.skb_head, nskb);
 	*skb = nskb;
 
 	return shm;
@@ -2063,7 +2063,7 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 	int r;
 	char *p, *buf = *this_cpu_ptr(&g_buf);
 
-	p = ss_skb_fmt_src_addr(hm->msg.skb_list.first, buf);
+	p = ss_skb_fmt_src_addr(hm->msg.skb_head, buf);
 
 	r = tfw_http_msg_hdr_xfrm(hm, "X-Forwarded-For",
 				  sizeof("X-Forwarded-For") - 1, buf, p - buf,
@@ -3083,7 +3083,7 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 	 * sent to the client. The full skb->len is used as the
 	 * offset to mark this case in the post-processing phase.
 	 */
-	data.skb = ss_skb_peek_tail(&hm->msg.skb_list);
+	data.skb = ss_skb_peek_tail(&hm->msg.skb_head);
 	BUG_ON(!data.skb);
 	data.off = data.skb->len;
 	data.req = NULL;
@@ -3316,7 +3316,7 @@ tfw_http_msg_process(void *conn, const TfwFsmData *data)
 	}
 
 	TFW_DBG2("Add skb %p to message %p\n", data->skb, c->msg);
-	ss_skb_queue_tail(&c->msg->skb_list, data->skb);
+	ss_skb_queue_tail(&c->msg->skb_head, data->skb);
 
 	return (TFW_CONN_TYPE(c) & Conn_Clnt)
 		? tfw_http_req_process(c, data)
@@ -3894,6 +3894,163 @@ tfw_cfgop_cleanup_whitelist_mark(TfwCfgSpec *cs)
 	memset(&tfw_wl_marks, 0, sizeof(tfw_wl_marks));
 }
 
+static int
+__cfgop_brange_hndl(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned char *a)
+{
+	unsigned int i;
+	const char *val;
+
+	if (!ce->val_n) {
+		TFW_ERR_NL("%s: At least one argument is required", cs->name);
+		return -EINVAL;
+	}
+	if (ce->attr_n) {
+		TFW_ERR_NL("Unexpected attributes\n");
+		return -EINVAL;
+	}
+
+	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
+		unsigned long i0 = 0, i1 = 0;
+
+		if (tfw_cfg_parse_intvl(val, &i0, &i1)) {
+			TFW_ERR_NL("Cannot parse %s interval: '%s'\n",
+				   cs->name, val);
+			return -EINVAL;
+		}
+		if (i0 > 255 || i1 > 255) {
+			TFW_ERR_NL("Too large interval bounds in %s: '%s'\n",
+				   cs->name, val);
+			return -EINVAL;
+		}
+
+		a[i0++] = 1;
+		while (i0 <= i1)
+			a[i0++] = 1;
+	}
+
+	return 0;
+}
+
+static int
+tfw_cfgop_brange_uri(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r;
+	unsigned char a[256] = {};
+
+	r = __cfgop_brange_hndl(cs, ce, a);
+	if (r)
+		return r;
+	tfw_init_custom_uri(a);
+
+	return 0;
+}
+
+static void
+tfw_cfgop_cleanup_brange_uri(TfwCfgSpec *cs)
+{
+	tfw_init_custom_uri(NULL);
+}
+
+static int
+tfw_cfgop_brange_token(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r;
+	unsigned char a[256] = {};
+
+	r = __cfgop_brange_hndl(cs, ce, a);
+	if (r)
+		return r;
+	tfw_init_custom_token(a);
+
+	return 0;
+}
+
+static void
+tfw_cfgop_cleanup_brange_token(TfwCfgSpec *cs)
+{
+	tfw_init_custom_token(NULL);
+}
+
+static int
+tfw_cfgop_brange_qetoken(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r;
+	unsigned char a[256] = {};
+
+	r = __cfgop_brange_hndl(cs, ce, a);
+	if (r)
+		return r;
+	tfw_init_custom_qetoken(a);
+
+	return 0;
+}
+
+static void
+tfw_cfgop_cleanup_brange_qetoken(TfwCfgSpec *cs)
+{
+	tfw_init_custom_qetoken(NULL);
+}
+
+static int
+tfw_cfgop_brange_nctl(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r;
+	unsigned char a[256] = {};
+
+	r = __cfgop_brange_hndl(cs, ce, a);
+	if (r)
+		return r;
+	tfw_init_custom_nctl(a);
+
+	return 0;
+}
+
+static void
+tfw_cfgop_cleanup_brange_nctl(TfwCfgSpec *cs)
+{
+	tfw_init_custom_nctl(NULL);
+}
+
+static int
+tfw_cfgop_brange_xff(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r;
+	unsigned char a[256] = {};
+
+	r = __cfgop_brange_hndl(cs, ce, a);
+	if (r)
+		return r;
+	tfw_init_custom_xff(a);
+
+	return 0;
+}
+
+static void
+tfw_cfgop_cleanup_brange_xff(TfwCfgSpec *cs)
+{
+	tfw_init_custom_xff(NULL);
+}
+
+static int
+tfw_cfgop_brange_cookie(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r;
+	unsigned char a[256] = {};
+
+	r = __cfgop_brange_hndl(cs, ce, a);
+	if (r)
+		return r;
+	tfw_init_custom_cookie(a);
+
+	return 0;
+}
+
+static void
+tfw_cfgop_cleanup_brange_cookie(TfwCfgSpec *cs)
+{
+	tfw_init_custom_cookie(NULL);
+}
+
 static TfwCfgSpec tfw_http_specs[] = {
 	{
 		.name = "block_action",
@@ -3917,6 +4074,48 @@ static TfwCfgSpec tfw_http_specs[] = {
 		.handler = tfw_cfgop_whitelist_mark,
 		.allow_none = true,
 		.cleanup = tfw_cfgop_cleanup_whitelist_mark,
+	},
+	{
+		.name = "http_uri_brange",
+		.deflt = NULL,
+		.handler = tfw_cfgop_brange_uri,
+		.allow_none = true,
+		.cleanup = tfw_cfgop_cleanup_brange_uri,
+	},
+	{
+		.name = "http_token_brange",
+		.deflt = NULL,
+		.handler = tfw_cfgop_brange_token,
+		.allow_none = true,
+		.cleanup = tfw_cfgop_cleanup_brange_token,
+	},
+	{
+		.name = "http_qetoken_brange",
+		.deflt = NULL,
+		.handler = tfw_cfgop_brange_qetoken,
+		.allow_none = true,
+		.cleanup = tfw_cfgop_cleanup_brange_qetoken,
+	},
+	{
+		.name = "http_nctl_brange",
+		.deflt = NULL,
+		.handler = tfw_cfgop_brange_nctl,
+		.allow_none = true,
+		.cleanup = tfw_cfgop_cleanup_brange_nctl,
+	},
+	{
+		.name = "http_xff_brange",
+		.deflt = NULL,
+		.handler = tfw_cfgop_brange_xff,
+		.allow_none = true,
+		.cleanup = tfw_cfgop_cleanup_brange_xff,
+	},
+	{
+		.name = "http_cookie_brange",
+		.deflt = NULL,
+		.handler = tfw_cfgop_brange_cookie,
+		.allow_none = true,
+		.cleanup = tfw_cfgop_cleanup_brange_cookie,
 	},
 	{ 0 }
 };

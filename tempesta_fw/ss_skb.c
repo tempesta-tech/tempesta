@@ -224,40 +224,24 @@ __it_next_data(struct sk_buff *skb, int i, TfwStr *it)
 		it->ptr = skb_frag_address(&si->frags[i]);
 		it->skb = skb;
 	} else {
-		it->skb = ss_skb_next(skb);
+		it->skb = skb->next;
 		it->ptr = __skb_data_address(it->skb);
 	}
 }
 
 /*
- * Insert @nskb in the list after @skb. Note that the list's
- * pointer to the last item is not updated here.
+ * Insert @nskb in the list after @skb. Note that standard
+ * kernel 'skb_insert()' function does not suit here, as it
+ * works with 'sk_buff_head' structure with additional fields
+ * @qlen and @lock; we don't need these fields for our skb
+ * list, so a custom function had been introduced.
  */
 static inline void
 __skb_insert_after(struct sk_buff *skb, struct sk_buff *nskb)
 {
-	SsSkbCb *scb = TFW_SKB_CB(skb);
-	SsSkbCb *nscb = TFW_SKB_CB(nskb);
-
-	nscb->next = scb->next;
-	nscb->prev = skb;
-	scb->next = nskb;
-	if (nscb->next)
-		TFW_SKB_CB(nscb->next)->prev = nskb;
-}
-
-/*
- * Update the skb list's pointer to the last item
- * if a new skb has been added at the end of the list.
- */
-static inline void
-__skb_skblist_fixup(SsSkbList *skb_list)
-{
-	SsSkbCb *lscb = TFW_SKB_CB(skb_list->last);
-
-	if (lscb->next)
-		skb_list->last = lscb->next;
-	WARN_ON_ONCE(TFW_SKB_CB(skb_list->last)->next);
+	nskb->next = skb->next;
+	nskb->prev = skb;
+	nskb->next->prev = skb->next = nskb;
 }
 
 /**
@@ -268,7 +252,7 @@ __skb_skblist_fixup(SsSkbList *skb_list)
  * @return 0 on success, -errno on failure.
  */
 static int
-__extend_pgfrags(struct sk_buff *skb, int from, int n)
+__extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 {
 	int i, n_shift, n_excess = 0;
 	struct skb_shared_info *si = skb_shinfo(skb);
@@ -293,11 +277,11 @@ __extend_pgfrags(struct sk_buff *skb, int from, int n)
 		 * page fragments. Otherwise, allocate a new SKB to hold
 		 * @n_excess page fragments.
 		 */
-		nskb = ss_skb_next(skb);
-		if (nskb && !skb_headlen(nskb)
+		nskb = skb->next;
+		if (nskb != skb_head && !skb_headlen(nskb)
 		    && (skb_shinfo(nskb)->nr_frags <= MAX_SKB_FRAGS - n_excess))
 		{
-			int r = __extend_pgfrags(nskb, 0, n_excess);
+			int r = __extend_pgfrags(skb_head, nskb, 0, n_excess);
 			if (r)
 				return r;
 		} else {
@@ -338,7 +322,8 @@ __extend_pgfrags(struct sk_buff *skb, int from, int n)
  * a new fragment in slot @i that can hold @size bytes, and set it up.
  */
 static int
-__new_pgfrag(struct sk_buff *skb, int size, int i, int shift)
+__new_pgfrag(struct sk_buff *skb_head, struct sk_buff *skb, int size,
+	     int i, int shift)
 {
 	int off = 0;
 	skb_frag_t frag;
@@ -361,7 +346,7 @@ __new_pgfrag(struct sk_buff *skb, int size, int i, int shift)
 	}
 
 	/* Make room for @shift fragments starting with slot @i. */
-	if (__extend_pgfrags(skb, i, shift)) {
+	if (__extend_pgfrags(skb_head, skb, i, shift)) {
 		put_page(page);
 		return -ENOMEM;
 	}
@@ -373,7 +358,7 @@ __new_pgfrag(struct sk_buff *skb, int size, int i, int shift)
 	 */
 	if (i == MAX_SKB_FRAGS) {
 		i = 0;
-		skb = ss_skb_next(skb);
+		skb = skb->next;
 	}
 
 	/* Set up the new fragment in slot @i to hold @size bytes. */
@@ -394,7 +379,8 @@ __new_pgfrag(struct sk_buff *skb, int size, int i, int shift)
  * @return pointer to SKB with data at @it->ptr in @it->skb.
  */
 static int
-__split_linear_data(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
+__split_linear_data(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
+		    int len, TfwStr *it)
 {
 	int alloc = len > 0;
 	struct page *page = virt_to_head_page(skb->head);
@@ -446,10 +432,10 @@ __split_linear_data(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	 * rollback.
 	 */
 	if (alloc) {
-		if (__new_pgfrag(skb, len, 0, 1 + !!tail_len))
+		if (__new_pgfrag(skb_head, skb, len, 0, 1 + !!tail_len))
 			return -EFAULT;
 	} else {
-		if (__extend_pgfrags(skb, 0, 1))
+		if (__extend_pgfrags(skb_head, skb, 0, 1))
 			return -EFAULT;
 	}
 
@@ -499,7 +485,8 @@ __split_linear_data(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
  * @return pointer to SKB with data at @it->ptr in @it->skb.
  */
 static int
-__split_pgfrag_add(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
+__split_pgfrag_add(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off,
+		   int len, TfwStr *it)
 {
 	int tail_len;
 	struct sk_buff *skb_dst, *skb_new;
@@ -517,7 +504,7 @@ __split_pgfrag_add(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 	 * a fragment in slot @i+1, and make an extra fragment
 	 * in slot @i+2 to hold the tail data.
 	 */
-	if (__new_pgfrag(skb, len, i + !!off, 1 + !!off))
+	if (__new_pgfrag(skb_head, skb, len, i + !!off, 1 + !!off))
 		return -EFAULT;
 
 	/* If @off is zero, the job is done in __new_pgfrag(). */
@@ -538,7 +525,7 @@ __split_pgfrag_add(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 	 */
 
 	/* New SKB is the next SKB now. */
-	skb_new = ss_skb_next(skb);
+	skb_new = skb->next;
 
 	/* Find the SKB for tail data. */
 	skb_dst = (i < MAX_SKB_FRAGS - 2) ? skb : skb_new;
@@ -582,7 +569,8 @@ __split_pgfrag_add(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
  * @return pointer to SKB with data at @it->ptr in @it->skb.
  */
 static int
-__split_pgfrag_del(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
+__split_pgfrag_del(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off,
+		   int len, TfwStr *it)
 {
 	int tail_len;
 	struct sk_buff *skb_dst;
@@ -635,11 +623,11 @@ __split_pgfrag_del(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 	 * Make room for a fragment right after the @i fragment
 	 * to move the tail part of data there.
 	 */
-	if (__extend_pgfrags(skb, i + 1, 1))
+	if (__extend_pgfrags(skb_head, skb, i + 1, 1))
 		return -EFAULT;
 
 	/* Find the SKB for tail data. */
-	skb_dst = (i < MAX_SKB_FRAGS - 1) ? skb : ss_skb_next(skb);
+	skb_dst = (i < MAX_SKB_FRAGS - 1) ? skb : skb->next;
 
 	/* Calculate the length of the tail part. */
 	tail_len = skb_frag_size(frag) - off - len;
@@ -668,11 +656,12 @@ __split_pgfrag_del(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
 }
 
 static int
-__split_pgfrag(struct sk_buff *skb, int i, int off, int len, TfwStr *it)
+__split_pgfrag(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off,
+	       int len, TfwStr *it)
 {
 	return len > 0
-		? __split_pgfrag_add(skb, i, off, len, it)
-		: __split_pgfrag_del(skb, i, off, -len, it);
+		? __split_pgfrag_add(skb_head, skb, i, off, len, it)
+		: __split_pgfrag_del(skb_head, skb, i, off, -len, it);
 }
 
 static inline int
@@ -690,7 +679,8 @@ __split_try_tailroom(struct sk_buff *skb, int len, TfwStr *it)
  * Most of the time that is done by fragmenting the @skb.
  */
 static int
-__skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
+__skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
+	       int len, TfwStr *it)
 {
 	int i = -1, ret;
 	long offset;
@@ -722,7 +712,7 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 	if (offset >= 0 && offset < d_size) {
 		int t_size = d_size - offset;
 		len = max(len, -t_size);
-		ret = __split_linear_data(skb, pspt, len, it);
+		ret = __split_linear_data(skb_head, skb, pspt, len, it);
 		goto done;
 	}
 
@@ -761,7 +751,7 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 				continue;
 			}
 			len = max(len, -t_size);
-			ret = __split_pgfrag(skb, i, offset, len, it);
+			ret = __split_pgfrag(skb_head, skb, i, offset, len, it);
 			goto done;
 		}
 	}
@@ -771,7 +761,7 @@ __skb_fragment(struct sk_buff *skb, char *pspt, int len, TfwStr *it)
 
 append:
 	/* Add new frag in case of splitting after the last chunk */
-	ret = __new_pgfrag(skb, len, i + 1, 1);
+	ret = __new_pgfrag(skb_head, skb, len, i + 1, 1);
 	__it_next_data(skb, i + 1, it);
 
 done:
@@ -793,11 +783,9 @@ done:
 }
 
 static inline int
-skb_fragment(SsSkbList *skb_list, struct sk_buff *skb, char *pspt,
+skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	     int len, TfwStr *it)
 {
-	int r;
-
 	if (abs(len) > PAGE_SIZE) {
 		TFW_WARN("Attempt to add or delete too much data: %u\n", len);
 		return -EINVAL;
@@ -809,9 +797,7 @@ skb_fragment(SsSkbList *skb_list, struct sk_buff *skb, char *pspt,
 		return -EINVAL;
 	}
 
-	r = __skb_fragment(skb, pspt, len, it);
-	__skb_skblist_fixup(skb_list);
-	return r;
+	return  __skb_fragment(skb_head, skb, pspt, len, it);
 }
 
 /**
@@ -822,10 +808,10 @@ skb_fragment(SsSkbList *skb_list, struct sk_buff *skb, char *pspt,
  * without the need for further modifications.
  */
 int
-ss_skb_get_room(SsSkbList *skb_list, struct sk_buff *skb, char *pspt,
+ss_skb_get_room(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 		unsigned int len, TfwStr *it)
 {
-	int r = skb_fragment(skb_list, skb, pspt, len, it);
+	int r = skb_fragment(skb_head, skb, pspt, len, it);
 	if (r == len)
 		return 0;
 	return r;
@@ -836,7 +822,8 @@ ss_skb_get_room(SsSkbList *skb_list, struct sk_buff *skb, char *pspt,
  * @skip bytes, and also cut off @tail bytes after @hdr.
  */
 int
-ss_skb_cutoff_data(SsSkbList *skb_list, const TfwStr *hdr, int skip, int tail)
+ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *hdr, int skip,
+		   int tail)
 {
 	int r;
 	TfwStr it = {};
@@ -851,8 +838,8 @@ ss_skb_cutoff_data(SsSkbList *skb_list, const TfwStr *hdr, int skip, int tail)
 			continue;
 		}
 		memset(&it, 0, sizeof(TfwStr));
-		r = skb_fragment(skb_list, c->skb,
-				 (char *)c->ptr + skip, skip - c->len, &it);
+		r = skb_fragment(skb_head, c->skb, (char *)c->ptr + skip,
+				 skip - c->len, &it);
 		if (r < 0)
 			return r;
 		BUG_ON(r != c->len - skip);
@@ -867,7 +854,7 @@ ss_skb_cutoff_data(SsSkbList *skb_list, const TfwStr *hdr, int skip, int tail)
 		void *t_ptr = it.ptr;
 		struct sk_buff *t_skb = it.skb;
 		memset(&it, 0, sizeof(TfwStr));
-		r = skb_fragment(skb_list, t_skb, t_ptr, -tail, &it);
+		r = skb_fragment(skb_head, t_skb, t_ptr, -tail, &it);
 		if (r < 0) {
 			TFW_WARN("Cannot delete hdr tail\n");
 			return r;
@@ -984,15 +971,16 @@ ss_skb_split(struct sk_buff *skb, int len)
 }
 
 static inline int
-__coalesce_frag(SsSkbList *skb_list, skb_frag_t *frag, const struct sk_buff *orig_skb)
+__coalesce_frag(struct sk_buff **skb_head, skb_frag_t *frag,
+		const struct sk_buff *orig_skb)
 {
-	struct sk_buff *skb = ss_skb_peek_tail(skb_list);
+	struct sk_buff *skb = ss_skb_peek_tail(skb_head);
 
 	if (!skb || skb_shinfo(skb)->nr_frags == MAX_SKB_FRAGS) {
 		skb = ss_skb_alloc();
 		if (!skb)
 			return -ENOMEM;
-		ss_skb_queue_tail(skb_list, skb);
+		ss_skb_queue_tail(skb_head, skb);
 		skb->mark = orig_skb->mark;
 	}
 
@@ -1004,7 +992,7 @@ __coalesce_frag(SsSkbList *skb_list, skb_frag_t *frag, const struct sk_buff *ori
 }
 
 static int
-ss_skb_queue_coalesce_tail(SsSkbList *skb_list, const struct sk_buff *skb)
+ss_skb_queue_coalesce_tail(struct sk_buff **skb_head, const struct sk_buff *skb)
 {
 	int i;
 	skb_frag_t head_frag;
@@ -1016,12 +1004,12 @@ ss_skb_queue_coalesce_tail(SsSkbList *skb_list, const struct sk_buff *skb)
 		head_frag.page.p = virt_to_page(skb->head);
 		head_frag.page_offset = skb->data -
 			(unsigned char *)page_address(head_frag.page.p);
-		if (__coalesce_frag(skb_list, &head_frag, skb))
+		if (__coalesce_frag(skb_head, &head_frag, skb))
 			return -ENOMEM;
 	}
 
 	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
-		if (__coalesce_frag(skb_list, &skb_shinfo(skb)->frags[i], skb))
+		if (__coalesce_frag(skb_head, &skb_shinfo(skb)->frags[i], skb))
 			return -ENOMEM;
 	}
 
@@ -1114,22 +1102,22 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
  * currently filled with paged fragments.
  */
 static int
-ss_skb_unroll_slow(SsSkbList *skb_list, struct sk_buff *skb)
+ss_skb_unroll_slow(struct sk_buff **skb_head, struct sk_buff *skb)
 {
 	struct sk_buff *f_skb;
 
-	if (ss_skb_queue_coalesce_tail(skb_list, skb))
+	if (ss_skb_queue_coalesce_tail(skb_head, skb))
 		goto cleanup;
 
 	skb_walk_frags(skb, f_skb) {
 		f_skb->mark = skb->mark;
-		if (ss_skb_queue_coalesce_tail(skb_list, f_skb))
+		if (ss_skb_queue_coalesce_tail(skb_head, f_skb))
 			goto cleanup;
 	}
 
 	/* Copy the IP header contents to the first skb in the chain. */
-	if (skb_list->first)
-		__copy_ip_header(skb_list->first, skb);
+	if (*skb_head)
+		__copy_ip_header(*skb_head, skb);
 
 	/* TODO: Optimize skb reallocation. Consider to place clone's shinfo
 	 * right after the origal's shinfo in case space to the chunk boundary
@@ -1140,15 +1128,14 @@ ss_skb_unroll_slow(SsSkbList *skb_list, struct sk_buff *skb)
 	return 0;
 
 cleanup:
-	ss_skb_queue_purge(skb_list);
+	ss_skb_queue_purge(skb_head);
 	return -ENOMEM;
 }
 
 /*
  * When GRO is used, multiple SKBs may be merged into one big SKB. These
  * SKBs are linked in via frag_list. Interpret the big SKB as a set of
- * separate smaller SKBs for processing. Make the top SKB first in the
- * @skb_list.
+ * separate smaller SKBs for processing. Make the top SKB first as @skb_head.
  *
  * The major reason for splitting a GRO SKB is that the kernel's TCP stack
  * uses skb_split() (called from tso_fragment() or tcp_fragment()) to split
@@ -1168,16 +1155,16 @@ cleanup:
  * for that will require changes in multiple places in Tempesta.
  */
 int
-ss_skb_unroll(SsSkbList *skb_list, struct sk_buff *skb)
+ss_skb_unroll(struct sk_buff **skb_head, struct sk_buff *skb)
 {
-	struct sk_buff *f_skb;
-
-	ss_skb_queue_head_init(skb_list);
+	struct sk_buff *prev_skb, *f_skb;
 
 	if (unlikely(skb_cloned(skb)))
-		return ss_skb_unroll_slow(skb_list, skb);
+		return ss_skb_unroll_slow(skb_head, skb);
 
-	ss_skb_queue_tail(skb_list, skb);
+	WARN_ON_ONCE(skb->next || skb->prev);
+	skb->next = skb_shinfo(skb)->frag_list;
+	*skb_head = prev_skb = skb;
 	skb_walk_frags(skb, f_skb) {
 		if (f_skb->nohdr) {
 			/*
@@ -1199,8 +1186,11 @@ ss_skb_unroll(SsSkbList *skb_list, struct sk_buff *skb)
 		 */
 		f_skb->mark = skb->mark;
 		ss_skb_adjust_data_len(skb, -f_skb->len);
-		ss_skb_queue_tail(skb_list, f_skb);
+		f_skb->prev = prev_skb;
+		prev_skb = f_skb;
 	}
+	(*skb_head)->prev = prev_skb;
+	prev_skb->next = *skb_head;
 	skb_shinfo(skb)->frag_list = NULL;
 
 	return 0;
@@ -1221,7 +1211,7 @@ ss_skb_dump(struct sk_buff *skb)
 
 	TFW_LOG_NL("SKB (%p) DUMP: len=%u data_len=%u truesize=%u users=%u\n",
 		   skb, skb->len, skb->data_len, skb->truesize,
-		   atomic_read(&skb->users));
+		   refcount_read(&skb->users));
 	TFW_LOG_NL("  head=%p data=%p tail=%x end=%x\n",
 		   skb->head, skb->data, skb->tail, skb->end);
 	TFW_LOG_NL("  nr_frags=%u frag_list=%p next=%p prev=%p\n",

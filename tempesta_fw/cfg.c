@@ -1104,6 +1104,94 @@ tfw_cfg_parse_uint(const char *s, unsigned int *out_uint)
 }
 EXPORT_SYMBOL(tfw_cfg_parse_uint);
 
+/**
+ * Borrowed from linux/lib/kstrtox.c because the function isn't exported by
+ * the kernel.
+ */
+#define KSTRTOX_OVERFLOW	(1U << 31)
+
+static unsigned int
+_parse_integer(const char *s, unsigned int base, unsigned long *p)
+{
+	unsigned long res;
+	unsigned int rv;
+
+	res = 0;
+	rv = 0;
+	while (1) {
+		unsigned int c = *s;
+		unsigned int lc = c | 0x20; /* don't tolower() this line */
+		unsigned int val;
+
+		if ('0' <= c && c <= '9')
+			val = c - '0';
+		else if ('a' <= lc && lc <= 'f')
+			val = lc - 'a' + 10;
+		else
+			break;
+
+		if (val >= base)
+			break;
+		/*
+		 * Check for overflow only if we are within range of
+		 * it in the max base we support (16)
+		 */
+		if (unlikely(res & (~0ull << 60))) {
+			if (res > div_u64(ULLONG_MAX - val, base))
+				rv |= KSTRTOX_OVERFLOW;
+		}
+		res = res * base + val;
+		rv++;
+		s++;
+	}
+	*p = res;
+
+	return rv;
+}
+
+int
+tfw_cfg_parse_intvl(const char *str, unsigned long *i0, unsigned long *i1)
+{
+	const char *s = str;
+	unsigned long *v = i0;
+	unsigned int r;
+	int base;
+
+	while (*s) {
+		if (*s == '-') {
+			if (v == i1) {
+				TFW_ERR_NL("Bad interval delimiter\n");
+				return -EINVAL;
+			}
+			v = i1;
+			++s;
+			continue;
+		}
+
+		base = detect_base(&s);
+		if (!base)
+			return -EINVAL;
+		r = _parse_integer(s, base, v);
+		if (!r || r & KSTRTOX_OVERFLOW) {
+			TFW_ERR_NL("Bad integer\n");
+			return -EINVAL;
+		}
+		if (v == i1 && *i0 >= *i1) {
+			TFW_ERR("Interval bound crossing\n");
+			return -EINVAL;
+		}
+
+		s += r;
+	}
+	if (v == i1 && !*v) {
+		TFW_ERR_NL("Zero interval left bound in '%s'\n", str);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(tfw_cfg_parse_intvl);
+
 void
 tfw_cfg_cleanup_children(TfwCfgSpec *cs)
 {
@@ -1266,7 +1354,6 @@ tfw_cfg_set_bool(TfwCfgSpec *cs, TfwCfgEntry *e)
 	return 0;
 }
 EXPORT_SYMBOL(tfw_cfg_set_bool);
-
 
 int
 tfw_cfg_set_int(TfwCfgSpec *cs, TfwCfgEntry *e)
@@ -1612,8 +1699,8 @@ tfw_cfg_read_file(const char *path, size_t *file_size)
 	do {
 		TFW_DBG3("read by offset: %d\n", (int)offset);
 		read_size = min((size_t)(buf_size - offset), PAGE_SIZE);
-		bytes_read = vfs_read(fp, out_buf + offset, read_size, \
-				      &offset);
+		bytes_read = kernel_read(fp, out_buf + offset, read_size,
+					 &offset);
 		if (bytes_read < 0) {
 			TFW_ERR_NL("can't read file: %s (err: %zu)\n", path,
 				bytes_read);
