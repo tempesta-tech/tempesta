@@ -198,7 +198,7 @@ tempesta_map_file(struct file *file, unsigned long len, int node)
 	oldfs = get_fs();
 	set_fs(get_ds());
 
-	addr = vfs_read(file, (char *)ma->start, len, &off);
+	addr = kernel_read(file, (char *)ma->start, len, &off);
 	if (addr != len) {
 		TDB_ERR("Cannot read %lu bytes to addr %p, ret = %ld\n",
 			len, (void *)ma->start, addr);
@@ -242,7 +242,7 @@ tempesta_unmap_file(struct file *file, unsigned long addr, unsigned long len,
 	oldfs = get_fs();
 	set_fs(get_ds());
 
-	r = vfs_write(file, (void *)ma->start, len, &off);
+	r = kernel_write(file, (void *)ma->start, len, &off);
 	if (r != len) {
 		TDB_WARN("Cannot sync mapping %lx of size %lu pages\n",
 			 ma->start, ma->pages);

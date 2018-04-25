@@ -655,7 +655,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, const TfwFsmData *data)
 	int r = TFW_PASS;
 	TfwHttpReq *req = (TfwHttpReq *)data->req;
 	struct sk_buff *skb = data->skb;
-	struct sk_buff *head_skb = ss_skb_peek(&req->msg.skb_list);
+	struct sk_buff *head_skb = req->msg.skb_head;
 	__FRANG_CFG_VAR(hdr_tmt, clnt_hdr_timeout);
 	__FRANG_CFG_VAR(hchnk_cnt, http_hchunk_cnt);
 	__FRANG_FSM_INIT();

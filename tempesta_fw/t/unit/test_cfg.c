@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies.
+ * Copyright (C) 2015-2018 Tempesta Technologies, INC.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -18,7 +18,6 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #include <linux/bug.h>
 
 #include "cfg.h"
@@ -803,6 +802,48 @@ TEST(tfw_cfg_set_int, maps_enum_keywords)
 	EXPECT_EQ(val, -1);
 }
 
+TEST(tfw_cfg_interval, tfw_cfg_parse_intvl)
+{
+	int r;
+	unsigned long i0, i1;
+
+	i0 = i1 = 0;
+	r = tfw_cfg_parse_intvl("30", &i0, &i1);
+	EXPECT_OK(r);
+	EXPECT_TRUE(i0 == 30 && i1 == 0);
+
+	i0 = i1 = 0;
+	r = tfw_cfg_parse_intvl("0x30-1000", &i0, &i1);
+	EXPECT_OK(r);
+	EXPECT_TRUE(i0 == 0x30 && i1 == 1000);
+
+	i0 = i1 = 0;
+	r = tfw_cfg_parse_intvl("0x0", &i0, &i1);
+	EXPECT_OK(r);
+	EXPECT_TRUE(i0 == 0 && i1 == 0);
+
+	i0 = i1 = 0;
+	r = tfw_cfg_parse_intvl("0", &i0, &i1);
+	EXPECT_OK(r);
+	EXPECT_TRUE(i0 == 0 && i1 == 0);
+
+	i0 = i1 = 0;
+	r = tfw_cfg_parse_intvl("0-0x0", &i0, &i1);
+	EXPECT_ERROR(r);
+
+	i0 = i1 = 0;
+	r = tfw_cfg_parse_intvl("1-0", &i0, &i1);
+	EXPECT_ERROR(r);
+
+	i0 = i1 = 0;
+	r = tfw_cfg_parse_intvl("7-", &i0, &i1);
+	EXPECT_ERROR(r);
+
+	i0 = i1 = 0;
+	r = tfw_cfg_parse_intvl("70--88", &i0, &i1);
+	EXPECT_ERROR(r);
+}
+
 TEST(tfw_cfg_set_str, sets_dest_str)
 {
 	int r;
@@ -1068,6 +1109,7 @@ TEST_SUITE(cfg)
 	TEST_RUN(tfw_cfg_set_int, recognizes_dec_hex_bin_bases);
 	TEST_RUN(tfw_cfg_set_int, checks_ext_restrictions);
 	TEST_RUN(tfw_cfg_set_int, maps_enum_keywords);
+	TEST_RUN(tfw_cfg_interval, tfw_cfg_parse_intvl);
 	TEST_RUN(tfw_cfg_set_str, sets_dest_str);
 	TEST_RUN(tfw_cfg_set_str, sets_dest_str_empty_string);
 	TEST_RUN(tfw_cfg_set_str, checks_strlen);
