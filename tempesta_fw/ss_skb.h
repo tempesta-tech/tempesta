@@ -46,92 +46,63 @@ enum {
 	SS_OK		= 0,
 };
 
-typedef struct {
-	struct sk_buff	*first;
-	struct sk_buff	*last;
-} SsSkbList;
-
 typedef int (*ss_skb_actor_t)(void *conn, unsigned char *data, size_t len);
 
-static inline void
-ss_skb_queue_head_init(SsSkbList *list)
-{
-	list->first = list->last = NULL;
-}
-
-static inline int
-ss_skb_queue_empty(const SsSkbList *list)
-{
-	return !list->first;
-}
-
 /**
- * Add new @skb to the @list in FIFO order.
+ * Add new @skb to the queue in FIFO order.
  */
 static inline void
-ss_skb_queue_tail(SsSkbList *list, struct sk_buff *skb)
+ss_skb_queue_tail(struct sk_buff **skb_head, struct sk_buff *skb)
 {
-	SsSkbCb *scb = TFW_SKB_CB(skb);
-
 	/* The skb shouldn't be in any other queue. */
-	WARN_ON_ONCE(scb->next || scb->prev);
-
-	scb->prev = list->last;
-	if (ss_skb_queue_empty(list))
-		list->first = skb;
-	else
-		TFW_SKB_CB(list->last)->next = skb;
-	list->last = skb;
+	WARN_ON_ONCE(skb->next || skb->prev);
+	if (!*skb_head) {
+		*skb_head = skb;
+		skb->prev = skb->next = skb;
+		return;
+	}
+	skb->next = *skb_head;
+	skb->prev = (*skb_head)->prev;
+	skb->next->prev = skb->prev->next = skb;
 }
 
 static inline void
-ss_skb_unlink(SsSkbList *list, struct sk_buff *skb)
+ss_skb_unlink(struct sk_buff **skb_head, struct sk_buff *skb)
 {
-	SsSkbCb *scb = TFW_SKB_CB(skb);
-
-	if (scb->next)
-		TFW_SKB_CB(scb->next)->prev = scb->prev;
-	else
-		list->last = scb->prev;
-	if (scb->prev)
-		TFW_SKB_CB(scb->prev)->next = scb->next;
-	else
-		list->first = scb->next;
-	scb->next = scb->prev = NULL;
+	WARN_ON_ONCE(!skb->prev || !skb->next);
+	/* If this is last skb, set head to NULL. */
+	if (skb->next == skb) {
+		*skb_head = NULL;
+	} else {
+		skb->prev->next = skb->next;
+		skb->next->prev = skb->prev;
+		/* If this is head skb and not last, set head to the next skb. */
+		if (*skb_head == skb)
+			*skb_head = skb->next;
+	}
+	skb->next = skb->prev = NULL;
 }
 
 static inline struct sk_buff *
-ss_skb_next(struct sk_buff *skb)
+ss_skb_peek_tail(struct sk_buff **skb_head)
 {
-	return TFW_SKB_CB(skb)->next;
+	return *skb_head ? (*skb_head)->prev : NULL;
 }
 
 static inline struct sk_buff *
-ss_skb_peek(const SsSkbList *list)
+ss_skb_dequeue(struct sk_buff **skb_head)
 {
-	return list->first;
-}
-
-static inline struct sk_buff *
-ss_skb_peek_tail(const SsSkbList *list)
-{
-	return list->last;
-}
-
-static inline struct sk_buff *
-ss_skb_dequeue(SsSkbList *list)
-{
-	struct sk_buff *skb = ss_skb_peek(list);
+	struct sk_buff *skb = *skb_head;
 	if (skb)
-		ss_skb_unlink(list, skb);
+		ss_skb_unlink(skb_head, skb);
 	return skb;
 }
 
 static inline void
-ss_skb_queue_purge(SsSkbList *list)
+ss_skb_queue_purge(struct sk_buff **skb_head)
 {
 	struct sk_buff *skb;
-	while ((skb = ss_skb_dequeue(list)) != NULL)
+	while ((skb = ss_skb_dequeue(skb_head)) != NULL)
 		kfree_skb(skb);
 }
 
@@ -151,7 +122,7 @@ ss_skb_frag_next(struct sk_buff **skb, int *f)
 		return &skb_shinfo(*skb)->frags[*f];
 	}
 
-	*skb = ss_skb_next(*skb);
+	*skb = (*skb)->next;
 	if (!*skb || !skb_shinfo(*skb)->nr_frags)
 		return NULL;
 	*f = 0;
@@ -209,15 +180,15 @@ char *ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf);
 
 struct sk_buff *ss_skb_alloc_pages(size_t len);
 struct sk_buff *ss_skb_split(struct sk_buff *skb, int len);
-int ss_skb_get_room(SsSkbList *skb_list, struct sk_buff *skb,
+int ss_skb_get_room(struct sk_buff *skb_head, struct sk_buff *skb,
 		    char *pspt, unsigned int len, TfwStr *it);
-int ss_skb_cutoff_data(SsSkbList *skb_list,
-		       const TfwStr *hdr, int skip, int tail);
+int ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *hdr,
+		       int skip, int tail);
 
 int ss_skb_process(struct sk_buff *skb, unsigned int *off,
 		   ss_skb_actor_t actor, void *objdata);
 
-int ss_skb_unroll(SsSkbList *skb_list, struct sk_buff *skb);
+int ss_skb_unroll(struct sk_buff **skb_head, struct sk_buff *skb);
 void ss_skb_init_for_xmit(struct sk_buff *skb);
 void ss_skb_dump(struct sk_buff *skb);
 

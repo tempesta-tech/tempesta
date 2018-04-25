@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -356,6 +356,7 @@ int tfw_cfg_check_val_n(const TfwCfgEntry *e, int val_n);
 int tfw_cfg_check_single_val(const TfwCfgEntry *e);
 int tfw_cfg_parse_int(const char *s, int *out_int);
 int tfw_cfg_parse_uint(const char *s, unsigned int *out_uint);
+int tfw_cfg_parse_intvl(const char *s, unsigned long *i0, unsigned long *i1);
 int tfw_cfg_map_enum(const TfwCfgEnum mappings[],
 		     const char *in_name, void *out_int);
 const char *tfw_cfg_get_attr(const TfwCfgEntry *e, const char *attr_key,
