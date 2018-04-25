@@ -78,7 +78,7 @@ parse_cfg(const char *cfg_text)
 	 * Also 'vhost_mod' is used for proper configuration
 	 * of http scheduler.
 	 */
-	r = tfw_vhost_cfgstart();	
+	r = tfw_vhost_cfgstart();
 	r |= tfw_cfg_parse_mods(cfg_text, &mod_list);
 	r |= tfw_vhost_cfgend();
 	r |= tfw_vhost_start();

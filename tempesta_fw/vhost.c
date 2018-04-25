@@ -1821,7 +1821,7 @@ tfw_vhost_cfgend(void)
 	 */
 	if (tfw_vhosts_reconfig->expl_dflt)
 		return 0;
-	
+
 	sg_def = tfw_sg_lookup_reconfig(TFW_VH_DFT_NAME, sizeof("default") - 1);
 	if (!sg_def)
 		return 0;
