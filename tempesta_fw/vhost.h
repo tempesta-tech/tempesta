@@ -152,6 +152,8 @@ struct tfw_vhost_t {
 	size_t			loc_sz;
 };
 
+#define TFW_VH_DFT_NAME		"default"
+
 /**
  * Global settings (exist only on top level and are not reconfigurable).
  *
@@ -199,7 +201,6 @@ TfwVhost *tfw_vhost_match(TfwMsg *msg);
 TfwVhost *tfw_vhost_lookup(const char *name);
 TfwSrvConn *tfw_vhost_get_srv_conn(TfwMsg *msg);
 TfwVhost *tfw_vhost_new(const char *name);
-TfwVhost *tfw_vhost_default_new(void);
 TfwGlobal *tfw_vhost_get_global(void);
 TfwHdrMods *tfw_vhost_get_hdr_mods(TfwLocation *loc, TfwVhost *vhost,
 				   int mod_type);
