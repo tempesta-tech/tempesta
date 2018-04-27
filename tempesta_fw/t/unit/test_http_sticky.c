@@ -246,7 +246,7 @@ http_sticky_suite_setup(void)
 
 	mock.req->conn = &mock.conn_req;
 	mock.resp->conn = &mock.conn_resp;
-	mock.req->vhost = tfw_vhost_default_new();
+	mock.req->vhost = tfw_vhost_new(TFW_VH_DFT_NAME);
 
 	tfw_http_req_add_seq_queue(mock.req);
 	mock.req->resp = mock.resp;
