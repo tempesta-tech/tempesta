@@ -117,8 +117,6 @@ static TfwAddr	tfw_capuacl_dflt[TFW_CAPUACL_ARRAY_SZ];
 static const char s_hdr_via_dflt[] =
 	"tempesta_fw" " (" TFW_NAME " " TFW_VERSION ")";
 
-#define TFW_VH_DFT_NAME	"default"
-
 /*
  * Matching functions for match operators. A TfwStr{} is compared
  * with a plain C string according to a specified match operator.
@@ -982,15 +980,12 @@ tfw_location_new(TfwVhost *vhost, tfw_match_t op, const char *arg, size_t len)
  * policy directives in the configuration.
  */
 static int
-tfw_cfgop_location_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_location_begin(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwVhost *vhost)
 {
 	int ret;
 	size_t len;
 	tfw_match_t op;
 	const char *in_op, *arg;
-
-	BUG_ON(!tfw_vhost_entry);
-	BUG_ON(tfwcfg_this_location);
 
 	if (ce->attr_n) {
 		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
@@ -1017,22 +1012,22 @@ tfw_cfgop_location_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	}
 
 	/* Make sure the location is not a duplicate. */
-	if (tfw_location_lookup(tfw_vhost_entry, op, arg, len)) {
+	if (tfw_location_lookup(vhost, op, arg, len)) {
 		TFW_ERR_NL("%s: Duplicate entry: '%s %s %s'\n",
 			   cs->name, cs->name, in_op, arg);
 		return -EINVAL;
 	}
 
 
-	if (tfw_vhost_entry->loc_sz == TFW_LOCATION_ARRAY_SZ) {
+	if (vhost->loc_sz == TFW_LOCATION_ARRAY_SZ) {
 		TFW_ERR_NL("%s: There is no empty slots in '%s' vhost to"
 			   " add new location: '%s %s %s'\n", cs->name,
-			   tfw_vhost_entry->name, cs->name, in_op, arg);
+			   vhost->name, cs->name, in_op, arg);
 		return -EINVAL;
 	}
 
 	/* Add new location and set it to be the current one. */
-	tfwcfg_this_location = tfw_location_new(tfw_vhost_entry, op, arg, len);
+	tfwcfg_this_location = tfw_location_new(vhost, op, arg, len);
 	if (!tfwcfg_this_location) {
 		TFW_ERR_NL("%s: Unable to create new location: '%s %s %s'\n",
 			   cs->name, cs->name, in_op, arg);
@@ -1042,12 +1037,30 @@ tfw_cfgop_location_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
+static int
+tfw_cfgop_in_location_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	BUG_ON(!tfw_vhost_entry);
+	BUG_ON(tfwcfg_this_location);
+	return tfw_cfgop_location_begin(cs, ce, tfw_vhost_entry);
+}
+
+static int
+tfw_cfgop_out_location_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	BUG_ON(tfw_vhost_entry);
+	BUG_ON(tfwcfg_this_location);
+	return tfw_cfgop_location_begin(cs, ce,
+					tfw_vhosts_reconfig->vhost_dflt);
+}
+
 /*
- * Close the section for a location directive.
+ * Close the section for a location directive inside of current vhost.
  */
 static int
-tfw_cfgop_location_finish(TfwCfgSpec *cs)
+tfw_cfgop_in_location_finish(TfwCfgSpec *cs)
 {
+	BUG_ON(!tfw_vhost_entry);
 	BUG_ON(!tfwcfg_this_location);
 	if (!tfw_vhost_default(tfw_vhost_entry)
 	    && !tfwcfg_this_location->main_sg)
@@ -1058,6 +1071,18 @@ tfw_cfgop_location_finish(TfwCfgSpec *cs)
 			   tfw_vhost_entry->name);
 		return -EINVAL;
 	}
+	tfwcfg_this_location = NULL;
+	return 0;
+}
+
+/*
+ * Close the section for a global location directive.
+ */
+static int
+tfw_cfgop_out_location_finish(TfwCfgSpec *cs)
+{
+	BUG_ON(tfw_vhost_entry);
+	BUG_ON(!tfwcfg_this_location);
 	tfwcfg_this_location = NULL;
 	return 0;
 }
@@ -1293,7 +1318,7 @@ tfw_cfgop_proxy_pass(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 	in_main_sg = ce->vals[0];
 	in_backup_sg = tfw_cfg_get_attr(ce, "backup", NULL);
 
-	if (tfw_vhost_default(tfw_vhost_entry)) {
+	if (!tfw_vhost_entry || tfw_vhost_default(tfw_vhost_entry)) {
 		if (!strcasecmp(in_main_sg, TFW_VH_DFT_NAME)
 		    && (!in_backup_sg
 			|| !strcasecmp(in_backup_sg, TFW_VH_DFT_NAME)))
@@ -1336,21 +1361,18 @@ tfw_vhost_destroy(TfwVhost *vhost)
 EXPORT_SYMBOL(tfw_vhost_destroy);
 
 static TfwVhost *
-__tfw_vhost_create(const char *name, bool not_dflt)
+tfw_vhost_create(const char *name)
 {
 	TfwPool *pool;
-	TfwLocation *loc_dflt;
 	TfwVhost *vhost;
 	int name_sz = strlen(name) + 1;
 	int size = sizeof(TfwVhost)
 		+ name_sz
-		+ sizeof(TfwLocation);
+		+ sizeof(TfwLocation) * (TFW_LOCATION_ARRAY_SZ + 1);
 
 	if (!(pool = __tfw_pool_new(0)))
 		return NULL;
 
-	if (not_dflt)
-		size += TFW_LOCATION_ARRAY_SZ * sizeof(TfwLocation);
 	if (!(vhost = kzalloc(size, GFP_KERNEL))) {
 		tfw_pool_destroy(pool);
 		TFW_ERR_NL("Cannot allocate vhost entry '%s'\n", name);
@@ -1358,23 +1380,21 @@ __tfw_vhost_create(const char *name, bool not_dflt)
 	}
 	INIT_LIST_HEAD(&vhost->list);
 	vhost->name = (char *)(vhost + 1);
-	loc_dflt = (TfwLocation *)(vhost->name + name_sz);
-	if (not_dflt)
-		vhost->loc = (TfwLocation *)(loc_dflt + 1);
+	vhost->loc_dflt = (TfwLocation *)(vhost->name + name_sz);
+	vhost->loc = (TfwLocation *)(vhost->loc_dflt + 1);
 	memcpy((void *)vhost->name, (void *)name, name_sz);
-	vhost->loc_dflt = loc_dflt;
 	vhost->hdrs_pool = pool;
 	atomic64_set(&vhost->refcnt, 1);
 
 	return vhost;
 }
 
-static TfwVhost *
-tfw_vhost_create(const char *name, bool not_dflt)
+TfwVhost *
+tfw_vhost_new(const char *name)
 {
 	TfwVhost *vhost;
 
-	if (!(vhost = __tfw_vhost_create(name, not_dflt)))
+	if (!(vhost = tfw_vhost_create(name)))
 		return NULL;
 
 	/* Init default location for the new vhost. */
@@ -1389,18 +1409,6 @@ tfw_vhost_create(const char *name, bool not_dflt)
 	}
 
 	return vhost;
-}
-
-TfwVhost *
-tfw_vhost_new(const char *name)
-{
-	return tfw_vhost_create(name, true);
-}
-
-TfwVhost *
-tfw_vhost_default_new(void)
-{
-	return tfw_vhost_create(TFW_VH_DFT_NAME, false);
 }
 
 static inline void
@@ -1798,7 +1806,7 @@ tfw_vhost_cfgstart(void)
 	}
 
 	INIT_LIST_HEAD(&tfw_vhosts_reconfig->head);
-	if(!(vh_dflt = tfw_vhost_default_new())) {
+	if(!(vh_dflt = tfw_vhost_new(TFW_VH_DFT_NAME))) {
 		TFW_ERR_NL("Unable to create default vhost.\n");
 		return -ENOMEM;
 	}
@@ -2211,8 +2219,8 @@ static TfwCfgSpec tfw_vhost_internal_specs[] = {
 		.cleanup = tfw_cfg_cleanup_children,
 		.dest = tfw_vhost_location_specs,
 		.spec_ext = &(TfwCfgSpecChild) {
-			.begin_hook = tfw_cfgop_location_begin,
-			.finish_hook = tfw_cfgop_location_finish
+			.begin_hook = tfw_cfgop_in_location_begin,
+			.finish_hook = tfw_cfgop_in_location_finish
 		},
 		.allow_none = true,
 		.allow_repeat = true,
@@ -2415,6 +2423,20 @@ static TfwCfgSpec tfw_vhost_specs[] = {
 		.name = "resp_hdr_set",
 		.deflt = NULL,
 		.handler = tfw_cfgop_out_resp_hdr_set,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "location",
+		.deflt = NULL,
+		.handler = tfw_cfg_handle_children,
+		.cleanup = tfw_cfg_cleanup_children,
+		.dest = tfw_vhost_location_specs,
+		.spec_ext = &(TfwCfgSpecChild) {
+			.begin_hook = tfw_cfgop_out_location_begin,
+			.finish_hook = tfw_cfgop_out_location_finish
+		},
 		.allow_none = true,
 		.allow_repeat = true,
 		.allow_reconfig = true,
