@@ -112,7 +112,7 @@ int __tfw_stricmp_avx2(const char *s1, const char *s2, size_t len);
 int __tfw_stricmp_avx2_2lc(const char *s1, const char *s2, size_t len);
 
 static inline void
-tfw_strtolower(void *dest, const void *src, size_t len)
+tfw_cstrtolower(void *dest, const void *src, size_t len)
 {
 	__tfw_strtolower_avx2((unsigned char *)dest, (const unsigned char *)src,
 			      len);
@@ -122,7 +122,7 @@ tfw_strtolower(void *dest, const void *src, size_t len)
  * @return 0 if the strings match and non-zero otherwise.
  */
 static inline int
-tfw_stricmp(const char *s1, const char *s2, size_t len)
+tfw_cstricmp(const char *s1, const char *s2, size_t len)
 {
 	return __tfw_stricmp_avx2(s1, s2, len);
 }
@@ -134,14 +134,14 @@ tfw_stricmp(const char *s1, const char *s2, size_t len)
  * 3. required @s2 is always in lower case.
  */
 static inline int
-tfw_stricmp_2lc(const char *s1, const char *s2, size_t len)
+tfw_cstricmp_2lc(const char *s1, const char *s2, size_t len)
 {
 	return __tfw_stricmp_avx2_2lc(s1, s2, len);
 }
 #else
 
 static inline void
-tfw_strtolower(void *dest, const void *src, size_t len)
+tfw_cstrtolower(void *dest, const void *src, size_t len)
 {
 	int i;
 	unsigned char *d = dest;
@@ -152,13 +152,13 @@ tfw_strtolower(void *dest, const void *src, size_t len)
 }
 
 static inline int
-tfw_stricmp(const char *s1, const char *s2, size_t len)
+tfw_cstricmp(const char *s1, const char *s2, size_t len)
 {
 	return strncasecmp(s1, s2, len);
 }
 
 static inline int
-tfw_stricmp_2lc(const char *s1, const char *s2, size_t len)
+tfw_cstricmp_2lc(const char *s1, const char *s2, size_t len)
 {
 	return strncasecmp(s1, s2, len);
 }
@@ -366,9 +366,12 @@ TfwStr *tfw_strdup(TfwPool *pool, const TfwStr *src);
 int tfw_strcpy_desc(TfwStr *dst, TfwStr *src);
 int tfw_strcat(TfwPool *pool, TfwStr *dst, TfwStr *src);
 
+int __tfw_strcmp(const TfwStr *s1, const TfwStr *s2, int cs);
+#define tfw_stricmp(s1, s2)		__tfw_strcmpspn((s1), (s2), 0)
+#define tfw_strcmp(s1, s2)		__tfw_strcmpspn((s1), (s2), 1)
 int __tfw_strcmpspn(const TfwStr *s1, const TfwStr *s2, int stop, int cs);
-#define tfw_stricmpspn(s1, s2, stop) __tfw_strcmpspn((s1), (s2), (stop), 0)
-#define tfw_strcmpspn(s1, s2, stop) __tfw_strcmpspn((s1), (s2), (stop), 1)
+#define tfw_stricmpspn(s1, s2, stop)	__tfw_strcmpspn((s1), (s2), (stop), 0)
+#define tfw_strcmpspn(s1, s2, stop)	__tfw_strcmpspn((s1), (s2), (stop), 1)
 
 bool tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
 		     tfw_str_eq_flags_t flags);
