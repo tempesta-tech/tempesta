@@ -751,8 +751,8 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 this_chunk:
 		n = min(c->len - c_off, (unsigned long)trec->len - t_off);
 		/* Cache key is stored in lower case. */
-		if (tfw_stricmp_2lc((char *)c->ptr + c_off,
-				    trec->data + t_off, n))
+		if (tfw_cstricmp_2lc((char *)c->ptr + c_off,
+				     trec->data + t_off, n))
 			return false;
 		c_off = (n == c->len - c_off) ? 0 : c_off + n;
 		if (n == trec->len - t_off) {

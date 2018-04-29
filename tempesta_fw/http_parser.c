@@ -398,7 +398,7 @@ __try_str(TfwStr *hdr, TfwStr* chunk, unsigned char *p, size_t len,
 		return CSTR_NEQ;
 
 	len = min(len, str_len - offset);
-	if (tfw_stricmp_2lc(p, str + offset, len) ||
+	if (tfw_cstricmp_2lc(p, str + offset, len) ||
 	    (chunk->len && !tfw_str_eq_cstr_pos(hdr, chunk->ptr, str,
 						chunk->len, TFW_STR_EQ_CASEI)))
 		return CSTR_NEQ;
