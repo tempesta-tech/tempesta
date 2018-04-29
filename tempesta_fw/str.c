@@ -435,6 +435,9 @@ EXPORT_SYMBOL(__tfw_strcmp);
  *   INT_MAX	- strings match and @stop is found;
  *   -1		- strings do not match, @s1 < @s2;
  *   1		- strings do not match, @s1 > @s2;
+ *
+ * While the function isn't so fast, we've never seen it in perf top, so leave
+ * it as it until we have some performance issues with it.
  */
 static inline int
 __cstricmpspn(const unsigned char *s1, const unsigned char *s2, int n, int stop,

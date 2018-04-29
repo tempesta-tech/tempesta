@@ -74,10 +74,10 @@
  * ------------------------------------------------------------------------
  *	SIMD C strings
  *
- * BEWARE(!) using the functions in context different from softirq (any HTTP
- * processing). Softirq context is explicitly protected by kernel_fpu_begin()
- * and kernel_fpu_end(), so you must do the same if you need the functions in
- * some other context. Keep in mind that TfwStr uses the functions as well.
+ * The functions must be used in FPU safe context, so we explicitly call
+ * kernel_fpu_begin() and kernel_fpu_end() in main.c for the module
+ * initialization and sysctl operations. Softirq context is explicitly
+ * protected by kernel_fpu_begin() and kernel_fpu_end().
  *
  * The functions are optimistic for the data of length 64 and more bytes,
  * i.e. comapring or matchin long strings you assume that the strings are
@@ -110,6 +110,9 @@ void __tfw_strtolower_avx2(unsigned char *dest, const unsigned char *src,
 			    size_t len);
 int __tfw_stricmp_avx2(const char *s1, const char *s2, size_t len);
 int __tfw_stricmp_avx2_2lc(const char *s1, const char *s2, size_t len);
+extern void memcpy_fast(void *to, const void *from, size_t len);
+extern int memcmp_fast(const void *a, const void *b, size_t len);
+extern void bzero_fast(void *s, size_t len);
 
 static inline void
 tfw_cstrtolower(void *dest, const void *src, size_t len)
@@ -138,7 +141,7 @@ tfw_cstricmp_2lc(const char *s1, const char *s2, size_t len)
 {
 	return __tfw_stricmp_avx2_2lc(s1, s2, len);
 }
-#else
+#else /* AVX2 */
 
 static inline void
 tfw_cstrtolower(void *dest, const void *src, size_t len)
@@ -162,6 +165,10 @@ tfw_cstricmp_2lc(const char *s1, const char *s2, size_t len)
 {
 	return strncasecmp(s1, s2, len);
 }
+
+#define memcpy_fast(to, from, len)	memcpy(to, from, len)
+#define memcmp_fast(a, b, len)		memcmp(a, b, len)
+#define bzero_fast(s, len)		memset(s, 0, len)
 #endif
 
 /* Buffer size to hold all possible values of unsigned long */
