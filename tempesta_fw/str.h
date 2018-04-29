@@ -367,8 +367,8 @@ int tfw_strcpy_desc(TfwStr *dst, TfwStr *src);
 int tfw_strcat(TfwPool *pool, TfwStr *dst, TfwStr *src);
 
 int __tfw_strcmp(const TfwStr *s1, const TfwStr *s2, int cs);
-#define tfw_stricmp(s1, s2)		__tfw_strcmpspn((s1), (s2), 0)
-#define tfw_strcmp(s1, s2)		__tfw_strcmpspn((s1), (s2), 1)
+#define tfw_stricmp(s1, s2)		__tfw_strcmp((s1), (s2), 0)
+#define tfw_strcmp(s1, s2)		__tfw_strcmp((s1), (s2), 1)
 int __tfw_strcmpspn(const TfwStr *s1, const TfwStr *s2, int stop, int cs);
 #define tfw_stricmpspn(s1, s2, stop)	__tfw_strcmpspn((s1), (s2), (stop), 0)
 #define tfw_strcmpspn(s1, s2, stop)	__tfw_strcmpspn((s1), (s2), (stop), 1)
