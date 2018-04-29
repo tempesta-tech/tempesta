@@ -305,6 +305,7 @@ tfw_ctlfn_state_io(struct ctl_table *ctl, int is_write,
 	int r = 0;
 
 	mutex_lock(&tfw_sysctl_mtx);
+	kernel_fpu_begin();
 
 	if (is_write) {
 		char new_state_buf[ctl->maxlen];
@@ -327,6 +328,7 @@ tfw_ctlfn_state_io(struct ctl_table *ctl, int is_write,
 
 	r = proc_dostring(ctl, is_write, user_buf, lenp, ppos);
 out:
+	kernel_fpu_end();
 	mutex_unlock(&tfw_sysctl_mtx);
 	return r;
 }
@@ -365,8 +367,10 @@ tfw_exit(void)
 	int i;
 
 	TFW_LOG("exiting...\n");
+	kernel_fpu_begin();
 	for (i = exit_hooks_n - 1; i >= 0; --i)
 		exit_hooks[i]();
+	kernel_fpu_end();
 
 	unregister_net_sysctl_table(tfw_sysctl_hdr);
 }
@@ -379,13 +383,13 @@ tfw_init(void)
 	/* Initialize strings SIMD constants at first. */
 	kernel_fpu_begin();
 	tfw_str_init_const();
-	kernel_fpu_end();
 
 	TFW_LOG("Initializing Tempesta FW kernel module...\n");
 
 	tfw_sysctl_hdr = register_net_sysctl(&init_net, "net/tempesta",
 					     tfw_sysctl_tbl);
 	if (!tfw_sysctl_hdr) {
+		kernel_fpu_end();
 		TFW_ERR_NL("can't register sysctl table\n");
 		return -1;
 	}
@@ -412,8 +416,10 @@ tfw_init(void)
 	DO_INIT(sock_clnt);
 	DO_INIT(procfs);
 
+	kernel_fpu_end();
 	return 0;
 err:
+	kernel_fpu_end();
 	tfw_exit();
 	return r;
 }
