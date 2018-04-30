@@ -54,7 +54,6 @@ usage()
 {
 	echo -e "\nUsage: ${TFW_NAME} [options] {action}\n"
 	echo -e "Options:"
-	echo -e "  -f          Load Frang, HTTP DoS protection module."
 	echo -e "  -d <devs>   Ingress and egress network devices"
 	echo -e "              (ex. -d \"lo ens3\").\n"
 	echo -e "Actions:"
