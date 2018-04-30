@@ -57,4 +57,4 @@ tempesta_fw-objs = \
 	vhost.o \
 	work_queue.o
 
-obj-m	+= log/ classifier/ stress/ sched/ t/
+obj-m	+= classifier/ stress/ sched/ t/
