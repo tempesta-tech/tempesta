@@ -61,7 +61,7 @@ typedef struct {
  		s = tfw_pool_alloc(p, sizeof(struct_name));		\
  		BUG_ON(!s);						\
 		if (mask & TFW_POOL_ZERO)				\
-			bzero_fast(s, sizeof(struct_name));		\
+			memset(s, 0, sizeof(struct_name));		\
  		s->pool = p;						\
  	} else {							\
  		TFW_ERR("Can't alloc new " #struct_name);		\

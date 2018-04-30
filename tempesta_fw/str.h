@@ -74,10 +74,10 @@
  * ------------------------------------------------------------------------
  *	SIMD C strings
  *
- * The functions must be used in FPU safe context, so we explicitly call
- * kernel_fpu_begin() and kernel_fpu_end() in main.c for the module
- * initialization and sysctl operations. Softirq context is explicitly
- * protected by kernel_fpu_begin() and kernel_fpu_end().
+ * BEWARE(!) using the functions in context different from softirq (any HTTP
+ * processing). Softirq context is explicitly protected by kernel_fpu_begin()
+ * and kernel_fpu_end(), so you must do the same if you need the functions in
+ * some other context. Keep in mind that TfwStr uses the functions as well.
  *
  * The functions are optimistic for the data of length 64 and more bytes,
  * i.e. comapring or matchin long strings you assume that the strings are
@@ -110,9 +110,6 @@ void __tfw_strtolower_avx2(unsigned char *dest, const unsigned char *src,
 			    size_t len);
 int __tfw_stricmp_avx2(const char *s1, const char *s2, size_t len);
 int __tfw_stricmp_avx2_2lc(const char *s1, const char *s2, size_t len);
-extern void memcpy_fast(void *to, const void *from, size_t len);
-extern int memcmp_fast(const void *a, const void *b, size_t len);
-extern void bzero_fast(void *s, size_t len);
 
 static inline void
 tfw_cstrtolower(void *dest, const void *src, size_t len)
@@ -165,10 +162,6 @@ tfw_cstricmp_2lc(const char *s1, const char *s2, size_t len)
 {
 	return strncasecmp(s1, s2, len);
 }
-
-#define memcpy_fast(to, from, len)	memcpy(to, from, len)
-#define memcmp_fast(a, b, len)		memcmp(a, b, len)
-#define bzero_fast(s, len)		memset(s, 0, len)
 #endif
 
 /* Buffer size to hold all possible values of unsigned long */
@@ -178,6 +171,9 @@ size_t tfw_ultoa(unsigned long ai, char *buf, unsigned int len);
 /*
  * ------------------------------------------------------------------------
  *	Tempesta chunked strings
+ *
+ * The strings use SIMD instructions, so use them carefully to not to call
+ * casually from sleepable context, e.g. on configuration phase.
  * ------------------------------------------------------------------------
  */
 #define TFW_STR_FBITS		8
@@ -238,7 +234,7 @@ typedef struct {
 /* Compound string contains at least 2 chunks. */
 #define TFW_STR_CHUNKN_INIT(s)	__TFW_STR_CHUNKN_SET(s, 2)
 
-#define TFW_STR_INIT(s)		bzero_fast(s, sizeof(TfwStr))
+#define TFW_STR_INIT(s)		memset(s, 0, sizeof(TfwStr))
 
 #define TFW_STR_EMPTY(s)	(!((s)->flags | (s)->len))
 #define TFW_STR_PLAIN(s)	(!((s)->flags & __TFW_STR_COMPOUND))

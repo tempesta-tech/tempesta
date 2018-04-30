@@ -24,6 +24,7 @@
 #include <linux/spinlock.h>
 #include <linux/stringify.h>
 
+#include "lib/str.h"
 #include "apm.h"
 #include "cfg.h"
 #include "log.h"
@@ -222,8 +223,8 @@ tfw_stats_extend(TfwPcntRanges *rng, unsigned int r_time)
 			break;
 		}
 	}
-	bzero_fast(&rng->cnt[TFW_STATS_RLAST][parts],
-		   sizeof(rng->cnt[0][0]) * (TFW_STATS_BCKTS - parts));
+	memset(&rng->cnt[TFW_STATS_RLAST][parts], 0,
+	       sizeof(rng->cnt[0][0]) * (TFW_STATS_BCKTS - parts));
 }
 
 /**
@@ -778,9 +779,9 @@ tfw_apm_prnctl_calc(TfwApmRBuf *rbuf, TfwApmRBCtl *rbctl, TfwPrcntlStats *pstats
 static inline void
 __tfw_apm_rbent_reset(TfwApmRBEnt *crbent, unsigned long jtmistamp)
 {
-	bzero_fast(crbent->pcntrng.__reset_from,
-		   offsetof(TfwPcntRanges, __reset_till) -
-		   offsetof(TfwPcntRanges, __reset_from));
+	memset(crbent->pcntrng.__reset_from, 0,
+	       offsetof(TfwPcntRanges, __reset_till)
+	       - offsetof(TfwPcntRanges, __reset_from));
 	crbent->jtmistamp = jtmistamp;
 	smp_mb__before_atomic();
 	atomic_set(&crbent->reset, 1);
@@ -924,8 +925,8 @@ tfw_apm_calc(TfwApmData *data)
 	asent = &data->stats.asent[rdidx % 2];				\
 									\
 	fn_lock(&asent->rwlock);					\
-	memcpy_fast(pstats->val, asent->pstats.val,			\
-		    pstats->psz * sizeof(pstats->val[0]));		\
+	memcpy(pstats->val, asent->pstats.val,				\
+	       pstats->psz * sizeof(pstats->val[0]));			\
 	fn_unlock(&asent->rwlock);					\
 	pstats->seq = rdidx;						\
 									\

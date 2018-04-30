@@ -43,7 +43,7 @@
  */
 #include <linux/gfp.h>
 
-#include "tempesta_fw.h"
+#include "lib/str.h"
 #include "pool.h"
 
 #define TFW_POOL_CHUNK_SZ(p)	(PAGE_SIZE << (p)->order)

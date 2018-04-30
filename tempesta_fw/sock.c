@@ -25,6 +25,7 @@
 #include <net/inet_common.h>
 #include <net/ip6_route.h>
 
+#include "lib/str.h"
 #include "addr.h"
 #include "log.h"
 #include "procfs.h"
@@ -205,7 +206,7 @@ ss_turnstile_push(long ticket, SsWork *sw, int cpu)
 	if (!cn)
 		return -ENOMEM;
 	cn->ticket = ticket;
-	memcpy_fast(&cn->sw, sw, sizeof(*sw));
+	memcpy(&cn->sw, sw, sizeof(*sw));
 	spin_lock_bh(&cb->lock);
 	list_add(&cn->list, &cb->head);
 	cb->size++;

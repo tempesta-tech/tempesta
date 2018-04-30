@@ -20,7 +20,7 @@
 tfw_root = $(src)/../../../
 
 EXTRA_CFLAGS += $(TFW_CFLAGS) -I$(tfw_root)/tempesta_fw -I$(tfw_root)/tempesta_fw/t \
-		-I$(tfw_root)/tempesta_db/core
+		-I$(tfw_root) -I$(tfw_root)/tempesta_db/core
 EXTRA_CFLAGS += $(TTLS_CFLAGS)
 
 obj-m += tfw_test.o

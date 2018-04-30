@@ -95,7 +95,7 @@ tfw_addr_pton_v6(const TfwStr *s, struct sockaddr_in6 *addr)
 	const char *p;
 	const TfwStr *c, *end;
 
-	bzero_fast(addr, sizeof(*addr));
+	memset(addr, 0, sizeof(*addr));
 
 	TFW_STR_FOR_EACH_CHUNK(c, s, end) {
 		for (k = 0; k != c->len; ++k) {
@@ -360,8 +360,7 @@ tfw_addr_eq_inet6(const struct sockaddr_in6 *a, const struct sockaddr_in6 *b)
 	 *  - The addresses are treated as equal even if they have different
 	 *    sin6_flowinfo or sin6_scope_id. */
 	return ((a->sin6_port == b->sin6_port) &&
-		!memcmp_fast(&a->sin6_addr, &b->sin6_addr,
-			     sizeof(a->sin6_addr)));
+		!memcmp(&a->sin6_addr, &b->sin6_addr, sizeof(a->sin6_addr)));
 }
 
 /**

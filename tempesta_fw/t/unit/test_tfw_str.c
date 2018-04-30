@@ -682,7 +682,7 @@ TEST(tfw_stricmp, handles_empty_strs)
 	TFW_STR(s3, "abcdefghijklmnopqrst");
 
 	EXPECT_TRUE(tfw_stricmp(&s1, &s2) == 0);
-	EXPECT_FALSE(tfw_stricmpspn(&s1, &s2, 'a') == 0);
+	EXPECT_TRUE(tfw_stricmpspn(&s1, &s2, 'a') == 0);
 	EXPECT_FALSE(tfw_stricmp(&s1, s3) == 0);
 	EXPECT_FALSE(tfw_stricmpspn(&s1, s3, 'a') == 0);
 }
@@ -761,7 +761,7 @@ TEST(tfw_strcmp, handles_empty_strs)
 	TFW_STR(s3, "abcdefghijklmnopqrst");
 
 	EXPECT_TRUE(tfw_strcmp(&s1, &s2) == 0);
-	EXPECT_FALSE(tfw_strcmpspn(&s1, &s2, 'a') == 0);
+	EXPECT_TRUE(tfw_strcmpspn(&s1, &s2, 'a') == 0);
 	EXPECT_FALSE(tfw_strcmp(&s1, s3) == 0);
 	EXPECT_FALSE(tfw_strcmpspn(&s1, s3, 'a') == 0);
 }

@@ -29,6 +29,7 @@
 
 #include "tdb.h"
 
+#include "lib/str.h"
 #include "tempesta_fw.h"
 #include "vhost.h"
 #include "cache.h"
@@ -901,7 +902,7 @@ tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
 static inline long
 tfw_cache_strcpy_lc(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
 {
-	return __tfw_cache_strcpy(p, trec, src, tot_len, tfw_strtolower);
+	return __tfw_cache_strcpy(p, trec, src, tot_len, tfw_cstrtolower);
 }
 
 /**

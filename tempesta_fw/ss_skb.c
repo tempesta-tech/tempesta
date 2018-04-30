@@ -29,6 +29,7 @@
 #include <net/tcp.h>
 #include <net/xfrm.h>
 
+#include "lib/str.h"
 #include "addr.h"
 #include "procfs.h"
 #include "ss_skb.h"
