@@ -341,7 +341,7 @@ tfw_sg_put(TfwSrvGroup *sg)
 static inline bool
 tfw_sg_name_match(TfwSrvGroup *sg, const char *name, unsigned int len)
 {
-	return len == sg->nlen && !tfw_cstricmp(sg->name, name, len);
+	return len == sg->nlen && !strncasecmp(sg->name, name, len);
 }
 
 /* Scheduler routines. */
