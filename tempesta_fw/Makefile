@@ -20,7 +20,8 @@
 TTLS_CFLAGS += -I$(src)/../tls -I$(src)/../tls/dummy_headers -include ttls.h
 export TTLS_CFLAGS
 
-EXTRA_CFLAGS += $(TFW_CFLAGS) $(TTLS_CFLAGS) -I$(src)/../tempesta_db/core
+EXTRA_CFLAGS += $(TFW_CFLAGS) $(TTLS_CFLAGS)
+EXTRA_CFLAGS += -I$(src)/../tempesta_db/core -I$(src)/../
 
 obj-m	= tempesta_fw.o 
 
@@ -51,7 +52,6 @@ tempesta_fw-objs = \
 	ss_skb.o \
 	stress.o \
 	str.o \
-	str_avx2.o \
 	str_simd.o \
 	tls.o \
 	vhost.o \

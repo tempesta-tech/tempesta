@@ -1,7 +1,6 @@
-#		Tempesta FW
+#		Tempesta DB
 #
-# Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015-2018 Tempesta Technologies, INC.
+# Copyright (C) 2018 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -17,15 +16,11 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-EXTRA_CFLAGS += $(TFW_CFLAGS) -I$(src)/.. -I$(src)/../../
-EXTRA_CFLAGS += $(TTLS_CFLAGS)
+EXTRA_CFLAGS += $(TFW_CFLAGS)
 
-obj-m += sync_sockets/ unit/
+obj-m	= tempesta_lib.o
 
-obj-m += tfw_fuzzer.o
-tfw_fuzzer-objs = \
-	fuzzer.o
-
-obj-m += tfw_bomber.o
-tfw_bomber-objs = \
-	bomber.o
+tempesta_lib-objs = hash.o main.o
+ifdef AVX2
+tempesta_lib-objs += str_simd.o
+endif

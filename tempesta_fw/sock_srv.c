@@ -553,8 +553,8 @@ tfw_srv_conn_alloc(void)
 		return NULL;
 
 	tfw_connection_init((TfwConn *)srv_conn);
-	bzero_fast((char *)srv_conn + sizeof(TfwConn),
-		   sizeof(TfwSrvConn) - sizeof(TfwConn));
+	memset((char *)srv_conn + sizeof(TfwConn), 0,
+	       sizeof(TfwSrvConn) - sizeof(TfwConn));
 	INIT_LIST_HEAD(&srv_conn->fwd_queue);
 	INIT_LIST_HEAD(&srv_conn->nip_queue);
 	spin_lock_init(&srv_conn->fwd_qlock);

@@ -5,6 +5,11 @@
  * Operations over the index tree are lock-free while buckets with collision
  * chains of small records are protected by RW-spinlock.
  *
+ * Data modification is designed to run in softirq context, so the trie uses
+ * SIMD instructions to speedup memory operations. Do not use the DML operations
+ * in sleepable contexts, such as configuration. Only the trie initialization
+ * and shutdown are performed in process context.
+ *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
@@ -24,9 +29,9 @@
  */
 #include <asm/sync_bitops.h>
 #include <linux/bitops.h>
-#include <linux/skbuff.h>
 #include <linux/slab.h>
 
+#include "lib/str.h"
 #include "htrie.h"
 
 #define TDB_MAGIC	0x434947414D424454UL /* "TDBMAGIC" */
@@ -98,7 +103,7 @@ tdb_init_mapping(void *p, size_t db_size, unsigned int rec_len)
 	}
 
 	/* Zero whole area. */
-	bzero_fast(hdr, db_size);
+	memset(hdr, 0, db_size);
 
 	hdr->magic = TDB_MAGIC;
 	hdr->dbsz = db_size;

@@ -23,6 +23,7 @@
 #include <linux/string.h>
 #include <linux/skbuff.h>
 
+#include "lib/str.h"
 #include "test.h"
 
 static unsigned char a[512], b[512];
@@ -85,7 +86,7 @@ __memcpy_test(size_t off, size_t n)
 	for (i = 0; i < sizeof(b); ++i)
 		b[i] = (i & 0xff) ? : 0xa;
 
-	__memcpy_avx((void *)&a[off], (void *)&b[off], n);
+	memcpy_fast((void *)&a[off], (void *)&b[off], n);
 
 	for (i = 0; i < sizeof(a); ++i)
 		EXPECT_FALSE((i >= off && i < off + n
@@ -104,14 +105,14 @@ __memcmp_test(size_t off, size_t n)
 	}
 
 	/* Test for equal. */
-	r0 = __memcmp_avx((const void *)&a[off], (const void *)&b[off], n);
+	r0 = memcmp_fast((const void *)&a[off], (const void *)&b[off], n);
 	r1 = !!memcmp((const void *)&a[off], (const void *)&b[off], n);
 	EXPECT_EQ(r0, r1);
 
 	/* Test for different data. */
 	++a[off + n++];
 	n += off ? : 1;
-	r0 = __memcmp_avx((const void *)&a[off], (const void *)&b[off], n);
+	r0 = memcmp_fast((const void *)&a[off], (const void *)&b[off], n);
 	r1 = !!memcmp((const void *)&a[off], (const void *)&b[off], n);
 	EXPECT_EQ(r0, r1);
 }
@@ -124,7 +125,7 @@ __bzero_test(size_t off, size_t n)
 	for (i = 0; i < sizeof(a); ++i)
 		a[i] = (i & 0xff) ? : 0xa;
 
-	__bzero_avx((void *)&a[off], n);
+	bzero_fast((void *)&a[off], n);
 
 	for (i = 0; i < sizeof(a); ++i)
 		EXPECT_FALSE((i >= off && i < off + n && a[i])

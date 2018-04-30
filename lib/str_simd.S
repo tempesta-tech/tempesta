@@ -24,7 +24,7 @@
 #include <asm/alternative-asm.h>
 #include <asm/export.h>
 
-ENTRY(memcpy_fast)
+ENTRY(__memcpy_fast)
 	movq	%rdx, %rax
 	leaq	128(%rsi), %rcx
 	movq	%rsi, %r8
@@ -34,24 +34,24 @@ ENTRY(memcpy_fast)
 	jnb	.L128cpy
 	testb	$64, %dl
 	jne	.L64cpy
-.L32tail:
+.L32cpy_tail:
 	testb	$32, %dl
 	jne	.L32cpy
-.L16tail:
+.L16cpy_tail:
 	movq	%r8, %rcx
 	movq	%rdi, %rax
 	testb	$16, %dl
 	jne	.L16cpy
-.L8tail:
+.L8cpy_tail:
 	testb	$8, %dl
 	jne	.L8cpy
-.L4tail:
+.L4cpy_tail:
 	testb	$4, %dl
 	jne	.L4cpy
-.L2tail:
+.L2cpy_tail:
 	testb	$2, %dl
 	jne	.L2cpy
-.L1tail:
+.L1cpy_tail:
 	andl	$1, %edx
 	jne	.L1cpy
 	/* Don't clean the registers w/ vzeroupper. */
@@ -75,7 +75,7 @@ ENTRY(memcpy_fast)
 	cmpq	%rcx, %rax
 	jnb	.Lrepeat128cpy
 	testb	$64, %dl
-	je	.L32tail
+	je	.L32cpy_tail
 .L64cpy:
 	leaq	32(%r8), %rax
 	vlddqu	(%r8), %ymm1
@@ -86,7 +86,7 @@ ENTRY(memcpy_fast)
 	vmovdqu	%ymm1, -64(%rdi)
 	vmovdqu	%ymm0, (%rax)
 	testb	$32, %dl
-	je	.L16tail
+	je	.L16cpy_tail
 .L32cpy:
 	vlddqu	(%r8), %ymm0
 	addq	$32, %rdi
@@ -95,68 +95,67 @@ ENTRY(memcpy_fast)
 	vmovdqu	%ymm0, -32(%rdi)
 	movq	%rdi, %rax
 	testb	$16, %dl
-	je	.L8tail
+	je	.L8cpy_tail
 .L16cpy:
 	vlddqu	(%r8), %xmm0
 	addq	$16, %rcx
 	addq	$16, %rax
 	vmovups	%xmm0, (%rdi)
 	testb	$8, %dl
-	je	.L4tail
+	je	.L4cpy_tail
 .L8cpy:
 	movq	(%rcx), %rsi
 	addq	$8, %rax
 	addq	$8, %rcx
 	movq	%rsi, -8(%rax)
 	testb	$4, %dl
-	je	.L2tail
+	je	.L2cpy_tail
 .L4cpy:
 	movl	(%rcx), %esi
 	addq	$4, %rax
 	addq	$4, %rcx
 	movl	%esi, -4(%rax)
 	testb	$2, %dl
-	je	.L1tail
+	je	.L1cpy_tail
 .L2cpy:
 	movzwl	(%rcx), %esi
 	addq	$2, %rax
 	addq	$2, %rcx
 	movw	%si, -2(%rax)
 	andl	$1, %edx
-	je	.Lret
+	je	.Lcpy_ret
 .L1cpy:
 	movzbl	(%rcx), %edx
 	movb	%dl, (%rax)
-.Lret:
+.Lcpy_ret:
 	ret
-ENDPROC(memcpy_fast)
-EXPORT_SYMBOL(memcpy_fast)
+ENDPROC(__memcpy_fast)
 
-ENTRY(memcmp_fast)
+ENTRY(__memcmp_fast)
 	leaq	(%rdi,%rdx), %rax
 	leaq	128(%rdi), %rcx
 	cmpq	%rcx, %rax
 	jnb	.L128cmp_loop
 	movq	%rdi, %rcx
-.L64tail:
+.L64cmp_tail:
 	testb	$64, %dl
 	jne	.L64cmp
-.L32tail:
+.L32cmp_tail:
 	testb	$32, %dl
 	jne	.L32cmp
-.L16tail:
+.L16cmp_tail:
 	testb	$16, %dl
 	jne	.L16cmp
-.L8tail:
+.L8cmp_tail:
 	testb	$8, %dl
 	jne	.L8cmp
-.L4tail:
+.L4cmp_tail:
 	testb	$4, %dl
 	jne	.L4cmp
-.L2tail:
+.L2cmp_tail:
 	testb	$2, %dl
 	jne	.L2cmp
-.L1tail:
+.L1cmp_tail:
 	xorl	%eax, %eax
 	andl	$1, %edx
 	jne	.L1cmp
@@ -184,7 +183,7 @@ ENTRY(memcmp_fast)
 	leaq	128(%rcx), %rdi
 	subq	$-128, %rsi
 	cmpq	%rdi, %rax
-	jb	.L64tail
+	jb	.L64cmp_tail
 	movq	%rdi, %rcx
 .L128cmp_loop:
 	vlddqu	-128(%rcx), %ymm0
@@ -211,7 +210,7 @@ ENTRY(memcmp_fast)
 	jne	.Lret_neq
 	addq	$64, %rcx
 	addq	$64, %rsi
-	jmp	.L32tail
+	jmp	.L32cmp_tail
 .L32cmp:
 	vlddqu	(%rcx), %ymm0
 	vlddqu	(%rsi), %ymm1
@@ -219,10 +218,10 @@ ENTRY(memcmp_fast)
 	vpcmpeqd %ymm1, %ymm0, %ymm0
 	vpmovmskb %ymm0, %edi
 	cmpl	$-1, %edi
-	jne	.Lret
+	jne	.Lcmp_ret
 	addq	$32, %rcx
 	addq	$32, %rsi
-	jmp	.L16tail
+	jmp	.L16cmp_tail
 .L16cmp:
 	vlddqu	(%rcx), %xmm0
 	vlddqu	(%rsi), %xmm1
@@ -230,42 +229,41 @@ ENTRY(memcmp_fast)
 	vpcmpeqw %xmm1, %xmm0, %xmm0
 	vpmovmskb %xmm0, %edi
 	cmpl	$65535, %edi
-	jne	.Lret
+	jne	.Lcmp_ret
 	addq	$16, %rcx
 	addq	$16, %rsi
-	jmp	.L8tail
+	jmp	.L8cmp_tail
 .L8cmp:
 	movq	(%rsi), %rax
 	cmpq	%rax, (%rcx)
 	jne	.Lret_neq
 	addq	$8, %rcx
 	addq	$8, %rsi
-	jmp	.L4tail
+	jmp	.L4cmp_tail
 .L4cmp:
 	movl	(%rsi), %eax
 	cmpl	%eax, (%rcx)
 	jne	.Lret_neq
 	addq	$4, %rcx
 	addq	$4, %rsi
-	jmp	.L2tail
+	jmp	.L2cmp_tail
 .L2cmp:
 	movzwl	(%rsi), %eax
 	cmpw	%ax, (%rcx)
 	jne	.Lret_neq
 	addq	$2, %rcx
 	addq	$2, %rsi
-	jmp	.L1tail
+	jmp	.L1cmp_tail
 .L1cmp:
 	movzbl	(%rsi), %eax
 	cmpb	%al, (%rcx)
 	setne	%al
 	movzbl	%al, %eax
-.Lret:
+.Lcmp_ret:
 	ret
-ENDPROC(memcmp_fast)
-EXPORT_SYMBOL(memcmp_fast)
+ENDPROC(__memcmp_fast)
 
-ENTRY(bzero_fast)
+ENTRY(__bzero_fast)
 	movq	%rsi, %rax
 	movq	%rdi, %rdx
 	andq	$-128, %rax
@@ -275,23 +273,23 @@ ENTRY(bzero_fast)
 	jb	.L128zer
 	testb	$64, %sil
 	jne	.L64zer
-.L32tail:
+.L32bz_tail:
 	testb	$32, %sil
 	jne	.L32zer
-.L16tail:
+.L16bz_tail:
 	movq	%rdx, %rax
 	testb	$16, %sil
 	jne	.L16zer
-.L8tail:
+.L8bz_tail:
 	testb	$8, %sil
 	jne	.L8zer
-.L4tail:
+.L4bz_tail:
 	testb	$4, %sil
 	jne	.L4zer
-.L2tail:
+.L2bz_tail:
 	testb	$2, %sil
 	jne	.L2zer
-.L1tail:
+.L1bz_tail:
 	andl	$1, %esi
 	jne	.L1zer
 	/* Don't clean the registers w/ vzeroupper. */
@@ -311,43 +309,41 @@ ENTRY(bzero_fast)
 	andq	$-128, %rax
 	leaq	128(%rdi,%rax), %rdx
 	testb	$64, %sil
-	je	.L32tail
+	je	.L32bz_tail
 .L64zer:
 	addq	$64, %rdx
 	vmovdqu	%ymm0, -64(%rdx)
 	vmovdqu	%ymm0, -32(%rdx)
 	testb	$32, %sil
-	je	.L16tail
+	je	.L16bz_tail
 .L32zer:
 	addq	$32, %rdx
 	vmovdqu	%ymm0, -32(%rdx)
 	movq	%rdx, %rax
 	testb	$16, %sil
-	je	.L8tail
+	je	.L8bz_tail
 .L16zer:
 	addq	$16, %rax
 	vmovups	%xmm0, (%rdx)
 	testb	$8, %sil
-	je	.L4tail
+	je	.L4bz_tail
 .L8zer:
 	movq	$0, (%rax)
 	addq	$8, %rax
 	testb	$4, %sil
-	je	.L2tail
+	je	.L2bz_tail
 .L4zer:
 	movl	$0, (%rax)
 	addq	$4, %rax
 	testb	$2, %sil
-	je	.L1tail
+	je	.L1bz_tail
 .L2zer:
 	movw	$0, (%rax)
 	addq	$2, %rax
 	andl	$1, %esi
-	je	.Lret
+	je	.Lbz_ret
 .L1zer:
 	movb	$0, (%rax)
-.Lret:
+.Lbz_ret:
 	ret
-ENDPROC(bzero_fast)
-EXPORT_SYMBOL(bzero_fast)
-
+ENDPROC(__bzero_fast)

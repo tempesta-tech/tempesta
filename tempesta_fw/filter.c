@@ -40,6 +40,7 @@
 
 #include "tdb.h"
 
+#include "lib/str.h"
 #include "tempesta_fw.h"
 #include "classifier.h"
 #include "filter.h"
