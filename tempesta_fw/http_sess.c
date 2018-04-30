@@ -633,7 +633,7 @@ int
 tfw_http_sess_obtain(TfwHttpReq *req)
 {
 	int r;
-	unsigned long key = 0, crc_tmp = 0;
+	unsigned long key;
 	TfwHttpSess *sess;
 	SessHashBucket *hb;
 	struct hlist_node *tmp;
@@ -662,9 +662,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 			return TFW_HTTP_SESS_FAILURE;
 	}
 
-	__hash_calc(&key, &crc_tmp, sv.hmac, sizeof(sv.hmac));
-	key |= crc_tmp << 32;
-
+	key = hash_calc(sv.hmac, sizeof(sv.hmac));
 	hb = &sess_hash[hash_min(key, SESS_HASH_BITS)];
 
 	spin_lock(&hb->lock);
