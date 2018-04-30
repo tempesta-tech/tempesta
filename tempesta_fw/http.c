@@ -23,11 +23,11 @@
 #include <linux/sort.h>
 #include <linux/bsearch.h>
 
+#include "lib/hash.h"
 #include "lib/str.h"
 #include "cache.h"
 #include "classifier.h"
 #include "client.h"
-#include "hash.h"
 #include "http_msg.h"
 #include "http_sess.h"
 #include "log.h"
