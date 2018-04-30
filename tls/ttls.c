@@ -26,15 +26,17 @@
  * carefully change all of them to appropriate kernel routines (probably SLAB
  * allocations can be used) or exclude at all (if the optimization is possible.
  */
-void *calloc(size_t n, size_t size)
+void *ttls_calloc(size_t n, size_t size)
 {
 	return kzalloc(n * size, GFP_ATOMIC);
 }
+EXPORT_SYMBOL(ttls_calloc);
 
-void free(void *ptr)
+void ttls_free(void *ptr)
 {
 	kfree(ptr);
 }
+EXPORT_SYMBOL(ttls_free);
 
 #if defined(MBEDTLS_SELF_TEST) && defined(MBEDTLS_PKCS1_V15)
 int rand(void)
@@ -136,29 +138,173 @@ MODULE_LICENSE("GPL v2");
  * ------------------------------------------------------------------------
  */
 
+/*
+ * Bignum (multi-precision integers) support
+ */
+
+#if defined(MBEDTLS_BIGNUM_C)
+EXPORT_SYMBOL(mbedtls_mpi_copy);
+EXPORT_SYMBOL(mbedtls_mpi_free);
+EXPORT_SYMBOL(mbedtls_mpi_read_string);
+EXPORT_SYMBOL(mbedtls_mpi_size);
+#endif
+
+/*
+ * Elliptic curves
+ */
+
+#if defined(MBEDTLS_ECP_C)
+EXPORT_SYMBOL(mbedtls_ecp_curve_info_from_tls_id);
+EXPORT_SYMBOL(mbedtls_ecp_group_load);
+EXPORT_SYMBOL(mbedtls_ecp_grp_id_list);
+#endif
+
+/*
+ * Hashing (message digest) algorithms
+ */
+
+#if defined(MBEDTLS_MD_C)
+EXPORT_SYMBOL(mbedtls_md_init);
+EXPORT_SYMBOL(mbedtls_md_get_size);
+EXPORT_SYMBOL(mbedtls_md_info_from_type);
+EXPORT_SYMBOL(mbedtls_md_clone);
+EXPORT_SYMBOL(mbedtls_md_setup);
+EXPORT_SYMBOL(mbedtls_md_process);
+EXPORT_SYMBOL(mbedtls_md_update);
+EXPORT_SYMBOL(mbedtls_md_starts);
+EXPORT_SYMBOL(mbedtls_md_finish);
+EXPORT_SYMBOL(mbedtls_md_hmac_update);
+EXPORT_SYMBOL(mbedtls_md_hmac_starts);
+EXPORT_SYMBOL(mbedtls_md_hmac_finish);
+EXPORT_SYMBOL(mbedtls_md_hmac_reset);
+EXPORT_SYMBOL(mbedtls_md_free);
+#endif
+
+#if defined(MBEDTLS_MD5_C)
+EXPORT_SYMBOL(mbedtls_md5_init);
+EXPORT_SYMBOL(mbedtls_md5_clone);
+EXPORT_SYMBOL(mbedtls_md5_update);
+EXPORT_SYMBOL(mbedtls_md5_starts);
+EXPORT_SYMBOL(mbedtls_md5_finish);
+EXPORT_SYMBOL(mbedtls_md5_free);
+#endif
+
+#if defined(MBEDTLS_SHA1_C)
+EXPORT_SYMBOL(mbedtls_sha1_init);
+EXPORT_SYMBOL(mbedtls_sha1_clone);
+EXPORT_SYMBOL(mbedtls_sha1_update);
+EXPORT_SYMBOL(mbedtls_sha1_starts);
+EXPORT_SYMBOL(mbedtls_sha1_finish);
+EXPORT_SYMBOL(mbedtls_sha1_free);
+#endif
+
+#if defined(MBEDTLS_SHA256_C)
+EXPORT_SYMBOL(mbedtls_sha256_init);
+EXPORT_SYMBOL(mbedtls_sha256_clone);
+EXPORT_SYMBOL(mbedtls_sha256_update);
+EXPORT_SYMBOL(mbedtls_sha256_starts);
+EXPORT_SYMBOL(mbedtls_sha256_finish);
+EXPORT_SYMBOL(mbedtls_sha256_free);
+#endif
+
+#if defined(MBEDTLS_SHA512_C)
+EXPORT_SYMBOL(mbedtls_sha512_init);
+EXPORT_SYMBOL(mbedtls_sha512_clone);
+EXPORT_SYMBOL(mbedtls_sha512_update);
+EXPORT_SYMBOL(mbedtls_sha512_starts);
+EXPORT_SYMBOL(mbedtls_sha512_finish);
+EXPORT_SYMBOL(mbedtls_sha512_free);
+#endif
+
+/*
+ * Ciphers
+ */
+
+#if defined(MBEDTLS_CIPHER_C)
+EXPORT_SYMBOL(mbedtls_cipher_auth_decrypt);
+EXPORT_SYMBOL(mbedtls_cipher_auth_encrypt);
+EXPORT_SYMBOL(mbedtls_cipher_crypt);
+EXPORT_SYMBOL(mbedtls_cipher_free);
+EXPORT_SYMBOL(mbedtls_cipher_info_from_type);
+EXPORT_SYMBOL(mbedtls_cipher_init);
+EXPORT_SYMBOL(mbedtls_cipher_setkey);
+EXPORT_SYMBOL(mbedtls_cipher_set_padding_mode);
+EXPORT_SYMBOL(mbedtls_cipher_setup);
+#endif
+
+/*
+ * Public key abstraction layer
+ */
+
+#if defined(MBEDTLS_PK_C)
 EXPORT_SYMBOL(mbedtls_pk_init);
-EXPORT_SYMBOL(mbedtls_pk_free);
+EXPORT_SYMBOL(mbedtls_pk_can_do);
+EXPORT_SYMBOL(mbedtls_pk_decrypt);
+EXPORT_SYMBOL(mbedtls_pk_get_bitlen);
 EXPORT_SYMBOL(mbedtls_pk_parse_key);
+EXPORT_SYMBOL(mbedtls_pk_sign);
+EXPORT_SYMBOL(mbedtls_pk_verify);
+EXPORT_SYMBOL(mbedtls_pk_free);
+#endif
 
-EXPORT_SYMBOL(mbedtls_ssl_init);
-EXPORT_SYMBOL(mbedtls_ssl_free);
-EXPORT_SYMBOL(mbedtls_ssl_setup);
-EXPORT_SYMBOL(mbedtls_ssl_set_bio);
-EXPORT_SYMBOL(mbedtls_ssl_read);
-EXPORT_SYMBOL(mbedtls_ssl_write);
-EXPORT_SYMBOL(mbedtls_ssl_handshake);
-EXPORT_SYMBOL(mbedtls_ssl_close_notify);
+/*
+ * Diffie-Hellman
+ */
 
-EXPORT_SYMBOL(mbedtls_ssl_config_init);
-EXPORT_SYMBOL(mbedtls_ssl_config_free);
-EXPORT_SYMBOL(mbedtls_ssl_config_defaults);
-EXPORT_SYMBOL(mbedtls_ssl_conf_rng);
-EXPORT_SYMBOL(mbedtls_ssl_conf_dbg);
-EXPORT_SYMBOL(mbedtls_ssl_conf_own_cert);
-EXPORT_SYMBOL(mbedtls_ssl_conf_ca_chain);
+#if defined(MBEDTLS_DHM_C)
+EXPORT_SYMBOL(mbedtls_dhm_calc_secret);
+EXPORT_SYMBOL(mbedtls_dhm_free);
+EXPORT_SYMBOL(mbedtls_dhm_init);
+EXPORT_SYMBOL(mbedtls_dhm_make_params);
+EXPORT_SYMBOL(mbedtls_dhm_read_public);
+#endif
 
+#if defined(MBEDTLS_ECDH_C)
+EXPORT_SYMBOL(mbedtls_ecdh_calc_secret);
+EXPORT_SYMBOL(mbedtls_ecdh_free);
+EXPORT_SYMBOL(mbedtls_ecdh_get_params);
+EXPORT_SYMBOL(mbedtls_ecdh_init);
+EXPORT_SYMBOL(mbedtls_ecdh_make_params);
+EXPORT_SYMBOL(mbedtls_ecdh_read_public);
+#endif
+
+#if defined(MBEDTLS_X509_CRT_PARSE_C)
 EXPORT_SYMBOL(mbedtls_x509_crt_init);
 EXPORT_SYMBOL(mbedtls_x509_crt_free);
 EXPORT_SYMBOL(mbedtls_x509_crt_parse);
+EXPORT_SYMBOL(mbedtls_x509_crt_parse_der);
+EXPORT_SYMBOL(mbedtls_x509_crt_profile_suiteb);
+EXPORT_SYMBOL(mbedtls_x509_crt_profile_default);
+EXPORT_SYMBOL(mbedtls_x509_crt_verify_with_profile);
+#if defined(MBEDTLS_X509_CHECK_EXTENDED_KEY_USAGE)
+EXPORT_SYMBOL(mbedtls_x509_crt_check_key_usage);
+#endif
+#if defined(MBEDTLS_X509_CHECK_EXTENDED_KEY_USAGE)
+EXPORT_SYMBOL(mbedtls_x509_crt_check_extended_key_usage);
+#endif
+#endif
 
+/*
+ * Debugging
+ */
+
+#if defined(MBEDTLS_DEBUG_C)
+EXPORT_SYMBOL(mbedtls_debug_print_buf);
+EXPORT_SYMBOL(mbedtls_debug_print_crt);
+EXPORT_SYMBOL(mbedtls_debug_print_ecp);
+EXPORT_SYMBOL(mbedtls_debug_print_mpi);
+EXPORT_SYMBOL(mbedtls_debug_print_msg);
+EXPORT_SYMBOL(mbedtls_debug_print_ret);
 EXPORT_SYMBOL(mbedtls_debug_set_threshold);
+#endif
+
+/*
+ * Uncategorized
+ */
+
+EXPORT_SYMBOL(mbedtls_ssl_list_ciphersuites);
+EXPORT_SYMBOL(mbedtls_ssl_ciphersuite_uses_ec);
+EXPORT_SYMBOL(mbedtls_ssl_ciphersuite_uses_psk);
+EXPORT_SYMBOL(mbedtls_ssl_get_ciphersuite_name);
+EXPORT_SYMBOL(mbedtls_ssl_get_ciphersuite_sig_pk_alg);
+EXPORT_SYMBOL(mbedtls_ssl_ciphersuite_from_id);

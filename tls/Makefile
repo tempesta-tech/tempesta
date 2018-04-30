@@ -24,7 +24,13 @@ EXTRA_CFLAGS += -Wframe-larger-than=4096
 
 obj-m = tempesta_tls.o
 
-ttls-srcs = $(wildcard $(obj)/*.c)
+ttls-srcs = $(wildcard $(src)/*.c)
 ttls-objs = $(patsubst %.c, %.o, $(ttls-srcs))
+
+# exclude some original files (see tempesta_fw/ for re-implementation)
+ttls-objs := $(filter-out	\
+	$(src)/ssl_tls.o	\
+	$(src)/ssl_srv.o	\
+	, $(ttls-objs))
 
 tempesta_tls-objs = $(subst $(src)/,,$(ttls-objs))

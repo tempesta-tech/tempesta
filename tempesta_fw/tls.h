@@ -25,6 +25,8 @@
 
 #define TFW_FSM_TLS		TFW_FSM_HTTPS
 
+#define __TFW_TLS_STATE(name)	TFW_TLS_FSM_ ## name
+
 /**
  * TLS states.
  */
@@ -34,6 +36,24 @@ enum {
 	TFW_TLS_FSM_INIT	= TFW_GFSM_TLS_STATE(0),
 
 	TFW_TLS_FSM_DATA_READY	= TFW_GFSM_TLS_STATE(1),
+
+	__TFW_TLS_STATE(HELLO_REQUEST),
+	__TFW_TLS_STATE(CLIENT_HELLO),
+	__TFW_TLS_STATE(SERVER_HELLO_VERIFY_REQUEST_SENT),
+	__TFW_TLS_STATE(SERVER_HELLO),
+	__TFW_TLS_STATE(SERVER_CERTIFICATE),
+	__TFW_TLS_STATE(SERVER_KEY_EXCHANGE),
+	__TFW_TLS_STATE(CERTIFICATE_REQUEST),
+	__TFW_TLS_STATE(SERVER_HELLO_DONE),
+	__TFW_TLS_STATE(CLIENT_CERTIFICATE),
+	__TFW_TLS_STATE(CLIENT_KEY_EXCHANGE),
+	__TFW_TLS_STATE(CERTIFICATE_VERIFY),
+	__TFW_TLS_STATE(CLIENT_CHANGE_CIPHER_SPEC),
+	__TFW_TLS_STATE(CLIENT_FINISHED),
+	__TFW_TLS_STATE(SERVER_CHANGE_CIPHER_SPEC),
+	__TFW_TLS_STATE(SERVER_FINISHED),
+	__TFW_TLS_STATE(FLUSH_BUFFERS),
+	__TFW_TLS_STATE(HANDSHAKE_WRAPUP),
 
 	TFW_TLS_FSM_DONE	= TFW_GFSM_TLS_STATE(TFW_GFSM_STATE_LAST)
 };
@@ -62,6 +82,14 @@ typedef struct {
 	struct sk_buff		*tx_queue;
 	spinlock_t		lock;
 } TfwTlsContext;
+
+int tfw_tls_fsm_step(TfwTlsContext *tls, int state);
+#define TFW_FSM_STEP(ssl, state)                                        \
+	if (tfw_tls_fsm_step(container_of(ssl, TfwTlsContext, ssl),	\
+			     __TFW_TLS_STATE(state)) == TFW_BLOCK) {	\
+		ret = MBEDTLS_ERR_SSL_BAD_INPUT_DATA;			\
+		break;							\
+	}
 
 #endif /* __TFW_TLS_H__ */
 

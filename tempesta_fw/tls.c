@@ -89,6 +89,13 @@ ttls_ssl_close_notify(TfwTlsContext *tls)
 	return r;
 }
 
+int
+tfw_tls_fsm_step(TfwTlsContext *tls, int state)
+{
+	TfwConnection *c = &container_of(tls, TfwTlsConnection, tls)->conn;
+	return tfw_gfsm_move(&c->state, state, ss_skb_peek(&tls->rx_queue), 0);
+}
+
 /**
  * TODO Decrypted response messages should be directly placed in TDB area
  * to avoid copying.
