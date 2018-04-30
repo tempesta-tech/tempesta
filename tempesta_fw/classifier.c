@@ -93,7 +93,7 @@ tfw_classifier_add_inport(__be16 port)
 void
 tfw_classifier_cleanup_inport(void)
 {
-	bzero_fast(&tfw_inports, sizeof(tfw_inports));
+	memset(&tfw_inports, 0, sizeof(tfw_inports));
 }
 
 static int

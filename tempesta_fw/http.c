@@ -23,6 +23,7 @@
 #include <linux/sort.h>
 #include <linux/bsearch.h>
 
+#include "lib/str.h"
 #include "cache.h"
 #include "classifier.h"
 #include "client.h"

@@ -24,7 +24,6 @@
 #include <linux/percpu.h>
 #include <linux/slab.h>
 
-#include "tempesta_fw.h"
 #include "work_queue.h"
 
 /*
@@ -115,7 +114,7 @@ __tfw_wq_push(TfwRBQueue *q, void *ptr)
 		cpu_relax();
 	}
 
-	memcpy_fast(&q->array[head & QMASK], ptr, WQ_ITEM_SZ);
+	memcpy(&q->array[head & QMASK], ptr, WQ_ITEM_SZ);
 	wmb();
 
 	head = 0;
@@ -168,7 +167,7 @@ tfw_wq_pop_ticket(TfwRBQueue *q, void *buf, long *ticket)
 			goto out;
 	}
 
-	memcpy_fast(buf, &q->array[tail & QMASK], WQ_ITEM_SZ);
+	memcpy(buf, &q->array[tail & QMASK], WQ_ITEM_SZ);
 	mb();
 
 	/*

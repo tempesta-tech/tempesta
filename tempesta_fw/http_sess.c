@@ -40,10 +40,11 @@
 #include <linux/time.h>
 #include <linux/vmalloc.h>
 
+#include "lib/hash.h"
+#include "lib/str.h"
 #include "addr.h"
 #include "cfg.h"
 #include "client.h"
-#include "hash.h"
 #include "http_msg.h"
 #include "http_sess.h"
 
@@ -661,7 +662,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 			return TFW_HTTP_SESS_FAILURE;
 	}
 
-	__tdb_hash_calc(&key, &crc_tmp, sv.hmac, sizeof(sv.hmac));
+	__hash_calc(&key, &crc_tmp, sv.hmac, sizeof(sv.hmac));
 	key |= crc_tmp << 32;
 
 	hb = &sess_hash[hash_min(key, SESS_HASH_BITS)];

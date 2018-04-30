@@ -22,6 +22,7 @@
  */
 #include <linux/ctype.h>
 
+#include "lib/str.h"
 #include "gfsm.h"
 #include "http_msg.h"
 #include "ss_skb.h"
