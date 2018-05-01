@@ -33,13 +33,6 @@
 #include <string.h>
 #endif
 
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#define mbedtls_snprintf snprintf
-#define mbedtls_time_t   time_t
-#endif
-
 #if defined(MBEDTLS_ERROR_C)
 
 #include <stdio.h>
@@ -124,10 +117,6 @@
 #include "md5.h"
 #endif
 
-#if defined(MBEDTLS_NET_C)
-#include "net_sockets.h"
-#endif
-
 #if defined(MBEDTLS_OID_C)
 #include "oid.h"
 #endif
@@ -174,10 +163,6 @@
 
 #if defined(MBEDTLS_SSL_TLS_C)
 #include "ssl.h"
-#endif
-
-#if defined(MBEDTLS_THREADING_C)
-#include "threading.h"
 #endif
 
 #if defined(MBEDTLS_X509_USE_C) || defined(MBEDTLS_X509_CREATE_C)
@@ -725,31 +710,6 @@ void mbedtls_strerror( int ret, char *buf, size_t buflen )
         mbedtls_snprintf( buf, buflen, "MD5 - MD5 hardware accelerator failed" );
 #endif /* MBEDTLS_MD5_C */
 
-#if defined(MBEDTLS_NET_C)
-    if( use_ret == -(MBEDTLS_ERR_NET_SOCKET_FAILED) )
-        mbedtls_snprintf( buf, buflen, "NET - Failed to open a socket" );
-    if( use_ret == -(MBEDTLS_ERR_NET_CONNECT_FAILED) )
-        mbedtls_snprintf( buf, buflen, "NET - The connection to the given server / port failed" );
-    if( use_ret == -(MBEDTLS_ERR_NET_BIND_FAILED) )
-        mbedtls_snprintf( buf, buflen, "NET - Binding of the socket failed" );
-    if( use_ret == -(MBEDTLS_ERR_NET_LISTEN_FAILED) )
-        mbedtls_snprintf( buf, buflen, "NET - Could not listen on the socket" );
-    if( use_ret == -(MBEDTLS_ERR_NET_ACCEPT_FAILED) )
-        mbedtls_snprintf( buf, buflen, "NET - Could not accept the incoming connection" );
-    if( use_ret == -(MBEDTLS_ERR_NET_RECV_FAILED) )
-        mbedtls_snprintf( buf, buflen, "NET - Reading information from the socket failed" );
-    if( use_ret == -(MBEDTLS_ERR_NET_SEND_FAILED) )
-        mbedtls_snprintf( buf, buflen, "NET - Sending information through the socket failed" );
-    if( use_ret == -(MBEDTLS_ERR_NET_CONN_RESET) )
-        mbedtls_snprintf( buf, buflen, "NET - Connection was reset by peer" );
-    if( use_ret == -(MBEDTLS_ERR_NET_UNKNOWN_HOST) )
-        mbedtls_snprintf( buf, buflen, "NET - Failed to get an IP address for the given hostname" );
-    if( use_ret == -(MBEDTLS_ERR_NET_BUFFER_TOO_SMALL) )
-        mbedtls_snprintf( buf, buflen, "NET - Buffer is too small to hold the data" );
-    if( use_ret == -(MBEDTLS_ERR_NET_INVALID_CONTEXT) )
-        mbedtls_snprintf( buf, buflen, "NET - The context is invalid, eg because it was free()ed" );
-#endif /* MBEDTLS_NET_C */
-
 #if defined(MBEDTLS_OID_C)
     if( use_ret == -(MBEDTLS_ERR_OID_NOT_FOUND) )
         mbedtls_snprintf( buf, buflen, "OID - OID is not found" );
@@ -781,15 +741,6 @@ void mbedtls_strerror( int ret, char *buf, size_t buflen )
     if( use_ret == -(MBEDTLS_ERR_SHA512_HW_ACCEL_FAILED) )
         mbedtls_snprintf( buf, buflen, "SHA512 - SHA-512 hardware accelerator failed" );
 #endif /* MBEDTLS_SHA512_C */
-
-#if defined(MBEDTLS_THREADING_C)
-    if( use_ret == -(MBEDTLS_ERR_THREADING_FEATURE_UNAVAILABLE) )
-        mbedtls_snprintf( buf, buflen, "THREADING - The selected feature is not available" );
-    if( use_ret == -(MBEDTLS_ERR_THREADING_BAD_INPUT_DATA) )
-        mbedtls_snprintf( buf, buflen, "THREADING - Bad input parameters to function" );
-    if( use_ret == -(MBEDTLS_ERR_THREADING_MUTEX_ERROR) )
-        mbedtls_snprintf( buf, buflen, "THREADING - Locking / unlocking / free failed with error code" );
-#endif /* MBEDTLS_THREADING_C */
 
 #if defined(MBEDTLS_XTEA_C)
     if( use_ret == -(MBEDTLS_ERR_XTEA_INVALID_INPUT_LENGTH) )

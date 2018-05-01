@@ -29,10 +29,6 @@
 
 #include "ssl.h"
 
-#if defined(MBEDTLS_THREADING_C)
-#include "threading.h"
-#endif
-
 /**
  * \name SECTION: Module settings
  *
@@ -41,14 +37,10 @@
  * \{
  */
 #ifndef MBEDTLS_SSL_COOKIE_TIMEOUT
-#define MBEDTLS_SSL_COOKIE_TIMEOUT     60 /**< Default expiration delay of DTLS cookies, in seconds if HAVE_TIME, or in number of cookies issued */
+#define MBEDTLS_SSL_COOKIE_TIMEOUT     60 /**< Default expiration delay of DTLS cookies, in seconds */
 #endif
 
 /* \} name SECTION: Module settings */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /**
  * \brief          Context for the default cookie functions.
@@ -56,15 +48,9 @@ extern "C" {
 typedef struct
 {
     mbedtls_md_context_t    hmac_ctx;   /*!< context for the HMAC portion   */
-#if !defined(MBEDTLS_HAVE_TIME)
     unsigned long   serial;     /*!< serial number for expiration   */
-#endif
-    unsigned long   timeout;    /*!< timeout delay, in seconds if HAVE_TIME,
-                                     or in number of tickets issued */
-
-#if defined(MBEDTLS_THREADING_C)
-    mbedtls_threading_mutex_t mutex;
-#endif
+    unsigned long   timeout;    /*!< timeout delay, in seconds */
+    spinlock_t mutex;
 } mbedtls_ssl_cookie_ctx;
 
 /**
@@ -84,8 +70,7 @@ int mbedtls_ssl_cookie_setup( mbedtls_ssl_cookie_ctx *ctx,
  *                 (Default MBEDTLS_SSL_COOKIE_TIMEOUT)
  *
  * \param ctx      Cookie contex
- * \param delay    Delay, in seconds if HAVE_TIME, or in number of cookies
- *                 issued in the meantime.
+ * \param delay    Delay, in seconds if.
  *                 0 to disable expiration (NOT recommended)
  */
 void mbedtls_ssl_cookie_set_timeout( mbedtls_ssl_cookie_ctx *ctx, unsigned long delay );
@@ -104,9 +89,5 @@ mbedtls_ssl_cookie_write_t mbedtls_ssl_cookie_write;
  * \brief          Verify cookie, see \c mbedtls_ssl_cookie_write_t
  */
 mbedtls_ssl_cookie_check_t mbedtls_ssl_cookie_check;
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* ssl_cookie.h */

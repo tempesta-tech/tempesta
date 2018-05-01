@@ -31,14 +31,6 @@
 
 #include "platform.h"
 
-#if defined(MBEDTLS_ENTROPY_NV_SEED) && \
-    !defined(MBEDTLS_PLATFORM_NO_STD_FUNCTIONS) && defined(MBEDTLS_FS_IO)
-/* Implementation that should never be optimized out by the compiler */
-static void mbedtls_zeroize( void *v, size_t n ) {
-    volatile unsigned char *p = (unsigned char*)v; while( n-- ) *p++ = 0;
-}
-#endif
-
 #if defined(MBEDTLS_PLATFORM_MEMORY)
 #if !defined(MBEDTLS_PLATFORM_STD_CALLOC)
 static void *platform_calloc_uninit( size_t n, size_t size )
@@ -71,34 +63,6 @@ int mbedtls_platform_set_calloc_free( void * (*calloc_func)( size_t, size_t ),
     return( 0 );
 }
 #endif /* MBEDTLS_PLATFORM_MEMORY */
-
-#if defined(_WIN32)
-#include <stdarg.h>
-int mbedtls_platform_win32_snprintf( char *s, size_t n, const char *fmt, ... )
-{
-    int ret;
-    va_list argp;
-
-    /* Avoid calling the invalid parameter handler by checking ourselves */
-    if( s == NULL || n == 0 || fmt == NULL )
-        return( -1 );
-
-    va_start( argp, fmt );
-#if defined(_TRUNCATE) && !defined(__MINGW32__)
-    ret = _vsnprintf_s( s, n, _TRUNCATE, fmt, argp );
-#else
-    ret = _vsnprintf( s, n, fmt, argp );
-    if( ret < 0 || (size_t) ret == n )
-    {
-        s[n-1] = '\0';
-        ret = -1;
-    }
-#endif
-    va_end( argp );
-
-    return( ret );
-}
-#endif
 
 #if defined(MBEDTLS_PLATFORM_SNPRINTF_ALT)
 #if !defined(MBEDTLS_PLATFORM_STD_SNPRINTF)
@@ -200,14 +164,12 @@ int mbedtls_platform_set_exit( void (*exit_func)( int status ) )
 }
 #endif /* MBEDTLS_PLATFORM_EXIT_ALT */
 
-#if defined(MBEDTLS_HAVE_TIME)
-
 #if defined(MBEDTLS_PLATFORM_TIME_ALT)
 #if !defined(MBEDTLS_PLATFORM_STD_TIME)
 /*
  * Make dummy function to prevent NULL pointer dereferences
  */
-static mbedtls_time_t platform_time_uninit( mbedtls_time_t* timer )
+static time_t platform_time_uninit( mbedtls_time_t* timer )
 {
     ((void) timer);
     return( 0 );
@@ -216,60 +178,16 @@ static mbedtls_time_t platform_time_uninit( mbedtls_time_t* timer )
 #define MBEDTLS_PLATFORM_STD_TIME   platform_time_uninit
 #endif /* !MBEDTLS_PLATFORM_STD_TIME */
 
-mbedtls_time_t (*mbedtls_time)( mbedtls_time_t* timer ) = MBEDTLS_PLATFORM_STD_TIME;
+time_t (*mbedtls_time)( mbedtls_time_t* timer ) = MBEDTLS_PLATFORM_STD_TIME;
 
-int mbedtls_platform_set_time( mbedtls_time_t (*time_func)( mbedtls_time_t* timer ) )
+int mbedtls_platform_set_time( time_t (*time_func)( mbedtls_time_t* timer ) )
 {
     mbedtls_time = time_func;
     return( 0 );
 }
 #endif /* MBEDTLS_PLATFORM_TIME_ALT */
 
-#endif /* MBEDTLS_HAVE_TIME */
-
 #if defined(MBEDTLS_ENTROPY_NV_SEED)
-#if !defined(MBEDTLS_PLATFORM_NO_STD_FUNCTIONS) && defined(MBEDTLS_FS_IO)
-/* Default implementations for the platform independent seed functions use
- * standard libc file functions to read from and write to a pre-defined filename
- */
-int mbedtls_platform_std_nv_seed_read( unsigned char *buf, size_t buf_len )
-{
-    FILE *file;
-    size_t n;
-
-    if( ( file = fopen( MBEDTLS_PLATFORM_STD_NV_SEED_FILE, "rb" ) ) == NULL )
-        return( -1 );
-
-    if( ( n = fread( buf, 1, buf_len, file ) ) != buf_len )
-    {
-        fclose( file );
-        mbedtls_zeroize( buf, buf_len );
-        return( -1 );
-    }
-
-    fclose( file );
-    return( (int)n );
-}
-
-int mbedtls_platform_std_nv_seed_write( unsigned char *buf, size_t buf_len )
-{
-    FILE *file;
-    size_t n;
-
-    if( ( file = fopen( MBEDTLS_PLATFORM_STD_NV_SEED_FILE, "w" ) ) == NULL )
-        return -1;
-
-    if( ( n = fwrite( buf, 1, buf_len, file ) ) != buf_len )
-    {
-        fclose( file );
-        return -1;
-    }
-
-    fclose( file );
-    return( (int)n );
-}
-#endif /* MBEDTLS_PLATFORM_NO_STD_FUNCTIONS */
-
 #if defined(MBEDTLS_PLATFORM_NV_SEED_ALT)
 #if !defined(MBEDTLS_PLATFORM_STD_NV_SEED_READ)
 /*

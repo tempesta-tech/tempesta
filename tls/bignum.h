@@ -36,10 +36,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#if defined(MBEDTLS_FS_IO)
-#include <stdio.h>
-#endif
-
 #define MBEDTLS_ERR_MPI_FILE_IO_ERROR                     -0x0002  /**< An error occurred while reading from or writing to a file. */
 #define MBEDTLS_ERR_MPI_BAD_INPUT_DATA                    -0x0004  /**< Bad input parameters to function. */
 #define MBEDTLS_ERR_MPI_INVALID_CHARACTER                 -0x0006  /**< There is an invalid character in the digit string. */
@@ -173,10 +169,6 @@
     #endif /* !MBEDTLS_NO_UDBL_DIVISION */
 #endif /* !MBEDTLS_HAVE_INT64 */
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /**
  * \brief          MPI structure
  */
@@ -185,7 +177,7 @@ typedef struct
     int s;              /*!<  integer sign      */
     size_t n;           /*!<  total # of limbs  */
     mbedtls_mpi_uint *p;          /*!<  pointer to limbs  */
-}
+} __attribute__((packed))
 mbedtls_mpi;
 
 /**
@@ -376,44 +368,6 @@ int mbedtls_mpi_read_string( mbedtls_mpi *X, int radix, const char *s );
  */
 int mbedtls_mpi_write_string( const mbedtls_mpi *X, int radix,
                               char *buf, size_t buflen, size_t *olen );
-
-#if defined(MBEDTLS_FS_IO)
-/**
- * \brief          Read MPI from a line in an opened file
- *
- * \param X        Destination MPI
- * \param radix    Input numeric base
- * \param fin      Input file handle
- *
- * \return         0 if successful, MBEDTLS_ERR_MPI_BUFFER_TOO_SMALL if
- *                 the file read buffer is too small or a
- *                 MBEDTLS_ERR_MPI_XXX error code
- *
- * \note           On success, this function advances the file stream
- *                 to the end of the current line or to EOF.
- *
- *                 The function returns 0 on an empty line.
- *
- *                 Leading whitespaces are ignored, as is a
- *                 '0x' prefix for radix 16.
- *
- */
-int mbedtls_mpi_read_file( mbedtls_mpi *X, int radix, FILE *fin );
-
-/**
- * \brief          Write X into an opened file, or stdout if fout is NULL
- *
- * \param p        Prefix, can be NULL
- * \param X        Source MPI
- * \param radix    Output numeric base
- * \param fout     Output file handle (can be NULL)
- *
- * \return         0 if successful, or a MBEDTLS_ERR_MPI_XXX error code
- *
- * \note           Set fout == NULL to print X on the console.
- */
-int mbedtls_mpi_write_file( const char *p, const mbedtls_mpi *X, int radix, FILE *fout );
-#endif /* MBEDTLS_FS_IO */
 
 /**
  * \brief          Import X from unsigned binary data, big endian
@@ -761,9 +715,5 @@ int mbedtls_mpi_gen_prime( mbedtls_mpi *X, size_t nbits, int dh_flag,
  * \return         0 if successful, or 1 if the test failed
  */
 int mbedtls_mpi_self_test( int verbose );
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* bignum.h */

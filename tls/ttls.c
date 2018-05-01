@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -17,9 +17,14 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <asm/fpu/api.h>
 #include <linux/module.h>
 
 #include "ttls.h"
+
+MODULE_AUTHOR("Tempesta Technologies, INC");
+MODULE_VERSION("2.8.0");
+MODULE_LICENSE("GPL");
 
 /**
  * TODO: analyze all the calls to @calloc and @free over the whole code and
@@ -43,47 +48,21 @@ int rand(void)
 }
 #endif
 
-/**
- * Threading support (locking)
- */
-
-static void
-ttls_mutex_init(mbedtls_threading_mutex_t *mutex)
-{
-	spin_lock_init(mutex);
-}
-
-static void
-ttls_mutex_free(mbedtls_threading_mutex_t *mutex)
-{
-}
-
-static int
-ttls_mutex_lock(mbedtls_threading_mutex_t *mutex)
-{
-	spin_lock(mutex);
-	return 0;
-}
-
-static int
-ttls_mutex_unlock(mbedtls_threading_mutex_t *mutex)
-{
-	spin_unlock(mutex);
-	return 0;
-}
-
 #define DO_SELF_TEST(f)							\
 do {									\
-	int r;								\
-	if ((r = f(0 /* use 1 for verbose */))) {			\
+	if ((r = f(1 /* use 1 for verbose */))) {			\
 		pr_err("TTLS: '" __stringify(f) "' failed (%x)\n", -r);	\
-		return -EINVAL;						\
+		goto err;						\
 	}								\
 } while (0)
 
 static int
 ttls_self_test(void)
 {
+	int r = -EINVAL;
+
+	kernel_fpu_begin();
+
 	DO_SELF_TEST(mbedtls_mpi_self_test);
 	DO_SELF_TEST(mbedtls_ecp_self_test);
 	DO_SELF_TEST(mbedtls_md5_self_test);
@@ -93,7 +72,11 @@ ttls_self_test(void)
 	DO_SELF_TEST(mbedtls_sha256_self_test);
 	DO_SELF_TEST(mbedtls_x509_self_test);
 
-	return 0;
+	r = 0;
+err:
+	kernel_fpu_end();
+
+	return r;
 }
 
 /*
@@ -105,12 +88,6 @@ ttls_self_test(void)
 static int __init
 ttls_init(void)
 {
-	/* Should preceed @ttls_self_test call */
-	mbedtls_threading_set_alt(ttls_mutex_init,
-				  ttls_mutex_free,
-				  ttls_mutex_lock,
-				  ttls_mutex_unlock);
-
 	if (ttls_self_test())
 		return -EINVAL;
 
@@ -120,22 +97,16 @@ ttls_init(void)
 static void
 ttls_exit(void)
 {
-	mbedtls_threading_free_alt();
 }
 
 module_init(ttls_init);
 module_exit(ttls_exit);
-
-MODULE_AUTHOR("Tempesta Technologies");
-MODULE_VERSION("2.3.0");
-MODULE_LICENSE("GPL v2");
 
 /*
  * ------------------------------------------------------------------------
  *	pulic API interface (feel free to add more symbols here)
  * ------------------------------------------------------------------------
  */
-
 EXPORT_SYMBOL(mbedtls_pk_init);
 EXPORT_SYMBOL(mbedtls_pk_free);
 EXPORT_SYMBOL(mbedtls_pk_parse_key);

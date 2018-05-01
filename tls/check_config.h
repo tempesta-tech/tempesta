@@ -64,14 +64,6 @@
 #error "MBEDTLS_DEPRECATED_WARNING only works with GCC and Clang"
 #endif
 
-#if defined(MBEDTLS_HAVE_TIME_DATE) && !defined(MBEDTLS_HAVE_TIME)
-#error "MBEDTLS_HAVE_TIME_DATE without MBEDTLS_HAVE_TIME does not make sense"
-#endif
-
-#if defined(MBEDTLS_AESNI_C) && !defined(MBEDTLS_HAVE_ASM)
-#error "MBEDTLS_AESNI_C defined, but not all prerequisites"
-#endif
-
 #if defined(MBEDTLS_CTR_DRBG_C) && !defined(MBEDTLS_AES_C)
 #error "MBEDTLS_CTR_DRBG_C defined, but not all prerequisites"
 #endif
@@ -300,24 +292,6 @@
 #error "MBEDTLS_PLATFORM_EXIT_MACRO and MBEDTLS_PLATFORM_STD_EXIT/MBEDTLS_PLATFORM_EXIT_ALT cannot be defined simultaneously"
 #endif
 
-#if defined(MBEDTLS_PLATFORM_TIME_ALT) &&\
-    ( !defined(MBEDTLS_PLATFORM_C) ||\
-        !defined(MBEDTLS_HAVE_TIME) )
-#error "MBEDTLS_PLATFORM_TIME_ALT defined, but not all prerequisites"
-#endif
-
-#if defined(MBEDTLS_PLATFORM_TIME_MACRO) &&\
-    ( !defined(MBEDTLS_PLATFORM_C) ||\
-        !defined(MBEDTLS_HAVE_TIME) )
-#error "MBEDTLS_PLATFORM_TIME_MACRO defined, but not all prerequisites"
-#endif
-
-#if defined(MBEDTLS_PLATFORM_TIME_TYPE_MACRO) &&\
-    ( !defined(MBEDTLS_PLATFORM_C) ||\
-        !defined(MBEDTLS_HAVE_TIME) )
-#error "MBEDTLS_PLATFORM_TIME_TYPE_MACRO defined, but not all prerequisites"
-#endif
-
 #if defined(MBEDTLS_PLATFORM_TIME_MACRO) &&\
     ( defined(MBEDTLS_PLATFORM_STD_TIME) ||\
         defined(MBEDTLS_PLATFORM_TIME_ALT) )
@@ -424,12 +398,6 @@
 #if defined(MBEDTLS_PLATFORM_STD_EXIT) &&\
     !defined(MBEDTLS_PLATFORM_EXIT_ALT)
 #error "MBEDTLS_PLATFORM_STD_EXIT defined, but not all prerequisites"
-#endif
-
-#if defined(MBEDTLS_PLATFORM_STD_TIME) &&\
-    ( !defined(MBEDTLS_PLATFORM_TIME_ALT) ||\
-        !defined(MBEDTLS_HAVE_TIME) )
-#error "MBEDTLS_PLATFORM_STD_TIME defined, but not all prerequisites"
 #endif
 
 #if defined(MBEDTLS_PLATFORM_STD_FPRINTF) &&\
@@ -600,29 +568,6 @@
 #if defined(MBEDTLS_SSL_SERVER_NAME_INDICATION) && \
         !defined(MBEDTLS_X509_CRT_PARSE_C)
 #error "MBEDTLS_SSL_SERVER_NAME_INDICATION defined, but not all prerequisites"
-#endif
-
-#if defined(MBEDTLS_THREADING_PTHREAD)
-#if !defined(MBEDTLS_THREADING_C) || defined(MBEDTLS_THREADING_IMPL)
-#error "MBEDTLS_THREADING_PTHREAD defined, but not all prerequisites"
-#endif
-#define MBEDTLS_THREADING_IMPL
-#endif
-
-#if defined(MBEDTLS_THREADING_ALT)
-#if !defined(MBEDTLS_THREADING_C) || defined(MBEDTLS_THREADING_IMPL)
-#error "MBEDTLS_THREADING_ALT defined, but not all prerequisites"
-#endif
-#define MBEDTLS_THREADING_IMPL
-#endif
-
-#if defined(MBEDTLS_THREADING_C) && !defined(MBEDTLS_THREADING_IMPL)
-#error "MBEDTLS_THREADING_C defined, single threading implementation required"
-#endif
-#undef MBEDTLS_THREADING_IMPL
-
-#if defined(MBEDTLS_VERSION_FEATURES) && !defined(MBEDTLS_VERSION_C)
-#error "MBEDTLS_VERSION_FEATURES defined, but not all prerequisites"
 #endif
 
 #if defined(MBEDTLS_X509_USE_C) && ( !defined(MBEDTLS_BIGNUM_C) ||  \

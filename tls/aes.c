@@ -42,18 +42,7 @@
 #if defined(MBEDTLS_PADLOCK_C)
 #include "padlock.h"
 #endif
-#if defined(MBEDTLS_AESNI_C)
 #include "aesni.h"
-#endif
-
-#if defined(MBEDTLS_SELF_TEST)
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdio.h>
-#define mbedtls_printf printf
-#endif /* MBEDTLS_PLATFORM_C */
-#endif /* MBEDTLS_SELF_TEST */
 
 #if !defined(MBEDTLS_AES_ALT)
 
@@ -90,7 +79,6 @@ static void mbedtls_zeroize( void *v, size_t n ) {
 static int aes_padlock_ace = -1;
 #endif
 
-#if defined(MBEDTLS_AES_ROM_TABLES)
 /*
  * Forward S-box
  */
@@ -355,118 +343,6 @@ static const uint32_t RCON[10] =
     0x0000001B, 0x00000036
 };
 
-#else /* MBEDTLS_AES_ROM_TABLES */
-
-/*
- * Forward S-box & tables
- */
-static unsigned char FSb[256];
-static uint32_t FT0[256];
-static uint32_t FT1[256];
-static uint32_t FT2[256];
-static uint32_t FT3[256];
-
-/*
- * Reverse S-box & tables
- */
-static unsigned char RSb[256];
-static uint32_t RT0[256];
-static uint32_t RT1[256];
-static uint32_t RT2[256];
-static uint32_t RT3[256];
-
-/*
- * Round constants
- */
-static uint32_t RCON[10];
-
-/*
- * Tables generation code
- */
-#define ROTL8(x) ( ( x << 8 ) & 0xFFFFFFFF ) | ( x >> 24 )
-#define XTIME(x) ( ( x << 1 ) ^ ( ( x & 0x80 ) ? 0x1B : 0x00 ) )
-#define MUL(x,y) ( ( x && y ) ? pow[(log[x]+log[y]) % 255] : 0 )
-
-static int aes_init_done = 0;
-
-static void aes_gen_tables( void )
-{
-    int i, x, y, z;
-    int pow[256];
-    int log[256];
-
-    /*
-     * compute pow and log tables over GF(2^8)
-     */
-    for( i = 0, x = 1; i < 256; i++ )
-    {
-        pow[i] = x;
-        log[x] = i;
-        x = ( x ^ XTIME( x ) ) & 0xFF;
-    }
-
-    /*
-     * calculate the round constants
-     */
-    for( i = 0, x = 1; i < 10; i++ )
-    {
-        RCON[i] = (uint32_t) x;
-        x = XTIME( x ) & 0xFF;
-    }
-
-    /*
-     * generate the forward and reverse S-boxes
-     */
-    FSb[0x00] = 0x63;
-    RSb[0x63] = 0x00;
-
-    for( i = 1; i < 256; i++ )
-    {
-        x = pow[255 - log[i]];
-
-        y  = x; y = ( ( y << 1 ) | ( y >> 7 ) ) & 0xFF;
-        x ^= y; y = ( ( y << 1 ) | ( y >> 7 ) ) & 0xFF;
-        x ^= y; y = ( ( y << 1 ) | ( y >> 7 ) ) & 0xFF;
-        x ^= y; y = ( ( y << 1 ) | ( y >> 7 ) ) & 0xFF;
-        x ^= y ^ 0x63;
-
-        FSb[i] = (unsigned char) x;
-        RSb[x] = (unsigned char) i;
-    }
-
-    /*
-     * generate the forward and reverse tables
-     */
-    for( i = 0; i < 256; i++ )
-    {
-        x = FSb[i];
-        y = XTIME( x ) & 0xFF;
-        z =  ( y ^ x ) & 0xFF;
-
-        FT0[i] = ( (uint32_t) y       ) ^
-                 ( (uint32_t) x <<  8 ) ^
-                 ( (uint32_t) x << 16 ) ^
-                 ( (uint32_t) z << 24 );
-
-        FT1[i] = ROTL8( FT0[i] );
-        FT2[i] = ROTL8( FT1[i] );
-        FT3[i] = ROTL8( FT2[i] );
-
-        x = RSb[i];
-
-        RT0[i] = ( (uint32_t) MUL( 0x0E, x )       ) ^
-                 ( (uint32_t) MUL( 0x09, x ) <<  8 ) ^
-                 ( (uint32_t) MUL( 0x0D, x ) << 16 ) ^
-                 ( (uint32_t) MUL( 0x0B, x ) << 24 );
-
-        RT1[i] = ROTL8( RT0[i] );
-        RT2[i] = ROTL8( RT1[i] );
-        RT3[i] = ROTL8( RT2[i] );
-    }
-}
-
-#endif /* MBEDTLS_AES_ROM_TABLES */
-
 void mbedtls_aes_init( mbedtls_aes_context *ctx )
 {
     memset( ctx, 0, sizeof( mbedtls_aes_context ) );
@@ -490,15 +366,6 @@ int mbedtls_aes_setkey_enc( mbedtls_aes_context *ctx, const unsigned char *key,
     unsigned int i;
     uint32_t *RK;
 
-#if !defined(MBEDTLS_AES_ROM_TABLES)
-    if( aes_init_done == 0 )
-    {
-        aes_gen_tables();
-        aes_init_done = 1;
-
-    }
-#endif
-
     switch( keybits )
     {
         case 128: ctx->nr = 10; break;
@@ -517,10 +384,8 @@ int mbedtls_aes_setkey_enc( mbedtls_aes_context *ctx, const unsigned char *key,
 #endif
     ctx->rk = RK = ctx->buf;
 
-#if defined(MBEDTLS_AESNI_C) && defined(MBEDTLS_HAVE_X86_64)
     if( mbedtls_aesni_has_support( MBEDTLS_AESNI_AES ) )
         return( mbedtls_aesni_setkey_enc( (unsigned char *) ctx->rk, key, keybits ) );
-#endif
 
     for( i = 0; i < ( keybits >> 5 ); i++ )
     {
@@ -624,14 +489,12 @@ int mbedtls_aes_setkey_dec( mbedtls_aes_context *ctx, const unsigned char *key,
 
     ctx->nr = cty.nr;
 
-#if defined(MBEDTLS_AESNI_C) && defined(MBEDTLS_HAVE_X86_64)
     if( mbedtls_aesni_has_support( MBEDTLS_AESNI_AES ) )
     {
         mbedtls_aesni_inverse_key( (unsigned char *) ctx->rk,
                            (const unsigned char *) cty.rk, ctx->nr );
         goto exit;
     }
-#endif
 
     SK = cty.rk + cty.nr * 4;
 
@@ -853,10 +716,8 @@ int mbedtls_aes_crypt_ecb( mbedtls_aes_context *ctx,
                     const unsigned char input[16],
                     unsigned char output[16] )
 {
-#if defined(MBEDTLS_AESNI_C) && defined(MBEDTLS_HAVE_X86_64)
     if( mbedtls_aesni_has_support( MBEDTLS_AESNI_AES ) )
         return( mbedtls_aesni_crypt_ecb( ctx, mode, input, output ) );
-#endif
 
 #if defined(MBEDTLS_PADLOCK_C) && defined(MBEDTLS_HAVE_X86)
     if( aes_padlock_ace )

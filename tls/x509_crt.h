@@ -194,38 +194,6 @@ int mbedtls_x509_crt_parse_der( mbedtls_x509_crt *chain, const unsigned char *bu
  */
 int mbedtls_x509_crt_parse( mbedtls_x509_crt *chain, const unsigned char *buf, size_t buflen );
 
-#if defined(MBEDTLS_FS_IO)
-/**
- * \brief          Load one or more certificates and add them
- *                 to the chained list. Parses permissively. If some
- *                 certificates can be parsed, the result is the number
- *                 of failed certificates it encountered. If none complete
- *                 correctly, the first error is returned.
- *
- * \param chain    points to the start of the chain
- * \param path     filename to read the certificates from
- *
- * \return         0 if all certificates parsed successfully, a positive number
- *                 if partly successful or a specific X509 or PEM error code
- */
-int mbedtls_x509_crt_parse_file( mbedtls_x509_crt *chain, const char *path );
-
-/**
- * \brief          Load one or more certificate files from a path and add them
- *                 to the chained list. Parses permissively. If some
- *                 certificates can be parsed, the result is the number
- *                 of failed certificates it encountered. If none complete
- *                 correctly, the first error is returned.
- *
- * \param chain    points to the start of the chain
- * \param path     directory / folder to read the certificate files from
- *
- * \return         0 if all certificates parsed successfully, a positive number
- *                 if partly successful or a specific X509 or PEM error code
- */
-int mbedtls_x509_crt_parse_path( mbedtls_x509_crt *chain, const char *path );
-#endif /* MBEDTLS_FS_IO */
-
 /**
  * \brief          Returns an informational string about the
  *                 certificate.
