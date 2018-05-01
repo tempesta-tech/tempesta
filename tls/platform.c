@@ -2,7 +2,6 @@
  *  Platform abstraction layer
  *
  *  Copyright (C) 2006-2016, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -23,14 +22,22 @@
  */
 
 #if !defined(MBEDTLS_CONFIG_FILE)
-#include "config.h"
+#include "mbedtls/config.h"
 #else
 #include MBEDTLS_CONFIG_FILE
 #endif
 
 #if defined(MBEDTLS_PLATFORM_C)
 
-#include "platform.h"
+#include "mbedtls/platform.h"
+
+#if defined(MBEDTLS_ENTROPY_NV_SEED) && \
+    !defined(MBEDTLS_PLATFORM_NO_STD_FUNCTIONS) && defined(MBEDTLS_FS_IO)
+/* Implementation that should never be optimized out by the compiler */
+static void mbedtls_zeroize( void *v, size_t n ) {
+    volatile unsigned char *p = (unsigned char*)v; while( n-- ) *p++ = 0;
+}
+#endif
 
 #if defined(MBEDTLS_PLATFORM_MEMORY)
 #if !defined(MBEDTLS_PLATFORM_STD_CALLOC)
@@ -77,7 +84,7 @@ int mbedtls_platform_win32_snprintf( char *s, size_t n, const char *fmt, ... )
         return( -1 );
 
     va_start( argp, fmt );
-#if defined(_TRUNCATE)
+#if defined(_TRUNCATE) && !defined(__MINGW32__)
     ret = _vsnprintf_s( s, n, _TRUNCATE, fmt, argp );
 #else
     ret = _vsnprintf( s, n, fmt, argp );
@@ -193,6 +200,8 @@ int mbedtls_platform_set_exit( void (*exit_func)( int status ) )
 }
 #endif /* MBEDTLS_PLATFORM_EXIT_ALT */
 
+#if defined(MBEDTLS_HAVE_TIME)
+
 #if defined(MBEDTLS_PLATFORM_TIME_ALT)
 #if !defined(MBEDTLS_PLATFORM_STD_TIME)
 /*
@@ -216,6 +225,8 @@ int mbedtls_platform_set_time( mbedtls_time_t (*time_func)( mbedtls_time_t* time
 }
 #endif /* MBEDTLS_PLATFORM_TIME_ALT */
 
+#endif /* MBEDTLS_HAVE_TIME */
+
 #if defined(MBEDTLS_ENTROPY_NV_SEED)
 #if !defined(MBEDTLS_PLATFORM_NO_STD_FUNCTIONS) && defined(MBEDTLS_FS_IO)
 /* Default implementations for the platform independent seed functions use
@@ -227,16 +238,17 @@ int mbedtls_platform_std_nv_seed_read( unsigned char *buf, size_t buf_len )
     size_t n;
 
     if( ( file = fopen( MBEDTLS_PLATFORM_STD_NV_SEED_FILE, "rb" ) ) == NULL )
-        return -1;
+        return( -1 );
 
     if( ( n = fread( buf, 1, buf_len, file ) ) != buf_len )
     {
         fclose( file );
-        return -1;
+        mbedtls_zeroize( buf, buf_len );
+        return( -1 );
     }
 
     fclose( file );
-    return( n );
+    return( (int)n );
 }
 
 int mbedtls_platform_std_nv_seed_write( unsigned char *buf, size_t buf_len )
@@ -254,7 +266,7 @@ int mbedtls_platform_std_nv_seed_write( unsigned char *buf, size_t buf_len )
     }
 
     fclose( file );
-    return( n );
+    return( (int)n );
 }
 #endif /* MBEDTLS_PLATFORM_NO_STD_FUNCTIONS */
 
@@ -302,5 +314,25 @@ int mbedtls_platform_set_nv_seed(
 }
 #endif /* MBEDTLS_PLATFORM_NV_SEED_ALT */
 #endif /* MBEDTLS_ENTROPY_NV_SEED */
+
+#if !defined(MBEDTLS_PLATFORM_SETUP_TEARDOWN_ALT)
+/*
+ * Placeholder platform setup that does nothing by default
+ */
+int mbedtls_platform_setup( mbedtls_platform_context *ctx )
+{
+    (void)ctx;
+
+    return( 0 );
+}
+
+/*
+ * Placeholder platform teardown that does nothing by default
+ */
+void mbedtls_platform_teardown( mbedtls_platform_context *ctx )
+{
+    (void)ctx;
+}
+#endif /* MBEDTLS_PLATFORM_SETUP_TEARDOWN_ALT */
 
 #endif /* MBEDTLS_PLATFORM_C */

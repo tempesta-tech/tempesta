@@ -2,7 +2,6 @@
  *  Generic ASN.1 parsing
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -23,23 +22,23 @@
  */
 
 #if !defined(MBEDTLS_CONFIG_FILE)
-#include "config.h"
+#include "mbedtls/config.h"
 #else
 #include MBEDTLS_CONFIG_FILE
 #endif
 
 #if defined(MBEDTLS_ASN1_PARSE_C)
 
-#include "asn1.h"
+#include "mbedtls/asn1.h"
 
 #include <string.h>
 
 #if defined(MBEDTLS_BIGNUM_C)
-#include "bignum.h"
+#include "mbedtls/bignum.h"
 #endif
 
 #if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
+#include "mbedtls/platform.h"
 #else
 #include <stdlib.h>
 #define mbedtls_calloc    calloc
@@ -156,7 +155,7 @@ int mbedtls_asn1_get_int( unsigned char **p,
     if( ( ret = mbedtls_asn1_get_tag( p, end, &len, MBEDTLS_ASN1_INTEGER ) ) != 0 )
         return( ret );
 
-    if( len > sizeof( int ) || ( **p & 0x80 ) != 0 )
+    if( len == 0 || len > sizeof( int ) || ( **p & 0x80 ) != 0 )
         return( MBEDTLS_ERR_ASN1_INVALID_LENGTH );
 
     *val = 0;

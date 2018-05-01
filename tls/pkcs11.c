@@ -6,7 +6,6 @@
  * \author Adriaan de Jong <dejong@fox-it.com>
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -26,16 +25,16 @@
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 
-#include "pkcs11.h"
+#include "mbedtls/pkcs11.h"
 
 #if defined(MBEDTLS_PKCS11_C)
 
-#include "md.h"
-#include "oid.h"
-#include "x509_crt.h"
+#include "mbedtls/md.h"
+#include "mbedtls/oid.h"
+#include "mbedtls/x509_crt.h"
 
 #if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
+#include "mbedtls/platform.h"
 #else
 #include <stdlib.h>
 #define mbedtls_calloc    calloc

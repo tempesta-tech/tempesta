@@ -6,7 +6,6 @@
  * \author Adriaan de Jong <dejong@fox-it.com>
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -27,25 +26,36 @@
  */
 
 #if !defined(MBEDTLS_CONFIG_FILE)
-#include "config.h"
+#include "mbedtls/config.h"
 #else
 #include MBEDTLS_CONFIG_FILE
 #endif
 
 #if defined(MBEDTLS_CIPHER_C)
 
-#include "cipher.h"
-#include "cipher_internal.h"
+#include "mbedtls/cipher.h"
+#include "mbedtls/cipher_internal.h"
 
 #include <stdlib.h>
 #include <string.h>
 
 #if defined(MBEDTLS_GCM_C)
-#include "gcm.h"
+#include "mbedtls/gcm.h"
 #endif
 
 #if defined(MBEDTLS_CCM_C)
-#include "ccm.h"
+#include "mbedtls/ccm.h"
+#endif
+
+#if defined(MBEDTLS_CMAC_C)
+#include "mbedtls/cmac.h"
+#endif
+
+#if defined(MBEDTLS_PLATFORM_C)
+#include "mbedtls/platform.h"
+#else
+#define mbedtls_calloc calloc
+#define mbedtls_free   free
 #endif
 
 #if defined(MBEDTLS_ARC4_C) || defined(MBEDTLS_CIPHER_NULL_CIPHER)
@@ -129,6 +139,14 @@ void mbedtls_cipher_free( mbedtls_cipher_context_t *ctx )
 {
     if( ctx == NULL )
         return;
+
+#if defined(MBEDTLS_CMAC_C)
+    if( ctx->cmac_ctx )
+    {
+       mbedtls_zeroize( ctx->cmac_ctx, sizeof( mbedtls_cmac_context_t ) );
+       mbedtls_free( ctx->cmac_ctx );
+    }
+#endif
 
     if( ctx->cipher_ctx )
         ctx->cipher_info->base->ctx_free_func( ctx->cipher_ctx );
@@ -310,9 +328,9 @@ int mbedtls_cipher_update( mbedtls_cipher_context_t *ctx, const unsigned char *i
          * If there is not enough data for a full block, cache it.
          */
         if( ( ctx->operation == MBEDTLS_DECRYPT &&
-                ilen + ctx->unprocessed_len <= block_size ) ||
+                ilen <= block_size - ctx->unprocessed_len ) ||
              ( ctx->operation == MBEDTLS_ENCRYPT &&
-                ilen + ctx->unprocessed_len < block_size ) )
+                ilen < block_size - ctx->unprocessed_len ) )
         {
             memcpy( &( ctx->unprocessed_data[ctx->unprocessed_len] ), input,
                     ilen );
@@ -500,14 +518,14 @@ static int get_one_and_zeros_padding( unsigned char *input, size_t input_len,
     if( NULL == input || NULL == data_len )
         return( MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA );
 
-    bad = 0xFF;
+    bad = 0x80;
     *data_len = 0;
     for( i = input_len; i > 0; i-- )
     {
         prev_done = done;
-        done |= ( input[i-1] != 0 );
+        done |= ( input[i - 1] != 0 );
         *data_len |= ( i - 1 ) * ( done != prev_done );
-        bad &= ( input[i-1] ^ 0x80 ) | ( done == prev_done );
+        bad ^= input[i - 1] * ( done != prev_done );
     }
 
     return( MBEDTLS_ERR_CIPHER_INVALID_PADDING * ( bad != 0 ) );

@@ -2,7 +2,6 @@
  * ASN.1 buffer writing functionality
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -23,19 +22,19 @@
  */
 
 #if !defined(MBEDTLS_CONFIG_FILE)
-#include "config.h"
+#include "mbedtls/config.h"
 #else
 #include MBEDTLS_CONFIG_FILE
 #endif
 
 #if defined(MBEDTLS_ASN1_WRITE_C)
 
-#include "asn1write.h"
+#include "mbedtls/asn1write.h"
 
 #include <string.h>
 
 #if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
+#include "mbedtls/platform.h"
 #else
 #include <stdlib.h>
 #define mbedtls_calloc    calloc
@@ -63,16 +62,43 @@ int mbedtls_asn1_write_len( unsigned char **p, unsigned char *start, size_t len 
         return( 2 );
     }
 
-    if( *p - start < 3 )
-        return( MBEDTLS_ERR_ASN1_BUF_TOO_SMALL );
+    if( len <= 0xFFFF )
+    {
+        if( *p - start < 3 )
+            return( MBEDTLS_ERR_ASN1_BUF_TOO_SMALL );
 
-    // We assume we never have lengths larger than 65535 bytes
-    //
-    *--(*p) = len % 256;
-    *--(*p) = ( len / 256 ) % 256;
-    *--(*p) = 0x82;
+        *--(*p) = ( len       ) & 0xFF;
+        *--(*p) = ( len >>  8 ) & 0xFF;
+        *--(*p) = 0x82;
+        return( 3 );
+    }
 
-    return( 3 );
+    if( len <= 0xFFFFFF )
+    {
+        if( *p - start < 4 )
+            return( MBEDTLS_ERR_ASN1_BUF_TOO_SMALL );
+
+        *--(*p) = ( len       ) & 0xFF;
+        *--(*p) = ( len >>  8 ) & 0xFF;
+        *--(*p) = ( len >> 16 ) & 0xFF;
+        *--(*p) = 0x83;
+        return( 4 );
+    }
+
+    if( len <= 0xFFFFFFFF )
+    {
+        if( *p - start < 5 )
+            return( MBEDTLS_ERR_ASN1_BUF_TOO_SMALL );
+
+        *--(*p) = ( len       ) & 0xFF;
+        *--(*p) = ( len >>  8 ) & 0xFF;
+        *--(*p) = ( len >> 16 ) & 0xFF;
+        *--(*p) = ( len >> 24 ) & 0xFF;
+        *--(*p) = 0x84;
+        return( 5 );
+    }
+
+    return( MBEDTLS_ERR_ASN1_INVALID_LENGTH );
 }
 
 int mbedtls_asn1_write_tag( unsigned char **p, unsigned char *start, unsigned char tag )

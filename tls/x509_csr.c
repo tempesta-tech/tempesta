@@ -2,7 +2,6 @@
  *  X.509 Certificate Signing Request (CSR) parsing
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -33,24 +32,24 @@
  */
 
 #if !defined(MBEDTLS_CONFIG_FILE)
-#include "config.h"
+#include "mbedtls/config.h"
 #else
 #include MBEDTLS_CONFIG_FILE
 #endif
 
 #if defined(MBEDTLS_X509_CSR_PARSE_C)
 
-#include "x509_csr.h"
-#include "oid.h"
+#include "mbedtls/x509_csr.h"
+#include "mbedtls/oid.h"
 
 #include <string.h>
 
 #if defined(MBEDTLS_PEM_PARSE_C)
-#include "pem.h"
+#include "mbedtls/pem.h"
 #endif
 
 #if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
+#include "mbedtls/platform.h"
 #else
 #include <stdlib.h>
 #include <stdio.h>
@@ -171,13 +170,13 @@ int mbedtls_x509_csr_parse_der( mbedtls_x509_csr *csr,
         return( ret );
     }
 
-    csr->version++;
-
-    if( csr->version != 1 )
+    if( csr->version != 0 )
     {
         mbedtls_x509_csr_free( csr );
         return( MBEDTLS_ERR_X509_UNKNOWN_VERSION );
     }
+
+    csr->version++;
 
     /*
      *  subject               Name
@@ -268,8 +267,8 @@ int mbedtls_x509_csr_parse_der( mbedtls_x509_csr *csr,
  */
 int mbedtls_x509_csr_parse( mbedtls_x509_csr *csr, const unsigned char *buf, size_t buflen )
 {
-    int ret;
 #if defined(MBEDTLS_PEM_PARSE_C)
+    int ret;
     size_t use_len;
     mbedtls_pem_context pem;
 #endif
