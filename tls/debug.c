@@ -22,7 +22,7 @@
  */
 
 #if !defined(MBEDTLS_CONFIG_FILE)
-#include "mbedtls/config.h"
+#include "config.h"
 #else
 #include MBEDTLS_CONFIG_FILE
 #endif
@@ -30,7 +30,7 @@
 #if defined(MBEDTLS_DEBUG_C)
 
 #if defined(MBEDTLS_PLATFORM_C)
-#include "mbedtls/platform.h"
+#include "platform.h"
 #else
 #include <stdlib.h>
 #define mbedtls_calloc      calloc
@@ -39,7 +39,7 @@
 #define mbedtls_snprintf    snprintf
 #endif
 
-#include "mbedtls/debug.h"
+#include "debug.h"
 
 #include <stdarg.h>
 #include <stdio.h>
