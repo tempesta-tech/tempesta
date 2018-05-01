@@ -22,14 +22,14 @@
  */
 
 #if !defined(MBEDTLS_CONFIG_FILE)
-#include "mbedtls/config.h"
+#include "config.h"
 #else
 #include MBEDTLS_CONFIG_FILE
 #endif
 
 #if defined(MBEDTLS_PLATFORM_C)
 
-#include "mbedtls/platform.h"
+#include "platform.h"
 
 #if defined(MBEDTLS_ENTROPY_NV_SEED) && \
     !defined(MBEDTLS_PLATFORM_NO_STD_FUNCTIONS) && defined(MBEDTLS_FS_IO)
