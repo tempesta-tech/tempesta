@@ -30,19 +30,11 @@
 /*
  * This implementation of the session ticket callbacks includes key
  * management, rotating the keys periodically in order to preserve forward
- * secrecy, when MBEDTLS_HAVE_TIME is defined.
+ * secrecy.
  */
 
 #include "ssl.h"
 #include "cipher.h"
-
-#if defined(MBEDTLS_THREADING_C)
-#include "threading.h"
-#endif
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /**
  * \brief   Information for session ticket protection
@@ -69,9 +61,7 @@ typedef struct
     int  (*f_rng)(void *, unsigned char *, size_t);
     void *p_rng;                    /*!< context for the RNG function       */
 
-#if defined(MBEDTLS_THREADING_C)
-    mbedtls_threading_mutex_t mutex;
-#endif
+    spinlock_t mutex;
 }
 mbedtls_ssl_ticket_context;
 
@@ -131,9 +121,5 @@ mbedtls_ssl_ticket_parse_t mbedtls_ssl_ticket_parse;
  * \param ctx       Context to be cleaned up
  */
 void mbedtls_ssl_ticket_free( mbedtls_ssl_ticket_context *ctx );
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* ssl_ticket.h */

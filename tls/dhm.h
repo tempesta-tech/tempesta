@@ -84,10 +84,6 @@
 #define MBEDTLS_ERR_DHM_HW_ACCEL_FAILED                   -0x3500  /**< DHM hardware accelerator failed. */
 #define MBEDTLS_ERR_DHM_SET_GROUP_FAILED                  -0x3580  /**< Setting the modulus and generator failed. */
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /**
  * \brief          The DHM context structure.
  */
@@ -269,32 +265,11 @@ void mbedtls_dhm_free( mbedtls_dhm_context *ctx );
 int mbedtls_dhm_parse_dhm( mbedtls_dhm_context *dhm, const unsigned char *dhmin,
                    size_t dhminlen );
 
-#if defined(MBEDTLS_FS_IO)
-/** \ingroup x509_module */
-/**
- * \brief          This function loads and parses DHM parameters from a file.
- *
- * \param dhm      The DHM context to load the parameters to.
- * \param path     The filename to read the DHM parameters from.
- *
- * \return         \c 0 on success, or a specific DHM or PEM error code
- *                 on failure.
- */
-int mbedtls_dhm_parse_dhmfile( mbedtls_dhm_context *dhm, const char *path );
-#endif /* MBEDTLS_FS_IO */
 #endif /* MBEDTLS_ASN1_PARSE_C */
-
-#ifdef __cplusplus
-}
-#endif
 
 #else /* MBEDTLS_DHM_ALT */
 #include "dhm_alt.h"
 #endif /* MBEDTLS_DHM_ALT */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /**
  * \brief          The DMH checkup routine.
@@ -302,10 +277,6 @@ extern "C" {
  * \return         \c 0 on success, or \c 1 on failure.
  */
 int mbedtls_dhm_self_test( int verbose );
-
-#ifdef __cplusplus
-}
-#endif
 
 /**
  * RFC 3526, RFC 5114 and RFC 7919 standardize a number of

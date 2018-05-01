@@ -83,10 +83,8 @@ static int rsa_verify_wrap( void *ctx, mbedtls_md_type_t md_alg,
     mbedtls_rsa_context * rsa = (mbedtls_rsa_context *) ctx;
     size_t rsa_len = mbedtls_rsa_get_len( rsa );
 
-#if SIZE_MAX > UINT_MAX
     if( md_alg == MBEDTLS_MD_NONE && UINT_MAX < hash_len )
         return( MBEDTLS_ERR_PK_BAD_INPUT_DATA );
-#endif /* SIZE_MAX > UINT_MAX */
 
     if( sig_len < rsa_len )
         return( MBEDTLS_ERR_RSA_VERIFY_FAILED );
@@ -109,10 +107,8 @@ static int rsa_sign_wrap( void *ctx, mbedtls_md_type_t md_alg,
 {
     mbedtls_rsa_context * rsa = (mbedtls_rsa_context *) ctx;
 
-#if SIZE_MAX > UINT_MAX
     if( md_alg == MBEDTLS_MD_NONE && UINT_MAX < hash_len )
         return( MBEDTLS_ERR_PK_BAD_INPUT_DATA );
-#endif /* SIZE_MAX > UINT_MAX */
 
     *sig_len = mbedtls_rsa_get_len( rsa );
 
@@ -426,10 +422,8 @@ static int rsa_alt_sign_wrap( void *ctx, mbedtls_md_type_t md_alg,
 {
     mbedtls_rsa_alt_context *rsa_alt = (mbedtls_rsa_alt_context *) ctx;
 
-#if SIZE_MAX > UINT_MAX
     if( UINT_MAX < hash_len )
         return( MBEDTLS_ERR_PK_BAD_INPUT_DATA );
-#endif /* SIZE_MAX > UINT_MAX */
 
     *sig_len = rsa_alt->key_len_func( rsa_alt->key );
 

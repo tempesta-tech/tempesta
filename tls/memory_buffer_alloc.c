@@ -31,18 +31,10 @@
 #if defined(MBEDTLS_MEMORY_BUFFER_ALLOC_C)
 #include "memory_buffer_alloc.h"
 
-/* No need for the header guard as MBEDTLS_MEMORY_BUFFER_ALLOC_C
-   is dependent upon MBEDTLS_PLATFORM_C */
-#include "platform.h"
-
 #include <string.h>
 
 #if defined(MBEDTLS_MEMORY_BACKTRACE)
 #include <execinfo.h>
-#endif
-
-#if defined(MBEDTLS_THREADING_C)
-#include "threading.h"
 #endif
 
 /* Implementation that should never be optimized out by the compiler */
@@ -86,9 +78,7 @@ typedef struct
     size_t          header_count;
     size_t          maximum_header_count;
 #endif
-#if defined(MBEDTLS_THREADING_C)
-    mbedtls_threading_mutex_t   mutex;
-#endif
+    spinlock_t   mutex;
 }
 buffer_alloc_ctx;
 
@@ -552,15 +542,12 @@ void mbedtls_memory_buffer_alloc_cur_get( size_t *cur_used, size_t *cur_blocks )
 }
 #endif /* MBEDTLS_MEMORY_DEBUG */
 
-#if defined(MBEDTLS_THREADING_C)
 static void *buffer_alloc_calloc_mutexed( size_t n, size_t size )
 {
     void *buf;
-    if( mbedtls_mutex_lock( &heap.mutex ) != 0 )
-        return( NULL );
+    spin_lock( &heap.mutex );
     buf = buffer_alloc_calloc( n, size );
-    if( mbedtls_mutex_unlock( &heap.mutex ) )
-        return( NULL );
+    spin_unlock( &heap.mutex );
     return( buf );
 }
 
@@ -568,24 +555,18 @@ static void buffer_alloc_free_mutexed( void *ptr )
 {
     /* We have to good option here, but corrupting the heap seems
      * worse than loosing memory. */
-    if( mbedtls_mutex_lock( &heap.mutex ) )
-        return;
+    spin_lock( &heap.mutex );
     buffer_alloc_free( ptr );
-    (void) mbedtls_mutex_unlock( &heap.mutex );
+    spin_unlock( &heap.mutex );
 }
-#endif /* MBEDTLS_THREADING_C */
 
 void mbedtls_memory_buffer_alloc_init( unsigned char *buf, size_t len )
 {
     memset( &heap, 0, sizeof( buffer_alloc_ctx ) );
 
-#if defined(MBEDTLS_THREADING_C)
-    mbedtls_mutex_init( &heap.mutex );
+    spin_lock_init( &heap.mutex );
     mbedtls_platform_set_calloc_free( buffer_alloc_calloc_mutexed,
                               buffer_alloc_free_mutexed );
-#else
-    mbedtls_platform_set_calloc_free( buffer_alloc_calloc, buffer_alloc_free );
-#endif
 
     if( len < sizeof( memory_header ) + MBEDTLS_MEMORY_ALIGN_MULTIPLE )
         return;
@@ -612,9 +593,6 @@ void mbedtls_memory_buffer_alloc_init( unsigned char *buf, size_t len )
 
 void mbedtls_memory_buffer_alloc_free( void )
 {
-#if defined(MBEDTLS_THREADING_C)
-    mbedtls_mutex_free( &heap.mutex );
-#endif
     mbedtls_zeroize( &heap, sizeof(buffer_alloc_ctx) );
 }
 

@@ -468,9 +468,7 @@ void mbedtls_rsa_init( mbedtls_rsa_context *ctx,
 
     mbedtls_rsa_set_padding( ctx, padding, hash_id );
 
-#if defined(MBEDTLS_THREADING_C)
-    mbedtls_mutex_init( &ctx->mutex );
-#endif
+    spin_lock_init( &ctx->mutex );
 }
 
 /*
@@ -673,10 +671,7 @@ int mbedtls_rsa_public( mbedtls_rsa_context *ctx,
 
     mbedtls_mpi_init( &T );
 
-#if defined(MBEDTLS_THREADING_C)
-    if( ( ret = mbedtls_mutex_lock( &ctx->mutex ) ) != 0 )
-        return( ret );
-#endif
+    spin_lock( &ctx->mutex );
 
     MBEDTLS_MPI_CHK( mbedtls_mpi_read_binary( &T, input, ctx->len ) );
 
@@ -691,10 +686,7 @@ int mbedtls_rsa_public( mbedtls_rsa_context *ctx,
     MBEDTLS_MPI_CHK( mbedtls_mpi_write_binary( &T, output, olen ) );
 
 cleanup:
-#if defined(MBEDTLS_THREADING_C)
-    if( mbedtls_mutex_unlock( &ctx->mutex ) != 0 )
-        return( MBEDTLS_ERR_THREADING_MUTEX_ERROR );
-#endif
+    spin_unlock( &ctx->mutex );
 
     mbedtls_mpi_free( &T );
 
@@ -815,10 +807,7 @@ int mbedtls_rsa_private( mbedtls_rsa_context *ctx,
         return( MBEDTLS_ERR_RSA_BAD_INPUT_DATA );
     }
 
-#if defined(MBEDTLS_THREADING_C)
-    if( ( ret = mbedtls_mutex_lock( &ctx->mutex ) ) != 0 )
-        return( ret );
-#endif
+    spin_lock( &ctx->mutex );
 
     /* MPI Initialization */
     mbedtls_mpi_init( &T );
@@ -957,10 +946,7 @@ int mbedtls_rsa_private( mbedtls_rsa_context *ctx,
     MBEDTLS_MPI_CHK( mbedtls_mpi_write_binary( &T, output, olen ) );
 
 cleanup:
-#if defined(MBEDTLS_THREADING_C)
-    if( mbedtls_mutex_unlock( &ctx->mutex ) != 0 )
-        return( MBEDTLS_ERR_THREADING_MUTEX_ERROR );
-#endif
+    spin_unlock( &ctx->mutex );
 
     mbedtls_mpi_free( &P1 );
     mbedtls_mpi_free( &Q1 );
@@ -2165,10 +2151,6 @@ void mbedtls_rsa_free( mbedtls_rsa_context *ctx )
     mbedtls_mpi_free( &ctx->QP ); mbedtls_mpi_free( &ctx->DQ );
     mbedtls_mpi_free( &ctx->DP );
 #endif /* MBEDTLS_RSA_NO_CRT */
-
-#if defined(MBEDTLS_THREADING_C)
-    mbedtls_mutex_free( &ctx->mutex );
-#endif
 }
 
 #endif /* !MBEDTLS_RSA_ALT */

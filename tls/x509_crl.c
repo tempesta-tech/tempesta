@@ -65,10 +65,6 @@
 #include <time.h>
 #endif
 
-#if defined(MBEDTLS_FS_IO) || defined(EFIX64) || defined(EFI32)
-#include <stdio.h>
-#endif
-
 /* Implementation that should never be optimized out by the compiler */
 static void mbedtls_zeroize( void *v, size_t n ) {
     volatile unsigned char *p = v; while( n-- ) *p++ = 0;
@@ -603,28 +599,6 @@ int mbedtls_x509_crl_parse( mbedtls_x509_crl *chain, const unsigned char *buf, s
 #endif /* MBEDTLS_PEM_PARSE_C */
         return( mbedtls_x509_crl_parse_der( chain, buf, buflen ) );
 }
-
-#if defined(MBEDTLS_FS_IO)
-/*
- * Load one or more CRLs and add them to the chained list
- */
-int mbedtls_x509_crl_parse_file( mbedtls_x509_crl *chain, const char *path )
-{
-    int ret;
-    size_t n;
-    unsigned char *buf;
-
-    if( ( ret = mbedtls_pk_load_file( path, &buf, &n ) ) != 0 )
-        return( ret );
-
-    ret = mbedtls_x509_crl_parse( chain, buf, n );
-
-    mbedtls_zeroize( buf, n );
-    mbedtls_free( buf );
-
-    return( ret );
-}
-#endif /* MBEDTLS_FS_IO */
 
 /*
  * Return an informational string about the certificate.
