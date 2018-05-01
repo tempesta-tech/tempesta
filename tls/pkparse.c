@@ -63,112 +63,12 @@
 #define mbedtls_free       free
 #endif
 
-#if defined(MBEDTLS_FS_IO) || \
-    defined(MBEDTLS_PKCS12_C) || defined(MBEDTLS_PKCS5_C)
+#if defined(MBEDTLS_PKCS12_C) || defined(MBEDTLS_PKCS5_C)
 /* Implementation that should never be optimized out by the compiler */
 static void mbedtls_zeroize( void *v, size_t n ) {
     volatile unsigned char *p = v; while( n-- ) *p++ = 0;
 }
 #endif
-
-#if defined(MBEDTLS_FS_IO)
-/*
- * Load all data from a file into a given buffer.
- *
- * The file is expected to contain either PEM or DER encoded data.
- * A terminating null byte is always appended. It is included in the announced
- * length only if the data looks like it is PEM encoded.
- */
-int mbedtls_pk_load_file( const char *path, unsigned char **buf, size_t *n )
-{
-    FILE *f;
-    long size;
-
-    if( ( f = fopen( path, "rb" ) ) == NULL )
-        return( MBEDTLS_ERR_PK_FILE_IO_ERROR );
-
-    fseek( f, 0, SEEK_END );
-    if( ( size = ftell( f ) ) == -1 )
-    {
-        fclose( f );
-        return( MBEDTLS_ERR_PK_FILE_IO_ERROR );
-    }
-    fseek( f, 0, SEEK_SET );
-
-    *n = (size_t) size;
-
-    if( *n + 1 == 0 ||
-        ( *buf = mbedtls_calloc( 1, *n + 1 ) ) == NULL )
-    {
-        fclose( f );
-        return( MBEDTLS_ERR_PK_ALLOC_FAILED );
-    }
-
-    if( fread( *buf, 1, *n, f ) != *n )
-    {
-        fclose( f );
-
-        mbedtls_zeroize( *buf, *n );
-        mbedtls_free( *buf );
-
-        return( MBEDTLS_ERR_PK_FILE_IO_ERROR );
-    }
-
-    fclose( f );
-
-    (*buf)[*n] = '\0';
-
-    if( strstr( (const char *) *buf, "-----BEGIN " ) != NULL )
-        ++*n;
-
-    return( 0 );
-}
-
-/*
- * Load and parse a private key
- */
-int mbedtls_pk_parse_keyfile( mbedtls_pk_context *ctx,
-                      const char *path, const char *pwd )
-{
-    int ret;
-    size_t n;
-    unsigned char *buf;
-
-    if( ( ret = mbedtls_pk_load_file( path, &buf, &n ) ) != 0 )
-        return( ret );
-
-    if( pwd == NULL )
-        ret = mbedtls_pk_parse_key( ctx, buf, n, NULL, 0 );
-    else
-        ret = mbedtls_pk_parse_key( ctx, buf, n,
-                (const unsigned char *) pwd, strlen( pwd ) );
-
-    mbedtls_zeroize( buf, n );
-    mbedtls_free( buf );
-
-    return( ret );
-}
-
-/*
- * Load and parse a public key
- */
-int mbedtls_pk_parse_public_keyfile( mbedtls_pk_context *ctx, const char *path )
-{
-    int ret;
-    size_t n;
-    unsigned char *buf;
-
-    if( ( ret = mbedtls_pk_load_file( path, &buf, &n ) ) != 0 )
-        return( ret );
-
-    ret = mbedtls_pk_parse_public_key( ctx, buf, n );
-
-    mbedtls_zeroize( buf, n );
-    mbedtls_free( buf );
-
-    return( ret );
-}
-#endif /* MBEDTLS_FS_IO */
 
 #if defined(MBEDTLS_ECP_C)
 /* Minimally parse an ECParameters buffer to and mbedtls_asn1_buf

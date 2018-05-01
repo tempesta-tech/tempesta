@@ -46,10 +46,6 @@
 
 #include <stdint.h>
 
-#if defined(MBEDTLS_HAVE_TIME)
-#include "platform_time.h"
-#endif
-
 #if defined(MBEDTLS_SSL_SESSION_TICKETS)
 /* Implementation that should never be optimized out by the compiler */
 static void mbedtls_zeroize( void *v, size_t n ) {
@@ -684,9 +680,7 @@ static int ssl_generate_random( mbedtls_ssl_context *ssl )
 {
     int ret;
     unsigned char *p = ssl->handshake->randbytes;
-#if defined(MBEDTLS_HAVE_TIME)
-    mbedtls_time_t t;
-#endif
+    time_t t;
 
     /*
      * When responding to a verify request, MUST reuse random (RFC 6347 4.2.1)
@@ -699,7 +693,6 @@ static int ssl_generate_random( mbedtls_ssl_context *ssl )
     }
 #endif
 
-#if defined(MBEDTLS_HAVE_TIME)
     t = mbedtls_time( NULL );
     *p++ = (unsigned char)( t >> 24 );
     *p++ = (unsigned char)( t >> 16 );
@@ -707,12 +700,6 @@ static int ssl_generate_random( mbedtls_ssl_context *ssl )
     *p++ = (unsigned char)( t       );
 
     MBEDTLS_SSL_DEBUG_MSG( 3, ( "client hello, current time: %lu", t ) );
-#else
-    if( ( ret = ssl->conf->f_rng( ssl->conf->p_rng, p, 4 ) ) != 0 )
-        return( ret );
-
-    p += 4;
-#endif /* MBEDTLS_HAVE_TIME */
 
     if( ( ret = ssl->conf->f_rng( ssl->conf->p_rng, p, 28 ) ) != 0 )
         return( ret );
@@ -1666,9 +1653,7 @@ static int ssl_parse_server_hello( mbedtls_ssl_context *ssl )
     {
         ssl->state++;
         ssl->handshake->resume = 0;
-#if defined(MBEDTLS_HAVE_TIME)
         ssl->session_negotiate->start = mbedtls_time( NULL );
-#endif
         ssl->session_negotiate->ciphersuite = i;
         ssl->session_negotiate->compression = comp;
         ssl->session_negotiate->id_len = n;

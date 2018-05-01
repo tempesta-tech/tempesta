@@ -40,10 +40,6 @@
 
 #include <string.h>
 
-#if defined(MBEDTLS_FS_IO)
-#include <stdio.h>
-#endif
-
 #if defined(MBEDTLS_ENTROPY_NV_SEED)
 #include "platform.h"
 #endif
@@ -73,9 +69,7 @@ void mbedtls_entropy_init( mbedtls_entropy_context *ctx )
     ctx->source_count = 0;
     memset( ctx->source, 0, sizeof( ctx->source ) );
 
-#if defined(MBEDTLS_THREADING_C)
-    mbedtls_mutex_init( &ctx->mutex );
-#endif
+    spin_lock_init( &ctx->mutex );
 
     ctx->accumulator_started = 0;
 #if defined(MBEDTLS_ENTROPY_SHA512_ACCUMULATOR)
@@ -101,11 +95,9 @@ void mbedtls_entropy_init( mbedtls_entropy_context *ctx )
                                 MBEDTLS_ENTROPY_MIN_PLATFORM,
                                 MBEDTLS_ENTROPY_SOURCE_STRONG );
 #endif
-#if defined(MBEDTLS_TIMING_C)
     mbedtls_entropy_add_source( ctx, mbedtls_hardclock_poll, NULL,
                                 MBEDTLS_ENTROPY_MIN_HARDCLOCK,
                                 MBEDTLS_ENTROPY_SOURCE_WEAK );
-#endif
 #if defined(MBEDTLS_HAVEGE_C)
     mbedtls_entropy_add_source( ctx, mbedtls_havege_poll, &ctx->havege_data,
                                 MBEDTLS_ENTROPY_MIN_HAVEGE,
@@ -130,9 +122,6 @@ void mbedtls_entropy_free( mbedtls_entropy_context *ctx )
 #if defined(MBEDTLS_HAVEGE_C)
     mbedtls_havege_free( &ctx->havege_data );
 #endif
-#if defined(MBEDTLS_THREADING_C)
-    mbedtls_mutex_free( &ctx->mutex );
-#endif
 #if defined(MBEDTLS_ENTROPY_SHA512_ACCUMULATOR)
     mbedtls_sha512_free( &ctx->accumulator );
 #else
@@ -152,10 +141,7 @@ int mbedtls_entropy_add_source( mbedtls_entropy_context *ctx,
 {
     int idx, ret = 0;
 
-#if defined(MBEDTLS_THREADING_C)
-    if( ( ret = mbedtls_mutex_lock( &ctx->mutex ) ) != 0 )
-        return( ret );
-#endif
+    spin_lock( &ctx->mutex );
 
     idx = ctx->source_count;
     if( idx >= MBEDTLS_ENTROPY_MAX_SOURCES )
@@ -172,10 +158,7 @@ int mbedtls_entropy_add_source( mbedtls_entropy_context *ctx,
     ctx->source_count++;
 
 exit:
-#if defined(MBEDTLS_THREADING_C)
-    if( mbedtls_mutex_unlock( &ctx->mutex ) != 0 )
-        return( MBEDTLS_ERR_THREADING_MUTEX_ERROR );
-#endif
+    spin_unlock( &ctx->mutex );
 
     return( ret );
 }
@@ -244,17 +227,11 @@ int mbedtls_entropy_update_manual( mbedtls_entropy_context *ctx,
 {
     int ret;
 
-#if defined(MBEDTLS_THREADING_C)
-    if( ( ret = mbedtls_mutex_lock( &ctx->mutex ) ) != 0 )
-        return( ret );
-#endif
+    spin_lock( &ctx->mutex );
 
     ret = entropy_update( ctx, MBEDTLS_ENTROPY_SOURCE_MANUAL, data, len );
 
-#if defined(MBEDTLS_THREADING_C)
-    if( mbedtls_mutex_unlock( &ctx->mutex ) != 0 )
-        return( MBEDTLS_ERR_THREADING_MUTEX_ERROR );
-#endif
+    spin_unlock( &ctx->mutex );
 
     return( ret );
 }
@@ -314,17 +291,11 @@ int mbedtls_entropy_gather( mbedtls_entropy_context *ctx )
 {
     int ret;
 
-#if defined(MBEDTLS_THREADING_C)
-    if( ( ret = mbedtls_mutex_lock( &ctx->mutex ) ) != 0 )
-        return( ret );
-#endif
+    spin_lock( &ctx->mutex );
 
     ret = entropy_gather_internal( ctx );
 
-#if defined(MBEDTLS_THREADING_C)
-    if( mbedtls_mutex_unlock( &ctx->mutex ) != 0 )
-        return( MBEDTLS_ERR_THREADING_MUTEX_ERROR );
-#endif
+    spin_unlock( &ctx->mutex );
 
     return( ret );
 }
@@ -350,10 +321,7 @@ int mbedtls_entropy_func( void *data, unsigned char *output, size_t len )
     }
 #endif
 
-#if defined(MBEDTLS_THREADING_C)
-    if( ( ret = mbedtls_mutex_lock( &ctx->mutex ) ) != 0 )
-        return( ret );
-#endif
+    spin_lock( &ctx->mutex );
 
     /*
      * Always gather extra entropy before a call
@@ -437,10 +405,7 @@ int mbedtls_entropy_func( void *data, unsigned char *output, size_t len )
 exit:
     mbedtls_zeroize( buf, sizeof( buf ) );
 
-#if defined(MBEDTLS_THREADING_C)
-    if( mbedtls_mutex_unlock( &ctx->mutex ) != 0 )
-        return( MBEDTLS_ERR_THREADING_MUTEX_ERROR );
-#endif
+    spin_unlock( &ctx->mutex );
 
     return( ret );
 }
@@ -465,67 +430,6 @@ int mbedtls_entropy_update_nv_seed( mbedtls_entropy_context *ctx )
     return( ret );
 }
 #endif /* MBEDTLS_ENTROPY_NV_SEED */
-
-#if defined(MBEDTLS_FS_IO)
-int mbedtls_entropy_write_seed_file( mbedtls_entropy_context *ctx, const char *path )
-{
-    int ret = MBEDTLS_ERR_ENTROPY_FILE_IO_ERROR;
-    FILE *f;
-    unsigned char buf[MBEDTLS_ENTROPY_BLOCK_SIZE];
-
-    if( ( f = fopen( path, "wb" ) ) == NULL )
-        return( MBEDTLS_ERR_ENTROPY_FILE_IO_ERROR );
-
-    if( ( ret = mbedtls_entropy_func( ctx, buf, MBEDTLS_ENTROPY_BLOCK_SIZE ) ) != 0 )
-        goto exit;
-
-    if( fwrite( buf, 1, MBEDTLS_ENTROPY_BLOCK_SIZE, f ) != MBEDTLS_ENTROPY_BLOCK_SIZE )
-    {
-        ret = MBEDTLS_ERR_ENTROPY_FILE_IO_ERROR;
-        goto exit;
-    }
-
-    ret = 0;
-
-exit:
-    mbedtls_zeroize( buf, sizeof( buf ) );
-
-    fclose( f );
-    return( ret );
-}
-
-int mbedtls_entropy_update_seed_file( mbedtls_entropy_context *ctx, const char *path )
-{
-    int ret = 0;
-    FILE *f;
-    size_t n;
-    unsigned char buf[ MBEDTLS_ENTROPY_MAX_SEED_SIZE ];
-
-    if( ( f = fopen( path, "rb" ) ) == NULL )
-        return( MBEDTLS_ERR_ENTROPY_FILE_IO_ERROR );
-
-    fseek( f, 0, SEEK_END );
-    n = (size_t) ftell( f );
-    fseek( f, 0, SEEK_SET );
-
-    if( n > MBEDTLS_ENTROPY_MAX_SEED_SIZE )
-        n = MBEDTLS_ENTROPY_MAX_SEED_SIZE;
-
-    if( fread( buf, 1, n, f ) != n )
-        ret = MBEDTLS_ERR_ENTROPY_FILE_IO_ERROR;
-    else
-        ret = mbedtls_entropy_update_manual( ctx, buf, n );
-
-    fclose( f );
-
-    mbedtls_zeroize( buf, sizeof( buf ) );
-
-    if( ret != 0 )
-        return( ret );
-
-    return( mbedtls_entropy_write_seed_file( ctx, path ) );
-}
-#endif /* MBEDTLS_FS_IO */
 
 #if defined(MBEDTLS_SELF_TEST)
 #if !defined(MBEDTLS_TEST_NULL_ENTROPY)

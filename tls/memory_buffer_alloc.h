@@ -64,8 +64,6 @@ extern "C" {
  *          presented buffer and does not call calloc() and free().
  *          It sets the global mbedtls_calloc() and mbedtls_free() pointers
  *          to its own functions.
- *          (Provided mbedtls_calloc() and mbedtls_free() are thread-safe if
- *           MBEDTLS_THREADING_C is defined)
  *
  * \note    This code is not optimized and provides a straight-forward
  *          implementation of a stack-based memory allocator.

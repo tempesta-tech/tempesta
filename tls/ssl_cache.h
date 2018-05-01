@@ -29,10 +29,6 @@
 
 #include "ssl.h"
 
-#if defined(MBEDTLS_THREADING_C)
-#include "threading.h"
-#endif
-
 /**
  * \name SECTION: Module settings
  *
@@ -63,9 +59,7 @@ typedef struct mbedtls_ssl_cache_entry mbedtls_ssl_cache_entry;
  */
 struct mbedtls_ssl_cache_entry
 {
-#if defined(MBEDTLS_HAVE_TIME)
-    mbedtls_time_t timestamp;           /*!< entry timestamp    */
-#endif
+    time_t timestamp;           /*!< entry timestamp    */
     mbedtls_ssl_session session;        /*!< entry session      */
 #if defined(MBEDTLS_X509_CRT_PARSE_C)
     mbedtls_x509_buf peer_cert;         /*!< entry peer_cert    */
@@ -81,9 +75,7 @@ struct mbedtls_ssl_cache_context
     mbedtls_ssl_cache_entry *chain;     /*!< start of the chain     */
     int timeout;                /*!< cache entry timeout    */
     int max_entries;            /*!< maximum entries        */
-#if defined(MBEDTLS_THREADING_C)
-    mbedtls_threading_mutex_t mutex;    /*!< mutex                  */
-#endif
+    spinlock_t mutex;    /*!< mutex                  */
 };
 
 /**
@@ -95,7 +87,6 @@ void mbedtls_ssl_cache_init( mbedtls_ssl_cache_context *cache );
 
 /**
  * \brief          Cache get callback implementation
- *                 (Thread-safe if MBEDTLS_THREADING_C is enabled)
  *
  * \param data     SSL cache context
  * \param session  session to retrieve entry for
@@ -104,14 +95,12 @@ int mbedtls_ssl_cache_get( void *data, mbedtls_ssl_session *session );
 
 /**
  * \brief          Cache set callback implementation
- *                 (Thread-safe if MBEDTLS_THREADING_C is enabled)
  *
  * \param data     SSL cache context
  * \param session  session to store entry for
  */
 int mbedtls_ssl_cache_set( void *data, const mbedtls_ssl_session *session );
 
-#if defined(MBEDTLS_HAVE_TIME)
 /**
  * \brief          Set the cache timeout
  *                 (Default: MBEDTLS_SSL_CACHE_DEFAULT_TIMEOUT (1 day))
@@ -122,7 +111,6 @@ int mbedtls_ssl_cache_set( void *data, const mbedtls_ssl_session *session );
  * \param timeout  cache entry timeout in seconds
  */
 void mbedtls_ssl_cache_set_timeout( mbedtls_ssl_cache_context *cache, int timeout );
-#endif /* MBEDTLS_HAVE_TIME */
 
 /**
  * \brief          Set the maximum number of cache entries

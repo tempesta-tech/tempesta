@@ -52,7 +52,6 @@
 #if defined(MBEDTLS_ECP_C)
 
 #include "ecp.h"
-#include "threading.h"
 
 #include <string.h>
 

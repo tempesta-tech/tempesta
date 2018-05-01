@@ -323,27 +323,6 @@ int mbedtls_md_finish( mbedtls_md_context_t *ctx, unsigned char *output );
 int mbedtls_md( const mbedtls_md_info_t *md_info, const unsigned char *input, size_t ilen,
         unsigned char *output );
 
-#if defined(MBEDTLS_FS_IO)
-/**
- * \brief          This function calculates the message-digest checksum
- *                 result of the contents of the provided file.
- *
- *                 The result is calculated as
- *                 Output = message_digest(file contents).
- *
- * \param md_info  The information structure of the message-digest algorithm
- *                 to use.
- * \param path     The input file name.
- * \param output   The generic message-digest checksum result.
- *
- * \return         \c 0 on success,
- *                 #MBEDTLS_ERR_MD_FILE_IO_ERROR if file input failed, or
- *                 #MBEDTLS_ERR_MD_BAD_INPUT_DATA if \p md_info was NULL.
- */
-int mbedtls_md_file( const mbedtls_md_info_t *md_info, const char *path,
-                     unsigned char *output );
-#endif /* MBEDTLS_FS_IO */
-
 /**
  * \brief           This function sets the HMAC key and prepares to
  *                  authenticate a new message.

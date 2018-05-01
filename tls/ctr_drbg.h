@@ -32,10 +32,6 @@
 
 #include "aes.h"
 
-#if defined(MBEDTLS_THREADING_C)
-#include "threading.h"
-#endif
-
 #define MBEDTLS_ERR_CTR_DRBG_ENTROPY_SOURCE_FAILED        -0x0034  /**< The entropy source failed. */
 #define MBEDTLS_ERR_CTR_DRBG_REQUEST_TOO_BIG              -0x0036  /**< The requested random buffer length is too big. */
 #define MBEDTLS_ERR_CTR_DRBG_INPUT_TOO_BIG                -0x0038  /**< The input (entropy + additional data) is too large. */
@@ -98,10 +94,6 @@
 #define MBEDTLS_CTR_DRBG_PR_ON              1
 /**< Prediction resistance is enabled. */
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /**
  * \brief          The CTR_DRBG context structure.
  */
@@ -127,9 +119,7 @@ typedef struct
 
     void *p_entropy;            /*!< The context for the entropy function. */
 
-#if defined(MBEDTLS_THREADING_C)
-    mbedtls_threading_mutex_t mutex;
-#endif
+    spinlock_t mutex;
 }
 mbedtls_ctr_drbg_context;
 
@@ -276,35 +266,6 @@ int mbedtls_ctr_drbg_random_with_add( void *p_rng,
 int mbedtls_ctr_drbg_random( void *p_rng,
                      unsigned char *output, size_t output_len );
 
-#if defined(MBEDTLS_FS_IO)
-/**
- * \brief               This function writes a seed file.
- *
- * \param ctx           The CTR_DRBG context.
- * \param path          The name of the file.
- *
- * \return              \c 0 on success,
- *                      #MBEDTLS_ERR_CTR_DRBG_FILE_IO_ERROR on file error, or
- *                      #MBEDTLS_ERR_CTR_DRBG_ENTROPY_SOURCE_FAILED on
- *                      failure.
- */
-int mbedtls_ctr_drbg_write_seed_file( mbedtls_ctr_drbg_context *ctx, const char *path );
-
-/**
- * \brief               This function reads and updates a seed file. The seed
- *                      is added to this instance.
- *
- * \param ctx           The CTR_DRBG context.
- * \param path          The name of the file.
- *
- * \return              \c 0 on success,
- *                      #MBEDTLS_ERR_CTR_DRBG_FILE_IO_ERROR on file error,
- *                      #MBEDTLS_ERR_CTR_DRBG_ENTROPY_SOURCE_FAILED or
- *                      #MBEDTLS_ERR_CTR_DRBG_INPUT_TOO_BIG on failure.
- */
-int mbedtls_ctr_drbg_update_seed_file( mbedtls_ctr_drbg_context *ctx, const char *path );
-#endif /* MBEDTLS_FS_IO */
-
 /**
  * \brief               The CTR_DRBG checkup routine.
  *
@@ -316,9 +277,5 @@ int mbedtls_ctr_drbg_self_test( int verbose );
 int mbedtls_ctr_drbg_seed_entropy_len( mbedtls_ctr_drbg_context *,
                                int (*)(void *, unsigned char *, size_t), void *,
                                const unsigned char *, size_t, size_t );
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* ctr_drbg.h */

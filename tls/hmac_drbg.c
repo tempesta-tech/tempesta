@@ -40,10 +40,6 @@
 
 #include <string.h>
 
-#if defined(MBEDTLS_FS_IO)
-#include <stdio.h>
-#endif
-
 #if defined(MBEDTLS_SELF_TEST)
 #if defined(MBEDTLS_PLATFORM_C)
 #include "platform.h"
@@ -64,10 +60,7 @@ static void mbedtls_zeroize( void *v, size_t n ) {
 void mbedtls_hmac_drbg_init( mbedtls_hmac_drbg_context *ctx )
 {
     memset( ctx, 0, sizeof( mbedtls_hmac_drbg_context ) );
-
-#if defined(MBEDTLS_THREADING_C)
-    mbedtls_mutex_init( &ctx->mutex );
-#endif
+    spin_lock_init( &ctx->mutex );
 }
 
 /*
@@ -314,17 +307,11 @@ int mbedtls_hmac_drbg_random( void *p_rng, unsigned char *output, size_t out_len
     int ret;
     mbedtls_hmac_drbg_context *ctx = (mbedtls_hmac_drbg_context *) p_rng;
 
-#if defined(MBEDTLS_THREADING_C)
-    if( ( ret = mbedtls_mutex_lock( &ctx->mutex ) ) != 0 )
-        return( ret );
-#endif
+    spin_lock( &ctx->mutex );
 
     ret = mbedtls_hmac_drbg_random_with_add( ctx, output, out_len, NULL, 0 );
 
-#if defined(MBEDTLS_THREADING_C)
-    if( mbedtls_mutex_unlock( &ctx->mutex ) != 0 )
-        return( MBEDTLS_ERR_THREADING_MUTEX_ERROR );
-#endif
+    spin_unlock( &ctx->mutex );
 
     return( ret );
 }
@@ -337,77 +324,9 @@ void mbedtls_hmac_drbg_free( mbedtls_hmac_drbg_context *ctx )
     if( ctx == NULL )
         return;
 
-#if defined(MBEDTLS_THREADING_C)
-    mbedtls_mutex_free( &ctx->mutex );
-#endif
     mbedtls_md_free( &ctx->md_ctx );
     mbedtls_zeroize( ctx, sizeof( mbedtls_hmac_drbg_context ) );
 }
-
-#if defined(MBEDTLS_FS_IO)
-int mbedtls_hmac_drbg_write_seed_file( mbedtls_hmac_drbg_context *ctx, const char *path )
-{
-    int ret;
-    FILE *f;
-    unsigned char buf[ MBEDTLS_HMAC_DRBG_MAX_INPUT ];
-
-    if( ( f = fopen( path, "wb" ) ) == NULL )
-        return( MBEDTLS_ERR_HMAC_DRBG_FILE_IO_ERROR );
-
-    if( ( ret = mbedtls_hmac_drbg_random( ctx, buf, sizeof( buf ) ) ) != 0 )
-        goto exit;
-
-    if( fwrite( buf, 1, sizeof( buf ), f ) != sizeof( buf ) )
-    {
-        ret = MBEDTLS_ERR_HMAC_DRBG_FILE_IO_ERROR;
-        goto exit;
-    }
-
-    ret = 0;
-
-exit:
-    fclose( f );
-    mbedtls_zeroize( buf, sizeof( buf ) );
-
-    return( ret );
-}
-
-int mbedtls_hmac_drbg_update_seed_file( mbedtls_hmac_drbg_context *ctx, const char *path )
-{
-    int ret = 0;
-    FILE *f;
-    size_t n;
-    unsigned char buf[ MBEDTLS_HMAC_DRBG_MAX_INPUT ];
-
-    if( ( f = fopen( path, "rb" ) ) == NULL )
-        return( MBEDTLS_ERR_HMAC_DRBG_FILE_IO_ERROR );
-
-    fseek( f, 0, SEEK_END );
-    n = (size_t) ftell( f );
-    fseek( f, 0, SEEK_SET );
-
-    if( n > MBEDTLS_HMAC_DRBG_MAX_INPUT )
-    {
-        fclose( f );
-        return( MBEDTLS_ERR_HMAC_DRBG_INPUT_TOO_BIG );
-    }
-
-    if( fread( buf, 1, n, f ) != n )
-        ret = MBEDTLS_ERR_HMAC_DRBG_FILE_IO_ERROR;
-    else
-        mbedtls_hmac_drbg_update( ctx, buf, n );
-
-    fclose( f );
-
-    mbedtls_zeroize( buf, sizeof( buf ) );
-
-    if( ret != 0 )
-        return( ret );
-
-    return( mbedtls_hmac_drbg_write_seed_file( ctx, path ) );
-}
-#endif /* MBEDTLS_FS_IO */
-
 
 #if defined(MBEDTLS_SELF_TEST)
 

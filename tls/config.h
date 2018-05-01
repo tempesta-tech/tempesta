@@ -28,13 +28,19 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
+/*
+ * TODO this is kernel compatibility file and it must be deleted at some time.
+ */
 #ifndef MBEDTLS_CONFIG_H
 #define MBEDTLS_CONFIG_H
 
-#if defined(_MSC_VER) && !defined(_CRT_SECURE_NO_DEPRECATE)
-#define _CRT_SECURE_NO_DEPRECATE 1
-#endif
+#include <linux/spinlock.h>
+
+#define mbedtls_time(a)		get_seconds()
+#define mbedtls_calloc		calloc
+#define mbedtls_free		free
+#define mbedtls_snprintf	snprintf
+#define mbedtls_printf		printk
 
 /**
  * \name SECTION: System support
@@ -97,21 +103,6 @@
 //#define MBEDTLS_HAVE_SSE2
 
 /**
- * \def MBEDTLS_HAVE_TIME
- *
- * System has time.h and time().
- * The time does not need to be correct, only time differences are used,
- * by contrast with MBEDTLS_HAVE_TIME_DATE
- *
- * Defining MBEDTLS_HAVE_TIME allows you to specify MBEDTLS_PLATFORM_TIME_ALT,
- * MBEDTLS_PLATFORM_TIME_MACRO, MBEDTLS_PLATFORM_TIME_TYPE_MACRO and
- * MBEDTLS_PLATFORM_STD_TIME.
- *
- * Comment if your system does not support time functions
- */
-#define MBEDTLS_HAVE_TIME
-
-/**
  * \def MBEDTLS_HAVE_TIME_DATE
  *
  * System has time.h and time(), gmtime() and the clock is correct.
@@ -121,7 +112,7 @@
  *
  * Comment if your system does not have a correct clock.
  */
-#define MBEDTLS_HAVE_TIME_DATE
+//#define MBEDTLS_HAVE_TIME_DATE
 
 /**
  * \def MBEDTLS_PLATFORM_MEMORY
@@ -164,7 +155,7 @@
  * Uncomment to prevent default assignment of standard functions in the
  * platform layer.
  */
-//#define MBEDTLS_PLATFORM_NO_STD_FUNCTIONS
+#define MBEDTLS_PLATFORM_NO_STD_FUNCTIONS
 
 /**
  * \def MBEDTLS_PLATFORM_EXIT_ALT
@@ -178,13 +169,10 @@
  *
  * All these define require MBEDTLS_PLATFORM_C to be defined!
  *
- * \note MBEDTLS_PLATFORM_SNPRINTF_ALT is required on Windows;
- * it will be enabled automatically by check_config.h
- *
  * \warning MBEDTLS_PLATFORM_XXX_ALT cannot be defined at the same time as
  * MBEDTLS_PLATFORM_XXX_MACRO!
  *
- * Requires: MBEDTLS_PLATFORM_TIME_ALT requires MBEDTLS_HAVE_TIME
+ * Requires: MBEDTLS_PLATFORM_TIME_ALT
  *
  * Uncomment a macro to enable alternate implementation of specific base
  * platform function
@@ -193,9 +181,7 @@
 //#define MBEDTLS_PLATFORM_TIME_ALT
 //#define MBEDTLS_PLATFORM_FPRINTF_ALT
 //#define MBEDTLS_PLATFORM_PRINTF_ALT
-//#define MBEDTLS_PLATFORM_SNPRINTF_ALT
 //#define MBEDTLS_PLATFORM_NV_SEED_ALT
-//#define MBEDTLS_PLATFORM_SETUP_TEARDOWN_ALT
 
 /**
  * \def MBEDTLS_DEPRECATED_WARNING
@@ -239,8 +225,6 @@
  *
  * Uncomment to provide your own alternate implementation for mbedtls_timing_hardclock(),
  * mbedtls_timing_get_timer(), mbedtls_set_alarm(), mbedtls_set/get_delay()
- *
- * Only works if you have MBEDTLS_TIMING_C enabled.
  *
  * You will need to provide a header "timing_alt.h" and an implementation at
  * compile time.
@@ -439,15 +423,6 @@
  * Uncomment to use your own hardware entropy collector.
  */
 //#define MBEDTLS_ENTROPY_HARDWARE_ALT
-
-/**
- * \def MBEDTLS_AES_ROM_TABLES
- *
- * Store the AES tables in ROM.
- *
- * Uncomment this macro to store the AES tables in ROM.
- */
-//#define MBEDTLS_AES_ROM_TABLES
 
 /**
  * \def MBEDTLS_CAMELLIA_SMALL_MEMORY
@@ -919,13 +894,6 @@
 #define MBEDTLS_GENPRIME
 
 /**
- * \def MBEDTLS_FS_IO
- *
- * Enable functions that use the filesystem.
- */
-#define MBEDTLS_FS_IO
-
-/**
  * \def MBEDTLS_NO_DEFAULT_ENTROPY_SOURCES
  *
  * Do not add default entropy sources. These are the platform specific,
@@ -947,7 +915,7 @@
  *
  * Uncomment this macro to disable the built-in platform entropy functions.
  */
-//#define MBEDTLS_NO_PLATFORM_ENTROPY
+#define MBEDTLS_NO_PLATFORM_ENTROPY
 
 /**
  * \def MBEDTLS_ENTROPY_FORCE_SHA256
@@ -1440,41 +1408,6 @@
 //#define MBEDTLS_SSL_TRUNCATED_HMAC_COMPAT
 
 /**
- * \def MBEDTLS_THREADING_ALT
- *
- * Provide your own alternate threading implementation.
- *
- * Requires: MBEDTLS_THREADING_C
- *
- * Uncomment this to allow your own alternate threading implementation.
- */
-#define MBEDTLS_THREADING_ALT
-
-/**
- * \def MBEDTLS_THREADING_PTHREAD
- *
- * Enable the pthread wrapper layer for the threading layer.
- *
- * Requires: MBEDTLS_THREADING_C
- *
- * Uncomment this to enable pthread mutexes.
- */
-//#define MBEDTLS_THREADING_PTHREAD
-
-/**
- * \def MBEDTLS_VERSION_FEATURES
- *
- * Allow run-time checking of compile-time enabled features. Thus allowing users
- * to check at run-time if the library is for instance compiled with threading
- * support via mbedtls_version_check_feature().
- *
- * Requires: MBEDTLS_VERSION_C
- *
- * Comment this to disable run-time checking and save ROM space
- */
-#define MBEDTLS_VERSION_FEATURES
-
-/**
  * \def MBEDTLS_X509_ALLOW_EXTENSIONS_NON_V3
  *
  * If set, the X509 parser will not break-off when parsing an X509 certificate
@@ -1565,20 +1498,6 @@
  * This section enables or disables entire modules in mbed TLS
  * \{
  */
-
-/**
- * \def MBEDTLS_AESNI_C
- *
- * Enable AES-NI support on x86-64.
- *
- * Module:  library/aesni.c
- * Caller:  library/aes.c
- *
- * Requires: MBEDTLS_HAVE_ASM
- *
- * This modules adds support for the AES-NI instructions on x86-64
- */
-#define MBEDTLS_AESNI_C
 
 /**
  * \def MBEDTLS_AES_C
@@ -2054,8 +1973,6 @@
  * Module:  library/havege.c
  * Caller:
  *
- * Requires: MBEDTLS_TIMING_C
- *
  * Uncomment to enable the HAVEGE random generator.
  */
 //#define MBEDTLS_HAVEGE_C
@@ -2159,25 +2076,6 @@
 //#define MBEDTLS_MEMORY_BUFFER_ALLOC_C
 
 /**
- * \def MBEDTLS_NET_C
- *
- * Enable the TCP and UDP over IPv6/IPv4 networking routines.
- *
- * \note This module only works on POSIX/Unix (including Linux, BSD and OS X)
- * and Windows. For other platforms, you'll want to disable it, and write your
- * own networking callbacks to be passed to \c mbedtls_ssl_set_bio().
- *
- * \note See also our Knowledge Base article about porting to a new
- * environment:
- * https://tls.mbed.org/kb/how-to/how-do-i-port-mbed-tls-to-a-new-environment-OS
- *
- * Module:  library/net_sockets.c
- *
- * This module provides networking routines.
- */
-//#define MBEDTLS_NET_C
-
-/**
  * \def MBEDTLS_OID_C
  *
  * Enable the OID database.
@@ -2246,7 +2144,7 @@
  *
  * This modules adds support for encoding / writing PEM files.
  */
-#define MBEDTLS_PEM_WRITE_C
+//#define MBEDTLS_PEM_WRITE_C
 
 /**
  * \def MBEDTLS_PK_C
@@ -2291,7 +2189,7 @@
  *
  * Uncomment to enable generic public key write functions.
  */
-#define MBEDTLS_PK_WRITE_C
+//#define MBEDTLS_PK_WRITE_C
 
 /**
  * \def MBEDTLS_PKCS5_C
@@ -2520,62 +2418,6 @@
 #define MBEDTLS_SSL_TLS_C
 
 /**
- * \def MBEDTLS_THREADING_C
- *
- * Enable the threading abstraction layer.
- * By default mbed TLS assumes it is used in a non-threaded environment or that
- * contexts are not shared between threads. If you do intend to use contexts
- * between threads, you will need to enable this layer to prevent race
- * conditions. See also our Knowledge Base article about threading:
- * https://tls.mbed.org/kb/development/thread-safety-and-multi-threading
- *
- * Module:  library/threading.c
- *
- * This allows different threading implementations (self-implemented or
- * provided).
- *
- * You will have to enable either MBEDTLS_THREADING_ALT or
- * MBEDTLS_THREADING_PTHREAD.
- *
- * Enable this layer to allow use of mutexes within mbed TLS
- */
-//#define MBEDTLS_THREADING_C
-
-/**
- * \def MBEDTLS_TIMING_C
- *
- * Enable the semi-portable timing interface.
- *
- * \note The provided implementation only works on POSIX/Unix (including Linux,
- * BSD and OS X) and Windows. On other platforms, you can either disable that
- * module and provide your own implementations of the callbacks needed by
- * \c mbedtls_ssl_set_timer_cb() for DTLS, or leave it enabled and provide
- * your own implementation of the whole module by setting
- * \c MBEDTLS_TIMING_ALT in the current file.
- *
- * \note See also our Knowledge Base article about porting to a new
- * environment:
- * https://tls.mbed.org/kb/how-to/how-do-i-port-mbed-tls-to-a-new-environment-OS
- *
- * Module:  library/timing.c
- * Caller:  library/havege.c
- *
- * This module is used by the HAVEGE random number generator.
- */
-#define MBEDTLS_TIMING_C
-
-/**
- * \def MBEDTLS_VERSION_C
- *
- * Enable run-time version information.
- *
- * Module:  library/version.c
- *
- * This module provides run-time version information.
- */
-#define MBEDTLS_VERSION_C
-
-/**
  * \def MBEDTLS_X509_USE_C
  *
  * Enable X.509 core for using certificates.
@@ -2647,7 +2489,7 @@
  *
  * This module is the basis for creating X.509 certificates and CSRs.
  */
-#define MBEDTLS_X509_CREATE_C
+//#define MBEDTLS_X509_CREATE_C
 
 /**
  * \def MBEDTLS_X509_CRT_WRITE_C
@@ -2660,7 +2502,7 @@
  *
  * This module is required for X.509 certificate creation.
  */
-#define MBEDTLS_X509_CRT_WRITE_C
+//#define MBEDTLS_X509_CRT_WRITE_C
 
 /**
  * \def MBEDTLS_X509_CSR_WRITE_C
@@ -2673,7 +2515,7 @@
  *
  * This module is required for X.509 certificate request writing.
  */
-#define MBEDTLS_X509_CSR_WRITE_C
+//#define MBEDTLS_X509_CSR_WRITE_C
 
 /**
  * \def MBEDTLS_XTEA_C
@@ -2737,11 +2579,8 @@
 //#define MBEDTLS_PLATFORM_STD_CALLOC        calloc /**< Default allocator to use, can be undefined */
 //#define MBEDTLS_PLATFORM_STD_FREE            free /**< Default free to use, can be undefined */
 //#define MBEDTLS_PLATFORM_STD_EXIT            exit /**< Default exit to use, can be undefined */
-//#define MBEDTLS_PLATFORM_STD_TIME            time /**< Default time to use, can be undefined. MBEDTLS_HAVE_TIME must be enabled */
-//#define MBEDTLS_PLATFORM_STD_FPRINTF      fprintf /**< Default fprintf to use, can be undefined */
-//#define MBEDTLS_PLATFORM_STD_PRINTF        printf /**< Default printf to use, can be undefined */
+//#define MBEDTLS_PLATFORM_STD_TIME            time /**< Default time to use, can be undefined. */
 /* Note: your snprintf must correclty zero-terminate the buffer! */
-//#define MBEDTLS_PLATFORM_STD_SNPRINTF    snprintf /**< Default snprintf to use, can be undefined */
 //#define MBEDTLS_PLATFORM_STD_EXIT_SUCCESS       0 /**< Default exit value to use, can be undefined */
 //#define MBEDTLS_PLATFORM_STD_EXIT_FAILURE       1 /**< Default exit value to use, can be undefined */
 //#define MBEDTLS_PLATFORM_STD_NV_SEED_READ   mbedtls_platform_std_nv_seed_read /**< Default nv_seed_read function to use, can be undefined */
@@ -2753,12 +2592,9 @@
 //#define MBEDTLS_PLATFORM_CALLOC_MACRO        calloc /**< Default allocator macro to use, can be undefined */
 //#define MBEDTLS_PLATFORM_FREE_MACRO            free /**< Default free macro to use, can be undefined */
 //#define MBEDTLS_PLATFORM_EXIT_MACRO            exit /**< Default exit macro to use, can be undefined */
-//#define MBEDTLS_PLATFORM_TIME_MACRO            time /**< Default time macro to use, can be undefined. MBEDTLS_HAVE_TIME must be enabled */
-//#define MBEDTLS_PLATFORM_TIME_TYPE_MACRO       time_t /**< Default time macro to use, can be undefined. MBEDTLS_HAVE_TIME must be enabled */
+//#define MBEDTLS_PLATFORM_TIME_TYPE_MACRO       time_t /**< Default time macro to use, can be undefined. */
 #define MBEDTLS_PLATFORM_FPRINTF_MACRO      ((void)0) /**< Default fprintf macro to use, can be undefined */
-#define MBEDTLS_PLATFORM_PRINTF_MACRO        printk /**< Default printf macro to use, can be undefined */
 /* Note: your snprintf must correclty zero-terminate the buffer! */
-#define MBEDTLS_PLATFORM_SNPRINTF_MACRO    snprintf /**< Default snprintf macro to use, can be undefined */
 //#define MBEDTLS_PLATFORM_NV_SEED_READ_MACRO   mbedtls_platform_std_nv_seed_read /**< Default nv_seed_read function to use, can be undefined */
 //#define MBEDTLS_PLATFORM_NV_SEED_WRITE_MACRO  mbedtls_platform_std_nv_seed_write /**< Default nv_seed_write function to use, can be undefined */
 
@@ -2770,7 +2606,7 @@
 //#define MBEDTLS_SSL_MAX_CONTENT_LEN             16384 /**< Maxium fragment length in bytes, determines the size of each of the two internal I/O buffers */
 //#define MBEDTLS_SSL_DEFAULT_TICKET_LIFETIME     86400 /**< Lifetime of session tickets (if enabled) */
 //#define MBEDTLS_PSK_MAX_LEN               32 /**< Max size of TLS pre-shared keys, in bytes (default 256 bits) */
-//#define MBEDTLS_SSL_COOKIE_TIMEOUT        60 /**< Default expiration delay of DTLS cookies, in seconds if HAVE_TIME, or in number of cookies issued */
+//#define MBEDTLS_SSL_COOKIE_TIMEOUT        60 /**< Default expiration delay of DTLS cookies, in seconds */
 
 /**
  * Complete list of ciphersuites to use, in order of preference.

@@ -49,20 +49,6 @@
 #include "pem.h"
 #endif
 
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdlib.h>
-#include <stdio.h>
-#define mbedtls_free       free
-#define mbedtls_calloc    calloc
-#define mbedtls_snprintf   snprintf
-#endif
-
-#if defined(MBEDTLS_FS_IO) || defined(EFIX64) || defined(EFI32)
-#include <stdio.h>
-#endif
-
 /* Implementation that should never be optimized out by the compiler */
 static void mbedtls_zeroize( void *v, size_t n ) {
     volatile unsigned char *p = v; while( n-- ) *p++ = 0;
@@ -312,28 +298,6 @@ int mbedtls_x509_csr_parse( mbedtls_x509_csr *csr, const unsigned char *buf, siz
 #endif /* MBEDTLS_PEM_PARSE_C */
     return( mbedtls_x509_csr_parse_der( csr, buf, buflen ) );
 }
-
-#if defined(MBEDTLS_FS_IO)
-/*
- * Load a CSR into the structure
- */
-int mbedtls_x509_csr_parse_file( mbedtls_x509_csr *csr, const char *path )
-{
-    int ret;
-    size_t n;
-    unsigned char *buf;
-
-    if( ( ret = mbedtls_pk_load_file( path, &buf, &n ) ) != 0 )
-        return( ret );
-
-    ret = mbedtls_x509_csr_parse( csr, buf, n );
-
-    mbedtls_zeroize( buf, n );
-    mbedtls_free( buf );
-
-    return( ret );
-}
-#endif /* MBEDTLS_FS_IO */
 
 #define BEFORE_COLON    14
 #define BC              "14"

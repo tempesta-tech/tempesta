@@ -40,10 +40,6 @@
 #include "bignum.h"
 #include "md.h"
 
-#if defined(MBEDTLS_THREADING_C)
-#include "threading.h"
-#endif
-
 /*
  * RSA Error codes
  */
@@ -124,9 +120,7 @@ typedef struct
                                      as specified in md.h for use in the MGF
                                      mask generating function used in the
                                      EME-OAEP and EMSA-PSS encodings. */
-#if defined(MBEDTLS_THREADING_C)
-    mbedtls_threading_mutex_t mutex;    /*!<  Thread-safety mutex. */
-#endif
+    spinlock_t mutex;    /*!<  Thread-safety mutex. */
 }
 mbedtls_rsa_context;
 

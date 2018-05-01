@@ -47,10 +47,6 @@
 
 #include <string.h>
 
-#if defined(MBEDTLS_FS_IO)
-#include <stdio.h>
-#endif
-
 /* Implementation that should never be optimized out by the compiler */
 static void mbedtls_zeroize( void *v, size_t n ) {
     volatile unsigned char *p = v; while( n-- ) *p++ = 0;
@@ -280,47 +276,6 @@ int mbedtls_md( const mbedtls_md_info_t *md_info, const unsigned char *input, si
 
     return( md_info->digest_func( input, ilen, output ) );
 }
-
-#if defined(MBEDTLS_FS_IO)
-int mbedtls_md_file( const mbedtls_md_info_t *md_info, const char *path, unsigned char *output )
-{
-    int ret;
-    FILE *f;
-    size_t n;
-    mbedtls_md_context_t ctx;
-    unsigned char buf[1024];
-
-    if( md_info == NULL )
-        return( MBEDTLS_ERR_MD_BAD_INPUT_DATA );
-
-    if( ( f = fopen( path, "rb" ) ) == NULL )
-        return( MBEDTLS_ERR_MD_FILE_IO_ERROR );
-
-    mbedtls_md_init( &ctx );
-
-    if( ( ret = mbedtls_md_setup( &ctx, md_info, 0 ) ) != 0 )
-        goto cleanup;
-
-    if( ( ret = md_info->starts_func( ctx.md_ctx ) ) != 0 )
-        goto cleanup;
-
-    while( ( n = fread( buf, 1, sizeof( buf ), f ) ) > 0 )
-        if( ( ret = md_info->update_func( ctx.md_ctx, buf, n ) ) != 0 )
-            goto cleanup;
-
-    if( ferror( f ) != 0 )
-        ret = MBEDTLS_ERR_MD_FILE_IO_ERROR;
-    else
-        ret = md_info->finish_func( ctx.md_ctx, output );
-
-cleanup:
-    mbedtls_zeroize( buf, sizeof( buf ) );
-    fclose( f );
-    mbedtls_md_free( &ctx );
-
-    return( ret );
-}
-#endif /* MBEDTLS_FS_IO */
 
 int mbedtls_md_hmac_starts( mbedtls_md_context_t *ctx, const unsigned char *key, size_t keylen )
 {
