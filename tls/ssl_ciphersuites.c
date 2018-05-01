@@ -4,7 +4,6 @@
  * \brief SSL ciphersuites for mbed TLS
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -25,7 +24,7 @@
  */
 
 #if !defined(MBEDTLS_CONFIG_FILE)
-#include "config.h"
+#include "mbedtls/config.h"
 #else
 #include MBEDTLS_CONFIG_FILE
 #endif
@@ -33,14 +32,13 @@
 #if defined(MBEDTLS_SSL_TLS_C)
 
 #if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
+#include "mbedtls/platform.h"
 #else
 #include <stdlib.h>
-#define mbedtls_time_t    time_t
 #endif
 
-#include "ssl_ciphersuites.h"
-#include "ssl.h"
+#include "mbedtls/ssl_ciphersuites.h"
+#include "mbedtls/ssl.h"
 
 #include <string.h>
 
@@ -1821,6 +1819,24 @@ mbedtls_pk_type_t mbedtls_ssl_get_ciphersuite_sig_pk_alg( const mbedtls_ssl_ciph
             return( MBEDTLS_PK_NONE );
     }
 }
+
+mbedtls_pk_type_t mbedtls_ssl_get_ciphersuite_sig_alg( const mbedtls_ssl_ciphersuite_t *info )
+{
+    switch( info->key_exchange )
+    {
+        case MBEDTLS_KEY_EXCHANGE_RSA:
+        case MBEDTLS_KEY_EXCHANGE_DHE_RSA:
+        case MBEDTLS_KEY_EXCHANGE_ECDHE_RSA:
+            return( MBEDTLS_PK_RSA );
+
+        case MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA:
+            return( MBEDTLS_PK_ECDSA );
+
+        default:
+            return( MBEDTLS_PK_NONE );
+    }
+}
+
 #endif /* MBEDTLS_PK_C */
 
 #if defined(MBEDTLS_ECDH_C) || defined(MBEDTLS_ECDSA_C)

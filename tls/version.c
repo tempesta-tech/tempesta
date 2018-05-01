@@ -2,7 +2,6 @@
  *  Version information
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -23,17 +22,17 @@
  */
 
 #if !defined(MBEDTLS_CONFIG_FILE)
-#include "config.h"
+#include "mbedtls/config.h"
 #else
 #include MBEDTLS_CONFIG_FILE
 #endif
 
 #if defined(MBEDTLS_VERSION_C)
 
-#include "version.h"
+#include "mbedtls/version.h"
 #include <string.h>
 
-unsigned int mbedtls_version_get_number()
+unsigned int mbedtls_version_get_number( void )
 {
     return( MBEDTLS_VERSION_NUMBER );
 }

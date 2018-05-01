@@ -2,7 +2,6 @@
  *  PKCS#12 Personal Information Exchange Syntax
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -29,25 +28,25 @@
  */
 
 #if !defined(MBEDTLS_CONFIG_FILE)
-#include "config.h"
+#include "mbedtls/config.h"
 #else
 #include MBEDTLS_CONFIG_FILE
 #endif
 
 #if defined(MBEDTLS_PKCS12_C)
 
-#include "pkcs12.h"
-#include "asn1.h"
-#include "cipher.h"
+#include "mbedtls/pkcs12.h"
+#include "mbedtls/asn1.h"
+#include "mbedtls/cipher.h"
 
 #include <string.h>
 
 #if defined(MBEDTLS_ARC4_C)
-#include "arc4.h"
+#include "mbedtls/arc4.h"
 #endif
 
 #if defined(MBEDTLS_DES_C)
-#include "des.h"
+#include "mbedtls/des.h"
 #endif
 
 /* Implementation that should never be optimized out by the compiler */

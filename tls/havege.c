@@ -2,7 +2,6 @@
  *  \brief HAVEGE: HArdware Volatile Entropy Gathering and Expansion
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -30,15 +29,15 @@
  */
 
 #if !defined(MBEDTLS_CONFIG_FILE)
-#include "config.h"
+#include "mbedtls/config.h"
 #else
 #include MBEDTLS_CONFIG_FILE
 #endif
 
 #if defined(MBEDTLS_HAVEGE_C)
 
-#include "havege.h"
-#include "timing.h"
+#include "mbedtls/havege.h"
+#include "mbedtls/timing.h"
 
 #include <string.h>
 

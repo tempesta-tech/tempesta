@@ -2,7 +2,6 @@
  *  Public Key abstraction layer
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -23,24 +22,27 @@
  */
 
 #if !defined(MBEDTLS_CONFIG_FILE)
-#include "config.h"
+#include "mbedtls/config.h"
 #else
 #include MBEDTLS_CONFIG_FILE
 #endif
 
 #if defined(MBEDTLS_PK_C)
-#include "pk.h"
-#include "pk_internal.h"
+#include "mbedtls/pk.h"
+#include "mbedtls/pk_internal.h"
 
 #if defined(MBEDTLS_RSA_C)
-#include "rsa.h"
+#include "mbedtls/rsa.h"
 #endif
 #if defined(MBEDTLS_ECP_C)
-#include "ecp.h"
+#include "mbedtls/ecp.h"
 #endif
 #if defined(MBEDTLS_ECDSA_C)
-#include "ecdsa.h"
+#include "mbedtls/ecdsa.h"
 #endif
+
+#include <limits.h>
+#include <stdint.h>
 
 /* Implementation that should never be optimized out by the compiler */
 static void mbedtls_zeroize( void *v, size_t n ) {
@@ -212,6 +214,11 @@ int mbedtls_pk_verify_ext( mbedtls_pk_type_t type, const void *options,
         int ret;
         const mbedtls_pk_rsassa_pss_options *pss_opts;
 
+#if SIZE_MAX > UINT_MAX
+        if( md_alg == MBEDTLS_MD_NONE && UINT_MAX < hash_len )
+            return( MBEDTLS_ERR_PK_BAD_INPUT_DATA );
+#endif /* SIZE_MAX > UINT_MAX */
+
         if( options == NULL )
             return( MBEDTLS_ERR_PK_BAD_INPUT_DATA );
 
@@ -235,7 +242,7 @@ int mbedtls_pk_verify_ext( mbedtls_pk_type_t type, const void *options,
         return( 0 );
 #else
         return( MBEDTLS_ERR_PK_FEATURE_UNAVAILABLE );
-#endif
+#endif /* MBEDTLS_RSA_C && MBEDTLS_PKCS1_V21 */
     }
 
     /* General case: no options */

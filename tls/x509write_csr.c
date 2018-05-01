@@ -2,7 +2,6 @@
  *  X.509 Certificate Signing Request writing
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -28,22 +27,22 @@
  */
 
 #if !defined(MBEDTLS_CONFIG_FILE)
-#include "config.h"
+#include "mbedtls/config.h"
 #else
 #include MBEDTLS_CONFIG_FILE
 #endif
 
 #if defined(MBEDTLS_X509_CSR_WRITE_C)
 
-#include "x509_csr.h"
-#include "oid.h"
-#include "asn1write.h"
+#include "mbedtls/x509_csr.h"
+#include "mbedtls/oid.h"
+#include "mbedtls/asn1write.h"
 
 #include <string.h>
 #include <stdlib.h>
 
 #if defined(MBEDTLS_PEM_WRITE_C)
-#include "pem.h"
+#include "mbedtls/pem.h"
 #endif
 
 /* Implementation that should never be optimized out by the compiler */
@@ -53,7 +52,7 @@ static void mbedtls_zeroize( void *v, size_t n ) {
 
 void mbedtls_x509write_csr_init( mbedtls_x509write_csr *ctx )
 {
-    memset( ctx, 0, sizeof(mbedtls_x509write_csr) );
+    memset( ctx, 0, sizeof( mbedtls_x509write_csr ) );
 }
 
 void mbedtls_x509write_csr_free( mbedtls_x509write_csr *ctx )
@@ -61,7 +60,7 @@ void mbedtls_x509write_csr_free( mbedtls_x509write_csr *ctx )
     mbedtls_asn1_free_named_data_list( &ctx->subject );
     mbedtls_asn1_free_named_data_list( &ctx->extensions );
 
-    mbedtls_zeroize( ctx, sizeof(mbedtls_x509write_csr) );
+    mbedtls_zeroize( ctx, sizeof( mbedtls_x509write_csr ) );
 }
 
 void mbedtls_x509write_csr_set_md_alg( mbedtls_x509write_csr *ctx, mbedtls_md_type_t md_alg )
@@ -197,14 +196,21 @@ int mbedtls_x509write_csr_der( mbedtls_x509write_csr *ctx, unsigned char *buf, s
      */
     mbedtls_md( mbedtls_md_info_from_type( ctx->md_alg ), c, len, hash );
 
-    pk_alg = mbedtls_pk_get_type( ctx->key );
-    if( pk_alg == MBEDTLS_PK_ECKEY )
-        pk_alg = MBEDTLS_PK_ECDSA;
-
     if( ( ret = mbedtls_pk_sign( ctx->key, ctx->md_alg, hash, 0, sig, &sig_len,
-                         f_rng, p_rng ) ) != 0 ||
-        ( ret = mbedtls_oid_get_oid_by_sig_alg( pk_alg, ctx->md_alg,
-                                        &sig_oid, &sig_oid_len ) ) != 0 )
+                                 f_rng, p_rng ) ) != 0 )
+    {
+        return( ret );
+    }
+
+    if( mbedtls_pk_can_do( ctx->key, MBEDTLS_PK_RSA ) )
+        pk_alg = MBEDTLS_PK_RSA;
+    else if( mbedtls_pk_can_do( ctx->key, MBEDTLS_PK_ECDSA ) )
+        pk_alg = MBEDTLS_PK_ECDSA;
+    else
+        return( MBEDTLS_ERR_X509_INVALID_ALG );
+
+    if( ( ret = mbedtls_oid_get_oid_by_sig_alg( pk_alg, ctx->md_alg,
+                                                &sig_oid, &sig_oid_len ) ) != 0 )
     {
         return( ret );
     }
@@ -215,6 +221,9 @@ int mbedtls_x509write_csr_der( mbedtls_x509write_csr *ctx, unsigned char *buf, s
     c2 = buf + size;
     MBEDTLS_ASN1_CHK_ADD( sig_and_oid_len, mbedtls_x509_write_sig( &c2, buf,
                                         sig_oid, sig_oid_len, sig, sig_len ) );
+
+    if( len > (size_t)( c2 - buf ) )
+        return( MBEDTLS_ERR_ASN1_BUF_TOO_SMALL );
 
     c2 -= len;
     memcpy( c2, c, len );

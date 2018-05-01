@@ -2,7 +2,6 @@
  *  Elliptic curve Diffie-Hellman
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -30,17 +29,18 @@
  */
 
 #if !defined(MBEDTLS_CONFIG_FILE)
-#include "config.h"
+#include "mbedtls/config.h"
 #else
 #include MBEDTLS_CONFIG_FILE
 #endif
 
 #if defined(MBEDTLS_ECDH_C)
 
-#include "ecdh.h"
+#include "mbedtls/ecdh.h"
 
 #include <string.h>
 
+#if !defined(MBEDTLS_ECDH_GEN_PUBLIC_ALT)
 /*
  * Generate public key: simple wrapper around mbedtls_ecp_gen_keypair
  */
@@ -50,7 +50,9 @@ int mbedtls_ecdh_gen_public( mbedtls_ecp_group *grp, mbedtls_mpi *d, mbedtls_ecp
 {
     return mbedtls_ecp_gen_keypair( grp, d, Q, f_rng, p_rng );
 }
+#endif /* MBEDTLS_ECDH_GEN_PUBLIC_ALT */
 
+#if !defined(MBEDTLS_ECDH_COMPUTE_SHARED_ALT)
 /*
  * Compute shared secret (SEC1 3.3.1)
  */
@@ -84,6 +86,7 @@ cleanup:
 
     return( ret );
 }
+#endif /* MBEDTLS_ECDH_COMPUTE_SHARED_ALT */
 
 /*
  * Initialize context

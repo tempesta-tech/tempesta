@@ -2,7 +2,6 @@
  *  X.509 base functions for creating certificates / CSRs
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -23,16 +22,16 @@
  */
 
 #if !defined(MBEDTLS_CONFIG_FILE)
-#include "config.h"
+#include "mbedtls/config.h"
 #else
 #include MBEDTLS_CONFIG_FILE
 #endif
 
 #if defined(MBEDTLS_X509_CREATE_C)
 
-#include "x509.h"
-#include "asn1write.h"
-#include "oid.h"
+#include "mbedtls/x509.h"
+#include "mbedtls/asn1write.h"
+#include "mbedtls/oid.h"
 
 #include <string.h>
 

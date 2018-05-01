@@ -2,9 +2,9 @@
  * \file hmac_drbg.h
  *
  * \brief HMAC_DRBG (NIST SP 800-90A)
- *
+ */
+/*
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -29,7 +29,7 @@
 #include "md.h"
 
 #if defined(MBEDTLS_THREADING_C)
-#include "threading.h"
+#include "mbedtls/threading.h"
 #endif
 
 /*

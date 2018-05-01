@@ -2,7 +2,6 @@
  *  Platform-specific and custom entropy polling functions
  *
  *  Copyright (C) 2006-2016, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -23,25 +22,25 @@
  */
 
 #if !defined(MBEDTLS_CONFIG_FILE)
-#include "config.h"
+#include "mbedtls/config.h"
 #else
 #include MBEDTLS_CONFIG_FILE
 #endif
 
 #if defined(MBEDTLS_ENTROPY_C)
 
-#include "entropy.h"
-#include "entropy_poll.h"
+#include "mbedtls/entropy.h"
+#include "mbedtls/entropy_poll.h"
 
 #if defined(MBEDTLS_TIMING_C)
 #include <string.h>
-#include "timing.h"
+#include "mbedtls/timing.h"
 #endif
 #if defined(MBEDTLS_HAVEGE_C)
-#include "havege.h"
+#include "mbedtls/havege.h"
 #endif
 #if defined(MBEDTLS_ENTROPY_NV_SEED)
-#include "platform.h"
+#include "mbedtls/platform.h"
 #endif
 
 #if !defined(MBEDTLS_NO_PLATFORM_ENTROPY)
