@@ -2,9 +2,9 @@
  * \file check_config.h
  *
  * \brief Consistency checks for configuration options
- *
+ */
+/*
  *  Copyright (C) 2006-2016, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -80,6 +80,15 @@
 #error "MBEDTLS_DHM_C defined, but not all prerequisites"
 #endif
 
+#if defined(MBEDTLS_SSL_TRUNCATED_HMAC_COMPAT) && !defined(MBEDTLS_SSL_TRUNCATED_HMAC)
+#error "MBEDTLS_SSL_TRUNCATED_HMAC_COMPAT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_CMAC_C) && \
+    !defined(MBEDTLS_AES_C) && !defined(MBEDTLS_DES_C)
+#error "MBEDTLS_CMAC_C defined, but not all prerequisites"
+#endif
+
 #if defined(MBEDTLS_ECDH_C) && !defined(MBEDTLS_ECP_C)
 #error "MBEDTLS_ECDH_C defined, but not all prerequisites"
 #endif
@@ -146,6 +155,38 @@
 #if defined(MBEDTLS_GCM_C) && (                                        \
         !defined(MBEDTLS_AES_C) && !defined(MBEDTLS_CAMELLIA_C) )
 #error "MBEDTLS_GCM_C defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECP_RANDOMIZE_JAC_ALT) && !defined(MBEDTLS_ECP_INTERNAL_ALT)
+#error "MBEDTLS_ECP_RANDOMIZE_JAC_ALT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECP_ADD_MIXED_ALT) && !defined(MBEDTLS_ECP_INTERNAL_ALT)
+#error "MBEDTLS_ECP_ADD_MIXED_ALT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECP_DOUBLE_JAC_ALT) && !defined(MBEDTLS_ECP_INTERNAL_ALT)
+#error "MBEDTLS_ECP_DOUBLE_JAC_ALT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECP_NORMALIZE_JAC_MANY_ALT) && !defined(MBEDTLS_ECP_INTERNAL_ALT)
+#error "MBEDTLS_ECP_NORMALIZE_JAC_MANY_ALT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECP_NORMALIZE_JAC_ALT) && !defined(MBEDTLS_ECP_INTERNAL_ALT)
+#error "MBEDTLS_ECP_NORMALIZE_JAC_ALT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECP_DOUBLE_ADD_MXZ_ALT) && !defined(MBEDTLS_ECP_INTERNAL_ALT)
+#error "MBEDTLS_ECP_DOUBLE_ADD_MXZ_ALT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECP_RANDOMIZE_MXZ_ALT) && !defined(MBEDTLS_ECP_INTERNAL_ALT)
+#error "MBEDTLS_ECP_RANDOMIZE_MXZ_ALT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECP_NORMALIZE_MXZ_ALT) && !defined(MBEDTLS_ECP_INTERNAL_ALT)
+#error "MBEDTLS_ECP_NORMALIZE_MXZ_ALT defined, but not all prerequisites"
 #endif
 
 #if defined(MBEDTLS_HAVEGE_C) && !defined(MBEDTLS_TIMING_C)
@@ -259,6 +300,36 @@
 #error "MBEDTLS_PLATFORM_EXIT_MACRO and MBEDTLS_PLATFORM_STD_EXIT/MBEDTLS_PLATFORM_EXIT_ALT cannot be defined simultaneously"
 #endif
 
+#if defined(MBEDTLS_PLATFORM_TIME_ALT) &&\
+    ( !defined(MBEDTLS_PLATFORM_C) ||\
+        !defined(MBEDTLS_HAVE_TIME) )
+#error "MBEDTLS_PLATFORM_TIME_ALT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_PLATFORM_TIME_MACRO) &&\
+    ( !defined(MBEDTLS_PLATFORM_C) ||\
+        !defined(MBEDTLS_HAVE_TIME) )
+#error "MBEDTLS_PLATFORM_TIME_MACRO defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_PLATFORM_TIME_TYPE_MACRO) &&\
+    ( !defined(MBEDTLS_PLATFORM_C) ||\
+        !defined(MBEDTLS_HAVE_TIME) )
+#error "MBEDTLS_PLATFORM_TIME_TYPE_MACRO defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_PLATFORM_TIME_MACRO) &&\
+    ( defined(MBEDTLS_PLATFORM_STD_TIME) ||\
+        defined(MBEDTLS_PLATFORM_TIME_ALT) )
+#error "MBEDTLS_PLATFORM_TIME_MACRO and MBEDTLS_PLATFORM_STD_TIME/MBEDTLS_PLATFORM_TIME_ALT cannot be defined simultaneously"
+#endif
+
+#if defined(MBEDTLS_PLATFORM_TIME_TYPE_MACRO) &&\
+    ( defined(MBEDTLS_PLATFORM_STD_TIME) ||\
+        defined(MBEDTLS_PLATFORM_TIME_ALT) )
+#error "MBEDTLS_PLATFORM_TIME_TYPE_MACRO and MBEDTLS_PLATFORM_STD_TIME/MBEDTLS_PLATFORM_TIME_ALT cannot be defined simultaneously"
+#endif
+
 #if defined(MBEDTLS_PLATFORM_FPRINTF_ALT) && !defined(MBEDTLS_PLATFORM_C)
 #error "MBEDTLS_PLATFORM_FPRINTF_ALT defined, but not all prerequisites"
 #endif
@@ -353,6 +424,12 @@
 #if defined(MBEDTLS_PLATFORM_STD_EXIT) &&\
     !defined(MBEDTLS_PLATFORM_EXIT_ALT)
 #error "MBEDTLS_PLATFORM_STD_EXIT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_PLATFORM_STD_TIME) &&\
+    ( !defined(MBEDTLS_PLATFORM_TIME_ALT) ||\
+        !defined(MBEDTLS_HAVE_TIME) )
+#error "MBEDTLS_PLATFORM_STD_TIME defined, but not all prerequisites"
 #endif
 
 #if defined(MBEDTLS_PLATFORM_STD_FPRINTF) &&\
@@ -579,6 +656,15 @@
 #if defined(MBEDTLS_X509_CSR_WRITE_C) && ( !defined(MBEDTLS_X509_CREATE_C) )
 #error "MBEDTLS_X509_CSR_WRITE_C defined, but not all prerequisites"
 #endif
+
+#if defined(MBEDTLS_HAVE_INT32) && defined(MBEDTLS_HAVE_INT64)
+#error "MBEDTLS_HAVE_INT32 and MBEDTLS_HAVE_INT64 cannot be defined simultaneously"
+#endif /* MBEDTLS_HAVE_INT32 && MBEDTLS_HAVE_INT64 */
+
+#if ( defined(MBEDTLS_HAVE_INT32) || defined(MBEDTLS_HAVE_INT64) ) && \
+    defined(MBEDTLS_HAVE_ASM)
+#error "MBEDTLS_HAVE_INT32/MBEDTLS_HAVE_INT64 and MBEDTLS_HAVE_ASM cannot be defined simultaneously"
+#endif /* (MBEDTLS_HAVE_INT32 || MBEDTLS_HAVE_INT64) && MBEDTLS_HAVE_ASM */
 
 /*
  * Avoid warning from -pedantic. This is a convenient place for this

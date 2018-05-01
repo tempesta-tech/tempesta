@@ -2,7 +2,6 @@
  *  Threading abstraction layer
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -23,14 +22,14 @@
  */
 
 #if !defined(MBEDTLS_CONFIG_FILE)
-#include "config.h"
+#include "mbedtls/config.h"
 #else
 #include MBEDTLS_CONFIG_FILE
 #endif
 
 #if defined(MBEDTLS_THREADING_C)
 
-#include "threading.h"
+#include "mbedtls/threading.h"
 
 #if defined(MBEDTLS_THREADING_PTHREAD)
 static void threading_mutex_init_pthread( mbedtls_threading_mutex_t *mutex )
@@ -43,10 +42,11 @@ static void threading_mutex_init_pthread( mbedtls_threading_mutex_t *mutex )
 
 static void threading_mutex_free_pthread( mbedtls_threading_mutex_t *mutex )
 {
-    if( mutex == NULL )
+    if( mutex == NULL || !mutex->is_valid )
         return;
 
     (void) pthread_mutex_destroy( &mutex->mutex );
+    mutex->is_valid = 0;
 }
 
 static int threading_mutex_lock_pthread( mbedtls_threading_mutex_t *mutex )

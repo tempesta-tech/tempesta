@@ -2,9 +2,9 @@
  * \file entropy.h
  *
  * \brief Entropy accumulator implementation
- *
+ */
+/*
  *  Copyright (C) 2006-2016, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -124,6 +124,7 @@ mbedtls_entropy_source_state;
  */
 typedef struct
 {
+    int accumulator_started;
 #if defined(MBEDTLS_ENTROPY_SHA512_ACCUMULATOR)
     mbedtls_sha512_context  accumulator;
 #else
@@ -258,9 +259,29 @@ int mbedtls_entropy_update_seed_file( mbedtls_entropy_context *ctx, const char *
 /**
  * \brief          Checkup routine
  *
+ *                 This module self-test also calls the entropy self-test,
+ *                 mbedtls_entropy_source_self_test();
+ *
  * \return         0 if successful, or 1 if a test failed
  */
 int mbedtls_entropy_self_test( int verbose );
+
+#if defined(MBEDTLS_ENTROPY_HARDWARE_ALT)
+/**
+ * \brief          Checkup routine
+ *
+ *                 Verifies the integrity of the hardware entropy source
+ *                 provided by the function 'mbedtls_hardware_poll()'.
+ *
+ *                 Note this is the only hardware entropy source that is known
+ *                 at link time, and other entropy sources configured
+ *                 dynamically at runtime by the function
+ *                 mbedtls_entropy_add_source() will not be tested.
+ *
+ * \return         0 if successful, or 1 if a test failed
+ */
+int mbedtls_entropy_source_self_test( int verbose );
+#endif /* MBEDTLS_ENTROPY_HARDWARE_ALT */
 #endif /* MBEDTLS_SELF_TEST */
 
 #ifdef __cplusplus

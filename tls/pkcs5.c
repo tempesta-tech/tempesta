@@ -6,7 +6,6 @@
  * \author Mathias Olsson <mathias@kompetensum.com>
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -33,22 +32,22 @@
  */
 
 #if !defined(MBEDTLS_CONFIG_FILE)
-#include "config.h"
+#include "mbedtls/config.h"
 #else
 #include MBEDTLS_CONFIG_FILE
 #endif
 
 #if defined(MBEDTLS_PKCS5_C)
 
-#include "pkcs5.h"
-#include "asn1.h"
-#include "cipher.h"
-#include "oid.h"
+#include "mbedtls/pkcs5.h"
+#include "mbedtls/asn1.h"
+#include "mbedtls/cipher.h"
+#include "mbedtls/oid.h"
 
 #include <string.h>
 
 #if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
+#include "mbedtls/platform.h"
 #else
 #include <stdio.h>
 #define mbedtls_printf printf
@@ -99,10 +98,8 @@ static int pkcs5_parse_pbkdf2_params( const mbedtls_asn1_buf *params,
     if( ( ret = mbedtls_asn1_get_alg_null( &p, end, &prf_alg_oid ) ) != 0 )
         return( MBEDTLS_ERR_PKCS5_INVALID_FORMAT + ret );
 
-    if( MBEDTLS_OID_CMP( MBEDTLS_OID_HMAC_SHA1, &prf_alg_oid ) != 0 )
+    if( mbedtls_oid_get_md_hmac( &prf_alg_oid, md_type ) != 0 )
         return( MBEDTLS_ERR_PKCS5_FEATURE_UNAVAILABLE );
-
-    *md_type = MBEDTLS_MD_SHA1;
 
     if( p != end )
         return( MBEDTLS_ERR_PKCS5_INVALID_FORMAT +
@@ -394,7 +391,8 @@ int mbedtls_pkcs5_self_test( int verbose )
             mbedtls_printf( "passed\n" );
     }
 
-    mbedtls_printf( "\n" );
+    if( verbose != 0 )
+        mbedtls_printf( "\n" );
 
 exit:
     mbedtls_md_free( &sha1_ctx );

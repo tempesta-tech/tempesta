@@ -2,9 +2,9 @@
  * \file x509_csr.h
  *
  * \brief X.509 certificate signing request parsing and writing
- *
+ */
+/*
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -285,7 +285,7 @@ int mbedtls_x509write_csr_der( mbedtls_x509write_csr *ctx, unsigned char *buf, s
  *
  * \note            f_rng may be NULL if RSA is used for signature and the
  *                  signature is made offline (otherwise f_rng is desirable
- *                  for couermeasures against timing attacks).
+ *                  for countermeasures against timing attacks).
  *                  ECDSA signatures always require a non-NULL f_rng.
  */
 int mbedtls_x509write_csr_pem( mbedtls_x509write_csr *ctx, unsigned char *buf, size_t size,
