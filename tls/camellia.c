@@ -40,15 +40,6 @@
 
 #include <string.h>
 
-#if defined(MBEDTLS_SELF_TEST)
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdio.h>
-#define mbedtls_printf printf
-#endif /* MBEDTLS_PLATFORM_C */
-#endif /* MBEDTLS_SELF_TEST */
-
 #if !defined(MBEDTLS_CAMELLIA_ALT)
 
 /* Implementation that should never be optimized out by the compiler */
@@ -694,8 +685,6 @@ int mbedtls_camellia_crypt_ctr( mbedtls_camellia_context *ctx,
 #endif /* MBEDTLS_CIPHER_MODE_CTR */
 #endif /* !MBEDTLS_CAMELLIA_ALT */
 
-#if defined(MBEDTLS_SELF_TEST)
-
 /*
  * Camellia test vectors from:
  *
@@ -1069,7 +1058,5 @@ int mbedtls_camellia_self_test( int verbose )
 
     return( 0 );
 }
-
-#endif /* MBEDTLS_SELF_TEST */
 
 #endif /* MBEDTLS_CAMELLIA_C */

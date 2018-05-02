@@ -43,15 +43,6 @@
 
 #include <string.h>
 
-#if defined(MBEDTLS_SELF_TEST) && defined(MBEDTLS_AES_C)
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdio.h>
-#define mbedtls_printf printf
-#endif /* MBEDTLS_PLATFORM_C */
-#endif /* MBEDTLS_SELF_TEST && MBEDTLS_AES_C */
-
 #if !defined(MBEDTLS_CCM_ALT)
 
 /* Implementation that should never be optimized out by the compiler */
@@ -355,7 +346,6 @@ int mbedtls_ccm_auth_decrypt( mbedtls_ccm_context *ctx, size_t length,
 
 #endif /* !MBEDTLS_CCM_ALT */
 
-#if defined(MBEDTLS_SELF_TEST) && defined(MBEDTLS_AES_C)
 /*
  * Examples 1 to 3 from SP800-38C Appendix C
  */
@@ -464,7 +454,5 @@ int mbedtls_ccm_self_test( int verbose )
 
     return( 0 );
 }
-
-#endif /* MBEDTLS_SELF_TEST && MBEDTLS_AES_C */
 
 #endif /* MBEDTLS_CCM_C */

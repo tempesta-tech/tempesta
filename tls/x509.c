@@ -970,8 +970,6 @@ int mbedtls_x509_time_is_future( const mbedtls_x509_time *from )
 }
 #endif /* MBEDTLS_HAVE_TIME_DATE */
 
-#if defined(MBEDTLS_SELF_TEST)
-
 #include "x509_crt.h"
 #include "certs.h"
 
@@ -1037,7 +1035,5 @@ int mbedtls_x509_self_test( int verbose )
     return( 0 );
 #endif /* MBEDTLS_CERTS_C && MBEDTLS_SHA1_C */
 }
-
-#endif /* MBEDTLS_SELF_TEST */
 
 #endif /* MBEDTLS_X509_USE_C */

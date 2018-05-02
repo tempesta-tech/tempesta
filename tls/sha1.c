@@ -39,15 +39,6 @@
 
 #include <string.h>
 
-#if defined(MBEDTLS_SELF_TEST)
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdio.h>
-#define mbedtls_printf printf
-#endif /* MBEDTLS_PLATFORM_C */
-#endif /* MBEDTLS_SELF_TEST */
-
 #if !defined(MBEDTLS_SHA1_ALT)
 
 /* Implementation that should never be optimized out by the compiler */
@@ -438,7 +429,6 @@ void mbedtls_sha1( const unsigned char *input,
 }
 #endif
 
-#if defined(MBEDTLS_SELF_TEST)
 /*
  * FIPS-180-1 test vectors
  */
@@ -533,7 +523,5 @@ exit:
 
     return( ret );
 }
-
-#endif /* MBEDTLS_SELF_TEST */
 
 #endif /* MBEDTLS_SHA1_C */

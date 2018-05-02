@@ -46,10 +46,6 @@
 // Regular implementation
 //
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /**
  * \brief          MD5 context structure
  *
@@ -241,17 +237,9 @@ MBEDTLS_DEPRECATED void mbedtls_md5_process( mbedtls_md5_context *ctx,
 #undef MBEDTLS_DEPRECATED
 #endif /* !MBEDTLS_DEPRECATED_REMOVED */
 
-#ifdef __cplusplus
-}
-#endif
-
 #else  /* MBEDTLS_MD5_ALT */
 #include "md5_alt.h"
 #endif /* MBEDTLS_MD5_ALT */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /**
  * \brief          Output = MD5( input buffer )
@@ -297,21 +285,5 @@ MBEDTLS_DEPRECATED void mbedtls_md5( const unsigned char *input,
 
 #undef MBEDTLS_DEPRECATED
 #endif /* !MBEDTLS_DEPRECATED_REMOVED */
-
-/**
- * \brief          Checkup routine
- *
- * \return         0 if successful, or 1 if the test failed
- *
- * \warning        MD5 is considered a weak message digest and its use
- *                 constitutes a security risk. We recommend considering
- *                 stronger message digests instead.
- *
- */
-int mbedtls_md5_self_test( int verbose );
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* mbedtls_md5.h */

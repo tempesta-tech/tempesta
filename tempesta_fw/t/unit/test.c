@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -100,6 +100,7 @@ TEST_SUITE(sched_ratio);
 TEST_SUITE(sched_hash);
 TEST_SUITE(sched_http);
 TEST_SUITE(wq);
+TEST_SUITE(tls);
 
 int
 test_run_all(void)
@@ -109,6 +110,9 @@ test_run_all(void)
 	/* Run sleeping tests first. */
 	TEST_SUITE_RUN(cfg);
 	TEST_SUITE_RUN(wq);
+
+	/* TLS tests care about FPU on their own. */
+	TEST_SUITE_RUN(tls);
 
 	kernel_fpu_begin();
 	tfw_str_init_const();

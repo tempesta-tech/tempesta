@@ -32,10 +32,6 @@
 #define MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL               -0x002A  /**< Output buffer too small. */
 #define MBEDTLS_ERR_BASE64_INVALID_CHARACTER              -0x002C  /**< Invalid character in input. */
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /**
  * \brief          Encode a buffer into base64 format
  *
@@ -77,16 +73,5 @@ int mbedtls_base64_encode( unsigned char *dst, size_t dlen, size_t *olen,
  */
 int mbedtls_base64_decode( unsigned char *dst, size_t dlen, size_t *olen,
                    const unsigned char *src, size_t slen );
-
-/**
- * \brief          Checkup routine
- *
- * \return         0 if successful, or 1 if the test failed
- */
-int mbedtls_base64_self_test( int verbose );
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* base64.h */

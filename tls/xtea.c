@@ -34,15 +34,6 @@
 
 #include <string.h>
 
-#if defined(MBEDTLS_SELF_TEST)
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdio.h>
-#define mbedtls_printf printf
-#endif /* MBEDTLS_PLATFORM_C */
-#endif /* MBEDTLS_SELF_TEST */
-
 #if !defined(MBEDTLS_XTEA_ALT)
 
 /* Implementation that should never be optimized out by the compiler */
@@ -195,8 +186,6 @@ int mbedtls_xtea_crypt_cbc( mbedtls_xtea_context *ctx, int mode, size_t length,
 #endif /* MBEDTLS_CIPHER_MODE_CBC */
 #endif /* !MBEDTLS_XTEA_ALT */
 
-#if defined(MBEDTLS_SELF_TEST)
-
 /*
  * XTEA tests vectors (non-official)
  */
@@ -278,7 +267,5 @@ exit:
 
     return( ret );
 }
-
-#endif /* MBEDTLS_SELF_TEST */
 
 #endif /* MBEDTLS_XTEA_C */

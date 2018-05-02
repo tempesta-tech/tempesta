@@ -48,16 +48,6 @@
 #include "aesni.h"
 #endif
 
-#if defined(MBEDTLS_SELF_TEST) && defined(MBEDTLS_AES_C)
-#include "aes.h"
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdio.h>
-#define mbedtls_printf printf
-#endif /* MBEDTLS_PLATFORM_C */
-#endif /* MBEDTLS_SELF_TEST && MBEDTLS_AES_C */
-
 #if !defined(MBEDTLS_GCM_ALT)
 
 /*
@@ -516,7 +506,7 @@ void mbedtls_gcm_free( mbedtls_gcm_context *ctx )
 
 #endif /* !MBEDTLS_GCM_ALT */
 
-#if defined(MBEDTLS_SELF_TEST) && defined(MBEDTLS_AES_C)
+#if defined(MBEDTLS_AES_C)
 /*
  * AES-GCM test vectors from:
  *
@@ -956,6 +946,6 @@ exit:
     return( ret );
 }
 
-#endif /* MBEDTLS_SELF_TEST && MBEDTLS_AES_C */
+#endif /* MBEDTLS_AES_C */
 
 #endif /* MBEDTLS_GCM_C */

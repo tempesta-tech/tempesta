@@ -286,8 +286,6 @@ int mbedtls_pkcs5_pbkdf2_hmac( mbedtls_md_context_t *ctx, const unsigned char *p
     return( 0 );
 }
 
-#if defined(MBEDTLS_SELF_TEST)
-
 #if !defined(MBEDTLS_SHA1_C)
 int mbedtls_pkcs5_self_test( int verbose )
 {
@@ -401,7 +399,5 @@ exit:
     return( ret );
 }
 #endif /* MBEDTLS_SHA1_C */
-
-#endif /* MBEDTLS_SELF_TEST */
 
 #endif /* MBEDTLS_PKCS5_C */

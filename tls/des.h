@@ -53,10 +53,6 @@
 // Regular implementation
 //
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /**
  * \brief          DES context structure
  *
@@ -334,27 +330,9 @@ int mbedtls_des3_crypt_cbc( mbedtls_des3_context *ctx,
  */
 void mbedtls_des_setkey( uint32_t SK[32],
                          const unsigned char key[MBEDTLS_DES_KEY_SIZE] );
-#ifdef __cplusplus
-}
-#endif
 
 #else  /* MBEDTLS_DES_ALT */
 #include "des_alt.h"
 #endif /* MBEDTLS_DES_ALT */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-/**
- * \brief          Checkup routine
- *
- * \return         0 if successful, or 1 if the test failed
- */
-int mbedtls_des_self_test( int verbose );
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* des.h */

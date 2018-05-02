@@ -42,64 +42,16 @@ void free(void *ptr)
 	kfree(ptr);
 }
 
-#if defined(MBEDTLS_SELF_TEST) && defined(MBEDTLS_PKCS1_V15)
-int rand(void)
-{
-	return get_random_int();
-}
-#endif
-
-// TODO move the stuff to unit tests.
-#define DO_SELF_TEST(f)							\
-do {									\
-	if ((r = f(1 /* use 1 for verbose */))) {			\
-		pr_err("TTLS: '" __stringify(f) "' failed (%x)\n", -r);	\
-		goto err;						\
-	}								\
-} while (0)
-
-static int
-ttls_self_test(void)
-{
-	int r = -EINVAL;
-
-	kernel_fpu_begin();
-
-	// TODO call all the *_self_test()'s
-	DO_SELF_TEST(mbedtls_mpi_self_test);
-	DO_SELF_TEST(mbedtls_ecp_self_test);
-	DO_SELF_TEST(mbedtls_md5_self_test);
-	DO_SELF_TEST(mbedtls_aes_self_test);
-	DO_SELF_TEST(mbedtls_rsa_self_test);
-	DO_SELF_TEST(mbedtls_sha1_self_test);
-	DO_SELF_TEST(mbedtls_sha256_self_test);
-	DO_SELF_TEST(mbedtls_x509_self_test);
-
-	r = 0;
-err:
-	kernel_fpu_end();
-
-	return r;
-}
-
-/*
- * ------------------------------------------------------------------------
- *	init/exit
- * ------------------------------------------------------------------------
- */
-
 static int __init
 ttls_init(void)
 {
-	if (ttls_self_test())
-		return -EINVAL;
-
-	return 0;
+	return ttls_mpi_init();
 }
 
 static void
 ttls_exit(void)
 {
+	ttls_mpi_exit();
 }
 
 module_init(ttls_init);

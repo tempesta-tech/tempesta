@@ -250,13 +250,4 @@ int mbedtls_hmac_drbg_random( void *p_rng, unsigned char *output, size_t out_len
  */
 void mbedtls_hmac_drbg_free( mbedtls_hmac_drbg_context *ctx );
 
-#if defined(MBEDTLS_SELF_TEST)
-/**
- * \brief               Checkup routine
- *
- * \return              0 if successful, or 1 if the test failed
- */
-int mbedtls_hmac_drbg_self_test( int verbose );
-#endif
-
 #endif /* hmac_drbg.h */

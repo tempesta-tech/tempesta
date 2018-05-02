@@ -45,10 +45,6 @@
 // Regular implementation
 //
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /**
  * \brief     ARC4 context structure
  *
@@ -121,32 +117,8 @@ void mbedtls_arc4_setup( mbedtls_arc4_context *ctx, const unsigned char *key,
 int mbedtls_arc4_crypt( mbedtls_arc4_context *ctx, size_t length, const unsigned char *input,
                 unsigned char *output );
 
-#ifdef __cplusplus
-}
-#endif
-
 #else  /* MBEDTLS_ARC4_ALT */
 #include "arc4_alt.h"
 #endif /* MBEDTLS_ARC4_ALT */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-/**
- * \brief          Checkup routine
- *
- * \return         0 if successful, or 1 if the test failed
- *
- * \warning        ARC4 is considered a weak cipher and its use constitutes a
- *                 security risk. We recommend considering stronger ciphers
- *                 instead.
- *
- */
-int mbedtls_arc4_self_test( int verbose );
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* arc4.h */

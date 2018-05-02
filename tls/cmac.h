@@ -30,10 +30,6 @@
 
 #include "cipher.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #define MBEDTLS_ERR_CMAC_HW_ACCEL_FAILED -0x007A  /**< CMAC hardware accelerator failed. */
 
 #define MBEDTLS_AES_BLOCK_SIZE          16
@@ -182,29 +178,8 @@ int mbedtls_aes_cmac_prf_128( const unsigned char *key, size_t key_len,
                               unsigned char output[16] );
 #endif /* MBEDTLS_AES_C */
 
-#ifdef __cplusplus
-}
-#endif
-
 #else  /* !MBEDTLS_CMAC_ALT */
 #include "cmac_alt.h"
 #endif /* !MBEDTLS_CMAC_ALT */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-#if defined(MBEDTLS_SELF_TEST) && ( defined(MBEDTLS_AES_C) || defined(MBEDTLS_DES_C) )
-/**
- * \brief          The CMAC checkup routine.
- *
- * \return         \c 0 on success, or \c 1 on failure.
- */
-int mbedtls_cmac_self_test( int verbose );
-#endif /* MBEDTLS_SELF_TEST && ( MBEDTLS_AES_C || MBEDTLS_DES_C ) */
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* MBEDTLS_CMAC_H */
