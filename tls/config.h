@@ -342,36 +342,6 @@
 //#define MBEDTLS_ECP_NORMALIZE_MXZ_ALT
 
 /**
- * \def MBEDTLS_TEST_NULL_ENTROPY
- *
- * Enables testing and use of mbed TLS without any configured entropy sources.
- * This permits use of the library on platforms before an entropy source has
- * been integrated (see for example the MBEDTLS_ENTROPY_HARDWARE_ALT or the
- * MBEDTLS_ENTROPY_NV_SEED switches).
- *
- * WARNING! This switch MUST be disabled in production builds, and is suitable
- * only for development.
- * Enabling the switch negates any security provided by the library.
- *
- * Requires MBEDTLS_ENTROPY_C, MBEDTLS_NO_DEFAULT_ENTROPY_SOURCES
- *
- */
-//#define MBEDTLS_TEST_NULL_ENTROPY
-
-/**
- * \def MBEDTLS_ENTROPY_HARDWARE_ALT
- *
- * Uncomment this macro to let mbed TLS use your own implementation of a
- * hardware entropy collector.
- *
- * Your function must be called \c mbedtls_hardware_poll(), have the same
- * prototype as declared in entropy_poll.h, and accept NULL as first argument.
- *
- * Uncomment to use your own hardware entropy collector.
- */
-//#define MBEDTLS_ENTROPY_HARDWARE_ALT
-
-/**
  * \def MBEDTLS_CAMELLIA_SMALL_MEMORY
  *
  * Use less ROM for the Camellia implementation (saves about 768 bytes).
@@ -854,17 +824,6 @@
 //#define MBEDTLS_NO_DEFAULT_ENTROPY_SOURCES
 
 /**
- * \def MBEDTLS_NO_PLATFORM_ENTROPY
- *
- * Do not use built-in platform entropy functions.
- * This is useful if your platform does not support
- * standards like the /dev/urandom or Windows CryptoAPI.
- *
- * Uncomment this macro to disable the built-in platform entropy functions.
- */
-#define MBEDTLS_NO_PLATFORM_ENTROPY
-
-/**
  * \def MBEDTLS_ENTROPY_FORCE_SHA256
  *
  * Force the entropy accumulator to use a SHA-256 accumulator instead of the
@@ -879,34 +838,6 @@
  * MBEDTLS_SHA512_C are defined. Otherwise the available hash module is used.
  */
 //#define MBEDTLS_ENTROPY_FORCE_SHA256
-
-/**
- * \def MBEDTLS_ENTROPY_NV_SEED
- *
- * Enable the non-volatile (NV) seed file-based entropy source.
- * (Also enables the NV seed read/write functions in the platform layer)
- *
- * This is crucial (if not required) on systems that do not have a
- * cryptographic entropy source (in hardware or kernel) available.
- *
- * Requires: MBEDTLS_ENTROPY_C, MBEDTLS_PLATFORM_C
- *
- * \note The read/write functions that are used by the entropy source are
- *       determined in the platform layer, and can be modified at runtime and/or
- *       compile-time depending on the flags (MBEDTLS_PLATFORM_NV_SEED_*) used.
- *
- * \note If you use the default implementation functions that read a seedfile
- *       with regular fopen(), please make sure you make a seedfile with the
- *       proper name (defined in MBEDTLS_PLATFORM_STD_NV_SEED_FILE) and at
- *       least MBEDTLS_ENTROPY_BLOCK_SIZE bytes in size that can be read from
- *       and written to or you will get an entropy source error! The default
- *       implementation will only use the first MBEDTLS_ENTROPY_BLOCK_SIZE
- *       bytes from the file.
- *
- * \note The entropy collector will write to the seed file before entropy is
- *       given to an external source, to update it.
- */
-//#define MBEDTLS_ENTROPY_NV_SEED
 
 /**
  * \def MBEDTLS_PK_RSA_ALT_SUPPORT

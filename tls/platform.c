@@ -187,52 +187,6 @@ int mbedtls_platform_set_time( time_t (*time_func)( mbedtls_time_t* timer ) )
 }
 #endif /* MBEDTLS_PLATFORM_TIME_ALT */
 
-#if defined(MBEDTLS_ENTROPY_NV_SEED)
-#if defined(MBEDTLS_PLATFORM_NV_SEED_ALT)
-#if !defined(MBEDTLS_PLATFORM_STD_NV_SEED_READ)
-/*
- * Make dummy function to prevent NULL pointer dereferences
- */
-static int platform_nv_seed_read_uninit( unsigned char *buf, size_t buf_len )
-{
-    ((void) buf);
-    ((void) buf_len);
-    return( -1 );
-}
-
-#define MBEDTLS_PLATFORM_STD_NV_SEED_READ   platform_nv_seed_read_uninit
-#endif /* !MBEDTLS_PLATFORM_STD_NV_SEED_READ */
-
-#if !defined(MBEDTLS_PLATFORM_STD_NV_SEED_WRITE)
-/*
- * Make dummy function to prevent NULL pointer dereferences
- */
-static int platform_nv_seed_write_uninit( unsigned char *buf, size_t buf_len )
-{
-    ((void) buf);
-    ((void) buf_len);
-    return( -1 );
-}
-
-#define MBEDTLS_PLATFORM_STD_NV_SEED_WRITE   platform_nv_seed_write_uninit
-#endif /* !MBEDTLS_PLATFORM_STD_NV_SEED_WRITE */
-
-int (*mbedtls_nv_seed_read)( unsigned char *buf, size_t buf_len ) =
-            MBEDTLS_PLATFORM_STD_NV_SEED_READ;
-int (*mbedtls_nv_seed_write)( unsigned char *buf, size_t buf_len ) =
-            MBEDTLS_PLATFORM_STD_NV_SEED_WRITE;
-
-int mbedtls_platform_set_nv_seed(
-        int (*nv_seed_read_func)( unsigned char *buf, size_t buf_len ),
-        int (*nv_seed_write_func)( unsigned char *buf, size_t buf_len ) )
-{
-    mbedtls_nv_seed_read = nv_seed_read_func;
-    mbedtls_nv_seed_write = nv_seed_write_func;
-    return( 0 );
-}
-#endif /* MBEDTLS_PLATFORM_NV_SEED_ALT */
-#endif /* MBEDTLS_ENTROPY_NV_SEED */
-
 #if !defined(MBEDTLS_PLATFORM_SETUP_TEARDOWN_ALT)
 /*
  * Placeholder platform setup that does nothing by default

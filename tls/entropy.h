@@ -128,9 +128,6 @@ typedef struct
     mbedtls_havege_state    havege_data;
 #endif
     spinlock_t mutex;    /*!< mutex                  */
-#if defined(MBEDTLS_ENTROPY_NV_SEED)
-    int initial_entropy_run;
-#endif
 }
 mbedtls_entropy_context;
 
@@ -200,34 +197,5 @@ int mbedtls_entropy_func( void *data, unsigned char *output, size_t len );
  */
 int mbedtls_entropy_update_manual( mbedtls_entropy_context *ctx,
                            const unsigned char *data, size_t len );
-
-#if defined(MBEDTLS_ENTROPY_NV_SEED)
-/**
- * \brief           Trigger an update of the seed file in NV by using the
- *                  current entropy pool.
- *
- * \param ctx       Entropy context
- *
- * \return          0 if successful
- */
-int mbedtls_entropy_update_nv_seed( mbedtls_entropy_context *ctx );
-#endif /* MBEDTLS_ENTROPY_NV_SEED */
-
-#if defined(MBEDTLS_ENTROPY_HARDWARE_ALT)
-/**
- * \brief          Checkup routine
- *
- *                 Verifies the integrity of the hardware entropy source
- *                 provided by the function 'mbedtls_hardware_poll()'.
- *
- *                 Note this is the only hardware entropy source that is known
- *                 at link time, and other entropy sources configured
- *                 dynamically at runtime by the function
- *                 mbedtls_entropy_add_source() will not be tested.
- *
- * \return         0 if successful, or 1 if a test failed
- */
-int mbedtls_entropy_source_self_test( int verbose );
-#endif /* MBEDTLS_ENTROPY_HARDWARE_ALT */
 
 #endif /* entropy.h */
