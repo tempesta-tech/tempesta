@@ -84,10 +84,6 @@
 #define MBEDTLS_ENTROPY_SOURCE_STRONG   1       /**< Entropy source is strong   */
 #define MBEDTLS_ENTROPY_SOURCE_WEAK     0       /**< Entropy source is weak     */
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /**
  * \brief           Entropy poll callback pointer
  *
@@ -217,17 +213,6 @@ int mbedtls_entropy_update_manual( mbedtls_entropy_context *ctx,
 int mbedtls_entropy_update_nv_seed( mbedtls_entropy_context *ctx );
 #endif /* MBEDTLS_ENTROPY_NV_SEED */
 
-#if defined(MBEDTLS_SELF_TEST)
-/**
- * \brief          Checkup routine
- *
- *                 This module self-test also calls the entropy self-test,
- *                 mbedtls_entropy_source_self_test();
- *
- * \return         0 if successful, or 1 if a test failed
- */
-int mbedtls_entropy_self_test( int verbose );
-
 #if defined(MBEDTLS_ENTROPY_HARDWARE_ALT)
 /**
  * \brief          Checkup routine
@@ -244,10 +229,5 @@ int mbedtls_entropy_self_test( int verbose );
  */
 int mbedtls_entropy_source_self_test( int verbose );
 #endif /* MBEDTLS_ENTROPY_HARDWARE_ALT */
-#endif /* MBEDTLS_SELF_TEST */
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* entropy.h */

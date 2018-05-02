@@ -46,10 +46,6 @@
 
 #if !defined(MBEDTLS_GCM_ALT)
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /**
  * \brief          The GCM context structure.
  */
@@ -238,28 +234,8 @@ int mbedtls_gcm_finish( mbedtls_gcm_context *ctx,
  */
 void mbedtls_gcm_free( mbedtls_gcm_context *ctx );
 
-#ifdef __cplusplus
-}
-#endif
-
 #else  /* !MBEDTLS_GCM_ALT */
 #include "gcm_alt.h"
 #endif /* !MBEDTLS_GCM_ALT */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-/**
- * \brief          The GCM checkup routine.
- *
- * \return         \c 0 on success, or \c 1 on failure.
- */
-int mbedtls_gcm_self_test( int verbose );
-
-#ifdef __cplusplus
-}
-#endif
-
 
 #endif /* gcm.h */

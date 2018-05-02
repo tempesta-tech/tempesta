@@ -46,10 +46,6 @@
 // Regular implementation
 //
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /**
  * \brief          MD2 context structure
  *
@@ -238,17 +234,9 @@ MBEDTLS_DEPRECATED void mbedtls_md2_process( mbedtls_md2_context *ctx );
 #undef MBEDTLS_DEPRECATED
 #endif /* !MBEDTLS_DEPRECATED_REMOVED */
 
-#ifdef __cplusplus
-}
-#endif
-
 #else  /* MBEDTLS_MD2_ALT */
 #include "md2_alt.h"
 #endif /* MBEDTLS_MD2_ALT */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /**
  * \brief          Output = MD2( input buffer )
@@ -292,21 +280,5 @@ MBEDTLS_DEPRECATED void mbedtls_md2( const unsigned char *input,
 
 #undef MBEDTLS_DEPRECATED
 #endif /* !MBEDTLS_DEPRECATED_REMOVED */
-
-/**
- * \brief          Checkup routine
- *
- * \return         0 if successful, or 1 if the test failed
- *
- * \warning        MD2 is considered a weak message digest and its use
- *                 constitutes a security risk. We recommend considering
- *                 stronger message digests instead.
- *
- */
-int mbedtls_md2_self_test( int verbose );
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* mbedtls_md2.h */

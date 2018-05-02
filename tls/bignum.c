@@ -57,6 +57,9 @@
 #define BITS_TO_LIMBS(i)  ( (i) / biL + ( (i) % biL != 0 ) )
 #define CHARS_TO_LIMBS(i) ( (i) / ciL + ( (i) % ciL != 0 ) )
 
+#define MPI_W_SZ	(2 << MBEDTLS_MPI_WINDOW_SIZE)
+static DEFINE_PER_CPU(mbedtls_mpi *, g_buf);
+
 /*
  * Initialize one MPI
  */
@@ -1475,19 +1478,16 @@ static int mpi_montred( mbedtls_mpi *A, const mbedtls_mpi *N, mbedtls_mpi_uint m
 /*
  * Sliding-window exponentiation: X = A^E mod N  (HAC 14.85)
  */
-#define MPI_W_SZ	(2 << MBEDTLS_MPI_WINDOW_SIZE)
 int
 mbedtls_mpi_exp_mod(mbedtls_mpi *X, const mbedtls_mpi *A, const mbedtls_mpi *E,
 		    const mbedtls_mpi *N, mbedtls_mpi *_RR)
 {
-    static DEFINE_PER_CPU_ALIGNED(mbedtls_mpi[MPI_W_SZ], _W);
-
     int ret;
     size_t wbits, wsize, one = 1;
     size_t i, j, nblimbs;
     size_t bufsize, nbits;
     mbedtls_mpi_uint ei, mm, state;
-    mbedtls_mpi RR, T, Apos, *W = *this_cpu_ptr(&_W);
+    mbedtls_mpi RR, T, Apos, *W = *this_cpu_ptr(&g_buf);
     int neg;
 
     if( mbedtls_mpi_cmp_int( N, 0 ) <= 0 || ( N->p[0] & 1 ) == 0 )
@@ -2322,4 +2322,33 @@ cleanup:
         mbedtls_printf( "\n" );
 
     return( ret );
+}
+
+void
+ttls_mpi_exit(void)
+{
+	int cpu;
+
+	for_each_possible_cpu(cpu) {
+		mbedtls_mpi **ptr = per_cpu_ptr(&g_buf, cpu);
+		kfree(*ptr);
+	}
+}
+
+int
+ttls_mpi_init(void)
+{
+	int cpu;
+
+	for_each_possible_cpu(cpu) {
+		mbedtls_mpi **ptr = per_cpu_ptr(&g_buf, cpu);
+		*ptr = kmalloc(sizeof(mbedtls_mpi) * MPI_W_SZ, GFP_KERNEL);
+		if (!*ptr)
+			goto err_cleanup;
+	}
+
+	return 0;
+err_cleanup:
+	ttls_mpi_exit();
+	return -ENOMEM;
 }

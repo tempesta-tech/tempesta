@@ -41,10 +41,6 @@
 // Regular implementation
 //
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /**
  * \brief          The SHA-256 context structure.
  *
@@ -265,16 +261,5 @@ MBEDTLS_DEPRECATED void mbedtls_sha256( const unsigned char *input,
 
 #undef MBEDTLS_DEPRECATED
 #endif /* !MBEDTLS_DEPRECATED_REMOVED */
-
-/**
- * \brief          The SHA-224 and SHA-256 checkup routine.
- *
- * \return         \c 0 on success, or \c 1 on failure.
- */
-int mbedtls_sha256_self_test( int verbose );
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* mbedtls_sha256.h */

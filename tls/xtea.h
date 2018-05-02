@@ -126,19 +126,4 @@ int mbedtls_xtea_crypt_cbc( mbedtls_xtea_context *ctx,
 #include "xtea_alt.h"
 #endif /* MBEDTLS_XTEA_ALT */
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-/**
- * \brief          Checkup routine
- *
- * \return         0 if successful, or 1 if the test failed
- */
-int mbedtls_xtea_self_test( int verbose );
-
-#ifdef __cplusplus
-}
-#endif
-
 #endif /* xtea.h */

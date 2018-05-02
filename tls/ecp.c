@@ -69,23 +69,16 @@
 
 #include "ecp_internal.h"
 
-#if ( defined(__ARMCC_VERSION) || defined(_MSC_VER) ) && \
-    !defined(inline) && !defined(__cplusplus)
-#define inline __inline
-#endif
-
 /* Implementation that should never be optimized out by the compiler */
 static void mbedtls_zeroize( void *v, size_t n ) {
     volatile unsigned char *p = v; while( n-- ) *p++ = 0;
 }
 
-#if defined(MBEDTLS_SELF_TEST)
 /*
  * Counts of point addition and doubling, and field multiplications.
  * Used to test resistance of point multiplication to simple timing attacks.
  */
 static unsigned long add_count, dbl_count, mul_count;
-#endif
 
 #if defined(MBEDTLS_ECP_DP_SECP192R1_ENABLED) ||   \
     defined(MBEDTLS_ECP_DP_SECP224R1_ENABLED) ||   \
@@ -708,11 +701,7 @@ cleanup:
 /*
  * Reduce a mbedtls_mpi mod p in-place, general case, to use after mbedtls_mpi_mul_mpi
  */
-#if defined(MBEDTLS_SELF_TEST)
 #define INC_MUL_COUNT   mul_count++;
-#else
-#define INC_MUL_COUNT
-#endif
 
 #define MOD_MUL( N )    do { MBEDTLS_MPI_CHK( ecp_modp( &N, grp ) ); INC_MUL_COUNT } \
                         while( 0 )
@@ -928,9 +917,7 @@ static int ecp_double_jac( const mbedtls_ecp_group *grp, mbedtls_ecp_point *R,
     int ret;
     mbedtls_mpi M, S, T, U;
 
-#if defined(MBEDTLS_SELF_TEST)
     dbl_count++;
-#endif
 
 #if defined(MBEDTLS_ECP_DOUBLE_JAC_ALT)
     if ( mbedtls_internal_ecp_grp_capable( grp ) )
@@ -1026,9 +1013,7 @@ static int ecp_add_mixed( const mbedtls_ecp_group *grp, mbedtls_ecp_point *R,
     int ret;
     mbedtls_mpi T1, T2, T3, T4, X, Y, Z;
 
-#if defined(MBEDTLS_SELF_TEST)
     add_count++;
-#endif
 
 #if defined(MBEDTLS_ECP_ADD_MIXED_ALT)
     if ( mbedtls_internal_ecp_grp_capable( grp ) )
@@ -2061,8 +2046,6 @@ cleanup:
     return( ret );
 }
 
-#if defined(MBEDTLS_SELF_TEST)
-
 /*
  * Checkup routine
  */
@@ -2189,8 +2172,6 @@ cleanup:
 
     return( ret );
 }
-
-#endif /* MBEDTLS_SELF_TEST */
 
 #endif /* !MBEDTLS_ECP_ALT */
 

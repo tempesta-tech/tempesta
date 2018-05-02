@@ -46,10 +46,6 @@
 // Regular implementation
 //
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /**
  * \brief    The CCM context-type definition. The CCM context is passed
  *           to the APIs called.
@@ -150,29 +146,8 @@ int mbedtls_ccm_auth_decrypt( mbedtls_ccm_context *ctx, size_t length,
                       const unsigned char *input, unsigned char *output,
                       const unsigned char *tag, size_t tag_len );
 
-#ifdef __cplusplus
-}
-#endif
-
 #else  /* MBEDTLS_CCM_ALT */
 #include "ccm_alt.h"
 #endif /* MBEDTLS_CCM_ALT */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-#if defined(MBEDTLS_SELF_TEST) && defined(MBEDTLS_AES_C)
-/**
- * \brief          The CCM checkup routine.
- *
- * \return         \c 0 on success, or \c 1 on failure.
- */
-int mbedtls_ccm_self_test( int verbose );
-#endif /* MBEDTLS_SELF_TEST && MBEDTLS_AES_C */
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* MBEDTLS_CCM_H */

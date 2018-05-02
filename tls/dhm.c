@@ -544,8 +544,6 @@ exit:
 #endif /* MBEDTLS_ASN1_PARSE_C */
 #endif /* MBEDTLS_DHM_ALT */
 
-#if defined(MBEDTLS_SELF_TEST)
-
 static const char mbedtls_test_dhm_params[] =
 "-----BEGIN DH PARAMETERS-----\r\n"
 "MIGHAoGBAJ419DBEOgmQTzo5qXl5fQcN9TN455wkOL7052HzxxRVMyhYmwQcgJvh\r\n"
@@ -587,7 +585,5 @@ exit:
 
     return( ret );
 }
-
-#endif /* MBEDTLS_SELF_TEST */
 
 #endif /* MBEDTLS_DHM_C */

@@ -34,16 +34,6 @@
 
 #include <stdint.h>
 
-#if defined(MBEDTLS_SELF_TEST)
-#include <string.h>
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdio.h>
-#define mbedtls_printf printf
-#endif /* MBEDTLS_PLATFORM_C */
-#endif /* MBEDTLS_SELF_TEST */
-
 static const unsigned char base64_enc_map[64] =
 {
     'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J',
@@ -230,8 +220,6 @@ int mbedtls_base64_decode( unsigned char *dst, size_t dlen, size_t *olen,
     return( 0 );
 }
 
-#if defined(MBEDTLS_SELF_TEST)
-
 static const unsigned char base64_test_dec[64] =
 {
     0x24, 0x48, 0x6E, 0x56, 0x87, 0x62, 0x5A, 0xBD,
@@ -290,7 +278,5 @@ int mbedtls_base64_self_test( int verbose )
 
     return( 0 );
 }
-
-#endif /* MBEDTLS_SELF_TEST */
 
 #endif /* MBEDTLS_BASE64_C */

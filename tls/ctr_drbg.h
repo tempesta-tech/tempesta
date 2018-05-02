@@ -266,13 +266,6 @@ int mbedtls_ctr_drbg_random_with_add( void *p_rng,
 int mbedtls_ctr_drbg_random( void *p_rng,
                      unsigned char *output, size_t output_len );
 
-/**
- * \brief               The CTR_DRBG checkup routine.
- *
- * \return              \c 0 on success, or \c 1 on failure.
- */
-int mbedtls_ctr_drbg_self_test( int verbose );
-
 /* Internal functions (do not call directly) */
 int mbedtls_ctr_drbg_seed_entropy_len( mbedtls_ctr_drbg_context *,
                                int (*)(void *, unsigned char *, size_t), void *,

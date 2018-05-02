@@ -43,10 +43,6 @@
 #define MBEDTLS_PKCS5_DECRYPT      0
 #define MBEDTLS_PKCS5_ENCRYPT      1
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /**
  * \brief          PKCS#5 PBES2 function
  *
@@ -83,16 +79,5 @@ int mbedtls_pkcs5_pbkdf2_hmac( mbedtls_md_context_t *ctx, const unsigned char *p
                        size_t plen, const unsigned char *salt, size_t slen,
                        unsigned int iteration_count,
                        uint32_t key_length, unsigned char *output );
-
-/**
- * \brief          Checkup routine
- *
- * \return         0 if successful, or 1 if the test failed
- */
-int mbedtls_pkcs5_self_test( int verbose );
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* pkcs5.h */

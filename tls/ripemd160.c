@@ -40,15 +40,6 @@
 
 #include <string.h>
 
-#if defined(MBEDTLS_SELF_TEST)
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdio.h>
-#define mbedtls_printf printf
-#endif /* MBEDTLS_PLATFORM_C */
-#endif /* MBEDTLS_SELF_TEST */
-
 #if !defined(MBEDTLS_RIPEMD160_ALT)
 
 /*
@@ -468,7 +459,6 @@ void mbedtls_ripemd160( const unsigned char *input,
 }
 #endif
 
-#if defined(MBEDTLS_SELF_TEST)
 /*
  * Test vectors from the RIPEMD-160 paper and
  * http://homes.esat.kuleuven.be/~bosselae/mbedtls_ripemd160.html#HMAC
@@ -553,7 +543,5 @@ fail:
 
     return( ret );
 }
-
-#endif /* MBEDTLS_SELF_TEST */
 
 #endif /* MBEDTLS_RIPEMD160_C */

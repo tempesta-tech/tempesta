@@ -44,15 +44,6 @@
 #include "platform.h"
 #endif
 
-#if defined(MBEDTLS_SELF_TEST)
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdio.h>
-#define mbedtls_printf     printf
-#endif /* MBEDTLS_PLATFORM_C */
-#endif /* MBEDTLS_SELF_TEST */
-
 #if defined(MBEDTLS_HAVEGE_C)
 #include "havege.h"
 #endif
@@ -431,7 +422,6 @@ int mbedtls_entropy_update_nv_seed( mbedtls_entropy_context *ctx )
 }
 #endif /* MBEDTLS_ENTROPY_NV_SEED */
 
-#if defined(MBEDTLS_SELF_TEST)
 #if !defined(MBEDTLS_TEST_NULL_ENTROPY)
 /*
  * Dummy source function
@@ -626,6 +616,5 @@ cleanup:
 
     return( ret != 0 );
 }
-#endif /* MBEDTLS_SELF_TEST */
 
 #endif /* MBEDTLS_ENTROPY_C */

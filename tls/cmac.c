@@ -54,21 +54,6 @@
 
 #include <string.h>
 
-
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdlib.h>
-#define mbedtls_calloc     calloc
-#define mbedtls_free       free
-#if defined(MBEDTLS_SELF_TEST)
-#include <stdio.h>
-#define mbedtls_printf     printf
-#endif /* MBEDTLS_SELF_TEST */
-#endif /* MBEDTLS_PLATFORM_C */
-
-#if !defined(MBEDTLS_CMAC_ALT) || defined(MBEDTLS_SELF_TEST)
-
 /* Implementation that should never be optimized out by the compiler */
 static void mbedtls_zeroize( void *v, size_t n ) {
     volatile unsigned char *p = (unsigned char*)v; while( n-- ) *p++ = 0;
@@ -168,7 +153,6 @@ exit:
 
     return( ret );
 }
-#endif /* !defined(MBEDTLS_CMAC_ALT) || defined(MBEDTLS_SELF_TEST) */
 
 #if !defined(MBEDTLS_CMAC_ALT)
 static void cmac_xor_block( unsigned char *output, const unsigned char *input1,
@@ -476,7 +460,6 @@ exit:
 
 #endif /* !MBEDTLS_CMAC_ALT */
 
-#if defined(MBEDTLS_SELF_TEST)
 /*
  * CMAC test data for SP800-38B
  * http://csrc.nist.gov/groups/ST/toolkit/documents/Examples/AES_CMAC.pdf
@@ -1076,7 +1059,5 @@ int mbedtls_cmac_self_test( int verbose )
 
     return( 0 );
 }
-
-#endif /* MBEDTLS_SELF_TEST */
 
 #endif /* MBEDTLS_CMAC_C */
