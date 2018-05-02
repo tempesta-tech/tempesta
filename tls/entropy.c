@@ -20,29 +20,12 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
-#include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
 #if defined(MBEDTLS_ENTROPY_C)
-
-#if defined(MBEDTLS_TEST_NULL_ENTROPY)
-#warning "**** WARNING!  MBEDTLS_TEST_NULL_ENTROPY defined! "
-#warning "**** THIS BUILD HAS NO DEFINED ENTROPY SOURCES "
-#warning "**** THIS BUILD IS *NOT* SUITABLE FOR PRODUCTION USE "
-#endif
 
 #include "entropy.h"
 #include "entropy_poll.h"
 
 #include <string.h>
-
-#if defined(MBEDTLS_ENTROPY_NV_SEED)
-#include "platform.h"
-#endif
 
 #if defined(MBEDTLS_HAVEGE_C)
 #include "havege.h"
@@ -75,17 +58,7 @@ void mbedtls_entropy_init( mbedtls_entropy_context *ctx )
     /* Reminder: Update ENTROPY_HAVE_STRONG in the test files
      *           when adding more strong entropy sources here. */
 
-#if defined(MBEDTLS_TEST_NULL_ENTROPY)
-    mbedtls_entropy_add_source( ctx, mbedtls_null_entropy_poll, NULL,
-                                1, MBEDTLS_ENTROPY_SOURCE_STRONG );
-#endif
-
 #if !defined(MBEDTLS_NO_DEFAULT_ENTROPY_SOURCES)
-#if !defined(MBEDTLS_NO_PLATFORM_ENTROPY)
-    mbedtls_entropy_add_source( ctx, mbedtls_platform_entropy_poll, NULL,
-                                MBEDTLS_ENTROPY_MIN_PLATFORM,
-                                MBEDTLS_ENTROPY_SOURCE_STRONG );
-#endif
     mbedtls_entropy_add_source( ctx, mbedtls_hardclock_poll, NULL,
                                 MBEDTLS_ENTROPY_MIN_HARDCLOCK,
                                 MBEDTLS_ENTROPY_SOURCE_WEAK );
@@ -94,17 +67,9 @@ void mbedtls_entropy_init( mbedtls_entropy_context *ctx )
                                 MBEDTLS_ENTROPY_MIN_HAVEGE,
                                 MBEDTLS_ENTROPY_SOURCE_STRONG );
 #endif
-#if defined(MBEDTLS_ENTROPY_HARDWARE_ALT)
     mbedtls_entropy_add_source( ctx, mbedtls_hardware_poll, NULL,
                                 MBEDTLS_ENTROPY_MIN_HARDWARE,
                                 MBEDTLS_ENTROPY_SOURCE_STRONG );
-#endif
-#if defined(MBEDTLS_ENTROPY_NV_SEED)
-    mbedtls_entropy_add_source( ctx, mbedtls_nv_seed_poll, NULL,
-                                MBEDTLS_ENTROPY_BLOCK_SIZE,
-                                MBEDTLS_ENTROPY_SOURCE_STRONG );
-    ctx->initial_entropy_run = 0;
-#endif
 #endif /* MBEDTLS_NO_DEFAULT_ENTROPY_SOURCES */
 }
 
@@ -117,9 +82,6 @@ void mbedtls_entropy_free( mbedtls_entropy_context *ctx )
     mbedtls_sha512_free( &ctx->accumulator );
 #else
     mbedtls_sha256_free( &ctx->accumulator );
-#endif
-#if defined(MBEDTLS_ENTROPY_NV_SEED)
-    ctx->initial_entropy_run = 0;
 #endif
     ctx->source_count = 0;
     mbedtls_zeroize( ctx->source, sizeof( ctx->source ) );
@@ -300,18 +262,6 @@ int mbedtls_entropy_func( void *data, unsigned char *output, size_t len )
     if( len > MBEDTLS_ENTROPY_BLOCK_SIZE )
         return( MBEDTLS_ERR_ENTROPY_SOURCE_FAILED );
 
-#if defined(MBEDTLS_ENTROPY_NV_SEED)
-    /* Update the NV entropy seed before generating any entropy for outside
-     * use.
-     */
-    if( ctx->initial_entropy_run == 0 )
-    {
-        ctx->initial_entropy_run = 1;
-        if( ( ret = mbedtls_entropy_update_nv_seed( ctx ) ) != 0 )
-            return( ret );
-    }
-#endif
-
     spin_lock( &ctx->mutex );
 
     /*
@@ -401,28 +351,6 @@ exit:
     return( ret );
 }
 
-#if defined(MBEDTLS_ENTROPY_NV_SEED)
-int mbedtls_entropy_update_nv_seed( mbedtls_entropy_context *ctx )
-{
-    int ret = MBEDTLS_ERR_ENTROPY_FILE_IO_ERROR;
-    unsigned char buf[MBEDTLS_ENTROPY_BLOCK_SIZE];
-
-    /* Read new seed  and write it to NV */
-    if( ( ret = mbedtls_entropy_func( ctx, buf, MBEDTLS_ENTROPY_BLOCK_SIZE ) ) != 0 )
-        return( ret );
-
-    if( mbedtls_nv_seed_write( buf, MBEDTLS_ENTROPY_BLOCK_SIZE ) < 0 )
-        return( MBEDTLS_ERR_ENTROPY_FILE_IO_ERROR );
-
-    /* Manually update the remaining stream with a separator value to diverge */
-    memset( buf, 0, MBEDTLS_ENTROPY_BLOCK_SIZE );
-    ret = mbedtls_entropy_update_manual( ctx, buf, MBEDTLS_ENTROPY_BLOCK_SIZE );
-
-    return( ret );
-}
-#endif /* MBEDTLS_ENTROPY_NV_SEED */
-
-#if !defined(MBEDTLS_TEST_NULL_ENTROPY)
 /*
  * Dummy source function
  */
@@ -436,9 +364,6 @@ static int entropy_dummy_source( void *data, unsigned char *output,
 
     return( 0 );
 }
-#endif /* !MBEDTLS_TEST_NULL_ENTROPY */
-
-#if defined(MBEDTLS_ENTROPY_HARDWARE_ALT)
 
 static int mbedtls_entropy_source_self_test_gather( unsigned char *buf, size_t buf_len )
 {
@@ -534,8 +459,6 @@ cleanup:
     return( ret != 0 );
 }
 
-#endif /* MBEDTLS_ENTROPY_HARDWARE_ALT */
-
 /*
  * The actual entropy quality is hard to test, but we can at least
  * test that the functions don't cause errors and write the correct
@@ -544,17 +467,14 @@ cleanup:
 int mbedtls_entropy_self_test( int verbose )
 {
     int ret = 1;
-#if !defined(MBEDTLS_TEST_NULL_ENTROPY)
     mbedtls_entropy_context ctx;
     unsigned char buf[MBEDTLS_ENTROPY_BLOCK_SIZE] = { 0 };
     unsigned char acc[MBEDTLS_ENTROPY_BLOCK_SIZE] = { 0 };
     size_t i, j;
-#endif /* !MBEDTLS_TEST_NULL_ENTROPY */
 
     if( verbose != 0 )
         mbedtls_printf( "  ENTROPY test: " );
 
-#if !defined(MBEDTLS_TEST_NULL_ENTROPY)
     mbedtls_entropy_init( &ctx );
 
     /* First do a gather to make sure we have default sources */
@@ -595,14 +515,11 @@ int mbedtls_entropy_self_test( int verbose )
         }
     }
 
-#if defined(MBEDTLS_ENTROPY_HARDWARE_ALT)
     if( ( ret = mbedtls_entropy_source_self_test( 0 ) ) != 0 )
         goto cleanup;
-#endif
 
 cleanup:
     mbedtls_entropy_free( &ctx );
-#endif /* !MBEDTLS_TEST_NULL_ENTROPY */
 
     if( verbose != 0 )
     {

@@ -164,43 +164,6 @@ int mbedtls_platform_set_exit( void (*exit_func)( int status ) );
 #define MBEDTLS_EXIT_FAILURE 1
 #endif
 
-/*
- * The function pointers for reading from and writing a seed file to
- * Non-Volatile storage (NV) in a platform-independent way
- *
- * Only enabled when the NV seed entropy source is enabled
- */
-#if defined(MBEDTLS_ENTROPY_NV_SEED)
-
-#if defined(MBEDTLS_PLATFORM_NV_SEED_ALT)
-extern int (*mbedtls_nv_seed_read)( unsigned char *buf, size_t buf_len );
-extern int (*mbedtls_nv_seed_write)( unsigned char *buf, size_t buf_len );
-
-/**
- * \brief   This function allows configuring custom seed file writing and
- *          reading functions.
- *
- * \param   nv_seed_read_func   The seed reading function implementation.
- * \param   nv_seed_write_func  The seed writing function implementation.
- *
- * \return  \c 0 on success.
- */
-int mbedtls_platform_set_nv_seed(
-            int (*nv_seed_read_func)( unsigned char *buf, size_t buf_len ),
-            int (*nv_seed_write_func)( unsigned char *buf, size_t buf_len )
-            );
-#else
-#if defined(MBEDTLS_PLATFORM_NV_SEED_READ_MACRO) && \
-    defined(MBEDTLS_PLATFORM_NV_SEED_WRITE_MACRO)
-#define mbedtls_nv_seed_read    MBEDTLS_PLATFORM_NV_SEED_READ_MACRO
-#define mbedtls_nv_seed_write   MBEDTLS_PLATFORM_NV_SEED_WRITE_MACRO
-#else
-#define mbedtls_nv_seed_read    mbedtls_platform_std_nv_seed_read
-#define mbedtls_nv_seed_write   mbedtls_platform_std_nv_seed_write
-#endif
-#endif /* MBEDTLS_PLATFORM_NV_SEED_ALT */
-#endif /* MBEDTLS_ENTROPY_NV_SEED */
-
 /**
  * \brief   The platform context structure.
  *
