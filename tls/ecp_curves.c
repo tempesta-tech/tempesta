@@ -45,23 +45,6 @@
  * Conversion macros for embedded constants:
  * build lists of mbedtls_mpi_uint's from lists of unsigned char's grouped by 8, 4 or 2
  */
-#if defined(MBEDTLS_HAVE_INT32)
-
-#define BYTES_TO_T_UINT_4( a, b, c, d )             \
-    ( (mbedtls_mpi_uint) a <<  0 ) |                          \
-    ( (mbedtls_mpi_uint) b <<  8 ) |                          \
-    ( (mbedtls_mpi_uint) c << 16 ) |                          \
-    ( (mbedtls_mpi_uint) d << 24 )
-
-#define BYTES_TO_T_UINT_2( a, b )                   \
-    BYTES_TO_T_UINT_4( a, b, 0, 0 )
-
-#define BYTES_TO_T_UINT_8( a, b, c, d, e, f, g, h ) \
-    BYTES_TO_T_UINT_4( a, b, c, d ),                \
-    BYTES_TO_T_UINT_4( e, f, g, h )
-
-#else /* 64-bits */
-
 #define BYTES_TO_T_UINT_8( a, b, c, d, e, f, g, h ) \
     ( (mbedtls_mpi_uint) a <<  0 ) |                          \
     ( (mbedtls_mpi_uint) b <<  8 ) |                          \
@@ -77,8 +60,6 @@
 
 #define BYTES_TO_T_UINT_2( a, b )                   \
     BYTES_TO_T_UINT_8( a, b, 0, 0, 0, 0, 0, 0 )
-
-#endif /* bits in mbedtls_mpi_uint */
 
 /*
  * Note: the constants are in little-endian order
@@ -881,14 +862,6 @@ cleanup:
  */
 #define LOAD32      cur = A( i );
 
-#if defined(MBEDTLS_HAVE_INT32)  /* 32 bit */
-
-#define MAX32       N->n
-#define A( j )      N->p[j]
-#define STORE32     N->p[i] = cur;
-
-#else                               /* 64-bit */
-
 #define MAX32       N->n * 2
 #define A( j ) j % 2 ? (uint32_t)( N->p[j/2] >> 32 ) : (uint32_t)( N->p[j/2] )
 #define STORE32                                   \
@@ -899,8 +872,6 @@ cleanup:
         N->p[i/2] &= 0xFFFFFFFF00000000;          \
         N->p[i/2] |= (mbedtls_mpi_uint) cur;                \
     }
-
-#endif /* sizeof( mbedtls_mpi_uint ) */
 
 /*
  * Helpers for addition and subtraction of chunks, with signed carry.
@@ -963,13 +934,9 @@ static inline int fix_negative( mbedtls_mpi *N, signed char c, mbedtls_mpi *C, s
     int ret;
 
     /* C = - c * 2^(bits + 32) */
-#if !defined(MBEDTLS_HAVE_INT64)
-    ((void) bits);
-#else
     if( bits == 224 )
         C->p[ C->n - 1 ] = ((mbedtls_mpi_uint) -c) << 32;
     else
-#endif
         C->p[ C->n - 1 ] = (mbedtls_mpi_uint) -c;
 
     /* N = - ( C - N ) */
@@ -1305,11 +1272,7 @@ static int ecp_mod_p224k1( mbedtls_mpi *N )
     static mbedtls_mpi_uint Rp[] = {
         BYTES_TO_T_UINT_8( 0x93, 0x1A, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00 ) };
 
-#if defined(MBEDTLS_HAVE_INT64)
     return( ecp_mod_koblitz( N, Rp, 4, 1, 32, 0xFFFFFFFF ) );
-#else
-    return( ecp_mod_koblitz( N, Rp, 224 / 8 / sizeof( mbedtls_mpi_uint ), 0, 0, 0 ) );
-#endif
 }
 
 #endif /* MBEDTLS_ECP_DP_SECP224K1_ENABLED */

@@ -41,7 +41,7 @@ ifeq (, $(findstring pse, $(PROC)))
 	ERROR = "1MB huge pages support is required"
 endif
 
-TFW_CFLAGS += -mmmx -msse4.2
+TFW_CFLAGS += -march=haswell
 
 obj-m	+= tempesta_db/core/ tempesta_fw/ tls/
 
