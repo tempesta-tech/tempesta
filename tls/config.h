@@ -909,31 +909,6 @@
 //#define MBEDTLS_ENTROPY_NV_SEED
 
 /**
- * \def MBEDTLS_MEMORY_DEBUG
- *
- * Enable debugging of buffer allocator memory issues. Automatically prints
- * (to stderr) all (fatal) messages on memory allocation issues. Enables
- * function for 'debug output' of allocated memory.
- *
- * Requires: MBEDTLS_MEMORY_BUFFER_ALLOC_C
- *
- * Uncomment this macro to let the buffer allocator print out error messages.
- */
-//#define MBEDTLS_MEMORY_DEBUG
-
-/**
- * \def MBEDTLS_MEMORY_BACKTRACE
- *
- * Include backtrace information with each allocated block.
- *
- * Requires: MBEDTLS_MEMORY_BUFFER_ALLOC_C
- *           GLIBC-compatible backtrace() an backtrace_symbols() support
- *
- * Uncomment this macro to include backtrace information
- */
-//#define MBEDTLS_MEMORY_BACKTRACE
-
-/**
  * \def MBEDTLS_PK_RSA_ALT_SUPPORT
  *
  * Support external private RSA keys (eg from a HSM) in the PK layer.
@@ -974,13 +949,6 @@
  *
  */
 //#define MBEDTLS_RSA_NO_CRT
-
-/**
- * \def MBEDTLS_SELF_TEST
- *
- * Enable the checkup functions (*_self_test).
- */
-#define MBEDTLS_SELF_TEST
 
 /**
  * \def MBEDTLS_SHA256_SMALLER
@@ -1719,7 +1687,7 @@
  * Requires: MBEDTLS_AES_C or MBEDTLS_DES_C
  *
  */
-//#define MBEDTLS_CMAC_C
+#define MBEDTLS_CMAC_C
 
 /**
  * \def MBEDTLS_CTR_DRBG_C
@@ -1847,7 +1815,7 @@
  *
  * Requires: MBEDTLS_ECP_C, MBEDTLS_MD_C
  */
-//#define MBEDTLS_ECJPAKE_C
+#define MBEDTLS_ECJPAKE_C
 
 /**
  * \def MBEDTLS_ECP_C
@@ -1965,7 +1933,7 @@
  *            it, and considering stronger message digests instead.
  *
  */
-//#define MBEDTLS_MD2_C
+#define MBEDTLS_MD2_C
 
 /**
  * \def MBEDTLS_MD4_C
@@ -1982,7 +1950,7 @@
  *            it, and considering stronger message digests instead.
  *
  */
-//#define MBEDTLS_MD4_C
+#define MBEDTLS_MD4_C
 
 /**
  * \def MBEDTLS_MD5_C
@@ -2005,22 +1973,6 @@
  *
  */
 #define MBEDTLS_MD5_C
-
-/**
- * \def MBEDTLS_MEMORY_BUFFER_ALLOC_C
- *
- * Enable the buffer allocator implementation that makes use of a (stack)
- * based buffer to 'allocate' dynamic memory. (replaces calloc() and free()
- * calls)
- *
- * Module:  library/memory_buffer_alloc.c
- *
- * Requires: MBEDTLS_PLATFORM_C
- *           MBEDTLS_PLATFORM_MEMORY (to use it within mbed TLS)
- *
- * Enable this module to enable the buffer memory allocator.
- */
-//#define MBEDTLS_MEMORY_BUFFER_ALLOC_C
 
 /**
  * \def MBEDTLS_OID_C

@@ -873,7 +873,6 @@ int mbedtls_aes_crypt_ctr( mbedtls_aes_context *ctx,
 
 #endif /* !MBEDTLS_AES_ALT */
 
-#if defined(MBEDTLS_SELF_TEST)
 /*
  * AES test vectors from:
  *
@@ -1340,7 +1339,5 @@ exit:
 
     return( ret );
 }
-
-#endif /* MBEDTLS_SELF_TEST */
 
 #endif /* MBEDTLS_AES_C */

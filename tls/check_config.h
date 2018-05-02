@@ -244,11 +244,6 @@
 #error "MBEDTLS_KEY_EXCHANGE_ECJPAKE_ENABLED defined, but not all prerequisites"
 #endif
 
-#if defined(MBEDTLS_MEMORY_BUFFER_ALLOC_C) &&                          \
-    ( !defined(MBEDTLS_PLATFORM_C) || !defined(MBEDTLS_PLATFORM_MEMORY) )
-#error "MBEDTLS_MEMORY_BUFFER_ALLOC_C defined, but not all prerequisites"
-#endif
-
 #if defined(MBEDTLS_PEM_PARSE_C) && !defined(MBEDTLS_BASE64_C)
 #error "MBEDTLS_PEM_PARSE_C defined, but not all prerequisites"
 #endif

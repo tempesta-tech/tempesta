@@ -58,19 +58,6 @@
 #include "md.h"
 #endif
 
-#if defined(MBEDTLS_PKCS1_V15) && !defined(__OpenBSD__)
-#include <stdlib.h>
-#endif
-
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdio.h>
-#define mbedtls_printf printf
-#define mbedtls_calloc calloc
-#define mbedtls_free   free
-#endif
-
 #if !defined(MBEDTLS_RSA_ALT)
 
 /* Implementation that should never be optimized out by the compiler */
@@ -2155,8 +2142,7 @@ void mbedtls_rsa_free( mbedtls_rsa_context *ctx )
 
 #endif /* !MBEDTLS_RSA_ALT */
 
-#if defined(MBEDTLS_SELF_TEST)
-
+#include <linux/random.h>
 #include "sha1.h"
 
 /*
@@ -2201,20 +2187,13 @@ void mbedtls_rsa_free( mbedtls_rsa_context *ctx )
 #if defined(MBEDTLS_PKCS1_V15)
 static int myrand( void *rng_state, unsigned char *output, size_t len )
 {
-#if !defined(__OpenBSD__)
     size_t i;
 
     if( rng_state != NULL )
         rng_state  = NULL;
 
     for( i = 0; i < len; ++i )
-        output[i] = rand();
-#else
-    if( rng_state != NULL )
-        rng_state = NULL;
-
-    arc4random_buf( output, len );
-#endif /* !OpenBSD */
+        output[i] = get_random_int();
 
     return( 0 );
 }
@@ -2362,6 +2341,5 @@ cleanup:
     return( ret );
 }
 
-#endif /* MBEDTLS_SELF_TEST */
 
 #endif /* MBEDTLS_RSA_C */

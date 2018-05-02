@@ -39,15 +39,6 @@
 
 #include <string.h>
 
-#if defined(MBEDTLS_SELF_TEST)
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdio.h>
-#define mbedtls_printf printf
-#endif /* MBEDTLS_PLATFORM_C */
-#endif /* MBEDTLS_SELF_TEST */
-
 #if !defined(MBEDTLS_ARC4_ALT)
 
 /* Implementation that should never be optimized out by the compiler */
@@ -132,7 +123,6 @@ int mbedtls_arc4_crypt( mbedtls_arc4_context *ctx, size_t length, const unsigned
 
 #endif /* !MBEDTLS_ARC4_ALT */
 
-#if defined(MBEDTLS_SELF_TEST)
 /*
  * ARC4 tests vectors as posted by Eric Rescorla in sep. 1994:
  *
@@ -202,7 +192,5 @@ exit:
 
     return( ret );
 }
-
-#endif /* MBEDTLS_SELF_TEST */
 
 #endif /* MBEDTLS_ARC4_C */

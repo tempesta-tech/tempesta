@@ -41,10 +41,6 @@
 // Regular implementation
 //
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /**
  * \brief          The SHA-512 context structure.
  *
@@ -200,17 +196,9 @@ MBEDTLS_DEPRECATED void mbedtls_sha512_process(
 #undef MBEDTLS_DEPRECATED
 #endif /* !MBEDTLS_DEPRECATED_REMOVED */
 
-#ifdef __cplusplus
-}
-#endif
-
 #else  /* MBEDTLS_SHA512_ALT */
 #include "sha512_alt.h"
 #endif /* MBEDTLS_SHA512_ALT */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /**
  * \brief          This function calculates the SHA-512 or SHA-384
@@ -268,15 +256,5 @@ MBEDTLS_DEPRECATED void mbedtls_sha512( const unsigned char *input,
 
 #undef MBEDTLS_DEPRECATED
 #endif /* !MBEDTLS_DEPRECATED_REMOVED */
- /**
- * \brief          The SHA-384 or SHA-512 checkup routine.
- *
- * \return         \c 0 on success, or \c 1 on failure.
- */
-int mbedtls_sha512_self_test( int verbose );
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* mbedtls_sha512.h */

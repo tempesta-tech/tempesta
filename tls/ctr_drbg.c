@@ -452,8 +452,6 @@ int mbedtls_ctr_drbg_random( void *p_rng, unsigned char *output, size_t output_l
     return( ret );
 }
 
-#if defined(MBEDTLS_SELF_TEST)
-
 static const unsigned char entropy_source_pr[96] =
     { 0xc1, 0x80, 0x81, 0xa6, 0x5d, 0x44, 0x02, 0x16,
       0x19, 0xb3, 0xf1, 0x80, 0xb1, 0xc9, 0x20, 0x02,
@@ -566,6 +564,5 @@ int mbedtls_ctr_drbg_self_test( int verbose )
 
     return( 0 );
 }
-#endif /* MBEDTLS_SELF_TEST */
 
 #endif /* MBEDTLS_CTR_DRBG_C */

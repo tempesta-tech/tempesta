@@ -639,11 +639,7 @@ int mbedtls_mpi_gen_prime( mbedtls_mpi *X, size_t nbits, int dh_flag,
                    int (*f_rng)(void *, unsigned char *, size_t),
                    void *p_rng );
 
-/**
- * \brief          Checkup routine
- *
- * \return         0 if successful, or 1 if the test failed
- */
-int mbedtls_mpi_self_test( int verbose );
+int ttls_mpi_init(void);
+void ttls_mpi_exit(void);
 
 #endif /* bignum.h */

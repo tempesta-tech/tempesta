@@ -272,13 +272,6 @@ int mbedtls_dhm_parse_dhm( mbedtls_dhm_context *dhm, const unsigned char *dhmin,
 #endif /* MBEDTLS_DHM_ALT */
 
 /**
- * \brief          The DMH checkup routine.
- *
- * \return         \c 0 on success, or \c 1 on failure.
- */
-int mbedtls_dhm_self_test( int verbose );
-
-/**
  * RFC 3526, RFC 5114 and RFC 7919 standardize a number of
  * Diffie-Hellman groups, some of which are included here
  * for use within the SSL/TLS module and the user's convenience

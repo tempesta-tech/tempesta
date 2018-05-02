@@ -771,8 +771,6 @@ cleanup:
 
 #endif /* ! MBEDTLS_ECJPAKE_ALT */
 
-#if defined(MBEDTLS_SELF_TEST)
-
 #if defined(MBEDTLS_PLATFORM_C)
 #include "platform.h"
 #else
@@ -1103,7 +1101,5 @@ cleanup:
 #undef TEST_ASSERT
 
 #endif /* MBEDTLS_ECP_DP_SECP256R1_ENABLED && MBEDTLS_SHA256_C */
-
-#endif /* MBEDTLS_SELF_TEST */
 
 #endif /* MBEDTLS_ECJPAKE_C */

@@ -40,15 +40,6 @@
 
 #include <string.h>
 
-#if defined(MBEDTLS_SELF_TEST)
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdio.h>
-#define mbedtls_printf printf
-#endif /* MBEDTLS_PLATFORM_C */
-#endif /* MBEDTLS_SELF_TEST */
-
 #if !defined(MBEDTLS_MD2_ALT)
 
 /* Implementation that should never be optimized out by the compiler */
@@ -286,8 +277,6 @@ void mbedtls_md2( const unsigned char *input,
 }
 #endif
 
-#if defined(MBEDTLS_SELF_TEST)
-
 /*
  * RFC 1319 test vectors
  */
@@ -364,7 +353,5 @@ fail:
 
     return( ret );
 }
-
-#endif /* MBEDTLS_SELF_TEST */
 
 #endif /* MBEDTLS_MD2_C */

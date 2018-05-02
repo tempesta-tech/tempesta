@@ -272,13 +272,6 @@ int mbedtls_x509_time_is_past( const mbedtls_x509_time *to );
  */
 int mbedtls_x509_time_is_future( const mbedtls_x509_time *from );
 
-/**
- * \brief          Checkup routine
- *
- * \return         0 if successful, or 1 if the test failed
- */
-int mbedtls_x509_self_test( int verbose );
-
 /*
  * Internal module functions. You probably do not want to use these unless you
  * know you do.

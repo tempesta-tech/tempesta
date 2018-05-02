@@ -250,10 +250,6 @@ MBEDTLS_DEPRECATED void mbedtls_sha1_process( mbedtls_sha1_context *ctx,
 #include "sha1_alt.h"
 #endif /* MBEDTLS_SHA1_ALT */
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /**
  * \brief          This function calculates the SHA-1 checksum of a buffer.
  *
@@ -304,21 +300,5 @@ MBEDTLS_DEPRECATED void mbedtls_sha1( const unsigned char *input,
 
 #undef MBEDTLS_DEPRECATED
 #endif /* !MBEDTLS_DEPRECATED_REMOVED */
-
-/**
- * \brief          The SHA-1 checkup routine.
- *
- * \return         \c 0 on success, or \c 1 on failure.
- *
- * \warning        SHA-1 is considered a weak message digest and its use
- *                 constitutes a security risk. We recommend considering
- *                 stronger message digests instead.
- *
- */
-int mbedtls_sha1_self_test( int verbose );
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* mbedtls_sha1.h */

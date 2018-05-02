@@ -40,15 +40,6 @@
 
 #include <string.h>
 
-#if defined(MBEDTLS_SELF_TEST)
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdio.h>
-#define mbedtls_printf printf
-#endif /* MBEDTLS_SELF_TEST */
-#endif /* MBEDTLS_PLATFORM_C */
-
 /* Implementation that should never be optimized out by the compiler */
 static void mbedtls_zeroize( void *v, size_t n ) {
     volatile unsigned char *p = v; while( n-- ) *p++ = 0;
@@ -328,8 +319,6 @@ void mbedtls_hmac_drbg_free( mbedtls_hmac_drbg_context *ctx )
     mbedtls_zeroize( ctx, sizeof( mbedtls_hmac_drbg_context ) );
 }
 
-#if defined(MBEDTLS_SELF_TEST)
-
 #if !defined(MBEDTLS_SHA1_C)
 /* Dummy checkup routine */
 int mbedtls_hmac_drbg_self_test( int verbose )
@@ -451,6 +440,5 @@ int mbedtls_hmac_drbg_self_test( int verbose )
     return( 0 );
 }
 #endif /* MBEDTLS_SHA1_C */
-#endif /* MBEDTLS_SELF_TEST */
 
 #endif /* MBEDTLS_HMAC_DRBG_C */

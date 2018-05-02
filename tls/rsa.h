@@ -1116,19 +1116,4 @@ void mbedtls_rsa_free( mbedtls_rsa_context *ctx );
 #include "rsa_alt.h"
 #endif /* MBEDTLS_RSA_ALT */
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-/**
- * \brief          The RSA checkup routine.
- *
- * \return         \c 0 on success, or \c 1 on failure.
- */
-int mbedtls_rsa_self_test( int verbose );
-
-#ifdef __cplusplus
-}
-#endif
-
 #endif /* rsa.h */
