@@ -27,23 +27,22 @@
 #ifndef MBEDTLS_BIGNUM_H
 #define MBEDTLS_BIGNUM_H
 
-#if !defined(MBEDTLS_CONFIG_FILE)
-#include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
-#include <stddef.h>
-#include <stdint.h>
-
-#define MBEDTLS_ERR_MPI_FILE_IO_ERROR                     -0x0002  /**< An error occurred while reading from or writing to a file. */
-#define MBEDTLS_ERR_MPI_BAD_INPUT_DATA                    -0x0004  /**< Bad input parameters to function. */
-#define MBEDTLS_ERR_MPI_INVALID_CHARACTER                 -0x0006  /**< There is an invalid character in the digit string. */
-#define MBEDTLS_ERR_MPI_BUFFER_TOO_SMALL                  -0x0008  /**< The buffer is too small to write to. */
-#define MBEDTLS_ERR_MPI_NEGATIVE_VALUE                    -0x000A  /**< The input arguments are negative or result in illegal output. */
-#define MBEDTLS_ERR_MPI_DIVISION_BY_ZERO                  -0x000C  /**< The input argument for division is zero, which is not allowed. */
-#define MBEDTLS_ERR_MPI_NOT_ACCEPTABLE                    -0x000E  /**< The input arguments are not acceptable. */
-#define MBEDTLS_ERR_MPI_ALLOC_FAILED                      -0x0010  /**< Memory allocation failed. */
+/**< An error occurred while reading from or writing to a file. */
+#define MBEDTLS_ERR_MPI_FILE_IO_ERROR                     -0x0002
+/**< Bad input parameters to function. */
+#define MBEDTLS_ERR_MPI_BAD_INPUT_DATA                    -0x0004
+/**< There is an invalid character in the digit string. */
+#define MBEDTLS_ERR_MPI_INVALID_CHARACTER                 -0x0006
+/**< The buffer is too small to write to. */
+#define MBEDTLS_ERR_MPI_BUFFER_TOO_SMALL                  -0x0008
+/**< The input arguments are negative or result in illegal output. */
+#define MBEDTLS_ERR_MPI_NEGATIVE_VALUE                    -0x000A
+/**< The input argument for division is zero, which is not allowed. */
+#define MBEDTLS_ERR_MPI_DIVISION_BY_ZERO                  -0x000C
+/**< The input arguments are not acceptable. */
+#define MBEDTLS_ERR_MPI_NOT_ACCEPTABLE                    -0x000E
+/**< Memory allocation failed. */
+#define MBEDTLS_ERR_MPI_ALLOC_FAILED                      -0x0010
 
 #define MBEDTLS_MPI_CHK(f) do { if( ( ret = f ) != 0 ) goto cleanup; } while( 0 )
 
@@ -52,7 +51,6 @@
  */
 #define MBEDTLS_MPI_MAX_LIMBS                             10000
 
-#if !defined(MBEDTLS_MPI_WINDOW_SIZE)
 /*
  * Maximum window size used for modular exponentiation. Default: 6
  * Minimum value: 1. Maximum value: 6.
@@ -62,10 +60,8 @@
  *
  * Reduction in size, reduces speed.
  */
-#define MBEDTLS_MPI_WINDOW_SIZE                           6        /**< Maximum windows size used. */
-#endif /* !MBEDTLS_MPI_WINDOW_SIZE */
+#define MBEDTLS_MPI_WINDOW_SIZE                           6
 
-#if !defined(MBEDTLS_MPI_MAX_SIZE)
 /*
  * Maximum size of MPIs allowed in bits and bytes for user-MPIs.
  * ( Default: 512 bytes => 4096 bits, Maximum tested: 2048 bytes => 16384 bits )
@@ -73,10 +69,10 @@
  * Note: Calculations can temporarily result in larger MPIs. So the number
  * of limbs required (MBEDTLS_MPI_MAX_LIMBS) is higher.
  */
-#define MBEDTLS_MPI_MAX_SIZE                              1024     /**< Maximum number of bytes for usable MPIs. */
-#endif /* !MBEDTLS_MPI_MAX_SIZE */
+#define MBEDTLS_MPI_MAX_SIZE                              1024
 
-#define MBEDTLS_MPI_MAX_BITS                              ( 8 * MBEDTLS_MPI_MAX_SIZE )    /**< Maximum number of bits for usable MPIs. */
+/**< Maximum number of bits for usable MPIs. */
+#define MBEDTLS_MPI_MAX_BITS                              ( 8 * MBEDTLS_MPI_MAX_SIZE )
 
 /*
  * When reading from files with mbedtls_mpi_read_file() and writing to files with
@@ -100,74 +96,8 @@
 #define MBEDTLS_LN_2_DIV_LN_10_SCALE100                 332
 #define MBEDTLS_MPI_RW_BUFFER_SIZE             ( ((MBEDTLS_MPI_MAX_BITS_SCALE100 + MBEDTLS_LN_2_DIV_LN_10_SCALE100 - 1) / MBEDTLS_LN_2_DIV_LN_10_SCALE100) + 10 + 6 )
 
-/*
- * Define the base integer type, architecture-wise.
- *
- * 32 or 64-bit integer types can be forced regardless of the underlying
- * architecture by defining MBEDTLS_HAVE_INT32 or MBEDTLS_HAVE_INT64
- * respectively and undefining MBEDTLS_HAVE_ASM.
- *
- * Double-width integers (e.g. 128-bit in 64-bit architectures) can be
- * disabled by defining MBEDTLS_NO_UDBL_DIVISION.
- */
-#if !defined(MBEDTLS_HAVE_INT32)
-    #if defined(_MSC_VER) && defined(_M_AMD64)
-        /* Always choose 64-bit when using MSC */
-        #if !defined(MBEDTLS_HAVE_INT64)
-            #define MBEDTLS_HAVE_INT64
-        #endif /* !MBEDTLS_HAVE_INT64 */
-        typedef  int64_t mbedtls_mpi_sint;
-        typedef uint64_t mbedtls_mpi_uint;
-    #elif defined(__GNUC__) && (                         \
-        defined(__amd64__) || defined(__x86_64__)     || \
-        defined(__ppc64__) || defined(__powerpc64__)  || \
-        defined(__ia64__)  || defined(__alpha__)      || \
-        ( defined(__sparc__) && defined(__arch64__) ) || \
-        defined(__s390x__) || defined(__mips64) )
-        #if !defined(MBEDTLS_HAVE_INT64)
-            #define MBEDTLS_HAVE_INT64
-        #endif /* MBEDTLS_HAVE_INT64 */
-        typedef  int64_t mbedtls_mpi_sint;
-        typedef uint64_t mbedtls_mpi_uint;
-        #if !defined(MBEDTLS_NO_UDBL_DIVISION)
-            /* mbedtls_t_udbl defined as 128-bit unsigned int */
-            typedef unsigned int mbedtls_t_udbl __attribute__((mode(TI)));
-            #define MBEDTLS_HAVE_UDBL
-        #endif /* !MBEDTLS_NO_UDBL_DIVISION */
-    #elif defined(__ARMCC_VERSION) && defined(__aarch64__)
-        /*
-         * __ARMCC_VERSION is defined for both armcc and armclang and
-         * __aarch64__ is only defined by armclang when compiling 64-bit code
-         */
-        #if !defined(MBEDTLS_HAVE_INT64)
-            #define MBEDTLS_HAVE_INT64
-        #endif /* !MBEDTLS_HAVE_INT64 */
-        typedef  int64_t mbedtls_mpi_sint;
-        typedef uint64_t mbedtls_mpi_uint;
-        #if !defined(MBEDTLS_NO_UDBL_DIVISION)
-            /* mbedtls_t_udbl defined as 128-bit unsigned int */
-            typedef __uint128_t mbedtls_t_udbl;
-            #define MBEDTLS_HAVE_UDBL
-        #endif /* !MBEDTLS_NO_UDBL_DIVISION */
-    #elif defined(MBEDTLS_HAVE_INT64)
-        /* Force 64-bit integers with unknown compiler */
-        typedef  int64_t mbedtls_mpi_sint;
-        typedef uint64_t mbedtls_mpi_uint;
-    #endif
-#endif /* !MBEDTLS_HAVE_INT32 */
-
-#if !defined(MBEDTLS_HAVE_INT64)
-    /* Default to 32-bit compilation */
-    #if !defined(MBEDTLS_HAVE_INT32)
-        #define MBEDTLS_HAVE_INT32
-    #endif /* !MBEDTLS_HAVE_INT32 */
-    typedef  int32_t mbedtls_mpi_sint;
-    typedef uint32_t mbedtls_mpi_uint;
-    #if !defined(MBEDTLS_NO_UDBL_DIVISION)
-        typedef uint64_t mbedtls_t_udbl;
-        #define MBEDTLS_HAVE_UDBL
-    #endif /* !MBEDTLS_NO_UDBL_DIVISION */
-#endif /* !MBEDTLS_HAVE_INT64 */
+typedef  int64_t mbedtls_mpi_sint;
+typedef uint64_t mbedtls_mpi_uint;
 
 /**
  * \brief          MPI structure

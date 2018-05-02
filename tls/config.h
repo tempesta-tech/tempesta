@@ -50,59 +50,6 @@
  */
 
 /**
- * \def MBEDTLS_HAVE_ASM
- *
- * The compiler has support for asm().
- *
- * Requires support for asm() in compiler.
- *
- * Used in:
- *      library/timing.c
- *      library/padlock.c
- *      include/mbedtls/bn_mul.h
- *
- * Comment to disable the use of assembly code.
- */
-#define MBEDTLS_HAVE_ASM
-
-/**
- * \def MBEDTLS_NO_UDBL_DIVISION
- *
- * The platform lacks support for double-width integer division (64-bit
- * division on a 32-bit platform, 128-bit division on a 64-bit platform).
- *
- * Used in:
- *      include/mbedtls/bignum.h
- *      library/bignum.c
- *
- * The bignum code uses double-width division to speed up some operations.
- * Double-width division is often implemented in software that needs to
- * be linked with the program. The presence of a double-width integer
- * type is usually detected automatically through preprocessor macros,
- * but the automatic detection cannot know whether the code needs to
- * and can be linked with an implementation of division for that type.
- * By default division is assumed to be usable if the type is present.
- * Uncomment this option to prevent the use of double-width division.
- *
- * Note that division for the native integer type is always required.
- * Furthermore, a 64-bit type is always required even on a 32-bit
- * platform, but it need not support multiplication or division. In some
- * cases it is also desirable to disable some double-width operations. For
- * example, if double-width division is implemented in software, disabling
- * it can reduce code size in some embedded targets.
- */
-//#define MBEDTLS_NO_UDBL_DIVISION
-
-/**
- * \def MBEDTLS_HAVE_SSE2
- *
- * CPU supports SSE2 instruction set.
- *
- * Uncomment if the CPU supports SSE2 (IA-32 specific).
- */
-//#define MBEDTLS_HAVE_SSE2
-
-/**
  * \def MBEDTLS_HAVE_TIME_DATE
  *
  * System has time.h and time(), gmtime() and the clock is correct.
@@ -2099,20 +2046,6 @@
 #define MBEDTLS_OID_C
 
 /**
- * \def MBEDTLS_PADLOCK_C
- *
- * Enable VIA Padlock support on x86.
- *
- * Module:  library/padlock.c
- * Caller:  library/aes.c
- *
- * Requires: MBEDTLS_HAVE_ASM
- *
- * This modules adds support for the VIA PadLock on x86.
- */
-#define MBEDTLS_PADLOCK_C
-
-/**
  * \def MBEDTLS_PEM_PARSE_C
  *
  * Enable PEM decoding / parsing.
@@ -2544,10 +2477,6 @@
  * \{
  */
 
-/* MPI / BIGNUM options */
-//#define MBEDTLS_MPI_WINDOW_SIZE            6 /**< Maximum windows size used. */
-//#define MBEDTLS_MPI_MAX_SIZE            1024 /**< Maximum number of bytes for usable MPIs. */
-
 /* CTR_DRBG options */
 //#define MBEDTLS_CTR_DRBG_ENTROPY_LEN               48 /**< Amount of entropy used per seed by default (48 with SHA-512, 32 with SHA-256) */
 //#define MBEDTLS_CTR_DRBG_RESEED_INTERVAL        10000 /**< Interval before reseed is performed by default */
@@ -2680,8 +2609,5 @@
 #endif
 
 #include "check_config.h"
-
-/* https://github.com/ARMmbed/mbedtls/issues/137#issuecomment-124117580 */
-#define MBEDTLS_HAVE_INT32
 
 #endif /* MBEDTLS_CONFIG_H */
