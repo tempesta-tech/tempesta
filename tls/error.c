@@ -121,10 +121,6 @@
 #include "oid.h"
 #endif
 
-#if defined(MBEDTLS_PADLOCK_C)
-#include "padlock.h"
-#endif
-
 #if defined(MBEDTLS_PEM_PARSE_C) || defined(MBEDTLS_PEM_WRITE_C)
 #include "pem.h"
 #endif
@@ -716,11 +712,6 @@ void mbedtls_strerror( int ret, char *buf, size_t buflen )
     if( use_ret == -(MBEDTLS_ERR_OID_BUF_TOO_SMALL) )
         mbedtls_snprintf( buf, buflen, "OID - output buffer is too small" );
 #endif /* MBEDTLS_OID_C */
-
-#if defined(MBEDTLS_PADLOCK_C)
-    if( use_ret == -(MBEDTLS_ERR_PADLOCK_DATA_MISALIGNED) )
-        mbedtls_snprintf( buf, buflen, "PADLOCK - Input data should be aligned" );
-#endif /* MBEDTLS_PADLOCK_C */
 
 #if defined(MBEDTLS_RIPEMD160_C)
     if( use_ret == -(MBEDTLS_ERR_RIPEMD160_HW_ACCEL_FAILED) )

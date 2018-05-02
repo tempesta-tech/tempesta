@@ -22,7 +22,8 @@
 
 #include "ttls.h"
 
-MODULE_AUTHOR("Tempesta Technologies, INC");
+MODULE_AUTHOR("Tempesta Technologies, Inc");
+MODULE_DESCRIPTION("Tempesta TLS");
 MODULE_VERSION("2.8.0");
 MODULE_LICENSE("GPL");
 
@@ -48,6 +49,7 @@ int rand(void)
 }
 #endif
 
+// TODO move the stuff to unit tests.
 #define DO_SELF_TEST(f)							\
 do {									\
 	if ((r = f(1 /* use 1 for verbose */))) {			\
@@ -63,6 +65,7 @@ ttls_self_test(void)
 
 	kernel_fpu_begin();
 
+	// TODO call all the *_self_test()'s
 	DO_SELF_TEST(mbedtls_mpi_self_test);
 	DO_SELF_TEST(mbedtls_ecp_self_test);
 	DO_SELF_TEST(mbedtls_md5_self_test);

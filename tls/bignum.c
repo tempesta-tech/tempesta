@@ -44,16 +44,6 @@
 #include "bn_mul.h"
 #include "platform.h"
 
-/* Implementation that should never be optimized out by the compiler */
-static void mbedtls_mpi_zeroize( mbedtls_mpi_uint *v, size_t n ) {
-    volatile mbedtls_mpi_uint *p = v; while( n-- ) *p++ = 0;
-}
-
-/* Implementation that should never be optimized out by the compiler */
-static void mbedtls_zeroize( void *v, size_t n ) {
-    volatile unsigned char *p = v; while( n-- ) *p++ = 0;
-}
-
 #define ciL    (sizeof(mbedtls_mpi_uint))         /* chars in limb  */
 #define biL    (ciL << 3)               /* bits  in limb  */
 #define biH    (ciL << 2)               /* half limb size */
@@ -90,7 +80,7 @@ void mbedtls_mpi_free( mbedtls_mpi *X )
 
     if( X->p != NULL )
     {
-        mbedtls_mpi_zeroize( X->p, X->n );
+        memset(X->p, 0, X->n);
         mbedtls_free( X->p );
     }
 
@@ -117,7 +107,7 @@ int mbedtls_mpi_grow( mbedtls_mpi *X, size_t nblimbs )
         if( X->p != NULL )
         {
             memcpy( p, X->p, X->n * ciL );
-            mbedtls_mpi_zeroize( X->p, X->n );
+            memset(X->p, 0, X->n);
             mbedtls_free( X->p );
         }
 
@@ -155,7 +145,7 @@ int mbedtls_mpi_shrink( mbedtls_mpi *X, size_t nblimbs )
     if( X->p != NULL )
     {
         memcpy( p, X->p, i * ciL );
-        mbedtls_mpi_zeroize( X->p, X->n );
+        memset(X->p, 0, X->n);
         mbedtls_free( X->p );
     }
 
@@ -1025,21 +1015,6 @@ void mpi_mul_hlp( size_t i, mbedtls_mpi_uint *s, mbedtls_mpi_uint *d, mbedtls_mp
 {
     mbedtls_mpi_uint c = 0, t = 0;
 
-#if defined(MULADDC_HUIT)
-    for( ; i >= 8; i -= 8 )
-    {
-        MULADDC_INIT
-        MULADDC_HUIT
-        MULADDC_STOP
-    }
-
-    for( ; i > 0; i-- )
-    {
-        MULADDC_INIT
-        MULADDC_CORE
-        MULADDC_STOP
-    }
-#else /* MULADDC_HUIT */
     for( ; i >= 16; i -= 16 )
     {
         MULADDC_INIT
@@ -1072,7 +1047,6 @@ void mpi_mul_hlp( size_t i, mbedtls_mpi_uint *s, mbedtls_mpi_uint *d, mbedtls_mp
         MULADDC_CORE
         MULADDC_STOP
     }
-#endif /* MULADDC_HUIT */
 
     t++;
 
@@ -1142,15 +1116,11 @@ int mbedtls_mpi_mul_int( mbedtls_mpi *X, const mbedtls_mpi *A, mbedtls_mpi_uint 
 static mbedtls_mpi_uint mbedtls_int_div_int( mbedtls_mpi_uint u1,
             mbedtls_mpi_uint u0, mbedtls_mpi_uint d, mbedtls_mpi_uint *r )
 {
-#if defined(MBEDTLS_HAVE_UDBL)
-    mbedtls_t_udbl dividend, quotient;
-#else
     const mbedtls_mpi_uint radix = (mbedtls_mpi_uint) 1 << biH;
     const mbedtls_mpi_uint uint_halfword_mask = ( (mbedtls_mpi_uint) 1 << biH ) - 1;
     mbedtls_mpi_uint d0, d1, q0, q1, rAX, r0, quotient;
     mbedtls_mpi_uint u0_msw, u0_lsw;
     size_t s;
-#endif
 
     /*
      * Check for overflow
@@ -1161,19 +1131,6 @@ static mbedtls_mpi_uint mbedtls_int_div_int( mbedtls_mpi_uint u1,
 
         return ( ~0 );
     }
-
-#if defined(MBEDTLS_HAVE_UDBL)
-    dividend  = (mbedtls_t_udbl) u1 << biL;
-    dividend |= (mbedtls_t_udbl) u0;
-    quotient = dividend / d;
-    if( quotient > ( (mbedtls_t_udbl) 1 << biL ) - 1 )
-        quotient = ( (mbedtls_t_udbl) 1 << biL ) - 1;
-
-    if( r != NULL )
-        *r = (mbedtls_mpi_uint)( dividend - (quotient * d ) );
-
-    return (mbedtls_mpi_uint) quotient;
-#else
 
     /*
      * Algorithm D, Section 4.3.1 - The Art of Computer Programming
@@ -1228,7 +1185,6 @@ static mbedtls_mpi_uint mbedtls_int_div_int( mbedtls_mpi_uint u1,
     quotient = q1 * radix + q0;
 
     return quotient;
-#endif
 }
 
 /*
@@ -1804,8 +1760,8 @@ int mbedtls_mpi_fill_random( mbedtls_mpi *X, size_t size,
     MBEDTLS_MPI_CHK( mbedtls_mpi_read_binary( X, buf, size ) );
 
 cleanup:
-    mbedtls_zeroize( buf, sizeof( buf ) );
-    return( ret );
+    memset(buf, 0, sizeof(buf));
+    return ret;
 }
 
 /*

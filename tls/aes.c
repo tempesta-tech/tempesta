@@ -39,9 +39,6 @@
 #include <string.h>
 
 #include "aes.h"
-#if defined(MBEDTLS_PADLOCK_C)
-#include "padlock.h"
-#endif
 #include "aesni.h"
 
 #if !defined(MBEDTLS_AES_ALT)
@@ -72,11 +69,6 @@ static void mbedtls_zeroize( void *v, size_t n ) {
     (b)[(i) + 2] = (unsigned char) ( ( (n) >> 16 ) & 0xFF );    \
     (b)[(i) + 3] = (unsigned char) ( ( (n) >> 24 ) & 0xFF );    \
 }
-#endif
-
-#if defined(MBEDTLS_PADLOCK_C) &&                      \
-    ( defined(MBEDTLS_HAVE_X86) || defined(MBEDTLS_PADLOCK_ALIGN16) )
-static int aes_padlock_ace = -1;
 #endif
 
 /*
@@ -374,14 +366,6 @@ int mbedtls_aes_setkey_enc( mbedtls_aes_context *ctx, const unsigned char *key,
         default : return( MBEDTLS_ERR_AES_INVALID_KEY_LENGTH );
     }
 
-#if defined(MBEDTLS_PADLOCK_C) && defined(MBEDTLS_PADLOCK_ALIGN16)
-    if( aes_padlock_ace == -1 )
-        aes_padlock_ace = mbedtls_padlock_has_support( MBEDTLS_PADLOCK_ACE );
-
-    if( aes_padlock_ace )
-        ctx->rk = RK = MBEDTLS_PADLOCK_ALIGN16( ctx->buf );
-    else
-#endif
     ctx->rk = RK = ctx->buf;
 
     if( mbedtls_aesni_has_support( MBEDTLS_AESNI_AES ) )
@@ -473,14 +457,6 @@ int mbedtls_aes_setkey_dec( mbedtls_aes_context *ctx, const unsigned char *key,
 
     mbedtls_aes_init( &cty );
 
-#if defined(MBEDTLS_PADLOCK_C) && defined(MBEDTLS_PADLOCK_ALIGN16)
-    if( aes_padlock_ace == -1 )
-        aes_padlock_ace = mbedtls_padlock_has_support( MBEDTLS_PADLOCK_ACE );
-
-    if( aes_padlock_ace )
-        ctx->rk = RK = MBEDTLS_PADLOCK_ALIGN16( ctx->buf );
-    else
-#endif
     ctx->rk = RK = ctx->buf;
 
     /* Also checks keybits */
@@ -719,18 +695,6 @@ int mbedtls_aes_crypt_ecb( mbedtls_aes_context *ctx,
     if( mbedtls_aesni_has_support( MBEDTLS_AESNI_AES ) )
         return( mbedtls_aesni_crypt_ecb( ctx, mode, input, output ) );
 
-#if defined(MBEDTLS_PADLOCK_C) && defined(MBEDTLS_HAVE_X86)
-    if( aes_padlock_ace )
-    {
-        if( mbedtls_padlock_xcryptecb( ctx, mode, input, output ) == 0 )
-            return( 0 );
-
-        // If padlock data misaligned, we just fall back to
-        // unaccelerated mode
-        //
-    }
-#endif
-
     if( mode == MBEDTLS_AES_ENCRYPT )
         return( mbedtls_internal_aes_encrypt( ctx, input, output ) );
     else
@@ -753,18 +717,6 @@ int mbedtls_aes_crypt_cbc( mbedtls_aes_context *ctx,
 
     if( length % 16 )
         return( MBEDTLS_ERR_AES_INVALID_INPUT_LENGTH );
-
-#if defined(MBEDTLS_PADLOCK_C) && defined(MBEDTLS_HAVE_X86)
-    if( aes_padlock_ace )
-    {
-        if( mbedtls_padlock_xcryptcbc( ctx, mode, length, iv, input, output ) == 0 )
-            return( 0 );
-
-        // If padlock data misaligned, we just fall back to
-        // unaccelerated mode
-        //
-    }
-#endif
 
     if( mode == MBEDTLS_AES_DECRYPT )
     {
