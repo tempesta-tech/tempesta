@@ -23,9 +23,9 @@
 #include <linux/hashtable.h>
 #include <linux/slab.h>
 
+#include "lib/hash.h"
 #include "client.h"
 #include "connection.h"
-#include "hash.h"
 #include "log.h"
 #include "procfs.h"
 
@@ -98,13 +98,12 @@ tfw_client_obtain(struct sock *sk, void (*init)(TfwClient *))
 	TfwClient *cli;
 	CliHashBucket *hb;
 	struct hlist_node *tmp;
-	unsigned long key = 0, crc_tmp = 0;
+	unsigned long key;
 	TfwAddr addr;
 
 	ss_getpeername(sk, &addr);
-	__tdb_hash_calc(&key, &crc_tmp, (const char *)&addr.v6.sin6_addr,
+	key = hash_calc((const char *)&addr.v6.sin6_addr,
 			sizeof(addr.v6.sin6_addr));
-	key |= crc_tmp << 32;
 
 	hb = &cli_hash[hash_min(key, CLI_HASH_BITS)];
 
