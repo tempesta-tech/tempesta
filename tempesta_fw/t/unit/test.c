@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -90,6 +90,7 @@ test_call_teardown_fn(void)
 
 TEST_SUITE(cfg);
 TEST_SUITE(tfw_str);
+TEST_SUITE(mem_fast);
 TEST_SUITE(http_parser);
 TEST_SUITE(http_sticky);
 TEST_SUITE(http_match);
@@ -118,6 +119,7 @@ test_run_all(void)
 	 * the tests can not sleep.
 	 */
 	TEST_SUITE_RUN(tfw_str);
+	TEST_SUITE_RUN(mem_fast);
 	TEST_SUITE_RUN(http_parser);
 	TEST_SUITE_RUN(http_match);
 	TEST_SUITE_RUN(http_msg);

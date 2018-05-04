@@ -38,6 +38,7 @@
 #include <linux/hash.h>
 #include <linux/module.h>
 
+#include "lib/hash.h"
 #include "tempesta_fw.h"
 #include "log.h"
 #include "server.h"
@@ -84,7 +85,7 @@ __calc_srv_hash(TfwServer *srv)
 	 *  - No structure fields (e.g. sin6_flowinfo) are changed if we
 	 *    re-connect to the same server.
 	 */
-	hash = tdb_hash_calc((char *)&srv->addr, tfw_addr_sa_len(&srv->addr));
+	hash = hash_calc((char *)&srv->addr, tfw_addr_sa_len(&srv->addr));
 	/*
 	 * If TfwAddr represents IPv4 address @tdb_hash_calc() will always
 	 * generate a 32-bit value. In the same time IPv6 servers are likely to

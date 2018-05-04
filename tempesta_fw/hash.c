@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -20,7 +20,7 @@
  */
 #include "str.h"
 
-#include "hash.h"
+#include "lib/hash.h"
 
 /**
  * Compute hash function exactly the same way as tdb_hash_calc() does it,
@@ -35,7 +35,7 @@ tfw_hash_str(const TfwStr *str)
 	unsigned long crc0 = 0, crc1 = 0;
 
 	if (likely(TFW_STR_PLAIN(str))) {
-		__tdb_hash_calc(&crc0, &crc1, str->ptr, str->len);
+		__hash_calc(&crc0, &crc1, str->ptr, str->len);
 	}
 	else {
 		const TfwStr *c = (TfwStr *)str->ptr;
@@ -60,7 +60,7 @@ tfw_hash_str(const TfwStr *str)
 				}
 			}
 
-			__tdb_hash_calc(&crc0, &crc1, p, e - p);
+			__hash_calc(&crc0, &crc1, p, e - p);
 			tail = c->len & 0xf;
 next_chunk:
 			++c;
