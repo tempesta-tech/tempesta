@@ -43,11 +43,11 @@ endif
 
 TFW_CFLAGS += -mmmx -msse4.2
 
-obj-m	+= tempesta_db/core/ tempesta_fw/ tls/
-
 KERNEL = /lib/modules/$(shell uname -r)/build
 
 export KERNEL TFW_CFLAGS AVX2
+
+obj-m	+= lib/ tempesta_db/core/ tempesta_fw/ tls/
 
 all: build
 
