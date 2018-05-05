@@ -101,6 +101,7 @@ TEST_SUITE(sched_ratio);
 TEST_SUITE(sched_hash);
 TEST_SUITE(sched_http);
 TEST_SUITE(wq);
+TEST_SUITE(tls);
 
 int
 test_run_all(void)
@@ -110,6 +111,9 @@ test_run_all(void)
 	/* Run sleeping tests first. */
 	TEST_SUITE_RUN(cfg);
 	TEST_SUITE_RUN(wq);
+
+	/* TLS tests care about FPU on their own. */
+	TEST_SUITE_RUN(tls);
 
 	kernel_fpu_begin();
 	tfw_str_init_const();

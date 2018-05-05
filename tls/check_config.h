@@ -2,9 +2,9 @@
  * \file check_config.h
  *
  * \brief Consistency checks for configuration options
- *
+ */
+/*
  *  Copyright (C) 2006-2016, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -64,20 +64,21 @@
 #error "MBEDTLS_DEPRECATED_WARNING only works with GCC and Clang"
 #endif
 
-#if defined(MBEDTLS_HAVE_TIME_DATE) && !defined(MBEDTLS_HAVE_TIME)
-#error "MBEDTLS_HAVE_TIME_DATE without MBEDTLS_HAVE_TIME does not make sense"
-#endif
-
-#if defined(MBEDTLS_AESNI_C) && !defined(MBEDTLS_HAVE_ASM)
-#error "MBEDTLS_AESNI_C defined, but not all prerequisites"
-#endif
-
 #if defined(MBEDTLS_CTR_DRBG_C) && !defined(MBEDTLS_AES_C)
 #error "MBEDTLS_CTR_DRBG_C defined, but not all prerequisites"
 #endif
 
 #if defined(MBEDTLS_DHM_C) && !defined(MBEDTLS_BIGNUM_C)
 #error "MBEDTLS_DHM_C defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_SSL_TRUNCATED_HMAC_COMPAT) && !defined(MBEDTLS_SSL_TRUNCATED_HMAC)
+#error "MBEDTLS_SSL_TRUNCATED_HMAC_COMPAT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_CMAC_C) && \
+    !defined(MBEDTLS_AES_C) && !defined(MBEDTLS_DES_C)
+#error "MBEDTLS_CMAC_C defined, but not all prerequisites"
 #endif
 
 #if defined(MBEDTLS_ECDH_C) && !defined(MBEDTLS_ECP_C)
@@ -133,19 +134,41 @@
 #error "MBEDTLS_ENTROPY_FORCE_SHA256 defined, but not all prerequisites"
 #endif
 
-#if defined(MBEDTLS_TEST_NULL_ENTROPY) && \
-    ( !defined(MBEDTLS_ENTROPY_C) || !defined(MBEDTLS_NO_DEFAULT_ENTROPY_SOURCES) )
-#error "MBEDTLS_TEST_NULL_ENTROPY defined, but not all prerequisites"
-#endif
-#if defined(MBEDTLS_TEST_NULL_ENTROPY) && \
-     ( defined(MBEDTLS_ENTROPY_NV_SEED) || defined(MBEDTLS_ENTROPY_HARDWARE_ALT) || \
-    defined(MBEDTLS_HAVEGE_C) )
-#error "MBEDTLS_TEST_NULL_ENTROPY defined, but entropy sources too"
-#endif
-
 #if defined(MBEDTLS_GCM_C) && (                                        \
         !defined(MBEDTLS_AES_C) && !defined(MBEDTLS_CAMELLIA_C) )
 #error "MBEDTLS_GCM_C defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECP_RANDOMIZE_JAC_ALT) && !defined(MBEDTLS_ECP_INTERNAL_ALT)
+#error "MBEDTLS_ECP_RANDOMIZE_JAC_ALT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECP_ADD_MIXED_ALT) && !defined(MBEDTLS_ECP_INTERNAL_ALT)
+#error "MBEDTLS_ECP_ADD_MIXED_ALT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECP_DOUBLE_JAC_ALT) && !defined(MBEDTLS_ECP_INTERNAL_ALT)
+#error "MBEDTLS_ECP_DOUBLE_JAC_ALT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECP_NORMALIZE_JAC_MANY_ALT) && !defined(MBEDTLS_ECP_INTERNAL_ALT)
+#error "MBEDTLS_ECP_NORMALIZE_JAC_MANY_ALT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECP_NORMALIZE_JAC_ALT) && !defined(MBEDTLS_ECP_INTERNAL_ALT)
+#error "MBEDTLS_ECP_NORMALIZE_JAC_ALT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECP_DOUBLE_ADD_MXZ_ALT) && !defined(MBEDTLS_ECP_INTERNAL_ALT)
+#error "MBEDTLS_ECP_DOUBLE_ADD_MXZ_ALT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECP_RANDOMIZE_MXZ_ALT) && !defined(MBEDTLS_ECP_INTERNAL_ALT)
+#error "MBEDTLS_ECP_RANDOMIZE_MXZ_ALT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECP_NORMALIZE_MXZ_ALT) && !defined(MBEDTLS_ECP_INTERNAL_ALT)
+#error "MBEDTLS_ECP_NORMALIZE_MXZ_ALT defined, but not all prerequisites"
 #endif
 
 #if defined(MBEDTLS_HAVEGE_C) && !defined(MBEDTLS_TIMING_C)
@@ -211,15 +234,6 @@
 #error "MBEDTLS_KEY_EXCHANGE_ECJPAKE_ENABLED defined, but not all prerequisites"
 #endif
 
-#if defined(MBEDTLS_MEMORY_BUFFER_ALLOC_C) &&                          \
-    ( !defined(MBEDTLS_PLATFORM_C) || !defined(MBEDTLS_PLATFORM_MEMORY) )
-#error "MBEDTLS_MEMORY_BUFFER_ALLOC_C defined, but not all prerequisites"
-#endif
-
-#if defined(MBEDTLS_PADLOCK_C) && !defined(MBEDTLS_HAVE_ASM)
-#error "MBEDTLS_PADLOCK_C defined, but not all prerequisites"
-#endif
-
 #if defined(MBEDTLS_PEM_PARSE_C) && !defined(MBEDTLS_BASE64_C)
 #error "MBEDTLS_PEM_PARSE_C defined, but not all prerequisites"
 #endif
@@ -257,6 +271,18 @@
     ( defined(MBEDTLS_PLATFORM_STD_EXIT) ||\
         defined(MBEDTLS_PLATFORM_EXIT_ALT) )
 #error "MBEDTLS_PLATFORM_EXIT_MACRO and MBEDTLS_PLATFORM_STD_EXIT/MBEDTLS_PLATFORM_EXIT_ALT cannot be defined simultaneously"
+#endif
+
+#if defined(MBEDTLS_PLATFORM_TIME_MACRO) &&\
+    ( defined(MBEDTLS_PLATFORM_STD_TIME) ||\
+        defined(MBEDTLS_PLATFORM_TIME_ALT) )
+#error "MBEDTLS_PLATFORM_TIME_MACRO and MBEDTLS_PLATFORM_STD_TIME/MBEDTLS_PLATFORM_TIME_ALT cannot be defined simultaneously"
+#endif
+
+#if defined(MBEDTLS_PLATFORM_TIME_TYPE_MACRO) &&\
+    ( defined(MBEDTLS_PLATFORM_STD_TIME) ||\
+        defined(MBEDTLS_PLATFORM_TIME_ALT) )
+#error "MBEDTLS_PLATFORM_TIME_TYPE_MACRO and MBEDTLS_PLATFORM_STD_TIME/MBEDTLS_PLATFORM_TIME_ALT cannot be defined simultaneously"
 #endif
 
 #if defined(MBEDTLS_PLATFORM_FPRINTF_ALT) && !defined(MBEDTLS_PLATFORM_C)
@@ -368,16 +394,6 @@
 #if defined(MBEDTLS_PLATFORM_STD_SNPRINTF) &&\
     !defined(MBEDTLS_PLATFORM_SNPRINTF_ALT)
 #error "MBEDTLS_PLATFORM_STD_SNPRINTF defined, but not all prerequisites"
-#endif
-
-#if defined(MBEDTLS_ENTROPY_NV_SEED) &&\
-    ( !defined(MBEDTLS_PLATFORM_C) || !defined(MBEDTLS_ENTROPY_C) )
-#error "MBEDTLS_ENTROPY_NV_SEED defined, but not all prerequisites"
-#endif
-
-#if defined(MBEDTLS_PLATFORM_NV_SEED_ALT) &&\
-    !defined(MBEDTLS_ENTROPY_NV_SEED)
-#error "MBEDTLS_PLATFORM_NV_SEED_ALT defined, but not all prerequisites"
 #endif
 
 #if defined(MBEDTLS_PLATFORM_STD_NV_SEED_READ) &&\
@@ -525,29 +541,6 @@
 #error "MBEDTLS_SSL_SERVER_NAME_INDICATION defined, but not all prerequisites"
 #endif
 
-#if defined(MBEDTLS_THREADING_PTHREAD)
-#if !defined(MBEDTLS_THREADING_C) || defined(MBEDTLS_THREADING_IMPL)
-#error "MBEDTLS_THREADING_PTHREAD defined, but not all prerequisites"
-#endif
-#define MBEDTLS_THREADING_IMPL
-#endif
-
-#if defined(MBEDTLS_THREADING_ALT)
-#if !defined(MBEDTLS_THREADING_C) || defined(MBEDTLS_THREADING_IMPL)
-#error "MBEDTLS_THREADING_ALT defined, but not all prerequisites"
-#endif
-#define MBEDTLS_THREADING_IMPL
-#endif
-
-#if defined(MBEDTLS_THREADING_C) && !defined(MBEDTLS_THREADING_IMPL)
-#error "MBEDTLS_THREADING_C defined, single threading implementation required"
-#endif
-#undef MBEDTLS_THREADING_IMPL
-
-#if defined(MBEDTLS_VERSION_FEATURES) && !defined(MBEDTLS_VERSION_C)
-#error "MBEDTLS_VERSION_FEATURES defined, but not all prerequisites"
-#endif
-
 #if defined(MBEDTLS_X509_USE_C) && ( !defined(MBEDTLS_BIGNUM_C) ||  \
     !defined(MBEDTLS_OID_C) || !defined(MBEDTLS_ASN1_PARSE_C) ||      \
     !defined(MBEDTLS_PK_PARSE_C) )
@@ -579,12 +572,5 @@
 #if defined(MBEDTLS_X509_CSR_WRITE_C) && ( !defined(MBEDTLS_X509_CREATE_C) )
 #error "MBEDTLS_X509_CSR_WRITE_C defined, but not all prerequisites"
 #endif
-
-/*
- * Avoid warning from -pedantic. This is a convenient place for this
- * workaround since this is included by every single file before the
- * #if defined(MBEDTLS_xxx_C) that results in emtpy translation units.
- */
-typedef int mbedtls_iso_c_forbids_empty_translation_units;
 
 #endif /* MBEDTLS_CHECK_CONFIG_H */

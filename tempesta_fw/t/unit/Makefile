@@ -43,4 +43,5 @@ tfw_test-objs = \
 	test_sched_http.o \
 	test_http_sticky.o \
 	test_wq.o \
-	kallsyms_helper.o
+	kallsyms_helper.o \
+	test_tls.o

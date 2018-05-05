@@ -2,7 +2,7 @@
  *  NIST SP800-38C compliant CCM implementation
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -43,14 +43,7 @@
 
 #include <string.h>
 
-#if defined(MBEDTLS_SELF_TEST) && defined(MBEDTLS_AES_C)
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdio.h>
-#define mbedtls_printf printf
-#endif /* MBEDTLS_PLATFORM_C */
-#endif /* MBEDTLS_SELF_TEST && MBEDTLS_AES_C */
+#if !defined(MBEDTLS_CCM_ALT)
 
 /* Implementation that should never be optimized out by the compiler */
 static void mbedtls_zeroize( void *v, size_t n ) {
@@ -351,8 +344,8 @@ int mbedtls_ccm_auth_decrypt( mbedtls_ccm_context *ctx, size_t length,
     return( 0 );
 }
 
+#endif /* !MBEDTLS_CCM_ALT */
 
-#if defined(MBEDTLS_SELF_TEST) && defined(MBEDTLS_AES_C)
 /*
  * Examples 1 to 3 from SP800-38C Appendix C
  */
@@ -461,7 +454,5 @@ int mbedtls_ccm_self_test( int verbose )
 
     return( 0 );
 }
-
-#endif /* MBEDTLS_SELF_TEST && MBEDTLS_AES_C */
 
 #endif /* MBEDTLS_CCM_C */

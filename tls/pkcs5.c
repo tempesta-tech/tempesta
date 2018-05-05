@@ -6,7 +6,7 @@
  * \author Mathias Olsson <mathias@kompetensum.com>
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -99,10 +99,8 @@ static int pkcs5_parse_pbkdf2_params( const mbedtls_asn1_buf *params,
     if( ( ret = mbedtls_asn1_get_alg_null( &p, end, &prf_alg_oid ) ) != 0 )
         return( MBEDTLS_ERR_PKCS5_INVALID_FORMAT + ret );
 
-    if( MBEDTLS_OID_CMP( MBEDTLS_OID_HMAC_SHA1, &prf_alg_oid ) != 0 )
+    if( mbedtls_oid_get_md_hmac( &prf_alg_oid, md_type ) != 0 )
         return( MBEDTLS_ERR_PKCS5_FEATURE_UNAVAILABLE );
-
-    *md_type = MBEDTLS_MD_SHA1;
 
     if( p != end )
         return( MBEDTLS_ERR_PKCS5_INVALID_FORMAT +
@@ -288,8 +286,6 @@ int mbedtls_pkcs5_pbkdf2_hmac( mbedtls_md_context_t *ctx, const unsigned char *p
     return( 0 );
 }
 
-#if defined(MBEDTLS_SELF_TEST)
-
 #if !defined(MBEDTLS_SHA1_C)
 int mbedtls_pkcs5_self_test( int verbose )
 {
@@ -394,7 +390,8 @@ int mbedtls_pkcs5_self_test( int verbose )
             mbedtls_printf( "passed\n" );
     }
 
-    mbedtls_printf( "\n" );
+    if( verbose != 0 )
+        mbedtls_printf( "\n" );
 
 exit:
     mbedtls_md_free( &sha1_ctx );
@@ -402,7 +399,5 @@ exit:
     return( ret );
 }
 #endif /* MBEDTLS_SHA1_C */
-
-#endif /* MBEDTLS_SELF_TEST */
 
 #endif /* MBEDTLS_PKCS5_C */

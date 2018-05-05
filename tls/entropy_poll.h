@@ -2,9 +2,10 @@
  * \file entropy_poll.h
  *
  * \brief Platform-specific and custom entropy polling functions
- *
+ */
+/*
  *  Copyright (C) 2006-2016, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -34,10 +35,6 @@
 
 #include <stddef.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /*
  * Default thresholds for built-in sources, in bytes
  */
@@ -45,22 +42,6 @@ extern "C" {
 #define MBEDTLS_ENTROPY_MIN_HAVEGE       32     /**< Minimum for HAVEGE             */
 #define MBEDTLS_ENTROPY_MIN_HARDCLOCK     4     /**< Minimum for mbedtls_timing_hardclock()        */
 #define MBEDTLS_ENTROPY_MIN_HARDWARE     32     /**< Minimum for the hardware source */
-
-/**
- * \brief           Entropy poll callback that provides 0 entropy.
- */
-#if defined(MBEDTLS_TEST_NULL_ENTROPY)
-    int mbedtls_null_entropy_poll( void *data,
-                                unsigned char *output, size_t len, size_t *olen );
-#endif
-
-#if !defined(MBEDTLS_NO_PLATFORM_ENTROPY)
-/**
- * \brief           Platform-specific entropy poll callback
- */
-int mbedtls_platform_entropy_poll( void *data,
-                           unsigned char *output, size_t len, size_t *olen );
-#endif
 
 #if defined(MBEDTLS_HAVEGE_C)
 /**
@@ -72,39 +53,16 @@ int mbedtls_havege_poll( void *data,
                  unsigned char *output, size_t len, size_t *olen );
 #endif
 
-#if defined(MBEDTLS_TIMING_C)
 /**
  * \brief           mbedtls_timing_hardclock-based entropy poll callback
  */
 int mbedtls_hardclock_poll( void *data,
                     unsigned char *output, size_t len, size_t *olen );
-#endif
 
-#if defined(MBEDTLS_ENTROPY_HARDWARE_ALT)
 /**
  * \brief           Entropy poll callback for a hardware source
- *
- * \warning         This is not provided by mbed TLS!
- *                  See \c MBEDTLS_ENTROPY_HARDWARE_ALT in config.h.
- *
  * \note            This must accept NULL as its first argument.
  */
 int mbedtls_hardware_poll( void *data,
                            unsigned char *output, size_t len, size_t *olen );
-#endif
-
-#if defined(MBEDTLS_ENTROPY_NV_SEED)
-/**
- * \brief           Entropy poll callback for a non-volatile seed file
- *
- * \note            This must accept NULL as its first argument.
- */
-int mbedtls_nv_seed_poll( void *data,
-                          unsigned char *output, size_t len, size_t *olen );
-#endif
-
-#ifdef __cplusplus
-}
-#endif
-
 #endif /* entropy_poll.h */

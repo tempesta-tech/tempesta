@@ -3,8 +3,13 @@
  *
  * \brief DES block cipher
  *
+ * \warning   DES is considered a weak cipher and its use constitutes a
+ *            security risk. We recommend considering stronger ciphers
+ *            instead.
+ */
+/*
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -22,6 +27,7 @@
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
+ *
  */
 #ifndef MBEDTLS_DES_H
 #define MBEDTLS_DES_H
@@ -39,6 +45,7 @@
 #define MBEDTLS_DES_DECRYPT     0
 
 #define MBEDTLS_ERR_DES_INVALID_INPUT_LENGTH              -0x0032  /**< The data input has an invalid length. */
+#define MBEDTLS_ERR_DES_HW_ACCEL_FAILED                   -0x0033  /**< DES hardware accelerator failed. */
 
 #define MBEDTLS_DES_KEY_SIZE    8
 
@@ -46,12 +53,12 @@
 // Regular implementation
 //
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /**
  * \brief          DES context structure
+ *
+ * \warning        DES is considered a weak cipher and its use constitutes a
+ *                 security risk. We recommend considering stronger ciphers
+ *                 instead.
  */
 typedef struct
 {
@@ -72,6 +79,10 @@ mbedtls_des3_context;
  * \brief          Initialize DES context
  *
  * \param ctx      DES context to be initialized
+ *
+ * \warning        DES is considered a weak cipher and its use constitutes a
+ *                 security risk. We recommend considering stronger ciphers
+ *                 instead.
  */
 void mbedtls_des_init( mbedtls_des_context *ctx );
 
@@ -79,6 +90,10 @@ void mbedtls_des_init( mbedtls_des_context *ctx );
  * \brief          Clear DES context
  *
  * \param ctx      DES context to be cleared
+ *
+ * \warning        DES is considered a weak cipher and its use constitutes a
+ *                 security risk. We recommend considering stronger ciphers
+ *                 instead.
  */
 void mbedtls_des_free( mbedtls_des_context *ctx );
 
@@ -103,6 +118,10 @@ void mbedtls_des3_free( mbedtls_des3_context *ctx );
  *                 a parity bit to allow verification.
  *
  * \param key      8-byte secret key
+ *
+ * \warning        DES is considered a weak cipher and its use constitutes a
+ *                 security risk. We recommend considering stronger ciphers
+ *                 instead.
  */
 void mbedtls_des_key_set_parity( unsigned char key[MBEDTLS_DES_KEY_SIZE] );
 
@@ -115,6 +134,10 @@ void mbedtls_des_key_set_parity( unsigned char key[MBEDTLS_DES_KEY_SIZE] );
  * \param key      8-byte secret key
  *
  * \return         0 is parity was ok, 1 if parity was not correct.
+ *
+ * \warning        DES is considered a weak cipher and its use constitutes a
+ *                 security risk. We recommend considering stronger ciphers
+ *                 instead.
  */
 int mbedtls_des_key_check_key_parity( const unsigned char key[MBEDTLS_DES_KEY_SIZE] );
 
@@ -124,6 +147,10 @@ int mbedtls_des_key_check_key_parity( const unsigned char key[MBEDTLS_DES_KEY_SI
  * \param key      8-byte secret key
  *
  * \return         0 if no weak key was found, 1 if a weak key was identified.
+ *
+ * \warning        DES is considered a weak cipher and its use constitutes a
+ *                 security risk. We recommend considering stronger ciphers
+ *                 instead.
  */
 int mbedtls_des_key_check_weak( const unsigned char key[MBEDTLS_DES_KEY_SIZE] );
 
@@ -134,6 +161,10 @@ int mbedtls_des_key_check_weak( const unsigned char key[MBEDTLS_DES_KEY_SIZE] );
  * \param key      8-byte secret key
  *
  * \return         0
+ *
+ * \warning        DES is considered a weak cipher and its use constitutes a
+ *                 security risk. We recommend considering stronger ciphers
+ *                 instead.
  */
 int mbedtls_des_setkey_enc( mbedtls_des_context *ctx, const unsigned char key[MBEDTLS_DES_KEY_SIZE] );
 
@@ -144,6 +175,10 @@ int mbedtls_des_setkey_enc( mbedtls_des_context *ctx, const unsigned char key[MB
  * \param key      8-byte secret key
  *
  * \return         0
+ *
+ * \warning        DES is considered a weak cipher and its use constitutes a
+ *                 security risk. We recommend considering stronger ciphers
+ *                 instead.
  */
 int mbedtls_des_setkey_dec( mbedtls_des_context *ctx, const unsigned char key[MBEDTLS_DES_KEY_SIZE] );
 
@@ -199,6 +234,10 @@ int mbedtls_des3_set3key_dec( mbedtls_des3_context *ctx,
  * \param output   64-bit output block
  *
  * \return         0 if successful
+ *
+ * \warning        DES is considered a weak cipher and its use constitutes a
+ *                 security risk. We recommend considering stronger ciphers
+ *                 instead.
  */
 int mbedtls_des_crypt_ecb( mbedtls_des_context *ctx,
                     const unsigned char input[8],
@@ -222,6 +261,10 @@ int mbedtls_des_crypt_ecb( mbedtls_des_context *ctx,
  * \param iv       initialization vector (updated after use)
  * \param input    buffer holding the input data
  * \param output   buffer holding the output data
+ *
+ * \warning        DES is considered a weak cipher and its use constitutes a
+ *                 security risk. We recommend considering stronger ciphers
+ *                 instead.
  */
 int mbedtls_des_crypt_cbc( mbedtls_des_context *ctx,
                     int mode,
@@ -280,30 +323,16 @@ int mbedtls_des3_crypt_cbc( mbedtls_des3_context *ctx,
  *
  * \param SK       Round keys
  * \param key      Base key
+ *
+ * \warning        DES is considered a weak cipher and its use constitutes a
+ *                 security risk. We recommend considering stronger ciphers
+ *                 instead.
  */
 void mbedtls_des_setkey( uint32_t SK[32],
                          const unsigned char key[MBEDTLS_DES_KEY_SIZE] );
-#ifdef __cplusplus
-}
-#endif
 
 #else  /* MBEDTLS_DES_ALT */
 #include "des_alt.h"
 #endif /* MBEDTLS_DES_ALT */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-/**
- * \brief          Checkup routine
- *
- * \return         0 if successful, or 1 if the test failed
- */
-int mbedtls_des_self_test( int verbose );
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* des.h */

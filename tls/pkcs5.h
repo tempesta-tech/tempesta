@@ -4,9 +4,10 @@
  * \brief PKCS#5 functions
  *
  * \author Mathias Olsson <mathias@kompetensum.com>
- *
+ */
+/*
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -41,10 +42,6 @@
 
 #define MBEDTLS_PKCS5_DECRYPT      0
 #define MBEDTLS_PKCS5_ENCRYPT      1
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /**
  * \brief          PKCS#5 PBES2 function
@@ -82,16 +79,5 @@ int mbedtls_pkcs5_pbkdf2_hmac( mbedtls_md_context_t *ctx, const unsigned char *p
                        size_t plen, const unsigned char *salt, size_t slen,
                        unsigned int iteration_count,
                        uint32_t key_length, unsigned char *output );
-
-/**
- * \brief          Checkup routine
- *
- * \return         0 if successful, or 1 if the test failed
- */
-int mbedtls_pkcs5_self_test( int verbose );
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* pkcs5.h */
