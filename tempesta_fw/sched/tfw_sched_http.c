@@ -390,6 +390,28 @@ err:
 }
 
 static int
+tfw_cfgop_match_new(TfwCfgSpec *cs, TfwCfgEntry *e)
+{
+	int r;
+	TfwCfgRule *rule = &e->rule;
+
+	if ((r = tfw_cfg_check_val_n(e, 0)))
+		return r;
+
+	if (e->attr_n) {
+		TFW_ERR_NL("Attibutes count must be zero\n");
+		return -EINVAL;
+	}
+
+	TFW_WARN_NL("TEST1!!! 'tfw_cfgop_match_new()' -> rule->fst = '%s'\n", rule->fst);
+	TFW_WARN_NL("TEST3!!! 'tfw_cfgop_match_new()' -> rule->snd = '%s'\n", rule->snd);
+	TFW_WARN_NL("TEST4!!! 'tfw_cfgop_match_new()' -> rule->act = '%s'\n", rule->act);
+	TFW_WARN_NL("TEST5!!! 'tfw_cfgop_match_new()' -> rule->val = '%s'\n", rule->val);
+
+	return 0;
+}
+
+static int
 tfw_cfgop_release_sg(TfwSchedHttpRule *rule)
 {
 	tfw_sg_put(rule->main_sg);
@@ -524,6 +546,14 @@ static TfwCfgSpec tfw_sched_http_rules_specs[] = {
 		.name = "match",
 		.deflt = NULL,
 		.handler = tfw_cfgop_match,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = TFW_CFG_RULE_NAME,
+		.deflt = NULL,
+		.handler = tfw_cfgop_match_new,
+		.allow_none = true,
 		.allow_repeat = true,
 		.allow_reconfig = true,
 	},

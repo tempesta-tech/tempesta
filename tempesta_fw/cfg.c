@@ -184,6 +184,15 @@ check_identifier(const char *buf, size_t len)
 	return true;
 }
 
+static inline void
+rule_reset(TfwCfgRule *rule)
+{
+	kfree(rule->fst);
+	kfree(rule->snd);
+	kfree(rule->act);
+	kfree(rule->val);
+}
+
 static void
 entry_reset(TfwCfgEntry *e)
 {
@@ -193,6 +202,7 @@ entry_reset(TfwCfgEntry *e)
 	BUG_ON(!e);
 
 	kfree(e->name);
+	kfree(e->ftoken);
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(e, i, val)
 		kfree(val);
@@ -202,23 +212,60 @@ entry_reset(TfwCfgEntry *e)
 		kfree(val);
 	}
 
+	rule_reset(&e->rule);
+
 	memset(e, 0, sizeof(*e));
 }
 
 static int
-entry_set_name(TfwCfgEntry *e, const char *name_src, size_t name_len)
+entry_set_name(TfwCfgEntry *e)
 {
+	int len;
+	const char *name;
+	bool rule = !e->ftoken;
+
 	BUG_ON(!e);
 	BUG_ON(e->name);
 
-	if (!name_src || !name_len)
+	TFW_WARN_NL("TEST10!!! 'entry_set_name()' -> e->name = '%s', e->ftoken = '%s'\n", e->name, e->ftoken);
+	if (!rule) {
+		name = e->ftoken;
+		len = strlen(e->ftoken);
+	} else {
+		name = TFW_CFG_RULE_NAME;
+		len = sizeof(TFW_CFG_RULE_NAME) - 1;
+	}
+
+	TFW_DBG3("set name: %.*s\n", len, name);
+
+	if (!check_identifier(name, len))
 		return -EINVAL;
 
-	if (!check_identifier(name_src, name_len))
+	if (!rule) {
+		e->name = e->ftoken;
+		e->ftoken = NULL;
+		return 0;
+	}
+
+	if (!(e->name = alloc_and_copy_literal(name, len)))
+		return -ENOMEM;
+
+	return 0;
+}
+
+static int
+entry_set_first_token(TfwCfgEntry *e, const char *src, int len)
+{
+	BUG_ON(!e);
+	BUG_ON(e->ftoken);
+
+	TFW_DBG3("set first token: %.*s\n", len, src);
+
+	if (!src || !len)
 		return -EINVAL;
 
-	e->name = alloc_and_copy_literal(name_src, name_len);
-	if (!e->name)
+	e->ftoken = alloc_and_copy_literal(src, len);
+	if (!e->ftoken)
 		return -ENOMEM;
 
 	return 0;
@@ -288,6 +335,18 @@ entry_add_attr(TfwCfgEntry *e, const char *key_src, size_t key_len,
 	return 0;
 }
 
+static int
+entry_add_rule_param(const char **param, const char *src, size_t len)
+{
+	const char *dst;
+
+	BUG_ON(!src);
+	if (!(dst = alloc_and_copy_literal(src, len)))
+		return -ENOMEM;
+	*param = dst;
+	return 0;
+}
+
 /*
  * ------------------------------------------------------------------------
  *	Configuration parser - tokenizer and parser FSMs
@@ -320,8 +379,11 @@ typedef enum {
 	TOKEN_LBRACE,
 	TOKEN_RBRACE,
 	TOKEN_EQSIGN,
+	TOKEN_DEQSIGN,
+	TOKEN_NEQSIGN,
 	TOKEN_SEMICOLON,
 	TOKEN_LITERAL,
+	TOKEN_ARROW,
 	_TOKEN_COUNT,
 } token_t;
 
@@ -445,6 +507,15 @@ do {								\
 #define PFSM_COND_MOVE(cond, to_state) \
 	FSM_COND_LAMBDA(cond, PFSM_MOVE(to_state))
 
+#define PFSM_COND_JMP_EXIT_ERROR(cond)				\
+do {								\
+	if (cond) {						\
+		TFW_DBG3("pfsm: rule error, %d -> %d", ps->prev_t, ps->t); \
+		ps->err = -EINVAL;				\
+		FSM_JMP(PS_EXIT);				\
+	}							\
+} while (0)
+
 /**
  * The TFSM (Tokenizer Finite State Machine).
  *
@@ -490,15 +561,49 @@ read_next_token(TfwCfgParserState *ps)
 		/* A comment is starts with '#' (and ends with a like break) */
 		TFSM_COND_MOVE(ps->c == '#', TS_COMMENT);
 
-		/* Self-meaning single-token characters. */
+		/* Self-meaning single-character tokens. */
 		TFSM_COND_MOVE_EXIT(ps->c == '{', TOKEN_LBRACE);
 		TFSM_COND_MOVE_EXIT(ps->c == '}', TOKEN_RBRACE);
-		TFSM_COND_MOVE_EXIT(ps->c == '=', TOKEN_EQSIGN);
 		TFSM_COND_MOVE_EXIT(ps->c == ';', TOKEN_SEMICOLON);
+
+		/* Self-meaning double-character tokens. */
+		TFSM_COND_MOVE(ps->c == '!' || ps->c == '-', TS_DCHAR);
+
+		/* Special cases to determine double-character tokens during
+		 * literals accumulating. */
+		TFSM_COND_MOVE_EXIT(ps->c == '=' && ps->prev_c == '!',
+				    TOKEN_NEQSIGN);
+		TFSM_COND_MOVE_EXIT(ps->c == '>' && ps->prev_c == '-',
+				    TOKEN_ARROW);
+
+		/* Special case to differ single equal sign from double one. */
+		TFSM_COND_MOVE(ps->c == '=', TS_EQSIGN);
 
 		/* Everything else is not a special character and therefore
 		 * it starts a literal. */
 		FSM_JMP(TS_LITERAL_FIRST_CHAR);
+	}
+
+	FSM_STATE(TS_DCHAR) {
+		TFSM_COND_JMP_EXIT(!ps->c, TOKEN_NA);
+
+		/* Jump to literals accumulating, if '!=' or '->' tokens are
+		 * not matched. */
+		TFSM_COND_MOVE_EXIT(ps->c == '=' && ps->prev_c == '!',
+				    TOKEN_NEQSIGN);
+		TFSM_COND_MOVE_EXIT(ps->c == '>' && ps->prev_c == '-',
+				    TOKEN_ARROW);
+		ps->lit = ps->pos - 1;
+		++ps->lit_len;
+		FSM_JMP(TS_LITERAL_ACCUMULATE);
+	}
+
+	FSM_STATE(TS_EQSIGN) {
+		TFSM_COND_JMP_EXIT(!ps->c, TOKEN_NA);
+
+		/* If this is double equal sign, eat second sign and exit. */
+		TFSM_COND_MOVE_EXIT(ps->c == '=', TOKEN_DEQSIGN);
+		TFSM_JMP_EXIT(TOKEN_EQSIGN);
 	}
 
 	FSM_STATE(TS_COMMENT) {
@@ -531,6 +636,10 @@ read_next_token(TfwCfgParserState *ps)
 		TFSM_COND_JMP_EXIT(ps->c == '}', TOKEN_LITERAL);
 		TFSM_COND_JMP_EXIT(ps->c == ';', TOKEN_LITERAL);
 		TFSM_COND_JMP_EXIT(ps->c == '=', TOKEN_LITERAL);
+
+		/* Non-escaped first char of double-character special tokens. */
+		TFSM_COND_MOVE(ps->c == '-' || ps->c == '!',
+			       TS_DOUBLE_CHARACTER_FIRST_CHAR);
 
 		/* Accumulate everything else. */
 		++ps->lit_len;
@@ -566,10 +675,55 @@ read_next_token(TfwCfgParserState *ps)
 		TFSM_MOVE(TS_QUOTED_LITERAL_ACCUMULATE);
 	}
 
+	FSM_STATE(TS_DOUBLE_CHARACTER_FIRST_CHAR) {
+		/* Check double-character tokens and continue accumulate
+		 * literal, if not matched. */
+		TFSM_COND_JMP_EXIT(ps->c == '>' && ps->prev_c == '-',
+				   TOKEN_LITERAL);
+		TFSM_COND_JMP_EXIT(ps->c == '=' && ps->prev_c == '!',
+				   TOKEN_LITERAL);
+		++ps->lit_len;
+		FSM_JMP(TS_LITERAL_ACCUMULATE);
+	}
+
 	FSM_STATE(TS_EXIT) {
 		TFW_DBG3("tfsm exit: t: %d, lit: %.*s\n",
 			 ps->t, ps->lit_len, ps->lit);
 	}
+}
+
+static int
+entry_set_cond(TfwCfgEntry *e, token_t cond_type, const char *src, int len)
+{
+	const char *name = TFW_CFG_RULE_NAME;
+	int name_len = sizeof(TFW_CFG_RULE_NAME) - 1;
+	TfwCfgRule *rule = &e->rule;
+
+	BUG_ON(!e->ftoken);
+	BUG_ON(e->name);
+
+	TFW_WARN_NL("TEST7!!! 'parse_cfg_entry()' -> PS_RULE_COND, (must be 4 or 5) ps->prev_t = '%d'\n", cond_type);
+
+	TFW_DBG3("set entry rule name '%.*s', 1st operand '%.*s', 2nd operand"
+		 " '%.*s', and condition type '%d'\n", name_len, name,
+		 (int)strlen(e->ftoken), e->ftoken, len, src, cond_type);
+
+	if (!src || !len)
+		return -EINVAL;
+
+	rule->fst = e->ftoken;
+	e->ftoken = NULL;
+
+	if (!(rule->snd = alloc_and_copy_literal(src, len)))
+		return -ENOMEM;
+
+	if (!(e->name = alloc_and_copy_literal(name, name_len)))
+		return -ENOMEM;
+
+	rule->type = cond_type == TOKEN_DEQSIGN
+		   ? TFW_CFG_COND_EQUAL
+		   : TFW_CFG_COND_NONEQUAL;
+	return 0;
 }
 
 /**
@@ -613,20 +767,72 @@ parse_cfg_entry(TfwCfgParserState *ps)
 	 *  name key = value;
 	 *  ^
 	 *  current literal is here; we need to store it as the name.
-	 */
+	 *///!!! change comment
 	FSM_STATE(PS_START_NEW_ENTRY) {
 		entry_reset(&ps->e);
-		TFW_DBG3("set name: %.*s\n", ps->lit_len, ps->lit);
-
-		ps->err = entry_set_name(&ps->e, ps->lit, ps->lit_len);
 		ps->e.line_no = ps->line_no;
 		ps->e.line = ps->line;
+
+		PFSM_COND_MOVE(ps->t == TOKEN_ARROW, PS_RULE_PURE_ACTION);
+
+		ps->err = entry_set_first_token(&ps->e, ps->lit, ps->lit_len);
 		FSM_COND_JMP(ps->err, PS_EXIT);
 
-		PFSM_MOVE(PS_VAL_OR_ATTR);
+		PFSM_MOVE(PS_PLAIN_OR_RULE);
 	}
 
-	/* The name was easy.
+	FSM_STATE(PS_PLAIN_OR_RULE) {
+		PFSM_COND_MOVE(ps->t == TOKEN_DEQSIGN ||
+			       ps->t == TOKEN_NEQSIGN,
+			       PS_RULE_COND);
+		ps->err = entry_set_name(&ps->e);
+		FSM_COND_JMP(ps->err, PS_EXIT);
+		FSM_JMP(PS_VAL_OR_ATTR);
+	}
+
+	FSM_STATE(PS_RULE_COND) {
+		PFSM_COND_JMP_EXIT_ERROR(ps->t != TOKEN_LITERAL);
+		ps->err = entry_set_cond(&ps->e, ps->prev_t, ps->lit,
+					 ps->lit_len);
+		FSM_COND_JMP(ps->err, PS_EXIT);
+		PFSM_MOVE(PS_RULE_COND_END);
+	}
+
+	FSM_STATE(PS_RULE_COND_END) {
+		PFSM_COND_JMP_EXIT_ERROR(ps->t != TOKEN_ARROW);
+		PFSM_MOVE(PS_RULE_ACTION);
+	}
+
+	FSM_STATE(PS_RULE_PURE_ACTION) {
+		ps->err = entry_set_name(&ps->e);
+		FSM_COND_JMP(ps->err, PS_EXIT);
+		FSM_JMP(PS_RULE_ACTION);
+	}
+
+	FSM_STATE(PS_RULE_ACTION) {
+		PFSM_COND_JMP_EXIT_ERROR(ps->t != TOKEN_LITERAL);
+		ps->err = entry_add_rule_param(&ps->e.rule.act, ps->lit,
+					       ps->lit_len);
+		FSM_COND_JMP(ps->err, PS_EXIT);
+		PFSM_MOVE(PS_RULE_ACTION_VAL);
+	}
+
+	FSM_STATE(PS_RULE_ACTION_VAL) {
+		FSM_COND_JMP(ps->t == TOKEN_SEMICOLON, PS_SEMICOLON);
+		PFSM_COND_JMP_EXIT_ERROR(ps->t != TOKEN_EQSIGN);
+		read_next_token(ps);
+		PFSM_COND_JMP_EXIT_ERROR(ps->t != TOKEN_LITERAL);
+
+		ps->err = entry_add_rule_param(&ps->e.rule.val, ps->lit,
+					       ps->lit_len);
+		FSM_COND_JMP(ps->err, PS_EXIT);
+
+		read_next_token(ps);
+		PFSM_COND_JMP_EXIT_ERROR(ps->t != TOKEN_SEMICOLON);
+		FSM_JMP(PS_SEMICOLON);
+	}//!!! comments in rule states
+
+	/*
 	 * Now we have a situation where at current position we don't know
 	 * whether we have a value or an attribute:
 	 *     name key = value;
