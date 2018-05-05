@@ -2,7 +2,7 @@
  *  An 32-bit implementation of the XTEA algorithm
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -33,15 +33,6 @@
 #include "xtea.h"
 
 #include <string.h>
-
-#if defined(MBEDTLS_SELF_TEST)
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdio.h>
-#define mbedtls_printf printf
-#endif /* MBEDTLS_PLATFORM_C */
-#endif /* MBEDTLS_SELF_TEST */
 
 #if !defined(MBEDTLS_XTEA_ALT)
 
@@ -195,8 +186,6 @@ int mbedtls_xtea_crypt_cbc( mbedtls_xtea_context *ctx, int mode, size_t length,
 #endif /* MBEDTLS_CIPHER_MODE_CBC */
 #endif /* !MBEDTLS_XTEA_ALT */
 
-#if defined(MBEDTLS_SELF_TEST)
-
 /*
  * XTEA tests vectors (non-official)
  */
@@ -278,7 +267,5 @@ exit:
 
     return( ret );
 }
-
-#endif /* MBEDTLS_SELF_TEST */
 
 #endif /* MBEDTLS_XTEA_C */

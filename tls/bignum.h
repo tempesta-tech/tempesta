@@ -1,10 +1,11 @@
 /**
  * \file bignum.h
  *
- * \brief  Multi-precision integer library
- *
+ * \brief Multi-precision integer library
+ */
+/*
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -26,27 +27,22 @@
 #ifndef MBEDTLS_BIGNUM_H
 #define MBEDTLS_BIGNUM_H
 
-#if !defined(MBEDTLS_CONFIG_FILE)
-#include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
-#include <stddef.h>
-#include <stdint.h>
-
-#if defined(MBEDTLS_FS_IO)
-#include <stdio.h>
-#endif
-
-#define MBEDTLS_ERR_MPI_FILE_IO_ERROR                     -0x0002  /**< An error occurred while reading from or writing to a file. */
-#define MBEDTLS_ERR_MPI_BAD_INPUT_DATA                    -0x0004  /**< Bad input parameters to function. */
-#define MBEDTLS_ERR_MPI_INVALID_CHARACTER                 -0x0006  /**< There is an invalid character in the digit string. */
-#define MBEDTLS_ERR_MPI_BUFFER_TOO_SMALL                  -0x0008  /**< The buffer is too small to write to. */
-#define MBEDTLS_ERR_MPI_NEGATIVE_VALUE                    -0x000A  /**< The input arguments are negative or result in illegal output. */
-#define MBEDTLS_ERR_MPI_DIVISION_BY_ZERO                  -0x000C  /**< The input argument for division is zero, which is not allowed. */
-#define MBEDTLS_ERR_MPI_NOT_ACCEPTABLE                    -0x000E  /**< The input arguments are not acceptable. */
-#define MBEDTLS_ERR_MPI_ALLOC_FAILED                      -0x0010  /**< Memory allocation failed. */
+/**< An error occurred while reading from or writing to a file. */
+#define MBEDTLS_ERR_MPI_FILE_IO_ERROR                     -0x0002
+/**< Bad input parameters to function. */
+#define MBEDTLS_ERR_MPI_BAD_INPUT_DATA                    -0x0004
+/**< There is an invalid character in the digit string. */
+#define MBEDTLS_ERR_MPI_INVALID_CHARACTER                 -0x0006
+/**< The buffer is too small to write to. */
+#define MBEDTLS_ERR_MPI_BUFFER_TOO_SMALL                  -0x0008
+/**< The input arguments are negative or result in illegal output. */
+#define MBEDTLS_ERR_MPI_NEGATIVE_VALUE                    -0x000A
+/**< The input argument for division is zero, which is not allowed. */
+#define MBEDTLS_ERR_MPI_DIVISION_BY_ZERO                  -0x000C
+/**< The input arguments are not acceptable. */
+#define MBEDTLS_ERR_MPI_NOT_ACCEPTABLE                    -0x000E
+/**< Memory allocation failed. */
+#define MBEDTLS_ERR_MPI_ALLOC_FAILED                      -0x0010
 
 #define MBEDTLS_MPI_CHK(f) do { if( ( ret = f ) != 0 ) goto cleanup; } while( 0 )
 
@@ -55,7 +51,6 @@
  */
 #define MBEDTLS_MPI_MAX_LIMBS                             10000
 
-#if !defined(MBEDTLS_MPI_WINDOW_SIZE)
 /*
  * Maximum window size used for modular exponentiation. Default: 6
  * Minimum value: 1. Maximum value: 6.
@@ -65,21 +60,19 @@
  *
  * Reduction in size, reduces speed.
  */
-#define MBEDTLS_MPI_WINDOW_SIZE                           6        /**< Maximum windows size used. */
-#endif /* !MBEDTLS_MPI_WINDOW_SIZE */
+#define MBEDTLS_MPI_WINDOW_SIZE                           6
 
-#if !defined(MBEDTLS_MPI_MAX_SIZE)
 /*
  * Maximum size of MPIs allowed in bits and bytes for user-MPIs.
  * ( Default: 512 bytes => 4096 bits, Maximum tested: 2048 bytes => 16384 bits )
  *
- * Note: Calculations can results temporarily in larger MPIs. So the number
+ * Note: Calculations can temporarily result in larger MPIs. So the number
  * of limbs required (MBEDTLS_MPI_MAX_LIMBS) is higher.
  */
-#define MBEDTLS_MPI_MAX_SIZE                              1024     /**< Maximum number of bytes for usable MPIs. */
-#endif /* !MBEDTLS_MPI_MAX_SIZE */
+#define MBEDTLS_MPI_MAX_SIZE                              1024
 
-#define MBEDTLS_MPI_MAX_BITS                              ( 8 * MBEDTLS_MPI_MAX_SIZE )    /**< Maximum number of bits for usable MPIs. */
+/**< Maximum number of bits for usable MPIs. */
+#define MBEDTLS_MPI_MAX_BITS                              ( 8 * MBEDTLS_MPI_MAX_SIZE )
 
 /*
  * When reading from files with mbedtls_mpi_read_file() and writing to files with
@@ -103,43 +96,8 @@
 #define MBEDTLS_LN_2_DIV_LN_10_SCALE100                 332
 #define MBEDTLS_MPI_RW_BUFFER_SIZE             ( ((MBEDTLS_MPI_MAX_BITS_SCALE100 + MBEDTLS_LN_2_DIV_LN_10_SCALE100 - 1) / MBEDTLS_LN_2_DIV_LN_10_SCALE100) + 10 + 6 )
 
-/*
- * Define the base integer type, architecture-wise.
- *
- * 32-bit integers can be forced on 64-bit arches (eg. for testing purposes)
- * by defining MBEDTLS_HAVE_INT32 and undefining MBEDTLS_HAVE_ASM
- */
-#if ( ! defined(MBEDTLS_HAVE_INT32) && \
-        defined(_MSC_VER) && defined(_M_AMD64) )
-  #define MBEDTLS_HAVE_INT64
-  typedef  int64_t mbedtls_mpi_sint;
-  typedef uint64_t mbedtls_mpi_uint;
-#else
-  #if ( ! defined(MBEDTLS_HAVE_INT32) &&               \
-        defined(__GNUC__) && (                          \
-        defined(__amd64__) || defined(__x86_64__)    || \
-        defined(__ppc64__) || defined(__powerpc64__) || \
-        defined(__ia64__)  || defined(__alpha__)     || \
-        (defined(__sparc__) && defined(__arch64__))  || \
-        defined(__s390x__) || defined(__mips64) ) )
-     #define MBEDTLS_HAVE_INT64
-     typedef  int64_t mbedtls_mpi_sint;
-     typedef uint64_t mbedtls_mpi_uint;
-     /* mbedtls_t_udbl defined as 128-bit unsigned int */
-     typedef unsigned int mbedtls_t_udbl __attribute__((mode(TI)));
-     #define MBEDTLS_HAVE_UDBL
-  #else
-     #define MBEDTLS_HAVE_INT32
-     typedef  int32_t mbedtls_mpi_sint;
-     typedef uint32_t mbedtls_mpi_uint;
-     typedef uint64_t mbedtls_t_udbl;
-     #define MBEDTLS_HAVE_UDBL
-  #endif /* !MBEDTLS_HAVE_INT32 && __GNUC__ && 64-bit platform */
-#endif /* !MBEDTLS_HAVE_INT32 && _MSC_VER && _M_AMD64 */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+typedef  int64_t mbedtls_mpi_sint;
+typedef uint64_t mbedtls_mpi_uint;
 
 /**
  * \brief          MPI structure
@@ -149,7 +107,7 @@ typedef struct
     int s;              /*!<  integer sign      */
     size_t n;           /*!<  total # of limbs  */
     mbedtls_mpi_uint *p;          /*!<  pointer to limbs  */
-}
+} __attribute__((packed))
 mbedtls_mpi;
 
 /**
@@ -340,35 +298,6 @@ int mbedtls_mpi_read_string( mbedtls_mpi *X, int radix, const char *s );
  */
 int mbedtls_mpi_write_string( const mbedtls_mpi *X, int radix,
                               char *buf, size_t buflen, size_t *olen );
-
-#if defined(MBEDTLS_FS_IO)
-/**
- * \brief          Read X from an opened file
- *
- * \param X        Destination MPI
- * \param radix    Input numeric base
- * \param fin      Input file handle
- *
- * \return         0 if successful, MBEDTLS_ERR_MPI_BUFFER_TOO_SMALL if
- *                 the file read buffer is too small or a
- *                 MBEDTLS_ERR_MPI_XXX error code
- */
-int mbedtls_mpi_read_file( mbedtls_mpi *X, int radix, FILE *fin );
-
-/**
- * \brief          Write X into an opened file, or stdout if fout is NULL
- *
- * \param p        Prefix, can be NULL
- * \param X        Source MPI
- * \param radix    Output numeric base
- * \param fout     Output file handle (can be NULL)
- *
- * \return         0 if successful, or a MBEDTLS_ERR_MPI_XXX error code
- *
- * \note           Set fout == NULL to print X on the console.
- */
-int mbedtls_mpi_write_file( const char *p, const mbedtls_mpi *X, int radix, FILE *fout );
-#endif /* MBEDTLS_FS_IO */
 
 /**
  * \brief          Import X from unsigned binary data, big endian
@@ -642,6 +571,10 @@ int mbedtls_mpi_exp_mod( mbedtls_mpi *X, const mbedtls_mpi *A, const mbedtls_mpi
  *
  * \return         0 if successful,
  *                 MBEDTLS_ERR_MPI_ALLOC_FAILED if memory allocation failed
+ *
+ * \note           The bytes obtained from the PRNG are interpreted
+ *                 as a big-endian representation of an MPI; this can
+ *                 be relevant in applications like deterministic ECDSA.
  */
 int mbedtls_mpi_fill_random( mbedtls_mpi *X, size_t size,
                      int (*f_rng)(void *, unsigned char *, size_t),
@@ -668,8 +601,8 @@ int mbedtls_mpi_gcd( mbedtls_mpi *G, const mbedtls_mpi *A, const mbedtls_mpi *B 
  *
  * \return         0 if successful,
  *                 MBEDTLS_ERR_MPI_ALLOC_FAILED if memory allocation failed,
- *                 MBEDTLS_ERR_MPI_BAD_INPUT_DATA if N is negative or nil
-                   MBEDTLS_ERR_MPI_NOT_ACCEPTABLE if A has no inverse mod N
+ *                 MBEDTLS_ERR_MPI_BAD_INPUT_DATA if N is <= 1,
+                   MBEDTLS_ERR_MPI_NOT_ACCEPTABLE if A has no inverse mod N.
  */
 int mbedtls_mpi_inv_mod( mbedtls_mpi *X, const mbedtls_mpi *A, const mbedtls_mpi *N );
 
@@ -706,15 +639,7 @@ int mbedtls_mpi_gen_prime( mbedtls_mpi *X, size_t nbits, int dh_flag,
                    int (*f_rng)(void *, unsigned char *, size_t),
                    void *p_rng );
 
-/**
- * \brief          Checkup routine
- *
- * \return         0 if successful, or 1 if the test failed
- */
-int mbedtls_mpi_self_test( int verbose );
-
-#ifdef __cplusplus
-}
-#endif
+int ttls_mpi_init(void);
+void ttls_mpi_exit(void);
 
 #endif /* bignum.h */

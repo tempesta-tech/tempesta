@@ -2,9 +2,10 @@
  * \file hmac_drbg.h
  *
  * \brief HMAC_DRBG (NIST SP 800-90A)
- *
+ */
+/*
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -27,10 +28,6 @@
 #define MBEDTLS_HMAC_DRBG_H
 
 #include "md.h"
-
-#if defined(MBEDTLS_THREADING_C)
-#include "threading.h"
-#endif
 
 /*
  * Error codes
@@ -69,10 +66,6 @@
 #define MBEDTLS_HMAC_DRBG_PR_OFF   0   /**< No prediction resistance       */
 #define MBEDTLS_HMAC_DRBG_PR_ON    1   /**< Prediction resistance enabled  */
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /**
  * HMAC_DRBG context.
  */
@@ -94,9 +87,7 @@ typedef struct
     int (*f_entropy)(void *, unsigned char *, size_t); /*!< entropy function */
     void *p_entropy;            /*!< context for the entropy function        */
 
-#if defined(MBEDTLS_THREADING_C)
-    mbedtls_threading_mutex_t mutex;
-#endif
+    spinlock_t mutex;
 } mbedtls_hmac_drbg_context;
 
 /**
@@ -258,45 +249,5 @@ int mbedtls_hmac_drbg_random( void *p_rng, unsigned char *output, size_t out_len
  * \param ctx           HMAC_DRBG context to free.
  */
 void mbedtls_hmac_drbg_free( mbedtls_hmac_drbg_context *ctx );
-
-#if defined(MBEDTLS_FS_IO)
-/**
- * \brief               Write a seed file
- *
- * \param ctx           HMAC_DRBG context
- * \param path          Name of the file
- *
- * \return              0 if successful, 1 on file error, or
- *                      MBEDTLS_ERR_HMAC_DRBG_ENTROPY_SOURCE_FAILED
- */
-int mbedtls_hmac_drbg_write_seed_file( mbedtls_hmac_drbg_context *ctx, const char *path );
-
-/**
- * \brief               Read and update a seed file. Seed is added to this
- *                      instance
- *
- * \param ctx           HMAC_DRBG context
- * \param path          Name of the file
- *
- * \return              0 if successful, 1 on file error,
- *                      MBEDTLS_ERR_HMAC_DRBG_ENTROPY_SOURCE_FAILED or
- *                      MBEDTLS_ERR_HMAC_DRBG_INPUT_TOO_BIG
- */
-int mbedtls_hmac_drbg_update_seed_file( mbedtls_hmac_drbg_context *ctx, const char *path );
-#endif /* MBEDTLS_FS_IO */
-
-
-#if defined(MBEDTLS_SELF_TEST)
-/**
- * \brief               Checkup routine
- *
- * \return              0 if successful, or 1 if the test failed
- */
-int mbedtls_hmac_drbg_self_test( int verbose );
-#endif
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* hmac_drbg.h */

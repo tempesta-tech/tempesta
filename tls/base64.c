@@ -2,7 +2,7 @@
  *  RFC 1521 base64 encoding/decoding
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -33,16 +33,6 @@
 #include "base64.h"
 
 #include <stdint.h>
-
-#if defined(MBEDTLS_SELF_TEST)
-#include <string.h>
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdio.h>
-#define mbedtls_printf printf
-#endif /* MBEDTLS_PLATFORM_C */
-#endif /* MBEDTLS_SELF_TEST */
 
 static const unsigned char base64_enc_map[64] =
 {
@@ -195,7 +185,11 @@ int mbedtls_base64_decode( unsigned char *dst, size_t dlen, size_t *olen,
         return( 0 );
     }
 
-    n = ( ( n * 6 ) + 7 ) >> 3;
+    /* The following expression is to calculate the following formula without
+     * risk of integer overflow in n:
+     *     n = ( ( n * 6 ) + 7 ) >> 3;
+     */
+    n = ( 6 * ( n >> 3 ) ) + ( ( 6 * ( n & 0x7 ) + 7 ) >> 3 );
     n -= j;
 
     if( dst == NULL || dlen < n )
@@ -225,8 +219,6 @@ int mbedtls_base64_decode( unsigned char *dst, size_t dlen, size_t *olen,
 
     return( 0 );
 }
-
-#if defined(MBEDTLS_SELF_TEST)
 
 static const unsigned char base64_test_dec[64] =
 {
@@ -286,7 +278,5 @@ int mbedtls_base64_self_test( int verbose )
 
     return( 0 );
 }
-
-#endif /* MBEDTLS_SELF_TEST */
 
 #endif /* MBEDTLS_BASE64_C */

@@ -2,7 +2,7 @@
  *  \brief HAVEGE: HArdware Volatile Entropy Gathering and Expansion
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -28,6 +28,8 @@
  *
  *  Contact: seznec(at)irisa_dot_fr - orocheco(at)irisa_dot_fr
  */
+#include <linux/jiffies.h>
+#include <linux/timex.h>
 
 #if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
@@ -38,8 +40,6 @@
 #if defined(MBEDTLS_HAVEGE_C)
 
 #include "havege.h"
-#include "timing.h"
-
 #include <string.h>
 
 /* Implementation that should never be optimized out by the compiler */
@@ -84,7 +84,7 @@ static void mbedtls_zeroize( void *v, size_t n ) {
     PTX = (PT1 >> 18) & 7;                              \
     PT1 &= 0x1FFF;                                      \
     PT2 &= 0x1FFF;                                      \
-    CLK = (int) mbedtls_timing_hardclock();                            \
+    CLK = (int)get_cycles();                            \
                                                         \
     i = 0;                                              \
     A = &WALK[PT1    ]; RES[i++] ^= *A;                 \
@@ -107,7 +107,7 @@ static void mbedtls_zeroize( void *v, size_t n ) {
                                                         \
     IN = (*A >> (5)) ^ (*A << (27)) ^ CLK;              \
     *A = (*B >> (6)) ^ (*B << (26)) ^ CLK;              \
-    *B = IN; CLK = (int) mbedtls_timing_hardclock();                   \
+    *B = IN; CLK = (int)get_cycles();                   \
     *C = (*C >> (7)) ^ (*C << (25)) ^ CLK;              \
     *D = (*D >> (8)) ^ (*D << (24)) ^ CLK;              \
                                                         \
