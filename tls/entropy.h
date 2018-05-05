@@ -2,9 +2,10 @@
  * \file entropy.h
  *
  * \brief Entropy accumulator implementation
- *
+ */
+/*
  *  Copyright (C) 2006-2016, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -42,10 +43,6 @@
 #define MBEDTLS_ENTROPY_SHA256_ACCUMULATOR
 #include "sha256.h"
 #endif
-#endif
-
-#if defined(MBEDTLS_THREADING_C)
-#include "threading.h"
 #endif
 
 #if defined(MBEDTLS_HAVEGE_C)
@@ -88,10 +85,6 @@
 #define MBEDTLS_ENTROPY_SOURCE_STRONG   1       /**< Entropy source is strong   */
 #define MBEDTLS_ENTROPY_SOURCE_WEAK     0       /**< Entropy source is weak     */
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /**
  * \brief           Entropy poll callback pointer
  *
@@ -124,6 +117,7 @@ mbedtls_entropy_source_state;
  */
 typedef struct
 {
+    int accumulator_started;
 #if defined(MBEDTLS_ENTROPY_SHA512_ACCUMULATOR)
     mbedtls_sha512_context  accumulator;
 #else
@@ -134,12 +128,7 @@ typedef struct
 #if defined(MBEDTLS_HAVEGE_C)
     mbedtls_havege_state    havege_data;
 #endif
-#if defined(MBEDTLS_THREADING_C)
-    mbedtls_threading_mutex_t mutex;    /*!< mutex                  */
-#endif
-#if defined(MBEDTLS_ENTROPY_NV_SEED)
-    int initial_entropy_run;
-#endif
+    spinlock_t mutex;    /*!< mutex                  */
 }
 mbedtls_entropy_context;
 
@@ -159,7 +148,6 @@ void mbedtls_entropy_free( mbedtls_entropy_context *ctx );
 
 /**
  * \brief           Adds an entropy source to poll
- *                  (Thread-safe if MBEDTLS_THREADING_C is enabled)
  *
  * \param ctx       Entropy context
  * \param f_source  Entropy function
@@ -180,7 +168,6 @@ int mbedtls_entropy_add_source( mbedtls_entropy_context *ctx,
 
 /**
  * \brief           Trigger an extra gather poll for the accumulator
- *                  (Thread-safe if MBEDTLS_THREADING_C is enabled)
  *
  * \param ctx       Entropy context
  *
@@ -191,7 +178,6 @@ int mbedtls_entropy_gather( mbedtls_entropy_context *ctx );
 /**
  * \brief           Retrieve entropy from the accumulator
  *                  (Maximum length: MBEDTLS_ENTROPY_BLOCK_SIZE)
- *                  (Thread-safe if MBEDTLS_THREADING_C is enabled)
  *
  * \param data      Entropy context
  * \param output    Buffer to fill
@@ -203,7 +189,6 @@ int mbedtls_entropy_func( void *data, unsigned char *output, size_t len );
 
 /**
  * \brief           Add data to the accumulator manually
- *                  (Thread-safe if MBEDTLS_THREADING_C is enabled)
  *
  * \param ctx       Entropy context
  * \param data      Data to add
@@ -213,58 +198,5 @@ int mbedtls_entropy_func( void *data, unsigned char *output, size_t len );
  */
 int mbedtls_entropy_update_manual( mbedtls_entropy_context *ctx,
                            const unsigned char *data, size_t len );
-
-#if defined(MBEDTLS_ENTROPY_NV_SEED)
-/**
- * \brief           Trigger an update of the seed file in NV by using the
- *                  current entropy pool.
- *
- * \param ctx       Entropy context
- *
- * \return          0 if successful
- */
-int mbedtls_entropy_update_nv_seed( mbedtls_entropy_context *ctx );
-#endif /* MBEDTLS_ENTROPY_NV_SEED */
-
-#if defined(MBEDTLS_FS_IO)
-/**
- * \brief               Write a seed file
- *
- * \param ctx           Entropy context
- * \param path          Name of the file
- *
- * \return              0 if successful,
- *                      MBEDTLS_ERR_ENTROPY_FILE_IO_ERROR on file error, or
- *                      MBEDTLS_ERR_ENTROPY_SOURCE_FAILED
- */
-int mbedtls_entropy_write_seed_file( mbedtls_entropy_context *ctx, const char *path );
-
-/**
- * \brief               Read and update a seed file. Seed is added to this
- *                      instance. No more than MBEDTLS_ENTROPY_MAX_SEED_SIZE bytes are
- *                      read from the seed file. The rest is ignored.
- *
- * \param ctx           Entropy context
- * \param path          Name of the file
- *
- * \return              0 if successful,
- *                      MBEDTLS_ERR_ENTROPY_FILE_IO_ERROR on file error,
- *                      MBEDTLS_ERR_ENTROPY_SOURCE_FAILED
- */
-int mbedtls_entropy_update_seed_file( mbedtls_entropy_context *ctx, const char *path );
-#endif /* MBEDTLS_FS_IO */
-
-#if defined(MBEDTLS_SELF_TEST)
-/**
- * \brief          Checkup routine
- *
- * \return         0 if successful, or 1 if a test failed
- */
-int mbedtls_entropy_self_test( int verbose );
-#endif /* MBEDTLS_SELF_TEST */
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* entropy.h */

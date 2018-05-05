@@ -2,9 +2,10 @@
  * \file camellia.h
  *
  * \brief Camellia block cipher
- *
+ */
+/*
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -40,14 +41,11 @@
 
 #define MBEDTLS_ERR_CAMELLIA_INVALID_KEY_LENGTH           -0x0024  /**< Invalid key length. */
 #define MBEDTLS_ERR_CAMELLIA_INVALID_INPUT_LENGTH         -0x0026  /**< Invalid data input length. */
+#define MBEDTLS_ERR_CAMELLIA_HW_ACCEL_FAILED              -0x0027  /**< Camellia hardware accelerator failed. */
 
 #if !defined(MBEDTLS_CAMELLIA_ALT)
 // Regular implementation
 //
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /**
  * \brief          CAMELLIA context structure
@@ -212,27 +210,8 @@ int mbedtls_camellia_crypt_ctr( mbedtls_camellia_context *ctx,
                        unsigned char *output );
 #endif /* MBEDTLS_CIPHER_MODE_CTR */
 
-#ifdef __cplusplus
-}
-#endif
-
 #else  /* MBEDTLS_CAMELLIA_ALT */
 #include "camellia_alt.h"
 #endif /* MBEDTLS_CAMELLIA_ALT */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-/**
- * \brief          Checkup routine
- *
- * \return         0 if successful, or 1 if the test failed
- */
-int mbedtls_camellia_self_test( int verbose );
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* camellia.h */

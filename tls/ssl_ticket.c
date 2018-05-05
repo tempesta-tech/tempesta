@@ -2,7 +2,7 @@
  *  TLS server tickets callbacks implementation
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -36,8 +36,6 @@
 #include <stdlib.h>
 #define mbedtls_calloc    calloc
 #define mbedtls_free      free
-#define mbedtls_time      time
-#define mbedtls_time_t    time_t
 #endif
 
 #include "ssl_ticket.h"
@@ -55,10 +53,7 @@ static void mbedtls_zeroize( void *v, size_t n ) {
 void mbedtls_ssl_ticket_init( mbedtls_ssl_ticket_context *ctx )
 {
     memset( ctx, 0, sizeof( mbedtls_ssl_ticket_context ) );
-
-#if defined(MBEDTLS_THREADING_C)
-    mbedtls_mutex_init( &ctx->mutex );
-#endif
+    spin_lock_init( &ctx->mutex );
 }
 
 #define MAX_KEY_BYTES 32    /* 256 bits */
@@ -73,9 +68,7 @@ static int ssl_ticket_gen_key( mbedtls_ssl_ticket_context *ctx,
     unsigned char buf[MAX_KEY_BYTES];
     mbedtls_ssl_ticket_key *key = ctx->keys + index;
 
-#if defined(MBEDTLS_HAVE_TIME)
     key->generation_time = (uint32_t) mbedtls_time( NULL );
-#endif
 
     if( ( ret = ctx->f_rng( ctx->p_rng, key->name, sizeof( key->name ) ) ) != 0 )
         return( ret );
@@ -98,9 +91,6 @@ static int ssl_ticket_gen_key( mbedtls_ssl_ticket_context *ctx,
  */
 static int ssl_ticket_update_keys( mbedtls_ssl_ticket_context *ctx )
 {
-#if !defined(MBEDTLS_HAVE_TIME)
-    ((void) ctx);
-#else
     if( ctx->ticket_lifetime != 0 )
     {
         uint32_t current_time = (uint32_t) mbedtls_time( NULL );
@@ -117,7 +107,6 @@ static int ssl_ticket_update_keys( mbedtls_ssl_ticket_context *ctx )
         return( ssl_ticket_gen_key( ctx, ctx->active ) );
     }
     else
-#endif /* MBEDTLS_HAVE_TIME */
         return( 0 );
 }
 
@@ -314,10 +303,7 @@ int mbedtls_ssl_ticket_write( void *p_ticket,
     if( end - start < 4 + 12 + 2 + 16 )
         return( MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL );
 
-#if defined(MBEDTLS_THREADING_C)
-    if( ( ret = mbedtls_mutex_lock( &ctx->mutex ) ) != 0 )
-        return( ret );
-#endif
+    spin_lock( &ctx->mutex );
 
     if( ( ret = ssl_ticket_update_keys( ctx ) ) != 0 )
         goto cleanup;
@@ -358,10 +344,7 @@ int mbedtls_ssl_ticket_write( void *p_ticket,
     *tlen = 4 + 12 + 2 + 16 + ciph_len;
 
 cleanup:
-#if defined(MBEDTLS_THREADING_C)
-    if( mbedtls_mutex_unlock( &ctx->mutex ) != 0 )
-        return( MBEDTLS_ERR_THREADING_MUTEX_ERROR );
-#endif
+    spin_unlock( &ctx->mutex );
 
     return( ret );
 }
@@ -407,10 +390,7 @@ int mbedtls_ssl_ticket_parse( void *p_ticket,
     if( len < 4 + 12 + 2 + 16 )
         return( MBEDTLS_ERR_SSL_BAD_INPUT_DATA );
 
-#if defined(MBEDTLS_THREADING_C)
-    if( ( ret = mbedtls_mutex_lock( &ctx->mutex ) ) != 0 )
-        return( ret );
-#endif
+    spin_lock( &ctx->mutex );
 
     if( ( ret = ssl_ticket_update_keys( ctx ) ) != 0 )
         goto cleanup;
@@ -453,10 +433,9 @@ int mbedtls_ssl_ticket_parse( void *p_ticket,
     if( ( ret = ssl_load_session( session, ticket, clear_len ) ) != 0 )
         goto cleanup;
 
-#if defined(MBEDTLS_HAVE_TIME)
     {
         /* Check for expiration */
-        mbedtls_time_t current_time = mbedtls_time( NULL );
+        time_t current_time = mbedtls_time( NULL );
 
         if( current_time < session->start ||
             (uint32_t)( current_time - session->start ) > ctx->ticket_lifetime )
@@ -465,13 +444,9 @@ int mbedtls_ssl_ticket_parse( void *p_ticket,
             goto cleanup;
         }
     }
-#endif
 
 cleanup:
-#if defined(MBEDTLS_THREADING_C)
-    if( mbedtls_mutex_unlock( &ctx->mutex ) != 0 )
-        return( MBEDTLS_ERR_THREADING_MUTEX_ERROR );
-#endif
+    spin_unlock( &ctx->mutex );
 
     return( ret );
 }
@@ -483,11 +458,6 @@ void mbedtls_ssl_ticket_free( mbedtls_ssl_ticket_context *ctx )
 {
     mbedtls_cipher_free( &ctx->keys[0].ctx );
     mbedtls_cipher_free( &ctx->keys[1].ctx );
-
-#if defined(MBEDTLS_THREADING_C)
-    mbedtls_mutex_free( &ctx->mutex );
-#endif
-
     mbedtls_zeroize( ctx, sizeof( mbedtls_ssl_ticket_context ) );
 }
 
