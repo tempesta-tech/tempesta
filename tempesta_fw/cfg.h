@@ -48,6 +48,22 @@
 #define TFW_CFG_ENTRY_VAL_MAX  16
 #define TFW_CFG_ENTRY_ATTR_MAX 16
 
+typedef enum {
+	TFW_CFG_COND_EQUAL = 0,
+	TFW_CFG_COND_NONEQUAL
+} tfw_cfg_cond_t;
+
+//!!! comment
+typedef struct {
+	tfw_cfg_cond_t	type;
+	const char *fst;
+	const char *snd;
+	const char *act;
+	const char *val;
+} TfwCfgRule;
+
+#define TFW_CFG_RULE_NAME	"rule"
+
 /**
  * TfwCfgEntry represents a single parsed entry in a configuration file.
  *
@@ -93,7 +109,7 @@
  * These two members help to show a proper parsing error to a user:
  * @line_no	- Current line number in the configuration file.
  * @line	- Pointer to the start of the current line.
- */
+ *///!!! add comment about @rule and @ftoken;
 typedef struct {
 	struct {
 		bool have_children : 1;
@@ -107,6 +123,8 @@ typedef struct {
 		const char *key;
 		const char *val;
 	} attrs[TFW_CFG_ENTRY_ATTR_MAX];
+	TfwCfgRule rule;
+	const char *ftoken;
 	size_t line_no;
 	const char *line;
 } TfwCfgEntry;
