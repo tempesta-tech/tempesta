@@ -1,7 +1,5 @@
 #!/usr/bin/env perl
 #
-# Tempesta-Tech.com Web site compilation tool.
-#
 # Copyright (C) 2017-2018 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
@@ -17,7 +15,6 @@
 # You should have received a copy of the GNU General Public License along with
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
-
 use 5.16.0;
 use strict;
 use warnings;
@@ -25,9 +22,6 @@ use File::Basename;
 use POSIX;
 use Template;
 use Cwd 'abs_path';
-
-
-use lib dirname($0); # lookup Packer in current directory
 
 my ($template, $sticky_name, $delay_min, $delay_range) = @ARGV;
 
@@ -56,7 +50,6 @@ sub assemble
 }
 
 assemble(abs_path($template));
-
 
 __END__
 
