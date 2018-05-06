@@ -22,7 +22,7 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include "tempesta_fw.h"
-#include "classifier.h"
+#include "http_limits.h"
 #include "stress.h"
 
 /* TODO replace by RCU list. */

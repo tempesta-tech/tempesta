@@ -23,7 +23,7 @@
 #include "http_msg.h"
 #include "vhost.h"
 #include "str.h"
-#include "classifier/frang.h"
+#include "http_limits.h"
 
 /**
  * Control object for holding full set of virtual hosts specific for current
@@ -38,7 +38,7 @@
 typedef struct {
 	struct list_head head;
 	TfwVhost	*vhost_dflt;
-	bool		expl_dflt:1;
+	bool		expl_dflt;
 } TfwVhostList;
 
 /* Mappings for match operators. */
@@ -285,7 +285,7 @@ tfw_vhost_act_location(TfwHttpReq *req)
 }
 
 /*
- * Search server connetcion in main or backup server groups in
+ * Search server connection in main or backup server groups in
  * locations of the request's current vhost.
  */
 TfwSrvConn *

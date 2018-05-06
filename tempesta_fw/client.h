@@ -21,7 +21,7 @@
 #ifndef __TFW_CLIENT_H__
 #define __TFW_CLIENT_H__
 
-#include "classifier.h"
+#include "http_limits.h"
 #include "connection.h"
 
 /**
