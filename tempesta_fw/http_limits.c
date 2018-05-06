@@ -1,27 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Simple classification module that enforces the following limits:
- *
- * Time-related limits per client:
- *	- HTTP requests rate (number of requests per second);
- *	- HTTP requests burst (maximum rate per 1/FRANG_FREQ of a second);
- *	- new connections rate (number of new connections per second);
- *	- new connections burst (maximum rate per 1/FRANG_FREQ of a second);
- *	- number of concurrent connections;
- *	- maximum time for receiving the whole HTTP message header;
- *	- maximum time between receiving parts of HTTP message body;
- *
- * Static limits for contents of HTTP request:
- * 	- maximum length of URI, single HTTP header, HTTP request body;
- * 	- presence of certain mandatory header fields;
- *	- restrictions on values of HTTP method and Content-Type
- *	  (check that the value is one of those defined by a user);
- *	- number of HTTP headers, header and body chunks;
- *
- * Also, there are certain restrictions that are not user-controlled.
- * For instance, if Host: header is present it may not contain an IP address.
- * Or, that singular header fields may not be duplicated in an HTTP header.
+ * Interface to classification modules.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
@@ -32,36 +12,191 @@
  * or (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along with
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+/*
+ * TODO:
+ * -- add socket/connection options adjusting to change client QoS
+ */
+
 #include <linux/ctype.h>
 #include <linux/spinlock.h>
 
-#include "frang.h"
 #include "tdb.h"
 
-#include "../tempesta_fw.h"
-#include "../addr.h"
-#include "../classifier.h"
-#include "../client.h"
-#include "../connection.h"
-#include "../filter.h"
-#include "../gfsm.h"
-#include "../http_msg.h"
-#include "../vhost.h"
-#include "../log.h"
+#include "tempesta_fw.h"
+#include "addr.h"
+#include "http_limits.h"
+#include "client.h"
+#include "connection.h"
+#include "filter.h"
+#include "gfsm.h"
+#include "http_msg.h"
+#include "vhost.h"
+#include "log.h"
 
+/*
+ * ------------------------------------------------------------------------
+ *	Generic classifier functionality.
+ * ------------------------------------------------------------------------
+ */
 
-MODULE_AUTHOR(TFW_AUTHOR);
-MODULE_DESCRIPTION("Tempesta static limiting classifier");
-MODULE_VERSION("0.3.0");
-MODULE_LICENSE("GPL");
+static struct {
+	__be16		ports[DEF_MAX_PORTS];
+	unsigned int	count;
+} tfw_inports __read_mostly;
+
+static TfwClassifier __rcu *classifier = NULL;
+
+/**
+ * Shrink client connections hash and/or reduce QoS for blocked clients to
+ * lower back-end servers or local system load.
+ */
+void
+tfw_classify_shrink(void)
+{
+	/* TODO: delete a connection from the LRU */
+}
+
+int
+tfw_classify_ipv4(struct sk_buff *skb)
+{
+	int r;
+	TfwClassifier *clfr;
+
+	rcu_read_lock();
+
+	clfr = rcu_dereference(classifier);
+	r = (clfr && clfr->classify_ipv4)
+	    ? clfr->classify_ipv4(skb)
+	    : TFW_PASS;
+
+	rcu_read_unlock();
+
+	return r;
+}
+
+int
+tfw_classify_ipv6(struct sk_buff *skb)
+{
+	int r;
+	TfwClassifier *clfr;
+
+	rcu_read_lock();
+
+	clfr = rcu_dereference(classifier);
+	r = (clfr && clfr->classify_ipv6)
+	    ? clfr->classify_ipv6(skb)
+	    : TFW_PASS;
+
+	rcu_read_unlock();
+
+	return r;
+}
+
+void
+tfw_classifier_add_inport(__be16 port)
+{
+	BUG_ON(tfw_inports.count == DEF_MAX_PORTS - 1);
+
+	tfw_inports.ports[tfw_inports.count++] = port;
+}
+
+void
+tfw_classifier_cleanup_inport(void)
+{
+	memset(&tfw_inports, 0, sizeof(tfw_inports));
+}
+
+static int
+tfw_classify_conn_estab(struct sock *sk)
+{
+	int i;
+	unsigned short sport = tfw_addr_get_sk_sport(sk);
+	TfwClassifier *clfr;
+
+	/* Pass the packet if it's not for us. */
+	for (i = 0; i < tfw_inports.count; ++i)
+		if (sport == tfw_inports.ports[i])
+			goto ours;
+	return TFW_PASS;
+
+ours:
+	rcu_read_lock();
+
+	clfr = rcu_dereference(classifier);
+	i = (clfr && clfr->classify_conn_estab)
+	    ? clfr->classify_conn_estab(sk)
+	    : TFW_PASS;
+
+	rcu_read_unlock();
+
+	return i;
+}
+
+static void
+tfw_classify_conn_close(struct sock *sk)
+{
+	TfwClassifier *clfr = rcu_dereference(classifier);
+
+	if (clfr && clfr->classify_conn_close)
+		clfr->classify_conn_close(sk);
+}
+
+/**
+ * Called from sk_filter() called from tcp_v4_rcv() and tcp_v6_rcv(),
+ * i.e. when IP fragments are already assembled and we can process TCP.
+ */
+static int
+tfw_classify_tcp(struct sock *sk, struct sk_buff *skb)
+{
+	struct tcphdr *th = tcp_hdr(skb);
+	TfwClassifier *clfr = rcu_dereference(classifier);
+
+	return clfr && clfr->classify_tcp ? clfr->classify_tcp(th) : TFW_PASS;
+}
+
+/*
+ * tfw_classifier_register() and tfw_classifier_unregister()
+ * are called at Tempesta start/stop time. The execution is
+ * serialized with a mutex. There's no need for additional
+ * protection of rcu_assign_pointer() from concurrent use.
+ */
+void
+tfw_classifier_register(TfwClassifier *mod)
+{
+	TFW_LOG("Registering new classifier: %s\n", mod->name);
+
+	BUG_ON(classifier);
+	rcu_assign_pointer(classifier, mod);
+}
+
+void
+tfw_classifier_unregister(void)
+{
+	TFW_LOG("Unregistering classifier: %s\n", classifier->name);
+
+	rcu_assign_pointer(classifier, NULL);
+	synchronize_rcu();
+}
+
+static TempestaOps tempesta_ops = {
+	.sk_alloc	= tfw_classify_conn_estab,
+	.sk_free	= tfw_classify_conn_close,
+	.sock_tcp_rcv	= tfw_classify_tcp,
+};
+
+/*
+ * ------------------------------------------------------------------------
+ *	Frang classifier - static http limits implementation.
+ * ------------------------------------------------------------------------
+ */
 
 /* We account users with FRANG_FREQ frequency per second. */
 #define FRANG_FREQ	8
@@ -975,10 +1110,18 @@ static TfwClassifier frang_class_ops = {
 	.classify_conn_close	= frang_conn_close,
 };
 
-static int __init
-frang_init(void)
+/*
+ * ------------------------------------------------------------------------
+ *	Init/exit procedures for http limits.
+ * ------------------------------------------------------------------------
+ */
+
+int __init
+tfw_http_limits_init(void)
 {
 	int r;
+
+	tempesta_register_ops(&tempesta_ops);
 
 	BUILD_BUG_ON((sizeof(FrangAcc) > sizeof(TfwClassifierPrvt)));
 
@@ -1036,13 +1179,14 @@ err_fsm_resp:
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_REQ);
 err_fsm:
 	tfw_classifier_unregister();
+	tempesta_unregister_ops(&tempesta_ops);
 	return r;
 }
 
-static void __exit
-frang_exit(void)
+void
+tfw_http_limits_exit(void)
 {
-	TFW_DBG("Frang module exit\n");
+	TFW_DBG("frang exit\n");
 
 	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio3, TFW_HTTP_FSM_RESP_MSG_FWD);
 	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio1, TFW_HTTP_FSM_REQ_CHUNK);
@@ -1050,7 +1194,5 @@ frang_exit(void)
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_RESP);
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_REQ);
 	tfw_classifier_unregister();
+	tempesta_unregister_ops(&tempesta_ops);
 }
-
-module_init(frang_init);
-module_exit(frang_exit);

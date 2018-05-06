@@ -29,7 +29,7 @@ tempesta_fw-objs = \
 	apm.o \
 	cache.o \
 	cfg.o \
-	classifier.o \
+	http_limits.o \
 	client.o \
 	connection.o \
 	filter.o \
@@ -56,4 +56,4 @@ tempesta_fw-objs = \
 	vhost.o \
 	work_queue.o
 
-obj-m	+= log/ classifier/ stress/ sched/ t/
+obj-m	+= log/ stress/ sched/ t/

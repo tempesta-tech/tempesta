@@ -24,7 +24,7 @@
 #include <linux/bsearch.h>
 
 #include "cache.h"
-#include "classifier.h"
+#include "http_limits.h"
 #include "client.h"
 #include "hash.h"
 #include "http_msg.h"
@@ -283,13 +283,6 @@ static TfwStr http_5xx_resp_body = {
 	},
 	.len = 0,
 };
-
-int
-tfw_http_resp_code_range(const int n)
-{
-	return n <= HTTP_CODE_MAX && n >= HTTP_CODE_MIN;
-}
-EXPORT_SYMBOL(tfw_http_resp_code_range);
 
 /*
  * Prepare current date in the format required for HTTP "Date:"
