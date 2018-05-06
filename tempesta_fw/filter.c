@@ -41,7 +41,7 @@
 #include "tdb.h"
 
 #include "tempesta_fw.h"
-#include "classifier.h"
+#include "http_limits.h"
 #include "filter.h"
 #include "log.h"
 
