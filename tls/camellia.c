@@ -2,7 +2,7 @@
  *  Camellia implementation
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -39,15 +39,6 @@
 #include "camellia.h"
 
 #include <string.h>
-
-#if defined(MBEDTLS_SELF_TEST)
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdio.h>
-#define mbedtls_printf printf
-#endif /* MBEDTLS_PLATFORM_C */
-#endif /* MBEDTLS_SELF_TEST */
 
 #if !defined(MBEDTLS_CAMELLIA_ALT)
 
@@ -694,8 +685,6 @@ int mbedtls_camellia_crypt_ctr( mbedtls_camellia_context *ctx,
 #endif /* MBEDTLS_CIPHER_MODE_CTR */
 #endif /* !MBEDTLS_CAMELLIA_ALT */
 
-#if defined(MBEDTLS_SELF_TEST)
-
 /*
  * Camellia test vectors from:
  *
@@ -1069,7 +1058,5 @@ int mbedtls_camellia_self_test( int verbose )
 
     return( 0 );
 }
-
-#endif /* MBEDTLS_SELF_TEST */
 
 #endif /* MBEDTLS_CAMELLIA_C */

@@ -3,7 +3,7 @@
  *
  * User-space communication routines.
  *
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2018 Tempesta Technologies, INC.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -26,6 +26,7 @@
 #include "htrie.h"
 #include "table.h"
 #include "tdb_if.h"
+#include "lib/hash.h"
 
 static struct sock *nls;
 static DEFINE_MUTEX(tdb_if_mtx);
@@ -131,7 +132,7 @@ tdb_if_insert(struct sk_buff *skb, struct netlink_callback *cb)
 	if (TDB_HTRIE_VARLENRECS(db->hdr)) {
 		for (i = 0, off = 0; i < m->rec_n; ++i) {
 			r = (TdbMsgRec *)((char *)m->recs + off);
-			key = tdb_hash_calc(r->data, r->klen);
+			key = hash_calc(r->data, r->klen);
 			len = TDB_MSGREC_LEN(r);
 			vr = (TdbVRec *)tdb_entry_create(db, key, r, &len);
 			if (!vr) {
@@ -154,7 +155,7 @@ tdb_if_insert(struct sk_buff *skb, struct netlink_callback *cb)
 	} else {
 		for (i = 0, off = 0; i < m->rec_n; ++i) {
 			r = (TdbMsgRec *)((char *)m->recs + off);
-			key = tdb_hash_calc(r->data, r->klen);
+			key = hash_calc(r->data, r->klen);
 			len = TDB_MSGREC_LEN(r);
 			fr = (TdbFRec *)tdb_entry_create(db, key, r, &len);
 			if (!fr || len != r->dlen) {
@@ -204,7 +205,7 @@ tdb_if_select(struct sk_buff *skb, struct netlink_callback *cb)
 	 * 1. full HTrie iterator is required;
 	 * 2. use many netlink frames to send probably large data set.
 	 */
-	key = tdb_hash_calc(m->recs[0].data, m->recs[0].klen);
+	key = hash_calc(m->recs[0].data, m->recs[0].klen);
 	iter = tdb_rec_get(db, key);
 	res = iter.rec;
 	if (res) {

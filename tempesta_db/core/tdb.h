@@ -4,7 +4,7 @@
  * Generic storage layer.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies.
+ * Copyright (C) 2015-2018 Tempesta Technologies, INC.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -160,6 +160,9 @@ typedef struct {
 
 /*
  * Storage routines.
+ *
+ * BEWARE(!) the routines use SIMD instructions, so protect them with
+ * kernel_fpu_begin()/kernel_fpu_end() or call from softirq context only.
  */
 TdbRec *tdb_entry_alloc(TDB *db, unsigned long key, size_t *len);
 TdbRec *tdb_entry_create(TDB *db, unsigned long key, void *data, size_t *len);
@@ -174,8 +177,6 @@ int tdb_info(char *buf, size_t len);
 /* Open/close database handler. */
 TDB *tdb_open(const char *path, size_t fsize, unsigned int rec_size, int node);
 void tdb_close(TDB *db);
-
-unsigned long tdb_hash_calc(const char *data, size_t len);
 
 static inline TDB *
 tdb_get(TDB *db)

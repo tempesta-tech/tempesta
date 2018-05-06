@@ -2,9 +2,10 @@
  * \file xtea.h
  *
  * \brief XTEA block cipher (32-bit)
- *
+ */
+/*
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -39,6 +40,7 @@
 #define MBEDTLS_XTEA_DECRYPT     0
 
 #define MBEDTLS_ERR_XTEA_INVALID_INPUT_LENGTH             -0x0028  /**< The data input has an invalid length. */
+#define MBEDTLS_ERR_XTEA_HW_ACCEL_FAILED                  -0x0029  /**< XTEA hardware accelerator failed. */
 
 #if !defined(MBEDTLS_XTEA_ALT)
 // Regular implementation
@@ -123,20 +125,5 @@ int mbedtls_xtea_crypt_cbc( mbedtls_xtea_context *ctx,
 #else  /* MBEDTLS_XTEA_ALT */
 #include "xtea_alt.h"
 #endif /* MBEDTLS_XTEA_ALT */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-/**
- * \brief          Checkup routine
- *
- * \return         0 if successful, or 1 if the test failed
- */
-int mbedtls_xtea_self_test( int verbose );
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* xtea.h */
