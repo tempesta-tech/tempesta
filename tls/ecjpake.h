@@ -2,9 +2,10 @@
  * \file ecjpake.h
  *
  * \brief Elliptic curve J-PAKE
- *
+ */
+/*
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -46,9 +47,7 @@
 #include "ecp.h"
 #include "md.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#if !defined(MBEDTLS_ECJPAKE_ALT)
 
 /**
  * Roles in the EC J-PAKE exchange
@@ -119,7 +118,7 @@ int mbedtls_ecjpake_setup( mbedtls_ecjpake_context *ctx,
                            const unsigned char *secret,
                            size_t len );
 
-/*
+/**
  * \brief           Check if a context is ready for use
  *
  * \param ctx       Context to check
@@ -225,17 +224,8 @@ int mbedtls_ecjpake_derive_secret( mbedtls_ecjpake_context *ctx,
  */
 void mbedtls_ecjpake_free( mbedtls_ecjpake_context *ctx );
 
-#if defined(MBEDTLS_SELF_TEST)
-/**
- * \brief          Checkup routine
- *
- * \return         0 if successful, or 1 if a test failed
- */
-int mbedtls_ecjpake_self_test( int verbose );
-#endif
-
-#ifdef __cplusplus
-}
-#endif
+#else  /* MBEDTLS_ECJPAKE_ALT */
+#include "ecjpake_alt.h"
+#endif /* MBEDTLS_ECJPAKE_ALT */
 
 #endif /* ecjpake.h */

@@ -1,6 +1,10 @@
 /**
  *		Tempesta FW
  *
+ * Tempesta chunked strings. The strings use SIMD instructions, so use them
+ * carefully to not to call casually from sleepable context, e.g. on
+ * configuration phase.
+ *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
@@ -23,6 +27,7 @@
 #include <linux/ctype.h>
 #include <linux/crc32.h>
 
+#include "lib/str.h"
 #include "htype.h"
 #include "str.h"
 
@@ -160,7 +165,7 @@ __str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag, int n)
 	}
 
 	str = (TfwStr *)str->ptr + TFW_STR_CHUNKN(str) - n;
-	memset(str, 0, sizeof(TfwStr) * n);
+	bzero_fast(str, sizeof(TfwStr) * n);
 
 	return str;
 }
@@ -212,13 +217,13 @@ tfw_strcpy(TfwStr *dst, const TfwStr *src)
 
 	switch (mode) {
 	case 3: /* The both are plain. */
-		memcpy(dst->ptr, src->ptr, min(src->len, dst->len));
+		memcpy_fast(dst->ptr, src->ptr, min(src->len, dst->len));
 		break;
 	case 1: /* @src is compound, @dst is plain. */
 		n1 = TFW_STR_CHUNKN(src);
 		end = (TfwStr *)src->ptr + n1;
 		for (c1 = (TfwStr *)src->ptr; c1 < end; ++c1) {
-			memcpy((char *)dst->ptr + o2, c1->ptr, c1->len);
+			memcpy_fast((char *)dst->ptr + o2, c1->ptr, c1->len);
 			o2 += c1->len;
 		}
 		BUG_ON(o2 != src->len);
@@ -227,7 +232,7 @@ tfw_strcpy(TfwStr *dst, const TfwStr *src)
 		for (c2 = (TfwStr *)dst->ptr; o1 < src->len; ++c2) {
 			/* Update length of the last chunk. */
 			c2->len = min(c2->len, src->len - o1);
-			memcpy(c2->ptr, (char *)src->ptr + o1, c2->len);
+			memcpy_fast(c2->ptr, (char *)src->ptr + o1, c2->len);
 			++chunks;
 			o1 += c2->len;
 		}
@@ -240,7 +245,8 @@ tfw_strcpy(TfwStr *dst, const TfwStr *src)
 		end = c1 + n1 - 1;
 		while (1) {
 			int _n = min(c1->len - o1, c2->len - o2);
-			memcpy((char *)c2->ptr + o2, (char *)c1->ptr + o1, _n);
+			memcpy_fast((char *)c2->ptr + o2, (char *)c1->ptr + o1,
+				    _n);
 			if (c1 == end && _n == c1->len - o1) {
 				/* Adjust @dst last chunk length. */
 				c2->len = o2 + _n;
@@ -300,7 +306,7 @@ tfw_strdup(TfwPool *pool, const TfwStr *src)
 	TFW_STR_FOR_EACH_CHUNK(s_c, src, end) {
 		*d_c = *s_c;
 		d_c->ptr = data;
-		memcpy(data, s_c->ptr, s_c->len);
+		memcpy_fast(data, s_c->ptr, s_c->len);
 		data += s_c->len;
 		++d_c;
 	}
@@ -368,6 +374,62 @@ tfw_strcat(TfwPool *pool, TfwStr *dst, TfwStr *src)
 EXPORT_SYMBOL(tfw_strcat);
 
 /**
+ * Like strcmp/strcasecmp(3) for TfwStr, but returns 0 the strings match
+ * and non-zero otherwise. If the strings have equal prefix, but different
+ * length, then the large string is considered bigger.
+ *
+ * Do not use it for duplicate strings, rather call it for each duplicate
+ * substring separately.
+ * @cs - case sensitive
+ */
+int
+__tfw_strcmp(const TfwStr *s1, const TfwStr *s2, int cs)
+{
+	int i1, i2, off1, off2;
+	long n;
+	const TfwStr *c1, *c2;
+	typeof(&strncmp) cmp = cs ? (typeof(&strncmp))memcmp_fast
+				  : tfw_cstricmp;
+
+	BUG_ON((s1->flags | s2->flags) & TFW_STR_DUPLICATE);
+	if (unlikely(!s1->len || !s2->len))
+		goto out;
+
+	i1 = i2 = 0;
+	off1 = off2 = 0;
+	n = min(s1->len, s2->len);
+	c1 = TFW_STR_CHUNK(s1, 0);
+	c2 = TFW_STR_CHUNK(s2, 0);
+	while (n) {
+		int cn = min(c1->len - off1, c2->len - off2);
+		int r = (*cmp)((char *)c1->ptr + off1,
+			       (char *)c2->ptr + off2, cn);
+		if (r)
+			return r;
+
+		n -= cn;
+		if (cn == c1->len - off1) {
+			off1 = 0;
+			++i1;
+			c1 = TFW_STR_CHUNK(s1, i1);
+		} else {
+			off1 += cn;
+		}
+		if (cn == c2->len - off2) {
+			off2 = 0;
+			++i2;
+			c2 = TFW_STR_CHUNK(s2, i2);
+		} else {
+			off2 += cn;
+		}
+		BUG_ON(n && (!c1 || !c2));
+	}
+out:
+	return s1->len == s2->len ? 0 : (long)s1->len - (long)s2->len;
+}
+EXPORT_SYMBOL(__tfw_strcmp);
+
+/**
  * Core routine for tfw_stricmpspn() working on flat C strings.
  * For now the function is used for very small strings, like matching HTTP
  * headers until ':', so plain C is Ok for now.
@@ -377,6 +439,9 @@ EXPORT_SYMBOL(tfw_strcat);
  *   INT_MAX	- strings match and @stop is found;
  *   -1		- strings do not match, @s1 < @s2;
  *   1		- strings do not match, @s1 > @s2;
+ *
+ * While the function isn't so fast, we've never seen it in perf top, so leave
+ * it as is until we have some performance issues with it.
  */
 static inline int
 __cstricmpspn(const unsigned char *s1, const unsigned char *s2, int n, int stop,
@@ -406,26 +471,26 @@ __cstricmpspn(const unsigned char *s1, const unsigned char *s2, int n, int stop,
 /**
  * Like strcmp/strcasecmp(3) for TfwStr, but stops matching when faces @stop.
  * Do not use it for duplicate strings, rather call it for each duplicate
- * substring separately.
+ * substring separately. Note that it uses slow C-implemented string matcher,
+ * so use it for short strings only.
+ *
  * @cs - case sensitive
+ * @returns 0 if the stings match, 1 if @s1 > @s2 and -1 otherwise, so the
+ * function can be used for binary search. If the strings have equal prefix,
+ * but different length, then the large string is considered bigger. Comparison
+ * ends on meeting @stop symbol or end of the shorter string.
  */
 int
 __tfw_strcmpspn(const TfwStr *s1, const TfwStr *s2, int stop, int cs)
 {
-	int i1, i2, off1, off2, n;
+	int i1, i2, off1, off2;
+	long n;
 	const TfwStr *c1, *c2;
-	/* TODO: replace generic memcmp with AVX2-enabled function. */
-	int (*cmp)(const char *s1, const char *s2, size_t len) =
-		cs ? (int (*)(const char *, const char *, size_t)) memcmp
-		   : tfw_stricmp;
 
 	BUG_ON((s1->flags | s2->flags) & TFW_STR_DUPLICATE);
-
-	if (!stop || !s1->len || !s2->len) {
-		n = (int)s1->len - (int)s2->len;
-		if (n)
-			return n;
-	}
+	BUG_ON(!stop);
+	if (unlikely(!s1->len || !s2->len))
+		goto out;
 
 	i1 = i2 = 0;
 	off1 = off2 = 0;
@@ -433,22 +498,15 @@ __tfw_strcmpspn(const TfwStr *s1, const TfwStr *s2, int stop, int cs)
 	c1 = TFW_STR_CHUNK(s1, 0);
 	c2 = TFW_STR_CHUNK(s2, 0);
 	while (n) {
-		int r, cn = min(c1->len - off1, c2->len - off2);
+		int cn = min(c1->len - off1, c2->len - off2);
+		int r = __cstricmpspn((unsigned char *)c1->ptr + off1,
+				      (unsigned char *)c2->ptr + off2,
+				      cn, stop, cs);
+		if (r == INT_MAX)
+			return 0;
+		if (r)
+			return r;
 
-		if (stop) {
-			r = __cstricmpspn((unsigned char *)c1->ptr + off1,
-					  (unsigned char *)c2->ptr + off2,
-					  cn, stop, cs);
-			if (r == INT_MAX)
-				return 0;
-			if (r)
-				return r;
-		} else {
-			r = (*cmp)((char *)c1->ptr + off1,
-				   (char *)c2->ptr + off2, cn);
-			if (r)
-				return r;
-		}
 		n -= cn;
 		if (cn == c1->len - off1) {
 			off1 = 0;
@@ -466,8 +524,8 @@ __tfw_strcmpspn(const TfwStr *s1, const TfwStr *s2, int stop, int cs)
 		}
 		BUG_ON(n && (!c1 || !c2));
 	}
-
-	return stop ? -1 : 0;
+out:
+	return s1->len == s2->len ? 0 : (long)s1->len - (long)s2->len;
 }
 EXPORT_SYMBOL(__tfw_strcmpspn);
 
@@ -497,8 +555,8 @@ tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
 	int len, clen = cstr_len;
 	const TfwStr *chunk, *end;
 	typeof(&strncmp) cmp = (flags & TFW_STR_EQ_CASEI)
-			       ? tfw_stricmp
-			       : strncmp;
+			       ? tfw_cstricmp
+			       : (typeof(&strncmp))memcmp_fast;
 
 	BUG_ON(str->len && !str->ptr);
 	TFW_STR_FOR_EACH_CHUNK(chunk, str, end) {

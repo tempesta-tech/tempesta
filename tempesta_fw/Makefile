@@ -1,7 +1,7 @@
 #		Tempesta FW
 #
 # Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+# Copyright (C) 2015-2018 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -20,7 +20,8 @@
 TTLS_CFLAGS += -I$(src)/../tls -I$(src)/../tls/dummy_headers -include ttls.h
 export TTLS_CFLAGS
 
-EXTRA_CFLAGS += $(TFW_CFLAGS) $(TTLS_CFLAGS) -I$(src)/../tempesta_db/core
+EXTRA_CFLAGS += $(TFW_CFLAGS) $(TTLS_CFLAGS)
+EXTRA_CFLAGS += -I$(src)/../tempesta_db/core -I$(src)/../
 
 obj-m	= tempesta_fw.o 
 
@@ -56,4 +57,4 @@ tempesta_fw-objs = \
 	vhost.o \
 	work_queue.o
 
-obj-m	+= log/ stress/ sched/ t/
+obj-m	+= stress/ sched/ t/

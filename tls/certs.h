@@ -2,9 +2,10 @@
  * \file certs.h
  *
  * \brief Sample certificates and DHM parameters for testing
- *
+ */
+/*
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify

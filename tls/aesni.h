@@ -2,9 +2,10 @@
  * \file aesni.h
  *
  * \brief AES-NI for hardware AES acceleration on some Intel processors
- *
+ */
+/*
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -30,18 +31,6 @@
 
 #define MBEDTLS_AESNI_AES      0x02000000u
 #define MBEDTLS_AESNI_CLMUL    0x00000002u
-
-#if defined(MBEDTLS_HAVE_ASM) && defined(__GNUC__) &&  \
-    ( defined(__amd64__) || defined(__x86_64__) )   &&  \
-    ! defined(MBEDTLS_HAVE_X86_64)
-#define MBEDTLS_HAVE_X86_64
-#endif
-
-#if defined(MBEDTLS_HAVE_X86_64)
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /**
  * \brief          AES-NI features detection routine
@@ -104,11 +93,5 @@ void mbedtls_aesni_inverse_key( unsigned char *invkey,
 int mbedtls_aesni_setkey_enc( unsigned char *rk,
                       const unsigned char *key,
                       size_t bits );
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif /* MBEDTLS_HAVE_X86_64 */
 
 #endif /* MBEDTLS_AESNI_H */

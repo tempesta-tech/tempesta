@@ -2,7 +2,7 @@
  *  Public Key abstraction layer
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -41,6 +41,9 @@
 #if defined(MBEDTLS_ECDSA_C)
 #include "ecdsa.h"
 #endif
+
+#include <limits.h>
+#include <stdint.h>
 
 /* Implementation that should never be optimized out by the compiler */
 static void mbedtls_zeroize( void *v, size_t n ) {
@@ -212,6 +215,9 @@ int mbedtls_pk_verify_ext( mbedtls_pk_type_t type, const void *options,
         int ret;
         const mbedtls_pk_rsassa_pss_options *pss_opts;
 
+        if( md_alg == MBEDTLS_MD_NONE && UINT_MAX < hash_len )
+            return( MBEDTLS_ERR_PK_BAD_INPUT_DATA );
+
         if( options == NULL )
             return( MBEDTLS_ERR_PK_BAD_INPUT_DATA );
 
@@ -235,7 +241,7 @@ int mbedtls_pk_verify_ext( mbedtls_pk_type_t type, const void *options,
         return( 0 );
 #else
         return( MBEDTLS_ERR_PK_FEATURE_UNAVAILABLE );
-#endif
+#endif /* MBEDTLS_RSA_C && MBEDTLS_PKCS1_V21 */
     }
 
     /* General case: no options */
