@@ -2,9 +2,10 @@
  * \file x509_crl.h
  *
  * \brief X.509 certificate revocation list parsing
- *
+ */
+/*
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -123,20 +124,6 @@ int mbedtls_x509_crl_parse_der( mbedtls_x509_crl *chain,
  * \return         0 if successful, or a specific X509 or PEM error code
  */
 int mbedtls_x509_crl_parse( mbedtls_x509_crl *chain, const unsigned char *buf, size_t buflen );
-
-#if defined(MBEDTLS_FS_IO)
-/**
- * \brief          Load one or more CRLs and append them to the chained list
- *
- * \note           Mutliple CRLs are accepted only if using PEM format
- *
- * \param chain    points to the start of the chain
- * \param path     filename to read the CRLs from (in PEM or DER encoding)
- *
- * \return         0 if successful, or a specific X509 or PEM error code
- */
-int mbedtls_x509_crl_parse_file( mbedtls_x509_crl *chain, const char *path );
-#endif /* MBEDTLS_FS_IO */
 
 /**
  * \brief          Returns an informational string about the CRL.

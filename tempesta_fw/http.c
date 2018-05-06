@@ -23,10 +23,11 @@
 #include <linux/sort.h>
 #include <linux/bsearch.h>
 
+#include "lib/hash.h"
+#include "lib/str.h"
 #include "cache.h"
 #include "http_limits.h"
 #include "client.h"
-#include "hash.h"
 #include "http_msg.h"
 #include "http_sess.h"
 #include "log.h"
@@ -2040,7 +2041,8 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 #undef S_VIA
 	};
 
-	memcpy(__TFW_STR_CH(&rh, 2)->ptr, g_vhost->hdr_via, g_vhost->hdr_via_len);
+	memcpy_fast(__TFW_STR_CH(&rh, 2)->ptr, g_vhost->hdr_via,
+		    g_vhost->hdr_via_len);
 
 	r = tfw_http_msg_hdr_add(hm, &rh);
 	if (r)
@@ -3616,7 +3618,7 @@ __tfw_http_msg_body_dup(const char *filename, TfwStr *c_len_hdr, size_t *len,
 
 	tfw_str_to_cstr(c_len_hdr, res, t_sz);
 	b_start = res + c_len_hdr->len;
-	memcpy(b_start, body, b_sz);
+	memcpy_fast(b_start, body, b_sz);
 
 	*len = t_sz;
 	*body_offset = b_start - res;

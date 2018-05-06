@@ -22,6 +22,7 @@
  */
 #include <linux/ctype.h>
 
+#include "lib/str.h"
 #include "gfsm.h"
 #include "http_msg.h"
 #include "ss_skb.h"
@@ -463,8 +464,8 @@ tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm)
 		return -ENOMEM;
 	ht->size = __HHTBL_SZ(new_order);
 	ht->off = hm->h_tbl->off;
-	memset(ht->tbl + __HHTBL_SZ(order), 0,
-	       __HHTBL_SZ(order) * sizeof(TfwStr));
+	bzero_fast(ht->tbl + __HHTBL_SZ(order),
+		   __HHTBL_SZ(order) * sizeof(TfwStr));
 	hm->h_tbl = ht;
 
 	TFW_DBG3("grow http headers table to %d items\n", ht->size);
@@ -843,8 +844,8 @@ this_chunk:
 		f_room = PAGE_SIZE - frag->page_offset - f_size;
 		n_copy = min(c_size, f_room);
 
-		memcpy((char *)skb_frag_address(frag) + f_size,
-		       (char *)c->ptr + c_off, n_copy);
+		memcpy_fast((char *)skb_frag_address(frag) + f_size,
+			    (char *)c->ptr + c_off, n_copy);
 		skb_frag_size_add(frag, n_copy);
 		ss_skb_adjust_data_len(it->skb, n_copy);
 
@@ -904,7 +905,7 @@ next_frag:
 		return 0;
 
 	p = (char *)skb_frag_address(frag) + f_size;
-	memcpy(p, (char *)data->ptr + d_off, n_copy);
+	memcpy_fast(p, (char *)data->ptr + d_off, n_copy);
 	skb_frag_size_add(frag, n_copy);
 	ss_skb_adjust_data_len(it->skb, n_copy);
 
@@ -991,7 +992,7 @@ __tfw_http_msg_alloc(int type, bool full)
 		}
 		hm->h_tbl->size = __HHTBL_SZ(1);
 		hm->h_tbl->off = TFW_HTTP_HDR_RAW;
-		memset(hm->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwStr));
+		bzero_fast(hm->h_tbl->tbl, __HHTBL_SZ(1) * sizeof(TfwStr));
 
 		if (type & Conn_Clnt)
 			tfw_http_init_parser_req((TfwHttpReq *)hm);

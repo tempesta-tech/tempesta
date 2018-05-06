@@ -1,10 +1,10 @@
 /**
  * \file platform.h
  *
- * \brief mbed TLS Platform abstraction layer
- *
- *  Copyright (C) 2006-2016, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * \brief The Mbed TLS platform abstraction layer.
+ */
+/*
+ *  Copyright (C) 2006-2018, Arm Limited (or its affiliates), All Rights Reserved
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -21,20 +21,12 @@
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- *  This file is part of mbed TLS (https://tls.mbed.org)
+ *  This file is part of Mbed TLS (https://tls.mbed.org)
  */
 #ifndef MBEDTLS_PLATFORM_H
 #define MBEDTLS_PLATFORM_H
 
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /**
  * \name SECTION: Module settings
@@ -48,48 +40,15 @@ extern "C" {
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#if !defined(MBEDTLS_PLATFORM_STD_SNPRINTF)
-#if defined(_WIN32)
-#define MBEDTLS_PLATFORM_STD_SNPRINTF   mbedtls_platform_win32_snprintf /**< Default snprintf to use  */
-#else
-#define MBEDTLS_PLATFORM_STD_SNPRINTF   snprintf /**< Default snprintf to use  */
-#endif
-#endif
-#if !defined(MBEDTLS_PLATFORM_STD_PRINTF)
-#define MBEDTLS_PLATFORM_STD_PRINTF   printf /**< Default printf to use  */
-#endif
-#if !defined(MBEDTLS_PLATFORM_STD_FPRINTF)
-#define MBEDTLS_PLATFORM_STD_FPRINTF fprintf /**< Default fprintf to use */
-#endif
-#if !defined(MBEDTLS_PLATFORM_STD_CALLOC)
-#define MBEDTLS_PLATFORM_STD_CALLOC   calloc /**< Default allocator to use */
-#endif
-#if !defined(MBEDTLS_PLATFORM_STD_FREE)
-#define MBEDTLS_PLATFORM_STD_FREE       free /**< Default free to use */
-#endif
 #if !defined(MBEDTLS_PLATFORM_STD_EXIT)
-#define MBEDTLS_PLATFORM_STD_EXIT      exit /**< Default exit to use */
-#endif
-#if !defined(MBEDTLS_PLATFORM_STD_TIME)
-#define MBEDTLS_PLATFORM_STD_TIME       time    /**< Default time to use */
+#define MBEDTLS_PLATFORM_STD_EXIT      exit /**< The default \c exit function to use. */
 #endif
 #if !defined(MBEDTLS_PLATFORM_STD_EXIT_SUCCESS)
-#define MBEDTLS_PLATFORM_STD_EXIT_SUCCESS  EXIT_SUCCESS /**< Default exit value to use */
+#define MBEDTLS_PLATFORM_STD_EXIT_SUCCESS  EXIT_SUCCESS /**< The default exit value to use. */
 #endif
 #if !defined(MBEDTLS_PLATFORM_STD_EXIT_FAILURE)
-#define MBEDTLS_PLATFORM_STD_EXIT_FAILURE  EXIT_FAILURE /**< Default exit value to use */
+#define MBEDTLS_PLATFORM_STD_EXIT_FAILURE  EXIT_FAILURE /**< The default exit value to use. */
 #endif
-#if defined(MBEDTLS_FS_IO)
-#if !defined(MBEDTLS_PLATFORM_STD_NV_SEED_READ)
-#define MBEDTLS_PLATFORM_STD_NV_SEED_READ   mbedtls_platform_std_nv_seed_read
-#endif
-#if !defined(MBEDTLS_PLATFORM_STD_NV_SEED_WRITE)
-#define MBEDTLS_PLATFORM_STD_NV_SEED_WRITE  mbedtls_platform_std_nv_seed_write
-#endif
-#if !defined(MBEDTLS_PLATFORM_STD_NV_SEED_FILE)
-#define MBEDTLS_PLATFORM_STD_NV_SEED_FILE   "seedfile"
-#endif
-#endif /* MBEDTLS_FS_IO */
 #else /* MBEDTLS_PLATFORM_NO_STD_FUNCTIONS */
 #if defined(MBEDTLS_PLATFORM_STD_MEM_HDR)
 #include MBEDTLS_PLATFORM_STD_MEM_HDR
@@ -114,12 +73,12 @@ extern void * (*mbedtls_calloc)( size_t n, size_t size );
 extern void (*mbedtls_free)( void *ptr );
 
 /**
- * \brief   Set your own memory implementation function pointers
+ * \brief   This function allows configuring custom memory-management functions.
  *
- * \param calloc_func   the calloc function implementation
- * \param free_func     the free function implementation
+ * \param calloc_func   The \c calloc function implementation.
+ * \param free_func     The \c free function implementation.
  *
- * \return              0 if successful
+ * \return              \c 0.
  */
 int mbedtls_platform_set_calloc_free( void * (*calloc_func)( size_t, size_t ),
                               void (*free_func)( void * ) );
@@ -138,11 +97,11 @@ int mbedtls_platform_set_calloc_free( void * (*calloc_func)( size_t, size_t ),
 extern int (*mbedtls_fprintf)( FILE *stream, const char *format, ... );
 
 /**
- * \brief   Set your own fprintf function pointer
+ * \brief   This function allows configuring a custom \p fprintf function pointer.
  *
- * \param fprintf_func   the fprintf function implementation
+ * \param fprintf_func   The \c fprintf function implementation.
  *
- * \return              0
+ * \return               \c 0.
  */
 int mbedtls_platform_set_fprintf( int (*fprintf_func)( FILE *stream, const char *,
                                                ... ) );
@@ -153,28 +112,6 @@ int mbedtls_platform_set_fprintf( int (*fprintf_func)( FILE *stream, const char 
 #define mbedtls_fprintf    fprintf
 #endif /* MBEDTLS_PLATFORM_FPRINTF_MACRO */
 #endif /* MBEDTLS_PLATFORM_FPRINTF_ALT */
-
-/*
- * The function pointers for printf
- */
-#if defined(MBEDTLS_PLATFORM_PRINTF_ALT)
-extern int (*mbedtls_printf)( const char *format, ... );
-
-/**
- * \brief   Set your own printf function pointer
- *
- * \param printf_func   the printf function implementation
- *
- * \return              0
- */
-int mbedtls_platform_set_printf( int (*printf_func)( const char *, ... ) );
-#else /* !MBEDTLS_PLATFORM_PRINTF_ALT */
-#if defined(MBEDTLS_PLATFORM_PRINTF_MACRO)
-#define mbedtls_printf     MBEDTLS_PLATFORM_PRINTF_MACRO
-#else
-#define mbedtls_printf     printf
-#endif /* MBEDTLS_PLATFORM_PRINTF_MACRO */
-#endif /* MBEDTLS_PLATFORM_PRINTF_ALT */
 
 /*
  * The function pointers for snprintf
@@ -190,26 +127,6 @@ int mbedtls_platform_set_printf( int (*printf_func)( const char *, ... ) );
 int mbedtls_platform_win32_snprintf( char *s, size_t n, const char *fmt, ... );
 #endif
 
-#if defined(MBEDTLS_PLATFORM_SNPRINTF_ALT)
-extern int (*mbedtls_snprintf)( char * s, size_t n, const char * format, ... );
-
-/**
- * \brief   Set your own snprintf function pointer
- *
- * \param snprintf_func   the snprintf function implementation
- *
- * \return              0
- */
-int mbedtls_platform_set_snprintf( int (*snprintf_func)( char * s, size_t n,
-                                                 const char * format, ... ) );
-#else /* MBEDTLS_PLATFORM_SNPRINTF_ALT */
-#if defined(MBEDTLS_PLATFORM_SNPRINTF_MACRO)
-#define mbedtls_snprintf   MBEDTLS_PLATFORM_SNPRINTF_MACRO
-#else
-#define mbedtls_snprintf   snprintf
-#endif /* MBEDTLS_PLATFORM_SNPRINTF_MACRO */
-#endif /* MBEDTLS_PLATFORM_SNPRINTF_ALT */
-
 /*
  * The function pointers for exit
  */
@@ -217,11 +134,12 @@ int mbedtls_platform_set_snprintf( int (*snprintf_func)( char * s, size_t n,
 extern void (*mbedtls_exit)( int status );
 
 /**
- * \brief   Set your own exit function pointer
+ * \brief   This function allows configuring a custom \c exit function
+ *          pointer.
  *
- * \param exit_func   the exit function implementation
+ * \param exit_func   The \c exit function implementation.
  *
- * \return              0
+ * \return  \c 0 on success.
  */
 int mbedtls_platform_set_exit( void (*exit_func)( int status ) );
 #else
@@ -246,82 +164,46 @@ int mbedtls_platform_set_exit( void (*exit_func)( int status ) );
 #define MBEDTLS_EXIT_FAILURE 1
 #endif
 
-/*
- * The time_t datatype
- */
-#if defined(MBEDTLS_PLATFORM_TIME_TYPE_MACRO)
-typedef MBEDTLS_PLATFORM_TIME_TYPE_MACRO mbedtls_time_t;
-#else
-/* For time_t */
-#include <time.h>
-typedef time_t mbedtls_time_t;
-#endif /* MBEDTLS_PLATFORM_TIME_TYPE_MACRO */
-
-/*
- * The function pointers for time
- */
-#if defined(MBEDTLS_PLATFORM_TIME_ALT)
-extern mbedtls_time_t (*mbedtls_time)( mbedtls_time_t* time );
-
 /**
- * \brief   Set your own time function pointer
+ * \brief   The platform context structure.
  *
- * \param   time_func   the time function implementation
- *
- * \return              0
+ * \note    This structure may be used to assist platform-specific
+ *          setup or teardown operations.
  */
-int mbedtls_platform_set_time( mbedtls_time_t (*time_func)( mbedtls_time_t* time ) );
-#else
-#if defined(MBEDTLS_PLATFORM_TIME_MACRO)
-#define mbedtls_time    MBEDTLS_PLATFORM_TIME_MACRO
-#else
-#define mbedtls_time   time
-#endif /* MBEDTLS_PLATFORM_TIME_MACRO */
-#endif /* MBEDTLS_PLATFORM_TIME_ALT */
-
-/*
- * The function pointers for reading from and writing a seed file to
- * Non-Volatile storage (NV) in a platform-independent way
- *
- * Only enabled when the NV seed entropy source is enabled
- */
-#if defined(MBEDTLS_ENTROPY_NV_SEED)
-#if !defined(MBEDTLS_PLATFORM_NO_STD_FUNCTIONS) && defined(MBEDTLS_FS_IO)
-/* Internal standard platform definitions */
-int mbedtls_platform_std_nv_seed_read( unsigned char *buf, size_t buf_len );
-int mbedtls_platform_std_nv_seed_write( unsigned char *buf, size_t buf_len );
-#endif
-
-#if defined(MBEDTLS_PLATFORM_NV_SEED_ALT)
-extern int (*mbedtls_nv_seed_read)( unsigned char *buf, size_t buf_len );
-extern int (*mbedtls_nv_seed_write)( unsigned char *buf, size_t buf_len );
-
-/**
- * \brief   Set your own seed file writing/reading functions
- *
- * \param   nv_seed_read_func   the seed reading function implementation
- * \param   nv_seed_write_func  the seed writing function implementation
- *
- * \return              0
- */
-int mbedtls_platform_set_nv_seed(
-            int (*nv_seed_read_func)( unsigned char *buf, size_t buf_len ),
-            int (*nv_seed_write_func)( unsigned char *buf, size_t buf_len )
-            );
-#else
-#if defined(MBEDTLS_PLATFORM_NV_SEED_READ_MACRO) && \
-    defined(MBEDTLS_PLATFORM_NV_SEED_WRITE_MACRO)
-#define mbedtls_nv_seed_read    MBEDTLS_PLATFORM_NV_SEED_READ_MACRO
-#define mbedtls_nv_seed_write   MBEDTLS_PLATFORM_NV_SEED_WRITE_MACRO
-#else
-#define mbedtls_nv_seed_read    mbedtls_platform_std_nv_seed_read
-#define mbedtls_nv_seed_write   mbedtls_platform_std_nv_seed_write
-#endif
-#endif /* MBEDTLS_PLATFORM_NV_SEED_ALT */
-#endif /* MBEDTLS_ENTROPY_NV_SEED */
-
-#ifdef __cplusplus
+typedef struct {
+    char dummy; /**< Placeholder member, as empty structs are not portable. */
 }
-#endif
+mbedtls_platform_context;
+
+/**
+ * \brief   This function performs any platform initialization operations.
+ *
+ * \param   ctx     The Mbed TLS context.
+ *
+ * \return  \c 0 on success.
+ *
+ * \note    This function is intended to allow platform-specific initialization,
+ *          and should be called before any other library functions. Its
+ *          implementation is platform-specific, and unless
+ *          platform-specific code is provided, it does nothing.
+ *
+ *          Its use and whether it is necessary to call it is dependent on the
+ *          platform.
+ */
+int mbedtls_platform_setup( mbedtls_platform_context *ctx );
+/**
+ * \brief   This function performs any platform teardown operations.
+ *
+ * \param   ctx     The Mbed TLS context.
+ *
+ * \note    This function should be called after every other Mbed TLS module
+ *          has been correctly freed using the appropriate free function.
+ *          Its implementation is platform-specific, and unless
+ *          platform-specific code is provided, it does nothing.
+ *
+ *          Its use and whether it is necessary to call it is dependent on the
+ *          platform.
+ */
+void mbedtls_platform_teardown( mbedtls_platform_context *ctx );
 
 #endif /* platform.h */

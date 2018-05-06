@@ -29,6 +29,7 @@
 #include <net/tcp.h>
 #include <net/xfrm.h>
 
+#include "lib/str.h"
 #include "addr.h"
 #include "procfs.h"
 #include "ss_skb.h"
@@ -142,7 +143,7 @@ __lookup_pgfrag_room(const struct sk_buff *skb, int len, skb_frag_t *f_out)
 	unsigned int p_size, h_room, t_room;
 	struct page *p_base, *p_skb_head = virt_to_head_page(skb->head);
 
-	memset(map, 0, sizeof(map));
+	bzero_fast(map, sizeof(map));
 
 	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
 		if (map[i])
@@ -837,7 +838,7 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *hdr, int skip,
 			skip -= c->len;
 			continue;
 		}
-		memset(&it, 0, sizeof(TfwStr));
+		bzero_fast(&it, sizeof(TfwStr));
 		r = skb_fragment(skb_head, c->skb, (char *)c->ptr + skip,
 				 skip - c->len, &it);
 		if (r < 0)
@@ -853,7 +854,7 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *hdr, int skip,
 	while (tail) {
 		void *t_ptr = it.ptr;
 		struct sk_buff *t_skb = it.skb;
-		memset(&it, 0, sizeof(TfwStr));
+		bzero_fast(&it, sizeof(TfwStr));
 		r = skb_fragment(skb_head, t_skb, t_ptr, -tail, &it);
 		if (r < 0) {
 			TFW_WARN("Cannot delete hdr tail\n");
@@ -1036,9 +1037,9 @@ __copy_ip_header(struct sk_buff *to, const struct sk_buff *from)
 	BUG_ON(skb_headroom(to) < MAX_TCP_HEADER);
 	skb_set_network_header(to, -(MAX_TCP_HEADER - MAX_HEADER));
 	if (ip6->version == 6)
-		memcpy(skb_network_header(to), ip6, sizeof(*ip6));
+		memcpy_fast(skb_network_header(to), ip6, sizeof(*ip6));
 	else
-		memcpy(skb_network_header(to), ip4, sizeof(*ip4));
+		memcpy_fast(skb_network_header(to), ip4, sizeof(*ip4));
 }
 
 /**
@@ -1062,9 +1063,9 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 		return;
 	}
 
-	memset(&skb->skb_mstamp, 0, sizeof(skb->skb_mstamp));
+	bzero_fast(&skb->skb_mstamp, sizeof(skb->skb_mstamp));
 	skb->dev = NULL;
-	memset(skb->cb, 0, sizeof(skb->cb));
+	bzero_fast(skb->cb, sizeof(skb->cb));
 	skb_dst_drop(skb);
 #ifdef CONFIG_XFRM
 	secpath_put(skb->sp);
@@ -1074,9 +1075,9 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 	skb->queue_mapping = 0;
 	skb->peeked = 0;
 	skb->xmit_more = 0;
-	memset(&skb->headers_start, 0,
-	       offsetof(struct sk_buff, headers_end) -
-	       offsetof(struct sk_buff, headers_start));
+	bzero_fast(&skb->headers_start,
+		   offsetof(struct sk_buff, headers_end) -
+		   offsetof(struct sk_buff, headers_start));
 	skb->pfmemalloc = pfmemalloc;
 	skb->mac_header = (typeof(skb->mac_header))~0U;
 	skb->transport_header = (typeof(skb->transport_header))~0U;
@@ -1085,7 +1086,7 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 	shinfo->gso_size = 0;
 	shinfo->gso_segs = 0;
 	shinfo->gso_type = 0;
-	memset(&shinfo->hwtstamps, 0, sizeof(shinfo->hwtstamps));
+	bzero_fast(&shinfo->hwtstamps, sizeof(shinfo->hwtstamps));
 	shinfo->tskey = 0;
 	shinfo->ip6_frag_id = 0;
 	shinfo->destructor_arg = NULL;

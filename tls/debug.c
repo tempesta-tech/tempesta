@@ -2,7 +2,7 @@
  *  Debugging routines
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -29,16 +29,6 @@
 #endif
 
 #if defined(MBEDTLS_DEBUG_C)
-
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdlib.h>
-#define mbedtls_calloc      calloc
-#define mbedtls_free        free
-#define mbedtls_time_t      time_t
-#define mbedtls_snprintf    snprintf
-#endif
 
 #include "debug.h"
 
@@ -72,13 +62,9 @@ static inline void debug_send_line( const mbedtls_ssl_context *ssl, int level,
      * Since there is no portable way to get one, use the address of the ssl
      * context instead, as it shouldn't be shared between threads.
      */
-#if defined(MBEDTLS_THREADING_C)
     char idstr[20 + DEBUG_BUF_SIZE]; /* 0x + 16 nibbles + ': ' */
-    mbedtls_snprintf( idstr, sizeof( idstr ), "%p: %s", ssl, str );
+    mbedtls_snprintf( idstr, sizeof( idstr ), "%p: %s", (void*)ssl, str );
     ssl->conf->f_dbg( ssl->conf->p_dbg, level, file, line, idstr );
-#else
-    ssl->conf->f_dbg( ssl->conf->p_dbg, level, file, line, str );
-#endif
 }
 
 void mbedtls_debug_print_msg( const mbedtls_ssl_context *ssl, int level,
@@ -93,20 +79,7 @@ void mbedtls_debug_print_msg( const mbedtls_ssl_context *ssl, int level,
         return;
 
     va_start( argp, format );
-#if defined(_WIN32)
-#if defined(_TRUNCATE)
-    ret = _vsnprintf_s( str, DEBUG_BUF_SIZE, _TRUNCATE, format, argp );
-#else
-    ret = _vsnprintf( str, DEBUG_BUF_SIZE, format, argp );
-    if( ret < 0 || (size_t) ret == DEBUG_BUF_SIZE )
-    {
-        str[DEBUG_BUF_SIZE-1] = '\0';
-        ret = -1;
-    }
-#endif
-#else
     ret = vsnprintf( str, DEBUG_BUF_SIZE, format, argp );
-#endif
     va_end( argp );
 
     if( ret >= 0 && ret < DEBUG_BUF_SIZE - 1 )
@@ -345,7 +318,7 @@ void mbedtls_debug_print_crt( const mbedtls_ssl_context *ssl, int level,
                       const char *file, int line,
                       const char *text, const mbedtls_x509_crt *crt )
 {
-    char str[DEBUG_BUF_SIZE];
+    char buf[1024];
     int i = 0;
 
     if( ssl->conf == NULL || ssl->conf->f_dbg == NULL || crt == NULL || level > debug_threshold )
@@ -353,10 +326,8 @@ void mbedtls_debug_print_crt( const mbedtls_ssl_context *ssl, int level,
 
     while( crt != NULL )
     {
-        char buf[1024];
-
-        mbedtls_snprintf( str, sizeof( str ), "%s #%d:\n", text, ++i );
-        debug_send_line( ssl, level, file, line, str );
+        mbedtls_snprintf(buf, sizeof(buf), "%s #%d:\n", text, ++i );
+        debug_send_line( ssl, level, file, line, buf);
 
         mbedtls_x509_crt_info( buf, sizeof( buf ) - 1, "", crt );
         debug_print_line_by_line( ssl, level, file, line, buf );

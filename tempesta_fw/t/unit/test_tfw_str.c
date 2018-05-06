@@ -292,8 +292,8 @@ do {									\
 	dst1 = kmalloc(n * 2, GFP_ATOMIC);				\
 	BUG_ON(!dst1);							\
 	dst2 = dst1 + n;						\
-	dst1 = tfw_strtolower(dst1, s, n);				\
-	dst2 = c_strtolower(dst2, s, n);				\
+	tfw_cstrtolower(dst1, s, n);					\
+	c_strtolower(dst2, s, n);					\
 	EXPECT_TRUE(!strncmp(dst1, dst2, n));				\
 } while (0)
 
@@ -346,8 +346,8 @@ TEST(cstr, simd_strtolower)
 #define __test_strcmp(s1, s2)						\
 do {									\
 	size_t n = min(sizeof(s1), sizeof(s2)) - 1;			\
-	EXPECT_TRUE(!tfw_stricmp(s1, s2, n) == !strncasecmp(s1, s2, n)); \
-	EXPECT_TRUE(!tfw_stricmp_2lc(s1, s2, n) == !strncasecmp(s1, s2, n)); \
+	EXPECT_TRUE(!tfw_cstricmp(s1, s2, n) == !strncasecmp(s1, s2, n)); \
+	EXPECT_TRUE(!tfw_cstricmp_2lc(s1, s2, n) == !strncasecmp(s1, s2, n)); \
 } while (0)
 
 TEST(cstr, simd_stricmp)
@@ -420,24 +420,24 @@ TEST(cstr, ultoa)
 	char buf[TFW_ULTOA_BUF_SIZ + 1] = {0};
 
 	EXPECT_TRUE(tfw_ultoa(0, buf, TFW_ULTOA_BUF_SIZ) == 1);
-	EXPECT_ZERO(tfw_stricmp(buf, "0", 2));
+	EXPECT_ZERO(tfw_cstricmp(buf, "0", 2));
 
 	memset(buf, 0, TFW_ULTOA_BUF_SIZ + 1);
 	EXPECT_TRUE(tfw_ultoa(5, buf, TFW_ULTOA_BUF_SIZ) == 1);
-	EXPECT_ZERO(tfw_stricmp(buf, "5", 2));
+	EXPECT_ZERO(tfw_cstricmp(buf, "5", 2));
 
 	memset(buf, 0, TFW_ULTOA_BUF_SIZ + 1);
 	EXPECT_TRUE(tfw_ultoa(58743, buf, TFW_ULTOA_BUF_SIZ) == 5);
-	EXPECT_ZERO(tfw_stricmp(buf, "58743", 6));
+	EXPECT_ZERO(tfw_cstricmp(buf, "58743", 6));
 
 	memset(buf, 0, TFW_ULTOA_BUF_SIZ + 1);
 	EXPECT_TRUE(tfw_ultoa(0xaabbccff, buf, TFW_ULTOA_BUF_SIZ) == 10);
-	EXPECT_ZERO(tfw_stricmp(buf, "2864434431", 11));
+	EXPECT_ZERO(tfw_cstricmp(buf, "2864434431", 11));
 
 	memset(buf, 0, TFW_ULTOA_BUF_SIZ + 1);
 	EXPECT_TRUE(tfw_ultoa(18446744073709551615UL,
 			      buf, TFW_ULTOA_BUF_SIZ) == 20);
-	EXPECT_ZERO(tfw_stricmp(buf, "18446744073709551615", 21));
+	EXPECT_ZERO(tfw_cstricmp(buf, "18446744073709551615", 21));
 
 	EXPECT_ZERO(tfw_ultoa(589, buf, 2));
 }
@@ -614,7 +614,7 @@ TEST(tfw_strdup, plain)
 	copy = tfw_strdup(str_pool, s);
 
 	EXPECT_EQ(TFW_STR_CHUNKN(copy), 0);
-	EXPECT_EQ(tfw_strcmpspn(s, copy, 0), 0);
+	EXPECT_EQ(tfw_strcmp(s, copy), 0);
 }
 
 TEST(tfw_strdup, compound)
@@ -633,25 +633,25 @@ TEST(tfw_strdup, compound)
 	c_copy = copy->ptr;
 	end = (TfwStr *)s->ptr + TFW_STR_CHUNKN(s);
 	for ( ; c < end; ++c, ++c_copy)
-		EXPECT_EQ(tfw_strcmpspn(c, c_copy, 0), 0);
+		EXPECT_EQ(tfw_strcmp(c, c_copy), 0);
 }
 
 /* Case-insensitive comparison. */
-TEST(tfw_stricmpspn, returns_true_only_for_equal_tfw_strs)
+TEST(tfw_stricmp, returns_true_only_for_equal_tfw_strs)
 {
 	TFW_STR(s1, "abcdefghijklmnopqrst");
 	TFW_STR(s2, "ABcDefGHIJKLmnopqrst");
 	TFW_STR(s3, "abcdefghi");
 	TFW_STR(s4, "abcdefghijklmnopqrst_the_tail");
 
-	EXPECT_TRUE(tfw_stricmpspn(s1, s2, 0) == 0);
-	EXPECT_FALSE(tfw_stricmpspn(s1, s3, 0) == 0);
+	EXPECT_TRUE(tfw_stricmp(s1, s2) == 0);
+	EXPECT_FALSE(tfw_stricmp(s1, s3) == 0);
 	EXPECT_TRUE(tfw_stricmpspn(s1, s3, 'f') == 0);
-	EXPECT_FALSE(tfw_stricmpspn(s1, s4, 0) == 0);
+	EXPECT_FALSE(tfw_stricmp(s1, s4) == 0);
 	EXPECT_TRUE(tfw_stricmpspn(s1, s4, 't') == 0);
 }
 
-TEST(tfw_stricmpspn, handles_plain_and_compound_strs)
+TEST(tfw_stricmp, handles_plain_and_compound_strs)
 {
 	TfwStr s1 = {
 		.len	= sizeof("abcdefghijklmnopqrst") - 1,
@@ -661,15 +661,15 @@ TEST(tfw_stricmpspn, handles_plain_and_compound_strs)
 	TFW_STR(s3, "abcdefghi");
 	TFW_STR(s4, "abcdefghijklmnopqrst_the_tail");
 
-	EXPECT_TRUE(tfw_stricmpspn(&s1, s2, 0) == 0);
-	EXPECT_FALSE(tfw_stricmpspn(&s1, s3, 0) == 0);
+	EXPECT_TRUE(tfw_stricmp(&s1, s2) == 0);
+	EXPECT_FALSE(tfw_stricmp(&s1, s3) == 0);
 	EXPECT_TRUE(tfw_stricmpspn(&s1, s3, 'f') == 0);
 	EXPECT_FALSE(tfw_stricmpspn(&s1, s3, 'z') == 0);
-	EXPECT_FALSE(tfw_stricmpspn(&s1, s4, 0) == 0);
+	EXPECT_FALSE(tfw_stricmp(&s1, s4) == 0);
 	EXPECT_TRUE(tfw_stricmpspn(&s1, s4, 't') == 0);
 }
 
-TEST(tfw_stricmpspn, handles_empty_strs)
+TEST(tfw_stricmp, handles_empty_strs)
 {
 	TfwStr s1 = {
 		.len	= 0,
@@ -681,13 +681,13 @@ TEST(tfw_stricmpspn, handles_empty_strs)
 	};
 	TFW_STR(s3, "abcdefghijklmnopqrst");
 
-	EXPECT_TRUE(tfw_stricmpspn(&s1, &s2, 0) == 0);
-	EXPECT_FALSE(tfw_stricmpspn(&s1, &s2, 'a') == 0);
-	EXPECT_FALSE(tfw_stricmpspn(&s1, s3, 0) == 0);
+	EXPECT_TRUE(tfw_stricmp(&s1, &s2) == 0);
+	EXPECT_TRUE(tfw_stricmpspn(&s1, &s2, 'a') == 0);
+	EXPECT_FALSE(tfw_stricmp(&s1, s3) == 0);
 	EXPECT_FALSE(tfw_stricmpspn(&s1, s3, 'a') == 0);
 }
 
-TEST(tfw_stricmpspn, handles_different_size_strs)
+TEST(tfw_stricmp, handles_different_size_strs)
 {
 	TfwStr s1 = {
 		.ptr = (TfwStr []){
@@ -709,26 +709,26 @@ TEST(tfw_stricmpspn, handles_different_size_strs)
 		.flags = 3 << TFW_STR_CN_SHIFT
 	};
 
-	EXPECT_ZERO(tfw_stricmpspn(&s1, &s2, 0));
+	EXPECT_ZERO(tfw_stricmp(&s1, &s2));
 	EXPECT_ZERO(tfw_stricmpspn(&s1, &s2, 'r'));
 }
 
 /* Case-sensitive comparison. */
-TEST(tfw_strcmpspn, returns_true_only_for_equal_tfw_strs)
+TEST(tfw_strcmp, returns_true_only_for_equal_tfw_strs)
 {
 	TFW_STR(s1, "abcdefghijklmnopqrst");
 	TFW_STR(s2, "ABcDefGHIJKLmnopqrst");
 	TFW_STR(s3, "abcdefghi");
 	TFW_STR(s4, "abcdefghijklmnopqrst_the_tail");
 
-	EXPECT_FALSE(tfw_strcmpspn(s1, s2, 0) == 0);
-	EXPECT_FALSE(tfw_strcmpspn(s1, s3, 0) == 0);
+	EXPECT_FALSE(tfw_strcmp(s1, s2) == 0);
+	EXPECT_FALSE(tfw_strcmp(s1, s3) == 0);
 	EXPECT_TRUE(tfw_strcmpspn(s1, s3, 'f') == 0);
-	EXPECT_FALSE(tfw_strcmpspn(s1, s4, 0) == 0);
+	EXPECT_FALSE(tfw_strcmp(s1, s4) == 0);
 	EXPECT_TRUE(tfw_strcmpspn(s1, s4, 't') == 0);
 }
 
-TEST(tfw_strcmpspn, handles_plain_and_compound_strs)
+TEST(tfw_strcmp, handles_plain_and_compound_strs)
 {
 	TfwStr s1 = {
 		.len	= sizeof("abcdefghijklmnopqrst") - 1,
@@ -739,16 +739,16 @@ TEST(tfw_strcmpspn, handles_plain_and_compound_strs)
 	TFW_STR(s4, "abcdefghijklmnopqrst_the_tail");
 	TFW_STR(s5, "abCDEFGhijklmnopqrst");
 
-	EXPECT_TRUE(tfw_strcmpspn(&s1, s2, 0) == 0);
-	EXPECT_FALSE(tfw_strcmpspn(&s1, s3, 0) == 0);
+	EXPECT_TRUE(tfw_strcmp(&s1, s2) == 0);
+	EXPECT_FALSE(tfw_strcmp(&s1, s3) == 0);
 	EXPECT_TRUE(tfw_strcmpspn(&s1, s3, 'f') == 0);
 	EXPECT_FALSE(tfw_strcmpspn(&s1, s3, 'z') == 0);
-	EXPECT_FALSE(tfw_strcmpspn(&s1, s4, 0) == 0);
+	EXPECT_FALSE(tfw_strcmp(&s1, s4) == 0);
 	EXPECT_TRUE(tfw_strcmpspn(&s1, s4, 't') == 0);
-	EXPECT_FALSE(tfw_strcmpspn(&s1, s5, 0) == 0);
+	EXPECT_FALSE(tfw_strcmp(&s1, s5) == 0);
 }
 
-TEST(tfw_strcmpspn, handles_empty_strs)
+TEST(tfw_strcmp, handles_empty_strs)
 {
 	TfwStr s1 = {
 		.len	= 0,
@@ -760,13 +760,13 @@ TEST(tfw_strcmpspn, handles_empty_strs)
 	};
 	TFW_STR(s3, "abcdefghijklmnopqrst");
 
-	EXPECT_TRUE(tfw_strcmpspn(&s1, &s2, 0) == 0);
-	EXPECT_FALSE(tfw_strcmpspn(&s1, &s2, 'a') == 0);
-	EXPECT_FALSE(tfw_strcmpspn(&s1, s3, 0) == 0);
+	EXPECT_TRUE(tfw_strcmp(&s1, &s2) == 0);
+	EXPECT_TRUE(tfw_strcmpspn(&s1, &s2, 'a') == 0);
+	EXPECT_FALSE(tfw_strcmp(&s1, s3) == 0);
 	EXPECT_FALSE(tfw_strcmpspn(&s1, s3, 'a') == 0);
 }
 
-TEST(tfw_strcmpspn, handles_different_size_strs)
+TEST(tfw_strcmp, handles_different_size_strs)
 {
 	TfwStr s1 = {
 		.ptr = (TfwStr []){
@@ -798,9 +798,9 @@ TEST(tfw_strcmpspn, handles_different_size_strs)
 		.flags = 3 << TFW_STR_CN_SHIFT
 	};
 
-	EXPECT_ZERO(tfw_strcmpspn(&s1, &s2, 0));
+	EXPECT_ZERO(tfw_strcmp(&s1, &s2));
 	EXPECT_ZERO(tfw_strcmpspn(&s1, &s2, 'r'));
-	EXPECT_FALSE(tfw_strcmpspn(&s1, &s3, 0) == 0);
+	EXPECT_FALSE(tfw_strcmp(&s1, &s3) == 0);
 }
 
 TEST(tfw_str_eq_cstr, returns_true_only_for_equal_strs)
@@ -1131,15 +1131,15 @@ TEST_SUITE(tfw_str)
 	TEST_RUN(tfw_strdup, plain);
 	TEST_RUN(tfw_strdup, compound);
 
-	TEST_RUN(tfw_stricmpspn, returns_true_only_for_equal_tfw_strs);
-	TEST_RUN(tfw_stricmpspn, handles_plain_and_compound_strs);
-	TEST_RUN(tfw_stricmpspn, handles_empty_strs);
-	TEST_RUN(tfw_stricmpspn, handles_different_size_strs);
+	TEST_RUN(tfw_stricmp, returns_true_only_for_equal_tfw_strs);
+	TEST_RUN(tfw_stricmp, handles_plain_and_compound_strs);
+	TEST_RUN(tfw_stricmp, handles_empty_strs);
+	TEST_RUN(tfw_stricmp, handles_different_size_strs);
 
-	TEST_RUN(tfw_strcmpspn, returns_true_only_for_equal_tfw_strs);
-	TEST_RUN(tfw_strcmpspn, handles_plain_and_compound_strs);
-	TEST_RUN(tfw_strcmpspn, handles_empty_strs);
-	TEST_RUN(tfw_strcmpspn, handles_different_size_strs);
+	TEST_RUN(tfw_strcmp, returns_true_only_for_equal_tfw_strs);
+	TEST_RUN(tfw_strcmp, handles_plain_and_compound_strs);
+	TEST_RUN(tfw_strcmp, handles_empty_strs);
+	TEST_RUN(tfw_strcmp, handles_different_size_strs);
 
 	TEST_RUN(tfw_str_eq_cstr, returns_true_only_for_equal_strs);
 	TEST_RUN(tfw_str_eq_cstr, handles_plain_str);
