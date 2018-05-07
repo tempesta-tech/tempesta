@@ -21,7 +21,7 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include "cfg.h"
-#include "classifier.h"
+#include "http_limits.h"
 #include "client.h"
 #include "connection.h"
 #include "log.h"
