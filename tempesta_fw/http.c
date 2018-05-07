@@ -26,7 +26,7 @@
 #include "lib/hash.h"
 #include "lib/str.h"
 #include "cache.h"
-#include "classifier.h"
+#include "http_limits.h"
 #include "client.h"
 #include "http_msg.h"
 #include "http_sess.h"
@@ -1358,6 +1358,24 @@ tfw_http_conn_snip_fwd_queue(TfwSrvConn *srv_conn, struct list_head *out_queue)
 }
 
 /*
+ * Find an outgoing server connection for an HTTP message.
+ *
+ * This function is always called in SoftIRQ context.
+ */
+static TfwSrvConn *
+tfw_http_get_srv_conn(TfwMsg *msg)
+{
+	TfwHttpReq *req = (TfwHttpReq *)msg;
+	TfwHttpSess *sess = req->sess;
+
+	/* Sticky cookies are disabled or client doesn't support cookies. */
+	if (!sess)
+		return tfw_vhost_get_srv_conn(msg);
+
+	return tfw_http_sess_get_srv_conn(msg);
+}
+
+/*
  * Re-schedule a request collected from a dead server connection's
  * queue to a live server connection.
  *
@@ -1391,7 +1409,7 @@ tfw_http_req_resched(TfwHttpReq *req, TfwServer *srv, struct list_head *eq)
 				      " request on server", &srv->addr);
 			return;
 		}
-	} else if (!(sch_conn = tfw_sched_get_srv_conn((TfwMsg *)req))) {
+	} else if (!(sch_conn = tfw_http_get_srv_conn((TfwMsg *)req))) {
 		TFW_DBG("Unable to find a backend server\n");
 		tfw_http_send_resp(req, 502, "request dropped: unable to"
 				   " find an available back end server");
@@ -1603,6 +1621,7 @@ tfw_http_req_destruct(void *msg)
 	WARN_ON_ONCE(!list_empty(&req->fwd_list));
 	WARN_ON_ONCE(!list_empty(&req->nip_list));
 
+	tfw_vhost_put(req->vhost);
 	if (req->sess)
 		tfw_http_sess_put(req->sess);
 }
@@ -2006,7 +2025,7 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 		[TFW_HTTP_VER_11] = "1.1 ",
 		[TFW_HTTP_VER_20] = "2.0 ",
 	};
-	TfwVhost *vhost = tfw_vhost_get_default();
+	TfwGlobal *g_vhost = tfw_vhost_get_global();
 	const TfwStr rh = {
 #define S_VIA	"Via: "
 		.ptr = (TfwStr []) {
@@ -2014,16 +2033,16 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 			{ .ptr = (void *)s_http_version[hm->version],
 			  .len = 4 },
 			{ .ptr = *this_cpu_ptr(&g_buf),
-			  .len = vhost->hdr_via_len },
+			  .len = g_vhost->hdr_via_len },
 		},
-		.len = SLEN(S_VIA) + 4 + vhost->hdr_via_len,
+		.len = SLEN(S_VIA) + 4 + g_vhost->hdr_via_len,
 		.eolen = 2,
 		.flags = 3 << TFW_STR_CN_SHIFT
 #undef S_VIA
 	};
 
-	memcpy_fast(__TFW_STR_CH(&rh, 2)->ptr, vhost->hdr_via,
-		    vhost->hdr_via_len);
+	memcpy_fast(__TFW_STR_CH(&rh, 2)->ptr, g_vhost->hdr_via,
+		    g_vhost->hdr_via_len);
 
 	r = tfw_http_msg_hdr_add(hm, &rh);
 	if (r)
@@ -2062,6 +2081,8 @@ tfw_http_set_loc_hdrs(TfwHttpMsg *hm, TfwHttpReq *req)
 						 : TFW_VHOST_HDRMOD_RESP;
 	TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location, req->vhost,
 						    mod_type);
+	if (!h_mods)
+		return 0;
 
 	for (i = 0; i < h_mods->sz; ++i) {
 		TfwHdrModsDesc *d = &h_mods->hdrs[i];
@@ -2460,7 +2481,7 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 	 * the cache operation. At the same time, cache hits are expected
 	 * to prevail over cache misses, so this is not a frequent path.
 	 */
-	if (!(srv_conn = tfw_sched_get_srv_conn((TfwMsg *)req))) {
+	if (!(srv_conn = tfw_http_get_srv_conn((TfwMsg *)req))) {
 		TFW_DBG("Unable to find a backend server\n");
 		goto send_502;
 	}
@@ -2511,7 +2532,7 @@ tfw_http_req_mark_nip(TfwHttpReq *req)
 		| (1 << TFW_HTTP_METH_TRACE);
 	TfwLocation *loc = req->location;
 	TfwLocation *loc_dflt = req->vhost->loc_dflt;
-	TfwLocation *base_loc = (tfw_vhost_get_default())->loc_dflt;
+	TfwVhost *vh_dflt = req->vhost->vhost_dflt;
 
 	BUILD_BUG_ON(sizeof(safe_methods) * BITS_PER_BYTE
 		     < _TFW_HTTP_METH_COUNT);
@@ -2531,8 +2552,9 @@ tfw_http_req_mark_nip(TfwHttpReq *req)
 	} else if (loc_dflt && loc_dflt->nipdef_sz) {
 		if (tfw_nipdef_match(loc_dflt, req->method, &req->uri_path))
 			goto nip_match;
-	} else if ((base_loc != loc_dflt) && base_loc && base_loc->nipdef_sz) {
-		if (tfw_nipdef_match(base_loc, req->method, &req->uri_path))
+	} else if (vh_dflt && vh_dflt->loc_dflt->nipdef_sz) {
+		if (tfw_nipdef_match(vh_dflt->loc_dflt, req->method,
+				     &req->uri_path))
 			goto nip_match;
 	}
 
@@ -2574,10 +2596,12 @@ tfw_http_req_add_seq_queue(TfwHttpReq *req)
 static int
 tfw_http_req_set_context(TfwHttpReq *req)
 {
-	req->vhost = tfw_vhost_match(&req->uri_path);
+	if (!(req->vhost = tfw_vhost_match((TfwMsg *)req)))
+		return -EINVAL;
+
 	req->location = tfw_location_match(req->vhost, &req->uri_path);
 
-	return !req->vhost;
+	return 0;
 }
 
 static inline bool
@@ -2714,6 +2738,14 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 			       && (req->content_length != req->body.len));
 		}
 
+		/* Assign the right Vhost for this request. */
+		if (tfw_http_req_set_context(req)) {
+			TFW_INC_STAT_BH(clnt.msgs_otherr);
+			tfw_client_drop(req, 500, "cannot find"
+				      "Vhost for request");
+			return TFW_BLOCK;
+		}
+
 		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_MSG, &data_up);
 		TFW_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
 		/* Don't accept any following requests from the peer. */
@@ -2730,14 +2762,6 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 		 */
 		req->cache_ctl.timestamp = tfw_current_timestamp();
 		req->jrxtstamp = jiffies;
-
-		/* Assign the right Vhost for this request. */
-		if (tfw_http_req_set_context(req)) {
-			TFW_INC_STAT_BH(clnt.msgs_otherr);
-			tfw_client_drop(req, 500, "cannot find"
-				      "Vhost for request");
-			return TFW_BLOCK;
-		}
 
 		/*
 		 * In HTTP 0.9 the server always closes the connection
