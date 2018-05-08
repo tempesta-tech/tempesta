@@ -584,6 +584,12 @@ tfw_current_timestamp(void)
 	return ts.tv_sec;
 }
 
+static inline int
+tfw_http_resp_code_range(const int n)
+{
+	return n <= HTTP_CODE_MAX && n >= HTTP_CODE_MIN;
+}
+
 typedef void (*tfw_http_cache_cb_t)(TfwHttpMsg *);
 
 /* Internal (parser) HTTP functions. */

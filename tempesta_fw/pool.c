@@ -25,7 +25,7 @@
  *    be immediately freed to keep stack-like memory management.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -43,6 +43,7 @@
  */
 #include <linux/gfp.h>
 
+#include "lib/str.h"
 #include "pool.h"
 
 #define TFW_POOL_CHUNK_SZ(p)	(PAGE_SIZE << (p)->order)
@@ -167,7 +168,7 @@ tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n)
 
 	a = tfw_pool_alloc(p, new_n);
 	if (likely(a))
-		memcpy(a, ptr, old_n);
+		memcpy_fast(a, ptr, old_n);
 
 	return a;
 }

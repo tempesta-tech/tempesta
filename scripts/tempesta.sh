@@ -34,16 +34,16 @@ script_path="$(dirname $0)"
 tdb_path=${TDB_PATH:="$TFW_ROOT/tempesta_db/core"}
 tfw_path=${TFW_PATH:="$TFW_ROOT/tempesta_fw"}
 tls_path=${TLS_PATH:="$TFW_ROOT/tls"}
-class_path=${TFW_CLS_PATH:="$tfw_path/classifier/"}
+lib_path=${LIB_PATH:="$TFW_ROOT/lib"}
 tfw_cfg_path=${TFW_CFG_PATH:="$TFW_ROOT/etc/tempesta_fw.conf"}
 sched_path=${TFW_SCHED_PATH:="$tfw_path/sched/"}
 sched_ko_files=($(ls $sched_path/tfw_sched_*.ko))
 
+lib_mod=tempesta_lib
 tls_mod=tempesta_tls
 tdb_mod=tempesta_db
 tfw_mod=tempesta_fw
 tfw_sched_mod=tfw_sched_$sched
-frang_mod="tfw_frang"
 declare -r LONG_OPTS="help,load,unload,start,stop,restart,reload"
 
 declare devs=$(ip addr show up | awk '/^[0-9]+/ { sub(/:/, "", $2); print $2}')
@@ -52,7 +52,6 @@ usage()
 {
 	echo -e "\nUsage: ${TFW_NAME} [options] {action}\n"
 	echo -e "Options:"
-	echo -e "  -f          Load Frang, HTTP DoS protection module."
 	echo -e "  -d <devs>   Ingress and egress network devices"
 	echo -e "              (ex. -d \"lo ens3\").\n"
 	echo -e "Actions:"
@@ -99,6 +98,9 @@ load_modules()
 	# so debug messages are shown on serial console as well.
 	echo '8 7 1 7' > /proc/sys/kernel/printk
 
+	load_one_module "$lib_path/$lib_mod.ko" ||
+		error "cannot load tempesta library module"
+
 	load_one_module "$tls_path/$tls_mod.ko" ||
 		error "cannot load tempesta TLS module"
 
@@ -112,12 +114,6 @@ load_modules()
 		load_one_module "$ko_file" ||
 			error "cannot load tempesta scheduler module"
 	done
-
-	if grep -q -E "^\s*frang_limits" $tfw_cfg_path; then
-		echo "Load Frang"
-		load_one_module "$class_path/$frang_mod.ko" ||
-			error "cannot load $frang_mod module"
-	fi
 }
 
 unload_modules()
@@ -128,10 +124,10 @@ unload_modules()
 		rmmod $(basename "${ko_file%.ko}")
 	done
 
-	[ "`lsmod | grep \"\<$frang_mod\>\"`" ] && rmmod $frang_mod
 	rmmod $tfw_mod
 	rmmod $tdb_mod
 	rmmod $tls_mod
+	rmmod $lib_mod
 }
 
 setup()
