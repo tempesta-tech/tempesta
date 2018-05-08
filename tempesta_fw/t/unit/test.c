@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -26,7 +26,6 @@
 #define tfw_apm_stats	test_tfw_apm_stats
 
 #include "apm.c"
-#include "vhost.c"
 
 int test_fail_counter;
 test_fixture_fn_t test_setup_fn;
@@ -37,7 +36,7 @@ test_fixture_fn_t test_teardown_fn;
  *
  * The problem with logging is that it is hard to find a real error
  * message among all logs generated during a test run.
- * That happens because:
+ * That happpens because:
  *  - Some tests intentionally make calls with invalid input data.
  *    The code generates TFW_ERR() messages indistinguishable from
  *    real errors.
@@ -90,6 +89,7 @@ test_call_teardown_fn(void)
 
 TEST_SUITE(cfg);
 TEST_SUITE(tfw_str);
+TEST_SUITE(mem_fast);
 TEST_SUITE(http_parser);
 TEST_SUITE(http_sticky);
 TEST_SUITE(http_match);
@@ -100,6 +100,7 @@ TEST_SUITE(sched_ratio);
 TEST_SUITE(sched_hash);
 TEST_SUITE(sched_http);
 TEST_SUITE(wq);
+TEST_SUITE(tls);
 
 int
 test_run_all(void)
@@ -110,6 +111,9 @@ test_run_all(void)
 	TEST_SUITE_RUN(cfg);
 	TEST_SUITE_RUN(wq);
 
+	/* TLS tests care about FPU on their own. */
+	TEST_SUITE_RUN(tls);
+
 	kernel_fpu_begin();
 	tfw_str_init_const();
 
@@ -118,6 +122,7 @@ test_run_all(void)
 	 * the tests can not sleep.
 	 */
 	TEST_SUITE_RUN(tfw_str);
+	TEST_SUITE_RUN(mem_fast);
 	TEST_SUITE_RUN(http_parser);
 	TEST_SUITE_RUN(http_match);
 	TEST_SUITE_RUN(http_msg);

@@ -86,8 +86,7 @@ MODULE_VERSION("0.3.1");
 MODULE_LICENSE("GPL");
 
 typedef struct {
-	TfwSrvGroup *main_sg;
-	TfwSrvGroup *backup_sg;
+	TfwVhost *vhost;
 	TfwHttpMatchRule rule;
 } TfwSchedHttpRule;
 
@@ -96,46 +95,18 @@ static TfwHttpMatchList __rcu *tfw_rules;
 /* Reconfig HTTP Scheduler rules. */
 static TfwHttpMatchList *tfw_rules_reconfig;
 
-/**
- * Find connection for a message @msg in @main_sg or @backup_sg server groups.
- */
-static TfwSrvConn *
-tfw_sched_http_get_srv_conn(TfwMsg *msg, TfwSrvGroup *main_sg,
-			    TfwSrvGroup *backup_sg)
-{
-	TfwSrvConn *srv_conn = NULL;
-
-	BUG_ON(!main_sg);
-	TFW_DBG2("sched: use server group: '%s'\n", main_sg->name);
-
-	if (likely(main_sg->sched))
-		srv_conn = main_sg->sched->sched_sg_conn(msg, main_sg);
-
-	if (unlikely(!srv_conn && backup_sg && backup_sg->sched)) {
-		TFW_DBG("sched: the main group is offline, use backup: '%s'\n",
-			backup_sg->name);
-		srv_conn = backup_sg->sched->sched_sg_conn(msg, backup_sg);
-	}
-
-	if (unlikely(!srv_conn))
-		TFW_DBG2("sched: Unable to select server from group '%s'\n",
-			 backup_sg ? backup_sg->name : main_sg->name);
-
-	return srv_conn;
-}
-
 /*
- * Find a connection for an outgoing HTTP request.
+ * Find vhost for an outgoing HTTP request.
  *
  * The search is based on contents of an HTTP request and match rules
- * that specify which Server Group the request should be forwarded to.
+ * that specify which Vhost the request should be forwarded to.
  */
-static TfwSrvConn *
-tfw_sched_http_sched_grp(TfwMsg *msg)
+static TfwVhost *
+tfw_sched_http_sched_vhost(TfwMsg *msg)
 {
 	TfwSchedHttpRule *rule;
 	TfwHttpMatchList *active_rules;
-	TfwSrvConn *srv_conn = NULL;
+	TfwVhost *vhost = NULL;
 
 	rcu_read_lock_bh();
 	active_rules = rcu_dereference_bh(tfw_rules);
@@ -149,12 +120,11 @@ tfw_sched_http_sched_grp(TfwMsg *msg)
 		TFW_DBG("sched_http: No matching rule found.\n");
 		goto done;
 	}
-
-	srv_conn = tfw_sched_http_get_srv_conn(msg, rule->main_sg,
-					       rule->backup_sg);
+	vhost = rule->vhost;
+	BUG_ON(!vhost);
 done:
 	rcu_read_unlock_bh();
-	return srv_conn;
+	return vhost;
 }
 
 static TfwSrvConn *
@@ -181,7 +151,7 @@ tfw_sched_http_refcnt(bool get)
 static TfwScheduler tfw_sched_http = {
 	.name		= "http",
 	.list		= LIST_HEAD_INIT(tfw_sched_http.list),
-	.sched_grp	= tfw_sched_http_sched_grp,
+	.sched_vhost	= tfw_sched_http_sched_vhost,
 	.sched_sg_conn	= tfw_sched_http_sched_sg_conn,
 	.sched_srv_conn	= tfw_sched_http_sched_srv_conn,
 	.sched_refcnt	= tfw_sched_http_refcnt,
@@ -252,41 +222,25 @@ tfw_cfgop_sched_http_rules_finish(TfwCfgSpec *cs)
 	return 0;
 }
 
-static int
-tfw_cfgop_rules_check_flags(TfwSrvGroup *main_sg, TfwSrvGroup *backup_sg)
-{
-	int r = ((main_sg->flags & TFW_SRV_STICKY_FLAGS) ^
-		 (backup_sg->flags & TFW_SRV_STICKY_FLAGS));
-	if (r)
-		TFW_ERR_NL("sched_http: srv_groups '%s' and '%s' must "
-			   "have the same sticky sessions settings\n",
-			   main_sg->name, backup_sg->name);
-
-	return r;
-}
-
 /**
  * Handle a "match" entry within "sched_http_rules" section, e.g.:
  *   sched_http_rules {
- *       match group1 uri prefix "/foo";
- *       match group2 host eq "example.com";
+ *       match vhost1 uri prefix "/foo";
+ *       match vhost2 host eq "example.com";
  *   }
  *
  * This callback is invoked for every such "match" entry.
- * It resolves name of the group, parses the rule and adds the entry to the
+ * It resolves name of the vhost, parses the rule and adds the entry to the
  * tfw_sched_http_rules list.
  *
  * Syntax:
- *            +------------------------ a reference to "srv_group";
+ *            +------------------------ a reference to "vhost";
  *            |     +------------------ HTTP request field
  *            |     |     +------------ operator (eq, prefix, substr, etc)
  *            |     |     |       +---- argument for the operator (any string)
  *            |     |     |       |
  *            V     V     V       V
- *    match group3 uri  prefix "/foo/bar/baz.html" backup=group4
- *                                                    ^
- *                                                    |
- *                 a backup "srv_group" (optional)----+
+ *    match vhost3 uri  prefix "/foo/bar/baz.html"
  *
  */
 static int
@@ -298,45 +252,23 @@ tfw_cfgop_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 	tfw_http_match_op_t op;
 	tfw_http_match_fld_t field;
 	tfw_http_match_arg_t type;
-	TfwSrvGroup *main_sg, *backup_sg;
-	const char *in_main_sg, *in_field, *in_op, *in_arg, *in_backup_sg;
+	TfwVhost *vhost;
+	const char *in_vhost, *in_field, *in_op, *in_arg;
 
-	r = tfw_cfg_check_val_n(e, 4);
-	if (r)
+	if ((r = tfw_cfg_check_val_n(e, 4)))
 		return r;
 
-	in_main_sg = e->vals[0];
+	in_vhost = e->vals[0];
 	in_field = e->vals[1];
 	in_op = e->vals[2];
 	in_arg = e->vals[3];
-	in_backup_sg = tfw_cfg_get_attr(e, "backup", NULL);
 
-	main_sg = tfw_sg_lookup_reconfig(in_main_sg, strlen(in_main_sg));
-	if (!main_sg) {
-		TFW_ERR_NL("sched_http: srv_group is not found: '%s'\n",
-			   in_main_sg);
-		return -EINVAL;
-	}
-
-	if (!in_backup_sg) {
-		backup_sg = NULL;
-	} else {
-		backup_sg = tfw_sg_lookup_reconfig(in_backup_sg,
-						   strlen(in_backup_sg));
-		if (!backup_sg) {
-			TFW_ERR_NL("sched_http: backup srv_group is not found:"
-				   " '%s'\n", in_backup_sg);
-			r = -EINVAL;
-			goto err;
-		}
-		/* 'default' group is not fully parsed, field flag is not set. */
-		if (strcasecmp(in_main_sg, "default")
-		    && strcasecmp(in_backup_sg, "default")
-		    && tfw_cfgop_rules_check_flags(main_sg, backup_sg))
-		{
-			r = -EINVAL;
-			goto err;
-		}
+	vhost = tfw_vhost_lookup(in_vhost);
+	if (!vhost) {
+		TFW_ERR_NL("sched_http: vhost is not found: '%s'\n",
+			   in_vhost);
+		r = -EINVAL;
+		goto err;
 	}
 
 	r = tfw_cfg_map_enum(tfw_sched_http_cfg_field_enum, in_field, &field);
@@ -367,9 +299,8 @@ tfw_cfgop_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 		goto err;
 	}
 
-	TFW_DBG("sched_http: parsed rule: match"
-		" '%s'=%p '%s'=%d '%s'=%d '%s'\n",
-		in_main_sg, main_sg, in_field, field, in_op, op, in_arg);
+	TFW_DBG("sched_http: parsed rule: match '%s'=%p '%s'=%d '%s'=%d '%s'\n",
+		in_vhost, vhost, in_field, field, in_op, op, in_arg);
 
 	if (type == TFW_HTTP_MATCH_A_STR || type == TFW_HTTP_MATCH_A_WILDCARD) {
 		tfw_http_match_rule_init(&rule->rule, field, op, type, in_arg);
@@ -377,14 +308,11 @@ tfw_cfgop_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 		BUG();
 		// TODO: parsing not string matching rules
 	}
-
-	rule->main_sg = main_sg;
-	rule->backup_sg = backup_sg;
+	rule->vhost = vhost;
 
 	return 0;
 err:
-	tfw_sg_put(main_sg);
-	tfw_sg_put(backup_sg);
+	tfw_vhost_put(vhost);
 
 	return r;
 }
@@ -411,12 +339,9 @@ tfw_cfgop_match_new(TfwCfgSpec *cs, TfwCfgEntry *e)
 	return 0;
 }
 
-static int
-tfw_cfgop_release_sg(TfwSchedHttpRule *rule)
+tfw_cfgop_release_vhost(TfwSchedHttpRule *rule)
 {
-	tfw_sg_put(rule->main_sg);
-	tfw_sg_put(rule->backup_sg);
-
+	tfw_vhost_put(rule->vhost);
 	return 0;
 }
 
@@ -425,8 +350,9 @@ tfw_cfgop_free_rules(TfwHttpMatchList *rules)
 {
 	if (!rules)
 		return;
+
 	tfw_http_match_for_each(rules, TfwSchedHttpRule, rule,
-				tfw_cfgop_release_sg);
+				tfw_cfgop_release_vhost);
 	tfw_http_match_list_free(rules);
 }
 
@@ -468,18 +394,10 @@ tfw_sched_http_start(void)
 }
 
 static int
-tfw_sched_http_rules_check_flags(TfwSchedHttpRule *rule)
-{
-	if (!rule->backup_sg)
-		return 0;
-	return tfw_cfgop_rules_check_flags(rule->main_sg, rule->backup_sg);
-}
-
-static int
 tfw_sched_http_cfgend(void)
 {
 	TfwHttpMatchRule *mrule;
-	TfwSrvGroup *sg_default;
+	TfwVhost *vhost_dflt;
 	struct list_head mod_list;
 	TfwMod sched_mod;
 	TfwCfgSpec *cfg_spec;
@@ -487,13 +405,6 @@ tfw_sched_http_cfgend(void)
 		"sched_http_rules {\nmatch default * * *;\n}\n";
 	int r;
 
-	/* Group 'default' ifs fully parsed now, check main/backup group
-	 * flags for incompatibilities.
-	 */
-	r = tfw_http_match_for_each(tfw_rules_reconfig, TfwSchedHttpRule, rule,
-				    tfw_sched_http_rules_check_flags);
-	if (r)
-		return -EINVAL;
 	/*
 	 * See if we need to add a default rule that forwards all
 	 * requests that do not match any rule to group 'default'.
@@ -509,13 +420,14 @@ tfw_sched_http_cfgend(void)
 			return 0;
 	}
 	/*
-	 * No default rule specified in the configuration, but there's no
-	 * group 'default' so we would have nowhere to point this rule to.
+	 * No default rule specified in the configuration. If there is not
+	 * default server group (and сonsequently, there's no default vhost),
+	 * we have nowhere to point this rule to, so we needn't to create
+	 * default rule at all.
 	 */
-	sg_default = tfw_sg_lookup_reconfig("default", sizeof("default") - 1);
-	if (!sg_default)
+	if (!(vhost_dflt = tfw_vhost_lookup("default")))
 		return 0;
-	tfw_sg_put(sg_default);
+	tfw_vhost_put(vhost_dflt);
 
 	/*
 	 * Add a default rule that points to group 'default'. Note that

@@ -25,6 +25,7 @@
 #include <net/inet_common.h>
 #include <net/ip6_route.h>
 
+#include "lib/str.h"
 #include "addr.h"
 #include "log.h"
 #include "procfs.h"
@@ -285,7 +286,7 @@ ss_wq_pop(SsWork *sw, long *ticket)
 		}
 		spin_unlock(&cb->lock);
 		if (cn) {
-			memcpy(sw, &cn->sw, sizeof(*sw));
+			memcpy_fast(sw, &cn->sw, sizeof(*sw));
 			kmem_cache_free(ss_cbacklog_cache, cn);
 			return 0;
 		}

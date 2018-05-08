@@ -2,7 +2,7 @@
  *  Multi-precision integer library
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -37,34 +37,12 @@
  *      https://gmplib.org/manual/index.html
  *
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
-#include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
-#if defined(MBEDTLS_BIGNUM_C)
-
-#include "bignum.h"
-#include "bn_mul.h"
-
 #include <string.h>
 
-#if defined(MBEDTLS_PLATFORM_C)
+#include "config.h"
+#include "bignum.h"
+#include "bn_mul.h"
 #include "platform.h"
-#else
-#include <stdio.h>
-#include <stdlib.h>
-#define mbedtls_printf     printf
-#define mbedtls_calloc    calloc
-#define mbedtls_free       free
-#endif
-
-/* Implementation that should never be optimized out by the compiler */
-static void mbedtls_mpi_zeroize( mbedtls_mpi_uint *v, size_t n ) {
-    volatile mbedtls_mpi_uint *p = v; while( n-- ) *p++ = 0;
-}
 
 #define ciL    (sizeof(mbedtls_mpi_uint))         /* chars in limb  */
 #define biL    (ciL << 3)               /* bits  in limb  */
@@ -78,6 +56,9 @@ static void mbedtls_mpi_zeroize( mbedtls_mpi_uint *v, size_t n ) {
  */
 #define BITS_TO_LIMBS(i)  ( (i) / biL + ( (i) % biL != 0 ) )
 #define CHARS_TO_LIMBS(i) ( (i) / ciL + ( (i) % ciL != 0 ) )
+
+#define MPI_W_SZ	(2 << MBEDTLS_MPI_WINDOW_SIZE)
+static DEFINE_PER_CPU(mbedtls_mpi *, g_buf);
 
 /*
  * Initialize one MPI
@@ -102,7 +83,7 @@ void mbedtls_mpi_free( mbedtls_mpi *X )
 
     if( X->p != NULL )
     {
-        mbedtls_mpi_zeroize( X->p, X->n );
+        memset(X->p, 0, X->n);
         mbedtls_free( X->p );
     }
 
@@ -129,7 +110,7 @@ int mbedtls_mpi_grow( mbedtls_mpi *X, size_t nblimbs )
         if( X->p != NULL )
         {
             memcpy( p, X->p, X->n * ciL );
-            mbedtls_mpi_zeroize( X->p, X->n );
+            memset(X->p, 0, X->n);
             mbedtls_free( X->p );
         }
 
@@ -167,7 +148,7 @@ int mbedtls_mpi_shrink( mbedtls_mpi *X, size_t nblimbs )
     if( X->p != NULL )
     {
         memcpy( p, X->p, i * ciL );
-        mbedtls_mpi_zeroize( X->p, X->n );
+        memset(X->p, 0, X->n);
         mbedtls_free( X->p );
     }
 
@@ -537,7 +518,12 @@ int mbedtls_mpi_write_string( const mbedtls_mpi *X, int radix,
     n = mbedtls_mpi_bitlen( X );
     if( radix >=  4 ) n >>= 1;
     if( radix >= 16 ) n >>= 1;
-    n += 3;
+    /*
+     * Round up the buffer length to an even value to ensure that there is
+     * enough room for hexadecimal values that can be represented in an odd
+     * number of digits.
+     */
+    n += 3 + ( ( n + 1 ) & 1 );
 
     if( buflen < n )
     {
@@ -591,95 +577,26 @@ cleanup:
     return( ret );
 }
 
-#if defined(MBEDTLS_FS_IO)
-/*
- * Read X from an opened file
- */
-int mbedtls_mpi_read_file( mbedtls_mpi *X, int radix, FILE *fin )
-{
-    mbedtls_mpi_uint d;
-    size_t slen;
-    char *p;
-    /*
-     * Buffer should have space for (short) label and decimal formatted MPI,
-     * newline characters and '\0'
-     */
-    char s[ MBEDTLS_MPI_RW_BUFFER_SIZE ];
-
-    memset( s, 0, sizeof( s ) );
-    if( fgets( s, sizeof( s ) - 1, fin ) == NULL )
-        return( MBEDTLS_ERR_MPI_FILE_IO_ERROR );
-
-    slen = strlen( s );
-    if( slen == sizeof( s ) - 2 )
-        return( MBEDTLS_ERR_MPI_BUFFER_TOO_SMALL );
-
-    if( s[slen - 1] == '\n' ) { slen--; s[slen] = '\0'; }
-    if( s[slen - 1] == '\r' ) { slen--; s[slen] = '\0'; }
-
-    p = s + slen;
-    while( --p >= s )
-        if( mpi_get_digit( &d, radix, *p ) != 0 )
-            break;
-
-    return( mbedtls_mpi_read_string( X, radix, p + 1 ) );
-}
-
-/*
- * Write X into an opened file (or stdout if fout == NULL)
- */
-int mbedtls_mpi_write_file( const char *p, const mbedtls_mpi *X, int radix, FILE *fout )
-{
-    int ret;
-    size_t n, slen, plen;
-    /*
-     * Buffer should have space for (short) label and decimal formatted MPI,
-     * newline characters and '\0'
-     */
-    char s[ MBEDTLS_MPI_RW_BUFFER_SIZE ];
-
-    memset( s, 0, sizeof( s ) );
-
-    MBEDTLS_MPI_CHK( mbedtls_mpi_write_string( X, radix, s, sizeof( s ) - 2, &n ) );
-
-    if( p == NULL ) p = "";
-
-    plen = strlen( p );
-    slen = strlen( s );
-    s[slen++] = '\r';
-    s[slen++] = '\n';
-
-    if( fout != NULL )
-    {
-        if( fwrite( p, 1, plen, fout ) != plen ||
-            fwrite( s, 1, slen, fout ) != slen )
-            return( MBEDTLS_ERR_MPI_FILE_IO_ERROR );
-    }
-    else
-        mbedtls_printf( "%s%s", p, s );
-
-cleanup:
-
-    return( ret );
-}
-#endif /* MBEDTLS_FS_IO */
-
 /*
  * Import X from unsigned binary data, big endian
  */
 int mbedtls_mpi_read_binary( mbedtls_mpi *X, const unsigned char *buf, size_t buflen )
 {
     int ret;
-    size_t i, j, n;
+    size_t i, j;
+    size_t const limbs = CHARS_TO_LIMBS( buflen );
 
-    for( n = 0; n < buflen; n++ )
-        if( buf[n] != 0 )
-            break;
+    /* Ensure that target MPI has exactly the necessary number of limbs */
+    if( X->n != limbs )
+    {
+        mbedtls_mpi_free( X );
+        mbedtls_mpi_init( X );
+        MBEDTLS_MPI_CHK( mbedtls_mpi_grow( X, limbs ) );
+    }
 
-    MBEDTLS_MPI_CHK( mbedtls_mpi_grow( X, CHARS_TO_LIMBS( buflen - n ) ) );
     MBEDTLS_MPI_CHK( mbedtls_mpi_lset( X, 0 ) );
 
-    for( i = buflen, j = 0; i > n; i--, j++ )
+    for( i = buflen, j = 0; i > 0; i--, j++ )
         X->p[j / ciL] |= ((mbedtls_mpi_uint) buf[i - 1]) << ((j % ciL) << 3);
 
 cleanup:
@@ -1097,32 +1014,10 @@ int mbedtls_mpi_sub_int( mbedtls_mpi *X, const mbedtls_mpi *A, mbedtls_mpi_sint 
  * Helper for mbedtls_mpi multiplication
  */
 static
-#if defined(__APPLE__) && defined(__arm__)
-/*
- * Apple LLVM version 4.2 (clang-425.0.24) (based on LLVM 3.2svn)
- * appears to need this to prevent bad ARM code generation at -O3.
- */
-__attribute__ ((noinline))
-#endif
 void mpi_mul_hlp( size_t i, mbedtls_mpi_uint *s, mbedtls_mpi_uint *d, mbedtls_mpi_uint b )
 {
     mbedtls_mpi_uint c = 0, t = 0;
 
-#if defined(MULADDC_HUIT)
-    for( ; i >= 8; i -= 8 )
-    {
-        MULADDC_INIT
-        MULADDC_HUIT
-        MULADDC_STOP
-    }
-
-    for( ; i > 0; i-- )
-    {
-        MULADDC_INIT
-        MULADDC_CORE
-        MULADDC_STOP
-    }
-#else /* MULADDC_HUIT */
     for( ; i >= 16; i -= 16 )
     {
         MULADDC_INIT
@@ -1155,7 +1050,6 @@ void mpi_mul_hlp( size_t i, mbedtls_mpi_uint *s, mbedtls_mpi_uint *d, mbedtls_mp
         MULADDC_CORE
         MULADDC_STOP
     }
-#endif /* MULADDC_HUIT */
 
     t++;
 
@@ -1225,15 +1119,11 @@ int mbedtls_mpi_mul_int( mbedtls_mpi *X, const mbedtls_mpi *A, mbedtls_mpi_uint 
 static mbedtls_mpi_uint mbedtls_int_div_int( mbedtls_mpi_uint u1,
             mbedtls_mpi_uint u0, mbedtls_mpi_uint d, mbedtls_mpi_uint *r )
 {
-#if defined(MBEDTLS_HAVE_UDBL)
-    mbedtls_t_udbl dividend, quotient;
-#else
     const mbedtls_mpi_uint radix = (mbedtls_mpi_uint) 1 << biH;
     const mbedtls_mpi_uint uint_halfword_mask = ( (mbedtls_mpi_uint) 1 << biH ) - 1;
     mbedtls_mpi_uint d0, d1, q0, q1, rAX, r0, quotient;
     mbedtls_mpi_uint u0_msw, u0_lsw;
     size_t s;
-#endif
 
     /*
      * Check for overflow
@@ -1244,19 +1134,6 @@ static mbedtls_mpi_uint mbedtls_int_div_int( mbedtls_mpi_uint u1,
 
         return ( ~0 );
     }
-
-#if defined(MBEDTLS_HAVE_UDBL)
-    dividend  = (mbedtls_t_udbl) u1 << biL;
-    dividend |= (mbedtls_t_udbl) u0;
-    quotient = dividend / d;
-    if( quotient > ( (mbedtls_t_udbl) 1 << biL ) - 1 )
-        quotient = ( (mbedtls_t_udbl) 1 << biL ) - 1;
-
-    if( r != NULL )
-        *r = (mbedtls_mpi_uint)( dividend - (quotient * d ) );
-
-    return (mbedtls_mpi_uint) quotient;
-#else
 
     /*
      * Algorithm D, Section 4.3.1 - The Art of Computer Programming
@@ -1311,7 +1188,6 @@ static mbedtls_mpi_uint mbedtls_int_div_int( mbedtls_mpi_uint u1,
     quotient = q1 * radix + q0;
 
     return quotient;
-#endif
 }
 
 /*
@@ -1602,17 +1478,19 @@ static int mpi_montred( mbedtls_mpi *A, const mbedtls_mpi *N, mbedtls_mpi_uint m
 /*
  * Sliding-window exponentiation: X = A^E mod N  (HAC 14.85)
  */
-int mbedtls_mpi_exp_mod( mbedtls_mpi *X, const mbedtls_mpi *A, const mbedtls_mpi *E, const mbedtls_mpi *N, mbedtls_mpi *_RR )
+int
+mbedtls_mpi_exp_mod(mbedtls_mpi *X, const mbedtls_mpi *A, const mbedtls_mpi *E,
+		    const mbedtls_mpi *N, mbedtls_mpi *_RR)
 {
     int ret;
     size_t wbits, wsize, one = 1;
     size_t i, j, nblimbs;
     size_t bufsize, nbits;
     mbedtls_mpi_uint ei, mm, state;
-    mbedtls_mpi RR, T, W[ 2 << MBEDTLS_MPI_WINDOW_SIZE ], Apos;
+    mbedtls_mpi RR, T, Apos, *W = *this_cpu_ptr(&g_buf);
     int neg;
 
-    if( mbedtls_mpi_cmp_int( N, 0 ) < 0 || ( N->p[0] & 1 ) == 0 )
+    if( mbedtls_mpi_cmp_int( N, 0 ) <= 0 || ( N->p[0] & 1 ) == 0 )
         return( MBEDTLS_ERR_MPI_BAD_INPUT_DATA );
 
     if( mbedtls_mpi_cmp_int( E, 0 ) < 0 )
@@ -1624,7 +1502,7 @@ int mbedtls_mpi_exp_mod( mbedtls_mpi *X, const mbedtls_mpi *A, const mbedtls_mpi
     mpi_montg_init( &mm, N );
     mbedtls_mpi_init( &RR ); mbedtls_mpi_init( &T );
     mbedtls_mpi_init( &Apos );
-    memset( W, 0, sizeof( W ) );
+    memset(W, 0, sizeof(mbedtls_mpi) * MPI_W_SZ);
 
     i = mbedtls_mpi_bitlen( E );
 
@@ -1788,7 +1666,7 @@ int mbedtls_mpi_exp_mod( mbedtls_mpi *X, const mbedtls_mpi *A, const mbedtls_mpi
      */
     MBEDTLS_MPI_CHK( mpi_montred( X, N, mm, &T ) );
 
-    if( neg )
+    if( neg && E->n != 0 && ( E->p[0] & 1 ) != 0 )
     {
         X->s = -1;
         MBEDTLS_MPI_CHK( mbedtls_mpi_add_mpi( X, N, X ) );
@@ -1799,7 +1677,9 @@ cleanup:
     for( i = ( one << ( wsize - 1 ) ); i < ( one << wsize ); i++ )
         mbedtls_mpi_free( &W[i] );
 
-    mbedtls_mpi_free( &W[1] ); mbedtls_mpi_free( &T ); mbedtls_mpi_free( &Apos );
+    mbedtls_mpi_free( &W[1] );
+    mbedtls_mpi_free( &T );
+    mbedtls_mpi_free( &Apos );
 
     if( _RR == NULL || _RR->p == NULL )
         mbedtls_mpi_free( &RR );
@@ -1880,7 +1760,8 @@ int mbedtls_mpi_fill_random( mbedtls_mpi *X, size_t size,
     MBEDTLS_MPI_CHK( mbedtls_mpi_read_binary( X, buf, size ) );
 
 cleanup:
-    return( ret );
+    memset(buf, 0, sizeof(buf));
+    return ret;
 }
 
 /*
@@ -1891,7 +1772,7 @@ int mbedtls_mpi_inv_mod( mbedtls_mpi *X, const mbedtls_mpi *A, const mbedtls_mpi
     int ret;
     mbedtls_mpi G, TA, TU, U1, U2, TB, TV, V1, V2;
 
-    if( mbedtls_mpi_cmp_int( N, 0 ) <= 0 )
+    if( mbedtls_mpi_cmp_int( N, 1 ) <= 0 )
         return( MBEDTLS_ERR_MPI_BAD_INPUT_DATA );
 
     mbedtls_mpi_init( &TA ); mbedtls_mpi_init( &TU ); mbedtls_mpi_init( &U1 ); mbedtls_mpi_init( &U2 );
@@ -2268,8 +2149,6 @@ cleanup:
 
 #endif /* MBEDTLS_GENPRIME */
 
-#if defined(MBEDTLS_SELF_TEST)
-
 #define GCD_PAIR_COUNT  3
 
 static const int gcd_pairs[GCD_PAIR_COUNT][3] =
@@ -2287,8 +2166,13 @@ int mbedtls_mpi_self_test( int verbose )
     int ret, i;
     mbedtls_mpi A, E, N, X, Y, U, V;
 
-    mbedtls_mpi_init( &A ); mbedtls_mpi_init( &E ); mbedtls_mpi_init( &N ); mbedtls_mpi_init( &X );
-    mbedtls_mpi_init( &Y ); mbedtls_mpi_init( &U ); mbedtls_mpi_init( &V );
+    mbedtls_mpi_init( &A );
+    mbedtls_mpi_init( &E );
+    mbedtls_mpi_init( &N );
+    mbedtls_mpi_init( &X );
+    mbedtls_mpi_init( &Y );
+    mbedtls_mpi_init( &U );
+    mbedtls_mpi_init( &V );
 
     MBEDTLS_MPI_CHK( mbedtls_mpi_read_string( &A, 16,
         "EFE021C2645FD1DC586E69184AF4A31E" \
@@ -2440,6 +2324,31 @@ cleanup:
     return( ret );
 }
 
-#endif /* MBEDTLS_SELF_TEST */
+void
+ttls_mpi_exit(void)
+{
+	int cpu;
 
-#endif /* MBEDTLS_BIGNUM_C */
+	for_each_possible_cpu(cpu) {
+		mbedtls_mpi **ptr = per_cpu_ptr(&g_buf, cpu);
+		kfree(*ptr);
+	}
+}
+
+int
+ttls_mpi_init(void)
+{
+	int cpu;
+
+	for_each_possible_cpu(cpu) {
+		mbedtls_mpi **ptr = per_cpu_ptr(&g_buf, cpu);
+		*ptr = kmalloc(sizeof(mbedtls_mpi) * MPI_W_SZ, GFP_KERNEL);
+		if (!*ptr)
+			goto err_cleanup;
+	}
+
+	return 0;
+err_cleanup:
+	ttls_mpi_exit();
+	return -ENOMEM;
+}

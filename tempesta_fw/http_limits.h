@@ -18,8 +18,8 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __TFW_CLASSIFIER__
-#define __TFW_CLASSIFIER__
+#ifndef __HTTP_LIMITS__
+#define __HTTP_LIMITS__
 
 #include <linux/in6.h>
 #include <net/sock.h>
@@ -28,7 +28,13 @@
 #include "tempesta_fw.h"
 #include "connection.h"
 
-/* Size of classifier private cliet accounting data. */
+/*
+ * ------------------------------------------------------------------------
+ *	Generic classifier interface.
+ * ------------------------------------------------------------------------
+ */
+
+/* Size of classifier private client accounting data. */
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 #define TFW_CLASSIFIER_ACCSZ	512
 #else
@@ -96,4 +102,64 @@ int tfw_classify_ipv6(struct sk_buff *skb);
 extern void tfw_classifier_register(TfwClassifier *mod);
 extern void tfw_classifier_unregister(void);
 
-#endif /* __TFW_CLASSIFIER__ */
+/*
+ * ------------------------------------------------------------------------
+ *	Frang (static http limits classifier) configuration interface.
+ * ------------------------------------------------------------------------
+ */
+
+/**
+ * Response code block setting
+ *
+ * @codes	- Response code bitmap;
+ * @limit	- Quantity of allowed responses in a time frame;
+ * @tf		- Time frame in seconds;
+ */
+typedef struct {
+	DECLARE_BITMAP(codes, 512);
+	unsigned short	limit;
+	unsigned short	tf;
+} FrangHttpRespCodeBlock;
+
+typedef struct {
+	char   *str;
+	size_t len;	/* The pre-computed strlen(@str). */
+} FrangCtVal;
+
+typedef struct frang_cfg_t FrangCfg;
+
+struct frang_cfg_t {
+	/* Limits (zero means unlimited). */
+	unsigned int		req_rate;
+	unsigned int		req_burst;
+	unsigned int		conn_rate;
+	unsigned int		conn_burst;
+	unsigned int		conn_max;
+
+	/*
+	 * Limits on time it takes to receive
+	 * a full header or a body chunk.
+	 */
+	unsigned long		clnt_hdr_timeout;
+	unsigned long		clnt_body_timeout;
+
+	/* Limits for HTTP request contents: uri, headers, body, etc. */
+	unsigned int		http_uri_len;
+	unsigned int		http_field_len;
+	unsigned int		http_body_len;
+	unsigned int		http_hchunk_cnt;
+	unsigned int		http_bchunk_cnt;
+	unsigned int		http_hdr_cnt;
+	bool			http_ct_required;
+	bool			http_host_required;
+
+	bool			ip_block;
+
+	/* The bitmask of allowed HTTP Method values. */
+	unsigned long		http_methods_mask;
+	/* The list of allowed Content-Type values. */
+	FrangCtVal		*http_ct_vals;
+	FrangHttpRespCodeBlock	*http_resp_code_block;
+};
+
+#endif /* __HTTP_LIMITS__ */

@@ -5,6 +5,11 @@
  * Operations over the index tree are lock-free while buckets with collision
  * chains of small records are protected by RW-spinlock.
  *
+ * Data modification is designed to run in softirq context, so the trie uses
+ * SIMD instructions to speedup memory operations. Do not use the DML operations
+ * in sleepable contexts, such as configuration. Only the trie initialization
+ * and shutdown are performed in process context.
+ *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
@@ -26,6 +31,7 @@
 #include <linux/bitops.h>
 #include <linux/slab.h>
 
+#include "lib/str.h"
 #include "htrie.h"
 
 #define TDB_MAGIC	0x434947414D424454UL /* "TDBMAGIC" */
@@ -120,7 +126,7 @@ static inline void
 tdb_free_index_blk(TdbHtrieNode *node)
 {
 	/* Just zero the block and leave it for garbage collector. */
-	memset(node, 0, sizeof(*node));
+	bzero_fast(node, sizeof(*node));
 }
 
 /* TODO synchronize the bucket access. */
@@ -133,7 +139,7 @@ tdb_free_data_blk(TdbBucket *bckt)
 static inline void
 tdb_free_fsrec(TdbHdr *dbh, TdbFRec *rec)
 {
-	memset(rec, 0, TDB_HTRIE_RALIGN(sizeof(*rec) + dbh->rec_len));
+	bzero_fast(rec, TDB_HTRIE_RALIGN(sizeof(*rec) + dbh->rec_len));
 }
 
 static inline void
@@ -386,7 +392,7 @@ tdb_htrie_smallrec_link(TdbHdr *dbh, size_t len, TdbBucket *bckt)
 			    + TDB_HTRIE_RALIGN(sizeof(*r) + len);
 			if (!tdb_live_vsrec(r) && n <= TDB_HTRIE_MINDREC) {
 				/* Freed record - reuse. */
-				memset(r, 0, sizeof(*r) + TDB_HTRIE_VRLEN(r));
+				bzero_fast(r, sizeof(*r) + TDB_HTRIE_VRLEN(r));
 				o = TDB_HTRIE_OFF(dbh, r);
 				goto done;
 			}
@@ -477,7 +483,7 @@ do {									\
 				goto err_cleanup;			\
 			b = TDB_PTR(dbh, nb[k].b);			\
 			tdb_htrie_init_bucket(b);			\
-			memcpy(TDB_HTRIE_BCKT_1ST_REC(b), r, n);	\
+			memcpy_fast(TDB_HTRIE_BCKT_1ST_REC(b), r, n);	\
 			nb[k].off = sizeof(*b) + n;			\
 			new_in->shifts[k] = TDB_O2DI(nb[k].b) | TDB_HTRIE_DBIT;\
 			/* We copied a record, clear its orignal place. */\
@@ -517,8 +523,8 @@ do {									\
 	if (free_nb > 0) {
 		TDB_DBG("clear dblk=%#lx from %#x\n",
 			nb[free_nb].b, nb[free_nb].off);
-		memset(TDB_PTR(dbh, nb[free_nb].b + nb[free_nb].off),
-		       0, TDB_HTRIE_MINDREC - nb[free_nb].off);
+		bzero_fast(TDB_PTR(dbh, nb[free_nb].b + nb[free_nb].off),
+			   TDB_HTRIE_MINDREC - nb[free_nb].off);
 	}
 
 	return 0;
@@ -594,7 +600,7 @@ tdb_htrie_create_rec(TdbHdr *dbh, unsigned long off, unsigned long key,
 		ptr += sizeof(TdbFRec);
 	}
 	if (data)
-		memcpy(ptr, data, len);
+		memcpy_fast(ptr, data, len);
 
 	return r;
 }

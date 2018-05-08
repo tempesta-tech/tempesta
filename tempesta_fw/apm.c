@@ -24,6 +24,7 @@
 #include <linux/spinlock.h>
 #include <linux/stringify.h>
 
+#include "lib/str.h"
 #include "apm.h"
 #include "cfg.h"
 #include "log.h"
@@ -779,8 +780,8 @@ static inline void
 __tfw_apm_rbent_reset(TfwApmRBEnt *crbent, unsigned long jtmistamp)
 {
 	memset(crbent->pcntrng.__reset_from, 0,
-	       offsetof(TfwPcntRanges, __reset_till) -
-	       offsetof(TfwPcntRanges, __reset_from));
+	       offsetof(TfwPcntRanges, __reset_till)
+	       - offsetof(TfwPcntRanges, __reset_from));
 	crbent->jtmistamp = jtmistamp;
 	smp_mb__before_atomic();
 	atomic_set(&crbent->reset, 1);
@@ -894,8 +895,8 @@ tfw_apm_calc(TfwApmData *data)
 
 	TFW_DBG3("%s: Percentile values may have changed.\n", __func__);
 	write_lock(&asent->rwlock);
-	memcpy(asent->pstats.val, pstats.val,
-	       asent->pstats.psz * sizeof(asent->pstats.val[0]));
+	memcpy_fast(asent->pstats.val, pstats.val,
+		    asent->pstats.psz * sizeof(asent->pstats.val[0]));
 	atomic_inc(&data->stats.rdidx);
 	write_unlock(&asent->rwlock);
 

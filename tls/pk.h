@@ -2,9 +2,10 @@
  * \file pk.h
  *
  * \brief Public Key abstraction layer
- *
+ */
+/*
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -66,10 +67,7 @@
 #define MBEDTLS_ERR_PK_UNKNOWN_NAMED_CURVE -0x3A00  /**< Elliptic curve is unsupported (only NIST curves are supported). */
 #define MBEDTLS_ERR_PK_FEATURE_UNAVAILABLE -0x3980  /**< Unavailable feature, e.g. RSA disabled for RSA key. */
 #define MBEDTLS_ERR_PK_SIG_LEN_MISMATCH    -0x3900  /**< The signature is valid but its length is less than expected. */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+#define MBEDTLS_ERR_PK_HW_ACCEL_FAILED     -0x3880  /**< PK hardware accelerator failed. */
 
 /**
  * \brief          Public key types
@@ -474,44 +472,6 @@ int mbedtls_pk_parse_key( mbedtls_pk_context *ctx,
 int mbedtls_pk_parse_public_key( mbedtls_pk_context *ctx,
                          const unsigned char *key, size_t keylen );
 
-#if defined(MBEDTLS_FS_IO)
-/** \ingroup pk_module */
-/**
- * \brief           Load and parse a private key
- *
- * \param ctx       key to be initialized
- * \param path      filename to read the private key from
- * \param password  password to decrypt the file (can be NULL)
- *
- * \note            On entry, ctx must be empty, either freshly initialised
- *                  with mbedtls_pk_init() or reset with mbedtls_pk_free(). If you need a
- *                  specific key type, check the result with mbedtls_pk_can_do().
- *
- * \note            The key is also checked for correctness.
- *
- * \return          0 if successful, or a specific PK or PEM error code
- */
-int mbedtls_pk_parse_keyfile( mbedtls_pk_context *ctx,
-                      const char *path, const char *password );
-
-/** \ingroup pk_module */
-/**
- * \brief           Load and parse a public key
- *
- * \param ctx       key to be initialized
- * \param path      filename to read the public key from
- *
- * \note            On entry, ctx must be empty, either freshly initialised
- *                  with mbedtls_pk_init() or reset with mbedtls_pk_free(). If
- *                  you need a specific key type, check the result with
- *                  mbedtls_pk_can_do().
- *
- * \note            The key is also checked for correctness.
- *
- * \return          0 if successful, or a specific PK or PEM error code
- */
-int mbedtls_pk_parse_public_keyfile( mbedtls_pk_context *ctx, const char *path );
-#endif /* MBEDTLS_FS_IO */
 #endif /* MBEDTLS_PK_PARSE_C */
 
 #if defined(MBEDTLS_PK_WRITE_C)
@@ -608,12 +568,5 @@ int mbedtls_pk_write_pubkey( unsigned char **p, unsigned char *start,
  * Internal module functions. You probably do not want to use these unless you
  * know you do.
  */
-#if defined(MBEDTLS_FS_IO)
-int mbedtls_pk_load_file( const char *path, unsigned char **buf, size_t *n );
-#endif
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* MBEDTLS_PK_H */

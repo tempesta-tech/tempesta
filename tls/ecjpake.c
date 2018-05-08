@@ -2,7 +2,7 @@
  *  Elliptic curve J-PAKE
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -38,6 +38,8 @@
 #include "ecjpake.h"
 
 #include <string.h>
+
+#if !defined(MBEDTLS_ECJPAKE_ALT)
 
 /*
  * Convert a mbedtls_ecjpake_role to identifier string
@@ -767,8 +769,7 @@ cleanup:
 #undef ID_MINE
 #undef ID_PEER
 
-
-#if defined(MBEDTLS_SELF_TEST)
+#endif /* ! MBEDTLS_ECJPAKE_ALT */
 
 #if defined(MBEDTLS_PLATFORM_C)
 #include "platform.h"
@@ -1100,7 +1101,5 @@ cleanup:
 #undef TEST_ASSERT
 
 #endif /* MBEDTLS_ECP_DP_SECP256R1_ENABLED && MBEDTLS_SHA256_C */
-
-#endif /* MBEDTLS_SELF_TEST */
 
 #endif /* MBEDTLS_ECJPAKE_C */
