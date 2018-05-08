@@ -29,6 +29,7 @@
 
 #include "tdb.h"
 
+#include "lib/str.h"
 #include "tempesta_fw.h"
 #include "vhost.h"
 #include "cache.h"
@@ -313,8 +314,8 @@ tfw_cache_policy(TfwVhost *vhost, TfwLocation *loc, TfwStr *arg)
 		if ((capo = tfw_capolicy_match(loc, arg)))
 			return capo->cmd;
 	} else {
-		TfwVhost *vhost_dflt = tfw_vhost_get_default();
-		if (vhost == vhost_dflt)
+		TfwVhost *vhost_dflt = vhost->vhost_dflt;
+		if (!vhost_dflt)
 			return TFW_D_CACHE_BYPASS;
 
 		loc = vhost_dflt->loc_dflt;
@@ -751,8 +752,8 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 this_chunk:
 		n = min(c->len - c_off, (unsigned long)trec->len - t_off);
 		/* Cache key is stored in lower case. */
-		if (tfw_stricmp_2lc((char *)c->ptr + c_off,
-				    trec->data + t_off, n))
+		if (tfw_cstricmp_2lc((char *)c->ptr + c_off,
+				     trec->data + t_off, n))
 			return false;
 		c_off = (n == c->len - c_off) ? 0 : c_off + n;
 		if (n == trec->len - t_off) {
@@ -849,7 +850,7 @@ tfw_cache_str_write_hdr(const TfwStr *str, char *p)
  */
 static long
 __tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len,
-		   void *cpy(void *dest, const void *src, size_t n))
+		   void cpy(void *dest, const void *src, size_t n))
 {
 	long copied = 0;
 
@@ -883,10 +884,10 @@ __tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len,
 /**
  * We need the function wrapper if memcpy() is defined as __inline_memcpy().
  */
-static void *
+static void
 __tfw_memcpy(void *dst ,const void *src, size_t n)
 {
-	return memcpy(dst, src, n);
+	memcpy_fast(dst, src, n);
 }
 
 static inline long
@@ -901,7 +902,7 @@ tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
 static inline long
 tfw_cache_strcpy_lc(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
 {
-	return __tfw_cache_strcpy(p, trec, src, tot_len, tfw_strtolower);
+	return __tfw_cache_strcpy(p, trec, src, tot_len, tfw_cstrtolower);
 }
 
 /**
@@ -1073,7 +1074,7 @@ __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
 					    len);
 		if (!curr_p)
 			return -ENOMEM;
-		memcpy(curr_p, ce->etag.ptr, len);
+		memcpy_fast(curr_p, ce->etag.ptr, len);
 		ce->etag.ptr = curr_p;
 		/* Old ce->etag.ptr will be destroyed with resp. */
 	}
@@ -1402,23 +1403,23 @@ tfw_cache_purge_method(TfwHttpReq *req)
 {
 	int ret;
 	TfwAddr saddr;
-	TfwVhost *vhost = tfw_vhost_get_default();
+	TfwGlobal *g_vhost = tfw_vhost_get_global();
 
 	/* Deny PURGE requests by default. */
-	if (!(cache_cfg.cache && vhost->cache_purge && vhost->cache_purge_acl)) {
+	if (!(cache_cfg.cache && g_vhost->cache_purge && g_vhost->cache_purge_acl)) {
 		tfw_http_send_resp(req, 403, "purge: not configured");
 		return;
 	}
 
 	/* Accept requests from configured hosts only. */
 	ss_getpeername(req->conn->sk, &saddr);
-	if (!tfw_capuacl_match(vhost, &saddr)) {
+	if (!tfw_capuacl_match(&saddr)) {
 		tfw_http_send_resp(req, 403, "purge: ACL violation");
 		return;
 	}
 
 	/* Only "invalidate" option is implemented at this time. */
-	switch (vhost->cache_purge_mode) {
+	switch (g_vhost->cache_purge_mode) {
 	case TFW_D_CACHE_PURGE_INVALIDATE:
 		ret = tfw_cache_purge_invalidate(req);
 		break;
@@ -1779,11 +1780,11 @@ static int
 tfw_cache_start(void)
 {
 	int i, r = 1;
-	TfwVhost *vhost = tfw_vhost_get_default();
+	TfwGlobal *g_vhost = tfw_vhost_get_global();
 
 	if (tfw_runstate_is_reconfig())
 		return 0;
-	if (!(cache_cfg.cache || vhost->cache_purge))
+	if (!(cache_cfg.cache || g_vhost->cache_purge))
 		return 0;
 
 	for_each_node_with_cpus(i) {

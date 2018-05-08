@@ -40,8 +40,9 @@
 
 #include "tdb.h"
 
+#include "lib/str.h"
 #include "tempesta_fw.h"
-#include "classifier.h"
+#include "http_limits.h"
 #include "filter.h"
 #include "log.h"
 
@@ -105,7 +106,7 @@ tfw_filter_check_ip(struct in6_addr *addr)
 	iter = tdb_rec_get(ip_filter_db, tfw_ipv6_hash(addr));
 	while (!TDB_ITER_BAD(iter)) {
 		const TfwFRule *rule = (TfwFRule *)iter.rec->data;
-		if (!memcmp(&rule->addr, addr, sizeof(*addr))) {
+		if (!memcmp_fast(&rule->addr, addr, sizeof(*addr))) {
 			tdb_rec_put(iter.rec);
 			return rule->action == TFW_F_DROP ? TFW_BLOCK : TFW_PASS;
 		}

@@ -2,9 +2,10 @@
  * \file x509_crt.h
  *
  * \brief X.509 certificate parsing and writing
- *
+ */
+/*
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -123,6 +124,10 @@ mbedtls_x509_crt_profile;
 #define MBEDTLS_X509_RFC5280_MAX_SERIAL_LEN 32
 #define MBEDTLS_X509_RFC5280_UTC_TIME_LEN   15
 
+#if !defined( MBEDTLS_X509_MAX_FILE_PATH_LEN )
+#define MBEDTLS_X509_MAX_FILE_PATH_LEN 512
+#endif
+
 /**
  * Container for writing a certificate (CRT)
  */
@@ -189,38 +194,6 @@ int mbedtls_x509_crt_parse_der( mbedtls_x509_crt *chain, const unsigned char *bu
  */
 int mbedtls_x509_crt_parse( mbedtls_x509_crt *chain, const unsigned char *buf, size_t buflen );
 
-#if defined(MBEDTLS_FS_IO)
-/**
- * \brief          Load one or more certificates and add them
- *                 to the chained list. Parses permissively. If some
- *                 certificates can be parsed, the result is the number
- *                 of failed certificates it encountered. If none complete
- *                 correctly, the first error is returned.
- *
- * \param chain    points to the start of the chain
- * \param path     filename to read the certificates from
- *
- * \return         0 if all certificates parsed successfully, a positive number
- *                 if partly successful or a specific X509 or PEM error code
- */
-int mbedtls_x509_crt_parse_file( mbedtls_x509_crt *chain, const char *path );
-
-/**
- * \brief          Load one or more certificate files from a path and add them
- *                 to the chained list. Parses permissively. If some
- *                 certificates can be parsed, the result is the number
- *                 of failed certificates it encountered. If none complete
- *                 correctly, the first error is returned.
- *
- * \param chain    points to the start of the chain
- * \param path     directory / folder to read the certificate files from
- *
- * \return         0 if all certificates parsed successfully, a positive number
- *                 if partly successful or a specific X509 or PEM error code
- */
-int mbedtls_x509_crt_parse_path( mbedtls_x509_crt *chain, const char *path );
-#endif /* MBEDTLS_FS_IO */
-
 /**
  * \brief          Returns an informational string about the
  *                 certificate.
@@ -266,7 +239,13 @@ int mbedtls_x509_crt_verify_info( char *buf, size_t size, const char *prefix,
  *
  *                 All flags left after returning from the callback
  *                 are also returned to the application. The function should
- *                 return 0 for anything but a fatal error.
+ *                 return 0 for anything (including invalid certificates)
+ *                 other than fatal error, as a non-zero return code
+ *                 immediately aborts the verification process. For fatal
+ *                 errors, a specific error code should be used (different
+ *                 from MBEDTLS_ERR_X509_CERT_VERIFY_FAILED which should not
+ *                 be returned at this point), or MBEDTLS_ERR_X509_FATAL_ERROR
+ *                 can be used if no better code is available.
  *
  * \note           In case verification failed, the results can be displayed
  *                 using \c mbedtls_x509_crt_verify_info()
@@ -288,12 +267,13 @@ int mbedtls_x509_crt_verify_info( char *buf, size_t size, const char *prefix,
  * \param f_vrfy   verification function
  * \param p_vrfy   verification parameter
  *
- * \return         0 if successful or MBEDTLS_ERR_X509_CERT_VERIFY_FAILED
- *                 in which case *flags will have one or more
- *                 MBEDTLS_X509_BADCERT_XXX or MBEDTLS_X509_BADCRL_XXX flags
- *                 set,
- *                 or another error in case of a fatal error encountered
- *                 during the verification process.
+ * \return         0 (and flags set to 0) if the chain was verified and valid,
+ *                 MBEDTLS_ERR_X509_CERT_VERIFY_FAILED if the chain was verified
+ *                 but found to be invalid, in which case *flags will have one
+ *                 or more MBEDTLS_X509_BADCERT_XXX or MBEDTLS_X509_BADCRL_XXX
+ *                 flags set, or another error (and flags set to 0xffffffff)
+ *                 in case of a fatal error encountered during the
+ *                 verification process.
  */
 int mbedtls_x509_crt_verify( mbedtls_x509_crt *crt,
                      mbedtls_x509_crt *trust_ca,
@@ -365,21 +345,22 @@ int mbedtls_x509_crt_check_key_usage( const mbedtls_x509_crt *crt,
 
 #if defined(MBEDTLS_X509_CHECK_EXTENDED_KEY_USAGE)
 /**
- * \brief          Check usage of certificate against extentedJeyUsage.
+ * \brief           Check usage of certificate against extendedKeyUsage.
  *
- * \param crt      Leaf certificate used.
- * \param usage_oid Intended usage (eg MBEDTLS_OID_SERVER_AUTH or MBEDTLS_OID_CLIENT_AUTH).
+ * \param crt       Leaf certificate used.
+ * \param usage_oid Intended usage (eg MBEDTLS_OID_SERVER_AUTH or
+ *                  MBEDTLS_OID_CLIENT_AUTH).
  * \param usage_len Length of usage_oid (eg given by MBEDTLS_OID_SIZE()).
  *
- * \return         0 if this use of the certificate is allowed,
- *                 MBEDTLS_ERR_X509_BAD_INPUT_DATA if not.
+ * \return          0 if this use of the certificate is allowed,
+ *                  MBEDTLS_ERR_X509_BAD_INPUT_DATA if not.
  *
- * \note           Usually only makes sense on leaf certificates.
+ * \note            Usually only makes sense on leaf certificates.
  */
 int mbedtls_x509_crt_check_extended_key_usage( const mbedtls_x509_crt *crt,
-                                       const char *usage_oid,
-                                       size_t usage_len );
-#endif /* MBEDTLS_X509_CHECK_EXTENDED_KEY_USAGE) */
+                                               const char *usage_oid,
+                                               size_t usage_len );
+#endif /* MBEDTLS_X509_CHECK_EXTENDED_KEY_USAGE */
 
 #if defined(MBEDTLS_X509_CRL_PARSE_C)
 /**

@@ -2,7 +2,7 @@
  *  X.509 Certificate Signing Request (CSR) parsing
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -47,20 +47,6 @@
 
 #if defined(MBEDTLS_PEM_PARSE_C)
 #include "pem.h"
-#endif
-
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdlib.h>
-#include <stdio.h>
-#define mbedtls_free       free
-#define mbedtls_calloc    calloc
-#define mbedtls_snprintf   snprintf
-#endif
-
-#if defined(MBEDTLS_FS_IO) || defined(EFIX64) || defined(EFI32)
-#include <stdio.h>
 #endif
 
 /* Implementation that should never be optimized out by the compiler */
@@ -171,13 +157,13 @@ int mbedtls_x509_csr_parse_der( mbedtls_x509_csr *csr,
         return( ret );
     }
 
-    csr->version++;
-
-    if( csr->version != 1 )
+    if( csr->version != 0 )
     {
         mbedtls_x509_csr_free( csr );
         return( MBEDTLS_ERR_X509_UNKNOWN_VERSION );
     }
+
+    csr->version++;
 
     /*
      *  subject               Name
@@ -268,8 +254,8 @@ int mbedtls_x509_csr_parse_der( mbedtls_x509_csr *csr,
  */
 int mbedtls_x509_csr_parse( mbedtls_x509_csr *csr, const unsigned char *buf, size_t buflen )
 {
-    int ret;
 #if defined(MBEDTLS_PEM_PARSE_C)
+    int ret;
     size_t use_len;
     mbedtls_pem_context pem;
 #endif
@@ -312,28 +298,6 @@ int mbedtls_x509_csr_parse( mbedtls_x509_csr *csr, const unsigned char *buf, siz
 #endif /* MBEDTLS_PEM_PARSE_C */
     return( mbedtls_x509_csr_parse_der( csr, buf, buflen ) );
 }
-
-#if defined(MBEDTLS_FS_IO)
-/*
- * Load a CSR into the structure
- */
-int mbedtls_x509_csr_parse_file( mbedtls_x509_csr *csr, const char *path )
-{
-    int ret;
-    size_t n;
-    unsigned char *buf;
-
-    if( ( ret = mbedtls_pk_load_file( path, &buf, &n ) ) != 0 )
-        return( ret );
-
-    ret = mbedtls_x509_csr_parse( csr, buf, n );
-
-    mbedtls_zeroize( buf, n );
-    mbedtls_free( buf );
-
-    return( ret );
-}
-#endif /* MBEDTLS_FS_IO */
 
 #define BEFORE_COLON    14
 #define BC              "14"

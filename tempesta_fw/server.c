@@ -23,9 +23,9 @@
 #include <linux/slab.h>
 #include <linux/rwsem.h>
 
+#include "lib/hash.h"
 #include "apm.h"
 #include "client.h"
-#include "hash.h"
 #include "log.h"
 #include "server.h"
 
@@ -150,10 +150,7 @@ TfwSrvGroup *
 tfw_sg_lookup(const char *name, unsigned int len)
 {
 	TfwSrvGroup *sg;
-	unsigned long key = 0, crc_tmp = 0;
-
-	__tdb_hash_calc(&key, &crc_tmp, name, len);
-	key ^= crc_tmp;
+	unsigned long key = hash_calc(name, len);
 
 	down_read(&sg_sem);
 	hash_for_each_possible(sg_hash, sg, list, key) {
@@ -180,10 +177,7 @@ TfwSrvGroup *
 tfw_sg_lookup_reconfig(const char *name, unsigned int len)
 {
 	TfwSrvGroup *sg;
-	unsigned long key = 0, crc_tmp = 0;
-
-	__tdb_hash_calc(&key, &crc_tmp, name, len);
-	key ^= crc_tmp;
+	unsigned long key = hash_calc(name, len);
 
 	down_read(&sg_sem);
 	hash_for_each_possible(sg_hash_reconfig, sg, list_reconfig, key) {
@@ -237,7 +231,7 @@ tfw_sg_new(const char *name, unsigned int len, gfp_t flags)
 int
 tfw_sg_add_reconfig(TfwSrvGroup *sg)
 {
-	unsigned long key = 0, crc_tmp = 0;
+	unsigned long key;
 
 	TFW_DBG("Add new server group: '%s'\n", sg->name);
 
@@ -246,8 +240,7 @@ tfw_sg_add_reconfig(TfwSrvGroup *sg)
 		return -EINVAL;
 	}
 
-	__tdb_hash_calc(&key, &crc_tmp, sg->name, sg->nlen);
-	key ^= crc_tmp;
+	key = hash_calc(sg->name, sg->nlen);
 
 	tfw_sg_get(sg);
 	down_write(&sg_sem);
@@ -269,7 +262,7 @@ void
 tfw_sg_apply_reconfig(struct hlist_head *del_sg)
 {
 	int i;
-	unsigned long key, crc_tmp;
+	unsigned long key;
 	struct hlist_node *tmp;
 	TfwSrvGroup *sg;
 
@@ -289,10 +282,8 @@ tfw_sg_apply_reconfig(struct hlist_head *del_sg)
 		tfw_srv_loop_sched_rcu();
 	}
 	hash_for_each_safe(sg_hash_reconfig, i, tmp, sg, list_reconfig) {
-		key = crc_tmp = 0;
 		hash_del(&sg->list_reconfig);
-		__tdb_hash_calc(&key, &crc_tmp, sg->name, sg->nlen);
-		key ^= crc_tmp;
+		key = hash_calc(sg->name, sg->nlen);
 		hash_add(sg_hash, &sg->list, key);
 		tfw_srv_loop_sched_rcu();
 	}

@@ -43,7 +43,7 @@
 #include "server.c"
 #include "sock_srv.c"
 #include "client.c"
-#include "classifier.c"
+#include "http_limits.c"
 
 /* rename original tfw_cli_conn_send(), a custom version will be used here */
 #define tfw_cli_conn_send	divert_tfw_cli_conn_send
@@ -75,6 +75,7 @@
 #include "connection.c"
 #undef tfw_connection_send
 
+#include "vhost.h"
 #include "test.h"
 #include "helpers.h"
 #include "tfw_str_helper.h"
@@ -245,7 +246,7 @@ http_sticky_suite_setup(void)
 
 	mock.req->conn = &mock.conn_req;
 	mock.resp->conn = &mock.conn_resp;
-	mock.req->vhost = tfw_vhost_get_default();
+	mock.req->vhost = tfw_vhost_new(TFW_VH_DFT_NAME);
 
 	tfw_http_req_add_seq_queue(mock.req);
 	mock.req->resp = mock.resp;

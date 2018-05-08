@@ -212,7 +212,7 @@ tfw_tls_send_cb(void *conn, const unsigned char *buf, size_t len)
 
 	skb = alloc_skb(MAX_TCP_HEADER + len, GFP_ATOMIC);
 	if (unlikely(!skb))
-		return MBEDTLS_ERR_NET_SEND_FAILED;
+		return -ENOMEM;
 
 	skb_reserve(skb, MAX_TCP_HEADER);
 	skb_put(skb, len);
@@ -222,7 +222,7 @@ tfw_tls_send_cb(void *conn, const unsigned char *buf, size_t len)
 
 	ss_skb_queue_tail(&tls->tx_queue, skb);
 	if (ss_send(c->sk, &tls->tx_queue, 0))
-		return MBEDTLS_ERR_NET_SEND_FAILED;
+		return -EIO;
 
 	tls_dbg(c, "-- %lu bytes sent", len);
 

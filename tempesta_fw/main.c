@@ -29,6 +29,7 @@
 #include "str.h"
 #include "sync_socket.h"
 #include "server.h"
+#include "vhost.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION(TFW_NAME);
@@ -396,13 +397,15 @@ tfw_init(void)
 	DO_INIT(apm);
 	DO_INIT(vhost);
 
-	DO_INIT(classifier);
-	DO_INIT(filter);
-	DO_INIT(cache);
-
-	/* Register TLS before HTTP, so HTTP FSM can register TLS hooks. */
+	/*
+	 * Register in order TLS -> HTTP -> limits, for correct
+	 * registration of FSM hooks.
+	 */
 	DO_INIT(tls);
 	DO_INIT(http);
+	DO_INIT(http_limits);
+	DO_INIT(filter);
+	DO_INIT(cache);
 	DO_INIT(http_sess);
 
 	DO_INIT(sync_socket);
