@@ -227,7 +227,6 @@ entry_set_name(TfwCfgEntry *e)
 	BUG_ON(!e);
 	BUG_ON(e->name);
 
-	TFW_WARN_NL("TEST10!!! 'entry_set_name()' -> e->name = '%s', e->ftoken = '%s'\n", e->name, e->ftoken);
 	if (!rule) {
 		name = e->ftoken;
 		len = strlen(e->ftoken);
@@ -702,8 +701,6 @@ entry_set_cond(TfwCfgEntry *e, token_t cond_type, const char *src, int len)
 	BUG_ON(!e->ftoken);
 	BUG_ON(e->name);
 
-	TFW_WARN_NL("TEST7!!! 'parse_cfg_entry()' -> PS_RULE_COND, (must be 4 or 5) ps->prev_t = '%d'\n", cond_type);
-
 	TFW_DBG3("set entry rule name '%.*s', 1st operand '%.*s', 2nd operand"
 		 " '%.*s', and condition type '%d'\n", name_len, name,
 		 (int)strlen(e->ftoken), e->ftoken, len, src, cond_type);
@@ -720,9 +717,7 @@ entry_set_cond(TfwCfgEntry *e, token_t cond_type, const char *src, int len)
 	if (!(e->name = alloc_and_copy_literal(name, name_len)))
 		return -ENOMEM;
 
-	rule->type = cond_type == TOKEN_DEQSIGN
-		   ? TFW_CFG_COND_EQUAL
-		   : TFW_CFG_COND_NONEQUAL;
+	rule->inv = cond_type == TOKEN_DEQSIGN ? false : true;
 	return 0;
 }
 
@@ -763,11 +758,21 @@ parse_cfg_entry(TfwCfgParserState *ps)
 
 	/* Every _PFSM_MOVE() invokes _read_next_token(), so when we enter
 	 * any state, we get a new token automatically.
-	 * So:
-	 *  name key = value;
-	 *  ^
-	 *  current literal is here; we need to store it as the name.
-	 *///!!! change comment
+	 * Three different situations may occur here:
+	 * 1. In case of plain directive parsing:
+	 *    name key = value;
+	 *    ^
+	 * 2. In case of rule parsing:
+	 *    key == (!=) value -> action [= val]
+	 *    ^
+	 * 3. In case of parsing of pure action rule:
+	 *    -> action [= val]
+	 *    ^
+	 * current token is here; so at first we need to differentiate third
+	 * situation, and in first two ones - save first token in special location
+	 * to decide later whether use it as name for plain directive or as
+	 * condition key for rule; in last two cases predefined rule name is used.
+	 */
 	FSM_STATE(PS_START_NEW_ENTRY) {
 		entry_reset(&ps->e);
 		ps->e.line_no = ps->line_no;
@@ -830,7 +835,7 @@ parse_cfg_entry(TfwCfgParserState *ps)
 		read_next_token(ps);
 		PFSM_COND_JMP_EXIT_ERROR(ps->t != TOKEN_SEMICOLON);
 		FSM_JMP(PS_SEMICOLON);
-	}//!!! comments in rule states
+	}
 
 	/*
 	 * Now we have a situation where at current position we don't know

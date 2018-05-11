@@ -254,17 +254,6 @@ tfw_location_match(TfwVhost *vhost, TfwStr *arg)
 	return NULL;
 }
 
-TfwVhost *
-tfw_vhost_match(TfwMsg *msg)
-{
-	TfwVhost *vhost;
-
-	if ((vhost = tfw_sched_get_vhost(msg)))
-		tfw_vhost_get(vhost);
-
-	return vhost;
-}
-
 /*
  * Find request's location with server group linked. If there is no
  * separate location for request (or there is no server group linked
