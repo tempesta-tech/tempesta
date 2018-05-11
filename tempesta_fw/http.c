@@ -1900,13 +1900,6 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 	}
 
 	/*
-	 * New message created, so it should be in whitelist if
-	 * previous message was (for client connections).
-	 */
-	if (TFW_CONN_TYPE(hm->conn) & Conn_Clnt)
-		shm->flags |= hm->flags & TFW_HTTP_F_WHITELIST;
-
-	/*
 	 * The sibling message is set up to start with a new SKB.
 	 * The new SKB is split off from the original SKB and has
 	 * the first part of the new message. The original SKB is
@@ -1917,6 +1910,17 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 		tfw_http_conn_msg_free(shm);
 		return NULL;
 	}
+
+	/*
+	 * New message created, so it should be in whitelist if
+	 * previous message was (for client connections). Also 
+	 * we have new skb here and 'mark' propagation is needed.
+	 */
+	if (TFW_CONN_TYPE(hm->conn) & Conn_Clnt) {
+		shm->flags |= hm->flags & TFW_HTTP_F_WHITELIST;
+		nskb->mark = (*skb)->mark;
+	}
+
 	ss_skb_queue_tail(&shm->msg.skb_head, nskb);
 	*skb = nskb;
 
@@ -2596,12 +2600,23 @@ tfw_http_req_add_seq_queue(TfwHttpReq *req)
 static int
 tfw_http_req_set_context(TfwHttpReq *req)
 {
-	if (!(req->vhost = tfw_vhost_match((TfwMsg *)req)))
-		return -EINVAL;
+	bool block = false;
 
-	req->location = tfw_location_match(req->vhost, &req->uri_path);
+	if ((req->vhost = tfw_sched_get_vhost((TfwMsg *)req, &block))) {
+		req->location = tfw_location_match(req->vhost, &req->uri_path);
+		return 0;
+	}
+	if (block) {
+		TFW_INC_STAT_BH(clnt.msgs_filtout);
+		tfw_client_block(req, 500, "request has been filtered out"
+				 " via http table");
+	} else {
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
+		tfw_client_drop(req, 500, "cannot find vhost for request");
+	}
+	return -EINVAL;
 
-	return 0;
+
 }
 
 static inline bool
@@ -2739,12 +2754,8 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 		}
 
 		/* Assign the right Vhost for this request. */
-		if (tfw_http_req_set_context(req)) {
-			TFW_INC_STAT_BH(clnt.msgs_otherr);
-			tfw_client_drop(req, 500, "cannot find"
-				      "Vhost for request");
+		if (tfw_http_req_set_context(req))
 			return TFW_BLOCK;
-		}
 
 		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_MSG, &data_up);
 		TFW_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);

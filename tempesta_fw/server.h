@@ -192,7 +192,7 @@ struct tfw_scheduler_t {
 	void			(*del_grp)(TfwSrvGroup *sg);
 	int			(*add_srv)(TfwServer *srv);
 	void			(*del_srv)(TfwServer *srv);
-	struct tfw_vhost_t	*(*sched_vhost)(TfwMsg *msg);
+	struct tfw_vhost_t	*(*sched_vhost)(TfwMsg *msg, bool *block);
 	TfwSrvConn		*(*sched_sg_conn)(TfwMsg *msg, TfwSrvGroup *sg);
 	TfwSrvConn		*(*sched_srv_conn)(TfwMsg *msg, TfwServer *srv);
 	void			(*sched_refcnt)(bool get);
@@ -345,7 +345,7 @@ tfw_sg_name_match(TfwSrvGroup *sg, const char *name, unsigned int len)
 }
 
 /* Scheduler routines. */
-struct tfw_vhost_t *tfw_sched_get_vhost(TfwMsg *msg);
+struct tfw_vhost_t *tfw_sched_get_vhost(TfwMsg *msg, bool *block);
 TfwScheduler *tfw_sched_lookup(const char *name);
 void tfw_sched_refcnt_all(bool get);
 int tfw_sched_register(TfwScheduler *sched);
