@@ -1,39 +1,36 @@
 /**
  *		Tempesta FW
  *
- * HTTP matching logic.
+ * HTTP table logic.
  *
- * The matching process is driven by a "table" of rules that may look like this:
- *         @field                  @op                      @arg
- * { TFW_HTTP_MATCH_F_HOST,  TFW_HTTP_MATCH_O_EQ,       "example.com" },
- * { TFW_HTTP_MATCH_F_URI,   TFW_HTTP_MATCH_O_PREFIX,   "/foo/bar"    },
- * { TFW_HTTP_MATCH_F_URI,   TFW_HTTP_MATCH_O_PREFIX,   "/"           },
+ * The matching process is driven by a "chain" of rules that look like this:
+ *         @field       = (!=)    @arg     ->   @action [ = @action_val ]
+ * { TFW_HTTP_MATCH_F_HOST,   "*example.com",  TFW_HTTP_MATCH_ACT_CHAIN },
+ * { TFW_HTTP_MATCH_F_URI,    "/foo/bar*",     TFW_HTTP_MATCH_ACT_VHOST },
+ * { TFW_HTTP_MATCH_F_URI,    "/",             TFW_HTTP_MATCH_ACT_MARK  },
  *
- * The table is represented by a linked list TfwHttpMatchList that contains
- * of TfwHttpMatchRule that has the field described above:
+ * The table is represented by a list of linked chains, that contain rules
+ * of TfwHttpMatchRule type that has the fields described above:
  *  - @field is a field of a parsed HTTP request: method/uri/host/header/etc.
- *  - @op determines a comparison operator: eq/prefix/substring/regex/etc.
- *  - @arg is the second argument of the binary @op, its type is determined
- *    dynamically depending on the @field (may be number/string/addr/etc).
+ *  - @op determines a comparison operator and depends on wildcard existance
+ *    in @arg : "arg" => eq / "arg*" => prefix / "*arg" => suffix.
+ *  - @act is a rule action with appropriate type (examples specified above).
+ *  - @arg is the second argument in rule, its type is determined dynamically
+ *    depending on the @field (may be number/string/addr/etc).
  *
- * So the tfw_http_match_req() threads a HTTP request sequentally across all
- * rules in the table and stops on a first matching rule (the rule is returned).
- * The rule may be wrapped by a container structure and thus custom data may
- * be attached to rules.
+ * So the tfw_sched_http_table_scan() threads a HTTP request sequentally across
+ * all rules in all chains in the table and stops on a first matching rule (the
+ * rule is returned).
  *
- * Internally, each pair of @field and @op is dispatched to a corresponding
- * match_* function.
+ * Internally, each @field is dispatched to a corresponding match_* function.
  * For example:
- *  TFW_HTTP_MATCH_F_METHOD + TFW_HTTP_MATCH_O_EQ  => match_method_eq
- *  TFW_HTTP_MATCH_F_METHOD + TFW_HTTP_MATCH_O_IN  => match_method_in
- * However, different pairs may be dispatched to the same function:
- *  TFW_HTTP_MATCH_F_URI + TFW_HTTP_MATCH_O_EQ     => match_uri
- *  TFW_HTTP_MATCH_F_URI + TFW_HTTP_MATCH_O_PREFIX => match_uri
+ *  TFW_HTTP_MATCH_F_METHOD => match_method
+ *  TFW_HTTP_MATCH_F_URI    => match_uri
  *  etc...
  * Each such match_*() function takes TfwHttpReq and TfwHttpMatchRule and
  * returns true if the given request matches to the given rule.
  * Such approach allows to keep the code structured and eases adding new
- * @field/@op combinations.
+ * @field types.
  * Currently that is implemented with a multi-dimensional array of pointers
  * (the match_fn_tbl). However the code is critical for performance, so perhaps
  * this may be optimized to a kind of jump table.
@@ -63,6 +60,7 @@
 #include <linux/ctype.h>
 #include "http_match.h"
 #include "http_msg.h"
+#include "cfg.h"
 
 /**
  * Look up a header in the @req->h_tbl by given @id,
@@ -105,9 +103,9 @@ map_op_to_str_eq_flags(tfw_http_match_op_t op)
 {
 	static const tfw_str_eq_flags_t flags_tbl[] = {
 		[ 0 ... _TFW_HTTP_MATCH_O_COUNT ] = -1,
-		[TFW_HTTP_MATCH_O_EQ]     = TFW_STR_EQ_DEFAULT,
-		[TFW_HTTP_MATCH_O_PREFIX] = TFW_STR_EQ_PREFIX,
-		[TFW_HTTP_MATCH_O_SUFFIX] = TFW_STR_EQ_DEFAULT,
+		[TFW_HTTP_MATCH_O_EQ]		= TFW_STR_EQ_DEFAULT,
+		[TFW_HTTP_MATCH_O_PREFIX]	= TFW_STR_EQ_PREFIX,
+		[TFW_HTTP_MATCH_O_SUFFIX]	= TFW_STR_EQ_DEFAULT,
 	};
 	BUG_ON(flags_tbl[op] < 0);
 	return flags_tbl[op];
@@ -327,10 +325,16 @@ static bool
 match_wildcard(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
 	if ((rule->op == TFW_HTTP_MATCH_O_WILDCARD)
-	    && (rule->arg.type == TFW_HTTP_MATCH_A_WILDCARD)
-	    && (rule->arg.len == 1) && (rule->arg.str[0] == '*'))
+	    && (rule->arg.type == TFW_HTTP_MATCH_A_WILDCARD))
 		return true;
 	return false;
+}
+
+static bool
+match_mark(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
+{
+	BUG_ON(rule->op != TFW_HTTP_MATCH_O_EQ);
+	return req->msg.skb_head->mark == rule->arg.num;
 }
 
 
@@ -345,32 +349,50 @@ static const match_fn match_fn_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
 	[TFW_HTTP_MATCH_F_HOST]		= match_host,
 	[TFW_HTTP_MATCH_F_METHOD]	= match_method,
 	[TFW_HTTP_MATCH_F_URI]		= match_uri,
+	[TFW_HTTP_MATCH_F_MARK]		= match_mark,
 };
 
 /**
- * Dispatch rule to a corresponding match_*() function.
+ * Dispatch rule to a corresponding match_*() function, invert result 
+ * if rule contains the inequality condition and evaluate rule if it
+ * has appropriate action type. 
  */
 static bool
-do_match(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
+do_eval(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
 	match_fn match_fn;
 	tfw_http_match_fld_t field;
+	bool matched;
 
 	TFW_DBG2("rule: %p, field: %#x, op: %#x, arg:%d:%d'%.*s'\n",
 		 rule, rule->field, rule->op, rule->arg.type, rule->arg.len,
 		 rule->arg.len, rule->arg.str);
 
 	BUG_ON(!req || !rule);
-	BUG_ON(rule->field < 0 || rule->field >= _TFW_HTTP_MATCH_F_COUNT);
-	BUG_ON(rule->op < 0 || rule->op >= _TFW_HTTP_MATCH_O_COUNT);
-	BUG_ON(rule->arg.type < 0 || rule->arg.type >= _TFW_HTTP_MATCH_A_COUNT);
-	BUG_ON(rule->arg.len <= 0 || rule->arg.len >= TFW_HTTP_MATCH_MAX_ARG_LEN);
+	BUG_ON(rule->field <= 0 || rule->field >= _TFW_HTTP_MATCH_F_COUNT);
+	BUG_ON(rule->op <= 0 || rule->op >= _TFW_HTTP_MATCH_O_COUNT);
+	BUG_ON(rule->act.type <= 0 || rule->act.type >= _TFW_HTTP_MATCH_ACT_COUNT);
+	BUG_ON(rule->arg.type <= 0 || rule->arg.type >= _TFW_HTTP_MATCH_A_COUNT);
+	BUG_ON(rule->arg.len < 0 || rule->arg.len >= TFW_HTTP_MATCH_MAX_ARG_LEN);
 
 	field = rule->field;
 	match_fn = match_fn_tbl[field];
 	BUG_ON(!match_fn);
 
-	return match_fn(req, rule);
+	matched = match_fn(req, rule);
+	if (rule->inv)
+		matched = !matched;
+	if (!matched)
+		return false;
+	/*
+	 * Evaluate mark action. Set mark only for head skb here; propagating
+	 * to others skb will take place later - in SS level.
+	 */
+	if (rule->act.type == TFW_HTTP_MATCH_ACT_MARK) {
+		req->msg.skb_head->mark = rule->act.mark;
+		return false;
+	}
+	return true;
 }
 
 /**
@@ -378,14 +400,14 @@ do_match(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
  * Return a first matching rule.
  */
 TfwHttpMatchRule *
-tfw_http_match_req(const TfwHttpReq *req, const TfwHttpMatchList *mlst)
+tfw_http_match_req(const TfwHttpReq *req, struct list_head *mlst)
 {
 	TfwHttpMatchRule *rule;
 
 	TFW_DBG2("Matching request: %p, list: %p\n", req, mlst);
 
-	list_for_each_entry(rule, &mlst->list, list) {
-		if (do_match(req, rule))
+	list_for_each_entry(rule, mlst, list) {
+		if (do_eval(req, rule))
 			return rule;
 	}
 
@@ -394,77 +416,139 @@ tfw_http_match_req(const TfwHttpReq *req, const TfwHttpMatchList *mlst)
 EXPORT_SYMBOL(tfw_http_match_req);
 
 /**
- * Allocate a rule from the pool of @mlst and add it to the list.
+ * Allocate an empty HTTP chain.
  */
-TfwHttpMatchRule *
-tfw_http_match_rule_new(TfwHttpMatchList *mlst, size_t arg_len)
+TfwHttpChain *
+tfw_http_chain_add(const char *name, TfwHttpTable *table)
 {
-	TfwHttpMatchRule *rule;
-	size_t size = TFW_HTTP_MATCH_RULE_SIZE(arg_len);
+	TfwHttpChain *chain;
+	int name_sz = name ? (strlen(name) + 1) : 0;
+	int size = sizeof(TfwHttpChain) + name_sz;
 
-	BUG_ON(!mlst || !mlst->pool);
-
-	rule = tfw_pool_alloc(mlst->pool, size);
-	if (!rule) {
-		TFW_ERR_NL("Can't allocate a rule for match list: %p\n", mlst);
+	if (!(chain = tfw_pool_alloc(table->pool, size))) {
+		TFW_ERR("Can't allocate memory for HTTP chain\n");
 		return NULL;
 	}
 
+	memset(chain, 0, size);
+	INIT_LIST_HEAD(&chain->list);
+	INIT_LIST_HEAD(&chain->mark_list);
+	INIT_LIST_HEAD(&chain->match_list);
+	chain->pool = table->pool;
+
+	if (name) {
+		chain->name = (char *)(chain + 1);
+		memcpy((void *)chain->name, (void *)name, name_sz);
+	}
+
+	list_add(&chain->list, &table->head);
+
+	return chain;
+}
+EXPORT_SYMBOL(tfw_http_chain_add);
+
+/**
+ * Free http table (together with all elements allocated from its pool).
+ */
+void
+tfw_http_table_free(TfwHttpTable *table)
+{
+	if (table)
+		tfw_pool_destroy(table->pool);
+}
+EXPORT_SYMBOL(tfw_http_table_free);
+
+/**
+ * Allocate a rule from the pool of current http table
+ * and add it to @chain list.
+ */
+TfwHttpMatchRule *
+tfw_http_rule_new(TfwHttpChain *chain, tfw_http_match_arg_t type,
+			size_t arg_size)
+{
+	TfwHttpMatchRule *rule;
+	struct list_head *head;
+	size_t size = (type == TFW_HTTP_MATCH_A_STR)
+		    ? TFW_HTTP_MATCH_RULE_SIZE(arg_size)
+		    : sizeof(TfwHttpMatchRule);
+
+	BUG_ON(!chain || !chain->pool);
+	if (!(rule = tfw_pool_alloc(chain->pool, size))) {
+		TFW_ERR_NL("Can't allocate a rule for http chain: %p\n",
+			   chain->name);
+		return NULL;
+	}
+
+	head = (type == TFW_HTTP_MATCH_A_NUM)
+	     ? &chain->mark_list
+	     : &chain->match_list;
 	memset(rule, 0, size);
-	rule->arg.len = arg_len;
 	INIT_LIST_HEAD(&rule->list);
-	list_add_tail(&rule->list, &mlst->list);
+	list_add_tail(&rule->list, head);
 
 	return rule;
 }
-EXPORT_SYMBOL(tfw_http_match_rule_new);
+EXPORT_SYMBOL(tfw_http_rule_new);
 
-/**
- * Allocate an empty list of rules.
- */
-TfwHttpMatchList *
-tfw_http_match_list_alloc(void)
-{
-	TfwHttpMatchList *mlst;
-
-	mlst = tfw_pool_new(TfwHttpMatchList, 0);
-	if (!mlst) {
-		TFW_ERR_NL("Can't create a memory pool\n");
-		return NULL;
-	}
-
-	INIT_LIST_HEAD(&mlst->list);
-
-	return mlst;
-}
-EXPORT_SYMBOL(tfw_http_match_list_alloc);
-
-/**
- * Free a list of rules (together with all elements allocated from its pool).
- */
-void
-tfw_http_match_list_free(TfwHttpMatchList *mlst)
-{
-	if (mlst)
-		tfw_pool_destroy(mlst->pool);
-}
-EXPORT_SYMBOL(tfw_http_match_list_free);
-
-void
-tfw_http_match_rule_init(TfwHttpMatchRule *rule, tfw_http_match_fld_t field,
-			 tfw_http_match_op_t op, tfw_http_match_arg_t type,
-			 const char *arg)
+int
+tfw_http_rule_init(TfwHttpMatchRule *rule, tfw_http_match_fld_t field,
+		   tfw_http_match_op_t op, tfw_http_match_arg_t type,
+		   const char *arg, size_t arg_len)
 {
 	rule->field = field;
 	rule->op = op;
 	rule->arg.type = type;
-	rule->arg.len = strlen(arg);
-	memcpy(rule->arg.str, arg, rule->arg.len + 1);
 
+	if (type == TFW_HTTP_MATCH_A_WILDCARD)
+		return 0;
+
+	if (type == TFW_HTTP_MATCH_A_NUM) {
+		if (tfw_cfg_parse_uint(arg, &rule->arg.num)) {
+			TFW_ERR_NL("sched_http: invalid 'mark'"
+				   " codition: '%s'\n", arg);
+			return -EINVAL;
+		}
+		return 0;
+	}
+
+	rule->arg.len = arg_len;
+	memcpy(rule->arg.str, arg, arg_len);
 	if (field == TFW_HTTP_MATCH_F_HDR_RAW) {
 		char *p = rule->arg.str;
 		while ((*p = tolower(*p)))
 			p++;
 	}
+
+	return 0;
 }
-EXPORT_SYMBOL(tfw_http_match_rule_init);
+EXPORT_SYMBOL(tfw_http_rule_init);
+
+bool
+tfw_http_arg_adjust(const char **arg_out, size_t *size_out,
+		    tfw_http_match_op_t *op_out)
+{
+	size_t len;
+	const char *arg = *arg_out;
+
+	BUG_ON(!arg);
+	len = strlen(arg);
+	*op_out = TFW_HTTP_MATCH_O_EQ;
+	*size_out = len + 1;
+
+	if (arg[len - 1] == '*') {
+		if (len == 1) {
+			*op_out = TFW_HTTP_MATCH_O_WILDCARD;
+			return false;
+		}
+		*op_out = TFW_HTTP_MATCH_O_PREFIX;
+		--(*size_out);
+	}
+	if (arg[0] == '*') {
+		*op_out = TFW_HTTP_MATCH_O_SUFFIX;
+		*arg_out = &arg[1];
+		--(*size_out);
+	}
+
+	return true;
+}
+EXPORT_SYMBOL(tfw_http_arg_adjust);

@@ -51,7 +51,7 @@ static DEFINE_SPINLOCK(sched_lock);
  * stops when these schedulers run out.
  */
 TfwVhost *
-tfw_sched_get_vhost(TfwMsg *msg)
+tfw_sched_get_vhost(TfwMsg *msg, bool *block)
 {
 	TfwVhost *vhost;
 	TfwScheduler *sched;
@@ -60,7 +60,7 @@ tfw_sched_get_vhost(TfwMsg *msg)
 	list_for_each_entry_rcu(sched, &sched_list, list) {
 		if (!sched->sched_vhost)
 			break;
-		if ((vhost = sched->sched_vhost(msg))) {
+		if ((vhost = sched->sched_vhost(msg, block))) {
 			rcu_read_unlock();
 			return vhost;
 		}

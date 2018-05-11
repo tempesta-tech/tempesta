@@ -27,6 +27,26 @@
 #include "pool.h"
 #include "http.h"
 
+/**
+ * HTTP chain. Contains list of rules for matching.
+ */
+typedef struct {
+	struct list_head list;
+	struct list_head mark_list;
+	struct list_head match_list;
+	const char *name;
+	TfwPool *pool;
+} TfwHttpChain;
+
+/**
+ * HTTP table. Contains list of HTTP chains.
+ */
+typedef struct {
+	struct list_head head;
+	bool chain_dflt;
+	TfwPool *pool;
+} TfwHttpTable;
+
 typedef enum {
 	TFW_HTTP_MATCH_F_NA = 0,
 	TFW_HTTP_MATCH_F_WILDCARD,
@@ -37,6 +57,7 @@ typedef enum {
 	TFW_HTTP_MATCH_F_HOST,
 	TFW_HTTP_MATCH_F_METHOD,
 	TFW_HTTP_MATCH_F_URI,
+	TFW_HTTP_MATCH_F_MARK,
 	_TFW_HTTP_MATCH_F_COUNT
 } tfw_http_match_fld_t;
 
@@ -61,20 +82,41 @@ typedef enum {
 	_TFW_HTTP_MATCH_A_COUNT
 } tfw_http_match_arg_t;
 
+typedef enum {
+	TFW_HTTP_MATCH_ACT_NA = 0,
+	TFW_HTTP_MATCH_ACT_CHAIN,
+	TFW_HTTP_MATCH_ACT_VHOST,
+	TFW_HTTP_MATCH_ACT_MARK,
+	TFW_HTTP_MATCH_ACT_BLOCK,
+	_TFW_HTTP_MATCH_ACT_COUNT
+} tfw_http_rule_act_t;
+
 typedef struct {
 	tfw_http_match_arg_t type;
 	short len; /* Actual amount of memory allocated for the union below. */
 	union {
 		tfw_http_meth_t method;
+		unsigned int num;
 		TfwAddr addr;
 		char str[0];
 	};
 } TfwHttpMatchArg;
 
 typedef struct {
+	tfw_http_rule_act_t type;
+	union {
+		TfwHttpChain *chain;
+		TfwVhost *vhost;
+		unsigned int mark;
+	};
+} TfwHttpAction;
+
+typedef struct {
 	struct list_head	list;
 	tfw_http_match_fld_t	field; /* Field of a HTTP message to compare. */
+	bool			inv;   /* Comparison inversion (inequality) flag.*/
 	tfw_http_match_op_t 	op;    /* Comparison operator. */
+	TfwHttpAction		act;   /* Rule action. */
 	TfwHttpMatchArg 	arg;   /* A value to be compared with the field.
 					  note: the @arg has variable length. */
 } TfwHttpMatchRule;
@@ -87,83 +129,41 @@ typedef struct {
 #define TFW_HTTP_MATCH_RULE_SIZE(arg_len) \
 	(offsetof(TfwHttpMatchRule, arg.str) + arg_len)
 
-/**
- * Size of a container of the TfwHttpMatchRule.
- *
- * @arg_len is variable size of the @arg member.
- *          Because of this, the rule must be the last member in the container.
- */
-#define TFW_HTTP_MATCH_CONT_SIZE(container_struct_name, arg_len)  \
-	(sizeof(container_struct_name) - sizeof(TfwHttpMatchRule) \
-	 + TFW_HTTP_MATCH_RULE_SIZE(arg_len))
+TfwHttpChain *tfw_http_chain_add(const char *name, TfwHttpTable *table);
+void tfw_http_table_free(TfwHttpTable *table);
 
 /**
- * List of rules for matching.
- */
-typedef struct {
-	struct list_head list;
-	TfwPool *pool;
-} TfwHttpMatchList;
-
-
-TfwHttpMatchList *tfw_http_match_list_alloc(void);
-void tfw_http_match_list_free(TfwHttpMatchList *);
-
-/**
- * Match a HTTP request agains a list of rules.
+ * Match a HTTP request agains a list of rules in chain.
  * Return a matching rule.
  */
-TfwHttpMatchRule *tfw_http_match_req(const TfwHttpReq *, const TfwHttpMatchList *);
+TfwHttpMatchRule *tfw_http_match_req(const TfwHttpReq *req,
+				     struct list_head *mlst);
 
 /**
- * Allocate a new rule in a given list.
+ * Allocate a new rule in a given chain.
  */
-TfwHttpMatchRule *tfw_http_match_rule_new(TfwHttpMatchList *, size_t arg_len);
+TfwHttpMatchRule *tfw_http_rule_new(TfwHttpChain *chain,
+				    tfw_http_match_arg_t type,
+				    size_t arg_len);
 
-/**
- * Match a HTTP request against a list of rules, but return a container
- * structure instead of TfwHttpMatchRule.
- */
-#define tfw_http_match_req_entry(req, mlst, container, member) 		\
-({ 									\
-	container *_c = NULL;						\
-	TfwHttpMatchRule *_r = tfw_http_match_req((req), (mlst)); 	\
-	if (_r)								\
-		_c = container_of(_r, container, member);		\
-	_c;								\
-})
+int tfw_http_rule_init(TfwHttpMatchRule *rule, tfw_http_match_fld_t field,
+		       tfw_http_match_op_t op, tfw_http_match_arg_t type,
+		       const char *arg, size_t arg_len );
 
-/**
- * Allocate a container (with embedded rule) within a rule list.
- */
-#define tfw_http_match_entry_new(mlst, container, member, arg_len) 	\
-({ 									\
-	size_t _s = TFW_HTTP_MATCH_CONT_SIZE(container, arg_len);	\
-	container *_c = tfw_pool_alloc((mlst)->pool, _s);		\
-	if (!_c) {							\
-		TFW_ERR("Can't allocate memory from pool\n");		\
-	} else { 							\
-		memset(_c, 0, _s);					\
-		INIT_LIST_HEAD(&_c->member.list);			\
-		list_add_tail(&_c->member.list, &(mlst)->list);		\
-	}								\
-	_c;								\
-})
+bool tfw_http_arg_adjust(const char **arg_out, size_t *size_out,
+			 tfw_http_match_op_t *op_out);
 
-#define tfw_http_match_for_each(mlst, container, member, func) 		\
+#define tfw_http_chain_rules_for_each(chain, func)			\
 ({									\
 	int r = 0;							\
 	TfwHttpMatchRule *rule;					 	\
-	if (mlst)							\
-		list_for_each_entry(rule, &mlst->list, list) {		\
-			r = func(container_of(rule, container, member));\
-			if (r)						\
-				break;					\
-		}							\
+	if (chain) {							\
+		list_for_each_entry(rule, &(chain)->match_list, list)	\
+			r |= func(rule);				\
+		list_for_each_entry(rule, &(chain)->mark_list, list)	\
+			r |= func(rule);				\
+	}								\
 	r;								\
 })
-
-void tfw_http_match_rule_init(TfwHttpMatchRule *rule, tfw_http_match_fld_t field,
-	tfw_http_match_op_t op, tfw_http_match_arg_t type, const char *arg);
 
 #endif /* __TFW_HTTP_MATCH_H__ */
