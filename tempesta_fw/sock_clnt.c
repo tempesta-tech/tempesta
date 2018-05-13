@@ -175,7 +175,7 @@ tfw_sock_clnt_new(struct sock *sk)
 
 	r = tfw_connection_new(conn);
 	if (r) {
-		TFW_ERR("conn_init() hook returned error\n");
+		TFW_ERR("cannot establish a new client connection\n");
 		goto err_conn;
 	}
 
@@ -196,7 +196,6 @@ tfw_sock_clnt_new(struct sock *sk)
 	return 0;
 
 err_conn:
-	tfw_connection_drop(conn);
 	tfw_cli_conn_free((TfwCliConn *)conn);
 err_client:
 	tfw_client_put(cli);
