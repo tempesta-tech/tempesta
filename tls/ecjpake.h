@@ -53,8 +53,8 @@
  * Roles in the EC J-PAKE exchange
  */
 typedef enum {
-    MBEDTLS_ECJPAKE_CLIENT = 0,         /**< Client                         */
-    MBEDTLS_ECJPAKE_SERVER,             /**< Server                         */
+	MBEDTLS_ECJPAKE_CLIENT = 0,		 /**< Client						 */
+	MBEDTLS_ECJPAKE_SERVER,			 /**< Server						 */
 } mbedtls_ecjpake_role;
 
 /**
@@ -70,159 +70,159 @@ typedef enum {
  */
 typedef struct
 {
-    const mbedtls_md_info_t *md_info;   /**< Hash to use                    */
-    mbedtls_ecp_group grp;              /**< Elliptic curve                 */
-    mbedtls_ecjpake_role role;          /**< Are we client or server?       */
-    int point_format;                   /**< Format for point export        */
+	const mbedtls_md_info_t *md_info;   /**< Hash to use					*/
+	mbedtls_ecp_group grp;			  /**< Elliptic curve				 */
+	mbedtls_ecjpake_role role;		  /**< Are we client or server?	   */
+	int point_format;				   /**< Format for point export		*/
 
-    mbedtls_ecp_point Xm1;              /**< My public key 1   C: X1, S: X3 */
-    mbedtls_ecp_point Xm2;              /**< My public key 2   C: X2, S: X4 */
-    mbedtls_ecp_point Xp1;              /**< Peer public key 1 C: X3, S: X1 */
-    mbedtls_ecp_point Xp2;              /**< Peer public key 2 C: X4, S: X2 */
-    mbedtls_ecp_point Xp;               /**< Peer public key   C: Xs, S: Xc */
+	mbedtls_ecp_point Xm1;			  /**< My public key 1   C: X1, S: X3 */
+	mbedtls_ecp_point Xm2;			  /**< My public key 2   C: X2, S: X4 */
+	mbedtls_ecp_point Xp1;			  /**< Peer public key 1 C: X3, S: X1 */
+	mbedtls_ecp_point Xp2;			  /**< Peer public key 2 C: X4, S: X2 */
+	mbedtls_ecp_point Xp;			   /**< Peer public key   C: Xs, S: Xc */
 
-    mbedtls_mpi xm1;                    /**< My private key 1  C: x1, S: x3 */
-    mbedtls_mpi xm2;                    /**< My private key 2  C: x2, S: x4 */
+	mbedtls_mpi xm1;					/**< My private key 1  C: x1, S: x3 */
+	mbedtls_mpi xm2;					/**< My private key 2  C: x2, S: x4 */
 
-    mbedtls_mpi s;                      /**< Pre-shared secret (passphrase) */
+	mbedtls_mpi s;					  /**< Pre-shared secret (passphrase) */
 } mbedtls_ecjpake_context;
 
 /**
- * \brief           Initialize a context
- *                  (just makes it ready for setup() or free()).
+ * \brief		   Initialize a context
+ *				  (just makes it ready for setup() or free()).
  *
- * \param ctx       context to initialize
+ * \param ctx	   context to initialize
  */
-void mbedtls_ecjpake_init( mbedtls_ecjpake_context *ctx );
+void mbedtls_ecjpake_init(mbedtls_ecjpake_context *ctx);
 
 /**
- * \brief           Set up a context for use
+ * \brief		   Set up a context for use
  *
- * \note            Currently the only values for hash/curve allowed by the
- *                  standard are MBEDTLS_MD_SHA256/MBEDTLS_ECP_DP_SECP256R1.
+ * \note			Currently the only values for hash/curve allowed by the
+ *				  standard are MBEDTLS_MD_SHA256/MBEDTLS_ECP_DP_SECP256R1.
  *
- * \param ctx       context to set up
- * \param role      Our role: client or server
- * \param hash      hash function to use (MBEDTLS_MD_XXX)
- * \param curve     elliptic curve identifier (MBEDTLS_ECP_DP_XXX)
- * \param secret    pre-shared secret (passphrase)
- * \param len       length of the shared secret
+ * \param ctx	   context to set up
+ * \param role	  Our role: client or server
+ * \param hash	  hash function to use (MBEDTLS_MD_XXX)
+ * \param curve	 elliptic curve identifier (MBEDTLS_ECP_DP_XXX)
+ * \param secret	pre-shared secret (passphrase)
+ * \param len	   length of the shared secret
  *
- * \return          0 if successfull,
- *                  a negative error code otherwise
+ * \return		  0 if successfull,
+ *				  a negative error code otherwise
  */
-int mbedtls_ecjpake_setup( mbedtls_ecjpake_context *ctx,
-                           mbedtls_ecjpake_role role,
-                           mbedtls_md_type_t hash,
-                           mbedtls_ecp_group_id curve,
-                           const unsigned char *secret,
-                           size_t len );
+int mbedtls_ecjpake_setup(mbedtls_ecjpake_context *ctx,
+						   mbedtls_ecjpake_role role,
+						   mbedtls_md_type_t hash,
+						   mbedtls_ecp_group_id curve,
+						   const unsigned char *secret,
+						   size_t len);
 
 /**
- * \brief           Check if a context is ready for use
+ * \brief		   Check if a context is ready for use
  *
- * \param ctx       Context to check
+ * \param ctx	   Context to check
  *
- * \return          0 if the context is ready for use,
- *                  MBEDTLS_ERR_ECP_BAD_INPUT_DATA otherwise
+ * \return		  0 if the context is ready for use,
+ *				  MBEDTLS_ERR_ECP_BAD_INPUT_DATA otherwise
  */
-int mbedtls_ecjpake_check( const mbedtls_ecjpake_context *ctx );
+int mbedtls_ecjpake_check(const mbedtls_ecjpake_context *ctx);
 
 /**
- * \brief           Generate and write the first round message
- *                  (TLS: contents of the Client/ServerHello extension,
- *                  excluding extension type and length bytes)
+ * \brief		   Generate and write the first round message
+ *				  (TLS: contents of the Client/ServerHello extension,
+ *				  excluding extension type and length bytes)
  *
- * \param ctx       Context to use
- * \param buf       Buffer to write the contents to
- * \param len       Buffer size
- * \param olen      Will be updated with the number of bytes written
- * \param f_rng     RNG function
- * \param p_rng     RNG parameter
+ * \param ctx	   Context to use
+ * \param buf	   Buffer to write the contents to
+ * \param len	   Buffer size
+ * \param olen	  Will be updated with the number of bytes written
+ * \param f_rng	 RNG function
+ * \param p_rng	 RNG parameter
  *
- * \return          0 if successfull,
- *                  a negative error code otherwise
+ * \return		  0 if successfull,
+ *				  a negative error code otherwise
  */
-int mbedtls_ecjpake_write_round_one( mbedtls_ecjpake_context *ctx,
-                            unsigned char *buf, size_t len, size_t *olen,
-                            int (*f_rng)(void *, unsigned char *, size_t),
-                            void *p_rng );
+int mbedtls_ecjpake_write_round_one(mbedtls_ecjpake_context *ctx,
+							unsigned char *buf, size_t len, size_t *olen,
+							int (*f_rng)(void *, unsigned char *, size_t),
+							void *p_rng);
 
 /**
- * \brief           Read and process the first round message
- *                  (TLS: contents of the Client/ServerHello extension,
- *                  excluding extension type and length bytes)
+ * \brief		   Read and process the first round message
+ *				  (TLS: contents of the Client/ServerHello extension,
+ *				  excluding extension type and length bytes)
  *
- * \param ctx       Context to use
- * \param buf       Pointer to extension contents
- * \param len       Extension length
+ * \param ctx	   Context to use
+ * \param buf	   Pointer to extension contents
+ * \param len	   Extension length
  *
- * \return          0 if successfull,
- *                  a negative error code otherwise
+ * \return		  0 if successfull,
+ *				  a negative error code otherwise
  */
-int mbedtls_ecjpake_read_round_one( mbedtls_ecjpake_context *ctx,
-                                    const unsigned char *buf,
-                                    size_t len );
+int mbedtls_ecjpake_read_round_one(mbedtls_ecjpake_context *ctx,
+									const unsigned char *buf,
+									size_t len);
 
 /**
- * \brief           Generate and write the second round message
- *                  (TLS: contents of the Client/ServerKeyExchange)
+ * \brief		   Generate and write the second round message
+ *				  (TLS: contents of the Client/ServerKeyExchange)
  *
- * \param ctx       Context to use
- * \param buf       Buffer to write the contents to
- * \param len       Buffer size
- * \param olen      Will be updated with the number of bytes written
- * \param f_rng     RNG function
- * \param p_rng     RNG parameter
+ * \param ctx	   Context to use
+ * \param buf	   Buffer to write the contents to
+ * \param len	   Buffer size
+ * \param olen	  Will be updated with the number of bytes written
+ * \param f_rng	 RNG function
+ * \param p_rng	 RNG parameter
  *
- * \return          0 if successfull,
- *                  a negative error code otherwise
+ * \return		  0 if successfull,
+ *				  a negative error code otherwise
  */
-int mbedtls_ecjpake_write_round_two( mbedtls_ecjpake_context *ctx,
-                            unsigned char *buf, size_t len, size_t *olen,
-                            int (*f_rng)(void *, unsigned char *, size_t),
-                            void *p_rng );
+int mbedtls_ecjpake_write_round_two(mbedtls_ecjpake_context *ctx,
+							unsigned char *buf, size_t len, size_t *olen,
+							int (*f_rng)(void *, unsigned char *, size_t),
+							void *p_rng);
 
 /**
- * \brief           Read and process the second round message
- *                  (TLS: contents of the Client/ServerKeyExchange)
+ * \brief		   Read and process the second round message
+ *				  (TLS: contents of the Client/ServerKeyExchange)
  *
- * \param ctx       Context to use
- * \param buf       Pointer to the message
- * \param len       Message length
+ * \param ctx	   Context to use
+ * \param buf	   Pointer to the message
+ * \param len	   Message length
  *
- * \return          0 if successfull,
- *                  a negative error code otherwise
+ * \return		  0 if successfull,
+ *				  a negative error code otherwise
  */
-int mbedtls_ecjpake_read_round_two( mbedtls_ecjpake_context *ctx,
-                                    const unsigned char *buf,
-                                    size_t len );
+int mbedtls_ecjpake_read_round_two(mbedtls_ecjpake_context *ctx,
+									const unsigned char *buf,
+									size_t len);
 
 /**
- * \brief           Derive the shared secret
- *                  (TLS: Pre-Master Secret)
+ * \brief		   Derive the shared secret
+ *				  (TLS: Pre-Master Secret)
  *
- * \param ctx       Context to use
- * \param buf       Buffer to write the contents to
- * \param len       Buffer size
- * \param olen      Will be updated with the number of bytes written
- * \param f_rng     RNG function
- * \param p_rng     RNG parameter
+ * \param ctx	   Context to use
+ * \param buf	   Buffer to write the contents to
+ * \param len	   Buffer size
+ * \param olen	  Will be updated with the number of bytes written
+ * \param f_rng	 RNG function
+ * \param p_rng	 RNG parameter
  *
- * \return          0 if successfull,
- *                  a negative error code otherwise
+ * \return		  0 if successfull,
+ *				  a negative error code otherwise
  */
-int mbedtls_ecjpake_derive_secret( mbedtls_ecjpake_context *ctx,
-                            unsigned char *buf, size_t len, size_t *olen,
-                            int (*f_rng)(void *, unsigned char *, size_t),
-                            void *p_rng );
+int mbedtls_ecjpake_derive_secret(mbedtls_ecjpake_context *ctx,
+							unsigned char *buf, size_t len, size_t *olen,
+							int (*f_rng)(void *, unsigned char *, size_t),
+							void *p_rng);
 
 /**
- * \brief           Free a context's content
+ * \brief		   Free a context's content
  *
- * \param ctx       context to free
+ * \param ctx	   context to free
  */
-void mbedtls_ecjpake_free( mbedtls_ecjpake_context *ctx );
+void mbedtls_ecjpake_free(mbedtls_ecjpake_context *ctx);
 
 #else  /* MBEDTLS_ECJPAKE_ALT */
 #include "ecjpake_alt.h"
