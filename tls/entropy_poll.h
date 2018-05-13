@@ -38,31 +38,31 @@
 /*
  * Default thresholds for built-in sources, in bytes
  */
-#define MBEDTLS_ENTROPY_MIN_PLATFORM     32     /**< Minimum for platform source    */
-#define MBEDTLS_ENTROPY_MIN_HAVEGE       32     /**< Minimum for HAVEGE             */
-#define MBEDTLS_ENTROPY_MIN_HARDCLOCK     4     /**< Minimum for mbedtls_timing_hardclock()        */
-#define MBEDTLS_ENTROPY_MIN_HARDWARE     32     /**< Minimum for the hardware source */
+#define MBEDTLS_ENTROPY_MIN_PLATFORM	 32	 /**< Minimum for platform source	*/
+#define MBEDTLS_ENTROPY_MIN_HAVEGE	   32	 /**< Minimum for HAVEGE			 */
+#define MBEDTLS_ENTROPY_MIN_HARDCLOCK	 4	 /**< Minimum for mbedtls_timing_hardclock()		*/
+#define MBEDTLS_ENTROPY_MIN_HARDWARE	 32	 /**< Minimum for the hardware source */
 
 #if defined(MBEDTLS_HAVEGE_C)
 /**
- * \brief           HAVEGE based entropy poll callback
+ * \brief		   HAVEGE based entropy poll callback
  *
  * Requires an HAVEGE state as its data pointer.
  */
 int mbedtls_havege_poll( void *data,
-                 unsigned char *output, size_t len, size_t *olen );
+				 unsigned char *output, size_t len, size_t *olen );
 #endif
 
 /**
- * \brief           mbedtls_timing_hardclock-based entropy poll callback
+ * \brief		   mbedtls_timing_hardclock-based entropy poll callback
  */
 int mbedtls_hardclock_poll( void *data,
-                    unsigned char *output, size_t len, size_t *olen );
+					unsigned char *output, size_t len, size_t *olen );
 
 /**
- * \brief           Entropy poll callback for a hardware source
- * \note            This must accept NULL as its first argument.
+ * \brief		   Entropy poll callback for a hardware source
+ * \note			This must accept NULL as its first argument.
  */
 int mbedtls_hardware_poll( void *data,
-                           unsigned char *output, size_t len, size_t *olen );
+						   unsigned char *output, size_t len, size_t *olen );
 #endif /* entropy_poll.h */

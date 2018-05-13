@@ -41,7 +41,7 @@
 #include <stdlib.h>
 #include <time.h>
 #if !defined(MBEDTLS_PLATFORM_STD_EXIT)
-#define MBEDTLS_PLATFORM_STD_EXIT      exit /**< The default \c exit function to use. */
+#define MBEDTLS_PLATFORM_STD_EXIT	  exit /**< The default \c exit function to use. */
 #endif
 #if !defined(MBEDTLS_PLATFORM_STD_EXIT_SUCCESS)
 #define MBEDTLS_PLATFORM_STD_EXIT_SUCCESS  EXIT_SUCCESS /**< The default exit value to use. */
@@ -63,9 +63,9 @@
  */
 #if defined(MBEDTLS_PLATFORM_MEMORY)
 #if defined(MBEDTLS_PLATFORM_FREE_MACRO) && \
-    defined(MBEDTLS_PLATFORM_CALLOC_MACRO)
-#define mbedtls_free       MBEDTLS_PLATFORM_FREE_MACRO
-#define mbedtls_calloc     MBEDTLS_PLATFORM_CALLOC_MACRO
+	defined(MBEDTLS_PLATFORM_CALLOC_MACRO)
+#define mbedtls_free	   MBEDTLS_PLATFORM_FREE_MACRO
+#define mbedtls_calloc	 MBEDTLS_PLATFORM_CALLOC_MACRO
 #else
 /* For size_t */
 #include <stddef.h>
@@ -76,16 +76,16 @@ extern void (*mbedtls_free)( void *ptr );
  * \brief   This function allows configuring custom memory-management functions.
  *
  * \param calloc_func   The \c calloc function implementation.
- * \param free_func     The \c free function implementation.
+ * \param free_func	 The \c free function implementation.
  *
- * \return              \c 0.
+ * \return			  \c 0.
  */
 int mbedtls_platform_set_calloc_free( void * (*calloc_func)( size_t, size_t ),
-                              void (*free_func)( void * ) );
+							  void (*free_func)( void * ) );
 #endif /* MBEDTLS_PLATFORM_FREE_MACRO && MBEDTLS_PLATFORM_CALLOC_MACRO */
 #else /* !MBEDTLS_PLATFORM_MEMORY */
-#define mbedtls_free       free
-#define mbedtls_calloc     calloc
+#define mbedtls_free	   free
+#define mbedtls_calloc	 calloc
 #endif /* MBEDTLS_PLATFORM_MEMORY && !MBEDTLS_PLATFORM_{FREE,CALLOC}_MACRO */
 
 /*
@@ -101,15 +101,15 @@ extern int (*mbedtls_fprintf)( FILE *stream, const char *format, ... );
  *
  * \param fprintf_func   The \c fprintf function implementation.
  *
- * \return               \c 0.
+ * \return			   \c 0.
  */
 int mbedtls_platform_set_fprintf( int (*fprintf_func)( FILE *stream, const char *,
-                                               ... ) );
+											   ... ) );
 #else
 #if defined(MBEDTLS_PLATFORM_FPRINTF_MACRO)
-#define mbedtls_fprintf    MBEDTLS_PLATFORM_FPRINTF_MACRO
+#define mbedtls_fprintf	MBEDTLS_PLATFORM_FPRINTF_MACRO
 #else
-#define mbedtls_fprintf    fprintf
+#define mbedtls_fprintf	fprintf
 #endif /* MBEDTLS_PLATFORM_FPRINTF_MACRO */
 #endif /* MBEDTLS_PLATFORM_FPRINTF_ALT */
 
@@ -135,7 +135,7 @@ extern void (*mbedtls_exit)( int status );
 
 /**
  * \brief   This function allows configuring a custom \c exit function
- *          pointer.
+ *		  pointer.
  *
  * \param exit_func   The \c exit function implementation.
  *
@@ -167,42 +167,42 @@ int mbedtls_platform_set_exit( void (*exit_func)( int status ) );
 /**
  * \brief   The platform context structure.
  *
- * \note    This structure may be used to assist platform-specific
- *          setup or teardown operations.
+ * \note	This structure may be used to assist platform-specific
+ *		  setup or teardown operations.
  */
 typedef struct {
-    char dummy; /**< Placeholder member, as empty structs are not portable. */
+	char dummy; /**< Placeholder member, as empty structs are not portable. */
 }
 mbedtls_platform_context;
 
 /**
  * \brief   This function performs any platform initialization operations.
  *
- * \param   ctx     The Mbed TLS context.
+ * \param   ctx	 The Mbed TLS context.
  *
  * \return  \c 0 on success.
  *
- * \note    This function is intended to allow platform-specific initialization,
- *          and should be called before any other library functions. Its
- *          implementation is platform-specific, and unless
- *          platform-specific code is provided, it does nothing.
+ * \note	This function is intended to allow platform-specific initialization,
+ *		  and should be called before any other library functions. Its
+ *		  implementation is platform-specific, and unless
+ *		  platform-specific code is provided, it does nothing.
  *
- *          Its use and whether it is necessary to call it is dependent on the
- *          platform.
+ *		  Its use and whether it is necessary to call it is dependent on the
+ *		  platform.
  */
 int mbedtls_platform_setup( mbedtls_platform_context *ctx );
 /**
  * \brief   This function performs any platform teardown operations.
  *
- * \param   ctx     The Mbed TLS context.
+ * \param   ctx	 The Mbed TLS context.
  *
- * \note    This function should be called after every other Mbed TLS module
- *          has been correctly freed using the appropriate free function.
- *          Its implementation is platform-specific, and unless
- *          platform-specific code is provided, it does nothing.
+ * \note	This function should be called after every other Mbed TLS module
+ *		  has been correctly freed using the appropriate free function.
+ *		  Its implementation is platform-specific, and unless
+ *		  platform-specific code is provided, it does nothing.
  *
- *          Its use and whether it is necessary to call it is dependent on the
- *          platform.
+ *		  Its use and whether it is necessary to call it is dependent on the
+ *		  platform.
  */
 void mbedtls_platform_teardown( mbedtls_platform_context *ctx );
 

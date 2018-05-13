@@ -37,56 +37,56 @@
  * \{
  */
 #ifndef MBEDTLS_SSL_COOKIE_TIMEOUT
-#define MBEDTLS_SSL_COOKIE_TIMEOUT     60 /**< Default expiration delay of DTLS cookies, in seconds */
+#define MBEDTLS_SSL_COOKIE_TIMEOUT	 60 /**< Default expiration delay of DTLS cookies, in seconds */
 #endif
 
 /* \} name SECTION: Module settings */
 
 /**
- * \brief          Context for the default cookie functions.
+ * \brief		  Context for the default cookie functions.
  */
 typedef struct
 {
-    mbedtls_md_context_t    hmac_ctx;   /*!< context for the HMAC portion   */
-    unsigned long   serial;     /*!< serial number for expiration   */
-    unsigned long   timeout;    /*!< timeout delay, in seconds */
-    spinlock_t mutex;
+	mbedtls_md_context_t	hmac_ctx;   /*!< context for the HMAC portion   */
+	unsigned long   serial;	 /*!< serial number for expiration   */
+	unsigned long   timeout;	/*!< timeout delay, in seconds */
+	spinlock_t mutex;
 } mbedtls_ssl_cookie_ctx;
 
 /**
- * \brief          Initialize cookie context
+ * \brief		  Initialize cookie context
  */
 void mbedtls_ssl_cookie_init( mbedtls_ssl_cookie_ctx *ctx );
 
 /**
- * \brief          Setup cookie context (generate keys)
+ * \brief		  Setup cookie context (generate keys)
  */
 int mbedtls_ssl_cookie_setup( mbedtls_ssl_cookie_ctx *ctx,
-                      int (*f_rng)(void *, unsigned char *, size_t),
-                      void *p_rng );
+					  int (*f_rng)(void *, unsigned char *, size_t),
+					  void *p_rng );
 
 /**
- * \brief          Set expiration delay for cookies
- *                 (Default MBEDTLS_SSL_COOKIE_TIMEOUT)
+ * \brief		  Set expiration delay for cookies
+ *				 (Default MBEDTLS_SSL_COOKIE_TIMEOUT)
  *
- * \param ctx      Cookie contex
- * \param delay    Delay, in seconds if.
- *                 0 to disable expiration (NOT recommended)
+ * \param ctx	  Cookie contex
+ * \param delay	Delay, in seconds if.
+ *				 0 to disable expiration (NOT recommended)
  */
 void mbedtls_ssl_cookie_set_timeout( mbedtls_ssl_cookie_ctx *ctx, unsigned long delay );
 
 /**
- * \brief          Free cookie context
+ * \brief		  Free cookie context
  */
 void mbedtls_ssl_cookie_free( mbedtls_ssl_cookie_ctx *ctx );
 
 /**
- * \brief          Generate cookie, see \c mbedtls_ssl_cookie_write_t
+ * \brief		  Generate cookie, see \c mbedtls_ssl_cookie_write_t
  */
 mbedtls_ssl_cookie_write_t mbedtls_ssl_cookie_write;
 
 /**
- * \brief          Verify cookie, see \c mbedtls_ssl_cookie_write_t
+ * \brief		  Verify cookie, see \c mbedtls_ssl_cookie_write_t
  */
 mbedtls_ssl_cookie_check_t mbedtls_ssl_cookie_check;
 

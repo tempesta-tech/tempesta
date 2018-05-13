@@ -25,34 +25,34 @@
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 /*
- *      Multiply source vector [s] with b, add result
- *       to destination vector [d] and set carry c.
+ *	  Multiply source vector [s] with b, add result
+ *	   to destination vector [d] and set carry c.
  */
 #ifndef MBEDTLS_BN_MUL_H
 #define MBEDTLS_BN_MUL_H
 
 #include "bignum.h"
 
-#define MULADDC_INIT                        \
-    asm(                                    \
-        "xorq   %%r8, %%r8          \n\t"
+#define MULADDC_INIT						\
+	asm(									\
+		"xorq   %%r8, %%r8		  \n\t"
 
-#define MULADDC_CORE                        \
-        "movq   (%%rsi), %%rax      \n\t"   \
-        "mulq   %%rbx               \n\t"   \
-        "addq   $8,      %%rsi      \n\t"   \
-        "addq   %%rcx,   %%rax      \n\t"   \
-        "movq   %%r8,    %%rcx      \n\t"   \
-        "adcq   $0,      %%rdx      \n\t"   \
-        "nop                        \n\t"   \
-        "addq   %%rax,   (%%rdi)    \n\t"   \
-        "adcq   %%rdx,   %%rcx      \n\t"   \
-        "addq   $8,      %%rdi      \n\t"
+#define MULADDC_CORE						\
+		"movq   (%%rsi), %%rax	  \n\t"   \
+		"mulq   %%rbx			   \n\t"   \
+		"addq   $8,	  %%rsi	  \n\t"   \
+		"addq   %%rcx,   %%rax	  \n\t"   \
+		"movq   %%r8,	%%rcx	  \n\t"   \
+		"adcq   $0,	  %%rdx	  \n\t"   \
+		"nop						\n\t"   \
+		"addq   %%rax,   (%%rdi)	\n\t"   \
+		"adcq   %%rdx,   %%rcx	  \n\t"   \
+		"addq   $8,	  %%rdi	  \n\t"
 
-#define MULADDC_STOP                        \
-        : "+c" (c), "+D" (d), "+S" (s)      \
-        : "b" (b)                           \
-        : "rax", "rdx", "r8"                \
-    );
+#define MULADDC_STOP						\
+		: "+c" (c), "+D" (d), "+S" (s)	  \
+		: "b" (b)						   \
+		: "rax", "rdx", "r8"				\
+	);
 
 #endif /* bn_mul.h */
