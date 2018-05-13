@@ -36,38 +36,38 @@ extern "C" {
 #endif
 
 /**
- * \brief          HAVEGE state structure
+ * \brief		  HAVEGE state structure
  */
 typedef struct
 {
-    int PT1, PT2, offset[2];
-    int pool[MBEDTLS_HAVEGE_COLLECT_SIZE];
-    int WALK[8192];
+	int PT1, PT2, offset[2];
+	int pool[MBEDTLS_HAVEGE_COLLECT_SIZE];
+	int WALK[8192];
 }
 mbedtls_havege_state;
 
 /**
- * \brief          HAVEGE initialization
+ * \brief		  HAVEGE initialization
  *
- * \param hs       HAVEGE state to be initialized
+ * \param hs	   HAVEGE state to be initialized
  */
 void mbedtls_havege_init( mbedtls_havege_state *hs );
 
 /**
- * \brief          Clear HAVEGE state
+ * \brief		  Clear HAVEGE state
  *
- * \param hs       HAVEGE state to be cleared
+ * \param hs	   HAVEGE state to be cleared
  */
 void mbedtls_havege_free( mbedtls_havege_state *hs );
 
 /**
- * \brief          HAVEGE rand function
+ * \brief		  HAVEGE rand function
  *
- * \param p_rng    A HAVEGE state
+ * \param p_rng	A HAVEGE state
  * \param output   Buffer to fill
- * \param len      Length of buffer
+ * \param len	  Length of buffer
  *
- * \return         0
+ * \return		 0
  */
 int mbedtls_havege_random( void *p_rng, unsigned char *output, size_t len );
 

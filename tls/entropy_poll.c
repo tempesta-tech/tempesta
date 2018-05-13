@@ -42,34 +42,34 @@
 #endif
 
 int mbedtls_hardclock_poll( void *data,
-                    unsigned char *output, size_t len, size_t *olen )
+					unsigned char *output, size_t len, size_t *olen )
 {
-    unsigned long timer = get_cycles();
-    ((void) data);
-    *olen = 0;
+	unsigned long timer = get_cycles();
+	((void) data);
+	*olen = 0;
 
-    if( len < sizeof(unsigned long) )
-        return( 0 );
+	if( len < sizeof(unsigned long) )
+		return( 0 );
 
-    memcpy( output, &timer, sizeof(unsigned long) );
-    *olen = sizeof(unsigned long);
+	memcpy( output, &timer, sizeof(unsigned long) );
+	*olen = sizeof(unsigned long);
 
-    return( 0 );
+	return( 0 );
 }
 
 #if defined(MBEDTLS_HAVEGE_C)
 int mbedtls_havege_poll( void *data,
-                 unsigned char *output, size_t len, size_t *olen )
+				 unsigned char *output, size_t len, size_t *olen )
 {
-    mbedtls_havege_state *hs = (mbedtls_havege_state *) data;
-    *olen = 0;
+	mbedtls_havege_state *hs = (mbedtls_havege_state *) data;
+	*olen = 0;
 
-    if( mbedtls_havege_random( hs, output, len ) != 0 )
-        return( MBEDTLS_ERR_ENTROPY_SOURCE_FAILED );
+	if( mbedtls_havege_random( hs, output, len ) != 0 )
+		return( MBEDTLS_ERR_ENTROPY_SOURCE_FAILED );
 
-    *olen = len;
+	*olen = len;
 
-    return( 0 );
+	return( 0 );
 }
 #endif /* MBEDTLS_HAVEGE_C */
 
@@ -79,7 +79,7 @@ int mbedtls_havege_poll( void *data,
  */
 int
 mbedtls_hardware_poll(void *data, unsigned char *output, size_t len,
-		      size_t *olen)
+			  size_t *olen)
 {
 	get_random_bytes_arch(output, len);
 	*olen = len;

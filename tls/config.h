@@ -198,9 +198,9 @@
  * module.
  *
  * \warning   MD2, MD4, MD5, ARC4, DES and SHA-1 are considered weak and their
- *            use constitutes a security risk. If possible, we recommend
- *            avoiding dependencies on them, and considering stronger message
- *            digests and ciphers instead.
+ *			use constitutes a security risk. If possible, we recommend
+ *			avoiding dependencies on them, and considering stronger message
+ *			digests and ciphers instead.
  *
  */
 //#define MBEDTLS_AES_ALT
@@ -225,8 +225,8 @@
 /*
  * When replacing the elliptic curve module, pleace consider, that it is
  * implemented with two .c files:
- *      - ecp.c
- *      - ecp_curves.c
+ *	  - ecp.c
+ *	  - ecp_curves.c
  * You can replace them very much like all the other MBEDTLS__MODULE_NAME__ALT
  * macros as described above. The only difference is that you have to make sure
  * that you provide functionality for both .c files.
@@ -250,22 +250,22 @@
  * with this definition.
  *
  * \note Because of a signature change, the core AES encryption and decryption routines are
- *       currently named mbedtls_aes_internal_encrypt and mbedtls_aes_internal_decrypt,
- *       respectively. When setting up alternative implementations, these functions should
- *       be overriden, but the wrapper functions mbedtls_aes_decrypt and mbedtls_aes_encrypt
- *       must stay untouched.
+ *	   currently named mbedtls_aes_internal_encrypt and mbedtls_aes_internal_decrypt,
+ *	   respectively. When setting up alternative implementations, these functions should
+ *	   be overriden, but the wrapper functions mbedtls_aes_decrypt and mbedtls_aes_encrypt
+ *	   must stay untouched.
  *
  * \note If you use the AES_xxx_ALT macros, then is is recommended to also set
- *       MBEDTLS_AES_ROM_TABLES in order to help the linker garbage-collect the AES
- *       tables.
+ *	   MBEDTLS_AES_ROM_TABLES in order to help the linker garbage-collect the AES
+ *	   tables.
  *
  * Uncomment a macro to enable alternate implementation of the corresponding
  * function.
  *
  * \warning   MD2, MD4, MD5, DES and SHA-1 are considered weak and their use
- *            constitutes a security risk. If possible, we recommend avoiding
- *            dependencies on them, and considering stronger message digests
- *            and ciphers instead.
+ *			constitutes a security risk. If possible, we recommend avoiding
+ *			dependencies on them, and considering stronger message digests
+ *			and ciphers instead.
  *
  */
 //#define MBEDTLS_MD2_PROCESS_ALT
@@ -304,10 +304,10 @@
  *
  * Any of these options become available by defining MBEDTLS_ECP_INTERNAL_ALT
  * and implementing the following functions:
- *      unsigned char mbedtls_internal_ecp_grp_capable(
- *          const mbedtls_ecp_group *grp )
- *      int  mbedtls_internal_ecp_init( const mbedtls_ecp_group *grp )
- *      void mbedtls_internal_ecp_deinit( const mbedtls_ecp_group *grp )
+ *	  unsigned char mbedtls_internal_ecp_grp_capable(
+ *		  const mbedtls_ecp_group *grp )
+ *	  int  mbedtls_internal_ecp_init( const mbedtls_ecp_group *grp )
+ *	  void mbedtls_internal_ecp_deinit( const mbedtls_ecp_group *grp )
  * The mbedtls_internal_ecp_grp_capable function should return 1 if the
  * replacement functions implement arithmetic for the given group and 0
  * otherwise.
@@ -380,25 +380,25 @@
  *
  * Requires MBEDTLS_ENABLE_WEAK_CIPHERSUITES as well to enable
  * the following ciphersuites:
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_NULL_SHA
- *      MBEDTLS_TLS_ECDH_RSA_WITH_NULL_SHA
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_NULL_SHA
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_NULL_SHA
- *      MBEDTLS_TLS_ECDHE_PSK_WITH_NULL_SHA384
- *      MBEDTLS_TLS_ECDHE_PSK_WITH_NULL_SHA256
- *      MBEDTLS_TLS_ECDHE_PSK_WITH_NULL_SHA
- *      MBEDTLS_TLS_DHE_PSK_WITH_NULL_SHA384
- *      MBEDTLS_TLS_DHE_PSK_WITH_NULL_SHA256
- *      MBEDTLS_TLS_DHE_PSK_WITH_NULL_SHA
- *      MBEDTLS_TLS_RSA_WITH_NULL_SHA256
- *      MBEDTLS_TLS_RSA_WITH_NULL_SHA
- *      MBEDTLS_TLS_RSA_WITH_NULL_MD5
- *      MBEDTLS_TLS_RSA_PSK_WITH_NULL_SHA384
- *      MBEDTLS_TLS_RSA_PSK_WITH_NULL_SHA256
- *      MBEDTLS_TLS_RSA_PSK_WITH_NULL_SHA
- *      MBEDTLS_TLS_PSK_WITH_NULL_SHA384
- *      MBEDTLS_TLS_PSK_WITH_NULL_SHA256
- *      MBEDTLS_TLS_PSK_WITH_NULL_SHA
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_NULL_SHA
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_NULL_SHA
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_NULL_SHA
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_NULL_SHA
+ *	  MBEDTLS_TLS_ECDHE_PSK_WITH_NULL_SHA384
+ *	  MBEDTLS_TLS_ECDHE_PSK_WITH_NULL_SHA256
+ *	  MBEDTLS_TLS_ECDHE_PSK_WITH_NULL_SHA
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_NULL_SHA384
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_NULL_SHA256
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_NULL_SHA
+ *	  MBEDTLS_TLS_RSA_WITH_NULL_SHA256
+ *	  MBEDTLS_TLS_RSA_WITH_NULL_SHA
+ *	  MBEDTLS_TLS_RSA_WITH_NULL_MD5
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_NULL_SHA384
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_NULL_SHA256
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_NULL_SHA
+ *	  MBEDTLS_TLS_PSK_WITH_NULL_SHA384
+ *	  MBEDTLS_TLS_PSK_WITH_NULL_SHA256
+ *	  MBEDTLS_TLS_PSK_WITH_NULL_SHA
  *
  * Uncomment this macro to enable the NULL cipher and ciphersuites
  */
@@ -428,13 +428,13 @@
  * channels with virtually no security at all!
  *
  * This enables the following ciphersuites:
- *      MBEDTLS_TLS_RSA_WITH_DES_CBC_SHA
- *      MBEDTLS_TLS_DHE_RSA_WITH_DES_CBC_SHA
+ *	  MBEDTLS_TLS_RSA_WITH_DES_CBC_SHA
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_DES_CBC_SHA
  *
  * Uncomment this macro to enable weak ciphersuites
  *
  * \warning   DES is considered a weak cipher and its use constitutes a
- *            security risk. We recommend considering stronger ciphers instead.
+ *			security risk. We recommend considering stronger ciphers instead.
  */
 //#define MBEDTLS_ENABLE_WEAK_CIPHERSUITES
 
@@ -504,18 +504,18 @@
  *
  * This enables the following ciphersuites (if other requisites are
  * enabled as well):
- *      MBEDTLS_TLS_PSK_WITH_AES_256_GCM_SHA384
- *      MBEDTLS_TLS_PSK_WITH_AES_256_CBC_SHA384
- *      MBEDTLS_TLS_PSK_WITH_AES_256_CBC_SHA
- *      MBEDTLS_TLS_PSK_WITH_CAMELLIA_256_GCM_SHA384
- *      MBEDTLS_TLS_PSK_WITH_CAMELLIA_256_CBC_SHA384
- *      MBEDTLS_TLS_PSK_WITH_AES_128_GCM_SHA256
- *      MBEDTLS_TLS_PSK_WITH_AES_128_CBC_SHA256
- *      MBEDTLS_TLS_PSK_WITH_AES_128_CBC_SHA
- *      MBEDTLS_TLS_PSK_WITH_CAMELLIA_128_GCM_SHA256
- *      MBEDTLS_TLS_PSK_WITH_CAMELLIA_128_CBC_SHA256
- *      MBEDTLS_TLS_PSK_WITH_3DES_EDE_CBC_SHA
- *      MBEDTLS_TLS_PSK_WITH_RC4_128_SHA
+ *	  MBEDTLS_TLS_PSK_WITH_AES_256_GCM_SHA384
+ *	  MBEDTLS_TLS_PSK_WITH_AES_256_CBC_SHA384
+ *	  MBEDTLS_TLS_PSK_WITH_AES_256_CBC_SHA
+ *	  MBEDTLS_TLS_PSK_WITH_CAMELLIA_256_GCM_SHA384
+ *	  MBEDTLS_TLS_PSK_WITH_CAMELLIA_256_CBC_SHA384
+ *	  MBEDTLS_TLS_PSK_WITH_AES_128_GCM_SHA256
+ *	  MBEDTLS_TLS_PSK_WITH_AES_128_CBC_SHA256
+ *	  MBEDTLS_TLS_PSK_WITH_AES_128_CBC_SHA
+ *	  MBEDTLS_TLS_PSK_WITH_CAMELLIA_128_GCM_SHA256
+ *	  MBEDTLS_TLS_PSK_WITH_CAMELLIA_128_CBC_SHA256
+ *	  MBEDTLS_TLS_PSK_WITH_3DES_EDE_CBC_SHA
+ *	  MBEDTLS_TLS_PSK_WITH_RC4_128_SHA
  */
 #define MBEDTLS_KEY_EXCHANGE_PSK_ENABLED
 
@@ -528,24 +528,24 @@
  *
  * This enables the following ciphersuites (if other requisites are
  * enabled as well):
- *      MBEDTLS_TLS_DHE_PSK_WITH_AES_256_GCM_SHA384
- *      MBEDTLS_TLS_DHE_PSK_WITH_AES_256_CBC_SHA384
- *      MBEDTLS_TLS_DHE_PSK_WITH_AES_256_CBC_SHA
- *      MBEDTLS_TLS_DHE_PSK_WITH_CAMELLIA_256_GCM_SHA384
- *      MBEDTLS_TLS_DHE_PSK_WITH_CAMELLIA_256_CBC_SHA384
- *      MBEDTLS_TLS_DHE_PSK_WITH_AES_128_GCM_SHA256
- *      MBEDTLS_TLS_DHE_PSK_WITH_AES_128_CBC_SHA256
- *      MBEDTLS_TLS_DHE_PSK_WITH_AES_128_CBC_SHA
- *      MBEDTLS_TLS_DHE_PSK_WITH_CAMELLIA_128_GCM_SHA256
- *      MBEDTLS_TLS_DHE_PSK_WITH_CAMELLIA_128_CBC_SHA256
- *      MBEDTLS_TLS_DHE_PSK_WITH_3DES_EDE_CBC_SHA
- *      MBEDTLS_TLS_DHE_PSK_WITH_RC4_128_SHA
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_AES_256_GCM_SHA384
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_AES_256_CBC_SHA384
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_AES_256_CBC_SHA
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_CAMELLIA_256_GCM_SHA384
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_CAMELLIA_256_CBC_SHA384
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_AES_128_GCM_SHA256
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_AES_128_CBC_SHA256
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_AES_128_CBC_SHA
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_CAMELLIA_128_GCM_SHA256
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_CAMELLIA_128_CBC_SHA256
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_3DES_EDE_CBC_SHA
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_RC4_128_SHA
  *
- * \warning    Using DHE constitutes a security risk as it
- *             is not possible to validate custom DH parameters.
- *             If possible, it is recommended users should consider
- *             preferring other methods of key exchange.
- *             See dhm.h for more details.
+ * \warning	Using DHE constitutes a security risk as it
+ *			 is not possible to validate custom DH parameters.
+ *			 If possible, it is recommended users should consider
+ *			 preferring other methods of key exchange.
+ *			 See dhm.h for more details.
  *
  */
 #define MBEDTLS_KEY_EXCHANGE_DHE_PSK_ENABLED
@@ -559,14 +559,14 @@
  *
  * This enables the following ciphersuites (if other requisites are
  * enabled as well):
- *      MBEDTLS_TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA384
- *      MBEDTLS_TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA
- *      MBEDTLS_TLS_ECDHE_PSK_WITH_CAMELLIA_256_CBC_SHA384
- *      MBEDTLS_TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256
- *      MBEDTLS_TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA
- *      MBEDTLS_TLS_ECDHE_PSK_WITH_CAMELLIA_128_CBC_SHA256
- *      MBEDTLS_TLS_ECDHE_PSK_WITH_3DES_EDE_CBC_SHA
- *      MBEDTLS_TLS_ECDHE_PSK_WITH_RC4_128_SHA
+ *	  MBEDTLS_TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA384
+ *	  MBEDTLS_TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA
+ *	  MBEDTLS_TLS_ECDHE_PSK_WITH_CAMELLIA_256_CBC_SHA384
+ *	  MBEDTLS_TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256
+ *	  MBEDTLS_TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA
+ *	  MBEDTLS_TLS_ECDHE_PSK_WITH_CAMELLIA_128_CBC_SHA256
+ *	  MBEDTLS_TLS_ECDHE_PSK_WITH_3DES_EDE_CBC_SHA
+ *	  MBEDTLS_TLS_ECDHE_PSK_WITH_RC4_128_SHA
  */
 #define MBEDTLS_KEY_EXCHANGE_ECDHE_PSK_ENABLED
 
@@ -576,22 +576,22 @@
  * Enable the RSA-PSK based ciphersuite modes in SSL / TLS.
  *
  * Requires: MBEDTLS_RSA_C, MBEDTLS_PKCS1_V15,
- *           MBEDTLS_X509_CRT_PARSE_C
+ *		   MBEDTLS_X509_CRT_PARSE_C
  *
  * This enables the following ciphersuites (if other requisites are
  * enabled as well):
- *      MBEDTLS_TLS_RSA_PSK_WITH_AES_256_GCM_SHA384
- *      MBEDTLS_TLS_RSA_PSK_WITH_AES_256_CBC_SHA384
- *      MBEDTLS_TLS_RSA_PSK_WITH_AES_256_CBC_SHA
- *      MBEDTLS_TLS_RSA_PSK_WITH_CAMELLIA_256_GCM_SHA384
- *      MBEDTLS_TLS_RSA_PSK_WITH_CAMELLIA_256_CBC_SHA384
- *      MBEDTLS_TLS_RSA_PSK_WITH_AES_128_GCM_SHA256
- *      MBEDTLS_TLS_RSA_PSK_WITH_AES_128_CBC_SHA256
- *      MBEDTLS_TLS_RSA_PSK_WITH_AES_128_CBC_SHA
- *      MBEDTLS_TLS_RSA_PSK_WITH_CAMELLIA_128_GCM_SHA256
- *      MBEDTLS_TLS_RSA_PSK_WITH_CAMELLIA_128_CBC_SHA256
- *      MBEDTLS_TLS_RSA_PSK_WITH_3DES_EDE_CBC_SHA
- *      MBEDTLS_TLS_RSA_PSK_WITH_RC4_128_SHA
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_AES_256_GCM_SHA384
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_AES_256_CBC_SHA384
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_AES_256_CBC_SHA
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_CAMELLIA_256_GCM_SHA384
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_CAMELLIA_256_CBC_SHA384
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_AES_128_GCM_SHA256
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_AES_128_CBC_SHA256
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_AES_128_CBC_SHA
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_CAMELLIA_128_GCM_SHA256
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_CAMELLIA_128_CBC_SHA256
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_3DES_EDE_CBC_SHA
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_RC4_128_SHA
  */
 #define MBEDTLS_KEY_EXCHANGE_RSA_PSK_ENABLED
 
@@ -601,25 +601,25 @@
  * Enable the RSA-only based ciphersuite modes in SSL / TLS.
  *
  * Requires: MBEDTLS_RSA_C, MBEDTLS_PKCS1_V15,
- *           MBEDTLS_X509_CRT_PARSE_C
+ *		   MBEDTLS_X509_CRT_PARSE_C
  *
  * This enables the following ciphersuites (if other requisites are
  * enabled as well):
- *      MBEDTLS_TLS_RSA_WITH_AES_256_GCM_SHA384
- *      MBEDTLS_TLS_RSA_WITH_AES_256_CBC_SHA256
- *      MBEDTLS_TLS_RSA_WITH_AES_256_CBC_SHA
- *      MBEDTLS_TLS_RSA_WITH_CAMELLIA_256_GCM_SHA384
- *      MBEDTLS_TLS_RSA_WITH_CAMELLIA_256_CBC_SHA256
- *      MBEDTLS_TLS_RSA_WITH_CAMELLIA_256_CBC_SHA
- *      MBEDTLS_TLS_RSA_WITH_AES_128_GCM_SHA256
- *      MBEDTLS_TLS_RSA_WITH_AES_128_CBC_SHA256
- *      MBEDTLS_TLS_RSA_WITH_AES_128_CBC_SHA
- *      MBEDTLS_TLS_RSA_WITH_CAMELLIA_128_GCM_SHA256
- *      MBEDTLS_TLS_RSA_WITH_CAMELLIA_128_CBC_SHA256
- *      MBEDTLS_TLS_RSA_WITH_CAMELLIA_128_CBC_SHA
- *      MBEDTLS_TLS_RSA_WITH_3DES_EDE_CBC_SHA
- *      MBEDTLS_TLS_RSA_WITH_RC4_128_SHA
- *      MBEDTLS_TLS_RSA_WITH_RC4_128_MD5
+ *	  MBEDTLS_TLS_RSA_WITH_AES_256_GCM_SHA384
+ *	  MBEDTLS_TLS_RSA_WITH_AES_256_CBC_SHA256
+ *	  MBEDTLS_TLS_RSA_WITH_AES_256_CBC_SHA
+ *	  MBEDTLS_TLS_RSA_WITH_CAMELLIA_256_GCM_SHA384
+ *	  MBEDTLS_TLS_RSA_WITH_CAMELLIA_256_CBC_SHA256
+ *	  MBEDTLS_TLS_RSA_WITH_CAMELLIA_256_CBC_SHA
+ *	  MBEDTLS_TLS_RSA_WITH_AES_128_GCM_SHA256
+ *	  MBEDTLS_TLS_RSA_WITH_AES_128_CBC_SHA256
+ *	  MBEDTLS_TLS_RSA_WITH_AES_128_CBC_SHA
+ *	  MBEDTLS_TLS_RSA_WITH_CAMELLIA_128_GCM_SHA256
+ *	  MBEDTLS_TLS_RSA_WITH_CAMELLIA_128_CBC_SHA256
+ *	  MBEDTLS_TLS_RSA_WITH_CAMELLIA_128_CBC_SHA
+ *	  MBEDTLS_TLS_RSA_WITH_3DES_EDE_CBC_SHA
+ *	  MBEDTLS_TLS_RSA_WITH_RC4_128_SHA
+ *	  MBEDTLS_TLS_RSA_WITH_RC4_128_MD5
  */
 #define MBEDTLS_KEY_EXCHANGE_RSA_ENABLED
 
@@ -629,29 +629,29 @@
  * Enable the DHE-RSA based ciphersuite modes in SSL / TLS.
  *
  * Requires: MBEDTLS_DHM_C, MBEDTLS_RSA_C, MBEDTLS_PKCS1_V15,
- *           MBEDTLS_X509_CRT_PARSE_C
+ *		   MBEDTLS_X509_CRT_PARSE_C
  *
  * This enables the following ciphersuites (if other requisites are
  * enabled as well):
- *      MBEDTLS_TLS_DHE_RSA_WITH_AES_256_GCM_SHA384
- *      MBEDTLS_TLS_DHE_RSA_WITH_AES_256_CBC_SHA256
- *      MBEDTLS_TLS_DHE_RSA_WITH_AES_256_CBC_SHA
- *      MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_256_GCM_SHA384
- *      MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA256
- *      MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA
- *      MBEDTLS_TLS_DHE_RSA_WITH_AES_128_GCM_SHA256
- *      MBEDTLS_TLS_DHE_RSA_WITH_AES_128_CBC_SHA256
- *      MBEDTLS_TLS_DHE_RSA_WITH_AES_128_CBC_SHA
- *      MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_128_GCM_SHA256
- *      MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA256
- *      MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA
- *      MBEDTLS_TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_AES_256_GCM_SHA384
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_AES_256_CBC_SHA256
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_AES_256_CBC_SHA
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_256_GCM_SHA384
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA256
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_AES_128_GCM_SHA256
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_AES_128_CBC_SHA256
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_AES_128_CBC_SHA
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_128_GCM_SHA256
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA256
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA
  *
- * \warning    Using DHE constitutes a security risk as it
- *             is not possible to validate custom DH parameters.
- *             If possible, it is recommended users should consider
- *             preferring other methods of key exchange.
- *             See dhm.h for more details.
+ * \warning	Using DHE constitutes a security risk as it
+ *			 is not possible to validate custom DH parameters.
+ *			 If possible, it is recommended users should consider
+ *			 preferring other methods of key exchange.
+ *			 See dhm.h for more details.
  *
  */
 #define MBEDTLS_KEY_EXCHANGE_DHE_RSA_ENABLED
@@ -662,22 +662,22 @@
  * Enable the ECDHE-RSA based ciphersuite modes in SSL / TLS.
  *
  * Requires: MBEDTLS_ECDH_C, MBEDTLS_RSA_C, MBEDTLS_PKCS1_V15,
- *           MBEDTLS_X509_CRT_PARSE_C
+ *		   MBEDTLS_X509_CRT_PARSE_C
  *
  * This enables the following ciphersuites (if other requisites are
  * enabled as well):
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_CAMELLIA_256_GCM_SHA384
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_CAMELLIA_256_CBC_SHA384
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_CAMELLIA_128_GCM_SHA256
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_CAMELLIA_128_CBC_SHA256
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_RC4_128_SHA
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_CAMELLIA_256_GCM_SHA384
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_CAMELLIA_256_CBC_SHA384
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_CAMELLIA_128_GCM_SHA256
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_CAMELLIA_128_CBC_SHA256
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_RC4_128_SHA
  */
 #define MBEDTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED
 
@@ -690,18 +690,18 @@
  *
  * This enables the following ciphersuites (if other requisites are
  * enabled as well):
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_CAMELLIA_256_GCM_SHA384
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_CAMELLIA_256_CBC_SHA384
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_CAMELLIA_128_GCM_SHA256
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_CAMELLIA_128_CBC_SHA256
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_RC4_128_SHA
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_CAMELLIA_256_GCM_SHA384
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_CAMELLIA_256_CBC_SHA384
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_CAMELLIA_128_GCM_SHA256
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_CAMELLIA_128_CBC_SHA256
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_RC4_128_SHA
  */
 #define MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED
 
@@ -714,18 +714,18 @@
  *
  * This enables the following ciphersuites (if other requisites are
  * enabled as well):
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_RC4_128_SHA
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA256
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA384
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_AES_256_GCM_SHA384
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_CAMELLIA_128_CBC_SHA256
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_CAMELLIA_256_CBC_SHA384
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_CAMELLIA_128_GCM_SHA256
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_CAMELLIA_256_GCM_SHA384
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_RC4_128_SHA
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA256
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA384
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_AES_256_GCM_SHA384
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_CAMELLIA_128_CBC_SHA256
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_CAMELLIA_256_CBC_SHA384
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_CAMELLIA_128_GCM_SHA256
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_CAMELLIA_256_GCM_SHA384
  */
 #define MBEDTLS_KEY_EXCHANGE_ECDH_ECDSA_ENABLED
 
@@ -738,18 +738,18 @@
  *
  * This enables the following ciphersuites (if other requisites are
  * enabled as well):
- *      MBEDTLS_TLS_ECDH_RSA_WITH_RC4_128_SHA
- *      MBEDTLS_TLS_ECDH_RSA_WITH_3DES_EDE_CBC_SHA
- *      MBEDTLS_TLS_ECDH_RSA_WITH_AES_128_CBC_SHA
- *      MBEDTLS_TLS_ECDH_RSA_WITH_AES_256_CBC_SHA
- *      MBEDTLS_TLS_ECDH_RSA_WITH_AES_128_CBC_SHA256
- *      MBEDTLS_TLS_ECDH_RSA_WITH_AES_256_CBC_SHA384
- *      MBEDTLS_TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256
- *      MBEDTLS_TLS_ECDH_RSA_WITH_AES_256_GCM_SHA384
- *      MBEDTLS_TLS_ECDH_RSA_WITH_CAMELLIA_128_CBC_SHA256
- *      MBEDTLS_TLS_ECDH_RSA_WITH_CAMELLIA_256_CBC_SHA384
- *      MBEDTLS_TLS_ECDH_RSA_WITH_CAMELLIA_128_GCM_SHA256
- *      MBEDTLS_TLS_ECDH_RSA_WITH_CAMELLIA_256_GCM_SHA384
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_RC4_128_SHA
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_3DES_EDE_CBC_SHA
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_AES_128_CBC_SHA
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_AES_256_CBC_SHA
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_AES_128_CBC_SHA256
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_AES_256_CBC_SHA384
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_AES_256_GCM_SHA384
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_CAMELLIA_128_CBC_SHA256
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_CAMELLIA_256_CBC_SHA384
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_CAMELLIA_128_GCM_SHA256
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_CAMELLIA_256_GCM_SHA384
  */
 #define MBEDTLS_KEY_EXCHANGE_ECDH_RSA_ENABLED
 
@@ -763,12 +763,12 @@
  * might still happen. For this reason, this is disabled by default.
  *
  * Requires: MBEDTLS_ECJPAKE_C
- *           MBEDTLS_SHA256_C
- *           MBEDTLS_ECP_DP_SECP256R1_ENABLED
+ *		   MBEDTLS_SHA256_C
+ *		   MBEDTLS_ECP_DP_SECP256R1_ENABLED
  *
  * This enables the following ciphersuites (if other requisites are
  * enabled as well):
- *      MBEDTLS_TLS_ECJPAKE_WITH_AES_128_CCM_8
+ *	  MBEDTLS_TLS_ECJPAKE_WITH_AES_128_CCM_8
  */
 //#define MBEDTLS_KEY_EXCHANGE_ECJPAKE_ENABLED
 
@@ -937,9 +937,9 @@
  *
  * This only affects CBC ciphersuites, and is useless if none is defined.
  *
- * Requires: MBEDTLS_SSL_PROTO_TLS1    or
- *           MBEDTLS_SSL_PROTO_TLS1_1  or
- *           MBEDTLS_SSL_PROTO_TLS1_2
+ * Requires: MBEDTLS_SSL_PROTO_TLS1	or
+ *		   MBEDTLS_SSL_PROTO_TLS1_1  or
+ *		   MBEDTLS_SSL_PROTO_TLS1_2
  *
  * Comment this macro to disable support for Encrypt-then-MAC
  */
@@ -955,9 +955,9 @@
  * renegotiation), since it actually fixes a more fundamental issue in the
  * original SSL/TLS design, and has implications beyond Triple Handshake.
  *
- * Requires: MBEDTLS_SSL_PROTO_TLS1    or
- *           MBEDTLS_SSL_PROTO_TLS1_1  or
- *           MBEDTLS_SSL_PROTO_TLS1_2
+ * Requires: MBEDTLS_SSL_PROTO_TLS1	or
+ *		   MBEDTLS_SSL_PROTO_TLS1_1  or
+ *		   MBEDTLS_SSL_PROTO_TLS1_2
  *
  * Comment this macro to disable support for Extended Master Secret.
  */
@@ -1016,10 +1016,10 @@
  * Comment this to disable support for renegotiation.
  *
  * \note   Even if this option is disabled, both client and server are aware
- *         of the Renegotiation Indication Extension (RFC 5746) used to
- *         prevent the SSL renegotiation attack (see RFC 5746 Sect. 1).
- *         (See \c mbedtls_ssl_conf_legacy_renegotiation for the
- *          configuration of this extension).
+ *		 of the Renegotiation Indication Extension (RFC 5746) used to
+ *		 prevent the SSL renegotiation attack (see RFC 5746 Sect. 1).
+ *		 (See \c mbedtls_ssl_conf_legacy_renegotiation for the
+ *		  configuration of this extension).
  *
  */
 #define MBEDTLS_SSL_RENEGOTIATION
@@ -1059,7 +1059,7 @@
  * Enable support for SSL 3.0.
  *
  * Requires: MBEDTLS_MD5_C
- *           MBEDTLS_SHA1_C
+ *		   MBEDTLS_SHA1_C
  *
  * Comment this macro to disable support for SSL 3.0
  */
@@ -1071,7 +1071,7 @@
  * Enable support for TLS 1.0.
  *
  * Requires: MBEDTLS_MD5_C
- *           MBEDTLS_SHA1_C
+ *		   MBEDTLS_SHA1_C
  *
  * Comment this macro to disable support for TLS 1.0
  */
@@ -1083,7 +1083,7 @@
  * Enable support for TLS 1.1 (and DTLS 1.0 if DTLS is enabled).
  *
  * Requires: MBEDTLS_MD5_C
- *           MBEDTLS_SHA1_C
+ *		   MBEDTLS_SHA1_C
  *
  * Comment this macro to disable support for TLS 1.1 / DTLS 1.0
  */
@@ -1095,7 +1095,7 @@
  * Enable support for TLS 1.2 (and DTLS 1.2 if DTLS is enabled).
  *
  * Requires: MBEDTLS_SHA1_C or MBEDTLS_SHA256_C or MBEDTLS_SHA512_C
- *           (Depends on ciphersuites)
+ *		   (Depends on ciphersuites)
  *
  * Comment this macro to disable support for TLS 1.2 / DTLS 1.2
  */
@@ -1110,7 +1110,7 @@
  * and/or this and MBEDTLS_SSL_PROTO_TLS1_2 to enable DTLS 1.2.
  *
  * Requires: MBEDTLS_SSL_PROTO_TLS1_1
- *        or MBEDTLS_SSL_PROTO_TLS1_2
+ *		or MBEDTLS_SSL_PROTO_TLS1_2
  *
  * Comment this macro to disable support for DTLS
  */
@@ -1131,7 +1131,7 @@
  * Enable support for the anti-replay mechanism in DTLS.
  *
  * Requires: MBEDTLS_SSL_TLS_C
- *           MBEDTLS_SSL_PROTO_DTLS
+ *		   MBEDTLS_SSL_PROTO_DTLS
  *
  * \warning Disabling this is often a security risk!
  * See mbedtls_ssl_conf_dtls_anti_replay() for details.
@@ -1238,14 +1238,14 @@
  * a future version of the library.
  *
  * \warning The old implementation is non-compliant and has a security weakness
- *          (2^80 brute force attack on the HMAC key used for a single,
- *          uninterrupted connection). This should only be enabled temporarily
- *          when (1) the use of truncated HMAC is essential in order to save
- *          bandwidth, and (2) the peer is an Mbed TLS stack that doesn't use
- *          the fixed implementation yet (pre-2.7).
+ *		  (2^80 brute force attack on the HMAC key used for a single,
+ *		  uninterrupted connection). This should only be enabled temporarily
+ *		  when (1) the use of truncated HMAC is essential in order to save
+ *		  bandwidth, and (2) the peer is an Mbed TLS stack that doesn't use
+ *		  the fixed implementation yet (pre-2.7).
  *
  * \deprecated This option is deprecated and will likely be removed in a
- *             future version of Mbed TLS.
+ *			 future version of Mbed TLS.
  *
  * Uncomment to fallback to old, non-compliant truncated HMAC implementation.
  *
@@ -1325,11 +1325,11 @@
  * \note Currently compression can't be used with DTLS.
  *
  * \deprecated This feature is deprecated and will be removed
- *             in the next major revision of the library.
+ *			 in the next major revision of the library.
  *
  * Used in: library/ssl_tls.c
- *          library/ssl_cli.c
- *          library/ssl_srv.c
+ *		  library/ssl_cli.c
+ *		  library/ssl_srv.c
  *
  * This feature requires zlib library and headers to be present.
  *
@@ -1352,69 +1352,69 @@
  *
  * Module:  library/aes.c
  * Caller:  library/ssl_tls.c
- *          library/pem.c
- *          library/ctr_drbg.c
+ *		  library/pem.c
+ *		  library/ctr_drbg.c
  *
  * This module enables the following ciphersuites (if other requisites are
  * enabled as well):
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA
- *      MBEDTLS_TLS_ECDH_RSA_WITH_AES_128_CBC_SHA
- *      MBEDTLS_TLS_ECDH_RSA_WITH_AES_256_CBC_SHA
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA256
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA384
- *      MBEDTLS_TLS_ECDH_RSA_WITH_AES_128_CBC_SHA256
- *      MBEDTLS_TLS_ECDH_RSA_WITH_AES_256_CBC_SHA384
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_AES_256_GCM_SHA384
- *      MBEDTLS_TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256
- *      MBEDTLS_TLS_ECDH_RSA_WITH_AES_256_GCM_SHA384
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
- *      MBEDTLS_TLS_DHE_RSA_WITH_AES_256_GCM_SHA384
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384
- *      MBEDTLS_TLS_DHE_RSA_WITH_AES_256_CBC_SHA256
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA
- *      MBEDTLS_TLS_DHE_RSA_WITH_AES_256_CBC_SHA
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
- *      MBEDTLS_TLS_DHE_RSA_WITH_AES_128_GCM_SHA256
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256
- *      MBEDTLS_TLS_DHE_RSA_WITH_AES_128_CBC_SHA256
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA
- *      MBEDTLS_TLS_DHE_RSA_WITH_AES_128_CBC_SHA
- *      MBEDTLS_TLS_DHE_PSK_WITH_AES_256_GCM_SHA384
- *      MBEDTLS_TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA384
- *      MBEDTLS_TLS_DHE_PSK_WITH_AES_256_CBC_SHA384
- *      MBEDTLS_TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA
- *      MBEDTLS_TLS_DHE_PSK_WITH_AES_256_CBC_SHA
- *      MBEDTLS_TLS_DHE_PSK_WITH_AES_128_GCM_SHA256
- *      MBEDTLS_TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256
- *      MBEDTLS_TLS_DHE_PSK_WITH_AES_128_CBC_SHA256
- *      MBEDTLS_TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA
- *      MBEDTLS_TLS_DHE_PSK_WITH_AES_128_CBC_SHA
- *      MBEDTLS_TLS_RSA_WITH_AES_256_GCM_SHA384
- *      MBEDTLS_TLS_RSA_WITH_AES_256_CBC_SHA256
- *      MBEDTLS_TLS_RSA_WITH_AES_256_CBC_SHA
- *      MBEDTLS_TLS_RSA_WITH_AES_128_GCM_SHA256
- *      MBEDTLS_TLS_RSA_WITH_AES_128_CBC_SHA256
- *      MBEDTLS_TLS_RSA_WITH_AES_128_CBC_SHA
- *      MBEDTLS_TLS_RSA_PSK_WITH_AES_256_GCM_SHA384
- *      MBEDTLS_TLS_RSA_PSK_WITH_AES_256_CBC_SHA384
- *      MBEDTLS_TLS_RSA_PSK_WITH_AES_256_CBC_SHA
- *      MBEDTLS_TLS_RSA_PSK_WITH_AES_128_GCM_SHA256
- *      MBEDTLS_TLS_RSA_PSK_WITH_AES_128_CBC_SHA256
- *      MBEDTLS_TLS_RSA_PSK_WITH_AES_128_CBC_SHA
- *      MBEDTLS_TLS_PSK_WITH_AES_256_GCM_SHA384
- *      MBEDTLS_TLS_PSK_WITH_AES_256_CBC_SHA384
- *      MBEDTLS_TLS_PSK_WITH_AES_256_CBC_SHA
- *      MBEDTLS_TLS_PSK_WITH_AES_128_GCM_SHA256
- *      MBEDTLS_TLS_PSK_WITH_AES_128_CBC_SHA256
- *      MBEDTLS_TLS_PSK_WITH_AES_128_CBC_SHA
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_AES_128_CBC_SHA
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_AES_256_CBC_SHA
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA256
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA384
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_AES_128_CBC_SHA256
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_AES_256_CBC_SHA384
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_AES_256_GCM_SHA384
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_AES_256_GCM_SHA384
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_AES_256_GCM_SHA384
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_AES_256_CBC_SHA256
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_AES_256_CBC_SHA
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_AES_128_GCM_SHA256
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_AES_128_CBC_SHA256
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_AES_128_CBC_SHA
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_AES_256_GCM_SHA384
+ *	  MBEDTLS_TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA384
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_AES_256_CBC_SHA384
+ *	  MBEDTLS_TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_AES_256_CBC_SHA
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_AES_128_GCM_SHA256
+ *	  MBEDTLS_TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_AES_128_CBC_SHA256
+ *	  MBEDTLS_TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_AES_128_CBC_SHA
+ *	  MBEDTLS_TLS_RSA_WITH_AES_256_GCM_SHA384
+ *	  MBEDTLS_TLS_RSA_WITH_AES_256_CBC_SHA256
+ *	  MBEDTLS_TLS_RSA_WITH_AES_256_CBC_SHA
+ *	  MBEDTLS_TLS_RSA_WITH_AES_128_GCM_SHA256
+ *	  MBEDTLS_TLS_RSA_WITH_AES_128_CBC_SHA256
+ *	  MBEDTLS_TLS_RSA_WITH_AES_128_CBC_SHA
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_AES_256_GCM_SHA384
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_AES_256_CBC_SHA384
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_AES_256_CBC_SHA
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_AES_128_GCM_SHA256
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_AES_128_CBC_SHA256
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_AES_128_CBC_SHA
+ *	  MBEDTLS_TLS_PSK_WITH_AES_256_GCM_SHA384
+ *	  MBEDTLS_TLS_PSK_WITH_AES_256_CBC_SHA384
+ *	  MBEDTLS_TLS_PSK_WITH_AES_256_CBC_SHA
+ *	  MBEDTLS_TLS_PSK_WITH_AES_128_GCM_SHA256
+ *	  MBEDTLS_TLS_PSK_WITH_AES_128_CBC_SHA256
+ *	  MBEDTLS_TLS_PSK_WITH_AES_128_CBC_SHA
  *
  * PEM_PARSE uses AES for decrypting encrypted keys.
  */
@@ -1430,20 +1430,20 @@
  *
  * This module enables the following ciphersuites (if other requisites are
  * enabled as well):
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_RC4_128_SHA
- *      MBEDTLS_TLS_ECDH_RSA_WITH_RC4_128_SHA
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_RC4_128_SHA
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_RC4_128_SHA
- *      MBEDTLS_TLS_ECDHE_PSK_WITH_RC4_128_SHA
- *      MBEDTLS_TLS_DHE_PSK_WITH_RC4_128_SHA
- *      MBEDTLS_TLS_RSA_WITH_RC4_128_SHA
- *      MBEDTLS_TLS_RSA_WITH_RC4_128_MD5
- *      MBEDTLS_TLS_RSA_PSK_WITH_RC4_128_SHA
- *      MBEDTLS_TLS_PSK_WITH_RC4_128_SHA
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_RC4_128_SHA
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_RC4_128_SHA
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_RC4_128_SHA
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_RC4_128_SHA
+ *	  MBEDTLS_TLS_ECDHE_PSK_WITH_RC4_128_SHA
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_RC4_128_SHA
+ *	  MBEDTLS_TLS_RSA_WITH_RC4_128_SHA
+ *	  MBEDTLS_TLS_RSA_WITH_RC4_128_MD5
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_RC4_128_SHA
+ *	  MBEDTLS_TLS_PSK_WITH_RC4_128_SHA
  *
  * \warning   ARC4 is considered a weak cipher and its use constitutes a
- *            security risk. If possible, we recommend avoidng dependencies on
- *            it, and considering stronger ciphers instead.
+ *			security risk. If possible, we recommend avoidng dependencies on
+ *			it, and considering stronger ciphers instead.
  *
  */
 #define MBEDTLS_ARC4_C
@@ -1455,10 +1455,10 @@
  *
  * Module:  library/asn1.c
  * Caller:  library/x509.c
- *          library/dhm.c
- *          library/pkcs12.c
- *          library/pkcs5.c
- *          library/pkparse.c
+ *		  library/dhm.c
+ *		  library/pkcs12.c
+ *		  library/pkcs5.c
+ *		  library/pkparse.c
  */
 #define MBEDTLS_ASN1_PARSE_C
 
@@ -1469,10 +1469,10 @@
  *
  * Module:  library/asn1write.c
  * Caller:  library/ecdsa.c
- *          library/pkwrite.c
- *          library/x509_create.c
- *          library/x509write_crt.c
- *          library/x509write_csr.c
+ *		  library/pkwrite.c
+ *		  library/x509_create.c
+ *		  library/x509write_crt.c
+ *		  library/x509write_csr.c
  */
 #define MBEDTLS_ASN1_WRITE_C
 
@@ -1495,11 +1495,11 @@
  *
  * Module:  library/bignum.c
  * Caller:  library/dhm.c
- *          library/ecp.c
- *          library/ecdsa.c
- *          library/rsa.c
- *          library/rsa_internal.c
- *          library/ssl_tls.c
+ *		  library/ecp.c
+ *		  library/ecdsa.c
+ *		  library/rsa.c
+ *		  library/rsa_internal.c
+ *		  library/ssl_tls.c
  *
  * This module is required for RSA, DHM and ECC (ECDH, ECDSA) support.
  */
@@ -1524,48 +1524,48 @@
  *
  * This module enables the following ciphersuites (if other requisites are
  * enabled as well):
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_CAMELLIA_128_CBC_SHA256
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_CAMELLIA_256_CBC_SHA384
- *      MBEDTLS_TLS_ECDH_RSA_WITH_CAMELLIA_128_CBC_SHA256
- *      MBEDTLS_TLS_ECDH_RSA_WITH_CAMELLIA_256_CBC_SHA384
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_CAMELLIA_128_GCM_SHA256
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_CAMELLIA_256_GCM_SHA384
- *      MBEDTLS_TLS_ECDH_RSA_WITH_CAMELLIA_128_GCM_SHA256
- *      MBEDTLS_TLS_ECDH_RSA_WITH_CAMELLIA_256_GCM_SHA384
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_CAMELLIA_256_GCM_SHA384
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_CAMELLIA_256_GCM_SHA384
- *      MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_256_GCM_SHA384
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_CAMELLIA_256_CBC_SHA384
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_CAMELLIA_256_CBC_SHA384
- *      MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA256
- *      MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_CAMELLIA_128_GCM_SHA256
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_CAMELLIA_128_GCM_SHA256
- *      MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_128_GCM_SHA256
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_CAMELLIA_128_CBC_SHA256
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_CAMELLIA_128_CBC_SHA256
- *      MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA256
- *      MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA
- *      MBEDTLS_TLS_DHE_PSK_WITH_CAMELLIA_256_GCM_SHA384
- *      MBEDTLS_TLS_ECDHE_PSK_WITH_CAMELLIA_256_CBC_SHA384
- *      MBEDTLS_TLS_DHE_PSK_WITH_CAMELLIA_256_CBC_SHA384
- *      MBEDTLS_TLS_DHE_PSK_WITH_CAMELLIA_128_GCM_SHA256
- *      MBEDTLS_TLS_DHE_PSK_WITH_CAMELLIA_128_CBC_SHA256
- *      MBEDTLS_TLS_ECDHE_PSK_WITH_CAMELLIA_128_CBC_SHA256
- *      MBEDTLS_TLS_RSA_WITH_CAMELLIA_256_GCM_SHA384
- *      MBEDTLS_TLS_RSA_WITH_CAMELLIA_256_CBC_SHA256
- *      MBEDTLS_TLS_RSA_WITH_CAMELLIA_256_CBC_SHA
- *      MBEDTLS_TLS_RSA_WITH_CAMELLIA_128_GCM_SHA256
- *      MBEDTLS_TLS_RSA_WITH_CAMELLIA_128_CBC_SHA256
- *      MBEDTLS_TLS_RSA_WITH_CAMELLIA_128_CBC_SHA
- *      MBEDTLS_TLS_RSA_PSK_WITH_CAMELLIA_256_GCM_SHA384
- *      MBEDTLS_TLS_RSA_PSK_WITH_CAMELLIA_256_CBC_SHA384
- *      MBEDTLS_TLS_RSA_PSK_WITH_CAMELLIA_128_GCM_SHA256
- *      MBEDTLS_TLS_RSA_PSK_WITH_CAMELLIA_128_CBC_SHA256
- *      MBEDTLS_TLS_PSK_WITH_CAMELLIA_256_GCM_SHA384
- *      MBEDTLS_TLS_PSK_WITH_CAMELLIA_256_CBC_SHA384
- *      MBEDTLS_TLS_PSK_WITH_CAMELLIA_128_GCM_SHA256
- *      MBEDTLS_TLS_PSK_WITH_CAMELLIA_128_CBC_SHA256
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_CAMELLIA_128_CBC_SHA256
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_CAMELLIA_256_CBC_SHA384
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_CAMELLIA_128_CBC_SHA256
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_CAMELLIA_256_CBC_SHA384
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_CAMELLIA_128_GCM_SHA256
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_CAMELLIA_256_GCM_SHA384
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_CAMELLIA_128_GCM_SHA256
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_CAMELLIA_256_GCM_SHA384
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_CAMELLIA_256_GCM_SHA384
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_CAMELLIA_256_GCM_SHA384
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_256_GCM_SHA384
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_CAMELLIA_256_CBC_SHA384
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_CAMELLIA_256_CBC_SHA384
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA256
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_CAMELLIA_128_GCM_SHA256
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_CAMELLIA_128_GCM_SHA256
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_128_GCM_SHA256
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_CAMELLIA_128_CBC_SHA256
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_CAMELLIA_128_CBC_SHA256
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA256
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_CAMELLIA_256_GCM_SHA384
+ *	  MBEDTLS_TLS_ECDHE_PSK_WITH_CAMELLIA_256_CBC_SHA384
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_CAMELLIA_256_CBC_SHA384
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_CAMELLIA_128_GCM_SHA256
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_CAMELLIA_128_CBC_SHA256
+ *	  MBEDTLS_TLS_ECDHE_PSK_WITH_CAMELLIA_128_CBC_SHA256
+ *	  MBEDTLS_TLS_RSA_WITH_CAMELLIA_256_GCM_SHA384
+ *	  MBEDTLS_TLS_RSA_WITH_CAMELLIA_256_CBC_SHA256
+ *	  MBEDTLS_TLS_RSA_WITH_CAMELLIA_256_CBC_SHA
+ *	  MBEDTLS_TLS_RSA_WITH_CAMELLIA_128_GCM_SHA256
+ *	  MBEDTLS_TLS_RSA_WITH_CAMELLIA_128_CBC_SHA256
+ *	  MBEDTLS_TLS_RSA_WITH_CAMELLIA_128_CBC_SHA
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_CAMELLIA_256_GCM_SHA384
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_CAMELLIA_256_CBC_SHA384
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_CAMELLIA_128_GCM_SHA256
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_CAMELLIA_128_CBC_SHA256
+ *	  MBEDTLS_TLS_PSK_WITH_CAMELLIA_256_GCM_SHA384
+ *	  MBEDTLS_TLS_PSK_WITH_CAMELLIA_256_CBC_SHA384
+ *	  MBEDTLS_TLS_PSK_WITH_CAMELLIA_128_GCM_SHA256
+ *	  MBEDTLS_TLS_PSK_WITH_CAMELLIA_128_CBC_SHA256
  */
 #define MBEDTLS_CAMELLIA_C
 
@@ -1641,8 +1641,8 @@
  *
  * Module:  library/debug.c
  * Caller:  library/ssl_cli.c
- *          library/ssl_srv.c
- *          library/ssl_tls.c
+ *		  library/ssl_srv.c
+ *		  library/ssl_tls.c
  *
  * This module provides debugging functions.
  */
@@ -1655,25 +1655,25 @@
  *
  * Module:  library/des.c
  * Caller:  library/pem.c
- *          library/ssl_tls.c
+ *		  library/ssl_tls.c
  *
  * This module enables the following ciphersuites (if other requisites are
  * enabled as well):
- *      MBEDTLS_TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA
- *      MBEDTLS_TLS_ECDH_RSA_WITH_3DES_EDE_CBC_SHA
- *      MBEDTLS_TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA
- *      MBEDTLS_TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA
- *      MBEDTLS_TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA
- *      MBEDTLS_TLS_ECDHE_PSK_WITH_3DES_EDE_CBC_SHA
- *      MBEDTLS_TLS_DHE_PSK_WITH_3DES_EDE_CBC_SHA
- *      MBEDTLS_TLS_RSA_WITH_3DES_EDE_CBC_SHA
- *      MBEDTLS_TLS_RSA_PSK_WITH_3DES_EDE_CBC_SHA
- *      MBEDTLS_TLS_PSK_WITH_3DES_EDE_CBC_SHA
+ *	  MBEDTLS_TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA
+ *	  MBEDTLS_TLS_ECDH_RSA_WITH_3DES_EDE_CBC_SHA
+ *	  MBEDTLS_TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA
+ *	  MBEDTLS_TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA
+ *	  MBEDTLS_TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA
+ *	  MBEDTLS_TLS_ECDHE_PSK_WITH_3DES_EDE_CBC_SHA
+ *	  MBEDTLS_TLS_DHE_PSK_WITH_3DES_EDE_CBC_SHA
+ *	  MBEDTLS_TLS_RSA_WITH_3DES_EDE_CBC_SHA
+ *	  MBEDTLS_TLS_RSA_PSK_WITH_3DES_EDE_CBC_SHA
+ *	  MBEDTLS_TLS_PSK_WITH_3DES_EDE_CBC_SHA
  *
  * PEM_PARSE uses DES/3DES for decrypting encrypted keys.
  *
  * \warning   DES is considered a weak cipher and its use constitutes a
- *            security risk. We recommend considering stronger ciphers instead.
+ *			security risk. We recommend considering stronger ciphers instead.
  */
 #define MBEDTLS_DES_C
 
@@ -1684,16 +1684,16 @@
  *
  * Module:  library/dhm.c
  * Caller:  library/ssl_cli.c
- *          library/ssl_srv.c
+ *		  library/ssl_srv.c
  *
  * This module is used by the following key exchanges:
- *      DHE-RSA, DHE-PSK
+ *	  DHE-RSA, DHE-PSK
  *
- * \warning    Using DHE constitutes a security risk as it
- *             is not possible to validate custom DH parameters.
- *             If possible, it is recommended users should consider
- *             preferring other methods of key exchange.
- *             See dhm.h for more details.
+ * \warning	Using DHE constitutes a security risk as it
+ *			 is not possible to validate custom DH parameters.
+ *			 If possible, it is recommended users should consider
+ *			 preferring other methods of key exchange.
+ *			 See dhm.h for more details.
  *
  */
 #define MBEDTLS_DHM_C
@@ -1705,10 +1705,10 @@
  *
  * Module:  library/ecdh.c
  * Caller:  library/ssl_cli.c
- *          library/ssl_srv.c
+ *		  library/ssl_srv.c
  *
  * This module is used by the following key exchanges:
- *      ECDHE-ECDSA, ECDHE-RSA, DHE-PSK
+ *	  ECDHE-ECDSA, ECDHE-RSA, DHE-PSK
  *
  * Requires: MBEDTLS_ECP_C
  */
@@ -1723,7 +1723,7 @@
  * Caller:
  *
  * This module is used by the following key exchanges:
- *      ECDHE-ECDSA
+ *	  ECDHE-ECDSA
  *
  * Requires: MBEDTLS_ECP_C, MBEDTLS_ASN1_WRITE_C, MBEDTLS_ASN1_PARSE_C
  */
@@ -1742,7 +1742,7 @@
  * Caller:
  *
  * This module is used by the following key exchanges:
- *      ECJPAKE
+ *	  ECJPAKE
  *
  * Requires: MBEDTLS_ECP_C, MBEDTLS_MD_C
  */
@@ -1755,8 +1755,8 @@
  *
  * Module:  library/ecp.c
  * Caller:  library/ecdh.c
- *          library/ecdsa.c
- *          library/ecjpake.c
+ *		  library/ecdsa.c
+ *		  library/ecjpake.c
  *
  * Requires: MBEDTLS_BIGNUM_C and at least one MBEDTLS_ECP_DP_XXX_ENABLED
  */
@@ -1808,13 +1808,13 @@
  * Enable the HAVEGE random generator.
  *
  * Warning: the HAVEGE random generator is not suitable for virtualized
- *          environments
+ *		  environments
  *
  * Warning: the HAVEGE random generator is dependent on timing and specific
- *          processor traits. It is therefore not advised to use HAVEGE as
- *          your applications primary random generator or primary entropy pool
- *          input. As a secondary input to your entropy pool, it IS able add
- *          the (limited) extra entropy it provides.
+ *		  processor traits. It is therefore not advised to use HAVEGE as
+ *		  your applications primary random generator or primary entropy pool
+ *		  input. As a secondary input to your entropy pool, it IS able add
+ *		  the (limited) extra entropy it provides.
  *
  * Module:  library/havege.c
  * Caller:
@@ -1860,8 +1860,8 @@
  * Uncomment to enable support for (rare) MD2-signed X.509 certs.
  *
  * \warning   MD2 is considered a weak message digest and its use constitutes a
- *            security risk. If possible, we recommend avoiding dependencies on
- *            it, and considering stronger message digests instead.
+ *			security risk. If possible, we recommend avoiding dependencies on
+ *			it, and considering stronger message digests instead.
  *
  */
 #define MBEDTLS_MD2_C
@@ -1877,8 +1877,8 @@
  * Uncomment to enable support for (rare) MD4-signed X.509 certs.
  *
  * \warning   MD4 is considered a weak message digest and its use constitutes a
- *            security risk. If possible, we recommend avoiding dependencies on
- *            it, and considering stronger message digests instead.
+ *			security risk. If possible, we recommend avoiding dependencies on
+ *			it, and considering stronger message digests instead.
  *
  */
 #define MBEDTLS_MD4_C
@@ -1890,8 +1890,8 @@
  *
  * Module:  library/md5.c
  * Caller:  library/md.c
- *          library/pem.c
- *          library/ssl_tls.c
+ *		  library/pem.c
+ *		  library/ssl_tls.c
  *
  * This module is required for SSL/TLS up to version 1.1, and for TLS 1.2
  * depending on the handshake parameters. Further, it is used for checking
@@ -1899,8 +1899,8 @@
  * encrypted keys.
  *
  * \warning   MD5 is considered a weak message digest and its use constitutes a
- *            security risk. If possible, we recommend avoiding dependencies on
- *            it, and considering stronger message digests instead.
+ *			security risk. If possible, we recommend avoiding dependencies on
+ *			it, and considering stronger message digests instead.
  *
  */
 #define MBEDTLS_MD5_C
@@ -1912,17 +1912,17 @@
  *
  * Module:  library/oid.c
  * Caller:  library/asn1write.c
- *          library/pkcs5.c
- *          library/pkparse.c
- *          library/pkwrite.c
- *          library/rsa.c
- *          library/x509.c
- *          library/x509_create.c
- *          library/x509_crl.c
- *          library/x509_crt.c
- *          library/x509_csr.c
- *          library/x509write_crt.c
- *          library/x509write_csr.c
+ *		  library/pkcs5.c
+ *		  library/pkparse.c
+ *		  library/pkwrite.c
+ *		  library/rsa.c
+ *		  library/x509.c
+ *		  library/x509_create.c
+ *		  library/x509_crl.c
+ *		  library/x509_crt.c
+ *		  library/x509_csr.c
+ *		  library/x509write_crt.c
+ *		  library/x509write_csr.c
  *
  * This modules translates between OIDs and internal values.
  */
@@ -1935,10 +1935,10 @@
  *
  * Module:  library/pem.c
  * Caller:  library/dhm.c
- *          library/pkparse.c
- *          library/x509_crl.c
- *          library/x509_crt.c
- *          library/x509_csr.c
+ *		  library/pkparse.c
+ *		  library/x509_crl.c
+ *		  library/x509_crt.c
+ *		  library/x509_csr.c
  *
  * Requires: MBEDTLS_BASE64_C
  *
@@ -1953,8 +1953,8 @@
  *
  * Module:  library/pem.c
  * Caller:  library/pkwrite.c
- *          library/x509write_crt.c
- *          library/x509write_csr.c
+ *		  library/x509write_crt.c
+ *		  library/x509write_csr.c
  *
  * Requires: MBEDTLS_BASE64_C
  *
@@ -1969,8 +1969,8 @@
  *
  * Module:  library/pk.c
  * Caller:  library/ssl_tls.c
- *          library/ssl_cli.c
- *          library/ssl_srv.c
+ *		  library/ssl_cli.c
+ *		  library/ssl_srv.c
  *
  * Requires: MBEDTLS_RSA_C or MBEDTLS_ECP_C
  *
@@ -1985,7 +1985,7 @@
  *
  * Module:  library/pkparse.c
  * Caller:  library/x509_crt.c
- *          library/x509_csr.c
+ *		  library/x509_csr.c
  *
  * Requires: MBEDTLS_PK_C
  *
@@ -2088,14 +2088,14 @@
  * Enable the RSA public-key cryptosystem.
  *
  * Module:  library/rsa.c
- *          library/rsa_internal.c
+ *		  library/rsa_internal.c
  * Caller:  library/ssl_cli.c
- *          library/ssl_srv.c
- *          library/ssl_tls.c
- *          library/x509.c
+ *		  library/ssl_srv.c
+ *		  library/ssl_tls.c
+ *		  library/x509.c
  *
  * This module is used by the following key exchanges:
- *      RSA, DHE-RSA, ECDHE-RSA, RSA-PSK
+ *	  RSA, DHE-RSA, ECDHE-RSA, RSA-PSK
  *
  * Requires: MBEDTLS_BIGNUM_C, MBEDTLS_OID_C
  */
@@ -2108,17 +2108,17 @@
  *
  * Module:  library/sha1.c
  * Caller:  library/md.c
- *          library/ssl_cli.c
- *          library/ssl_srv.c
- *          library/ssl_tls.c
- *          library/x509write_crt.c
+ *		  library/ssl_cli.c
+ *		  library/ssl_srv.c
+ *		  library/ssl_tls.c
+ *		  library/x509write_crt.c
  *
  * This module is required for SSL/TLS up to version 1.1, for TLS 1.2
  * depending on the handshake parameters, and for SHA1-signed certificates.
  *
  * \warning   SHA-1 is considered a weak message digest and its use constitutes
- *            a security risk. If possible, we recommend avoiding dependencies
- *            on it, and considering stronger message digests instead.
+ *			a security risk. If possible, we recommend avoiding dependencies
+ *			on it, and considering stronger message digests instead.
  *
  */
 #define MBEDTLS_SHA1_C
@@ -2130,10 +2130,10 @@
  *
  * Module:  library/sha256.c
  * Caller:  library/entropy.c
- *          library/md.c
- *          library/ssl_cli.c
- *          library/ssl_srv.c
- *          library/ssl_tls.c
+ *		  library/md.c
+ *		  library/ssl_cli.c
+ *		  library/ssl_srv.c
+ *		  library/ssl_tls.c
  *
  * This module adds support for SHA-224 and SHA-256.
  * This module is required for the SSL/TLS 1.2 PRF function.
@@ -2147,9 +2147,9 @@
  *
  * Module:  library/sha512.c
  * Caller:  library/entropy.c
- *          library/md.c
- *          library/ssl_cli.c
- *          library/ssl_srv.c
+ *		  library/md.c
+ *		  library/ssl_cli.c
+ *		  library/ssl_srv.c
  *
  * This module adds support for SHA-384 and SHA-512.
  */
@@ -2224,10 +2224,10 @@
  *
  * Module:  library/ssl_tls.c
  * Caller:  library/ssl_cli.c
- *          library/ssl_srv.c
+ *		  library/ssl_srv.c
  *
  * Requires: MBEDTLS_CIPHER_C, MBEDTLS_MD_C
- *           and at least one of the MBEDTLS_SSL_PROTO_XXX defines
+ *		   and at least one of the MBEDTLS_SSL_PROTO_XXX defines
  *
  * This module is required for SSL/TLS.
  */
@@ -2240,11 +2240,11 @@
  *
  * Module:  library/x509.c
  * Caller:  library/x509_crl.c
- *          library/x509_crt.c
- *          library/x509_csr.c
+ *		  library/x509_crt.c
+ *		  library/x509_csr.c
  *
  * Requires: MBEDTLS_ASN1_PARSE_C, MBEDTLS_BIGNUM_C, MBEDTLS_OID_C,
- *           MBEDTLS_PK_PARSE_C
+ *		   MBEDTLS_PK_PARSE_C
  *
  * This module is required for the X.509 parsing modules.
  */
@@ -2257,8 +2257,8 @@
  *
  * Module:  library/x509_crt.c
  * Caller:  library/ssl_cli.c
- *          library/ssl_srv.c
- *          library/ssl_tls.c
+ *		  library/ssl_srv.c
+ *		  library/ssl_tls.c
  *
  * Requires: MBEDTLS_X509_USE_C
  *
@@ -2361,64 +2361,64 @@
  */
 
 /* CTR_DRBG options */
-//#define MBEDTLS_CTR_DRBG_ENTROPY_LEN               48 /**< Amount of entropy used per seed by default (48 with SHA-512, 32 with SHA-256) */
-//#define MBEDTLS_CTR_DRBG_RESEED_INTERVAL        10000 /**< Interval before reseed is performed by default */
-//#define MBEDTLS_CTR_DRBG_MAX_INPUT                256 /**< Maximum number of additional input bytes */
-//#define MBEDTLS_CTR_DRBG_MAX_REQUEST             1024 /**< Maximum number of requested bytes per call */
-//#define MBEDTLS_CTR_DRBG_MAX_SEED_INPUT           384 /**< Maximum size of (re)seed buffer */
+//#define MBEDTLS_CTR_DRBG_ENTROPY_LEN			   48 /**< Amount of entropy used per seed by default (48 with SHA-512, 32 with SHA-256) */
+//#define MBEDTLS_CTR_DRBG_RESEED_INTERVAL		10000 /**< Interval before reseed is performed by default */
+//#define MBEDTLS_CTR_DRBG_MAX_INPUT				256 /**< Maximum number of additional input bytes */
+//#define MBEDTLS_CTR_DRBG_MAX_REQUEST			 1024 /**< Maximum number of requested bytes per call */
+//#define MBEDTLS_CTR_DRBG_MAX_SEED_INPUT		   384 /**< Maximum size of (re)seed buffer */
 
 /* HMAC_DRBG options */
 //#define MBEDTLS_HMAC_DRBG_RESEED_INTERVAL   10000 /**< Interval before reseed is performed by default */
-//#define MBEDTLS_HMAC_DRBG_MAX_INPUT           256 /**< Maximum number of additional input bytes */
-//#define MBEDTLS_HMAC_DRBG_MAX_REQUEST        1024 /**< Maximum number of requested bytes per call */
-//#define MBEDTLS_HMAC_DRBG_MAX_SEED_INPUT      384 /**< Maximum size of (re)seed buffer */
+//#define MBEDTLS_HMAC_DRBG_MAX_INPUT		   256 /**< Maximum number of additional input bytes */
+//#define MBEDTLS_HMAC_DRBG_MAX_REQUEST		1024 /**< Maximum number of requested bytes per call */
+//#define MBEDTLS_HMAC_DRBG_MAX_SEED_INPUT	  384 /**< Maximum size of (re)seed buffer */
 
 /* ECP options */
-//#define MBEDTLS_ECP_MAX_BITS             521 /**< Maximum bit size of groups */
-//#define MBEDTLS_ECP_WINDOW_SIZE            6 /**< Maximum window size used */
-//#define MBEDTLS_ECP_FIXED_POINT_OPTIM      1 /**< Enable fixed-point speed-up */
+//#define MBEDTLS_ECP_MAX_BITS			 521 /**< Maximum bit size of groups */
+//#define MBEDTLS_ECP_WINDOW_SIZE			6 /**< Maximum window size used */
+//#define MBEDTLS_ECP_FIXED_POINT_OPTIM	  1 /**< Enable fixed-point speed-up */
 
 /* Entropy options */
-//#define MBEDTLS_ENTROPY_MAX_SOURCES                20 /**< Maximum number of sources supported */
-//#define MBEDTLS_ENTROPY_MAX_GATHER                128 /**< Maximum amount requested from entropy sources */
-//#define MBEDTLS_ENTROPY_MIN_HARDWARE               32 /**< Default minimum number of bytes required for the hardware entropy source mbedtls_hardware_poll() before entropy is released */
+//#define MBEDTLS_ENTROPY_MAX_SOURCES				20 /**< Maximum number of sources supported */
+//#define MBEDTLS_ENTROPY_MAX_GATHER				128 /**< Maximum amount requested from entropy sources */
+//#define MBEDTLS_ENTROPY_MIN_HARDWARE			   32 /**< Default minimum number of bytes required for the hardware entropy source mbedtls_hardware_poll() before entropy is released */
 
 /* Memory buffer allocator options */
-//#define MBEDTLS_MEMORY_ALIGN_MULTIPLE      4 /**< Align on multiples of this value */
+//#define MBEDTLS_MEMORY_ALIGN_MULTIPLE	  4 /**< Align on multiples of this value */
 
 /* Platform options */
 //#define MBEDTLS_PLATFORM_STD_MEM_HDR   <stdlib.h> /**< Header to include if MBEDTLS_PLATFORM_NO_STD_FUNCTIONS is defined. Don't define if no header is needed. */
-//#define MBEDTLS_PLATFORM_STD_CALLOC        calloc /**< Default allocator to use, can be undefined */
-//#define MBEDTLS_PLATFORM_STD_FREE            free /**< Default free to use, can be undefined */
-//#define MBEDTLS_PLATFORM_STD_EXIT            exit /**< Default exit to use, can be undefined */
-//#define MBEDTLS_PLATFORM_STD_TIME            time /**< Default time to use, can be undefined. */
+//#define MBEDTLS_PLATFORM_STD_CALLOC		calloc /**< Default allocator to use, can be undefined */
+//#define MBEDTLS_PLATFORM_STD_FREE			free /**< Default free to use, can be undefined */
+//#define MBEDTLS_PLATFORM_STD_EXIT			exit /**< Default exit to use, can be undefined */
+//#define MBEDTLS_PLATFORM_STD_TIME			time /**< Default time to use, can be undefined. */
 /* Note: your snprintf must correclty zero-terminate the buffer! */
-//#define MBEDTLS_PLATFORM_STD_EXIT_SUCCESS       0 /**< Default exit value to use, can be undefined */
-//#define MBEDTLS_PLATFORM_STD_EXIT_FAILURE       1 /**< Default exit value to use, can be undefined */
+//#define MBEDTLS_PLATFORM_STD_EXIT_SUCCESS	   0 /**< Default exit value to use, can be undefined */
+//#define MBEDTLS_PLATFORM_STD_EXIT_FAILURE	   1 /**< Default exit value to use, can be undefined */
 //#define MBEDTLS_PLATFORM_STD_NV_SEED_READ   mbedtls_platform_std_nv_seed_read /**< Default nv_seed_read function to use, can be undefined */
 //#define MBEDTLS_PLATFORM_STD_NV_SEED_WRITE  mbedtls_platform_std_nv_seed_write /**< Default nv_seed_write function to use, can be undefined */
 //#define MBEDTLS_PLATFORM_STD_NV_SEED_FILE  "seedfile" /**< Seed file to read/write with default implementation */
 
 /* To Use Function Macros MBEDTLS_PLATFORM_C must be enabled */
 /* MBEDTLS_PLATFORM_XXX_MACRO and MBEDTLS_PLATFORM_XXX_ALT cannot both be defined */
-//#define MBEDTLS_PLATFORM_CALLOC_MACRO        calloc /**< Default allocator macro to use, can be undefined */
-//#define MBEDTLS_PLATFORM_FREE_MACRO            free /**< Default free macro to use, can be undefined */
-//#define MBEDTLS_PLATFORM_EXIT_MACRO            exit /**< Default exit macro to use, can be undefined */
-//#define MBEDTLS_PLATFORM_TIME_TYPE_MACRO       time_t /**< Default time macro to use, can be undefined. */
-#define MBEDTLS_PLATFORM_FPRINTF_MACRO      ((void)0) /**< Default fprintf macro to use, can be undefined */
+//#define MBEDTLS_PLATFORM_CALLOC_MACRO		calloc /**< Default allocator macro to use, can be undefined */
+//#define MBEDTLS_PLATFORM_FREE_MACRO			free /**< Default free macro to use, can be undefined */
+//#define MBEDTLS_PLATFORM_EXIT_MACRO			exit /**< Default exit macro to use, can be undefined */
+//#define MBEDTLS_PLATFORM_TIME_TYPE_MACRO	   time_t /**< Default time macro to use, can be undefined. */
+#define MBEDTLS_PLATFORM_FPRINTF_MACRO	  ((void)0) /**< Default fprintf macro to use, can be undefined */
 /* Note: your snprintf must correclty zero-terminate the buffer! */
 //#define MBEDTLS_PLATFORM_NV_SEED_READ_MACRO   mbedtls_platform_std_nv_seed_read /**< Default nv_seed_read function to use, can be undefined */
 //#define MBEDTLS_PLATFORM_NV_SEED_WRITE_MACRO  mbedtls_platform_std_nv_seed_write /**< Default nv_seed_write function to use, can be undefined */
 
 /* SSL Cache options */
-//#define MBEDTLS_SSL_CACHE_DEFAULT_TIMEOUT       86400 /**< 1 day  */
-//#define MBEDTLS_SSL_CACHE_DEFAULT_MAX_ENTRIES      50 /**< Maximum entries in cache */
+//#define MBEDTLS_SSL_CACHE_DEFAULT_TIMEOUT	   86400 /**< 1 day  */
+//#define MBEDTLS_SSL_CACHE_DEFAULT_MAX_ENTRIES	  50 /**< Maximum entries in cache */
 
 /* SSL options */
-//#define MBEDTLS_SSL_MAX_CONTENT_LEN             16384 /**< Maxium fragment length in bytes, determines the size of each of the two internal I/O buffers */
-//#define MBEDTLS_SSL_DEFAULT_TICKET_LIFETIME     86400 /**< Lifetime of session tickets (if enabled) */
-//#define MBEDTLS_PSK_MAX_LEN               32 /**< Max size of TLS pre-shared keys, in bytes (default 256 bits) */
-//#define MBEDTLS_SSL_COOKIE_TIMEOUT        60 /**< Default expiration delay of DTLS cookies, in seconds */
+//#define MBEDTLS_SSL_MAX_CONTENT_LEN			 16384 /**< Maxium fragment length in bytes, determines the size of each of the two internal I/O buffers */
+//#define MBEDTLS_SSL_DEFAULT_TICKET_LIFETIME	 86400 /**< Lifetime of session tickets (if enabled) */
+//#define MBEDTLS_PSK_MAX_LEN			   32 /**< Max size of TLS pre-shared keys, in bytes (default 256 bits) */
+//#define MBEDTLS_SSL_COOKIE_TIMEOUT		60 /**< Default expiration delay of DTLS cookies, in seconds */
 
 /**
  * Complete list of ciphersuites to use, in order of preference.
@@ -2436,7 +2436,7 @@
 
 /* X509 options */
 //#define MBEDTLS_X509_MAX_INTERMEDIATE_CA   8   /**< Maximum number of intermediate CAs in a verification chain. */
-//#define MBEDTLS_X509_MAX_FILE_PATH_LEN     512 /**< Maximum length of a path/filename string in bytes including the null terminator character ('\0'). */
+//#define MBEDTLS_X509_MAX_FILE_PATH_LEN	 512 /**< Maximum length of a path/filename string in bytes including the null terminator character ('\0'). */
 
 /**
  * Allow SHA-1 in the default TLS configuration for certificate signing.
@@ -2446,8 +2446,8 @@
  * this may be safe for legacy infrastructure where additional controls apply.
  *
  * \warning   SHA-1 is considered a weak message digest and its use constitutes
- *            a security risk. If possible, we recommend avoiding dependencies
- *            on it, and considering stronger message digests instead.
+ *			a security risk. If possible, we recommend avoiding dependencies
+ *			on it, and considering stronger message digests instead.
  *
  */
 // #define MBEDTLS_TLS_DEFAULT_ALLOW_SHA1_IN_CERTIFICATES
@@ -2463,8 +2463,8 @@
  * warning applies nonetheless:
  *
  * \warning   SHA-1 is considered a weak message digest and its use constitutes
- *            a security risk. If possible, we recommend avoiding dependencies
- *            on it, and considering stronger message digests instead.
+ *			a security risk. If possible, we recommend avoiding dependencies
+ *			on it, and considering stronger message digests instead.
  *
  */
 #define MBEDTLS_TLS_DEFAULT_ALLOW_SHA1_IN_KEY_EXCHANGE
