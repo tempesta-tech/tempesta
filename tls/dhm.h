@@ -108,7 +108,7 @@ mbedtls_dhm_context;
  *
  * \param ctx	  The DHM context to initialize.
  */
-void mbedtls_dhm_init( mbedtls_dhm_context *ctx );
+void mbedtls_dhm_init(mbedtls_dhm_context *ctx);
 
 /**
  * \brief		  This function parses the ServerKeyExchange parameters.
@@ -126,9 +126,9 @@ void mbedtls_dhm_init( mbedtls_dhm_context *ctx );
  * \return		 \c 0 on success, or an \c MBEDTLS_ERR_DHM_XXX error code
  *				 on failure.
  */
-int mbedtls_dhm_read_params( mbedtls_dhm_context *ctx,
+int mbedtls_dhm_read_params(mbedtls_dhm_context *ctx,
 					 unsigned char **p,
-					 const unsigned char *end );
+					 const unsigned char *end);
 
 /**
  * \brief		  This function sets up and writes the ServerKeyExchange
@@ -156,10 +156,10 @@ int mbedtls_dhm_read_params( mbedtls_dhm_context *ctx,
  * \return		 \c 0 on success, or an \c MBEDTLS_ERR_DHM_XXX error code
  *				 on failure.
  */
-int mbedtls_dhm_make_params( mbedtls_dhm_context *ctx, int x_size,
+int mbedtls_dhm_make_params(mbedtls_dhm_context *ctx, int x_size,
 					 unsigned char *output, size_t *olen,
 					 int (*f_rng)(void *, unsigned char *, size_t),
-					 void *p_rng );
+					 void *p_rng);
 
 /**
  * \brief		  Set prime modulus and generator
@@ -174,9 +174,9 @@ int mbedtls_dhm_make_params( mbedtls_dhm_context *ctx, int x_size,
  * \return		 \c 0 if successful, or an \c MBEDTLS_ERR_DHM_XXX error code
  *				 on failure.
  */
-int mbedtls_dhm_set_group( mbedtls_dhm_context *ctx,
+int mbedtls_dhm_set_group(mbedtls_dhm_context *ctx,
 						   const mbedtls_mpi *P,
-						   const mbedtls_mpi *G );
+						   const mbedtls_mpi *G);
 
 /**
  * \brief		  This function imports the public value G^Y of the peer.
@@ -188,8 +188,8 @@ int mbedtls_dhm_set_group( mbedtls_dhm_context *ctx,
  * \return		 \c 0 on success, or an \c MBEDTLS_ERR_DHM_XXX error code
  *				 on failure.
  */
-int mbedtls_dhm_read_public( mbedtls_dhm_context *ctx,
-					 const unsigned char *input, size_t ilen );
+int mbedtls_dhm_read_public(mbedtls_dhm_context *ctx,
+					 const unsigned char *input, size_t ilen);
 
 /**
  * \brief		  This function creates its own private value \c X and
@@ -211,10 +211,10 @@ int mbedtls_dhm_read_public( mbedtls_dhm_context *ctx,
  * \return		 \c 0 on success, or an \c MBEDTLS_ERR_DHM_XXX error code
  *				 on failure.
  */
-int mbedtls_dhm_make_public( mbedtls_dhm_context *ctx, int x_size,
+int mbedtls_dhm_make_public(mbedtls_dhm_context *ctx, int x_size,
 					 unsigned char *output, size_t olen,
 					 int (*f_rng)(void *, unsigned char *, size_t),
-					 void *p_rng );
+					 void *p_rng);
 
 /**
  * \brief			   This function derives and exports the shared secret
@@ -237,17 +237,17 @@ int mbedtls_dhm_make_public( mbedtls_dhm_context *ctx, int x_size,
  *				 otherwise. Therefore, we recommend always passing a
  *				 non-NULL \p f_rng argument.
  */
-int mbedtls_dhm_calc_secret( mbedtls_dhm_context *ctx,
+int mbedtls_dhm_calc_secret(mbedtls_dhm_context *ctx,
 					 unsigned char *output, size_t output_size, size_t *olen,
 					 int (*f_rng)(void *, unsigned char *, size_t),
-					 void *p_rng );
+					 void *p_rng);
 
 /**
  * \brief		  This function frees and clears the components of a DHM key.
  *
  * \param ctx	  The DHM context to free and clear.
  */
-void mbedtls_dhm_free( mbedtls_dhm_context *ctx );
+void mbedtls_dhm_free(mbedtls_dhm_context *ctx);
 
 #if defined(MBEDTLS_ASN1_PARSE_C)
 /** \ingroup x509_module */
@@ -262,8 +262,8 @@ void mbedtls_dhm_free( mbedtls_dhm_context *ctx );
  * \return			\c 0 on success, or a specific DHM or PEM error code
  *					on failure.
  */
-int mbedtls_dhm_parse_dhm( mbedtls_dhm_context *dhm, const unsigned char *dhmin,
-				   size_t dhminlen );
+int mbedtls_dhm_parse_dhm(mbedtls_dhm_context *dhm, const unsigned char *dhmin,
+				   size_t dhminlen);
 
 #endif /* MBEDTLS_ASN1_PARSE_C */
 
@@ -317,10 +317,10 @@ int mbedtls_dhm_parse_dhm( mbedtls_dhm_context *dhm, const unsigned char *dhmin,
 #if defined(MBEDTLS_DEPRECATED_WARNING)
 #define MBEDTLS_DEPRECATED __attribute__((deprecated))
 MBEDTLS_DEPRECATED typedef char const * mbedtls_deprecated_constant_t;
-#define MBEDTLS_DEPRECATED_STRING_CONSTANT( VAL )	   \
-	( (mbedtls_deprecated_constant_t) ( VAL ) )
+#define MBEDTLS_DEPRECATED_STRING_CONSTANT(VAL)	   \
+	((mbedtls_deprecated_constant_t) (VAL))
 #else
-#define MBEDTLS_DEPRECATED_STRING_CONSTANT( VAL ) VAL
+#define MBEDTLS_DEPRECATED_STRING_CONSTANT(VAL) VAL
 #endif /* ! MBEDTLS_DEPRECATED_WARNING */
 
 /**
@@ -350,7 +350,7 @@ MBEDTLS_DEPRECATED typedef char const * mbedtls_deprecated_constant_t;
 		"CDF93ACC44328387315D75E198C641A480CD86A1B9E587E8"	  \
 		"BE60E69CC928B2B9C52172E413042E9B23F10B0E16E79763"	  \
 		"C9B53DCF4BA80A29E3FB73C16B8E75B97EF363E2FFA31F71"	  \
-		"CF9DE5384E71B81C0AC4DFFE0C10E64F" )
+		"CF9DE5384E71B81C0AC4DFFE0C10E64F")
 
 /**
  * The hexadecimal presentation of the chosen generator of the 2048-bit MODP
@@ -369,7 +369,7 @@ MBEDTLS_DEPRECATED typedef char const * mbedtls_deprecated_constant_t;
 		"10E183EDD19963DDD9E263E4770589EF6AA21E7F5F2FF381"	  \
 		"B539CCE3409D13CD566AFBB48D6C019181E1BCFE94B30269"	  \
 		"EDFE72FE9B6AA4BD7B5A0F1C71CFFF4C19C418E1F6EC0179"	  \
-		"81BC087F2A7065B384B890D3191F2BFA" )
+		"81BC087F2A7065B384B890D3191F2BFA")
 
 /**
  * The hexadecimal presentation of the prime underlying the 2048-bit MODP
@@ -394,7 +394,7 @@ MBEDTLS_DEPRECATED typedef char const * mbedtls_deprecated_constant_t;
 		"670C354E4ABC9804F1746C08CA18217C32905E462E36CE3B"	  \
 		"E39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9"	  \
 		"DE2BCBF6955817183995497CEA956AE515D2261898FA0510"	  \
-		"15728E5A8AACAA68FFFFFFFFFFFFFFFF" )
+		"15728E5A8AACAA68FFFFFFFFFFFFFFFF")
 
 /**
  * The hexadecimal presentation of the chosen generator of the 2048-bit MODP
@@ -402,7 +402,7 @@ MBEDTLS_DEPRECATED typedef char const * mbedtls_deprecated_constant_t;
  * Diffie-Hellman groups for Internet Key Exchange (IKE)</em>.
  */
 #define MBEDTLS_DHM_RFC3526_MODP_2048_G						 \
-	MBEDTLS_DEPRECATED_STRING_CONSTANT( "02" )
+	MBEDTLS_DEPRECATED_STRING_CONSTANT("02")
 
 /**
  * The hexadecimal presentation of the prime underlying the 3072-bit MODP
@@ -426,7 +426,7 @@ MBEDTLS_DEPRECATED typedef char const * mbedtls_deprecated_constant_t;
 		"ABF5AE8CDB0933D71E8C94E04A25619DCEE3D2261AD2EE6B"	  \
 		"F12FFA06D98A0864D87602733EC86A64521F2B18177B200C"	  \
 		"BBE117577A615D6C770988C0BAD946E208E24FA074E5AB31"	  \
-		"43DB5BFCE0FD108E4B82D120A93AD2CAFFFFFFFFFFFFFFFF" )
+		"43DB5BFCE0FD108E4B82D120A93AD2CAFFFFFFFFFFFFFFFF")
 
 /**
  * The hexadecimal presentation of the chosen generator of the 3072-bit MODP
@@ -434,7 +434,7 @@ MBEDTLS_DEPRECATED typedef char const * mbedtls_deprecated_constant_t;
  * Diffie-Hellman groups for Internet Key Exchange (IKE)</em>.
  */
 #define MBEDTLS_DHM_RFC3526_MODP_3072_G					  \
-	MBEDTLS_DEPRECATED_STRING_CONSTANT( "02" )
+	MBEDTLS_DEPRECATED_STRING_CONSTANT("02")
 
 /**
  * The hexadecimal presentation of the prime underlying the 4096-bit MODP
@@ -464,7 +464,7 @@ MBEDTLS_DEPRECATED typedef char const * mbedtls_deprecated_constant_t;
 		"287C59474E6BC05D99B2964FA090C3A2233BA186515BE7ED"   \
 		"1F612970CEE2D7AFB81BDD762170481CD0069127D5B05AA9"   \
 		"93B4EA988D8FDDC186FFB7DC90A6C08F4DF435C934063199"   \
-		"FFFFFFFFFFFFFFFF" )
+		"FFFFFFFFFFFFFFFF")
 
 /**
  * The hexadecimal presentation of the chosen generator of the 4096-bit MODP
@@ -472,7 +472,7 @@ MBEDTLS_DEPRECATED typedef char const * mbedtls_deprecated_constant_t;
  * Diffie-Hellman groups for Internet Key Exchange (IKE)</em>.
  */
 #define MBEDTLS_DHM_RFC3526_MODP_4096_G					  \
-	MBEDTLS_DEPRECATED_STRING_CONSTANT( "02" )
+	MBEDTLS_DEPRECATED_STRING_CONSTANT("02")
 
 #endif /* MBEDTLS_DEPRECATED_REMOVED */
 

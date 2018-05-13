@@ -73,7 +73,7 @@ mbedtls_md4_context;
  *				 stronger message digests instead.
  *
  */
-void mbedtls_md4_init( mbedtls_md4_context *ctx );
+void mbedtls_md4_init(mbedtls_md4_context *ctx);
 
 /**
  * \brief		  Clear MD4 context
@@ -85,7 +85,7 @@ void mbedtls_md4_init( mbedtls_md4_context *ctx );
  *				 stronger message digests instead.
  *
  */
-void mbedtls_md4_free( mbedtls_md4_context *ctx );
+void mbedtls_md4_free(mbedtls_md4_context *ctx);
 
 /**
  * \brief		  Clone (the state of) an MD4 context
@@ -98,8 +98,8 @@ void mbedtls_md4_free( mbedtls_md4_context *ctx );
  *				 stronger message digests instead.
  *
  */
-void mbedtls_md4_clone( mbedtls_md4_context *dst,
-						const mbedtls_md4_context *src );
+void mbedtls_md4_clone(mbedtls_md4_context *dst,
+						const mbedtls_md4_context *src);
 
 /**
  * \brief		  MD4 context setup
@@ -112,7 +112,7 @@ void mbedtls_md4_clone( mbedtls_md4_context *dst,
  *				 constitutes a security risk. We recommend considering
  *				 stronger message digests instead.
  */
-int mbedtls_md4_starts_ret( mbedtls_md4_context *ctx );
+int mbedtls_md4_starts_ret(mbedtls_md4_context *ctx);
 
 /**
  * \brief		  MD4 process buffer
@@ -128,9 +128,9 @@ int mbedtls_md4_starts_ret( mbedtls_md4_context *ctx );
  *				 stronger message digests instead.
  *
  */
-int mbedtls_md4_update_ret( mbedtls_md4_context *ctx,
+int mbedtls_md4_update_ret(mbedtls_md4_context *ctx,
 							const unsigned char *input,
-							size_t ilen );
+							size_t ilen);
 
 /**
  * \brief		  MD4 final digest
@@ -145,8 +145,8 @@ int mbedtls_md4_update_ret( mbedtls_md4_context *ctx,
  *				 stronger message digests instead.
  *
  */
-int mbedtls_md4_finish_ret( mbedtls_md4_context *ctx,
-							unsigned char output[16] );
+int mbedtls_md4_finish_ret(mbedtls_md4_context *ctx,
+							unsigned char output[16]);
 
 /**
  * \brief		  MD4 process data block (internal use only)
@@ -161,8 +161,8 @@ int mbedtls_md4_finish_ret( mbedtls_md4_context *ctx,
  *				 stronger message digests instead.
  *
  */
-int mbedtls_internal_md4_process( mbedtls_md4_context *ctx,
-								  const unsigned char data[64] );
+int mbedtls_internal_md4_process(mbedtls_md4_context *ctx,
+								  const unsigned char data[64]);
 
 #if !defined(MBEDTLS_DEPRECATED_REMOVED)
 #if defined(MBEDTLS_DEPRECATED_WARNING)
@@ -182,7 +182,7 @@ int mbedtls_internal_md4_process( mbedtls_md4_context *ctx,
  *				 stronger message digests instead.
  *
  */
-MBEDTLS_DEPRECATED void mbedtls_md4_starts( mbedtls_md4_context *ctx );
+MBEDTLS_DEPRECATED void mbedtls_md4_starts(mbedtls_md4_context *ctx);
 
 /**
  * \brief		  MD4 process buffer
@@ -198,9 +198,9 @@ MBEDTLS_DEPRECATED void mbedtls_md4_starts( mbedtls_md4_context *ctx );
  *				 stronger message digests instead.
  *
  */
-MBEDTLS_DEPRECATED void mbedtls_md4_update( mbedtls_md4_context *ctx,
+MBEDTLS_DEPRECATED void mbedtls_md4_update(mbedtls_md4_context *ctx,
 											const unsigned char *input,
-											size_t ilen );
+											size_t ilen);
 
 /**
  * \brief		  MD4 final digest
@@ -215,8 +215,8 @@ MBEDTLS_DEPRECATED void mbedtls_md4_update( mbedtls_md4_context *ctx,
  *				 stronger message digests instead.
  *
  */
-MBEDTLS_DEPRECATED void mbedtls_md4_finish( mbedtls_md4_context *ctx,
-											unsigned char output[16] );
+MBEDTLS_DEPRECATED void mbedtls_md4_finish(mbedtls_md4_context *ctx,
+											unsigned char output[16]);
 
 /**
  * \brief		  MD4 process data block (internal use only)
@@ -231,8 +231,8 @@ MBEDTLS_DEPRECATED void mbedtls_md4_finish( mbedtls_md4_context *ctx,
  *				 stronger message digests instead.
  *
  */
-MBEDTLS_DEPRECATED void mbedtls_md4_process( mbedtls_md4_context *ctx,
-											 const unsigned char data[64] );
+MBEDTLS_DEPRECATED void mbedtls_md4_process(mbedtls_md4_context *ctx,
+											 const unsigned char data[64]);
 
 #undef MBEDTLS_DEPRECATED
 #endif /* !MBEDTLS_DEPRECATED_REMOVED */
@@ -242,7 +242,7 @@ MBEDTLS_DEPRECATED void mbedtls_md4_process( mbedtls_md4_context *ctx,
 #endif /* MBEDTLS_MD4_ALT */
 
 /**
- * \brief		  Output = MD4( input buffer )
+ * \brief		  Output = MD4(input buffer)
  *
  * \param input	buffer holding the data
  * \param ilen	 length of the input data
@@ -255,9 +255,9 @@ MBEDTLS_DEPRECATED void mbedtls_md4_process( mbedtls_md4_context *ctx,
  *				 stronger message digests instead.
  *
  */
-int mbedtls_md4_ret( const unsigned char *input,
+int mbedtls_md4_ret(const unsigned char *input,
 					 size_t ilen,
-					 unsigned char output[16] );
+					 unsigned char output[16]);
 
 #if !defined(MBEDTLS_DEPRECATED_REMOVED)
 #if defined(MBEDTLS_DEPRECATED_WARNING)
@@ -266,7 +266,7 @@ int mbedtls_md4_ret( const unsigned char *input,
 #define MBEDTLS_DEPRECATED
 #endif
 /**
- * \brief		  Output = MD4( input buffer )
+ * \brief		  Output = MD4(input buffer)
  *
  * \deprecated	 Superseded by mbedtls_md4_ret() in 2.7.0
  *
@@ -279,9 +279,9 @@ int mbedtls_md4_ret( const unsigned char *input,
  *				 stronger message digests instead.
  *
  */
-MBEDTLS_DEPRECATED void mbedtls_md4( const unsigned char *input,
+MBEDTLS_DEPRECATED void mbedtls_md4(const unsigned char *input,
 									 size_t ilen,
-									 unsigned char output[16] );
+									 unsigned char output[16]);
 
 #undef MBEDTLS_DEPRECATED
 #endif /* !MBEDTLS_DEPRECATED_REMOVED */

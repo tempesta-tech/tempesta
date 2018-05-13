@@ -43,8 +43,8 @@
 #if !defined(MBEDTLS_BLOWFISH_ALT)
 
 /* Implementation that should never be optimized out by the compiler */
-static void mbedtls_zeroize( void *v, size_t n ) {
-	volatile unsigned char *p = (unsigned char*)v; while( n-- ) *p++ = 0;
+static void mbedtls_zeroize(void *v, size_t n) {
+	volatile unsigned char *p = (unsigned char*)v; while (n--) *p++ = 0;
 }
 
 /*
@@ -53,20 +53,20 @@ static void mbedtls_zeroize( void *v, size_t n ) {
 #ifndef GET_UINT32_BE
 #define GET_UINT32_BE(n,b,i)							\
 {													   \
-	(n) = ( (uint32_t) (b)[(i)	] << 24 )			 \
-		| ( (uint32_t) (b)[(i) + 1] << 16 )			 \
-		| ( (uint32_t) (b)[(i) + 2] <<  8 )			 \
-		| ( (uint32_t) (b)[(i) + 3]	   );			\
+	(n) = ((uint32_t) (b)[(i)	] << 24)			 \
+		| ((uint32_t) (b)[(i) + 1] << 16)			 \
+		| ((uint32_t) (b)[(i) + 2] <<  8)			 \
+		| ((uint32_t) (b)[(i) + 3]	  );			\
 }
 #endif
 
 #ifndef PUT_UINT32_BE
 #define PUT_UINT32_BE(n,b,i)							\
 {													   \
-	(b)[(i)	] = (unsigned char) ( (n) >> 24 );	   \
-	(b)[(i) + 1] = (unsigned char) ( (n) >> 16 );	   \
-	(b)[(i) + 2] = (unsigned char) ( (n) >>  8 );	   \
-	(b)[(i) + 3] = (unsigned char) ( (n)	   );	   \
+	(b)[(i)	] = (unsigned char) ((n) >> 24);	   \
+	(b)[(i) + 1] = (unsigned char) ((n) >> 16);	   \
+	(b)[(i) + 2] = (unsigned char) ((n) >>  8);	   \
+	(b)[(i) + 3] = (unsigned char) ((n)	  );	   \
 }
 #endif
 
@@ -81,7 +81,7 @@ static const uint32_t P[MBEDTLS_BLOWFISH_ROUNDS + 2] = {
 /* declarations of data at the end of this file */
 static const uint32_t S[4][256];
 
-static uint32_t F( mbedtls_blowfish_context *ctx, uint32_t x )
+static uint32_t F(mbedtls_blowfish_context *ctx, uint32_t x)
 {
    unsigned short a, b, c, d;
    uint32_t  y;
@@ -97,10 +97,10 @@ static uint32_t F( mbedtls_blowfish_context *ctx, uint32_t x )
    y = y ^ ctx->S[2][c];
    y = y + ctx->S[3][d];
 
-   return( y );
+   return(y);
 }
 
-static void blowfish_enc( mbedtls_blowfish_context *ctx, uint32_t *xl, uint32_t *xr )
+static void blowfish_enc(mbedtls_blowfish_context *ctx, uint32_t *xl, uint32_t *xr)
 {
 	uint32_t  Xl, Xr, temp;
 	short i;
@@ -108,10 +108,10 @@ static void blowfish_enc( mbedtls_blowfish_context *ctx, uint32_t *xl, uint32_t 
 	Xl = *xl;
 	Xr = *xr;
 
-	for( i = 0; i < MBEDTLS_BLOWFISH_ROUNDS; ++i )
+	for (i = 0; i < MBEDTLS_BLOWFISH_ROUNDS; ++i)
 	{
 		Xl = Xl ^ ctx->P[i];
-		Xr = F( ctx, Xl ) ^ Xr;
+		Xr = F(ctx, Xl) ^ Xr;
 
 		temp = Xl;
 		Xl = Xr;
@@ -129,7 +129,7 @@ static void blowfish_enc( mbedtls_blowfish_context *ctx, uint32_t *xl, uint32_t 
 	*xr = Xr;
 }
 
-static void blowfish_dec( mbedtls_blowfish_context *ctx, uint32_t *xl, uint32_t *xr )
+static void blowfish_dec(mbedtls_blowfish_context *ctx, uint32_t *xl, uint32_t *xr)
 {
 	uint32_t  Xl, Xr, temp;
 	short i;
@@ -137,10 +137,10 @@ static void blowfish_dec( mbedtls_blowfish_context *ctx, uint32_t *xl, uint32_t 
 	Xl = *xl;
 	Xr = *xr;
 
-	for( i = MBEDTLS_BLOWFISH_ROUNDS + 1; i > 1; --i )
+	for (i = MBEDTLS_BLOWFISH_ROUNDS + 1; i > 1; --i)
 	{
 		Xl = Xl ^ ctx->P[i];
-		Xr = F( ctx, Xl ) ^ Xr;
+		Xr = F(ctx, Xl) ^ Xr;
 
 		temp = Xl;
 		Xl = Xr;
@@ -158,50 +158,50 @@ static void blowfish_dec( mbedtls_blowfish_context *ctx, uint32_t *xl, uint32_t 
 	*xr = Xr;
 }
 
-void mbedtls_blowfish_init( mbedtls_blowfish_context *ctx )
+void mbedtls_blowfish_init(mbedtls_blowfish_context *ctx)
 {
-	memset( ctx, 0, sizeof( mbedtls_blowfish_context ) );
+	memset(ctx, 0, sizeof(mbedtls_blowfish_context));
 }
 
-void mbedtls_blowfish_free( mbedtls_blowfish_context *ctx )
+void mbedtls_blowfish_free(mbedtls_blowfish_context *ctx)
 {
-	if( ctx == NULL )
+	if (ctx == NULL)
 		return;
 
-	mbedtls_zeroize( ctx, sizeof( mbedtls_blowfish_context ) );
+	mbedtls_zeroize(ctx, sizeof(mbedtls_blowfish_context));
 }
 
 /*
  * Blowfish key schedule
  */
-int mbedtls_blowfish_setkey( mbedtls_blowfish_context *ctx, const unsigned char *key,
-					 unsigned int keybits )
+int mbedtls_blowfish_setkey(mbedtls_blowfish_context *ctx, const unsigned char *key,
+					 unsigned int keybits)
 {
 	unsigned int i, j, k;
 	uint32_t data, datal, datar;
 
-	if( keybits < MBEDTLS_BLOWFISH_MIN_KEY_BITS || keybits > MBEDTLS_BLOWFISH_MAX_KEY_BITS ||
-		( keybits % 8 ) )
+	if (keybits < MBEDTLS_BLOWFISH_MIN_KEY_BITS || keybits > MBEDTLS_BLOWFISH_MAX_KEY_BITS ||
+		(keybits % 8))
 	{
-		return( MBEDTLS_ERR_BLOWFISH_INVALID_KEY_LENGTH );
+		return(MBEDTLS_ERR_BLOWFISH_INVALID_KEY_LENGTH);
 	}
 
 	keybits >>= 3;
 
-	for( i = 0; i < 4; i++ )
+	for (i = 0; i < 4; i++)
 	{
-		for( j = 0; j < 256; j++ )
+		for (j = 0; j < 256; j++)
 			ctx->S[i][j] = S[i][j];
 	}
 
 	j = 0;
-	for( i = 0; i < MBEDTLS_BLOWFISH_ROUNDS + 2; ++i )
+	for (i = 0; i < MBEDTLS_BLOWFISH_ROUNDS + 2; ++i)
 	{
 		data = 0x00000000;
-		for( k = 0; k < 4; ++k )
+		for (k = 0; k < 4; ++k)
 		{
-			data = ( data << 8 ) | key[j++];
-			if( j >= keybits )
+			data = (data << 8) | key[j++];
+			if (j >= keybits)
 				j = 0;
 		}
 		ctx->P[i] = P[i] ^ data;
@@ -210,81 +210,81 @@ int mbedtls_blowfish_setkey( mbedtls_blowfish_context *ctx, const unsigned char 
 	datal = 0x00000000;
 	datar = 0x00000000;
 
-	for( i = 0; i < MBEDTLS_BLOWFISH_ROUNDS + 2; i += 2 )
+	for (i = 0; i < MBEDTLS_BLOWFISH_ROUNDS + 2; i += 2)
 	{
-		blowfish_enc( ctx, &datal, &datar );
+		blowfish_enc(ctx, &datal, &datar);
 		ctx->P[i] = datal;
 		ctx->P[i + 1] = datar;
 	}
 
-	for( i = 0; i < 4; i++ )
+	for (i = 0; i < 4; i++)
 	{
-	   for( j = 0; j < 256; j += 2 )
+	   for (j = 0; j < 256; j += 2)
 	   {
-			blowfish_enc( ctx, &datal, &datar );
+			blowfish_enc(ctx, &datal, &datar);
 			ctx->S[i][j] = datal;
 			ctx->S[i][j + 1] = datar;
 		}
 	}
-	return( 0 );
+	return 0;
 }
 
 /*
  * Blowfish-ECB block encryption/decryption
  */
-int mbedtls_blowfish_crypt_ecb( mbedtls_blowfish_context *ctx,
+int mbedtls_blowfish_crypt_ecb(mbedtls_blowfish_context *ctx,
 					int mode,
 					const unsigned char input[MBEDTLS_BLOWFISH_BLOCKSIZE],
-					unsigned char output[MBEDTLS_BLOWFISH_BLOCKSIZE] )
+					unsigned char output[MBEDTLS_BLOWFISH_BLOCKSIZE])
 {
 	uint32_t X0, X1;
 
-	GET_UINT32_BE( X0, input,  0 );
-	GET_UINT32_BE( X1, input,  4 );
+	GET_UINT32_BE(X0, input,  0);
+	GET_UINT32_BE(X1, input,  4);
 
-	if( mode == MBEDTLS_BLOWFISH_DECRYPT )
+	if (mode == MBEDTLS_BLOWFISH_DECRYPT)
 	{
-		blowfish_dec( ctx, &X0, &X1 );
+		blowfish_dec(ctx, &X0, &X1);
 	}
 	else /* MBEDTLS_BLOWFISH_ENCRYPT */
 	{
-		blowfish_enc( ctx, &X0, &X1 );
+		blowfish_enc(ctx, &X0, &X1);
 	}
 
-	PUT_UINT32_BE( X0, output,  0 );
-	PUT_UINT32_BE( X1, output,  4 );
+	PUT_UINT32_BE(X0, output,  0);
+	PUT_UINT32_BE(X1, output,  4);
 
-	return( 0 );
+	return 0;
 }
 
 #if defined(MBEDTLS_CIPHER_MODE_CBC)
 /*
  * Blowfish-CBC buffer encryption/decryption
  */
-int mbedtls_blowfish_crypt_cbc( mbedtls_blowfish_context *ctx,
+int mbedtls_blowfish_crypt_cbc(mbedtls_blowfish_context *ctx,
 					int mode,
 					size_t length,
 					unsigned char iv[MBEDTLS_BLOWFISH_BLOCKSIZE],
 					const unsigned char *input,
-					unsigned char *output )
+					unsigned char *output)
 {
 	int i;
 	unsigned char temp[MBEDTLS_BLOWFISH_BLOCKSIZE];
 
-	if( length % MBEDTLS_BLOWFISH_BLOCKSIZE )
-		return( MBEDTLS_ERR_BLOWFISH_INVALID_INPUT_LENGTH );
+	if (length % MBEDTLS_BLOWFISH_BLOCKSIZE)
+		return(MBEDTLS_ERR_BLOWFISH_INVALID_INPUT_LENGTH);
 
-	if( mode == MBEDTLS_BLOWFISH_DECRYPT )
+	if (mode == MBEDTLS_BLOWFISH_DECRYPT)
 	{
-		while( length > 0 )
+		while (length > 0)
 		{
-			memcpy( temp, input, MBEDTLS_BLOWFISH_BLOCKSIZE );
-			mbedtls_blowfish_crypt_ecb( ctx, mode, input, output );
+			memcpy(temp, input, MBEDTLS_BLOWFISH_BLOCKSIZE);
+			mbedtls_blowfish_crypt_ecb(ctx, mode, input, output);
 
-			for( i = 0; i < MBEDTLS_BLOWFISH_BLOCKSIZE;i++ )
-				output[i] = (unsigned char)( output[i] ^ iv[i] );
+			for (i = 0; i < MBEDTLS_BLOWFISH_BLOCKSIZE;i++)
+				output[i] = (unsigned char)(output[i] ^ iv[i]);
 
-			memcpy( iv, temp, MBEDTLS_BLOWFISH_BLOCKSIZE );
+			memcpy(iv, temp, MBEDTLS_BLOWFISH_BLOCKSIZE);
 
 			input  += MBEDTLS_BLOWFISH_BLOCKSIZE;
 			output += MBEDTLS_BLOWFISH_BLOCKSIZE;
@@ -293,13 +293,13 @@ int mbedtls_blowfish_crypt_cbc( mbedtls_blowfish_context *ctx,
 	}
 	else
 	{
-		while( length > 0 )
+		while (length > 0)
 		{
-			for( i = 0; i < MBEDTLS_BLOWFISH_BLOCKSIZE; i++ )
-				output[i] = (unsigned char)( input[i] ^ iv[i] );
+			for (i = 0; i < MBEDTLS_BLOWFISH_BLOCKSIZE; i++)
+				output[i] = (unsigned char)(input[i] ^ iv[i]);
 
-			mbedtls_blowfish_crypt_ecb( ctx, mode, output, output );
-			memcpy( iv, output, MBEDTLS_BLOWFISH_BLOCKSIZE );
+			mbedtls_blowfish_crypt_ecb(ctx, mode, output, output);
+			memcpy(iv, output, MBEDTLS_BLOWFISH_BLOCKSIZE);
 
 			input  += MBEDTLS_BLOWFISH_BLOCKSIZE;
 			output += MBEDTLS_BLOWFISH_BLOCKSIZE;
@@ -307,7 +307,7 @@ int mbedtls_blowfish_crypt_cbc( mbedtls_blowfish_context *ctx,
 		}
 	}
 
-	return( 0 );
+	return 0;
 }
 #endif /* MBEDTLS_CIPHER_MODE_CBC */
 
@@ -315,47 +315,47 @@ int mbedtls_blowfish_crypt_cbc( mbedtls_blowfish_context *ctx,
 /*
  * Blowfish CFB buffer encryption/decryption
  */
-int mbedtls_blowfish_crypt_cfb64( mbedtls_blowfish_context *ctx,
+int mbedtls_blowfish_crypt_cfb64(mbedtls_blowfish_context *ctx,
 					   int mode,
 					   size_t length,
 					   size_t *iv_off,
 					   unsigned char iv[MBEDTLS_BLOWFISH_BLOCKSIZE],
 					   const unsigned char *input,
-					   unsigned char *output )
+					   unsigned char *output)
 {
 	int c;
 	size_t n = *iv_off;
 
-	if( mode == MBEDTLS_BLOWFISH_DECRYPT )
+	if (mode == MBEDTLS_BLOWFISH_DECRYPT)
 	{
-		while( length-- )
+		while (length--)
 		{
-			if( n == 0 )
-				mbedtls_blowfish_crypt_ecb( ctx, MBEDTLS_BLOWFISH_ENCRYPT, iv, iv );
+			if (n == 0)
+				mbedtls_blowfish_crypt_ecb(ctx, MBEDTLS_BLOWFISH_ENCRYPT, iv, iv);
 
 			c = *input++;
-			*output++ = (unsigned char)( c ^ iv[n] );
+			*output++ = (unsigned char)(c ^ iv[n]);
 			iv[n] = (unsigned char) c;
 
-			n = ( n + 1 ) % MBEDTLS_BLOWFISH_BLOCKSIZE;
+			n = (n + 1) % MBEDTLS_BLOWFISH_BLOCKSIZE;
 		}
 	}
 	else
 	{
-		while( length-- )
+		while (length--)
 		{
-			if( n == 0 )
-				mbedtls_blowfish_crypt_ecb( ctx, MBEDTLS_BLOWFISH_ENCRYPT, iv, iv );
+			if (n == 0)
+				mbedtls_blowfish_crypt_ecb(ctx, MBEDTLS_BLOWFISH_ENCRYPT, iv, iv);
 
-			iv[n] = *output++ = (unsigned char)( iv[n] ^ *input++ );
+			iv[n] = *output++ = (unsigned char)(iv[n] ^ *input++);
 
-			n = ( n + 1 ) % MBEDTLS_BLOWFISH_BLOCKSIZE;
+			n = (n + 1) % MBEDTLS_BLOWFISH_BLOCKSIZE;
 		}
 	}
 
 	*iv_off = n;
 
-	return( 0 );
+	return 0;
 }
 #endif /*MBEDTLS_CIPHER_MODE_CFB */
 
@@ -363,36 +363,36 @@ int mbedtls_blowfish_crypt_cfb64( mbedtls_blowfish_context *ctx,
 /*
  * Blowfish CTR buffer encryption/decryption
  */
-int mbedtls_blowfish_crypt_ctr( mbedtls_blowfish_context *ctx,
+int mbedtls_blowfish_crypt_ctr(mbedtls_blowfish_context *ctx,
 					   size_t length,
 					   size_t *nc_off,
 					   unsigned char nonce_counter[MBEDTLS_BLOWFISH_BLOCKSIZE],
 					   unsigned char stream_block[MBEDTLS_BLOWFISH_BLOCKSIZE],
 					   const unsigned char *input,
-					   unsigned char *output )
+					   unsigned char *output)
 {
 	int c, i;
 	size_t n = *nc_off;
 
-	while( length-- )
+	while (length--)
 	{
-		if( n == 0 ) {
-			mbedtls_blowfish_crypt_ecb( ctx, MBEDTLS_BLOWFISH_ENCRYPT, nonce_counter,
-								stream_block );
+		if (n == 0) {
+			mbedtls_blowfish_crypt_ecb(ctx, MBEDTLS_BLOWFISH_ENCRYPT, nonce_counter,
+								stream_block);
 
-			for( i = MBEDTLS_BLOWFISH_BLOCKSIZE; i > 0; i-- )
-				if( ++nonce_counter[i - 1] != 0 )
+			for (i = MBEDTLS_BLOWFISH_BLOCKSIZE; i > 0; i--)
+				if (++nonce_counter[i - 1] != 0)
 					break;
 		}
 		c = *input++;
-		*output++ = (unsigned char)( c ^ stream_block[n] );
+		*output++ = (unsigned char)(c ^ stream_block[n]);
 
-		n = ( n + 1 ) % MBEDTLS_BLOWFISH_BLOCKSIZE;
+		n = (n + 1) % MBEDTLS_BLOWFISH_BLOCKSIZE;
 	}
 
 	*nc_off = n;
 
-	return( 0 );
+	return 0;
 }
 #endif /* MBEDTLS_CIPHER_MODE_CTR */
 

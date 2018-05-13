@@ -88,9 +88,9 @@ mbedtls_ecdh_context;
  *
  * \see			 ecp.h
  */
-int mbedtls_ecdh_gen_public( mbedtls_ecp_group *grp, mbedtls_mpi *d, mbedtls_ecp_point *Q,
+int mbedtls_ecdh_gen_public(mbedtls_ecp_group *grp, mbedtls_mpi *d, mbedtls_ecp_point *Q,
 					 int (*f_rng)(void *, unsigned char *, size_t),
-					 void *p_rng );
+					 void *p_rng);
 
 /**
  * \brief		   This function computes the shared secret.
@@ -115,24 +115,24 @@ int mbedtls_ecdh_gen_public( mbedtls_ecp_group *grp, mbedtls_mpi *d, mbedtls_ecp
  *				  countermeasures against potential elaborate timing
  *				  attacks. For more information, see mbedtls_ecp_mul().
  */
-int mbedtls_ecdh_compute_shared( mbedtls_ecp_group *grp, mbedtls_mpi *z,
+int mbedtls_ecdh_compute_shared(mbedtls_ecp_group *grp, mbedtls_mpi *z,
 						 const mbedtls_ecp_point *Q, const mbedtls_mpi *d,
 						 int (*f_rng)(void *, unsigned char *, size_t),
-						 void *p_rng );
+						 void *p_rng);
 
 /**
  * \brief		   This function initializes an ECDH context.
  *
  * \param ctx	   The ECDH context to initialize.
  */
-void mbedtls_ecdh_init( mbedtls_ecdh_context *ctx );
+void mbedtls_ecdh_init(mbedtls_ecdh_context *ctx);
 
 /**
  * \brief		   This function frees a context.
  *
  * \param ctx	   The context to free.
  */
-void mbedtls_ecdh_free( mbedtls_ecdh_context *ctx );
+void mbedtls_ecdh_free(mbedtls_ecdh_context *ctx);
 
 /**
  * \brief		   This function generates a public key and a TLS
@@ -157,10 +157,10 @@ void mbedtls_ecdh_free( mbedtls_ecdh_context *ctx );
  *
  * \see			 ecp.h
  */
-int mbedtls_ecdh_make_params( mbedtls_ecdh_context *ctx, size_t *olen,
+int mbedtls_ecdh_make_params(mbedtls_ecdh_context *ctx, size_t *olen,
 					  unsigned char *buf, size_t blen,
 					  int (*f_rng)(void *, unsigned char *, size_t),
-					  void *p_rng );
+					  void *p_rng);
 
 /**
  * \brief		   This function parses and processes a TLS ServerKeyExhange
@@ -178,8 +178,8 @@ int mbedtls_ecdh_make_params( mbedtls_ecdh_context *ctx, size_t *olen,
  *
  * \see			 ecp.h
  */
-int mbedtls_ecdh_read_params( mbedtls_ecdh_context *ctx,
-					  const unsigned char **buf, const unsigned char *end );
+int mbedtls_ecdh_read_params(mbedtls_ecdh_context *ctx,
+					  const unsigned char **buf, const unsigned char *end);
 
 /**
  * \brief		   This function sets up an ECDH context from an EC key.
@@ -199,8 +199,8 @@ int mbedtls_ecdh_read_params( mbedtls_ecdh_context *ctx,
  *
  * \see			 ecp.h
  */
-int mbedtls_ecdh_get_params( mbedtls_ecdh_context *ctx, const mbedtls_ecp_keypair *key,
-					 mbedtls_ecdh_side side );
+int mbedtls_ecdh_get_params(mbedtls_ecdh_context *ctx, const mbedtls_ecp_keypair *key,
+					 mbedtls_ecdh_side side);
 
 /**
  * \brief		   This function generates a public key and a TLS
@@ -221,10 +221,10 @@ int mbedtls_ecdh_get_params( mbedtls_ecdh_context *ctx, const mbedtls_ecp_keypai
  *
  * \see			 ecp.h
  */
-int mbedtls_ecdh_make_public( mbedtls_ecdh_context *ctx, size_t *olen,
+int mbedtls_ecdh_make_public(mbedtls_ecdh_context *ctx, size_t *olen,
 					  unsigned char *buf, size_t blen,
 					  int (*f_rng)(void *, unsigned char *, size_t),
-					  void *p_rng );
+					  void *p_rng);
 
 /**
  * \brief	   This function parses and processes a TLS ClientKeyExchange
@@ -242,8 +242,8 @@ int mbedtls_ecdh_make_public( mbedtls_ecdh_context *ctx, size_t *olen,
  *
  * \see		 ecp.h
  */
-int mbedtls_ecdh_read_public( mbedtls_ecdh_context *ctx,
-					  const unsigned char *buf, size_t blen );
+int mbedtls_ecdh_read_public(mbedtls_ecdh_context *ctx,
+					  const unsigned char *buf, size_t blen);
 
 /**
  * \brief		   This function derives and exports the shared secret.
@@ -267,10 +267,10 @@ int mbedtls_ecdh_read_public( mbedtls_ecdh_context *ctx,
  *				  countermeasures against potential elaborate timing
  *				  attacks. For more information, see mbedtls_ecp_mul().
  */
-int mbedtls_ecdh_calc_secret( mbedtls_ecdh_context *ctx, size_t *olen,
+int mbedtls_ecdh_calc_secret(mbedtls_ecdh_context *ctx, size_t *olen,
 					  unsigned char *buf, size_t blen,
 					  int (*f_rng)(void *, unsigned char *, size_t),
-					  void *p_rng );
+					  void *p_rng);
 
 #ifdef __cplusplus
 }

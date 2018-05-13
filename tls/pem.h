@@ -67,7 +67,7 @@ mbedtls_pem_context;
  *
  * \param ctx   context to be initialized
  */
-void mbedtls_pem_init( mbedtls_pem_context *ctx );
+void mbedtls_pem_init(mbedtls_pem_context *ctx);
 
 /**
  * \brief	   Read a buffer for PEM information and store the resulting
@@ -91,17 +91,17 @@ void mbedtls_pem_init( mbedtls_pem_context *ctx );
  *
  * \return		  0 on success, or a specific PEM error code
  */
-int mbedtls_pem_read_buffer( mbedtls_pem_context *ctx, const char *header, const char *footer,
+int mbedtls_pem_read_buffer(mbedtls_pem_context *ctx, const char *header, const char *footer,
 					 const unsigned char *data,
 					 const unsigned char *pwd,
-					 size_t pwdlen, size_t *use_len );
+					 size_t pwdlen, size_t *use_len);
 
 /**
  * \brief	   PEM context memory freeing
  *
  * \param ctx   context to be freed
  */
-void mbedtls_pem_free( mbedtls_pem_context *ctx );
+void mbedtls_pem_free(mbedtls_pem_context *ctx);
 #endif /* MBEDTLS_PEM_PARSE_C */
 
 #if defined(MBEDTLS_PEM_WRITE_C)
@@ -121,9 +121,9 @@ void mbedtls_pem_free( mbedtls_pem_context *ctx );
  *				  MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL olen is the required
  *				  size.
  */
-int mbedtls_pem_write_buffer( const char *header, const char *footer,
+int mbedtls_pem_write_buffer(const char *header, const char *footer,
 					  const unsigned char *der_data, size_t der_len,
-					  unsigned char *buf, size_t buf_len, size_t *olen );
+					  unsigned char *buf, size_t buf_len, size_t *olen);
 #endif /* MBEDTLS_PEM_WRITE_C */
 
 #ifdef __cplusplus

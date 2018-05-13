@@ -62,14 +62,14 @@ mbedtls_camellia_context;
  *
  * \param ctx	  CAMELLIA context to be initialized
  */
-void mbedtls_camellia_init( mbedtls_camellia_context *ctx );
+void mbedtls_camellia_init(mbedtls_camellia_context *ctx);
 
 /**
  * \brief		  Clear CAMELLIA context
  *
  * \param ctx	  CAMELLIA context to be cleared
  */
-void mbedtls_camellia_free( mbedtls_camellia_context *ctx );
+void mbedtls_camellia_free(mbedtls_camellia_context *ctx);
 
 /**
  * \brief		  CAMELLIA key schedule (encryption)
@@ -80,8 +80,8 @@ void mbedtls_camellia_free( mbedtls_camellia_context *ctx );
  *
  * \return		 0 if successful, or MBEDTLS_ERR_CAMELLIA_INVALID_KEY_LENGTH
  */
-int mbedtls_camellia_setkey_enc( mbedtls_camellia_context *ctx, const unsigned char *key,
-						 unsigned int keybits );
+int mbedtls_camellia_setkey_enc(mbedtls_camellia_context *ctx, const unsigned char *key,
+						 unsigned int keybits);
 
 /**
  * \brief		  CAMELLIA key schedule (decryption)
@@ -92,8 +92,8 @@ int mbedtls_camellia_setkey_enc( mbedtls_camellia_context *ctx, const unsigned c
  *
  * \return		 0 if successful, or MBEDTLS_ERR_CAMELLIA_INVALID_KEY_LENGTH
  */
-int mbedtls_camellia_setkey_dec( mbedtls_camellia_context *ctx, const unsigned char *key,
-						 unsigned int keybits );
+int mbedtls_camellia_setkey_dec(mbedtls_camellia_context *ctx, const unsigned char *key,
+						 unsigned int keybits);
 
 /**
  * \brief		  CAMELLIA-ECB block encryption/decryption
@@ -105,10 +105,10 @@ int mbedtls_camellia_setkey_dec( mbedtls_camellia_context *ctx, const unsigned c
  *
  * \return		 0 if successful
  */
-int mbedtls_camellia_crypt_ecb( mbedtls_camellia_context *ctx,
+int mbedtls_camellia_crypt_ecb(mbedtls_camellia_context *ctx,
 					int mode,
 					const unsigned char input[16],
-					unsigned char output[16] );
+					unsigned char output[16]);
 
 #if defined(MBEDTLS_CIPHER_MODE_CBC)
 /**
@@ -134,12 +134,12 @@ int mbedtls_camellia_crypt_ecb( mbedtls_camellia_context *ctx,
  * \return		 0 if successful, or
  *				 MBEDTLS_ERR_CAMELLIA_INVALID_INPUT_LENGTH
  */
-int mbedtls_camellia_crypt_cbc( mbedtls_camellia_context *ctx,
+int mbedtls_camellia_crypt_cbc(mbedtls_camellia_context *ctx,
 					int mode,
 					size_t length,
 					unsigned char iv[16],
 					const unsigned char *input,
-					unsigned char *output );
+					unsigned char *output);
 #endif /* MBEDTLS_CIPHER_MODE_CBC */
 
 #if defined(MBEDTLS_CIPHER_MODE_CFB)
@@ -169,13 +169,13 @@ int mbedtls_camellia_crypt_cbc( mbedtls_camellia_context *ctx,
  * \return		 0 if successful, or
  *				 MBEDTLS_ERR_CAMELLIA_INVALID_INPUT_LENGTH
  */
-int mbedtls_camellia_crypt_cfb128( mbedtls_camellia_context *ctx,
+int mbedtls_camellia_crypt_cfb128(mbedtls_camellia_context *ctx,
 					   int mode,
 					   size_t length,
 					   size_t *iv_off,
 					   unsigned char iv[16],
 					   const unsigned char *input,
-					   unsigned char *output );
+					   unsigned char *output);
 #endif /* MBEDTLS_CIPHER_MODE_CFB */
 
 #if defined(MBEDTLS_CIPHER_MODE_CTR)
@@ -201,13 +201,13 @@ int mbedtls_camellia_crypt_cfb128( mbedtls_camellia_context *ctx,
  *
  * \return		 0 if successful
  */
-int mbedtls_camellia_crypt_ctr( mbedtls_camellia_context *ctx,
+int mbedtls_camellia_crypt_ctr(mbedtls_camellia_context *ctx,
 					   size_t length,
 					   size_t *nc_off,
 					   unsigned char nonce_counter[16],
 					   unsigned char stream_block[16],
 					   const unsigned char *input,
-					   unsigned char *output );
+					   unsigned char *output);
 #endif /* MBEDTLS_CIPHER_MODE_CTR */
 
 #else  /* MBEDTLS_CAMELLIA_ALT */

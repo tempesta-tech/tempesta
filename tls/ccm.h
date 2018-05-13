@@ -62,7 +62,7 @@ mbedtls_ccm_context;
  *
  * \param ctx	   The CCM context to initialize.
  */
-void mbedtls_ccm_init( mbedtls_ccm_context *ctx );
+void mbedtls_ccm_init(mbedtls_ccm_context *ctx);
 
 /**
  * \brief		   This function initializes the CCM context set in the
@@ -75,10 +75,10 @@ void mbedtls_ccm_init( mbedtls_ccm_context *ctx );
  *
  * \return		  \c 0 on success, or a cipher-specific error code.
  */
-int mbedtls_ccm_setkey( mbedtls_ccm_context *ctx,
+int mbedtls_ccm_setkey(mbedtls_ccm_context *ctx,
 						mbedtls_cipher_id_t cipher,
 						const unsigned char *key,
-						unsigned int keybits );
+						unsigned int keybits);
 
 /**
  * \brief   This function releases and clears the specified CCM context
@@ -86,7 +86,7 @@ int mbedtls_ccm_setkey( mbedtls_ccm_context *ctx,
  *
  * \param ctx	   The CCM context to clear.
  */
-void mbedtls_ccm_free( mbedtls_ccm_context *ctx );
+void mbedtls_ccm_free(mbedtls_ccm_context *ctx);
 
 /**
  * \brief		   This function encrypts a buffer using CCM.
@@ -113,11 +113,11 @@ void mbedtls_ccm_free( mbedtls_ccm_context *ctx );
  *
  * \return		  \c 0 on success.
  */
-int mbedtls_ccm_encrypt_and_tag( mbedtls_ccm_context *ctx, size_t length,
+int mbedtls_ccm_encrypt_and_tag(mbedtls_ccm_context *ctx, size_t length,
 						 const unsigned char *iv, size_t iv_len,
 						 const unsigned char *add, size_t add_len,
 						 const unsigned char *input, unsigned char *output,
-						 unsigned char *tag, size_t tag_len );
+						 unsigned char *tag, size_t tag_len);
 
 /**
  * \brief		   This function performs a CCM authenticated decryption of a
@@ -140,11 +140,11 @@ int mbedtls_ccm_encrypt_and_tag( mbedtls_ccm_context *ctx, size_t length,
  * \return		  0 if successful and authenticated, or
  *				  #MBEDTLS_ERR_CCM_AUTH_FAILED if the tag does not match.
  */
-int mbedtls_ccm_auth_decrypt( mbedtls_ccm_context *ctx, size_t length,
+int mbedtls_ccm_auth_decrypt(mbedtls_ccm_context *ctx, size_t length,
 					  const unsigned char *iv, size_t iv_len,
 					  const unsigned char *add, size_t add_len,
 					  const unsigned char *input, unsigned char *output,
-					  const unsigned char *tag, size_t tag_len );
+					  const unsigned char *tag, size_t tag_len);
 
 #else  /* MBEDTLS_CCM_ALT */
 #include "ccm_alt.h"
