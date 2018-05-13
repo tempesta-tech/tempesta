@@ -305,9 +305,9 @@
  * Any of these options become available by defining MBEDTLS_ECP_INTERNAL_ALT
  * and implementing the following functions:
  *	  unsigned char mbedtls_internal_ecp_grp_capable(
- *		  const mbedtls_ecp_group *grp )
- *	  int  mbedtls_internal_ecp_init( const mbedtls_ecp_group *grp )
- *	  void mbedtls_internal_ecp_deinit( const mbedtls_ecp_group *grp )
+ *		  const mbedtls_ecp_group *grp)
+ *	  int  mbedtls_internal_ecp_init(const mbedtls_ecp_group *grp)
+ *	  void mbedtls_internal_ecp_deinit(const mbedtls_ecp_group *grp)
  * The mbedtls_internal_ecp_grp_capable function should return 1 if the
  * replacement functions implement arithmetic for the given group and 0
  * otherwise.

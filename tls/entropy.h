@@ -137,14 +137,14 @@ mbedtls_entropy_context;
  *
  * \param ctx	   Entropy context to initialize
  */
-void mbedtls_entropy_init( mbedtls_entropy_context *ctx );
+void mbedtls_entropy_init(mbedtls_entropy_context *ctx);
 
 /**
  * \brief		   Free the data in the context
  *
  * \param ctx	   Entropy context to free
  */
-void mbedtls_entropy_free( mbedtls_entropy_context *ctx );
+void mbedtls_entropy_free(mbedtls_entropy_context *ctx);
 
 /**
  * \brief		   Adds an entropy source to poll
@@ -153,7 +153,7 @@ void mbedtls_entropy_free( mbedtls_entropy_context *ctx );
  * \param f_source  Entropy function
  * \param p_source  Function data
  * \param threshold Minimum required from source before entropy is released
- *				  ( with mbedtls_entropy_func() ) (in bytes)
+ *				  (with mbedtls_entropy_func()) (in bytes)
  * \param strong	MBEDTLS_ENTROPY_SOURCE_STRONG or
  *				  MBEDTSL_ENTROPY_SOURCE_WEAK.
  *				  At least one strong source needs to be added.
@@ -162,9 +162,9 @@ void mbedtls_entropy_free( mbedtls_entropy_context *ctx );
  *
  * \return		  0 if successful or MBEDTLS_ERR_ENTROPY_MAX_SOURCES
  */
-int mbedtls_entropy_add_source( mbedtls_entropy_context *ctx,
+int mbedtls_entropy_add_source(mbedtls_entropy_context *ctx,
 						mbedtls_entropy_f_source_ptr f_source, void *p_source,
-						size_t threshold, int strong );
+						size_t threshold, int strong);
 
 /**
  * \brief		   Trigger an extra gather poll for the accumulator
@@ -173,7 +173,7 @@ int mbedtls_entropy_add_source( mbedtls_entropy_context *ctx,
  *
  * \return		  0 if successful, or MBEDTLS_ERR_ENTROPY_SOURCE_FAILED
  */
-int mbedtls_entropy_gather( mbedtls_entropy_context *ctx );
+int mbedtls_entropy_gather(mbedtls_entropy_context *ctx);
 
 /**
  * \brief		   Retrieve entropy from the accumulator
@@ -185,7 +185,7 @@ int mbedtls_entropy_gather( mbedtls_entropy_context *ctx );
  *
  * \return		  0 if successful, or MBEDTLS_ERR_ENTROPY_SOURCE_FAILED
  */
-int mbedtls_entropy_func( void *data, unsigned char *output, size_t len );
+int mbedtls_entropy_func(void *data, unsigned char *output, size_t len);
 
 /**
  * \brief		   Add data to the accumulator manually
@@ -196,7 +196,7 @@ int mbedtls_entropy_func( void *data, unsigned char *output, size_t len );
  *
  * \return		  0 if successful
  */
-int mbedtls_entropy_update_manual( mbedtls_entropy_context *ctx,
-						   const unsigned char *data, size_t len );
+int mbedtls_entropy_update_manual(mbedtls_entropy_context *ctx,
+						   const unsigned char *data, size_t len);
 
 #endif /* entropy.h */

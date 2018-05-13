@@ -55,7 +55,7 @@
 #endif /* _WIN32 */
 
 #if defined(TARGET_LIKE_MBED) && \
-	( defined(MBEDTLS_NET_C) || defined(MBEDTLS_TIMING_C) )
+	(defined(MBEDTLS_NET_C) || defined(MBEDTLS_TIMING_C))
 #error "The NET and TIMING modules are not available for mbed OS - please use the network and timing functions provided by mbed OS"
 #endif
 
@@ -86,14 +86,14 @@
 #endif
 
 #if defined(MBEDTLS_ECDSA_C) &&			\
-	( !defined(MBEDTLS_ECP_C) ||		   \
+	(!defined(MBEDTLS_ECP_C) ||		   \
 	  !defined(MBEDTLS_ASN1_PARSE_C) ||	\
-	  !defined(MBEDTLS_ASN1_WRITE_C) )
+	  !defined(MBEDTLS_ASN1_WRITE_C))
 #error "MBEDTLS_ECDSA_C defined, but not all prerequisites"
 #endif
 
 #if defined(MBEDTLS_ECJPAKE_C) &&		   \
-	( !defined(MBEDTLS_ECP_C) || !defined(MBEDTLS_MD_C) )
+	(!defined(MBEDTLS_ECP_C) || !defined(MBEDTLS_MD_C))
 #error "MBEDTLS_ECJPAKE_C defined, but not all prerequisites"
 #endif
 
@@ -101,7 +101,7 @@
 #error "MBEDTLS_ECDSA_DETERMINISTIC defined, but not all prerequisites"
 #endif
 
-#if defined(MBEDTLS_ECP_C) && ( !defined(MBEDTLS_BIGNUM_C) || (   \
+#if defined(MBEDTLS_ECP_C) && (!defined(MBEDTLS_BIGNUM_C) || (  \
 	!defined(MBEDTLS_ECP_DP_SECP192R1_ENABLED) &&				  \
 	!defined(MBEDTLS_ECP_DP_SECP224R1_ENABLED) &&				  \
 	!defined(MBEDTLS_ECP_DP_SECP256R1_ENABLED) &&				  \
@@ -112,7 +112,7 @@
 	!defined(MBEDTLS_ECP_DP_BP512R1_ENABLED)   &&				  \
 	!defined(MBEDTLS_ECP_DP_SECP192K1_ENABLED) &&				  \
 	!defined(MBEDTLS_ECP_DP_SECP224K1_ENABLED) &&				  \
-	!defined(MBEDTLS_ECP_DP_SECP256K1_ENABLED) ) )
+	!defined(MBEDTLS_ECP_DP_SECP256K1_ENABLED)))
 #error "MBEDTLS_ECP_C defined, but not all prerequisites"
 #endif
 
@@ -125,7 +125,7 @@
 #error "MBEDTLS_CTR_DRBG_ENTROPY_LEN value too high"
 #endif
 #if defined(MBEDTLS_ENTROPY_C) &&											\
-	( !defined(MBEDTLS_SHA512_C) || defined(MBEDTLS_ENTROPY_FORCE_SHA256) ) \
+	(!defined(MBEDTLS_SHA512_C) || defined(MBEDTLS_ENTROPY_FORCE_SHA256)) \
 	&& defined(MBEDTLS_CTR_DRBG_ENTROPY_LEN) && (MBEDTLS_CTR_DRBG_ENTROPY_LEN > 32)
 #error "MBEDTLS_CTR_DRBG_ENTROPY_LEN value too high"
 #endif
@@ -135,7 +135,7 @@
 #endif
 
 #if defined(MBEDTLS_GCM_C) && (										\
-		!defined(MBEDTLS_AES_C) && !defined(MBEDTLS_CAMELLIA_C) )
+		!defined(MBEDTLS_AES_C) && !defined(MBEDTLS_CAMELLIA_C))
 #error "MBEDTLS_GCM_C defined, but not all prerequisites"
 #endif
 
@@ -180,12 +180,12 @@
 #endif
 
 #if defined(MBEDTLS_KEY_EXCHANGE_ECDH_ECDSA_ENABLED) &&				 \
-	( !defined(MBEDTLS_ECDH_C) || !defined(MBEDTLS_X509_CRT_PARSE_C) )
+	(!defined(MBEDTLS_ECDH_C) || !defined(MBEDTLS_X509_CRT_PARSE_C))
 #error "MBEDTLS_KEY_EXCHANGE_ECDH_ECDSA_ENABLED defined, but not all prerequisites"
 #endif
 
 #if defined(MBEDTLS_KEY_EXCHANGE_ECDH_RSA_ENABLED) &&				 \
-	( !defined(MBEDTLS_ECDH_C) || !defined(MBEDTLS_X509_CRT_PARSE_C) )
+	(!defined(MBEDTLS_ECDH_C) || !defined(MBEDTLS_X509_CRT_PARSE_C))
 #error "MBEDTLS_KEY_EXCHANGE_ECDH_RSA_ENABLED defined, but not all prerequisites"
 #endif
 
@@ -199,38 +199,38 @@
 #endif
 
 #if defined(MBEDTLS_KEY_EXCHANGE_DHE_RSA_ENABLED) &&				   \
-	( !defined(MBEDTLS_DHM_C) || !defined(MBEDTLS_RSA_C) ||		   \
-	  !defined(MBEDTLS_X509_CRT_PARSE_C) || !defined(MBEDTLS_PKCS1_V15) )
+	(!defined(MBEDTLS_DHM_C) || !defined(MBEDTLS_RSA_C) ||		   \
+	  !defined(MBEDTLS_X509_CRT_PARSE_C) || !defined(MBEDTLS_PKCS1_V15))
 #error "MBEDTLS_KEY_EXCHANGE_DHE_RSA_ENABLED defined, but not all prerequisites"
 #endif
 
 #if defined(MBEDTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED) &&				 \
-	( !defined(MBEDTLS_ECDH_C) || !defined(MBEDTLS_RSA_C) ||		  \
-	  !defined(MBEDTLS_X509_CRT_PARSE_C) || !defined(MBEDTLS_PKCS1_V15) )
+	(!defined(MBEDTLS_ECDH_C) || !defined(MBEDTLS_RSA_C) ||		  \
+	  !defined(MBEDTLS_X509_CRT_PARSE_C) || !defined(MBEDTLS_PKCS1_V15))
 #error "MBEDTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED defined, but not all prerequisites"
 #endif
 
 #if defined(MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED) &&				 \
-	( !defined(MBEDTLS_ECDH_C) || !defined(MBEDTLS_ECDSA_C) ||		  \
-	  !defined(MBEDTLS_X509_CRT_PARSE_C) )
+	(!defined(MBEDTLS_ECDH_C) || !defined(MBEDTLS_ECDSA_C) ||		  \
+	  !defined(MBEDTLS_X509_CRT_PARSE_C))
 #error "MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED defined, but not all prerequisites"
 #endif
 
 #if defined(MBEDTLS_KEY_EXCHANGE_RSA_PSK_ENABLED) &&				   \
-	( !defined(MBEDTLS_RSA_C) || !defined(MBEDTLS_X509_CRT_PARSE_C) || \
-	  !defined(MBEDTLS_PKCS1_V15) )
+	(!defined(MBEDTLS_RSA_C) || !defined(MBEDTLS_X509_CRT_PARSE_C) || \
+	  !defined(MBEDTLS_PKCS1_V15))
 #error "MBEDTLS_KEY_EXCHANGE_RSA_PSK_ENABLED defined, but not all prerequisites"
 #endif
 
 #if defined(MBEDTLS_KEY_EXCHANGE_RSA_ENABLED) &&					   \
-	( !defined(MBEDTLS_RSA_C) || !defined(MBEDTLS_X509_CRT_PARSE_C) || \
-	  !defined(MBEDTLS_PKCS1_V15) )
+	(!defined(MBEDTLS_RSA_C) || !defined(MBEDTLS_X509_CRT_PARSE_C) || \
+	  !defined(MBEDTLS_PKCS1_V15))
 #error "MBEDTLS_KEY_EXCHANGE_RSA_ENABLED defined, but not all prerequisites"
 #endif
 
 #if defined(MBEDTLS_KEY_EXCHANGE_ECJPAKE_ENABLED) &&					\
-	( !defined(MBEDTLS_ECJPAKE_C) || !defined(MBEDTLS_SHA256_C) ||	  \
-	  !defined(MBEDTLS_ECP_DP_SECP256R1_ENABLED) )
+	(!defined(MBEDTLS_ECJPAKE_C) || !defined(MBEDTLS_SHA256_C) ||	  \
+	  !defined(MBEDTLS_ECP_DP_SECP256R1_ENABLED))
 #error "MBEDTLS_KEY_EXCHANGE_ECJPAKE_ENABLED defined, but not all prerequisites"
 #endif
 
@@ -243,7 +243,7 @@
 #endif
 
 #if defined(MBEDTLS_PK_C) && \
-	( !defined(MBEDTLS_RSA_C) && !defined(MBEDTLS_ECP_C) )
+	(!defined(MBEDTLS_RSA_C) && !defined(MBEDTLS_ECP_C))
 #error "MBEDTLS_PK_C defined, but not all prerequisites"
 #endif
 
@@ -268,20 +268,20 @@
 #endif
 
 #if defined(MBEDTLS_PLATFORM_EXIT_MACRO) &&\
-	( defined(MBEDTLS_PLATFORM_STD_EXIT) ||\
-		defined(MBEDTLS_PLATFORM_EXIT_ALT) )
+	(defined(MBEDTLS_PLATFORM_STD_EXIT) ||\
+		defined(MBEDTLS_PLATFORM_EXIT_ALT))
 #error "MBEDTLS_PLATFORM_EXIT_MACRO and MBEDTLS_PLATFORM_STD_EXIT/MBEDTLS_PLATFORM_EXIT_ALT cannot be defined simultaneously"
 #endif
 
 #if defined(MBEDTLS_PLATFORM_TIME_MACRO) &&\
-	( defined(MBEDTLS_PLATFORM_STD_TIME) ||\
-		defined(MBEDTLS_PLATFORM_TIME_ALT) )
+	(defined(MBEDTLS_PLATFORM_STD_TIME) ||\
+		defined(MBEDTLS_PLATFORM_TIME_ALT))
 #error "MBEDTLS_PLATFORM_TIME_MACRO and MBEDTLS_PLATFORM_STD_TIME/MBEDTLS_PLATFORM_TIME_ALT cannot be defined simultaneously"
 #endif
 
 #if defined(MBEDTLS_PLATFORM_TIME_TYPE_MACRO) &&\
-	( defined(MBEDTLS_PLATFORM_STD_TIME) ||\
-		defined(MBEDTLS_PLATFORM_TIME_ALT) )
+	(defined(MBEDTLS_PLATFORM_STD_TIME) ||\
+		defined(MBEDTLS_PLATFORM_TIME_ALT))
 #error "MBEDTLS_PLATFORM_TIME_TYPE_MACRO and MBEDTLS_PLATFORM_STD_TIME/MBEDTLS_PLATFORM_TIME_ALT cannot be defined simultaneously"
 #endif
 
@@ -294,13 +294,13 @@
 #endif
 
 #if defined(MBEDTLS_PLATFORM_FPRINTF_MACRO) &&\
-	( defined(MBEDTLS_PLATFORM_STD_FPRINTF) ||\
-		defined(MBEDTLS_PLATFORM_FPRINTF_ALT) )
+	(defined(MBEDTLS_PLATFORM_STD_FPRINTF) ||\
+		defined(MBEDTLS_PLATFORM_FPRINTF_ALT))
 #error "MBEDTLS_PLATFORM_FPRINTF_MACRO and MBEDTLS_PLATFORM_STD_FPRINTF/MBEDTLS_PLATFORM_FPRINTF_ALT cannot be defined simultaneously"
 #endif
 
 #if defined(MBEDTLS_PLATFORM_FREE_MACRO) &&\
-	( !defined(MBEDTLS_PLATFORM_C) || !defined(MBEDTLS_PLATFORM_MEMORY) )
+	(!defined(MBEDTLS_PLATFORM_C) || !defined(MBEDTLS_PLATFORM_MEMORY))
 #error "MBEDTLS_PLATFORM_FREE_MACRO defined, but not all prerequisites"
 #endif
 
@@ -314,7 +314,7 @@
 #endif
 
 #if defined(MBEDTLS_PLATFORM_CALLOC_MACRO) &&\
-	( !defined(MBEDTLS_PLATFORM_C) || !defined(MBEDTLS_PLATFORM_MEMORY) )
+	(!defined(MBEDTLS_PLATFORM_C) || !defined(MBEDTLS_PLATFORM_MEMORY))
 #error "MBEDTLS_PLATFORM_CALLOC_MACRO defined, but not all prerequisites"
 #endif
 
@@ -340,8 +340,8 @@
 #endif
 
 #if defined(MBEDTLS_PLATFORM_PRINTF_MACRO) &&\
-	( defined(MBEDTLS_PLATFORM_STD_PRINTF) ||\
-		defined(MBEDTLS_PLATFORM_PRINTF_ALT) )
+	(defined(MBEDTLS_PLATFORM_STD_PRINTF) ||\
+		defined(MBEDTLS_PLATFORM_PRINTF_ALT))
 #error "MBEDTLS_PLATFORM_PRINTF_MACRO and MBEDTLS_PLATFORM_STD_PRINTF/MBEDTLS_PLATFORM_PRINTF_ALT cannot be defined simultaneously"
 #endif
 
@@ -354,8 +354,8 @@
 #endif
 
 #if defined(MBEDTLS_PLATFORM_SNPRINTF_MACRO) &&\
-	( defined(MBEDTLS_PLATFORM_STD_SNPRINTF) ||\
-		defined(MBEDTLS_PLATFORM_SNPRINTF_ALT) )
+	(defined(MBEDTLS_PLATFORM_STD_SNPRINTF) ||\
+		defined(MBEDTLS_PLATFORM_SNPRINTF_ALT))
 #error "MBEDTLS_PLATFORM_SNPRINTF_MACRO and MBEDTLS_PLATFORM_STD_SNPRINTF/MBEDTLS_PLATFORM_SNPRINTF_ALT cannot be defined simultaneously"
 #endif
 
@@ -407,49 +407,49 @@
 #endif
 
 #if defined(MBEDTLS_PLATFORM_NV_SEED_READ_MACRO) &&\
-	( defined(MBEDTLS_PLATFORM_STD_NV_SEED_READ) ||\
-	  defined(MBEDTLS_PLATFORM_NV_SEED_ALT) )
+	(defined(MBEDTLS_PLATFORM_STD_NV_SEED_READ) ||\
+	  defined(MBEDTLS_PLATFORM_NV_SEED_ALT))
 #error "MBEDTLS_PLATFORM_NV_SEED_READ_MACRO and MBEDTLS_PLATFORM_STD_NV_SEED_READ cannot be defined simultaneously"
 #endif
 
 #if defined(MBEDTLS_PLATFORM_NV_SEED_WRITE_MACRO) &&\
-	( defined(MBEDTLS_PLATFORM_STD_NV_SEED_WRITE) ||\
-	  defined(MBEDTLS_PLATFORM_NV_SEED_ALT) )
+	(defined(MBEDTLS_PLATFORM_STD_NV_SEED_WRITE) ||\
+	  defined(MBEDTLS_PLATFORM_NV_SEED_ALT))
 #error "MBEDTLS_PLATFORM_NV_SEED_WRITE_MACRO and MBEDTLS_PLATFORM_STD_NV_SEED_WRITE cannot be defined simultaneously"
 #endif
 
-#if defined(MBEDTLS_RSA_C) && ( !defined(MBEDTLS_BIGNUM_C) ||		 \
-	!defined(MBEDTLS_OID_C) )
+#if defined(MBEDTLS_RSA_C) && (!defined(MBEDTLS_BIGNUM_C) ||		 \
+	!defined(MBEDTLS_OID_C))
 #error "MBEDTLS_RSA_C defined, but not all prerequisites"
 #endif
 
-#if defined(MBEDTLS_RSA_C) && ( !defined(MBEDTLS_PKCS1_V21) &&		 \
-	!defined(MBEDTLS_PKCS1_V15) )
+#if defined(MBEDTLS_RSA_C) && (!defined(MBEDTLS_PKCS1_V21) &&		 \
+	!defined(MBEDTLS_PKCS1_V15))
 #error "MBEDTLS_RSA_C defined, but none of the PKCS1 versions enabled"
 #endif
 
 #if defined(MBEDTLS_X509_RSASSA_PSS_SUPPORT) &&						\
-	( !defined(MBEDTLS_RSA_C) || !defined(MBEDTLS_PKCS1_V21) )
+	(!defined(MBEDTLS_RSA_C) || !defined(MBEDTLS_PKCS1_V21))
 #error "MBEDTLS_X509_RSASSA_PSS_SUPPORT defined, but not all prerequisites"
 #endif
 
-#if defined(MBEDTLS_SSL_PROTO_SSL3) && ( !defined(MBEDTLS_MD5_C) ||	 \
-	!defined(MBEDTLS_SHA1_C) )
+#if defined(MBEDTLS_SSL_PROTO_SSL3) && (!defined(MBEDTLS_MD5_C) ||	 \
+	!defined(MBEDTLS_SHA1_C))
 #error "MBEDTLS_SSL_PROTO_SSL3 defined, but not all prerequisites"
 #endif
 
-#if defined(MBEDTLS_SSL_PROTO_TLS1) && ( !defined(MBEDTLS_MD5_C) ||	 \
-	!defined(MBEDTLS_SHA1_C) )
+#if defined(MBEDTLS_SSL_PROTO_TLS1) && (!defined(MBEDTLS_MD5_C) ||	 \
+	!defined(MBEDTLS_SHA1_C))
 #error "MBEDTLS_SSL_PROTO_TLS1 defined, but not all prerequisites"
 #endif
 
-#if defined(MBEDTLS_SSL_PROTO_TLS1_1) && ( !defined(MBEDTLS_MD5_C) ||	 \
-	!defined(MBEDTLS_SHA1_C) )
+#if defined(MBEDTLS_SSL_PROTO_TLS1_1) && (!defined(MBEDTLS_MD5_C) ||	 \
+	!defined(MBEDTLS_SHA1_C))
 #error "MBEDTLS_SSL_PROTO_TLS1_1 defined, but not all prerequisites"
 #endif
 
-#if defined(MBEDTLS_SSL_PROTO_TLS1_2) && ( !defined(MBEDTLS_SHA1_C) &&	 \
-	!defined(MBEDTLS_SHA256_C) && !defined(MBEDTLS_SHA512_C) )
+#if defined(MBEDTLS_SSL_PROTO_TLS1_2) && (!defined(MBEDTLS_SHA1_C) &&	 \
+	!defined(MBEDTLS_SHA256_C) && !defined(MBEDTLS_SHA512_C))
 #error "MBEDTLS_SSL_PROTO_TLS1_2 defined, but not all prerequisites"
 #endif
 
@@ -463,8 +463,8 @@
 #error "MBEDTLS_SSL_CLI_C defined, but not all prerequisites"
 #endif
 
-#if defined(MBEDTLS_SSL_TLS_C) && ( !defined(MBEDTLS_CIPHER_C) ||	 \
-	!defined(MBEDTLS_MD_C) )
+#if defined(MBEDTLS_SSL_TLS_C) && (!defined(MBEDTLS_CIPHER_C) ||	 \
+	!defined(MBEDTLS_MD_C))
 #error "MBEDTLS_SSL_TLS_C defined, but not all prerequisites"
 #endif
 
@@ -504,12 +504,12 @@
 #endif
 
 #if defined(MBEDTLS_SSL_DTLS_ANTI_REPLAY) &&							  \
-	( !defined(MBEDTLS_SSL_TLS_C) || !defined(MBEDTLS_SSL_PROTO_DTLS) )
+	(!defined(MBEDTLS_SSL_TLS_C) || !defined(MBEDTLS_SSL_PROTO_DTLS))
 #error "MBEDTLS_SSL_DTLS_ANTI_REPLAY  defined, but not all prerequisites"
 #endif
 
 #if defined(MBEDTLS_SSL_DTLS_BADMAC_LIMIT) &&							  \
-	( !defined(MBEDTLS_SSL_TLS_C) || !defined(MBEDTLS_SSL_PROTO_DTLS) )
+	(!defined(MBEDTLS_SSL_TLS_C) || !defined(MBEDTLS_SSL_PROTO_DTLS))
 #error "MBEDTLS_SSL_DTLS_BADMAC_LIMIT  defined, but not all prerequisites"
 #endif
 
@@ -541,35 +541,35 @@
 #error "MBEDTLS_SSL_SERVER_NAME_INDICATION defined, but not all prerequisites"
 #endif
 
-#if defined(MBEDTLS_X509_USE_C) && ( !defined(MBEDTLS_BIGNUM_C) ||  \
+#if defined(MBEDTLS_X509_USE_C) && (!defined(MBEDTLS_BIGNUM_C) ||  \
 	!defined(MBEDTLS_OID_C) || !defined(MBEDTLS_ASN1_PARSE_C) ||	  \
-	!defined(MBEDTLS_PK_PARSE_C) )
+	!defined(MBEDTLS_PK_PARSE_C))
 #error "MBEDTLS_X509_USE_C defined, but not all prerequisites"
 #endif
 
-#if defined(MBEDTLS_X509_CREATE_C) && ( !defined(MBEDTLS_BIGNUM_C) ||  \
+#if defined(MBEDTLS_X509_CREATE_C) && (!defined(MBEDTLS_BIGNUM_C) ||  \
 	!defined(MBEDTLS_OID_C) || !defined(MBEDTLS_ASN1_WRITE_C) ||	   \
-	!defined(MBEDTLS_PK_WRITE_C) )
+	!defined(MBEDTLS_PK_WRITE_C))
 #error "MBEDTLS_X509_CREATE_C defined, but not all prerequisites"
 #endif
 
-#if defined(MBEDTLS_X509_CRT_PARSE_C) && ( !defined(MBEDTLS_X509_USE_C) )
+#if defined(MBEDTLS_X509_CRT_PARSE_C) && (!defined(MBEDTLS_X509_USE_C))
 #error "MBEDTLS_X509_CRT_PARSE_C defined, but not all prerequisites"
 #endif
 
-#if defined(MBEDTLS_X509_CRL_PARSE_C) && ( !defined(MBEDTLS_X509_USE_C) )
+#if defined(MBEDTLS_X509_CRL_PARSE_C) && (!defined(MBEDTLS_X509_USE_C))
 #error "MBEDTLS_X509_CRL_PARSE_C defined, but not all prerequisites"
 #endif
 
-#if defined(MBEDTLS_X509_CSR_PARSE_C) && ( !defined(MBEDTLS_X509_USE_C) )
+#if defined(MBEDTLS_X509_CSR_PARSE_C) && (!defined(MBEDTLS_X509_USE_C))
 #error "MBEDTLS_X509_CSR_PARSE_C defined, but not all prerequisites"
 #endif
 
-#if defined(MBEDTLS_X509_CRT_WRITE_C) && ( !defined(MBEDTLS_X509_CREATE_C) )
+#if defined(MBEDTLS_X509_CRT_WRITE_C) && (!defined(MBEDTLS_X509_CREATE_C))
 #error "MBEDTLS_X509_CRT_WRITE_C defined, but not all prerequisites"
 #endif
 
-#if defined(MBEDTLS_X509_CSR_WRITE_C) && ( !defined(MBEDTLS_X509_CREATE_C) )
+#if defined(MBEDTLS_X509_CSR_WRITE_C) && (!defined(MBEDTLS_X509_CREATE_C))
 #error "MBEDTLS_X509_CSR_WRITE_C defined, but not all prerequisites"
 #endif
 

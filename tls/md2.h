@@ -73,7 +73,7 @@ mbedtls_md2_context;
  *				 stronger message digests instead.
  *
  */
-void mbedtls_md2_init( mbedtls_md2_context *ctx );
+void mbedtls_md2_init(mbedtls_md2_context *ctx);
 
 /**
  * \brief		  Clear MD2 context
@@ -85,7 +85,7 @@ void mbedtls_md2_init( mbedtls_md2_context *ctx );
  *				 stronger message digests instead.
  *
  */
-void mbedtls_md2_free( mbedtls_md2_context *ctx );
+void mbedtls_md2_free(mbedtls_md2_context *ctx);
 
 /**
  * \brief		  Clone (the state of) an MD2 context
@@ -98,8 +98,8 @@ void mbedtls_md2_free( mbedtls_md2_context *ctx );
  *				 stronger message digests instead.
  *
  */
-void mbedtls_md2_clone( mbedtls_md2_context *dst,
-						const mbedtls_md2_context *src );
+void mbedtls_md2_clone(mbedtls_md2_context *dst,
+						const mbedtls_md2_context *src);
 
 /**
  * \brief		  MD2 context setup
@@ -113,7 +113,7 @@ void mbedtls_md2_clone( mbedtls_md2_context *dst,
  *				 stronger message digests instead.
  *
  */
-int mbedtls_md2_starts_ret( mbedtls_md2_context *ctx );
+int mbedtls_md2_starts_ret(mbedtls_md2_context *ctx);
 
 /**
  * \brief		  MD2 process buffer
@@ -129,9 +129,9 @@ int mbedtls_md2_starts_ret( mbedtls_md2_context *ctx );
  *				 stronger message digests instead.
  *
  */
-int mbedtls_md2_update_ret( mbedtls_md2_context *ctx,
+int mbedtls_md2_update_ret(mbedtls_md2_context *ctx,
 							const unsigned char *input,
-							size_t ilen );
+							size_t ilen);
 
 /**
  * \brief		  MD2 final digest
@@ -146,8 +146,8 @@ int mbedtls_md2_update_ret( mbedtls_md2_context *ctx,
  *				 stronger message digests instead.
  *
  */
-int mbedtls_md2_finish_ret( mbedtls_md2_context *ctx,
-							unsigned char output[16] );
+int mbedtls_md2_finish_ret(mbedtls_md2_context *ctx,
+							unsigned char output[16]);
 
 /**
  * \brief		  MD2 process data block (internal use only)
@@ -161,7 +161,7 @@ int mbedtls_md2_finish_ret( mbedtls_md2_context *ctx,
  *				 stronger message digests instead.
  *
  */
-int mbedtls_internal_md2_process( mbedtls_md2_context *ctx );
+int mbedtls_internal_md2_process(mbedtls_md2_context *ctx);
 
 #if !defined(MBEDTLS_DEPRECATED_REMOVED)
 #if defined(MBEDTLS_DEPRECATED_WARNING)
@@ -181,7 +181,7 @@ int mbedtls_internal_md2_process( mbedtls_md2_context *ctx );
  *				 stronger message digests instead.
  *
  */
-MBEDTLS_DEPRECATED void mbedtls_md2_starts( mbedtls_md2_context *ctx );
+MBEDTLS_DEPRECATED void mbedtls_md2_starts(mbedtls_md2_context *ctx);
 
 /**
  * \brief		  MD2 process buffer
@@ -197,9 +197,9 @@ MBEDTLS_DEPRECATED void mbedtls_md2_starts( mbedtls_md2_context *ctx );
  *				 stronger message digests instead.
  *
  */
-MBEDTLS_DEPRECATED void mbedtls_md2_update( mbedtls_md2_context *ctx,
+MBEDTLS_DEPRECATED void mbedtls_md2_update(mbedtls_md2_context *ctx,
 											const unsigned char *input,
-											size_t ilen );
+											size_t ilen);
 
 /**
  * \brief		  MD2 final digest
@@ -214,8 +214,8 @@ MBEDTLS_DEPRECATED void mbedtls_md2_update( mbedtls_md2_context *ctx,
  *				 stronger message digests instead.
  *
  */
-MBEDTLS_DEPRECATED void mbedtls_md2_finish( mbedtls_md2_context *ctx,
-											unsigned char output[16] );
+MBEDTLS_DEPRECATED void mbedtls_md2_finish(mbedtls_md2_context *ctx,
+											unsigned char output[16]);
 
 /**
  * \brief		  MD2 process data block (internal use only)
@@ -229,7 +229,7 @@ MBEDTLS_DEPRECATED void mbedtls_md2_finish( mbedtls_md2_context *ctx,
  *				 stronger message digests instead.
  *
  */
-MBEDTLS_DEPRECATED void mbedtls_md2_process( mbedtls_md2_context *ctx );
+MBEDTLS_DEPRECATED void mbedtls_md2_process(mbedtls_md2_context *ctx);
 
 #undef MBEDTLS_DEPRECATED
 #endif /* !MBEDTLS_DEPRECATED_REMOVED */
@@ -239,7 +239,7 @@ MBEDTLS_DEPRECATED void mbedtls_md2_process( mbedtls_md2_context *ctx );
 #endif /* MBEDTLS_MD2_ALT */
 
 /**
- * \brief		  Output = MD2( input buffer )
+ * \brief		  Output = MD2(input buffer)
  *
  * \param input	buffer holding the data
  * \param ilen	 length of the input data
@@ -250,9 +250,9 @@ MBEDTLS_DEPRECATED void mbedtls_md2_process( mbedtls_md2_context *ctx );
  *				 stronger message digests instead.
  *
  */
-int mbedtls_md2_ret( const unsigned char *input,
+int mbedtls_md2_ret(const unsigned char *input,
 					 size_t ilen,
-					 unsigned char output[16] );
+					 unsigned char output[16]);
 
 #if !defined(MBEDTLS_DEPRECATED_REMOVED)
 #if defined(MBEDTLS_DEPRECATED_WARNING)
@@ -261,7 +261,7 @@ int mbedtls_md2_ret( const unsigned char *input,
 #define MBEDTLS_DEPRECATED
 #endif
 /**
- * \brief		  Output = MD2( input buffer )
+ * \brief		  Output = MD2(input buffer)
  *
  * \deprecated	 Superseded by mbedtls_md2_ret() in 2.7.0
  *
@@ -274,9 +274,9 @@ int mbedtls_md2_ret( const unsigned char *input,
  *				 stronger message digests instead.
  *
  */
-MBEDTLS_DEPRECATED void mbedtls_md2( const unsigned char *input,
+MBEDTLS_DEPRECATED void mbedtls_md2(const unsigned char *input,
 									 size_t ilen,
-									 unsigned char output[16] );
+									 unsigned char output[16]);
 
 #undef MBEDTLS_DEPRECATED
 #endif /* !MBEDTLS_DEPRECATED_REMOVED */

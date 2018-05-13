@@ -72,7 +72,7 @@ mbedtls_ssl_ticket_context;
  *
  * \param ctx	   Context to be initialized
  */
-void mbedtls_ssl_ticket_init( mbedtls_ssl_ticket_context *ctx );
+void mbedtls_ssl_ticket_init(mbedtls_ssl_ticket_context *ctx);
 
 /**
  * \brief		   Prepare context to be actually used
@@ -96,10 +96,10 @@ void mbedtls_ssl_ticket_init( mbedtls_ssl_ticket_context *ctx );
  * \return		  0 if successful,
  *				  or a specific MBEDTLS_ERR_XXX error code
  */
-int mbedtls_ssl_ticket_setup( mbedtls_ssl_ticket_context *ctx,
+int mbedtls_ssl_ticket_setup(mbedtls_ssl_ticket_context *ctx,
 	int (*f_rng)(void *, unsigned char *, size_t), void *p_rng,
 	mbedtls_cipher_type_t cipher,
-	uint32_t lifetime );
+	uint32_t lifetime);
 
 /**
  * \brief		   Implementation of the ticket write callback
@@ -120,6 +120,6 @@ mbedtls_ssl_ticket_parse_t mbedtls_ssl_ticket_parse;
  *
  * \param ctx	   Context to be cleaned up
  */
-void mbedtls_ssl_ticket_free( mbedtls_ssl_ticket_context *ctx );
+void mbedtls_ssl_ticket_free(mbedtls_ssl_ticket_context *ctx);
 
 #endif /* ssl_ticket.h */
