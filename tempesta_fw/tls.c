@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Transport Layer Security (TLS) implementation.
+ * Transport Layer Security (TLS) interfaces to Tempesta TLS.
  *
  * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
@@ -19,8 +19,6 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <linux/vmalloc.h>
-
 #include "cfg.h"
 #include "connection.h"
 #include "client.h"
@@ -281,11 +279,6 @@ tfw_tls_conn_init(TfwConn *c)
 
 	tls->rx_queue = tls->tx_queue = NULL;
 
-	if (!tfw_tls.crt.version) {
-		TFW_ERR("TLS:%p no certificate specified\n", tls);
-		return -EINVAL;
-	}
-
 	r = mbedtls_ssl_setup(&tls->ssl, &tfw_tls.cfg);
 	if (r) {
 		TFW_ERR("TLS:%p setup failed (%x)\n", tls, -r);
@@ -295,9 +288,8 @@ tfw_tls_conn_init(TfwConn *c)
 	mbedtls_ssl_set_bio(&tls->ssl, c,
 			    tfw_tls_send_cb, tfw_tls_recv_cb, NULL);
 
-	if (tfw_conn_hook_call(TFW_FSM_HTTP, c, conn_init)) {
+	if (tfw_conn_hook_call(TFW_FSM_HTTP, c, conn_init))
 		return -EINVAL;
-	}
 
 	spin_lock_init(&tls->lock);
 	tfw_gfsm_state_init(&c->state, c, TFW_TLS_FSM_INIT);
@@ -412,9 +404,14 @@ tfw_tls_do_cleanup(void)
 static int
 tfw_tls_start(void)
 {
-	int r;
+	int r = tfw_runstate_is_reconfig();
 
-	if (tfw_runstate_is_reconfig())
+	if (!tfw_tls.crt.version) {
+		TFW_ERR("TLS: please spcify a certificate with"
+			" tls_certificate configuration option\n");
+		return -EINVAL;
+	}
+	if (r)
 		return 0;
 
 	mbedtls_ssl_conf_ca_chain(&tfw_tls.cfg, tfw_tls.crt.next, NULL);
@@ -541,7 +538,7 @@ tfw_tls_cfgend(void)
 
 static TfwCfgSpec tfw_tls_specs[] = {
 	{
-		.name = "ssl_certificate",
+		.name = "tls_certificate",
 		.deflt = NULL,
 		.handler = tfw_cfgop_ssl_certificate,
 		.allow_none = true,
@@ -549,7 +546,7 @@ static TfwCfgSpec tfw_tls_specs[] = {
 		.cleanup = tfw_cfgop_cleanup_ssl_certificate,
 	},
 	{
-		.name = "ssl_certificate_key",
+		.name = "tls_certificate_key",
 		.deflt = NULL,
 		.handler = tfw_cfgop_ssl_certificate_key,
 		.allow_none = true,
