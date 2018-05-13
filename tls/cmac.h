@@ -76,8 +76,8 @@ struct mbedtls_cmac_context_t
  *
  * \return			  \c 0 on success, or a cipher-specific error code.
  */
-int mbedtls_cipher_cmac_starts( mbedtls_cipher_context_t *ctx,
-								const unsigned char *key, size_t keybits );
+int mbedtls_cipher_cmac_starts(mbedtls_cipher_context_t *ctx,
+								const unsigned char *key, size_t keybits);
 
 /**
  * \brief			   This function feeds an input buffer into an ongoing CMAC
@@ -94,8 +94,8 @@ int mbedtls_cipher_cmac_starts( mbedtls_cipher_context_t *ctx,
  * \returns			 \c 0 on success, or #MBEDTLS_ERR_MD_BAD_INPUT_DATA
  *					  if parameter verification fails.
  */
-int mbedtls_cipher_cmac_update( mbedtls_cipher_context_t *ctx,
-								const unsigned char *input, size_t ilen );
+int mbedtls_cipher_cmac_update(mbedtls_cipher_context_t *ctx,
+								const unsigned char *input, size_t ilen);
 
 /**
  * \brief			   This function finishes the CMAC operation, and writes
@@ -111,8 +111,8 @@ int mbedtls_cipher_cmac_update( mbedtls_cipher_context_t *ctx,
  * \returns			 \c 0 on success, or #MBEDTLS_ERR_MD_BAD_INPUT_DATA
  *					  if parameter verification fails.
  */
-int mbedtls_cipher_cmac_finish( mbedtls_cipher_context_t *ctx,
-								unsigned char *output );
+int mbedtls_cipher_cmac_finish(mbedtls_cipher_context_t *ctx,
+								unsigned char *output);
 
 /**
  * \brief			   This function prepares the authentication of another
@@ -127,7 +127,7 @@ int mbedtls_cipher_cmac_finish( mbedtls_cipher_context_t *ctx,
  * \returns			 \c 0 on success, or #MBEDTLS_ERR_MD_BAD_INPUT_DATA
  *					  if parameter verification fails.
  */
-int mbedtls_cipher_cmac_reset( mbedtls_cipher_context_t *ctx );
+int mbedtls_cipher_cmac_reset(mbedtls_cipher_context_t *ctx);
 
 /**
  * \brief			   This function calculates the full generic CMAC
@@ -150,10 +150,10 @@ int mbedtls_cipher_cmac_reset( mbedtls_cipher_context_t *ctx );
  * \returns			 \c 0 on success, or #MBEDTLS_ERR_MD_BAD_INPUT_DATA
  *					  if parameter verification fails.
  */
-int mbedtls_cipher_cmac( const mbedtls_cipher_info_t *cipher_info,
+int mbedtls_cipher_cmac(const mbedtls_cipher_info_t *cipher_info,
 						 const unsigned char *key, size_t keylen,
 						 const unsigned char *input, size_t ilen,
-						 unsigned char *output );
+						 unsigned char *output);
 
 #if defined(MBEDTLS_AES_C)
 /**
@@ -173,9 +173,9 @@ int mbedtls_cipher_cmac( const mbedtls_cipher_info_t *cipher_info,
  *
  * \return		  \c 0 on success.
  */
-int mbedtls_aes_cmac_prf_128( const unsigned char *key, size_t key_len,
+int mbedtls_aes_cmac_prf_128(const unsigned char *key, size_t key_len,
 							  const unsigned char *input, size_t in_len,
-							  unsigned char output[16] );
+							  unsigned char output[16]);
 #endif /* MBEDTLS_AES_C */
 
 #else  /* !MBEDTLS_CMAC_ALT */

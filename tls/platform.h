@@ -69,8 +69,8 @@
 #else
 /* For size_t */
 #include <stddef.h>
-extern void * (*mbedtls_calloc)( size_t n, size_t size );
-extern void (*mbedtls_free)( void *ptr );
+extern void * (*mbedtls_calloc)(size_t n, size_t size);
+extern void (*mbedtls_free)(void *ptr);
 
 /**
  * \brief   This function allows configuring custom memory-management functions.
@@ -80,8 +80,8 @@ extern void (*mbedtls_free)( void *ptr );
  *
  * \return			  \c 0.
  */
-int mbedtls_platform_set_calloc_free( void * (*calloc_func)( size_t, size_t ),
-							  void (*free_func)( void * ) );
+int mbedtls_platform_set_calloc_free(void * (*calloc_func)(size_t, size_t),
+							  void (*free_func)(void *));
 #endif /* MBEDTLS_PLATFORM_FREE_MACRO && MBEDTLS_PLATFORM_CALLOC_MACRO */
 #else /* !MBEDTLS_PLATFORM_MEMORY */
 #define mbedtls_free	   free
@@ -94,7 +94,7 @@ int mbedtls_platform_set_calloc_free( void * (*calloc_func)( size_t, size_t ),
 #if defined(MBEDTLS_PLATFORM_FPRINTF_ALT)
 /* We need FILE * */
 #include <stdio.h>
-extern int (*mbedtls_fprintf)( FILE *stream, const char *format, ... );
+extern int (*mbedtls_fprintf)(FILE *stream, const char *format, ...);
 
 /**
  * \brief   This function allows configuring a custom \p fprintf function pointer.
@@ -103,8 +103,8 @@ extern int (*mbedtls_fprintf)( FILE *stream, const char *format, ... );
  *
  * \return			   \c 0.
  */
-int mbedtls_platform_set_fprintf( int (*fprintf_func)( FILE *stream, const char *,
-											   ... ) );
+int mbedtls_platform_set_fprintf(int (*fprintf_func)(FILE *stream, const char *,
+											   ...));
 #else
 #if defined(MBEDTLS_PLATFORM_FPRINTF_MACRO)
 #define mbedtls_fprintf	MBEDTLS_PLATFORM_FPRINTF_MACRO
@@ -124,14 +124,14 @@ int mbedtls_platform_set_fprintf( int (*fprintf_func)( FILE *stream, const char 
  */
 #if defined(_WIN32)
 /* For Windows (inc. MSYS2), we provide our own fixed implementation */
-int mbedtls_platform_win32_snprintf( char *s, size_t n, const char *fmt, ... );
+int mbedtls_platform_win32_snprintf(char *s, size_t n, const char *fmt, ...);
 #endif
 
 /*
  * The function pointers for exit
  */
 #if defined(MBEDTLS_PLATFORM_EXIT_ALT)
-extern void (*mbedtls_exit)( int status );
+extern void (*mbedtls_exit)(int status);
 
 /**
  * \brief   This function allows configuring a custom \c exit function
@@ -141,7 +141,7 @@ extern void (*mbedtls_exit)( int status );
  *
  * \return  \c 0 on success.
  */
-int mbedtls_platform_set_exit( void (*exit_func)( int status ) );
+int mbedtls_platform_set_exit(void (*exit_func)(int status));
 #else
 #if defined(MBEDTLS_PLATFORM_EXIT_MACRO)
 #define mbedtls_exit   MBEDTLS_PLATFORM_EXIT_MACRO
@@ -190,7 +190,7 @@ mbedtls_platform_context;
  *		  Its use and whether it is necessary to call it is dependent on the
  *		  platform.
  */
-int mbedtls_platform_setup( mbedtls_platform_context *ctx );
+int mbedtls_platform_setup(mbedtls_platform_context *ctx);
 /**
  * \brief   This function performs any platform teardown operations.
  *
@@ -204,6 +204,6 @@ int mbedtls_platform_setup( mbedtls_platform_context *ctx );
  *		  Its use and whether it is necessary to call it is dependent on the
  *		  platform.
  */
-void mbedtls_platform_teardown( mbedtls_platform_context *ctx );
+void mbedtls_platform_teardown(mbedtls_platform_context *ctx);
 
 #endif /* platform.h */

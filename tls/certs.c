@@ -50,7 +50,7 @@
 "uCjn8pwUOkABXK8Mss90fzCfCEOtIA==\r\n"								  \
 "-----END CERTIFICATE-----\r\n"
 const char mbedtls_test_ca_crt_ec[] = TEST_CA_CRT_EC;
-const size_t mbedtls_test_ca_crt_ec_len = sizeof( mbedtls_test_ca_crt_ec );
+const size_t mbedtls_test_ca_crt_ec_len = sizeof(mbedtls_test_ca_crt_ec);
 
 const char mbedtls_test_ca_key_ec[] =
 "-----BEGIN EC PRIVATE KEY-----\r\n"
@@ -62,10 +62,10 @@ const char mbedtls_test_ca_key_ec[] =
 "UsuWTITwJImcnlAs1gaRZ3sAWm7cOUidL0fo2G0fYUFNcYoCSLffCFTEHBuPnagb\r\n"
 "a77x/sY1Bvii8S9/XhDTb6pTMx06wzrm\r\n"
 "-----END EC PRIVATE KEY-----\r\n";
-const size_t mbedtls_test_ca_key_ec_len = sizeof( mbedtls_test_ca_key_ec );
+const size_t mbedtls_test_ca_key_ec_len = sizeof(mbedtls_test_ca_key_ec);
 
 const char mbedtls_test_ca_pwd_ec[] = "PolarSSLTest";
-const size_t mbedtls_test_ca_pwd_ec_len = sizeof( mbedtls_test_ca_pwd_ec ) - 1;
+const size_t mbedtls_test_ca_pwd_ec_len = sizeof(mbedtls_test_ca_pwd_ec) - 1;
 
 const char mbedtls_test_srv_crt_ec[] =
 "-----BEGIN CERTIFICATE-----\r\n"
@@ -82,7 +82,7 @@ const char mbedtls_test_srv_crt_ec[] =
 "C12r0Lz3ri/moSEpNZWqPjkCMCE2f53GXcYLqyfyJR078c/xNSUU5+Xxl7VZ414V\r\n"
 "fGa5kHvHARBPc8YAIVIqDvHH1Q==\r\n"
 "-----END CERTIFICATE-----\r\n";
-const size_t mbedtls_test_srv_crt_ec_len = sizeof( mbedtls_test_srv_crt_ec );
+const size_t mbedtls_test_srv_crt_ec_len = sizeof(mbedtls_test_srv_crt_ec);
 
 const char mbedtls_test_srv_key_ec[] =
 "-----BEGIN EC PRIVATE KEY-----\r\n"
@@ -90,7 +90,7 @@ const char mbedtls_test_srv_key_ec[] =
 "AwEHoUQDQgAEN8xW2XYJHlpyPsdZLf8gbu58+QaRdNCtFLX3aCJZYpJO5QDYIxH/\r\n"
 "6i/SNF1dFr2KiMJrdw1VzYoqDvoByLTt/w==\r\n"
 "-----END EC PRIVATE KEY-----\r\n";
-const size_t mbedtls_test_srv_key_ec_len = sizeof( mbedtls_test_srv_key_ec );
+const size_t mbedtls_test_srv_key_ec_len = sizeof(mbedtls_test_srv_key_ec);
 
 const char mbedtls_test_cli_crt_ec[] =
 "-----BEGIN CERTIFICATE-----\r\n"
@@ -107,7 +107,7 @@ const char mbedtls_test_cli_crt_ec[] =
 "lgOsjnhw3fIOoLIWy2WOGsk/LGF++DzvrRzuNiACMQCd8iem1XS4JK7haj8xocpU\r\n"
 "LwjQje5PDGHfd3h9tP38Qknu5bJqws0md2KOKHyeV0U=\r\n"
 "-----END CERTIFICATE-----\r\n";
-const size_t mbedtls_test_cli_crt_ec_len = sizeof( mbedtls_test_cli_crt_ec );
+const size_t mbedtls_test_cli_crt_ec_len = sizeof(mbedtls_test_cli_crt_ec);
 
 const char mbedtls_test_cli_key_ec[] =
 "-----BEGIN EC PRIVATE KEY-----\r\n"
@@ -115,7 +115,7 @@ const char mbedtls_test_cli_key_ec[] =
 "AwEHoUQDQgAEV+WusXPf06y7k7iB/xKu7uZTrM5VU/Y0Dswu42MlC9+Y4vNcYDaW\r\n"
 "wNUYFHDlf5/VS0UY5bBs1Vz4lo+HcKPkxw==\r\n"
 "-----END EC PRIVATE KEY-----\r\n";
-const size_t mbedtls_test_cli_key_ec_len = sizeof( mbedtls_test_cli_key_ec );
+const size_t mbedtls_test_cli_key_ec_len = sizeof(mbedtls_test_cli_key_ec);
 #endif /* MBEDTLS_ECDSA_C */
 
 #if defined(MBEDTLS_RSA_C)
@@ -145,7 +145,7 @@ const size_t mbedtls_test_cli_key_ec_len = sizeof( mbedtls_test_cli_key_ec );
 "-----END CERTIFICATE-----\r\n"
 
 const char   mbedtls_test_ca_crt_rsa[]   = TEST_CA_CRT_RSA_SHA256;
-const size_t mbedtls_test_ca_crt_rsa_len = sizeof( mbedtls_test_ca_crt_rsa );
+const size_t mbedtls_test_ca_crt_rsa_len = sizeof(mbedtls_test_ca_crt_rsa);
 #define TEST_CA_CRT_RSA_SOME
 
 static const char mbedtls_test_ca_crt_rsa_sha256[] = TEST_CA_CRT_RSA_SHA256;
@@ -178,7 +178,7 @@ static const char mbedtls_test_ca_crt_rsa_sha256[] = TEST_CA_CRT_RSA_SHA256;
 
 #if !defined (TEST_CA_CRT_RSA_SOME)
 const char   mbedtls_test_ca_crt_rsa[]   = TEST_CA_CRT_RSA_SHA1;
-const size_t mbedtls_test_ca_crt_rsa_len = sizeof( mbedtls_test_ca_crt_rsa );
+const size_t mbedtls_test_ca_crt_rsa_len = sizeof(mbedtls_test_ca_crt_rsa);
 #endif
 
 static const char mbedtls_test_ca_crt_rsa_sha1[] = TEST_CA_CRT_RSA_SHA1;
@@ -216,10 +216,10 @@ const char mbedtls_test_ca_key_rsa[] =
 "wN48lslbHnqqagr6Xm1nNOSVl8C/6kbJEsMpLhAezfRtGwvOucoaE+WbeUNolGde\r\n"
 "P/eQiddSf0brnpiLJRh7qZrl9XuqYdpUqnoEdMAfotDOID8OtV7gt8a48ad8VPW2\r\n"
 "-----END RSA PRIVATE KEY-----\r\n";
-const size_t mbedtls_test_ca_key_rsa_len = sizeof( mbedtls_test_ca_key_rsa );
+const size_t mbedtls_test_ca_key_rsa_len = sizeof(mbedtls_test_ca_key_rsa);
 
 const char mbedtls_test_ca_pwd_rsa[] = "PolarSSLTest";
-const size_t mbedtls_test_ca_pwd_rsa_len = sizeof( mbedtls_test_ca_pwd_rsa ) - 1;
+const size_t mbedtls_test_ca_pwd_rsa_len = sizeof(mbedtls_test_ca_pwd_rsa) - 1;
 
 const char mbedtls_test_srv_crt_rsa[] =
 "-----BEGIN CERTIFICATE-----\r\n"
@@ -242,7 +242,7 @@ const char mbedtls_test_srv_crt_rsa[] =
 "RRQfaD8neM9c1S/iJ/amTVqJxA1KOdOS5780WhPfSArA+g4qAmSjelc3p4wWpha8\r\n"
 "zhuYwjVuX6JHG0c=\r\n"
 "-----END CERTIFICATE-----\r\n";
-const size_t mbedtls_test_srv_crt_rsa_len = sizeof( mbedtls_test_srv_crt_rsa );
+const size_t mbedtls_test_srv_crt_rsa_len = sizeof(mbedtls_test_srv_crt_rsa);
 
 const char mbedtls_test_srv_key_rsa[] =
 "-----BEGIN RSA PRIVATE KEY-----\r\n"
@@ -272,7 +272,7 @@ const char mbedtls_test_srv_key_rsa[] =
 "4AgahOxIxXx2gxJnq3yfkJfIjwf0s2DyP0kY2y6Ua1OeomPeY9mrIS4tCuDQ6LrE\r\n"
 "TB6l9VGoxJL4fyHnZb8L5gGvnB1bbD8cL6YPaDiOhcRseC9vBiEuVg==\r\n"
 "-----END RSA PRIVATE KEY-----\r\n";
-const size_t mbedtls_test_srv_key_rsa_len = sizeof( mbedtls_test_srv_key_rsa );
+const size_t mbedtls_test_srv_key_rsa_len = sizeof(mbedtls_test_srv_key_rsa);
 
 const char mbedtls_test_cli_crt_rsa[] =
 "-----BEGIN CERTIFICATE-----\r\n"
@@ -296,7 +296,7 @@ const char mbedtls_test_cli_crt_rsa[] =
 "ofGZpiM2NqRPePgYy+Vc75Zk28xkRQq1ncprgQb3S4vTsZdScpM9hLf+eMlrgqlj\r\n"
 "c5PLSkXBeLE5+fedkyfTaLxxQlgCpuoOhKBm04/R1pWNzUHyqagjO9Q=\r\n"
 "-----END CERTIFICATE-----\r\n";
-const size_t mbedtls_test_cli_crt_rsa_len = sizeof( mbedtls_test_cli_crt_rsa );
+const size_t mbedtls_test_cli_crt_rsa_len = sizeof(mbedtls_test_cli_crt_rsa);
 
 const char mbedtls_test_cli_key_rsa[] =
 "-----BEGIN RSA PRIVATE KEY-----\r\n"
@@ -326,7 +326,7 @@ const char mbedtls_test_cli_key_rsa[] =
 "bHFVW2r0dBTqegP2/KTOxKzaHfC1qf0RGDsUoJCNJrd1cwoCLG8P2EF4w3OBrKqv\r\n"
 "8u4ytY0F+Vlanj5lm3TaoHSVF1+NWPyOTiwevIECGKwSxvlki4fDAA==\r\n"
 "-----END RSA PRIVATE KEY-----\r\n";
-const size_t mbedtls_test_cli_key_rsa_len = sizeof( mbedtls_test_cli_key_rsa );
+const size_t mbedtls_test_cli_key_rsa_len = sizeof(mbedtls_test_cli_key_rsa);
 #endif /* MBEDTLS_RSA_C */
 
 #if defined(MBEDTLS_PEM_PARSE_C)
@@ -342,7 +342,7 @@ const char mbedtls_test_cas_pem[] =
 	TEST_CA_CRT_EC
 #endif
 	"";
-const size_t mbedtls_test_cas_pem_len = sizeof( mbedtls_test_cas_pem );
+const size_t mbedtls_test_cas_pem_len = sizeof(mbedtls_test_cas_pem);
 #endif
 
 /* List of all available CA certificates */
@@ -360,13 +360,13 @@ const char * mbedtls_test_cas[] = {
 };
 const size_t mbedtls_test_cas_len[] = {
 #if defined(TEST_CA_CRT_RSA_SHA1)
-	sizeof( mbedtls_test_ca_crt_rsa_sha1 ),
+	sizeof(mbedtls_test_ca_crt_rsa_sha1),
 #endif
 #if defined(TEST_CA_CRT_RSA_SHA256)
-	sizeof( mbedtls_test_ca_crt_rsa_sha256 ),
+	sizeof(mbedtls_test_ca_crt_rsa_sha256),
 #endif
 #if defined(MBEDTLS_ECDSA_C)
-	sizeof( mbedtls_test_ca_crt_ec ),
+	sizeof(mbedtls_test_ca_crt_ec),
 #endif
 	0
 };
@@ -379,13 +379,13 @@ const char *mbedtls_test_srv_crt = mbedtls_test_srv_crt_rsa;
 const char *mbedtls_test_srv_key = mbedtls_test_srv_key_rsa;
 const char *mbedtls_test_cli_crt = mbedtls_test_cli_crt_rsa;
 const char *mbedtls_test_cli_key = mbedtls_test_cli_key_rsa;
-const size_t mbedtls_test_ca_crt_len  = sizeof( mbedtls_test_ca_crt_rsa );
-const size_t mbedtls_test_ca_key_len  = sizeof( mbedtls_test_ca_key_rsa );
-const size_t mbedtls_test_ca_pwd_len  = sizeof( mbedtls_test_ca_pwd_rsa ) - 1;
-const size_t mbedtls_test_srv_crt_len = sizeof( mbedtls_test_srv_crt_rsa );
-const size_t mbedtls_test_srv_key_len = sizeof( mbedtls_test_srv_key_rsa );
-const size_t mbedtls_test_cli_crt_len = sizeof( mbedtls_test_cli_crt_rsa );
-const size_t mbedtls_test_cli_key_len = sizeof( mbedtls_test_cli_key_rsa );
+const size_t mbedtls_test_ca_crt_len  = sizeof(mbedtls_test_ca_crt_rsa);
+const size_t mbedtls_test_ca_key_len  = sizeof(mbedtls_test_ca_key_rsa);
+const size_t mbedtls_test_ca_pwd_len  = sizeof(mbedtls_test_ca_pwd_rsa) - 1;
+const size_t mbedtls_test_srv_crt_len = sizeof(mbedtls_test_srv_crt_rsa);
+const size_t mbedtls_test_srv_key_len = sizeof(mbedtls_test_srv_key_rsa);
+const size_t mbedtls_test_cli_crt_len = sizeof(mbedtls_test_cli_crt_rsa);
+const size_t mbedtls_test_cli_key_len = sizeof(mbedtls_test_cli_key_rsa);
 #else /* ! MBEDTLS_RSA_C, so MBEDTLS_ECDSA_C */
 const char *mbedtls_test_ca_crt  = mbedtls_test_ca_crt_ec;
 const char *mbedtls_test_ca_key  = mbedtls_test_ca_key_ec;
@@ -394,13 +394,13 @@ const char *mbedtls_test_srv_crt = mbedtls_test_srv_crt_ec;
 const char *mbedtls_test_srv_key = mbedtls_test_srv_key_ec;
 const char *mbedtls_test_cli_crt = mbedtls_test_cli_crt_ec;
 const char *mbedtls_test_cli_key = mbedtls_test_cli_key_ec;
-const size_t mbedtls_test_ca_crt_len  = sizeof( mbedtls_test_ca_crt_ec );
-const size_t mbedtls_test_ca_key_len  = sizeof( mbedtls_test_ca_key_ec );
-const size_t mbedtls_test_ca_pwd_len  = sizeof( mbedtls_test_ca_pwd_ec ) - 1;
-const size_t mbedtls_test_srv_crt_len = sizeof( mbedtls_test_srv_crt_ec );
-const size_t mbedtls_test_srv_key_len = sizeof( mbedtls_test_srv_key_ec );
-const size_t mbedtls_test_cli_crt_len = sizeof( mbedtls_test_cli_crt_ec );
-const size_t mbedtls_test_cli_key_len = sizeof( mbedtls_test_cli_key_ec );
+const size_t mbedtls_test_ca_crt_len  = sizeof(mbedtls_test_ca_crt_ec);
+const size_t mbedtls_test_ca_key_len  = sizeof(mbedtls_test_ca_key_ec);
+const size_t mbedtls_test_ca_pwd_len  = sizeof(mbedtls_test_ca_pwd_ec) - 1;
+const size_t mbedtls_test_srv_crt_len = sizeof(mbedtls_test_srv_crt_ec);
+const size_t mbedtls_test_srv_key_len = sizeof(mbedtls_test_srv_key_ec);
+const size_t mbedtls_test_cli_crt_len = sizeof(mbedtls_test_cli_crt_ec);
+const size_t mbedtls_test_cli_key_len = sizeof(mbedtls_test_cli_key_ec);
 #endif /* MBEDTLS_RSA_C */
 
 #endif /* MBEDTLS_CERTS_C */
