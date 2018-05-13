@@ -35,9 +35,9 @@
 #if !defined(MBEDTLS_PLATFORM_STD_CALLOC)
 static void *platform_calloc_uninit( size_t n, size_t size )
 {
-    ((void) n);
-    ((void) size);
-    return( NULL );
+	((void) n);
+	((void) size);
+	return( NULL );
 }
 
 #define MBEDTLS_PLATFORM_STD_CALLOC   platform_calloc_uninit
@@ -46,21 +46,21 @@ static void *platform_calloc_uninit( size_t n, size_t size )
 #if !defined(MBEDTLS_PLATFORM_STD_FREE)
 static void platform_free_uninit( void *ptr )
 {
-    ((void) ptr);
+	((void) ptr);
 }
 
-#define MBEDTLS_PLATFORM_STD_FREE     platform_free_uninit
+#define MBEDTLS_PLATFORM_STD_FREE	 platform_free_uninit
 #endif /* !MBEDTLS_PLATFORM_STD_FREE */
 
 void * (*mbedtls_calloc)( size_t, size_t ) = MBEDTLS_PLATFORM_STD_CALLOC;
-void (*mbedtls_free)( void * )     = MBEDTLS_PLATFORM_STD_FREE;
+void (*mbedtls_free)( void * )	 = MBEDTLS_PLATFORM_STD_FREE;
 
 int mbedtls_platform_set_calloc_free( void * (*calloc_func)( size_t, size_t ),
-                              void (*free_func)( void * ) )
+							  void (*free_func)( void * ) )
 {
-    mbedtls_calloc = calloc_func;
-    mbedtls_free = free_func;
-    return( 0 );
+	mbedtls_calloc = calloc_func;
+	mbedtls_free = free_func;
+	return( 0 );
 }
 #endif /* MBEDTLS_PLATFORM_MEMORY */
 
@@ -70,27 +70,27 @@ int mbedtls_platform_set_calloc_free( void * (*calloc_func)( size_t, size_t ),
  * Make dummy function to prevent NULL pointer dereferences
  */
 static int platform_snprintf_uninit( char * s, size_t n,
-                                     const char * format, ... )
+									 const char * format, ... )
 {
-    ((void) s);
-    ((void) n);
-    ((void) format);
-    return( 0 );
+	((void) s);
+	((void) n);
+	((void) format);
+	return( 0 );
 }
 
-#define MBEDTLS_PLATFORM_STD_SNPRINTF    platform_snprintf_uninit
+#define MBEDTLS_PLATFORM_STD_SNPRINTF	platform_snprintf_uninit
 #endif /* !MBEDTLS_PLATFORM_STD_SNPRINTF */
 
 int (*mbedtls_snprintf)( char * s, size_t n,
-                          const char * format,
-                          ... ) = MBEDTLS_PLATFORM_STD_SNPRINTF;
+						  const char * format,
+						  ... ) = MBEDTLS_PLATFORM_STD_SNPRINTF;
 
 int mbedtls_platform_set_snprintf( int (*snprintf_func)( char * s, size_t n,
-                                                 const char * format,
-                                                 ... ) )
+												 const char * format,
+												 ... ) )
 {
-    mbedtls_snprintf = snprintf_func;
-    return( 0 );
+	mbedtls_snprintf = snprintf_func;
+	return( 0 );
 }
 #endif /* MBEDTLS_PLATFORM_SNPRINTF_ALT */
 
@@ -101,19 +101,19 @@ int mbedtls_platform_set_snprintf( int (*snprintf_func)( char * s, size_t n,
  */
 static int platform_printf_uninit( const char *format, ... )
 {
-    ((void) format);
-    return( 0 );
+	((void) format);
+	return( 0 );
 }
 
-#define MBEDTLS_PLATFORM_STD_PRINTF    platform_printf_uninit
+#define MBEDTLS_PLATFORM_STD_PRINTF	platform_printf_uninit
 #endif /* !MBEDTLS_PLATFORM_STD_PRINTF */
 
 int (*mbedtls_printf)( const char *, ... ) = MBEDTLS_PLATFORM_STD_PRINTF;
 
 int mbedtls_platform_set_printf( int (*printf_func)( const char *, ... ) )
 {
-    mbedtls_printf = printf_func;
-    return( 0 );
+	mbedtls_printf = printf_func;
+	return( 0 );
 }
 #endif /* MBEDTLS_PLATFORM_PRINTF_ALT */
 
@@ -124,21 +124,21 @@ int mbedtls_platform_set_printf( int (*printf_func)( const char *, ... ) )
  */
 static int platform_fprintf_uninit( FILE *stream, const char *format, ... )
 {
-    ((void) stream);
-    ((void) format);
-    return( 0 );
+	((void) stream);
+	((void) format);
+	return( 0 );
 }
 
 #define MBEDTLS_PLATFORM_STD_FPRINTF   platform_fprintf_uninit
 #endif /* !MBEDTLS_PLATFORM_STD_FPRINTF */
 
 int (*mbedtls_fprintf)( FILE *, const char *, ... ) =
-                                        MBEDTLS_PLATFORM_STD_FPRINTF;
+										MBEDTLS_PLATFORM_STD_FPRINTF;
 
 int mbedtls_platform_set_fprintf( int (*fprintf_func)( FILE *, const char *, ... ) )
 {
-    mbedtls_fprintf = fprintf_func;
-    return( 0 );
+	mbedtls_fprintf = fprintf_func;
+	return( 0 );
 }
 #endif /* MBEDTLS_PLATFORM_FPRINTF_ALT */
 
@@ -149,7 +149,7 @@ int mbedtls_platform_set_fprintf( int (*fprintf_func)( FILE *, const char *, ...
  */
 static void platform_exit_uninit( int status )
 {
-    ((void) status);
+	((void) status);
 }
 
 #define MBEDTLS_PLATFORM_STD_EXIT   platform_exit_uninit
@@ -159,8 +159,8 @@ void (*mbedtls_exit)( int status ) = MBEDTLS_PLATFORM_STD_EXIT;
 
 int mbedtls_platform_set_exit( void (*exit_func)( int status ) )
 {
-    mbedtls_exit = exit_func;
-    return( 0 );
+	mbedtls_exit = exit_func;
+	return( 0 );
 }
 #endif /* MBEDTLS_PLATFORM_EXIT_ALT */
 
@@ -171,8 +171,8 @@ int mbedtls_platform_set_exit( void (*exit_func)( int status ) )
  */
 static time_t platform_time_uninit( mbedtls_time_t* timer )
 {
-    ((void) timer);
-    return( 0 );
+	((void) timer);
+	return( 0 );
 }
 
 #define MBEDTLS_PLATFORM_STD_TIME   platform_time_uninit
@@ -182,8 +182,8 @@ time_t (*mbedtls_time)( mbedtls_time_t* timer ) = MBEDTLS_PLATFORM_STD_TIME;
 
 int mbedtls_platform_set_time( time_t (*time_func)( mbedtls_time_t* timer ) )
 {
-    mbedtls_time = time_func;
-    return( 0 );
+	mbedtls_time = time_func;
+	return( 0 );
 }
 #endif /* MBEDTLS_PLATFORM_TIME_ALT */
 
@@ -193,9 +193,9 @@ int mbedtls_platform_set_time( time_t (*time_func)( mbedtls_time_t* timer ) )
  */
 int mbedtls_platform_setup( mbedtls_platform_context *ctx )
 {
-    (void)ctx;
+	(void)ctx;
 
-    return( 0 );
+	return( 0 );
 }
 
 /*
@@ -203,7 +203,7 @@ int mbedtls_platform_setup( mbedtls_platform_context *ctx )
  */
 void mbedtls_platform_teardown( mbedtls_platform_context *ctx )
 {
-    (void)ctx;
+	(void)ctx;
 }
 #endif /* MBEDTLS_PLATFORM_SETUP_TEARDOWN_ALT */
 
