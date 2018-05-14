@@ -401,17 +401,27 @@ tfw_tls_do_cleanup(void)
  * ------------------------------------------------------------------------
  */
 
+/* TLS configuration state. */
+#define TFW_TLS_CFG_F_DISABLED	0
+#define TFW_TLS_CFG_F_REQUIRED	1
+#define TFW_TLS_CFG_F_CERT	2
+#define TFW_TLS_CFG_F_CKEY	4
+#define TFW_TLS_CFG_M_ALL	(TFW_TLS_CFG_F_CERT | TFW_TLS_CFG_F_CKEY)
+
+static unsigned int tfw_tls_cgf = TFW_TLS_CFG_F_DISABLED;
+
+void
+tfw_tls_cfg_require(void)
+{
+	tfw_tls_cgf |= TFW_TLS_CFG_F_REQUIRED;
+}
+
 static int
 tfw_tls_start(void)
 {
-	int r = tfw_runstate_is_reconfig();
+	int r;
 
-	if (!tfw_tls.crt.version) {
-		TFW_ERR("TLS: please spcify a certificate with"
-			" tls_certificate configuration option\n");
-		return -EINVAL;
-	}
-	if (r)
+	if (tfw_runstate_is_reconfig())
 		return 0;
 
 	mbedtls_ssl_conf_ca_chain(&tfw_tls.cfg, tfw_tls.crt.next, NULL);
@@ -464,6 +474,7 @@ tfw_cfgop_ssl_certificate(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			   cs->name, -r);
 		return -EINVAL;
 	}
+	tfw_tls_cgf |= TFW_TLS_CFG_F_CERT;
 
 	return 0;
 }
@@ -514,6 +525,7 @@ tfw_cfgop_ssl_certificate_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			   cs->name, -r);
 		return -EINVAL;
 	}
+	tfw_tls_cgf |= TFW_TLS_CFG_F_CKEY;
 
 	return 0;
 }
@@ -527,8 +539,20 @@ tfw_cfgop_cleanup_ssl_certificate_key(TfwCfgSpec *cs)
 static int
 tfw_tls_cfgend(void)
 {
-	if ((tfw_tls.crt.version && !tfw_tls.key.pk_ctx) ||
-	    (!tfw_tls.crt.version && tfw_tls.key.pk_ctx)) {
+	if (!(tfw_tls_cgf & TFW_TLS_CFG_F_REQUIRED)) {
+		if (tfw_tls_cgf & TFW_TLS_CFG_F_REQUIRED)
+			TFW_WARN_NL("TLS: no HTTPS listener,"
+				    " configuration ignored\n");
+		return 0;
+	}
+
+	if (!(tfw_tls_cgf & TFW_TLS_CFG_F_CERT)) {
+		TFW_ERR_NL("TLS: please spcify a certificate with"
+			   " tls_certificate configuration option\n");
+		return -EINVAL;
+	}
+
+	if ((tfw_tls_cgf & TFW_TLS_CFG_M_ALL) != TFW_TLS_CFG_M_ALL) {
 		TFW_ERR_NL("TLS: SSL certificate/key pair is incomplete\n");
 		return -EINVAL;
 	}
