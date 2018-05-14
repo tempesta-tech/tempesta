@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Transport Layer Security (TLS) implementation.
+ * Transport Layer Security (TLS) interfaces to Tempesta TLS.
  *
  * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
@@ -19,8 +19,6 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <linux/vmalloc.h>
-
 #include "cfg.h"
 #include "connection.h"
 #include "client.h"
@@ -282,11 +280,6 @@ tfw_tls_conn_init(TfwConn *c)
 	ss_skb_queue_head_init(&tls->rx_queue);
 	ss_skb_queue_head_init(&tls->tx_queue);
 
-	if (!tfw_tls.crt.version) {
-		TFW_ERR("TLS:%p no certificate specified\n", tls);
-		return -EINVAL;
-	}
-
 	r = mbedtls_ssl_setup(&tls->ssl, &tfw_tls.cfg);
 	if (r) {
 		TFW_ERR("TLS:%p setup failed (%x)\n", tls, -r);
@@ -296,9 +289,8 @@ tfw_tls_conn_init(TfwConn *c)
 	mbedtls_ssl_set_bio(&tls->ssl, c,
 			    tfw_tls_send_cb, tfw_tls_recv_cb, NULL);
 
-	if (tfw_conn_hook_call(TFW_FSM_HTTP, c, conn_init)) {
+	if (tfw_conn_hook_call(TFW_FSM_HTTP, c, conn_init))
 		return -EINVAL;
-	}
 
 	spin_lock_init(&tls->lock);
 	tfw_gfsm_state_init(&c->state, c, TFW_TLS_FSM_INIT);
@@ -410,6 +402,21 @@ tfw_tls_do_cleanup(void)
  * ------------------------------------------------------------------------
  */
 
+/* TLS configuration state. */
+#define TFW_TLS_CFG_F_DISABLED	0U
+#define TFW_TLS_CFG_F_REQUIRED	1U
+#define TFW_TLS_CFG_F_CERT	2U
+#define TFW_TLS_CFG_F_CKEY	4U
+#define TFW_TLS_CFG_M_ALL	(TFW_TLS_CFG_F_CERT | TFW_TLS_CFG_F_CKEY)
+
+static unsigned int tfw_tls_cgf = TFW_TLS_CFG_F_DISABLED;
+
+void
+tfw_tls_cfg_require(void)
+{
+	tfw_tls_cgf |= TFW_TLS_CFG_F_REQUIRED;
+}
+
 static int
 tfw_tls_start(void)
 {
@@ -468,6 +475,7 @@ tfw_cfgop_ssl_certificate(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			   cs->name, -r);
 		return -EINVAL;
 	}
+	tfw_tls_cgf |= TFW_TLS_CFG_F_CERT;
 
 	return 0;
 }
@@ -476,6 +484,7 @@ static void
 tfw_cfgop_cleanup_ssl_certificate(TfwCfgSpec *cs)
 {
 	mbedtls_x509_crt_free(&tfw_tls.crt);
+	tfw_tls_cgf &= ~TFW_TLS_CFG_F_CERT;
 }
 
 /**
@@ -518,6 +527,7 @@ tfw_cfgop_ssl_certificate_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			   cs->name, -r);
 		return -EINVAL;
 	}
+	tfw_tls_cgf |= TFW_TLS_CFG_F_CKEY;
 
 	return 0;
 }
@@ -526,14 +536,26 @@ static void
 tfw_cfgop_cleanup_ssl_certificate_key(TfwCfgSpec *cs)
 {
 	mbedtls_pk_free(&tfw_tls.key);
+	tfw_tls_cgf &= ~TFW_TLS_CFG_F_CKEY;
 }
 
 static int
 tfw_tls_cfgend(void)
 {
-	if ((tfw_tls.crt.version && !tfw_tls.key.pk_ctx) ||
-	    (!tfw_tls.crt.version && tfw_tls.key.pk_ctx)) {
-		TFW_ERR_NL("TLS: SSL certificate/key pair is incomplete\n");
+	if (!(tfw_tls_cgf & TFW_TLS_CFG_F_REQUIRED)) {
+		if (tfw_tls_cgf)
+			TFW_WARN_NL("TLS: no HTTPS listener,"
+				    " configuration ignored\n");
+		return 0;
+	}
+	if (!(tfw_tls_cgf & TFW_TLS_CFG_F_CERT)) {
+		TFW_ERR_NL("TLS: please specify a certificate with"
+			   " tls_certificate configuration option\n");
+		return -EINVAL;
+	}
+	if (!(tfw_tls_cgf & TFW_TLS_CFG_F_CKEY)) {
+		TFW_ERR_NL("TLS: please specify a certificate key with"
+			   " tls_certificate_key configuration option\n");
 		return -EINVAL;
 	}
 
@@ -542,7 +564,7 @@ tfw_tls_cfgend(void)
 
 static TfwCfgSpec tfw_tls_specs[] = {
 	{
-		.name = "ssl_certificate",
+		.name = "tls_certificate",
 		.deflt = NULL,
 		.handler = tfw_cfgop_ssl_certificate,
 		.allow_none = true,
@@ -550,7 +572,7 @@ static TfwCfgSpec tfw_tls_specs[] = {
 		.cleanup = tfw_cfgop_cleanup_ssl_certificate,
 	},
 	{
-		.name = "ssl_certificate_key",
+		.name = "tls_certificate_key",
 		.deflt = NULL,
 		.handler = tfw_cfgop_ssl_certificate_key,
 		.allow_none = true,

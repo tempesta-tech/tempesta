@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -62,6 +62,8 @@ typedef struct {
 	SsSkbList		tx_queue;
 	spinlock_t		lock;
 } TfwTlsContext;
+
+void tfw_tls_cfg_require(void);
 
 #endif /* __TFW_TLS_H__ */
 
