@@ -1913,7 +1913,7 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 
 	/*
 	 * New message created, so it should be in whitelist if
-	 * previous message was (for client connections). Also 
+	 * previous message was (for client connections). Also
 	 * we have new skb here and 'mark' propagation is needed.
 	 */
 	if (TFW_CONN_TYPE(hm->conn) & Conn_Clnt) {

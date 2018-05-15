@@ -353,9 +353,9 @@ static const match_fn match_fn_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
 };
 
 /**
- * Dispatch rule to a corresponding match_*() function, invert result 
+ * Dispatch rule to a corresponding match_*() function, invert result
  * if rule contains the inequality condition and evaluate rule if it
- * has appropriate action type. 
+ * has appropriate action type.
  */
 static bool
 do_eval(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
