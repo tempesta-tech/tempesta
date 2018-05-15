@@ -58,7 +58,7 @@
  *   }
  *
  * There's also a default match rule that looks like this:
- *       -> storage; 
+ *                       -> storage;
  * This rule works as last resort option, and if specified it forwards requests
  * that didn't match any more specific rule to the designated virtual host. As
  * all match rules are processed in sequential order, this rule must come last
