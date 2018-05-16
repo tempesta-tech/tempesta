@@ -515,20 +515,6 @@ tfw_cfgop_replace_active_table(TfwHttpTable *new_table)
 	tfw_cfgop_free_table(active_table);
 }
 
-/**
- * Delete all rules parsed out of all "http_chain" sections for current (if
- * this is not live reconfiguration) and reconfig HTTP tables.
- */
-static void
-tfw_cfgop_cleanup_rules(TfwCfgSpec *cs)
-{
-	tfw_cfgop_free_table(tfw_table_reconfig);
-	tfw_table_reconfig = NULL;
-
-	if (!tfw_runstate_is_reconfig())
-		tfw_cfgop_replace_active_table(NULL);
-}
-
 static int
 tfw_sched_http_start(void)
 {
@@ -591,10 +577,30 @@ err:
 	return r;
 }
 
-void
-tfw_sched_http_cfgclean(void) {
+/**
+ * Delete all rules parsed out of all "http_chain" sections for current (if
+ * this is not live reconfiguration) and reconfig HTTP tables.
+ */
+static void
+__tfw_cfgop_rules_cleanup(void)
+{
 	tfw_cfgop_free_table(tfw_table_reconfig);
 	tfw_table_reconfig = NULL;
+
+	if (!tfw_runstate_is_reconfig())
+		tfw_cfgop_replace_active_table(NULL);
+}
+
+static void
+tfw_cfgop_rules_cleanup(TfwCfgSpec *cs)
+{
+	__tfw_cfgop_rules_cleanup();
+}
+
+static void
+tfw_sched_http_cfgclean(void)
+{
+	__tfw_cfgop_rules_cleanup();
 }
 
 static TfwCfgSpec tfw_sched_http_rules_specs[] = {
@@ -614,7 +620,7 @@ static TfwCfgSpec tfw_sched_http_specs[] = {
 		.name = "http_chain",
 		.deflt = NULL,
 		.handler = tfw_cfg_handle_children,
-		.cleanup = tfw_cfgop_cleanup_rules,
+		.cleanup = tfw_cfgop_rules_cleanup,
 		.dest = tfw_sched_http_rules_specs,
 		.spec_ext = &(TfwCfgSpecChild) {
 			.begin_hook = tfw_cfgop_sched_http_chain_begin,
