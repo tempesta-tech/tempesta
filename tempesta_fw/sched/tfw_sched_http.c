@@ -59,10 +59,10 @@
  *
  * There's also a default match rule that looks like this:
  *                       -> storage;
- * This rule works as last resort option, and if specified it forwards requests
- * that didn't match any more specific rule to the designated virtual host. As
- * all match rules are processed in sequential order, this rule must come last
- * to serve the intended role.
+ * This rule works as last resort option, and if specified it applies designated
+ * action to requests that didn't match any more specific rule. As all match
+ * rules are processed in sequential order, this rule must come last to serve
+ * the intended role.
  *
  * Rules are grouped in HTTP chains. One main HTTP chain (without name) must
  * be specified after all other chains in configuration file. If no main chain
@@ -594,6 +594,7 @@ __tfw_cfgop_rules_cleanup(void)
 static void
 tfw_cfgop_rules_cleanup(TfwCfgSpec *cs)
 {
+	tfw_chain_entry = NULL;
 	__tfw_cfgop_rules_cleanup();
 }
 
