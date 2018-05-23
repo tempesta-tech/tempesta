@@ -17,16 +17,22 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __LIB_STR_H__
-#define __LIB_STR_H__
+#include <linux/string.h>
 
-void memcpy_fast(void *to, const void *from, size_t len);
-/*
- * This memcmp() version return 0 on equal strings and non-zero otherwise -
- * keep this in mind, e.g. it can not be used for binary search as the standard
- * one.
- */
-int memcmp_fast(const void *a, const void *b, size_t len);
-void bzero_fast(void *s, size_t len);
+void
+memcpy_fast(void *to, const void *from, size_t len)
+{
+	memcpy(to, from, len);
+}
 
-#endif /* __LIB_STR_H__ */
+int
+memcmp_fast(const void *a, const void *b, size_t len)
+{
+	return memcmp(a, b, len);
+}
+
+void
+bzero_fast(void *s, size_t len)
+{
+	memset(s, 0, len);
+}
