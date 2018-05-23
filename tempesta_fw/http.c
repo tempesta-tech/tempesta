@@ -2259,7 +2259,6 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 	}
 	if (!req_retent) {
 		spin_unlock_bh(&cli_conn->seq_qlock);
-		tfw_http_resp_pair_free(resp->req);
 		return;
 	}
 	__list_cut_position(&ret_queue, seq_queue, req_retent);
