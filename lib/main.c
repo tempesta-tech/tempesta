@@ -18,9 +18,10 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include <linux/module.h>
+#include <linux/string.h>
 
 MODULE_AUTHOR("Tempesta Technologies, INC");
-MODULE_VERSION("0.1.0");
+MODULE_VERSION("0.1.1");
 MODULE_LICENSE("GPL");
 
 /* Assembly wrappers to make linker happy. */
@@ -31,21 +32,33 @@ extern void __bzero_fast(void *s, size_t len);
 void
 memcpy_fast(void *to, const void *from, size_t len)
 {
+#ifdef AVX2
 	__memcpy_fast(to, from, len);
+#else
+	memcpy(to, from, len);
+#endif
 }
 EXPORT_SYMBOL(memcpy_fast);
 
 int
 memcmp_fast(const void *a, const void *b, size_t len)
 {
+#ifdef AVX2
 	return __memcmp_fast(a, b, len);
+#else
+	return memcmp(a, b, len);
+#endif
 }
 EXPORT_SYMBOL(memcmp_fast);
 
 void
 bzero_fast(void *s, size_t len)
 {
+#ifdef AVX2
 	__bzero_fast(s, len);
+#else
+	memset(s, 0, len);
+#endif
 }
 EXPORT_SYMBOL(bzero_fast);
 
