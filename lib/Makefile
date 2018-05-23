@@ -23,6 +23,4 @@ obj-m	= tempesta_lib.o
 tempesta_lib-objs = hash.o main.o
 ifdef AVX2
 tempesta_lib-objs += str_simd.o
-else
-tempesta_lib-objs += str_compat.o
 endif
