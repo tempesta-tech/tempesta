@@ -257,6 +257,10 @@ tfw_cfgop_match(TfwCfgSpec *cs, TfwCfgEntry *e)
 
 	if ((r = tfw_cfg_check_val_n(e, 4)))
 		return r;
+	if (e->attr_n) {
+		TFW_ERR_NL("Unexpected attributes\n");
+		return -EINVAL;
+	}
 
 	in_vhost = e->vals[0];
 	in_field = e->vals[1];
