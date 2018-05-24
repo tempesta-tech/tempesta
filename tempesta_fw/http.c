@@ -598,7 +598,7 @@ __tfw_http_send_resp(TfwHttpReq *req, resp_code_t code)
 	};
 
 	if (tfw_strcpy_desc(&msg, &http_predef_resps[code]))
-		return;
+		goto err;
 
 	crlf = TFW_STR_CRLF_CH(&msg);
 	if (conn_flag) {
@@ -614,7 +614,7 @@ __tfw_http_send_resp(TfwHttpReq *req, resp_code_t code)
 	}
 
 	if (!(resp = tfw_http_msg_alloc_resp_light(req)))
-		goto err_create;
+		goto err;
 	if (tfw_http_msg_setup((TfwHttpMsg *)resp, &it, msg.len))
 		goto err_setup;
 
@@ -635,7 +635,7 @@ err_setup:
 	TFW_DBG2("%s: Response message allocation error: conn=[%p]\n",
 		 __func__, req->conn);
 	tfw_http_msg_free((TfwHttpMsg *)resp);
-err_create:
+err:
 	tfw_http_resp_build_error(req);
 }
 
@@ -2231,7 +2231,7 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 	 * If the list is empty, then it's either a bug, or the client
 	 * connection had been closed. If it's a bug, then the correct
 	 * order of responses to requests may be broken. The connection
-	 * with the client must to be closed immediately.
+	 * with the client must be closed immediately.
 	 *
 	 * Doing ss_close_sync() on client connection's socket is safe
 	 * as long as @req that holds a reference to the connection is
