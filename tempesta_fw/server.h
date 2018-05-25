@@ -98,6 +98,7 @@ enum {
  * @srv_list	- list of servers belonging to the group;
  * @sched	- requests scheduling handler;
  * @sched_data	- private scheduler data for the server group;
+ * @sched_misses - number of failed scheduling attempts;
  * @srv_n	- configured number of servers in the group;
  * @refcnt	- number of users of the server group structure instance;
  * @max_qsize	- maximum queue size of a server connection;
@@ -114,6 +115,7 @@ struct tfw_srv_group_t {
 	struct list_head	srv_list;
 	TfwScheduler		*sched;
 	void __rcu		*sched_data;
+	atomic64_t		sched_misses;
 	size_t			srv_n;
 	atomic64_t		refcnt;
 	unsigned int		max_qsize;
@@ -147,7 +149,7 @@ typedef struct {
 					 | TFW_SG_F_SCHED_RATIO_DYNAMIC	\
 					 | TFW_SG_F_SCHED_RATIO_PREDICT)
 
-#define TFW_SRV_RETRY_NIP		0x0100	/* Retry non-idemporent req. */
+#define TFW_SRV_RETRY_NIP		0x0100	/* Retry non-idempotent req. */
 #define TFW_SRV_STICKY			0x0200	/* Use sticky sessions. */
 #define TFW_SRV_STICKY_FAILOVER		0x0400	/* Allow failovering. */
 #define TFW_SRV_STICKY_FLAGS		\

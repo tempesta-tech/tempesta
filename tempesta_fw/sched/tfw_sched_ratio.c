@@ -867,7 +867,10 @@ tfw_sched_ratio_sched_srv_conn(TfwMsg *msg, TfwServer *srv)
 	 */
 	if (!(((TfwHttpReq *)msg)->flags & TFW_HTTP_F_HMONITOR)
 	    && tfw_srv_suspended(srv))
+	{
+		atomic64_inc(&srv->sg->sched_misses);
 		return NULL;
+	}
 
 	rcu_read_lock_bh();
 	srvdesc = rcu_dereference_bh(srv->sched_data);
@@ -883,6 +886,8 @@ rerun:
 	}
 done:
 	rcu_read_unlock_bh();
+	if (!srv_conn)
+		atomic64_inc(&srv->sg->sched_misses);
 	return srv_conn;
 }
 
@@ -916,10 +921,8 @@ tfw_sched_ratio_sched_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 
 	rcu_read_lock_bh();
 	ratio = rcu_dereference_bh(sg->sched_data);
-	if (unlikely(!ratio)) {
-		rcu_read_unlock_bh();
-		return NULL;
-	}
+	if (unlikely(!ratio))
+		goto sched_miss;
 
 	rtodata = rcu_dereference_bh(ratio->rtodata);
 	BUG_ON(!rtodata);
@@ -969,7 +972,9 @@ rerun:
 		goto rerun;
 	}
 
+sched_miss:
 	rcu_read_unlock_bh();
+	atomic64_inc(&sg->sched_misses);
 	return NULL;
 }
 
