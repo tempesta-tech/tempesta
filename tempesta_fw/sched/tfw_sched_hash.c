@@ -221,6 +221,8 @@ tfw_sched_hash_get_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
 
 	rcu_read_unlock_bh();
 
+	if (!srv_conn)
+		atomic64_inc(&sg->sched_misses);
 	return srv_conn;
 }
 
@@ -242,6 +244,8 @@ tfw_sched_hash_get_srv_conn(TfwMsg *msg, TfwServer *srv)
 
 	rcu_read_unlock_bh();
 
+	if (!srv_conn)
+		atomic64_inc(&srv->sg->sched_misses);
 	return srv_conn;
 }
 

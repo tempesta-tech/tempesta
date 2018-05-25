@@ -164,6 +164,54 @@ tfw_perfstat_seq_open(struct inode *inode, struct file *file)
 }
 
 static int
+tfw_sgstats_seq_show(struct seq_file *seq, void *off)
+{
+	TfwSrvGroup *sg = seq->private;
+
+	seq_printf(seq, "Servers\t\t\t\t\t\t: %zd\n",
+			sg->srv_n);
+	seq_printf(seq, "Maximum forwarding queue size\t\t\t: %u\n",
+			sg->max_qsize);
+	seq_printf(seq, "Maximum request forwarding retries\t\t: %u\n",
+			sg->max_refwd);
+	seq_printf(seq, "Maximum number of reconnect attempts\t\t: %u\n",
+			sg->max_recns);
+	seq_printf(seq, "Maximum age of request\t\t\t\t: %us\n",
+			jiffies_to_msecs(sg->max_jqage) / 1000);
+
+	seq_printf(seq, "Non-idempotent requests forwarding retries\t: %s\n",
+			((sg->flags & TFW_SRV_RETRY_NIP) ? "enabled"
+							 : "disabled"));
+	seq_printf(seq, "Sticky sessions\t\t\t\t\t: %s\n",
+			((sg->flags & TFW_SRV_STICKY) ? "enabled"
+						      : "disabled"));
+	seq_printf(seq, "Sticky sessions failovering\t\t\t: %s\n",
+			((sg->flags & TFW_SRV_STICKY_FAILOVER) ? "enabled"
+							       : "disabled"));
+#ifdef DEBUG
+	seq_printf(seq, "References\t\t\t\t\t: %zd\n",
+			atomic64_read(&sg->refcnt));
+#endif
+	seq_printf(seq, "Attached scheduler\t\t\t\t: %s",
+			sg->sched->name);
+	if (!strcasecmp(sg->sched->name, "ratio")) {
+		if (sg->flags & TFW_SG_F_SCHED_RATIO_STATIC)
+			seq_printf(seq, " static\n");
+		if (sg->flags & TFW_SG_F_SCHED_RATIO_DYNAMIC)
+			seq_printf(seq, " dynamic\n");
+		if (sg->flags & TFW_SG_F_SCHED_RATIO_PREDICT)
+			seq_printf(seq, " predict\n");
+	}
+	else {
+		seq_printf(seq, "\n");
+	}
+	seq_printf(seq, "Scheduler misses\t\t\t\t: %zd\n",
+			atomic64_read(&sg->sched_misses));
+
+	return 0;
+}
+
+static int
 tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 {
 #define SPRNE(m, e)	seq_printf(seq, m": %dms\n", e)
@@ -236,13 +284,21 @@ tfw_srvstats_seq_show(struct seq_file *seq, void *off)
 }
 
 static int
-tfw_srvstats_seq_reconfig(struct seq_file *seq, void *off)
+tfw_stats_seq_reconfig(struct seq_file *seq, void *off)
 {
-	/* Reference to server may be broken during reconfig. */
+	/* Reference to servers and groups may be broken during reconfig. */
 	seq_printf(seq,
-		   "Per-Server statistics is unavailable during reconfiguration\n");
+		   "Server statistics is unavailable during reconfiguration\n");
 
 	return 0;
+}
+
+static int
+tfw_sgstats_seq_open(struct inode *inode, struct file *file)
+{
+	if (!tfw_runstate_is_reconfig())
+		return single_open(file, tfw_sgstats_seq_show, PDE_DATA(inode));
+	return single_open(file, tfw_stats_seq_reconfig, PDE_DATA(inode));
 }
 
 static int
@@ -250,7 +306,7 @@ tfw_srvstats_seq_open(struct inode *inode, struct file *file)
 {
 	if (!tfw_runstate_is_reconfig())
 		return single_open(file, tfw_srvstats_seq_show, PDE_DATA(inode));
-	return single_open(file, tfw_srvstats_seq_reconfig, PDE_DATA(inode));
+	return single_open(file, tfw_stats_seq_reconfig, PDE_DATA(inode));
 }
 
 /*
@@ -260,6 +316,22 @@ static struct proc_dir_entry *tfw_procfs_tempesta;
 static struct proc_dir_entry *tfw_procfs_perfstat;
 static struct proc_dir_entry *tfw_procfs_srvstats;
 static struct proc_dir_entry *tfw_procfs_sgstats;
+
+static struct file_operations tfw_perfstat_fops = {
+	.owner		= THIS_MODULE,
+	.open		= tfw_perfstat_seq_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+static struct file_operations tfw_sgstats_fops = {
+	.owner		= THIS_MODULE,
+	.open		= tfw_sgstats_seq_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
 
 static struct file_operations tfw_srvstats_fops = {
 	.owner		= THIS_MODULE,
@@ -286,9 +358,16 @@ tfw_procfs_srv_create(TfwServer *srv)
 static int
 tfw_procfs_sg_create(TfwSrvGroup *sg)
 {
+	struct proc_dir_entry *pfs_sg;
+
 	if (!(tfw_procfs_sgstats = proc_mkdir(sg->name, tfw_procfs_srvstats)))
 		return -ENOENT;
-	return 0;
+
+	pfs_sg = proc_create_data("stat", S_IRUGO,
+				  tfw_procfs_sgstats,
+				  &tfw_sgstats_fops, sg);
+
+	return pfs_sg ? 0 : -ENOENT;
 }
 
 static int
@@ -347,13 +426,6 @@ TfwMod tfw_procfs_mod = {
 /*
  * Init/exit routines.
  */
-static struct file_operations tfw_perfstat_fops = {
-	.owner		= THIS_MODULE,
-	.open		= tfw_perfstat_seq_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
 
 int
 tfw_procfs_init(void)
