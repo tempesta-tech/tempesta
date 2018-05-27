@@ -26,29 +26,12 @@
  */
 #ifndef MBEDTLS_OID_H
 #define MBEDTLS_OID_H
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
 #include "asn1.h"
 #include "pk.h"
-
-#include <stddef.h>
-
-#if defined(MBEDTLS_CIPHER_C)
 #include "cipher.h"
-#endif
-
-#if defined(MBEDTLS_MD_C)
 #include "md.h"
-#endif
-
-#if defined(MBEDTLS_X509_USE_C) || defined(MBEDTLS_X509_CREATE_C)
 #include "x509.h"
-#endif
 
 #define MBEDTLS_ERR_OID_NOT_FOUND						 -0x002E  /**< OID is not found. */
 #define MBEDTLS_ERR_OID_BUF_TOO_SMALL					 -0x000B  /**< output buffer is too small */
@@ -384,10 +367,6 @@
  *   ecdsa-with-SHA2(3) 4 } */
 #define MBEDTLS_OID_ECDSA_SHA512			MBEDTLS_OID_ANSI_X9_62_SIG_SHA2 "\x04"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /**
  * \brief Base OID descriptor structure
  */
@@ -411,7 +390,6 @@ typedef struct {
  */
 int mbedtls_oid_get_numeric_string(char *buf, size_t size, const mbedtls_asn1_buf *oid);
 
-#if defined(MBEDTLS_X509_USE_C) || defined(MBEDTLS_X509_CREATE_C)
 /**
  * \brief		  Translate an X.509 extension OID into local values
  *
@@ -421,7 +399,6 @@ int mbedtls_oid_get_numeric_string(char *buf, size_t size, const mbedtls_asn1_bu
  * \return		 0 if successful, or MBEDTLS_ERR_OID_NOT_FOUND
  */
 int mbedtls_oid_get_x509_ext_type(const mbedtls_asn1_buf *oid, int *ext_type);
-#endif
 
 /**
  * \brief		  Translate an X.509 attribute type OID into the short name
@@ -456,7 +433,6 @@ int mbedtls_oid_get_pk_alg(const mbedtls_asn1_buf *oid, mbedtls_pk_type_t *pk_al
 int mbedtls_oid_get_oid_by_pk_alg(mbedtls_pk_type_t pk_alg,
 						   const char **oid, size_t *olen);
 
-#if defined(MBEDTLS_ECP_C)
 /**
  * \brief		  Translate NamedCurve OID into an EC group identifier
  *
@@ -478,9 +454,7 @@ int mbedtls_oid_get_ec_grp(const mbedtls_asn1_buf *oid, mbedtls_ecp_group_id *gr
  */
 int mbedtls_oid_get_oid_by_ec_grp(mbedtls_ecp_group_id grp_id,
 						   const char **oid, size_t *olen);
-#endif /* MBEDTLS_ECP_C */
 
-#if defined(MBEDTLS_MD_C)
 /**
  * \brief		  Translate SignatureAlgorithm OID into md_type and pk_type
  *
@@ -535,7 +509,6 @@ int mbedtls_oid_get_md_alg(const mbedtls_asn1_buf *oid, mbedtls_md_type_t *md_al
  * \return		 0 if successful, or MBEDTLS_ERR_OID_NOT_FOUND
  */
 int mbedtls_oid_get_md_hmac(const mbedtls_asn1_buf *oid, mbedtls_md_type_t *md_hmac);
-#endif /* MBEDTLS_MD_C */
 
 /**
  * \brief		  Translate Extended Key Usage OID into description
@@ -558,7 +531,6 @@ int mbedtls_oid_get_extended_key_usage(const mbedtls_asn1_buf *oid, const char *
  */
 int mbedtls_oid_get_oid_by_md(mbedtls_md_type_t md_alg, const char **oid, size_t *olen);
 
-#if defined(MBEDTLS_CIPHER_C)
 /**
  * \brief		  Translate encryption algorithm OID into cipher_type
  *
@@ -568,7 +540,6 @@ int mbedtls_oid_get_oid_by_md(mbedtls_md_type_t md_alg, const char **oid, size_t
  * \return		 0 if successful, or MBEDTLS_ERR_OID_NOT_FOUND
  */
 int mbedtls_oid_get_cipher_alg(const mbedtls_asn1_buf *oid, mbedtls_cipher_type_t *cipher_alg);
-#endif /* MBEDTLS_CIPHER_C */
 
 #if defined(MBEDTLS_PKCS12_C)
 /**
@@ -584,9 +555,5 @@ int mbedtls_oid_get_cipher_alg(const mbedtls_asn1_buf *oid, mbedtls_cipher_type_
 int mbedtls_oid_get_pkcs12_pbe_alg(const mbedtls_asn1_buf *oid, mbedtls_md_type_t *md_alg,
 							mbedtls_cipher_type_t *cipher_alg);
 #endif /* MBEDTLS_PKCS12_C */
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* oid.h */
