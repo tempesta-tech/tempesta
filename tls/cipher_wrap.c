@@ -25,15 +25,7 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
-#if defined(MBEDTLS_CIPHER_C)
-
 #include "cipher_internal.h"
 
 #if defined(MBEDTLS_AES_C)
@@ -66,14 +58,6 @@
 
 #if defined(MBEDTLS_CIPHER_NULL_CIPHER)
 #include <string.h>
-#endif
-
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdlib.h>
-#define mbedtls_calloc	calloc
-#define mbedtls_free	   free
 #endif
 
 #if defined(MBEDTLS_GCM_C)
@@ -1450,5 +1434,3 @@ const mbedtls_cipher_definition_t mbedtls_cipher_definitions[] =
 
 #define NUM_CIPHERS sizeof mbedtls_cipher_definitions / sizeof mbedtls_cipher_definitions[0]
 int mbedtls_cipher_supported[NUM_CIPHERS];
-
-#endif /* MBEDTLS_CIPHER_C */

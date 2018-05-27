@@ -32,15 +32,9 @@
  *  http://www.itu.int/ITU-T/studygroups/com17/languages/X.690-0207.pdf
  */
 #include "ttls.h"
-
-#if defined(MBEDTLS_X509_USE_C)
-
 #include "x509.h"
 #include "asn1.h"
 #include "oid.h"
-
-#include <stdio.h>
-#include <string.h>
 
 #if defined(MBEDTLS_PEM_PARSE_C)
 #include "pem.h"
@@ -1035,5 +1029,3 @@ int mbedtls_x509_self_test(int verbose)
 	return 0;
 #endif /* MBEDTLS_CERTS_C && MBEDTLS_SHA1_C */
 }
-
-#endif /* MBEDTLS_X509_USE_C */

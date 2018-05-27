@@ -21,12 +21,7 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
 
 #if defined(MBEDTLS_PEM_PARSE_C) || defined(MBEDTLS_PEM_WRITE_C)
 
@@ -38,14 +33,6 @@
 #include "cipher.h"
 
 #include <string.h>
-
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdlib.h>
-#define mbedtls_calloc	calloc
-#define mbedtls_free	   free
-#endif
 
 #if defined(MBEDTLS_PEM_PARSE_C)
 /* Implementation that should never be optimized out by the compiler */

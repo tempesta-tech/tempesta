@@ -25,22 +25,9 @@
  * These session callbacks use a simple chained list
  * to store and retrieve the session information.
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
 
 #if defined(MBEDTLS_SSL_CACHE_C)
-
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdlib.h>
-#define mbedtls_calloc	calloc
-#define mbedtls_free	  free
-#endif
 
 #include "ssl_cache.h"
 
@@ -89,7 +76,6 @@ int mbedtls_ssl_cache_get(void *data, mbedtls_ssl_session *session)
 
 		session->verify_result = entry->session.verify_result;
 
-#if defined(MBEDTLS_X509_CRT_PARSE_C)
 		/*
 		 * Restore peer certificate (without rest of the original chain)
 		 */
@@ -112,7 +98,6 @@ int mbedtls_ssl_cache_get(void *data, mbedtls_ssl_session *session)
 				goto exit;
 			}
 		}
-#endif /* MBEDTLS_X509_CRT_PARSE_C */
 
 		ret = 0;
 		goto exit;
@@ -200,7 +185,6 @@ int mbedtls_ssl_cache_set(void *data, const mbedtls_ssl_session *session)
 
 	memcpy(&cur->session, session, sizeof(mbedtls_ssl_session));
 
-#if defined(MBEDTLS_X509_CRT_PARSE_C)
 	/*
 	 * If we're reusing an entry, free its certificate first
 	 */
@@ -228,7 +212,6 @@ int mbedtls_ssl_cache_set(void *data, const mbedtls_ssl_session *session)
 
 		cur->session.peer_cert = NULL;
 	}
-#endif /* MBEDTLS_X509_CRT_PARSE_C */
 
 	ret = 0;
 
@@ -265,9 +248,7 @@ void mbedtls_ssl_cache_free(mbedtls_ssl_cache_context *cache)
 
 		mbedtls_ssl_session_free(&prv->session);
 
-#if defined(MBEDTLS_X509_CRT_PARSE_C)
 		mbedtls_free(prv->peer_cert.p);
-#endif /* MBEDTLS_X509_CRT_PARSE_C */
 
 		mbedtls_free(prv);
 	}

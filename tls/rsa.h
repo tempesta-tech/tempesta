@@ -10,6 +10,7 @@
  */
 /*
  *  Copyright (C) 2006-2018, Arm Limited (or its affiliates), All Rights Reserved
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -30,13 +31,7 @@
  */
 #ifndef MBEDTLS_RSA_H
 #define MBEDTLS_RSA_H
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
 #include "bignum.h"
 #include "md.h"
 
@@ -77,10 +72,6 @@
 #if !defined(MBEDTLS_RSA_ALT)
 // Regular implementation
 //
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /**
  * \brief   The RSA context structure.
@@ -1107,10 +1098,6 @@ int mbedtls_rsa_copy(mbedtls_rsa_context *dst, const mbedtls_rsa_context *src);
  * \param ctx	  The RSA Context to free.
  */
 void mbedtls_rsa_free(mbedtls_rsa_context *ctx);
-
-#ifdef __cplusplus
-}
-#endif
 
 #else  /* MBEDTLS_RSA_ALT */
 #include "rsa_alt.h"

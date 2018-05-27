@@ -26,12 +26,7 @@
  * References in the code are to the Thread v1.0 Specification,
  * available to members of the Thread Group http://threadgroup.org/
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
 
 #if defined(MBEDTLS_ECJPAKE_C)
 
@@ -771,15 +766,7 @@ cleanup:
 
 #endif /* ! MBEDTLS_ECJPAKE_ALT */
 
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdio.h>
-#define mbedtls_printf	 printf
-#endif
-
-#if !defined(MBEDTLS_ECP_DP_SECP256R1_ENABLED) || \
-	!defined(MBEDTLS_SHA256_C)
+#if !defined(MBEDTLS_SHA256_C)
 int mbedtls_ecjpake_self_test(int verbose)
 {
 	(void) verbose;
@@ -1100,6 +1087,6 @@ cleanup:
 
 #undef TEST_ASSERT
 
-#endif /* MBEDTLS_ECP_DP_SECP256R1_ENABLED && MBEDTLS_SHA256_C */
+#endif /* MBEDTLS_SHA256_C */
 
 #endif /* MBEDTLS_ECJPAKE_C */

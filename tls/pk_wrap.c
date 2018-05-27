@@ -21,39 +21,15 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
-#if defined(MBEDTLS_PK_C)
 #include "pk_internal.h"
-
 /* Even if RSA not activated, for the sake of RSA-alt */
 #include "rsa.h"
-
-#include <string.h>
-
-#if defined(MBEDTLS_ECP_C)
 #include "ecp.h"
-#endif
 
 #if defined(MBEDTLS_ECDSA_C)
 #include "ecdsa.h"
 #endif
-
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdlib.h>
-#define mbedtls_calloc	calloc
-#define mbedtls_free	   free
-#endif
-
-#include <limits.h>
-#include <stdint.h>
 
 #if defined(MBEDTLS_PK_RSA_ALT_SUPPORT)
 /* Implementation that should never be optimized out by the compiler */
@@ -62,7 +38,6 @@ static void mbedtls_zeroize(void *v, size_t n) {
 }
 #endif
 
-#if defined(MBEDTLS_RSA_C)
 static int rsa_can_do(mbedtls_pk_type_t type)
 {
 	return(type == MBEDTLS_PK_RSA ||
@@ -194,9 +169,7 @@ const mbedtls_pk_info_t mbedtls_rsa_info = {
 	rsa_free_wrap,
 	rsa_debug,
 };
-#endif /* MBEDTLS_RSA_C */
 
-#if defined(MBEDTLS_ECP_C)
 /*
  * Generic EC key
  */
@@ -333,7 +306,6 @@ const mbedtls_pk_info_t mbedtls_eckeydh_info = {
 	eckey_free_wrap,		/* Same underlying key structure */
 	eckey_debug,			/* Same underlying key structure */
 };
-#endif /* MBEDTLS_ECP_C */
 
 #if defined(MBEDTLS_ECDSA_C)
 static int ecdsa_can_do(mbedtls_pk_type_t type)
@@ -448,7 +420,6 @@ static int rsa_alt_decrypt_wrap(void *ctx,
 				MBEDTLS_RSA_PRIVATE, olen, input, output, osize));
 }
 
-#if defined(MBEDTLS_RSA_C)
 static int rsa_alt_check_pair(const void *pub, const void *prv)
 {
 	unsigned char sig[MBEDTLS_MPI_MAX_SIZE];
@@ -476,7 +447,6 @@ static int rsa_alt_check_pair(const void *pub, const void *prv)
 
 	return 0;
 }
-#endif /* MBEDTLS_RSA_C */
 
 static void *rsa_alt_alloc_wrap(void)
 {
@@ -503,16 +473,10 @@ const mbedtls_pk_info_t mbedtls_rsa_alt_info = {
 	rsa_alt_sign_wrap,
 	rsa_alt_decrypt_wrap,
 	NULL,
-#if defined(MBEDTLS_RSA_C)
 	rsa_alt_check_pair,
-#else
-	NULL,
-#endif
 	rsa_alt_alloc_wrap,
 	rsa_alt_free_wrap,
 	NULL,
 };
 
 #endif /* MBEDTLS_PK_RSA_ALT_SUPPORT */
-
-#endif /* MBEDTLS_PK_C */
