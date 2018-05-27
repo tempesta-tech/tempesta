@@ -24,14 +24,21 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#ifndef TTLS_RIPEMD160_H
-#define TTLS_RIPEMD160_H
+#ifndef MBEDTLS_RIPEMD160_H
+#define MBEDTLS_RIPEMD160_H
 
+#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
+#else
+#include MBEDTLS_CONFIG_FILE
+#endif
 
-#define TTLS_ERR_RIPEMD160_HW_ACCEL_FAILED			 -0x0031  /**< RIPEMD160 hardware accelerator failed */
+#include <stddef.h>
+#include <stdint.h>
 
-#if !defined(TTLS_RIPEMD160_ALT)
+#define MBEDTLS_ERR_RIPEMD160_HW_ACCEL_FAILED			 -0x0031  /**< RIPEMD160 hardware accelerator failed */
+
+#if !defined(MBEDTLS_RIPEMD160_ALT)
 
 /**
  * \brief		  RIPEMD-160 context structure
@@ -42,21 +49,21 @@ typedef struct
 	uint32_t state[5];		  /*!< intermediate digest state  */
 	unsigned char buffer[64];   /*!< data block being processed */
 }
-ttls_ripemd160_context;
+mbedtls_ripemd160_context;
 
 /**
  * \brief		  Initialize RIPEMD-160 context
  *
  * \param ctx	  RIPEMD-160 context to be initialized
  */
-void ttls_ripemd160_init(ttls_ripemd160_context *ctx);
+void mbedtls_ripemd160_init(mbedtls_ripemd160_context *ctx);
 
 /**
  * \brief		  Clear RIPEMD-160 context
  *
  * \param ctx	  RIPEMD-160 context to be cleared
  */
-void ttls_ripemd160_free(ttls_ripemd160_context *ctx);
+void mbedtls_ripemd160_free(mbedtls_ripemd160_context *ctx);
 
 /**
  * \brief		  Clone (the state of) an RIPEMD-160 context
@@ -64,8 +71,8 @@ void ttls_ripemd160_free(ttls_ripemd160_context *ctx);
  * \param dst	  The destination context
  * \param src	  The context to be cloned
  */
-void ttls_ripemd160_clone(ttls_ripemd160_context *dst,
-						const ttls_ripemd160_context *src);
+void mbedtls_ripemd160_clone(mbedtls_ripemd160_context *dst,
+						const mbedtls_ripemd160_context *src);
 
 /**
  * \brief		  RIPEMD-160 context setup
@@ -74,7 +81,7 @@ void ttls_ripemd160_clone(ttls_ripemd160_context *dst,
  *
  * \return		 0 if successful
  */
-int ttls_ripemd160_starts_ret(ttls_ripemd160_context *ctx);
+int mbedtls_ripemd160_starts_ret(mbedtls_ripemd160_context *ctx);
 
 /**
  * \brief		  RIPEMD-160 process buffer
@@ -85,7 +92,7 @@ int ttls_ripemd160_starts_ret(ttls_ripemd160_context *ctx);
  *
  * \return		 0 if successful
  */
-int ttls_ripemd160_update_ret(ttls_ripemd160_context *ctx,
+int mbedtls_ripemd160_update_ret(mbedtls_ripemd160_context *ctx,
 								  const unsigned char *input,
 								  size_t ilen);
 
@@ -97,7 +104,7 @@ int ttls_ripemd160_update_ret(ttls_ripemd160_context *ctx,
  *
  * \return		 0 if successful
  */
-int ttls_ripemd160_finish_ret(ttls_ripemd160_context *ctx,
+int mbedtls_ripemd160_finish_ret(mbedtls_ripemd160_context *ctx,
 								  unsigned char output[20]);
 
 /**
@@ -108,12 +115,69 @@ int ttls_ripemd160_finish_ret(ttls_ripemd160_context *ctx,
  *
  * \return		 0 if successful
  */
-int ttls_internal_ripemd160_process(ttls_ripemd160_context *ctx,
+int mbedtls_internal_ripemd160_process(mbedtls_ripemd160_context *ctx,
 										const unsigned char data[64]);
 
-#else  /* TTLS_RIPEMD160_ALT */
+#if !defined(MBEDTLS_DEPRECATED_REMOVED)
+#if defined(MBEDTLS_DEPRECATED_WARNING)
+#define MBEDTLS_DEPRECATED	  __attribute__((deprecated))
+#else
+#define MBEDTLS_DEPRECATED
+#endif
+/**
+ * \brief		  RIPEMD-160 context setup
+ *
+ * \deprecated	 Superseded by mbedtls_ripemd160_starts_ret() in 2.7.0
+ *
+ * \param ctx	  context to be initialized
+ */
+MBEDTLS_DEPRECATED void mbedtls_ripemd160_starts(
+											mbedtls_ripemd160_context *ctx);
+
+/**
+ * \brief		  RIPEMD-160 process buffer
+ *
+ * \deprecated	 Superseded by mbedtls_ripemd160_update_ret() in 2.7.0
+ *
+ * \param ctx	  RIPEMD-160 context
+ * \param input	buffer holding the data
+ * \param ilen	 length of the input data
+ */
+MBEDTLS_DEPRECATED void mbedtls_ripemd160_update(
+												mbedtls_ripemd160_context *ctx,
+												const unsigned char *input,
+												size_t ilen);
+
+/**
+ * \brief		  RIPEMD-160 final digest
+ *
+ * \deprecated	 Superseded by mbedtls_ripemd160_finish_ret() in 2.7.0
+ *
+ * \param ctx	  RIPEMD-160 context
+ * \param output   RIPEMD-160 checksum result
+ */
+MBEDTLS_DEPRECATED void mbedtls_ripemd160_finish(
+												mbedtls_ripemd160_context *ctx,
+												unsigned char output[20]);
+
+/**
+ * \brief		  RIPEMD-160 process data block (internal use only)
+ *
+ * \deprecated	 Superseded by mbedtls_internal_ripemd160_process() in 2.7.0
+ *
+ * \param ctx	  RIPEMD-160 context
+ * \param data	 buffer holding one block of data
+ */
+MBEDTLS_DEPRECATED void mbedtls_ripemd160_process(
+											mbedtls_ripemd160_context *ctx,
+											const unsigned char data[64]);
+
+#undef MBEDTLS_DEPRECATED
+#endif /* !MBEDTLS_DEPRECATED_REMOVED */
+
+#else  /* MBEDTLS_RIPEMD160_ALT */
 #include "ripemd160_alt.h"
-#endif /* TTLS_RIPEMD160_ALT */
+#endif /* MBEDTLS_RIPEMD160_ALT */
 
 /**
  * \brief		  Output = RIPEMD-160(input buffer)
@@ -124,8 +188,30 @@ int ttls_internal_ripemd160_process(ttls_ripemd160_context *ctx,
  *
  * \return		 0 if successful
  */
-int ttls_ripemd160_ret(const unsigned char *input,
+int mbedtls_ripemd160_ret(const unsigned char *input,
 						   size_t ilen,
 						   unsigned char output[20]);
 
-#endif /* ttls_ripemd160.h */
+#if !defined(MBEDTLS_DEPRECATED_REMOVED)
+#if defined(MBEDTLS_DEPRECATED_WARNING)
+#define MBEDTLS_DEPRECATED	  __attribute__((deprecated))
+#else
+#define MBEDTLS_DEPRECATED
+#endif
+/**
+ * \brief		  Output = RIPEMD-160(input buffer)
+ *
+ * \deprecated	 Superseded by mbedtls_ripemd160_ret() in 2.7.0
+ *
+ * \param input	buffer holding the data
+ * \param ilen	 length of the input data
+ * \param output   RIPEMD-160 checksum result
+ */
+MBEDTLS_DEPRECATED void mbedtls_ripemd160(const unsigned char *input,
+										   size_t ilen,
+										   unsigned char output[20]);
+
+#undef MBEDTLS_DEPRECATED
+#endif /* !MBEDTLS_DEPRECATED_REMOVED */
+
+#endif /* mbedtls_ripemd160.h */

@@ -1,3 +1,8 @@
+/**
+ * \file debug.h
+ *
+ * \brief Functions for controlling and providing debug output from the library.
+ */
 /*
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
@@ -16,38 +21,49 @@
  *  You should have received a copy of the GNU General Public License along
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#ifndef TTLS_DEBUG_H
-#define TTLS_DEBUG_H
+#ifndef MBEDTLS_DEBUG_H
+#define MBEDTLS_DEBUG_H
 
-#include "ttls.h"
+#include "config.h"
+#include "ssl.h"
 #include "ecp.h"
 
-#define BANNER	"tls"
-#include "lib/log.h"
+#if defined(MBEDTLS_DEBUG_C)
 
-#if defined(DEBUG) && (DEBUG == 3)
+#define MBEDTLS_DEBUG_STRIP_PARENS(...)   __VA_ARGS__
 
-#define TTLS_DEBUG_STRIP_PARENS(...)   __VA_ARGS__
+#define MBEDTLS_SSL_DEBUG_MSG(level, args)					\
+	mbedtls_debug_print_msg(ssl, level, __FILE__, __LINE__,	\
+							 MBEDTLS_DEBUG_STRIP_PARENS args)
 
-#define TTLS_DEBUG_MSG(level, args)					\
-	ttls_debug_print_msg(ssl, level, __FILE__, __LINE__,		\
-			     TTLS_DEBUG_STRIP_PARENS args)
+#define MBEDTLS_SSL_DEBUG_RET(level, text, ret)				\
+	mbedtls_debug_print_ret(ssl, level, __FILE__, __LINE__, text, ret)
 
-#define TTLS_DEBUG_RET(level, text, ret)				\
-	ttls_debug_print_ret(ssl, level, __FILE__, __LINE__, text, ret)
+#define MBEDTLS_SSL_DEBUG_BUF(level, text, buf, len)		   \
+	mbedtls_debug_print_buf(ssl, level, __FILE__, __LINE__, text, buf, len)
 
-#define TTLS_DEBUG_BUF(level, text, buf, len)			\
-	ttls_debug_print_buf(ssl, level, __FILE__, __LINE__, text, buf, len)
+#define MBEDTLS_SSL_DEBUG_MPI(level, text, X)				  \
+	mbedtls_debug_print_mpi(ssl, level, __FILE__, __LINE__, text, X)
 
-#define TTLS_DEBUG_MPI(level, text, X)				\
-	ttls_debug_print_mpi(ssl, level, __FILE__, __LINE__, text, X)
+#define MBEDTLS_SSL_DEBUG_ECP(level, text, X)				  \
+	mbedtls_debug_print_ecp(ssl, level, __FILE__, __LINE__, text, X)
 
-#define TTLS_DEBUG_ECP(level, text, X)				\
-	ttls_debug_print_ecp(ssl, level, __FILE__, __LINE__, text, X)
+#define MBEDTLS_SSL_DEBUG_CRT(level, text, crt)				\
+	mbedtls_debug_print_crt(ssl, level, __FILE__, __LINE__, text, crt)
 
-#define TTLS_DEBUG_CRT(level, text, crt)				\
-	ttls_debug_print_crt(ssl, level, __FILE__, __LINE__, text, crt)
+#else /* MBEDTLS_DEBUG_C */
+
+#define MBEDTLS_SSL_DEBUG_MSG(level, args)			do { } while (0)
+#define MBEDTLS_SSL_DEBUG_RET(level, text, ret)	   do { } while (0)
+#define MBEDTLS_SSL_DEBUG_BUF(level, text, buf, len)  do { } while (0)
+#define MBEDTLS_SSL_DEBUG_MPI(level, text, X)		 do { } while (0)
+#define MBEDTLS_SSL_DEBUG_ECP(level, text, X)		 do { } while (0)
+#define MBEDTLS_SSL_DEBUG_CRT(level, text, crt)	   do { } while (0)
+
+#endif /* MBEDTLS_DEBUG_C */
 
 /**
  * \brief   Set the threshold error level to handle globally all debug output.
@@ -64,11 +80,11 @@
  *							  - 3 Informational
  *							  - 4 Verbose
  */
-void ttls_debug_set_threshold(int threshold);
+void mbedtls_debug_set_threshold(int threshold);
 
 /**
  * \brief	Print a message to the debug output. This function is always used
- *		  through the TTLS_DEBUG_MSG() macro, which supplies the ssl
+ *		  through the MBEDTLS_SSL_DEBUG_MSG() macro, which supplies the ssl
  *		  context, file and line number parameters.
  *
  * \param ssl	   SSL context
@@ -81,13 +97,13 @@ void ttls_debug_set_threshold(int threshold);
  * \attention	   This function is intended for INTERNAL usage within the
  *				  library only.
  */
-void ttls_debug_print_msg(const ttls_context *ssl, int level,
-			  const char *file, int line,
-			  const char *format, ...);
+void mbedtls_debug_print_msg(const mbedtls_ssl_context *ssl, int level,
+							  const char *file, int line,
+							  const char *format, ...);
 
 /**
  * \brief   Print the return value of a function to the debug output. This
- *		  function is always used through the TTLS_DEBUG_RET() macro,
+ *		  function is always used through the MBEDTLS_SSL_DEBUG_RET() macro,
  *		  which supplies the ssl context, file and line number parameters.
  *
  * \param ssl	   SSL context
@@ -100,13 +116,13 @@ void ttls_debug_print_msg(const ttls_context *ssl, int level,
  * \attention	   This function is intended for INTERNAL usage within the
  *				  library only.
  */
-void ttls_debug_print_ret(const ttls_context *ssl, int level,
-			  const char *file, int line,
-			  const char *text, int ret);
+void mbedtls_debug_print_ret(const mbedtls_ssl_context *ssl, int level,
+					  const char *file, int line,
+					  const char *text, int ret);
 
 /**
  * \brief   Output a buffer of size len bytes to the debug output. This function
- *		  is always used through the TTLS_DEBUG_BUF() macro,
+ *		  is always used through the MBEDTLS_SSL_DEBUG_BUF() macro,
  *		  which supplies the ssl context, file and line number parameters.
  *
  * \param ssl	   SSL context
@@ -121,13 +137,13 @@ void ttls_debug_print_ret(const ttls_context *ssl, int level,
  * \attention	   This function is intended for INTERNAL usage within the
  *				  library only.
  */
-void ttls_debug_print_buf(const ttls_context *ssl, int level,
-			  const char *file, int line, const char *text,
-			  const unsigned char *buf, size_t len);
+void mbedtls_debug_print_buf(const mbedtls_ssl_context *ssl, int level,
+					  const char *file, int line, const char *text,
+					  const unsigned char *buf, size_t len);
 
 /**
  * \brief   Print a MPI variable to the debug output. This function is always
- *		  used through the TTLS_DEBUG_MPI() macro, which supplies the
+ *		  used through the MBEDTLS_SSL_DEBUG_MPI() macro, which supplies the
  *		  ssl context, file and line number parameters.
  *
  * \param ssl	   SSL context
@@ -141,13 +157,13 @@ void ttls_debug_print_buf(const ttls_context *ssl, int level,
  * \attention	   This function is intended for INTERNAL usage within the
  *				  library only.
  */
-void ttls_debug_print_mpi(const ttls_context *ssl, int level,
-			  const char *file, int line,
-			  const char *text, const ttls_mpi *X);
+void mbedtls_debug_print_mpi(const mbedtls_ssl_context *ssl, int level,
+					  const char *file, int line,
+					  const char *text, const mbedtls_mpi *X);
 
 /**
  * \brief   Print an ECP point to the debug output. This function is always
- *		  used through the TTLS_DEBUG_ECP() macro, which supplies the
+ *		  used through the MBEDTLS_SSL_DEBUG_ECP() macro, which supplies the
  *		  ssl context, file and line number parameters.
  *
  * \param ssl	   SSL context
@@ -161,13 +177,13 @@ void ttls_debug_print_mpi(const ttls_context *ssl, int level,
  * \attention	   This function is intended for INTERNAL usage within the
  *				  library only.
  */
-void ttls_debug_print_ecp(const ttls_context *ssl, int level,
-			  const char *file, int line,
-			  const char *text, const ttls_ecp_point *X);
+void mbedtls_debug_print_ecp(const mbedtls_ssl_context *ssl, int level,
+					  const char *file, int line,
+					  const char *text, const mbedtls_ecp_point *X);
 
 /**
  * \brief   Print a X.509 certificate structure to the debug output. This
- *		  function is always used through the TTLS_DEBUG_CRT() macro,
+ *		  function is always used through the MBEDTLS_SSL_DEBUG_CRT() macro,
  *		  which supplies the ssl context, file and line number parameters.
  *
  * \param ssl	   SSL context
@@ -180,30 +196,9 @@ void ttls_debug_print_ecp(const ttls_context *ssl, int level,
  * \attention	   This function is intended for INTERNAL usage within the
  *				  library only.
  */
-void ttls_debug_print_crt(const ttls_context *ssl, int level,
-			  const char *file, int line,
-			  const char *text, const ttls_x509_crt *crt);
-
-/**
- * Print data in hex format from scatter list @sg starting at offset @off and
- * of length @len.
- */
-void ttls_dbg_print_scatterlist(const char *str, struct scatterlist *sg,
-				unsigned int sgn, unsigned int off,
-				unsigned int len);
-
-#else
-
-#define TTLS_DEBUG_MSG(level, args)
-#define TTLS_DEBUG_RET(level, text, ret)
-#define TTLS_DEBUG_BUF(level, text, buf, len)
-#define TTLS_DEBUG_MPI(level, text, X)
-#define TTLS_DEBUG_ECP(level, text, X)
-#define TTLS_DEBUG_CRT(level, text, crt)
-
-#define T_DBG3_SL(str, sg, off, len)
-
-#endif
+void mbedtls_debug_print_crt(const mbedtls_ssl_context *ssl, int level,
+					  const char *file, int line,
+					  const char *text, const mbedtls_x509_crt *crt);
 
 #endif /* debug.h */
 

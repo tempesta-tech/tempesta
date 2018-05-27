@@ -21,21 +21,23 @@
  */
 #include "config.h"
 
-#if defined(TTLS_TICKET_C)
+#if defined(MBEDTLS_SSL_TICKET_C)
 
 #include "ssl_ticket.h"
 
+#include <string.h>
+
 /* Implementation that should never be optimized out by the compiler */
-static void ttls_zeroize(void *v, size_t n) {
+static void mbedtls_zeroize(void *v, size_t n) {
 	volatile unsigned char *p = v; while (n--) *p++ = 0;
 }
 
 /*
  * Initialze context
  */
-void ttls_ticket_init(ttls_ticket_context *ctx)
+void mbedtls_ssl_ticket_init(mbedtls_ssl_ticket_context *ctx)
 {
-	memset(ctx, 0, sizeof(ttls_ticket_context));
+	memset(ctx, 0, sizeof(mbedtls_ssl_ticket_context));
 	spin_lock_init(&ctx->mutex);
 }
 
@@ -44,14 +46,14 @@ void ttls_ticket_init(ttls_ticket_context *ctx)
 /*
  * Generate/update a key
  */
-static int ssl_ticket_gen_key(ttls_ticket_context *ctx,
+static int ssl_ticket_gen_key(mbedtls_ssl_ticket_context *ctx,
 							   unsigned char index)
 {
 	int ret;
 	unsigned char buf[MAX_KEY_BYTES];
-	ttls_ticket_key *key = ctx->keys + index;
+	mbedtls_ssl_ticket_key *key = ctx->keys + index;
 
-	key->generation_time = (uint32_t) ttls_time(NULL);
+	key->generation_time = (uint32_t) mbedtls_time(NULL);
 
 	if ((ret = ctx->f_rng(ctx->p_rng, key->name, sizeof(key->name))) != 0)
 		return ret;
@@ -60,11 +62,11 @@ static int ssl_ticket_gen_key(ttls_ticket_context *ctx,
 		return ret;
 
 	/* With GCM and CCM, same context can encrypt & decrypt */
-	ret = ttls_cipher_setkey(&key->ctx, buf,
-								 ttls_cipher_get_key_bitlen(&key->ctx),
-								 TTLS_ENCRYPT);
+	ret = mbedtls_cipher_setkey(&key->ctx, buf,
+								 mbedtls_cipher_get_key_bitlen(&key->ctx),
+								 MBEDTLS_ENCRYPT);
 
-	ttls_zeroize(buf, sizeof(buf));
+	mbedtls_zeroize(buf, sizeof(buf));
 
 	return ret;
 }
@@ -72,11 +74,11 @@ static int ssl_ticket_gen_key(ttls_ticket_context *ctx,
 /*
  * Rotate/generate keys if necessary
  */
-static int ssl_ticket_update_keys(ttls_ticket_context *ctx)
+static int ssl_ticket_update_keys(mbedtls_ssl_ticket_context *ctx)
 {
 	if (ctx->ticket_lifetime != 0)
 	{
-		uint32_t current_time = (uint32_t) ttls_time(NULL);
+		uint32_t current_time = (uint32_t) mbedtls_time(NULL);
 		uint32_t key_time = ctx->keys[ctx->active].generation_time;
 
 		if (current_time > key_time &&
@@ -96,34 +98,34 @@ static int ssl_ticket_update_keys(ttls_ticket_context *ctx)
 /*
  * Setup context for actual use
  */
-int ttls_ticket_setup(ttls_ticket_context *ctx,
+int mbedtls_ssl_ticket_setup(mbedtls_ssl_ticket_context *ctx,
 	int (*f_rng)(void *, unsigned char *, size_t), void *p_rng,
-	ttls_cipher_type_t cipher,
+	mbedtls_cipher_type_t cipher,
 	uint32_t lifetime)
 {
 	int ret;
-	const ttls_cipher_info_t *cipher_info;
+	const mbedtls_cipher_info_t *cipher_info;
 
 	ctx->f_rng = f_rng;
 	ctx->p_rng = p_rng;
 
 	ctx->ticket_lifetime = lifetime;
 
-	cipher_info = ttls_cipher_info_from_type(cipher);
+	cipher_info = mbedtls_cipher_info_from_type(cipher);
 	if (cipher_info == NULL)
-		return(TTLS_ERR_BAD_INPUT_DATA);
+		return(MBEDTLS_ERR_SSL_BAD_INPUT_DATA);
 
-	if (cipher_info->mode != TTLS_MODE_GCM &&
-		cipher_info->mode != TTLS_MODE_CCM)
+	if (cipher_info->mode != MBEDTLS_MODE_GCM &&
+		cipher_info->mode != MBEDTLS_MODE_CCM)
 	{
-		return(TTLS_ERR_BAD_INPUT_DATA);
+		return(MBEDTLS_ERR_SSL_BAD_INPUT_DATA);
 	}
 
 	if (cipher_info->key_bitlen > 8 * MAX_KEY_BYTES)
-		return(TTLS_ERR_BAD_INPUT_DATA);
+		return(MBEDTLS_ERR_SSL_BAD_INPUT_DATA);
 
-	if ((ret = ttls_cipher_setup(&ctx->keys[0].ctx, cipher_info)) != 0 ||
-		(ret = ttls_cipher_setup(&ctx->keys[1].ctx, cipher_info)) != 0)
+	if ((ret = mbedtls_cipher_setup(&ctx->keys[0].ctx, cipher_info)) != 0 ||
+		(ret = mbedtls_cipher_setup(&ctx->keys[1].ctx, cipher_info)) != 0)
 	{
 		return ret;
 	}
@@ -139,11 +141,11 @@ int ttls_ticket_setup(ttls_ticket_context *ctx,
 
 /*
  * Serialize a session in the following format:
- *  0   .   n-1	 session structure, n = sizeof(TtlsSess)
+ *  0   .   n-1	 session structure, n = sizeof(mbedtls_ssl_session)
  *  n   .   n+2	 peer_cert length = m (0 if no certificate)
  *  n+3 .   n+2+m   peer cert ASN.1
  */
-static int ssl_save_session(const TtlsSess *session,
+static int ssl_save_session(const mbedtls_ssl_session *session,
 							 unsigned char *buf, size_t buf_len,
 							 size_t *olen)
 {
@@ -151,12 +153,12 @@ static int ssl_save_session(const TtlsSess *session,
 	size_t left = buf_len;
 	size_t cert_len;
 
-	if (left < sizeof(TtlsSess))
-		return(TTLS_ERR_BUFFER_TOO_SMALL);
+	if (left < sizeof(mbedtls_ssl_session))
+		return(MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL);
 
-	memcpy(p, session, sizeof(TtlsSess));
-	p += sizeof(TtlsSess);
-	left -= sizeof(TtlsSess);
+	memcpy(p, session, sizeof(mbedtls_ssl_session));
+	p += sizeof(mbedtls_ssl_session);
+	left -= sizeof(mbedtls_ssl_session);
 
 	if (session->peer_cert == NULL)
 		cert_len = 0;
@@ -164,7 +166,7 @@ static int ssl_save_session(const TtlsSess *session,
 		cert_len = session->peer_cert->raw.len;
 
 	if (left < 3 + cert_len)
-		return(TTLS_ERR_BUFFER_TOO_SMALL);
+		return(MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL);
 
 	*p++ = (unsigned char)(cert_len >> 16 & 0xFF);
 	*p++ = (unsigned char)(cert_len >>  8 & 0xFF);
@@ -183,21 +185,21 @@ static int ssl_save_session(const TtlsSess *session,
 /*
  * Unserialise session, see ssl_save_session()
  */
-static int ssl_load_session(TtlsSess *session,
+static int ssl_load_session(mbedtls_ssl_session *session,
 							 const unsigned char *buf, size_t len)
 {
 	const unsigned char *p = buf;
 	const unsigned char * const end = buf + len;
 	size_t cert_len;
 
-	if (p + sizeof(TtlsSess) > end)
-		return(TTLS_ERR_BAD_INPUT_DATA);
+	if (p + sizeof(mbedtls_ssl_session) > end)
+		return(MBEDTLS_ERR_SSL_BAD_INPUT_DATA);
 
-	memcpy(session, p, sizeof(TtlsSess));
-	p += sizeof(TtlsSess);
+	memcpy(session, p, sizeof(mbedtls_ssl_session));
+	p += sizeof(mbedtls_ssl_session);
 
 	if (p + 3 > end)
-		return(TTLS_ERR_BAD_INPUT_DATA);
+		return(MBEDTLS_ERR_SSL_BAD_INPUT_DATA);
 
 	cert_len = (p[0] << 16) | (p[1] << 8) | p[2];
 	p += 3;
@@ -211,20 +213,20 @@ static int ssl_load_session(TtlsSess *session,
 		int ret;
 
 		if (p + cert_len > end)
-			return(TTLS_ERR_BAD_INPUT_DATA);
+			return(MBEDTLS_ERR_SSL_BAD_INPUT_DATA);
 
-		session->peer_cert = ttls_calloc(1, sizeof(ttls_x509_crt));
+		session->peer_cert = mbedtls_calloc(1, sizeof(mbedtls_x509_crt));
 
 		if (session->peer_cert == NULL)
-			return(TTLS_ERR_ALLOC_FAILED);
+			return(MBEDTLS_ERR_SSL_ALLOC_FAILED);
 
-		ttls_x509_crt_init(session->peer_cert);
+		mbedtls_x509_crt_init(session->peer_cert);
 
-		if ((ret = ttls_x509_crt_parse_der(session->peer_cert,
+		if ((ret = mbedtls_x509_crt_parse_der(session->peer_cert,
 										p, cert_len)) != 0)
 		{
-			ttls_x509_crt_free(session->peer_cert);
-			ttls_free(session->peer_cert);
+			mbedtls_x509_crt_free(session->peer_cert);
+			mbedtls_free(session->peer_cert);
 			session->peer_cert = NULL;
 			return ret;
 		}
@@ -233,7 +235,7 @@ static int ssl_load_session(TtlsSess *session,
 	}
 
 	if (p != end)
-		return(TTLS_ERR_BAD_INPUT_DATA);
+		return(MBEDTLS_ERR_SSL_BAD_INPUT_DATA);
 
 	return 0;
 }
@@ -251,16 +253,16 @@ static int ssl_load_session(TtlsSess *session,
  * The key_name, iv, and length of encrypted_state are the additional
  * authenticated data.
  */
-int ttls_ticket_write(void *p_ticket,
-							  const TtlsSess *session,
+int mbedtls_ssl_ticket_write(void *p_ticket,
+							  const mbedtls_ssl_session *session,
 							  unsigned char *start,
 							  const unsigned char *end,
 							  size_t *tlen,
 							  uint32_t *ticket_lifetime)
 {
 	int ret;
-	ttls_ticket_context *ctx = p_ticket;
-	ttls_ticket_key *key;
+	mbedtls_ssl_ticket_context *ctx = p_ticket;
+	mbedtls_ssl_ticket_key *key;
 	unsigned char *key_name = start;
 	unsigned char *iv = start + 4;
 	unsigned char *state_len_bytes = iv + 12;
@@ -271,12 +273,12 @@ int ttls_ticket_write(void *p_ticket,
 	*tlen = 0;
 
 	if (ctx == NULL || ctx->f_rng == NULL)
-		return(TTLS_ERR_BAD_INPUT_DATA);
+		return(MBEDTLS_ERR_SSL_BAD_INPUT_DATA);
 
 	/* We need at least 4 bytes for key_name, 12 for IV, 2 for len 16 for tag,
 	 * in addition to session itself, that will be checked when writing it. */
 	if (end - start < 4 + 12 + 2 + 16)
-		return(TTLS_ERR_BUFFER_TOO_SMALL);
+		return(MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL);
 
 	spin_lock(&ctx->mutex);
 
@@ -304,7 +306,7 @@ int ttls_ticket_write(void *p_ticket,
 
 	/* Encrypt and authenticate */
 	tag = state + clear_len;
-	if ((ret = ttls_cipher_auth_encrypt(&key->ctx,
+	if ((ret = mbedtls_cipher_auth_encrypt(&key->ctx,
 					iv, 12, key_name, 4 + 12 + 2,
 					state, clear_len, state, &ciph_len, tag, 16)) != 0)
 	{
@@ -312,7 +314,7 @@ int ttls_ticket_write(void *p_ticket,
 	}
 	if (ciph_len != clear_len)
 	{
-		ret = TTLS_ERR_INTERNAL_ERROR;
+		ret = MBEDTLS_ERR_SSL_INTERNAL_ERROR;
 		goto cleanup;
 	}
 
@@ -327,8 +329,8 @@ cleanup:
 /*
  * Select key based on name
  */
-static ttls_ticket_key *ssl_ticket_select_key(
-		ttls_ticket_context *ctx,
+static mbedtls_ssl_ticket_key *ssl_ticket_select_key(
+		mbedtls_ssl_ticket_context *ctx,
 		const unsigned char name[4])
 {
 	unsigned char i;
@@ -341,16 +343,16 @@ static ttls_ticket_key *ssl_ticket_select_key(
 }
 
 /*
- * Load session ticket (see ttls_ticket_write for structure)
+ * Load session ticket (see mbedtls_ssl_ticket_write for structure)
  */
-int ttls_ticket_parse(void *p_ticket,
-							  TtlsSess *session,
+int mbedtls_ssl_ticket_parse(void *p_ticket,
+							  mbedtls_ssl_session *session,
 							  unsigned char *buf,
 							  size_t len)
 {
 	int ret;
-	ttls_ticket_context *ctx = p_ticket;
-	ttls_ticket_key *key;
+	mbedtls_ssl_ticket_context *ctx = p_ticket;
+	mbedtls_ssl_ticket_key *key;
 	unsigned char *key_name = buf;
 	unsigned char *iv = buf + 4;
 	unsigned char *enc_len_p = iv + 12;
@@ -359,11 +361,11 @@ int ttls_ticket_parse(void *p_ticket,
 	size_t enc_len, clear_len;
 
 	if (ctx == NULL || ctx->f_rng == NULL)
-		return(TTLS_ERR_BAD_INPUT_DATA);
+		return(MBEDTLS_ERR_SSL_BAD_INPUT_DATA);
 
-	/* See ttls_ticket_write() */
+	/* See mbedtls_ssl_ticket_write() */
 	if (len < 4 + 12 + 2 + 16)
-		return(TTLS_ERR_BAD_INPUT_DATA);
+		return(MBEDTLS_ERR_SSL_BAD_INPUT_DATA);
 
 	spin_lock(&ctx->mutex);
 
@@ -375,7 +377,7 @@ int ttls_ticket_parse(void *p_ticket,
 
 	if (len != 4 + 12 + 2 + enc_len + 16)
 	{
-		ret = TTLS_ERR_BAD_INPUT_DATA;
+		ret = MBEDTLS_ERR_SSL_BAD_INPUT_DATA;
 		goto cleanup;
 	}
 
@@ -384,23 +386,23 @@ int ttls_ticket_parse(void *p_ticket,
 	{
 		/* We can't know for sure but this is a likely option unless we're
 		 * under attack - this is only informative anyway */
-		ret = TTLS_ERR_SESSION_TICKET_EXPIRED;
+		ret = MBEDTLS_ERR_SSL_SESSION_TICKET_EXPIRED;
 		goto cleanup;
 	}
 
 	/* Decrypt and authenticate */
-	if ((ret = ttls_cipher_auth_decrypt(&key->ctx, iv, 12,
+	if ((ret = mbedtls_cipher_auth_decrypt(&key->ctx, iv, 12,
 					key_name, 4 + 12 + 2, ticket, enc_len,
 					ticket, &clear_len, tag, 16)) != 0)
 	{
-		if (ret == TTLS_ERR_CIPHER_AUTH_FAILED)
-			ret = TTLS_ERR_INVALID_MAC;
+		if (ret == MBEDTLS_ERR_CIPHER_AUTH_FAILED)
+			ret = MBEDTLS_ERR_SSL_INVALID_MAC;
 
 		goto cleanup;
 	}
 	if (clear_len != enc_len)
 	{
-		ret = TTLS_ERR_INTERNAL_ERROR;
+		ret = MBEDTLS_ERR_SSL_INTERNAL_ERROR;
 		goto cleanup;
 	}
 
@@ -410,12 +412,12 @@ int ttls_ticket_parse(void *p_ticket,
 
 	{
 		/* Check for expiration */
-		time_t current_time = ttls_time(NULL);
+		time_t current_time = mbedtls_time(NULL);
 
 		if (current_time < session->start ||
 			(uint32_t)(current_time - session->start) > ctx->ticket_lifetime)
 		{
-			ret = TTLS_ERR_SESSION_TICKET_EXPIRED;
+			ret = MBEDTLS_ERR_SSL_SESSION_TICKET_EXPIRED;
 			goto cleanup;
 		}
 	}
@@ -429,11 +431,11 @@ cleanup:
 /*
  * Free context
  */
-void ttls_ticket_free(ttls_ticket_context *ctx)
+void mbedtls_ssl_ticket_free(mbedtls_ssl_ticket_context *ctx)
 {
-	ttls_cipher_free(&ctx->keys[0].ctx);
-	ttls_cipher_free(&ctx->keys[1].ctx);
-	ttls_zeroize(ctx, sizeof(ttls_ticket_context));
+	mbedtls_cipher_free(&ctx->keys[0].ctx);
+	mbedtls_cipher_free(&ctx->keys[1].ctx);
+	mbedtls_zeroize(ctx, sizeof(mbedtls_ssl_ticket_context));
 }
 
-#endif /* TTLS_TICKET_C */
+#endif /* MBEDTLS_SSL_TICKET_C */

@@ -26,16 +26,23 @@
  *
  *  http://csrc.nist.gov/publications/fips/fips180-2/fips180-2.pdf
  */
-#include "config.h"
 
-#if defined(TTLS_SHA256_C)
+#if !defined(MBEDTLS_CONFIG_FILE)
+#include "config.h"
+#else
+#include MBEDTLS_CONFIG_FILE
+#endif
+
+#if defined(MBEDTLS_SHA256_C)
 
 #include "sha256.h"
 
-#if !defined(TTLS_SHA256_ALT)
+#include <string.h>
+
+#if !defined(MBEDTLS_SHA256_ALT)
 
 /* Implementation that should never be optimized out by the compiler */
-static void ttls_zeroize(void *v, size_t n) {
+static void mbedtls_zeroize(void *v, size_t n) {
 	volatile unsigned char *p = v; while (n--) *p++ = 0;
 }
 
@@ -62,21 +69,21 @@ do {													\
 } while (0)
 #endif
 
-void ttls_sha256_init(ttls_sha256_context *ctx)
+void mbedtls_sha256_init(mbedtls_sha256_context *ctx)
 {
-	memset(ctx, 0, sizeof(ttls_sha256_context));
+	memset(ctx, 0, sizeof(mbedtls_sha256_context));
 }
 
-void ttls_sha256_free(ttls_sha256_context *ctx)
+void mbedtls_sha256_free(mbedtls_sha256_context *ctx)
 {
 	if (ctx == NULL)
 		return;
 
-	ttls_zeroize(ctx, sizeof(ttls_sha256_context));
+	mbedtls_zeroize(ctx, sizeof(mbedtls_sha256_context));
 }
 
-void ttls_sha256_clone(ttls_sha256_context *dst,
-						   const ttls_sha256_context *src)
+void mbedtls_sha256_clone(mbedtls_sha256_context *dst,
+						   const mbedtls_sha256_context *src)
 {
 	*dst = *src;
 }
@@ -84,7 +91,7 @@ void ttls_sha256_clone(ttls_sha256_context *dst,
 /*
  * SHA-256 context setup
  */
-int ttls_sha256_starts_ret(ttls_sha256_context *ctx, int is224)
+int mbedtls_sha256_starts_ret(mbedtls_sha256_context *ctx, int is224)
 {
 	ctx->total[0] = 0;
 	ctx->total[1] = 0;
@@ -119,7 +126,15 @@ int ttls_sha256_starts_ret(ttls_sha256_context *ctx, int is224)
 	return 0;
 }
 
-#if !defined(TTLS_SHA256_PROCESS_ALT)
+#if !defined(MBEDTLS_DEPRECATED_REMOVED)
+void mbedtls_sha256_starts(mbedtls_sha256_context *ctx,
+							int is224)
+{
+	mbedtls_sha256_starts_ret(ctx, is224);
+}
+#endif
+
+#if !defined(MBEDTLS_SHA256_PROCESS_ALT)
 static const uint32_t K[] =
 {
 	0x428A2F98, 0x71374491, 0xB5C0FBCF, 0xE9B5DBA5,
@@ -165,7 +180,7 @@ static const uint32_t K[] =
 	d += temp1; h = temp1 + temp2;			  \
 }
 
-int ttls_internal_sha256_process(ttls_sha256_context *ctx,
+int mbedtls_internal_sha256_process(mbedtls_sha256_context *ctx,
 								const unsigned char data[64])
 {
 	uint32_t temp1, temp2, W[64];
@@ -175,7 +190,7 @@ int ttls_internal_sha256_process(ttls_sha256_context *ctx,
 	for (i = 0; i < 8; i++)
 		A[i] = ctx->state[i];
 
-#if defined(TTLS_SHA256_SMALLER)
+#if defined(MBEDTLS_SHA256_SMALLER)
 	for (i = 0; i < 64; i++)
 	{
 		if (i < 16)
@@ -188,7 +203,7 @@ int ttls_internal_sha256_process(ttls_sha256_context *ctx,
 		temp1 = A[7]; A[7] = A[6]; A[6] = A[5]; A[5] = A[4]; A[4] = A[3];
 		A[3] = A[2]; A[2] = A[1]; A[1] = A[0]; A[0] = temp1;
 	}
-#else /* TTLS_SHA256_SMALLER */
+#else /* MBEDTLS_SHA256_SMALLER */
 	for (i = 0; i < 16; i++)
 		GET_UINT32_BE(W[i], data, 4 * i);
 
@@ -215,7 +230,7 @@ int ttls_internal_sha256_process(ttls_sha256_context *ctx,
 		P(A[2], A[3], A[4], A[5], A[6], A[7], A[0], A[1], R(i+6), K[i+6]);
 		P(A[1], A[2], A[3], A[4], A[5], A[6], A[7], A[0], R(i+7), K[i+7]);
 	}
-#endif /* TTLS_SHA256_SMALLER */
+#endif /* MBEDTLS_SHA256_SMALLER */
 
 	for (i = 0; i < 8; i++)
 		ctx->state[i] += A[i];
@@ -223,12 +238,19 @@ int ttls_internal_sha256_process(ttls_sha256_context *ctx,
 	return 0;
 }
 
-#endif /* !TTLS_SHA256_PROCESS_ALT */
+#if !defined(MBEDTLS_DEPRECATED_REMOVED)
+void mbedtls_sha256_process(mbedtls_sha256_context *ctx,
+							 const unsigned char data[64])
+{
+	mbedtls_internal_sha256_process(ctx, data);
+}
+#endif
+#endif /* !MBEDTLS_SHA256_PROCESS_ALT */
 
 /*
  * SHA-256 process buffer
  */
-int ttls_sha256_update_ret(ttls_sha256_context *ctx,
+int mbedtls_sha256_update_ret(mbedtls_sha256_context *ctx,
 							   const unsigned char *input,
 							   size_t ilen)
 {
@@ -252,7 +274,7 @@ int ttls_sha256_update_ret(ttls_sha256_context *ctx,
 	{
 		memcpy((void *) (ctx->buffer + left), input, fill);
 
-		if ((ret = ttls_internal_sha256_process(ctx, ctx->buffer)) != 0)
+		if ((ret = mbedtls_internal_sha256_process(ctx, ctx->buffer)) != 0)
 			return ret;
 
 		input += fill;
@@ -262,7 +284,7 @@ int ttls_sha256_update_ret(ttls_sha256_context *ctx,
 
 	while (ilen >= 64)
 	{
-		if ((ret = ttls_internal_sha256_process(ctx, input)) != 0)
+		if ((ret = mbedtls_internal_sha256_process(ctx, input)) != 0)
 			return ret;
 
 		input += 64;
@@ -275,6 +297,15 @@ int ttls_sha256_update_ret(ttls_sha256_context *ctx,
 	return 0;
 }
 
+#if !defined(MBEDTLS_DEPRECATED_REMOVED)
+void mbedtls_sha256_update(mbedtls_sha256_context *ctx,
+							const unsigned char *input,
+							size_t ilen)
+{
+	mbedtls_sha256_update_ret(ctx, input, ilen);
+}
+#endif
+
 static const unsigned char sha256_padding[64] =
 {
  0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -286,7 +317,7 @@ static const unsigned char sha256_padding[64] =
 /*
  * SHA-256 final digest
  */
-int ttls_sha256_finish_ret(ttls_sha256_context *ctx,
+int mbedtls_sha256_finish_ret(mbedtls_sha256_context *ctx,
 							   unsigned char output[32])
 {
 	int ret;
@@ -304,10 +335,10 @@ int ttls_sha256_finish_ret(ttls_sha256_context *ctx,
 	last = ctx->total[0] & 0x3F;
 	padn = (last < 56) ? (56 - last) : (120 - last);
 
-	if ((ret = ttls_sha256_update_ret(ctx, sha256_padding, padn)) != 0)
+	if ((ret = mbedtls_sha256_update_ret(ctx, sha256_padding, padn)) != 0)
 		return ret;
 
-	if ((ret = ttls_sha256_update_ret(ctx, msglen, 8)) != 0)
+	if ((ret = mbedtls_sha256_update_ret(ctx, msglen, 8)) != 0)
 		return ret;
 
 	PUT_UINT32_BE(ctx->state[0], output,  0);
@@ -324,35 +355,53 @@ int ttls_sha256_finish_ret(ttls_sha256_context *ctx,
 	return 0;
 }
 
-#endif /* !TTLS_SHA256_ALT */
+#if !defined(MBEDTLS_DEPRECATED_REMOVED)
+void mbedtls_sha256_finish(mbedtls_sha256_context *ctx,
+							unsigned char output[32])
+{
+	mbedtls_sha256_finish_ret(ctx, output);
+}
+#endif
+
+#endif /* !MBEDTLS_SHA256_ALT */
 
 /*
  * output = SHA-256(input buffer)
  */
-int ttls_sha256_ret(const unsigned char *input,
+int mbedtls_sha256_ret(const unsigned char *input,
 						size_t ilen,
 						unsigned char output[32],
 						int is224)
 {
 	int ret;
-	ttls_sha256_context ctx;
+	mbedtls_sha256_context ctx;
 
-	ttls_sha256_init(&ctx);
+	mbedtls_sha256_init(&ctx);
 
-	if ((ret = ttls_sha256_starts_ret(&ctx, is224)) != 0)
+	if ((ret = mbedtls_sha256_starts_ret(&ctx, is224)) != 0)
 		goto exit;
 
-	if ((ret = ttls_sha256_update_ret(&ctx, input, ilen)) != 0)
+	if ((ret = mbedtls_sha256_update_ret(&ctx, input, ilen)) != 0)
 		goto exit;
 
-	if ((ret = ttls_sha256_finish_ret(&ctx, output)) != 0)
+	if ((ret = mbedtls_sha256_finish_ret(&ctx, output)) != 0)
 		goto exit;
 
 exit:
-	ttls_sha256_free(&ctx);
+	mbedtls_sha256_free(&ctx);
 
 	return ret;
 }
+
+#if !defined(MBEDTLS_DEPRECATED_REMOVED)
+void mbedtls_sha256(const unsigned char *input,
+					 size_t ilen,
+					 unsigned char output[32],
+					 int is224)
+{
+	mbedtls_sha256_ret(input, ilen, output, is224);
+}
+#endif
 
 /*
  * FIPS-180-2 test vectors
@@ -407,23 +456,23 @@ static const unsigned char sha256_test_sum[6][32] =
 /*
  * Checkup routine
  */
-int ttls_sha256_self_test(int verbose)
+int mbedtls_sha256_self_test(int verbose)
 {
 	int i, j, k, buflen, ret = 0;
 	unsigned char *buf;
 	unsigned char sha256sum[32];
-	ttls_sha256_context ctx;
+	mbedtls_sha256_context ctx;
 
-	buf = ttls_calloc(1024, sizeof(unsigned char));
+	buf = mbedtls_calloc(1024, sizeof(unsigned char));
 	if (NULL == buf)
 	{
 		if (verbose != 0)
-			ttls_printf("Buffer allocation failed\n");
+			mbedtls_printf("Buffer allocation failed\n");
 
 		return(1);
 	}
 
-	ttls_sha256_init(&ctx);
+	mbedtls_sha256_init(&ctx);
 
 	for (i = 0; i < 6; i++)
 	{
@@ -431,9 +480,9 @@ int ttls_sha256_self_test(int verbose)
 		k = i < 3;
 
 		if (verbose != 0)
-			ttls_printf("  SHA-%d test #%d: ", 256 - k * 32, j + 1);
+			mbedtls_printf("  SHA-%d test #%d: ", 256 - k * 32, j + 1);
 
-		if ((ret = ttls_sha256_starts_ret(&ctx, k)) != 0)
+		if ((ret = mbedtls_sha256_starts_ret(&ctx, k)) != 0)
 			goto fail;
 
 		if (j == 2)
@@ -442,7 +491,7 @@ int ttls_sha256_self_test(int verbose)
 
 			for (j = 0; j < 1000; j++)
 			{
-				ret = ttls_sha256_update_ret(&ctx, buf, buflen);
+				ret = mbedtls_sha256_update_ret(&ctx, buf, buflen);
 				if (ret != 0)
 					goto fail;
 			}
@@ -450,13 +499,13 @@ int ttls_sha256_self_test(int verbose)
 		}
 		else
 		{
-			ret = ttls_sha256_update_ret(&ctx, sha256_test_buf[j],
+			ret = mbedtls_sha256_update_ret(&ctx, sha256_test_buf[j],
 											 sha256_test_buflen[j]);
 			if (ret != 0)
 				 goto fail;
 		}
 
-		if ((ret = ttls_sha256_finish_ret(&ctx, sha256sum)) != 0)
+		if ((ret = mbedtls_sha256_finish_ret(&ctx, sha256sum)) != 0)
 			goto fail;
 
 
@@ -467,23 +516,23 @@ int ttls_sha256_self_test(int verbose)
 		}
 
 		if (verbose != 0)
-			ttls_printf("passed\n");
+			mbedtls_printf("passed\n");
 	}
 
 	if (verbose != 0)
-		ttls_printf("\n");
+		mbedtls_printf("\n");
 
 	goto exit;
 
 fail:
 	if (verbose != 0)
-		ttls_printf("failed\n");
+		mbedtls_printf("failed\n");
 
 exit:
-	ttls_sha256_free(&ctx);
-	ttls_free(buf);
+	mbedtls_sha256_free(&ctx);
+	mbedtls_free(buf);
 
 	return ret;
 }
 
-#endif /* TTLS_SHA256_C */
+#endif /* MBEDTLS_SHA256_C */

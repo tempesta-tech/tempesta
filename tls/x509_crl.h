@@ -24,13 +24,13 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#ifndef TTLS_X509_CRL_H
-#define TTLS_X509_CRL_H
+#ifndef MBEDTLS_X509_CRL_H
+#define MBEDTLS_X509_CRL_H
 
-#if !defined(TTLS_CONFIG_FILE)
+#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
 #else
-#include TTLS_CONFIG_FILE
+#include MBEDTLS_CONFIG_FILE
 #endif
 
 #include "x509.h"
@@ -52,52 +52,52 @@ extern "C" {
  * Certificate revocation list entry.
  * Contains the CA-specific serial numbers and revocation dates.
  */
-typedef struct ttls_x509_crl_entry
+typedef struct mbedtls_x509_crl_entry
 {
-	ttls_x509_buf raw;
+	mbedtls_x509_buf raw;
 
-	ttls_x509_buf serial;
+	mbedtls_x509_buf serial;
 
-	ttls_x509_time revocation_date;
+	mbedtls_x509_time revocation_date;
 
-	ttls_x509_buf entry_ext;
+	mbedtls_x509_buf entry_ext;
 
-	struct ttls_x509_crl_entry *next;
+	struct mbedtls_x509_crl_entry *next;
 }
-ttls_x509_crl_entry;
+mbedtls_x509_crl_entry;
 
 /**
  * Certificate revocation list structure.
  * Every CRL may have multiple entries.
  */
-typedef struct ttls_x509_crl
+typedef struct mbedtls_x509_crl
 {
-	ttls_x509_buf raw;		   /**< The raw certificate data (DER). */
-	ttls_x509_buf tbs;		   /**< The raw certificate body (DER). The part that is To Be Signed. */
+	mbedtls_x509_buf raw;		   /**< The raw certificate data (DER). */
+	mbedtls_x509_buf tbs;		   /**< The raw certificate body (DER). The part that is To Be Signed. */
 
 	int version;			/**< CRL version (1=v1, 2=v2) */
-	ttls_x509_buf sig_oid;	   /**< CRL signature type identifier */
+	mbedtls_x509_buf sig_oid;	   /**< CRL signature type identifier */
 
-	ttls_x509_buf issuer_raw;	/**< The raw issuer data (DER). */
+	mbedtls_x509_buf issuer_raw;	/**< The raw issuer data (DER). */
 
-	ttls_x509_name issuer;	   /**< The parsed issuer data (named information object). */
+	mbedtls_x509_name issuer;	   /**< The parsed issuer data (named information object). */
 
-	ttls_x509_time this_update;
-	ttls_x509_time next_update;
+	mbedtls_x509_time this_update;
+	mbedtls_x509_time next_update;
 
-	ttls_x509_crl_entry entry;   /**< The CRL entries containing the certificate revocation times for this CA. */
+	mbedtls_x509_crl_entry entry;   /**< The CRL entries containing the certificate revocation times for this CA. */
 
-	ttls_x509_buf crl_ext;
+	mbedtls_x509_buf crl_ext;
 
-	ttls_x509_buf sig_oid2;
-	ttls_x509_buf sig;
-	ttls_md_type_t sig_md;		   /**< Internal representation of the MD algorithm of the signature algorithm, e.g. TTLS_MD_SHA256 */
-	ttls_pk_type_t sig_pk;		   /**< Internal representation of the Public Key algorithm of the signature algorithm, e.g. TTLS_PK_RSA */
-	void *sig_opts;			 /**< Signature options to be passed to ttls_pk_verify_ext(), e.g. for RSASSA-PSS */
+	mbedtls_x509_buf sig_oid2;
+	mbedtls_x509_buf sig;
+	mbedtls_md_type_t sig_md;		   /**< Internal representation of the MD algorithm of the signature algorithm, e.g. MBEDTLS_MD_SHA256 */
+	mbedtls_pk_type_t sig_pk;		   /**< Internal representation of the Public Key algorithm of the signature algorithm, e.g. MBEDTLS_PK_RSA */
+	void *sig_opts;			 /**< Signature options to be passed to mbedtls_pk_verify_ext(), e.g. for RSASSA-PSS */
 
-	struct ttls_x509_crl *next;
+	struct mbedtls_x509_crl *next;
 }
-ttls_x509_crl;
+mbedtls_x509_crl;
 
 /**
  * \brief		  Parse a DER-encoded CRL and append it to the chained list
@@ -109,7 +109,7 @@ ttls_x509_crl;
  *
  * \return		 0 if successful, or a specific X509 or PEM error code
  */
-int ttls_x509_crl_parse_der(ttls_x509_crl *chain,
+int mbedtls_x509_crl_parse_der(mbedtls_x509_crl *chain,
 						const unsigned char *buf, size_t buflen);
 /**
  * \brief		  Parse one or more CRLs and append them to the chained list
@@ -123,7 +123,7 @@ int ttls_x509_crl_parse_der(ttls_x509_crl *chain,
  *
  * \return		 0 if successful, or a specific X509 or PEM error code
  */
-int ttls_x509_crl_parse(ttls_x509_crl *chain, const unsigned char *buf, size_t buflen);
+int mbedtls_x509_crl_parse(mbedtls_x509_crl *chain, const unsigned char *buf, size_t buflen);
 
 /**
  * \brief		  Returns an informational string about the CRL.
@@ -136,22 +136,22 @@ int ttls_x509_crl_parse(ttls_x509_crl *chain, const unsigned char *buf, size_t b
  * \return		 The length of the string written (not including the
  *				 terminated nul byte), or a negative error code.
  */
-int ttls_x509_crl_info(char *buf, size_t size, const char *prefix,
-				   const ttls_x509_crl *crl);
+int mbedtls_x509_crl_info(char *buf, size_t size, const char *prefix,
+				   const mbedtls_x509_crl *crl);
 
 /**
  * \brief		  Initialize a CRL (chain)
  *
  * \param crl	  CRL chain to initialize
  */
-void ttls_x509_crl_init(ttls_x509_crl *crl);
+void mbedtls_x509_crl_init(mbedtls_x509_crl *crl);
 
 /**
  * \brief		  Unallocate all CRL data
  *
  * \param crl	  CRL chain to free
  */
-void ttls_x509_crl_free(ttls_x509_crl *crl);
+void mbedtls_x509_crl_free(mbedtls_x509_crl *crl);
 
 /* \} name */
 /* \} addtogroup x509_module */
@@ -160,4 +160,4 @@ void ttls_x509_crl_free(ttls_x509_crl *crl);
 }
 #endif
 
-#endif /* ttls_x509_crl.h */
+#endif /* mbedtls_x509_crl.h */

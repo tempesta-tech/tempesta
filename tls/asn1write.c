@@ -22,16 +22,18 @@
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 #include "config.h"
-#if defined(TTLS_ASN1_WRITE_C)
+#if defined(MBEDTLS_ASN1_WRITE_C)
 
 #include "asn1write.h"
 
-int ttls_asn1_write_len(unsigned char **p, unsigned char *start, size_t len)
+#include <string.h>
+
+int mbedtls_asn1_write_len(unsigned char **p, unsigned char *start, size_t len)
 {
 	if (len < 0x80)
 	{
 		if (*p - start < 1)
-			return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
+			return(MBEDTLS_ERR_ASN1_BUF_TOO_SMALL);
 
 		*--(*p) = (unsigned char) len;
 		return(1);
@@ -40,7 +42,7 @@ int ttls_asn1_write_len(unsigned char **p, unsigned char *start, size_t len)
 	if (len <= 0xFF)
 	{
 		if (*p - start < 2)
-			return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
+			return(MBEDTLS_ERR_ASN1_BUF_TOO_SMALL);
 
 		*--(*p) = (unsigned char) len;
 		*--(*p) = 0x81;
@@ -50,7 +52,7 @@ int ttls_asn1_write_len(unsigned char **p, unsigned char *start, size_t len)
 	if (len <= 0xFFFF)
 	{
 		if (*p - start < 3)
-			return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
+			return(MBEDTLS_ERR_ASN1_BUF_TOO_SMALL);
 
 		*--(*p) = (len	  ) & 0xFF;
 		*--(*p) = (len >>  8) & 0xFF;
@@ -61,7 +63,7 @@ int ttls_asn1_write_len(unsigned char **p, unsigned char *start, size_t len)
 	if (len <= 0xFFFFFF)
 	{
 		if (*p - start < 4)
-			return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
+			return(MBEDTLS_ERR_ASN1_BUF_TOO_SMALL);
 
 		*--(*p) = (len	  ) & 0xFF;
 		*--(*p) = (len >>  8) & 0xFF;
@@ -73,7 +75,7 @@ int ttls_asn1_write_len(unsigned char **p, unsigned char *start, size_t len)
 	if (len <= 0xFFFFFFFF)
 	{
 		if (*p - start < 5)
-			return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
+			return(MBEDTLS_ERR_ASN1_BUF_TOO_SMALL);
 
 		*--(*p) = (len	  ) & 0xFF;
 		*--(*p) = (len >>  8) & 0xFF;
@@ -83,26 +85,26 @@ int ttls_asn1_write_len(unsigned char **p, unsigned char *start, size_t len)
 		return(5);
 	}
 
-	return(TTLS_ERR_ASN1_INVALID_LENGTH);
+	return(MBEDTLS_ERR_ASN1_INVALID_LENGTH);
 }
 
-int ttls_asn1_write_tag(unsigned char **p, unsigned char *start, unsigned char tag)
+int mbedtls_asn1_write_tag(unsigned char **p, unsigned char *start, unsigned char tag)
 {
 	if (*p - start < 1)
-		return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
+		return(MBEDTLS_ERR_ASN1_BUF_TOO_SMALL);
 
 	*--(*p) = tag;
 
 	return(1);
 }
 
-int ttls_asn1_write_raw_buffer(unsigned char **p, unsigned char *start,
+int mbedtls_asn1_write_raw_buffer(unsigned char **p, unsigned char *start,
 						   const unsigned char *buf, size_t size)
 {
 	size_t len = 0;
 
 	if (*p < start || (size_t)(*p - start) < size)
-		return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
+		return(MBEDTLS_ERR_ASN1_BUF_TOO_SMALL);
 
 	len = size;
 	(*p) -= len;
@@ -111,20 +113,20 @@ int ttls_asn1_write_raw_buffer(unsigned char **p, unsigned char *start,
 	return((int) len);
 }
 
-int ttls_asn1_write_mpi(unsigned char **p, unsigned char *start, const ttls_mpi *X)
+int mbedtls_asn1_write_mpi(unsigned char **p, unsigned char *start, const mbedtls_mpi *X)
 {
 	int ret;
 	size_t len = 0;
 
 	// Write the MPI
 	//
-	len = ttls_mpi_size(X);
+	len = mbedtls_mpi_size(X);
 
 	if (*p < start || (size_t)(*p - start) < len)
-		return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
+		return(MBEDTLS_ERR_ASN1_BUF_TOO_SMALL);
 
 	(*p) -= len;
-	TTLS_MPI_CHK(ttls_mpi_write_binary(X, *p, len));
+	MBEDTLS_MPI_CHK(mbedtls_mpi_write_binary(X, *p, len));
 
 	// DER format assumes 2s complement for numbers, so the leftmost bit
 	// should be 0 for positive numbers and 1 for negative numbers.
@@ -132,14 +134,14 @@ int ttls_asn1_write_mpi(unsigned char **p, unsigned char *start, const ttls_mpi 
 	if (X->s ==1 && **p & 0x80)
 	{
 		if (*p - start < 1)
-			return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
+			return(MBEDTLS_ERR_ASN1_BUF_TOO_SMALL);
 
 		*--(*p) = 0x00;
 		len += 1;
 	}
 
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, len));
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_INTEGER));
+	MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_len(p, start, len));
+	MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_tag(p, start, MBEDTLS_ASN1_INTEGER));
 
 	ret = (int) len;
 
@@ -147,34 +149,34 @@ cleanup:
 	return ret;
 }
 
-int ttls_asn1_write_null(unsigned char **p, unsigned char *start)
+int mbedtls_asn1_write_null(unsigned char **p, unsigned char *start)
 {
 	int ret;
 	size_t len = 0;
 
 	// Write NULL
 	//
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, 0));
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_NULL));
+	MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_len(p, start, 0));
+	MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_tag(p, start, MBEDTLS_ASN1_NULL));
 
 	return((int) len);
 }
 
-int ttls_asn1_write_oid(unsigned char **p, unsigned char *start,
+int mbedtls_asn1_write_oid(unsigned char **p, unsigned char *start,
 					const char *oid, size_t oid_len)
 {
 	int ret;
 	size_t len = 0;
 
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_raw_buffer(p, start,
+	MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_raw_buffer(p, start,
 								  (const unsigned char *) oid, oid_len));
-	TTLS_ASN1_CHK_ADD(len , ttls_asn1_write_len(p, start, len));
-	TTLS_ASN1_CHK_ADD(len , ttls_asn1_write_tag(p, start, TTLS_ASN1_OID));
+	MBEDTLS_ASN1_CHK_ADD(len , mbedtls_asn1_write_len(p, start, len));
+	MBEDTLS_ASN1_CHK_ADD(len , mbedtls_asn1_write_tag(p, start, MBEDTLS_ASN1_OID));
 
 	return((int) len);
 }
 
-int ttls_asn1_write_algorithm_identifier(unsigned char **p, unsigned char *start,
+int mbedtls_asn1_write_algorithm_identifier(unsigned char **p, unsigned char *start,
 									 const char *oid, size_t oid_len,
 									 size_t par_len)
 {
@@ -182,37 +184,37 @@ int ttls_asn1_write_algorithm_identifier(unsigned char **p, unsigned char *start
 	size_t len = 0;
 
 	if (par_len == 0)
-		TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_null(p, start));
+		MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_null(p, start));
 	else
 		len += par_len;
 
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_oid(p, start, oid, oid_len));
+	MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_oid(p, start, oid, oid_len));
 
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, len));
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start,
-									   TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE));
+	MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_len(p, start, len));
+	MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_tag(p, start,
+									   MBEDTLS_ASN1_CONSTRUCTED | MBEDTLS_ASN1_SEQUENCE));
 
 	return((int) len);
 }
 
-int ttls_asn1_write_bool(unsigned char **p, unsigned char *start, int boolean)
+int mbedtls_asn1_write_bool(unsigned char **p, unsigned char *start, int boolean)
 {
 	int ret;
 	size_t len = 0;
 
 	if (*p - start < 1)
-		return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
+		return(MBEDTLS_ERR_ASN1_BUF_TOO_SMALL);
 
 	*--(*p) = (boolean) ? 255 : 0;
 	len++;
 
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, len));
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_BOOLEAN));
+	MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_len(p, start, len));
+	MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_tag(p, start, MBEDTLS_ASN1_BOOLEAN));
 
 	return((int) len);
 }
 
-int ttls_asn1_write_int(unsigned char **p, unsigned char *start, int val)
+int mbedtls_asn1_write_int(unsigned char **p, unsigned char *start, int val)
 {
 	int ret;
 	size_t len = 0;
@@ -222,7 +224,7 @@ int ttls_asn1_write_int(unsigned char **p, unsigned char *start, int val)
 	// should be 0 for positive numbers and 1 for negative numbers.
 	//
 	if (*p - start < 1)
-		return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
+		return(MBEDTLS_ERR_ASN1_BUF_TOO_SMALL);
 
 	len += 1;
 	*--(*p) = val;
@@ -230,49 +232,49 @@ int ttls_asn1_write_int(unsigned char **p, unsigned char *start, int val)
 	if (val > 0 && **p & 0x80)
 	{
 		if (*p - start < 1)
-			return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
+			return(MBEDTLS_ERR_ASN1_BUF_TOO_SMALL);
 
 		*--(*p) = 0x00;
 		len += 1;
 	}
 
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, len));
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_INTEGER));
+	MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_len(p, start, len));
+	MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_tag(p, start, MBEDTLS_ASN1_INTEGER));
 
 	return((int) len);
 }
 
-int ttls_asn1_write_printable_string(unsigned char **p, unsigned char *start,
+int mbedtls_asn1_write_printable_string(unsigned char **p, unsigned char *start,
 								 const char *text, size_t text_len)
 {
 	int ret;
 	size_t len = 0;
 
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_raw_buffer(p, start,
+	MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_raw_buffer(p, start,
 				  (const unsigned char *) text, text_len));
 
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, len));
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_PRINTABLE_STRING));
+	MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_len(p, start, len));
+	MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_tag(p, start, MBEDTLS_ASN1_PRINTABLE_STRING));
 
 	return((int) len);
 }
 
-int ttls_asn1_write_ia5_string(unsigned char **p, unsigned char *start,
+int mbedtls_asn1_write_ia5_string(unsigned char **p, unsigned char *start,
 						   const char *text, size_t text_len)
 {
 	int ret;
 	size_t len = 0;
 
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_raw_buffer(p, start,
+	MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_raw_buffer(p, start,
 				  (const unsigned char *) text, text_len));
 
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, len));
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_IA5_STRING));
+	MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_len(p, start, len));
+	MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_tag(p, start, MBEDTLS_ASN1_IA5_STRING));
 
 	return((int) len);
 }
 
-int ttls_asn1_write_bitstring(unsigned char **p, unsigned char *start,
+int mbedtls_asn1_write_bitstring(unsigned char **p, unsigned char *start,
 						  const unsigned char *buf, size_t bits)
 {
 	int ret;
@@ -283,7 +285,7 @@ int ttls_asn1_write_bitstring(unsigned char **p, unsigned char *start,
 	// Calculate byte length
 	//
 	if (*p < start || (size_t)(*p - start) < size + 1)
-		return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
+		return(MBEDTLS_ERR_ASN1_BUF_TOO_SMALL);
 
 	len = size + 1;
 	(*p) -= size;
@@ -293,58 +295,58 @@ int ttls_asn1_write_bitstring(unsigned char **p, unsigned char *start,
 	//
 	*--(*p) = (unsigned char) (size * 8 - bits);
 
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, len));
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_BIT_STRING));
+	MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_len(p, start, len));
+	MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_tag(p, start, MBEDTLS_ASN1_BIT_STRING));
 
 	return((int) len);
 }
 
-int ttls_asn1_write_octet_string(unsigned char **p, unsigned char *start,
+int mbedtls_asn1_write_octet_string(unsigned char **p, unsigned char *start,
 							 const unsigned char *buf, size_t size)
 {
 	int ret;
 	size_t len = 0;
 
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_raw_buffer(p, start, buf, size));
+	MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_raw_buffer(p, start, buf, size));
 
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, len));
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_OCTET_STRING));
+	MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_len(p, start, len));
+	MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_tag(p, start, MBEDTLS_ASN1_OCTET_STRING));
 
 	return((int) len);
 }
 
-ttls_asn1_named_data *ttls_asn1_store_named_data(ttls_asn1_named_data **head,
+mbedtls_asn1_named_data *mbedtls_asn1_store_named_data(mbedtls_asn1_named_data **head,
 										const char *oid, size_t oid_len,
 										const unsigned char *val,
 										size_t val_len)
 {
-	ttls_asn1_named_data *cur;
+	mbedtls_asn1_named_data *cur;
 
-	if ((cur = ttls_asn1_find_named_data(*head, oid, oid_len)) == NULL)
+	if ((cur = mbedtls_asn1_find_named_data(*head, oid, oid_len)) == NULL)
 	{
 		// Add new entry if not present yet based on OID
 		//
-		cur = (ttls_asn1_named_data*)ttls_calloc(1,
-											sizeof(ttls_asn1_named_data));
+		cur = (mbedtls_asn1_named_data*)mbedtls_calloc(1,
+											sizeof(mbedtls_asn1_named_data));
 		if (cur == NULL)
 			return(NULL);
 
 		cur->oid.len = oid_len;
-		cur->oid.p = ttls_calloc(1, oid_len);
+		cur->oid.p = mbedtls_calloc(1, oid_len);
 		if (cur->oid.p == NULL)
 		{
-			ttls_free(cur);
+			mbedtls_free(cur);
 			return(NULL);
 		}
 
 		memcpy(cur->oid.p, oid, oid_len);
 
 		cur->val.len = val_len;
-		cur->val.p = ttls_calloc(1, val_len);
+		cur->val.p = mbedtls_calloc(1, val_len);
 		if (cur->val.p == NULL)
 		{
-			ttls_free(cur->oid.p);
-			ttls_free(cur);
+			mbedtls_free(cur->oid.p);
+			mbedtls_free(cur);
 			return(NULL);
 		}
 
@@ -358,11 +360,11 @@ ttls_asn1_named_data *ttls_asn1_store_named_data(ttls_asn1_named_data **head,
 		 * Preserve old data until the allocation succeeded, to leave list in
 		 * a consistent state in case allocation fails.
 		 */
-		void *p = ttls_calloc(1, val_len);
+		void *p = mbedtls_calloc(1, val_len);
 		if (p == NULL)
 			return(NULL);
 
-		ttls_free(cur->val.p);
+		mbedtls_free(cur->val.p);
 		cur->val.p = p;
 		cur->val.len = val_len;
 	}
@@ -372,4 +374,4 @@ ttls_asn1_named_data *ttls_asn1_store_named_data(ttls_asn1_named_data **head,
 
 	return(cur);
 }
-#endif /* TTLS_ASN1_WRITE_C */
+#endif /* MBEDTLS_ASN1_WRITE_C */

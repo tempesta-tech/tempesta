@@ -29,11 +29,12 @@
 
 #include "config.h"
 #include "aesni.h"
+#include <string.h>
 
 /*
  * AES-NI support detection routine
  */
-int ttls_aesni_has_support(unsigned int what)
+int mbedtls_aesni_has_support(unsigned int what)
 {
 	static int done = 0;
 	static unsigned int c = 0;
@@ -80,7 +81,7 @@ int ttls_aesni_has_support(unsigned int what)
 /*
  * AES-NI AES-ECB block en(de)cryption
  */
-int ttls_aesni_crypt_ecb(ttls_aes_context *ctx,
+int mbedtls_aesni_crypt_ecb(mbedtls_aes_context *ctx,
 					 int mode,
 					 const unsigned char input[16],
 					 unsigned char output[16])
@@ -126,7 +127,7 @@ int ttls_aesni_crypt_ecb(ttls_aes_context *ctx,
  * GCM multiplication: c = a times b in GF(2^128)
  * Based on [CLMUL-WP] algorithms 1 (with equation 27) and 5.
  */
-void ttls_aesni_gcm_mult(unsigned char c[16],
+void mbedtls_aesni_gcm_mult(unsigned char c[16],
 					 const unsigned char a[16],
 					 const unsigned char b[16])
 {
@@ -237,7 +238,7 @@ void ttls_aesni_gcm_mult(unsigned char c[16],
 /*
  * Compute decryption round keys from encryption round keys
  */
-void ttls_aesni_inverse_key(unsigned char *invkey,
+void mbedtls_aesni_inverse_key(unsigned char *invkey,
 						const unsigned char *fwdkey, int nr)
 {
 	unsigned char *ik = invkey;
@@ -416,7 +417,7 @@ static void aesni_setkey_enc_256(unsigned char *rk,
 		 "movdqu %%xmm1, (%0)		   \n\t"
 		 /*
 		  * Main "loop" - Generating one more key than necessary,
-		  * see definition of ttls_aes_context.buf
+		  * see definition of mbedtls_aes_context.buf
 		  */
 		 AESKEYGENA xmm1_xmm2 ",0x01		\n\tcall key_expansion_256 \n\t"
 		 AESKEYGENA xmm1_xmm2 ",0x02		\n\tcall key_expansion_256 \n\t"
@@ -433,7 +434,7 @@ static void aesni_setkey_enc_256(unsigned char *rk,
 /*
  * Key expansion, wrapper
  */
-int ttls_aesni_setkey_enc(unsigned char *rk,
+int mbedtls_aesni_setkey_enc(unsigned char *rk,
 					  const unsigned char *key,
 					  size_t bits)
 {
@@ -442,7 +443,7 @@ int ttls_aesni_setkey_enc(unsigned char *rk,
 		case 128: aesni_setkey_enc_128(rk, key); break;
 		case 192: aesni_setkey_enc_192(rk, key); break;
 		case 256: aesni_setkey_enc_256(rk, key); break;
-		default : return(TTLS_ERR_AES_INVALID_KEY_LENGTH);
+		default : return(MBEDTLS_ERR_AES_INVALID_KEY_LENGTH);
 	}
 
 	return 0;

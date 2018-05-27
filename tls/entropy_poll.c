@@ -21,22 +21,28 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#include <linux/jiffies.h>
 #include <linux/random.h>
-#include <linux/timex.h>
 
+#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
+#else
+#include MBEDTLS_CONFIG_FILE
+#endif
 
-#if defined(TTLS_ENTROPY_C)
+#if defined(MBEDTLS_ENTROPY_C)
 
 #include "entropy.h"
 #include "entropy_poll.h"
-#if defined(TTLS_HAVEGE_C)
+
+#include <string.h>
+#include <linux/jiffies.h>
+#include <linux/timex.h>
+#if defined(MBEDTLS_HAVEGE_C)
 #include "havege.h"
 #endif
 
-int ttls_hardclock_poll(void *data,
-			unsigned char *output, size_t len, size_t *olen)
+int mbedtls_hardclock_poll(void *data,
+					unsigned char *output, size_t len, size_t *olen)
 {
 	unsigned long timer = get_cycles();
 	((void) data);
@@ -51,28 +57,28 @@ int ttls_hardclock_poll(void *data,
 	return 0;
 }
 
-#if defined(TTLS_HAVEGE_C)
-int ttls_havege_poll(void *data,
+#if defined(MBEDTLS_HAVEGE_C)
+int mbedtls_havege_poll(void *data,
 				 unsigned char *output, size_t len, size_t *olen)
 {
-	ttls_havege_state *hs = (ttls_havege_state *) data;
+	mbedtls_havege_state *hs = (mbedtls_havege_state *) data;
 	*olen = 0;
 
-	if (ttls_havege_random(hs, output, len) != 0)
-		return(TTLS_ERR_ENTROPY_SOURCE_FAILED);
+	if (mbedtls_havege_random(hs, output, len) != 0)
+		return(MBEDTLS_ERR_ENTROPY_SOURCE_FAILED);
 
 	*olen = len;
 
 	return 0;
 }
-#endif /* TTLS_HAVEGE_C */
+#endif /* MBEDTLS_HAVEGE_C */
 
 /**
  * Tempesta requires at least Haswell processor having RDRAND instruction,
  * so call CPU for the entropy.
  */
 int
-ttls_hardware_poll(void *data, unsigned char *output, size_t len,
+mbedtls_hardware_poll(void *data, unsigned char *output, size_t len,
 			  size_t *olen)
 {
 	get_random_bytes_arch(output, len);
@@ -80,4 +86,4 @@ ttls_hardware_poll(void *data, unsigned char *output, size_t len,
 	return 0;
 }
 
-#endif /* TTLS_ENTROPY_C */
+#endif /* MBEDTLS_ENTROPY_C */

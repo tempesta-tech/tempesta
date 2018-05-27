@@ -24,13 +24,13 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#ifndef TTLS_X509_CRT_H
-#define TTLS_X509_CRT_H
+#ifndef MBEDTLS_X509_CRT_H
+#define MBEDTLS_X509_CRT_H
 
-#if !defined(TTLS_CONFIG_FILE)
+#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
 #else
-#include TTLS_CONFIG_FILE
+#include MBEDTLS_CONFIG_FILE
 #endif
 
 #include "x509.h"
@@ -53,30 +53,30 @@ extern "C" {
 /**
  * Container for an X.509 certificate. The certificate may be chained.
  */
-typedef struct ttls_x509_crt
+typedef struct mbedtls_x509_crt
 {
-	ttls_x509_buf raw;			   /**< The raw certificate data (DER). */
-	ttls_x509_buf tbs;			   /**< The raw certificate body (DER). The part that is To Be Signed. */
+	mbedtls_x509_buf raw;			   /**< The raw certificate data (DER). */
+	mbedtls_x509_buf tbs;			   /**< The raw certificate body (DER). The part that is To Be Signed. */
 
 	int version;				/**< The X.509 version. (1=v1, 2=v2, 3=v3) */
-	ttls_x509_buf serial;			/**< Unique id for certificate issued by a specific CA. */
-	ttls_x509_buf sig_oid;		   /**< Signature algorithm, e.g. sha1RSA */
+	mbedtls_x509_buf serial;			/**< Unique id for certificate issued by a specific CA. */
+	mbedtls_x509_buf sig_oid;		   /**< Signature algorithm, e.g. sha1RSA */
 
-	ttls_x509_buf issuer_raw;		/**< The raw issuer data (DER). Used for quick comparison. */
-	ttls_x509_buf subject_raw;	   /**< The raw subject data (DER). Used for quick comparison. */
+	mbedtls_x509_buf issuer_raw;		/**< The raw issuer data (DER). Used for quick comparison. */
+	mbedtls_x509_buf subject_raw;	   /**< The raw subject data (DER). Used for quick comparison. */
 
-	ttls_x509_name issuer;		   /**< The parsed issuer data (named information object). */
-	ttls_x509_name subject;		  /**< The parsed subject data (named information object). */
+	mbedtls_x509_name issuer;		   /**< The parsed issuer data (named information object). */
+	mbedtls_x509_name subject;		  /**< The parsed subject data (named information object). */
 
-	ttls_x509_time valid_from;	   /**< Start time of certificate validity. */
-	ttls_x509_time valid_to;		 /**< End time of certificate validity. */
+	mbedtls_x509_time valid_from;	   /**< Start time of certificate validity. */
+	mbedtls_x509_time valid_to;		 /**< End time of certificate validity. */
 
-	ttls_pk_context pk;			  /**< Container for the public key context. */
+	mbedtls_pk_context pk;			  /**< Container for the public key context. */
 
-	ttls_x509_buf issuer_id;		 /**< Optional X.509 v2/v3 issuer unique identifier. */
-	ttls_x509_buf subject_id;		/**< Optional X.509 v2/v3 subject unique identifier. */
-	ttls_x509_buf v3_ext;			/**< Optional X.509 v3 extensions.  */
-	ttls_x509_sequence subject_alt_names;	/**< Optional list of Subject Alternative Names (Only dNSName supported). */
+	mbedtls_x509_buf issuer_id;		 /**< Optional X.509 v2/v3 issuer unique identifier. */
+	mbedtls_x509_buf subject_id;		/**< Optional X.509 v2/v3 subject unique identifier. */
+	mbedtls_x509_buf v3_ext;			/**< Optional X.509 v3 extensions.  */
+	mbedtls_x509_sequence subject_alt_names;	/**< Optional list of Subject Alternative Names (Only dNSName supported). */
 
 	int ext_types;			  /**< Bit string containing detected and parsed extensions */
 	int ca_istrue;			  /**< Optional Basic Constraint extension value: 1 if this certificate belongs to a CA, 0 otherwise. */
@@ -84,29 +84,29 @@ typedef struct ttls_x509_crt
 
 	unsigned int key_usage;	 /**< Optional key usage extension value: See the values in x509.h */
 
-	ttls_x509_sequence ext_key_usage; /**< Optional list of extended key usage OIDs. */
+	mbedtls_x509_sequence ext_key_usage; /**< Optional list of extended key usage OIDs. */
 
 	unsigned char ns_cert_type; /**< Optional Netscape certificate type extension value: See the values in x509.h */
 
-	ttls_x509_buf sig;			   /**< Signature: hash of the tbs part signed with the private key. */
-	ttls_md_type_t sig_md;		   /**< Internal representation of the MD algorithm of the signature algorithm, e.g. TTLS_MD_SHA256 */
-	ttls_pk_type_t sig_pk;		   /**< Internal representation of the Public Key algorithm of the signature algorithm, e.g. TTLS_PK_RSA */
-	void *sig_opts;			 /**< Signature options to be passed to ttls_pk_verify_ext(), e.g. for RSASSA-PSS */
+	mbedtls_x509_buf sig;			   /**< Signature: hash of the tbs part signed with the private key. */
+	mbedtls_md_type_t sig_md;		   /**< Internal representation of the MD algorithm of the signature algorithm, e.g. MBEDTLS_MD_SHA256 */
+	mbedtls_pk_type_t sig_pk;		   /**< Internal representation of the Public Key algorithm of the signature algorithm, e.g. MBEDTLS_PK_RSA */
+	void *sig_opts;			 /**< Signature options to be passed to mbedtls_pk_verify_ext(), e.g. for RSASSA-PSS */
 
-	struct ttls_x509_crt *next;	 /**< Next certificate in the CA-chain. */
+	struct mbedtls_x509_crt *next;	 /**< Next certificate in the CA-chain. */
 }
-ttls_x509_crt;
+mbedtls_x509_crt;
 
 /**
  * Build flag from an algorithm/curve identifier (pk, md, ecp)
  * Since 0 is always XXX_NONE, ignore it.
  */
-#define TTLS_X509_ID_FLAG(id)   (1 << (id - 1))
+#define MBEDTLS_X509_ID_FLAG(id)   (1 << (id - 1))
 
 /**
  * Security profile for certificate verification.
  *
- * All lists are bitfields, built by ORing flags from TTLS_X509_ID_FLAG().
+ * All lists are bitfields, built by ORing flags from MBEDTLS_X509_ID_FLAG().
  */
 typedef struct
 {
@@ -115,53 +115,53 @@ typedef struct
 	uint32_t allowed_curves;	/**< Elliptic curves for ECDSA  */
 	uint32_t rsa_min_bitlen;	/**< Minimum size for RSA keys  */
 }
-ttls_x509_crt_profile;
+mbedtls_x509_crt_profile;
 
-#define TTLS_X509_CRT_VERSION_1			  0
-#define TTLS_X509_CRT_VERSION_2			  1
-#define TTLS_X509_CRT_VERSION_3			  2
+#define MBEDTLS_X509_CRT_VERSION_1			  0
+#define MBEDTLS_X509_CRT_VERSION_2			  1
+#define MBEDTLS_X509_CRT_VERSION_3			  2
 
-#define TTLS_X509_RFC5280_MAX_SERIAL_LEN 32
-#define TTLS_X509_RFC5280_UTC_TIME_LEN   15
+#define MBEDTLS_X509_RFC5280_MAX_SERIAL_LEN 32
+#define MBEDTLS_X509_RFC5280_UTC_TIME_LEN   15
 
-#if !defined(TTLS_X509_MAX_FILE_PATH_LEN)
-#define TTLS_X509_MAX_FILE_PATH_LEN 512
+#if !defined(MBEDTLS_X509_MAX_FILE_PATH_LEN)
+#define MBEDTLS_X509_MAX_FILE_PATH_LEN 512
 #endif
 
 /**
  * Container for writing a certificate (CRT)
  */
-typedef struct ttls_x509write_cert
+typedef struct mbedtls_x509write_cert
 {
 	int version;
-	ttls_mpi serial;
-	ttls_pk_context *subject_key;
-	ttls_pk_context *issuer_key;
-	ttls_asn1_named_data *subject;
-	ttls_asn1_named_data *issuer;
-	ttls_md_type_t md_alg;
-	char not_before[TTLS_X509_RFC5280_UTC_TIME_LEN + 1];
-	char not_after[TTLS_X509_RFC5280_UTC_TIME_LEN + 1];
-	ttls_asn1_named_data *extensions;
+	mbedtls_mpi serial;
+	mbedtls_pk_context *subject_key;
+	mbedtls_pk_context *issuer_key;
+	mbedtls_asn1_named_data *subject;
+	mbedtls_asn1_named_data *issuer;
+	mbedtls_md_type_t md_alg;
+	char not_before[MBEDTLS_X509_RFC5280_UTC_TIME_LEN + 1];
+	char not_after[MBEDTLS_X509_RFC5280_UTC_TIME_LEN + 1];
+	mbedtls_asn1_named_data *extensions;
 }
-ttls_x509write_cert;
+mbedtls_x509write_cert;
 
 /**
  * Default security profile. Should provide a good balance between security
  * and compatibility with current deployments.
  */
-extern const ttls_x509_crt_profile ttls_x509_crt_profile_default;
+extern const mbedtls_x509_crt_profile mbedtls_x509_crt_profile_default;
 
 /**
  * Expected next default profile. Recommended for new deployments.
  * Currently targets a 128-bit security level, except for RSA-2048.
  */
-extern const ttls_x509_crt_profile ttls_x509_crt_profile_next;
+extern const mbedtls_x509_crt_profile mbedtls_x509_crt_profile_next;
 
 /**
  * NSA Suite B profile.
  */
-extern const ttls_x509_crt_profile ttls_x509_crt_profile_suiteb;
+extern const mbedtls_x509_crt_profile mbedtls_x509_crt_profile_suiteb;
 
 /**
  * \brief		  Parse a single DER formatted certificate and add it
@@ -173,7 +173,7 @@ extern const ttls_x509_crt_profile ttls_x509_crt_profile_suiteb;
  *
  * \return		 0 if successful, or a specific X509 or PEM error code
  */
-int ttls_x509_crt_parse_der(ttls_x509_crt *chain, const unsigned char *buf,
+int mbedtls_x509_crt_parse_der(mbedtls_x509_crt *chain, const unsigned char *buf,
 						size_t buflen);
 
 /**
@@ -191,7 +191,7 @@ int ttls_x509_crt_parse_der(ttls_x509_crt *chain, const unsigned char *buf,
  * \return		 0 if all certificates parsed successfully, a positive number
  *				 if partly successful or a specific X509 or PEM error code
  */
-int ttls_x509_crt_parse(ttls_x509_crt *chain, const unsigned char *buf, size_t buflen);
+int mbedtls_x509_crt_parse(mbedtls_x509_crt *chain, const unsigned char *buf, size_t buflen);
 
 /**
  * \brief		  Returns an informational string about the
@@ -205,8 +205,8 @@ int ttls_x509_crt_parse(ttls_x509_crt *chain, const unsigned char *buf, size_t b
  * \return		 The length of the string written (not including the
  *				 terminated nul byte), or a negative error code.
  */
-int ttls_x509_crt_info(char *buf, size_t size, const char *prefix,
-				   const ttls_x509_crt *crt);
+int mbedtls_x509_crt_info(char *buf, size_t size, const char *prefix,
+				   const mbedtls_x509_crt *crt);
 
 /**
  * \brief		  Returns an informational string about the
@@ -215,12 +215,12 @@ int ttls_x509_crt_info(char *buf, size_t size, const char *prefix,
  * \param buf	  Buffer to write to
  * \param size	 Maximum size of buffer
  * \param prefix   A line prefix
- * \param flags	Verification flags created by ttls_x509_crt_verify()
+ * \param flags	Verification flags created by mbedtls_x509_crt_verify()
  *
  * \return		 The length of the string written (not including the
  *				 terminated nul byte), or a negative error code.
  */
-int ttls_x509_crt_verify_info(char *buf, size_t size, const char *prefix,
+int mbedtls_x509_crt_verify_info(char *buf, size_t size, const char *prefix,
 						  uint32_t flags);
 
 /**
@@ -231,7 +231,7 @@ int ttls_x509_crt_verify_info(char *buf, size_t size, const char *prefix,
  *				 the verification callback is called for each
  *				 certificate in the chain (from the trust-ca down to the
  *				 presented crt). The parameters for the callback are:
- *				 (void *parameter, ttls_x509_crt *crt, int certificate_depth,
+ *				 (void *parameter, mbedtls_x509_crt *crt, int certificate_depth,
  *				 int *flags). With the flags representing current flags for
  *				 that specific certificate and the certificate depth from
  *				 the bottom (Peer cert depth = 0).
@@ -242,14 +242,14 @@ int ttls_x509_crt_verify_info(char *buf, size_t size, const char *prefix,
  *				 other than fatal error, as a non-zero return code
  *				 immediately aborts the verification process. For fatal
  *				 errors, a specific error code should be used (different
- *				 from TTLS_ERR_X509_CERT_VERIFY_FAILED which should not
- *				 be returned at this point), or TTLS_ERR_X509_FATAL_ERROR
+ *				 from MBEDTLS_ERR_X509_CERT_VERIFY_FAILED which should not
+ *				 be returned at this point), or MBEDTLS_ERR_X509_FATAL_ERROR
  *				 can be used if no better code is available.
  *
  * \note		   In case verification failed, the results can be displayed
- *				 using \c ttls_x509_crt_verify_info()
+ *				 using \c mbedtls_x509_crt_verify_info()
  *
- * \note		   Same as \c ttls_x509_crt_verify_with_profile() with the
+ * \note		   Same as \c mbedtls_x509_crt_verify_with_profile() with the
  *				 default security profile.
  *
  * \note		   It is your responsibility to provide up-to-date CRLs for
@@ -267,24 +267,24 @@ int ttls_x509_crt_verify_info(char *buf, size_t size, const char *prefix,
  * \param p_vrfy   verification parameter
  *
  * \return		 0 (and flags set to 0) if the chain was verified and valid,
- *				 TTLS_ERR_X509_CERT_VERIFY_FAILED if the chain was verified
+ *				 MBEDTLS_ERR_X509_CERT_VERIFY_FAILED if the chain was verified
  *				 but found to be invalid, in which case *flags will have one
- *				 or more TTLS_X509_BADCERT_XXX or TTLS_X509_BADCRL_XXX
+ *				 or more MBEDTLS_X509_BADCERT_XXX or MBEDTLS_X509_BADCRL_XXX
  *				 flags set, or another error (and flags set to 0xffffffff)
  *				 in case of a fatal error encountered during the
  *				 verification process.
  */
-int ttls_x509_crt_verify(ttls_x509_crt *crt,
-					 ttls_x509_crt *trust_ca,
-					 ttls_x509_crl *ca_crl,
+int mbedtls_x509_crt_verify(mbedtls_x509_crt *crt,
+					 mbedtls_x509_crt *trust_ca,
+					 mbedtls_x509_crl *ca_crl,
 					 const char *cn, uint32_t *flags,
-					 int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *),
+					 int (*f_vrfy)(void *, mbedtls_x509_crt *, int, uint32_t *),
 					 void *p_vrfy);
 
 /**
  * \brief		  Verify the certificate signature according to profile
  *
- * \note		   Same as \c ttls_x509_crt_verify(), but with explicit
+ * \note		   Same as \c mbedtls_x509_crt_verify(), but with explicit
  *				 security profile.
  *
  * \note		   The restrictions on keys (RSA minimum size, allowed curves
@@ -301,27 +301,27 @@ int ttls_x509_crt_verify(ttls_x509_crt *crt,
  * \param f_vrfy   verification function
  * \param p_vrfy   verification parameter
  *
- * \return		 0 if successful or TTLS_ERR_X509_CERT_VERIFY_FAILED
+ * \return		 0 if successful or MBEDTLS_ERR_X509_CERT_VERIFY_FAILED
  *				 in which case *flags will have one or more
- *				 TTLS_X509_BADCERT_XXX or TTLS_X509_BADCRL_XXX flags
+ *				 MBEDTLS_X509_BADCERT_XXX or MBEDTLS_X509_BADCRL_XXX flags
  *				 set,
  *				 or another error in case of a fatal error encountered
  *				 during the verification process.
  */
-int ttls_x509_crt_verify_with_profile(ttls_x509_crt *crt,
-					 ttls_x509_crt *trust_ca,
-					 ttls_x509_crl *ca_crl,
-					 const ttls_x509_crt_profile *profile,
+int mbedtls_x509_crt_verify_with_profile(mbedtls_x509_crt *crt,
+					 mbedtls_x509_crt *trust_ca,
+					 mbedtls_x509_crl *ca_crl,
+					 const mbedtls_x509_crt_profile *profile,
 					 const char *cn, uint32_t *flags,
-					 int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *),
+					 int (*f_vrfy)(void *, mbedtls_x509_crt *, int, uint32_t *),
 					 void *p_vrfy);
 
-#if defined(TTLS_X509_CHECK_KEY_USAGE)
+#if defined(MBEDTLS_X509_CHECK_KEY_USAGE)
 /**
  * \brief		  Check usage of certificate against keyUsage extension.
  *
  * \param crt	  Leaf certificate used.
- * \param usage	Intended usage(s) (eg TTLS_X509_KU_KEY_ENCIPHERMENT
+ * \param usage	Intended usage(s) (eg MBEDTLS_X509_KU_KEY_ENCIPHERMENT
  *				 before using the certificate to perform an RSA key
  *				 exchange).
  *
@@ -331,37 +331,37 @@ int ttls_x509_crt_verify_with_profile(ttls_x509_crt *crt,
  *				 that bit MAY be set.
  *
  * \return		 0 is these uses of the certificate are allowed,
- *				 TTLS_ERR_X509_BAD_INPUT_DATA if the keyUsage extension
+ *				 MBEDTLS_ERR_X509_BAD_INPUT_DATA if the keyUsage extension
  *				 is present but does not match the usage argument.
  *
  * \note		   You should only call this function on leaf certificates, on
  *				 (intermediate) CAs the keyUsage extension is automatically
- *				 checked by \c ttls_x509_crt_verify().
+ *				 checked by \c mbedtls_x509_crt_verify().
  */
-int ttls_x509_crt_check_key_usage(const ttls_x509_crt *crt,
+int mbedtls_x509_crt_check_key_usage(const mbedtls_x509_crt *crt,
 									  unsigned int usage);
-#endif /* TTLS_X509_CHECK_KEY_USAGE) */
+#endif /* MBEDTLS_X509_CHECK_KEY_USAGE) */
 
-#if defined(TTLS_X509_CHECK_EXTENDED_KEY_USAGE)
+#if defined(MBEDTLS_X509_CHECK_EXTENDED_KEY_USAGE)
 /**
  * \brief		   Check usage of certificate against extendedKeyUsage.
  *
  * \param crt	   Leaf certificate used.
- * \param usage_oid Intended usage (eg TTLS_OID_SERVER_AUTH or
- *				  TTLS_OID_CLIENT_AUTH).
- * \param usage_len Length of usage_oid (eg given by TTLS_OID_SIZE()).
+ * \param usage_oid Intended usage (eg MBEDTLS_OID_SERVER_AUTH or
+ *				  MBEDTLS_OID_CLIENT_AUTH).
+ * \param usage_len Length of usage_oid (eg given by MBEDTLS_OID_SIZE()).
  *
  * \return		  0 if this use of the certificate is allowed,
- *				  TTLS_ERR_X509_BAD_INPUT_DATA if not.
+ *				  MBEDTLS_ERR_X509_BAD_INPUT_DATA if not.
  *
  * \note			Usually only makes sense on leaf certificates.
  */
-int ttls_x509_crt_check_extended_key_usage(const ttls_x509_crt *crt,
+int mbedtls_x509_crt_check_extended_key_usage(const mbedtls_x509_crt *crt,
 											   const char *usage_oid,
 											   size_t usage_len);
-#endif /* TTLS_X509_CHECK_EXTENDED_KEY_USAGE */
+#endif /* MBEDTLS_X509_CHECK_EXTENDED_KEY_USAGE */
 
-#if defined(TTLS_X509_CRL_PARSE_C)
+#if defined(MBEDTLS_X509_CRL_PARSE_C)
 /**
  * \brief		  Verify the certificate revocation status
  *
@@ -371,43 +371,43 @@ int ttls_x509_crt_check_extended_key_usage(const ttls_x509_crt *crt,
  * \return		 1 if the certificate is revoked, 0 otherwise
  *
  */
-int ttls_x509_crt_is_revoked(const ttls_x509_crt *crt, const ttls_x509_crl *crl);
-#endif /* TTLS_X509_CRL_PARSE_C */
+int mbedtls_x509_crt_is_revoked(const mbedtls_x509_crt *crt, const mbedtls_x509_crl *crl);
+#endif /* MBEDTLS_X509_CRL_PARSE_C */
 
 /**
  * \brief		  Initialize a certificate (chain)
  *
  * \param crt	  Certificate chain to initialize
  */
-void ttls_x509_crt_init(ttls_x509_crt *crt);
+void mbedtls_x509_crt_init(mbedtls_x509_crt *crt);
 
 /**
  * \brief		  Unallocate all certificate data
  *
  * \param crt	  Certificate chain to free
  */
-void ttls_x509_crt_free(ttls_x509_crt *crt);
+void mbedtls_x509_crt_free(mbedtls_x509_crt *crt);
 
 /* \} name */
 /* \} addtogroup x509_module */
 
-#if defined(TTLS_X509_CRT_WRITE_C)
+#if defined(MBEDTLS_X509_CRT_WRITE_C)
 /**
  * \brief		   Initialize a CRT writing context
  *
  * \param ctx	   CRT context to initialize
  */
-void ttls_x509write_crt_init(ttls_x509write_cert *ctx);
+void mbedtls_x509write_crt_init(mbedtls_x509write_cert *ctx);
 
 /**
  * \brief		   Set the verion for a Certificate
- *				  Default: TTLS_X509_CRT_VERSION_3
+ *				  Default: MBEDTLS_X509_CRT_VERSION_3
  *
  * \param ctx	   CRT context to use
- * \param version   version to set (TTLS_X509_CRT_VERSION_1, TTLS_X509_CRT_VERSION_2 or
- *								  TTLS_X509_CRT_VERSION_3)
+ * \param version   version to set (MBEDTLS_X509_CRT_VERSION_1, MBEDTLS_X509_CRT_VERSION_2 or
+ *								  MBEDTLS_X509_CRT_VERSION_3)
  */
-void ttls_x509write_crt_set_version(ttls_x509write_cert *ctx, int version);
+void mbedtls_x509write_crt_set_version(mbedtls_x509write_cert *ctx, int version);
 
 /**
  * \brief		   Set the serial number for a Certificate.
@@ -417,7 +417,7 @@ void ttls_x509write_crt_set_version(ttls_x509write_cert *ctx, int version);
  *
  * \return		  0 if successful
  */
-int ttls_x509write_crt_set_serial(ttls_x509write_cert *ctx, const ttls_mpi *serial);
+int mbedtls_x509write_crt_set_serial(mbedtls_x509write_cert *ctx, const mbedtls_mpi *serial);
 
 /**
  * \brief		   Set the validity period for a Certificate
@@ -433,7 +433,7 @@ int ttls_x509write_crt_set_serial(ttls_x509write_cert *ctx, const ttls_mpi *seri
  * \return		  0 if timestamp was parsed successfully, or
  *				  a specific error code
  */
-int ttls_x509write_crt_set_validity(ttls_x509write_cert *ctx, const char *not_before,
+int mbedtls_x509write_crt_set_validity(mbedtls_x509write_cert *ctx, const char *not_before,
 								const char *not_after);
 
 /**
@@ -448,7 +448,7 @@ int ttls_x509write_crt_set_validity(ttls_x509write_cert *ctx, const char *not_be
  * \return		  0 if issuer name was parsed successfully, or
  *				  a specific error code
  */
-int ttls_x509write_crt_set_issuer_name(ttls_x509write_cert *ctx,
+int mbedtls_x509write_crt_set_issuer_name(mbedtls_x509write_cert *ctx,
 								   const char *issuer_name);
 
 /**
@@ -463,7 +463,7 @@ int ttls_x509write_crt_set_issuer_name(ttls_x509write_cert *ctx,
  * \return		  0 if subject name was parsed successfully, or
  *				  a specific error code
  */
-int ttls_x509write_crt_set_subject_name(ttls_x509write_cert *ctx,
+int mbedtls_x509write_crt_set_subject_name(mbedtls_x509write_cert *ctx,
 									const char *subject_name);
 
 /**
@@ -472,7 +472,7 @@ int ttls_x509write_crt_set_subject_name(ttls_x509write_cert *ctx,
  * \param ctx	   CRT context to use
  * \param key	   public key to include
  */
-void ttls_x509write_crt_set_subject_key(ttls_x509write_cert *ctx, ttls_pk_context *key);
+void mbedtls_x509write_crt_set_subject_key(mbedtls_x509write_cert *ctx, mbedtls_pk_context *key);
 
 /**
  * \brief		   Set the issuer key used for signing the certificate
@@ -480,16 +480,16 @@ void ttls_x509write_crt_set_subject_key(ttls_x509write_cert *ctx, ttls_pk_contex
  * \param ctx	   CRT context to use
  * \param key	   private key to sign with
  */
-void ttls_x509write_crt_set_issuer_key(ttls_x509write_cert *ctx, ttls_pk_context *key);
+void mbedtls_x509write_crt_set_issuer_key(mbedtls_x509write_cert *ctx, mbedtls_pk_context *key);
 
 /**
  * \brief		   Set the MD algorithm to use for the signature
- *				  (e.g. TTLS_MD_SHA1)
+ *				  (e.g. MBEDTLS_MD_SHA1)
  *
  * \param ctx	   CRT context to use
  * \param md_alg	MD algorithm to use
  */
-void ttls_x509write_crt_set_md_alg(ttls_x509write_cert *ctx, ttls_md_type_t md_alg);
+void mbedtls_x509write_crt_set_md_alg(mbedtls_x509write_cert *ctx, mbedtls_md_type_t md_alg);
 
 /**
  * \brief		   Generic function to add to or replace an extension in the
@@ -502,9 +502,9 @@ void ttls_x509write_crt_set_md_alg(ttls_x509write_cert *ctx, ttls_md_type_t md_a
  * \param val	   value of the extension OCTET STRING
  * \param val_len   length of the value data
  *
- * \return		  0 if successful, or a TTLS_ERR_X509_ALLOC_FAILED
+ * \return		  0 if successful, or a MBEDTLS_ERR_X509_ALLOC_FAILED
  */
-int ttls_x509write_crt_set_extension(ttls_x509write_cert *ctx,
+int mbedtls_x509write_crt_set_extension(mbedtls_x509write_cert *ctx,
 								 const char *oid, size_t oid_len,
 								 int critical,
 								 const unsigned char *val, size_t val_len);
@@ -518,33 +518,57 @@ int ttls_x509write_crt_set_extension(ttls_x509write_cert *ctx,
  *					  certificate (only for CA certificates, -1 is
  *					  inlimited)
  *
- * \return		  0 if successful, or a TTLS_ERR_X509_ALLOC_FAILED
+ * \return		  0 if successful, or a MBEDTLS_ERR_X509_ALLOC_FAILED
  */
-int ttls_x509write_crt_set_basic_constraints(ttls_x509write_cert *ctx,
+int mbedtls_x509write_crt_set_basic_constraints(mbedtls_x509write_cert *ctx,
 										 int is_ca, int max_pathlen);
+
+#if defined(MBEDTLS_SHA1_C)
+/**
+ * \brief		   Set the subjectKeyIdentifier extension for a CRT
+ *				  Requires that mbedtls_x509write_crt_set_subject_key() has been
+ *				  called before
+ *
+ * \param ctx	   CRT context to use
+ *
+ * \return		  0 if successful, or a MBEDTLS_ERR_X509_ALLOC_FAILED
+ */
+int mbedtls_x509write_crt_set_subject_key_identifier(mbedtls_x509write_cert *ctx);
+
+/**
+ * \brief		   Set the authorityKeyIdentifier extension for a CRT
+ *				  Requires that mbedtls_x509write_crt_set_issuer_key() has been
+ *				  called before
+ *
+ * \param ctx	   CRT context to use
+ *
+ * \return		  0 if successful, or a MBEDTLS_ERR_X509_ALLOC_FAILED
+ */
+int mbedtls_x509write_crt_set_authority_key_identifier(mbedtls_x509write_cert *ctx);
+#endif /* MBEDTLS_SHA1_C */
 
 /**
  * \brief		   Set the Key Usage Extension flags
- *				  (e.g. TTLS_X509_KU_DIGITAL_SIGNATURE | TTLS_X509_KU_KEY_CERT_SIGN)
+ *				  (e.g. MBEDTLS_X509_KU_DIGITAL_SIGNATURE | MBEDTLS_X509_KU_KEY_CERT_SIGN)
  *
  * \param ctx	   CRT context to use
  * \param key_usage key usage flags to set
  *
- * \return		  0 if successful, or TTLS_ERR_X509_ALLOC_FAILED
+ * \return		  0 if successful, or MBEDTLS_ERR_X509_ALLOC_FAILED
  */
-int ttls_x509write_crt_set_key_usage(ttls_x509write_cert *ctx,
+int mbedtls_x509write_crt_set_key_usage(mbedtls_x509write_cert *ctx,
 										 unsigned int key_usage);
 
 /**
  * \brief		   Set the Netscape Cert Type flags
- *				  (e.g. TTLS_X509_NS_CERT_TYPE_CLIENT | TTLS_X509_NS_CERT_TYPE_EMAIL)
+ *				  (e.g. MBEDTLS_X509_NS_CERT_TYPE_SSL_CLIENT | MBEDTLS_X509_NS_CERT_TYPE_EMAIL)
  *
  * \param ctx		   CRT context to use
  * \param ns_cert_type  Netscape Cert Type flags to set
  *
- * \return		  0 if successful, or TTLS_ERR_X509_ALLOC_FAILED
+ * \return		  0 if successful, or MBEDTLS_ERR_X509_ALLOC_FAILED
  */
-int ttls_x509write_crt_set_ns_cert_type(ttls_x509write_cert *ctx,
+int mbedtls_x509write_crt_set_ns_cert_type(mbedtls_x509write_cert *ctx,
 									unsigned char ns_cert_type);
 
 /**
@@ -552,7 +576,7 @@ int ttls_x509write_crt_set_ns_cert_type(ttls_x509write_cert *ctx,
  *
  * \param ctx	   CRT context to free
  */
-void ttls_x509write_crt_free(ttls_x509write_cert *ctx);
+void mbedtls_x509write_crt_free(mbedtls_x509write_cert *ctx);
 
 /**
  * \brief		   Write a built up certificate to a X509 DER structure
@@ -574,11 +598,11 @@ void ttls_x509write_crt_free(ttls_x509write_cert *ctx);
  *				  for countermeasures against timing attacks).
  *				  ECDSA signatures always require a non-NULL f_rng.
  */
-int ttls_x509write_crt_der(ttls_x509write_cert *ctx, unsigned char *buf, size_t size,
+int mbedtls_x509write_crt_der(mbedtls_x509write_cert *ctx, unsigned char *buf, size_t size,
 					   int (*f_rng)(void *, unsigned char *, size_t),
 					   void *p_rng);
 
-#if defined(TTLS_PEM_WRITE_C)
+#if defined(MBEDTLS_PEM_WRITE_C)
 /**
  * \brief		   Write a built up certificate to a X509 PEM string
  *
@@ -595,14 +619,14 @@ int ttls_x509write_crt_der(ttls_x509write_cert *ctx, unsigned char *buf, size_t 
  *				  for countermeasures against timing attacks).
  *				  ECDSA signatures always require a non-NULL f_rng.
  */
-int ttls_x509write_crt_pem(ttls_x509write_cert *ctx, unsigned char *buf, size_t size,
+int mbedtls_x509write_crt_pem(mbedtls_x509write_cert *ctx, unsigned char *buf, size_t size,
 					   int (*f_rng)(void *, unsigned char *, size_t),
 					   void *p_rng);
-#endif /* TTLS_PEM_WRITE_C */
-#endif /* TTLS_X509_CRT_WRITE_C */
+#endif /* MBEDTLS_PEM_WRITE_C */
+#endif /* MBEDTLS_X509_CRT_WRITE_C */
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* ttls_x509_crt.h */
+#endif /* mbedtls_x509_crt.h */

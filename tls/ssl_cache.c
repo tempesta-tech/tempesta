@@ -27,25 +27,27 @@
  */
 #include "config.h"
 
-#if defined(TTLS_CACHE_C)
+#if defined(MBEDTLS_SSL_CACHE_C)
 
 #include "ssl_cache.h"
 
-void ttls_cache_init(ttls_cache_context *cache)
-{
-	memset(cache, 0, sizeof(ttls_cache_context));
+#include <string.h>
 
-	cache->timeout = TTLS_CACHE_DEFAULT_TIMEOUT;
-	cache->max_entries = TTLS_CACHE_DEFAULT_MAX_ENTRIES;
+void mbedtls_ssl_cache_init(mbedtls_ssl_cache_context *cache)
+{
+	memset(cache, 0, sizeof(mbedtls_ssl_cache_context));
+
+	cache->timeout = MBEDTLS_SSL_CACHE_DEFAULT_TIMEOUT;
+	cache->max_entries = MBEDTLS_SSL_CACHE_DEFAULT_MAX_ENTRIES;
 	spin_lock_init(&cache->mutex);
 }
 
-int ttls_cache_get(void *data, TtlsSess *session)
+int mbedtls_ssl_cache_get(void *data, mbedtls_ssl_session *session)
 {
 	int ret = 1;
-	time_t t = ttls_time(NULL);
-	ttls_cache_context *cache = (ttls_cache_context *) data;
-	ttls_cache_entry *cur, *entry;
+	time_t t = mbedtls_time(NULL);
+	mbedtls_ssl_cache_context *cache = (mbedtls_ssl_cache_context *) data;
+	mbedtls_ssl_cache_entry *cur, *entry;
 
 	spin_lock(&cache->mutex);
 
@@ -79,18 +81,18 @@ int ttls_cache_get(void *data, TtlsSess *session)
 		 */
 		if (entry->peer_cert.p != NULL)
 		{
-			if ((session->peer_cert = ttls_calloc(1,
-								 sizeof(ttls_x509_crt))) == NULL)
+			if ((session->peer_cert = mbedtls_calloc(1,
+								 sizeof(mbedtls_x509_crt))) == NULL)
 			{
 				ret = 1;
 				goto exit;
 			}
 
-			ttls_x509_crt_init(session->peer_cert);
-			if (ttls_x509_crt_parse(session->peer_cert, entry->peer_cert.p,
+			mbedtls_x509_crt_init(session->peer_cert);
+			if (mbedtls_x509_crt_parse(session->peer_cert, entry->peer_cert.p,
 								entry->peer_cert.len) != 0)
 			{
-				ttls_free(session->peer_cert);
+				mbedtls_free(session->peer_cert);
 				session->peer_cert = NULL;
 				ret = 1;
 				goto exit;
@@ -107,13 +109,13 @@ exit:
 	return ret;
 }
 
-int ttls_cache_set(void *data, const TtlsSess *session)
+int mbedtls_ssl_cache_set(void *data, const mbedtls_ssl_session *session)
 {
 	int ret = 1;
-	time_t t = ttls_time(NULL), oldest = 0;
-	ttls_cache_entry *old = NULL;
-	ttls_cache_context *cache = (ttls_cache_context *) data;
-	ttls_cache_entry *cur, *prv;
+	time_t t = mbedtls_time(NULL), oldest = 0;
+	mbedtls_ssl_cache_entry *old = NULL;
+	mbedtls_ssl_cache_context *cache = (mbedtls_ssl_cache_context *) data;
+	mbedtls_ssl_cache_entry *cur, *prv;
 	int count = 0;
 
 	spin_lock(&cache->mutex);
@@ -165,7 +167,7 @@ int ttls_cache_set(void *data, const TtlsSess *session)
 			/*
 			 * max_entries not reached, create new entry
 			 */
-			cur = ttls_calloc(1, sizeof(ttls_cache_entry));
+			cur = mbedtls_calloc(1, sizeof(mbedtls_ssl_cache_entry));
 			if (cur == NULL)
 			{
 				ret = 1;
@@ -181,15 +183,15 @@ int ttls_cache_set(void *data, const TtlsSess *session)
 		cur->timestamp = t;
 	}
 
-	memcpy(&cur->session, session, sizeof(TtlsSess));
+	memcpy(&cur->session, session, sizeof(mbedtls_ssl_session));
 
 	/*
 	 * If we're reusing an entry, free its certificate first
 	 */
 	if (cur->peer_cert.p != NULL)
 	{
-		ttls_free(cur->peer_cert.p);
-		memset(&cur->peer_cert, 0, sizeof(ttls_x509_buf));
+		mbedtls_free(cur->peer_cert.p);
+		memset(&cur->peer_cert, 0, sizeof(mbedtls_x509_buf));
 	}
 
 	/*
@@ -197,7 +199,7 @@ int ttls_cache_set(void *data, const TtlsSess *session)
 	 */
 	if (session->peer_cert != NULL)
 	{
-		cur->peer_cert.p = ttls_calloc(1, session->peer_cert->raw.len);
+		cur->peer_cert.p = mbedtls_calloc(1, session->peer_cert->raw.len);
 		if (cur->peer_cert.p == NULL)
 		{
 			ret = 1;
@@ -219,23 +221,23 @@ exit:
 	return ret;
 }
 
-void ttls_cache_set_timeout(ttls_cache_context *cache, int timeout)
+void mbedtls_ssl_cache_set_timeout(mbedtls_ssl_cache_context *cache, int timeout)
 {
 	if (timeout < 0) timeout = 0;
 
 	cache->timeout = timeout;
 }
 
-void ttls_cache_set_max_entries(ttls_cache_context *cache, int max)
+void mbedtls_ssl_cache_set_max_entries(mbedtls_ssl_cache_context *cache, int max)
 {
 	if (max < 0) max = 0;
 
 	cache->max_entries = max;
 }
 
-void ttls_cache_free(ttls_cache_context *cache)
+void mbedtls_ssl_cache_free(mbedtls_ssl_cache_context *cache)
 {
-	ttls_cache_entry *cur, *prv;
+	mbedtls_ssl_cache_entry *cur, *prv;
 
 	cur = cache->chain;
 
@@ -244,14 +246,14 @@ void ttls_cache_free(ttls_cache_context *cache)
 		prv = cur;
 		cur = cur->next;
 
-		ttls_session_free(&prv->session);
+		mbedtls_ssl_session_free(&prv->session);
 
-		ttls_free(prv->peer_cert.p);
+		mbedtls_free(prv->peer_cert.p);
 
-		ttls_free(prv);
+		mbedtls_free(prv);
 	}
 
 	cache->chain = NULL;
 }
 
-#endif /* TTLS_CACHE_C */
+#endif /* MBEDTLS_SSL_CACHE_C */

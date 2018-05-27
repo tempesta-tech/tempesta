@@ -60,10 +60,10 @@
  *	 Springer Science & Business Media, 1 Aug 2000
  */
 
-#ifndef TTLS_ECP_INTERNAL_H
-#define TTLS_ECP_INTERNAL_H
+#ifndef MBEDTLS_ECP_INTERNAL_H
+#define MBEDTLS_ECP_INTERNAL_H
 
-#if defined(TTLS_ECP_INTERNAL_ALT)
+#if defined(MBEDTLS_ECP_INTERNAL_ALT)
 
 /**
  * \brief		   Indicate if the Elliptic Curve Point module extension can
@@ -74,12 +74,12 @@
  *
  * \return		  Non-zero if successful.
  */
-unsigned char ttls_internal_ecp_grp_capable(const ttls_ecp_group *grp);
+unsigned char mbedtls_internal_ecp_grp_capable(const mbedtls_ecp_group *grp);
 
 /**
  * \brief		   Initialise the Elliptic Curve Point module extension.
  *
- *				  If ttls_internal_ecp_grp_capable returns true for a
+ *				  If mbedtls_internal_ecp_grp_capable returns true for a
  *				  group, this function has to be able to initialise the
  *				  module for it.
  *
@@ -91,7 +91,7 @@ unsigned char ttls_internal_ecp_grp_capable(const ttls_ecp_group *grp);
  *
  * \return		  0 if successful.
  */
-int ttls_internal_ecp_init(const ttls_ecp_group *grp);
+int mbedtls_internal_ecp_init(const mbedtls_ecp_group *grp);
 
 /**
  * \brief		   Frees and deallocates the Elliptic Curve Point module
@@ -99,11 +99,11 @@ int ttls_internal_ecp_init(const ttls_ecp_group *grp);
  *
  * \param grp	   The pointer to the group the module was initialised for.
  */
-void ttls_internal_ecp_free(const ttls_ecp_group *grp);
+void mbedtls_internal_ecp_free(const mbedtls_ecp_group *grp);
 
 #if defined(ECP_SHORTWEIERSTRASS)
 
-#if defined(TTLS_ECP_RANDOMIZE_JAC_ALT)
+#if defined(MBEDTLS_ECP_RANDOMIZE_JAC_ALT)
 /**
  * \brief		   Randomize jacobian coordinates:
  *				  (X, Y, Z) -> (l^2 X, l^3 Y, l Z) for random l.
@@ -119,12 +119,12 @@ void ttls_internal_ecp_free(const ttls_ecp_group *grp);
  *
  * \return		  0 if successful.
  */
-int ttls_internal_ecp_randomize_jac(const ttls_ecp_group *grp,
-		ttls_ecp_point *pt, int (*f_rng)(void *, unsigned char *, size_t),
+int mbedtls_internal_ecp_randomize_jac(const mbedtls_ecp_group *grp,
+		mbedtls_ecp_point *pt, int (*f_rng)(void *, unsigned char *, size_t),
 		void *p_rng);
 #endif
 
-#if defined(TTLS_ECP_ADD_MIXED_ALT)
+#if defined(MBEDTLS_ECP_ADD_MIXED_ALT)
 /**
  * \brief		   Addition: R = P + Q, mixed affine-Jacobian coordinates.
  *
@@ -164,9 +164,9 @@ int ttls_internal_ecp_randomize_jac(const ttls_ecp_group *grp,
  *
  * \return		  0 if successful.
  */
-int ttls_internal_ecp_add_mixed(const ttls_ecp_group *grp,
-		ttls_ecp_point *R, const ttls_ecp_point *P,
-		const ttls_ecp_point *Q);
+int mbedtls_internal_ecp_add_mixed(const mbedtls_ecp_group *grp,
+		mbedtls_ecp_point *R, const mbedtls_ecp_point *P,
+		const mbedtls_ecp_point *Q);
 #endif
 
 /**
@@ -188,9 +188,9 @@ int ttls_internal_ecp_add_mixed(const ttls_ecp_group *grp,
  *
  * \return		  0 if successful.
  */
-#if defined(TTLS_ECP_DOUBLE_JAC_ALT)
-int ttls_internal_ecp_double_jac(const ttls_ecp_group *grp,
-		ttls_ecp_point *R, const ttls_ecp_point *P);
+#if defined(MBEDTLS_ECP_DOUBLE_JAC_ALT)
+int mbedtls_internal_ecp_double_jac(const mbedtls_ecp_group *grp,
+		mbedtls_ecp_point *R, const mbedtls_ecp_point *P);
 #endif
 
 /**
@@ -218,9 +218,9 @@ int ttls_internal_ecp_double_jac(const ttls_ecp_group *grp,
  * \return		  0 if successful,
  *					  an error if one of the points is zero.
  */
-#if defined(TTLS_ECP_NORMALIZE_JAC_MANY_ALT)
-int ttls_internal_ecp_normalize_jac_many(const ttls_ecp_group *grp,
-		ttls_ecp_point *T[], size_t t_len);
+#if defined(MBEDTLS_ECP_NORMALIZE_JAC_MANY_ALT)
+int mbedtls_internal_ecp_normalize_jac_many(const mbedtls_ecp_group *grp,
+		mbedtls_ecp_point *T[], size_t t_len);
 #endif
 
 /**
@@ -236,19 +236,19 @@ int ttls_internal_ecp_normalize_jac_many(const ttls_ecp_group *grp,
  *
  * \return		  0 if successful.
  */
-#if defined(TTLS_ECP_NORMALIZE_JAC_ALT)
-int ttls_internal_ecp_normalize_jac(const ttls_ecp_group *grp,
-		ttls_ecp_point *pt);
+#if defined(MBEDTLS_ECP_NORMALIZE_JAC_ALT)
+int mbedtls_internal_ecp_normalize_jac(const mbedtls_ecp_group *grp,
+		mbedtls_ecp_point *pt);
 #endif
 
 #endif /* ECP_SHORTWEIERSTRASS */
 
 #if defined(ECP_MONTGOMERY)
 
-#if defined(TTLS_ECP_DOUBLE_ADD_MXZ_ALT)
-int ttls_internal_ecp_double_add_mxz(const ttls_ecp_group *grp,
-		ttls_ecp_point *R, ttls_ecp_point *S, const ttls_ecp_point *P,
-		const ttls_ecp_point *Q, const ttls_mpi *d);
+#if defined(MBEDTLS_ECP_DOUBLE_ADD_MXZ_ALT)
+int mbedtls_internal_ecp_double_add_mxz(const mbedtls_ecp_group *grp,
+		mbedtls_ecp_point *R, mbedtls_ecp_point *S, const mbedtls_ecp_point *P,
+		const mbedtls_ecp_point *Q, const mbedtls_mpi *d);
 #endif
 
 /**
@@ -266,9 +266,9 @@ int ttls_internal_ecp_double_add_mxz(const ttls_ecp_group *grp,
  *
  * \return		  0 if successful
  */
-#if defined(TTLS_ECP_RANDOMIZE_MXZ_ALT)
-int ttls_internal_ecp_randomize_mxz(const ttls_ecp_group *grp,
-		ttls_ecp_point *P, int (*f_rng)(void *, unsigned char *, size_t),
+#if defined(MBEDTLS_ECP_RANDOMIZE_MXZ_ALT)
+int mbedtls_internal_ecp_randomize_mxz(const mbedtls_ecp_group *grp,
+		mbedtls_ecp_point *P, int (*f_rng)(void *, unsigned char *, size_t),
 		void *p_rng);
 #endif
 
@@ -282,14 +282,14 @@ int ttls_internal_ecp_randomize_mxz(const ttls_ecp_group *grp,
  *
  * \return		  0 if successful
  */
-#if defined(TTLS_ECP_NORMALIZE_MXZ_ALT)
-int ttls_internal_ecp_normalize_mxz(const ttls_ecp_group *grp,
-		ttls_ecp_point *P);
+#if defined(MBEDTLS_ECP_NORMALIZE_MXZ_ALT)
+int mbedtls_internal_ecp_normalize_mxz(const mbedtls_ecp_group *grp,
+		mbedtls_ecp_point *P);
 #endif
 
 #endif /* ECP_MONTGOMERY */
 
-#endif /* TTLS_ECP_INTERNAL_ALT */
+#endif /* MBEDTLS_ECP_INTERNAL_ALT */
 
 #endif /* ecp_internal.h */
 

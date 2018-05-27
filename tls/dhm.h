@@ -57,27 +57,27 @@
  *
  *  This file is part of Mbed TLS (https://tls.mbed.org)
  */
-#ifndef TTLS_DHM_H
-#define TTLS_DHM_H
+#ifndef MBEDTLS_DHM_H
+#define MBEDTLS_DHM_H
 
 #include "config.h"
 #include "bignum.h"
-#if !defined(TTLS_DHM_ALT)
+#if !defined(MBEDTLS_DHM_ALT)
 
 /*
  * DHM Error codes
  */
-#define TTLS_ERR_DHM_BAD_INPUT_DATA					-0x3080  /**< Bad input parameters. */
-#define TTLS_ERR_DHM_READ_PARAMS_FAILED				-0x3100  /**< Reading of the DHM parameters failed. */
-#define TTLS_ERR_DHM_MAKE_PARAMS_FAILED				-0x3180  /**< Making of the DHM parameters failed. */
-#define TTLS_ERR_DHM_READ_PUBLIC_FAILED				-0x3200  /**< Reading of the public values failed. */
-#define TTLS_ERR_DHM_MAKE_PUBLIC_FAILED				-0x3280  /**< Making of the public value failed. */
-#define TTLS_ERR_DHM_CALC_SECRET_FAILED				-0x3300  /**< Calculation of the DHM secret failed. */
-#define TTLS_ERR_DHM_INVALID_FORMAT					-0x3380  /**< The ASN.1 data is not formatted correctly. */
-#define TTLS_ERR_DHM_ALLOC_FAILED					  -0x3400  /**< Allocation of memory failed. */
-#define TTLS_ERR_DHM_FILE_IO_ERROR					 -0x3480  /**< Read or write of file failed. */
-#define TTLS_ERR_DHM_HW_ACCEL_FAILED				   -0x3500  /**< DHM hardware accelerator failed. */
-#define TTLS_ERR_DHM_SET_GROUP_FAILED				  -0x3580  /**< Setting the modulus and generator failed. */
+#define MBEDTLS_ERR_DHM_BAD_INPUT_DATA					-0x3080  /**< Bad input parameters. */
+#define MBEDTLS_ERR_DHM_READ_PARAMS_FAILED				-0x3100  /**< Reading of the DHM parameters failed. */
+#define MBEDTLS_ERR_DHM_MAKE_PARAMS_FAILED				-0x3180  /**< Making of the DHM parameters failed. */
+#define MBEDTLS_ERR_DHM_READ_PUBLIC_FAILED				-0x3200  /**< Reading of the public values failed. */
+#define MBEDTLS_ERR_DHM_MAKE_PUBLIC_FAILED				-0x3280  /**< Making of the public value failed. */
+#define MBEDTLS_ERR_DHM_CALC_SECRET_FAILED				-0x3300  /**< Calculation of the DHM secret failed. */
+#define MBEDTLS_ERR_DHM_INVALID_FORMAT					-0x3380  /**< The ASN.1 data is not formatted correctly. */
+#define MBEDTLS_ERR_DHM_ALLOC_FAILED					  -0x3400  /**< Allocation of memory failed. */
+#define MBEDTLS_ERR_DHM_FILE_IO_ERROR					 -0x3480  /**< Read or write of file failed. */
+#define MBEDTLS_ERR_DHM_HW_ACCEL_FAILED				   -0x3500  /**< DHM hardware accelerator failed. */
+#define MBEDTLS_ERR_DHM_SET_GROUP_FAILED				  -0x3580  /**< Setting the modulus and generator failed. */
 
 /**
  * \brief		  The DHM context structure.
@@ -85,25 +85,25 @@
 typedef struct
 {
 	size_t len;		 /*!<  The size of \p P in Bytes. */
-	ttls_mpi P;	  /*!<  The prime modulus. */
-	ttls_mpi G;	  /*!<  The generator. */
-	ttls_mpi X;	  /*!<  Our secret value. */
-	ttls_mpi GX;	 /*!<  Our public key = \c G^X mod \c P. */
-	ttls_mpi GY;	 /*!<  The public key of the peer = \c G^Y mod \c P. */
-	ttls_mpi K;	  /*!<  The shared secret = \c G^(XY) mod \c P. */
-	ttls_mpi RP;	 /*!<  The cached value = \c R^2 mod \c P. */
-	ttls_mpi Vi;	 /*!<  The blinding value. */
-	ttls_mpi Vf;	 /*!<  The unblinding value. */
-	ttls_mpi pX;	 /*!<  The previous \c X. */
+	mbedtls_mpi P;	  /*!<  The prime modulus. */
+	mbedtls_mpi G;	  /*!<  The generator. */
+	mbedtls_mpi X;	  /*!<  Our secret value. */
+	mbedtls_mpi GX;	 /*!<  Our public key = \c G^X mod \c P. */
+	mbedtls_mpi GY;	 /*!<  The public key of the peer = \c G^Y mod \c P. */
+	mbedtls_mpi K;	  /*!<  The shared secret = \c G^(XY) mod \c P. */
+	mbedtls_mpi RP;	 /*!<  The cached value = \c R^2 mod \c P. */
+	mbedtls_mpi Vi;	 /*!<  The blinding value. */
+	mbedtls_mpi Vf;	 /*!<  The unblinding value. */
+	mbedtls_mpi pX;	 /*!<  The previous \c X. */
 }
-ttls_dhm_context;
+mbedtls_dhm_context;
 
 /**
  * \brief		  This function initializes the DHM context.
  *
  * \param ctx	  The DHM context to initialize.
  */
-void ttls_dhm_init(ttls_dhm_context *ctx);
+void mbedtls_dhm_init(mbedtls_dhm_context *ctx);
 
 /**
  * \brief		  This function parses the ServerKeyExchange parameters.
@@ -118,10 +118,10 @@ void ttls_dhm_init(ttls_dhm_context *ctx);
  *				 failures.
  * \param end	  The end of the input buffer.
  *
- * \return		 \c 0 on success, or an \c TTLS_ERR_DHM_XXX error code
+ * \return		 \c 0 on success, or an \c MBEDTLS_ERR_DHM_XXX error code
  *				 on failure.
  */
-int ttls_dhm_read_params(ttls_dhm_context *ctx,
+int mbedtls_dhm_read_params(mbedtls_dhm_context *ctx,
 					 unsigned char **p,
 					 const unsigned char *end);
 
@@ -140,18 +140,18 @@ int ttls_dhm_read_params(ttls_dhm_context *ctx,
  *				 the reduced binary presentation of the modulus, the generator
  *				 and the public key, each wrapped with a 2-byte length field.
  *				 It is the responsibility of the caller to ensure that enough
- *				 space is available. Refer to \c ttls_mpi_size to computing
+ *				 space is available. Refer to \c mbedtls_mpi_size to computing
  *				 the byte-size of an MPI.
  *
  * \note		   This function assumes that \c ctx->P and \c ctx->G
  *				 have already been properly set. For that, use
- *				 ttls_dhm_set_group() below in conjunction with
- *				 ttls_mpi_read_binary() and ttls_mpi_read_string().
+ *				 mbedtls_dhm_set_group() below in conjunction with
+ *				 mbedtls_mpi_read_binary() and mbedtls_mpi_read_string().
  *
- * \return		 \c 0 on success, or an \c TTLS_ERR_DHM_XXX error code
+ * \return		 \c 0 on success, or an \c MBEDTLS_ERR_DHM_XXX error code
  *				 on failure.
  */
-int ttls_dhm_make_params(ttls_dhm_context *ctx, int x_size,
+int mbedtls_dhm_make_params(mbedtls_dhm_context *ctx, int x_size,
 					 unsigned char *output, size_t *olen,
 					 int (*f_rng)(void *, unsigned char *, size_t),
 					 void *p_rng);
@@ -164,14 +164,14 @@ int ttls_dhm_make_params(ttls_dhm_context *ctx, int x_size,
  * \param G		The MPI holding DHM generator.
  *
  * \note		   This function can be used to set P, G
- *				 in preparation for \c ttls_dhm_make_params.
+ *				 in preparation for \c mbedtls_dhm_make_params.
  *
- * \return		 \c 0 if successful, or an \c TTLS_ERR_DHM_XXX error code
+ * \return		 \c 0 if successful, or an \c MBEDTLS_ERR_DHM_XXX error code
  *				 on failure.
  */
-int ttls_dhm_set_group(ttls_dhm_context *ctx,
-						   const ttls_mpi *P,
-						   const ttls_mpi *G);
+int mbedtls_dhm_set_group(mbedtls_dhm_context *ctx,
+						   const mbedtls_mpi *P,
+						   const mbedtls_mpi *G);
 
 /**
  * \brief		  This function imports the public value G^Y of the peer.
@@ -180,10 +180,10 @@ int ttls_dhm_set_group(ttls_dhm_context *ctx,
  * \param input	The input buffer.
  * \param ilen	 The size of the input buffer.
  *
- * \return		 \c 0 on success, or an \c TTLS_ERR_DHM_XXX error code
+ * \return		 \c 0 on success, or an \c MBEDTLS_ERR_DHM_XXX error code
  *				 on failure.
  */
-int ttls_dhm_read_public(ttls_dhm_context *ctx,
+int mbedtls_dhm_read_public(mbedtls_dhm_context *ctx,
 					 const unsigned char *input, size_t ilen);
 
 /**
@@ -203,10 +203,10 @@ int ttls_dhm_read_public(ttls_dhm_context *ctx,
  *				 If it is larger than ctx->len, it will accordingly be
  *				 padded with zero-bytes in the beginning.
  *
- * \return		 \c 0 on success, or an \c TTLS_ERR_DHM_XXX error code
+ * \return		 \c 0 on success, or an \c MBEDTLS_ERR_DHM_XXX error code
  *				 on failure.
  */
-int ttls_dhm_make_public(ttls_dhm_context *ctx, int x_size,
+int mbedtls_dhm_make_public(mbedtls_dhm_context *ctx, int x_size,
 					 unsigned char *output, size_t olen,
 					 int (*f_rng)(void *, unsigned char *, size_t),
 					 void *p_rng);
@@ -223,7 +223,7 @@ int ttls_dhm_make_public(ttls_dhm_context *ctx, int x_size,
  * \param f_rng		 The RNG function, for blinding purposes.
  * \param p_rng		 The RNG parameter.
  *
- * \return		 \c 0 on success, or an \c TTLS_ERR_DHM_XXX error code
+ * \return		 \c 0 on success, or an \c MBEDTLS_ERR_DHM_XXX error code
  *				 on failure.
  *
  * \note		   If non-NULL, \p f_rng is used to blind the input as
@@ -232,7 +232,7 @@ int ttls_dhm_make_public(ttls_dhm_context *ctx, int x_size,
  *				 otherwise. Therefore, we recommend always passing a
  *				 non-NULL \p f_rng argument.
  */
-int ttls_dhm_calc_secret(ttls_dhm_context *ctx,
+int mbedtls_dhm_calc_secret(mbedtls_dhm_context *ctx,
 					 unsigned char *output, size_t output_size, size_t *olen,
 					 int (*f_rng)(void *, unsigned char *, size_t),
 					 void *p_rng);
@@ -242,7 +242,7 @@ int ttls_dhm_calc_secret(ttls_dhm_context *ctx,
  *
  * \param ctx	  The DHM context to free and clear.
  */
-void ttls_dhm_free(ttls_dhm_context *ctx);
+void mbedtls_dhm_free(mbedtls_dhm_context *ctx);
 
 /** \ingroup x509_module */
 /**
@@ -256,20 +256,20 @@ void ttls_dhm_free(ttls_dhm_context *ctx);
  * \return			\c 0 on success, or a specific DHM or PEM error code
  *					on failure.
  */
-int ttls_dhm_parse_dhm(ttls_dhm_context *dhm, const unsigned char *dhmin,
+int mbedtls_dhm_parse_dhm(mbedtls_dhm_context *dhm, const unsigned char *dhmin,
 				   size_t dhminlen);
 
 
-#else /* TTLS_DHM_ALT */
+#else /* MBEDTLS_DHM_ALT */
 #include "dhm_alt.h"
-#endif /* TTLS_DHM_ALT */
+#endif /* MBEDTLS_DHM_ALT */
 
 /**
  * RFC 3526, RFC 5114 and RFC 7919 standardize a number of
  * Diffie-Hellman groups, some of which are included here
  * for use within the SSL/TLS module and the user's convenience
  * when configuring the Diffie-Hellman parameters by hand
- * through \c ttls_conf_dh_param.
+ * through \c mbedtls_ssl_conf_dh_param.
  *
  * The following lists the source of the above groups in the standards:
  * - RFC 5114 section 2.2:  2048-bit MODP Group with 224-bit Prime Order Subgroup
@@ -305,11 +305,175 @@ int ttls_dhm_parse_dhm(ttls_dhm_context *dhm, const unsigned char *dhmin,
  *
  */
 
+#if !defined(MBEDTLS_DEPRECATED_REMOVED)
+
+#if defined(MBEDTLS_DEPRECATED_WARNING)
+#define MBEDTLS_DEPRECATED __attribute__((deprecated))
+MBEDTLS_DEPRECATED typedef char const * mbedtls_deprecated_constant_t;
+#define MBEDTLS_DEPRECATED_STRING_CONSTANT(VAL)	   \
+	((mbedtls_deprecated_constant_t) (VAL))
+#else
+#define MBEDTLS_DEPRECATED_STRING_CONSTANT(VAL) VAL
+#endif /* ! MBEDTLS_DEPRECATED_WARNING */
+
+/**
+ * \warning The origin of the primes in RFC 5114 is not documented and
+ *		  their use therefore constitutes a security risk!
+ *
+ * \deprecated The hex-encoded primes from RFC 5114 are deprecated and are
+ *			 likely to be removed in a future version of the library without
+ *			 replacement.
+ */
+
+/**
+ * The hexadecimal presentation of the prime underlying the
+ * 2048-bit MODP Group with 224-bit Prime Order Subgroup, as defined
+ * in <em>RFC-5114: Additional Diffie-Hellman Groups for Use with
+ * IETF Standards</em>.
+ */
+#define MBEDTLS_DHM_RFC5114_MODP_2048_P						 \
+	MBEDTLS_DEPRECATED_STRING_CONSTANT(						 \
+		"AD107E1E9123A9D0D660FAA79559C51FA20D64E5683B9FD1"	  \
+		"B54B1597B61D0A75E6FA141DF95A56DBAF9A3C407BA1DF15"	  \
+		"EB3D688A309C180E1DE6B85A1274A0A66D3F8152AD6AC212"	  \
+		"9037C9EDEFDA4DF8D91E8FEF55B7394B7AD5B7D0B6C12207"	  \
+		"C9F98D11ED34DBF6C6BA0B2C8BBC27BE6A00E0A0B9C49708"	  \
+		"B3BF8A317091883681286130BC8985DB1602E714415D9330"	  \
+		"278273C7DE31EFDC7310F7121FD5A07415987D9ADC0A486D"	  \
+		"CDF93ACC44328387315D75E198C641A480CD86A1B9E587E8"	  \
+		"BE60E69CC928B2B9C52172E413042E9B23F10B0E16E79763"	  \
+		"C9B53DCF4BA80A29E3FB73C16B8E75B97EF363E2FFA31F71"	  \
+		"CF9DE5384E71B81C0AC4DFFE0C10E64F")
+
+/**
+ * The hexadecimal presentation of the chosen generator of the 2048-bit MODP
+ * Group with 224-bit Prime Order Subgroup, as defined in <em>RFC-5114:
+ * Additional Diffie-Hellman Groups for Use with IETF Standards</em>.
+ */
+#define MBEDTLS_DHM_RFC5114_MODP_2048_G						 \
+	MBEDTLS_DEPRECATED_STRING_CONSTANT(						 \
+		"AC4032EF4F2D9AE39DF30B5C8FFDAC506CDEBE7B89998CAF"	  \
+		"74866A08CFE4FFE3A6824A4E10B9A6F0DD921F01A70C4AFA"	  \
+		"AB739D7700C29F52C57DB17C620A8652BE5E9001A8D66AD7"	  \
+		"C17669101999024AF4D027275AC1348BB8A762D0521BC98A"	  \
+		"E247150422EA1ED409939D54DA7460CDB5F6C6B250717CBE"	  \
+		"F180EB34118E98D119529A45D6F834566E3025E316A330EF"	  \
+		"BB77A86F0C1AB15B051AE3D428C8F8ACB70A8137150B8EEB"	  \
+		"10E183EDD19963DDD9E263E4770589EF6AA21E7F5F2FF381"	  \
+		"B539CCE3409D13CD566AFBB48D6C019181E1BCFE94B30269"	  \
+		"EDFE72FE9B6AA4BD7B5A0F1C71CFFF4C19C418E1F6EC0179"	  \
+		"81BC087F2A7065B384B890D3191F2BFA")
+
+/**
+ * The hexadecimal presentation of the prime underlying the 2048-bit MODP
+ * Group, as defined in <em>RFC-3526: More Modular Exponential (MODP)
+ * Diffie-Hellman groups for Internet Key Exchange (IKE)</em>.
+ *
+ * \deprecated The hex-encoded primes from RFC 3625 are deprecated and
+ *			 superseded by the corresponding macros providing them as
+ *			 binary constants. Their hex-encoded constants are likely
+ *			 to be removed in a future version of the library.
+ *
+ */
+#define MBEDTLS_DHM_RFC3526_MODP_2048_P						 \
+	MBEDTLS_DEPRECATED_STRING_CONSTANT(						 \
+		"FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD1"	  \
+		"29024E088A67CC74020BBEA63B139B22514A08798E3404DD"	  \
+		"EF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245"	  \
+		"E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7ED"	  \
+		"EE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3D"	  \
+		"C2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F"	  \
+		"83655D23DCA3AD961C62F356208552BB9ED529077096966D"	  \
+		"670C354E4ABC9804F1746C08CA18217C32905E462E36CE3B"	  \
+		"E39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9"	  \
+		"DE2BCBF6955817183995497CEA956AE515D2261898FA0510"	  \
+		"15728E5A8AACAA68FFFFFFFFFFFFFFFF")
+
+/**
+ * The hexadecimal presentation of the chosen generator of the 2048-bit MODP
+ * Group, as defined in <em>RFC-3526: More Modular Exponential (MODP)
+ * Diffie-Hellman groups for Internet Key Exchange (IKE)</em>.
+ */
+#define MBEDTLS_DHM_RFC3526_MODP_2048_G						 \
+	MBEDTLS_DEPRECATED_STRING_CONSTANT("02")
+
+/**
+ * The hexadecimal presentation of the prime underlying the 3072-bit MODP
+ * Group, as defined in <em>RFC-3072: More Modular Exponential (MODP)
+ * Diffie-Hellman groups for Internet Key Exchange (IKE)</em>.
+ */
+#define MBEDTLS_DHM_RFC3526_MODP_3072_P						 \
+	MBEDTLS_DEPRECATED_STRING_CONSTANT(						 \
+		"FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD1"	  \
+		"29024E088A67CC74020BBEA63B139B22514A08798E3404DD"	  \
+		"EF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245"	  \
+		"E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7ED"	  \
+		"EE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3D"	  \
+		"C2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F"	  \
+		"83655D23DCA3AD961C62F356208552BB9ED529077096966D"	  \
+		"670C354E4ABC9804F1746C08CA18217C32905E462E36CE3B"	  \
+		"E39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9"	  \
+		"DE2BCBF6955817183995497CEA956AE515D2261898FA0510"	  \
+		"15728E5A8AAAC42DAD33170D04507A33A85521ABDF1CBA64"	  \
+		"ECFB850458DBEF0A8AEA71575D060C7DB3970F85A6E1E4C7"	  \
+		"ABF5AE8CDB0933D71E8C94E04A25619DCEE3D2261AD2EE6B"	  \
+		"F12FFA06D98A0864D87602733EC86A64521F2B18177B200C"	  \
+		"BBE117577A615D6C770988C0BAD946E208E24FA074E5AB31"	  \
+		"43DB5BFCE0FD108E4B82D120A93AD2CAFFFFFFFFFFFFFFFF")
+
+/**
+ * The hexadecimal presentation of the chosen generator of the 3072-bit MODP
+ * Group, as defined in <em>RFC-3526: More Modular Exponential (MODP)
+ * Diffie-Hellman groups for Internet Key Exchange (IKE)</em>.
+ */
+#define MBEDTLS_DHM_RFC3526_MODP_3072_G					  \
+	MBEDTLS_DEPRECATED_STRING_CONSTANT("02")
+
+/**
+ * The hexadecimal presentation of the prime underlying the 4096-bit MODP
+ * Group, as defined in <em>RFC-3526: More Modular Exponential (MODP)
+ * Diffie-Hellman groups for Internet Key Exchange (IKE)</em>.
+ */
+#define MBEDTLS_DHM_RFC3526_MODP_4096_P					  \
+	MBEDTLS_DEPRECATED_STRING_CONSTANT(					  \
+		"FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD1"   \
+		"29024E088A67CC74020BBEA63B139B22514A08798E3404DD"   \
+		"EF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245"   \
+		"E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7ED"   \
+		"EE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3D"   \
+		"C2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F"   \
+		"83655D23DCA3AD961C62F356208552BB9ED529077096966D"   \
+		"670C354E4ABC9804F1746C08CA18217C32905E462E36CE3B"   \
+		"E39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9"   \
+		"DE2BCBF6955817183995497CEA956AE515D2261898FA0510"   \
+		"15728E5A8AAAC42DAD33170D04507A33A85521ABDF1CBA64"   \
+		"ECFB850458DBEF0A8AEA71575D060C7DB3970F85A6E1E4C7"   \
+		"ABF5AE8CDB0933D71E8C94E04A25619DCEE3D2261AD2EE6B"   \
+		"F12FFA06D98A0864D87602733EC86A64521F2B18177B200C"   \
+		"BBE117577A615D6C770988C0BAD946E208E24FA074E5AB31"   \
+		"43DB5BFCE0FD108E4B82D120A92108011A723C12A787E6D7"   \
+		"88719A10BDBA5B2699C327186AF4E23C1A946834B6150BDA"   \
+		"2583E9CA2AD44CE8DBBBC2DB04DE8EF92E8EFC141FBECAA6"   \
+		"287C59474E6BC05D99B2964FA090C3A2233BA186515BE7ED"   \
+		"1F612970CEE2D7AFB81BDD762170481CD0069127D5B05AA9"   \
+		"93B4EA988D8FDDC186FFB7DC90A6C08F4DF435C934063199"   \
+		"FFFFFFFFFFFFFFFF")
+
+/**
+ * The hexadecimal presentation of the chosen generator of the 4096-bit MODP
+ * Group, as defined in <em>RFC-3526: More Modular Exponential (MODP)
+ * Diffie-Hellman groups for Internet Key Exchange (IKE)</em>.
+ */
+#define MBEDTLS_DHM_RFC3526_MODP_4096_G					  \
+	MBEDTLS_DEPRECATED_STRING_CONSTANT("02")
+
+#endif /* MBEDTLS_DEPRECATED_REMOVED */
+
 /*
  * Trustworthy DHM parameters in binary form
  */
 
-#define TTLS_DHM_RFC3526_MODP_2048_P_BIN {		\
+#define MBEDTLS_DHM_RFC3526_MODP_2048_P_BIN {		\
 	 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, \
 	 0xC9, 0x0F, 0xDA, 0xA2, 0x21, 0x68, 0xC2, 0x34, \
 	 0xC4, 0xC6, 0x62, 0x8B, 0x80, 0xDC, 0x1C, 0xD1, \
@@ -343,9 +507,9 @@ int ttls_dhm_parse_dhm(ttls_dhm_context *dhm, const unsigned char *dhmin,
 	 0x15, 0x72, 0x8E, 0x5A, 0x8A, 0xAC, 0xAA, 0x68, \
 	 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF }
 
-#define TTLS_DHM_RFC3526_MODP_2048_G_BIN { 0x02 }
+#define MBEDTLS_DHM_RFC3526_MODP_2048_G_BIN { 0x02 }
 
-#define TTLS_DHM_RFC3526_MODP_3072_P_BIN {	   \
+#define MBEDTLS_DHM_RFC3526_MODP_3072_P_BIN {	   \
 	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, \
 	0xC9, 0x0F, 0xDA, 0xA2, 0x21, 0x68, 0xC2, 0x34, \
 	0xC4, 0xC6, 0x62, 0x8B, 0x80, 0xDC, 0x1C, 0xD1, \
@@ -395,9 +559,9 @@ int ttls_dhm_parse_dhm(ttls_dhm_context *dhm, const unsigned char *dhmin,
 	0x4B, 0x82, 0xD1, 0x20, 0xA9, 0x3A, 0xD2, 0xCA, \
 	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF }
 
-#define TTLS_DHM_RFC3526_MODP_3072_G_BIN { 0x02 }
+#define MBEDTLS_DHM_RFC3526_MODP_3072_G_BIN { 0x02 }
 
-#define TTLS_DHM_RFC3526_MODP_4096_P_BIN  {	   \
+#define MBEDTLS_DHM_RFC3526_MODP_4096_P_BIN  {	   \
 	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,  \
 	0xC9, 0x0F, 0xDA, 0xA2, 0x21, 0x68, 0xC2, 0x34,  \
 	0xC4, 0xC6, 0x62, 0x8B, 0x80, 0xDC, 0x1C, 0xD1,  \
@@ -463,9 +627,9 @@ int ttls_dhm_parse_dhm(ttls_dhm_context *dhm, const unsigned char *dhmin,
 	0x4D, 0xF4, 0x35, 0xC9, 0x34, 0x06, 0x31, 0x99,  \
 	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF }
 
-#define TTLS_DHM_RFC3526_MODP_4096_G_BIN { 0x02 }
+#define MBEDTLS_DHM_RFC3526_MODP_4096_G_BIN { 0x02 }
 
-#define TTLS_DHM_RFC7919_FFDHE2048_P_BIN {		\
+#define MBEDTLS_DHM_RFC7919_FFDHE2048_P_BIN {		\
 	 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, \
 	 0xAD, 0xF8, 0x54, 0x58, 0xA2, 0xBB, 0x4A, 0x9A, \
 	 0xAF, 0xDC, 0x56, 0x20, 0x27, 0x3D, 0x3C, 0xF1, \
@@ -499,9 +663,9 @@ int ttls_dhm_parse_dhm(ttls_dhm_context *dhm, const unsigned char *dhmin,
 	 0x88, 0x6B, 0x42, 0x38, 0x61, 0x28, 0x5C, 0x97, \
 	 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, }
 
-#define TTLS_DHM_RFC7919_FFDHE2048_G_BIN { 0x02 }
+#define MBEDTLS_DHM_RFC7919_FFDHE2048_G_BIN { 0x02 }
 
-#define TTLS_DHM_RFC7919_FFDHE3072_P_BIN { \
+#define MBEDTLS_DHM_RFC7919_FFDHE3072_P_BIN { \
 	 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, \
 	 0xAD, 0xF8, 0x54, 0x58, 0xA2, 0xBB, 0x4A, 0x9A, \
 	 0xAF, 0xDC, 0x56, 0x20, 0x27, 0x3D, 0x3C, 0xF1, \
@@ -551,9 +715,9 @@ int ttls_dhm_parse_dhm(ttls_dhm_context *dhm, const unsigned char *dhmin,
 	 0x25, 0xE4, 0x1D, 0x2B, 0x66, 0xC6, 0x2E, 0x37, \
 	 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF }
 
-#define TTLS_DHM_RFC7919_FFDHE3072_G_BIN { 0x02 }
+#define MBEDTLS_DHM_RFC7919_FFDHE3072_G_BIN { 0x02 }
 
-#define TTLS_DHM_RFC7919_FFDHE4096_P_BIN {		\
+#define MBEDTLS_DHM_RFC7919_FFDHE4096_P_BIN {		\
 	 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, \
 	 0xAD, 0xF8, 0x54, 0x58, 0xA2, 0xBB, 0x4A, 0x9A, \
 	 0xAF, 0xDC, 0x56, 0x20, 0x27, 0x3D, 0x3C, 0xF1, \
@@ -619,9 +783,9 @@ int ttls_dhm_parse_dhm(ttls_dhm_context *dhm, const unsigned char *dhmin,
 	 0xC6, 0x8A, 0x00, 0x7E, 0x5E, 0x65, 0x5F, 0x6A, \
 	 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF }
 
-#define TTLS_DHM_RFC7919_FFDHE4096_G_BIN { 0x02 }
+#define MBEDTLS_DHM_RFC7919_FFDHE4096_G_BIN { 0x02 }
 
-#define TTLS_DHM_RFC7919_FFDHE6144_P_BIN {		\
+#define MBEDTLS_DHM_RFC7919_FFDHE6144_P_BIN {		\
 	 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, \
 	 0xAD, 0xF8, 0x54, 0x58, 0xA2, 0xBB, 0x4A, 0x9A, \
 	 0xAF, 0xDC, 0x56, 0x20, 0x27, 0x3D, 0x3C, 0xF1, \
@@ -719,9 +883,9 @@ int ttls_dhm_parse_dhm(ttls_dhm_context *dhm, const unsigned char *dhmin,
 	 0xA4, 0x0E, 0x32, 0x9C, 0xD0, 0xE4, 0x0E, 0x65, \
 	 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF }
 
-#define TTLS_DHM_RFC7919_FFDHE6144_G_BIN { 0x02 }
+#define MBEDTLS_DHM_RFC7919_FFDHE6144_G_BIN { 0x02 }
 
-#define TTLS_DHM_RFC7919_FFDHE8192_P_BIN {		\
+#define MBEDTLS_DHM_RFC7919_FFDHE8192_P_BIN {		\
 	 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, \
 	 0xAD, 0xF8, 0x54, 0x58, 0xA2, 0xBB, 0x4A, 0x9A, \
 	 0xAF, 0xDC, 0x56, 0x20, 0x27, 0x3D, 0x3C, 0xF1, \
@@ -851,6 +1015,6 @@ int ttls_dhm_parse_dhm(ttls_dhm_context *dhm, const unsigned char *dhmin,
 	 0xD6, 0x8C, 0x8B, 0xB7, 0xC5, 0xC6, 0x42, 0x4C, \
 	 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF }
 
-#define TTLS_DHM_RFC7919_FFDHE8192_G_BIN { 0x02 }
+#define MBEDTLS_DHM_RFC7919_FFDHE8192_G_BIN { 0x02 }
 
 #endif /* dhm.h */
