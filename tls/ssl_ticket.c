@@ -18,25 +18,10 @@
  *  You should have received a copy of the GNU General Public License along
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
 
 #if defined(MBEDTLS_SSL_TICKET_C)
-
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdlib.h>
-#define mbedtls_calloc	calloc
-#define mbedtls_free	  free
-#endif
 
 #include "ssl_ticket.h"
 
@@ -166,9 +151,7 @@ static int ssl_save_session(const mbedtls_ssl_session *session,
 {
 	unsigned char *p = buf;
 	size_t left = buf_len;
-#if defined(MBEDTLS_X509_CRT_PARSE_C)
 	size_t cert_len;
-#endif /* MBEDTLS_X509_CRT_PARSE_C */
 
 	if (left < sizeof(mbedtls_ssl_session))
 		return(MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL);
@@ -177,7 +160,6 @@ static int ssl_save_session(const mbedtls_ssl_session *session,
 	p += sizeof(mbedtls_ssl_session);
 	left -= sizeof(mbedtls_ssl_session);
 
-#if defined(MBEDTLS_X509_CRT_PARSE_C)
 	if (session->peer_cert == NULL)
 		cert_len = 0;
 	else
@@ -194,7 +176,6 @@ static int ssl_save_session(const mbedtls_ssl_session *session,
 		memcpy(p, session->peer_cert->raw.p, cert_len);
 
 	p += cert_len;
-#endif /* MBEDTLS_X509_CRT_PARSE_C */
 
 	*olen = p - buf;
 
@@ -209,9 +190,7 @@ static int ssl_load_session(mbedtls_ssl_session *session,
 {
 	const unsigned char *p = buf;
 	const unsigned char * const end = buf + len;
-#if defined(MBEDTLS_X509_CRT_PARSE_C)
 	size_t cert_len;
-#endif /* MBEDTLS_X509_CRT_PARSE_C */
 
 	if (p + sizeof(mbedtls_ssl_session) > end)
 		return(MBEDTLS_ERR_SSL_BAD_INPUT_DATA);
@@ -219,7 +198,6 @@ static int ssl_load_session(mbedtls_ssl_session *session,
 	memcpy(session, p, sizeof(mbedtls_ssl_session));
 	p += sizeof(mbedtls_ssl_session);
 
-#if defined(MBEDTLS_X509_CRT_PARSE_C)
 	if (p + 3 > end)
 		return(MBEDTLS_ERR_SSL_BAD_INPUT_DATA);
 
@@ -255,7 +233,6 @@ static int ssl_load_session(mbedtls_ssl_session *session,
 
 		p += cert_len;
 	}
-#endif /* MBEDTLS_X509_CRT_PARSE_C */
 
 	if (p != end)
 		return(MBEDTLS_ERR_SSL_BAD_INPUT_DATA);

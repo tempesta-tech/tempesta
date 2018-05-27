@@ -29,36 +29,15 @@
  *	  Menezes, van Oorschot and Vanstone
  *
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
 
 #if defined(MBEDTLS_DHM_C)
 
 #include "dhm.h"
-
-#include <string.h>
-
 #if defined(MBEDTLS_PEM_PARSE_C)
 #include "pem.h"
 #endif
-
-#if defined(MBEDTLS_ASN1_PARSE_C)
 #include "asn1.h"
-#endif
-
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdlib.h>
-#include <stdio.h>
-#define mbedtls_printf	 printf
-#define mbedtls_calloc	calloc
-#define mbedtls_free	   free
-#endif
 
 #if !defined(MBEDTLS_DHM_ALT)
 /* Implementation that should never be optimized out by the compiler */
@@ -443,7 +422,6 @@ void mbedtls_dhm_free(mbedtls_dhm_context *ctx)
 	mbedtls_zeroize(ctx, sizeof(mbedtls_dhm_context));
 }
 
-#if defined(MBEDTLS_ASN1_PARSE_C)
 /*
  * Parse DHM parameters
  */
@@ -541,7 +519,6 @@ exit:
 	return ret;
 }
 
-#endif /* MBEDTLS_ASN1_PARSE_C */
 #endif /* MBEDTLS_DHM_ALT */
 
 static const char mbedtls_test_dhm_params[] =

@@ -21,29 +21,14 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
-#if defined(MBEDTLS_PK_C)
 #include "pk.h"
 #include "pk_internal.h"
-
-#if defined(MBEDTLS_RSA_C)
 #include "rsa.h"
-#endif
-#if defined(MBEDTLS_ECP_C)
 #include "ecp.h"
-#endif
 #if defined(MBEDTLS_ECDSA_C)
 #include "ecdsa.h"
 #endif
-
-#include <limits.h>
-#include <stdint.h>
 
 /* Implementation that should never be optimized out by the compiler */
 static void mbedtls_zeroize(void *v, size_t n) {
@@ -81,16 +66,12 @@ void mbedtls_pk_free(mbedtls_pk_context *ctx)
 const mbedtls_pk_info_t * mbedtls_pk_info_from_type(mbedtls_pk_type_t pk_type)
 {
 	switch(pk_type) {
-#if defined(MBEDTLS_RSA_C)
 		case MBEDTLS_PK_RSA:
 			return(&mbedtls_rsa_info);
-#endif
-#if defined(MBEDTLS_ECP_C)
 		case MBEDTLS_PK_ECKEY:
 			return(&mbedtls_eckey_info);
 		case MBEDTLS_PK_ECKEY_DH:
 			return(&mbedtls_eckeydh_info);
-#endif
 #if defined(MBEDTLS_ECDSA_C)
 		case MBEDTLS_PK_ECDSA:
 			return(&mbedtls_ecdsa_info);
@@ -211,7 +192,6 @@ int mbedtls_pk_verify_ext(mbedtls_pk_type_t type, const void *options,
 
 	if (type == MBEDTLS_PK_RSASSA_PSS)
 	{
-#if defined(MBEDTLS_RSA_C) && defined(MBEDTLS_PKCS1_V21)
 		int ret;
 		const mbedtls_pk_rsassa_pss_options *pss_opts;
 
@@ -239,9 +219,6 @@ int mbedtls_pk_verify_ext(mbedtls_pk_type_t type, const void *options,
 			return(MBEDTLS_ERR_PK_SIG_LEN_MISMATCH);
 
 		return 0;
-#else
-		return(MBEDTLS_ERR_PK_FEATURE_UNAVAILABLE);
-#endif /* MBEDTLS_RSA_C && MBEDTLS_PKCS1_V21 */
 	}
 
 	/* General case: no options */
@@ -379,5 +356,3 @@ mbedtls_pk_type_t mbedtls_pk_get_type(const mbedtls_pk_context *ctx)
 
 	return(ctx->pk_info->type);
 }
-
-#endif /* MBEDTLS_PK_C */

@@ -31,10 +31,6 @@
 #include "cipher.h"
 #include "md.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /*
  * Supported ciphersuites (Official IANA names)
  */
@@ -358,10 +354,8 @@ const int *mbedtls_ssl_list_ciphersuites(void);
 const mbedtls_ssl_ciphersuite_t *mbedtls_ssl_ciphersuite_from_string(const char *ciphersuite_name);
 const mbedtls_ssl_ciphersuite_t *mbedtls_ssl_ciphersuite_from_id(int ciphersuite_id);
 
-#if defined(MBEDTLS_PK_C)
 mbedtls_pk_type_t mbedtls_ssl_get_ciphersuite_sig_pk_alg(const mbedtls_ssl_ciphersuite_t *info);
 mbedtls_pk_type_t mbedtls_ssl_get_ciphersuite_sig_alg(const mbedtls_ssl_ciphersuite_t *info);
-#endif
 
 int mbedtls_ssl_ciphersuite_uses_ec(const mbedtls_ssl_ciphersuite_t *info);
 int mbedtls_ssl_ciphersuite_uses_psk(const mbedtls_ssl_ciphersuite_t *info);
@@ -481,9 +475,5 @@ static inline int mbedtls_ssl_ciphersuite_uses_server_signature(const mbedtls_ss
 	}
 }
 #endif /* MBEDTLS_KEY_EXCHANGE__WITH_SERVER_SIGNATURE__ENABLED */
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* ssl_ciphersuites.h */

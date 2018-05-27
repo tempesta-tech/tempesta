@@ -146,32 +146,19 @@
 #define MBEDTLS_SSL_PADDING_ADD			  0
 #endif
 
-#define MBEDTLS_SSL_PAYLOAD_LEN (MBEDTLS_SSL_MAX_CONTENT_LEN	\
-						+ MBEDTLS_SSL_COMPRESSION_ADD			\
-						+ MBEDTLS_MAX_IV_LENGTH				  \
-						+ MBEDTLS_SSL_MAC_ADD					\
-						+ MBEDTLS_SSL_PADDING_ADD				\
-						)
-
-/*
- * Check that we obey the standard's message size bounds
- */
-
-#if MBEDTLS_SSL_MAX_CONTENT_LEN > 16384
-#error Bad configuration - record content too large.
-#endif
-
-#if MBEDTLS_SSL_PAYLOAD_LEN > 16384 + 2048
-#error Bad configuration - protected record payload too large.
-#endif
+#define MBEDTLS_SSL_PAYLOAD_LEN (MBEDTLS_SSL_MAX_CONTENT_LEN		\
+				 + MBEDTLS_SSL_COMPRESSION_ADD		\
+				 + MBEDTLS_MAX_IV_LENGTH		\
+				 + MBEDTLS_SSL_MAC_ADD			\
+				 + MBEDTLS_SSL_PADDING_ADD)
 
 /* Note: Even though the TLS record header is only 5 bytes
    long, we're internally using 8 bytes to store the
    implicit sequence number. */
 #define MBEDTLS_SSL_HEADER_LEN 13
 
-#define MBEDTLS_SSL_BUFFER_LEN  \
-	((MBEDTLS_SSL_HEADER_LEN) + (MBEDTLS_SSL_PAYLOAD_LEN))
+#define MBEDTLS_SSL_BUFFER_LEN  (MBEDTLS_SSL_HEADER_LEN			\
+				 + MBEDTLS_SSL_PAYLOAD_LEN)
 
 /*
  * TLS extension flags (for extensions with outgoing ServerHello content
@@ -180,10 +167,6 @@
  */
 #define MBEDTLS_TLS_EXT_SUPPORTED_POINT_FORMATS_PRESENT (1 << 0)
 #define MBEDTLS_TLS_EXT_ECJPAKE_KKPP_OK				 (1 << 1)
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 #if defined(MBEDTLS_SSL_PROTO_TLS1_2) && \
 	defined(MBEDTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
@@ -237,15 +220,11 @@ struct mbedtls_ssl_handshake_params
 	unsigned char *psk;				 /*!<  PSK from the callback		 */
 	size_t psk_len;					 /*!<  Length of PSK from callback   */
 #endif
-#if defined(MBEDTLS_X509_CRT_PARSE_C)
 	mbedtls_ssl_key_cert *key_cert;	 /*!< chosen key/cert pair (server)  */
-#if defined(MBEDTLS_SSL_SERVER_NAME_INDICATION)
 	int sni_authmode;				   /*!< authmode from SNI callback	 */
 	mbedtls_ssl_key_cert *sni_key_cert; /*!< key/cert list from SNI		 */
 	mbedtls_x509_crt *sni_ca_chain;	 /*!< trusted CAs from SNI callback  */
 	mbedtls_x509_crl *sni_ca_crl;	   /*!< trusted CAs CRLs from SNI	  */
-#endif /* MBEDTLS_SSL_SERVER_NAME_INDICATION */
-#endif /* MBEDTLS_X509_CRT_PARSE_C */
 #if defined(MBEDTLS_SSL_PROTO_DTLS)
 	unsigned int out_msg_seq;		   /*!<  Outgoing handshake sequence number */
 	unsigned int in_msg_seq;			/*!<  Incoming handshake sequence number */
@@ -353,7 +332,6 @@ struct mbedtls_ssl_transform
 #endif
 };
 
-#if defined(MBEDTLS_X509_CRT_PARSE_C)
 /*
  * List of certificate + private key pairs
  */
@@ -363,7 +341,6 @@ struct mbedtls_ssl_key_cert
 	mbedtls_pk_context *key;				/*!< private key				*/
 	mbedtls_ssl_key_cert *next;			 /*!< next key/cert pair		 */
 };
-#endif /* MBEDTLS_X509_CRT_PARSE_C */
 
 #if defined(MBEDTLS_SSL_PROTO_DTLS)
 /*
@@ -426,7 +403,7 @@ int mbedtls_ssl_send_fatal_handshake_failure(mbedtls_ssl_context *ssl);
 void mbedtls_ssl_reset_checksum(mbedtls_ssl_context *ssl);
 int mbedtls_ssl_derive_keys(mbedtls_ssl_context *ssl);
 
-int mbedtls_ssl_read_record_layer(mbedtls_ssl_context *ssl);
+int ttls_ssl_read_record_layer(mbedtls_ssl_context *ssl);
 int mbedtls_ssl_handle_message_type(mbedtls_ssl_context *ssl);
 int mbedtls_ssl_prepare_handshake_record(mbedtls_ssl_context *ssl);
 void mbedtls_ssl_update_handshake_status(mbedtls_ssl_context *ssl);
@@ -460,7 +437,7 @@ void mbedtls_ssl_update_handshake_status(mbedtls_ssl_context *ssl);
  *			  The interface to this functionality is given as follows:
  *
  *			  a Updating
- *				[Currently implemented by mbedtls_ssl_read_record]
+ *				[Currently implemented by ttls_ssl_read_record]
  *
  *				Check if and on which of the four 'ports' data is pending:
  *				Nothing, a controlling datagram of type (1), or application
@@ -493,18 +470,18 @@ void mbedtls_ssl_update_handshake_status(mbedtls_ssl_context *ssl);
  *			  of (D)TLS on top of it without the need to know anything
  *			  about the record layer's internals. This is done e.g.
  *			  in all the handshake handling functions, and in the
- *			  application data reading function mbedtls_ssl_read.
+ *			  application data reading function ttls_ssl_read.
  *
  * \note		The above tries to give a conceptual picture of the
  *			  record layer, but the current implementation deviates
  *			  from it in some places. For example, our implementation of
- *			  the update functionality through mbedtls_ssl_read_record
+ *			  the update functionality through ttls_ssl_read_record
  *			  discards datagrams depending on the current state, which
  *			  wouldn't fall under the record layer's responsibility
  *			  following the above definition.
  *
  */
-int mbedtls_ssl_read_record(mbedtls_ssl_context *ssl);
+int ttls_ssl_read_record(mbedtls_ssl_context *ssl);
 int mbedtls_ssl_fetch_input(mbedtls_ssl_context *ssl, size_t nb_want);
 
 int mbedtls_ssl_write_record(mbedtls_ssl_context *ssl);
@@ -526,26 +503,21 @@ void mbedtls_ssl_optimize_checksum(mbedtls_ssl_context *ssl,
 int mbedtls_ssl_psk_derive_premaster(mbedtls_ssl_context *ssl, mbedtls_key_exchange_type_t key_ex);
 #endif
 
-#if defined(MBEDTLS_PK_C)
 unsigned char mbedtls_ssl_sig_from_pk(mbedtls_pk_context *pk);
 unsigned char mbedtls_ssl_sig_from_pk_alg(mbedtls_pk_type_t type);
 mbedtls_pk_type_t mbedtls_ssl_pk_alg_from_sig(unsigned char sig);
-#endif
 
 mbedtls_md_type_t mbedtls_ssl_md_alg_from_hash(unsigned char hash);
 unsigned char mbedtls_ssl_hash_from_md_alg(int md);
 int mbedtls_ssl_set_calc_verify_md(mbedtls_ssl_context *ssl, int md);
 
-#if defined(MBEDTLS_ECP_C)
 int mbedtls_ssl_check_curve(const mbedtls_ssl_context *ssl, mbedtls_ecp_group_id grp_id);
-#endif
 
 #if defined(MBEDTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
 int mbedtls_ssl_check_sig_hash(const mbedtls_ssl_context *ssl,
 								mbedtls_md_type_t md);
 #endif
 
-#if defined(MBEDTLS_X509_CRT_PARSE_C)
 static inline mbedtls_pk_context *mbedtls_ssl_own_key(mbedtls_ssl_context *ssl)
 {
 	mbedtls_ssl_key_cert *key_cert;
@@ -583,11 +555,10 @@ int mbedtls_ssl_check_cert_usage(const mbedtls_x509_crt *cert,
 						  const mbedtls_ssl_ciphersuite_t *ciphersuite,
 						  int cert_endpoint,
 						  uint32_t *flags);
-#endif /* MBEDTLS_X509_CRT_PARSE_C */
 
 void mbedtls_ssl_write_version(int major, int minor, int transport,
 						unsigned char ver[2]);
-void mbedtls_ssl_read_version(int *major, int *minor, int transport,
+void ttls_ssl_read_version(int *major, int *minor, int transport,
 					   const unsigned char ver[2]);
 
 static inline size_t mbedtls_ssl_hdr_len(const mbedtls_ssl_context *ssl)
@@ -654,9 +625,5 @@ int mbedtls_ssl_get_key_exchange_md_tls1_2(mbedtls_ssl_context *ssl,
 										mbedtls_md_type_t md_alg);
 #endif /* MBEDTLS_SSL_PROTO_TLS1 || MBEDTLS_SSL_PROTO_TLS1_1 || \
 		  MBEDTLS_SSL_PROTO_TLS1_2 */
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* ssl_internal.h */

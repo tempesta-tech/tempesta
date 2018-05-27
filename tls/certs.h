@@ -27,12 +27,6 @@
 #ifndef MBEDTLS_CERTS_H
 #define MBEDTLS_CERTS_H
 
-#include <stddef.h>
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #if defined(MBEDTLS_PEM_PARSE_C)
 /* Concatenation of all CA certificates in PEM format if available */
 extern const char   mbedtls_test_cas_pem[];
@@ -79,7 +73,6 @@ extern const char   mbedtls_test_cli_key_ec[];
 extern const size_t mbedtls_test_cli_key_ec_len;
 #endif
 
-#if defined(MBEDTLS_RSA_C)
 extern const char   mbedtls_test_ca_crt_rsa[];
 extern const size_t mbedtls_test_ca_crt_rsa_len;
 extern const char   mbedtls_test_ca_key_rsa[];
@@ -94,10 +87,5 @@ extern const char   mbedtls_test_cli_crt_rsa[];
 extern const size_t mbedtls_test_cli_crt_rsa_len;
 extern const char   mbedtls_test_cli_key_rsa[];
 extern const size_t mbedtls_test_cli_key_rsa_len;
-#endif
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* certs.h */

@@ -42,30 +42,10 @@
  *	 ePrint Archive, 2004, vol. 2004, p. 342.
  *	 <http://eprint.iacr.org/2004/342.pdf>
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
-#if defined(MBEDTLS_ECP_C)
-
 #include "ecp.h"
 
-#include <string.h>
-
 #if !defined(MBEDTLS_ECP_ALT)
-
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdlib.h>
-#include <stdio.h>
-#define mbedtls_printf	 printf
-#define mbedtls_calloc	calloc
-#define mbedtls_free	   free
-#endif
 
 #include "ecp_internal.h"
 
@@ -80,23 +60,8 @@ static void mbedtls_zeroize(void *v, size_t n) {
  */
 static unsigned long add_count, dbl_count, mul_count;
 
-#if defined(MBEDTLS_ECP_DP_SECP192R1_ENABLED) ||   \
-	defined(MBEDTLS_ECP_DP_SECP224R1_ENABLED) ||   \
-	defined(MBEDTLS_ECP_DP_SECP256R1_ENABLED) ||   \
-	defined(MBEDTLS_ECP_DP_SECP384R1_ENABLED) ||   \
-	defined(MBEDTLS_ECP_DP_SECP521R1_ENABLED) ||   \
-	defined(MBEDTLS_ECP_DP_BP256R1_ENABLED)   ||   \
-	defined(MBEDTLS_ECP_DP_BP384R1_ENABLED)   ||   \
-	defined(MBEDTLS_ECP_DP_BP512R1_ENABLED)   ||   \
-	defined(MBEDTLS_ECP_DP_SECP192K1_ENABLED) ||   \
-	defined(MBEDTLS_ECP_DP_SECP224K1_ENABLED) ||   \
-	defined(MBEDTLS_ECP_DP_SECP256K1_ENABLED)
 #define ECP_SHORTWEIERSTRASS
-#endif
-
-#if defined(MBEDTLS_ECP_DP_CURVE25519_ENABLED)
 #define ECP_MONTGOMERY
-#endif
 
 /*
  * Curve types: internal for now, might be exposed later
@@ -122,39 +87,17 @@ typedef enum
  */
 static const mbedtls_ecp_curve_info ecp_supported_curves[] =
 {
-#if defined(MBEDTLS_ECP_DP_SECP521R1_ENABLED)
 	{ MBEDTLS_ECP_DP_SECP521R1,	25,	 521,	"secp521r1"		 },
-#endif
-#if defined(MBEDTLS_ECP_DP_BP512R1_ENABLED)
 	{ MBEDTLS_ECP_DP_BP512R1,	  28,	 512,	"brainpoolP512r1"   },
-#endif
-#if defined(MBEDTLS_ECP_DP_SECP384R1_ENABLED)
 	{ MBEDTLS_ECP_DP_SECP384R1,	24,	 384,	"secp384r1"		 },
-#endif
-#if defined(MBEDTLS_ECP_DP_BP384R1_ENABLED)
 	{ MBEDTLS_ECP_DP_BP384R1,	  27,	 384,	"brainpoolP384r1"   },
-#endif
-#if defined(MBEDTLS_ECP_DP_SECP256R1_ENABLED)
 	{ MBEDTLS_ECP_DP_SECP256R1,	23,	 256,	"secp256r1"		 },
-#endif
-#if defined(MBEDTLS_ECP_DP_SECP256K1_ENABLED)
 	{ MBEDTLS_ECP_DP_SECP256K1,	22,	 256,	"secp256k1"		 },
-#endif
-#if defined(MBEDTLS_ECP_DP_BP256R1_ENABLED)
 	{ MBEDTLS_ECP_DP_BP256R1,	  26,	 256,	"brainpoolP256r1"   },
-#endif
-#if defined(MBEDTLS_ECP_DP_SECP224R1_ENABLED)
 	{ MBEDTLS_ECP_DP_SECP224R1,	21,	 224,	"secp224r1"		 },
-#endif
-#if defined(MBEDTLS_ECP_DP_SECP224K1_ENABLED)
 	{ MBEDTLS_ECP_DP_SECP224K1,	20,	 224,	"secp224k1"		 },
-#endif
-#if defined(MBEDTLS_ECP_DP_SECP192R1_ENABLED)
 	{ MBEDTLS_ECP_DP_SECP192R1,	19,	 192,	"secp192r1"		 },
-#endif
-#if defined(MBEDTLS_ECP_DP_SECP192K1_ENABLED)
 	{ MBEDTLS_ECP_DP_SECP192K1,	18,	 192,	"secp192k1"		 },
-#endif
 	{ MBEDTLS_ECP_DP_NONE,		  0,	 0,	  NULL				},
 };
 
@@ -2074,11 +2017,7 @@ int mbedtls_ecp_self_test(int verbose)
 	mbedtls_mpi_init(&m);
 
 	/* Use secp192r1 if available, or any available curve */
-#if defined(MBEDTLS_ECP_DP_SECP192R1_ENABLED)
 	MBEDTLS_MPI_CHK(mbedtls_ecp_group_load(&grp, MBEDTLS_ECP_DP_SECP192R1));
-#else
-	MBEDTLS_MPI_CHK(mbedtls_ecp_group_load(&grp, mbedtls_ecp_curve_list()->grp_id));
-#endif
 
 	if (verbose != 0)
 		mbedtls_printf("  ECP test #1 (constant op_count, base point G): ");
@@ -2174,5 +2113,3 @@ cleanup:
 }
 
 #endif /* !MBEDTLS_ECP_ALT */
-
-#endif /* MBEDTLS_ECP_C */
