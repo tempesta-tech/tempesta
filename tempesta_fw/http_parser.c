@@ -1131,8 +1131,7 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(hm);
 
-	BUILD_BUG_ON(sizeof(parser->hbh_parser.spec) * CHAR_BIT
-		     < TFW_HTTP_HDR_RAW);
+	BUILD_BUG_ON(sizeof(parser->hbh_parser.spec) * 8 < TFW_HTTP_HDR_RAW);
 
 	__FSM_START(parser->_i_st) {
 

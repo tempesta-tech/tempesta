@@ -57,15 +57,10 @@
  *
  *  This file is part of Mbed TLS (https://tls.mbed.org)
  */
-
 #ifndef MBEDTLS_DHM_H
 #define MBEDTLS_DHM_H
 
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
 #include "bignum.h"
 #if !defined(MBEDTLS_DHM_ALT)
 
@@ -249,7 +244,6 @@ int mbedtls_dhm_calc_secret(mbedtls_dhm_context *ctx,
  */
 void mbedtls_dhm_free(mbedtls_dhm_context *ctx);
 
-#if defined(MBEDTLS_ASN1_PARSE_C)
 /** \ingroup x509_module */
 /**
  * \brief			 This function parses DHM parameters in PEM or DER format.
@@ -265,7 +259,6 @@ void mbedtls_dhm_free(mbedtls_dhm_context *ctx);
 int mbedtls_dhm_parse_dhm(mbedtls_dhm_context *dhm, const unsigned char *dhmin,
 				   size_t dhminlen);
 
-#endif /* MBEDTLS_ASN1_PARSE_C */
 
 #else /* MBEDTLS_DHM_ALT */
 #include "dhm_alt.h"

@@ -1,5 +1,5 @@
 /**
- *		Tempesta FW
+ *		Tempesta TLS
  *
  * Copyright (C) 2016-2018 Tempesta Technologies, Inc.
  *
@@ -24,27 +24,15 @@
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
 MODULE_DESCRIPTION("Tempesta TLS");
-MODULE_VERSION("2.8.0");
+MODULE_VERSION("0.2.0");
 MODULE_LICENSE("GPL");
-
-/**
- * TODO: analyze all the calls to @calloc and @free over the whole code and
- * carefully change all of them to appropriate kernel routines (probably SLAB
- * allocations can be used) or exclude at all (if the optimization is possible.
- */
-void *calloc(size_t n, size_t size)
-{
-	return kzalloc(n * size, GFP_ATOMIC);
-}
-
-void free(void *ptr)
-{
-	kfree(ptr);
-}
 
 static int __init
 ttls_init(void)
 {
+	/* Bad configuration - protected record payload too large. */
+	BUILD_BUG_ON(MBEDTLS_SSL_PAYLOAD_LEN > 16384 + 2048);
+
 	return ttls_mpi_init();
 }
 
@@ -68,9 +56,9 @@ EXPORT_SYMBOL(mbedtls_pk_parse_key);
 
 EXPORT_SYMBOL(mbedtls_ssl_init);
 EXPORT_SYMBOL(mbedtls_ssl_free);
-EXPORT_SYMBOL(mbedtls_ssl_setup);
+EXPORT_SYMBOL(ttls_ssl_setup);
 EXPORT_SYMBOL(mbedtls_ssl_set_bio);
-EXPORT_SYMBOL(mbedtls_ssl_read);
+EXPORT_SYMBOL(ttls_ssl_read);
 EXPORT_SYMBOL(mbedtls_ssl_write);
 EXPORT_SYMBOL(mbedtls_ssl_handshake);
 EXPORT_SYMBOL(mbedtls_ssl_close_notify);

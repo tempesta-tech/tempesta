@@ -27,17 +27,8 @@
 #ifndef MBEDTLS_ASN1_H
 #define MBEDTLS_ASN1_H
 
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
-#include <stddef.h>
-
-#if defined(MBEDTLS_BIGNUM_C)
 #include "bignum.h"
-#endif
 
 /**
  * \addtogroup asn1_module
@@ -121,10 +112,6 @@
 #define MBEDTLS_OID_CMP(oid_str, oid_buf)								   \
 		((MBEDTLS_OID_SIZE(oid_str) != (oid_buf)->len) ||				\
 		  memcmp((oid_str), (oid_buf)->p, (oid_buf)->len) != 0)
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /**
  * \name Functions to parse ASN.1 data structures
@@ -278,7 +265,6 @@ int mbedtls_asn1_get_sequence_of(unsigned char **p,
 						  mbedtls_asn1_sequence *cur,
 						  int tag);
 
-#if defined(MBEDTLS_BIGNUM_C)
 /**
  * \brief	   Retrieve a MPI value from an integer ASN.1 tag.
  *			  Updates the pointer to immediately behind the full tag.
@@ -292,7 +278,6 @@ int mbedtls_asn1_get_sequence_of(unsigned char **p,
 int mbedtls_asn1_get_mpi(unsigned char **p,
 				  const unsigned char *end,
 				  mbedtls_mpi *X);
-#endif /* MBEDTLS_BIGNUM_C */
 
 /**
  * \brief	   Retrieve an AlgorithmIdentifier ASN.1 sequence.
@@ -353,9 +338,5 @@ void mbedtls_asn1_free_named_data(mbedtls_asn1_named_data *entry);
  * \param head  Pointer to the head of the list of named data entries to free
  */
 void mbedtls_asn1_free_named_data_list(mbedtls_asn1_named_data **head);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* asn1.h */
