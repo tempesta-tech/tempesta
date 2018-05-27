@@ -24,25 +24,13 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
 #ifndef MBEDTLS_PK_H
 #define MBEDTLS_PK_H
 
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
 #include "md.h"
-
-#if defined(MBEDTLS_RSA_C)
 #include "rsa.h"
-#endif
-
-#if defined(MBEDTLS_ECP_C)
 #include "ecp.h"
-#endif
 
 #if defined(MBEDTLS_ECDSA_C)
 #include "ecdsa.h"
@@ -130,7 +118,6 @@ typedef struct
 	void *					  pk_ctx;  /**< Underlying public key context  */
 } mbedtls_pk_context;
 
-#if defined(MBEDTLS_RSA_C)
 /**
  * Quick access to an RSA context inside a PK context.
  *
@@ -141,9 +128,7 @@ static inline mbedtls_rsa_context *mbedtls_pk_rsa(const mbedtls_pk_context pk)
 {
 	return((mbedtls_rsa_context *) (pk).pk_ctx);
 }
-#endif /* MBEDTLS_RSA_C */
 
-#if defined(MBEDTLS_ECP_C)
 /**
  * Quick access to an EC context inside a PK context.
  *
@@ -154,7 +139,6 @@ static inline mbedtls_ecp_keypair *mbedtls_pk_ec(const mbedtls_pk_context pk)
 {
 	return((mbedtls_ecp_keypair *) (pk).pk_ctx);
 }
-#endif /* MBEDTLS_ECP_C */
 
 #if defined(MBEDTLS_PK_RSA_ALT_SUPPORT)
 /**
@@ -428,7 +412,6 @@ const char * mbedtls_pk_get_name(const mbedtls_pk_context *ctx);
  */
 mbedtls_pk_type_t mbedtls_pk_get_type(const mbedtls_pk_context *ctx);
 
-#if defined(MBEDTLS_PK_PARSE_C)
 /** \ingroup pk_module */
 /**
  * \brief		   Parse a private key in PEM or DER format
@@ -471,8 +454,6 @@ int mbedtls_pk_parse_key(mbedtls_pk_context *ctx,
  */
 int mbedtls_pk_parse_public_key(mbedtls_pk_context *ctx,
 						 const unsigned char *key, size_t keylen);
-
-#endif /* MBEDTLS_PK_PARSE_C */
 
 #if defined(MBEDTLS_PK_WRITE_C)
 /**
@@ -535,7 +516,6 @@ int mbedtls_pk_write_key_pem(mbedtls_pk_context *ctx, unsigned char *buf, size_t
  *		  you are certain you do ;)
  */
 
-#if defined(MBEDTLS_PK_PARSE_C)
 /**
  * \brief		   Parse a SubjectPublicKeyInfo DER structure
  *
@@ -547,7 +527,6 @@ int mbedtls_pk_write_key_pem(mbedtls_pk_context *ctx, unsigned char *buf, size_t
  */
 int mbedtls_pk_parse_subpubkey(unsigned char **p, const unsigned char *end,
 						mbedtls_pk_context *pk);
-#endif /* MBEDTLS_PK_PARSE_C */
 
 #if defined(MBEDTLS_PK_WRITE_C)
 /**

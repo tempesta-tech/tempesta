@@ -18,28 +18,14 @@
  *  You should have received a copy of the GNU General Public License along
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 /*
  * These session callbacks use a simple chained list
  * to store and retrieve the session information.
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
 
 #if defined(MBEDTLS_SSL_COOKIE_C)
-
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#define mbedtls_calloc	calloc
-#define mbedtls_free	  free
-#endif
 
 #include "ssl_cookie.h"
 #include "ssl_internal.h"

@@ -25,7 +25,6 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
 #include "pkcs11.h"
 
 #if defined(MBEDTLS_PKCS11_C)
@@ -33,14 +32,6 @@
 #include "md.h"
 #include "oid.h"
 #include "x509_crt.h"
-
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdlib.h>
-#define mbedtls_calloc	calloc
-#define mbedtls_free	   free
-#endif
 
 #include <string.h>
 
