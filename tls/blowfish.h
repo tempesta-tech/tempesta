@@ -24,30 +24,30 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#ifndef TTLS_BLOWFISH_H
-#define TTLS_BLOWFISH_H
+#ifndef MBEDTLS_BLOWFISH_H
+#define MBEDTLS_BLOWFISH_H
 
-#if !defined(TTLS_CONFIG_FILE)
+#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
 #else
-#include TTLS_CONFIG_FILE
+#include MBEDTLS_CONFIG_FILE
 #endif
 
 #include <stddef.h>
 #include <stdint.h>
 
-#define TTLS_BLOWFISH_ENCRYPT	 1
-#define TTLS_BLOWFISH_DECRYPT	 0
-#define TTLS_BLOWFISH_MAX_KEY_BITS	 448
-#define TTLS_BLOWFISH_MIN_KEY_BITS	 32
-#define TTLS_BLOWFISH_ROUNDS	  16		 /**< Rounds to use. When increasing this value, make sure to extend the initialisation vectors */
-#define TTLS_BLOWFISH_BLOCKSIZE   8		  /* Blowfish uses 64 bit blocks */
+#define MBEDTLS_BLOWFISH_ENCRYPT	 1
+#define MBEDTLS_BLOWFISH_DECRYPT	 0
+#define MBEDTLS_BLOWFISH_MAX_KEY_BITS	 448
+#define MBEDTLS_BLOWFISH_MIN_KEY_BITS	 32
+#define MBEDTLS_BLOWFISH_ROUNDS	  16		 /**< Rounds to use. When increasing this value, make sure to extend the initialisation vectors */
+#define MBEDTLS_BLOWFISH_BLOCKSIZE   8		  /* Blowfish uses 64 bit blocks */
 
-#define TTLS_ERR_BLOWFISH_INVALID_KEY_LENGTH				-0x0016  /**< Invalid key length. */
-#define TTLS_ERR_BLOWFISH_HW_ACCEL_FAILED				   -0x0017  /**< Blowfish hardware accelerator failed. */
-#define TTLS_ERR_BLOWFISH_INVALID_INPUT_LENGTH			  -0x0018  /**< Invalid data input length. */
+#define MBEDTLS_ERR_BLOWFISH_INVALID_KEY_LENGTH				-0x0016  /**< Invalid key length. */
+#define MBEDTLS_ERR_BLOWFISH_HW_ACCEL_FAILED				   -0x0017  /**< Blowfish hardware accelerator failed. */
+#define MBEDTLS_ERR_BLOWFISH_INVALID_INPUT_LENGTH			  -0x0018  /**< Invalid data input length. */
 
-#if !defined(TTLS_BLOWFISH_ALT)
+#if !defined(MBEDTLS_BLOWFISH_ALT)
 // Regular implementation
 //
 
@@ -60,24 +60,24 @@ extern "C" {
  */
 typedef struct
 {
-	uint32_t P[TTLS_BLOWFISH_ROUNDS + 2];	/*!<  Blowfish round keys	*/
+	uint32_t P[MBEDTLS_BLOWFISH_ROUNDS + 2];	/*!<  Blowfish round keys	*/
 	uint32_t S[4][256];				 /*!<  key dependent S-boxes  */
 }
-ttls_blowfish_context;
+mbedtls_blowfish_context;
 
 /**
  * \brief		  Initialize Blowfish context
  *
  * \param ctx	  Blowfish context to be initialized
  */
-void ttls_blowfish_init(ttls_blowfish_context *ctx);
+void mbedtls_blowfish_init(mbedtls_blowfish_context *ctx);
 
 /**
  * \brief		  Clear Blowfish context
  *
  * \param ctx	  Blowfish context to be cleared
  */
-void ttls_blowfish_free(ttls_blowfish_context *ctx);
+void mbedtls_blowfish_free(mbedtls_blowfish_context *ctx);
 
 /**
  * \brief		  Blowfish key schedule
@@ -86,27 +86,27 @@ void ttls_blowfish_free(ttls_blowfish_context *ctx);
  * \param key	  encryption key
  * \param keybits  must be between 32 and 448 bits
  *
- * \return		 0 if successful, or TTLS_ERR_BLOWFISH_INVALID_KEY_LENGTH
+ * \return		 0 if successful, or MBEDTLS_ERR_BLOWFISH_INVALID_KEY_LENGTH
  */
-int ttls_blowfish_setkey(ttls_blowfish_context *ctx, const unsigned char *key,
+int mbedtls_blowfish_setkey(mbedtls_blowfish_context *ctx, const unsigned char *key,
 					 unsigned int keybits);
 
 /**
  * \brief		  Blowfish-ECB block encryption/decryption
  *
  * \param ctx	  Blowfish context
- * \param mode	 TTLS_BLOWFISH_ENCRYPT or TTLS_BLOWFISH_DECRYPT
+ * \param mode	 MBEDTLS_BLOWFISH_ENCRYPT or MBEDTLS_BLOWFISH_DECRYPT
  * \param input	8-byte input block
  * \param output   8-byte output block
  *
  * \return		 0 if successful
  */
-int ttls_blowfish_crypt_ecb(ttls_blowfish_context *ctx,
+int mbedtls_blowfish_crypt_ecb(mbedtls_blowfish_context *ctx,
 						int mode,
-						const unsigned char input[TTLS_BLOWFISH_BLOCKSIZE],
-						unsigned char output[TTLS_BLOWFISH_BLOCKSIZE]);
+						const unsigned char input[MBEDTLS_BLOWFISH_BLOCKSIZE],
+						unsigned char output[MBEDTLS_BLOWFISH_BLOCKSIZE]);
 
-#if defined(TTLS_CIPHER_MODE_CBC)
+#if defined(MBEDTLS_CIPHER_MODE_CBC)
 /**
  * \brief		  Blowfish-CBC buffer encryption/decryption
  *				 Length should be a multiple of the block
@@ -121,24 +121,24 @@ int ttls_blowfish_crypt_ecb(ttls_blowfish_context *ctx,
  *				 module instead.
  *
  * \param ctx	  Blowfish context
- * \param mode	 TTLS_BLOWFISH_ENCRYPT or TTLS_BLOWFISH_DECRYPT
+ * \param mode	 MBEDTLS_BLOWFISH_ENCRYPT or MBEDTLS_BLOWFISH_DECRYPT
  * \param length   length of the input data
  * \param iv	   initialization vector (updated after use)
  * \param input	buffer holding the input data
  * \param output   buffer holding the output data
  *
  * \return		 0 if successful, or
- *				 TTLS_ERR_BLOWFISH_INVALID_INPUT_LENGTH
+ *				 MBEDTLS_ERR_BLOWFISH_INVALID_INPUT_LENGTH
  */
-int ttls_blowfish_crypt_cbc(ttls_blowfish_context *ctx,
+int mbedtls_blowfish_crypt_cbc(mbedtls_blowfish_context *ctx,
 						int mode,
 						size_t length,
-						unsigned char iv[TTLS_BLOWFISH_BLOCKSIZE],
+						unsigned char iv[MBEDTLS_BLOWFISH_BLOCKSIZE],
 						const unsigned char *input,
 						unsigned char *output);
-#endif /* TTLS_CIPHER_MODE_CBC */
+#endif /* MBEDTLS_CIPHER_MODE_CBC */
 
-#if defined(TTLS_CIPHER_MODE_CFB)
+#if defined(MBEDTLS_CIPHER_MODE_CFB)
 /**
  * \brief		  Blowfish CFB buffer encryption/decryption.
  *
@@ -151,7 +151,7 @@ int ttls_blowfish_crypt_cbc(ttls_blowfish_context *ctx,
  *				 module instead.
  *
  * \param ctx	  Blowfish context
- * \param mode	 TTLS_BLOWFISH_ENCRYPT or TTLS_BLOWFISH_DECRYPT
+ * \param mode	 MBEDTLS_BLOWFISH_ENCRYPT or MBEDTLS_BLOWFISH_DECRYPT
  * \param length   length of the input data
  * \param iv_off   offset in IV (updated after use)
  * \param iv	   initialization vector (updated after use)
@@ -160,16 +160,16 @@ int ttls_blowfish_crypt_cbc(ttls_blowfish_context *ctx,
  *
  * \return		 0 if successful
  */
-int ttls_blowfish_crypt_cfb64(ttls_blowfish_context *ctx,
+int mbedtls_blowfish_crypt_cfb64(mbedtls_blowfish_context *ctx,
 						  int mode,
 						  size_t length,
 						  size_t *iv_off,
-						  unsigned char iv[TTLS_BLOWFISH_BLOCKSIZE],
+						  unsigned char iv[MBEDTLS_BLOWFISH_BLOCKSIZE],
 						  const unsigned char *input,
 						  unsigned char *output);
-#endif /*TTLS_CIPHER_MODE_CFB */
+#endif /*MBEDTLS_CIPHER_MODE_CFB */
 
-#if defined(TTLS_CIPHER_MODE_CTR)
+#if defined(MBEDTLS_CIPHER_MODE_CTR)
 /**
  * \brief			   Blowfish-CTR buffer encryption/decryption
  *
@@ -188,21 +188,21 @@ int ttls_blowfish_crypt_cfb64(ttls_blowfish_context *ctx,
  *
  * \return		 0 if successful
  */
-int ttls_blowfish_crypt_ctr(ttls_blowfish_context *ctx,
+int mbedtls_blowfish_crypt_ctr(mbedtls_blowfish_context *ctx,
 						size_t length,
 						size_t *nc_off,
-						unsigned char nonce_counter[TTLS_BLOWFISH_BLOCKSIZE],
-						unsigned char stream_block[TTLS_BLOWFISH_BLOCKSIZE],
+						unsigned char nonce_counter[MBEDTLS_BLOWFISH_BLOCKSIZE],
+						unsigned char stream_block[MBEDTLS_BLOWFISH_BLOCKSIZE],
 						const unsigned char *input,
 						unsigned char *output);
-#endif /* TTLS_CIPHER_MODE_CTR */
+#endif /* MBEDTLS_CIPHER_MODE_CTR */
 
 #ifdef __cplusplus
 }
 #endif
 
-#else  /* TTLS_BLOWFISH_ALT */
+#else  /* MBEDTLS_BLOWFISH_ALT */
 #include "blowfish_alt.h"
-#endif /* TTLS_BLOWFISH_ALT */
+#endif /* MBEDTLS_BLOWFISH_ALT */
 
 #endif /* blowfish.h */

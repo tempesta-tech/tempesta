@@ -24,8 +24,8 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#ifndef TTLS_ERROR_H
-#define TTLS_ERROR_H
+#ifndef MBEDTLS_ERROR_H
+#define MBEDTLS_ERROR_H
 
 #include <stddef.h>
 
@@ -111,7 +111,7 @@ extern "C" {
  * \param buffer	buffer to place representation in
  * \param buflen	length of the buffer
  */
-void ttls_strerror(int errnum, char *buffer, size_t buflen);
+void mbedtls_strerror(int errnum, char *buffer, size_t buflen);
 
 #ifdef __cplusplus
 }

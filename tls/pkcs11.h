@@ -26,16 +26,16 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#ifndef TTLS_PKCS11_H
-#define TTLS_PKCS11_H
+#ifndef MBEDTLS_PKCS11_H
+#define MBEDTLS_PKCS11_H
 
-#if !defined(TTLS_CONFIG_FILE)
+#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
 #else
-#include TTLS_CONFIG_FILE
+#include MBEDTLS_CONFIG_FILE
 #endif
 
-#if defined(TTLS_PKCS11_C)
+#if defined(MBEDTLS_PKCS11_C)
 
 #include "x509_crt.h"
 
@@ -56,13 +56,13 @@ extern "C" {
 typedef struct {
 		pkcs11h_certificate_t pkcs11h_cert;
 		int len;
-} ttls_pkcs11_context;
+} mbedtls_pkcs11_context;
 
 /**
- * Initialize a ttls_pkcs11_context.
+ * Initialize a mbedtls_pkcs11_context.
  * (Just making memory references valid.)
  */
-void ttls_pkcs11_init(ttls_pkcs11_context *ctx);
+void mbedtls_pkcs11_init(mbedtls_pkcs11_context *ctx);
 
 /**
  * Fill in a mbed TLS certificate, based on the given PKCS11 helper certificate.
@@ -72,11 +72,11 @@ void ttls_pkcs11_init(ttls_pkcs11_context *ctx);
  *
  * \return			  0 on success.
  */
-int ttls_pkcs11_x509_cert_bind(ttls_x509_crt *cert, pkcs11h_certificate_t pkcs11h_cert);
+int mbedtls_pkcs11_x509_cert_bind(mbedtls_x509_crt *cert, pkcs11h_certificate_t pkcs11h_cert);
 
 /**
- * Set up a ttls_pkcs11_context storing the given certificate. Note that the
- * ttls_pkcs11_context will take over control of the certificate, freeing it when
+ * Set up a mbedtls_pkcs11_context storing the given certificate. Note that the
+ * mbedtls_pkcs11_context will take over control of the certificate, freeing it when
  * done.
  *
  * \param priv_key	  Private key structure to fill.
@@ -84,7 +84,7 @@ int ttls_pkcs11_x509_cert_bind(ttls_x509_crt *cert, pkcs11h_certificate_t pkcs11
  *
  * \return			  0 on success
  */
-int ttls_pkcs11_priv_key_bind(ttls_pkcs11_context *priv_key,
+int mbedtls_pkcs11_priv_key_bind(mbedtls_pkcs11_context *priv_key,
 		pkcs11h_certificate_t pkcs11_cert);
 
 /**
@@ -93,26 +93,26 @@ int ttls_pkcs11_priv_key_bind(ttls_pkcs11_context *priv_key,
  *
  * \param priv_key	  Private key structure to cleanup
  */
-void ttls_pkcs11_priv_key_free(ttls_pkcs11_context *priv_key);
+void mbedtls_pkcs11_priv_key_free(mbedtls_pkcs11_context *priv_key);
 
 /**
  * \brief		  Do an RSA private key decrypt, then remove the message
  *				 padding
  *
  * \param ctx	  PKCS #11 context
- * \param mode	 must be TTLS_RSA_PRIVATE, for compatibility with rsa.c's signature
+ * \param mode	 must be MBEDTLS_RSA_PRIVATE, for compatibility with rsa.c's signature
  * \param input	buffer holding the encrypted data
  * \param output   buffer that will hold the plaintext
  * \param olen	 will contain the plaintext length
  * \param output_max_len	maximum length of the output buffer
  *
- * \return		 0 if successful, or an TTLS_ERR_RSA_XXX error code
+ * \return		 0 if successful, or an MBEDTLS_ERR_RSA_XXX error code
  *
  * \note		   The output buffer must be as large as the size
  *				 of ctx->N (eg. 128 bytes if RSA-1024 is used) otherwise
  *				 an error is thrown.
  */
-int ttls_pkcs11_decrypt(ttls_pkcs11_context *ctx,
+int mbedtls_pkcs11_decrypt(mbedtls_pkcs11_context *ctx,
 					   int mode, size_t *olen,
 					   const unsigned char *input,
 					   unsigned char *output,
@@ -122,21 +122,21 @@ int ttls_pkcs11_decrypt(ttls_pkcs11_context *ctx,
  * \brief		  Do a private RSA to sign a message digest
  *
  * \param ctx	  PKCS #11 context
- * \param mode	 must be TTLS_RSA_PRIVATE, for compatibility with rsa.c's signature
- * \param md_alg   a TTLS_MD_XXX (use TTLS_MD_NONE for signing raw data)
- * \param hashlen  message digest length (for TTLS_MD_NONE only)
+ * \param mode	 must be MBEDTLS_RSA_PRIVATE, for compatibility with rsa.c's signature
+ * \param md_alg   a MBEDTLS_MD_XXX (use MBEDTLS_MD_NONE for signing raw data)
+ * \param hashlen  message digest length (for MBEDTLS_MD_NONE only)
  * \param hash	 buffer holding the message digest
  * \param sig	  buffer that will hold the ciphertext
  *
  * \return		 0 if the signing operation was successful,
- *				 or an TTLS_ERR_RSA_XXX error code
+ *				 or an MBEDTLS_ERR_RSA_XXX error code
  *
  * \note		   The "sig" buffer must be as large as the size
  *				 of ctx->N (eg. 128 bytes if RSA-1024 is used).
  */
-int ttls_pkcs11_sign(ttls_pkcs11_context *ctx,
+int mbedtls_pkcs11_sign(mbedtls_pkcs11_context *ctx,
 					int mode,
-					ttls_md_type_t md_alg,
+					mbedtls_md_type_t md_alg,
 					unsigned int hashlen,
 					const unsigned char *hash,
 					unsigned char *sig);
@@ -144,34 +144,34 @@ int ttls_pkcs11_sign(ttls_pkcs11_context *ctx,
 /**
  * SSL/TLS wrappers for PKCS#11 functions
  */
-static inline int ttls_pkcs11_decrypt(void *ctx, int mode, size_t *olen,
+static inline int mbedtls_ssl_pkcs11_decrypt(void *ctx, int mode, size_t *olen,
 						const unsigned char *input, unsigned char *output,
 						size_t output_max_len)
 {
-	return ttls_pkcs11_decrypt((ttls_pkcs11_context *) ctx, mode, olen, input, output,
+	return mbedtls_pkcs11_decrypt((mbedtls_pkcs11_context *) ctx, mode, olen, input, output,
 						   output_max_len);
 }
 
-static inline int ttls_pkcs11_sign(void *ctx,
+static inline int mbedtls_ssl_pkcs11_sign(void *ctx,
 					 int (*f_rng)(void *, unsigned char *, size_t), void *p_rng,
-					 int mode, ttls_md_type_t md_alg, unsigned int hashlen,
+					 int mode, mbedtls_md_type_t md_alg, unsigned int hashlen,
 					 const unsigned char *hash, unsigned char *sig)
 {
 	((void) f_rng);
 	((void) p_rng);
-	return ttls_pkcs11_sign((ttls_pkcs11_context *) ctx, mode, md_alg,
+	return mbedtls_pkcs11_sign((mbedtls_pkcs11_context *) ctx, mode, md_alg,
 						hashlen, hash, sig);
 }
 
-static inline size_t ttls_pkcs11_key_len(void *ctx)
+static inline size_t mbedtls_ssl_pkcs11_key_len(void *ctx)
 {
-	return ((ttls_pkcs11_context *) ctx)->len;
+	return ((mbedtls_pkcs11_context *) ctx)->len;
 }
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* TTLS_PKCS11_C */
+#endif /* MBEDTLS_PKCS11_C */
 
-#endif /* TTLS_PKCS11_H */
+#endif /* MBEDTLS_PKCS11_H */

@@ -26,13 +26,13 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#ifndef TTLS_CIPHER_WRAP_H
-#define TTLS_CIPHER_WRAP_H
+#ifndef MBEDTLS_CIPHER_WRAP_H
+#define MBEDTLS_CIPHER_WRAP_H
 
-#if !defined(TTLS_CONFIG_FILE)
+#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
 #else
-#include TTLS_CONFIG_FILE
+#include MBEDTLS_CONFIG_FILE
 #endif
 
 #include "cipher.h"
@@ -44,16 +44,37 @@ extern "C" {
 /**
  * Base cipher information. The non-mode specific functions and values.
  */
-struct ttls_cipher_base_t
+struct mbedtls_cipher_base_t
 {
-	/** Base Cipher type (e.g. TTLS_CIPHER_ID_AES) */
-	ttls_cipher_id_t cipher;
+	/** Base Cipher type (e.g. MBEDTLS_CIPHER_ID_AES) */
+	mbedtls_cipher_id_t cipher;
 
 	/** Encrypt using ECB */
-	int (*ecb_func)(void *ctx, ttls_operation_t mode,
+	int (*ecb_func)(void *ctx, mbedtls_operation_t mode,
 					 const unsigned char *input, unsigned char *output);
 
-#if defined(TTLS_CIPHER_MODE_STREAM)
+#if defined(MBEDTLS_CIPHER_MODE_CBC)
+	/** Encrypt using CBC */
+	int (*cbc_func)(void *ctx, mbedtls_operation_t mode, size_t length,
+					 unsigned char *iv, const unsigned char *input,
+					 unsigned char *output);
+#endif
+
+#if defined(MBEDTLS_CIPHER_MODE_CFB)
+	/** Encrypt using CFB (Full length) */
+	int (*cfb_func)(void *ctx, mbedtls_operation_t mode, size_t length, size_t *iv_off,
+					 unsigned char *iv, const unsigned char *input,
+					 unsigned char *output);
+#endif
+
+#if defined(MBEDTLS_CIPHER_MODE_CTR)
+	/** Encrypt using CTR */
+	int (*ctr_func)(void *ctx, size_t length, size_t *nc_off,
+					 unsigned char *nonce_counter, unsigned char *stream_block,
+					 const unsigned char *input, unsigned char *output);
+#endif
+
+#if defined(MBEDTLS_CIPHER_MODE_STREAM)
 	/** Encrypt using STREAM */
 	int (*stream_func)(void *ctx, size_t length,
 						const unsigned char *input, unsigned char *output);
@@ -77,16 +98,16 @@ struct ttls_cipher_base_t
 
 typedef struct
 {
-	ttls_cipher_type_t type;
-	const ttls_cipher_info_t *info;
-} ttls_cipher_definition_t;
+	mbedtls_cipher_type_t type;
+	const mbedtls_cipher_info_t *info;
+} mbedtls_cipher_definition_t;
 
-extern const ttls_cipher_definition_t ttls_cipher_definitions[];
+extern const mbedtls_cipher_definition_t mbedtls_cipher_definitions[];
 
-extern int ttls_cipher_supported[];
+extern int mbedtls_cipher_supported[];
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* TTLS_CIPHER_WRAP_H */
+#endif /* MBEDTLS_CIPHER_WRAP_H */
