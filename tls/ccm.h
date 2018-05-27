@@ -33,16 +33,16 @@
  *  This file is part of Mbed TLS (https://tls.mbed.org)
  */
 
-#ifndef TTLS_CCM_H
-#define TTLS_CCM_H
+#ifndef MBEDTLS_CCM_H
+#define MBEDTLS_CCM_H
 
 #include "cipher.h"
 
-#define TTLS_ERR_CCM_BAD_INPUT	   -0x000D /**< Bad input parameters to the function. */
-#define TTLS_ERR_CCM_AUTH_FAILED	 -0x000F /**< Authenticated decryption failed. */
-#define TTLS_ERR_CCM_HW_ACCEL_FAILED -0x0011 /**< CCM hardware accelerator failed. */
+#define MBEDTLS_ERR_CCM_BAD_INPUT	   -0x000D /**< Bad input parameters to the function. */
+#define MBEDTLS_ERR_CCM_AUTH_FAILED	 -0x000F /**< Authenticated decryption failed. */
+#define MBEDTLS_ERR_CCM_HW_ACCEL_FAILED -0x0011 /**< CCM hardware accelerator failed. */
 
-#if !defined(TTLS_CCM_ALT)
+#if !defined(MBEDTLS_CCM_ALT)
 // Regular implementation
 //
 
@@ -51,18 +51,18 @@
  *		   to the APIs called.
  */
 typedef struct {
-	ttls_cipher_context_t cipher_ctx;	/*!< The cipher context used. */
+	mbedtls_cipher_context_t cipher_ctx;	/*!< The cipher context used. */
 }
-ttls_ccm_context;
+mbedtls_ccm_context;
 
 /**
  * \brief		   This function initializes the specified CCM context,
  *				  to make references valid, and prepare the context
- *				  for ttls_ccm_setkey() or ttls_ccm_free().
+ *				  for mbedtls_ccm_setkey() or mbedtls_ccm_free().
  *
  * \param ctx	   The CCM context to initialize.
  */
-void ttls_ccm_init(ttls_ccm_context *ctx);
+void mbedtls_ccm_init(mbedtls_ccm_context *ctx);
 
 /**
  * \brief		   This function initializes the CCM context set in the
@@ -75,8 +75,8 @@ void ttls_ccm_init(ttls_ccm_context *ctx);
  *
  * \return		  \c 0 on success, or a cipher-specific error code.
  */
-int ttls_ccm_setkey(ttls_ccm_context *ctx,
-						ttls_cipher_id_t cipher,
+int mbedtls_ccm_setkey(mbedtls_ccm_context *ctx,
+						mbedtls_cipher_id_t cipher,
 						const unsigned char *key,
 						unsigned int keybits);
 
@@ -86,7 +86,7 @@ int ttls_ccm_setkey(ttls_ccm_context *ctx,
  *
  * \param ctx	   The CCM context to clear.
  */
-void ttls_ccm_free(ttls_ccm_context *ctx);
+void mbedtls_ccm_free(mbedtls_ccm_context *ctx);
 
 /**
  * \brief		   This function encrypts a buffer using CCM.
@@ -113,7 +113,7 @@ void ttls_ccm_free(ttls_ccm_context *ctx);
  *
  * \return		  \c 0 on success.
  */
-int ttls_ccm_encrypt_and_tag(ttls_ccm_context *ctx, size_t length,
+int mbedtls_ccm_encrypt_and_tag(mbedtls_ccm_context *ctx, size_t length,
 						 const unsigned char *iv, size_t iv_len,
 						 const unsigned char *add, size_t add_len,
 						 const unsigned char *input, unsigned char *output,
@@ -138,16 +138,16 @@ int ttls_ccm_encrypt_and_tag(ttls_ccm_context *ctx, size_t length,
  *				  4, 6, 8, 10, 12, 14 or 16.
  *
  * \return		  0 if successful and authenticated, or
- *				  #TTLS_ERR_CCM_AUTH_FAILED if the tag does not match.
+ *				  #MBEDTLS_ERR_CCM_AUTH_FAILED if the tag does not match.
  */
-int ttls_ccm_auth_decrypt(ttls_ccm_context *ctx, size_t length,
+int mbedtls_ccm_auth_decrypt(mbedtls_ccm_context *ctx, size_t length,
 					  const unsigned char *iv, size_t iv_len,
 					  const unsigned char *add, size_t add_len,
 					  const unsigned char *input, unsigned char *output,
 					  const unsigned char *tag, size_t tag_len);
 
-#else  /* TTLS_CCM_ALT */
+#else  /* MBEDTLS_CCM_ALT */
 #include "ccm_alt.h"
-#endif /* TTLS_CCM_ALT */
+#endif /* MBEDTLS_CCM_ALT */
 
-#endif /* TTLS_CCM_H */
+#endif /* MBEDTLS_CCM_H */

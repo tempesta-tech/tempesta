@@ -21,14 +21,23 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
+
+#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#if defined(TTLS_XTEA_C)
+#else
+#include MBEDTLS_CONFIG_FILE
+#endif
+
+#if defined(MBEDTLS_XTEA_C)
+
 #include "xtea.h"
 
-#if !defined(TTLS_XTEA_ALT)
+#include <string.h>
+
+#if !defined(MBEDTLS_XTEA_ALT)
 
 /* Implementation that should never be optimized out by the compiler */
-static void ttls_zeroize(void *v, size_t n) {
+static void mbedtls_zeroize(void *v, size_t n) {
 	volatile unsigned char *p = v; while (n--) *p++ = 0;
 }
 
@@ -55,27 +64,27 @@ static void ttls_zeroize(void *v, size_t n) {
 }
 #endif
 
-void ttls_xtea_init(ttls_xtea_context *ctx)
+void mbedtls_xtea_init(mbedtls_xtea_context *ctx)
 {
-	memset(ctx, 0, sizeof(ttls_xtea_context));
+	memset(ctx, 0, sizeof(mbedtls_xtea_context));
 }
 
-void ttls_xtea_free(ttls_xtea_context *ctx)
+void mbedtls_xtea_free(mbedtls_xtea_context *ctx)
 {
 	if (ctx == NULL)
 		return;
 
-	ttls_zeroize(ctx, sizeof(ttls_xtea_context));
+	mbedtls_zeroize(ctx, sizeof(mbedtls_xtea_context));
 }
 
 /*
  * XTEA key schedule
  */
-void ttls_xtea_setup(ttls_xtea_context *ctx, const unsigned char key[16])
+void mbedtls_xtea_setup(mbedtls_xtea_context *ctx, const unsigned char key[16])
 {
 	int i;
 
-	memset(ctx, 0, sizeof(ttls_xtea_context));
+	memset(ctx, 0, sizeof(mbedtls_xtea_context));
 
 	for (i = 0; i < 4; i++)
 	{
@@ -86,7 +95,7 @@ void ttls_xtea_setup(ttls_xtea_context *ctx, const unsigned char key[16])
 /*
  * XTEA encrypt function
  */
-int ttls_xtea_crypt_ecb(ttls_xtea_context *ctx, int mode,
+int mbedtls_xtea_crypt_ecb(mbedtls_xtea_context *ctx, int mode,
 					const unsigned char input[8], unsigned char output[8])
 {
 	uint32_t *k, v0, v1, i;
@@ -96,7 +105,7 @@ int ttls_xtea_crypt_ecb(ttls_xtea_context *ctx, int mode,
 	GET_UINT32_BE(v0, input, 0);
 	GET_UINT32_BE(v1, input, 4);
 
-	if (mode == TTLS_XTEA_ENCRYPT)
+	if (mode == MBEDTLS_XTEA_ENCRYPT)
 	{
 		uint32_t sum = 0, delta = 0x9E3779B9;
 
@@ -107,7 +116,7 @@ int ttls_xtea_crypt_ecb(ttls_xtea_context *ctx, int mode,
 			v1 += (((v0 << 4) ^ (v0 >> 5)) + v0) ^ (sum + k[(sum>>11) & 3]);
 		}
 	}
-	else /* TTLS_XTEA_DECRYPT */
+	else /* MBEDTLS_XTEA_DECRYPT */
 	{
 		uint32_t delta = 0x9E3779B9, sum = delta * 32;
 
@@ -125,11 +134,11 @@ int ttls_xtea_crypt_ecb(ttls_xtea_context *ctx, int mode,
 	return 0;
 }
 
-#if defined(TTLS_CIPHER_MODE_CBC)
+#if defined(MBEDTLS_CIPHER_MODE_CBC)
 /*
  * XTEA-CBC buffer encryption/decryption
  */
-int ttls_xtea_crypt_cbc(ttls_xtea_context *ctx, int mode, size_t length,
+int mbedtls_xtea_crypt_cbc(mbedtls_xtea_context *ctx, int mode, size_t length,
 					unsigned char iv[8], const unsigned char *input,
 					unsigned char *output)
 {
@@ -137,14 +146,14 @@ int ttls_xtea_crypt_cbc(ttls_xtea_context *ctx, int mode, size_t length,
 	unsigned char temp[8];
 
 	if (length % 8)
-		return(TTLS_ERR_XTEA_INVALID_INPUT_LENGTH);
+		return(MBEDTLS_ERR_XTEA_INVALID_INPUT_LENGTH);
 
-	if (mode == TTLS_XTEA_DECRYPT)
+	if (mode == MBEDTLS_XTEA_DECRYPT)
 	{
 		while (length > 0)
 		{
 			memcpy(temp, input, 8);
-			ttls_xtea_crypt_ecb(ctx, mode, input, output);
+			mbedtls_xtea_crypt_ecb(ctx, mode, input, output);
 
 			for (i = 0; i < 8; i++)
 				output[i] = (unsigned char)(output[i] ^ iv[i]);
@@ -163,7 +172,7 @@ int ttls_xtea_crypt_cbc(ttls_xtea_context *ctx, int mode, size_t length,
 			for (i = 0; i < 8; i++)
 				output[i] = (unsigned char)(input[i] ^ iv[i]);
 
-			ttls_xtea_crypt_ecb(ctx, mode, output, output);
+			mbedtls_xtea_crypt_ecb(ctx, mode, output, output);
 			memcpy(iv, output, 8);
 
 			input  += 8;
@@ -174,8 +183,8 @@ int ttls_xtea_crypt_cbc(ttls_xtea_context *ctx, int mode, size_t length,
 
 	return 0;
 }
-#endif /* TTLS_CIPHER_MODE_CBC */
-#endif /* !TTLS_XTEA_ALT */
+#endif /* MBEDTLS_CIPHER_MODE_CBC */
+#endif /* !MBEDTLS_XTEA_ALT */
 
 /*
  * XTEA tests vectors (non-official)
@@ -220,43 +229,43 @@ static const unsigned char xtea_test_ct[6][8] =
 /*
  * Checkup routine
  */
-int ttls_xtea_self_test(int verbose)
+int mbedtls_xtea_self_test(int verbose)
 {
 	int i, ret = 0;
 	unsigned char buf[8];
-	ttls_xtea_context ctx;
+	mbedtls_xtea_context ctx;
 
-	ttls_xtea_init(&ctx);
+	mbedtls_xtea_init(&ctx);
 	for (i = 0; i < 6; i++)
 	{
 		if (verbose != 0)
-			ttls_printf("  XTEA test #%d: ", i + 1);
+			mbedtls_printf("  XTEA test #%d: ", i + 1);
 
 		memcpy(buf, xtea_test_pt[i], 8);
 
-		ttls_xtea_setup(&ctx, xtea_test_key[i]);
-		ttls_xtea_crypt_ecb(&ctx, TTLS_XTEA_ENCRYPT, buf, buf);
+		mbedtls_xtea_setup(&ctx, xtea_test_key[i]);
+		mbedtls_xtea_crypt_ecb(&ctx, MBEDTLS_XTEA_ENCRYPT, buf, buf);
 
 		if (memcmp(buf, xtea_test_ct[i], 8) != 0)
 		{
 			if (verbose != 0)
-				ttls_printf("failed\n");
+				mbedtls_printf("failed\n");
 
 			ret = 1;
 			goto exit;
 		}
 
 		if (verbose != 0)
-			ttls_printf("passed\n");
+			mbedtls_printf("passed\n");
 	}
 
 	if (verbose != 0)
-		ttls_printf("\n");
+		mbedtls_printf("\n");
 
 exit:
-	ttls_xtea_free(&ctx);
+	mbedtls_xtea_free(&ctx);
 
 	return ret;
 }
 
-#endif /* TTLS_XTEA_C */
+#endif /* MBEDTLS_XTEA_C */

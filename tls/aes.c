@@ -27,14 +27,24 @@
  *  http://csrc.nist.gov/encryption/aes/rijndael/Rijndael.pdf
  *  http://csrc.nist.gov/publications/fips/fips197/fips-197.pdf
  */
+
+#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
+#else
+#include MBEDTLS_CONFIG_FILE
+#endif
+
+#if defined(MBEDTLS_AES_C)
+
+#include <string.h>
+
 #include "aes.h"
 #include "aesni.h"
 
-#if !defined(TTLS_AES_ALT)
+#if !defined(MBEDTLS_AES_ALT)
 
 /* Implementation that should never be optimized out by the compiler */
-static void ttls_zeroize(void *v, size_t n) {
+static void mbedtls_zeroize(void *v, size_t n) {
 	volatile unsigned char *p = (unsigned char*)v; while (n--) *p++ = 0;
 }
 
@@ -325,24 +335,24 @@ static const uint32_t RCON[10] =
 	0x0000001B, 0x00000036
 };
 
-void ttls_aes_init(ttls_aes_context *ctx)
+void mbedtls_aes_init(mbedtls_aes_context *ctx)
 {
-	memset(ctx, 0, sizeof(ttls_aes_context));
+	memset(ctx, 0, sizeof(mbedtls_aes_context));
 }
 
-void ttls_aes_free(ttls_aes_context *ctx)
+void mbedtls_aes_free(mbedtls_aes_context *ctx)
 {
 	if (ctx == NULL)
 		return;
 
-	ttls_zeroize(ctx, sizeof(ttls_aes_context));
+	mbedtls_zeroize(ctx, sizeof(mbedtls_aes_context));
 }
 
 /*
  * AES key schedule (encryption)
  */
-#if !defined(TTLS_AES_SETKEY_ENC_ALT)
-int ttls_aes_setkey_enc(ttls_aes_context *ctx, const unsigned char *key,
+#if !defined(MBEDTLS_AES_SETKEY_ENC_ALT)
+int mbedtls_aes_setkey_enc(mbedtls_aes_context *ctx, const unsigned char *key,
 					unsigned int keybits)
 {
 	unsigned int i;
@@ -353,13 +363,13 @@ int ttls_aes_setkey_enc(ttls_aes_context *ctx, const unsigned char *key,
 		case 128: ctx->nr = 10; break;
 		case 192: ctx->nr = 12; break;
 		case 256: ctx->nr = 14; break;
-		default : return(TTLS_ERR_AES_INVALID_KEY_LENGTH);
+		default : return(MBEDTLS_ERR_AES_INVALID_KEY_LENGTH);
 	}
 
 	ctx->rk = RK = ctx->buf;
 
-	if (ttls_aesni_has_support(TTLS_AESNI_AES))
-		return(ttls_aesni_setkey_enc((unsigned char *) ctx->rk, key, keybits));
+	if (mbedtls_aesni_has_support(MBEDTLS_AESNI_AES))
+		return(mbedtls_aesni_setkey_enc((unsigned char *) ctx->rk, key, keybits));
 
 	for (i = 0; i < (keybits >> 5); i++)
 	{
@@ -431,33 +441,33 @@ int ttls_aes_setkey_enc(ttls_aes_context *ctx, const unsigned char *key,
 
 	return 0;
 }
-#endif /* !TTLS_AES_SETKEY_ENC_ALT */
+#endif /* !MBEDTLS_AES_SETKEY_ENC_ALT */
 
 /*
  * AES key schedule (decryption)
  */
-#if !defined(TTLS_AES_SETKEY_DEC_ALT)
-int ttls_aes_setkey_dec(ttls_aes_context *ctx, const unsigned char *key,
+#if !defined(MBEDTLS_AES_SETKEY_DEC_ALT)
+int mbedtls_aes_setkey_dec(mbedtls_aes_context *ctx, const unsigned char *key,
 					unsigned int keybits)
 {
 	int i, j, ret;
-	ttls_aes_context cty;
+	mbedtls_aes_context cty;
 	uint32_t *RK;
 	uint32_t *SK;
 
-	ttls_aes_init(&cty);
+	mbedtls_aes_init(&cty);
 
 	ctx->rk = RK = ctx->buf;
 
 	/* Also checks keybits */
-	if ((ret = ttls_aes_setkey_enc(&cty, key, keybits)) != 0)
+	if ((ret = mbedtls_aes_setkey_enc(&cty, key, keybits)) != 0)
 		goto exit;
 
 	ctx->nr = cty.nr;
 
-	if (ttls_aesni_has_support(TTLS_AESNI_AES))
+	if (mbedtls_aesni_has_support(MBEDTLS_AESNI_AES))
 	{
-		ttls_aesni_inverse_key((unsigned char *) ctx->rk,
+		mbedtls_aesni_inverse_key((unsigned char *) ctx->rk,
 						   (const unsigned char *) cty.rk, ctx->nr);
 		goto exit;
 	}
@@ -486,11 +496,11 @@ int ttls_aes_setkey_dec(ttls_aes_context *ctx, const unsigned char *key,
 	*RK++ = *SK++;
 
 exit:
-	ttls_aes_free(&cty);
+	mbedtls_aes_free(&cty);
 
 	return ret;
 }
-#endif /* !TTLS_AES_SETKEY_DEC_ALT */
+#endif /* !MBEDTLS_AES_SETKEY_DEC_ALT */
 
 #define AES_FROUND(X0,X1,X2,X3,Y0,Y1,Y2,Y3)	 \
 {											   \
@@ -541,8 +551,8 @@ exit:
 /*
  * AES-ECB block encryption
  */
-#if !defined(TTLS_AES_ENCRYPT_ALT)
-int ttls_internal_aes_encrypt(ttls_aes_context *ctx,
+#if !defined(MBEDTLS_AES_ENCRYPT_ALT)
+int mbedtls_internal_aes_encrypt(mbedtls_aes_context *ctx,
 								  const unsigned char input[16],
 								  unsigned char output[16])
 {
@@ -595,13 +605,22 @@ int ttls_internal_aes_encrypt(ttls_aes_context *ctx,
 
 	return 0;
 }
-#endif /* !TTLS_AES_ENCRYPT_ALT */
+#endif /* !MBEDTLS_AES_ENCRYPT_ALT */
+
+#if !defined(MBEDTLS_DEPRECATED_REMOVED)
+void mbedtls_aes_encrypt(mbedtls_aes_context *ctx,
+						  const unsigned char input[16],
+						  unsigned char output[16])
+{
+	mbedtls_internal_aes_encrypt(ctx, input, output);
+}
+#endif /* !MBEDTLS_DEPRECATED_REMOVED */
 
 /*
  * AES-ECB block decryption
  */
-#if !defined(TTLS_AES_DECRYPT_ALT)
-int ttls_internal_aes_decrypt(ttls_aes_context *ctx,
+#if !defined(MBEDTLS_AES_DECRYPT_ALT)
+int mbedtls_internal_aes_decrypt(mbedtls_aes_context *ctx,
 								  const unsigned char input[16],
 								  unsigned char output[16])
 {
@@ -654,30 +673,39 @@ int ttls_internal_aes_decrypt(ttls_aes_context *ctx,
 
 	return 0;
 }
-#endif /* !TTLS_AES_DECRYPT_ALT */
+#endif /* !MBEDTLS_AES_DECRYPT_ALT */
+
+#if !defined(MBEDTLS_DEPRECATED_REMOVED)
+void mbedtls_aes_decrypt(mbedtls_aes_context *ctx,
+						  const unsigned char input[16],
+						  unsigned char output[16])
+{
+	mbedtls_internal_aes_decrypt(ctx, input, output);
+}
+#endif /* !MBEDTLS_DEPRECATED_REMOVED */
 
 /*
  * AES-ECB block encryption/decryption
  */
-int ttls_aes_crypt_ecb(ttls_aes_context *ctx,
+int mbedtls_aes_crypt_ecb(mbedtls_aes_context *ctx,
 					int mode,
 					const unsigned char input[16],
 					unsigned char output[16])
 {
-	if (ttls_aesni_has_support(TTLS_AESNI_AES))
-		return(ttls_aesni_crypt_ecb(ctx, mode, input, output));
+	if (mbedtls_aesni_has_support(MBEDTLS_AESNI_AES))
+		return(mbedtls_aesni_crypt_ecb(ctx, mode, input, output));
 
-	if (mode == TTLS_AES_ENCRYPT)
-		return(ttls_internal_aes_encrypt(ctx, input, output));
+	if (mode == MBEDTLS_AES_ENCRYPT)
+		return(mbedtls_internal_aes_encrypt(ctx, input, output));
 	else
-		return(ttls_internal_aes_decrypt(ctx, input, output));
+		return(mbedtls_internal_aes_decrypt(ctx, input, output));
 }
 
-#if defined(TTLS_CIPHER_MODE_CBC)
+#if defined(MBEDTLS_CIPHER_MODE_CBC)
 /*
  * AES-CBC buffer encryption/decryption
  */
-int ttls_aes_crypt_cbc(ttls_aes_context *ctx,
+int mbedtls_aes_crypt_cbc(mbedtls_aes_context *ctx,
 					int mode,
 					size_t length,
 					unsigned char iv[16],
@@ -688,14 +716,14 @@ int ttls_aes_crypt_cbc(ttls_aes_context *ctx,
 	unsigned char temp[16];
 
 	if (length % 16)
-		return(TTLS_ERR_AES_INVALID_INPUT_LENGTH);
+		return(MBEDTLS_ERR_AES_INVALID_INPUT_LENGTH);
 
-	if (mode == TTLS_AES_DECRYPT)
+	if (mode == MBEDTLS_AES_DECRYPT)
 	{
 		while (length > 0)
 		{
 			memcpy(temp, input, 16);
-			ttls_aes_crypt_ecb(ctx, mode, input, output);
+			mbedtls_aes_crypt_ecb(ctx, mode, input, output);
 
 			for (i = 0; i < 16; i++)
 				output[i] = (unsigned char)(output[i] ^ iv[i]);
@@ -714,7 +742,7 @@ int ttls_aes_crypt_cbc(ttls_aes_context *ctx,
 			for (i = 0; i < 16; i++)
 				output[i] = (unsigned char)(input[i] ^ iv[i]);
 
-			ttls_aes_crypt_ecb(ctx, mode, output, output);
+			mbedtls_aes_crypt_ecb(ctx, mode, output, output);
 			memcpy(iv, output, 16);
 
 			input  += 16;
@@ -725,13 +753,13 @@ int ttls_aes_crypt_cbc(ttls_aes_context *ctx,
 
 	return 0;
 }
-#endif /* TTLS_CIPHER_MODE_CBC */
+#endif /* MBEDTLS_CIPHER_MODE_CBC */
 
-#if defined(TTLS_CIPHER_MODE_CFB)
+#if defined(MBEDTLS_CIPHER_MODE_CFB)
 /*
  * AES-CFB128 buffer encryption/decryption
  */
-int ttls_aes_crypt_cfb128(ttls_aes_context *ctx,
+int mbedtls_aes_crypt_cfb128(mbedtls_aes_context *ctx,
 					   int mode,
 					   size_t length,
 					   size_t *iv_off,
@@ -742,12 +770,12 @@ int ttls_aes_crypt_cfb128(ttls_aes_context *ctx,
 	int c;
 	size_t n = *iv_off;
 
-	if (mode == TTLS_AES_DECRYPT)
+	if (mode == MBEDTLS_AES_DECRYPT)
 	{
 		while (length--)
 		{
 			if (n == 0)
-				ttls_aes_crypt_ecb(ctx, TTLS_AES_ENCRYPT, iv, iv);
+				mbedtls_aes_crypt_ecb(ctx, MBEDTLS_AES_ENCRYPT, iv, iv);
 
 			c = *input++;
 			*output++ = (unsigned char)(c ^ iv[n]);
@@ -761,7 +789,7 @@ int ttls_aes_crypt_cfb128(ttls_aes_context *ctx,
 		while (length--)
 		{
 			if (n == 0)
-				ttls_aes_crypt_ecb(ctx, TTLS_AES_ENCRYPT, iv, iv);
+				mbedtls_aes_crypt_ecb(ctx, MBEDTLS_AES_ENCRYPT, iv, iv);
 
 			iv[n] = *output++ = (unsigned char)(iv[n] ^ *input++);
 
@@ -777,7 +805,7 @@ int ttls_aes_crypt_cfb128(ttls_aes_context *ctx,
 /*
  * AES-CFB8 buffer encryption/decryption
  */
-int ttls_aes_crypt_cfb8(ttls_aes_context *ctx,
+int mbedtls_aes_crypt_cfb8(mbedtls_aes_context *ctx,
 					   int mode,
 					   size_t length,
 					   unsigned char iv[16],
@@ -790,14 +818,14 @@ int ttls_aes_crypt_cfb8(ttls_aes_context *ctx,
 	while (length--)
 	{
 		memcpy(ov, iv, 16);
-		ttls_aes_crypt_ecb(ctx, TTLS_AES_ENCRYPT, iv, iv);
+		mbedtls_aes_crypt_ecb(ctx, MBEDTLS_AES_ENCRYPT, iv, iv);
 
-		if (mode == TTLS_AES_DECRYPT)
+		if (mode == MBEDTLS_AES_DECRYPT)
 			ov[16] = *input;
 
 		c = *output++ = (unsigned char)(iv[0] ^ *input++);
 
-		if (mode == TTLS_AES_ENCRYPT)
+		if (mode == MBEDTLS_AES_ENCRYPT)
 			ov[16] = c;
 
 		memcpy(iv, ov + 1, 16);
@@ -805,13 +833,13 @@ int ttls_aes_crypt_cfb8(ttls_aes_context *ctx,
 
 	return 0;
 }
-#endif /*TTLS_CIPHER_MODE_CFB */
+#endif /*MBEDTLS_CIPHER_MODE_CFB */
 
-#if defined(TTLS_CIPHER_MODE_CTR)
+#if defined(MBEDTLS_CIPHER_MODE_CTR)
 /*
  * AES-CTR buffer encryption/decryption
  */
-int ttls_aes_crypt_ctr(ttls_aes_context *ctx,
+int mbedtls_aes_crypt_ctr(mbedtls_aes_context *ctx,
 					   size_t length,
 					   size_t *nc_off,
 					   unsigned char nonce_counter[16],
@@ -825,7 +853,7 @@ int ttls_aes_crypt_ctr(ttls_aes_context *ctx,
 	while (length--)
 	{
 		if (n == 0) {
-			ttls_aes_crypt_ecb(ctx, TTLS_AES_ENCRYPT, nonce_counter, stream_block);
+			mbedtls_aes_crypt_ecb(ctx, MBEDTLS_AES_ENCRYPT, nonce_counter, stream_block);
 
 			for (i = 16; i > 0; i--)
 				if (++nonce_counter[i - 1] != 0)
@@ -841,9 +869,9 @@ int ttls_aes_crypt_ctr(ttls_aes_context *ctx,
 
 	return 0;
 }
-#endif /* TTLS_CIPHER_MODE_CTR */
+#endif /* MBEDTLS_CIPHER_MODE_CTR */
 
-#endif /* !TTLS_AES_ALT */
+#endif /* !MBEDTLS_AES_ALT */
 
 /*
  * AES test vectors from:
@@ -870,7 +898,7 @@ static const unsigned char aes_test_ecb_enc[3][16] =
 	  0xFF, 0x30, 0xB4, 0xEA, 0x21, 0x63, 0x6D, 0xA4 }
 };
 
-#if defined(TTLS_CIPHER_MODE_CBC)
+#if defined(MBEDTLS_CIPHER_MODE_CBC)
 static const unsigned char aes_test_cbc_dec[3][16] =
 {
 	{ 0xFA, 0xCA, 0x37, 0xE0, 0xB0, 0xC8, 0x53, 0x73,
@@ -890,9 +918,9 @@ static const unsigned char aes_test_cbc_enc[3][16] =
 	{ 0xFE, 0x3C, 0x53, 0x65, 0x3E, 0x2F, 0x45, 0xB5,
 	  0x6F, 0xCD, 0x88, 0xB2, 0xCC, 0x89, 0x8F, 0xF0 }
 };
-#endif /* TTLS_CIPHER_MODE_CBC */
+#endif /* MBEDTLS_CIPHER_MODE_CBC */
 
-#if defined(TTLS_CIPHER_MODE_CFB)
+#if defined(MBEDTLS_CIPHER_MODE_CFB)
 /*
  * AES-CFB128 test vectors from:
  *
@@ -956,9 +984,9 @@ static const unsigned char aes_test_cfb128_ct[3][64] =
 	  0x75, 0xA3, 0x85, 0x74, 0x1A, 0xB9, 0xCE, 0xF8,
 	  0x20, 0x31, 0x62, 0x3D, 0x55, 0xB1, 0xE4, 0x71 }
 };
-#endif /* TTLS_CIPHER_MODE_CFB */
+#endif /* MBEDTLS_CIPHER_MODE_CFB */
 
-#if defined(TTLS_CIPHER_MODE_CTR)
+#if defined(MBEDTLS_CIPHER_MODE_CTR)
 /*
  * AES-CTR test vectors from:
  *
@@ -1019,36 +1047,36 @@ static const unsigned char aes_test_ctr_ct[3][48] =
 
 static const int aes_test_ctr_len[3] =
 	{ 16, 32, 36 };
-#endif /* TTLS_CIPHER_MODE_CTR */
+#endif /* MBEDTLS_CIPHER_MODE_CTR */
 
 /*
  * Checkup routine
  */
-int ttls_aes_self_test(int verbose)
+int mbedtls_aes_self_test(int verbose)
 {
 	int ret = 0, i, j, u, mode;
 	unsigned int keybits;
 	unsigned char key[32];
 	unsigned char buf[64];
 	const unsigned char *aes_tests;
-#if defined(TTLS_CIPHER_MODE_CBC) || defined(TTLS_CIPHER_MODE_CFB)
+#if defined(MBEDTLS_CIPHER_MODE_CBC) || defined(MBEDTLS_CIPHER_MODE_CFB)
 	unsigned char iv[16];
 #endif
-#if defined(TTLS_CIPHER_MODE_CBC)
+#if defined(MBEDTLS_CIPHER_MODE_CBC)
 	unsigned char prv[16];
 #endif
-#if defined(TTLS_CIPHER_MODE_CTR) || defined(TTLS_CIPHER_MODE_CFB)
+#if defined(MBEDTLS_CIPHER_MODE_CTR) || defined(MBEDTLS_CIPHER_MODE_CFB)
 	size_t offset;
 #endif
-#if defined(TTLS_CIPHER_MODE_CTR)
+#if defined(MBEDTLS_CIPHER_MODE_CTR)
 	int len;
 	unsigned char nonce_counter[16];
 	unsigned char stream_block[16];
 #endif
-	ttls_aes_context ctx;
+	mbedtls_aes_context ctx;
 
 	memset(key, 0, 32);
-	ttls_aes_init(&ctx);
+	mbedtls_aes_init(&ctx);
 
 	/*
 	 * ECB mode
@@ -1060,30 +1088,30 @@ int ttls_aes_self_test(int verbose)
 		mode = i & 1;
 
 		if (verbose != 0)
-			ttls_printf("  AES-ECB-%3d (%s): ", keybits,
-							(mode == TTLS_AES_DECRYPT) ? "dec" : "enc");
+			mbedtls_printf("  AES-ECB-%3d (%s): ", keybits,
+							(mode == MBEDTLS_AES_DECRYPT) ? "dec" : "enc");
 
 		memset(buf, 0, 16);
 
-		if (mode == TTLS_AES_DECRYPT)
+		if (mode == MBEDTLS_AES_DECRYPT)
 		{
-			ret = ttls_aes_setkey_dec(&ctx, key, keybits);
+			ret = mbedtls_aes_setkey_dec(&ctx, key, keybits);
 			aes_tests = aes_test_ecb_dec[u];
 		}
 		else
 		{
-			ret = ttls_aes_setkey_enc(&ctx, key, keybits);
+			ret = mbedtls_aes_setkey_enc(&ctx, key, keybits);
 			aes_tests = aes_test_ecb_enc[u];
 		}
 
 		/*
 		 * AES-192 is an optional feature that may be unavailable when
 		 * there is an alternative underlying implementation i.e. when
-		 * TTLS_AES_ALT is defined.
+		 * MBEDTLS_AES_ALT is defined.
 		 */
-		if (ret == TTLS_ERR_AES_FEATURE_UNAVAILABLE && keybits == 192)
+		if (ret == MBEDTLS_ERR_AES_FEATURE_UNAVAILABLE && keybits == 192)
 		{
-			ttls_printf("skipped\n");
+			mbedtls_printf("skipped\n");
 			continue;
 		}
 		else if (ret != 0)
@@ -1093,7 +1121,7 @@ int ttls_aes_self_test(int verbose)
 
 		for (j = 0; j < 10000; j++)
 		{
-			ret = ttls_aes_crypt_ecb(&ctx, mode, buf, buf);
+			ret = mbedtls_aes_crypt_ecb(&ctx, mode, buf, buf);
 			if (ret != 0)
 				goto exit;
 		}
@@ -1105,13 +1133,13 @@ int ttls_aes_self_test(int verbose)
 		}
 
 		if (verbose != 0)
-			ttls_printf("passed\n");
+			mbedtls_printf("passed\n");
 	}
 
 	if (verbose != 0)
-		ttls_printf("\n");
+		mbedtls_printf("\n");
 
-#if defined(TTLS_CIPHER_MODE_CBC)
+#if defined(MBEDTLS_CIPHER_MODE_CBC)
 	/*
 	 * CBC mode
 	 */
@@ -1122,32 +1150,32 @@ int ttls_aes_self_test(int verbose)
 		mode = i & 1;
 
 		if (verbose != 0)
-			ttls_printf("  AES-CBC-%3d (%s): ", keybits,
-							(mode == TTLS_AES_DECRYPT) ? "dec" : "enc");
+			mbedtls_printf("  AES-CBC-%3d (%s): ", keybits,
+							(mode == MBEDTLS_AES_DECRYPT) ? "dec" : "enc");
 
 		memset(iv , 0, 16);
 		memset(prv, 0, 16);
 		memset(buf, 0, 16);
 
-		if (mode == TTLS_AES_DECRYPT)
+		if (mode == MBEDTLS_AES_DECRYPT)
 		{
-			ret = ttls_aes_setkey_dec(&ctx, key, keybits);
+			ret = mbedtls_aes_setkey_dec(&ctx, key, keybits);
 			aes_tests = aes_test_cbc_dec[u];
 		}
 		else
 		{
-			ret = ttls_aes_setkey_enc(&ctx, key, keybits);
+			ret = mbedtls_aes_setkey_enc(&ctx, key, keybits);
 			aes_tests = aes_test_cbc_enc[u];
 		}
 
 		/*
 		 * AES-192 is an optional feature that may be unavailable when
 		 * there is an alternative underlying implementation i.e. when
-		 * TTLS_AES_ALT is defined.
+		 * MBEDTLS_AES_ALT is defined.
 		 */
-		if (ret == TTLS_ERR_AES_FEATURE_UNAVAILABLE && keybits == 192)
+		if (ret == MBEDTLS_ERR_AES_FEATURE_UNAVAILABLE && keybits == 192)
 		{
-			ttls_printf("skipped\n");
+			mbedtls_printf("skipped\n");
 			continue;
 		}
 		else if (ret != 0)
@@ -1157,7 +1185,7 @@ int ttls_aes_self_test(int verbose)
 
 		for (j = 0; j < 10000; j++)
 		{
-			if (mode == TTLS_AES_ENCRYPT)
+			if (mode == MBEDTLS_AES_ENCRYPT)
 			{
 				unsigned char tmp[16];
 
@@ -1166,7 +1194,7 @@ int ttls_aes_self_test(int verbose)
 				memcpy(buf, tmp, 16);
 			}
 
-			ret = ttls_aes_crypt_cbc(&ctx, mode, 16, iv, buf, buf);
+			ret = mbedtls_aes_crypt_cbc(&ctx, mode, 16, iv, buf, buf);
 			if (ret != 0)
 				goto exit;
 
@@ -1179,14 +1207,14 @@ int ttls_aes_self_test(int verbose)
 		}
 
 		if (verbose != 0)
-			ttls_printf("passed\n");
+			mbedtls_printf("passed\n");
 	}
 
 	if (verbose != 0)
-		ttls_printf("\n");
-#endif /* TTLS_CIPHER_MODE_CBC */
+		mbedtls_printf("\n");
+#endif /* MBEDTLS_CIPHER_MODE_CBC */
 
-#if defined(TTLS_CIPHER_MODE_CFB)
+#if defined(MBEDTLS_CIPHER_MODE_CFB)
 	/*
 	 * CFB128 mode
 	 */
@@ -1197,22 +1225,22 @@ int ttls_aes_self_test(int verbose)
 		mode = i & 1;
 
 		if (verbose != 0)
-			ttls_printf("  AES-CFB128-%3d (%s): ", keybits,
-							(mode == TTLS_AES_DECRYPT) ? "dec" : "enc");
+			mbedtls_printf("  AES-CFB128-%3d (%s): ", keybits,
+							(mode == MBEDTLS_AES_DECRYPT) ? "dec" : "enc");
 
 		memcpy(iv,  aes_test_cfb128_iv, 16);
 		memcpy(key, aes_test_cfb128_key[u], keybits / 8);
 
 		offset = 0;
-		ret = ttls_aes_setkey_enc(&ctx, key, keybits);
+		ret = mbedtls_aes_setkey_enc(&ctx, key, keybits);
 		/*
 		 * AES-192 is an optional feature that may be unavailable when
 		 * there is an alternative underlying implementation i.e. when
-		 * TTLS_AES_ALT is defined.
+		 * MBEDTLS_AES_ALT is defined.
 		 */
-		if (ret == TTLS_ERR_AES_FEATURE_UNAVAILABLE && keybits == 192)
+		if (ret == MBEDTLS_ERR_AES_FEATURE_UNAVAILABLE && keybits == 192)
 		{
-			ttls_printf("skipped\n");
+			mbedtls_printf("skipped\n");
 			continue;
 		}
 		else if (ret != 0)
@@ -1220,7 +1248,7 @@ int ttls_aes_self_test(int verbose)
 			goto exit;
 		}
 
-		if (mode == TTLS_AES_DECRYPT)
+		if (mode == MBEDTLS_AES_DECRYPT)
 		{
 			memcpy(buf, aes_test_cfb128_ct[u], 64);
 			aes_tests = aes_test_cfb128_pt;
@@ -1231,7 +1259,7 @@ int ttls_aes_self_test(int verbose)
 			aes_tests = aes_test_cfb128_ct[u];
 		}
 
-		ret = ttls_aes_crypt_cfb128(&ctx, mode, 64, &offset, iv, buf, buf);
+		ret = mbedtls_aes_crypt_cfb128(&ctx, mode, 64, &offset, iv, buf, buf);
 		if (ret != 0)
 			goto exit;
 
@@ -1242,14 +1270,14 @@ int ttls_aes_self_test(int verbose)
 		}
 
 		if (verbose != 0)
-			ttls_printf("passed\n");
+			mbedtls_printf("passed\n");
 	}
 
 	if (verbose != 0)
-		ttls_printf("\n");
-#endif /* TTLS_CIPHER_MODE_CFB */
+		mbedtls_printf("\n");
+#endif /* MBEDTLS_CIPHER_MODE_CFB */
 
-#if defined(TTLS_CIPHER_MODE_CTR)
+#if defined(MBEDTLS_CIPHER_MODE_CTR)
 	/*
 	 * CTR mode
 	 */
@@ -1259,19 +1287,19 @@ int ttls_aes_self_test(int verbose)
 		mode = i & 1;
 
 		if (verbose != 0)
-			ttls_printf("  AES-CTR-128 (%s): ",
-							(mode == TTLS_AES_DECRYPT) ? "dec" : "enc");
+			mbedtls_printf("  AES-CTR-128 (%s): ",
+							(mode == MBEDTLS_AES_DECRYPT) ? "dec" : "enc");
 
 		memcpy(nonce_counter, aes_test_ctr_nonce_counter[u], 16);
 		memcpy(key, aes_test_ctr_key[u], 16);
 
 		offset = 0;
-		if ((ret = ttls_aes_setkey_enc(&ctx, key, 128)) != 0)
+		if ((ret = mbedtls_aes_setkey_enc(&ctx, key, 128)) != 0)
 			goto exit;
 
 		len = aes_test_ctr_len[u];
 
-		if (mode == TTLS_AES_DECRYPT)
+		if (mode == MBEDTLS_AES_DECRYPT)
 		{
 			memcpy(buf, aes_test_ctr_ct[u], len);
 			aes_tests = aes_test_ctr_pt[u];
@@ -1282,7 +1310,7 @@ int ttls_aes_self_test(int verbose)
 			aes_tests = aes_test_ctr_ct[u];
 		}
 
-		ret = ttls_aes_crypt_ctr(&ctx, len, &offset, nonce_counter,
+		ret = mbedtls_aes_crypt_ctr(&ctx, len, &offset, nonce_counter,
 									 stream_block, buf, buf);
 		if (ret != 0)
 			goto exit;
@@ -1294,20 +1322,22 @@ int ttls_aes_self_test(int verbose)
 		}
 
 		if (verbose != 0)
-			ttls_printf("passed\n");
+			mbedtls_printf("passed\n");
 	}
 
 	if (verbose != 0)
-		ttls_printf("\n");
-#endif /* TTLS_CIPHER_MODE_CTR */
+		mbedtls_printf("\n");
+#endif /* MBEDTLS_CIPHER_MODE_CTR */
 
 	ret = 0;
 
 exit:
 	if (ret != 0 && verbose != 0)
-		ttls_printf("failed\n");
+		mbedtls_printf("failed\n");
 
-	ttls_aes_free(&ctx);
+	mbedtls_aes_free(&ctx);
 
 	return ret;
 }
+
+#endif /* MBEDTLS_AES_C */

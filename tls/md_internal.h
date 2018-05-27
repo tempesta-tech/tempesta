@@ -28,13 +28,13 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#ifndef TTLS_MD_WRAP_H
-#define TTLS_MD_WRAP_H
+#ifndef MBEDTLS_MD_WRAP_H
+#define MBEDTLS_MD_WRAP_H
 
-#if !defined(TTLS_CONFIG_FILE)
+#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
 #else
-#include TTLS_CONFIG_FILE
+#include MBEDTLS_CONFIG_FILE
 #endif
 
 #include "md.h"
@@ -47,10 +47,10 @@ extern "C" {
  * Message digest information.
  * Allows message digest functions to be called in a generic way.
  */
-struct ttls_md_info_t
+struct mbedtls_md_info_t
 {
 	/** Digest identifier */
-	ttls_md_type_t type;
+	mbedtls_md_type_t type;
 
 	/** Name of the message digest */
 	const char * name;
@@ -87,20 +87,32 @@ struct ttls_md_info_t
 	int (*process_func)(void *ctx, const unsigned char *input);
 };
 
-#if defined(TTLS_RIPEMD160_C)
-extern const ttls_md_info_t ttls_ripemd160_info;
+#if defined(MBEDTLS_MD2_C)
+extern const mbedtls_md_info_t mbedtls_md2_info;
 #endif
-#if defined(TTLS_SHA256_C)
-extern const ttls_md_info_t ttls_sha224_info;
-extern const ttls_md_info_t ttls_sha256_info;
+#if defined(MBEDTLS_MD4_C)
+extern const mbedtls_md_info_t mbedtls_md4_info;
 #endif
-#if defined(TTLS_SHA512_C)
-extern const ttls_md_info_t ttls_sha384_info;
-extern const ttls_md_info_t ttls_sha512_info;
+#if defined(MBEDTLS_MD5_C)
+extern const mbedtls_md_info_t mbedtls_md5_info;
+#endif
+#if defined(MBEDTLS_RIPEMD160_C)
+extern const mbedtls_md_info_t mbedtls_ripemd160_info;
+#endif
+#if defined(MBEDTLS_SHA1_C)
+extern const mbedtls_md_info_t mbedtls_sha1_info;
+#endif
+#if defined(MBEDTLS_SHA256_C)
+extern const mbedtls_md_info_t mbedtls_sha224_info;
+extern const mbedtls_md_info_t mbedtls_sha256_info;
+#endif
+#if defined(MBEDTLS_SHA512_C)
+extern const mbedtls_md_info_t mbedtls_sha384_info;
+extern const mbedtls_md_info_t mbedtls_sha512_info;
 #endif
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* TTLS_MD_WRAP_H */
+#endif /* MBEDTLS_MD_WRAP_H */

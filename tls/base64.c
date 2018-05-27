@@ -22,13 +22,13 @@
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 
-#if !defined(TTLS_CONFIG_FILE)
+#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
 #else
-#include TTLS_CONFIG_FILE
+#include MBEDTLS_CONFIG_FILE
 #endif
 
-#if defined(TTLS_BASE64_C)
+#if defined(MBEDTLS_BASE64_C)
 
 #include "base64.h"
 
@@ -67,7 +67,7 @@ static const unsigned char base64_dec_map[128] =
 /*
  * Encode a buffer into base64 format
  */
-int ttls_base64_encode(unsigned char *dst, size_t dlen, size_t *olen,
+int mbedtls_base64_encode(unsigned char *dst, size_t dlen, size_t *olen,
 				   const unsigned char *src, size_t slen)
 {
 	size_t i, n;
@@ -85,7 +85,7 @@ int ttls_base64_encode(unsigned char *dst, size_t dlen, size_t *olen,
 	if (n > (BASE64_SIZE_T_MAX - 1) / 4)
 	{
 		*olen = BASE64_SIZE_T_MAX;
-		return(TTLS_ERR_BASE64_BUFFER_TOO_SMALL);
+		return(MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL);
 	}
 
 	n *= 4;
@@ -93,7 +93,7 @@ int ttls_base64_encode(unsigned char *dst, size_t dlen, size_t *olen,
 	if ((dlen < n + 1) || (NULL == dst))
 	{
 		*olen = n + 1;
-		return(TTLS_ERR_BASE64_BUFFER_TOO_SMALL);
+		return(MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL);
 	}
 
 	n = (slen / 3) * 3;
@@ -134,7 +134,7 @@ int ttls_base64_encode(unsigned char *dst, size_t dlen, size_t *olen,
 /*
  * Decode a base64-formatted buffer
  */
-int ttls_base64_decode(unsigned char *dst, size_t dlen, size_t *olen,
+int mbedtls_base64_decode(unsigned char *dst, size_t dlen, size_t *olen,
 				   const unsigned char *src, size_t slen)
 {
 	size_t i, n;
@@ -165,16 +165,16 @@ int ttls_base64_decode(unsigned char *dst, size_t dlen, size_t *olen,
 
 		/* Space inside a line is an error */
 		if (x != 0)
-			return(TTLS_ERR_BASE64_INVALID_CHARACTER);
+			return(MBEDTLS_ERR_BASE64_INVALID_CHARACTER);
 
 		if (src[i] == '=' && ++j > 2)
-			return(TTLS_ERR_BASE64_INVALID_CHARACTER);
+			return(MBEDTLS_ERR_BASE64_INVALID_CHARACTER);
 
 		if (src[i] > 127 || base64_dec_map[src[i]] == 127)
-			return(TTLS_ERR_BASE64_INVALID_CHARACTER);
+			return(MBEDTLS_ERR_BASE64_INVALID_CHARACTER);
 
 		if (base64_dec_map[src[i]] < 64 && j != 0)
-			return(TTLS_ERR_BASE64_INVALID_CHARACTER);
+			return(MBEDTLS_ERR_BASE64_INVALID_CHARACTER);
 
 		n++;
 	}
@@ -195,7 +195,7 @@ int ttls_base64_decode(unsigned char *dst, size_t dlen, size_t *olen,
 	if (dst == NULL || dlen < n)
 	{
 		*olen = n;
-		return(TTLS_ERR_BASE64_BUFFER_TOO_SMALL);
+		return(MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL);
 	}
 
    for (j = 3, n = x = 0, p = dst; i > 0; i--, src++)
@@ -239,44 +239,44 @@ static const unsigned char base64_test_enc[] =
 /*
  * Checkup routine
  */
-int ttls_base64_self_test(int verbose)
+int mbedtls_base64_self_test(int verbose)
 {
 	size_t len;
 	const unsigned char *src;
 	unsigned char buffer[128];
 
 	if (verbose != 0)
-		ttls_printf("  Base64 encoding test: ");
+		mbedtls_printf("  Base64 encoding test: ");
 
 	src = base64_test_dec;
 
-	if (ttls_base64_encode(buffer, sizeof(buffer), &len, src, 64) != 0 ||
+	if (mbedtls_base64_encode(buffer, sizeof(buffer), &len, src, 64) != 0 ||
 		 memcmp(base64_test_enc, buffer, 88) != 0)
 	{
 		if (verbose != 0)
-			ttls_printf("failed\n");
+			mbedtls_printf("failed\n");
 
 		return(1);
 	}
 
 	if (verbose != 0)
-		ttls_printf("passed\n  Base64 decoding test: ");
+		mbedtls_printf("passed\n  Base64 decoding test: ");
 
 	src = base64_test_enc;
 
-	if (ttls_base64_decode(buffer, sizeof(buffer), &len, src, 88) != 0 ||
+	if (mbedtls_base64_decode(buffer, sizeof(buffer), &len, src, 88) != 0 ||
 		 memcmp(base64_test_dec, buffer, 64) != 0)
 	{
 		if (verbose != 0)
-			ttls_printf("failed\n");
+			mbedtls_printf("failed\n");
 
 		return(1);
 	}
 
 	if (verbose != 0)
-		ttls_printf("passed\n\n");
+		mbedtls_printf("passed\n\n");
 
 	return 0;
 }
 
-#endif /* TTLS_BASE64_C */
+#endif /* MBEDTLS_BASE64_C */
