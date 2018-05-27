@@ -2,6 +2,7 @@
  *  Helper functions for the RSA module
  *
  *  Copyright (C) 2006-2017, ARM Limited, All Rights Reserved
+ *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -19,17 +20,8 @@
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
- *
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
-#if defined(MBEDTLS_RSA_C)
-
 #include "rsa.h"
 #include "bignum.h"
 #include "rsa_internal.h"
@@ -485,5 +477,3 @@ cleanup:
 
 	return ret;
 }
-
-#endif /* MBEDTLS_RSA_C */

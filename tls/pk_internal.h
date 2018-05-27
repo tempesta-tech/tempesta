@@ -24,16 +24,10 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
 #ifndef MBEDTLS_PK_WRAP_H
 #define MBEDTLS_PK_WRAP_H
 
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
 #include "pk.h"
 
 struct mbedtls_pk_info_t
@@ -98,14 +92,10 @@ typedef struct
 } mbedtls_rsa_alt_context;
 #endif
 
-#if defined(MBEDTLS_RSA_C)
 extern const mbedtls_pk_info_t mbedtls_rsa_info;
-#endif
 
-#if defined(MBEDTLS_ECP_C)
 extern const mbedtls_pk_info_t mbedtls_eckey_info;
 extern const mbedtls_pk_info_t mbedtls_eckeydh_info;
-#endif
 
 #if defined(MBEDTLS_ECDSA_C)
 extern const mbedtls_pk_info_t mbedtls_ecdsa_info;

@@ -25,15 +25,7 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
-#if defined(MBEDTLS_CIPHER_C)
-
 #include "cipher.h"
 #include "cipher_internal.h"
 
@@ -50,13 +42,6 @@
 
 #if defined(MBEDTLS_CMAC_C)
 #include "cmac.h"
-#endif
-
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#define mbedtls_calloc calloc
-#define mbedtls_free   free
 #endif
 
 #if defined(MBEDTLS_ARC4_C) || defined(MBEDTLS_CIPHER_NULL_CIPHER)
@@ -916,5 +901,3 @@ int mbedtls_cipher_auth_decrypt(mbedtls_cipher_context_t *ctx,
 	return(MBEDTLS_ERR_CIPHER_FEATURE_UNAVAILABLE);
 }
 #endif /* MBEDTLS_CIPHER_MODE_AEAD */
-
-#endif /* MBEDTLS_CIPHER_C */
