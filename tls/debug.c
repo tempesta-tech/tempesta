@@ -21,25 +21,11 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
 
 #if defined(MBEDTLS_DEBUG_C)
 
 #include "debug.h"
-
-#include <stdarg.h>
-#include <stdio.h>
-#include <string.h>
-
-#if (defined(__ARMCC_VERSION) || defined(_MSC_VER)) && \
-	!defined(inline) && !defined(__cplusplus)
-#define inline __inline
-#endif
 
 #define DEBUG_BUF_SIZE	  512
 
@@ -168,7 +154,6 @@ void mbedtls_debug_print_buf(const mbedtls_ssl_context *ssl, int level,
 	}
 }
 
-#if defined(MBEDTLS_ECP_C)
 void mbedtls_debug_print_ecp(const mbedtls_ssl_context *ssl, int level,
 					  const char *file, int line,
 					  const char *text, const mbedtls_ecp_point *X)
@@ -184,9 +169,7 @@ void mbedtls_debug_print_ecp(const mbedtls_ssl_context *ssl, int level,
 	mbedtls_snprintf(str, sizeof(str), "%s(Y)", text);
 	mbedtls_debug_print_mpi(ssl, level, file, line, str, &X->Y);
 }
-#endif /* MBEDTLS_ECP_C */
 
-#if defined(MBEDTLS_BIGNUM_C)
 void mbedtls_debug_print_mpi(const mbedtls_ssl_context *ssl, int level,
 					  const char *file, int line,
 					  const char *text, const mbedtls_mpi *X)
@@ -248,9 +231,7 @@ void mbedtls_debug_print_mpi(const mbedtls_ssl_context *ssl, int level,
 	mbedtls_snprintf(str + idx, sizeof(str) - idx, "\n");
 	debug_send_line(ssl, level, file, line, str);
 }
-#endif /* MBEDTLS_BIGNUM_C */
 
-#if defined(MBEDTLS_X509_CRT_PARSE_C)
 static void debug_print_pk(const mbedtls_ssl_context *ssl, int level,
 							const char *file, int line,
 							const char *text, const mbedtls_pk_context *pk)
@@ -279,11 +260,9 @@ static void debug_print_pk(const mbedtls_ssl_context *ssl, int level,
 		if (items[i].type == MBEDTLS_PK_DEBUG_MPI)
 			mbedtls_debug_print_mpi(ssl, level, file, line, name, items[i].value);
 		else
-#if defined(MBEDTLS_ECP_C)
 		if (items[i].type == MBEDTLS_PK_DEBUG_ECP)
 			mbedtls_debug_print_ecp(ssl, level, file, line, name, items[i].value);
 		else
-#endif
 			debug_send_line(ssl, level, file, line,
 							  "should not happen\n");
 	}
@@ -337,6 +316,5 @@ void mbedtls_debug_print_crt(const mbedtls_ssl_context *ssl, int level,
 		crt = crt->next;
 	}
 }
-#endif /* MBEDTLS_X509_CRT_PARSE_C */
 
 #endif /* MBEDTLS_DEBUG_C */

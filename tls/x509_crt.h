@@ -146,7 +146,6 @@ typedef struct mbedtls_x509write_cert
 }
 mbedtls_x509write_cert;
 
-#if defined(MBEDTLS_X509_CRT_PARSE_C)
 /**
  * Default security profile. Should provide a good balance between security
  * and compatibility with current deployments.
@@ -388,7 +387,6 @@ void mbedtls_x509_crt_init(mbedtls_x509_crt *crt);
  * \param crt	  Certificate chain to free
  */
 void mbedtls_x509_crt_free(mbedtls_x509_crt *crt);
-#endif /* MBEDTLS_X509_CRT_PARSE_C */
 
 /* \} name */
 /* \} addtogroup x509_module */

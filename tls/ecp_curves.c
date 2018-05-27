@@ -21,25 +21,10 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
-#if defined(MBEDTLS_ECP_C)
-
 #include "ecp.h"
 
-#include <string.h>
-
 #if !defined(MBEDTLS_ECP_ALT)
-
-#if (defined(__ARMCC_VERSION) || defined(_MSC_VER)) && \
-	!defined(inline) && !defined(__cplusplus)
-#define inline __inline
-#endif
 
 /*
  * Conversion macros for embedded constants:
@@ -69,7 +54,6 @@
 /*
  * Domain parameters for secp192r1
  */
-#if defined(MBEDTLS_ECP_DP_SECP192R1_ENABLED)
 static const mbedtls_mpi_uint secp192r1_p[] = {
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
 	BYTES_TO_T_UINT_8(0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
@@ -95,12 +79,10 @@ static const mbedtls_mpi_uint secp192r1_n[] = {
 	BYTES_TO_T_UINT_8(0x36, 0xF8, 0xDE, 0x99, 0xFF, 0xFF, 0xFF, 0xFF),
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
 };
-#endif /* MBEDTLS_ECP_DP_SECP192R1_ENABLED */
 
 /*
  * Domain parameters for secp224r1
  */
-#if defined(MBEDTLS_ECP_DP_SECP224R1_ENABLED)
 static const mbedtls_mpi_uint secp224r1_p[] = {
 	BYTES_TO_T_UINT_8(0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00),
 	BYTES_TO_T_UINT_8(0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF),
@@ -131,12 +113,10 @@ static const mbedtls_mpi_uint secp224r1_n[] = {
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
 	BYTES_TO_T_UINT_4(0xFF, 0xFF, 0xFF, 0xFF),
 };
-#endif /* MBEDTLS_ECP_DP_SECP224R1_ENABLED */
 
 /*
  * Domain parameters for secp256r1
  */
-#if defined(MBEDTLS_ECP_DP_SECP256R1_ENABLED)
 static const mbedtls_mpi_uint secp256r1_p[] = {
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00),
@@ -167,12 +147,10 @@ static const mbedtls_mpi_uint secp256r1_n[] = {
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
 	BYTES_TO_T_UINT_8(0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF),
 };
-#endif /* MBEDTLS_ECP_DP_SECP256R1_ENABLED */
 
 /*
  * Domain parameters for secp384r1
  */
-#if defined(MBEDTLS_ECP_DP_SECP384R1_ENABLED)
 static const mbedtls_mpi_uint secp384r1_p[] = {
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00),
 	BYTES_TO_T_UINT_8(0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF),
@@ -213,12 +191,10 @@ static const mbedtls_mpi_uint secp384r1_n[] = {
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
 };
-#endif /* MBEDTLS_ECP_DP_SECP384R1_ENABLED */
 
 /*
  * Domain parameters for secp521r1
  */
-#if defined(MBEDTLS_ECP_DP_SECP521R1_ENABLED)
 static const mbedtls_mpi_uint secp521r1_p[] = {
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
@@ -274,9 +250,7 @@ static const mbedtls_mpi_uint secp521r1_n[] = {
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
 	BYTES_TO_T_UINT_2(0xFF, 0x01),
 };
-#endif /* MBEDTLS_ECP_DP_SECP521R1_ENABLED */
 
-#if defined(MBEDTLS_ECP_DP_SECP192K1_ENABLED)
 static const mbedtls_mpi_uint secp192k1_p[] = {
 	BYTES_TO_T_UINT_8(0x37, 0xEE, 0xFF, 0xFF, 0xFE, 0xFF, 0xFF, 0xFF),
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
@@ -303,9 +277,7 @@ static const mbedtls_mpi_uint secp192k1_n[] = {
 	BYTES_TO_T_UINT_8(0x17, 0xFC, 0xF2, 0x26, 0xFE, 0xFF, 0xFF, 0xFF),
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
 };
-#endif /* MBEDTLS_ECP_DP_SECP192K1_ENABLED */
 
-#if defined(MBEDTLS_ECP_DP_SECP224K1_ENABLED)
 static const mbedtls_mpi_uint secp224k1_p[] = {
 	BYTES_TO_T_UINT_8(0x6D, 0xE5, 0xFF, 0xFF, 0xFE, 0xFF, 0xFF, 0xFF),
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
@@ -336,9 +308,7 @@ static const mbedtls_mpi_uint secp224k1_n[] = {
 	BYTES_TO_T_UINT_8(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00),
 	BYTES_TO_T_UINT_8(0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00),
 };
-#endif /* MBEDTLS_ECP_DP_SECP224K1_ENABLED */
 
-#if defined(MBEDTLS_ECP_DP_SECP256K1_ENABLED)
 static const mbedtls_mpi_uint secp256k1_p[] = {
 	BYTES_TO_T_UINT_8(0x2F, 0xFC, 0xFF, 0xFF, 0xFE, 0xFF, 0xFF, 0xFF),
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
@@ -369,12 +339,10 @@ static const mbedtls_mpi_uint secp256k1_n[] = {
 	BYTES_TO_T_UINT_8(0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
 };
-#endif /* MBEDTLS_ECP_DP_SECP256K1_ENABLED */
 
 /*
  * Domain parameters for brainpoolP256r1 (RFC 5639 3.4)
  */
-#if defined(MBEDTLS_ECP_DP_BP256R1_ENABLED)
 static const mbedtls_mpi_uint brainpoolP256r1_p[] = {
 	BYTES_TO_T_UINT_8(0x77, 0x53, 0x6E, 0x1F, 0x1D, 0x48, 0x13, 0x20),
 	BYTES_TO_T_UINT_8(0x28, 0x20, 0x26, 0xD5, 0x23, 0xF6, 0x3B, 0x6E),
@@ -411,12 +379,10 @@ static const mbedtls_mpi_uint brainpoolP256r1_n[] = {
 	BYTES_TO_T_UINT_8(0x71, 0x8D, 0x83, 0x9D, 0x90, 0x0A, 0x66, 0x3E),
 	BYTES_TO_T_UINT_8(0xBC, 0xA9, 0xEE, 0xA1, 0xDB, 0x57, 0xFB, 0xA9),
 };
-#endif /* MBEDTLS_ECP_DP_BP256R1_ENABLED */
 
 /*
  * Domain parameters for brainpoolP384r1 (RFC 5639 3.6)
  */
-#if defined(MBEDTLS_ECP_DP_BP384R1_ENABLED)
 static const mbedtls_mpi_uint brainpoolP384r1_p[] = {
 	BYTES_TO_T_UINT_8(0x53, 0xEC, 0x07, 0x31, 0x13, 0x00, 0x47, 0x87),
 	BYTES_TO_T_UINT_8(0x71, 0x1A, 0x1D, 0x90, 0x29, 0xA7, 0xD3, 0xAC),
@@ -465,12 +431,10 @@ static const mbedtls_mpi_uint brainpoolP384r1_n[] = {
 	BYTES_TO_T_UINT_8(0xDF, 0x41, 0xE6, 0x50, 0x7E, 0x6F, 0x5D, 0x0F),
 	BYTES_TO_T_UINT_8(0x28, 0x6D, 0x38, 0xA3, 0x82, 0x1E, 0xB9, 0x8C),
 };
-#endif /* MBEDTLS_ECP_DP_BP384R1_ENABLED */
 
 /*
  * Domain parameters for brainpoolP512r1 (RFC 5639 3.7)
  */
-#if defined(MBEDTLS_ECP_DP_BP512R1_ENABLED)
 static const mbedtls_mpi_uint brainpoolP512r1_p[] = {
 	BYTES_TO_T_UINT_8(0xF3, 0x48, 0x3A, 0x58, 0x56, 0x60, 0xAA, 0x28),
 	BYTES_TO_T_UINT_8(0x85, 0xC6, 0x82, 0x2D, 0x2F, 0xFF, 0x81, 0x28),
@@ -531,7 +495,6 @@ static const mbedtls_mpi_uint brainpoolP512r1_n[] = {
 	BYTES_TO_T_UINT_8(0x07, 0xFC, 0xC9, 0x33, 0xAE, 0xE6, 0xD4, 0x3F),
 	BYTES_TO_T_UINT_8(0x8B, 0xC4, 0xE9, 0xDB, 0xB8, 0x9D, 0xDD, 0xAA),
 };
-#endif /* MBEDTLS_ECP_DP_BP512R1_ENABLED */
 
 /*
  * Create an MPI from embedded constants
@@ -586,19 +549,10 @@ static int ecp_group_load(mbedtls_ecp_group *grp,
 
 #if defined(MBEDTLS_ECP_NIST_OPTIM)
 /* Forward declarations */
-#if defined(MBEDTLS_ECP_DP_SECP192R1_ENABLED)
 static int ecp_mod_p192(mbedtls_mpi *);
-#endif
-#if defined(MBEDTLS_ECP_DP_SECP224R1_ENABLED)
 static int ecp_mod_p224(mbedtls_mpi *);
-#endif
-#if defined(MBEDTLS_ECP_DP_SECP256R1_ENABLED)
 static int ecp_mod_p256(mbedtls_mpi *);
-#endif
-#if defined(MBEDTLS_ECP_DP_SECP384R1_ENABLED)
 static int ecp_mod_p384(mbedtls_mpi *);
-#endif
-#if defined(MBEDTLS_ECP_DP_SECP521R1_ENABLED)
 static int ecp_mod_p521(mbedtls_mpi *);
 #endif
 
@@ -608,18 +562,10 @@ static int ecp_mod_p521(mbedtls_mpi *);
 #endif /* MBEDTLS_ECP_NIST_OPTIM */
 
 /* Additional forward declarations */
-#if defined(MBEDTLS_ECP_DP_CURVE25519_ENABLED)
 static int ecp_mod_p255(mbedtls_mpi *);
-#endif
-#if defined(MBEDTLS_ECP_DP_SECP192K1_ENABLED)
 static int ecp_mod_p192k1(mbedtls_mpi *);
-#endif
-#if defined(MBEDTLS_ECP_DP_SECP224K1_ENABLED)
 static int ecp_mod_p224k1(mbedtls_mpi *);
-#endif
-#if defined(MBEDTLS_ECP_DP_SECP256K1_ENABLED)
 static int ecp_mod_p256k1(mbedtls_mpi *);
-#endif
 
 #define LOAD_GROUP_A(G)   ecp_group_load(grp,			\
 							G ## _p,  sizeof(G ## _p ),   \
@@ -637,7 +583,6 @@ static int ecp_mod_p256k1(mbedtls_mpi *);
 							G ## _gy, sizeof(G ## _gy),   \
 							G ## _n,  sizeof(G ## _n ))
 
-#if defined(MBEDTLS_ECP_DP_CURVE25519_ENABLED)
 /*
  * Specialized function for creating the Curve25519 group
  */
@@ -669,7 +614,6 @@ cleanup:
 
 	return ret;
 }
-#endif /* MBEDTLS_ECP_DP_CURVE25519_ENABLED */
 
 /*
  * Set a group using well-known domain parameters
@@ -682,74 +626,50 @@ int mbedtls_ecp_group_load(mbedtls_ecp_group *grp, mbedtls_ecp_group_id id)
 
 	switch(id)
 	{
-#if defined(MBEDTLS_ECP_DP_SECP192R1_ENABLED)
 		case MBEDTLS_ECP_DP_SECP192R1:
 			NIST_MODP(p192);
 			return(LOAD_GROUP(secp192r1));
-#endif /* MBEDTLS_ECP_DP_SECP192R1_ENABLED */
 
-#if defined(MBEDTLS_ECP_DP_SECP224R1_ENABLED)
 		case MBEDTLS_ECP_DP_SECP224R1:
 			NIST_MODP(p224);
 			return(LOAD_GROUP(secp224r1));
-#endif /* MBEDTLS_ECP_DP_SECP224R1_ENABLED */
 
-#if defined(MBEDTLS_ECP_DP_SECP256R1_ENABLED)
 		case MBEDTLS_ECP_DP_SECP256R1:
 			NIST_MODP(p256);
 			return(LOAD_GROUP(secp256r1));
-#endif /* MBEDTLS_ECP_DP_SECP256R1_ENABLED */
 
-#if defined(MBEDTLS_ECP_DP_SECP384R1_ENABLED)
 		case MBEDTLS_ECP_DP_SECP384R1:
 			NIST_MODP(p384);
 			return(LOAD_GROUP(secp384r1));
-#endif /* MBEDTLS_ECP_DP_SECP384R1_ENABLED */
 
-#if defined(MBEDTLS_ECP_DP_SECP521R1_ENABLED)
 		case MBEDTLS_ECP_DP_SECP521R1:
 			NIST_MODP(p521);
 			return(LOAD_GROUP(secp521r1));
-#endif /* MBEDTLS_ECP_DP_SECP521R1_ENABLED */
 
-#if defined(MBEDTLS_ECP_DP_SECP192K1_ENABLED)
 		case MBEDTLS_ECP_DP_SECP192K1:
 			grp->modp = ecp_mod_p192k1;
 			return(LOAD_GROUP_A(secp192k1));
-#endif /* MBEDTLS_ECP_DP_SECP192K1_ENABLED */
 
-#if defined(MBEDTLS_ECP_DP_SECP224K1_ENABLED)
 		case MBEDTLS_ECP_DP_SECP224K1:
 			grp->modp = ecp_mod_p224k1;
 			return(LOAD_GROUP_A(secp224k1));
-#endif /* MBEDTLS_ECP_DP_SECP224K1_ENABLED */
 
-#if defined(MBEDTLS_ECP_DP_SECP256K1_ENABLED)
 		case MBEDTLS_ECP_DP_SECP256K1:
 			grp->modp = ecp_mod_p256k1;
 			return(LOAD_GROUP_A(secp256k1));
-#endif /* MBEDTLS_ECP_DP_SECP256K1_ENABLED */
 
-#if defined(MBEDTLS_ECP_DP_BP256R1_ENABLED)
 		case MBEDTLS_ECP_DP_BP256R1:
 			return(LOAD_GROUP_A(brainpoolP256r1));
-#endif /* MBEDTLS_ECP_DP_BP256R1_ENABLED */
 
-#if defined(MBEDTLS_ECP_DP_BP384R1_ENABLED)
 		case MBEDTLS_ECP_DP_BP384R1:
 			return(LOAD_GROUP_A(brainpoolP384r1));
-#endif /* MBEDTLS_ECP_DP_BP384R1_ENABLED */
 
-#if defined(MBEDTLS_ECP_DP_BP512R1_ENABLED)
 		case MBEDTLS_ECP_DP_BP512R1:
 			return(LOAD_GROUP_A(brainpoolP512r1));
-#endif /* MBEDTLS_ECP_DP_BP512R1_ENABLED */
 
-#if defined(MBEDTLS_ECP_DP_CURVE25519_ENABLED)
 		case MBEDTLS_ECP_DP_CURVE25519:
 			grp->modp = ecp_mod_p255;
 			return(ecp_use_curve25519(grp));
-#endif /* MBEDTLS_ECP_DP_CURVE25519_ENABLED */
 
 		default:
 			mbedtls_ecp_group_free(grp);
@@ -768,7 +688,6 @@ int mbedtls_ecp_group_load(mbedtls_ecp_group *grp, mbedtls_ecp_group_id id)
  * MPI remains loose, since these functions can be deactivated at will.
  */
 
-#if defined(MBEDTLS_ECP_DP_SECP192R1_ENABLED)
 /*
  * Compared to the way things are presented in FIPS 186-3 D.2,
  * we proceed in columns, from right (least significant chunk) to left,
@@ -839,11 +758,7 @@ cleanup:
 #undef ADD
 #undef NEXT
 #undef LAST
-#endif /* MBEDTLS_ECP_DP_SECP192R1_ENABLED */
 
-#if defined(MBEDTLS_ECP_DP_SECP224R1_ENABLED) ||   \
-	defined(MBEDTLS_ECP_DP_SECP256R1_ENABLED) ||   \
-	defined(MBEDTLS_ECP_DP_SECP384R1_ENABLED)
 /*
  * The reader is advised to first understand ecp_mod_p192() since the same
  * general structure is used here, but with additional complications:
@@ -948,7 +863,6 @@ cleanup:
 	return ret;
 }
 
-#if defined(MBEDTLS_ECP_DP_SECP224R1_ENABLED)
 /*
  * Fast quasi-reduction modulo p224 (FIPS 186-3 D.2.2)
  */
@@ -967,9 +881,7 @@ static int ecp_mod_p224(mbedtls_mpi *N)
 cleanup:
 	return ret;
 }
-#endif /* MBEDTLS_ECP_DP_SECP224R1_ENABLED */
 
-#if defined(MBEDTLS_ECP_DP_SECP256R1_ENABLED)
 /*
  * Fast quasi-reduction modulo p256 (FIPS 186-3 D.2.3)
  */
@@ -1004,9 +916,7 @@ static int ecp_mod_p256(mbedtls_mpi *N)
 cleanup:
 	return ret;
 }
-#endif /* MBEDTLS_ECP_DP_SECP256R1_ENABLED */
 
-#if defined(MBEDTLS_ECP_DP_SECP384R1_ENABLED)
 /*
  * Fast quasi-reduction modulo p384 (FIPS 186-3 D.2.4)
  */
@@ -1053,7 +963,6 @@ static int ecp_mod_p384(mbedtls_mpi *N)
 cleanup:
 	return ret;
 }
-#endif /* MBEDTLS_ECP_DP_SECP384R1_ENABLED */
 
 #undef A
 #undef LOAD32
@@ -1063,11 +972,6 @@ cleanup:
 #undef NEXT
 #undef LAST
 
-#endif /* MBEDTLS_ECP_DP_SECP224R1_ENABLED ||
-		  MBEDTLS_ECP_DP_SECP256R1_ENABLED ||
-		  MBEDTLS_ECP_DP_SECP384R1_ENABLED */
-
-#if defined(MBEDTLS_ECP_DP_SECP521R1_ENABLED)
 /*
  * Here we have an actual Mersenne prime, so things are more straightforward.
  * However, chunks are aligned on a 'weird' boundary (521 bits).
@@ -1119,11 +1023,8 @@ cleanup:
 
 #undef P521_WIDTH
 #undef P521_MASK
-#endif /* MBEDTLS_ECP_DP_SECP521R1_ENABLED */
 
 #endif /* MBEDTLS_ECP_NIST_OPTIM */
-
-#if defined(MBEDTLS_ECP_DP_CURVE25519_ENABLED)
 
 /* Size of p255 in terms of mbedtls_mpi_uint */
 #define P255_WIDTH	  (255 / 8 / sizeof(mbedtls_mpi_uint) + 1)
@@ -1165,11 +1066,7 @@ static int ecp_mod_p255(mbedtls_mpi *N)
 cleanup:
 	return ret;
 }
-#endif /* MBEDTLS_ECP_DP_CURVE25519_ENABLED */
 
-#if defined(MBEDTLS_ECP_DP_SECP192K1_ENABLED) ||   \
-	defined(MBEDTLS_ECP_DP_SECP224K1_ENABLED) ||   \
-	defined(MBEDTLS_ECP_DP_SECP256K1_ENABLED)
 /*
  * Fast quasi-reduction modulo P = 2^s - R,
  * with R about 33 bits, used by the Koblitz curves.
@@ -1244,11 +1141,7 @@ static inline int ecp_mod_koblitz(mbedtls_mpi *N, mbedtls_mpi_uint *Rp, size_t p
 cleanup:
 	return ret;
 }
-#endif /* MBEDTLS_ECP_DP_SECP192K1_ENABLED) ||
-		  MBEDTLS_ECP_DP_SECP224K1_ENABLED) ||
-		  MBEDTLS_ECP_DP_SECP256K1_ENABLED) */
 
-#if defined(MBEDTLS_ECP_DP_SECP192K1_ENABLED)
 /*
  * Fast quasi-reduction modulo p192k1 = 2^192 - R,
  * with R = 2^32 + 2^12 + 2^8 + 2^7 + 2^6 + 2^3 + 1 = 0x0100001119
@@ -1260,9 +1153,7 @@ static int ecp_mod_p192k1(mbedtls_mpi *N)
 
 	return(ecp_mod_koblitz(N, Rp, 192 / 8 / sizeof(mbedtls_mpi_uint), 0, 0, 0));
 }
-#endif /* MBEDTLS_ECP_DP_SECP192K1_ENABLED */
 
-#if defined(MBEDTLS_ECP_DP_SECP224K1_ENABLED)
 /*
  * Fast quasi-reduction modulo p224k1 = 2^224 - R,
  * with R = 2^32 + 2^12 + 2^11 + 2^9 + 2^7 + 2^4 + 2 + 1 = 0x0100001A93
@@ -1275,9 +1166,6 @@ static int ecp_mod_p224k1(mbedtls_mpi *N)
 	return(ecp_mod_koblitz(N, Rp, 4, 1, 32, 0xFFFFFFFF));
 }
 
-#endif /* MBEDTLS_ECP_DP_SECP224K1_ENABLED */
-
-#if defined(MBEDTLS_ECP_DP_SECP256K1_ENABLED)
 /*
  * Fast quasi-reduction modulo p256k1 = 2^256 - R,
  * with R = 2^32 + 2^9 + 2^8 + 2^7 + 2^6 + 2^4 + 1 = 0x01000003D1
@@ -1288,8 +1176,4 @@ static int ecp_mod_p256k1(mbedtls_mpi *N)
 		BYTES_TO_T_UINT_8(0xD1, 0x03, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00) };
 	return(ecp_mod_koblitz(N, Rp, 256 / 8 / sizeof(mbedtls_mpi_uint), 0, 0, 0));
 }
-#endif /* MBEDTLS_ECP_DP_SECP256K1_ENABLED */
-
 #endif /* !MBEDTLS_ECP_ALT */
-
-#endif /* MBEDTLS_ECP_C */

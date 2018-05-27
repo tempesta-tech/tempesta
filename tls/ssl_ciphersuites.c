@@ -23,20 +23,8 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
-#if defined(MBEDTLS_SSL_TLS_C)
-
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
 #include <stdlib.h>
-#endif
 
 #include "ssl_ciphersuites.h"
 #include "ssl.h"
@@ -1798,7 +1786,6 @@ int mbedtls_ssl_get_ciphersuite_id(const char *ciphersuite_name)
 	return(cur->id);
 }
 
-#if defined(MBEDTLS_PK_C)
 mbedtls_pk_type_t mbedtls_ssl_get_ciphersuite_sig_pk_alg(const mbedtls_ssl_ciphersuite_t *info)
 {
 	switch(info->key_exchange)
@@ -1838,8 +1825,6 @@ mbedtls_pk_type_t mbedtls_ssl_get_ciphersuite_sig_alg(const mbedtls_ssl_ciphersu
 	}
 }
 
-#endif /* MBEDTLS_PK_C */
-
 #if defined(MBEDTLS_ECDH_C) || defined(MBEDTLS_ECDSA_C)
 int mbedtls_ssl_ciphersuite_uses_ec(const mbedtls_ssl_ciphersuite_t *info)
 {
@@ -1874,5 +1859,3 @@ int mbedtls_ssl_ciphersuite_uses_psk(const mbedtls_ssl_ciphersuite_t *info)
 	}
 }
 #endif /* MBEDTLS_KEY_EXCHANGE__SOME__PSK_ENABLED */
-
-#endif /* MBEDTLS_SSL_TLS_C */

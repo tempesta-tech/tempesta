@@ -21,27 +21,15 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
 
 #if defined(MBEDTLS_PK_WRITE_C)
 
 #include "pk.h"
 #include "asn1write.h"
 #include "oid.h"
-
-#include <string.h>
-
-#if defined(MBEDTLS_RSA_C)
 #include "rsa.h"
-#endif
-#if defined(MBEDTLS_ECP_C)
 #include "ecp.h"
-#endif
 #if defined(MBEDTLS_ECDSA_C)
 #include "ecdsa.h"
 #endif
@@ -49,15 +37,6 @@
 #include "pem.h"
 #endif
 
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdlib.h>
-#define mbedtls_calloc	calloc
-#define mbedtls_free	   free
-#endif
-
-#if defined(MBEDTLS_RSA_C)
 /*
  *  RSAPublicKey ::= SEQUENCE {
  *	  modulus		   INTEGER,  -- n
@@ -97,9 +76,7 @@ end_of_export:
 
 	return((int) len);
 }
-#endif /* MBEDTLS_RSA_C */
 
-#if defined(MBEDTLS_ECP_C)
 /*
  * EC public key is an EC point
  */
@@ -146,7 +123,6 @@ static int pk_write_ec_param(unsigned char **p, unsigned char *start,
 
 	return((int) len);
 }
-#endif /* MBEDTLS_ECP_C */
 
 int mbedtls_pk_write_pubkey(unsigned char **p, unsigned char *start,
 							 const mbedtls_pk_context *key)
@@ -154,16 +130,12 @@ int mbedtls_pk_write_pubkey(unsigned char **p, unsigned char *start,
 	int ret;
 	size_t len = 0;
 
-#if defined(MBEDTLS_RSA_C)
 	if (mbedtls_pk_get_type(key) == MBEDTLS_PK_RSA)
 		MBEDTLS_ASN1_CHK_ADD(len, pk_write_rsa_pubkey(p, start, mbedtls_pk_rsa(*key)));
 	else
-#endif
-#if defined(MBEDTLS_ECP_C)
 	if (mbedtls_pk_get_type(key) == MBEDTLS_PK_ECKEY)
 		MBEDTLS_ASN1_CHK_ADD(len, pk_write_ec_pubkey(p, start, mbedtls_pk_ec(*key)));
 	else
-#endif
 		return(MBEDTLS_ERR_PK_FEATURE_UNAVAILABLE);
 
 	return((int) len);
@@ -200,12 +172,10 @@ int mbedtls_pk_write_pubkey_der(mbedtls_pk_context *key, unsigned char *buf, siz
 		return ret;
 	}
 
-#if defined(MBEDTLS_ECP_C)
 	if (mbedtls_pk_get_type(key) == MBEDTLS_PK_ECKEY)
 	{
 		MBEDTLS_ASN1_CHK_ADD(par_len, pk_write_ec_param(&c, buf, mbedtls_pk_ec(*key)));
 	}
-#endif
 
 	MBEDTLS_ASN1_CHK_ADD(len, mbedtls_asn1_write_algorithm_identifier(&c, buf, oid, oid_len,
 														par_len));
@@ -223,7 +193,6 @@ int mbedtls_pk_write_key_der(mbedtls_pk_context *key, unsigned char *buf, size_t
 	unsigned char *c = buf + size;
 	size_t len = 0;
 
-#if defined(MBEDTLS_RSA_C)
 	if (mbedtls_pk_get_type(key) == MBEDTLS_PK_RSA)
 	{
 		mbedtls_mpi T; /* Temporary holding the exported parameters */
@@ -301,8 +270,6 @@ int mbedtls_pk_write_key_der(mbedtls_pk_context *key, unsigned char *buf, size_t
 											   MBEDTLS_ASN1_SEQUENCE));
 	}
 	else
-#endif /* MBEDTLS_RSA_C */
-#if defined(MBEDTLS_ECP_C)
 	if (mbedtls_pk_get_type(key) == MBEDTLS_PK_ECKEY)
 	{
 		mbedtls_ecp_keypair *ec = mbedtls_pk_ec(*key);
@@ -355,7 +322,6 @@ int mbedtls_pk_write_key_der(mbedtls_pk_context *key, unsigned char *buf, size_t
 													MBEDTLS_ASN1_SEQUENCE));
 	}
 	else
-#endif /* MBEDTLS_ECP_C */
 		return(MBEDTLS_ERR_PK_FEATURE_UNAVAILABLE);
 
 	return((int) len);
@@ -375,7 +341,6 @@ int mbedtls_pk_write_key_der(mbedtls_pk_context *key, unsigned char *buf, size_t
  * Max sizes of key per types. Shown as tag + len (+ content).
  */
 
-#if defined(MBEDTLS_RSA_C)
 /*
  * RSA public keys:
  *  SubjectPublicKeyInfo  ::=  SEQUENCE  {		  1 + 3
@@ -410,14 +375,6 @@ int mbedtls_pk_write_key_der(mbedtls_pk_context *key, unsigned char *buf, size_t
 #define RSA_PRV_DER_MAX_BYTES   47 + 3 * MBEDTLS_MPI_MAX_SIZE \
 								   + 5 * MPI_MAX_SIZE_2
 
-#else /* MBEDTLS_RSA_C */
-
-#define RSA_PUB_DER_MAX_BYTES   0
-#define RSA_PRV_DER_MAX_BYTES   0
-
-#endif /* MBEDTLS_RSA_C */
-
-#if defined(MBEDTLS_ECP_C)
 /*
  * EC public keys:
  *  SubjectPublicKeyInfo  ::=  SEQUENCE  {	  1 + 2
@@ -441,13 +398,6 @@ int mbedtls_pk_write_key_der(mbedtls_pk_context *key, unsigned char *buf, size_t
  *	}
  */
 #define ECP_PRV_DER_MAX_BYTES   29 + 3 * MBEDTLS_ECP_MAX_BYTES
-
-#else /* MBEDTLS_ECP_C */
-
-#define ECP_PUB_DER_MAX_BYTES   0
-#define ECP_PRV_DER_MAX_BYTES   0
-
-#endif /* MBEDTLS_ECP_C */
 
 #define PUB_DER_MAX_BYTES   RSA_PUB_DER_MAX_BYTES > ECP_PUB_DER_MAX_BYTES ? \
 							RSA_PUB_DER_MAX_BYTES : ECP_PUB_DER_MAX_BYTES
@@ -486,22 +436,18 @@ int mbedtls_pk_write_key_pem(mbedtls_pk_context *key, unsigned char *buf, size_t
 	if ((ret = mbedtls_pk_write_key_der(key, output_buf, sizeof(output_buf))) < 0)
 		return ret;
 
-#if defined(MBEDTLS_RSA_C)
 	if (mbedtls_pk_get_type(key) == MBEDTLS_PK_RSA)
 	{
 		begin = PEM_BEGIN_PRIVATE_KEY_RSA;
 		end = PEM_END_PRIVATE_KEY_RSA;
 	}
 	else
-#endif
-#if defined(MBEDTLS_ECP_C)
 	if (mbedtls_pk_get_type(key) == MBEDTLS_PK_ECKEY)
 	{
 		begin = PEM_BEGIN_PRIVATE_KEY_EC;
 		end = PEM_END_PRIVATE_KEY_EC;
 	}
 	else
-#endif
 		return(MBEDTLS_ERR_PK_FEATURE_UNAVAILABLE);
 
 	if ((ret = mbedtls_pem_write_buffer(begin, end,

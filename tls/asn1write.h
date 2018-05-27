@@ -32,10 +32,6 @@
 #define MBEDTLS_ASN1_CHK_ADD(g, f) do { if ((ret = f) < 0) return ret; else   \
 								g += ret; } while (0)
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /**
  * \brief		   Write a length field in ASN.1 format
  *				  Note: function works backwards in data buffer
@@ -75,7 +71,6 @@ int mbedtls_asn1_write_tag(unsigned char **p, unsigned char *start,
 int mbedtls_asn1_write_raw_buffer(unsigned char **p, unsigned char *start,
 						   const unsigned char *buf, size_t size);
 
-#if defined(MBEDTLS_BIGNUM_C)
 /**
  * \brief		   Write a big number (MBEDTLS_ASN1_INTEGER) in ASN.1 format
  *				  Note: function works backwards in data buffer
@@ -87,7 +82,6 @@ int mbedtls_asn1_write_raw_buffer(unsigned char **p, unsigned char *start,
  * \return		  the length written or a negative error code
  */
 int mbedtls_asn1_write_mpi(unsigned char **p, unsigned char *start, const mbedtls_mpi *X);
-#endif /* MBEDTLS_BIGNUM_C */
 
 /**
  * \brief		   Write a NULL tag (MBEDTLS_ASN1_NULL) with zero data in ASN.1 format
@@ -235,9 +229,5 @@ mbedtls_asn1_named_data *mbedtls_asn1_store_named_data(mbedtls_asn1_named_data *
 										const char *oid, size_t oid_len,
 										const unsigned char *val,
 										size_t val_len);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* MBEDTLS_ASN1_WRITE_H */

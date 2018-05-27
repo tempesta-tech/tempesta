@@ -31,12 +31,7 @@
  * http://tools.ietf.org/html/rfc2898 (Specification)
  * http://tools.ietf.org/html/rfc6070 (Test vectors)
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
 
 #if defined(MBEDTLS_PKCS5_C)
 
@@ -46,13 +41,6 @@
 #include "oid.h"
 
 #include <string.h>
-
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdio.h>
-#define mbedtls_printf printf
-#endif
 
 static int pkcs5_parse_pbkdf2_params(const mbedtls_asn1_buf *params,
 									  mbedtls_asn1_buf *salt, int *iterations,

@@ -23,30 +23,10 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
-#if defined(MBEDTLS_OID_C)
-
 #include "oid.h"
 #include "rsa.h"
-
-#include <stdio.h>
-#include <string.h>
-
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#define mbedtls_snprintf snprintf
-#endif
-
-#if defined(MBEDTLS_X509_USE_C) || defined(MBEDTLS_X509_CREATE_C)
 #include "x509.h"
-#endif
 
 /*
  * Macro to automatically add the size of #define'd OIDs
@@ -155,7 +135,6 @@ int FN_NAME(ATTR1_TYPE ATTR1, ATTR2_TYPE ATTR2, const char **oid ,		 \
 	return(MBEDTLS_ERR_OID_NOT_FOUND);								   \
 }
 
-#if defined(MBEDTLS_X509_USE_C) || defined(MBEDTLS_X509_CREATE_C)
 /*
  * For X520 attribute types
  */
@@ -303,9 +282,7 @@ static const mbedtls_oid_descriptor_t oid_ext_key_usage[] =
 
 FN_OID_TYPED_FROM_ASN1(mbedtls_oid_descriptor_t, ext_key_usage, oid_ext_key_usage)
 FN_OID_GET_ATTR1(mbedtls_oid_get_extended_key_usage, mbedtls_oid_descriptor_t, ext_key_usage, const char *, description)
-#endif /* MBEDTLS_X509_USE_C || MBEDTLS_X509_CREATE_C */
 
-#if defined(MBEDTLS_MD_C)
 /*
  * For SignatureAlgorithmIdentifier
  */
@@ -317,7 +294,6 @@ typedef struct {
 
 static const oid_sig_alg_t oid_sig_alg[] =
 {
-#if defined(MBEDTLS_RSA_C)
 #if defined(MBEDTLS_MD2_C)
 	{
 		{ ADD_LEN(MBEDTLS_OID_PKCS1_MD2),		"md2WithRSAEncryption",	 "RSA with MD2" },
@@ -368,7 +344,6 @@ static const oid_sig_alg_t oid_sig_alg[] =
 		MBEDTLS_MD_SHA1,	 MBEDTLS_PK_RSA,
 	},
 #endif /* MBEDTLS_SHA1_C */
-#endif /* MBEDTLS_RSA_C */
 #if defined(MBEDTLS_ECDSA_C)
 #if defined(MBEDTLS_SHA1_C)
 	{
@@ -397,12 +372,10 @@ static const oid_sig_alg_t oid_sig_alg[] =
 	},
 #endif /* MBEDTLS_SHA512_C */
 #endif /* MBEDTLS_ECDSA_C */
-#if defined(MBEDTLS_RSA_C)
 	{
 		{ ADD_LEN(MBEDTLS_OID_RSASSA_PSS),		"RSASSA-PSS",		   "RSASSA-PSS" },
 		MBEDTLS_MD_NONE,	 MBEDTLS_PK_RSASSA_PSS,
 	},
-#endif /* MBEDTLS_RSA_C */
 	{
 		{ NULL, 0, NULL, NULL },
 		MBEDTLS_MD_NONE, MBEDTLS_PK_NONE,
@@ -413,7 +386,6 @@ FN_OID_TYPED_FROM_ASN1(oid_sig_alg_t, sig_alg, oid_sig_alg)
 FN_OID_GET_DESCRIPTOR_ATTR1(mbedtls_oid_get_sig_alg_desc, oid_sig_alg_t, sig_alg, const char *, description)
 FN_OID_GET_ATTR2(mbedtls_oid_get_sig_alg, oid_sig_alg_t, sig_alg, mbedtls_md_type_t, md_alg, mbedtls_pk_type_t, pk_alg)
 FN_OID_GET_OID_BY_ATTR2(mbedtls_oid_get_oid_by_sig_alg, oid_sig_alg_t, oid_sig_alg, mbedtls_pk_type_t, pk_alg, mbedtls_md_type_t, md_alg)
-#endif /* MBEDTLS_MD_C */
 
 /*
  * For PublicKeyInfo (PKCS1, RFC 5480)
@@ -447,7 +419,6 @@ FN_OID_TYPED_FROM_ASN1(oid_pk_alg_t, pk_alg, oid_pk_alg)
 FN_OID_GET_ATTR1(mbedtls_oid_get_pk_alg, oid_pk_alg_t, pk_alg, mbedtls_pk_type_t, pk_alg)
 FN_OID_GET_OID_BY_ATTR1(mbedtls_oid_get_oid_by_pk_alg, oid_pk_alg_t, oid_pk_alg, mbedtls_pk_type_t, pk_alg)
 
-#if defined(MBEDTLS_ECP_C)
 /*
  * For namedCurve (RFC 5480)
  */
@@ -458,72 +429,50 @@ typedef struct {
 
 static const oid_ecp_grp_t oid_ecp_grp[] =
 {
-#if defined(MBEDTLS_ECP_DP_SECP192R1_ENABLED)
 	{
 		{ ADD_LEN(MBEDTLS_OID_EC_GRP_SECP192R1), "secp192r1",	"secp192r1" },
 		MBEDTLS_ECP_DP_SECP192R1,
 	},
-#endif /* MBEDTLS_ECP_DP_SECP192R1_ENABLED */
-#if defined(MBEDTLS_ECP_DP_SECP224R1_ENABLED)
 	{
 		{ ADD_LEN(MBEDTLS_OID_EC_GRP_SECP224R1), "secp224r1",	"secp224r1" },
 		MBEDTLS_ECP_DP_SECP224R1,
 	},
-#endif /* MBEDTLS_ECP_DP_SECP224R1_ENABLED */
-#if defined(MBEDTLS_ECP_DP_SECP256R1_ENABLED)
 	{
 		{ ADD_LEN(MBEDTLS_OID_EC_GRP_SECP256R1), "secp256r1",	"secp256r1" },
 		MBEDTLS_ECP_DP_SECP256R1,
 	},
-#endif /* MBEDTLS_ECP_DP_SECP256R1_ENABLED */
-#if defined(MBEDTLS_ECP_DP_SECP384R1_ENABLED)
 	{
 		{ ADD_LEN(MBEDTLS_OID_EC_GRP_SECP384R1), "secp384r1",	"secp384r1" },
 		MBEDTLS_ECP_DP_SECP384R1,
 	},
-#endif /* MBEDTLS_ECP_DP_SECP384R1_ENABLED */
-#if defined(MBEDTLS_ECP_DP_SECP521R1_ENABLED)
 	{
 		{ ADD_LEN(MBEDTLS_OID_EC_GRP_SECP521R1), "secp521r1",	"secp521r1" },
 		MBEDTLS_ECP_DP_SECP521R1,
 	},
-#endif /* MBEDTLS_ECP_DP_SECP521R1_ENABLED */
-#if defined(MBEDTLS_ECP_DP_SECP192K1_ENABLED)
 	{
 		{ ADD_LEN(MBEDTLS_OID_EC_GRP_SECP192K1), "secp192k1",	"secp192k1" },
 		MBEDTLS_ECP_DP_SECP192K1,
 	},
-#endif /* MBEDTLS_ECP_DP_SECP192K1_ENABLED */
-#if defined(MBEDTLS_ECP_DP_SECP224K1_ENABLED)
 	{
 		{ ADD_LEN(MBEDTLS_OID_EC_GRP_SECP224K1), "secp224k1",	"secp224k1" },
 		MBEDTLS_ECP_DP_SECP224K1,
 	},
-#endif /* MBEDTLS_ECP_DP_SECP224K1_ENABLED */
-#if defined(MBEDTLS_ECP_DP_SECP256K1_ENABLED)
 	{
 		{ ADD_LEN(MBEDTLS_OID_EC_GRP_SECP256K1), "secp256k1",	"secp256k1" },
 		MBEDTLS_ECP_DP_SECP256K1,
 	},
-#endif /* MBEDTLS_ECP_DP_SECP256K1_ENABLED */
-#if defined(MBEDTLS_ECP_DP_BP256R1_ENABLED)
 	{
 		{ ADD_LEN(MBEDTLS_OID_EC_GRP_BP256R1),   "brainpoolP256r1","brainpool256r1" },
 		MBEDTLS_ECP_DP_BP256R1,
 	},
-#endif /* MBEDTLS_ECP_DP_BP256R1_ENABLED */
-#if defined(MBEDTLS_ECP_DP_BP384R1_ENABLED)
 	{
 		{ ADD_LEN(MBEDTLS_OID_EC_GRP_BP384R1),   "brainpoolP384r1","brainpool384r1" },
 		MBEDTLS_ECP_DP_BP384R1,
 	},
-#endif /* MBEDTLS_ECP_DP_BP384R1_ENABLED */
-#if defined(MBEDTLS_ECP_DP_BP512R1_ENABLED)
 	{
 		{ ADD_LEN(MBEDTLS_OID_EC_GRP_BP512R1),   "brainpoolP512r1","brainpool512r1" },
 		MBEDTLS_ECP_DP_BP512R1,
 	},
-#endif /* MBEDTLS_ECP_DP_BP512R1_ENABLED */
 	{
 		{ NULL, 0, NULL, NULL },
 		MBEDTLS_ECP_DP_NONE,
@@ -533,9 +482,7 @@ static const oid_ecp_grp_t oid_ecp_grp[] =
 FN_OID_TYPED_FROM_ASN1(oid_ecp_grp_t, grp_id, oid_ecp_grp)
 FN_OID_GET_ATTR1(mbedtls_oid_get_ec_grp, oid_ecp_grp_t, grp_id, mbedtls_ecp_group_id, grp_id)
 FN_OID_GET_OID_BY_ATTR1(mbedtls_oid_get_oid_by_ec_grp, oid_ecp_grp_t, oid_ecp_grp, mbedtls_ecp_group_id, grp_id)
-#endif /* MBEDTLS_ECP_C */
 
-#if defined(MBEDTLS_CIPHER_C)
 /*
  * For PKCS#5 PBES2 encryption algorithm
  */
@@ -562,9 +509,7 @@ static const oid_cipher_alg_t oid_cipher_alg[] =
 
 FN_OID_TYPED_FROM_ASN1(oid_cipher_alg_t, cipher_alg, oid_cipher_alg)
 FN_OID_GET_ATTR1(mbedtls_oid_get_cipher_alg, oid_cipher_alg_t, cipher_alg, mbedtls_cipher_type_t, cipher_alg)
-#endif /* MBEDTLS_CIPHER_C */
 
-#if defined(MBEDTLS_MD_C)
 /*
  * For digestAlgorithm
  */
@@ -673,7 +618,6 @@ static const oid_md_hmac_t oid_md_hmac[] =
 
 FN_OID_TYPED_FROM_ASN1(oid_md_hmac_t, md_hmac, oid_md_hmac)
 FN_OID_GET_ATTR1(mbedtls_oid_get_md_hmac, oid_md_hmac_t, md_hmac, mbedtls_md_type_t, md_hmac)
-#endif /* MBEDTLS_MD_C */
 
 #if defined(MBEDTLS_PKCS12_C)
 /*
@@ -754,5 +698,3 @@ int mbedtls_oid_get_numeric_string(char *buf, size_t size,
 
 	return((int) (size - n));
 }
-
-#endif /* MBEDTLS_OID_C */
