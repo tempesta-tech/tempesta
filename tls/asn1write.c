@@ -21,26 +21,12 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
 #if defined(MBEDTLS_ASN1_WRITE_C)
 
 #include "asn1write.h"
 
 #include <string.h>
-
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdlib.h>
-#define mbedtls_calloc	calloc
-#define mbedtls_free	   free
-#endif
 
 int mbedtls_asn1_write_len(unsigned char **p, unsigned char *start, size_t len)
 {
@@ -127,7 +113,6 @@ int mbedtls_asn1_write_raw_buffer(unsigned char **p, unsigned char *start,
 	return((int) len);
 }
 
-#if defined(MBEDTLS_BIGNUM_C)
 int mbedtls_asn1_write_mpi(unsigned char **p, unsigned char *start, const mbedtls_mpi *X)
 {
 	int ret;
@@ -163,7 +148,6 @@ int mbedtls_asn1_write_mpi(unsigned char **p, unsigned char *start, const mbedtl
 cleanup:
 	return ret;
 }
-#endif /* MBEDTLS_BIGNUM_C */
 
 int mbedtls_asn1_write_null(unsigned char **p, unsigned char *start)
 {

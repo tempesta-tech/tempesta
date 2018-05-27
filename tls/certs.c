@@ -21,13 +21,7 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
 #include "certs.h"
 
 #if defined(MBEDTLS_CERTS_C)
@@ -117,8 +111,6 @@ const char mbedtls_test_cli_key_ec[] =
 "-----END EC PRIVATE KEY-----\r\n";
 const size_t mbedtls_test_cli_key_ec_len = sizeof(mbedtls_test_cli_key_ec);
 #endif /* MBEDTLS_ECDSA_C */
-
-#if defined(MBEDTLS_RSA_C)
 
 #if defined(MBEDTLS_SHA256_C)
 #define TEST_CA_CRT_RSA_SHA256										  \
@@ -327,7 +319,6 @@ const char mbedtls_test_cli_key_rsa[] =
 "8u4ytY0F+Vlanj5lm3TaoHSVF1+NWPyOTiwevIECGKwSxvlki4fDAA==\r\n"
 "-----END RSA PRIVATE KEY-----\r\n";
 const size_t mbedtls_test_cli_key_rsa_len = sizeof(mbedtls_test_cli_key_rsa);
-#endif /* MBEDTLS_RSA_C */
 
 #if defined(MBEDTLS_PEM_PARSE_C)
 /* Concatenation of all available CA certificates */
@@ -371,7 +362,6 @@ const size_t mbedtls_test_cas_len[] = {
 	0
 };
 
-#if defined(MBEDTLS_RSA_C)
 const char *mbedtls_test_ca_crt  = mbedtls_test_ca_crt_rsa; /* SHA1 or SHA256 */
 const char *mbedtls_test_ca_key  = mbedtls_test_ca_key_rsa;
 const char *mbedtls_test_ca_pwd  = mbedtls_test_ca_pwd_rsa;
@@ -386,21 +376,5 @@ const size_t mbedtls_test_srv_crt_len = sizeof(mbedtls_test_srv_crt_rsa);
 const size_t mbedtls_test_srv_key_len = sizeof(mbedtls_test_srv_key_rsa);
 const size_t mbedtls_test_cli_crt_len = sizeof(mbedtls_test_cli_crt_rsa);
 const size_t mbedtls_test_cli_key_len = sizeof(mbedtls_test_cli_key_rsa);
-#else /* ! MBEDTLS_RSA_C, so MBEDTLS_ECDSA_C */
-const char *mbedtls_test_ca_crt  = mbedtls_test_ca_crt_ec;
-const char *mbedtls_test_ca_key  = mbedtls_test_ca_key_ec;
-const char *mbedtls_test_ca_pwd  = mbedtls_test_ca_pwd_ec;
-const char *mbedtls_test_srv_crt = mbedtls_test_srv_crt_ec;
-const char *mbedtls_test_srv_key = mbedtls_test_srv_key_ec;
-const char *mbedtls_test_cli_crt = mbedtls_test_cli_crt_ec;
-const char *mbedtls_test_cli_key = mbedtls_test_cli_key_ec;
-const size_t mbedtls_test_ca_crt_len  = sizeof(mbedtls_test_ca_crt_ec);
-const size_t mbedtls_test_ca_key_len  = sizeof(mbedtls_test_ca_key_ec);
-const size_t mbedtls_test_ca_pwd_len  = sizeof(mbedtls_test_ca_pwd_ec) - 1;
-const size_t mbedtls_test_srv_crt_len = sizeof(mbedtls_test_srv_crt_ec);
-const size_t mbedtls_test_srv_key_len = sizeof(mbedtls_test_srv_key_ec);
-const size_t mbedtls_test_cli_crt_len = sizeof(mbedtls_test_cli_crt_ec);
-const size_t mbedtls_test_cli_key_len = sizeof(mbedtls_test_cli_key_ec);
-#endif /* MBEDTLS_RSA_C */
 
 #endif /* MBEDTLS_CERTS_C */

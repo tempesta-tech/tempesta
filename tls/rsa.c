@@ -39,24 +39,11 @@
  *	  https://arxiv.org/abs/1702.08719v2
  *
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
-#if defined(MBEDTLS_RSA_C)
-
 #include "rsa.h"
 #include "rsa_internal.h"
 #include "oid.h"
-
-#include <string.h>
-
-#if defined(MBEDTLS_PKCS1_V21)
 #include "md.h"
-#endif
 
 #if !defined(MBEDTLS_RSA_ALT)
 
@@ -964,7 +951,6 @@ cleanup:
 	return 0;
 }
 
-#if defined(MBEDTLS_PKCS1_V21)
 /**
  * Generate and apply the MGF1 operation (from PKCS#1 v2.1) to a buffer.
  *
@@ -1020,9 +1006,7 @@ exit:
 
 	return ret;
 }
-#endif /* MBEDTLS_PKCS1_V21 */
 
-#if defined(MBEDTLS_PKCS1_V21)
 /*
  * Implementation of the PKCS#1 v2.1 RSAES-OAEP-ENCRYPT function
  */
@@ -1101,9 +1085,7 @@ exit:
 			? mbedtls_rsa_public( ctx, output, output)
 			: mbedtls_rsa_private(ctx, f_rng, p_rng, output, output));
 }
-#endif /* MBEDTLS_PKCS1_V21 */
 
-#if defined(MBEDTLS_PKCS1_V15)
 /*
  * Implementation of the PKCS#1 v2.1 RSAES-PKCS1-V1_5-ENCRYPT function
  */
@@ -1168,7 +1150,6 @@ int mbedtls_rsa_rsaes_pkcs1_v15_encrypt(mbedtls_rsa_context *ctx,
 			? mbedtls_rsa_public( ctx, output, output)
 			: mbedtls_rsa_private(ctx, f_rng, p_rng, output, output));
 }
-#endif /* MBEDTLS_PKCS1_V15 */
 
 /*
  * Add the message padding, then do an RSA operation
@@ -1182,24 +1163,19 @@ int mbedtls_rsa_pkcs1_encrypt(mbedtls_rsa_context *ctx,
 {
 	switch(ctx->padding)
 	{
-#if defined(MBEDTLS_PKCS1_V15)
 		case MBEDTLS_RSA_PKCS_V15:
 			return mbedtls_rsa_rsaes_pkcs1_v15_encrypt(ctx, f_rng, p_rng, mode, ilen,
 												input, output);
-#endif
 
-#if defined(MBEDTLS_PKCS1_V21)
 		case MBEDTLS_RSA_PKCS_V21:
 			return mbedtls_rsa_rsaes_oaep_encrypt(ctx, f_rng, p_rng, mode, NULL, 0,
 										   ilen, input, output);
-#endif
 
 		default:
 			return(MBEDTLS_ERR_RSA_INVALID_PADDING);
 	}
 }
 
-#if defined(MBEDTLS_PKCS1_V21)
 /*
  * Implementation of the PKCS#1 v2.1 RSAES-OAEP-DECRYPT function
  */
@@ -1335,9 +1311,7 @@ cleanup:
 
 	return ret;
 }
-#endif /* MBEDTLS_PKCS1_V21 */
 
-#if defined(MBEDTLS_PKCS1_V15)
 /*
  * Implementation of the PKCS#1 v2.1 RSAES-PKCS1-V1_5-DECRYPT function
  */
@@ -1432,7 +1406,6 @@ cleanup:
 
 	return ret;
 }
-#endif /* MBEDTLS_PKCS1_V15 */
 
 /*
  * Do an RSA operation, then remove the message padding
@@ -1447,25 +1420,20 @@ int mbedtls_rsa_pkcs1_decrypt(mbedtls_rsa_context *ctx,
 {
 	switch(ctx->padding)
 	{
-#if defined(MBEDTLS_PKCS1_V15)
 		case MBEDTLS_RSA_PKCS_V15:
 			return mbedtls_rsa_rsaes_pkcs1_v15_decrypt(ctx, f_rng, p_rng, mode, olen,
 												input, output, output_max_len);
-#endif
 
-#if defined(MBEDTLS_PKCS1_V21)
 		case MBEDTLS_RSA_PKCS_V21:
 			return mbedtls_rsa_rsaes_oaep_decrypt(ctx, f_rng, p_rng, mode, NULL, 0,
 										   olen, input, output,
 										   output_max_len);
-#endif
 
 		default:
 			return(MBEDTLS_ERR_RSA_INVALID_PADDING);
 	}
 }
 
-#if defined(MBEDTLS_PKCS1_V21)
 /*
  * Implementation of the PKCS#1 v2.1 RSASSA-PSS-SIGN function
  */
@@ -1571,9 +1539,7 @@ exit:
 			? mbedtls_rsa_public( ctx, sig, sig)
 			: mbedtls_rsa_private(ctx, f_rng, p_rng, sig, sig));
 }
-#endif /* MBEDTLS_PKCS1_V21 */
 
-#if defined(MBEDTLS_PKCS1_V15)
 /*
  * Implementation of the PKCS#1 v2.1 RSASSA-PKCS1-V1_5-SIGN function
  */
@@ -1778,7 +1744,6 @@ cleanup:
 
 	return ret;
 }
-#endif /* MBEDTLS_PKCS1_V15 */
 
 /*
  * Do an RSA operation to sign the message digest
@@ -1794,24 +1759,19 @@ int mbedtls_rsa_pkcs1_sign(mbedtls_rsa_context *ctx,
 {
 	switch(ctx->padding)
 	{
-#if defined(MBEDTLS_PKCS1_V15)
 		case MBEDTLS_RSA_PKCS_V15:
 			return mbedtls_rsa_rsassa_pkcs1_v15_sign(ctx, f_rng, p_rng, mode, md_alg,
 											  hashlen, hash, sig);
-#endif
 
-#if defined(MBEDTLS_PKCS1_V21)
 		case MBEDTLS_RSA_PKCS_V21:
 			return mbedtls_rsa_rsassa_pss_sign(ctx, f_rng, p_rng, mode, md_alg,
 										hashlen, hash, sig);
-#endif
 
 		default:
 			return(MBEDTLS_ERR_RSA_INVALID_PADDING);
 	}
 }
 
-#if defined(MBEDTLS_PKCS1_V21)
 /*
  * Implementation of the PKCS#1 v2.1 RSASSA-PSS-VERIFY function
  */
@@ -1976,9 +1936,7 @@ int mbedtls_rsa_rsassa_pss_verify(mbedtls_rsa_context *ctx,
 									   sig));
 
 }
-#endif /* MBEDTLS_PKCS1_V21 */
 
-#if defined(MBEDTLS_PKCS1_V15)
 /*
  * Implementation of the PKCS#1 v2.1 RSASSA-PKCS1-v1_5-VERIFY function
  */
@@ -2050,7 +2008,6 @@ cleanup:
 
 	return ret;
 }
-#endif /* MBEDTLS_PKCS1_V15 */
 
 /*
  * Do an RSA operation and check the message digest
@@ -2066,17 +2023,13 @@ int mbedtls_rsa_pkcs1_verify(mbedtls_rsa_context *ctx,
 {
 	switch(ctx->padding)
 	{
-#if defined(MBEDTLS_PKCS1_V15)
 		case MBEDTLS_RSA_PKCS_V15:
 			return mbedtls_rsa_rsassa_pkcs1_v15_verify(ctx, f_rng, p_rng, mode, md_alg,
 												hashlen, hash, sig);
-#endif
 
-#if defined(MBEDTLS_PKCS1_V21)
 		case MBEDTLS_RSA_PKCS_V21:
 			return mbedtls_rsa_rsassa_pss_verify(ctx, f_rng, p_rng, mode, md_alg,
 										  hashlen, hash, sig);
-#endif
 
 		default:
 			return(MBEDTLS_ERR_RSA_INVALID_PADDING);
@@ -2184,7 +2137,6 @@ void mbedtls_rsa_free(mbedtls_rsa_context *ctx)
 #define RSA_PT  "\xAA\xBB\xCC\x03\x02\x01\x00\xFF\xFF\xFF\xFF\xFF" \
 				"\x11\x22\x33\x0A\x0B\x0C\xCC\xDD\xDD\xDD\xDD\xDD"
 
-#if defined(MBEDTLS_PKCS1_V15)
 static int myrand(void *rng_state, unsigned char *output, size_t len)
 {
 	size_t i;
@@ -2197,7 +2149,6 @@ static int myrand(void *rng_state, unsigned char *output, size_t len)
 
 	return 0;
 }
-#endif /* MBEDTLS_PKCS1_V15 */
 
 /*
  * Checkup routine
@@ -2205,7 +2156,6 @@ static int myrand(void *rng_state, unsigned char *output, size_t len)
 int mbedtls_rsa_self_test(int verbose)
 {
 	int ret = 0;
-#if defined(MBEDTLS_PKCS1_V15)
 	size_t len;
 	mbedtls_rsa_context rsa;
 	unsigned char rsa_plaintext[PT_LEN];
@@ -2335,11 +2285,5 @@ int mbedtls_rsa_self_test(int verbose)
 cleanup:
 	mbedtls_mpi_free(&K);
 	mbedtls_rsa_free(&rsa);
-#else /* MBEDTLS_PKCS1_V15 */
-	((void) verbose);
-#endif /* MBEDTLS_PKCS1_V15 */
 	return ret;
 }
-
-
-#endif /* MBEDTLS_RSA_C */

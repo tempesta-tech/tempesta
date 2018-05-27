@@ -18,8 +18,6 @@
  *  You should have received a copy of the GNU General Public License along
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 /*
  *  The ITU-T X.509 standard defines a certificate format for PKI.
@@ -31,38 +29,14 @@
  *  http://www.itu.int/ITU-T/studygroups/com17/languages/X.680-0207.pdf
  *  http://www.itu.int/ITU-T/studygroups/com17/languages/X.690-0207.pdf
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
 
 #if defined(MBEDTLS_X509_CRL_PARSE_C)
 
 #include "x509_crl.h"
 #include "oid.h"
-
-#include <string.h>
-
 #if defined(MBEDTLS_PEM_PARSE_C)
 #include "pem.h"
-#endif
-
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdlib.h>
-#include <stdio.h>
-#define mbedtls_free	   free
-#define mbedtls_calloc	calloc
-#define mbedtls_snprintf   snprintf
-#endif
-
-#if defined(_WIN32) && !defined(EFIX64) && !defined(EFI32)
-#include <windows.h>
-#else
-#include <time.h>
 #endif
 
 /* Implementation that should never be optimized out by the compiler */

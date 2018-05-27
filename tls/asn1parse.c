@@ -21,30 +21,9 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
-#if defined(MBEDTLS_ASN1_PARSE_C)
-
 #include "asn1.h"
-
-#include <string.h>
-
-#if defined(MBEDTLS_BIGNUM_C)
 #include "bignum.h"
-#endif
-
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdlib.h>
-#define mbedtls_calloc	calloc
-#define mbedtls_free	   free
-#endif
 
 /* Implementation that should never be optimized out by the compiler */
 static void mbedtls_zeroize(void *v, size_t n) {
@@ -170,7 +149,6 @@ int mbedtls_asn1_get_int(unsigned char **p,
 	return 0;
 }
 
-#if defined(MBEDTLS_BIGNUM_C)
 int mbedtls_asn1_get_mpi(unsigned char **p,
 				  const unsigned char *end,
 				  mbedtls_mpi *X)
@@ -187,7 +165,6 @@ int mbedtls_asn1_get_mpi(unsigned char **p,
 
 	return ret;
 }
-#endif /* MBEDTLS_BIGNUM_C */
 
 int mbedtls_asn1_get_bitstring(unsigned char **p, const unsigned char *end,
 						mbedtls_asn1_bitstring *bs)
@@ -392,5 +369,3 @@ mbedtls_asn1_named_data *mbedtls_asn1_find_named_data(mbedtls_asn1_named_data *l
 
 	return(list);
 }
-
-#endif /* MBEDTLS_ASN1_PARSE_C */

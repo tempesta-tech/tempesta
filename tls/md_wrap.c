@@ -25,15 +25,7 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
-#if defined(MBEDTLS_MD_C)
-
 #include "md_internal.h"
 
 #if defined(MBEDTLS_MD2_C)
@@ -62,14 +54,6 @@
 
 #if defined(MBEDTLS_SHA512_C)
 #include "sha512.h"
-#endif
-
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdlib.h>
-#define mbedtls_calloc	calloc
-#define mbedtls_free	   free
 #endif
 
 #if defined(MBEDTLS_MD2_C)
@@ -585,5 +569,3 @@ const mbedtls_md_info_t mbedtls_sha512_info = {
 };
 
 #endif /* MBEDTLS_SHA512_C */
-
-#endif /* MBEDTLS_MD_C */
