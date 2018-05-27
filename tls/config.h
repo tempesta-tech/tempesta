@@ -62,75 +62,6 @@
 //#define MBEDTLS_HAVE_TIME_DATE
 
 /**
- * \def MBEDTLS_PLATFORM_MEMORY
- *
- * Enable the memory allocation layer.
- *
- * By default mbed TLS uses the system-provided calloc() and free().
- * This allows different allocators (self-implemented or provided) to be
- * provided to the platform abstraction layer.
- *
- * Enabling MBEDTLS_PLATFORM_MEMORY without the
- * MBEDTLS_PLATFORM_{FREE,CALLOC}_MACROs will provide
- * "mbedtls_platform_set_calloc_free()" allowing you to set an alternative calloc() and
- * free() function pointer at runtime.
- *
- * Enabling MBEDTLS_PLATFORM_MEMORY and specifying
- * MBEDTLS_PLATFORM_{CALLOC,FREE}_MACROs will allow you to specify the
- * alternate function at compile time.
- *
- * Requires: MBEDTLS_PLATFORM_C
- *
- * Enable this layer to allow use of alternative memory allocators.
- */
-//#define MBEDTLS_PLATFORM_MEMORY
-
-/**
- * \def MBEDTLS_PLATFORM_NO_STD_FUNCTIONS
- *
- * Do not assign standard functions in the platform layer (e.g. calloc() to
- * MBEDTLS_PLATFORM_STD_CALLOC and printf() to MBEDTLS_PLATFORM_STD_PRINTF)
- *
- * This makes sure there are no linking errors on platforms that do not support
- * these functions. You will HAVE to provide alternatives, either at runtime
- * via the platform_set_xxx() functions or at compile time by setting
- * the MBEDTLS_PLATFORM_STD_XXX defines, or enabling a
- * MBEDTLS_PLATFORM_XXX_MACRO.
- *
- * Requires: MBEDTLS_PLATFORM_C
- *
- * Uncomment to prevent default assignment of standard functions in the
- * platform layer.
- */
-#define MBEDTLS_PLATFORM_NO_STD_FUNCTIONS
-
-/**
- * \def MBEDTLS_PLATFORM_EXIT_ALT
- *
- * MBEDTLS_PLATFORM_XXX_ALT: Uncomment a macro to let mbed TLS support the
- * function in the platform abstraction layer.
- *
- * Example: In case you uncomment MBEDTLS_PLATFORM_PRINTF_ALT, mbed TLS will
- * provide a function "mbedtls_platform_set_printf()" that allows you to set an
- * alternative printf function pointer.
- *
- * All these define require MBEDTLS_PLATFORM_C to be defined!
- *
- * \warning MBEDTLS_PLATFORM_XXX_ALT cannot be defined at the same time as
- * MBEDTLS_PLATFORM_XXX_MACRO!
- *
- * Requires: MBEDTLS_PLATFORM_TIME_ALT
- *
- * Uncomment a macro to enable alternate implementation of specific base
- * platform function
- */
-//#define MBEDTLS_PLATFORM_EXIT_ALT
-//#define MBEDTLS_PLATFORM_TIME_ALT
-//#define MBEDTLS_PLATFORM_FPRINTF_ALT
-//#define MBEDTLS_PLATFORM_PRINTF_ALT
-//#define MBEDTLS_PLATFORM_NV_SEED_ALT
-
-/**
  * \def MBEDTLS_DEPRECATED_WARNING
  *
  * Mark deprecated functions so that they generate a warning if used.
@@ -452,27 +383,6 @@
 #define MBEDTLS_REMOVE_ARC4_CIPHERSUITES
 
 /**
- * \def MBEDTLS_ECP_DP_SECP192R1_ENABLED
- *
- * MBEDTLS_ECP_XXXX_ENABLED: Enables specific curves within the Elliptic Curve
- * module.  By default all supported curves are enabled.
- *
- * Comment macros to disable the curve and functions for it
- */
-#define MBEDTLS_ECP_DP_SECP192R1_ENABLED
-#define MBEDTLS_ECP_DP_SECP224R1_ENABLED
-#define MBEDTLS_ECP_DP_SECP256R1_ENABLED
-#define MBEDTLS_ECP_DP_SECP384R1_ENABLED
-#define MBEDTLS_ECP_DP_SECP521R1_ENABLED
-#define MBEDTLS_ECP_DP_SECP192K1_ENABLED
-#define MBEDTLS_ECP_DP_SECP224K1_ENABLED
-#define MBEDTLS_ECP_DP_SECP256K1_ENABLED
-#define MBEDTLS_ECP_DP_BP256R1_ENABLED
-#define MBEDTLS_ECP_DP_BP384R1_ENABLED
-#define MBEDTLS_ECP_DP_BP512R1_ENABLED
-#define MBEDTLS_ECP_DP_CURVE25519_ENABLED
-
-/**
  * \def MBEDTLS_ECP_NIST_OPTIM
  *
  * Enable specific 'modulo p' routines for each NIST prime.
@@ -575,9 +485,6 @@
  *
  * Enable the RSA-PSK based ciphersuite modes in SSL / TLS.
  *
- * Requires: MBEDTLS_RSA_C, MBEDTLS_PKCS1_V15,
- *		   MBEDTLS_X509_CRT_PARSE_C
- *
  * This enables the following ciphersuites (if other requisites are
  * enabled as well):
  *	  MBEDTLS_TLS_RSA_PSK_WITH_AES_256_GCM_SHA384
@@ -599,9 +506,6 @@
  * \def MBEDTLS_KEY_EXCHANGE_RSA_ENABLED
  *
  * Enable the RSA-only based ciphersuite modes in SSL / TLS.
- *
- * Requires: MBEDTLS_RSA_C, MBEDTLS_PKCS1_V15,
- *		   MBEDTLS_X509_CRT_PARSE_C
  *
  * This enables the following ciphersuites (if other requisites are
  * enabled as well):
@@ -628,8 +532,7 @@
  *
  * Enable the DHE-RSA based ciphersuite modes in SSL / TLS.
  *
- * Requires: MBEDTLS_DHM_C, MBEDTLS_RSA_C, MBEDTLS_PKCS1_V15,
- *		   MBEDTLS_X509_CRT_PARSE_C
+ * Requires: MBEDTLS_DHM_C
  *
  * This enables the following ciphersuites (if other requisites are
  * enabled as well):
@@ -661,8 +564,7 @@
  *
  * Enable the ECDHE-RSA based ciphersuite modes in SSL / TLS.
  *
- * Requires: MBEDTLS_ECDH_C, MBEDTLS_RSA_C, MBEDTLS_PKCS1_V15,
- *		   MBEDTLS_X509_CRT_PARSE_C
+ * Requires: MBEDTLS_ECDH_C
  *
  * This enables the following ciphersuites (if other requisites are
  * enabled as well):
@@ -686,7 +588,7 @@
  *
  * Enable the ECDHE-ECDSA based ciphersuite modes in SSL / TLS.
  *
- * Requires: MBEDTLS_ECDH_C, MBEDTLS_ECDSA_C, MBEDTLS_X509_CRT_PARSE_C,
+ * Requires: MBEDTLS_ECDH_C, MBEDTLS_ECDSA_C
  *
  * This enables the following ciphersuites (if other requisites are
  * enabled as well):
@@ -710,7 +612,7 @@
  *
  * Enable the ECDH-ECDSA based ciphersuite modes in SSL / TLS.
  *
- * Requires: MBEDTLS_ECDH_C, MBEDTLS_X509_CRT_PARSE_C
+ * Requires: MBEDTLS_ECDH_C
  *
  * This enables the following ciphersuites (if other requisites are
  * enabled as well):
@@ -734,7 +636,7 @@
  *
  * Enable the ECDH-RSA based ciphersuite modes in SSL / TLS.
  *
- * Requires: MBEDTLS_ECDH_C, MBEDTLS_X509_CRT_PARSE_C
+ * Requires: MBEDTLS_ECDH_C
  *
  * This enables the following ciphersuites (if other requisites are
  * enabled as well):
@@ -764,7 +666,6 @@
  *
  * Requires: MBEDTLS_ECJPAKE_C
  *		   MBEDTLS_SHA256_C
- *		   MBEDTLS_ECP_DP_SECP256R1_ENABLED
  *
  * This enables the following ciphersuites (if other requisites are
  * enabled as well):
@@ -805,8 +706,6 @@
  * \def MBEDTLS_GENPRIME
  *
  * Enable the prime-number generation code.
- *
- * Requires: MBEDTLS_BIGNUM_C
  */
 #define MBEDTLS_GENPRIME
 
@@ -847,28 +746,6 @@
  * Comment this macro to disable support for external private RSA keys.
  */
 #define MBEDTLS_PK_RSA_ALT_SUPPORT
-
-/**
- * \def MBEDTLS_PKCS1_V15
- *
- * Enable support for PKCS#1 v1.5 encoding.
- *
- * Requires: MBEDTLS_RSA_C
- *
- * This enables support for PKCS#1 v1.5 operations.
- */
-#define MBEDTLS_PKCS1_V15
-
-/**
- * \def MBEDTLS_PKCS1_V21
- *
- * Enable support for PKCS#1 v2.1 encoding.
- *
- * Requires: MBEDTLS_MD_C, MBEDTLS_RSA_C
- *
- * This enables support for RSAES-OAEP and RSASSA-PSS operations.
- */
-#define MBEDTLS_PKCS1_V21
 
 /**
  * \def MBEDTLS_RSA_NO_CRT
@@ -1006,7 +883,7 @@
  * \def MBEDTLS_SSL_SRV_SUPPORT_SSLV2_CLIENT_HELLO
  *
  * Enable support for receiving and parsing SSLv2 Client Hello messages for the
- * SSL Server module (MBEDTLS_SSL_SRV_C).
+ * SSL Server module.
  *
  * Uncomment this macro to enable support for SSLv2 Client Hello messages.
  */
@@ -1016,7 +893,7 @@
  * \def MBEDTLS_SSL_SRV_RESPECT_CLIENT_PREFERENCE
  *
  * Pick the ciphersuite according to the client's preferences rather than ours
- * in the SSL Server module (MBEDTLS_SSL_SRV_C).
+ * in the SSL Server module.
  *
  * Uncomment this macro to respect client's ciphersuite order
  */
@@ -1095,21 +972,11 @@
 #define MBEDTLS_SSL_PROTO_DTLS
 
 /**
- * \def MBEDTLS_SSL_ALPN
- *
- * Enable support for RFC 7301 Application Layer Protocol Negotiation.
- *
- * Comment this macro to disable support for ALPN.
- */
-#define MBEDTLS_SSL_ALPN
-
-/**
  * \def MBEDTLS_SSL_DTLS_ANTI_REPLAY
  *
  * Enable support for the anti-replay mechanism in DTLS.
  *
- * Requires: MBEDTLS_SSL_TLS_C
- *		   MBEDTLS_SSL_PROTO_DTLS
+ * Requires: MBEDTLS_SSL_PROTO_DTLS
  *
  * \warning Disabling this is often a security risk!
  * See mbedtls_ssl_conf_dtls_anti_replay() for details.
@@ -1186,17 +1053,6 @@
  * Comment this macro to disable support for key export
  */
 #define MBEDTLS_SSL_EXPORT_KEYS
-
-/**
- * \def MBEDTLS_SSL_SERVER_NAME_INDICATION
- *
- * Enable support for RFC 6066 server name indication (SNI) in SSL.
- *
- * Requires: MBEDTLS_X509_CRT_PARSE_C
- *
- * Comment this macro to disable support for server name indication in SSL
- */
-#define MBEDTLS_SSL_SERVER_NAME_INDICATION
 
 /**
  * \def MBEDTLS_SSL_TRUNCATED_HMAC
@@ -1427,20 +1283,6 @@
 #define MBEDTLS_ARC4_C
 
 /**
- * \def MBEDTLS_ASN1_PARSE_C
- *
- * Enable the generic ASN1 parser.
- *
- * Module:  library/asn1.c
- * Caller:  library/x509.c
- *		  library/dhm.c
- *		  library/pkcs12.c
- *		  library/pkcs5.c
- *		  library/pkparse.c
- */
-#define MBEDTLS_ASN1_PARSE_C
-
-/**
  * \def MBEDTLS_ASN1_WRITE_C
  *
  * Enable the generic ASN1 writer.
@@ -1465,23 +1307,6 @@
  * This module is required for PEM support (required by X.509).
  */
 #define MBEDTLS_BASE64_C
-
-/**
- * \def MBEDTLS_BIGNUM_C
- *
- * Enable the multi-precision integer library.
- *
- * Module:  library/bignum.c
- * Caller:  library/dhm.c
- *		  library/ecp.c
- *		  library/ecdsa.c
- *		  library/rsa.c
- *		  library/rsa_internal.c
- *		  library/ssl_tls.c
- *
- * This module is required for RSA, DHM and ECC (ECDH, ECDSA) support.
- */
-#define MBEDTLS_BIGNUM_C
 
 /**
  * \def MBEDTLS_BLOWFISH_C
@@ -1572,18 +1397,6 @@
  * This module is used for testing (ssl_client/server).
  */
 #define MBEDTLS_CERTS_C
-
-/**
- * \def MBEDTLS_CIPHER_C
- *
- * Enable the generic cipher layer.
- *
- * Module:  library/cipher.c
- * Caller:  library/ssl_tls.c
- *
- * Uncomment to enable generic cipher wrappers.
- */
-#define MBEDTLS_CIPHER_C
 
 /**
  * \def MBEDTLS_CMAC_C
@@ -1687,8 +1500,6 @@
  *
  * This module is used by the following key exchanges:
  *	  ECDHE-ECDSA, ECDHE-RSA, DHE-PSK
- *
- * Requires: MBEDTLS_ECP_C
  */
 #define MBEDTLS_ECDH_C
 
@@ -1703,7 +1514,7 @@
  * This module is used by the following key exchanges:
  *	  ECDHE-ECDSA
  *
- * Requires: MBEDTLS_ECP_C, MBEDTLS_ASN1_WRITE_C, MBEDTLS_ASN1_PARSE_C
+ * Requires: MBEDTLS_ASN1_WRITE_C
  */
 #define MBEDTLS_ECDSA_C
 
@@ -1721,24 +1532,8 @@
  *
  * This module is used by the following key exchanges:
  *	  ECJPAKE
- *
- * Requires: MBEDTLS_ECP_C, MBEDTLS_MD_C
  */
 #define MBEDTLS_ECJPAKE_C
-
-/**
- * \def MBEDTLS_ECP_C
- *
- * Enable the elliptic curve over GF(p) library.
- *
- * Module:  library/ecp.c
- * Caller:  library/ecdh.c
- *		  library/ecdsa.c
- *		  library/ecjpake.c
- *
- * Requires: MBEDTLS_BIGNUM_C and at least one MBEDTLS_ECP_DP_XXX_ENABLED
- */
-#define MBEDTLS_ECP_C
 
 /**
  * \def MBEDTLS_ENTROPY_C
@@ -1809,23 +1604,9 @@
  * Module:  library/hmac_drbg.c
  * Caller:
  *
- * Requires: MBEDTLS_MD_C
- *
  * Uncomment to enable the HMAC_DRBG random number geerator.
  */
 #define MBEDTLS_HMAC_DRBG_C
-
-/**
- * \def MBEDTLS_MD_C
- *
- * Enable the generic message digest layer.
- *
- * Module:  library/md.c
- * Caller:
- *
- * Uncomment to enable generic message digest wrappers.
- */
-#define MBEDTLS_MD_C
 
 /**
  * \def MBEDTLS_MD2_C
@@ -1884,29 +1665,6 @@
 #define MBEDTLS_MD5_C
 
 /**
- * \def MBEDTLS_OID_C
- *
- * Enable the OID database.
- *
- * Module:  library/oid.c
- * Caller:  library/asn1write.c
- *		  library/pkcs5.c
- *		  library/pkparse.c
- *		  library/pkwrite.c
- *		  library/rsa.c
- *		  library/x509.c
- *		  library/x509_create.c
- *		  library/x509_crl.c
- *		  library/x509_crt.c
- *		  library/x509_csr.c
- *		  library/x509write_crt.c
- *		  library/x509write_csr.c
- *
- * This modules translates between OIDs and internal values.
- */
-#define MBEDTLS_OID_C
-
-/**
  * \def MBEDTLS_PEM_PARSE_C
  *
  * Enable PEM decoding / parsing.
@@ -1941,45 +1699,12 @@
 //#define MBEDTLS_PEM_WRITE_C
 
 /**
- * \def MBEDTLS_PK_C
- *
- * Enable the generic public (asymetric) key layer.
- *
- * Module:  library/pk.c
- * Caller:  library/ssl_tls.c
- *		  library/ssl_cli.c
- *		  library/ssl_srv.c
- *
- * Requires: MBEDTLS_RSA_C or MBEDTLS_ECP_C
- *
- * Uncomment to enable generic public key wrappers.
- */
-#define MBEDTLS_PK_C
-
-/**
- * \def MBEDTLS_PK_PARSE_C
- *
- * Enable the generic public (asymetric) key parser.
- *
- * Module:  library/pkparse.c
- * Caller:  library/x509_crt.c
- *		  library/x509_csr.c
- *
- * Requires: MBEDTLS_PK_C
- *
- * Uncomment to enable generic public key parse functions.
- */
-#define MBEDTLS_PK_PARSE_C
-
-/**
  * \def MBEDTLS_PK_WRITE_C
  *
  * Enable the generic public (asymetric) key writer.
  *
  * Module:  library/pkwrite.c
  * Caller:  library/x509write.c
- *
- * Requires: MBEDTLS_PK_C
  *
  * Uncomment to enable generic public key write functions.
  */
@@ -1992,8 +1717,6 @@
  *
  * Module:  library/pkcs5.c
  *
- * Requires: MBEDTLS_MD_C
- *
  * This module adds support for the PKCS#5 functions.
  */
 #define MBEDTLS_PKCS5_C
@@ -2005,8 +1728,6 @@
  *
  * Module:  library/pkcs11.c
  * Caller:  library/pk.c
- *
- * Requires: MBEDTLS_PK_C
  *
  * This module enables SSL/TLS PKCS #11 smartcard support.
  * Requires the presence of the PKCS#11 helper library (libpkcs11-helper)
@@ -2022,32 +1743,11 @@
  * Module:  library/pkcs12.c
  * Caller:  library/pkparse.c
  *
- * Requires: MBEDTLS_ASN1_PARSE_C, MBEDTLS_CIPHER_C, MBEDTLS_MD_C
  * Can use:  MBEDTLS_ARC4_C
  *
  * This module enables PKCS#12 functions.
  */
 #define MBEDTLS_PKCS12_C
-
-/**
- * \def MBEDTLS_PLATFORM_C
- *
- * Enable the platform abstraction layer that allows you to re-assign
- * functions like calloc(), free(), snprintf(), printf(), fprintf(), exit().
- *
- * Enabling MBEDTLS_PLATFORM_C enables to use of MBEDTLS_PLATFORM_XXX_ALT
- * or MBEDTLS_PLATFORM_XXX_MACRO directives, allowing the functions mentioned
- * above to be specified at runtime or compile time respectively.
- *
- * \note This abstraction layer must be enabled on Windows (including MSYS2)
- * as other module rely on it for a fixed snprintf implementation.
- *
- * Module:  library/platform.c
- * Caller:  Most other .c files
- *
- * This module enables abstraction of common (libc) functions.
- */
-#define MBEDTLS_PLATFORM_C
 
 /**
  * \def MBEDTLS_RIPEMD160_C
@@ -2059,25 +1759,6 @@
  *
  */
 #define MBEDTLS_RIPEMD160_C
-
-/**
- * \def MBEDTLS_RSA_C
- *
- * Enable the RSA public-key cryptosystem.
- *
- * Module:  library/rsa.c
- *		  library/rsa_internal.c
- * Caller:  library/ssl_cli.c
- *		  library/ssl_srv.c
- *		  library/ssl_tls.c
- *		  library/x509.c
- *
- * This module is used by the following key exchanges:
- *	  RSA, DHE-RSA, ECDHE-RSA, RSA-PSK
- *
- * Requires: MBEDTLS_BIGNUM_C, MBEDTLS_OID_C
- */
-#define MBEDTLS_RSA_C
 
 /**
  * \def MBEDTLS_SHA1_C
@@ -2162,8 +1843,6 @@
  *
  * Module:  library/ssl_ticket.c
  * Caller:
- *
- * Requires: MBEDTLS_CIPHER_C
  */
 #define MBEDTLS_SSL_TICKET_C
 
@@ -2175,74 +1854,9 @@
  * Module:  library/ssl_cli.c
  * Caller:
  *
- * Requires: MBEDTLS_SSL_TLS_C
- *
  * This module is required for SSL/TLS client support.
  */
 #define MBEDTLS_SSL_CLI_C
-
-/**
- * \def MBEDTLS_SSL_SRV_C
- *
- * Enable the SSL/TLS server code.
- *
- * Module:  library/ssl_srv.c
- * Caller:
- *
- * Requires: MBEDTLS_SSL_TLS_C
- *
- * This module is required for SSL/TLS server support.
- */
-#define MBEDTLS_SSL_SRV_C
-
-/**
- * \def MBEDTLS_SSL_TLS_C
- *
- * Enable the generic SSL/TLS code.
- *
- * Module:  library/ssl_tls.c
- * Caller:  library/ssl_cli.c
- *		  library/ssl_srv.c
- *
- * Requires: MBEDTLS_CIPHER_C, MBEDTLS_MD_C
- *		   and at least one of the MBEDTLS_SSL_PROTO_XXX defines
- *
- * This module is required for SSL/TLS.
- */
-#define MBEDTLS_SSL_TLS_C
-
-/**
- * \def MBEDTLS_X509_USE_C
- *
- * Enable X.509 core for using certificates.
- *
- * Module:  library/x509.c
- * Caller:  library/x509_crl.c
- *		  library/x509_crt.c
- *		  library/x509_csr.c
- *
- * Requires: MBEDTLS_ASN1_PARSE_C, MBEDTLS_BIGNUM_C, MBEDTLS_OID_C,
- *		   MBEDTLS_PK_PARSE_C
- *
- * This module is required for the X.509 parsing modules.
- */
-#define MBEDTLS_X509_USE_C
-
-/**
- * \def MBEDTLS_X509_CRT_PARSE_C
- *
- * Enable X.509 certificate parsing.
- *
- * Module:  library/x509_crt.c
- * Caller:  library/ssl_cli.c
- *		  library/ssl_srv.c
- *		  library/ssl_tls.c
- *
- * Requires: MBEDTLS_X509_USE_C
- *
- * This module is required for X.509 certificate parsing.
- */
-#define MBEDTLS_X509_CRT_PARSE_C
 
 /**
  * \def MBEDTLS_X509_CRL_PARSE_C
@@ -2251,8 +1865,6 @@
  *
  * Module:  library/x509_crl.c
  * Caller:  library/x509_crt.c
- *
- * Requires: MBEDTLS_X509_USE_C
  *
  * This module is required for X.509 CRL parsing.
  */
@@ -2266,8 +1878,6 @@
  * Module:  library/x509_csr.c
  * Caller:  library/x509_crt_write.c
  *
- * Requires: MBEDTLS_X509_USE_C
- *
  * This module is used for reading X.509 certificate request.
  */
 #define MBEDTLS_X509_CSR_PARSE_C
@@ -2279,7 +1889,7 @@
  *
  * Module:  library/x509_create.c
  *
- * Requires: MBEDTLS_BIGNUM_C, MBEDTLS_OID_C, MBEDTLS_PK_WRITE_C
+ * Requires: MBEDTLS_PK_WRITE_C
  *
  * This module is the basis for creating X.509 certificates and CSRs.
  */
@@ -2364,36 +1974,11 @@
 /* Memory buffer allocator options */
 //#define MBEDTLS_MEMORY_ALIGN_MULTIPLE	  4 /**< Align on multiples of this value */
 
-/* Platform options */
-//#define MBEDTLS_PLATFORM_STD_MEM_HDR   <stdlib.h> /**< Header to include if MBEDTLS_PLATFORM_NO_STD_FUNCTIONS is defined. Don't define if no header is needed. */
-//#define MBEDTLS_PLATFORM_STD_CALLOC		calloc /**< Default allocator to use, can be undefined */
-//#define MBEDTLS_PLATFORM_STD_FREE			free /**< Default free to use, can be undefined */
-//#define MBEDTLS_PLATFORM_STD_EXIT			exit /**< Default exit to use, can be undefined */
-//#define MBEDTLS_PLATFORM_STD_TIME			time /**< Default time to use, can be undefined. */
-/* Note: your snprintf must correclty zero-terminate the buffer! */
-//#define MBEDTLS_PLATFORM_STD_EXIT_SUCCESS	   0 /**< Default exit value to use, can be undefined */
-//#define MBEDTLS_PLATFORM_STD_EXIT_FAILURE	   1 /**< Default exit value to use, can be undefined */
-//#define MBEDTLS_PLATFORM_STD_NV_SEED_READ   mbedtls_platform_std_nv_seed_read /**< Default nv_seed_read function to use, can be undefined */
-//#define MBEDTLS_PLATFORM_STD_NV_SEED_WRITE  mbedtls_platform_std_nv_seed_write /**< Default nv_seed_write function to use, can be undefined */
-//#define MBEDTLS_PLATFORM_STD_NV_SEED_FILE  "seedfile" /**< Seed file to read/write with default implementation */
-
-/* To Use Function Macros MBEDTLS_PLATFORM_C must be enabled */
-/* MBEDTLS_PLATFORM_XXX_MACRO and MBEDTLS_PLATFORM_XXX_ALT cannot both be defined */
-//#define MBEDTLS_PLATFORM_CALLOC_MACRO		calloc /**< Default allocator macro to use, can be undefined */
-//#define MBEDTLS_PLATFORM_FREE_MACRO			free /**< Default free macro to use, can be undefined */
-//#define MBEDTLS_PLATFORM_EXIT_MACRO			exit /**< Default exit macro to use, can be undefined */
-//#define MBEDTLS_PLATFORM_TIME_TYPE_MACRO	   time_t /**< Default time macro to use, can be undefined. */
-#define MBEDTLS_PLATFORM_FPRINTF_MACRO	  ((void)0) /**< Default fprintf macro to use, can be undefined */
-/* Note: your snprintf must correclty zero-terminate the buffer! */
-//#define MBEDTLS_PLATFORM_NV_SEED_READ_MACRO   mbedtls_platform_std_nv_seed_read /**< Default nv_seed_read function to use, can be undefined */
-//#define MBEDTLS_PLATFORM_NV_SEED_WRITE_MACRO  mbedtls_platform_std_nv_seed_write /**< Default nv_seed_write function to use, can be undefined */
-
 /* SSL Cache options */
 //#define MBEDTLS_SSL_CACHE_DEFAULT_TIMEOUT	   86400 /**< 1 day  */
 //#define MBEDTLS_SSL_CACHE_DEFAULT_MAX_ENTRIES	  50 /**< Maximum entries in cache */
 
 /* SSL options */
-//#define MBEDTLS_SSL_MAX_CONTENT_LEN			 16384 /**< Maxium fragment length in bytes, determines the size of each of the two internal I/O buffers */
 //#define MBEDTLS_SSL_DEFAULT_TICKET_LIFETIME	 86400 /**< Lifetime of session tickets (if enabled) */
 //#define MBEDTLS_PSK_MAX_LEN			   32 /**< Max size of TLS pre-shared keys, in bytes (default 256 bits) */
 //#define MBEDTLS_SSL_COOKIE_TIMEOUT		60 /**< Default expiration delay of DTLS cookies, in seconds */
@@ -2469,6 +2054,235 @@
 #include MBEDTLS_USER_CONFIG_FILE
 #endif
 
-#include "check_config.h"
+/* CHECK CONFIG. */
+#if defined(TARGET_LIKE_MBED) && \
+	(defined(MBEDTLS_NET_C) || defined(MBEDTLS_TIMING_C))
+#error "The NET and TIMING modules are not available for mbed OS - please use the network and timing functions provided by mbed OS"
+#endif
+
+#if defined(MBEDTLS_DEPRECATED_WARNING) && \
+	!defined(__GNUC__) && !defined(__clang__)
+#error "MBEDTLS_DEPRECATED_WARNING only works with GCC and Clang"
+#endif
+
+#if defined(MBEDTLS_CTR_DRBG_C) && !defined(MBEDTLS_AES_C)
+#error "MBEDTLS_CTR_DRBG_C defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_SSL_TRUNCATED_HMAC_COMPAT) && !defined(MBEDTLS_SSL_TRUNCATED_HMAC)
+#error "MBEDTLS_SSL_TRUNCATED_HMAC_COMPAT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_CMAC_C) && \
+	!defined(MBEDTLS_AES_C) && !defined(MBEDTLS_DES_C)
+#error "MBEDTLS_CMAC_C defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECDSA_C) &&	(!defined(MBEDTLS_ASN1_WRITE_C))
+#error "MBEDTLS_ECDSA_C defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECDSA_DETERMINISTIC) && !defined(MBEDTLS_HMAC_DRBG_C)
+#error "MBEDTLS_ECDSA_DETERMINISTIC defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ENTROPY_C) && (!defined(MBEDTLS_SHA512_C) &&	  \
+									!defined(MBEDTLS_SHA256_C))
+#error "MBEDTLS_ENTROPY_C defined, but not all prerequisites"
+#endif
+#if defined(MBEDTLS_ENTROPY_C) && defined(MBEDTLS_SHA512_C) &&		 \
+	defined(MBEDTLS_CTR_DRBG_ENTROPY_LEN) && (MBEDTLS_CTR_DRBG_ENTROPY_LEN > 64)
+#error "MBEDTLS_CTR_DRBG_ENTROPY_LEN value too high"
+#endif
+#if defined(MBEDTLS_ENTROPY_C) &&											\
+	(!defined(MBEDTLS_SHA512_C) || defined(MBEDTLS_ENTROPY_FORCE_SHA256)) \
+	&& defined(MBEDTLS_CTR_DRBG_ENTROPY_LEN) && (MBEDTLS_CTR_DRBG_ENTROPY_LEN > 32)
+#error "MBEDTLS_CTR_DRBG_ENTROPY_LEN value too high"
+#endif
+#if defined(MBEDTLS_ENTROPY_C) && \
+	defined(MBEDTLS_ENTROPY_FORCE_SHA256) && !defined(MBEDTLS_SHA256_C)
+#error "MBEDTLS_ENTROPY_FORCE_SHA256 defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_GCM_C) && (										\
+		!defined(MBEDTLS_AES_C) && !defined(MBEDTLS_CAMELLIA_C))
+#error "MBEDTLS_GCM_C defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECP_RANDOMIZE_JAC_ALT) && !defined(MBEDTLS_ECP_INTERNAL_ALT)
+#error "MBEDTLS_ECP_RANDOMIZE_JAC_ALT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECP_ADD_MIXED_ALT) && !defined(MBEDTLS_ECP_INTERNAL_ALT)
+#error "MBEDTLS_ECP_ADD_MIXED_ALT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECP_DOUBLE_JAC_ALT) && !defined(MBEDTLS_ECP_INTERNAL_ALT)
+#error "MBEDTLS_ECP_DOUBLE_JAC_ALT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECP_NORMALIZE_JAC_MANY_ALT) && !defined(MBEDTLS_ECP_INTERNAL_ALT)
+#error "MBEDTLS_ECP_NORMALIZE_JAC_MANY_ALT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECP_NORMALIZE_JAC_ALT) && !defined(MBEDTLS_ECP_INTERNAL_ALT)
+#error "MBEDTLS_ECP_NORMALIZE_JAC_ALT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECP_DOUBLE_ADD_MXZ_ALT) && !defined(MBEDTLS_ECP_INTERNAL_ALT)
+#error "MBEDTLS_ECP_DOUBLE_ADD_MXZ_ALT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECP_RANDOMIZE_MXZ_ALT) && !defined(MBEDTLS_ECP_INTERNAL_ALT)
+#error "MBEDTLS_ECP_RANDOMIZE_MXZ_ALT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_ECP_NORMALIZE_MXZ_ALT) && !defined(MBEDTLS_ECP_INTERNAL_ALT)
+#error "MBEDTLS_ECP_NORMALIZE_MXZ_ALT defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_HAVEGE_C) && !defined(MBEDTLS_TIMING_C)
+#error "MBEDTLS_HAVEGE_C defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_KEY_EXCHANGE_ECDH_ECDSA_ENABLED) &&	(!defined(MBEDTLS_ECDH_C))
+#error "MBEDTLS_KEY_EXCHANGE_ECDH_ECDSA_ENABLED defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_KEY_EXCHANGE_ECDH_RSA_ENABLED) && (!defined(MBEDTLS_ECDH_C))
+#error "MBEDTLS_KEY_EXCHANGE_ECDH_RSA_ENABLED defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_KEY_EXCHANGE_DHE_PSK_ENABLED) && !defined(MBEDTLS_DHM_C)
+#error "MBEDTLS_KEY_EXCHANGE_DHE_PSK_ENABLED defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_KEY_EXCHANGE_ECDHE_PSK_ENABLED) &&					 \
+	!defined(MBEDTLS_ECDH_C)
+#error "MBEDTLS_KEY_EXCHANGE_ECDHE_PSK_ENABLED defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_KEY_EXCHANGE_DHE_RSA_ENABLED) && (!defined(MBEDTLS_DHM_C))
+#error "MBEDTLS_KEY_EXCHANGE_DHE_RSA_ENABLED defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED) && (!defined(MBEDTLS_ECDH_C))
+#error "MBEDTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED) &&	 \
+	(!defined(MBEDTLS_ECDH_C) || !defined(MBEDTLS_ECDSA_C))
+#error "MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_KEY_EXCHANGE_ECJPAKE_ENABLED) &&					\
+	(!defined(MBEDTLS_ECJPAKE_C) || !defined(MBEDTLS_SHA256_C))
+#error "MBEDTLS_KEY_EXCHANGE_ECJPAKE_ENABLED defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_PEM_PARSE_C) && !defined(MBEDTLS_BASE64_C)
+#error "MBEDTLS_PEM_PARSE_C defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_PEM_WRITE_C) && !defined(MBEDTLS_BASE64_C)
+#error "MBEDTLS_PEM_WRITE_C defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_SSL_PROTO_SSL3) && (!defined(MBEDTLS_MD5_C) ||	 \
+	!defined(MBEDTLS_SHA1_C))
+#error "MBEDTLS_SSL_PROTO_SSL3 defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_SSL_PROTO_TLS1) && (!defined(MBEDTLS_MD5_C) ||	 \
+	!defined(MBEDTLS_SHA1_C))
+#error "MBEDTLS_SSL_PROTO_TLS1 defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_SSL_PROTO_TLS1_1) && (!defined(MBEDTLS_MD5_C) ||	 \
+	!defined(MBEDTLS_SHA1_C))
+#error "MBEDTLS_SSL_PROTO_TLS1_1 defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_SSL_PROTO_TLS1_2) && (!defined(MBEDTLS_SHA1_C) &&	 \
+	!defined(MBEDTLS_SHA256_C) && !defined(MBEDTLS_SHA512_C))
+#error "MBEDTLS_SSL_PROTO_TLS1_2 defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_SSL_PROTO_DTLS)	 && \
+	!defined(MBEDTLS_SSL_PROTO_TLS1_1)  && \
+	!defined(MBEDTLS_SSL_PROTO_TLS1_2)
+#error "MBEDTLS_SSL_PROTO_DTLS defined, but not all prerequisites"
+#endif
+
+#if (!defined(MBEDTLS_SSL_PROTO_SSL3) && \
+	!defined(MBEDTLS_SSL_PROTO_TLS1) && !defined(MBEDTLS_SSL_PROTO_TLS1_1) && \
+	!defined(MBEDTLS_SSL_PROTO_TLS1_2))
+#error "no protocols are active"
+#endif
+
+#if (defined(MBEDTLS_SSL_PROTO_SSL3) && \
+	defined(MBEDTLS_SSL_PROTO_TLS1_1) && !defined(MBEDTLS_SSL_PROTO_TLS1))
+#error "Illegal protocol selection"
+#endif
+
+#if (defined(MBEDTLS_SSL_PROTO_TLS1) && \
+	defined(MBEDTLS_SSL_PROTO_TLS1_2) && !defined(MBEDTLS_SSL_PROTO_TLS1_1))
+#error "Illegal protocol selection"
+#endif
+
+#if (defined(MBEDTLS_SSL_PROTO_SSL3) && \
+	defined(MBEDTLS_SSL_PROTO_TLS1_2) && (!defined(MBEDTLS_SSL_PROTO_TLS1) || \
+	!defined(MBEDTLS_SSL_PROTO_TLS1_1)))
+#error "Illegal protocol selection"
+#endif
+
+#if defined(MBEDTLS_SSL_DTLS_HELLO_VERIFY) && !defined(MBEDTLS_SSL_PROTO_DTLS)
+#error "MBEDTLS_SSL_DTLS_HELLO_VERIFY  defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_SSL_DTLS_CLIENT_PORT_REUSE) && \
+	!defined(MBEDTLS_SSL_DTLS_HELLO_VERIFY)
+#error "MBEDTLS_SSL_DTLS_CLIENT_PORT_REUSE  defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_SSL_DTLS_ANTI_REPLAY) && (!defined(MBEDTLS_SSL_PROTO_DTLS))
+#error "MBEDTLS_SSL_DTLS_ANTI_REPLAY  defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_SSL_DTLS_BADMAC_LIMIT) && (!defined(MBEDTLS_SSL_PROTO_DTLS))
+#error "MBEDTLS_SSL_DTLS_BADMAC_LIMIT  defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_SSL_ENCRYPT_THEN_MAC) &&   \
+	!defined(MBEDTLS_SSL_PROTO_TLS1)   &&	  \
+	!defined(MBEDTLS_SSL_PROTO_TLS1_1) &&	  \
+	!defined(MBEDTLS_SSL_PROTO_TLS1_2)
+#error "MBEDTLS_SSL_ENCRYPT_THEN_MAC defined, but not all prerequsites"
+#endif
+
+#if defined(MBEDTLS_SSL_EXTENDED_MASTER_SECRET) && \
+	!defined(MBEDTLS_SSL_PROTO_TLS1)   &&		  \
+	!defined(MBEDTLS_SSL_PROTO_TLS1_1) &&		  \
+	!defined(MBEDTLS_SSL_PROTO_TLS1_2)
+#error "MBEDTLS_SSL_EXTENDED_MASTER_SECRET defined, but not all prerequsites"
+#endif
+
+#if defined(MBEDTLS_SSL_CBC_RECORD_SPLITTING) && \
+	!defined(MBEDTLS_SSL_PROTO_SSL3) && !defined(MBEDTLS_SSL_PROTO_TLS1)
+#error "MBEDTLS_SSL_CBC_RECORD_SPLITTING defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_X509_CREATE_C) && (!defined(MBEDTLS_ASN1_WRITE_C) ||	   \
+	!defined(MBEDTLS_PK_WRITE_C))
+#error "MBEDTLS_X509_CREATE_C defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_X509_CRT_WRITE_C) && (!defined(MBEDTLS_X509_CREATE_C))
+#error "MBEDTLS_X509_CRT_WRITE_C defined, but not all prerequisites"
+#endif
+
+#if defined(MBEDTLS_X509_CSR_WRITE_C) && (!defined(MBEDTLS_X509_CREATE_C))
+#error "MBEDTLS_X509_CSR_WRITE_C defined, but not all prerequisites"
+#endif
 
 #endif /* MBEDTLS_CONFIG_H */

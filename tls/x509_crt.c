@@ -18,8 +18,6 @@
  *  You should have received a copy of the GNU General Public License along
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 /*
  *  The ITU-T X.509 standard defines a certificate format for PKI.
@@ -31,32 +29,12 @@
  *  http://www.itu.int/ITU-T/studygroups/com17/languages/X.680-0207.pdf
  *  http://www.itu.int/ITU-T/studygroups/com17/languages/X.690-0207.pdf
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
-#if defined(MBEDTLS_X509_CRT_PARSE_C)
-
 #include "x509_crt.h"
 #include "oid.h"
 
-#include <stdio.h>
-#include <string.h>
-
 #if defined(MBEDTLS_PEM_PARSE_C)
 #include "pem.h"
-#endif
-
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdlib.h>
-#define mbedtls_free	   free
-#define mbedtls_calloc	calloc
-#define mbedtls_snprintf   snprintf
 #endif
 
 /* Implementation that should never be optimized out by the compiler */
@@ -93,7 +71,6 @@ const mbedtls_x509_crt_profile mbedtls_x509_crt_profile_next =
 	MBEDTLS_X509_ID_FLAG(MBEDTLS_MD_SHA384) |
 	MBEDTLS_X509_ID_FLAG(MBEDTLS_MD_SHA512),
 	0xFFFFFFF, /* Any PK alg	*/
-#if defined(MBEDTLS_ECP_C)
 	/* Curves at or above 128-bit security level */
 	MBEDTLS_X509_ID_FLAG(MBEDTLS_ECP_DP_SECP256R1) |
 	MBEDTLS_X509_ID_FLAG(MBEDTLS_ECP_DP_SECP384R1) |
@@ -102,9 +79,6 @@ const mbedtls_x509_crt_profile mbedtls_x509_crt_profile_next =
 	MBEDTLS_X509_ID_FLAG(MBEDTLS_ECP_DP_BP384R1) |
 	MBEDTLS_X509_ID_FLAG(MBEDTLS_ECP_DP_BP512R1) |
 	MBEDTLS_X509_ID_FLAG(MBEDTLS_ECP_DP_SECP256K1),
-#else
-	0,
-#endif
 	2048,
 };
 
@@ -119,13 +93,9 @@ const mbedtls_x509_crt_profile mbedtls_x509_crt_profile_suiteb =
 	/* Only ECDSA */
 	MBEDTLS_X509_ID_FLAG(MBEDTLS_PK_ECDSA) |
 	MBEDTLS_X509_ID_FLAG(MBEDTLS_PK_ECKEY),
-#if defined(MBEDTLS_ECP_C)
 	/* Only NIST P-256 and P-384 */
 	MBEDTLS_X509_ID_FLAG(MBEDTLS_ECP_DP_SECP256R1) |
 	MBEDTLS_X509_ID_FLAG(MBEDTLS_ECP_DP_SECP384R1),
-#else
-	0,
-#endif
 	0,
 };
 
@@ -163,7 +133,6 @@ static int x509_profile_check_key(const mbedtls_x509_crt_profile *profile,
 								   mbedtls_pk_type_t pk_alg,
 								   const mbedtls_pk_context *pk)
 {
-#if defined(MBEDTLS_RSA_C)
 	if (pk_alg == MBEDTLS_PK_RSA || pk_alg == MBEDTLS_PK_RSASSA_PSS)
 	{
 		if (mbedtls_pk_get_bitlen(pk) >= profile->rsa_min_bitlen)
@@ -171,9 +140,7 @@ static int x509_profile_check_key(const mbedtls_x509_crt_profile *profile,
 
 		return(-1);
 	}
-#endif
 
-#if defined(MBEDTLS_ECP_C)
 	if (pk_alg == MBEDTLS_PK_ECDSA ||
 		pk_alg == MBEDTLS_PK_ECKEY ||
 		pk_alg == MBEDTLS_PK_ECKEY_DH)
@@ -185,7 +152,6 @@ static int x509_profile_check_key(const mbedtls_x509_crt_profile *profile,
 
 		return(-1);
 	}
-#endif
 
 	return(-1);
 }
@@ -2264,5 +2230,3 @@ void mbedtls_x509_crt_free(mbedtls_x509_crt *crt)
 	}
 	while (cert_cur != NULL);
 }
-
-#endif /* MBEDTLS_X509_CRT_PARSE_C */

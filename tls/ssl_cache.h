@@ -45,12 +45,6 @@
 #define MBEDTLS_SSL_CACHE_DEFAULT_MAX_ENTRIES	  50   /*!< Maximum entries in cache */
 #endif
 
-/* \} name SECTION: Module settings */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 typedef struct mbedtls_ssl_cache_context mbedtls_ssl_cache_context;
 typedef struct mbedtls_ssl_cache_entry mbedtls_ssl_cache_entry;
 
@@ -61,9 +55,7 @@ struct mbedtls_ssl_cache_entry
 {
 	time_t timestamp;		   /*!< entry timestamp	*/
 	mbedtls_ssl_session session;		/*!< entry session	  */
-#if defined(MBEDTLS_X509_CRT_PARSE_C)
 	mbedtls_x509_buf peer_cert;		 /*!< entry peer_cert	*/
-#endif
 	mbedtls_ssl_cache_entry *next;	  /*!< chain pointer	  */
 };
 
@@ -127,9 +119,5 @@ void mbedtls_ssl_cache_set_max_entries(mbedtls_ssl_cache_context *cache, int max
  * \param cache	SSL cache context
  */
 void mbedtls_ssl_cache_free(mbedtls_ssl_cache_context *cache);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* ssl_cache.h */

@@ -21,32 +21,11 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
-#if !defined(MBEDTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
-#if defined(MBEDTLS_SSL_SRV_C)
-
-#if defined(MBEDTLS_PLATFORM_C)
-#include "platform.h"
-#else
-#include <stdlib.h>
-#define mbedtls_calloc	calloc
-#define mbedtls_free	  free
-#endif
-
 #include "debug.h"
 #include "ssl.h"
 #include "ssl_internal.h"
-
-#include <string.h>
-
-#if defined(MBEDTLS_ECP_C)
 #include "ecp.h"
-#endif
 
 #if defined(MBEDTLS_SSL_SESSION_TICKETS)
 /* Implementation that should never be optimized out by the compiler */
@@ -85,7 +64,6 @@ void mbedtls_ssl_conf_dtls_cookies(mbedtls_ssl_config *conf,
 }
 #endif /* MBEDTLS_SSL_DTLS_HELLO_VERIFY */
 
-#if defined(MBEDTLS_SSL_SERVER_NAME_INDICATION)
 static int ssl_parse_servername_ext(mbedtls_ssl_context *ssl,
 				 const unsigned char *buf,
 				 size_t len)
@@ -145,7 +123,6 @@ static int ssl_parse_servername_ext(mbedtls_ssl_context *ssl,
 
 	return 0;
 }
-#endif /* MBEDTLS_SSL_SERVER_NAME_INDICATION */
 
 static int ssl_parse_renegotiation_info(mbedtls_ssl_context *ssl,
 					 const unsigned char *buf,
@@ -538,7 +515,6 @@ static int ssl_parse_session_ticket_ext(mbedtls_ssl_context *ssl,
 }
 #endif /* MBEDTLS_SSL_SESSION_TICKETS */
 
-#if defined(MBEDTLS_SSL_ALPN)
 static int ssl_parse_alpn_ext(mbedtls_ssl_context *ssl,
 			   const unsigned char *buf, size_t len)
 {
@@ -624,13 +600,11 @@ static int ssl_parse_alpn_ext(mbedtls_ssl_context *ssl,
 					MBEDTLS_SSL_ALERT_MSG_NO_APPLICATION_PROTOCOL);
 	return(MBEDTLS_ERR_SSL_BAD_HS_CLIENT_HELLO);
 }
-#endif /* MBEDTLS_SSL_ALPN */
 
 /*
  * Auxiliary functions for ServerHello parsing and related actions
  */
 
-#if defined(MBEDTLS_X509_CRT_PARSE_C)
 /*
  * Return 0 if the given key uses one of the acceptable curves, -1 otherwise
  */
@@ -664,11 +638,9 @@ static int ssl_pick_cert(mbedtls_ssl_context *ssl,
 		mbedtls_ssl_get_ciphersuite_sig_pk_alg(ciphersuite_info);
 	uint32_t flags;
 
-#if defined(MBEDTLS_SSL_SERVER_NAME_INDICATION)
 	if (ssl->handshake->sni_key_cert != NULL)
 		list = ssl->handshake->sni_key_cert;
 	else
-#endif
 		list = ssl->conf->key_cert;
 
 	if (pk_alg == MBEDTLS_PK_NONE)
@@ -751,7 +723,6 @@ static int ssl_pick_cert(mbedtls_ssl_context *ssl,
 
 	return(-1);
 }
-#endif /* MBEDTLS_X509_CRT_PARSE_C */
 
 /*
  * Check if a given ciphersuite is suitable for use with our config/keys/etc
@@ -852,7 +823,6 @@ static int ssl_ciphersuite_match(mbedtls_ssl_context *ssl, int suite_id,
 #endif /* MBEDTLS_SSL_PROTO_TLS1_2 &&
 		  MBEDTLS_KEY_EXCHANGE__WITH_CERT__ENABLED */
 
-#if defined(MBEDTLS_X509_CRT_PARSE_C)
 	/*
 	 * Final check: if ciphersuite requires us to have a
 	 * certificate/key of a particular type:
@@ -866,7 +836,6 @@ static int ssl_ciphersuite_match(mbedtls_ssl_context *ssl, int suite_id,
 					"no suitable certificate"));
 		return 0;
 	}
-#endif
 
 	*ciphersuite_info = suite_info;
 	return 0;
@@ -1192,7 +1161,7 @@ read_record_header:
 	MBEDTLS_SSL_DEBUG_MSG(3, ("client hello v3, protocol version: [%d:%d]",
 				   buf[1], buf[2]));
 
-	mbedtls_ssl_read_version(&major, &minor, ssl->conf->transport, buf + 1);
+	ttls_ssl_read_version(&major, &minor, ssl->conf->transport, buf + 1);
 
 	/* According to RFC 5246 Appendix E.1, the version here is typically
 	 * "{03,00}, the lowest version number supported by the client, [or] the
@@ -1353,7 +1322,7 @@ read_record_header:
 	 */
 	MBEDTLS_SSL_DEBUG_BUF(3, "client hello, version", buf, 2);
 
-	mbedtls_ssl_read_version(&ssl->major_ver, &ssl->minor_ver,
+	ttls_ssl_read_version(&ssl->major_ver, &ssl->minor_ver,
 					  ssl->conf->transport, buf);
 
 	ssl->handshake->max_major_ver = ssl->major_ver;
@@ -1573,7 +1542,6 @@ read_record_header:
 			}
 			switch(ext_id)
 			{
-#if defined(MBEDTLS_SSL_SERVER_NAME_INDICATION)
 			case MBEDTLS_TLS_EXT_SERVERNAME:
 				MBEDTLS_SSL_DEBUG_MSG(3, ("found ServerName extension"));
 				if (ssl->conf->f_sni == NULL)
@@ -1583,7 +1551,6 @@ read_record_header:
 				if (ret != 0)
 					return ret;
 				break;
-#endif /* MBEDTLS_SSL_SERVER_NAME_INDICATION */
 
 			case MBEDTLS_TLS_EXT_RENEGOTIATION_INFO:
 				MBEDTLS_SSL_DEBUG_MSG(3, ("found renegotiation extension"));
@@ -1687,7 +1654,6 @@ read_record_header:
 				break;
 #endif /* MBEDTLS_SSL_SESSION_TICKETS */
 
-#if defined(MBEDTLS_SSL_ALPN)
 			case MBEDTLS_TLS_EXT_ALPN:
 				MBEDTLS_SSL_DEBUG_MSG(3, ("found alpn extension"));
 
@@ -1695,7 +1661,6 @@ read_record_header:
 				if (ret != 0)
 					return ret;
 				break;
-#endif /* MBEDTLS_SSL_SESSION_TICKETS */
 
 			default:
 				MBEDTLS_SSL_DEBUG_MSG(3, ("unknown extension found: %d (ignoring)",
@@ -2121,7 +2086,6 @@ static void ssl_write_ecjpake_kkpp_ext(mbedtls_ssl_context *ssl,
 }
 #endif /* MBEDTLS_KEY_EXCHANGE_ECJPAKE_ENABLED */
 
-#if defined(MBEDTLS_SSL_ALPN)
 static void ssl_write_alpn_ext(mbedtls_ssl_context *ssl,
 				unsigned char *buf, size_t *olen)
 {
@@ -2155,7 +2119,6 @@ static void ssl_write_alpn_ext(mbedtls_ssl_context *ssl,
 
 	memcpy(buf + 7, ssl->alpn_chosen, *olen - 7);
 }
-#endif /* MBEDTLS_ECDH_C || MBEDTLS_ECDSA_C */
 
 #if defined(MBEDTLS_SSL_DTLS_HELLO_VERIFY)
 static int ssl_write_hello_verify_request(mbedtls_ssl_context *ssl)
@@ -2408,10 +2371,8 @@ static int ssl_write_server_hello(mbedtls_ssl_context *ssl)
 	ext_len += olen;
 #endif
 
-#if defined(MBEDTLS_SSL_ALPN)
 	ssl_write_alpn_ext(ssl, p + 2 + ext_len, &olen);
 	ext_len += olen;
-#endif
 
 	MBEDTLS_SSL_DEBUG_MSG(3, ("server hello, total extension length: %d", ext_len));
 
@@ -2481,11 +2442,9 @@ static int ssl_write_certificate_request(mbedtls_ssl_context *ssl)
 
 	ssl->state++;
 
-#if defined(MBEDTLS_SSL_SERVER_NAME_INDICATION)
 	if (ssl->handshake->sni_authmode != MBEDTLS_SSL_VERIFY_UNSET)
 		authmode = ssl->handshake->sni_authmode;
 	else
-#endif
 		authmode = ssl->conf->authmode;
 
 	if (ciphersuite_info->key_exchange == MBEDTLS_KEY_EXCHANGE_PSK ||
@@ -2522,9 +2481,7 @@ static int ssl_write_certificate_request(mbedtls_ssl_context *ssl)
 	 */
 	ct_len = 0;
 
-#if defined(MBEDTLS_RSA_C)
 	p[1 + ct_len++] = MBEDTLS_SSL_CERT_TYPE_RSA_SIGN;
-#endif
 #if defined(MBEDTLS_ECDSA_C)
 	p[1 + ct_len++] = MBEDTLS_SSL_CERT_TYPE_ECDSA_SIGN;
 #endif
@@ -2561,10 +2518,8 @@ static int ssl_write_certificate_request(mbedtls_ssl_context *ssl)
 			if (MBEDTLS_SSL_HASH_NONE == hash || mbedtls_ssl_set_calc_verify_md(ssl, hash))
 				continue;
 
-#if defined(MBEDTLS_RSA_C)
 			p[2 + sa_len++] = hash;
 			p[2 + sa_len++] = MBEDTLS_SSL_SIG_RSA;
-#endif
 #if defined(MBEDTLS_ECDSA_C)
 			p[2 + sa_len++] = hash;
 			p[2 + sa_len++] = MBEDTLS_SSL_SIG_ECDSA;
@@ -2588,11 +2543,9 @@ static int ssl_write_certificate_request(mbedtls_ssl_context *ssl)
 
 	if (ssl->conf->cert_req_ca_list ==  MBEDTLS_SSL_CERT_REQ_CA_LIST_ENABLED)
 	{
-#if defined(MBEDTLS_SSL_SERVER_NAME_INDICATION)
 		if (ssl->handshake->sni_ca_chain != NULL)
 			crt = ssl->handshake->sni_ca_chain;
 		else
-#endif
 			crt = ssl->conf->ca_chain;
 
 		while (crt != NULL && crt->version != 0)
@@ -3280,9 +3233,9 @@ static int ssl_parse_client_key_exchange(mbedtls_ssl_context *ssl)
 
 	MBEDTLS_SSL_DEBUG_MSG(2, ("=> parse client key exchange"));
 
-	if ((ret = mbedtls_ssl_read_record(ssl)) != 0)
+	if ((ret = ttls_ssl_read_record(ssl)) != 0)
 	{
-		MBEDTLS_SSL_DEBUG_RET(1, "mbedtls_ssl_read_record", ret);
+		MBEDTLS_SSL_DEBUG_RET(1, "ttls_ssl_read_record", ret);
 		return ret;
 	}
 
@@ -3579,9 +3532,9 @@ static int ssl_parse_certificate_verify(mbedtls_ssl_context *ssl)
 	/* Read the message without adding it to the checksum */
 	do {
 
-		if ((ret = mbedtls_ssl_read_record_layer(ssl)) != 0)
+		if ((ret = ttls_ssl_read_record_layer(ssl)) != 0)
 		{
-			MBEDTLS_SSL_DEBUG_RET(1, ("mbedtls_ssl_read_record_layer"), ret);
+			MBEDTLS_SSL_DEBUG_RET(1, ("ttls_ssl_read_record_layer"), ret);
 			return ret;
 		}
 
@@ -3922,4 +3875,3 @@ int mbedtls_ssl_handshake_server_step(mbedtls_ssl_context *ssl)
 
 	return ret;
 }
-#endif /* MBEDTLS_SSL_SRV_C */
