@@ -23,7 +23,7 @@
  */
 #include "config.h"
 
-#if defined(MBEDTLS_DEBUG_C)
+#if defined(TTLS_DEBUG_C)
 
 #include "debug.h"
 
@@ -31,7 +31,7 @@
 
 static int debug_threshold = 0;
 
-void mbedtls_debug_set_threshold(int threshold)
+void ttls_debug_set_threshold(int threshold)
 {
 	debug_threshold = threshold;
 }
@@ -39,7 +39,7 @@ void mbedtls_debug_set_threshold(int threshold)
 /*
  * All calls to f_dbg must be made via this function
  */
-static inline void debug_send_line(const mbedtls_ssl_context *ssl, int level,
+static inline void debug_send_line(const ttls_ssl_context *ssl, int level,
 									const char *file, int line,
 									const char *str)
 {
@@ -49,11 +49,11 @@ static inline void debug_send_line(const mbedtls_ssl_context *ssl, int level,
 	 * context instead, as it shouldn't be shared between threads.
 	 */
 	char idstr[20 + DEBUG_BUF_SIZE]; /* 0x + 16 nibbles + ': ' */
-	mbedtls_snprintf(idstr, sizeof(idstr), "%p: %s", (void*)ssl, str);
+	ttls_snprintf(idstr, sizeof(idstr), "%p: %s", (void*)ssl, str);
 	ssl->conf->f_dbg(ssl->conf->p_dbg, level, file, line, idstr);
 }
 
-void mbedtls_debug_print_msg(const mbedtls_ssl_context *ssl, int level,
+void ttls_debug_print_msg(const ttls_ssl_context *ssl, int level,
 							  const char *file, int line,
 							  const char *format, ...)
 {
@@ -77,7 +77,7 @@ void mbedtls_debug_print_msg(const mbedtls_ssl_context *ssl, int level,
 	debug_send_line(ssl, level, file, line, str);
 }
 
-void mbedtls_debug_print_ret(const mbedtls_ssl_context *ssl, int level,
+void ttls_debug_print_ret(const ttls_ssl_context *ssl, int level,
 					  const char *file, int line,
 					  const char *text, int ret)
 {
@@ -91,16 +91,16 @@ void mbedtls_debug_print_ret(const mbedtls_ssl_context *ssl, int level,
 	 * the logs would be quickly flooded with WANT_READ, so ignore that.
 	 * Don't ignore WANT_WRITE however, since is is usually rare.
 	 */
-	if (ret == MBEDTLS_ERR_SSL_WANT_READ)
+	if (ret == TTLS_ERR_SSL_WANT_READ)
 		return;
 
-	mbedtls_snprintf(str, sizeof(str), "%s() returned %d (-0x%04x)\n",
+	ttls_snprintf(str, sizeof(str), "%s() returned %d (-0x%04x)\n",
 			  text, ret, -ret);
 
 	debug_send_line(ssl, level, file, line, str);
 }
 
-void mbedtls_debug_print_buf(const mbedtls_ssl_context *ssl, int level,
+void ttls_debug_print_buf(const ttls_ssl_context *ssl, int level,
 					  const char *file, int line, const char *text,
 					  const unsigned char *buf, size_t len)
 {
@@ -111,7 +111,7 @@ void mbedtls_debug_print_buf(const mbedtls_ssl_context *ssl, int level,
 	if (ssl->conf == NULL || ssl->conf->f_dbg == NULL || level > debug_threshold)
 		return;
 
-	mbedtls_snprintf(str + idx, sizeof(str) - idx, "dumping '%s' (%u bytes)\n",
+	ttls_snprintf(str + idx, sizeof(str) - idx, "dumping '%s' (%u bytes)\n",
 			  text, (unsigned int) len);
 
 	debug_send_line(ssl, level, file, line, str);
@@ -127,19 +127,19 @@ void mbedtls_debug_print_buf(const mbedtls_ssl_context *ssl, int level,
 		{
 			if (i > 0)
 			{
-				mbedtls_snprintf(str + idx, sizeof(str) - idx, "  %s\n", txt);
+				ttls_snprintf(str + idx, sizeof(str) - idx, "  %s\n", txt);
 				debug_send_line(ssl, level, file, line, str);
 
 				idx = 0;
 				memset(txt, 0, sizeof(txt));
 			}
 
-			idx += mbedtls_snprintf(str + idx, sizeof(str) - idx, "%04x: ",
+			idx += ttls_snprintf(str + idx, sizeof(str) - idx, "%04x: ",
 							 (unsigned int) i);
 
 		}
 
-		idx += mbedtls_snprintf(str + idx, sizeof(str) - idx, " %02x",
+		idx += ttls_snprintf(str + idx, sizeof(str) - idx, " %02x",
 						 (unsigned int) buf[i]);
 		txt[i % 16] = (buf[i] > 31 && buf[i] < 127) ? buf[i] : '.' ;
 	}
@@ -147,32 +147,32 @@ void mbedtls_debug_print_buf(const mbedtls_ssl_context *ssl, int level,
 	if (len > 0)
 	{
 		for (/* i = i */; i % 16 != 0; i++)
-			idx += mbedtls_snprintf(str + idx, sizeof(str) - idx, "   ");
+			idx += ttls_snprintf(str + idx, sizeof(str) - idx, "   ");
 
-		mbedtls_snprintf(str + idx, sizeof(str) - idx, "  %s\n", txt);
+		ttls_snprintf(str + idx, sizeof(str) - idx, "  %s\n", txt);
 		debug_send_line(ssl, level, file, line, str);
 	}
 }
 
-void mbedtls_debug_print_ecp(const mbedtls_ssl_context *ssl, int level,
+void ttls_debug_print_ecp(const ttls_ssl_context *ssl, int level,
 					  const char *file, int line,
-					  const char *text, const mbedtls_ecp_point *X)
+					  const char *text, const ttls_ecp_point *X)
 {
 	char str[DEBUG_BUF_SIZE];
 
 	if (ssl->conf == NULL || ssl->conf->f_dbg == NULL || level > debug_threshold)
 		return;
 
-	mbedtls_snprintf(str, sizeof(str), "%s(X)", text);
-	mbedtls_debug_print_mpi(ssl, level, file, line, str, &X->X);
+	ttls_snprintf(str, sizeof(str), "%s(X)", text);
+	ttls_debug_print_mpi(ssl, level, file, line, str, &X->X);
 
-	mbedtls_snprintf(str, sizeof(str), "%s(Y)", text);
-	mbedtls_debug_print_mpi(ssl, level, file, line, str, &X->Y);
+	ttls_snprintf(str, sizeof(str), "%s(Y)", text);
+	ttls_debug_print_mpi(ssl, level, file, line, str, &X->Y);
 }
 
-void mbedtls_debug_print_mpi(const mbedtls_ssl_context *ssl, int level,
+void ttls_debug_print_mpi(const ttls_ssl_context *ssl, int level,
 					  const char *file, int line,
-					  const char *text, const mbedtls_mpi *X)
+					  const char *text, const ttls_mpi *X)
 {
 	char str[DEBUG_BUF_SIZE];
 	int j, k, zeros = 1;
@@ -185,12 +185,12 @@ void mbedtls_debug_print_mpi(const mbedtls_ssl_context *ssl, int level,
 		if (X->p[n] != 0)
 			break;
 
-	for (j = (sizeof(mbedtls_mpi_uint) << 3) - 1; j >= 0; j--)
+	for (j = (sizeof(ttls_mpi_uint) << 3) - 1; j >= 0; j--)
 		if (((X->p[n] >> j) & 1) != 0)
 			break;
 
-	mbedtls_snprintf(str + idx, sizeof(str) - idx, "value of '%s' (%d bits) is:\n",
-			  text, (int) ((n * (sizeof(mbedtls_mpi_uint) << 3)) + j + 1));
+	ttls_snprintf(str + idx, sizeof(str) - idx, "value of '%s' (%d bits) is:\n",
+			  text, (int) ((n * (sizeof(ttls_mpi_uint) << 3)) + j + 1));
 
 	debug_send_line(ssl, level, file, line, str);
 
@@ -200,7 +200,7 @@ void mbedtls_debug_print_mpi(const mbedtls_ssl_context *ssl, int level,
 		if (zeros && X->p[i - 1] == 0)
 			continue;
 
-		for (k = sizeof(mbedtls_mpi_uint) - 1; k >= 0; k--)
+		for (k = sizeof(ttls_mpi_uint) - 1; k >= 0; k--)
 		{
 			if (zeros && ((X->p[i - 1] >> (k << 3)) & 0xFF) == 0)
 				continue;
@@ -211,13 +211,13 @@ void mbedtls_debug_print_mpi(const mbedtls_ssl_context *ssl, int level,
 			{
 				if (j > 0)
 				{
-					mbedtls_snprintf(str + idx, sizeof(str) - idx, "\n");
+					ttls_snprintf(str + idx, sizeof(str) - idx, "\n");
 					debug_send_line(ssl, level, file, line, str);
 					idx = 0;
 				}
 			}
 
-			idx += mbedtls_snprintf(str + idx, sizeof(str) - idx, " %02x", (unsigned int)
+			idx += ttls_snprintf(str + idx, sizeof(str) - idx, " %02x", (unsigned int)
 							 (X->p[i - 1] >> (k << 3)) & 0xFF);
 
 			j++;
@@ -226,49 +226,49 @@ void mbedtls_debug_print_mpi(const mbedtls_ssl_context *ssl, int level,
 	}
 
 	if (zeros == 1)
-		idx += mbedtls_snprintf(str + idx, sizeof(str) - idx, " 00");
+		idx += ttls_snprintf(str + idx, sizeof(str) - idx, " 00");
 
-	mbedtls_snprintf(str + idx, sizeof(str) - idx, "\n");
+	ttls_snprintf(str + idx, sizeof(str) - idx, "\n");
 	debug_send_line(ssl, level, file, line, str);
 }
 
-static void debug_print_pk(const mbedtls_ssl_context *ssl, int level,
+static void debug_print_pk(const ttls_ssl_context *ssl, int level,
 							const char *file, int line,
-							const char *text, const mbedtls_pk_context *pk)
+							const char *text, const ttls_pk_context *pk)
 {
 	size_t i;
-	mbedtls_pk_debug_item items[MBEDTLS_PK_DEBUG_MAX_ITEMS];
+	ttls_pk_debug_item items[TTLS_PK_DEBUG_MAX_ITEMS];
 	char name[16];
 
 	memset(items, 0, sizeof(items));
 
-	if (mbedtls_pk_debug(pk, items) != 0)
+	if (ttls_pk_debug(pk, items) != 0)
 	{
 		debug_send_line(ssl, level, file, line,
 						  "invalid PK context\n");
 		return;
 	}
 
-	for (i = 0; i < MBEDTLS_PK_DEBUG_MAX_ITEMS; i++)
+	for (i = 0; i < TTLS_PK_DEBUG_MAX_ITEMS; i++)
 	{
-		if (items[i].type == MBEDTLS_PK_DEBUG_NONE)
+		if (items[i].type == TTLS_PK_DEBUG_NONE)
 			return;
 
-		mbedtls_snprintf(name, sizeof(name), "%s%s", text, items[i].name);
+		ttls_snprintf(name, sizeof(name), "%s%s", text, items[i].name);
 		name[sizeof(name) - 1] = '\0';
 
-		if (items[i].type == MBEDTLS_PK_DEBUG_MPI)
-			mbedtls_debug_print_mpi(ssl, level, file, line, name, items[i].value);
+		if (items[i].type == TTLS_PK_DEBUG_MPI)
+			ttls_debug_print_mpi(ssl, level, file, line, name, items[i].value);
 		else
-		if (items[i].type == MBEDTLS_PK_DEBUG_ECP)
-			mbedtls_debug_print_ecp(ssl, level, file, line, name, items[i].value);
+		if (items[i].type == TTLS_PK_DEBUG_ECP)
+			ttls_debug_print_ecp(ssl, level, file, line, name, items[i].value);
 		else
 			debug_send_line(ssl, level, file, line,
 							  "should not happen\n");
 	}
 }
 
-static void debug_print_line_by_line(const mbedtls_ssl_context *ssl, int level,
+static void debug_print_line_by_line(const ttls_ssl_context *ssl, int level,
 									  const char *file, int line, const char *text)
 {
 	char str[DEBUG_BUF_SIZE];
@@ -293,9 +293,9 @@ static void debug_print_line_by_line(const mbedtls_ssl_context *ssl, int level,
 	}
 }
 
-void mbedtls_debug_print_crt(const mbedtls_ssl_context *ssl, int level,
+void ttls_debug_print_crt(const ttls_ssl_context *ssl, int level,
 					  const char *file, int line,
-					  const char *text, const mbedtls_x509_crt *crt)
+					  const char *text, const ttls_x509_crt *crt)
 {
 	char buf[1024];
 	int i = 0;
@@ -305,10 +305,10 @@ void mbedtls_debug_print_crt(const mbedtls_ssl_context *ssl, int level,
 
 	while (crt != NULL)
 	{
-		mbedtls_snprintf(buf, sizeof(buf), "%s #%d:\n", text, ++i);
+		ttls_snprintf(buf, sizeof(buf), "%s #%d:\n", text, ++i);
 		debug_send_line(ssl, level, file, line, buf);
 
-		mbedtls_x509_crt_info(buf, sizeof(buf) - 1, "", crt);
+		ttls_x509_crt_info(buf, sizeof(buf) - 1, "", crt);
 		debug_print_line_by_line(ssl, level, file, line, buf);
 
 		debug_print_pk(ssl, level, file, line, "crt->", &crt->pk);
@@ -317,4 +317,4 @@ void mbedtls_debug_print_crt(const mbedtls_ssl_context *ssl, int level,
 	}
 }
 
-#endif /* MBEDTLS_DEBUG_C */
+#endif /* TTLS_DEBUG_C */

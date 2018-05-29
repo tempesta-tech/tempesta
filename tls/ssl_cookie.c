@@ -25,7 +25,7 @@
  */
 #include "config.h"
 
-#if defined(MBEDTLS_SSL_COOKIE_C)
+#if defined(TTLS_SSL_COOKIE_C)
 
 #include "ssl_cookie.h"
 #include "ssl_internal.h"
@@ -33,7 +33,7 @@
 #include <string.h>
 
 /* Implementation that should never be optimized out by the compiler */
-static void mbedtls_zeroize(void *v, size_t n) {
+static void ttls_zeroize(void *v, size_t n) {
 	volatile unsigned char *p = v; while (n--) *p++ = 0;
 }
 
@@ -42,16 +42,16 @@ static void mbedtls_zeroize(void *v, size_t n) {
  * available. Try SHA-256 first, 512 wastes resources since we need to stay
  * with max 32 bytes of cookie for DTLS 1.0
  */
-#if defined(MBEDTLS_SHA256_C)
-#define COOKIE_MD		   MBEDTLS_MD_SHA224
+#if defined(TTLS_SHA256_C)
+#define COOKIE_MD		   TTLS_MD_SHA224
 #define COOKIE_MD_OUTLEN	32
 #define COOKIE_HMAC_LEN	 28
-#elif defined(MBEDTLS_SHA512_C)
-#define COOKIE_MD		   MBEDTLS_MD_SHA384
+#elif defined(TTLS_SHA512_C)
+#define COOKIE_MD		   TTLS_MD_SHA384
 #define COOKIE_MD_OUTLEN	48
 #define COOKIE_HMAC_LEN	 28
-#elif defined(MBEDTLS_SHA1_C)
-#define COOKIE_MD		   MBEDTLS_MD_SHA1
+#elif defined(TTLS_SHA1_C)
+#define COOKIE_MD		   TTLS_MD_SHA1
 #define COOKIE_MD_OUTLEN	20
 #define COOKIE_HMAC_LEN	 20
 #else
@@ -64,26 +64,26 @@ static void mbedtls_zeroize(void *v, size_t n) {
  */
 #define COOKIE_LEN	  (4 + COOKIE_HMAC_LEN)
 
-void mbedtls_ssl_cookie_init(mbedtls_ssl_cookie_ctx *ctx)
+void ttls_ssl_cookie_init(ttls_ssl_cookie_ctx *ctx)
 {
-	mbedtls_md_init(&ctx->hmac_ctx);
+	ttls_md_init(&ctx->hmac_ctx);
 	ctx->serial = 0;
-	ctx->timeout = MBEDTLS_SSL_COOKIE_TIMEOUT;
+	ctx->timeout = TTLS_SSL_COOKIE_TIMEOUT;
 	spin_lock_init(&ctx->mutex);
 }
 
-void mbedtls_ssl_cookie_set_timeout(mbedtls_ssl_cookie_ctx *ctx, unsigned long delay)
+void ttls_ssl_cookie_set_timeout(ttls_ssl_cookie_ctx *ctx, unsigned long delay)
 {
 	ctx->timeout = delay;
 }
 
-void mbedtls_ssl_cookie_free(mbedtls_ssl_cookie_ctx *ctx)
+void ttls_ssl_cookie_free(ttls_ssl_cookie_ctx *ctx)
 {
-	mbedtls_md_free(&ctx->hmac_ctx);
-	mbedtls_zeroize(ctx, sizeof(mbedtls_ssl_cookie_ctx));
+	ttls_md_free(&ctx->hmac_ctx);
+	ttls_zeroize(ctx, sizeof(ttls_ssl_cookie_ctx));
 }
 
-int mbedtls_ssl_cookie_setup(mbedtls_ssl_cookie_ctx *ctx,
+int ttls_ssl_cookie_setup(ttls_ssl_cookie_ctx *ctx,
 					  int (*f_rng)(void *, unsigned char *, size_t),
 					  void *p_rng)
 {
@@ -93,15 +93,15 @@ int mbedtls_ssl_cookie_setup(mbedtls_ssl_cookie_ctx *ctx,
 	if ((ret = f_rng(p_rng, key, sizeof(key))) != 0)
 		return ret;
 
-	ret = mbedtls_md_setup(&ctx->hmac_ctx, mbedtls_md_info_from_type(COOKIE_MD), 1);
+	ret = ttls_md_setup(&ctx->hmac_ctx, ttls_md_info_from_type(COOKIE_MD), 1);
 	if (ret != 0)
 		return ret;
 
-	ret = mbedtls_md_hmac_starts(&ctx->hmac_ctx, key, sizeof(key));
+	ret = ttls_md_hmac_starts(&ctx->hmac_ctx, key, sizeof(key));
 	if (ret != 0)
 		return ret;
 
-	mbedtls_zeroize(key, sizeof(key));
+	ttls_zeroize(key, sizeof(key));
 
 	return 0;
 }
@@ -109,7 +109,7 @@ int mbedtls_ssl_cookie_setup(mbedtls_ssl_cookie_ctx *ctx,
 /*
  * Generate the HMAC part of a cookie
  */
-static int ssl_cookie_hmac(mbedtls_md_context_t *hmac_ctx,
+static int ssl_cookie_hmac(ttls_md_context_t *hmac_ctx,
 							const unsigned char time[4],
 							unsigned char **p, unsigned char *end,
 							const unsigned char *cli_id, size_t cli_id_len)
@@ -117,14 +117,14 @@ static int ssl_cookie_hmac(mbedtls_md_context_t *hmac_ctx,
 	unsigned char hmac_out[COOKIE_MD_OUTLEN];
 
 	if ((size_t)(end - *p) < COOKIE_HMAC_LEN)
-		return(MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL);
+		return(TTLS_ERR_SSL_BUFFER_TOO_SMALL);
 
-	if (mbedtls_md_hmac_reset( hmac_ctx) != 0 ||
-		mbedtls_md_hmac_update(hmac_ctx, time, 4) != 0 ||
-		mbedtls_md_hmac_update(hmac_ctx, cli_id, cli_id_len) != 0 ||
-		mbedtls_md_hmac_finish(hmac_ctx, hmac_out) != 0)
+	if (ttls_md_hmac_reset( hmac_ctx) != 0 ||
+		ttls_md_hmac_update(hmac_ctx, time, 4) != 0 ||
+		ttls_md_hmac_update(hmac_ctx, cli_id, cli_id_len) != 0 ||
+		ttls_md_hmac_finish(hmac_ctx, hmac_out) != 0)
 	{
-		return(MBEDTLS_ERR_SSL_INTERNAL_ERROR);
+		return(TTLS_ERR_SSL_INTERNAL_ERROR);
 	}
 
 	memcpy(*p, hmac_out, COOKIE_HMAC_LEN);
@@ -136,21 +136,21 @@ static int ssl_cookie_hmac(mbedtls_md_context_t *hmac_ctx,
 /*
  * Generate cookie for DTLS ClientHello verification
  */
-int mbedtls_ssl_cookie_write(void *p_ctx,
+int ttls_ssl_cookie_write(void *p_ctx,
 					  unsigned char **p, unsigned char *end,
 					  const unsigned char *cli_id, size_t cli_id_len)
 {
 	int ret;
-	mbedtls_ssl_cookie_ctx *ctx = (mbedtls_ssl_cookie_ctx *) p_ctx;
+	ttls_ssl_cookie_ctx *ctx = (ttls_ssl_cookie_ctx *) p_ctx;
 	unsigned long t;
 
 	if (ctx == NULL || cli_id == NULL)
-		return(MBEDTLS_ERR_SSL_BAD_INPUT_DATA);
+		return(TTLS_ERR_SSL_BAD_INPUT_DATA);
 
 	if ((size_t)(end - *p) < COOKIE_LEN)
-		return(MBEDTLS_ERR_SSL_BUFFER_TOO_SMALL);
+		return(TTLS_ERR_SSL_BUFFER_TOO_SMALL);
 
-	t = (unsigned long) mbedtls_time(NULL);
+	t = (unsigned long) ttls_time(NULL);
 	t = ctx->serial++;
 
 	(*p)[0] = (unsigned char)(t >> 24);
@@ -172,18 +172,18 @@ int mbedtls_ssl_cookie_write(void *p_ctx,
 /*
  * Check a cookie
  */
-int mbedtls_ssl_cookie_check(void *p_ctx,
+int ttls_ssl_cookie_check(void *p_ctx,
 					  const unsigned char *cookie, size_t cookie_len,
 					  const unsigned char *cli_id, size_t cli_id_len)
 {
 	unsigned char ref_hmac[COOKIE_HMAC_LEN];
 	int ret = 0;
 	unsigned char *p = ref_hmac;
-	mbedtls_ssl_cookie_ctx *ctx = (mbedtls_ssl_cookie_ctx *) p_ctx;
+	ttls_ssl_cookie_ctx *ctx = (ttls_ssl_cookie_ctx *) p_ctx;
 	unsigned long cur_time, cookie_time;
 
 	if (ctx == NULL || cli_id == NULL)
-		return(MBEDTLS_ERR_SSL_BAD_INPUT_DATA);
+		return(TTLS_ERR_SSL_BAD_INPUT_DATA);
 
 	if (cookie_len != COOKIE_LEN)
 		return(-1);
@@ -200,10 +200,10 @@ int mbedtls_ssl_cookie_check(void *p_ctx,
 	if (ret != 0)
 		return ret;
 
-	if (mbedtls_ssl_safer_memcmp(cookie + 4, ref_hmac, sizeof(ref_hmac)) != 0)
+	if (ttls_ssl_safer_memcmp(cookie + 4, ref_hmac, sizeof(ref_hmac)) != 0)
 		return(-1);
 
-	cur_time = (unsigned long) mbedtls_time(NULL);
+	cur_time = (unsigned long) ttls_time(NULL);
 
 	cookie_time = ((unsigned long) cookie[0] << 24) |
 				  ((unsigned long) cookie[1] << 16) |
@@ -215,4 +215,4 @@ int mbedtls_ssl_cookie_check(void *p_ctx,
 
 	return 0;
 }
-#endif /* MBEDTLS_SSL_COOKIE_C */
+#endif /* TTLS_SSL_COOKIE_C */
