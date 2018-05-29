@@ -27,14 +27,7 @@
 #ifndef TTLS_RIPEMD160_H
 #define TTLS_RIPEMD160_H
 
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
-
-#include <stddef.h>
-#include <stdint.h>
 
 #define TTLS_ERR_RIPEMD160_HW_ACCEL_FAILED			 -0x0031  /**< RIPEMD160 hardware accelerator failed */
 
@@ -118,63 +111,6 @@ int ttls_ripemd160_finish_ret(ttls_ripemd160_context *ctx,
 int ttls_internal_ripemd160_process(ttls_ripemd160_context *ctx,
 										const unsigned char data[64]);
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-#if defined(TTLS_DEPRECATED_WARNING)
-#define TTLS_DEPRECATED	  __attribute__((deprecated))
-#else
-#define TTLS_DEPRECATED
-#endif
-/**
- * \brief		  RIPEMD-160 context setup
- *
- * \deprecated	 Superseded by ttls_ripemd160_starts_ret() in 2.7.0
- *
- * \param ctx	  context to be initialized
- */
-TTLS_DEPRECATED void ttls_ripemd160_starts(
-											ttls_ripemd160_context *ctx);
-
-/**
- * \brief		  RIPEMD-160 process buffer
- *
- * \deprecated	 Superseded by ttls_ripemd160_update_ret() in 2.7.0
- *
- * \param ctx	  RIPEMD-160 context
- * \param input	buffer holding the data
- * \param ilen	 length of the input data
- */
-TTLS_DEPRECATED void ttls_ripemd160_update(
-												ttls_ripemd160_context *ctx,
-												const unsigned char *input,
-												size_t ilen);
-
-/**
- * \brief		  RIPEMD-160 final digest
- *
- * \deprecated	 Superseded by ttls_ripemd160_finish_ret() in 2.7.0
- *
- * \param ctx	  RIPEMD-160 context
- * \param output   RIPEMD-160 checksum result
- */
-TTLS_DEPRECATED void ttls_ripemd160_finish(
-												ttls_ripemd160_context *ctx,
-												unsigned char output[20]);
-
-/**
- * \brief		  RIPEMD-160 process data block (internal use only)
- *
- * \deprecated	 Superseded by ttls_internal_ripemd160_process() in 2.7.0
- *
- * \param ctx	  RIPEMD-160 context
- * \param data	 buffer holding one block of data
- */
-TTLS_DEPRECATED void ttls_ripemd160_process(
-											ttls_ripemd160_context *ctx,
-											const unsigned char data[64]);
-
-#undef TTLS_DEPRECATED
-#endif /* !TTLS_DEPRECATED_REMOVED */
-
 #else  /* TTLS_RIPEMD160_ALT */
 #include "ripemd160_alt.h"
 #endif /* TTLS_RIPEMD160_ALT */
@@ -191,27 +127,5 @@ TTLS_DEPRECATED void ttls_ripemd160_process(
 int ttls_ripemd160_ret(const unsigned char *input,
 						   size_t ilen,
 						   unsigned char output[20]);
-
-#if !defined(TTLS_DEPRECATED_REMOVED)
-#if defined(TTLS_DEPRECATED_WARNING)
-#define TTLS_DEPRECATED	  __attribute__((deprecated))
-#else
-#define TTLS_DEPRECATED
-#endif
-/**
- * \brief		  Output = RIPEMD-160(input buffer)
- *
- * \deprecated	 Superseded by ttls_ripemd160_ret() in 2.7.0
- *
- * \param input	buffer holding the data
- * \param ilen	 length of the input data
- * \param output   RIPEMD-160 checksum result
- */
-TTLS_DEPRECATED void ttls_ripemd160(const unsigned char *input,
-										   size_t ilen,
-										   unsigned char output[20]);
-
-#undef TTLS_DEPRECATED
-#endif /* !TTLS_DEPRECATED_REMOVED */
 
 #endif /* ttls_ripemd160.h */

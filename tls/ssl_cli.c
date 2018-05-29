@@ -818,11 +818,7 @@ static int ssl_write_client_hello(ttls_ssl_context *ssl)
 	*q++ = (unsigned char)(n >> 7);
 	*q++ = (unsigned char)(n << 1);
 
-#if defined(TTLS_ZLIB_SUPPORT)
-	offer_compress = 1;
-#else
 	offer_compress = 0;
-#endif
 
 	/*
 	 * We don't support compression with DTLS right now: is many records come
@@ -1302,9 +1298,6 @@ static int ssl_parse_server_hello(ttls_ssl_context *ssl)
 	size_t ext_len;
 	unsigned char *buf, *ext;
 	unsigned char comp;
-#if defined(TTLS_ZLIB_SUPPORT)
-	int accept_comp;
-#endif
 	int handshake_failure = 0;
 	const ttls_ssl_ciphersuite_t *suite_info;
 
@@ -1443,20 +1436,7 @@ static int ssl_parse_server_hello(ttls_ssl_context *ssl)
 	 */
 	comp = buf[37 + n];
 
-#if defined(TTLS_ZLIB_SUPPORT)
-	/* See comments in ssl_write_client_hello() */
-#if defined(TTLS_SSL_PROTO_DTLS)
-	if (ssl->conf->transport == TTLS_SSL_TRANSPORT_DATAGRAM)
-		accept_comp = 0;
-	else
-#endif
-		accept_comp = 1;
-
-	if (comp != TTLS_SSL_COMPRESS_NULL &&
-		(comp != TTLS_SSL_COMPRESS_DEFLATE || accept_comp == 0))
-#else /* TTLS_ZLIB_SUPPORT */
 	if (comp != TTLS_SSL_COMPRESS_NULL)
-#endif/* TTLS_ZLIB_SUPPORT */
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("server hello, bad compression: %d", comp));
 		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
@@ -1552,12 +1532,7 @@ static int ssl_parse_server_hello(ttls_ssl_context *ssl)
 		}
 	}
 
-	if (comp != TTLS_SSL_COMPRESS_NULL
-#if defined(TTLS_ZLIB_SUPPORT)
-		&& comp != TTLS_SSL_COMPRESS_DEFLATE
-#endif
-	 )
-	{
+	if (comp != TTLS_SSL_COMPRESS_NULL) {
 		TTLS_SSL_DEBUG_MSG(1, ("bad server hello message"));
 		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_ILLEGAL_PARAMETER);

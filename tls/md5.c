@@ -97,13 +97,6 @@ int ttls_md5_starts_ret(ttls_md5_context *ctx)
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_md5_starts(ttls_md5_context *ctx)
-{
-	ttls_md5_starts_ret(ctx);
-}
-#endif
-
 #if !defined(TTLS_MD5_PROCESS_ALT)
 int ttls_internal_md5_process(ttls_md5_context *ctx,
 								  const unsigned char data[64])
@@ -231,13 +224,6 @@ int ttls_internal_md5_process(ttls_md5_context *ctx,
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_md5_process(ttls_md5_context *ctx,
-						  const unsigned char data[64])
-{
-	ttls_internal_md5_process(ctx, data);
-}
-#endif
 #endif /* !TTLS_MD5_PROCESS_ALT */
 
 /*
@@ -291,15 +277,6 @@ int ttls_md5_update_ret(ttls_md5_context *ctx,
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_md5_update(ttls_md5_context *ctx,
-						 const unsigned char *input,
-						 size_t ilen)
-{
-	ttls_md5_update_ret(ctx, input, ilen);
-}
-#endif
-
 static const unsigned char md5_padding[64] =
 {
  0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -343,14 +320,6 @@ int ttls_md5_finish_ret(ttls_md5_context *ctx,
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_md5_finish(ttls_md5_context *ctx,
-						 unsigned char output[16])
-{
-	ttls_md5_finish_ret(ctx, output);
-}
-#endif
-
 #endif /* !TTLS_MD5_ALT */
 
 /*
@@ -379,15 +348,6 @@ exit:
 
 	return ret;
 }
-
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_md5(const unsigned char *input,
-				  size_t ilen,
-				  unsigned char output[16])
-{
-	ttls_md5_ret(input, ilen, output);
-}
-#endif
 
 /*
  * RFC 1321 test vectors
