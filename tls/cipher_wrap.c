@@ -30,9 +30,6 @@
 #if defined(TTLS_AES_C)
 #include "aes.h"
 #endif
-#if defined(TTLS_ARC4_C)
-#include "arc4.h"
-#endif
 #if defined(TTLS_CAMELLIA_C)
 #include "camellia.h"
 #endif
@@ -1188,77 +1185,6 @@ static const ttls_cipher_info_t blowfish_ctr_info = {
 #endif /* TTLS_CIPHER_MODE_CTR */
 #endif /* TTLS_BLOWFISH_C */
 
-#if defined(TTLS_ARC4_C)
-static int arc4_crypt_stream_wrap(void *ctx, size_t length,
-								   const unsigned char *input,
-								   unsigned char *output)
-{
-	return(ttls_arc4_crypt((ttls_arc4_context *) ctx, length, input, output));
-}
-
-static int arc4_setkey_wrap(void *ctx, const unsigned char *key,
-							 unsigned int key_bitlen)
-{
-	/* we get key_bitlen in bits, arc4 expects it in bytes */
-	if (key_bitlen % 8 != 0)
-		return(TTLS_ERR_CIPHER_BAD_INPUT_DATA);
-
-	ttls_arc4_setup((ttls_arc4_context *) ctx, key, key_bitlen / 8);
-	return 0;
-}
-
-static void * arc4_ctx_alloc(void)
-{
-	ttls_arc4_context *ctx;
-	ctx = ttls_calloc(1, sizeof(ttls_arc4_context));
-
-	if (ctx == NULL)
-		return(NULL);
-
-	ttls_arc4_init(ctx);
-
-	return(ctx);
-}
-
-static void arc4_ctx_free(void *ctx)
-{
-	ttls_arc4_free((ttls_arc4_context *) ctx);
-	ttls_free(ctx);
-}
-
-static const ttls_cipher_base_t arc4_base_info = {
-	TTLS_CIPHER_ID_ARC4,
-	NULL,
-#if defined(TTLS_CIPHER_MODE_CBC)
-	NULL,
-#endif
-#if defined(TTLS_CIPHER_MODE_CFB)
-	NULL,
-#endif
-#if defined(TTLS_CIPHER_MODE_CTR)
-	NULL,
-#endif
-#if defined(TTLS_CIPHER_MODE_STREAM)
-	arc4_crypt_stream_wrap,
-#endif
-	arc4_setkey_wrap,
-	arc4_setkey_wrap,
-	arc4_ctx_alloc,
-	arc4_ctx_free
-};
-
-static const ttls_cipher_info_t arc4_128_info = {
-	TTLS_CIPHER_ARC4_128,
-	TTLS_MODE_STREAM,
-	128,
-	"ARC4-128",
-	0,
-	0,
-	1,
-	&arc4_base_info
-};
-#endif /* TTLS_ARC4_C */
-
 const ttls_cipher_definition_t ttls_cipher_definitions[] =
 {
 #if defined(TTLS_AES_C)
@@ -1291,10 +1217,6 @@ const ttls_cipher_definition_t ttls_cipher_definitions[] =
 	{ TTLS_CIPHER_AES_256_CCM,		  &aes_256_ccm_info },
 #endif
 #endif /* TTLS_AES_C */
-
-#if defined(TTLS_ARC4_C)
-	{ TTLS_CIPHER_ARC4_128,			 &arc4_128_info },
-#endif
 
 #if defined(TTLS_BLOWFISH_C)
 	{ TTLS_CIPHER_BLOWFISH_ECB,		 &blowfish_ecb_info },

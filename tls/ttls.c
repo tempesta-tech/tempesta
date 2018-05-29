@@ -21,6 +21,7 @@
 #include <linux/module.h>
 
 #include "ttls.h"
+#include "ssl_internal.h"
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
 MODULE_DESCRIPTION("Tempesta TLS");

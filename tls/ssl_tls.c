@@ -858,9 +858,7 @@ int ttls_ssl_psk_derive_premaster(ttls_ssl_context *ssl, ttls_key_exchange_type_
 }
 #endif /* TTLS_KEY_EXCHANGE__SOME__PSK_ENABLED */
 
-#if defined(TTLS_ARC4_C) ||  \
-	(defined(TTLS_CIPHER_MODE_CBC) &&				 \
-	 (defined(TTLS_AES_C) || defined(TTLS_CAMELLIA_C)))
+#if (defined(TTLS_CIPHER_MODE_CBC) && (defined(TTLS_AES_C) || defined(TTLS_CAMELLIA_C)))
 #define SSL_SOME_MODES_USE_MAC
 #endif
 
@@ -936,34 +934,6 @@ static int ssl_encrypt_buf(ttls_ssl_context *ssl)
 	/*
 	 * Encrypt
 	 */
-#if defined(TTLS_ARC4_C)
-	if (mode == TTLS_MODE_STREAM)
-	{
-		int ret;
-		size_t olen = 0;
-
-		TTLS_SSL_DEBUG_MSG(3, ("before encrypt: msglen = %d, "
-					"including %d bytes of padding",
-					 ssl->out_msglen, 0));
-
-		if ((ret = ttls_cipher_crypt(&ssl->transform_out->cipher_ctx_enc,
-						 ssl->transform_out->iv_enc,
-						 ssl->transform_out->ivlen,
-						 ssl->out_msg, ssl->out_msglen,
-						 ssl->out_msg, &olen)) != 0)
-		{
-			TTLS_SSL_DEBUG_RET(1, "ttls_cipher_crypt", ret);
-			return ret;
-		}
-
-		if (ssl->out_msglen != olen)
-		{
-			TTLS_SSL_DEBUG_MSG(1, ("should never happen"));
-			return(TTLS_ERR_SSL_INTERNAL_ERROR);
-		}
-	}
-	else
-#endif /* TTLS_ARC4_C */
 #if defined(TTLS_GCM_C) || defined(TTLS_CCM_C)
 	if (mode == TTLS_MODE_GCM ||
 		mode == TTLS_MODE_CCM)
@@ -1189,32 +1159,6 @@ static int ssl_decrypt_buf(ttls_ssl_context *ssl)
 		return(TTLS_ERR_SSL_INVALID_MAC);
 	}
 
-#if defined(TTLS_ARC4_C)
-	if (mode == TTLS_MODE_STREAM)
-	{
-		int ret;
-		size_t olen = 0;
-
-		padlen = 0;
-
-		if ((ret = ttls_cipher_crypt(&ssl->transform_in->cipher_ctx_dec,
-						 ssl->transform_in->iv_dec,
-						 ssl->transform_in->ivlen,
-						 ssl->in_msg, ssl->in_msglen,
-						 ssl->in_msg, &olen)) != 0)
-		{
-			TTLS_SSL_DEBUG_RET(1, "ttls_cipher_crypt", ret);
-			return ret;
-		}
-
-		if (ssl->in_msglen != olen)
-		{
-			TTLS_SSL_DEBUG_MSG(1, ("should never happen"));
-			return(TTLS_ERR_SSL_INTERNAL_ERROR);
-		}
-	}
-	else
-#endif /* TTLS_ARC4_C */
 #if defined(TTLS_GCM_C) || defined(TTLS_CCM_C)
 	if (mode == TTLS_MODE_GCM ||
 		mode == TTLS_MODE_CCM)
@@ -5324,13 +5268,6 @@ void ttls_ssl_conf_extended_master_secret(ttls_ssl_config *conf, char ems)
 }
 #endif
 
-#if defined(TTLS_ARC4_C)
-void ttls_ssl_conf_arc4_support(ttls_ssl_config *conf, char arc4)
-{
-	conf->arc4_disabled = arc4;
-}
-#endif
-
 #if defined(TTLS_SSL_MAX_FRAGMENT_LENGTH)
 int ttls_ssl_conf_max_frag_len(ttls_ssl_config *conf, unsigned char mfl_code)
 {
@@ -6156,10 +6093,6 @@ int ttls_ssl_config_defaults(ttls_ssl_config *conf,
 		conf->session_tickets = TTLS_SSL_SESSION_TICKETS_ENABLED;
 #endif
 	}
-#endif
-
-#if defined(TTLS_ARC4_C)
-	conf->arc4_disabled = TTLS_SSL_ARC4_DISABLED;
 #endif
 
 #if defined(TTLS_SSL_ENCRYPT_THEN_MAC)

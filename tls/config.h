@@ -37,10 +37,10 @@
 #include <linux/spinlock.h>
 
 #define ttls_time(a)		get_seconds()
-#define ttls_calloc		calloc
-#define ttls_free		free
-#define ttls_snprintf	snprintf
-#define ttls_printf		printk
+#define ttls_calloc(n, s)	kzalloc((n) * (s), GFP_ATOMIC)
+#define ttls_free		kfree
+#define ttls_snprintf		snprintf
+#define ttls_printf		pr_info
 
 /**
  * \def TTLS_HAVE_TIME_DATE
@@ -84,14 +84,13 @@
  * Uncomment a macro to enable alternate implementation of the corresponding
  * module.
  *
- * \warning   MD2, MD4, MD5, ARC4, DES and SHA-1 are considered weak and their
+ * \warning   MD2, MD4, MD5, DES and SHA-1 are considered weak and their
  *			use constitutes a security risk. If possible, we recommend
  *			avoiding dependencies on them, and considering stronger message
  *			digests and ciphers instead.
  *
  */
 //#define TTLS_AES_ALT
-//#define TTLS_ARC4_ALT
 //#define TTLS_BLOWFISH_ALT
 //#define TTLS_CAMELLIA_ALT
 //#define TTLS_CCM_ALT
@@ -273,19 +272,6 @@
 #define TTLS_CIPHER_PADDING_ONE_AND_ZEROS
 #define TTLS_CIPHER_PADDING_ZEROS_AND_LEN
 #define TTLS_CIPHER_PADDING_ZEROS
-
-/**
- * \def TTLS_REMOVE_ARC4_CIPHERSUITES
- *
- * Remove RC4 ciphersuites by default in SSL / TLS.
- * This flag removes the ciphersuites based on RC4 from the default list as
- * returned by ttls_ssl_list_ciphersuites(). However, it is still possible to
- * enable (some of) them with ttls_ssl_conf_ciphersuites() by including them
- * explicitly.
- *
- * Uncomment this macro to remove RC4 ciphersuites by default.
- */
-#define TTLS_REMOVE_ARC4_CIPHERSUITES
 
 /**
  * \def TTLS_ECP_NIST_OPTIM
@@ -707,7 +693,7 @@
  * a timing side-channel.
  *
  */
-//#define TTLS_SSL_DEBUG_ALL
+#define TTLS_SSL_DEBUG_ALL
 
 /** \def TTLS_SSL_ENCRYPT_THEN_MAC
  *
@@ -1027,34 +1013,6 @@
  * PEM_PARSE uses AES for decrypting encrypted keys.
  */
 #define TTLS_AES_C
-
-/**
- * \def TTLS_ARC4_C
- *
- * Enable the ARCFOUR stream cipher.
- *
- * Module:  library/arc4.c
- * Caller:  library/ssl_tls.c
- *
- * This module enables the following ciphersuites (if other requisites are
- * enabled as well):
- *	  TTLS_TLS_ECDH_ECDSA_WITH_RC4_128_SHA
- *	  TTLS_TLS_ECDH_RSA_WITH_RC4_128_SHA
- *	  TTLS_TLS_ECDHE_ECDSA_WITH_RC4_128_SHA
- *	  TTLS_TLS_ECDHE_RSA_WITH_RC4_128_SHA
- *	  TTLS_TLS_ECDHE_PSK_WITH_RC4_128_SHA
- *	  TTLS_TLS_DHE_PSK_WITH_RC4_128_SHA
- *	  TTLS_TLS_RSA_WITH_RC4_128_SHA
- *	  TTLS_TLS_RSA_WITH_RC4_128_MD5
- *	  TTLS_TLS_RSA_PSK_WITH_RC4_128_SHA
- *	  TTLS_TLS_PSK_WITH_RC4_128_SHA
- *
- * \warning   ARC4 is considered a weak cipher and its use constitutes a
- *			security risk. If possible, we recommend avoidng dependencies on
- *			it, and considering stronger ciphers instead.
- *
- */
-#define TTLS_ARC4_C
 
 /**
  * \def TTLS_ASN1_WRITE_C
@@ -1516,8 +1474,6 @@
  *
  * Module:  library/pkcs12.c
  * Caller:  library/pkparse.c
- *
- * Can use:  TTLS_ARC4_C
  *
  * This module enables PKCS#12 functions.
  */
