@@ -28,8 +28,8 @@
  *	  Multiply source vector [s] with b, add result
  *	   to destination vector [d] and set carry c.
  */
-#ifndef MBEDTLS_BN_MUL_H
-#define MBEDTLS_BN_MUL_H
+#ifndef TTLS_BN_MUL_H
+#define TTLS_BN_MUL_H
 
 #include "bignum.h"
 

@@ -24,8 +24,8 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#ifndef MBEDTLS_ECJPAKE_H
-#define MBEDTLS_ECJPAKE_H
+#ifndef TTLS_ECJPAKE_H
+#define TTLS_ECJPAKE_H
 
 /*
  * J-PAKE is a password-authenticated key exchange that allows deriving a
@@ -47,15 +47,15 @@
 #include "ecp.h"
 #include "md.h"
 
-#if !defined(MBEDTLS_ECJPAKE_ALT)
+#if !defined(TTLS_ECJPAKE_ALT)
 
 /**
  * Roles in the EC J-PAKE exchange
  */
 typedef enum {
-	MBEDTLS_ECJPAKE_CLIENT = 0,		 /**< Client						 */
-	MBEDTLS_ECJPAKE_SERVER,			 /**< Server						 */
-} mbedtls_ecjpake_role;
+	TTLS_ECJPAKE_CLIENT = 0,		 /**< Client						 */
+	TTLS_ECJPAKE_SERVER,			 /**< Server						 */
+} ttls_ecjpake_role;
 
 /**
  * EC J-PAKE context structure.
@@ -70,22 +70,22 @@ typedef enum {
  */
 typedef struct
 {
-	const mbedtls_md_info_t *md_info;   /**< Hash to use					*/
-	mbedtls_ecp_group grp;			  /**< Elliptic curve				 */
-	mbedtls_ecjpake_role role;		  /**< Are we client or server?	   */
+	const ttls_md_info_t *md_info;   /**< Hash to use					*/
+	ttls_ecp_group grp;			  /**< Elliptic curve				 */
+	ttls_ecjpake_role role;		  /**< Are we client or server?	   */
 	int point_format;				   /**< Format for point export		*/
 
-	mbedtls_ecp_point Xm1;			  /**< My public key 1   C: X1, S: X3 */
-	mbedtls_ecp_point Xm2;			  /**< My public key 2   C: X2, S: X4 */
-	mbedtls_ecp_point Xp1;			  /**< Peer public key 1 C: X3, S: X1 */
-	mbedtls_ecp_point Xp2;			  /**< Peer public key 2 C: X4, S: X2 */
-	mbedtls_ecp_point Xp;			   /**< Peer public key   C: Xs, S: Xc */
+	ttls_ecp_point Xm1;			  /**< My public key 1   C: X1, S: X3 */
+	ttls_ecp_point Xm2;			  /**< My public key 2   C: X2, S: X4 */
+	ttls_ecp_point Xp1;			  /**< Peer public key 1 C: X3, S: X1 */
+	ttls_ecp_point Xp2;			  /**< Peer public key 2 C: X4, S: X2 */
+	ttls_ecp_point Xp;			   /**< Peer public key   C: Xs, S: Xc */
 
-	mbedtls_mpi xm1;					/**< My private key 1  C: x1, S: x3 */
-	mbedtls_mpi xm2;					/**< My private key 2  C: x2, S: x4 */
+	ttls_mpi xm1;					/**< My private key 1  C: x1, S: x3 */
+	ttls_mpi xm2;					/**< My private key 2  C: x2, S: x4 */
 
-	mbedtls_mpi s;					  /**< Pre-shared secret (passphrase) */
-} mbedtls_ecjpake_context;
+	ttls_mpi s;					  /**< Pre-shared secret (passphrase) */
+} ttls_ecjpake_context;
 
 /**
  * \brief		   Initialize a context
@@ -93,28 +93,28 @@ typedef struct
  *
  * \param ctx	   context to initialize
  */
-void mbedtls_ecjpake_init(mbedtls_ecjpake_context *ctx);
+void ttls_ecjpake_init(ttls_ecjpake_context *ctx);
 
 /**
  * \brief		   Set up a context for use
  *
  * \note			Currently the only values for hash/curve allowed by the
- *				  standard are MBEDTLS_MD_SHA256/MBEDTLS_ECP_DP_SECP256R1.
+ *				  standard are TTLS_MD_SHA256/TTLS_ECP_DP_SECP256R1.
  *
  * \param ctx	   context to set up
  * \param role	  Our role: client or server
- * \param hash	  hash function to use (MBEDTLS_MD_XXX)
- * \param curve	 elliptic curve identifier (MBEDTLS_ECP_DP_XXX)
+ * \param hash	  hash function to use (TTLS_MD_XXX)
+ * \param curve	 elliptic curve identifier (TTLS_ECP_DP_XXX)
  * \param secret	pre-shared secret (passphrase)
  * \param len	   length of the shared secret
  *
  * \return		  0 if successfull,
  *				  a negative error code otherwise
  */
-int mbedtls_ecjpake_setup(mbedtls_ecjpake_context *ctx,
-						   mbedtls_ecjpake_role role,
-						   mbedtls_md_type_t hash,
-						   mbedtls_ecp_group_id curve,
+int ttls_ecjpake_setup(ttls_ecjpake_context *ctx,
+						   ttls_ecjpake_role role,
+						   ttls_md_type_t hash,
+						   ttls_ecp_group_id curve,
 						   const unsigned char *secret,
 						   size_t len);
 
@@ -124,9 +124,9 @@ int mbedtls_ecjpake_setup(mbedtls_ecjpake_context *ctx,
  * \param ctx	   Context to check
  *
  * \return		  0 if the context is ready for use,
- *				  MBEDTLS_ERR_ECP_BAD_INPUT_DATA otherwise
+ *				  TTLS_ERR_ECP_BAD_INPUT_DATA otherwise
  */
-int mbedtls_ecjpake_check(const mbedtls_ecjpake_context *ctx);
+int ttls_ecjpake_check(const ttls_ecjpake_context *ctx);
 
 /**
  * \brief		   Generate and write the first round message
@@ -143,7 +143,7 @@ int mbedtls_ecjpake_check(const mbedtls_ecjpake_context *ctx);
  * \return		  0 if successfull,
  *				  a negative error code otherwise
  */
-int mbedtls_ecjpake_write_round_one(mbedtls_ecjpake_context *ctx,
+int ttls_ecjpake_write_round_one(ttls_ecjpake_context *ctx,
 							unsigned char *buf, size_t len, size_t *olen,
 							int (*f_rng)(void *, unsigned char *, size_t),
 							void *p_rng);
@@ -160,7 +160,7 @@ int mbedtls_ecjpake_write_round_one(mbedtls_ecjpake_context *ctx,
  * \return		  0 if successfull,
  *				  a negative error code otherwise
  */
-int mbedtls_ecjpake_read_round_one(mbedtls_ecjpake_context *ctx,
+int ttls_ecjpake_read_round_one(ttls_ecjpake_context *ctx,
 									const unsigned char *buf,
 									size_t len);
 
@@ -178,7 +178,7 @@ int mbedtls_ecjpake_read_round_one(mbedtls_ecjpake_context *ctx,
  * \return		  0 if successfull,
  *				  a negative error code otherwise
  */
-int mbedtls_ecjpake_write_round_two(mbedtls_ecjpake_context *ctx,
+int ttls_ecjpake_write_round_two(ttls_ecjpake_context *ctx,
 							unsigned char *buf, size_t len, size_t *olen,
 							int (*f_rng)(void *, unsigned char *, size_t),
 							void *p_rng);
@@ -194,7 +194,7 @@ int mbedtls_ecjpake_write_round_two(mbedtls_ecjpake_context *ctx,
  * \return		  0 if successfull,
  *				  a negative error code otherwise
  */
-int mbedtls_ecjpake_read_round_two(mbedtls_ecjpake_context *ctx,
+int ttls_ecjpake_read_round_two(ttls_ecjpake_context *ctx,
 									const unsigned char *buf,
 									size_t len);
 
@@ -212,7 +212,7 @@ int mbedtls_ecjpake_read_round_two(mbedtls_ecjpake_context *ctx,
  * \return		  0 if successfull,
  *				  a negative error code otherwise
  */
-int mbedtls_ecjpake_derive_secret(mbedtls_ecjpake_context *ctx,
+int ttls_ecjpake_derive_secret(ttls_ecjpake_context *ctx,
 							unsigned char *buf, size_t len, size_t *olen,
 							int (*f_rng)(void *, unsigned char *, size_t),
 							void *p_rng);
@@ -222,10 +222,10 @@ int mbedtls_ecjpake_derive_secret(mbedtls_ecjpake_context *ctx,
  *
  * \param ctx	   context to free
  */
-void mbedtls_ecjpake_free(mbedtls_ecjpake_context *ctx);
+void ttls_ecjpake_free(ttls_ecjpake_context *ctx);
 
-#else  /* MBEDTLS_ECJPAKE_ALT */
+#else  /* TTLS_ECJPAKE_ALT */
 #include "ecjpake_alt.h"
-#endif /* MBEDTLS_ECJPAKE_ALT */
+#endif /* TTLS_ECJPAKE_ALT */
 
 #endif /* ecjpake.h */
