@@ -87,7 +87,7 @@
  */
 #define TTLS_SSL_COMPRESSION_ADD			 0
 
-#if defined(TTLS_ARC4_C) || defined(TTLS_CIPHER_MODE_CBC)
+#if defined(TTLS_CIPHER_MODE_CBC)
 /* Ciphersuites using HMAC */
 #if defined(TTLS_SHA512_C)
 #define TTLS_SSL_MAC_ADD				 48  /* SHA-384 used for HMAC */
