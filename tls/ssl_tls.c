@@ -3444,7 +3444,8 @@ int ttls_ssl_send_alert_message(ttls_ssl_context *ssl,
 /*
  * Handshake functions
  */
-#if !defined(TTLS_KEY_EXCHANGE_RSA_PSK_ENABLED)	 && \
+#if !defined(TTLS_KEY_EXCHANGE_RSA_ENABLED)		 && \
+	!defined(TTLS_KEY_EXCHANGE_RSA_PSK_ENABLED)	 && \
 	!defined(TTLS_KEY_EXCHANGE_DHE_RSA_ENABLED)	 && \
 	!defined(TTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED) && \
 	!defined(TTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED) && \
@@ -3893,7 +3894,8 @@ int ttls_ssl_parse_certificate(ttls_ssl_context *ssl)
 
 	return ret;
 }
-#endif /* !TTLS_KEY_EXCHANGE_RSA_PSK_ENABLED
+#endif /* !TTLS_KEY_EXCHANGE_RSA_ENABLED
+		 !TTLS_KEY_EXCHANGE_RSA_PSK_ENABLED
 		 !TTLS_KEY_EXCHANGE_DHE_RSA_ENABLED
 		 !TTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED
 		 !TTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED
