@@ -30,24 +30,13 @@
 #ifndef TTLS_SHA1_H
 #define TTLS_SHA1_H
 
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
-
-#include <stddef.h>
-#include <stdint.h>
 
 #define TTLS_ERR_SHA1_HW_ACCEL_FAILED				  -0x0035  /**< SHA-1 hardware accelerator failed */
 
 #if !defined(TTLS_SHA1_ALT)
 // Regular implementation
 //
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /**
  * \brief		  The SHA-1 context structure.
@@ -169,83 +158,6 @@ int ttls_sha1_finish_ret(ttls_sha1_context *ctx,
 int ttls_internal_sha1_process(ttls_sha1_context *ctx,
 								   const unsigned char data[64]);
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-#if defined(TTLS_DEPRECATED_WARNING)
-#define TTLS_DEPRECATED	  __attribute__((deprecated))
-#else
-#define TTLS_DEPRECATED
-#endif
-/**
- * \brief		  SHA-1 context setup
- *
- * \deprecated	 Superseded by ttls_sha1_starts_ret() in 2.7.0
- *
- * \param ctx	  The SHA-1 context to be initialized.
- *
- * \warning		SHA-1 is considered a weak message digest and its use
- *				 constitutes a security risk. We recommend considering
- *				 stronger message digests instead.
- *
- */
-TTLS_DEPRECATED void ttls_sha1_starts(ttls_sha1_context *ctx);
-
-/**
- * \brief		  SHA-1 process buffer
- *
- * \deprecated	 Superseded by ttls_sha1_update_ret() in 2.7.0
- *
- * \param ctx	  The SHA-1 context.
- * \param input	The buffer holding the input data.
- * \param ilen	 The length of the input data.
- *
- * \warning		SHA-1 is considered a weak message digest and its use
- *				 constitutes a security risk. We recommend considering
- *				 stronger message digests instead.
- *
- */
-TTLS_DEPRECATED void ttls_sha1_update(ttls_sha1_context *ctx,
-											 const unsigned char *input,
-											 size_t ilen);
-
-/**
- * \brief		  SHA-1 final digest
- *
- * \deprecated	 Superseded by ttls_sha1_finish_ret() in 2.7.0
- *
- * \param ctx	  The SHA-1 context.
- * \param output   The SHA-1 checksum result.
- *
- * \warning		SHA-1 is considered a weak message digest and its use
- *				 constitutes a security risk. We recommend considering
- *				 stronger message digests instead.
- *
- */
-TTLS_DEPRECATED void ttls_sha1_finish(ttls_sha1_context *ctx,
-											 unsigned char output[20]);
-
-/**
- * \brief		  SHA-1 process data block (internal use only)
- *
- * \deprecated	 Superseded by ttls_internal_sha1_process() in 2.7.0
- *
- * \param ctx	  The SHA-1 context.
- * \param data	 The data block being processed.
- *
- * \warning		SHA-1 is considered a weak message digest and its use
- *				 constitutes a security risk. We recommend considering
- *				 stronger message digests instead.
- *
- */
-TTLS_DEPRECATED void ttls_sha1_process(ttls_sha1_context *ctx,
-											  const unsigned char data[64]);
-
-#undef TTLS_DEPRECATED
-#endif /* !TTLS_DEPRECATED_REMOVED */
-
-#ifdef __cplusplus
-}
-#endif
-
 #else  /* TTLS_SHA1_ALT */
 #include "sha1_alt.h"
 #endif /* TTLS_SHA1_ALT */
@@ -273,32 +185,5 @@ TTLS_DEPRECATED void ttls_sha1_process(ttls_sha1_context *ctx,
 int ttls_sha1_ret(const unsigned char *input,
 					  size_t ilen,
 					  unsigned char output[20]);
-
-#if !defined(TTLS_DEPRECATED_REMOVED)
-#if defined(TTLS_DEPRECATED_WARNING)
-#define TTLS_DEPRECATED	  __attribute__((deprecated))
-#else
-#define TTLS_DEPRECATED
-#endif
-/**
- * \brief		  Output = SHA-1(input buffer)
- *
- * \deprecated	 Superseded by ttls_sha1_ret() in 2.7.0
- *
- * \param input	The buffer holding the input data.
- * \param ilen	 The length of the input data.
- * \param output   The SHA-1 checksum result.
- *
- * \warning		SHA-1 is considered a weak message digest and its use
- *				 constitutes a security risk. We recommend considering
- *				 stronger message digests instead.
- *
- */
-TTLS_DEPRECATED void ttls_sha1(const unsigned char *input,
-									  size_t ilen,
-									  unsigned char output[20]);
-
-#undef TTLS_DEPRECATED
-#endif /* !TTLS_DEPRECATED_REMOVED */
 
 #endif /* ttls_sha1.h */

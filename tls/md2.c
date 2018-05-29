@@ -102,13 +102,6 @@ int ttls_md2_starts_ret(ttls_md2_context *ctx)
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_md2_starts(ttls_md2_context *ctx)
-{
-	ttls_md2_starts_ret(ctx);
-}
-#endif
-
 #if !defined(TTLS_MD2_PROCESS_ALT)
 int ttls_internal_md2_process(ttls_md2_context *ctx)
 {
@@ -146,12 +139,6 @@ int ttls_internal_md2_process(ttls_md2_context *ctx)
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_md2_process(ttls_md2_context *ctx)
-{
-	ttls_internal_md2_process(ctx);
-}
-#endif
 #endif /* !TTLS_MD2_PROCESS_ALT */
 
 /*
@@ -188,15 +175,6 @@ int ttls_md2_update_ret(ttls_md2_context *ctx,
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_md2_update(ttls_md2_context *ctx,
-						 const unsigned char *input,
-						 size_t ilen)
-{
-	ttls_md2_update_ret(ctx, input, ilen);
-}
-#endif
-
 /*
  * MD2 final digest
  */
@@ -223,14 +201,6 @@ int ttls_md2_finish_ret(ttls_md2_context *ctx,
 
 	return 0;
 }
-
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_md2_finish(ttls_md2_context *ctx,
-						 unsigned char output[16])
-{
-	ttls_md2_finish_ret(ctx, output);
-}
-#endif
 
 #endif /* !TTLS_MD2_ALT */
 
@@ -260,15 +230,6 @@ exit:
 
 	return ret;
 }
-
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_md2(const unsigned char *input,
-				  size_t ilen,
-				  unsigned char output[16])
-{
-	ttls_md2_ret(input, ilen, output);
-}
-#endif
 
 /*
  * RFC 1319 test vectors
