@@ -27,18 +27,11 @@
  *
  *  http://csrc.nist.gov/publications/fips/fips46-3/fips46-3.pdf
  */
-
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
 
 #if defined(TTLS_DES_C)
 
 #include "des.h"
-
-#include <string.h>
 
 #if !defined(TTLS_DES_ALT)
 

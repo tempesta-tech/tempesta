@@ -29,7 +29,6 @@
 
 #include "config.h"
 #include "aesni.h"
-#include <string.h>
 
 /*
  * AES-NI support detection routine

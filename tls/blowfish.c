@@ -27,18 +27,11 @@
  *  http://en.wikipedia.org/wiki/Blowfish_%28cipher%29
  *
  */
-
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
 
 #if defined(TTLS_BLOWFISH_C)
 
 #include "blowfish.h"
-
-#include <string.h>
 
 #if !defined(TTLS_BLOWFISH_ALT)
 
