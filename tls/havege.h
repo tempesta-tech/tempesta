@@ -24,12 +24,12 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#ifndef MBEDTLS_HAVEGE_H
-#define MBEDTLS_HAVEGE_H
+#ifndef TTLS_HAVEGE_H
+#define TTLS_HAVEGE_H
 
 #include <stddef.h>
 
-#define MBEDTLS_HAVEGE_COLLECT_SIZE 1024
+#define TTLS_HAVEGE_COLLECT_SIZE 1024
 
 #ifdef __cplusplus
 extern "C" {
@@ -41,24 +41,24 @@ extern "C" {
 typedef struct
 {
 	int PT1, PT2, offset[2];
-	int pool[MBEDTLS_HAVEGE_COLLECT_SIZE];
+	int pool[TTLS_HAVEGE_COLLECT_SIZE];
 	int WALK[8192];
 }
-mbedtls_havege_state;
+ttls_havege_state;
 
 /**
  * \brief		  HAVEGE initialization
  *
  * \param hs	   HAVEGE state to be initialized
  */
-void mbedtls_havege_init(mbedtls_havege_state *hs);
+void ttls_havege_init(ttls_havege_state *hs);
 
 /**
  * \brief		  Clear HAVEGE state
  *
  * \param hs	   HAVEGE state to be cleared
  */
-void mbedtls_havege_free(mbedtls_havege_state *hs);
+void ttls_havege_free(ttls_havege_state *hs);
 
 /**
  * \brief		  HAVEGE rand function
@@ -69,7 +69,7 @@ void mbedtls_havege_free(mbedtls_havege_state *hs);
  *
  * \return		 0
  */
-int mbedtls_havege_random(void *p_rng, unsigned char *output, size_t len);
+int ttls_havege_random(void *p_rng, unsigned char *output, size_t len);
 
 #ifdef __cplusplus
 }
