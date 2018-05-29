@@ -120,11 +120,7 @@
  * and allow for a maximum of 1024 of compression expansion if
  * enabled.
  */
-#if defined(TTLS_ZLIB_SUPPORT)
-#define TTLS_SSL_COMPRESSION_ADD		  1024
-#else
 #define TTLS_SSL_COMPRESSION_ADD			 0
-#endif
 
 #if defined(TTLS_ARC4_C) || defined(TTLS_CIPHER_MODE_CBC)
 /* Ciphersuites using HMAC */
@@ -322,14 +318,6 @@ struct ttls_ssl_transform
 
 	ttls_cipher_context_t cipher_ctx_enc;	/*!<  encryption context	  */
 	ttls_cipher_context_t cipher_ctx_dec;	/*!<  decryption context	  */
-
-	/*
-	 * Session specific compression layer
-	 */
-#if defined(TTLS_ZLIB_SUPPORT)
-	z_stream ctx_deflate;			   /*!<  compression context	 */
-	z_stream ctx_inflate;			   /*!<  decompression context   */
-#endif
 };
 
 /*

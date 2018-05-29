@@ -163,77 +163,6 @@ int ttls_md2_finish_ret(ttls_md2_context *ctx,
  */
 int ttls_internal_md2_process(ttls_md2_context *ctx);
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-#if defined(TTLS_DEPRECATED_WARNING)
-#define TTLS_DEPRECATED	  __attribute__((deprecated))
-#else
-#define TTLS_DEPRECATED
-#endif
-/**
- * \brief		  MD2 context setup
- *
- * \deprecated	 Superseded by ttls_md2_starts_ret() in 2.7.0
- *
- * \param ctx	  context to be initialized
- *
- * \warning		MD2 is considered a weak message digest and its use
- *				 constitutes a security risk. We recommend considering
- *				 stronger message digests instead.
- *
- */
-TTLS_DEPRECATED void ttls_md2_starts(ttls_md2_context *ctx);
-
-/**
- * \brief		  MD2 process buffer
- *
- * \deprecated	 Superseded by ttls_md2_update_ret() in 2.7.0
- *
- * \param ctx	  MD2 context
- * \param input	buffer holding the data
- * \param ilen	 length of the input data
- *
- * \warning		MD2 is considered a weak message digest and its use
- *				 constitutes a security risk. We recommend considering
- *				 stronger message digests instead.
- *
- */
-TTLS_DEPRECATED void ttls_md2_update(ttls_md2_context *ctx,
-											const unsigned char *input,
-											size_t ilen);
-
-/**
- * \brief		  MD2 final digest
- *
- * \deprecated	 Superseded by ttls_md2_finish_ret() in 2.7.0
- *
- * \param ctx	  MD2 context
- * \param output   MD2 checksum result
- *
- * \warning		MD2 is considered a weak message digest and its use
- *				 constitutes a security risk. We recommend considering
- *				 stronger message digests instead.
- *
- */
-TTLS_DEPRECATED void ttls_md2_finish(ttls_md2_context *ctx,
-											unsigned char output[16]);
-
-/**
- * \brief		  MD2 process data block (internal use only)
- *
- * \deprecated	 Superseded by ttls_internal_md2_process() in 2.7.0
- *
- * \param ctx	  MD2 context
- *
- * \warning		MD2 is considered a weak message digest and its use
- *				 constitutes a security risk. We recommend considering
- *				 stronger message digests instead.
- *
- */
-TTLS_DEPRECATED void ttls_md2_process(ttls_md2_context *ctx);
-
-#undef TTLS_DEPRECATED
-#endif /* !TTLS_DEPRECATED_REMOVED */
-
 #else  /* TTLS_MD2_ALT */
 #include "md2_alt.h"
 #endif /* TTLS_MD2_ALT */
@@ -253,32 +182,5 @@ TTLS_DEPRECATED void ttls_md2_process(ttls_md2_context *ctx);
 int ttls_md2_ret(const unsigned char *input,
 					 size_t ilen,
 					 unsigned char output[16]);
-
-#if !defined(TTLS_DEPRECATED_REMOVED)
-#if defined(TTLS_DEPRECATED_WARNING)
-#define TTLS_DEPRECATED	  __attribute__((deprecated))
-#else
-#define TTLS_DEPRECATED
-#endif
-/**
- * \brief		  Output = MD2(input buffer)
- *
- * \deprecated	 Superseded by ttls_md2_ret() in 2.7.0
- *
- * \param input	buffer holding the data
- * \param ilen	 length of the input data
- * \param output   MD2 checksum result
- *
- * \warning		MD2 is considered a weak message digest and its use
- *				 constitutes a security risk. We recommend considering
- *				 stronger message digests instead.
- *
- */
-TTLS_DEPRECATED void ttls_md2(const unsigned char *input,
-									 size_t ilen,
-									 unsigned char output[16]);
-
-#undef TTLS_DEPRECATED
-#endif /* !TTLS_DEPRECATED_REMOVED */
 
 #endif /* ttls_md2.h */

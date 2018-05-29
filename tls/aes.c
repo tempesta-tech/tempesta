@@ -600,15 +600,6 @@ int ttls_internal_aes_encrypt(ttls_aes_context *ctx,
 }
 #endif /* !TTLS_AES_ENCRYPT_ALT */
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_aes_encrypt(ttls_aes_context *ctx,
-						  const unsigned char input[16],
-						  unsigned char output[16])
-{
-	ttls_internal_aes_encrypt(ctx, input, output);
-}
-#endif /* !TTLS_DEPRECATED_REMOVED */
-
 /*
  * AES-ECB block decryption
  */
@@ -667,15 +658,6 @@ int ttls_internal_aes_decrypt(ttls_aes_context *ctx,
 	return 0;
 }
 #endif /* !TTLS_AES_DECRYPT_ALT */
-
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_aes_decrypt(ttls_aes_context *ctx,
-						  const unsigned char input[16],
-						  unsigned char output[16])
-{
-	ttls_internal_aes_decrypt(ctx, input, output);
-}
-#endif /* !TTLS_DEPRECATED_REMOVED */
 
 /*
  * AES-ECB block encryption/decryption

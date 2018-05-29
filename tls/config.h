@@ -43,13 +43,6 @@
 #define ttls_printf		printk
 
 /**
- * \name SECTION: System support
- *
- * This section sets system specific settings.
- * \{
- */
-
-/**
  * \def TTLS_HAVE_TIME_DATE
  *
  * System has time.h and time(), gmtime() and the clock is correct.
@@ -60,43 +53,6 @@
  * Comment if your system does not have a correct clock.
  */
 //#define TTLS_HAVE_TIME_DATE
-
-/**
- * \def TTLS_DEPRECATED_WARNING
- *
- * Mark deprecated functions so that they generate a warning if used.
- * Functions deprecated in one version will usually be removed in the next
- * version. You can enable this to help you prepare the transition to a new
- * major version by making sure your code is not using these functions.
- *
- * This only works with GCC and Clang. With other compilers, you may want to
- * use TTLS_DEPRECATED_REMOVED
- *
- * Uncomment to get warnings on using deprecated functions.
- */
-//#define TTLS_DEPRECATED_WARNING
-
-/**
- * \def TTLS_DEPRECATED_REMOVED
- *
- * Remove deprecated functions so that they generate an error if used.
- * Functions deprecated in one version will usually be removed in the next
- * version. You can enable this to help you prepare the transition to a new
- * major version by making sure your code is not using these functions.
- *
- * Uncomment to get errors on using deprecated functions.
- */
-//#define TTLS_DEPRECATED_REMOVED
-
-/* \} name SECTION: System support */
-
-/**
- * \name SECTION: mbed TLS feature support
- *
- * This section sets support for features that are or are not needed
- * within the modules that are enabled.
- * \{
- */
 
 /**
  * \def TTLS_TIMING_ALT
@@ -1064,30 +1020,6 @@
 #define TTLS_SSL_TRUNCATED_HMAC
 
 /**
- * \def TTLS_SSL_TRUNCATED_HMAC_COMPAT
- *
- * Fallback to old (pre-2.7), non-conforming implementation of the truncated
- * HMAC extension which also truncates the HMAC key. Note that this option is
- * only meant for a transitory upgrade period and is likely to be removed in
- * a future version of the library.
- *
- * \warning The old implementation is non-compliant and has a security weakness
- *		  (2^80 brute force attack on the HMAC key used for a single,
- *		  uninterrupted connection). This should only be enabled temporarily
- *		  when (1) the use of truncated HMAC is essential in order to save
- *		  bandwidth, and (2) the peer is an Mbed TLS stack that doesn't use
- *		  the fixed implementation yet (pre-2.7).
- *
- * \deprecated This option is deprecated and will likely be removed in a
- *			 future version of Mbed TLS.
- *
- * Uncomment to fallback to old, non-compliant truncated HMAC implementation.
- *
- * Requires: TTLS_SSL_TRUNCATED_HMAC
- */
-//#define TTLS_SSL_TRUNCATED_HMAC_COMPAT
-
-/**
  * \def TTLS_X509_ALLOW_EXTENSIONS_NON_V3
  *
  * If set, the X509 parser will not break-off when parsing an X509 certificate
@@ -1145,39 +1077,6 @@
  * Comment this macro to disallow using RSASSA-PSS in certificates.
  */
 #define TTLS_X509_RSASSA_PSS_SUPPORT
-
-/**
- * \def TTLS_ZLIB_SUPPORT
- *
- * If set, the SSL/TLS module uses ZLIB to support compression and
- * decompression of packet data.
- *
- * \warning TLS-level compression MAY REDUCE SECURITY! See for example the
- * CRIME attack. Before enabling this option, you should examine with care if
- * CRIME or similar exploits may be a applicable to your use case.
- *
- * \note Currently compression can't be used with DTLS.
- *
- * \deprecated This feature is deprecated and will be removed
- *			 in the next major revision of the library.
- *
- * Used in: library/ssl_tls.c
- *		  library/ssl_cli.c
- *		  library/ssl_srv.c
- *
- * This feature requires zlib library and headers to be present.
- *
- * Uncomment to enable use of ZLIB
- */
-//#define TTLS_ZLIB_SUPPORT
-/* \} name SECTION: mbed TLS feature support */
-
-/**
- * \name SECTION: mbed TLS modules
- *
- * This section enables or disables entire modules in mbed TLS
- * \{
- */
 
 /**
  * \def TTLS_AES_C
@@ -2060,17 +1959,8 @@
 #error "The NET and TIMING modules are not available for mbed OS - please use the network and timing functions provided by mbed OS"
 #endif
 
-#if defined(TTLS_DEPRECATED_WARNING) && \
-	!defined(__GNUC__) && !defined(__clang__)
-#error "TTLS_DEPRECATED_WARNING only works with GCC and Clang"
-#endif
-
 #if defined(TTLS_CTR_DRBG_C) && !defined(TTLS_AES_C)
 #error "TTLS_CTR_DRBG_C defined, but not all prerequisites"
-#endif
-
-#if defined(TTLS_SSL_TRUNCATED_HMAC_COMPAT) && !defined(TTLS_SSL_TRUNCATED_HMAC)
-#error "TTLS_SSL_TRUNCATED_HMAC_COMPAT defined, but not all prerequisites"
 #endif
 
 #if defined(TTLS_CMAC_C) && \
@@ -2080,10 +1970,6 @@
 
 #if defined(TTLS_ECDSA_C) &&	(!defined(TTLS_ASN1_WRITE_C))
 #error "TTLS_ECDSA_C defined, but not all prerequisites"
-#endif
-
-#if defined(TTLS_ECDSA_DETERMINISTIC) && !defined(TTLS_HMAC_DRBG_C)
-#error "TTLS_ECDSA_DETERMINISTIC defined, but not all prerequisites"
 #endif
 
 #if defined(TTLS_ENTROPY_C) && (!defined(TTLS_SHA512_C) &&	  \
