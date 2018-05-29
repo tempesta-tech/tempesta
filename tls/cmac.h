@@ -25,35 +25,35 @@
  *  This file is part of Mbed TLS (https://tls.mbed.org)
  */
 
-#ifndef MBEDTLS_CMAC_H
-#define MBEDTLS_CMAC_H
+#ifndef TTLS_CMAC_H
+#define TTLS_CMAC_H
 
 #include "cipher.h"
 
-#define MBEDTLS_ERR_CMAC_HW_ACCEL_FAILED -0x007A  /**< CMAC hardware accelerator failed. */
+#define TTLS_ERR_CMAC_HW_ACCEL_FAILED -0x007A  /**< CMAC hardware accelerator failed. */
 
-#define MBEDTLS_AES_BLOCK_SIZE		  16
-#define MBEDTLS_DES3_BLOCK_SIZE		 8
+#define TTLS_AES_BLOCK_SIZE		  16
+#define TTLS_DES3_BLOCK_SIZE		 8
 
-#if defined(MBEDTLS_AES_C)
-#define MBEDTLS_CIPHER_BLKSIZE_MAX	  16  /* The longest block used by CMAC is that of AES. */
+#if defined(TTLS_AES_C)
+#define TTLS_CIPHER_BLKSIZE_MAX	  16  /* The longest block used by CMAC is that of AES. */
 #else
-#define MBEDTLS_CIPHER_BLKSIZE_MAX	  8   /* The longest block used by CMAC is that of 3DES. */
+#define TTLS_CIPHER_BLKSIZE_MAX	  8   /* The longest block used by CMAC is that of 3DES. */
 #endif
 
-#if !defined(MBEDTLS_CMAC_ALT)
+#if !defined(TTLS_CMAC_ALT)
 
 /**
  * The CMAC context structure.
  */
-struct mbedtls_cmac_context_t
+struct ttls_cmac_context_t
 {
 	/** The internal state of the CMAC algorithm.  */
-	unsigned char	   state[MBEDTLS_CIPHER_BLKSIZE_MAX];
+	unsigned char	   state[TTLS_CIPHER_BLKSIZE_MAX];
 
 	/** Unprocessed data - either data that was not block aligned and is still
 	 *  pending processing, or the final block. */
-	unsigned char	   unprocessed_block[MBEDTLS_CIPHER_BLKSIZE_MAX];
+	unsigned char	   unprocessed_block[TTLS_CIPHER_BLKSIZE_MAX];
 
 	/** The length of data pending processing. */
 	size_t			  unprocessed_len;
@@ -66,52 +66,52 @@ struct mbedtls_cmac_context_t
  *
  * \param ctx		   The cipher context used for the CMAC operation, initialized
  *					  as one of the following types:<ul>
- *					  <li>MBEDTLS_CIPHER_AES_128_ECB</li>
- *					  <li>MBEDTLS_CIPHER_AES_192_ECB</li>
- *					  <li>MBEDTLS_CIPHER_AES_256_ECB</li>
- *					  <li>MBEDTLS_CIPHER_DES_EDE3_ECB</li></ul>
+ *					  <li>TTLS_CIPHER_AES_128_ECB</li>
+ *					  <li>TTLS_CIPHER_AES_192_ECB</li>
+ *					  <li>TTLS_CIPHER_AES_256_ECB</li>
+ *					  <li>TTLS_CIPHER_DES_EDE3_ECB</li></ul>
  * \param key		   The CMAC key.
  * \param keybits	   The length of the CMAC key in bits.
  *					  Must be supported by the cipher.
  *
  * \return			  \c 0 on success, or a cipher-specific error code.
  */
-int mbedtls_cipher_cmac_starts(mbedtls_cipher_context_t *ctx,
+int ttls_cipher_cmac_starts(ttls_cipher_context_t *ctx,
 								const unsigned char *key, size_t keybits);
 
 /**
  * \brief			   This function feeds an input buffer into an ongoing CMAC
  *					  computation.
  *
- *					  It is called between mbedtls_cipher_cmac_starts() or
- *					  mbedtls_cipher_cmac_reset(), and mbedtls_cipher_cmac_finish().
+ *					  It is called between ttls_cipher_cmac_starts() or
+ *					  ttls_cipher_cmac_reset(), and ttls_cipher_cmac_finish().
  *					  Can be called repeatedly.
  *
  * \param ctx		   The cipher context used for the CMAC operation.
  * \param input		 The buffer holding the input data.
  * \param ilen		  The length of the input data.
  *
- * \returns			 \c 0 on success, or #MBEDTLS_ERR_MD_BAD_INPUT_DATA
+ * \returns			 \c 0 on success, or #TTLS_ERR_MD_BAD_INPUT_DATA
  *					  if parameter verification fails.
  */
-int mbedtls_cipher_cmac_update(mbedtls_cipher_context_t *ctx,
+int ttls_cipher_cmac_update(ttls_cipher_context_t *ctx,
 								const unsigned char *input, size_t ilen);
 
 /**
  * \brief			   This function finishes the CMAC operation, and writes
  *					  the result to the output buffer.
  *
- *					  It is called after mbedtls_cipher_cmac_update().
- *					  It can be followed by mbedtls_cipher_cmac_reset() and
- *					  mbedtls_cipher_cmac_update(), or mbedtls_cipher_free().
+ *					  It is called after ttls_cipher_cmac_update().
+ *					  It can be followed by ttls_cipher_cmac_reset() and
+ *					  ttls_cipher_cmac_update(), or ttls_cipher_free().
  *
  * \param ctx		   The cipher context used for the CMAC operation.
  * \param output		The output buffer for the CMAC checksum result.
  *
- * \returns			 \c 0 on success, or #MBEDTLS_ERR_MD_BAD_INPUT_DATA
+ * \returns			 \c 0 on success, or #TTLS_ERR_MD_BAD_INPUT_DATA
  *					  if parameter verification fails.
  */
-int mbedtls_cipher_cmac_finish(mbedtls_cipher_context_t *ctx,
+int ttls_cipher_cmac_finish(ttls_cipher_context_t *ctx,
 								unsigned char *output);
 
 /**
@@ -119,15 +119,15 @@ int mbedtls_cipher_cmac_finish(mbedtls_cipher_context_t *ctx,
  *					  message with the same key as the previous CMAC
  *					  operation.
  *
- *					  It is called after mbedtls_cipher_cmac_finish()
- *					  and before mbedtls_cipher_cmac_update().
+ *					  It is called after ttls_cipher_cmac_finish()
+ *					  and before ttls_cipher_cmac_update().
  *
  * \param ctx		   The cipher context used for the CMAC operation.
  *
- * \returns			 \c 0 on success, or #MBEDTLS_ERR_MD_BAD_INPUT_DATA
+ * \returns			 \c 0 on success, or #TTLS_ERR_MD_BAD_INPUT_DATA
  *					  if parameter verification fails.
  */
-int mbedtls_cipher_cmac_reset(mbedtls_cipher_context_t *ctx);
+int ttls_cipher_cmac_reset(ttls_cipher_context_t *ctx);
 
 /**
  * \brief			   This function calculates the full generic CMAC
@@ -147,15 +147,15 @@ int mbedtls_cipher_cmac_reset(mbedtls_cipher_context_t *ctx);
  * \param ilen		  The length of the input data.
  * \param output		The buffer for the generic CMAC result.
  *
- * \returns			 \c 0 on success, or #MBEDTLS_ERR_MD_BAD_INPUT_DATA
+ * \returns			 \c 0 on success, or #TTLS_ERR_MD_BAD_INPUT_DATA
  *					  if parameter verification fails.
  */
-int mbedtls_cipher_cmac(const mbedtls_cipher_info_t *cipher_info,
+int ttls_cipher_cmac(const ttls_cipher_info_t *cipher_info,
 						 const unsigned char *key, size_t keylen,
 						 const unsigned char *input, size_t ilen,
 						 unsigned char *output);
 
-#if defined(MBEDTLS_AES_C)
+#if defined(TTLS_AES_C)
 /**
  * \brief		   This function implements the AES-CMAC-PRF-128 pseudorandom
  *				  function, as defined in
@@ -173,13 +173,13 @@ int mbedtls_cipher_cmac(const mbedtls_cipher_info_t *cipher_info,
  *
  * \return		  \c 0 on success.
  */
-int mbedtls_aes_cmac_prf_128(const unsigned char *key, size_t key_len,
+int ttls_aes_cmac_prf_128(const unsigned char *key, size_t key_len,
 							  const unsigned char *input, size_t in_len,
 							  unsigned char output[16]);
-#endif /* MBEDTLS_AES_C */
+#endif /* TTLS_AES_C */
 
-#else  /* !MBEDTLS_CMAC_ALT */
+#else  /* !TTLS_CMAC_ALT */
 #include "cmac_alt.h"
-#endif /* !MBEDTLS_CMAC_ALT */
+#endif /* !TTLS_CMAC_ALT */
 
-#endif /* MBEDTLS_CMAC_H */
+#endif /* TTLS_CMAC_H */

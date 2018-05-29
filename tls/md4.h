@@ -29,21 +29,21 @@
  *  This file is part of mbed TLS (https://tls.mbed.org)
  *
  */
-#ifndef MBEDTLS_MD4_H
-#define MBEDTLS_MD4_H
+#ifndef TTLS_MD4_H
+#define TTLS_MD4_H
 
-#if !defined(MBEDTLS_CONFIG_FILE)
+#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
 #else
-#include MBEDTLS_CONFIG_FILE
+#include TTLS_CONFIG_FILE
 #endif
 
 #include <stddef.h>
 #include <stdint.h>
 
-#define MBEDTLS_ERR_MD4_HW_ACCEL_FAILED				   -0x002D  /**< MD4 hardware accelerator failed */
+#define TTLS_ERR_MD4_HW_ACCEL_FAILED				   -0x002D  /**< MD4 hardware accelerator failed */
 
-#if !defined(MBEDTLS_MD4_ALT)
+#if !defined(TTLS_MD4_ALT)
 // Regular implementation
 //
 
@@ -61,7 +61,7 @@ typedef struct
 	uint32_t state[4];		  /*!< intermediate digest state  */
 	unsigned char buffer[64];   /*!< data block being processed */
 }
-mbedtls_md4_context;
+ttls_md4_context;
 
 /**
  * \brief		  Initialize MD4 context
@@ -73,7 +73,7 @@ mbedtls_md4_context;
  *				 stronger message digests instead.
  *
  */
-void mbedtls_md4_init(mbedtls_md4_context *ctx);
+void ttls_md4_init(ttls_md4_context *ctx);
 
 /**
  * \brief		  Clear MD4 context
@@ -85,7 +85,7 @@ void mbedtls_md4_init(mbedtls_md4_context *ctx);
  *				 stronger message digests instead.
  *
  */
-void mbedtls_md4_free(mbedtls_md4_context *ctx);
+void ttls_md4_free(ttls_md4_context *ctx);
 
 /**
  * \brief		  Clone (the state of) an MD4 context
@@ -98,8 +98,8 @@ void mbedtls_md4_free(mbedtls_md4_context *ctx);
  *				 stronger message digests instead.
  *
  */
-void mbedtls_md4_clone(mbedtls_md4_context *dst,
-						const mbedtls_md4_context *src);
+void ttls_md4_clone(ttls_md4_context *dst,
+						const ttls_md4_context *src);
 
 /**
  * \brief		  MD4 context setup
@@ -112,7 +112,7 @@ void mbedtls_md4_clone(mbedtls_md4_context *dst,
  *				 constitutes a security risk. We recommend considering
  *				 stronger message digests instead.
  */
-int mbedtls_md4_starts_ret(mbedtls_md4_context *ctx);
+int ttls_md4_starts_ret(ttls_md4_context *ctx);
 
 /**
  * \brief		  MD4 process buffer
@@ -128,7 +128,7 @@ int mbedtls_md4_starts_ret(mbedtls_md4_context *ctx);
  *				 stronger message digests instead.
  *
  */
-int mbedtls_md4_update_ret(mbedtls_md4_context *ctx,
+int ttls_md4_update_ret(ttls_md4_context *ctx,
 							const unsigned char *input,
 							size_t ilen);
 
@@ -145,7 +145,7 @@ int mbedtls_md4_update_ret(mbedtls_md4_context *ctx,
  *				 stronger message digests instead.
  *
  */
-int mbedtls_md4_finish_ret(mbedtls_md4_context *ctx,
+int ttls_md4_finish_ret(ttls_md4_context *ctx,
 							unsigned char output[16]);
 
 /**
@@ -161,19 +161,19 @@ int mbedtls_md4_finish_ret(mbedtls_md4_context *ctx,
  *				 stronger message digests instead.
  *
  */
-int mbedtls_internal_md4_process(mbedtls_md4_context *ctx,
+int ttls_internal_md4_process(ttls_md4_context *ctx,
 								  const unsigned char data[64]);
 
-#if !defined(MBEDTLS_DEPRECATED_REMOVED)
-#if defined(MBEDTLS_DEPRECATED_WARNING)
-#define MBEDTLS_DEPRECATED	  __attribute__((deprecated))
+#if !defined(TTLS_DEPRECATED_REMOVED)
+#if defined(TTLS_DEPRECATED_WARNING)
+#define TTLS_DEPRECATED	  __attribute__((deprecated))
 #else
-#define MBEDTLS_DEPRECATED
+#define TTLS_DEPRECATED
 #endif
 /**
  * \brief		  MD4 context setup
  *
- * \deprecated	 Superseded by mbedtls_md4_starts_ret() in 2.7.0
+ * \deprecated	 Superseded by ttls_md4_starts_ret() in 2.7.0
  *
  * \param ctx	  context to be initialized
  *
@@ -182,12 +182,12 @@ int mbedtls_internal_md4_process(mbedtls_md4_context *ctx,
  *				 stronger message digests instead.
  *
  */
-MBEDTLS_DEPRECATED void mbedtls_md4_starts(mbedtls_md4_context *ctx);
+TTLS_DEPRECATED void ttls_md4_starts(ttls_md4_context *ctx);
 
 /**
  * \brief		  MD4 process buffer
  *
- * \deprecated	 Superseded by mbedtls_md4_update_ret() in 2.7.0
+ * \deprecated	 Superseded by ttls_md4_update_ret() in 2.7.0
  *
  * \param ctx	  MD4 context
  * \param input	buffer holding the data
@@ -198,14 +198,14 @@ MBEDTLS_DEPRECATED void mbedtls_md4_starts(mbedtls_md4_context *ctx);
  *				 stronger message digests instead.
  *
  */
-MBEDTLS_DEPRECATED void mbedtls_md4_update(mbedtls_md4_context *ctx,
+TTLS_DEPRECATED void ttls_md4_update(ttls_md4_context *ctx,
 											const unsigned char *input,
 											size_t ilen);
 
 /**
  * \brief		  MD4 final digest
  *
- * \deprecated	 Superseded by mbedtls_md4_finish_ret() in 2.7.0
+ * \deprecated	 Superseded by ttls_md4_finish_ret() in 2.7.0
  *
  * \param ctx	  MD4 context
  * \param output   MD4 checksum result
@@ -215,13 +215,13 @@ MBEDTLS_DEPRECATED void mbedtls_md4_update(mbedtls_md4_context *ctx,
  *				 stronger message digests instead.
  *
  */
-MBEDTLS_DEPRECATED void mbedtls_md4_finish(mbedtls_md4_context *ctx,
+TTLS_DEPRECATED void ttls_md4_finish(ttls_md4_context *ctx,
 											unsigned char output[16]);
 
 /**
  * \brief		  MD4 process data block (internal use only)
  *
- * \deprecated	 Superseded by mbedtls_internal_md4_process() in 2.7.0
+ * \deprecated	 Superseded by ttls_internal_md4_process() in 2.7.0
  *
  * \param ctx	  MD4 context
  * \param data	 buffer holding one block of data
@@ -231,15 +231,15 @@ MBEDTLS_DEPRECATED void mbedtls_md4_finish(mbedtls_md4_context *ctx,
  *				 stronger message digests instead.
  *
  */
-MBEDTLS_DEPRECATED void mbedtls_md4_process(mbedtls_md4_context *ctx,
+TTLS_DEPRECATED void ttls_md4_process(ttls_md4_context *ctx,
 											 const unsigned char data[64]);
 
-#undef MBEDTLS_DEPRECATED
-#endif /* !MBEDTLS_DEPRECATED_REMOVED */
+#undef TTLS_DEPRECATED
+#endif /* !TTLS_DEPRECATED_REMOVED */
 
-#else  /* MBEDTLS_MD4_ALT */
+#else  /* TTLS_MD4_ALT */
 #include "md4_alt.h"
-#endif /* MBEDTLS_MD4_ALT */
+#endif /* TTLS_MD4_ALT */
 
 /**
  * \brief		  Output = MD4(input buffer)
@@ -255,20 +255,20 @@ MBEDTLS_DEPRECATED void mbedtls_md4_process(mbedtls_md4_context *ctx,
  *				 stronger message digests instead.
  *
  */
-int mbedtls_md4_ret(const unsigned char *input,
+int ttls_md4_ret(const unsigned char *input,
 					 size_t ilen,
 					 unsigned char output[16]);
 
-#if !defined(MBEDTLS_DEPRECATED_REMOVED)
-#if defined(MBEDTLS_DEPRECATED_WARNING)
-#define MBEDTLS_DEPRECATED	  __attribute__((deprecated))
+#if !defined(TTLS_DEPRECATED_REMOVED)
+#if defined(TTLS_DEPRECATED_WARNING)
+#define TTLS_DEPRECATED	  __attribute__((deprecated))
 #else
-#define MBEDTLS_DEPRECATED
+#define TTLS_DEPRECATED
 #endif
 /**
  * \brief		  Output = MD4(input buffer)
  *
- * \deprecated	 Superseded by mbedtls_md4_ret() in 2.7.0
+ * \deprecated	 Superseded by ttls_md4_ret() in 2.7.0
  *
  * \param input	buffer holding the data
  * \param ilen	 length of the input data
@@ -279,11 +279,11 @@ int mbedtls_md4_ret(const unsigned char *input,
  *				 stronger message digests instead.
  *
  */
-MBEDTLS_DEPRECATED void mbedtls_md4(const unsigned char *input,
+TTLS_DEPRECATED void ttls_md4(const unsigned char *input,
 									 size_t ilen,
 									 unsigned char output[16]);
 
-#undef MBEDTLS_DEPRECATED
-#endif /* !MBEDTLS_DEPRECATED_REMOVED */
+#undef TTLS_DEPRECATED
+#endif /* !TTLS_DEPRECATED_REMOVED */
 
-#endif /* mbedtls_md4.h */
+#endif /* ttls_md4.h */
