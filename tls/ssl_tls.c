@@ -858,7 +858,7 @@ int ttls_ssl_psk_derive_premaster(ttls_ssl_context *ssl, ttls_key_exchange_type_
 }
 #endif /* TTLS_KEY_EXCHANGE__SOME__PSK_ENABLED */
 
-#if defined(TTLS_ARC4_C) || defined(TTLS_CIPHER_NULL_CIPHER) ||	 \
+#if defined(TTLS_ARC4_C) ||  \
 	(defined(TTLS_CIPHER_MODE_CBC) &&				 \
 	 (defined(TTLS_AES_C) || defined(TTLS_CAMELLIA_C)))
 #define SSL_SOME_MODES_USE_MAC
@@ -936,7 +936,7 @@ static int ssl_encrypt_buf(ttls_ssl_context *ssl)
 	/*
 	 * Encrypt
 	 */
-#if defined(TTLS_ARC4_C) || defined(TTLS_CIPHER_NULL_CIPHER)
+#if defined(TTLS_ARC4_C)
 	if (mode == TTLS_MODE_STREAM)
 	{
 		int ret;
@@ -963,7 +963,7 @@ static int ssl_encrypt_buf(ttls_ssl_context *ssl)
 		}
 	}
 	else
-#endif /* TTLS_ARC4_C || TTLS_CIPHER_NULL_CIPHER */
+#endif /* TTLS_ARC4_C */
 #if defined(TTLS_GCM_C) || defined(TTLS_CCM_C)
 	if (mode == TTLS_MODE_GCM ||
 		mode == TTLS_MODE_CCM)
@@ -1189,7 +1189,7 @@ static int ssl_decrypt_buf(ttls_ssl_context *ssl)
 		return(TTLS_ERR_SSL_INVALID_MAC);
 	}
 
-#if defined(TTLS_ARC4_C) || defined(TTLS_CIPHER_NULL_CIPHER)
+#if defined(TTLS_ARC4_C)
 	if (mode == TTLS_MODE_STREAM)
 	{
 		int ret;
@@ -1214,7 +1214,7 @@ static int ssl_decrypt_buf(ttls_ssl_context *ssl)
 		}
 	}
 	else
-#endif /* TTLS_ARC4_C || TTLS_CIPHER_NULL_CIPHER */
+#endif /* TTLS_ARC4_C */
 #if defined(TTLS_GCM_C) || defined(TTLS_CCM_C)
 	if (mode == TTLS_MODE_GCM ||
 		mode == TTLS_MODE_CCM)
