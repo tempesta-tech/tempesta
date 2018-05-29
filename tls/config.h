@@ -770,10 +770,6 @@
  *
  * This only affects CBC ciphersuites, and is useless if none is defined.
  *
- * Requires: TTLS_SSL_PROTO_TLS1	or
- *		   TTLS_SSL_PROTO_TLS1_1  or
- *		   TTLS_SSL_PROTO_TLS1_2
- *
  * Comment this macro to disable support for Encrypt-then-MAC
  */
 #define TTLS_SSL_ENCRYPT_THEN_MAC
@@ -787,10 +783,6 @@
  * attacks, but it is recommended to always use it (even if you disable
  * renegotiation), since it actually fixes a more fundamental issue in the
  * original SSL/TLS design, and has implications beyond Triple Handshake.
- *
- * Requires: TTLS_SSL_PROTO_TLS1	or
- *		   TTLS_SSL_PROTO_TLS1_1  or
- *		   TTLS_SSL_PROTO_TLS1_2
  *
  * Comment this macro to disable support for Extended Master Secret.
  */
@@ -824,18 +816,6 @@
 //#define TTLS_SSL_HW_RECORD_ACCEL
 
 /**
- * \def TTLS_SSL_CBC_RECORD_SPLITTING
- *
- * Enable 1/n-1 record splitting for CBC mode in SSLv3 and TLS 1.0.
- *
- * This is a countermeasure to the BEAST attack, which also minimizes the risk
- * of interoperability issues compared to sending 0-length records.
- *
- * Comment this macro to disable 1/n-1 record splitting.
- */
-#define TTLS_SSL_CBC_RECORD_SPLITTING
-
-/**
  * \def TTLS_SSL_SRV_SUPPORT_SSLV2_CLIENT_HELLO
  *
  * Enable support for receiving and parsing SSLv2 Client Hello messages for the
@@ -865,63 +845,9 @@
 #define TTLS_SSL_MAX_FRAGMENT_LENGTH
 
 /**
- * \def TTLS_SSL_PROTO_SSL3
- *
- * Enable support for SSL 3.0.
- *
- * Requires: TTLS_MD5_C
- *		   TTLS_SHA1_C
- *
- * Comment this macro to disable support for SSL 3.0
- */
-//#define TTLS_SSL_PROTO_SSL3
-
-/**
- * \def TTLS_SSL_PROTO_TLS1
- *
- * Enable support for TLS 1.0.
- *
- * Requires: TTLS_MD5_C
- *		   TTLS_SHA1_C
- *
- * Comment this macro to disable support for TLS 1.0
- */
-#define TTLS_SSL_PROTO_TLS1
-
-/**
- * \def TTLS_SSL_PROTO_TLS1_1
- *
- * Enable support for TLS 1.1 (and DTLS 1.0 if DTLS is enabled).
- *
- * Requires: TTLS_MD5_C
- *		   TTLS_SHA1_C
- *
- * Comment this macro to disable support for TLS 1.1 / DTLS 1.0
- */
-#define TTLS_SSL_PROTO_TLS1_1
-
-/**
- * \def TTLS_SSL_PROTO_TLS1_2
- *
- * Enable support for TLS 1.2 (and DTLS 1.2 if DTLS is enabled).
- *
- * Requires: TTLS_SHA1_C or TTLS_SHA256_C or TTLS_SHA512_C
- *		   (Depends on ciphersuites)
- *
- * Comment this macro to disable support for TLS 1.2 / DTLS 1.2
- */
-#define TTLS_SSL_PROTO_TLS1_2
-
-/**
  * \def TTLS_SSL_PROTO_DTLS
  *
  * Enable support for DTLS (all available versions).
- *
- * Enable this and TTLS_SSL_PROTO_TLS1_1 to enable DTLS 1.0,
- * and/or this and TTLS_SSL_PROTO_TLS1_2 to enable DTLS 1.2.
- *
- * Requires: TTLS_SSL_PROTO_TLS1_1
- *		or TTLS_SSL_PROTO_TLS1_2
  *
  * Comment this macro to disable support for DTLS
  */
@@ -2074,52 +2000,8 @@
 #error "TTLS_PEM_WRITE_C defined, but not all prerequisites"
 #endif
 
-#if defined(TTLS_SSL_PROTO_SSL3) && (!defined(TTLS_MD5_C) ||	 \
-	!defined(TTLS_SHA1_C))
-#error "TTLS_SSL_PROTO_SSL3 defined, but not all prerequisites"
-#endif
-
-#if defined(TTLS_SSL_PROTO_TLS1) && (!defined(TTLS_MD5_C) ||	 \
-	!defined(TTLS_SHA1_C))
-#error "TTLS_SSL_PROTO_TLS1 defined, but not all prerequisites"
-#endif
-
-#if defined(TTLS_SSL_PROTO_TLS1_1) && (!defined(TTLS_MD5_C) ||	 \
-	!defined(TTLS_SHA1_C))
-#error "TTLS_SSL_PROTO_TLS1_1 defined, but not all prerequisites"
-#endif
-
-#if defined(TTLS_SSL_PROTO_TLS1_2) && (!defined(TTLS_SHA1_C) &&	 \
-	!defined(TTLS_SHA256_C) && !defined(TTLS_SHA512_C))
-#error "TTLS_SSL_PROTO_TLS1_2 defined, but not all prerequisites"
-#endif
-
-#if defined(TTLS_SSL_PROTO_DTLS)	 && \
-	!defined(TTLS_SSL_PROTO_TLS1_1)  && \
-	!defined(TTLS_SSL_PROTO_TLS1_2)
-#error "TTLS_SSL_PROTO_DTLS defined, but not all prerequisites"
-#endif
-
-#if (!defined(TTLS_SSL_PROTO_SSL3) && \
-	!defined(TTLS_SSL_PROTO_TLS1) && !defined(TTLS_SSL_PROTO_TLS1_1) && \
-	!defined(TTLS_SSL_PROTO_TLS1_2))
-#error "no protocols are active"
-#endif
-
-#if (defined(TTLS_SSL_PROTO_SSL3) && \
-	defined(TTLS_SSL_PROTO_TLS1_1) && !defined(TTLS_SSL_PROTO_TLS1))
-#error "Illegal protocol selection"
-#endif
-
-#if (defined(TTLS_SSL_PROTO_TLS1) && \
-	defined(TTLS_SSL_PROTO_TLS1_2) && !defined(TTLS_SSL_PROTO_TLS1_1))
-#error "Illegal protocol selection"
-#endif
-
-#if (defined(TTLS_SSL_PROTO_SSL3) && \
-	defined(TTLS_SSL_PROTO_TLS1_2) && (!defined(TTLS_SSL_PROTO_TLS1) || \
-	!defined(TTLS_SSL_PROTO_TLS1_1)))
-#error "Illegal protocol selection"
+#if (!defined(TTLS_SHA1_C) && !defined(TTLS_SHA256_C) && !defined(TTLS_SHA512_C))
+#error "Not all prerequisites for TLSv1.2 are enabled"
 #endif
 
 #if defined(TTLS_SSL_DTLS_HELLO_VERIFY) && !defined(TTLS_SSL_PROTO_DTLS)
@@ -2137,25 +2019,6 @@
 
 #if defined(TTLS_SSL_DTLS_BADMAC_LIMIT) && (!defined(TTLS_SSL_PROTO_DTLS))
 #error "TTLS_SSL_DTLS_BADMAC_LIMIT  defined, but not all prerequisites"
-#endif
-
-#if defined(TTLS_SSL_ENCRYPT_THEN_MAC) &&   \
-	!defined(TTLS_SSL_PROTO_TLS1)   &&	  \
-	!defined(TTLS_SSL_PROTO_TLS1_1) &&	  \
-	!defined(TTLS_SSL_PROTO_TLS1_2)
-#error "TTLS_SSL_ENCRYPT_THEN_MAC defined, but not all prerequsites"
-#endif
-
-#if defined(TTLS_SSL_EXTENDED_MASTER_SECRET) && \
-	!defined(TTLS_SSL_PROTO_TLS1)   &&		  \
-	!defined(TTLS_SSL_PROTO_TLS1_1) &&		  \
-	!defined(TTLS_SSL_PROTO_TLS1_2)
-#error "TTLS_SSL_EXTENDED_MASTER_SECRET defined, but not all prerequsites"
-#endif
-
-#if defined(TTLS_SSL_CBC_RECORD_SPLITTING) && \
-	!defined(TTLS_SSL_PROTO_SSL3) && !defined(TTLS_SSL_PROTO_TLS1)
-#error "TTLS_SSL_CBC_RECORD_SPLITTING defined, but not all prerequisites"
 #endif
 
 #if defined(TTLS_X509_CREATE_C) && (!defined(TTLS_ASN1_WRITE_C) ||	   \
