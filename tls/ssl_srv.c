@@ -757,15 +757,6 @@ static int ssl_ciphersuite_match(ttls_ssl_context *ssl, int suite_id,
 		return 0;
 #endif
 
-#if defined(TTLS_ARC4_C)
-	if (ssl->conf->arc4_disabled == TTLS_SSL_ARC4_DISABLED &&
-			suite_info->cipher == TTLS_CIPHER_ARC4_128)
-	{
-		TTLS_SSL_DEBUG_MSG(3, ("ciphersuite mismatch: rc4"));
-		return 0;
-	}
-#endif
-
 #if defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
 	if (suite_info->key_exchange == TTLS_KEY_EXCHANGE_ECJPAKE &&
 		(ssl->handshake->cli_exts & TTLS_TLS_EXT_ECJPAKE_KKPP_OK) == 0)

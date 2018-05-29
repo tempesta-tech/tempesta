@@ -25,17 +25,10 @@
  *
  *  This file is part of Mbed TLS (https://tls.mbed.org)
  */
-
 #ifndef TTLS_CIPHER_H
 #define TTLS_CIPHER_H
 
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
-
-#include <stddef.h>
 
 #if defined(TTLS_GCM_C) || defined(TTLS_CCM_C)
 #define TTLS_CIPHER_MODE_AEAD
@@ -43,15 +36,6 @@
 
 #if defined(TTLS_CIPHER_MODE_CBC)
 #define TTLS_CIPHER_MODE_WITH_PADDING
-#endif
-
-#if defined(TTLS_ARC4_C)
-#define TTLS_CIPHER_MODE_STREAM
-#endif
-
-#if (defined(__ARMCC_VERSION) || defined(_MSC_VER)) && \
-	!defined(inline) && !defined(__cplusplus)
-#define inline __inline
 #endif
 
 #define TTLS_ERR_CIPHER_FEATURE_UNAVAILABLE  -0x6080  /**< The selected feature is not available. */
@@ -746,9 +730,5 @@ int ttls_cipher_auth_decrypt(ttls_cipher_context_t *ctx,
 						 unsigned char *output, size_t *olen,
 						 const unsigned char *tag, size_t tag_len);
 #endif /* TTLS_CIPHER_MODE_AEAD */
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* TTLS_CIPHER_H */
