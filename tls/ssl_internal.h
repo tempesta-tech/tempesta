@@ -50,51 +50,16 @@
 #include "ecjpake.h"
 #endif
 
-#if (defined(__ARMCC_VERSION) || defined(_MSC_VER)) && \
-	!defined(inline) && !defined(__cplusplus)
-#define inline __inline
-#endif
-
 /* Determine minimum supported version */
-#define TTLS_SSL_MIN_MAJOR_VERSION		   TTLS_SSL_MAJOR_VERSION_3
+#define TTLS_SSL_MIN_MAJOR_VERSION		TTLS_SSL_MAJOR_VERSION_3
+#define TTLS_SSL_MIN_MINOR_VERSION		TTLS_SSL_MINOR_VERSION_3
 
-#if defined(TTLS_SSL_PROTO_SSL3)
-#define TTLS_SSL_MIN_MINOR_VERSION		   TTLS_SSL_MINOR_VERSION_0
-#else
-#if defined(TTLS_SSL_PROTO_TLS1)
-#define TTLS_SSL_MIN_MINOR_VERSION		   TTLS_SSL_MINOR_VERSION_1
-#else
-#if defined(TTLS_SSL_PROTO_TLS1_1)
-#define TTLS_SSL_MIN_MINOR_VERSION		   TTLS_SSL_MINOR_VERSION_2
-#else
-#if defined(TTLS_SSL_PROTO_TLS1_2)
-#define TTLS_SSL_MIN_MINOR_VERSION		   TTLS_SSL_MINOR_VERSION_3
-#endif /* TTLS_SSL_PROTO_TLS1_2 */
-#endif /* TTLS_SSL_PROTO_TLS1_1 */
-#endif /* TTLS_SSL_PROTO_TLS1   */
-#endif /* TTLS_SSL_PROTO_SSL3   */
-
-#define TTLS_SSL_MIN_VALID_MINOR_VERSION TTLS_SSL_MINOR_VERSION_1
-#define TTLS_SSL_MIN_VALID_MAJOR_VERSION TTLS_SSL_MAJOR_VERSION_3
+#define TTLS_SSL_MIN_VALID_MINOR_VERSION	TTLS_SSL_MINOR_VERSION_1
+#define TTLS_SSL_MIN_VALID_MAJOR_VERSION	TTLS_SSL_MAJOR_VERSION_3
 
 /* Determine maximum supported version */
-#define TTLS_SSL_MAX_MAJOR_VERSION		   TTLS_SSL_MAJOR_VERSION_3
-
-#if defined(TTLS_SSL_PROTO_TLS1_2)
-#define TTLS_SSL_MAX_MINOR_VERSION		   TTLS_SSL_MINOR_VERSION_3
-#else
-#if defined(TTLS_SSL_PROTO_TLS1_1)
-#define TTLS_SSL_MAX_MINOR_VERSION		   TTLS_SSL_MINOR_VERSION_2
-#else
-#if defined(TTLS_SSL_PROTO_TLS1)
-#define TTLS_SSL_MAX_MINOR_VERSION		   TTLS_SSL_MINOR_VERSION_1
-#else
-#if defined(TTLS_SSL_PROTO_SSL3)
-#define TTLS_SSL_MAX_MINOR_VERSION		   TTLS_SSL_MINOR_VERSION_0
-#endif /* TTLS_SSL_PROTO_SSL3   */
-#endif /* TTLS_SSL_PROTO_TLS1   */
-#endif /* TTLS_SSL_PROTO_TLS1_1 */
-#endif /* TTLS_SSL_PROTO_TLS1_2 */
+#define TTLS_SSL_MAX_MAJOR_VERSION		TTLS_SSL_MAJOR_VERSION_3
+#define TTLS_SSL_MAX_MINOR_VERSION		TTLS_SSL_MINOR_VERSION_3
 
 #define TTLS_SSL_INITIAL_HANDSHAKE		   0
 #define TTLS_SSL_RENEGOTIATION_IN_PROGRESS   1   /* In progress */
@@ -164,8 +129,7 @@
 #define TTLS_TLS_EXT_SUPPORTED_POINT_FORMATS_PRESENT (1 << 0)
 #define TTLS_TLS_EXT_ECJPAKE_KKPP_OK				 (1 << 1)
 
-#if defined(TTLS_SSL_PROTO_TLS1_2) && \
-	defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
+#if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
 /*
  * Abstraction for a grid of allowed signature-hash-algorithm pairs.
  */
@@ -179,8 +143,7 @@ struct ttls_ssl_sig_hash_set_t
 	ttls_md_type_t rsa;
 	ttls_md_type_t ecdsa;
 };
-#endif /* TTLS_SSL_PROTO_TLS1_2 &&
-		  TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED */
+#endif /* TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED */
 
 /*
  * This structure contains the parameters only needed during handshake.
@@ -191,8 +154,7 @@ struct ttls_ssl_handshake_params
 	 * Handshake specific crypto variables
 	 */
 
-#if defined(TTLS_SSL_PROTO_TLS1_2) && \
-	defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
+#if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
 	ttls_ssl_sig_hash_set_t hash_algs;			 /*!<  Set of suitable sig-hash pairs */
 #endif
 #if defined(TTLS_DHM_C)
@@ -247,19 +209,12 @@ struct ttls_ssl_handshake_params
 	/*
 	 * Checksum contexts
 	 */
-#if defined(TTLS_SSL_PROTO_SSL3) || defined(TTLS_SSL_PROTO_TLS1) || \
-	defined(TTLS_SSL_PROTO_TLS1_1)
-	   ttls_md5_context fin_md5;
-	  ttls_sha1_context fin_sha1;
-#endif
-#if defined(TTLS_SSL_PROTO_TLS1_2)
 #if defined(TTLS_SHA256_C)
 	ttls_sha256_context fin_sha256;
 #endif
 #if defined(TTLS_SHA512_C)
 	ttls_sha512_context fin_sha512;
 #endif
-#endif /* TTLS_SSL_PROTO_TLS1_2 */
 
 	void (*update_checksum)(ttls_ssl_context *, const unsigned char *, size_t);
 	void (*calc_verify)(ttls_ssl_context *, unsigned char *);
@@ -307,12 +262,6 @@ struct ttls_ssl_transform
 	unsigned char iv_enc[16];		   /*!<  IV (encryption)		 */
 	unsigned char iv_dec[16];		   /*!<  IV (decryption)		 */
 
-#if defined(TTLS_SSL_PROTO_SSL3)
-	/* Needed only for SSL v3.0 secret */
-	unsigned char mac_enc[20];		  /*!<  SSL v3.0 secret (enc)   */
-	unsigned char mac_dec[20];		  /*!<  SSL v3.0 secret (dec)   */
-#endif /* TTLS_SSL_PROTO_SSL3 */
-
 	ttls_md_context_t md_ctx_enc;			/*!<  MAC (encryption)		*/
 	ttls_md_context_t md_ctx_dec;			/*!<  MAC (decryption)		*/
 
@@ -343,8 +292,7 @@ struct ttls_ssl_flight_item
 };
 #endif /* TTLS_SSL_PROTO_DTLS */
 
-#if defined(TTLS_SSL_PROTO_TLS1_2) && \
-	defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
+#if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
 
 /* Find an entry in a signature-hash set matching a given hash algorithm. */
 ttls_md_type_t ttls_ssl_sig_hash_set_find(ttls_ssl_sig_hash_set_t *set,
@@ -363,8 +311,7 @@ static inline void ttls_ssl_sig_hash_set_init(ttls_ssl_sig_hash_set_t *set)
 	ttls_ssl_sig_hash_set_const_hash(set, TTLS_MD_NONE);
 }
 
-#endif /* TTLS_SSL_PROTO_TLS1_2) &&
-		  TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED */
+#endif /* TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED */
 
 /**
  * \brief		   Free referenced items in an SSL transform context and clear
@@ -597,21 +544,9 @@ static inline int ttls_ssl_safer_memcmp(const void *a, const void *b, size_t n)
 	return(diff);
 }
 
-#if defined(TTLS_SSL_PROTO_SSL3) || defined(TTLS_SSL_PROTO_TLS1) || \
-	defined(TTLS_SSL_PROTO_TLS1_1)
-int ttls_ssl_get_key_exchange_md_ssl_tls(ttls_ssl_context *ssl,
-										unsigned char *output,
-										unsigned char *data, size_t data_len);
-#endif /* TTLS_SSL_PROTO_SSL3 || TTLS_SSL_PROTO_TLS1 || \
-		  TTLS_SSL_PROTO_TLS1_1 */
-
-#if defined(TTLS_SSL_PROTO_TLS1) || defined(TTLS_SSL_PROTO_TLS1_1) || \
-	defined(TTLS_SSL_PROTO_TLS1_2)
 int ttls_ssl_get_key_exchange_md_tls1_2(ttls_ssl_context *ssl,
 										unsigned char *output,
 										unsigned char *data, size_t data_len,
 										ttls_md_type_t md_alg);
-#endif /* TTLS_SSL_PROTO_TLS1 || TTLS_SSL_PROTO_TLS1_1 || \
-		  TTLS_SSL_PROTO_TLS1_2 */
 
 #endif /* ssl_internal.h */
