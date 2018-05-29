@@ -27,21 +27,21 @@
  *
  *  This file is part of Mbed TLS (https://tls.mbed.org)
  */
-#ifndef MBEDTLS_SHA1_H
-#define MBEDTLS_SHA1_H
+#ifndef TTLS_SHA1_H
+#define TTLS_SHA1_H
 
-#if !defined(MBEDTLS_CONFIG_FILE)
+#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
 #else
-#include MBEDTLS_CONFIG_FILE
+#include TTLS_CONFIG_FILE
 #endif
 
 #include <stddef.h>
 #include <stdint.h>
 
-#define MBEDTLS_ERR_SHA1_HW_ACCEL_FAILED				  -0x0035  /**< SHA-1 hardware accelerator failed */
+#define TTLS_ERR_SHA1_HW_ACCEL_FAILED				  -0x0035  /**< SHA-1 hardware accelerator failed */
 
-#if !defined(MBEDTLS_SHA1_ALT)
+#if !defined(TTLS_SHA1_ALT)
 // Regular implementation
 //
 
@@ -63,7 +63,7 @@ typedef struct
 	uint32_t state[5];		  /*!< The intermediate digest state.  */
 	unsigned char buffer[64];   /*!< The data block being processed. */
 }
-mbedtls_sha1_context;
+ttls_sha1_context;
 
 /**
  * \brief		  This function initializes a SHA-1 context.
@@ -75,7 +75,7 @@ mbedtls_sha1_context;
  *				 stronger message digests instead.
  *
  */
-void mbedtls_sha1_init(mbedtls_sha1_context *ctx);
+void ttls_sha1_init(ttls_sha1_context *ctx);
 
 /**
  * \brief		  This function clears a SHA-1 context.
@@ -87,7 +87,7 @@ void mbedtls_sha1_init(mbedtls_sha1_context *ctx);
  *				 stronger message digests instead.
  *
  */
-void mbedtls_sha1_free(mbedtls_sha1_context *ctx);
+void ttls_sha1_free(ttls_sha1_context *ctx);
 
 /**
  * \brief		  This function clones the state of a SHA-1 context.
@@ -100,8 +100,8 @@ void mbedtls_sha1_free(mbedtls_sha1_context *ctx);
  *				 stronger message digests instead.
  *
  */
-void mbedtls_sha1_clone(mbedtls_sha1_context *dst,
-						 const mbedtls_sha1_context *src);
+void ttls_sha1_clone(ttls_sha1_context *dst,
+						 const ttls_sha1_context *src);
 
 /**
  * \brief		  This function starts a SHA-1 checksum calculation.
@@ -115,7 +115,7 @@ void mbedtls_sha1_clone(mbedtls_sha1_context *dst,
  *				 stronger message digests instead.
  *
  */
-int mbedtls_sha1_starts_ret(mbedtls_sha1_context *ctx);
+int ttls_sha1_starts_ret(ttls_sha1_context *ctx);
 
 /**
  * \brief		  This function feeds an input buffer into an ongoing SHA-1
@@ -132,7 +132,7 @@ int mbedtls_sha1_starts_ret(mbedtls_sha1_context *ctx);
  *				 stronger message digests instead.
  *
  */
-int mbedtls_sha1_update_ret(mbedtls_sha1_context *ctx,
+int ttls_sha1_update_ret(ttls_sha1_context *ctx,
 							 const unsigned char *input,
 							 size_t ilen);
 
@@ -150,7 +150,7 @@ int mbedtls_sha1_update_ret(mbedtls_sha1_context *ctx,
  *				 stronger message digests instead.
  *
  */
-int mbedtls_sha1_finish_ret(mbedtls_sha1_context *ctx,
+int ttls_sha1_finish_ret(ttls_sha1_context *ctx,
 							 unsigned char output[20]);
 
 /**
@@ -166,19 +166,19 @@ int mbedtls_sha1_finish_ret(mbedtls_sha1_context *ctx,
  *				 stronger message digests instead.
  *
  */
-int mbedtls_internal_sha1_process(mbedtls_sha1_context *ctx,
+int ttls_internal_sha1_process(ttls_sha1_context *ctx,
 								   const unsigned char data[64]);
 
-#if !defined(MBEDTLS_DEPRECATED_REMOVED)
-#if defined(MBEDTLS_DEPRECATED_WARNING)
-#define MBEDTLS_DEPRECATED	  __attribute__((deprecated))
+#if !defined(TTLS_DEPRECATED_REMOVED)
+#if defined(TTLS_DEPRECATED_WARNING)
+#define TTLS_DEPRECATED	  __attribute__((deprecated))
 #else
-#define MBEDTLS_DEPRECATED
+#define TTLS_DEPRECATED
 #endif
 /**
  * \brief		  SHA-1 context setup
  *
- * \deprecated	 Superseded by mbedtls_sha1_starts_ret() in 2.7.0
+ * \deprecated	 Superseded by ttls_sha1_starts_ret() in 2.7.0
  *
  * \param ctx	  The SHA-1 context to be initialized.
  *
@@ -187,12 +187,12 @@ int mbedtls_internal_sha1_process(mbedtls_sha1_context *ctx,
  *				 stronger message digests instead.
  *
  */
-MBEDTLS_DEPRECATED void mbedtls_sha1_starts(mbedtls_sha1_context *ctx);
+TTLS_DEPRECATED void ttls_sha1_starts(ttls_sha1_context *ctx);
 
 /**
  * \brief		  SHA-1 process buffer
  *
- * \deprecated	 Superseded by mbedtls_sha1_update_ret() in 2.7.0
+ * \deprecated	 Superseded by ttls_sha1_update_ret() in 2.7.0
  *
  * \param ctx	  The SHA-1 context.
  * \param input	The buffer holding the input data.
@@ -203,14 +203,14 @@ MBEDTLS_DEPRECATED void mbedtls_sha1_starts(mbedtls_sha1_context *ctx);
  *				 stronger message digests instead.
  *
  */
-MBEDTLS_DEPRECATED void mbedtls_sha1_update(mbedtls_sha1_context *ctx,
+TTLS_DEPRECATED void ttls_sha1_update(ttls_sha1_context *ctx,
 											 const unsigned char *input,
 											 size_t ilen);
 
 /**
  * \brief		  SHA-1 final digest
  *
- * \deprecated	 Superseded by mbedtls_sha1_finish_ret() in 2.7.0
+ * \deprecated	 Superseded by ttls_sha1_finish_ret() in 2.7.0
  *
  * \param ctx	  The SHA-1 context.
  * \param output   The SHA-1 checksum result.
@@ -220,13 +220,13 @@ MBEDTLS_DEPRECATED void mbedtls_sha1_update(mbedtls_sha1_context *ctx,
  *				 stronger message digests instead.
  *
  */
-MBEDTLS_DEPRECATED void mbedtls_sha1_finish(mbedtls_sha1_context *ctx,
+TTLS_DEPRECATED void ttls_sha1_finish(ttls_sha1_context *ctx,
 											 unsigned char output[20]);
 
 /**
  * \brief		  SHA-1 process data block (internal use only)
  *
- * \deprecated	 Superseded by mbedtls_internal_sha1_process() in 2.7.0
+ * \deprecated	 Superseded by ttls_internal_sha1_process() in 2.7.0
  *
  * \param ctx	  The SHA-1 context.
  * \param data	 The data block being processed.
@@ -236,19 +236,19 @@ MBEDTLS_DEPRECATED void mbedtls_sha1_finish(mbedtls_sha1_context *ctx,
  *				 stronger message digests instead.
  *
  */
-MBEDTLS_DEPRECATED void mbedtls_sha1_process(mbedtls_sha1_context *ctx,
+TTLS_DEPRECATED void ttls_sha1_process(ttls_sha1_context *ctx,
 											  const unsigned char data[64]);
 
-#undef MBEDTLS_DEPRECATED
-#endif /* !MBEDTLS_DEPRECATED_REMOVED */
+#undef TTLS_DEPRECATED
+#endif /* !TTLS_DEPRECATED_REMOVED */
 
 #ifdef __cplusplus
 }
 #endif
 
-#else  /* MBEDTLS_SHA1_ALT */
+#else  /* TTLS_SHA1_ALT */
 #include "sha1_alt.h"
-#endif /* MBEDTLS_SHA1_ALT */
+#endif /* TTLS_SHA1_ALT */
 
 /**
  * \brief		  This function calculates the SHA-1 checksum of a buffer.
@@ -270,20 +270,20 @@ MBEDTLS_DEPRECATED void mbedtls_sha1_process(mbedtls_sha1_context *ctx,
  *				 stronger message digests instead.
  *
  */
-int mbedtls_sha1_ret(const unsigned char *input,
+int ttls_sha1_ret(const unsigned char *input,
 					  size_t ilen,
 					  unsigned char output[20]);
 
-#if !defined(MBEDTLS_DEPRECATED_REMOVED)
-#if defined(MBEDTLS_DEPRECATED_WARNING)
-#define MBEDTLS_DEPRECATED	  __attribute__((deprecated))
+#if !defined(TTLS_DEPRECATED_REMOVED)
+#if defined(TTLS_DEPRECATED_WARNING)
+#define TTLS_DEPRECATED	  __attribute__((deprecated))
 #else
-#define MBEDTLS_DEPRECATED
+#define TTLS_DEPRECATED
 #endif
 /**
  * \brief		  Output = SHA-1(input buffer)
  *
- * \deprecated	 Superseded by mbedtls_sha1_ret() in 2.7.0
+ * \deprecated	 Superseded by ttls_sha1_ret() in 2.7.0
  *
  * \param input	The buffer holding the input data.
  * \param ilen	 The length of the input data.
@@ -294,11 +294,11 @@ int mbedtls_sha1_ret(const unsigned char *input,
  *				 stronger message digests instead.
  *
  */
-MBEDTLS_DEPRECATED void mbedtls_sha1(const unsigned char *input,
+TTLS_DEPRECATED void ttls_sha1(const unsigned char *input,
 									  size_t ilen,
 									  unsigned char output[20]);
 
-#undef MBEDTLS_DEPRECATED
-#endif /* !MBEDTLS_DEPRECATED_REMOVED */
+#undef TTLS_DEPRECATED
+#endif /* !TTLS_DEPRECATED_REMOVED */
 
-#endif /* mbedtls_sha1.h */
+#endif /* ttls_sha1.h */
