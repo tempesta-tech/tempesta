@@ -321,9 +321,6 @@
 /* Dummy type used only for its size */
 union ttls_ssl_premaster_secret
 {
-#if defined(TTLS_KEY_EXCHANGE_RSA_ENABLED)
-	unsigned char _pms_rsa[48];	/* RFC 5246 8.1.1 */
-#endif
 #if defined(TTLS_KEY_EXCHANGE_DHE_RSA_ENABLED)
 	unsigned char _pms_dhm[TTLS_MPI_MAX_SIZE];	/* RFC 5246 8.1.2 */
 #endif
