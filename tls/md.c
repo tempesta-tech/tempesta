@@ -196,13 +196,6 @@ int ttls_md_clone(ttls_md_context_t *dst,
 	return 0;
 }
 
-#if ! defined(TTLS_DEPRECATED_REMOVED)
-int ttls_md_init_ctx(ttls_md_context_t *ctx, const ttls_md_info_t *md_info)
-{
-	return ttls_md_setup(ctx, md_info, 1);
-}
-#endif
-
 int ttls_md_setup(ttls_md_context_t *ctx, const ttls_md_info_t *md_info, int hmac)
 {
 	if (md_info == NULL || ctx == NULL)

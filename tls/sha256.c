@@ -119,14 +119,6 @@ int ttls_sha256_starts_ret(ttls_sha256_context *ctx, int is224)
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_sha256_starts(ttls_sha256_context *ctx,
-							int is224)
-{
-	ttls_sha256_starts_ret(ctx, is224);
-}
-#endif
-
 #if !defined(TTLS_SHA256_PROCESS_ALT)
 static const uint32_t K[] =
 {
@@ -231,13 +223,6 @@ int ttls_internal_sha256_process(ttls_sha256_context *ctx,
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_sha256_process(ttls_sha256_context *ctx,
-							 const unsigned char data[64])
-{
-	ttls_internal_sha256_process(ctx, data);
-}
-#endif
 #endif /* !TTLS_SHA256_PROCESS_ALT */
 
 /*
@@ -290,15 +275,6 @@ int ttls_sha256_update_ret(ttls_sha256_context *ctx,
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_sha256_update(ttls_sha256_context *ctx,
-							const unsigned char *input,
-							size_t ilen)
-{
-	ttls_sha256_update_ret(ctx, input, ilen);
-}
-#endif
-
 static const unsigned char sha256_padding[64] =
 {
  0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -348,14 +324,6 @@ int ttls_sha256_finish_ret(ttls_sha256_context *ctx,
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_sha256_finish(ttls_sha256_context *ctx,
-							unsigned char output[32])
-{
-	ttls_sha256_finish_ret(ctx, output);
-}
-#endif
-
 #endif /* !TTLS_SHA256_ALT */
 
 /*
@@ -385,16 +353,6 @@ exit:
 
 	return ret;
 }
-
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_sha256(const unsigned char *input,
-					 size_t ilen,
-					 unsigned char output[32],
-					 int is224)
-{
-	ttls_sha256_ret(input, ilen, output, is224);
-}
-#endif
 
 /*
  * FIPS-180-2 test vectors

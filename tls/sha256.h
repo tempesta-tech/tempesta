@@ -26,14 +26,7 @@
 #ifndef TTLS_SHA256_H
 #define TTLS_SHA256_H
 
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
-
-#include <stddef.h>
-#include <stdint.h>
 
 #define TTLS_ERR_SHA256_HW_ACCEL_FAILED				-0x0037  /**< SHA-256 hardware accelerator failed */
 
@@ -134,77 +127,9 @@ int ttls_sha256_finish_ret(ttls_sha256_context *ctx,
 int ttls_internal_sha256_process(ttls_sha256_context *ctx,
 									 const unsigned char data[64]);
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-#if defined(TTLS_DEPRECATED_WARNING)
-#define TTLS_DEPRECATED	  __attribute__((deprecated))
-#else
-#define TTLS_DEPRECATED
-#endif
-/**
- * \brief		  This function starts a SHA-256 checksum calculation.
- *
- * \deprecated	 Superseded by ttls_sha256_starts_ret() in 2.7.0.
- *
- * \param ctx	  The SHA-256 context to initialize.
- * \param is224	Determines which function to use.
- *				 <ul><li>0: Use SHA-256.</li>
- *				 <li>1: Use SHA-224.</li></ul>
- */
-TTLS_DEPRECATED void ttls_sha256_starts(ttls_sha256_context *ctx,
-											   int is224);
-
-/**
- * \brief		  This function feeds an input buffer into an ongoing
- *				 SHA-256 checksum calculation.
- *
- * \deprecated	 Superseded by ttls_sha256_update_ret() in 2.7.0.
- *
- * \param ctx	  The SHA-256 context to initialize.
- * \param input	The buffer holding the data.
- * \param ilen	 The length of the input data.
- */
-TTLS_DEPRECATED void ttls_sha256_update(ttls_sha256_context *ctx,
-											   const unsigned char *input,
-											   size_t ilen);
-
-/**
- * \brief		  This function finishes the SHA-256 operation, and writes
- *				 the result to the output buffer.
- *
- * \deprecated	 Superseded by ttls_sha256_finish_ret() in 2.7.0.
- *
- * \param ctx	  The SHA-256 context.
- * \param output   The SHA-224or SHA-256 checksum result.
- */
-TTLS_DEPRECATED void ttls_sha256_finish(ttls_sha256_context *ctx,
-											   unsigned char output[32]);
-
-/**
- * \brief		  This function processes a single data block within
- *				 the ongoing SHA-256 computation. This function is for
- *				 internal use only.
- *
- * \deprecated	 Superseded by ttls_internal_sha256_process() in 2.7.0.
- *
- * \param ctx	  The SHA-256 context.
- * \param data	 The buffer holding one block of data.
- */
-TTLS_DEPRECATED void ttls_sha256_process(ttls_sha256_context *ctx,
-												const unsigned char data[64]);
-
-#undef TTLS_DEPRECATED
-#endif /* !TTLS_DEPRECATED_REMOVED */
-#ifdef __cplusplus
-}
-#endif
-
 #else  /* TTLS_SHA256_ALT */
 #include "sha256_alt.h"
 #endif /* TTLS_SHA256_ALT */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /**
  * \brief		  This function calculates the SHA-224 or SHA-256
@@ -227,39 +152,5 @@ int ttls_sha256_ret(const unsigned char *input,
 						size_t ilen,
 						unsigned char output[32],
 						int is224);
-
-#if !defined(TTLS_DEPRECATED_REMOVED)
-#if defined(TTLS_DEPRECATED_WARNING)
-#define TTLS_DEPRECATED	  __attribute__((deprecated))
-#else
-#define TTLS_DEPRECATED
-#endif
-
-/**
- * \brief		  This function calculates the SHA-224 or SHA-256 checksum
- *				 of a buffer.
- *
- *				 The function allocates the context, performs the
- *				 calculation, and frees the context.
- *
- *				 The SHA-256 result is calculated as
- *				 output = SHA-256(input buffer).
- *
- * \deprecated	 Superseded by ttls_sha256_ret() in 2.7.0.
- *
- * \param input	The buffer holding the data.
- * \param ilen	 The length of the input data.
- * \param output   The SHA-224 or SHA-256 checksum result.
- * \param is224	Determines which function to use.
- *				 <ul><li>0: Use SHA-256.</li>
- *				 <li>1: Use SHA-224.</li></ul>
- */
-TTLS_DEPRECATED void ttls_sha256(const unsigned char *input,
-										size_t ilen,
-										unsigned char output[32],
-										int is224);
-
-#undef TTLS_DEPRECATED
-#endif /* !TTLS_DEPRECATED_REMOVED */
 
 #endif /* ttls_sha256.h */

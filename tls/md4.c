@@ -98,13 +98,6 @@ int ttls_md4_starts_ret(ttls_md4_context *ctx)
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_md4_starts(ttls_md4_context *ctx)
-{
-	ttls_md4_starts_ret(ctx);
-}
-#endif
-
 #if !defined(TTLS_MD4_PROCESS_ALT)
 int ttls_internal_md4_process(ttls_md4_context *ctx,
 								  const unsigned char data[64])
@@ -212,13 +205,6 @@ int ttls_internal_md4_process(ttls_md4_context *ctx,
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_md4_process(ttls_md4_context *ctx,
-						  const unsigned char data[64])
-{
-	ttls_internal_md4_process(ctx, data);
-}
-#endif
 #endif /* !TTLS_MD4_PROCESS_ALT */
 
 /*
@@ -275,15 +261,6 @@ int ttls_md4_update_ret(ttls_md4_context *ctx,
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_md4_update(ttls_md4_context *ctx,
-						 const unsigned char *input,
-						 size_t ilen)
-{
-	ttls_md4_update_ret(ctx, input, ilen);
-}
-#endif
-
 static const unsigned char md4_padding[64] =
 {
  0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -329,14 +306,6 @@ int ttls_md4_finish_ret(ttls_md4_context *ctx,
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_md4_finish(ttls_md4_context *ctx,
-						 unsigned char output[16])
-{
-	ttls_md4_finish_ret(ctx, output);
-}
-#endif
-
 #endif /* !TTLS_MD4_ALT */
 
 /*
@@ -365,15 +334,6 @@ exit:
 
 	return ret;
 }
-
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_md4(const unsigned char *input,
-				  size_t ilen,
-				  unsigned char output[16])
-{
-	ttls_md4_ret(input, ilen, output);
-}
-#endif
 
 /*
  * RFC 1320 test vectors

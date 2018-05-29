@@ -1472,16 +1472,6 @@ read_record_header:
 					  buf + comp_offset + 1, comp_len);
 
 	ssl->session_negotiate->compression = TTLS_SSL_COMPRESS_NULL;
-#if defined(TTLS_ZLIB_SUPPORT)
-	for (i = 0; i < comp_len; ++i)
-	{
-		if (buf[comp_offset + 1 + i] == TTLS_SSL_COMPRESS_DEFLATE)
-		{
-			ssl->session_negotiate->compression = TTLS_SSL_COMPRESS_DEFLATE;
-			break;
-		}
-	}
-#endif
 
 	/* See comments in ssl_write_client_hello() */
 #if defined(TTLS_SSL_PROTO_DTLS)
