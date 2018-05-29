@@ -24,8 +24,8 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#ifndef MBEDTLS_SSL_TICKET_H
-#define MBEDTLS_SSL_TICKET_H
+#ifndef TTLS_SSL_TICKET_H
+#define TTLS_SSL_TICKET_H
 
 /*
  * This implementation of the session ticket callbacks includes key
@@ -43,16 +43,16 @@ typedef struct
 {
 	unsigned char name[4];		  /*!< random key identifier			  */
 	uint32_t generation_time;	   /*!< key generation timestamp (seconds) */
-	mbedtls_cipher_context_t ctx;   /*!< context for auth enc/decryption	*/
+	ttls_cipher_context_t ctx;   /*!< context for auth enc/decryption	*/
 }
-mbedtls_ssl_ticket_key;
+ttls_ssl_ticket_key;
 
 /**
  * \brief   Context for session ticket handling functions
  */
 typedef struct
 {
-	mbedtls_ssl_ticket_key keys[2]; /*!< ticket protection keys			 */
+	ttls_ssl_ticket_key keys[2]; /*!< ticket protection keys			 */
 	unsigned char active;		   /*!< index of the currently active key  */
 
 	uint32_t ticket_lifetime;	   /*!< lifetime of tickets in seconds	 */
@@ -63,16 +63,16 @@ typedef struct
 
 	spinlock_t mutex;
 }
-mbedtls_ssl_ticket_context;
+ttls_ssl_ticket_context;
 
 /**
  * \brief		   Initialize a ticket context.
- *				  (Just make it ready for mbedtls_ssl_ticket_setup()
- *				  or mbedtls_ssl_ticket_free().)
+ *				  (Just make it ready for ttls_ssl_ticket_setup()
+ *				  or ttls_ssl_ticket_free().)
  *
  * \param ctx	   Context to be initialized
  */
-void mbedtls_ssl_ticket_init(mbedtls_ssl_ticket_context *ctx);
+void ttls_ssl_ticket_init(ttls_ssl_ticket_context *ctx);
 
 /**
  * \brief		   Prepare context to be actually used
@@ -81,7 +81,7 @@ void mbedtls_ssl_ticket_init(mbedtls_ssl_ticket_context *ctx);
  * \param f_rng	 RNG callback function
  * \param p_rng	 RNG callback context
  * \param cipher	AEAD cipher to use for ticket protection.
- *				  Recommended value: MBEDTLS_CIPHER_AES_256_GCM.
+ *				  Recommended value: TTLS_CIPHER_AES_256_GCM.
  * \param lifetime  Tickets lifetime in seconds
  *				  Recommended value: 86400 (one day).
  *
@@ -94,11 +94,11 @@ void mbedtls_ssl_ticket_init(mbedtls_ssl_ticket_context *ctx);
  *				  to negate the benefits of forward secrecy.
  *
  * \return		  0 if successful,
- *				  or a specific MBEDTLS_ERR_XXX error code
+ *				  or a specific TTLS_ERR_XXX error code
  */
-int mbedtls_ssl_ticket_setup(mbedtls_ssl_ticket_context *ctx,
+int ttls_ssl_ticket_setup(ttls_ssl_ticket_context *ctx,
 	int (*f_rng)(void *, unsigned char *, size_t), void *p_rng,
-	mbedtls_cipher_type_t cipher,
+	ttls_cipher_type_t cipher,
 	uint32_t lifetime);
 
 /**
@@ -106,20 +106,20 @@ int mbedtls_ssl_ticket_setup(mbedtls_ssl_ticket_context *ctx,
  *
  * \note			See \c mbedlts_ssl_ticket_write_t for description
  */
-mbedtls_ssl_ticket_write_t mbedtls_ssl_ticket_write;
+ttls_ssl_ticket_write_t ttls_ssl_ticket_write;
 
 /**
  * \brief		   Implementation of the ticket parse callback
  *
  * \note			See \c mbedlts_ssl_ticket_parse_t for description
  */
-mbedtls_ssl_ticket_parse_t mbedtls_ssl_ticket_parse;
+ttls_ssl_ticket_parse_t ttls_ssl_ticket_parse;
 
 /**
  * \brief		   Free a context's content and zeroize it.
  *
  * \param ctx	   Context to be cleaned up
  */
-void mbedtls_ssl_ticket_free(mbedtls_ssl_ticket_context *ctx);
+void ttls_ssl_ticket_free(ttls_ssl_ticket_context *ctx);
 
 #endif /* ssl_ticket.h */

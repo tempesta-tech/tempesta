@@ -31,7 +31,7 @@ static int __init
 ttls_init(void)
 {
 	/* Bad configuration - protected record payload too large. */
-	BUILD_BUG_ON(MBEDTLS_SSL_PAYLOAD_LEN > 16384 + 2048);
+	BUILD_BUG_ON(TTLS_SSL_PAYLOAD_LEN > 16384 + 2048);
 
 	return ttls_mpi_init();
 }
@@ -50,29 +50,29 @@ module_exit(ttls_exit);
  *	pulic API interface (feel free to add more symbols here)
  * ------------------------------------------------------------------------
  */
-EXPORT_SYMBOL(mbedtls_pk_init);
-EXPORT_SYMBOL(mbedtls_pk_free);
-EXPORT_SYMBOL(mbedtls_pk_parse_key);
+EXPORT_SYMBOL(ttls_pk_init);
+EXPORT_SYMBOL(ttls_pk_free);
+EXPORT_SYMBOL(ttls_pk_parse_key);
 
-EXPORT_SYMBOL(mbedtls_ssl_init);
-EXPORT_SYMBOL(mbedtls_ssl_free);
+EXPORT_SYMBOL(ttls_ssl_init);
+EXPORT_SYMBOL(ttls_ssl_free);
 EXPORT_SYMBOL(ttls_ssl_setup);
-EXPORT_SYMBOL(mbedtls_ssl_set_bio);
+EXPORT_SYMBOL(ttls_ssl_set_bio);
 EXPORT_SYMBOL(ttls_ssl_read);
-EXPORT_SYMBOL(mbedtls_ssl_write);
-EXPORT_SYMBOL(mbedtls_ssl_handshake);
-EXPORT_SYMBOL(mbedtls_ssl_close_notify);
+EXPORT_SYMBOL(ttls_ssl_write);
+EXPORT_SYMBOL(ttls_ssl_handshake);
+EXPORT_SYMBOL(ttls_ssl_close_notify);
 
-EXPORT_SYMBOL(mbedtls_ssl_config_init);
-EXPORT_SYMBOL(mbedtls_ssl_config_free);
-EXPORT_SYMBOL(mbedtls_ssl_config_defaults);
-EXPORT_SYMBOL(mbedtls_ssl_conf_rng);
-EXPORT_SYMBOL(mbedtls_ssl_conf_dbg);
-EXPORT_SYMBOL(mbedtls_ssl_conf_own_cert);
-EXPORT_SYMBOL(mbedtls_ssl_conf_ca_chain);
+EXPORT_SYMBOL(ttls_ssl_config_init);
+EXPORT_SYMBOL(ttls_ssl_config_free);
+EXPORT_SYMBOL(ttls_ssl_config_defaults);
+EXPORT_SYMBOL(ttls_ssl_conf_rng);
+EXPORT_SYMBOL(ttls_ssl_conf_dbg);
+EXPORT_SYMBOL(ttls_ssl_conf_own_cert);
+EXPORT_SYMBOL(ttls_ssl_conf_ca_chain);
 
-EXPORT_SYMBOL(mbedtls_x509_crt_init);
-EXPORT_SYMBOL(mbedtls_x509_crt_free);
-EXPORT_SYMBOL(mbedtls_x509_crt_parse);
+EXPORT_SYMBOL(ttls_x509_crt_init);
+EXPORT_SYMBOL(ttls_x509_crt_free);
+EXPORT_SYMBOL(ttls_x509_crt_parse);
 
-EXPORT_SYMBOL(mbedtls_debug_set_threshold);
+EXPORT_SYMBOL(ttls_debug_set_threshold);

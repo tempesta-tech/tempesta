@@ -26,27 +26,27 @@
  *  This file is part of Mbed TLS (https://tls.mbed.org)
  */
 
-#ifndef MBEDTLS_CIPHER_H
-#define MBEDTLS_CIPHER_H
+#ifndef TTLS_CIPHER_H
+#define TTLS_CIPHER_H
 
-#if !defined(MBEDTLS_CONFIG_FILE)
+#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
 #else
-#include MBEDTLS_CONFIG_FILE
+#include TTLS_CONFIG_FILE
 #endif
 
 #include <stddef.h>
 
-#if defined(MBEDTLS_GCM_C) || defined(MBEDTLS_CCM_C)
-#define MBEDTLS_CIPHER_MODE_AEAD
+#if defined(TTLS_GCM_C) || defined(TTLS_CCM_C)
+#define TTLS_CIPHER_MODE_AEAD
 #endif
 
-#if defined(MBEDTLS_CIPHER_MODE_CBC)
-#define MBEDTLS_CIPHER_MODE_WITH_PADDING
+#if defined(TTLS_CIPHER_MODE_CBC)
+#define TTLS_CIPHER_MODE_WITH_PADDING
 #endif
 
-#if defined(MBEDTLS_ARC4_C)
-#define MBEDTLS_CIPHER_MODE_STREAM
+#if defined(TTLS_ARC4_C)
+#define TTLS_CIPHER_MODE_STREAM
 #endif
 
 #if (defined(__ARMCC_VERSION) || defined(_MSC_VER)) && \
@@ -54,17 +54,17 @@
 #define inline __inline
 #endif
 
-#define MBEDTLS_ERR_CIPHER_FEATURE_UNAVAILABLE  -0x6080  /**< The selected feature is not available. */
-#define MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA	   -0x6100  /**< Bad input parameters. */
-#define MBEDTLS_ERR_CIPHER_ALLOC_FAILED		 -0x6180  /**< Failed to allocate memory. */
-#define MBEDTLS_ERR_CIPHER_INVALID_PADDING	  -0x6200  /**< Input data contains invalid padding and is rejected. */
-#define MBEDTLS_ERR_CIPHER_FULL_BLOCK_EXPECTED  -0x6280  /**< Decryption of block requires a full block. */
-#define MBEDTLS_ERR_CIPHER_AUTH_FAILED		  -0x6300  /**< Authentication failed (for AEAD modes). */
-#define MBEDTLS_ERR_CIPHER_INVALID_CONTEXT	  -0x6380  /**< The context is invalid. For example, because it was freed. */
-#define MBEDTLS_ERR_CIPHER_HW_ACCEL_FAILED	  -0x6400  /**< Cipher hardware accelerator failed. */
+#define TTLS_ERR_CIPHER_FEATURE_UNAVAILABLE  -0x6080  /**< The selected feature is not available. */
+#define TTLS_ERR_CIPHER_BAD_INPUT_DATA	   -0x6100  /**< Bad input parameters. */
+#define TTLS_ERR_CIPHER_ALLOC_FAILED		 -0x6180  /**< Failed to allocate memory. */
+#define TTLS_ERR_CIPHER_INVALID_PADDING	  -0x6200  /**< Input data contains invalid padding and is rejected. */
+#define TTLS_ERR_CIPHER_FULL_BLOCK_EXPECTED  -0x6280  /**< Decryption of block requires a full block. */
+#define TTLS_ERR_CIPHER_AUTH_FAILED		  -0x6300  /**< Authentication failed (for AEAD modes). */
+#define TTLS_ERR_CIPHER_INVALID_CONTEXT	  -0x6380  /**< The context is invalid. For example, because it was freed. */
+#define TTLS_ERR_CIPHER_HW_ACCEL_FAILED	  -0x6400  /**< Cipher hardware accelerator failed. */
 
-#define MBEDTLS_CIPHER_VARIABLE_IV_LEN	 0x01	/**< Cipher accepts IVs of variable length. */
-#define MBEDTLS_CIPHER_VARIABLE_KEY_LEN	0x02	/**< Cipher accepts keys of variable length. */
+#define TTLS_CIPHER_VARIABLE_IV_LEN	 0x01	/**< Cipher accepts IVs of variable length. */
+#define TTLS_CIPHER_VARIABLE_KEY_LEN	0x02	/**< Cipher accepts keys of variable length. */
 
 #ifdef __cplusplus
 extern "C" {
@@ -78,15 +78,15 @@ extern "C" {
  *			ciphers instead.
  */
 typedef enum {
-	MBEDTLS_CIPHER_ID_NONE = 0,
-	MBEDTLS_CIPHER_ID_NULL,
-	MBEDTLS_CIPHER_ID_AES,
-	MBEDTLS_CIPHER_ID_DES,
-	MBEDTLS_CIPHER_ID_3DES,
-	MBEDTLS_CIPHER_ID_CAMELLIA,
-	MBEDTLS_CIPHER_ID_BLOWFISH,
-	MBEDTLS_CIPHER_ID_ARC4,
-} mbedtls_cipher_id_t;
+	TTLS_CIPHER_ID_NONE = 0,
+	TTLS_CIPHER_ID_NULL,
+	TTLS_CIPHER_ID_AES,
+	TTLS_CIPHER_ID_DES,
+	TTLS_CIPHER_ID_3DES,
+	TTLS_CIPHER_ID_CAMELLIA,
+	TTLS_CIPHER_ID_BLOWFISH,
+	TTLS_CIPHER_ID_ARC4,
+} ttls_cipher_id_t;
 
 /**
  * \brief	 An enumeration of supported (cipher, mode) pairs.
@@ -96,111 +96,111 @@ typedef enum {
  *			ciphers instead.
  */
 typedef enum {
-	MBEDTLS_CIPHER_NONE = 0,
-	MBEDTLS_CIPHER_NULL,
-	MBEDTLS_CIPHER_AES_128_ECB,
-	MBEDTLS_CIPHER_AES_192_ECB,
-	MBEDTLS_CIPHER_AES_256_ECB,
-	MBEDTLS_CIPHER_AES_128_CBC,
-	MBEDTLS_CIPHER_AES_192_CBC,
-	MBEDTLS_CIPHER_AES_256_CBC,
-	MBEDTLS_CIPHER_AES_128_CFB128,
-	MBEDTLS_CIPHER_AES_192_CFB128,
-	MBEDTLS_CIPHER_AES_256_CFB128,
-	MBEDTLS_CIPHER_AES_128_CTR,
-	MBEDTLS_CIPHER_AES_192_CTR,
-	MBEDTLS_CIPHER_AES_256_CTR,
-	MBEDTLS_CIPHER_AES_128_GCM,
-	MBEDTLS_CIPHER_AES_192_GCM,
-	MBEDTLS_CIPHER_AES_256_GCM,
-	MBEDTLS_CIPHER_CAMELLIA_128_ECB,
-	MBEDTLS_CIPHER_CAMELLIA_192_ECB,
-	MBEDTLS_CIPHER_CAMELLIA_256_ECB,
-	MBEDTLS_CIPHER_CAMELLIA_128_CBC,
-	MBEDTLS_CIPHER_CAMELLIA_192_CBC,
-	MBEDTLS_CIPHER_CAMELLIA_256_CBC,
-	MBEDTLS_CIPHER_CAMELLIA_128_CFB128,
-	MBEDTLS_CIPHER_CAMELLIA_192_CFB128,
-	MBEDTLS_CIPHER_CAMELLIA_256_CFB128,
-	MBEDTLS_CIPHER_CAMELLIA_128_CTR,
-	MBEDTLS_CIPHER_CAMELLIA_192_CTR,
-	MBEDTLS_CIPHER_CAMELLIA_256_CTR,
-	MBEDTLS_CIPHER_CAMELLIA_128_GCM,
-	MBEDTLS_CIPHER_CAMELLIA_192_GCM,
-	MBEDTLS_CIPHER_CAMELLIA_256_GCM,
-	MBEDTLS_CIPHER_DES_ECB,
-	MBEDTLS_CIPHER_DES_CBC,
-	MBEDTLS_CIPHER_DES_EDE_ECB,
-	MBEDTLS_CIPHER_DES_EDE_CBC,
-	MBEDTLS_CIPHER_DES_EDE3_ECB,
-	MBEDTLS_CIPHER_DES_EDE3_CBC,
-	MBEDTLS_CIPHER_BLOWFISH_ECB,
-	MBEDTLS_CIPHER_BLOWFISH_CBC,
-	MBEDTLS_CIPHER_BLOWFISH_CFB64,
-	MBEDTLS_CIPHER_BLOWFISH_CTR,
-	MBEDTLS_CIPHER_ARC4_128,
-	MBEDTLS_CIPHER_AES_128_CCM,
-	MBEDTLS_CIPHER_AES_192_CCM,
-	MBEDTLS_CIPHER_AES_256_CCM,
-	MBEDTLS_CIPHER_CAMELLIA_128_CCM,
-	MBEDTLS_CIPHER_CAMELLIA_192_CCM,
-	MBEDTLS_CIPHER_CAMELLIA_256_CCM,
-} mbedtls_cipher_type_t;
+	TTLS_CIPHER_NONE = 0,
+	TTLS_CIPHER_NULL,
+	TTLS_CIPHER_AES_128_ECB,
+	TTLS_CIPHER_AES_192_ECB,
+	TTLS_CIPHER_AES_256_ECB,
+	TTLS_CIPHER_AES_128_CBC,
+	TTLS_CIPHER_AES_192_CBC,
+	TTLS_CIPHER_AES_256_CBC,
+	TTLS_CIPHER_AES_128_CFB128,
+	TTLS_CIPHER_AES_192_CFB128,
+	TTLS_CIPHER_AES_256_CFB128,
+	TTLS_CIPHER_AES_128_CTR,
+	TTLS_CIPHER_AES_192_CTR,
+	TTLS_CIPHER_AES_256_CTR,
+	TTLS_CIPHER_AES_128_GCM,
+	TTLS_CIPHER_AES_192_GCM,
+	TTLS_CIPHER_AES_256_GCM,
+	TTLS_CIPHER_CAMELLIA_128_ECB,
+	TTLS_CIPHER_CAMELLIA_192_ECB,
+	TTLS_CIPHER_CAMELLIA_256_ECB,
+	TTLS_CIPHER_CAMELLIA_128_CBC,
+	TTLS_CIPHER_CAMELLIA_192_CBC,
+	TTLS_CIPHER_CAMELLIA_256_CBC,
+	TTLS_CIPHER_CAMELLIA_128_CFB128,
+	TTLS_CIPHER_CAMELLIA_192_CFB128,
+	TTLS_CIPHER_CAMELLIA_256_CFB128,
+	TTLS_CIPHER_CAMELLIA_128_CTR,
+	TTLS_CIPHER_CAMELLIA_192_CTR,
+	TTLS_CIPHER_CAMELLIA_256_CTR,
+	TTLS_CIPHER_CAMELLIA_128_GCM,
+	TTLS_CIPHER_CAMELLIA_192_GCM,
+	TTLS_CIPHER_CAMELLIA_256_GCM,
+	TTLS_CIPHER_DES_ECB,
+	TTLS_CIPHER_DES_CBC,
+	TTLS_CIPHER_DES_EDE_ECB,
+	TTLS_CIPHER_DES_EDE_CBC,
+	TTLS_CIPHER_DES_EDE3_ECB,
+	TTLS_CIPHER_DES_EDE3_CBC,
+	TTLS_CIPHER_BLOWFISH_ECB,
+	TTLS_CIPHER_BLOWFISH_CBC,
+	TTLS_CIPHER_BLOWFISH_CFB64,
+	TTLS_CIPHER_BLOWFISH_CTR,
+	TTLS_CIPHER_ARC4_128,
+	TTLS_CIPHER_AES_128_CCM,
+	TTLS_CIPHER_AES_192_CCM,
+	TTLS_CIPHER_AES_256_CCM,
+	TTLS_CIPHER_CAMELLIA_128_CCM,
+	TTLS_CIPHER_CAMELLIA_192_CCM,
+	TTLS_CIPHER_CAMELLIA_256_CCM,
+} ttls_cipher_type_t;
 
 /** Supported cipher modes. */
 typedef enum {
-	MBEDTLS_MODE_NONE = 0,
-	MBEDTLS_MODE_ECB,
-	MBEDTLS_MODE_CBC,
-	MBEDTLS_MODE_CFB,
-	MBEDTLS_MODE_OFB, /* Unused! */
-	MBEDTLS_MODE_CTR,
-	MBEDTLS_MODE_GCM,
-	MBEDTLS_MODE_STREAM,
-	MBEDTLS_MODE_CCM,
-} mbedtls_cipher_mode_t;
+	TTLS_MODE_NONE = 0,
+	TTLS_MODE_ECB,
+	TTLS_MODE_CBC,
+	TTLS_MODE_CFB,
+	TTLS_MODE_OFB, /* Unused! */
+	TTLS_MODE_CTR,
+	TTLS_MODE_GCM,
+	TTLS_MODE_STREAM,
+	TTLS_MODE_CCM,
+} ttls_cipher_mode_t;
 
 /** Supported cipher padding types. */
 typedef enum {
-	MBEDTLS_PADDING_PKCS7 = 0,	 /**< PKCS7 padding (default).		*/
-	MBEDTLS_PADDING_ONE_AND_ZEROS, /**< ISO/IEC 7816-4 padding.		 */
-	MBEDTLS_PADDING_ZEROS_AND_LEN, /**< ANSI X.923 padding.			 */
-	MBEDTLS_PADDING_ZEROS,		 /**< zero padding (not reversible). */
-	MBEDTLS_PADDING_NONE,		  /**< never pad (full blocks only).   */
-} mbedtls_cipher_padding_t;
+	TTLS_PADDING_PKCS7 = 0,	 /**< PKCS7 padding (default).		*/
+	TTLS_PADDING_ONE_AND_ZEROS, /**< ISO/IEC 7816-4 padding.		 */
+	TTLS_PADDING_ZEROS_AND_LEN, /**< ANSI X.923 padding.			 */
+	TTLS_PADDING_ZEROS,		 /**< zero padding (not reversible). */
+	TTLS_PADDING_NONE,		  /**< never pad (full blocks only).   */
+} ttls_cipher_padding_t;
 
 /** Type of operation. */
 typedef enum {
-	MBEDTLS_OPERATION_NONE = -1,
-	MBEDTLS_DECRYPT = 0,
-	MBEDTLS_ENCRYPT,
-} mbedtls_operation_t;
+	TTLS_OPERATION_NONE = -1,
+	TTLS_DECRYPT = 0,
+	TTLS_ENCRYPT,
+} ttls_operation_t;
 
 enum {
 	/** Undefined key length. */
-	MBEDTLS_KEY_LENGTH_NONE = 0,
+	TTLS_KEY_LENGTH_NONE = 0,
 	/** Key length, in bits (including parity), for DES keys. */
-	MBEDTLS_KEY_LENGTH_DES  = 64,
+	TTLS_KEY_LENGTH_DES  = 64,
 	/** Key length in bits, including parity, for DES in two-key EDE. */
-	MBEDTLS_KEY_LENGTH_DES_EDE = 128,
+	TTLS_KEY_LENGTH_DES_EDE = 128,
 	/** Key length in bits, including parity, for DES in three-key EDE. */
-	MBEDTLS_KEY_LENGTH_DES_EDE3 = 192,
+	TTLS_KEY_LENGTH_DES_EDE3 = 192,
 };
 
 /** Maximum length of any IV, in Bytes. */
-#define MBEDTLS_MAX_IV_LENGTH	  16
+#define TTLS_MAX_IV_LENGTH	  16
 /** Maximum block size of any cipher, in Bytes. */
-#define MBEDTLS_MAX_BLOCK_LENGTH   16
+#define TTLS_MAX_BLOCK_LENGTH   16
 
 /**
  * Base cipher information (opaque struct).
  */
-typedef struct mbedtls_cipher_base_t mbedtls_cipher_base_t;
+typedef struct ttls_cipher_base_t ttls_cipher_base_t;
 
 /**
  * CMAC context (opaque struct).
  */
-typedef struct mbedtls_cmac_context_t mbedtls_cmac_context_t;
+typedef struct ttls_cmac_context_t ttls_cmac_context_t;
 
 /**
  * Cipher information. Allows calling cipher functions
@@ -208,12 +208,12 @@ typedef struct mbedtls_cmac_context_t mbedtls_cmac_context_t;
  */
 typedef struct {
 	/** Full cipher identifier. For example,
-	 * MBEDTLS_CIPHER_AES_256_CBC.
+	 * TTLS_CIPHER_AES_256_CBC.
 	 */
-	mbedtls_cipher_type_t type;
+	ttls_cipher_type_t type;
 
-	/** The cipher mode. For example, MBEDTLS_MODE_CBC. */
-	mbedtls_cipher_mode_t mode;
+	/** The cipher mode. For example, TTLS_MODE_CBC. */
+	ttls_cipher_mode_t mode;
 
 	/** The cipher key length, in bits. This is the
 	 * default length for variable sized ciphers.
@@ -237,16 +237,16 @@ typedef struct {
 	unsigned int block_size;
 
 	/** Struct for base cipher information and functions. */
-	const mbedtls_cipher_base_t *base;
+	const ttls_cipher_base_t *base;
 
-} mbedtls_cipher_info_t;
+} ttls_cipher_info_t;
 
 /**
  * Generic cipher context.
  */
 typedef struct {
 	/** Information about the associated cipher. */
-	const mbedtls_cipher_info_t *cipher_info;
+	const ttls_cipher_info_t *cipher_info;
 
 	/** Key length to use. */
 	int key_bitlen;
@@ -254,9 +254,9 @@ typedef struct {
 	/** Operation that the key of the context has been
 	 * initialized for.
 	 */
-	mbedtls_operation_t operation;
+	ttls_operation_t operation;
 
-#if defined(MBEDTLS_CIPHER_MODE_WITH_PADDING)
+#if defined(TTLS_CIPHER_MODE_WITH_PADDING)
 	/** Padding functions to use, if relevant for
 	 * the specific cipher mode.
 	 */
@@ -265,13 +265,13 @@ typedef struct {
 #endif
 
 	/** Buffer for input that has not been processed yet. */
-	unsigned char unprocessed_data[MBEDTLS_MAX_BLOCK_LENGTH];
+	unsigned char unprocessed_data[TTLS_MAX_BLOCK_LENGTH];
 
 	/** Number of Bytes that have not been processed yet. */
 	size_t unprocessed_len;
 
 	/** Current IV or NONCE_COUNTER for CTR-mode. */
-	unsigned char iv[MBEDTLS_MAX_IV_LENGTH];
+	unsigned char iv[TTLS_MAX_IV_LENGTH];
 
 	/** IV size in Bytes, for ciphers with variable-length IVs. */
 	size_t iv_size;
@@ -279,11 +279,11 @@ typedef struct {
 	/** The cipher-specific context. */
 	void *cipher_ctx;
 
-#if defined(MBEDTLS_CMAC_C)
+#if defined(TTLS_CMAC_C)
 	/** CMAC-specific context. */
-	mbedtls_cmac_context_t *cmac_ctx;
+	ttls_cmac_context_t *cmac_ctx;
 #endif
-} mbedtls_cipher_context_t;
+} ttls_cipher_context_t;
 
 /**
  * \brief This function retrieves the list of ciphers supported by the generic
@@ -292,7 +292,7 @@ typedef struct {
  * \return	  A statically-allocated array of ciphers. The last entry
  *			  is zero.
  */
-const int *mbedtls_cipher_list(void);
+const int *ttls_cipher_list(void);
 
 /**
  * \brief			   This function retrieves the cipher-information
@@ -303,7 +303,7 @@ const int *mbedtls_cipher_list(void);
  * \return			  The cipher information structure associated with the
  *					  given \p cipher_name, or NULL if not found.
  */
-const mbedtls_cipher_info_t *mbedtls_cipher_info_from_string(const char *cipher_name);
+const ttls_cipher_info_t *ttls_cipher_info_from_string(const char *cipher_name);
 
 /**
  * \brief			   This function retrieves the cipher-information
@@ -314,7 +314,7 @@ const mbedtls_cipher_info_t *mbedtls_cipher_info_from_string(const char *cipher_
  * \return			  The cipher information structure associated with the
  *					  given \p cipher_type, or NULL if not found.
  */
-const mbedtls_cipher_info_t *mbedtls_cipher_info_from_type(const mbedtls_cipher_type_t cipher_type);
+const ttls_cipher_info_t *ttls_cipher_info_from_type(const ttls_cipher_type_t cipher_type);
 
 /**
  * \brief			   This function retrieves the cipher-information
@@ -322,28 +322,28 @@ const mbedtls_cipher_info_t *mbedtls_cipher_info_from_type(const mbedtls_cipher_
  *					  key size and mode.
  *
  * \param cipher_id	 The ID of the cipher to search for. For example,
- *					  #MBEDTLS_CIPHER_ID_AES.
+ *					  #TTLS_CIPHER_ID_AES.
  * \param key_bitlen	The length of the key in bits.
- * \param mode		  The cipher mode. For example, #MBEDTLS_MODE_CBC.
+ * \param mode		  The cipher mode. For example, #TTLS_MODE_CBC.
  *
  * \return			  The cipher information structure associated with the
  *					  given \p cipher_id, or NULL if not found.
  */
-const mbedtls_cipher_info_t *mbedtls_cipher_info_from_values(const mbedtls_cipher_id_t cipher_id,
+const ttls_cipher_info_t *ttls_cipher_info_from_values(const ttls_cipher_id_t cipher_id,
 											  int key_bitlen,
-											  const mbedtls_cipher_mode_t mode);
+											  const ttls_cipher_mode_t mode);
 
 /**
  * \brief			   This function initializes a \p cipher_context as NONE.
  */
-void mbedtls_cipher_init(mbedtls_cipher_context_t *ctx);
+void ttls_cipher_init(ttls_cipher_context_t *ctx);
 
 /**
  * \brief			   This function frees and clears the cipher-specific
  *					  context of \p ctx. Freeing \p ctx itself remains the
  *					  responsibility of the caller.
  */
-void mbedtls_cipher_free(mbedtls_cipher_context_t *ctx);
+void ttls_cipher_free(ttls_cipher_context_t *ctx);
 
 
 /**
@@ -355,15 +355,15 @@ void mbedtls_cipher_free(mbedtls_cipher_context_t *ctx);
  * \param cipher_info   The cipher to use.
  *
  * \return			  \c 0 on success,
- *					  #MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA on parameter failure,
- *					  #MBEDTLS_ERR_CIPHER_ALLOC_FAILED if allocation of the
+ *					  #TTLS_ERR_CIPHER_BAD_INPUT_DATA on parameter failure,
+ *					  #TTLS_ERR_CIPHER_ALLOC_FAILED if allocation of the
  *					  cipher-specific context failed.
  *
  * \internal Currently, the function also clears the structure.
  * In future versions, the caller will be required to call
- * mbedtls_cipher_init() on the structure first.
+ * ttls_cipher_init() on the structure first.
  */
-int mbedtls_cipher_setup(mbedtls_cipher_context_t *ctx, const mbedtls_cipher_info_t *cipher_info);
+int ttls_cipher_setup(ttls_cipher_context_t *ctx, const ttls_cipher_info_t *cipher_info);
 
 /**
  * \brief		This function returns the block size of the given cipher.
@@ -373,7 +373,7 @@ int mbedtls_cipher_setup(mbedtls_cipher_context_t *ctx, const mbedtls_cipher_inf
  * \return	   The size of the blocks of the cipher, or zero if \p ctx
  *			   has not been initialized.
  */
-static inline unsigned int mbedtls_cipher_get_block_size(const mbedtls_cipher_context_t *ctx)
+static inline unsigned int ttls_cipher_get_block_size(const ttls_cipher_context_t *ctx)
 {
 	if (NULL == ctx || NULL == ctx->cipher_info)
 		return 0;
@@ -383,17 +383,17 @@ static inline unsigned int mbedtls_cipher_get_block_size(const mbedtls_cipher_co
 
 /**
  * \brief		This function returns the mode of operation for
- *			   the cipher. For example, MBEDTLS_MODE_CBC.
+ *			   the cipher. For example, TTLS_MODE_CBC.
  *
  * \param ctx	The context of the cipher. Must be initialized.
  *
- * \return	   The mode of operation, or #MBEDTLS_MODE_NONE if
+ * \return	   The mode of operation, or #TTLS_MODE_NONE if
  *			   \p ctx has not been initialized.
  */
-static inline mbedtls_cipher_mode_t mbedtls_cipher_get_cipher_mode(const mbedtls_cipher_context_t *ctx)
+static inline ttls_cipher_mode_t ttls_cipher_get_cipher_mode(const ttls_cipher_context_t *ctx)
 {
 	if (NULL == ctx || NULL == ctx->cipher_info)
-		return MBEDTLS_MODE_NONE;
+		return TTLS_MODE_NONE;
 
 	return ctx->cipher_info->mode;
 }
@@ -408,7 +408,7 @@ static inline mbedtls_cipher_mode_t mbedtls_cipher_get_cipher_mode(const mbedtls
  *			  0 for ciphers not using IV or nonce.</li>
  *			  <li>If IV has already been set: the actual size.</li></ul>
  */
-static inline int mbedtls_cipher_get_iv_size(const mbedtls_cipher_context_t *ctx)
+static inline int ttls_cipher_get_iv_size(const ttls_cipher_context_t *ctx)
 {
 	if (NULL == ctx || NULL == ctx->cipher_info)
 		return 0;
@@ -424,13 +424,13 @@ static inline int mbedtls_cipher_get_iv_size(const mbedtls_cipher_context_t *ctx
  *
  * \param ctx		   The context of the cipher. Must be initialized.
  *
- * \return			  The type of the cipher, or #MBEDTLS_CIPHER_NONE if
+ * \return			  The type of the cipher, or #TTLS_CIPHER_NONE if
  *					  \p ctx has not been initialized.
  */
-static inline mbedtls_cipher_type_t mbedtls_cipher_get_type(const mbedtls_cipher_context_t *ctx)
+static inline ttls_cipher_type_t ttls_cipher_get_type(const ttls_cipher_context_t *ctx)
 {
 	if (NULL == ctx || NULL == ctx->cipher_info)
-		return MBEDTLS_CIPHER_NONE;
+		return TTLS_CIPHER_NONE;
 
 	return ctx->cipher_info->type;
 }
@@ -444,7 +444,7 @@ static inline mbedtls_cipher_type_t mbedtls_cipher_get_type(const mbedtls_cipher
  * \return			  The name of the cipher, or NULL if \p ctx has not
  *					  been not initialized.
  */
-static inline const char *mbedtls_cipher_get_name(const mbedtls_cipher_context_t *ctx)
+static inline const char *ttls_cipher_get_name(const ttls_cipher_context_t *ctx)
 {
 	if (NULL == ctx || NULL == ctx->cipher_info)
 		return 0;
@@ -458,13 +458,13 @@ static inline const char *mbedtls_cipher_get_name(const mbedtls_cipher_context_t
  * \param ctx		   The context of the cipher. Must be initialized.
  *
  * \return			  The key length of the cipher in bits, or
- *					  #MBEDTLS_KEY_LENGTH_NONE if ctx \p has not been
+ *					  #TTLS_KEY_LENGTH_NONE if ctx \p has not been
  *					  initialized.
  */
-static inline int mbedtls_cipher_get_key_bitlen(const mbedtls_cipher_context_t *ctx)
+static inline int ttls_cipher_get_key_bitlen(const ttls_cipher_context_t *ctx)
 {
 	if (NULL == ctx || NULL == ctx->cipher_info)
-		return MBEDTLS_KEY_LENGTH_NONE;
+		return TTLS_KEY_LENGTH_NONE;
 
 	return (int) ctx->cipher_info->key_bitlen;
 }
@@ -474,14 +474,14 @@ static inline int mbedtls_cipher_get_key_bitlen(const mbedtls_cipher_context_t *
  *
  * \param ctx	  The context of the cipher. Must be initialized.
  *
- * \return		 The type of operation: #MBEDTLS_ENCRYPT or
- *				 #MBEDTLS_DECRYPT, or #MBEDTLS_OPERATION_NONE if \p ctx
+ * \return		 The type of operation: #TTLS_ENCRYPT or
+ *				 #TTLS_DECRYPT, or #TTLS_OPERATION_NONE if \p ctx
  *				 has not been initialized.
  */
-static inline mbedtls_operation_t mbedtls_cipher_get_operation(const mbedtls_cipher_context_t *ctx)
+static inline ttls_operation_t ttls_cipher_get_operation(const ttls_cipher_context_t *ctx)
 {
 	if (NULL == ctx || NULL == ctx->cipher_info)
-		return MBEDTLS_OPERATION_NONE;
+		return TTLS_OPERATION_NONE;
 
 	return ctx->operation;
 }
@@ -490,21 +490,21 @@ static inline mbedtls_operation_t mbedtls_cipher_get_operation(const mbedtls_cip
  * \brief			   This function sets the key to use with the given context.
  *
  * \param ctx		   The generic cipher context. May not be NULL. Must have
- *					  been initialized using mbedtls_cipher_info_from_type()
- *					  or mbedtls_cipher_info_from_string().
+ *					  been initialized using ttls_cipher_info_from_type()
+ *					  or ttls_cipher_info_from_string().
  * \param key		   The key to use.
  * \param key_bitlen	The key length to use, in bits.
  * \param operation	 The operation that the key will be used for:
- *					  #MBEDTLS_ENCRYPT or #MBEDTLS_DECRYPT.
+ *					  #TTLS_ENCRYPT or #TTLS_DECRYPT.
  *
- * \returns			 \c 0 on success, #MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA if
+ * \returns			 \c 0 on success, #TTLS_ERR_CIPHER_BAD_INPUT_DATA if
  *					  parameter verification fails, or a cipher-specific
  *					  error code.
  */
-int mbedtls_cipher_setkey(mbedtls_cipher_context_t *ctx, const unsigned char *key,
-				   int key_bitlen, const mbedtls_operation_t operation);
+int ttls_cipher_setkey(ttls_cipher_context_t *ctx, const unsigned char *key,
+				   int key_bitlen, const ttls_operation_t operation);
 
-#if defined(MBEDTLS_CIPHER_MODE_WITH_PADDING)
+#if defined(TTLS_CIPHER_MODE_WITH_PADDING)
 /**
  * \brief			   This function sets the padding mode, for cipher modes
  *					  that use padding.
@@ -514,13 +514,13 @@ int mbedtls_cipher_setkey(mbedtls_cipher_context_t *ctx, const unsigned char *ke
  * \param ctx		   The generic cipher context.
  * \param mode		  The padding mode.
  *
- * \returns			 \c 0 on success, #MBEDTLS_ERR_CIPHER_FEATURE_UNAVAILABLE
+ * \returns			 \c 0 on success, #TTLS_ERR_CIPHER_FEATURE_UNAVAILABLE
  *					  if the selected padding mode is not supported, or
- *					  #MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA if the cipher mode
+ *					  #TTLS_ERR_CIPHER_BAD_INPUT_DATA if the cipher mode
  *					  does not support padding.
  */
-int mbedtls_cipher_set_padding_mode(mbedtls_cipher_context_t *ctx, mbedtls_cipher_padding_t mode);
-#endif /* MBEDTLS_CIPHER_MODE_WITH_PADDING */
+int ttls_cipher_set_padding_mode(ttls_cipher_context_t *ctx, ttls_cipher_padding_t mode);
+#endif /* TTLS_CIPHER_MODE_WITH_PADDING */
 
 /**
  * \brief		   This function sets the initialization vector (IV)
@@ -531,12 +531,12 @@ int mbedtls_cipher_set_padding_mode(mbedtls_cipher_context_t *ctx, mbedtls_ciphe
  * \param iv_len	The IV length for ciphers with variable-size IV.
  *				  This parameter is discarded by ciphers with fixed-size IV.
  *
- * \returns		 \c 0 on success, or #MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA
+ * \returns		 \c 0 on success, or #TTLS_ERR_CIPHER_BAD_INPUT_DATA
  *
  * \note			Some ciphers do not use IVs nor nonce. For these
  *				  ciphers, this function has no effect.
  */
-int mbedtls_cipher_set_iv(mbedtls_cipher_context_t *ctx,
+int ttls_cipher_set_iv(ttls_cipher_context_t *ctx,
 				   const unsigned char *iv, size_t iv_len);
 
 /**
@@ -544,16 +544,16 @@ int mbedtls_cipher_set_iv(mbedtls_cipher_context_t *ctx,
  *
  * \param ctx	 The generic cipher context.
  *
- * \returns	   \c 0 on success, #MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA
+ * \returns	   \c 0 on success, #TTLS_ERR_CIPHER_BAD_INPUT_DATA
  *				if parameter verification fails.
  */
-int mbedtls_cipher_reset(mbedtls_cipher_context_t *ctx);
+int ttls_cipher_reset(ttls_cipher_context_t *ctx);
 
-#if defined(MBEDTLS_GCM_C)
+#if defined(TTLS_GCM_C)
 /**
  * \brief			   This function adds additional data for AEAD ciphers.
  *					  Only supported with GCM. Must be called
- *					  exactly once, after mbedtls_cipher_reset().
+ *					  exactly once, after ttls_cipher_reset().
  *
  * \param ctx		   The generic cipher context.
  * \param ad			The additional data to use.
@@ -561,9 +561,9 @@ int mbedtls_cipher_reset(mbedtls_cipher_context_t *ctx);
  *
  * \return			  \c 0 on success, or a specific error code on failure.
  */
-int mbedtls_cipher_update_ad(mbedtls_cipher_context_t *ctx,
+int ttls_cipher_update_ad(ttls_cipher_context_t *ctx,
 					  const unsigned char *ad, size_t ad_len);
-#endif /* MBEDTLS_GCM_C */
+#endif /* TTLS_GCM_C */
 
 /**
  * \brief			   The generic cipher update function. It encrypts or
@@ -571,8 +571,8 @@ int mbedtls_cipher_update_ad(mbedtls_cipher_context_t *ctx,
  *					  many block-sized blocks of data as possible to output.
  *					  Any data that cannot be written immediately is either
  *					  added to the next block, or flushed when
- *					  mbedtls_cipher_finish() is called.
- *					  Exception: For MBEDTLS_MODE_ECB, expects a single block
+ *					  ttls_cipher_finish() is called.
+ *					  Exception: For TTLS_MODE_ECB, expects a single block
  *					  in size. For example, 16 Bytes for AES.
  *
  * \param ctx		   The generic cipher context.
@@ -584,18 +584,18 @@ int mbedtls_cipher_update_ad(mbedtls_cipher_context_t *ctx,
  * \param olen		  The length of the output data, to be updated with the
  *					  actual number of Bytes written.
  *
- * \returns			 \c 0 on success, #MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA if
+ * \returns			 \c 0 on success, #TTLS_ERR_CIPHER_BAD_INPUT_DATA if
  *					  parameter verification fails,
- *					  #MBEDTLS_ERR_CIPHER_FEATURE_UNAVAILABLE on an
+ *					  #TTLS_ERR_CIPHER_FEATURE_UNAVAILABLE on an
  *					  unsupported mode for a cipher, or a cipher-specific
  *					  error code.
  *
  * \note				If the underlying cipher is GCM, all calls to this
  *					  function, except the last one before
- *					  mbedtls_cipher_finish(). Must have \p ilen as a
+ *					  ttls_cipher_finish(). Must have \p ilen as a
  *					  multiple of the block_size.
  */
-int mbedtls_cipher_update(mbedtls_cipher_context_t *ctx, const unsigned char *input,
+int ttls_cipher_update(ttls_cipher_context_t *ctx, const unsigned char *input,
 				   size_t ilen, unsigned char *output, size_t *olen);
 
 /**
@@ -608,22 +608,22 @@ int mbedtls_cipher_update(mbedtls_cipher_context_t *ctx, const unsigned char *in
  * \param output		The buffer to write data to. Needs block_size available.
  * \param olen		  The length of the data written to the \p output buffer.
  *
- * \returns			 \c 0 on success, #MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA if
+ * \returns			 \c 0 on success, #TTLS_ERR_CIPHER_BAD_INPUT_DATA if
  *					  parameter verification fails,
- *					  #MBEDTLS_ERR_CIPHER_FULL_BLOCK_EXPECTED if decryption
+ *					  #TTLS_ERR_CIPHER_FULL_BLOCK_EXPECTED if decryption
  *					  expected a full block but was not provided one,
- *					  #MBEDTLS_ERR_CIPHER_INVALID_PADDING on invalid padding
+ *					  #TTLS_ERR_CIPHER_INVALID_PADDING on invalid padding
  *					  while decrypting, or a cipher-specific error code
  *					  on failure for any other reason.
  */
-int mbedtls_cipher_finish(mbedtls_cipher_context_t *ctx,
+int ttls_cipher_finish(ttls_cipher_context_t *ctx,
 				   unsigned char *output, size_t *olen);
 
-#if defined(MBEDTLS_GCM_C)
+#if defined(TTLS_GCM_C)
 /**
  * \brief			   This function writes a tag for AEAD ciphers.
  *					  Only supported with GCM.
- *					  Must be called after mbedtls_cipher_finish().
+ *					  Must be called after ttls_cipher_finish().
  *
  * \param ctx		   The generic cipher context.
  * \param tag		   The buffer to write the tag to.
@@ -631,13 +631,13 @@ int mbedtls_cipher_finish(mbedtls_cipher_context_t *ctx,
  *
  * \return			  \c 0 on success, or a specific error code on failure.
  */
-int mbedtls_cipher_write_tag(mbedtls_cipher_context_t *ctx,
+int ttls_cipher_write_tag(ttls_cipher_context_t *ctx,
 					  unsigned char *tag, size_t tag_len);
 
 /**
  * \brief			   This function checks the tag for AEAD ciphers.
  *					  Only supported with GCM.
- *					  Must be called after mbedtls_cipher_finish().
+ *					  Must be called after ttls_cipher_finish().
  *
  * \param ctx		   The generic cipher context.
  * \param tag		   The buffer holding the tag.
@@ -645,9 +645,9 @@ int mbedtls_cipher_write_tag(mbedtls_cipher_context_t *ctx,
  *
  * \return			  \c 0 on success, or a specific error code on failure.
  */
-int mbedtls_cipher_check_tag(mbedtls_cipher_context_t *ctx,
+int ttls_cipher_check_tag(ttls_cipher_context_t *ctx,
 					  const unsigned char *tag, size_t tag_len);
-#endif /* MBEDTLS_GCM_C */
+#endif /* TTLS_GCM_C */
 
 /**
  * \brief			   The generic all-in-one encryption/decryption function,
@@ -670,19 +670,19 @@ int mbedtls_cipher_check_tag(mbedtls_cipher_context_t *ctx,
  *					  ciphers, use \p iv = NULL and \p iv_len = 0.
  *
  * \returns			 \c 0 on success, or
- *					  #MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA, or
- *					  #MBEDTLS_ERR_CIPHER_FULL_BLOCK_EXPECTED if decryption
+ *					  #TTLS_ERR_CIPHER_BAD_INPUT_DATA, or
+ *					  #TTLS_ERR_CIPHER_FULL_BLOCK_EXPECTED if decryption
  *					  expected a full block but was not provided one, or
- *					  #MBEDTLS_ERR_CIPHER_INVALID_PADDING on invalid padding
+ *					  #TTLS_ERR_CIPHER_INVALID_PADDING on invalid padding
  *					  while decrypting, or a cipher-specific error code on
  *					  failure for any other reason.
  */
-int mbedtls_cipher_crypt(mbedtls_cipher_context_t *ctx,
+int ttls_cipher_crypt(ttls_cipher_context_t *ctx,
 				  const unsigned char *iv, size_t iv_len,
 				  const unsigned char *input, size_t ilen,
 				  unsigned char *output, size_t *olen);
 
-#if defined(MBEDTLS_CIPHER_MODE_AEAD)
+#if defined(TTLS_CIPHER_MODE_AEAD)
 /**
  * \brief			   The generic autenticated encryption (AEAD) function.
  *
@@ -702,10 +702,10 @@ int mbedtls_cipher_crypt(mbedtls_cipher_context_t *ctx,
  * \param tag_len	   The desired length of the authentication tag.
  *
  * \returns			 \c 0 on success, or
- *					  #MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA, or
+ *					  #TTLS_ERR_CIPHER_BAD_INPUT_DATA, or
  *					  a cipher-specific error code.
  */
-int mbedtls_cipher_auth_encrypt(mbedtls_cipher_context_t *ctx,
+int ttls_cipher_auth_encrypt(ttls_cipher_context_t *ctx,
 						 const unsigned char *iv, size_t iv_len,
 						 const unsigned char *ad, size_t ad_len,
 						 const unsigned char *input, size_t ilen,
@@ -731,24 +731,24 @@ int mbedtls_cipher_auth_encrypt(mbedtls_cipher_context_t *ctx,
  * \param tag_len	   The length of the authentication tag.
  *
  * \returns			 \c 0 on success, or
- *					  #MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA, or
- *					  #MBEDTLS_ERR_CIPHER_AUTH_FAILED if data is not authentic,
+ *					  #TTLS_ERR_CIPHER_BAD_INPUT_DATA, or
+ *					  #TTLS_ERR_CIPHER_AUTH_FAILED if data is not authentic,
  *					  or a cipher-specific error code on failure for any other reason.
  *
  * \note				If the data is not authentic, then the output buffer
  *					  is zeroed out to prevent the unauthentic plaintext being
  *					  used, making this interface safer.
  */
-int mbedtls_cipher_auth_decrypt(mbedtls_cipher_context_t *ctx,
+int ttls_cipher_auth_decrypt(ttls_cipher_context_t *ctx,
 						 const unsigned char *iv, size_t iv_len,
 						 const unsigned char *ad, size_t ad_len,
 						 const unsigned char *input, size_t ilen,
 						 unsigned char *output, size_t *olen,
 						 const unsigned char *tag, size_t tag_len);
-#endif /* MBEDTLS_CIPHER_MODE_AEAD */
+#endif /* TTLS_CIPHER_MODE_AEAD */
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* MBEDTLS_CIPHER_H */
+#endif /* TTLS_CIPHER_H */

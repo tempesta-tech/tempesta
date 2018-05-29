@@ -31,19 +31,19 @@
 #include <linux/jiffies.h>
 #include <linux/timex.h>
 
-#if !defined(MBEDTLS_CONFIG_FILE)
+#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
 #else
-#include MBEDTLS_CONFIG_FILE
+#include TTLS_CONFIG_FILE
 #endif
 
-#if defined(MBEDTLS_HAVEGE_C)
+#if defined(TTLS_HAVEGE_C)
 
 #include "havege.h"
 #include <string.h>
 
 /* Implementation that should never be optimized out by the compiler */
-static void mbedtls_zeroize(void *v, size_t n) {
+static void ttls_zeroize(void *v, size_t n) {
 	volatile unsigned char *p = v; while (n--) *p++ = 0;
 }
 
@@ -158,12 +158,12 @@ static void mbedtls_zeroize(void *v, size_t n) {
 	PT1 ^= (PT2 ^ 0x10) & 0x10;						 \
 														\
 	for (n++, i = 0; i < 16; i++)					  \
-		hs->pool[n % MBEDTLS_HAVEGE_COLLECT_SIZE] ^= RES[i];
+		hs->pool[n % TTLS_HAVEGE_COLLECT_SIZE] ^= RES[i];
 
 /*
  * Entropy gathering function
  */
-static void havege_fill(mbedtls_havege_state *hs)
+static void havege_fill(ttls_havege_state *hs)
 {
 	int i, n = 0;
 	int  U1,  U2, *A, *B, *C, *D;
@@ -181,7 +181,7 @@ static void havege_fill(mbedtls_havege_state *hs)
 
 	memset(RES, 0, sizeof(RES));
 
-	while (n < MBEDTLS_HAVEGE_COLLECT_SIZE * 4)
+	while (n < TTLS_HAVEGE_COLLECT_SIZE * 4)
 	{
 		ONE_ITERATION
 		ONE_ITERATION
@@ -193,35 +193,35 @@ static void havege_fill(mbedtls_havege_state *hs)
 	hs->PT2 = PT2;
 
 	hs->offset[0] = 0;
-	hs->offset[1] = MBEDTLS_HAVEGE_COLLECT_SIZE / 2;
+	hs->offset[1] = TTLS_HAVEGE_COLLECT_SIZE / 2;
 }
 
 /*
  * HAVEGE initialization
  */
-void mbedtls_havege_init(mbedtls_havege_state *hs)
+void ttls_havege_init(ttls_havege_state *hs)
 {
-	memset(hs, 0, sizeof(mbedtls_havege_state));
+	memset(hs, 0, sizeof(ttls_havege_state));
 
 	havege_fill(hs);
 }
 
-void mbedtls_havege_free(mbedtls_havege_state *hs)
+void ttls_havege_free(ttls_havege_state *hs)
 {
 	if (hs == NULL)
 		return;
 
-	mbedtls_zeroize(hs, sizeof(mbedtls_havege_state));
+	ttls_zeroize(hs, sizeof(ttls_havege_state));
 }
 
 /*
  * HAVEGE rand function
  */
-int mbedtls_havege_random(void *p_rng, unsigned char *buf, size_t len)
+int ttls_havege_random(void *p_rng, unsigned char *buf, size_t len)
 {
 	int val;
 	size_t use_len;
-	mbedtls_havege_state *hs = (mbedtls_havege_state *) p_rng;
+	ttls_havege_state *hs = (ttls_havege_state *) p_rng;
 	unsigned char *p = buf;
 
 	while (len > 0)
@@ -230,7 +230,7 @@ int mbedtls_havege_random(void *p_rng, unsigned char *buf, size_t len)
 		if (use_len > sizeof(int))
 			use_len = sizeof(int);
 
-		if (hs->offset[1] >= MBEDTLS_HAVEGE_COLLECT_SIZE)
+		if (hs->offset[1] >= TTLS_HAVEGE_COLLECT_SIZE)
 			havege_fill(hs);
 
 		val  = hs->pool[hs->offset[0]++];
@@ -245,4 +245,4 @@ int mbedtls_havege_random(void *p_rng, unsigned char *buf, size_t len)
 	return 0;
 }
 
-#endif /* MBEDTLS_HAVEGE_C */
+#endif /* TTLS_HAVEGE_C */

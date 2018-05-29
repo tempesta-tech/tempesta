@@ -27,42 +27,42 @@
  *  http://groups.google.com/group/sci.crypt/msg/10a300c9d21afca0
  */
 
-#if !defined(MBEDTLS_CONFIG_FILE)
+#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
 #else
-#include MBEDTLS_CONFIG_FILE
+#include TTLS_CONFIG_FILE
 #endif
 
-#if defined(MBEDTLS_ARC4_C)
+#if defined(TTLS_ARC4_C)
 
 #include "arc4.h"
 
 #include <string.h>
 
-#if !defined(MBEDTLS_ARC4_ALT)
+#if !defined(TTLS_ARC4_ALT)
 
 /* Implementation that should never be optimized out by the compiler */
-static void mbedtls_zeroize(void *v, size_t n) {
+static void ttls_zeroize(void *v, size_t n) {
 	volatile unsigned char *p = (unsigned char*)v; while (n--) *p++ = 0;
 }
 
-void mbedtls_arc4_init(mbedtls_arc4_context *ctx)
+void ttls_arc4_init(ttls_arc4_context *ctx)
 {
-	memset(ctx, 0, sizeof(mbedtls_arc4_context));
+	memset(ctx, 0, sizeof(ttls_arc4_context));
 }
 
-void mbedtls_arc4_free(mbedtls_arc4_context *ctx)
+void ttls_arc4_free(ttls_arc4_context *ctx)
 {
 	if (ctx == NULL)
 		return;
 
-	mbedtls_zeroize(ctx, sizeof(mbedtls_arc4_context));
+	ttls_zeroize(ctx, sizeof(ttls_arc4_context));
 }
 
 /*
  * ARC4 key schedule
  */
-void mbedtls_arc4_setup(mbedtls_arc4_context *ctx, const unsigned char *key,
+void ttls_arc4_setup(ttls_arc4_context *ctx, const unsigned char *key,
 				 unsigned int keylen)
 {
 	int i, j, a;
@@ -92,7 +92,7 @@ void mbedtls_arc4_setup(mbedtls_arc4_context *ctx, const unsigned char *key,
 /*
  * ARC4 cipher function
  */
-int mbedtls_arc4_crypt(mbedtls_arc4_context *ctx, size_t length, const unsigned char *input,
+int ttls_arc4_crypt(ttls_arc4_context *ctx, size_t length, const unsigned char *input,
 				unsigned char *output)
 {
 	int x, y, a, b;
@@ -121,7 +121,7 @@ int mbedtls_arc4_crypt(mbedtls_arc4_context *ctx, size_t length, const unsigned 
 	return 0;
 }
 
-#endif /* !MBEDTLS_ARC4_ALT */
+#endif /* !TTLS_ARC4_ALT */
 
 /*
  * ARC4 tests vectors as posted by Eric Rescorla in sep. 1994:
@@ -152,45 +152,45 @@ static const unsigned char arc4_test_ct[3][8] =
 /*
  * Checkup routine
  */
-int mbedtls_arc4_self_test(int verbose)
+int ttls_arc4_self_test(int verbose)
 {
 	int i, ret = 0;
 	unsigned char ibuf[8];
 	unsigned char obuf[8];
-	mbedtls_arc4_context ctx;
+	ttls_arc4_context ctx;
 
-	mbedtls_arc4_init(&ctx);
+	ttls_arc4_init(&ctx);
 
 	for (i = 0; i < 3; i++)
 	{
 		if (verbose != 0)
-			mbedtls_printf("  ARC4 test #%d: ", i + 1);
+			ttls_printf("  ARC4 test #%d: ", i + 1);
 
 		memcpy(ibuf, arc4_test_pt[i], 8);
 
-		mbedtls_arc4_setup(&ctx, arc4_test_key[i], 8);
-		mbedtls_arc4_crypt(&ctx, 8, ibuf, obuf);
+		ttls_arc4_setup(&ctx, arc4_test_key[i], 8);
+		ttls_arc4_crypt(&ctx, 8, ibuf, obuf);
 
 		if (memcmp(obuf, arc4_test_ct[i], 8) != 0)
 		{
 			if (verbose != 0)
-				mbedtls_printf("failed\n");
+				ttls_printf("failed\n");
 
 			ret = 1;
 			goto exit;
 		}
 
 		if (verbose != 0)
-			mbedtls_printf("passed\n");
+			ttls_printf("passed\n");
 	}
 
 	if (verbose != 0)
-		mbedtls_printf("\n");
+		ttls_printf("\n");
 
 exit:
-	mbedtls_arc4_free(&ctx);
+	ttls_arc4_free(&ctx);
 
 	return ret;
 }
 
-#endif /* MBEDTLS_ARC4_C */
+#endif /* TTLS_ARC4_C */

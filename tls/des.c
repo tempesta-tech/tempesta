@@ -28,22 +28,22 @@
  *  http://csrc.nist.gov/publications/fips/fips46-3/fips46-3.pdf
  */
 
-#if !defined(MBEDTLS_CONFIG_FILE)
+#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
 #else
-#include MBEDTLS_CONFIG_FILE
+#include TTLS_CONFIG_FILE
 #endif
 
-#if defined(MBEDTLS_DES_C)
+#if defined(TTLS_DES_C)
 
 #include "des.h"
 
 #include <string.h>
 
-#if !defined(MBEDTLS_DES_ALT)
+#if !defined(TTLS_DES_ALT)
 
 /* Implementation that should never be optimized out by the compiler */
-static void mbedtls_zeroize(void *v, size_t n) {
+static void ttls_zeroize(void *v, size_t n) {
 	volatile unsigned char *p = (unsigned char*)v; while (n--) *p++ = 0;
 }
 
@@ -300,30 +300,30 @@ static const uint32_t RHs[16] =
 
 #define SWAP(a,b) { uint32_t t = a; a = b; b = t; t = 0; }
 
-void mbedtls_des_init(mbedtls_des_context *ctx)
+void ttls_des_init(ttls_des_context *ctx)
 {
-	memset(ctx, 0, sizeof(mbedtls_des_context));
+	memset(ctx, 0, sizeof(ttls_des_context));
 }
 
-void mbedtls_des_free(mbedtls_des_context *ctx)
+void ttls_des_free(ttls_des_context *ctx)
 {
 	if (ctx == NULL)
 		return;
 
-	mbedtls_zeroize(ctx, sizeof(mbedtls_des_context));
+	ttls_zeroize(ctx, sizeof(ttls_des_context));
 }
 
-void mbedtls_des3_init(mbedtls_des3_context *ctx)
+void ttls_des3_init(ttls_des3_context *ctx)
 {
-	memset(ctx, 0, sizeof(mbedtls_des3_context));
+	memset(ctx, 0, sizeof(ttls_des3_context));
 }
 
-void mbedtls_des3_free(mbedtls_des3_context *ctx)
+void ttls_des3_free(ttls_des3_context *ctx)
 {
 	if (ctx == NULL)
 		return;
 
-	mbedtls_zeroize(ctx, sizeof(mbedtls_des3_context));
+	ttls_zeroize(ctx, sizeof(ttls_des3_context));
 }
 
 static const unsigned char odd_parity_table[128] = { 1,  2,  4,  7,  8,
@@ -337,22 +337,22 @@ static const unsigned char odd_parity_table[128] = { 1,  2,  4,  7,  8,
 		227, 229, 230, 233, 234, 236, 239, 241, 242, 244, 247, 248, 251, 253,
 		254 };
 
-void mbedtls_des_key_set_parity(unsigned char key[MBEDTLS_DES_KEY_SIZE])
+void ttls_des_key_set_parity(unsigned char key[TTLS_DES_KEY_SIZE])
 {
 	int i;
 
-	for (i = 0; i < MBEDTLS_DES_KEY_SIZE; i++)
+	for (i = 0; i < TTLS_DES_KEY_SIZE; i++)
 		key[i] = odd_parity_table[key[i] / 2];
 }
 
 /*
  * Check the given key's parity, returns 1 on failure, 0 on SUCCESS
  */
-int mbedtls_des_key_check_key_parity(const unsigned char key[MBEDTLS_DES_KEY_SIZE])
+int ttls_des_key_check_key_parity(const unsigned char key[TTLS_DES_KEY_SIZE])
 {
 	int i;
 
-	for (i = 0; i < MBEDTLS_DES_KEY_SIZE; i++)
+	for (i = 0; i < TTLS_DES_KEY_SIZE; i++)
 		if (key[i] != odd_parity_table[key[i] / 2])
 			return(1);
 
@@ -382,7 +382,7 @@ int mbedtls_des_key_check_key_parity(const unsigned char key[MBEDTLS_DES_KEY_SIZ
 
 #define WEAK_KEY_COUNT 16
 
-static const unsigned char weak_key_table[WEAK_KEY_COUNT][MBEDTLS_DES_KEY_SIZE] =
+static const unsigned char weak_key_table[WEAK_KEY_COUNT][TTLS_DES_KEY_SIZE] =
 {
 	{ 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01 },
 	{ 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE },
@@ -403,19 +403,19 @@ static const unsigned char weak_key_table[WEAK_KEY_COUNT][MBEDTLS_DES_KEY_SIZE] 
 	{ 0xFE, 0xE0, 0xFE, 0xE0, 0xFE, 0xF1, 0xFE, 0xF1 }
 };
 
-int mbedtls_des_key_check_weak(const unsigned char key[MBEDTLS_DES_KEY_SIZE])
+int ttls_des_key_check_weak(const unsigned char key[TTLS_DES_KEY_SIZE])
 {
 	int i;
 
 	for (i = 0; i < WEAK_KEY_COUNT; i++)
-		if (memcmp(weak_key_table[i], key, MBEDTLS_DES_KEY_SIZE) == 0)
+		if (memcmp(weak_key_table[i], key, TTLS_DES_KEY_SIZE) == 0)
 			return(1);
 
 	return 0;
 }
 
-#if !defined(MBEDTLS_DES_SETKEY_ALT)
-void mbedtls_des_setkey(uint32_t SK[32], const unsigned char key[MBEDTLS_DES_KEY_SIZE])
+#if !defined(TTLS_DES_SETKEY_ALT)
+void ttls_des_setkey(uint32_t SK[32], const unsigned char key[TTLS_DES_KEY_SIZE])
 {
 	int i;
 	uint32_t X, Y, T;
@@ -483,14 +483,14 @@ void mbedtls_des_setkey(uint32_t SK[32], const unsigned char key[MBEDTLS_DES_KEY
 				| ((Y <<  2) & 0x00000004) | ((Y >> 21) & 0x00000002);
 	}
 }
-#endif /* !MBEDTLS_DES_SETKEY_ALT */
+#endif /* !TTLS_DES_SETKEY_ALT */
 
 /*
  * DES key schedule (56-bit, encryption)
  */
-int mbedtls_des_setkey_enc(mbedtls_des_context *ctx, const unsigned char key[MBEDTLS_DES_KEY_SIZE])
+int ttls_des_setkey_enc(ttls_des_context *ctx, const unsigned char key[TTLS_DES_KEY_SIZE])
 {
-	mbedtls_des_setkey(ctx->sk, key);
+	ttls_des_setkey(ctx->sk, key);
 
 	return 0;
 }
@@ -498,11 +498,11 @@ int mbedtls_des_setkey_enc(mbedtls_des_context *ctx, const unsigned char key[MBE
 /*
  * DES key schedule (56-bit, decryption)
  */
-int mbedtls_des_setkey_dec(mbedtls_des_context *ctx, const unsigned char key[MBEDTLS_DES_KEY_SIZE])
+int ttls_des_setkey_dec(ttls_des_context *ctx, const unsigned char key[TTLS_DES_KEY_SIZE])
 {
 	int i;
 
-	mbedtls_des_setkey(ctx->sk, key);
+	ttls_des_setkey(ctx->sk, key);
 
 	for (i = 0; i < 16; i += 2)
 	{
@@ -515,12 +515,12 @@ int mbedtls_des_setkey_dec(mbedtls_des_context *ctx, const unsigned char key[MBE
 
 static void des3_set2key(uint32_t esk[96],
 						  uint32_t dsk[96],
-						  const unsigned char key[MBEDTLS_DES_KEY_SIZE*2])
+						  const unsigned char key[TTLS_DES_KEY_SIZE*2])
 {
 	int i;
 
-	mbedtls_des_setkey(esk, key);
-	mbedtls_des_setkey(dsk + 32, key + 8);
+	ttls_des_setkey(esk, key);
+	ttls_des_setkey(dsk + 32, key + 8);
 
 	for (i = 0; i < 32; i += 2)
 	{
@@ -541,13 +541,13 @@ static void des3_set2key(uint32_t esk[96],
 /*
  * Triple-DES key schedule (112-bit, encryption)
  */
-int mbedtls_des3_set2key_enc(mbedtls_des3_context *ctx,
-					  const unsigned char key[MBEDTLS_DES_KEY_SIZE * 2])
+int ttls_des3_set2key_enc(ttls_des3_context *ctx,
+					  const unsigned char key[TTLS_DES_KEY_SIZE * 2])
 {
 	uint32_t sk[96];
 
 	des3_set2key(ctx->sk, sk, key);
-	mbedtls_zeroize(sk,  sizeof(sk));
+	ttls_zeroize(sk,  sizeof(sk));
 
 	return 0;
 }
@@ -555,13 +555,13 @@ int mbedtls_des3_set2key_enc(mbedtls_des3_context *ctx,
 /*
  * Triple-DES key schedule (112-bit, decryption)
  */
-int mbedtls_des3_set2key_dec(mbedtls_des3_context *ctx,
-					  const unsigned char key[MBEDTLS_DES_KEY_SIZE * 2])
+int ttls_des3_set2key_dec(ttls_des3_context *ctx,
+					  const unsigned char key[TTLS_DES_KEY_SIZE * 2])
 {
 	uint32_t sk[96];
 
 	des3_set2key(sk, ctx->sk, key);
-	mbedtls_zeroize(sk,  sizeof(sk));
+	ttls_zeroize(sk,  sizeof(sk));
 
 	return 0;
 }
@@ -572,9 +572,9 @@ static void des3_set3key(uint32_t esk[96],
 {
 	int i;
 
-	mbedtls_des_setkey(esk, key);
-	mbedtls_des_setkey(dsk + 32, key +  8);
-	mbedtls_des_setkey(esk + 64, key + 16);
+	ttls_des_setkey(esk, key);
+	ttls_des_setkey(dsk + 32, key +  8);
+	ttls_des_setkey(esk + 64, key + 16);
 
 	for (i = 0; i < 32; i += 2)
 	{
@@ -592,13 +592,13 @@ static void des3_set3key(uint32_t esk[96],
 /*
  * Triple-DES key schedule (168-bit, encryption)
  */
-int mbedtls_des3_set3key_enc(mbedtls_des3_context *ctx,
-					  const unsigned char key[MBEDTLS_DES_KEY_SIZE * 3])
+int ttls_des3_set3key_enc(ttls_des3_context *ctx,
+					  const unsigned char key[TTLS_DES_KEY_SIZE * 3])
 {
 	uint32_t sk[96];
 
 	des3_set3key(ctx->sk, sk, key);
-	mbedtls_zeroize(sk,  sizeof(sk));
+	ttls_zeroize(sk,  sizeof(sk));
 
 	return 0;
 }
@@ -606,13 +606,13 @@ int mbedtls_des3_set3key_enc(mbedtls_des3_context *ctx,
 /*
  * Triple-DES key schedule (168-bit, decryption)
  */
-int mbedtls_des3_set3key_dec(mbedtls_des3_context *ctx,
-					  const unsigned char key[MBEDTLS_DES_KEY_SIZE * 3])
+int ttls_des3_set3key_dec(ttls_des3_context *ctx,
+					  const unsigned char key[TTLS_DES_KEY_SIZE * 3])
 {
 	uint32_t sk[96];
 
 	des3_set3key(sk, ctx->sk, key);
-	mbedtls_zeroize(sk,  sizeof(sk));
+	ttls_zeroize(sk,  sizeof(sk));
 
 	return 0;
 }
@@ -620,8 +620,8 @@ int mbedtls_des3_set3key_dec(mbedtls_des3_context *ctx,
 /*
  * DES-ECB block encryption/decryption
  */
-#if !defined(MBEDTLS_DES_CRYPT_ECB_ALT)
-int mbedtls_des_crypt_ecb(mbedtls_des_context *ctx,
+#if !defined(TTLS_DES_CRYPT_ECB_ALT)
+int ttls_des_crypt_ecb(ttls_des_context *ctx,
 					const unsigned char input[8],
 					unsigned char output[8])
 {
@@ -648,13 +648,13 @@ int mbedtls_des_crypt_ecb(mbedtls_des_context *ctx,
 
 	return 0;
 }
-#endif /* !MBEDTLS_DES_CRYPT_ECB_ALT */
+#endif /* !TTLS_DES_CRYPT_ECB_ALT */
 
-#if defined(MBEDTLS_CIPHER_MODE_CBC)
+#if defined(TTLS_CIPHER_MODE_CBC)
 /*
  * DES-CBC buffer encryption/decryption
  */
-int mbedtls_des_crypt_cbc(mbedtls_des_context *ctx,
+int ttls_des_crypt_cbc(ttls_des_context *ctx,
 					int mode,
 					size_t length,
 					unsigned char iv[8],
@@ -665,16 +665,16 @@ int mbedtls_des_crypt_cbc(mbedtls_des_context *ctx,
 	unsigned char temp[8];
 
 	if (length % 8)
-		return(MBEDTLS_ERR_DES_INVALID_INPUT_LENGTH);
+		return(TTLS_ERR_DES_INVALID_INPUT_LENGTH);
 
-	if (mode == MBEDTLS_DES_ENCRYPT)
+	if (mode == TTLS_DES_ENCRYPT)
 	{
 		while (length > 0)
 		{
 			for (i = 0; i < 8; i++)
 				output[i] = (unsigned char)(input[i] ^ iv[i]);
 
-			mbedtls_des_crypt_ecb(ctx, output, output);
+			ttls_des_crypt_ecb(ctx, output, output);
 			memcpy(iv, output, 8);
 
 			input  += 8;
@@ -682,12 +682,12 @@ int mbedtls_des_crypt_cbc(mbedtls_des_context *ctx,
 			length -= 8;
 		}
 	}
-	else /* MBEDTLS_DES_DECRYPT */
+	else /* TTLS_DES_DECRYPT */
 	{
 		while (length > 0)
 		{
 			memcpy(temp, input, 8);
-			mbedtls_des_crypt_ecb(ctx, input, output);
+			ttls_des_crypt_ecb(ctx, input, output);
 
 			for (i = 0; i < 8; i++)
 				output[i] = (unsigned char)(output[i] ^ iv[i]);
@@ -702,13 +702,13 @@ int mbedtls_des_crypt_cbc(mbedtls_des_context *ctx,
 
 	return 0;
 }
-#endif /* MBEDTLS_CIPHER_MODE_CBC */
+#endif /* TTLS_CIPHER_MODE_CBC */
 
 /*
  * 3DES-ECB block encryption/decryption
  */
-#if !defined(MBEDTLS_DES3_CRYPT_ECB_ALT)
-int mbedtls_des3_crypt_ecb(mbedtls_des3_context *ctx,
+#if !defined(TTLS_DES3_CRYPT_ECB_ALT)
+int ttls_des3_crypt_ecb(ttls_des3_context *ctx,
 					 const unsigned char input[8],
 					 unsigned char output[8])
 {
@@ -747,13 +747,13 @@ int mbedtls_des3_crypt_ecb(mbedtls_des3_context *ctx,
 
 	return 0;
 }
-#endif /* !MBEDTLS_DES3_CRYPT_ECB_ALT */
+#endif /* !TTLS_DES3_CRYPT_ECB_ALT */
 
-#if defined(MBEDTLS_CIPHER_MODE_CBC)
+#if defined(TTLS_CIPHER_MODE_CBC)
 /*
  * 3DES-CBC buffer encryption/decryption
  */
-int mbedtls_des3_crypt_cbc(mbedtls_des3_context *ctx,
+int ttls_des3_crypt_cbc(ttls_des3_context *ctx,
 					 int mode,
 					 size_t length,
 					 unsigned char iv[8],
@@ -764,16 +764,16 @@ int mbedtls_des3_crypt_cbc(mbedtls_des3_context *ctx,
 	unsigned char temp[8];
 
 	if (length % 8)
-		return(MBEDTLS_ERR_DES_INVALID_INPUT_LENGTH);
+		return(TTLS_ERR_DES_INVALID_INPUT_LENGTH);
 
-	if (mode == MBEDTLS_DES_ENCRYPT)
+	if (mode == TTLS_DES_ENCRYPT)
 	{
 		while (length > 0)
 		{
 			for (i = 0; i < 8; i++)
 				output[i] = (unsigned char)(input[i] ^ iv[i]);
 
-			mbedtls_des3_crypt_ecb(ctx, output, output);
+			ttls_des3_crypt_ecb(ctx, output, output);
 			memcpy(iv, output, 8);
 
 			input  += 8;
@@ -781,12 +781,12 @@ int mbedtls_des3_crypt_cbc(mbedtls_des3_context *ctx,
 			length -= 8;
 		}
 	}
-	else /* MBEDTLS_DES_DECRYPT */
+	else /* TTLS_DES_DECRYPT */
 	{
 		while (length > 0)
 		{
 			memcpy(temp, input, 8);
-			mbedtls_des3_crypt_ecb(ctx, input, output);
+			ttls_des3_crypt_ecb(ctx, input, output);
 
 			for (i = 0; i < 8; i++)
 				output[i] = (unsigned char)(output[i] ^ iv[i]);
@@ -801,9 +801,9 @@ int mbedtls_des3_crypt_cbc(mbedtls_des3_context *ctx,
 
 	return 0;
 }
-#endif /* MBEDTLS_CIPHER_MODE_CBC */
+#endif /* TTLS_CIPHER_MODE_CBC */
 
-#endif /* !MBEDTLS_DES_ALT */
+#endif /* !TTLS_DES_ALT */
 
 /*
  * DES and 3DES test vectors from:
@@ -836,7 +836,7 @@ static const unsigned char des3_test_ecb_enc[3][8] =
 	{ 0xDD, 0x17, 0xE8, 0xB8, 0xB4, 0x37, 0xD2, 0x32 }
 };
 
-#if defined(MBEDTLS_CIPHER_MODE_CBC)
+#if defined(TTLS_CIPHER_MODE_CBC)
 static const unsigned char des3_test_iv[8] =
 {
 	0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF,
@@ -855,24 +855,24 @@ static const unsigned char des3_test_cbc_enc[3][8] =
 	{ 0x35, 0x76, 0x11, 0x56, 0x5F, 0xA1, 0x8E, 0x4D },
 	{ 0xCB, 0x19, 0x1F, 0x85, 0xD1, 0xED, 0x84, 0x39 }
 };
-#endif /* MBEDTLS_CIPHER_MODE_CBC */
+#endif /* TTLS_CIPHER_MODE_CBC */
 
 /*
  * Checkup routine
  */
-int mbedtls_des_self_test(int verbose)
+int ttls_des_self_test(int verbose)
 {
 	int i, j, u, v, ret = 0;
-	mbedtls_des_context ctx;
-	mbedtls_des3_context ctx3;
+	ttls_des_context ctx;
+	ttls_des3_context ctx3;
 	unsigned char buf[8];
-#if defined(MBEDTLS_CIPHER_MODE_CBC)
+#if defined(TTLS_CIPHER_MODE_CBC)
 	unsigned char prv[8];
 	unsigned char iv[8];
 #endif
 
-	mbedtls_des_init(&ctx);
-	mbedtls_des3_init(&ctx3);
+	ttls_des_init(&ctx);
+	ttls_des3_init(&ctx3);
 	/*
 	 * ECB mode
 	 */
@@ -882,36 +882,36 @@ int mbedtls_des_self_test(int verbose)
 		v = i  & 1;
 
 		if (verbose != 0)
-			mbedtls_printf("  DES%c-ECB-%3d (%s): ",
+			ttls_printf("  DES%c-ECB-%3d (%s): ",
 							 (u == 0) ? ' ' : '3', 56 + u * 56,
-							 (v == MBEDTLS_DES_DECRYPT) ? "dec" : "enc");
+							 (v == TTLS_DES_DECRYPT) ? "dec" : "enc");
 
 		memcpy(buf, des3_test_buf, 8);
 
 		switch(i)
 		{
 		case 0:
-			mbedtls_des_setkey_dec(&ctx, des3_test_keys);
+			ttls_des_setkey_dec(&ctx, des3_test_keys);
 			break;
 
 		case 1:
-			mbedtls_des_setkey_enc(&ctx, des3_test_keys);
+			ttls_des_setkey_enc(&ctx, des3_test_keys);
 			break;
 
 		case 2:
-			mbedtls_des3_set2key_dec(&ctx3, des3_test_keys);
+			ttls_des3_set2key_dec(&ctx3, des3_test_keys);
 			break;
 
 		case 3:
-			mbedtls_des3_set2key_enc(&ctx3, des3_test_keys);
+			ttls_des3_set2key_enc(&ctx3, des3_test_keys);
 			break;
 
 		case 4:
-			mbedtls_des3_set3key_dec(&ctx3, des3_test_keys);
+			ttls_des3_set3key_dec(&ctx3, des3_test_keys);
 			break;
 
 		case 5:
-			mbedtls_des3_set3key_enc(&ctx3, des3_test_keys);
+			ttls_des3_set3key_enc(&ctx3, des3_test_keys);
 			break;
 
 		default:
@@ -921,31 +921,31 @@ int mbedtls_des_self_test(int verbose)
 		for (j = 0; j < 10000; j++)
 		{
 			if (u == 0)
-				mbedtls_des_crypt_ecb(&ctx, buf, buf);
+				ttls_des_crypt_ecb(&ctx, buf, buf);
 			else
-				mbedtls_des3_crypt_ecb(&ctx3, buf, buf);
+				ttls_des3_crypt_ecb(&ctx3, buf, buf);
 		}
 
-		if ((v == MBEDTLS_DES_DECRYPT &&
+		if ((v == TTLS_DES_DECRYPT &&
 				memcmp(buf, des3_test_ecb_dec[u], 8) != 0) ||
-			(v != MBEDTLS_DES_DECRYPT &&
+			(v != TTLS_DES_DECRYPT &&
 				memcmp(buf, des3_test_ecb_enc[u], 8) != 0))
 		{
 			if (verbose != 0)
-				mbedtls_printf("failed\n");
+				ttls_printf("failed\n");
 
 			ret = 1;
 			goto exit;
 		}
 
 		if (verbose != 0)
-			mbedtls_printf("passed\n");
+			ttls_printf("passed\n");
 	}
 
 	if (verbose != 0)
-		mbedtls_printf("\n");
+		ttls_printf("\n");
 
-#if defined(MBEDTLS_CIPHER_MODE_CBC)
+#if defined(TTLS_CIPHER_MODE_CBC)
 	/*
 	 * CBC mode
 	 */
@@ -955,9 +955,9 @@ int mbedtls_des_self_test(int verbose)
 		v = i  & 1;
 
 		if (verbose != 0)
-			mbedtls_printf("  DES%c-CBC-%3d (%s): ",
+			ttls_printf("  DES%c-CBC-%3d (%s): ",
 							 (u == 0) ? ' ' : '3', 56 + u * 56,
-							 (v == MBEDTLS_DES_DECRYPT) ? "dec" : "enc");
+							 (v == TTLS_DES_DECRYPT) ? "dec" : "enc");
 
 		memcpy(iv,  des3_test_iv,  8);
 		memcpy(prv, des3_test_iv,  8);
@@ -966,41 +966,41 @@ int mbedtls_des_self_test(int verbose)
 		switch(i)
 		{
 		case 0:
-			mbedtls_des_setkey_dec(&ctx, des3_test_keys);
+			ttls_des_setkey_dec(&ctx, des3_test_keys);
 			break;
 
 		case 1:
-			mbedtls_des_setkey_enc(&ctx, des3_test_keys);
+			ttls_des_setkey_enc(&ctx, des3_test_keys);
 			break;
 
 		case 2:
-			mbedtls_des3_set2key_dec(&ctx3, des3_test_keys);
+			ttls_des3_set2key_dec(&ctx3, des3_test_keys);
 			break;
 
 		case 3:
-			mbedtls_des3_set2key_enc(&ctx3, des3_test_keys);
+			ttls_des3_set2key_enc(&ctx3, des3_test_keys);
 			break;
 
 		case 4:
-			mbedtls_des3_set3key_dec(&ctx3, des3_test_keys);
+			ttls_des3_set3key_dec(&ctx3, des3_test_keys);
 			break;
 
 		case 5:
-			mbedtls_des3_set3key_enc(&ctx3, des3_test_keys);
+			ttls_des3_set3key_enc(&ctx3, des3_test_keys);
 			break;
 
 		default:
 			return(1);
 		}
 
-		if (v == MBEDTLS_DES_DECRYPT)
+		if (v == TTLS_DES_DECRYPT)
 		{
 			for (j = 0; j < 10000; j++)
 			{
 				if (u == 0)
-					mbedtls_des_crypt_cbc(&ctx, v, 8, iv, buf, buf);
+					ttls_des_crypt_cbc(&ctx, v, 8, iv, buf, buf);
 				else
-					mbedtls_des3_crypt_cbc(&ctx3, v, 8, iv, buf, buf);
+					ttls_des3_crypt_cbc(&ctx3, v, 8, iv, buf, buf);
 			}
 		}
 		else
@@ -1010,9 +1010,9 @@ int mbedtls_des_self_test(int verbose)
 				unsigned char tmp[8];
 
 				if (u == 0)
-					mbedtls_des_crypt_cbc(&ctx, v, 8, iv, buf, buf);
+					ttls_des_crypt_cbc(&ctx, v, 8, iv, buf, buf);
 				else
-					mbedtls_des3_crypt_cbc(&ctx3, v, 8, iv, buf, buf);
+					ttls_des3_crypt_cbc(&ctx3, v, 8, iv, buf, buf);
 
 				memcpy(tmp, prv, 8);
 				memcpy(prv, buf, 8);
@@ -1022,31 +1022,31 @@ int mbedtls_des_self_test(int verbose)
 			memcpy(buf, prv, 8);
 		}
 
-		if ((v == MBEDTLS_DES_DECRYPT &&
+		if ((v == TTLS_DES_DECRYPT &&
 				memcmp(buf, des3_test_cbc_dec[u], 8) != 0) ||
-			(v != MBEDTLS_DES_DECRYPT &&
+			(v != TTLS_DES_DECRYPT &&
 				memcmp(buf, des3_test_cbc_enc[u], 8) != 0))
 		{
 			if (verbose != 0)
-				mbedtls_printf("failed\n");
+				ttls_printf("failed\n");
 
 			ret = 1;
 			goto exit;
 		}
 
 		if (verbose != 0)
-			mbedtls_printf("passed\n");
+			ttls_printf("passed\n");
 	}
-#endif /* MBEDTLS_CIPHER_MODE_CBC */
+#endif /* TTLS_CIPHER_MODE_CBC */
 
 	if (verbose != 0)
-		mbedtls_printf("\n");
+		ttls_printf("\n");
 
 exit:
-	mbedtls_des_free(&ctx);
-	mbedtls_des3_free(&ctx3);
+	ttls_des_free(&ctx);
+	ttls_des3_free(&ctx3);
 
 	return ret;
 }
 
-#endif /* MBEDTLS_DES_C */
+#endif /* TTLS_DES_C */
