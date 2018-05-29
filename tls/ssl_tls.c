@@ -195,166 +195,6 @@ int (*ttls_ssl_hw_record_finish)(ttls_ssl_context *ssl) = NULL;
 /*
  * Key material generation
  */
-#if defined(TTLS_SSL_PROTO_SSL3)
-static int ssl3_prf(const unsigned char *secret, size_t slen,
-		 const char *label,
-		 const unsigned char *random, size_t rlen,
-		 unsigned char *dstbuf, size_t dlen)
-{
-	int ret = 0;
-	size_t i;
-	ttls_md5_context md5;
-	ttls_sha1_context sha1;
-	unsigned char padding[16];
-	unsigned char sha1sum[20];
-	((void)label);
-
-	ttls_md5_init( &md5 );
-	ttls_sha1_init(&sha1);
-
-	/*
-	 * SSLv3:
-	 *	block =
-	 *	  MD5(secret + SHA1('A'	+ secret + random)) +
-	 *	  MD5(secret + SHA1('BB'   + secret + random)) +
-	 *	  MD5(secret + SHA1('CCC'  + secret + random)) +
-	 *	  ...
-	 */
-	for (i = 0; i < dlen / 16; i++)
-	{
-		memset(padding, (unsigned char) ('A' + i), 1 + i);
-
-		if ((ret = ttls_sha1_starts_ret(&sha1)) != 0)
-			goto exit;
-		if ((ret = ttls_sha1_update_ret(&sha1, padding, 1 + i)) != 0)
-			goto exit;
-		if ((ret = ttls_sha1_update_ret(&sha1, secret, slen)) != 0)
-			goto exit;
-		if ((ret = ttls_sha1_update_ret(&sha1, random, rlen)) != 0)
-			goto exit;
-		if ((ret = ttls_sha1_finish_ret(&sha1, sha1sum)) != 0)
-			goto exit;
-
-		if ((ret = ttls_md5_starts_ret(&md5)) != 0)
-			goto exit;
-		if ((ret = ttls_md5_update_ret(&md5, secret, slen)) != 0)
-			goto exit;
-		if ((ret = ttls_md5_update_ret(&md5, sha1sum, 20)) != 0)
-			goto exit;
-		if ((ret = ttls_md5_finish_ret(&md5, dstbuf + i * 16)) != 0)
-			goto exit;
-	}
-
-exit:
-	ttls_md5_free( &md5 );
-	ttls_sha1_free(&sha1);
-
-	ttls_zeroize(padding, sizeof(padding));
-	ttls_zeroize(sha1sum, sizeof(sha1sum));
-
-	return ret;
-}
-#endif /* TTLS_SSL_PROTO_SSL3 */
-
-#if defined(TTLS_SSL_PROTO_TLS1) || defined(TTLS_SSL_PROTO_TLS1_1)
-static int tls1_prf(const unsigned char *secret, size_t slen,
-		 const char *label,
-		 const unsigned char *random, size_t rlen,
-		 unsigned char *dstbuf, size_t dlen)
-{
-	size_t nb, hs;
-	size_t i, j, k;
-	const unsigned char *S1, *S2;
-	unsigned char tmp[128];
-	unsigned char h_i[20];
-	const ttls_md_info_t *md_info;
-	ttls_md_context_t md_ctx;
-	int ret;
-
-	ttls_md_init(&md_ctx);
-
-	if (sizeof(tmp) < 20 + strlen(label) + rlen)
-		return(TTLS_ERR_SSL_BAD_INPUT_DATA);
-
-	hs = (slen + 1) / 2;
-	S1 = secret;
-	S2 = secret + slen - hs;
-
-	nb = strlen(label);
-	memcpy(tmp + 20, label, nb);
-	memcpy(tmp + 20 + nb, random, rlen);
-	nb += rlen;
-
-	/*
-	 * First compute P_md5(secret,label+random)[0..dlen]
-	 */
-	if ((md_info = ttls_md_info_from_type(TTLS_MD_MD5)) == NULL)
-		return(TTLS_ERR_SSL_INTERNAL_ERROR);
-
-	if ((ret = ttls_md_setup(&md_ctx, md_info, 1)) != 0)
-		return ret;
-
-	ttls_md_hmac_starts(&md_ctx, S1, hs);
-	ttls_md_hmac_update(&md_ctx, tmp + 20, nb);
-	ttls_md_hmac_finish(&md_ctx, 4 + tmp);
-
-	for (i = 0; i < dlen; i += 16)
-	{
-		ttls_md_hmac_reset (&md_ctx);
-		ttls_md_hmac_update(&md_ctx, 4 + tmp, 16 + nb);
-		ttls_md_hmac_finish(&md_ctx, h_i);
-
-		ttls_md_hmac_reset (&md_ctx);
-		ttls_md_hmac_update(&md_ctx, 4 + tmp, 16);
-		ttls_md_hmac_finish(&md_ctx, 4 + tmp);
-
-		k = (i + 16 > dlen) ? dlen % 16 : 16;
-
-		for (j = 0; j < k; j++)
-			dstbuf[i + j] = h_i[j];
-	}
-
-	ttls_md_free(&md_ctx);
-
-	/*
-	 * XOR out with P_sha1(secret,label+random)[0..dlen]
-	 */
-	if ((md_info = ttls_md_info_from_type(TTLS_MD_SHA1)) == NULL)
-		return(TTLS_ERR_SSL_INTERNAL_ERROR);
-
-	if ((ret = ttls_md_setup(&md_ctx, md_info, 1)) != 0)
-		return ret;
-
-	ttls_md_hmac_starts(&md_ctx, S2, hs);
-	ttls_md_hmac_update(&md_ctx, tmp + 20, nb);
-	ttls_md_hmac_finish(&md_ctx, tmp);
-
-	for (i = 0; i < dlen; i += 20)
-	{
-		ttls_md_hmac_reset (&md_ctx);
-		ttls_md_hmac_update(&md_ctx, tmp, 20 + nb);
-		ttls_md_hmac_finish(&md_ctx, h_i);
-
-		ttls_md_hmac_reset (&md_ctx);
-		ttls_md_hmac_update(&md_ctx, tmp, 20);
-		ttls_md_hmac_finish(&md_ctx, tmp);
-
-		k = (i + 20 > dlen) ? dlen % 20 : 20;
-
-		for (j = 0; j < k; j++)
-			dstbuf[i + j] = (unsigned char)(dstbuf[i + j] ^ h_i[j]);
-	}
-
-	ttls_md_free(&md_ctx);
-
-	ttls_zeroize(tmp, sizeof(tmp));
-	ttls_zeroize(h_i, sizeof(h_i));
-
-	return 0;
-}
-#endif /* TTLS_SSL_PROTO_TLS1) || TTLS_SSL_PROTO_TLS1_1 */
-
-#if defined(TTLS_SSL_PROTO_TLS1_2)
 static int tls_prf_generic(ttls_md_type_t md_type,
 			const unsigned char *secret, size_t slen,
 			const char *label,
@@ -439,26 +279,9 @@ static int tls_prf_sha384(const unsigned char *secret, size_t slen,
 			 label, random, rlen, dstbuf, dlen));
 }
 #endif /* TTLS_SHA512_C */
-#endif /* TTLS_SSL_PROTO_TLS1_2 */
 
 static void ssl_update_checksum_start(ttls_ssl_context *, const unsigned char *, size_t);
 
-#if defined(TTLS_SSL_PROTO_SSL3) || defined(TTLS_SSL_PROTO_TLS1) || \
-	defined(TTLS_SSL_PROTO_TLS1_1)
-static void ssl_update_checksum_md5sha1(ttls_ssl_context *, const unsigned char *, size_t);
-#endif
-
-#if defined(TTLS_SSL_PROTO_SSL3)
-static void ssl_calc_verify_ssl(ttls_ssl_context *, unsigned char *);
-static void ssl_calc_finished_ssl(ttls_ssl_context *, unsigned char *, int);
-#endif
-
-#if defined(TTLS_SSL_PROTO_TLS1) || defined(TTLS_SSL_PROTO_TLS1_1)
-static void ssl_calc_verify_tls(ttls_ssl_context *, unsigned char *);
-static void ssl_calc_finished_tls(ttls_ssl_context *, unsigned char *, int);
-#endif
-
-#if defined(TTLS_SSL_PROTO_TLS1_2)
 #if defined(TTLS_SHA256_C)
 static void ssl_update_checksum_sha256(ttls_ssl_context *, const unsigned char *, size_t);
 static void ssl_calc_verify_tls_sha256(ttls_ssl_context *,unsigned char *);
@@ -470,7 +293,6 @@ static void ssl_update_checksum_sha384(ttls_ssl_context *, const unsigned char *
 static void ssl_calc_verify_tls_sha384(ttls_ssl_context *, unsigned char *);
 static void ssl_calc_finished_tls_sha384(ttls_ssl_context *, unsigned char *, int);
 #endif
-#endif /* TTLS_SSL_PROTO_TLS1_2 */
 
 int ttls_ssl_derive_keys(ttls_ssl_context *ssl)
 {
@@ -509,27 +331,8 @@ int ttls_ssl_derive_keys(ttls_ssl_context *ssl)
 	}
 
 	/*
-	 * Set appropriate PRF function and other SSL / TLS / TLS1.2 functions
+	 * Set appropriate PRF function and other TLS1.2 functions
 	 */
-#if defined(TTLS_SSL_PROTO_SSL3)
-	if (ssl->minor_ver == TTLS_SSL_MINOR_VERSION_0)
-	{
-		handshake->tls_prf = ssl3_prf;
-		handshake->calc_verify = ssl_calc_verify_ssl;
-		handshake->calc_finished = ssl_calc_finished_ssl;
-	}
-	else
-#endif
-#if defined(TTLS_SSL_PROTO_TLS1) || defined(TTLS_SSL_PROTO_TLS1_1)
-	if (ssl->minor_ver < TTLS_SSL_MINOR_VERSION_3)
-	{
-		handshake->tls_prf = tls1_prf;
-		handshake->calc_verify = ssl_calc_verify_tls;
-		handshake->calc_finished = ssl_calc_finished_tls;
-	}
-	else
-#endif
-#if defined(TTLS_SSL_PROTO_TLS1_2)
 #if defined(TTLS_SHA512_C)
 	if (ssl->minor_ver == TTLS_SSL_MINOR_VERSION_3 &&
 		transform->ciphersuite_info->mac == TTLS_MD_SHA384)
@@ -549,7 +352,6 @@ int ttls_ssl_derive_keys(ttls_ssl_context *ssl)
 	}
 	else
 #endif
-#endif /* TTLS_SSL_PROTO_TLS1_2 */
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("should never happen"));
 		return(TTLS_ERR_SSL_INTERNAL_ERROR);
@@ -580,7 +382,6 @@ int ttls_ssl_derive_keys(ttls_ssl_context *ssl)
 
 			ssl->handshake->calc_verify(ssl, session_hash);
 
-#if defined(TTLS_SSL_PROTO_TLS1_2)
 			if (ssl->minor_ver == TTLS_SSL_MINOR_VERSION_3)
 			{
 #if defined(TTLS_SHA512_C)
@@ -594,7 +395,6 @@ int ttls_ssl_derive_keys(ttls_ssl_context *ssl)
 					hash_len = 32;
 			}
 			else
-#endif /* TTLS_SSL_PROTO_TLS1_2 */
 				hash_len = 36;
 
 			TTLS_SSL_DEBUG_BUF(3, "session hash", session_hash, hash_len);
@@ -737,20 +537,12 @@ int ttls_ssl_derive_keys(ttls_ssl_context *ssl)
 					 - transform->maclen % cipher_info->block_size;
 			}
 
-#if defined(TTLS_SSL_PROTO_SSL3) || defined(TTLS_SSL_PROTO_TLS1)
-			if (ssl->minor_ver == TTLS_SSL_MINOR_VERSION_0 ||
-				ssl->minor_ver == TTLS_SSL_MINOR_VERSION_1)
-				; /* No need to adjust minlen */
-			else
-#endif
-#if defined(TTLS_SSL_PROTO_TLS1_1) || defined(TTLS_SSL_PROTO_TLS1_2)
 			if (ssl->minor_ver == TTLS_SSL_MINOR_VERSION_2 ||
 				ssl->minor_ver == TTLS_SSL_MINOR_VERSION_3)
 			{
 				transform->minlen += transform->ivlen;
 			}
 			else
-#endif
 			{
 				TTLS_SSL_DEBUG_MSG(1, ("should never happen"));
 				return(TTLS_ERR_SSL_INTERNAL_ERROR);
@@ -808,29 +600,12 @@ int ttls_ssl_derive_keys(ttls_ssl_context *ssl)
 		return(TTLS_ERR_SSL_INTERNAL_ERROR);
 	}
 
-#if defined(TTLS_SSL_PROTO_SSL3)
-	if (ssl->minor_ver == TTLS_SSL_MINOR_VERSION_0)
-	{
-		if (mac_key_len > sizeof transform->mac_enc)
-		{
-			TTLS_SSL_DEBUG_MSG(1, ("should never happen"));
-			return(TTLS_ERR_SSL_INTERNAL_ERROR);
-		}
-
-		memcpy(transform->mac_enc, mac_enc, mac_key_len);
-		memcpy(transform->mac_dec, mac_dec, mac_key_len);
-	}
-	else
-#endif /* TTLS_SSL_PROTO_SSL3 */
-#if defined(TTLS_SSL_PROTO_TLS1) || defined(TTLS_SSL_PROTO_TLS1_1) || \
-	defined(TTLS_SSL_PROTO_TLS1_2)
 	if (ssl->minor_ver >= TTLS_SSL_MINOR_VERSION_1)
 	{
 		ttls_md_hmac_starts(&transform->md_ctx_enc, mac_enc, mac_key_len);
 		ttls_md_hmac_starts(&transform->md_ctx_dec, mac_dec, mac_key_len);
 	}
 	else
-#endif
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("should never happen"));
 		return(TTLS_ERR_SSL_INTERNAL_ERROR);
@@ -921,83 +696,6 @@ int ttls_ssl_derive_keys(ttls_ssl_context *ssl)
 	return 0;
 }
 
-#if defined(TTLS_SSL_PROTO_SSL3)
-void ssl_calc_verify_ssl(ttls_ssl_context *ssl, unsigned char hash[36])
-{
-	ttls_md5_context md5;
-	ttls_sha1_context sha1;
-	unsigned char pad_1[48];
-	unsigned char pad_2[48];
-
-	TTLS_SSL_DEBUG_MSG(2, ("=> calc verify ssl"));
-
-	ttls_md5_init(&md5);
-	ttls_sha1_init(&sha1);
-
-	ttls_md5_clone(&md5, &ssl->handshake->fin_md5);
-	ttls_sha1_clone(&sha1, &ssl->handshake->fin_sha1);
-
-	memset(pad_1, 0x36, 48);
-	memset(pad_2, 0x5C, 48);
-
-	ttls_md5_update_ret(&md5, ssl->session_negotiate->master, 48);
-	ttls_md5_update_ret(&md5, pad_1, 48);
-	ttls_md5_finish_ret(&md5, hash);
-
-	ttls_md5_starts_ret(&md5);
-	ttls_md5_update_ret(&md5, ssl->session_negotiate->master, 48);
-	ttls_md5_update_ret(&md5, pad_2, 48);
-	ttls_md5_update_ret(&md5, hash, 16);
-	ttls_md5_finish_ret(&md5, hash);
-
-	ttls_sha1_update_ret(&sha1, ssl->session_negotiate->master, 48);
-	ttls_sha1_update_ret(&sha1, pad_1, 40);
-	ttls_sha1_finish_ret(&sha1, hash + 16);
-
-	ttls_sha1_starts_ret(&sha1);
-	ttls_sha1_update_ret(&sha1, ssl->session_negotiate->master, 48);
-	ttls_sha1_update_ret(&sha1, pad_2, 40);
-	ttls_sha1_update_ret(&sha1, hash + 16, 20);
-	ttls_sha1_finish_ret(&sha1, hash + 16);
-
-	TTLS_SSL_DEBUG_BUF(3, "calculated verify result", hash, 36);
-	TTLS_SSL_DEBUG_MSG(2, ("<= calc verify"));
-
-	ttls_md5_free( &md5 );
-	ttls_sha1_free(&sha1);
-
-	return;
-}
-#endif /* TTLS_SSL_PROTO_SSL3 */
-
-#if defined(TTLS_SSL_PROTO_TLS1) || defined(TTLS_SSL_PROTO_TLS1_1)
-void ssl_calc_verify_tls(ttls_ssl_context *ssl, unsigned char hash[36])
-{
-	ttls_md5_context md5;
-	ttls_sha1_context sha1;
-
-	TTLS_SSL_DEBUG_MSG(2, ("=> calc verify tls"));
-
-	ttls_md5_init(&md5);
-	ttls_sha1_init(&sha1);
-
-	ttls_md5_clone(&md5, &ssl->handshake->fin_md5);
-	ttls_sha1_clone(&sha1, &ssl->handshake->fin_sha1);
-
-	 ttls_md5_finish_ret(&md5, hash);
-	ttls_sha1_finish_ret(&sha1, hash + 16);
-
-	TTLS_SSL_DEBUG_BUF(3, "calculated verify result", hash, 36);
-	TTLS_SSL_DEBUG_MSG(2, ("<= calc verify"));
-
-	ttls_md5_free( &md5 );
-	ttls_sha1_free(&sha1);
-
-	return;
-}
-#endif /* TTLS_SSL_PROTO_TLS1 || TTLS_SSL_PROTO_TLS1_1 */
-
-#if defined(TTLS_SSL_PROTO_TLS1_2)
 #if defined(TTLS_SHA256_C)
 void ssl_calc_verify_tls_sha256(ttls_ssl_context *ssl, unsigned char hash[32])
 {
@@ -1039,7 +737,6 @@ void ssl_calc_verify_tls_sha384(ttls_ssl_context *ssl, unsigned char hash[48])
 	return;
 }
 #endif /* TTLS_SHA512_C */
-#endif /* TTLS_SSL_PROTO_TLS1_2 */
 
 #if defined(TTLS_KEY_EXCHANGE__SOME__PSK_ENABLED)
 int ttls_ssl_psk_derive_premaster(ttls_ssl_context *ssl, ttls_key_exchange_type_t key_ex)
@@ -1161,51 +858,6 @@ int ttls_ssl_psk_derive_premaster(ttls_ssl_context *ssl, ttls_key_exchange_type_
 }
 #endif /* TTLS_KEY_EXCHANGE__SOME__PSK_ENABLED */
 
-#if defined(TTLS_SSL_PROTO_SSL3)
-/*
- * SSLv3.0 MAC functions
- */
-#define SSL_MAC_MAX_BYTES 20 /* MD-5 or SHA-1 */
-static void ssl_mac(ttls_md_context_t *md_ctx,
-		 const unsigned char *secret,
-		 const unsigned char *buf, size_t len,
-		 const unsigned char *ctr, int type,
-		 unsigned char out[SSL_MAC_MAX_BYTES])
-{
-	unsigned char header[11];
-	unsigned char padding[48];
-	int padlen;
-	int md_size = ttls_md_get_size(md_ctx->md_info);
-	int md_type = ttls_md_get_type(md_ctx->md_info);
-
-	/* Only MD5 and SHA-1 supported */
-	if (md_type == TTLS_MD_MD5)
-		padlen = 48;
-	else
-		padlen = 40;
-
-	memcpy(header, ctr, 8);
-	header[ 8] = (unsigned char) type;
-	header[ 9] = (unsigned char)(len >> 8);
-	header[10] = (unsigned char)(len	 );
-
-	memset(padding, 0x36, padlen);
-	ttls_md_starts(md_ctx);
-	ttls_md_update(md_ctx, secret, md_size);
-	ttls_md_update(md_ctx, padding, padlen);
-	ttls_md_update(md_ctx, header, 11);
-	ttls_md_update(md_ctx, buf, len);
-	ttls_md_finish(md_ctx, out);
-
-	memset(padding, 0x5C, padlen);
-	ttls_md_starts(md_ctx);
-	ttls_md_update(md_ctx, secret, md_size);
-	ttls_md_update(md_ctx, padding, padlen );
-	ttls_md_update(md_ctx, out, md_size);
-	ttls_md_finish(md_ctx, out);
-}
-#endif /* TTLS_SSL_PROTO_SSL3 */
-
 #if defined(TTLS_ARC4_C) || defined(TTLS_CIPHER_NULL_CIPHER) ||	 \
 	(defined(TTLS_CIPHER_MODE_CBC) &&				 \
 	 (defined(TTLS_AES_C) || defined(TTLS_CAMELLIA_C)))
@@ -1252,23 +904,6 @@ static int ssl_encrypt_buf(ttls_ssl_context *ssl)
 #endif
 		))
 	{
-#if defined(TTLS_SSL_PROTO_SSL3)
-		if (ssl->minor_ver == TTLS_SSL_MINOR_VERSION_0)
-		{
-			unsigned char mac[SSL_MAC_MAX_BYTES];
-
-			ssl_mac(&ssl->transform_out->md_ctx_enc,
-					 ssl->transform_out->mac_enc,
-					 ssl->out_msg, ssl->out_msglen,
-					 ssl->out_ctr, ssl->out_msgtype,
-					 mac);
-
-			memcpy(ssl->out_msg + ssl->out_msglen, mac, ssl->transform_out->maclen);
-		}
-		else
-#endif
-#if defined(TTLS_SSL_PROTO_TLS1) || defined(TTLS_SSL_PROTO_TLS1_1) || \
-		defined(TTLS_SSL_PROTO_TLS1_2)
 		if (ssl->minor_ver >= TTLS_SSL_MINOR_VERSION_1)
 		{
 			unsigned char mac[TTLS_SSL_MAC_ADD];
@@ -1284,7 +919,6 @@ static int ssl_encrypt_buf(ttls_ssl_context *ssl)
 			memcpy(ssl->out_msg + ssl->out_msglen, mac, ssl->transform_out->maclen);
 		}
 		else
-#endif
 		{
 			TTLS_SSL_DEBUG_MSG(1, ("should never happen"));
 			return(TTLS_ERR_SSL_INTERNAL_ERROR);
@@ -1429,7 +1063,6 @@ static int ssl_encrypt_buf(ttls_ssl_context *ssl)
 		enc_msglen = ssl->out_msglen;
 		enc_msg = ssl->out_msg;
 
-#if defined(TTLS_SSL_PROTO_TLS1_1) || defined(TTLS_SSL_PROTO_TLS1_2)
 		/*
 		 * Prepend per-record IV for block cipher in TLS v1.1 and up as per
 		 * Method 1 (6.2.3.2. in RFC4346 and RFC5246)
@@ -1454,7 +1087,6 @@ static int ssl_encrypt_buf(ttls_ssl_context *ssl)
 			enc_msglen = ssl->out_msglen;
 			ssl->out_msglen += ssl->transform_out->ivlen;
 		}
-#endif /* TTLS_SSL_PROTO_TLS1_1 || TTLS_SSL_PROTO_TLS1_2 */
 
 		TTLS_SSL_DEBUG_MSG(3, ("before encrypt: msglen = %d, "
 				"including %d bytes of IV and %d bytes of padding",
@@ -1476,18 +1108,6 @@ static int ssl_encrypt_buf(ttls_ssl_context *ssl)
 			TTLS_SSL_DEBUG_MSG(1, ("should never happen"));
 			return(TTLS_ERR_SSL_INTERNAL_ERROR);
 		}
-
-#if defined(TTLS_SSL_PROTO_SSL3) || defined(TTLS_SSL_PROTO_TLS1)
-		if (ssl->minor_ver < TTLS_SSL_MINOR_VERSION_2)
-		{
-			/*
-			 * Save IV in SSL3 and TLS1
-			 */
-			memcpy(ssl->transform_out->iv_enc,
-					ssl->transform_out->cipher_ctx_enc.iv,
-					ssl->transform_out->ivlen);
-		}
-#endif
 
 #if defined(TTLS_SSL_ENCRYPT_THEN_MAC)
 		if (auth_done == 0)
@@ -1685,10 +1305,8 @@ static int ssl_decrypt_buf(ttls_ssl_context *ssl)
 		/*
 		 * Check immediate ciphertext sanity
 		 */
-#if defined(TTLS_SSL_PROTO_TLS1_1) || defined(TTLS_SSL_PROTO_TLS1_2)
 		if (ssl->minor_ver >= TTLS_SSL_MINOR_VERSION_2)
 			minlen += ssl->transform_in->ivlen;
-#endif
 
 		if (ssl->in_msglen < minlen + ssl->transform_in->ivlen ||
 			ssl->in_msglen < minlen + ssl->transform_in->maclen + 1)
@@ -1757,7 +1375,6 @@ static int ssl_decrypt_buf(ttls_ssl_context *ssl)
 			return(TTLS_ERR_SSL_INVALID_MAC);
 		}
 
-#if defined(TTLS_SSL_PROTO_TLS1_1) || defined(TTLS_SSL_PROTO_TLS1_2)
 		/*
 		 * Initialize for prepended IV for block cipher in TLS v1.1 and up
 		 */
@@ -1769,7 +1386,6 @@ static int ssl_decrypt_buf(ttls_ssl_context *ssl)
 			for (i = 0; i < ssl->transform_in->ivlen; i++)
 				ssl->transform_in->iv_dec[i] = ssl->in_iv[i];
 		}
-#endif /* TTLS_SSL_PROTO_TLS1_1 || TTLS_SSL_PROTO_TLS1_2 */
 
 		if ((ret = ttls_cipher_crypt(&ssl->transform_in->cipher_ctx_dec,
 					 ssl->transform_in->iv_dec,
@@ -1787,18 +1403,6 @@ static int ssl_decrypt_buf(ttls_ssl_context *ssl)
 			return(TTLS_ERR_SSL_INTERNAL_ERROR);
 		}
 
-#if defined(TTLS_SSL_PROTO_SSL3) || defined(TTLS_SSL_PROTO_TLS1)
-		if (ssl->minor_ver < TTLS_SSL_MINOR_VERSION_2)
-		{
-			/*
-			 * Save IV in SSL3 and TLS1
-			 */
-			memcpy(ssl->transform_in->iv_dec,
-					ssl->transform_in->cipher_ctx_dec.iv,
-					ssl->transform_in->ivlen);
-		}
-#endif
-
 		padlen = 1 + ssl->in_msg[ssl->in_msglen - 1];
 
 		if (ssl->in_msglen < ssl->transform_in->maclen + padlen &&
@@ -1812,23 +1416,6 @@ static int ssl_decrypt_buf(ttls_ssl_context *ssl)
 			correct = 0;
 		}
 
-#if defined(TTLS_SSL_PROTO_SSL3)
-		if (ssl->minor_ver == TTLS_SSL_MINOR_VERSION_0)
-		{
-			if (padlen > ssl->transform_in->ivlen)
-			{
-#if defined(TTLS_SSL_DEBUG_ALL)
-				TTLS_SSL_DEBUG_MSG(1, ("bad padding length: is %d, "
-					"should be no more than %d",
-					 padlen, ssl->transform_in->ivlen));
-#endif
-				correct = 0;
-			}
-		}
-		else
-#endif /* TTLS_SSL_PROTO_SSL3 */
-#if defined(TTLS_SSL_PROTO_TLS1) || defined(TTLS_SSL_PROTO_TLS1_1) || \
-	defined(TTLS_SSL_PROTO_TLS1_2)
 		if (ssl->minor_ver > TTLS_SSL_MINOR_VERSION_0)
 		{
 			/*
@@ -1870,8 +1457,6 @@ static int ssl_decrypt_buf(ttls_ssl_context *ssl)
 			padlen &= correct * 0x1FF;
 		}
 		else
-#endif /* TTLS_SSL_PROTO_TLS1 || TTLS_SSL_PROTO_TLS1_1 || \
-		 TTLS_SSL_PROTO_TLS1_2 */
 		{
 			TTLS_SSL_DEBUG_MSG(1, ("should never happen"));
 			return(TTLS_ERR_SSL_INTERNAL_ERROR);
@@ -1904,19 +1489,6 @@ static int ssl_decrypt_buf(ttls_ssl_context *ssl)
 		ssl->in_len[0] = (unsigned char)(ssl->in_msglen >> 8);
 		ssl->in_len[1] = (unsigned char)(ssl->in_msglen	 );
 
-#if defined(TTLS_SSL_PROTO_SSL3)
-		if (ssl->minor_ver == TTLS_SSL_MINOR_VERSION_0)
-		{
-			ssl_mac(&ssl->transform_in->md_ctx_dec,
-					 ssl->transform_in->mac_dec,
-					 ssl->in_msg, ssl->in_msglen,
-					 ssl->in_ctr, ssl->in_msgtype,
-					 mac_expect);
-		}
-		else
-#endif /* TTLS_SSL_PROTO_SSL3 */
-#if defined(TTLS_SSL_PROTO_TLS1) || defined(TTLS_SSL_PROTO_TLS1_1) || \
-		defined(TTLS_SSL_PROTO_TLS1_2)
 		if (ssl->minor_ver > TTLS_SSL_MINOR_VERSION_0)
 		{
 			/*
@@ -1951,8 +1523,6 @@ static int ssl_decrypt_buf(ttls_ssl_context *ssl)
 			ttls_md_hmac_reset(&ssl->transform_in->md_ctx_dec);
 		}
 		else
-#endif /* TTLS_SSL_PROTO_TLS1 || TTLS_SSL_PROTO_TLS1_1 || \
-			 TTLS_SSL_PROTO_TLS1_2 */
 		{
 			TTLS_SSL_DEBUG_MSG(1, ("should never happen"));
 			return(TTLS_ERR_SSL_INTERNAL_ERROR);
@@ -3375,16 +2945,6 @@ static int ssl_parse_record_header(ttls_ssl_context *ssl)
 			return(TTLS_ERR_SSL_INVALID_RECORD);
 		}
 
-#if defined(TTLS_SSL_PROTO_SSL3)
-		if (ssl->minor_ver == TTLS_SSL_MINOR_VERSION_0 &&
-			ssl->in_msglen > ssl->transform_in->minlen + TTLS_SSL_MAX_CONTENT_LEN)
-		{
-			TTLS_SSL_DEBUG_MSG(1, ("bad message length"));
-			return(TTLS_ERR_SSL_INVALID_RECORD);
-		}
-#endif
-#if defined(TTLS_SSL_PROTO_TLS1) || defined(TTLS_SSL_PROTO_TLS1_1) || \
-	defined(TTLS_SSL_PROTO_TLS1_2)
 		/*
 		 * TLS encrypted messages can have up to 256 bytes of padding
 		 */
@@ -3395,7 +2955,6 @@ static int ssl_parse_record_header(ttls_ssl_context *ssl)
 			TTLS_SSL_DEBUG_MSG(1, ("bad message length"));
 			return(TTLS_ERR_SSL_INVALID_RECORD);
 		}
-#endif
 	}
 
 	/*
@@ -3890,18 +3449,6 @@ int ttls_ssl_handle_message_type(ttls_ssl_context *ssl)
 			return(TTLS_ERR_SSL_PEER_CLOSE_NOTIFY);
 		}
 
-#if defined(TTLS_SSL_PROTO_SSL3)
-		if (ssl->minor_ver == TTLS_SSL_MINOR_VERSION_0 &&
-			ssl->conf->endpoint == TTLS_SSL_IS_SERVER &&
-			ssl->in_msg[0] == TTLS_SSL_ALERT_LEVEL_WARNING &&
-			ssl->in_msg[1] == TTLS_SSL_ALERT_MSG_NO_CERT)
-		{
-			TTLS_SSL_DEBUG_MSG(2, ("is a SSLv3 no_cert"));
-			/* Will be handled in ttls_ssl_parse_certificate() */
-			return 0;
-		}
-#endif /* TTLS_SSL_PROTO_SSL3 */
-
 		/* Silently ignore: fetch new message */
 		return TTLS_ERR_SSL_NON_FATAL;
 	}
@@ -4033,23 +3580,6 @@ int ttls_ssl_write_certificate(ttls_ssl_context *ssl)
 			return 0;
 		}
 
-#if defined(TTLS_SSL_PROTO_SSL3)
-		/*
-		 * If using SSLv3 and got no cert, send an Alert message
-		 * (otherwise an empty Certificate message will be sent).
-		 */
-		if (ttls_ssl_own_cert(ssl) == NULL &&
-			ssl->minor_ver == TTLS_SSL_MINOR_VERSION_0)
-		{
-			ssl->out_msglen = 2;
-			ssl->out_msgtype = TTLS_SSL_MSG_ALERT;
-			ssl->out_msg[0] = TTLS_SSL_ALERT_LEVEL_WARNING;
-			ssl->out_msg[1] = TTLS_SSL_ALERT_MSG_NO_CERT;
-
-			TTLS_SSL_DEBUG_MSG(2, ("got no certificate to send"));
-			goto write_msg;
-		}
-#endif /* TTLS_SSL_PROTO_SSL3 */
 	}
 #endif /* TTLS_SSL_CLI_C */
 	if (ssl->conf->endpoint == TTLS_SSL_IS_SERVER)
@@ -4100,10 +3630,6 @@ int ttls_ssl_write_certificate(ttls_ssl_context *ssl)
 	ssl->out_msglen = i;
 	ssl->out_msgtype = TTLS_SSL_MSG_HANDSHAKE;
 	ssl->out_msg[0] = TTLS_SSL_HS_CERTIFICATE;
-
-#if defined(TTLS_SSL_PROTO_SSL3) && defined(TTLS_SSL_CLI_C)
-write_msg:
-#endif
 
 	ssl->state++;
 
@@ -4168,34 +3694,6 @@ int ttls_ssl_parse_certificate(ttls_ssl_context *ssl)
 
 	ssl->state++;
 
-#if defined(TTLS_SSL_PROTO_SSL3)
-	/*
-	 * Check if the client sent an empty certificate
-	 */
-	if (ssl->conf->endpoint == TTLS_SSL_IS_SERVER &&
-		ssl->minor_ver == TTLS_SSL_MINOR_VERSION_0)
-	{
-		if (ssl->in_msglen == 2	&&
-			ssl->in_msgtype == TTLS_SSL_MSG_ALERT &&
-			ssl->in_msg[0] == TTLS_SSL_ALERT_LEVEL_WARNING &&
-			ssl->in_msg[1] == TTLS_SSL_ALERT_MSG_NO_CERT)
-		{
-			TTLS_SSL_DEBUG_MSG(1, ("SSLv3 client has no certificate"));
-
-			/* The client was asked for a certificate but didn't send
-			 one. The client should know what's going on, so we
-			 don't send an alert. */
-			ssl->session_negotiate->verify_result = TTLS_X509_BADCERT_MISSING;
-			if (authmode == TTLS_SSL_VERIFY_OPTIONAL)
-				return 0;
-			else
-				return(TTLS_ERR_SSL_NO_CLIENT_CERTIFICATE);
-		}
-	}
-#endif /* TTLS_SSL_PROTO_SSL3 */
-
-#if defined(TTLS_SSL_PROTO_TLS1) || defined(TTLS_SSL_PROTO_TLS1_1) || \
-	defined(TTLS_SSL_PROTO_TLS1_2)
 	if (ssl->conf->endpoint == TTLS_SSL_IS_SERVER &&
 		ssl->minor_ver != TTLS_SSL_MINOR_VERSION_0)
 	{
@@ -4216,8 +3714,6 @@ int ttls_ssl_parse_certificate(ttls_ssl_context *ssl)
 				return(TTLS_ERR_SSL_NO_CLIENT_CERTIFICATE);
 		}
 	}
-#endif /* TTLS_SSL_PROTO_TLS1 || TTLS_SSL_PROTO_TLS1_1 || \
-		 TTLS_SSL_PROTO_TLS1_2 */
 
 	if (ssl->in_msgtype != TTLS_SSL_MSG_HANDSHAKE)
 	{
@@ -4577,13 +4073,6 @@ void ttls_ssl_optimize_checksum(ttls_ssl_context *ssl,
 {
 	((void) ciphersuite_info);
 
-#if defined(TTLS_SSL_PROTO_SSL3) || defined(TTLS_SSL_PROTO_TLS1) || \
-	defined(TTLS_SSL_PROTO_TLS1_1)
-	if (ssl->minor_ver < TTLS_SSL_MINOR_VERSION_3)
-		ssl->handshake->update_checksum = ssl_update_checksum_md5sha1;
-	else
-#endif
-#if defined(TTLS_SSL_PROTO_TLS1_2)
 #if defined(TTLS_SHA512_C)
 	if (ciphersuite_info->mac == TTLS_MD_SHA384)
 		ssl->handshake->update_checksum = ssl_update_checksum_sha384;
@@ -4594,7 +4083,6 @@ void ttls_ssl_optimize_checksum(ttls_ssl_context *ssl,
 		ssl->handshake->update_checksum = ssl_update_checksum_sha256;
 	else
 #endif
-#endif /* TTLS_SSL_PROTO_TLS1_2 */
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("should never happen"));
 		return;
@@ -4603,50 +4091,25 @@ void ttls_ssl_optimize_checksum(ttls_ssl_context *ssl,
 
 void ttls_ssl_reset_checksum(ttls_ssl_context *ssl)
 {
-#if defined(TTLS_SSL_PROTO_SSL3) || defined(TTLS_SSL_PROTO_TLS1) || \
-	defined(TTLS_SSL_PROTO_TLS1_1)
-	 ttls_md5_starts_ret(&ssl->handshake->fin_md5 );
-	ttls_sha1_starts_ret(&ssl->handshake->fin_sha1);
-#endif
-#if defined(TTLS_SSL_PROTO_TLS1_2)
 #if defined(TTLS_SHA256_C)
 	ttls_sha256_starts_ret(&ssl->handshake->fin_sha256, 0);
 #endif
 #if defined(TTLS_SHA512_C)
 	ttls_sha512_starts_ret(&ssl->handshake->fin_sha512, 1);
 #endif
-#endif /* TTLS_SSL_PROTO_TLS1_2 */
 }
 
 static void ssl_update_checksum_start(ttls_ssl_context *ssl,
 			 const unsigned char *buf, size_t len)
 {
-#if defined(TTLS_SSL_PROTO_SSL3) || defined(TTLS_SSL_PROTO_TLS1) || \
-	defined(TTLS_SSL_PROTO_TLS1_1)
-	 ttls_md5_update_ret(&ssl->handshake->fin_md5 , buf, len);
-	ttls_sha1_update_ret(&ssl->handshake->fin_sha1, buf, len);
-#endif
-#if defined(TTLS_SSL_PROTO_TLS1_2)
 #if defined(TTLS_SHA256_C)
 	ttls_sha256_update_ret(&ssl->handshake->fin_sha256, buf, len);
 #endif
 #if defined(TTLS_SHA512_C)
 	ttls_sha512_update_ret(&ssl->handshake->fin_sha512, buf, len);
 #endif
-#endif /* TTLS_SSL_PROTO_TLS1_2 */
 }
 
-#if defined(TTLS_SSL_PROTO_SSL3) || defined(TTLS_SSL_PROTO_TLS1) || \
-	defined(TTLS_SSL_PROTO_TLS1_1)
-static void ssl_update_checksum_md5sha1(ttls_ssl_context *ssl,
-			 const unsigned char *buf, size_t len)
-{
-	 ttls_md5_update_ret(&ssl->handshake->fin_md5 , buf, len);
-	ttls_sha1_update_ret(&ssl->handshake->fin_sha1, buf, len);
-}
-#endif
-
-#if defined(TTLS_SSL_PROTO_TLS1_2)
 #if defined(TTLS_SHA256_C)
 static void ssl_update_checksum_sha256(ttls_ssl_context *ssl,
 			const unsigned char *buf, size_t len)
@@ -4662,153 +4125,7 @@ static void ssl_update_checksum_sha384(ttls_ssl_context *ssl,
 	ttls_sha512_update_ret(&ssl->handshake->fin_sha512, buf, len);
 }
 #endif
-#endif /* TTLS_SSL_PROTO_TLS1_2 */
 
-#if defined(TTLS_SSL_PROTO_SSL3)
-static void ssl_calc_finished_ssl(ttls_ssl_context *ssl,
-			unsigned char *buf, int from)
-{
-	const char *sender;
-	ttls_md5_context md5;
-	ttls_sha1_context sha1;
-
-	unsigned char padbuf[48];
-	unsigned char md5sum[16];
-	unsigned char sha1sum[20];
-
-	ttls_ssl_session *session = ssl->session_negotiate;
-	if (!session)
-		session = ssl->session;
-
-	TTLS_SSL_DEBUG_MSG(2, ("=> calc finished ssl"));
-
-	ttls_md5_init(&md5);
-	ttls_sha1_init(&sha1);
-
-	ttls_md5_clone(&md5, &ssl->handshake->fin_md5);
-	ttls_sha1_clone(&sha1, &ssl->handshake->fin_sha1);
-
-	/*
-	 * SSLv3:
-	 * hash =
-	 *	 MD5(master + pad2 +
-	 *		 MD5(handshake + sender + master + pad1))
-	 * + SHA1(master + pad2 +
-	 *		 SHA1(handshake + sender + master + pad1))
-	 */
-
-#if !defined(TTLS_MD5_ALT)
-	TTLS_SSL_DEBUG_BUF(4, "finished md5 state", (unsigned char *)
-					md5.state, sizeof( md5.state));
-#endif
-
-#if !defined(TTLS_SHA1_ALT)
-	TTLS_SSL_DEBUG_BUF(4, "finished sha1 state", (unsigned char *)
-				 sha1.state, sizeof(sha1.state));
-#endif
-
-	sender = (from == TTLS_SSL_IS_CLIENT) ? "CLNT"
-						 : "SRVR";
-
-	memset(padbuf, 0x36, 48);
-
-	ttls_md5_update_ret(&md5, (const unsigned char *) sender, 4);
-	ttls_md5_update_ret(&md5, session->master, 48);
-	ttls_md5_update_ret(&md5, padbuf, 48);
-	ttls_md5_finish_ret(&md5, md5sum);
-
-	ttls_sha1_update_ret(&sha1, (const unsigned char *) sender, 4);
-	ttls_sha1_update_ret(&sha1, session->master, 48);
-	ttls_sha1_update_ret(&sha1, padbuf, 40);
-	ttls_sha1_finish_ret(&sha1, sha1sum);
-
-	memset(padbuf, 0x5C, 48);
-
-	ttls_md5_starts_ret(&md5);
-	ttls_md5_update_ret(&md5, session->master, 48);
-	ttls_md5_update_ret(&md5, padbuf, 48);
-	ttls_md5_update_ret(&md5, md5sum, 16);
-	ttls_md5_finish_ret(&md5, buf);
-
-	ttls_sha1_starts_ret(&sha1);
-	ttls_sha1_update_ret(&sha1, session->master, 48);
-	ttls_sha1_update_ret(&sha1, padbuf , 40);
-	ttls_sha1_update_ret(&sha1, sha1sum, 20);
-	ttls_sha1_finish_ret(&sha1, buf + 16);
-
-	TTLS_SSL_DEBUG_BUF(3, "calc finished result", buf, 36);
-
-	ttls_md5_free( &md5 );
-	ttls_sha1_free(&sha1);
-
-	ttls_zeroize( padbuf, sizeof( padbuf));
-	ttls_zeroize( md5sum, sizeof( md5sum));
-	ttls_zeroize(sha1sum, sizeof(sha1sum));
-
-	TTLS_SSL_DEBUG_MSG(2, ("<= calc finished"));
-}
-#endif /* TTLS_SSL_PROTO_SSL3 */
-
-#if defined(TTLS_SSL_PROTO_TLS1) || defined(TTLS_SSL_PROTO_TLS1_1)
-static void ssl_calc_finished_tls(
-		ttls_ssl_context *ssl, unsigned char *buf, int from)
-{
-	int len = 12;
-	const char *sender;
-	ttls_md5_context md5;
-	ttls_sha1_context sha1;
-	unsigned char padbuf[36];
-
-	ttls_ssl_session *session = ssl->session_negotiate;
-	if (!session)
-		session = ssl->session;
-
-	TTLS_SSL_DEBUG_MSG(2, ("=> calc finished tls"));
-
-	ttls_md5_init(&md5);
-	ttls_sha1_init(&sha1);
-
-	ttls_md5_clone(&md5, &ssl->handshake->fin_md5);
-	ttls_sha1_clone(&sha1, &ssl->handshake->fin_sha1);
-
-	/*
-	 * TLSv1:
-	 * hash = PRF(master, finished_label,
-	 *			 MD5(handshake) + SHA1(handshake))[0..11]
-	 */
-
-#if !defined(TTLS_MD5_ALT)
-	TTLS_SSL_DEBUG_BUF(4, "finished md5 state", (unsigned char *)
-					md5.state, sizeof( md5.state));
-#endif
-
-#if !defined(TTLS_SHA1_ALT)
-	TTLS_SSL_DEBUG_BUF(4, "finished sha1 state", (unsigned char *)
-				 sha1.state, sizeof(sha1.state));
-#endif
-
-	sender = (from == TTLS_SSL_IS_CLIENT)
-			 ? "client finished"
-			 : "server finished";
-
-	ttls_md5_finish_ret( &md5, padbuf);
-	ttls_sha1_finish_ret(&sha1, padbuf + 16);
-
-	ssl->handshake->tls_prf(session->master, 48, sender,
-				 padbuf, 36, buf, len);
-
-	TTLS_SSL_DEBUG_BUF(3, "calc finished result", buf, len);
-
-	ttls_md5_free( &md5 );
-	ttls_sha1_free(&sha1);
-
-	ttls_zeroize( padbuf, sizeof( padbuf));
-
-	TTLS_SSL_DEBUG_MSG(2, ("<= calc finished"));
-}
-#endif /* TTLS_SSL_PROTO_TLS1 || TTLS_SSL_PROTO_TLS1_1 */
-
-#if defined(TTLS_SSL_PROTO_TLS1_2)
 #if defined(TTLS_SHA256_C)
 static void ssl_calc_finished_tls_sha256(
 		ttls_ssl_context *ssl, unsigned char *buf, int from)
@@ -4906,7 +4223,6 @@ static void ssl_calc_finished_tls_sha384(
 	TTLS_SSL_DEBUG_MSG(2, ("<= calc finished"));
 }
 #endif /* TTLS_SHA512_C */
-#endif /* TTLS_SSL_PROTO_TLS1_2 */
 
 static void ssl_handshake_wrapup_free_hs_transform(ttls_ssl_context *ssl)
 {
@@ -5098,11 +4414,7 @@ int ttls_ssl_write_finished(ttls_ssl_context *ssl)
 	return 0;
 }
 
-#if defined(TTLS_SSL_PROTO_SSL3)
-#define SSL_MAX_HASH_LEN 36
-#else
 #define SSL_MAX_HASH_LEN 12
-#endif
 
 int ttls_ssl_parse_finished(ttls_ssl_context *ssl)
 {
@@ -5129,12 +4441,7 @@ int ttls_ssl_parse_finished(ttls_ssl_context *ssl)
 	}
 
 	/* There is currently no ciphersuite using another length with TLS 1.2 */
-#if defined(TTLS_SSL_PROTO_SSL3)
-	if (ssl->minor_ver == TTLS_SSL_MINOR_VERSION_0)
-		hash_len = 36;
-	else
-#endif
-		hash_len = 12;
+	hash_len = 12;
 
 	if (ssl->in_msg[0] != TTLS_SSL_HS_FINISHED ||
 		ssl->in_hslen != ttls_ssl_hs_hdr_len(ssl) + hash_len)
@@ -5180,14 +4487,6 @@ static void ssl_handshake_params_init(ttls_ssl_handshake_params *handshake)
 {
 	memset(handshake, 0, sizeof(ttls_ssl_handshake_params));
 
-#if defined(TTLS_SSL_PROTO_SSL3) || defined(TTLS_SSL_PROTO_TLS1) || \
-	defined(TTLS_SSL_PROTO_TLS1_1)
-	 ttls_md5_init( &handshake->fin_md5 );
-	ttls_sha1_init( &handshake->fin_sha1);
-	 ttls_md5_starts_ret(&handshake->fin_md5 );
-	ttls_sha1_starts_ret(&handshake->fin_sha1);
-#endif
-#if defined(TTLS_SSL_PROTO_TLS1_2)
 #if defined(TTLS_SHA256_C)
 	ttls_sha256_init( &handshake->fin_sha256	);
 	ttls_sha256_starts_ret(&handshake->fin_sha256, 0);
@@ -5196,12 +4495,10 @@ static void ssl_handshake_params_init(ttls_ssl_handshake_params *handshake)
 	ttls_sha512_init( &handshake->fin_sha512	);
 	ttls_sha512_starts_ret(&handshake->fin_sha512, 1);
 #endif
-#endif /* TTLS_SSL_PROTO_TLS1_2 */
 
 	handshake->update_checksum = ssl_update_checksum_start;
 
-#if defined(TTLS_SSL_PROTO_TLS1_2) && \
-	defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
+#if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
 	ttls_ssl_sig_hash_set_init(&handshake->hash_algs);
 #endif
 
@@ -5445,11 +4742,6 @@ static int ssl_session_reset_int(ttls_ssl_context *ssl, int partial)
 	ssl->out_msgtype = 0;
 	ssl->out_msglen = 0;
 	ssl->out_left = 0;
-#if defined(TTLS_SSL_CBC_RECORD_SPLITTING)
-	if (ssl->split_done != TTLS_SSL_CBC_RECORD_SPLITTING_DISABLED)
-		ssl->split_done = 0;
-#endif
-
 	ssl->transform_in = NULL;
 	ssl->transform_out = NULL;
 
@@ -6061,13 +5353,6 @@ void ttls_ssl_conf_truncated_hmac(ttls_ssl_config *conf, int truncate)
 }
 #endif /* TTLS_SSL_TRUNCATED_HMAC */
 
-#if defined(TTLS_SSL_CBC_RECORD_SPLITTING)
-void ttls_ssl_conf_cbc_record_splitting(ttls_ssl_config *conf, char split)
-{
-	conf->cbc_record_splitting = split;
-}
-#endif
-
 void ttls_ssl_conf_legacy_renegotiation(ttls_ssl_config *conf, int allow_legacy)
 {
 	conf->allow_legacy_renegotiation = allow_legacy;
@@ -6442,19 +5727,6 @@ ttls_ssl_read(void *ssl_data, unsigned char *buf, size_t len)
 
 			TTLS_SSL_DEBUG_MSG(3, ("refusing renegotiation, sending alert"));
 
-#if defined(TTLS_SSL_PROTO_SSL3)
-			if (ssl->minor_ver == TTLS_SSL_MINOR_VERSION_0)
-			{
-				/* SSLv3 does not have a "no_renegotiation" warning, so
-				 we send a fatal alert and abort the connection. */
-				ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
-							TTLS_SSL_ALERT_MSG_UNEXPECTED_MESSAGE);
-				return(TTLS_ERR_SSL_UNEXPECTED_MESSAGE);
-			}
-			else
-#endif /* TTLS_SSL_PROTO_SSL3 */
-#if defined(TTLS_SSL_PROTO_TLS1) || defined(TTLS_SSL_PROTO_TLS1_1) || \
-	defined(TTLS_SSL_PROTO_TLS1_2)
 			if (ssl->minor_ver >= TTLS_SSL_MINOR_VERSION_1)
 			{
 				if ((ret = ttls_ssl_send_alert_message(ssl,
@@ -6465,8 +5737,6 @@ ttls_ssl_read(void *ssl_data, unsigned char *buf, size_t len)
 				}
 			}
 			else
-#endif /* TTLS_SSL_PROTO_TLS1 || TTLS_SSL_PROTO_TLS1_1 ||
-		 TTLS_SSL_PROTO_TLS1_2 */
 			{
 				TTLS_SSL_DEBUG_MSG(1, ("should never happen"));
 				return(TTLS_ERR_SSL_INTERNAL_ERROR);
@@ -6578,44 +5848,6 @@ static int ssl_write_real(ttls_ssl_context *ssl,
 }
 
 /*
- * Write application data, doing 1/n-1 splitting if necessary.
- *
- * With non-blocking I/O, ssl_write_real() may return WANT_WRITE,
- * then the caller will call us again with the same arguments, so
- * remember whether we already did the split or not.
- */
-#if defined(TTLS_SSL_CBC_RECORD_SPLITTING)
-static int ssl_write_split(ttls_ssl_context *ssl,
-		const unsigned char *buf, size_t len)
-{
-	int ret;
-
-	if (ssl->conf->cbc_record_splitting ==
-			TTLS_SSL_CBC_RECORD_SPLITTING_DISABLED ||
-		len <= 1 ||
-		ssl->minor_ver > TTLS_SSL_MINOR_VERSION_1 ||
-		ttls_cipher_get_cipher_mode(&ssl->transform_out->cipher_ctx_enc)
-								!= TTLS_MODE_CBC)
-	{
-		return(ssl_write_real(ssl, buf, len));
-	}
-
-	if (ssl->split_done == 0)
-	{
-		if ((ret = ssl_write_real(ssl, buf, 1)) <= 0)
-			return ret;
-		ssl->split_done = 1;
-	}
-
-	if ((ret = ssl_write_real(ssl, buf + 1, len - 1)) <= 0)
-		return ret;
-	ssl->split_done = 0;
-
-	return(ret + 1);
-}
-#endif /* TTLS_SSL_CBC_RECORD_SPLITTING */
-
-/*
  * Write application data (public-facing wrapper)
  */
 int ttls_ssl_write(ttls_ssl_context *ssl, const unsigned char *buf, size_t len)
@@ -6636,11 +5868,7 @@ int ttls_ssl_write(ttls_ssl_context *ssl, const unsigned char *buf, size_t len)
 		}
 	}
 
-#if defined(TTLS_SSL_CBC_RECORD_SPLITTING)
-	ret = ssl_write_split(ssl, buf, len);
-#else
 	ret = ssl_write_real(ssl, buf, len);
-#endif
 
 	TTLS_SSL_DEBUG_MSG(2, ("<= write"));
 
@@ -6709,19 +5937,12 @@ void ttls_ssl_handshake_free(ttls_ssl_handshake_params *handshake)
 	if (handshake == NULL)
 		return;
 
-#if defined(TTLS_SSL_PROTO_SSL3) || defined(TTLS_SSL_PROTO_TLS1) || \
-	defined(TTLS_SSL_PROTO_TLS1_1)
-	ttls_md5_free(	&handshake->fin_md5 );
-	ttls_sha1_free( &handshake->fin_sha1);
-#endif
-#if defined(TTLS_SSL_PROTO_TLS1_2)
 #if defined(TTLS_SHA256_C)
 	ttls_sha256_free( &handshake->fin_sha256	);
 #endif
 #if defined(TTLS_SHA512_C)
 	ttls_sha512_free( &handshake->fin_sha512	);
 #endif
-#endif /* TTLS_SSL_PROTO_TLS1_2 */
 
 #if defined(TTLS_DHM_C)
 	ttls_dhm_free(&handshake->dhm_ctx);
@@ -6949,10 +6170,6 @@ int ttls_ssl_config_defaults(ttls_ssl_config *conf,
 	conf->extended_ms = TTLS_SSL_EXTENDED_MS_ENABLED;
 #endif
 
-#if defined(TTLS_SSL_CBC_RECORD_SPLITTING)
-	conf->cbc_record_splitting = TTLS_SSL_CBC_RECORD_SPLITTING_ENABLED;
-#endif
-
 #if defined(TTLS_SSL_DTLS_HELLO_VERIFY)
 	conf->f_cookie_write = ssl_cookie_write_dummy;
 	conf->f_cookie_check = ssl_cookie_check_dummy;
@@ -7126,8 +6343,7 @@ ttls_pk_type_t ttls_ssl_pk_alg_from_sig(unsigned char sig)
 	}
 }
 
-#if defined(TTLS_SSL_PROTO_TLS1_2) && \
-	defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
+#if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
 
 /* Find an entry in a signature-hash set matching a given hash algorithm. */
 ttls_md_type_t ttls_ssl_sig_hash_set_find(ttls_ssl_sig_hash_set_t *set,
@@ -7174,8 +6390,7 @@ void ttls_ssl_sig_hash_set_const_hash(ttls_ssl_sig_hash_set_t *set,
 	set->ecdsa = md_alg;
 }
 
-#endif /* TTLS_SSL_PROTO_TLS1_2) &&
-		 TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED */
+#endif /* TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED */
 
 /*
  * Convert from TTLS_SSL_HASH_XXX to TTLS_MD_XXX
@@ -7424,23 +6639,11 @@ void ttls_ssl_read_version(int *major, int *minor, int transport,
 
 int ttls_ssl_set_calc_verify_md(ttls_ssl_context *ssl, int md)
 {
-#if defined(TTLS_SSL_PROTO_TLS1_2)
 	if (ssl->minor_ver != TTLS_SSL_MINOR_VERSION_3)
 		return TTLS_ERR_SSL_INVALID_VERIFY_HASH;
 
 	switch(md)
 	{
-#if defined(TTLS_SSL_PROTO_TLS1) || defined(TTLS_SSL_PROTO_TLS1_1)
-#if defined(TTLS_MD5_C)
-		case TTLS_SSL_HASH_MD5:
-			return TTLS_ERR_SSL_INVALID_VERIFY_HASH;
-#endif
-#if defined(TTLS_SHA1_C)
-		case TTLS_SSL_HASH_SHA1:
-			ssl->handshake->calc_verify = ssl_calc_verify_tls;
-			break;
-#endif
-#endif /* TTLS_SSL_PROTO_TLS1 || TTLS_SSL_PROTO_TLS1_1 */
 #if defined(TTLS_SHA512_C)
 		case TTLS_SSL_HASH_SHA384:
 			ssl->handshake->calc_verify = ssl_calc_verify_tls_sha384;
@@ -7456,102 +6659,8 @@ int ttls_ssl_set_calc_verify_md(ttls_ssl_context *ssl, int md)
 	}
 
 	return 0;
-#else /* !TTLS_SSL_PROTO_TLS1_2 */
-	(void) ssl;
-	(void) md;
-
-	return TTLS_ERR_SSL_INVALID_VERIFY_HASH;
-#endif /* TTLS_SSL_PROTO_TLS1_2 */
 }
 
-#if defined(TTLS_SSL_PROTO_SSL3) || defined(TTLS_SSL_PROTO_TLS1) || \
-	defined(TTLS_SSL_PROTO_TLS1_1)
-int ttls_ssl_get_key_exchange_md_ssl_tls(ttls_ssl_context *ssl,
-		unsigned char *output,
-		unsigned char *data, size_t data_len)
-{
-	int ret = 0;
-	ttls_md5_context ttls_md5;
-	ttls_sha1_context ttls_sha1;
-
-	ttls_md5_init(&ttls_md5);
-	ttls_sha1_init(&ttls_sha1);
-
-	/*
-	 * digitally-signed struct {
-	 *	 opaque md5_hash[16];
-	 *	 opaque sha_hash[20];
-	 * };
-	 *
-	 * md5_hash
-	 *	 MD5(ClientHello.random + ServerHello.random
-	 *							+ ServerParams);
-	 * sha_hash
-	 *	 SHA(ClientHello.random + ServerHello.random
-	 *							+ ServerParams);
-	 */
-	if ((ret = ttls_md5_starts_ret(&ttls_md5)) != 0)
-	{
-		TTLS_SSL_DEBUG_RET(1, "ttls_md5_starts_ret", ret);
-		goto exit;
-	}
-	if ((ret = ttls_md5_update_ret(&ttls_md5,
-				ssl->handshake->randbytes, 64)) != 0)
-	{
-		TTLS_SSL_DEBUG_RET(1, "ttls_md5_update_ret", ret);
-		goto exit;
-	}
-	if ((ret = ttls_md5_update_ret(&ttls_md5, data, data_len)) != 0)
-	{
-		TTLS_SSL_DEBUG_RET(1, "ttls_md5_update_ret", ret);
-		goto exit;
-	}
-	if ((ret = ttls_md5_finish_ret(&ttls_md5, output)) != 0)
-	{
-		TTLS_SSL_DEBUG_RET(1, "ttls_md5_finish_ret", ret);
-		goto exit;
-	}
-
-	if ((ret = ttls_sha1_starts_ret(&ttls_sha1)) != 0)
-	{
-		TTLS_SSL_DEBUG_RET(1, "ttls_sha1_starts_ret", ret);
-		goto exit;
-	}
-	if ((ret = ttls_sha1_update_ret(&ttls_sha1,
-				 ssl->handshake->randbytes, 64)) != 0)
-	{
-		TTLS_SSL_DEBUG_RET(1, "ttls_sha1_update_ret", ret);
-		goto exit;
-	}
-	if ((ret = ttls_sha1_update_ret(&ttls_sha1, data,
-				 data_len)) != 0)
-	{
-		TTLS_SSL_DEBUG_RET(1, "ttls_sha1_update_ret", ret);
-		goto exit;
-	}
-	if ((ret = ttls_sha1_finish_ret(&ttls_sha1,
-				 output + 16)) != 0)
-	{
-		TTLS_SSL_DEBUG_RET(1, "ttls_sha1_finish_ret", ret);
-		goto exit;
-	}
-
-exit:
-	ttls_md5_free(&ttls_md5);
-	ttls_sha1_free(&ttls_sha1);
-
-	if (ret != 0)
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
-				TTLS_SSL_ALERT_MSG_INTERNAL_ERROR);
-
-	return ret;
-
-}
-#endif /* TTLS_SSL_PROTO_SSL3 || TTLS_SSL_PROTO_TLS1 || \
-		 TTLS_SSL_PROTO_TLS1_1 */
-
-#if defined(TTLS_SSL_PROTO_TLS1) || defined(TTLS_SSL_PROTO_TLS1_1) || \
-	defined(TTLS_SSL_PROTO_TLS1_2)
 int ttls_ssl_get_key_exchange_md_tls1_2(ttls_ssl_context *ssl,
 		unsigned char *output,
 		unsigned char *data, size_t data_len,
@@ -7605,5 +6714,3 @@ exit:
 
 	return ret;
 }
-#endif /* TTLS_SSL_PROTO_TLS1 || TTLS_SSL_PROTO_TLS1_1 || \
-		 TTLS_SSL_PROTO_TLS1_2 */
