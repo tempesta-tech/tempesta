@@ -133,68 +133,6 @@ int ttls_sha512_finish_ret(ttls_sha512_context *ctx,
  */
 int ttls_internal_sha512_process(ttls_sha512_context *ctx,
 									 const unsigned char data[128]);
-#if !defined(TTLS_DEPRECATED_REMOVED)
-#if defined(TTLS_DEPRECATED_WARNING)
-#define TTLS_DEPRECATED	  __attribute__((deprecated))
-#else
-#define TTLS_DEPRECATED
-#endif
-/**
- * \brief		  This function starts a SHA-384 or SHA-512 checksum
- *				 calculation.
- *
- * \deprecated	 Superseded by ttls_sha512_starts_ret() in 2.7.0
- *
- * \param ctx	  The SHA-512 context to initialize.
- * \param is384	Determines which function to use.
- *				 <ul><li>0: Use SHA-512.</li>
- *				 <li>1: Use SHA-384.</li></ul>
- */
-TTLS_DEPRECATED void ttls_sha512_starts(ttls_sha512_context *ctx,
-											   int is384);
-
-/**
- * \brief		  This function feeds an input buffer into an ongoing
- *				 SHA-512 checksum calculation.
- *
- * \deprecated	 Superseded by ttls_sha512_update_ret() in 2.7.0
- *
- * \param ctx	  The SHA-512 context.
- * \param input	The buffer holding the data.
- * \param ilen	 The length of the input data.
- */
-TTLS_DEPRECATED void ttls_sha512_update(ttls_sha512_context *ctx,
-											   const unsigned char *input,
-											   size_t ilen);
-
-/**
- * \brief		  This function finishes the SHA-512 operation, and writes
- *				 the result to the output buffer.
- *
- * \deprecated	 Superseded by ttls_sha512_finish_ret() in 2.7.0
- *
- * \param ctx	  The SHA-512 context.
- * \param output   The SHA-384 or SHA-512 checksum result.
- */
-TTLS_DEPRECATED void ttls_sha512_finish(ttls_sha512_context *ctx,
-											   unsigned char output[64]);
-
-/**
- * \brief		  This function processes a single data block within
- *				 the ongoing SHA-512 computation. This function is for
- *				 internal use only.
- *
- * \deprecated	 Superseded by ttls_internal_sha512_process() in 2.7.0
- *
- * \param ctx	  The SHA-512 context.
- * \param data	 The buffer holding one block of data.
- */
-TTLS_DEPRECATED void ttls_sha512_process(
-											ttls_sha512_context *ctx,
-											const unsigned char data[128]);
-
-#undef TTLS_DEPRECATED
-#endif /* !TTLS_DEPRECATED_REMOVED */
 
 #else  /* TTLS_SHA512_ALT */
 #include "sha512_alt.h"
@@ -223,38 +161,5 @@ int ttls_sha512_ret(const unsigned char *input,
 						size_t ilen,
 						unsigned char output[64],
 						int is384);
-
-#if !defined(TTLS_DEPRECATED_REMOVED)
-#if defined(TTLS_DEPRECATED_WARNING)
-#define TTLS_DEPRECATED	  __attribute__((deprecated))
-#else
-#define TTLS_DEPRECATED
-#endif
-/**
- * \brief		  This function calculates the SHA-512 or SHA-384
- *				 checksum of a buffer.
- *
- *				 The function allocates the context, performs the
- *				 calculation, and frees the context.
- *
- *				 The SHA-512 result is calculated as
- *				 output = SHA-512(input buffer).
- *
- * \deprecated	 Superseded by ttls_sha512_ret() in 2.7.0
- *
- * \param input	The buffer holding the data.
- * \param ilen	 The length of the input data.
- * \param output   The SHA-384 or SHA-512 checksum result.
- * \param is384	Determines which function to use.
- *				 <ul><li>0: Use SHA-512.</li>
- *				 <li>1: Use SHA-384.</li></ul>
- */
-TTLS_DEPRECATED void ttls_sha512(const unsigned char *input,
-										size_t ilen,
-										unsigned char output[64],
-										int is384);
-
-#undef TTLS_DEPRECATED
-#endif /* !TTLS_DEPRECATED_REMOVED */
 
 #endif /* ttls_sha512.h */

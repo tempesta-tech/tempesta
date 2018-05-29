@@ -31,14 +31,7 @@
 #ifndef TTLS_MD5_H
 #define TTLS_MD5_H
 
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
-
-#include <stddef.h>
-#include <stdint.h>
 
 #define TTLS_ERR_MD5_HW_ACCEL_FAILED				   -0x002F  /**< MD5 hardware accelerator failed */
 
@@ -164,79 +157,6 @@ int ttls_md5_finish_ret(ttls_md5_context *ctx,
 int ttls_internal_md5_process(ttls_md5_context *ctx,
 								  const unsigned char data[64]);
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-#if defined(TTLS_DEPRECATED_WARNING)
-#define TTLS_DEPRECATED	  __attribute__((deprecated))
-#else
-#define TTLS_DEPRECATED
-#endif
-/**
- * \brief		  MD5 context setup
- *
- * \deprecated	 Superseded by ttls_md5_starts_ret() in 2.7.0
- *
- * \param ctx	  context to be initialized
- *
- * \warning		MD5 is considered a weak message digest and its use
- *				 constitutes a security risk. We recommend considering
- *				 stronger message digests instead.
- *
- */
-TTLS_DEPRECATED void ttls_md5_starts(ttls_md5_context *ctx);
-
-/**
- * \brief		  MD5 process buffer
- *
- * \deprecated	 Superseded by ttls_md5_update_ret() in 2.7.0
- *
- * \param ctx	  MD5 context
- * \param input	buffer holding the data
- * \param ilen	 length of the input data
- *
- * \warning		MD5 is considered a weak message digest and its use
- *				 constitutes a security risk. We recommend considering
- *				 stronger message digests instead.
- *
- */
-TTLS_DEPRECATED void ttls_md5_update(ttls_md5_context *ctx,
-											const unsigned char *input,
-											size_t ilen);
-
-/**
- * \brief		  MD5 final digest
- *
- * \deprecated	 Superseded by ttls_md5_finish_ret() in 2.7.0
- *
- * \param ctx	  MD5 context
- * \param output   MD5 checksum result
- *
- * \warning		MD5 is considered a weak message digest and its use
- *				 constitutes a security risk. We recommend considering
- *				 stronger message digests instead.
- *
- */
-TTLS_DEPRECATED void ttls_md5_finish(ttls_md5_context *ctx,
-											unsigned char output[16]);
-
-/**
- * \brief		  MD5 process data block (internal use only)
- *
- * \deprecated	 Superseded by ttls_internal_md5_process() in 2.7.0
- *
- * \param ctx	  MD5 context
- * \param data	 buffer holding one block of data
- *
- * \warning		MD5 is considered a weak message digest and its use
- *				 constitutes a security risk. We recommend considering
- *				 stronger message digests instead.
- *
- */
-TTLS_DEPRECATED void ttls_md5_process(ttls_md5_context *ctx,
-											 const unsigned char data[64]);
-
-#undef TTLS_DEPRECATED
-#endif /* !TTLS_DEPRECATED_REMOVED */
-
 #else  /* TTLS_MD5_ALT */
 #include "md5_alt.h"
 #endif /* TTLS_MD5_ALT */
@@ -258,32 +178,5 @@ TTLS_DEPRECATED void ttls_md5_process(ttls_md5_context *ctx,
 int ttls_md5_ret(const unsigned char *input,
 					 size_t ilen,
 					 unsigned char output[16]);
-
-#if !defined(TTLS_DEPRECATED_REMOVED)
-#if defined(TTLS_DEPRECATED_WARNING)
-#define TTLS_DEPRECATED	  __attribute__((deprecated))
-#else
-#define TTLS_DEPRECATED
-#endif
-/**
- * \brief		  Output = MD5(input buffer)
- *
- * \deprecated	 Superseded by ttls_md5_ret() in 2.7.0
- *
- * \param input	buffer holding the data
- * \param ilen	 length of the input data
- * \param output   MD5 checksum result
- *
- * \warning		MD5 is considered a weak message digest and its use
- *				 constitutes a security risk. We recommend considering
- *				 stronger message digests instead.
- *
- */
-TTLS_DEPRECATED void ttls_md5(const unsigned char *input,
-									 size_t ilen,
-									 unsigned char output[16]);
-
-#undef TTLS_DEPRECATED
-#endif /* !TTLS_DEPRECATED_REMOVED */
 
 #endif /* ttls_md5.h */
