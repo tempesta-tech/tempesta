@@ -99,13 +99,6 @@ int ttls_ripemd160_starts_ret(ttls_ripemd160_context *ctx)
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_ripemd160_starts(ttls_ripemd160_context *ctx)
-{
-	ttls_ripemd160_starts_ret(ctx);
-}
-#endif
-
 #if !defined(TTLS_RIPEMD160_PROCESS_ALT)
 /*
  * Process one block
@@ -290,13 +283,6 @@ int ttls_internal_ripemd160_process(ttls_ripemd160_context *ctx,
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_ripemd160_process(ttls_ripemd160_context *ctx,
-								const unsigned char data[64])
-{
-	ttls_internal_ripemd160_process(ctx, data);
-}
-#endif
 #endif /* !TTLS_RIPEMD160_PROCESS_ALT */
 
 /*
@@ -351,15 +337,6 @@ int ttls_ripemd160_update_ret(ttls_ripemd160_context *ctx,
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_ripemd160_update(ttls_ripemd160_context *ctx,
-							   const unsigned char *input,
-							   size_t ilen)
-{
-	ttls_ripemd160_update_ret(ctx, input, ilen);
-}
-#endif
-
 static const unsigned char ripemd160_padding[64] =
 {
  0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -406,14 +383,6 @@ int ttls_ripemd160_finish_ret(ttls_ripemd160_context *ctx,
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_ripemd160_finish(ttls_ripemd160_context *ctx,
-							   unsigned char output[20])
-{
-	ttls_ripemd160_finish_ret(ctx, output);
-}
-#endif
-
 #endif /* ! TTLS_RIPEMD160_ALT */
 
 /*
@@ -442,15 +411,6 @@ exit:
 
 	return ret;
 }
-
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_ripemd160(const unsigned char *input,
-						size_t ilen,
-						unsigned char output[20])
-{
-	ttls_ripemd160_ret(input, ilen, output);
-}
-#endif
 
 /*
  * Test vectors from the RIPEMD-160 paper and

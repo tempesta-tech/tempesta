@@ -706,13 +706,6 @@ int ttls_ssl_derive_keys(ttls_ssl_context *ssl)
 		if (session->trunc_hmac == TTLS_SSL_TRUNC_HMAC_ENABLED)
 		{
 			transform->maclen = TTLS_SSL_TRUNCATED_HMAC_LEN;
-
-#if defined(TTLS_SSL_TRUNCATED_HMAC_COMPAT)
-			/* Fall back to old, non-compliant version of the truncated
-			 * HMAC implementation which also truncates the key
-			 * (Mbed TLS versions from 1.3 to 2.6.0) */
-			mac_key_len = transform->maclen;
-#endif
 		}
 #endif /* TTLS_SSL_TRUNCATED_HMAC */
 
@@ -922,38 +915,6 @@ int ttls_ssl_derive_keys(ttls_ssl_context *ssl)
 #endif /* TTLS_CIPHER_MODE_CBC */
 
 	ttls_zeroize(keyblk, sizeof(keyblk));
-
-#if defined(TTLS_ZLIB_SUPPORT)
-	// Initialize compression
-	//
-	if (session->compression == TTLS_SSL_COMPRESS_DEFLATE)
-	{
-		if (ssl->compress_buf == NULL)
-		{
-			TTLS_SSL_DEBUG_MSG(3, ("Allocating compression buffer"));
-			ssl->compress_buf = ttls_calloc(1, TTLS_SSL_BUFFER_LEN);
-			if (ssl->compress_buf == NULL)
-			{
-				TTLS_SSL_DEBUG_MSG(1, ("alloc(%d bytes) failed",
-							TTLS_SSL_BUFFER_LEN));
-				return(TTLS_ERR_SSL_ALLOC_FAILED);
-			}
-		}
-
-		TTLS_SSL_DEBUG_MSG(3, ("Initializing zlib states"));
-
-		memset(&transform->ctx_deflate, 0, sizeof(transform->ctx_deflate));
-		memset(&transform->ctx_inflate, 0, sizeof(transform->ctx_inflate));
-
-		if (deflateInit(&transform->ctx_deflate,
-				 Z_DEFAULT_COMPRESSION) != Z_OK ||
-			inflateInit(&transform->ctx_inflate) != Z_OK)
-		{
-			TTLS_SSL_DEBUG_MSG(1, ("Failed to initialize compression"));
-			return(TTLS_ERR_SSL_COMPRESSION_FAILED);
-		}
-	}
-#endif /* TTLS_ZLIB_SUPPORT */
 
 	TTLS_SSL_DEBUG_MSG(2, ("<= derive keys"));
 
@@ -2073,103 +2034,6 @@ static int ssl_decrypt_buf(ttls_ssl_context *ssl)
 #undef MAC_PLAINTEXT
 #undef MAC_CIPHERTEXT
 
-#if defined(TTLS_ZLIB_SUPPORT)
-/*
- * Compression/decompression functions
- */
-static int ssl_compress_buf(ttls_ssl_context *ssl)
-{
-	int ret;
-	unsigned char *msg_post = ssl->out_msg;
-	size_t len_pre = ssl->out_msglen;
-	unsigned char *msg_pre = ssl->compress_buf;
-
-	TTLS_SSL_DEBUG_MSG(2, ("=> compress buf"));
-
-	if (len_pre == 0)
-		return 0;
-
-	memcpy(msg_pre, ssl->out_msg, len_pre);
-
-	TTLS_SSL_DEBUG_MSG(3, ("before compression: msglen = %d, ",
-				 ssl->out_msglen));
-
-	TTLS_SSL_DEBUG_BUF(4, "before compression: output payload",
-				 ssl->out_msg, ssl->out_msglen);
-
-	ssl->transform_out->ctx_deflate.next_in = msg_pre;
-	ssl->transform_out->ctx_deflate.avail_in = len_pre;
-	ssl->transform_out->ctx_deflate.next_out = msg_post;
-	ssl->transform_out->ctx_deflate.avail_out = TTLS_SSL_BUFFER_LEN;
-
-	ret = deflate(&ssl->transform_out->ctx_deflate, Z_SYNC_FLUSH);
-	if (ret != Z_OK)
-	{
-		TTLS_SSL_DEBUG_MSG(1, ("failed to perform compression (%d)", ret));
-		return(TTLS_ERR_SSL_COMPRESSION_FAILED);
-	}
-
-	ssl->out_msglen = TTLS_SSL_BUFFER_LEN -
-					 ssl->transform_out->ctx_deflate.avail_out;
-
-	TTLS_SSL_DEBUG_MSG(3, ("after compression: msglen = %d, ",
-				 ssl->out_msglen));
-
-	TTLS_SSL_DEBUG_BUF(4, "after compression: output payload",
-				 ssl->out_msg, ssl->out_msglen);
-
-	TTLS_SSL_DEBUG_MSG(2, ("<= compress buf"));
-
-	return 0;
-}
-
-static int ssl_decompress_buf(ttls_ssl_context *ssl)
-{
-	int ret;
-	unsigned char *msg_post = ssl->in_msg;
-	size_t len_pre = ssl->in_msglen;
-	unsigned char *msg_pre = ssl->compress_buf;
-
-	TTLS_SSL_DEBUG_MSG(2, ("=> decompress buf"));
-
-	if (len_pre == 0)
-		return 0;
-
-	memcpy(msg_pre, ssl->in_msg, len_pre);
-
-	TTLS_SSL_DEBUG_MSG(3, ("before decompression: msglen = %d, ",
-				 ssl->in_msglen));
-
-	TTLS_SSL_DEBUG_BUF(4, "before decompression: input payload",
-				 ssl->in_msg, ssl->in_msglen);
-
-	ssl->transform_in->ctx_inflate.next_in = msg_pre;
-	ssl->transform_in->ctx_inflate.avail_in = len_pre;
-	ssl->transform_in->ctx_inflate.next_out = msg_post;
-	ssl->transform_in->ctx_inflate.avail_out = TTLS_SSL_MAX_CONTENT_LEN;
-
-	ret = inflate(&ssl->transform_in->ctx_inflate, Z_SYNC_FLUSH);
-	if (ret != Z_OK)
-	{
-		TTLS_SSL_DEBUG_MSG(1, ("failed to perform decompression (%d)", ret));
-		return(TTLS_ERR_SSL_COMPRESSION_FAILED);
-	}
-
-	ssl->in_msglen = TTLS_SSL_MAX_CONTENT_LEN -
-					 ssl->transform_in->ctx_inflate.avail_out;
-
-	TTLS_SSL_DEBUG_MSG(3, ("after decompression: msglen = %d, ",
-				 ssl->in_msglen));
-
-	TTLS_SSL_DEBUG_BUF(4, "after decompression: input payload",
-				 ssl->in_msg, ssl->in_msglen);
-
-	TTLS_SSL_DEBUG_MSG(2, ("<= decompress buf"));
-
-	return 0;
-}
-#endif /* TTLS_ZLIB_SUPPORT */
-
 /*
  * Fill the input message buffer by appending data to it.
  * The amount of data already fetched is in ssl->in_left.
@@ -2758,20 +2622,6 @@ int ttls_ssl_write_record(ttls_ssl_context *ssl)
 		}
 	}
 #endif
-
-#if defined(TTLS_ZLIB_SUPPORT)
-	if (ssl->transform_out != NULL &&
-		ssl->session_out->compression == TTLS_SSL_COMPRESS_DEFLATE)
-	{
-		if ((ret = ssl_compress_buf(ssl)) != 0)
-		{
-			TTLS_SSL_DEBUG_RET(1, "ssl_compress_buf", ret);
-			return ret;
-		}
-
-		len = ssl->out_msglen;
-	}
-#endif /*TTLS_ZLIB_SUPPORT */
 
 #if defined(TTLS_SSL_HW_RECORD_ACCEL)
 	if (ttls_ssl_hw_record_write != NULL)
@@ -3665,18 +3515,6 @@ static int ssl_prepare_record_content(ttls_ssl_context *ssl)
 			return(TTLS_ERR_SSL_INVALID_RECORD);
 		}
 	}
-
-#if defined(TTLS_ZLIB_SUPPORT)
-	if (ssl->transform_in != NULL &&
-		ssl->session_in->compression == TTLS_SSL_COMPRESS_DEFLATE)
-	{
-		if ((ret = ssl_decompress_buf(ssl)) != 0)
-		{
-			TTLS_SSL_DEBUG_RET(1, "ssl_decompress_buf", ret);
-			return ret;
-		}
-	}
-#endif /* TTLS_ZLIB_SUPPORT */
 
 #if defined(TTLS_SSL_DTLS_ANTI_REPLAY)
 	if (ssl->conf->transport == TTLS_SSL_TRANSPORT_DATAGRAM)
@@ -6008,23 +5846,6 @@ void ttls_ssl_conf_psk_cb(ttls_ssl_config *conf,
 
 #if defined(TTLS_DHM_C)
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-int ttls_ssl_conf_dh_param(ttls_ssl_config *conf, const char *dhm_P, const char *dhm_G)
-{
-	int ret;
-
-	if ((ret = ttls_mpi_read_string(&conf->dhm_P, 16, dhm_P)) != 0 ||
-		(ret = ttls_mpi_read_string(&conf->dhm_G, 16, dhm_G)) != 0)
-	{
-		ttls_mpi_free(&conf->dhm_P);
-		ttls_mpi_free(&conf->dhm_G);
-		return ret;
-	}
-
-	return 0;
-}
-#endif /* TTLS_DEPRECATED_REMOVED */
-
 int ttls_ssl_conf_dh_param_bin(ttls_ssl_config *conf,
 		const unsigned char *dhm_P, size_t P_len,
 		const unsigned char *dhm_G, size_t G_len)
@@ -6350,11 +6171,6 @@ int ttls_ssl_get_record_expansion(const ttls_ssl_context *ssl)
 {
 	size_t transform_expansion;
 	const ttls_ssl_transform *transform = ssl->transform_out;
-
-#if defined(TTLS_ZLIB_SUPPORT)
-	if (ssl->session_out->compression != TTLS_SSL_COMPRESS_NULL)
-		return(TTLS_ERR_SSL_FEATURE_UNAVAILABLE);
-#endif
 
 	if (transform == NULL)
 		return((int) ttls_ssl_hdr_len(ssl));
@@ -6867,11 +6683,6 @@ void ttls_ssl_transform_free(ttls_ssl_transform *transform)
 	if (transform == NULL)
 		return;
 
-#if defined(TTLS_ZLIB_SUPPORT)
-	deflateEnd(&transform->ctx_deflate);
-	inflateEnd(&transform->ctx_inflate);
-#endif
-
 	ttls_cipher_free(&transform->cipher_ctx_enc);
 	ttls_cipher_free(&transform->cipher_ctx_dec);
 
@@ -7005,14 +6816,6 @@ void ttls_ssl_free(ttls_ssl_context *ssl)
 		ttls_zeroize(ssl->in_buf, TTLS_SSL_BUFFER_LEN);
 		ttls_free(ssl->in_buf);
 	}
-
-#if defined(TTLS_ZLIB_SUPPORT)
-	if (ssl->compress_buf != NULL)
-	{
-		ttls_zeroize(ssl->compress_buf, TTLS_SSL_BUFFER_LEN);
-		ttls_free(ssl->compress_buf);
-	}
-#endif
 
 	if (ssl->transform)
 	{

@@ -98,13 +98,6 @@ int ttls_sha1_starts_ret(ttls_sha1_context *ctx)
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_sha1_starts(ttls_sha1_context *ctx)
-{
-	ttls_sha1_starts_ret(ctx);
-}
-#endif
-
 #if !defined(TTLS_SHA1_PROCESS_ALT)
 int ttls_internal_sha1_process(ttls_sha1_context *ctx,
 								   const unsigned char data[64])
@@ -265,13 +258,6 @@ int ttls_internal_sha1_process(ttls_sha1_context *ctx,
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_sha1_process(ttls_sha1_context *ctx,
-						   const unsigned char data[64])
-{
-	ttls_internal_sha1_process(ctx, data);
-}
-#endif
 #endif /* !TTLS_SHA1_PROCESS_ALT */
 
 /*
@@ -324,15 +310,6 @@ int ttls_sha1_update_ret(ttls_sha1_context *ctx,
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_sha1_update(ttls_sha1_context *ctx,
-						  const unsigned char *input,
-						  size_t ilen)
-{
-	ttls_sha1_update_ret(ctx, input, ilen);
-}
-#endif
-
 static const unsigned char sha1_padding[64] =
 {
  0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -376,14 +353,6 @@ int ttls_sha1_finish_ret(ttls_sha1_context *ctx,
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_sha1_finish(ttls_sha1_context *ctx,
-						  unsigned char output[20])
-{
-	ttls_sha1_finish_ret(ctx, output);
-}
-#endif
-
 #endif /* !TTLS_SHA1_ALT */
 
 /*
@@ -412,15 +381,6 @@ exit:
 
 	return ret;
 }
-
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_sha1(const unsigned char *input,
-				   size_t ilen,
-				   unsigned char output[20])
-{
-	ttls_sha1_ret(input, ilen, output);
-}
-#endif
 
 /*
  * FIPS-180-1 test vectors

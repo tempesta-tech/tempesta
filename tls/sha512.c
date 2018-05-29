@@ -129,14 +129,6 @@ int ttls_sha512_starts_ret(ttls_sha512_context *ctx, int is384)
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_sha512_starts(ttls_sha512_context *ctx,
-							int is384)
-{
-	ttls_sha512_starts_ret(ctx, is384);
-}
-#endif
-
 #if !defined(TTLS_SHA512_PROCESS_ALT)
 
 /*
@@ -258,13 +250,6 @@ int ttls_internal_sha512_process(ttls_sha512_context *ctx,
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_sha512_process(ttls_sha512_context *ctx,
-							 const unsigned char data[128])
-{
-	ttls_internal_sha512_process(ctx, data);
-}
-#endif
 #endif /* !TTLS_SHA512_PROCESS_ALT */
 
 /*
@@ -315,15 +300,6 @@ int ttls_sha512_update_ret(ttls_sha512_context *ctx,
 
 	return 0;
 }
-
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_sha512_update(ttls_sha512_context *ctx,
-							const unsigned char *input,
-							size_t ilen)
-{
-	ttls_sha512_update_ret(ctx, input, ilen);
-}
-#endif
 
 static const unsigned char sha512_padding[128] =
 {
@@ -380,14 +356,6 @@ int ttls_sha512_finish_ret(ttls_sha512_context *ctx,
 	return 0;
 }
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_sha512_finish(ttls_sha512_context *ctx,
-							unsigned char output[64])
-{
-	ttls_sha512_finish_ret(ctx, output);
-}
-#endif
-
 #endif /* !TTLS_SHA512_ALT */
 
 /*
@@ -417,16 +385,6 @@ exit:
 
 	return ret;
 }
-
-#if !defined(TTLS_DEPRECATED_REMOVED)
-void ttls_sha512(const unsigned char *input,
-					 size_t ilen,
-					 unsigned char output[64],
-					 int is384)
-{
-	ttls_sha512_ret(input, ilen, output, is384);
-}
-#endif
 
 /*
  * FIPS-180-2 test vectors
