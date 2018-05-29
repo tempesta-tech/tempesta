@@ -384,38 +384,6 @@ static void ssl_write_max_fragment_length_ext(ttls_ssl_context *ssl,
 }
 #endif /* TTLS_SSL_MAX_FRAGMENT_LENGTH */
 
-#if defined(TTLS_SSL_TRUNCATED_HMAC)
-static void ssl_write_truncated_hmac_ext(ttls_ssl_context *ssl,
-		unsigned char *buf, size_t *olen)
-{
-	unsigned char *p = buf;
-	const unsigned char *end = ssl->out_msg + TTLS_SSL_MAX_CONTENT_LEN;
-
-	*olen = 0;
-
-	if (ssl->conf->trunc_hmac == TTLS_SSL_TRUNC_HMAC_DISABLED)
-	{
-		return;
-	}
-
-	TTLS_SSL_DEBUG_MSG(3, ("client hello, adding truncated_hmac extension"));
-
-	if (end < p || (size_t)(end - p) < 4)
-	{
-		TTLS_SSL_DEBUG_MSG(1, ("buffer too small"));
-		return;
-	}
-
-	*p++ = (unsigned char)((TTLS_TLS_EXT_TRUNCATED_HMAC >> 8) & 0xFF);
-	*p++ = (unsigned char)((TTLS_TLS_EXT_TRUNCATED_HMAC	 ) & 0xFF);
-
-	*p++ = 0x00;
-	*p++ = 0x00;
-
-	*olen = 4;
-}
-#endif /* TTLS_SSL_TRUNCATED_HMAC */
-
 #if defined(TTLS_SSL_ENCRYPT_THEN_MAC)
 static void ssl_write_encrypt_then_mac_ext(ttls_ssl_context *ssl,
 		unsigned char *buf, size_t *olen)
@@ -875,11 +843,6 @@ static int ssl_write_client_hello(ttls_ssl_context *ssl)
 	ext_len += olen;
 #endif
 
-#if defined(TTLS_SSL_TRUNCATED_HMAC)
-	ssl_write_truncated_hmac_ext(ssl, p + 2 + ext_len, &olen);
-	ext_len += olen;
-#endif
-
 #if defined(TTLS_SSL_ENCRYPT_THEN_MAC)
 	ssl_write_encrypt_then_mac_ext(ssl, p + 2 + ext_len, &olen);
 	ext_len += olen;
@@ -972,28 +935,6 @@ static int ssl_parse_max_fragment_length_ext(ttls_ssl_context *ssl,
 	return 0;
 }
 #endif /* TTLS_SSL_MAX_FRAGMENT_LENGTH */
-
-#if defined(TTLS_SSL_TRUNCATED_HMAC)
-static int ssl_parse_truncated_hmac_ext(ttls_ssl_context *ssl,
-		const unsigned char *buf,
-		size_t len)
-{
-	if (ssl->conf->trunc_hmac == TTLS_SSL_TRUNC_HMAC_DISABLED ||
-		len != 0)
-	{
-		TTLS_SSL_DEBUG_MSG(1, ("non-matching truncated HMAC extension"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
-					TTLS_SSL_ALERT_MSG_HANDSHAKE_FAILURE);
-		return(TTLS_ERR_SSL_BAD_HS_SERVER_HELLO);
-	}
-
-	((void) buf);
-
-	ssl->session_negotiate->trunc_hmac = TTLS_SSL_TRUNC_HMAC_ENABLED;
-
-	return 0;
-}
-#endif /* TTLS_SSL_TRUNCATED_HMAC */
 
 #if defined(TTLS_SSL_ENCRYPT_THEN_MAC)
 static int ssl_parse_encrypt_then_mac_ext(ttls_ssl_context *ssl,
@@ -1567,19 +1508,6 @@ static int ssl_parse_server_hello(ttls_ssl_context *ssl)
 
 			break;
 #endif /* TTLS_SSL_MAX_FRAGMENT_LENGTH */
-
-#if defined(TTLS_SSL_TRUNCATED_HMAC)
-		case TTLS_TLS_EXT_TRUNCATED_HMAC:
-			TTLS_SSL_DEBUG_MSG(3, ("found truncated_hmac extension"));
-
-			if ((ret = ssl_parse_truncated_hmac_ext(ssl,
-							ext + 4, ext_size)) != 0)
-			{
-				return ret;
-			}
-
-			break;
-#endif /* TTLS_SSL_TRUNCATED_HMAC */
 
 #if defined(TTLS_SSL_ENCRYPT_THEN_MAC)
 		case TTLS_TLS_EXT_ENCRYPT_THEN_MAC:
