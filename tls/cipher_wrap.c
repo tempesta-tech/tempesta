@@ -1259,69 +1259,6 @@ static const ttls_cipher_info_t arc4_128_info = {
 };
 #endif /* TTLS_ARC4_C */
 
-#if defined(TTLS_CIPHER_NULL_CIPHER)
-static int null_crypt_stream(void *ctx, size_t length,
-							  const unsigned char *input,
-							  unsigned char *output)
-{
-	((void) ctx);
-	memmove(output, input, length);
-	return 0;
-}
-
-static int null_setkey(void *ctx, const unsigned char *key,
-						unsigned int key_bitlen)
-{
-	((void) ctx);
-	((void) key);
-	((void) key_bitlen);
-
-	return 0;
-}
-
-static void * null_ctx_alloc(void)
-{
-	return((void *) 1);
-}
-
-static void null_ctx_free(void *ctx)
-{
-	((void) ctx);
-}
-
-static const ttls_cipher_base_t null_base_info = {
-	TTLS_CIPHER_ID_NULL,
-	NULL,
-#if defined(TTLS_CIPHER_MODE_CBC)
-	NULL,
-#endif
-#if defined(TTLS_CIPHER_MODE_CFB)
-	NULL,
-#endif
-#if defined(TTLS_CIPHER_MODE_CTR)
-	NULL,
-#endif
-#if defined(TTLS_CIPHER_MODE_STREAM)
-	null_crypt_stream,
-#endif
-	null_setkey,
-	null_setkey,
-	null_ctx_alloc,
-	null_ctx_free
-};
-
-static const ttls_cipher_info_t null_cipher_info = {
-	TTLS_CIPHER_NULL,
-	TTLS_MODE_STREAM,
-	0,
-	"NULL",
-	0,
-	0,
-	1,
-	&null_base_info
-};
-#endif /* defined(TTLS_CIPHER_NULL_CIPHER) */
-
 const ttls_cipher_definition_t ttls_cipher_definitions[] =
 {
 #if defined(TTLS_AES_C)
@@ -1413,10 +1350,6 @@ const ttls_cipher_definition_t ttls_cipher_definitions[] =
 	{ TTLS_CIPHER_DES_EDE3_CBC,		 &des_ede3_cbc_info },
 #endif
 #endif /* TTLS_DES_C */
-
-#if defined(TTLS_CIPHER_NULL_CIPHER)
-	{ TTLS_CIPHER_NULL,				 &null_cipher_info },
-#endif /* TTLS_CIPHER_NULL_CIPHER */
 
 	{ TTLS_CIPHER_NONE, NULL }
 };
