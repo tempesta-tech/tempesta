@@ -1841,7 +1841,8 @@ static int ssl_parse_server_psk_hint(ttls_ssl_context *ssl,
 }
 #endif /* TTLS_KEY_EXCHANGE__SOME__PSK_ENABLED */
 
-#if defined(TTLS_KEY_EXCHANGE_RSA_PSK_ENABLED)
+#if defined(TTLS_KEY_EXCHANGE_RSA_ENABLED) ||						   \
+	defined(TTLS_KEY_EXCHANGE_RSA_PSK_ENABLED)
 /*
  * Generate a pre-master secret and encrypt it with the server's RSA key
  */
@@ -1912,7 +1913,8 @@ static int ssl_write_encrypted_pms(ttls_ssl_context *ssl,
 
 	return 0;
 }
-#endif /* TTLS_KEY_EXCHANGE_RSA_PSK_ENABLED */
+#endif /* TTLS_KEY_EXCHANGE_RSA_ENABLED ||
+		  TTLS_KEY_EXCHANGE_RSA_PSK_ENABLED */
 
 #if defined(TTLS_KEY_EXCHANGE_DHE_RSA_ENABLED) || \
 	defined(TTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED) || \
@@ -2024,6 +2026,17 @@ static int ssl_parse_server_key_exchange(ttls_ssl_context *ssl)
 	unsigned char *p = NULL, *end = NULL;
 
 	TTLS_SSL_DEBUG_MSG(2, ("=> parse server key exchange"));
+
+#if defined(TTLS_KEY_EXCHANGE_RSA_ENABLED)
+	if (ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_RSA)
+	{
+		TTLS_SSL_DEBUG_MSG(2, ("<= skip parse server key exchange"));
+		ssl->state++;
+		return 0;
+	}
+	((void) p);
+	((void) end);
+#endif
 
 #if defined(TTLS_KEY_EXCHANGE_ECDH_RSA_ENABLED) || \
 	defined(TTLS_KEY_EXCHANGE_ECDH_ECDSA_ENABLED)
@@ -2673,6 +2686,15 @@ static int ssl_write_client_key_exchange(ttls_ssl_context *ssl)
 	}
 	else
 #endif /* TTLS_KEY_EXCHANGE__SOME__PSK_ENABLED */
+#if defined(TTLS_KEY_EXCHANGE_RSA_ENABLED)
+	if (ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_RSA)
+	{
+		i = 4;
+		if ((ret = ssl_write_encrypted_pms(ssl, i, &n, 0)) != 0)
+			return ret;
+	}
+	else
+#endif /* TTLS_KEY_EXCHANGE_RSA_ENABLED */
 #if defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
 	if (ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_ECJPAKE)
 	{
@@ -2697,7 +2719,7 @@ static int ssl_write_client_key_exchange(ttls_ssl_context *ssl)
 		}
 	}
 	else
-#endif
+#endif /* TTLS_KEY_EXCHANGE_RSA_ENABLED */
 	{
 		((void) ciphersuite_info);
 		TTLS_SSL_DEBUG_MSG(1, ("should never happen"));
@@ -2721,7 +2743,8 @@ static int ssl_write_client_key_exchange(ttls_ssl_context *ssl)
 	return 0;
 }
 
-#if !defined(TTLS_KEY_EXCHANGE_DHE_RSA_ENABLED)   && \
+#if !defined(TTLS_KEY_EXCHANGE_RSA_ENABLED)	   && \
+	!defined(TTLS_KEY_EXCHANGE_DHE_RSA_ENABLED)   && \
 	!defined(TTLS_KEY_EXCHANGE_ECDH_RSA_ENABLED)  && \
 	!defined(TTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED) && \
 	!defined(TTLS_KEY_EXCHANGE_ECDH_ECDSA_ENABLED)&& \
@@ -2870,7 +2893,8 @@ static int ssl_write_certificate_verify(ttls_ssl_context *ssl)
 
 	return ret;
 }
-#endif /* !TTLS_KEY_EXCHANGE_DHE_RSA_ENABLED &&
+#endif /* !TTLS_KEY_EXCHANGE_RSA_ENABLED &&
+		  !TTLS_KEY_EXCHANGE_DHE_RSA_ENABLED &&
 		  !TTLS_KEY_EXCHANGE_ECDH_RSA_ENABLED &&
 		  !TTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED &&
 		  !TTLS_KEY_EXCHANGE_ECDH_ECDSA_ENABLED &&
