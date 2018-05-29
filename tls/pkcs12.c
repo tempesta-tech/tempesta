@@ -34,9 +34,6 @@
 #include "pkcs12.h"
 #include "asn1.h"
 #include "cipher.h"
-#if defined(TTLS_ARC4_C)
-#include "arc4.h"
-#endif
 #if defined(TTLS_DES_C)
 #include "des.h"
 #endif
@@ -127,11 +124,10 @@ static int pkcs12_pbe_derive_key_iv(ttls_asn1_buf *pbe_params, ttls_md_type_t md
 #undef PKCS12_MAX_PWDLEN
 
 int ttls_pkcs12_pbe_sha1_rc4_128(ttls_asn1_buf *pbe_params, int mode,
-							 const unsigned char *pwd,  size_t pwdlen,
-							 const unsigned char *data, size_t len,
-							 unsigned char *output)
+		const unsigned char *pwd,  size_t pwdlen,
+		const unsigned char *data, size_t len,
+		unsigned char *output)
 {
-#if !defined(TTLS_ARC4_C)
 	((void) pbe_params);
 	((void) mode);
 	((void) pwd);
@@ -140,31 +136,6 @@ int ttls_pkcs12_pbe_sha1_rc4_128(ttls_asn1_buf *pbe_params, int mode,
 	((void) len);
 	((void) output);
 	return(TTLS_ERR_PKCS12_FEATURE_UNAVAILABLE);
-#else
-	int ret;
-	unsigned char key[16];
-	ttls_arc4_context ctx;
-	((void) mode);
-
-	ttls_arc4_init(&ctx);
-
-	if ((ret = pkcs12_pbe_derive_key_iv(pbe_params, TTLS_MD_SHA1,
-										  pwd, pwdlen,
-										  key, 16, NULL, 0)) != 0)
-	{
-		return ret;
-	}
-
-	ttls_arc4_setup(&ctx, key, 16);
-	if ((ret = ttls_arc4_crypt(&ctx, len, data, output)) != 0)
-		goto exit;
-
-exit:
-	ttls_zeroize(key, sizeof(key));
-	ttls_arc4_free(&ctx);
-
-	return ret;
-#endif /* TTLS_ARC4_C */
 }
 
 int ttls_pkcs12_pbe(ttls_asn1_buf *pbe_params, int mode,

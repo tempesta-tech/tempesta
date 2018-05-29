@@ -772,12 +772,6 @@ static int ssl_write_client_hello(ttls_ssl_context *ssl)
 			continue;
 #endif
 
-#if defined(TTLS_ARC4_C)
-		if (ssl->conf->arc4_disabled == TTLS_SSL_ARC4_DISABLED &&
-			ciphersuite_info->cipher == TTLS_CIPHER_ARC4_128)
-			continue;
-#endif
-
 #if defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
 		if (ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_ECJPAKE &&
 			ttls_ecjpake_check(&ssl->handshake->ecjpake_ctx) != 0)
@@ -1496,13 +1490,7 @@ static int ssl_parse_server_hello(ttls_ssl_context *ssl)
 	TTLS_SSL_DEBUG_MSG(3, ("server hello, compress alg.: %d", buf[37 + n]));
 
 	suite_info = ttls_ssl_ciphersuite_from_id(ssl->session_negotiate->ciphersuite);
-	if (suite_info == NULL
-#if defined(TTLS_ARC4_C)
-			|| (ssl->conf->arc4_disabled &&
-				suite_info->cipher == TTLS_CIPHER_ARC4_128)
-#endif
-		)
-	{
+	if (!suite_info) {
 		TTLS_SSL_DEBUG_MSG(1, ("bad server hello message"));
 		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_ILLEGAL_PARAMETER);

@@ -665,9 +665,6 @@ struct ttls_ssl_config
 	unsigned int authmode : 2;	/*!< TTLS_SSL_VERIFY_XXX	*/
 	/* needed even with renego disabled for LEGACY_BREAK_HANDSHAKE	*/
 	unsigned int allow_legacy_renegotiation : 2 ; /*!< TTLS_LEGACY_XXX */
-#if defined(TTLS_ARC4_C)
-	unsigned int arc4_disabled : 1; /*!< blacklist RC4 ciphersuites?	*/
-#endif
 #if defined(TTLS_SSL_MAX_FRAGMENT_LENGTH)
 	unsigned int mfl_code : 3;	/*!< desired fragment length	*/
 #endif
@@ -1934,25 +1931,6 @@ void ttls_ssl_conf_encrypt_then_mac(ttls_ssl_config *conf, char etm);
  */
 void ttls_ssl_conf_extended_master_secret(ttls_ssl_config *conf, char ems);
 #endif /* TTLS_SSL_EXTENDED_MASTER_SECRET */
-
-#if defined(TTLS_ARC4_C)
-/**
- * \brief	Disable or enable support for RC4
- *		(Default: TTLS_SSL_ARC4_DISABLED)
- *
- * \warning	Use of RC4 in DTLS/TLS has been prohibited by RFC 7465
- *		for security reasons. Use at your own risk.
- *
- * \note	This function is deprecated and will likely be removed in
- *		a future version of the library.
- *		RC4 is disabled by default at compile time and needs to be
- *		actively enabled for use with legacy systems.
- *
- * \param conf	SSL configuration
- * \param arc4	TTLS_SSL_ARC4_ENABLED or TTLS_SSL_ARC4_DISABLED
- */
-void ttls_ssl_conf_arc4_support(ttls_ssl_config *conf, char arc4);
-#endif /* TTLS_ARC4_C */
 
 /**
  * \brief	Whether to send a list of acceptable CAs in
