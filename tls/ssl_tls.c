@@ -497,18 +497,6 @@ int ttls_ssl_derive_keys(ttls_ssl_context *ssl)
 		mac_key_len = ttls_md_get_size(md_info);
 		transform->maclen = mac_key_len;
 
-#if defined(TTLS_SSL_TRUNCATED_HMAC)
-		/*
-		 * If HMAC is to be truncated, we shall keep the leftmost bytes,
-		 * (rfc 6066 page 13 or rfc 2104 section 4),
-		 * so we only need to adjust the length here.
-		 */
-		if (session->trunc_hmac == TTLS_SSL_TRUNC_HMAC_ENABLED)
-		{
-			transform->maclen = TTLS_SSL_TRUNCATED_HMAC_LEN;
-		}
-#endif /* TTLS_SSL_TRUNCATED_HMAC */
-
 		/* IV length */
 		transform->ivlen = cipher_info->iv_size;
 
@@ -5282,13 +5270,6 @@ int ttls_ssl_conf_max_frag_len(ttls_ssl_config *conf, unsigned char mfl_code)
 	return 0;
 }
 #endif /* TTLS_SSL_MAX_FRAGMENT_LENGTH */
-
-#if defined(TTLS_SSL_TRUNCATED_HMAC)
-void ttls_ssl_conf_truncated_hmac(ttls_ssl_config *conf, int truncate)
-{
-	conf->trunc_hmac = truncate;
-}
-#endif /* TTLS_SSL_TRUNCATED_HMAC */
 
 void ttls_ssl_conf_legacy_renegotiation(ttls_ssl_config *conf, int allow_legacy)
 {
