@@ -250,8 +250,7 @@ typedef enum {
 } ttls_key_exchange_type_t;
 
 /* Key exchanges using a certificate */
-#if defined(TTLS_KEY_EXCHANGE_RSA_ENABLED)		   || \
-	defined(TTLS_KEY_EXCHANGE_DHE_RSA_ENABLED)	   || \
+#if defined(TTLS_KEY_EXCHANGE_DHE_RSA_ENABLED)	   || \
 	defined(TTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED)	 || \
 	defined(TTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED)   || \
 	defined(TTLS_KEY_EXCHANGE_RSA_PSK_ENABLED)	   || \
@@ -261,8 +260,7 @@ typedef enum {
 #endif
 
 /* Key exchanges allowing client certificate requests */
-#if defined(TTLS_KEY_EXCHANGE_RSA_ENABLED)		   ||	   \
-	defined(TTLS_KEY_EXCHANGE_DHE_RSA_ENABLED)	   ||	   \
+#if defined(TTLS_KEY_EXCHANGE_DHE_RSA_ENABLED)	   ||	   \
 	defined(TTLS_KEY_EXCHANGE_ECDH_RSA_ENABLED)	  ||	   \
 	defined(TTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED)	 ||	   \
 	defined(TTLS_KEY_EXCHANGE_ECDH_ECDSA_ENABLED)	||	   \
@@ -284,8 +282,7 @@ typedef enum {
 #endif
 
 /* Key exchanges that don't involve ephemeral keys */
-#if defined(TTLS_KEY_EXCHANGE_RSA_ENABLED)		   || \
-	defined(TTLS_KEY_EXCHANGE_PSK_ENABLED)		   || \
+#if defined(TTLS_KEY_EXCHANGE_PSK_ENABLED)		   || \
 	defined(TTLS_KEY_EXCHANGE_RSA_PSK_ENABLED)	   || \
 	defined(TTLS_KEY_EXCHANGE__SOME__ECDH_ENABLED)
 #define TTLS_KEY_EXCHANGE__SOME_NON_PFS__ENABLED
