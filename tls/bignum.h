@@ -639,7 +639,7 @@ int ttls_mpi_gen_prime(ttls_mpi *X, size_t nbits, int dh_flag,
 				   int (*f_rng)(void *, unsigned char *, size_t),
 				   void *p_rng);
 
-int ttls_mpi_init(void);
-void ttls_mpi_exit(void);
+int ttls_mpi_modinit(void);
+void ttls_mpi_modexit(void);
 
 #endif /* bignum.h */

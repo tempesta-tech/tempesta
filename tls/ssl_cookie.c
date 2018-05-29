@@ -30,8 +30,6 @@
 #include "ssl_cookie.h"
 #include "ssl_internal.h"
 
-#include <string.h>
-
 /* Implementation that should never be optimized out by the compiler */
 static void ttls_zeroize(void *v, size_t n) {
 	volatile unsigned char *p = v; while (n--) *p++ = 0;

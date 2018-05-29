@@ -22,10 +22,8 @@
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 #include "config.h"
-
 #if defined(TTLS_ERROR_C) || defined(TTLS_ERROR_STRERROR_DUMMY)
 #include "error.h"
-#include <string.h>
 #endif
 
 #if defined(TTLS_ERROR_C)
