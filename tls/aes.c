@@ -27,16 +27,9 @@
  *  http://csrc.nist.gov/encryption/aes/rijndael/Rijndael.pdf
  *  http://csrc.nist.gov/publications/fips/fips197/fips-197.pdf
  */
-
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
 
 #if defined(TTLS_AES_C)
-
-#include <string.h>
 
 #include "aes.h"
 #include "aesni.h"

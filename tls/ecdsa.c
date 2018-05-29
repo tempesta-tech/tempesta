@@ -27,20 +27,12 @@
  *
  * SEC1 http://www.secg.org/index.php?action=secg,docs_secg
  */
-
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
 
 #if defined(TTLS_ECDSA_C)
 
 #include "ecdsa.h"
 #include "asn1write.h"
-
-#include <string.h>
-
 #if defined(TTLS_ECDSA_DETERMINISTIC)
 #include "hmac_drbg.h"
 #endif

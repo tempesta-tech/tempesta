@@ -38,6 +38,31 @@ enum {
 	TFW_TLS_FSM_DONE	= TFW_GFSM_TLS_STATE(TFW_GFSM_STATE_LAST)
 };
 
+/**
+ * TLS context.
+ *
+ * @ssl		- mbedTLS context;
+ * @rx_queue	- temporary queue for incoming SKBs;
+ * @tx_queue	- temporary queue for outgoing SKBs;
+ * @lock	- lock for serializing @ssl context access;
+ *
+ * TODO: Get rid of @rx_queue and @tx_queue. The queues seem like dirty
+ *       workaround to be able to work with mbedTLS w/o reworking its IO and FSM
+ *       internals mostly placed in ttls/ssl_tls.c. We leave with them for the
+ *       very first release, but they must be removed.
+ *
+ * TODO: Get rid of @lock. That's bad to access TLS context from many CPUs, so
+ *       the @lock must be removed.
+ *
+ * Also, see PR #595 and #603 discussions about this TODOs.
+ */
+typedef struct {
+	ttls_ssl_context	ssl;
+	struct sk_buff		*rx_queue;
+	struct sk_buff		*tx_queue;
+	spinlock_t		lock;
+} TfwTlsContext;
+
 void tfw_tls_cfg_require(void);
 
 #endif /* __TFW_TLS_H__ */

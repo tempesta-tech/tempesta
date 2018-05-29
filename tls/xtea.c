@@ -21,18 +21,9 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
-
 #if defined(TTLS_XTEA_C)
-
 #include "xtea.h"
-
-#include <string.h>
 
 #if !defined(TTLS_XTEA_ALT)
 

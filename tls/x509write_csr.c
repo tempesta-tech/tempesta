@@ -26,22 +26,13 @@
  * - CSRs: PKCS#10 v1.7 aka RFC 2986
  * - attributes: PKCS#9 v2.0 aka RFC 2985
  */
-
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
 
 #if defined(TTLS_X509_CSR_WRITE_C)
 
 #include "x509_csr.h"
 #include "oid.h"
 #include "asn1write.h"
-
-#include <string.h>
-#include <stdlib.h>
-
 #if defined(TTLS_PEM_WRITE_C)
 #include "pem.h"
 #endif

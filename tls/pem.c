@@ -32,8 +32,6 @@
 #include "md5.h"
 #include "cipher.h"
 
-#include <string.h>
-
 #if defined(TTLS_PEM_PARSE_C)
 /* Implementation that should never be optimized out by the compiler */
 static void ttls_zeroize(void *v, size_t n) {
