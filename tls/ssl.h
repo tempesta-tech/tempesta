@@ -164,9 +164,6 @@
 #define TTLS_SSL_SESSION_TICKETS_DISABLED	0
 #define TTLS_SSL_SESSION_TICKETS_ENABLED	1
 
-#define TTLS_SSL_CBC_RECORD_SPLITTING_DISABLED	0
-#define TTLS_SSL_CBC_RECORD_SPLITTING_ENABLED	1
-
 #define TTLS_SSL_ARC4_ENABLED	0
 #define TTLS_SSL_ARC4_DISABLED	1
 
@@ -203,11 +200,7 @@
 /*
  * Length of the verify data for secure renegotiation
  */
-#if defined(TTLS_SSL_PROTO_SSL3)
-#define TTLS_SSL_VERIFY_DATA_MAX_LEN 36
-#else
 #define TTLS_SSL_VERIFY_DATA_MAX_LEN 12
-#endif
 
 /*
  * Signaling ciphersuite values (SCSV)
@@ -687,9 +680,6 @@ struct ttls_ssl_config
 #if defined(TTLS_SSL_DTLS_ANTI_REPLAY)
 	unsigned int anti_replay : 1; /*!< detect and prevent replay?	*/
 #endif
-#if defined(TTLS_SSL_CBC_RECORD_SPLITTING)
-	unsigned int cbc_record_splitting : 1; /*!< do cbc record splitting	*/
-#endif
 #if defined(TTLS_SSL_TRUNCATED_HMAC)
 	unsigned int trunc_hmac : 1;	/*!< negotiate truncated hmac?	*/
 #endif
@@ -798,10 +788,6 @@ struct ttls_ssl_context
 	int out_msgtype;	/*!< record header: message type	*/
 	size_t out_msglen;	/*!< record header: message length	*/
 	size_t out_left;	/*!< amount of data not yet written */
-
-#if defined(TTLS_SSL_CBC_RECORD_SPLITTING)
-	signed char split_done;	/*!< current record already splitted? */
-#endif
 
 	/*
 	* PKI layer
@@ -2010,21 +1996,6 @@ int ttls_ssl_conf_max_frag_len(ttls_ssl_config *conf, unsigned char mfl_code);
  */
 void ttls_ssl_conf_truncated_hmac(ttls_ssl_config *conf, int truncate);
 #endif /* TTLS_SSL_TRUNCATED_HMAC */
-
-#if defined(TTLS_SSL_CBC_RECORD_SPLITTING)
-/**
- * \brief	Enable / Disable 1/n-1 record splitting
- *		(Default: TTLS_SSL_CBC_RECORD_SPLITTING_ENABLED)
- *
- * \note	Only affects SSLv3 and TLS 1.0, not higher versions.
- *		Does not affect non-CBC ciphersuites in any version.
- *
- * \param conf	SSL configuration
- * \param split	TTLS_SSL_CBC_RECORD_SPLITTING_ENABLED or
- *		TTLS_SSL_CBC_RECORD_SPLITTING_DISABLED
- */
-void ttls_ssl_conf_cbc_record_splitting(ttls_ssl_config *conf, char split);
-#endif /* TTLS_SSL_CBC_RECORD_SPLITTING */
 
 #if defined(TTLS_SSL_SESSION_TICKETS) && defined(TTLS_SSL_CLI_C)
 /**

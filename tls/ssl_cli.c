@@ -105,8 +105,7 @@ static void ssl_write_hostname_ext(ttls_ssl_context *ssl,
 /*
  * Only if we handle at least one key exchange that needs signatures.
  */
-#if defined(TTLS_SSL_PROTO_TLS1_2) && \
-	defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
+#if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
 static void ssl_write_signature_algorithms_ext(ttls_ssl_context *ssl,
 		unsigned char *buf,
 		size_t *olen)
@@ -181,8 +180,7 @@ static void ssl_write_signature_algorithms_ext(ttls_ssl_context *ssl,
 
 	*olen = 6 + sig_alg_len;
 }
-#endif /* TTLS_SSL_PROTO_TLS1_2 &&
-		  TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED */
+#endif /* TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED */
 
 #if defined(TTLS_ECDH_C) || defined(TTLS_ECDSA_C) || \
 	defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
@@ -859,8 +857,7 @@ static int ssl_write_client_hello(ttls_ssl_context *ssl)
 	/* Note that TLS_EMPTY_RENEGOTIATION_INFO_SCSV is always added
 	 * even if there is no renegotiation is not defined. */
 
-#if defined(TTLS_SSL_PROTO_TLS1_2) && \
-	defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
+#if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
 	ssl_write_signature_algorithms_ext(ssl, p + 2 + ext_len, &olen);
 	ext_len += olen;
 #endif
@@ -1919,22 +1916,18 @@ static int ssl_write_encrypted_pms(ttls_ssl_context *ssl,
 		return ret;
 	}
 
-#if defined(TTLS_SSL_PROTO_TLS1) || defined(TTLS_SSL_PROTO_TLS1_1) || \
-	defined(TTLS_SSL_PROTO_TLS1_2)
 	if (len_bytes == 2)
 	{
 		ssl->out_msg[offset+0] = (unsigned char)(*olen >> 8);
 		ssl->out_msg[offset+1] = (unsigned char)(*olen	 );
 		*olen += 2;
 	}
-#endif
 
 	return 0;
 }
 #endif /* TTLS_KEY_EXCHANGE_RSA_ENABLED ||
 		  TTLS_KEY_EXCHANGE_RSA_PSK_ENABLED */
 
-#if defined(TTLS_SSL_PROTO_TLS1_2)
 #if defined(TTLS_KEY_EXCHANGE_DHE_RSA_ENABLED) || \
 	defined(TTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED) || \
 	defined(TTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED)
@@ -1996,7 +1989,6 @@ static int ssl_parse_signature_algorithm(ttls_ssl_context *ssl,
 #endif /* TTLS_KEY_EXCHANGE_DHE_RSA_ENABLED ||
 		  TTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED ||
 		  TTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED */
-#endif /* TTLS_SSL_PROTO_TLS1_2 */
 
 #if defined(TTLS_KEY_EXCHANGE_ECDH_RSA_ENABLED) || \
 	defined(TTLS_KEY_EXCHANGE_ECDH_ECDSA_ENABLED)
@@ -2213,7 +2205,6 @@ static int ssl_parse_server_key_exchange(ttls_ssl_context *ssl)
 		/*
 		 * Handle the digitally-signed structure
 		 */
-#if defined(TTLS_SSL_PROTO_TLS1_2)
 		if (ssl->minor_ver == TTLS_SSL_MINOR_VERSION_3)
 		{
 			if (ssl_parse_signature_algorithm(ssl, &p, end,
@@ -2234,19 +2225,6 @@ static int ssl_parse_server_key_exchange(ttls_ssl_context *ssl)
 			}
 		}
 		else
-#endif /* TTLS_SSL_PROTO_TLS1_2 */
-#if defined(TTLS_SSL_PROTO_SSL3) || defined(TTLS_SSL_PROTO_TLS1) || \
-	defined(TTLS_SSL_PROTO_TLS1_1)
-		if (ssl->minor_ver < TTLS_SSL_MINOR_VERSION_3)
-		{
-			pk_alg = ttls_ssl_get_ciphersuite_sig_pk_alg(ciphersuite_info);
-
-			/* Default hash for ECDSA is SHA-1 */
-			if (pk_alg == TTLS_PK_ECDSA && md_alg == TTLS_MD_NONE)
-				md_alg = TTLS_MD_SHA1;
-		}
-		else
-#endif
 		{
 			TTLS_SSL_DEBUG_MSG(1, ("should never happen"));
 			return(TTLS_ERR_SSL_INTERNAL_ERROR);
@@ -2279,21 +2257,6 @@ static int ssl_parse_server_key_exchange(ttls_ssl_context *ssl)
 		/*
 		 * Compute the hash that has been signed
 		 */
-#if defined(TTLS_SSL_PROTO_SSL3) || defined(TTLS_SSL_PROTO_TLS1) || \
-	defined(TTLS_SSL_PROTO_TLS1_1)
-		if (md_alg == TTLS_MD_NONE)
-		{
-			hashlen = 36;
-			ret = ttls_ssl_get_key_exchange_md_ssl_tls(ssl, hash, params,
-								   params_len);
-			if (ret != 0)
-				return ret;
-		}
-		else
-#endif /* TTLS_SSL_PROTO_SSL3 || TTLS_SSL_PROTO_TLS1 || \
-		  TTLS_SSL_PROTO_TLS1_1 */
-#if defined(TTLS_SSL_PROTO_TLS1) || defined(TTLS_SSL_PROTO_TLS1_1) || \
-	defined(TTLS_SSL_PROTO_TLS1_2)
 		if (md_alg != TTLS_MD_NONE)
 		{
 			/* Info from md_alg will be used instead */
@@ -2304,8 +2267,6 @@ static int ssl_parse_server_key_exchange(ttls_ssl_context *ssl)
 				return ret;
 		}
 		else
-#endif /* TTLS_SSL_PROTO_TLS1 || TTLS_SSL_PROTO_TLS1_1 || \
-		  TTLS_SSL_PROTO_TLS1_2 */
 		{
 			TTLS_SSL_DEBUG_MSG(1, ("should never happen"));
 			return(TTLS_ERR_SSL_INTERNAL_ERROR);
@@ -2455,7 +2416,6 @@ static int ssl_parse_certificate_request(ttls_ssl_context *ssl)
 	}
 
 	/* supported_signature_algorithms */
-#if defined(TTLS_SSL_PROTO_TLS1_2)
 	if (ssl->minor_ver == TTLS_SSL_MINOR_VERSION_3)
 	{
 		size_t sig_alg_len = ((buf[ttls_ssl_hs_hdr_len(ssl) + 1 + n] <<  8)
@@ -2481,7 +2441,6 @@ static int ssl_parse_certificate_request(ttls_ssl_context *ssl)
 			return(TTLS_ERR_SSL_BAD_HS_CERTIFICATE_REQUEST);
 		}
 	}
-#endif /* TTLS_SSL_PROTO_TLS1_2 */
 
 	/* certificate_authorities */
 	dn_len = ((buf[ttls_ssl_hs_hdr_len(ssl) + 1 + n] <<  8)
@@ -2879,39 +2838,6 @@ static int ssl_write_certificate_verify(ttls_ssl_context *ssl)
 	 */
 	ssl->handshake->calc_verify(ssl, hash);
 
-#if defined(TTLS_SSL_PROTO_SSL3) || defined(TTLS_SSL_PROTO_TLS1) || \
-	defined(TTLS_SSL_PROTO_TLS1_1)
-	if (ssl->minor_ver != TTLS_SSL_MINOR_VERSION_3)
-	{
-		/*
-		 * digitally-signed struct {
-		 *	 opaque md5_hash[16];
-		 *	 opaque sha_hash[20];
-		 * };
-		 *
-		 * md5_hash
-		 *	 MD5(handshake_messages);
-		 *
-		 * sha_hash
-		 *	 SHA(handshake_messages);
-		 */
-		hashlen = 36;
-		md_alg = TTLS_MD_NONE;
-
-		/*
-		 * For ECDSA, default hash is SHA-1 only
-		 */
-		if (ttls_pk_can_do(ttls_ssl_own_key(ssl), TTLS_PK_ECDSA))
-		{
-			hash_start += 16;
-			hashlen -= 16;
-			md_alg = TTLS_MD_SHA1;
-		}
-	}
-	else
-#endif /* TTLS_SSL_PROTO_SSL3 || TTLS_SSL_PROTO_TLS1 || \
-		  TTLS_SSL_PROTO_TLS1_1 */
-#if defined(TTLS_SSL_PROTO_TLS1_2)
 	if (ssl->minor_ver == TTLS_SSL_MINOR_VERSION_3)
 	{
 		/*
@@ -2947,7 +2873,6 @@ static int ssl_write_certificate_verify(ttls_ssl_context *ssl)
 		offset = 2;
 	}
 	else
-#endif /* TTLS_SSL_PROTO_TLS1_2 */
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("should never happen"));
 		return(TTLS_ERR_SSL_INTERNAL_ERROR);
