@@ -29,23 +29,13 @@
 #ifndef TTLS_MD_H
 #define TTLS_MD_H
 
-#include <stddef.h>
-
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
 
 #define TTLS_ERR_MD_FEATURE_UNAVAILABLE				-0x5080  /**< The selected feature is not available. */
 #define TTLS_ERR_MD_BAD_INPUT_DATA					 -0x5100  /**< Bad input parameters to function. */
 #define TTLS_ERR_MD_ALLOC_FAILED					   -0x5180  /**< Failed to allocate memory. */
 #define TTLS_ERR_MD_FILE_IO_ERROR					  -0x5200  /**< Opening or reading of file failed. */
 #define TTLS_ERR_MD_HW_ACCEL_FAILED					-0x5280  /**< MD hardware accelerator failed. */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /**
  * \brief	 Enumeration of supported message digests
@@ -150,33 +140,6 @@ void ttls_md_init(ttls_md_context_t *ctx);
  *				  ttls_md_init().
  */
 void ttls_md_free(ttls_md_context_t *ctx);
-
-#if ! defined(TTLS_DEPRECATED_REMOVED)
-#if defined(TTLS_DEPRECATED_WARNING)
-#define TTLS_DEPRECATED	__attribute__((deprecated))
-#else
-#define TTLS_DEPRECATED
-#endif
-/**
- * \brief		   This function selects the message digest algorithm to use,
- *				  and allocates internal structures.
- *
- *				  It should be called after ttls_md_init() or ttls_md_free().
- *				  Makes it necessary to call ttls_md_free() later.
- *
- * \deprecated	  Superseded by ttls_md_setup() in 2.0.0
- *
- * \param ctx	   The context to set up.
- * \param md_info   The information structure of the message-digest algorithm
- *				  to use.
- *
- * \returns		 \c 0 on success,
- *				  #TTLS_ERR_MD_BAD_INPUT_DATA on parameter failure,
- *				  #TTLS_ERR_MD_ALLOC_FAILED memory allocation failure.
- */
-int ttls_md_init_ctx(ttls_md_context_t *ctx, const ttls_md_info_t *md_info) TTLS_DEPRECATED;
-#undef TTLS_DEPRECATED
-#endif /* TTLS_DEPRECATED_REMOVED */
 
 /**
  * \brief		   This function selects the message digest algorithm to use,
@@ -426,9 +389,5 @@ int ttls_md_hmac(const ttls_md_info_t *md_info, const unsigned char *key, size_t
 
 /* Internal use */
 int ttls_md_process(ttls_md_context_t *ctx, const unsigned char *data);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* TTLS_MD_H */

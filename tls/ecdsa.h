@@ -203,60 +203,6 @@ int ttls_ecdsa_write_signature(ttls_ecdsa_context *ctx, ttls_md_type_t md_alg,
 						   int (*f_rng)(void *, unsigned char *, size_t),
 						   void *p_rng);
 
-#if defined(TTLS_ECDSA_DETERMINISTIC)
-#if ! defined(TTLS_DEPRECATED_REMOVED)
-#if defined(TTLS_DEPRECATED_WARNING)
-#define TTLS_DEPRECATED	__attribute__((deprecated))
-#else
-#define TTLS_DEPRECATED
-#endif
-/**
- * \brief   This function computes an ECDSA signature and writes it to a buffer,
- *		  serialized as defined in <em>RFC-4492: Elliptic Curve Cryptography
- *		  (ECC) Cipher Suites for Transport Layer Security (TLS)</em>.
- *
- *		  The deterministic version is defined in <em>RFC-6979:
- *		  Deterministic Usage of the Digital Signature Algorithm (DSA) and
- *		  Elliptic Curve Digital Signature Algorithm (ECDSA)</em>.
- *
- * \warning		 It is not thread-safe to use the same context in
- *				  multiple threads.
-
- *
- * \deprecated	  Superseded by ttls_ecdsa_write_signature() in 2.0.0
- *
- * \param ctx	   The ECDSA context.
- * \param hash	  The Message hash.
- * \param hlen	  The length of the hash.
- * \param sig	   The buffer that holds the signature.
- * \param slen	  The length of the signature written.
- * \param md_alg	The MD algorithm used to hash the message.
- *
- * \note			The \p sig buffer must be at least twice as large as the
- *				  size of the curve used, plus 9. For example, 73 Bytes if a
- *				  256-bit curve is used. A buffer length of
- *				  #TTLS_ECDSA_MAX_LEN is always safe.
- *
- * \note			If the bitlength of the message hash is larger than the
- *				  bitlength of the group order, then the hash is truncated as
- *				  defined in <em>Standards for Efficient Cryptography Group
- *				  (SECG): SEC1 Elliptic Curve Cryptography</em>, section
- *				  4.1.3, step 5.
- *
- * \return		  \c 0 on success,
- *				  or an \c TTLS_ERR_ECP_XXX, \c TTLS_ERR_MPI_XXX or
- *				  \c TTLS_ERR_ASN1_XXX error code on failure.
- *
- * \see			 ecp.h
- */
-int ttls_ecdsa_write_signature_det(ttls_ecdsa_context *ctx,
-							   const unsigned char *hash, size_t hlen,
-							   unsigned char *sig, size_t *slen,
-							   ttls_md_type_t md_alg) TTLS_DEPRECATED;
-#undef TTLS_DEPRECATED
-#endif /* TTLS_DEPRECATED_REMOVED */
-#endif /* TTLS_ECDSA_DETERMINISTIC */
-
 /**
  * \brief		   This function reads and verifies an ECDSA signature.
  *
