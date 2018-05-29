@@ -43,19 +43,6 @@
 #include "ecdh.h"
 #endif
 
-#if defined(TTLS_ZLIB_SUPPORT)
-
-#if defined(TTLS_DEPRECATED_WARNING)
-#warning "Record compression support via TTLS_ZLIB_SUPPORT is deprecated and will be removed in the next major revision of the library"
-#endif
-
-#if defined(TTLS_DEPRECATED_REMOVED)
-#error "Record compression support via TTLS_ZLIB_SUPPORT is deprecated and cannot be used if TTLS_DEPRECATED_REMOVED is set"
-#endif
-
-#include "zlib.h"
-#endif
-
 /*
  * SSL Error codes
  */
@@ -812,9 +799,6 @@ struct ttls_ssl_context
 	size_t out_msglen;	/*!< record header: message length	*/
 	size_t out_left;	/*!< amount of data not yet written */
 
-#if defined(TTLS_ZLIB_SUPPORT)
-	unsigned char *compress_buf;	/*!< zlib data buffer	*/
-#endif
 #if defined(TTLS_SSL_CBC_RECORD_SPLITTING)
 	signed char split_done;	/*!< current record already splitted? */
 #endif
@@ -1638,33 +1622,6 @@ void ttls_ssl_conf_psk_cb(ttls_ssl_config *conf,
 #endif /* TTLS_KEY_EXCHANGE__SOME__PSK_ENABLED */
 
 #if defined(TTLS_DHM_C)
-
-#if !defined(TTLS_DEPRECATED_REMOVED)
-
-#if defined(TTLS_DEPRECATED_WARNING)
-#define TTLS_DEPRECATED	__attribute__((deprecated))
-#else
-#define TTLS_DEPRECATED
-#endif
-
-/**
- * \brief	Set the Diffie-Hellman public P and G values,
- *		read as hexadecimal strings (server-side only)
- *		(Default values: TTLS_DHM_RFC3526_MODP_2048_[PG])
- *
- * \param conf	SSL configuration
- * \param dhm_P	Diffie-Hellman-Merkle modulus
- * \param dhm_G	Diffie-Hellman-Merkle generator
- *
- * \deprecated	Superseded by \c ttls_ssl_conf_dh_param_bin.
- *
- * \return	0 if successful
- */
-TTLS_DEPRECATED int ttls_ssl_conf_dh_param(ttls_ssl_config *conf,
-	const char *dhm_P,
-	const char *dhm_G);
-
-#endif /* TTLS_DEPRECATED_REMOVED */
 
 /**
  * \brief	Set the Diffie-Hellman public P and G values
