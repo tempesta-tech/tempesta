@@ -259,39 +259,6 @@
 #define TTLS_CIPHER_MODE_CTR
 
 /**
- * \def TTLS_CIPHER_NULL_CIPHER
- *
- * Enable NULL cipher.
- * Warning: Only do so when you know what you are doing. This allows for
- * encryption or channels without any security!
- *
- * Requires TTLS_ENABLE_WEAK_CIPHERSUITES as well to enable
- * the following ciphersuites:
- *	  TTLS_TLS_ECDH_ECDSA_WITH_NULL_SHA
- *	  TTLS_TLS_ECDH_RSA_WITH_NULL_SHA
- *	  TTLS_TLS_ECDHE_ECDSA_WITH_NULL_SHA
- *	  TTLS_TLS_ECDHE_RSA_WITH_NULL_SHA
- *	  TTLS_TLS_ECDHE_PSK_WITH_NULL_SHA384
- *	  TTLS_TLS_ECDHE_PSK_WITH_NULL_SHA256
- *	  TTLS_TLS_ECDHE_PSK_WITH_NULL_SHA
- *	  TTLS_TLS_DHE_PSK_WITH_NULL_SHA384
- *	  TTLS_TLS_DHE_PSK_WITH_NULL_SHA256
- *	  TTLS_TLS_DHE_PSK_WITH_NULL_SHA
- *	  TTLS_TLS_RSA_WITH_NULL_SHA256
- *	  TTLS_TLS_RSA_WITH_NULL_SHA
- *	  TTLS_TLS_RSA_WITH_NULL_MD5
- *	  TTLS_TLS_RSA_PSK_WITH_NULL_SHA384
- *	  TTLS_TLS_RSA_PSK_WITH_NULL_SHA256
- *	  TTLS_TLS_RSA_PSK_WITH_NULL_SHA
- *	  TTLS_TLS_PSK_WITH_NULL_SHA384
- *	  TTLS_TLS_PSK_WITH_NULL_SHA256
- *	  TTLS_TLS_PSK_WITH_NULL_SHA
- *
- * Uncomment this macro to enable the NULL cipher and ciphersuites
- */
-//#define TTLS_CIPHER_NULL_CIPHER
-
-/**
  * \def TTLS_CIPHER_PADDING_PKCS7
  *
  * TTLS_CIPHER_PADDING_XXX: Uncomment or comment macros to add support for
@@ -306,24 +273,6 @@
 #define TTLS_CIPHER_PADDING_ONE_AND_ZEROS
 #define TTLS_CIPHER_PADDING_ZEROS_AND_LEN
 #define TTLS_CIPHER_PADDING_ZEROS
-
-/**
- * \def TTLS_ENABLE_WEAK_CIPHERSUITES
- *
- * Enable weak ciphersuites in SSL / TLS.
- * Warning: Only do so when you know what you are doing. This allows for
- * channels with virtually no security at all!
- *
- * This enables the following ciphersuites:
- *	  TTLS_TLS_RSA_WITH_DES_CBC_SHA
- *	  TTLS_TLS_DHE_RSA_WITH_DES_CBC_SHA
- *
- * Uncomment this macro to enable weak ciphersuites
- *
- * \warning   DES is considered a weak cipher and its use constitutes a
- *			security risk. We recommend considering stronger ciphers instead.
- */
-//#define TTLS_ENABLE_WEAK_CIPHERSUITES
 
 /**
  * \def TTLS_REMOVE_ARC4_CIPHERSUITES

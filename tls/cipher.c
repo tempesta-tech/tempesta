@@ -38,7 +38,7 @@
 #include "cmac.h"
 #endif
 
-#if defined(TTLS_ARC4_C) || defined(TTLS_CIPHER_NULL_CIPHER)
+#if defined(TTLS_ARC4_C)
 #define TTLS_CIPHER_MODE_STREAM
 #endif
 
