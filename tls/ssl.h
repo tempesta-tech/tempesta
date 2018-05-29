@@ -159,7 +159,6 @@
 
 #define TTLS_SSL_TRUNC_HMAC_DISABLED	0
 #define TTLS_SSL_TRUNC_HMAC_ENABLED	1
-#define TTLS_SSL_TRUNCATED_HMAC_LEN	10 /* 80 bits, rfc 6066 section 7 */
 
 #define TTLS_SSL_SESSION_TICKETS_DISABLED	0
 #define TTLS_SSL_SESSION_TICKETS_ENABLED	1
@@ -530,10 +529,6 @@ struct ttls_ssl_session
 	unsigned char mfl_code;	/*!< MaxFragmentLength negotiated by peer */
 #endif /* TTLS_SSL_MAX_FRAGMENT_LENGTH */
 
-#if defined(TTLS_SSL_TRUNCATED_HMAC)
-	int trunc_hmac;	/*!< flag for truncated hmac activation */
-#endif /* TTLS_SSL_TRUNCATED_HMAC */
-
 #if defined(TTLS_SSL_ENCRYPT_THEN_MAC)
 	int encrypt_then_mac;	/*!< flag for EtM activation	*/
 #endif
@@ -676,9 +671,6 @@ struct ttls_ssl_config
 #endif
 #if defined(TTLS_SSL_DTLS_ANTI_REPLAY)
 	unsigned int anti_replay : 1; /*!< detect and prevent replay?	*/
-#endif
-#if defined(TTLS_SSL_TRUNCATED_HMAC)
-	unsigned int trunc_hmac : 1;	/*!< negotiate truncated hmac?	*/
 #endif
 #if defined(TTLS_SSL_SESSION_TICKETS)
 	unsigned int session_tickets : 1; /*!< use session tickets?	*/
@@ -1962,18 +1954,6 @@ void ttls_ssl_conf_cert_req_ca_list(ttls_ssl_config *conf,
  */
 int ttls_ssl_conf_max_frag_len(ttls_ssl_config *conf, unsigned char mfl_code);
 #endif /* TTLS_SSL_MAX_FRAGMENT_LENGTH */
-
-#if defined(TTLS_SSL_TRUNCATED_HMAC)
-/**
- * \brief	Activate negotiation of truncated HMAC
- *		(Default: TTLS_SSL_TRUNC_HMAC_DISABLED)
- *
- * \param conf	SSL configuration
- * \param truncate Enable or disable (TTLS_SSL_TRUNC_HMAC_ENABLED or
- *		TTLS_SSL_TRUNC_HMAC_DISABLED)
- */
-void ttls_ssl_conf_truncated_hmac(ttls_ssl_config *conf, int truncate);
-#endif /* TTLS_SSL_TRUNCATED_HMAC */
 
 #if defined(TTLS_SSL_SESSION_TICKETS) && defined(TTLS_SSL_CLI_C)
 /**

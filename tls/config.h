@@ -28,9 +28,6 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-/*
- * TODO this is kernel compatibility file and it must be deleted at some time.
- */
 #ifndef TTLS_CONFIG_H
 #define TTLS_CONFIG_H
 
@@ -870,15 +867,6 @@
  * Comment this macro to disable support for key export
  */
 #define TTLS_SSL_EXPORT_KEYS
-
-/**
- * \def TTLS_SSL_TRUNCATED_HMAC
- *
- * Enable support for RFC 6066 truncated HMAC in SSL.
- *
- * Comment this macro to disable support for truncated HMAC in SSL
- */
-#define TTLS_SSL_TRUNCATED_HMAC
 
 /**
  * \def TTLS_X509_ALLOW_EXTENSIONS_NON_V3
@@ -1762,33 +1750,7 @@
  */
 #define TTLS_TLS_DEFAULT_ALLOW_SHA1_IN_KEY_EXCHANGE
 
-/* \} name SECTION: Customisation configuration options */
-
-/* Target and application specific configurations */
-//#define YOTTA_CFG_TTLS_TARGET_CONFIG_FILE "ttls/target_config.h"
-
-#if defined(TARGET_LIKE_MBED) && defined(YOTTA_CFG_TTLS_TARGET_CONFIG_FILE)
-#include YOTTA_CFG_TTLS_TARGET_CONFIG_FILE
-#endif
-
-/*
- * Allow user to override any previous default.
- *
- * Use two macro names for that, as:
- * - with yotta the prefix YOTTA_CFG_ is forced
- * - without yotta is looks weird to have a YOTTA prefix.
- */
-#if defined(YOTTA_CFG_TTLS_USER_CONFIG_FILE)
-#include YOTTA_CFG_TTLS_USER_CONFIG_FILE
-#elif defined(TTLS_USER_CONFIG_FILE)
-#include TTLS_USER_CONFIG_FILE
-#endif
-
 /* CHECK CONFIG. */
-#if defined(TARGET_LIKE_MBED) && \
-	(defined(TTLS_NET_C) || defined(TTLS_TIMING_C))
-#error "The NET and TIMING modules are not available for mbed OS - please use the network and timing functions provided by mbed OS"
-#endif
 
 #if defined(TTLS_CTR_DRBG_C) && !defined(TTLS_AES_C)
 #error "TTLS_CTR_DRBG_C defined, but not all prerequisites"
@@ -1803,8 +1765,7 @@
 #error "TTLS_ECDSA_C defined, but not all prerequisites"
 #endif
 
-#if defined(TTLS_ENTROPY_C) && (!defined(TTLS_SHA512_C) &&	  \
-									!defined(TTLS_SHA256_C))
+#if defined(TTLS_ENTROPY_C) && (!defined(TTLS_SHA512_C) && !defined(TTLS_SHA256_C))
 #error "TTLS_ENTROPY_C defined, but not all prerequisites"
 #endif
 #if defined(TTLS_ENTROPY_C) && defined(TTLS_SHA512_C) &&		 \
@@ -1856,10 +1817,6 @@
 
 #if defined(TTLS_ECP_NORMALIZE_MXZ_ALT) && !defined(TTLS_ECP_INTERNAL_ALT)
 #error "TTLS_ECP_NORMALIZE_MXZ_ALT defined, but not all prerequisites"
-#endif
-
-#if defined(TTLS_HAVEGE_C) && !defined(TTLS_TIMING_C)
-#error "TTLS_HAVEGE_C defined, but not all prerequisites"
 #endif
 
 #if defined(TTLS_KEY_EXCHANGE_ECDH_ECDSA_ENABLED) &&	(!defined(TTLS_ECDH_C))
