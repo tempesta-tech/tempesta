@@ -26,24 +26,13 @@
  *
  *  http://csrc.nist.gov/publications/fips/fips180-2/fips180-2.pdf
  */
-
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
 
 #if defined(TTLS_SHA512_C)
 
 #include "sha512.h"
 
-#if defined(_MSC_VER) || defined(__WATCOMC__)
-  #define UL64(x) x##ui64
-#else
-  #define UL64(x) x##ULL
-#endif
-
-#include <string.h>
+#define UL64(x) x##ULL
 
 #if !defined(TTLS_SHA512_ALT)
 

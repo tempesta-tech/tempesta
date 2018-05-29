@@ -24,12 +24,8 @@
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 #include "config.h"
-#include <stdlib.h>
-
 #include "ssl_ciphersuites.h"
 #include "ssl.h"
-
-#include <string.h>
 
 /*
  * Ordered from most preferred to least preferred in terms of security.
