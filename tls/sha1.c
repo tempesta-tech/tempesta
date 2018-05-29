@@ -26,18 +26,11 @@
  *
  *  http://www.itl.nist.gov/fipspubs/fip180-1.htm
  */
-
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
 
 #if defined(TTLS_SHA1_C)
 
 #include "sha1.h"
-
-#include <string.h>
 
 #if !defined(TTLS_SHA1_ALT)
 

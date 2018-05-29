@@ -31,8 +31,6 @@
 
 #include "ssl_cache.h"
 
-#include <string.h>
-
 void ttls_ssl_cache_init(ttls_ssl_cache_context *cache)
 {
 	memset(cache, 0, sizeof(ttls_ssl_cache_context));

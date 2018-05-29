@@ -57,7 +57,7 @@ enum {
  * Also, see PR #595 and #603 discussions about this TODOs.
  */
 typedef struct {
-	mbedtls_ssl_context	ssl;
+	ttls_ssl_context	ssl;
 	struct sk_buff		*rx_queue;
 	struct sk_buff		*tx_queue;
 	spinlock_t		lock;

@@ -37,8 +37,6 @@
  *	  https://gmplib.org/manual/index.html
  *
  */
-#include <string.h>
-
 #include "config.h"
 #include "bignum.h"
 #include "bn_mul.h"
@@ -2325,7 +2323,7 @@ cleanup:
 }
 
 void
-ttls_mpi_exit(void)
+ttls_mpi_modexit(void)
 {
 	int cpu;
 
@@ -2336,7 +2334,7 @@ ttls_mpi_exit(void)
 }
 
 int
-ttls_mpi_init(void)
+ttls_mpi_modinit(void)
 {
 	int cpu;
 
@@ -2349,6 +2347,6 @@ ttls_mpi_init(void)
 
 	return 0;
 err_cleanup:
-	ttls_mpi_exit();
+	ttls_mpi_modexit();
 	return -ENOMEM;
 }

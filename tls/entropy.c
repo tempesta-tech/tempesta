@@ -25,9 +25,6 @@
 
 #include "entropy.h"
 #include "entropy_poll.h"
-
-#include <string.h>
-
 #if defined(TTLS_HAVEGE_C)
 #include "havege.h"
 #endif

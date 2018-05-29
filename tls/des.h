@@ -27,19 +27,11 @@
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
- *
  */
 #ifndef TTLS_DES_H
 #define TTLS_DES_H
 
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
-
-#include <stddef.h>
-#include <stdint.h>
 
 #define TTLS_DES_ENCRYPT	 1
 #define TTLS_DES_DECRYPT	 0
