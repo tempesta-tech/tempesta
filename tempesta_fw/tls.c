@@ -32,56 +32,56 @@
 #define MAX_TLS_PAYLOAD		1460
 
 typedef struct {
-	mbedtls_ssl_config	cfg;
-	mbedtls_x509_crt	crt;
-	mbedtls_pk_context	key;
+	ttls_ssl_config	cfg;
+	ttls_x509_crt	crt;
+	ttls_pk_context	key;
 } TfwTls;
 
 static TfwTls tfw_tls;
 
 static inline int
-ttls_ssl_handshake(TfwTlsContext *tls)
+_ttls_ssl_handshake(TfwTlsContext *tls)
 {
 	int r;
 
 	spin_lock(&tls->lock);
-	r = mbedtls_ssl_handshake(&tls->ssl);
+	r = ttls_ssl_handshake(&tls->ssl);
 	spin_unlock(&tls->lock);
 
 	return r;
 }
 
 static inline int
-ttls_ssl_read(TfwTlsContext *tls, unsigned char *data, size_t size)
+_ttls_ssl_read(TfwTlsContext *tls, unsigned char *data, size_t size)
 {
 	int r;
 
 	spin_lock(&tls->lock);
-	r = mbedtls_ssl_read(&tls->ssl, data, size);
+	r = ttls_ssl_read(&tls->ssl, data, size);
 	spin_unlock(&tls->lock);
 
 	return r;
 }
 
 static inline int
-ttls_ssl_write(TfwTlsContext *tls, const unsigned char *data, size_t size)
+_ttls_ssl_write(TfwTlsContext *tls, const unsigned char *data, size_t size)
 {
 	int r;
 
 	spin_lock(&tls->lock);
-	r = mbedtls_ssl_write(&tls->ssl, data, size);
+	r = ttls_ssl_write(&tls->ssl, data, size);
 	spin_unlock(&tls->lock);
 
 	return r;
 }
 
 static inline int
-ttls_ssl_close_notify(TfwTlsContext *tls)
+_ttls_ssl_close_notify(TfwTlsContext *tls)
 {
 	int r;
 
 	spin_lock(&tls->lock);
-	r = mbedtls_ssl_close_notify(&tls->ssl);
+	r = ttls_ssl_close_notify(&tls->ssl);
 	spin_unlock(&tls->lock);
 
 	return r;
@@ -103,8 +103,8 @@ tfw_tls_msg_process(void *conn, const TfwFsmData *data)
 
 	ss_skb_queue_tail(&tls->rx_queue, skb);
 
-	r = ttls_ssl_handshake(tls);
-	if (r == MBEDTLS_ERR_SSL_CONN_EOF) {
+	r = _ttls_ssl_handshake(tls);
+	if (r == TTLS_ERR_SSL_CONN_EOF) {
 		return TFW_PASS; /* more data needed */
 	} else if (r == 0) {
 		struct sk_buff *nskb;
@@ -117,9 +117,9 @@ tfw_tls_msg_process(void *conn, const TfwFsmData *data)
 		skb_reserve(nskb, MAX_TCP_HEADER);
 		skb_put(nskb, MAX_TLS_PAYLOAD);
 
-		r = ttls_ssl_read(tls, nskb->data, MAX_TLS_PAYLOAD);
-		if (r == MBEDTLS_ERR_SSL_WANT_READ ||
-		    r == MBEDTLS_ERR_SSL_WANT_WRITE)
+		r = _ttls_ssl_read(tls, nskb->data, MAX_TLS_PAYLOAD);
+		if (r == TTLS_ERR_SSL_WANT_READ ||
+		    r == TTLS_ERR_SSL_WANT_WRITE)
 		{
 			kfree_skb(nskb);
 			return TFW_PASS;
@@ -158,7 +158,7 @@ tfw_tls_send_buf(TfwConn *c, const unsigned char *buf, size_t len)
 
 	tls_dbg(c, "=>");
 
-	while ((r = ttls_ssl_write(tls, buf, len)) > 0) {
+	while ((r = _ttls_ssl_write(tls, buf, len)) > 0) {
 		if (r == len)
 			return 0;
 		buf += r;
@@ -263,7 +263,7 @@ tfw_tls_conn_dtor(TfwConn *c)
 {
 	TfwTlsContext *tls = tfw_tls_context(c);
 
-	mbedtls_ssl_free(&tls->ssl);
+	ttls_ssl_free(&tls->ssl);
 	tfw_cli_conn_release((TfwCliConn *)c);
 }
 
@@ -275,17 +275,17 @@ tfw_tls_conn_init(TfwConn *c)
 
 	tls_dbg(c, "=>");
 
-	mbedtls_ssl_init(&tls->ssl);
+	ttls_ssl_init(&tls->ssl);
 
 	tls->rx_queue = tls->tx_queue = NULL;
 
-	r = mbedtls_ssl_setup(&tls->ssl, &tfw_tls.cfg);
+	r = ttls_ssl_setup(&tls->ssl, &tfw_tls.cfg);
 	if (r) {
 		TFW_ERR("TLS:%p setup failed (%x)\n", tls, -r);
 		return -EINVAL;
 	}
 
-	mbedtls_ssl_set_bio(&tls->ssl, c,
+	ttls_ssl_set_bio(&tls->ssl, c,
 			    tfw_tls_send_cb, tfw_tls_recv_cb, NULL);
 
 	if (tfw_conn_hook_call(TFW_FSM_HTTP, c, conn_init))
@@ -309,7 +309,7 @@ tfw_tls_conn_drop(TfwConn *c)
 
 	tfw_conn_hook_call(TFW_FSM_HTTP, c, conn_drop);
 
-	ttls_ssl_close_notify(tls);
+	_ttls_ssl_close_notify(tls);
 }
 
 static int
@@ -328,7 +328,7 @@ tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 	}
 
 	if (msg->ss_flags & SS_F_CONN_CLOSE)
-		ttls_ssl_close_notify(tls);
+		_ttls_ssl_close_notify(tls);
 
 	return 0;
 }
@@ -351,7 +351,7 @@ tfw_tls_dbg_cb(void *ctx, int level, const char *file, int line, const char *str
 {
 	((void) ctx);
 	if (level < DEBUG)
-		printk("[mbedtls] %s:%d -- %s\n", file, line, str);
+		printk("[ttls] %s:%d -- %s\n", file, line, str);
 }
 #endif
 
@@ -368,21 +368,21 @@ tfw_tls_do_init(void)
 {
 	int r;
 
-	mbedtls_ssl_config_init(&tfw_tls.cfg);
-	r = mbedtls_ssl_config_defaults(&tfw_tls.cfg,
-					MBEDTLS_SSL_IS_SERVER,
-					MBEDTLS_SSL_TRANSPORT_STREAM,
-					MBEDTLS_SSL_PRESET_DEFAULT);
+	ttls_ssl_config_init(&tfw_tls.cfg);
+	r = ttls_ssl_config_defaults(&tfw_tls.cfg,
+					TTLS_SSL_IS_SERVER,
+					TTLS_SSL_TRANSPORT_STREAM,
+					TTLS_SSL_PRESET_DEFAULT);
 	if (r) {
 		TFW_ERR_NL("TLS: can't set config defaults (%x)\n", -r);
 		return -EINVAL;
 	}
 
 #if defined(DEBUG)
-	mbedtls_debug_set_threshold(DEBUG);
-	mbedtls_ssl_conf_dbg(&tfw_tls.cfg, tfw_tls_dbg_cb, NULL);
+	ttls_debug_set_threshold(DEBUG);
+	ttls_ssl_conf_dbg(&tfw_tls.cfg, tfw_tls_dbg_cb, NULL);
 #endif
-	mbedtls_ssl_conf_rng(&tfw_tls.cfg, tfw_tls_rnd_cb, NULL);
+	ttls_ssl_conf_rng(&tfw_tls.cfg, tfw_tls_rnd_cb, NULL);
 
 	return 0;
 }
@@ -390,9 +390,9 @@ tfw_tls_do_init(void)
 static void
 tfw_tls_do_cleanup(void)
 {
-	mbedtls_x509_crt_free(&tfw_tls.crt);
-	mbedtls_pk_free(&tfw_tls.key);
-	mbedtls_ssl_config_free(&tfw_tls.cfg);
+	ttls_x509_crt_free(&tfw_tls.crt);
+	ttls_pk_free(&tfw_tls.key);
+	ttls_ssl_config_free(&tfw_tls.cfg);
 }
 
 /*
@@ -424,8 +424,8 @@ tfw_tls_start(void)
 	if (tfw_runstate_is_reconfig())
 		return 0;
 
-	mbedtls_ssl_conf_ca_chain(&tfw_tls.cfg, tfw_tls.crt.next, NULL);
-	r = mbedtls_ssl_conf_own_cert(&tfw_tls.cfg, &tfw_tls.crt, &tfw_tls.key);
+	ttls_ssl_conf_ca_chain(&tfw_tls.cfg, tfw_tls.crt.next, NULL);
+	r = ttls_ssl_conf_own_cert(&tfw_tls.cfg, &tfw_tls.crt, &tfw_tls.key);
 	if (r) {
 		TFW_ERR_NL("TLS: can't set own certificate (%x)\n", -r);
 		return -EINVAL;
@@ -444,7 +444,7 @@ tfw_cfgop_ssl_certificate(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	void *crt_data;
 	size_t crt_size;
 
-	mbedtls_x509_crt_init(&tfw_tls.crt);
+	ttls_x509_crt_init(&tfw_tls.crt);
 
 	if (ce->attr_n) {
 		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
@@ -464,7 +464,7 @@ tfw_cfgop_ssl_certificate(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	}
 
-	r = mbedtls_x509_crt_parse(&tfw_tls.crt,
+	r = ttls_x509_crt_parse(&tfw_tls.crt,
 				   (const unsigned char *)crt_data,
 				   crt_size);
 	vfree(crt_data);
@@ -482,7 +482,7 @@ tfw_cfgop_ssl_certificate(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static void
 tfw_cfgop_cleanup_ssl_certificate(TfwCfgSpec *cs)
 {
-	mbedtls_x509_crt_free(&tfw_tls.crt);
+	ttls_x509_crt_free(&tfw_tls.crt);
 	tfw_tls_cgf &= ~TFW_TLS_CFG_F_CERT;
 }
 
@@ -496,7 +496,7 @@ tfw_cfgop_ssl_certificate_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	void *key_data;
 	size_t key_size;
 
-	mbedtls_pk_init(&tfw_tls.key);
+	ttls_pk_init(&tfw_tls.key);
 
 	if (ce->attr_n) {
 		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
@@ -516,7 +516,7 @@ tfw_cfgop_ssl_certificate_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	}
 
-	r = mbedtls_pk_parse_key(&tfw_tls.key,
+	r = ttls_pk_parse_key(&tfw_tls.key,
 				 (const unsigned char *)key_data,
 				 key_size, NULL, 0);
 	vfree(key_data);
@@ -534,7 +534,7 @@ tfw_cfgop_ssl_certificate_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static void
 tfw_cfgop_cleanup_ssl_certificate_key(TfwCfgSpec *cs)
 {
-	mbedtls_pk_free(&tfw_tls.key);
+	ttls_pk_free(&tfw_tls.key);
 	tfw_tls_cgf &= ~TFW_TLS_CFG_F_CKEY;
 }
 

@@ -28,8 +28,6 @@
 #include "config.h"
 #include "md.h"
 #include "md_internal.h"
-#include <stdlib.h>
-#include <string.h>
 
 /* Implementation that should never be optimized out by the compiler */
 static void ttls_zeroize(void *v, size_t n) {
