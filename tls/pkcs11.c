@@ -33,8 +33,6 @@
 #include "oid.h"
 #include "x509_crt.h"
 
-#include <string.h>
-
 void ttls_pkcs11_init(ttls_pkcs11_context *ctx)
 {
 	memset(ctx, 0, sizeof(ttls_pkcs11_context));

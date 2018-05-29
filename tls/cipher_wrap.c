@@ -27,37 +27,26 @@
  */
 #include "config.h"
 #include "cipher_internal.h"
-
 #if defined(TTLS_AES_C)
 #include "aes.h"
 #endif
-
 #if defined(TTLS_ARC4_C)
 #include "arc4.h"
 #endif
-
 #if defined(TTLS_CAMELLIA_C)
 #include "camellia.h"
 #endif
-
 #if defined(TTLS_DES_C)
 #include "des.h"
 #endif
-
 #if defined(TTLS_BLOWFISH_C)
 #include "blowfish.h"
 #endif
-
 #if defined(TTLS_GCM_C)
 #include "gcm.h"
 #endif
-
 #if defined(TTLS_CCM_C)
 #include "ccm.h"
-#endif
-
-#if defined(TTLS_CIPHER_NULL_CIPHER)
-#include <string.h>
 #endif
 
 #if defined(TTLS_GCM_C)

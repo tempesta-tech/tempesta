@@ -27,18 +27,11 @@
  *  http://homes.esat.kuleuven.be/~bosselae/ttls_ripemd160.html
  *  http://ehash.iaik.tugraz.at/wiki/RIPEMD-160
  */
-
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
 
 #if defined(TTLS_RIPEMD160_C)
 
 #include "ripemd160.h"
-
-#include <string.h>
 
 #if !defined(TTLS_RIPEMD160_ALT)
 

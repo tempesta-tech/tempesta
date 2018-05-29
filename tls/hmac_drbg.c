@@ -27,18 +27,11 @@
  *  http://csrc.nist.gov/publications/nistpubs/800-90A/SP800-90A.pdf
  *  References below are based on rev. 1 (January 2012).
  */
-
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
 
 #if defined(TTLS_HMAC_DRBG_C)
 
 #include "hmac_drbg.h"
-
-#include <string.h>
 
 /* Implementation that should never be optimized out by the compiler */
 static void ttls_zeroize(void *v, size_t n) {
