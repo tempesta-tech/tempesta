@@ -164,79 +164,6 @@ int ttls_md4_finish_ret(ttls_md4_context *ctx,
 int ttls_internal_md4_process(ttls_md4_context *ctx,
 								  const unsigned char data[64]);
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-#if defined(TTLS_DEPRECATED_WARNING)
-#define TTLS_DEPRECATED	  __attribute__((deprecated))
-#else
-#define TTLS_DEPRECATED
-#endif
-/**
- * \brief		  MD4 context setup
- *
- * \deprecated	 Superseded by ttls_md4_starts_ret() in 2.7.0
- *
- * \param ctx	  context to be initialized
- *
- * \warning		MD4 is considered a weak message digest and its use
- *				 constitutes a security risk. We recommend considering
- *				 stronger message digests instead.
- *
- */
-TTLS_DEPRECATED void ttls_md4_starts(ttls_md4_context *ctx);
-
-/**
- * \brief		  MD4 process buffer
- *
- * \deprecated	 Superseded by ttls_md4_update_ret() in 2.7.0
- *
- * \param ctx	  MD4 context
- * \param input	buffer holding the data
- * \param ilen	 length of the input data
- *
- * \warning		MD4 is considered a weak message digest and its use
- *				 constitutes a security risk. We recommend considering
- *				 stronger message digests instead.
- *
- */
-TTLS_DEPRECATED void ttls_md4_update(ttls_md4_context *ctx,
-											const unsigned char *input,
-											size_t ilen);
-
-/**
- * \brief		  MD4 final digest
- *
- * \deprecated	 Superseded by ttls_md4_finish_ret() in 2.7.0
- *
- * \param ctx	  MD4 context
- * \param output   MD4 checksum result
- *
- * \warning		MD4 is considered a weak message digest and its use
- *				 constitutes a security risk. We recommend considering
- *				 stronger message digests instead.
- *
- */
-TTLS_DEPRECATED void ttls_md4_finish(ttls_md4_context *ctx,
-											unsigned char output[16]);
-
-/**
- * \brief		  MD4 process data block (internal use only)
- *
- * \deprecated	 Superseded by ttls_internal_md4_process() in 2.7.0
- *
- * \param ctx	  MD4 context
- * \param data	 buffer holding one block of data
- *
- * \warning		MD4 is considered a weak message digest and its use
- *				 constitutes a security risk. We recommend considering
- *				 stronger message digests instead.
- *
- */
-TTLS_DEPRECATED void ttls_md4_process(ttls_md4_context *ctx,
-											 const unsigned char data[64]);
-
-#undef TTLS_DEPRECATED
-#endif /* !TTLS_DEPRECATED_REMOVED */
-
 #else  /* TTLS_MD4_ALT */
 #include "md4_alt.h"
 #endif /* TTLS_MD4_ALT */
@@ -258,32 +185,5 @@ TTLS_DEPRECATED void ttls_md4_process(ttls_md4_context *ctx,
 int ttls_md4_ret(const unsigned char *input,
 					 size_t ilen,
 					 unsigned char output[16]);
-
-#if !defined(TTLS_DEPRECATED_REMOVED)
-#if defined(TTLS_DEPRECATED_WARNING)
-#define TTLS_DEPRECATED	  __attribute__((deprecated))
-#else
-#define TTLS_DEPRECATED
-#endif
-/**
- * \brief		  Output = MD4(input buffer)
- *
- * \deprecated	 Superseded by ttls_md4_ret() in 2.7.0
- *
- * \param input	buffer holding the data
- * \param ilen	 length of the input data
- * \param output   MD4 checksum result
- *
- * \warning		MD4 is considered a weak message digest and its use
- *				 constitutes a security risk. We recommend considering
- *				 stronger message digests instead.
- *
- */
-TTLS_DEPRECATED void ttls_md4(const unsigned char *input,
-									 size_t ilen,
-									 unsigned char output[16]);
-
-#undef TTLS_DEPRECATED
-#endif /* !TTLS_DEPRECATED_REMOVED */
 
 #endif /* ttls_md4.h */

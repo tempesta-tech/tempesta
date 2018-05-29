@@ -357,54 +357,9 @@ int ttls_internal_aes_decrypt(ttls_aes_context *ctx,
 								  const unsigned char input[16],
 								  unsigned char output[16]);
 
-#if !defined(TTLS_DEPRECATED_REMOVED)
-#if defined(TTLS_DEPRECATED_WARNING)
-#define TTLS_DEPRECATED	  __attribute__((deprecated))
-#else
-#define TTLS_DEPRECATED
-#endif
-/**
- * \brief		   Deprecated internal AES block encryption function
- *				  without return value.
- *
- * \deprecated	  Superseded by ttls_aes_encrypt_ext() in 2.5.0.
- *
- * \param ctx	   The AES context to use for encryption.
- * \param input	 Plaintext block.
- * \param output	Output (ciphertext) block.
- */
-TTLS_DEPRECATED void ttls_aes_encrypt(ttls_aes_context *ctx,
-											 const unsigned char input[16],
-											 unsigned char output[16]);
-
-/**
- * \brief		   Deprecated internal AES block decryption function
- *				  without return value.
- *
- * \deprecated	  Superseded by ttls_aes_decrypt_ext() in 2.5.0.
- *
- * \param ctx	   The AES context to use for decryption.
- * \param input	 Ciphertext block.
- * \param output	Output (plaintext) block.
- */
-TTLS_DEPRECATED void ttls_aes_decrypt(ttls_aes_context *ctx,
-											 const unsigned char input[16],
-											 unsigned char output[16]);
-
-#undef TTLS_DEPRECATED
-#endif /* !TTLS_DEPRECATED_REMOVED */
-
-#ifdef __cplusplus
-}
-#endif
-
 #else  /* TTLS_AES_ALT */
 #include "aes_alt.h"
 #endif /* TTLS_AES_ALT */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /**
  * \brief		  Checkup routine.
@@ -412,9 +367,5 @@ extern "C" {
  * \return		 \c 0 on success, or \c 1 on failure.
  */
 int ttls_aes_self_test(int verbose);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* aes.h */
