@@ -21,25 +21,25 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#if defined(MBEDTLS_ENTROPY_C)
+#if defined(TTLS_ENTROPY_C)
 
 #include "entropy.h"
 #include "entropy_poll.h"
 
 #include <string.h>
 
-#if defined(MBEDTLS_HAVEGE_C)
+#if defined(TTLS_HAVEGE_C)
 #include "havege.h"
 #endif
 
 /* Implementation that should never be optimized out by the compiler */
-static void mbedtls_zeroize(void *v, size_t n) {
+static void ttls_zeroize(void *v, size_t n) {
 	volatile unsigned char *p = v; while (n--) *p++ = 0;
 }
 
 #define ENTROPY_MAX_LOOP	256	 /**< Maximum amount to loop before error */
 
-void mbedtls_entropy_init(mbedtls_entropy_context *ctx)
+void ttls_entropy_init(ttls_entropy_context *ctx)
 {
 	ctx->source_count = 0;
 	memset(ctx->source, 0, sizeof(ctx->source));
@@ -47,50 +47,50 @@ void mbedtls_entropy_init(mbedtls_entropy_context *ctx)
 	spin_lock_init(&ctx->mutex);
 
 	ctx->accumulator_started = 0;
-#if defined(MBEDTLS_ENTROPY_SHA512_ACCUMULATOR)
-	mbedtls_sha512_init(&ctx->accumulator);
+#if defined(TTLS_ENTROPY_SHA512_ACCUMULATOR)
+	ttls_sha512_init(&ctx->accumulator);
 #else
-	mbedtls_sha256_init(&ctx->accumulator);
+	ttls_sha256_init(&ctx->accumulator);
 #endif
-#if defined(MBEDTLS_HAVEGE_C)
-	mbedtls_havege_init(&ctx->havege_data);
+#if defined(TTLS_HAVEGE_C)
+	ttls_havege_init(&ctx->havege_data);
 #endif
 
 	/* Reminder: Update ENTROPY_HAVE_STRONG in the test files
 	 *		   when adding more strong entropy sources here. */
 
-#if !defined(MBEDTLS_NO_DEFAULT_ENTROPY_SOURCES)
-	mbedtls_entropy_add_source(ctx, mbedtls_hardclock_poll, NULL,
-								MBEDTLS_ENTROPY_MIN_HARDCLOCK,
-								MBEDTLS_ENTROPY_SOURCE_WEAK);
-#if defined(MBEDTLS_HAVEGE_C)
-	mbedtls_entropy_add_source(ctx, mbedtls_havege_poll, &ctx->havege_data,
-								MBEDTLS_ENTROPY_MIN_HAVEGE,
-								MBEDTLS_ENTROPY_SOURCE_STRONG);
+#if !defined(TTLS_NO_DEFAULT_ENTROPY_SOURCES)
+	ttls_entropy_add_source(ctx, ttls_hardclock_poll, NULL,
+								TTLS_ENTROPY_MIN_HARDCLOCK,
+								TTLS_ENTROPY_SOURCE_WEAK);
+#if defined(TTLS_HAVEGE_C)
+	ttls_entropy_add_source(ctx, ttls_havege_poll, &ctx->havege_data,
+								TTLS_ENTROPY_MIN_HAVEGE,
+								TTLS_ENTROPY_SOURCE_STRONG);
 #endif
-	mbedtls_entropy_add_source(ctx, mbedtls_hardware_poll, NULL,
-								MBEDTLS_ENTROPY_MIN_HARDWARE,
-								MBEDTLS_ENTROPY_SOURCE_STRONG);
-#endif /* MBEDTLS_NO_DEFAULT_ENTROPY_SOURCES */
+	ttls_entropy_add_source(ctx, ttls_hardware_poll, NULL,
+								TTLS_ENTROPY_MIN_HARDWARE,
+								TTLS_ENTROPY_SOURCE_STRONG);
+#endif /* TTLS_NO_DEFAULT_ENTROPY_SOURCES */
 }
 
-void mbedtls_entropy_free(mbedtls_entropy_context *ctx)
+void ttls_entropy_free(ttls_entropy_context *ctx)
 {
-#if defined(MBEDTLS_HAVEGE_C)
-	mbedtls_havege_free(&ctx->havege_data);
+#if defined(TTLS_HAVEGE_C)
+	ttls_havege_free(&ctx->havege_data);
 #endif
-#if defined(MBEDTLS_ENTROPY_SHA512_ACCUMULATOR)
-	mbedtls_sha512_free(&ctx->accumulator);
+#if defined(TTLS_ENTROPY_SHA512_ACCUMULATOR)
+	ttls_sha512_free(&ctx->accumulator);
 #else
-	mbedtls_sha256_free(&ctx->accumulator);
+	ttls_sha256_free(&ctx->accumulator);
 #endif
 	ctx->source_count = 0;
-	mbedtls_zeroize(ctx->source, sizeof(ctx->source));
+	ttls_zeroize(ctx->source, sizeof(ctx->source));
 	ctx->accumulator_started = 0;
 }
 
-int mbedtls_entropy_add_source(mbedtls_entropy_context *ctx,
-						mbedtls_entropy_f_source_ptr f_source, void *p_source,
+int ttls_entropy_add_source(ttls_entropy_context *ctx,
+						ttls_entropy_f_source_ptr f_source, void *p_source,
 						size_t threshold, int strong)
 {
 	int idx, ret = 0;
@@ -98,9 +98,9 @@ int mbedtls_entropy_add_source(mbedtls_entropy_context *ctx,
 	spin_lock(&ctx->mutex);
 
 	idx = ctx->source_count;
-	if (idx >= MBEDTLS_ENTROPY_MAX_SOURCES)
+	if (idx >= TTLS_ENTROPY_MAX_SOURCES)
 	{
-		ret = MBEDTLS_ERR_ENTROPY_MAX_SOURCES;
+		ret = TTLS_ERR_ENTROPY_MAX_SOURCES;
 		goto exit;
 	}
 
@@ -120,26 +120,26 @@ exit:
 /*
  * Entropy accumulator update
  */
-static int entropy_update(mbedtls_entropy_context *ctx, unsigned char source_id,
+static int entropy_update(ttls_entropy_context *ctx, unsigned char source_id,
 						   const unsigned char *data, size_t len)
 {
 	unsigned char header[2];
-	unsigned char tmp[MBEDTLS_ENTROPY_BLOCK_SIZE];
+	unsigned char tmp[TTLS_ENTROPY_BLOCK_SIZE];
 	size_t use_len = len;
 	const unsigned char *p = data;
 	int ret = 0;
 
-	if (use_len > MBEDTLS_ENTROPY_BLOCK_SIZE)
+	if (use_len > TTLS_ENTROPY_BLOCK_SIZE)
 	{
-#if defined(MBEDTLS_ENTROPY_SHA512_ACCUMULATOR)
-		if ((ret = mbedtls_sha512_ret(data, len, tmp, 0)) != 0)
+#if defined(TTLS_ENTROPY_SHA512_ACCUMULATOR)
+		if ((ret = ttls_sha512_ret(data, len, tmp, 0)) != 0)
 			goto cleanup;
 #else
-		if ((ret = mbedtls_sha256_ret(data, len, tmp, 0)) != 0)
+		if ((ret = ttls_sha256_ret(data, len, tmp, 0)) != 0)
 			goto cleanup;
 #endif
 		p = tmp;
-		use_len = MBEDTLS_ENTROPY_BLOCK_SIZE;
+		use_len = TTLS_ENTROPY_BLOCK_SIZE;
 	}
 
 	header[0] = source_id;
@@ -150,40 +150,40 @@ static int entropy_update(mbedtls_entropy_context *ctx, unsigned char source_id,
 	 * it is sufficient to start the accumulator here only because all calls to
 	 * gather entropy eventually execute this code.
 	 */
-#if defined(MBEDTLS_ENTROPY_SHA512_ACCUMULATOR)
+#if defined(TTLS_ENTROPY_SHA512_ACCUMULATOR)
 	if (ctx->accumulator_started == 0 &&
-		(ret = mbedtls_sha512_starts_ret(&ctx->accumulator, 0)) != 0)
+		(ret = ttls_sha512_starts_ret(&ctx->accumulator, 0)) != 0)
 		goto cleanup;
 	else
 		ctx->accumulator_started = 1;
-	if ((ret = mbedtls_sha512_update_ret(&ctx->accumulator, header, 2)) != 0)
+	if ((ret = ttls_sha512_update_ret(&ctx->accumulator, header, 2)) != 0)
 		goto cleanup;
-	ret = mbedtls_sha512_update_ret(&ctx->accumulator, p, use_len);
+	ret = ttls_sha512_update_ret(&ctx->accumulator, p, use_len);
 #else
 	if (ctx->accumulator_started == 0 &&
-		(ret = mbedtls_sha256_starts_ret(&ctx->accumulator, 0)) != 0)
+		(ret = ttls_sha256_starts_ret(&ctx->accumulator, 0)) != 0)
 		goto cleanup;
 	else
 		ctx->accumulator_started = 1;
-	if ((ret = mbedtls_sha256_update_ret(&ctx->accumulator, header, 2)) != 0)
+	if ((ret = ttls_sha256_update_ret(&ctx->accumulator, header, 2)) != 0)
 		goto cleanup;
-	ret = mbedtls_sha256_update_ret(&ctx->accumulator, p, use_len);
+	ret = ttls_sha256_update_ret(&ctx->accumulator, p, use_len);
 #endif
 
 cleanup:
-	mbedtls_zeroize(tmp, sizeof(tmp));
+	ttls_zeroize(tmp, sizeof(tmp));
 
 	return ret;
 }
 
-int mbedtls_entropy_update_manual(mbedtls_entropy_context *ctx,
+int ttls_entropy_update_manual(ttls_entropy_context *ctx,
 						   const unsigned char *data, size_t len)
 {
 	int ret;
 
 	spin_lock(&ctx->mutex);
 
-	ret = entropy_update(ctx, MBEDTLS_ENTROPY_SOURCE_MANUAL, data, len);
+	ret = entropy_update(ctx, TTLS_ENTROPY_SOURCE_MANUAL, data, len);
 
 	spin_unlock(&ctx->mutex);
 
@@ -193,26 +193,26 @@ int mbedtls_entropy_update_manual(mbedtls_entropy_context *ctx,
 /*
  * Run through the different sources to add entropy to our accumulator
  */
-static int entropy_gather_internal(mbedtls_entropy_context *ctx)
+static int entropy_gather_internal(ttls_entropy_context *ctx)
 {
 	int ret, i, have_one_strong = 0;
-	unsigned char buf[MBEDTLS_ENTROPY_MAX_GATHER];
+	unsigned char buf[TTLS_ENTROPY_MAX_GATHER];
 	size_t olen;
 
 	if (ctx->source_count == 0)
-		return(MBEDTLS_ERR_ENTROPY_NO_SOURCES_DEFINED);
+		return(TTLS_ERR_ENTROPY_NO_SOURCES_DEFINED);
 
 	/*
 	 * Run through our entropy sources
 	 */
 	for (i = 0; i < ctx->source_count; i++)
 	{
-		if (ctx->source[i].strong == MBEDTLS_ENTROPY_SOURCE_STRONG)
+		if (ctx->source[i].strong == TTLS_ENTROPY_SOURCE_STRONG)
 			have_one_strong = 1;
 
 		olen = 0;
 		if ((ret = ctx->source[i].f_source(ctx->source[i].p_source,
-						buf, MBEDTLS_ENTROPY_MAX_GATHER, &olen)) != 0)
+						buf, TTLS_ENTROPY_MAX_GATHER, &olen)) != 0)
 		{
 			goto cleanup;
 		}
@@ -230,10 +230,10 @@ static int entropy_gather_internal(mbedtls_entropy_context *ctx)
 	}
 
 	if (have_one_strong == 0)
-		ret = MBEDTLS_ERR_ENTROPY_NO_STRONG_SOURCE;
+		ret = TTLS_ERR_ENTROPY_NO_STRONG_SOURCE;
 
 cleanup:
-	mbedtls_zeroize(buf, sizeof(buf));
+	ttls_zeroize(buf, sizeof(buf));
 
 	return ret;
 }
@@ -241,7 +241,7 @@ cleanup:
 /*
  * Thread-safe wrapper for entropy_gather_internal()
  */
-int mbedtls_entropy_gather(mbedtls_entropy_context *ctx)
+int ttls_entropy_gather(ttls_entropy_context *ctx)
 {
 	int ret;
 
@@ -254,14 +254,14 @@ int mbedtls_entropy_gather(mbedtls_entropy_context *ctx)
 	return ret;
 }
 
-int mbedtls_entropy_func(void *data, unsigned char *output, size_t len)
+int ttls_entropy_func(void *data, unsigned char *output, size_t len)
 {
 	int ret, count = 0, i, done;
-	mbedtls_entropy_context *ctx = (mbedtls_entropy_context *) data;
-	unsigned char buf[MBEDTLS_ENTROPY_BLOCK_SIZE];
+	ttls_entropy_context *ctx = (ttls_entropy_context *) data;
+	unsigned char buf[TTLS_ENTROPY_BLOCK_SIZE];
 
-	if (len > MBEDTLS_ENTROPY_BLOCK_SIZE)
-		return(MBEDTLS_ERR_ENTROPY_SOURCE_FAILED);
+	if (len > TTLS_ENTROPY_BLOCK_SIZE)
+		return(TTLS_ERR_ENTROPY_SOURCE_FAILED);
 
 	spin_lock(&ctx->mutex);
 
@@ -272,7 +272,7 @@ int mbedtls_entropy_func(void *data, unsigned char *output, size_t len)
 	{
 		if (count++ > ENTROPY_MAX_LOOP)
 		{
-			ret = MBEDTLS_ERR_ENTROPY_SOURCE_FAILED;
+			ret = TTLS_ERR_ENTROPY_SOURCE_FAILED;
 			goto exit;
 		}
 
@@ -286,56 +286,56 @@ int mbedtls_entropy_func(void *data, unsigned char *output, size_t len)
 	}
 	while (! done);
 
-	memset(buf, 0, MBEDTLS_ENTROPY_BLOCK_SIZE);
+	memset(buf, 0, TTLS_ENTROPY_BLOCK_SIZE);
 
-#if defined(MBEDTLS_ENTROPY_SHA512_ACCUMULATOR)
+#if defined(TTLS_ENTROPY_SHA512_ACCUMULATOR)
 	/*
 	 * Note that at this stage it is assumed that the accumulator was started
 	 * in a previous call to entropy_update(). If this is not guaranteed, the
 	 * code below will fail.
 	 */
-	if ((ret = mbedtls_sha512_finish_ret(&ctx->accumulator, buf)) != 0)
+	if ((ret = ttls_sha512_finish_ret(&ctx->accumulator, buf)) != 0)
 		goto exit;
 
 	/*
 	 * Reset accumulator and counters and recycle existing entropy
 	 */
-	mbedtls_sha512_free(&ctx->accumulator);
-	mbedtls_sha512_init(&ctx->accumulator);
-	if ((ret = mbedtls_sha512_starts_ret(&ctx->accumulator, 0)) != 0)
+	ttls_sha512_free(&ctx->accumulator);
+	ttls_sha512_init(&ctx->accumulator);
+	if ((ret = ttls_sha512_starts_ret(&ctx->accumulator, 0)) != 0)
 		goto exit;
-	if ((ret = mbedtls_sha512_update_ret(&ctx->accumulator, buf,
-										   MBEDTLS_ENTROPY_BLOCK_SIZE)) != 0)
+	if ((ret = ttls_sha512_update_ret(&ctx->accumulator, buf,
+										   TTLS_ENTROPY_BLOCK_SIZE)) != 0)
 		goto exit;
 
 	/*
 	 * Perform second SHA-512 on entropy
 	 */
-	if ((ret = mbedtls_sha512_ret(buf, MBEDTLS_ENTROPY_BLOCK_SIZE,
+	if ((ret = ttls_sha512_ret(buf, TTLS_ENTROPY_BLOCK_SIZE,
 									buf, 0)) != 0)
 		goto exit;
-#else /* MBEDTLS_ENTROPY_SHA512_ACCUMULATOR */
-	if ((ret = mbedtls_sha256_finish_ret(&ctx->accumulator, buf)) != 0)
+#else /* TTLS_ENTROPY_SHA512_ACCUMULATOR */
+	if ((ret = ttls_sha256_finish_ret(&ctx->accumulator, buf)) != 0)
 		goto exit;
 
 	/*
 	 * Reset accumulator and counters and recycle existing entropy
 	 */
-	mbedtls_sha256_free(&ctx->accumulator);
-	mbedtls_sha256_init(&ctx->accumulator);
-	if ((ret = mbedtls_sha256_starts_ret(&ctx->accumulator, 0)) != 0)
+	ttls_sha256_free(&ctx->accumulator);
+	ttls_sha256_init(&ctx->accumulator);
+	if ((ret = ttls_sha256_starts_ret(&ctx->accumulator, 0)) != 0)
 		goto exit;
-	if ((ret = mbedtls_sha256_update_ret(&ctx->accumulator, buf,
-										   MBEDTLS_ENTROPY_BLOCK_SIZE)) != 0)
+	if ((ret = ttls_sha256_update_ret(&ctx->accumulator, buf,
+										   TTLS_ENTROPY_BLOCK_SIZE)) != 0)
 		goto exit;
 
 	/*
 	 * Perform second SHA-256 on entropy
 	 */
-	if ((ret = mbedtls_sha256_ret(buf, MBEDTLS_ENTROPY_BLOCK_SIZE,
+	if ((ret = ttls_sha256_ret(buf, TTLS_ENTROPY_BLOCK_SIZE,
 									buf, 0)) != 0)
 		goto exit;
-#endif /* MBEDTLS_ENTROPY_SHA512_ACCUMULATOR */
+#endif /* TTLS_ENTROPY_SHA512_ACCUMULATOR */
 
 	for (i = 0; i < ctx->source_count; i++)
 		ctx->source[i].size = 0;
@@ -345,7 +345,7 @@ int mbedtls_entropy_func(void *data, unsigned char *output, size_t len)
 	ret = 0;
 
 exit:
-	mbedtls_zeroize(buf, sizeof(buf));
+	ttls_zeroize(buf, sizeof(buf));
 
 	spin_unlock(&ctx->mutex);
 
@@ -366,7 +366,7 @@ static int entropy_dummy_source(void *data, unsigned char *output,
 	return 0;
 }
 
-static int mbedtls_entropy_source_self_test_gather(unsigned char *buf, size_t buf_len)
+static int ttls_entropy_source_self_test_gather(unsigned char *buf, size_t buf_len)
 {
 	int ret = 0;
 	size_t entropy_len = 0;
@@ -375,7 +375,7 @@ static int mbedtls_entropy_source_self_test_gather(unsigned char *buf, size_t bu
 
 	while (attempts > 0 && entropy_len < buf_len)
 	{
-		if ((ret = mbedtls_hardware_poll(NULL, buf + entropy_len,
+		if ((ret = ttls_hardware_poll(NULL, buf + entropy_len,
 			buf_len - entropy_len, &olen)) != 0)
 			return ret;
 
@@ -392,7 +392,7 @@ static int mbedtls_entropy_source_self_test_gather(unsigned char *buf, size_t bu
 }
 
 
-static int mbedtls_entropy_source_self_test_check_bits(const unsigned char *buf,
+static int ttls_entropy_source_self_test_check_bits(const unsigned char *buf,
 														size_t buf_len)
 {
 	unsigned char set= 0xFF;
@@ -419,27 +419,27 @@ static int mbedtls_entropy_source_self_test_check_bits(const unsigned char *buf,
  *	are not equal.
  *  - The error code returned by the entropy source is not an error.
  */
-int mbedtls_entropy_source_self_test(int verbose)
+int ttls_entropy_source_self_test(int verbose)
 {
 	int ret = 0;
 	unsigned char buf0[2 * sizeof(unsigned long long int)];
 	unsigned char buf1[2 * sizeof(unsigned long long int)];
 
 	if (verbose != 0)
-		mbedtls_printf("  ENTROPY_BIAS test: ");
+		ttls_printf("  ENTROPY_BIAS test: ");
 
 	memset(buf0, 0x00, sizeof(buf0));
 	memset(buf1, 0x00, sizeof(buf1));
 
-	if ((ret = mbedtls_entropy_source_self_test_gather(buf0, sizeof(buf0))) != 0)
+	if ((ret = ttls_entropy_source_self_test_gather(buf0, sizeof(buf0))) != 0)
 		goto cleanup;
-	if ((ret = mbedtls_entropy_source_self_test_gather(buf1, sizeof(buf1))) != 0)
+	if ((ret = ttls_entropy_source_self_test_gather(buf1, sizeof(buf1))) != 0)
 		goto cleanup;
 
 	/* Make sure that the returned values are not all 0 or 1 */
-	if ((ret = mbedtls_entropy_source_self_test_check_bits(buf0, sizeof(buf0))) != 0)
+	if ((ret = ttls_entropy_source_self_test_check_bits(buf0, sizeof(buf0))) != 0)
 		goto cleanup;
-	if ((ret = mbedtls_entropy_source_self_test_check_bits(buf1, sizeof(buf1))) != 0)
+	if ((ret = ttls_entropy_source_self_test_check_bits(buf1, sizeof(buf1))) != 0)
 		goto cleanup;
 
 	/* Make sure that the entropy source is not returning values in a
@@ -450,11 +450,11 @@ cleanup:
 	if (verbose != 0)
 	{
 		if (ret != 0)
-			mbedtls_printf("failed\n");
+			ttls_printf("failed\n");
 		else
-			mbedtls_printf("passed\n");
+			ttls_printf("passed\n");
 
-		mbedtls_printf("\n");
+		ttls_printf("\n");
 	}
 
 	return(ret != 0);
@@ -465,33 +465,33 @@ cleanup:
  * test that the functions don't cause errors and write the correct
  * amount of data to buffers.
  */
-int mbedtls_entropy_self_test(int verbose)
+int ttls_entropy_self_test(int verbose)
 {
 	int ret = 1;
-	mbedtls_entropy_context ctx;
-	unsigned char buf[MBEDTLS_ENTROPY_BLOCK_SIZE] = { 0 };
-	unsigned char acc[MBEDTLS_ENTROPY_BLOCK_SIZE] = { 0 };
+	ttls_entropy_context ctx;
+	unsigned char buf[TTLS_ENTROPY_BLOCK_SIZE] = { 0 };
+	unsigned char acc[TTLS_ENTROPY_BLOCK_SIZE] = { 0 };
 	size_t i, j;
 
 	if (verbose != 0)
-		mbedtls_printf("  ENTROPY test: ");
+		ttls_printf("  ENTROPY test: ");
 
-	mbedtls_entropy_init(&ctx);
+	ttls_entropy_init(&ctx);
 
 	/* First do a gather to make sure we have default sources */
-	if ((ret = mbedtls_entropy_gather(&ctx)) != 0)
+	if ((ret = ttls_entropy_gather(&ctx)) != 0)
 		goto cleanup;
 
-	ret = mbedtls_entropy_add_source(&ctx, entropy_dummy_source, NULL, 16,
-									  MBEDTLS_ENTROPY_SOURCE_WEAK);
+	ret = ttls_entropy_add_source(&ctx, entropy_dummy_source, NULL, 16,
+									  TTLS_ENTROPY_SOURCE_WEAK);
 	if (ret != 0)
 		goto cleanup;
 
-	if ((ret = mbedtls_entropy_update_manual(&ctx, buf, sizeof buf)) != 0)
+	if ((ret = ttls_entropy_update_manual(&ctx, buf, sizeof buf)) != 0)
 		goto cleanup;
 
 	/*
-	 * To test that mbedtls_entropy_func writes correct number of bytes:
+	 * To test that ttls_entropy_func writes correct number of bytes:
 	 * - use the whole buffer and rely on ASan to detect overruns
 	 * - collect entropy 8 times and OR the result in an accumulator:
 	 *   any byte should then be 0 with probably 2^(-64), so requiring
@@ -500,7 +500,7 @@ int mbedtls_entropy_self_test(int verbose)
 	 */
 	for (i = 0; i < 8; i++)
 	{
-		if ((ret = mbedtls_entropy_func(&ctx, buf, sizeof(buf))) != 0)
+		if ((ret = ttls_entropy_func(&ctx, buf, sizeof(buf))) != 0)
 			goto cleanup;
 
 		for (j = 0; j < sizeof(buf); j++)
@@ -516,23 +516,23 @@ int mbedtls_entropy_self_test(int verbose)
 		}
 	}
 
-	if ((ret = mbedtls_entropy_source_self_test(0)) != 0)
+	if ((ret = ttls_entropy_source_self_test(0)) != 0)
 		goto cleanup;
 
 cleanup:
-	mbedtls_entropy_free(&ctx);
+	ttls_entropy_free(&ctx);
 
 	if (verbose != 0)
 	{
 		if (ret != 0)
-			mbedtls_printf("failed\n");
+			ttls_printf("failed\n");
 		else
-			mbedtls_printf("passed\n");
+			ttls_printf("passed\n");
 
-		mbedtls_printf("\n");
+		ttls_printf("\n");
 	}
 
 	return(ret != 0);
 }
 
-#endif /* MBEDTLS_ENTROPY_C */
+#endif /* TTLS_ENTROPY_C */

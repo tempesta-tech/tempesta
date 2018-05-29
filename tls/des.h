@@ -29,27 +29,27 @@
  *  This file is part of mbed TLS (https://tls.mbed.org)
  *
  */
-#ifndef MBEDTLS_DES_H
-#define MBEDTLS_DES_H
+#ifndef TTLS_DES_H
+#define TTLS_DES_H
 
-#if !defined(MBEDTLS_CONFIG_FILE)
+#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
 #else
-#include MBEDTLS_CONFIG_FILE
+#include TTLS_CONFIG_FILE
 #endif
 
 #include <stddef.h>
 #include <stdint.h>
 
-#define MBEDTLS_DES_ENCRYPT	 1
-#define MBEDTLS_DES_DECRYPT	 0
+#define TTLS_DES_ENCRYPT	 1
+#define TTLS_DES_DECRYPT	 0
 
-#define MBEDTLS_ERR_DES_INVALID_INPUT_LENGTH			  -0x0032  /**< The data input has an invalid length. */
-#define MBEDTLS_ERR_DES_HW_ACCEL_FAILED				   -0x0033  /**< DES hardware accelerator failed. */
+#define TTLS_ERR_DES_INVALID_INPUT_LENGTH			  -0x0032  /**< The data input has an invalid length. */
+#define TTLS_ERR_DES_HW_ACCEL_FAILED				   -0x0033  /**< DES hardware accelerator failed. */
 
-#define MBEDTLS_DES_KEY_SIZE	8
+#define TTLS_DES_KEY_SIZE	8
 
-#if !defined(MBEDTLS_DES_ALT)
+#if !defined(TTLS_DES_ALT)
 // Regular implementation
 //
 
@@ -64,7 +64,7 @@ typedef struct
 {
 	uint32_t sk[32];			/*!<  DES subkeys	   */
 }
-mbedtls_des_context;
+ttls_des_context;
 
 /**
  * \brief		  Triple-DES context structure
@@ -73,7 +73,7 @@ typedef struct
 {
 	uint32_t sk[96];			/*!<  3DES subkeys	  */
 }
-mbedtls_des3_context;
+ttls_des3_context;
 
 /**
  * \brief		  Initialize DES context
@@ -84,7 +84,7 @@ mbedtls_des3_context;
  *				 security risk. We recommend considering stronger ciphers
  *				 instead.
  */
-void mbedtls_des_init(mbedtls_des_context *ctx);
+void ttls_des_init(ttls_des_context *ctx);
 
 /**
  * \brief		  Clear DES context
@@ -95,21 +95,21 @@ void mbedtls_des_init(mbedtls_des_context *ctx);
  *				 security risk. We recommend considering stronger ciphers
  *				 instead.
  */
-void mbedtls_des_free(mbedtls_des_context *ctx);
+void ttls_des_free(ttls_des_context *ctx);
 
 /**
  * \brief		  Initialize Triple-DES context
  *
  * \param ctx	  DES3 context to be initialized
  */
-void mbedtls_des3_init(mbedtls_des3_context *ctx);
+void ttls_des3_init(ttls_des3_context *ctx);
 
 /**
  * \brief		  Clear Triple-DES context
  *
  * \param ctx	  DES3 context to be cleared
  */
-void mbedtls_des3_free(mbedtls_des3_context *ctx);
+void ttls_des3_free(ttls_des3_context *ctx);
 
 /**
  * \brief		  Set key parity on the given key to odd.
@@ -123,7 +123,7 @@ void mbedtls_des3_free(mbedtls_des3_context *ctx);
  *				 security risk. We recommend considering stronger ciphers
  *				 instead.
  */
-void mbedtls_des_key_set_parity(unsigned char key[MBEDTLS_DES_KEY_SIZE]);
+void ttls_des_key_set_parity(unsigned char key[TTLS_DES_KEY_SIZE]);
 
 /**
  * \brief		  Check that key parity on the given key is odd.
@@ -139,7 +139,7 @@ void mbedtls_des_key_set_parity(unsigned char key[MBEDTLS_DES_KEY_SIZE]);
  *				 security risk. We recommend considering stronger ciphers
  *				 instead.
  */
-int mbedtls_des_key_check_key_parity(const unsigned char key[MBEDTLS_DES_KEY_SIZE]);
+int ttls_des_key_check_key_parity(const unsigned char key[TTLS_DES_KEY_SIZE]);
 
 /**
  * \brief		  Check that key is not a weak or semi-weak DES key
@@ -152,7 +152,7 @@ int mbedtls_des_key_check_key_parity(const unsigned char key[MBEDTLS_DES_KEY_SIZ
  *				 security risk. We recommend considering stronger ciphers
  *				 instead.
  */
-int mbedtls_des_key_check_weak(const unsigned char key[MBEDTLS_DES_KEY_SIZE]);
+int ttls_des_key_check_weak(const unsigned char key[TTLS_DES_KEY_SIZE]);
 
 /**
  * \brief		  DES key schedule (56-bit, encryption)
@@ -166,7 +166,7 @@ int mbedtls_des_key_check_weak(const unsigned char key[MBEDTLS_DES_KEY_SIZE]);
  *				 security risk. We recommend considering stronger ciphers
  *				 instead.
  */
-int mbedtls_des_setkey_enc(mbedtls_des_context *ctx, const unsigned char key[MBEDTLS_DES_KEY_SIZE]);
+int ttls_des_setkey_enc(ttls_des_context *ctx, const unsigned char key[TTLS_DES_KEY_SIZE]);
 
 /**
  * \brief		  DES key schedule (56-bit, decryption)
@@ -180,7 +180,7 @@ int mbedtls_des_setkey_enc(mbedtls_des_context *ctx, const unsigned char key[MBE
  *				 security risk. We recommend considering stronger ciphers
  *				 instead.
  */
-int mbedtls_des_setkey_dec(mbedtls_des_context *ctx, const unsigned char key[MBEDTLS_DES_KEY_SIZE]);
+int ttls_des_setkey_dec(ttls_des_context *ctx, const unsigned char key[TTLS_DES_KEY_SIZE]);
 
 /**
  * \brief		  Triple-DES key schedule (112-bit, encryption)
@@ -190,8 +190,8 @@ int mbedtls_des_setkey_dec(mbedtls_des_context *ctx, const unsigned char key[MBE
  *
  * \return		 0
  */
-int mbedtls_des3_set2key_enc(mbedtls_des3_context *ctx,
-					  const unsigned char key[MBEDTLS_DES_KEY_SIZE * 2]);
+int ttls_des3_set2key_enc(ttls_des3_context *ctx,
+					  const unsigned char key[TTLS_DES_KEY_SIZE * 2]);
 
 /**
  * \brief		  Triple-DES key schedule (112-bit, decryption)
@@ -201,8 +201,8 @@ int mbedtls_des3_set2key_enc(mbedtls_des3_context *ctx,
  *
  * \return		 0
  */
-int mbedtls_des3_set2key_dec(mbedtls_des3_context *ctx,
-					  const unsigned char key[MBEDTLS_DES_KEY_SIZE * 2]);
+int ttls_des3_set2key_dec(ttls_des3_context *ctx,
+					  const unsigned char key[TTLS_DES_KEY_SIZE * 2]);
 
 /**
  * \brief		  Triple-DES key schedule (168-bit, encryption)
@@ -212,8 +212,8 @@ int mbedtls_des3_set2key_dec(mbedtls_des3_context *ctx,
  *
  * \return		 0
  */
-int mbedtls_des3_set3key_enc(mbedtls_des3_context *ctx,
-					  const unsigned char key[MBEDTLS_DES_KEY_SIZE * 3]);
+int ttls_des3_set3key_enc(ttls_des3_context *ctx,
+					  const unsigned char key[TTLS_DES_KEY_SIZE * 3]);
 
 /**
  * \brief		  Triple-DES key schedule (168-bit, decryption)
@@ -223,8 +223,8 @@ int mbedtls_des3_set3key_enc(mbedtls_des3_context *ctx,
  *
  * \return		 0
  */
-int mbedtls_des3_set3key_dec(mbedtls_des3_context *ctx,
-					  const unsigned char key[MBEDTLS_DES_KEY_SIZE * 3]);
+int ttls_des3_set3key_dec(ttls_des3_context *ctx,
+					  const unsigned char key[TTLS_DES_KEY_SIZE * 3]);
 
 /**
  * \brief		  DES-ECB block encryption/decryption
@@ -239,11 +239,11 @@ int mbedtls_des3_set3key_dec(mbedtls_des3_context *ctx,
  *				 security risk. We recommend considering stronger ciphers
  *				 instead.
  */
-int mbedtls_des_crypt_ecb(mbedtls_des_context *ctx,
+int ttls_des_crypt_ecb(ttls_des_context *ctx,
 					const unsigned char input[8],
 					unsigned char output[8]);
 
-#if defined(MBEDTLS_CIPHER_MODE_CBC)
+#if defined(TTLS_CIPHER_MODE_CBC)
 /**
  * \brief		  DES-CBC buffer encryption/decryption
  *
@@ -256,7 +256,7 @@ int mbedtls_des_crypt_ecb(mbedtls_des_context *ctx,
  *				 module instead.
  *
  * \param ctx	  DES context
- * \param mode	 MBEDTLS_DES_ENCRYPT or MBEDTLS_DES_DECRYPT
+ * \param mode	 TTLS_DES_ENCRYPT or TTLS_DES_DECRYPT
  * \param length   length of the input data
  * \param iv	   initialization vector (updated after use)
  * \param input	buffer holding the input data
@@ -266,13 +266,13 @@ int mbedtls_des_crypt_ecb(mbedtls_des_context *ctx,
  *				 security risk. We recommend considering stronger ciphers
  *				 instead.
  */
-int mbedtls_des_crypt_cbc(mbedtls_des_context *ctx,
+int ttls_des_crypt_cbc(ttls_des_context *ctx,
 					int mode,
 					size_t length,
 					unsigned char iv[8],
 					const unsigned char *input,
 					unsigned char *output);
-#endif /* MBEDTLS_CIPHER_MODE_CBC */
+#endif /* TTLS_CIPHER_MODE_CBC */
 
 /**
  * \brief		  3DES-ECB block encryption/decryption
@@ -283,11 +283,11 @@ int mbedtls_des_crypt_cbc(mbedtls_des_context *ctx,
  *
  * \return		 0 if successful
  */
-int mbedtls_des3_crypt_ecb(mbedtls_des3_context *ctx,
+int ttls_des3_crypt_ecb(ttls_des3_context *ctx,
 					 const unsigned char input[8],
 					 unsigned char output[8]);
 
-#if defined(MBEDTLS_CIPHER_MODE_CBC)
+#if defined(TTLS_CIPHER_MODE_CBC)
 /**
  * \brief		  3DES-CBC buffer encryption/decryption
  *
@@ -300,26 +300,26 @@ int mbedtls_des3_crypt_ecb(mbedtls_des3_context *ctx,
  *				 module instead.
  *
  * \param ctx	  3DES context
- * \param mode	 MBEDTLS_DES_ENCRYPT or MBEDTLS_DES_DECRYPT
+ * \param mode	 TTLS_DES_ENCRYPT or TTLS_DES_DECRYPT
  * \param length   length of the input data
  * \param iv	   initialization vector (updated after use)
  * \param input	buffer holding the input data
  * \param output   buffer holding the output data
  *
- * \return		 0 if successful, or MBEDTLS_ERR_DES_INVALID_INPUT_LENGTH
+ * \return		 0 if successful, or TTLS_ERR_DES_INVALID_INPUT_LENGTH
  */
-int mbedtls_des3_crypt_cbc(mbedtls_des3_context *ctx,
+int ttls_des3_crypt_cbc(ttls_des3_context *ctx,
 					 int mode,
 					 size_t length,
 					 unsigned char iv[8],
 					 const unsigned char *input,
 					 unsigned char *output);
-#endif /* MBEDTLS_CIPHER_MODE_CBC */
+#endif /* TTLS_CIPHER_MODE_CBC */
 
 /**
  * \brief		  Internal function for key expansion.
  *				 (Only exposed to allow overriding it,
- *				 see MBEDTLS_DES_SETKEY_ALT)
+ *				 see TTLS_DES_SETKEY_ALT)
  *
  * \param SK	   Round keys
  * \param key	  Base key
@@ -328,11 +328,11 @@ int mbedtls_des3_crypt_cbc(mbedtls_des3_context *ctx,
  *				 security risk. We recommend considering stronger ciphers
  *				 instead.
  */
-void mbedtls_des_setkey(uint32_t SK[32],
-						 const unsigned char key[MBEDTLS_DES_KEY_SIZE]);
+void ttls_des_setkey(uint32_t SK[32],
+						 const unsigned char key[TTLS_DES_KEY_SIZE]);
 
-#else  /* MBEDTLS_DES_ALT */
+#else  /* TTLS_DES_ALT */
 #include "des_alt.h"
-#endif /* MBEDTLS_DES_ALT */
+#endif /* TTLS_DES_ALT */
 
 #endif /* des.h */

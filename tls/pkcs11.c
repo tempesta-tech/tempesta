@@ -27,7 +27,7 @@
  */
 #include "pkcs11.h"
 
-#if defined(MBEDTLS_PKCS11_C)
+#if defined(TTLS_PKCS11_C)
 
 #include "md.h"
 #include "oid.h"
@@ -35,12 +35,12 @@
 
 #include <string.h>
 
-void mbedtls_pkcs11_init(mbedtls_pkcs11_context *ctx)
+void ttls_pkcs11_init(ttls_pkcs11_context *ctx)
 {
-	memset(ctx, 0, sizeof(mbedtls_pkcs11_context));
+	memset(ctx, 0, sizeof(ttls_pkcs11_context));
 }
 
-int mbedtls_pkcs11_x509_cert_bind(mbedtls_x509_crt *cert, pkcs11h_certificate_t pkcs11_cert)
+int ttls_pkcs11_x509_cert_bind(ttls_x509_crt *cert, pkcs11h_certificate_t pkcs11_cert)
 {
 	int ret = 1;
 	unsigned char *cert_blob = NULL;
@@ -59,7 +59,7 @@ int mbedtls_pkcs11_x509_cert_bind(mbedtls_x509_crt *cert, pkcs11h_certificate_t 
 		goto cleanup;
 	}
 
-	cert_blob = mbedtls_calloc(1, cert_blob_size);
+	cert_blob = ttls_calloc(1, cert_blob_size);
 	if (NULL == cert_blob)
 	{
 		ret = 4;
@@ -73,7 +73,7 @@ int mbedtls_pkcs11_x509_cert_bind(mbedtls_x509_crt *cert, pkcs11h_certificate_t 
 		goto cleanup;
 	}
 
-	if (0 != mbedtls_x509_crt_parse(cert, cert_blob, cert_blob_size))
+	if (0 != ttls_x509_crt_parse(cert, cert_blob, cert_blob_size))
 	{
 		ret = 6;
 		goto cleanup;
@@ -83,44 +83,44 @@ int mbedtls_pkcs11_x509_cert_bind(mbedtls_x509_crt *cert, pkcs11h_certificate_t 
 
 cleanup:
 	if (NULL != cert_blob)
-		mbedtls_free(cert_blob);
+		ttls_free(cert_blob);
 
 	return ret;
 }
 
 
-int mbedtls_pkcs11_priv_key_bind(mbedtls_pkcs11_context *priv_key,
+int ttls_pkcs11_priv_key_bind(ttls_pkcs11_context *priv_key,
 		pkcs11h_certificate_t pkcs11_cert)
 {
 	int ret = 1;
-	mbedtls_x509_crt cert;
+	ttls_x509_crt cert;
 
-	mbedtls_x509_crt_init(&cert);
+	ttls_x509_crt_init(&cert);
 
 	if (priv_key == NULL)
 		goto cleanup;
 
-	if (0 != mbedtls_pkcs11_x509_cert_bind(&cert, pkcs11_cert))
+	if (0 != ttls_pkcs11_x509_cert_bind(&cert, pkcs11_cert))
 		goto cleanup;
 
-	priv_key->len = mbedtls_pk_get_len(&cert.pk);
+	priv_key->len = ttls_pk_get_len(&cert.pk);
 	priv_key->pkcs11h_cert = pkcs11_cert;
 
 	ret = 0;
 
 cleanup:
-	mbedtls_x509_crt_free(&cert);
+	ttls_x509_crt_free(&cert);
 
 	return ret;
 }
 
-void mbedtls_pkcs11_priv_key_free(mbedtls_pkcs11_context *priv_key)
+void ttls_pkcs11_priv_key_free(ttls_pkcs11_context *priv_key)
 {
 	if (NULL != priv_key)
 		pkcs11h_certificate_freeCertificate(priv_key->pkcs11h_cert);
 }
 
-int mbedtls_pkcs11_decrypt(mbedtls_pkcs11_context *ctx,
+int ttls_pkcs11_decrypt(ttls_pkcs11_context *ctx,
 					   int mode, size_t *olen,
 					   const unsigned char *input,
 					   unsigned char *output,
@@ -129,38 +129,38 @@ int mbedtls_pkcs11_decrypt(mbedtls_pkcs11_context *ctx,
 	size_t input_len, output_len;
 
 	if (NULL == ctx)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
-	if (MBEDTLS_RSA_PRIVATE != mode)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+	if (TTLS_RSA_PRIVATE != mode)
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	output_len = input_len = ctx->len;
 
 	if (input_len < 16 || input_len > output_max_len)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	/* Determine size of output buffer */
 	if (pkcs11h_certificate_decryptAny(ctx->pkcs11h_cert, CKM_RSA_PKCS, input,
 			input_len, NULL, &output_len) != CKR_OK)
 	{
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 	}
 
 	if (output_len > output_max_len)
-		return(MBEDTLS_ERR_RSA_OUTPUT_TOO_LARGE);
+		return(TTLS_ERR_RSA_OUTPUT_TOO_LARGE);
 
 	if (pkcs11h_certificate_decryptAny(ctx->pkcs11h_cert, CKM_RSA_PKCS, input,
 			input_len, output, &output_len) != CKR_OK)
 	{
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 	}
 	*olen = output_len;
 	return 0;
 }
 
-int mbedtls_pkcs11_sign(mbedtls_pkcs11_context *ctx,
+int ttls_pkcs11_sign(ttls_pkcs11_context *ctx,
 					int mode,
-					mbedtls_md_type_t md_alg,
+					ttls_md_type_t md_alg,
 					unsigned int hashlen,
 					const unsigned char *hash,
 					unsigned char *sig)
@@ -170,21 +170,21 @@ int mbedtls_pkcs11_sign(mbedtls_pkcs11_context *ctx,
 	const char *oid;
 
 	if (NULL == ctx)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
-	if (MBEDTLS_RSA_PRIVATE != mode)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+	if (TTLS_RSA_PRIVATE != mode)
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
-	if (md_alg != MBEDTLS_MD_NONE)
+	if (md_alg != TTLS_MD_NONE)
 	{
-		const mbedtls_md_info_t *md_info = mbedtls_md_info_from_type(md_alg);
+		const ttls_md_info_t *md_info = ttls_md_info_from_type(md_alg);
 		if (md_info == NULL)
-			return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+			return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
-		if (mbedtls_oid_get_oid_by_md(md_alg, &oid, &oid_size) != 0)
-			return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		if (ttls_oid_get_oid_by_md(md_alg, &oid, &oid_size) != 0)
+			return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
-		hashlen = mbedtls_md_get_size(md_info);
+		hashlen = ttls_md_get_size(md_info);
 		asn_len = 10 + oid_size;
 	}
 
@@ -192,10 +192,10 @@ int mbedtls_pkcs11_sign(mbedtls_pkcs11_context *ctx,
 	if (hashlen > sig_len || asn_len > sig_len ||
 		hashlen + asn_len > sig_len)
 	{
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 	}
 
-	if (md_alg != MBEDTLS_MD_NONE)
+	if (md_alg != TTLS_MD_NONE)
 	{
 		/*
 		 * DigestInfo ::= SEQUENCE {
@@ -206,17 +206,17 @@ int mbedtls_pkcs11_sign(mbedtls_pkcs11_context *ctx,
 		 *
 		 * Digest ::= OCTET STRING
 		 */
-		*p++ = MBEDTLS_ASN1_SEQUENCE | MBEDTLS_ASN1_CONSTRUCTED;
+		*p++ = TTLS_ASN1_SEQUENCE | TTLS_ASN1_CONSTRUCTED;
 		*p++ = (unsigned char) (0x08 + oid_size + hashlen);
-		*p++ = MBEDTLS_ASN1_SEQUENCE | MBEDTLS_ASN1_CONSTRUCTED;
+		*p++ = TTLS_ASN1_SEQUENCE | TTLS_ASN1_CONSTRUCTED;
 		*p++ = (unsigned char) (0x04 + oid_size);
-		*p++ = MBEDTLS_ASN1_OID;
+		*p++ = TTLS_ASN1_OID;
 		*p++ = oid_size & 0xFF;
 		memcpy(p, oid, oid_size);
 		p += oid_size;
-		*p++ = MBEDTLS_ASN1_NULL;
+		*p++ = TTLS_ASN1_NULL;
 		*p++ = 0x00;
-		*p++ = MBEDTLS_ASN1_OCTET_STRING;
+		*p++ = TTLS_ASN1_OCTET_STRING;
 		*p++ = hashlen;
 	}
 
@@ -225,10 +225,10 @@ int mbedtls_pkcs11_sign(mbedtls_pkcs11_context *ctx,
 	if (pkcs11h_certificate_signAny(ctx->pkcs11h_cert, CKM_RSA_PKCS, sig,
 			asn_len + hashlen, sig, &sig_len) != CKR_OK)
 	{
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 	}
 
 	return 0;
 }
 
-#endif /* defined(MBEDTLS_PKCS11_C) */
+#endif /* defined(TTLS_PKCS11_C) */

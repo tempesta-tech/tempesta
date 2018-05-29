@@ -30,8 +30,8 @@
  *  This file is part of Mbed TLS (https://tls.mbed.org)
  */
 
-#ifndef MBEDTLS_ECDSA_H
-#define MBEDTLS_ECDSA_H
+#ifndef TTLS_ECDSA_H
+#define TTLS_ECDSA_H
 
 #include "ecp.h"
 #include "md.h"
@@ -50,16 +50,16 @@
  * (assuming ECP_MAX_BYTES is less than 126 for r and s,
  * and less than 124 (total len <= 255) for the sequence)
  */
-#if MBEDTLS_ECP_MAX_BYTES > 124
-#error "MBEDTLS_ECP_MAX_BYTES bigger than expected, please fix MBEDTLS_ECDSA_MAX_LEN"
+#if TTLS_ECP_MAX_BYTES > 124
+#error "TTLS_ECP_MAX_BYTES bigger than expected, please fix TTLS_ECDSA_MAX_LEN"
 #endif
 /** The maximal size of an ECDSA signature in Bytes. */
-#define MBEDTLS_ECDSA_MAX_LEN  (3 + 2 * (3 + MBEDTLS_ECP_MAX_BYTES))
+#define TTLS_ECDSA_MAX_LEN  (3 + 2 * (3 + TTLS_ECP_MAX_BYTES))
 
 /**
  * \brief		   The ECDSA context structure.
  */
-typedef mbedtls_ecp_keypair mbedtls_ecdsa_context;
+typedef ttls_ecp_keypair ttls_ecdsa_context;
 
 #ifdef __cplusplus
 extern "C" {
@@ -86,16 +86,16 @@ extern "C" {
  *				  (SECG): SEC1 Elliptic Curve Cryptography</em>, section
  *				  4.1.3, step 5.
  *
- * \return		  \c 0 on success, or an \c MBEDTLS_ERR_ECP_XXX
- *				  or \c MBEDTLS_MPI_XXX error code on failure.
+ * \return		  \c 0 on success, or an \c TTLS_ERR_ECP_XXX
+ *				  or \c TTLS_MPI_XXX error code on failure.
  *
  * \see			 ecp.h
  */
-int mbedtls_ecdsa_sign(mbedtls_ecp_group *grp, mbedtls_mpi *r, mbedtls_mpi *s,
-				const mbedtls_mpi *d, const unsigned char *buf, size_t blen,
+int ttls_ecdsa_sign(ttls_ecp_group *grp, ttls_mpi *r, ttls_mpi *s,
+				const ttls_mpi *d, const unsigned char *buf, size_t blen,
 				int (*f_rng)(void *, unsigned char *, size_t), void *p_rng);
 
-#if defined(MBEDTLS_ECDSA_DETERMINISTIC)
+#if defined(TTLS_ECDSA_DETERMINISTIC)
 /**
  * \brief		   This function computes the ECDSA signature of a
  *				  previously-hashed message, deterministic version.
@@ -118,15 +118,15 @@ int mbedtls_ecdsa_sign(mbedtls_ecp_group *grp, mbedtls_mpi *r, mbedtls_mpi *s,
  *				  4.1.3, step 5.
  *
  * \return		  \c 0 on success,
- *				  or an \c MBEDTLS_ERR_ECP_XXX or \c MBEDTLS_MPI_XXX
+ *				  or an \c TTLS_ERR_ECP_XXX or \c TTLS_MPI_XXX
  *				  error code on failure.
  *
  * \see			 ecp.h
  */
-int mbedtls_ecdsa_sign_det(mbedtls_ecp_group *grp, mbedtls_mpi *r, mbedtls_mpi *s,
-					const mbedtls_mpi *d, const unsigned char *buf, size_t blen,
-					mbedtls_md_type_t md_alg);
-#endif /* MBEDTLS_ECDSA_DETERMINISTIC */
+int ttls_ecdsa_sign_det(ttls_ecp_group *grp, ttls_mpi *r, ttls_mpi *s,
+					const ttls_mpi *d, const unsigned char *buf, size_t blen,
+					ttls_md_type_t md_alg);
+#endif /* TTLS_ECDSA_DETERMINISTIC */
 
 /**
  * \brief		   This function verifies the ECDSA signature of a
@@ -146,15 +146,15 @@ int mbedtls_ecdsa_sign_det(mbedtls_ecp_group *grp, mbedtls_mpi *r, mbedtls_mpi *
  *				  4.1.4, step 3.
  *
  * \return		  \c 0 on success,
- *				  #MBEDTLS_ERR_ECP_BAD_INPUT_DATA if signature is invalid,
- *				  or an \c MBEDTLS_ERR_ECP_XXX or \c MBEDTLS_MPI_XXX
+ *				  #TTLS_ERR_ECP_BAD_INPUT_DATA if signature is invalid,
+ *				  or an \c TTLS_ERR_ECP_XXX or \c TTLS_MPI_XXX
  *				  error code on failure for any other reason.
  *
  * \see			 ecp.h
  */
-int mbedtls_ecdsa_verify(mbedtls_ecp_group *grp,
+int ttls_ecdsa_verify(ttls_ecp_group *grp,
 				  const unsigned char *buf, size_t blen,
-				  const mbedtls_ecp_point *Q, const mbedtls_mpi *r, const mbedtls_mpi *s);
+				  const ttls_ecp_point *Q, const ttls_mpi *r, const ttls_mpi *s);
 
 /**
  * \brief		   This function computes the ECDSA signature and writes it
@@ -166,7 +166,7 @@ int mbedtls_ecdsa_verify(mbedtls_ecp_group *grp,
  *				  multiple threads.
  *
  * \note			The deterministic version is used if
- *				  #MBEDTLS_ECDSA_DETERMINISTIC is defined. For more
+ *				  #TTLS_ECDSA_DETERMINISTIC is defined. For more
  *				  information, see <em>RFC-6979: Deterministic Usage
  *				  of the Digital Signature Algorithm (DSA) and Elliptic
  *				  Curve Digital Signature Algorithm (ECDSA)</em>.
@@ -183,7 +183,7 @@ int mbedtls_ecdsa_verify(mbedtls_ecp_group *grp,
  * \note			The \p sig buffer must be at least twice as large as the
  *				  size of the curve used, plus 9. For example, 73 Bytes if
  *				  a 256-bit curve is used. A buffer length of
- *				  #MBEDTLS_ECDSA_MAX_LEN is always safe.
+ *				  #TTLS_ECDSA_MAX_LEN is always safe.
  *
  * \note			If the bitlength of the message hash is larger than the
  *				  bitlength of the group order, then the hash is truncated as
@@ -192,23 +192,23 @@ int mbedtls_ecdsa_verify(mbedtls_ecp_group *grp,
  *				  4.1.3, step 5.
  *
  * \return		  \c 0 on success,
- *				  or an \c MBEDTLS_ERR_ECP_XXX, \c MBEDTLS_ERR_MPI_XXX or
- *				  \c MBEDTLS_ERR_ASN1_XXX error code on failure.
+ *				  or an \c TTLS_ERR_ECP_XXX, \c TTLS_ERR_MPI_XXX or
+ *				  \c TTLS_ERR_ASN1_XXX error code on failure.
  *
  * \see			 ecp.h
  */
-int mbedtls_ecdsa_write_signature(mbedtls_ecdsa_context *ctx, mbedtls_md_type_t md_alg,
+int ttls_ecdsa_write_signature(ttls_ecdsa_context *ctx, ttls_md_type_t md_alg,
 						   const unsigned char *hash, size_t hlen,
 						   unsigned char *sig, size_t *slen,
 						   int (*f_rng)(void *, unsigned char *, size_t),
 						   void *p_rng);
 
-#if defined(MBEDTLS_ECDSA_DETERMINISTIC)
-#if ! defined(MBEDTLS_DEPRECATED_REMOVED)
-#if defined(MBEDTLS_DEPRECATED_WARNING)
-#define MBEDTLS_DEPRECATED	__attribute__((deprecated))
+#if defined(TTLS_ECDSA_DETERMINISTIC)
+#if ! defined(TTLS_DEPRECATED_REMOVED)
+#if defined(TTLS_DEPRECATED_WARNING)
+#define TTLS_DEPRECATED	__attribute__((deprecated))
 #else
-#define MBEDTLS_DEPRECATED
+#define TTLS_DEPRECATED
 #endif
 /**
  * \brief   This function computes an ECDSA signature and writes it to a buffer,
@@ -223,7 +223,7 @@ int mbedtls_ecdsa_write_signature(mbedtls_ecdsa_context *ctx, mbedtls_md_type_t 
  *				  multiple threads.
 
  *
- * \deprecated	  Superseded by mbedtls_ecdsa_write_signature() in 2.0.0
+ * \deprecated	  Superseded by ttls_ecdsa_write_signature() in 2.0.0
  *
  * \param ctx	   The ECDSA context.
  * \param hash	  The Message hash.
@@ -235,7 +235,7 @@ int mbedtls_ecdsa_write_signature(mbedtls_ecdsa_context *ctx, mbedtls_md_type_t 
  * \note			The \p sig buffer must be at least twice as large as the
  *				  size of the curve used, plus 9. For example, 73 Bytes if a
  *				  256-bit curve is used. A buffer length of
- *				  #MBEDTLS_ECDSA_MAX_LEN is always safe.
+ *				  #TTLS_ECDSA_MAX_LEN is always safe.
  *
  * \note			If the bitlength of the message hash is larger than the
  *				  bitlength of the group order, then the hash is truncated as
@@ -244,18 +244,18 @@ int mbedtls_ecdsa_write_signature(mbedtls_ecdsa_context *ctx, mbedtls_md_type_t 
  *				  4.1.3, step 5.
  *
  * \return		  \c 0 on success,
- *				  or an \c MBEDTLS_ERR_ECP_XXX, \c MBEDTLS_ERR_MPI_XXX or
- *				  \c MBEDTLS_ERR_ASN1_XXX error code on failure.
+ *				  or an \c TTLS_ERR_ECP_XXX, \c TTLS_ERR_MPI_XXX or
+ *				  \c TTLS_ERR_ASN1_XXX error code on failure.
  *
  * \see			 ecp.h
  */
-int mbedtls_ecdsa_write_signature_det(mbedtls_ecdsa_context *ctx,
+int ttls_ecdsa_write_signature_det(ttls_ecdsa_context *ctx,
 							   const unsigned char *hash, size_t hlen,
 							   unsigned char *sig, size_t *slen,
-							   mbedtls_md_type_t md_alg) MBEDTLS_DEPRECATED;
-#undef MBEDTLS_DEPRECATED
-#endif /* MBEDTLS_DEPRECATED_REMOVED */
-#endif /* MBEDTLS_ECDSA_DETERMINISTIC */
+							   ttls_md_type_t md_alg) TTLS_DEPRECATED;
+#undef TTLS_DEPRECATED
+#endif /* TTLS_DEPRECATED_REMOVED */
+#endif /* TTLS_ECDSA_DETERMINISTIC */
 
 /**
  * \brief		   This function reads and verifies an ECDSA signature.
@@ -273,15 +273,15 @@ int mbedtls_ecdsa_write_signature_det(mbedtls_ecdsa_context *ctx,
  *				  4.1.4, step 3.
  *
  * \return		  \c 0 on success,
- *				  #MBEDTLS_ERR_ECP_BAD_INPUT_DATA if signature is invalid,
- *				  #MBEDTLS_ERR_ECP_SIG_LEN_MISMATCH if the signature is
+ *				  #TTLS_ERR_ECP_BAD_INPUT_DATA if signature is invalid,
+ *				  #TTLS_ERR_ECP_SIG_LEN_MISMATCH if the signature is
  *				  valid but its actual length is less than \p siglen,
- *				  or an \c MBEDTLS_ERR_ECP_XXX or \c MBEDTLS_ERR_MPI_XXX
+ *				  or an \c TTLS_ERR_ECP_XXX or \c TTLS_ERR_MPI_XXX
  *				  error code on failure for any other reason.
  *
  * \see			 ecp.h
  */
-int mbedtls_ecdsa_read_signature(mbedtls_ecdsa_context *ctx,
+int ttls_ecdsa_read_signature(ttls_ecdsa_context *ctx,
 						  const unsigned char *hash, size_t hlen,
 						  const unsigned char *sig, size_t slen);
 
@@ -290,16 +290,16 @@ int mbedtls_ecdsa_read_signature(mbedtls_ecdsa_context *ctx,
  *
  * \param ctx	  The ECDSA context to store the keypair in.
  * \param gid	  The elliptic curve to use. One of the various
- *				 \c MBEDTLS_ECP_DP_XXX macros depending on configuration.
+ *				 \c TTLS_ECP_DP_XXX macros depending on configuration.
  * \param f_rng	The RNG function.
  * \param p_rng	The RNG parameter.
  *
- * \return		 \c 0 on success, or an \c MBEDTLS_ERR_ECP_XXX code on
+ * \return		 \c 0 on success, or an \c TTLS_ERR_ECP_XXX code on
  *				 failure.
  *
  * \see			ecp.h
  */
-int mbedtls_ecdsa_genkey(mbedtls_ecdsa_context *ctx, mbedtls_ecp_group_id gid,
+int ttls_ecdsa_genkey(ttls_ecdsa_context *ctx, ttls_ecp_group_id gid,
 				  int (*f_rng)(void *, unsigned char *, size_t), void *p_rng);
 
 /**
@@ -308,26 +308,26 @@ int mbedtls_ecdsa_genkey(mbedtls_ecdsa_context *ctx, mbedtls_ecp_group_id gid,
  * \param ctx	   The ECDSA context to set.
  * \param key	   The EC key to use.
  *
- * \return		  \c 0 on success, or an \c MBEDTLS_ERR_ECP_XXX code on
+ * \return		  \c 0 on success, or an \c TTLS_ERR_ECP_XXX code on
  *				  failure.
  *
  * \see			 ecp.h
  */
-int mbedtls_ecdsa_from_keypair(mbedtls_ecdsa_context *ctx, const mbedtls_ecp_keypair *key);
+int ttls_ecdsa_from_keypair(ttls_ecdsa_context *ctx, const ttls_ecp_keypair *key);
 
 /**
  * \brief		   This function initializes an ECDSA context.
  *
  * \param ctx	   The ECDSA context to initialize.
  */
-void mbedtls_ecdsa_init(mbedtls_ecdsa_context *ctx);
+void ttls_ecdsa_init(ttls_ecdsa_context *ctx);
 
 /**
  * \brief		   This function frees an ECDSA context.
  *
  * \param ctx	   The ECDSA context to free.
  */
-void mbedtls_ecdsa_free(mbedtls_ecdsa_context *ctx);
+void ttls_ecdsa_free(ttls_ecdsa_context *ctx);
 
 #ifdef __cplusplus
 }
