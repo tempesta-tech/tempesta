@@ -1,5 +1,5 @@
 /**
- * \file mbedtls_md.c
+ * \file ttls_md.c
  *
  * \brief Generic message digest wrapper for mbed TLS
  *
@@ -32,7 +32,7 @@
 #include <string.h>
 
 /* Implementation that should never be optimized out by the compiler */
-static void mbedtls_zeroize(void *v, size_t n) {
+static void ttls_zeroize(void *v, size_t n) {
 	volatile unsigned char *p = v; while (n--) *p++ = 0;
 }
 
@@ -41,132 +41,132 @@ static void mbedtls_zeroize(void *v, size_t n) {
  */
 static const int supported_digests[] = {
 
-#if defined(MBEDTLS_SHA512_C)
-		MBEDTLS_MD_SHA512,
-		MBEDTLS_MD_SHA384,
+#if defined(TTLS_SHA512_C)
+		TTLS_MD_SHA512,
+		TTLS_MD_SHA384,
 #endif
 
-#if defined(MBEDTLS_SHA256_C)
-		MBEDTLS_MD_SHA256,
-		MBEDTLS_MD_SHA224,
+#if defined(TTLS_SHA256_C)
+		TTLS_MD_SHA256,
+		TTLS_MD_SHA224,
 #endif
 
-#if defined(MBEDTLS_SHA1_C)
-		MBEDTLS_MD_SHA1,
+#if defined(TTLS_SHA1_C)
+		TTLS_MD_SHA1,
 #endif
 
-#if defined(MBEDTLS_RIPEMD160_C)
-		MBEDTLS_MD_RIPEMD160,
+#if defined(TTLS_RIPEMD160_C)
+		TTLS_MD_RIPEMD160,
 #endif
 
-#if defined(MBEDTLS_MD5_C)
-		MBEDTLS_MD_MD5,
+#if defined(TTLS_MD5_C)
+		TTLS_MD_MD5,
 #endif
 
-#if defined(MBEDTLS_MD4_C)
-		MBEDTLS_MD_MD4,
+#if defined(TTLS_MD4_C)
+		TTLS_MD_MD4,
 #endif
 
-#if defined(MBEDTLS_MD2_C)
-		MBEDTLS_MD_MD2,
+#if defined(TTLS_MD2_C)
+		TTLS_MD_MD2,
 #endif
 
-		MBEDTLS_MD_NONE
+		TTLS_MD_NONE
 };
 
-const int *mbedtls_md_list(void)
+const int *ttls_md_list(void)
 {
 	return(supported_digests);
 }
 
-const mbedtls_md_info_t *mbedtls_md_info_from_string(const char *md_name)
+const ttls_md_info_t *ttls_md_info_from_string(const char *md_name)
 {
 	if (NULL == md_name)
 		return(NULL);
 
 	/* Get the appropriate digest information */
-#if defined(MBEDTLS_MD2_C)
+#if defined(TTLS_MD2_C)
 	if (!strcmp("MD2", md_name))
-		return mbedtls_md_info_from_type(MBEDTLS_MD_MD2);
+		return ttls_md_info_from_type(TTLS_MD_MD2);
 #endif
-#if defined(MBEDTLS_MD4_C)
+#if defined(TTLS_MD4_C)
 	if (!strcmp("MD4", md_name))
-		return mbedtls_md_info_from_type(MBEDTLS_MD_MD4);
+		return ttls_md_info_from_type(TTLS_MD_MD4);
 #endif
-#if defined(MBEDTLS_MD5_C)
+#if defined(TTLS_MD5_C)
 	if (!strcmp("MD5", md_name))
-		return mbedtls_md_info_from_type(MBEDTLS_MD_MD5);
+		return ttls_md_info_from_type(TTLS_MD_MD5);
 #endif
-#if defined(MBEDTLS_RIPEMD160_C)
+#if defined(TTLS_RIPEMD160_C)
 	if (!strcmp("RIPEMD160", md_name))
-		return mbedtls_md_info_from_type(MBEDTLS_MD_RIPEMD160);
+		return ttls_md_info_from_type(TTLS_MD_RIPEMD160);
 #endif
-#if defined(MBEDTLS_SHA1_C)
+#if defined(TTLS_SHA1_C)
 	if (!strcmp("SHA1", md_name) || !strcmp("SHA", md_name))
-		return mbedtls_md_info_from_type(MBEDTLS_MD_SHA1);
+		return ttls_md_info_from_type(TTLS_MD_SHA1);
 #endif
-#if defined(MBEDTLS_SHA256_C)
+#if defined(TTLS_SHA256_C)
 	if (!strcmp("SHA224", md_name))
-		return mbedtls_md_info_from_type(MBEDTLS_MD_SHA224);
+		return ttls_md_info_from_type(TTLS_MD_SHA224);
 	if (!strcmp("SHA256", md_name))
-		return mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+		return ttls_md_info_from_type(TTLS_MD_SHA256);
 #endif
-#if defined(MBEDTLS_SHA512_C)
+#if defined(TTLS_SHA512_C)
 	if (!strcmp("SHA384", md_name))
-		return mbedtls_md_info_from_type(MBEDTLS_MD_SHA384);
+		return ttls_md_info_from_type(TTLS_MD_SHA384);
 	if (!strcmp("SHA512", md_name))
-		return mbedtls_md_info_from_type(MBEDTLS_MD_SHA512);
+		return ttls_md_info_from_type(TTLS_MD_SHA512);
 #endif
 	return(NULL);
 }
 
-const mbedtls_md_info_t *mbedtls_md_info_from_type(mbedtls_md_type_t md_type)
+const ttls_md_info_t *ttls_md_info_from_type(ttls_md_type_t md_type)
 {
 	switch(md_type)
 	{
-#if defined(MBEDTLS_MD2_C)
-		case MBEDTLS_MD_MD2:
-			return(&mbedtls_md2_info);
+#if defined(TTLS_MD2_C)
+		case TTLS_MD_MD2:
+			return(&ttls_md2_info);
 #endif
-#if defined(MBEDTLS_MD4_C)
-		case MBEDTLS_MD_MD4:
-			return(&mbedtls_md4_info);
+#if defined(TTLS_MD4_C)
+		case TTLS_MD_MD4:
+			return(&ttls_md4_info);
 #endif
-#if defined(MBEDTLS_MD5_C)
-		case MBEDTLS_MD_MD5:
-			return(&mbedtls_md5_info);
+#if defined(TTLS_MD5_C)
+		case TTLS_MD_MD5:
+			return(&ttls_md5_info);
 #endif
-#if defined(MBEDTLS_RIPEMD160_C)
-		case MBEDTLS_MD_RIPEMD160:
-			return(&mbedtls_ripemd160_info);
+#if defined(TTLS_RIPEMD160_C)
+		case TTLS_MD_RIPEMD160:
+			return(&ttls_ripemd160_info);
 #endif
-#if defined(MBEDTLS_SHA1_C)
-		case MBEDTLS_MD_SHA1:
-			return(&mbedtls_sha1_info);
+#if defined(TTLS_SHA1_C)
+		case TTLS_MD_SHA1:
+			return(&ttls_sha1_info);
 #endif
-#if defined(MBEDTLS_SHA256_C)
-		case MBEDTLS_MD_SHA224:
-			return(&mbedtls_sha224_info);
-		case MBEDTLS_MD_SHA256:
-			return(&mbedtls_sha256_info);
+#if defined(TTLS_SHA256_C)
+		case TTLS_MD_SHA224:
+			return(&ttls_sha224_info);
+		case TTLS_MD_SHA256:
+			return(&ttls_sha256_info);
 #endif
-#if defined(MBEDTLS_SHA512_C)
-		case MBEDTLS_MD_SHA384:
-			return(&mbedtls_sha384_info);
-		case MBEDTLS_MD_SHA512:
-			return(&mbedtls_sha512_info);
+#if defined(TTLS_SHA512_C)
+		case TTLS_MD_SHA384:
+			return(&ttls_sha384_info);
+		case TTLS_MD_SHA512:
+			return(&ttls_sha512_info);
 #endif
 		default:
 			return(NULL);
 	}
 }
 
-void mbedtls_md_init(mbedtls_md_context_t *ctx)
+void ttls_md_init(ttls_md_context_t *ctx)
 {
-	memset(ctx, 0, sizeof(mbedtls_md_context_t));
+	memset(ctx, 0, sizeof(ttls_md_context_t));
 }
 
-void mbedtls_md_free(mbedtls_md_context_t *ctx)
+void ttls_md_free(ttls_md_context_t *ctx)
 {
 	if (ctx == NULL || ctx->md_info == NULL)
 		return;
@@ -176,21 +176,21 @@ void mbedtls_md_free(mbedtls_md_context_t *ctx)
 
 	if (ctx->hmac_ctx != NULL)
 	{
-		mbedtls_zeroize(ctx->hmac_ctx, 2 * ctx->md_info->block_size);
-		mbedtls_free(ctx->hmac_ctx);
+		ttls_zeroize(ctx->hmac_ctx, 2 * ctx->md_info->block_size);
+		ttls_free(ctx->hmac_ctx);
 	}
 
-	mbedtls_zeroize(ctx, sizeof(mbedtls_md_context_t));
+	ttls_zeroize(ctx, sizeof(ttls_md_context_t));
 }
 
-int mbedtls_md_clone(mbedtls_md_context_t *dst,
-					  const mbedtls_md_context_t *src)
+int ttls_md_clone(ttls_md_context_t *dst,
+					  const ttls_md_context_t *src)
 {
 	if (dst == NULL || dst->md_info == NULL ||
 		src == NULL || src->md_info == NULL ||
 		dst->md_info != src->md_info)
 	{
-		return(MBEDTLS_ERR_MD_BAD_INPUT_DATA);
+		return(TTLS_ERR_MD_BAD_INPUT_DATA);
 	}
 
 	dst->md_info->clone_func(dst->md_ctx, src->md_ctx);
@@ -198,28 +198,28 @@ int mbedtls_md_clone(mbedtls_md_context_t *dst,
 	return 0;
 }
 
-#if ! defined(MBEDTLS_DEPRECATED_REMOVED)
-int mbedtls_md_init_ctx(mbedtls_md_context_t *ctx, const mbedtls_md_info_t *md_info)
+#if ! defined(TTLS_DEPRECATED_REMOVED)
+int ttls_md_init_ctx(ttls_md_context_t *ctx, const ttls_md_info_t *md_info)
 {
-	return mbedtls_md_setup(ctx, md_info, 1);
+	return ttls_md_setup(ctx, md_info, 1);
 }
 #endif
 
-int mbedtls_md_setup(mbedtls_md_context_t *ctx, const mbedtls_md_info_t *md_info, int hmac)
+int ttls_md_setup(ttls_md_context_t *ctx, const ttls_md_info_t *md_info, int hmac)
 {
 	if (md_info == NULL || ctx == NULL)
-		return(MBEDTLS_ERR_MD_BAD_INPUT_DATA);
+		return(TTLS_ERR_MD_BAD_INPUT_DATA);
 
 	if ((ctx->md_ctx = md_info->ctx_alloc_func()) == NULL)
-		return(MBEDTLS_ERR_MD_ALLOC_FAILED);
+		return(TTLS_ERR_MD_ALLOC_FAILED);
 
 	if (hmac != 0)
 	{
-		ctx->hmac_ctx = mbedtls_calloc(2, md_info->block_size);
+		ctx->hmac_ctx = ttls_calloc(2, md_info->block_size);
 		if (ctx->hmac_ctx == NULL)
 		{
 			md_info->ctx_free_func(ctx->md_ctx);
-			return(MBEDTLS_ERR_MD_ALLOC_FAILED);
+			return(TTLS_ERR_MD_ALLOC_FAILED);
 		}
 	}
 
@@ -228,48 +228,48 @@ int mbedtls_md_setup(mbedtls_md_context_t *ctx, const mbedtls_md_info_t *md_info
 	return 0;
 }
 
-int mbedtls_md_starts(mbedtls_md_context_t *ctx)
+int ttls_md_starts(ttls_md_context_t *ctx)
 {
 	if (ctx == NULL || ctx->md_info == NULL)
-		return(MBEDTLS_ERR_MD_BAD_INPUT_DATA);
+		return(TTLS_ERR_MD_BAD_INPUT_DATA);
 
 	return(ctx->md_info->starts_func(ctx->md_ctx));
 }
 
-int mbedtls_md_update(mbedtls_md_context_t *ctx, const unsigned char *input, size_t ilen)
+int ttls_md_update(ttls_md_context_t *ctx, const unsigned char *input, size_t ilen)
 {
 	if (ctx == NULL || ctx->md_info == NULL)
-		return(MBEDTLS_ERR_MD_BAD_INPUT_DATA);
+		return(TTLS_ERR_MD_BAD_INPUT_DATA);
 
 	return(ctx->md_info->update_func(ctx->md_ctx, input, ilen));
 }
 
-int mbedtls_md_finish(mbedtls_md_context_t *ctx, unsigned char *output)
+int ttls_md_finish(ttls_md_context_t *ctx, unsigned char *output)
 {
 	if (ctx == NULL || ctx->md_info == NULL)
-		return(MBEDTLS_ERR_MD_BAD_INPUT_DATA);
+		return(TTLS_ERR_MD_BAD_INPUT_DATA);
 
 	return(ctx->md_info->finish_func(ctx->md_ctx, output));
 }
 
-int mbedtls_md(const mbedtls_md_info_t *md_info, const unsigned char *input, size_t ilen,
+int ttls_md(const ttls_md_info_t *md_info, const unsigned char *input, size_t ilen,
 			unsigned char *output)
 {
 	if (md_info == NULL)
-		return(MBEDTLS_ERR_MD_BAD_INPUT_DATA);
+		return(TTLS_ERR_MD_BAD_INPUT_DATA);
 
 	return(md_info->digest_func(input, ilen, output));
 }
 
-int mbedtls_md_hmac_starts(mbedtls_md_context_t *ctx, const unsigned char *key, size_t keylen)
+int ttls_md_hmac_starts(ttls_md_context_t *ctx, const unsigned char *key, size_t keylen)
 {
 	int ret;
-	unsigned char sum[MBEDTLS_MD_MAX_SIZE];
+	unsigned char sum[TTLS_MD_MAX_SIZE];
 	unsigned char *ipad, *opad;
 	size_t i;
 
 	if (ctx == NULL || ctx->md_info == NULL || ctx->hmac_ctx == NULL)
-		return(MBEDTLS_ERR_MD_BAD_INPUT_DATA);
+		return(TTLS_ERR_MD_BAD_INPUT_DATA);
 
 	if (keylen > (size_t) ctx->md_info->block_size)
 	{
@@ -303,27 +303,27 @@ int mbedtls_md_hmac_starts(mbedtls_md_context_t *ctx, const unsigned char *key, 
 		goto cleanup;
 
 cleanup:
-	mbedtls_zeroize(sum, sizeof(sum));
+	ttls_zeroize(sum, sizeof(sum));
 
 	return ret;
 }
 
-int mbedtls_md_hmac_update(mbedtls_md_context_t *ctx, const unsigned char *input, size_t ilen)
+int ttls_md_hmac_update(ttls_md_context_t *ctx, const unsigned char *input, size_t ilen)
 {
 	if (ctx == NULL || ctx->md_info == NULL || ctx->hmac_ctx == NULL)
-		return(MBEDTLS_ERR_MD_BAD_INPUT_DATA);
+		return(TTLS_ERR_MD_BAD_INPUT_DATA);
 
 	return(ctx->md_info->update_func(ctx->md_ctx, input, ilen));
 }
 
-int mbedtls_md_hmac_finish(mbedtls_md_context_t *ctx, unsigned char *output)
+int ttls_md_hmac_finish(ttls_md_context_t *ctx, unsigned char *output)
 {
 	int ret;
-	unsigned char tmp[MBEDTLS_MD_MAX_SIZE];
+	unsigned char tmp[TTLS_MD_MAX_SIZE];
 	unsigned char *opad;
 
 	if (ctx == NULL || ctx->md_info == NULL || ctx->hmac_ctx == NULL)
-		return(MBEDTLS_ERR_MD_BAD_INPUT_DATA);
+		return(TTLS_ERR_MD_BAD_INPUT_DATA);
 
 	opad = (unsigned char *) ctx->hmac_ctx + ctx->md_info->block_size;
 
@@ -340,13 +340,13 @@ int mbedtls_md_hmac_finish(mbedtls_md_context_t *ctx, unsigned char *output)
 	return(ctx->md_info->finish_func(ctx->md_ctx, output));
 }
 
-int mbedtls_md_hmac_reset(mbedtls_md_context_t *ctx)
+int ttls_md_hmac_reset(ttls_md_context_t *ctx)
 {
 	int ret;
 	unsigned char *ipad;
 
 	if (ctx == NULL || ctx->md_info == NULL || ctx->hmac_ctx == NULL)
-		return(MBEDTLS_ERR_MD_BAD_INPUT_DATA);
+		return(TTLS_ERR_MD_BAD_INPUT_DATA);
 
 	ipad = (unsigned char *) ctx->hmac_ctx;
 
@@ -356,44 +356,44 @@ int mbedtls_md_hmac_reset(mbedtls_md_context_t *ctx)
 									   ctx->md_info->block_size));
 }
 
-int mbedtls_md_hmac(const mbedtls_md_info_t *md_info,
+int ttls_md_hmac(const ttls_md_info_t *md_info,
 					 const unsigned char *key, size_t keylen,
 					 const unsigned char *input, size_t ilen,
 					 unsigned char *output)
 {
-	mbedtls_md_context_t ctx;
+	ttls_md_context_t ctx;
 	int ret;
 
 	if (md_info == NULL)
-		return(MBEDTLS_ERR_MD_BAD_INPUT_DATA);
+		return(TTLS_ERR_MD_BAD_INPUT_DATA);
 
-	mbedtls_md_init(&ctx);
+	ttls_md_init(&ctx);
 
-	if ((ret = mbedtls_md_setup(&ctx, md_info, 1)) != 0)
+	if ((ret = ttls_md_setup(&ctx, md_info, 1)) != 0)
 		goto cleanup;
 
-	if ((ret = mbedtls_md_hmac_starts(&ctx, key, keylen)) != 0)
+	if ((ret = ttls_md_hmac_starts(&ctx, key, keylen)) != 0)
 		goto cleanup;
-	if ((ret = mbedtls_md_hmac_update(&ctx, input, ilen)) != 0)
+	if ((ret = ttls_md_hmac_update(&ctx, input, ilen)) != 0)
 		goto cleanup;
-	if ((ret = mbedtls_md_hmac_finish(&ctx, output)) != 0)
+	if ((ret = ttls_md_hmac_finish(&ctx, output)) != 0)
 		goto cleanup;
 
 cleanup:
-	mbedtls_md_free(&ctx);
+	ttls_md_free(&ctx);
 
 	return ret;
 }
 
-int mbedtls_md_process(mbedtls_md_context_t *ctx, const unsigned char *data)
+int ttls_md_process(ttls_md_context_t *ctx, const unsigned char *data)
 {
 	if (ctx == NULL || ctx->md_info == NULL)
-		return(MBEDTLS_ERR_MD_BAD_INPUT_DATA);
+		return(TTLS_ERR_MD_BAD_INPUT_DATA);
 
 	return(ctx->md_info->process_func(ctx->md_ctx, data));
 }
 
-unsigned char mbedtls_md_get_size(const mbedtls_md_info_t *md_info)
+unsigned char ttls_md_get_size(const ttls_md_info_t *md_info)
 {
 	if (md_info == NULL)
 		return 0;
@@ -401,15 +401,15 @@ unsigned char mbedtls_md_get_size(const mbedtls_md_info_t *md_info)
 	return md_info->size;
 }
 
-mbedtls_md_type_t mbedtls_md_get_type(const mbedtls_md_info_t *md_info)
+ttls_md_type_t ttls_md_get_type(const ttls_md_info_t *md_info)
 {
 	if (md_info == NULL)
-		return(MBEDTLS_MD_NONE);
+		return(TTLS_MD_NONE);
 
 	return md_info->type;
 }
 
-const char *mbedtls_md_get_name(const mbedtls_md_info_t *md_info)
+const char *ttls_md_get_name(const ttls_md_info_t *md_info)
 {
 	if (md_info == NULL)
 		return(NULL);
