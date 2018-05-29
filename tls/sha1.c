@@ -27,22 +27,22 @@
  *  http://www.itl.nist.gov/fipspubs/fip180-1.htm
  */
 
-#if !defined(MBEDTLS_CONFIG_FILE)
+#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
 #else
-#include MBEDTLS_CONFIG_FILE
+#include TTLS_CONFIG_FILE
 #endif
 
-#if defined(MBEDTLS_SHA1_C)
+#if defined(TTLS_SHA1_C)
 
 #include "sha1.h"
 
 #include <string.h>
 
-#if !defined(MBEDTLS_SHA1_ALT)
+#if !defined(TTLS_SHA1_ALT)
 
 /* Implementation that should never be optimized out by the compiler */
-static void mbedtls_zeroize(void *v, size_t n) {
+static void ttls_zeroize(void *v, size_t n) {
 	volatile unsigned char *p = (unsigned char*)v; while (n--) *p++ = 0;
 }
 
@@ -69,21 +69,21 @@ static void mbedtls_zeroize(void *v, size_t n) {
 }
 #endif
 
-void mbedtls_sha1_init(mbedtls_sha1_context *ctx)
+void ttls_sha1_init(ttls_sha1_context *ctx)
 {
-	memset(ctx, 0, sizeof(mbedtls_sha1_context));
+	memset(ctx, 0, sizeof(ttls_sha1_context));
 }
 
-void mbedtls_sha1_free(mbedtls_sha1_context *ctx)
+void ttls_sha1_free(ttls_sha1_context *ctx)
 {
 	if (ctx == NULL)
 		return;
 
-	mbedtls_zeroize(ctx, sizeof(mbedtls_sha1_context));
+	ttls_zeroize(ctx, sizeof(ttls_sha1_context));
 }
 
-void mbedtls_sha1_clone(mbedtls_sha1_context *dst,
-						 const mbedtls_sha1_context *src)
+void ttls_sha1_clone(ttls_sha1_context *dst,
+						 const ttls_sha1_context *src)
 {
 	*dst = *src;
 }
@@ -91,7 +91,7 @@ void mbedtls_sha1_clone(mbedtls_sha1_context *dst,
 /*
  * SHA-1 context setup
  */
-int mbedtls_sha1_starts_ret(mbedtls_sha1_context *ctx)
+int ttls_sha1_starts_ret(ttls_sha1_context *ctx)
 {
 	ctx->total[0] = 0;
 	ctx->total[1] = 0;
@@ -105,15 +105,15 @@ int mbedtls_sha1_starts_ret(mbedtls_sha1_context *ctx)
 	return 0;
 }
 
-#if !defined(MBEDTLS_DEPRECATED_REMOVED)
-void mbedtls_sha1_starts(mbedtls_sha1_context *ctx)
+#if !defined(TTLS_DEPRECATED_REMOVED)
+void ttls_sha1_starts(ttls_sha1_context *ctx)
 {
-	mbedtls_sha1_starts_ret(ctx);
+	ttls_sha1_starts_ret(ctx);
 }
 #endif
 
-#if !defined(MBEDTLS_SHA1_PROCESS_ALT)
-int mbedtls_internal_sha1_process(mbedtls_sha1_context *ctx,
+#if !defined(TTLS_SHA1_PROCESS_ALT)
+int ttls_internal_sha1_process(ttls_sha1_context *ctx,
 								   const unsigned char data[64])
 {
 	uint32_t temp, W[16], A, B, C, D, E;
@@ -272,19 +272,19 @@ int mbedtls_internal_sha1_process(mbedtls_sha1_context *ctx,
 	return 0;
 }
 
-#if !defined(MBEDTLS_DEPRECATED_REMOVED)
-void mbedtls_sha1_process(mbedtls_sha1_context *ctx,
+#if !defined(TTLS_DEPRECATED_REMOVED)
+void ttls_sha1_process(ttls_sha1_context *ctx,
 						   const unsigned char data[64])
 {
-	mbedtls_internal_sha1_process(ctx, data);
+	ttls_internal_sha1_process(ctx, data);
 }
 #endif
-#endif /* !MBEDTLS_SHA1_PROCESS_ALT */
+#endif /* !TTLS_SHA1_PROCESS_ALT */
 
 /*
  * SHA-1 process buffer
  */
-int mbedtls_sha1_update_ret(mbedtls_sha1_context *ctx,
+int ttls_sha1_update_ret(ttls_sha1_context *ctx,
 							 const unsigned char *input,
 							 size_t ilen)
 {
@@ -308,7 +308,7 @@ int mbedtls_sha1_update_ret(mbedtls_sha1_context *ctx,
 	{
 		memcpy((void *) (ctx->buffer + left), input, fill);
 
-		if ((ret = mbedtls_internal_sha1_process(ctx, ctx->buffer)) != 0)
+		if ((ret = ttls_internal_sha1_process(ctx, ctx->buffer)) != 0)
 			return ret;
 
 		input += fill;
@@ -318,7 +318,7 @@ int mbedtls_sha1_update_ret(mbedtls_sha1_context *ctx,
 
 	while (ilen >= 64)
 	{
-		if ((ret = mbedtls_internal_sha1_process(ctx, input)) != 0)
+		if ((ret = ttls_internal_sha1_process(ctx, input)) != 0)
 			return ret;
 
 		input += 64;
@@ -331,12 +331,12 @@ int mbedtls_sha1_update_ret(mbedtls_sha1_context *ctx,
 	return 0;
 }
 
-#if !defined(MBEDTLS_DEPRECATED_REMOVED)
-void mbedtls_sha1_update(mbedtls_sha1_context *ctx,
+#if !defined(TTLS_DEPRECATED_REMOVED)
+void ttls_sha1_update(ttls_sha1_context *ctx,
 						  const unsigned char *input,
 						  size_t ilen)
 {
-	mbedtls_sha1_update_ret(ctx, input, ilen);
+	ttls_sha1_update_ret(ctx, input, ilen);
 }
 #endif
 
@@ -351,7 +351,7 @@ static const unsigned char sha1_padding[64] =
 /*
  * SHA-1 final digest
  */
-int mbedtls_sha1_finish_ret(mbedtls_sha1_context *ctx,
+int ttls_sha1_finish_ret(ttls_sha1_context *ctx,
 							 unsigned char output[20])
 {
 	int ret;
@@ -369,9 +369,9 @@ int mbedtls_sha1_finish_ret(mbedtls_sha1_context *ctx,
 	last = ctx->total[0] & 0x3F;
 	padn = (last < 56) ? (56 - last) : (120 - last);
 
-	if ((ret = mbedtls_sha1_update_ret(ctx, sha1_padding, padn)) != 0)
+	if ((ret = ttls_sha1_update_ret(ctx, sha1_padding, padn)) != 0)
 		return ret;
-	if ((ret = mbedtls_sha1_update_ret(ctx, msglen, 8)) != 0)
+	if ((ret = ttls_sha1_update_ret(ctx, msglen, 8)) != 0)
 		return ret;
 
 	PUT_UINT32_BE(ctx->state[0], output,  0);
@@ -383,49 +383,49 @@ int mbedtls_sha1_finish_ret(mbedtls_sha1_context *ctx,
 	return 0;
 }
 
-#if !defined(MBEDTLS_DEPRECATED_REMOVED)
-void mbedtls_sha1_finish(mbedtls_sha1_context *ctx,
+#if !defined(TTLS_DEPRECATED_REMOVED)
+void ttls_sha1_finish(ttls_sha1_context *ctx,
 						  unsigned char output[20])
 {
-	mbedtls_sha1_finish_ret(ctx, output);
+	ttls_sha1_finish_ret(ctx, output);
 }
 #endif
 
-#endif /* !MBEDTLS_SHA1_ALT */
+#endif /* !TTLS_SHA1_ALT */
 
 /*
  * output = SHA-1(input buffer)
  */
-int mbedtls_sha1_ret(const unsigned char *input,
+int ttls_sha1_ret(const unsigned char *input,
 					  size_t ilen,
 					  unsigned char output[20])
 {
 	int ret;
-	mbedtls_sha1_context ctx;
+	ttls_sha1_context ctx;
 
-	mbedtls_sha1_init(&ctx);
+	ttls_sha1_init(&ctx);
 
-	if ((ret = mbedtls_sha1_starts_ret(&ctx)) != 0)
+	if ((ret = ttls_sha1_starts_ret(&ctx)) != 0)
 		goto exit;
 
-	if ((ret = mbedtls_sha1_update_ret(&ctx, input, ilen)) != 0)
+	if ((ret = ttls_sha1_update_ret(&ctx, input, ilen)) != 0)
 		goto exit;
 
-	if ((ret = mbedtls_sha1_finish_ret(&ctx, output)) != 0)
+	if ((ret = ttls_sha1_finish_ret(&ctx, output)) != 0)
 		goto exit;
 
 exit:
-	mbedtls_sha1_free(&ctx);
+	ttls_sha1_free(&ctx);
 
 	return ret;
 }
 
-#if !defined(MBEDTLS_DEPRECATED_REMOVED)
-void mbedtls_sha1(const unsigned char *input,
+#if !defined(TTLS_DEPRECATED_REMOVED)
+void ttls_sha1(const unsigned char *input,
 				   size_t ilen,
 				   unsigned char output[20])
 {
-	mbedtls_sha1_ret(input, ilen, output);
+	ttls_sha1_ret(input, ilen, output);
 }
 #endif
 
@@ -457,14 +457,14 @@ static const unsigned char sha1_test_sum[3][20] =
 /*
  * Checkup routine
  */
-int mbedtls_sha1_self_test(int verbose)
+int ttls_sha1_self_test(int verbose)
 {
 	int i, j, buflen, ret = 0;
 	unsigned char buf[1024];
 	unsigned char sha1sum[20];
-	mbedtls_sha1_context ctx;
+	ttls_sha1_context ctx;
 
-	mbedtls_sha1_init(&ctx);
+	ttls_sha1_init(&ctx);
 
 	/*
 	 * SHA-1
@@ -472,9 +472,9 @@ int mbedtls_sha1_self_test(int verbose)
 	for (i = 0; i < 3; i++)
 	{
 		if (verbose != 0)
-			mbedtls_printf("  SHA-1 test #%d: ", i + 1);
+			ttls_printf("  SHA-1 test #%d: ", i + 1);
 
-		if ((ret = mbedtls_sha1_starts_ret(&ctx)) != 0)
+		if ((ret = ttls_sha1_starts_ret(&ctx)) != 0)
 			goto fail;
 
 		if (i == 2)
@@ -483,20 +483,20 @@ int mbedtls_sha1_self_test(int verbose)
 
 			for (j = 0; j < 1000; j++)
 			{
-				ret = mbedtls_sha1_update_ret(&ctx, buf, buflen);
+				ret = ttls_sha1_update_ret(&ctx, buf, buflen);
 				if (ret != 0)
 					goto fail;
 			}
 		}
 		else
 		{
-			ret = mbedtls_sha1_update_ret(&ctx, sha1_test_buf[i],
+			ret = ttls_sha1_update_ret(&ctx, sha1_test_buf[i],
 										   sha1_test_buflen[i]);
 			if (ret != 0)
 				goto fail;
 		}
 
-		if ((ret = mbedtls_sha1_finish_ret(&ctx, sha1sum)) != 0)
+		if ((ret = ttls_sha1_finish_ret(&ctx, sha1sum)) != 0)
 			goto fail;
 
 		if (memcmp(sha1sum, sha1_test_sum[i], 20) != 0)
@@ -506,22 +506,22 @@ int mbedtls_sha1_self_test(int verbose)
 		}
 
 		if (verbose != 0)
-			mbedtls_printf("passed\n");
+			ttls_printf("passed\n");
 	}
 
 	if (verbose != 0)
-		mbedtls_printf("\n");
+		ttls_printf("\n");
 
 	goto exit;
 
 fail:
 	if (verbose != 0)
-		mbedtls_printf("failed\n");
+		ttls_printf("failed\n");
 
 exit:
-	mbedtls_sha1_free(&ctx);
+	ttls_sha1_free(&ctx);
 
 	return ret;
 }
 
-#endif /* MBEDTLS_SHA1_C */
+#endif /* TTLS_SHA1_C */

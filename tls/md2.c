@@ -28,22 +28,22 @@
  *  http://www.ietf.org/rfc/rfc1319.txt
  */
 
-#if !defined(MBEDTLS_CONFIG_FILE)
+#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
 #else
-#include MBEDTLS_CONFIG_FILE
+#include TTLS_CONFIG_FILE
 #endif
 
-#if defined(MBEDTLS_MD2_C)
+#if defined(TTLS_MD2_C)
 
 #include "md2.h"
 
 #include <string.h>
 
-#if !defined(MBEDTLS_MD2_ALT)
+#if !defined(TTLS_MD2_ALT)
 
 /* Implementation that should never be optimized out by the compiler */
-static void mbedtls_zeroize(void *v, size_t n) {
+static void ttls_zeroize(void *v, size_t n) {
 	volatile unsigned char *p = v; while (n--) *p++ = 0;
 }
 
@@ -77,21 +77,21 @@ static const unsigned char PI_SUBST[256] =
 	0x8D, 0x33, 0x9F, 0x11, 0x83, 0x14
 };
 
-void mbedtls_md2_init(mbedtls_md2_context *ctx)
+void ttls_md2_init(ttls_md2_context *ctx)
 {
-	memset(ctx, 0, sizeof(mbedtls_md2_context));
+	memset(ctx, 0, sizeof(ttls_md2_context));
 }
 
-void mbedtls_md2_free(mbedtls_md2_context *ctx)
+void ttls_md2_free(ttls_md2_context *ctx)
 {
 	if (ctx == NULL)
 		return;
 
-	mbedtls_zeroize(ctx, sizeof(mbedtls_md2_context));
+	ttls_zeroize(ctx, sizeof(ttls_md2_context));
 }
 
-void mbedtls_md2_clone(mbedtls_md2_context *dst,
-						const mbedtls_md2_context *src)
+void ttls_md2_clone(ttls_md2_context *dst,
+						const ttls_md2_context *src)
 {
 	*dst = *src;
 }
@@ -99,7 +99,7 @@ void mbedtls_md2_clone(mbedtls_md2_context *dst,
 /*
  * MD2 context setup
  */
-int mbedtls_md2_starts_ret(mbedtls_md2_context *ctx)
+int ttls_md2_starts_ret(ttls_md2_context *ctx)
 {
 	memset(ctx->cksum, 0, 16);
 	memset(ctx->state, 0, 46);
@@ -109,15 +109,15 @@ int mbedtls_md2_starts_ret(mbedtls_md2_context *ctx)
 	return 0;
 }
 
-#if !defined(MBEDTLS_DEPRECATED_REMOVED)
-void mbedtls_md2_starts(mbedtls_md2_context *ctx)
+#if !defined(TTLS_DEPRECATED_REMOVED)
+void ttls_md2_starts(ttls_md2_context *ctx)
 {
-	mbedtls_md2_starts_ret(ctx);
+	ttls_md2_starts_ret(ctx);
 }
 #endif
 
-#if !defined(MBEDTLS_MD2_PROCESS_ALT)
-int mbedtls_internal_md2_process(mbedtls_md2_context *ctx)
+#if !defined(TTLS_MD2_PROCESS_ALT)
+int ttls_internal_md2_process(ttls_md2_context *ctx)
 {
 	int i, j;
 	unsigned char t = 0;
@@ -153,18 +153,18 @@ int mbedtls_internal_md2_process(mbedtls_md2_context *ctx)
 	return 0;
 }
 
-#if !defined(MBEDTLS_DEPRECATED_REMOVED)
-void mbedtls_md2_process(mbedtls_md2_context *ctx)
+#if !defined(TTLS_DEPRECATED_REMOVED)
+void ttls_md2_process(ttls_md2_context *ctx)
 {
-	mbedtls_internal_md2_process(ctx);
+	ttls_internal_md2_process(ctx);
 }
 #endif
-#endif /* !MBEDTLS_MD2_PROCESS_ALT */
+#endif /* !TTLS_MD2_PROCESS_ALT */
 
 /*
  * MD2 process buffer
  */
-int mbedtls_md2_update_ret(mbedtls_md2_context *ctx,
+int ttls_md2_update_ret(ttls_md2_context *ctx,
 							const unsigned char *input,
 							size_t ilen)
 {
@@ -187,7 +187,7 @@ int mbedtls_md2_update_ret(mbedtls_md2_context *ctx,
 		if (ctx->left == 16)
 		{
 			ctx->left = 0;
-			if ((ret = mbedtls_internal_md2_process(ctx)) != 0)
+			if ((ret = ttls_internal_md2_process(ctx)) != 0)
 				return ret;
 		}
 	}
@@ -195,19 +195,19 @@ int mbedtls_md2_update_ret(mbedtls_md2_context *ctx,
 	return 0;
 }
 
-#if !defined(MBEDTLS_DEPRECATED_REMOVED)
-void mbedtls_md2_update(mbedtls_md2_context *ctx,
+#if !defined(TTLS_DEPRECATED_REMOVED)
+void ttls_md2_update(ttls_md2_context *ctx,
 						 const unsigned char *input,
 						 size_t ilen)
 {
-	mbedtls_md2_update_ret(ctx, input, ilen);
+	ttls_md2_update_ret(ctx, input, ilen);
 }
 #endif
 
 /*
  * MD2 final digest
  */
-int mbedtls_md2_finish_ret(mbedtls_md2_context *ctx,
+int ttls_md2_finish_ret(ttls_md2_context *ctx,
 							unsigned char output[16])
 {
 	int ret;
@@ -219,11 +219,11 @@ int mbedtls_md2_finish_ret(mbedtls_md2_context *ctx,
 	for (i = ctx->left; i < 16; i++)
 		ctx->buffer[i] = x;
 
-	if ((ret = mbedtls_internal_md2_process(ctx)) != 0)
+	if ((ret = ttls_internal_md2_process(ctx)) != 0)
 		return ret;
 
 	memcpy(ctx->buffer, ctx->cksum, 16);
-	if ((ret = mbedtls_internal_md2_process(ctx)) != 0)
+	if ((ret = ttls_internal_md2_process(ctx)) != 0)
 		return ret;
 
 	memcpy(output, ctx->state, 16);
@@ -231,49 +231,49 @@ int mbedtls_md2_finish_ret(mbedtls_md2_context *ctx,
 	return 0;
 }
 
-#if !defined(MBEDTLS_DEPRECATED_REMOVED)
-void mbedtls_md2_finish(mbedtls_md2_context *ctx,
+#if !defined(TTLS_DEPRECATED_REMOVED)
+void ttls_md2_finish(ttls_md2_context *ctx,
 						 unsigned char output[16])
 {
-	mbedtls_md2_finish_ret(ctx, output);
+	ttls_md2_finish_ret(ctx, output);
 }
 #endif
 
-#endif /* !MBEDTLS_MD2_ALT */
+#endif /* !TTLS_MD2_ALT */
 
 /*
  * output = MD2(input buffer)
  */
-int mbedtls_md2_ret(const unsigned char *input,
+int ttls_md2_ret(const unsigned char *input,
 					 size_t ilen,
 					 unsigned char output[16])
 {
 	int ret;
-	mbedtls_md2_context ctx;
+	ttls_md2_context ctx;
 
-	mbedtls_md2_init(&ctx);
+	ttls_md2_init(&ctx);
 
-	if ((ret = mbedtls_md2_starts_ret(&ctx)) != 0)
+	if ((ret = ttls_md2_starts_ret(&ctx)) != 0)
 		goto exit;
 
-	if ((ret = mbedtls_md2_update_ret(&ctx, input, ilen)) != 0)
+	if ((ret = ttls_md2_update_ret(&ctx, input, ilen)) != 0)
 		goto exit;
 
-	if ((ret = mbedtls_md2_finish_ret(&ctx, output)) != 0)
+	if ((ret = ttls_md2_finish_ret(&ctx, output)) != 0)
 		goto exit;
 
 exit:
-	mbedtls_md2_free(&ctx);
+	ttls_md2_free(&ctx);
 
 	return ret;
 }
 
-#if !defined(MBEDTLS_DEPRECATED_REMOVED)
-void mbedtls_md2(const unsigned char *input,
+#if !defined(TTLS_DEPRECATED_REMOVED)
+void ttls_md2(const unsigned char *input,
 				  size_t ilen,
 				  unsigned char output[16])
 {
-	mbedtls_md2_ret(input, ilen, output);
+	ttls_md2_ret(input, ilen, output);
 }
 #endif
 
@@ -318,7 +318,7 @@ static const unsigned char md2_test_sum[7][16] =
 /*
  * Checkup routine
  */
-int mbedtls_md2_self_test(int verbose)
+int ttls_md2_self_test(int verbose)
 {
 	int i, ret = 0;
 	unsigned char md2sum[16];
@@ -326,9 +326,9 @@ int mbedtls_md2_self_test(int verbose)
 	for (i = 0; i < 7; i++)
 	{
 		if (verbose != 0)
-			mbedtls_printf("  MD2 test #%d: ", i + 1);
+			ttls_printf("  MD2 test #%d: ", i + 1);
 
-		ret = mbedtls_md2_ret(md2_test_str[i], md2_test_strlen[i], md2sum);
+		ret = ttls_md2_ret(md2_test_str[i], md2_test_strlen[i], md2sum);
 		if (ret != 0)
 			goto fail;
 
@@ -339,19 +339,19 @@ int mbedtls_md2_self_test(int verbose)
 		}
 
 		if (verbose != 0)
-			mbedtls_printf("passed\n");
+			ttls_printf("passed\n");
 	}
 
 	if (verbose != 0)
-		mbedtls_printf("\n");
+		ttls_printf("\n");
 
 	return 0;
 
 fail:
 	if (verbose != 0)
-		mbedtls_printf("failed\n");
+		ttls_printf("failed\n");
 
 	return ret;
 }
 
-#endif /* MBEDTLS_MD2_C */
+#endif /* TTLS_MD2_C */
