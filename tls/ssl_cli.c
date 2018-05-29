@@ -27,10 +27,6 @@
 #include "ssl.h"
 #include "ssl_internal.h"
 
-#include <string.h>
-
-#include <stdint.h>
-
 #if defined(TTLS_SSL_SESSION_TICKETS)
 /* Implementation that should never be optimized out by the compiler */
 static void ttls_zeroize(void *v, size_t n) {

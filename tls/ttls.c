@@ -33,13 +33,13 @@ ttls_init(void)
 	/* Bad configuration - protected record payload too large. */
 	BUILD_BUG_ON(TTLS_SSL_PAYLOAD_LEN > 16384 + 2048);
 
-	return ttls_mpi_init();
+	return ttls_mpi_modinit();
 }
 
 static void
 ttls_exit(void)
 {
-	ttls_mpi_exit();
+	ttls_mpi_modexit();
 }
 
 module_init(ttls_init);

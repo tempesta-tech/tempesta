@@ -21,22 +21,16 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
+#include <linux/jiffies.h>
 #include <linux/random.h>
+#include <linux/timex.h>
 
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
 
 #if defined(TTLS_ENTROPY_C)
 
 #include "entropy.h"
 #include "entropy_poll.h"
-
-#include <string.h>
-#include <linux/jiffies.h>
-#include <linux/timex.h>
 #if defined(TTLS_HAVEGE_C)
 #include "havege.h"
 #endif

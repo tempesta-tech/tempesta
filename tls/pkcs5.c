@@ -40,8 +40,6 @@
 #include "cipher.h"
 #include "oid.h"
 
-#include <string.h>
-
 static int pkcs5_parse_pbkdf2_params(const ttls_asn1_buf *params,
 									  ttls_asn1_buf *salt, int *iterations,
 									  int *keylen, ttls_md_type_t *md_type)
