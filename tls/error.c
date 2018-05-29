@@ -32,10 +32,6 @@
 #include "aes.h"
 #endif
 
-#if defined(TTLS_ARC4_C)
-#include "arc4.h"
-#endif
-
 #if defined(TTLS_BASE64_C)
 #include "base64.h"
 #endif
@@ -518,11 +514,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 	if (use_ret == -(TTLS_ERR_AES_HW_ACCEL_FAILED))
 		ttls_snprintf(buf, buflen, "AES - AES hardware accelerator failed");
 #endif /* TTLS_AES_C */
-
-#if defined(TTLS_ARC4_C)
-	if (use_ret == -(TTLS_ERR_ARC4_HW_ACCEL_FAILED))
-		ttls_snprintf(buf, buflen, "ARC4 - ARC4 hardware accelerator failed");
-#endif /* TTLS_ARC4_C */
 
 	if (use_ret == -(TTLS_ERR_ASN1_OUT_OF_DATA))
 		ttls_snprintf(buf, buflen, "ASN1 - Out of data when parsing an ASN1 data structure");

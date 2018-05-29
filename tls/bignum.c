@@ -40,7 +40,6 @@
 #include "config.h"
 #include "bignum.h"
 #include "bn_mul.h"
-#include "platform.h"
 
 #define ciL	(sizeof(ttls_mpi_uint))		 /* chars in limb  */
 #define biL	(ciL << 3)			   /* bits  in limb  */
