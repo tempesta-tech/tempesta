@@ -31,20 +31,12 @@
  *  http://www.itu.int/ITU-T/studygroups/com17/languages/X.680-0207.pdf
  *  http://www.itu.int/ITU-T/studygroups/com17/languages/X.690-0207.pdf
  */
-
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
 
 #if defined(TTLS_X509_CSR_PARSE_C)
 
 #include "x509_csr.h"
 #include "oid.h"
-
-#include <string.h>
-
 #if defined(TTLS_PEM_PARSE_C)
 #include "pem.h"
 #endif
