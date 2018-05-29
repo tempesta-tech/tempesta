@@ -373,16 +373,6 @@ static const ttls_ssl_ciphersuite_t ciphersuite_definitions[] =
 #endif /* TTLS_CIPHER_MODE_CBC */
 #endif /* TTLS_DES_C */
 
-#if defined(TTLS_ARC4_C)
-#if defined(TTLS_SHA1_C)
-	{ TTLS_TLS_ECDHE_ECDSA_WITH_RC4_128_SHA, "TLS-ECDHE-ECDSA-WITH-RC4-128-SHA",
-	  TTLS_CIPHER_ARC4_128, TTLS_MD_SHA1, TTLS_KEY_EXCHANGE_ECDHE_ECDSA,
-	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_1,
-	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_3,
-	  TTLS_CIPHERSUITE_NODTLS },
-#endif /* TTLS_SHA1_C */
-#endif /* TTLS_ARC4_C */
-
 #endif /* TTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED */
 
 #if defined(TTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED)
@@ -482,16 +472,6 @@ static const ttls_ssl_ciphersuite_t ciphersuite_definitions[] =
 #endif /* TTLS_SHA1_C */
 #endif /* TTLS_CIPHER_MODE_CBC */
 #endif /* TTLS_DES_C */
-
-#if defined(TTLS_ARC4_C)
-#if defined(TTLS_SHA1_C)
-	{ TTLS_TLS_ECDHE_RSA_WITH_RC4_128_SHA, "TLS-ECDHE-RSA-WITH-RC4-128-SHA",
-	  TTLS_CIPHER_ARC4_128, TTLS_MD_SHA1, TTLS_KEY_EXCHANGE_ECDHE_RSA,
-	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_1,
-	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_3,
-	  TTLS_CIPHERSUITE_NODTLS },
-#endif /* TTLS_SHA1_C */
-#endif /* TTLS_ARC4_C */
 
 #endif /* TTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED */
 
@@ -765,23 +745,6 @@ static const ttls_ssl_ciphersuite_t ciphersuite_definitions[] =
 #endif /* TTLS_CIPHER_MODE_CBC */
 #endif /* TTLS_DES_C */
 
-#if defined(TTLS_ARC4_C)
-#if defined(TTLS_MD5_C)
-	{ TTLS_TLS_RSA_WITH_RC4_128_MD5, "TLS-RSA-WITH-RC4-128-MD5",
-	  TTLS_CIPHER_ARC4_128, TTLS_MD_MD5, TTLS_KEY_EXCHANGE_RSA,
-	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_0,
-	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_3,
-	  TTLS_CIPHERSUITE_NODTLS },
-#endif
-
-#if defined(TTLS_SHA1_C)
-	{ TTLS_TLS_RSA_WITH_RC4_128_SHA, "TLS-RSA-WITH-RC4-128-SHA",
-	  TTLS_CIPHER_ARC4_128, TTLS_MD_SHA1, TTLS_KEY_EXCHANGE_RSA,
-	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_0,
-	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_3,
-	  TTLS_CIPHERSUITE_NODTLS },
-#endif
-#endif /* TTLS_ARC4_C */
 #endif /* TTLS_KEY_EXCHANGE_RSA_ENABLED */
 
 #if defined(TTLS_KEY_EXCHANGE_ECDH_RSA_ENABLED)
@@ -882,16 +845,6 @@ static const ttls_ssl_ciphersuite_t ciphersuite_definitions[] =
 #endif /* TTLS_CIPHER_MODE_CBC */
 #endif /* TTLS_DES_C */
 
-#if defined(TTLS_ARC4_C)
-#if defined(TTLS_SHA1_C)
-	{ TTLS_TLS_ECDH_RSA_WITH_RC4_128_SHA, "TLS-ECDH-RSA-WITH-RC4-128-SHA",
-	  TTLS_CIPHER_ARC4_128, TTLS_MD_SHA1, TTLS_KEY_EXCHANGE_ECDH_RSA,
-	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_1,
-	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_3,
-	  TTLS_CIPHERSUITE_NODTLS },
-#endif /* TTLS_SHA1_C */
-#endif /* TTLS_ARC4_C */
-
 #endif /* TTLS_KEY_EXCHANGE_ECDH_RSA_ENABLED */
 
 #if defined(TTLS_KEY_EXCHANGE_ECDH_ECDSA_ENABLED)
@@ -991,16 +944,6 @@ static const ttls_ssl_ciphersuite_t ciphersuite_definitions[] =
 #endif /* TTLS_SHA1_C */
 #endif /* TTLS_CIPHER_MODE_CBC */
 #endif /* TTLS_DES_C */
-
-#if defined(TTLS_ARC4_C)
-#if defined(TTLS_SHA1_C)
-	{ TTLS_TLS_ECDH_ECDSA_WITH_RC4_128_SHA, "TLS-ECDH-ECDSA-WITH-RC4-128-SHA",
-	  TTLS_CIPHER_ARC4_128, TTLS_MD_SHA1, TTLS_KEY_EXCHANGE_ECDH_ECDSA,
-	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_1,
-	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_3,
-	  TTLS_CIPHERSUITE_NODTLS },
-#endif /* TTLS_SHA1_C */
-#endif /* TTLS_ARC4_C */
 
 #endif /* TTLS_KEY_EXCHANGE_ECDH_ECDSA_ENABLED */
 
@@ -1129,15 +1072,6 @@ static const ttls_ssl_ciphersuite_t ciphersuite_definitions[] =
 #endif /* TTLS_CIPHER_MODE_CBC */
 #endif /* TTLS_DES_C */
 
-#if defined(TTLS_ARC4_C)
-#if defined(TTLS_SHA1_C)
-	{ TTLS_TLS_PSK_WITH_RC4_128_SHA, "TLS-PSK-WITH-RC4-128-SHA",
-	  TTLS_CIPHER_ARC4_128, TTLS_MD_SHA1, TTLS_KEY_EXCHANGE_PSK,
-	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_0,
-	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_3,
-	  TTLS_CIPHERSUITE_NODTLS },
-#endif /* TTLS_SHA1_C */
-#endif /* TTLS_ARC4_C */
 #endif /* TTLS_KEY_EXCHANGE_PSK_ENABLED */
 
 #if defined(TTLS_KEY_EXCHANGE_DHE_PSK_ENABLED)
@@ -1265,15 +1199,6 @@ static const ttls_ssl_ciphersuite_t ciphersuite_definitions[] =
 #endif /* TTLS_CIPHER_MODE_CBC */
 #endif /* TTLS_DES_C */
 
-#if defined(TTLS_ARC4_C)
-#if defined(TTLS_SHA1_C)
-	{ TTLS_TLS_DHE_PSK_WITH_RC4_128_SHA, "TLS-DHE-PSK-WITH-RC4-128-SHA",
-	  TTLS_CIPHER_ARC4_128, TTLS_MD_SHA1, TTLS_KEY_EXCHANGE_DHE_PSK,
-	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_0,
-	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_3,
-	  TTLS_CIPHERSUITE_NODTLS },
-#endif /* TTLS_SHA1_C */
-#endif /* TTLS_ARC4_C */
 #endif /* TTLS_KEY_EXCHANGE_DHE_PSK_ENABLED */
 
 #if defined(TTLS_KEY_EXCHANGE_ECDHE_PSK_ENABLED)
@@ -1344,15 +1269,6 @@ static const ttls_ssl_ciphersuite_t ciphersuite_definitions[] =
 #endif /* TTLS_CIPHER_MODE_CBC */
 #endif /* TTLS_DES_C */
 
-#if defined(TTLS_ARC4_C)
-#if defined(TTLS_SHA1_C)
-	{ TTLS_TLS_ECDHE_PSK_WITH_RC4_128_SHA, "TLS-ECDHE-PSK-WITH-RC4-128-SHA",
-	  TTLS_CIPHER_ARC4_128, TTLS_MD_SHA1, TTLS_KEY_EXCHANGE_ECDHE_PSK,
-	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_1,
-	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_3,
-	  TTLS_CIPHERSUITE_NODTLS },
-#endif /* TTLS_SHA1_C */
-#endif /* TTLS_ARC4_C */
 #endif /* TTLS_KEY_EXCHANGE_ECDHE_PSK_ENABLED */
 
 #if defined(TTLS_KEY_EXCHANGE_RSA_PSK_ENABLED)
@@ -1458,15 +1374,6 @@ static const ttls_ssl_ciphersuite_t ciphersuite_definitions[] =
 #endif /* TTLS_CIPHER_MODE_CBC */
 #endif /* TTLS_DES_C */
 
-#if defined(TTLS_ARC4_C)
-#if defined(TTLS_SHA1_C)
-	{ TTLS_TLS_RSA_PSK_WITH_RC4_128_SHA, "TLS-RSA-PSK-WITH-RC4-128-SHA",
-	  TTLS_CIPHER_ARC4_128, TTLS_MD_SHA1, TTLS_KEY_EXCHANGE_RSA_PSK,
-	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_1,
-	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_3,
-	  TTLS_CIPHERSUITE_NODTLS },
-#endif /* TTLS_SHA1_C */
-#endif /* TTLS_ARC4_C */
 #endif /* TTLS_KEY_EXCHANGE_RSA_PSK_ENABLED */
 
 #if defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
@@ -1512,13 +1419,9 @@ const int *ttls_ssl_list_ciphersuites(void)
 			 *p != 0 && q < supported_ciphersuites + MAX_CIPHERSUITES - 1;
 			 p++)
 		{
-#if defined(TTLS_REMOVE_ARC4_CIPHERSUITES)
 			const ttls_ssl_ciphersuite_t *cs_info;
 			if ((cs_info = ttls_ssl_ciphersuite_from_id(*p)) != NULL &&
 				cs_info->cipher != TTLS_CIPHER_ARC4_128)
-#else
-			if (ttls_ssl_ciphersuite_from_id(*p) != NULL)
-#endif
 				*(q++) = *p;
 		}
 		*q = 0;
