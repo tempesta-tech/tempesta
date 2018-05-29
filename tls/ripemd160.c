@@ -24,23 +24,23 @@
 
 /*
  *  The RIPEMD-160 algorithm was designed by RIPE in 1996
- *  http://homes.esat.kuleuven.be/~bosselae/mbedtls_ripemd160.html
+ *  http://homes.esat.kuleuven.be/~bosselae/ttls_ripemd160.html
  *  http://ehash.iaik.tugraz.at/wiki/RIPEMD-160
  */
 
-#if !defined(MBEDTLS_CONFIG_FILE)
+#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
 #else
-#include MBEDTLS_CONFIG_FILE
+#include TTLS_CONFIG_FILE
 #endif
 
-#if defined(MBEDTLS_RIPEMD160_C)
+#if defined(TTLS_RIPEMD160_C)
 
 #include "ripemd160.h"
 
 #include <string.h>
 
-#if !defined(MBEDTLS_RIPEMD160_ALT)
+#if !defined(TTLS_RIPEMD160_ALT)
 
 /*
  * 32-bit integer manipulation macros (little endian)
@@ -66,25 +66,25 @@
 #endif
 
 /* Implementation that should never be optimized out by the compiler */
-static void mbedtls_zeroize(void *v, size_t n) {
+static void ttls_zeroize(void *v, size_t n) {
 	volatile unsigned char *p = v; while (n--) *p++ = 0;
 }
 
-void mbedtls_ripemd160_init(mbedtls_ripemd160_context *ctx)
+void ttls_ripemd160_init(ttls_ripemd160_context *ctx)
 {
-	memset(ctx, 0, sizeof(mbedtls_ripemd160_context));
+	memset(ctx, 0, sizeof(ttls_ripemd160_context));
 }
 
-void mbedtls_ripemd160_free(mbedtls_ripemd160_context *ctx)
+void ttls_ripemd160_free(ttls_ripemd160_context *ctx)
 {
 	if (ctx == NULL)
 		return;
 
-	mbedtls_zeroize(ctx, sizeof(mbedtls_ripemd160_context));
+	ttls_zeroize(ctx, sizeof(ttls_ripemd160_context));
 }
 
-void mbedtls_ripemd160_clone(mbedtls_ripemd160_context *dst,
-						const mbedtls_ripemd160_context *src)
+void ttls_ripemd160_clone(ttls_ripemd160_context *dst,
+						const ttls_ripemd160_context *src)
 {
 	*dst = *src;
 }
@@ -92,7 +92,7 @@ void mbedtls_ripemd160_clone(mbedtls_ripemd160_context *dst,
 /*
  * RIPEMD-160 context setup
  */
-int mbedtls_ripemd160_starts_ret(mbedtls_ripemd160_context *ctx)
+int ttls_ripemd160_starts_ret(ttls_ripemd160_context *ctx)
 {
 	ctx->total[0] = 0;
 	ctx->total[1] = 0;
@@ -106,18 +106,18 @@ int mbedtls_ripemd160_starts_ret(mbedtls_ripemd160_context *ctx)
 	return 0;
 }
 
-#if !defined(MBEDTLS_DEPRECATED_REMOVED)
-void mbedtls_ripemd160_starts(mbedtls_ripemd160_context *ctx)
+#if !defined(TTLS_DEPRECATED_REMOVED)
+void ttls_ripemd160_starts(ttls_ripemd160_context *ctx)
 {
-	mbedtls_ripemd160_starts_ret(ctx);
+	ttls_ripemd160_starts_ret(ctx);
 }
 #endif
 
-#if !defined(MBEDTLS_RIPEMD160_PROCESS_ALT)
+#if !defined(TTLS_RIPEMD160_PROCESS_ALT)
 /*
  * Process one block
  */
-int mbedtls_internal_ripemd160_process(mbedtls_ripemd160_context *ctx,
+int ttls_internal_ripemd160_process(ttls_ripemd160_context *ctx,
 										const unsigned char data[64])
 {
 	uint32_t A, B, C, D, E, Ap, Bp, Cp, Dp, Ep, X[16];
@@ -297,19 +297,19 @@ int mbedtls_internal_ripemd160_process(mbedtls_ripemd160_context *ctx,
 	return 0;
 }
 
-#if !defined(MBEDTLS_DEPRECATED_REMOVED)
-void mbedtls_ripemd160_process(mbedtls_ripemd160_context *ctx,
+#if !defined(TTLS_DEPRECATED_REMOVED)
+void ttls_ripemd160_process(ttls_ripemd160_context *ctx,
 								const unsigned char data[64])
 {
-	mbedtls_internal_ripemd160_process(ctx, data);
+	ttls_internal_ripemd160_process(ctx, data);
 }
 #endif
-#endif /* !MBEDTLS_RIPEMD160_PROCESS_ALT */
+#endif /* !TTLS_RIPEMD160_PROCESS_ALT */
 
 /*
  * RIPEMD-160 process buffer
  */
-int mbedtls_ripemd160_update_ret(mbedtls_ripemd160_context *ctx,
+int ttls_ripemd160_update_ret(ttls_ripemd160_context *ctx,
 								  const unsigned char *input,
 								  size_t ilen)
 {
@@ -333,7 +333,7 @@ int mbedtls_ripemd160_update_ret(mbedtls_ripemd160_context *ctx,
 	{
 		memcpy((void *) (ctx->buffer + left), input, fill);
 
-		if ((ret = mbedtls_internal_ripemd160_process(ctx, ctx->buffer)) != 0)
+		if ((ret = ttls_internal_ripemd160_process(ctx, ctx->buffer)) != 0)
 			return ret;
 
 		input += fill;
@@ -343,7 +343,7 @@ int mbedtls_ripemd160_update_ret(mbedtls_ripemd160_context *ctx,
 
 	while (ilen >= 64)
 	{
-		if ((ret = mbedtls_internal_ripemd160_process(ctx, input)) != 0)
+		if ((ret = ttls_internal_ripemd160_process(ctx, input)) != 0)
 			return ret;
 
 		input += 64;
@@ -358,12 +358,12 @@ int mbedtls_ripemd160_update_ret(mbedtls_ripemd160_context *ctx,
 	return 0;
 }
 
-#if !defined(MBEDTLS_DEPRECATED_REMOVED)
-void mbedtls_ripemd160_update(mbedtls_ripemd160_context *ctx,
+#if !defined(TTLS_DEPRECATED_REMOVED)
+void ttls_ripemd160_update(ttls_ripemd160_context *ctx,
 							   const unsigned char *input,
 							   size_t ilen)
 {
-	mbedtls_ripemd160_update_ret(ctx, input, ilen);
+	ttls_ripemd160_update_ret(ctx, input, ilen);
 }
 #endif
 
@@ -378,7 +378,7 @@ static const unsigned char ripemd160_padding[64] =
 /*
  * RIPEMD-160 final digest
  */
-int mbedtls_ripemd160_finish_ret(mbedtls_ripemd160_context *ctx,
+int ttls_ripemd160_finish_ret(ttls_ripemd160_context *ctx,
 								  unsigned char output[20])
 {
 	int ret;
@@ -396,11 +396,11 @@ int mbedtls_ripemd160_finish_ret(mbedtls_ripemd160_context *ctx,
 	last = ctx->total[0] & 0x3F;
 	padn = (last < 56) ? (56 - last) : (120 - last);
 
-	ret = mbedtls_ripemd160_update_ret(ctx, ripemd160_padding, padn);
+	ret = ttls_ripemd160_update_ret(ctx, ripemd160_padding, padn);
 	if (ret != 0)
 		return ret;
 
-	ret = mbedtls_ripemd160_update_ret(ctx, msglen, 8);
+	ret = ttls_ripemd160_update_ret(ctx, msglen, 8);
 	if (ret != 0)
 		return ret;
 
@@ -413,55 +413,55 @@ int mbedtls_ripemd160_finish_ret(mbedtls_ripemd160_context *ctx,
 	return 0;
 }
 
-#if !defined(MBEDTLS_DEPRECATED_REMOVED)
-void mbedtls_ripemd160_finish(mbedtls_ripemd160_context *ctx,
+#if !defined(TTLS_DEPRECATED_REMOVED)
+void ttls_ripemd160_finish(ttls_ripemd160_context *ctx,
 							   unsigned char output[20])
 {
-	mbedtls_ripemd160_finish_ret(ctx, output);
+	ttls_ripemd160_finish_ret(ctx, output);
 }
 #endif
 
-#endif /* ! MBEDTLS_RIPEMD160_ALT */
+#endif /* ! TTLS_RIPEMD160_ALT */
 
 /*
  * output = RIPEMD-160(input buffer)
  */
-int mbedtls_ripemd160_ret(const unsigned char *input,
+int ttls_ripemd160_ret(const unsigned char *input,
 						   size_t ilen,
 						   unsigned char output[20])
 {
 	int ret;
-	mbedtls_ripemd160_context ctx;
+	ttls_ripemd160_context ctx;
 
-	mbedtls_ripemd160_init(&ctx);
+	ttls_ripemd160_init(&ctx);
 
-	if ((ret = mbedtls_ripemd160_starts_ret(&ctx)) != 0)
+	if ((ret = ttls_ripemd160_starts_ret(&ctx)) != 0)
 		goto exit;
 
-	if ((ret = mbedtls_ripemd160_update_ret(&ctx, input, ilen)) != 0)
+	if ((ret = ttls_ripemd160_update_ret(&ctx, input, ilen)) != 0)
 		goto exit;
 
-	if ((ret = mbedtls_ripemd160_finish_ret(&ctx, output)) != 0)
+	if ((ret = ttls_ripemd160_finish_ret(&ctx, output)) != 0)
 		goto exit;
 
 exit:
-	mbedtls_ripemd160_free(&ctx);
+	ttls_ripemd160_free(&ctx);
 
 	return ret;
 }
 
-#if !defined(MBEDTLS_DEPRECATED_REMOVED)
-void mbedtls_ripemd160(const unsigned char *input,
+#if !defined(TTLS_DEPRECATED_REMOVED)
+void ttls_ripemd160(const unsigned char *input,
 						size_t ilen,
 						unsigned char output[20])
 {
-	mbedtls_ripemd160_ret(input, ilen, output);
+	ttls_ripemd160_ret(input, ilen, output);
 }
 #endif
 
 /*
  * Test vectors from the RIPEMD-160 paper and
- * http://homes.esat.kuleuven.be/~bosselae/mbedtls_ripemd160.html#HMAC
+ * http://homes.esat.kuleuven.be/~bosselae/ttls_ripemd160.html#HMAC
  */
 #define TESTS   8
 static const unsigned char ripemd160_test_str[TESTS][81] =
@@ -505,7 +505,7 @@ static const unsigned char ripemd160_test_md[TESTS][20] =
 /*
  * Checkup routine
  */
-int mbedtls_ripemd160_self_test(int verbose)
+int ttls_ripemd160_self_test(int verbose)
 {
 	int i, ret = 0;
 	unsigned char output[20];
@@ -515,9 +515,9 @@ int mbedtls_ripemd160_self_test(int verbose)
 	for (i = 0; i < TESTS; i++)
 	{
 		if (verbose != 0)
-			mbedtls_printf("  RIPEMD-160 test #%d: ", i + 1);
+			ttls_printf("  RIPEMD-160 test #%d: ", i + 1);
 
-		ret = mbedtls_ripemd160_ret(ripemd160_test_str[i],
+		ret = ttls_ripemd160_ret(ripemd160_test_str[i],
 									 ripemd160_test_strlen[i], output);
 		if (ret != 0)
 			goto fail;
@@ -529,19 +529,19 @@ int mbedtls_ripemd160_self_test(int verbose)
 		}
 
 		if (verbose != 0)
-			mbedtls_printf("passed\n");
+			ttls_printf("passed\n");
 	}
 
 	if (verbose != 0)
-		mbedtls_printf("\n");
+		ttls_printf("\n");
 
 	return 0;
 
 fail:
 	if (verbose != 0)
-		mbedtls_printf("failed\n");
+		ttls_printf("failed\n");
 
 	return ret;
 }
 
-#endif /* MBEDTLS_RIPEMD160_C */
+#endif /* TTLS_RIPEMD160_C */

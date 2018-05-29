@@ -28,20 +28,20 @@
  *  This file is part of mbed TLS (https://tls.mbed.org)
  *
  */
-#ifndef MBEDTLS_ARC4_H
-#define MBEDTLS_ARC4_H
+#ifndef TTLS_ARC4_H
+#define TTLS_ARC4_H
 
-#if !defined(MBEDTLS_CONFIG_FILE)
+#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
 #else
-#include MBEDTLS_CONFIG_FILE
+#include TTLS_CONFIG_FILE
 #endif
 
 #include <stddef.h>
 
-#define MBEDTLS_ERR_ARC4_HW_ACCEL_FAILED				  -0x0019  /**< ARC4 hardware accelerator failed. */
+#define TTLS_ERR_ARC4_HW_ACCEL_FAILED				  -0x0019  /**< ARC4 hardware accelerator failed. */
 
-#if !defined(MBEDTLS_ARC4_ALT)
+#if !defined(TTLS_ARC4_ALT)
 // Regular implementation
 //
 
@@ -58,7 +58,7 @@ typedef struct
 	int y;					  /*!< permutation index */
 	unsigned char m[256];	   /*!< permutation table */
 }
-mbedtls_arc4_context;
+ttls_arc4_context;
 
 /**
  * \brief		  Initialize ARC4 context
@@ -70,7 +70,7 @@ mbedtls_arc4_context;
  *				 instead.
  *
  */
-void mbedtls_arc4_init(mbedtls_arc4_context *ctx);
+void ttls_arc4_init(ttls_arc4_context *ctx);
 
 /**
  * \brief		  Clear ARC4 context
@@ -82,7 +82,7 @@ void mbedtls_arc4_init(mbedtls_arc4_context *ctx);
  *				 instead.
  *
  */
-void mbedtls_arc4_free(mbedtls_arc4_context *ctx);
+void ttls_arc4_free(ttls_arc4_context *ctx);
 
 /**
  * \brief		  ARC4 key schedule
@@ -96,7 +96,7 @@ void mbedtls_arc4_free(mbedtls_arc4_context *ctx);
  *				 instead.
  *
  */
-void mbedtls_arc4_setup(mbedtls_arc4_context *ctx, const unsigned char *key,
+void ttls_arc4_setup(ttls_arc4_context *ctx, const unsigned char *key,
 				 unsigned int keylen);
 
 /**
@@ -114,11 +114,11 @@ void mbedtls_arc4_setup(mbedtls_arc4_context *ctx, const unsigned char *key,
  *				 instead.
  *
  */
-int mbedtls_arc4_crypt(mbedtls_arc4_context *ctx, size_t length, const unsigned char *input,
+int ttls_arc4_crypt(ttls_arc4_context *ctx, size_t length, const unsigned char *input,
 				unsigned char *output);
 
-#else  /* MBEDTLS_ARC4_ALT */
+#else  /* TTLS_ARC4_ALT */
 #include "arc4_alt.h"
-#endif /* MBEDTLS_ARC4_ALT */
+#endif /* TTLS_ARC4_ALT */
 
 #endif /* arc4.h */

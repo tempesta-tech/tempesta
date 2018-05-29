@@ -32,8 +32,8 @@
  *  This file is part of Mbed TLS (https://tls.mbed.org)
  */
 
-#ifndef MBEDTLS_ECDH_H
-#define MBEDTLS_ECDH_H
+#ifndef TTLS_ECDH_H
+#define TTLS_ECDH_H
 
 #include "ecp.h"
 
@@ -48,26 +48,26 @@ extern "C" {
  */
 typedef enum
 {
-	MBEDTLS_ECDH_OURS,
-	MBEDTLS_ECDH_THEIRS,
-} mbedtls_ecdh_side;
+	TTLS_ECDH_OURS,
+	TTLS_ECDH_THEIRS,
+} ttls_ecdh_side;
 
 /**
  * \brief		   The ECDH context structure.
  */
 typedef struct
 {
-	mbedtls_ecp_group grp;   /*!< The elliptic curve used. */
-	mbedtls_mpi d;		   /*!< The private key. */
-	mbedtls_ecp_point Q;	 /*!< The public key. */
-	mbedtls_ecp_point Qp;	/*!< The value of the public key of the peer. */
-	mbedtls_mpi z;		   /*!< The shared secret. */
+	ttls_ecp_group grp;   /*!< The elliptic curve used. */
+	ttls_mpi d;		   /*!< The private key. */
+	ttls_ecp_point Q;	 /*!< The public key. */
+	ttls_ecp_point Qp;	/*!< The value of the public key of the peer. */
+	ttls_mpi z;		   /*!< The shared secret. */
 	int point_format;		/*!< The format of point export in TLS messages. */
-	mbedtls_ecp_point Vi;	/*!< The blinding value. */
-	mbedtls_ecp_point Vf;	/*!< The unblinding value. */
-	mbedtls_mpi _d;		  /*!< The previous \p d. */
+	ttls_ecp_point Vi;	/*!< The blinding value. */
+	ttls_ecp_point Vf;	/*!< The unblinding value. */
+	ttls_mpi _d;		  /*!< The previous \p d. */
 }
-mbedtls_ecdh_context;
+ttls_ecdh_context;
 
 /**
  * \brief		   This function generates an ECDH keypair on an elliptic
@@ -75,7 +75,7 @@ mbedtls_ecdh_context;
  *
  *				  This function performs the first of two core computations
  *				  implemented during the ECDH key exchange. The second core
- *				  computation is performed by mbedtls_ecdh_compute_shared().
+ *				  computation is performed by ttls_ecdh_compute_shared().
  *
  * \param grp	   The ECP group.
  * \param d		 The destination MPI (private key).
@@ -83,12 +83,12 @@ mbedtls_ecdh_context;
  * \param f_rng	 The RNG function.
  * \param p_rng	 The RNG parameter.
  *
- * \return		  \c 0 on success, or an \c MBEDTLS_ERR_ECP_XXX or
- *				  \c MBEDTLS_MPI_XXX error code on failure.
+ * \return		  \c 0 on success, or an \c TTLS_ERR_ECP_XXX or
+ *				  \c TTLS_MPI_XXX error code on failure.
  *
  * \see			 ecp.h
  */
-int mbedtls_ecdh_gen_public(mbedtls_ecp_group *grp, mbedtls_mpi *d, mbedtls_ecp_point *Q,
+int ttls_ecdh_gen_public(ttls_ecp_group *grp, ttls_mpi *d, ttls_ecp_point *Q,
 					 int (*f_rng)(void *, unsigned char *, size_t),
 					 void *p_rng);
 
@@ -97,7 +97,7 @@ int mbedtls_ecdh_gen_public(mbedtls_ecp_group *grp, mbedtls_mpi *d, mbedtls_ecp_
  *
  *				  This function performs the second of two core computations
  *				  implemented during the ECDH key exchange. The first core
- *				  computation is performed by mbedtls_ecdh_gen_public().
+ *				  computation is performed by ttls_ecdh_gen_public().
  *
  * \param grp	   The ECP group.
  * \param z		 The destination MPI (shared secret).
@@ -106,17 +106,17 @@ int mbedtls_ecdh_gen_public(mbedtls_ecp_group *grp, mbedtls_mpi *d, mbedtls_ecp_
  * \param f_rng	 The RNG function.
  * \param p_rng	 The RNG parameter.
  *
- * \return		  \c 0 on success, or an \c MBEDTLS_ERR_ECP_XXX or
- *				  \c MBEDTLS_MPI_XXX error code on failure.
+ * \return		  \c 0 on success, or an \c TTLS_ERR_ECP_XXX or
+ *				  \c TTLS_MPI_XXX error code on failure.
  *
  * \see			 ecp.h
  *
  * \note			If \p f_rng is not NULL, it is used to implement
  *				  countermeasures against potential elaborate timing
- *				  attacks. For more information, see mbedtls_ecp_mul().
+ *				  attacks. For more information, see ttls_ecp_mul().
  */
-int mbedtls_ecdh_compute_shared(mbedtls_ecp_group *grp, mbedtls_mpi *z,
-						 const mbedtls_ecp_point *Q, const mbedtls_mpi *d,
+int ttls_ecdh_compute_shared(ttls_ecp_group *grp, ttls_mpi *z,
+						 const ttls_ecp_point *Q, const ttls_mpi *d,
 						 int (*f_rng)(void *, unsigned char *, size_t),
 						 void *p_rng);
 
@@ -125,14 +125,14 @@ int mbedtls_ecdh_compute_shared(mbedtls_ecp_group *grp, mbedtls_mpi *z,
  *
  * \param ctx	   The ECDH context to initialize.
  */
-void mbedtls_ecdh_init(mbedtls_ecdh_context *ctx);
+void ttls_ecdh_init(ttls_ecdh_context *ctx);
 
 /**
  * \brief		   This function frees a context.
  *
  * \param ctx	   The context to free.
  */
-void mbedtls_ecdh_free(mbedtls_ecdh_context *ctx);
+void ttls_ecdh_free(ttls_ecdh_context *ctx);
 
 /**
  * \brief		   This function generates a public key and a TLS
@@ -150,14 +150,14 @@ void mbedtls_ecdh_free(mbedtls_ecdh_context *ctx);
  *
  * \note			This function assumes that the ECP group (grp) of the
  *				  \p ctx context has already been properly set,
- *				  for example, using mbedtls_ecp_group_load().
+ *				  for example, using ttls_ecp_group_load().
  *
- * \return		  \c 0 on success, or an \c MBEDTLS_ERR_ECP_XXX error code
+ * \return		  \c 0 on success, or an \c TTLS_ERR_ECP_XXX error code
  *				  on failure.
  *
  * \see			 ecp.h
  */
-int mbedtls_ecdh_make_params(mbedtls_ecdh_context *ctx, size_t *olen,
+int ttls_ecdh_make_params(ttls_ecdh_context *ctx, size_t *olen,
 					  unsigned char *buf, size_t blen,
 					  int (*f_rng)(void *, unsigned char *, size_t),
 					  void *p_rng);
@@ -173,12 +173,12 @@ int mbedtls_ecdh_make_params(mbedtls_ecdh_context *ctx, size_t *olen,
  * \param buf	   The pointer to the start of the input buffer.
  * \param end	   The address for one Byte past the end of the buffer.
  *
- * \return		  \c 0 on success, or an \c MBEDTLS_ERR_ECP_XXX error code
+ * \return		  \c 0 on success, or an \c TTLS_ERR_ECP_XXX error code
  *				  on failure.
  *
  * \see			 ecp.h
  */
-int mbedtls_ecdh_read_params(mbedtls_ecdh_context *ctx,
+int ttls_ecdh_read_params(ttls_ecdh_context *ctx,
 					  const unsigned char **buf, const unsigned char *end);
 
 /**
@@ -194,13 +194,13 @@ int mbedtls_ecdh_read_params(mbedtls_ecdh_context *ctx,
  *				  <ul><li>1: Our key.</li>
 					<li>0: The key of the peer.</li></ul>
  *
- * \return		  \c 0 on success, or an \c MBEDTLS_ERR_ECP_XXX error code
+ * \return		  \c 0 on success, or an \c TTLS_ERR_ECP_XXX error code
  *				  on failure.
  *
  * \see			 ecp.h
  */
-int mbedtls_ecdh_get_params(mbedtls_ecdh_context *ctx, const mbedtls_ecp_keypair *key,
-					 mbedtls_ecdh_side side);
+int ttls_ecdh_get_params(ttls_ecdh_context *ctx, const ttls_ecp_keypair *key,
+					 ttls_ecdh_side side);
 
 /**
  * \brief		   This function generates a public key and a TLS
@@ -216,12 +216,12 @@ int mbedtls_ecdh_get_params(mbedtls_ecdh_context *ctx, const mbedtls_ecp_keypair
  * \param f_rng	 The RNG function.
  * \param p_rng	 The RNG parameter.
  *
- * \return		  \c 0 on success, or an \c MBEDTLS_ERR_ECP_XXX error code
+ * \return		  \c 0 on success, or an \c TTLS_ERR_ECP_XXX error code
  *				  on failure.
  *
  * \see			 ecp.h
  */
-int mbedtls_ecdh_make_public(mbedtls_ecdh_context *ctx, size_t *olen,
+int ttls_ecdh_make_public(ttls_ecdh_context *ctx, size_t *olen,
 					  unsigned char *buf, size_t blen,
 					  int (*f_rng)(void *, unsigned char *, size_t),
 					  void *p_rng);
@@ -237,12 +237,12 @@ int mbedtls_ecdh_make_public(mbedtls_ecdh_context *ctx, size_t *olen,
  * \param buf   The start of the input buffer.
  * \param blen  The length of the input buffer.
  *
- * \return	  \c 0 on success, or an \c MBEDTLS_ERR_ECP_XXX error code
+ * \return	  \c 0 on success, or an \c TTLS_ERR_ECP_XXX error code
  *			  on failure.
  *
  * \see		 ecp.h
  */
-int mbedtls_ecdh_read_public(mbedtls_ecdh_context *ctx,
+int ttls_ecdh_read_public(ttls_ecdh_context *ctx,
 					  const unsigned char *buf, size_t blen);
 
 /**
@@ -258,16 +258,16 @@ int mbedtls_ecdh_read_public(mbedtls_ecdh_context *ctx,
  * \param f_rng	 The RNG function.
  * \param p_rng	 The RNG parameter.
  *
- * \return		  \c 0 on success, or an \c MBEDTLS_ERR_ECP_XXX error code
+ * \return		  \c 0 on success, or an \c TTLS_ERR_ECP_XXX error code
  *				  on failure.
  *
  * \see			 ecp.h
  *
  * \note			If \p f_rng is not NULL, it is used to implement
  *				  countermeasures against potential elaborate timing
- *				  attacks. For more information, see mbedtls_ecp_mul().
+ *				  attacks. For more information, see ttls_ecp_mul().
  */
-int mbedtls_ecdh_calc_secret(mbedtls_ecdh_context *ctx, size_t *olen,
+int ttls_ecdh_calc_secret(ttls_ecdh_context *ctx, size_t *olen,
 					  unsigned char *buf, size_t blen,
 					  int (*f_rng)(void *, unsigned char *, size_t),
 					  void *p_rng);

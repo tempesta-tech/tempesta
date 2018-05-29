@@ -27,13 +27,13 @@
  *  http://csrc.nist.gov/publications/fips/fips180-2/fips180-2.pdf
  */
 
-#if !defined(MBEDTLS_CONFIG_FILE)
+#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
 #else
-#include MBEDTLS_CONFIG_FILE
+#include TTLS_CONFIG_FILE
 #endif
 
-#if defined(MBEDTLS_SHA512_C)
+#if defined(TTLS_SHA512_C)
 
 #include "sha512.h"
 
@@ -45,10 +45,10 @@
 
 #include <string.h>
 
-#if !defined(MBEDTLS_SHA512_ALT)
+#if !defined(TTLS_SHA512_ALT)
 
 /* Implementation that should never be optimized out by the compiler */
-static void mbedtls_zeroize(void *v, size_t n) {
+static void ttls_zeroize(void *v, size_t n) {
 	volatile unsigned char *p = v; while (n--) *p++ = 0;
 }
 
@@ -83,21 +83,21 @@ static void mbedtls_zeroize(void *v, size_t n) {
 }
 #endif /* PUT_UINT64_BE */
 
-void mbedtls_sha512_init(mbedtls_sha512_context *ctx)
+void ttls_sha512_init(ttls_sha512_context *ctx)
 {
-	memset(ctx, 0, sizeof(mbedtls_sha512_context));
+	memset(ctx, 0, sizeof(ttls_sha512_context));
 }
 
-void mbedtls_sha512_free(mbedtls_sha512_context *ctx)
+void ttls_sha512_free(ttls_sha512_context *ctx)
 {
 	if (ctx == NULL)
 		return;
 
-	mbedtls_zeroize(ctx, sizeof(mbedtls_sha512_context));
+	ttls_zeroize(ctx, sizeof(ttls_sha512_context));
 }
 
-void mbedtls_sha512_clone(mbedtls_sha512_context *dst,
-						   const mbedtls_sha512_context *src)
+void ttls_sha512_clone(ttls_sha512_context *dst,
+						   const ttls_sha512_context *src)
 {
 	*dst = *src;
 }
@@ -105,7 +105,7 @@ void mbedtls_sha512_clone(mbedtls_sha512_context *dst,
 /*
  * SHA-512 context setup
  */
-int mbedtls_sha512_starts_ret(mbedtls_sha512_context *ctx, int is384)
+int ttls_sha512_starts_ret(ttls_sha512_context *ctx, int is384)
 {
 	ctx->total[0] = 0;
 	ctx->total[1] = 0;
@@ -140,15 +140,15 @@ int mbedtls_sha512_starts_ret(mbedtls_sha512_context *ctx, int is384)
 	return 0;
 }
 
-#if !defined(MBEDTLS_DEPRECATED_REMOVED)
-void mbedtls_sha512_starts(mbedtls_sha512_context *ctx,
+#if !defined(TTLS_DEPRECATED_REMOVED)
+void ttls_sha512_starts(ttls_sha512_context *ctx,
 							int is384)
 {
-	mbedtls_sha512_starts_ret(ctx, is384);
+	ttls_sha512_starts_ret(ctx, is384);
 }
 #endif
 
-#if !defined(MBEDTLS_SHA512_PROCESS_ALT)
+#if !defined(TTLS_SHA512_PROCESS_ALT)
 
 /*
  * Round constants
@@ -197,7 +197,7 @@ static const uint64_t K[80] =
 	UL64(0x5FCB6FAB3AD6FAEC),  UL64(0x6C44198C4A475817)
 };
 
-int mbedtls_internal_sha512_process(mbedtls_sha512_context *ctx,
+int ttls_internal_sha512_process(ttls_sha512_context *ctx,
 									 const unsigned char data[128])
 {
 	int i;
@@ -269,19 +269,19 @@ int mbedtls_internal_sha512_process(mbedtls_sha512_context *ctx,
 	return 0;
 }
 
-#if !defined(MBEDTLS_DEPRECATED_REMOVED)
-void mbedtls_sha512_process(mbedtls_sha512_context *ctx,
+#if !defined(TTLS_DEPRECATED_REMOVED)
+void ttls_sha512_process(ttls_sha512_context *ctx,
 							 const unsigned char data[128])
 {
-	mbedtls_internal_sha512_process(ctx, data);
+	ttls_internal_sha512_process(ctx, data);
 }
 #endif
-#endif /* !MBEDTLS_SHA512_PROCESS_ALT */
+#endif /* !TTLS_SHA512_PROCESS_ALT */
 
 /*
  * SHA-512 process buffer
  */
-int mbedtls_sha512_update_ret(mbedtls_sha512_context *ctx,
+int ttls_sha512_update_ret(ttls_sha512_context *ctx,
 							   const unsigned char *input,
 							   size_t ilen)
 {
@@ -304,7 +304,7 @@ int mbedtls_sha512_update_ret(mbedtls_sha512_context *ctx,
 	{
 		memcpy((void *) (ctx->buffer + left), input, fill);
 
-		if ((ret = mbedtls_internal_sha512_process(ctx, ctx->buffer)) != 0)
+		if ((ret = ttls_internal_sha512_process(ctx, ctx->buffer)) != 0)
 			return ret;
 
 		input += fill;
@@ -314,7 +314,7 @@ int mbedtls_sha512_update_ret(mbedtls_sha512_context *ctx,
 
 	while (ilen >= 128)
 	{
-		if ((ret = mbedtls_internal_sha512_process(ctx, input)) != 0)
+		if ((ret = ttls_internal_sha512_process(ctx, input)) != 0)
 			return ret;
 
 		input += 128;
@@ -327,12 +327,12 @@ int mbedtls_sha512_update_ret(mbedtls_sha512_context *ctx,
 	return 0;
 }
 
-#if !defined(MBEDTLS_DEPRECATED_REMOVED)
-void mbedtls_sha512_update(mbedtls_sha512_context *ctx,
+#if !defined(TTLS_DEPRECATED_REMOVED)
+void ttls_sha512_update(ttls_sha512_context *ctx,
 							const unsigned char *input,
 							size_t ilen)
 {
-	mbedtls_sha512_update_ret(ctx, input, ilen);
+	ttls_sha512_update_ret(ctx, input, ilen);
 }
 #endif
 
@@ -351,7 +351,7 @@ static const unsigned char sha512_padding[128] =
 /*
  * SHA-512 final digest
  */
-int mbedtls_sha512_finish_ret(mbedtls_sha512_context *ctx,
+int ttls_sha512_finish_ret(ttls_sha512_context *ctx,
 							   unsigned char output[64])
 {
 	int ret;
@@ -369,10 +369,10 @@ int mbedtls_sha512_finish_ret(mbedtls_sha512_context *ctx,
 	last = (size_t)(ctx->total[0] & 0x7F);
 	padn = (last < 112) ? (112 - last) : (240 - last);
 
-	if ((ret = mbedtls_sha512_update_ret(ctx, sha512_padding, padn)) != 0)
+	if ((ret = ttls_sha512_update_ret(ctx, sha512_padding, padn)) != 0)
 			return ret;
 
-	if ((ret = mbedtls_sha512_update_ret(ctx, msglen, 16)) != 0)
+	if ((ret = ttls_sha512_update_ret(ctx, msglen, 16)) != 0)
 			return ret;
 
 	PUT_UINT64_BE(ctx->state[0], output,  0);
@@ -391,51 +391,51 @@ int mbedtls_sha512_finish_ret(mbedtls_sha512_context *ctx,
 	return 0;
 }
 
-#if !defined(MBEDTLS_DEPRECATED_REMOVED)
-void mbedtls_sha512_finish(mbedtls_sha512_context *ctx,
+#if !defined(TTLS_DEPRECATED_REMOVED)
+void ttls_sha512_finish(ttls_sha512_context *ctx,
 							unsigned char output[64])
 {
-	mbedtls_sha512_finish_ret(ctx, output);
+	ttls_sha512_finish_ret(ctx, output);
 }
 #endif
 
-#endif /* !MBEDTLS_SHA512_ALT */
+#endif /* !TTLS_SHA512_ALT */
 
 /*
  * output = SHA-512(input buffer)
  */
-int mbedtls_sha512_ret(const unsigned char *input,
+int ttls_sha512_ret(const unsigned char *input,
 					size_t ilen,
 					unsigned char output[64],
 					int is384)
 {
 	int ret;
-	mbedtls_sha512_context ctx;
+	ttls_sha512_context ctx;
 
-	mbedtls_sha512_init(&ctx);
+	ttls_sha512_init(&ctx);
 
-	if ((ret = mbedtls_sha512_starts_ret(&ctx, is384)) != 0)
+	if ((ret = ttls_sha512_starts_ret(&ctx, is384)) != 0)
 		goto exit;
 
-	if ((ret = mbedtls_sha512_update_ret(&ctx, input, ilen)) != 0)
+	if ((ret = ttls_sha512_update_ret(&ctx, input, ilen)) != 0)
 		goto exit;
 
-	if ((ret = mbedtls_sha512_finish_ret(&ctx, output)) != 0)
+	if ((ret = ttls_sha512_finish_ret(&ctx, output)) != 0)
 		goto exit;
 
 exit:
-	mbedtls_sha512_free(&ctx);
+	ttls_sha512_free(&ctx);
 
 	return ret;
 }
 
-#if !defined(MBEDTLS_DEPRECATED_REMOVED)
-void mbedtls_sha512(const unsigned char *input,
+#if !defined(TTLS_DEPRECATED_REMOVED)
+void ttls_sha512(const unsigned char *input,
 					 size_t ilen,
 					 unsigned char output[64],
 					 int is384)
 {
-	mbedtls_sha512_ret(input, ilen, output, is384);
+	ttls_sha512_ret(input, ilen, output, is384);
 }
 #endif
 
@@ -511,23 +511,23 @@ static const unsigned char sha512_test_sum[6][64] =
 /*
  * Checkup routine
  */
-int mbedtls_sha512_self_test(int verbose)
+int ttls_sha512_self_test(int verbose)
 {
 	int i, j, k, buflen, ret = 0;
 	unsigned char *buf;
 	unsigned char sha512sum[64];
-	mbedtls_sha512_context ctx;
+	ttls_sha512_context ctx;
 
-	buf = mbedtls_calloc(1024, sizeof(unsigned char));
+	buf = ttls_calloc(1024, sizeof(unsigned char));
 	if (NULL == buf)
 	{
 		if (verbose != 0)
-			mbedtls_printf("Buffer allocation failed\n");
+			ttls_printf("Buffer allocation failed\n");
 
 		return(1);
 	}
 
-	mbedtls_sha512_init(&ctx);
+	ttls_sha512_init(&ctx);
 
 	for (i = 0; i < 6; i++)
 	{
@@ -535,9 +535,9 @@ int mbedtls_sha512_self_test(int verbose)
 		k = i < 3;
 
 		if (verbose != 0)
-			mbedtls_printf("  SHA-%d test #%d: ", 512 - k * 128, j + 1);
+			ttls_printf("  SHA-%d test #%d: ", 512 - k * 128, j + 1);
 
-		if ((ret = mbedtls_sha512_starts_ret(&ctx, k)) != 0)
+		if ((ret = ttls_sha512_starts_ret(&ctx, k)) != 0)
 			goto fail;
 
 		if (j == 2)
@@ -546,20 +546,20 @@ int mbedtls_sha512_self_test(int verbose)
 
 			for (j = 0; j < 1000; j++)
 			{
-				ret = mbedtls_sha512_update_ret(&ctx, buf, buflen);
+				ret = ttls_sha512_update_ret(&ctx, buf, buflen);
 				if (ret != 0)
 					goto fail;
 			}
 		}
 		else
 		{
-			ret = mbedtls_sha512_update_ret(&ctx, sha512_test_buf[j],
+			ret = ttls_sha512_update_ret(&ctx, sha512_test_buf[j],
 											 sha512_test_buflen[j]);
 			if (ret != 0)
 				goto fail;
 		}
 
-		if ((ret = mbedtls_sha512_finish_ret(&ctx, sha512sum)) != 0)
+		if ((ret = ttls_sha512_finish_ret(&ctx, sha512sum)) != 0)
 			goto fail;
 
 		if (memcmp(sha512sum, sha512_test_sum[i], 64 - k * 16) != 0)
@@ -569,23 +569,23 @@ int mbedtls_sha512_self_test(int verbose)
 		}
 
 		if (verbose != 0)
-			mbedtls_printf("passed\n");
+			ttls_printf("passed\n");
 	}
 
 	if (verbose != 0)
-		mbedtls_printf("\n");
+		ttls_printf("\n");
 
 	goto exit;
 
 fail:
 	if (verbose != 0)
-		mbedtls_printf("failed\n");
+		ttls_printf("failed\n");
 
 exit:
-	mbedtls_sha512_free(&ctx);
-	mbedtls_free(buf);
+	ttls_sha512_free(&ctx);
+	ttls_free(buf);
 
 	return ret;
 }
 
-#endif /* MBEDTLS_SHA512_C */
+#endif /* TTLS_SHA512_C */
