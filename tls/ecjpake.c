@@ -32,8 +32,6 @@
 
 #include "ecjpake.h"
 
-#include <string.h>
-
 #if !defined(TTLS_ECJPAKE_ALT)
 
 /*

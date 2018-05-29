@@ -27,25 +27,16 @@
  *  http://www.rsa.com/rsalabs/pkcs/files/h11301-wp-pkcs-12v1-1-personal-information-exchange-syntax.pdf
  *  ftp://ftp.rsasecurity.com/pub/pkcs/pkcs-12/pkcs-12v1-1.asn
  */
-
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
 
 #if defined(TTLS_PKCS12_C)
 
 #include "pkcs12.h"
 #include "asn1.h"
 #include "cipher.h"
-
-#include <string.h>
-
 #if defined(TTLS_ARC4_C)
 #include "arc4.h"
 #endif
-
 #if defined(TTLS_DES_C)
 #include "des.h"
 #endif

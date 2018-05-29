@@ -21,7 +21,6 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
 /*
  * http://csrc.nist.gov/publications/nistpubs/800-38D/SP-800-38D.pdf
  *
@@ -32,18 +31,11 @@
  * [MGV] 4.1, pp. 12-13, to enhance speed without using too much memory.
  */
 
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
 
 #if defined(TTLS_GCM_C)
 
 #include "gcm.h"
-
-#include <string.h>
-
 #if defined(TTLS_AESNI_C)
 #include "aesni.h"
 #endif

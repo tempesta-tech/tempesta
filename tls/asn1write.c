@@ -26,8 +26,6 @@
 
 #include "asn1write.h"
 
-#include <string.h>
-
 int ttls_asn1_write_len(unsigned char **p, unsigned char *start, size_t len)
 {
 	if (len < 0x80)

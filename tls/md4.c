@@ -27,18 +27,11 @@
  *  http://www.ietf.org/rfc/rfc1186.txt
  *  http://www.ietf.org/rfc/rfc1320.txt
  */
-
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
 
 #if defined(TTLS_MD4_C)
 
 #include "md4.h"
-
-#include <string.h>
 
 #if !defined(TTLS_MD4_ALT)
 
