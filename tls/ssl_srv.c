@@ -375,28 +375,6 @@ static int ssl_parse_max_fragment_length_ext(ttls_ssl_context *ssl,
 }
 #endif /* TTLS_SSL_MAX_FRAGMENT_LENGTH */
 
-#if defined(TTLS_SSL_TRUNCATED_HMAC)
-static int ssl_parse_truncated_hmac_ext(ttls_ssl_context *ssl,
-					 const unsigned char *buf,
-					 size_t len)
-{
-	if (len != 0)
-	{
-		TTLS_SSL_DEBUG_MSG(1, ("bad client hello message"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
-						TTLS_SSL_ALERT_MSG_DECODE_ERROR);
-		return(TTLS_ERR_SSL_BAD_HS_CLIENT_HELLO);
-	}
-
-	((void) buf);
-
-	if (ssl->conf->trunc_hmac == TTLS_SSL_TRUNC_HMAC_ENABLED)
-		ssl->session_negotiate->trunc_hmac = TTLS_SSL_TRUNC_HMAC_ENABLED;
-
-	return 0;
-}
-#endif /* TTLS_SSL_TRUNCATED_HMAC */
-
 #if defined(TTLS_SSL_ENCRYPT_THEN_MAC)
 static int ssl_parse_encrypt_then_mac_ext(ttls_ssl_context *ssl,
 					  const unsigned char *buf,
@@ -1581,16 +1559,6 @@ defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
 			break;
 #endif /* TTLS_SSL_MAX_FRAGMENT_LENGTH */
 
-#if defined(TTLS_SSL_TRUNCATED_HMAC)
-		case TTLS_TLS_EXT_TRUNCATED_HMAC:
-			TTLS_SSL_DEBUG_MSG(3, ("found truncated hmac extension"));
-
-			ret = ssl_parse_truncated_hmac_ext(ssl, ext + 4, ext_size);
-			if (ret != 0)
-				return ret;
-			break;
-#endif /* TTLS_SSL_TRUNCATED_HMAC */
-
 #if defined(TTLS_SSL_ENCRYPT_THEN_MAC)
 		case TTLS_TLS_EXT_ENCRYPT_THEN_MAC:
 			TTLS_SSL_DEBUG_MSG(3, ("found encrypt then mac extension"));
@@ -1801,31 +1769,6 @@ have_ciphersuite:
 
 	return 0;
 }
-
-#if defined(TTLS_SSL_TRUNCATED_HMAC)
-static void ssl_write_truncated_hmac_ext(ttls_ssl_context *ssl,
-					  unsigned char *buf,
-					  size_t *olen)
-{
-	unsigned char *p = buf;
-
-	if (ssl->session_negotiate->trunc_hmac == TTLS_SSL_TRUNC_HMAC_DISABLED)
-	{
-		*olen = 0;
-		return;
-	}
-
-	TTLS_SSL_DEBUG_MSG(3, ("server hello, adding truncated hmac extension"));
-
-	*p++ = (unsigned char)((TTLS_TLS_EXT_TRUNCATED_HMAC >> 8) & 0xFF);
-	*p++ = (unsigned char)((TTLS_TLS_EXT_TRUNCATED_HMAC	 ) & 0xFF);
-
-	*p++ = 0x00;
-	*p++ = 0x00;
-
-	*olen = 4;
-}
-#endif /* TTLS_SSL_TRUNCATED_HMAC */
 
 #if defined(TTLS_SSL_ENCRYPT_THEN_MAC)
 static void ssl_write_encrypt_then_mac_ext(ttls_ssl_context *ssl,
@@ -2292,11 +2235,6 @@ static int ssl_write_server_hello(ttls_ssl_context *ssl)
 
 #if defined(TTLS_SSL_MAX_FRAGMENT_LENGTH)
 	ssl_write_max_fragment_length_ext(ssl, p + 2 + ext_len, &olen);
-	ext_len += olen;
-#endif
-
-#if defined(TTLS_SSL_TRUNCATED_HMAC)
-	ssl_write_truncated_hmac_ext(ssl, p + 2 + ext_len, &olen);
 	ext_len += olen;
 #endif
 
