@@ -26,18 +26,11 @@
  *
  *  http://groups.google.com/group/sci.crypt/msg/10a300c9d21afca0
  */
-
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
 
 #if defined(TTLS_ARC4_C)
 
 #include "arc4.h"
-
-#include <string.h>
 
 #if !defined(TTLS_ARC4_ALT)
 

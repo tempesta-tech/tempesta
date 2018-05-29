@@ -31,16 +31,11 @@
 #include <linux/jiffies.h>
 #include <linux/timex.h>
 
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
 
 #if defined(TTLS_HAVEGE_C)
 
 #include "havege.h"
-#include <string.h>
 
 /* Implementation that should never be optimized out by the compiler */
 static void ttls_zeroize(void *v, size_t n) {

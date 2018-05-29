@@ -30,18 +30,11 @@
  * Related:
  * RFC 5116 "An Interface and Algorithms for Authenticated Encryption"
  */
-
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
 
 #if defined(TTLS_CCM_C)
 
 #include "ccm.h"
-
-#include <string.h>
 
 #if !defined(TTLS_CCM_ALT)
 

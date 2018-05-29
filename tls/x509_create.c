@@ -21,20 +21,13 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
 
 #if defined(TTLS_X509_CREATE_C)
 
 #include "x509.h"
 #include "asn1write.h"
 #include "oid.h"
-
-#include <string.h>
 
 typedef struct {
 	const char *name;
