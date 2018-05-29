@@ -554,7 +554,6 @@ static int ecp_mod_p224(ttls_mpi *);
 static int ecp_mod_p256(ttls_mpi *);
 static int ecp_mod_p384(ttls_mpi *);
 static int ecp_mod_p521(ttls_mpi *);
-#endif
 
 #define NIST_MODP(P)	  grp->modp = ecp_mod_ ## P;
 #else

@@ -21,25 +21,17 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
 /*
  * References:
  *
  * SEC1 http://www.secg.org/index.php?action=secg,docs_secg
  * RFC 4492
  */
-
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
 
 #if defined(TTLS_ECDH_C)
 
 #include "ecdh.h"
-
-#include <string.h>
 
 #if !defined(TTLS_ECDH_GEN_PUBLIC_ALT)
 /*

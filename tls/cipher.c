@@ -28,18 +28,12 @@
 #include "config.h"
 #include "cipher.h"
 #include "cipher_internal.h"
-
-#include <stdlib.h>
-#include <string.h>
-
 #if defined(TTLS_GCM_C)
 #include "gcm.h"
 #endif
-
 #if defined(TTLS_CCM_C)
 #include "ccm.h"
 #endif
-
 #if defined(TTLS_CMAC_C)
 #include "cmac.h"
 #endif

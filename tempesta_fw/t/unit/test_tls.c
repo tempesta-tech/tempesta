@@ -29,7 +29,7 @@
 TEST(tls, name)								\
 {									\
 	int verbose = 1; /* Use 1 for verbose mode. */			\
-	int (*tfn)(int) = get_sym_ptr("mbedtls_" #name "_self_test");	\
+	int (*tfn)(int) = get_sym_ptr("ttls_" #name "_self_test");	\
 	if (!tfn) {							\
 		TEST_FAIL("Cannot find ttls self test for %s", #name);	\
 		return;							\

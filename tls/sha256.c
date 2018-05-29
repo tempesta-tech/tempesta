@@ -26,18 +26,11 @@
  *
  *  http://csrc.nist.gov/publications/fips/fips180-2/fips180-2.pdf
  */
-
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
 
 #if defined(TTLS_SHA256_C)
 
 #include "sha256.h"
-
-#include <string.h>
 
 #if !defined(TTLS_SHA256_ALT)
 
