@@ -32,13 +32,14 @@
  *  http://www.itu.int/ITU-T/studygroups/com17/languages/X.690-0207.pdf
  */
 #include "ttls.h"
-#include "x509.h"
 #include "asn1.h"
+#include "certs.h"
 #include "oid.h"
-
 #if defined(TTLS_PEM_PARSE_C)
 #include "pem.h"
 #endif
+#include "x509.h"
+#include "x509_crt.h"
 
 #define CHECK(code) if ((ret = code) != 0){ return ret; }
 #define CHECK_RANGE(min, max, val) if (val < min || val > max){ return ret; }
@@ -859,33 +860,23 @@ int ttls_x509_key_size_helper(char *buf, size_t buf_size, const char *name)
 	return 0;
 }
 
-#if defined(TTLS_HAVE_TIME_DATE)
 /*
  * Set the time structure to the current time.
  * Return 0 on success, non-zero on failure.
  */
-static int x509_get_current_time(ttls_x509_time *now)
+static void
+x509_get_current_time(ttls_x509_time *now)
 {
-	struct tm *lt;
-	time_t tt;
-	int ret = 0;
+	struct tm t;
 
-	tt = get_seconds();
-	lt = gmtime(&tt);
+	time_to_tm(get_seconds(), 0, &t);
 
-	if (lt == NULL)
-		ret = -1;
-	else
-	{
-		now->year = lt->tm_year + 1900;
-		now->mon  = lt->tm_mon  + 1;
-		now->day  = lt->tm_mday;
-		now->hour = lt->tm_hour;
-		now->min  = lt->tm_min;
-		now->sec  = lt->tm_sec;
-	}
-
-	return ret;
+	now->year = t.tm_year + 1900;
+	now->mon  = t.tm_mon  + 1;
+	now->day  = t.tm_mday;
+	now->hour = t.tm_hour;
+	now->min  = t.tm_min;
+	now->sec  = t.tm_sec;
 }
 
 /*
@@ -929,43 +920,25 @@ static int x509_check_time(const ttls_x509_time *before, const ttls_x509_time *a
 	return 0;
 }
 
-int ttls_x509_time_is_past(const ttls_x509_time *to)
+int
+ttls_x509_time_is_past(const ttls_x509_time *to)
 {
 	ttls_x509_time now;
 
-	if (x509_get_current_time(&now) != 0)
-		return(1);
+	x509_get_current_time(&now);
 
-	return(x509_check_time(&now, to));
+	return x509_check_time(&now, to);
 }
 
-int ttls_x509_time_is_future(const ttls_x509_time *from)
+int
+ttls_x509_time_is_future(const ttls_x509_time *from)
 {
 	ttls_x509_time now;
 
-	if (x509_get_current_time(&now) != 0)
-		return(1);
+	x509_get_current_time(&now);
 
-	return(x509_check_time(from, &now));
+	return x509_check_time(from, &now);
 }
-
-#else  /* TTLS_HAVE_TIME_DATE */
-
-int ttls_x509_time_is_past(const ttls_x509_time *to)
-{
-	((void) to);
-	return 0;
-}
-
-int ttls_x509_time_is_future(const ttls_x509_time *from)
-{
-	((void) from);
-	return 0;
-}
-#endif /* TTLS_HAVE_TIME_DATE */
-
-#include "x509_crt.h"
-#include "certs.h"
 
 /*
  * Checkup routine
