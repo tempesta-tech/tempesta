@@ -40,7 +40,6 @@ TEST(tls, name)								\
 }
 
 DEFINE_TLS_TEST(aes);
-DEFINE_TLS_TEST(arc4);
 DEFINE_TLS_TEST(base64);
 DEFINE_TLS_TEST(camellia);
 DEFINE_TLS_TEST(ccm);

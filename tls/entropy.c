@@ -56,19 +56,17 @@ void ttls_entropy_init(ttls_entropy_context *ctx)
 	/* Reminder: Update ENTROPY_HAVE_STRONG in the test files
 	 *		   when adding more strong entropy sources here. */
 
-#if !defined(TTLS_NO_DEFAULT_ENTROPY_SOURCES)
 	ttls_entropy_add_source(ctx, ttls_hardclock_poll, NULL,
-								TTLS_ENTROPY_MIN_HARDCLOCK,
-								TTLS_ENTROPY_SOURCE_WEAK);
+					TTLS_ENTROPY_MIN_HARDCLOCK,
+					TTLS_ENTROPY_SOURCE_WEAK);
 #if defined(TTLS_HAVEGE_C)
 	ttls_entropy_add_source(ctx, ttls_havege_poll, &ctx->havege_data,
-								TTLS_ENTROPY_MIN_HAVEGE,
-								TTLS_ENTROPY_SOURCE_STRONG);
+					TTLS_ENTROPY_MIN_HAVEGE,
+					TTLS_ENTROPY_SOURCE_STRONG);
 #endif
 	ttls_entropy_add_source(ctx, ttls_hardware_poll, NULL,
-								TTLS_ENTROPY_MIN_HARDWARE,
-								TTLS_ENTROPY_SOURCE_STRONG);
-#endif /* TTLS_NO_DEFAULT_ENTROPY_SOURCES */
+					TTLS_ENTROPY_MIN_HARDWARE,
+					TTLS_ENTROPY_SOURCE_STRONG);
 }
 
 void ttls_entropy_free(ttls_entropy_context *ctx)
@@ -87,8 +85,8 @@ void ttls_entropy_free(ttls_entropy_context *ctx)
 }
 
 int ttls_entropy_add_source(ttls_entropy_context *ctx,
-						ttls_entropy_f_source_ptr f_source, void *p_source,
-						size_t threshold, int strong)
+	ttls_entropy_f_source_ptr f_source, void *p_source,
+	size_t threshold, int strong)
 {
 	int idx, ret = 0;
 
