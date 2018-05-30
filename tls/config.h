@@ -40,29 +40,6 @@
 #define ttls_printf		pr_info
 
 /**
- * \def TTLS_HAVE_TIME_DATE
- *
- * System has time.h and time(), gmtime() and the clock is correct.
- * The time needs to be correct (not necesarily very accurate, but at least
- * the date should be correct). This is used to verify the validity period of
- * X.509 certificates.
- *
- * Comment if your system does not have a correct clock.
- */
-//#define TTLS_HAVE_TIME_DATE
-
-/**
- * \def TTLS_TIMING_ALT
- *
- * Uncomment to provide your own alternate implementation for ttls_timing_hardclock(),
- * ttls_timing_get_timer(), ttls_set_alarm(), ttls_set/get_delay()
- *
- * You will need to provide a header "timing_alt.h" and an implementation at
- * compile time.
- */
-//#define TTLS_TIMING_ALT
-
-/**
  * \def TTLS_AES_ALT
  *
  * TTLS__MODULE_NAME__ALT: Uncomment a macro to let mbed TLS use your
@@ -596,19 +573,6 @@
  * Enable the prime-number generation code.
  */
 #define TTLS_GENPRIME
-
-/**
- * \def TTLS_NO_DEFAULT_ENTROPY_SOURCES
- *
- * Do not add default entropy sources. These are the platform specific,
- * ttls_timing_hardclock and HAVEGE based poll functions.
- *
- * This is useful to have more control over the added entropy sources in an
- * application.
- *
- * Uncomment this macro to prevent loading of default entropy functions.
- */
-//#define TTLS_NO_DEFAULT_ENTROPY_SOURCES
 
 /**
  * \def TTLS_ENTROPY_FORCE_SHA256
