@@ -36,7 +36,7 @@
 #endif
 
 int ttls_hardclock_poll(void *data,
-					unsigned char *output, size_t len, size_t *olen)
+			unsigned char *output, size_t len, size_t *olen)
 {
 	unsigned long timer = get_cycles();
 	((void) data);
