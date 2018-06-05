@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -106,15 +106,17 @@ http_match_suite_teardown(void)
 }
 
 static void
-test_chain_add_rule_str(int test_id, tfw_http_match_fld_t field, const char *arg)
+test_chain_add_rule_str(int test_id, tfw_http_match_fld_t field, const char *in_arg)
 {
 	MatchEntry *e;
 	tfw_http_match_op_t op;
-	size_t arg_size;
+	size_t len, arg_size;
+	const char *arg;
 
-	tfw_http_arg_adjust(&arg, &arg_size, &op);
-	BUG_ON(field == TFW_HTTP_MATCH_F_WILDCARD
-	       || op == TFW_HTTP_MATCH_O_WILDCARD);
+	len = strlen(in_arg);
+	BUG_ON(field == TFW_HTTP_MATCH_F_WILDCARD);
+	BUG_ON(in_arg[0] == '*' && len == 1);
+	arg = tfw_http_arg_adjust(in_arg, len, &arg_size, &op);
 
 	e = test_rule_container_new(test_chain, MatchEntry, rule,
 			  TFW_HTTP_MATCH_A_STR, arg_size);
@@ -123,6 +125,7 @@ test_chain_add_rule_str(int test_id, tfw_http_match_fld_t field, const char *arg
 	/* Just dummy action type to avoid BUG_ON in 'do_eval()'. */
 	e->rule.act.type = TFW_HTTP_MATCH_ACT_CHAIN;
 	e->test_id = test_id;
+	kfree(arg);
 }
 
 int
@@ -222,6 +225,28 @@ TEST(http_match, uri_suffix)
 	match_id = test_chain_match();
 	EXPECT_EQ(-1, match_id);
 }
+
+TEST(http_match, uri_wc_escaped)
+{
+	int match_id;
+
+	test_chain_add_rule_str(1, TFW_HTTP_MATCH_F_URI, "\\*/foo/bar");
+	test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_URI, "/foo/\\*people*");
+	test_chain_add_rule_str(3, TFW_HTTP_MATCH_F_URI, "*/foo\\*/bar\\*/index.html\\*");
+
+	set_tfw_str(&test_req->uri_path, "*/foo/bar");
+	match_id = test_chain_match();
+	EXPECT_EQ(1, match_id);
+
+	set_tfw_str(&test_req->uri_path, "/foo/*people.html");
+	match_id = test_chain_match();
+	EXPECT_EQ(2, match_id);
+
+	set_tfw_str(&test_req->uri_path, "/root/foo*/bar*/index.html*");
+	match_id = test_chain_match();
+	EXPECT_EQ(3, match_id);
+}
+
 TEST(http_match, host_eq)
 {
 	int match_id;
@@ -397,6 +422,7 @@ TEST_SUITE(http_match)
 	TEST_RUN(tfw_http_match_req, returns_first_matching_rule);
 	TEST_RUN(http_match, uri_prefix);
 	TEST_RUN(http_match, uri_suffix);
+	TEST_RUN(http_match, uri_wc_escaped);
 	TEST_RUN(http_match, host_eq);
 	TEST_RUN(http_match, headers_eq);
 	TEST_RUN(http_match, hdr_host_prefix);

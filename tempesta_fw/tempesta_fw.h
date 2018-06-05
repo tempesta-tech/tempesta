@@ -115,16 +115,4 @@ tfw_srv_loop_sched_rcu(void)
 	rcu_barrier_bh();
 }
 
-/**
- * Increment/decrement reference count of kernel module.
- */
-static inline void
-tfw_module_refcnt(struct module *module, bool get)
-{
-	if (get)
-		try_module_get(module);
-	else
-		module_put(module);
-}
-
 #endif /* __TEMPESTA_FW_H__ */

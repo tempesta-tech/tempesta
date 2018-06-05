@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -29,22 +29,8 @@
 #define tfw_sock_srv_mod test_http_sock_srv_mod
 
 #include "sock_srv.c"
-
-#ifdef module_init
-#undef module_init
-#undef module_exit
-#define module_init(func)
-#define module_exit(func)
-#endif
-
-#undef tfw_vhost_lookup
-#define tfw_vhost_lookup		test_tfw_vhost_lookup
-#undef tfw_vhost_destroy
-#define tfw_vhost_destroy		test_tfw_vhost_destroy
-#undef tfw_vhost_global_frang_cfg
-#define tfw_vhost_global_frang_cfg	test_tfw_vhost_global_frang_cfg
 #include "vhost.c"
-#include "../../sched/tfw_sched_http.c"
+#include "http_tbl.c"
 
 #include "cfg.h"
 #include "http_msg.h"
@@ -56,7 +42,7 @@ static int
 parse_cfg(const char *cfg_text)
 {
 	struct list_head mod_list;
-	TfwMod vhost_mod, sched_mod;
+	TfwMod vhost_mod, tbl_mod;
 	int r;
 
 	kernel_fpu_end();
@@ -67,9 +53,9 @@ parse_cfg(const char *cfg_text)
 	INIT_LIST_HEAD(&vhost_mod.list);
 	list_add(&vhost_mod.list, &mod_list);
 
-	sched_mod = *tfw_mod_find("tfw_sched_http");
-	INIT_LIST_HEAD(&sched_mod.list);
-	list_add(&sched_mod.list, &mod_list);
+	tbl_mod = *tfw_mod_find("http_tbl");
+	INIT_LIST_HEAD(&tbl_mod.list);
+	list_add(&tbl_mod.list, &mod_list);
 
 	/*
 	 * Configure and start HTTP scheduler directly. 'cfgend()'
@@ -79,11 +65,11 @@ parse_cfg(const char *cfg_text)
 	 * of http scheduler.
 	 */
 	r = tfw_vhost_cfgstart();
-	r |= tfw_sched_http_cfgstart();
+	r |= tfw_http_tbl_cfgstart();
 	r |= tfw_cfg_parse_mods(cfg_text, &mod_list);
 	r |= tfw_vhost_cfgend();
 	r |= tfw_vhost_start();
-	r |= tfw_sched_http_start();
+	r |= tfw_http_tbl_start();
 
 	kernel_fpu_begin();
 
@@ -93,12 +79,12 @@ parse_cfg(const char *cfg_text)
 static void
 cleanup_cfg(void)
 {
-	TfwMod sched_mod, vhost_mod;
+	TfwMod tbl_mod, vhost_mod;
 
 	kernel_fpu_end();
 
-	sched_mod = *tfw_mod_find("tfw_sched_http");
-	test_spec_cleanup(sched_mod.specs);
+	tbl_mod = *tfw_mod_find("http_tbl");
+	test_spec_cleanup(tbl_mod.specs);
 	vhost_mod = *tfw_mod_find("vhost");
 	test_spec_cleanup(vhost_mod.specs);
 
@@ -121,7 +107,7 @@ test_req(char *req_str, TfwSrvConn *expect_conn)
 		tfw_http_parse_req(req, req_str_copy, req_str_len);
 	}
 
-	req->vhost = tfw_sched_get_vhost((TfwMsg *)req, &block);
+	req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block);
 	if (req->vhost) {
 		EXPECT_FALSE(block);
 		srv_conn = tfw_vhost_get_srv_conn((TfwMsg *)req);
@@ -132,7 +118,7 @@ test_req(char *req_str, TfwSrvConn *expect_conn)
 	tfw_srv_conn_put(srv_conn);
 }
 
-TEST(tfw_sched_http, one_wildcard_rule)
+TEST(http_tbl, one_wildcard_rule)
 {
 	TfwSrvGroup *sg;
 	TfwServer *srv;
@@ -155,7 +141,7 @@ TEST(tfw_sched_http, one_wildcard_rule)
 	test_sg_release_all();
 }
 
-TEST(tfw_sched_http, some_rules)
+TEST(http_tbl, some_rules)
 {
 	TfwServer *srv;
 	TfwSrvGroup *sg1, *sg2, *sg3, *sg4, *sg5, *sg6, *sg7, *sg8,
@@ -334,7 +320,7 @@ TestCase test_cases[] = {
 
 size_t test_cases_size = ARRAY_SIZE(test_cases);
 
-TEST(tfw_sched_http, one_rule)
+TEST(http_tbl, one_rule)
 {
 	int i;
 
@@ -362,7 +348,7 @@ TEST(tfw_sched_http, one_rule)
 	}
 }
 
-TEST_SUITE(sched_http)
+TEST_SUITE(http_tbl)
 {
 	TfwScheduler *s;
 
@@ -372,12 +358,12 @@ TEST_SUITE(sched_http)
 	if (!s)
 		tfw_sched_ratio_init();
 	tfw_vhost_init();
-	tfw_sched_http_init();
+	tfw_http_tbl_init();
 	tfw_server_init();
 
 	kernel_fpu_begin();
 
-	TEST_RUN(tfw_sched_http, one_wildcard_rule);
-	TEST_RUN(tfw_sched_http, some_rules);
-	TEST_RUN(tfw_sched_http, one_rule);
+	TEST_RUN(http_tbl, one_wildcard_rule);
+	TEST_RUN(http_tbl, some_rules);
+	TEST_RUN(http_tbl, one_rule);
 }
