@@ -108,7 +108,7 @@
  */
 
 static const char *
-alloc_and_copy_literal(const char *src, size_t len)
+__alloc_and_copy_literal(const char *src, size_t len, bool keep_bs)
 {
 	const char *src_pos, *src_end;
 	char *dst, *dst_pos;
@@ -122,7 +122,7 @@ alloc_and_copy_literal(const char *src, size_t len)
 		return NULL;
 	}
 
-	/* Copy the string eating escaping backslashes. */
+	/* Copy the string. Eat escaping backslashes if @keep_bs is not set. */
 	/* FIXME: the logic looks like a tiny FSM,
 	 *        so perhaps it should be included to the TFSM. */
 	src_end = src + len;
@@ -130,7 +130,7 @@ alloc_and_copy_literal(const char *src, size_t len)
 	dst_pos = dst;
 	is_escaped = false;
 	while (src_pos < src_end) {
-		if (*src_pos != '\\' || is_escaped) {
+		if (*src_pos != '\\' || is_escaped || keep_bs) {
 			is_escaped = false;
 			*dst_pos = *src_pos;
 			++dst_pos;
@@ -143,6 +143,18 @@ alloc_and_copy_literal(const char *src, size_t len)
 	*dst_pos = '\0';
 
 	return dst;
+}
+
+static inline const char *
+alloc_and_copy_literal(const char *src, size_t len)
+{
+	return __alloc_and_copy_literal(src, len, false);
+}
+
+static inline const char *
+alloc_and_copy_literal_bs(const char *src, size_t len)
+{
+	return __alloc_and_copy_literal(src, len, true);
 }
 
 /**
@@ -711,7 +723,7 @@ entry_set_cond(TfwCfgEntry *e, token_t cond_type, const char *src, int len)
 	rule->fst = e->ftoken;
 	e->ftoken = NULL;
 
-	if (!(rule->snd = alloc_and_copy_literal(src, len)))
+	if (!(rule->snd = alloc_and_copy_literal_bs(src, len)))
 		return -ENOMEM;
 
 	if (!(e->name = alloc_and_copy_literal(name, name_len)))

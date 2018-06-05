@@ -1,9 +1,9 @@
 /**
  *		Tempesta FW
  *
- * Tempesta HTTP scheduler (load-balancing module).
+ * Tempesta HTTP tables.
  *
- * The goal of this module is to implement a load balancing scheme based on
+ * The goal of this module is to implement HTTP requests routing system based on
  * HTTP message contents, that is, to provide user a way to route HTTP requests
  * to different virtual hosts locations for additional analizing and then - to
  * different back-end server groups depending on HTTP request fields:
@@ -102,15 +102,11 @@
 #include <linux/string.h>
 #include <linux/ctype.h>
 
+#include "http_tbl.h"
 #include "tempesta_fw.h"
 #include "cfg.h"
 #include "http_match.h"
 #include "server.h"
-
-MODULE_AUTHOR(TFW_AUTHOR);
-MODULE_DESCRIPTION("Tempesta HTTP scheduler");
-MODULE_VERSION("0.3.1");
-MODULE_LICENSE("GPL");
 
 /* Active HTTP table. */
 static TfwHttpTable __rcu *tfw_table;
@@ -125,7 +121,7 @@ static TfwHttpChain *tfw_chain_entry;
  * of some chain points to other chain - move to that chain and scan it.
  */
 static TfwVhost *
-tfw_sched_http_table_scan(TfwMsg *msg, TfwHttpTable *table, bool *block)
+tfw_http_tbl_scan(TfwMsg *msg, TfwHttpTable *table, bool *block)
 {
 	TfwHttpChain *chain;
 	TfwHttpMatchRule *rule;
@@ -138,7 +134,7 @@ tfw_sched_http_table_scan(TfwMsg *msg, TfwHttpTable *table, bool *block)
 			rule = tfw_http_match_req((TfwHttpReq *)msg,
 						  &chain->match_list);
 		if (unlikely(!rule)) {
-			TFW_DBG("sched_http: No rule found in HTTP"
+			TFW_DBG("http_tbl: No rule found in HTTP"
 				" chain '%s'\n", chain->name);
 			return NULL;
 		}
@@ -165,8 +161,8 @@ tfw_sched_http_table_scan(TfwMsg *msg, TfwHttpTable *table, bool *block)
  * match http chain rules that specify which virtual host
  * or other http chain the request should be forwarded to.
  */
-static TfwVhost *
-tfw_sched_http_sched_vhost(TfwMsg *msg, bool *block)
+TfwVhost *
+tfw_http_tbl_vhost(TfwMsg *msg, bool *block)
 {
 	TfwVhost *vhost = NULL;
 	TfwHttpTable *active_table;
@@ -178,42 +174,12 @@ tfw_sched_http_sched_vhost(TfwMsg *msg, bool *block)
 		goto done;
 
 	BUG_ON(list_empty(&active_table->head));
-	if ((vhost = tfw_sched_http_table_scan(msg, active_table, block)))
+	if ((vhost = tfw_http_tbl_scan(msg, active_table, block)))
 		tfw_vhost_get(vhost);
 done:
  	rcu_read_unlock_bh();
  	return vhost;
 }
-
-static TfwSrvConn *
-tfw_sched_http_sched_sg_conn(TfwMsg *msg, TfwSrvGroup *sg)
-{
-	WARN_ONCE(true, "tfw_sched_http can't select a server from a group\n");
-	return NULL;
-}
-
-static TfwSrvConn *
-tfw_sched_http_sched_srv_conn(TfwMsg *msg, TfwServer *sg)
-{
-	WARN_ONCE(true, "tfw_sched_http can't select connection from a server"
-			"\n");
-	return NULL;
-}
-
-static void
-tfw_sched_http_refcnt(bool get)
-{
-	tfw_module_refcnt(THIS_MODULE, get);
-}
-
-static TfwScheduler tfw_sched_http = {
-	.name		= "http",
-	.list		= LIST_HEAD_INIT(tfw_sched_http.list),
-	.sched_vhost	= tfw_sched_http_sched_vhost,
-	.sched_sg_conn	= tfw_sched_http_sched_sg_conn,
-	.sched_srv_conn	= tfw_sched_http_sched_srv_conn,
-	.sched_refcnt	= tfw_sched_http_refcnt,
-};
 
 /*
  * ------------------------------------------------------------------------
@@ -222,23 +188,33 @@ static TfwScheduler tfw_sched_http = {
  */
 
 /* e.g.: match group ENUM eq "pattern"; */
-static const TfwCfgEnum tfw_sched_http_cfg_field_enum[] = {
+static const TfwCfgEnum tfw_http_tbl_cfg_field_enum[] = {
 	{ "uri",	TFW_HTTP_MATCH_F_URI },
 	{ "host",	TFW_HTTP_MATCH_F_HOST },
 	{ "hdr_host",	TFW_HTTP_MATCH_F_HDR_HOST },
 	{ "hdr_conn",	TFW_HTTP_MATCH_F_HDR_CONN },
+	{ "hdr_ctype",	TFW_HTTP_MATCH_F_HDR_CTYPE },
+	{ "hdr_uagent",	TFW_HTTP_MATCH_F_HDR_UAGENT },
+	{ "hdr_cookie",	TFW_HTTP_MATCH_F_HDR_COOKIE },
 	{ "hdr_ref",	TFW_HTTP_MATCH_F_HDR_REFERER },
+	{ "hdr_nmatch",	TFW_HTTP_MATCH_F_HDR_NMATCH },
+	{ "hdr_xfrwd",	TFW_HTTP_MATCH_F_HDR_XFRWD },
 	{ "mark",	TFW_HTTP_MATCH_F_MARK },
 	{ "hdr_raw",	TFW_HTTP_MATCH_F_HDR_RAW },
 	{}
 };
 
 static const tfw_http_match_arg_t
-tfw_sched_http_cfg_arg_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
+tfw_http_tbl_cfg_arg_types[_TFW_HTTP_MATCH_F_COUNT] = {
 	[TFW_HTTP_MATCH_F_WILDCARD]	= TFW_HTTP_MATCH_A_WILDCARD,
 	[TFW_HTTP_MATCH_F_HDR_CONN]	= TFW_HTTP_MATCH_A_STR,
 	[TFW_HTTP_MATCH_F_HDR_HOST]	= TFW_HTTP_MATCH_A_STR,
+	[TFW_HTTP_MATCH_F_HDR_CTYPE]	= TFW_HTTP_MATCH_A_STR,
+	[TFW_HTTP_MATCH_F_HDR_UAGENT]	= TFW_HTTP_MATCH_A_STR,
+	[TFW_HTTP_MATCH_F_HDR_COOKIE]	= TFW_HTTP_MATCH_A_STR,
 	[TFW_HTTP_MATCH_F_HDR_REFERER]	= TFW_HTTP_MATCH_A_STR,
+	[TFW_HTTP_MATCH_F_HDR_NMATCH]	= TFW_HTTP_MATCH_A_STR,
+	[TFW_HTTP_MATCH_F_HDR_XFRWD]	= TFW_HTTP_MATCH_A_STR,
 	[TFW_HTTP_MATCH_F_HDR_RAW]	= TFW_HTTP_MATCH_A_STR,
 	[TFW_HTTP_MATCH_F_HOST]		= TFW_HTTP_MATCH_A_STR,
 	[TFW_HTTP_MATCH_F_METHOD]	= TFW_HTTP_MATCH_A_METHOD,
@@ -277,7 +253,7 @@ tfw_http_rule_default_exist(struct list_head *head)
 }
 
 static int
-tfw_sched_http_cfgstart(void)
+tfw_http_tbl_cfgstart(void)
 {
 	BUG_ON(tfw_table_reconfig);
 
@@ -297,7 +273,7 @@ tfw_sched_http_cfgstart(void)
  * All nested rules are added to the chain.
  */
 static int
-tfw_cfgop_sched_http_chain_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_http_tbl_chain_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	TfwHttpChain *chain;
 	const char *name = NULL;
@@ -305,7 +281,7 @@ tfw_cfgop_sched_http_chain_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	BUG_ON(!tfw_table_reconfig);
 	BUG_ON(tfw_chain_entry);
 
-	TFW_DBG("sched_http: begin http_chain\n");
+	TFW_DBG("http_tbl: begin http_chain\n");
 
 	if (ce->val_n > 1) {
 		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
@@ -341,9 +317,9 @@ tfw_cfgop_sched_http_chain_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_cfgop_sched_http_chain_finish(TfwCfgSpec *cs)
+tfw_cfgop_http_tbl_chain_finish(TfwCfgSpec *cs)
 {
-	TFW_DBG("sched_http: finish http_chain\n");
+	TFW_DBG("http_tbl: finish http_chain\n");
 	BUG_ON(!tfw_chain_entry);
 	tfw_chain_entry = NULL;
 	return 0;
@@ -380,14 +356,14 @@ static int
 tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 {
 	int r;
-	bool invert;
+	unsigned int invert;
 	TfwHttpMatchRule *rule;
-	const char *in_field, *arg, *action, *action_val;
+	const char *in_field, *action, *action_val, *in_arg, *arg = NULL;
 	tfw_http_match_op_t op = TFW_HTTP_MATCH_O_WILDCARD;
 	tfw_http_match_fld_t field = TFW_HTTP_MATCH_F_WILDCARD;
 	tfw_http_match_arg_t type = TFW_HTTP_MATCH_A_WILDCARD;
 	TfwCfgRule *cfg_rule = &e->rule;
-	size_t arg_size = 0;
+	size_t len, arg_size = 0;
 	TfwHttpChain *chain = NULL;
 	TfwVhost *vhost = NULL;
 
@@ -401,44 +377,48 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 
 	invert = cfg_rule->inv;
 	in_field = cfg_rule->fst;
-	arg = cfg_rule->snd;
+	in_arg = cfg_rule->snd;
+	if (in_arg)
+		len = strlen(in_arg);
 	action = cfg_rule->act;
 	action_val = cfg_rule->val;
 	BUG_ON(!action);
 
 	if (tfw_http_rule_default_exist(&tfw_chain_entry->match_list)) {
-		TFW_ERR_NL("sched_http: default HTTP rule must be"
+		TFW_ERR_NL("http_tbl: default HTTP rule must be"
 			   " only one and last; chain '%s'\n",
 			   tfw_chain_entry->name ? : "main" );
 		return -EINVAL;
 	}
 
 	/* Interpret condition part of the rule. */
-	if (in_field && tfw_http_arg_adjust(&arg, &arg_size, &op)) {
-		r = tfw_cfg_map_enum(tfw_sched_http_cfg_field_enum,
+	if (in_arg && (in_arg[0] != '*' || len > 1)) {
+		BUG_ON(!in_field);
+		r = tfw_cfg_map_enum(tfw_http_tbl_cfg_field_enum,
 				     in_field, &field);
 		if (r) {
-			TFW_ERR_NL("sched_http: invalid rule field: '%s'\n",
+			TFW_ERR_NL("http_tbl: invalid rule field: '%s'\n",
 				   in_field);
 			return r;
 		}
-		type = tfw_sched_http_cfg_arg_tbl[field];
+		type = tfw_http_tbl_cfg_arg_types[field];
+		if (!(arg = tfw_http_arg_adjust(in_arg, len, &arg_size, &op)))
+			return -ENOMEM;
 	}
 	rule = tfw_http_rule_new(tfw_chain_entry, type, arg_size);
 	if (!rule) {
-		TFW_ERR_NL("sched_http: can't allocate memory for rule\n");
-		return -ENOMEM;
-	} else if (type == TFW_HTTP_MATCH_A_STR ||
-		   type == TFW_HTTP_MATCH_A_NUM ||
-		   type == TFW_HTTP_MATCH_A_WILDCARD)
-	{
+		TFW_ERR_NL("http_tbl: can't allocate memory for rule\n");
+		r = -ENOMEM;
+		goto err;
+	} else {
+		BUG_ON(type != TFW_HTTP_MATCH_A_STR
+		       && type != TFW_HTTP_MATCH_A_NUM
+		       && type != TFW_HTTP_MATCH_A_WILDCARD);
 		rule->inv = invert;
 		r = tfw_http_rule_init(rule, field, op, type, arg, arg_size - 1);
 		if (r)
-			return r;
-	} else {
-		BUG();
-		// TODO: parsing rules of other types
+			goto err;
+		kfree(arg);
 	}
 
 	/* Interpret action part of the rule. */
@@ -446,14 +426,14 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 		if (!action_val ||
 		    tfw_cfg_parse_uint(action_val,&rule->act.mark))
 		{
-			TFW_ERR_NL("sched_http: 'mark' action must have"
+			TFW_ERR_NL("http_tbl: 'mark' action must have"
 				   " unsigned integer value: '%s'\n",
 				   action_val);
 			return -EINVAL;
 		}
 		rule->act.type = TFW_HTTP_MATCH_ACT_MARK;
 	} else if (action_val) {
-		TFW_ERR_NL("sched_http: not 'mark' actions must not have"
+		TFW_ERR_NL("http_tbl: not 'mark' actions must not have"
 			   " any value: '%s'\n", action_val);
 		return -EINVAL;
 	} else if (!strcasecmp(action, "block")) {
@@ -465,13 +445,13 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 		rule->act.type = TFW_HTTP_MATCH_ACT_VHOST;
 		rule->act.vhost = vhost;
 	} else {
-		TFW_ERR_NL("sched_http: neither http_chain nor vhost with"
+		TFW_ERR_NL("http_tbl: neither http_chain nor vhost with"
 			   " specified name were found: '%s'\n", action);
 		return -EINVAL;
 	}
 
 	if (chain == tfw_chain_entry) {
-		TFW_ERR_NL("sched_http: cyclic reference of http_chain to"
+		TFW_ERR_NL("http_tbl: cyclic reference of http_chain to"
 			   " itself: '%s'\n", tfw_chain_entry->name);
 		return -EINVAL;
 	}
@@ -480,6 +460,9 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 		tfw_table_reconfig->chain_dflt = true;
 
 	return 0;
+err:
+	kfree(arg);
+	return r;
 }
 
 static int
@@ -516,7 +499,7 @@ tfw_cfgop_replace_active_table(TfwHttpTable *new_table)
 }
 
 static int
-tfw_sched_http_start(void)
+tfw_http_tbl_start(void)
 {
 	tfw_cfgop_replace_active_table(tfw_table_reconfig);
 	tfw_table_reconfig = NULL;
@@ -525,7 +508,7 @@ tfw_sched_http_start(void)
 }
 
 static int
-tfw_sched_http_cfgend(void)
+tfw_http_tbl_cfgend(void)
 {
 	int r;
 	TfwVhost *vhost_dflt;
@@ -556,7 +539,7 @@ tfw_sched_http_cfgend(void)
 
 	rule = tfw_http_rule_new(chain, TFW_HTTP_MATCH_A_WILDCARD, 0);
 	if (!rule) {
-		TFW_ERR_NL("sched_http: can't allocate memory for"
+		TFW_ERR_NL("http_tbl: can't allocate memory for"
 			   " default rule of main HTTP chain\n");
 		r = -ENOMEM;
 		goto err;
@@ -599,12 +582,12 @@ tfw_cfgop_rules_cleanup(TfwCfgSpec *cs)
 }
 
 static void
-tfw_sched_http_cfgclean(void)
+tfw_http_tbl_cfgclean(void)
 {
 	__tfw_cfgop_rules_cleanup();
 }
 
-static TfwCfgSpec tfw_sched_http_rules_specs[] = {
+static TfwCfgSpec tfw_http_tbl_rules_specs[] = {
 	{
 		.name = TFW_CFG_RULE_NAME,
 		.deflt = NULL,
@@ -616,16 +599,16 @@ static TfwCfgSpec tfw_sched_http_rules_specs[] = {
 	{ 0 }
 };
 
-static TfwCfgSpec tfw_sched_http_specs[] = {
+static TfwCfgSpec tfw_http_tbl_specs[] = {
 	{
 		.name = "http_chain",
 		.deflt = NULL,
 		.handler = tfw_cfg_handle_children,
 		.cleanup = tfw_cfgop_rules_cleanup,
-		.dest = tfw_sched_http_rules_specs,
+		.dest = tfw_http_tbl_rules_specs,
 		.spec_ext = &(TfwCfgSpecChild) {
-			.begin_hook = tfw_cfgop_sched_http_chain_begin,
-			.finish_hook = tfw_cfgop_sched_http_chain_finish
+			.begin_hook = tfw_cfgop_http_tbl_chain_begin,
+			.finish_hook = tfw_cfgop_http_tbl_chain_finish
 		},
 		.allow_none = true,
 		.allow_repeat = true,
@@ -634,13 +617,13 @@ static TfwCfgSpec tfw_sched_http_specs[] = {
 	{ 0 }
 };
 
-static TfwMod tfw_sched_http_mod = {
-	.name		= "tfw_sched_http",
-	.cfgstart	= tfw_sched_http_cfgstart,
-	.cfgend		= tfw_sched_http_cfgend,
-	.start		= tfw_sched_http_start,
-	.cfgclean	= tfw_sched_http_cfgclean,
-	.specs		= tfw_sched_http_specs,
+static TfwMod tfw_http_tbl_mod = {
+	.name		= "http_tbl",
+	.cfgstart	= tfw_http_tbl_cfgstart,
+	.cfgend		= tfw_http_tbl_cfgend,
+	.start		= tfw_http_tbl_start,
+	.cfgclean	= tfw_http_tbl_cfgclean,
+	.specs		= tfw_http_tbl_specs,
 };
 
 /*
@@ -650,32 +633,15 @@ static TfwMod tfw_sched_http_mod = {
  */
 
 int
-tfw_sched_http_init(void)
+tfw_http_tbl_init(void)
 {
-	int ret;
-
-	TFW_DBG("sched_http: init\n");
-
-	tfw_mod_register(&tfw_sched_http_mod);
-
-	if ((ret = tfw_sched_register(&tfw_sched_http))) {
-		TFW_ERR_NL("sched_http: Unable to register the module\n");
-		tfw_mod_unregister(&tfw_sched_http_mod);
-		return ret;
-	}
-
+	tfw_mod_register(&tfw_http_tbl_mod);
 	return 0;
 }
 
 void
-tfw_sched_http_exit(void)
+tfw_http_tbl_exit(void)
 {
-	TFW_DBG("sched_http: exit\n");
-
 	BUG_ON(tfw_table_reconfig);
-	tfw_sched_unregister(&tfw_sched_http);
-	tfw_mod_unregister(&tfw_sched_http_mod);
+	tfw_mod_unregister(&tfw_http_tbl_mod);
 }
-
-module_init(tfw_sched_http_init);
-module_exit(tfw_sched_http_exit);
