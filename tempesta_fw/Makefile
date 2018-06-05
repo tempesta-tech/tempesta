@@ -41,6 +41,9 @@ tempesta_fw-objs = \
 	http_msg.o \
 	http_parser.o \
 	http_sess.o \
+	http_tbl.o \
+	http_sched_hash.o \
+	http_sched_ratio.o \
 	main.o \
 	pool.o \
 	procfs.o \
@@ -57,4 +60,4 @@ tempesta_fw-objs = \
 	vhost.o \
 	work_queue.o
 
-obj-m	+= stress/ sched/ t/
+obj-m	+= stress/ t/

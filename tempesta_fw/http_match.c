@@ -4,21 +4,30 @@
  * HTTP table logic.
  *
  * The matching process is driven by a "chain" of rules that look like this:
- *         @field       = (!=)    @arg     ->   @action [ = @action_val ]
+ *         @field      == (!=)    @arg     ->   @action [ = @action_val ]
  * { TFW_HTTP_MATCH_F_HOST,   "*example.com",  TFW_HTTP_MATCH_ACT_CHAIN },
  * { TFW_HTTP_MATCH_F_URI,    "/foo/bar*",     TFW_HTTP_MATCH_ACT_VHOST },
  * { TFW_HTTP_MATCH_F_URI,    "/",             TFW_HTTP_MATCH_ACT_MARK  },
  *
  * The table is represented by a list of linked chains, that contain rules
  * of TfwHttpMatchRule type that has the fields described above:
- *  - @field is a field of a parsed HTTP request: method/uri/host/header/etc.
- *  - @op determines a comparison operator and depends on wildcard existance
- *    in @arg : "arg" => eq / "arg*" => prefix / "*arg" => suffix.
- *  - @act is a rule action with appropriate type (examples specified above).
+ *  - @field is the first argument in rule - the field of a parsed HTTP request:
+ *    method/uri/host/header/etc.
  *  - @arg is the second argument in rule, its type is determined dynamically
- *    depending on the @field (may be number/string/addr/etc).
+ *    depending on the @field (may be number/string/addr/etc); comparison
+ *    operator for @field and @arg depends on "==" ("!=") sign and on wildcard
+ *    existance in @arg:
+ *    "==": "arg" => eq / "arg*" => eq_prefix / "*arg" => eq_suffix.
+ *    "!=": "arg" => non_eq / "arg*" => non_eq_prefix / "*arg" => non_eq_suffix.
+ *  - @act is a rule action with appropriate type (examples specified above);
+ *    possible types are: reference to virtual host (defined before), reference
+ *    to other HTTP chain (defined before and not the same), "mark" action for
+ *    setting netfilter marks into all skbs for all matched requests, "block"
+ *    action for blocking all matched requests.
+ *  - @action_val is possible value for specified action; only "mark" action is
+ *    allowed to have value (unsigned integer type).
  *
- * So the tfw_sched_http_table_scan() threads a HTTP request sequentally across
+ * So the tfw_http_tbl_scan() threads a HTTP request sequentally across
  * all rules in all chains in the table and stops on a first matching rule (the
  * rule is returned).
  *
@@ -41,7 +50,7 @@
  *   - Case-sensitive matching for headers when required by RFC.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -181,7 +190,12 @@ match_hdr(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 		[0 ... _TFW_HTTP_MATCH_F_COUNT] = -1,
 		[TFW_HTTP_MATCH_F_HDR_CONN]	= TFW_HTTP_HDR_CONNECTION,
 		[TFW_HTTP_MATCH_F_HDR_HOST]	= TFW_HTTP_HDR_HOST,
+		[TFW_HTTP_MATCH_F_HDR_CTYPE]	= TFW_HTTP_HDR_CONTENT_TYPE,
+		[TFW_HTTP_MATCH_F_HDR_UAGENT]	= TFW_HTTP_HDR_USER_AGENT,
+		[TFW_HTTP_MATCH_F_HDR_COOKIE]	= TFW_HTTP_HDR_COOKIE,
 		[TFW_HTTP_MATCH_F_HDR_REFERER]	= TFW_HTTP_HDR_REFERER,
+		[TFW_HTTP_MATCH_F_HDR_NMATCH]	= TFW_HTTP_HDR_IF_NONE_MATCH,
+		[TFW_HTTP_MATCH_F_HDR_XFRWD]	= TFW_HTTP_HDR_X_FORWARDED_FOR,
 	};
 
 	const TfwHttpMatchArg *arg = &rule->arg;
@@ -344,7 +358,12 @@ static const match_fn match_fn_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
 	[TFW_HTTP_MATCH_F_WILDCARD]	= match_wildcard,
 	[TFW_HTTP_MATCH_F_HDR_CONN]	= match_hdr,
 	[TFW_HTTP_MATCH_F_HDR_HOST]	= match_hdr,
+	[TFW_HTTP_MATCH_F_HDR_CTYPE]	= match_hdr,
+	[TFW_HTTP_MATCH_F_HDR_UAGENT]	= match_hdr,
+	[TFW_HTTP_MATCH_F_HDR_COOKIE]	= match_hdr,
 	[TFW_HTTP_MATCH_F_HDR_REFERER]	= match_hdr,
+	[TFW_HTTP_MATCH_F_HDR_NMATCH]	= match_hdr,
+	[TFW_HTTP_MATCH_F_HDR_XFRWD]	= match_hdr,
 	[TFW_HTTP_MATCH_F_HDR_RAW]	= match_hdr_raw,
 	[TFW_HTTP_MATCH_F_HOST]		= match_host,
 	[TFW_HTTP_MATCH_F_METHOD]	= match_method,
@@ -362,7 +381,6 @@ do_eval(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
 	match_fn match_fn;
 	tfw_http_match_fld_t field;
-	bool matched;
 
 	TFW_DBG2("rule: %p, field: %#x, op: %#x, arg:%d:%d'%.*s'\n",
 		 rule, rule->field, rule->op, rule->arg.type, rule->arg.len,
@@ -371,18 +389,18 @@ do_eval(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	BUG_ON(!req || !rule);
 	BUG_ON(rule->field <= 0 || rule->field >= _TFW_HTTP_MATCH_F_COUNT);
 	BUG_ON(rule->op <= 0 || rule->op >= _TFW_HTTP_MATCH_O_COUNT);
-	BUG_ON(rule->act.type <= 0 || rule->act.type >= _TFW_HTTP_MATCH_ACT_COUNT);
-	BUG_ON(rule->arg.type <= 0 || rule->arg.type >= _TFW_HTTP_MATCH_A_COUNT);
-	BUG_ON(rule->arg.len < 0 || rule->arg.len >= TFW_HTTP_MATCH_MAX_ARG_LEN);
+	BUG_ON(rule->act.type <= 0 ||
+	       rule->act.type >= _TFW_HTTP_MATCH_ACT_COUNT);
+	BUG_ON(rule->arg.type <= 0 ||
+	       rule->arg.type >= _TFW_HTTP_MATCH_A_COUNT);
+	BUG_ON(rule->arg.len < 0 ||
+	       rule->arg.len >= TFW_HTTP_MATCH_MAX_ARG_LEN);
 
 	field = rule->field;
 	match_fn = match_fn_tbl[field];
 	BUG_ON(!match_fn);
 
-	matched = match_fn(req, rule);
-	if (rule->inv)
-		matched = !matched;
-	if (!matched)
+	if (!(match_fn(req, rule) ^ rule->inv))
 		return false;
 	/*
 	 * Evaluate mark action. Set mark only for head skb here; propagating
@@ -504,10 +522,11 @@ tfw_http_rule_init(TfwHttpMatchRule *rule, tfw_http_match_fld_t field,
 
 	if (type == TFW_HTTP_MATCH_A_NUM) {
 		if (tfw_cfg_parse_uint(arg, &rule->arg.num)) {
-			TFW_ERR_NL("sched_http: invalid 'mark'"
+			TFW_ERR_NL("http_match: invalid 'mark'"
 				   " codition: '%s'\n", arg);
 			return -EINVAL;
 		}
+		rule->op = TFW_HTTP_MATCH_O_EQ;
 		return 0;
 	}
 
@@ -523,32 +542,51 @@ tfw_http_rule_init(TfwHttpMatchRule *rule, tfw_http_match_fld_t field,
 }
 EXPORT_SYMBOL(tfw_http_rule_init);
 
-bool
-tfw_http_arg_adjust(const char **arg_out, size_t *size_out,
+const char *
+tfw_http_arg_adjust(const char *arg, size_t len, size_t *size_out,
 		    tfw_http_match_op_t *op_out)
 {
-	size_t len;
-	const char *arg = *arg_out;
+	bool escaped;
+	char *arg_out, *pos;
+	int i;
 
-	BUG_ON(!arg);
-	len = strlen(arg);
+	if (!(arg_out = kzalloc(len + 1, GFP_KERNEL))) {
+			TFW_ERR_NL("HTTP tables: unable to allocate rule"
+				   " argument.\n");
+		return NULL;
+	}
+
 	*op_out = TFW_HTTP_MATCH_O_EQ;
+	if (len > 1 && arg[len - 1] == '*' && arg[len - 2] != '\\')
+			*op_out = TFW_HTTP_MATCH_O_PREFIX;
+
+	if (arg[0] == '*') {
+		if (*op_out == TFW_HTTP_MATCH_O_PREFIX)
+			TFW_WARN_NL("HTTP tables: unable to match"
+				    " double-wildcard patterns '%s', so"
+				    " prefix pattern is applied\n", arg);
+		else
+			*op_out = TFW_HTTP_MATCH_O_SUFFIX;
+	}
+
+	len = 0;
+	escaped = false;
+	pos = arg_out;
+	for (i = 0; arg[i]; ++i) {
+		if (arg[i] == '*' && !escaped && (i == 0 || !arg[i + 1]))
+			continue;
+		if (arg[i] != '\\' || escaped) {
+			escaped = false;
+			*pos = arg[i];
+			++len;
+			++pos;
+		}
+		else if (arg[i] == '\\') {
+			escaped = true;
+		}
+	}
 	*size_out = len + 1;
 
-	if (arg[len - 1] == '*') {
-		if (len == 1) {
-			*op_out = TFW_HTTP_MATCH_O_WILDCARD;
-			return false;
-		}
-		*op_out = TFW_HTTP_MATCH_O_PREFIX;
-		--(*size_out);
-	}
-	if (arg[0] == '*') {
-		*op_out = TFW_HTTP_MATCH_O_SUFFIX;
-		*arg_out = &arg[1];
-		--(*size_out);
-	}
-
-	return true;
+	return arg_out;
 }
 EXPORT_SYMBOL(tfw_http_arg_adjust);

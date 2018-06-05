@@ -27,6 +27,7 @@
 #include "lib/str.h"
 #include "cache.h"
 #include "http_limits.h"
+#include "http_tbl.h"
 #include "client.h"
 #include "http_msg.h"
 #include "http_sess.h"
@@ -2529,18 +2530,19 @@ conn_put:
 static void
 tfw_http_req_mark_nip(TfwHttpReq *req)
 {
+	TfwVhost *vh_dflt;
+	TfwLocation *loc, *loc_dflt;
 	/* See RFC 7231 4.2.1 */
 	static const unsigned int safe_methods =
 		(1 << TFW_HTTP_METH_GET) | (1 << TFW_HTTP_METH_HEAD)
 		| (1 << TFW_HTTP_METH_OPTIONS) | (1 << TFW_HTTP_METH_PROPFIND)
 		| (1 << TFW_HTTP_METH_TRACE);
-	TfwLocation *loc = req->location;
-	TfwLocation *loc_dflt = req->vhost->loc_dflt;
-	TfwVhost *vh_dflt = req->vhost->vhost_dflt;
 
 	BUILD_BUG_ON(sizeof(safe_methods) * BITS_PER_BYTE
 		     < _TFW_HTTP_METH_COUNT);
 
+	if (!req->vhost)
+		return;
 	/*
 	 * Search in the current location of the current vhost. If there
 	 * are no entries there, then search in the default location of
@@ -2550,6 +2552,9 @@ tfw_http_req_mark_nip(TfwHttpReq *req)
 	 *
 	 * TODO #862: req->location must be the full set of options.
 	 */
+	loc = req->location;
+	loc_dflt = req->vhost->loc_dflt;
+	vh_dflt = req->vhost->vhost_dflt;
 	if (loc && loc->nipdef_sz) {
 		if (tfw_nipdef_match(loc, req->method, &req->uri_path))
 			goto nip_match;
@@ -2595,28 +2600,6 @@ tfw_http_req_add_seq_queue(TfwHttpReq *req)
 		req_prev->flags &= ~TFW_HTTP_F_NON_IDEMP;
 	list_add_tail(&req->msg.seq_list, seq_queue);
 	spin_unlock(&cli_conn->seq_qlock);
-}
-
-static int
-tfw_http_req_set_context(TfwHttpReq *req)
-{
-	bool block = false;
-
-	if ((req->vhost = tfw_sched_get_vhost((TfwMsg *)req, &block))) {
-		req->location = tfw_location_match(req->vhost, &req->uri_path);
-		return 0;
-	}
-	if (block) {
-		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		tfw_client_block(req, 500, "request has been filtered out"
-				 " via http table");
-	} else {
-		TFW_INC_STAT_BH(clnt.msgs_otherr);
-		tfw_client_drop(req, 500, "cannot find vhost for request");
-	}
-	return -EINVAL;
-
-
 }
 
 static inline bool
@@ -2682,6 +2665,7 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 	 */
 	while (data_off < skb_len) {
 		int req_conn_close;
+		bool block = false;
 		TfwHttpMsg *hmsib = NULL;
 		TfwHttpReq *req = (TfwHttpReq *)conn->msg;
 		TfwHttpParser *parser = &req->parser;
@@ -2753,17 +2737,25 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 			       && (req->content_length != req->body.len));
 		}
 
-		/* Assign the right Vhost for this request. */
-		if (tfw_http_req_set_context(req))
-			return TFW_BLOCK;
-
-		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_MSG, &data_up);
-		TFW_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
-		/* Don't accept any following requests from the peer. */
-		if (r == TFW_BLOCK) {
+		/* Assign the right Vhost for current request. */
+		if ((req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block))) {
+			req->location = tfw_location_match(req->vhost,
+							   &req->uri_path);
+			r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_MSG,
+					  &data_up);
+			TFW_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
+			/* Don't accept any following requests from the peer. */
+			if (r == TFW_BLOCK) {
+				TFW_INC_STAT_BH(clnt.msgs_filtout);
+				tfw_client_block(req, 403, "parsed request"
+						 " has been filtered out");
+				return TFW_BLOCK;
+			}
+		}
+		if (block) {
 			TFW_INC_STAT_BH(clnt.msgs_filtout);
-			tfw_client_block(req, 403, "parsed request"
-				       " has been filtered out");
+			tfw_client_block(req, 500, "request has been filtered"
+					 " out via http table");
 			return TFW_BLOCK;
 		}
 
@@ -2854,14 +2846,24 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 		tfw_http_req_add_seq_queue(req);
 
 		/*
-		 * The request should either be stored or released.
-		 * Otherwise we lose the reference to it and get a leak.
+		 * If no virtual host has been found for current request, there
+		 * is no sense for its further processing, so we drop it, send
+		 * error response to client and move on to the next request.
 		 */
-		if (tfw_cache_process((TfwHttpMsg *)req, tfw_http_req_cache_cb)) {
+		if (!req->vhost) {
+			tfw_http_send_resp(req, 404, "request dropped: cannot"
+					   " find appropriate virtual host");
+			TFW_INC_STAT_BH(clnt.msgs_otherr);
+		} else if (tfw_cache_process((TfwHttpMsg *)req,
+					     tfw_http_req_cache_cb))
+		{
+			/*
+			 * The request should either be stored or released.
+			 * Otherwise we lose the reference to it and get a leak.
+			 */
 			tfw_http_send_resp(req, 500, "request dropped:"
 					   " processing error");
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
-			return TFW_PASS;
 		}
 
 		/*

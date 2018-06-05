@@ -4,7 +4,7 @@
  * Requst schedulers interface.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -26,49 +26,13 @@
 #include "http_sess.h"
 
 /*
- * Normally, schedulers are separate modules. Schedulers register
- * and deregister themselves via register()/unregister() functions.
- * Registered schedulers are placed on the list and can be used by
- * Tempesta. The list is traversed on each HTTP message in search
- * for an outgoing connection, so the list traversal operation is
- * critical for speed. The event of a scheduler's registration or
- * deregistration is rare. The list of schedulers is traversed on
- * multiple CPUs simultaneously. These properties and the goals
- * make RCU locks a beneficial choice.
+ * Schedulers register and deregister themselves successively via
+ * register()/unregister() functions during initialisation of
+ * 'tempesta_fw' module. Registered schedulers are placed on the
+ * list which can be used from user context during (re)configuration
+ * procedures only.
  */
-
 static LIST_HEAD(sched_list);
-static DEFINE_SPINLOCK(sched_lock);
-
-/**
- * Find target host and outgoing connection for an HTTP message.
- *
- * Where an HTTP message goes in controlled by schedulers. It may
- * or may not depend on properties of HTTP message itself. In any
- * case, schedulers are polled in sequential order until a result
- * is received. Schedulers that distribute HTTP messages among
- * vhosts and server groups come first in the list. The search
- * stops when these schedulers run out.
- */
-TfwVhost *
-tfw_sched_get_vhost(TfwMsg *msg, bool *block)
-{
-	TfwVhost *vhost;
-	TfwScheduler *sched;
-
-	rcu_read_lock();
-	list_for_each_entry_rcu(sched, &sched_list, list) {
-		if (!sched->sched_vhost)
-			break;
-		if ((vhost = sched->sched_vhost(msg, block))) {
-			rcu_read_unlock();
-			return vhost;
-		}
-	}
-	rcu_read_unlock();
-
-	return NULL;
-}
 
 /*
  * Lookup a scheduler by name.
@@ -81,36 +45,12 @@ tfw_sched_lookup(const char *name)
 {
 	TfwScheduler *sched;
 
-	rcu_read_lock();
-	list_for_each_entry_rcu(sched, &sched_list, list) {
-		if (!name || !strcasecmp(name, sched->name)) {
-			rcu_read_unlock();
+	list_for_each_entry(sched, &sched_list, list) {
+		if (!name || !strcasecmp(name, sched->name))
 			return sched;
-		}
 	}
-	rcu_read_unlock();
 
 	return NULL;
-}
-
-/*
- * Get or put reference count for all registered
- * scheduler modules.
- */
-void
-tfw_sched_refcnt_all(bool get)
-{
-	TfwScheduler *sched;
-
-	if (tfw_runstate_is_reconfig())
-		return;
-
-	rcu_read_lock();
-	list_for_each_entry_rcu(sched, &sched_list, list) {
-		if (sched->sched_refcnt)
-			sched->sched_refcnt(get);
-	}
-	rcu_read_unlock();
 }
 
 /*
@@ -122,18 +62,10 @@ tfw_sched_register(TfwScheduler *sched)
 {
 	TFW_LOG("Registering new scheduler: %s\n", sched->name);
 	BUG_ON(!list_empty(&sched->list));
-
-	/* Add group scheduling schedulers at head of the list. */
-	spin_lock(&sched_lock);
-	if (sched->sched_vhost)
-		list_add_rcu(&sched->list, &sched_list);
-	else
-		list_add_tail_rcu(&sched->list, &sched_list);
-	spin_unlock(&sched_lock);
+	list_add_tail(&sched->list, &sched_list);
 
 	return 0;
 }
-EXPORT_SYMBOL(tfw_sched_register);
 
 /*
  * Deregister a new scheduler.
@@ -144,14 +76,6 @@ tfw_sched_unregister(TfwScheduler *sched)
 {
 	TFW_LOG("Un-registering scheduler: %s\n", sched->name);
 	BUG_ON(list_empty(&sched->list));
-
-	spin_lock(&sched_lock);
-	list_del_rcu(&sched->list);
-	spin_unlock(&sched_lock);
-
-	/* Make sure the removed @sched is not used. */
-	synchronize_rcu();
-	/* Clear up scheduler for future use. */
-	INIT_LIST_HEAD(&sched->list);
+	list_del_init(&sched->list);
 }
-EXPORT_SYMBOL(tfw_sched_unregister);
+

@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -24,35 +24,20 @@
 #include <linux/list.h>
 
 #include "addr.h"
-#include "pool.h"
 #include "http.h"
-
-/**
- * HTTP chain. Contains list of rules for matching.
- */
-typedef struct {
-	struct list_head list;
-	struct list_head mark_list;
-	struct list_head match_list;
-	const char *name;
-	TfwPool *pool;
-} TfwHttpChain;
-
-/**
- * HTTP table. Contains list of HTTP chains.
- */
-typedef struct {
-	struct list_head head;
-	bool chain_dflt;
-	TfwPool *pool;
-} TfwHttpTable;
+#include "http_tbl.h"
 
 typedef enum {
 	TFW_HTTP_MATCH_F_NA = 0,
 	TFW_HTTP_MATCH_F_WILDCARD,
 	TFW_HTTP_MATCH_F_HDR_CONN,
 	TFW_HTTP_MATCH_F_HDR_HOST,
+	TFW_HTTP_MATCH_F_HDR_CTYPE,
+	TFW_HTTP_MATCH_F_HDR_UAGENT,
+	TFW_HTTP_MATCH_F_HDR_COOKIE,
 	TFW_HTTP_MATCH_F_HDR_REFERER,
+	TFW_HTTP_MATCH_F_HDR_NMATCH,
+	TFW_HTTP_MATCH_F_HDR_XFRWD,
 	TFW_HTTP_MATCH_F_HDR_RAW,
 	TFW_HTTP_MATCH_F_HOST,
 	TFW_HTTP_MATCH_F_METHOD,
@@ -114,9 +99,9 @@ typedef struct {
 typedef struct {
 	struct list_head	list;
 	tfw_http_match_fld_t	field; /* Field of a HTTP message to compare. */
-	bool			inv;   /* Comparison inversion (inequality) flag.*/
 	tfw_http_match_op_t 	op;    /* Comparison operator. */
 	TfwHttpAction		act;   /* Rule action. */
+	unsigned int		inv;   /* Comparison inversion (inequality) flag.*/
 	TfwHttpMatchArg 	arg;   /* A value to be compared with the field.
 					  note: the @arg has variable length. */
 } TfwHttpMatchRule;
@@ -150,8 +135,8 @@ int tfw_http_rule_init(TfwHttpMatchRule *rule, tfw_http_match_fld_t field,
 		       tfw_http_match_op_t op, tfw_http_match_arg_t type,
 		       const char *arg, size_t arg_len );
 
-bool tfw_http_arg_adjust(const char **arg_out, size_t *size_out,
-			 tfw_http_match_op_t *op_out);
+const char *tfw_http_arg_adjust(const char *arg, size_t len, size_t *size_out,
+				tfw_http_match_op_t *op_out);
 
 #define tfw_http_chain_rules_for_each(chain, func)			\
 ({									\

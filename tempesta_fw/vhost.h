@@ -141,7 +141,7 @@ typedef struct tfw_vhost_t TfwVhost;
  * @refcnt	- Number of users of the virtual host object.
  * @loc_sz	- Count of elements in @loc array.
  */
-struct tfw_vhost_t {
+struct  tfw_vhost_t {
 	struct list_head	list;
 	const char		*name;
 	TfwLocation		*loc;
