@@ -21,9 +21,7 @@
 #ifndef __HTTP_TBL__
 #define __HTTP_TBL__
 
-#include "pool.h"
-#include "vhost.h"
-#include "msg.h"
+#include "http.h"
 
 /**
  * HTTP chain. Contains list of rules for matching.
@@ -57,5 +55,6 @@ typedef struct {
 } TfwHttpTable;
 
 TfwVhost *tfw_http_tbl_vhost(TfwMsg *msg, bool *block);
+int tfw_http_tbl_method(const char *arg, tfw_http_meth_t *method);
 
 #endif /* __HTTP_TBL__ */
