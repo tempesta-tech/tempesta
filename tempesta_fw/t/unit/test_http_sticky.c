@@ -186,17 +186,24 @@ tfw_connection_send(TfwConn *conn, TfwMsg *msg)
 	return 0;
 }
 
-/* custom version for testing purposes */
+/* Custom version for testing purposes. */
 int tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 {
 	return tfw_connection_send((TfwConn *)cli_conn, msg);
 }
 
-/* custom version for testing purposes */
+/* Custom version for testing purposes. */
 void
 tfw_http_resp_build_error(TfwHttpReq *req)
 {
 	(void)req;
+}
+
+/* Custom version for testing purposes. */
+void
+tfw_tls_cfg_require(void)
+{
+	return;
 }
 
 /* setup/teardown helpers */
