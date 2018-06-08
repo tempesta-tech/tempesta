@@ -20,7 +20,6 @@
 #ifndef __LIB_STR_H__
 #define __LIB_STR_H__
 
-#ifdef AVX2
 void memcpy_fast(void *to, const void *from, size_t len);
 /*
  * This memcmp() version return 0 on equal strings and non-zero otherwise -
@@ -29,10 +28,5 @@ void memcpy_fast(void *to, const void *from, size_t len);
  */
 int memcmp_fast(const void *a, const void *b, size_t len);
 void bzero_fast(void *s, size_t len);
-#else /* AVX2 */
-#define memcpy_fast(to, from, len)	memcpy(to, from, len)
-#define memcmp_fast(a, b, len)		memcmp(a, b, len)
-#define bzero_fast(s, len)		memset(s, 0, len)
-#endif
 
 #endif /* __LIB_STR_H__ */
