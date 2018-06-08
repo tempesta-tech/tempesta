@@ -20,15 +20,16 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include "tempesta_fw.h"
 #include "cfg.h"
-#include "http_limits.h"
 #include "client.h"
 #include "connection.h"
+#include "http_limits.h"
 #include "log.h"
-#include "sync_socket.h"
-#include "tempesta_fw.h"
-#include "server.h"
 #include "procfs.h"
+#include "server.h"
+#include "sync_socket.h"
+#include "tls.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -175,7 +176,7 @@ tfw_sock_clnt_new(struct sock *sk)
 
 	r = tfw_connection_new(conn);
 	if (r) {
-		TFW_ERR("conn_init() hook returned error\n");
+		TFW_ERR("cannot establish a new client connection\n");
 		goto err_conn;
 	}
 
@@ -196,7 +197,6 @@ tfw_sock_clnt_new(struct sock *sk)
 	return 0;
 
 err_conn:
-	tfw_connection_drop(conn);
 	tfw_cli_conn_free((TfwCliConn *)conn);
 err_client:
 	tfw_client_put(cli);
@@ -483,12 +483,16 @@ tfw_cfgop_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (!in_str)
 		goto parse_err;
 
-	if (!strcasecmp(in_str, "http"))
+	if (!strcasecmp(in_str, "http")) {
 		return tfw_listen_sock_add(&addr, TFW_FSM_HTTP);
-	else if (!strcasecmp(in_str, "https"))
+	}
+	else if (!strcasecmp(in_str, "https")) {
+		tfw_tls_cfg_require();
 		return tfw_listen_sock_add(&addr, TFW_FSM_HTTPS);
-	else
+	}
+	else {
 		goto parse_err;
+	}
 
 parse_err:
 	TFW_ERR_NL("Unable to parse 'listen' value: '%s'\n",

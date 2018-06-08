@@ -514,7 +514,7 @@ ss_do_close(struct sock *sk)
 		return;
 	TFW_DBG2("[%d]: Close socket %p (%s): account=%d refcnt=%u\n",
 	         smp_processor_id(), sk, ss_statename[sk->sk_state],
-	         sk_has_account(sk), refcount_read(&sk->sk_refcnt));
+		 sk_has_account(sk), refcount_read(&sk->sk_refcnt));
 	assert_spin_locked(&sk->sk_lock.slock);
 	TFW_VALIDATE_SK_LOCK_OWNER(sk);
 	WARN_ON_ONCE(sk->sk_state == TCP_LISTEN);
