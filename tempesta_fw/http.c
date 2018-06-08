@@ -2133,8 +2133,23 @@ static int
 tfw_http_adjust_resp(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
-	int r, conn_flg = req->flags & __TFW_HTTP_MSG_M_CONN_MASK;
 	TfwHttpMsg *hm = (TfwHttpMsg *)resp;
+	int r, conn_flg;
+
+	/*
+	 * If request violated backend rules, backend may respond with 4xx code
+	 * and close connection to Tempesta. Don't encourage client to send
+	 * more such requests and cause performance degradation, close the
+	 * client connection.
+	 */
+	if ((resp->flags & TFW_HTTP_F_CONN_CLOSE) && (resp->status / 100 == 4)) {
+		req->flags = (req->flags & ~TFW_HTTP_F_CONN_KA)
+				| TFW_HTTP_F_CONN_CLOSE;
+		conn_flg = TFW_HTTP_F_CONN_CLOSE;
+	}
+	else {
+		conn_flg = req->flags & __TFW_HTTP_MSG_M_CONN_MASK;
+	}
 
 	r = tfw_http_sess_resp_process(resp);
 	if (r < 0)
