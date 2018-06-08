@@ -704,7 +704,7 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 		},
 		.len = n_len + SLEN(S_DLM) + v_len,
 		.eolen = 2,
-		.flags = 3 << TFW_STR_CN_SHIFT
+		.flags = (val ? 3 : 2) << TFW_STR_CN_SHIFT
 	};
 
 	BUG_ON(!val && v_len);
