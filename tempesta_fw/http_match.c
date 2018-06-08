@@ -522,8 +522,18 @@ tfw_http_rule_init(TfwHttpMatchRule *rule, tfw_http_match_fld_t field,
 
 	if (type == TFW_HTTP_MATCH_A_NUM) {
 		if (tfw_cfg_parse_uint(arg, &rule->arg.num)) {
-			TFW_ERR_NL("http_match: invalid 'mark'"
-				   " codition: '%s'\n", arg);
+			TFW_ERR_NL("http_match: invalid 'mark' condition:"
+				   " '%s'\n", arg);
+			return -EINVAL;
+		}
+		rule->op = TFW_HTTP_MATCH_O_EQ;
+		return 0;
+	}
+
+	if (type == TFW_HTTP_MATCH_A_METHOD) {
+		if (tfw_http_tbl_method(arg, &rule->arg.method)) {
+			TFW_ERR_NL("http_tbl: invalid 'method' condition:"
+				   " '%s'\n", arg);
 			return -EINVAL;
 		}
 		rule->op = TFW_HTTP_MATCH_O_EQ;

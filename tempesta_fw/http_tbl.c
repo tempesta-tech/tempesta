@@ -201,7 +201,28 @@ static const TfwCfgEnum tfw_http_tbl_cfg_field_enum[] = {
 	{ "hdr_xfrwd",	TFW_HTTP_MATCH_F_HDR_XFRWD },
 	{ "mark",	TFW_HTTP_MATCH_F_MARK },
 	{ "hdr_raw",	TFW_HTTP_MATCH_F_HDR_RAW },
-	{}
+	{ "method",	TFW_HTTP_MATCH_F_METHOD },
+	{ 0 }
+};
+
+static const TfwCfgEnum tfw_http_tbl_cfg_method_enum[] = {
+	{ "copy",	TFW_HTTP_METH_COPY },
+	{ "delete",	TFW_HTTP_METH_DELETE },
+	{ "get",	TFW_HTTP_METH_GET },
+	{ "head",	TFW_HTTP_METH_HEAD },
+	{ "lock",	TFW_HTTP_METH_LOCK },
+	{ "mkcol",	TFW_HTTP_METH_MKCOL },
+	{ "move",	TFW_HTTP_METH_MOVE },
+	{ "options",	TFW_HTTP_METH_OPTIONS },
+	{ "patch",	TFW_HTTP_METH_PATCH },
+	{ "post",	TFW_HTTP_METH_POST },
+	{ "propfind",	TFW_HTTP_METH_PROPFIND },
+	{ "proppatch",	TFW_HTTP_METH_PROPPATCH },
+	{ "put",	TFW_HTTP_METH_PUT },
+	{ "trace",	TFW_HTTP_METH_TRACE },
+	{ "unlock",	TFW_HTTP_METH_UNLOCK, },
+	{ "purge",	TFW_HTTP_METH_PURGE },
+	{ 0 }
 };
 
 static const tfw_http_match_arg_t
@@ -221,6 +242,18 @@ tfw_http_tbl_cfg_arg_types[_TFW_HTTP_MATCH_F_COUNT] = {
 	[TFW_HTTP_MATCH_F_URI]		= TFW_HTTP_MATCH_A_STR,
 	[TFW_HTTP_MATCH_F_MARK]		= TFW_HTTP_MATCH_A_NUM,
 };
+
+int
+tfw_http_tbl_method(const char *arg, tfw_http_meth_t *method)
+{
+	if (tfw_cfg_map_enum(tfw_http_tbl_cfg_method_enum, arg, method))
+	{
+		TFW_ERR_NL("http_tbl: invalid 'method' condition:"
+			   " '%s'\n", arg);
+		return -EINVAL;
+	}
+	return 0;
+}
 
 static TfwHttpChain *
 tfw_chain_lookup(const char *name)
@@ -413,6 +446,7 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 	} else {
 		BUG_ON(type != TFW_HTTP_MATCH_A_STR
 		       && type != TFW_HTTP_MATCH_A_NUM
+		       && type != TFW_HTTP_MATCH_A_METHOD
 		       && type != TFW_HTTP_MATCH_A_WILDCARD);
 		rule->inv = invert;
 		r = tfw_http_rule_init(rule, field, op, type, arg, arg_size - 1);
