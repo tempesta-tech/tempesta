@@ -143,8 +143,6 @@ tfw_mods_stop(struct list_head *mod_list)
 			mod->stop();
 	}
 
-	tfw_sched_refcnt_all(false);
-
 	TFW_LOG("modules are stopped\n");
 }
 
@@ -182,8 +180,6 @@ tfw_mods_start(struct list_head *mod_list)
 {
 	int ret;
 	TfwMod *mod;
-
-	tfw_sched_refcnt_all(true);
 
 	TFW_DBG2("starting modules...\n");
 	MOD_FOR_EACH(mod, mod_list) {
@@ -366,6 +362,10 @@ tfw_exit(void)
 	int i;
 
 	TFW_LOG("exiting...\n");
+
+	/* Wait for outstanding RCU callbacks to complete. */
+	rcu_barrier_bh();
+
 	for (i = exit_hooks_n - 1; i >= 0; --i)
 		exit_hooks[i]();
 
@@ -414,6 +414,9 @@ tfw_init(void)
 	DO_INIT(sock_srv);
 	DO_INIT(sock_clnt);
 	DO_INIT(procfs);
+	DO_INIT(http_tbl);
+	DO_INIT(sched_hash);
+	DO_INIT(sched_ratio);
 
 	return 0;
 err:

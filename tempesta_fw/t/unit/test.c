@@ -98,7 +98,7 @@ TEST_SUITE(hash);
 TEST_SUITE(addr);
 TEST_SUITE(sched_ratio);
 TEST_SUITE(sched_hash);
-TEST_SUITE(sched_http);
+TEST_SUITE(http_tbl);
 TEST_SUITE(wq);
 TEST_SUITE(tls);
 
@@ -131,7 +131,7 @@ test_run_all(void)
 	TEST_SUITE_RUN(addr);
 	TEST_SUITE_RUN(sched_ratio);
 	TEST_SUITE_RUN(sched_hash);
-	TEST_SUITE_RUN(sched_http);
+	TEST_SUITE_RUN(http_tbl);
 
 	kernel_fpu_end();
 

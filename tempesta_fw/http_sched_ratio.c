@@ -27,11 +27,6 @@
 #include "server.h"
 #include "http.h"
 
-MODULE_AUTHOR(TFW_AUTHOR);
-MODULE_DESCRIPTION("Tempesta Ratio Scheduler");
-MODULE_VERSION("0.1.2");
-MODULE_LICENSE("GPL");
-
 #define TFW_SCHED_RATIO_INTVL	(HZ / 20)	/* The timer periodicity. */
 
 /**
@@ -1289,12 +1284,6 @@ tfw_sched_ratio_del_srv(TfwServer *srv)
 		call_rcu_bh(&srvdesc->rcu, tfw_sched_ratio_put_srv_data);
 }
 
-static void
-tfw_sched_ratio_refcnt(bool get)
-{
-	tfw_module_refcnt(THIS_MODULE, get);
-}
-
 static TfwScheduler tfw_sched_ratio = {
 	.name		= "ratio",
 	.list		= LIST_HEAD_INIT(tfw_sched_ratio.list),
@@ -1304,7 +1293,6 @@ static TfwScheduler tfw_sched_ratio = {
 	.del_srv	= tfw_sched_ratio_del_srv,
 	.sched_sg_conn	= tfw_sched_ratio_sched_sg_conn,
 	.sched_srv_conn	= tfw_sched_ratio_sched_srv_conn,
-	.sched_refcnt	= tfw_sched_ratio_refcnt,
 };
 
 int
@@ -1313,15 +1301,10 @@ tfw_sched_ratio_init(void)
 	TFW_DBG("%s: init\n", tfw_sched_ratio.name);
 	return tfw_sched_register(&tfw_sched_ratio);
 }
-module_init(tfw_sched_ratio_init);
 
 void
 tfw_sched_ratio_exit(void)
 {
 	TFW_DBG("%s: exit\n", tfw_sched_ratio.name);
-
-	/* Wait for outstanding RCU callbacks to complete. */
-	rcu_barrier_bh();
 	tfw_sched_unregister(&tfw_sched_ratio);
 }
-module_exit(tfw_sched_ratio_exit);
