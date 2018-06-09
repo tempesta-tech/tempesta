@@ -2737,24 +2737,25 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 			       && (req->content_length != req->body.len));
 		}
 
-		/* Assign the right Vhost for current request. */
-		if ((req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block))) {
+		/* Assign the right virtual host for current request. */
+		if ((req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block)))
 			req->location = tfw_location_match(req->vhost,
 							   &req->uri_path);
-			r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_MSG,
-					  &data_up);
-			TFW_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
-			/* Don't accept any following requests from the peer. */
-			if (r == TFW_BLOCK) {
-				TFW_INC_STAT_BH(clnt.msgs_filtout);
-				tfw_client_block(req, 403, "parsed request"
-						 " has been filtered out");
-				return TFW_BLOCK;
-			}
+
+		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_MSG,
+				  &data_up);
+		TFW_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
+		/* Don't accept any following requests from the peer. */
+		if (r == TFW_BLOCK) {
+			TFW_INC_STAT_BH(clnt.msgs_filtout);
+			tfw_client_block(req, 403, "parsed request"
+					 " has been filtered out");
+			return TFW_BLOCK;
 		}
+
 		if (block) {
 			TFW_INC_STAT_BH(clnt.msgs_filtout);
-			tfw_client_block(req, 500, "request has been filtered"
+			tfw_client_block(req, 403, "request has been filtered"
 					 " out via http table");
 			return TFW_BLOCK;
 		}
