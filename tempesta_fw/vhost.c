@@ -254,17 +254,6 @@ tfw_location_match(TfwVhost *vhost, TfwStr *arg)
 	return NULL;
 }
 
-TfwVhost *
-tfw_vhost_match(TfwMsg *msg)
-{
-	TfwVhost *vhost;
-
-	if ((vhost = tfw_sched_get_vhost(msg)))
-		tfw_vhost_get(vhost);
-
-	return vhost;
-}
-
 /*
  * Find request's location with server group linked. If there is no
  * separate location for request (or there is no server group linked
@@ -382,7 +371,6 @@ tfw_vhost_lookup(const char *name)
 	}
 	return NULL;
 }
-EXPORT_SYMBOL(tfw_vhost_lookup);
 
 TfwGlobal *
 tfw_vhost_get_global(void)
@@ -1255,7 +1243,7 @@ tfw_cfgop_vhost_check_flags(TfwSrvGroup *main_sg, TfwSrvGroup *backup_sg)
 	int r = ((main_sg->flags & TFW_SRV_STICKY_FLAGS) ^
 		 (backup_sg->flags & TFW_SRV_STICKY_FLAGS));
 	if (r)
-		TFW_ERR_NL("sched_http: srv_groups '%s' and '%s' must "
+		TFW_ERR_NL("vhost: srv_groups '%s' and '%s' must "
 			   "have the same sticky sessions settings\n",
 			   main_sg->name, backup_sg->name);
 
@@ -1358,7 +1346,6 @@ tfw_vhost_destroy(TfwVhost *vhost)
 	tfw_pool_destroy(vhost->hdrs_pool);
 	kfree(vhost);
 }
-EXPORT_SYMBOL(tfw_vhost_destroy);
 
 static TfwVhost *
 tfw_vhost_create(const char *name)
@@ -1456,7 +1443,6 @@ tfw_vhost_global_frang_cfg(void)
 {
 	return &frang_cfg;
 }
-EXPORT_SYMBOL(tfw_vhost_global_frang_cfg);
 
 static int
 tfw_cfgop_frang_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce,

@@ -335,6 +335,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct sk_buff *skb;
 	int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
+	unsigned int mark = (*skb_head)->mark;
 
 	TFW_DBG3("[%d]: %s: sk=%p queue_empty=%d send_head=%p"
 	         " sk_state=%d mss=%d size=%d\n",
@@ -364,9 +365,12 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 
 		ss_skb_init_for_xmit(skb);
 
-		TFW_DBG3("[%d]: %s: entail skb=%p data_len=%u len=%u\n",
-		         smp_processor_id(), __func__,
-		         skb, skb->data_len, skb->len);
+		/* Propagate mark of message head skb.*/
+		skb->mark = mark;
+
+		TFW_DBG3("[%d]: %s: entail skb=%p data_len=%u len=%u mark=%u\n",
+		         smp_processor_id(), __func__, skb,
+			 skb->data_len, skb->len, skb->mark);
 
 		skb_entail(sk, skb);
 
@@ -508,7 +512,7 @@ ss_do_close(struct sock *sk)
 
 	if (unlikely(!sk))
 		return;
-	TFW_DBG2("[%d]: Close socket %p (%s): account=%d refcnt=%d\n",
+	TFW_DBG2("[%d]: Close socket %p (%s): account=%d refcnt=%u\n",
 	         smp_processor_id(), sk, ss_statename[sk->sk_state],
 		 sk_has_account(sk), refcount_read(&sk->sk_refcnt));
 	assert_spin_locked(&sk->sk_lock.slock);
