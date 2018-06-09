@@ -561,14 +561,14 @@ tfw_http_arg_adjust(const char *arg, size_t len, size_t *size_out,
 	int i;
 
 	if (!(arg_out = kzalloc(len + 1, GFP_KERNEL))) {
-			TFW_ERR_NL("HTTP tables: unable to allocate rule"
-				   " argument.\n");
+		TFW_ERR_NL("HTTP tables: unable to allocate rule"
+			   " argument.\n");
 		return NULL;
 	}
 
 	*op_out = TFW_HTTP_MATCH_O_EQ;
 	if (len > 1 && arg[len - 1] == '*' && arg[len - 2] != '\\')
-			*op_out = TFW_HTTP_MATCH_O_PREFIX;
+		*op_out = TFW_HTTP_MATCH_O_PREFIX;
 
 	if (arg[0] == '*') {
 		if (*op_out == TFW_HTTP_MATCH_O_PREFIX)
