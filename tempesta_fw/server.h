@@ -167,7 +167,6 @@ typedef struct {
  *		  Called in process context at re-configuration time.
  * @del_srv	- delete single server added via add_srv.
  *		  Called in SoftIRQ context.
- * @sched_vhost - vhost sheduling virtual method.
  * @sched_sg_conn	- virtual method. Schedule a request to a server from
  *			  given server group. Returns a server connection;
  * @sched_srv_conn	- schedule a request to the given server.
@@ -192,10 +191,8 @@ struct tfw_scheduler_t {
 	void			(*del_grp)(TfwSrvGroup *sg);
 	int			(*add_srv)(TfwServer *srv);
 	void			(*del_srv)(TfwServer *srv);
-	struct tfw_vhost_t	*(*sched_vhost)(TfwMsg *msg);
 	TfwSrvConn		*(*sched_sg_conn)(TfwMsg *msg, TfwSrvGroup *sg);
 	TfwSrvConn		*(*sched_srv_conn)(TfwMsg *msg, TfwServer *srv);
-	void			(*sched_refcnt)(bool get);
 };
 
 /* Server specific routines. */
@@ -345,9 +342,7 @@ tfw_sg_name_match(TfwSrvGroup *sg, const char *name, unsigned int len)
 }
 
 /* Scheduler routines. */
-struct tfw_vhost_t *tfw_sched_get_vhost(TfwMsg *msg);
 TfwScheduler *tfw_sched_lookup(const char *name);
-void tfw_sched_refcnt_all(bool get);
 int tfw_sched_register(TfwScheduler *sched);
 void tfw_sched_unregister(TfwScheduler *sched);
 

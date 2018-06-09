@@ -141,7 +141,7 @@ typedef struct tfw_vhost_t TfwVhost;
  * @refcnt	- Number of users of the virtual host object.
  * @loc_sz	- Count of elements in @loc array.
  */
-struct tfw_vhost_t {
+struct  tfw_vhost_t {
 	struct list_head	list;
 	const char		*name;
 	TfwLocation		*loc;
@@ -197,7 +197,6 @@ TfwNipDef *tfw_nipdef_match(TfwLocation *loc, unsigned char meth, TfwStr *arg);
 bool tfw_capuacl_match(TfwAddr *addr);
 TfwCaPolicy *tfw_capolicy_match(TfwLocation *loc, TfwStr *arg);
 TfwLocation *tfw_location_match(TfwVhost *vhost, TfwStr *arg);
-TfwVhost *tfw_vhost_match(TfwMsg *msg);
 TfwVhost *tfw_vhost_lookup(const char *name);
 TfwSrvConn *tfw_vhost_get_srv_conn(TfwMsg *msg);
 TfwVhost *tfw_vhost_new(const char *name);

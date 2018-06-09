@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -30,15 +30,7 @@
 #define tfw_sock_srv_mod test_ratio_sock_srv_mod
 
 #include "sock_srv.c"
-
-#ifdef module_init
-#undef module_init
-#undef module_exit
-#define module_init(func)
-#define module_exit(func)
-#endif
-
-#include "../../sched/tfw_sched_ratio.c"
+#include "http_sched_ratio.c"
 
 #include "helpers.h"
 #include "sched_helper.h"

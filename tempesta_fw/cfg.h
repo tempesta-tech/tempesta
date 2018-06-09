@@ -48,6 +48,8 @@
 #define TFW_CFG_ENTRY_VAL_MAX  16
 #define TFW_CFG_ENTRY_ATTR_MAX 16
 
+#define TFW_CFG_RULE_NAME	"rule"
+
 /**
  * TfwCfgEntry represents a single parsed entry in a configuration file.
  *
@@ -84,8 +86,35 @@
  * Both sections and directives are expressed by TfwCfgEntry{} structure.
  * The difference is in @have_children flag which is true for sections.
  *
- * This is a temporary structure that lives only during the parsing and
- * acts as an interface between the parser FSM and TfwCfgSpec{}->handler.
+ * TfwCfgEntry{} structure also supports an alternative way to specify
+ * directives - in form of rules; structure TfwCfgRule{} (and field @rule
+ * of TfwCfgEntry{} structure) is responsible for rules parsing. The
+ * following rule:
+ *                  uri != "static*" -> mark = 1;
+ *
+ * if parsed, will have following representaion in TfwCfgEntry{}:
+ *   TfwCfgEntry {
+ *         .name = "rule",
+ *         ...
+ *         .rule = {
+ *                   .fst = "uri",
+ *                   .snd = "static*",
+ *                   .act = "mark",
+ *                   .val = "1",
+ *                   .inv = true
+ *                 },
+ *         ...
+ *   }
+ *
+ * In above example @inv field of TfwCfgRule{} structure is responsible for
+ * comparison sign interpretation in rule condition part:
+ *                     "==" => false / "!=" => true
+ *
+ * @ftoken is an auxiliary internal field of TfwCfgEntry{} structure which
+ * helps parser to differentiate plain directives from rules.
+ *
+ * TfwCfgEntry{} is a temporary structure that lives only during the parsing
+ * and acts as an interface between the parser FSM and TfwCfgSpec{}->handler.
  * The parser accumulates data in a TfwCfgEntry{} instance. When the
  * current entry is complete, the parser executes the handler and then
  * destroys the instance.
@@ -94,6 +123,14 @@
  * @line_no	- Current line number in the configuration file.
  * @line	- Pointer to the start of the current line.
  */
+typedef struct {
+	const char *fst;
+	const char *snd;
+	const char *act;
+	const char *val;
+	bool inv;
+} TfwCfgRule;
+
 typedef struct {
 	struct {
 		bool have_children : 1;
@@ -107,6 +144,8 @@ typedef struct {
 		const char *key;
 		const char *val;
 	} attrs[TFW_CFG_ENTRY_ATTR_MAX];
+	TfwCfgRule rule;
+	const char *ftoken;
 	size_t line_no;
 	const char *line;
 } TfwCfgEntry;
