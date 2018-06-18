@@ -225,7 +225,7 @@ int
 tfw_connection_send(TfwConn *conn, TfwMsg *msg)
 {
 	struct sk_buff *skb;
-	unsigned int data_off = 0;
+	unsigned int parsed = 0, chunks = 0;
 	const DEFINE_TFW_STR(s_set_cookie, "Set-Cookie:");
 	const DEFINE_TFW_STR(s_set_loc, "Location:");
 
@@ -237,9 +237,8 @@ tfw_connection_send(TfwConn *conn, TfwMsg *msg)
 
 	skb = msg->skb_head;
 	do {
-		int ret;
-		ret = ss_skb_process(skb, &data_off, tfw_http_parse_resp,
-				     mock.resp);
+		int r = ss_skb_process(skb, 0, tfw_http_parse_resp, mock.resp,
+				       &chunks, &parsed);
 		skb = skb->next;
 	} while (skb != msg->skb_head);
 
@@ -487,13 +486,12 @@ static int
 http_parse_helper(TfwHttpMsg *hm, ss_skb_actor_t actor)
 {
 	struct sk_buff *skb;
-	unsigned int off;
+	unsigned int parsed = 0, chunks = 0;
 
 	skb = hm->msg.skb_head;
 	BUG_ON(!skb);
-	off = 0;
 	while (1) {
-		switch (ss_skb_process(skb, &off, actor, hm)) {
+		switch (ss_skb_process(skb, 0, actor, hm, &chunks, &parsed)) {
 		case TFW_POSTPONE:
 			if (skb->next == hm->msg.skb_head)
 				return -1;

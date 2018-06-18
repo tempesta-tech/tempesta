@@ -40,6 +40,7 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
 {
 	size_t chlen = len / chunks, rem = len % chunks, pos = 0, step;
 	int r = 0;
+	unsigned int parsed;
 	TfwHttpMsg *hm = (type == FUZZ_REQ)
 			? (TfwHttpMsg *)req
 			: (TfwHttpMsg *)resp;
@@ -54,9 +55,9 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
 		TEST_DBG3("split: len=%zu pos=%zu, chunks=%zu step=%zu\n",
 			  len, pos, chunks, step);
 		if (type == FUZZ_REQ)
-			r = tfw_http_parse_req(req, str + pos, step);
+			r = tfw_http_parse_req(req, str + pos, step, &parsed);
 		else
-			r = tfw_http_parse_resp(resp, str + pos, step);
+			r = tfw_http_parse_resp(resp, str + pos, step, &parsed);
 
 		pos += step;
 		hm->msg.len += step - hm->parser.to_go;
@@ -77,12 +78,13 @@ set_sample_req(unsigned char *str)
 {
 	size_t len = strlen(str);
 	int r;
+	unsigned int parsed;
 
 	if (sample_req)
 		test_req_free(sample_req);
 	sample_req = test_req_alloc(len);
 
-	r = tfw_http_parse_req(sample_req, str, len);
+	r = tfw_http_parse_req(sample_req, str, len, &parsed);
 
 	return r;
 }

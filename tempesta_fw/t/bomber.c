@@ -169,10 +169,13 @@ static int
 tfw_bmb_conn_recv(void *cdata, struct sk_buff *skb, unsigned int off)
 {
 	if (verbose) {
-		unsigned int data_off = 0;
+		unsigned int parsed = 0, chunks = 0;
 
 		TFW_LOG("Server response:\n------------------------------\n");
-		ss_skb_process(skb, &data_off, tfw_bmb_print_msg, NULL);
+
+		ss_skb_process(skb, 0, tfw_bmb_print_msg, NULL, &chunks,
+			       &parsed);
+
 		printk(KERN_INFO "\n------------------------------\n");
 	}
 

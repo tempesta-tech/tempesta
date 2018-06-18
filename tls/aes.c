@@ -28,9 +28,6 @@
  *  http://csrc.nist.gov/publications/fips/fips197/fips-197.pdf
  */
 #include "config.h"
-
-#if defined(TTLS_AES_C)
-
 #include "aes.h"
 #include "aesni.h"
 
@@ -1314,5 +1311,3 @@ exit:
 
 	return ret;
 }
-
-#endif /* TTLS_AES_C */

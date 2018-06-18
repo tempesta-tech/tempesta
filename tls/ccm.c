@@ -31,9 +31,6 @@
  * RFC 5116 "An Interface and Algorithms for Authenticated Encryption"
  */
 #include "config.h"
-
-#if defined(TTLS_CCM_C)
-
 #include "ccm.h"
 
 #if !defined(TTLS_CCM_ALT)
@@ -307,10 +304,10 @@ int ttls_ccm_encrypt_and_tag(ttls_ccm_context *ctx, size_t length,
  * Authenticated decryption
  */
 int ttls_ccm_auth_decrypt(ttls_ccm_context *ctx, size_t length,
-					  const unsigned char *iv, size_t iv_len,
-					  const unsigned char *add, size_t add_len,
-					  const unsigned char *input, unsigned char *output,
-					  const unsigned char *tag, size_t tag_len)
+			  const unsigned char *iv, size_t iv_len,
+			  const unsigned char *add, size_t add_len,
+			  const unsigned char *input, unsigned char *output,
+			  const unsigned char *tag, size_t tag_len)
 {
 	int ret;
 	unsigned char check_tag[16];
@@ -318,8 +315,8 @@ int ttls_ccm_auth_decrypt(ttls_ccm_context *ctx, size_t length,
 	int diff;
 
 	if ((ret = ccm_auth_crypt(ctx, CCM_DECRYPT, length,
-								iv, iv_len, add, add_len,
-								input, output, check_tag, tag_len)) != 0)
+				iv, iv_len, add, add_len,
+				input, output, check_tag, tag_len)) != 0)
 	{
 		return ret;
 	}
@@ -447,5 +444,3 @@ int ttls_ccm_self_test(int verbose)
 
 	return 0;
 }
-
-#endif /* TTLS_CCM_C */

@@ -253,8 +253,6 @@ typedef struct {
  * or using @_i_st parse value of a header described.
  *
  * @_cnt	- currently the count of hex digits in a body chunk size;
- * @to_go	- remaining number of bytes to process in the data chunk;
- *		  (limited by single packet size and never exceeds 64KB)
  * @state	- current parser state;
  * @_i_st	- helping (interior) state;
  * @to_read	- remaining number of bytes to read;
@@ -268,7 +266,6 @@ typedef struct {
  * @_date	- currently parsed http date value;
  */
 typedef struct {
-	unsigned short	to_go;
 	unsigned short	_cnt;
 	unsigned int	_hdr_tag;
 	int		state;
@@ -597,8 +594,10 @@ typedef void (*tfw_http_cache_cb_t)(TfwHttpMsg *);
 /* Internal (parser) HTTP functions. */
 void tfw_http_init_parser_req(TfwHttpReq *req);
 void tfw_http_init_parser_resp(TfwHttpResp *resp);
-int tfw_http_parse_req(void *req_data, unsigned char *data, size_t len);
-int tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len);
+int tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
+		       unsigned int *parsed);
+int tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
+			unsigned int *parsed);
 bool tfw_http_parse_terminate(TfwHttpMsg *hm);
 
 /* External HTTP functions. */
