@@ -870,37 +870,42 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *str, int skip,
 }
 
 /**
- * Process a socket buffer.
- * See standard skb_copy_datagram_iovec() implementation.
- * @return SS_OK, SS_DROP, SS_POSTPONE, or a negative value of error code.
+ * Process a socket buffer like standard skb_seq_read(), but return when the
+ * @actor finishes processing, so a caller gets control w/o looping when an
+ * application level message is fully read. The function is reentrant: @actor
+ * called from the function can call it again with another @actor for upper
+ * layer protocol (e.g. TLS handler calls HTTP parser), so @len defines how
+ * much data is available for now.
  *
  * The function is unaware of an application layer, but it still splits
  * @skb into messages. If @actor returns POSTPONE and there is more data
  * in @skb, then the function continues to process the @skb. Otherwise
  * it returns, thus allowing an upper layer to process a full message
- * or an error code. @off is used as an iterator between function calls
- * over the same @skb.
+ * or an error code.
  *
- * FIXME it seems standard skb_seq_read() does the same.
+ * @return SS_OK, SS_DROP, SS_POSTPONE, or a negative value of error code.
+ * @processed and @chunks are incremented by number of effectively processed
+ * bytes and contigous data chunks correspondingly. A caller must properly
+ * initialize them. @actor sees @chunks including current chunk of data.
  */
 int
-ss_skb_process(struct sk_buff *skb, unsigned int *off, ss_skb_actor_t actor,
-	       void *objdata)
+ss_skb_process(struct sk_buff *skb, unsigned int off, ss_skb_actor_t actor,
+	       void *objdata, unsigned int *chunks, unsigned int *processed)
 {
 	int i, r = SS_OK;
 	int headlen = skb_headlen(skb);
-	unsigned int offset = *off;
+	struct sk_buff *f_skb;
 	struct skb_shared_info *si = skb_shinfo(skb);
 
 	/* Process linear data. */
-	if (offset < headlen) {
-		*off = headlen;
-		r = actor(objdata, skb->data + offset, headlen - offset);
+	if (likely(off < headlen)) {
+		++*chunks;
+		r = actor(objdata, skb->data + off, skb_headlen(skb) - off,
+			  &processed);
 		if (r != SS_POSTPONE)
 			return r;
-		offset = 0;
 	} else {
-		offset -= headlen;
+		off -= headlen;
 	}
 
 	/*
@@ -910,16 +915,16 @@ ss_skb_process(struct sk_buff *skb, unsigned int *off, ss_skb_actor_t actor,
 	for (i = 0; i < si->nr_frags; ++i) {
 		const skb_frag_t *frag = &si->frags[i];
 		unsigned int frag_size = skb_frag_size(frag);
-		if (offset < frag_size) {
-			unsigned char *frag_addr = skb_frag_address(frag);
-			*off += frag_size - offset;
-			r = actor(objdata, frag_addr + offset,
-					   frag_size - offset);
+		unsigned char *frag_addr = skb_frag_address(frag);
+		if (likely(off < frag_size)) {
+			++*chunks;
+			r = actor(objdata, frag_addr + off, frag_size - off,
+				  &processed);
 			if (r != SS_POSTPONE)
 				return r;
-			offset = 0;
+			off = 0;
 		} else {
-			offset -= frag_size;
+			off -= frag_size;
 		}
 	}
 

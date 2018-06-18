@@ -139,11 +139,11 @@ int ttls_ssl_ticket_setup(ttls_ssl_ticket_context *ctx,
 
 /*
  * Serialize a session in the following format:
- *  0   .   n-1	 session structure, n = sizeof(ttls_ssl_session)
+ *  0   .   n-1	 session structure, n = sizeof(TtlsSess)
  *  n   .   n+2	 peer_cert length = m (0 if no certificate)
  *  n+3 .   n+2+m   peer cert ASN.1
  */
-static int ssl_save_session(const ttls_ssl_session *session,
+static int ssl_save_session(const TtlsSess *session,
 							 unsigned char *buf, size_t buf_len,
 							 size_t *olen)
 {
@@ -151,12 +151,12 @@ static int ssl_save_session(const ttls_ssl_session *session,
 	size_t left = buf_len;
 	size_t cert_len;
 
-	if (left < sizeof(ttls_ssl_session))
+	if (left < sizeof(TtlsSess))
 		return(TTLS_ERR_SSL_BUFFER_TOO_SMALL);
 
-	memcpy(p, session, sizeof(ttls_ssl_session));
-	p += sizeof(ttls_ssl_session);
-	left -= sizeof(ttls_ssl_session);
+	memcpy(p, session, sizeof(TtlsSess));
+	p += sizeof(TtlsSess);
+	left -= sizeof(TtlsSess);
 
 	if (session->peer_cert == NULL)
 		cert_len = 0;
@@ -183,18 +183,18 @@ static int ssl_save_session(const ttls_ssl_session *session,
 /*
  * Unserialise session, see ssl_save_session()
  */
-static int ssl_load_session(ttls_ssl_session *session,
+static int ssl_load_session(TtlsSess *session,
 							 const unsigned char *buf, size_t len)
 {
 	const unsigned char *p = buf;
 	const unsigned char * const end = buf + len;
 	size_t cert_len;
 
-	if (p + sizeof(ttls_ssl_session) > end)
+	if (p + sizeof(TtlsSess) > end)
 		return(TTLS_ERR_SSL_BAD_INPUT_DATA);
 
-	memcpy(session, p, sizeof(ttls_ssl_session));
-	p += sizeof(ttls_ssl_session);
+	memcpy(session, p, sizeof(TtlsSess));
+	p += sizeof(TtlsSess);
 
 	if (p + 3 > end)
 		return(TTLS_ERR_SSL_BAD_INPUT_DATA);
@@ -252,7 +252,7 @@ static int ssl_load_session(ttls_ssl_session *session,
  * authenticated data.
  */
 int ttls_ssl_ticket_write(void *p_ticket,
-							  const ttls_ssl_session *session,
+							  const TtlsSess *session,
 							  unsigned char *start,
 							  const unsigned char *end,
 							  size_t *tlen,
@@ -344,7 +344,7 @@ static ttls_ssl_ticket_key *ssl_ticket_select_key(
  * Load session ticket (see ttls_ssl_ticket_write for structure)
  */
 int ttls_ssl_ticket_parse(void *p_ticket,
-							  ttls_ssl_session *session,
+							  TtlsSess *session,
 							  unsigned char *buf,
 							  size_t len)
 {

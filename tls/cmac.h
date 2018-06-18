@@ -1,30 +1,26 @@
-/**
- * \file cmac.h
- *
- * \brief The Cipher-based Message Authentication Code (CMAC) Mode for
- *		Authentication.
- */
 /*
- *  Copyright (C) 2015-2018, Arm Limited (or its affiliates), All Rights Reserved
- *  SPDX-License-Identifier: GPL-2.0
+ *		Tempesta TLS
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ * The Cipher-based Message Authentication Code (CMAC) Mode for Authentication.
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * Copyright (C) 2015-2018, Arm Limited (or its affiliates), All Rights Reserved
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * SPDX-License-Identifier: GPL-2.0
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- *  This file is part of Mbed TLS (https://tls.mbed.org)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-
 #ifndef TTLS_CMAC_H
 #define TTLS_CMAC_H
 
@@ -35,11 +31,7 @@
 #define TTLS_AES_BLOCK_SIZE		  16
 #define TTLS_DES3_BLOCK_SIZE		 8
 
-#if defined(TTLS_AES_C)
 #define TTLS_CIPHER_BLKSIZE_MAX	  16  /* The longest block used by CMAC is that of AES. */
-#else
-#define TTLS_CIPHER_BLKSIZE_MAX	  8   /* The longest block used by CMAC is that of 3DES. */
-#endif
 
 #if !defined(TTLS_CMAC_ALT)
 
@@ -155,7 +147,6 @@ int ttls_cipher_cmac(const ttls_cipher_info_t *cipher_info,
 						 const unsigned char *input, size_t ilen,
 						 unsigned char *output);
 
-#if defined(TTLS_AES_C)
 /**
  * \brief		   This function implements the AES-CMAC-PRF-128 pseudorandom
  *				  function, as defined in
@@ -176,7 +167,6 @@ int ttls_cipher_cmac(const ttls_cipher_info_t *cipher_info,
 int ttls_aes_cmac_prf_128(const unsigned char *key, size_t key_len,
 							  const unsigned char *input, size_t in_len,
 							  unsigned char output[16]);
-#endif /* TTLS_AES_C */
 
 #else  /* !TTLS_CMAC_ALT */
 #include "cmac_alt.h"
