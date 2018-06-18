@@ -1,8 +1,3 @@
-/**
- * \file debug.h
- *
- * \brief Functions for controlling and providing debug output from the library.
- */
 /*
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
@@ -21,49 +16,47 @@
  *  You should have received a copy of the GNU General Public License along
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 #ifndef TTLS_DEBUG_H
 #define TTLS_DEBUG_H
 
-#include "config.h"
-#include "ssl.h"
+#include "ttls.h"
 #include "ecp.h"
 
-#if defined(TTLS_DEBUG_C)
+#define BANNER	"tls"
+#include "lib/log.h"
+
+#if defined(DEBUG) && (DEBUG == 3)
 
 #define TTLS_DEBUG_STRIP_PARENS(...)   __VA_ARGS__
 
 #define TTLS_SSL_DEBUG_MSG(level, args)					\
-	ttls_debug_print_msg(ssl, level, __FILE__, __LINE__,	\
-							 TTLS_DEBUG_STRIP_PARENS args)
+	ttls_debug_print_msg(ssl, level, __FILE__, __LINE__,		\
+			     TTLS_DEBUG_STRIP_PARENS args)
 
 #define TTLS_SSL_DEBUG_RET(level, text, ret)				\
 	ttls_debug_print_ret(ssl, level, __FILE__, __LINE__, text, ret)
 
-#define TTLS_SSL_DEBUG_BUF(level, text, buf, len)		   \
+#define TTLS_SSL_DEBUG_BUF(level, text, buf, len)			\
 	ttls_debug_print_buf(ssl, level, __FILE__, __LINE__, text, buf, len)
 
-#define TTLS_SSL_DEBUG_MPI(level, text, X)				  \
+#define TTLS_SSL_DEBUG_MPI(level, text, X)				\
 	ttls_debug_print_mpi(ssl, level, __FILE__, __LINE__, text, X)
 
-#define TTLS_SSL_DEBUG_ECP(level, text, X)				  \
+#define TTLS_SSL_DEBUG_ECP(level, text, X)				\
 	ttls_debug_print_ecp(ssl, level, __FILE__, __LINE__, text, X)
 
 #define TTLS_SSL_DEBUG_CRT(level, text, crt)				\
 	ttls_debug_print_crt(ssl, level, __FILE__, __LINE__, text, crt)
 
-#else /* TTLS_DEBUG_C */
-
-#define TTLS_SSL_DEBUG_MSG(level, args)			do { } while (0)
-#define TTLS_SSL_DEBUG_RET(level, text, ret)	   do { } while (0)
-#define TTLS_SSL_DEBUG_BUF(level, text, buf, len)  do { } while (0)
-#define TTLS_SSL_DEBUG_MPI(level, text, X)		 do { } while (0)
-#define TTLS_SSL_DEBUG_ECP(level, text, X)		 do { } while (0)
-#define TTLS_SSL_DEBUG_CRT(level, text, crt)	   do { } while (0)
-
-#endif /* TTLS_DEBUG_C */
+#define T_DBG3_SL(str, sglist, sgn, off, len)				\
+do {									\
+	int i;								\
+	struct scatterlist *sg;						\
+	T_DBG3(str ":\n");						\
+	for_each_sg(sglist, sg, sgn, i)					\
+		T_DBG3_BUF("  ", sg_virt(sg), sg->length);		\
+} while (0)
 
 /**
  * \brief   Set the threshold error level to handle globally all debug output.
@@ -98,8 +91,8 @@ void ttls_debug_set_threshold(int threshold);
  *				  library only.
  */
 void ttls_debug_print_msg(const ttls_ssl_context *ssl, int level,
-							  const char *file, int line,
-							  const char *format, ...);
+			  const char *file, int line,
+			  const char *format, ...);
 
 /**
  * \brief   Print the return value of a function to the debug output. This
@@ -117,8 +110,8 @@ void ttls_debug_print_msg(const ttls_ssl_context *ssl, int level,
  *				  library only.
  */
 void ttls_debug_print_ret(const ttls_ssl_context *ssl, int level,
-					  const char *file, int line,
-					  const char *text, int ret);
+			  const char *file, int line,
+			  const char *text, int ret);
 
 /**
  * \brief   Output a buffer of size len bytes to the debug output. This function
@@ -138,8 +131,8 @@ void ttls_debug_print_ret(const ttls_ssl_context *ssl, int level,
  *				  library only.
  */
 void ttls_debug_print_buf(const ttls_ssl_context *ssl, int level,
-					  const char *file, int line, const char *text,
-					  const unsigned char *buf, size_t len);
+			  const char *file, int line, const char *text,
+			  const unsigned char *buf, size_t len);
 
 /**
  * \brief   Print a MPI variable to the debug output. This function is always
@@ -158,8 +151,8 @@ void ttls_debug_print_buf(const ttls_ssl_context *ssl, int level,
  *				  library only.
  */
 void ttls_debug_print_mpi(const ttls_ssl_context *ssl, int level,
-					  const char *file, int line,
-					  const char *text, const ttls_mpi *X);
+			  const char *file, int line,
+			  const char *text, const ttls_mpi *X);
 
 /**
  * \brief   Print an ECP point to the debug output. This function is always
@@ -178,8 +171,8 @@ void ttls_debug_print_mpi(const ttls_ssl_context *ssl, int level,
  *				  library only.
  */
 void ttls_debug_print_ecp(const ttls_ssl_context *ssl, int level,
-					  const char *file, int line,
-					  const char *text, const ttls_ecp_point *X);
+			  const char *file, int line,
+			  const char *text, const ttls_ecp_point *X);
 
 /**
  * \brief   Print a X.509 certificate structure to the debug output. This
@@ -197,8 +190,29 @@ void ttls_debug_print_ecp(const ttls_ssl_context *ssl, int level,
  *				  library only.
  */
 void ttls_debug_print_crt(const ttls_ssl_context *ssl, int level,
-					  const char *file, int line,
-					  const char *text, const ttls_x509_crt *crt);
+			  const char *file, int line,
+			  const char *text, const ttls_x509_crt *crt);
+
+/**
+ * Print data in hex format from scatter list @sg starting at offset @off and
+ * of length @len.
+ */
+void ttls_dbg_print_scatterlist(const char *str, struct scatterlist *sg,
+				unsigned int sgn, unsigned int off,
+				unsigned int len);
+
+#else
+
+#define TTLS_SSL_DEBUG_MSG(level, args)
+#define TTLS_SSL_DEBUG_RET(level, text, ret)
+#define TTLS_SSL_DEBUG_BUF(level, text, buf, len)
+#define TTLS_SSL_DEBUG_MPI(level, text, X)
+#define TTLS_SSL_DEBUG_ECP(level, text, X)
+#define TTLS_SSL_DEBUG_CRT(level, text, crt)
+
+#define T_DBG3_SL(str, sg, off, len)
+
+#endif
 
 #endif /* debug.h */
 

@@ -211,27 +211,6 @@
 //#define TTLS_CAMELLIA_SMALL_MEMORY
 
 /**
- * \def TTLS_CIPHER_MODE_CBC
- *
- * Enable Cipher Block Chaining mode (CBC) for symmetric ciphers.
- */
-#define TTLS_CIPHER_MODE_CBC
-
-/**
- * \def TTLS_CIPHER_MODE_CFB
- *
- * Enable Cipher Feedback mode (CFB) for symmetric ciphers.
- */
-#define TTLS_CIPHER_MODE_CFB
-
-/**
- * \def TTLS_CIPHER_MODE_CTR
- *
- * Enable Counter Block Cipher mode (CTR) for symmetric ciphers.
- */
-#define TTLS_CIPHER_MODE_CTR
-
-/**
  * \def TTLS_CIPHER_PADDING_PKCS7
  *
  * TTLS_CIPHER_PADDING_XXX: Uncomment or comment macros to add support for
@@ -553,21 +532,6 @@
 #define TTLS_PK_PARSE_EC_EXTENDED
 
 /**
- * \def TTLS_ERROR_STRERROR_DUMMY
- *
- * Enable a dummy error function to make use of ttls_strerror() in
- * third party libraries easier when TTLS_ERROR_C is disabled
- * (no effect when TTLS_ERROR_C is enabled).
- *
- * You can safely disable this if TTLS_ERROR_C is enabled, or if you're
- * not using ttls_strerror() or error_strerror() in your application.
- *
- * Disable if you run into name conflicts and want to really remove the
- * ttls_strerror()
- */
-#define TTLS_ERROR_STRERROR_DUMMY
-
-/**
  * \def TTLS_GENPRIME
  *
  * Enable the prime-number generation code.
@@ -656,20 +620,6 @@
  */
 #define TTLS_SSL_DEBUG_ALL
 
-/** \def TTLS_SSL_ENCRYPT_THEN_MAC
- *
- * Enable support for Encrypt-then-MAC, RFC 7366.
- *
- * This allows peers that both support it to use a more robust protection for
- * ciphersuites using CBC, providing deep resistance against timing attacks
- * on the padding or underlying cipher.
- *
- * This only affects CBC ciphersuites, and is useless if none is defined.
- *
- * Comment this macro to disable support for Encrypt-then-MAC
- */
-#define TTLS_SSL_ENCRYPT_THEN_MAC
-
 /** \def TTLS_SSL_EXTENDED_MASTER_SECRET
  *
  * Enable support for Extended Master Secret, aka Session Hash
@@ -700,26 +650,6 @@
  * Comment this macro to disable support for FALLBACK_SCSV
  */
 #define TTLS_SSL_FALLBACK_SCSV
-
-/**
- * \def TTLS_SSL_HW_RECORD_ACCEL
- *
- * Enable hooking functions in SSL module for hardware acceleration of
- * individual records.
- *
- * Uncomment this macro to enable hooking functions.
- */
-//#define TTLS_SSL_HW_RECORD_ACCEL
-
-/**
- * \def TTLS_SSL_SRV_SUPPORT_SSLV2_CLIENT_HELLO
- *
- * Enable support for receiving and parsing SSLv2 Client Hello messages for the
- * SSL Server module.
- *
- * Uncomment this macro to enable support for SSLv2 Client Hello messages.
- */
-//#define TTLS_SSL_SRV_SUPPORT_SSLV2_CLIENT_HELLO
 
 /**
  * \def TTLS_SSL_SRV_RESPECT_CLIENT_PREFERENCE
@@ -892,81 +822,6 @@
 #define TTLS_X509_RSASSA_PSS_SUPPORT
 
 /**
- * \def TTLS_AES_C
- *
- * Enable the AES block cipher.
- *
- * Module:  library/aes.c
- * Caller:  library/ssl_tls.c
- *		  library/pem.c
- *		  library/ctr_drbg.c
- *
- * This module enables the following ciphersuites (if other requisites are
- * enabled as well):
- *	  TTLS_TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA
- *	  TTLS_TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA
- *	  TTLS_TLS_ECDH_RSA_WITH_AES_128_CBC_SHA
- *	  TTLS_TLS_ECDH_RSA_WITH_AES_256_CBC_SHA
- *	  TTLS_TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA256
- *	  TTLS_TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA384
- *	  TTLS_TLS_ECDH_RSA_WITH_AES_128_CBC_SHA256
- *	  TTLS_TLS_ECDH_RSA_WITH_AES_256_CBC_SHA384
- *	  TTLS_TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256
- *	  TTLS_TLS_ECDH_ECDSA_WITH_AES_256_GCM_SHA384
- *	  TTLS_TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256
- *	  TTLS_TLS_ECDH_RSA_WITH_AES_256_GCM_SHA384
- *	  TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
- *	  TTLS_TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
- *	  TTLS_TLS_DHE_RSA_WITH_AES_256_GCM_SHA384
- *	  TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384
- *	  TTLS_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384
- *	  TTLS_TLS_DHE_RSA_WITH_AES_256_CBC_SHA256
- *	  TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA
- *	  TTLS_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA
- *	  TTLS_TLS_DHE_RSA_WITH_AES_256_CBC_SHA
- *	  TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
- *	  TTLS_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
- *	  TTLS_TLS_DHE_RSA_WITH_AES_128_GCM_SHA256
- *	  TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256
- *	  TTLS_TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256
- *	  TTLS_TLS_DHE_RSA_WITH_AES_128_CBC_SHA256
- *	  TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA
- *	  TTLS_TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA
- *	  TTLS_TLS_DHE_RSA_WITH_AES_128_CBC_SHA
- *	  TTLS_TLS_DHE_PSK_WITH_AES_256_GCM_SHA384
- *	  TTLS_TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA384
- *	  TTLS_TLS_DHE_PSK_WITH_AES_256_CBC_SHA384
- *	  TTLS_TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA
- *	  TTLS_TLS_DHE_PSK_WITH_AES_256_CBC_SHA
- *	  TTLS_TLS_DHE_PSK_WITH_AES_128_GCM_SHA256
- *	  TTLS_TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256
- *	  TTLS_TLS_DHE_PSK_WITH_AES_128_CBC_SHA256
- *	  TTLS_TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA
- *	  TTLS_TLS_DHE_PSK_WITH_AES_128_CBC_SHA
- *	  TTLS_TLS_RSA_WITH_AES_256_GCM_SHA384
- *	  TTLS_TLS_RSA_WITH_AES_256_CBC_SHA256
- *	  TTLS_TLS_RSA_WITH_AES_256_CBC_SHA
- *	  TTLS_TLS_RSA_WITH_AES_128_GCM_SHA256
- *	  TTLS_TLS_RSA_WITH_AES_128_CBC_SHA256
- *	  TTLS_TLS_RSA_WITH_AES_128_CBC_SHA
- *	  TTLS_TLS_RSA_PSK_WITH_AES_256_GCM_SHA384
- *	  TTLS_TLS_RSA_PSK_WITH_AES_256_CBC_SHA384
- *	  TTLS_TLS_RSA_PSK_WITH_AES_256_CBC_SHA
- *	  TTLS_TLS_RSA_PSK_WITH_AES_128_GCM_SHA256
- *	  TTLS_TLS_RSA_PSK_WITH_AES_128_CBC_SHA256
- *	  TTLS_TLS_RSA_PSK_WITH_AES_128_CBC_SHA
- *	  TTLS_TLS_PSK_WITH_AES_256_GCM_SHA384
- *	  TTLS_TLS_PSK_WITH_AES_256_CBC_SHA384
- *	  TTLS_TLS_PSK_WITH_AES_256_CBC_SHA
- *	  TTLS_TLS_PSK_WITH_AES_128_GCM_SHA256
- *	  TTLS_TLS_PSK_WITH_AES_128_CBC_SHA256
- *	  TTLS_TLS_PSK_WITH_AES_128_CBC_SHA
- *
- * PEM_PARSE uses AES for decrypting encrypted keys.
- */
-#define TTLS_AES_C
-
-/**
  * \def TTLS_ASN1_WRITE_C
  *
  * Enable the generic ASN1 writer.
@@ -1057,20 +912,6 @@
 #define TTLS_CAMELLIA_C
 
 /**
- * \def TTLS_CCM_C
- *
- * Enable the Counter with CBC-MAC (CCM) mode for 128-bit block cipher.
- *
- * Module:  library/ccm.c
- *
- * Requires: TTLS_AES_C or TTLS_CAMELLIA_C
- *
- * This module enables the AES-CCM ciphersuites, if other requisites are
- * enabled as well.
- */
-#define TTLS_CCM_C
-
-/**
  * \def TTLS_CERTS_C
  *
  * Enable the test certificates.
@@ -1089,9 +930,6 @@
  * ciphers.
  *
  * Module:  library/cmac.c
- *
- * Requires: TTLS_AES_C or TTLS_DES_C
- *
  */
 #define TTLS_CMAC_C
 
@@ -1103,25 +941,9 @@
  * Module:  library/ctr_drbg.c
  * Caller:
  *
- * Requires: TTLS_AES_C
- *
  * This module provides the CTR_DRBG AES-256 random number generator.
  */
 #define TTLS_CTR_DRBG_C
-
-/**
- * \def TTLS_DEBUG_C
- *
- * Enable the debug functions.
- *
- * Module:  library/debug.c
- * Caller:  library/ssl_cli.c
- *		  library/ssl_srv.c
- *		  library/ssl_tls.c
- *
- * This module provides debugging functions.
- */
-#define TTLS_DEBUG_C
 
 /**
  * \def TTLS_DES_C
@@ -1232,32 +1054,6 @@
  * This module provides a generic entropy pool
  */
 #define TTLS_ENTROPY_C
-
-/**
- * \def TTLS_ERROR_C
- *
- * Enable error code to error string conversion.
- *
- * Module:  library/error.c
- * Caller:
- *
- * This module enables ttls_strerror().
- */
-#define TTLS_ERROR_C
-
-/**
- * \def TTLS_GCM_C
- *
- * Enable the Galois/Counter Mode (GCM) for AES.
- *
- * Module:  library/gcm.c
- *
- * Requires: TTLS_AES_C or TTLS_CAMELLIA_C
- *
- * This module enables the AES-GCM and CAMELLIA-GCM ciphersuites, if other
- * requisites are enabled as well.
- */
-#define TTLS_GCM_C
 
 /**
  * \def TTLS_HAVEGE_C
@@ -1716,15 +1512,6 @@
 
 /* CHECK CONFIG. */
 
-#if defined(TTLS_CTR_DRBG_C) && !defined(TTLS_AES_C)
-#error "TTLS_CTR_DRBG_C defined, but not all prerequisites"
-#endif
-
-#if defined(TTLS_CMAC_C) && \
-	!defined(TTLS_AES_C) && !defined(TTLS_DES_C)
-#error "TTLS_CMAC_C defined, but not all prerequisites"
-#endif
-
 #if defined(TTLS_ECDSA_C) &&	(!defined(TTLS_ASN1_WRITE_C))
 #error "TTLS_ECDSA_C defined, but not all prerequisites"
 #endif
@@ -1744,11 +1531,6 @@
 #if defined(TTLS_ENTROPY_C) && \
 	defined(TTLS_ENTROPY_FORCE_SHA256) && !defined(TTLS_SHA256_C)
 #error "TTLS_ENTROPY_FORCE_SHA256 defined, but not all prerequisites"
-#endif
-
-#if defined(TTLS_GCM_C) && (										\
-		!defined(TTLS_AES_C) && !defined(TTLS_CAMELLIA_C))
-#error "TTLS_GCM_C defined, but not all prerequisites"
 #endif
 
 #if defined(TTLS_ECP_RANDOMIZE_JAC_ALT) && !defined(TTLS_ECP_INTERNAL_ALT)

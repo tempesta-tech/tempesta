@@ -24,13 +24,6 @@
 #include "client.h"
 #include "tls.h"
 
-#define tls_dbg(c, fmt, ...)					\
-	TFW_DBG("TLS(%p,%p):%s " fmt "\n", c, c->sk, __func__, ## __VA_ARGS__)
-#define tls_err(c, fmt, ...)					\
-	TFW_ERR("TLS(%p,%p):%s " fmt "\n", c, c->sk, __func__, ## __VA_ARGS__)
-
-#define MAX_TLS_PAYLOAD		1460
-
 typedef struct {
 	ttls_ssl_config	cfg;
 	ttls_x509_crt	crt;
@@ -39,113 +32,148 @@ typedef struct {
 
 static TfwTls tfw_tls;
 
-static inline int
-_ttls_ssl_handshake(TfwTlsContext *tls)
-{
-	int r;
-
-	spin_lock(&tls->lock);
-	r = ttls_ssl_handshake(&tls->ssl);
-	spin_unlock(&tls->lock);
-
-	return r;
-}
-
-static inline int
-_ttls_ssl_read(TfwTlsContext *tls, unsigned char *data, size_t size)
-{
-	int r;
-
-	spin_lock(&tls->lock);
-	r = ttls_ssl_read(&tls->ssl, data, size);
-	spin_unlock(&tls->lock);
-
-	return r;
-}
-
-static inline int
-_ttls_ssl_write(TfwTlsContext *tls, const unsigned char *data, size_t size)
-{
-	int r;
-
-	spin_lock(&tls->lock);
-	r = ttls_ssl_write(&tls->ssl, data, size);
-	spin_unlock(&tls->lock);
-
-	return r;
-}
-
-static inline int
-_ttls_ssl_close_notify(TfwTlsContext *tls)
-{
-	int r;
-
-	spin_lock(&tls->lock);
-	r = ttls_ssl_close_notify(&tls->ssl);
-	spin_unlock(&tls->lock);
-
-	return r;
-}
-
 /**
- * TODO Decrypted response messages should be directly placed in TDB area
- * to avoid copying.
+ * Called to build crypto request with scatterlist acceptable by the crypto
+ * layer from collected skbs when TLS sees end of current message. The function
+ * is here only because it has to work with skbs.
+ *
+ * @len - total length of the message data to be sent to crypto framework.
+ * @sg	- pointer to allocated scatterlist;
+ * @sgn - as ingress argument contains number of required additional segments
+ *	  and returns number of chunks in the scatter list.
  */
-static int
-tfw_tls_msg_process(void *conn, const TfwFsmData *data)
+static void *
+tfw_tls_crypto_req_sglist(TtlsCtx *tls, unsigned int len,
+			  struct scatterlist **sg, unsigned int *sgn)
 {
-	int r;
-	TfwConn *c = conn;
-	TfwTlsContext *tls = tfw_tls_context(c);
-	struct sk_buff *skb = data->skb;
+	TfwTlsCtx *ttx = (TfwTlsCtx *)tls;
+	struct scatterlist *sg_i;
+	void *req;
+	struct sk_buff *skb = ttx->skb_list;
+	unsigned int rsz, off = ttx->off;
 
-	tls_dbg(c, "=>");
+	BUG_ON(skb->len <= off);
 
-	ss_skb_queue_tail(&tls->rx_queue, skb);
+	req = ttls_alloc_crypto_req((ttx->chunks + *sgn) * sizeof(**sg), &rsz);
+	if (!req)
+		return NULL;
+	*sg = (char *)req + rsz - (ttx->chunks + *sgn) * sizeof(**sg);
 
-	r = _ttls_ssl_handshake(tls);
-	if (r == TTLS_ERR_SSL_CONN_EOF) {
-		return TFW_PASS; /* more data needed */
-	} else if (r == 0) {
-		struct sk_buff *nskb;
-		TfwFsmData data = {};
-
-		nskb = alloc_skb(MAX_TCP_HEADER + MAX_TLS_PAYLOAD, GFP_ATOMIC);
-		if (unlikely(!nskb))
-			return TFW_BLOCK;
-
-		skb_reserve(nskb, MAX_TCP_HEADER);
-		skb_put(nskb, MAX_TLS_PAYLOAD);
-
-		r = _ttls_ssl_read(tls, nskb->data, MAX_TLS_PAYLOAD);
-		if (r == TTLS_ERR_SSL_WANT_READ ||
-		    r == TTLS_ERR_SSL_WANT_WRITE)
-		{
-			kfree_skb(nskb);
-			return TFW_PASS;
-		} else if (r <= 0) {
-			kfree_skb(nskb);
-			return r ? TFW_BLOCK : TFW_PASS;
+	/* The extra segments are allocated on the head. */
+	for (sg_i = *sg + *sgn; skb; skb = skb->next, off = 0) {
+		int to_read = min(len, skb->len - off);
+		int n = skb_to_sgvec(skb, sg_i, off, to_read);
+		if (n <= 0)
+			goto err;
+		len -= to_read;
+		sg_i += n;
+		if (unlikely(sg_i > *sg + ttx->chunks)) {
+			TFW_WARN("not enough scatterlist items\n");
+			goto err;
 		}
+	}
+	/* List length must match number of chunks. */
+	WARN_ON_ONCE(!skb || skb->next);
 
-		tls_dbg(c, "-- got %d data bytes (%.*s)", r, r, nskb->data);
+	*sgn = sg_i - *sg;
+	sg_init_table(*sg, *sgn);
+	return req;
+err:
+	kfree(req);
+	return NULL;
+}
 
-		skb_trim(nskb, r);
+static int
+tfw_tls_msg_process(void *conn, TfwFsmData *data)
+{
+	int r, parsed = 0;
+	struct sk_buff *nskb = NULL, *skb = data->skb;
+	unsigned int off = data->off;
+	TfwConn *c = conn;
+	TfwTlsCtx *ttx = tfw_tls_context(c);
+	TfwFsmData data_up = {};
 
-		/* FIXME skb leakage: seems either @skb or @nskb isn't freed. */
-		data.skb = nskb;
-		r = tfw_gfsm_move(&c->state, TFW_TLS_FSM_DATA_READY, &data);
-		if (r == TFW_BLOCK)
-			return TFW_BLOCK;
+	BUG_ON(data_off >= skb_len);
 
+	/*
+	 * Perform TLS handshake if necessary and decrypt the TLS message
+	 * in-place by chunks. Add skb to the list to build scatterlist if it
+	 * it contains end of current message.
+	 */
+next_msg:
+	ss_skb_queue_tail(&ttx->skb_list, skb);
+	r = ss_skb_process(skb, off, ttls_recv, &ttx->tls, &ttx->chunks,
+			   &parsed);
+	switch (r) {
+	default:
+		TFW_WARN("Unrecognized TLS receive return code %d,"
+			 " drop packet", r);
+	case T_DROP:
+		__kfree_skb(skb);
+		return r;
+	case T_POSTPONE:
+		/*
+		 * No data to pass to upper protolos, typically
+		 * handshake and/or incomplete TLS header.
+		 */
+		// TODO AK: process	MBEDTLS_ERR_SSL_WANT_READ
+		// 			MBEDTLS_ERR_SSL_WANT_WRITE
 		return TFW_PASS;
+	case T_PASS:
+		/*
+		 * A complete TLS message decrypted and ready for upper
+		 * layer protocols processing - fall throught.
+		 */
+		TFW_DBG("TLS got %d data bytes (%.*s) on conn=%pK\n",
+			r, r, skb->data, c);
 	}
 
-	tls_err(c, "-- handshake failed (%x)", -r);
+	/*
+	 * Possibly there are other TLS message in the @skb - create
+	 * an skb sibling and process it on the next iteration.
+	 * If a part of incomplete TLS message leaves at the end of the
+	 * @skb, then store the skb in the TLS context for next FSM
+	 * shot.
+	 *
+	 * Many sibling skbs can be produced by TLS and HTTP layers
+	 * together - don't coalesce them: we process messages at once
+	 * and it hase sense to work with sparse skbs in HTTP
+	 * adjustment logic to have some room to place a new fragments.
+	 * The logic is simple because each layer works with messages
+	 * from previous layer not crossing skb boundaries. The drawback
+	 * is that we produce a lot of skbs causing pressure on the
+	 * memory allocator.
+	 *
+	 * Split @skb before calling HTTP layer to chop it and not let HTTP
+	 * to read after end of the message.
+	 */
+	if (parsed < skb->len) {
+		nskb = ss_skb_split(skb, parsed);
+		if (unlikely(!nskb)) {
+			TFW_INC_STAT_BH(clnt.msgs_otherr);
+			return T_DROP;
+		}
+	}
 
-	return TFW_BLOCK;
+	data_up.skb = ttx->skb_list;
+	data_up.off = off;
+	ttx->skb_list = NULL;
+	r = tfw_gfsm_move(&c->state, TFW_TLS_FSM_DATA_READY, data);
+	if (r == TFW_BLOCK) {
+		kfree_skb(nskb);
+		return r;
+	}
+
+	ttls_init_msg_ctx(&ttx->tls);
+	if (nskb) {
+		skb = nskb;
+		nskb = NULL;
+		off = 0;
+		goto next_msg;
+	}
+
+	return r;
 }
-
 
 /**
  * Send @buf of length @len using TLS context @tls.
@@ -154,18 +182,16 @@ static inline int
 tfw_tls_send_buf(TfwConn *c, const unsigned char *buf, size_t len)
 {
 	int r;
-	TfwTlsContext *tls = tfw_tls_context(c);
+	TfwTlsCtx *ttx = tfw_tls_context(c);
 
-	tls_dbg(c, "=>");
-
-	while ((r = _ttls_ssl_write(tls, buf, len)) > 0) {
+	while ((r = ttls_ssl_write(&tls->tls, buf, len)) > 0) {
 		if (r == len)
 			return 0;
 		buf += r;
 		len -= r;
 	}
 
-	tls_err(c, "-- write failed (%x)", -r);
+	TFW_ERR("TLS write failed (%x)\n", -r);
 
 	return -EINVAL;
 }
@@ -177,8 +203,6 @@ static inline int
 tfw_tls_send_skb(TfwConn *c, struct sk_buff *skb)
 {
 	int i;
-
-	tls_dbg(c, "=>");
 
 	if (skb_headlen(skb)) {
 		if (tfw_tls_send_buf(c, skb->data, skb_headlen(skb)))
@@ -203,10 +227,8 @@ static int
 tfw_tls_send_cb(void *conn, const unsigned char *buf, size_t len)
 {
 	TfwConn *c = conn;
-	TfwTlsContext *tls = tfw_tls_context(c);
+	TfwTlsCtx *ttx = tfw_tls_context(c);
 	struct sk_buff *skb;
-
-	tls_dbg(c, "=>");
 
 	skb = alloc_skb(MAX_TCP_HEADER + len, GFP_ATOMIC);
 	if (unlikely(!skb))
@@ -222,38 +244,7 @@ tfw_tls_send_cb(void *conn, const unsigned char *buf, size_t len)
 	if (ss_send(c->sk, &tls->tx_queue, 0))
 		return -EIO;
 
-	tls_dbg(c, "-- %lu bytes sent", len);
-
-	return len;
-}
-
-/**
- * Callback function which is called by TLS library.
- */
-static int
-tfw_tls_recv_cb(void *conn, unsigned char *buf, size_t len)
-{
-	TfwConn *c = conn;
-	TfwTlsContext *tls = tfw_tls_context(c);
-	struct sk_buff *skb = ss_skb_peek_tail(&tls->rx_queue);
-
-	tls_dbg(c, "=>");
-
-	if (unlikely(!skb))
-		return 0;
-
-	len = min_t(size_t, skb->len, len);
-	if (unlikely(skb_copy_bits(skb, 0, buf, len)))
-		BUG();
-
-	pskb_pull(skb, len);
-
-	if (unlikely(!skb->len)) {
-		ss_skb_unlink(&tls->rx_queue, skb);
-		kfree_skb(skb);
-	}
-
-	tls_dbg(c, "-- %lu bytes rcvd", len);
+	TFW_DBG("TLS %lu bytes sent on conn=%pK\n", len, c);
 
 	return len;
 }
@@ -261,9 +252,9 @@ tfw_tls_recv_cb(void *conn, unsigned char *buf, size_t len)
 static void
 tfw_tls_conn_dtor(TfwConn *c)
 {
-	TfwTlsContext *tls = tfw_tls_context(c);
+	TFwTlsCtx *ttx = tfw_tls_context(c);
 
-	ttls_ssl_free(&tls->ssl);
+	ttls_ssl_free(&ttx.tls->ssl);
 	tfw_cli_conn_release((TfwCliConn *)c);
 }
 
@@ -271,27 +262,21 @@ static int
 tfw_tls_conn_init(TfwConn *c)
 {
 	int r;
-	TfwTlsContext *tls = tfw_tls_context(c);
+	TfwTlsCtx *ttx = tfw_tls_context(c);
 
-	tls_dbg(c, "=>");
+	ttls_ssl_init(&ttx->tls->ssl);
+	memset(&ttx->skb_list, 0, sizeof(*ttx)
+				  - offsetof(TfwTlsCtx, skb_list));
 
-	ttls_ssl_init(&tls->ssl);
-
-	tls->rx_queue = tls->tx_queue = NULL;
-
-	r = ttls_ssl_setup(&tls->ssl, &tfw_tls.cfg);
+	r = ttls_ssl_setup(&ttx.tls->ssl, &tfw_tls.cfg);
 	if (r) {
-		TFW_ERR("TLS:%p setup failed (%x)\n", tls, -r);
+		TFW_ERR("TLS (%pK) setup failed (%x)\n", tls, -r);
 		return -EINVAL;
 	}
-
-	ttls_ssl_set_bio(&tls->ssl, c,
-			    tfw_tls_send_cb, tfw_tls_recv_cb, NULL);
 
 	if (tfw_conn_hook_call(TFW_FSM_HTTP, c, conn_init))
 		return -EINVAL;
 
-	spin_lock_init(&tls->lock);
 	tfw_gfsm_state_init(&c->state, c, TFW_TLS_FSM_INIT);
 
 	/* Set the destructor */
@@ -303,22 +288,18 @@ tfw_tls_conn_init(TfwConn *c)
 static void
 tfw_tls_conn_drop(TfwConn *c)
 {
-	TfwTlsContext *tls = tfw_tls_context(c);
-
-	tls_dbg(c, "=>");
+	TfwTlsCtx *ttx = tfw_tls_context(c);
 
 	tfw_conn_hook_call(TFW_FSM_HTTP, c, conn_drop);
 
-	_ttls_ssl_close_notify(tls);
+	ttls_ssl_close_notify(&ttx->tls);
 }
 
 static int
 tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 {
 	struct sk_buff *skb;
-	TfwTlsContext *tls = tfw_tls_context(c);
-
-	tls_dbg(c, "=>");
+	TfwTlsCtx *ttx = tfw_tls_context(c);
 
 	while ((skb = ss_skb_dequeue(&msg->skb_head))) {
 		if (tfw_tls_send_skb(c, skb)) {
@@ -328,7 +309,7 @@ tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 	}
 
 	if (msg->ss_flags & SS_F_CONN_CLOSE)
-		_ttls_ssl_close_notify(tls);
+		ttls_ssl_close_notify(&ttx->tls);
 
 	return 0;
 }
@@ -344,16 +325,6 @@ static TfwConnHooks tls_conn_hooks = {
  *	TLS library configuration
  * ------------------------------------------------------------------------
  */
-
-#if defined(DEBUG)
-static void
-tfw_tls_dbg_cb(void *ctx, int level, const char *file, int line, const char *str)
-{
-	((void) ctx);
-	if (level < DEBUG)
-		printk("[ttls] %s:%d -- %s\n", file, line, str);
-}
-#endif
 
 static int
 tfw_tls_rnd_cb(void *rnd, unsigned char *out, size_t len)
@@ -378,10 +349,6 @@ tfw_tls_do_init(void)
 		return -EINVAL;
 	}
 
-#if defined(DEBUG)
-	ttls_debug_set_threshold(DEBUG);
-	ttls_ssl_conf_dbg(&tfw_tls.cfg, tfw_tls_dbg_cb, NULL);
-#endif
 	ttls_ssl_conf_rng(&tfw_tls.cfg, tfw_tls_rnd_cb, NULL);
 
 	return 0;
@@ -602,6 +569,8 @@ tfw_tls_init(void)
 	r = tfw_tls_do_init();
 	if (r)
 		return -EINVAL;
+
+	ttls_register_bio(tfw_tls_build_scatterlist);
 
 	r = tfw_gfsm_register_fsm(TFW_FSM_TLS, tfw_tls_msg_process);
 	if (r) {

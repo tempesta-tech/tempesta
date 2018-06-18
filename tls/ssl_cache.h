@@ -27,7 +27,7 @@
 #ifndef TTLS_SSL_CACHE_H
 #define TTLS_SSL_CACHE_H
 
-#include "ssl.h"
+#include "ttls.h"
 
 /**
  * \name SECTION: Module settings
@@ -54,7 +54,7 @@ typedef struct ttls_ssl_cache_entry ttls_ssl_cache_entry;
 struct ttls_ssl_cache_entry
 {
 	time_t timestamp;		   /*!< entry timestamp	*/
-	ttls_ssl_session session;		/*!< entry session	  */
+	TtlsSess session;		/*!< entry session	  */
 	ttls_x509_buf peer_cert;		 /*!< entry peer_cert	*/
 	ttls_ssl_cache_entry *next;	  /*!< chain pointer	  */
 };
@@ -83,7 +83,7 @@ void ttls_ssl_cache_init(ttls_ssl_cache_context *cache);
  * \param data	 SSL cache context
  * \param session  session to retrieve entry for
  */
-int ttls_ssl_cache_get(void *data, ttls_ssl_session *session);
+int ttls_ssl_cache_get(void *data, TtlsSess *session);
 
 /**
  * \brief		  Cache set callback implementation
@@ -91,7 +91,7 @@ int ttls_ssl_cache_get(void *data, ttls_ssl_session *session);
  * \param data	 SSL cache context
  * \param session  session to store entry for
  */
-int ttls_ssl_cache_set(void *data, const ttls_ssl_session *session);
+int ttls_ssl_cache_set(void *data, const TtlsSess *session);
 
 /**
  * \brief		  Set the cache timeout

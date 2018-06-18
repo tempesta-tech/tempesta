@@ -27,7 +27,7 @@
 #ifndef TTLS_SSL_COOKIE_H
 #define TTLS_SSL_COOKIE_H
 
-#include "ssl.h"
+#include "ttls.h"
 
 /**
  * \name SECTION: Module settings
