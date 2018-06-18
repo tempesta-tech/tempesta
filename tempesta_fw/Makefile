@@ -17,7 +17,7 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-TTLS_CFLAGS += -I$(src)/../tls -I$(src)/../tls/dummy_headers -include ttls.h
+TTLS_CFLAGS += -I$(src)/../tls -I$(src)/../tls/dummy_headers
 export TTLS_CFLAGS
 
 EXTRA_CFLAGS += $(TFW_CFLAGS) $(TTLS_CFLAGS)
@@ -57,4 +57,4 @@ tempesta_fw-objs = \
 	vhost.o \
 	work_queue.o
 
-obj-m	+= stress/ sched/ t/
+obj-m	+= sched/ t/

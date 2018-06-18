@@ -22,122 +22,79 @@
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 #include "config.h"
-#if defined(TTLS_ERROR_C) || defined(TTLS_ERROR_STRERROR_DUMMY)
 #include "error.h"
-#endif
-
-#if defined(TTLS_ERROR_C)
-
-#if defined(TTLS_AES_C)
 #include "aes.h"
-#endif
-
 #if defined(TTLS_BASE64_C)
 #include "base64.h"
 #endif
-
 #include "bignum.h"
-
 #if defined(TTLS_BLOWFISH_C)
 #include "blowfish.h"
 #endif
-
 #if defined(TTLS_CAMELLIA_C)
 #include "camellia.h"
 #endif
-
-#if defined(TTLS_CCM_C)
 #include "ccm.h"
-#endif
-
 #include "cipher.h"
-
 #if defined(TTLS_CMAC_C)
 #include "cmac.h"
 #endif
-
 #if defined(TTLS_CTR_DRBG_C)
 #include "ctr_drbg.h"
 #endif
-
 #if defined(TTLS_DES_C)
 #include "des.h"
 #endif
-
 #if defined(TTLS_DHM_C)
 #include "dhm.h"
 #endif
-
 #include "ecp.h"
-
 #if defined(TTLS_ENTROPY_C)
 #include "entropy.h"
 #endif
-
-#if defined(TTLS_GCM_C)
 #include "gcm.h"
-#endif
-
 #if defined(TTLS_HMAC_DRBG_C)
 #include "hmac_drbg.h"
 #endif
-
 #include "md.h"
-
 #if defined(TTLS_MD2_C)
 #include "md2.h"
 #endif
-
 #if defined(TTLS_MD4_C)
 #include "md4.h"
 #endif
-
 #if defined(TTLS_MD5_C)
 #include "md5.h"
 #endif
-
 #include "oid.h"
-
 #if defined(TTLS_PEM_PARSE_C) || defined(TTLS_PEM_WRITE_C)
 #include "pem.h"
 #endif
-
 #include "pk.h"
-
 #if defined(TTLS_PKCS12_C)
 #include "pkcs12.h"
 #endif
-
 #if defined(TTLS_PKCS5_C)
 #include "pkcs5.h"
 #endif
-
 #if defined(TTLS_RIPEMD160_C)
 #include "ripemd160.h"
 #endif
-
 #include "rsa.h"
-
 #if defined(TTLS_SHA1_C)
 #include "sha1.h"
 #endif
-
 #if defined(TTLS_SHA256_C)
 #include "sha256.h"
 #endif
-
 #if defined(TTLS_SHA512_C)
 #include "sha512.h"
 #endif
-
-#include "ssl.h"
-
+#include "ttls.h"
 #include "x509.h"
-
 #if defined(TTLS_XTEA_C)
 #include "xtea.h"
 #endif
-
 
 void ttls_strerror(int ret, char *buf, size_t buflen)
 {
@@ -504,7 +461,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 	// Low level error codes
 	//
 	// BEGIN generated code
-#if defined(TTLS_AES_C)
 	if (use_ret == -(TTLS_ERR_AES_INVALID_KEY_LENGTH))
 		ttls_snprintf(buf, buflen, "AES - Invalid key length");
 	if (use_ret == -(TTLS_ERR_AES_INVALID_INPUT_LENGTH))
@@ -513,7 +469,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 		ttls_snprintf(buf, buflen, "AES - Feature not available. For example, an unsupported AES key size");
 	if (use_ret == -(TTLS_ERR_AES_HW_ACCEL_FAILED))
 		ttls_snprintf(buf, buflen, "AES - AES hardware accelerator failed");
-#endif /* TTLS_AES_C */
 
 	if (use_ret == -(TTLS_ERR_ASN1_OUT_OF_DATA))
 		ttls_snprintf(buf, buflen, "ASN1 - Out of data when parsing an ASN1 data structure");
@@ -572,14 +527,12 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 		ttls_snprintf(buf, buflen, "CAMELLIA - Camellia hardware accelerator failed");
 #endif /* TTLS_CAMELLIA_C */
 
-#if defined(TTLS_CCM_C)
 	if (use_ret == -(TTLS_ERR_CCM_BAD_INPUT))
 		ttls_snprintf(buf, buflen, "CCM - Bad input parameters to the function");
 	if (use_ret == -(TTLS_ERR_CCM_AUTH_FAILED))
 		ttls_snprintf(buf, buflen, "CCM - Authenticated decryption failed");
 	if (use_ret == -(TTLS_ERR_CCM_HW_ACCEL_FAILED))
 		ttls_snprintf(buf, buflen, "CCM - CCM hardware accelerator failed");
-#endif /* TTLS_CCM_C */
 
 #if defined(TTLS_CMAC_C)
 	if (use_ret == -(TTLS_ERR_CMAC_HW_ACCEL_FAILED))
@@ -617,14 +570,12 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 		ttls_snprintf(buf, buflen, "ENTROPY - Read/write error in file");
 #endif /* TTLS_ENTROPY_C */
 
-#if defined(TTLS_GCM_C)
 	if (use_ret == -(TTLS_ERR_GCM_AUTH_FAILED))
 		ttls_snprintf(buf, buflen, "GCM - Authenticated decryption failed");
 	if (use_ret == -(TTLS_ERR_GCM_HW_ACCEL_FAILED))
 		ttls_snprintf(buf, buflen, "GCM - GCM hardware accelerator failed");
 	if (use_ret == -(TTLS_ERR_GCM_BAD_INPUT))
 		ttls_snprintf(buf, buflen, "GCM - Bad input parameters to function");
-#endif /* TTLS_GCM_C */
 
 #if defined(TTLS_HMAC_DRBG_C)
 	if (use_ret == -(TTLS_ERR_HMAC_DRBG_REQUEST_TOO_BIG))
@@ -690,22 +641,3 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 
 	ttls_snprintf(buf, buflen, "UNKNOWN ERROR CODE (%04X)", use_ret);
 }
-
-#else /* TTLS_ERROR_C */
-
-#if defined(TTLS_ERROR_STRERROR_DUMMY)
-
-/*
- * Provide an non-function in case TTLS_ERROR_C is not defined
- */
-void ttls_strerror(int ret, char *buf, size_t buflen)
-{
-	((void) ret);
-
-	if (buflen > 0)
-		buf[0] = '\0';
-}
-
-#endif /* TTLS_ERROR_STRERROR_DUMMY */
-
-#endif /* TTLS_ERROR_C */

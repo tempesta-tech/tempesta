@@ -144,7 +144,8 @@ enum {
  *
  * GFSM resides at the top of classes hirarchy, so use generic message classes.
  *
- * @skb		- currently processed skb by the TCP/IP stack;
+ * @skb		- currently processed skb by the TCP/IP stack, probably preceded
+ *		  by skbs from previous GFSM shot;
  * @off		- data offset within the @skb;
  * @req		- a request associated with current state of an FSM;
  * @resp	- a response associated with the state;
