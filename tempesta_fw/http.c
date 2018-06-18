@@ -2694,6 +2694,7 @@ static int
 tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 {
 	int req_conn_close, r = TFW_BLOCK;
+	bool block;
 	unsigned int parsed, off = data->off;
 	struct sk_buff *skb = data->skb;
 	TfwHttpReq *req;
@@ -2711,6 +2712,7 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 	 * until all data in the SKB is processed.
 	 */
 next_msg:
+	block = false;
 	parsed = 0;
 	hmsib = NULL;
 	req = (TfwHttpReq *)conn->msg;
@@ -2891,9 +2893,8 @@ next_msg:
 		tfw_http_send_resp(req, 404, "request dropped: cannot find"
 					     " appropriate virtual host");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
-	} else if (tfw_cache_process((TfwHttpMsg *)req,
-				     tfw_http_req_cache_cb))
-	{
+	}
+	else if (tfw_cache_process((TfwHttpMsg *)req, tfw_http_req_cache_cb)) {
 		/*
 		 * The request should either be stored or released.
 		 * Otherwise we lose the reference to it and get a leak.
