@@ -713,6 +713,10 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 			continue;
 		}
 
+		/*
+		 * TCP can ship an skb with overlapped seqnos, so we have to
+		 * work with the offset to avoid probably costly skb_pull().
+		 */
 		count = skb->len - offset;
 		tp->copied_seq += count;
 		*processed += count;

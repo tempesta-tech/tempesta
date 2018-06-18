@@ -33,8 +33,8 @@
  * secrecy.
  */
 
-#include "ssl.h"
 #include "cipher.h"
+#include "ttls.h"
 
 /**
  * \brief   Information for session ticket protection

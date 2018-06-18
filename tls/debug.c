@@ -1,5 +1,7 @@
 /*
- *  Debugging routines
+ *		Tempesta TLS
+ *
+ *  Debugging routines.
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
@@ -18,12 +20,8 @@
  *  You should have received a copy of the GNU General Public License along
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#include "config.h"
-
-#if defined(TTLS_DEBUG_C)
+#if defined(DEBUG) && (DEBUG == 3)
 
 #include "debug.h"
 
@@ -36,23 +34,6 @@ void ttls_debug_set_threshold(int threshold)
 	debug_threshold = threshold;
 }
 
-/*
- * All calls to f_dbg must be made via this function
- */
-static inline void debug_send_line(const ttls_ssl_context *ssl, int level,
-									const char *file, int line,
-									const char *str)
-{
-	/*
-	 * If in a threaded environment, we need a thread identifier.
-	 * Since there is no portable way to get one, use the address of the ssl
-	 * context instead, as it shouldn't be shared between threads.
-	 */
-	char idstr[20 + DEBUG_BUF_SIZE]; /* 0x + 16 nibbles + ': ' */
-	ttls_snprintf(idstr, sizeof(idstr), "%p: %s", (void*)ssl, str);
-	ssl->conf->f_dbg(ssl->conf->p_dbg, level, file, line, idstr);
-}
-
 void ttls_debug_print_msg(const ttls_ssl_context *ssl, int level,
 							  const char *file, int line,
 							  const char *format, ...)
@@ -61,7 +42,7 @@ void ttls_debug_print_msg(const ttls_ssl_context *ssl, int level,
 	char str[DEBUG_BUF_SIZE];
 	int ret;
 
-	if (NULL == ssl || NULL == ssl->conf || NULL == ssl->conf->f_dbg || level > debug_threshold)
+	if (NULL == ssl || NULL == ssl->conf || level > debug_threshold)
 		return;
 
 	va_start(argp, format);
@@ -73,8 +54,6 @@ void ttls_debug_print_msg(const ttls_ssl_context *ssl, int level,
 		str[ret]	 = '\n';
 		str[ret + 1] = '\0';
 	}
-
-	debug_send_line(ssl, level, file, line, str);
 }
 
 void ttls_debug_print_ret(const ttls_ssl_context *ssl, int level,
@@ -83,7 +62,7 @@ void ttls_debug_print_ret(const ttls_ssl_context *ssl, int level,
 {
 	char str[DEBUG_BUF_SIZE];
 
-	if (ssl->conf == NULL || ssl->conf->f_dbg == NULL || level > debug_threshold)
+	if (ssl->conf == NULL || level > debug_threshold)
 		return;
 
 	/*
@@ -96,8 +75,6 @@ void ttls_debug_print_ret(const ttls_ssl_context *ssl, int level,
 
 	ttls_snprintf(str, sizeof(str), "%s() returned %d (-0x%04x)\n",
 			  text, ret, -ret);
-
-	debug_send_line(ssl, level, file, line, str);
 }
 
 void ttls_debug_print_buf(const ttls_ssl_context *ssl, int level,
@@ -108,13 +85,11 @@ void ttls_debug_print_buf(const ttls_ssl_context *ssl, int level,
 	char txt[17];
 	size_t i, idx = 0;
 
-	if (ssl->conf == NULL || ssl->conf->f_dbg == NULL || level > debug_threshold)
+	if (ssl->conf == NULL || level > debug_threshold)
 		return;
 
 	ttls_snprintf(str + idx, sizeof(str) - idx, "dumping '%s' (%u bytes)\n",
 			  text, (unsigned int) len);
-
-	debug_send_line(ssl, level, file, line, str);
 
 	idx = 0;
 	memset(txt, 0, sizeof(txt));
@@ -128,8 +103,6 @@ void ttls_debug_print_buf(const ttls_ssl_context *ssl, int level,
 			if (i > 0)
 			{
 				ttls_snprintf(str + idx, sizeof(str) - idx, "  %s\n", txt);
-				debug_send_line(ssl, level, file, line, str);
-
 				idx = 0;
 				memset(txt, 0, sizeof(txt));
 			}
@@ -150,7 +123,6 @@ void ttls_debug_print_buf(const ttls_ssl_context *ssl, int level,
 			idx += ttls_snprintf(str + idx, sizeof(str) - idx, "   ");
 
 		ttls_snprintf(str + idx, sizeof(str) - idx, "  %s\n", txt);
-		debug_send_line(ssl, level, file, line, str);
 	}
 }
 
@@ -160,7 +132,7 @@ void ttls_debug_print_ecp(const ttls_ssl_context *ssl, int level,
 {
 	char str[DEBUG_BUF_SIZE];
 
-	if (ssl->conf == NULL || ssl->conf->f_dbg == NULL || level > debug_threshold)
+	if (ssl->conf == NULL || level > debug_threshold)
 		return;
 
 	ttls_snprintf(str, sizeof(str), "%s(X)", text);
@@ -178,7 +150,7 @@ void ttls_debug_print_mpi(const ttls_ssl_context *ssl, int level,
 	int j, k, zeros = 1;
 	size_t i, n, idx = 0;
 
-	if (ssl->conf == NULL || ssl->conf->f_dbg == NULL || X == NULL || level > debug_threshold)
+	if (ssl->conf == NULL || X == NULL || level > debug_threshold)
 		return;
 
 	for (n = X->n - 1; n > 0; n--)
@@ -191,8 +163,6 @@ void ttls_debug_print_mpi(const ttls_ssl_context *ssl, int level,
 
 	ttls_snprintf(str + idx, sizeof(str) - idx, "value of '%s' (%d bits) is:\n",
 			  text, (int) ((n * (sizeof(ttls_mpi_uint) << 3)) + j + 1));
-
-	debug_send_line(ssl, level, file, line, str);
 
 	idx = 0;
 	for (i = n + 1, j = 0; i > 0; i--)
@@ -212,7 +182,6 @@ void ttls_debug_print_mpi(const ttls_ssl_context *ssl, int level,
 				if (j > 0)
 				{
 					ttls_snprintf(str + idx, sizeof(str) - idx, "\n");
-					debug_send_line(ssl, level, file, line, str);
 					idx = 0;
 				}
 			}
@@ -229,7 +198,6 @@ void ttls_debug_print_mpi(const ttls_ssl_context *ssl, int level,
 		idx += ttls_snprintf(str + idx, sizeof(str) - idx, " 00");
 
 	ttls_snprintf(str + idx, sizeof(str) - idx, "\n");
-	debug_send_line(ssl, level, file, line, str);
 }
 
 static void debug_print_pk(const ttls_ssl_context *ssl, int level,
@@ -243,11 +211,7 @@ static void debug_print_pk(const ttls_ssl_context *ssl, int level,
 	memset(items, 0, sizeof(items));
 
 	if (ttls_pk_debug(pk, items) != 0)
-	{
-		debug_send_line(ssl, level, file, line,
-						  "invalid PK context\n");
 		return;
-	}
 
 	for (i = 0; i < TTLS_PK_DEBUG_MAX_ITEMS; i++)
 	{
@@ -262,9 +226,6 @@ static void debug_print_pk(const ttls_ssl_context *ssl, int level,
 		else
 		if (items[i].type == TTLS_PK_DEBUG_ECP)
 			ttls_debug_print_ecp(ssl, level, file, line, name, items[i].value);
-		else
-			debug_send_line(ssl, level, file, line,
-							  "should not happen\n");
 	}
 }
 
@@ -285,9 +246,6 @@ static void debug_print_line_by_line(const ttls_ssl_context *ssl, int level,
 
 			memcpy(str, start, len);
 			str[len] = '\0';
-
-			debug_send_line(ssl, level, file, line, str);
-
 			start = cur + 1;
 		}
 	}
@@ -300,13 +258,12 @@ void ttls_debug_print_crt(const ttls_ssl_context *ssl, int level,
 	char buf[1024];
 	int i = 0;
 
-	if (ssl->conf == NULL || ssl->conf->f_dbg == NULL || crt == NULL || level > debug_threshold)
+	if (ssl->conf == NULL || crt == NULL || level > debug_threshold)
 		return;
 
 	while (crt != NULL)
 	{
 		ttls_snprintf(buf, sizeof(buf), "%s #%d:\n", text, ++i);
-		debug_send_line(ssl, level, file, line, buf);
 
 		ttls_x509_crt_info(buf, sizeof(buf) - 1, "", crt);
 		debug_print_line_by_line(ssl, level, file, line, buf);
@@ -317,4 +274,4 @@ void ttls_debug_print_crt(const ttls_ssl_context *ssl, int level,
 	}
 }
 
-#endif /* TTLS_DEBUG_C */
+#endif

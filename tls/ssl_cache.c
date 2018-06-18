@@ -40,7 +40,7 @@ void ttls_ssl_cache_init(ttls_ssl_cache_context *cache)
 	spin_lock_init(&cache->mutex);
 }
 
-int ttls_ssl_cache_get(void *data, ttls_ssl_session *session)
+int ttls_ssl_cache_get(void *data, TtlsSess *session)
 {
 	int ret = 1;
 	time_t t = ttls_time(NULL);
@@ -107,7 +107,7 @@ exit:
 	return ret;
 }
 
-int ttls_ssl_cache_set(void *data, const ttls_ssl_session *session)
+int ttls_ssl_cache_set(void *data, const TtlsSess *session)
 {
 	int ret = 1;
 	time_t t = ttls_time(NULL), oldest = 0;
@@ -181,7 +181,7 @@ int ttls_ssl_cache_set(void *data, const ttls_ssl_session *session)
 		cur->timestamp = t;
 	}
 
-	memcpy(&cur->session, session, sizeof(ttls_ssl_session));
+	memcpy(&cur->session, session, sizeof(TtlsSess));
 
 	/*
 	 * If we're reusing an entry, free its certificate first

@@ -11,7 +11,7 @@
  *   - loadable TL programs;
  *   - user-space modules such as FastCGI or REST.
  *
- * The FSMs are essencially subroutines in sense of Knuth definition of
+ * The FSMs are essentially subroutines in sense of Knuth definition of
  * coroutines, i.e. a subroutine can:
  *   1. call other subroutine;
  *   2. yield control to other subroutine.
