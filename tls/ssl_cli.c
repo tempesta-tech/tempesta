@@ -24,7 +24,7 @@
 #if defined(TTLS_SSL_CLI_C)
 
 #include "debug.h"
-#include "ssl.h"
+#include "ttls.h"
 #include "ssl_internal.h"
 
 #if defined(TTLS_SSL_SESSION_TICKETS)
@@ -384,7 +384,6 @@ static void ssl_write_max_fragment_length_ext(ttls_ssl_context *ssl,
 }
 #endif /* TTLS_SSL_MAX_FRAGMENT_LENGTH */
 
-#if defined(TTLS_SSL_ENCRYPT_THEN_MAC)
 static void ssl_write_encrypt_then_mac_ext(ttls_ssl_context *ssl,
 		unsigned char *buf, size_t *olen)
 {
@@ -392,12 +391,6 @@ static void ssl_write_encrypt_then_mac_ext(ttls_ssl_context *ssl,
 	const unsigned char *end = ssl->out_msg + TTLS_SSL_MAX_CONTENT_LEN;
 
 	*olen = 0;
-
-	if (ssl->conf->encrypt_then_mac == TTLS_SSL_ETM_DISABLED ||
-		ssl->conf->max_minor_ver == TTLS_SSL_MINOR_VERSION_0)
-	{
-		return;
-	}
 
 	TTLS_SSL_DEBUG_MSG(3, ("client hello, adding encrypt_then_mac "
 						"extension"));
@@ -416,7 +409,6 @@ static void ssl_write_encrypt_then_mac_ext(ttls_ssl_context *ssl,
 
 	*olen = 4;
 }
-#endif /* TTLS_SSL_ENCRYPT_THEN_MAC */
 
 #if defined(TTLS_SSL_EXTENDED_MASTER_SECRET)
 static void ssl_write_extended_ms_ext(ttls_ssl_context *ssl,
@@ -843,10 +835,8 @@ static int ssl_write_client_hello(ttls_ssl_context *ssl)
 	ext_len += olen;
 #endif
 
-#if defined(TTLS_SSL_ENCRYPT_THEN_MAC)
 	ssl_write_encrypt_then_mac_ext(ssl, p + 2 + ext_len, &olen);
 	ext_len += olen;
-#endif
 
 #if defined(TTLS_SSL_EXTENDED_MASTER_SECRET)
 	ssl_write_extended_ms_ext(ssl, p + 2 + ext_len, &olen);
@@ -875,7 +865,7 @@ static int ssl_write_client_hello(ttls_ssl_context *ssl)
 	}
 
 	ssl->out_msglen  = p - buf;
-	ssl->out_msgtype = TTLS_SSL_MSG_HANDSHAKE;
+	ssl->out_msgtype = TTLS_MSG_HANDSHAKE;
 	ssl->out_msg[0]  = TTLS_SSL_HS_CLIENT_HELLO;
 
 	ssl->state++;
@@ -903,7 +893,7 @@ static int ssl_parse_renegotiation_info(ttls_ssl_context *ssl,
 	if (len != 1 || buf[0] != 0x00)
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("non-zero length renegotiation info"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_HANDSHAKE_FAILURE);
 		return(TTLS_ERR_SSL_BAD_HS_SERVER_HELLO);
 	}
@@ -927,7 +917,7 @@ static int ssl_parse_max_fragment_length_ext(ttls_ssl_context *ssl,
 		buf[0] != ssl->conf->mfl_code)
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("non-matching max fragment length extension"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_HANDSHAKE_FAILURE);
 		return(TTLS_ERR_SSL_BAD_HS_SERVER_HELLO);
 	}
@@ -936,28 +926,21 @@ static int ssl_parse_max_fragment_length_ext(ttls_ssl_context *ssl,
 }
 #endif /* TTLS_SSL_MAX_FRAGMENT_LENGTH */
 
-#if defined(TTLS_SSL_ENCRYPT_THEN_MAC)
 static int ssl_parse_encrypt_then_mac_ext(ttls_ssl_context *ssl,
 		const unsigned char *buf,
 		size_t len)
 {
-	if (ssl->conf->encrypt_then_mac == TTLS_SSL_ETM_DISABLED ||
-		ssl->minor_ver == TTLS_SSL_MINOR_VERSION_0 ||
-		len != 0)
-	{
+	if (len) {
 		TTLS_SSL_DEBUG_MSG(1, ("non-matching encrypt-then-MAC extension"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 				TTLS_SSL_ALERT_MSG_HANDSHAKE_FAILURE);
 		return(TTLS_ERR_SSL_BAD_HS_SERVER_HELLO);
 	}
 
-	((void) buf);
-
-	ssl->session_negotiate->encrypt_then_mac = TTLS_SSL_ETM_ENABLED;
+	ssl->session_negotiate->encrypt_then_mac = 1;
 
 	return 0;
 }
-#endif /* TTLS_SSL_ENCRYPT_THEN_MAC */
 
 #if defined(TTLS_SSL_EXTENDED_MASTER_SECRET)
 static int ssl_parse_extended_ms_ext(ttls_ssl_context *ssl,
@@ -969,7 +952,7 @@ static int ssl_parse_extended_ms_ext(ttls_ssl_context *ssl,
 		len != 0)
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("non-matching extended master secret extension"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_HANDSHAKE_FAILURE);
 		return(TTLS_ERR_SSL_BAD_HS_SERVER_HELLO);
 	}
@@ -991,7 +974,7 @@ static int ssl_parse_session_ticket_ext(ttls_ssl_context *ssl,
 		len != 0)
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("non-matching session ticket extension"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_HANDSHAKE_FAILURE);
 		return(TTLS_ERR_SSL_BAD_HS_SERVER_HELLO);
 	}
@@ -1017,7 +1000,7 @@ static int ssl_parse_supported_point_formats_ext(ttls_ssl_context *ssl,
 	if (list_size + 1 != len)
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("bad server hello message"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 				TTLS_SSL_ALERT_MSG_DECODE_ERROR);
 		return(TTLS_ERR_SSL_BAD_HS_SERVER_HELLO);
 	}
@@ -1043,7 +1026,7 @@ static int ssl_parse_supported_point_formats_ext(ttls_ssl_context *ssl,
 	}
 
 	TTLS_SSL_DEBUG_MSG(1, ("no point format in common"));
-	ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+	ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 			TTLS_SSL_ALERT_MSG_HANDSHAKE_FAILURE);
 	return(TTLS_ERR_SSL_BAD_HS_SERVER_HELLO);
 }
@@ -1073,7 +1056,7 @@ static int ssl_parse_ecjpake_kkpp(ttls_ssl_context *ssl,
 						buf, len)) != 0)
 	{
 		TTLS_SSL_DEBUG_RET(1, "ttls_ecjpake_read_round_one", ret);
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_HANDSHAKE_FAILURE);
 		return ret;
 	}
@@ -1092,7 +1075,7 @@ static int ssl_parse_alpn_ext(ttls_ssl_context *ssl,
 	if (ssl->conf->alpn_list == NULL)
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("non-matching ALPN extension"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 				TTLS_SSL_ALERT_MSG_HANDSHAKE_FAILURE);
 		return(TTLS_ERR_SSL_BAD_HS_SERVER_HELLO);
 	}
@@ -1110,7 +1093,7 @@ static int ssl_parse_alpn_ext(ttls_ssl_context *ssl,
 	/* Min length is 2 (list_len) + 1 (name_len) + 1 (name) */
 	if (len < 4)
 	{
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_DECODE_ERROR);
 		return(TTLS_ERR_SSL_BAD_HS_SERVER_HELLO);
 	}
@@ -1118,7 +1101,7 @@ static int ssl_parse_alpn_ext(ttls_ssl_context *ssl,
 	list_len = (buf[0] << 8) | buf[1];
 	if (list_len != len - 2)
 	{
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_DECODE_ERROR);
 		return(TTLS_ERR_SSL_BAD_HS_SERVER_HELLO);
 	}
@@ -1126,7 +1109,7 @@ static int ssl_parse_alpn_ext(ttls_ssl_context *ssl,
 	name_len = buf[2];
 	if (name_len != list_len - 1)
 	{
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_DECODE_ERROR);
 		return(TTLS_ERR_SSL_BAD_HS_SERVER_HELLO);
 	}
@@ -1143,7 +1126,7 @@ static int ssl_parse_alpn_ext(ttls_ssl_context *ssl,
 	}
 
 	TTLS_SSL_DEBUG_MSG(1, ("ALPN extension: no matching protocol"));
-	ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+	ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_HANDSHAKE_FAILURE);
 	return(TTLS_ERR_SSL_BAD_HS_SERVER_HELLO);
 }
@@ -1181,7 +1164,7 @@ static int ssl_parse_hello_verify_request(ttls_ssl_context *ssl)
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("bad server version"));
 
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					 TTLS_SSL_ALERT_MSG_PROTOCOL_VERSION);
 
 		return(TTLS_ERR_SSL_BAD_HS_PROTOCOL_VERSION);
@@ -1194,7 +1177,7 @@ static int ssl_parse_hello_verify_request(ttls_ssl_context *ssl)
 	{
 		TTLS_SSL_DEBUG_MSG(1,
 			("cookie length does not match incoming message size"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_DECODE_ERROR);
 		return(TTLS_ERR_SSL_BAD_HS_SERVER_HELLO);
 	}
@@ -1237,17 +1220,17 @@ static int ssl_parse_server_hello(ttls_ssl_context *ssl)
 
 	buf = ssl->in_msg;
 
-	if ((ret = ttls_ssl_read_record(ssl)) != 0)
+	if ((ret = ttls_read_record(ssl)) != 0)
 	{
 		/* No alert on a read error. */
-		TTLS_SSL_DEBUG_RET(1, "ttls_ssl_read_record", ret);
+		TTLS_SSL_DEBUG_RET(1, "ttls_read_record", ret);
 		return ret;
 	}
 
-	if (ssl->in_msgtype != TTLS_SSL_MSG_HANDSHAKE)
+	if (ssl->in_msgtype != TTLS_MSG_HANDSHAKE)
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("bad server hello message"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_UNEXPECTED_MESSAGE);
 		return(TTLS_ERR_SSL_UNEXPECTED_MESSAGE);
 	}
@@ -1275,7 +1258,7 @@ static int ssl_parse_server_hello(ttls_ssl_context *ssl)
 		buf[0] != TTLS_SSL_HS_SERVER_HELLO)
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("bad server hello message"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_DECODE_ERROR);
 		return(TTLS_ERR_SSL_BAD_HS_SERVER_HELLO);
 	}
@@ -1308,7 +1291,7 @@ static int ssl_parse_server_hello(ttls_ssl_context *ssl)
 					ssl->major_ver, ssl->minor_ver,
 					ssl->conf->max_major_ver, ssl->conf->max_minor_ver));
 
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					 TTLS_SSL_ALERT_MSG_PROTOCOL_VERSION);
 
 		return(TTLS_ERR_SSL_BAD_HS_PROTOCOL_VERSION);
@@ -1329,7 +1312,7 @@ static int ssl_parse_server_hello(ttls_ssl_context *ssl)
 	if (n > 32)
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("bad server hello message"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_DECODE_ERROR);
 		return(TTLS_ERR_SSL_BAD_HS_SERVER_HELLO);
 	}
@@ -1343,7 +1326,7 @@ static int ssl_parse_server_hello(ttls_ssl_context *ssl)
 			ssl->in_hslen != ttls_ssl_hs_hdr_len(ssl) + 40 + n + ext_len)
 		{
 			TTLS_SSL_DEBUG_MSG(1, ("bad server hello message"));
-			ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+			ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_DECODE_ERROR);
 			return(TTLS_ERR_SSL_BAD_HS_SERVER_HELLO);
 		}
@@ -1355,7 +1338,7 @@ static int ssl_parse_server_hello(ttls_ssl_context *ssl)
 	else
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("bad server hello message"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_DECODE_ERROR);
 		return(TTLS_ERR_SSL_BAD_HS_SERVER_HELLO);
 	}
@@ -1371,7 +1354,7 @@ static int ssl_parse_server_hello(ttls_ssl_context *ssl)
 	if (comp != TTLS_SSL_COMPRESS_NULL)
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("server hello, bad compression: %d", comp));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_ILLEGAL_PARAMETER);
 		return(TTLS_ERR_SSL_FEATURE_UNAVAILABLE);
 	}
@@ -1384,7 +1367,7 @@ static int ssl_parse_server_hello(ttls_ssl_context *ssl)
 	if (ssl->transform_negotiate->ciphersuite_info == NULL)
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("ciphersuite info for %04x not found", i));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_INTERNAL_ERROR);
 		return(TTLS_ERR_SSL_BAD_INPUT_DATA);
 	}
@@ -1418,7 +1401,7 @@ static int ssl_parse_server_hello(ttls_ssl_context *ssl)
 		if ((ret = ttls_ssl_derive_keys(ssl)) != 0)
 		{
 			TTLS_SSL_DEBUG_RET(1, "ttls_ssl_derive_keys", ret);
-			ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+			ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 						TTLS_SSL_ALERT_MSG_INTERNAL_ERROR);
 			return ret;
 		}
@@ -1433,7 +1416,7 @@ static int ssl_parse_server_hello(ttls_ssl_context *ssl)
 	suite_info = ttls_ssl_ciphersuite_from_id(ssl->session_negotiate->ciphersuite);
 	if (!suite_info) {
 		TTLS_SSL_DEBUG_MSG(1, ("bad server hello message"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_ILLEGAL_PARAMETER);
 		return(TTLS_ERR_SSL_BAD_HS_SERVER_HELLO);
 	}
@@ -1446,7 +1429,7 @@ static int ssl_parse_server_hello(ttls_ssl_context *ssl)
 		if (ssl->conf->ciphersuite_list[ssl->minor_ver][i] == 0)
 		{
 			TTLS_SSL_DEBUG_MSG(1, ("bad server hello message"));
-			ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+			ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 						TTLS_SSL_ALERT_MSG_ILLEGAL_PARAMETER);
 			return(TTLS_ERR_SSL_BAD_HS_SERVER_HELLO);
 		}
@@ -1460,7 +1443,7 @@ static int ssl_parse_server_hello(ttls_ssl_context *ssl)
 
 	if (comp != TTLS_SSL_COMPRESS_NULL) {
 		TTLS_SSL_DEBUG_MSG(1, ("bad server hello message"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_ILLEGAL_PARAMETER);
 		return(TTLS_ERR_SSL_BAD_HS_SERVER_HELLO);
 	}
@@ -1480,7 +1463,7 @@ static int ssl_parse_server_hello(ttls_ssl_context *ssl)
 		if (ext_size + 4 > ext_len)
 		{
 			TTLS_SSL_DEBUG_MSG(1, ("bad server hello message"));
-			ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+			ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 						TTLS_SSL_ALERT_MSG_DECODE_ERROR);
 			return(TTLS_ERR_SSL_BAD_HS_SERVER_HELLO);
 		}
@@ -1509,7 +1492,6 @@ static int ssl_parse_server_hello(ttls_ssl_context *ssl)
 			break;
 #endif /* TTLS_SSL_MAX_FRAGMENT_LENGTH */
 
-#if defined(TTLS_SSL_ENCRYPT_THEN_MAC)
 		case TTLS_TLS_EXT_ENCRYPT_THEN_MAC:
 			TTLS_SSL_DEBUG_MSG(3, ("found encrypt_then_mac extension"));
 
@@ -1520,7 +1502,6 @@ static int ssl_parse_server_hello(ttls_ssl_context *ssl)
 			}
 
 			break;
-#endif /* TTLS_SSL_ENCRYPT_THEN_MAC */
 
 #if defined(TTLS_SSL_EXTENDED_MASTER_SECRET)
 		case TTLS_TLS_EXT_EXTENDED_MASTER_SECRET:
@@ -1611,7 +1592,7 @@ static int ssl_parse_server_hello(ttls_ssl_context *ssl)
 
 	if (handshake_failure == 1)
 	{
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_HANDSHAKE_FAILURE);
 		return(TTLS_ERR_SSL_BAD_HS_SERVER_HELLO);
 	}
@@ -1974,7 +1955,7 @@ static int ssl_parse_server_key_exchange(ttls_ssl_context *ssl)
 		if ((ret = ssl_get_ecdh_params_from_cert(ssl)) != 0)
 		{
 			TTLS_SSL_DEBUG_RET(1, "ssl_get_ecdh_params_from_cert", ret);
-			ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+			ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 						TTLS_SSL_ALERT_MSG_HANDSHAKE_FAILURE);
 			return ret;
 		}
@@ -1988,16 +1969,16 @@ static int ssl_parse_server_key_exchange(ttls_ssl_context *ssl)
 #endif /* TTLS_KEY_EXCHANGE_ECDH_RSA_ENABLED ||
 		  TTLS_KEY_EXCHANGE_ECDH_ECDSA_ENABLED */
 
-	if ((ret = ttls_ssl_read_record(ssl)) != 0)
+	if ((ret = ttls_read_record(ssl)) != 0)
 	{
-		TTLS_SSL_DEBUG_RET(1, "ttls_ssl_read_record", ret);
+		TTLS_SSL_DEBUG_RET(1, "ttls_read_record", ret);
 		return ret;
 	}
 
-	if (ssl->in_msgtype != TTLS_SSL_MSG_HANDSHAKE)
+	if (ssl->in_msgtype != TTLS_MSG_HANDSHAKE)
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("bad server key exchange message"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_UNEXPECTED_MESSAGE);
 		return(TTLS_ERR_SSL_UNEXPECTED_MESSAGE);
 	}
@@ -2019,7 +2000,7 @@ static int ssl_parse_server_key_exchange(ttls_ssl_context *ssl)
 
 		TTLS_SSL_DEBUG_MSG(1, ("server key exchange message must "
 									"not be skipped"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_UNEXPECTED_MESSAGE);
 
 		return(TTLS_ERR_SSL_UNEXPECTED_MESSAGE);
@@ -2038,7 +2019,7 @@ static int ssl_parse_server_key_exchange(ttls_ssl_context *ssl)
 		if (ssl_parse_server_psk_hint(ssl, &p, end) != 0)
 		{
 			TTLS_SSL_DEBUG_MSG(1, ("bad server key exchange message"));
-			ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+			ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 						TTLS_SSL_ALERT_MSG_ILLEGAL_PARAMETER);
 			return(TTLS_ERR_SSL_BAD_HS_SERVER_KEY_EXCHANGE);
 		}
@@ -2061,7 +2042,7 @@ static int ssl_parse_server_key_exchange(ttls_ssl_context *ssl)
 		if (ssl_parse_server_dh_params(ssl, &p, end) != 0)
 		{
 			TTLS_SSL_DEBUG_MSG(1, ("bad server key exchange message"));
-			ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+			ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 						TTLS_SSL_ALERT_MSG_ILLEGAL_PARAMETER);
 			return(TTLS_ERR_SSL_BAD_HS_SERVER_KEY_EXCHANGE);
 		}
@@ -2079,7 +2060,7 @@ static int ssl_parse_server_key_exchange(ttls_ssl_context *ssl)
 		if (ssl_parse_server_ecdh_params(ssl, &p, end) != 0)
 		{
 			TTLS_SSL_DEBUG_MSG(1, ("bad server key exchange message"));
-			ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+			ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 						TTLS_SSL_ALERT_MSG_ILLEGAL_PARAMETER);
 			return(TTLS_ERR_SSL_BAD_HS_SERVER_KEY_EXCHANGE);
 		}
@@ -2096,7 +2077,7 @@ static int ssl_parse_server_key_exchange(ttls_ssl_context *ssl)
 		if (ret != 0)
 		{
 			TTLS_SSL_DEBUG_RET(1, "ttls_ecjpake_read_round_two", ret);
-			ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+			ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 						TTLS_SSL_ALERT_MSG_ILLEGAL_PARAMETER);
 			return(TTLS_ERR_SSL_BAD_HS_SERVER_KEY_EXCHANGE);
 		}
@@ -2127,7 +2108,7 @@ static int ssl_parse_server_key_exchange(ttls_ssl_context *ssl)
 						   &md_alg, &pk_alg) != 0)
 			{
 				TTLS_SSL_DEBUG_MSG(1, ("bad server key exchange message"));
-				ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+				ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 							TTLS_SSL_ALERT_MSG_ILLEGAL_PARAMETER);
 				return(TTLS_ERR_SSL_BAD_HS_SERVER_KEY_EXCHANGE);
 			}
@@ -2135,7 +2116,7 @@ static int ssl_parse_server_key_exchange(ttls_ssl_context *ssl)
 			if (pk_alg != ttls_ssl_get_ciphersuite_sig_pk_alg(ciphersuite_info))
 			{
 				TTLS_SSL_DEBUG_MSG(1, ("bad server key exchange message"));
-				ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+				ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 							TTLS_SSL_ALERT_MSG_ILLEGAL_PARAMETER);
 				return(TTLS_ERR_SSL_BAD_HS_SERVER_KEY_EXCHANGE);
 			}
@@ -2153,7 +2134,7 @@ static int ssl_parse_server_key_exchange(ttls_ssl_context *ssl)
 		if (p > end - 2)
 		{
 			TTLS_SSL_DEBUG_MSG(1, ("bad server key exchange message"));
-			ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+			ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 						TTLS_SSL_ALERT_MSG_DECODE_ERROR);
 			return(TTLS_ERR_SSL_BAD_HS_SERVER_KEY_EXCHANGE);
 		}
@@ -2163,7 +2144,7 @@ static int ssl_parse_server_key_exchange(ttls_ssl_context *ssl)
 		if (p != end - sig_len)
 		{
 			TTLS_SSL_DEBUG_MSG(1, ("bad server key exchange message"));
-			ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+			ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 						TTLS_SSL_ALERT_MSG_DECODE_ERROR);
 			return(TTLS_ERR_SSL_BAD_HS_SERVER_KEY_EXCHANGE);
 		}
@@ -2194,7 +2175,7 @@ static int ssl_parse_server_key_exchange(ttls_ssl_context *ssl)
 		if (ssl->session_negotiate->peer_cert == NULL)
 		{
 			TTLS_SSL_DEBUG_MSG(2, ("certificate required"));
-			ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+			ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 						TTLS_SSL_ALERT_MSG_HANDSHAKE_FAILURE);
 			return(TTLS_ERR_SSL_UNEXPECTED_MESSAGE);
 		}
@@ -2205,7 +2186,7 @@ static int ssl_parse_server_key_exchange(ttls_ssl_context *ssl)
 		if (! ttls_pk_can_do(&ssl->session_negotiate->peer_cert->pk, pk_alg))
 		{
 			TTLS_SSL_DEBUG_MSG(1, ("bad server key exchange message"));
-			ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+			ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 						TTLS_SSL_ALERT_MSG_HANDSHAKE_FAILURE);
 			return(TTLS_ERR_SSL_PK_TYPE_MISMATCH);
 		}
@@ -2213,7 +2194,7 @@ static int ssl_parse_server_key_exchange(ttls_ssl_context *ssl)
 		if ((ret = ttls_pk_verify(&ssl->session_negotiate->peer_cert->pk,
 					   md_alg, hash, hashlen, p, sig_len)) != 0)
 		{
-			ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+			ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 						TTLS_SSL_ALERT_MSG_DECRYPT_ERROR);
 			TTLS_SSL_DEBUG_RET(1, "ttls_pk_verify", ret);
 			return ret;
@@ -2266,16 +2247,16 @@ static int ssl_parse_certificate_request(ttls_ssl_context *ssl)
 		return 0;
 	}
 
-	if ((ret = ttls_ssl_read_record(ssl)) != 0)
+	if ((ret = ttls_read_record(ssl)) != 0)
 	{
-		TTLS_SSL_DEBUG_RET(1, "ttls_ssl_read_record", ret);
+		TTLS_SSL_DEBUG_RET(1, "ttls_read_record", ret);
 		return ret;
 	}
 
-	if (ssl->in_msgtype != TTLS_SSL_MSG_HANDSHAKE)
+	if (ssl->in_msgtype != TTLS_MSG_HANDSHAKE)
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("bad certificate request message"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_UNEXPECTED_MESSAGE);
 		return(TTLS_ERR_SSL_UNEXPECTED_MESSAGE);
 	}
@@ -2326,7 +2307,7 @@ static int ssl_parse_certificate_request(ttls_ssl_context *ssl)
 	if (ssl->in_hslen < ttls_ssl_hs_hdr_len(ssl) + 2 + n)
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("bad certificate request message"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_DECODE_ERROR);
 		return(TTLS_ERR_SSL_BAD_HS_CERTIFICATE_REQUEST);
 	}
@@ -2336,7 +2317,7 @@ static int ssl_parse_certificate_request(ttls_ssl_context *ssl)
 	{
 		size_t sig_alg_len = ((buf[ttls_ssl_hs_hdr_len(ssl) + 1 + n] <<  8)
 					 | (buf[ttls_ssl_hs_hdr_len(ssl) + 2 + n]));
-#if defined(TTLS_DEBUG_C)
+#if defined(DEBUG) && (DEBUG == 3)
 		unsigned char* sig_alg = buf + ttls_ssl_hs_hdr_len(ssl) + 3 + n;
 		size_t i;
 
@@ -2352,7 +2333,7 @@ static int ssl_parse_certificate_request(ttls_ssl_context *ssl)
 		if (ssl->in_hslen < ttls_ssl_hs_hdr_len(ssl) + 2 + n)
 		{
 			TTLS_SSL_DEBUG_MSG(1, ("bad certificate request message"));
-			ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+			ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 						TTLS_SSL_ALERT_MSG_DECODE_ERROR);
 			return(TTLS_ERR_SSL_BAD_HS_CERTIFICATE_REQUEST);
 		}
@@ -2366,7 +2347,7 @@ static int ssl_parse_certificate_request(ttls_ssl_context *ssl)
 	if (ssl->in_hslen != ttls_ssl_hs_hdr_len(ssl) + 3 + n)
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("bad certificate request message"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_DECODE_ERROR);
 		return(TTLS_ERR_SSL_BAD_HS_CERTIFICATE_REQUEST);
 	}
@@ -2384,13 +2365,13 @@ static int ssl_parse_server_hello_done(ttls_ssl_context *ssl)
 
 	TTLS_SSL_DEBUG_MSG(2, ("=> parse server hello done"));
 
-	if ((ret = ttls_ssl_read_record(ssl)) != 0)
+	if ((ret = ttls_read_record(ssl)) != 0)
 	{
-		TTLS_SSL_DEBUG_RET(1, "ttls_ssl_read_record", ret);
+		TTLS_SSL_DEBUG_RET(1, "ttls_read_record", ret);
 		return ret;
 	}
 
-	if (ssl->in_msgtype != TTLS_SSL_MSG_HANDSHAKE)
+	if (ssl->in_msgtype != TTLS_MSG_HANDSHAKE)
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("bad server hello done message"));
 		return(TTLS_ERR_SSL_UNEXPECTED_MESSAGE);
@@ -2400,7 +2381,7 @@ static int ssl_parse_server_hello_done(ttls_ssl_context *ssl)
 		ssl->in_msg[0] != TTLS_SSL_HS_SERVER_HELLO_DONE)
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("bad server hello done message"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_DECODE_ERROR);
 		return(TTLS_ERR_SSL_BAD_HS_SERVER_HELLO_DONE);
 	}
@@ -2655,7 +2636,7 @@ static int ssl_write_client_key_exchange(ttls_ssl_context *ssl)
 	}
 
 	ssl->out_msglen  = i + n;
-	ssl->out_msgtype = TTLS_SSL_MSG_HANDSHAKE;
+	ssl->out_msgtype = TTLS_MSG_HANDSHAKE;
 	ssl->out_msg[0]  = TTLS_SSL_HS_CLIENT_KEY_EXCHANGE;
 
 	ssl->state++;
@@ -2806,7 +2787,7 @@ static int ssl_write_certificate_verify(ttls_ssl_context *ssl)
 	ssl->out_msg[5 + offset] = (unsigned char)(n	 );
 
 	ssl->out_msglen  = 6 + n + offset;
-	ssl->out_msgtype = TTLS_SSL_MSG_HANDSHAKE;
+	ssl->out_msgtype = TTLS_MSG_HANDSHAKE;
 	ssl->out_msg[0]  = TTLS_SSL_HS_CERTIFICATE_VERIFY;
 
 	ssl->state++;
@@ -2839,16 +2820,16 @@ static int ssl_parse_new_session_ticket(ttls_ssl_context *ssl)
 
 	TTLS_SSL_DEBUG_MSG(2, ("=> parse new session ticket"));
 
-	if ((ret = ttls_ssl_read_record(ssl)) != 0)
+	if ((ret = ttls_read_record(ssl)) != 0)
 	{
-		TTLS_SSL_DEBUG_RET(1, "ttls_ssl_read_record", ret);
+		TTLS_SSL_DEBUG_RET(1, "ttls_read_record", ret);
 		return ret;
 	}
 
-	if (ssl->in_msgtype != TTLS_SSL_MSG_HANDSHAKE)
+	if (ssl->in_msgtype != TTLS_MSG_HANDSHAKE)
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("bad new session ticket message"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_UNEXPECTED_MESSAGE);
 		return(TTLS_ERR_SSL_UNEXPECTED_MESSAGE);
 	}
@@ -2867,7 +2848,7 @@ static int ssl_parse_new_session_ticket(ttls_ssl_context *ssl)
 		ssl->in_hslen < 6 + ttls_ssl_hs_hdr_len(ssl))
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("bad new session ticket message"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_DECODE_ERROR);
 		return(TTLS_ERR_SSL_BAD_HS_NEW_SESSION_TICKET);
 	}
@@ -2882,7 +2863,7 @@ static int ssl_parse_new_session_ticket(ttls_ssl_context *ssl)
 	if (ticket_len + 6 + ttls_ssl_hs_hdr_len(ssl) != ssl->in_hslen)
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("bad new session ticket message"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_DECODE_ERROR);
 		return(TTLS_ERR_SSL_BAD_HS_NEW_SESSION_TICKET);
 	}
@@ -2909,7 +2890,7 @@ static int ssl_parse_new_session_ticket(ttls_ssl_context *ssl)
 	if ((ticket = ttls_calloc(1, ticket_len)) == NULL)
 	{
 		TTLS_SSL_DEBUG_MSG(1, ("ticket alloc failed"));
-		ttls_ssl_send_alert_message(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
+		ttls_send_alert_msg(ssl, TTLS_SSL_ALERT_LEVEL_FATAL,
 					TTLS_SSL_ALERT_MSG_INTERNAL_ERROR);
 		return(TTLS_ERR_SSL_ALLOC_FAILED);
 	}
@@ -2958,7 +2939,7 @@ int ttls_ssl_handshake_client_step(ttls_ssl_context *ssl)
 	}
 #endif
 
-	/* Change state now, so that it is right in ttls_ssl_read_record(), used
+	/* Change state now, so that it is right in ttls_read_record(), used
 	 * by DTLS for dropping out-of-sequence ChangeCipherSpec records */
 #if defined(TTLS_SSL_SESSION_TICKETS)
 	if (ssl->state == TTLS_SSL_SERVER_CHANGE_CIPHER_SPEC &&

@@ -4,7 +4,7 @@
  * Definitions for generic connection management at OSI level 6 (presentation).
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -204,10 +204,10 @@ enum {
  */
 typedef struct {
 	TfwCliConn	cli_conn;
-	TfwTlsContext	tls;
+	TfwTlsCtx	tc;
 } TfwTlsConn;
 
-#define tfw_tls_context(p)	(TfwTlsContext *)(&((TfwTlsConn *)p)->tls)
+#define tfw_tls_context(p)	(TfwTlsCtx *)(&((TfwTlsConn *)p)->c)
 
 /* Callbacks used by l5-l7 protocols to operate on connection level. */
 typedef struct {

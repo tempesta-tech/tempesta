@@ -1,42 +1,32 @@
 /**
- * \file cipher.h
+ *		Tempesta TLS
  *
- * \brief The generic cipher wrapper.
+ * The generic cipher wrapper.
  *
- * \author Adriaan de Jong <dejong@fox-it.com>
- */
-/*
- *  Copyright (C) 2006-2018, Arm Limited (or its affiliates), All Rights Reserved
- *  SPDX-License-Identifier: GPL-2.0
+ * Adriaan de Jong <dejong@fox-it.com>
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ * Copyright (C) 2006-2018, Arm Limited (or its affiliates), All Rights Reserved
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * SPDX-License-Identifier: GPL-2.0
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- *  This file is part of Mbed TLS (https://tls.mbed.org)
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #ifndef TTLS_CIPHER_H
 #define TTLS_CIPHER_H
 
 #include "config.h"
-
-#if defined(TTLS_GCM_C) || defined(TTLS_CCM_C)
-#define TTLS_CIPHER_MODE_AEAD
-#endif
-
-#if defined(TTLS_CIPHER_MODE_CBC)
-#define TTLS_CIPHER_MODE_WITH_PADDING
-#endif
 
 #define TTLS_ERR_CIPHER_FEATURE_UNAVAILABLE  -0x6080  /**< The selected feature is not available. */
 #define TTLS_ERR_CIPHER_BAD_INPUT_DATA	   -0x6100  /**< Bad input parameters. */
@@ -49,10 +39,6 @@
 
 #define TTLS_CIPHER_VARIABLE_IV_LEN	 0x01	/**< Cipher accepts IVs of variable length. */
 #define TTLS_CIPHER_VARIABLE_KEY_LEN	0x02	/**< Cipher accepts keys of variable length. */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /**
  * \brief	 An enumeration of supported ciphers.
@@ -135,12 +121,12 @@ typedef enum {
 typedef enum {
 	TTLS_MODE_NONE = 0,
 	TTLS_MODE_ECB,
-	TTLS_MODE_CBC,
-	TTLS_MODE_CFB,
+	TTLS_MODE_CBC, /* Unsupported */
+	TTLS_MODE_CFB, /* Unsupported */
 	TTLS_MODE_OFB, /* Unused! */
-	TTLS_MODE_CTR,
+	TTLS_MODE_CTR, /* Unsupported */
 	TTLS_MODE_GCM,
-	TTLS_MODE_STREAM,
+	TTLS_MODE_STREAM, /* Unused! */
 	TTLS_MODE_CCM,
 } ttls_cipher_mode_t;
 
@@ -239,14 +225,6 @@ typedef struct {
 	 * initialized for.
 	 */
 	ttls_operation_t operation;
-
-#if defined(TTLS_CIPHER_MODE_WITH_PADDING)
-	/** Padding functions to use, if relevant for
-	 * the specific cipher mode.
-	 */
-	void (*add_padding)(unsigned char *output, size_t olen, size_t data_len);
-	int (*get_padding)(unsigned char *input, size_t ilen, size_t *data_len);
-#endif
 
 	/** Buffer for input that has not been processed yet. */
 	unsigned char unprocessed_data[TTLS_MAX_BLOCK_LENGTH];
@@ -488,24 +466,6 @@ static inline ttls_operation_t ttls_cipher_get_operation(const ttls_cipher_conte
 int ttls_cipher_setkey(ttls_cipher_context_t *ctx, const unsigned char *key,
 				   int key_bitlen, const ttls_operation_t operation);
 
-#if defined(TTLS_CIPHER_MODE_WITH_PADDING)
-/**
- * \brief			   This function sets the padding mode, for cipher modes
- *					  that use padding.
- *
- *					  The default passing mode is PKCS7 padding.
- *
- * \param ctx		   The generic cipher context.
- * \param mode		  The padding mode.
- *
- * \returns			 \c 0 on success, #TTLS_ERR_CIPHER_FEATURE_UNAVAILABLE
- *					  if the selected padding mode is not supported, or
- *					  #TTLS_ERR_CIPHER_BAD_INPUT_DATA if the cipher mode
- *					  does not support padding.
- */
-int ttls_cipher_set_padding_mode(ttls_cipher_context_t *ctx, ttls_cipher_padding_t mode);
-#endif /* TTLS_CIPHER_MODE_WITH_PADDING */
-
 /**
  * \brief		   This function sets the initialization vector (IV)
  *				  or nonce.
@@ -533,7 +493,6 @@ int ttls_cipher_set_iv(ttls_cipher_context_t *ctx,
  */
 int ttls_cipher_reset(ttls_cipher_context_t *ctx);
 
-#if defined(TTLS_GCM_C)
 /**
  * \brief			   This function adds additional data for AEAD ciphers.
  *					  Only supported with GCM. Must be called
@@ -547,7 +506,6 @@ int ttls_cipher_reset(ttls_cipher_context_t *ctx);
  */
 int ttls_cipher_update_ad(ttls_cipher_context_t *ctx,
 					  const unsigned char *ad, size_t ad_len);
-#endif /* TTLS_GCM_C */
 
 /**
  * \brief			   The generic cipher update function. It encrypts or
@@ -603,7 +561,6 @@ int ttls_cipher_update(ttls_cipher_context_t *ctx, const unsigned char *input,
 int ttls_cipher_finish(ttls_cipher_context_t *ctx,
 				   unsigned char *output, size_t *olen);
 
-#if defined(TTLS_GCM_C)
 /**
  * \brief			   This function writes a tag for AEAD ciphers.
  *					  Only supported with GCM.
@@ -631,7 +588,6 @@ int ttls_cipher_write_tag(ttls_cipher_context_t *ctx,
  */
 int ttls_cipher_check_tag(ttls_cipher_context_t *ctx,
 					  const unsigned char *tag, size_t tag_len);
-#endif /* TTLS_GCM_C */
 
 /**
  * \brief			   The generic all-in-one encryption/decryption function,
@@ -666,7 +622,6 @@ int ttls_cipher_crypt(ttls_cipher_context_t *ctx,
 				  const unsigned char *input, size_t ilen,
 				  unsigned char *output, size_t *olen);
 
-#if defined(TTLS_CIPHER_MODE_AEAD)
 /**
  * \brief			   The generic autenticated encryption (AEAD) function.
  *
@@ -729,6 +684,5 @@ int ttls_cipher_auth_decrypt(ttls_cipher_context_t *ctx,
 						 const unsigned char *input, size_t ilen,
 						 unsigned char *output, size_t *olen,
 						 const unsigned char *tag, size_t tag_len);
-#endif /* TTLS_CIPHER_MODE_AEAD */
 
 #endif /* TTLS_CIPHER_H */

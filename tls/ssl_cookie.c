@@ -198,7 +198,7 @@ int ttls_ssl_cookie_check(void *p_ctx,
 	if (ret != 0)
 		return ret;
 
-	if (ttls_ssl_safer_memcmp(cookie + 4, ref_hmac, sizeof(ref_hmac)) != 0)
+	if (crypto_memneq(cookie + 4, ref_hmac, sizeof(ref_hmac)) != 0)
 		return(-1);
 
 	cur_time = (unsigned long) ttls_time(NULL);

@@ -53,27 +53,6 @@ struct ttls_cipher_base_t
 	int (*ecb_func)(void *ctx, ttls_operation_t mode,
 					 const unsigned char *input, unsigned char *output);
 
-#if defined(TTLS_CIPHER_MODE_CBC)
-	/** Encrypt using CBC */
-	int (*cbc_func)(void *ctx, ttls_operation_t mode, size_t length,
-					 unsigned char *iv, const unsigned char *input,
-					 unsigned char *output);
-#endif
-
-#if defined(TTLS_CIPHER_MODE_CFB)
-	/** Encrypt using CFB (Full length) */
-	int (*cfb_func)(void *ctx, ttls_operation_t mode, size_t length, size_t *iv_off,
-					 unsigned char *iv, const unsigned char *input,
-					 unsigned char *output);
-#endif
-
-#if defined(TTLS_CIPHER_MODE_CTR)
-	/** Encrypt using CTR */
-	int (*ctr_func)(void *ctx, size_t length, size_t *nc_off,
-					 unsigned char *nonce_counter, unsigned char *stream_block,
-					 const unsigned char *input, unsigned char *output);
-#endif
-
 #if defined(TTLS_CIPHER_MODE_STREAM)
 	/** Encrypt using STREAM */
 	int (*stream_func)(void *ctx, size_t length,
