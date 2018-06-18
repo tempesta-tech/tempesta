@@ -1,51 +1,43 @@
-/**
- * \file ssl_internal.h
- *
- * \brief Internal functions shared by the SSL modules
- */
 /*
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- *  SPDX-License-Identifier: GPL-2.0
+ *		Tempesta TLS
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ * Internal functions shared by the TLS modules.
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * SPDX-License-Identifier: GPL-2.0
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- *  This file is part of mbed TLS (https://tls.mbed.org)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #ifndef TTLS_SSL_INTERNAL_H
 #define TTLS_SSL_INTERNAL_H
 
-#include "ssl.h"
 #include "cipher.h"
-
+#include "ttls.h"
 #if defined(TTLS_MD5_C)
 #include "md5.h"
 #endif
-
 #if defined(TTLS_SHA1_C)
 #include "sha1.h"
 #endif
-
 #if defined(TTLS_SHA256_C)
 #include "sha256.h"
 #endif
-
 #if defined(TTLS_SHA512_C)
 #include "sha512.h"
 #endif
-
 #if defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
 #include "ecjpake.h"
 #endif
@@ -61,10 +53,10 @@
 #define TTLS_SSL_MAX_MAJOR_VERSION		TTLS_SSL_MAJOR_VERSION_3
 #define TTLS_SSL_MAX_MINOR_VERSION		TTLS_SSL_MINOR_VERSION_3
 
-#define TTLS_SSL_INITIAL_HANDSHAKE		   0
-#define TTLS_SSL_RENEGOTIATION_IN_PROGRESS   1   /* In progress */
-#define TTLS_SSL_RENEGOTIATION_DONE		  2   /* Done or aborted */
-#define TTLS_SSL_RENEGOTIATION_PENDING	   3   /* Requested (server only) */
+#define TTLS_SSL_INITIAL_HANDSHAKE		0
+#define TTLS_SSL_RENEGOTIATION_IN_PROGRESS	1 /* In progress */
+#define TTLS_SSL_RENEGOTIATION_DONE		2 /* Done or aborted */
+#define TTLS_SSL_RENEGOTIATION_PENDING		3 /* Requested (server only) */
 
 /*
  * DTLS retransmission states, see RFC 6347 4.2.4
@@ -74,9 +66,9 @@
  *
  * Note: initial state is wrong for server, but is not used anyway.
  */
-#define TTLS_SSL_RETRANS_PREPARING	   0
-#define TTLS_SSL_RETRANS_SENDING		 1
-#define TTLS_SSL_RETRANS_WAITING		 2
+#define TTLS_SSL_RETRANS_PREPARING		0
+#define TTLS_SSL_RETRANS_SENDING		1
+#define TTLS_SSL_RETRANS_WAITING		2
 #define TTLS_SSL_RETRANS_FINISHED		3
 
 /*
@@ -85,41 +77,23 @@
  * and allow for a maximum of 1024 of compression expansion if
  * enabled.
  */
-#define TTLS_SSL_COMPRESSION_ADD			 0
-
-#if defined(TTLS_CIPHER_MODE_CBC)
-/* Ciphersuites using HMAC */
-#if defined(TTLS_SHA512_C)
-#define TTLS_SSL_MAC_ADD				 48  /* SHA-384 used for HMAC */
-#elif defined(TTLS_SHA256_C)
-#define TTLS_SSL_MAC_ADD				 32  /* SHA-256 used for HMAC */
-#else
-#define TTLS_SSL_MAC_ADD				 20  /* SHA-1   used for HMAC */
-#endif
-#else
+#define TTLS_SSL_COMPRESSION_ADD		0
 /* AEAD ciphersuites: GCM and CCM use a 128 bits tag */
-#define TTLS_SSL_MAC_ADD				 16
-#endif
+#define TTLS_SSL_MAC_ADD			16
+#define TTLS_SSL_PADDING_ADD			0
 
-#if defined(TTLS_CIPHER_MODE_CBC)
-#define TTLS_SSL_PADDING_ADD			256
-#else
-#define TTLS_SSL_PADDING_ADD			  0
-#endif
-
-#define TTLS_SSL_PAYLOAD_LEN (TTLS_SSL_MAX_CONTENT_LEN		\
+#define TTLS_PAYLOAD_LEN	(TTLS_SSL_MAX_CONTENT_LEN		\
 				 + TTLS_SSL_COMPRESSION_ADD		\
-				 + TTLS_MAX_IV_LENGTH		\
+				 + TTLS_MAX_IV_LENGTH			\
 				 + TTLS_SSL_MAC_ADD			\
 				 + TTLS_SSL_PADDING_ADD)
-
-/* Note: Even though the TLS record header is only 5 bytes
-   long, we're internally using 8 bytes to store the
-   implicit sequence number. */
-#define TTLS_SSL_HEADER_LEN 13
-
-#define TTLS_SSL_BUFFER_LEN  (TTLS_SSL_HEADER_LEN			\
-				 + TTLS_SSL_PAYLOAD_LEN)
+#if defined(TTLS_SSL_PROTO_DTLS)
+#define TTLS_HDR_LEN		13
+#else
+#define TTLS_HDR_LEN		5
+#endif
+#define TTLS_BUF_LEN		(TTLS_HDR_LEN + TTLS_PAYLOAD_LEN)
+#define TTLS_IV_LEN		16
 
 /*
  * TLS extension flags (for extensions with outgoing ServerHello content
@@ -200,7 +174,7 @@ struct ttls_ssl_handshake_params
 	ttls_ssl_flight_item *cur_msg;		   /*!<  Current message in flight	  */
 	unsigned int in_flight_start_seq;   /*!<  Minimum message sequence in the
 											  flight being received		  */
-	ttls_ssl_transform *alt_transform_out;   /*!<  Alternative transform for
+	TtlsXfrm *alt_transform_out;   /*!<  Alternative transform for
 											  resending messages			 */
 	unsigned char alt_out_ctr[8];	   /*!<  Alternative record epoch/counter
 											  for resending messages		 */
@@ -243,30 +217,41 @@ struct ttls_ssl_handshake_params
 };
 
 /*
+ * Session specific crypto layer.
+ *
  * This structure contains a full set of runtime transform parameters
  * either in negotiation or active.
+ *
+ * @ciphersuite_info	- chosen cipersuite_info;
+ * @md_ctx		- MAC context;
+ * @cipher_ctx		- crypto context;
+ * @keylen		- symmetric key length (bytes);
+ * @minlen		- min. ciphertext length;
+ * @ivlen		- IV length;
+ * @fixed_ivlen		- fixed part of IV (AEAD);
+ * @maclen		- MAC length;
+ * @iv			- IV;
  */
-struct ttls_ssl_transform
+struct TtlsXfrm
 {
-	/*
-	 * Session specific crypto layer
-	 */
-	const ttls_ssl_ciphersuite_t *ciphersuite_info;
-										/*!<  Chosen cipersuite_info  */
-	unsigned int keylen;				/*!<  symmetric key length (bytes)  */
-	size_t minlen;					  /*!<  min. ciphertext length  */
-	size_t ivlen;					   /*!<  IV length			   */
-	size_t fixed_ivlen;				 /*!<  Fixed part of IV (AEAD) */
-	size_t maclen;					  /*!<  MAC length			  */
-
-	unsigned char iv_enc[16];		   /*!<  IV (encryption)		 */
-	unsigned char iv_dec[16];		   /*!<  IV (decryption)		 */
-
-	ttls_md_context_t md_ctx_enc;			/*!<  MAC (encryption)		*/
-	ttls_md_context_t md_ctx_dec;			/*!<  MAC (decryption)		*/
-
-	ttls_cipher_context_t cipher_ctx_enc;	/*!<  encryption context	  */
-	ttls_cipher_context_t cipher_ctx_dec;	/*!<  decryption context	  */
+	const ttls_ssl_ciphersuite_t	*ciphersuite_info;
+	ttls_md_context_t		md_ctx;
+	ttls_cipher_context_t		cipher_ctx;
+	union {
+		// TODO AK call crypto_alloc_aead() on handshake
+		// TODO AK crypto_alloc_aead() uses GFP_KERNEL - fix
+		struct crypto_aead		*aead;
+		struct {
+			struct crypto_ahash	*ahash;
+			struct crypto_cipher	*cipher;
+		}
+	}
+	unsigned int			keylen;
+	size_t				minlen;
+	size_t				ivlen;
+	size_t				fixed_ivlen;
+	size_t				maclen;
+	unsigned char			iv[16];
 };
 
 /*
@@ -319,123 +304,123 @@ static inline void ttls_ssl_sig_hash_set_init(ttls_ssl_sig_hash_set_t *set)
  *
  * \param transform SSL transform context
  */
-void ttls_ssl_transform_free(ttls_ssl_transform *transform);
+void ttls_ssl_transform_free(TtlsXfrm *transform);
 
 /**
- * \brief		   Free referenced items in an SSL handshake context and clear
- *				  memory
+ * \brief   Free referenced items in an SSL handshake context and clear
+ *	  memory
  *
  * \param handshake SSL handshake context
  */
 void ttls_ssl_handshake_free(ttls_ssl_handshake_params *handshake);
 
-int ttls_ssl_handshake_client_step(ttls_ssl_context *ssl);
-int ttls_ssl_handshake_server_step(ttls_ssl_context *ssl);
-void ttls_ssl_handshake_wrapup(ttls_ssl_context *ssl);
+int ttls_ssl_handshake_client_step(ttls_ssl_context *tls);
+int ttls_ssl_handshake_server_step(ttls_ssl_context *tls);
+void ttls_ssl_handshake_wrapup(ttls_ssl_context *tls);
 
-int ttls_ssl_send_fatal_handshake_failure(ttls_ssl_context *ssl);
+int ttls_ssl_send_fatal_handshake_failure(ttls_ssl_context *tls);
 
-void ttls_ssl_reset_checksum(ttls_ssl_context *ssl);
-int ttls_ssl_derive_keys(ttls_ssl_context *ssl);
+void ttls_ssl_reset_checksum(ttls_ssl_context *tls);
+int ttls_ssl_derive_keys(ttls_ssl_context *tls);
 
-int ttls_ssl_read_record_layer(ttls_ssl_context *ssl);
-int ttls_ssl_handle_message_type(ttls_ssl_context *ssl);
-int ttls_ssl_prepare_handshake_record(ttls_ssl_context *ssl);
-void ttls_ssl_update_handshake_status(ttls_ssl_context *ssl);
+int ttls_read_record_layer(TtlsCtx *tls, unsigned char *buf, size_t len,
+			   unsigned int *read);
+int ttls_handle_message_type(TtlsCtx *tls);
+int ttls_ssl_prepare_handshake_record(ttls_ssl_context *tls);
+void ttls_ssl_update_handshake_status(ttls_ssl_context *tls);
 
 /**
  * \brief	   Update record layer
  *
- *			  This function roughly separates the implementation
- *			  of the logic of (D)TLS from the implementation
- *			  of the secure transport.
+ *		  This function roughly separates the implementation
+ *		  of the logic of (D)TLS from the implementation
+ *		  of the secure transport.
  *
- * \param  ssl  SSL context to use
+ * \param  tls  SSL context to use
  *
- * \return	  0 or non-zero error code.
+ * \return	0 or non-zero error code.
  *
- * \note		A clarification on what is called 'record layer' here
- *			  is in order, as many sensible definitions are possible:
+ * \note	A clarification on what is called 'record layer' here
+ *		is in order, as many sensible definitions are possible:
  *
- *			  The record layer takes as input an untrusted underlying
- *			  transport (stream or datagram) and transforms it into
- *			  a serially multiplexed, secure transport, which
- *			  conceptually provides the following:
+ *		The record layer takes as input an untrusted underlying
+ *		transport (stream or datagram) and transforms it into
+ *		a serially multiplexed, secure transport, which
+ *		conceptually provides the following:
  *
- *			  (1) Three datagram based, content-agnostic transports
- *				  for handshake, alert and CCS messages.
- *			  (2) One stream- or datagram-based transport
- *				  for application data.
- *			  (3) Functionality for changing the underlying transform
- *				  securing the contents.
+ *		  (1) Three datagram based, content-agnostic transports
+ *			  for handshake, alert and CCS messages.
+ *		  (2) One stream- or datagram-based transport
+ *			  for application data.
+ *		  (3) Functionality for changing the underlying transform
+ *			  securing the contents.
  *
- *			  The interface to this functionality is given as follows:
+ *		  The interface to this functionality is given as follows:
  *
- *			  a Updating
- *				[Currently implemented by ttls_ssl_read_record]
+ *		  a Updating
+ *			[Currently implemented by ttls_read_record]
  *
- *				Check if and on which of the four 'ports' data is pending:
- *				Nothing, a controlling datagram of type (1), or application
- *				data (2). In any case data is present, internal buffers
- *				provide access to the data for the user to process it.
- *				Consumption of type (1) datagrams is done automatically
- *				on the next update, invalidating that the internal buffers
- *				for previous datagrams, while consumption of application
- *				data (2) is user-controlled.
+ *			Check if and on which of the four 'ports' data is pending:
+ *			Nothing, a controlling datagram of type (1), or application
+ *			data (2). In any case data is present, internal buffers
+ *			provide access to the data for the user to process it.
+ *			Consumption of type (1) datagrams is done automatically
+ *			on the next update, invalidating that the internal buffers
+ *			for previous datagrams, while consumption of application
+ *			data (2) is user-controlled.
  *
- *			  b Reading of application data
- *				[Currently manual adaption of ssl->in_offt pointer]
+ *		  b Reading of application data
+ *			[Currently manual adaption of tls->in_offt pointer]
  *
- *				As mentioned in the last paragraph, consumption of data
- *				is different from the automatic consumption of control
- *				datagrams (1) because application data is treated as a stream.
+ *			As mentioned in the last paragraph, consumption of data
+ *			is different from the automatic consumption of control
+ *			datagrams (1) because application data is treated as a stream.
  *
- *			  c Tracking availability of application data
- *				[Currently manually through decreasing ssl->in_msglen]
+ *		  c Tracking availability of application data
+ *			[Currently manually through decreasing tls->in_msglen]
  *
- *				For efficiency and to retain datagram semantics for
- *				application data in case of DTLS, the record layer
- *				provides functionality for checking how much application
- *				data is still available in the internal buffer.
+ *			For efficiency and to retain datagram semantics for
+ *			application data in case of DTLS, the record layer
+ *			provides functionality for checking how much application
+ *			data is still available in the internal buffer.
  *
- *			  d Changing the transformation securing the communication.
+ *		  d Changing the transformation securing the communication.
  *
- *			  Given an opaque implementation of the record layer in the
- *			  above sense, it should be possible to implement the logic
- *			  of (D)TLS on top of it without the need to know anything
- *			  about the record layer's internals. This is done e.g.
- *			  in all the handshake handling functions, and in the
- *			  application data reading function ttls_ssl_read.
+ *		  Given an opaque implementation of the record layer in the
+ *		  above sense, it should be possible to implement the logic
+ *		  of (D)TLS on top of it without the need to know anything
+ *		  about the record layer's internals. This is done e.g.
+ *		  in all the handshake handling functions, and in the
+ *		  application data reading function ttls_ssl_read.
  *
- * \note		The above tries to give a conceptual picture of the
- *			  record layer, but the current implementation deviates
- *			  from it in some places. For example, our implementation of
- *			  the update functionality through ttls_ssl_read_record
- *			  discards datagrams depending on the current state, which
- *			  wouldn't fall under the record layer's responsibility
- *			  following the above definition.
- *
+ * \note	The above tries to give a conceptual picture of the
+ *		  record layer, but the current implementation deviates
+ *		  from it in some places. For example, our implementation of
+ *		  the update functionality through ttls_read_record
+ *		  discards datagrams depending on the current state, which
+ *		  wouldn't fall under the record layer's responsibility
+ *		  following the above definition.
  */
-int ttls_ssl_read_record(ttls_ssl_context *ssl);
-int ttls_ssl_fetch_input(ttls_ssl_context *ssl, size_t nb_want);
+int ttls_read_record(TtlsCtx *tls, unsigned char *buf, size_t len,
+		     unsigned int *read);
 
-int ttls_ssl_write_record(ttls_ssl_context *ssl);
-int ttls_ssl_flush_output(ttls_ssl_context *ssl);
+int ttls_ssl_write_record(ttls_ssl_context *tls);
+int ttls_ssl_flush_output(ttls_ssl_context *tls);
 
-int ttls_ssl_parse_certificate(ttls_ssl_context *ssl);
-int ttls_ssl_write_certificate(ttls_ssl_context *ssl);
+int ttls_ssl_parse_certificate(ttls_ssl_context *tls);
+int ttls_ssl_write_certificate(ttls_ssl_context *tls);
 
-int ttls_ssl_parse_change_cipher_spec(ttls_ssl_context *ssl);
-int ttls_ssl_write_change_cipher_spec(ttls_ssl_context *ssl);
+int ttls_ssl_parse_change_cipher_spec(ttls_ssl_context *tls);
+int ttls_ssl_write_change_cipher_spec(ttls_ssl_context *tls);
 
-int ttls_ssl_parse_finished(ttls_ssl_context *ssl);
-int ttls_ssl_write_finished(ttls_ssl_context *ssl);
+int ttls_ssl_parse_finished(ttls_ssl_context *tls);
+int ttls_ssl_write_finished(ttls_ssl_context *tls);
 
-void ttls_ssl_optimize_checksum(ttls_ssl_context *ssl,
+void ttls_ssl_optimize_checksum(ttls_ssl_context *tls,
 							const ttls_ssl_ciphersuite_t *ciphersuite_info);
 
 #if defined(TTLS_KEY_EXCHANGE__SOME__PSK_ENABLED)
-int ttls_ssl_psk_derive_premaster(ttls_ssl_context *ssl, ttls_key_exchange_type_t key_ex);
+int ttls_ssl_psk_derive_premaster(ttls_ssl_context *tls, ttls_key_exchange_type_t key_ex);
 #endif
 
 unsigned char ttls_ssl_sig_from_pk(ttls_pk_context *pk);
@@ -444,35 +429,35 @@ ttls_pk_type_t ttls_ssl_pk_alg_from_sig(unsigned char sig);
 
 ttls_md_type_t ttls_ssl_md_alg_from_hash(unsigned char hash);
 unsigned char ttls_ssl_hash_from_md_alg(int md);
-int ttls_ssl_set_calc_verify_md(ttls_ssl_context *ssl, int md);
+int ttls_ssl_set_calc_verify_md(ttls_ssl_context *tls, int md);
 
-int ttls_ssl_check_curve(const ttls_ssl_context *ssl, ttls_ecp_group_id grp_id);
+int ttls_ssl_check_curve(const ttls_ssl_context *tls, ttls_ecp_group_id grp_id);
 
 #if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
-int ttls_ssl_check_sig_hash(const ttls_ssl_context *ssl,
+int ttls_ssl_check_sig_hash(const ttls_ssl_context *tls,
 								ttls_md_type_t md);
 #endif
 
-static inline ttls_pk_context *ttls_ssl_own_key(ttls_ssl_context *ssl)
+static inline ttls_pk_context *ttls_ssl_own_key(ttls_ssl_context *tls)
 {
 	ttls_ssl_key_cert *key_cert;
 
-	if (ssl->handshake != NULL && ssl->handshake->key_cert != NULL)
-		key_cert = ssl->handshake->key_cert;
+	if (tls->handshake != NULL && tls->handshake->key_cert != NULL)
+		key_cert = tls->handshake->key_cert;
 	else
-		key_cert = ssl->conf->key_cert;
+		key_cert = tls->conf->key_cert;
 
 	return(key_cert == NULL ? NULL : key_cert->key);
 }
 
-static inline ttls_x509_crt *ttls_ssl_own_cert(ttls_ssl_context *ssl)
+static inline ttls_x509_crt *ttls_ssl_own_cert(ttls_ssl_context *tls)
 {
 	ttls_ssl_key_cert *key_cert;
 
-	if (ssl->handshake != NULL && ssl->handshake->key_cert != NULL)
-		key_cert = ssl->handshake->key_cert;
+	if (tls->handshake != NULL && tls->handshake->key_cert != NULL)
+		key_cert = tls->handshake->key_cert;
 	else
-		key_cert = ssl->conf->key_cert;
+		key_cert = tls->conf->key_cert;
 
 	return(key_cert == NULL ? NULL : key_cert->cert);
 }
@@ -496,57 +481,40 @@ void ttls_ssl_write_version(int major, int minor, int transport,
 void ttls_ssl_read_version(int *major, int *minor, int transport,
 					   const unsigned char ver[2]);
 
-static inline size_t ttls_ssl_hdr_len(const ttls_ssl_context *ssl)
+static inline size_t
+ttls_hdr_len(const TtlsCtx *tls)
 {
 #if defined(TTLS_SSL_PROTO_DTLS)
-	if (ssl->conf->transport == TTLS_SSL_TRANSPORT_DATAGRAM)
-		return(13);
-#else
-	((void) ssl);
+	if (tls->conf->transport == TTLS_SSL_TRANSPORT_DATAGRAM)
+		return 13;
 #endif
-	return(5);
+	return 5;
 }
 
-static inline size_t ttls_ssl_hs_hdr_len(const ttls_ssl_context *ssl)
+static inline size_t ttls_ssl_hs_hdr_len(const ttls_ssl_context *tls)
 {
 #if defined(TTLS_SSL_PROTO_DTLS)
-	if (ssl->conf->transport == TTLS_SSL_TRANSPORT_DATAGRAM)
+	if (tls->conf->transport == TTLS_SSL_TRANSPORT_DATAGRAM)
 		return(12);
-#else
-	((void) ssl);
 #endif
 	return(4);
 }
 
 #if defined(TTLS_SSL_PROTO_DTLS)
-void ttls_ssl_send_flight_completed(ttls_ssl_context *ssl);
-void ttls_ssl_recv_flight_completed(ttls_ssl_context *ssl);
-int ttls_ssl_resend(ttls_ssl_context *ssl);
+void ttls_ssl_send_flight_completed(ttls_ssl_context *tls);
+void ttls_ssl_recv_flight_completed(ttls_ssl_context *tls);
+int ttls_ssl_resend(ttls_ssl_context *tls);
 #endif
 
 /* Visible for testing purposes only */
 #if defined(TTLS_SSL_DTLS_ANTI_REPLAY)
-int ttls_ssl_dtls_replay_check(ttls_ssl_context *ssl);
-void ttls_ssl_dtls_replay_update(ttls_ssl_context *ssl);
+int ttls_ssl_dtls_replay_check(ttls_ssl_context *tls);
+void ttls_ssl_dtls_replay_update(ttls_ssl_context *tls);
 #endif
 
-/* constant-time buffer comparison */
-static inline int ttls_ssl_safer_memcmp(const void *a, const void *b, size_t n)
-{
-	size_t i;
-	volatile const unsigned char *A = (volatile const unsigned char *) a;
-	volatile const unsigned char *B = (volatile const unsigned char *) b;
-	volatile unsigned char diff = 0;
-
-	for (i = 0; i < n; i++)
-		diff |= A[i] ^ B[i];
-
-	return(diff);
-}
-
-int ttls_ssl_get_key_exchange_md_tls1_2(ttls_ssl_context *ssl,
-										unsigned char *output,
-										unsigned char *data, size_t data_len,
-										ttls_md_type_t md_alg);
+int ttls_ssl_get_key_exchange_md_tls1_2(ttls_ssl_context *tls,
+					unsigned char *output,
+					unsigned char *data, size_t data_len,
+					ttls_md_type_t md_alg);
 
 #endif /* ssl_internal.h */

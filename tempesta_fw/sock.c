@@ -364,6 +364,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		}
 
 		ss_skb_init_for_xmit(skb);
+		skb->tls = flags & SS_F_TLS;
 
 		/* Propagate mark of message head skb.*/
 		skb->mark = mark;
@@ -717,6 +718,10 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 			continue;
 		}
 
+		/*
+		 * TCP can ship an skb with overlapped seqnos, so we have to
+		 * work with the offset to avoid probably costly skb_pull().
+		 */
 		count = skb->len - offset;
 		tp->copied_seq += count;
 		*processed += count;
