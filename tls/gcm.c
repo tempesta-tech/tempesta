@@ -30,11 +30,7 @@
  * We use the algorithm described as Shoup's method with 4-bit tables in
  * [MGV] 4.1, pp. 12-13, to enhance speed without using too much memory.
  */
-
 #include "config.h"
-
-#if defined(TTLS_GCM_C)
-
 #include "gcm.h"
 #if defined(TTLS_AESNI_C)
 #include "aesni.h"
@@ -471,8 +467,8 @@ int ttls_gcm_auth_decrypt(ttls_gcm_context *ctx,
 	int diff;
 
 	if ((ret = ttls_gcm_crypt_and_tag(ctx, TTLS_GCM_DECRYPT, length,
-								   iv, iv_len, add, add_len,
-								   input, output, tag_len, check_tag)) != 0)
+					   iv, iv_len, add, add_len,
+					   input, output, tag_len, check_tag)) != 0)
 	{
 		return ret;
 	}
@@ -498,7 +494,6 @@ void ttls_gcm_free(ttls_gcm_context *ctx)
 
 #endif /* !TTLS_GCM_ALT */
 
-#if defined(TTLS_AES_C)
 /*
  * AES-GCM test vectors from:
  *
@@ -937,7 +932,3 @@ exit:
 
 	return ret;
 }
-
-#endif /* TTLS_AES_C */
-
-#endif /* TTLS_GCM_C */
