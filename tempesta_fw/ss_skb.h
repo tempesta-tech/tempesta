@@ -3,7 +3,7 @@
  *
  * Synchronous Sockets API for Linux socket buffers manipulation.
  *
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -46,7 +46,8 @@ enum {
 	SS_OK		= 0,
 };
 
-typedef int (*ss_skb_actor_t)(void *conn, unsigned char *data, size_t len);
+typedef int ss_skb_actor_t(void *conn, unsigned char *data, size_t len,
+			   unsigned int *read);
 
 /**
  * Add new @skb to the queue in FIFO order.
@@ -185,8 +186,9 @@ int ss_skb_get_room(struct sk_buff *skb_head, struct sk_buff *skb,
 int ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *hdr,
 		       int skip, int tail);
 
-int ss_skb_process(struct sk_buff *skb, unsigned int *off,
-		   ss_skb_actor_t actor, void *objdata);
+int ss_skb_process(struct sk_buff *skb, unsigned int off, ss_skb_actor_t actor,
+		   void *objdata, unsigned int *chunks,
+		   unsigned int *processed);
 
 int ss_skb_unroll(struct sk_buff **skb_head, struct sk_buff *skb);
 void ss_skb_init_for_xmit(struct sk_buff *skb);
