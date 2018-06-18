@@ -1,45 +1,41 @@
 /**
- * \file cmac.c
+ *		Tempesta TLS
  *
- * \brief NIST SP800-38B compliant CMAC implementation for AES and 3DES
+ * NIST SP800-38B compliant CMAC implementation for AES and 3DES
  *
- *  Copyright (C) 2006-2016, ARM Limited, All Rights Reserved
- *  SPDX-License-Identifier: GPL-2.0
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
- *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- *  This file is part of mbed TLS (https://tls.mbed.org)
- */
-
-/*
  * References:
  *
  * - NIST SP 800-38B Recommendation for Block Cipher Modes of Operation: The
- *	  CMAC Mode for Authentication
+ *   CMAC Mode for Authentication
  *   http://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-38b.pdf
  *
  * - RFC 4493 - The AES-CMAC Algorithm
  *   https://tools.ietf.org/html/rfc4493
  *
  * - RFC 4615 - The Advanced Encryption Standard-Cipher-based Message
- *	  Authentication Code-Pseudo-Random Function-128 (AES-CMAC-PRF-128)
- *	  Algorithm for the Internet Key Exchange Protocol (IKE)
+ *   Authentication Code-Pseudo-Random Function-128 (AES-CMAC-PRF-128)
+ *   Algorithm for the Internet Key Exchange Protocol (IKE)
  *   https://tools.ietf.org/html/rfc4615
  *
- *   Additional test vectors: ISO/IEC 9797-1
+ * Additional test vectors: ISO/IEC 9797-1
  *
+ * Copyright (C) 2006-2016, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * SPDX-License-Identifier: GPL-2.0
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include "config.h"
 
@@ -402,7 +398,6 @@ exit:
 	return ret;
 }
 
-#if defined(TTLS_AES_C)
 /*
  * Implementation of AES-CMAC-PRF-128 defined in RFC 4615
  */
@@ -449,7 +444,6 @@ exit:
 
 	return ret;
 }
-#endif /* TTLS_AES_C */
 
 #endif /* !TTLS_CMAC_ALT */
 
@@ -465,7 +459,6 @@ exit:
 #define NB_CMAC_TESTS_PER_KEY 4
 #define NB_PRF_TESTS 3
 
-#if defined(TTLS_AES_C) || defined(TTLS_DES_C)
 /* All CMAC test inputs are truncated from the same 64 byte buffer. */
 static const unsigned char test_message[] = {
 	/* PT */
@@ -478,9 +471,7 @@ static const unsigned char test_message[] = {
 	0xf6, 0x9f, 0x24, 0x45,	 0xdf, 0x4f, 0x9b, 0x17,
 	0xad, 0x2b, 0x41, 0x7b,	 0xe6, 0x6c, 0x37, 0x10
 };
-#endif /* TTLS_AES_C || TTLS_DES_C */
 
-#if defined(TTLS_AES_C)
 /* Truncation point of message for AES CMAC tests  */
 static const  unsigned int  aes_message_lengths[NB_CMAC_TESTS_PER_KEY] = {
 	/* Mlen */
@@ -612,7 +603,6 @@ static const unsigned char aes_256_expected_result[NB_CMAC_TESTS_PER_KEY][TTLS_A
 		0x69, 0x6a, 0x2c, 0x05,	 0x6c, 0x31, 0x54, 0x10
 	}
 };
-#endif /* TTLS_AES_C */
 
 #if defined(TTLS_DES_C)
 /* Truncation point of message for 3DES CMAC tests  */
@@ -701,7 +691,6 @@ static const unsigned char des3_3key_expected_result[NB_CMAC_TESTS_PER_KEY][TTLS
 
 #endif /* TTLS_DES_C */
 
-#if defined(TTLS_AES_C)
 /* AES AES-CMAC-PRF-128 Test Data */
 static const unsigned char PRFK[] = {
 	/* Key */
@@ -738,7 +727,6 @@ static const unsigned char PRFT[NB_PRF_TESTS][16] = {
 		0x14, 0x1f, 0xcf, 0x64,	 0xc0, 0xb7, 0x2f, 0x3d
 	}
 };
-#endif /* TTLS_AES_C */
 
 static int cmac_test_subkeys(int verbose,
 							  const char* testname,
@@ -870,7 +858,6 @@ exit:
 	return ret;
 }
 
-#if defined(TTLS_AES_C)
 static int test_aes128_cmac_prf(int verbose)
 {
 	int i;
@@ -897,13 +884,11 @@ static int test_aes128_cmac_prf(int verbose)
 	}
 	return ret;
 }
-#endif /* TTLS_AES_C */
 
 int ttls_cmac_self_test(int verbose)
 {
 	int ret;
 
-#if defined(TTLS_AES_C)
 	/* AES-128 */
 	if ((ret = cmac_test_subkeys(verbose,
 								   "AES 128",
@@ -984,7 +969,6 @@ int ttls_cmac_self_test(int verbose)
 	{
 		return ret;
 	}
-#endif /* TTLS_AES_C */
 
 #if defined(TTLS_DES_C)
 	/* 3DES 2 key */
@@ -1042,10 +1026,8 @@ int ttls_cmac_self_test(int verbose)
 	}
 #endif /* TTLS_DES_C */
 
-#if defined(TTLS_AES_C)
 	if ((ret = test_aes128_cmac_prf(verbose)) != 0)
 		return ret;
-#endif /* TTLS_AES_C */
 
 	if (verbose != 0)
 		ttls_printf("\n");

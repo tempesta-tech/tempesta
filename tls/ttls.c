@@ -32,7 +32,7 @@ static int __init
 ttls_init(void)
 {
 	/* Bad configuration - protected record payload too large. */
-	BUILD_BUG_ON(TTLS_SSL_PAYLOAD_LEN > 16384 + 2048);
+	BUILD_BUG_ON(TTLS_PAYLOAD_LEN > 16384 + 2048);
 
 	return ttls_mpi_modinit();
 }
@@ -59,10 +59,6 @@ EXPORT_SYMBOL(ttls_ssl_init);
 EXPORT_SYMBOL(ttls_ssl_free);
 EXPORT_SYMBOL(ttls_ssl_setup);
 EXPORT_SYMBOL(ttls_ssl_set_bio);
-EXPORT_SYMBOL(ttls_ssl_read);
-EXPORT_SYMBOL(ttls_ssl_write);
-EXPORT_SYMBOL(ttls_ssl_handshake);
-EXPORT_SYMBOL(ttls_ssl_close_notify);
 
 EXPORT_SYMBOL(ttls_ssl_config_init);
 EXPORT_SYMBOL(ttls_ssl_config_free);

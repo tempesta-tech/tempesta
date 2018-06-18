@@ -23,80 +23,19 @@
 
 #include <linux/kernel.h>
 
-#define TFW_BANNER	"[tempesta] "
-
-/*
- * We have different verbosity levels for debug messages.
- * They are controlled by the DEBUG macro which is usually passed via the
- * compiler option.
- *   -DDEBUG or -DDEBUG=1 enables the debug logging via TFW_DBG().
- *   -DDEBUG=2 - same as above, but also enables TFW_DBG2().
- *   -DDEBUG=3 - same as above plus TFW_DBG3().
- *   ...etc
- * Currently there are only 3 levels:
- *   1 [USER]    - information required to understand system behavior under
- *                 some load, only key events (e.g. new connections) should
- *                 be logged. The events could not be logged on normal level,
- *                 because we expect too many such events. This level should
- *                 be used only for events interesting to common system
- *                 administrator;
- *   2 [SUPPORT] - key events at lower (component) levels (e.g. TDB or SS).
- *                 Only events required for technical support should be logged
- *                 on this level;
- *   3 [DEVELOP] - verbose logging, used for engineer debugging internal
- *                 algorithms and so on. Typically for single slow connection
- *                 cases.
- */
-
-#define __TFW_DBG1(...) 	pr_debug(TFW_BANNER "  " __VA_ARGS__)
-#define __TFW_DBG2(...) 	pr_debug(TFW_BANNER "    " __VA_ARGS__)
-#define __TFW_DBG3(...)		pr_debug(TFW_BANNER "      " __VA_ARGS__)
-
-#if defined(DEBUG) && (DEBUG >= 1)
-#define TFW_DBG(...) 		__TFW_DBG1(__VA_ARGS__)
-#else
-#define TFW_DBG(...)
-#endif
-
-#if defined(DEBUG) && (DEBUG >= 2)
-#define TFW_DBG2(...)		__TFW_DBG2(__VA_ARGS__)
-#else
-#define TFW_DBG2(...)
-#endif
-
-#if defined(DEBUG) && (DEBUG >= 3)
-#define TFW_DBG3(...)		__TFW_DBG3(__VA_ARGS__)
-#else
-#define TFW_DBG3(...)
-#endif
-
-#if defined(DEBUG) && (DEBUG == 3)
-#define __CALLSTACK_MSG(...)						\
-do {									\
-	printk(__VA_ARGS__);						\
-	__WARN();							\
-} while (0)
-#define TFW_ERR(...)		__CALLSTACK_MSG(KERN_ERR TFW_BANNER	\
-						"ERROR: " __VA_ARGS__)
-#define TFW_WARN(...)		__CALLSTACK_MSG(KERN_WARNING TFW_BANNER	\
-						"Warning: " __VA_ARGS__)
-#define TFW_LOG(...)		pr_info(TFW_BANNER __VA_ARGS__)
-/* Non-limited printing. */
-#define TFW_ERR_NL(...)		TFW_ERR(__VA_ARGS__)
-#define TFW_WARN_NL(...)	TFW_WARN(__VA_ARGS__)
-#define TFW_LOG_NL(...)		TFW_LOG(__VA_ARGS__)
-#else
-#include <linux/net.h>
-#define TFW_ERR(...)		net_err_ratelimited(TFW_BANNER "ERROR: " \
-						    __VA_ARGS__)
-#define TFW_WARN(...)		net_warn_ratelimited(TFW_BANNER "Warning: " \
-						     __VA_ARGS__)
-#define TFW_LOG(...)		net_info_ratelimited(TFW_BANNER __VA_ARGS__)
-/* Non-limited printing. */
-#define TFW_ERR_NL(...)		pr_err(TFW_BANNER "ERROR: " __VA_ARGS__)
-#define TFW_WARN_NL(...)	pr_warn(TFW_BANNER "Warning: " __VA_ARGS__)
-#define TFW_LOG_NL(...)		pr_info(TFW_BANNER __VA_ARGS__)
-#endif
+#define BANNER	"tempesta"
+#include "lib/log.h"
+/* TODO remvoe the defefines after moving to unified logging. */
+#define TFW_ERR(...)		T_ERR(__VA_ARGS__)
+#define TFW_ERR_NL(...)		T_ERR_NL(__VA_ARGS__)
+#define TFW_WARN(...)		T_WARN(__VA_ARGS__)
+#define TFW_WARN_NL(...)	T_WARN_NL(__VA_ARGS__)
+#define TFW_LOG(...)		T_LOG(__VA_ARGS__)
+#define TFW_LOG_NL(...)		T_LOG_NL(__VA_ARGS__)
+#define TFW_ERR(...)		T_ERR(__VA_ARGS__)
+#define TFW_DBG(...)		T_DBG(__VA_ARGS__)
+#define TFW_DB2(...)		T_DBG2(__VA_ARGS__)
+#define TFW_DBG3(...)		T_DBG3(__VA_ARGS__)
 
 /*
  * Print an IP address into a buffer (allocated on stack) and then evaluate
@@ -116,28 +55,28 @@ do {									\
 /* Log a debug message and append an IP address to it.*/
 #define TFW_DBG_ADDR(msg, addr_ptr, print_port)				\
 	TFW_WITH_ADDR_FMT(addr_ptr, print_port, addr_str,		\
-	                  TFW_DBG("%s: %s\n", msg, addr_str))
+	                  T_DBG("%s: %s\n", msg, addr_str))
 
 /* Log an info message and append an IP address to it.*/
 #define TFW_LOG_ADDR(msg, addr_ptr, print_port)				\
 	TFW_WITH_ADDR_FMT(addr_ptr, print_port, addr_str,		\
-	                  TFW_LOG("%s: %s\n", msg, addr_str))
+	                  T_LOG("%s: %s\n", msg, addr_str))
 
 /* Log a warning message and append an IP address to it.*/
 #define TFW_WARN_ADDR(msg, addr_ptr, print_port)			\
 	TFW_WITH_ADDR_FMT(addr_ptr, print_port, addr_str,		\
-	                  TFW_WARN("%s: %s\n", msg, addr_str))
+	                  T_WARN("%s: %s\n", msg, addr_str))
 
 /* Log an error message and append an IP address to it. */
 #define TFW_ERR_ADDR(msg, addr_ptr, print_port)				\
 	TFW_WITH_ADDR_FMT(addr_ptr, print_port, addr_str,		\
-	                  TFW_ERR("%s: %s\n", msg, addr_str))
+	                  T_ERR("%s: %s\n", msg, addr_str))
 
 #define TFW_WARN_MOD_ADDR(mod, check, addr, print_port, fmt, ...)	\
 do {									\
 	char abuf[TFW_ADDR_STR_BUF_SIZE] = {0};				\
 	tfw_addr_fmt(addr, print_port, abuf);				\
-	TFW_WARN(#mod ": %s for %s" fmt, check, abuf, ##__VA_ARGS__);	\
+	T_WARN(#mod ": %s for %s" fmt, check, abuf, ##__VA_ARGS__);	\
 } while (0)
 
 #endif /* __TFW_LOG_H__ */

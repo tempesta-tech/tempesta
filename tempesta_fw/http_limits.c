@@ -21,8 +21,7 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 /*
- * TODO:
- * -- add socket/connection options adjusting to change client QoS
+ * TODO: #488 add socket/connection options adjusting to change client QoS
  */
 
 #include <linux/ctype.h>
@@ -832,7 +831,6 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, const TfwFsmData *data)
 	 * states is the same as for the code block above.
 	 */
 	if (hchnk_cnt && FSM_HDR_STATE(req->frang_st)) {
-		req->chunk_cnt++;
 		if (req->chunk_cnt > hchnk_cnt) {
 			frang_limmsg("HTTP header chunk count", req->chunk_cnt,
 				     hchnk_cnt, &FRANG_ACC2CLI(ra)->addr);
@@ -1001,7 +999,6 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, const TfwFsmData *data)
 	/* Limit number of chunks in request body */
 	__FRANG_FSM_STATE(Frang_Req_Body_ChunkCnt) {
 		__FRANG_CFG_VAR(bchunk_cnt, http_bchunk_cnt);
-		req->chunk_cnt++;
 		if (bchunk_cnt && req->chunk_cnt > bchunk_cnt) {
 			frang_limmsg("HTTP body chunk count", req->chunk_cnt,
 				     bchunk_cnt, &FRANG_ACC2CLI(ra)->addr);
