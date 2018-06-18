@@ -205,10 +205,10 @@ enum {
  */
 typedef struct {
 	TfwCliConn	cli_conn;
-	TfwTlsCtx	tls;
+	TfwTlsCtx	tc;
 } TfwTlsConn;
 
-#define tfw_tls_context(conn)	(TfwTlsCtx *)(&((TfwTlsConn *)conn)->tls)
+#define tfw_tls_context(p)	(TfwTlsCtx *)(&((TfwTlsConn *)p)->c)
 
 /* Callbacks used by l5-l7 protocols to operate on connection level. */
 typedef struct {
