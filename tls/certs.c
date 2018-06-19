@@ -144,7 +144,7 @@ static const char ttls_test_ca_crt_rsa_sha256[] = TEST_CA_CRT_RSA_SHA256;
 
 #endif
 
-#if !defined(TEST_CA_CRT_RSA_SOME) || defined(TTLS_SHA1_C)
+#if !defined(TEST_CA_CRT_RSA_SOME)
 #define TEST_CA_CRT_RSA_SHA1											\
 "-----BEGIN CERTIFICATE-----\r\n"									   \
 "MIIDhzCCAm+gAwIBAgIBADANBgkqhkiG9w0BAQUFADA7MQswCQYDVQQGEwJOTDER\r\n"  \
