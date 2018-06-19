@@ -26,12 +26,6 @@
 
 #include "cipher.h"
 #include "ttls.h"
-#if defined(TTLS_MD5_C)
-#include "md5.h"
-#endif
-#if defined(TTLS_SHA1_C)
-#include "sha1.h"
-#endif
 #if defined(TTLS_SHA256_C)
 #include "sha256.h"
 #endif
