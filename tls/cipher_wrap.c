@@ -29,9 +29,6 @@
 #if defined(TTLS_CAMELLIA_C)
 #include "camellia.h"
 #endif
-#if defined(TTLS_DES_C)
-#include "des.h"
-#endif
 #if defined(TTLS_BLOWFISH_C)
 #include "blowfish.h"
 #endif
@@ -447,177 +444,6 @@ static const ttls_cipher_info_t camellia_256_ccm_info = {
 };
 #endif /* TTLS_CAMELLIA_C */
 
-#if defined(TTLS_DES_C)
-
-static int des_crypt_ecb_wrap(void *ctx, ttls_operation_t operation,
-		const unsigned char *input, unsigned char *output)
-{
-	((void) operation);
-	return ttls_des_crypt_ecb((ttls_des_context *) ctx, input, output);
-}
-
-static int des3_crypt_ecb_wrap(void *ctx, ttls_operation_t operation,
-		const unsigned char *input, unsigned char *output)
-{
-	((void) operation);
-	return ttls_des3_crypt_ecb((ttls_des3_context *) ctx, input, output);
-}
-
-static int des_setkey_dec_wrap(void *ctx, const unsigned char *key,
-								unsigned int key_bitlen)
-{
-	((void) key_bitlen);
-
-	return ttls_des_setkey_dec((ttls_des_context *) ctx, key);
-}
-
-static int des_setkey_enc_wrap(void *ctx, const unsigned char *key,
-								unsigned int key_bitlen)
-{
-	((void) key_bitlen);
-
-	return ttls_des_setkey_enc((ttls_des_context *) ctx, key);
-}
-
-static int des3_set2key_dec_wrap(void *ctx, const unsigned char *key,
-								  unsigned int key_bitlen)
-{
-	((void) key_bitlen);
-
-	return ttls_des3_set2key_dec((ttls_des3_context *) ctx, key);
-}
-
-static int des3_set2key_enc_wrap(void *ctx, const unsigned char *key,
-								  unsigned int key_bitlen)
-{
-	((void) key_bitlen);
-
-	return ttls_des3_set2key_enc((ttls_des3_context *) ctx, key);
-}
-
-static int des3_set3key_dec_wrap(void *ctx, const unsigned char *key,
-								  unsigned int key_bitlen)
-{
-	((void) key_bitlen);
-
-	return ttls_des3_set3key_dec((ttls_des3_context *) ctx, key);
-}
-
-static int des3_set3key_enc_wrap(void *ctx, const unsigned char *key,
-								  unsigned int key_bitlen)
-{
-	((void) key_bitlen);
-
-	return ttls_des3_set3key_enc((ttls_des3_context *) ctx, key);
-}
-
-static void * des_ctx_alloc(void)
-{
-	ttls_des_context *des = ttls_calloc(1, sizeof(ttls_des_context));
-
-	if (des == NULL)
-		return(NULL);
-
-	ttls_des_init(des);
-
-	return(des);
-}
-
-static void des_ctx_free(void *ctx)
-{
-	ttls_des_free((ttls_des_context *) ctx);
-	ttls_free(ctx);
-}
-
-static void * des3_ctx_alloc(void)
-{
-	ttls_des3_context *des3;
-	des3 = ttls_calloc(1, sizeof(ttls_des3_context));
-
-	if (des3 == NULL)
-		return(NULL);
-
-	ttls_des3_init(des3);
-
-	return(des3);
-}
-
-static void des3_ctx_free(void *ctx)
-{
-	ttls_des3_free((ttls_des3_context *) ctx);
-	ttls_free(ctx);
-}
-
-static const ttls_cipher_base_t des_info = {
-	TTLS_CIPHER_ID_DES,
-	des_crypt_ecb_wrap,
-#if defined(TTLS_CIPHER_MODE_STREAM)
-	NULL,
-#endif
-	des_setkey_enc_wrap,
-	des_setkey_dec_wrap,
-	des_ctx_alloc,
-	des_ctx_free
-};
-
-static const ttls_cipher_info_t des_ecb_info = {
-	TTLS_CIPHER_DES_ECB,
-	TTLS_MODE_ECB,
-	TTLS_KEY_LENGTH_DES,
-	"DES-ECB",
-	8,
-	0,
-	8,
-	&des_info
-};
-
-static const ttls_cipher_base_t des_ede_info = {
-	TTLS_CIPHER_ID_DES,
-	des3_crypt_ecb_wrap,
-#if defined(TTLS_CIPHER_MODE_STREAM)
-	NULL,
-#endif
-	des3_set2key_enc_wrap,
-	des3_set2key_dec_wrap,
-	des3_ctx_alloc,
-	des3_ctx_free
-};
-
-static const ttls_cipher_info_t des_ede_ecb_info = {
-	TTLS_CIPHER_DES_EDE_ECB,
-	TTLS_MODE_ECB,
-	TTLS_KEY_LENGTH_DES_EDE,
-	"DES-EDE-ECB",
-	8,
-	0,
-	8,
-	&des_ede_info
-};
-
-static const ttls_cipher_base_t des_ede3_info = {
-	TTLS_CIPHER_ID_3DES,
-	des3_crypt_ecb_wrap,
-#if defined(TTLS_CIPHER_MODE_STREAM)
-	NULL,
-#endif
-	des3_set3key_enc_wrap,
-	des3_set3key_dec_wrap,
-	des3_ctx_alloc,
-	des3_ctx_free
-};
-
-static const ttls_cipher_info_t des_ede3_ecb_info = {
-	TTLS_CIPHER_DES_EDE3_ECB,
-	TTLS_MODE_ECB,
-	TTLS_KEY_LENGTH_DES_EDE3,
-	"DES-EDE3-ECB",
-	8,
-	0,
-	8,
-	&des_ede3_info
-};
-#endif /* TTLS_DES_C */
-
 #if defined(TTLS_BLOWFISH_C)
 
 static int blowfish_crypt_ecb_wrap(void *ctx, ttls_operation_t operation,
@@ -703,12 +529,6 @@ const ttls_cipher_definition_t ttls_cipher_definitions[] =
 	{ TTLS_CIPHER_CAMELLIA_192_CCM,	 &camellia_192_ccm_info },
 	{ TTLS_CIPHER_CAMELLIA_256_CCM,	 &camellia_256_ccm_info },
 #endif /* TTLS_CAMELLIA_C */
-
-#if defined(TTLS_DES_C)
-	{ TTLS_CIPHER_DES_ECB,			  &des_ecb_info },
-	{ TTLS_CIPHER_DES_EDE_ECB,		  &des_ede_ecb_info },
-	{ TTLS_CIPHER_DES_EDE3_ECB,		 &des_ede3_ecb_info },
-#endif /* TTLS_DES_C */
 
 	{ TTLS_CIPHER_NONE, NULL }
 };
