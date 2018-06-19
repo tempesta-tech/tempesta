@@ -42,9 +42,6 @@
 #if defined(TTLS_CTR_DRBG_C)
 #include "ctr_drbg.h"
 #endif
-#if defined(TTLS_DES_C)
-#include "des.h"
-#endif
 #if defined(TTLS_DHM_C)
 #include "dhm.h"
 #endif
@@ -57,15 +54,6 @@
 #include "hmac_drbg.h"
 #endif
 #include "md.h"
-#if defined(TTLS_MD2_C)
-#include "md2.h"
-#endif
-#if defined(TTLS_MD4_C)
-#include "md4.h"
-#endif
-#if defined(TTLS_MD5_C)
-#include "md5.h"
-#endif
 #include "oid.h"
 #if defined(TTLS_PEM_PARSE_C) || defined(TTLS_PEM_WRITE_C)
 #include "pem.h"
@@ -81,9 +69,6 @@
 #include "ripemd160.h"
 #endif
 #include "rsa.h"
-#if defined(TTLS_SHA1_C)
-#include "sha1.h"
-#endif
 #if defined(TTLS_SHA256_C)
 #include "sha256.h"
 #endif
@@ -550,13 +535,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 		ttls_snprintf(buf, buflen, "CTR_DRBG - Read or write error in file");
 #endif /* TTLS_CTR_DRBG_C */
 
-#if defined(TTLS_DES_C)
-	if (use_ret == -(TTLS_ERR_DES_INVALID_INPUT_LENGTH))
-		ttls_snprintf(buf, buflen, "DES - The data input has an invalid length");
-	if (use_ret == -(TTLS_ERR_DES_HW_ACCEL_FAILED))
-		ttls_snprintf(buf, buflen, "DES - DES hardware accelerator failed");
-#endif /* TTLS_DES_C */
-
 #if defined(TTLS_ENTROPY_C)
 	if (use_ret == -(TTLS_ERR_ENTROPY_SOURCE_FAILED))
 		ttls_snprintf(buf, buflen, "ENTROPY - Critical entropy source failure");
@@ -588,21 +566,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 		ttls_snprintf(buf, buflen, "HMAC_DRBG - The entropy source failed");
 #endif /* TTLS_HMAC_DRBG_C */
 
-#if defined(TTLS_MD2_C)
-	if (use_ret == -(TTLS_ERR_MD2_HW_ACCEL_FAILED))
-		ttls_snprintf(buf, buflen, "MD2 - MD2 hardware accelerator failed");
-#endif /* TTLS_MD2_C */
-
-#if defined(TTLS_MD4_C)
-	if (use_ret == -(TTLS_ERR_MD4_HW_ACCEL_FAILED))
-		ttls_snprintf(buf, buflen, "MD4 - MD4 hardware accelerator failed");
-#endif /* TTLS_MD4_C */
-
-#if defined(TTLS_MD5_C)
-	if (use_ret == -(TTLS_ERR_MD5_HW_ACCEL_FAILED))
-		ttls_snprintf(buf, buflen, "MD5 - MD5 hardware accelerator failed");
-#endif /* TTLS_MD5_C */
-
 	if (use_ret == -(TTLS_ERR_OID_NOT_FOUND))
 		ttls_snprintf(buf, buflen, "OID - OID is not found");
 	if (use_ret == -(TTLS_ERR_OID_BUF_TOO_SMALL))
@@ -612,11 +575,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 	if (use_ret == -(TTLS_ERR_RIPEMD160_HW_ACCEL_FAILED))
 		ttls_snprintf(buf, buflen, "RIPEMD160 - RIPEMD160 hardware accelerator failed");
 #endif /* TTLS_RIPEMD160_C */
-
-#if defined(TTLS_SHA1_C)
-	if (use_ret == -(TTLS_ERR_SHA1_HW_ACCEL_FAILED))
-		ttls_snprintf(buf, buflen, "SHA1 - SHA-1 hardware accelerator failed");
-#endif /* TTLS_SHA1_C */
 
 #if defined(TTLS_SHA256_C)
 	if (use_ret == -(TTLS_ERR_SHA256_HW_ACCEL_FAILED))
