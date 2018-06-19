@@ -48,10 +48,6 @@ static void ttls_zeroize(void *v, size_t n) {
 #define COOKIE_MD		   TTLS_MD_SHA384
 #define COOKIE_MD_OUTLEN	48
 #define COOKIE_HMAC_LEN	 28
-#elif defined(TTLS_SHA1_C)
-#define COOKIE_MD		   TTLS_MD_SHA1
-#define COOKIE_MD_OUTLEN	20
-#define COOKIE_HMAC_LEN	 20
 #else
 #error "DTLS hello verify needs SHA-1 or SHA-2"
 #endif

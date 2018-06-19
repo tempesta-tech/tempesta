@@ -523,30 +523,6 @@ int ttls_x509write_crt_set_extension(ttls_x509write_cert *ctx,
 int ttls_x509write_crt_set_basic_constraints(ttls_x509write_cert *ctx,
 										 int is_ca, int max_pathlen);
 
-#if defined(TTLS_SHA1_C)
-/**
- * \brief		   Set the subjectKeyIdentifier extension for a CRT
- *				  Requires that ttls_x509write_crt_set_subject_key() has been
- *				  called before
- *
- * \param ctx	   CRT context to use
- *
- * \return		  0 if successful, or a TTLS_ERR_X509_ALLOC_FAILED
- */
-int ttls_x509write_crt_set_subject_key_identifier(ttls_x509write_cert *ctx);
-
-/**
- * \brief		   Set the authorityKeyIdentifier extension for a CRT
- *				  Requires that ttls_x509write_crt_set_issuer_key() has been
- *				  called before
- *
- * \param ctx	   CRT context to use
- *
- * \return		  0 if successful, or a TTLS_ERR_X509_ALLOC_FAILED
- */
-int ttls_x509write_crt_set_authority_key_identifier(ttls_x509write_cert *ctx);
-#endif /* TTLS_SHA1_C */
-
 /**
  * \brief		   Set the Key Usage Extension flags
  *				  (e.g. TTLS_X509_KU_DIGITAL_SIGNATURE | TTLS_X509_KU_KEY_CERT_SIGN)
