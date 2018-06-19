@@ -946,35 +946,6 @@
 #define TTLS_CTR_DRBG_C
 
 /**
- * \def TTLS_DES_C
- *
- * Enable the DES block cipher.
- *
- * Module:  library/des.c
- * Caller:  library/pem.c
- *		  library/ssl_tls.c
- *
- * This module enables the following ciphersuites (if other requisites are
- * enabled as well):
- *	  TTLS_TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA
- *	  TTLS_TLS_ECDH_RSA_WITH_3DES_EDE_CBC_SHA
- *	  TTLS_TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA
- *	  TTLS_TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA
- *	  TTLS_TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA
- *	  TTLS_TLS_ECDHE_PSK_WITH_3DES_EDE_CBC_SHA
- *	  TTLS_TLS_DHE_PSK_WITH_3DES_EDE_CBC_SHA
- *	  TTLS_TLS_RSA_WITH_3DES_EDE_CBC_SHA
- *	  TTLS_TLS_RSA_PSK_WITH_3DES_EDE_CBC_SHA
- *	  TTLS_TLS_PSK_WITH_3DES_EDE_CBC_SHA
- *
- * PEM_PARSE uses DES/3DES for decrypting encrypted keys.
- *
- * \warning   DES is considered a weak cipher and its use constitutes a
- *			security risk. We recommend considering stronger ciphers instead.
- */
-#define TTLS_DES_C
-
-/**
  * \def TTLS_DHM_C
  *
  * Enable the Diffie-Hellman-Merkle module.
@@ -1089,62 +1060,6 @@
 #define TTLS_HMAC_DRBG_C
 
 /**
- * \def TTLS_MD2_C
- *
- * Enable the MD2 hash algorithm.
- *
- * Module:  library/md2.c
- * Caller:
- *
- * Uncomment to enable support for (rare) MD2-signed X.509 certs.
- *
- * \warning   MD2 is considered a weak message digest and its use constitutes a
- *			security risk. If possible, we recommend avoiding dependencies on
- *			it, and considering stronger message digests instead.
- *
- */
-#define TTLS_MD2_C
-
-/**
- * \def TTLS_MD4_C
- *
- * Enable the MD4 hash algorithm.
- *
- * Module:  library/md4.c
- * Caller:
- *
- * Uncomment to enable support for (rare) MD4-signed X.509 certs.
- *
- * \warning   MD4 is considered a weak message digest and its use constitutes a
- *			security risk. If possible, we recommend avoiding dependencies on
- *			it, and considering stronger message digests instead.
- *
- */
-#define TTLS_MD4_C
-
-/**
- * \def TTLS_MD5_C
- *
- * Enable the MD5 hash algorithm.
- *
- * Module:  library/md5.c
- * Caller:  library/md.c
- *		  library/pem.c
- *		  library/ssl_tls.c
- *
- * This module is required for SSL/TLS up to version 1.1, and for TLS 1.2
- * depending on the handshake parameters. Further, it is used for checking
- * MD5-signed certificates, and for PBKDF1 when decrypting PEM-encoded
- * encrypted keys.
- *
- * \warning   MD5 is considered a weak message digest and its use constitutes a
- *			security risk. If possible, we recommend avoiding dependencies on
- *			it, and considering stronger message digests instead.
- *
- */
-#define TTLS_MD5_C
-
-/**
  * \def TTLS_PEM_PARSE_C
  *
  * Enable PEM decoding / parsing.
@@ -1237,28 +1152,6 @@
  *
  */
 #define TTLS_RIPEMD160_C
-
-/**
- * \def TTLS_SHA1_C
- *
- * Enable the SHA1 cryptographic hash algorithm.
- *
- * Module:  library/sha1.c
- * Caller:  library/md.c
- *		  library/ssl_cli.c
- *		  library/ssl_srv.c
- *		  library/ssl_tls.c
- *		  library/x509write_crt.c
- *
- * This module is required for SSL/TLS up to version 1.1, for TLS 1.2
- * depending on the handshake parameters, and for SHA1-signed certificates.
- *
- * \warning   SHA-1 is considered a weak message digest and its use constitutes
- *			a security risk. If possible, we recommend avoiding dependencies
- *			on it, and considering stronger message digests instead.
- *
- */
-#define TTLS_SHA1_C
 
 /**
  * \def TTLS_SHA256_C
@@ -1606,10 +1499,6 @@
 
 #if defined(TTLS_PEM_WRITE_C) && !defined(TTLS_BASE64_C)
 #error "TTLS_PEM_WRITE_C defined, but not all prerequisites"
-#endif
-
-#if (!defined(TTLS_SHA1_C) && !defined(TTLS_SHA256_C) && !defined(TTLS_SHA512_C))
-#error "Not all prerequisites for TLSv1.2 are enabled"
 #endif
 
 #if defined(TTLS_SSL_DTLS_HELLO_VERIFY) && !defined(TTLS_SSL_PROTO_DTLS)
