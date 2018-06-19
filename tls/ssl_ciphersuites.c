@@ -1,27 +1,27 @@
 /**
- * \file ssl_ciphersuites.c
+ *		Tempesta TLS
  *
- * \brief SSL ciphersuites for mbed TLS
+ * TLS ciphersuites.
  *
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- *  SPDX-License-Identifier: GPL-2.0
+ * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * SPDX-License-Identifier: GPL-2.0
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
- *  This file is part of mbed TLS (https://tls.mbed.org)
+ * This file is part of mbed TLS (https://tls.mbed.org)
  */
 #include "config.h"
 #include "ssl_ciphersuites.h"
@@ -254,8 +254,6 @@ static const int ciphersuite_preference[] =
 static const ttls_ssl_ciphersuite_t ciphersuite_definitions[] =
 {
 #if defined(TTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED)
-#if defined(TTLS_SHA1_C)
-#endif /* TTLS_SHA1_C */
 #if defined(TTLS_SHA256_C)
 	{ TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, "TLS-ECDHE-ECDSA-WITH-AES-128-GCM-SHA256",
 	  TTLS_CIPHER_AES_128_GCM, TTLS_MD_SHA256, TTLS_KEY_EXCHANGE_ECDHE_ECDSA,
@@ -307,15 +305,9 @@ static const ttls_ssl_ciphersuite_t ciphersuite_definitions[] =
 	  0 },
 #endif /* TTLS_SHA512_C */
 #endif /* TTLS_CAMELLIA_C */
-
-#if defined(TTLS_DES_C)
-#endif /* TTLS_DES_C */
-
 #endif /* TTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED */
 
 #if defined(TTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED)
-#if defined(TTLS_SHA1_C)
-#endif /* TTLS_SHA1_C */
 #if defined(TTLS_SHA256_C)
 	{ TTLS_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, "TLS-ECDHE-RSA-WITH-AES-128-GCM-SHA256",
 	  TTLS_CIPHER_AES_128_GCM, TTLS_MD_SHA256, TTLS_KEY_EXCHANGE_ECDHE_RSA,
@@ -348,10 +340,6 @@ static const ttls_ssl_ciphersuite_t ciphersuite_definitions[] =
 	  0 },
 #endif /* TTLS_SHA512_C */
 #endif /* TTLS_CAMELLIA_C */
-
-#if defined(TTLS_DES_C)
-#endif /* TTLS_DES_C */
-
 #endif /* TTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED */
 
 #if defined(TTLS_KEY_EXCHANGE_DHE_RSA_ENABLED)
@@ -410,9 +398,6 @@ static const ttls_ssl_ciphersuite_t ciphersuite_definitions[] =
 	  0 },
 #endif /* TTLS_SHA512_C */
 #endif /* TTLS_CAMELLIA_C */
-
-#if defined(TTLS_DES_C)
-#endif /* TTLS_DES_C */
 #endif /* TTLS_KEY_EXCHANGE_DHE_RSA_ENABLED */
 
 #if defined(TTLS_KEY_EXCHANGE_RSA_ENABLED)
@@ -430,11 +415,7 @@ static const ttls_ssl_ciphersuite_t ciphersuite_definitions[] =
 	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_3,
 	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_3,
 	  0 },
-
 #endif /* TTLS_SHA256_C */
-
-#if defined(TTLS_SHA1_C)
-#endif /* TTLS_SHA1_C */
 	{ TTLS_TLS_RSA_WITH_AES_256_CCM, "TLS-RSA-WITH-AES-256-CCM",
 	  TTLS_CIPHER_AES_256_CCM, TTLS_MD_SHA256, TTLS_KEY_EXCHANGE_RSA,
 	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_3,
@@ -464,24 +445,10 @@ static const ttls_ssl_ciphersuite_t ciphersuite_definitions[] =
 	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_3,
 	  0 },
 #endif /* TTLS_SHA256_C */
-
-#if defined(TTLS_SHA1_C)
-	{ TTLS_TLS_RSA_WITH_CAMELLIA_256_GCM_SHA384, "TLS-RSA-WITH-CAMELLIA-256-GCM-SHA384",
-	  TTLS_CIPHER_CAMELLIA_256_GCM, TTLS_MD_SHA384, TTLS_KEY_EXCHANGE_RSA,
-	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_3,
-	  TTLS_SSL_MAJOR_VERSION_3, TTLS_SSL_MINOR_VERSION_3,
-	  0 },
-#endif /* TTLS_SHA1_C */
 #endif /* TTLS_CAMELLIA_C */
-
-#if defined(TTLS_DES_C)
-#endif /* TTLS_DES_C */
-
 #endif /* TTLS_KEY_EXCHANGE_RSA_ENABLED */
 
 #if defined(TTLS_KEY_EXCHANGE_ECDH_RSA_ENABLED)
-#if defined(TTLS_SHA1_C)
-#endif /* TTLS_SHA1_C */
 #if defined(TTLS_SHA256_C)
 	{ TTLS_TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256, "TLS-ECDH-RSA-WITH-AES-128-GCM-SHA256",
 	  TTLS_CIPHER_AES_128_GCM, TTLS_MD_SHA256, TTLS_KEY_EXCHANGE_ECDH_RSA,
@@ -513,15 +480,9 @@ static const ttls_ssl_ciphersuite_t ciphersuite_definitions[] =
 	  0 },
 #endif /* TTLS_SHA512_C */
 #endif /* TTLS_CAMELLIA_C */
-
-#if defined(TTLS_DES_C)
-#endif /* TTLS_DES_C */
-
 #endif /* TTLS_KEY_EXCHANGE_ECDH_RSA_ENABLED */
 
 #if defined(TTLS_KEY_EXCHANGE_ECDH_ECDSA_ENABLED)
-#if defined(TTLS_SHA1_C)
-#endif /* TTLS_SHA1_C */
 #if defined(TTLS_SHA256_C)
 	{ TTLS_TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256, "TLS-ECDH-ECDSA-WITH-AES-128-GCM-SHA256",
 	  TTLS_CIPHER_AES_128_GCM, TTLS_MD_SHA256, TTLS_KEY_EXCHANGE_ECDH_ECDSA,
