@@ -294,30 +294,6 @@ typedef struct {
 
 static const oid_sig_alg_t oid_sig_alg[] =
 {
-#if defined(TTLS_MD2_C)
-	{
-		{ ADD_LEN(TTLS_OID_PKCS1_MD2),		"md2WithRSAEncryption",	 "RSA with MD2" },
-		TTLS_MD_MD2,	  TTLS_PK_RSA,
-	},
-#endif /* TTLS_MD2_C */
-#if defined(TTLS_MD4_C)
-	{
-		{ ADD_LEN(TTLS_OID_PKCS1_MD4),		"md4WithRSAEncryption",	 "RSA with MD4" },
-		TTLS_MD_MD4,	  TTLS_PK_RSA,
-	},
-#endif /* TTLS_MD4_C */
-#if defined(TTLS_MD5_C)
-	{
-		{ ADD_LEN(TTLS_OID_PKCS1_MD5),		"md5WithRSAEncryption",	 "RSA with MD5" },
-		TTLS_MD_MD5,	  TTLS_PK_RSA,
-	},
-#endif /* TTLS_MD5_C */
-#if defined(TTLS_SHA1_C)
-	{
-		{ ADD_LEN(TTLS_OID_PKCS1_SHA1),	   "sha-1WithRSAEncryption",   "RSA with SHA1" },
-		TTLS_MD_SHA1,	 TTLS_PK_RSA,
-	},
-#endif /* TTLS_SHA1_C */
 #if defined(TTLS_SHA256_C)
 	{
 		{ ADD_LEN(TTLS_OID_PKCS1_SHA224),	 "sha224WithRSAEncryption",  "RSA with SHA-224" },
@@ -338,19 +314,7 @@ static const oid_sig_alg_t oid_sig_alg[] =
 		TTLS_MD_SHA512,   TTLS_PK_RSA,
 	},
 #endif /* TTLS_SHA512_C */
-#if defined(TTLS_SHA1_C)
-	{
-		{ ADD_LEN(TTLS_OID_RSA_SHA_OBS),	  "sha-1WithRSAEncryption",   "RSA with SHA1" },
-		TTLS_MD_SHA1,	 TTLS_PK_RSA,
-	},
-#endif /* TTLS_SHA1_C */
 #if defined(TTLS_ECDSA_C)
-#if defined(TTLS_SHA1_C)
-	{
-		{ ADD_LEN(TTLS_OID_ECDSA_SHA1),	   "ecdsa-with-SHA1",	  "ECDSA with SHA1" },
-		TTLS_MD_SHA1,	 TTLS_PK_ECDSA,
-	},
-#endif /* TTLS_SHA1_C */
 #if defined(TTLS_SHA256_C)
 	{
 		{ ADD_LEN(TTLS_OID_ECDSA_SHA224),	 "ecdsa-with-SHA224",	"ECDSA with SHA224" },
@@ -520,30 +484,6 @@ typedef struct {
 
 static const oid_md_alg_t oid_md_alg[] =
 {
-#if defined(TTLS_MD2_C)
-	{
-		{ ADD_LEN(TTLS_OID_DIGEST_ALG_MD2),	   "id-md2",	   "MD2" },
-		TTLS_MD_MD2,
-	},
-#endif /* TTLS_MD2_C */
-#if defined(TTLS_MD4_C)
-	{
-		{ ADD_LEN(TTLS_OID_DIGEST_ALG_MD4),	   "id-md4",	   "MD4" },
-		TTLS_MD_MD4,
-	},
-#endif /* TTLS_MD4_C */
-#if defined(TTLS_MD5_C)
-	{
-		{ ADD_LEN(TTLS_OID_DIGEST_ALG_MD5),	   "id-md5",	   "MD5" },
-		TTLS_MD_MD5,
-	},
-#endif /* TTLS_MD5_C */
-#if defined(TTLS_SHA1_C)
-	{
-		{ ADD_LEN(TTLS_OID_DIGEST_ALG_SHA1),	  "id-sha1",	  "SHA-1" },
-		TTLS_MD_SHA1,
-	},
-#endif /* TTLS_SHA1_C */
 #if defined(TTLS_SHA256_C)
 	{
 		{ ADD_LEN(TTLS_OID_DIGEST_ALG_SHA224),	"id-sha224",	"SHA-224" },
@@ -584,12 +524,6 @@ typedef struct {
 
 static const oid_md_hmac_t oid_md_hmac[] =
 {
-#if defined(TTLS_SHA1_C)
-	{
-		{ ADD_LEN(TTLS_OID_HMAC_SHA1),	  "hmacSHA1",	  "HMAC-SHA-1" },
-		TTLS_MD_SHA1,
-	},
-#endif /* TTLS_SHA1_C */
 #if defined(TTLS_SHA256_C)
 	{
 		{ ADD_LEN(TTLS_OID_HMAC_SHA224),	"hmacSHA224",	"HMAC-SHA-224" },

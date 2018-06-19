@@ -2161,9 +2161,6 @@ int ttls_rsa_self_test(int verbose)
 	unsigned char rsa_plaintext[PT_LEN];
 	unsigned char rsa_decrypted[PT_LEN];
 	unsigned char rsa_ciphertext[KEY_LEN];
-#if defined(TTLS_SHA1_C)
-	unsigned char sha1sum[20];
-#endif
 
 	ttls_mpi K;
 
@@ -2237,47 +2234,6 @@ int ttls_rsa_self_test(int verbose)
 
 	if (verbose != 0)
 		ttls_printf("passed\n");
-
-#if defined(TTLS_SHA1_C)
-	if (verbose != 0)
-		ttls_printf("  PKCS#1 data sign  : ");
-
-	if (ttls_sha1_ret(rsa_plaintext, PT_LEN, sha1sum) != 0)
-	{
-		if (verbose != 0)
-			ttls_printf("failed\n");
-
-		return(1);
-	}
-
-	if (ttls_rsa_pkcs1_sign(&rsa, myrand, NULL,
-								TTLS_RSA_PRIVATE, TTLS_MD_SHA1, 0,
-								sha1sum, rsa_ciphertext) != 0)
-	{
-		if (verbose != 0)
-			ttls_printf("failed\n");
-
-		ret = 1;
-		goto cleanup;
-	}
-
-	if (verbose != 0)
-		ttls_printf("passed\n  PKCS#1 sig. verify: ");
-
-	if (ttls_rsa_pkcs1_verify(&rsa, NULL, NULL,
-								  TTLS_RSA_PUBLIC, TTLS_MD_SHA1, 0,
-								  sha1sum, rsa_ciphertext) != 0)
-	{
-		if (verbose != 0)
-			ttls_printf("failed\n");
-
-		ret = 1;
-		goto cleanup;
-	}
-
-	if (verbose != 0)
-		ttls_printf("passed\n");
-#endif /* TTLS_SHA1_C */
 
 	if (verbose != 0)
 		ttls_printf("\n");
