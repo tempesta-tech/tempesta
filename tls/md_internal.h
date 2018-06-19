@@ -87,20 +87,8 @@ struct ttls_md_info_t
 	int (*process_func)(void *ctx, const unsigned char *input);
 };
 
-#if defined(TTLS_MD2_C)
-extern const ttls_md_info_t ttls_md2_info;
-#endif
-#if defined(TTLS_MD4_C)
-extern const ttls_md_info_t ttls_md4_info;
-#endif
-#if defined(TTLS_MD5_C)
-extern const ttls_md_info_t ttls_md5_info;
-#endif
 #if defined(TTLS_RIPEMD160_C)
 extern const ttls_md_info_t ttls_ripemd160_info;
-#endif
-#if defined(TTLS_SHA1_C)
-extern const ttls_md_info_t ttls_sha1_info;
 #endif
 #if defined(TTLS_SHA256_C)
 extern const ttls_md_info_t ttls_sha224_info;

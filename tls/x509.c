@@ -1000,5 +1000,5 @@ int ttls_x509_self_test(int verbose)
 #else
 	((void) verbose);
 	return 0;
-#endif /* TTLS_CERTS_C && TTLS_SHA1_C */
+#endif
 }
