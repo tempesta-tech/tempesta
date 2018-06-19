@@ -161,62 +161,6 @@ int ttls_x509write_crt_set_basic_constraints(ttls_x509write_cert *ctx,
 										0, buf + sizeof(buf) - len, len);
 }
 
-#if defined(TTLS_SHA1_C)
-int ttls_x509write_crt_set_subject_key_identifier(ttls_x509write_cert *ctx)
-{
-	int ret;
-	unsigned char buf[TTLS_MPI_MAX_SIZE * 2 + 20]; /* tag, length + 2xMPI */
-	unsigned char *c = buf + sizeof(buf);
-	size_t len = 0;
-
-	memset(buf, 0, sizeof(buf));
-	TTLS_ASN1_CHK_ADD(len, ttls_pk_write_pubkey(&c, buf, ctx->subject_key));
-
-	ret = ttls_sha1_ret(buf + sizeof(buf) - len, len,
-							buf + sizeof(buf) - 20);
-	if (ret != 0)
-		return ret;
-	c = buf + sizeof(buf) - 20;
-	len = 20;
-
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(&c, buf, len));
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(&c, buf, TTLS_ASN1_OCTET_STRING));
-
-	return ttls_x509write_crt_set_extension(ctx, TTLS_OID_SUBJECT_KEY_IDENTIFIER,
-										TTLS_OID_SIZE(TTLS_OID_SUBJECT_KEY_IDENTIFIER),
-										0, buf + sizeof(buf) - len, len);
-}
-
-int ttls_x509write_crt_set_authority_key_identifier(ttls_x509write_cert *ctx)
-{
-	int ret;
-	unsigned char buf[TTLS_MPI_MAX_SIZE * 2 + 20]; /* tag, length + 2xMPI */
-	unsigned char *c = buf + sizeof(buf);
-	size_t len = 0;
-
-	memset(buf, 0, sizeof(buf));
-	TTLS_ASN1_CHK_ADD(len, ttls_pk_write_pubkey(&c, buf, ctx->issuer_key));
-
-	ret = ttls_sha1_ret(buf + sizeof(buf) - len, len,
-							buf + sizeof(buf) - 20);
-	if (ret != 0)
-		return ret;
-	c = buf + sizeof(buf) - 20;
-	len = 20;
-
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(&c, buf, len));
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(&c, buf, TTLS_ASN1_CONTEXT_SPECIFIC | 0));
-
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(&c, buf, len));
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(&c, buf, TTLS_ASN1_CONSTRUCTED |
-												TTLS_ASN1_SEQUENCE));
-
-	return ttls_x509write_crt_set_extension(ctx, TTLS_OID_AUTHORITY_KEY_IDENTIFIER,
-								   TTLS_OID_SIZE(TTLS_OID_AUTHORITY_KEY_IDENTIFIER),
-								   0, buf + sizeof(buf) - len, len);
-}
-#endif /* TTLS_SHA1_C */
-
 int ttls_x509write_crt_set_key_usage(ttls_x509write_cert *ctx,
 										 unsigned int key_usage)
 {
