@@ -34,9 +34,6 @@
 #include "pkcs12.h"
 #include "asn1.h"
 #include "cipher.h"
-#if defined(TTLS_DES_C)
-#include "des.h"
-#endif
 
 /* Implementation that should never be optimized out by the compiler */
 static void ttls_zeroize(void *v, size_t n) {

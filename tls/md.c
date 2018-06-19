@@ -49,24 +49,8 @@ static const int supported_digests[] = {
 		TTLS_MD_SHA224,
 #endif
 
-#if defined(TTLS_SHA1_C)
-		TTLS_MD_SHA1,
-#endif
-
 #if defined(TTLS_RIPEMD160_C)
 		TTLS_MD_RIPEMD160,
-#endif
-
-#if defined(TTLS_MD5_C)
-		TTLS_MD_MD5,
-#endif
-
-#if defined(TTLS_MD4_C)
-		TTLS_MD_MD4,
-#endif
-
-#if defined(TTLS_MD2_C)
-		TTLS_MD_MD2,
 #endif
 
 		TTLS_MD_NONE
@@ -83,25 +67,9 @@ const ttls_md_info_t *ttls_md_info_from_string(const char *md_name)
 		return(NULL);
 
 	/* Get the appropriate digest information */
-#if defined(TTLS_MD2_C)
-	if (!strcmp("MD2", md_name))
-		return ttls_md_info_from_type(TTLS_MD_MD2);
-#endif
-#if defined(TTLS_MD4_C)
-	if (!strcmp("MD4", md_name))
-		return ttls_md_info_from_type(TTLS_MD_MD4);
-#endif
-#if defined(TTLS_MD5_C)
-	if (!strcmp("MD5", md_name))
-		return ttls_md_info_from_type(TTLS_MD_MD5);
-#endif
 #if defined(TTLS_RIPEMD160_C)
 	if (!strcmp("RIPEMD160", md_name))
 		return ttls_md_info_from_type(TTLS_MD_RIPEMD160);
-#endif
-#if defined(TTLS_SHA1_C)
-	if (!strcmp("SHA1", md_name) || !strcmp("SHA", md_name))
-		return ttls_md_info_from_type(TTLS_MD_SHA1);
 #endif
 #if defined(TTLS_SHA256_C)
 	if (!strcmp("SHA224", md_name))
@@ -122,25 +90,9 @@ const ttls_md_info_t *ttls_md_info_from_type(ttls_md_type_t md_type)
 {
 	switch(md_type)
 	{
-#if defined(TTLS_MD2_C)
-		case TTLS_MD_MD2:
-			return(&ttls_md2_info);
-#endif
-#if defined(TTLS_MD4_C)
-		case TTLS_MD_MD4:
-			return(&ttls_md4_info);
-#endif
-#if defined(TTLS_MD5_C)
-		case TTLS_MD_MD5:
-			return(&ttls_md5_info);
-#endif
 #if defined(TTLS_RIPEMD160_C)
 		case TTLS_MD_RIPEMD160:
 			return(&ttls_ripemd160_info);
-#endif
-#if defined(TTLS_SHA1_C)
-		case TTLS_MD_SHA1:
-			return(&ttls_sha1_info);
 #endif
 #if defined(TTLS_SHA256_C)
 		case TTLS_MD_SHA224:
