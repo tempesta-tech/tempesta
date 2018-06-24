@@ -374,6 +374,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		}
 
 		ss_skb_init_for_xmit(skb);
+		skb->tls = flags & SS_F_TLS;
 
 		/* Propagate mark of message head skb.*/
 		skb->mark = mark;

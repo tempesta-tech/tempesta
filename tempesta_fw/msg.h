@@ -48,4 +48,13 @@ typedef struct {
 	size_t			len;
 } TfwMsg;
 
+typedef struct {
+	unsigned int	frag;
+	struct sk_buff	*skb;
+} TfwMsgIter;
+
+int tfw_msg_write(TfwMsgIter *it, const TfwStr *data);
+int tfw_msg_iter_setup(TfwMsgIter *it, struct sk_buff **skb_head,
+		       size_t data_len);
+
 #endif /* __TFW_MSG_H__ */

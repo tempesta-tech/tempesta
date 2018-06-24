@@ -25,7 +25,7 @@
  */
 #include "config.h"
 
-#if defined(TTLS_SSL_COOKIE_C)
+#if defined(TTLS_COOKIE_C)
 
 #include "ssl_cookie.h"
 #include "ssl_internal.h"
@@ -58,26 +58,26 @@ static void ttls_zeroize(void *v, size_t n) {
  */
 #define COOKIE_LEN	  (4 + COOKIE_HMAC_LEN)
 
-void ttls_ssl_cookie_init(ttls_ssl_cookie_ctx *ctx)
+void ttls_cookie_init(ttls_cookie_ctx *ctx)
 {
 	ttls_md_init(&ctx->hmac_ctx);
 	ctx->serial = 0;
-	ctx->timeout = TTLS_SSL_COOKIE_TIMEOUT;
+	ctx->timeout = TTLS_COOKIE_TIMEOUT;
 	spin_lock_init(&ctx->mutex);
 }
 
-void ttls_ssl_cookie_set_timeout(ttls_ssl_cookie_ctx *ctx, unsigned long delay)
+void ttls_cookie_set_timeout(ttls_cookie_ctx *ctx, unsigned long delay)
 {
 	ctx->timeout = delay;
 }
 
-void ttls_ssl_cookie_free(ttls_ssl_cookie_ctx *ctx)
+void ttls_cookie_free(ttls_cookie_ctx *ctx)
 {
 	ttls_md_free(&ctx->hmac_ctx);
-	ttls_zeroize(ctx, sizeof(ttls_ssl_cookie_ctx));
+	ttls_zeroize(ctx, sizeof(ttls_cookie_ctx));
 }
 
-int ttls_ssl_cookie_setup(ttls_ssl_cookie_ctx *ctx,
+int ttls_cookie_setup(ttls_cookie_ctx *ctx,
 					  int (*f_rng)(void *, unsigned char *, size_t),
 					  void *p_rng)
 {
@@ -111,14 +111,14 @@ static int ssl_cookie_hmac(ttls_md_context_t *hmac_ctx,
 	unsigned char hmac_out[COOKIE_MD_OUTLEN];
 
 	if ((size_t)(end - *p) < COOKIE_HMAC_LEN)
-		return(TTLS_ERR_SSL_BUFFER_TOO_SMALL);
+		return(TTLS_ERR_BUFFER_TOO_SMALL);
 
 	if (ttls_md_hmac_reset( hmac_ctx) != 0 ||
 		ttls_md_hmac_update(hmac_ctx, time, 4) != 0 ||
 		ttls_md_hmac_update(hmac_ctx, cli_id, cli_id_len) != 0 ||
 		ttls_md_hmac_finish(hmac_ctx, hmac_out) != 0)
 	{
-		return(TTLS_ERR_SSL_INTERNAL_ERROR);
+		return(TTLS_ERR_INTERNAL_ERROR);
 	}
 
 	memcpy(*p, hmac_out, COOKIE_HMAC_LEN);
@@ -130,19 +130,19 @@ static int ssl_cookie_hmac(ttls_md_context_t *hmac_ctx,
 /*
  * Generate cookie for DTLS ClientHello verification
  */
-int ttls_ssl_cookie_write(void *p_ctx,
+int ttls_cookie_write(void *p_ctx,
 					  unsigned char **p, unsigned char *end,
 					  const unsigned char *cli_id, size_t cli_id_len)
 {
 	int ret;
-	ttls_ssl_cookie_ctx *ctx = (ttls_ssl_cookie_ctx *) p_ctx;
+	ttls_cookie_ctx *ctx = (ttls_cookie_ctx *) p_ctx;
 	unsigned long t;
 
 	if (ctx == NULL || cli_id == NULL)
-		return(TTLS_ERR_SSL_BAD_INPUT_DATA);
+		return(TTLS_ERR_BAD_INPUT_DATA);
 
 	if ((size_t)(end - *p) < COOKIE_LEN)
-		return(TTLS_ERR_SSL_BUFFER_TOO_SMALL);
+		return(TTLS_ERR_BUFFER_TOO_SMALL);
 
 	t = (unsigned long) ttls_time(NULL);
 	t = ctx->serial++;
@@ -166,18 +166,18 @@ int ttls_ssl_cookie_write(void *p_ctx,
 /*
  * Check a cookie
  */
-int ttls_ssl_cookie_check(void *p_ctx,
+int ttls_cookie_check(void *p_ctx,
 					  const unsigned char *cookie, size_t cookie_len,
 					  const unsigned char *cli_id, size_t cli_id_len)
 {
 	unsigned char ref_hmac[COOKIE_HMAC_LEN];
 	int ret = 0;
 	unsigned char *p = ref_hmac;
-	ttls_ssl_cookie_ctx *ctx = (ttls_ssl_cookie_ctx *) p_ctx;
+	ttls_cookie_ctx *ctx = (ttls_cookie_ctx *) p_ctx;
 	unsigned long cur_time, cookie_time;
 
 	if (ctx == NULL || cli_id == NULL)
-		return(TTLS_ERR_SSL_BAD_INPUT_DATA);
+		return(TTLS_ERR_BAD_INPUT_DATA);
 
 	if (cookie_len != COOKIE_LEN)
 		return(-1);
@@ -209,4 +209,4 @@ int ttls_ssl_cookie_check(void *p_ctx,
 
 	return 0;
 }
-#endif /* TTLS_SSL_COOKIE_C */
+#endif /* TTLS_COOKIE_C */
