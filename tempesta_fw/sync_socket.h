@@ -109,18 +109,16 @@ ss_sock_live(struct sock *sk)
 	return sk->sk_state == TCP_ESTABLISHED;
 }
 
-enum {
-	__SS_F_SYNC = 0,		/* Synchronous operation required. */
-	__SS_F_KEEP_SKB,		/* Keep SKBs (use clones) on sending. */
-	__SS_F_CONN_CLOSE,		/* Close (drop) the connection. */
-};
+/* Synchronous operation required. */
+#define SS_F_SYNC			0x01
+/* Keep SKBs (use clones) on sending. */
+#define SS_F_KEEP_SKB			0x02
+/* Close (drop) the connection. */
+#define SS_F_CONN_CLOSE			0x04
+/* Need TLS encryption. */
+#define SS_F_TLS			0x08
 
-#define SS_F_SYNC			(1 << __SS_F_SYNC)
-#define SS_F_KEEP_SKB			(1 << __SS_F_KEEP_SKB)
-#define SS_F_CONN_CLOSE			(1 << __SS_F_CONN_CLOSE)
-
-#define ss_close(sk)			\
-	__ss_close(sk, 0)
+#define ss_close(sk)			__ss_close(sk, 0)
 #define ss_close_sync(sk, drop)		\
 	__ss_close(sk, SS_F_SYNC | (drop ? SS_F_CONN_CLOSE : 0))
 

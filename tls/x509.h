@@ -123,12 +123,12 @@
  * (http://www.mozilla.org/projects/security/pki/nss/tech-notes/tn3.html)
  */
 
-#define TTLS_X509_NS_CERT_TYPE_SSL_CLIENT		 (0x80)  /* bit 0 */
-#define TTLS_X509_NS_CERT_TYPE_SSL_SERVER		 (0x40)  /* bit 1 */
+#define TTLS_X509_NS_CERT_TYPE_CLIENT		 (0x80)  /* bit 0 */
+#define TTLS_X509_NS_CERT_TYPE_SERVER		 (0x40)  /* bit 1 */
 #define TTLS_X509_NS_CERT_TYPE_EMAIL			  (0x20)  /* bit 2 */
 #define TTLS_X509_NS_CERT_TYPE_OBJECT_SIGNING	 (0x10)  /* bit 3 */
 #define TTLS_X509_NS_CERT_TYPE_RESERVED		   (0x08)  /* bit 4 */
-#define TTLS_X509_NS_CERT_TYPE_SSL_CA			 (0x04)  /* bit 5 */
+#define TTLS_X509_NS_CERT_TYPE_CA			 (0x04)  /* bit 5 */
 #define TTLS_X509_NS_CERT_TYPE_EMAIL_CA		   (0x02)  /* bit 6 */
 #define TTLS_X509_NS_CERT_TYPE_OBJECT_SIGNING_CA  (0x01)  /* bit 7 */
 

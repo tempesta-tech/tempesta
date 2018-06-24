@@ -82,6 +82,15 @@ enum {
 #define T_DBG3_BUF(fmt, buf, len)					\
 	print_hex_dump_bytes(__BNR "      " fmt, DUMP_PREFIX_OFFSET, buf, len)
 
+#define T_DBG3_SL(str, sglist, sgn, off, len)				\
+do {									\
+	int i;								\
+	struct scatterlist *sg;						\
+	T_DBG3(str ":\n");						\
+	for_each_sg(sglist, sg, sgn, i)					\
+		T_DBG3_BUF("  ", sg_virt(sg), sg->length);		\
+} while (0)
+
 #define __CALLSTACK_MSG(...)						\
 do {									\
 	printk(__VA_ARGS__);						\
