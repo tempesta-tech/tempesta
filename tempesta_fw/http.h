@@ -310,6 +310,8 @@ enum {
 	TFW_HTTP_B_WHITELIST,
 	/* Client was disconnected, drop the request. */
 	TFW_HTTP_B_REQ_DROP,
+	/* Request was received on TLS connection. */
+	TFW_HTTP_B_REQ_TLS,
 
 	/* Response flags */
 	TFW_HTTP_FLAGS_RESP,
@@ -343,6 +345,7 @@ enum {
 #define TFW_HTTP_F_HMONITOR		(1U << TFW_HTTP_B_HMONITOR)
 #define TFW_HTTP_F_WHITELIST		(1U << TFW_HTTP_B_WHITELIST)
 #define TFW_HTTP_F_REQ_DROP		(1U << TFW_HTTP_B_REQ_DROP)
+#define TFW_HTTP_F_REQ_TLS		(1U << TFW_HTTP_B_REQ_TLS)
 
 #define TFW_HTTP_F_VOID_BODY		(1U << TFW_HTTP_B_VOID_BODY)
 #define TFW_HTTP_F_HDR_DATE		(1U << TFW_HTTP_B_HDR_DATE)
@@ -360,7 +363,7 @@ enum {
 typedef struct {
 	const char	*reason;
 	unsigned short	status;
-}TfwHttpError;
+} TfwHttpError;
 
 typedef struct tfw_http_msg_t	TfwHttpMsg;
 typedef struct tfw_http_req_t	TfwHttpReq;

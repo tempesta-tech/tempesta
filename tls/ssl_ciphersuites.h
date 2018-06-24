@@ -24,8 +24,8 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#ifndef TTLS_SSL_CIPHERSUITES_H
-#define TTLS_SSL_CIPHERSUITES_H
+#ifndef TTLS_CIPHERSUITES_H
+#define TTLS_CIPHERSUITES_H
 
 #include "pk.h"
 #include "cipher.h"
@@ -231,7 +231,7 @@
 
 #define TTLS_TLS_ECJPAKE_WITH_AES_128_CCM_8		  0xC0FF  /**< experimental */
 
-/* Reminder: update ttls_ssl_premaster_secret when adding a new key exchange.
+/* Reminder: update ttls_premaster_secret when adding a new key exchange.
  * Reminder: update TTLS_KEY_EXCHANGE__xxx below
  */
 typedef enum {
@@ -322,7 +322,7 @@ typedef enum {
 #define TTLS_KEY_EXCHANGE__SOME__ECDHE_ENABLED
 #endif
 
-typedef struct ttls_ssl_ciphersuite_t ttls_ssl_ciphersuite_t;
+typedef struct ttls_ciphersuite_t ttls_ciphersuite_t;
 
 #define TTLS_CIPHERSUITE_WEAK	   0x01	/**< Weak ciphersuite flag  */
 #define TTLS_CIPHERSUITE_SHORT_TAG  0x02	/**< Short authentication tag,
@@ -332,7 +332,7 @@ typedef struct ttls_ssl_ciphersuite_t ttls_ssl_ciphersuite_t;
 /**
  * \brief   This structure is used for storing ciphersuite information
  */
-struct ttls_ssl_ciphersuite_t
+struct ttls_ciphersuite_t
 {
 	int id;
 	const char * name;
@@ -349,19 +349,19 @@ struct ttls_ssl_ciphersuite_t
 	unsigned char flags;
 };
 
-const int *ttls_ssl_list_ciphersuites(void);
+const int *ttls_list_ciphersuites(void);
 
-const ttls_ssl_ciphersuite_t *ttls_ssl_ciphersuite_from_string(const char *ciphersuite_name);
-const ttls_ssl_ciphersuite_t *ttls_ssl_ciphersuite_from_id(int ciphersuite_id);
+const ttls_ciphersuite_t *ttls_ciphersuite_from_string(const char *ciphersuite_name);
+const ttls_ciphersuite_t *ttls_ciphersuite_from_id(int ciphersuite_id);
 
-ttls_pk_type_t ttls_ssl_get_ciphersuite_sig_pk_alg(const ttls_ssl_ciphersuite_t *info);
-ttls_pk_type_t ttls_ssl_get_ciphersuite_sig_alg(const ttls_ssl_ciphersuite_t *info);
+ttls_pk_type_t ttls_get_ciphersuite_sig_pk_alg(const ttls_ciphersuite_t *info);
+ttls_pk_type_t ttls_get_ciphersuite_sig_alg(const ttls_ciphersuite_t *info);
 
-int ttls_ssl_ciphersuite_uses_ec(const ttls_ssl_ciphersuite_t *info);
-int ttls_ssl_ciphersuite_uses_psk(const ttls_ssl_ciphersuite_t *info);
+int ttls_ciphersuite_uses_ec(const ttls_ciphersuite_t *info);
+int ttls_ciphersuite_uses_psk(const ttls_ciphersuite_t *info);
 
 #if defined(TTLS_KEY_EXCHANGE__SOME_PFS__ENABLED)
-static inline int ttls_ssl_ciphersuite_has_pfs(const ttls_ssl_ciphersuite_t *info)
+static inline int ttls_ciphersuite_has_pfs(const ttls_ciphersuite_t *info)
 {
 	switch(info->key_exchange)
 	{
@@ -380,7 +380,7 @@ static inline int ttls_ssl_ciphersuite_has_pfs(const ttls_ssl_ciphersuite_t *inf
 #endif /* TTLS_KEY_EXCHANGE__SOME_PFS__ENABLED */
 
 #if defined(TTLS_KEY_EXCHANGE__SOME_NON_PFS__ENABLED)
-static inline int ttls_ssl_ciphersuite_no_pfs(const ttls_ssl_ciphersuite_t *info)
+static inline int ttls_ciphersuite_no_pfs(const ttls_ciphersuite_t *info)
 {
 	switch(info->key_exchange)
 	{
@@ -398,7 +398,7 @@ static inline int ttls_ssl_ciphersuite_no_pfs(const ttls_ssl_ciphersuite_t *info
 #endif /* TTLS_KEY_EXCHANGE__SOME_NON_PFS__ENABLED */
 
 #if defined(TTLS_KEY_EXCHANGE__SOME__ECDH_ENABLED)
-static inline int ttls_ssl_ciphersuite_uses_ecdh(const ttls_ssl_ciphersuite_t *info)
+static inline int ttls_ciphersuite_uses_ecdh(const ttls_ciphersuite_t *info)
 {
 	switch(info->key_exchange)
 	{
@@ -412,7 +412,7 @@ static inline int ttls_ssl_ciphersuite_uses_ecdh(const ttls_ssl_ciphersuite_t *i
 }
 #endif /* TTLS_KEY_EXCHANGE__SOME__ECDH_ENABLED */
 
-static inline int ttls_ssl_ciphersuite_cert_req_allowed(const ttls_ssl_ciphersuite_t *info)
+static inline int ttls_ciphersuite_cert_req_allowed(const ttls_ciphersuite_t *info)
 {
 	switch(info->key_exchange)
 	{
@@ -430,7 +430,7 @@ static inline int ttls_ssl_ciphersuite_cert_req_allowed(const ttls_ssl_ciphersui
 }
 
 #if defined(TTLS_KEY_EXCHANGE__SOME__DHE_ENABLED)
-static inline int ttls_ssl_ciphersuite_uses_dhe(const ttls_ssl_ciphersuite_t *info)
+static inline int ttls_ciphersuite_uses_dhe(const ttls_ciphersuite_t *info)
 {
 	switch(info->key_exchange)
 	{
@@ -445,7 +445,7 @@ static inline int ttls_ssl_ciphersuite_uses_dhe(const ttls_ssl_ciphersuite_t *in
 #endif /* TTLS_KEY_EXCHANGE__SOME__DHE_ENABLED) */
 
 #if defined(TTLS_KEY_EXCHANGE__SOME__ECDHE_ENABLED)
-static inline int ttls_ssl_ciphersuite_uses_ecdhe(const ttls_ssl_ciphersuite_t *info)
+static inline int ttls_ciphersuite_uses_ecdhe(const ttls_ciphersuite_t *info)
 {
 	switch(info->key_exchange)
 	{
@@ -461,7 +461,7 @@ static inline int ttls_ssl_ciphersuite_uses_ecdhe(const ttls_ssl_ciphersuite_t *
 #endif /* TTLS_KEY_EXCHANGE__SOME__ECDHE_ENABLED) */
 
 #if defined(TTLS_KEY_EXCHANGE__WITH_SERVER_SIGNATURE__ENABLED)
-static inline int ttls_ssl_ciphersuite_uses_server_signature(const ttls_ssl_ciphersuite_t *info)
+static inline int ttls_ciphersuite_uses_server_signature(const ttls_ciphersuite_t *info)
 {
 	switch(info->key_exchange)
 	{

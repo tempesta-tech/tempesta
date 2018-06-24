@@ -363,6 +363,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		}
 
 		ss_skb_init_for_xmit(skb);
+		skb->tls = flags & SS_F_TLS;
 
 		TFW_DBG3("[%d]: %s: entail skb=%p data_len=%u len=%u\n",
 		         smp_processor_id(), __func__,

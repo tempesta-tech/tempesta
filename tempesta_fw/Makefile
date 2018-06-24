@@ -23,38 +23,9 @@ export TTLS_CFLAGS
 EXTRA_CFLAGS += $(TFW_CFLAGS) $(TTLS_CFLAGS)
 EXTRA_CFLAGS += -I$(src)/../tempesta_db/core -I$(src)/../
 
-obj-m	= tempesta_fw.o 
+obj-m	= tempesta_fw.o sched/ t/
 
-tempesta_fw-objs = \
-	addr.o \
-	apm.o \
-	cache.o \
-	cfg.o \
-	http_limits.o \
-	client.o \
-	connection.o \
-	filter.o \
-	gfsm.o \
-	hash.o \
-	http.o \
-	http_match.o \
-	http_msg.o \
-	http_parser.o \
-	http_sess.o \
-	main.o \
-	pool.o \
-	procfs.o \
-	sched.o \
-	server.o \
-	sock.o \
-	sock_clnt.o \
-	sock_srv.o \
-	ss_skb.o \
-	stress.o \
-	str.o \
-	str_simd.o \
-	tls.o \
-	vhost.o \
-	work_queue.o
+tfw-srcs = $(wildcard $(obj)/*.c)
+tfw-objs = $(patsubst %.c, %.o, $(tfw-srcs))
 
-obj-m	+= sched/ t/
+tempesta_fw-objs = $(subst $(src)/,,$(tfw-objs))
