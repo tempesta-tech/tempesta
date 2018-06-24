@@ -356,7 +356,7 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *rmark,
 		       TfwStr *cookie, TfwStr *body)
 {
 	TfwHttpReq *req = resp->req;
-	size_t data_len;
+	size_t data_len, head = 0;
 	int conn_flag = req->flags & __TFW_HTTP_MSG_M_CONN_MASK, ret = 0;
 	TfwMsgIter it;
 	static TfwStr rh_302 = {
@@ -436,26 +436,25 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *rmark,
 
 	tfw_http_prep_date(__TFW_STR_CH(&h_common_1, 1)->ptr);
 
-	ret = tfw_http_msg_write(&it, resp, rh);
-	ret = tfw_http_msg_write(&it, resp, &h_common_1);
-
+	ret = tfw_msg_write(&it, rh);
+	ret = tfw_msg_write(&it, &h_common_1);
 	/*
 	 * HTTP/1.0 may have no host part, so we create relative URI.
 	 * See RFC 1945 9.3 and RFC 7231 7.1.2.
 	 */
 	if (host.len) {
-		ret |= tfw_http_msg_write(&it, resp, proto);
-		ret |= tfw_http_msg_write(&it, resp, &host);
+		ret |= tfw_msg_write(&it, proto);
+		ret |= tfw_msg_write(&it, &host);
 	}
 
 	if (rmark->len)
-		ret |= tfw_http_msg_write(&it, resp, rmark);
+		ret |= tfw_msg_write(&it, rmark);
 
-	ret |= tfw_http_msg_write(&it, resp, &req->uri_path);
-	ret |= tfw_http_msg_write(&it, resp, &h_common_2);
-	ret |= tfw_http_msg_write(&it, resp, cookie);
-	ret |= tfw_http_msg_write(&it, resp, cookie_crlf);
-	ret |= tfw_http_msg_write(&it, resp, r_end);
+	ret |= tfw_msg_write(&it, &req->uri_path);
+	ret |= tfw_msg_write(&it, &h_common_2);
+	ret |= tfw_msg_write(&it, cookie);
+	ret |= tfw_msg_write(&it, cookie_crlf);
+	ret |= tfw_msg_write(&it, r_end);
 
 	return ret;
 }
@@ -495,9 +494,9 @@ tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, void *msg_it,
 	if (tfw_http_msg_setup(resp, it, data_len))
 		return TFW_BLOCK;
 
-	ret = tfw_http_msg_write(it, resp, &rh);
+	ret = tfw_msg_write(it, &rh);
 	if (end)
-		ret |= tfw_http_msg_write(it, resp, end);
+		ret |= tfw_msg_write(it, end);
 
 	TFW_DBG("Send HTTP 304 response\n");
 
@@ -639,7 +638,7 @@ __tfw_http_send_resp(TfwHttpReq *req, resp_code_t code)
 	if (!body->ptr)
 		__TFW_STR_CHUNKN_SET(&msg, 5);
 
-	if (tfw_http_msg_write(&it, (TfwHttpMsg *)resp, &msg))
+	if (tfw_msg_write(&it, &msg))
 		goto err_setup;
 
 	tfw_http_resp_fwd(resp);
@@ -2717,6 +2716,10 @@ next_msg:
 	req = (TfwHttpReq *)conn->msg;
 	parser = &req->parser;
 
+	/* Set TLS flag first to return error response encrypted. */
+	if (TFW_CONN_TYPE(conn) & TFW_FSM_HTTPS)
+		req->flags |= TFW_HTTP_F_REQ_TLS;
+
 	r = ss_skb_process(skb, off, tfw_http_parse_req, req, &req->chunk_cnt,
 			   &parsed);
 	req->msg.len += parsed;
@@ -3361,7 +3364,6 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 	TfwStr msg = {
 		.ptr = data,
 		.len = len,
-		.flags = 0
 	};
 	LIST_HEAD(equeue);
 
@@ -3370,7 +3372,7 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 	hmreq = (TfwHttpMsg *)req;
 	if (tfw_http_msg_setup(hmreq, &it, msg.len))
 		goto cleanup;
-	if (tfw_http_msg_write(&it, hmreq, &msg))
+	if (tfw_msg_write(&it, &msg))
 		goto cleanup;
 
 	req->flags |= TFW_HTTP_F_HMONITOR;
