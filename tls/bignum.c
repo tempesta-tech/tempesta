@@ -1753,6 +1753,7 @@ int ttls_mpi_fill_random(ttls_mpi *X, size_t size,
 	if (size > TTLS_MPI_MAX_SIZE)
 		return(TTLS_ERR_MPI_BAD_INPUT_DATA);
 
+	// TODO AK call get_random_bytes() directly instead of f_rng()
 	TTLS_MPI_CHK(f_rng(p_rng, buf, size));
 	TTLS_MPI_CHK(ttls_mpi_read_binary(X, buf, size));
 

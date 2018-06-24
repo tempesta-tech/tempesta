@@ -34,7 +34,7 @@ void ttls_debug_set_threshold(int threshold)
 	debug_threshold = threshold;
 }
 
-void ttls_debug_print_msg(const ttls_ssl_context *ssl, int level,
+void ttls_debug_print_msg(const ttls_context *ssl, int level,
 							  const char *file, int line,
 							  const char *format, ...)
 {
@@ -56,7 +56,7 @@ void ttls_debug_print_msg(const ttls_ssl_context *ssl, int level,
 	}
 }
 
-void ttls_debug_print_ret(const ttls_ssl_context *ssl, int level,
+void ttls_debug_print_ret(const ttls_context *ssl, int level,
 					  const char *file, int line,
 					  const char *text, int ret)
 {
@@ -70,14 +70,14 @@ void ttls_debug_print_ret(const ttls_ssl_context *ssl, int level,
 	 * the logs would be quickly flooded with WANT_READ, so ignore that.
 	 * Don't ignore WANT_WRITE however, since is is usually rare.
 	 */
-	if (ret == TTLS_ERR_SSL_WANT_READ)
+	if (ret == TTLS_ERR_WANT_READ)
 		return;
 
 	ttls_snprintf(str, sizeof(str), "%s() returned %d (-0x%04x)\n",
 			  text, ret, -ret);
 }
 
-void ttls_debug_print_buf(const ttls_ssl_context *ssl, int level,
+void ttls_debug_print_buf(const ttls_context *ssl, int level,
 					  const char *file, int line, const char *text,
 					  const unsigned char *buf, size_t len)
 {
@@ -126,7 +126,7 @@ void ttls_debug_print_buf(const ttls_ssl_context *ssl, int level,
 	}
 }
 
-void ttls_debug_print_ecp(const ttls_ssl_context *ssl, int level,
+void ttls_debug_print_ecp(const ttls_context *ssl, int level,
 					  const char *file, int line,
 					  const char *text, const ttls_ecp_point *X)
 {
@@ -142,7 +142,7 @@ void ttls_debug_print_ecp(const ttls_ssl_context *ssl, int level,
 	ttls_debug_print_mpi(ssl, level, file, line, str, &X->Y);
 }
 
-void ttls_debug_print_mpi(const ttls_ssl_context *ssl, int level,
+void ttls_debug_print_mpi(const ttls_context *ssl, int level,
 					  const char *file, int line,
 					  const char *text, const ttls_mpi *X)
 {
@@ -200,7 +200,7 @@ void ttls_debug_print_mpi(const ttls_ssl_context *ssl, int level,
 	ttls_snprintf(str + idx, sizeof(str) - idx, "\n");
 }
 
-static void debug_print_pk(const ttls_ssl_context *ssl, int level,
+static void debug_print_pk(const ttls_context *ssl, int level,
 							const char *file, int line,
 							const char *text, const ttls_pk_context *pk)
 {
@@ -229,7 +229,7 @@ static void debug_print_pk(const ttls_ssl_context *ssl, int level,
 	}
 }
 
-static void debug_print_line_by_line(const ttls_ssl_context *ssl, int level,
+static void debug_print_line_by_line(const ttls_context *ssl, int level,
 									  const char *file, int line, const char *text)
 {
 	char str[DEBUG_BUF_SIZE];
@@ -251,7 +251,7 @@ static void debug_print_line_by_line(const ttls_ssl_context *ssl, int level,
 	}
 }
 
-void ttls_debug_print_crt(const ttls_ssl_context *ssl, int level,
+void ttls_debug_print_crt(const ttls_context *ssl, int level,
 					  const char *file, int line,
 					  const char *text, const ttls_x509_crt *crt)
 {

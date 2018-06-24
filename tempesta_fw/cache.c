@@ -546,7 +546,7 @@ tfw_cache_write_field(TDB *db, TdbVRec **trec, TfwHttpResp *resp,
 			    (long)(len - copied));
 		r = hdr
 		    ? tfw_http_msg_add_data(it, (TfwHttpMsg *)resp, hdr, &c)
-		    : tfw_http_msg_write(it, (TfwHttpMsg *)resp, &c);
+		    : tfw_msg_write(it, &c);
 		if (r)
 			return r;
 
@@ -618,7 +618,7 @@ tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwStr *hdr,
  * Last-Modified might be used if the response does not have an ETag field.
  *
  * The 304 response should be as short as possible, we don't need to add
- * extra headers with tfw_http_adjust_resp(). Use quicker tfw_http_msg_write()
+ * extra headers with tfw_http_adjust_resp(). Use quicker tfw_msg_write()
  * instead of tfw_http_msg_add_data() used to build full response.
  */
 static void
@@ -655,7 +655,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 			goto err_setup;
 	}
 
-	if (tfw_http_msg_write(&it, (TfwHttpMsg *)resp, &g_crlf))
+	if (tfw_msg_write(&it, &g_crlf))
 		goto err_setup;
 
 	tfw_http_resp_fwd(resp);
