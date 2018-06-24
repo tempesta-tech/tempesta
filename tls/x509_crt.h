@@ -537,7 +537,7 @@ int ttls_x509write_crt_set_key_usage(ttls_x509write_cert *ctx,
 
 /**
  * \brief		   Set the Netscape Cert Type flags
- *				  (e.g. TTLS_X509_NS_CERT_TYPE_SSL_CLIENT | TTLS_X509_NS_CERT_TYPE_EMAIL)
+ *				  (e.g. TTLS_X509_NS_CERT_TYPE_CLIENT | TTLS_X509_NS_CERT_TYPE_EMAIL)
  *
  * \param ctx		   CRT context to use
  * \param ns_cert_type  Netscape Cert Type flags to set

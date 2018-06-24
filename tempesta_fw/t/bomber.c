@@ -280,7 +280,7 @@ tfw_bmb_msg_send(TfwBmbTask *task, int cn)
 			"------------------------------\n",
 			task->buf);
 
-	tfw_http_msg_write(&it, &hmreq, &msg);
+	tfw_msg_write(&it, &msg);
 	ss_send(task->conn[cn].sk, &hmreq.msg.skb_head, true);
 
 	atomic_inc(&bmb_request_send);

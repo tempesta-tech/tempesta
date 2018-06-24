@@ -72,7 +72,7 @@ ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf)
  * TODO #391: use less pages by allocating the skb from ss_skb_alloc()
  * with maximum page header to fully utilize the page.
  */
-struct sk_buff *
+static struct sk_buff *
 ss_skb_alloc_pages(size_t len)
 {
 	int i, nr_frags = DIV_ROUND_UP(len, PAGE_SIZE);
@@ -95,6 +95,28 @@ ss_skb_alloc_pages(size_t len)
 	}
 
 	return skb;
+}
+
+/**
+ * Given the total message length as @len, allocate an appropriate number
+ * of SKBs and page fragments to hold the payload, and add them to the
+ * message. Put as much as possible in one SKB. TCP GSO will take care of
+ * segmentation. The allocated payload space will be filled with data.
+ */
+static int
+ss_skb_alloc_data(struct sk_buff **skb_head, size_t len)
+{
+	int i_skb, nr_skbs = DIV_ROUND_UP(len, SS_SKB_MAX_DATA_LEN);
+	struct sk_buff *skb;
+
+	for (i_skb = 0; i_skb < nr_skbs; ++i_skb) {
+		skb = ss_skb_alloc_pages(min(len, SS_SKB_MAX_DATA_LEN));
+		if (!skb)
+			return -ENOMEM;
+		ss_skb_queue_tail(skb_head, skb);
+	}
+
+	return 0;
 }
 
 static inline int
@@ -266,6 +288,10 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 		skb_frag_t *f;
 		struct sk_buff *nskb;
 		unsigned int e_size = 0;
+
+		/* Going out of the @skb is prohibied by the caller. */
+		if (!skb_head)
+			return -ENOMEM;
 
 		/*
 		 * The number of page fragments that don't fit in the SKB
@@ -787,13 +813,12 @@ static inline int
 skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	     int len, TfwStr *it)
 {
-	if (abs(len) > PAGE_SIZE) {
+	if (unlikely(abs(len) > PAGE_SIZE)) {
 		TFW_WARN("Attempt to add or delete too much data: %u\n", len);
 		return -EINVAL;
 	}
-
 	/* skbs with skb fragments are not expected. */
-	if (skb_has_frag_list(skb)) {
+	if (unlikely(skb_has_frag_list(skb))) {
 		WARN_ON(skb_has_frag_list(skb));
 		return -EINVAL;
 	}
@@ -816,6 +841,42 @@ ss_skb_get_room(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	if (r == len)
 		return 0;
 	return r;
+}
+
+/**
+ * Expand the @skb data, including frags, by @head and @tail: the two frags
+ * are inserted moving current data at the middle.
+ * @return address of allocated head bytes.
+ */
+void *
+ss_skb_expand_frags(struct sk_buff *skb, size_t head, size_t tail)
+{
+	size_t n = head + tail;
+	struct skb_shared_info *si = skb_shinfo(skb);
+	skb_frag_t *frag;
+	TfwStr it = {};
+
+	if (unlikely(si->nr_frags >= MAX_SKB_FRAGS - 1))
+		return NULL;
+
+	if (skb_headlen(skb)) {
+		if (__split_linear_data(NULL, skb, skb->data, n, &it))
+			return NULL;
+		WARN_ON_ONCE(it.ptr != skb_frag_address(&si->frags[0]));
+	} else {
+		if (__new_pgfrag(NULL, skb, n, 0, 1))
+			return NULL;
+		it.ptr = skb_frag_address(&si->frags[0]);
+	}
+
+	/* Split the allocated fragment to head and tail parts. */
+	frag = si->frags[0];
+	__skb_frag_ref(frag);
+	skb_fill_page_desc(skb, si->nr_frags, skb_frag_page(frag),
+			   frag->page_offset + head, tail);
+	skb_frag_size_sub(frag, tail);
+
+	return it.ptr;
 }
 
 /**

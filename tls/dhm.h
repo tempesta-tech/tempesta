@@ -269,7 +269,7 @@ int ttls_dhm_parse_dhm(ttls_dhm_context *dhm, const unsigned char *dhmin,
  * Diffie-Hellman groups, some of which are included here
  * for use within the SSL/TLS module and the user's convenience
  * when configuring the Diffie-Hellman parameters by hand
- * through \c ttls_ssl_conf_dh_param.
+ * through \c ttls_conf_dh_param.
  *
  * The following lists the source of the above groups in the standards:
  * - RFC 5114 section 2.2:  2048-bit MODP Group with 224-bit Prime Order Subgroup

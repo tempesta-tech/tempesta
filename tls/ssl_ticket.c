@@ -21,7 +21,7 @@
  */
 #include "config.h"
 
-#if defined(TTLS_SSL_TICKET_C)
+#if defined(TTLS_TICKET_C)
 
 #include "ssl_ticket.h"
 
@@ -33,9 +33,9 @@ static void ttls_zeroize(void *v, size_t n) {
 /*
  * Initialze context
  */
-void ttls_ssl_ticket_init(ttls_ssl_ticket_context *ctx)
+void ttls_ticket_init(ttls_ticket_context *ctx)
 {
-	memset(ctx, 0, sizeof(ttls_ssl_ticket_context));
+	memset(ctx, 0, sizeof(ttls_ticket_context));
 	spin_lock_init(&ctx->mutex);
 }
 
@@ -44,12 +44,12 @@ void ttls_ssl_ticket_init(ttls_ssl_ticket_context *ctx)
 /*
  * Generate/update a key
  */
-static int ssl_ticket_gen_key(ttls_ssl_ticket_context *ctx,
+static int ssl_ticket_gen_key(ttls_ticket_context *ctx,
 							   unsigned char index)
 {
 	int ret;
 	unsigned char buf[MAX_KEY_BYTES];
-	ttls_ssl_ticket_key *key = ctx->keys + index;
+	ttls_ticket_key *key = ctx->keys + index;
 
 	key->generation_time = (uint32_t) ttls_time(NULL);
 
@@ -72,7 +72,7 @@ static int ssl_ticket_gen_key(ttls_ssl_ticket_context *ctx,
 /*
  * Rotate/generate keys if necessary
  */
-static int ssl_ticket_update_keys(ttls_ssl_ticket_context *ctx)
+static int ssl_ticket_update_keys(ttls_ticket_context *ctx)
 {
 	if (ctx->ticket_lifetime != 0)
 	{
@@ -96,7 +96,7 @@ static int ssl_ticket_update_keys(ttls_ssl_ticket_context *ctx)
 /*
  * Setup context for actual use
  */
-int ttls_ssl_ticket_setup(ttls_ssl_ticket_context *ctx,
+int ttls_ticket_setup(ttls_ticket_context *ctx,
 	int (*f_rng)(void *, unsigned char *, size_t), void *p_rng,
 	ttls_cipher_type_t cipher,
 	uint32_t lifetime)
@@ -111,16 +111,16 @@ int ttls_ssl_ticket_setup(ttls_ssl_ticket_context *ctx,
 
 	cipher_info = ttls_cipher_info_from_type(cipher);
 	if (cipher_info == NULL)
-		return(TTLS_ERR_SSL_BAD_INPUT_DATA);
+		return(TTLS_ERR_BAD_INPUT_DATA);
 
 	if (cipher_info->mode != TTLS_MODE_GCM &&
 		cipher_info->mode != TTLS_MODE_CCM)
 	{
-		return(TTLS_ERR_SSL_BAD_INPUT_DATA);
+		return(TTLS_ERR_BAD_INPUT_DATA);
 	}
 
 	if (cipher_info->key_bitlen > 8 * MAX_KEY_BYTES)
-		return(TTLS_ERR_SSL_BAD_INPUT_DATA);
+		return(TTLS_ERR_BAD_INPUT_DATA);
 
 	if ((ret = ttls_cipher_setup(&ctx->keys[0].ctx, cipher_info)) != 0 ||
 		(ret = ttls_cipher_setup(&ctx->keys[1].ctx, cipher_info)) != 0)
@@ -152,7 +152,7 @@ static int ssl_save_session(const TtlsSess *session,
 	size_t cert_len;
 
 	if (left < sizeof(TtlsSess))
-		return(TTLS_ERR_SSL_BUFFER_TOO_SMALL);
+		return(TTLS_ERR_BUFFER_TOO_SMALL);
 
 	memcpy(p, session, sizeof(TtlsSess));
 	p += sizeof(TtlsSess);
@@ -164,7 +164,7 @@ static int ssl_save_session(const TtlsSess *session,
 		cert_len = session->peer_cert->raw.len;
 
 	if (left < 3 + cert_len)
-		return(TTLS_ERR_SSL_BUFFER_TOO_SMALL);
+		return(TTLS_ERR_BUFFER_TOO_SMALL);
 
 	*p++ = (unsigned char)(cert_len >> 16 & 0xFF);
 	*p++ = (unsigned char)(cert_len >>  8 & 0xFF);
@@ -191,13 +191,13 @@ static int ssl_load_session(TtlsSess *session,
 	size_t cert_len;
 
 	if (p + sizeof(TtlsSess) > end)
-		return(TTLS_ERR_SSL_BAD_INPUT_DATA);
+		return(TTLS_ERR_BAD_INPUT_DATA);
 
 	memcpy(session, p, sizeof(TtlsSess));
 	p += sizeof(TtlsSess);
 
 	if (p + 3 > end)
-		return(TTLS_ERR_SSL_BAD_INPUT_DATA);
+		return(TTLS_ERR_BAD_INPUT_DATA);
 
 	cert_len = (p[0] << 16) | (p[1] << 8) | p[2];
 	p += 3;
@@ -211,12 +211,12 @@ static int ssl_load_session(TtlsSess *session,
 		int ret;
 
 		if (p + cert_len > end)
-			return(TTLS_ERR_SSL_BAD_INPUT_DATA);
+			return(TTLS_ERR_BAD_INPUT_DATA);
 
 		session->peer_cert = ttls_calloc(1, sizeof(ttls_x509_crt));
 
 		if (session->peer_cert == NULL)
-			return(TTLS_ERR_SSL_ALLOC_FAILED);
+			return(TTLS_ERR_ALLOC_FAILED);
 
 		ttls_x509_crt_init(session->peer_cert);
 
@@ -233,7 +233,7 @@ static int ssl_load_session(TtlsSess *session,
 	}
 
 	if (p != end)
-		return(TTLS_ERR_SSL_BAD_INPUT_DATA);
+		return(TTLS_ERR_BAD_INPUT_DATA);
 
 	return 0;
 }
@@ -251,7 +251,7 @@ static int ssl_load_session(TtlsSess *session,
  * The key_name, iv, and length of encrypted_state are the additional
  * authenticated data.
  */
-int ttls_ssl_ticket_write(void *p_ticket,
+int ttls_ticket_write(void *p_ticket,
 							  const TtlsSess *session,
 							  unsigned char *start,
 							  const unsigned char *end,
@@ -259,8 +259,8 @@ int ttls_ssl_ticket_write(void *p_ticket,
 							  uint32_t *ticket_lifetime)
 {
 	int ret;
-	ttls_ssl_ticket_context *ctx = p_ticket;
-	ttls_ssl_ticket_key *key;
+	ttls_ticket_context *ctx = p_ticket;
+	ttls_ticket_key *key;
 	unsigned char *key_name = start;
 	unsigned char *iv = start + 4;
 	unsigned char *state_len_bytes = iv + 12;
@@ -271,12 +271,12 @@ int ttls_ssl_ticket_write(void *p_ticket,
 	*tlen = 0;
 
 	if (ctx == NULL || ctx->f_rng == NULL)
-		return(TTLS_ERR_SSL_BAD_INPUT_DATA);
+		return(TTLS_ERR_BAD_INPUT_DATA);
 
 	/* We need at least 4 bytes for key_name, 12 for IV, 2 for len 16 for tag,
 	 * in addition to session itself, that will be checked when writing it. */
 	if (end - start < 4 + 12 + 2 + 16)
-		return(TTLS_ERR_SSL_BUFFER_TOO_SMALL);
+		return(TTLS_ERR_BUFFER_TOO_SMALL);
 
 	spin_lock(&ctx->mutex);
 
@@ -312,7 +312,7 @@ int ttls_ssl_ticket_write(void *p_ticket,
 	}
 	if (ciph_len != clear_len)
 	{
-		ret = TTLS_ERR_SSL_INTERNAL_ERROR;
+		ret = TTLS_ERR_INTERNAL_ERROR;
 		goto cleanup;
 	}
 
@@ -327,8 +327,8 @@ cleanup:
 /*
  * Select key based on name
  */
-static ttls_ssl_ticket_key *ssl_ticket_select_key(
-		ttls_ssl_ticket_context *ctx,
+static ttls_ticket_key *ssl_ticket_select_key(
+		ttls_ticket_context *ctx,
 		const unsigned char name[4])
 {
 	unsigned char i;
@@ -341,16 +341,16 @@ static ttls_ssl_ticket_key *ssl_ticket_select_key(
 }
 
 /*
- * Load session ticket (see ttls_ssl_ticket_write for structure)
+ * Load session ticket (see ttls_ticket_write for structure)
  */
-int ttls_ssl_ticket_parse(void *p_ticket,
+int ttls_ticket_parse(void *p_ticket,
 							  TtlsSess *session,
 							  unsigned char *buf,
 							  size_t len)
 {
 	int ret;
-	ttls_ssl_ticket_context *ctx = p_ticket;
-	ttls_ssl_ticket_key *key;
+	ttls_ticket_context *ctx = p_ticket;
+	ttls_ticket_key *key;
 	unsigned char *key_name = buf;
 	unsigned char *iv = buf + 4;
 	unsigned char *enc_len_p = iv + 12;
@@ -359,11 +359,11 @@ int ttls_ssl_ticket_parse(void *p_ticket,
 	size_t enc_len, clear_len;
 
 	if (ctx == NULL || ctx->f_rng == NULL)
-		return(TTLS_ERR_SSL_BAD_INPUT_DATA);
+		return(TTLS_ERR_BAD_INPUT_DATA);
 
-	/* See ttls_ssl_ticket_write() */
+	/* See ttls_ticket_write() */
 	if (len < 4 + 12 + 2 + 16)
-		return(TTLS_ERR_SSL_BAD_INPUT_DATA);
+		return(TTLS_ERR_BAD_INPUT_DATA);
 
 	spin_lock(&ctx->mutex);
 
@@ -375,7 +375,7 @@ int ttls_ssl_ticket_parse(void *p_ticket,
 
 	if (len != 4 + 12 + 2 + enc_len + 16)
 	{
-		ret = TTLS_ERR_SSL_BAD_INPUT_DATA;
+		ret = TTLS_ERR_BAD_INPUT_DATA;
 		goto cleanup;
 	}
 
@@ -384,7 +384,7 @@ int ttls_ssl_ticket_parse(void *p_ticket,
 	{
 		/* We can't know for sure but this is a likely option unless we're
 		 * under attack - this is only informative anyway */
-		ret = TTLS_ERR_SSL_SESSION_TICKET_EXPIRED;
+		ret = TTLS_ERR_SESSION_TICKET_EXPIRED;
 		goto cleanup;
 	}
 
@@ -394,13 +394,13 @@ int ttls_ssl_ticket_parse(void *p_ticket,
 					ticket, &clear_len, tag, 16)) != 0)
 	{
 		if (ret == TTLS_ERR_CIPHER_AUTH_FAILED)
-			ret = TTLS_ERR_SSL_INVALID_MAC;
+			ret = TTLS_ERR_INVALID_MAC;
 
 		goto cleanup;
 	}
 	if (clear_len != enc_len)
 	{
-		ret = TTLS_ERR_SSL_INTERNAL_ERROR;
+		ret = TTLS_ERR_INTERNAL_ERROR;
 		goto cleanup;
 	}
 
@@ -415,7 +415,7 @@ int ttls_ssl_ticket_parse(void *p_ticket,
 		if (current_time < session->start ||
 			(uint32_t)(current_time - session->start) > ctx->ticket_lifetime)
 		{
-			ret = TTLS_ERR_SSL_SESSION_TICKET_EXPIRED;
+			ret = TTLS_ERR_SESSION_TICKET_EXPIRED;
 			goto cleanup;
 		}
 	}
@@ -429,11 +429,11 @@ cleanup:
 /*
  * Free context
  */
-void ttls_ssl_ticket_free(ttls_ssl_ticket_context *ctx)
+void ttls_ticket_free(ttls_ticket_context *ctx)
 {
 	ttls_cipher_free(&ctx->keys[0].ctx);
 	ttls_cipher_free(&ctx->keys[1].ctx);
-	ttls_zeroize(ctx, sizeof(ttls_ssl_ticket_context));
+	ttls_zeroize(ctx, sizeof(ttls_ticket_context));
 }
 
-#endif /* TTLS_SSL_TICKET_C */
+#endif /* TTLS_TICKET_C */

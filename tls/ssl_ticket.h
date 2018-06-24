@@ -24,8 +24,8 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#ifndef TTLS_SSL_TICKET_H
-#define TTLS_SSL_TICKET_H
+#ifndef TTLS_TICKET_H
+#define TTLS_TICKET_H
 
 /*
  * This implementation of the session ticket callbacks includes key
@@ -45,14 +45,14 @@ typedef struct
 	uint32_t generation_time;	   /*!< key generation timestamp (seconds) */
 	ttls_cipher_context_t ctx;   /*!< context for auth enc/decryption	*/
 }
-ttls_ssl_ticket_key;
+ttls_ticket_key;
 
 /**
  * \brief   Context for session ticket handling functions
  */
 typedef struct
 {
-	ttls_ssl_ticket_key keys[2]; /*!< ticket protection keys			 */
+	ttls_ticket_key keys[2]; /*!< ticket protection keys			 */
 	unsigned char active;		   /*!< index of the currently active key  */
 
 	uint32_t ticket_lifetime;	   /*!< lifetime of tickets in seconds	 */
@@ -63,16 +63,16 @@ typedef struct
 
 	spinlock_t mutex;
 }
-ttls_ssl_ticket_context;
+ttls_ticket_context;
 
 /**
  * \brief		   Initialize a ticket context.
- *				  (Just make it ready for ttls_ssl_ticket_setup()
- *				  or ttls_ssl_ticket_free().)
+ *				  (Just make it ready for ttls_ticket_setup()
+ *				  or ttls_ticket_free().)
  *
  * \param ctx	   Context to be initialized
  */
-void ttls_ssl_ticket_init(ttls_ssl_ticket_context *ctx);
+void ttls_ticket_init(ttls_ticket_context *ctx);
 
 /**
  * \brief		   Prepare context to be actually used
@@ -96,7 +96,7 @@ void ttls_ssl_ticket_init(ttls_ssl_ticket_context *ctx);
  * \return		  0 if successful,
  *				  or a specific TTLS_ERR_XXX error code
  */
-int ttls_ssl_ticket_setup(ttls_ssl_ticket_context *ctx,
+int ttls_ticket_setup(ttls_ticket_context *ctx,
 	int (*f_rng)(void *, unsigned char *, size_t), void *p_rng,
 	ttls_cipher_type_t cipher,
 	uint32_t lifetime);
@@ -104,22 +104,22 @@ int ttls_ssl_ticket_setup(ttls_ssl_ticket_context *ctx,
 /**
  * \brief		   Implementation of the ticket write callback
  *
- * \note			See \c mbedlts_ssl_ticket_write_t for description
+ * \note			See \c mbedlts_ticket_write_t for description
  */
-ttls_ssl_ticket_write_t ttls_ssl_ticket_write;
+ttls_ticket_write_t ttls_ticket_write;
 
 /**
  * \brief		   Implementation of the ticket parse callback
  *
- * \note			See \c mbedlts_ssl_ticket_parse_t for description
+ * \note			See \c mbedlts_ticket_parse_t for description
  */
-ttls_ssl_ticket_parse_t ttls_ssl_ticket_parse;
+ttls_ticket_parse_t ttls_ticket_parse;
 
 /**
  * \brief		   Free a context's content and zeroize it.
  *
  * \param ctx	   Context to be cleaned up
  */
-void ttls_ssl_ticket_free(ttls_ssl_ticket_context *ctx);
+void ttls_ticket_free(ttls_ticket_context *ctx);
 
 #endif /* ssl_ticket.h */
