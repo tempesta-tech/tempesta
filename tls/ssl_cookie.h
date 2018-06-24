@@ -24,8 +24,8 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#ifndef TTLS_SSL_COOKIE_H
-#define TTLS_SSL_COOKIE_H
+#ifndef TTLS_COOKIE_H
+#define TTLS_COOKIE_H
 
 #include "ttls.h"
 
@@ -36,8 +36,8 @@
  * Either change them in config.h or define them on the compiler command line.
  * \{
  */
-#ifndef TTLS_SSL_COOKIE_TIMEOUT
-#define TTLS_SSL_COOKIE_TIMEOUT	 60 /**< Default expiration delay of DTLS cookies, in seconds */
+#ifndef TTLS_COOKIE_TIMEOUT
+#define TTLS_COOKIE_TIMEOUT	 60 /**< Default expiration delay of DTLS cookies, in seconds */
 #endif
 
 /* \} name SECTION: Module settings */
@@ -51,43 +51,43 @@ typedef struct
 	unsigned long   serial;	 /*!< serial number for expiration   */
 	unsigned long   timeout;	/*!< timeout delay, in seconds */
 	spinlock_t mutex;
-} ttls_ssl_cookie_ctx;
+} ttls_cookie_ctx;
 
 /**
  * \brief		  Initialize cookie context
  */
-void ttls_ssl_cookie_init(ttls_ssl_cookie_ctx *ctx);
+void ttls_cookie_init(ttls_cookie_ctx *ctx);
 
 /**
  * \brief		  Setup cookie context (generate keys)
  */
-int ttls_ssl_cookie_setup(ttls_ssl_cookie_ctx *ctx,
+int ttls_cookie_setup(ttls_cookie_ctx *ctx,
 					  int (*f_rng)(void *, unsigned char *, size_t),
 					  void *p_rng);
 
 /**
  * \brief		  Set expiration delay for cookies
- *				 (Default TTLS_SSL_COOKIE_TIMEOUT)
+ *				 (Default TTLS_COOKIE_TIMEOUT)
  *
  * \param ctx	  Cookie contex
  * \param delay	Delay, in seconds if.
  *				 0 to disable expiration (NOT recommended)
  */
-void ttls_ssl_cookie_set_timeout(ttls_ssl_cookie_ctx *ctx, unsigned long delay);
+void ttls_cookie_set_timeout(ttls_cookie_ctx *ctx, unsigned long delay);
 
 /**
  * \brief		  Free cookie context
  */
-void ttls_ssl_cookie_free(ttls_ssl_cookie_ctx *ctx);
+void ttls_cookie_free(ttls_cookie_ctx *ctx);
 
 /**
- * \brief		  Generate cookie, see \c ttls_ssl_cookie_write_t
+ * \brief		  Generate cookie, see \c ttls_cookie_write_t
  */
-ttls_ssl_cookie_write_t ttls_ssl_cookie_write;
+ttls_cookie_write_t ttls_cookie_write;
 
 /**
- * \brief		  Verify cookie, see \c ttls_ssl_cookie_write_t
+ * \brief		  Verify cookie, see \c ttls_cookie_write_t
  */
-ttls_ssl_cookie_check_t ttls_ssl_cookie_check;
+ttls_cookie_check_t ttls_cookie_check;
 
 #endif /* ssl_cookie.h */
