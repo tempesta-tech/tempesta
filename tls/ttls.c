@@ -688,126 +688,6 @@ void ssl_calc_verify_tls_sha384(ttls_context *tls, unsigned char hash[48])
 }
 #endif /* TTLS_SHA512_C */
 
-#if defined(TTLS_KEY_EXCHANGE__SOME__PSK_ENABLED)
-int ttls_psk_derive_premaster(ttls_context *tls, ttls_key_exchange_type_t key_ex)
-{
-	unsigned char *p = tls->hs->premaster;
-	unsigned char *end = p + sizeof(tls->hs->premaster);
-	const unsigned char *psk = tls->conf->psk;
-	size_t psk_len = tls->conf->psk_len;
-
-	/* If the psk callback was called, use its result */
-	if (tls->hs->psk != NULL)
-	{
-		psk = tls->hs->psk;
-		psk_len = tls->hs->psk_len;
-	}
-
-	/*
-	 * PMS = struct {
-	 *	 opaque other_secret<0..2^16-1>;
-	 *	 opaque psk<0..2^16-1>;
-	 * };
-	 * with "other_secret" depending on the particular key exchange
-	 */
-#if defined(TTLS_KEY_EXCHANGE_PSK_ENABLED)
-	if (key_ex == TTLS_KEY_EXCHANGE_PSK)
-	{
-		if (end - p < 2)
-			return(TTLS_ERR_BAD_INPUT_DATA);
-
-		*(p++) = (unsigned char)(psk_len >> 8);
-		*(p++) = (unsigned char)(psk_len	 );
-
-		if (end < p || (size_t)(end - p) < psk_len)
-			return(TTLS_ERR_BAD_INPUT_DATA);
-
-		memset(p, 0, psk_len);
-		p += psk_len;
-	}
-	else
-#endif /* TTLS_KEY_EXCHANGE_PSK_ENABLED */
-#if defined(TTLS_KEY_EXCHANGE_RSA_PSK_ENABLED)
-	if (key_ex == TTLS_KEY_EXCHANGE_RSA_PSK)
-	{
-		/*
-		 * other_secret already set by the ClientKeyExchange message,
-		 * and is 48 bytes long
-		 */
-		*p++ = 0;
-		*p++ = 48;
-		p += 48;
-	}
-	else
-#endif /* TTLS_KEY_EXCHANGE_RSA_PSK_ENABLED */
-#if defined(TTLS_KEY_EXCHANGE_DHE_PSK_ENABLED)
-	if (key_ex == TTLS_KEY_EXCHANGE_DHE_PSK)
-	{
-		int r;
-		size_t len;
-
-		/* Write length only when we know the actual value */
-		if ((r = ttls_dhm_calc_secret(&tls->hs->dhm_ctx,
-						 p + 2, end - (p + 2), &len,
-						 tls->conf->f_rng, tls->conf->p_rng)) != 0)
-		{
-			TTLS_DEBUG_RET(1, "ttls_dhm_calc_secret", r);
-			return r;
-		}
-		*(p++) = (unsigned char)(len >> 8);
-		*(p++) = (unsigned char)(len);
-		p += len;
-
-		TTLS_DEBUG_MPI(3, "DHM: K ", &tls->hs->dhm_ctx.K );
-	}
-	else
-#endif /* TTLS_KEY_EXCHANGE_DHE_PSK_ENABLED */
-#if defined(TTLS_KEY_EXCHANGE_ECDHE_PSK_ENABLED)
-	if (key_ex == TTLS_KEY_EXCHANGE_ECDHE_PSK)
-	{
-		int r;
-		size_t zlen;
-
-		if ((r = ttls_ecdh_calc_secret(&tls->hs->ecdh_ctx, &zlen,
-						 p + 2, end - (p + 2),
-						 tls->conf->f_rng, tls->conf->p_rng)) != 0)
-		{
-			TTLS_DEBUG_RET(1, "ttls_ecdh_calc_secret", r);
-			return r;
-		}
-
-		*(p++) = (unsigned char)(zlen >> 8);
-		*(p++) = (unsigned char)(zlen	 );
-		p += zlen;
-
-		TTLS_DEBUG_MPI(3, "ECDH: z", &tls->hs->ecdh_ctx.z);
-	}
-	else
-#endif /* TTLS_KEY_EXCHANGE_ECDHE_PSK_ENABLED */
-	{
-		TTLS_DEBUG_MSG(1, ("should never happen"));
-		return(TTLS_ERR_INTERNAL_ERROR);
-	}
-
-	/* opaque psk<0..2^16-1>; */
-	if (end - p < 2)
-		return(TTLS_ERR_BAD_INPUT_DATA);
-
-	*(p++) = (unsigned char)(psk_len >> 8);
-	*(p++) = (unsigned char)(psk_len	 );
-
-	if (end < p || (size_t)(end - p) < psk_len)
-		return(TTLS_ERR_BAD_INPUT_DATA);
-
-	memcpy(p, psk, psk_len);
-	p += psk_len;
-
-	tls->hs->pmslen = p - tls->hs->premaster;
-
-	return 0;
-}
-#endif /* TTLS_KEY_EXCHANGE__SOME__PSK_ENABLED */
-
 void
 ttls_read_version(TlsCtx *tls, const unsigned char ver[2])
 {
@@ -1464,25 +1344,8 @@ ttls_handshake_free(TlsHandshake *hs)
 #if defined(TTLS_ECDH_C)
 	ttls_ecdh_free(&hs->ecdh_ctx);
 #endif
-#if defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
-	ttls_ecjpake_free(&hs->ecjpake_ctx);
-#if defined(TTLS_CLI_C)
-	ttls_free(hs->ecjpake_cache);
-	hs->ecjpake_cache = NULL;
-	hs->ecjpake_cache_len = 0;
-#endif
-#endif
-#if defined(TTLS_ECDH_C) || defined(TTLS_ECDSA_C) || \
-	defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
 	/* explicit void pointer cast for buggy MS compiler */
 	kfree(hs->curves);
-#endif
-#if defined(TTLS_KEY_EXCHANGE__SOME__PSK_ENABLED)
-	if (hs->psk) {
-		bzero_fast(hs->psk, hs->psk_len);
-		kfree(hs->psk);
-	}
-#endif
 
 	/*
 	 * Free only the linked list wrapper, not the keys themselves
@@ -2730,18 +2593,13 @@ ssl_handshake_params_init(TlsHandshake *hs)
 
 	hs->update_checksum = ssl_update_checksum_start;
 
-#if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
 	ttls_sig_hash_set_init(&hs->hash_algs);
-#endif
 
 #if defined(TTLS_DHM_C)
 	ttls_dhm_init(&hs->dhm_ctx);
 #endif
 #if defined(TTLS_ECDH_C)
 	ttls_ecdh_init(&hs->ecdh_ctx);
-#endif
-#if defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
-	ttls_ecjpake_init(&hs->ecjpake_ctx);
 #endif
 	hs->sni_authmode = TTLS_VERIFY_UNSET;
 }
@@ -2975,119 +2833,6 @@ void ttls_set_hs_authmode(ttls_context *tls,
 	tls->hs->sni_authmode = authmode;
 }
 
-#if defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
-/*
- * Set EC J-PAKE password for current handshake
- */
-int ttls_set_hs_ecjpake_password(ttls_context *tls,
-		const unsigned char *pw,
-		size_t pw_len)
-{
-	ttls_ecjpake_role role;
-
-	if (tls->hs == NULL || tls->conf == NULL)
-		return(TTLS_ERR_BAD_INPUT_DATA);
-
-	if (tls->conf->endpoint == TTLS_IS_SERVER)
-		role = TTLS_ECJPAKE_SERVER;
-	else
-		role = TTLS_ECJPAKE_CLIENT;
-
-	return(ttls_ecjpake_setup(&tls->hs->ecjpake_ctx,
-				 role,
-				 TTLS_MD_SHA256,
-				 TTLS_ECP_DP_SECP256R1,
-				 pw, pw_len));
-}
-#endif /* TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED */
-
-#if defined(TTLS_KEY_EXCHANGE__SOME__PSK_ENABLED)
-int ttls_conf_psk(ttls_config *conf,
-		const unsigned char *psk, size_t psk_len,
-		const unsigned char *psk_identity, size_t psk_identity_len)
-{
-	if (psk == NULL || psk_identity == NULL)
-		return(TTLS_ERR_BAD_INPUT_DATA);
-
-	if (psk_len > TTLS_PSK_MAX_LEN)
-		return(TTLS_ERR_BAD_INPUT_DATA);
-
-	/* Identity len will be encoded on two bytes */
-	if ((psk_identity_len >> 16) != 0 ||
-		psk_identity_len > TTLS_MAX_CONTENT_LEN)
-	{
-		return(TTLS_ERR_BAD_INPUT_DATA);
-	}
-
-	if (conf->psk != NULL)
-	{
-		bzero_fast(conf->psk, conf->psk_len);
-
-		ttls_free(conf->psk);
-		conf->psk = NULL;
-		conf->psk_len = 0;
-	}
-	if (conf->psk_identity != NULL)
-	{
-		ttls_free(conf->psk_identity);
-		conf->psk_identity = NULL;
-		conf->psk_identity_len = 0;
-	}
-
-	if ((conf->psk = ttls_calloc(1, psk_len)) == NULL ||
-		(conf->psk_identity = ttls_calloc(1, psk_identity_len)) == NULL)
-	{
-		ttls_free(conf->psk);
-		ttls_free(conf->psk_identity);
-		conf->psk = NULL;
-		conf->psk_identity = NULL;
-		return(TTLS_ERR_ALLOC_FAILED);
-	}
-
-	conf->psk_len = psk_len;
-	conf->psk_identity_len = psk_identity_len;
-
-	memcpy(conf->psk, psk, conf->psk_len);
-	memcpy(conf->psk_identity, psk_identity, conf->psk_identity_len);
-
-	return 0;
-}
-
-int ttls_set_hs_psk(ttls_context *tls,
-		const unsigned char *psk, size_t psk_len)
-{
-	if (psk == NULL || tls->hs == NULL)
-		return(TTLS_ERR_BAD_INPUT_DATA);
-
-	if (psk_len > TTLS_PSK_MAX_LEN)
-		return(TTLS_ERR_BAD_INPUT_DATA);
-
-	if (tls->hs->psk != NULL)
-	{
-		bzero_fast(tls->hs->psk, tls->hs->psk_len);
-		ttls_free(tls->hs->psk);
-		tls->hs->psk_len = 0;
-	}
-
-	if ((tls->hs->psk = ttls_calloc(1, psk_len)) == NULL)
-		return(TTLS_ERR_ALLOC_FAILED);
-
-	tls->hs->psk_len = psk_len;
-	memcpy(tls->hs->psk, psk, tls->hs->psk_len);
-
-	return 0;
-}
-
-void ttls_conf_psk_cb(ttls_config *conf,
-		int (*f_psk)(void *, ttls_context *, const unsigned char *,
-		size_t),
-		void *p_psk)
-{
-	conf->f_psk = f_psk;
-	conf->p_psk = p_psk;
-}
-#endif /* TTLS_KEY_EXCHANGE__SOME__PSK_ENABLED */
-
 #if defined(TTLS_DHM_C)
 
 int ttls_conf_dh_param_bin(ttls_config *conf,
@@ -3134,7 +2879,6 @@ void ttls_conf_dhm_min_bitlen(ttls_config *conf,
 }
 #endif /* TTLS_DHM_C && TTLS_CLI_C */
 
-#if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
 /*
  * Set allowed/preferred hashes for hs signatures
  */
@@ -3143,7 +2887,6 @@ void ttls_conf_sig_hashes(ttls_config *conf,
 {
 	conf->sig_hashes = hashes;
 }
-#endif /* TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED */
 
 /*
  * Set the allowed elliptic curves
@@ -3786,7 +3529,6 @@ void ttls_config_init(ttls_config *conf)
 	memset(conf, 0, sizeof(ttls_config));
 }
 
-#if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
 static int ssl_preset_default_hashes[] = {
 #if defined(TTLS_SHA512_C)
 	TTLS_MD_SHA512,
@@ -3798,7 +3540,6 @@ static int ssl_preset_default_hashes[] = {
 #endif
 	TTLS_MD_NONE
 };
-#endif
 
 static int ssl_preset_suiteb_ciphersuites[] = {
 	TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
@@ -3806,13 +3547,11 @@ static int ssl_preset_suiteb_ciphersuites[] = {
 	0
 };
 
-#if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
 static int ssl_preset_suiteb_hashes[] = {
 	TTLS_MD_SHA256,
 	TTLS_MD_SHA384,
 	TTLS_MD_NONE
 };
-#endif
 
 static ttls_ecp_group_id ssl_preset_suiteb_curves[] = {
 	TTLS_ECP_DP_SECP256R1,
@@ -3906,11 +3645,7 @@ int ttls_config_defaults(ttls_config *conf,
 					 ssl_preset_suiteb_ciphersuites;
 
 			conf->cert_profile = &ttls_x509_crt_profile_suiteb;
-
-#if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
 			conf->sig_hashes = ssl_preset_suiteb_hashes;
-#endif
-
 			conf->curve_list = ssl_preset_suiteb_curves;
 			break;
 
@@ -3941,11 +3676,7 @@ int ttls_config_defaults(ttls_config *conf,
 					 ttls_list_ciphersuites();
 
 			conf->cert_profile = &ttls_x509_crt_profile_default;
-
-#if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
 			conf->sig_hashes = ssl_preset_default_hashes;
-#endif
-
 			conf->curve_list = ttls_ecp_grp_id_list();
 
 #if defined(TTLS_DHM_C) && defined(TTLS_CLI_C)
@@ -3964,18 +3695,6 @@ void ttls_config_free(ttls_config *conf)
 #if defined(TTLS_DHM_C)
 	ttls_mpi_free(&conf->dhm_P);
 	ttls_mpi_free(&conf->dhm_G);
-#endif
-
-#if defined(TTLS_KEY_EXCHANGE__SOME__PSK_ENABLED)
-	if (conf->psk != NULL)
-	{
-		bzero_fast(conf->psk, conf->psk_len);
-		bzero_fast(conf->psk_identity, conf->psk_identity_len);
-		ttls_free(conf->psk);
-		ttls_free(conf->psk_identity);
-		conf->psk_len = 0;
-		conf->psk_identity_len = 0;
-	}
 #endif
 
 	ssl_key_cert_free(conf->key_cert);
@@ -4025,8 +3744,6 @@ ttls_pk_type_t ttls_pk_alg_from_sig(unsigned char sig)
 	}
 }
 
-#if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
-
 /* Find an entry in a signature-hash set matching a given hash algorithm. */
 ttls_md_type_t ttls_sig_hash_set_find(ttls_sig_hash_set_t *set,
 		 ttls_pk_type_t sig_alg)
@@ -4071,8 +3788,6 @@ void ttls_sig_hash_set_const_hash(ttls_sig_hash_set_t *set,
 	set->rsa = md_alg;
 	set->ecdsa = md_alg;
 }
-
-#endif /* TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED */
 
 /*
  * Convert from TTLS_HASH_XXX to TTLS_MD_XXX
@@ -4140,7 +3855,6 @@ int ttls_check_curve(const ttls_context *tls, ttls_ecp_group_id grp_id)
 	return(-1);
 }
 
-#if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
 /*
  * Check if a hash proposed by the peer is in our list.
  * Return 0 if we're willing to use it, -1 otherwise.
@@ -4159,7 +3873,6 @@ int ttls_check_sig_hash(const ttls_context *tls,
 
 	return(-1);
 }
-#endif /* TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED */
 
 int ttls_check_cert_usage(const ttls_x509_crt *cert,
 		 const ttls_ciphersuite_t *ciphersuite,
