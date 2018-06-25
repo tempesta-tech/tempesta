@@ -1,6 +1,4 @@
 /**
- * \file config.h
- *
  * \brief Configuration options (set of defines)
  *
  *  This set of compile-time options may be used to enable
@@ -663,7 +661,7 @@
  *
  * Comment this macro to disable support for DTLS
  */
-#define TTLS_PROTO_DTLS
+//#define TTLS_PROTO_DTLS
 
 /**
  * \def TTLS_DTLS_ANTI_REPLAY
@@ -677,7 +675,7 @@
  *
  * Comment this to disable anti-replay in DTLS.
  */
-#define TTLS_DTLS_ANTI_REPLAY
+//#define TTLS_DTLS_ANTI_REPLAY
 
 /**
  * \def TTLS_DTLS_HELLO_VERIFY
@@ -695,7 +693,7 @@
  *
  * Comment this to disable support for HelloVerifyRequest.
  */
-#define TTLS_DTLS_HELLO_VERIFY
+//#define TTLS_DTLS_HELLO_VERIFY
 
 /**
  * \def TTLS_DTLS_CLIENT_PORT_REUSE
@@ -711,7 +709,7 @@
  *
  * Comment this to disable support for clients reusing the source port.
  */
-#define TTLS_DTLS_CLIENT_PORT_REUSE
+//#define TTLS_DTLS_CLIENT_PORT_REUSE
 
 /**
  * \def TTLS_DTLS_BADMAC_LIMIT
@@ -722,7 +720,7 @@
  *
  * Requires: TTLS_PROTO_DTLS
  */
-#define TTLS_DTLS_BADMAC_LIMIT
+//#define TTLS_DTLS_BADMAC_LIMIT
 
 /**
  * \def TTLS_SESSION_TICKETS

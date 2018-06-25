@@ -116,12 +116,9 @@ struct ttls_sig_hash_set_t
 /*
  * This structure contains the parameters only needed during handshake.
  */
-struct ttls_handshake_params
+typedef struct
 {
-	/*
-	 * Handshake specific crypto variables
-	 */
-
+	/* Handshake specific crypto variables. */
 #if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
 	ttls_sig_hash_set_t hash_algs;			 /*!<  Set of suitable sig-hash pairs */
 #endif
@@ -208,7 +205,7 @@ struct ttls_handshake_params
 #if defined(TTLS_EXTENDED_MASTER_SECRET)
 	int extended_ms;					/*!< use Extended Master Secret? */
 #endif
-};
+} TlsHandshake;
 
 /*
  * Session specific crypto layer.
@@ -300,13 +297,7 @@ static inline void ttls_sig_hash_set_init(ttls_sig_hash_set_t *set)
  */
 void ttls_transform_free(TtlsXfrm *transform);
 
-/**
- * \brief   Free referenced items in an SSL handshake context and clear
- *	  memory
- *
- * \param handshake SSL handshake context
- */
-void ttls_handshake_free(ttls_handshake_params *handshake);
+void ttls_handshake_free(TlsHandshake *hs);
 
 int ttls_handshake_client_step(ttls_context *tls);
 int ttls_handshake_server_step(ttls_context *tls);
@@ -471,13 +462,14 @@ int ttls_check_cert_usage(const ttls_x509_crt *cert,
 void ttls_write_version(TlsCtx *tls, unsigned char ver[2]);
 void ttls_read_version(TlsCts *tls, const unsigned char ver[2]);
 
-static inline size_t ttls_hs_hdr_len(const ttls_context *tls)
+static inline size_t
+ttls_hs_hdr_len(const TlsCtx *tls)
 {
 #if defined(TTLS_PROTO_DTLS)
 	if (tls->conf->transport == TTLS_TRANSPORT_DATAGRAM)
-		return(12);
+		return 12;
 #endif
-	return(4);
+	return 4;
 }
 
 #if defined(TTLS_PROTO_DTLS)
