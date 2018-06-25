@@ -3,11 +3,6 @@
  *
  * Main TLS shared functions for the server and client.
  *
- * TODO DTLS isn't ported to Synchronous sockets and completely broken now.
- * That's fine because we don't build DTLS. I'm not sure whether we need
- * DTLS at all, it depends on final QUIC standard - will it be based on DTLS
- * or it's own encryption layer.
- *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
@@ -42,6 +37,7 @@ MODULE_DESCRIPTION("Tempesta TLS");
 MODULE_VERSION("0.2.0");
 MODULE_LICENSE("GPL");
 
+static struct kmem_cache *ttls_hs_cache;
 static ttls_send_cb_t	*ttls_send_cb;
 
 /**
@@ -156,42 +152,6 @@ static int ssl_check_timer(ttls_context *tls)
 
 	return 0;
 }
-
-#if defined(TTLS_PROTO_DTLS)
-/*
- * Double the retransmit timeout value, within the allowed range,
- * returning -1 if the maximum value has already been reached.
- */
-static int ssl_double_retransmit_timeout(ttls_context *tls)
-{
-	uint32_t new_timeout;
-
-	if (tls->handshake->retransmit_timeout >= tls->conf->hs_timeout_max)
-		return(-1);
-
-	new_timeout = 2 * tls->handshake->retransmit_timeout;
-
-	/* Avoid arithmetic overflow and range overflow */
-	if (new_timeout < tls->handshake->retransmit_timeout ||
-		new_timeout > tls->conf->hs_timeout_max)
-	{
-		new_timeout = tls->conf->hs_timeout_max;
-	}
-
-	tls->handshake->retransmit_timeout = new_timeout;
-	TTLS_DEBUG_MSG(3, ("update timeout value to %d millisecs",
-				tls->handshake->retransmit_timeout));
-
-	return 0;
-}
-
-static void ssl_reset_retransmit_timeout(ttls_context *tls)
-{
-	tls->handshake->retransmit_timeout = tls->conf->hs_timeout_min;
-	TTLS_DEBUG_MSG(3, ("update timeout value to %d millisecs",
-				tls->handshake->retransmit_timeout));
-}
-#endif /* TTLS_PROTO_DTLS */
 
 #if defined(TTLS_MAX_FRAGMENT_LENGTH)
 /*
@@ -370,7 +330,7 @@ int ttls_derive_keys(ttls_context *tls)
 
 	ttls_session *session = tls->session_negotiate;
 	ttls_transform *transform = tls->transform_negotiate;
-	ttls_handshake_params *handshake = tls->handshake;
+	TlsHandshake *hs = tls->hs;
 
 	TTLS_DEBUG_MSG(2, ("=> derive keys"));
 
@@ -397,18 +357,18 @@ int ttls_derive_keys(ttls_context *tls)
 	if (tls->minor_ver == TTLS_MINOR_VERSION_3 &&
 		transform->ciphersuite_info->mac == TTLS_MD_SHA384)
 	{
-		handshake->tls_prf = tls_prf_sha384;
-		handshake->calc_verify = ssl_calc_verify_tls_sha384;
-		handshake->calc_finished = ssl_calc_finished_tls_sha384;
+		hs->tls_prf = tls_prf_sha384;
+		hs->calc_verify = ssl_calc_verify_tls_sha384;
+		hs->calc_finished = ssl_calc_finished_tls_sha384;
 	}
 	else
 #endif
 #if defined(TTLS_SHA256_C)
 	if (tls->minor_ver == TTLS_MINOR_VERSION_3)
 	{
-		handshake->tls_prf = tls_prf_sha256;
-		handshake->calc_verify = ssl_calc_verify_tls_sha256;
-		handshake->calc_finished = ssl_calc_finished_tls_sha256;
+		hs->tls_prf = tls_prf_sha256;
+		hs->calc_verify = ssl_calc_verify_tls_sha256;
+		hs->calc_finished = ssl_calc_finished_tls_sha256;
 	}
 	else
 #endif
@@ -427,20 +387,20 @@ int ttls_derive_keys(ttls_context *tls)
 	 * TLSv1+:
 	 * master = PRF(premaster, "master secret", randbytes)[0..47]
 	 */
-	if (handshake->resume == 0)
+	if (hs->resume == 0)
 	{
-		TTLS_DEBUG_BUF(3, "premaster secret", handshake->premaster,
-					 handshake->pmslen);
+		TTLS_DEBUG_BUF(3, "premaster secret", hs->premaster,
+					 hs->pmslen);
 
 #if defined(TTLS_EXTENDED_MASTER_SECRET)
-		if (tls->handshake->extended_ms == TTLS_EXTENDED_MS_ENABLED)
+		if (tls->hs->extended_ms == TTLS_EXTENDED_MS_ENABLED)
 		{
 			unsigned char session_hash[48];
 			size_t hash_len;
 
 			TTLS_DEBUG_MSG(3, ("using extended master secret"));
 
-			tls->handshake->calc_verify(tls, session_hash);
+			tls->hs->calc_verify(tls, session_hash);
 
 			if (tls->minor_ver == TTLS_MINOR_VERSION_3)
 			{
@@ -459,7 +419,7 @@ int ttls_derive_keys(ttls_context *tls)
 
 			TTLS_DEBUG_BUF(3, "session hash", session_hash, hash_len);
 
-			r = handshake->tls_prf(handshake->premaster, handshake->pmslen,
+			r = hs->tls_prf(hs->premaster, hs->pmslen,
 						 "extended master secret",
 						 session_hash, hash_len,
 						 session->master, 48);
@@ -472,9 +432,9 @@ int ttls_derive_keys(ttls_context *tls)
 		}
 		else
 #endif
-		r = handshake->tls_prf(handshake->premaster, handshake->pmslen,
+		r = hs->tls_prf(hs->premaster, hs->pmslen,
 					 "master secret",
-					 handshake->randbytes, 64,
+					 hs->randbytes, 64,
 					 session->master, 48);
 		if (r != 0)
 		{
@@ -482,7 +442,7 @@ int ttls_derive_keys(ttls_context *tls)
 			return r;
 		}
 
-		bzero_fast(handshake->premaster, sizeof(handshake->premaster));
+		bzero_fast(hs->premaster, sizeof(hs->premaster));
 	}
 	else
 		TTLS_DEBUG_MSG(3, ("no premaster (session resumed)"));
@@ -490,9 +450,9 @@ int ttls_derive_keys(ttls_context *tls)
 	/*
 	 * Swap the client and server random values.
 	 */
-	memcpy(tmp, handshake->randbytes, 64);
-	memcpy(handshake->randbytes, tmp + 32, 32);
-	memcpy(handshake->randbytes + 32, tmp, 32);
+	memcpy(tmp, hs->randbytes, 64);
+	memcpy(hs->randbytes, tmp + 32, 32);
+	memcpy(hs->randbytes + 32, tmp, 32);
 	bzero_fast(tmp, sizeof(tmp));
 
 	/*
@@ -507,8 +467,8 @@ int ttls_derive_keys(ttls_context *tls)
 	 * TLSv1:
 	 *	key block = PRF(master, "key expansion", randbytes)
 	 */
-	r = handshake->tls_prf(session->master, 48, "key expansion",
-				 handshake->randbytes, 64, keyblk, 256);
+	r = hs->tls_prf(session->master, 48, "key expansion",
+				 hs->randbytes, 64, keyblk, 256);
 	if (r != 0)
 	{
 		TTLS_DEBUG_RET(1, "prf", r);
@@ -518,10 +478,10 @@ int ttls_derive_keys(ttls_context *tls)
 	TTLS_DEBUG_MSG(3, ("ciphersuite = %s",
 		ttls_get_ciphersuite_name(session->ciphersuite)));
 	TTLS_DEBUG_BUF(3, "master secret", session->master, 48);
-	TTLS_DEBUG_BUF(4, "random bytes", handshake->randbytes, 64);
+	TTLS_DEBUG_BUF(4, "random bytes", hs->randbytes, 64);
 	TTLS_DEBUG_BUF(4, "key block", keyblk, 256);
 
-	bzero_fast(handshake->randbytes, sizeof(handshake->randbytes));
+	bzero_fast(hs->randbytes, sizeof(hs->randbytes));
 
 	/*
 	 * Determine the appropriate key, IV and MAC length.
@@ -695,7 +655,7 @@ void ssl_calc_verify_tls_sha256(ttls_context *tls, unsigned char hash[32])
 
 	TTLS_DEBUG_MSG(2, ("=> calc verify sha256"));
 
-	ttls_sha256_clone(&sha256, &tls->handshake->fin_sha256);
+	ttls_sha256_clone(&sha256, &tls->hs->fin_sha256);
 	ttls_sha256_finish_ret(&sha256, hash);
 
 	TTLS_DEBUG_BUF(3, "calculated verify result", hash, 32);
@@ -716,7 +676,7 @@ void ssl_calc_verify_tls_sha384(ttls_context *tls, unsigned char hash[48])
 
 	TTLS_DEBUG_MSG(2, ("=> calc verify sha384"));
 
-	ttls_sha512_clone(&sha512, &tls->handshake->fin_sha512);
+	ttls_sha512_clone(&sha512, &tls->hs->fin_sha512);
 	ttls_sha512_finish_ret(&sha512, hash);
 
 	TTLS_DEBUG_BUF(3, "calculated verify result", hash, 48);
@@ -731,16 +691,16 @@ void ssl_calc_verify_tls_sha384(ttls_context *tls, unsigned char hash[48])
 #if defined(TTLS_KEY_EXCHANGE__SOME__PSK_ENABLED)
 int ttls_psk_derive_premaster(ttls_context *tls, ttls_key_exchange_type_t key_ex)
 {
-	unsigned char *p = tls->handshake->premaster;
-	unsigned char *end = p + sizeof(tls->handshake->premaster);
+	unsigned char *p = tls->hs->premaster;
+	unsigned char *end = p + sizeof(tls->hs->premaster);
 	const unsigned char *psk = tls->conf->psk;
 	size_t psk_len = tls->conf->psk_len;
 
 	/* If the psk callback was called, use its result */
-	if (tls->handshake->psk != NULL)
+	if (tls->hs->psk != NULL)
 	{
-		psk = tls->handshake->psk;
-		psk_len = tls->handshake->psk_len;
+		psk = tls->hs->psk;
+		psk_len = tls->hs->psk_len;
 	}
 
 	/*
@@ -787,7 +747,7 @@ int ttls_psk_derive_premaster(ttls_context *tls, ttls_key_exchange_type_t key_ex
 		size_t len;
 
 		/* Write length only when we know the actual value */
-		if ((r = ttls_dhm_calc_secret(&tls->handshake->dhm_ctx,
+		if ((r = ttls_dhm_calc_secret(&tls->hs->dhm_ctx,
 						 p + 2, end - (p + 2), &len,
 						 tls->conf->f_rng, tls->conf->p_rng)) != 0)
 		{
@@ -798,7 +758,7 @@ int ttls_psk_derive_premaster(ttls_context *tls, ttls_key_exchange_type_t key_ex
 		*(p++) = (unsigned char)(len);
 		p += len;
 
-		TTLS_DEBUG_MPI(3, "DHM: K ", &tls->handshake->dhm_ctx.K );
+		TTLS_DEBUG_MPI(3, "DHM: K ", &tls->hs->dhm_ctx.K );
 	}
 	else
 #endif /* TTLS_KEY_EXCHANGE_DHE_PSK_ENABLED */
@@ -808,7 +768,7 @@ int ttls_psk_derive_premaster(ttls_context *tls, ttls_key_exchange_type_t key_ex
 		int r;
 		size_t zlen;
 
-		if ((r = ttls_ecdh_calc_secret(&tls->handshake->ecdh_ctx, &zlen,
+		if ((r = ttls_ecdh_calc_secret(&tls->hs->ecdh_ctx, &zlen,
 						 p + 2, end - (p + 2),
 						 tls->conf->f_rng, tls->conf->p_rng)) != 0)
 		{
@@ -820,7 +780,7 @@ int ttls_psk_derive_premaster(ttls_context *tls, ttls_key_exchange_type_t key_ex
 		*(p++) = (unsigned char)(zlen	 );
 		p += zlen;
 
-		TTLS_DEBUG_MPI(3, "ECDH: z", &tls->handshake->ecdh_ctx.z);
+		TTLS_DEBUG_MPI(3, "ECDH: z", &tls->hs->ecdh_ctx.z);
 	}
 	else
 #endif /* TTLS_KEY_EXCHANGE_ECDHE_PSK_ENABLED */
@@ -842,7 +802,7 @@ int ttls_psk_derive_premaster(ttls_context *tls, ttls_key_exchange_type_t key_ex
 	memcpy(p, psk, psk_len);
 	p += psk_len;
 
-	tls->handshake->pmslen = p - tls->handshake->premaster;
+	tls->hs->pmslen = p - tls->hs->premaster;
 
 	return 0;
 }
@@ -1044,8 +1004,8 @@ ttls_write_record(TlsCtx *tls, char *buf, size_t len) // TODO AK
 
 #if defined(TTLS_PROTO_DTLS)
 	if (tls->conf->transport == TTLS_TRANSPORT_DATAGRAM &&
-		tls->handshake != NULL &&
-		tls->handshake->retransmit_state == TTLS_RETRANS_SENDING)
+		tls->hs != NULL &&
+		tls->hs->retransmit_state == TTLS_RETRANS_SENDING)
 	{
 		; /* Skip special handshake treatment when resending */
 	}
@@ -1056,7 +1016,7 @@ ttls_write_record(TlsCtx *tls, char *buf, size_t len) // TODO AK
 
 		out_msg_type = tls->out_msg[0];
 		if (out_msg_type != TTLS_HS_HELLO_REQUEST &&
-			tls->handshake == NULL)
+			tls->hs == NULL)
 		{
 			TTLS_DEBUG_MSG(1, ("should never happen"));
 			return(TTLS_ERR_INTERNAL_ERROR);
@@ -1093,9 +1053,9 @@ ttls_write_record(TlsCtx *tls, char *buf, size_t len) // TODO AK
 			/* Write message_seq and update it, except for HelloRequest */
 			if (out_msg_type != TTLS_HS_HELLO_REQUEST)
 			{
-				tls->out_msg[4] = (tls->handshake->out_msg_seq >> 8) & 0xFF;
-				tls->out_msg[5] = (tls->handshake->out_msg_seq	 ) & 0xFF;
-				++(tls->handshake->out_msg_seq);
+				tls->out_msg[4] = (tls->hs->out_msg_seq >> 8) & 0xFF;
+				tls->out_msg[5] = (tls->hs->out_msg_seq	 ) & 0xFF;
+				++(tls->hs->out_msg_seq);
 			}
 			else
 			{
@@ -1110,14 +1070,14 @@ ttls_write_record(TlsCtx *tls, char *buf, size_t len) // TODO AK
 #endif /* TTLS_PROTO_DTLS */
 
 		if (out_msg_type != TTLS_HS_HELLO_REQUEST)
-			tls->handshake->update_checksum(tls, tls->out_msg, len);
+			tls->hs->update_checksum(tls, tls->out_msg, len);
 	}
 
 	/* Save handshake and CCS messages for resending */
 #if defined(TTLS_PROTO_DTLS)
 	if (tls->conf->transport == TTLS_TRANSPORT_DATAGRAM &&
-		tls->handshake != NULL &&
-		tls->handshake->retransmit_state != TTLS_RETRANS_SENDING &&
+		tls->hs != NULL &&
+		tls->hs->retransmit_state != TTLS_RETRANS_SENDING &&
 		(tls->out_msgtype == TTLS_MSG_CHANGE_CIPHER_SPEC ||
 		 tls->out_msgtype == TTLS_MSG_HANDSHAKE))
 	{
@@ -1137,434 +1097,6 @@ ttls_write_record(TlsCtx *tls, char *buf, size_t len) // TODO AK
 
 	return ttls_sendmsg(tls, buf, len);
 }
-
-/*
- * Functions to handle the DTLS retransmission state machine
- */
-#if defined(TTLS_PROTO_DTLS)
-/*
- * Append current handshake message to current outgoing flight
- */
-static int ssl_flight_append(ttls_context *tls)
-{
-	ttls_flight_item *msg;
-
-	/* Allocate space for current message */
-	if ((msg = ttls_calloc(1, sizeof( ttls_flight_item))) == NULL)
-	{
-		TTLS_DEBUG_MSG(1, ("alloc %d bytes failed",
-			sizeof(ttls_flight_item)));
-		return(TTLS_ERR_ALLOC_FAILED);
-	}
-
-	if ((msg->p = ttls_calloc(1, tls->out_msglen)) == NULL)
-	{
-		TTLS_DEBUG_MSG(1, ("alloc %d bytes failed", tls->out_msglen));
-		ttls_free(msg);
-		return(TTLS_ERR_ALLOC_FAILED);
-	}
-
-	/* Copy current handshake message with headers */
-	memcpy(msg->p, tls->out_msg, tls->out_msglen);
-	msg->len = tls->out_msglen;
-	msg->type = tls->out_msgtype;
-	msg->next = NULL;
-
-	/* Append to the current flight */
-	if (tls->handshake->flight == NULL)
-		tls->handshake->flight = msg;
-	else
-	{
-		ttls_flight_item *cur = tls->handshake->flight;
-		while (cur->next != NULL)
-			cur = cur->next;
-		cur->next = msg;
-	}
-
-	return 0;
-}
-
-/*
- * Free the current flight of handshake messages
- */
-static void ssl_flight_free(ttls_flight_item *flight)
-{
-	ttls_flight_item *cur = flight;
-	ttls_flight_item *next;
-
-	while (cur != NULL)
-	{
-		next = cur->next;
-
-		ttls_free(cur->p);
-		ttls_free(cur);
-
-		cur = next;
-	}
-}
-
-#if defined(TTLS_DTLS_ANTI_REPLAY)
-static void ssl_dtls_replay_reset(ttls_context *tls);
-#endif
-
-/*
- * Swap transform_out and out_ctr with the alternative ones
- */
-static void ssl_swap_epochs(ttls_context *tls)
-{
-	ttls_transform *tmp_transform;
-	unsigned char tmp_out_ctr[8];
-
-	if (tls->transform_out == tls->handshake->alt_transform_out)
-	{
-		TTLS_DEBUG_MSG(3, ("skip swap epochs"));
-		return;
-	}
-
-	TTLS_DEBUG_MSG(3, ("swap epochs"));
-
-	/* Swap transforms */
-	tmp_transform	 = tls->transform_out;
-	tls->transform_out = tls->handshake->alt_transform_out;
-	tls->handshake->alt_transform_out = tmp_transform;
-
-	/* Swap epoch + sequence_number */
-	memcpy(tmp_out_ctr, tls->out_ctr, 8);
-	memcpy(tls->out_ctr, tls->handshake->alt_out_ctr, 8);
-	memcpy(tls->handshake->alt_out_ctr, tmp_out_ctr, 8);
-
-	/* Adjust to the newly activated transform */
-	if (tls->transform_out != NULL &&
-		tls->minor_ver >= TTLS_MINOR_VERSION_2)
-	{
-		tls->out_msg = tls->out_iv + tls->transform_out->ivlen -
-					 tls->transform_out->fixed_ivlen;
-	}
-	else
-		tls->out_msg = tls->out_iv;
-}
-
-/*
- * Retransmit the current flight of messages.
- *
- * Need to remember the current message in case flush_output returns
- * WANT_WRITE, causing us to exit this function and come back later.
- * This function must be called until state is no longer SENDING.
- */
-int ttls_resend(ttls_context *tls)
-{
-	TTLS_DEBUG_MSG(2, ("=> ttls_resend"));
-
-	if (tls->handshake->retransmit_state != TTLS_RETRANS_SENDING)
-	{
-		TTLS_DEBUG_MSG(2, ("initialise resending"));
-
-		tls->handshake->cur_msg = tls->handshake->flight;
-		ssl_swap_epochs(tls);
-
-		tls->handshake->retransmit_state = TTLS_RETRANS_SENDING;
-	}
-
-	while (tls->handshake->cur_msg != NULL)
-	{
-		int r;
-		ttls_flight_item *cur = tls->handshake->cur_msg;
-
-		/* Swap epochs before sending Finished: we can't do it after
-		 * sending ChangeCipherSpec, in case write returns WANT_READ.
-		 * Must be done before copying, may change out_msg pointer */
-		if (cur->type == TTLS_MSG_HANDSHAKE &&
-			cur->p[0] == TTLS_HS_FINISHED)
-		{
-			ssl_swap_epochs(tls);
-		}
-
-		memcpy(tls->out_msg, cur->p, cur->len);
-		tls->out_msglen = cur->len;
-		tls->out_msgtype = cur->type;
-
-		tls->handshake->cur_msg = cur->next;
-
-		TTLS_DEBUG_BUF(3, "resent handshake message header", tls->out_msg, 12);
-
-		if ((r = ttls_write_record(tls)) != 0)
-		{
-			TTLS_DEBUG_RET(1, "ttls_write_record", r);
-			return r;
-		}
-	}
-
-	if (tls->state == TTLS_HANDSHAKE_OVER)
-		tls->handshake->retransmit_state = TTLS_RETRANS_FINISHED;
-	else
-	{
-		tls->handshake->retransmit_state = TTLS_RETRANS_WAITING;
-		ssl_set_timer(tls, tls->handshake->retransmit_timeout);
-	}
-
-	TTLS_DEBUG_MSG(2, ("<= ttls_resend"));
-
-	return 0;
-}
-
-/*
- * To be called when the last message of an incoming flight is received.
- */
-void ttls_recv_flight_completed(ttls_context *tls)
-{
-	/* We won't need to resend that one any more */
-	ssl_flight_free(tls->handshake->flight);
-	tls->handshake->flight = NULL;
-	tls->handshake->cur_msg = NULL;
-
-	/* The next incoming flight will start with this msg_seq */
-	tls->handshake->in_flight_start_seq = tls->handshake->in_msg_seq;
-
-	/* Cancel timer */
-	ssl_set_timer(tls, 0);
-
-	if (tls->in_msgtype == TTLS_MSG_HANDSHAKE &&
-		tls->in_msg[0] == TTLS_HS_FINISHED)
-	{
-		tls->handshake->retransmit_state = TTLS_RETRANS_FINISHED;
-	}
-	else
-		tls->handshake->retransmit_state = TTLS_RETRANS_PREPARING;
-}
-
-/*
- * To be called when the last message of an outgoing flight is send.
- */
-void ttls_send_flight_completed(ttls_context *tls)
-{
-	ssl_reset_retransmit_timeout(tls);
-	ssl_set_timer(tls, tls->handshake->retransmit_timeout);
-
-	if (tls->in_msgtype == TTLS_MSG_HANDSHAKE &&
-		tls->in_msg[0] == TTLS_HS_FINISHED)
-	{
-		tls->handshake->retransmit_state = TTLS_RETRANS_FINISHED;
-	}
-	else
-		tls->handshake->retransmit_state = TTLS_RETRANS_WAITING;
-}
-
-/*
- * Mark bits in bitmask (used for DTLS HS reassembly)
- */
-static void ssl_bitmask_set(unsigned char *mask, size_t offset, size_t len)
-{
-	unsigned int start_bits, end_bits;
-
-	start_bits = 8 - (offset % 8);
-	if (start_bits != 8)
-	{
-		size_t first_byte_idx = offset / 8;
-
-		/* Special case */
-		if (len <= start_bits)
-		{
-			for (; len != 0; len--)
-				mask[first_byte_idx] |= 1 << (start_bits - len);
-
-			/* Avoid potential issues with offset or len becoming invalid */
-			return;
-		}
-
-		offset += start_bits; /* Now offset % 8 == 0 */
-		len -= start_bits;
-
-		for (; start_bits != 0; start_bits--)
-			mask[first_byte_idx] |= 1 << (start_bits - 1);
-	}
-
-	end_bits = len % 8;
-	if (end_bits != 0)
-	{
-		size_t last_byte_idx = (offset + len) / 8;
-
-		len -= end_bits; /* Now len % 8 == 0 */
-
-		for (; end_bits != 0; end_bits--)
-			mask[last_byte_idx] |= 1 << (8 - end_bits);
-	}
-
-	memset(mask + offset / 8, 0xFF, len / 8);
-}
-
-/*
- * Check that bitmask is full
- */
-static int ssl_bitmask_check(unsigned char *mask, size_t len)
-{
-	size_t i;
-
-	for (i = 0; i < len / 8; i++)
-		if (mask[i] != 0xFF)
-			return(-1);
-
-	for (i = 0; i < len % 8; i++)
-		if ((mask[len / 8] & (1 << (7 - i))) == 0)
-			return(-1);
-
-	return 0;
-}
-
-/*
- * Reassemble fragmented DTLS handshake messages.
- *
- * Use a temporary buffer for reassembly, divided in two parts:
- * - the first holds the reassembled message (including handshake header),
- * - the second holds a bitmask indicating which parts of the message
- * (excluding headers) have been received so far.
- */
-static int ssl_reassemble_dtls_handshake(ttls_context *tls)
-{
-	unsigned char *msg, *bitmask;
-	size_t frag_len, frag_off;
-	size_t msg_len = tls->in_hslen - 12; /* Without headers */
-
-	if (tls->handshake == NULL)
-	{
-		TTLS_DEBUG_MSG(1, ("not supported outside handshake (for now)"));
-		return(TTLS_ERR_FEATURE_UNAVAILABLE);
-	}
-
-	/*
-	 * For first fragment, check size and allocate buffer
-	 */
-	if (tls->handshake->hs_msg == NULL)
-	{
-		size_t alloc_len;
-
-		TTLS_DEBUG_MSG(2, ("initialize reassembly, total length = %d",
-							msg_len));
-
-		if (tls->in_hslen > TTLS_MAX_CONTENT_LEN)
-		{
-			TTLS_DEBUG_MSG(1, ("handshake message too large"));
-			return(TTLS_ERR_FEATURE_UNAVAILABLE);
-		}
-
-		/* The bitmask needs one bit per byte of message excluding header */
-		alloc_len = 12 + msg_len + msg_len / 8 + (msg_len % 8 != 0);
-
-		tls->handshake->hs_msg = ttls_calloc(1, alloc_len);
-		if (tls->handshake->hs_msg == NULL)
-		{
-			TTLS_DEBUG_MSG(1, ("alloc failed (%d bytes)", alloc_len));
-			return(TTLS_ERR_ALLOC_FAILED);
-		}
-
-		/* Prepare final header: copy msg_type, length and message_seq,
-		 * then add standardised fragment_offset and fragment_length */
-		memcpy(tls->handshake->hs_msg, tls->in_msg, 6);
-		memset(tls->handshake->hs_msg + 6, 0, 3);
-		memcpy(tls->handshake->hs_msg + 9,
-				tls->handshake->hs_msg + 1, 3);
-	}
-	else
-	{
-		/* Make sure msg_type and length are consistent */
-		if (memcmp(tls->handshake->hs_msg, tls->in_msg, 4) != 0)
-		{
-			TTLS_DEBUG_MSG(1, ("fragment header mismatch"));
-			return(TTLS_ERR_INVALID_RECORD);
-		}
-	}
-
-	msg = tls->handshake->hs_msg + 12;
-	bitmask = msg + msg_len;
-
-	/*
-	 * Check and copy current fragment
-	 */
-	frag_off = (tls->in_msg[6] << 16) |
-			 (tls->in_msg[7] << 8 ) |
-				 tls->in_msg[8];
-	frag_len = (tls->in_msg[9] << 16) |
-			 (tls->in_msg[10] << 8 ) |
-				 tls->in_msg[11];
-
-	if (frag_off + frag_len > msg_len)
-	{
-		TTLS_DEBUG_MSG(1, ("invalid fragment offset/len: %d + %d > %d",
-						 frag_off, frag_len, msg_len));
-		return(TTLS_ERR_INVALID_RECORD);
-	}
-
-	if (frag_len + 12 > tls->in_msglen)
-	{
-		TTLS_DEBUG_MSG(1, ("invalid fragment length: %d + 12 > %d",
-						 frag_len, tls->in_msglen));
-		return(TTLS_ERR_INVALID_RECORD);
-	}
-
-	TTLS_DEBUG_MSG(2, ("adding fragment, offset = %d, length = %d",
-						frag_off, frag_len));
-
-	memcpy(msg + frag_off, tls->in_msg + 12, frag_len);
-	ssl_bitmask_set(bitmask, frag_off, frag_len);
-
-	/*
-	 * Do we have the complete message by now?
-	 * If yes, finalize it, else ask to read the next record.
-	 */
-	if (ssl_bitmask_check(bitmask, msg_len) != 0)
-	{
-		TTLS_DEBUG_MSG(2, ("message is not complete yet"));
-		return(TTLS_ERR_WANT_READ);
-	}
-
-	TTLS_DEBUG_MSG(2, ("handshake message completed"));
-
-	if (frag_len + 12 < tls->in_msglen)
-	{
-		/*
-		 * We'got more handshake messages in the same record.
-		 * This case is not handled now because no know implementation does
-		 * that and it's hard to test, so we prefer to fail cleanly for now.
-		 */
-		TTLS_DEBUG_MSG(1, ("last fragment not alone in its record"));
-		return(TTLS_ERR_FEATURE_UNAVAILABLE);
-	}
-
-	if (tls->in_left > tls->next_record_offset)
-	{
-		/*
-		 * We've got more data in the buffer after the current record,
-		 * that we don't want to overwrite. Move it before writing the
-		 * reassembled message, and adjust in_left and next_record_offset.
-		 */
-		unsigned char *cur_remain = tls->in_hdr + tls->next_record_offset;
-		unsigned char *new_remain = tls->in_msg + tls->in_hslen;
-		size_t remain_len = tls->in_left - tls->next_record_offset;
-
-		/* First compute and check new lengths */
-		tls->next_record_offset = new_remain - tls->in_hdr;
-		tls->in_left = tls->next_record_offset + remain_len;
-
-		if (tls->in_left > TTLS_BUF_LEN -
-						 (size_t)(tls->in_hdr - tls->in_buf))
-		{
-			TTLS_DEBUG_MSG(1, ("reassembled message too large for buffer"));
-			return(TTLS_ERR_BUFFER_TOO_SMALL);
-		}
-
-		memmove(new_remain, cur_remain, remain_len);
-	}
-
-	memcpy(tls->in_msg, tls->handshake->hs_msg, tls->in_hslen);
-
-	ttls_free(tls->handshake->hs_msg);
-	tls->handshake->hs_msg = NULL;
-
-	TTLS_DEBUG_BUF(3, "reassembled handshake message",
-				 tls->in_msg, tls->in_hslen);
-
-	return 0;
-}
-#endif /* TTLS_PROTO_DTLS */
 
 int ttls_prepare_handshake_record(ttls_context *tls)
 {
@@ -1590,20 +1122,20 @@ int ttls_prepare_handshake_record(ttls_context *tls)
 		int r;
 		unsigned int recv_msg_seq = (tls->in_msg[4] << 8) | tls->in_msg[5];
 
-		/* tls->handshake is NULL when receiving ClientHello for renego */
-		if (tls->handshake != NULL &&
-			recv_msg_seq != tls->handshake->in_msg_seq)
+		/* tls->hs is NULL when receiving ClientHello for renego */
+		if (tls->hs != NULL &&
+			recv_msg_seq != tls->hs->in_msg_seq)
 		{
 			/* Retransmit only on last message from previous flight, to avoid
 			 * too many retransmissions.
 			 * Besides, No sane server ever retransmits HelloVerifyRequest */
-			if (recv_msg_seq == tls->handshake->in_flight_start_seq - 1 &&
+			if (recv_msg_seq == tls->hs->in_flight_start_seq - 1 &&
 				tls->in_msg[0] != TTLS_HS_HELLO_VERIFY_REQUEST)
 			{
 				TTLS_DEBUG_MSG(2, ("received message from last flight, "
 						"message_seq = %d, start_of_flight = %d",
 						recv_msg_seq,
-						tls->handshake->in_flight_start_seq));
+						tls->hs->in_flight_start_seq));
 
 				if ((r = ttls_resend(tls)) != 0)
 				{
@@ -1616,7 +1148,7 @@ int ttls_prepare_handshake_record(ttls_context *tls)
 				TTLS_DEBUG_MSG(2, ("dropping out-of-sequence message: "
 						"message_seq = %d, expected = %d",
 						recv_msg_seq,
-						tls->handshake->in_msg_seq));
+						tls->hs->in_msg_seq));
 			}
 
 			return(TTLS_ERR_WANT_READ);
@@ -1628,7 +1160,7 @@ int ttls_prepare_handshake_record(ttls_context *tls)
 		if (tls->in_msglen < tls->in_hslen ||
 			memcmp(tls->in_msg + 6, "\0\0\0",		3) != 0 ||
 			memcmp(tls->in_msg + 9, tls->in_msg + 1, 3) != 0 ||
-			(tls->handshake != NULL && tls->handshake->hs_msg != NULL))
+			(tls->hs != NULL && tls->hs->hs_msg != NULL))
 		{
 			TTLS_DEBUG_MSG(2, ("found fragmented DTLS handshake message"));
 
@@ -1655,298 +1187,20 @@ void ttls_update_handshake_status(ttls_context *tls)
 {
 
 	if (tls->state != TTLS_HANDSHAKE_OVER &&
-		tls->handshake != NULL)
+		tls->hs != NULL)
 	{
-		tls->handshake->update_checksum(tls, tls->in_msg, tls->in_hslen);
+		tls->hs->update_checksum(tls, tls->in_msg, tls->in_hslen);
 	}
 
 	/* Handshake message is complete, increment counter */
 #if defined(TTLS_PROTO_DTLS)
 	if (tls->conf->transport == TTLS_TRANSPORT_DATAGRAM &&
-		tls->handshake != NULL)
+		tls->hs != NULL)
 	{
-		tls->handshake->in_msg_seq++;
+		tls->hs->in_msg_seq++;
 	}
 #endif
 }
-
-/*
- * DTLS anti-replay: RFC 6347 4.1.2.6
- *
- * in_window is a field of bits numbered from 0 (lsb) to 63 (msb).
- * Bit n is set iff record number in_window_top - n has been seen.
- *
- * Usually, in_window_top is the last record number seen and the lsb of
- * in_window is set. The only exception is the initial state (record number 0
- * not seen yet).
- */
-#if defined(TTLS_DTLS_ANTI_REPLAY)
-static void ssl_dtls_replay_reset(ttls_context *tls)
-{
-	tls->in_window_top = 0;
-	tls->in_window = 0;
-}
-
-static inline uint64_t ssl_load_six_bytes(unsigned char *buf)
-{
-	return(((uint64_t) buf[0] << 40) |
-			((uint64_t) buf[1] << 32) |
-			((uint64_t) buf[2] << 24) |
-			((uint64_t) buf[3] << 16) |
-			((uint64_t) buf[4] << 8) |
-			((uint64_t) buf[5]	 ));
-}
-
-/*
- * Return 0 if sequence number is acceptable, -1 otherwise
- */
-int ttls_dtls_replay_check(ttls_context *tls)
-{
-	uint64_t rec_seqnum = ssl_load_six_bytes(tls->in_ctr + 2);
-	uint64_t bit;
-
-	if (tls->conf->anti_replay == TTLS_ANTI_REPLAY_DISABLED)
-		return 0;
-
-	if (rec_seqnum > tls->in_window_top)
-		return 0;
-
-	bit = tls->in_window_top - rec_seqnum;
-
-	if (bit >= 64)
-		return(-1);
-
-	if ((tls->in_window & ((uint64_t) 1 << bit)) != 0)
-		return(-1);
-
-	return 0;
-}
-
-/*
- * Update replay window on new validated record
- */
-void ttls_dtls_replay_update(ttls_context *tls)
-{
-	uint64_t rec_seqnum = ssl_load_six_bytes(tls->in_ctr + 2);
-
-	if (tls->conf->anti_replay == TTLS_ANTI_REPLAY_DISABLED)
-		return;
-
-	if (rec_seqnum > tls->in_window_top)
-	{
-		/* Update window_top and the contents of the window */
-		uint64_t shift = rec_seqnum - tls->in_window_top;
-
-		if (shift >= 64)
-			tls->in_window = 1;
-		else
-		{
-			tls->in_window <<= shift;
-			tls->in_window |= 1;
-		}
-
-		tls->in_window_top = rec_seqnum;
-	}
-	else
-	{
-		/* Mark that number as seen in the current window */
-		uint64_t bit = tls->in_window_top - rec_seqnum;
-
-		if (bit < 64) /* Always true, but be extra sure */
-			tls->in_window |= (uint64_t) 1 << bit;
-	}
-}
-#endif /* TTLS_DTLS_ANTI_REPLAY */
-
-#if defined(TTLS_DTLS_CLIENT_PORT_REUSE)
-/* Forward declaration */
-static int ssl_session_reset_int(ttls_context *tls, int partial);
-
-/*
- * Without any SSL context, check if a datagram looks like a ClientHello with
- * a valid cookie, and if it doesn't, generate a HelloVerifyRequest message.
- * Both input and output include full DTLS headers.
- *
- * - if cookie is valid, return 0
- * - if ClientHello looks superficially valid but cookie is not,
- *   fill obuf and set olen, then
- *   return TTLS_ERR_HELLO_VERIFY_REQUIRED
- * - otherwise return a specific error code
- */
-static int ssl_check_dtls_clihlo_cookie(
-			 ttls_cookie_write_t *f_cookie_write,
-			 ttls_cookie_check_t *f_cookie_check,
-			 void *p_cookie,
-			 const unsigned char *cli_id, size_t cli_id_len,
-			 const unsigned char *in, size_t in_len,
-			 unsigned char *obuf, size_t buf_len, size_t *olen)
-{
-	size_t sid_len, cookie_len;
-	unsigned char *p;
-
-	if (f_cookie_write == NULL || f_cookie_check == NULL)
-		return(TTLS_ERR_BAD_INPUT_DATA);
-
-	/*
-	 * Structure of ClientHello with record and handshake headers,
-	 * and expected values. We don't need to check a lot, more checks will be
-	 * done when actually parsing the ClientHello - skipping those checks
-	 * avoids code duplication and does not make cookie forging any easier.
-	 *
-	 * 0-0 ContentType type;		copied, must be handshake
-	 * 1-2 ProtocolVersion version;		copied
-	 * 3-4 uint16 epoch;			copied, must be 0
-	 * 5-10 uint48 sequence_number;		copied
-	 * 11-12 uint16 length;			(ignored)
-	 *
-	 * 13-13 HandshakeType msg_type;	(ignored)
-	 * 14-16 uint24 length;			(ignored)
-	 * 17-18 uint16 message_seq;		copied
-	 * 19-21 uint24 fragment_offset;	copied, must be 0
-	 * 22-24 uint24 fragment_length;	(ignored)
-	 *
-	 * 25-26 ProtocolVersion client_version; (ignored)
-	 * 27-58 Random random;			(ignored)
-	 * 59-xx SessionID session_id;		1 byte len + sid_len content
-	 * 60+ opaque cookie<0..2^8-1>;		1 byte len + content
-	 *	 ...
-	 *
-	 * Minimum length is 61 bytes.
-	 */
-	if (in_len < 61 ||
-		in[0] != TTLS_MSG_HANDSHAKE ||
-		in[3] != 0 || in[4] != 0 ||
-		in[19] != 0 || in[20] != 0 || in[21] != 0)
-	{
-		return(TTLS_ERR_BAD_HS_CLIENT_HELLO);
-	}
-
-	sid_len = in[59];
-	if (sid_len > in_len - 61)
-		return(TTLS_ERR_BAD_HS_CLIENT_HELLO);
-
-	cookie_len = in[60 + sid_len];
-	if (cookie_len > in_len - 60)
-		return(TTLS_ERR_BAD_HS_CLIENT_HELLO);
-
-	if (f_cookie_check(p_cookie, in + sid_len + 61, cookie_len,
-					cli_id, cli_id_len) == 0)
-	{
-		/* Valid cookie */
-		return 0;
-	}
-
-	/*
-	 * If we get here, we've got an invalid cookie, let's prepare HVR.
-	 *
-	 * 0-0 ContentType type;		copied
-	 * 1-2 ProtocolVersion version;		copied
-	 * 3-4 uint16 epoch;			copied
-	 * 5-10 uint48 sequence_number;		copied
-	 * 11-12 uint16 length;			olen - 13
-	 *
-	 * 13-13 HandshakeType msg_type;	hello_verify_request
-	 * 14-16 uint24 length;			olen - 25
-	 * 17-18 uint16 message_seq;		copied
-	 * 19-21 uint24 fragment_offset;	copied
-	 * 22-24 uint24 fragment_length;	olen - 25
-	 *
-	 * 25-26 ProtocolVersion server_version; 0xfe 0xff
-	 * 27-27 opaque cookie<0..2^8-1>;	cookie_len = olen - 27, cookie
-	 *
-	 * Minimum length is 28.
-	 */
-	if (buf_len < 28)
-		return(TTLS_ERR_BUFFER_TOO_SMALL);
-
-	/* Copy most fields and adapt others */
-	memcpy(obuf, in, 25);
-	obuf[13] = TTLS_HS_HELLO_VERIFY_REQUEST;
-	obuf[25] = 0xfe;
-	obuf[26] = 0xff;
-
-	/* Generate and write actual cookie */
-	p = obuf + 28;
-	if (f_cookie_write(p_cookie,
-			&p, obuf + buf_len, cli_id, cli_id_len) != 0)
-	{
-		return(TTLS_ERR_INTERNAL_ERROR);
-	}
-
-	*olen = p - obuf;
-
-	/* Go back and fill length fields */
-	obuf[27] = (unsigned char)(*olen - 28);
-
-	obuf[14] = obuf[22] = (unsigned char)((*olen - 25) >> 16);
-	obuf[15] = obuf[23] = (unsigned char)((*olen - 25) >> 8);
-	obuf[16] = obuf[24] = (unsigned char)((*olen - 25)	 );
-
-	obuf[11] = (unsigned char)((*olen - 13) >> 8);
-	obuf[12] = (unsigned char)((*olen - 13)	 );
-
-	return(TTLS_ERR_HELLO_VERIFY_REQUIRED);
-}
-
-/*
- * Handle possible client reconnect with the same UDP quadruplet
- * (RFC 6347 Section 4.2.8).
- *
- * Called by ssl_parse_record_header() in case we receive an epoch 0 record
- * that looks like a ClientHello.
- *
- * - if the input looks like a ClientHello without cookies,
- * send back HelloVerifyRequest, then
- * return TTLS_ERR_HELLO_VERIFY_REQUIRED
- * - if the input looks like a ClientHello with a valid cookie,
- * reset the session of the current context, and
- * return TTLS_ERR_CLIENT_RECONNECT
- * - if anything goes wrong, return a specific error code
- *
- * ttls_read_record() will ignore the record if anything else than
- * TTLS_ERR_CLIENT_RECONNECT or 0 is returned, although this function
- * cannot not return 0.
- */
-static int ssl_handle_possible_reconnect(ttls_context *tls)
-{
-	int r;
-	size_t len;
-
-	r = ssl_check_dtls_clihlo_cookie(
-			tls->conf->f_cookie_write,
-			tls->conf->f_cookie_check,
-			tls->conf->p_cookie,
-			tls->cli_id, tls->cli_id_len,
-			tls->in_buf, tls->in_left,
-			tls->out_buf, TTLS_MAX_CONTENT_LEN, &len);
-
-	TTLS_DEBUG_RET(2, "ssl_check_dtls_clihlo_cookie", r);
-
-	if (r == TTLS_ERR_HELLO_VERIFY_REQUIRED)
-	{
-		/* Don't check write errors as we can't do anything here.
-		 * If the error is permanent we'll catch it later,
-		 * if it's not, then hopefully it'll work next time. */
-		(void) tls->f_send(tls->p_bio, tls->out_buf, len);
-
-		return(TTLS_ERR_HELLO_VERIFY_REQUIRED);
-	}
-
-	if (r == 0)
-	{
-		/* Got a valid cookie, partially reset context */
-		if ((r = ssl_session_reset_int(tls, 1)) != 0)
-		{
-			TTLS_DEBUG_RET(1, "reset", r);
-			return r;
-		}
-
-		return(TTLS_ERR_CLIENT_RECONNECT);
-	}
-
-	return r;
-}
-#endif /* TTLS_DTLS_CLIENT_PORT_REUSE */
 
 static int
 ttls_hdr_check(TlsCtx *tls)
@@ -2192,7 +1446,126 @@ ttls_prepare_record_content(TlsCtx *tls)
 	return T_OK;
 }
 
-static void ssl_handshake_wrapup_free_hs_transform(ttls_context *tls);
+void
+ttls_handshake_free(TlsHandshake *hs)
+{
+	if (!hs)
+		return;
+
+#if defined(TTLS_SHA256_C)
+	ttls_sha256_free(&hs->fin_sha256);
+#endif
+#if defined(TTLS_SHA512_C)
+	ttls_sha512_free(&hs->fin_sha512);
+#endif
+#if defined(TTLS_DHM_C)
+	ttls_dhm_free(&hs->dhm_ctx);
+#endif
+#if defined(TTLS_ECDH_C)
+	ttls_ecdh_free(&hs->ecdh_ctx);
+#endif
+#if defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
+	ttls_ecjpake_free(&hs->ecjpake_ctx);
+#if defined(TTLS_CLI_C)
+	ttls_free(hs->ecjpake_cache);
+	hs->ecjpake_cache = NULL;
+	hs->ecjpake_cache_len = 0;
+#endif
+#endif
+#if defined(TTLS_ECDH_C) || defined(TTLS_ECDSA_C) || \
+	defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
+	/* explicit void pointer cast for buggy MS compiler */
+	kfree(hs->curves);
+#endif
+#if defined(TTLS_KEY_EXCHANGE__SOME__PSK_ENABLED)
+	if (hs->psk) {
+		bzero_fast(hs->psk, hs->psk_len);
+		kfree(hs->psk);
+	}
+#endif
+
+	/*
+	 * Free only the linked list wrapper, not the keys themselves
+	 * since the belong to the SNI callback.
+	 */
+	if (hs->sni_key_cert) {
+		ttls_key_cert *cur = hs->sni_key_cert, *next;
+		while (cur) {
+			next = cur->next;
+			kfree(cur);
+			cur = next;
+		}
+	}
+
+#if defined(TTLS_PROTO_DTLS)
+	kfree(hs->verify_cookie);
+	kfree(hs->hs_msg);
+	ssl_flight_free(hs->flight);
+#endif
+	bzero_fast(hs, sizeof(TlsHandshake));
+	kfree(hs);
+}
+
+static void
+ttls_handshake_wrapup_free_hs_transform(TlsCtx *tls)
+{
+	/* Free our hs params. */
+	ttls_handshake_free(tls->hs);
+	tls->hs = NULL;
+
+	/* Free the previous transform and swith in the current one. */
+	if (tls->transform) {
+		ttls_transform_free(tls->transform);
+		ttls_free(tls->transform);
+	}
+	tls->transform = tls->transform_negotiate;
+	tls->transform_negotiate = NULL;
+
+	TTLS_DEBUG_MSG(3, ("<= hs wrapup: final free"));
+}
+
+void
+ttls_handshake_wrapup(TlsCtx *tls)
+{
+	int resume = tls->hs->resume;
+
+	/* Free the previous session and switch in the current one. */
+	if (tls->session) {
+		/* RFC 7366 3.1: keep the EtM state. */
+		tls->session_negotiate->encrypt_then_mac =
+				 tls->session->encrypt_then_mac;
+
+		ttls_session_free(tls->session);
+		// TODO AK: probably we can remove the free() call and just
+		// aggregate session into TfwCtx, probably we also don't need
+		// session_negotiate (renegotiation only?)
+		kfree(tls->session);
+	}
+	tls->session = tls->session_negotiate;
+	tls->session_negotiate = NULL;
+
+	/* Add cache entry. */
+	if (tls->conf->f_set_cache && tls->session->id_len && !resume
+	    && tls->conf->f_set_cache(tls->conf->p_cache, tls->session))
+		T_DBG("cache did not store session\n");
+
+#if defined(TTLS_PROTO_DTLS)
+	if (tls->conf->transport == TTLS_TRANSPORT_DATAGRAM &&
+		tls->hs->flight != NULL)
+	{
+		/* Cancel handshake timer */
+		ssl_set_timer(tls, 0);
+
+		/* Keep last flight around in case we need to resend it:
+		 * we need the handshake and transform structures for that */
+		TTLS_DEBUG_MSG(3, ("skip freeing handshake and transform"));
+	}
+	else
+#endif
+		ttls_handshake_wrapup_free_hs_transform(tls);
+
+	tls->state = TTLS_HANDSHAKE_OVER;
+}
 
 int
 ttls_read_record_layer(TlsCtx *tls, unsigned char *buf, size_t len,
@@ -2293,6 +1666,8 @@ ttls_read_record_layer(TlsCtx *tls, unsigned char *buf, size_t len,
 	 *
 	 * Fetch and decode new record if current one is fully consumed.
 	 *
+	 * TODO AK control message length - reread message header if we're done
+	 * with current message.
 	 */
 	if (tls->in_msglen > 0)
 	{
@@ -2417,7 +1792,7 @@ read_record_header:
 	 * being mistaken for an ancient message in the current handshake.
 	 */
 	if (tls->conf->transport == TTLS_TRANSPORT_DATAGRAM &&
-		tls->handshake != NULL &&
+		tls->hs != NULL &&
 		tls->state == TTLS_HANDSHAKE_OVER)
 	{
 		if (tls->in_msgtype == TTLS_MSG_HANDSHAKE &&
@@ -2428,7 +1803,7 @@ read_record_header:
 				return r;
 			return(TTLS_ERR_WANT_READ);
 		} else {
-			ssl_handshake_wrapup_free_hs_transform(tls);
+			ttls_handshake_wrapup_free_hs_transform(tls);
 		}
 	}
 #endif
@@ -2483,8 +1858,8 @@ ttls_read_record(TlsCtx *tls, unsigned char *buf, size_t len,
 	int r = 0;
 
 	do {
-		if ((r = ttls_read_record_layer(tls, buf + *read, len - *read,
-						read)))
+		r = ttls_read_record_layer(tls, buf + *read, len - *read, read);
+		if (r)
 			return r;
 		r = ttls_handle_message_type(tls);
 	} while (TTLS_ERR_NON_FATAL == r);
@@ -2523,11 +1898,6 @@ ttls_send_alert_msg(TlsCtx *tls, unsigned char lvl, unsigned char msg)
 
 	return ttls_write_record(tls);
 }
-
-/*
- * Handshake functions
- */
-/* Some certificate support -> implement write and parse */
 
 int ttls_write_certificate(ttls_context *tls)
 {
@@ -2650,8 +2020,8 @@ int ttls_parse_certificate(ttls_context *tls)
 		return 0;
 	}
 
-	if (tls->handshake->sni_authmode != TTLS_VERIFY_UNSET)
-		authmode = tls->handshake->sni_authmode;
+	if (tls->hs->sni_authmode != TTLS_VERIFY_UNSET)
+		authmode = tls->hs->sni_authmode;
 
 	if (tls->conf->endpoint == TTLS_IS_SERVER &&
 		authmode == TTLS_VERIFY_NONE)
@@ -2805,10 +2175,10 @@ int ttls_parse_certificate(ttls_context *tls)
 		ttls_x509_crt *ca_chain;
 		ttls_x509_crl *ca_crl;
 
-		if (tls->handshake->sni_ca_chain != NULL)
+		if (tls->hs->sni_ca_chain != NULL)
 		{
-			ca_chain = tls->handshake->sni_ca_chain;
-			ca_crl = tls->handshake->sni_ca_crl;
+			ca_chain = tls->hs->sni_ca_chain;
+			ca_crl = tls->hs->sni_ca_crl;
 		}
 		else
 		{
@@ -3024,16 +2394,14 @@ int ttls_parse_change_cipher_spec(ttls_context *tls)
 void ttls_optimize_checksum(ttls_context *tls,
 		const ttls_ciphersuite_t *ciphersuite_info)
 {
-	((void) ciphersuite_info);
-
 #if defined(TTLS_SHA512_C)
 	if (ciphersuite_info->mac == TTLS_MD_SHA384)
-		tls->handshake->update_checksum = ssl_update_checksum_sha384;
+		tls->hs->update_checksum = ssl_update_checksum_sha384;
 	else
 #endif
 #if defined(TTLS_SHA256_C)
 	if (ciphersuite_info->mac != TTLS_MD_SHA384)
-		tls->handshake->update_checksum = ssl_update_checksum_sha256;
+		tls->hs->update_checksum = ssl_update_checksum_sha256;
 	else
 #endif
 	{
@@ -3045,10 +2413,10 @@ void ttls_optimize_checksum(ttls_context *tls,
 void ttls_reset_checksum(ttls_context *tls)
 {
 #if defined(TTLS_SHA256_C)
-	ttls_sha256_starts_ret(&tls->handshake->fin_sha256, 0);
+	ttls_sha256_starts_ret(&tls->hs->fin_sha256, 0);
 #endif
 #if defined(TTLS_SHA512_C)
-	ttls_sha512_starts_ret(&tls->handshake->fin_sha512, 1);
+	ttls_sha512_starts_ret(&tls->hs->fin_sha512, 1);
 #endif
 }
 
@@ -3056,10 +2424,10 @@ static void ssl_update_checksum_start(ttls_context *tls,
 			 const unsigned char *buf, size_t len)
 {
 #if defined(TTLS_SHA256_C)
-	ttls_sha256_update_ret(&tls->handshake->fin_sha256, buf, len);
+	ttls_sha256_update_ret(&tls->hs->fin_sha256, buf, len);
 #endif
 #if defined(TTLS_SHA512_C)
-	ttls_sha512_update_ret(&tls->handshake->fin_sha512, buf, len);
+	ttls_sha512_update_ret(&tls->hs->fin_sha512, buf, len);
 #endif
 }
 
@@ -3067,7 +2435,7 @@ static void ssl_update_checksum_start(ttls_context *tls,
 static void ssl_update_checksum_sha256(ttls_context *tls,
 			const unsigned char *buf, size_t len)
 {
-	ttls_sha256_update_ret(&tls->handshake->fin_sha256, buf, len);
+	ttls_sha256_update_ret(&tls->hs->fin_sha256, buf, len);
 }
 #endif
 
@@ -3075,7 +2443,7 @@ static void ssl_update_checksum_sha256(ttls_context *tls,
 static void ssl_update_checksum_sha384(ttls_context *tls,
 			const unsigned char *buf, size_t len)
 {
-	ttls_sha512_update_ret(&tls->handshake->fin_sha512, buf, len);
+	ttls_sha512_update_ret(&tls->hs->fin_sha512, buf, len);
 }
 #endif
 
@@ -3096,7 +2464,7 @@ static void ssl_calc_finished_tls_sha256(
 
 	TTLS_DEBUG_MSG(2, ("=> calc finished tls sha256"));
 
-	ttls_sha256_clone(&sha256, &tls->handshake->fin_sha256);
+	ttls_sha256_clone(&sha256, &tls->hs->fin_sha256);
 
 	/*
 	 * TLSv1.2:
@@ -3115,7 +2483,7 @@ static void ssl_calc_finished_tls_sha256(
 
 	ttls_sha256_finish_ret(&sha256, padbuf);
 
-	tls->handshake->tls_prf(session->master, 48, sender,
+	tls->hs->tls_prf(session->master, 48, sender,
 				 padbuf, 32, buf, len);
 
 	TTLS_DEBUG_BUF(3, "calc finished result", buf, len);
@@ -3145,7 +2513,7 @@ static void ssl_calc_finished_tls_sha384(
 
 	TTLS_DEBUG_MSG(2, ("=> calc finished tls sha384"));
 
-	ttls_sha512_clone(&sha512, &tls->handshake->fin_sha512);
+	ttls_sha512_clone(&sha512, &tls->hs->fin_sha512);
 
 	/*
 	 * TLSv1.2:
@@ -3164,7 +2532,7 @@ static void ssl_calc_finished_tls_sha384(
 
 	ttls_sha512_finish_ret(&sha512, padbuf);
 
-	tls->handshake->tls_prf(session->master, 48, sender,
+	tls->hs->tls_prf(session->master, 48, sender,
 				 padbuf, 48, buf, len);
 
 	TTLS_DEBUG_BUF(3, "calc finished result", buf, len);
@@ -3176,83 +2544,6 @@ static void ssl_calc_finished_tls_sha384(
 	TTLS_DEBUG_MSG(2, ("<= calc finished"));
 }
 #endif /* TTLS_SHA512_C */
-
-static void ssl_handshake_wrapup_free_hs_transform(ttls_context *tls)
-{
-	TTLS_DEBUG_MSG(3, ("=> handshake wrapup: final free"));
-
-	/*
-	 * Free our handshake params
-	 */
-	ttls_handshake_free(tls->handshake);
-	ttls_free(tls->handshake);
-	tls->handshake = NULL;
-
-	/*
-	 * Free the previous transform and swith in the current one
-	 */
-	if (tls->transform)
-	{
-		ttls_transform_free(tls->transform);
-		ttls_free(tls->transform);
-	}
-	tls->transform = tls->transform_negotiate;
-	tls->transform_negotiate = NULL;
-
-	TTLS_DEBUG_MSG(3, ("<= handshake wrapup: final free"));
-}
-
-void ttls_handshake_wrapup(ttls_context *tls)
-{
-	int resume = tls->handshake->resume;
-
-	TTLS_DEBUG_MSG(3, ("=> handshake wrapup"));
-
-	/*
-	 * Free the previous session and switch in the current one
-	 */
-	if (tls->session)
-	{
-		/* RFC 7366 3.1: keep the EtM state */
-		tls->session_negotiate->encrypt_then_mac =
-				 tls->session->encrypt_then_mac;
-
-		ttls_session_free(tls->session);
-		ttls_free(tls->session);
-	}
-	tls->session = tls->session_negotiate;
-	tls->session_negotiate = NULL;
-
-	/*
-	 * Add cache entry
-	 */
-	if (tls->conf->f_set_cache != NULL &&
-		tls->session->id_len != 0 &&
-		resume == 0)
-	{
-		if (tls->conf->f_set_cache(tls->conf->p_cache, tls->session) != 0)
-			TTLS_DEBUG_MSG(1, ("cache did not store session"));
-	}
-
-#if defined(TTLS_PROTO_DTLS)
-	if (tls->conf->transport == TTLS_TRANSPORT_DATAGRAM &&
-		tls->handshake->flight != NULL)
-	{
-		/* Cancel handshake timer */
-		ssl_set_timer(tls, 0);
-
-		/* Keep last flight around in case we need to resend it:
-		 * we need the handshake and transform structures for that */
-		TTLS_DEBUG_MSG(3, ("skip freeing handshake and transform"));
-	}
-	else
-#endif
-		ssl_handshake_wrapup_free_hs_transform(tls);
-
-	tls->state++;
-
-	TTLS_DEBUG_MSG(3, ("<= handshake wrapup"));
-}
 
 int ttls_write_finished(ttls_context *tls)
 {
@@ -3271,7 +2562,7 @@ int ttls_write_finished(ttls_context *tls)
 	else
 		tls->out_msg = tls->out_iv;
 
-	tls->handshake->calc_finished(tls, tls->out_msg + 4, tls->conf->endpoint);
+	tls->hs->calc_finished(tls, tls->out_msg + 4, tls->conf->endpoint);
 
 	/*
 	 * RFC 5246 7.4.9 (Page 63) says 12 is the default length and ciphersuites
@@ -3289,7 +2580,7 @@ int ttls_write_finished(ttls_context *tls)
 	 * In case of session resuming, invert the client and server
 	 * ChangeCipherSpec messages order.
 	 */
-	if (tls->handshake->resume != 0)
+	if (tls->hs->resume != 0)
 	{
 #if defined(TTLS_CLI_C)
 		if (tls->conf->endpoint == TTLS_IS_CLIENT)
@@ -3313,8 +2604,8 @@ int ttls_write_finished(ttls_context *tls)
 		unsigned char i;
 
 		/* Remember current epoch settings for resending */
-		tls->handshake->alt_transform_out = tls->transform_out;
-		memcpy(tls->handshake->alt_out_ctr, tls->out_ctr, 8);
+		tls->hs->alt_transform_out = tls->transform_out;
+		memcpy(tls->hs->alt_out_ctr, tls->out_ctr, 8);
 
 		/* Set sequence_number to zero */
 		memset(tls->out_ctr + 2, 0, 6);
@@ -3364,7 +2655,7 @@ int ttls_parse_finished(ttls_context *tls)
 
 	TTLS_DEBUG_MSG(2, ("=> parse finished"));
 
-	tls->handshake->calc_finished(tls, buf, tls->conf->endpoint ^ 1);
+	tls->hs->calc_finished(tls, buf, tls->conf->endpoint ^ 1);
 
 	if ((r = ttls_read_record(tls)) != 0)
 	{
@@ -3401,7 +2692,7 @@ int ttls_parse_finished(ttls_context *tls)
 		return(TTLS_ERR_BAD_HS_FINISHED);
 	}
 
-	if (tls->handshake->resume != 0)
+	if (tls->hs->resume != 0)
 	{
 #if defined(TTLS_CLI_C)
 		if (tls->conf->endpoint == TTLS_IS_CLIENT)
@@ -3423,263 +2714,70 @@ int ttls_parse_finished(ttls_context *tls)
 	return 0;
 }
 
-static void ssl_handshake_params_init(ttls_handshake_params *handshake)
+static void
+ssl_handshake_params_init(TlsHandshake *hs)
 {
-	memset(handshake, 0, sizeof(ttls_handshake_params));
+	bzero_fast(hs, sizeof(*hs));
 
 #if defined(TTLS_SHA256_C)
-	ttls_sha256_init( &handshake->fin_sha256	);
-	ttls_sha256_starts_ret(&handshake->fin_sha256, 0);
+	ttls_sha256_init(&hs->fin_sha256);
+	ttls_sha256_starts_ret(&hs->fin_sha256, 0);
 #endif
 #if defined(TTLS_SHA512_C)
-	ttls_sha512_init( &handshake->fin_sha512	);
-	ttls_sha512_starts_ret(&handshake->fin_sha512, 1);
+	ttls_sha512_init(&hs->fin_sha512);
+	ttls_sha512_starts_ret(&hs->fin_sha512, 1);
 #endif
 
-	handshake->update_checksum = ssl_update_checksum_start;
+	hs->update_checksum = ssl_update_checksum_start;
 
 #if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
-	ttls_sig_hash_set_init(&handshake->hash_algs);
+	ttls_sig_hash_set_init(&hs->hash_algs);
 #endif
 
 #if defined(TTLS_DHM_C)
-	ttls_dhm_init(&handshake->dhm_ctx);
+	ttls_dhm_init(&hs->dhm_ctx);
 #endif
 #if defined(TTLS_ECDH_C)
-	ttls_ecdh_init(&handshake->ecdh_ctx);
+	ttls_ecdh_init(&hs->ecdh_ctx);
 #endif
 #if defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
-	ttls_ecjpake_init(&handshake->ecjpake_ctx);
-#if defined(TTLS_CLI_C)
-	handshake->ecjpake_cache = NULL;
-	handshake->ecjpake_cache_len = 0;
+	ttls_ecjpake_init(&hs->ecjpake_ctx);
 #endif
-#endif
-	handshake->sni_authmode = TTLS_VERIFY_UNSET;
+	hs->sni_authmode = TTLS_VERIFY_UNSET;
 }
-
-static void ssl_transform_init(ttls_transform *transform)
-{
-	memset(transform, 0, sizeof(ttls_transform));
-
-	ttls_cipher_init(&transform->cipher_ctx_enc);
-	ttls_cipher_init(&transform->cipher_ctx_dec);
-
-	ttls_md_init(&transform->md_ctx_enc);
-	ttls_md_init(&transform->md_ctx_dec);
-}
-
-void ttls_session_init(ttls_session *session)
-{
-	memset(session, 0, sizeof(ttls_session));
-}
-
-static int ssl_handshake_init(ttls_context *tls)
-{
-	/* Clear old handshake information if present */
-	if (tls->transform_negotiate)
-		ttls_transform_free(tls->transform_negotiate);
-	if (tls->session_negotiate)
-		ttls_session_free(tls->session_negotiate);
-	if (tls->handshake)
-		ttls_handshake_free(tls->handshake);
-
-	/*
-	 * Either the pointers are now NULL or cleared properly and can be freed.
-	 * Now allocate missing structures.
-	 */
-	if (tls->transform_negotiate == NULL)
-		tls->transform_negotiate = ttls_calloc(1, sizeof(ttls_transform));
-
-	if (tls->session_negotiate == NULL)
-		tls->session_negotiate = ttls_calloc(1, sizeof(ttls_session));
-
-	if (tls->handshake == NULL)
-		tls->handshake = ttls_calloc(1, sizeof(ttls_handshake_params));
-
-	/* All pointers should exist and can be directly freed without issue */
-	if (tls->handshake == NULL ||
-		tls->transform_negotiate == NULL ||
-		tls->session_negotiate == NULL)
-	{
-		TTLS_DEBUG_MSG(1, ("alloc() of tls sub-contexts failed"));
-
-		ttls_free(tls->handshake);
-		ttls_free(tls->transform_negotiate);
-		ttls_free(tls->session_negotiate);
-
-		tls->handshake = NULL;
-		tls->transform_negotiate = NULL;
-		tls->session_negotiate = NULL;
-
-		return(TTLS_ERR_ALLOC_FAILED);
-	}
-
-	/* Initialize structures */
-	ttls_session_init(tls->session_negotiate);
-	ssl_transform_init(tls->transform_negotiate);
-	ssl_handshake_params_init(tls->handshake);
-
-#if defined(TTLS_PROTO_DTLS)
-	if (tls->conf->transport == TTLS_TRANSPORT_DATAGRAM)
-	{
-		tls->handshake->alt_transform_out = tls->transform_out;
-
-		if (tls->conf->endpoint == TTLS_IS_CLIENT)
-			tls->handshake->retransmit_state = TTLS_RETRANS_PREPARING;
-		else
-			tls->handshake->retransmit_state = TTLS_RETRANS_WAITING;
-
-		ssl_set_timer(tls, 0);
-	}
-#endif
-
-	return 0;
-}
-
-#if defined(TTLS_DTLS_HELLO_VERIFY)
-/* Dummy cookie callbacks for defaults */
-static int ssl_cookie_write_dummy(void *ctx,
-		unsigned char **p, unsigned char *end,
-		const unsigned char *cli_id, size_t cli_id_len)
-{
-	return TTLS_ERR_FEATURE_UNAVAILABLE;
-}
-
-static int ssl_cookie_check_dummy(void *ctx,
-		const unsigned char *cookie, size_t cookie_len,
-		const unsigned char *cli_id, size_t cli_id_len)
-{
-	return TTLS_ERR_FEATURE_UNAVAILABLE;
-}
-#endif /* TTLS_DTLS_HELLO_VERIFY */
-
-/**
- * Called when a new TLS connection is established.
- * It's good to keep the function to be callable from process context.
- */
-void
-ttls_ctx_init(TlsCtx *tls)
-{
-	memset(tls, 0, sizeof(TlsCtx));
-	spin_lock_init(&tls->lock);
-}
-EXPORT_SYMBOL(ttls_ctx_init);
 
 int
-ttls_ctx_setup(TlsCtx *tls, const ttls_config *conf)
+ttls_ctx_init(TlsCtx *tls, const ttls_config *conf)
 {
 	bzero_fast(tls, sizeof(*tls));
+	spin_lock_init(&tls->lock);
 
 	tls->conf = conf;
 
+	tls->hs = kmem_cache_alloc(ttls_hs_cache, GFP_ATOMIC);
+	if (!tls->hs)
+		return -ENOMEM;
+
+	/* Initialize structures */
+	ttls_cipher_init(&tls.xfrm->cipher_ctx_enc);
+	ttls_cipher_init(&tls.xfrm->cipher_ctx_dec);
+	ttls_md_init(&tls.xfrm->md_ctx_enc);
+	ttls_md_init(&tls.xfrm->md_ctx_dec);
+	ssl_handshake_params_init(tls->hs);
+
 #if defined(TTLS_PROTO_DTLS)
-	if (conf->transport == TTLS_TRANSPORT_DATAGRAM) {
-		tls->out_hdr = tls->out_buf;
-		tls->out_ctr = tls->out_buf + 3;
-		tls->in_hdr = tls->in_buf;
-	} else
-#endif
-	{
-		tls->out_ctr = tls->out_buf;
-		tls->out_hdr = tls->out_buf + 8;
-		tls->in_hdr = tls->in_buf + 8;
-	}
-	tls->out_len = tls->out_buf + 11;
-	tls->out_iv = tls->out_buf + 13;
-	tls->out_msg = tls->out_buf + 13;
-	tls->in_len = tls->in_buf + 11;
-	tls->in_msg = tls->in_buf + 13;
-
-	return ssl_handshake_init(tls);
-}
-EXPORT_SYMBOL(ttls_ctx_setup);
-
-/*
- * Reset an initialized and used SSL context for re-use while retaining
- * all application-set variables, function pointers and data.
- *
- * If partial is non-zero, keep data in the input buffer and client ID.
- * (Use when a DTLS client reconnects from the same port.)
- */
-static int ssl_session_reset_int(ttls_context *tls, int partial)
-{
-	int r;
-
-	tls->state = TTLS_HELLO_REQUEST;
-
-	/* Cancel any possibly running timer */
-	ssl_set_timer(tls, 0);
-
-	tls->secure_renegotiation = TTLS_LEGACY_RENEGOTIATION;
-
-	tls->in_msg = tls->in_buf + 13;
-	tls->in_msgtype = 0;
-	tls->in_msglen = 0;
-	if (partial == 0)
-		tls->in_left = 0;
-#if defined(TTLS_PROTO_DTLS)
-	tls->next_record_offset = 0;
-	tls->in_epoch = 0;
-#endif
-#if defined(TTLS_DTLS_ANTI_REPLAY)
-	ssl_dtls_replay_reset(tls);
-#endif
-
-	tls->in_hslen = 0;
-	tls->nb_zero = 0;
-
-	tls->keep_current_message = 0;
-
-	tls->out_msg = tls->out_buf + 13;
-	tls->out_msgtype = 0;
-	tls->out_msglen = 0;
-	tls->transform_in = NULL;
-	tls->transform_out = NULL;
-
-	memset(tls->out_buf, 0, TTLS_BUF_LEN);
-	if (partial == 0)
-		memset(tls->in_buf, 0, TTLS_BUF_LEN);
-
-	if (tls->transform)
-	{
-		ttls_transform_free(tls->transform);
-		ttls_free(tls->transform);
-		tls->transform = NULL;
-	}
-
-	if (tls->session)
-	{
-		ttls_session_free(tls->session);
-		ttls_free(tls->session);
-		tls->session = NULL;
-	}
-
-	tls->alpn_chosen = NULL;
-
-#if defined(TTLS_DTLS_HELLO_VERIFY)
-	if (partial == 0)
-	{
-		ttls_free(tls->cli_id);
-		tls->cli_id = NULL;
-		tls->cli_id_len = 0;
+	if (tls->conf->transport == TTLS_TRANSPORT_DATAGRAM) {
+		tls->hs->alt_transform_out = tls->transform_out;
+		if (tls->conf->endpoint == TTLS_IS_CLIENT)
+			tls->hs->retransmit_state = TTLS_RETRANS_PREPARING;
+		else
+			tls->hs->retransmit_state = TTLS_RETRANS_WAITING;
+		ssl_set_timer(tls, 0);
 	}
 #endif
-
-	if ((r = ssl_handshake_init(tls)) != 0)
-		return r;
-
 	return 0;
 }
-
-/*
- * Reset an initialized and used SSL context for re-use while retaining
- * all application-set variables, function pointers and data.
- */
-int ttls_session_reset(ttls_context *tls)
-{
-	return(ssl_session_reset_int(tls, 0));
-}
+EXPORT_SYMBOL(ttls_ctx_init);
 
 /**
  * Clear current FSM state for TLS record processing. Must be called whenever
@@ -3706,28 +2804,6 @@ void ttls_conf_transport(ttls_config *conf, int transport)
 {
 	conf->transport = transport;
 }
-
-#if defined(TTLS_DTLS_ANTI_REPLAY)
-void ttls_conf_dtls_anti_replay(ttls_config *conf, char mode)
-{
-	conf->anti_replay = mode;
-}
-#endif
-
-#if defined(TTLS_DTLS_BADMAC_LIMIT)
-void ttls_conf_dtls_badmac_limit(ttls_config *conf, unsigned limit)
-{
-	conf->badmac_limit = limit;
-}
-#endif
-
-#if defined(TTLS_PROTO_DTLS)
-void ttls_conf_handshake_timeout(ttls_config *conf, uint32_t min, uint32_t max)
-{
-	conf->hs_timeout_min = min;
-	conf->hs_timeout_max = max;
-}
-#endif
 
 void ttls_conf_authmode(ttls_config *conf, int authmode)
 {
@@ -3797,7 +2873,7 @@ int ttls_set_session(ttls_context *tls, const ttls_ssl_session *session)
 	if ((r = ssl_session_copy(tls->session_negotiate, session)) != 0)
 		return r;
 
-	tls->handshake->resume = 1;
+	tls->hs->resume = 1;
 
 	return 0;
 }
@@ -3881,7 +2957,7 @@ int ttls_set_hs_own_cert(ttls_context *tls,
 		ttls_x509_crt *own_cert,
 		ttls_pk_context *pk_key)
 {
-	return(ssl_append_key_cert(&tls->handshake->sni_key_cert,
+	return(ssl_append_key_cert(&tls->hs->sni_key_cert,
 				 own_cert, pk_key));
 }
 
@@ -3889,14 +2965,14 @@ void ttls_set_hs_ca_chain(ttls_context *tls,
 		ttls_x509_crt *ca_chain,
 		ttls_x509_crl *ca_crl)
 {
-	tls->handshake->sni_ca_chain = ca_chain;
-	tls->handshake->sni_ca_crl	 = ca_crl;
+	tls->hs->sni_ca_chain = ca_chain;
+	tls->hs->sni_ca_crl	 = ca_crl;
 }
 
 void ttls_set_hs_authmode(ttls_context *tls,
 		int authmode)
 {
-	tls->handshake->sni_authmode = authmode;
+	tls->hs->sni_authmode = authmode;
 }
 
 #if defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
@@ -3909,7 +2985,7 @@ int ttls_set_hs_ecjpake_password(ttls_context *tls,
 {
 	ttls_ecjpake_role role;
 
-	if (tls->handshake == NULL || tls->conf == NULL)
+	if (tls->hs == NULL || tls->conf == NULL)
 		return(TTLS_ERR_BAD_INPUT_DATA);
 
 	if (tls->conf->endpoint == TTLS_IS_SERVER)
@@ -3917,7 +2993,7 @@ int ttls_set_hs_ecjpake_password(ttls_context *tls,
 	else
 		role = TTLS_ECJPAKE_CLIENT;
 
-	return(ttls_ecjpake_setup(&tls->handshake->ecjpake_ctx,
+	return(ttls_ecjpake_setup(&tls->hs->ecjpake_ctx,
 				 role,
 				 TTLS_MD_SHA256,
 				 TTLS_ECP_DP_SECP256R1,
@@ -3980,24 +3056,24 @@ int ttls_conf_psk(ttls_config *conf,
 int ttls_set_hs_psk(ttls_context *tls,
 		const unsigned char *psk, size_t psk_len)
 {
-	if (psk == NULL || tls->handshake == NULL)
+	if (psk == NULL || tls->hs == NULL)
 		return(TTLS_ERR_BAD_INPUT_DATA);
 
 	if (psk_len > TTLS_PSK_MAX_LEN)
 		return(TTLS_ERR_BAD_INPUT_DATA);
 
-	if (tls->handshake->psk != NULL)
+	if (tls->hs->psk != NULL)
 	{
-		bzero_fast(tls->handshake->psk, tls->handshake->psk_len);
-		ttls_free(tls->handshake->psk);
-		tls->handshake->psk_len = 0;
+		bzero_fast(tls->hs->psk, tls->hs->psk_len);
+		ttls_free(tls->hs->psk);
+		tls->hs->psk_len = 0;
 	}
 
-	if ((tls->handshake->psk = ttls_calloc(1, psk_len)) == NULL)
+	if ((tls->hs->psk = ttls_calloc(1, psk_len)) == NULL)
 		return(TTLS_ERR_ALLOC_FAILED);
 
-	tls->handshake->psk_len = psk_len;
-	memcpy(tls->handshake->psk, psk, tls->handshake->psk_len);
+	tls->hs->psk_len = psk_len;
+	memcpy(tls->hs->psk, psk, tls->hs->psk_len);
 
 	return 0;
 }
@@ -4060,7 +3136,7 @@ void ttls_conf_dhm_min_bitlen(ttls_config *conf,
 
 #if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
 /*
- * Set allowed/preferred hashes for handshake signatures
+ * Set allowed/preferred hashes for hs signatures
  */
 void ttls_conf_sig_hashes(ttls_config *conf,
 		const int *hashes)
@@ -4359,20 +3435,16 @@ ttls_handshake(TlsCtx *tls)
 {
 	int r = 0;
 
-	BUG_ON(!tls || !tls->conf);
+	if (tls->state == TTLS_HANDSHAKE_OVER)
+		return 0;
+
 	T_DBG3("handshake on state %d\n", tls->state);
-
-	while (tls->state != TTLS_HANDSHAKE_OVER) {
 #if defined(TTLS_CLI_C)
-		if (tls->conf->endpoint == TTLS_IS_CLIENT)
-			r = ttls_handshake_client_step(tls);
-		else
+	if (tls->conf->endpoint == TTLS_IS_CLIENT)
+		return ttls_handshake_client_step(tls);
+	else
 #endif
-		if ((r = ttls_handshake_server_step(tls)))
-			break;
-	}
-
-	return r;
+	return ttls_handshake_server_step(tls);
 }
 
 /**
@@ -4412,20 +3484,18 @@ ttls_recv(void *tls_data, unsigned char *buf, size_t len, unsigned int *read)
 
 #if defined(TTLS_PROTO_DTLS)
 	if (tls->conf->transport == TTLS_TRANSPORT_DATAGRAM
-	    && tls->handshake
-	    && tls->handshake->retransmit_state == TTLS_RETRANS_SENDING
+	    && tls->hs
+	    && tls->hs->retransmit_state == TTLS_RETRANS_SENDING
 	    && (r = ttls_resend(tls)))
 	{
 		return r;
 	}
 #endif
 
-	if (tls->state != TTLS_HANDSHAKE_OVER) {
-		r = ttls_handshake(tls);
-		if (r && r != TTLS_ERR_WAITING_SERVER_HELLO_RENEGO) {
-			TTLS_DEBUG_RET(1, "ttls_handshake", r);
-			return r;
-		}
+	r = ttls_handshake(tls);
+	if (r && r != TTLS_ERR_WAITING_SERVER_HELLO_RENEGO) {
+		T_DBG("handshake error: %d\n", r);
+		return r;
 	}
 
 	/* Start timer if not already running */
@@ -4628,79 +3698,13 @@ static void ssl_key_cert_free(ttls_key_cert *key_cert)
 	}
 }
 
-void ttls_handshake_free(ttls_handshake_params *handshake)
+void
+ttls_session_free(TlsSess *session)
 {
-	if (handshake == NULL)
+	if (!session)
 		return;
 
-#if defined(TTLS_SHA256_C)
-	ttls_sha256_free( &handshake->fin_sha256	);
-#endif
-#if defined(TTLS_SHA512_C)
-	ttls_sha512_free( &handshake->fin_sha512	);
-#endif
-
-#if defined(TTLS_DHM_C)
-	ttls_dhm_free(&handshake->dhm_ctx);
-#endif
-#if defined(TTLS_ECDH_C)
-	ttls_ecdh_free(&handshake->ecdh_ctx);
-#endif
-#if defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
-	ttls_ecjpake_free(&handshake->ecjpake_ctx);
-#if defined(TTLS_CLI_C)
-	ttls_free(handshake->ecjpake_cache);
-	handshake->ecjpake_cache = NULL;
-	handshake->ecjpake_cache_len = 0;
-#endif
-#endif
-
-#if defined(TTLS_ECDH_C) || defined(TTLS_ECDSA_C) || \
-	defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
-	/* explicit void pointer cast for buggy MS compiler */
-	ttls_free((void *) handshake->curves);
-#endif
-
-#if defined(TTLS_KEY_EXCHANGE__SOME__PSK_ENABLED)
-	if (handshake->psk != NULL)
-	{
-		bzero_fast(handshake->psk, handshake->psk_len);
-		ttls_free(handshake->psk);
-	}
-#endif
-
-	/*
-	 * Free only the linked list wrapper, not the keys themselves
-	 * since the belong to the SNI callback
-	 */
-	if (handshake->sni_key_cert != NULL)
-	{
-		ttls_key_cert *cur = handshake->sni_key_cert, *next;
-
-		while (cur != NULL)
-		{
-			next = cur->next;
-			ttls_free(cur);
-			cur = next;
-		}
-	}
-
-#if defined(TTLS_PROTO_DTLS)
-	ttls_free(handshake->verify_cookie);
-	ttls_free(handshake->hs_msg);
-	ssl_flight_free(handshake->flight);
-#endif
-
-	bzero_fast(handshake, sizeof(ttls_handshake_params));
-}
-
-void ttls_session_free(ttls_session *session)
-{
-	if (session == NULL)
-		return;
-
-	if (session->peer_cert != NULL)
-	{
+	if (session->peer_cert) {
 		ttls_x509_crt_free(session->peer_cert);
 		ttls_free(session->peer_cert);
 	}
@@ -4709,7 +3713,7 @@ void ttls_session_free(ttls_session *session)
 	ttls_free(session->ticket);
 #endif
 
-	bzero_fast(session, sizeof(ttls_session));
+	bzero_fast(session, sizeof(*session));
 }
 
 /*
@@ -4740,13 +3744,13 @@ void ttls_ctx_free(TlsCtx *tls)
 		ttls_free(tls->transform);
 	}
 
-	if (tls->handshake)
+	if (tls->hs)
 	{
-		ttls_handshake_free(tls->handshake);
+		ttls_handshake_free(tls->hs);
 		ttls_transform_free(tls->transform_negotiate);
 		ttls_session_free(tls->session_negotiate);
 
-		ttls_free(tls->handshake);
+		ttls_free(tls->hs);
 		ttls_free(tls->transform_negotiate);
 		ttls_free(tls->session_negotiate);
 	}
@@ -5255,12 +4259,12 @@ int ttls_set_calc_verify_md(ttls_context *tls, int md)
 	{
 #if defined(TTLS_SHA512_C)
 		case TTLS_HASH_SHA384:
-			tls->handshake->calc_verify = ssl_calc_verify_tls_sha384;
+			tls->hs->calc_verify = ssl_calc_verify_tls_sha384;
 			break;
 #endif
 #if defined(TTLS_SHA256_C)
 		case TTLS_HASH_SHA256:
-			tls->handshake->calc_verify = ssl_calc_verify_tls_sha256;
+			tls->hs->calc_verify = ssl_calc_verify_tls_sha256;
 			break;
 #endif
 		default:
@@ -5298,7 +4302,7 @@ int ttls_get_key_exchange_md_tls1_2(ttls_context *tls,
 		TTLS_DEBUG_RET(1, "ttls_md_starts", r);
 		goto exit;
 	}
-	if ((r = ttls_md_update(&ctx, tls->handshake->randbytes, 64)) != 0)
+	if ((r = ttls_md_update(&ctx, tls->hs->randbytes, 64)) != 0)
 	{
 		TTLS_DEBUG_RET(1, "ttls_md_update", r);
 		goto exit;
@@ -5327,16 +4331,28 @@ exit:
 static int __init
 ttls_init(void)
 {
+	int r;
+
 	/* Bad configuration - protected record payload too large. */
 	BUILD_BUG_ON(TTLS_PAYLOAD_LEN > 16384 + 2048);
 
-	return ttls_mpi_modinit();
+	if ((r = ttls_mpi_modinit()))
+		return r;
+	ttls_hs_cache = kmem_cache_create("ttls_hs_cache", sizeof(TlsHandshake),
+					  0, 0, NULL);
+	if (!ttls_hs_cache) {
+		ttls_mpi_modexit();
+		return -ENOMEM;
+	}
+
+	return 0;
 }
 
 static void
 ttls_exit(void)
 {
 	ttls_mpi_modexit();
+	kmem_cache_destroy(ttls_hs_cache);
 }
 
 module_init(ttls_init);

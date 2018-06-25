@@ -157,6 +157,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb)
 	hdr = ss_skb_expand_frags(skb, TLS_AAD_SPACE_SIZE, TLS_MAX_TAG_SZ);
 	if (!hdr)
 		return -ENOMEM;
+	tempesta_tls_skb_clear(skb);
 
 	spin_lock(&tls->lock);
 
@@ -209,10 +210,7 @@ tfw_tls_conn_init(TfwConn *c)
 	int r;
 	TlsCtx *tls = tfw_tls_context(c);
 
-	ttls_ctx_init(tls);
-
-	r = ttls_ctx_setup(tls, &tfw_tls.cfg);
-	if (r) {
+	if ((r = ttls_ctx_init(tls, &tfw_tls.cfg))) {
 		TFW_ERR("TLS (%pK) setup failed (%x)\n", tls, -r);
 		return -EINVAL;
 	}
