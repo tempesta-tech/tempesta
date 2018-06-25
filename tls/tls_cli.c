@@ -2948,10 +2948,6 @@ int ttls_handshake_client_step(ttls_context *ssl)
 
 	switch(ssl->state)
 	{
-		case TTLS_HELLO_REQUEST:
-			ssl->state = TTLS_CLIENT_HELLO;
-			break;
-
 	   /*
 		*  ==>   ClientHello
 		*/

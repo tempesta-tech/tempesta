@@ -1,7 +1,7 @@
 /*
  *		Tempesta TLS
  *
- * TLS server-side functions
+ * TLS server-side finite state machine.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
@@ -26,43 +26,6 @@
 #include "ecp.h"
 #include "ssl_internal.h"
 #include "ttls.h"
-
-#if defined(TTLS_SESSION_TICKETS)
-/* Implementation that should never be optimized out by the compiler */
-static void ttls_zeroize(void *v, size_t n) {
-	volatile unsigned char *p = v; while (n--) *p++ = 0;
-}
-#endif
-
-#if defined(TTLS_DTLS_HELLO_VERIFY)
-int ttls_set_client_transport_id(ttls_context *tls,
-					 const unsigned char *info,
-					 size_t ilen)
-{
-	if (tls->conf->endpoint != TTLS_IS_SERVER)
-		return(TTLS_ERR_BAD_INPUT_DATA);
-
-	ttls_free(tls->cli_id);
-
-	if ((tls->cli_id = ttls_calloc(1, ilen)) == NULL)
-		return(TTLS_ERR_ALLOC_FAILED);
-
-	memcpy(tls->cli_id, info, ilen);
-	tls->cli_id_len = ilen;
-
-	return 0;
-}
-
-void ttls_conf_dtls_cookies(ttls_config *conf,
-				   ttls_cookie_write_t *f_cookie_write,
-				   ttls_cookie_check_t *f_cookie_check,
-				   void *p_cookie)
-{
-	conf->f_cookie_write = f_cookie_write;
-	conf->f_cookie_check = f_cookie_check;
-	conf->p_cookie	   = p_cookie;
-}
-#endif /* TTLS_DTLS_HELLO_VERIFY */
 
 static int ssl_parse_servername_ext(ttls_context *tls,
 				 const unsigned char *buf,
@@ -208,7 +171,7 @@ static int ssl_parse_signature_algorithms_ext(ttls_context *tls,
 
 		if (ttls_check_sig_hash(tls, md_cur) == 0)
 		{
-			ttls_sig_hash_set_add(&tls->handshake->hash_algs, sig_cur, md_cur);
+			ttls_sig_hash_set_add(&tls->hs->hash_algs, sig_cur, md_cur);
 			TTLS_DEBUG_MSG(3, ("client hello v3, signature_algorithm ext:"
 						" match sig %d and hash %d",
 						sig_cur, md_cur));
@@ -245,7 +208,7 @@ static int ssl_parse_supported_elliptic_curves(ttls_context *tls,
 	}
 
 	/* Should never happen unless client duplicates the extension */
-	if (tls->handshake->curves != NULL)
+	if (tls->hs->curves != NULL)
 	{
 		TTLS_DEBUG_MSG(1, ("bad client hello message"));
 		ttls_send_alert_message(tls, TTLS_ALERT_LEVEL_FATAL,
@@ -266,7 +229,7 @@ static int ssl_parse_supported_elliptic_curves(ttls_context *tls,
 		return(TTLS_ERR_ALLOC_FAILED);
 	}
 
-	tls->handshake->curves = curves;
+	tls->hs->curves = curves;
 
 	p = buf + 2;
 	while (list_size > 0 && our_size > 1)
@@ -309,10 +272,10 @@ static int ssl_parse_supported_point_formats(ttls_context *tls,
 			p[0] == TTLS_ECP_PF_COMPRESSED)
 		{
 #if defined(TTLS_ECDH_C) || defined(TTLS_ECDSA_C)
-			tls->handshake->ecdh_ctx.point_format = p[0];
+			tls->hs->ecdh_ctx.point_format = p[0];
 #endif
 #if defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
-			tls->handshake->ecjpake_ctx.point_format = p[0];
+			tls->hs->ecjpake_ctx.point_format = p[0];
 #endif
 			TTLS_DEBUG_MSG(4, ("point format selected: %d", p[0]));
 			return 0;
@@ -334,13 +297,13 @@ static int ssl_parse_ecjpake_kkpp(ttls_context *tls,
 {
 	int r;
 
-	if (ttls_ecjpake_check(&tls->handshake->ecjpake_ctx) != 0)
+	if (ttls_ecjpake_check(&tls->hs->ecjpake_ctx) != 0)
 	{
 		TTLS_DEBUG_MSG(3, ("skip ecjpake kkpp extension"));
 		return 0;
 	}
 
-	if ((r = ttls_ecjpake_read_round_one(&tls->handshake->ecjpake_ctx,
+	if ((r = ttls_ecjpake_read_round_one(&tls->hs->ecjpake_ctx,
 						buf, len)) != 0)
 	{
 		TTLS_DEBUG_RET(1, "ttls_ecjpake_read_round_one", r);
@@ -350,7 +313,7 @@ static int ssl_parse_ecjpake_kkpp(ttls_context *tls,
 	}
 
 	/* Only mark the extension as OK when we're sure it is */
-	tls->handshake->cli_exts |= TTLS_TLS_EXT_ECJPAKE_KKPP_OK;
+	tls->hs->cli_exts |= TTLS_TLS_EXT_ECJPAKE_KKPP_OK;
 
 	return 0;
 }
@@ -411,7 +374,7 @@ static int ssl_parse_extended_ms_ext(ttls_context *tls,
 	if (tls->conf->extended_ms == TTLS_EXTENDED_MS_ENABLED &&
 		tls->minor_ver != TTLS_MINOR_VERSION_0)
 	{
-		tls->handshake->extended_ms = TTLS_EXTENDED_MS_ENABLED;
+		tls->hs->extended_ms = TTLS_EXTENDED_MS_ENABLED;
 	}
 
 	return 0;
@@ -426,7 +389,7 @@ static int ssl_parse_session_ticket_ext(ttls_context *tls,
 	int r;
 	TtlsSess session;
 
-	ttls_session_init(&session);
+	bzero_fast(&session, sizeof(session));
 
 	if (tls->conf->f_ticket_parse == NULL ||
 		tls->conf->f_ticket_write == NULL)
@@ -435,7 +398,7 @@ static int ssl_parse_session_ticket_ext(ttls_context *tls,
 	}
 
 	/* Remember the client asked us to send a new ticket */
-	tls->handshake->new_session_ticket = 1;
+	tls->hs->new_session_ticket = 1;
 
 	TTLS_DEBUG_MSG(3, ("ticket length: %d", len));
 
@@ -468,17 +431,17 @@ static int ssl_parse_session_ticket_ext(ttls_context *tls,
 	memcpy(&session.id, tls->session_negotiate->id, session.id_len);
 
 	ttls_session_free(tls->session_negotiate);
-	memcpy(tls->session_negotiate, &session, sizeof(TtlsSess));
+	memcpy(tls->session_negotiate, &session, sizeof(TlsSess));
 
 	/* Zeroize instead of free as we copied the content */
-	ttls_zeroize(&session, sizeof(TtlsSess));
+	bzero_fast(&session, sizeof(TtlsSess));
 
 	TTLS_DEBUG_MSG(3, ("session successfully restored from ticket"));
 
-	tls->handshake->resume = 1;
+	tls->hs->resume = 1;
 
 	/* Don't send a new ticket after all, this one is OK */
-	tls->handshake->new_session_ticket = 0;
+	tls->hs->new_session_ticket = 0;
 
 	return 0;
 }
@@ -607,8 +570,8 @@ static int ssl_pick_cert(ttls_context *tls,
 		ttls_get_ciphersuite_sig_pk_alg(ciphersuite_info);
 	uint32_t flags;
 
-	if (tls->handshake->sni_key_cert != NULL)
-		list = tls->handshake->sni_key_cert;
+	if (tls->hs->sni_key_cert != NULL)
+		list = tls->hs->sni_key_cert;
 	else
 		list = tls->conf->key_cert;
 
@@ -652,7 +615,7 @@ static int ssl_pick_cert(ttls_context *tls,
 
 #if defined(TTLS_ECDSA_C)
 		if (pk_alg == TTLS_PK_ECDSA &&
-			ssl_check_key_curve(cur->key, tls->handshake->curves) != 0)
+			ssl_check_key_curve(cur->key, tls->hs->curves) != 0)
 		{
 			TTLS_DEBUG_MSG(3, ("certificate mismatch: elliptic curve"));
 			continue;
@@ -681,12 +644,12 @@ static int ssl_pick_cert(ttls_context *tls,
 	if (cur == NULL)
 		cur = fallback;
 
-	/* Do not update tls->handshake->key_cert unless there is a match */
+	/* Do not update tls->hs->key_cert unless there is a match */
 	if (cur != NULL)
 	{
-		tls->handshake->key_cert = cur;
+		tls->hs->key_cert = cur;
 		TTLS_DEBUG_CRT(3, "selected certificate chain, certificate",
-						  tls->handshake->key_cert->cert);
+						  tls->hs->key_cert->cert);
 		return 0;
 	}
 
@@ -730,7 +693,7 @@ static int ssl_ciphersuite_match(ttls_context *tls, int suite_id,
 
 #if defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
 	if (suite_info->key_exchange == TTLS_KEY_EXCHANGE_ECJPAKE &&
-		(tls->handshake->cli_exts & TTLS_TLS_EXT_ECJPAKE_KKPP_OK) == 0)
+		(tls->hs->cli_exts & TTLS_TLS_EXT_ECJPAKE_KKPP_OK) == 0)
 	{
 		TTLS_DEBUG_MSG(3, ("ciphersuite mismatch: ecjpake "
 					"not configured or ext missing"));
@@ -741,8 +704,8 @@ static int ssl_ciphersuite_match(ttls_context *tls, int suite_id,
 
 #if defined(TTLS_ECDH_C) || defined(TTLS_ECDSA_C)
 	if (ttls_ciphersuite_uses_ec(suite_info) &&
-		(tls->handshake->curves == NULL ||
-		  tls->handshake->curves[0] == NULL))
+		(tls->hs->curves == NULL ||
+		  tls->hs->curves[0] == NULL))
 	{
 		TTLS_DEBUG_MSG(3, ("ciphersuite mismatch: "
 					"no common elliptic curve"));
@@ -770,7 +733,7 @@ static int ssl_ciphersuite_match(ttls_context *tls, int suite_id,
 	{
 		sig_type = ttls_get_ciphersuite_sig_alg(suite_info);
 		if (sig_type != TTLS_PK_NONE &&
-			ttls_sig_hash_set_find(&tls->handshake->hash_algs, sig_type) == TTLS_MD_NONE)
+			ttls_sig_hash_set_find(&tls->hs->hash_algs, sig_type) == TTLS_MD_NONE)
 		{
 			TTLS_DEBUG_MSG(3, ("ciphersuite mismatch: no suitable hash algorithm "
 						"for signature algorithm %d", sig_type));
@@ -798,10 +761,13 @@ static int ssl_ciphersuite_match(ttls_context *tls, int suite_id,
 	return 0;
 }
 
-/* This function doesn't alert on errors that happen early during
-   ClientHello parsing because they might indicate that the client is
-   not talking SSL/TLS at all and would not understand our alert. */
-static int ssl_parse_client_hello(ttls_context *tls)
+/**
+ * This function doesn't alert on errors that happen early during
+ * ClientHello parsing because they might indicate that the client is
+ * not talking SSL/TLS at all and would not understand our alert.
+ */
+static int
+ttls_parse_client_hello(TtlsCtx *tls)
 {
 	int r, got_common_suite;
 	size_t i, j;
@@ -822,8 +788,6 @@ static int ssl_parse_client_hello(ttls_context *tls)
 #if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
 	int sig_hash_alg_ext_present = 0;
 #endif /* TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED */
-
-	TTLS_DEBUG_MSG(2, ("=> parse client hello"));
 
 #if defined(TTLS_DTLS_ANTI_REPLAY)
 read_record_header:
@@ -917,8 +881,7 @@ read_record_header:
 	}
 
 	// TODO AK: just use ingress buffer as in ttls_read_record_layer().
-	if ((r = ttls_fetch_input(tls,
-				   ttls_hdr_len(tls) + msg_len)) != 0)
+	if ((r = ttls_fetch_input(tls, ttls_hdr_len(tls) + msg_len)) != 0)
 	{
 		TTLS_DEBUG_RET(1, "ttls_fetch_input", r);
 		return r;
@@ -936,7 +899,7 @@ read_record_header:
 
 	TTLS_DEBUG_BUF(4, "record contents", buf, msg_len);
 
-	tls->handshake->update_checksum(tls, buf, msg_len);
+	tls->hs->update_checksum(tls, buf, msg_len);
 
 	/*
 	 * Handshake layer:
@@ -979,8 +942,8 @@ read_record_header:
 		 * check sequence number on renego.
 		 */
 		unsigned int cli_msg_seq = (tls->in_msg[4] << 8) | tls->in_msg[5];
-		tls->handshake->out_msg_seq = cli_msg_seq;
-		tls->handshake->in_msg_seq  = cli_msg_seq + 1;
+		tls->hs->out_msg_seq = cli_msg_seq;
+		tls->hs->in_msg_seq  = cli_msg_seq + 1;
 
 		/*
 		 * For now we don't support fragmentation, so make sure
@@ -1033,8 +996,8 @@ read_record_header:
 	ttls_read_version(&tls->major_ver, &tls->minor_ver,
 					  tls->conf->transport, buf);
 
-	tls->handshake->max_major_ver = tls->major_ver;
-	tls->handshake->max_minor_ver = tls->minor_ver;
+	tls->hs->max_major_ver = tls->major_ver;
+	tls->hs->max_minor_ver = tls->minor_ver;
 
 	if (tls->major_ver < tls->conf->min_major_ver ||
 		tls->minor_ver < tls->conf->min_minor_ver)
@@ -1061,7 +1024,7 @@ read_record_header:
 	 */
 	TTLS_DEBUG_BUF(3, "client hello, random bytes", buf + 2, 32);
 
-	memcpy(tls->handshake->randbytes, buf + 2, 32);
+	memcpy(tls->hs->randbytes, buf + 2, 32);
 
 	/*
 	 * Check the session ID length and save session ID
@@ -1112,12 +1075,12 @@ read_record_header:
 							 tls->cli_id, tls->cli_id_len) != 0)
 			{
 				TTLS_DEBUG_MSG(2, ("cookie verification failed"));
-				tls->handshake->verify_cookie_len = 1;
+				tls->hs->verify_cookie_len = 1;
 			}
 			else
 			{
 				TTLS_DEBUG_MSG(2, ("cookie verification passed"));
-				tls->handshake->verify_cookie_len = 0;
+				tls->hs->verify_cookie_len = 0;
 			}
 		}
 		else
@@ -1276,7 +1239,7 @@ defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
 
 		case TTLS_TLS_EXT_SUPPORTED_POINT_FORMATS:
 			TTLS_DEBUG_MSG(3, ("found supported point formats extension"));
-			tls->handshake->cli_exts |= TTLS_TLS_EXT_SUPPORTED_POINT_FORMATS_PRESENT;
+			tls->hs->cli_exts |= TTLS_TLS_EXT_SUPPORTED_POINT_FORMATS_PRESENT;
 
 			r = ssl_parse_supported_point_formats(tls, ext + 4, ext_size);
 			if (r != 0)
@@ -1394,7 +1357,7 @@ defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
 		if (ttls_check_sig_hash(tls, md_default) != 0)
 			md_default = TTLS_MD_NONE;
 
-		ttls_sig_hash_set_const_hash(&tls->handshake->hash_algs, md_default);
+		ttls_sig_hash_set_const_hash(&tls->hs->hash_algs, md_default);
 	}
 
 #endif /* TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED */
@@ -1496,7 +1459,7 @@ have_ciphersuite:
 		ttls_pk_type_t sig_alg = ttls_get_ciphersuite_sig_alg(ciphersuite_info);
 		if (sig_alg != TTLS_PK_NONE)
 		{
-			ttls_md_type_t md_alg = ttls_sig_hash_set_find(&tls->handshake->hash_algs,
+			ttls_md_type_t md_alg = ttls_sig_hash_set_find(&tls->hs->hash_algs,
 										  sig_alg);
 			TTLS_DEBUG_MSG(3, ("client hello v3, signature_algorithm ext: %d",
 						ttls_hash_from_md_alg(md_alg)));
@@ -1555,7 +1518,7 @@ static void ssl_write_extended_ms_ext(ttls_context *tls,
 {
 	unsigned char *p = buf;
 
-	if (tls->handshake->extended_ms == TTLS_EXTENDED_MS_DISABLED ||
+	if (tls->hs->extended_ms == TTLS_EXTENDED_MS_DISABLED ||
 		tls->minor_ver == TTLS_MINOR_VERSION_0)
 	{
 		*olen = 0;
@@ -1582,7 +1545,7 @@ static void ssl_write_session_ticket_ext(ttls_context *tls,
 {
 	unsigned char *p = buf;
 
-	if (tls->handshake->new_session_ticket == 0)
+	if (tls->hs->new_session_ticket == 0)
 	{
 		*olen = 0;
 		return;
@@ -1659,7 +1622,7 @@ static void ssl_write_supported_point_formats_ext(ttls_context *tls,
 	unsigned char *p = buf;
 	((void) tls);
 
-	if ((tls->handshake->cli_exts &
+	if ((tls->hs->cli_exts &
 		  TTLS_TLS_EXT_SUPPORTED_POINT_FORMATS_PRESENT) == 0)
 	{
 		*olen = 0;
@@ -1709,7 +1672,7 @@ static void ssl_write_ecjpake_kkpp_ext(ttls_context *tls,
 	*p++ = (unsigned char)((TTLS_TLS_EXT_ECJPAKE_KKPP >> 8) & 0xFF);
 	*p++ = (unsigned char)((TTLS_TLS_EXT_ECJPAKE_KKPP	 ) & 0xFF);
 
-	r = ttls_ecjpake_write_round_one(&tls->handshake->ecjpake_ctx,
+	r = ttls_ecjpake_write_round_one(&tls->hs->ecjpake_ctx,
 					p + 2, end - p - 2, &kkpp_len,
 					tls->conf->f_rng, tls->conf->p_rng);
 	if (r != 0)
@@ -1759,69 +1722,6 @@ static void ssl_write_alpn_ext(ttls_context *tls,
 	memcpy(buf + 7, tls->alpn_chosen, *olen - 7);
 }
 
-#if defined(TTLS_DTLS_HELLO_VERIFY)
-static int ssl_write_hello_verify_request(ttls_context *tls)
-{
-	int r;
-	unsigned char *p = tls->out_msg + 4;
-	unsigned char *cookie_len_byte;
-
-	TTLS_DEBUG_MSG(2, ("=> write hello verify request"));
-
-	/*
-	 * struct {
-	 *   ProtocolVersion server_version;
-	 *   opaque cookie<0..2^8-1>;
-	 * } HelloVerifyRequest;
-	 */
-
-	/* The RFC is not clear on this point, but sending the actual negotiated
-	 * version looks like the most interoperable thing to do. */
-	ttls_write_version(tls->major_ver, tls->minor_ver,
-					   tls->conf->transport, p);
-	TTLS_DEBUG_BUF(3, "server version", p, 2);
-	p += 2;
-
-	/* If we get here, f_cookie_check is not null */
-	if (tls->conf->f_cookie_write == NULL)
-	{
-		TTLS_DEBUG_MSG(1, ("inconsistent cookie callbacks"));
-		return(TTLS_ERR_INTERNAL_ERROR);
-	}
-
-	/* Skip length byte until we know the length */
-	cookie_len_byte = p++;
-
-	if ((r = tls->conf->f_cookie_write(tls->conf->p_cookie,
-					 &p, tls->out_buf + TTLS_BUF_LEN,
-					 tls->cli_id, tls->cli_id_len)) != 0)
-	{
-		TTLS_DEBUG_RET(1, "f_cookie_write", r);
-		return r;
-	}
-
-	*cookie_len_byte = (unsigned char)(p - (cookie_len_byte + 1));
-
-	TTLS_DEBUG_BUF(3, "cookie sent", cookie_len_byte + 1, *cookie_len_byte);
-
-	tls->out_msglen  = p - tls->out_msg;
-	tls->out_msgtype = TTLS_MSG_HANDSHAKE;
-	tls->out_msg[0]  = TTLS_HS_HELLO_VERIFY_REQUEST;
-
-	tls->state = TTLS_SERVER_HELLO_VERIFY_REQUEST_SENT;
-
-	if ((r = ttls_write_record(tls)) != 0)
-	{
-		TTLS_DEBUG_RET(1, "ttls_write_record", r);
-		return r;
-	}
-
-	TTLS_DEBUG_MSG(2, ("<= write hello verify request"));
-
-	return 0;
-}
-#endif /* TTLS_DTLS_HELLO_VERIFY */
-
 static int ssl_write_server_hello(ttls_context *tls)
 {
 	time_t t;
@@ -1833,7 +1733,7 @@ static int ssl_write_server_hello(ttls_context *tls)
 
 #if defined(TTLS_DTLS_HELLO_VERIFY)
 	if (tls->conf->transport == TTLS_TRANSPORT_DATAGRAM &&
-		tls->handshake->verify_cookie_len != 0)
+		tls->hs->verify_cookie_len != 0)
 	{
 		TTLS_DEBUG_MSG(2, ("client hello was not authenticated"));
 		TTLS_DEBUG_MSG(2, ("<= write server hello"));
@@ -1878,7 +1778,7 @@ static int ssl_write_server_hello(ttls_context *tls)
 
 	p += 28;
 
-	memcpy(tls->handshake->randbytes + 32, buf + 6, 32);
+	memcpy(tls->hs->randbytes + 32, buf + 6, 32);
 
 	TTLS_DEBUG_BUF(3, "server hello, random bytes", buf + 6, 32);
 
@@ -1887,16 +1787,16 @@ static int ssl_write_server_hello(ttls_context *tls)
 	 * It may be already set to 1 by ssl_parse_session_ticket_ext().
 	 * If not, try looking up session ID in our cache.
 	 */
-	if (tls->handshake->resume == 0 &&
+	if (tls->hs->resume == 0 &&
 		tls->session_negotiate->id_len != 0 &&
 		tls->conf->f_get_cache != NULL &&
 		tls->conf->f_get_cache(tls->conf->p_cache, tls->session_negotiate) == 0)
 	{
 		TTLS_DEBUG_MSG(3, ("session successfully restored from cache"));
-		tls->handshake->resume = 1;
+		tls->hs->resume = 1;
 	}
 
-	if (tls->handshake->resume == 0)
+	if (tls->hs->resume == 0)
 	{
 		/*
 		 * New session, create a new session id,
@@ -1907,7 +1807,7 @@ static int ssl_write_server_hello(ttls_context *tls)
 		tls->session_negotiate->start = ttls_time(NULL);
 
 #if defined(TTLS_SESSION_TICKETS)
-		if (tls->handshake->new_session_ticket != 0)
+		if (tls->hs->new_session_ticket != 0)
 		{
 			tls->session_negotiate->id_len = n = 0;
 			memset(tls->session_negotiate->id, 0, 32);
@@ -1951,7 +1851,7 @@ static int ssl_write_server_hello(ttls_context *tls)
 	TTLS_DEBUG_MSG(3, ("server hello, session id len.: %d", n));
 	TTLS_DEBUG_BUF(3,   "server hello, session id", buf + 39, n);
 	TTLS_DEBUG_MSG(3, ("%s session has been resumed",
-				   tls->handshake->resume ? "a" : "no"));
+				   tls->hs->resume ? "a" : "no"));
 
 	*p++ = (unsigned char)(tls->session_negotiate->ciphersuite >> 8);
 	*p++ = (unsigned char)(tls->session_negotiate->ciphersuite	 );
@@ -2064,8 +1964,8 @@ static int ssl_write_certificate_request(ttls_context *tls)
 
 	tls->state++;
 
-	if (tls->handshake->sni_authmode != TTLS_VERIFY_UNSET)
-		authmode = tls->handshake->sni_authmode;
+	if (tls->hs->sni_authmode != TTLS_VERIFY_UNSET)
+		authmode = tls->hs->sni_authmode;
 	else
 		authmode = tls->conf->authmode;
 
@@ -2163,8 +2063,8 @@ static int ssl_write_certificate_request(ttls_context *tls)
 
 	if (tls->conf->cert_req_ca_list ==  TTLS_CERT_REQ_CA_LIST_ENABLED)
 	{
-		if (tls->handshake->sni_ca_chain != NULL)
-			crt = tls->handshake->sni_ca_chain;
+		if (tls->hs->sni_ca_chain != NULL)
+			crt = tls->hs->sni_ca_chain;
 		else
 			crt = tls->conf->ca_chain;
 
@@ -2223,7 +2123,7 @@ static int ssl_get_ecdh_params_from_cert(ttls_context *tls)
 		return(TTLS_ERR_PK_TYPE_MISMATCH);
 	}
 
-	if ((r = ttls_ecdh_get_params(&tls->handshake->ecdh_ctx,
+	if ((r = ttls_ecdh_get_params(&tls->hs->ecdh_ctx,
 					 ttls_pk_ec(*ttls_own_key(tls)),
 					 TTLS_ECDH_OURS)) != 0)
 	{
@@ -2295,7 +2195,7 @@ static int ssl_write_server_key_exchange(ttls_context *tls)
 	{
 		const unsigned char *end = tls->out_msg + TTLS_MAX_CONTENT_LEN;
 
-		r = ttls_ecjpake_write_round_two(&tls->handshake->ecjpake_ctx,
+		r = ttls_ecjpake_write_round_two(&tls->hs->ecjpake_ctx,
 				p, end - p, &len, tls->conf->f_rng, tls->conf->p_rng);
 		if (r != 0)
 		{
@@ -2347,7 +2247,7 @@ static int ssl_write_server_key_exchange(ttls_context *tls)
 		 *	 opaque dh_Ys<1..2^16-1>;
 		 * } ServerDHParams;
 		 */
-		if ((r = ttls_dhm_set_group(&tls->handshake->dhm_ctx,
+		if ((r = ttls_dhm_set_group(&tls->hs->dhm_ctx,
 						   &tls->conf->dhm_P,
 						   &tls->conf->dhm_G)) != 0)
 		{
@@ -2355,8 +2255,8 @@ static int ssl_write_server_key_exchange(ttls_context *tls)
 			return r;
 		}
 
-		if ((r = ttls_dhm_make_params(&tls->handshake->dhm_ctx,
-						(int) ttls_mpi_size(&tls->handshake->dhm_ctx.P),
+		if ((r = ttls_dhm_make_params(&tls->hs->dhm_ctx,
+						(int) ttls_mpi_size(&tls->hs->dhm_ctx.P),
 						p, &len, tls->conf->f_rng, tls->conf->p_rng)) != 0)
 		{
 			TTLS_DEBUG_RET(1, "ttls_dhm_make_params", r);
@@ -2371,10 +2271,10 @@ static int ssl_write_server_key_exchange(ttls_context *tls)
 		p += len;
 		n += len;
 
-		TTLS_DEBUG_MPI(3, "DHM: X ", &tls->handshake->dhm_ctx.X );
-		TTLS_DEBUG_MPI(3, "DHM: P ", &tls->handshake->dhm_ctx.P );
-		TTLS_DEBUG_MPI(3, "DHM: G ", &tls->handshake->dhm_ctx.G );
-		TTLS_DEBUG_MPI(3, "DHM: GX", &tls->handshake->dhm_ctx.GX);
+		TTLS_DEBUG_MPI(3, "DHM: X ", &tls->hs->dhm_ctx.X );
+		TTLS_DEBUG_MPI(3, "DHM: P ", &tls->hs->dhm_ctx.P );
+		TTLS_DEBUG_MPI(3, "DHM: G ", &tls->hs->dhm_ctx.G );
+		TTLS_DEBUG_MPI(3, "DHM: GX", &tls->hs->dhm_ctx.GX);
 	}
 #endif /* TTLS_KEY_EXCHANGE__SOME__DHE_ENABLED */
 
@@ -2397,7 +2297,7 @@ static int ssl_write_server_key_exchange(ttls_context *tls)
 
 		/* Match our preference list against the offered curves */
 		for (gid = tls->conf->curve_list; *gid != TTLS_ECP_DP_NONE; gid++)
-			for (curve = tls->handshake->curves; *curve != NULL; curve++)
+			for (curve = tls->hs->curves; *curve != NULL; curve++)
 				if ((*curve)->grp_id == *gid)
 					goto curve_matching_done;
 
@@ -2410,14 +2310,14 @@ curve_matching_done:
 
 		TTLS_DEBUG_MSG(2, ("ECDHE curve: %s", (*curve)->name));
 
-		if ((r = ttls_ecp_group_load(&tls->handshake->ecdh_ctx.grp,
+		if ((r = ttls_ecp_group_load(&tls->hs->ecdh_ctx.grp,
 						   (*curve)->grp_id)) != 0)
 		{
 			TTLS_DEBUG_RET(1, "ttls_ecp_group_load", r);
 			return r;
 		}
 
-		if ((r = ttls_ecdh_make_params(&tls->handshake->ecdh_ctx, &len,
+		if ((r = ttls_ecdh_make_params(&tls->hs->ecdh_ctx, &len,
 						  p, TTLS_MAX_CONTENT_LEN - n,
 						  tls->conf->f_rng, tls->conf->p_rng)) != 0)
 		{
@@ -2433,7 +2333,7 @@ curve_matching_done:
 		p += len;
 		n += len;
 
-		TTLS_DEBUG_ECP(3, "ECDH: Q ", &tls->handshake->ecdh_ctx.Q);
+		TTLS_DEBUG_ECP(3, "ECDH: Q ", &tls->hs->ecdh_ctx.Q);
 	}
 #endif /* TTLS_KEY_EXCHANGE__SOME__ECDHE_ENABLED */
 
@@ -2468,7 +2368,7 @@ curve_matching_done:
 			/* A: For TLS 1.2, obey signature-hash-algorithm extension
 			 *	(RFC 5246, Sec. 7.4.1.4.1). */
 			if (sig_alg == TTLS_PK_NONE ||
-				(md_alg = ttls_sig_hash_set_find(&tls->handshake->hash_algs,
+				(md_alg = ttls_sig_hash_set_find(&tls->hs->hash_algs,
 								  sig_alg)) == TTLS_MD_NONE)
 			{
 				TTLS_DEBUG_MSG(1, ("should never happen"));
@@ -2631,7 +2531,7 @@ static int ssl_parse_client_dh_public(ttls_context *tls, unsigned char **p,
 		return(TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE);
 	}
 
-	if ((r = ttls_dhm_read_public(&tls->handshake->dhm_ctx, *p, n)) != 0)
+	if ((r = ttls_dhm_read_public(&tls->hs->dhm_ctx, *p, n)) != 0)
 	{
 		TTLS_DEBUG_RET(1, "ttls_dhm_read_public", r);
 		return(TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_RP);
@@ -2639,7 +2539,7 @@ static int ssl_parse_client_dh_public(ttls_context *tls, unsigned char **p,
 
 	*p += n;
 
-	TTLS_DEBUG_MPI(3, "DHM: GY", &tls->handshake->dhm_ctx.GY);
+	TTLS_DEBUG_MPI(3, "DHM: GY", &tls->hs->dhm_ctx.GY);
 
 	return r;
 }
@@ -2655,7 +2555,7 @@ static int ssl_parse_encrypted_pms(ttls_context *tls,
 {
 	int r;
 	size_t len = ttls_pk_get_len(ttls_own_key(tls));
-	unsigned char *pms = tls->handshake->premaster + pms_offset;
+	unsigned char *pms = tls->hs->premaster + pms_offset;
 	unsigned char ver[2];
 	unsigned char fake_pms[48], peer_pms[48];
 	unsigned char mask;
@@ -2687,8 +2587,8 @@ static int ssl_parse_encrypted_pms(ttls_context *tls,
 		return(TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE);
 	}
 
-	ttls_write_version(tls->handshake->max_major_ver,
-					   tls->handshake->max_minor_ver,
+	ttls_write_version(tls->hs->max_major_ver,
+					   tls->hs->max_minor_ver,
 					   tls->conf->transport, ver);
 
 	/*
@@ -2717,13 +2617,13 @@ static int ssl_parse_encrypted_pms(ttls_context *tls,
 		TTLS_DEBUG_MSG(1, ("bad client key exchange message"));
 #endif
 
-	if (sizeof(tls->handshake->premaster) < pms_offset ||
-		sizeof(tls->handshake->premaster) - pms_offset < 48)
+	if (sizeof(tls->hs->premaster) < pms_offset ||
+		sizeof(tls->hs->premaster) - pms_offset < 48)
 	{
 		TTLS_DEBUG_MSG(1, ("should never happen"));
 		return(TTLS_ERR_INTERNAL_ERROR);
 	}
-	tls->handshake->pmslen = 48;
+	tls->hs->pmslen = 48;
 
 	/* mask = diff ? 0xff : 0x00 using bit operations to avoid branches */
 	/* MSVC has a warning about unary minus on unsigned, but this is
@@ -2737,7 +2637,7 @@ static int ssl_parse_encrypted_pms(ttls_context *tls,
 #pragma warning(pop)
 #endif
 
-	for (i = 0; i < tls->handshake->pmslen; i++)
+	for (i = 0; i < tls->hs->pmslen; i++)
 		pms[i] = (mask & fake_pms[i]) | ((~mask) & peer_pms[i]);
 
 	return 0;
@@ -2854,17 +2754,17 @@ static int ssl_parse_client_key_exchange(ttls_context *tls)
 			return(TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE);
 		}
 
-		if ((r = ttls_dhm_calc_secret(&tls->handshake->dhm_ctx,
-						  tls->handshake->premaster,
+		if ((r = ttls_dhm_calc_secret(&tls->hs->dhm_ctx,
+						  tls->hs->premaster,
 						  TTLS_PREMASTER_SIZE,
-						 &tls->handshake->pmslen,
+						 &tls->hs->pmslen,
 						  tls->conf->f_rng, tls->conf->p_rng)) != 0)
 		{
 			TTLS_DEBUG_RET(1, "ttls_dhm_calc_secret", r);
 			return(TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_CS);
 		}
 
-		TTLS_DEBUG_MPI(3, "DHM: K ", &tls->handshake->dhm_ctx.K );
+		TTLS_DEBUG_MPI(3, "DHM: K ", &tls->hs->dhm_ctx.K );
 	}
 	else
 #endif /* TTLS_KEY_EXCHANGE_DHE_RSA_ENABLED */
@@ -2877,18 +2777,18 @@ static int ssl_parse_client_key_exchange(ttls_context *tls)
 		ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_ECDH_RSA ||
 		ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_ECDH_ECDSA)
 	{
-		if ((r = ttls_ecdh_read_public(&tls->handshake->ecdh_ctx,
+		if ((r = ttls_ecdh_read_public(&tls->hs->ecdh_ctx,
 									  p, end - p)) != 0)
 		{
 			TTLS_DEBUG_RET(1, "ttls_ecdh_read_public", r);
 			return(TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_RP);
 		}
 
-		TTLS_DEBUG_ECP(3, "ECDH: Qp ", &tls->handshake->ecdh_ctx.Qp);
+		TTLS_DEBUG_ECP(3, "ECDH: Qp ", &tls->hs->ecdh_ctx.Qp);
 
-		if ((r = ttls_ecdh_calc_secret(&tls->handshake->ecdh_ctx,
-						  &tls->handshake->pmslen,
-						   tls->handshake->premaster,
+		if ((r = ttls_ecdh_calc_secret(&tls->hs->ecdh_ctx,
+						  &tls->hs->pmslen,
+						   tls->hs->premaster,
 						   TTLS_MPI_MAX_SIZE,
 						   tls->conf->f_rng, tls->conf->p_rng)) != 0)
 		{
@@ -2896,7 +2796,7 @@ static int ssl_parse_client_key_exchange(ttls_context *tls)
 			return(TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_CS);
 		}
 
-		TTLS_DEBUG_MPI(3, "ECDH: z  ", &tls->handshake->ecdh_ctx.z);
+		TTLS_DEBUG_MPI(3, "ECDH: z  ", &tls->hs->ecdh_ctx.z);
 	}
 	else
 #endif /* TTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED ||
@@ -2989,14 +2889,14 @@ static int ssl_parse_client_key_exchange(ttls_context *tls)
 			return r;
 		}
 
-		if ((r = ttls_ecdh_read_public(&tls->handshake->ecdh_ctx,
+		if ((r = ttls_ecdh_read_public(&tls->hs->ecdh_ctx,
 									   p, end - p)) != 0)
 		{
 			TTLS_DEBUG_RET(1, "ttls_ecdh_read_public", r);
 			return(TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_RP);
 		}
 
-		TTLS_DEBUG_ECP(3, "ECDH: Qp ", &tls->handshake->ecdh_ctx.Qp);
+		TTLS_DEBUG_ECP(3, "ECDH: Qp ", &tls->hs->ecdh_ctx.Qp);
 
 		if ((r = ttls_psk_derive_premaster(tls,
 						ciphersuite_info->key_exchange)) != 0)
@@ -3021,7 +2921,7 @@ static int ssl_parse_client_key_exchange(ttls_context *tls)
 #if defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
 	if (ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_ECJPAKE)
 	{
-		r = ttls_ecjpake_read_round_two(&tls->handshake->ecjpake_ctx,
+		r = ttls_ecjpake_read_round_two(&tls->hs->ecjpake_ctx,
 							  p, end - p);
 		if (r != 0)
 		{
@@ -3029,8 +2929,8 @@ static int ssl_parse_client_key_exchange(ttls_context *tls)
 			return(TTLS_ERR_BAD_HS_SERVER_KEY_EXCHANGE);
 		}
 
-		r = ttls_ecjpake_derive_secret(&tls->handshake->ecjpake_ctx,
-				tls->handshake->premaster, 32, &tls->handshake->pmslen,
+		r = ttls_ecjpake_derive_secret(&tls->hs->ecjpake_ctx,
+				tls->hs->premaster, 32, &tls->hs->pmslen,
 				tls->conf->f_rng, tls->conf->p_rng);
 		if (r != 0)
 		{
@@ -3195,7 +3095,7 @@ static int ssl_parse_certificate_verify(ttls_context *tls)
 	}
 
 	/* Calculate hash and verify signature */
-	tls->handshake->calc_verify(tls, hash);
+	tls->hs->calc_verify(tls, hash);
 
 	if ((r = ttls_pk_verify(&tls->session_negotiate->peer_cert->pk,
 				   md_alg, hash_start, hashlen,
@@ -3259,7 +3159,7 @@ static int ssl_write_new_session_ticket(ttls_context *tls)
 	 * Morally equivalent to updating tls->state, but NewSessionTicket and
 	 * ChangeCipherSpec share the same state.
 	 */
-	tls->handshake->new_session_ticket = 0;
+	tls->hs->new_session_ticket = 0;
 
 	if ((r = ttls_write_record(tls)) != 0)
 	{
@@ -3276,48 +3176,43 @@ static int ssl_write_new_session_ticket(ttls_context *tls)
 /*
  * SSL handshake -- server side -- single step
  */
-int ttls_handshake_server_step(ttls_context *tls)
+int
+ttls_handshake_server_step(TlsCtx *tls)
 {
 	int r = 0;
 
-	if (tls->state == TTLS_HANDSHAKE_OVER || tls->handshake == NULL)
+	if (tls->state == TTLS_HANDSHAKE_OVER || tls->hs == NULL)
 		return(TTLS_ERR_BAD_INPUT_DATA);
 
 	TTLS_DEBUG_MSG(2, ("server state: %d", tls->state));
 
 #if defined(TTLS_PROTO_DTLS)
 	if (tls->conf->transport == TTLS_TRANSPORT_DATAGRAM &&
-		tls->handshake->retransmit_state == TTLS_RETRANS_SENDING)
+		tls->hs->retransmit_state == TTLS_RETRANS_SENDING)
 	{
 		if ((r = ttls_resend(tls)) != 0)
 			return r;
 	}
 #endif
 
-	switch(tls->state)
-	{
-		case TTLS_HELLO_REQUEST:
-			tls->state = TTLS_CLIENT_HELLO;
-			break;
-
+	switch(tls->state) {
 		/*
 		 *  <==   ClientHello
 		 */
 		case TTLS_CLIENT_HELLO:
-			r = ssl_parse_client_hello(tls);
+			r = ttls_parse_client_hello(tls);
 			break;
-
 #if defined(TTLS_PROTO_DTLS)
 		case TTLS_SERVER_HELLO_VERIFY_REQUEST_SENT:
-			return(TTLS_ERR_HELLO_VERIFY_REQUIRED);
+			return TTLS_ERR_HELLO_VERIFY_REQUIRED;
 #endif
 
 		/*
 		 *  ==>   ServerHello
-		 *		Certificate
+		 *	  Certificate
 		 *	  (ServerKeyExchange )
 		 *	  (CertificateRequest)
-		 *		ServerHelloDone
+		 *	  ServerHelloDone
 		 */
 		case TTLS_SERVER_HELLO:
 			r = ssl_write_server_hello(tls);
@@ -3340,11 +3235,11 @@ int ttls_handshake_server_step(ttls_context *tls)
 			break;
 
 		/*
-		 *  <== (Certificate/Alert )
-		 *		ClientKeyExchange
+		 *  <==   (Certificate/Alert )
+		 *	  ClientKeyExchange
 		 *	  (CertificateVerify )
-		 *		ChangeCipherSpec
-		 *		Finished
+		 *	  ChangeCipherSpec
+		 *	  Finished
 		 */
 		case TTLS_CLIENT_CERTIFICATE:
 			r = ttls_parse_certificate(tls);
@@ -3367,13 +3262,13 @@ int ttls_handshake_server_step(ttls_context *tls)
 			break;
 
 		/*
-		 *  ==> (NewSessionTicket)
-		 *		ChangeCipherSpec
-		 *		Finished
+		 *  ==>   (NewSessionTicket)
+		 *	  ChangeCipherSpec
+		 *	  Finished
 		 */
 		case TTLS_SERVER_CHANGE_CIPHER_SPEC:
 #if defined(TTLS_SESSION_TICKETS)
-			if (tls->handshake->new_session_ticket != 0)
+			if (tls->hs->new_session_ticket != 0)
 				r = ssl_write_new_session_ticket(tls);
 			else
 #endif

@@ -346,11 +346,9 @@ union ttls_premaster_secret
 /*
  * SSL state machine
  */
-typedef enum
-{
-	TTLS_HELLO_REQUEST,
-	TTLS_CLIENT_HELLO,
-	TTLS_SERVER_HELLO,
+typedef enum {
+	TTLS_CLIENT_HELLO = 0,
+	TTLS_SERVER_HELLO = TTLS_CLIENT_HELLO,
 	TTLS_SERVER_CERTIFICATE,
 	TTLS_SERVER_KEY_EXCHANGE,
 	TTLS_CERTIFICATE_REQUEST,
@@ -367,8 +365,7 @@ typedef enum
 	TTLS_HANDSHAKE_OVER,
 	TTLS_SERVER_NEW_SESSION_TICKET,
 	TTLS_SERVER_HELLO_VERIFY_REQUEST_SENT,
-}
-ttls_states;
+};
 
 /* Defined below */
 typedef struct TtlsSess ttls_session;
@@ -387,8 +384,7 @@ typedef struct ttls_flight_item ttls_flight_item;
 /*
  * This structure is used for storing current session data.
  */
-struct TtlsSess
-{
+typedef struct {
 	time_t start;	/*!< starting time	*/
 	int ciphersuite;	/*!< chosen ciphersuite */
 	int compression;	/*!< chosen compression */
@@ -409,7 +405,7 @@ struct TtlsSess
 	unsigned char mfl_code;	/*!< MaxFragmentLength negotiated by peer */
 #endif /* TTLS_MAX_FRAGMENT_LENGTH */
 	int encrypt_then_mac;	/*!< flag for EtM activation	*/
-};
+} TlsSess;
 
 /**
  * SSL/TLS configuration to be shared between ttls_context structures.
@@ -619,6 +615,7 @@ typedef struct {
  *
  * @lock	- protects the TLS context changes;
  * @conf	- global TLS configuration;
+ * @hs		- params required only during the handshake process;
  * @state	- TLS handshake: current TLS FSM state;
  * @st_flags	- state flags;
  * @major_ver	- the context TLS major version, currently equal to
@@ -629,11 +626,14 @@ typedef struct {
  *		       transmission, then we need only one IO context; if we can,
  *		       then @lock should be split to 2 or 3 locks (for each
  *		       IO plust the whole structure operations).
+ * @sess	- session data;
+ * @xfrm	- transform params;
  * @nb_zero	-  # of 0-length encrypted messages;
  */
 typedef struct ttls_context {
 	spinlock_t		lock;
 	const ttls_config	*conf;
+	TlsHandshake		*hs;
 
 	int			state;
 	unsigned short		st_flags;
@@ -642,17 +642,15 @@ typedef struct ttls_context {
 
 	TlsIOCtx		io_in;
 	TlsIOCtx		io_out;
+	TlsSess			sess;
+	TtlsXfrm		xfrm;
 
 	unsigned int		nb_zero;
 
-	TtlsSess *session;	/*!< negotiated session data	*/
-	TtlsSess *session_negotiate;	/*!< session data in negotiation */
-
-	ttls_handshake_params *handshake;	/*!< params required only during
-	the handshake process	*/
-
-	TtlsXfrm *transform;	/*!< negotiated transform params	*/
+	TlsSess *session;	/*!< negotiated session data	*/
 	TtlsXfrm *transform_negotiate; /*!< transform params in negotiation */
+
+
 
 	/*
 	* Timers
@@ -797,48 +795,7 @@ const char *ttls_get_ciphersuite_name(const int ciphersuite_id);
  */
 int ttls_get_ciphersuite_id(const char *ciphersuite_name);
 
-/**
- * \brief	Initialize an TLS context
- *		Just makes the context ready for ttls_ctx_setup() or
- *		ttls_ctx_free()
- *
- * \param ssl	TLS context
- */
-void ttls_ctx_init(TlsCtx *tls);
-
-/**
- * \brief	Set up an TLS context for use
- *
- * \note	No copy of the configuration context is made, it can be
- *		shared by many ttls_context structures.
- *
- * \warning	The conf structure will be accessed during the session.
- *		It must not be modified or freed as long as the session
- *		is active.
- *
- * \warning	This function must be called exactly once per context.
- *		Calling ttls_ctx_setup again is not supported, even
- *		if no session is active.
- *
- * \param tls	TLS context
- * \param conf	TLS configuration to use
- *
- * \return	0 if successful, or TTLS_ERR_ALLOC_FAILED if
- *		memory allocation failed
- */
-int ttls_ctx_setup(TlsCtx *tls, const ttls_config *conf);
-
-/**
- * \brief	Reset an already initialized SSL context for re-use
- *		while retaining application-set variables, function
- *		pointers and data.
- *
- * \param ssl	SSL context
- * \return	0 if successful, or TTLS_ERR_ALLOC_FAILED,
- *		TTLS_ERR_HW_ACCEL_FAILED or
- *		TTLS_ERR_COMPRESSION_FAILED
- */
-int ttls_session_reset(ttls_context *ssl);
+int ttls_ctx_init(TlsCtx *tls, const ttls_config *conf);
 
 /**
  * \brief	Set the current endpoint type
