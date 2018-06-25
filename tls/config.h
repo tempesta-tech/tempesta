@@ -1,6 +1,4 @@
 /**
- * \file config.h
- *
  * \brief Configuration options (set of defines)
  *
  *  This set of compile-time options may be used to enable
@@ -33,9 +31,9 @@
 
 #include <linux/spinlock.h>
 
+// TODO AK remove the mess
 #define ttls_time(a)		get_seconds()
 #define ttls_calloc(n, s)	kzalloc((n) * (s), GFP_ATOMIC)
-#define ttls_free		kfree
 #define ttls_snprintf		snprintf
 #define ttls_printf		pr_info
 
@@ -591,21 +589,7 @@
 //#define TTLS_SHA256_SMALLER
 
 /**
- * \def TTLS_SSL_ALL_ALERT_MESSAGES
- *
- * Enable sending of alert messages in case of encountered errors as per RFC.
- * If you choose not to send the alert messages, mbed TLS can still communicate
- * with other servers, only debugging of failures is harder.
- *
- * The advantage of not sending alert messages, is that no information is given
- * about reasons for failures thus preventing adversaries of gaining intel.
- *
- * Enable sending of all alert messages
- */
-#define TTLS_SSL_ALL_ALERT_MESSAGES
-
-/**
- * \def TTLS_SSL_DEBUG_ALL
+ * \def TTLS_DEBUG_ALL
  *
  * Enable the debug messages in SSL module for all issues.
  * Debug messages have been disabled in some places to prevent timing
@@ -618,9 +602,9 @@
  * a timing side-channel.
  *
  */
-#define TTLS_SSL_DEBUG_ALL
+#define TTLS_DEBUG_ALL
 
-/** \def TTLS_SSL_EXTENDED_MASTER_SECRET
+/** \def TTLS_EXTENDED_MASTER_SECRET
  *
  * Enable support for Extended Master Secret, aka Session Hash
  * (draft-ietf-tls-session-hash-02).
@@ -632,10 +616,10 @@
  *
  * Comment this macro to disable support for Extended Master Secret.
  */
-#define TTLS_SSL_EXTENDED_MASTER_SECRET
+#define TTLS_EXTENDED_MASTER_SECRET
 
 /**
- * \def TTLS_SSL_FALLBACK_SCSV
+ * \def TTLS_FALLBACK_SCSV
  *
  * Enable support for FALLBACK_SCSV (draft-ietf-tls-downgrade-scsv-00).
  *
@@ -649,52 +633,52 @@
  *
  * Comment this macro to disable support for FALLBACK_SCSV
  */
-#define TTLS_SSL_FALLBACK_SCSV
+#define TTLS_FALLBACK_SCSV
 
 /**
- * \def TTLS_SSL_SRV_RESPECT_CLIENT_PREFERENCE
+ * \def TTLS_SRV_RESPECT_CLIENT_PREFERENCE
  *
  * Pick the ciphersuite according to the client's preferences rather than ours
  * in the SSL Server module.
  *
  * Uncomment this macro to respect client's ciphersuite order
  */
-//#define TTLS_SSL_SRV_RESPECT_CLIENT_PREFERENCE
+//#define TTLS_SRV_RESPECT_CLIENT_PREFERENCE
 
 /**
- * \def TTLS_SSL_MAX_FRAGMENT_LENGTH
+ * \def TTLS_MAX_FRAGMENT_LENGTH
  *
  * Enable support for RFC 6066 max_fragment_length extension in SSL.
  *
  * Comment this macro to disable support for the max_fragment_length extension
  */
-#define TTLS_SSL_MAX_FRAGMENT_LENGTH
+#define TTLS_MAX_FRAGMENT_LENGTH
 
 /**
- * \def TTLS_SSL_PROTO_DTLS
+ * \def TTLS_PROTO_DTLS
  *
  * Enable support for DTLS (all available versions).
  *
  * Comment this macro to disable support for DTLS
  */
-#define TTLS_SSL_PROTO_DTLS
+//#define TTLS_PROTO_DTLS
 
 /**
- * \def TTLS_SSL_DTLS_ANTI_REPLAY
+ * \def TTLS_DTLS_ANTI_REPLAY
  *
  * Enable support for the anti-replay mechanism in DTLS.
  *
- * Requires: TTLS_SSL_PROTO_DTLS
+ * Requires: TTLS_PROTO_DTLS
  *
  * \warning Disabling this is often a security risk!
- * See ttls_ssl_conf_dtls_anti_replay() for details.
+ * See ttls_conf_dtls_anti_replay() for details.
  *
  * Comment this to disable anti-replay in DTLS.
  */
-#define TTLS_SSL_DTLS_ANTI_REPLAY
+//#define TTLS_DTLS_ANTI_REPLAY
 
 /**
- * \def TTLS_SSL_DTLS_HELLO_VERIFY
+ * \def TTLS_DTLS_HELLO_VERIFY
  *
  * Enable support for HelloVerifyRequest on DTLS servers.
  *
@@ -705,14 +689,14 @@
  *
  * \warning Disabling this can ba a security risk! (see above)
  *
- * Requires: TTLS_SSL_PROTO_DTLS
+ * Requires: TTLS_PROTO_DTLS
  *
  * Comment this to disable support for HelloVerifyRequest.
  */
-#define TTLS_SSL_DTLS_HELLO_VERIFY
+//#define TTLS_DTLS_HELLO_VERIFY
 
 /**
- * \def TTLS_SSL_DTLS_CLIENT_PORT_REUSE
+ * \def TTLS_DTLS_CLIENT_PORT_REUSE
  *
  * Enable server-side support for clients that reconnect from the same port.
  *
@@ -721,46 +705,46 @@
  * new connection securely, as described in section 4.2.8 of RFC 6347. This
  * flag enables that support.
  *
- * Requires: TTLS_SSL_DTLS_HELLO_VERIFY
+ * Requires: TTLS_DTLS_HELLO_VERIFY
  *
  * Comment this to disable support for clients reusing the source port.
  */
-#define TTLS_SSL_DTLS_CLIENT_PORT_REUSE
+//#define TTLS_DTLS_CLIENT_PORT_REUSE
 
 /**
- * \def TTLS_SSL_DTLS_BADMAC_LIMIT
+ * \def TTLS_DTLS_BADMAC_LIMIT
  *
  * Enable support for a limit of records with bad MAC.
  *
- * See ttls_ssl_conf_dtls_badmac_limit().
+ * See ttls_conf_dtls_badmac_limit().
  *
- * Requires: TTLS_SSL_PROTO_DTLS
+ * Requires: TTLS_PROTO_DTLS
  */
-#define TTLS_SSL_DTLS_BADMAC_LIMIT
+//#define TTLS_DTLS_BADMAC_LIMIT
 
 /**
- * \def TTLS_SSL_SESSION_TICKETS
+ * \def TTLS_SESSION_TICKETS
  *
  * Enable support for RFC 5077 session tickets in SSL.
  * Client-side, provides full support for session tickets (maintainance of a
  * session store remains the responsibility of the application, though).
  * Server-side, you also need to provide callbacks for writing and parsing
  * tickets, including authenticated encryption and key management. Example
- * callbacks are provided by TTLS_SSL_TICKET_C.
+ * callbacks are provided by TTLS_TICKET_C.
  *
  * Comment this macro to disable support for SSL session tickets
  */
-#define TTLS_SSL_SESSION_TICKETS
+//#define TTLS_SESSION_TICKETS
 
 /**
- * \def TTLS_SSL_EXPORT_KEYS
+ * \def TTLS_EXPORT_KEYS
  *
  * Enable support for exporting key block and master secret.
  * This is required for certain users of TLS, e.g. EAP-TLS.
  *
  * Comment this macro to disable support for key export
  */
-#define TTLS_SSL_EXPORT_KEYS
+#define TTLS_EXPORT_KEYS
 
 /**
  * \def TTLS_X509_ALLOW_EXTENSIONS_NON_V3
@@ -1186,39 +1170,39 @@
 #define TTLS_SHA512_C
 
 /**
- * \def TTLS_SSL_CACHE_C
+ * \def TTLS_CACHE_C
  *
  * Enable simple SSL cache implementation.
  *
  * Module:  library/ssl_cache.c
  * Caller:
  *
- * Requires: TTLS_SSL_CACHE_C
+ * Requires: TTLS_CACHE_C
  */
-#define TTLS_SSL_CACHE_C
+#define TTLS_CACHE_C
 
 /**
- * \def TTLS_SSL_COOKIE_C
+ * \def TTLS_COOKIE_C
  *
  * Enable basic implementation of DTLS cookies for hello verification.
  *
  * Module:  library/ssl_cookie.c
  * Caller:
  */
-#define TTLS_SSL_COOKIE_C
+#define TTLS_COOKIE_C
 
 /**
- * \def TTLS_SSL_TICKET_C
+ * \def TTLS_TICKET_C
  *
  * Enable an implementation of TLS server-side callbacks for session tickets.
  *
  * Module:  library/ssl_ticket.c
  * Caller:
  */
-#define TTLS_SSL_TICKET_C
+#define TTLS_TICKET_C
 
 /**
- * \def TTLS_SSL_CLI_C
+ * \def TTLS_CLI_C
  *
  * Enable the SSL/TLS client code.
  *
@@ -1227,7 +1211,7 @@
  *
  * This module is required for SSL/TLS client support.
  */
-#define TTLS_SSL_CLI_C
+#define TTLS_CLI_C
 
 /**
  * \def TTLS_X509_CRL_PARSE_C
@@ -1346,13 +1330,13 @@
 //#define TTLS_MEMORY_ALIGN_MULTIPLE	  4 /**< Align on multiples of this value */
 
 /* SSL Cache options */
-//#define TTLS_SSL_CACHE_DEFAULT_TIMEOUT	   86400 /**< 1 day  */
-//#define TTLS_SSL_CACHE_DEFAULT_MAX_ENTRIES	  50 /**< Maximum entries in cache */
+//#define TTLS_CACHE_DEFAULT_TIMEOUT	   86400 /**< 1 day  */
+//#define TTLS_CACHE_DEFAULT_MAX_ENTRIES	  50 /**< Maximum entries in cache */
 
 /* SSL options */
-//#define TTLS_SSL_DEFAULT_TICKET_LIFETIME	 86400 /**< Lifetime of session tickets (if enabled) */
+//#define TTLS_DEFAULT_TICKET_LIFETIME	 86400 /**< Lifetime of session tickets (if enabled) */
 //#define TTLS_PSK_MAX_LEN			   32 /**< Max size of TLS pre-shared keys, in bytes (default 256 bits) */
-//#define TTLS_SSL_COOKIE_TIMEOUT		60 /**< Default expiration delay of DTLS cookies, in seconds */
+//#define TTLS_COOKIE_TIMEOUT		60 /**< Default expiration delay of DTLS cookies, in seconds */
 
 /**
  * Complete list of ciphersuites to use, in order of preference.
@@ -1366,7 +1350,7 @@
  *
  * The value below is only an example, not the default.
  */
-//#define TTLS_SSL_CIPHERSUITES TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+//#define TTLS_CIPHERSUITES TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
 
 /* X509 options */
 //#define TTLS_X509_MAX_INTERMEDIATE_CA   8   /**< Maximum number of intermediate CAs in a verification chain. */
@@ -1375,7 +1359,7 @@
 /**
  * Allow SHA-1 in the default TLS configuration for certificate signing.
  * Without this build-time option, SHA-1 support must be activated explicitly
- * through ttls_ssl_conf_cert_profile. Turning on this option is not
+ * through ttls_conf_cert_profile. Turning on this option is not
  * recommended because of it is possible to generate SHA-1 collisions, however
  * this may be safe for legacy infrastructure where additional controls apply.
  *
@@ -1389,7 +1373,7 @@
 /**
  * Allow SHA-1 in the default TLS configuration for TLS 1.2 handshake
  * signature and ciphersuite selection. Without this build-time option, SHA-1
- * support must be activated explicitly through ttls_ssl_conf_sig_hashes.
+ * support must be activated explicitly through ttls_conf_sig_hashes.
  * The use of SHA-1 in TLS <= 1.1 and in HMAC-SHA-1 is always allowed by
  * default. At the time of writing, there is no practical attack on the use
  * of SHA-1 in handshake signatures, hence this option is turned on by default
@@ -1501,21 +1485,21 @@
 #error "TTLS_PEM_WRITE_C defined, but not all prerequisites"
 #endif
 
-#if defined(TTLS_SSL_DTLS_HELLO_VERIFY) && !defined(TTLS_SSL_PROTO_DTLS)
-#error "TTLS_SSL_DTLS_HELLO_VERIFY  defined, but not all prerequisites"
+#if defined(TTLS_DTLS_HELLO_VERIFY) && !defined(TTLS_PROTO_DTLS)
+#error "TTLS_DTLS_HELLO_VERIFY  defined, but not all prerequisites"
 #endif
 
-#if defined(TTLS_SSL_DTLS_CLIENT_PORT_REUSE) && \
-	!defined(TTLS_SSL_DTLS_HELLO_VERIFY)
-#error "TTLS_SSL_DTLS_CLIENT_PORT_REUSE  defined, but not all prerequisites"
+#if defined(TTLS_DTLS_CLIENT_PORT_REUSE) && \
+	!defined(TTLS_DTLS_HELLO_VERIFY)
+#error "TTLS_DTLS_CLIENT_PORT_REUSE  defined, but not all prerequisites"
 #endif
 
-#if defined(TTLS_SSL_DTLS_ANTI_REPLAY) && (!defined(TTLS_SSL_PROTO_DTLS))
-#error "TTLS_SSL_DTLS_ANTI_REPLAY  defined, but not all prerequisites"
+#if defined(TTLS_DTLS_ANTI_REPLAY) && (!defined(TTLS_PROTO_DTLS))
+#error "TTLS_DTLS_ANTI_REPLAY  defined, but not all prerequisites"
 #endif
 
-#if defined(TTLS_SSL_DTLS_BADMAC_LIMIT) && (!defined(TTLS_SSL_PROTO_DTLS))
-#error "TTLS_SSL_DTLS_BADMAC_LIMIT  defined, but not all prerequisites"
+#if defined(TTLS_DTLS_BADMAC_LIMIT) && (!defined(TTLS_PROTO_DTLS))
+#error "TTLS_DTLS_BADMAC_LIMIT  defined, but not all prerequisites"
 #endif
 
 #if defined(TTLS_X509_CREATE_C) && (!defined(TTLS_ASN1_WRITE_C) ||	   \
