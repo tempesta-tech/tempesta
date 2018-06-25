@@ -1,6 +1,4 @@
 /**
- * \file ssl_ciphersuites.h
- *
  * \brief SSL Ciphersuites for mbed TLS
  */
 /*
@@ -249,78 +247,8 @@ typedef enum {
 	TTLS_KEY_EXCHANGE_ECJPAKE,
 } ttls_key_exchange_type_t;
 
-/* Key exchanges using a certificate */
-#if defined(TTLS_KEY_EXCHANGE_RSA_ENABLED)		   || \
-	defined(TTLS_KEY_EXCHANGE_DHE_RSA_ENABLED)	   || \
-	defined(TTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED)	 || \
-	defined(TTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED)   || \
-	defined(TTLS_KEY_EXCHANGE_RSA_PSK_ENABLED)	   || \
-	defined(TTLS_KEY_EXCHANGE_ECDH_RSA_ENABLED)	  || \
-	defined(TTLS_KEY_EXCHANGE_ECDH_ECDSA_ENABLED)
-#define TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED
-#endif
-
 /* Key exchanges allowing client certificate requests */
-#if defined(TTLS_KEY_EXCHANGE_RSA_ENABLED)		   ||	   \
-	defined(TTLS_KEY_EXCHANGE_DHE_RSA_ENABLED)	   ||	   \
-	defined(TTLS_KEY_EXCHANGE_ECDH_RSA_ENABLED)	  ||	   \
-	defined(TTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED)	 ||	   \
-	defined(TTLS_KEY_EXCHANGE_ECDH_ECDSA_ENABLED)	||	   \
-	defined(TTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED) 
-#define TTLS_KEY_EXCHANGE__CERT_REQ_ALLOWED__ENABLED
-#endif
-
-/* Key exchanges involving server signature in ServerKeyExchange */
-#if defined(TTLS_KEY_EXCHANGE_DHE_RSA_ENABLED)	   || \
-	defined(TTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED)	 || \
-	defined(TTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED)
-#define TTLS_KEY_EXCHANGE__WITH_SERVER_SIGNATURE__ENABLED
-#endif
-
-/* Key exchanges using ECDH */
-#if defined(TTLS_KEY_EXCHANGE_ECDH_RSA_ENABLED)	  || \
-	defined(TTLS_KEY_EXCHANGE_ECDH_ECDSA_ENABLED)
-#define TTLS_KEY_EXCHANGE__SOME__ECDH_ENABLED
-#endif
-
-/* Key exchanges that don't involve ephemeral keys */
-#if defined(TTLS_KEY_EXCHANGE_RSA_ENABLED)		   || \
-	defined(TTLS_KEY_EXCHANGE_PSK_ENABLED)		   || \
-	defined(TTLS_KEY_EXCHANGE_RSA_PSK_ENABLED)	   || \
-	defined(TTLS_KEY_EXCHANGE__SOME__ECDH_ENABLED)
-#define TTLS_KEY_EXCHANGE__SOME_NON_PFS__ENABLED
-#endif
-
-/* Key exchanges that involve ephemeral keys */
-#if defined(TTLS_KEY_EXCHANGE_DHE_RSA_ENABLED)	   || \
-	defined(TTLS_KEY_EXCHANGE_DHE_PSK_ENABLED)	   || \
-	defined(TTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED)	 || \
-	defined(TTLS_KEY_EXCHANGE_ECDHE_PSK_ENABLED)	 || \
-	defined(TTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED)   || \
-	defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
-#define TTLS_KEY_EXCHANGE__SOME_PFS__ENABLED
-#endif
-
-/* Key exchanges using a PSK */
-#if defined(TTLS_KEY_EXCHANGE_PSK_ENABLED)		   || \
-	defined(TTLS_KEY_EXCHANGE_RSA_PSK_ENABLED)	   || \
-	defined(TTLS_KEY_EXCHANGE_DHE_PSK_ENABLED)	   || \
-	defined(TTLS_KEY_EXCHANGE_ECDHE_PSK_ENABLED)
-#define TTLS_KEY_EXCHANGE__SOME__PSK_ENABLED
-#endif
-
-/* Key exchanges using DHE */
-#if defined(TTLS_KEY_EXCHANGE_DHE_RSA_ENABLED)	   || \
-	defined(TTLS_KEY_EXCHANGE_DHE_PSK_ENABLED)
-#define TTLS_KEY_EXCHANGE__SOME__DHE_ENABLED
-#endif
-
-/* Key exchanges using ECDHE */
-#if defined(TTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED)	 || \
-	defined(TTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED)   || \
-	defined(TTLS_KEY_EXCHANGE_ECDHE_PSK_ENABLED)
-#define TTLS_KEY_EXCHANGE__SOME__ECDHE_ENABLED
-#endif
+//#define TTLS_KEY_EXCHANGE__CERT_REQ_ALLOWED__ENABLED
 
 typedef struct ttls_ciphersuite_t ttls_ciphersuite_t;
 
@@ -360,7 +288,6 @@ ttls_pk_type_t ttls_get_ciphersuite_sig_alg(const ttls_ciphersuite_t *info);
 int ttls_ciphersuite_uses_ec(const ttls_ciphersuite_t *info);
 int ttls_ciphersuite_uses_psk(const ttls_ciphersuite_t *info);
 
-#if defined(TTLS_KEY_EXCHANGE__SOME_PFS__ENABLED)
 static inline int ttls_ciphersuite_has_pfs(const ttls_ciphersuite_t *info)
 {
 	switch(info->key_exchange)
@@ -377,9 +304,7 @@ static inline int ttls_ciphersuite_has_pfs(const ttls_ciphersuite_t *info)
 			return 0;
 	}
 }
-#endif /* TTLS_KEY_EXCHANGE__SOME_PFS__ENABLED */
 
-#if defined(TTLS_KEY_EXCHANGE__SOME_NON_PFS__ENABLED)
 static inline int ttls_ciphersuite_no_pfs(const ttls_ciphersuite_t *info)
 {
 	switch(info->key_exchange)
@@ -395,9 +320,7 @@ static inline int ttls_ciphersuite_no_pfs(const ttls_ciphersuite_t *info)
 			return 0;
 	}
 }
-#endif /* TTLS_KEY_EXCHANGE__SOME_NON_PFS__ENABLED */
 
-#if defined(TTLS_KEY_EXCHANGE__SOME__ECDH_ENABLED)
 static inline int ttls_ciphersuite_uses_ecdh(const ttls_ciphersuite_t *info)
 {
 	switch(info->key_exchange)
@@ -410,7 +333,6 @@ static inline int ttls_ciphersuite_uses_ecdh(const ttls_ciphersuite_t *info)
 			return 0;
 	}
 }
-#endif /* TTLS_KEY_EXCHANGE__SOME__ECDH_ENABLED */
 
 static inline int ttls_ciphersuite_cert_req_allowed(const ttls_ciphersuite_t *info)
 {
@@ -429,7 +351,6 @@ static inline int ttls_ciphersuite_cert_req_allowed(const ttls_ciphersuite_t *in
 	}
 }
 
-#if defined(TTLS_KEY_EXCHANGE__SOME__DHE_ENABLED)
 static inline int ttls_ciphersuite_uses_dhe(const ttls_ciphersuite_t *info)
 {
 	switch(info->key_exchange)
@@ -442,9 +363,7 @@ static inline int ttls_ciphersuite_uses_dhe(const ttls_ciphersuite_t *info)
 			return 0;
 	}
 }
-#endif /* TTLS_KEY_EXCHANGE__SOME__DHE_ENABLED) */
 
-#if defined(TTLS_KEY_EXCHANGE__SOME__ECDHE_ENABLED)
 static inline int ttls_ciphersuite_uses_ecdhe(const ttls_ciphersuite_t *info)
 {
 	switch(info->key_exchange)
@@ -458,9 +377,7 @@ static inline int ttls_ciphersuite_uses_ecdhe(const ttls_ciphersuite_t *info)
 			return 0;
 	}
 }
-#endif /* TTLS_KEY_EXCHANGE__SOME__ECDHE_ENABLED) */
 
-#if defined(TTLS_KEY_EXCHANGE__WITH_SERVER_SIGNATURE__ENABLED)
 static inline int ttls_ciphersuite_uses_server_signature(const ttls_ciphersuite_t *info)
 {
 	switch(info->key_exchange)
@@ -474,6 +391,5 @@ static inline int ttls_ciphersuite_uses_server_signature(const ttls_ciphersuite_
 			return 0;
 	}
 }
-#endif /* TTLS_KEY_EXCHANGE__WITH_SERVER_SIGNATURE__ENABLED */
 
 #endif /* ssl_ciphersuites.h */

@@ -310,35 +310,9 @@
 /* Dummy type used only for its size */
 union ttls_premaster_secret
 {
-#if defined(TTLS_KEY_EXCHANGE_RSA_ENABLED)
 	unsigned char _pms_rsa[48];	/* RFC 5246 8.1.1 */
-#endif
-#if defined(TTLS_KEY_EXCHANGE_DHE_RSA_ENABLED)
 	unsigned char _pms_dhm[TTLS_MPI_MAX_SIZE];	/* RFC 5246 8.1.2 */
-#endif
-#if defined(TTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED)	|| \
-	defined(TTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED) || \
-	defined(TTLS_KEY_EXCHANGE_ECDH_RSA_ENABLED)	|| \
-	defined(TTLS_KEY_EXCHANGE_ECDH_ECDSA_ENABLED)
 	unsigned char _pms_ecdh[TTLS_ECP_MAX_BYTES];	/* RFC 4492 5.10 */
-#endif
-#if defined(TTLS_KEY_EXCHANGE_PSK_ENABLED)
-	unsigned char _pms_psk[4 + 2 * TTLS_PSK_MAX_LEN];	/* RFC 4279 2 */
-#endif
-#if defined(TTLS_KEY_EXCHANGE_DHE_PSK_ENABLED)
-	unsigned char _pms_dhe_psk[4 + TTLS_MPI_MAX_SIZE
-	+ TTLS_PSK_MAX_LEN];	/* RFC 4279 3 */
-#endif
-#if defined(TTLS_KEY_EXCHANGE_RSA_PSK_ENABLED)
-	unsigned char _pms_rsa_psk[52 + TTLS_PSK_MAX_LEN];	/* RFC 4279 4 */
-#endif
-#if defined(TTLS_KEY_EXCHANGE_ECDHE_PSK_ENABLED)
-	unsigned char _pms_ecdhe_psk[4 + TTLS_ECP_MAX_BYTES
-	+ TTLS_PSK_MAX_LEN];	/* RFC 5489 2 */
-#endif
-#if defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
-	unsigned char _pms_ecjpake[32];	/* Thread spec: SHA-256 output */
-#endif
 };
 
 #define TTLS_PREMASTER_SIZE	sizeof(union ttls_premaster_secret)
@@ -437,12 +411,6 @@ struct ttls_config
 	int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *);
 	void *p_vrfy;	/*!< context for X.509 verify calllback */
 
-#if defined(TTLS_KEY_EXCHANGE__SOME__PSK_ENABLED)
-	/** Callback to retrieve PSK key from identity	*/
-	int (*f_psk)(void *, ttls_context *, const unsigned char *, size_t);
-	void *p_psk;	/*!< context for PSK callback	*/
-#endif
-
 #if defined(TTLS_DTLS_HELLO_VERIFY)
 	/** Callback to create & write a cookie for ClientHello veirifcation	*/
 	int (*f_cookie_write)(void *, unsigned char **, unsigned char *,
@@ -474,22 +442,13 @@ struct ttls_config
 	ttls_x509_crt *ca_chain;	/*!< trusted CAs	*/
 	ttls_x509_crl *ca_crl;	/*!< trusted CAs CRLs	*/
 
-#if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
 	const int *sig_hashes;	/*!< allowed signature hashes	*/
-#endif
 
 	const ttls_ecp_group_id *curve_list; /*!< allowed curves	*/
 
 #if defined(TTLS_DHM_C)
 	ttls_mpi dhm_P;	/*!< prime modulus for DHM	*/
 	ttls_mpi dhm_G;	/*!< generator for DHM	*/
-#endif
-
-#if defined(TTLS_KEY_EXCHANGE__SOME__PSK_ENABLED)
-	unsigned char *psk;	/*!< pre-shared key	*/
-	size_t	psk_len;	/*!< length of the pre-shared key	*/
-	unsigned char *psk_identity;	/*!< identity for PSK negotiation	*/
-	size_t	psk_identity_len;/*!< length of identity	*/
 #endif
 
 	const char **alpn_list;	/*!< ordered list of protocols	*/
@@ -1352,77 +1311,6 @@ int ttls_conf_own_cert(ttls_config *conf,
 	ttls_x509_crt *own_cert,
 	ttls_pk_context *pk_key);
 
-#if defined(TTLS_KEY_EXCHANGE__SOME__PSK_ENABLED)
-/**
- * \brief	Set the Pre Shared Key (PSK) and the expected identity name
- *
- * \note	This is mainly useful for clients. Servers will usually
- *		want to use \c ttls_conf_psk_cb() instead.
- *
- * \note	Currently clients can only register one pre-shared key.
- *		In other words, the servers' identity hint is ignored.
- *		Support for setting multiple PSKs on clients and selecting
- *		one based on the identity hint is not a planned feature but
- *		feedback is welcomed.
- *
- * \param conf	SSL configuration
- * \param psk	pointer to the pre-shared key
- * \param psk_len pre-shared key length
- * \param psk_identity	pointer to the pre-shared key identity
- * \param psk_identity_len identity key length
- *
- * \return	0 if successful or TTLS_ERR_ALLOC_FAILED
- */
-int ttls_conf_psk(ttls_config *conf,
-	const unsigned char *psk, size_t psk_len,
-	const unsigned char *psk_identity, size_t psk_identity_len);
-
-
-/**
- * \brief	Set the Pre Shared Key (PSK) for the current handshake
- *
- * \note	This should only be called inside the PSK callback,
- *	ie the function passed to \c ttls_conf_psk_cb().
- *
- * \param ssl	SSL context
- * \param psk	pointer to the pre-shared key
- * \param psk_len pre-shared key length
- *
- * \return	0 if successful or TTLS_ERR_ALLOC_FAILED
- */
-int ttls_set_hs_psk(ttls_context *ssl,
-	const unsigned char *psk, size_t psk_len);
-
-/**
- * \brief	Set the PSK callback (server-side only).
- *
- *		If set, the PSK callback is called for each
- *		handshake where a PSK ciphersuite was negotiated.
- *		The caller provides the identity received and wants to
- *		receive the actual PSK data and length.
- *
- *		The callback has the following parameters: (void *parameter,
- *		ttls_context *ssl, const unsigned char *psk_identity,
- *		size_t identity_len)
- *		If a valid PSK identity is found, the callback should use
- *		\c ttls_set_hs_psk() on the ssl context to set the
- *		correct PSK and return 0.
- *		Any other return value will result in a denied PSK identity.
- *
- * \note	If you set a PSK callback using this function, then you
- *		don't need to set a PSK key and identity using
- *		\c ttls_conf_psk().
- *
- * \param conf	SSL configuration
- * \param f_psk	PSK identity function
- * \param p_psk	PSK identity parameter
- */
-void ttls_conf_psk_cb(ttls_config *conf,
-	int (*f_psk)(void *, ttls_context *, const unsigned char *,
-	size_t),
-	void *p_psk);
-#endif /* TTLS_KEY_EXCHANGE__SOME__PSK_ENABLED */
-
 #if defined(TTLS_DHM_C)
 
 /**
@@ -1497,7 +1385,6 @@ void ttls_conf_dhm_min_bitlen(ttls_config *conf,
 void ttls_conf_curves(ttls_config *conf,
 	const ttls_ecp_group_id *curves);
 
-#if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
 /**
  * \brief	Set the allowed hashes for signatures during the handshake.
  *		(Default: all available hashes except MD5.)
@@ -1518,7 +1405,6 @@ void ttls_conf_curves(ttls_config *conf,
  */
 void ttls_conf_sig_hashes(ttls_config *conf,
 	const int *hashes);
-#endif /* TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED */
 
 /**
  * \brief	Set or reset the hostname to check against the received 
@@ -1611,29 +1497,6 @@ void ttls_conf_sni(ttls_config *conf,
 	int (*f_sni)(void *, ttls_context *, const unsigned char *,
 	size_t),
 	void *p_sni);
-
-#if defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
-/**
- * \brief	Set the EC J-PAKE password for current handshake.
- *
- * \note	An internal copy is made, and destroyed as soon as the
- *		handshake is completed, or when the SSL context is reset or
- *		freed.
- *
- * \note	The SSL context needs to be already set up. The right place
- *		to call this function is between \c ttls_ctx_setup() or
- *		\c ttls_reset() and \c ttls_handshake().
- *
- * \param ssl	SSL context
- * \param pw	EC J-PAKE password (pre-shared secret)
- * \param pw_len length of pw in bytes
- *
- * \return	0 on success, or a negative error code.
- */
-int ttls_set_hs_ecjpake_password(ttls_context *ssl,
-	const unsigned char *pw,
-	size_t pw_len);
-#endif /*TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED */
 
 /**
  * \brief	Set the supported Application Layer Protocols.
