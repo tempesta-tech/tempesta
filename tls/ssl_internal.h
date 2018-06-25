@@ -32,9 +32,6 @@
 #if defined(TTLS_SHA512_C)
 #include "sha512.h"
 #endif
-#if defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
-#include "ecjpake.h"
-#endif
 
 /* Determine minimum supported version */
 #define TTLS_MIN_MAJOR_VERSION		TTLS_MAJOR_VERSION_3
@@ -95,9 +92,7 @@
  * of state of the renegotiation flag, so no indicator is required)
  */
 #define TTLS_TLS_EXT_SUPPORTED_POINT_FORMATS_PRESENT (1 << 0)
-#define TTLS_TLS_EXT_ECJPAKE_KKPP_OK				 (1 << 1)
 
-#if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
 /*
  * Abstraction for a grid of allowed signature-hash-algorithm pairs.
  */
@@ -111,7 +106,6 @@ struct ttls_sig_hash_set_t
 	ttls_md_type_t rsa;
 	ttls_md_type_t ecdsa;
 };
-#endif /* TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED */
 
 /*
  * This structure contains the parameters only needed during handshake.
@@ -119,29 +113,15 @@ struct ttls_sig_hash_set_t
 typedef struct
 {
 	/* Handshake specific crypto variables. */
-#if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
 	ttls_sig_hash_set_t hash_algs;			 /*!<  Set of suitable sig-hash pairs */
-#endif
 #if defined(TTLS_DHM_C)
 	ttls_dhm_context dhm_ctx;				/*!<  DHM key exchange		*/
 #endif
 #if defined(TTLS_ECDH_C)
 	ttls_ecdh_context ecdh_ctx;			  /*!<  ECDH key exchange	   */
 #endif
-#if defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
-	ttls_ecjpake_context ecjpake_ctx;		/*!< EC J-PAKE key exchange */
-#if defined(TTLS_CLI_C)
-	unsigned char *ecjpake_cache;			   /*!< Cache for ClientHello ext */
-	size_t ecjpake_cache_len;				   /*!< Length of cached data */
-#endif
-#endif /* TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED */
-#if defined(TTLS_ECDH_C) || defined(TTLS_ECDSA_C) || \
-	defined(TTLS_KEY_EXCHANGE_ECJPAKE_ENABLED)
+#if defined(TTLS_ECDH_C) || defined(TTLS_ECDSA_C)
 	const ttls_ecp_curve_info **curves;	  /*!<  Supported elliptic curves */
-#endif
-#if defined(TTLS_KEY_EXCHANGE__SOME__PSK_ENABLED)
-	unsigned char *psk;				 /*!<  PSK from the callback		 */
-	size_t psk_len;					 /*!<  Length of PSK from callback   */
 #endif
 	ttls_key_cert *key_cert;	 /*!< chosen key/cert pair (server)  */
 	int sni_authmode;				   /*!< authmode from SNI callback	 */
@@ -268,8 +248,6 @@ struct ttls_flight_item
 };
 #endif /* TTLS_PROTO_DTLS */
 
-#if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
-
 /* Find an entry in a signature-hash set matching a given hash algorithm. */
 ttls_md_type_t ttls_sig_hash_set_find(ttls_sig_hash_set_t *set,
 												 ttls_pk_type_t sig_alg);
@@ -286,8 +264,6 @@ static inline void ttls_sig_hash_set_init(ttls_sig_hash_set_t *set)
 {
 	ttls_sig_hash_set_const_hash(set, TTLS_MD_NONE);
 }
-
-#endif /* TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED */
 
 /**
  * \brief		   Free referenced items in an SSL transform context and clear
@@ -400,11 +376,7 @@ int ttls_parse_finished(ttls_context *tls);
 int ttls_write_finished(ttls_context *tls);
 
 void ttls_optimize_checksum(ttls_context *tls,
-							const ttls_ciphersuite_t *ciphersuite_info);
-
-#if defined(TTLS_KEY_EXCHANGE__SOME__PSK_ENABLED)
-int ttls_psk_derive_premaster(ttls_context *tls, ttls_key_exchange_type_t key_ex);
-#endif
+			const ttls_ciphersuite_t *ciphersuite_info);
 
 unsigned char ttls_sig_from_pk(ttls_pk_context *pk);
 unsigned char ttls_sig_from_pk_alg(ttls_pk_type_t type);
@@ -416,10 +388,7 @@ int ttls_set_calc_verify_md(ttls_context *tls, int md);
 
 int ttls_check_curve(const ttls_context *tls, ttls_ecp_group_id grp_id);
 
-#if defined(TTLS_KEY_EXCHANGE__WITH_CERT__ENABLED)
-int ttls_check_sig_hash(const ttls_context *tls,
-								ttls_md_type_t md);
-#endif
+int ttls_check_sig_hash(const ttls_context *tls, ttls_md_type_t md);
 
 static inline ttls_pk_context *ttls_own_key(ttls_context *tls)
 {
