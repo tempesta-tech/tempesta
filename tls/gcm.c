@@ -42,8 +42,8 @@
  * 32-bit integer manipulation macros (big endian)
  */
 #ifndef GET_UINT32_BE
-#define GET_UINT32_BE(n,b,i)							\
-{													   \
+#define GET_UINT32_BE(n,b,i)				\
+{				   \
 	(n) = ((uint32_t) (b)[(i)	] << 24)			 \
 		| ((uint32_t) (b)[(i) + 1] << 16)			 \
 		| ((uint32_t) (b)[(i) + 2] <<  8)			 \
@@ -52,8 +52,8 @@
 #endif
 
 #ifndef PUT_UINT32_BE
-#define PUT_UINT32_BE(n,b,i)							\
-{													   \
+#define PUT_UINT32_BE(n,b,i)				\
+{				   \
 	(b)[(i)	] = (unsigned char) ((n) >> 24);	   \
 	(b)[(i) + 1] = (unsigned char) ((n) >> 16);	   \
 	(b)[(i) + 2] = (unsigned char) ((n) >>  8);	   \
@@ -143,9 +143,9 @@ static int gcm_gen_table(ttls_gcm_context *ctx)
 }
 
 int ttls_gcm_setkey(ttls_gcm_context *ctx,
-						ttls_cipher_id_t cipher,
-						const unsigned char *key,
-						unsigned int keybits)
+			ttls_cipher_id_t cipher,
+			const unsigned char *key,
+			unsigned int keybits)
 {
 	int ret;
 	const ttls_cipher_info_t *cipher_info;
@@ -163,7 +163,7 @@ int ttls_gcm_setkey(ttls_gcm_context *ctx,
 		return ret;
 
 	if ((ret = ttls_cipher_setkey(&ctx->cipher_ctx, key, keybits,
-							   TTLS_ENCRYPT)) != 0)
+				   TTLS_ENCRYPT)) != 0)
 	{
 		return ret;
 	}
@@ -192,7 +192,7 @@ static const uint64_t last4[16] =
  * x and output are seen as elements of GF(2^128) as in [MGV].
  */
 static void gcm_mult(ttls_gcm_context *ctx, const unsigned char x[16],
-					  unsigned char output[16])
+		  unsigned char output[16])
 {
 	int i = 0;
 	unsigned char lo, hi, rem;
@@ -307,7 +307,7 @@ int ttls_gcm_starts(ttls_gcm_context *ctx,
 	}
 
 	if ((ret = ttls_cipher_update(&ctx->cipher_ctx, ctx->y, 16, ctx->base_ectr,
-							 &olen)) != 0)
+				 &olen)) != 0)
 	{
 		return ret;
 	}
@@ -365,7 +365,7 @@ int ttls_gcm_update(ttls_gcm_context *ctx,
 				break;
 
 		if ((ret = ttls_cipher_update(&ctx->cipher_ctx, ctx->y, 16, ectr,
-								   &olen)) != 0)
+		   &olen)) != 0)
 		{
 			return ret;
 		}
@@ -425,16 +425,16 @@ int ttls_gcm_finish(ttls_gcm_context *ctx,
 }
 
 int ttls_gcm_crypt_and_tag(ttls_gcm_context *ctx,
-					   int mode,
-					   size_t length,
-					   const unsigned char *iv,
-					   size_t iv_len,
-					   const unsigned char *add,
-					   size_t add_len,
-					   const unsigned char *input,
-					   unsigned char *output,
-					   size_t tag_len,
-					   unsigned char *tag)
+		   int mode,
+		   size_t length,
+		   const unsigned char *iv,
+		   size_t iv_len,
+		   const unsigned char *add,
+		   size_t add_len,
+		   const unsigned char *input,
+		   unsigned char *output,
+		   size_t tag_len,
+		   unsigned char *tag)
 {
 	int ret;
 
@@ -451,15 +451,15 @@ int ttls_gcm_crypt_and_tag(ttls_gcm_context *ctx,
 }
 
 int ttls_gcm_auth_decrypt(ttls_gcm_context *ctx,
-					  size_t length,
-					  const unsigned char *iv,
-					  size_t iv_len,
-					  const unsigned char *add,
-					  size_t add_len,
-					  const unsigned char *tag,
-					  size_t tag_len,
-					  const unsigned char *input,
-					  unsigned char *output)
+		  size_t length,
+		  const unsigned char *iv,
+		  size_t iv_len,
+		  const unsigned char *add,
+		  size_t add_len,
+		  const unsigned char *tag,
+		  size_t tag_len,
+		  const unsigned char *input,
+		  unsigned char *output)
 {
 	int ret;
 	unsigned char check_tag[16];
@@ -467,8 +467,8 @@ int ttls_gcm_auth_decrypt(ttls_gcm_context *ctx,
 	int diff;
 
 	if ((ret = ttls_gcm_crypt_and_tag(ctx, TTLS_GCM_DECRYPT, length,
-					   iv, iv_len, add, add_len,
-					   input, output, tag_len, check_tag)) != 0)
+		   iv, iv_len, add, add_len,
+		   input, output, tag_len, check_tag)) != 0)
 	{
 		return ret;
 	}
@@ -739,10 +739,10 @@ int ttls_gcm_self_test(int verbose)
 
 			if (verbose != 0)
 				ttls_printf("  AES-GCM-%3d #%d (%s): ",
-								key_len, i, "enc");
+		key_len, i, "enc");
 
 			ret = ttls_gcm_setkey(&ctx, cipher, key[key_index[i]],
-									  key_len);
+			  key_len);
 			/*
 			 * AES-192 is an optional feature that may be unavailable when
 			 * there is an alternative underlying implementation i.e. when
@@ -759,10 +759,10 @@ int ttls_gcm_self_test(int verbose)
 			}
 
 			ret = ttls_gcm_crypt_and_tag(&ctx, TTLS_GCM_ENCRYPT,
-										pt_len[i],
-										iv[iv_index[i]], iv_len[i],
-										additional[add_index[i]], add_len[i],
-										pt[pt_index[i]], buf, 16, tag_buf);
+				pt_len[i],
+				iv[iv_index[i]], iv_len[i],
+				additional[add_index[i]], add_len[i],
+				pt[pt_index[i]], buf, 16, tag_buf);
 			if (ret != 0)
 				goto exit;
 
@@ -782,18 +782,18 @@ int ttls_gcm_self_test(int verbose)
 
 			if (verbose != 0)
 				ttls_printf("  AES-GCM-%3d #%d (%s): ",
-								key_len, i, "dec");
+		key_len, i, "dec");
 
 			ret = ttls_gcm_setkey(&ctx, cipher, key[key_index[i]],
-									  key_len);
+			  key_len);
 			if (ret != 0)
 				goto exit;
 
 			ret = ttls_gcm_crypt_and_tag(&ctx, TTLS_GCM_DECRYPT,
-										pt_len[i],
-										iv[iv_index[i]], iv_len[i],
-										additional[add_index[i]], add_len[i],
-										ct[j * 6 + i], buf, 16, tag_buf);
+				pt_len[i],
+				iv[iv_index[i]], iv_len[i],
+				additional[add_index[i]], add_len[i],
+				ct[j * 6 + i], buf, 16, tag_buf);
 
 			if (ret != 0)
 				goto exit;
@@ -814,16 +814,16 @@ int ttls_gcm_self_test(int verbose)
 
 			if (verbose != 0)
 				ttls_printf("  AES-GCM-%3d #%d split (%s): ",
-								key_len, i, "enc");
+		key_len, i, "enc");
 
 			ret = ttls_gcm_setkey(&ctx, cipher, key[key_index[i]],
-									  key_len);
+			  key_len);
 			if (ret != 0)
 				goto exit;
 
 			ret = ttls_gcm_starts(&ctx, TTLS_GCM_ENCRYPT,
-									  iv[iv_index[i]], iv_len[i],
-									  additional[add_index[i]], add_len[i]);
+			  iv[iv_index[i]], iv_len[i],
+			  additional[add_index[i]], add_len[i]);
 			if (ret != 0)
 				goto exit;
 
@@ -832,18 +832,18 @@ int ttls_gcm_self_test(int verbose)
 				size_t rest_len = pt_len[i] - 32;
 				ret = ttls_gcm_update(&ctx, 32, pt[pt_index[i]], buf);
 				if (ret != 0)
-					goto exit;
+		goto exit;
 
 				ret = ttls_gcm_update(&ctx, rest_len, pt[pt_index[i]] + 32,
-								  buf + 32);
+		  buf + 32);
 				if (ret != 0)
-					goto exit;
+		goto exit;
 			}
 			else
 			{
 				ret = ttls_gcm_update(&ctx, pt_len[i], pt[pt_index[i]], buf);
 				if (ret != 0)
-					goto exit;
+		goto exit;
 			}
 
 			ret = ttls_gcm_finish(&ctx, tag_buf, 16);
@@ -866,16 +866,16 @@ int ttls_gcm_self_test(int verbose)
 
 			if (verbose != 0)
 				ttls_printf("  AES-GCM-%3d #%d split (%s): ",
-								key_len, i, "dec");
+		key_len, i, "dec");
 
 			ret = ttls_gcm_setkey(&ctx, cipher, key[key_index[i]],
-									  key_len);
+			  key_len);
 			if (ret != 0)
 				goto exit;
 
 			ret = ttls_gcm_starts(&ctx, TTLS_GCM_DECRYPT,
-							  iv[iv_index[i]], iv_len[i],
-							  additional[add_index[i]], add_len[i]);
+				  iv[iv_index[i]], iv_len[i],
+				  additional[add_index[i]], add_len[i]);
 			if (ret != 0)
 				goto exit;
 
@@ -884,19 +884,19 @@ int ttls_gcm_self_test(int verbose)
 				size_t rest_len = pt_len[i] - 32;
 				ret = ttls_gcm_update(&ctx, 32, ct[j * 6 + i], buf);
 				if (ret != 0)
-					goto exit;
+		goto exit;
 
 				ret = ttls_gcm_update(&ctx, rest_len, ct[j * 6 + i] + 32,
-										  buf + 32);
+				  buf + 32);
 				if (ret != 0)
-					goto exit;
+		goto exit;
 			}
 			else
 			{
 				ret = ttls_gcm_update(&ctx, pt_len[i], ct[j * 6 + i],
-										  buf);
+				  buf);
 				if (ret != 0)
-					goto exit;
+		goto exit;
 			}
 
 			ret = ttls_gcm_finish(&ctx, tag_buf, 16);

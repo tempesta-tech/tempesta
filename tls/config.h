@@ -31,9 +31,9 @@
 
 #include <linux/spinlock.h>
 
-// TODO AK remove the mess
-#define ttls_time(a)		get_seconds()
+/* TODO remove the rest of the mess. */
 #define ttls_calloc(n, s)	kzalloc((n) * (s), GFP_ATOMIC)
+#define ttls_free(p)		kfree(p)
 #define ttls_snprintf		snprintf
 #define ttls_printf		pr_info
 
@@ -336,138 +336,6 @@
  *
  */
 #define TTLS_DEBUG_ALL
-
-/** \def TTLS_EXTENDED_MASTER_SECRET
- *
- * Enable support for Extended Master Secret, aka Session Hash
- * (draft-ietf-tls-session-hash-02).
- *
- * This was introduced as "the proper fix" to the Triple Handshake familiy of
- * attacks, but it is recommended to always use it (even if you disable
- * renegotiation), since it actually fixes a more fundamental issue in the
- * original SSL/TLS design, and has implications beyond Triple Handshake.
- *
- * Comment this macro to disable support for Extended Master Secret.
- */
-#define TTLS_EXTENDED_MASTER_SECRET
-
-/**
- * \def TTLS_FALLBACK_SCSV
- *
- * Enable support for FALLBACK_SCSV (draft-ietf-tls-downgrade-scsv-00).
- *
- * For servers, it is recommended to always enable this, unless you support
- * only one version of TLS, or know for sure that none of your clients
- * implements a fallback strategy.
- *
- * For clients, you only need this if you're using a fallback strategy, which
- * is not recommended in the first place, unless you absolutely need it to
- * interoperate with buggy (version-intolerant) servers.
- *
- * Comment this macro to disable support for FALLBACK_SCSV
- */
-#define TTLS_FALLBACK_SCSV
-
-/**
- * \def TTLS_SRV_RESPECT_CLIENT_PREFERENCE
- *
- * Pick the ciphersuite according to the client's preferences rather than ours
- * in the SSL Server module.
- *
- * Uncomment this macro to respect client's ciphersuite order
- */
-//#define TTLS_SRV_RESPECT_CLIENT_PREFERENCE
-
-/**
- * \def TTLS_MAX_FRAGMENT_LENGTH
- *
- * Enable support for RFC 6066 max_fragment_length extension in SSL.
- *
- * Comment this macro to disable support for the max_fragment_length extension
- */
-#define TTLS_MAX_FRAGMENT_LENGTH
-
-/**
- * \def TTLS_PROTO_DTLS
- *
- * Enable support for DTLS (all available versions).
- *
- * Comment this macro to disable support for DTLS
- */
-//#define TTLS_PROTO_DTLS
-
-/**
- * \def TTLS_DTLS_ANTI_REPLAY
- *
- * Enable support for the anti-replay mechanism in DTLS.
- *
- * Requires: TTLS_PROTO_DTLS
- *
- * \warning Disabling this is often a security risk!
- * See ttls_conf_dtls_anti_replay() for details.
- *
- * Comment this to disable anti-replay in DTLS.
- */
-//#define TTLS_DTLS_ANTI_REPLAY
-
-/**
- * \def TTLS_DTLS_HELLO_VERIFY
- *
- * Enable support for HelloVerifyRequest on DTLS servers.
- *
- * This feature is highly recommended to prevent DTLS servers being used as
- * amplifiers in DoS attacks against other hosts. It should always be enabled
- * unless you know for sure amplification cannot be a problem in the
- * environment in which your server operates.
- *
- * \warning Disabling this can ba a security risk! (see above)
- *
- * Requires: TTLS_PROTO_DTLS
- *
- * Comment this to disable support for HelloVerifyRequest.
- */
-//#define TTLS_DTLS_HELLO_VERIFY
-
-/**
- * \def TTLS_DTLS_CLIENT_PORT_REUSE
- *
- * Enable server-side support for clients that reconnect from the same port.
- *
- * Some clients unexpectedly close the connection and try to reconnect using the
- * same source port. This needs special support from the server to handle the
- * new connection securely, as described in section 4.2.8 of RFC 6347. This
- * flag enables that support.
- *
- * Requires: TTLS_DTLS_HELLO_VERIFY
- *
- * Comment this to disable support for clients reusing the source port.
- */
-//#define TTLS_DTLS_CLIENT_PORT_REUSE
-
-/**
- * \def TTLS_DTLS_BADMAC_LIMIT
- *
- * Enable support for a limit of records with bad MAC.
- *
- * See ttls_conf_dtls_badmac_limit().
- *
- * Requires: TTLS_PROTO_DTLS
- */
-//#define TTLS_DTLS_BADMAC_LIMIT
-
-/**
- * \def TTLS_SESSION_TICKETS
- *
- * Enable support for RFC 5077 session tickets in SSL.
- * Client-side, provides full support for session tickets (maintainance of a
- * session store remains the responsibility of the application, though).
- * Server-side, you also need to provide callbacks for writing and parsing
- * tickets, including authenticated encryption and key management. Example
- * callbacks are provided by TTLS_TICKET_C.
- *
- * Comment this macro to disable support for SSL session tickets
- */
-//#define TTLS_SESSION_TICKETS
 
 /**
  * \def TTLS_EXPORT_KEYS
@@ -898,16 +766,6 @@
 #define TTLS_CACHE_C
 
 /**
- * \def TTLS_COOKIE_C
- *
- * Enable basic implementation of DTLS cookies for hello verification.
- *
- * Module:  library/ssl_cookie.c
- * Caller:
- */
-#define TTLS_COOKIE_C
-
-/**
  * \def TTLS_TICKET_C
  *
  * Enable an implementation of TLS server-side callbacks for session tickets.
@@ -927,7 +785,7 @@
  *
  * This module is required for SSL/TLS client support.
  */
-#define TTLS_CLI_C
+//#define TTLS_CLI_C
 
 /**
  * \def TTLS_X509_CRL_PARSE_C
@@ -1052,7 +910,6 @@
 /* SSL options */
 //#define TTLS_DEFAULT_TICKET_LIFETIME	 86400 /**< Lifetime of session tickets (if enabled) */
 //#define TTLS_PSK_MAX_LEN			   32 /**< Max size of TLS pre-shared keys, in bytes (default 256 bits) */
-//#define TTLS_COOKIE_TIMEOUT		60 /**< Default expiration delay of DTLS cookies, in seconds */
 
 /**
  * Complete list of ciphersuites to use, in order of preference.
@@ -1116,7 +973,7 @@
 	defined(TTLS_CTR_DRBG_ENTROPY_LEN) && (TTLS_CTR_DRBG_ENTROPY_LEN > 64)
 #error "TTLS_CTR_DRBG_ENTROPY_LEN value too high"
 #endif
-#if defined(TTLS_ENTROPY_C) &&											\
+#if defined(TTLS_ENTROPY_C) &&		\
 	(!defined(TTLS_SHA512_C) || defined(TTLS_ENTROPY_FORCE_SHA256)) \
 	&& defined(TTLS_CTR_DRBG_ENTROPY_LEN) && (TTLS_CTR_DRBG_ENTROPY_LEN > 32)
 #error "TTLS_CTR_DRBG_ENTROPY_LEN value too high"
@@ -1164,23 +1021,6 @@
 
 #if defined(TTLS_PEM_WRITE_C) && !defined(TTLS_BASE64_C)
 #error "TTLS_PEM_WRITE_C defined, but not all prerequisites"
-#endif
-
-#if defined(TTLS_DTLS_HELLO_VERIFY) && !defined(TTLS_PROTO_DTLS)
-#error "TTLS_DTLS_HELLO_VERIFY  defined, but not all prerequisites"
-#endif
-
-#if defined(TTLS_DTLS_CLIENT_PORT_REUSE) && \
-	!defined(TTLS_DTLS_HELLO_VERIFY)
-#error "TTLS_DTLS_CLIENT_PORT_REUSE  defined, but not all prerequisites"
-#endif
-
-#if defined(TTLS_DTLS_ANTI_REPLAY) && (!defined(TTLS_PROTO_DTLS))
-#error "TTLS_DTLS_ANTI_REPLAY  defined, but not all prerequisites"
-#endif
-
-#if defined(TTLS_DTLS_BADMAC_LIMIT) && (!defined(TTLS_PROTO_DTLS))
-#error "TTLS_DTLS_BADMAC_LIMIT  defined, but not all prerequisites"
 #endif
 
 #if defined(TTLS_X509_CREATE_C) && (!defined(TTLS_ASN1_WRITE_C) ||	   \

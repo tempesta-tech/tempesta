@@ -60,8 +60,8 @@
  *
  */
 int ttls_rsa_deduce_primes(ttls_mpi const *N,
-					 ttls_mpi const *E, ttls_mpi const *D,
-					 ttls_mpi *P, ttls_mpi *Q)
+		 ttls_mpi const *E, ttls_mpi const *D,
+		 ttls_mpi *P, ttls_mpi *Q)
 {
 	int ret = 0;
 
@@ -138,8 +138,8 @@ int ttls_rsa_deduce_primes(ttls_mpi const *N,
 		/* Go through K^T + 1, K^(2T) + 1, K^(4T) + 1, ...
 		 * and check whether they have nontrivial GCD with N. */
 		TTLS_MPI_CHK(ttls_mpi_exp_mod(&K, &K, &T, N,
-							 Q /* temporarily use Q for storing Montgomery
-								* multiplication helper values */));
+				 Q /* temporarily use Q for storing Montgomery
+		* multiplication helper values */));
 
 		for (iter = 1; iter <= order; ++iter)
 		{
@@ -195,9 +195,9 @@ cleanup:
  * This is essentially a modular inversion.
  */
 int ttls_rsa_deduce_private_exponent(ttls_mpi const *P,
-										 ttls_mpi const *Q,
-										 ttls_mpi const *E,
-										 ttls_mpi *D)
+				 ttls_mpi const *Q,
+				 ttls_mpi const *E,
+				 ttls_mpi *D)
 {
 	int ret = 0;
 	ttls_mpi K, L;
@@ -241,8 +241,8 @@ cleanup:
  * Check that RSA CRT parameters are in accordance with core parameters.
  */
 int ttls_rsa_validate_crt(const ttls_mpi *P,  const ttls_mpi *Q,
-							  const ttls_mpi *D,  const ttls_mpi *DP,
-							  const ttls_mpi *DQ, const ttls_mpi *QP)
+				  const ttls_mpi *D,  const ttls_mpi *DP,
+				  const ttls_mpi *DQ, const ttls_mpi *QP)
 {
 	int ret = 0;
 
@@ -329,10 +329,10 @@ cleanup:
  * Check that core RSA parameters are sane.
  */
 int ttls_rsa_validate_params(const ttls_mpi *N, const ttls_mpi *P,
-								 const ttls_mpi *Q, const ttls_mpi *D,
-								 const ttls_mpi *E,
-								 int (*f_rng)(void *, unsigned char *, size_t),
-								 void *p_rng)
+		 const ttls_mpi *Q, const ttls_mpi *D,
+		 const ttls_mpi *E,
+		 int (*f_rng)(void *, unsigned char *, size_t),
+		 void *p_rng)
 {
 	int ret = 0;
 	ttls_mpi K, L;
@@ -445,8 +445,8 @@ cleanup:
 }
 
 int ttls_rsa_deduce_crt(const ttls_mpi *P, const ttls_mpi *Q,
-							const ttls_mpi *D, ttls_mpi *DP,
-							ttls_mpi *DQ, ttls_mpi *QP)
+				const ttls_mpi *D, ttls_mpi *DP,
+				ttls_mpi *DQ, ttls_mpi *QP)
 {
 	int ret = 0;
 	ttls_mpi K;

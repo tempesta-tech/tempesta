@@ -44,8 +44,8 @@ static void ttls_zeroize(void *v, size_t n) {
  * 32-bit integer manipulation macros (big endian)
  */
 #ifndef GET_UINT32_BE
-#define GET_UINT32_BE(n,b,i)							\
-{													   \
+#define GET_UINT32_BE(n,b,i)				\
+{				   \
 	(n) = ((uint32_t) (b)[(i)	] << 24)			 \
 		| ((uint32_t) (b)[(i) + 1] << 16)			 \
 		| ((uint32_t) (b)[(i) + 2] <<  8)			 \
@@ -54,8 +54,8 @@ static void ttls_zeroize(void *v, size_t n) {
 #endif
 
 #ifndef PUT_UINT32_BE
-#define PUT_UINT32_BE(n,b,i)							\
-{													   \
+#define PUT_UINT32_BE(n,b,i)				\
+{				   \
 	(b)[(i)	] = (unsigned char) ((n) >> 24);	   \
 	(b)[(i) + 1] = (unsigned char) ((n) >> 16);	   \
 	(b)[(i) + 2] = (unsigned char) ((n) >>  8);	   \
@@ -168,7 +168,7 @@ void ttls_blowfish_free(ttls_blowfish_context *ctx)
  * Blowfish key schedule
  */
 int ttls_blowfish_setkey(ttls_blowfish_context *ctx, const unsigned char *key,
-					 unsigned int keybits)
+		 unsigned int keybits)
 {
 	unsigned int i, j, k;
 	uint32_t data, datal, datar;
@@ -226,9 +226,9 @@ int ttls_blowfish_setkey(ttls_blowfish_context *ctx, const unsigned char *key,
  * Blowfish-ECB block encryption/decryption
  */
 int ttls_blowfish_crypt_ecb(ttls_blowfish_context *ctx,
-					int mode,
-					const unsigned char input[TTLS_BLOWFISH_BLOCKSIZE],
-					unsigned char output[TTLS_BLOWFISH_BLOCKSIZE])
+		int mode,
+		const unsigned char input[TTLS_BLOWFISH_BLOCKSIZE],
+		unsigned char output[TTLS_BLOWFISH_BLOCKSIZE])
 {
 	uint32_t X0, X1;
 
@@ -255,11 +255,11 @@ int ttls_blowfish_crypt_ecb(ttls_blowfish_context *ctx,
  * Blowfish-CBC buffer encryption/decryption
  */
 int ttls_blowfish_crypt_cbc(ttls_blowfish_context *ctx,
-					int mode,
-					size_t length,
-					unsigned char iv[TTLS_BLOWFISH_BLOCKSIZE],
-					const unsigned char *input,
-					unsigned char *output)
+		int mode,
+		size_t length,
+		unsigned char iv[TTLS_BLOWFISH_BLOCKSIZE],
+		const unsigned char *input,
+		unsigned char *output)
 {
 	int i;
 	unsigned char temp[TTLS_BLOWFISH_BLOCKSIZE];
@@ -309,12 +309,12 @@ int ttls_blowfish_crypt_cbc(ttls_blowfish_context *ctx,
  * Blowfish CFB buffer encryption/decryption
  */
 int ttls_blowfish_crypt_cfb64(ttls_blowfish_context *ctx,
-					   int mode,
-					   size_t length,
-					   size_t *iv_off,
-					   unsigned char iv[TTLS_BLOWFISH_BLOCKSIZE],
-					   const unsigned char *input,
-					   unsigned char *output)
+		   int mode,
+		   size_t length,
+		   size_t *iv_off,
+		   unsigned char iv[TTLS_BLOWFISH_BLOCKSIZE],
+		   const unsigned char *input,
+		   unsigned char *output)
 {
 	int c;
 	size_t n = *iv_off;
@@ -357,12 +357,12 @@ int ttls_blowfish_crypt_cfb64(ttls_blowfish_context *ctx,
  * Blowfish CTR buffer encryption/decryption
  */
 int ttls_blowfish_crypt_ctr(ttls_blowfish_context *ctx,
-					   size_t length,
-					   size_t *nc_off,
-					   unsigned char nonce_counter[TTLS_BLOWFISH_BLOCKSIZE],
-					   unsigned char stream_block[TTLS_BLOWFISH_BLOCKSIZE],
-					   const unsigned char *input,
-					   unsigned char *output)
+		   size_t length,
+		   size_t *nc_off,
+		   unsigned char nonce_counter[TTLS_BLOWFISH_BLOCKSIZE],
+		   unsigned char stream_block[TTLS_BLOWFISH_BLOCKSIZE],
+		   const unsigned char *input,
+		   unsigned char *output)
 {
 	int c, i;
 	size_t n = *nc_off;
@@ -371,11 +371,11 @@ int ttls_blowfish_crypt_ctr(ttls_blowfish_context *ctx,
 	{
 		if (n == 0) {
 			ttls_blowfish_crypt_ecb(ctx, TTLS_BLOWFISH_ENCRYPT, nonce_counter,
-								stream_block);
+		stream_block);
 
 			for (i = TTLS_BLOWFISH_BLOCKSIZE; i > 0; i--)
 				if (++nonce_counter[i - 1] != 0)
-					break;
+		break;
 		}
 		c = *input++;
 		*output++ = (unsigned char)(c ^ stream_block[n]);

@@ -97,7 +97,7 @@ int ttls_asn1_write_tag(unsigned char **p, unsigned char *start, unsigned char t
 }
 
 int ttls_asn1_write_raw_buffer(unsigned char **p, unsigned char *start,
-						   const unsigned char *buf, size_t size)
+			   const unsigned char *buf, size_t size)
 {
 	size_t len = 0;
 
@@ -161,13 +161,13 @@ int ttls_asn1_write_null(unsigned char **p, unsigned char *start)
 }
 
 int ttls_asn1_write_oid(unsigned char **p, unsigned char *start,
-					const char *oid, size_t oid_len)
+		const char *oid, size_t oid_len)
 {
 	int ret;
 	size_t len = 0;
 
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_raw_buffer(p, start,
-								  (const unsigned char *) oid, oid_len));
+		  (const unsigned char *) oid, oid_len));
 	TTLS_ASN1_CHK_ADD(len , ttls_asn1_write_len(p, start, len));
 	TTLS_ASN1_CHK_ADD(len , ttls_asn1_write_tag(p, start, TTLS_ASN1_OID));
 
@@ -175,8 +175,8 @@ int ttls_asn1_write_oid(unsigned char **p, unsigned char *start,
 }
 
 int ttls_asn1_write_algorithm_identifier(unsigned char **p, unsigned char *start,
-									 const char *oid, size_t oid_len,
-									 size_t par_len)
+			 const char *oid, size_t oid_len,
+			 size_t par_len)
 {
 	int ret;
 	size_t len = 0;
@@ -190,7 +190,7 @@ int ttls_asn1_write_algorithm_identifier(unsigned char **p, unsigned char *start
 
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, len));
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start,
-									   TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE));
+			   TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE));
 
 	return((int) len);
 }
@@ -243,7 +243,7 @@ int ttls_asn1_write_int(unsigned char **p, unsigned char *start, int val)
 }
 
 int ttls_asn1_write_printable_string(unsigned char **p, unsigned char *start,
-								 const char *text, size_t text_len)
+		 const char *text, size_t text_len)
 {
 	int ret;
 	size_t len = 0;
@@ -258,7 +258,7 @@ int ttls_asn1_write_printable_string(unsigned char **p, unsigned char *start,
 }
 
 int ttls_asn1_write_ia5_string(unsigned char **p, unsigned char *start,
-						   const char *text, size_t text_len)
+			   const char *text, size_t text_len)
 {
 	int ret;
 	size_t len = 0;
@@ -273,7 +273,7 @@ int ttls_asn1_write_ia5_string(unsigned char **p, unsigned char *start,
 }
 
 int ttls_asn1_write_bitstring(unsigned char **p, unsigned char *start,
-						  const unsigned char *buf, size_t bits)
+			  const unsigned char *buf, size_t bits)
 {
 	int ret;
 	size_t len = 0, size;
@@ -300,7 +300,7 @@ int ttls_asn1_write_bitstring(unsigned char **p, unsigned char *start,
 }
 
 int ttls_asn1_write_octet_string(unsigned char **p, unsigned char *start,
-							 const unsigned char *buf, size_t size)
+				 const unsigned char *buf, size_t size)
 {
 	int ret;
 	size_t len = 0;
@@ -314,9 +314,9 @@ int ttls_asn1_write_octet_string(unsigned char **p, unsigned char *start,
 }
 
 ttls_asn1_named_data *ttls_asn1_store_named_data(ttls_asn1_named_data **head,
-										const char *oid, size_t oid_len,
-										const unsigned char *val,
-										size_t val_len)
+				const char *oid, size_t oid_len,
+				const unsigned char *val,
+				size_t val_len)
 {
 	ttls_asn1_named_data *cur;
 
@@ -325,7 +325,7 @@ ttls_asn1_named_data *ttls_asn1_store_named_data(ttls_asn1_named_data **head,
 		// Add new entry if not present yet based on OID
 		//
 		cur = (ttls_asn1_named_data*)ttls_calloc(1,
-											sizeof(ttls_asn1_named_data));
+		sizeof(ttls_asn1_named_data));
 		if (cur == NULL)
 			return(NULL);
 

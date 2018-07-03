@@ -61,8 +61,8 @@ static void ttls_zeroize(void *v, size_t n) {
  * Block size must be 8 bytes or 16 bytes - the block sizes for DES and AES.
  */
 static int cmac_multiply_by_u(unsigned char *output,
-							   const unsigned char *input,
-							   size_t blocksize)
+				   const unsigned char *input,
+				   size_t blocksize)
 {
 	const unsigned char R_128 = 0x87;
 	const unsigned char R_64 = 0x1B;
@@ -114,7 +114,7 @@ static int cmac_multiply_by_u(unsigned char *output,
  * - as specified by RFC 4493, section 2.3 Subkey Generation Algorithm
  */
 static int cmac_generate_subkeys(ttls_cipher_context_t *ctx,
-								  unsigned char* K1, unsigned char* K2)
+		  unsigned char* K1, unsigned char* K2)
 {
 	int ret;
 	unsigned char L[TTLS_CIPHER_BLKSIZE_MAX];
@@ -145,8 +145,8 @@ exit:
 
 #if !defined(TTLS_CMAC_ALT)
 static void cmac_xor_block(unsigned char *output, const unsigned char *input1,
-							const unsigned char *input2,
-							const size_t block_size)
+				const unsigned char *input2,
+				const size_t block_size)
 {
 	size_t idx;
 
@@ -161,9 +161,9 @@ static void cmac_xor_block(unsigned char *output, const unsigned char *input1,
  * CBC and we use ECB mode, and anyway we need to XOR K1 or K2 in addition.
  */
 static void cmac_pad(unsigned char padded_block[TTLS_CIPHER_BLKSIZE_MAX],
-					  size_t padded_block_len,
-					  const unsigned char *last_block,
-					  size_t last_block_len)
+		  size_t padded_block_len,
+		  const unsigned char *last_block,
+		  size_t last_block_len)
 {
 	size_t j;
 
@@ -179,7 +179,7 @@ static void cmac_pad(unsigned char padded_block[TTLS_CIPHER_BLKSIZE_MAX],
 }
 
 int ttls_cipher_cmac_starts(ttls_cipher_context_t *ctx,
-								const unsigned char *key, size_t keybits)
+		const unsigned char *key, size_t keybits)
 {
 	ttls_cipher_type_t type;
 	ttls_cmac_context_t *cmac_ctx;
@@ -189,7 +189,7 @@ int ttls_cipher_cmac_starts(ttls_cipher_context_t *ctx,
 		return(TTLS_ERR_CIPHER_BAD_INPUT_DATA);
 
 	if ((retval = ttls_cipher_setkey(ctx, key, (int)keybits,
-										  TTLS_ENCRYPT)) != 0)
+				  TTLS_ENCRYPT)) != 0)
 		return(retval);
 
 	type = ctx->cipher_info->type;
@@ -219,7 +219,7 @@ int ttls_cipher_cmac_starts(ttls_cipher_context_t *ctx,
 }
 
 int ttls_cipher_cmac_update(ttls_cipher_context_t *ctx,
-								const unsigned char *input, size_t ilen)
+		const unsigned char *input, size_t ilen)
 {
 	ttls_cmac_context_t* cmac_ctx;
 	unsigned char *state;
@@ -246,7 +246,7 @@ int ttls_cipher_cmac_update(ttls_cipher_context_t *ctx,
 		cmac_xor_block(state, cmac_ctx->unprocessed_block, state, block_size);
 
 		if ((ret = ttls_cipher_update(ctx, state, block_size, state,
-										   &olen)) != 0)
+				   &olen)) != 0)
 		{
 		   goto exit;
 		}
@@ -266,7 +266,7 @@ int ttls_cipher_cmac_update(ttls_cipher_context_t *ctx,
 		cmac_xor_block(state, input, state, block_size);
 
 		if ((ret = ttls_cipher_update(ctx, state, block_size, state,
-										   &olen)) != 0)
+				   &olen)) != 0)
 		   goto exit;
 
 		ilen -= block_size;
@@ -287,7 +287,7 @@ exit:
 }
 
 int ttls_cipher_cmac_finish(ttls_cipher_context_t *ctx,
-								unsigned char *output)
+		unsigned char *output)
 {
 	ttls_cmac_context_t* cmac_ctx;
 	unsigned char *state, *last_block;
@@ -326,7 +326,7 @@ int ttls_cipher_cmac_finish(ttls_cipher_context_t *ctx,
 
 	cmac_xor_block(state, M_last, state, block_size);
 	if ((ret = ttls_cipher_update(ctx, state, block_size, state,
-									   &olen)) != 0)
+			   &olen)) != 0)
 	{
 		goto exit;
 	}
@@ -341,7 +341,7 @@ exit:
 
 	cmac_ctx->unprocessed_len = 0;
 	ttls_zeroize(cmac_ctx->unprocessed_block,
-					 sizeof(cmac_ctx->unprocessed_block));
+		 sizeof(cmac_ctx->unprocessed_block));
 
 	ttls_zeroize(state, TTLS_CIPHER_BLKSIZE_MAX);
 	return ret;
@@ -359,17 +359,17 @@ int ttls_cipher_cmac_reset(ttls_cipher_context_t *ctx)
 	/* Reset the internal state */
 	cmac_ctx->unprocessed_len = 0;
 	ttls_zeroize(cmac_ctx->unprocessed_block,
-					 sizeof(cmac_ctx->unprocessed_block));
+		 sizeof(cmac_ctx->unprocessed_block));
 	ttls_zeroize(cmac_ctx->state,
-					 sizeof(cmac_ctx->state));
+		 sizeof(cmac_ctx->state));
 
 	return 0;
 }
 
 int ttls_cipher_cmac(const ttls_cipher_info_t *cipher_info,
-						 const unsigned char *key, size_t keylen,
-						 const unsigned char *input, size_t ilen,
-						 unsigned char *output)
+			 const unsigned char *key, size_t keylen,
+			 const unsigned char *input, size_t ilen,
+			 unsigned char *output)
 {
 	ttls_cipher_context_t ctx;
 	int ret;
@@ -402,8 +402,8 @@ exit:
  * Implementation of AES-CMAC-PRF-128 defined in RFC 4615
  */
 int ttls_aes_cmac_prf_128(const unsigned char *key, size_t key_length,
-							  const unsigned char *input, size_t in_len,
-							  unsigned char *output)
+				  const unsigned char *input, size_t in_len,
+				  unsigned char *output)
 {
 	int ret;
 	const ttls_cipher_info_t *cipher_info;
@@ -431,13 +431,13 @@ int ttls_aes_cmac_prf_128(const unsigned char *key, size_t key_length,
 		memset(zero_key, 0, TTLS_AES_BLOCK_SIZE);
 
 		ret = ttls_cipher_cmac(cipher_info, zero_key, 128, key,
-								   key_length, int_key);
+		   key_length, int_key);
 		if (ret != 0)
 			goto exit;
 	}
 
 	ret = ttls_cipher_cmac(cipher_info, int_key, 128, input, in_len,
-							   output);
+				   output);
 
 exit:
 	ttls_zeroize(int_key, sizeof(int_key));
@@ -642,13 +642,13 @@ static const unsigned char PRFT[NB_PRF_TESTS][16] = {
 };
 
 static int cmac_test_subkeys(int verbose,
-							  const char* testname,
-							  const unsigned char* key,
-							  int keybits,
-							  const unsigned char* subkeys,
-							  ttls_cipher_type_t cipher_type,
-							  int block_size,
-							  int num_tests)
+				  const char* testname,
+				  const unsigned char* key,
+				  int keybits,
+				  const unsigned char* subkeys,
+				  ttls_cipher_type_t cipher_type,
+				  int block_size,
+				  int num_tests)
 {
 	int i, ret;
 	ttls_cipher_context_t ctx;
@@ -679,7 +679,7 @@ static int cmac_test_subkeys(int verbose,
 		}
 
 		if ((ret = ttls_cipher_setkey(&ctx, key, keybits,
-									   TTLS_ENCRYPT)) != 0)
+			   TTLS_ENCRYPT)) != 0)
 		{
 			if (verbose != 0)
 				ttls_printf("test execution failed\n");
@@ -721,15 +721,15 @@ exit:
 }
 
 static int cmac_test_wth_cipher(int verbose,
-								 const char* testname,
-								 const unsigned char* key,
-								 int keybits,
-								 const unsigned char* messages,
-								 const unsigned int message_lengths[4],
-								 const unsigned char* expected_result,
-								 ttls_cipher_type_t cipher_type,
-								 int block_size,
-								 int num_tests)
+		 const char* testname,
+		 const unsigned char* key,
+		 int keybits,
+		 const unsigned char* messages,
+		 const unsigned int message_lengths[4],
+		 const unsigned char* expected_result,
+		 ttls_cipher_type_t cipher_type,
+		 int block_size,
+		 int num_tests)
 {
 	const ttls_cipher_info_t *cipher_info;
 	int i, ret;
@@ -749,7 +749,7 @@ static int cmac_test_wth_cipher(int verbose,
 			ttls_printf("  %s CMAC #%u: ", testname, i + 1);
 
 		if ((ret = ttls_cipher_cmac(cipher_info, key, keybits, messages,
-										 message_lengths[i], output)) != 0)
+				 message_lengths[i], output)) != 0)
 		{
 			if (verbose != 0)
 				ttls_printf("failed\n");
@@ -804,81 +804,81 @@ int ttls_cmac_self_test(int verbose)
 
 	/* AES-128 */
 	if ((ret = cmac_test_subkeys(verbose,
-								   "AES 128",
-								   aes_128_key,
-								   128,
-								   (const unsigned char*)aes_128_subkeys,
-								   TTLS_CIPHER_AES_128_ECB,
-								   TTLS_AES_BLOCK_SIZE,
-								   NB_CMAC_TESTS_PER_KEY)) != 0)
+		   "AES 128",
+		   aes_128_key,
+		   128,
+		   (const unsigned char*)aes_128_subkeys,
+		   TTLS_CIPHER_AES_128_ECB,
+		   TTLS_AES_BLOCK_SIZE,
+		   NB_CMAC_TESTS_PER_KEY)) != 0)
 	{
 		return ret;
 	}
 
 	if ((ret = cmac_test_wth_cipher(verbose,
-									  "AES 128",
-									  aes_128_key,
-									  128,
-									  test_message,
-									  aes_message_lengths,
-									  (const unsigned char*)aes_128_expected_result,
-									  TTLS_CIPHER_AES_128_ECB,
-									  TTLS_AES_BLOCK_SIZE,
-									  NB_CMAC_TESTS_PER_KEY)) != 0)
+			  "AES 128",
+			  aes_128_key,
+			  128,
+			  test_message,
+			  aes_message_lengths,
+			  (const unsigned char*)aes_128_expected_result,
+			  TTLS_CIPHER_AES_128_ECB,
+			  TTLS_AES_BLOCK_SIZE,
+			  NB_CMAC_TESTS_PER_KEY)) != 0)
 	{
 		return ret;
 	}
 
 	/* AES-192 */
 	if ((ret = cmac_test_subkeys(verbose,
-								   "AES 192",
-								   aes_192_key,
-								   192,
-								   (const unsigned char*)aes_192_subkeys,
-								   TTLS_CIPHER_AES_192_ECB,
-								   TTLS_AES_BLOCK_SIZE,
-								   NB_CMAC_TESTS_PER_KEY)) != 0)
+		   "AES 192",
+		   aes_192_key,
+		   192,
+		   (const unsigned char*)aes_192_subkeys,
+		   TTLS_CIPHER_AES_192_ECB,
+		   TTLS_AES_BLOCK_SIZE,
+		   NB_CMAC_TESTS_PER_KEY)) != 0)
 	{
 		return ret;
 	}
 
 	if ((ret = cmac_test_wth_cipher(verbose,
-									  "AES 192",
-									  aes_192_key,
-									  192,
-									  test_message,
-									  aes_message_lengths,
-									  (const unsigned char*)aes_192_expected_result,
-									  TTLS_CIPHER_AES_192_ECB,
-									  TTLS_AES_BLOCK_SIZE,
-									  NB_CMAC_TESTS_PER_KEY)) != 0)
+			  "AES 192",
+			  aes_192_key,
+			  192,
+			  test_message,
+			  aes_message_lengths,
+			  (const unsigned char*)aes_192_expected_result,
+			  TTLS_CIPHER_AES_192_ECB,
+			  TTLS_AES_BLOCK_SIZE,
+			  NB_CMAC_TESTS_PER_KEY)) != 0)
 	{
 		return ret;
 	}
 
 	/* AES-256 */
 	if ((ret = cmac_test_subkeys(verbose,
-								   "AES 256",
-								   aes_256_key,
-								   256,
-								   (const unsigned char*)aes_256_subkeys,
-								   TTLS_CIPHER_AES_256_ECB,
-								   TTLS_AES_BLOCK_SIZE,
-								   NB_CMAC_TESTS_PER_KEY)) != 0)
+		   "AES 256",
+		   aes_256_key,
+		   256,
+		   (const unsigned char*)aes_256_subkeys,
+		   TTLS_CIPHER_AES_256_ECB,
+		   TTLS_AES_BLOCK_SIZE,
+		   NB_CMAC_TESTS_PER_KEY)) != 0)
 	{
 		return ret;
 	}
 
 	if ((ret = cmac_test_wth_cipher (verbose,
-									   "AES 256",
-									   aes_256_key,
-									   256,
-									   test_message,
-									   aes_message_lengths,
-									   (const unsigned char*)aes_256_expected_result,
-									   TTLS_CIPHER_AES_256_ECB,
-									   TTLS_AES_BLOCK_SIZE,
-									   NB_CMAC_TESTS_PER_KEY)) != 0)
+			   "AES 256",
+			   aes_256_key,
+			   256,
+			   test_message,
+			   aes_message_lengths,
+			   (const unsigned char*)aes_256_expected_result,
+			   TTLS_CIPHER_AES_256_ECB,
+			   TTLS_AES_BLOCK_SIZE,
+			   NB_CMAC_TESTS_PER_KEY)) != 0)
 	{
 		return ret;
 	}

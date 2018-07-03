@@ -81,9 +81,9 @@ int ttls_aesni_has_support(unsigned int what)
  * AES-NI AES-ECB block en(de)cryption
  */
 int ttls_aesni_crypt_ecb(ttls_aes_context *ctx,
-					 int mode,
-					 const unsigned char input[16],
-					 unsigned char output[16])
+		 int mode,
+		 const unsigned char input[16],
+		 unsigned char output[16])
 {
 	asm("movdqu	(%3), %%xmm0	\n\t" // load input
 		 "movdqu	(%1), %%xmm1	\n\t" // load round key 0
@@ -93,7 +93,7 @@ int ttls_aesni_crypt_ecb(ttls_aes_context *ctx,
 		 "test	  %2, %2		  \n\t" // mode?
 		 "jz		2f			  \n\t" // 0 = decrypt
 
-		 "1:						\n\t" // encryption loop
+		 "1:			\n\t" // encryption loop
 		 "movdqu	(%1), %%xmm1	\n\t" // load round key
 		 AESENC	 xmm1_xmm0	  "\n\t" // do round
 		 "add	   $16, %1		 \n\t" // point to next round key
@@ -103,7 +103,7 @@ int ttls_aesni_crypt_ecb(ttls_aes_context *ctx,
 		 AESENCLAST xmm1_xmm0	  "\n\t" // last round
 		 "jmp	   3f			  \n\t"
 
-		 "2:						\n\t" // decryption loop
+		 "2:			\n\t" // decryption loop
 		 "movdqu	(%1), %%xmm1	\n\t"
 		 AESDEC	 xmm1_xmm0	  "\n\t" // do round
 		 "add	   $16, %1		 \n\t"
@@ -112,7 +112,7 @@ int ttls_aesni_crypt_ecb(ttls_aes_context *ctx,
 		 "movdqu	(%1), %%xmm1	\n\t" // load round key
 		 AESDECLAST xmm1_xmm0	  "\n\t" // last round
 
-		 "3:						\n\t"
+		 "3:			\n\t"
 		 "movdqu	%%xmm0, (%4)	\n\t" // export output
 		 :
 		 : "r" (ctx->nr), "r" (ctx->rk), "r" (mode), "r" (input), "r" (output)
@@ -127,8 +127,8 @@ int ttls_aesni_crypt_ecb(ttls_aes_context *ctx,
  * Based on [CLMUL-WP] algorithms 1 (with equation 27) and 5.
  */
 void ttls_aesni_gcm_mult(unsigned char c[16],
-					 const unsigned char a[16],
-					 const unsigned char b[16])
+		 const unsigned char a[16],
+		 const unsigned char b[16])
 {
 	unsigned char aa[16], bb[16], cc[16];
 	size_t i;
@@ -238,7 +238,7 @@ void ttls_aesni_gcm_mult(unsigned char c[16],
  * Compute decryption round keys from encryption round keys
  */
 void ttls_aesni_inverse_key(unsigned char *invkey,
-						const unsigned char *fwdkey, int nr)
+			const unsigned char *fwdkey, int nr)
 {
 	unsigned char *ik = invkey;
 	const unsigned char *fk = fwdkey + 16 * nr;
@@ -276,7 +276,7 @@ void key_expansion_128(unsigned char *rk)
 		 "pxor %%xmm0, %%xmm1			   \n\t"
 		 "pslldq $4, %%xmm0				 \n\t"
 		 "pxor %%xmm1, %%xmm0			   \n\t" // update xmm0 for next time!
-		 "add $16, %0					   \n\t" // point to next round key
+		 "add $16, %0		   \n\t" // point to next round key
 		 "movdqu %%xmm0, (%0)			   \n\t" // write it
 		 :
 	 : "D"(rk)
@@ -287,7 +287,7 @@ void key_expansion_128(unsigned char *rk)
  * Key expansion, 128-bit case
  */
 static void aesni_setkey_enc_128(unsigned char *rk,
-								  const unsigned char *key)
+		  const unsigned char *key)
 {
 	asm("movdqu (%1), %%xmm0			   \n\t" // copy the original key
 		 "movdqu %%xmm0, (%0)			   \n\t" // as round key 0
@@ -332,7 +332,7 @@ void key_expansion_192(unsigned char *rk)
 		 "pslldq $4, %%xmm1			 \n\t" // r2:r1:r0:0
 		 "pxor %%xmm2, %%xmm1		   \n\t" // xmm1 = stuff:stuff:r11:r10
 		 "movq %%xmm1, (%0)			 \n\t"
-		 "add $8, %0					\n\t"
+		 "add $8, %0		\n\t"
 		 :
 	 : "D"(rk)
 	 : "memory");
@@ -342,7 +342,7 @@ void key_expansion_192(unsigned char *rk)
  * Key expansion, 192-bit case
  */
 static void aesni_setkey_enc_192(unsigned char *rk,
-								  const unsigned char *key)
+		  const unsigned char *key)
 {
 	asm("movdqu (%1), %%xmm0   \n\t" // copy original round key
 		 "movdqu %%xmm0, (%0)   \n\t"
@@ -382,7 +382,7 @@ void key_expansion_256(unsigned char *rk)
 		 "pxor %%xmm0, %%xmm2			   \n\t"
 		 "pslldq $4, %%xmm0				 \n\t"
 		 "pxor %%xmm2, %%xmm0			   \n\t"
-		 "add $16, %0					   \n\t"
+		 "add $16, %0		   \n\t"
 		 "movdqu %%xmm0, (%0)			   \n\t"
 
 		 /* Set xmm2 to stuff:Y:stuff:stuff with Y = subword(r11)
@@ -396,7 +396,7 @@ void key_expansion_256(unsigned char *rk)
 		 "pxor %%xmm1, %%xmm2			   \n\t"
 		 "pslldq $4, %%xmm1				 \n\t"
 		 "pxor %%xmm2, %%xmm1			   \n\t"
-		 "add $16, %0					   \n\t"
+		 "add $16, %0		   \n\t"
 		 "movdqu %%xmm1, (%0)			   \n\t"
 		 :
 	 : "D"(rk)
@@ -407,7 +407,7 @@ void key_expansion_256(unsigned char *rk)
  * Key expansion, 256-bit case
  */
 static void aesni_setkey_enc_256(unsigned char *rk,
-								  const unsigned char *key)
+		  const unsigned char *key)
 {
 	asm("movdqu (%1), %%xmm0		   \n\t"
 		 "movdqu %%xmm0, (%0)		   \n\t"
@@ -434,8 +434,8 @@ static void aesni_setkey_enc_256(unsigned char *rk,
  * Key expansion, wrapper
  */
 int ttls_aesni_setkey_enc(unsigned char *rk,
-					  const unsigned char *key,
-					  size_t bits)
+		  const unsigned char *key,
+		  size_t bits)
 {
 	switch(bits)
 	{

@@ -48,8 +48,13 @@ typedef struct {
 	size_t			len;
 } TfwMsg;
 
+/**
+ * Iterator for @skb fragments.
+ *
+ * @frag	- current fragment index or @skb->head if -1.
+ */
 typedef struct {
-	unsigned int	frag;
+	int		frag;
 	struct sk_buff	*skb;
 } TfwMsgIter;
 

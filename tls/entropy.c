@@ -57,16 +57,16 @@ void ttls_entropy_init(ttls_entropy_context *ctx)
 	 *		   when adding more strong entropy sources here. */
 
 	ttls_entropy_add_source(ctx, ttls_hardclock_poll, NULL,
-					TTLS_ENTROPY_MIN_HARDCLOCK,
-					TTLS_ENTROPY_SOURCE_WEAK);
+		TTLS_ENTROPY_MIN_HARDCLOCK,
+		TTLS_ENTROPY_SOURCE_WEAK);
 #if defined(TTLS_HAVEGE_C)
 	ttls_entropy_add_source(ctx, ttls_havege_poll, &ctx->havege_data,
-					TTLS_ENTROPY_MIN_HAVEGE,
-					TTLS_ENTROPY_SOURCE_STRONG);
+		TTLS_ENTROPY_MIN_HAVEGE,
+		TTLS_ENTROPY_SOURCE_STRONG);
 #endif
 	ttls_entropy_add_source(ctx, ttls_hardware_poll, NULL,
-					TTLS_ENTROPY_MIN_HARDWARE,
-					TTLS_ENTROPY_SOURCE_STRONG);
+		TTLS_ENTROPY_MIN_HARDWARE,
+		TTLS_ENTROPY_SOURCE_STRONG);
 }
 
 void ttls_entropy_free(ttls_entropy_context *ctx)
@@ -116,7 +116,7 @@ exit:
  * Entropy accumulator update
  */
 static int entropy_update(ttls_entropy_context *ctx, unsigned char source_id,
-						   const unsigned char *data, size_t len)
+			   const unsigned char *data, size_t len)
 {
 	unsigned char header[2];
 	unsigned char tmp[TTLS_ENTROPY_BLOCK_SIZE];
@@ -172,7 +172,7 @@ cleanup:
 }
 
 int ttls_entropy_update_manual(ttls_entropy_context *ctx,
-						   const unsigned char *data, size_t len)
+			   const unsigned char *data, size_t len)
 {
 	int ret;
 
@@ -207,7 +207,7 @@ static int entropy_gather_internal(ttls_entropy_context *ctx)
 
 		olen = 0;
 		if ((ret = ctx->source[i].f_source(ctx->source[i].p_source,
-						buf, TTLS_ENTROPY_MAX_GATHER, &olen)) != 0)
+			buf, TTLS_ENTROPY_MAX_GATHER, &olen)) != 0)
 		{
 			goto cleanup;
 		}
@@ -218,7 +218,7 @@ static int entropy_gather_internal(ttls_entropy_context *ctx)
 		if (olen > 0)
 		{
 			if ((ret = entropy_update(ctx, (unsigned char) i,
-										buf, olen)) != 0)
+				buf, olen)) != 0)
 				return ret;
 			ctx->source[i].size += olen;
 		}
@@ -300,14 +300,14 @@ int ttls_entropy_func(void *data, unsigned char *output, size_t len)
 	if ((ret = ttls_sha512_starts_ret(&ctx->accumulator, 0)) != 0)
 		goto exit;
 	if ((ret = ttls_sha512_update_ret(&ctx->accumulator, buf,
-										   TTLS_ENTROPY_BLOCK_SIZE)) != 0)
+				   TTLS_ENTROPY_BLOCK_SIZE)) != 0)
 		goto exit;
 
 	/*
 	 * Perform second SHA-512 on entropy
 	 */
 	if ((ret = ttls_sha512_ret(buf, TTLS_ENTROPY_BLOCK_SIZE,
-									buf, 0)) != 0)
+			buf, 0)) != 0)
 		goto exit;
 #else /* TTLS_ENTROPY_SHA512_ACCUMULATOR */
 	if ((ret = ttls_sha256_finish_ret(&ctx->accumulator, buf)) != 0)
@@ -321,14 +321,14 @@ int ttls_entropy_func(void *data, unsigned char *output, size_t len)
 	if ((ret = ttls_sha256_starts_ret(&ctx->accumulator, 0)) != 0)
 		goto exit;
 	if ((ret = ttls_sha256_update_ret(&ctx->accumulator, buf,
-										   TTLS_ENTROPY_BLOCK_SIZE)) != 0)
+				   TTLS_ENTROPY_BLOCK_SIZE)) != 0)
 		goto exit;
 
 	/*
 	 * Perform second SHA-256 on entropy
 	 */
 	if ((ret = ttls_sha256_ret(buf, TTLS_ENTROPY_BLOCK_SIZE,
-									buf, 0)) != 0)
+			buf, 0)) != 0)
 		goto exit;
 #endif /* TTLS_ENTROPY_SHA512_ACCUMULATOR */
 
@@ -351,7 +351,7 @@ exit:
  * Dummy source function
  */
 static int entropy_dummy_source(void *data, unsigned char *output,
-								 size_t len, size_t *olen)
+		 size_t len, size_t *olen)
 {
 	((void) data);
 
@@ -388,7 +388,7 @@ static int ttls_entropy_source_self_test_gather(unsigned char *buf, size_t buf_l
 
 
 static int ttls_entropy_source_self_test_check_bits(const unsigned char *buf,
-														size_t buf_len)
+					size_t buf_len)
 {
 	unsigned char set= 0xFF;
 	unsigned char unset = 0x00;
@@ -478,7 +478,7 @@ int ttls_entropy_self_test(int verbose)
 		goto cleanup;
 
 	ret = ttls_entropy_add_source(&ctx, entropy_dummy_source, NULL, 16,
-									  TTLS_ENTROPY_SOURCE_WEAK);
+			  TTLS_ENTROPY_SOURCE_WEAK);
 	if (ret != 0)
 		goto cleanup;
 

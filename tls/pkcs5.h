@@ -76,8 +76,8 @@ int ttls_pkcs5_pbes2(const ttls_asn1_buf *pbe_params, int mode,
  * \returns		0 on success, or a TTLS_ERR_XXX code if verification fails.
  */
 int ttls_pkcs5_pbkdf2_hmac(ttls_md_context_t *ctx, const unsigned char *password,
-					   size_t plen, const unsigned char *salt, size_t slen,
-					   unsigned int iteration_count,
-					   uint32_t key_length, unsigned char *output);
+		   size_t plen, const unsigned char *salt, size_t slen,
+		   unsigned int iteration_count,
+		   uint32_t key_length, unsigned char *output);
 
 #endif /* pkcs5.h */

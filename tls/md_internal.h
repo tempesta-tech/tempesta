@@ -72,7 +72,7 @@ struct ttls_md_info_t
 
 	/** Generic digest function */
 	int (*digest_func)(const unsigned char *input, size_t ilen,
-						unsigned char *output);
+			unsigned char *output);
 
 	/** Allocate a new context */
 	void * (*ctx_alloc_func)(void);

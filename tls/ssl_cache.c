@@ -27,25 +27,25 @@
  */
 #include "config.h"
 
-#if defined(TTLS_SSL_CACHE_C)
+#if defined(TTLS_CACHE_C)
 
 #include "ssl_cache.h"
 
-void ttls_ssl_cache_init(ttls_ssl_cache_context *cache)
+void ttls_cache_init(ttls_cache_context *cache)
 {
-	memset(cache, 0, sizeof(ttls_ssl_cache_context));
+	memset(cache, 0, sizeof(ttls_cache_context));
 
-	cache->timeout = TTLS_SSL_CACHE_DEFAULT_TIMEOUT;
-	cache->max_entries = TTLS_SSL_CACHE_DEFAULT_MAX_ENTRIES;
+	cache->timeout = TTLS_CACHE_DEFAULT_TIMEOUT;
+	cache->max_entries = TTLS_CACHE_DEFAULT_MAX_ENTRIES;
 	spin_lock_init(&cache->mutex);
 }
 
-int ttls_ssl_cache_get(void *data, TtlsSess *session)
+int ttls_cache_get(void *data, TtlsSess *session)
 {
 	int ret = 1;
-	time_t t = ttls_time(NULL);
-	ttls_ssl_cache_context *cache = (ttls_ssl_cache_context *) data;
-	ttls_ssl_cache_entry *cur, *entry;
+	time_t t = get_seconds();
+	ttls_cache_context *cache = (ttls_cache_context *) data;
+	ttls_cache_entry *cur, *entry;
 
 	spin_lock(&cache->mutex);
 
@@ -67,7 +67,7 @@ int ttls_ssl_cache_get(void *data, TtlsSess *session)
 			continue;
 
 		if (memcmp(session->id, entry->session.id,
-					entry->session.id_len) != 0)
+		entry->session.id_len) != 0)
 			continue;
 
 		memcpy(session->master, entry->session.master, 48);
@@ -80,7 +80,7 @@ int ttls_ssl_cache_get(void *data, TtlsSess *session)
 		if (entry->peer_cert.p != NULL)
 		{
 			if ((session->peer_cert = ttls_calloc(1,
-								 sizeof(ttls_x509_crt))) == NULL)
+		 sizeof(ttls_x509_crt))) == NULL)
 			{
 				ret = 1;
 				goto exit;
@@ -88,7 +88,7 @@ int ttls_ssl_cache_get(void *data, TtlsSess *session)
 
 			ttls_x509_crt_init(session->peer_cert);
 			if (ttls_x509_crt_parse(session->peer_cert, entry->peer_cert.p,
-								entry->peer_cert.len) != 0)
+		entry->peer_cert.len) != 0)
 			{
 				ttls_free(session->peer_cert);
 				session->peer_cert = NULL;
@@ -107,13 +107,13 @@ exit:
 	return ret;
 }
 
-int ttls_ssl_cache_set(void *data, const TtlsSess *session)
+int ttls_cache_set(void *data, const TtlsSess *session)
 {
 	int ret = 1;
-	time_t t = ttls_time(NULL), oldest = 0;
-	ttls_ssl_cache_entry *old = NULL;
-	ttls_ssl_cache_context *cache = (ttls_ssl_cache_context *) data;
-	ttls_ssl_cache_entry *cur, *prv;
+	time_t t = get_seconds(), oldest = 0;
+	ttls_cache_entry *old = NULL;
+	ttls_cache_context *cache = (ttls_cache_context *) data;
+	ttls_cache_entry *cur, *prv;
 	int count = 0;
 
 	spin_lock(&cache->mutex);
@@ -165,7 +165,7 @@ int ttls_ssl_cache_set(void *data, const TtlsSess *session)
 			/*
 			 * max_entries not reached, create new entry
 			 */
-			cur = ttls_calloc(1, sizeof(ttls_ssl_cache_entry));
+			cur = ttls_calloc(1, sizeof(ttls_cache_entry));
 			if (cur == NULL)
 			{
 				ret = 1;
@@ -219,23 +219,23 @@ exit:
 	return ret;
 }
 
-void ttls_ssl_cache_set_timeout(ttls_ssl_cache_context *cache, int timeout)
+void ttls_cache_set_timeout(ttls_cache_context *cache, int timeout)
 {
 	if (timeout < 0) timeout = 0;
 
 	cache->timeout = timeout;
 }
 
-void ttls_ssl_cache_set_max_entries(ttls_ssl_cache_context *cache, int max)
+void ttls_cache_set_max_entries(ttls_cache_context *cache, int max)
 {
 	if (max < 0) max = 0;
 
 	cache->max_entries = max;
 }
 
-void ttls_ssl_cache_free(ttls_ssl_cache_context *cache)
+void ttls_cache_free(ttls_cache_context *cache)
 {
-	ttls_ssl_cache_entry *cur, *prv;
+	ttls_cache_entry *cur, *prv;
 
 	cur = cache->chain;
 
@@ -244,7 +244,7 @@ void ttls_ssl_cache_free(ttls_ssl_cache_context *cache)
 		prv = cur;
 		cur = cur->next;
 
-		ttls_ssl_session_free(&prv->session);
+		ttls_session_free(&prv->session);
 
 		ttls_free(prv->peer_cert.p);
 
@@ -254,4 +254,4 @@ void ttls_ssl_cache_free(ttls_ssl_cache_context *cache)
 	cache->chain = NULL;
 }
 
-#endif /* TTLS_SSL_CACHE_C */
+#endif /* TTLS_CACHE_C */

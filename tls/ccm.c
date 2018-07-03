@@ -52,9 +52,9 @@ void ttls_ccm_init(ttls_ccm_context *ctx)
 }
 
 int ttls_ccm_setkey(ttls_ccm_context *ctx,
-						ttls_cipher_id_t cipher,
-						const unsigned char *key,
-						unsigned int keybits)
+			ttls_cipher_id_t cipher,
+			const unsigned char *key,
+			unsigned int keybits)
 {
 	int ret;
 	const ttls_cipher_info_t *cipher_info;
@@ -72,7 +72,7 @@ int ttls_ccm_setkey(ttls_ccm_context *ctx,
 		return ret;
 
 	if ((ret = ttls_cipher_setkey(&ctx->cipher_ctx, key, keybits,
-							   TTLS_ENCRYPT)) != 0)
+				   TTLS_ENCRYPT)) != 0)
 	{
 		return ret;
 	}
@@ -98,10 +98,10 @@ void ttls_ccm_free(ttls_ccm_context *ctx)
  * Update the CBC-MAC state in y using a block in b
  * (Always using b as the source helps the compiler optimise a bit better.)
  */
-#define UPDATE_CBC_MAC													  \
-	for (i = 0; i < 16; i++)											   \
-		y[i] ^= b[i];													   \
-																			\
+#define UPDATE_CBC_MAC				  \
+	for (i = 0; i < 16; i++)		   \
+		y[i] ^= b[i];				   \
+				\
 	if ((ret = ttls_cipher_update(&ctx->cipher_ctx, y, 16, y, &olen)) != 0) \
 		return ret;
 
@@ -110,21 +110,21 @@ void ttls_ccm_free(ttls_ccm_context *ctx)
  * Warning: using b for temporary storage! src and dst must not be b!
  * This avoids allocating one more 16 bytes buffer while allowing src == dst.
  */
-#define CTR_CRYPT(dst, src, len )											\
+#define CTR_CRYPT(dst, src, len )		\
 	if ((ret = ttls_cipher_update(&ctx->cipher_ctx, ctr, 16, b, &olen)) != 0)  \
-		return ret;														 \
-																			   \
-	for (i = 0; i < len; i++)												 \
+		return ret;					 \
+				   \
+	for (i = 0; i < len; i++)			 \
 		dst[i] = src[i] ^ b[i];
 
 /*
  * Authenticated encryption or decryption
  */
 static int ccm_auth_crypt(ttls_ccm_context *ctx, int mode, size_t length,
-						   const unsigned char *iv, size_t iv_len,
-						   const unsigned char *add, size_t add_len,
-						   const unsigned char *input, unsigned char *output,
-						   unsigned char *tag, size_t tag_len)
+			   const unsigned char *iv, size_t iv_len,
+			   const unsigned char *add, size_t add_len,
+			   const unsigned char *input, unsigned char *output,
+			   unsigned char *tag, size_t tag_len)
 {
 	int ret;
 	unsigned char i;
@@ -291,13 +291,13 @@ static int ccm_auth_crypt(ttls_ccm_context *ctx, int mode, size_t length,
  * Authenticated encryption
  */
 int ttls_ccm_encrypt_and_tag(ttls_ccm_context *ctx, size_t length,
-						 const unsigned char *iv, size_t iv_len,
-						 const unsigned char *add, size_t add_len,
-						 const unsigned char *input, unsigned char *output,
-						 unsigned char *tag, size_t tag_len)
+			 const unsigned char *iv, size_t iv_len,
+			 const unsigned char *add, size_t add_len,
+			 const unsigned char *input, unsigned char *output,
+			 unsigned char *tag, size_t tag_len)
 {
 	return(ccm_auth_crypt(ctx, CCM_ENCRYPT, length, iv, iv_len,
-							add, add_len, input, output, tag, tag_len));
+				add, add_len, input, output, tag, tag_len));
 }
 
 /*
@@ -406,9 +406,9 @@ int ttls_ccm_self_test(int verbose)
 			ttls_printf("  CCM-AES #%u: ", (unsigned int) i + 1);
 
 		ret = ttls_ccm_encrypt_and_tag(&ctx, msg_len[i],
-								   iv, iv_len[i], ad, add_len[i],
-								   msg, out,
-								   out + msg_len[i], tag_len[i]);
+		   iv, iv_len[i], ad, add_len[i],
+		   msg, out,
+		   out + msg_len[i], tag_len[i]);
 
 		if (ret != 0 ||
 			memcmp(out, res[i], msg_len[i] + tag_len[i]) != 0)
@@ -420,9 +420,9 @@ int ttls_ccm_self_test(int verbose)
 		}
 
 		ret = ttls_ccm_auth_decrypt(&ctx, msg_len[i],
-								iv, iv_len[i], ad, add_len[i],
-								res[i], out,
-								res[i] + msg_len[i], tag_len[i]);
+		iv, iv_len[i], ad, add_len[i],
+		res[i], out,
+		res[i] + msg_len[i], tag_len[i]);
 
 		if (ret != 0 ||
 			memcmp(out, msg, msg_len[i]) != 0)

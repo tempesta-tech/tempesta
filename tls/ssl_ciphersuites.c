@@ -436,7 +436,7 @@ const int *ttls_list_ciphersuites(void)
 }
 
 const ttls_ciphersuite_t *ttls_ciphersuite_from_string(
-												const char *ciphersuite_name)
+			const char *ciphersuite_name)
 {
 	const ttls_ciphersuite_t *cur = ciphersuite_definitions;
 
@@ -454,19 +454,18 @@ const ttls_ciphersuite_t *ttls_ciphersuite_from_string(
 	return(NULL);
 }
 
-const ttls_ciphersuite_t *ttls_ciphersuite_from_id(int ciphersuite)
+const ttls_ciphersuite_t *
+ttls_ciphersuite_from_id(int ciphersuite)
 {
 	const ttls_ciphersuite_t *cur = ciphersuite_definitions;
 
-	while (cur->id != 0)
-	{
+	while (cur->id) {
 		if (cur->id == ciphersuite)
-			return(cur);
-
+			return cur;
 		cur++;
 	}
 
-	return(NULL);
+	return NULL;
 }
 
 const char *ttls_get_ciphersuite_name(const int ciphersuite_id)
@@ -532,20 +531,16 @@ ttls_pk_type_t ttls_get_ciphersuite_sig_alg(const ttls_ciphersuite_t *info)
 	}
 }
 
-#if defined(TTLS_ECDH_C) || defined(TTLS_ECDSA_C)
-int ttls_ciphersuite_uses_ec(const ttls_ciphersuite_t *info)
+int
+ttls_ciphersuite_uses_ec(const ttls_ciphersuite_t *info)
 {
-	switch(info->key_exchange)
-	{
+	switch (info->key_exchange) {
 		case TTLS_KEY_EXCHANGE_ECDHE_RSA:
 		case TTLS_KEY_EXCHANGE_ECDHE_ECDSA:
 		case TTLS_KEY_EXCHANGE_ECDHE_PSK:
 		case TTLS_KEY_EXCHANGE_ECDH_RSA:
 		case TTLS_KEY_EXCHANGE_ECDH_ECDSA:
-			return(1);
-
-		default:
-			return 0;
+			return 1;
 	}
+	return 0;
 }
-#endif /* TTLS_ECDH_C || TTLS_ECDSA_C */

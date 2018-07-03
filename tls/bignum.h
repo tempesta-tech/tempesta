@@ -28,28 +28,28 @@
 #define TTLS_BIGNUM_H
 
 /**< An error occurred while reading from or writing to a file. */
-#define TTLS_ERR_MPI_FILE_IO_ERROR					 -0x0002
+#define TTLS_ERR_MPI_FILE_IO_ERROR		 -0x0002
 /**< Bad input parameters to function. */
-#define TTLS_ERR_MPI_BAD_INPUT_DATA					-0x0004
+#define TTLS_ERR_MPI_BAD_INPUT_DATA		-0x0004
 /**< There is an invalid character in the digit string. */
 #define TTLS_ERR_MPI_INVALID_CHARACTER				 -0x0006
 /**< The buffer is too small to write to. */
 #define TTLS_ERR_MPI_BUFFER_TOO_SMALL				  -0x0008
 /**< The input arguments are negative or result in illegal output. */
-#define TTLS_ERR_MPI_NEGATIVE_VALUE					-0x000A
+#define TTLS_ERR_MPI_NEGATIVE_VALUE		-0x000A
 /**< The input argument for division is zero, which is not allowed. */
 #define TTLS_ERR_MPI_DIVISION_BY_ZERO				  -0x000C
 /**< The input arguments are not acceptable. */
-#define TTLS_ERR_MPI_NOT_ACCEPTABLE					-0x000E
+#define TTLS_ERR_MPI_NOT_ACCEPTABLE		-0x000E
 /**< Memory allocation failed. */
-#define TTLS_ERR_MPI_ALLOC_FAILED					  -0x0010
+#define TTLS_ERR_MPI_ALLOC_FAILED		  -0x0010
 
 #define TTLS_MPI_CHK(f) do { if ((ret = f) != 0) goto cleanup; } while (0)
 
 /*
  * Maximum size MPIs are allowed to grow to in number of limbs.
  */
-#define TTLS_MPI_MAX_LIMBS							 10000
+#define TTLS_MPI_MAX_LIMBS				 10000
 
 /*
  * Maximum window size used for modular exponentiation. Default: 6
@@ -60,7 +60,7 @@
  *
  * Reduction in size, reduces speed.
  */
-#define TTLS_MPI_WINDOW_SIZE						   6
+#define TTLS_MPI_WINDOW_SIZE			   6
 
 /*
  * Maximum size of MPIs allowed in bits and bytes for user-MPIs.
@@ -69,10 +69,10 @@
  * Note: Calculations can temporarily result in larger MPIs. So the number
  * of limbs required (TTLS_MPI_MAX_LIMBS) is higher.
  */
-#define TTLS_MPI_MAX_SIZE							  1024
+#define TTLS_MPI_MAX_SIZE		  1024
 
 /**< Maximum number of bits for usable MPIs. */
-#define TTLS_MPI_MAX_BITS							  (8 * TTLS_MPI_MAX_SIZE)
+#define TTLS_MPI_MAX_BITS		  (8 * TTLS_MPI_MAX_SIZE)
 
 /*
  * When reading from files with ttls_mpi_read_file() and writing to files with
@@ -90,7 +90,7 @@
  *
  * Calculate using the formula:
  *  TTLS_MPI_RW_BUFFER_SIZE = ceil(TTLS_MPI_MAX_BITS / ln(10) * ln(2)) +
- *								LabelSize + 6
+ *		LabelSize + 6
  */
 #define TTLS_MPI_MAX_BITS_SCALE100		  (100 * TTLS_MPI_MAX_BITS)
 #define TTLS_LN_2_DIV_LN_10_SCALE100				 332
@@ -178,7 +178,7 @@ void ttls_mpi_swap(ttls_mpi *X, ttls_mpi *Y);
  *				 TTLS_ERR_MPI_ALLOC_FAILED if memory allocation failed,
  *
  * \note		   This function is equivalent to
- *					  if (assign) ttls_mpi_copy(X, Y);
+ *		  if (assign) ttls_mpi_copy(X, Y);
  *				 except that it avoids leaking any information about whether
  *				 the assignment was done or not (the above code may leak
  *				 information through branch prediction and/or memory access
@@ -197,7 +197,7 @@ int ttls_mpi_safe_cond_assign(ttls_mpi *X, const ttls_mpi *Y, unsigned char assi
  *				 TTLS_ERR_MPI_ALLOC_FAILED if memory allocation failed,
  *
  * \note		   This function is equivalent to
- *					  if (assign) ttls_mpi_swap(X, Y);
+ *		  if (assign) ttls_mpi_swap(X, Y);
  *				 except that it avoids leaking any information about whether
  *				 the assignment was done or not (the above code may leak
  *				 information through branch prediction and/or memory access
@@ -297,7 +297,7 @@ int ttls_mpi_read_string(ttls_mpi *X, int radix, const char *s);
  *				 minimum required buffer size in *olen.
  */
 int ttls_mpi_write_string(const ttls_mpi *X, int radix,
-							  char *buf, size_t buflen, size_t *olen);
+				  char *buf, size_t buflen, size_t *olen);
 
 /**
  * \brief		  Import X from unsigned binary data, big endian
@@ -560,25 +560,6 @@ int ttls_mpi_mod_int(ttls_mpi_uint *r, const ttls_mpi *A, ttls_mpi_sint b);
  *				 be set to NULL if the extra performance is unneeded.
  */
 int ttls_mpi_exp_mod(ttls_mpi *X, const ttls_mpi *A, const ttls_mpi *E, const ttls_mpi *N, ttls_mpi *_RR);
-
-/**
- * \brief		  Fill an MPI X with size bytes of random
- *
- * \param X		Destination MPI
- * \param size	 Size in bytes
- * \param f_rng	RNG function
- * \param p_rng	RNG parameter
- *
- * \return		 0 if successful,
- *				 TTLS_ERR_MPI_ALLOC_FAILED if memory allocation failed
- *
- * \note		   The bytes obtained from the PRNG are interpreted
- *				 as a big-endian representation of an MPI; this can
- *				 be relevant in applications like deterministic ECDSA.
- */
-int ttls_mpi_fill_random(ttls_mpi *X, size_t size,
-					 int (*f_rng)(void *, unsigned char *, size_t),
-					 void *p_rng);
 
 /**
  * \brief		  Greatest common divisor: G = gcd(A, B)
