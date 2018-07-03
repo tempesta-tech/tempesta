@@ -31,13 +31,13 @@
  * build lists of ttls_mpi_uint's from lists of unsigned char's grouped by 8, 4 or 2
  */
 #define BYTES_TO_T_UINT_8(a, b, c, d, e, f, g, h) \
-	((ttls_mpi_uint) a <<  0) |						  \
-	((ttls_mpi_uint) b <<  8) |						  \
-	((ttls_mpi_uint) c << 16) |						  \
-	((ttls_mpi_uint) d << 24) |						  \
-	((ttls_mpi_uint) e << 32) |						  \
-	((ttls_mpi_uint) f << 40) |						  \
-	((ttls_mpi_uint) g << 48) |						  \
+	((ttls_mpi_uint) a <<  0) |			  \
+	((ttls_mpi_uint) b <<  8) |			  \
+	((ttls_mpi_uint) c << 16) |			  \
+	((ttls_mpi_uint) d << 24) |			  \
+	((ttls_mpi_uint) e << 32) |			  \
+	((ttls_mpi_uint) f << 40) |			  \
+	((ttls_mpi_uint) g << 48) |			  \
 	((ttls_mpi_uint) h << 56)
 
 #define BYTES_TO_T_UINT_4(a, b, c, d)			 \
@@ -522,12 +522,12 @@ static inline void ecp_mpi_set1(ttls_mpi *X)
  * Make group available from embedded constants
  */
 static int ecp_group_load(ttls_ecp_group *grp,
-						   const ttls_mpi_uint *p,  size_t plen,
-						   const ttls_mpi_uint *a,  size_t alen,
-						   const ttls_mpi_uint *b,  size_t blen,
-						   const ttls_mpi_uint *gx, size_t gxlen,
-						   const ttls_mpi_uint *gy, size_t gylen,
-						   const ttls_mpi_uint *n,  size_t nlen)
+			   const ttls_mpi_uint *p,  size_t plen,
+			   const ttls_mpi_uint *a,  size_t alen,
+			   const ttls_mpi_uint *b,  size_t blen,
+			   const ttls_mpi_uint *gx, size_t gxlen,
+			   const ttls_mpi_uint *gy, size_t gylen,
+			   const ttls_mpi_uint *n,  size_t nlen)
 {
 	ecp_mpi_load(&grp->P, p, plen);
 	if (a != NULL)
@@ -567,20 +567,20 @@ static int ecp_mod_p224k1(ttls_mpi *);
 static int ecp_mod_p256k1(ttls_mpi *);
 
 #define LOAD_GROUP_A(G)   ecp_group_load(grp,			\
-							G ## _p,  sizeof(G ## _p ),   \
-							G ## _a,  sizeof(G ## _a ),   \
-							G ## _b,  sizeof(G ## _b ),   \
-							G ## _gx, sizeof(G ## _gx),   \
-							G ## _gy, sizeof(G ## _gy),   \
-							G ## _n,  sizeof(G ## _n ))
+				G ## _p,  sizeof(G ## _p ),   \
+				G ## _a,  sizeof(G ## _a ),   \
+				G ## _b,  sizeof(G ## _b ),   \
+				G ## _gx, sizeof(G ## _gx),   \
+				G ## _gy, sizeof(G ## _gy),   \
+				G ## _n,  sizeof(G ## _n ))
 
 #define LOAD_GROUP(G)	 ecp_group_load(grp,			\
-							G ## _p,  sizeof(G ## _p ),   \
-							NULL,	 0,					\
-							G ## _b,  sizeof(G ## _b ),   \
-							G ## _gx, sizeof(G ## _gx),   \
-							G ## _gy, sizeof(G ## _gy),   \
-							G ## _n,  sizeof(G ## _n ))
+				G ## _p,  sizeof(G ## _p ),   \
+				NULL,	 0,		\
+				G ## _b,  sizeof(G ## _b ),   \
+				G ## _gx, sizeof(G ## _gx),   \
+				G ## _gy, sizeof(G ## _gy),   \
+				G ## _n,  sizeof(G ## _n ))
 
 /*
  * Specialized function for creating the Curve25519 group
@@ -778,11 +778,11 @@ cleanup:
 
 #define MAX32	   N->n * 2
 #define A(j) j % 2 ? (uint32_t)(N->p[j/2] >> 32) : (uint32_t)(N->p[j/2])
-#define STORE32								   \
-	if (i % 2) {								 \
+#define STORE32		   \
+	if (i % 2) {		 \
 		N->p[i/2] &= 0x00000000FFFFFFFF;		  \
 		N->p[i/2] |= ((ttls_mpi_uint) cur) << 32;		\
-	} else {									  \
+	} else {			  \
 		N->p[i/2] &= 0xFFFFFFFF00000000;		  \
 		N->p[i/2] |= (ttls_mpi_uint) cur;				\
 	}
@@ -809,32 +809,32 @@ static inline void sub32(uint32_t *dst, uint32_t src, signed char *carry)
  * Helpers for the main 'loop'
  * (see fix_negative for the motivation of C)
  */
-#define INIT(b)										   \
-	int ret;												\
-	signed char c = 0, cc;								  \
-	uint32_t cur;										   \
-	size_t i = 0, bits = b;								 \
-	ttls_mpi C;												  \
+#define INIT(b)				   \
+	int ret;			\
+	signed char c = 0, cc;		  \
+	uint32_t cur;				   \
+	size_t i = 0, bits = b;		 \
+	ttls_mpi C;			  \
 	ttls_mpi_uint Cp[ b / 8 / sizeof(ttls_mpi_uint) + 1 ];			   \
-															\
-	C.s = 1;												\
-	C.n = b / 8 / sizeof(ttls_mpi_uint) + 1;					  \
-	C.p = Cp;											   \
+			\
+	C.s = 1;			\
+	C.n = b / 8 / sizeof(ttls_mpi_uint) + 1;		  \
+	C.p = Cp;		   \
 	memset(Cp, 0, C.n * sizeof(ttls_mpi_uint));				\
-															\
+			\
 	TTLS_MPI_CHK(ttls_mpi_grow(N, b * 2 / 8 / sizeof(ttls_mpi_uint))); \
 	LOAD32;
 
-#define NEXT					\
+#define NEXT		\
 	STORE32; i++; LOAD32;	   \
 	cc = c; c = 0;			  \
 	if (cc < 0)				\
 		sub32(&cur, -cc, &c); \
-	else						\
+	else			\
 		add32(&cur, cc, &c);  \
 
-#define LAST									\
-	STORE32; i++;							   \
+#define LAST			\
+	STORE32; i++;				   \
 	cur = c > 0 ? c : 0; STORE32;			   \
 	cur = 0; while (++i < MAX32) { STORE32; }  \
 	if (c < 0) fix_negative(N, c, &C, bits);
@@ -895,19 +895,19 @@ static int ecp_mod_p256(ttls_mpi *N)
 	SUB(12); SUB(13); SUB(14); SUB(15);			 NEXT; // A1
 
 	ADD(10); ADD(11);
-	SUB(13); SUB(14); SUB(15);						NEXT; // A2
+	SUB(13); SUB(14); SUB(15);			NEXT; // A2
 
 	ADD(11); ADD(11); ADD(12); ADD(12); ADD(13);
-	SUB(15); SUB( 8); SUB( 9);						NEXT; // A3
+	SUB(15); SUB( 8); SUB( 9);			NEXT; // A3
 
 	ADD(12); ADD(12); ADD(13); ADD(13); ADD(14);
-	SUB( 9); SUB(10);								   NEXT; // A4
+	SUB( 9); SUB(10);		   NEXT; // A4
 
 	ADD(13); ADD(13); ADD(14); ADD(14); ADD(15);
-	SUB(10); SUB(11);								   NEXT; // A5
+	SUB(10); SUB(11);		   NEXT; // A5
 
 	ADD(14); ADD(14); ADD(15); ADD(15); ADD(14); ADD(13);
-	SUB( 8); SUB( 9);								   NEXT; // A6
+	SUB( 8); SUB( 9);		   NEXT; // A6
 
 	ADD(15); ADD(15); ADD(15); ADD(8);
 	SUB(10); SUB(11); SUB(12); SUB(13);			 LAST; // A7
@@ -924,40 +924,40 @@ static int ecp_mod_p384(ttls_mpi *N)
 	INIT(384);
 
 	ADD(12); ADD(21); ADD(20);
-	SUB(23);											  NEXT; // A0
+	SUB(23);		  NEXT; // A0
 
 	ADD(13); ADD(22); ADD(23);
-	SUB(12); SUB(20);								   NEXT; // A2
+	SUB(12); SUB(20);		   NEXT; // A2
 
 	ADD(14); ADD(23);
-	SUB(13); SUB(21);								   NEXT; // A2
+	SUB(13); SUB(21);		   NEXT; // A2
 
 	ADD(15); ADD(12); ADD(20); ADD(21);
-	SUB(14); SUB(22); SUB(23);						NEXT; // A3
+	SUB(14); SUB(22); SUB(23);			NEXT; // A3
 
 	ADD(21); ADD(21); ADD(16); ADD(13); ADD(12); ADD(20); ADD(22);
-	SUB(15); SUB(23); SUB(23);						NEXT; // A4
+	SUB(15); SUB(23); SUB(23);			NEXT; // A4
 
 	ADD(22); ADD(22); ADD(17); ADD(14); ADD(13); ADD(21); ADD(23);
-	SUB(16);											  NEXT; // A5
+	SUB(16);		  NEXT; // A5
 
 	ADD(23); ADD(23); ADD(18); ADD(15); ADD(14); ADD(22);
-	SUB(17);											  NEXT; // A6
+	SUB(17);		  NEXT; // A6
 
 	ADD(19); ADD(16); ADD(15); ADD(23);
-	SUB(18);											  NEXT; // A7
+	SUB(18);		  NEXT; // A7
 
 	ADD(20); ADD(17); ADD(16);
-	SUB(19);											  NEXT; // A8
+	SUB(19);		  NEXT; // A8
 
 	ADD(21); ADD(18); ADD(17);
-	SUB(20);											  NEXT; // A9
+	SUB(20);		  NEXT; // A9
 
 	ADD(22); ADD(19); ADD(18);
-	SUB(21);											  NEXT; // A10
+	SUB(21);		  NEXT; // A10
 
 	ADD(23); ADD(20); ADD(19);
-	SUB(22);											  LAST; // A11
+	SUB(22);		  LAST; // A11
 
 cleanup:
 	return ret;
@@ -1076,7 +1076,7 @@ cleanup:
 #define P_KOBLITZ_MAX   (256 / 8 / sizeof(ttls_mpi_uint))  // Max limbs in P
 #define P_KOBLITZ_R	 (8 / sizeof(ttls_mpi_uint))		// Limbs in R
 static inline int ecp_mod_koblitz(ttls_mpi *N, ttls_mpi_uint *Rp, size_t p_limbs,
-								   size_t adjust, size_t shift, ttls_mpi_uint mask)
+		   size_t adjust, size_t shift, ttls_mpi_uint mask)
 {
 	int ret;
 	size_t i;

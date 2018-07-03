@@ -32,8 +32,8 @@
 /*
  * Supported ciphersuites (Official IANA names)
  */
-#define TTLS_TLS_RSA_WITH_NULL_MD5					0x01   /**< Weak! */
-#define TTLS_TLS_RSA_WITH_NULL_SHA					0x02   /**< Weak! */
+#define TTLS_TLS_RSA_WITH_NULL_MD5		0x01   /**< Weak! */
+#define TTLS_TLS_RSA_WITH_NULL_SHA		0x02   /**< Weak! */
 
 #define TTLS_TLS_RSA_WITH_RC4_128_MD5				 0x04
 #define TTLS_TLS_RSA_WITH_RC4_128_SHA				 0x05
@@ -44,7 +44,7 @@
 #define TTLS_TLS_DHE_RSA_WITH_DES_CBC_SHA			 0x15   /**< Weak! Not in TLS 1.2 */
 #define TTLS_TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA		0x16
 
-#define TTLS_TLS_PSK_WITH_NULL_SHA					0x2C   /**< Weak! */
+#define TTLS_TLS_PSK_WITH_NULL_SHA		0x2C   /**< Weak! */
 #define TTLS_TLS_DHE_PSK_WITH_NULL_SHA				0x2D   /**< Weak! */
 #define TTLS_TLS_RSA_PSK_WITH_NULL_SHA				0x2E   /**< Weak! */
 #define TTLS_TLS_RSA_WITH_AES_128_CBC_SHA			 0x2F
@@ -254,7 +254,7 @@ typedef struct ttls_ciphersuite_t ttls_ciphersuite_t;
 
 #define TTLS_CIPHERSUITE_WEAK	   0x01	/**< Weak ciphersuite flag  */
 #define TTLS_CIPHERSUITE_SHORT_TAG  0x02	/**< Short authentication tag,
-													 eg for CCM_8 */
+				 eg for CCM_8 */
 #define TTLS_CIPHERSUITE_NODTLS	 0x04	/**< Can't be used with DTLS */
 
 /**

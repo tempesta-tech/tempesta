@@ -27,8 +27,8 @@
 #if defined(TTLS_CERTS_C)
 
 #if defined(TTLS_ECDSA_C)
-#define TEST_CA_CRT_EC												  \
-"-----BEGIN CERTIFICATE-----\r\n"									   \
+#define TEST_CA_CRT_EC			  \
+"-----BEGIN CERTIFICATE-----\r\n"			   \
 "MIICUjCCAdegAwIBAgIJAMFD4n5iQ8zoMAoGCCqGSM49BAMCMD4xCzAJBgNVBAYT\r\n"  \
 "Ak5MMREwDwYDVQQKEwhQb2xhclNTTDEcMBoGA1UEAxMTUG9sYXJzc2wgVGVzdCBF\r\n"  \
 "QyBDQTAeFw0xMzA5MjQxNTQ5NDhaFw0yMzA5MjIxNTQ5NDhaMD4xCzAJBgNVBAYT\r\n"  \
@@ -41,7 +41,7 @@
 "AxMTUG9sYXJzc2wgVGVzdCBFQyBDQYIJAMFD4n5iQ8zoMAwGA1UdEwQFMAMBAf8w\r\n"  \
 "CgYIKoZIzj0EAwIDaQAwZgIxAMO0YnNWKJUAfXgSJtJxexn4ipg+kv4znuR50v56\r\n"  \
 "t4d0PCu412mUC6Nnd7izvtE2MgIxAP1nnJQjZ8BWukszFQDG48wxCCyci9qpdSMv\r\n"  \
-"uCjn8pwUOkABXK8Mss90fzCfCEOtIA==\r\n"								  \
+"uCjn8pwUOkABXK8Mss90fzCfCEOtIA==\r\n"		  \
 "-----END CERTIFICATE-----\r\n"
 const char ttls_test_ca_crt_ec[] = TEST_CA_CRT_EC;
 const size_t ttls_test_ca_crt_ec_len = sizeof(ttls_test_ca_crt_ec);
@@ -113,8 +113,8 @@ const size_t ttls_test_cli_key_ec_len = sizeof(ttls_test_cli_key_ec);
 #endif /* TTLS_ECDSA_C */
 
 #if defined(TTLS_SHA256_C)
-#define TEST_CA_CRT_RSA_SHA256										  \
-"-----BEGIN CERTIFICATE-----\r\n"									   \
+#define TEST_CA_CRT_RSA_SHA256				  \
+"-----BEGIN CERTIFICATE-----\r\n"			   \
 "MIIDhzCCAm+gAwIBAgIBADANBgkqhkiG9w0BAQsFADA7MQswCQYDVQQGEwJOTDER\r\n"  \
 "MA8GA1UECgwIUG9sYXJTU0wxGTAXBgNVBAMMEFBvbGFyU1NMIFRlc3QgQ0EwHhcN\r\n"  \
 "MTcwNTA0MTY1NzAxWhcNMjcwNTA1MTY1NzAxWjA7MQswCQYDVQQGEwJOTDERMA8G\r\n"  \
@@ -145,8 +145,8 @@ static const char ttls_test_ca_crt_rsa_sha256[] = TEST_CA_CRT_RSA_SHA256;
 #endif
 
 #if !defined(TEST_CA_CRT_RSA_SOME)
-#define TEST_CA_CRT_RSA_SHA1											\
-"-----BEGIN CERTIFICATE-----\r\n"									   \
+#define TEST_CA_CRT_RSA_SHA1		\
+"-----BEGIN CERTIFICATE-----\r\n"			   \
 "MIIDhzCCAm+gAwIBAgIBADANBgkqhkiG9w0BAQUFADA7MQswCQYDVQQGEwJOTDER\r\n"  \
 "MA8GA1UEChMIUG9sYXJTU0wxGTAXBgNVBAMTEFBvbGFyU1NMIFRlc3QgQ0EwHhcN\r\n"  \
 "MTEwMjEyMTQ0NDAwWhcNMjEwMjEyMTQ0NDAwWjA7MQswCQYDVQQGEwJOTDERMA8G\r\n"  \

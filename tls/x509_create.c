@@ -39,34 +39,34 @@ typedef struct {
 
 static const x509_attr_descriptor_t x509_attrs[] =
 {
-	{ ADD_STRLEN("CN"),					   TTLS_OID_AT_CN },
+	{ ADD_STRLEN("CN"),		   TTLS_OID_AT_CN },
 	{ ADD_STRLEN("commonName"),			   TTLS_OID_AT_CN },
-	{ ADD_STRLEN("C"),						TTLS_OID_AT_COUNTRY },
+	{ ADD_STRLEN("C"),			TTLS_OID_AT_COUNTRY },
 	{ ADD_STRLEN("countryName"),			  TTLS_OID_AT_COUNTRY },
-	{ ADD_STRLEN("O"),						TTLS_OID_AT_ORGANIZATION },
+	{ ADD_STRLEN("O"),			TTLS_OID_AT_ORGANIZATION },
 	{ ADD_STRLEN("organizationName"),		 TTLS_OID_AT_ORGANIZATION },
-	{ ADD_STRLEN("L"),						TTLS_OID_AT_LOCALITY },
+	{ ADD_STRLEN("L"),			TTLS_OID_AT_LOCALITY },
 	{ ADD_STRLEN("locality"),				 TTLS_OID_AT_LOCALITY },
-	{ ADD_STRLEN("R"),						TTLS_OID_PKCS9_EMAIL },
-	{ ADD_STRLEN("OU"),					   TTLS_OID_AT_ORG_UNIT },
+	{ ADD_STRLEN("R"),			TTLS_OID_PKCS9_EMAIL },
+	{ ADD_STRLEN("OU"),		   TTLS_OID_AT_ORG_UNIT },
 	{ ADD_STRLEN("organizationalUnitName"),   TTLS_OID_AT_ORG_UNIT },
-	{ ADD_STRLEN("ST"),					   TTLS_OID_AT_STATE },
+	{ ADD_STRLEN("ST"),		   TTLS_OID_AT_STATE },
 	{ ADD_STRLEN("stateOrProvinceName"),	  TTLS_OID_AT_STATE },
 	{ ADD_STRLEN("emailAddress"),			 TTLS_OID_PKCS9_EMAIL },
 	{ ADD_STRLEN("serialNumber"),			 TTLS_OID_AT_SERIAL_NUMBER },
 	{ ADD_STRLEN("postalAddress"),			TTLS_OID_AT_POSTAL_ADDRESS },
 	{ ADD_STRLEN("postalCode"),			   TTLS_OID_AT_POSTAL_CODE },
 	{ ADD_STRLEN("dnQualifier"),			  TTLS_OID_AT_DN_QUALIFIER },
-	{ ADD_STRLEN("title"),					TTLS_OID_AT_TITLE },
+	{ ADD_STRLEN("title"),		TTLS_OID_AT_TITLE },
 	{ ADD_STRLEN("surName"),				  TTLS_OID_AT_SUR_NAME },
-	{ ADD_STRLEN("SN"),					   TTLS_OID_AT_SUR_NAME },
+	{ ADD_STRLEN("SN"),		   TTLS_OID_AT_SUR_NAME },
 	{ ADD_STRLEN("givenName"),				TTLS_OID_AT_GIVEN_NAME },
-	{ ADD_STRLEN("GN"),					   TTLS_OID_AT_GIVEN_NAME },
+	{ ADD_STRLEN("GN"),		   TTLS_OID_AT_GIVEN_NAME },
 	{ ADD_STRLEN("initials"),				 TTLS_OID_AT_INITIALS },
 	{ ADD_STRLEN("pseudonym"),				TTLS_OID_AT_PSEUDONYM },
 	{ ADD_STRLEN("generationQualifier"),	  TTLS_OID_AT_GENERATION_QUALIFIER },
 	{ ADD_STRLEN("domainComponent"),		  TTLS_OID_DOMAIN_COMPONENT },
-	{ ADD_STRLEN("DC"),					   TTLS_OID_DOMAIN_COMPONENT },
+	{ ADD_STRLEN("DC"),		   TTLS_OID_DOMAIN_COMPONENT },
 	{ NULL, 0, NULL }
 };
 
@@ -124,8 +124,8 @@ int ttls_x509_string_to_names(ttls_asn1_named_data **head, const char *name)
 		else if (!in_tag && (*c == ',' || c == end))
 		{
 			if (ttls_asn1_store_named_data(head, oid, strlen(oid),
-									   (unsigned char *) data,
-									   d - data) == NULL)
+			   (unsigned char *) data,
+			   d - data) == NULL)
 			{
 				return(TTLS_ERR_X509_ALLOC_FAILED);
 			}
@@ -160,12 +160,12 @@ exit:
  * to store the critical boolean for us
  */
 int ttls_x509_set_extension(ttls_asn1_named_data **head, const char *oid, size_t oid_len,
-						int critical, const unsigned char *val, size_t val_len)
+			int critical, const unsigned char *val, size_t val_len)
 {
 	ttls_asn1_named_data *cur;
 
 	if ((cur = ttls_asn1_store_named_data(head, oid, oid_len,
-									   NULL, val_len + 1)) == NULL)
+			   NULL, val_len + 1)) == NULL)
 	{
 		return(TTLS_ERR_X509_ALLOC_FAILED);
 	}
@@ -189,8 +189,8 @@ int ttls_x509_set_extension(ttls_asn1_named_data **head, const char *oid, size_t
  *  AttributeValue ::= ANY DEFINED BY AttributeType
  */
 static int x509_write_name(unsigned char **p, unsigned char *start,
-							const char *oid, size_t oid_len,
-							const unsigned char *name, size_t name_len)
+				const char *oid, size_t oid_len,
+				const unsigned char *name, size_t name_len)
 {
 	int ret;
 	size_t len = 0;
@@ -201,14 +201,14 @@ static int x509_write_name(unsigned char **p, unsigned char *start,
 		memcmp(oid, TTLS_OID_PKCS9_EMAIL, oid_len) == 0)
 	{
 		TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_ia5_string(p, start,
-												  (const char *) name,
-												  name_len));
+			  (const char *) name,
+			  name_len));
 	}
 	else
 	{
 		TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_printable_string(p, start,
-														(const char *) name,
-														name_len));
+					(const char *) name,
+					name_len));
 	}
 
 	// Write OID
@@ -217,17 +217,17 @@ static int x509_write_name(unsigned char **p, unsigned char *start,
 
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, len));
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_CONSTRUCTED |
-												 TTLS_ASN1_SEQUENCE));
+			 TTLS_ASN1_SEQUENCE));
 
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, len));
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_CONSTRUCTED |
-												 TTLS_ASN1_SET));
+			 TTLS_ASN1_SET));
 
 	return((int) len);
 }
 
 int ttls_x509_write_names(unsigned char **p, unsigned char *start,
-					  ttls_asn1_named_data *first)
+		  ttls_asn1_named_data *first)
 {
 	int ret;
 	size_t len = 0;
@@ -236,21 +236,21 @@ int ttls_x509_write_names(unsigned char **p, unsigned char *start,
 	while (cur != NULL)
 	{
 		TTLS_ASN1_CHK_ADD(len, x509_write_name(p, start, (char *) cur->oid.p,
-											cur->oid.len,
-											cur->val.p, cur->val.len));
+		cur->oid.len,
+		cur->val.p, cur->val.len));
 		cur = cur->next;
 	}
 
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, len));
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_CONSTRUCTED |
-												 TTLS_ASN1_SEQUENCE));
+			 TTLS_ASN1_SEQUENCE));
 
 	return((int) len);
 }
 
 int ttls_x509_write_sig(unsigned char **p, unsigned char *start,
-					const char *oid, size_t oid_len,
-					unsigned char *sig, size_t size)
+		const char *oid, size_t oid_len,
+		unsigned char *sig, size_t size)
 {
 	int ret;
 	size_t len = 0;
@@ -274,19 +274,19 @@ int ttls_x509_write_sig(unsigned char **p, unsigned char *start,
 	// Write OID
 	//
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_algorithm_identifier(p, start, oid,
-														oid_len, 0));
+					oid_len, 0));
 
 	return((int) len);
 }
 
 static int x509_write_extension(unsigned char **p, unsigned char *start,
-								 ttls_asn1_named_data *ext)
+		 ttls_asn1_named_data *ext)
 {
 	int ret;
 	size_t len = 0;
 
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_raw_buffer(p, start, ext->val.p + 1,
-											  ext->val.len - 1));
+		  ext->val.len - 1));
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, ext->val.len - 1));
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_OCTET_STRING));
 
@@ -296,13 +296,13 @@ static int x509_write_extension(unsigned char **p, unsigned char *start,
 	}
 
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_raw_buffer(p, start, ext->oid.p,
-											  ext->oid.len));
+		  ext->oid.len));
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, ext->oid.len));
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_OID));
 
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, len));
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_CONSTRUCTED |
-												 TTLS_ASN1_SEQUENCE));
+			 TTLS_ASN1_SEQUENCE));
 
 	return((int) len);
 }
@@ -318,7 +318,7 @@ static int x509_write_extension(unsigned char **p, unsigned char *start,
  *	 }
  */
 int ttls_x509_write_extensions(unsigned char **p, unsigned char *start,
-						   ttls_asn1_named_data *first)
+			   ttls_asn1_named_data *first)
 {
 	int ret;
 	size_t len = 0;

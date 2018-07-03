@@ -38,8 +38,8 @@
  * Generate public key: simple wrapper around ttls_ecp_gen_keypair
  */
 int ttls_ecdh_gen_public(ttls_ecp_group *grp, ttls_mpi *d, ttls_ecp_point *Q,
-					 int (*f_rng)(void *, unsigned char *, size_t),
-					 void *p_rng)
+		 int (*f_rng)(void *, unsigned char *, size_t),
+		 void *p_rng)
 {
 	return ttls_ecp_gen_keypair(grp, d, Q, f_rng, p_rng);
 }
@@ -49,10 +49,9 @@ int ttls_ecdh_gen_public(ttls_ecp_group *grp, ttls_mpi *d, ttls_ecp_point *Q,
 /*
  * Compute shared secret (SEC1 3.3.1)
  */
-int ttls_ecdh_compute_shared(ttls_ecp_group *grp, ttls_mpi *z,
-						 const ttls_ecp_point *Q, const ttls_mpi *d,
-						 int (*f_rng)(void *, unsigned char *, size_t),
-						 void *p_rng)
+int
+ttls_ecdh_compute_shared(ttls_ecp_group *grp, ttls_mpi *z,
+			 const ttls_ecp_point *Q, const ttls_mpi *d)
 {
 	int ret;
 	ttls_ecp_point P;
@@ -64,10 +63,9 @@ int ttls_ecdh_compute_shared(ttls_ecp_group *grp, ttls_mpi *z,
 	 */
 	TTLS_MPI_CHK(ttls_ecp_check_pubkey(grp, Q));
 
-	TTLS_MPI_CHK(ttls_ecp_mul(grp, &P, d, Q, f_rng, p_rng));
+	TTLS_MPI_CHK(ttls_ecp_mul(grp, &P, d, Q));
 
-	if (ttls_ecp_is_zero(&P))
-	{
+	if (ttls_ecp_is_zero(&P)) {
 		ret = TTLS_ERR_ECP_BAD_INPUT_DATA;
 		goto cleanup;
 	}
@@ -115,9 +113,9 @@ void ttls_ecdh_free(ttls_ecdh_context *ctx)
  *	  } ServerECDHParams;
  */
 int ttls_ecdh_make_params(ttls_ecdh_context *ctx, size_t *olen,
-					  unsigned char *buf, size_t blen,
-					  int (*f_rng)(void *, unsigned char *, size_t),
-					  void *p_rng)
+		  unsigned char *buf, size_t blen,
+		  int (*f_rng)(void *, unsigned char *, size_t),
+		  void *p_rng)
 {
 	int ret;
 	size_t grp_len, pt_len;
@@ -137,7 +135,7 @@ int ttls_ecdh_make_params(ttls_ecdh_context *ctx, size_t *olen,
 	blen -= grp_len;
 
 	if ((ret = ttls_ecp_tls_write_point(&ctx->grp, &ctx->Q, ctx->point_format,
-									 &pt_len, buf, blen)) != 0)
+			 &pt_len, buf, blen)) != 0)
 		return ret;
 
 	*olen = grp_len + pt_len;
@@ -152,7 +150,7 @@ int ttls_ecdh_make_params(ttls_ecdh_context *ctx, size_t *olen,
  *	  } ServerECDHParams;
  */
 int ttls_ecdh_read_params(ttls_ecdh_context *ctx,
-					  const unsigned char **buf, const unsigned char *end)
+		  const unsigned char **buf, const unsigned char *end)
 {
 	int ret;
 
@@ -170,7 +168,7 @@ int ttls_ecdh_read_params(ttls_ecdh_context *ctx,
  * Get parameters from a keypair
  */
 int ttls_ecdh_get_params(ttls_ecdh_context *ctx, const ttls_ecp_keypair *key,
-					 ttls_ecdh_side side)
+		 ttls_ecdh_side side)
 {
 	int ret;
 
@@ -196,9 +194,9 @@ int ttls_ecdh_get_params(ttls_ecdh_context *ctx, const ttls_ecp_keypair *key,
  * Setup and export the client public value
  */
 int ttls_ecdh_make_public(ttls_ecdh_context *ctx, size_t *olen,
-					  unsigned char *buf, size_t blen,
-					  int (*f_rng)(void *, unsigned char *, size_t),
-					  void *p_rng)
+		  unsigned char *buf, size_t blen,
+		  int (*f_rng)(void *, unsigned char *, size_t),
+		  void *p_rng)
 {
 	int ret;
 
@@ -210,14 +208,14 @@ int ttls_ecdh_make_public(ttls_ecdh_context *ctx, size_t *olen,
 		return ret;
 
 	return ttls_ecp_tls_write_point(&ctx->grp, &ctx->Q, ctx->point_format,
-								olen, buf, blen);
+		olen, buf, blen);
 }
 
 /*
  * Parse and import the client's public value
  */
 int ttls_ecdh_read_public(ttls_ecdh_context *ctx,
-					  const unsigned char *buf, size_t blen)
+		  const unsigned char *buf, size_t blen)
 {
 	int ret;
 	const unsigned char *p = buf;
@@ -237,26 +235,24 @@ int ttls_ecdh_read_public(ttls_ecdh_context *ctx,
 /*
  * Derive and export the shared secret
  */
-int ttls_ecdh_calc_secret(ttls_ecdh_context *ctx, size_t *olen,
-					  unsigned char *buf, size_t blen,
-					  int (*f_rng)(void *, unsigned char *, size_t),
-					  void *p_rng)
+int
+ttls_ecdh_calc_secret(ttls_ecdh_context *ctx, size_t *olen, unsigned char *buf,
+		      size_t blen)
 {
-	int ret;
+	int r;
 
-	if (ctx == NULL)
-		return(TTLS_ERR_ECP_BAD_INPUT_DATA);
+	if (!ctx)
+		return TTLS_ERR_ECP_BAD_INPUT_DATA;
 
-	if ((ret = ttls_ecdh_compute_shared(&ctx->grp, &ctx->z, &ctx->Qp, &ctx->d,
-									 f_rng, p_rng)) != 0)
-	{
-		return ret;
-	}
+	r = ttls_ecdh_compute_shared(&ctx->grp, &ctx->z, &ctx->Qp, &ctx->d);
+	if (r)
+		return r;
 
 	if (ttls_mpi_size(&ctx->z) > blen)
-		return(TTLS_ERR_ECP_BAD_INPUT_DATA);
+		return TTLS_ERR_ECP_BAD_INPUT_DATA;
 
 	*olen = ctx->grp.pbits / 8 + ((ctx->grp.pbits % 8) != 0);
+
 	return ttls_mpi_write_binary(&ctx->z, buf, *olen);
 }
 

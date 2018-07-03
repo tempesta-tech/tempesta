@@ -36,8 +36,8 @@ static void ttls_zeroize(void *v, size_t n) {
  * 32-bit integer manipulation macros (big endian)
  */
 #ifndef GET_UINT32_BE
-#define GET_UINT32_BE(n,b,i)							\
-{													   \
+#define GET_UINT32_BE(n,b,i)				\
+{				   \
 	(n) = ((uint32_t) (b)[(i)	] << 24)			 \
 		| ((uint32_t) (b)[(i) + 1] << 16)			 \
 		| ((uint32_t) (b)[(i) + 2] <<  8)			 \
@@ -46,8 +46,8 @@ static void ttls_zeroize(void *v, size_t n) {
 #endif
 
 #ifndef PUT_UINT32_BE
-#define PUT_UINT32_BE(n,b,i)							\
-{													   \
+#define PUT_UINT32_BE(n,b,i)				\
+{				   \
 	(b)[(i)	] = (unsigned char) ((n) >> 24);	   \
 	(b)[(i) + 1] = (unsigned char) ((n) >> 16);	   \
 	(b)[(i) + 2] = (unsigned char) ((n) >>  8);	   \
@@ -87,7 +87,7 @@ void ttls_xtea_setup(ttls_xtea_context *ctx, const unsigned char key[16])
  * XTEA encrypt function
  */
 int ttls_xtea_crypt_ecb(ttls_xtea_context *ctx, int mode,
-					const unsigned char input[8], unsigned char output[8])
+		const unsigned char input[8], unsigned char output[8])
 {
 	uint32_t *k, v0, v1, i;
 
@@ -130,8 +130,8 @@ int ttls_xtea_crypt_ecb(ttls_xtea_context *ctx, int mode,
  * XTEA-CBC buffer encryption/decryption
  */
 int ttls_xtea_crypt_cbc(ttls_xtea_context *ctx, int mode, size_t length,
-					unsigned char iv[8], const unsigned char *input,
-					unsigned char *output)
+		unsigned char iv[8], const unsigned char *input,
+		unsigned char *output)
 {
 	int i;
 	unsigned char temp[8];

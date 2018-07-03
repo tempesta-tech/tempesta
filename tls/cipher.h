@@ -258,42 +258,42 @@ const int *ttls_cipher_list(void);
 
 /**
  * \brief			   This function retrieves the cipher-information
- *					  structure associated with the given cipher name.
+ *		  structure associated with the given cipher name.
  *
  * \param cipher_name   Name of the cipher to search for.
  *
  * \return			  The cipher information structure associated with the
- *					  given \p cipher_name, or NULL if not found.
+ *		  given \p cipher_name, or NULL if not found.
  */
 const ttls_cipher_info_t *ttls_cipher_info_from_string(const char *cipher_name);
 
 /**
  * \brief			   This function retrieves the cipher-information
- *					  structure associated with the given cipher type.
+ *		  structure associated with the given cipher type.
  *
  * \param cipher_type   Type of the cipher to search for.
  *
  * \return			  The cipher information structure associated with the
- *					  given \p cipher_type, or NULL if not found.
+ *		  given \p cipher_type, or NULL if not found.
  */
 const ttls_cipher_info_t *ttls_cipher_info_from_type(const ttls_cipher_type_t cipher_type);
 
 /**
  * \brief			   This function retrieves the cipher-information
- *					  structure associated with the given cipher ID,
- *					  key size and mode.
+ *		  structure associated with the given cipher ID,
+ *		  key size and mode.
  *
  * \param cipher_id	 The ID of the cipher to search for. For example,
- *					  #TTLS_CIPHER_ID_AES.
+ *		  #TTLS_CIPHER_ID_AES.
  * \param key_bitlen	The length of the key in bits.
  * \param mode		  The cipher mode. For example, #TTLS_MODE_CBC.
  *
  * \return			  The cipher information structure associated with the
- *					  given \p cipher_id, or NULL if not found.
+ *		  given \p cipher_id, or NULL if not found.
  */
 const ttls_cipher_info_t *ttls_cipher_info_from_values(const ttls_cipher_id_t cipher_id,
-											  int key_bitlen,
-											  const ttls_cipher_mode_t mode);
+		  int key_bitlen,
+		  const ttls_cipher_mode_t mode);
 
 /**
  * \brief			   This function initializes a \p cipher_context as NONE.
@@ -302,24 +302,24 @@ void ttls_cipher_init(ttls_cipher_context_t *ctx);
 
 /**
  * \brief			   This function frees and clears the cipher-specific
- *					  context of \p ctx. Freeing \p ctx itself remains the
- *					  responsibility of the caller.
+ *		  context of \p ctx. Freeing \p ctx itself remains the
+ *		  responsibility of the caller.
  */
 void ttls_cipher_free(ttls_cipher_context_t *ctx);
 
 
 /**
  * \brief			   This function initializes and fills the cipher-context
- *					  structure with the appropriate values. It also clears
- *					  the structure.
+ *		  structure with the appropriate values. It also clears
+ *		  the structure.
  *
  * \param ctx		   The context to initialize. May not be NULL.
  * \param cipher_info   The cipher to use.
  *
  * \return			  \c 0 on success,
- *					  #TTLS_ERR_CIPHER_BAD_INPUT_DATA on parameter failure,
- *					  #TTLS_ERR_CIPHER_ALLOC_FAILED if allocation of the
- *					  cipher-specific context failed.
+ *		  #TTLS_ERR_CIPHER_BAD_INPUT_DATA on parameter failure,
+ *		  #TTLS_ERR_CIPHER_ALLOC_FAILED if allocation of the
+ *		  cipher-specific context failed.
  *
  * \internal Currently, the function also clears the structure.
  * In future versions, the caller will be required to call
@@ -387,7 +387,7 @@ static inline int ttls_cipher_get_iv_size(const ttls_cipher_context_t *ctx)
  * \param ctx		   The context of the cipher. Must be initialized.
  *
  * \return			  The type of the cipher, or #TTLS_CIPHER_NONE if
- *					  \p ctx has not been initialized.
+ *		  \p ctx has not been initialized.
  */
 static inline ttls_cipher_type_t ttls_cipher_get_type(const ttls_cipher_context_t *ctx)
 {
@@ -399,12 +399,12 @@ static inline ttls_cipher_type_t ttls_cipher_get_type(const ttls_cipher_context_
 
 /**
  * \brief			   This function returns the name of the given cipher
- *					  as a string.
+ *		  as a string.
  *
  * \param ctx		   The context of the cipher. Must be initialized.
  *
  * \return			  The name of the cipher, or NULL if \p ctx has not
- *					  been not initialized.
+ *		  been not initialized.
  */
 static inline const char *ttls_cipher_get_name(const ttls_cipher_context_t *ctx)
 {
@@ -420,8 +420,8 @@ static inline const char *ttls_cipher_get_name(const ttls_cipher_context_t *ctx)
  * \param ctx		   The context of the cipher. Must be initialized.
  *
  * \return			  The key length of the cipher in bits, or
- *					  #TTLS_KEY_LENGTH_NONE if ctx \p has not been
- *					  initialized.
+ *		  #TTLS_KEY_LENGTH_NONE if ctx \p has not been
+ *		  initialized.
  */
 static inline int ttls_cipher_get_key_bitlen(const ttls_cipher_context_t *ctx)
 {
@@ -452,16 +452,16 @@ static inline ttls_operation_t ttls_cipher_get_operation(const ttls_cipher_conte
  * \brief			   This function sets the key to use with the given context.
  *
  * \param ctx		   The generic cipher context. May not be NULL. Must have
- *					  been initialized using ttls_cipher_info_from_type()
- *					  or ttls_cipher_info_from_string().
+ *		  been initialized using ttls_cipher_info_from_type()
+ *		  or ttls_cipher_info_from_string().
  * \param key		   The key to use.
  * \param key_bitlen	The key length to use, in bits.
  * \param operation	 The operation that the key will be used for:
- *					  #TTLS_ENCRYPT or #TTLS_DECRYPT.
+ *		  #TTLS_ENCRYPT or #TTLS_DECRYPT.
  *
  * \returns			 \c 0 on success, #TTLS_ERR_CIPHER_BAD_INPUT_DATA if
- *					  parameter verification fails, or a cipher-specific
- *					  error code.
+ *		  parameter verification fails, or a cipher-specific
+ *		  error code.
  */
 int ttls_cipher_setkey(ttls_cipher_context_t *ctx, const unsigned char *key,
 				   int key_bitlen, const ttls_operation_t operation);
@@ -495,8 +495,8 @@ int ttls_cipher_reset(ttls_cipher_context_t *ctx);
 
 /**
  * \brief			   This function adds additional data for AEAD ciphers.
- *					  Only supported with GCM. Must be called
- *					  exactly once, after ttls_cipher_reset().
+ *		  Only supported with GCM. Must be called
+ *		  exactly once, after ttls_cipher_reset().
  *
  * \param ctx		   The generic cipher context.
  * \param ad			The additional data to use.
@@ -505,66 +505,66 @@ int ttls_cipher_reset(ttls_cipher_context_t *ctx);
  * \return			  \c 0 on success, or a specific error code on failure.
  */
 int ttls_cipher_update_ad(ttls_cipher_context_t *ctx,
-					  const unsigned char *ad, size_t ad_len);
+		  const unsigned char *ad, size_t ad_len);
 
 /**
  * \brief			   The generic cipher update function. It encrypts or
- *					  decrypts using the given cipher context. Writes as
- *					  many block-sized blocks of data as possible to output.
- *					  Any data that cannot be written immediately is either
- *					  added to the next block, or flushed when
- *					  ttls_cipher_finish() is called.
- *					  Exception: For TTLS_MODE_ECB, expects a single block
- *					  in size. For example, 16 Bytes for AES.
+ *		  decrypts using the given cipher context. Writes as
+ *		  many block-sized blocks of data as possible to output.
+ *		  Any data that cannot be written immediately is either
+ *		  added to the next block, or flushed when
+ *		  ttls_cipher_finish() is called.
+ *		  Exception: For TTLS_MODE_ECB, expects a single block
+ *		  in size. For example, 16 Bytes for AES.
  *
  * \param ctx		   The generic cipher context.
  * \param input		 The buffer holding the input data.
  * \param ilen		  The length of the input data.
  * \param output		The buffer for the output data. Must be able to hold at
- *					  least \p ilen + block_size. Must not be the same buffer
- *					  as input.
+ *		  least \p ilen + block_size. Must not be the same buffer
+ *		  as input.
  * \param olen		  The length of the output data, to be updated with the
- *					  actual number of Bytes written.
+ *		  actual number of Bytes written.
  *
  * \returns			 \c 0 on success, #TTLS_ERR_CIPHER_BAD_INPUT_DATA if
- *					  parameter verification fails,
- *					  #TTLS_ERR_CIPHER_FEATURE_UNAVAILABLE on an
- *					  unsupported mode for a cipher, or a cipher-specific
- *					  error code.
+ *		  parameter verification fails,
+ *		  #TTLS_ERR_CIPHER_FEATURE_UNAVAILABLE on an
+ *		  unsupported mode for a cipher, or a cipher-specific
+ *		  error code.
  *
  * \note				If the underlying cipher is GCM, all calls to this
- *					  function, except the last one before
- *					  ttls_cipher_finish(). Must have \p ilen as a
- *					  multiple of the block_size.
+ *		  function, except the last one before
+ *		  ttls_cipher_finish(). Must have \p ilen as a
+ *		  multiple of the block_size.
  */
 int ttls_cipher_update(ttls_cipher_context_t *ctx, const unsigned char *input,
 				   size_t ilen, unsigned char *output, size_t *olen);
 
 /**
  * \brief			   The generic cipher finalization function. If data still
- *					  needs to be flushed from an incomplete block, the data
- *					  contained in it is padded to the size of
- *					  the last block, and written to the \p output buffer.
+ *		  needs to be flushed from an incomplete block, the data
+ *		  contained in it is padded to the size of
+ *		  the last block, and written to the \p output buffer.
  *
  * \param ctx		   The generic cipher context.
  * \param output		The buffer to write data to. Needs block_size available.
  * \param olen		  The length of the data written to the \p output buffer.
  *
  * \returns			 \c 0 on success, #TTLS_ERR_CIPHER_BAD_INPUT_DATA if
- *					  parameter verification fails,
- *					  #TTLS_ERR_CIPHER_FULL_BLOCK_EXPECTED if decryption
- *					  expected a full block but was not provided one,
- *					  #TTLS_ERR_CIPHER_INVALID_PADDING on invalid padding
- *					  while decrypting, or a cipher-specific error code
- *					  on failure for any other reason.
+ *		  parameter verification fails,
+ *		  #TTLS_ERR_CIPHER_FULL_BLOCK_EXPECTED if decryption
+ *		  expected a full block but was not provided one,
+ *		  #TTLS_ERR_CIPHER_INVALID_PADDING on invalid padding
+ *		  while decrypting, or a cipher-specific error code
+ *		  on failure for any other reason.
  */
 int ttls_cipher_finish(ttls_cipher_context_t *ctx,
 				   unsigned char *output, size_t *olen);
 
 /**
  * \brief			   This function writes a tag for AEAD ciphers.
- *					  Only supported with GCM.
- *					  Must be called after ttls_cipher_finish().
+ *		  Only supported with GCM.
+ *		  Must be called after ttls_cipher_finish().
  *
  * \param ctx		   The generic cipher context.
  * \param tag		   The buffer to write the tag to.
@@ -573,12 +573,12 @@ int ttls_cipher_finish(ttls_cipher_context_t *ctx,
  * \return			  \c 0 on success, or a specific error code on failure.
  */
 int ttls_cipher_write_tag(ttls_cipher_context_t *ctx,
-					  unsigned char *tag, size_t tag_len);
+		  unsigned char *tag, size_t tag_len);
 
 /**
  * \brief			   This function checks the tag for AEAD ciphers.
- *					  Only supported with GCM.
- *					  Must be called after ttls_cipher_finish().
+ *		  Only supported with GCM.
+ *		  Must be called after ttls_cipher_finish().
  *
  * \param ctx		   The generic cipher context.
  * \param tag		   The buffer holding the tag.
@@ -587,35 +587,35 @@ int ttls_cipher_write_tag(ttls_cipher_context_t *ctx,
  * \return			  \c 0 on success, or a specific error code on failure.
  */
 int ttls_cipher_check_tag(ttls_cipher_context_t *ctx,
-					  const unsigned char *tag, size_t tag_len);
+		  const unsigned char *tag, size_t tag_len);
 
 /**
  * \brief			   The generic all-in-one encryption/decryption function,
- *					  for all ciphers except AEAD constructs.
+ *		  for all ciphers except AEAD constructs.
  *
  * \param ctx		   The generic cipher context.
  * \param iv			The IV to use, or NONCE_COUNTER for CTR-mode ciphers.
  * \param iv_len		The IV length for ciphers with variable-size IV.
- *					  This parameter is discarded by ciphers with fixed-size
- *					  IV.
+ *		  This parameter is discarded by ciphers with fixed-size
+ *		  IV.
  * \param input		 The buffer holding the input data.
  * \param ilen		  The length of the input data.
  * \param output		The buffer for the output data. Must be able to hold at
- *					  least \p ilen + block_size. Must not be the same buffer
- *					  as input.
+ *		  least \p ilen + block_size. Must not be the same buffer
+ *		  as input.
  * \param olen		  The length of the output data, to be updated with the
- *					  actual number of Bytes written.
+ *		  actual number of Bytes written.
  *
  * \note				Some ciphers do not use IVs nor nonce. For these
- *					  ciphers, use \p iv = NULL and \p iv_len = 0.
+ *		  ciphers, use \p iv = NULL and \p iv_len = 0.
  *
  * \returns			 \c 0 on success, or
- *					  #TTLS_ERR_CIPHER_BAD_INPUT_DATA, or
- *					  #TTLS_ERR_CIPHER_FULL_BLOCK_EXPECTED if decryption
- *					  expected a full block but was not provided one, or
- *					  #TTLS_ERR_CIPHER_INVALID_PADDING on invalid padding
- *					  while decrypting, or a cipher-specific error code on
- *					  failure for any other reason.
+ *		  #TTLS_ERR_CIPHER_BAD_INPUT_DATA, or
+ *		  #TTLS_ERR_CIPHER_FULL_BLOCK_EXPECTED if decryption
+ *		  expected a full block but was not provided one, or
+ *		  #TTLS_ERR_CIPHER_INVALID_PADDING on invalid padding
+ *		  while decrypting, or a cipher-specific error code on
+ *		  failure for any other reason.
  */
 int ttls_cipher_crypt(ttls_cipher_context_t *ctx,
 				  const unsigned char *iv, size_t iv_len,
@@ -628,28 +628,28 @@ int ttls_cipher_crypt(ttls_cipher_context_t *ctx,
  * \param ctx		   The generic cipher context.
  * \param iv			The IV to use, or NONCE_COUNTER for CTR-mode ciphers.
  * \param iv_len		The IV length for ciphers with variable-size IV.
- *					  This parameter is discarded by ciphers with fixed-size IV.
+ *		  This parameter is discarded by ciphers with fixed-size IV.
  * \param ad			The additional data to authenticate.
  * \param ad_len		The length of \p ad.
  * \param input		 The buffer holding the input data.
  * \param ilen		  The length of the input data.
  * \param output		The buffer for the output data.
- *					  Must be able to hold at least \p ilen.
+ *		  Must be able to hold at least \p ilen.
  * \param olen		  The length of the output data, to be updated with the
- *					  actual number of Bytes written.
+ *		  actual number of Bytes written.
  * \param tag		   The buffer for the authentication tag.
  * \param tag_len	   The desired length of the authentication tag.
  *
  * \returns			 \c 0 on success, or
- *					  #TTLS_ERR_CIPHER_BAD_INPUT_DATA, or
- *					  a cipher-specific error code.
+ *		  #TTLS_ERR_CIPHER_BAD_INPUT_DATA, or
+ *		  a cipher-specific error code.
  */
 int ttls_cipher_auth_encrypt(ttls_cipher_context_t *ctx,
-						 const unsigned char *iv, size_t iv_len,
-						 const unsigned char *ad, size_t ad_len,
-						 const unsigned char *input, size_t ilen,
-						 unsigned char *output, size_t *olen,
-						 unsigned char *tag, size_t tag_len);
+			 const unsigned char *iv, size_t iv_len,
+			 const unsigned char *ad, size_t ad_len,
+			 const unsigned char *input, size_t ilen,
+			 unsigned char *output, size_t *olen,
+			 unsigned char *tag, size_t tag_len);
 
 /**
  * \brief			   The generic autenticated decryption (AEAD) function.
@@ -657,32 +657,32 @@ int ttls_cipher_auth_encrypt(ttls_cipher_context_t *ctx,
  * \param ctx		   The generic cipher context.
  * \param iv			The IV to use, or NONCE_COUNTER for CTR-mode ciphers.
  * \param iv_len		The IV length for ciphers with variable-size IV.
- *					  This parameter is discarded by ciphers with fixed-size IV.
+ *		  This parameter is discarded by ciphers with fixed-size IV.
  * \param ad			The additional data to be authenticated.
  * \param ad_len		The length of \p ad.
  * \param input		 The buffer holding the input data.
  * \param ilen		  The length of the input data.
  * \param output		The buffer for the output data.
- *					  Must be able to hold at least \p ilen.
+ *		  Must be able to hold at least \p ilen.
  * \param olen		  The length of the output data, to be updated with the
- *					  actual number of Bytes written.
+ *		  actual number of Bytes written.
  * \param tag		   The buffer holding the authentication tag.
  * \param tag_len	   The length of the authentication tag.
  *
  * \returns			 \c 0 on success, or
- *					  #TTLS_ERR_CIPHER_BAD_INPUT_DATA, or
- *					  #TTLS_ERR_CIPHER_AUTH_FAILED if data is not authentic,
- *					  or a cipher-specific error code on failure for any other reason.
+ *		  #TTLS_ERR_CIPHER_BAD_INPUT_DATA, or
+ *		  #TTLS_ERR_CIPHER_AUTH_FAILED if data is not authentic,
+ *		  or a cipher-specific error code on failure for any other reason.
  *
  * \note				If the data is not authentic, then the output buffer
- *					  is zeroed out to prevent the unauthentic plaintext being
- *					  used, making this interface safer.
+ *		  is zeroed out to prevent the unauthentic plaintext being
+ *		  used, making this interface safer.
  */
 int ttls_cipher_auth_decrypt(ttls_cipher_context_t *ctx,
-						 const unsigned char *iv, size_t iv_len,
-						 const unsigned char *ad, size_t ad_len,
-						 const unsigned char *input, size_t ilen,
-						 unsigned char *output, size_t *olen,
-						 const unsigned char *tag, size_t tag_len);
+			 const unsigned char *iv, size_t iv_len,
+			 const unsigned char *ad, size_t ad_len,
+			 const unsigned char *input, size_t ilen,
+			 unsigned char *output, size_t *olen,
+			 const unsigned char *tag, size_t tag_len);
 
 #endif /* TTLS_CIPHER_H */

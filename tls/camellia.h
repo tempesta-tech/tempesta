@@ -52,7 +52,7 @@
  */
 typedef struct
 {
-	int nr;					 /*!<  number of rounds  */
+	int nr;		 /*!<  number of rounds  */
 	uint32_t rk[68];			/*!<  CAMELLIA round keys	*/
 }
 ttls_camellia_context;
@@ -81,7 +81,7 @@ void ttls_camellia_free(ttls_camellia_context *ctx);
  * \return		 0 if successful, or TTLS_ERR_CAMELLIA_INVALID_KEY_LENGTH
  */
 int ttls_camellia_setkey_enc(ttls_camellia_context *ctx, const unsigned char *key,
-						 unsigned int keybits);
+			 unsigned int keybits);
 
 /**
  * \brief		  CAMELLIA key schedule (decryption)
@@ -93,7 +93,7 @@ int ttls_camellia_setkey_enc(ttls_camellia_context *ctx, const unsigned char *ke
  * \return		 0 if successful, or TTLS_ERR_CAMELLIA_INVALID_KEY_LENGTH
  */
 int ttls_camellia_setkey_dec(ttls_camellia_context *ctx, const unsigned char *key,
-						 unsigned int keybits);
+			 unsigned int keybits);
 
 /**
  * \brief		  CAMELLIA-ECB block encryption/decryption
@@ -106,9 +106,9 @@ int ttls_camellia_setkey_dec(ttls_camellia_context *ctx, const unsigned char *ke
  * \return		 0 if successful
  */
 int ttls_camellia_crypt_ecb(ttls_camellia_context *ctx,
-					int mode,
-					const unsigned char input[16],
-					unsigned char output[16]);
+		int mode,
+		const unsigned char input[16],
+		unsigned char output[16]);
 
 #if defined(TTLS_CIPHER_MODE_CBC)
 /**
@@ -135,11 +135,11 @@ int ttls_camellia_crypt_ecb(ttls_camellia_context *ctx,
  *				 TTLS_ERR_CAMELLIA_INVALID_INPUT_LENGTH
  */
 int ttls_camellia_crypt_cbc(ttls_camellia_context *ctx,
-					int mode,
-					size_t length,
-					unsigned char iv[16],
-					const unsigned char *input,
-					unsigned char *output);
+		int mode,
+		size_t length,
+		unsigned char iv[16],
+		const unsigned char *input,
+		unsigned char *output);
 #endif /* TTLS_CIPHER_MODE_CBC */
 
 #if defined(TTLS_CIPHER_MODE_CFB)
@@ -170,12 +170,12 @@ int ttls_camellia_crypt_cbc(ttls_camellia_context *ctx,
  *				 TTLS_ERR_CAMELLIA_INVALID_INPUT_LENGTH
  */
 int ttls_camellia_crypt_cfb128(ttls_camellia_context *ctx,
-					   int mode,
-					   size_t length,
-					   size_t *iv_off,
-					   unsigned char iv[16],
-					   const unsigned char *input,
-					   unsigned char *output);
+		   int mode,
+		   size_t length,
+		   size_t *iv_off,
+		   unsigned char iv[16],
+		   const unsigned char *input,
+		   unsigned char *output);
 #endif /* TTLS_CIPHER_MODE_CFB */
 
 #if defined(TTLS_CIPHER_MODE_CTR)
@@ -191,23 +191,23 @@ int ttls_camellia_crypt_cfb128(ttls_camellia_context *ctx,
  * \param ctx		   CAMELLIA context
  * \param length		The length of the data
  * \param nc_off		The offset in the current stream_block (for resuming
- *					  within current cipher stream). The offset pointer to
- *					  should be 0 at the start of a stream.
+ *		  within current cipher stream). The offset pointer to
+ *		  should be 0 at the start of a stream.
  * \param nonce_counter The 128-bit nonce and counter.
  * \param stream_block  The saved stream-block for resuming. Is overwritten
- *					  by the function.
+ *		  by the function.
  * \param input		 The input data stream
  * \param output		The output data stream
  *
  * \return		 0 if successful
  */
 int ttls_camellia_crypt_ctr(ttls_camellia_context *ctx,
-					   size_t length,
-					   size_t *nc_off,
-					   unsigned char nonce_counter[16],
-					   unsigned char stream_block[16],
-					   const unsigned char *input,
-					   unsigned char *output);
+		   size_t length,
+		   size_t *nc_off,
+		   unsigned char nonce_counter[16],
+		   unsigned char stream_block[16],
+		   const unsigned char *input,
+		   unsigned char *output);
 #endif /* TTLS_CIPHER_MODE_CTR */
 
 #else  /* TTLS_CAMELLIA_ALT */

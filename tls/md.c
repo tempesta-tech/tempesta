@@ -134,7 +134,7 @@ void ttls_md_free(ttls_md_context_t *ctx)
 }
 
 int ttls_md_clone(ttls_md_context_t *dst,
-					  const ttls_md_context_t *src)
+		  const ttls_md_context_t *src)
 {
 	if (dst == NULL || dst->md_info == NULL ||
 		src == NULL || src->md_info == NULL ||
@@ -242,7 +242,7 @@ int ttls_md_hmac_starts(ttls_md_context_t *ctx, const unsigned char *key, size_t
 	if ((ret = ctx->md_info->starts_func(ctx->md_ctx)) != 0)
 		goto cleanup;
 	if ((ret = ctx->md_info->update_func(ctx->md_ctx, ipad,
-										   ctx->md_info->block_size)) != 0)
+				   ctx->md_info->block_size)) != 0)
 		goto cleanup;
 
 cleanup:
@@ -275,10 +275,10 @@ int ttls_md_hmac_finish(ttls_md_context_t *ctx, unsigned char *output)
 	if ((ret = ctx->md_info->starts_func(ctx->md_ctx)) != 0)
 		return ret;
 	if ((ret = ctx->md_info->update_func(ctx->md_ctx, opad,
-										   ctx->md_info->block_size)) != 0)
+				   ctx->md_info->block_size)) != 0)
 		return ret;
 	if ((ret = ctx->md_info->update_func(ctx->md_ctx, tmp,
-										   ctx->md_info->size)) != 0)
+				   ctx->md_info->size)) != 0)
 		return ret;
 	return(ctx->md_info->finish_func(ctx->md_ctx, output));
 }
@@ -296,13 +296,13 @@ int ttls_md_hmac_reset(ttls_md_context_t *ctx)
 	if ((ret = ctx->md_info->starts_func(ctx->md_ctx)) != 0)
 		return ret;
 	return(ctx->md_info->update_func(ctx->md_ctx, ipad,
-									   ctx->md_info->block_size));
+			   ctx->md_info->block_size));
 }
 
 int ttls_md_hmac(const ttls_md_info_t *md_info,
-					 const unsigned char *key, size_t keylen,
-					 const unsigned char *input, size_t ilen,
-					 unsigned char *output)
+		 const unsigned char *key, size_t keylen,
+		 const unsigned char *input, size_t ilen,
+		 unsigned char *output)
 {
 	ttls_md_context_t ctx;
 	int ret;

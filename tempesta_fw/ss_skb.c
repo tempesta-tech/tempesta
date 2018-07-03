@@ -68,19 +68,20 @@ ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf)
  *
  * Similar to alloc_skb_with_frags() except it doesn't allocate multi-page
  * fragments, and it sets up fragments with zero size.
- *
- * TODO #391: use less pages by allocating the skb from ss_skb_alloc()
- * with maximum page header to fully utilize the page.
  */
 static struct sk_buff *
 ss_skb_alloc_pages(size_t len)
 {
-	int i, nr_frags = DIV_ROUND_UP(len, PAGE_SIZE);
+	int i, nr_frags = 0;
 	struct sk_buff *skb;
 
-	BUG_ON(nr_frags > MAX_SKB_FRAGS);
+	if (len > SKB_MAX_HEADER) {
+		nr_frags = DIV_ROUND_UP(len - SKB_MAX_HEADER, PAGE_SIZE);
+		BUG_ON(nr_frags > MAX_SKB_FRAGS);
+		len = SKB_MAX_HEADER;
+	}
 
-	if ((skb = ss_skb_alloc()) == NULL)
+	if (!(skb = ss_skb_alloc(len)))
 		return NULL;
 
 	for (i = 0; i < nr_frags; ++i) {
@@ -103,7 +104,7 @@ ss_skb_alloc_pages(size_t len)
  * message. Put as much as possible in one SKB. TCP GSO will take care of
  * segmentation. The allocated payload space will be filled with data.
  */
-static int
+int
 ss_skb_alloc_data(struct sk_buff **skb_head, size_t len)
 {
 	int i_skb, nr_skbs = DIV_ROUND_UP(len, SS_SKB_MAX_DATA_LEN);
@@ -312,7 +313,7 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 			if (r)
 				return r;
 		} else {
-			nskb = ss_skb_alloc();
+			nskb = ss_skb_alloc(0);
 			if (nskb == NULL)
 				return -ENOMEM;
 			__skb_insert_after(skb, nskb);
@@ -1072,7 +1073,7 @@ __coalesce_frag(struct sk_buff **skb_head, skb_frag_t *frag,
 	struct sk_buff *skb = ss_skb_peek_tail(skb_head);
 
 	if (!skb || skb_shinfo(skb)->nr_frags == MAX_SKB_FRAGS) {
-		skb = ss_skb_alloc();
+		skb = ss_skb_alloc(0);
 		if (!skb)
 			return -ENOMEM;
 		ss_skb_queue_tail(skb_head, skb);

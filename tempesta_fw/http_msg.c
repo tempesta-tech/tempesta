@@ -803,6 +803,42 @@ tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len)
 }
 EXPORT_SYMBOL(tfw_http_msg_setup);
 
+static int
+__http_msg_add_data_frag(TfwMsgIter *it, TfwHttpMsg *hm, TfwStr *field,
+			 const TfwStr *data, unsigned int off)
+{
+	char *p;
+	skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
+	unsigned int f_size, d_size, f_room, n_copy;
+
+next_frag:
+	if (!frag)
+		return -E2BIG;
+
+	d_size = data->len - off;
+	f_size = skb_frag_size(frag);
+	f_room = PAGE_SIZE - frag->page_offset - f_size;
+	n_copy = min(d_size, f_room);
+	if (!n_copy)
+		return 0;
+
+	p = (char *)skb_frag_address(frag) + f_size;
+	memcpy_fast(p, (char *)data->ptr + off, n_copy);
+	skb_frag_size_add(frag, n_copy);
+	ss_skb_adjust_data_len(it->skb, n_copy);
+
+	if (__tfw_http_msg_add_str_data(hm, field, p, n_copy, it->skb))
+		return -ENOMEM;
+
+	if (d_size > f_room) {
+		frag = ss_skb_frag_next(&it->skb, &it->frag);
+		off += n_copy;
+		goto next_frag;
+	}
+
+	return 0;
+}
+
 /**
  * Similar to tfw_msg_write(), but properly maintain @hm header
  * fields, so that @hm can be used in regular transformations. However,
@@ -814,38 +850,31 @@ tfw_http_msg_add_data(TfwMsgIter *it, TfwHttpMsg *hm, TfwStr *field,
 		      const TfwStr *data)
 {
 	char *p;
-	skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
-	unsigned int d_off = 0, f_size, d_size, f_room, n_copy;
+	unsigned int n_copy = min(data->len, skb_tailroom(it->skb));
 
-	BUG_ON(TFW_STR_DUP(data));
-	BUG_ON(!TFW_STR_PLAIN(data));
-
-next_frag:
-	if (!frag)
-		return -E2BIG;
-
-	d_size = data->len - d_off;
-	f_size = skb_frag_size(frag);
-	f_room = PAGE_SIZE - frag->page_offset - f_size;
-	n_copy = min(d_size, f_room);
+	WARN_ON_ONCE(TFW_STR_DUP(data));
+	WARN_ON_ONCE(!TFW_STR_PLAIN(data));
 	if (!n_copy)
 		return 0;
 
-	p = (char *)skb_frag_address(frag) + f_size;
-	memcpy_fast(p, (char *)data->ptr + d_off, n_copy);
-	skb_frag_size_add(frag, n_copy);
-	ss_skb_adjust_data_len(it->skb, n_copy);
+	if (it->frag >= 0)
+		goto add_frag;
+
+	p = skb_put(it->skb, n_copy);
+	memcpy_fast(p, (char *)data->ptr, n_copy);
 
 	if (__tfw_http_msg_add_str_data(hm, field, p, n_copy, it->skb))
 		return -ENOMEM;
 
-	if (d_size > f_room) {
-		frag = ss_skb_frag_next(&it->skb, &it->frag);
-		d_off += n_copy;
-		goto next_frag;
+	if (data->len == n_copy) {
+		if (!skb_tailroom(it->skb))
+			it->frag = 0;
+		return 0;
 	}
 
-	return 0;
+add_frag:
+	it->frag = 0;
+	return __http_msg_add_data_frag(it, hm, field, data, n_copy);
 }
 
 void

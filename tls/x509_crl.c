@@ -48,8 +48,8 @@ static void ttls_zeroize(void *v, size_t n) {
  *  Version  ::=  INTEGER  {  v1(0), v2(1)  }
  */
 static int x509_crl_get_version(unsigned char **p,
-							 const unsigned char *end,
-							 int *ver)
+				 const unsigned char *end,
+				 int *ver)
 {
 	int ret;
 
@@ -75,14 +75,14 @@ static int x509_crl_get_version(unsigned char **p,
  * are unsupported as we don't support any extension so far)
  */
 static int x509_get_crl_ext(unsigned char **p,
-							 const unsigned char *end,
-							 ttls_x509_buf *ext)
+				 const unsigned char *end,
+				 ttls_x509_buf *ext)
 {
 	int ret;
 
 	/*
 	 * crlExtensions		   [0]  EXPLICIT Extensions OPTIONAL
-	 *							  -- if present, version MUST be v2
+	 *				  -- if present, version MUST be v2
 	 */
 	if ((ret = ttls_x509_get_ext(p, end, ext, 0)) != 0)
 	{
@@ -113,7 +113,7 @@ static int x509_get_crl_ext(unsigned char **p,
 
 		/* Get OID (currently ignored) */
 		if ((ret = ttls_asn1_get_tag(p, end_ext_data, &len,
-										  TTLS_ASN1_OID)) != 0)
+				  TTLS_ASN1_OID)) != 0)
 		{
 			return(TTLS_ERR_X509_INVALID_EXTENSIONS + ret);
 		}
@@ -121,7 +121,7 @@ static int x509_get_crl_ext(unsigned char **p,
 
 		/* Get optional critical */
 		if ((ret = ttls_asn1_get_bool(p, end_ext_data,
-										   &is_critical)) != 0 &&
+				   &is_critical)) != 0 &&
 			(ret != TTLS_ERR_ASN1_UNEXPECTED_TAG))
 		{
 			return(TTLS_ERR_X509_INVALID_EXTENSIONS + ret);
@@ -136,12 +136,12 @@ static int x509_get_crl_ext(unsigned char **p,
 		*p += len;
 		if (*p != end_ext_data)
 			return(TTLS_ERR_X509_INVALID_EXTENSIONS +
-					TTLS_ERR_ASN1_LENGTH_MISMATCH);
+		TTLS_ERR_ASN1_LENGTH_MISMATCH);
 
 		/* Abort on (unsupported) critical extensions */
 		if (is_critical)
 			return(TTLS_ERR_X509_INVALID_EXTENSIONS +
-					TTLS_ERR_ASN1_UNEXPECTED_TAG);
+		TTLS_ERR_ASN1_UNEXPECTED_TAG);
 	}
 
 	if (*p != end)
@@ -155,8 +155,8 @@ static int x509_get_crl_ext(unsigned char **p,
  * X.509 CRL v2 entry extensions (no extensions parsed yet.)
  */
 static int x509_get_crl_entry_ext(unsigned char **p,
-							 const unsigned char *end,
-							 ttls_x509_buf *ext)
+				 const unsigned char *end,
+				 ttls_x509_buf *ext)
 {
 	int ret;
 	size_t len = 0;
@@ -209,8 +209,8 @@ static int x509_get_crl_entry_ext(unsigned char **p,
  * X.509 CRL Entries
  */
 static int x509_get_entries(unsigned char **p,
-							 const unsigned char *end,
-							 ttls_x509_crl_entry *entry)
+				 const unsigned char *end,
+				 ttls_x509_crl_entry *entry)
 {
 	int ret;
 	size_t entry_len;
@@ -250,11 +250,11 @@ static int x509_get_entries(unsigned char **p,
 			return ret;
 
 		if ((ret = ttls_x509_get_time(p, end2,
-								   &cur_entry->revocation_date)) != 0)
+		   &cur_entry->revocation_date)) != 0)
 			return ret;
 
 		if ((ret = x509_get_crl_entry_ext(p, end2,
-											&cur_entry->entry_ext)) != 0)
+		&cur_entry->entry_ext)) != 0)
 			return ret;
 
 		if (*p < end)
@@ -275,7 +275,7 @@ static int x509_get_entries(unsigned char **p,
  * Parse one  CRLs in DER format and append it to the chained list
  */
 int ttls_x509_crl_parse_der(ttls_x509_crl *chain,
-						const unsigned char *buf, size_t buflen)
+			const unsigned char *buf, size_t buflen)
 {
 	int ret;
 	size_t len;
@@ -387,8 +387,8 @@ int ttls_x509_crl_parse_der(ttls_x509_crl *chain,
 	crl->version++;
 
 	if ((ret = ttls_x509_get_sig_alg(&crl->sig_oid, &sig_params1,
-								  &crl->sig_md, &crl->sig_pk,
-								  &crl->sig_opts)) != 0)
+		  &crl->sig_md, &crl->sig_pk,
+		  &crl->sig_opts)) != 0)
 	{
 		ttls_x509_crl_free(crl);
 		return(TTLS_ERR_X509_UNKNOWN_SIG_ALG);
@@ -427,9 +427,9 @@ int ttls_x509_crl_parse_der(ttls_x509_crl *chain,
 	if ((ret = ttls_x509_get_time(&p, end, &crl->next_update)) != 0)
 	{
 		if (ret != (TTLS_ERR_X509_INVALID_DATE +
-						TTLS_ERR_ASN1_UNEXPECTED_TAG) &&
+			TTLS_ERR_ASN1_UNEXPECTED_TAG) &&
 			ret != (TTLS_ERR_X509_INVALID_DATE +
-						TTLS_ERR_ASN1_OUT_OF_DATA))
+			TTLS_ERR_ASN1_OUT_OF_DATA))
 		{
 			ttls_x509_crl_free(crl);
 			return ret;
@@ -441,8 +441,8 @@ int ttls_x509_crl_parse_der(ttls_x509_crl *chain,
 	 *	  userCertificate		CertificateSerialNumber,
 	 *	  revocationDate		 Time,
 	 *	  crlEntryExtensions	 Extensions OPTIONAL
-	 *								   -- if present, MUST be v2
-	 *						} OPTIONAL
+	 *		   -- if present, MUST be v2
+	 *			} OPTIONAL
 	 */
 	if ((ret = x509_get_entries(&p, end, &crl->entry)) != 0)
 	{
@@ -452,7 +452,7 @@ int ttls_x509_crl_parse_der(ttls_x509_crl *chain,
 
 	/*
 	 * crlExtensions		  EXPLICIT Extensions OPTIONAL
-	 *							  -- if present, MUST be v2
+	 *				  -- if present, MUST be v2
 	 */
 	if (crl->version == 2)
 	{
@@ -534,9 +534,9 @@ int ttls_x509_crl_parse(ttls_x509_crl *chain, const unsigned char *buf, size_t b
 			ret = TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT;
 		else
 			ret = ttls_pem_read_buffer(&pem,
-										   "-----BEGIN X509 CRL-----",
-										   "-----END X509 CRL-----",
-											buf, NULL, 0, &use_len);
+				   "-----BEGIN X509 CRL-----",
+				   "-----END X509 CRL-----",
+		buf, NULL, 0, &use_len);
 
 		if (ret == 0)
 		{
@@ -549,7 +549,7 @@ int ttls_x509_crl_parse(ttls_x509_crl *chain, const unsigned char *buf, size_t b
 			buf += use_len;
 
 			if ((ret = ttls_x509_crl_parse_der(chain,
-											pem.buf, pem.buflen)) != 0)
+		pem.buf, pem.buflen)) != 0)
 			{
 				ttls_pem_free(&pem);
 				return ret;
@@ -594,7 +594,7 @@ int ttls_x509_crl_info(char *buf, size_t size, const char *prefix,
 	n = size;
 
 	ret = ttls_snprintf(p, n, "%sCRL version   : %d",
-							   prefix, crl->version);
+				   prefix, crl->version);
 	TTLS_X509_SAFE_SNPRINTF;
 
 	ret = ttls_snprintf(p, n, "\n%sissuer name   : ", prefix);
@@ -619,13 +619,13 @@ int ttls_x509_crl_info(char *buf, size_t size, const char *prefix,
 	entry = &crl->entry;
 
 	ret = ttls_snprintf(p, n, "\n%sRevoked certificates:",
-							   prefix);
+				   prefix);
 	TTLS_X509_SAFE_SNPRINTF;
 
 	while (entry != NULL && entry->raw.len != 0)
 	{
 		ret = ttls_snprintf(p, n, "\n%sserial number: ",
-							   prefix);
+				   prefix);
 		TTLS_X509_SAFE_SNPRINTF;
 
 		ret = ttls_x509_serial_gets(p, n, &entry->serial);
@@ -645,7 +645,7 @@ int ttls_x509_crl_info(char *buf, size_t size, const char *prefix,
 	TTLS_X509_SAFE_SNPRINTF;
 
 	ret = ttls_x509_sig_alg_gets(p, n, &crl->sig_oid, crl->sig_pk, crl->sig_md,
-							 crl->sig_opts);
+				 crl->sig_opts);
 	TTLS_X509_SAFE_SNPRINTF;
 
 	ret = ttls_snprintf(p, n, "\n");
