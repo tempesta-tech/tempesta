@@ -377,9 +377,10 @@ size_t ttls_mpi_bitlen(const ttls_mpi *X)
 /*
  * Return the total size in bytes
  */
-size_t ttls_mpi_size(const ttls_mpi *X)
+size_t
+ttls_mpi_size(const ttls_mpi *X)
 {
-	return((ttls_mpi_bitlen(X) + 7) >> 3);
+	return (ttls_mpi_bitlen(X) + 7) >> 3;
 }
 
 /*
@@ -502,7 +503,7 @@ cleanup:
  * Export into an ASCII string
  */
 int ttls_mpi_write_string(const ttls_mpi *X, int radix,
-							  char *buf, size_t buflen, size_t *olen)
+				  char *buf, size_t buflen, size_t *olen)
 {
 	int ret = 0;
 	size_t n;
@@ -546,7 +547,7 @@ int ttls_mpi_write_string(const ttls_mpi *X, int radix,
 				c = (X->p[i - 1] >> ((j - 1) << 3)) & 0xFF;
 
 				if (c == 0 && k == 0 && (i + j) != 2)
-					continue;
+		continue;
 
 				*(p++) = "0123456789ABCDEF" [c / 16];
 				*(p++) = "0123456789ABCDEF" [c % 16];
@@ -1245,7 +1246,7 @@ int ttls_mpi_div_mpi(ttls_mpi *Q, ttls_mpi *R, const ttls_mpi *A, const ttls_mpi
 		else
 		{
 			Z.p[i - t - 1] = ttls_int_div_int(X.p[i], X.p[i - 1],
-															Y.p[t], NULL);
+			Y.p[t], NULL);
 		}
 
 		Z.p[i - t - 1]++;
@@ -1419,7 +1420,7 @@ static void mpi_montg_init(ttls_mpi_uint *mm, const ttls_mpi *N)
  * Montgomery multiplication: A = A * B * R^-1 mod N  (HAC 14.36)
  */
 static int mpi_montmul(ttls_mpi *A, const ttls_mpi *B, const ttls_mpi *N, ttls_mpi_uint mm,
-						 const ttls_mpi *T)
+			 const ttls_mpi *T)
 {
 	size_t i, n, m;
 	ttls_mpi_uint u0, u1, *d;
@@ -1743,22 +1744,20 @@ cleanup:
  * regardless of the platform endianness (useful when f_rng is actually
  * deterministic, eg for tests).
  */
-int ttls_mpi_fill_random(ttls_mpi *X, size_t size,
-					 int (*f_rng)(void *, unsigned char *, size_t),
-					 void *p_rng)
+int
+tls_mpi_fill_random(ttls_mpi *X, size_t size)
 {
 	int ret;
 	unsigned char buf[TTLS_MPI_MAX_SIZE];
 
 	if (size > TTLS_MPI_MAX_SIZE)
-		return(TTLS_ERR_MPI_BAD_INPUT_DATA);
+		return TTLS_ERR_MPI_BAD_INPUT_DATA;
 
-	// TODO AK call get_random_bytes() directly instead of f_rng()
-	TTLS_MPI_CHK(f_rng(p_rng, buf, size));
+	get_random_bytes_arch(buf, size);
 	TTLS_MPI_CHK(ttls_mpi_read_binary(X, buf, size));
 
 cleanup:
-	memset(buf, 0, sizeof(buf));
+	bzero_fast(buf, sizeof(buf));
 	return ret;
 }
 
@@ -1921,8 +1920,8 @@ cleanup:
  * Miller-Rabin pseudo-primality test  (HAC 4.24)
  */
 static int mpi_miller_rabin(const ttls_mpi *X,
-							 int (*f_rng)(void *, unsigned char *, size_t),
-							 void *p_rng)
+				 int (*f_rng)(void *, unsigned char *, size_t),
+				 void *p_rng)
 {
 	int ret, count;
 	size_t i, j, k, n, s;
@@ -1953,7 +1952,7 @@ static int mpi_miller_rabin(const ttls_mpi *X,
 		/*
 		 * pick a random A, 1 < A < |X| - 1
 		 */
-		TTLS_MPI_CHK(ttls_mpi_fill_random(&A, X->n * ciL, f_rng, p_rng));
+		get_random_bytes_arch(&A, X->n * ciL);
 
 		if (ttls_mpi_cmp_mpi(&A, &W) >= 0)
 		{
@@ -1964,7 +1963,7 @@ static int mpi_miller_rabin(const ttls_mpi *X,
 
 		count = 0;
 		do {
-			TTLS_MPI_CHK(ttls_mpi_fill_random(&A, X->n * ciL, f_rng, p_rng));
+			get_random_bytes_arch(&A, X->n * ciL);
 
 			j = ttls_mpi_bitlen(&A);
 			k = ttls_mpi_bitlen(&W);
@@ -2072,7 +2071,7 @@ int ttls_mpi_gen_prime(ttls_mpi *X, size_t nbits, int dh_flag,
 
 	n = BITS_TO_LIMBS(nbits);
 
-	TTLS_MPI_CHK(ttls_mpi_fill_random(X, n * ciL, f_rng, p_rng));
+	get_random_bytes_arch(X, n * ciL);
 
 	k = ttls_mpi_bitlen(X);
 	if (k > nbits) TTLS_MPI_CHK(ttls_mpi_shift_r(X, k - nbits + 1));

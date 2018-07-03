@@ -40,9 +40,9 @@
 #define TTLS_GCM_ENCRYPT	 1
 #define TTLS_GCM_DECRYPT	 0
 
-#define TTLS_ERR_GCM_AUTH_FAILED					   -0x0012  /**< Authenticated decryption failed. */
+#define TTLS_ERR_GCM_AUTH_FAILED		   -0x0012  /**< Authenticated decryption failed. */
 #define TTLS_ERR_GCM_HW_ACCEL_FAILED				   -0x0013  /**< GCM hardware accelerator failed. */
-#define TTLS_ERR_GCM_BAD_INPUT						 -0x0014  /**< Bad input parameters to function. */
+#define TTLS_ERR_GCM_BAD_INPUT			 -0x0014  /**< Bad input parameters to function. */
 
 #if !defined(TTLS_GCM_ALT)
 
@@ -51,16 +51,16 @@
  */
 typedef struct {
 	ttls_cipher_context_t cipher_ctx;  /*!< The cipher context used. */
-	uint64_t HL[16];					  /*!< Precalculated HTable low. */
-	uint64_t HH[16];					  /*!< Precalculated HTable high. */
-	uint64_t len;						 /*!< The total length of the encrypted data. */
-	uint64_t add_len;					 /*!< The total length of the additional data. */
+	uint64_t HL[16];		  /*!< Precalculated HTable low. */
+	uint64_t HH[16];		  /*!< Precalculated HTable high. */
+	uint64_t len;			 /*!< The total length of the encrypted data. */
+	uint64_t add_len;		 /*!< The total length of the additional data. */
 	unsigned char base_ectr[16];		  /*!< The first ECTR for tag. */
 	unsigned char y[16];				  /*!< The Y working value. */
 	unsigned char buf[16];				/*!< The buf working value. */
-	int mode;							 /*!< The operation to perform:
-											   #TTLS_GCM_ENCRYPT or
-											   #TTLS_GCM_DECRYPT. */
+	int mode;				 /*!< The operation to perform:
+		   #TTLS_GCM_ENCRYPT or
+		   #TTLS_GCM_DECRYPT. */
 }
 ttls_gcm_context;
 
@@ -92,9 +92,9 @@ void ttls_gcm_init(ttls_gcm_context *ctx);
  * \return		  \c 0 on success, or a cipher specific error code.
  */
 int ttls_gcm_setkey(ttls_gcm_context *ctx,
-						ttls_cipher_id_t cipher,
-						const unsigned char *key,
-						unsigned int keybits);
+			ttls_cipher_id_t cipher,
+			const unsigned char *key,
+			unsigned int keybits);
 
 /**
  * \brief		   This function performs GCM encryption or decryption of a buffer.
@@ -120,16 +120,16 @@ int ttls_gcm_setkey(ttls_gcm_context *ctx,
  * \return		 \c 0 on success.
  */
 int ttls_gcm_crypt_and_tag(ttls_gcm_context *ctx,
-					   int mode,
-					   size_t length,
-					   const unsigned char *iv,
-					   size_t iv_len,
-					   const unsigned char *add,
-					   size_t add_len,
-					   const unsigned char *input,
-					   unsigned char *output,
-					   size_t tag_len,
-					   unsigned char *tag);
+		   int mode,
+		   size_t length,
+		   const unsigned char *iv,
+		   size_t iv_len,
+		   const unsigned char *add,
+		   size_t add_len,
+		   const unsigned char *input,
+		   unsigned char *output,
+		   size_t tag_len,
+		   unsigned char *tag);
 
 /**
  * \brief		   This function performs a GCM authenticated decryption of a
@@ -154,15 +154,15 @@ int ttls_gcm_crypt_and_tag(ttls_gcm_context *ctx,
  *				 #TTLS_ERR_GCM_AUTH_FAILED if tag does not match.
  */
 int ttls_gcm_auth_decrypt(ttls_gcm_context *ctx,
-					  size_t length,
-					  const unsigned char *iv,
-					  size_t iv_len,
-					  const unsigned char *add,
-					  size_t add_len,
-					  const unsigned char *tag,
-					  size_t tag_len,
-					  const unsigned char *input,
-					  unsigned char *output);
+		  size_t length,
+		  const unsigned char *iv,
+		  size_t iv_len,
+		  const unsigned char *add,
+		  size_t add_len,
+		  const unsigned char *tag,
+		  size_t tag_len,
+		  const unsigned char *input,
+		  unsigned char *output);
 
 /**
  * \brief		   This function starts a GCM encryption or decryption

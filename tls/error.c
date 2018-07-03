@@ -353,8 +353,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			ttls_snprintf(buf, buflen, "SSL - Internal error (eg, unexpected failure in lower-level module)");
 		if (use_ret == -(TTLS_ERR_COUNTER_WRAPPING))
 			ttls_snprintf(buf, buflen, "SSL - A counter would wrap (eg, too many messages exchanged)");
-		if (use_ret == -(TTLS_ERR_WAITING_SERVER_HELLO_RENEGO))
-			ttls_snprintf(buf, buflen, "SSL - Unexpected message at ServerHello in renegotiation");
 		if (use_ret == -(TTLS_ERR_HELLO_VERIFY_REQUIRED))
 			ttls_snprintf(buf, buflen, "SSL - DTLS client must retry for hello verification");
 		if (use_ret == -(TTLS_ERR_BUFFER_TOO_SMALL))
@@ -367,8 +365,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			ttls_snprintf(buf, buflen, "SSL - Connection requires a write call");
 		if (use_ret == -(TTLS_ERR_TIMEOUT))
 			ttls_snprintf(buf, buflen, "SSL - The operation timed out");
-		if (use_ret == -(TTLS_ERR_CLIENT_RECONNECT))
-			ttls_snprintf(buf, buflen, "SSL - The client initiated a reconnect from the same port");
 		if (use_ret == -(TTLS_ERR_UNEXPECTED_RECORD))
 			ttls_snprintf(buf, buflen, "SSL - Record header looks valid but is not expected");
 		if (use_ret == -(TTLS_ERR_NON_FATAL))

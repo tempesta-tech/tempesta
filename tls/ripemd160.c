@@ -39,8 +39,8 @@
  * 32-bit integer manipulation macros (little endian)
  */
 #ifndef GET_UINT32_LE
-#define GET_UINT32_LE(n,b,i)							\
-{													   \
+#define GET_UINT32_LE(n,b,i)				\
+{				   \
 	(n) = ((uint32_t) (b)[(i)	]	  )			 \
 		| ((uint32_t) (b)[(i) + 1] <<  8)			 \
 		| ((uint32_t) (b)[(i) + 2] << 16)			 \
@@ -49,8 +49,8 @@
 #endif
 
 #ifndef PUT_UINT32_LE
-#define PUT_UINT32_LE(n,b,i)									\
-{															   \
+#define PUT_UINT32_LE(n,b,i)			\
+{			   \
 	(b)[(i)	] = (unsigned char) (((n)	  ) & 0xFF);	\
 	(b)[(i) + 1] = (unsigned char) (((n) >>  8) & 0xFF);	\
 	(b)[(i) + 2] = (unsigned char) (((n) >> 16) & 0xFF);	\
@@ -77,7 +77,7 @@ void ttls_ripemd160_free(ttls_ripemd160_context *ctx)
 }
 
 void ttls_ripemd160_clone(ttls_ripemd160_context *dst,
-						const ttls_ripemd160_context *src)
+			const ttls_ripemd160_context *src)
 {
 	*dst = *src;
 }
@@ -104,7 +104,7 @@ int ttls_ripemd160_starts_ret(ttls_ripemd160_context *ctx)
  * Process one block
  */
 int ttls_internal_ripemd160_process(ttls_ripemd160_context *ctx,
-										const unsigned char data[64])
+				const unsigned char data[64])
 {
 	uint32_t A, B, C, D, E, Ap, Bp, Cp, Dp, Ep, X[16];
 
@@ -141,7 +141,7 @@ int ttls_internal_ripemd160_process(ttls_ripemd160_context *ctx,
 
 #define P(a, b, c, d, e, r, s, f, k)	  \
 	a += f(b, c, d) + X[r] + k;		   \
-	a = S(a, s) + e;					  \
+	a = S(a, s) + e;		  \
 	c = S(c, 10);
 
 #define P2(a, b, c, d, e, r, s, rp, sp)   \
@@ -289,8 +289,8 @@ int ttls_internal_ripemd160_process(ttls_ripemd160_context *ctx,
  * RIPEMD-160 process buffer
  */
 int ttls_ripemd160_update_ret(ttls_ripemd160_context *ctx,
-								  const unsigned char *input,
-								  size_t ilen)
+		  const unsigned char *input,
+		  size_t ilen)
 {
 	int ret;
 	size_t fill;
@@ -349,7 +349,7 @@ static const unsigned char ripemd160_padding[64] =
  * RIPEMD-160 final digest
  */
 int ttls_ripemd160_finish_ret(ttls_ripemd160_context *ctx,
-								  unsigned char output[20])
+		  unsigned char output[20])
 {
 	int ret;
 	uint32_t last, padn;
@@ -389,8 +389,8 @@ int ttls_ripemd160_finish_ret(ttls_ripemd160_context *ctx,
  * output = RIPEMD-160(input buffer)
  */
 int ttls_ripemd160_ret(const unsigned char *input,
-						   size_t ilen,
-						   unsigned char output[20])
+			   size_t ilen,
+			   unsigned char output[20])
 {
 	int ret;
 	ttls_ripemd160_context ctx;
@@ -471,7 +471,7 @@ int ttls_ripemd160_self_test(int verbose)
 			ttls_printf("  RIPEMD-160 test #%d: ", i + 1);
 
 		ret = ttls_ripemd160_ret(ripemd160_test_str[i],
-									 ripemd160_test_strlen[i], output);
+			 ripemd160_test_strlen[i], output);
 		if (ret != 0)
 			goto fail;
 

@@ -53,83 +53,83 @@ struct ttls_cmac_context_t
 
 /**
  * \brief			   This function sets the CMAC key, and prepares to authenticate
- *					  the input data.
- *					  Must be called with an initialized cipher context.
+ *		  the input data.
+ *		  Must be called with an initialized cipher context.
  *
  * \param ctx		   The cipher context used for the CMAC operation, initialized
- *					  as one of the following types:<ul>
- *					  <li>TTLS_CIPHER_AES_128_ECB</li>
- *					  <li>TTLS_CIPHER_AES_192_ECB</li>
- *					  <li>TTLS_CIPHER_AES_256_ECB</li>
- *					  <li>TTLS_CIPHER_DES_EDE3_ECB</li></ul>
+ *		  as one of the following types:<ul>
+ *		  <li>TTLS_CIPHER_AES_128_ECB</li>
+ *		  <li>TTLS_CIPHER_AES_192_ECB</li>
+ *		  <li>TTLS_CIPHER_AES_256_ECB</li>
+ *		  <li>TTLS_CIPHER_DES_EDE3_ECB</li></ul>
  * \param key		   The CMAC key.
  * \param keybits	   The length of the CMAC key in bits.
- *					  Must be supported by the cipher.
+ *		  Must be supported by the cipher.
  *
  * \return			  \c 0 on success, or a cipher-specific error code.
  */
 int ttls_cipher_cmac_starts(ttls_cipher_context_t *ctx,
-								const unsigned char *key, size_t keybits);
+		const unsigned char *key, size_t keybits);
 
 /**
  * \brief			   This function feeds an input buffer into an ongoing CMAC
- *					  computation.
+ *		  computation.
  *
- *					  It is called between ttls_cipher_cmac_starts() or
- *					  ttls_cipher_cmac_reset(), and ttls_cipher_cmac_finish().
- *					  Can be called repeatedly.
+ *		  It is called between ttls_cipher_cmac_starts() or
+ *		  ttls_cipher_cmac_reset(), and ttls_cipher_cmac_finish().
+ *		  Can be called repeatedly.
  *
  * \param ctx		   The cipher context used for the CMAC operation.
  * \param input		 The buffer holding the input data.
  * \param ilen		  The length of the input data.
  *
  * \returns			 \c 0 on success, or #TTLS_ERR_MD_BAD_INPUT_DATA
- *					  if parameter verification fails.
+ *		  if parameter verification fails.
  */
 int ttls_cipher_cmac_update(ttls_cipher_context_t *ctx,
-								const unsigned char *input, size_t ilen);
+		const unsigned char *input, size_t ilen);
 
 /**
  * \brief			   This function finishes the CMAC operation, and writes
- *					  the result to the output buffer.
+ *		  the result to the output buffer.
  *
- *					  It is called after ttls_cipher_cmac_update().
- *					  It can be followed by ttls_cipher_cmac_reset() and
- *					  ttls_cipher_cmac_update(), or ttls_cipher_free().
+ *		  It is called after ttls_cipher_cmac_update().
+ *		  It can be followed by ttls_cipher_cmac_reset() and
+ *		  ttls_cipher_cmac_update(), or ttls_cipher_free().
  *
  * \param ctx		   The cipher context used for the CMAC operation.
  * \param output		The output buffer for the CMAC checksum result.
  *
  * \returns			 \c 0 on success, or #TTLS_ERR_MD_BAD_INPUT_DATA
- *					  if parameter verification fails.
+ *		  if parameter verification fails.
  */
 int ttls_cipher_cmac_finish(ttls_cipher_context_t *ctx,
-								unsigned char *output);
+		unsigned char *output);
 
 /**
  * \brief			   This function prepares the authentication of another
- *					  message with the same key as the previous CMAC
- *					  operation.
+ *		  message with the same key as the previous CMAC
+ *		  operation.
  *
- *					  It is called after ttls_cipher_cmac_finish()
- *					  and before ttls_cipher_cmac_update().
+ *		  It is called after ttls_cipher_cmac_finish()
+ *		  and before ttls_cipher_cmac_update().
  *
  * \param ctx		   The cipher context used for the CMAC operation.
  *
  * \returns			 \c 0 on success, or #TTLS_ERR_MD_BAD_INPUT_DATA
- *					  if parameter verification fails.
+ *		  if parameter verification fails.
  */
 int ttls_cipher_cmac_reset(ttls_cipher_context_t *ctx);
 
 /**
  * \brief			   This function calculates the full generic CMAC
- *					  on the input buffer with the provided key.
+ *		  on the input buffer with the provided key.
  *
- *					  The function allocates the context, performs the
- *					  calculation, and frees the context.
+ *		  The function allocates the context, performs the
+ *		  calculation, and frees the context.
  *
- *					  The CMAC result is calculated as
- *					  output = generic CMAC(cmac key, input buffer).
+ *		  The CMAC result is calculated as
+ *		  output = generic CMAC(cmac key, input buffer).
  *
  *
  * \param cipher_info   The cipher information.
@@ -140,12 +140,12 @@ int ttls_cipher_cmac_reset(ttls_cipher_context_t *ctx);
  * \param output		The buffer for the generic CMAC result.
  *
  * \returns			 \c 0 on success, or #TTLS_ERR_MD_BAD_INPUT_DATA
- *					  if parameter verification fails.
+ *		  if parameter verification fails.
  */
 int ttls_cipher_cmac(const ttls_cipher_info_t *cipher_info,
-						 const unsigned char *key, size_t keylen,
-						 const unsigned char *input, size_t ilen,
-						 unsigned char *output);
+			 const unsigned char *key, size_t keylen,
+			 const unsigned char *input, size_t ilen,
+			 unsigned char *output);
 
 /**
  * \brief		   This function implements the AES-CMAC-PRF-128 pseudorandom
@@ -165,8 +165,8 @@ int ttls_cipher_cmac(const ttls_cipher_info_t *cipher_info,
  * \return		  \c 0 on success.
  */
 int ttls_aes_cmac_prf_128(const unsigned char *key, size_t key_len,
-							  const unsigned char *input, size_t in_len,
-							  unsigned char output[16]);
+				  const unsigned char *input, size_t in_len,
+				  unsigned char output[16]);
 
 #else  /* !TTLS_CMAC_ALT */
 #include "cmac_alt.h"

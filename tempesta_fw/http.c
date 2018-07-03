@@ -3638,7 +3638,7 @@ err_2:
 err:
 	cl_buf->ptr = NULL;
 	cl_buf->len = 0;
-	vfree(body);
+	free_pages(body, get_order(b_sz));
 
 	return res;
 }

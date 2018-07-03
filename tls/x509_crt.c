@@ -104,7 +104,7 @@ const ttls_x509_crt_profile ttls_x509_crt_profile_suiteb =
  * Return 0 if md_alg acceptable for this profile, -1 otherwise
  */
 static int x509_profile_check_md_alg(const ttls_x509_crt_profile *profile,
-									  ttls_md_type_t md_alg)
+			  ttls_md_type_t md_alg)
 {
 	if ((profile->allowed_mds & TTLS_X509_ID_FLAG(md_alg)) != 0)
 		return 0;
@@ -117,7 +117,7 @@ static int x509_profile_check_md_alg(const ttls_x509_crt_profile *profile,
  * Return 0 if pk_alg acceptable for this profile, -1 otherwise
  */
 static int x509_profile_check_pk_alg(const ttls_x509_crt_profile *profile,
-									  ttls_pk_type_t pk_alg)
+			  ttls_pk_type_t pk_alg)
 {
 	if ((profile->allowed_pks & TTLS_X509_ID_FLAG(pk_alg)) != 0)
 		return 0;
@@ -130,8 +130,8 @@ static int x509_profile_check_pk_alg(const ttls_x509_crt_profile *profile,
  * Return 0 if pk_alg acceptable for this profile, -1 otherwise
  */
 static int x509_profile_check_key(const ttls_x509_crt_profile *profile,
-								   ttls_pk_type_t pk_alg,
-								   const ttls_pk_context *pk)
+		   ttls_pk_type_t pk_alg,
+		   const ttls_pk_context *pk)
 {
 	if (pk_alg == TTLS_PK_RSA || pk_alg == TTLS_PK_RSASSA_PSS)
 	{
@@ -160,8 +160,8 @@ static int x509_profile_check_key(const ttls_x509_crt_profile *profile,
  *  Version  ::=  INTEGER  {  v1(0), v2(1), v3(2)  }
  */
 static int x509_get_version(unsigned char **p,
-							 const unsigned char *end,
-							 int *ver)
+				 const unsigned char *end,
+				 int *ver)
 {
 	int ret;
 	size_t len;
@@ -196,9 +196,9 @@ static int x509_get_version(unsigned char **p,
  *	   notAfter	   Time }
  */
 static int x509_get_dates(unsigned char **p,
-						   const unsigned char *end,
-						   ttls_x509_time *from,
-						   ttls_x509_time *to)
+			   const unsigned char *end,
+			   ttls_x509_time *from,
+			   ttls_x509_time *to)
 {
 	int ret;
 	size_t len;
@@ -226,8 +226,8 @@ static int x509_get_dates(unsigned char **p,
  * X.509 v2/v3 unique identifier (not parsed)
  */
 static int x509_get_uid(unsigned char **p,
-						 const unsigned char *end,
-						 ttls_x509_buf *uid, int n)
+			 const unsigned char *end,
+			 ttls_x509_buf *uid, int n)
 {
 	int ret;
 
@@ -252,16 +252,16 @@ static int x509_get_uid(unsigned char **p,
 }
 
 static int x509_get_basic_constraints(unsigned char **p,
-									   const unsigned char *end,
-									   int *ca_istrue,
-									   int *max_pathlen)
+			   const unsigned char *end,
+			   int *ca_istrue,
+			   int *max_pathlen)
 {
 	int ret;
 	size_t len;
 
 	/*
 	 * BasicConstraints ::= SEQUENCE {
-	 *	  cA					  BOOLEAN DEFAULT FALSE,
+	 *	  cA		  BOOLEAN DEFAULT FALSE,
 	 *	  pathLenConstraint	   INTEGER (0..MAX) OPTIONAL }
 	 */
 	*ca_istrue = 0; /* DEFAULT FALSE */
@@ -302,8 +302,8 @@ static int x509_get_basic_constraints(unsigned char **p,
 }
 
 static int x509_get_ns_cert_type(unsigned char **p,
-									   const unsigned char *end,
-									   unsigned char *ns_cert_type)
+			   const unsigned char *end,
+			   unsigned char *ns_cert_type)
 {
 	int ret;
 	ttls_x509_bitstring bs = { 0, 0, NULL };
@@ -321,8 +321,8 @@ static int x509_get_ns_cert_type(unsigned char **p,
 }
 
 static int x509_get_key_usage(unsigned char **p,
-							   const unsigned char *end,
-							   unsigned int *key_usage)
+				   const unsigned char *end,
+				   unsigned int *key_usage)
 {
 	int ret;
 	size_t i;
@@ -351,8 +351,8 @@ static int x509_get_key_usage(unsigned char **p,
  * KeyPurposeId ::= OBJECT IDENTIFIER
  */
 static int x509_get_ext_key_usage(unsigned char **p,
-							   const unsigned char *end,
-							   ttls_x509_sequence *ext_key_usage)
+				   const unsigned char *end,
+				   ttls_x509_sequence *ext_key_usage)
 {
 	int ret;
 
@@ -373,15 +373,15 @@ static int x509_get_ext_key_usage(unsigned char **p,
  * GeneralNames ::= SEQUENCE SIZE (1..MAX) OF GeneralName
  *
  * GeneralName ::= CHOICE {
- *	  otherName					   [0]	 OtherName,
- *	  rfc822Name					  [1]	 IA5String,
- *	  dNSName						 [2]	 IA5String,
- *	  x400Address					 [3]	 ORAddress,
+ *	  otherName		   [0]	 OtherName,
+ *	  rfc822Name		  [1]	 IA5String,
+ *	  dNSName			 [2]	 IA5String,
+ *	  x400Address		 [3]	 ORAddress,
  *	  directoryName				   [4]	 Name,
- *	  ediPartyName					[5]	 EDIPartyName,
+ *	  ediPartyName		[5]	 EDIPartyName,
  *	  uniformResourceIdentifier	   [6]	 IA5String,
- *	  iPAddress					   [7]	 OCTET STRING,
- *	  registeredID					[8]	 OBJECT IDENTIFIER }
+ *	  iPAddress		   [7]	 OCTET STRING,
+ *	  registeredID		[8]	 OBJECT IDENTIFIER }
  *
  * OtherName ::= SEQUENCE {
  *	  type-id	OBJECT IDENTIFIER,
@@ -394,8 +394,8 @@ static int x509_get_ext_key_usage(unsigned char **p,
  * NOTE: we only parse and use dNSName at this point.
  */
 static int x509_get_subject_alt_name(unsigned char **p,
-									  const unsigned char *end,
-									  ttls_x509_sequence *subject_alt_name)
+			  const unsigned char *end,
+			  ttls_x509_sequence *subject_alt_name)
 {
 	int ret;
 	size_t len, tag_len;
@@ -416,7 +416,7 @@ static int x509_get_subject_alt_name(unsigned char **p,
 	{
 		if ((end - *p) < 1)
 			return(TTLS_ERR_X509_INVALID_EXTENSIONS +
-					TTLS_ERR_ASN1_OUT_OF_DATA);
+		TTLS_ERR_ASN1_OUT_OF_DATA);
 
 		tag = **p;
 		(*p)++;
@@ -427,7 +427,7 @@ static int x509_get_subject_alt_name(unsigned char **p,
 				TTLS_ASN1_CONTEXT_SPECIFIC)
 		{
 			return(TTLS_ERR_X509_INVALID_EXTENSIONS +
-					TTLS_ERR_ASN1_UNEXPECTED_TAG);
+		TTLS_ERR_ASN1_UNEXPECTED_TAG);
 		}
 
 		/* Skip everything but DNS name */
@@ -447,7 +447,7 @@ static int x509_get_subject_alt_name(unsigned char **p,
 
 			if (cur->next == NULL)
 				return(TTLS_ERR_X509_INVALID_EXTENSIONS +
-						TTLS_ERR_ASN1_ALLOC_FAILED);
+			TTLS_ERR_ASN1_ALLOC_FAILED);
 
 			cur = cur->next;
 		}
@@ -474,8 +474,8 @@ static int x509_get_subject_alt_name(unsigned char **p,
  *
  */
 static int x509_get_crt_ext(unsigned char **p,
-							 const unsigned char *end,
-							 ttls_x509_crt *crt)
+				 const unsigned char *end,
+				 ttls_x509_crt *crt)
 {
 	int ret;
 	size_t len;
@@ -518,7 +518,7 @@ static int x509_get_crt_ext(unsigned char **p,
 
 		if ((end - *p) < 1)
 			return(TTLS_ERR_X509_INVALID_EXTENSIONS +
-					TTLS_ERR_ASN1_OUT_OF_DATA);
+		TTLS_ERR_ASN1_OUT_OF_DATA);
 
 		/* Get optional critical */
 		if ((ret = ttls_asn1_get_bool(p, end_ext_data, &is_critical)) != 0 &&
@@ -534,7 +534,7 @@ static int x509_get_crt_ext(unsigned char **p,
 
 		if (end_ext_octet != end_ext_data)
 			return(TTLS_ERR_X509_INVALID_EXTENSIONS +
-					TTLS_ERR_ASN1_LENGTH_MISMATCH);
+		TTLS_ERR_ASN1_LENGTH_MISMATCH);
 
 		/*
 		 * Detect supported extensions
@@ -551,7 +551,7 @@ static int x509_get_crt_ext(unsigned char **p,
 			{
 				/* Data is marked as critical: fail */
 				return(TTLS_ERR_X509_INVALID_EXTENSIONS +
-						TTLS_ERR_ASN1_UNEXPECTED_TAG);
+			TTLS_ERR_ASN1_UNEXPECTED_TAG);
 			}
 #endif
 			continue;
@@ -568,35 +568,35 @@ static int x509_get_crt_ext(unsigned char **p,
 		case TTLS_X509_EXT_BASIC_CONSTRAINTS:
 			/* Parse basic constraints */
 			if ((ret = x509_get_basic_constraints(p, end_ext_octet,
-					&crt->ca_istrue, &crt->max_pathlen)) != 0)
+		&crt->ca_istrue, &crt->max_pathlen)) != 0)
 				return ret;
 			break;
 
 		case TTLS_X509_EXT_KEY_USAGE:
 			/* Parse key usage */
 			if ((ret = x509_get_key_usage(p, end_ext_octet,
-					&crt->key_usage)) != 0)
+		&crt->key_usage)) != 0)
 				return ret;
 			break;
 
 		case TTLS_X509_EXT_EXTENDED_KEY_USAGE:
 			/* Parse extended key usage */
 			if ((ret = x509_get_ext_key_usage(p, end_ext_octet,
-					&crt->ext_key_usage)) != 0)
+		&crt->ext_key_usage)) != 0)
 				return ret;
 			break;
 
 		case TTLS_X509_EXT_SUBJECT_ALT_NAME:
 			/* Parse subject alt name */
 			if ((ret = x509_get_subject_alt_name(p, end_ext_octet,
-					&crt->subject_alt_names)) != 0)
+		&crt->subject_alt_names)) != 0)
 				return ret;
 			break;
 
 		case TTLS_X509_EXT_NS_CERT_TYPE:
 			/* Parse netscape certificate type */
 			if ((ret = x509_get_ns_cert_type(p, end_ext_octet,
-					&crt->ns_cert_type)) != 0)
+		&crt->ns_cert_type)) != 0)
 				return ret;
 			break;
 
@@ -616,7 +616,7 @@ static int x509_get_crt_ext(unsigned char **p,
  * Parse and fill a single X.509 certificate in DER format
  */
 static int x509_crt_parse_der_core(ttls_x509_crt *crt, const unsigned char *buf,
-									size_t buflen)
+			size_t buflen)
 {
 	int ret;
 	size_t len;
@@ -696,7 +696,7 @@ static int x509_crt_parse_der_core(ttls_x509_crt *crt, const unsigned char *buf,
 	if ((ret = x509_get_version( &p, end, &crt->version )) != 0 ||
 		(ret = ttls_x509_get_serial(  &p, end, &crt->serial  )) != 0 ||
 		(ret = ttls_x509_get_alg(	  &p, end, &crt->sig_oid,
-											&sig_params1)) != 0)
+		&sig_params1)) != 0)
 	{
 		ttls_x509_crt_free(crt);
 		return ret;
@@ -711,8 +711,8 @@ static int x509_crt_parse_der_core(ttls_x509_crt *crt, const unsigned char *buf,
 	crt->version++;
 
 	if ((ret = ttls_x509_get_sig_alg(&crt->sig_oid, &sig_params1,
-								  &crt->sig_md, &crt->sig_pk,
-								  &crt->sig_opts)) != 0)
+		  &crt->sig_md, &crt->sig_pk,
+		  &crt->sig_opts)) != 0)
 	{
 		ttls_x509_crt_free(crt);
 		return ret;
@@ -745,7 +745,7 @@ static int x509_crt_parse_der_core(ttls_x509_crt *crt, const unsigned char *buf,
 	 *
 	 */
 	if ((ret = x509_get_dates(&p, end, &crt->valid_from,
-										 &crt->valid_to)) != 0)
+				 &crt->valid_to)) != 0)
 	{
 		ttls_x509_crt_free(crt);
 		return ret;
@@ -782,11 +782,11 @@ static int x509_crt_parse_der_core(ttls_x509_crt *crt, const unsigned char *buf,
 
 	/*
 	 *  issuerUniqueID  [1]  IMPLICIT UniqueIdentifier OPTIONAL,
-	 *					   -- If present, version shall be v2 or v3
+	 *		   -- If present, version shall be v2 or v3
 	 *  subjectUniqueID [2]  IMPLICIT UniqueIdentifier OPTIONAL,
-	 *					   -- If present, version shall be v2 or v3
+	 *		   -- If present, version shall be v2 or v3
 	 *  extensions	  [3]  EXPLICIT Extensions OPTIONAL
-	 *					   -- If present, version shall be v3
+	 *		   -- If present, version shall be v3
 	 */
 	if (crt->version == 2 || crt->version == 3)
 	{
@@ -873,7 +873,7 @@ static int x509_crt_parse_der_core(ttls_x509_crt *crt, const unsigned char *buf,
  * chained list
  */
 int ttls_x509_crt_parse_der(ttls_x509_crt *chain, const unsigned char *buf,
-						size_t buflen)
+			size_t buflen)
 {
 	int ret;
 	ttls_x509_crt *crt = chain, *prev = NULL;
@@ -921,7 +921,8 @@ int ttls_x509_crt_parse_der(ttls_x509_crt *chain, const unsigned char *buf,
 
 /*
  * Parse one or more PEM certificates from a buffer and add them to the chained
- * list
+ * list.
+ * TODO AK don't copy @buf, reuse it instead.
  */
 int ttls_x509_crt_parse(ttls_x509_crt *chain, const unsigned char *buf, size_t buflen)
 {
@@ -967,9 +968,9 @@ int ttls_x509_crt_parse(ttls_x509_crt *chain, const unsigned char *buf, size_t b
 
 			/* If we get there, we know the string is null-terminated */
 			ret = ttls_pem_read_buffer(&pem,
-						   "-----BEGIN CERTIFICATE-----",
-						   "-----END CERTIFICATE-----",
-						   buf, NULL, 0, &use_len);
+			   "-----BEGIN CERTIFICATE-----",
+			   "-----END CERTIFICATE-----",
+			   buf, NULL, 0, &use_len);
 
 			if (ret == 0)
 			{
@@ -994,7 +995,7 @@ int ttls_x509_crt_parse(ttls_x509_crt *chain, const unsigned char *buf, size_t b
 				buf += use_len;
 
 				if (first_error == 0)
-					first_error = ret;
+		first_error = ret;
 
 				total_failed++;
 				continue;
@@ -1012,10 +1013,10 @@ int ttls_x509_crt_parse(ttls_x509_crt *chain, const unsigned char *buf, size_t b
 				 * Quit parsing on a memory error
 				 */
 				if (ret == TTLS_ERR_X509_ALLOC_FAILED)
-					return ret;
+		return ret;
 
 				if (first_error == 0)
-					first_error = ret;
+		first_error = ret;
 
 				total_failed++;
 				continue;
@@ -1035,7 +1036,7 @@ int ttls_x509_crt_parse(ttls_x509_crt *chain, const unsigned char *buf, size_t b
 }
 
 static int x509_info_subject_alt_name(char **buf, size_t *size,
-									   const ttls_x509_sequence *subject_alt_name)
+			   const ttls_x509_sequence *subject_alt_name)
 {
 	size_t i;
 	size_t n = *size;
@@ -1072,19 +1073,19 @@ static int x509_info_subject_alt_name(char **buf, size_t *size,
 	return 0;
 }
 
-#define PRINT_ITEM(i)						   \
-	{										   \
+#define PRINT_ITEM(i)			   \
+	{				   \
 		ret = ttls_snprintf(p, n, "%s" i, sep);	\
-		TTLS_X509_SAFE_SNPRINTF;						\
-		sep = ", ";							 \
+		TTLS_X509_SAFE_SNPRINTF;			\
+		sep = ", ";				 \
 	}
 
-#define CERT_TYPE(type,name)					\
+#define CERT_TYPE(type,name)		\
 	if (ns_cert_type & type)				   \
 		PRINT_ITEM(name);
 
 static int x509_info_cert_type(char **buf, size_t *size,
-								unsigned char ns_cert_type)
+		unsigned char ns_cert_type)
 {
 	int ret;
 	size_t n = *size;
@@ -1111,7 +1112,7 @@ static int x509_info_cert_type(char **buf, size_t *size,
 		PRINT_ITEM(name);
 
 static int x509_info_key_usage(char **buf, size_t *size,
-								unsigned int key_usage)
+		unsigned int key_usage)
 {
 	int ret;
 	size_t n = *size;
@@ -1135,7 +1136,7 @@ static int x509_info_key_usage(char **buf, size_t *size,
 }
 
 static int x509_info_ext_key_usage(char **buf, size_t *size,
-									const ttls_x509_sequence *extended_key_usage)
+			const ttls_x509_sequence *extended_key_usage)
 {
 	int ret;
 	const char *desc;
@@ -1188,10 +1189,10 @@ int ttls_x509_crt_info(char *buf, size_t size, const char *prefix,
 	}
 
 	ret = ttls_snprintf(p, n, "%scert. version	 : %d\n",
-							   prefix, crt->version);
+				   prefix, crt->version);
 	TTLS_X509_SAFE_SNPRINTF;
 	ret = ttls_snprintf(p, n, "%sserial number	 : ",
-							   prefix);
+				   prefix);
 	TTLS_X509_SAFE_SNPRINTF;
 
 	ret = ttls_x509_serial_gets(p, n, &crt->serial);
@@ -1225,18 +1226,18 @@ int ttls_x509_crt_info(char *buf, size_t size, const char *prefix,
 	TTLS_X509_SAFE_SNPRINTF;
 
 	ret = ttls_x509_sig_alg_gets(p, n, &crt->sig_oid, crt->sig_pk,
-							 crt->sig_md, crt->sig_opts);
+				 crt->sig_md, crt->sig_opts);
 	TTLS_X509_SAFE_SNPRINTF;
 
 	/* Key size */
 	if ((ret = ttls_x509_key_size_helper(key_size_str, BEFORE_COLON,
-									  ttls_pk_get_name(&crt->pk))) != 0)
+			  ttls_pk_get_name(&crt->pk))) != 0)
 	{
 		return ret;
 	}
 
 	ret = ttls_snprintf(p, n, "\n%s%-" BC "s: %d bits", prefix, key_size_str,
-						  (int) ttls_pk_get_bitlen(&crt->pk));
+			  (int) ttls_pk_get_bitlen(&crt->pk));
 	TTLS_X509_SAFE_SNPRINTF;
 
 	/*
@@ -1246,7 +1247,7 @@ int ttls_x509_crt_info(char *buf, size_t size, const char *prefix,
 	if (crt->ext_types & TTLS_X509_EXT_BASIC_CONSTRAINTS)
 	{
 		ret = ttls_snprintf(p, n, "\n%sbasic constraints : CA=%s", prefix,
-						crt->ca_istrue ? "true" : "false");
+			crt->ca_istrue ? "true" : "false");
 		TTLS_X509_SAFE_SNPRINTF;
 
 		if (crt->max_pathlen > 0)
@@ -1262,7 +1263,7 @@ int ttls_x509_crt_info(char *buf, size_t size, const char *prefix,
 		TTLS_X509_SAFE_SNPRINTF;
 
 		if ((ret = x509_info_subject_alt_name(&p, &n,
-											&crt->subject_alt_names)) != 0)
+		&crt->subject_alt_names)) != 0)
 			return ret;
 	}
 
@@ -1290,7 +1291,7 @@ int ttls_x509_crt_info(char *buf, size_t size, const char *prefix,
 		TTLS_X509_SAFE_SNPRINTF;
 
 		if ((ret = x509_info_ext_key_usage(&p, &n,
-											 &crt->ext_key_usage)) != 0)
+		 &crt->ext_key_usage)) != 0)
 			return ret;
 	}
 
@@ -1330,7 +1331,7 @@ static const struct x509_crt_verify_string x509_crt_verify_strings[] = {
 };
 
 int ttls_x509_crt_verify_info(char *buf, size_t size, const char *prefix,
-						  uint32_t flags)
+			  uint32_t flags)
 {
 	int ret;
 	const struct x509_crt_verify_string *cur;
@@ -1350,7 +1351,7 @@ int ttls_x509_crt_verify_info(char *buf, size_t size, const char *prefix,
 	if (flags != 0)
 	{
 		ret = ttls_snprintf(p, n, "%sUnknown reason "
-									   "(this should not happen)\n", prefix);
+			   "(this should not happen)\n", prefix);
 		TTLS_X509_SAFE_SNPRINTF;
 	}
 
@@ -1359,11 +1360,11 @@ int ttls_x509_crt_verify_info(char *buf, size_t size, const char *prefix,
 
 #if defined(TTLS_X509_CHECK_KEY_USAGE)
 int ttls_x509_crt_check_key_usage(const ttls_x509_crt *crt,
-									  unsigned int usage)
+			  unsigned int usage)
 {
 	unsigned int usage_must, usage_may;
 	unsigned int may_mask = TTLS_X509_KU_ENCIPHER_ONLY
-						  | TTLS_X509_KU_DECIPHER_ONLY;
+			  | TTLS_X509_KU_DECIPHER_ONLY;
 
 	if ((crt->ext_types & TTLS_X509_EXT_KEY_USAGE) == 0)
 		return 0;
@@ -1384,8 +1385,8 @@ int ttls_x509_crt_check_key_usage(const ttls_x509_crt *crt,
 
 #if defined(TTLS_X509_CHECK_EXTENDED_KEY_USAGE)
 int ttls_x509_crt_check_extended_key_usage(const ttls_x509_crt *crt,
-									   const char *usage_oid,
-									   size_t usage_len)
+			   const char *usage_oid,
+			   size_t usage_len)
 {
 	const ttls_x509_sequence *cur;
 
@@ -1442,8 +1443,8 @@ int ttls_x509_crt_is_revoked(const ttls_x509_crt *crt, const ttls_x509_crl *crl)
  * Skip validation is no CRL for the given CA is present.
  */
 static int x509_crt_verifycrl(ttls_x509_crt *crt, ttls_x509_crt *ca,
-							   ttls_x509_crl *crl_list,
-							   const ttls_x509_crt_profile *profile)
+				   ttls_x509_crl *crl_list,
+				   const ttls_x509_crt_profile *profile)
 {
 	int flags = 0;
 	unsigned char hash[TTLS_MD_MAX_SIZE];
@@ -1457,7 +1458,7 @@ static int x509_crt_verifycrl(ttls_x509_crt *crt, ttls_x509_crt *ca,
 		if (crl_list->version == 0 ||
 			crl_list->issuer_raw.len != ca->subject_raw.len ||
 			memcmp(crl_list->issuer_raw.p, ca->subject_raw.p,
-					crl_list->issuer_raw.len) != 0)
+		crl_list->issuer_raw.len) != 0)
 		{
 			crl_list = crl_list->next;
 			continue;
@@ -1499,8 +1500,8 @@ static int x509_crt_verifycrl(ttls_x509_crt *crt, ttls_x509_crt *ca,
 			flags |= TTLS_X509_BADCERT_BAD_KEY;
 
 		if (ttls_pk_verify_ext(crl_list->sig_pk, crl_list->sig_opts, &ca->pk,
-						   crl_list->sig_md, hash, ttls_md_get_size(md_info),
-						   crl_list->sig.p, crl_list->sig.len) != 0)
+			   crl_list->sig_md, hash, ttls_md_get_size(md_info),
+			   crl_list->sig.p, crl_list->sig.len) != 0)
 		{
 			flags |= TTLS_X509_BADCRL_NOT_TRUSTED;
 			break;
@@ -1668,8 +1669,8 @@ static int x509_name_cmp(const ttls_x509_name *a, const ttls_x509_name *b)
  * bottom means child is the end entity cert
  */
 static int x509_crt_check_parent(const ttls_x509_crt *child,
-								  const ttls_x509_crt *parent,
-								  int top, int bottom)
+		  const ttls_x509_crt *parent,
+		  int top, int bottom)
 {
 	int need_ca_bit;
 
@@ -1762,7 +1763,7 @@ static int x509_crt_verify_top(
 		 */
 		if (child->subject_raw.len == trust_ca->subject_raw.len &&
 			memcmp(child->subject_raw.p, trust_ca->subject_raw.p,
-							child->issuer_raw.len) == 0)
+				child->issuer_raw.len) == 0)
 		{
 			check_path_cnt--;
 		}
@@ -1775,8 +1776,8 @@ static int x509_crt_verify_top(
 		}
 
 		if (ttls_pk_verify_ext(child->sig_pk, child->sig_opts, &trust_ca->pk,
-						   child->sig_md, hash, ttls_md_get_size(md_info),
-						   child->sig.p, child->sig.len) != 0)
+			   child->sig_md, hash, ttls_md_get_size(md_info),
+			   child->sig.p, child->sig.len) != 0)
 		{
 			continue;
 		}
@@ -1812,7 +1813,7 @@ static int x509_crt_verify_top(
 	if (trust_ca != NULL &&
 		(child->subject_raw.len != trust_ca->subject_raw.len ||
 		  memcmp(child->subject_raw.p, trust_ca->subject_raw.p,
-							child->issuer_raw.len) != 0))
+				child->issuer_raw.len) != 0))
 	{
 #if defined(TTLS_X509_CRL_PARSE_C)
 		/* Check trusted CA's CRL for the chain's top crt */
@@ -1830,7 +1831,7 @@ static int x509_crt_verify_top(
 		if (NULL != f_vrfy)
 		{
 			if ((ret = f_vrfy(p_vrfy, trust_ca, path_cnt + 1,
-								&ca_flags)) != 0)
+		&ca_flags)) != 0)
 			{
 				return ret;
 			}
@@ -1902,8 +1903,8 @@ static int x509_crt_verify_child(
 			*flags |= TTLS_X509_BADCERT_BAD_KEY;
 
 		if (ttls_pk_verify_ext(child->sig_pk, child->sig_opts, &parent->pk,
-						   child->sig_md, hash, ttls_md_get_size(md_info),
-						   child->sig.p, child->sig.len) != 0)
+			   child->sig_md, hash, ttls_md_get_size(md_info),
+			   child->sig.p, child->sig.len) != 0)
 		{
 			*flags |= TTLS_X509_BADCERT_NOT_TRUSTED;
 		}
@@ -1920,14 +1921,14 @@ static int x509_crt_verify_child(
 		 grandparent = grandparent->next)
 	{
 		if (x509_crt_check_parent(parent, grandparent,
-								   0, path_cnt == 0) == 0)
+		   0, path_cnt == 0) == 0)
 			break;
 	}
 
 	if (grandparent != NULL)
 	{
 		ret = x509_crt_verify_top(parent, grandparent, ca_crl, profile,
-								path_cnt + 1, self_cnt, &parent_flags, f_vrfy, p_vrfy);
+		path_cnt + 1, self_cnt, &parent_flags, f_vrfy, p_vrfy);
 		if (ret != 0)
 			return ret;
 	}
@@ -1948,7 +1949,7 @@ static int x509_crt_verify_child(
 			}
 
 			if (x509_crt_check_parent(parent, grandparent,
-									   0, path_cnt == 0) == 0)
+			   0, path_cnt == 0) == 0)
 				break;
 		}
 
@@ -1956,16 +1957,16 @@ static int x509_crt_verify_child(
 		if (grandparent != NULL)
 		{
 			ret = x509_crt_verify_child(parent, grandparent, trust_ca, ca_crl,
-										 profile, path_cnt + 1, self_cnt, &parent_flags,
-										 f_vrfy, p_vrfy);
+				 profile, path_cnt + 1, self_cnt, &parent_flags,
+				 f_vrfy, p_vrfy);
 			if (ret != 0)
 				return ret;
 		}
 		else
 		{
 			ret = x509_crt_verify_top(parent, trust_ca, ca_crl, profile,
-									   path_cnt + 1, self_cnt, &parent_flags,
-									   f_vrfy, p_vrfy);
+			   path_cnt + 1, self_cnt, &parent_flags,
+			   f_vrfy, p_vrfy);
 			if (ret != 0)
 				return ret;
 		}
@@ -1985,11 +1986,11 @@ static int x509_crt_verify_child(
  * Verify the certificate validity
  */
 int ttls_x509_crt_verify(ttls_x509_crt *crt,
-					 ttls_x509_crt *trust_ca,
-					 ttls_x509_crl *ca_crl,
-					 const char *cn, uint32_t *flags,
-					 int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *),
-					 void *p_vrfy)
+		 ttls_x509_crt *trust_ca,
+		 ttls_x509_crl *ca_crl,
+		 const char *cn, uint32_t *flags,
+		 int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *),
+		 void *p_vrfy)
 {
 	return(ttls_x509_crt_verify_with_profile(crt, trust_ca, ca_crl,
 				&ttls_x509_crt_profile_default, cn, flags, f_vrfy, p_vrfy));
@@ -2000,12 +2001,12 @@ int ttls_x509_crt_verify(ttls_x509_crt *crt,
  * Verify the certificate validity, with profile
  */
 int ttls_x509_crt_verify_with_profile(ttls_x509_crt *crt,
-					 ttls_x509_crt *trust_ca,
-					 ttls_x509_crl *ca_crl,
-					 const ttls_x509_crt_profile *profile,
-					 const char *cn, uint32_t *flags,
-					 int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *),
-					 void *p_vrfy)
+		 ttls_x509_crt *trust_ca,
+		 ttls_x509_crl *ca_crl,
+		 const ttls_x509_crt_profile *profile,
+		 const char *cn, uint32_t *flags,
+		 int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *),
+		 void *p_vrfy)
 {
 	size_t cn_len;
 	int ret;
@@ -2035,14 +2036,14 @@ int ttls_x509_crt_verify_with_profile(ttls_x509_crt *crt,
 			while (cur != NULL)
 			{
 				if (cur->buf.len == cn_len &&
-					x509_memcasecmp(cn, cur->buf.p, cn_len) == 0)
-					break;
+		x509_memcasecmp(cn, cur->buf.p, cn_len) == 0)
+		break;
 
 				if (cur->buf.len > 2 &&
-					memcmp(cur->buf.p, "*.", 2) == 0 &&
-					x509_check_wildcard(cn, &cur->buf) == 0)
+		memcmp(cur->buf.p, "*.", 2) == 0 &&
+		x509_check_wildcard(cn, &cur->buf) == 0)
 				{
-					break;
+		break;
 				}
 
 				cur = cur->next;
@@ -2057,14 +2058,14 @@ int ttls_x509_crt_verify_with_profile(ttls_x509_crt *crt,
 			{
 				if (TTLS_OID_CMP(TTLS_OID_AT_CN, &name->oid) == 0)
 				{
-					if (name->val.len == cn_len &&
-						x509_memcasecmp(name->val.p, cn, cn_len) == 0)
-						break;
+		if (name->val.len == cn_len &&
+			x509_memcasecmp(name->val.p, cn, cn_len) == 0)
+			break;
 
-					if (name->val.len > 2 &&
-						memcmp(name->val.p, "*.", 2) == 0 &&
-						x509_check_wildcard(cn, &name->val) == 0)
-						break;
+		if (name->val.len > 2 &&
+			memcmp(name->val.p, "*.", 2) == 0 &&
+			x509_check_wildcard(cn, &name->val) == 0)
+			break;
 				}
 
 				name = name->next;
@@ -2094,7 +2095,7 @@ int ttls_x509_crt_verify_with_profile(ttls_x509_crt *crt,
 	if (parent != NULL)
 	{
 		ret = x509_crt_verify_top(crt, parent, ca_crl, profile,
-								   pathlen, selfsigned, flags, f_vrfy, p_vrfy);
+		   pathlen, selfsigned, flags, f_vrfy, p_vrfy);
 		if (ret != 0)
 			goto exit;
 	}
@@ -2109,14 +2110,14 @@ int ttls_x509_crt_verify_with_profile(ttls_x509_crt *crt,
 		if (parent != NULL)
 		{
 			ret = x509_crt_verify_child(crt, parent, trust_ca, ca_crl, profile,
-										 pathlen, selfsigned, flags, f_vrfy, p_vrfy);
+				 pathlen, selfsigned, flags, f_vrfy, p_vrfy);
 			if (ret != 0)
 				goto exit;
 		}
 		else
 		{
 			ret = x509_crt_verify_top(crt, trust_ca, ca_crl, profile,
-									   pathlen, selfsigned, flags, f_vrfy, p_vrfy);
+			   pathlen, selfsigned, flags, f_vrfy, p_vrfy);
 			if (ret != 0)
 				goto exit;
 		}

@@ -32,10 +32,10 @@
 #include "config.h"
 
 #define TTLS_ERR_MD_FEATURE_UNAVAILABLE				-0x5080  /**< The selected feature is not available. */
-#define TTLS_ERR_MD_BAD_INPUT_DATA					 -0x5100  /**< Bad input parameters to function. */
-#define TTLS_ERR_MD_ALLOC_FAILED					   -0x5180  /**< Failed to allocate memory. */
-#define TTLS_ERR_MD_FILE_IO_ERROR					  -0x5200  /**< Opening or reading of file failed. */
-#define TTLS_ERR_MD_HW_ACCEL_FAILED					-0x5280  /**< MD hardware accelerator failed. */
+#define TTLS_ERR_MD_BAD_INPUT_DATA		 -0x5100  /**< Bad input parameters to function. */
+#define TTLS_ERR_MD_ALLOC_FAILED		   -0x5180  /**< Failed to allocate memory. */
+#define TTLS_ERR_MD_FILE_IO_ERROR		  -0x5200  /**< Opening or reading of file failed. */
+#define TTLS_ERR_MD_HW_ACCEL_FAILED		-0x5280  /**< MD hardware accelerator failed. */
 
 /**
  * \brief	 Enumeration of supported message digests
@@ -58,11 +58,7 @@ typedef enum {
 	TTLS_MD_RIPEMD160,
 } ttls_md_type_t;
 
-#if defined(TTLS_SHA512_C)
 #define TTLS_MD_MAX_SIZE		 64  /* longest known is SHA512 */
-#else
-#define TTLS_MD_MAX_SIZE		 32  /* longest known is SHA256 or less */
-#endif
 
 /**
  * Opaque struct defined in md_internal.h.
@@ -181,7 +177,7 @@ int ttls_md_setup(ttls_md_context_t *ctx, const ttls_md_info_t *md_info, int hma
  *				  #TTLS_ERR_MD_BAD_INPUT_DATA on parameter failure.
  */
 int ttls_md_clone(ttls_md_context_t *dst,
-					  const ttls_md_context_t *src);
+		  const ttls_md_context_t *src);
 
 /**
  * \brief		   This function extracts the message-digest size from the
@@ -304,7 +300,7 @@ int ttls_md(const ttls_md_info_t *md_info, const unsigned char *input, size_t il
  *				  parameter verification fails.
  */
 int ttls_md_hmac_starts(ttls_md_context_t *ctx, const unsigned char *key,
-					size_t keylen);
+		size_t keylen);
 
 /**
  * \brief		   This function feeds an input buffer into an ongoing HMAC
@@ -325,7 +321,7 @@ int ttls_md_hmac_starts(ttls_md_context_t *ctx, const unsigned char *key,
  *				  parameter verification fails.
  */
 int ttls_md_hmac_update(ttls_md_context_t *ctx, const unsigned char *input,
-					size_t ilen);
+		size_t ilen);
 
 /**
  * \brief		   This function finishes the HMAC operation, and writes

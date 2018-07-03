@@ -89,8 +89,8 @@ ttls_ecdh_context;
  * \see			 ecp.h
  */
 int ttls_ecdh_gen_public(ttls_ecp_group *grp, ttls_mpi *d, ttls_ecp_point *Q,
-					 int (*f_rng)(void *, unsigned char *, size_t),
-					 void *p_rng);
+		 int (*f_rng)(void *, unsigned char *, size_t),
+		 void *p_rng);
 
 /**
  * \brief		   This function computes the shared secret.
@@ -116,9 +116,9 @@ int ttls_ecdh_gen_public(ttls_ecp_group *grp, ttls_mpi *d, ttls_ecp_point *Q,
  *				  attacks. For more information, see ttls_ecp_mul().
  */
 int ttls_ecdh_compute_shared(ttls_ecp_group *grp, ttls_mpi *z,
-						 const ttls_ecp_point *Q, const ttls_mpi *d,
-						 int (*f_rng)(void *, unsigned char *, size_t),
-						 void *p_rng);
+			 const ttls_ecp_point *Q, const ttls_mpi *d,
+			 int (*f_rng)(void *, unsigned char *, size_t),
+			 void *p_rng);
 
 /**
  * \brief		   This function initializes an ECDH context.
@@ -158,9 +158,9 @@ void ttls_ecdh_free(ttls_ecdh_context *ctx);
  * \see			 ecp.h
  */
 int ttls_ecdh_make_params(ttls_ecdh_context *ctx, size_t *olen,
-					  unsigned char *buf, size_t blen,
-					  int (*f_rng)(void *, unsigned char *, size_t),
-					  void *p_rng);
+		  unsigned char *buf, size_t blen,
+		  int (*f_rng)(void *, unsigned char *, size_t),
+		  void *p_rng);
 
 /**
  * \brief		   This function parses and processes a TLS ServerKeyExhange
@@ -179,7 +179,7 @@ int ttls_ecdh_make_params(ttls_ecdh_context *ctx, size_t *olen,
  * \see			 ecp.h
  */
 int ttls_ecdh_read_params(ttls_ecdh_context *ctx,
-					  const unsigned char **buf, const unsigned char *end);
+		  const unsigned char **buf, const unsigned char *end);
 
 /**
  * \brief		   This function sets up an ECDH context from an EC key.
@@ -192,7 +192,7 @@ int ttls_ecdh_read_params(ttls_ecdh_context *ctx,
  * \param key	   The EC key to use.
  * \param side	  Defines the source of the key:
  *				  <ul><li>1: Our key.</li>
-					<li>0: The key of the peer.</li></ul>
+		<li>0: The key of the peer.</li></ul>
  *
  * \return		  \c 0 on success, or an \c TTLS_ERR_ECP_XXX error code
  *				  on failure.
@@ -200,7 +200,7 @@ int ttls_ecdh_read_params(ttls_ecdh_context *ctx,
  * \see			 ecp.h
  */
 int ttls_ecdh_get_params(ttls_ecdh_context *ctx, const ttls_ecp_keypair *key,
-					 ttls_ecdh_side side);
+		 ttls_ecdh_side side);
 
 /**
  * \brief		   This function generates a public key and a TLS
@@ -222,9 +222,9 @@ int ttls_ecdh_get_params(ttls_ecdh_context *ctx, const ttls_ecp_keypair *key,
  * \see			 ecp.h
  */
 int ttls_ecdh_make_public(ttls_ecdh_context *ctx, size_t *olen,
-					  unsigned char *buf, size_t blen,
-					  int (*f_rng)(void *, unsigned char *, size_t),
-					  void *p_rng);
+		  unsigned char *buf, size_t blen,
+		  int (*f_rng)(void *, unsigned char *, size_t),
+		  void *p_rng);
 
 /**
  * \brief	   This function parses and processes a TLS ClientKeyExchange
@@ -243,7 +243,7 @@ int ttls_ecdh_make_public(ttls_ecdh_context *ctx, size_t *olen,
  * \see		 ecp.h
  */
 int ttls_ecdh_read_public(ttls_ecdh_context *ctx,
-					  const unsigned char *buf, size_t blen);
+		  const unsigned char *buf, size_t blen);
 
 /**
  * \brief		   This function derives and exports the shared secret.
@@ -268,9 +268,9 @@ int ttls_ecdh_read_public(ttls_ecdh_context *ctx,
  *				  attacks. For more information, see ttls_ecp_mul().
  */
 int ttls_ecdh_calc_secret(ttls_ecdh_context *ctx, size_t *olen,
-					  unsigned char *buf, size_t blen,
-					  int (*f_rng)(void *, unsigned char *, size_t),
-					  void *p_rng);
+		  unsigned char *buf, size_t blen,
+		  int (*f_rng)(void *, unsigned char *, size_t),
+		  void *p_rng);
 
 #ifdef __cplusplus
 }

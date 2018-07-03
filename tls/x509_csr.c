@@ -50,8 +50,8 @@ static void ttls_zeroize(void *v, size_t n) {
  *  Version  ::=  INTEGER  {  v1(0)  }
  */
 static int x509_csr_get_version(unsigned char **p,
-							 const unsigned char *end,
-							 int *ver)
+				 const unsigned char *end,
+				 int *ver)
 {
 	int ret;
 
@@ -73,7 +73,7 @@ static int x509_csr_get_version(unsigned char **p,
  * Parse a CSR in DER format
  */
 int ttls_x509_csr_parse_der(ttls_x509_csr *csr,
-						const unsigned char *buf, size_t buflen)
+			const unsigned char *buf, size_t buflen)
 {
 	int ret;
 	size_t len;
@@ -218,8 +218,8 @@ int ttls_x509_csr_parse_der(ttls_x509_csr *csr,
 	}
 
 	if ((ret = ttls_x509_get_sig_alg(&csr->sig_oid, &sig_params,
-								  &csr->sig_md, &csr->sig_pk,
-								  &csr->sig_opts)) != 0)
+		  &csr->sig_md, &csr->sig_pk,
+		  &csr->sig_opts)) != 0)
 	{
 		ttls_x509_csr_free(csr);
 		return(TTLS_ERR_X509_UNKNOWN_SIG_ALG);
@@ -266,9 +266,9 @@ int ttls_x509_csr_parse(ttls_x509_csr *csr, const unsigned char *buf, size_t buf
 		ret = TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT;
 	else
 		ret = ttls_pem_read_buffer(&pem,
-							   "-----BEGIN CERTIFICATE REQUEST-----",
-							   "-----END CERTIFICATE REQUEST-----",
-							   buf, NULL, 0, &use_len);
+				   "-----BEGIN CERTIFICATE REQUEST-----",
+				   "-----END CERTIFICATE REQUEST-----",
+				   buf, NULL, 0, &use_len);
 
 	if (ret == 0)
 	{
@@ -308,7 +308,7 @@ int ttls_x509_csr_info(char *buf, size_t size, const char *prefix,
 	n = size;
 
 	ret = ttls_snprintf(p, n, "%sCSR version   : %d",
-							   prefix, csr->version);
+				   prefix, csr->version);
 	TTLS_X509_SAFE_SNPRINTF;
 
 	ret = ttls_snprintf(p, n, "\n%ssubject name  : ", prefix);
@@ -320,17 +320,17 @@ int ttls_x509_csr_info(char *buf, size_t size, const char *prefix,
 	TTLS_X509_SAFE_SNPRINTF;
 
 	ret = ttls_x509_sig_alg_gets(p, n, &csr->sig_oid, csr->sig_pk, csr->sig_md,
-							 csr->sig_opts);
+				 csr->sig_opts);
 	TTLS_X509_SAFE_SNPRINTF;
 
 	if ((ret = ttls_x509_key_size_helper(key_size_str, BEFORE_COLON,
-									  ttls_pk_get_name(&csr->pk))) != 0)
+			  ttls_pk_get_name(&csr->pk))) != 0)
 	{
 		return ret;
 	}
 
 	ret = ttls_snprintf(p, n, "\n%s%-" BC "s: %d bits\n", prefix, key_size_str,
-						  (int) ttls_pk_get_bitlen(&csr->pk));
+			  (int) ttls_pk_get_bitlen(&csr->pk));
 	TTLS_X509_SAFE_SNPRINTF;
 
 	return((int) (size - n));

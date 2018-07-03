@@ -102,11 +102,11 @@ typedef struct
 	unsigned char counter[16];  /*!< The counter (V). */
 	int reseed_counter;		 /*!< The reseed counter. */
 	int prediction_resistance;  /*!< This determines whether prediction
-									 resistance is enabled, that is
-									 whether to systematically reseed before
-									 each random generation. */
+			 resistance is enabled, that is
+			 whether to systematically reseed before
+			 each random generation. */
 	size_t entropy_len;		 /*!< The amount of entropy grabbed on each
-									 seed or reseed operation. */
+			 seed or reseed operation. */
 	int reseed_interval;		/*!< The reseed interval. */
 
 	ttls_aes_context aes_ctx;		/*!< The AES context. */
@@ -115,7 +115,7 @@ typedef struct
 	 * Callbacks (Entropy)
 	 */
 	int (*f_entropy)(void *, unsigned char *, size_t);
-								/*!< The entropy callback function. */
+		/*!< The entropy callback function. */
 
 	void *p_entropy;			/*!< The context for the entropy function. */
 
@@ -125,8 +125,8 @@ ttls_ctr_drbg_context;
 
 /**
  * \brief			   This function initializes the CTR_DRBG context,
- *					  and prepares it for ttls_ctr_drbg_seed()
- *					  or ttls_ctr_drbg_free().
+ *		  and prepares it for ttls_ctr_drbg_seed()
+ *		  or ttls_ctr_drbg_free().
  *
  * \param ctx		   The CTR_DRBG context to initialize.
  */
@@ -134,22 +134,22 @@ void ttls_ctr_drbg_init(ttls_ctr_drbg_context *ctx);
 
 /**
  * \brief			   This function seeds and sets up the CTR_DRBG
- *					  entropy source for future reseeds.
+ *		  entropy source for future reseeds.
  *
  * \note Personalization data can be provided in addition to the more generic
  *	   entropy source, to make this instantiation as unique as possible.
  *
  * \param ctx		   The CTR_DRBG context to seed.
  * \param f_entropy	 The entropy callback, taking as arguments the
- *					  \p p_entropy context, the buffer to fill, and the
-						length of the buffer.
+ *		  \p p_entropy context, the buffer to fill, and the
+			length of the buffer.
  * \param p_entropy	 The entropy context.
  * \param custom		Personalization data, that is device-specific
-						identifiers. Can be NULL.
+			identifiers. Can be NULL.
  * \param len		   The length of the personalization data.
  *
  * \return			  \c 0 on success, or
- *					  #TTLS_ERR_CTR_DRBG_ENTROPY_SOURCE_FAILED on failure.
+ *		  #TTLS_ERR_CTR_DRBG_ENTROPY_SOURCE_FAILED on failure.
  */
 int ttls_ctr_drbg_seed(ttls_ctr_drbg_context *ctx,
 				   int (*f_entropy)(void *, unsigned char *, size_t),
@@ -166,43 +166,43 @@ void ttls_ctr_drbg_free(ttls_ctr_drbg_context *ctx);
 
 /**
  * \brief			   This function turns prediction resistance on or off.
- *					  The default value is off.
+ *		  The default value is off.
  *
  * \note				If enabled, entropy is gathered at the beginning of
- *					  every call to ttls_ctr_drbg_random_with_add().
- *					  Only use this if your entropy source has sufficient
- *					  throughput.
+ *		  every call to ttls_ctr_drbg_random_with_add().
+ *		  Only use this if your entropy source has sufficient
+ *		  throughput.
  *
  * \param ctx		   The CTR_DRBG context.
  * \param resistance	#TTLS_CTR_DRBG_PR_ON or #TTLS_CTR_DRBG_PR_OFF.
  */
 void ttls_ctr_drbg_set_prediction_resistance(ttls_ctr_drbg_context *ctx,
-										 int resistance);
+				 int resistance);
 
 /**
  * \brief			   This function sets the amount of entropy grabbed on each
- *					  seed or reseed. The default value is
- *					  #TTLS_CTR_DRBG_ENTROPY_LEN.
+ *		  seed or reseed. The default value is
+ *		  #TTLS_CTR_DRBG_ENTROPY_LEN.
  *
  * \param ctx		   The CTR_DRBG context.
  * \param len		   The amount of entropy to grab.
  */
 void ttls_ctr_drbg_set_entropy_len(ttls_ctr_drbg_context *ctx,
-							   size_t len);
+				   size_t len);
 
 /**
  * \brief			   This function sets the reseed interval.
- *					  The default value is #TTLS_CTR_DRBG_RESEED_INTERVAL.
+ *		  The default value is #TTLS_CTR_DRBG_RESEED_INTERVAL.
  *
  * \param ctx		   The CTR_DRBG context.
  * \param interval	  The reseed interval.
  */
 void ttls_ctr_drbg_set_reseed_interval(ttls_ctr_drbg_context *ctx,
-								   int interval);
+		   int interval);
 
 /**
  * \brief			   This function reseeds the CTR_DRBG context, that is
- *					  extracts data from the entropy source.
+ *		  extracts data from the entropy source.
  *
  * \param ctx		   The CTR_DRBG context.
  * \param additional	Additional data to add to the state. Can be NULL.
@@ -212,7 +212,7 @@ void ttls_ctr_drbg_set_reseed_interval(ttls_ctr_drbg_context *ctx,
  *		   #TTLS_ERR_CTR_DRBG_ENTROPY_SOURCE_FAILED on failure.
  */
 int ttls_ctr_drbg_reseed(ttls_ctr_drbg_context *ctx,
-					 const unsigned char *additional, size_t len);
+		 const unsigned char *additional, size_t len);
 
 /**
  * \brief			   This function updates the state of the CTR_DRBG context.
@@ -226,7 +226,7 @@ int ttls_ctr_drbg_reseed(ttls_ctr_drbg_context *ctx,
  *		   The remaining Bytes are silently discarded.
  */
 void ttls_ctr_drbg_update(ttls_ctr_drbg_context *ctx,
-					  const unsigned char *additional, size_t add_len);
+		  const unsigned char *additional, size_t add_len);
 
 /**
  * \brief   This function updates a CTR_DRBG instance with additional
@@ -235,7 +235,7 @@ void ttls_ctr_drbg_update(ttls_ctr_drbg_context *ctx,
  * \note	The function automatically reseeds if the reseed counter is exceeded.
  *
  * \param p_rng		 The CTR_DRBG context. This must be a pointer to a
- *					  #ttls_ctr_drbg_context structure.
+ *		  #ttls_ctr_drbg_context structure.
  * \param output		The buffer to fill.
  * \param output_len	The length of the buffer.
  * \param additional	Additional data to update. Can be NULL.
@@ -246,8 +246,8 @@ void ttls_ctr_drbg_update(ttls_ctr_drbg_context *ctx,
  *			#TTLS_ERR_CTR_DRBG_REQUEST_TOO_BIG on failure.
  */
 int ttls_ctr_drbg_random_with_add(void *p_rng,
-							  unsigned char *output, size_t output_len,
-							  const unsigned char *additional, size_t add_len);
+				  unsigned char *output, size_t output_len,
+				  const unsigned char *additional, size_t add_len);
 
 /**
  * \brief   This function uses CTR_DRBG to generate random data.
@@ -255,20 +255,20 @@ int ttls_ctr_drbg_random_with_add(void *p_rng,
  * \note	The function automatically reseeds if the reseed counter is exceeded.
  *
  * \param p_rng		 The CTR_DRBG context. This must be a pointer to a
- *					  #ttls_ctr_drbg_context structure.
+ *		  #ttls_ctr_drbg_context structure.
  * \param output		The buffer to fill.
  * \param output_len	The length of the buffer.
  *
  * \return			  \c 0 on success, or
- *					  #TTLS_ERR_CTR_DRBG_ENTROPY_SOURCE_FAILED or
- *					  #TTLS_ERR_CTR_DRBG_REQUEST_TOO_BIG on failure.
+ *		  #TTLS_ERR_CTR_DRBG_ENTROPY_SOURCE_FAILED or
+ *		  #TTLS_ERR_CTR_DRBG_REQUEST_TOO_BIG on failure.
  */
 int ttls_ctr_drbg_random(void *p_rng,
-					 unsigned char *output, size_t output_len);
+		 unsigned char *output, size_t output_len);
 
 /* Internal functions (do not call directly) */
 int ttls_ctr_drbg_seed_entropy_len(ttls_ctr_drbg_context *,
-							   int (*)(void *, unsigned char *, size_t), void *,
-							   const unsigned char *, size_t, size_t);
+				   int (*)(void *, unsigned char *, size_t), void *,
+				   const unsigned char *, size_t, size_t);
 
 #endif /* ctr_drbg.h */

@@ -167,7 +167,7 @@ int ttls_asn1_get_mpi(unsigned char **p,
 }
 
 int ttls_asn1_get_bitstring(unsigned char **p, const unsigned char *end,
-						ttls_asn1_bitstring *bs)
+			ttls_asn1_bitstring *bs)
 {
 	int ret;
 
@@ -200,7 +200,7 @@ int ttls_asn1_get_bitstring(unsigned char **p, const unsigned char *end,
  * Get a bit string without unused bits
  */
 int ttls_asn1_get_bitstring_null(unsigned char **p, const unsigned char *end,
-							 size_t *len)
+				 size_t *len)
 {
 	int ret;
 
@@ -219,9 +219,9 @@ int ttls_asn1_get_bitstring_null(unsigned char **p, const unsigned char *end,
  *  Parses and splits an ASN.1 "SEQUENCE OF <tag>"
  */
 int ttls_asn1_get_sequence_of(unsigned char **p,
-						  const unsigned char *end,
-						  ttls_asn1_sequence *cur,
-						  int tag)
+			  const unsigned char *end,
+			  ttls_asn1_sequence *cur,
+			  int tag)
 {
 	int ret;
 	size_t len;
@@ -250,7 +250,7 @@ int ttls_asn1_get_sequence_of(unsigned char **p,
 		if (*p < end)
 		{
 			cur->next = (ttls_asn1_sequence*)ttls_calloc(1,
-											sizeof(ttls_asn1_sequence));
+		sizeof(ttls_asn1_sequence));
 
 			if (cur->next == NULL)
 				return(TTLS_ERR_ASN1_ALLOC_FAILED);
@@ -313,8 +313,8 @@ int ttls_asn1_get_alg(unsigned char **p,
 }
 
 int ttls_asn1_get_alg_null(unsigned char **p,
-					   const unsigned char *end,
-					   ttls_asn1_buf *alg)
+		   const unsigned char *end,
+		   ttls_asn1_buf *alg)
 {
 	int ret;
 	ttls_asn1_buf params;
@@ -354,7 +354,7 @@ void ttls_asn1_free_named_data_list(ttls_asn1_named_data **head)
 }
 
 ttls_asn1_named_data *ttls_asn1_find_named_data(ttls_asn1_named_data *list,
-									   const char *oid, size_t len)
+			   const char *oid, size_t len)
 {
 	while (list != NULL)
 	{

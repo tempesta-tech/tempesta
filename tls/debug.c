@@ -35,8 +35,8 @@ void ttls_debug_set_threshold(int threshold)
 }
 
 void ttls_debug_print_msg(const ttls_context *ssl, int level,
-							  const char *file, int line,
-							  const char *format, ...)
+				  const char *file, int line,
+				  const char *format, ...)
 {
 	va_list argp;
 	char str[DEBUG_BUF_SIZE];
@@ -57,8 +57,8 @@ void ttls_debug_print_msg(const ttls_context *ssl, int level,
 }
 
 void ttls_debug_print_ret(const ttls_context *ssl, int level,
-					  const char *file, int line,
-					  const char *text, int ret)
+		  const char *file, int line,
+		  const char *text, int ret)
 {
 	char str[DEBUG_BUF_SIZE];
 
@@ -78,8 +78,8 @@ void ttls_debug_print_ret(const ttls_context *ssl, int level,
 }
 
 void ttls_debug_print_buf(const ttls_context *ssl, int level,
-					  const char *file, int line, const char *text,
-					  const unsigned char *buf, size_t len)
+		  const char *file, int line, const char *text,
+		  const unsigned char *buf, size_t len)
 {
 	char str[DEBUG_BUF_SIZE];
 	char txt[17];
@@ -108,12 +108,12 @@ void ttls_debug_print_buf(const ttls_context *ssl, int level,
 			}
 
 			idx += ttls_snprintf(str + idx, sizeof(str) - idx, "%04x: ",
-							 (unsigned int) i);
+				 (unsigned int) i);
 
 		}
 
 		idx += ttls_snprintf(str + idx, sizeof(str) - idx, " %02x",
-						 (unsigned int) buf[i]);
+			 (unsigned int) buf[i]);
 		txt[i % 16] = (buf[i] > 31 && buf[i] < 127) ? buf[i] : '.' ;
 	}
 
@@ -127,8 +127,8 @@ void ttls_debug_print_buf(const ttls_context *ssl, int level,
 }
 
 void ttls_debug_print_ecp(const ttls_context *ssl, int level,
-					  const char *file, int line,
-					  const char *text, const ttls_ecp_point *X)
+		  const char *file, int line,
+		  const char *text, const ttls_ecp_point *X)
 {
 	char str[DEBUG_BUF_SIZE];
 
@@ -143,8 +143,8 @@ void ttls_debug_print_ecp(const ttls_context *ssl, int level,
 }
 
 void ttls_debug_print_mpi(const ttls_context *ssl, int level,
-					  const char *file, int line,
-					  const char *text, const ttls_mpi *X)
+		  const char *file, int line,
+		  const char *text, const ttls_mpi *X)
 {
 	char str[DEBUG_BUF_SIZE];
 	int j, k, zeros = 1;
@@ -181,13 +181,13 @@ void ttls_debug_print_mpi(const ttls_context *ssl, int level,
 			{
 				if (j > 0)
 				{
-					ttls_snprintf(str + idx, sizeof(str) - idx, "\n");
-					idx = 0;
+		ttls_snprintf(str + idx, sizeof(str) - idx, "\n");
+		idx = 0;
 				}
 			}
 
 			idx += ttls_snprintf(str + idx, sizeof(str) - idx, " %02x", (unsigned int)
-							 (X->p[i - 1] >> (k << 3)) & 0xFF);
+				 (X->p[i - 1] >> (k << 3)) & 0xFF);
 
 			j++;
 		}
@@ -201,8 +201,8 @@ void ttls_debug_print_mpi(const ttls_context *ssl, int level,
 }
 
 static void debug_print_pk(const ttls_context *ssl, int level,
-							const char *file, int line,
-							const char *text, const ttls_pk_context *pk)
+				const char *file, int line,
+				const char *text, const ttls_pk_context *pk)
 {
 	size_t i;
 	ttls_pk_debug_item items[TTLS_PK_DEBUG_MAX_ITEMS];
@@ -230,7 +230,7 @@ static void debug_print_pk(const ttls_context *ssl, int level,
 }
 
 static void debug_print_line_by_line(const ttls_context *ssl, int level,
-									  const char *file, int line, const char *text)
+			  const char *file, int line, const char *text)
 {
 	char str[DEBUG_BUF_SIZE];
 	const char *start, *cur;
@@ -252,8 +252,8 @@ static void debug_print_line_by_line(const ttls_context *ssl, int level,
 }
 
 void ttls_debug_print_crt(const ttls_context *ssl, int level,
-					  const char *file, int line,
-					  const char *text, const ttls_x509_crt *crt)
+		  const char *file, int line,
+		  const char *text, const ttls_x509_crt *crt)
 {
 	char buf[1024];
 	int i = 0;

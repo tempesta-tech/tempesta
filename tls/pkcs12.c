@@ -41,7 +41,7 @@ static void ttls_zeroize(void *v, size_t n) {
 }
 
 static int pkcs12_parse_pbe_params(ttls_asn1_buf *params,
-									ttls_asn1_buf *salt, int *iterations)
+			ttls_asn1_buf *salt, int *iterations)
 {
 	int ret;
 	unsigned char **p = &params->p;
@@ -77,9 +77,9 @@ static int pkcs12_parse_pbe_params(ttls_asn1_buf *params,
 #define PKCS12_MAX_PWDLEN 128
 
 static int pkcs12_pbe_derive_key_iv(ttls_asn1_buf *pbe_params, ttls_md_type_t md_type,
-									 const unsigned char *pwd,  size_t pwdlen,
-									 unsigned char *key, size_t keylen,
-									 unsigned char *iv,  size_t ivlen)
+			 const unsigned char *pwd,  size_t pwdlen,
+			 unsigned char *key, size_t keylen,
+			 unsigned char *iv,  size_t ivlen)
 {
 	int ret, iterations = 0;
 	ttls_asn1_buf salt;
@@ -93,15 +93,15 @@ static int pkcs12_pbe_derive_key_iv(ttls_asn1_buf *pbe_params, ttls_md_type_t md
 	memset(&unipwd, 0, sizeof(unipwd));
 
 	if ((ret = pkcs12_parse_pbe_params(pbe_params, &salt,
-										 &iterations)) != 0)
+				 &iterations)) != 0)
 		return ret;
 
 	for (i = 0; i < pwdlen; i++)
 		unipwd[i * 2 + 1] = pwd[i];
 
 	if ((ret = ttls_pkcs12_derivation(key, keylen, unipwd, pwdlen * 2 + 2,
-								   salt.p, salt.len, md_type,
-								   TTLS_PKCS12_DERIVE_KEY, iterations)) != 0)
+		   salt.p, salt.len, md_type,
+		   TTLS_PKCS12_DERIVE_KEY, iterations)) != 0)
 	{
 		return ret;
 	}
@@ -110,8 +110,8 @@ static int pkcs12_pbe_derive_key_iv(ttls_asn1_buf *pbe_params, ttls_md_type_t md
 		return 0;
 
 	if ((ret = ttls_pkcs12_derivation(iv, ivlen, unipwd, pwdlen * 2 + 2,
-								   salt.p, salt.len, md_type,
-								   TTLS_PKCS12_DERIVE_IV, iterations)) != 0)
+		   salt.p, salt.len, md_type,
+		   TTLS_PKCS12_DERIVE_IV, iterations)) != 0)
 	{
 		return ret;
 	}
@@ -155,8 +155,8 @@ int ttls_pkcs12_pbe(ttls_asn1_buf *pbe_params, int mode,
 	keylen = cipher_info->key_bitlen / 8;
 
 	if ((ret = pkcs12_pbe_derive_key_iv(pbe_params, md_type, pwd, pwdlen,
-										  key, keylen,
-										  iv, cipher_info->iv_size)) != 0)
+				  key, keylen,
+				  iv, cipher_info->iv_size)) != 0)
 	{
 		return ret;
 	}
@@ -176,7 +176,7 @@ int ttls_pkcs12_pbe(ttls_asn1_buf *pbe_params, int mode,
 		goto exit;
 
 	if ((ret = ttls_cipher_update(&cipher_ctx, data, len,
-								output, &olen)) != 0)
+		output, &olen)) != 0)
 	{
 		goto exit;
 	}
@@ -193,7 +193,7 @@ exit:
 }
 
 static void pkcs12_fill_buffer(unsigned char *data, size_t data_len,
-								const unsigned char *filler, size_t fill_len)
+		const unsigned char *filler, size_t fill_len)
 {
 	unsigned char *p = data;
 	size_t use_len;
@@ -208,9 +208,9 @@ static void pkcs12_fill_buffer(unsigned char *data, size_t data_len,
 }
 
 int ttls_pkcs12_derivation(unsigned char *data, size_t datalen,
-					   const unsigned char *pwd, size_t pwdlen,
-					   const unsigned char *salt, size_t saltlen,
-					   ttls_md_type_t md_type, int id, int iterations)
+		   const unsigned char *pwd, size_t pwdlen,
+		   const unsigned char *salt, size_t saltlen,
+		   ttls_md_type_t md_type, int id, int iterations)
 {
 	int ret;
 	unsigned int j;

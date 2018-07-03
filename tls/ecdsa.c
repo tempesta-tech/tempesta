@@ -42,7 +42,7 @@
  * SEC1 4.1.3 step 5 aka SEC1 4.1.4 step 3
  */
 static int derive_mpi(const ttls_ecp_group *grp, ttls_mpi *x,
-					   const unsigned char *buf, size_t blen)
+		   const unsigned char *buf, size_t blen)
 {
 	int ret;
 	size_t n_size = (grp->nbits + 7) / 8;
@@ -118,7 +118,7 @@ int ttls_ecdsa_sign(ttls_ecp_group *grp, ttls_mpi *r, ttls_mpi *s,
 		do
 		{
 			size_t n_size = (grp->nbits + 7) / 8;
-			TTLS_MPI_CHK(ttls_mpi_fill_random(&t, n_size, f_rng, p_rng));
+			get_random_bytes_arch(&t, n_size);
 			TTLS_MPI_CHK(ttls_mpi_shift_r(&t, 8 * n_size - grp->nbits));
 
 			/* See ttls_ecp_gen_keypair() */
@@ -160,8 +160,8 @@ cleanup:
  * Deterministic signature wrapper
  */
 int ttls_ecdsa_sign_det(ttls_ecp_group *grp, ttls_mpi *r, ttls_mpi *s,
-					const ttls_mpi *d, const unsigned char *buf, size_t blen,
-					ttls_md_type_t md_alg)
+		const ttls_mpi *d, const unsigned char *buf, size_t blen,
+		ttls_md_type_t md_alg)
 {
 	int ret;
 	ttls_hmac_drbg_context rng_ctx;
@@ -183,7 +183,7 @@ int ttls_ecdsa_sign_det(ttls_ecp_group *grp, ttls_mpi *r, ttls_mpi *s,
 	ttls_hmac_drbg_seed_buf(&rng_ctx, md_info, data, 2 * grp_len);
 
 	ret = ttls_ecdsa_sign(grp, r, s, d, buf, blen,
-					  ttls_hmac_drbg_random, &rng_ctx);
+		  ttls_hmac_drbg_random, &rng_ctx);
 
 cleanup:
 	ttls_hmac_drbg_free(&rng_ctx);
@@ -285,7 +285,7 @@ cleanup:
  * Convert a signature (given by context) to ASN.1
  */
 static int ecdsa_signature_to_asn1(const ttls_mpi *r, const ttls_mpi *s,
-									unsigned char *sig, size_t *slen)
+			unsigned char *sig, size_t *slen)
 {
 	int ret;
 	unsigned char buf[TTLS_ECDSA_MAX_LEN];
@@ -297,7 +297,7 @@ static int ecdsa_signature_to_asn1(const ttls_mpi *r, const ttls_mpi *s,
 
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(&p, buf, len));
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(&p, buf,
-									   TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE));
+			   TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE));
 
 	memcpy(sig, p, len);
 	*slen = len;
@@ -309,10 +309,10 @@ static int ecdsa_signature_to_asn1(const ttls_mpi *r, const ttls_mpi *s,
  * Compute and write signature
  */
 int ttls_ecdsa_write_signature(ttls_ecdsa_context *ctx, ttls_md_type_t md_alg,
-						   const unsigned char *hash, size_t hlen,
-						   unsigned char *sig, size_t *slen,
-						   int (*f_rng)(void *, unsigned char *, size_t),
-						   void *p_rng)
+			   const unsigned char *hash, size_t hlen,
+			   unsigned char *sig, size_t *slen,
+			   int (*f_rng)(void *, unsigned char *, size_t),
+			   void *p_rng)
 {
 	int ret;
 	ttls_mpi r, s;
@@ -325,12 +325,12 @@ int ttls_ecdsa_write_signature(ttls_ecdsa_context *ctx, ttls_md_type_t md_alg,
 	(void) p_rng;
 
 	TTLS_MPI_CHK(ttls_ecdsa_sign_det(&ctx->grp, &r, &s, &ctx->d,
-							 hash, hlen, md_alg));
+				 hash, hlen, md_alg));
 #else
 	(void) md_alg;
 
 	TTLS_MPI_CHK(ttls_ecdsa_sign(&ctx->grp, &r, &s, &ctx->d,
-						 hash, hlen, f_rng, p_rng));
+			 hash, hlen, f_rng, p_rng));
 #endif
 
 	TTLS_MPI_CHK(ecdsa_signature_to_asn1(&r, &s, sig, slen));
@@ -346,8 +346,8 @@ cleanup:
  * Read and check signature
  */
 int ttls_ecdsa_read_signature(ttls_ecdsa_context *ctx,
-						  const unsigned char *hash, size_t hlen,
-						  const unsigned char *sig, size_t slen)
+			  const unsigned char *hash, size_t hlen,
+			  const unsigned char *sig, size_t slen)
 {
 	int ret;
 	unsigned char *p = (unsigned char *) sig;
@@ -359,7 +359,7 @@ int ttls_ecdsa_read_signature(ttls_ecdsa_context *ctx,
 	ttls_mpi_init(&s);
 
 	if ((ret = ttls_asn1_get_tag(&p, end, &len,
-					TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE)) != 0)
+		TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE)) != 0)
 	{
 		ret += TTLS_ERR_ECP_BAD_INPUT_DATA;
 		goto cleanup;
@@ -380,7 +380,7 @@ int ttls_ecdsa_read_signature(ttls_ecdsa_context *ctx,
 	}
 
 	if ((ret = ttls_ecdsa_verify(&ctx->grp, hash, hlen,
-							  &ctx->Q, &r, &s)) != 0)
+				  &ctx->Q, &r, &s)) != 0)
 		goto cleanup;
 
 	if (p != end)

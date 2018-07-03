@@ -41,8 +41,8 @@
 #include "oid.h"
 
 static int pkcs5_parse_pbkdf2_params(const ttls_asn1_buf *params,
-									  ttls_asn1_buf *salt, int *iterations,
-									  int *keylen, ttls_md_type_t *md_type)
+			  ttls_asn1_buf *salt, int *iterations,
+			  int *keylen, ttls_md_type_t *md_type)
 {
 	int ret;
 	ttls_asn1_buf prf_alg_oid;
@@ -135,8 +135,8 @@ int ttls_pkcs5_pbes2(const ttls_asn1_buf *pbe_params, int mode,
 		return(TTLS_ERR_PKCS5_FEATURE_UNAVAILABLE);
 
 	if ((ret = pkcs5_parse_pbkdf2_params(&kdf_alg_params,
-										   &salt, &iterations, &keylen,
-										   &md_type)) != 0)
+				   &salt, &iterations, &keylen,
+				   &md_type)) != 0)
 	{
 		return ret;
 	}
@@ -146,7 +146,7 @@ int ttls_pkcs5_pbes2(const ttls_asn1_buf *pbe_params, int mode,
 		return(TTLS_ERR_PKCS5_FEATURE_UNAVAILABLE);
 
 	if ((ret = ttls_asn1_get_alg(&p, end, &enc_scheme_oid,
-							  &enc_scheme_params)) != 0)
+				  &enc_scheme_params)) != 0)
 	{
 		return(TTLS_ERR_PKCS5_INVALID_FORMAT + ret);
 	}
@@ -179,7 +179,7 @@ int ttls_pkcs5_pbes2(const ttls_asn1_buf *pbe_params, int mode,
 		goto exit;
 
 	if ((ret = ttls_pkcs5_pbkdf2_hmac(&md_ctx, pwd, pwdlen, salt.p, salt.len,
-								   iterations, keylen, key)) != 0)
+		   iterations, keylen, key)) != 0)
 	{
 		goto exit;
 	}
@@ -191,7 +191,7 @@ int ttls_pkcs5_pbes2(const ttls_asn1_buf *pbe_params, int mode,
 		goto exit;
 
 	if ((ret = ttls_cipher_crypt(&cipher_ctx, iv, enc_scheme_params.len,
-							  data, datalen, output, &olen)) != 0)
+				  data, datalen, output, &olen)) != 0)
 		ret = TTLS_ERR_PKCS5_PASSWORD_MISMATCH;
 
 exit:
@@ -202,9 +202,9 @@ exit:
 }
 
 int ttls_pkcs5_pbkdf2_hmac(ttls_md_context_t *ctx, const unsigned char *password,
-					   size_t plen, const unsigned char *salt, size_t slen,
-					   unsigned int iteration_count,
-					   uint32_t key_length, unsigned char *output)
+		   size_t plen, const unsigned char *salt, size_t slen,
+		   unsigned int iteration_count,
+		   uint32_t key_length, unsigned char *output)
 {
 	int ret, j;
 	unsigned int i;

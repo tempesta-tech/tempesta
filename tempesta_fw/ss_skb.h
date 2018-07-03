@@ -164,9 +164,9 @@ ss_skb_put(struct sk_buff *skb, const int len)
 }
 
 static inline struct sk_buff *
-ss_skb_alloc(void)
+ss_skb_alloc(size_t n)
 {
-	struct sk_buff *skb = alloc_skb(MAX_TCP_HEADER, GFP_ATOMIC);
+	struct sk_buff *skb = alloc_skb(MAX_TCP_HEADER + n, GFP_ATOMIC);
 
 	if (!skb)
 		return NULL;
@@ -175,7 +175,7 @@ ss_skb_alloc(void)
 	return skb;
 }
 
-#define SS_SKB_MAX_DATA_LEN	(MAX_SKB_FRAGS * PAGE_SIZE)
+#define SS_SKB_MAX_DATA_LEN	(SKB_MAX_HEADER + MAX_SKB_FRAGS * PAGE_SIZE)
 
 char *ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf);
 

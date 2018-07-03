@@ -45,13 +45,13 @@ void ttls_ticket_init(ttls_ticket_context *ctx)
  * Generate/update a key
  */
 static int ssl_ticket_gen_key(ttls_ticket_context *ctx,
-							   unsigned char index)
+				   unsigned char index)
 {
 	int ret;
 	unsigned char buf[MAX_KEY_BYTES];
 	ttls_ticket_key *key = ctx->keys + index;
 
-	key->generation_time = (uint32_t) ttls_time(NULL);
+	key->generation_time = (uint32_t) get_seconds();
 
 	if ((ret = ctx->f_rng(ctx->p_rng, key->name, sizeof(key->name))) != 0)
 		return ret;
@@ -61,8 +61,8 @@ static int ssl_ticket_gen_key(ttls_ticket_context *ctx,
 
 	/* With GCM and CCM, same context can encrypt & decrypt */
 	ret = ttls_cipher_setkey(&key->ctx, buf,
-								 ttls_cipher_get_key_bitlen(&key->ctx),
-								 TTLS_ENCRYPT);
+		 ttls_cipher_get_key_bitlen(&key->ctx),
+		 TTLS_ENCRYPT);
 
 	ttls_zeroize(buf, sizeof(buf));
 
@@ -76,7 +76,7 @@ static int ssl_ticket_update_keys(ttls_ticket_context *ctx)
 {
 	if (ctx->ticket_lifetime != 0)
 	{
-		uint32_t current_time = (uint32_t) ttls_time(NULL);
+		uint32_t current_time = (uint32_t) get_seconds();
 		uint32_t key_time = ctx->keys[ctx->active].generation_time;
 
 		if (current_time > key_time &&
@@ -144,8 +144,8 @@ int ttls_ticket_setup(ttls_ticket_context *ctx,
  *  n+3 .   n+2+m   peer cert ASN.1
  */
 static int ssl_save_session(const TtlsSess *session,
-							 unsigned char *buf, size_t buf_len,
-							 size_t *olen)
+				 unsigned char *buf, size_t buf_len,
+				 size_t *olen)
 {
 	unsigned char *p = buf;
 	size_t left = buf_len;
@@ -184,7 +184,7 @@ static int ssl_save_session(const TtlsSess *session,
  * Unserialise session, see ssl_save_session()
  */
 static int ssl_load_session(TtlsSess *session,
-							 const unsigned char *buf, size_t len)
+				 const unsigned char *buf, size_t len)
 {
 	const unsigned char *p = buf;
 	const unsigned char * const end = buf + len;
@@ -221,7 +221,7 @@ static int ssl_load_session(TtlsSess *session,
 		ttls_x509_crt_init(session->peer_cert);
 
 		if ((ret = ttls_x509_crt_parse_der(session->peer_cert,
-										p, cert_len)) != 0)
+				p, cert_len)) != 0)
 		{
 			ttls_x509_crt_free(session->peer_cert);
 			ttls_free(session->peer_cert);
@@ -252,11 +252,11 @@ static int ssl_load_session(TtlsSess *session,
  * authenticated data.
  */
 int ttls_ticket_write(void *p_ticket,
-							  const TtlsSess *session,
-							  unsigned char *start,
-							  const unsigned char *end,
-							  size_t *tlen,
-							  uint32_t *ticket_lifetime)
+				  const TtlsSess *session,
+				  unsigned char *start,
+				  const unsigned char *end,
+				  size_t *tlen,
+				  uint32_t *ticket_lifetime)
 {
 	int ret;
 	ttls_ticket_context *ctx = p_ticket;
@@ -294,7 +294,7 @@ int ttls_ticket_write(void *p_ticket,
 
 	/* Dump session state */
 	if ((ret = ssl_save_session(session,
-								  state, end - state, &clear_len)) != 0 ||
+		  state, end - state, &clear_len)) != 0 ||
 		(unsigned long) clear_len > 65535)
 	{
 		 goto cleanup;
@@ -305,8 +305,8 @@ int ttls_ticket_write(void *p_ticket,
 	/* Encrypt and authenticate */
 	tag = state + clear_len;
 	if ((ret = ttls_cipher_auth_encrypt(&key->ctx,
-					iv, 12, key_name, 4 + 12 + 2,
-					state, clear_len, state, &ciph_len, tag, 16)) != 0)
+		iv, 12, key_name, 4 + 12 + 2,
+		state, clear_len, state, &ciph_len, tag, 16)) != 0)
 	{
 		goto cleanup;
 	}
@@ -344,9 +344,9 @@ static ttls_ticket_key *ssl_ticket_select_key(
  * Load session ticket (see ttls_ticket_write for structure)
  */
 int ttls_ticket_parse(void *p_ticket,
-							  TtlsSess *session,
-							  unsigned char *buf,
-							  size_t len)
+				  TtlsSess *session,
+				  unsigned char *buf,
+				  size_t len)
 {
 	int ret;
 	ttls_ticket_context *ctx = p_ticket;
@@ -390,8 +390,8 @@ int ttls_ticket_parse(void *p_ticket,
 
 	/* Decrypt and authenticate */
 	if ((ret = ttls_cipher_auth_decrypt(&key->ctx, iv, 12,
-					key_name, 4 + 12 + 2, ticket, enc_len,
-					ticket, &clear_len, tag, 16)) != 0)
+		key_name, 4 + 12 + 2, ticket, enc_len,
+		ticket, &clear_len, tag, 16)) != 0)
 	{
 		if (ret == TTLS_ERR_CIPHER_AUTH_FAILED)
 			ret = TTLS_ERR_INVALID_MAC;
@@ -410,7 +410,7 @@ int ttls_ticket_parse(void *p_ticket,
 
 	{
 		/* Check for expiration */
-		time_t current_time = ttls_time(NULL);
+		time_t current_time = get_seconds();
 
 		if (current_time < session->start ||
 			(uint32_t)(current_time - session->start) > ctx->ticket_lifetime)
