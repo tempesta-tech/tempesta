@@ -135,22 +135,22 @@ int ttls_internal_ecp_randomize_jac(const ttls_ecp_group *grp,
  *				  ecp_mul_comb().
  *
  *				  Special cases: (1) P or Q is zero, (2) R is zero,
- *					  (3) P == Q.
+ *		  (3) P == Q.
  *				  None of these cases can happen as intermediate step in
  *				  ecp_mul_comb():
- *					  - at each step, P, Q and R are multiples of the base
- *					  point, the factor being less than its order, so none of
- *					  them is zero;
- *					  - Q is an odd multiple of the base point, P an even
- *					  multiple, due to the choice of precomputed points in the
- *					  modified comb method.
+ *		  - at each step, P, Q and R are multiples of the base
+ *		  point, the factor being less than its order, so none of
+ *		  them is zero;
+ *		  - Q is an odd multiple of the base point, P an even
+ *		  multiple, due to the choice of precomputed points in the
+ *		  modified comb method.
  *				  So branches for these cases do not leak secret information.
  *
  *				  We accept Q->Z being unset (saving memory in tables) as
  *				  meaning 1.
  *
  *				  Cost in field operations if done by [5] 3.22:
- *					  1A := 8M + 3S
+ *		  1A := 8M + 3S
  *
  * \param grp	   Pointer to the group representing the curve.
  *
@@ -173,8 +173,8 @@ int ttls_internal_ecp_add_mixed(const ttls_ecp_group *grp,
  * \brief		   Point doubling R = 2 P, Jacobian coordinates.
  *
  *				  Cost:   1D := 3M + 4S	(A ==  0)
- *						  4M + 4S		  (A == -3)
- *						  3M + 6S + 1a	 otherwise
+ *			  4M + 4S		  (A == -3)
+ *			  3M + 6S + 1a	 otherwise
  *				  when the implementation is based on the "dbl-1998-cmo-2"
  *				  doubling formulas in [8] and standard optimizations are
  *				  applied when curve parameter A is one of { 0, -3 }.
@@ -199,7 +199,7 @@ int ttls_internal_ecp_double_jac(const ttls_ecp_group *grp,
  *
  *				  Using Montgomery's trick to perform only one inversion mod P
  *				  the cost is:
- *					  1N(t) := 1I + (6t - 3)M + 1S
+ *		  1N(t) := 1I + (6t - 3)M + 1S
  *				  (See for example Algorithm 10.3.4. in [9])
  *
  *				  This function is used only as a subrutine of
@@ -216,7 +216,7 @@ int ttls_internal_ecp_double_jac(const ttls_ecp_group *grp,
  * \param t_len	 Number of elements in the array.
  *
  * \return		  0 if successful,
- *					  an error if one of the points is zero.
+ *		  an error if one of the points is zero.
  */
 #if defined(TTLS_ECP_NORMALIZE_JAC_MANY_ALT)
 int ttls_internal_ecp_normalize_jac_many(const ttls_ecp_group *grp,
@@ -227,7 +227,7 @@ int ttls_internal_ecp_normalize_jac_many(const ttls_ecp_group *grp,
  * \brief		   Normalize jacobian coordinates so that Z == 0 || Z == 1.
  *
  *				  Cost in field operations if done by [5] 3.2.1:
- *					  1N := 1I + 3M + 1S
+ *		  1N := 1I + 3M + 1S
  *
  * \param grp	   Pointer to the group representing the curve.
  *
@@ -253,7 +253,7 @@ int ttls_internal_ecp_double_add_mxz(const ttls_ecp_group *grp,
 
 /**
  * \brief		   Randomize projective x/z coordinates:
- *					  (X, Z) -> (l X, l Z) for random l
+ *		  (X, Z) -> (l X, l Z) for random l
  *
  * \param grp	   pointer to the group representing the curve
  *

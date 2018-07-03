@@ -113,10 +113,10 @@ void ttls_pkcs11_priv_key_free(ttls_pkcs11_context *priv_key);
  *				 an error is thrown.
  */
 int ttls_pkcs11_decrypt(ttls_pkcs11_context *ctx,
-					   int mode, size_t *olen,
-					   const unsigned char *input,
-					   unsigned char *output,
-					   size_t output_max_len);
+		   int mode, size_t *olen,
+		   const unsigned char *input,
+		   unsigned char *output,
+		   size_t output_max_len);
 
 /**
  * \brief		  Do a private RSA to sign a message digest
@@ -135,32 +135,32 @@ int ttls_pkcs11_decrypt(ttls_pkcs11_context *ctx,
  *				 of ctx->N (eg. 128 bytes if RSA-1024 is used).
  */
 int ttls_pkcs11_sign(ttls_pkcs11_context *ctx,
-					int mode,
-					ttls_md_type_t md_alg,
-					unsigned int hashlen,
-					const unsigned char *hash,
-					unsigned char *sig);
+		int mode,
+		ttls_md_type_t md_alg,
+		unsigned int hashlen,
+		const unsigned char *hash,
+		unsigned char *sig);
 
 /**
  * SSL/TLS wrappers for PKCS#11 functions
  */
 static inline int ttls_pkcs11_decrypt(void *ctx, int mode, size_t *olen,
-						const unsigned char *input, unsigned char *output,
-						size_t output_max_len)
+			const unsigned char *input, unsigned char *output,
+			size_t output_max_len)
 {
 	return ttls_pkcs11_decrypt((ttls_pkcs11_context *) ctx, mode, olen, input, output,
-						   output_max_len);
+			   output_max_len);
 }
 
 static inline int ttls_pkcs11_sign(void *ctx,
-					 int (*f_rng)(void *, unsigned char *, size_t), void *p_rng,
-					 int mode, ttls_md_type_t md_alg, unsigned int hashlen,
-					 const unsigned char *hash, unsigned char *sig)
+		 int (*f_rng)(void *, unsigned char *, size_t), void *p_rng,
+		 int mode, ttls_md_type_t md_alg, unsigned int hashlen,
+		 const unsigned char *hash, unsigned char *sig)
 {
 	((void) f_rng);
 	((void) p_rng);
 	return ttls_pkcs11_sign((ttls_pkcs11_context *) ctx, mode, md_alg,
-						hashlen, hash, sig);
+			hashlen, hash, sig);
 }
 
 static inline size_t ttls_pkcs11_key_len(void *ctx)

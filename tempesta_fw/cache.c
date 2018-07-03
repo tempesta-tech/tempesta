@@ -1450,7 +1450,7 @@ tfw_cache_build_resp_body(TDB *db, TfwHttpResp *resp, TdbVRec *trec,
 	if (skb_frag_size(frag))
 		++it->frag;
 	if (it->frag >= MAX_SKB_FRAGS - 1) {
-		if (!(it->skb = ss_skb_alloc()))
+		if (!(it->skb = ss_skb_alloc(0)))
 			return -ENOMEM;
 		ss_skb_queue_tail(&resp->msg.skb_head, it->skb);
 		it->frag = 0;
@@ -1458,7 +1458,7 @@ tfw_cache_build_resp_body(TDB *db, TfwHttpResp *resp, TdbVRec *trec,
 
 	while (1) {
 		if (it->frag == MAX_SKB_FRAGS) {
-			if (!(it->skb = ss_skb_alloc()))
+			if (!(it->skb = ss_skb_alloc(0)))
 				return -ENOMEM;
 			ss_skb_queue_tail(&resp->msg.skb_head, it->skb);
 			it->frag = 0;

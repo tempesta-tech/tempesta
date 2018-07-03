@@ -66,17 +66,17 @@ void ttls_x509write_csr_set_key(ttls_x509write_csr *ctx, ttls_pk_context *key)
 }
 
 int ttls_x509write_csr_set_subject_name(ttls_x509write_csr *ctx,
-									const char *subject_name)
+			const char *subject_name)
 {
 	return ttls_x509_string_to_names(&ctx->subject, subject_name);
 }
 
 int ttls_x509write_csr_set_extension(ttls_x509write_csr *ctx,
-								 const char *oid, size_t oid_len,
-								 const unsigned char *val, size_t val_len)
+		 const char *oid, size_t oid_len,
+		 const unsigned char *val, size_t val_len)
 {
 	return ttls_x509_set_extension(&ctx->extensions, oid, oid_len,
-							   0, val, val_len);
+				   0, val, val_len);
 }
 
 int ttls_x509write_csr_set_key_usage(ttls_x509write_csr *ctx, unsigned char key_usage)
@@ -91,8 +91,8 @@ int ttls_x509write_csr_set_key_usage(ttls_x509write_csr *ctx, unsigned char key_
 		return ret;
 
 	ret = ttls_x509write_csr_set_extension(ctx, TTLS_OID_KEY_USAGE,
-									   TTLS_OID_SIZE(TTLS_OID_KEY_USAGE),
-									   buf, 4);
+			   TTLS_OID_SIZE(TTLS_OID_KEY_USAGE),
+			   buf, 4);
 	if (ret != 0)
 		return ret;
 
@@ -100,7 +100,7 @@ int ttls_x509write_csr_set_key_usage(ttls_x509write_csr *ctx, unsigned char key_
 }
 
 int ttls_x509write_csr_set_ns_cert_type(ttls_x509write_csr *ctx,
-									unsigned char ns_cert_type)
+			unsigned char ns_cert_type)
 {
 	unsigned char buf[4];
 	unsigned char *c;
@@ -112,8 +112,8 @@ int ttls_x509write_csr_set_ns_cert_type(ttls_x509write_csr *ctx,
 		return ret;
 
 	ret = ttls_x509write_csr_set_extension(ctx, TTLS_OID_NS_CERT_TYPE,
-									   TTLS_OID_SIZE(TTLS_OID_NS_CERT_TYPE),
-									   buf, 4);
+			   TTLS_OID_SIZE(TTLS_OID_NS_CERT_TYPE),
+			   buf, 4);
 	if (ret != 0)
 		return ret;
 
@@ -121,8 +121,8 @@ int ttls_x509write_csr_set_ns_cert_type(ttls_x509write_csr *ctx,
 }
 
 int ttls_x509write_csr_der(ttls_x509write_csr *ctx, unsigned char *buf, size_t size,
-					   int (*f_rng)(void *, unsigned char *, size_t),
-					   void *p_rng)
+		   int (*f_rng)(void *, unsigned char *, size_t),
+		   void *p_rng)
 {
 	int ret;
 	const char *sig_oid;
@@ -146,26 +146,26 @@ int ttls_x509write_csr_der(ttls_x509write_csr *ctx, unsigned char *buf, size_t s
 	{
 		TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(&c, tmp_buf, len));
 		TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(&c, tmp_buf, TTLS_ASN1_CONSTRUCTED |
-														TTLS_ASN1_SEQUENCE));
+					TTLS_ASN1_SEQUENCE));
 
 		TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(&c, tmp_buf, len));
 		TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(&c, tmp_buf, TTLS_ASN1_CONSTRUCTED |
-														TTLS_ASN1_SET));
+					TTLS_ASN1_SET));
 
 		TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_oid(&c, tmp_buf, TTLS_OID_PKCS9_CSR_EXT_REQ,
-										  TTLS_OID_SIZE(TTLS_OID_PKCS9_CSR_EXT_REQ)));
+				  TTLS_OID_SIZE(TTLS_OID_PKCS9_CSR_EXT_REQ)));
 
 		TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(&c, tmp_buf, len));
 		TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(&c, tmp_buf, TTLS_ASN1_CONSTRUCTED |
-														TTLS_ASN1_SEQUENCE));
+					TTLS_ASN1_SEQUENCE));
 	}
 
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(&c, tmp_buf, len));
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(&c, tmp_buf, TTLS_ASN1_CONSTRUCTED |
-													TTLS_ASN1_CONTEXT_SPECIFIC));
+				TTLS_ASN1_CONTEXT_SPECIFIC));
 
 	TTLS_ASN1_CHK_ADD(pub_len, ttls_pk_write_pubkey_der(ctx->key,
-												tmp_buf, c - tmp_buf));
+			tmp_buf, c - tmp_buf));
 	c -= pub_len;
 	len += pub_len;
 
@@ -181,7 +181,7 @@ int ttls_x509write_csr_der(ttls_x509write_csr *ctx, unsigned char *buf, size_t s
 
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(&c, tmp_buf, len));
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(&c, tmp_buf, TTLS_ASN1_CONSTRUCTED |
-													TTLS_ASN1_SEQUENCE));
+				TTLS_ASN1_SEQUENCE));
 
 	/*
 	 * Prepare signature
@@ -189,7 +189,7 @@ int ttls_x509write_csr_der(ttls_x509write_csr *ctx, unsigned char *buf, size_t s
 	ttls_md(ttls_md_info_from_type(ctx->md_alg), c, len, hash);
 
 	if ((ret = ttls_pk_sign(ctx->key, ctx->md_alg, hash, 0, sig, &sig_len,
-								 f_rng, p_rng)) != 0)
+		 f_rng, p_rng)) != 0)
 	{
 		return ret;
 	}
@@ -202,7 +202,7 @@ int ttls_x509write_csr_der(ttls_x509write_csr *ctx, unsigned char *buf, size_t s
 		return(TTLS_ERR_X509_INVALID_ALG);
 
 	if ((ret = ttls_oid_get_oid_by_sig_alg(pk_alg, ctx->md_alg,
-												&sig_oid, &sig_oid_len)) != 0)
+			&sig_oid, &sig_oid_len)) != 0)
 	{
 		return ret;
 	}
@@ -212,7 +212,7 @@ int ttls_x509write_csr_der(ttls_x509write_csr *ctx, unsigned char *buf, size_t s
 	 */
 	c2 = buf + size;
 	TTLS_ASN1_CHK_ADD(sig_and_oid_len, ttls_x509_write_sig(&c2, buf,
-										sig_oid, sig_oid_len, sig, sig_len));
+				sig_oid, sig_oid_len, sig, sig_len));
 
 	if (len > (size_t)(c2 - buf))
 		return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
@@ -223,7 +223,7 @@ int ttls_x509write_csr_der(ttls_x509write_csr *ctx, unsigned char *buf, size_t s
 	len += sig_and_oid_len;
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(&c2, buf, len));
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(&c2, buf, TTLS_ASN1_CONSTRUCTED |
-												 TTLS_ASN1_SEQUENCE));
+			 TTLS_ASN1_SEQUENCE));
 
 	return((int) len);
 }
@@ -233,22 +233,22 @@ int ttls_x509write_csr_der(ttls_x509write_csr *ctx, unsigned char *buf, size_t s
 
 #if defined(TTLS_PEM_WRITE_C)
 int ttls_x509write_csr_pem(ttls_x509write_csr *ctx, unsigned char *buf, size_t size,
-					   int (*f_rng)(void *, unsigned char *, size_t),
-					   void *p_rng)
+		   int (*f_rng)(void *, unsigned char *, size_t),
+		   void *p_rng)
 {
 	int ret;
 	unsigned char output_buf[4096];
 	size_t olen = 0;
 
 	if ((ret = ttls_x509write_csr_der(ctx, output_buf, sizeof(output_buf),
-								   f_rng, p_rng)) < 0)
+		   f_rng, p_rng)) < 0)
 	{
 		return ret;
 	}
 
 	if ((ret = ttls_pem_write_buffer(PEM_BEGIN_CSR, PEM_END_CSR,
-								  output_buf + sizeof(output_buf) - ret,
-								  ret, buf, size, &olen)) != 0)
+		  output_buf + sizeof(output_buf) - ret,
+		  ret, buf, size, &olen)) != 0)
 	{
 		return ret;
 	}

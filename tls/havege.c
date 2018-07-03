@@ -64,95 +64,95 @@ static void ttls_zeroize(void *v, size_t n) {
 #define TST1_LEAVE U1++; }
 #define TST2_LEAVE U2++; }
 
-#define ONE_ITERATION								   \
-														\
-	PTEST = PT1 >> 20;								  \
-														\
+#define ONE_ITERATION		   \
+					\
+	PTEST = PT1 >> 20;		  \
+					\
 	TST1_ENTER  TST1_ENTER  TST1_ENTER  TST1_ENTER	  \
 	TST1_ENTER  TST1_ENTER  TST1_ENTER  TST1_ENTER	  \
 	TST1_ENTER  TST1_ENTER  TST1_ENTER  TST1_ENTER	  \
-														\
+					\
 	TST1_LEAVE  TST1_LEAVE  TST1_LEAVE  TST1_LEAVE	  \
 	TST1_LEAVE  TST1_LEAVE  TST1_LEAVE  TST1_LEAVE	  \
 	TST1_LEAVE  TST1_LEAVE  TST1_LEAVE  TST1_LEAVE	  \
-														\
-	PTX = (PT1 >> 18) & 7;							  \
-	PT1 &= 0x1FFF;									  \
-	PT2 &= 0x1FFF;									  \
-	CLK = (int)get_cycles();							\
-														\
-	i = 0;											  \
+					\
+	PTX = (PT1 >> 18) & 7;				  \
+	PT1 &= 0x1FFF;			  \
+	PT2 &= 0x1FFF;			  \
+	CLK = (int)get_cycles();				\
+					\
+	i = 0;		  \
 	A = &WALK[PT1	]; RES[i++] ^= *A;				 \
 	B = &WALK[PT2	]; RES[i++] ^= *B;				 \
 	C = &WALK[PT1 ^ 1]; RES[i++] ^= *C;				 \
 	D = &WALK[PT2 ^ 4]; RES[i++] ^= *D;				 \
-														\
+					\
 	IN = (*A >> (1)) ^ (*A << (31)) ^ CLK;			  \
 	*A = (*B >> (2)) ^ (*B << (30)) ^ CLK;			  \
-	*B = IN ^ U1;									   \
+	*B = IN ^ U1;			   \
 	*C = (*C >> (3)) ^ (*C << (29)) ^ CLK;			  \
 	*D = (*D >> (4)) ^ (*D << (28)) ^ CLK;			  \
-														\
+					\
 	A = &WALK[PT1 ^ 2]; RES[i++] ^= *A;				 \
 	B = &WALK[PT2 ^ 2]; RES[i++] ^= *B;				 \
 	C = &WALK[PT1 ^ 3]; RES[i++] ^= *C;				 \
 	D = &WALK[PT2 ^ 6]; RES[i++] ^= *D;				 \
-														\
-	if (PTEST & 1) SWAP(A, C);					   \
-														\
+					\
+	if (PTEST & 1) SWAP(A, C);		   \
+					\
 	IN = (*A >> (5)) ^ (*A << (27)) ^ CLK;			  \
 	*A = (*B >> (6)) ^ (*B << (26)) ^ CLK;			  \
 	*B = IN; CLK = (int)get_cycles();				   \
 	*C = (*C >> (7)) ^ (*C << (25)) ^ CLK;			  \
 	*D = (*D >> (8)) ^ (*D << (24)) ^ CLK;			  \
-														\
-	A = &WALK[PT1 ^ 4];								 \
-	B = &WALK[PT2 ^ 1];								 \
-														\
-	PTEST = PT2 >> 1;								   \
-														\
+					\
+	A = &WALK[PT1 ^ 4];		 \
+	B = &WALK[PT2 ^ 1];		 \
+					\
+	PTEST = PT2 >> 1;		   \
+					\
 	PT2 = (RES[(i - 8) ^ PTY] ^ WALK[PT2 ^ PTY ^ 7]);   \
 	PT2 = ((PT2 & 0x1FFF) & (~8)) ^ ((PT1 ^ 8) & 0x8);  \
-	PTY = (PT2 >> 10) & 7;							  \
-														\
+	PTY = (PT2 >> 10) & 7;				  \
+					\
 	TST2_ENTER  TST2_ENTER  TST2_ENTER  TST2_ENTER	  \
 	TST2_ENTER  TST2_ENTER  TST2_ENTER  TST2_ENTER	  \
 	TST2_ENTER  TST2_ENTER  TST2_ENTER  TST2_ENTER	  \
-														\
+					\
 	TST2_LEAVE  TST2_LEAVE  TST2_LEAVE  TST2_LEAVE	  \
 	TST2_LEAVE  TST2_LEAVE  TST2_LEAVE  TST2_LEAVE	  \
 	TST2_LEAVE  TST2_LEAVE  TST2_LEAVE  TST2_LEAVE	  \
-														\
-	C = &WALK[PT1 ^ 5];								 \
-	D = &WALK[PT2 ^ 5];								 \
-														\
-	RES[i++] ^= *A;									 \
-	RES[i++] ^= *B;									 \
-	RES[i++] ^= *C;									 \
-	RES[i++] ^= *D;									 \
-														\
+					\
+	C = &WALK[PT1 ^ 5];		 \
+	D = &WALK[PT2 ^ 5];		 \
+					\
+	RES[i++] ^= *A;			 \
+	RES[i++] ^= *B;			 \
+	RES[i++] ^= *C;			 \
+	RES[i++] ^= *D;			 \
+					\
 	IN = (*A >> (9)) ^ (*A << (23)) ^ CLK;			 \
 	*A = (*B >> (10)) ^ (*B << (22)) ^ CLK;			 \
-	*B = IN ^ U2;									   \
+	*B = IN ^ U2;			   \
 	*C = (*C >> (11)) ^ (*C << (21)) ^ CLK;			 \
 	*D = (*D >> (12)) ^ (*D << (20)) ^ CLK;			 \
-														\
+					\
 	A = &WALK[PT1 ^ 6]; RES[i++] ^= *A;				 \
 	B = &WALK[PT2 ^ 3]; RES[i++] ^= *B;				 \
 	C = &WALK[PT1 ^ 7]; RES[i++] ^= *C;				 \
 	D = &WALK[PT2 ^ 7]; RES[i++] ^= *D;				 \
-														\
+					\
 	IN = (*A >> (13)) ^ (*A << (19)) ^ CLK;			 \
 	*A = (*B >> (14)) ^ (*B << (18)) ^ CLK;			 \
-	*B = IN;											\
+	*B = IN;		\
 	*C = (*C >> (15)) ^ (*C << (17)) ^ CLK;			 \
 	*D = (*D >> (16)) ^ (*D << (16)) ^ CLK;			 \
-														\
-	PT1 = (RES[(i - 8) ^ PTX] ^					  \
+					\
+	PT1 = (RES[(i - 8) ^ PTX] ^		  \
 			WALK[PT1 ^ PTX ^ 7]) & (~1);			   \
-	PT1 ^= (PT2 ^ 0x10) & 0x10;						 \
-														\
-	for (n++, i = 0; i < 16; i++)					  \
+	PT1 ^= (PT2 ^ 0x10) & 0x10;			 \
+					\
+	for (n++, i = 0; i < 16; i++)		  \
 		hs->pool[n % TTLS_HAVEGE_COLLECT_SIZE] ^= RES[i];
 
 /*

@@ -65,7 +65,7 @@ void ttls_ripemd160_free(ttls_ripemd160_context *ctx);
  * \param src	  The context to be cloned
  */
 void ttls_ripemd160_clone(ttls_ripemd160_context *dst,
-						const ttls_ripemd160_context *src);
+			const ttls_ripemd160_context *src);
 
 /**
  * \brief		  RIPEMD-160 context setup
@@ -86,8 +86,8 @@ int ttls_ripemd160_starts_ret(ttls_ripemd160_context *ctx);
  * \return		 0 if successful
  */
 int ttls_ripemd160_update_ret(ttls_ripemd160_context *ctx,
-								  const unsigned char *input,
-								  size_t ilen);
+		  const unsigned char *input,
+		  size_t ilen);
 
 /**
  * \brief		  RIPEMD-160 final digest
@@ -98,7 +98,7 @@ int ttls_ripemd160_update_ret(ttls_ripemd160_context *ctx,
  * \return		 0 if successful
  */
 int ttls_ripemd160_finish_ret(ttls_ripemd160_context *ctx,
-								  unsigned char output[20]);
+		  unsigned char output[20]);
 
 /**
  * \brief		  RIPEMD-160 process data block (internal use only)
@@ -109,7 +109,7 @@ int ttls_ripemd160_finish_ret(ttls_ripemd160_context *ctx,
  * \return		 0 if successful
  */
 int ttls_internal_ripemd160_process(ttls_ripemd160_context *ctx,
-										const unsigned char data[64]);
+				const unsigned char data[64]);
 
 #else  /* TTLS_RIPEMD160_ALT */
 #include "ripemd160_alt.h"
@@ -125,7 +125,7 @@ int ttls_internal_ripemd160_process(ttls_ripemd160_context *ctx,
  * \return		 0 if successful
  */
 int ttls_ripemd160_ret(const unsigned char *input,
-						   size_t ilen,
-						   unsigned char output[20]);
+			   size_t ilen,
+			   unsigned char output[20]);
 
 #endif /* ttls_ripemd160.h */

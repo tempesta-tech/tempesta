@@ -91,8 +91,8 @@ extern "C" {
  *
  */
 int ttls_rsa_deduce_primes(ttls_mpi const *N, ttls_mpi const *E,
-							   ttls_mpi const *D,
-							   ttls_mpi *P, ttls_mpi *Q);
+				   ttls_mpi const *D,
+				   ttls_mpi *P, ttls_mpi *Q);
 
 /**
  * \brief		  Compute RSA private exponent from
@@ -116,9 +116,9 @@ int ttls_rsa_deduce_primes(ttls_mpi const *N, ttls_mpi const *E,
  *
  */
 int ttls_rsa_deduce_private_exponent(ttls_mpi const *P,
-										 ttls_mpi const *Q,
-										 ttls_mpi const *E,
-										 ttls_mpi *D);
+				 ttls_mpi const *Q,
+				 ttls_mpi const *E,
+				 ttls_mpi *D);
 
 
 /**
@@ -142,8 +142,8 @@ int ttls_rsa_deduce_private_exponent(ttls_mpi const *P,
  *
  */
 int ttls_rsa_deduce_crt(const ttls_mpi *P, const ttls_mpi *Q,
-							const ttls_mpi *D, ttls_mpi *DP,
-							ttls_mpi *DQ, ttls_mpi *QP);
+				const ttls_mpi *D, ttls_mpi *DP,
+				ttls_mpi *DQ, ttls_mpi *QP);
 
 
 /**
@@ -164,11 +164,11 @@ int ttls_rsa_deduce_crt(const ttls_mpi *P, const ttls_mpi *Q,
  * \return
  *				 - 0 if the following conditions are satisfied
  *				   if all relevant parameters are provided:
- *					- P prime if f_rng != NULL (%)
- *					- Q prime if f_rng != NULL (%)
- *					- 1 < N = P * Q
- *					- 1 < D, E < N
- *					- D and E are modular inverses modulo P-1 and Q-1
+ *		- P prime if f_rng != NULL (%)
+ *		- Q prime if f_rng != NULL (%)
+ *		- 1 < N = P * Q
+ *		- 1 < D, E < N
+ *		- D and E are modular inverses modulo P-1 and Q-1
  *				   (%) This is only done if TTLS_GENPRIME is defined.
  *				 - A non-zero error code otherwise.
  *
@@ -177,10 +177,10 @@ int ttls_rsa_deduce_crt(const ttls_mpi *P, const ttls_mpi *Q,
  *				 (-,P,-,-,-) and a PRNG amounts to a primality check for P.
  */
 int ttls_rsa_validate_params(const ttls_mpi *N, const ttls_mpi *P,
-								 const ttls_mpi *Q, const ttls_mpi *D,
-								 const ttls_mpi *E,
-								 int (*f_rng)(void *, unsigned char *, size_t),
-								 void *p_rng);
+		 const ttls_mpi *Q, const ttls_mpi *D,
+		 const ttls_mpi *E,
+		 int (*f_rng)(void *, unsigned char *, size_t),
+		 void *p_rng);
 
 /**
  * \brief		  Check validity of RSA CRT parameters
@@ -198,9 +198,9 @@ int ttls_rsa_validate_params(const ttls_mpi *N, const ttls_mpi *P,
  *
  * \return
  *				 - 0 if the following conditions are satisfied:
- *					- D = DP mod P-1 if P, D, DP != NULL
- *					- Q = DQ mod P-1 if P, D, DQ != NULL
- *					- QP = Q^-1 mod P if P, Q, QP != NULL
+ *		- D = DP mod P-1 if P, D, DP != NULL
+ *		- Q = DQ mod P-1 if P, D, DQ != NULL
+ *		- QP = Q^-1 mod P if P, Q, QP != NULL
  *				 - \c TTLS_ERR_RSA_KEY_CHECK_FAILED if check failed,
  *				   potentially including \c TTLS_ERR_MPI_XXX if some
  *				   MPI calculations failed.
@@ -212,7 +212,7 @@ int ttls_rsa_validate_params(const ttls_mpi *N, const ttls_mpi *P,
  *				 parameters (P, -, D, DP, -, -) will check DP = D mod P-1.
  */
 int ttls_rsa_validate_crt(const ttls_mpi *P,  const ttls_mpi *Q,
-							  const ttls_mpi *D,  const ttls_mpi *DP,
-							  const ttls_mpi *DQ, const ttls_mpi *QP);
+				  const ttls_mpi *D,  const ttls_mpi *DP,
+				  const ttls_mpi *DQ, const ttls_mpi *QP);
 
 #endif /* rsa_internal.h */

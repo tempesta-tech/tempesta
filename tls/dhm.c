@@ -18,8 +18,6 @@
  *  You should have received a copy of the GNU General Public License along
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 /*
  *  The following sources were referenced in the design of this implementation
@@ -27,7 +25,6 @@
  *
  *  [1] Handbook of Applied Cryptography - 1997, Chapter 12
  *	  Menezes, van Oorschot and Vanstone
- *
  */
 #include "config.h"
 
@@ -49,8 +46,8 @@ static void ttls_zeroize(void *v, size_t n) {
  * helper to validate the ttls_mpi size and import it
  */
 static int dhm_read_bignum(ttls_mpi *X,
-							unsigned char **p,
-							const unsigned char *end)
+				unsigned char **p,
+				const unsigned char *end)
 {
 	int ret, n;
 
@@ -113,8 +110,8 @@ void ttls_dhm_init(ttls_dhm_context *ctx)
  * Parse the ServerKeyExchange parameters
  */
 int ttls_dhm_read_params(ttls_dhm_context *ctx,
-					 unsigned char **p,
-					 const unsigned char *end)
+		 unsigned char **p,
+		 const unsigned char *end)
 {
 	int ret;
 
@@ -135,9 +132,7 @@ int ttls_dhm_read_params(ttls_dhm_context *ctx,
  * Setup and write the ServerKeyExchange parameters
  */
 int ttls_dhm_make_params(ttls_dhm_context *ctx, int x_size,
-					 unsigned char *output, size_t *olen,
-					 int (*f_rng)(void *, unsigned char *, size_t),
-					 void *p_rng)
+			unsigned char *output, size_t *olen)
 {
 	int ret, count = 0;
 	size_t n1, n2, n3;
@@ -151,7 +146,7 @@ int ttls_dhm_make_params(ttls_dhm_context *ctx, int x_size,
 	 */
 	do
 	{
-		TTLS_MPI_CHK(ttls_mpi_fill_random(&ctx->X, x_size, f_rng, p_rng));
+		get_random_bytes_arch(&ctx->X, x_size);
 
 		while (ttls_mpi_cmp_mpi(&ctx->X, &ctx->P) >= 0)
 			TTLS_MPI_CHK(ttls_mpi_shift_r(&ctx->X, 1));
@@ -165,7 +160,7 @@ int ttls_dhm_make_params(ttls_dhm_context *ctx, int x_size,
 	 * Calculate GX = G^X mod P
 	 */
 	TTLS_MPI_CHK(ttls_mpi_exp_mod(&ctx->GX, &ctx->G, &ctx->X,
-						  &ctx->P , &ctx->RP));
+			  &ctx->P , &ctx->RP));
 
 	if ((ret = dhm_check_range(&ctx->GX, &ctx->P)) != 0)
 		return ret;
@@ -173,14 +168,14 @@ int ttls_dhm_make_params(ttls_dhm_context *ctx, int x_size,
 	/*
 	 * export P, G, GX
 	 */
-#define DHM_MPI_EXPORT(X, n)										  \
-	do {																\
+#define DHM_MPI_EXPORT(X, n)				  \
+	do {				\
 		TTLS_MPI_CHK(ttls_mpi_write_binary((X),			   \
-												   p + 2,			   \
-												   (n)));		   \
-		*p++ = (unsigned char)((n) >> 8);						   \
-		*p++ = (unsigned char)((n)	 );						   \
-		p += (n);													 \
+			   p + 2,			   \
+			   (n)));		   \
+		*p++ = (unsigned char)((n) >> 8);			   \
+		*p++ = (unsigned char)((n)	 );			   \
+		p += (n);				 \
 	} while (0)
 
 	n1 = ttls_mpi_size(&ctx->P );
@@ -208,8 +203,8 @@ cleanup:
  * Set prime modulus and generator
  */
 int ttls_dhm_set_group(ttls_dhm_context *ctx,
-						   const ttls_mpi *P,
-						   const ttls_mpi *G)
+			   const ttls_mpi *P,
+			   const ttls_mpi *G)
 {
 	int ret;
 
@@ -230,7 +225,7 @@ int ttls_dhm_set_group(ttls_dhm_context *ctx,
  * Import the peer's public value G^Y
  */
 int ttls_dhm_read_public(ttls_dhm_context *ctx,
-					 const unsigned char *input, size_t ilen)
+		 const unsigned char *input, size_t ilen)
 {
 	int ret;
 
@@ -247,9 +242,7 @@ int ttls_dhm_read_public(ttls_dhm_context *ctx,
  * Create own private value X and export G^X
  */
 int ttls_dhm_make_public(ttls_dhm_context *ctx, int x_size,
-					 unsigned char *output, size_t olen,
-					 int (*f_rng)(void *, unsigned char *, size_t),
-					 void *p_rng)
+		 unsigned char *output, size_t olen)
 {
 	int ret, count = 0;
 
@@ -264,7 +257,7 @@ int ttls_dhm_make_public(ttls_dhm_context *ctx, int x_size,
 	 */
 	do
 	{
-		TTLS_MPI_CHK(ttls_mpi_fill_random(&ctx->X, x_size, f_rng, p_rng));
+		get_random_bytes_arch(&ctx->X, x_size);
 
 		while (ttls_mpi_cmp_mpi(&ctx->X, &ctx->P) >= 0)
 			TTLS_MPI_CHK(ttls_mpi_shift_r(&ctx->X, 1));
@@ -275,7 +268,7 @@ int ttls_dhm_make_public(ttls_dhm_context *ctx, int x_size,
 	while (dhm_check_range(&ctx->X, &ctx->P) != 0);
 
 	TTLS_MPI_CHK(ttls_mpi_exp_mod(&ctx->GX, &ctx->G, &ctx->X,
-						  &ctx->P , &ctx->RP));
+			  &ctx->P , &ctx->RP));
 
 	if ((ret = dhm_check_range(&ctx->GX, &ctx->P)) != 0)
 		return ret;
@@ -296,8 +289,7 @@ cleanup:
  *  DSS, and other systems. In : Advances in Cryptology-CRYPTO'96. Springer
  *  Berlin Heidelberg, 1996. p. 104-113.
  */
-static int dhm_update_blinding(ttls_dhm_context *ctx,
-					int (*f_rng)(void *, unsigned char *, size_t), void *p_rng)
+static int dhm_update_blinding(ttls_dhm_context *ctx)
 {
 	int ret, count;
 
@@ -337,7 +329,7 @@ static int dhm_update_blinding(ttls_dhm_context *ctx,
 	count = 0;
 	do
 	{
-		TTLS_MPI_CHK(ttls_mpi_fill_random(&ctx->Vi, ttls_mpi_size(&ctx->P), f_rng, p_rng));
+		get_random_bytes_arch(&ctx->Vi, ttls_mpi_size(&ctx->P));
 
 		while (ttls_mpi_cmp_mpi(&ctx->Vi, &ctx->P) >= 0)
 			TTLS_MPI_CHK(ttls_mpi_shift_r(&ctx->Vi, 1));
@@ -359,9 +351,7 @@ cleanup:
  * Derive and export the shared secret (G^Y)^X mod P
  */
 int ttls_dhm_calc_secret(ttls_dhm_context *ctx,
-					 unsigned char *output, size_t output_size, size_t *olen,
-					 int (*f_rng)(void *, unsigned char *, size_t),
-					 void *p_rng)
+		 unsigned char *output, size_t output_size, size_t *olen)
 {
 	int ret;
 	ttls_mpi GYb;
@@ -375,25 +365,17 @@ int ttls_dhm_calc_secret(ttls_dhm_context *ctx,
 	ttls_mpi_init(&GYb);
 
 	/* Blind peer's value */
-	if (f_rng != NULL)
-	{
-		TTLS_MPI_CHK(dhm_update_blinding(ctx, f_rng, p_rng));
-		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&GYb, &ctx->GY, &ctx->Vi));
-		TTLS_MPI_CHK(ttls_mpi_mod_mpi(&GYb, &GYb, &ctx->P));
-	}
-	else
-		TTLS_MPI_CHK(ttls_mpi_copy(&GYb, &ctx->GY));
+	TTLS_MPI_CHK(dhm_update_blinding(ctx));
+	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&GYb, &ctx->GY, &ctx->Vi));
+	TTLS_MPI_CHK(ttls_mpi_mod_mpi(&GYb, &GYb, &ctx->P));
 
 	/* Do modular exponentiation */
 	TTLS_MPI_CHK(ttls_mpi_exp_mod(&ctx->K, &GYb, &ctx->X,
-						  &ctx->P, &ctx->RP));
+			  &ctx->P, &ctx->RP));
 
 	/* Unblind secret value */
-	if (f_rng != NULL)
-	{
-		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&ctx->K, &ctx->K, &ctx->Vf));
-		TTLS_MPI_CHK(ttls_mpi_mod_mpi(&ctx->K, &ctx->K, &ctx->P));
-	}
+	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&ctx->K, &ctx->K, &ctx->Vf));
+	TTLS_MPI_CHK(ttls_mpi_mod_mpi(&ctx->K, &ctx->K, &ctx->P));
 
 	*olen = ttls_mpi_size(&ctx->K);
 
@@ -441,9 +423,9 @@ int ttls_dhm_parse_dhm(ttls_dhm_context *dhm, const unsigned char *dhmin,
 		ret = TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT;
 	else
 		ret = ttls_pem_read_buffer(&pem,
-							   "-----BEGIN DH PARAMETERS-----",
-							   "-----END DH PARAMETERS-----",
-							   dhmin, NULL, 0, &dhminlen);
+				   "-----BEGIN DH PARAMETERS-----",
+				   "-----END DH PARAMETERS-----",
+				   dhmin, NULL, 0, &dhminlen);
 
 	if (ret == 0)
 	{
@@ -544,8 +526,8 @@ int ttls_dhm_self_test(int verbose)
 		ttls_printf("  DHM parameter load: ");
 
 	if ((ret = ttls_dhm_parse_dhm(&dhm,
-					(const unsigned char *) ttls_test_dhm_params,
-					ttls_test_dhm_params_len)) != 0)
+		(const unsigned char *) ttls_test_dhm_params,
+		ttls_test_dhm_params_len)) != 0)
 	{
 		if (verbose != 0)
 			ttls_printf("failed\n");

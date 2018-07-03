@@ -42,13 +42,13 @@
  * ASN1 is a standard to specify data structures.
  * \{
  */
-#define TTLS_ERR_ASN1_OUT_OF_DATA					  -0x0060  /**< Out of data when parsing an ASN1 data structure. */
+#define TTLS_ERR_ASN1_OUT_OF_DATA		  -0x0060  /**< Out of data when parsing an ASN1 data structure. */
 #define TTLS_ERR_ASN1_UNEXPECTED_TAG				   -0x0062  /**< ASN1 tag was of an unexpected value. */
 #define TTLS_ERR_ASN1_INVALID_LENGTH				   -0x0064  /**< Error when trying to determine the length or invalid length. */
 #define TTLS_ERR_ASN1_LENGTH_MISMATCH				  -0x0066  /**< Actual length differs from expected length. */
-#define TTLS_ERR_ASN1_INVALID_DATA					 -0x0068  /**< Data is invalid. (not used) */
-#define TTLS_ERR_ASN1_ALLOC_FAILED					 -0x006A  /**< Memory allocation failed */
-#define TTLS_ERR_ASN1_BUF_TOO_SMALL					-0x006C  /**< Buffer too small when writing ASN.1 data structure. */
+#define TTLS_ERR_ASN1_INVALID_DATA		 -0x0068  /**< Data is invalid. (not used) */
+#define TTLS_ERR_ASN1_ALLOC_FAILED		 -0x006A  /**< Memory allocation failed */
+#define TTLS_ERR_ASN1_BUF_TOO_SMALL		-0x006C  /**< Buffer too small when writing ASN.1 data structure. */
 
 /* \} name */
 
@@ -67,11 +67,11 @@
 #define TTLS_ASN1_INTEGER				 0x02
 #define TTLS_ASN1_BIT_STRING			  0x03
 #define TTLS_ASN1_OCTET_STRING			0x04
-#define TTLS_ASN1_NULL					0x05
-#define TTLS_ASN1_OID					 0x06
+#define TTLS_ASN1_NULL		0x05
+#define TTLS_ASN1_OID		 0x06
 #define TTLS_ASN1_UTF8_STRING			 0x0C
 #define TTLS_ASN1_SEQUENCE				0x10
-#define TTLS_ASN1_SET					 0x11
+#define TTLS_ASN1_SET		 0x11
 #define TTLS_ASN1_PRINTABLE_STRING		0x13
 #define TTLS_ASN1_T61_STRING			  0x14
 #define TTLS_ASN1_IA5_STRING			  0x16
@@ -109,7 +109,7 @@
  * Only works for 'defined' oid_str values (TTLS_OID_HMAC_SHA1), you cannot use a
  * 'unsigned char *oid' here!
  */
-#define TTLS_OID_CMP(oid_str, oid_buf)								   \
+#define TTLS_OID_CMP(oid_str, oid_buf)		   \
 		((TTLS_OID_SIZE(oid_str) != (oid_buf)->len) ||				\
 		  memcmp((oid_str), (oid_buf)->p, (oid_buf)->len) != 0)
 
@@ -233,7 +233,7 @@ int ttls_asn1_get_int(unsigned char **p,
  * \return	  0 if successful or a specific ASN.1 error code.
  */
 int ttls_asn1_get_bitstring(unsigned char **p, const unsigned char *end,
-						ttls_asn1_bitstring *bs);
+			ttls_asn1_bitstring *bs);
 
 /**
  * \brief	   Retrieve a bitstring ASN.1 tag without unused bits and its
@@ -247,7 +247,7 @@ int ttls_asn1_get_bitstring(unsigned char **p, const unsigned char *end,
  * \return	  0 if successful or a specific ASN.1 error code.
  */
 int ttls_asn1_get_bitstring_null(unsigned char **p, const unsigned char *end,
-							 size_t *len);
+				 size_t *len);
 
 /**
  * \brief	   Parses and splits an ASN.1 "SEQUENCE OF <tag>"
@@ -261,9 +261,9 @@ int ttls_asn1_get_bitstring_null(unsigned char **p, const unsigned char *end,
  * \return	  0 if successful or a specific ASN.1 error code.
  */
 int ttls_asn1_get_sequence_of(unsigned char **p,
-						  const unsigned char *end,
-						  ttls_asn1_sequence *cur,
-						  int tag);
+			  const unsigned char *end,
+			  ttls_asn1_sequence *cur,
+			  int tag);
 
 /**
  * \brief	   Retrieve a MPI value from an integer ASN.1 tag.
@@ -308,8 +308,8 @@ int ttls_asn1_get_alg(unsigned char **p,
  * \return	  0 if successful or a specific ASN.1 or MPI error code.
  */
 int ttls_asn1_get_alg_null(unsigned char **p,
-					   const unsigned char *end,
-					   ttls_asn1_buf *alg);
+		   const unsigned char *end,
+		   ttls_asn1_buf *alg);
 
 /**
  * \brief	   Find a specific named_data entry in a sequence or list based on
@@ -322,7 +322,7 @@ int ttls_asn1_get_alg_null(unsigned char **p,
  * \return	  NULL if not found, or a pointer to the existing entry.
  */
 ttls_asn1_named_data *ttls_asn1_find_named_data(ttls_asn1_named_data *list,
-									   const char *oid, size_t len);
+			   const char *oid, size_t len);
 
 /**
  * \brief	   Free a ttls_asn1_named_data entry

@@ -110,7 +110,7 @@ ttls_x509_crl;
  * \return		 0 if successful, or a specific X509 or PEM error code
  */
 int ttls_x509_crl_parse_der(ttls_x509_crl *chain,
-						const unsigned char *buf, size_t buflen);
+			const unsigned char *buf, size_t buflen);
 /**
  * \brief		  Parse one or more CRLs and append them to the chained list
  *

@@ -44,8 +44,8 @@ void ttls_pem_init(ttls_pem_context *ctx)
 }
 
 int ttls_pem_read_buffer(ttls_pem_context *ctx, const char *header, const char *footer,
-					 const unsigned char *data, const unsigned char *pwd,
-					 size_t pwdlen, size_t *use_len)
+		 const unsigned char *data, const unsigned char *pwd,
+		 size_t pwdlen, size_t *use_len)
 {
 	int ret, enc;
 	size_t len;
@@ -127,8 +127,8 @@ void ttls_pem_free(ttls_pem_context *ctx)
 
 #if defined(TTLS_PEM_WRITE_C)
 int ttls_pem_write_buffer(const char *header, const char *footer,
-					  const unsigned char *der_data, size_t der_len,
-					  unsigned char *buf, size_t buf_len, size_t *olen)
+		  const unsigned char *der_data, size_t der_len,
+		  unsigned char *buf, size_t buf_len, size_t *olen)
 {
 	int ret;
 	unsigned char *encode_buf = NULL, *c, *p = buf;
@@ -148,7 +148,7 @@ int ttls_pem_write_buffer(const char *header, const char *footer,
 		return(TTLS_ERR_PEM_ALLOC_FAILED);
 
 	if ((ret = ttls_base64_encode(encode_buf, use_len, &use_len, der_data,
-							   der_len)) != 0)
+				   der_len)) != 0)
 	{
 		ttls_free(encode_buf);
 		return ret;

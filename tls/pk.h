@@ -115,7 +115,7 @@ typedef struct ttls_pk_info_t ttls_pk_info_t;
 typedef struct
 {
 	const ttls_pk_info_t *   pk_info; /**< Public key informations		*/
-	void *					  pk_ctx;  /**< Underlying public key context  */
+	void *		  pk_ctx;  /**< Underlying public key context  */
 } ttls_pk_context;
 
 /**
@@ -145,12 +145,12 @@ static inline ttls_ecp_keypair *ttls_pk_ec(const ttls_pk_context pk)
  * \brief		   Types for RSA-alt abstraction
  */
 typedef int (*ttls_pk_rsa_alt_decrypt_func)(void *ctx, int mode, size_t *olen,
-					const unsigned char *input, unsigned char *output,
-					size_t output_max_len);
+		const unsigned char *input, unsigned char *output,
+		size_t output_max_len);
 typedef int (*ttls_pk_rsa_alt_sign_func)(void *ctx,
-					int (*f_rng)(void *, unsigned char *, size_t), void *p_rng,
-					int mode, ttls_md_type_t md_alg, unsigned int hashlen,
-					const unsigned char *hash, unsigned char *sig);
+		int (*f_rng)(void *, unsigned char *, size_t), void *p_rng,
+		int mode, ttls_md_type_t md_alg, unsigned int hashlen,
+		const unsigned char *hash, unsigned char *sig);
 typedef size_t (*ttls_pk_rsa_alt_key_len_func)(void *ctx);
 #endif /* TTLS_PK_RSA_ALT_SUPPORT */
 
@@ -205,9 +205,9 @@ int ttls_pk_setup(ttls_pk_context *ctx, const ttls_pk_info_t *info);
  * \note			This function replaces \c ttls_pk_setup() for RSA-alt.
  */
 int ttls_pk_setup_rsa_alt(ttls_pk_context *ctx, void * key,
-						 ttls_pk_rsa_alt_decrypt_func decrypt_func,
-						 ttls_pk_rsa_alt_sign_func sign_func,
-						 ttls_pk_rsa_alt_key_len_func key_len_func);
+			 ttls_pk_rsa_alt_decrypt_func decrypt_func,
+			 ttls_pk_rsa_alt_sign_func sign_func,
+			 ttls_pk_rsa_alt_key_len_func key_len_func);
 #endif /* TTLS_PK_RSA_ALT_SUPPORT */
 
 /**
@@ -329,8 +329,7 @@ int ttls_pk_verify_ext(ttls_pk_type_t type, const void *options,
  */
 int ttls_pk_sign(ttls_pk_context *ctx, ttls_md_type_t md_alg,
 			 const unsigned char *hash, size_t hash_len,
-			 unsigned char *sig, size_t *sig_len,
-			 int (*f_rng)(void *, unsigned char *, size_t), void *p_rng);
+			 unsigned char *sig, size_t *sig_len);
 
 /**
  * \brief		   Decrypt message (including padding if relevant).
@@ -453,14 +452,14 @@ int ttls_pk_parse_key(ttls_pk_context *ctx,
  * \return		  0 if successful, or a specific PK or PEM error code
  */
 int ttls_pk_parse_public_key(ttls_pk_context *ctx,
-						 const unsigned char *key, size_t keylen);
+			 const unsigned char *key, size_t keylen);
 
 #if defined(TTLS_PK_WRITE_C)
 /**
  * \brief		   Write a private key to a PKCS#1 or SEC1 DER structure
  *				  Note: data is written at the end of the buffer! Use the
- *						return value to determine where you should start
- *						using the buffer
+ *			return value to determine where you should start
+ *			using the buffer
  *
  * \param ctx	   private to write away
  * \param buf	   buffer to write to
@@ -474,8 +473,8 @@ int ttls_pk_write_key_der(ttls_pk_context *ctx, unsigned char *buf, size_t size)
 /**
  * \brief		   Write a public key to a SubjectPublicKeyInfo DER structure
  *				  Note: data is written at the end of the buffer! Use the
- *						return value to determine where you should start
- *						using the buffer
+ *			return value to determine where you should start
+ *			using the buffer
  *
  * \param ctx	   public key to write away
  * \param buf	   buffer to write to
@@ -526,7 +525,7 @@ int ttls_pk_write_key_pem(ttls_pk_context *ctx, unsigned char *buf, size_t size)
  * \return		  0 if successful, or a specific PK error code
  */
 int ttls_pk_parse_subpubkey(unsigned char **p, const unsigned char *end,
-						ttls_pk_context *pk);
+			ttls_pk_context *pk);
 
 #if defined(TTLS_PK_WRITE_C)
 /**
@@ -540,7 +539,7 @@ int ttls_pk_parse_subpubkey(unsigned char **p, const unsigned char *end,
  * \return		  the length written or a negative error code
  */
 int ttls_pk_write_pubkey(unsigned char **p, unsigned char *start,
-					 const ttls_pk_context *key);
+		 const ttls_pk_context *key);
 #endif /* TTLS_PK_WRITE_C */
 
 /*

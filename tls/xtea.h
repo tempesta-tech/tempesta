@@ -92,9 +92,9 @@ void ttls_xtea_setup(ttls_xtea_context *ctx, const unsigned char key[16]);
  * \return		 0 if successful
  */
 int ttls_xtea_crypt_ecb(ttls_xtea_context *ctx,
-					int mode,
-					const unsigned char input[8],
-					unsigned char output[8]);
+		int mode,
+		const unsigned char input[8],
+		unsigned char output[8]);
 
 #if defined(TTLS_CIPHER_MODE_CBC)
 /**
@@ -111,11 +111,11 @@ int ttls_xtea_crypt_ecb(ttls_xtea_context *ctx,
  *				 TTLS_ERR_XTEA_INVALID_INPUT_LENGTH if the length % 8 != 0
  */
 int ttls_xtea_crypt_cbc(ttls_xtea_context *ctx,
-					int mode,
-					size_t length,
-					unsigned char iv[8],
-					const unsigned char *input,
-					unsigned char *output);
+		int mode,
+		size_t length,
+		unsigned char iv[8],
+		const unsigned char *input,
+		unsigned char *output);
 #endif /* TTLS_CIPHER_MODE_CBC */
 
 #ifdef __cplusplus

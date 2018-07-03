@@ -97,7 +97,7 @@
  *				  TTLS_ERR_ENTROPY_SOURCE_FAILED otherwise
  */
 typedef int (*ttls_entropy_f_source_ptr)(void *data, unsigned char *output, size_t len,
-							size_t *olen);
+				size_t *olen);
 
 /**
  * \brief		   Entropy source state
@@ -163,8 +163,8 @@ void ttls_entropy_free(ttls_entropy_context *ctx);
  * \return		  0 if successful or TTLS_ERR_ENTROPY_MAX_SOURCES
  */
 int ttls_entropy_add_source(ttls_entropy_context *ctx,
-						ttls_entropy_f_source_ptr f_source, void *p_source,
-						size_t threshold, int strong);
+			ttls_entropy_f_source_ptr f_source, void *p_source,
+			size_t threshold, int strong);
 
 /**
  * \brief		   Trigger an extra gather poll for the accumulator
@@ -197,6 +197,6 @@ int ttls_entropy_func(void *data, unsigned char *output, size_t len);
  * \return		  0 if successful
  */
 int ttls_entropy_update_manual(ttls_entropy_context *ctx,
-						   const unsigned char *data, size_t len);
+			   const unsigned char *data, size_t len);
 
 #endif /* entropy.h */

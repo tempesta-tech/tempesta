@@ -76,13 +76,13 @@ static int aes_crypt_ecb_wrap(void *ctx, ttls_operation_t operation,
 }
 
 static int aes_setkey_dec_wrap(void *ctx, const unsigned char *key,
-								unsigned int key_bitlen)
+		unsigned int key_bitlen)
 {
 	return ttls_aes_setkey_dec((ttls_aes_context *) ctx, key, key_bitlen);
 }
 
 static int aes_setkey_enc_wrap(void *ctx, const unsigned char *key,
-								unsigned int key_bitlen)
+		unsigned int key_bitlen)
 {
 	return ttls_aes_setkey_enc((ttls_aes_context *) ctx, key, key_bitlen);
 }
@@ -151,10 +151,10 @@ static const ttls_cipher_info_t aes_256_ecb_info = {
 };
 
 static int gcm_aes_setkey_wrap(void *ctx, const unsigned char *key,
-								unsigned int key_bitlen)
+		unsigned int key_bitlen)
 {
 	return ttls_gcm_setkey((ttls_gcm_context *) ctx, TTLS_CIPHER_ID_AES,
-					 key, key_bitlen);
+		 key, key_bitlen);
 }
 
 static const ttls_cipher_base_t gcm_aes_info = {
@@ -203,10 +203,10 @@ static const ttls_cipher_info_t aes_256_gcm_info = {
 };
 
 static int ccm_aes_setkey_wrap(void *ctx, const unsigned char *key,
-								unsigned int key_bitlen)
+		unsigned int key_bitlen)
 {
 	return ttls_ccm_setkey((ttls_ccm_context *) ctx, TTLS_CIPHER_ID_AES,
-					 key, key_bitlen);
+		 key, key_bitlen);
 }
 
 static const ttls_cipher_base_t ccm_aes_info = {
@@ -260,17 +260,17 @@ static int camellia_crypt_ecb_wrap(void *ctx, ttls_operation_t operation,
 		const unsigned char *input, unsigned char *output)
 {
 	return ttls_camellia_crypt_ecb((ttls_camellia_context *) ctx, operation, input,
-							   output);
+				   output);
 }
 
 static int camellia_setkey_dec_wrap(void *ctx, const unsigned char *key,
-									 unsigned int key_bitlen)
+			 unsigned int key_bitlen)
 {
 	return ttls_camellia_setkey_dec((ttls_camellia_context *) ctx, key, key_bitlen);
 }
 
 static int camellia_setkey_enc_wrap(void *ctx, const unsigned char *key,
-									 unsigned int key_bitlen)
+			 unsigned int key_bitlen)
 {
 	return ttls_camellia_setkey_enc((ttls_camellia_context *) ctx, key, key_bitlen);
 }
@@ -340,10 +340,10 @@ static const ttls_cipher_info_t camellia_256_ecb_info = {
 };
 
 static int gcm_camellia_setkey_wrap(void *ctx, const unsigned char *key,
-									 unsigned int key_bitlen)
+			 unsigned int key_bitlen)
 {
 	return ttls_gcm_setkey((ttls_gcm_context *) ctx, TTLS_CIPHER_ID_CAMELLIA,
-					 key, key_bitlen);
+		 key, key_bitlen);
 }
 
 static const ttls_cipher_base_t gcm_camellia_info = {
@@ -392,10 +392,10 @@ static const ttls_cipher_info_t camellia_256_gcm_info = {
 };
 
 static int ccm_camellia_setkey_wrap(void *ctx, const unsigned char *key,
-									 unsigned int key_bitlen)
+			 unsigned int key_bitlen)
 {
 	return ttls_ccm_setkey((ttls_ccm_context *) ctx, TTLS_CIPHER_ID_CAMELLIA,
-					 key, key_bitlen);
+		 key, key_bitlen);
 }
 
 static const ttls_cipher_base_t ccm_camellia_info = {
@@ -450,11 +450,11 @@ static int blowfish_crypt_ecb_wrap(void *ctx, ttls_operation_t operation,
 		const unsigned char *input, unsigned char *output)
 {
 	return ttls_blowfish_crypt_ecb((ttls_blowfish_context *) ctx, operation, input,
-							   output);
+				   output);
 }
 
 static int blowfish_setkey_wrap(void *ctx, const unsigned char *key,
-								 unsigned int key_bitlen)
+		 unsigned int key_bitlen)
 {
 	return ttls_blowfish_setkey((ttls_blowfish_context *) ctx, key, key_bitlen);
 }

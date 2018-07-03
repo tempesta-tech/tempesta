@@ -26,7 +26,7 @@
 #include "tls.h"
 
 typedef struct {
-	ttls_ssl_config	cfg;
+	ttls_config	cfg;
 	ttls_x509_crt	crt;
 	ttls_pk_context	key;
 } TfwTls;
@@ -41,6 +41,7 @@ tfw_tls_msg_process(void *conn, TfwFsmData *data)
 	unsigned int off = data->off;
 	TfwConn *c = conn;
 	TlsCtx *tls = tfw_tls_context(c);
+	struct sk_buff *msg_skb;
 	TfwFsmData data_up = {};
 
 	BUG_ON(data_off >= skb_len);
@@ -53,6 +54,7 @@ tfw_tls_msg_process(void *conn, TfwFsmData *data)
 	spin_lock(&tls->lock);
 next_msg:
 	ss_skb_queue_tail(&tls->io_in.skb_list, skb);
+	msg_skb = tls->io_in.skb_list;
 	r = ss_skb_process(skb, off, ttls_recv, &tls, &tls->io_in.chunks,
 			   &parsed);
 	switch (r) {
@@ -66,7 +68,7 @@ next_msg:
 	case T_POSTPONE:
 		/*
 		 * No data to pass to upper protolos, typically
-		 * handshake and/or incomplete TLS header.
+		 * handshake and/or incomplete TLS record.
 		 */
 		// TODO AK: process	MBEDTLS_ERR_SSL_WANT_READ
 		// 			MBEDTLS_ERR_SSL_WANT_WRITE
@@ -109,9 +111,9 @@ next_msg:
 		}
 	}
 
-	data_up.skb = tls->io_in.skb_list;
+	/* At this point tls->io_in is initialized for the next record. */
+	data_up.skb = msg_skb;
 	data_up.off = off;
-	tls->io_in.skb_list = NULL;
 	r = tfw_gfsm_move(&c->state, TFW_TLS_FSM_DATA_READY, data);
 	if (r == TFW_BLOCK) {
 		spin_unlock(&tls->lock);
@@ -119,11 +121,10 @@ next_msg:
 		return r;
 	}
 
-	ttls_init_msg_ctx(tls);
 	if (nskb) {
 		skb = nskb;
 		nskb = NULL;
-		off = 0;
+		parsed = off = 0;
 		goto next_msg;
 	}
 	spin_unlock(&tls->lock);
@@ -133,8 +134,6 @@ next_msg:
 
 /**
  * The callback is called by tcp_write_xmit() if @skb must be encrypted by TLS.
- * If @skb contains a TLS message for encryption, then it's already has a TLS
- * header and enough space for IV and a tag.
  *
  * Probably, that's not beautiful to introduce an alternate upcall beside GFSM
  * and SS, but that's efficient and I didn't find a simple and better solution.
@@ -148,6 +147,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb)
 	TlsCtx *tls = tfw_tls_context(sk->sk_user_data);
 	TlsIOCtx *io = &tls->io_out;
 
+	BUG_ON(!io->xfrm);
 	WARN_ON_ONCE(skb->len > TLS_MAX_PAYLOAD_SIZE);
 
 	len = skb->len + io->xfrm->ivlen + ttls_xfrm_taglen(io->xfrm);
@@ -171,28 +171,61 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb)
 
 /**
  * Callback function which is called by TLS library under tls->lock.
- *
- * The function copies data in tfw_msg_write(), so @buf should be small and
- * can use automatic memory.
  */
 static int
-tfw_tls_send(TlsCtx *tls, const unsigned char *buf, size_t len, bool encrypt)
+tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 {
-	int r;
+	int r, flags = 0;
 	TfwTlsConn *conn = container_of(tls, TfwTlsConn, tls);
 	TlsIOCtx *io = &tls->io_out;
+	struct scatterlist *sg;
 	TfwMsgIter it;
-	TfwStr str = { .ptr = buf, .len = len },
+	TfwStr str;
 
-	T_DBG("TLS %lu bytes sent on conn=%pK\n", len, c);
+	/*
+	 * Encrypted (application data) messages will be prepended by a header
+	 * in tfw_tls_encrypt(), so if we have an encryption context, then we
+	 * don't send the header. Otherwise (handshake message) copy the whole
+	 * data with a header.
+	 */
+	if (io->xfrm) { // TODO AK always not NULL
+		str.ptr = io->__msg;
+		str.len = io->msglen;
+	} else {
+		str.ptr = io->hdr;
+		str.len = io->msglen + ttls_hdr_len(tls);
+	}
+	T_DBG("TLS %lu bytes sent on conn=%pK\n", str.len, conn);
 
 	len += TLS_MAX_TAG_SZ;
-	if ((r = tfw_msg_iter_setup(&it, &io->skb_list, len)))
+	if ((r = tfw_msg_iter_setup(&it, &io->skb_list, io->msglen)))
 		return r;
 	if ((r = tfw_msg_write(&it, &str)))
 		return r;
-	return ss_send(conn->cli_conn.sk, &conn->tls.skb_list,
-		       encrypt ? SS_F_TLS : 0);
+	/* Only one skb should has been allocated. */
+	WARN_ON_ONCE(it.skb->next != io->skb_list
+		     || it.skb->prev != io->skb_list);
+	tempesta_tls_skb_settype(it.skb, io->msgtype);
+	if (sgt) {
+		int f, i = ++it->frag;
+		struct sk_buff *skb = it->skb;
+		for_each_sg(sgt->sgl, sg, sgt->nents, f) {
+			if (i >= MAX_SKB_FRAGS) {
+				if (!(it->skb = ss_skb_alloc(0)))
+					return -ENOMEM;
+				tempesta_tls_skb_settype(skb, io->msgtype);
+				ss_skb_queue_tail(&io->skb_list, skb);
+				i = 0;
+			}
+			skb_fill_page_desc(skb, i, sg_page(sg), sg->offset,
+					   sg->length);
+		}
+	}
+
+	if (io->xfrm)
+		flags |= SS_F_TLS;
+
+	return ss_send(conn->cli_conn.sk, &conn->tls.skb_list, flags);
 }
 
 static void
@@ -285,6 +318,11 @@ tfw_tls_do_init(void)
 		return -EINVAL;
 	}
 
+	/*
+	 * TODO #715 set SNI callback with ttls_conf_sni() to get per-vhost
+	 * certificates.
+	 */
+
 	return 0;
 }
 
@@ -366,7 +404,6 @@ tfw_cfgop_ssl_certificate(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	r = ttls_x509_crt_parse(&tfw_tls.crt, (const unsigned char *)crt_data,
 				crt_size);
-	vfree(crt_data);
 
 	if (r) {
 		TFW_ERR_NL("%s: Invalid certificate specified (%x)\n",
@@ -417,7 +454,7 @@ tfw_cfgop_ssl_certificate_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	r = ttls_pk_parse_key(&tfw_tls.key, (const unsigned char *)key_data,
 			      key_size, NULL, 0);
-	vfree(key_data);
+	free_pages(key_data, get_order(key_size));
 
 	if (r) {
 		TFW_ERR_NL("%s: Invalid private key specified (%x)\n",

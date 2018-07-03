@@ -24,14 +24,12 @@
 #ifndef TTLS_INTERNAL_H
 #define TTLS_INTERNAL_H
 
+#include "lib/fsm.h"
+
 #include "cipher.h"
 #include "ttls.h"
-#if defined(TTLS_SHA256_C)
 #include "sha256.h"
-#endif
-#if defined(TTLS_SHA512_C)
 #include "sha512.h"
-#endif
 
 /* Determine minimum supported version */
 #define TTLS_MIN_MAJOR_VERSION		TTLS_MAJOR_VERSION_3
@@ -45,9 +43,6 @@
 #define TTLS_MAX_MINOR_VERSION		TTLS_MINOR_VERSION_3
 
 #define TTLS_INITIAL_HANDSHAKE		0
-#define TTLS_RENEGOTIATION_IN_PROGRESS	1 /* In progress */
-#define TTLS_RENEGOTIATION_DONE		2 /* Done or aborted */
-#define TTLS_RENEGOTIATION_PENDING		3 /* Requested (server only) */
 
 /*
  * DTLS retransmission states, see RFC 6347 4.2.4
@@ -75,7 +70,7 @@
 
 #define TTLS_PAYLOAD_LEN	(TTLS_MAX_CONTENT_LEN		\
 				 + TTLS_COMPRESSION_ADD		\
-				 + TTLS_MAX_IV_LENGTH			\
+				 + TTLS_MAX_IV_LENGTH		\
 				 + TTLS_MAC_ADD			\
 				 + TTLS_PADDING_ADD)
 #if defined(TTLS_PROTO_DTLS)
@@ -85,13 +80,15 @@
 #endif
 #define TTLS_BUF_LEN		(TTLS_HDR_LEN + TTLS_PAYLOAD_LEN)
 #define TTLS_IV_LEN		16
-
 /*
- * TLS extension flags (for extensions with outgoing ServerHello content
- * that need it (e.g. for RENEGOTIATION_INFO the server already knows because
- * of state of the renegotiation flag, so no indicator is required)
+ * There is currently no ciphersuite using another length with TLS 1.2.
+ * RFC 5246 7.4.9 (Page 63) says 12 is the default length and ciphersuites
+ * may define some other value. Currently (early 2016), no defined
+ * ciphersuite does this (and this is unlikely to change as activity has
+ * moved to TLS 1.3 now) so we can keep the hardcoded 12 here.
  */
-#define TTLS_TLS_EXT_SUPPORTED_POINT_FORMATS_PRESENT (1 << 0)
+#define TLS_MAX_HASH_LEN	12
+
 
 /*
  * Abstraction for a grid of allowed signature-hash-algorithm pairs.
@@ -109,82 +106,59 @@ struct ttls_sig_hash_set_t
 
 /*
  * This structure contains the parameters only needed during handshake.
+ *
+ * @hash_algs	- set of suitable sig-hash pairs;
+ * @point_form	- TLS extension flags (for extensions with outgoing ServerHello
+ * 		  content that need it (e.g. for RENEGOTIATION_INFO the server
+ * 		  already knows because of state of the renegotiation flag, so
+ * 		  no indicator is required);
+ * @extended_ms	- use Extended Master Secret (RFC 7627)?
+ * @new_session_ticket - use NewSessionTicket?
+ * @resume	- session resume indicator;
+ * @curves	- supported elliptic curves;
+ * @randbytes	- random bytes;
+ * @premaster	- premaster secret;
+ * @tmp		- buffer to store temporary data between data chunks;
  */
 typedef struct
 {
-	/* Handshake specific crypto variables. */
-	ttls_sig_hash_set_t hash_algs;			 /*!<  Set of suitable sig-hash pairs */
+	ttls_sig_hash_set_t		hash_algs;
+
 #if defined(TTLS_DHM_C)
 	ttls_dhm_context dhm_ctx;				/*!<  DHM key exchange		*/
 #endif
-#if defined(TTLS_ECDH_C)
 	ttls_ecdh_context ecdh_ctx;			  /*!<  ECDH key exchange	   */
-#endif
-#if defined(TTLS_ECDH_C) || defined(TTLS_ECDSA_C)
-	const ttls_ecp_curve_info **curves;	  /*!<  Supported elliptic curves */
-#endif
 	ttls_key_cert *key_cert;	 /*!< chosen key/cert pair (server)  */
 	int sni_authmode;				   /*!< authmode from SNI callback	 */
 	ttls_key_cert *sni_key_cert; /*!< key/cert list from SNI		 */
 	ttls_x509_crt *sni_ca_chain;	 /*!< trusted CAs from SNI callback  */
 	ttls_x509_crl *sni_ca_crl;	   /*!< trusted CAs CRLs from SNI	  */
-#if defined(TTLS_PROTO_DTLS)
-	unsigned int out_msg_seq;		   /*!<  Outgoing handshake sequence number */
-	unsigned int in_msg_seq;			/*!<  Incoming handshake sequence number */
-
-	unsigned char *verify_cookie;	   /*!<  Cli: HelloVerifyRequest cookie
-											  Srv: unused					*/
-	unsigned char verify_cookie_len;	/*!<  Cli: cookie length
-											  Srv: flag for sending a cookie */
-
-	unsigned char *hs_msg;			  /*!<  Reassembled handshake message  */
-
-	uint32_t retransmit_timeout;		/*!<  Current value of timeout	   */
-	unsigned char retransmit_state;	 /*!<  Retransmission state		   */
-	ttls_flight_item *flight;			/*!<  Current outgoing flight		*/
-	ttls_flight_item *cur_msg;		   /*!<  Current message in flight	  */
-	unsigned int in_flight_start_seq;   /*!<  Minimum message sequence in the
-											  flight being received		  */
-	TtlsXfrm *alt_transform_out;   /*!<  Alternative transform for
-											  resending messages			 */
-	unsigned char alt_out_ctr[8];	   /*!<  Alternative record epoch/counter
-											  for resending messages		 */
-#endif /* TTLS_PROTO_DTLS */
 
 	/*
 	 * Checksum contexts
 	 */
-#if defined(TTLS_SHA256_C)
 	ttls_sha256_context fin_sha256;
-#endif
-#if defined(TTLS_SHA512_C)
 	ttls_sha512_context fin_sha512;
-#endif
 
 	void (*update_checksum)(ttls_context *, const unsigned char *, size_t);
 	void (*calc_verify)(ttls_context *, unsigned char *);
 	void (*calc_finished)(ttls_context *, unsigned char *, int);
 	int  (*tls_prf)(const unsigned char *, size_t, const char *,
-					const unsigned char *, size_t,
-					unsigned char *, size_t);
+		const unsigned char *, size_t,
+		unsigned char *, size_t);
 
-	size_t pmslen;					  /*!<  premaster length		*/
+	size_t pmslen;	  /*!<  premaster length*/
+	unsigned char		point_form:1,
+				extended_ms:1,
+				new_session_ticket:1,
+				resume:1;
 
-	unsigned char randbytes[64];		/*!<  random bytes			*/
-	unsigned char premaster[TTLS_PREMASTER_SIZE];
-										/*!<  premaster secret		*/
-
-	int resume;						 /*!<  session resume indicator*/
-	int max_major_ver;				  /*!< max. major version client*/
-	int max_minor_ver;				  /*!< max. minor version client*/
-	int cli_exts;					   /*!< client extension presence*/
-
-#if defined(TTLS_SESSION_TICKETS)
-	int new_session_ticket;			 /*!< use NewSessionTicket?	*/
-#endif /* TTLS_SESSION_TICKETS */
-#if defined(TTLS_EXTENDED_MASTER_SECRET)
-	int extended_ms;					/*!< use Extended Master Secret? */
-#endif
+	ttls_ecp_curve_info	*curves[TTLS_ECP_DP_MAX];
+	unsigned char		randbytes[64];
+	union {
+		unsigned char	premaster[TTLS_PREMASTER_SIZE];
+		unsigned char	tmp[TTLS_HS_RBUF_SZ];
+	}
 } TlsHandshake;
 
 /*
@@ -203,7 +177,7 @@ typedef struct
  * @maclen		- MAC length;
  * @iv			- IV;
  */
-struct TtlsXfrm
+struct TlsXfrm
 {
 	const ttls_ciphersuite_t	*ciphersuite_info;
 	ttls_md_context_t		md_ctx;
@@ -230,7 +204,7 @@ struct TtlsXfrm
  */
 struct ttls_key_cert
 {
-	ttls_x509_crt *cert;				 /*!< cert					   */
+	ttls_x509_crt *cert;				 /*!< cert		   */
 	ttls_pk_context *key;				/*!< private key				*/
 	ttls_key_cert *next;			 /*!< next key/cert pair		 */
 };
@@ -242,7 +216,7 @@ struct ttls_key_cert
 struct ttls_flight_item
 {
 	unsigned char *p;	   /*!< message, including handshake headers   */
-	size_t len;			 /*!< length of p							*/
+	size_t len;			 /*!< length of p				*/
 	unsigned char type;	 /*!< type of the message: handshake or CCS  */
 	ttls_flight_item *next;  /*!< next handshake message(s)			  */
 };
@@ -250,14 +224,14 @@ struct ttls_flight_item
 
 /* Find an entry in a signature-hash set matching a given hash algorithm. */
 ttls_md_type_t ttls_sig_hash_set_find(ttls_sig_hash_set_t *set,
-												 ttls_pk_type_t sig_alg);
+			 ttls_pk_type_t sig_alg);
 /* Add a signature-hash-pair to a signature-hash set */
 void ttls_sig_hash_set_add(ttls_sig_hash_set_t *set,
-								   ttls_pk_type_t sig_alg,
-								   ttls_md_type_t md_alg);
-/* Allow exactly one hash algorithm for each signature. */
+			   ttls_pk_type_t sig_alg,
+			   ttls_md_type_t md_alg);
+void ttls_set_default_sig_hash(TlsCtx *tls);
 void ttls_sig_hash_set_const_hash(ttls_sig_hash_set_t *set,
-										  ttls_md_type_t md_alg);
+			  ttls_md_type_t md_alg);
 
 /* Setup an empty signature-hash set */
 static inline void ttls_sig_hash_set_init(ttls_sig_hash_set_t *set)
@@ -266,8 +240,8 @@ static inline void ttls_sig_hash_set_init(ttls_sig_hash_set_t *set)
 }
 
 /**
- * \brief		   Free referenced items in an SSL transform context and clear
- *				  memory
+ * \brief	   Free referenced items in an SSL transform context and clear
+ *		  memory
  *
  * \param transform SSL transform context
  */
@@ -275,108 +249,33 @@ void ttls_transform_free(TtlsXfrm *transform);
 
 void ttls_handshake_free(TlsHandshake *hs);
 
-int ttls_handshake_client_step(ttls_context *tls);
-int ttls_handshake_server_step(ttls_context *tls);
+int ttls_handshake_client_step(ttls_context *tls, unsigned char *buf,
+			       size_t len, unsigned int *read);
+int ttls_handshake_server_step(ttls_context *tls, unsigned char *buf,
+			       size_t len, unsigned int *read);
 void ttls_handshake_wrapup(ttls_context *tls);
 
 void ttls_reset_checksum(ttls_context *tls);
 int ttls_derive_keys(ttls_context *tls);
 
-int ttls_read_record_layer(TlsCtx *tls, unsigned char *buf, size_t len,
-			   unsigned int *read);
 int ttls_handle_message_type(TlsCtx *tls);
-int ttls_prepare_handshake_record(ttls_context *tls);
-void ttls_update_handshake_status(ttls_context *tls);
-
-/**
- * \brief	   Update record layer
- *
- *		  This function roughly separates the implementation
- *		  of the logic of (D)TLS from the implementation
- *		  of the secure transport.
- *
- * \param  tls  SSL context to use
- *
- * \return	0 or non-zero error code.
- *
- * \note	A clarification on what is called 'record layer' here
- *		is in order, as many sensible definitions are possible:
- *
- *		The record layer takes as input an untrusted underlying
- *		transport (stream or datagram) and transforms it into
- *		a serially multiplexed, secure transport, which
- *		conceptually provides the following:
- *
- *		  (1) Three datagram based, content-agnostic transports
- *			  for handshake, alert and CCS messages.
- *		  (2) One stream- or datagram-based transport
- *			  for application data.
- *		  (3) Functionality for changing the underlying transform
- *			  securing the contents.
- *
- *		  The interface to this functionality is given as follows:
- *
- *		  a Updating
- *			[Currently implemented by ttls_read_record]
- *
- *			Check if and on which of the four 'ports' data is pending:
- *			Nothing, a controlling datagram of type (1), or application
- *			data (2). In any case data is present, internal buffers
- *			provide access to the data for the user to process it.
- *			Consumption of type (1) datagrams is done automatically
- *			on the next update, invalidating that the internal buffers
- *			for previous datagrams, while consumption of application
- *			data (2) is user-controlled.
- *
- *		  b Reading of application data
- *			[Currently manual adaption of tls->in_offt pointer]
- *
- *			As mentioned in the last paragraph, consumption of data
- *			is different from the automatic consumption of control
- *			datagrams (1) because application data is treated as a stream.
- *
- *		  c Tracking availability of application data
- *			[Currently manually through decreasing tls->in_msglen]
- *
- *			For efficiency and to retain datagram semantics for
- *			application data in case of DTLS, the record layer
- *			provides functionality for checking how much application
- *			data is still available in the internal buffer.
- *
- *		  d Changing the transformation securing the communication.
- *
- *		  Given an opaque implementation of the record layer in the
- *		  above sense, it should be possible to implement the logic
- *		  of (D)TLS on top of it without the need to know anything
- *		  about the record layer's internals. This is done e.g.
- *		  in all the handshake handling functions, and in the
- *		  application data reading function ttls_read.
- *
- * \note	The above tries to give a conceptual picture of the
- *		  record layer, but the current implementation deviates
- *		  from it in some places. For example, our implementation of
- *		  the update functionality through ttls_read_record
- *		  discards datagrams depending on the current state, which
- *		  wouldn't fall under the record layer's responsibility
- *		  following the above definition.
- */
-int ttls_read_record(TlsCtx *tls, unsigned char *buf, size_t len,
-		     unsigned int *read);
 
 int ttls_write_record(TlsCtx *tls);
 int ttls_sendmsg(TlsCtx *tls, const char *buf, size_t len);
 
-int ttls_parse_certificate(ttls_context *tls);
+int ttls_parse_certificate(ttls_context *tls, unsigned char *buf, size_t len,
+			   unsigned int *read);
 int ttls_write_certificate(ttls_context *tls);
 
 int ttls_parse_change_cipher_spec(ttls_context *tls);
 int ttls_write_change_cipher_spec(ttls_context *tls);
 
-int ttls_parse_finished(ttls_context *tls);
+int ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
+			unsigned int *read);
 int ttls_write_finished(ttls_context *tls);
 
-void ttls_optimize_checksum(ttls_context *tls,
-			const ttls_ciphersuite_t *ciphersuite_info);
+void ttls_optimize_checksum(TlsCtx *tls,
+			    const ttls_ciphersuite_t *ciphersuite_info);
 
 unsigned char ttls_sig_from_pk(ttls_pk_context *pk);
 unsigned char ttls_sig_from_pk_alg(ttls_pk_type_t type);
@@ -402,16 +301,17 @@ static inline ttls_pk_context *ttls_own_key(ttls_context *tls)
 	return(key_cert == NULL ? NULL : key_cert->key);
 }
 
-static inline ttls_x509_crt *ttls_own_cert(ttls_context *tls)
+static inline ttls_x509_crt *
+ttls_own_cert(TlsCtx *tls)
 {
 	ttls_key_cert *key_cert;
 
-	if (tls->handshake != NULL && tls->handshake->key_cert != NULL)
-		key_cert = tls->handshake->key_cert;
+	if (tls->hs && tls->hs->key_cert)
+		key_cert = tls->hs->key_cert;
 	else
 		key_cert = tls->conf->key_cert;
 
-	return(key_cert == NULL ? NULL : key_cert->cert);
+	return key_cert ? key_cert->cert : NULL;
 }
 
 /*
@@ -424,9 +324,9 @@ static inline ttls_x509_crt *ttls_own_cert(ttls_context *tls)
  * Return 0 if everything is OK, -1 if not.
  */
 int ttls_check_cert_usage(const ttls_x509_crt *cert,
-						  const ttls_ciphersuite_t *ciphersuite,
-						  int cert_endpoint,
-						  uint32_t *flags);
+			  const ttls_ciphersuite_t *ciphersuite,
+			  int cert_endpoint,
+			  uint32_t *flags);
 
 void ttls_write_version(TlsCtx *tls, unsigned char ver[2]);
 void ttls_read_version(TlsCts *tls, const unsigned char ver[2]);
@@ -454,8 +354,88 @@ void ttls_dtls_replay_update(ttls_context *tls);
 #endif
 
 int ttls_get_key_exchange_md_tls1_2(ttls_context *tls,
-					unsigned char *output,
-					unsigned char *data, size_t data_len,
-					ttls_md_type_t md_alg);
+		unsigned char *output,
+		unsigned char *data, size_t data_len,
+		ttls_md_type_t md_alg);
+
+/*
+ * TLS state machine (common states & definitions for client and server).
+ */
+#define __TTLS_FSM_ST_SHIFT		24
+#define __TTLS_FSM_ST(st)		((st) << __TTLS_FSM_ST_SHIFT)
+#define __TTLS_FSM_ST_MASK		(~((1U << 24) - 1))
+#define __TTLS_FSM_SUBST(st, sst)	(__TTLS_FSM_ST(TTLS_##st) | sst)
+#define __TTLS_FSM_SUBST_MASK		((1U << 24) - 1)
+#define	TTLS_CLIENT_HELLO		__TTLS_FSM_ST(0)
+#define TTLS_SERVER_HELLO		__TTLS_FSM_ST(1)
+#define TTLS_SERVER_CERTIFICATE		__TTLS_FSM_ST(2)
+#define TTLS_SERVER_KEY_EXCHANGE	__TTLS_FSM_ST(3)
+#define TTLS_CERTIFICATE_REQUEST	__TTLS_FSM_ST(4)
+#define TTLS_SERVER_HELLO_DONE		__TTLS_FSM_ST(5)
+#define TTLS_CLIENT_CERTIFICATE		__TTLS_FSM_ST(6)
+#define TTLS_CLIENT_KEY_EXCHANGE	__TTLS_FSM_ST(7)
+#define TTLS_CERTIFICATE_VERIFY		__TTLS_FSM_ST(8)
+#define TTLS_CLIENT_CHANGE_CIPHER_SPEC	__TTLS_FSM_ST(9)
+#define TTLS_CLIENT_FINISHED		__TTLS_FSM_ST(10)
+#define TTLS_SERVER_CHANGE_CIPHER_SPEC	__TTLS_FSM_ST(11)
+#define TTLS_SERVER_FINISHED		__TTLS_FSM_ST(12)
+#define TTLS_HANDSHAKE_WRAPUP		__TTLS_FSM_ST(13)
+#define TTLS_HANDSHAKE_OVER		__TTLS_FSM_ST(14)
+#define TTLS_SERVER_NEW_SESSION_TICKET	__TTLS_FSM_ST(15)
+#define TTLS_SERVER_HELLO_VERIFY_REQUEST_SENT __TTLS_FSM_ST(16)
+
+/*
+ * Extend the common FSM for hanshake parsing.
+ */
+#define TTLS_HS_FSM_FINISH()			\
+	T_FSM_FINISH(r, tls->state);		\
+	*read = p - buf;			\
+	io->rlen += p - buf;
+
+/* Move to @st if we have at least @need bytes. */
+#define TTLS_HS_FSM_MOVE(st)			\
+do {			\
+	WARN_ON_ONCE(p - buf > len);		\
+	io->rlen = 0;				\
+	T_FSM_MOVE(st,	if (unlikely(p - buf >= len)) T_FSM_EXIT(); );	\
+} while (0)
+
+/*
+ * Size of temporary storage in TlsCtx->hs->tmp.
+ * The temporary buffer is used to store 2 types of temporary data: utility
+ * data to store 'state' between chunks of data while the FSM is being in
+ * the same state (i.e. stack-based FSM reduces number of states using the
+ * stack) and 'memory' used between states, e.g. ciphersuites parsed in
+ * one state, but must be processed at the end, when all extensions are also
+ * parsed. So we split @tmp buffer to 2 segments and the constant defines size
+ * of the FSM stack.
+ */
+#define TTLS_HS_TMP_STORE_SZ	8
+/* Minimum size reserved for extension parsing. */
+#define TTLS_HS_EXT_RES_SZ	32
+/* Maximum length of cipher suites buffer. */
+#define TTLS_HS_CS_MAX_SZ	(TTLS_HS_RBUF_SZ - TTLS_HS_EXT_RES_SZ	\
+				 -  TTLS_HS_TMP_STORE_SZ)
+
+/* Server specific TLS handshake states. */
+typedef enum {
+	/* ClientHello intermediary states. */
+	TTLS_CH_HS_VER		= __TTLS_FSM_SUBST(CLIENT_HELLO, 0),
+	TTLS_CH_HS_RND		= __TTLS_FSM_SUBST(CLIENT_HELLO, 1),
+	TTLS_CH_HS_SLEN		= __TTLS_FSM_SUBST(CLIENT_HELLO, 2),
+	TTLS_CH_HS_SESS		= __TTLS_FSM_SUBST(CLIENT_HELLO, 3),
+	TTLS_CH_HS_CSLEN	= __TTLS_FSM_SUBST(CLIENT_HELLO, 4),
+	TTLS_CH_HS_CS		= __TTLS_FSM_SUBST(CLIENT_HELLO, 5),
+	TTLS_CH_HS_COMPN	= __TTLS_FSM_SUBST(CLIENT_HELLO, 6),
+	TTLS_CH_HS_COMP		= __TTLS_FSM_SUBST(CLIENT_HELLO, 7),
+	TTLS_CH_HS_EXTLEN	= __TTLS_FSM_SUBST(CLIENT_HELLO, 8),
+	TTLS_CH_HS_EXT		= __TTLS_FSM_SUBST(CLIENT_HELLO, 9),
+	TTLS_CH_HS_EXS		= __TTLS_FSM_SUBST(CLIENT_HELLO, 10),
+	TTLS_CH_HS_EX		= __TTLS_FSM_SUBST(CLIENT_HELLO, 11),
+	/* ClientCertificate intermediary states. */
+	TTLS_CC_HS_ALLOC	= __TTLS_FSM_SUBST(CLIENT_CERTIFICATE, 0),
+	TTLS_CC_HS_READ		= __TTLS_FSM_SUBST(CLIENT_CERTIFICATE, 1),
+	TTLS_CC_HS_PARSE	= __TTLS_FSM_SUBST(CLIENT_CERTIFICATE, 2),
+};
 
 #endif /* ssl_internal.h */
