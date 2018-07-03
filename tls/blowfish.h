@@ -89,7 +89,7 @@ void ttls_blowfish_free(ttls_blowfish_context *ctx);
  * \return		 0 if successful, or TTLS_ERR_BLOWFISH_INVALID_KEY_LENGTH
  */
 int ttls_blowfish_setkey(ttls_blowfish_context *ctx, const unsigned char *key,
-					 unsigned int keybits);
+		 unsigned int keybits);
 
 /**
  * \brief		  Blowfish-ECB block encryption/decryption
@@ -102,9 +102,9 @@ int ttls_blowfish_setkey(ttls_blowfish_context *ctx, const unsigned char *key,
  * \return		 0 if successful
  */
 int ttls_blowfish_crypt_ecb(ttls_blowfish_context *ctx,
-						int mode,
-						const unsigned char input[TTLS_BLOWFISH_BLOCKSIZE],
-						unsigned char output[TTLS_BLOWFISH_BLOCKSIZE]);
+			int mode,
+			const unsigned char input[TTLS_BLOWFISH_BLOCKSIZE],
+			unsigned char output[TTLS_BLOWFISH_BLOCKSIZE]);
 
 #if defined(TTLS_CIPHER_MODE_CBC)
 /**
@@ -131,11 +131,11 @@ int ttls_blowfish_crypt_ecb(ttls_blowfish_context *ctx,
  *				 TTLS_ERR_BLOWFISH_INVALID_INPUT_LENGTH
  */
 int ttls_blowfish_crypt_cbc(ttls_blowfish_context *ctx,
-						int mode,
-						size_t length,
-						unsigned char iv[TTLS_BLOWFISH_BLOCKSIZE],
-						const unsigned char *input,
-						unsigned char *output);
+			int mode,
+			size_t length,
+			unsigned char iv[TTLS_BLOWFISH_BLOCKSIZE],
+			const unsigned char *input,
+			unsigned char *output);
 #endif /* TTLS_CIPHER_MODE_CBC */
 
 #if defined(TTLS_CIPHER_MODE_CFB)
@@ -161,12 +161,12 @@ int ttls_blowfish_crypt_cbc(ttls_blowfish_context *ctx,
  * \return		 0 if successful
  */
 int ttls_blowfish_crypt_cfb64(ttls_blowfish_context *ctx,
-						  int mode,
-						  size_t length,
-						  size_t *iv_off,
-						  unsigned char iv[TTLS_BLOWFISH_BLOCKSIZE],
-						  const unsigned char *input,
-						  unsigned char *output);
+			  int mode,
+			  size_t length,
+			  size_t *iv_off,
+			  unsigned char iv[TTLS_BLOWFISH_BLOCKSIZE],
+			  const unsigned char *input,
+			  unsigned char *output);
 #endif /*TTLS_CIPHER_MODE_CFB */
 
 #if defined(TTLS_CIPHER_MODE_CTR)
@@ -178,23 +178,23 @@ int ttls_blowfish_crypt_cfb64(ttls_blowfish_context *ctx,
  * \param ctx		   Blowfish context
  * \param length		The length of the data
  * \param nc_off		The offset in the current stream_block (for resuming
- *					  within current cipher stream). The offset pointer to
- *					  should be 0 at the start of a stream.
+ *		  within current cipher stream). The offset pointer to
+ *		  should be 0 at the start of a stream.
  * \param nonce_counter The 64-bit nonce and counter.
  * \param stream_block  The saved stream-block for resuming. Is overwritten
- *					  by the function.
+ *		  by the function.
  * \param input		 The input data stream
  * \param output		The output data stream
  *
  * \return		 0 if successful
  */
 int ttls_blowfish_crypt_ctr(ttls_blowfish_context *ctx,
-						size_t length,
-						size_t *nc_off,
-						unsigned char nonce_counter[TTLS_BLOWFISH_BLOCKSIZE],
-						unsigned char stream_block[TTLS_BLOWFISH_BLOCKSIZE],
-						const unsigned char *input,
-						unsigned char *output);
+			size_t length,
+			size_t *nc_off,
+			unsigned char nonce_counter[TTLS_BLOWFISH_BLOCKSIZE],
+			unsigned char stream_block[TTLS_BLOWFISH_BLOCKSIZE],
+			const unsigned char *input,
+			unsigned char *output);
 #endif /* TTLS_CIPHER_MODE_CTR */
 
 #ifdef __cplusplus

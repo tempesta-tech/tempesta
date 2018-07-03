@@ -57,9 +57,9 @@ typedef struct
 
 	uint32_t ticket_lifetime;	   /*!< lifetime of tickets in seconds	 */
 
-	/** Callback for getting (pseudo-)random numbers						*/
+	/** Callback for getting (pseudo-)random numbers			*/
 	int  (*f_rng)(void *, unsigned char *, size_t);
-	void *p_rng;					/*!< context for the RNG function	   */
+	void *p_rng;		/*!< context for the RNG function	   */
 
 	spinlock_t mutex;
 }

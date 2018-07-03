@@ -33,8 +33,8 @@
 #include "md.h"
 #include "x509.h"
 
-#define TTLS_ERR_OID_NOT_FOUND						 -0x002E  /**< OID is not found. */
-#define TTLS_ERR_OID_BUF_TOO_SMALL					 -0x000B  /**< output buffer is too small */
+#define TTLS_ERR_OID_NOT_FOUND			 -0x002E  /**< OID is not found. */
+#define TTLS_ERR_OID_BUF_TOO_SMALL		 -0x000B  /**< output buffer is too small */
 
 /*
  * Top level OID tuples
@@ -50,21 +50,21 @@
 #define TTLS_OID_COUNTRY_US				  "\x86\x48"	  /* {us(840)} */
 #define TTLS_OID_ORG_RSA_DATA_SECURITY	   "\x86\xf7\x0d"  /* {rsadsi(113549)} */
 #define TTLS_OID_RSA_COMPANY				 TTLS_OID_ISO_MEMBER_BODIES TTLS_OID_COUNTRY_US \
-										TTLS_OID_ORG_RSA_DATA_SECURITY /* {iso(1) member-body(2) us(840) rsadsi(113549)} */
+				TTLS_OID_ORG_RSA_DATA_SECURITY /* {iso(1) member-body(2) us(840) rsadsi(113549)} */
 #define TTLS_OID_ORG_ANSI_X9_62			  "\xce\x3d" /* ansi-X9-62(10045) */
 #define TTLS_OID_ANSI_X9_62				  TTLS_OID_ISO_MEMBER_BODIES TTLS_OID_COUNTRY_US \
-										TTLS_OID_ORG_ANSI_X9_62
+				TTLS_OID_ORG_ANSI_X9_62
 
 /*
  * ISO Identified organization OID parts
  */
-#define TTLS_OID_ORG_DOD					 "\x06"		  /* {dod(6)} */
-#define TTLS_OID_ORG_OIW					 "\x0e"
+#define TTLS_OID_ORG_DOD		 "\x06"		  /* {dod(6)} */
+#define TTLS_OID_ORG_OIW		 "\x0e"
 #define TTLS_OID_OIW_SECSIG				  TTLS_OID_ORG_OIW "\x03"
 #define TTLS_OID_OIW_SECSIG_ALG			  TTLS_OID_OIW_SECSIG "\x02"
 #define TTLS_OID_OIW_SECSIG_SHA1			 TTLS_OID_OIW_SECSIG_ALG "\x1a"
 #define TTLS_OID_ORG_CERTICOM				"\x81\x04"  /* certicom(132) */
-#define TTLS_OID_CERTICOM					TTLS_OID_ISO_IDENTIFIED_ORG TTLS_OID_ORG_CERTICOM
+#define TTLS_OID_CERTICOM		TTLS_OID_ISO_IDENTIFIED_ORG TTLS_OID_ORG_CERTICOM
 #define TTLS_OID_ORG_TELETRUST			   "\x24" /* teletrust(36) */
 #define TTLS_OID_TELETRUST				   TTLS_OID_ISO_IDENTIFIED_ORG TTLS_OID_ORG_TELETRUST
 
@@ -74,35 +74,35 @@
 #define TTLS_OID_ORGANIZATION				"\x01"		  /* {organization(1)} */
 #define TTLS_OID_ISO_ITU_US_ORG			  TTLS_OID_ISO_ITU_COUNTRY TTLS_OID_COUNTRY_US TTLS_OID_ORGANIZATION /* {joint-iso-itu-t(2) country(16) us(840) organization(1)} */
 
-#define TTLS_OID_ORG_GOV					 "\x65"		  /* {gov(101)} */
-#define TTLS_OID_GOV						 TTLS_OID_ISO_ITU_US_ORG TTLS_OID_ORG_GOV /* {joint-iso-itu-t(2) country(16) us(840) organization(1) gov(101)} */
+#define TTLS_OID_ORG_GOV		 "\x65"		  /* {gov(101)} */
+#define TTLS_OID_GOV			 TTLS_OID_ISO_ITU_US_ORG TTLS_OID_ORG_GOV /* {joint-iso-itu-t(2) country(16) us(840) organization(1) gov(101)} */
 
 #define TTLS_OID_ORG_NETSCAPE				"\x86\xF8\x42"  /* {netscape(113730)} */
-#define TTLS_OID_NETSCAPE					TTLS_OID_ISO_ITU_US_ORG TTLS_OID_ORG_NETSCAPE /* Netscape OID {joint-iso-itu-t(2) country(16) us(840) organization(1) netscape(113730)} */
+#define TTLS_OID_NETSCAPE		TTLS_OID_ISO_ITU_US_ORG TTLS_OID_ORG_NETSCAPE /* Netscape OID {joint-iso-itu-t(2) country(16) us(840) organization(1) netscape(113730)} */
 
 /* ISO arc for standard certificate and CRL extensions */
-#define TTLS_OID_ID_CE					   TTLS_OID_ISO_CCITT_DS "\x1D" /**< id-ce OBJECT IDENTIFIER  ::=  {joint-iso-ccitt(2) ds(5) 29} */
+#define TTLS_OID_ID_CE		   TTLS_OID_ISO_CCITT_DS "\x1D" /**< id-ce OBJECT IDENTIFIER  ::=  {joint-iso-ccitt(2) ds(5) 29} */
 
 /**
  * Private Internet Extensions
  * { iso(1) identified-organization(3) dod(6) internet(1)
- *					  security(5) mechanisms(5) pkix(7) }
+ *		  security(5) mechanisms(5) pkix(7) }
  */
-#define TTLS_OID_PKIX						TTLS_OID_ISO_IDENTIFIED_ORG TTLS_OID_ORG_DOD "\x01\x05\x05\x07"
+#define TTLS_OID_PKIX			TTLS_OID_ISO_IDENTIFIED_ORG TTLS_OID_ORG_DOD "\x01\x05\x05\x07"
 
 /*
  * Arc for standard naming attributes
  */
-#define TTLS_OID_AT						  TTLS_OID_ISO_CCITT_DS "\x04" /**< id-at OBJECT IDENTIFIER ::= {joint-iso-ccitt(2) ds(5) 4} */
-#define TTLS_OID_AT_CN					   TTLS_OID_AT "\x03" /**< id-at-commonName AttributeType:= {id-at 3} */
+#define TTLS_OID_AT			  TTLS_OID_ISO_CCITT_DS "\x04" /**< id-at OBJECT IDENTIFIER ::= {joint-iso-ccitt(2) ds(5) 4} */
+#define TTLS_OID_AT_CN		   TTLS_OID_AT "\x03" /**< id-at-commonName AttributeType:= {id-at 3} */
 #define TTLS_OID_AT_SUR_NAME				 TTLS_OID_AT "\x04" /**< id-at-surName AttributeType:= {id-at 4} */
 #define TTLS_OID_AT_SERIAL_NUMBER			TTLS_OID_AT "\x05" /**< id-at-serialNumber AttributeType:= {id-at 5} */
 #define TTLS_OID_AT_COUNTRY				  TTLS_OID_AT "\x06" /**< id-at-countryName AttributeType:= {id-at 6} */
 #define TTLS_OID_AT_LOCALITY				 TTLS_OID_AT "\x07" /**< id-at-locality AttributeType:= {id-at 7} */
-#define TTLS_OID_AT_STATE					TTLS_OID_AT "\x08" /**< id-at-state AttributeType:= {id-at 8} */
+#define TTLS_OID_AT_STATE		TTLS_OID_AT "\x08" /**< id-at-state AttributeType:= {id-at 8} */
 #define TTLS_OID_AT_ORGANIZATION			 TTLS_OID_AT "\x0A" /**< id-at-organizationName AttributeType:= {id-at 10} */
 #define TTLS_OID_AT_ORG_UNIT				 TTLS_OID_AT "\x0B" /**< id-at-organizationalUnitName AttributeType:= {id-at 11} */
-#define TTLS_OID_AT_TITLE					TTLS_OID_AT "\x0C" /**< id-at-title AttributeType:= {id-at 12} */
+#define TTLS_OID_AT_TITLE		TTLS_OID_AT "\x0C" /**< id-at-title AttributeType:= {id-at 12} */
 #define TTLS_OID_AT_POSTAL_ADDRESS		   TTLS_OID_AT "\x10" /**< id-at-postalAddress AttributeType:= {id-at 16} */
 #define TTLS_OID_AT_POSTAL_CODE			  TTLS_OID_AT "\x11" /**< id-at-postalCode AttributeType:= {id-at 17} */
 #define TTLS_OID_AT_GIVEN_NAME			   TTLS_OID_AT "\x2A" /**< id-at-givenName AttributeType:= {id-at 42} */
@@ -159,7 +159,7 @@
  */
 #define TTLS_OID_ANY_EXTENDED_KEY_USAGE	  TTLS_OID_EXTENDED_KEY_USAGE "\x00" /**< anyExtendedKeyUsage OBJECT IDENTIFIER ::= { id-ce-extKeyUsage 0 } */
 
-#define TTLS_OID_KP						  TTLS_OID_PKIX "\x03" /**< id-kp OBJECT IDENTIFIER ::= { id-pkix 3 } */
+#define TTLS_OID_KP			  TTLS_OID_PKIX "\x03" /**< id-kp OBJECT IDENTIFIER ::= { id-pkix 3 } */
 #define TTLS_OID_SERVER_AUTH				 TTLS_OID_KP "\x01" /**< id-kp-serverAuth OBJECT IDENTIFIER ::= { id-kp 1 } */
 #define TTLS_OID_CLIENT_AUTH				 TTLS_OID_KP "\x02" /**< id-kp-clientAuth OBJECT IDENTIFIER ::= { id-kp 2 } */
 #define TTLS_OID_CODE_SIGNING				TTLS_OID_KP "\x03" /**< id-kp-codeSigning OBJECT IDENTIFIER ::= { id-kp 3 } */
@@ -225,7 +225,7 @@
 /*
  * Encryption algorithms
  */
-#define TTLS_OID_DES_CBC					 TTLS_OID_ISO_IDENTIFIED_ORG TTLS_OID_OIW_SECSIG_ALG "\x07" /**< desCBC OBJECT IDENTIFIER ::= { iso(1) identified-organization(3) oiw(14) secsig(3) algorithms(2) 7 } */
+#define TTLS_OID_DES_CBC		 TTLS_OID_ISO_IDENTIFIED_ORG TTLS_OID_OIW_SECSIG_ALG "\x07" /**< desCBC OBJECT IDENTIFIER ::= { iso(1) identified-organization(3) oiw(14) secsig(3) algorithms(2) 7 } */
 #define TTLS_OID_DES_EDE3_CBC				TTLS_OID_RSA_COMPANY "\x03\x07" /**< des-ede3-cbc OBJECT IDENTIFIER ::= { iso(1) member-body(2) -- us(840) rsadsi(113549) encryptionAlgorithm(3) 7 } */
 
 /*
@@ -253,7 +253,7 @@
 /*
  * PKCS#12 PBE OIDs
  */
-#define TTLS_OID_PKCS12_PBE					  TTLS_OID_PKCS12 "\x01" /**< pkcs-12PbeIds OBJECT IDENTIFIER ::= {pkcs-12 1} */
+#define TTLS_OID_PKCS12_PBE		  TTLS_OID_PKCS12 "\x01" /**< pkcs-12PbeIds OBJECT IDENTIFIER ::= {pkcs-12 1} */
 
 #define TTLS_OID_PKCS12_PBE_SHA1_RC4_128		 TTLS_OID_PKCS12_PBE "\x01" /**< pbeWithSHAAnd128BitRC4 OBJECT IDENTIFIER ::= {pkcs-12PbeIds 1} */
 #define TTLS_OID_PKCS12_PBE_SHA1_RC4_40		  TTLS_OID_PKCS12_PBE "\x02" /**< pbeWithSHAAnd40BitRC4 OBJECT IDENTIFIER ::= {pkcs-12PbeIds 2} */
@@ -431,7 +431,7 @@ int ttls_oid_get_pk_alg(const ttls_asn1_buf *oid, ttls_pk_type_t *pk_alg);
  * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
  */
 int ttls_oid_get_oid_by_pk_alg(ttls_pk_type_t pk_alg,
-						   const char **oid, size_t *olen);
+			   const char **oid, size_t *olen);
 
 /**
  * \brief		  Translate NamedCurve OID into an EC group identifier
@@ -453,7 +453,7 @@ int ttls_oid_get_ec_grp(const ttls_asn1_buf *oid, ttls_ecp_group_id *grp_id);
  * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
  */
 int ttls_oid_get_oid_by_ec_grp(ttls_ecp_group_id grp_id,
-						   const char **oid, size_t *olen);
+			   const char **oid, size_t *olen);
 
 /**
  * \brief		  Translate SignatureAlgorithm OID into md_type and pk_type
@@ -465,7 +465,7 @@ int ttls_oid_get_oid_by_ec_grp(ttls_ecp_group_id grp_id,
  * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
  */
 int ttls_oid_get_sig_alg(const ttls_asn1_buf *oid,
-					 ttls_md_type_t *md_alg, ttls_pk_type_t *pk_alg);
+		 ttls_md_type_t *md_alg, ttls_pk_type_t *pk_alg);
 
 /**
  * \brief		  Translate SignatureAlgorithm OID into description
@@ -488,7 +488,7 @@ int ttls_oid_get_sig_alg_desc(const ttls_asn1_buf *oid, const char **desc);
  * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
  */
 int ttls_oid_get_oid_by_sig_alg(ttls_pk_type_t pk_alg, ttls_md_type_t md_alg,
-							const char **oid, size_t *olen);
+				const char **oid, size_t *olen);
 
 /**
  * \brief		  Translate hash algorithm OID into md_type
@@ -553,7 +553,7 @@ int ttls_oid_get_cipher_alg(const ttls_asn1_buf *oid, ttls_cipher_type_t *cipher
  * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
  */
 int ttls_oid_get_pkcs12_pbe_alg(const ttls_asn1_buf *oid, ttls_md_type_t *md_alg,
-							ttls_cipher_type_t *cipher_alg);
+				ttls_cipher_type_t *cipher_alg);
 #endif /* TTLS_PKCS12_C */
 
 #endif /* oid.h */

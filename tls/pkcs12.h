@@ -64,9 +64,9 @@ extern "C" {
  * \return		   0 if successful, or a TTLS_ERR_XXX code
  */
 int ttls_pkcs12_pbe_sha1_rc4_128(ttls_asn1_buf *pbe_params, int mode,
-							 const unsigned char *pwd,  size_t pwdlen,
-							 const unsigned char *input, size_t len,
-							 unsigned char *output);
+				 const unsigned char *pwd,  size_t pwdlen,
+				 const unsigned char *input, size_t len,
+				 unsigned char *output);
 
 /**
  * \brief			PKCS12 Password Based function (encryption / decryption)
@@ -112,9 +112,9 @@ int ttls_pkcs12_pbe(ttls_asn1_buf *pbe_params, int mode,
  * \return		  0 if successful, or a MD, BIGNUM type error.
  */
 int ttls_pkcs12_derivation(unsigned char *data, size_t datalen,
-					   const unsigned char *pwd, size_t pwdlen,
-					   const unsigned char *salt, size_t saltlen,
-					   ttls_md_type_t ttls_md, int id, int iterations);
+		   const unsigned char *pwd, size_t pwdlen,
+		   const unsigned char *salt, size_t saltlen,
+		   ttls_md_type_t ttls_md, int id, int iterations);
 
 #ifdef __cplusplus
 }

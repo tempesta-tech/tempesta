@@ -54,8 +54,8 @@ typedef struct
 	uint64_t state[8];		  /*!< The intermediate digest state. */
 	unsigned char buffer[128];  /*!< The data block being processed. */
 	int is384;				  /*!< Determines which function to use.
-								 *   <ul><li>0: Use SHA-512.</li>
-								 *   <li>1: Use SHA-384.</li></ul> */
+		 *   <ul><li>0: Use SHA-512.</li>
+		 *   <li>1: Use SHA-384.</li></ul> */
 }
 ttls_sha512_context;
 
@@ -80,7 +80,7 @@ void ttls_sha512_free(ttls_sha512_context *ctx);
  * \param src	  The context to clone.
  */
 void ttls_sha512_clone(ttls_sha512_context *dst,
-						   const ttls_sha512_context *src);
+			   const ttls_sha512_context *src);
 
 /**
  * \brief		  This function starts a SHA-384 or SHA-512 checksum
@@ -106,8 +106,8 @@ int ttls_sha512_starts_ret(ttls_sha512_context *ctx, int is384);
  * \return		 \c 0 on success.
  */
 int ttls_sha512_update_ret(ttls_sha512_context *ctx,
-					const unsigned char *input,
-					size_t ilen);
+		const unsigned char *input,
+		size_t ilen);
 
 /**
  * \brief		  This function finishes the SHA-512 operation, and writes
@@ -120,7 +120,7 @@ int ttls_sha512_update_ret(ttls_sha512_context *ctx,
  * \return		 \c 0 on success.
  */
 int ttls_sha512_finish_ret(ttls_sha512_context *ctx,
-							   unsigned char output[64]);
+				   unsigned char output[64]);
 
 /**
  * \brief		  This function processes a single data block within
@@ -132,7 +132,7 @@ int ttls_sha512_finish_ret(ttls_sha512_context *ctx,
  * \return		 \c 0 on success.
  */
 int ttls_internal_sha512_process(ttls_sha512_context *ctx,
-									 const unsigned char data[128]);
+			 const unsigned char data[128]);
 
 #else  /* TTLS_SHA512_ALT */
 #include "sha512_alt.h"
@@ -158,8 +158,8 @@ int ttls_internal_sha512_process(ttls_sha512_context *ctx,
  * \return		 \c 0 on success.
  */
 int ttls_sha512_ret(const unsigned char *input,
-						size_t ilen,
-						unsigned char output[64],
-						int is384);
+			size_t ilen,
+			unsigned char output[64],
+			int is384);
 
 #endif /* ttls_sha512.h */

@@ -45,16 +45,16 @@ static int ripemd160_starts_wrap(void *ctx)
 }
 
 static int ripemd160_update_wrap(void *ctx, const unsigned char *input,
-								   size_t ilen)
+		   size_t ilen)
 {
 	return(ttls_ripemd160_update_ret((ttls_ripemd160_context *) ctx,
-										  input, ilen));
+				  input, ilen));
 }
 
 static int ripemd160_finish_wrap(void *ctx, unsigned char *output)
 {
 	return(ttls_ripemd160_finish_ret((ttls_ripemd160_context *) ctx,
-										  output));
+				  output));
 }
 
 static void *ripemd160_ctx_alloc(void)
@@ -76,13 +76,13 @@ static void ripemd160_ctx_free(void *ctx)
 static void ripemd160_clone_wrap(void *dst, const void *src)
 {
 	ttls_ripemd160_clone((ttls_ripemd160_context *) dst,
-					   (const ttls_ripemd160_context *) src);
+		   (const ttls_ripemd160_context *) src);
 }
 
 static int ripemd160_process_wrap(void *ctx, const unsigned char *data)
 {
 	return(ttls_internal_ripemd160_process(
-								(ttls_ripemd160_context *) ctx, data));
+		(ttls_ripemd160_context *) ctx, data));
 }
 
 const ttls_md_info_t ttls_ripemd160_info = {
@@ -113,20 +113,20 @@ static int sha224_starts_wrap(void *ctx)
 }
 
 static int sha224_update_wrap(void *ctx, const unsigned char *input,
-								size_t ilen)
+		size_t ilen)
 {
 	return(ttls_sha256_update_ret((ttls_sha256_context *) ctx,
-									   input, ilen));
+			   input, ilen));
 }
 
 static int sha224_finish_wrap(void *ctx, unsigned char *output)
 {
 	return(ttls_sha256_finish_ret((ttls_sha256_context *) ctx,
-									   output));
+			   output));
 }
 
 static int sha224_wrap(const unsigned char *input, size_t ilen,
-						unsigned char *output)
+			unsigned char *output)
 {
 	return(ttls_sha256_ret(input, ilen, output, 1));
 }
@@ -150,13 +150,13 @@ static void sha224_ctx_free(void *ctx)
 static void sha224_clone_wrap(void *dst, const void *src)
 {
 	ttls_sha256_clone((ttls_sha256_context *) dst,
-					(const ttls_sha256_context *) src);
+		(const ttls_sha256_context *) src);
 }
 
 static int sha224_process_wrap(void *ctx, const unsigned char *data)
 {
 	return(ttls_internal_sha256_process((ttls_sha256_context *) ctx,
-											 data));
+		 data));
 }
 
 const ttls_md_info_t ttls_sha224_info = {
@@ -180,7 +180,7 @@ static int sha256_starts_wrap(void *ctx)
 }
 
 static int sha256_wrap(const unsigned char *input, size_t ilen,
-						unsigned char *output)
+			unsigned char *output)
 {
 	return(ttls_sha256_ret(input, ilen, output, 0));
 }
@@ -210,20 +210,20 @@ static int sha384_starts_wrap(void *ctx)
 }
 
 static int sha384_update_wrap(void *ctx, const unsigned char *input,
-							   size_t ilen)
+				   size_t ilen)
 {
 	return(ttls_sha512_update_ret((ttls_sha512_context *) ctx,
-									   input, ilen));
+			   input, ilen));
 }
 
 static int sha384_finish_wrap(void *ctx, unsigned char *output)
 {
 	return(ttls_sha512_finish_ret((ttls_sha512_context *) ctx,
-									   output));
+			   output));
 }
 
 static int sha384_wrap(const unsigned char *input, size_t ilen,
-						unsigned char *output)
+			unsigned char *output)
 {
 	return(ttls_sha512_ret(input, ilen, output, 1));
 }
@@ -247,13 +247,13 @@ static void sha384_ctx_free(void *ctx)
 static void sha384_clone_wrap(void *dst, const void *src)
 {
 	ttls_sha512_clone((ttls_sha512_context *) dst,
-					(const ttls_sha512_context *) src);
+		(const ttls_sha512_context *) src);
 }
 
 static int sha384_process_wrap(void *ctx, const unsigned char *data)
 {
 	return(ttls_internal_sha512_process((ttls_sha512_context *) ctx,
-											 data));
+		 data));
 }
 
 const ttls_md_info_t ttls_sha384_info = {
@@ -277,7 +277,7 @@ static int sha512_starts_wrap(void *ctx)
 }
 
 static int sha512_wrap(const unsigned char *input, size_t ilen,
-						unsigned char *output)
+			unsigned char *output)
 {
 	return(ttls_sha512_ret(input, ilen, output, 0));
 }

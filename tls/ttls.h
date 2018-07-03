@@ -85,14 +85,12 @@
 #define TTLS_ERR_UNKNOWN_IDENTITY	-0x6C80 /**< Unknown identity received (eg, PSK identity) */
 #define TTLS_ERR_INTERNAL_ERROR		-0x6C00 /**< Internal error (eg, unexpected failure in lower-level module) */
 #define TTLS_ERR_COUNTER_WRAPPING	-0x6B80 /**< A counter would wrap (eg, too many messages exchanged). */
-#define TTLS_ERR_WAITING_SERVER_HELLO_RENEGO	-0x6B00 /**< Unexpected message at ServerHello in renegotiation. */
 #define TTLS_ERR_HELLO_VERIFY_REQUIRED	-0x6A80 /**< DTLS client must retry for hello verification */
 #define TTLS_ERR_BUFFER_TOO_SMALL	-0x6A00 /**< A buffer is too small to receive or write a message */
 #define TTLS_ERR_NO_USABLE_CIPHERSUITE	-0x6980 /**< None of the common ciphersuites is usable (eg, no suitable certificate, see debug messages). */
 #define TTLS_ERR_WANT_READ		-0x6900 /**< Connection requires a read call. */
 #define TTLS_ERR_WANT_WRITE		-0x6880 /**< Connection requires a write call. */
 #define TTLS_ERR_TIMEOUT			-0x6800 /**< The operation timed out. */
-#define TTLS_ERR_CLIENT_RECONNECT	-0x6780 /**< The client initiated a reconnect from the same port. */
 #define TTLS_ERR_UNEXPECTED_RECORD	-0x6700 /**< Record header looks valid but is not expected. */
 #define TTLS_ERR_NON_FATAL		-0x6680 /**< The alert message received indicates a non-fatal error. */
 #define TTLS_ERR_INVALID_VERIFY_HASH	-0x6600 /**< Couldn't set the hash for verifying CertificateVerify */
@@ -127,9 +125,6 @@
 #define TTLS_IS_NOT_FALLBACK	0
 #define TTLS_IS_FALLBACK	1
 
-#define TTLS_EXTENDED_MS_DISABLED	0
-#define TTLS_EXTENDED_MS_ENABLED	1
-
 #define TTLS_COMPRESS_NULL	0
 #define TTLS_COMPRESS_DEFLATE	1
 
@@ -138,21 +133,10 @@
 #define TTLS_VERIFY_REQUIRED	2
 #define TTLS_VERIFY_UNSET	3 /* Used only for sni_authmode */
 
-#define TTLS_LEGACY_RENEGOTIATION	0
 #define TTLS_SECURE_RENEGOTIATION	1
-
-#define TTLS_RENEGOTIATION_DISABLED	0
-#define TTLS_RENEGOTIATION_ENABLED	1
 
 #define TTLS_ANTI_REPLAY_DISABLED	0
 #define TTLS_ANTI_REPLAY_ENABLED	1
-
-#define TTLS_RENEGOTIATION_NOT_ENFORCED -1
-#define TTLS_RENEGO_MAX_RECORDS_DEFAULT 16
-
-#define TTLS_LEGACY_NO_RENEGOTIATION	0
-#define TTLS_LEGACY_ALLOW_RENEGOTIATION 1
-#define TTLS_LEGACY_BREAK_HANDSHAKE	2
 
 #define TTLS_TRUNC_HMAC_DISABLED	0
 #define TTLS_TRUNC_HMAC_ENABLED	1
@@ -165,9 +149,6 @@
 
 #define TTLS_PRESET_DEFAULT	0
 #define TTLS_PRESET_SUITEB	2
-
-#define TTLS_CERT_REQ_CA_LIST_ENABLED	1
-#define TTLS_CERT_REQ_CA_LIST_DISABLED	0
 
 /*
  * Default range for DTLS retransmission timer value, in milliseconds.
@@ -201,17 +182,17 @@
  * Supported Signature and Hash algorithms (For TLS 1.2)
  * RFC 5246 section 7.4.1.4.1
  */
-#define TTLS_HASH_NONE	0
-#define TTLS_HASH_MD5	1
-#define TTLS_HASH_SHA1	2
-#define TTLS_HASH_SHA224	3
-#define TTLS_HASH_SHA256	4
-#define TTLS_HASH_SHA384	5
-#define TTLS_HASH_SHA512	6
+#define TTLS_HASH_NONE			0
+#define TTLS_HASH_MD5			1
+#define TTLS_HASH_SHA1			2
+#define TTLS_HASH_SHA224		3
+#define TTLS_HASH_SHA256		4
+#define TTLS_HASH_SHA384		5
+#define TTLS_HASH_SHA512		6
 
-#define TTLS_SIG_ANON	0
-#define TTLS_SIG_RSA	1
-#define TTLS_SIG_ECDSA	3
+#define TTLS_SIG_ANON			0
+#define TTLS_SIG_RSA			1
+#define TTLS_SIG_ECDSA			3
 
 /*
  * Client Certificate Types
@@ -261,18 +242,18 @@
 #define TTLS_ALERT_MSG_UNKNOWN_PSK_IDENTITY 115 /* 0x73 */
 #define TTLS_ALERT_MSG_NO_APPLICATION_PROTOCOL 120 /* 0x78 */
 
-#define TTLS_HS_HELLO_REQUEST	0
-#define TTLS_HS_CLIENT_HELLO	1
-#define TTLS_HS_SERVER_HELLO	2
-#define TTLS_HS_HELLO_VERIFY_REQUEST	3
-#define TTLS_HS_NEW_SESSION_TICKET	4
-#define TTLS_HS_CERTIFICATE	11
-#define TTLS_HS_SERVER_KEY_EXCHANGE	12
-#define TTLS_HS_CERTIFICATE_REQUEST	13
-#define TTLS_HS_SERVER_HELLO_DONE	14
-#define TTLS_HS_CERTIFICATE_VERIFY	15
-#define TTLS_HS_CLIENT_KEY_EXCHANGE	16
-#define TTLS_HS_FINISHED	20
+#define TTLS_HS_HELLO_REQUEST			0
+#define TTLS_HS_CLIENT_HELLO			1
+#define TTLS_HS_SERVER_HELLO			2
+#define TTLS_HS_HELLO_VERIFY_REQUEST		3
+#define TTLS_HS_NEW_SESSION_TICKET		4
+#define TTLS_HS_CERTIFICATE			11
+#define TTLS_HS_SERVER_KEY_EXCHANGE		12
+#define TTLS_HS_CERTIFICATE_REQUEST		13
+#define TTLS_HS_SERVER_HELLO_DONE		14
+#define TTLS_HS_CERTIFICATE_VERIFY		15
+#define TTLS_HS_CLIENT_KEY_EXCHANGE		16
+#define TTLS_HS_FINISHED			20
 
 /*
  * TLS extensions
@@ -310,36 +291,13 @@
 /* Dummy type used only for its size */
 union ttls_premaster_secret
 {
-	unsigned char _pms_rsa[48];	/* RFC 5246 8.1.1 */
+	unsigned char _pms_rsa[48];			/* RFC 5246 8.1.1 */
 	unsigned char _pms_dhm[TTLS_MPI_MAX_SIZE];	/* RFC 5246 8.1.2 */
 	unsigned char _pms_ecdh[TTLS_ECP_MAX_BYTES];	/* RFC 4492 5.10 */
 };
 
 #define TTLS_PREMASTER_SIZE	sizeof(union ttls_premaster_secret)
-
-/*
- * SSL state machine
- */
-typedef enum {
-	TTLS_CLIENT_HELLO = 0,
-	TTLS_SERVER_HELLO = TTLS_CLIENT_HELLO,
-	TTLS_SERVER_CERTIFICATE,
-	TTLS_SERVER_KEY_EXCHANGE,
-	TTLS_CERTIFICATE_REQUEST,
-	TTLS_SERVER_HELLO_DONE,
-	TTLS_CLIENT_CERTIFICATE,
-	TTLS_CLIENT_KEY_EXCHANGE,
-	TTLS_CERTIFICATE_VERIFY,
-	TTLS_CLIENT_CHANGE_CIPHER_SPEC,
-	TTLS_CLIENT_FINISHED,
-	TTLS_SERVER_CHANGE_CIPHER_SPEC,
-	TTLS_SERVER_FINISHED,
-	TTLS_FLUSH_BUFFERS,
-	TTLS_HANDSHAKE_WRAPUP,
-	TTLS_HANDSHAKE_OVER,
-	TTLS_SERVER_NEW_SESSION_TICKET,
-	TTLS_SERVER_HELLO_VERIFY_REQUEST_SENT,
-};
+#define TTLS_HS_RBUF_SZ		TTLS_PREMASTER_SIZE
 
 /* Defined below */
 typedef struct TtlsSess ttls_session;
@@ -357,32 +315,37 @@ typedef struct ttls_flight_item ttls_flight_item;
 
 /*
  * This structure is used for storing current session data.
+ *
+ * @start		- starting time;
+ * @id_len		- session id length;
+ * @peer_cert		- peer X.509 cert chain;
+ * @ciphersuite		- chosen ciphersuite;
+ * @etm			- flag for Encrypt-then-MAC activation;
+ * @verify_result 	- verification result;
+ * @id			- session identifier;
+ * @master		- the master secret;
  */
 typedef struct {
-	time_t start;	/*!< starting time	*/
-	int ciphersuite;	/*!< chosen ciphersuite */
-	int compression;	/*!< chosen compression */
-	size_t id_len;	/*!< session id length */
-	unsigned char id[32];	/*!< session identifier */
-	unsigned char master[48]; /*!< the master secret */
-
-	ttls_x509_crt *peer_cert;	/*!< peer X.509 cert chain */
-	uint32_t verify_result;	/*!< verification result	*/
-
-#if defined(TTLS_SESSION_TICKETS) && defined(TTLS_CLI_C)
+	ttls_x509_crt	*peer_cert;
+	time_t		start;
+	int		etm;
+	uint32_t	verify_result;
+	unsigned short	ciphersuite;
+	unsigned char	id_len;
+	unsigned char	id[32];
+	unsigned char	master[48];
+#if defined(TTLS_CLI_C)
 	unsigned char *ticket;	/*!< RFC 5077 session ticket */
 	size_t ticket_len;	/*!< session ticket length */
 	uint32_t ticket_lifetime; /*!< ticket lifetime hint	*/
 #endif /* TTLS_SESSION_TICKETS && TTLS_CLI_C */
-
-#if defined(TTLS_MAX_FRAGMENT_LENGTH)
-	unsigned char mfl_code;	/*!< MaxFragmentLength negotiated by peer */
-#endif /* TTLS_MAX_FRAGMENT_LENGTH */
-	int encrypt_then_mac;	/*!< flag for EtM activation	*/
 } TlsSess;
 
 /**
  * SSL/TLS configuration to be shared between ttls_context structures.
+ *
+ * @max_minor_ver	- always 3 for now, and used for SCSV fallbacks only.
+ *			  Preserved for TLS 1.3.
  */
 struct ttls_config
 {
@@ -393,10 +356,6 @@ struct ttls_config
 	*/
 
 	const int *ciphersuite_list[4]; /*!< allowed ciphersuites per version */
-
-	/** Callback for getting (pseudo-)random numbers	*/
-	int (*f_rng)(void *, unsigned char *, size_t);
-	void *p_rng;	/*!< context for the RNG function	*/
 
 	/** Callback to retrieve a session from the cache	*/
 	int (*f_get_cache)(void *, TtlsSess *);
@@ -421,14 +380,12 @@ struct ttls_config
 	void *p_cookie;	/*!< context for the cookie callbacks */
 #endif
 
-#if defined(TTLS_SESSION_TICKETS)
 	/** Callback to create & write a session ticket	*/
 	int (*f_ticket_write)(void *, const TtlsSess *,
 	unsigned char *, const unsigned char *, size_t *, uint32_t *);
 	/** Callback to parse a session ticket into a session structure	*/
 	int (*f_ticket_parse)(void *, TtlsSess *, unsigned char *, size_t);
 	void *p_ticket;	/*!< context for the ticket callbacks */
-#endif /* TTLS_SESSION_TICKETS */
 
 #if defined(TTLS_EXPORT_KEYS)
 	/** Callback to export key block and master secret	*/
@@ -474,10 +431,7 @@ struct ttls_config
 	unsigned int dhm_min_bitlen;	/*!< min. bit length of the DHM prime */
 #endif
 
-	unsigned char max_major_ver;	/*!< max. major version used	*/
-	unsigned char max_minor_ver;	/*!< max. minor version used	*/
-	unsigned char min_major_ver;	/*!< min. major version used	*/
-	unsigned char min_minor_ver;	/*!< min. minor version used	*/
+	unsigned char	max_minor_ver;
 
 	/*
 	* Flags (bitfields)
@@ -486,29 +440,13 @@ struct ttls_config
 	unsigned int endpoint : 1;	/*!< 0: client, 1: server	*/
 	unsigned int transport : 1;	/*!< stream (TLS) or datagram (DTLS)	*/
 	unsigned int authmode : 2;	/*!< TTLS_VERIFY_XXX	*/
-	/* needed even with renego disabled for LEGACY_BREAK_HANDSHAKE	*/
-	unsigned int allow_legacy_renegotiation : 2 ; /*!< TTLS_LEGACY_XXX */
-#if defined(TTLS_MAX_FRAGMENT_LENGTH)
-	unsigned int mfl_code : 3;	/*!< desired fragment length	*/
-#endif
 	unsigned int encrypt_then_mac : 1 ; /*!< negotiate encrypt-then-mac?	*/
-#if defined(TTLS_EXTENDED_MASTER_SECRET)
-	unsigned int extended_ms : 1; /*!< negotiate extended master secret? */
-#endif
-#if defined(TTLS_DTLS_ANTI_REPLAY)
-	unsigned int anti_replay : 1; /*!< detect and prevent replay?	*/
-#endif
-#if defined(TTLS_SESSION_TICKETS)
 	unsigned int session_tickets : 1; /*!< use session tickets?	*/
-#endif
-#if defined(TTLS_FALLBACK_SCSV) && defined(TTLS_CLI_C)
-	unsigned int fallback : 1;	/*!< is this a fallback?	*/
-#endif
 	unsigned int cert_req_ca_list : 1; /*!< enable sending CA list in
 	Certificate Request messages?	*/
 };
 
-/* TLS state flags. */
+/* I/O state flags. */
 #define TTLS_F_ST_HDRIV		1 /* header [and IV] parsed */
 
 /**
@@ -522,10 +460,14 @@ struct ttls_config
  * 		  read from peer for DTLS;
  * @hdr		- TLS message header;
  * @iv		- TLS message initialization vector;
- * @hdr_iv_cpsz	- how many bytes are copied to @__in_cp_start;
+ * @hdr_cpsz	- how many bytes are copied to a header;
+ * @st_flags	- state flags;
  * @aad_buf	- temporary buffers for associated authentication data;
  * @msgtype	- record header: message type;
+ * @hstype	- record header: handhsake type;
  * @msglen	- record header: message length;
+ * @hslen	- current handshake message length, including the handshake
+ *		  header;
  * @rlen	- read bytes of the message body so far;
  * @skb_list	- list of skbs attachd to the current I/O context;
  * @off		- data offset within first skb in @skb_list;
@@ -534,8 +476,8 @@ struct ttls_config
 typedef struct {
 	TlsSess		*sess;
 	TlsXfrm		*xfrm
+	unsigned char	__init_start[0];
 #if defined(MBEDTLS_PROTO_DTLS)
-	unsigned char	__cp_start[0];
 	union {
 		unsigned char	hdr[TTLS_HDR_LEN];
 		struct {
@@ -545,17 +487,21 @@ typedef struct {
 	}
 #else
 	unsigned char	ctr[8];
-	unsigned char	__cp_start[0];
 	unsigned char	hdr[TTLS_HDR_LEN];
 #endif
 	union {
+		unsigned char	__msg[0];
 		unsigned char	iv[TTLS_IV_LEN];
 		unsigned char	alert[2];
+		unsigned char	hs_hdr[4]; /* should be 12 w/ DTLS */
 	}
-	unsigned char	hdr_iv_cpsz;
+	unsigned char	hdr_cpsz;
+	unsigned char	st_flags;
 	unsigned char	aad_buf[TLS_AAD_SPACE_SIZE];
 	unsigned char	msgtype;
+	unsigned char	hstype;
 	unsigned short	msglen;
+	unsigned short	hslen;
 	unsigned short	rlen;
 	struct sk_buff	*skb_list;
 	unsigned int	off;
@@ -575,11 +521,12 @@ typedef struct {
  * @lock	- protects the TLS context changes;
  * @conf	- global TLS configuration;
  * @hs		- params required only during the handshake process;
+ * @alpn_chosen	- negotiated protocol;
  * @state	- TLS handshake: current TLS FSM state;
- * @st_flags	- state flags;
- * @major_ver	- the context TLS major version, currently equal to
+ * @major	- the context TLS major version, currently equal to
  *		  TTLS_MAJOR_VERSION_3;
- * @minor_ver	- either 0 (SSL3) or 1 (TLS1.0);
+ * @minor	- currently equal to 3 (TLS 1.2), 4 (TLS 1.3) is possible in
+ * 		  future;
  * @io_{in,out}	- I/O contexts for ingress and egress messages correspondingly;
  *		  TODO if we can not process ingress data concurrently with
  *		       transmission, then we need only one IO context; if we can,
@@ -593,23 +540,18 @@ typedef struct ttls_context {
 	spinlock_t		lock;
 	const ttls_config	*conf;
 	TlsHandshake		*hs;
+	const char		*alpn_chosen;
 
-	int			state;
-	unsigned short		st_flags;
-	unsigned char		major_ver;
-	unsigned char		minor_ver;
+	unsigned int		state;
+	unsigned char		major;
+	unsigned char		minor;
 
 	TlsIOCtx		io_in;
 	TlsIOCtx		io_out;
 	TlsSess			sess;
-	TtlsXfrm		xfrm;
+	TlsXfrm			xfrm;
 
 	unsigned int		nb_zero;
-
-	TlsSess *session;	/*!< negotiated session data	*/
-	TtlsXfrm *transform_negotiate; /*!< transform params in negotiation */
-
-
 
 	/*
 	* Timers
@@ -617,12 +559,6 @@ typedef struct ttls_context {
 	void *p_timer;	/*!< context for the timer callbacks */
 	ttls_set_timer_t *f_set_timer;	/*!< set timer callback */
 	ttls_get_timer_t *f_get_timer;	/*!< get timer callback */
-
-	size_t in_hslen;	/*!< current handshake message length,
-					including the handshake header */
-
-	int keep_current_message; /*!< drop or reuse current message
-					on next call to record layer? */
 
 	/*
 	* PKI layer
@@ -635,15 +571,6 @@ typedef struct ttls_context {
 	char *hostname;	/*!< expected peer CN for verification
 	(and SNI if available)	*/
 
-	const char *alpn_chosen;	/*!< negotiated protocol	*/
-
-	/*
-	* Secure renegotiation
-	*/
-	/* needed to know when to send extension on server */
-	int secure_renegotiation;	/*!< does peer support legacy or
-						secure renegotiation	*/
-
 #if defined(TTLS_DTLS_HELLO_VERIFY)
 	/* Information for DTLS hello verify. */
 	unsigned char	*cli_id;	/* transport-level ID of the client */
@@ -655,8 +582,6 @@ typedef struct ttls_context {
 #if defined(TTLS_PROTO_DTLS)
 	/* DTLS epoch for incoming records. */
 	uint16_t	in_epoch;
-	/* Offset of the next record in datagram. */
-	size_t		next_record_offset;
 #endif
 #if defined(TTLS_DTLS_ANTI_REPLAY)
 	uint64_t	in_window_top;	/* last validated record seq_num */
@@ -664,8 +589,7 @@ typedef struct ttls_context {
 #endif
 } TlsCtx;
 
-typedef int *ttls_send_sb_t(TlsCtx *tls, const unsigned char *buf, size_t len,
-			    bool encrypt);
+typedef int *ttls_send_cb_t(TlsCtx *tls, struct sg_table *sgt);
 
 static inline size_t
 ttls_hdr_len(const TlsCtx *tls)
@@ -714,6 +638,20 @@ ttls_write_hdr(TlsCtx *tls, unsigned char type, unsigned short len,
 	buf[4] = (unsigned char)len;
 }
 
+static inline void
+ttls_write_hshdr(unsigned char type, unsigned char *buf, unsigned short len)
+{
+	/*
+	 * 0 . 0   handshake type
+	 * 1 . 3   handshake length
+	 */
+	buf[0] = type;
+	buf[1] = (unsigned char)((len - 4) >> 16);
+	buf[2] = (unsigned char)((len - 4) >> 8);
+	buf[3] = (unsigned char)(len - 4);
+}
+
+
 static inline unsigned char
 ttls_xfrm_taglen(TlsXfrm *xfrm)
 {
@@ -721,10 +659,20 @@ ttls_xfrm_taglen(TlsXfrm *xfrm)
 		? 8 : 16;
 }
 
+static inline unsigned int
+ttls_state(const TlsCtx *tls)
+{
+	return tls->state & __TTLS_FSM_ST_MASK;
+}
+
+static inline unsigned int
+ttls_substate(const TlsCtx *tls)
+{
+	return tls->state & __TTLS_FSM_SUBST_MASK;
+}
+
 void *ttls_alloc_crypto_req(unsigned int extra_size, unsigned int *rsz);
 void ttls_register_bio(ttls_send_cb_t *send_cb);
-
-void ttls_init_msg_ctx(TlsCtx *tls);
 
 /**
  * \brief Returns the list of ciphersuites supported by the SSL/TLS module.
@@ -822,17 +770,6 @@ void ttls_conf_authmode(ttls_config *conf, int authmode);
 void ttls_conf_verify(ttls_config *conf,
 	int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *),
 	void *p_vrfy);
-
-/**
- * \brief	Set the random number generator callback
- *
- * \param conf	SSL configuration
- * \param f_rng	RNG function
- * \param p_rng	RNG parameter
- */
-void ttls_conf_rng(ttls_config *conf,
-	int (*f_rng)(void *, unsigned char *, size_t),
-	void *p_rng);
 
 /**
  * \brief	Set the timer callbacks (Mandatory for DTLS.)
@@ -942,7 +879,6 @@ typedef int ttls_ticket_parse_t(void *p_ticket,
 	unsigned char *buf,
 	size_t len);
 
-#if defined(TTLS_SESSION_TICKETS)
 /**
  * \brief	Configure SSL session ticket callbacks (server only).
  *		(Default: none.)
@@ -961,7 +897,6 @@ void ttls_conf_session_tickets_cb(ttls_config *conf,
 	ttls_ticket_write_t *f_ticket_write,
 	ttls_ticket_parse_t *f_ticket_parse,
 	void *p_ticket);
-#endif /* TTLS_SESSION_TICKETS */
 
 #if defined(TTLS_EXPORT_KEYS)
 /**
@@ -978,181 +913,6 @@ void ttls_conf_export_keys_cb(ttls_config *conf,
 	ttls_export_keys_t *f_export_keys,
 	void *p_export_keys);
 #endif /* TTLS_EXPORT_KEYS */
-
-/**
- * \brief	Callback type: generate a cookie
- *
- * \param ctx	Context for the callback
- * \param p	Buffer to write to,
- *		must be updated to point right after the cookie
- * \param end	Pointer to one past the end of the output buffer
- * \param info	Client ID info that was passed to
- *		\c ttls_set_client_transport_id()
- * \param ilen	Length of info in bytes
- *
- * \return	The callback must return 0 on success,
- *		or a negative error code.
- */
-typedef int ttls_cookie_write_t(void *ctx,
-	unsigned char **p, unsigned char *end,
-	const unsigned char *info, size_t ilen);
-
-/**
- * \brief	Callback type: verify a cookie
- *
- * \param ctx	Context for the callback
- * \param cookie Cookie to verify
- * \param clen	Length of cookie
- * \param info	Client ID info that was passed to
- *		\c ttls_set_client_transport_id()
- * \param ilen	Length of info in bytes
- *
- * \return	The callback must return 0 if cookie is valid,
- *		or a negative error code.
- */
-typedef int ttls_cookie_check_t(void *ctx,
-	const unsigned char *cookie, size_t clen,
-	const unsigned char *info, size_t ilen);
-
-#if defined(TTLS_DTLS_HELLO_VERIFY)
-/**
- * \brief	Register callbacks for DTLS cookies
- *		(Server only. DTLS only.)
- *
- *		Default: dummy callbacks that fail, in order to force you to
- *		register working callbacks (and initialize their context).
- *
- *		To disable HelloVerifyRequest, register NULL callbacks.
- *
- * \warning	Disabling hello verification allows your server to be used
- *		for amplification in DoS attacks against other hosts.
- *		Only disable if you known this can't happen in your
- *		particular environment.
- *
- * \note	See comments on \c ttls_handshake() about handling
- *		the TTLS_ERR_HELLO_VERIFY_REQUIRED that is expected
- *		on the first handshake attempt when this is enabled.
- *
- * \note	This is also necessary to handle client reconnection from
- *		the same port as described in RFC 6347 section 4.2.8 (only
- *		the variant with cookies is supported currently). See
- *		comments on \c ttls_recv() for details.
- *
- * \param conf	SSL configuration
- * \param f_cookie_write	Cookie write callback
- * \param f_cookie_check	Cookie check callback
- * \param p_cookie	Context for both callbacks
- */
-void ttls_conf_dtls_cookies(ttls_config *conf,
-	ttls_cookie_write_t *f_cookie_write,
-	ttls_cookie_check_t *f_cookie_check,
-	void *p_cookie);
-
-/**
- * \brief	Set client's transport-level identification info.
- *		(Server only. DTLS only.)
- *
- *		This is usually the IP address (and port), but could be
- *		anything identify the client depending on the underlying
- *		network stack. Used for HelloVerifyRequest with DTLS.
- *		This is *not* used to route the actual packets.
- *
- * \param ssl	SSL context
- * \param info	Transport-level info identifying the client (eg IP + port)
- * \param ilen	Length of info in bytes
- *
- * \note	An internal copy is made, so the info buffer can be reused.
- *
- * \return	0 on success,
- *		TTLS_ERR_BAD_INPUT_DATA if used on client,
- *		TTLS_ERR_ALLOC_FAILED if out of memory.
- */
-int ttls_set_client_transport_id(ttls_context *ssl,
-	const unsigned char *info,
-	size_t ilen);
-
-#endif /* TTLS_DTLS_HELLO_VERIFY */
-
-#if defined(TTLS_DTLS_ANTI_REPLAY)
-/**
- * \brief	Enable or disable anti-replay protection for DTLS.
- *		(DTLS only, no effect on TLS.)
- *		Default: enabled.
- *
- * \param conf	SSL configuration
- * \param mode	TTLS_ANTI_REPLAY_ENABLED or TTLS_ANTI_REPLAY_DISABLED.
- *
- * \warning	Disabling this is a security risk unless the application
- *		protocol handles duplicated packets in a safe way. You
- *		should not disable this without careful consideration.
- *		However, if your application already detects duplicated
- *		packets and needs information about them to adjust its
- *		transmission strategy, then you'll want to disable this.
- */
-void ttls_conf_dtls_anti_replay(ttls_config *conf, char mode);
-#endif /* TTLS_DTLS_ANTI_REPLAY */
-
-#if defined(TTLS_DTLS_BADMAC_LIMIT)
-/**
- * \brief	Set a limit on the number of records with a bad MAC
- *		before terminating the connection.
- *		(DTLS only, no effect on TLS.)
- *		Default: 0 (disabled).
- *
- * \param conf	SSL configuration
- * \param limit	Limit, or 0 to disable.
- *
- * \note	If the limit is N, then the connection is terminated when
- *		the Nth non-authentic record is seen.
- *
- * \note	Records with an invalid header are not counted, only the
- *		ones going through the authentication-decryption phase.
- *
- * \note	This is a security trade-off related to the fact that it's
- *		often relatively easy for an active attacker ot inject UDP
- *		datagrams. On one hand, setting a low limit here makes it
- *		easier for such an attacker to forcibly terminated a
- *		connection. On the other hand, a high limit or no limit
- *		might make us waste resources checking authentication on
- *		many bogus packets.
- */
-void ttls_conf_dtls_badmac_limit(ttls_config *conf, unsigned limit);
-#endif /* TTLS_DTLS_BADMAC_LIMIT */
-
-#if defined(TTLS_PROTO_DTLS)
-/**
- * \brief	Set retransmit timeout values for the DTLS handshake.
- *		(DTLS only, no effect on TLS.)
- *
- * \param conf	SSL configuration
- * \param min	Initial timeout value in milliseconds.
- *		Default: 1000 (1 second).
- * \param max	Maximum timeout value in milliseconds.
- *		Default: 60000 (60 seconds).
- *
- * \note	Default values are from RFC 6347 section 4.2.4.1.
- *
- * \note	The 'min' value should typically be slightly above the
- *		expected round-trip time to your peer, plus whatever time
- *		it takes for the peer to process the message. For example,
- *		if your RTT is about 600ms and you peer needs up to 1s to
- *		do the cryptographic operations in the handshake, then you
- *		should set 'min' slightly above 1600. Lower values of 'min'
- *		might cause spurious resends which waste network resources,
- *		while larger value of 'min' will increase overall latency
- *		on unreliable network links.
- *
- * \note	The more unreliable your network connection is, the larger
- *		your max / min ratio needs to be in order to achieve
- *		reliable handshakes.
- *
- * \note	Messages are retransmitted up to log2(ceil(max/min)) times.
- *		For example, if min = 1s and max = 5s, the retransmit plan
- *		goes: send ... 1s -> resend ... 2s -> resend ... 4s ->
- *		resend ... 5s -> give up and return a timeout error.
- */
-void ttls_conf_handshake_timeout(ttls_config *conf, uint32_t min, uint32_t max);
-#endif /* TTLS_PROTO_DTLS */
 
 /**
  * \brief	Set the session cache callbacks (server-side only)
@@ -1221,10 +981,6 @@ int ttls_set_session(ttls_context *ssl, const TtlsSess *session);
  *
  *		The ciphersuites array is not copied, and must remain
  *		valid for the lifetime of the ssl_config.
- *
- *		Note: The server uses its own preferences
- *		over the preference of the client unless
- *		TTLS_SRV_RESPECT_CLIENT_PREFERENCE is defined!
  *
  * \param conf	SSL configuration
  * \param ciphersuites 0-terminated list of allowed ciphersuites
@@ -1561,76 +1317,18 @@ void ttls_conf_max_version(ttls_config *conf, int major, int minor);
  */
 void ttls_conf_min_version(ttls_config *conf, int major, int minor);
 
-#if defined(TTLS_FALLBACK_SCSV) && defined(TTLS_CLI_C)
-/**
- * \brief	Set the fallback flag (client-side only).
- *		(Default: TTLS_IS_NOT_FALLBACK).
- *
- * \note	Set to TTLS_IS_FALLBACK when preparing a fallback
- *		connection, that is a connection with max_version set to a
- *		lower value than the value you're willing to use. Such
- *		fallback connections are not recommended but are sometimes
- *		necessary to interoperate with buggy (version-intolerant)
- *		servers.
- *
- * \warning	You should NOT set this to TTLS_IS_FALLBACK for
- *		non-fallback connections! This would appear to work for a
- *		while, then cause failures when the server is upgraded to
- *		support a newer TLS version.
- *
- * \param conf	SSL configuration
- * \param fallback TTLS_IS_NOT_FALLBACK or TTLS_IS_FALLBACK
- */
-void ttls_conf_fallback(ttls_config *conf, char fallback);
-#endif /* TTLS_FALLBACK_SCSV && TTLS_CLI_C */
-
-#if defined(TTLS_EXTENDED_MASTER_SECRET)
-/**
- * \brief	Enable or disable Extended Master Secret negotiation.
- *		(Default: TTLS_EXTENDED_MS_ENABLED)
- *
- * \note	This should always be enabled, it is a security fix to the
- *		protocol, and should not cause any interoperability issue
- *		(used only if the peer supports it too).
- *
- * \param conf	SSL configuration
- * \param ems	TTLS_EXTENDED_MS_ENABLED or TTLS_EXTENDED_MS_DISABLED
- */
-void ttls_conf_extended_master_secret(ttls_config *conf, char ems);
-#endif /* TTLS_EXTENDED_MASTER_SECRET */
-
 /**
  * \brief	Whether to send a list of acceptable CAs in
  *		CertificateRequest messages.
  *		(Default: do send)
  *
  * \param conf	SSL configuration
- * \param cert_req_ca_list TTLS_CERT_REQ_CA_LIST_ENABLED or
- *		TTLS_CERT_REQ_CA_LIST_DISABLED
+ * \param cert_req_ca_list 1 or 0
  */
 void ttls_conf_cert_req_ca_list(ttls_config *conf,
 	char cert_req_ca_list);
 
-#if defined(TTLS_MAX_FRAGMENT_LENGTH)
-/**
- * \brief	Set the maximum fragment length to emit and/or negotiate
- *		(Default: TTLS_MAX_CONTENT_LEN, usually 2^14 bytes)
- *		(Server: set maximum fragment length to emit,
- *		usually negotiated by the client during handshake
- *		(Client: set maximum fragment length to emit *and*
- *		negotiate with the server during handshake)
- *
- * \param conf	SSL configuration
- * \param mfl_code Code for maximum fragment length (allowed values:
- *		TTLS_MAX_FRAG_LEN_512, TTLS_MAX_FRAG_LEN_1024,
- *		TTLS_MAX_FRAG_LEN_2048, TTLS_MAX_FRAG_LEN_4096)
- *
- * \return	0 if successful or TTLS_ERR_BAD_INPUT_DATA
- */
-int ttls_conf_max_frag_len(ttls_config *conf, unsigned char mfl_code);
-#endif /* TTLS_MAX_FRAGMENT_LENGTH */
-
-#if defined(TTLS_SESSION_TICKETS) && defined(TTLS_CLI_C)
+#if defined(TTLS_CLI_C)
 /**
  * \brief	Enable / Disable session tickets (client only).
  *		(Default: TTLS_SESSION_TICKETS_ENABLED.)
@@ -1642,36 +1340,7 @@ int ttls_conf_max_frag_len(ttls_config *conf, unsigned char mfl_code);
  *		TTLS_SESSION_TICKETS_DISABLED)
  */
 void ttls_conf_session_tickets(ttls_config *conf, int use_tickets);
-#endif /* TTLS_SESSION_TICKETS && TTLS_CLI_C */
-
-/**
- * \brief	Prevent or allow legacy renegotiation.
- *		(Default: TTLS_LEGACY_NO_RENEGOTIATION)
- *
- *		TTLS_LEGACY_NO_RENEGOTIATION allows connections to
- *		be established even if the peer does not support
- *		secure renegotiation, but does not allow renegotiation
- *		to take place if not secure.
- *		(Interoperable and secure option)
- *
- *		TTLS_LEGACY_ALLOW_RENEGOTIATION allows renegotiations
- *		with non-upgraded peers. Allowing legacy renegotiation
- *		makes the connection vulnerable to specific man in the
- *		middle attacks. (See RFC 5746)
- *		(Most interoperable and least secure option)
- *
- *		TTLS_LEGACY_BREAK_HANDSHAKE breaks off connections
- *		if peer does not support secure renegotiation. Results
- *		in interoperability issues with non-upgraded peers
- *		that do not support renegotiation altogether.
- *		(Most secure option, interoperability issues)
- *
- * \param conf	SSL configuration
- * \param allow_legacy Prevent or allow (SSL_NO_LEGACY_RENEGOTIATION,
- *		SSL_ALLOW_LEGACY_RENEGOTIATION or
- *		TTLS_LEGACY_BREAK_HANDSHAKE)
- */
-void ttls_conf_legacy_renegotiation(ttls_config *conf, int allow_legacy);
+#endif /* TTLS_CLI_C */
 
 /**
  * \brief	Return the result of the certificate verification
@@ -1706,26 +1375,6 @@ const char *ttls_get_ciphersuite(const ttls_context *ssl);
  *		enabled, which makes expansion much less predictable
  */
 int ttls_get_record_expansion(const ttls_context *ssl);
-
-#if defined(TTLS_MAX_FRAGMENT_LENGTH)
-/**
- * \brief	Return the maximum fragment length (payload, in bytes).
- *		This is the value negotiated with peer if any,
- *		or the locally configured value.
- *
- * \note	With DTLS, \c ttls_write() will return an error if
- *		called with a larger length value.
- *		With TLS, \c ttls_write() will fragment the input if
- *		necessary and return the number of bytes written; it is up
- *		to the caller to call \c ttls_write() again in
- *		order to send the remaining bytes if any.
- *
- * \param ssl	SSL context
- *
- * \return	Current maximum fragment length.
- */
-size_t ttls_get_max_frag_len(const ttls_context *ssl);
-#endif /* TTLS_MAX_FRAGMENT_LENGTH */
 
 /**
  * \brief	Return the peer certificate from the current connection

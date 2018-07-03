@@ -75,16 +75,16 @@ extern "C" {
  */
 typedef struct
 {
-	int nr;					 /*!< The number of rounds. */
+	int nr;		 /*!< The number of rounds. */
 	uint32_t *rk;			   /*!< AES round keys. */
 	uint32_t buf[68];		   /*!< Unaligned data buffer. This buffer can
-									 hold 32 extra Bytes, which can be used for
-									 one of the following purposes:
-									 <ul><li>Alignment if VIA padlock is
-											 used.</li>
-									 <li>Simplifying key expansion in the 256-bit
-										 case by generating an extra round key.
-										 </li></ul> */
+			 hold 32 extra Bytes, which can be used for
+			 one of the following purposes:
+			 <ul><li>Alignment if VIA padlock is
+		 used.</li>
+			 <li>Simplifying key expansion in the 256-bit
+				 case by generating an extra round key.
+				 </li></ul> */
 }
 ttls_aes_context;
 
@@ -119,7 +119,7 @@ void ttls_aes_free(ttls_aes_context *ctx);
  *				 on failure.
  */
 int ttls_aes_setkey_enc(ttls_aes_context *ctx, const unsigned char *key,
-					unsigned int keybits);
+		unsigned int keybits);
 
 /**
  * \brief		  This function sets the decryption key.
@@ -134,7 +134,7 @@ int ttls_aes_setkey_enc(ttls_aes_context *ctx, const unsigned char *key,
  * \return		 \c 0 on success, or #TTLS_ERR_AES_INVALID_KEY_LENGTH on failure.
  */
 int ttls_aes_setkey_dec(ttls_aes_context *ctx, const unsigned char *key,
-					unsigned int keybits);
+		unsigned int keybits);
 
 /**
  * \brief		  This function performs an AES single-block encryption or
@@ -157,9 +157,9 @@ int ttls_aes_setkey_dec(ttls_aes_context *ctx, const unsigned char *key,
  * \return		 \c 0 on success.
  */
 int ttls_aes_crypt_ecb(ttls_aes_context *ctx,
-					int mode,
-					const unsigned char input[16],
-					unsigned char output[16]);
+		int mode,
+		const unsigned char input[16],
+		unsigned char output[16]);
 
 #if defined(TTLS_CIPHER_MODE_CBC)
 /**
@@ -199,11 +199,11 @@ int ttls_aes_crypt_ecb(ttls_aes_context *ctx,
  *				 on failure.
  */
 int ttls_aes_crypt_cbc(ttls_aes_context *ctx,
-					int mode,
-					size_t length,
-					unsigned char iv[16],
-					const unsigned char *input,
-					unsigned char *output);
+		int mode,
+		size_t length,
+		unsigned char iv[16],
+		const unsigned char *input,
+		unsigned char *output);
 #endif /* TTLS_CIPHER_MODE_CBC */
 
 #if defined(TTLS_CIPHER_MODE_CFB)
@@ -242,12 +242,12 @@ int ttls_aes_crypt_cbc(ttls_aes_context *ctx,
  * \return		 \c 0 on success.
  */
 int ttls_aes_crypt_cfb128(ttls_aes_context *ctx,
-					   int mode,
-					   size_t length,
-					   size_t *iv_off,
-					   unsigned char iv[16],
-					   const unsigned char *input,
-					   unsigned char *output);
+		   int mode,
+		   size_t length,
+		   size_t *iv_off,
+		   unsigned char iv[16],
+		   const unsigned char *input,
+		   unsigned char *output);
 
 /**
  * \brief This function performs an AES-CFB8 encryption or decryption
@@ -282,11 +282,11 @@ int ttls_aes_crypt_cfb128(ttls_aes_context *ctx,
  * \return		 \c 0 on success.
  */
 int ttls_aes_crypt_cfb8(ttls_aes_context *ctx,
-					int mode,
-					size_t length,
-					unsigned char iv[16],
-					const unsigned char *input,
-					unsigned char *output);
+		int mode,
+		size_t length,
+		unsigned char iv[16],
+		const unsigned char *input,
+		unsigned char *output);
 #endif /*TTLS_CIPHER_MODE_CFB */
 
 #if defined(TTLS_CIPHER_MODE_CTR)
@@ -308,23 +308,23 @@ int ttls_aes_crypt_cfb8(ttls_aes_context *ctx,
  * \param ctx			  The AES context to use for encryption or decryption.
  * \param length		   The length of the input data.
  * \param nc_off		   The offset in the current \p stream_block, for
- *						 resuming within the current cipher stream. The
- *						 offset pointer should be 0 at the start of a stream.
+ *			 resuming within the current cipher stream. The
+ *			 offset pointer should be 0 at the start of a stream.
  * \param nonce_counter	The 128-bit nonce and counter.
  * \param stream_block	 The saved stream block for resuming. This is
- *						 overwritten by the function.
+ *			 overwritten by the function.
  * \param input			The buffer holding the input data.
  * \param output		   The buffer holding the output data.
  *
  * \return	 \c 0 on success.
  */
 int ttls_aes_crypt_ctr(ttls_aes_context *ctx,
-					   size_t length,
-					   size_t *nc_off,
-					   unsigned char nonce_counter[16],
-					   unsigned char stream_block[16],
-					   const unsigned char *input,
-					   unsigned char *output);
+		   size_t length,
+		   size_t *nc_off,
+		   unsigned char nonce_counter[16],
+		   unsigned char stream_block[16],
+		   const unsigned char *input,
+		   unsigned char *output);
 #endif /* TTLS_CIPHER_MODE_CTR */
 
 /**
@@ -339,8 +339,8 @@ int ttls_aes_crypt_ctr(ttls_aes_context *ctx,
  * \return		  \c 0 on success.
  */
 int ttls_internal_aes_encrypt(ttls_aes_context *ctx,
-								  const unsigned char input[16],
-								  unsigned char output[16]);
+		  const unsigned char input[16],
+		  unsigned char output[16]);
 
 /**
  * \brief		   Internal AES block decryption function. This is only
@@ -354,8 +354,8 @@ int ttls_internal_aes_encrypt(ttls_aes_context *ctx,
  * \return		  \c 0 on success.
  */
 int ttls_internal_aes_decrypt(ttls_aes_context *ctx,
-								  const unsigned char input[16],
-								  unsigned char output[16]);
+		  const unsigned char input[16],
+		  unsigned char output[16]);
 
 #else  /* TTLS_AES_ALT */
 #include "aes_alt.h"

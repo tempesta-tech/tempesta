@@ -124,8 +124,8 @@ int ttls_ecdsa_sign(ttls_ecp_group *grp, ttls_mpi *r, ttls_mpi *s,
  * \see			 ecp.h
  */
 int ttls_ecdsa_sign_det(ttls_ecp_group *grp, ttls_mpi *r, ttls_mpi *s,
-					const ttls_mpi *d, const unsigned char *buf, size_t blen,
-					ttls_md_type_t md_alg);
+		const ttls_mpi *d, const unsigned char *buf, size_t blen,
+		ttls_md_type_t md_alg);
 #endif /* TTLS_ECDSA_DETERMINISTIC */
 
 /**
@@ -198,10 +198,10 @@ int ttls_ecdsa_verify(ttls_ecp_group *grp,
  * \see			 ecp.h
  */
 int ttls_ecdsa_write_signature(ttls_ecdsa_context *ctx, ttls_md_type_t md_alg,
-						   const unsigned char *hash, size_t hlen,
-						   unsigned char *sig, size_t *slen,
-						   int (*f_rng)(void *, unsigned char *, size_t),
-						   void *p_rng);
+			   const unsigned char *hash, size_t hlen,
+			   unsigned char *sig, size_t *slen,
+			   int (*f_rng)(void *, unsigned char *, size_t),
+			   void *p_rng);
 
 /**
  * \brief		   This function reads and verifies an ECDSA signature.
@@ -228,8 +228,8 @@ int ttls_ecdsa_write_signature(ttls_ecdsa_context *ctx, ttls_md_type_t md_alg,
  * \see			 ecp.h
  */
 int ttls_ecdsa_read_signature(ttls_ecdsa_context *ctx,
-						  const unsigned char *hash, size_t hlen,
-						  const unsigned char *sig, size_t slen);
+			  const unsigned char *hash, size_t hlen,
+			  const unsigned char *sig, size_t slen);
 
 /**
  * \brief		  This function generates an ECDSA keypair on the given curve.

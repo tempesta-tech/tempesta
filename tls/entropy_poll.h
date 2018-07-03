@@ -57,12 +57,12 @@ int ttls_havege_poll(void *data,
  * \brief		   ttls_timing_hardclock-based entropy poll callback
  */
 int ttls_hardclock_poll(void *data,
-					unsigned char *output, size_t len, size_t *olen);
+		unsigned char *output, size_t len, size_t *olen);
 
 /**
  * \brief		   Entropy poll callback for a hardware source
  * \note			This must accept NULL as its first argument.
  */
 int ttls_hardware_poll(void *data,
-						   unsigned char *output, size_t len, size_t *olen);
+			   unsigned char *output, size_t len, size_t *olen);
 #endif /* entropy_poll.h */

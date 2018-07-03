@@ -38,15 +38,15 @@
 /*
  * RSA Error codes
  */
-#define TTLS_ERR_RSA_BAD_INPUT_DATA					-0x4080  /**< Bad input parameters to function. */
+#define TTLS_ERR_RSA_BAD_INPUT_DATA		-0x4080  /**< Bad input parameters to function. */
 #define TTLS_ERR_RSA_INVALID_PADDING				   -0x4100  /**< Input data contains invalid padding and is rejected. */
-#define TTLS_ERR_RSA_KEY_GEN_FAILED					-0x4180  /**< Something failed during generation of a key. */
+#define TTLS_ERR_RSA_KEY_GEN_FAILED		-0x4180  /**< Something failed during generation of a key. */
 #define TTLS_ERR_RSA_KEY_CHECK_FAILED				  -0x4200  /**< Key failed to pass the validity check of the library. */
-#define TTLS_ERR_RSA_PUBLIC_FAILED					 -0x4280  /**< The public key operation failed. */
-#define TTLS_ERR_RSA_PRIVATE_FAILED					-0x4300  /**< The private key operation failed. */
-#define TTLS_ERR_RSA_VERIFY_FAILED					 -0x4380  /**< The PKCS#1 verification failed. */
+#define TTLS_ERR_RSA_PUBLIC_FAILED		 -0x4280  /**< The public key operation failed. */
+#define TTLS_ERR_RSA_PRIVATE_FAILED		-0x4300  /**< The private key operation failed. */
+#define TTLS_ERR_RSA_VERIFY_FAILED		 -0x4380  /**< The PKCS#1 verification failed. */
 #define TTLS_ERR_RSA_OUTPUT_TOO_LARGE				  -0x4400  /**< The output buffer for decryption is not large enough. */
-#define TTLS_ERR_RSA_RNG_FAILED						-0x4480  /**< The random generator failed to generate non-zeros. */
+#define TTLS_ERR_RSA_RNG_FAILED			-0x4480  /**< The random generator failed to generate non-zeros. */
 #define TTLS_ERR_RSA_UNSUPPORTED_OPERATION			 -0x4500  /**< The implementation does not offer the requested operation, for example, because of security violations or lack of functionality. */
 #define TTLS_ERR_RSA_HW_ACCEL_FAILED				   -0x4580  /**< RSA hardware accelerator failed. */
 
@@ -82,35 +82,35 @@
  */
 typedef struct
 {
-	int ver;					/*!<  Always 0.*/
+	int ver;		/*!<  Always 0.*/
 	size_t len;				 /*!<  The size of \p N in Bytes. */
 
-	ttls_mpi N;					  /*!<  The public modulus. */
-	ttls_mpi E;					  /*!<  The public exponent. */
+	ttls_mpi N;		  /*!<  The public modulus. */
+	ttls_mpi E;		  /*!<  The public exponent. */
 
-	ttls_mpi D;					  /*!<  The private exponent. */
-	ttls_mpi P;					  /*!<  The first prime factor. */
-	ttls_mpi Q;					  /*!<  The second prime factor. */
+	ttls_mpi D;		  /*!<  The private exponent. */
+	ttls_mpi P;		  /*!<  The first prime factor. */
+	ttls_mpi Q;		  /*!<  The second prime factor. */
 
-	ttls_mpi DP;					 /*!<  \p D % (P - 1)	   */
-	ttls_mpi DQ;					 /*!<  \p D % (Q - 1)	   */
-	ttls_mpi QP;					 /*!<  1 / (Q % P)	   */
+	ttls_mpi DP;		 /*!<  \p D % (P - 1)	   */
+	ttls_mpi DQ;		 /*!<  \p D % (Q - 1)	   */
+	ttls_mpi QP;		 /*!<  1 / (Q % P)	   */
 
-	ttls_mpi RN;					 /*!<  cached R^2 mod \p N  */
+	ttls_mpi RN;		 /*!<  cached R^2 mod \p N  */
 
-	ttls_mpi RP;					 /*!<  cached R^2 mod \p P  */
-	ttls_mpi RQ;					 /*!<  cached R^2 mod \p Q  */
+	ttls_mpi RP;		 /*!<  cached R^2 mod \p P  */
+	ttls_mpi RQ;		 /*!<  cached R^2 mod \p Q  */
 
-	ttls_mpi Vi;					 /*!<  The cached blinding value. */
-	ttls_mpi Vf;					 /*!<  The cached un-blinding value. */
+	ttls_mpi Vi;		 /*!<  The cached blinding value. */
+	ttls_mpi Vf;		 /*!<  The cached un-blinding value. */
 
 	int padding;				/*!< Selects padding mode:
-									 #TTLS_RSA_PKCS_V15 for 1.5 padding and
-									 #TTLS_RSA_PKCS_V21 for OAEP or PSS. */
+			 #TTLS_RSA_PKCS_V15 for 1.5 padding and
+			 #TTLS_RSA_PKCS_V21 for OAEP or PSS. */
 	int hash_id;				/*!< Hash identifier of ttls_md_type_t type,
-									 as specified in md.h for use in the MGF
-									 mask generating function used in the
-									 EME-OAEP and EMSA-PSS encodings. */
+			 as specified in md.h for use in the MGF
+			 mask generating function used in the
+			 EME-OAEP and EMSA-PSS encodings. */
 	spinlock_t mutex;	/*!<  Thread-safety mutex. */
 }
 ttls_rsa_context;
@@ -142,8 +142,8 @@ ttls_rsa_context;
  *				 If set to #TTLS_MD_NONE, it is always overriden.
  */
 void ttls_rsa_init(ttls_rsa_context *ctx,
-					   int padding,
-					   int hash_id);
+		   int padding,
+		   int hash_id);
 
 /**
  * \brief		  This function imports a set of core parameters into an
@@ -174,9 +174,9 @@ void ttls_rsa_init(ttls_rsa_context *ctx,
  * \return		 \c 0 on success, or a non-zero error code on failure.
  */
 int ttls_rsa_import(ttls_rsa_context *ctx,
-						const ttls_mpi *N,
-						const ttls_mpi *P, const ttls_mpi *Q,
-						const ttls_mpi *D, const ttls_mpi *E);
+			const ttls_mpi *N,
+			const ttls_mpi *P, const ttls_mpi *Q,
+			const ttls_mpi *D, const ttls_mpi *E);
 
 /**
  * \brief		  This function imports core RSA parameters, in raw big-endian
@@ -212,11 +212,11 @@ int ttls_rsa_import(ttls_rsa_context *ctx,
  * \return		 \c 0 on success, or a non-zero error code on failure.
  */
 int ttls_rsa_import_raw(ttls_rsa_context *ctx,
-							unsigned char const *N, size_t N_len,
-							unsigned char const *P, size_t P_len,
-							unsigned char const *Q, size_t Q_len,
-							unsigned char const *D, size_t D_len,
-							unsigned char const *E, size_t E_len);
+				unsigned char const *N, size_t N_len,
+				unsigned char const *P, size_t P_len,
+				unsigned char const *Q, size_t Q_len,
+				unsigned char const *D, size_t D_len,
+				unsigned char const *E, size_t E_len);
 
 /**
  * \brief		  This function completes an RSA context from
@@ -287,8 +287,8 @@ int ttls_rsa_complete(ttls_rsa_context *ctx);
  *
  */
 int ttls_rsa_export(const ttls_rsa_context *ctx,
-						ttls_mpi *N, ttls_mpi *P, ttls_mpi *Q,
-						ttls_mpi *D, ttls_mpi *E);
+			ttls_mpi *N, ttls_mpi *P, ttls_mpi *Q,
+			ttls_mpi *D, ttls_mpi *E);
 
 /**
  * \brief		  This function exports core parameters of an RSA key
@@ -335,11 +335,11 @@ int ttls_rsa_export(const ttls_rsa_context *ctx,
  *				 or a non-zero return code on any other failure.
  */
 int ttls_rsa_export_raw(const ttls_rsa_context *ctx,
-							unsigned char *N, size_t N_len,
-							unsigned char *P, size_t P_len,
-							unsigned char *Q, size_t Q_len,
-							unsigned char *D, size_t D_len,
-							unsigned char *E, size_t E_len);
+				unsigned char *N, size_t N_len,
+				unsigned char *P, size_t P_len,
+				unsigned char *Q, size_t Q_len,
+				unsigned char *D, size_t D_len,
+				unsigned char *E, size_t E_len);
 
 /**
  * \brief		  This function exports CRT parameters of a private RSA key.
@@ -357,7 +357,7 @@ int ttls_rsa_export_raw(const ttls_rsa_context *ctx,
  *
  */
 int ttls_rsa_export_crt(const ttls_rsa_context *ctx,
-							ttls_mpi *DP, ttls_mpi *DQ, ttls_mpi *QP);
+				ttls_mpi *DP, ttls_mpi *DQ, ttls_mpi *QP);
 
 /**
  * \brief		  This function sets padding for an already initialized RSA
@@ -369,7 +369,7 @@ int ttls_rsa_export_crt(const ttls_rsa_context *ctx,
  * \param hash_id  The #TTLS_RSA_PKCS_V21 hash identifier.
  */
 void ttls_rsa_set_padding(ttls_rsa_context *ctx, int padding,
-							  int hash_id);
+				  int hash_id);
 
 /**
  * \brief		  This function retrieves the length of RSA modulus in Bytes.
@@ -397,9 +397,9 @@ size_t ttls_rsa_get_len(const ttls_rsa_context *ctx);
 				   on failure.
  */
 int ttls_rsa_gen_key(ttls_rsa_context *ctx,
-						 int (*f_rng)(void *, unsigned char *, size_t),
-						 void *p_rng,
-						 unsigned int nbits, int exponent);
+			 int (*f_rng)(void *, unsigned char *, size_t),
+			 void *p_rng,
+			 unsigned int nbits, int exponent);
 
 /**
  * \brief		  This function checks if a context contains at least an RSA
@@ -467,7 +467,7 @@ int ttls_rsa_check_privkey(const ttls_rsa_context *ctx);
  *				 on failure.
  */
 int ttls_rsa_check_pub_priv(const ttls_rsa_context *pub,
-								const ttls_rsa_context *prv);
+		const ttls_rsa_context *prv);
 
 /**
  * \brief		  This function performs an RSA public key operation.
@@ -557,11 +557,11 @@ int ttls_rsa_private(ttls_rsa_context *ctx,
  *				 of \p ctx->N. For example, 128 Bytes if RSA-1024 is used.
  */
 int ttls_rsa_pkcs1_encrypt(ttls_rsa_context *ctx,
-					   int (*f_rng)(void *, unsigned char *, size_t),
-					   void *p_rng,
-					   int mode, size_t ilen,
-					   const unsigned char *input,
-					   unsigned char *output);
+		   int (*f_rng)(void *, unsigned char *, size_t),
+		   void *p_rng,
+		   int mode, size_t ilen,
+		   const unsigned char *input,
+		   unsigned char *output);
 
 /**
  * \brief		  This function performs a PKCS#1 v1.5 encryption operation
@@ -592,11 +592,11 @@ int ttls_rsa_pkcs1_encrypt(ttls_rsa_context *ctx,
  *				 of \p ctx->N. For example, 128 Bytes if RSA-1024 is used.
  */
 int ttls_rsa_rsaes_pkcs1_v15_encrypt(ttls_rsa_context *ctx,
-								 int (*f_rng)(void *, unsigned char *, size_t),
-								 void *p_rng,
-								 int mode, size_t ilen,
-								 const unsigned char *input,
-								 unsigned char *output);
+		 int (*f_rng)(void *, unsigned char *, size_t),
+		 void *p_rng,
+		 int mode, size_t ilen,
+		 const unsigned char *input,
+		 unsigned char *output);
 
 /**
  * \brief			This function performs a PKCS#1 v2.1 OAEP encryption
@@ -629,13 +629,13 @@ int ttls_rsa_rsaes_pkcs1_v15_encrypt(ttls_rsa_context *ctx,
  *				 of ctx->N. For example, 128 Bytes if RSA-1024 is used.
  */
 int ttls_rsa_rsaes_oaep_encrypt(ttls_rsa_context *ctx,
-							int (*f_rng)(void *, unsigned char *, size_t),
-							void *p_rng,
-							int mode,
-							const unsigned char *label, size_t label_len,
-							size_t ilen,
-							const unsigned char *input,
-							unsigned char *output);
+				int (*f_rng)(void *, unsigned char *, size_t),
+				void *p_rng,
+				int mode,
+				const unsigned char *label, size_t label_len,
+				size_t ilen,
+				const unsigned char *input,
+				unsigned char *output);
 
 /**
  * \brief		  This function performs an RSA operation, then removes the
@@ -676,12 +676,12 @@ int ttls_rsa_rsaes_oaep_encrypt(ttls_rsa_context *ctx,
  *				 of \p ctx->N. For example, 128 Bytes if RSA-1024 is used.
  */
 int ttls_rsa_pkcs1_decrypt(ttls_rsa_context *ctx,
-					   int (*f_rng)(void *, unsigned char *, size_t),
-					   void *p_rng,
-					   int mode, size_t *olen,
-					   const unsigned char *input,
-					   unsigned char *output,
-					   size_t output_max_len);
+		   int (*f_rng)(void *, unsigned char *, size_t),
+		   void *p_rng,
+		   int mode, size_t *olen,
+		   const unsigned char *input,
+		   unsigned char *output,
+		   size_t output_max_len);
 
 /**
  * \brief		  This function performs a PKCS#1 v1.5 decryption
@@ -719,12 +719,12 @@ int ttls_rsa_pkcs1_decrypt(ttls_rsa_context *ctx,
  *				 of \p ctx->N. For example, 128 Bytes if RSA-1024 is used.
  */
 int ttls_rsa_rsaes_pkcs1_v15_decrypt(ttls_rsa_context *ctx,
-								 int (*f_rng)(void *, unsigned char *, size_t),
-								 void *p_rng,
-								 int mode, size_t *olen,
-								 const unsigned char *input,
-								 unsigned char *output,
-								 size_t output_max_len);
+		 int (*f_rng)(void *, unsigned char *, size_t),
+		 void *p_rng,
+		 int mode, size_t *olen,
+		 const unsigned char *input,
+		 unsigned char *output,
+		 size_t output_max_len);
 
 /**
  * \brief		  This function performs a PKCS#1 v2.1 OAEP decryption
@@ -765,14 +765,14 @@ int ttls_rsa_rsaes_pkcs1_v15_decrypt(ttls_rsa_context *ctx,
  *				 of \p ctx->N. For example, 128 Bytes if RSA-1024 is used.
  */
 int ttls_rsa_rsaes_oaep_decrypt(ttls_rsa_context *ctx,
-							int (*f_rng)(void *, unsigned char *, size_t),
-							void *p_rng,
-							int mode,
-							const unsigned char *label, size_t label_len,
-							size_t *olen,
-							const unsigned char *input,
-							unsigned char *output,
-							size_t output_max_len);
+				int (*f_rng)(void *, unsigned char *, size_t),
+				void *p_rng,
+				int mode,
+				const unsigned char *label, size_t label_len,
+				size_t *olen,
+				const unsigned char *input,
+				unsigned char *output,
+				size_t output_max_len);
 
 /**
  * \brief		  This function performs a private RSA operation to sign
@@ -812,13 +812,13 @@ int ttls_rsa_rsaes_oaep_decrypt(ttls_rsa_context *ctx,
  *				 \p md_alg and \p hash_id.
  */
 int ttls_rsa_pkcs1_sign(ttls_rsa_context *ctx,
-					int (*f_rng)(void *, unsigned char *, size_t),
-					void *p_rng,
-					int mode,
-					ttls_md_type_t md_alg,
-					unsigned int hashlen,
-					const unsigned char *hash,
-					unsigned char *sig);
+		int (*f_rng)(void *, unsigned char *, size_t),
+		void *p_rng,
+		int mode,
+		ttls_md_type_t md_alg,
+		unsigned int hashlen,
+		const unsigned char *hash,
+		unsigned char *sig);
 
 /**
  * \brief		  This function performs a PKCS#1 v1.5 signature
@@ -851,13 +851,13 @@ int ttls_rsa_pkcs1_sign(ttls_rsa_context *ctx,
  *				 of \p ctx->N. For example, 128 Bytes if RSA-1024 is used.
  */
 int ttls_rsa_rsassa_pkcs1_v15_sign(ttls_rsa_context *ctx,
-							   int (*f_rng)(void *, unsigned char *, size_t),
-							   void *p_rng,
-							   int mode,
-							   ttls_md_type_t md_alg,
-							   unsigned int hashlen,
-							   const unsigned char *hash,
-							   unsigned char *sig);
+				   int (*f_rng)(void *, unsigned char *, size_t),
+				   void *p_rng,
+				   int mode,
+				   ttls_md_type_t md_alg,
+				   unsigned int hashlen,
+				   const unsigned char *hash,
+				   unsigned char *sig);
 
 /**
  * \brief		  This function performs a PKCS#1 v2.1 PSS signature
@@ -898,13 +898,13 @@ int ttls_rsa_rsassa_pkcs1_v15_sign(ttls_rsa_context *ctx,
  *				 same.
  */
 int ttls_rsa_rsassa_pss_sign(ttls_rsa_context *ctx,
-						 int (*f_rng)(void *, unsigned char *, size_t),
-						 void *p_rng,
-						 int mode,
-						 ttls_md_type_t md_alg,
-						 unsigned int hashlen,
-						 const unsigned char *hash,
-						 unsigned char *sig);
+			 int (*f_rng)(void *, unsigned char *, size_t),
+			 void *p_rng,
+			 int mode,
+			 ttls_md_type_t md_alg,
+			 unsigned int hashlen,
+			 const unsigned char *hash,
+			 unsigned char *sig);
 
 /**
  * \brief		  This function performs a public RSA operation and checks
@@ -944,13 +944,13 @@ int ttls_rsa_rsassa_pss_sign(ttls_rsa_context *ctx,
  *				 \p hash_id.
  */
 int ttls_rsa_pkcs1_verify(ttls_rsa_context *ctx,
-					  int (*f_rng)(void *, unsigned char *, size_t),
-					  void *p_rng,
-					  int mode,
-					  ttls_md_type_t md_alg,
-					  unsigned int hashlen,
-					  const unsigned char *hash,
-					  const unsigned char *sig);
+		  int (*f_rng)(void *, unsigned char *, size_t),
+		  void *p_rng,
+		  int mode,
+		  ttls_md_type_t md_alg,
+		  unsigned int hashlen,
+		  const unsigned char *hash,
+		  const unsigned char *sig);
 
 /**
  * \brief		  This function performs a PKCS#1 v1.5 verification
@@ -983,13 +983,13 @@ int ttls_rsa_pkcs1_verify(ttls_rsa_context *ctx,
  *				 of \p ctx->N. For example, 128 Bytes if RSA-1024 is used.
  */
 int ttls_rsa_rsassa_pkcs1_v15_verify(ttls_rsa_context *ctx,
-								 int (*f_rng)(void *, unsigned char *, size_t),
-								 void *p_rng,
-								 int mode,
-								 ttls_md_type_t md_alg,
-								 unsigned int hashlen,
-								 const unsigned char *hash,
-								 const unsigned char *sig);
+		 int (*f_rng)(void *, unsigned char *, size_t),
+		 void *p_rng,
+		 int mode,
+		 ttls_md_type_t md_alg,
+		 unsigned int hashlen,
+		 const unsigned char *hash,
+		 const unsigned char *sig);
 
 /**
  * \brief		  This function performs a PKCS#1 v2.1 PSS verification
@@ -1033,13 +1033,13 @@ int ttls_rsa_rsassa_pkcs1_v15_verify(ttls_rsa_context *ctx,
  *				 the \p md_alg from the function call is used.
  */
 int ttls_rsa_rsassa_pss_verify(ttls_rsa_context *ctx,
-						   int (*f_rng)(void *, unsigned char *, size_t),
-						   void *p_rng,
-						   int mode,
-						   ttls_md_type_t md_alg,
-						   unsigned int hashlen,
-						   const unsigned char *hash,
-						   const unsigned char *sig);
+			   int (*f_rng)(void *, unsigned char *, size_t),
+			   void *p_rng,
+			   int mode,
+			   ttls_md_type_t md_alg,
+			   unsigned int hashlen,
+			   const unsigned char *hash,
+			   const unsigned char *sig);
 
 /**
  * \brief		  This function performs a PKCS#1 v2.1 PSS verification
@@ -1071,15 +1071,15 @@ int ttls_rsa_rsassa_pss_verify(ttls_rsa_context *ctx,
  * \note		   The \p hash_id in the RSA context is ignored.
  */
 int ttls_rsa_rsassa_pss_verify_ext(ttls_rsa_context *ctx,
-							   int (*f_rng)(void *, unsigned char *, size_t),
-							   void *p_rng,
-							   int mode,
-							   ttls_md_type_t md_alg,
-							   unsigned int hashlen,
-							   const unsigned char *hash,
-							   ttls_md_type_t mgf1_hash_id,
-							   int expected_salt_len,
-							   const unsigned char *sig);
+				   int (*f_rng)(void *, unsigned char *, size_t),
+				   void *p_rng,
+				   int mode,
+				   ttls_md_type_t md_alg,
+				   unsigned int hashlen,
+				   const unsigned char *hash,
+				   ttls_md_type_t mgf1_hash_id,
+				   int expected_salt_len,
+				   const unsigned char *sig);
 
 /**
  * \brief		  This function copies the components of an RSA context.

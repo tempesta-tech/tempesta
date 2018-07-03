@@ -33,8 +33,9 @@
 int
 tfw_msg_write(TfwMsgIter *it, const TfwStr *data)
 {
+	char *p;
 	const TfwStr *c, *end;
-	skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
+	skb_frag_t *frag;
 	unsigned int c_off = 0, f_size, c_size, f_room, n_copy;
 
 	BUG_ON(TFW_STR_DUP(data));
@@ -44,14 +45,21 @@ this_chunk:
 			return -E2BIG;
 
 		c_size = c->len - c_off;
-		f_size = skb_frag_size(frag);
-		f_room = PAGE_SIZE - frag->page_offset - f_size;
-		n_copy = min(c_size, f_room);
+		if (it->frag >= 0) {
+			frag = &skb_shinfo(it->skb)->frags[it->frag];
+			f_size = skb_frag_size(frag);
+			f_room = PAGE_SIZE - frag->page_offset - f_size;
+			p = (char *)skb_frag_address(frag) + f_size;
+			n_copy = min(c_size, f_room);
+			skb_frag_size_add(frag, n_copy);
+			ss_skb_adjust_data_len(it->skb, n_copy);
+		} else {
+			f_room = skb_tailroom(it->skb);
+			n_copy = min(c_size, f_room);
+			p = skb_put(it->skb, n_copy);
+		}
 
-		memcpy_fast((char *)skb_frag_address(frag) + f_size,
-			    (char *)c->ptr + c_off, n_copy);
-		skb_frag_size_add(frag, n_copy);
-		ss_skb_adjust_data_len(it->skb, n_copy);
+		memcpy_fast(p, (char *)c->ptr + c_off, n_copy);
 
 		if (c_size < f_room) {
 			/*
@@ -88,10 +96,9 @@ tfw_msg_iter_setup(TfwMsgIter *it, struct sk_buff **skb_head, size_t data_len)
 	if ((r = ss_skb_alloc_data(skb_head, data_len)))
 		return r;
 	it->skb = *skb_head;
-	it->frag = 0;
+	it->frag = -1;
 
 	BUG_ON(!it->skb);
-	BUG_ON(!skb_shinfo(it->skb)->nr_frags);
 
 	return 0;
 }

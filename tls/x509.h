@@ -54,25 +54,25 @@
  * \{
  */
 #define TTLS_ERR_X509_FEATURE_UNAVAILABLE			  -0x2080  /**< Unavailable feature, e.g. RSA hashing/encryption combination. */
-#define TTLS_ERR_X509_UNKNOWN_OID					  -0x2100  /**< Requested OID is unknown. */
+#define TTLS_ERR_X509_UNKNOWN_OID		  -0x2100  /**< Requested OID is unknown. */
 #define TTLS_ERR_X509_INVALID_FORMAT				   -0x2180  /**< The CRT/CRL/CSR format is invalid, e.g. different type expected. */
 #define TTLS_ERR_X509_INVALID_VERSION				  -0x2200  /**< The CRT/CRL/CSR version element is invalid. */
 #define TTLS_ERR_X509_INVALID_SERIAL				   -0x2280  /**< The serial tag or value is invalid. */
-#define TTLS_ERR_X509_INVALID_ALG					  -0x2300  /**< The algorithm tag or value is invalid. */
-#define TTLS_ERR_X509_INVALID_NAME					 -0x2380  /**< The name tag or value is invalid. */
-#define TTLS_ERR_X509_INVALID_DATE					 -0x2400  /**< The date tag or value is invalid. */
+#define TTLS_ERR_X509_INVALID_ALG		  -0x2300  /**< The algorithm tag or value is invalid. */
+#define TTLS_ERR_X509_INVALID_NAME		 -0x2380  /**< The name tag or value is invalid. */
+#define TTLS_ERR_X509_INVALID_DATE		 -0x2400  /**< The date tag or value is invalid. */
 #define TTLS_ERR_X509_INVALID_SIGNATURE				-0x2480  /**< The signature tag or value invalid. */
 #define TTLS_ERR_X509_INVALID_EXTENSIONS			   -0x2500  /**< The extension tag or value is invalid. */
 #define TTLS_ERR_X509_UNKNOWN_VERSION				  -0x2580  /**< CRT/CRL/CSR has an unsupported version number. */
 #define TTLS_ERR_X509_UNKNOWN_SIG_ALG				  -0x2600  /**< Signature algorithm (oid) is unsupported. */
-#define TTLS_ERR_X509_SIG_MISMATCH					 -0x2680  /**< Signature algorithms do not match. (see \c ::ttls_x509_crt sig_oid) */
+#define TTLS_ERR_X509_SIG_MISMATCH		 -0x2680  /**< Signature algorithms do not match. (see \c ::ttls_x509_crt sig_oid) */
 #define TTLS_ERR_X509_CERT_VERIFY_FAILED			   -0x2700  /**< Certificate verification failed, e.g. CRL, CA or signature check failed. */
 #define TTLS_ERR_X509_CERT_UNKNOWN_FORMAT			  -0x2780  /**< Format not recognized as DER or PEM. */
 #define TTLS_ERR_X509_BAD_INPUT_DATA				   -0x2800  /**< Input invalid. */
-#define TTLS_ERR_X509_ALLOC_FAILED					 -0x2880  /**< Allocation of memory failed. */
-#define TTLS_ERR_X509_FILE_IO_ERROR					-0x2900  /**< Read/write of file failed. */
+#define TTLS_ERR_X509_ALLOC_FAILED		 -0x2880  /**< Allocation of memory failed. */
+#define TTLS_ERR_X509_FILE_IO_ERROR		-0x2900  /**< Read/write of file failed. */
 #define TTLS_ERR_X509_BUFFER_TOO_SMALL				 -0x2980  /**< Destination buffer is too small. */
-#define TTLS_ERR_X509_FATAL_ERROR					  -0x3000  /**< A fatal error occured, eg the chain is too long or the vrfy callback failed. */
+#define TTLS_ERR_X509_FATAL_ERROR		  -0x3000  /**< A fatal error occured, eg the chain is too long or the vrfy callback failed. */
 /* \} name */
 
 /**
@@ -114,7 +114,7 @@
 #define TTLS_X509_KU_DATA_ENCIPHERMENT			(0x10)  /* bit 3 */
 #define TTLS_X509_KU_KEY_AGREEMENT				(0x08)  /* bit 4 */
 #define TTLS_X509_KU_KEY_CERT_SIGN				(0x04)  /* bit 5 */
-#define TTLS_X509_KU_CRL_SIGN					 (0x02)  /* bit 6 */
+#define TTLS_X509_KU_CRL_SIGN		 (0x02)  /* bit 6 */
 #define TTLS_X509_KU_ENCIPHER_ONLY				(0x01)  /* bit 7 */
 #define TTLS_X509_KU_DECIPHER_ONLY			  (0x8000)  /* bit 8 */
 
@@ -271,47 +271,47 @@ int ttls_x509_time_is_future(const ttls_x509_time *from);
 int ttls_x509_get_name(unsigned char **p, const unsigned char *end,
 				   ttls_x509_name *cur);
 int ttls_x509_get_alg_null(unsigned char **p, const unsigned char *end,
-					   ttls_x509_buf *alg);
+		   ttls_x509_buf *alg);
 int ttls_x509_get_alg(unsigned char **p, const unsigned char *end,
 				  ttls_x509_buf *alg, ttls_x509_buf *params);
 #if defined(TTLS_X509_RSASSA_PSS_SUPPORT)
 int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
-								ttls_md_type_t *md_alg, ttls_md_type_t *mgf_md,
-								int *salt_len);
+		ttls_md_type_t *md_alg, ttls_md_type_t *mgf_md,
+		int *salt_len);
 #endif
 int ttls_x509_get_sig(unsigned char **p, const unsigned char *end, ttls_x509_buf *sig);
 int ttls_x509_get_sig_alg(const ttls_x509_buf *sig_oid, const ttls_x509_buf *sig_params,
-					  ttls_md_type_t *md_alg, ttls_pk_type_t *pk_alg,
-					  void **sig_opts);
+		  ttls_md_type_t *md_alg, ttls_pk_type_t *pk_alg,
+		  void **sig_opts);
 int ttls_x509_get_time(unsigned char **p, const unsigned char *end,
 				   ttls_x509_time *t);
 int ttls_x509_get_serial(unsigned char **p, const unsigned char *end,
-					 ttls_x509_buf *serial);
+		 ttls_x509_buf *serial);
 int ttls_x509_get_ext(unsigned char **p, const unsigned char *end,
 				  ttls_x509_buf *ext, int tag);
 int ttls_x509_sig_alg_gets(char *buf, size_t size, const ttls_x509_buf *sig_oid,
-					   ttls_pk_type_t pk_alg, ttls_md_type_t md_alg,
-					   const void *sig_opts);
+		   ttls_pk_type_t pk_alg, ttls_md_type_t md_alg,
+		   const void *sig_opts);
 int ttls_x509_key_size_helper(char *buf, size_t buf_size, const char *name);
 int ttls_x509_string_to_names(ttls_asn1_named_data **head, const char *name);
 int ttls_x509_set_extension(ttls_asn1_named_data **head, const char *oid, size_t oid_len,
-						int critical, const unsigned char *val,
-						size_t val_len);
+			int critical, const unsigned char *val,
+			size_t val_len);
 int ttls_x509_write_extensions(unsigned char **p, unsigned char *start,
-						   ttls_asn1_named_data *first);
+			   ttls_asn1_named_data *first);
 int ttls_x509_write_names(unsigned char **p, unsigned char *start,
-					  ttls_asn1_named_data *first);
+		  ttls_asn1_named_data *first);
 int ttls_x509_write_sig(unsigned char **p, unsigned char *start,
-					const char *oid, size_t oid_len,
-					unsigned char *sig, size_t size);
+		const char *oid, size_t oid_len,
+		unsigned char *sig, size_t size);
 
-#define TTLS_X509_SAFE_SNPRINTF						  \
-	do {													\
+#define TTLS_X509_SAFE_SNPRINTF			  \
+	do {				\
 		if (ret < 0 || (size_t) ret >= n)				  \
 			return(TTLS_ERR_X509_BUFFER_TOO_SMALL);	\
-															\
-		n -= (size_t) ret;								  \
-		p += (size_t) ret;								  \
+			\
+		n -= (size_t) ret;		  \
+		p += (size_t) ret;		  \
 	} while (0)
 
 #ifdef __cplusplus

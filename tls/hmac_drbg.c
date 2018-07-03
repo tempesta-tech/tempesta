@@ -51,7 +51,7 @@ void ttls_hmac_drbg_init(ttls_hmac_drbg_context *ctx)
  * HMAC_DRBG update, using optional additional data (10.1.2.2)
  */
 void ttls_hmac_drbg_update(ttls_hmac_drbg_context *ctx,
-					   const unsigned char *additional, size_t add_len)
+		   const unsigned char *additional, size_t add_len)
 {
 	size_t md_len = ttls_md_get_size(ctx->md_ctx.md_info);
 	unsigned char rounds = (additional != NULL && add_len != 0) ? 2 : 1;
@@ -79,8 +79,8 @@ void ttls_hmac_drbg_update(ttls_hmac_drbg_context *ctx,
  * Simplified HMAC_DRBG initialisation (for use with deterministic ECDSA)
  */
 int ttls_hmac_drbg_seed_buf(ttls_hmac_drbg_context *ctx,
-						const ttls_md_info_t * md_info,
-						const unsigned char *data, size_t data_len)
+			const ttls_md_info_t * md_info,
+			const unsigned char *data, size_t data_len)
 {
 	int ret;
 
@@ -104,7 +104,7 @@ int ttls_hmac_drbg_seed_buf(ttls_hmac_drbg_context *ctx,
  * HMAC_DRBG reseeding: 10.1.2.4 (arabic) + 9.2 (Roman)
  */
 int ttls_hmac_drbg_reseed(ttls_hmac_drbg_context *ctx,
-					  const unsigned char *additional, size_t len)
+		  const unsigned char *additional, size_t len)
 {
 	unsigned char seed[TTLS_HMAC_DRBG_MAX_SEED_INPUT];
 	size_t seedlen;
@@ -145,11 +145,11 @@ int ttls_hmac_drbg_reseed(ttls_hmac_drbg_context *ctx,
  * HMAC_DRBG initialisation (10.1.2.3 + 9.1)
  */
 int ttls_hmac_drbg_seed(ttls_hmac_drbg_context *ctx,
-					const ttls_md_info_t * md_info,
-					int (*f_entropy)(void *, unsigned char *, size_t),
-					void *p_entropy,
-					const unsigned char *custom,
-					size_t len)
+		const ttls_md_info_t * md_info,
+		int (*f_entropy)(void *, unsigned char *, size_t),
+		void *p_entropy,
+		const unsigned char *custom,
+		size_t len)
 {
 	int ret;
 	size_t entropy_len, md_size;
@@ -181,7 +181,7 @@ int ttls_hmac_drbg_seed(ttls_hmac_drbg_context *ctx,
 	 */
 	entropy_len = md_size <= 20 ? 16 : /* 160-bits hash -> 128 bits */
 				  md_size <= 28 ? 24 : /* 224-bits hash -> 192 bits */
-								  32;  /* better (256+) -> 256 bits */
+		  32;  /* better (256+) -> 256 bits */
 
 	/*
 	 * For initialisation, use more entropy to emulate a nonce
@@ -201,7 +201,7 @@ int ttls_hmac_drbg_seed(ttls_hmac_drbg_context *ctx,
  * Set prediction resistance
  */
 void ttls_hmac_drbg_set_prediction_resistance(ttls_hmac_drbg_context *ctx,
-										  int resistance)
+				  int resistance)
 {
 	ctx->prediction_resistance = resistance;
 }
@@ -227,8 +227,8 @@ void ttls_hmac_drbg_set_reseed_interval(ttls_hmac_drbg_context *ctx, int interva
  * 10.1.2.5 (arabic) + 9.3 (Roman)
  */
 int ttls_hmac_drbg_random_with_add(void *p_rng,
-							   unsigned char *output, size_t out_len,
-							   const unsigned char *additional, size_t add_len)
+				   unsigned char *output, size_t out_len,
+				   const unsigned char *additional, size_t add_len)
 {
 	int ret;
 	ttls_hmac_drbg_context *ctx = (ttls_hmac_drbg_context *) p_rng;

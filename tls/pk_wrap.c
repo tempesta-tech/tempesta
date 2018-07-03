@@ -65,8 +65,8 @@ static int rsa_verify_wrap(void *ctx, ttls_md_type_t md_alg,
 		return(TTLS_ERR_RSA_VERIFY_FAILED);
 
 	if ((ret = ttls_rsa_pkcs1_verify(rsa, NULL, NULL,
-								  TTLS_RSA_PUBLIC, md_alg,
-								  (unsigned int) hash_len, hash, sig)) != 0)
+		  TTLS_RSA_PUBLIC, md_alg,
+		  (unsigned int) hash_len, hash, sig)) != 0)
 		return ret;
 
 	if (sig_len > rsa_len)
@@ -92,9 +92,9 @@ static int rsa_sign_wrap(void *ctx, ttls_md_type_t md_alg,
 }
 
 static int rsa_decrypt_wrap(void *ctx,
-					const unsigned char *input, size_t ilen,
-					unsigned char *output, size_t *olen, size_t osize,
-					int (*f_rng)(void *, unsigned char *, size_t), void *p_rng)
+		const unsigned char *input, size_t ilen,
+		unsigned char *output, size_t *olen, size_t osize,
+		int (*f_rng)(void *, unsigned char *, size_t), void *p_rng)
 {
 	ttls_rsa_context * rsa = (ttls_rsa_context *) ctx;
 
@@ -106,9 +106,9 @@ static int rsa_decrypt_wrap(void *ctx,
 }
 
 static int rsa_encrypt_wrap(void *ctx,
-					const unsigned char *input, size_t ilen,
-					unsigned char *output, size_t *olen, size_t osize,
-					int (*f_rng)(void *, unsigned char *, size_t), void *p_rng)
+		const unsigned char *input, size_t ilen,
+		unsigned char *output, size_t *olen, size_t osize,
+		int (*f_rng)(void *, unsigned char *, size_t), void *p_rng)
 {
 	ttls_rsa_context * rsa = (ttls_rsa_context *) ctx;
 	*olen = ttls_rsa_get_len(rsa);
@@ -117,13 +117,13 @@ static int rsa_encrypt_wrap(void *ctx,
 		return(TTLS_ERR_RSA_OUTPUT_TOO_LARGE);
 
 	return(ttls_rsa_pkcs1_encrypt(rsa, f_rng, p_rng, TTLS_RSA_PUBLIC,
-									   ilen, input, output));
+			   ilen, input, output));
 }
 
 static int rsa_check_pair_wrap(const void *pub, const void *prv)
 {
 	return(ttls_rsa_check_pub_priv((const ttls_rsa_context *) pub,
-								(const ttls_rsa_context *) prv));
+		(const ttls_rsa_context *) prv));
 }
 
 static void *rsa_alloc_wrap(void)
@@ -188,8 +188,8 @@ static size_t eckey_get_bitlen(const void *ctx)
 #if defined(TTLS_ECDSA_C)
 /* Forward declarations */
 static int ecdsa_verify_wrap(void *ctx, ttls_md_type_t md_alg,
-					   const unsigned char *hash, size_t hash_len,
-					   const unsigned char *sig, size_t sig_len);
+		   const unsigned char *hash, size_t hash_len,
+		   const unsigned char *sig, size_t sig_len);
 
 static int ecdsa_sign_wrap(void *ctx, ttls_md_type_t md_alg,
 				   const unsigned char *hash, size_t hash_len,
@@ -197,8 +197,8 @@ static int ecdsa_sign_wrap(void *ctx, ttls_md_type_t md_alg,
 				   int (*f_rng)(void *, unsigned char *, size_t), void *p_rng);
 
 static int eckey_verify_wrap(void *ctx, ttls_md_type_t md_alg,
-					   const unsigned char *hash, size_t hash_len,
-					   const unsigned char *sig, size_t sig_len)
+		   const unsigned char *hash, size_t hash_len,
+		   const unsigned char *sig, size_t sig_len)
 {
 	int ret;
 	ttls_ecdsa_context ecdsa;
@@ -225,7 +225,7 @@ static int eckey_sign_wrap(void *ctx, ttls_md_type_t md_alg,
 
 	if ((ret = ttls_ecdsa_from_keypair(&ecdsa, ctx)) == 0)
 		ret = ecdsa_sign_wrap(&ecdsa, md_alg, hash, hash_len, sig, sig_len,
-							   f_rng, p_rng);
+				   f_rng, p_rng);
 
 	ttls_ecdsa_free(&ecdsa);
 
@@ -237,7 +237,7 @@ static int eckey_sign_wrap(void *ctx, ttls_md_type_t md_alg,
 static int eckey_check_pair(const void *pub, const void *prv)
 {
 	return(ttls_ecp_check_pub_priv((const ttls_ecp_keypair *) pub,
-								(const ttls_ecp_keypair *) prv));
+		(const ttls_ecp_keypair *) prv));
 }
 
 static void *eckey_alloc_wrap(void)
@@ -314,14 +314,14 @@ static int ecdsa_can_do(ttls_pk_type_t type)
 }
 
 static int ecdsa_verify_wrap(void *ctx, ttls_md_type_t md_alg,
-					   const unsigned char *hash, size_t hash_len,
-					   const unsigned char *sig, size_t sig_len)
+		   const unsigned char *hash, size_t hash_len,
+		   const unsigned char *sig, size_t sig_len)
 {
 	int ret;
 	((void) md_alg);
 
 	ret = ttls_ecdsa_read_signature((ttls_ecdsa_context *) ctx,
-								hash, hash_len, sig, sig_len);
+		hash, hash_len, sig, sig_len);
 
 	if (ret == TTLS_ERR_ECP_SIG_LEN_MISMATCH)
 		return(TTLS_ERR_PK_SIG_LEN_MISMATCH);
@@ -404,9 +404,9 @@ static int rsa_alt_sign_wrap(void *ctx, ttls_md_type_t md_alg,
 }
 
 static int rsa_alt_decrypt_wrap(void *ctx,
-					const unsigned char *input, size_t ilen,
-					unsigned char *output, size_t *olen, size_t osize,
-					int (*f_rng)(void *, unsigned char *, size_t), void *p_rng)
+		const unsigned char *input, size_t ilen,
+		unsigned char *output, size_t *olen, size_t osize,
+		int (*f_rng)(void *, unsigned char *, size_t), void *p_rng)
 {
 	ttls_rsa_alt_context *rsa_alt = (ttls_rsa_alt_context *) ctx;
 
@@ -433,14 +433,14 @@ static int rsa_alt_check_pair(const void *pub, const void *prv)
 	memset(hash, 0x2a, sizeof(hash));
 
 	if ((ret = rsa_alt_sign_wrap((void *) prv, TTLS_MD_NONE,
-								   hash, sizeof(hash),
-								   sig, &sig_len, NULL, NULL)) != 0)
+		   hash, sizeof(hash),
+		   sig, &sig_len, NULL, NULL)) != 0)
 	{
 		return ret;
 	}
 
 	if (rsa_verify_wrap((void *) pub, TTLS_MD_NONE,
-						 hash, sizeof(hash), sig, sig_len) != 0)
+			 hash, sizeof(hash), sig, sig_len) != 0)
 	{
 		return(TTLS_ERR_RSA_KEY_CHECK_FAILED);
 	}

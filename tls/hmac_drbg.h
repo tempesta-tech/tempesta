@@ -73,14 +73,14 @@ typedef struct
 {
 	/* Working state: the key K is not stored explicitely,
 	 * but is implied by the HMAC context */
-	ttls_md_context_t md_ctx;					/*!< HMAC context (inc. K)  */
+	ttls_md_context_t md_ctx;		/*!< HMAC context (inc. K)  */
 	unsigned char V[TTLS_MD_MAX_SIZE];  /*!< V in the spec		  */
-	int reseed_counter;					 /*!< reseed counter		 */
+	int reseed_counter;		 /*!< reseed counter		 */
 
 	/* Administrative state */
 	size_t entropy_len;		 /*!< entropy bytes grabbed on each (re)seed */
 	int prediction_resistance;  /*!< enable prediction resistance (Automatic
-									 reseed before every random generation) */
+			 reseed before every random generation) */
 	int reseed_interval;		/*!< reseed interval   */
 
 	/* Callbacks */
@@ -92,9 +92,9 @@ typedef struct
 
 /**
  * \brief			   HMAC_DRBG context initialization
- *					  Makes the context ready for ttls_hmac_drbg_seed(),
- *					  ttls_hmac_drbg_seed_buf() or
- *					  ttls_hmac_drbg_free().
+ *		  Makes the context ready for ttls_hmac_drbg_seed(),
+ *		  ttls_hmac_drbg_seed_buf() or
+ *		  ttls_hmac_drbg_free().
  *
  * \param ctx		   HMAC_DRBG context to be initialized
  */
@@ -102,38 +102,38 @@ void ttls_hmac_drbg_init(ttls_hmac_drbg_context *ctx);
 
 /**
  * \brief			   HMAC_DRBG initial seeding
- *					  Seed and setup entropy source for future reseeds.
+ *		  Seed and setup entropy source for future reseeds.
  *
  * \param ctx		   HMAC_DRBG context to be seeded
  * \param md_info	   MD algorithm to use for HMAC_DRBG
  * \param f_entropy	 Entropy callback (p_entropy, buffer to fill, buffer
- *					  length)
+ *		  length)
  * \param p_entropy	 Entropy context
  * \param custom		Personalization data (Device specific identifiers)
- *					  (Can be NULL)
+ *		  (Can be NULL)
  * \param len		   Length of personalization data
  *
  * \note				The "security strength" as defined by NIST is set to:
- *					  128 bits if md_alg is SHA-1,
- *					  192 bits if md_alg is SHA-224,
- *					  256 bits if md_alg is SHA-256 or higher.
- *					  Note that SHA-256 is just as efficient as SHA-224.
+ *		  128 bits if md_alg is SHA-1,
+ *		  192 bits if md_alg is SHA-224,
+ *		  256 bits if md_alg is SHA-256 or higher.
+ *		  Note that SHA-256 is just as efficient as SHA-224.
  *
  * \return			  0 if successful, or
- *					  TTLS_ERR_MD_BAD_INPUT_DATA, or
- *					  TTLS_ERR_MD_ALLOC_FAILED, or
- *					  TTLS_ERR_HMAC_DRBG_ENTROPY_SOURCE_FAILED.
+ *		  TTLS_ERR_MD_BAD_INPUT_DATA, or
+ *		  TTLS_ERR_MD_ALLOC_FAILED, or
+ *		  TTLS_ERR_HMAC_DRBG_ENTROPY_SOURCE_FAILED.
  */
 int ttls_hmac_drbg_seed(ttls_hmac_drbg_context *ctx,
-					const ttls_md_info_t * md_info,
-					int (*f_entropy)(void *, unsigned char *, size_t),
-					void *p_entropy,
-					const unsigned char *custom,
-					size_t len);
+		const ttls_md_info_t * md_info,
+		int (*f_entropy)(void *, unsigned char *, size_t),
+		void *p_entropy,
+		const unsigned char *custom,
+		size_t len);
 
 /**
  * \brief			   Initilisation of simpified HMAC_DRBG (never reseeds).
- *					  (For use with deterministic ECDSA.)
+ *		  (For use with deterministic ECDSA.)
  *
  * \param ctx		   HMAC_DRBG context to be initialised
  * \param md_info	   MD algorithm to use for HMAC_DRBG
@@ -141,12 +141,12 @@ int ttls_hmac_drbg_seed(ttls_hmac_drbg_context *ctx,
  * \param data_len	  Length of data in bytes
  *
  * \return			  0 if successful, or
- *					  TTLS_ERR_MD_BAD_INPUT_DATA, or
- *					  TTLS_ERR_MD_ALLOC_FAILED.
+ *		  TTLS_ERR_MD_BAD_INPUT_DATA, or
+ *		  TTLS_ERR_MD_ALLOC_FAILED.
  */
 int ttls_hmac_drbg_seed_buf(ttls_hmac_drbg_context *ctx,
-						const ttls_md_info_t * md_info,
-						const unsigned char *data, size_t data_len);
+			const ttls_md_info_t * md_info,
+			const unsigned char *data, size_t data_len);
 
 /**
  * \brief			   Enable / disable prediction resistance (Default: Off)
@@ -158,28 +158,28 @@ int ttls_hmac_drbg_seed_buf(ttls_hmac_drbg_context *ctx,
  * \param resistance	TTLS_HMAC_DRBG_PR_ON or TTLS_HMAC_DRBG_PR_OFF
  */
 void ttls_hmac_drbg_set_prediction_resistance(ttls_hmac_drbg_context *ctx,
-										  int resistance);
+				  int resistance);
 
 /**
  * \brief			   Set the amount of entropy grabbed on each reseed
- *					  (Default: given by the security strength, which
- *					  depends on the hash used, see \c ttls_hmac_drbg_init())
+ *		  (Default: given by the security strength, which
+ *		  depends on the hash used, see \c ttls_hmac_drbg_init())
  *
  * \param ctx		   HMAC_DRBG context
  * \param len		   Amount of entropy to grab, in bytes
  */
 void ttls_hmac_drbg_set_entropy_len(ttls_hmac_drbg_context *ctx,
-								size_t len);
+		size_t len);
 
 /**
  * \brief			   Set the reseed interval
- *					  (Default: TTLS_HMAC_DRBG_RESEED_INTERVAL)
+ *		  (Default: TTLS_HMAC_DRBG_RESEED_INTERVAL)
  *
  * \param ctx		   HMAC_DRBG context
  * \param interval	  Reseed interval
  */
 void ttls_hmac_drbg_set_reseed_interval(ttls_hmac_drbg_context *ctx,
-									int interval);
+			int interval);
 
 /**
  * \brief			   HMAC_DRBG update state
@@ -189,10 +189,10 @@ void ttls_hmac_drbg_set_reseed_interval(ttls_hmac_drbg_context *ctx,
  * \param add_len	   Length of additional data, or 0
  *
  * \note				Additional data is optional, pass NULL and 0 as second
- *					  third argument if no additional data is being used.
+ *		  third argument if no additional data is being used.
  */
 void ttls_hmac_drbg_update(ttls_hmac_drbg_context *ctx,
-					   const unsigned char *additional, size_t add_len);
+		   const unsigned char *additional, size_t add_len);
 
 /**
  * \brief			   HMAC_DRBG reseeding (extracts data from entropy source)
@@ -202,10 +202,10 @@ void ttls_hmac_drbg_update(ttls_hmac_drbg_context *ctx,
  * \param len		   Length of additional data
  *
  * \return			  0 if successful, or
- *					  TTLS_ERR_HMAC_DRBG_ENTROPY_SOURCE_FAILED
+ *		  TTLS_ERR_HMAC_DRBG_ENTROPY_SOURCE_FAILED
  */
 int ttls_hmac_drbg_reseed(ttls_hmac_drbg_context *ctx,
-					  const unsigned char *additional, size_t len);
+		  const unsigned char *additional, size_t len);
 
 /**
  * \brief			   HMAC_DRBG generate random with additional update input
@@ -219,14 +219,14 @@ int ttls_hmac_drbg_reseed(ttls_hmac_drbg_context *ctx,
  * \param add_len	   Length of additional data (can be 0)
  *
  * \return			  0 if successful, or
- *					  TTLS_ERR_HMAC_DRBG_ENTROPY_SOURCE_FAILED, or
- *					  TTLS_ERR_HMAC_DRBG_REQUEST_TOO_BIG, or
- *					  TTLS_ERR_HMAC_DRBG_INPUT_TOO_BIG.
+ *		  TTLS_ERR_HMAC_DRBG_ENTROPY_SOURCE_FAILED, or
+ *		  TTLS_ERR_HMAC_DRBG_REQUEST_TOO_BIG, or
+ *		  TTLS_ERR_HMAC_DRBG_INPUT_TOO_BIG.
  */
 int ttls_hmac_drbg_random_with_add(void *p_rng,
-							   unsigned char *output, size_t output_len,
-							   const unsigned char *additional,
-							   size_t add_len);
+				   unsigned char *output, size_t output_len,
+				   const unsigned char *additional,
+				   size_t add_len);
 
 /**
  * \brief			   HMAC_DRBG generate random
@@ -238,8 +238,8 @@ int ttls_hmac_drbg_random_with_add(void *p_rng,
  * \param out_len	   Length of the buffer
  *
  * \return			  0 if successful, or
- *					  TTLS_ERR_HMAC_DRBG_ENTROPY_SOURCE_FAILED, or
- *					  TTLS_ERR_HMAC_DRBG_REQUEST_TOO_BIG
+ *		  TTLS_ERR_HMAC_DRBG_ENTROPY_SOURCE_FAILED, or
+ *		  TTLS_ERR_HMAC_DRBG_REQUEST_TOO_BIG
  */
 int ttls_hmac_drbg_random(void *p_rng, unsigned char *output, size_t out_len);
 
