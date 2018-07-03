@@ -44,7 +44,7 @@
  *  }
  */
 static int pk_write_rsa_pubkey(unsigned char **p, unsigned char *start,
-								ttls_rsa_context *rsa)
+		ttls_rsa_context *rsa)
 {
 	int ret;
 	size_t len = 0;
@@ -72,7 +72,7 @@ end_of_export:
 
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, len));
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_CONSTRUCTED |
-												 TTLS_ASN1_SEQUENCE));
+			 TTLS_ASN1_SEQUENCE));
 
 	return((int) len);
 }
@@ -81,15 +81,15 @@ end_of_export:
  * EC public key is an EC point
  */
 static int pk_write_ec_pubkey(unsigned char **p, unsigned char *start,
-							   ttls_ecp_keypair *ec)
+				   ttls_ecp_keypair *ec)
 {
 	int ret;
 	size_t len = 0;
 	unsigned char buf[TTLS_ECP_MAX_PT_LEN];
 
 	if ((ret = ttls_ecp_point_write_binary(&ec->grp, &ec->Q,
-										TTLS_ECP_PF_UNCOMPRESSED,
-										&len, buf, sizeof(buf))) != 0)
+				TTLS_ECP_PF_UNCOMPRESSED,
+				&len, buf, sizeof(buf))) != 0)
 	{
 		return ret;
 	}
@@ -109,7 +109,7 @@ static int pk_write_ec_pubkey(unsigned char **p, unsigned char *start,
  * }
  */
 static int pk_write_ec_param(unsigned char **p, unsigned char *start,
-							  ttls_ecp_keypair *ec)
+				  ttls_ecp_keypair *ec)
 {
 	int ret;
 	size_t len = 0;
@@ -125,7 +125,7 @@ static int pk_write_ec_param(unsigned char **p, unsigned char *start,
 }
 
 int ttls_pk_write_pubkey(unsigned char **p, unsigned char *start,
-							 const ttls_pk_context *key)
+				 const ttls_pk_context *key)
 {
 	int ret;
 	size_t len = 0;
@@ -167,7 +167,7 @@ int ttls_pk_write_pubkey_der(ttls_pk_context *key, unsigned char *buf, size_t si
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(&c, buf, TTLS_ASN1_BIT_STRING));
 
 	if ((ret = ttls_oid_get_oid_by_pk_alg(ttls_pk_get_type(key),
-									   &oid, &oid_len)) != 0)
+			   &oid, &oid_len)) != 0)
 	{
 		return ret;
 	}
@@ -178,11 +178,11 @@ int ttls_pk_write_pubkey_der(ttls_pk_context *key, unsigned char *buf, size_t si
 	}
 
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_algorithm_identifier(&c, buf, oid, oid_len,
-														par_len));
+					par_len));
 
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(&c, buf, len));
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(&c, buf, TTLS_ASN1_CONSTRUCTED |
-												TTLS_ASN1_SEQUENCE));
+			TTLS_ASN1_SEQUENCE));
 
 	return((int) len);
 }
@@ -224,35 +224,35 @@ int ttls_pk_write_key_der(ttls_pk_context *key, unsigned char *buf, size_t size)
 
 		/* Export Q */
 		if ((ret = ttls_rsa_export(rsa, NULL, NULL,
-										 &T, NULL, NULL)) != 0 ||
+				 &T, NULL, NULL)) != 0 ||
 			 (ret = ttls_asn1_write_mpi(&c, buf, &T)) < 0)
 			goto end_of_export;
 		len += ret;
 
 		/* Export P */
 		if ((ret = ttls_rsa_export(rsa, NULL, &T,
-										 NULL, NULL, NULL)) != 0 ||
+				 NULL, NULL, NULL)) != 0 ||
 			 (ret = ttls_asn1_write_mpi(&c, buf, &T)) < 0)
 			goto end_of_export;
 		len += ret;
 
 		/* Export D */
 		if ((ret = ttls_rsa_export(rsa, NULL, NULL,
-										 NULL, &T, NULL)) != 0 ||
+				 NULL, &T, NULL)) != 0 ||
 			 (ret = ttls_asn1_write_mpi(&c, buf, &T)) < 0)
 			goto end_of_export;
 		len += ret;
 
 		/* Export E */
 		if ((ret = ttls_rsa_export(rsa, NULL, NULL,
-										 NULL, NULL, &T)) != 0 ||
+				 NULL, NULL, &T)) != 0 ||
 			 (ret = ttls_asn1_write_mpi(&c, buf, &T)) < 0)
 			goto end_of_export;
 		len += ret;
 
 		/* Export N */
 		if ((ret = ttls_rsa_export(rsa, &T, NULL,
-										 NULL, NULL, NULL)) != 0 ||
+				 NULL, NULL, NULL)) != 0 ||
 			 (ret = ttls_asn1_write_mpi(&c, buf, &T)) < 0)
 			goto end_of_export;
 		len += ret;
@@ -266,8 +266,8 @@ int ttls_pk_write_key_der(ttls_pk_context *key, unsigned char *buf, size_t size)
 		TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_int(&c, buf, 0));
 		TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(&c, buf, len));
 		TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(&c,
-											   buf, TTLS_ASN1_CONSTRUCTED |
-											   TTLS_ASN1_SEQUENCE));
+		   buf, TTLS_ASN1_CONSTRUCTED |
+		   TTLS_ASN1_SEQUENCE));
 	}
 	else
 	if (ttls_pk_get_type(key) == TTLS_PK_ECKEY)
@@ -299,7 +299,7 @@ int ttls_pk_write_key_der(ttls_pk_context *key, unsigned char *buf, size_t size)
 
 		TTLS_ASN1_CHK_ADD(pub_len, ttls_asn1_write_len(&c, buf, pub_len));
 		TTLS_ASN1_CHK_ADD(pub_len, ttls_asn1_write_tag(&c, buf,
-							TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED | 1));
+				TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED | 1));
 		len += pub_len;
 
 		/* parameters */
@@ -307,7 +307,7 @@ int ttls_pk_write_key_der(ttls_pk_context *key, unsigned char *buf, size_t size)
 
 		TTLS_ASN1_CHK_ADD(par_len, ttls_asn1_write_len(&c, buf, par_len));
 		TTLS_ASN1_CHK_ADD(par_len, ttls_asn1_write_tag(&c, buf,
-							TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED | 0));
+				TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED | 0));
 		len += par_len;
 
 		/* privateKey: write as MPI then fix tag */
@@ -319,7 +319,7 @@ int ttls_pk_write_key_der(ttls_pk_context *key, unsigned char *buf, size_t size)
 
 		TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(&c, buf, len));
 		TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(&c, buf, TTLS_ASN1_CONSTRUCTED |
-													TTLS_ASN1_SEQUENCE));
+				TTLS_ASN1_SEQUENCE));
 	}
 	else
 		return(TTLS_ERR_PK_FEATURE_UNAVAILABLE);
@@ -345,10 +345,10 @@ int ttls_pk_write_key_der(ttls_pk_context *key, unsigned char *buf, size_t size)
  * RSA public keys:
  *  SubjectPublicKeyInfo  ::=  SEQUENCE  {		  1 + 3
  *	   algorithm			AlgorithmIdentifier,  1 + 1 (sequence)
- *												+ 1 + 1 + 9 (rsa oid)
- *												+ 1 + 1 (params null)
+ *			+ 1 + 1 + 9 (rsa oid)
+ *			+ 1 + 1 (params null)
  *	   subjectPublicKey	 BIT STRING }		  1 + 3 + (1 + below)
- *  RSAPublicKey ::= SEQUENCE {					 1 + 3
+ *  RSAPublicKey ::= SEQUENCE {		 1 + 3
  *	  modulus		   INTEGER,  -- n			1 + 3 + MPI_MAX + 1
  *	  publicExponent	INTEGER   -- e			1 + 3 + MPI_MAX + 1
  *  }
@@ -357,7 +357,7 @@ int ttls_pk_write_key_der(ttls_pk_context *key, unsigned char *buf, size_t size)
 
 /*
  * RSA private keys:
- *  RSAPrivateKey ::= SEQUENCE {					1 + 3
+ *  RSAPrivateKey ::= SEQUENCE {		1 + 3
  *	  version		   Version,				  1 + 1 + 1
  *	  modulus		   INTEGER,				  1 + 3 + MPI_MAX + 1
  *	  publicExponent	INTEGER,				  1 + 3 + MPI_MAX + 1
@@ -371,19 +371,19 @@ int ttls_pk_write_key_der(ttls_pk_context *key, unsigned char *buf, size_t size)
  *  }
  */
 #define MPI_MAX_SIZE_2		  TTLS_MPI_MAX_SIZE / 2 + \
-								TTLS_MPI_MAX_SIZE % 2
+		TTLS_MPI_MAX_SIZE % 2
 #define RSA_PRV_DER_MAX_BYTES   47 + 3 * TTLS_MPI_MAX_SIZE \
-								   + 5 * MPI_MAX_SIZE_2
+		   + 5 * MPI_MAX_SIZE_2
 
 /*
  * EC public keys:
  *  SubjectPublicKeyInfo  ::=  SEQUENCE  {	  1 + 2
  *	algorithm		 AlgorithmIdentifier,	1 + 1 (sequence)
- *											+ 1 + 1 + 7 (ec oid)
- *											+ 1 + 1 + 9 (namedCurve oid)
+ *		+ 1 + 1 + 7 (ec oid)
+ *		+ 1 + 1 + 9 (namedCurve oid)
  *	subjectPublicKey  BIT STRING			  1 + 2 + 1			   [1]
- *											+ 1 (point format)		[1]
- *											+ 2 * ECP_MAX (coords)	[1]
+ *		+ 1 (point format)		[1]
+ *		+ 2 * ECP_MAX (coords)	[1]
  *  }
  */
 #define ECP_PUB_DER_MAX_BYTES   30 + 2 * TTLS_ECP_MAX_BYTES
@@ -400,9 +400,9 @@ int ttls_pk_write_key_der(ttls_pk_context *key, unsigned char *buf, size_t size)
 #define ECP_PRV_DER_MAX_BYTES   29 + 3 * TTLS_ECP_MAX_BYTES
 
 #define PUB_DER_MAX_BYTES   RSA_PUB_DER_MAX_BYTES > ECP_PUB_DER_MAX_BYTES ? \
-							RSA_PUB_DER_MAX_BYTES : ECP_PUB_DER_MAX_BYTES
+				RSA_PUB_DER_MAX_BYTES : ECP_PUB_DER_MAX_BYTES
 #define PRV_DER_MAX_BYTES   RSA_PRV_DER_MAX_BYTES > ECP_PRV_DER_MAX_BYTES ? \
-							RSA_PRV_DER_MAX_BYTES : ECP_PRV_DER_MAX_BYTES
+				RSA_PRV_DER_MAX_BYTES : ECP_PRV_DER_MAX_BYTES
 
 int ttls_pk_write_pubkey_pem(ttls_pk_context *key, unsigned char *buf, size_t size)
 {
@@ -411,14 +411,14 @@ int ttls_pk_write_pubkey_pem(ttls_pk_context *key, unsigned char *buf, size_t si
 	size_t olen = 0;
 
 	if ((ret = ttls_pk_write_pubkey_der(key, output_buf,
-									 sizeof(output_buf))) < 0)
+			 sizeof(output_buf))) < 0)
 	{
 		return ret;
 	}
 
 	if ((ret = ttls_pem_write_buffer(PEM_BEGIN_PUBLIC_KEY, PEM_END_PUBLIC_KEY,
-								  output_buf + sizeof(output_buf) - ret,
-								  ret, buf, size, &olen)) != 0)
+		  output_buf + sizeof(output_buf) - ret,
+		  ret, buf, size, &olen)) != 0)
 	{
 		return ret;
 	}
@@ -451,8 +451,8 @@ int ttls_pk_write_key_pem(ttls_pk_context *key, unsigned char *buf, size_t size)
 		return(TTLS_ERR_PK_FEATURE_UNAVAILABLE);
 
 	if ((ret = ttls_pem_write_buffer(begin, end,
-								  output_buf + sizeof(output_buf) - ret,
-								  ret, buf, size, &olen)) != 0)
+		  output_buf + sizeof(output_buf) - ret,
+		  ret, buf, size, &olen)) != 0)
 	{
 		return ret;
 	}

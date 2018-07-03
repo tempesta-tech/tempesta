@@ -1,6 +1,4 @@
 /**
- * \file x509_crt.h
- *
  * \brief X.509 certificate parsing and writing
  */
 /*
@@ -21,29 +19,13 @@
  *  You should have received a copy of the GNU General Public License along
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 #ifndef TTLS_X509_CRT_H
 #define TTLS_X509_CRT_H
 
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
-
 #include "x509.h"
 #include "x509_crl.h"
-
-/**
- * \addtogroup x509_module
- * \{
- */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /**
  * \name Structures and functions for parsing and writing X.509 certificates
@@ -174,7 +156,7 @@ extern const ttls_x509_crt_profile ttls_x509_crt_profile_suiteb;
  * \return		 0 if successful, or a specific X509 or PEM error code
  */
 int ttls_x509_crt_parse_der(ttls_x509_crt *chain, const unsigned char *buf,
-						size_t buflen);
+			size_t buflen);
 
 /**
  * \brief		  Parse one or more certificates and add them
@@ -221,7 +203,7 @@ int ttls_x509_crt_info(char *buf, size_t size, const char *prefix,
  *				 terminated nul byte), or a negative error code.
  */
 int ttls_x509_crt_verify_info(char *buf, size_t size, const char *prefix,
-						  uint32_t flags);
+			  uint32_t flags);
 
 /**
  * \brief		  Verify the certificate signature
@@ -275,11 +257,11 @@ int ttls_x509_crt_verify_info(char *buf, size_t size, const char *prefix,
  *				 verification process.
  */
 int ttls_x509_crt_verify(ttls_x509_crt *crt,
-					 ttls_x509_crt *trust_ca,
-					 ttls_x509_crl *ca_crl,
-					 const char *cn, uint32_t *flags,
-					 int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *),
-					 void *p_vrfy);
+		 ttls_x509_crt *trust_ca,
+		 ttls_x509_crl *ca_crl,
+		 const char *cn, uint32_t *flags,
+		 int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *),
+		 void *p_vrfy);
 
 /**
  * \brief		  Verify the certificate signature according to profile
@@ -309,12 +291,12 @@ int ttls_x509_crt_verify(ttls_x509_crt *crt,
  *				 during the verification process.
  */
 int ttls_x509_crt_verify_with_profile(ttls_x509_crt *crt,
-					 ttls_x509_crt *trust_ca,
-					 ttls_x509_crl *ca_crl,
-					 const ttls_x509_crt_profile *profile,
-					 const char *cn, uint32_t *flags,
-					 int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *),
-					 void *p_vrfy);
+		 ttls_x509_crt *trust_ca,
+		 ttls_x509_crl *ca_crl,
+		 const ttls_x509_crt_profile *profile,
+		 const char *cn, uint32_t *flags,
+		 int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *),
+		 void *p_vrfy);
 
 #if defined(TTLS_X509_CHECK_KEY_USAGE)
 /**
@@ -339,7 +321,7 @@ int ttls_x509_crt_verify_with_profile(ttls_x509_crt *crt,
  *				 checked by \c ttls_x509_crt_verify().
  */
 int ttls_x509_crt_check_key_usage(const ttls_x509_crt *crt,
-									  unsigned int usage);
+			  unsigned int usage);
 #endif /* TTLS_X509_CHECK_KEY_USAGE) */
 
 #if defined(TTLS_X509_CHECK_EXTENDED_KEY_USAGE)
@@ -357,8 +339,8 @@ int ttls_x509_crt_check_key_usage(const ttls_x509_crt *crt,
  * \note			Usually only makes sense on leaf certificates.
  */
 int ttls_x509_crt_check_extended_key_usage(const ttls_x509_crt *crt,
-											   const char *usage_oid,
-											   size_t usage_len);
+		   const char *usage_oid,
+		   size_t usage_len);
 #endif /* TTLS_X509_CHECK_EXTENDED_KEY_USAGE */
 
 #if defined(TTLS_X509_CRL_PARSE_C)
@@ -405,7 +387,7 @@ void ttls_x509write_crt_init(ttls_x509write_cert *ctx);
  *
  * \param ctx	   CRT context to use
  * \param version   version to set (TTLS_X509_CRT_VERSION_1, TTLS_X509_CRT_VERSION_2 or
- *								  TTLS_X509_CRT_VERSION_3)
+ *		  TTLS_X509_CRT_VERSION_3)
  */
 void ttls_x509write_crt_set_version(ttls_x509write_cert *ctx, int version);
 
@@ -424,7 +406,7 @@ int ttls_x509write_crt_set_serial(ttls_x509write_cert *ctx, const ttls_mpi *seri
  *				  Timestamps should be in string format for UTC timezone
  *				  i.e. "YYYYMMDDhhmmss"
  *				  e.g. "20131231235959" for December 31st 2013
- *					   at 23:59:59
+ *		   at 23:59:59
  *
  * \param ctx	   CRT context to use
  * \param not_before	not_before timestamp
@@ -434,7 +416,7 @@ int ttls_x509write_crt_set_serial(ttls_x509write_cert *ctx, const ttls_mpi *seri
  *				  a specific error code
  */
 int ttls_x509write_crt_set_validity(ttls_x509write_cert *ctx, const char *not_before,
-								const char *not_after);
+		const char *not_after);
 
 /**
  * \brief		   Set the issuer name for a Certificate
@@ -449,7 +431,7 @@ int ttls_x509write_crt_set_validity(ttls_x509write_cert *ctx, const char *not_be
  *				  a specific error code
  */
 int ttls_x509write_crt_set_issuer_name(ttls_x509write_cert *ctx,
-								   const char *issuer_name);
+		   const char *issuer_name);
 
 /**
  * \brief		   Set the subject name for a Certificate
@@ -464,7 +446,7 @@ int ttls_x509write_crt_set_issuer_name(ttls_x509write_cert *ctx,
  *				  a specific error code
  */
 int ttls_x509write_crt_set_subject_name(ttls_x509write_cert *ctx,
-									const char *subject_name);
+			const char *subject_name);
 
 /**
  * \brief		   Set the subject public key for the certificate
@@ -505,9 +487,9 @@ void ttls_x509write_crt_set_md_alg(ttls_x509write_cert *ctx, ttls_md_type_t md_a
  * \return		  0 if successful, or a TTLS_ERR_X509_ALLOC_FAILED
  */
 int ttls_x509write_crt_set_extension(ttls_x509write_cert *ctx,
-								 const char *oid, size_t oid_len,
-								 int critical,
-								 const unsigned char *val, size_t val_len);
+		 const char *oid, size_t oid_len,
+		 int critical,
+		 const unsigned char *val, size_t val_len);
 
 /**
  * \brief		   Set the basicConstraints extension for a CRT
@@ -515,13 +497,13 @@ int ttls_x509write_crt_set_extension(ttls_x509write_cert *ctx,
  * \param ctx	   CRT context to use
  * \param is_ca	 is this a CA certificate
  * \param max_pathlen   maximum length of certificate chains below this
- *					  certificate (only for CA certificates, -1 is
- *					  inlimited)
+ *		  certificate (only for CA certificates, -1 is
+ *		  inlimited)
  *
  * \return		  0 if successful, or a TTLS_ERR_X509_ALLOC_FAILED
  */
 int ttls_x509write_crt_set_basic_constraints(ttls_x509write_cert *ctx,
-										 int is_ca, int max_pathlen);
+				 int is_ca, int max_pathlen);
 
 /**
  * \brief		   Set the Key Usage Extension flags
@@ -533,7 +515,7 @@ int ttls_x509write_crt_set_basic_constraints(ttls_x509write_cert *ctx,
  * \return		  0 if successful, or TTLS_ERR_X509_ALLOC_FAILED
  */
 int ttls_x509write_crt_set_key_usage(ttls_x509write_cert *ctx,
-										 unsigned int key_usage);
+				 unsigned int key_usage);
 
 /**
  * \brief		   Set the Netscape Cert Type flags
@@ -545,7 +527,7 @@ int ttls_x509write_crt_set_key_usage(ttls_x509write_cert *ctx,
  * \return		  0 if successful, or TTLS_ERR_X509_ALLOC_FAILED
  */
 int ttls_x509write_crt_set_ns_cert_type(ttls_x509write_cert *ctx,
-									unsigned char ns_cert_type);
+			unsigned char ns_cert_type);
 
 /**
  * \brief		   Free the contents of a CRT write context
@@ -557,8 +539,8 @@ void ttls_x509write_crt_free(ttls_x509write_cert *ctx);
 /**
  * \brief		   Write a built up certificate to a X509 DER structure
  *				  Note: data is written at the end of the buffer! Use the
- *						return value to determine where you should start
- *						using the buffer
+ *			return value to determine where you should start
+ *			using the buffer
  *
  * \param ctx	   certificate to write away
  * \param buf	   buffer to write to
@@ -575,8 +557,8 @@ void ttls_x509write_crt_free(ttls_x509write_cert *ctx);
  *				  ECDSA signatures always require a non-NULL f_rng.
  */
 int ttls_x509write_crt_der(ttls_x509write_cert *ctx, unsigned char *buf, size_t size,
-					   int (*f_rng)(void *, unsigned char *, size_t),
-					   void *p_rng);
+		   int (*f_rng)(void *, unsigned char *, size_t),
+		   void *p_rng);
 
 #if defined(TTLS_PEM_WRITE_C)
 /**
@@ -596,13 +578,8 @@ int ttls_x509write_crt_der(ttls_x509write_cert *ctx, unsigned char *buf, size_t 
  *				  ECDSA signatures always require a non-NULL f_rng.
  */
 int ttls_x509write_crt_pem(ttls_x509write_cert *ctx, unsigned char *buf, size_t size,
-					   int (*f_rng)(void *, unsigned char *, size_t),
-					   void *p_rng);
+		   int (*f_rng)(void *, unsigned char *, size_t),
+		   void *p_rng);
 #endif /* TTLS_PEM_WRITE_C */
 #endif /* TTLS_X509_CRT_WRITE_C */
-
-#ifdef __cplusplus
-}
-#endif
-
 #endif /* ttls_x509_crt.h */

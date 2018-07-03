@@ -51,7 +51,7 @@ int ttls_pkcs11_x509_cert_bind(ttls_x509_crt *cert, pkcs11h_certificate_t pkcs11
 	}
 
 	if (pkcs11h_certificate_getCertificateBlob(pkcs11_cert, NULL,
-												&cert_blob_size) != CKR_OK)
+			&cert_blob_size) != CKR_OK)
 	{
 		ret = 3;
 		goto cleanup;
@@ -65,7 +65,7 @@ int ttls_pkcs11_x509_cert_bind(ttls_x509_crt *cert, pkcs11h_certificate_t pkcs11
 	}
 
 	if (pkcs11h_certificate_getCertificateBlob(pkcs11_cert, cert_blob,
-												&cert_blob_size) != CKR_OK)
+			&cert_blob_size) != CKR_OK)
 	{
 		ret = 5;
 		goto cleanup;
@@ -119,10 +119,10 @@ void ttls_pkcs11_priv_key_free(ttls_pkcs11_context *priv_key)
 }
 
 int ttls_pkcs11_decrypt(ttls_pkcs11_context *ctx,
-					   int mode, size_t *olen,
-					   const unsigned char *input,
-					   unsigned char *output,
-					   size_t output_max_len)
+		   int mode, size_t *olen,
+		   const unsigned char *input,
+		   unsigned char *output,
+		   size_t output_max_len)
 {
 	size_t input_len, output_len;
 
@@ -157,11 +157,11 @@ int ttls_pkcs11_decrypt(ttls_pkcs11_context *ctx,
 }
 
 int ttls_pkcs11_sign(ttls_pkcs11_context *ctx,
-					int mode,
-					ttls_md_type_t md_alg,
-					unsigned int hashlen,
-					const unsigned char *hash,
-					unsigned char *sig)
+		int mode,
+		ttls_md_type_t md_alg,
+		unsigned int hashlen,
+		const unsigned char *hash,
+		unsigned char *sig)
 {
 	size_t sig_len = 0, asn_len = 0, oid_size = 0;
 	unsigned char *p = sig;

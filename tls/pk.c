@@ -103,9 +103,9 @@ int ttls_pk_setup(ttls_pk_context *ctx, const ttls_pk_info_t *info)
  * Initialize an RSA-alt context
  */
 int ttls_pk_setup_rsa_alt(ttls_pk_context *ctx, void * key,
-						 ttls_pk_rsa_alt_decrypt_func decrypt_func,
-						 ttls_pk_rsa_alt_sign_func sign_func,
-						 ttls_pk_rsa_alt_key_len_func key_len_func)
+			 ttls_pk_rsa_alt_decrypt_func decrypt_func,
+			 ttls_pk_rsa_alt_sign_func sign_func,
+			 ttls_pk_rsa_alt_key_len_func key_len_func)
 {
 	ttls_rsa_alt_context *rsa_alt;
 	const ttls_pk_info_t *info = &ttls_rsa_alt_info;
@@ -173,7 +173,7 @@ int ttls_pk_verify(ttls_pk_context *ctx, ttls_md_type_t md_alg,
 		return(TTLS_ERR_PK_TYPE_MISMATCH);
 
 	return(ctx->pk_info->verify_func(ctx->pk_ctx, md_alg, hash, hash_len,
-									   sig, sig_len));
+			   sig, sig_len));
 }
 
 /*
@@ -233,8 +233,7 @@ int ttls_pk_verify_ext(ttls_pk_type_t type, const void *options,
  */
 int ttls_pk_sign(ttls_pk_context *ctx, ttls_md_type_t md_alg,
 			 const unsigned char *hash, size_t hash_len,
-			 unsigned char *sig, size_t *sig_len,
-			 int (*f_rng)(void *, unsigned char *, size_t), void *p_rng)
+			 unsigned char *sig, size_t *sig_len)
 {
 	if (ctx == NULL || ctx->pk_info == NULL ||
 		pk_hashlen_helper(md_alg, &hash_len) != 0)
@@ -243,17 +242,16 @@ int ttls_pk_sign(ttls_pk_context *ctx, ttls_md_type_t md_alg,
 	if (ctx->pk_info->sign_func == NULL)
 		return(TTLS_ERR_PK_TYPE_MISMATCH);
 
-	return(ctx->pk_info->sign_func(ctx->pk_ctx, md_alg, hash, hash_len,
-									 sig, sig_len, f_rng, p_rng));
+	return ctx->pk_info->sign_func(ctx->pk_ctx, md_alg, hash, hash_len,
+				       sig, sig_len);
 }
 
 /*
  * Decrypt message
  */
-int ttls_pk_decrypt(ttls_pk_context *ctx,
-				const unsigned char *input, size_t ilen,
-				unsigned char *output, size_t *olen, size_t osize,
-				int (*f_rng)(void *, unsigned char *, size_t), void *p_rng)
+int
+ttls_pk_decrypt(ttls_pk_context *ctx, const unsigned char *input, size_t ilen,
+		unsigned char *output, size_t *olen, size_t osize)
 {
 	if (ctx == NULL || ctx->pk_info == NULL)
 		return(TTLS_ERR_PK_BAD_INPUT_DATA);
@@ -261,8 +259,8 @@ int ttls_pk_decrypt(ttls_pk_context *ctx,
 	if (ctx->pk_info->decrypt_func == NULL)
 		return(TTLS_ERR_PK_TYPE_MISMATCH);
 
-	return(ctx->pk_info->decrypt_func(ctx->pk_ctx, input, ilen,
-				output, olen, osize, f_rng, p_rng));
+	return ctx->pk_info->decrypt_func(ctx->pk_ctx, input, ilen, output,
+					  olen, osize);
 }
 
 /*

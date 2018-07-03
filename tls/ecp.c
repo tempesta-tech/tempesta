@@ -44,9 +44,6 @@
  */
 #include "config.h"
 #include "ecp.h"
-
-#if !defined(TTLS_ECP_ALT)
-
 #include "ecp_internal.h"
 
 /* Implementation that should never be optimized out by the compiler */
@@ -59,9 +56,6 @@ static void ttls_zeroize(void *v, size_t n) {
  * Used to test resistance of point multiplication to simple timing attacks.
  */
 static unsigned long add_count, dbl_count, mul_count;
-
-#define ECP_SHORTWEIERSTRASS
-#define ECP_MONTGOMERY
 
 /*
  * Curve types: internal for now, might be exposed later
@@ -102,7 +96,7 @@ static const ttls_ecp_curve_info ecp_supported_curves[] =
 };
 
 #define ECP_NB_CURVES   sizeof(ecp_supported_curves) /	\
-						sizeof(ecp_supported_curves[0])
+			sizeof(ecp_supported_curves[0])
 
 static ttls_ecp_group_id ecp_supported_grp_id[ECP_NB_CURVES];
 
@@ -158,22 +152,22 @@ const ttls_ecp_curve_info *ttls_ecp_curve_info_from_grp_id(ttls_ecp_group_id grp
 	return(NULL);
 }
 
-/*
+/**
  * Get the curve info from the TLS identifier
  */
-const ttls_ecp_curve_info *ttls_ecp_curve_info_from_tls_id(uint16_t tls_id)
+const ttls_ecp_curve_info *
+ttls_ecp_curve_info_from_tls_id(uint16_t tls_id)
 {
 	const ttls_ecp_curve_info *curve_info;
 
 	for (curve_info = ttls_ecp_curve_list();
-		 curve_info->grp_id != TTLS_ECP_DP_NONE;
-		 curve_info++)
+	     curve_info->grp_id != TTLS_ECP_DP_NONE;
+	     curve_info++)
 	{
 		if (curve_info->tls_id == tls_id)
-			return(curve_info);
+			return curve_info;
 	}
-
-	return(NULL);
+	return NULL;
 }
 
 /*
@@ -350,7 +344,7 @@ int ttls_ecp_is_zero(ttls_ecp_point *pt)
  * Compare two points lazyly
  */
 int ttls_ecp_point_cmp(const ttls_ecp_point *P,
-						   const ttls_ecp_point *Q)
+			   const ttls_ecp_point *Q)
 {
 	if (ttls_mpi_cmp_mpi(&P->X, &Q->X) == 0 &&
 		ttls_mpi_cmp_mpi(&P->Y, &Q->Y) == 0 &&
@@ -366,7 +360,7 @@ int ttls_ecp_point_cmp(const ttls_ecp_point *P,
  * Import a non-zero point from ASCII strings
  */
 int ttls_ecp_point_read_string(ttls_ecp_point *P, int radix,
-						   const char *x, const char *y)
+			   const char *x, const char *y)
 {
 	int ret;
 
@@ -382,8 +376,8 @@ cleanup:
  * Export a point into unsigned binary data (SEC1 2.3.3)
  */
 int ttls_ecp_point_write_binary(const ttls_ecp_group *grp, const ttls_ecp_point *P,
-							int format, size_t *olen,
-							unsigned char *buf, size_t buflen)
+				int format, size_t *olen,
+				unsigned char *buf, size_t buflen)
 {
 	int ret = 0;
 	size_t plen;
@@ -438,7 +432,7 @@ cleanup:
  * Import a point from unsigned binary data (SEC1 2.3.4)
  */
 int ttls_ecp_point_read_binary(const ttls_ecp_group *grp, ttls_ecp_point *pt,
-						   const unsigned char *buf, size_t ilen)
+				   const unsigned char *buf, size_t ilen)
 {
 	int ret;
 	size_t plen;
@@ -477,7 +471,7 @@ cleanup:
  *	  } ECPoint;
  */
 int ttls_ecp_tls_read_point(const ttls_ecp_group *grp, ttls_ecp_point *pt,
-						const unsigned char **buf, size_t buf_len)
+			const unsigned char **buf, size_t buf_len)
 {
 	unsigned char data_len;
 	const unsigned char *buf_start;
@@ -508,8 +502,8 @@ int ttls_ecp_tls_read_point(const ttls_ecp_group *grp, ttls_ecp_point *pt,
  *	  } ECPoint;
  */
 int ttls_ecp_tls_write_point(const ttls_ecp_group *grp, const ttls_ecp_point *pt,
-						 int format, size_t *olen,
-						 unsigned char *buf, size_t blen)
+			 int format, size_t *olen,
+			 unsigned char *buf, size_t blen)
 {
 	int ret;
 
@@ -520,7 +514,7 @@ int ttls_ecp_tls_write_point(const ttls_ecp_group *grp, const ttls_ecp_point *pt
 		return(TTLS_ERR_ECP_BAD_INPUT_DATA);
 
 	if ((ret = ttls_ecp_point_write_binary(grp, pt, format,
-					olen, buf + 1, blen - 1)) != 0)
+		olen, buf + 1, blen - 1)) != 0)
 		return ret;
 
 	/*
@@ -569,7 +563,7 @@ int ttls_ecp_tls_read_group(ttls_ecp_group *grp, const unsigned char **buf, size
  * Write the ECParameters record corresponding to a group (RFC 4492)
  */
 int ttls_ecp_tls_write_group(const ttls_ecp_group *grp, size_t *olen,
-						 unsigned char *buf, size_t blen)
+			 unsigned char *buf, size_t blen)
 {
 	const ttls_ecp_curve_info *curve_info;
 
@@ -647,13 +641,13 @@ cleanup:
 #define INC_MUL_COUNT   mul_count++;
 
 #define MOD_MUL(N)	do { TTLS_MPI_CHK(ecp_modp(&N, grp)); INC_MUL_COUNT } \
-						while (0)
+			while (0)
 
 /*
  * Reduce a ttls_mpi mod p in-place, to use after ttls_mpi_sub_mpi
  * N->s < 0 is a very fast test, which fails only if N is 0
  */
-#define MOD_SUB(N)								\
+#define MOD_SUB(N)		\
 	while (N.s < 0 && ttls_mpi_cmp_int(&N, 0) != 0)   \
 		TTLS_MPI_CHK(ttls_mpi_add_mpi(&N, &N, &grp->P))
 
@@ -662,11 +656,10 @@ cleanup:
  * We known P, N and the result are positive, so sub_abs is correct, and
  * a bit faster.
  */
-#define MOD_ADD(N)								\
+#define MOD_ADD(N)		\
 	while (ttls_mpi_cmp_mpi(&N, &grp->P) >= 0)		\
 		TTLS_MPI_CHK(ttls_mpi_sub_abs(&N, &N, &grp->P))
 
-#if defined(ECP_SHORTWEIERSTRASS)
 /*
  * For curves in short Weierstrass form, we do all the internal operations in
  * Jacobian coordinates.
@@ -687,12 +680,6 @@ static int ecp_normalize_jac(const ttls_ecp_group *grp, ttls_ecp_point *pt)
 	if (ttls_mpi_cmp_int(&pt->Z, 0) == 0)
 		return 0;
 
-#if defined(TTLS_ECP_NORMALIZE_JAC_ALT)
-	if (ttls_internal_ecp_grp_capable(grp))
-	{
-		return ttls_internal_ecp_normalize_jac(grp, pt);
-	}
-#endif /* TTLS_ECP_NORMALIZE_JAC_ALT */
 	ttls_mpi_init(&Zi); ttls_mpi_init(&ZZi);
 
 	/*
@@ -732,7 +719,7 @@ cleanup:
  * Cost: 1N(t) := 1I + (6t - 3)M + 1S
  */
 static int ecp_normalize_jac_many(const ttls_ecp_group *grp,
-								   ttls_ecp_point *T[], size_t t_len)
+		   ttls_ecp_point *T[], size_t t_len)
 {
 	int ret;
 	size_t i;
@@ -820,8 +807,8 @@ cleanup:
  * "inv" must be 0 (don't invert) or 1 (invert) or the result will be invalid
  */
 static int ecp_safe_invert_jac(const ttls_ecp_group *grp,
-							ttls_ecp_point *Q,
-							unsigned char inv)
+				ttls_ecp_point *Q,
+				unsigned char inv)
 {
 	int ret;
 	unsigned char nonzero;
@@ -855,7 +842,7 @@ cleanup:
  *			 3M + 6S + 1a	 otherwise
  */
 static int ecp_double_jac(const ttls_ecp_group *grp, ttls_ecp_point *R,
-						   const ttls_ecp_point *P)
+			   const ttls_ecp_point *P)
 {
 	int ret;
 	ttls_mpi M, S, T, U;
@@ -951,7 +938,7 @@ cleanup:
  * Cost: 1A := 8M + 3S
  */
 static int ecp_add_mixed(const ttls_ecp_group *grp, ttls_ecp_point *R,
-						  const ttls_ecp_point *P, const ttls_ecp_point *Q)
+			  const ttls_ecp_point *P, const ttls_ecp_point *Q)
 {
 	int ret;
 	ttls_mpi T1, T2, T3, T4, X, Y, Z;
@@ -1058,7 +1045,7 @@ static int ecp_randomize_jac(const ttls_ecp_group *grp, ttls_ecp_point *pt,
 	/* Generate l such that 1 < l < p */
 	do
 	{
-		TTLS_MPI_CHK(ttls_mpi_fill_random(&l, p_size, f_rng, p_rng));
+		get_random_bytes_arch(&l, p_size);
 
 		while (ttls_mpi_cmp_mpi(&l, &grp->P) >= 0)
 			TTLS_MPI_CHK(ttls_mpi_shift_r(&l, 1));
@@ -1119,7 +1106,7 @@ cleanup:
  *   (the result will be incorrect if these assumptions are not satisfied)
  */
 static void ecp_comb_fixed(unsigned char x[], size_t d,
-							unsigned char w, const ttls_mpi *m)
+				unsigned char w, const ttls_mpi *m)
 {
 	size_t i, j;
 	unsigned char c, cc, adjust;
@@ -1159,8 +1146,8 @@ static void ecp_comb_fixed(unsigned char x[], size_t d,
  * Cost: d(w-1) D + (2^{w-1} - 1) A + 1 N(w-1) + 1 N(2^{w-1} - 1)
  */
 static int ecp_precompute_comb(const ttls_ecp_group *grp,
-								ttls_ecp_point T[], const ttls_ecp_point *P,
-								unsigned char w, size_t d)
+		ttls_ecp_point T[], const ttls_ecp_point *P,
+		unsigned char w, size_t d)
 {
 	int ret;
 	unsigned char i, k;
@@ -1212,8 +1199,8 @@ cleanup:
  * Select precomputed point: R = sign(i) * T[ abs(i) / 2 ]
  */
 static int ecp_select_comb(const ttls_ecp_group *grp, ttls_ecp_point *R,
-							const ttls_ecp_point T[], unsigned char t_len,
-							unsigned char i)
+				const ttls_ecp_point T[], unsigned char t_len,
+				unsigned char i)
 {
 	int ret;
 	unsigned char ii, j;
@@ -1242,10 +1229,10 @@ cleanup:
  * Cost: d A + d D + 1 R
  */
 static int ecp_mul_comb_core(const ttls_ecp_group *grp, ttls_ecp_point *R,
-							  const ttls_ecp_point T[], unsigned char t_len,
-							  const unsigned char x[], size_t d,
-							  int (*f_rng)(void *, unsigned char *, size_t),
-							  void *p_rng)
+				  const ttls_ecp_point T[], unsigned char t_len,
+				  const unsigned char x[], size_t d,
+				  int (*f_rng)(void *, unsigned char *, size_t),
+				  void *p_rng)
 {
 	int ret;
 	ttls_ecp_point Txi;
@@ -1279,9 +1266,9 @@ cleanup:
  * for curves in short Weierstrass form
  */
 static int ecp_mul_comb(ttls_ecp_group *grp, ttls_ecp_point *R,
-						 const ttls_mpi *m, const ttls_ecp_point *P,
-						 int (*f_rng)(void *, unsigned char *, size_t),
-						 void *p_rng)
+			 const ttls_mpi *m, const ttls_ecp_point *P,
+			 int (*f_rng)(void *, unsigned char *, size_t),
+			 void *p_rng)
 {
 	int ret;
 	unsigned char w, m_is_odd, p_eq_g, pre_len, i;
@@ -1394,9 +1381,6 @@ cleanup:
 	return ret;
 }
 
-#endif /* ECP_SHORTWEIERSTRASS */
-
-#if defined(ECP_MONTGOMERY)
 /*
  * For Montgomery curves, we do all the internal arithmetic in projective
  * coordinates. Import/export of points uses only the x coordinates, which is
@@ -1412,13 +1396,6 @@ cleanup:
 static int ecp_normalize_mxz(const ttls_ecp_group *grp, ttls_ecp_point *P)
 {
 	int ret;
-
-#if defined(TTLS_ECP_NORMALIZE_MXZ_ALT)
-	if (ttls_internal_ecp_grp_capable(grp))
-	{
-		return ttls_internal_ecp_normalize_mxz(grp, P);
-	}
-#endif /* TTLS_ECP_NORMALIZE_MXZ_ALT */
 
 	TTLS_MPI_CHK(ttls_mpi_inv_mod(&P->Z, &P->Z, &grp->P));
 	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&P->X, &P->X, &P->Z)); MOD_MUL(P->X);
@@ -1436,20 +1413,12 @@ cleanup:
  * This countermeasure was first suggested in [2].
  * Cost: 2M
  */
-static int ecp_randomize_mxz(const ttls_ecp_group *grp, ttls_ecp_point *P,
-				int (*f_rng)(void *, unsigned char *, size_t), void *p_rng)
+static int ecp_randomize_mxz(const ttls_ecp_group *grp, ttls_ecp_point *P)
 {
 	int ret;
 	ttls_mpi l;
 	size_t p_size;
 	int count = 0;
-
-#if defined(TTLS_ECP_RANDOMIZE_MXZ_ALT)
-	if (ttls_internal_ecp_grp_capable(grp))
-	{
-		return ttls_internal_ecp_randomize_mxz(grp, P, f_rng, p_rng);
-	}
-#endif /* TTLS_ECP_RANDOMIZE_MXZ_ALT */
 
 	p_size = (grp->pbits + 7) / 8;
 	ttls_mpi_init(&l);
@@ -1457,7 +1426,7 @@ static int ecp_randomize_mxz(const ttls_ecp_group *grp, ttls_ecp_point *P,
 	/* Generate l such that 1 < l < p */
 	do
 	{
-		TTLS_MPI_CHK(ttls_mpi_fill_random(&l, p_size, f_rng, p_rng));
+		get_random_bytes_arch(&l, p_size);
 
 		while (ttls_mpi_cmp_mpi(&l, &grp->P) >= 0)
 			TTLS_MPI_CHK(ttls_mpi_shift_r(&l, 1));
@@ -1492,19 +1461,12 @@ cleanup:
  * Cost: 5M + 4S
  */
 static int ecp_double_add_mxz(const ttls_ecp_group *grp,
-							   ttls_ecp_point *R, ttls_ecp_point *S,
-							   const ttls_ecp_point *P, const ttls_ecp_point *Q,
-							   const ttls_mpi *d)
+				   ttls_ecp_point *R, ttls_ecp_point *S,
+				   const ttls_ecp_point *P, const ttls_ecp_point *Q,
+				   const ttls_mpi *d)
 {
 	int ret;
 	ttls_mpi A, AA, B, BB, E, C, D, DA, CB;
-
-#if defined(TTLS_ECP_DOUBLE_ADD_MXZ_ALT)
-	if (ttls_internal_ecp_grp_capable(grp))
-	{
-		return ttls_internal_ecp_double_add_mxz(grp, R, S, P, Q, d);
-	}
-#endif /* TTLS_ECP_DOUBLE_ADD_MXZ_ALT */
 
 	ttls_mpi_init(&A); ttls_mpi_init(&AA); ttls_mpi_init(&B);
 	ttls_mpi_init(&BB); ttls_mpi_init(&E); ttls_mpi_init(&C);
@@ -1542,9 +1504,7 @@ cleanup:
  * for curves in Montgomery form
  */
 static int ecp_mul_mxz(ttls_ecp_group *grp, ttls_ecp_point *R,
-						const ttls_mpi *m, const ttls_ecp_point *P,
-						int (*f_rng)(void *, unsigned char *, size_t),
-						void *p_rng)
+			const ttls_mpi *m, const ttls_ecp_point *P)
 {
 	int ret;
 	size_t i;
@@ -1568,7 +1528,7 @@ static int ecp_mul_mxz(ttls_ecp_group *grp, ttls_ecp_point *R,
 
 	/* Randomize coordinates of the starting point */
 	if (f_rng != NULL)
-		TTLS_MPI_CHK(ecp_randomize_mxz(grp, &RP, f_rng, p_rng));
+		TTLS_MPI_CHK(ecp_randomize_mxz(grp, &RP));
 
 	/* Loop invariant: R = result so far, RP = R + P */
 	i = ttls_mpi_bitlen(m); /* one past the (zero-based) most significant bit */
@@ -1597,58 +1557,32 @@ cleanup:
 	return ret;
 }
 
-#endif /* ECP_MONTGOMERY */
-
 /*
  * Multiplication R = m * P
  */
-int ttls_ecp_mul(ttls_ecp_group *grp, ttls_ecp_point *R,
-			 const ttls_mpi *m, const ttls_ecp_point *P,
-			 int (*f_rng)(void *, unsigned char *, size_t), void *p_rng)
+int
+ttls_ecp_mul(ttls_ecp_group *grp, ttls_ecp_point *R, const ttls_mpi *m,
+	     const ttls_ecp_point *P)
 {
 	int ret = TTLS_ERR_ECP_BAD_INPUT_DATA;
-#if defined(TTLS_ECP_INTERNAL_ALT)
-	char is_grp_capable = 0;
-#endif
 
 	/* Common sanity checks */
 	if (ttls_mpi_cmp_int(&P->Z, 1) != 0)
-		return(TTLS_ERR_ECP_BAD_INPUT_DATA);
+		return TTLS_ERR_ECP_BAD_INPUT_DATA;
 
 	if ((ret = ttls_ecp_check_privkey(grp, m)) != 0 ||
 		(ret = ttls_ecp_check_pubkey(grp, P)) != 0)
 		return ret;
 
-#if defined(TTLS_ECP_INTERNAL_ALT)
-	if (is_grp_capable = ttls_internal_ecp_grp_capable(grp) )
-	{
-		TTLS_MPI_CHK(ttls_internal_ecp_init(grp));
-	}
-
-#endif /* TTLS_ECP_INTERNAL_ALT */
-#if defined(ECP_MONTGOMERY)
 	if (ecp_get_type(grp) == ECP_TYPE_MONTGOMERY)
-		ret = ecp_mul_mxz(grp, R, m, P, f_rng, p_rng);
+		ret = ecp_mul_mxz(grp, R, m, P);
 
-#endif
-#if defined(ECP_SHORTWEIERSTRASS)
 	if (ecp_get_type(grp) == ECP_TYPE_SHORT_WEIERSTRASS)
-		ret = ecp_mul_comb(grp, R, m, P, f_rng, p_rng);
+		ret = ecp_mul_comb(grp, R, m, P);
 
-#endif
-#if defined(TTLS_ECP_INTERNAL_ALT)
-cleanup:
-
-	if (is_grp_capable)
-	{
-		ttls_internal_ecp_free(grp);
-	}
-
-#endif /* TTLS_ECP_INTERNAL_ALT */
 	return ret;
 }
 
-#if defined(ECP_SHORTWEIERSTRASS)
 /*
  * Check that an affine point is valid as a public key,
  * short weierstrass curves (SEC1 3.2.3.1)
@@ -1703,9 +1637,9 @@ cleanup:
  * NOT constant-time - ONLY for short Weierstrass!
  */
 static int ttls_ecp_mul_shortcuts(ttls_ecp_group *grp,
-									  ttls_ecp_point *R,
-									  const ttls_mpi *m,
-									  const ttls_ecp_point *P)
+			  ttls_ecp_point *R,
+			  const ttls_mpi *m,
+			  const ttls_ecp_point *P)
 {
 	int ret;
 
@@ -1846,10 +1780,10 @@ int ttls_ecp_check_privkey(const ttls_ecp_group *grp, const ttls_mpi *d)
  * Generate a keypair with configurable base point
  */
 int ttls_ecp_gen_keypair_base(ttls_ecp_group *grp,
-					 const ttls_ecp_point *G,
-					 ttls_mpi *d, ttls_ecp_point *Q,
-					 int (*f_rng)(void *, unsigned char *, size_t),
-					 void *p_rng)
+		 const ttls_ecp_point *G,
+		 ttls_mpi *d, ttls_ecp_point *Q,
+		 int (*f_rng)(void *, unsigned char *, size_t),
+		 void *p_rng)
 {
 	int ret;
 	size_t n_size = (grp->nbits + 7) / 8;
@@ -1861,7 +1795,7 @@ int ttls_ecp_gen_keypair_base(ttls_ecp_group *grp,
 		size_t b;
 
 		do {
-			TTLS_MPI_CHK(ttls_mpi_fill_random(d, n_size, f_rng, p_rng));
+			get_random_bytes_arch(d, n_size);
 		} while (ttls_mpi_bitlen(d) == 0);
 
 		/* Make sure the most significant bit is nbits */
@@ -1893,7 +1827,7 @@ int ttls_ecp_gen_keypair_base(ttls_ecp_group *grp,
 		 */
 		do
 		{
-			TTLS_MPI_CHK(ttls_mpi_fill_random(d, n_size, f_rng, p_rng));
+			get_random_bytes_arch(d, n_size);
 			TTLS_MPI_CHK(ttls_mpi_shift_r(d, 8 * n_size - grp->nbits));
 
 			/*
@@ -1926,9 +1860,9 @@ cleanup:
  * Generate key pair, wrapper for conventional base point
  */
 int ttls_ecp_gen_keypair(ttls_ecp_group *grp,
-							 ttls_mpi *d, ttls_ecp_point *Q,
-							 int (*f_rng)(void *, unsigned char *, size_t),
-							 void *p_rng)
+		 ttls_mpi *d, ttls_ecp_point *Q,
+				 int (*f_rng)(void *, unsigned char *, size_t),
+				 void *p_rng)
 {
 	return(ttls_ecp_gen_keypair_base(grp, &grp->G, d, Q, f_rng, p_rng));
 }
@@ -2111,5 +2045,3 @@ cleanup:
 
 	return ret;
 }
-
-#endif /* !TTLS_ECP_ALT */

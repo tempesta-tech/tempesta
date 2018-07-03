@@ -44,8 +44,8 @@ static void ttls_zeroize(void *v, size_t n) {
  * 32-bit integer manipulation macros (big endian)
  */
 #ifndef GET_UINT32_BE
-#define GET_UINT32_BE(n,b,i)							\
-{													   \
+#define GET_UINT32_BE(n,b,i)				\
+{				   \
 	(n) = ((uint32_t) (b)[(i)	] << 24)			 \
 		| ((uint32_t) (b)[(i) + 1] << 16)			 \
 		| ((uint32_t) (b)[(i) + 2] <<  8)			 \
@@ -54,8 +54,8 @@ static void ttls_zeroize(void *v, size_t n) {
 #endif
 
 #ifndef PUT_UINT32_BE
-#define PUT_UINT32_BE(n,b,i)							\
-{													   \
+#define PUT_UINT32_BE(n,b,i)				\
+{				   \
 	(b)[(i)	] = (unsigned char) ((n) >> 24);	   \
 	(b)[(i) + 1] = (unsigned char) ((n) >> 16);	   \
 	(b)[(i) + 2] = (unsigned char) ((n) >>  8);	   \
@@ -248,45 +248,45 @@ static const signed char transposes[2][20] =
 };
 
 /* Shift macro for 128 bit strings with rotation smaller than 32 bits (!) */
-#define ROTL(DEST, SRC, SHIFT)									  \
-{																   \
+#define ROTL(DEST, SRC, SHIFT)			  \
+{				   \
 	(DEST)[0] = (SRC)[0] << (SHIFT) ^ (SRC)[1] >> (32 - (SHIFT));   \
 	(DEST)[1] = (SRC)[1] << (SHIFT) ^ (SRC)[2] >> (32 - (SHIFT));   \
 	(DEST)[2] = (SRC)[2] << (SHIFT) ^ (SRC)[3] >> (32 - (SHIFT));   \
 	(DEST)[3] = (SRC)[3] << (SHIFT) ^ (SRC)[0] >> (32 - (SHIFT));   \
 }
 
-#define FL(XL, XR, KL, KR)										  \
-{																   \
+#define FL(XL, XR, KL, KR)				  \
+{				   \
 	(XR) = ((((XL) & (KL)) << 1) | (((XL) & (KL)) >> 31)) ^ (XR);   \
-	(XL) = ((XR) | (KR)) ^ (XL);									\
+	(XL) = ((XR) | (KR)) ^ (XL);			\
 }
 
-#define FLInv(YL, YR, KL, KR)									   \
-{																   \
-	(YL) = ((YR) | (KR)) ^ (YL);									\
+#define FLInv(YL, YR, KL, KR)			   \
+{				   \
+	(YL) = ((YR) | (KR)) ^ (YL);			\
 	(YR) = ((((YL) & (KL)) << 1) | (((YL) & (KL)) >> 31)) ^ (YR);   \
 }
 
-#define SHIFT_AND_PLACE(INDEX, OFFSET)					  \
-{														   \
-	TK[0] = KC[(OFFSET) * 4 + 0];						   \
-	TK[1] = KC[(OFFSET) * 4 + 1];						   \
-	TK[2] = KC[(OFFSET) * 4 + 2];						   \
-	TK[3] = KC[(OFFSET) * 4 + 3];						   \
-															\
-	for (i = 1; i <= 4; i++)							   \
+#define SHIFT_AND_PLACE(INDEX, OFFSET)		  \
+{					   \
+	TK[0] = KC[(OFFSET) * 4 + 0];			   \
+	TK[1] = KC[(OFFSET) * 4 + 1];			   \
+	TK[2] = KC[(OFFSET) * 4 + 2];			   \
+	TK[3] = KC[(OFFSET) * 4 + 3];			   \
+			\
+	for (i = 1; i <= 4; i++)				   \
 		if (shifts[(INDEX)][(OFFSET)][i -1])			   \
 			ROTL(TK + i * 4, TK, (15 * i) % 32);		  \
-															\
-	for (i = 0; i < 20; i++)							   \
+			\
+	for (i = 0; i < 20; i++)				   \
 		if (indexes[(INDEX)][(OFFSET)][i] != -1) {		 \
 			RK[indexes[(INDEX)][(OFFSET)][i]] = TK[ i ];	\
-		}												   \
+		}			   \
 }
 
 static void camellia_feistel(const uint32_t x[2], const uint32_t k[2],
-							  uint32_t z[2])
+				  uint32_t z[2])
 {
 	uint32_t I0, I1;
 	I0 = x[0] ^ k[0];
@@ -327,7 +327,7 @@ void ttls_camellia_free(ttls_camellia_context *ctx)
  * Camellia key schedule (encryption)
  */
 int ttls_camellia_setkey_enc(ttls_camellia_context *ctx, const unsigned char *key,
-						 unsigned int keybits)
+			 unsigned int keybits)
 {
 	int idx;
 	size_t i;
@@ -432,7 +432,7 @@ int ttls_camellia_setkey_enc(ttls_camellia_context *ctx, const unsigned char *ke
  * Camellia key schedule (decryption)
  */
 int ttls_camellia_setkey_dec(ttls_camellia_context *ctx, const unsigned char *key,
-						 unsigned int keybits)
+			 unsigned int keybits)
 {
 	int idx, ret;
 	size_t i;
@@ -480,9 +480,9 @@ exit:
  * Camellia-ECB block encryption/decryption
  */
 int ttls_camellia_crypt_ecb(ttls_camellia_context *ctx,
-					int mode,
-					const unsigned char input[16],
-					unsigned char output[16])
+		int mode,
+		const unsigned char input[16],
+		unsigned char output[16])
 {
 	int NR;
 	uint32_t *RK, X[4];
@@ -543,11 +543,11 @@ int ttls_camellia_crypt_ecb(ttls_camellia_context *ctx,
  * Camellia-CBC buffer encryption/decryption
  */
 int ttls_camellia_crypt_cbc(ttls_camellia_context *ctx,
-					int mode,
-					size_t length,
-					unsigned char iv[16],
-					const unsigned char *input,
-					unsigned char *output)
+		int mode,
+		size_t length,
+		unsigned char iv[16],
+		const unsigned char *input,
+		unsigned char *output)
 {
 	int i;
 	unsigned char temp[16];
@@ -597,12 +597,12 @@ int ttls_camellia_crypt_cbc(ttls_camellia_context *ctx,
  * Camellia-CFB128 buffer encryption/decryption
  */
 int ttls_camellia_crypt_cfb128(ttls_camellia_context *ctx,
-					   int mode,
-					   size_t length,
-					   size_t *iv_off,
-					   unsigned char iv[16],
-					   const unsigned char *input,
-					   unsigned char *output)
+		   int mode,
+		   size_t length,
+		   size_t *iv_off,
+		   unsigned char iv[16],
+		   const unsigned char *input,
+		   unsigned char *output)
 {
 	int c;
 	size_t n = *iv_off;
@@ -645,12 +645,12 @@ int ttls_camellia_crypt_cfb128(ttls_camellia_context *ctx,
  * Camellia-CTR buffer encryption/decryption
  */
 int ttls_camellia_crypt_ctr(ttls_camellia_context *ctx,
-					   size_t length,
-					   size_t *nc_off,
-					   unsigned char nonce_counter[16],
-					   unsigned char stream_block[16],
-					   const unsigned char *input,
-					   unsigned char *output)
+		   size_t length,
+		   size_t *nc_off,
+		   unsigned char nonce_counter[16],
+		   unsigned char stream_block[16],
+		   const unsigned char *input,
+		   unsigned char *output)
 {
 	int c, i;
 	size_t n = *nc_off;
@@ -659,11 +659,11 @@ int ttls_camellia_crypt_ctr(ttls_camellia_context *ctx,
 	{
 		if (n == 0) {
 			ttls_camellia_crypt_ecb(ctx, TTLS_CAMELLIA_ENCRYPT, nonce_counter,
-								stream_block);
+		stream_block);
 
 			for (i = 16; i > 0; i--)
 				if (++nonce_counter[i - 1] != 0)
-					break;
+		break;
 		}
 		c = *input++;
 		*output++ = (unsigned char)(c ^ stream_block[n]);
@@ -684,7 +684,7 @@ int ttls_camellia_crypt_ctr(ttls_camellia_context *ctx,
  * http://info.isl.ntt.co.jp/crypt/eng/camellia/technology.html:
  *   http://info.isl.ntt.co.jp/crypt/eng/camellia/dl/cryptrec/intermediate.txt
  *   http://info.isl.ntt.co.jp/crypt/eng/camellia/dl/cryptrec/t_camellia.txt
- *					  (For each bitlength: Key 0, Nr 39)
+ *		  (For each bitlength: Key 0, Nr 39)
  */
 #define CAMELLIA_TESTS_ECB  2
 
@@ -902,7 +902,7 @@ int ttls_camellia_self_test(int verbose)
 
 	if (verbose != 0)
 		ttls_printf("  CAMELLIA-ECB-%3d (%s): ", 128 + u * 64,
-						 (v == TTLS_CAMELLIA_DECRYPT) ? "dec" : "enc");
+			 (v == TTLS_CAMELLIA_DECRYPT) ? "dec" : "enc");
 
 	for (i = 0; i < CAMELLIA_TESTS_ECB; i++) {
 		memcpy(key, camellia_test_ecb_key[u][i], 16 + 8 * u);
@@ -946,7 +946,7 @@ int ttls_camellia_self_test(int verbose)
 
 		if (verbose != 0)
 			ttls_printf("  CAMELLIA-CBC-%3d (%s): ", 128 + u * 64,
-							 (v == TTLS_CAMELLIA_DECRYPT) ? "dec" : "enc");
+				 (v == TTLS_CAMELLIA_DECRYPT) ? "dec" : "enc");
 
 		memcpy(src, camellia_test_cbc_iv, 16);
 		memcpy(dst, camellia_test_cbc_iv, 16);
@@ -975,7 +975,7 @@ int ttls_camellia_self_test(int verbose)
 			if (memcmp(buf, dst, 16) != 0)
 			{
 				if (verbose != 0)
-					ttls_printf("failed\n");
+		ttls_printf("failed\n");
 
 				return(1);
 			}
@@ -1000,7 +1000,7 @@ int ttls_camellia_self_test(int verbose)
 
 		if (verbose != 0)
 			ttls_printf("  CAMELLIA-CTR-128 (%s): ",
-							 (v == TTLS_CAMELLIA_DECRYPT) ? "dec" : "enc");
+				 (v == TTLS_CAMELLIA_DECRYPT) ? "dec" : "enc");
 
 		memcpy(nonce_counter, camellia_test_ctr_nonce_counter[u], 16);
 		memcpy(key, camellia_test_ctr_key[u], 16);
@@ -1014,12 +1014,12 @@ int ttls_camellia_self_test(int verbose)
 			memcpy(buf, camellia_test_ctr_ct[u], len);
 
 			ttls_camellia_crypt_ctr(&ctx, len, &offset, nonce_counter, stream_block,
-								buf, buf);
+		buf, buf);
 
 			if (memcmp(buf, camellia_test_ctr_pt[u], len) != 0)
 			{
 				if (verbose != 0)
-					ttls_printf("failed\n");
+		ttls_printf("failed\n");
 
 				return(1);
 			}
@@ -1030,12 +1030,12 @@ int ttls_camellia_self_test(int verbose)
 			memcpy(buf, camellia_test_ctr_pt[u], len);
 
 			ttls_camellia_crypt_ctr(&ctx, len, &offset, nonce_counter, stream_block,
-								buf, buf);
+		buf, buf);
 
 			if (memcmp(buf, camellia_test_ctr_ct[u], len) != 0)
 			{
 				if (verbose != 0)
-					ttls_printf("failed\n");
+		ttls_printf("failed\n");
 
 				return(1);
 			}

@@ -33,25 +33,25 @@
 
 #include "bignum.h"
 
-#define MULADDC_INIT						\
-	asm(									\
+#define MULADDC_INIT			\
+	asm(			\
 		"xorq   %%r8, %%r8		  \n\t"
 
-#define MULADDC_CORE						\
+#define MULADDC_CORE			\
 		"movq   (%%rsi), %%rax	  \n\t"   \
 		"mulq   %%rbx			   \n\t"   \
 		"addq   $8,	  %%rsi	  \n\t"   \
 		"addq   %%rcx,   %%rax	  \n\t"   \
 		"movq   %%r8,	%%rcx	  \n\t"   \
 		"adcq   $0,	  %%rdx	  \n\t"   \
-		"nop						\n\t"   \
+		"nop			\n\t"   \
 		"addq   %%rax,   (%%rdi)	\n\t"   \
 		"adcq   %%rdx,   %%rcx	  \n\t"   \
 		"addq   $8,	  %%rdi	  \n\t"
 
-#define MULADDC_STOP						\
+#define MULADDC_STOP			\
 		: "+c" (c), "+D" (d), "+S" (s)	  \
-		: "b" (b)						   \
+		: "b" (b)			   \
 		: "rax", "rdx", "r8"				\
 	);
 

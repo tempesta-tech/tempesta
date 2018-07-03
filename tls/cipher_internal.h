@@ -51,21 +51,21 @@ struct ttls_cipher_base_t
 
 	/** Encrypt using ECB */
 	int (*ecb_func)(void *ctx, ttls_operation_t mode,
-					 const unsigned char *input, unsigned char *output);
+		 const unsigned char *input, unsigned char *output);
 
 #if defined(TTLS_CIPHER_MODE_STREAM)
 	/** Encrypt using STREAM */
 	int (*stream_func)(void *ctx, size_t length,
-						const unsigned char *input, unsigned char *output);
+			const unsigned char *input, unsigned char *output);
 #endif
 
 	/** Set key for encryption purposes */
 	int (*setkey_enc_func)(void *ctx, const unsigned char *key,
-							unsigned int key_bitlen);
+				unsigned int key_bitlen);
 
 	/** Set key for decryption purposes */
 	int (*setkey_dec_func)(void *ctx, const unsigned char *key,
-							unsigned int key_bitlen);
+				unsigned int key_bitlen);
 
 	/** Allocate a new context */
 	void * (*ctx_alloc_func)(void);

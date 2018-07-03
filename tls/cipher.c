@@ -88,8 +88,8 @@ const ttls_cipher_info_t *ttls_cipher_info_from_string(const char *cipher_name)
 }
 
 const ttls_cipher_info_t *ttls_cipher_info_from_values(const ttls_cipher_id_t cipher_id,
-											  int key_bitlen,
-											  const ttls_cipher_mode_t mode)
+		  int key_bitlen,
+		  const ttls_cipher_mode_t mode)
 {
 	const ttls_cipher_definition_t *def;
 
@@ -214,7 +214,7 @@ int ttls_cipher_reset(ttls_cipher_context_t *ctx)
 }
 
 int ttls_cipher_update_ad(ttls_cipher_context_t *ctx,
-					  const unsigned char *ad, size_t ad_len)
+		  const unsigned char *ad, size_t ad_len)
 {
 	if (NULL == ctx || NULL == ctx->cipher_info)
 		return(TTLS_ERR_CIPHER_BAD_INPUT_DATA);
@@ -222,7 +222,7 @@ int ttls_cipher_update_ad(ttls_cipher_context_t *ctx,
 	if (TTLS_MODE_GCM == ctx->cipher_info->mode)
 	{
 		return ttls_gcm_starts((ttls_gcm_context *) ctx->cipher_ctx, ctx->operation,
-						   ctx->iv, ctx->iv_size, ad, ad_len);
+			   ctx->iv, ctx->iv_size, ad, ad_len);
 	}
 
 	return 0;
@@ -250,7 +250,7 @@ int ttls_cipher_update(ttls_cipher_context_t *ctx, const unsigned char *input,
 		*olen = ilen;
 
 		if (0 != (ret = ctx->cipher_info->base->ecb_func(ctx->cipher_ctx,
-					ctx->operation, input, output)))
+		ctx->operation, input, output)))
 		{
 			return ret;
 		}
@@ -262,7 +262,7 @@ int ttls_cipher_update(ttls_cipher_context_t *ctx, const unsigned char *input,
 	{
 		*olen = ilen;
 		return ttls_gcm_update((ttls_gcm_context *) ctx->cipher_ctx, ilen, input,
-						   output);
+			   output);
 	}
 
 	if (0 == block_size)
@@ -280,7 +280,7 @@ int ttls_cipher_update(ttls_cipher_context_t *ctx, const unsigned char *input,
 	if (ctx->cipher_info->mode == TTLS_MODE_STREAM)
 	{
 		if (0 != (ret = ctx->cipher_info->base->stream_func(ctx->cipher_ctx,
-													ilen, input, output)))
+				ilen, input, output)))
 		{
 			return ret;
 		}
@@ -322,7 +322,7 @@ int ttls_cipher_finish(ttls_cipher_context_t *ctx,
 }
 
 int ttls_cipher_write_tag(ttls_cipher_context_t *ctx,
-					  unsigned char *tag, size_t tag_len)
+		  unsigned char *tag, size_t tag_len)
 {
 	if (NULL == ctx || NULL == ctx->cipher_info || NULL == tag)
 		return(TTLS_ERR_CIPHER_BAD_INPUT_DATA);
@@ -337,7 +337,7 @@ int ttls_cipher_write_tag(ttls_cipher_context_t *ctx,
 }
 
 int ttls_cipher_check_tag(ttls_cipher_context_t *ctx,
-					  const unsigned char *tag, size_t tag_len)
+		  const unsigned char *tag, size_t tag_len)
 {
 	int ret;
 
@@ -357,7 +357,7 @@ int ttls_cipher_check_tag(ttls_cipher_context_t *ctx,
 			return(TTLS_ERR_CIPHER_BAD_INPUT_DATA);
 
 		if (0 != (ret = ttls_gcm_finish((ttls_gcm_context *) ctx->cipher_ctx,
-									 check_tag, tag_len)))
+			 check_tag, tag_len)))
 		{
 			return ret;
 		}
@@ -407,25 +407,25 @@ int ttls_cipher_crypt(ttls_cipher_context_t *ctx,
  * Packet-oriented encryption for AEAD modes
  */
 int ttls_cipher_auth_encrypt(ttls_cipher_context_t *ctx,
-						 const unsigned char *iv, size_t iv_len,
-						 const unsigned char *ad, size_t ad_len,
-						 const unsigned char *input, size_t ilen,
-						 unsigned char *output, size_t *olen,
-						 unsigned char *tag, size_t tag_len)
+			 const unsigned char *iv, size_t iv_len,
+			 const unsigned char *ad, size_t ad_len,
+			 const unsigned char *input, size_t ilen,
+			 unsigned char *output, size_t *olen,
+			 unsigned char *tag, size_t tag_len)
 {
 	if (TTLS_MODE_GCM == ctx->cipher_info->mode)
 	{
 		*olen = ilen;
 		return(ttls_gcm_crypt_and_tag(ctx->cipher_ctx, TTLS_GCM_ENCRYPT, ilen,
-								   iv, iv_len, ad, ad_len, input, output,
-								   tag_len, tag));
+		   iv, iv_len, ad, ad_len, input, output,
+		   tag_len, tag));
 	}
 	if (TTLS_MODE_CCM == ctx->cipher_info->mode)
 	{
 		*olen = ilen;
 		return(ttls_ccm_encrypt_and_tag(ctx->cipher_ctx, ilen,
-									 iv, iv_len, ad, ad_len, input, output,
-									 tag, tag_len));
+			 iv, iv_len, ad, ad_len, input, output,
+			 tag, tag_len));
 	}
 
 	return(TTLS_ERR_CIPHER_FEATURE_UNAVAILABLE);
@@ -447,8 +447,8 @@ int ttls_cipher_auth_decrypt(ttls_cipher_context_t *ctx,
 
 		*olen = ilen;
 		ret = ttls_gcm_auth_decrypt(ctx->cipher_ctx, ilen,
-						iv, iv_len, ad, ad_len,
-						tag, tag_len, input, output);
+			iv, iv_len, ad, ad_len,
+			tag, tag_len, input, output);
 
 		if (ret == TTLS_ERR_GCM_AUTH_FAILED)
 			ret = TTLS_ERR_CIPHER_AUTH_FAILED;
@@ -461,8 +461,8 @@ int ttls_cipher_auth_decrypt(ttls_cipher_context_t *ctx,
 
 		*olen = ilen;
 		ret = ttls_ccm_auth_decrypt(ctx->cipher_ctx, ilen,
-						iv, iv_len, ad, ad_len,
-						input, output, tag, tag_len);
+			iv, iv_len, ad, ad_len,
+			input, output, tag, tag_len);
 
 		if (ret == TTLS_ERR_CCM_AUTH_FAILED)
 			ret = TTLS_ERR_CIPHER_AUTH_FAILED;

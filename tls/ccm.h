@@ -76,9 +76,9 @@ void ttls_ccm_init(ttls_ccm_context *ctx);
  * \return		  \c 0 on success, or a cipher-specific error code.
  */
 int ttls_ccm_setkey(ttls_ccm_context *ctx,
-						ttls_cipher_id_t cipher,
-						const unsigned char *key,
-						unsigned int keybits);
+			ttls_cipher_id_t cipher,
+			const unsigned char *key,
+			unsigned int keybits);
 
 /**
  * \brief   This function releases and clears the specified CCM context
@@ -114,10 +114,10 @@ void ttls_ccm_free(ttls_ccm_context *ctx);
  * \return		  \c 0 on success.
  */
 int ttls_ccm_encrypt_and_tag(ttls_ccm_context *ctx, size_t length,
-						 const unsigned char *iv, size_t iv_len,
-						 const unsigned char *add, size_t add_len,
-						 const unsigned char *input, unsigned char *output,
-						 unsigned char *tag, size_t tag_len);
+			 const unsigned char *iv, size_t iv_len,
+			 const unsigned char *add, size_t add_len,
+			 const unsigned char *input, unsigned char *output,
+			 unsigned char *tag, size_t tag_len);
 
 /**
  * \brief		   This function performs a CCM authenticated decryption of a
@@ -141,10 +141,10 @@ int ttls_ccm_encrypt_and_tag(ttls_ccm_context *ctx, size_t length,
  *				  #TTLS_ERR_CCM_AUTH_FAILED if the tag does not match.
  */
 int ttls_ccm_auth_decrypt(ttls_ccm_context *ctx, size_t length,
-					  const unsigned char *iv, size_t iv_len,
-					  const unsigned char *add, size_t add_len,
-					  const unsigned char *input, unsigned char *output,
-					  const unsigned char *tag, size_t tag_len);
+		  const unsigned char *iv, size_t iv_len,
+		  const unsigned char *add, size_t add_len,
+		  const unsigned char *input, unsigned char *output,
+		  const unsigned char *tag, size_t tag_len);
 
 #else  /* TTLS_CCM_ALT */
 #include "ccm_alt.h"

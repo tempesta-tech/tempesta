@@ -43,7 +43,7 @@ void ttls_cache_init(ttls_cache_context *cache)
 int ttls_cache_get(void *data, TtlsSess *session)
 {
 	int ret = 1;
-	time_t t = ttls_time(NULL);
+	time_t t = get_seconds();
 	ttls_cache_context *cache = (ttls_cache_context *) data;
 	ttls_cache_entry *cur, *entry;
 
@@ -67,7 +67,7 @@ int ttls_cache_get(void *data, TtlsSess *session)
 			continue;
 
 		if (memcmp(session->id, entry->session.id,
-					entry->session.id_len) != 0)
+		entry->session.id_len) != 0)
 			continue;
 
 		memcpy(session->master, entry->session.master, 48);
@@ -80,7 +80,7 @@ int ttls_cache_get(void *data, TtlsSess *session)
 		if (entry->peer_cert.p != NULL)
 		{
 			if ((session->peer_cert = ttls_calloc(1,
-								 sizeof(ttls_x509_crt))) == NULL)
+		 sizeof(ttls_x509_crt))) == NULL)
 			{
 				ret = 1;
 				goto exit;
@@ -88,7 +88,7 @@ int ttls_cache_get(void *data, TtlsSess *session)
 
 			ttls_x509_crt_init(session->peer_cert);
 			if (ttls_x509_crt_parse(session->peer_cert, entry->peer_cert.p,
-								entry->peer_cert.len) != 0)
+		entry->peer_cert.len) != 0)
 			{
 				ttls_free(session->peer_cert);
 				session->peer_cert = NULL;
@@ -110,7 +110,7 @@ exit:
 int ttls_cache_set(void *data, const TtlsSess *session)
 {
 	int ret = 1;
-	time_t t = ttls_time(NULL), oldest = 0;
+	time_t t = get_seconds(), oldest = 0;
 	ttls_cache_entry *old = NULL;
 	ttls_cache_context *cache = (ttls_cache_context *) data;
 	ttls_cache_entry *cur, *prv;

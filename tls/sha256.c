@@ -43,8 +43,8 @@ static void ttls_zeroize(void *v, size_t n) {
  * 32-bit integer manipulation macros (big endian)
  */
 #ifndef GET_UINT32_BE
-#define GET_UINT32_BE(n,b,i)							\
-do {													\
+#define GET_UINT32_BE(n,b,i)				\
+do {				\
 	(n) = ((uint32_t) (b)[(i)	] << 24)			 \
 		| ((uint32_t) (b)[(i) + 1] << 16)			 \
 		| ((uint32_t) (b)[(i) + 2] <<  8)			 \
@@ -53,8 +53,8 @@ do {													\
 #endif
 
 #ifndef PUT_UINT32_BE
-#define PUT_UINT32_BE(n,b,i)							\
-do {													\
+#define PUT_UINT32_BE(n,b,i)				\
+do {				\
 	(b)[(i)	] = (unsigned char) ((n) >> 24);	   \
 	(b)[(i) + 1] = (unsigned char) ((n) >> 16);	   \
 	(b)[(i) + 2] = (unsigned char) ((n) >>  8);	   \
@@ -76,7 +76,7 @@ void ttls_sha256_free(ttls_sha256_context *ctx)
 }
 
 void ttls_sha256_clone(ttls_sha256_context *dst,
-						   const ttls_sha256_context *src)
+			   const ttls_sha256_context *src)
 {
 	*dst = *src;
 }
@@ -152,21 +152,21 @@ static const uint32_t K[] =
 #define F0(x,y,z) ((x & y) | (z & (x | y)))
 #define F1(x,y,z) (z ^ (x & (y ^ z)))
 
-#define R(t)									\
-(											   \
+#define R(t)			\
+(		   \
 	W[t] = S1(W[t -  2]) + W[t -  7] +		  \
 		   S0(W[t - 15]) + W[t - 16]			\
 )
 
 #define P(a,b,c,d,e,f,g,h,x,K)				  \
-{											   \
+{		   \
 	temp1 = h + S3(e) + F1(e,f,g) + K + x;	  \
 	temp2 = S2(a) + F0(a,b,c);				  \
 	d += temp1; h = temp1 + temp2;			  \
 }
 
 int ttls_internal_sha256_process(ttls_sha256_context *ctx,
-								const unsigned char data[64])
+		const unsigned char data[64])
 {
 	uint32_t temp1, temp2, W[64];
 	uint32_t A[8];
@@ -229,8 +229,8 @@ int ttls_internal_sha256_process(ttls_sha256_context *ctx,
  * SHA-256 process buffer
  */
 int ttls_sha256_update_ret(ttls_sha256_context *ctx,
-							   const unsigned char *input,
-							   size_t ilen)
+				   const unsigned char *input,
+				   size_t ilen)
 {
 	int ret;
 	size_t fill;
@@ -287,7 +287,7 @@ static const unsigned char sha256_padding[64] =
  * SHA-256 final digest
  */
 int ttls_sha256_finish_ret(ttls_sha256_context *ctx,
-							   unsigned char output[32])
+				   unsigned char output[32])
 {
 	int ret;
 	uint32_t last, padn;
@@ -330,9 +330,9 @@ int ttls_sha256_finish_ret(ttls_sha256_context *ctx,
  * output = SHA-256(input buffer)
  */
 int ttls_sha256_ret(const unsigned char *input,
-						size_t ilen,
-						unsigned char output[32],
-						int is224)
+			size_t ilen,
+			unsigned char output[32],
+			int is224)
 {
 	int ret;
 	ttls_sha256_context ctx;
@@ -444,14 +444,14 @@ int ttls_sha256_self_test(int verbose)
 			{
 				ret = ttls_sha256_update_ret(&ctx, buf, buflen);
 				if (ret != 0)
-					goto fail;
+		goto fail;
 			}
 
 		}
 		else
 		{
 			ret = ttls_sha256_update_ret(&ctx, sha256_test_buf[j],
-											 sha256_test_buflen[j]);
+		 sha256_test_buflen[j]);
 			if (ret != 0)
 				 goto fail;
 		}

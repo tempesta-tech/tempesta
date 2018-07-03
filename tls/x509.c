@@ -48,7 +48,7 @@
  *  CertificateSerialNumber  ::=  INTEGER
  */
 int ttls_x509_get_serial(unsigned char **p, const unsigned char *end,
-					 ttls_x509_buf *serial)
+		 ttls_x509_buf *serial)
 {
 	int ret;
 
@@ -79,7 +79,7 @@ int ttls_x509_get_serial(unsigned char **p, const unsigned char *end,
  *	   parameters			  ANY DEFINED BY algorithm OPTIONAL  }
  */
 int ttls_x509_get_alg_null(unsigned char **p, const unsigned char *end,
-					   ttls_x509_buf *alg)
+		   ttls_x509_buf *alg)
 {
 	int ret;
 
@@ -173,8 +173,8 @@ static int x509_get_hash_alg(const ttls_x509_buf *alg, ttls_md_type_t *md_alg)
  * option. Enfore this at parsing time.
  */
 int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
-								ttls_md_type_t *md_alg, ttls_md_type_t *mgf_md,
-								int *salt_len)
+		ttls_md_type_t *md_alg, ttls_md_type_t *mgf_md,
+		int *salt_len)
 {
 	int ret;
 	unsigned char *p;
@@ -202,7 +202,7 @@ int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
 	 * HashAlgorithm
 	 */
 	if ((ret = ttls_asn1_get_tag(&p, end, &len,
-					TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED | 0)) == 0)
+		TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED | 0)) == 0)
 	{
 		end2 = p + len;
 
@@ -215,7 +215,7 @@ int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
 
 		if (p != end2)
 			return(TTLS_ERR_X509_INVALID_ALG +
-					TTLS_ERR_ASN1_LENGTH_MISMATCH);
+		TTLS_ERR_ASN1_LENGTH_MISMATCH);
 	}
 	else if (ret != TTLS_ERR_ASN1_UNEXPECTED_TAG)
 		return(TTLS_ERR_X509_INVALID_ALG + ret);
@@ -227,7 +227,7 @@ int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
 	 * MaskGenAlgorithm
 	 */
 	if ((ret = ttls_asn1_get_tag(&p, end, &len,
-					TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED | 1)) == 0)
+		TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED | 1)) == 0)
 	{
 		end2 = p + len;
 
@@ -238,7 +238,7 @@ int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
 		/* Only MFG1 is recognised for now */
 		if (TTLS_OID_CMP(TTLS_OID_MGF1, &alg_id) != 0)
 			return(TTLS_ERR_X509_FEATURE_UNAVAILABLE +
-					TTLS_ERR_OID_NOT_FOUND);
+		TTLS_ERR_OID_NOT_FOUND);
 
 		/* Parse HashAlgorithm */
 		if ((ret = x509_get_hash_alg(&alg_params, mgf_md)) != 0)
@@ -246,7 +246,7 @@ int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
 
 		if (p != end2)
 			return(TTLS_ERR_X509_INVALID_ALG +
-					TTLS_ERR_ASN1_LENGTH_MISMATCH);
+		TTLS_ERR_ASN1_LENGTH_MISMATCH);
 	}
 	else if (ret != TTLS_ERR_ASN1_UNEXPECTED_TAG)
 		return(TTLS_ERR_X509_INVALID_ALG + ret);
@@ -258,7 +258,7 @@ int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
 	 * salt_len
 	 */
 	if ((ret = ttls_asn1_get_tag(&p, end, &len,
-					TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED | 2)) == 0)
+		TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED | 2)) == 0)
 	{
 		end2 = p + len;
 
@@ -267,7 +267,7 @@ int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
 
 		if (p != end2)
 			return(TTLS_ERR_X509_INVALID_ALG +
-					TTLS_ERR_ASN1_LENGTH_MISMATCH);
+		TTLS_ERR_ASN1_LENGTH_MISMATCH);
 	}
 	else if (ret != TTLS_ERR_ASN1_UNEXPECTED_TAG)
 		return(TTLS_ERR_X509_INVALID_ALG + ret);
@@ -279,7 +279,7 @@ int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
 	 * trailer_field (if present, must be 1)
 	 */
 	if ((ret = ttls_asn1_get_tag(&p, end, &len,
-					TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED | 3)) == 0)
+		TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED | 3)) == 0)
 	{
 		int trailer_field;
 
@@ -290,7 +290,7 @@ int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
 
 		if (p != end2)
 			return(TTLS_ERR_X509_INVALID_ALG +
-					TTLS_ERR_ASN1_LENGTH_MISMATCH);
+		TTLS_ERR_ASN1_LENGTH_MISMATCH);
 
 		if (trailer_field != 1)
 			return(TTLS_ERR_X509_INVALID_ALG);
@@ -316,8 +316,8 @@ int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
  *  AttributeValue ::= ANY DEFINED BY AttributeType
  */
 static int x509_get_attr_type_value(unsigned char **p,
-									 const unsigned char *end,
-									 ttls_x509_name *cur)
+			 const unsigned char *end,
+			 ttls_x509_name *cur)
 {
 	int ret;
 	size_t len;
@@ -496,7 +496,7 @@ static int x509_date_is_valid(const ttls_x509_time *t)
  * field.
  */
 static int x509_parse_time(unsigned char **p, size_t len, size_t yearlen,
-							ttls_x509_time *tm)
+				ttls_x509_time *tm)
 {
 	int ret;
 
@@ -561,7 +561,7 @@ static int x509_parse_time(unsigned char **p, size_t len, size_t yearlen,
  *	   generalTime	GeneralizedTime }
  */
 int ttls_x509_get_time(unsigned char **p, const unsigned char *end,
-						   ttls_x509_time *tm)
+			   ttls_x509_time *tm)
 {
 	int ret;
 	size_t len, year_len;
@@ -618,8 +618,8 @@ int ttls_x509_get_sig(unsigned char **p, const unsigned char *end, ttls_x509_buf
  * Get signature algorithm from alg OID and optional parameters
  */
 int ttls_x509_get_sig_alg(const ttls_x509_buf *sig_oid, const ttls_x509_buf *sig_params,
-					  ttls_md_type_t *md_alg, ttls_pk_type_t *pk_alg,
-					  void **sig_opts)
+		  ttls_md_type_t *md_alg, ttls_pk_type_t *pk_alg,
+		  void **sig_opts)
 {
 	int ret;
 
@@ -639,9 +639,9 @@ int ttls_x509_get_sig_alg(const ttls_x509_buf *sig_oid, const ttls_x509_buf *sig
 			return(TTLS_ERR_X509_ALLOC_FAILED);
 
 		ret = ttls_x509_get_rsassa_pss_params(sig_params,
-										  md_alg,
-										  &pss_opts->mgf1_hash_id,
-										  &pss_opts->expected_salt_len);
+				  md_alg,
+				  &pss_opts->mgf1_hash_id,
+				  &pss_opts->expected_salt_len);
 		if (ret != 0)
 		{
 			ttls_free(pss_opts);
@@ -804,8 +804,8 @@ int ttls_x509_serial_gets(char *buf, size_t size, const ttls_x509_buf *serial)
  * Helper for writing signature algorithms
  */
 int ttls_x509_sig_alg_gets(char *buf, size_t size, const ttls_x509_buf *sig_oid,
-					   ttls_pk_type_t pk_alg, ttls_md_type_t md_alg,
-					   const void *sig_opts)
+		   ttls_pk_type_t pk_alg, ttls_md_type_t md_alg,
+		   const void *sig_opts)
 {
 	int ret;
 	char *p = buf;
@@ -831,9 +831,9 @@ int ttls_x509_sig_alg_gets(char *buf, size_t size, const ttls_x509_buf *sig_oid,
 		mgf_md_info = ttls_md_info_from_type(pss_opts->mgf1_hash_id);
 
 		ret = ttls_snprintf(p, n, " (%s, MGF1-%s, 0x%02X)",
-							  md_info ? ttls_md_get_name(md_info) : "???",
-							  mgf_md_info ? ttls_md_get_name(mgf_md_info) : "???",
-							  pss_opts->expected_salt_len);
+				  md_info ? ttls_md_get_name(md_info) : "???",
+				  mgf_md_info ? ttls_md_get_name(mgf_md_info) : "???",
+				  pss_opts->expected_salt_len);
 		TTLS_X509_SAFE_SNPRINTF;
 	}
 #else
@@ -957,7 +957,7 @@ int ttls_x509_self_test(int verbose)
 	ttls_x509_crt_init(&clicert);
 
 	ret = ttls_x509_crt_parse(&clicert, (const unsigned char *) ttls_test_cli_crt,
-						   ttls_test_cli_crt_len);
+			   ttls_test_cli_crt_len);
 	if (ret != 0)
 	{
 		if (verbose != 0)
@@ -969,7 +969,7 @@ int ttls_x509_self_test(int verbose)
 	ttls_x509_crt_init(&cacert);
 
 	ret = ttls_x509_crt_parse(&cacert, (const unsigned char *) ttls_test_ca_crt,
-						  ttls_test_ca_crt_len);
+			  ttls_test_ca_crt_len);
 	if (ret != 0)
 	{
 		if (verbose != 0)

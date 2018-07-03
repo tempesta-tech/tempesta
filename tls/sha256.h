@@ -47,8 +47,8 @@ typedef struct
 	uint32_t state[8];		  /*!< The intermediate digest state.  */
 	unsigned char buffer[64];   /*!< The data block being processed. */
 	int is224;				  /*!< Determines which function to use.
-									 <ul><li>0: Use SHA-256.</li>
-									 <li>1: Use SHA-224.</li></ul> */
+			 <ul><li>0: Use SHA-256.</li>
+			 <li>1: Use SHA-224.</li></ul> */
 }
 ttls_sha256_context;
 
@@ -73,7 +73,7 @@ void ttls_sha256_free(ttls_sha256_context *ctx);
  * \param src	  The context to clone.
  */
 void ttls_sha256_clone(ttls_sha256_context *dst,
-						   const ttls_sha256_context *src);
+			   const ttls_sha256_context *src);
 
 /**
  * \brief		  This function starts a SHA-224 or SHA-256 checksum
@@ -99,8 +99,8 @@ int ttls_sha256_starts_ret(ttls_sha256_context *ctx, int is224);
  * \return		 \c 0 on success.
  */
 int ttls_sha256_update_ret(ttls_sha256_context *ctx,
-							   const unsigned char *input,
-							   size_t ilen);
+				   const unsigned char *input,
+				   size_t ilen);
 
 /**
  * \brief		  This function finishes the SHA-256 operation, and writes
@@ -112,7 +112,7 @@ int ttls_sha256_update_ret(ttls_sha256_context *ctx,
  * \return		 \c 0 on success.
  */
 int ttls_sha256_finish_ret(ttls_sha256_context *ctx,
-							   unsigned char output[32]);
+				   unsigned char output[32]);
 
 /**
  * \brief		  This function processes a single data block within
@@ -125,7 +125,7 @@ int ttls_sha256_finish_ret(ttls_sha256_context *ctx,
  * \return		 \c 0 on success.
  */
 int ttls_internal_sha256_process(ttls_sha256_context *ctx,
-									 const unsigned char data[64]);
+			 const unsigned char data[64]);
 
 #else  /* TTLS_SHA256_ALT */
 #include "sha256_alt.h"
@@ -149,8 +149,8 @@ int ttls_internal_sha256_process(ttls_sha256_context *ctx,
  *				 <li>1: Use SHA-224.</li></ul>
  */
 int ttls_sha256_ret(const unsigned char *input,
-						size_t ilen,
-						unsigned char output[32],
-						int is224);
+			size_t ilen,
+			unsigned char output[32],
+			int is224);
 
 #endif /* ttls_sha256.h */

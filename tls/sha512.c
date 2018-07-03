@@ -45,8 +45,8 @@ static void ttls_zeroize(void *v, size_t n) {
  * 64-bit integer manipulation macros (big endian)
  */
 #ifndef GET_UINT64_BE
-#define GET_UINT64_BE(n,b,i)							\
-{													   \
+#define GET_UINT64_BE(n,b,i)				\
+{				   \
 	(n) = ((uint64_t) (b)[(i)	] << 56)	   \
 		| ((uint64_t) (b)[(i) + 1] << 48)	   \
 		| ((uint64_t) (b)[(i) + 2] << 40)	   \
@@ -59,8 +59,8 @@ static void ttls_zeroize(void *v, size_t n) {
 #endif /* GET_UINT64_BE */
 
 #ifndef PUT_UINT64_BE
-#define PUT_UINT64_BE(n,b,i)							\
-{													   \
+#define PUT_UINT64_BE(n,b,i)				\
+{				   \
 	(b)[(i)	] = (unsigned char) ((n) >> 56);	   \
 	(b)[(i) + 1] = (unsigned char) ((n) >> 48);	   \
 	(b)[(i) + 2] = (unsigned char) ((n) >> 40);	   \
@@ -86,7 +86,7 @@ void ttls_sha512_free(ttls_sha512_context *ctx)
 }
 
 void ttls_sha512_clone(ttls_sha512_context *dst,
-						   const ttls_sha512_context *src)
+			   const ttls_sha512_context *src)
 {
 	*dst = *src;
 }
@@ -179,7 +179,7 @@ static const uint64_t K[80] =
 };
 
 int ttls_internal_sha512_process(ttls_sha512_context *ctx,
-									 const unsigned char data[128])
+			 const unsigned char data[128])
 {
 	int i;
 	uint64_t temp1, temp2, W[80];
@@ -198,7 +198,7 @@ int ttls_internal_sha512_process(ttls_sha512_context *ctx,
 #define F1(x,y,z) (z ^ (x & (y ^ z)))
 
 #define P(a,b,c,d,e,f,g,h,x,K)				  \
-{											   \
+{		   \
 	temp1 = h + S3(e) + F1(e,f,g) + K + x;	  \
 	temp2 = S2(a) + F0(a,b,c);				  \
 	d += temp1; h = temp1 + temp2;			  \
@@ -256,8 +256,8 @@ int ttls_internal_sha512_process(ttls_sha512_context *ctx,
  * SHA-512 process buffer
  */
 int ttls_sha512_update_ret(ttls_sha512_context *ctx,
-							   const unsigned char *input,
-							   size_t ilen)
+				   const unsigned char *input,
+				   size_t ilen)
 {
 	int ret;
 	size_t fill;
@@ -317,7 +317,7 @@ static const unsigned char sha512_padding[128] =
  * SHA-512 final digest
  */
 int ttls_sha512_finish_ret(ttls_sha512_context *ctx,
-							   unsigned char output[64])
+				   unsigned char output[64])
 {
 	int ret;
 	size_t last, padn;
@@ -362,9 +362,9 @@ int ttls_sha512_finish_ret(ttls_sha512_context *ctx,
  * output = SHA-512(input buffer)
  */
 int ttls_sha512_ret(const unsigned char *input,
-					size_t ilen,
-					unsigned char output[64],
-					int is384)
+		size_t ilen,
+		unsigned char output[64],
+		int is384)
 {
 	int ret;
 	ttls_sha512_context ctx;
@@ -495,13 +495,13 @@ int ttls_sha512_self_test(int verbose)
 			{
 				ret = ttls_sha512_update_ret(&ctx, buf, buflen);
 				if (ret != 0)
-					goto fail;
+		goto fail;
 			}
 		}
 		else
 		{
 			ret = ttls_sha512_update_ret(&ctx, sha512_test_buf[j],
-											 sha512_test_buflen[j]);
+		 sha512_test_buflen[j]);
 			if (ret != 0)
 				goto fail;
 		}

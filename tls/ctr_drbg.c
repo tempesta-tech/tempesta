@@ -93,7 +93,7 @@ int ttls_ctr_drbg_seed(ttls_ctr_drbg_context *ctx,
 				   size_t len)
 {
 	return(ttls_ctr_drbg_seed_entropy_len(ctx, f_entropy, p_entropy, custom, len,
-									   TTLS_CTR_DRBG_ENTROPY_LEN));
+			   TTLS_CTR_DRBG_ENTROPY_LEN));
 }
 
 void ttls_ctr_drbg_free(ttls_ctr_drbg_context *ctx)
@@ -121,7 +121,7 @@ void ttls_ctr_drbg_set_reseed_interval(ttls_ctr_drbg_context *ctx, int interval)
 }
 
 static int block_cipher_df(unsigned char *output,
-							const unsigned char *data, size_t data_len)
+				const unsigned char *data, size_t data_len)
 {
 	unsigned char buf[TTLS_CTR_DRBG_MAX_SEED_INPUT + TTLS_CTR_DRBG_BLOCKSIZE + 16];
 	unsigned char tmp[TTLS_CTR_DRBG_SEEDLEN];
@@ -182,7 +182,7 @@ static int block_cipher_df(unsigned char *output,
 				chain[i] ^= p[i];
 			p += TTLS_CTR_DRBG_BLOCKSIZE;
 			use_len -= (use_len >= TTLS_CTR_DRBG_BLOCKSIZE) ?
-					   TTLS_CTR_DRBG_BLOCKSIZE : use_len;
+		   TTLS_CTR_DRBG_BLOCKSIZE : use_len;
 
 			if ((ret = ttls_aes_crypt_ecb(&aes_ctx, TTLS_AES_ENCRYPT, chain, chain)) != 0)
 			{
@@ -238,7 +238,7 @@ exit:
 }
 
 static int ctr_drbg_update_internal(ttls_ctr_drbg_context *ctx,
-							  const unsigned char data[TTLS_CTR_DRBG_SEEDLEN])
+				  const unsigned char data[TTLS_CTR_DRBG_SEEDLEN])
 {
 	unsigned char tmp[TTLS_CTR_DRBG_SEEDLEN];
 	unsigned char *p = tmp;
@@ -283,7 +283,7 @@ static int ctr_drbg_update_internal(ttls_ctr_drbg_context *ctx,
 }
 
 void ttls_ctr_drbg_update(ttls_ctr_drbg_context *ctx,
-					  const unsigned char *additional, size_t add_len)
+		  const unsigned char *additional, size_t add_len)
 {
 	unsigned char add_input[TTLS_CTR_DRBG_SEEDLEN];
 
@@ -300,7 +300,7 @@ void ttls_ctr_drbg_update(ttls_ctr_drbg_context *ctx,
 }
 
 int ttls_ctr_drbg_reseed(ttls_ctr_drbg_context *ctx,
-					 const unsigned char *additional, size_t len)
+		 const unsigned char *additional, size_t len)
 {
 	unsigned char seed[TTLS_CTR_DRBG_MAX_SEED_INPUT];
 	size_t seedlen = 0;
@@ -316,7 +316,7 @@ int ttls_ctr_drbg_reseed(ttls_ctr_drbg_context *ctx,
 	 * Gather entropy_len bytes of entropy to seed state
 	 */
 	if (0 != ctx->f_entropy(ctx->p_entropy, seed,
-							 ctx->entropy_len))
+				 ctx->entropy_len))
 	{
 		return(TTLS_ERR_CTR_DRBG_ENTROPY_SOURCE_FAILED);
 	}
@@ -353,8 +353,8 @@ int ttls_ctr_drbg_reseed(ttls_ctr_drbg_context *ctx,
 }
 
 int ttls_ctr_drbg_random_with_add(void *p_rng,
-							  unsigned char *output, size_t output_len,
-							  const unsigned char *additional, size_t add_len)
+				  unsigned char *output, size_t output_len,
+				  const unsigned char *additional, size_t add_len)
 {
 	int ret = 0;
 	ttls_ctr_drbg_context *ctx = (ttls_ctr_drbg_context *) p_rng;
@@ -412,7 +412,7 @@ int ttls_ctr_drbg_random_with_add(void *p_rng,
 		}
 
 		use_len = (output_len > TTLS_CTR_DRBG_BLOCKSIZE) ? TTLS_CTR_DRBG_BLOCKSIZE :
-													   output_len;
+				   output_len;
 		/*
 		 * Copy random block to destination
 		 */
@@ -487,7 +487,7 @@ static const unsigned char result_nopr[16] =
 
 static size_t test_offset;
 static int ctr_drbg_self_test_entropy(void *data, unsigned char *buf,
-									   size_t len)
+			   size_t len)
 {
 	const unsigned char *p = data;
 	memcpy(buf, p + test_offset, len);
@@ -495,12 +495,12 @@ static int ctr_drbg_self_test_entropy(void *data, unsigned char *buf,
 	return 0;
 }
 
-#define CHK(c)	if ((c) != 0)						  \
-					{									   \
-						if (verbose != 0)				  \
-							ttls_printf("failed\n");  \
-						return(1);						\
-					}
+#define CHK(c)	if ((c) != 0)			  \
+		{			   \
+			if (verbose != 0)				  \
+				ttls_printf("failed\n");  \
+			return(1);			\
+		}
 
 /*
  * Checkup routine
@@ -520,7 +520,7 @@ int ttls_ctr_drbg_self_test(int verbose)
 
 	test_offset = 0;
 	CHK(ttls_ctr_drbg_seed_entropy_len(&ctx, ctr_drbg_self_test_entropy,
-								(void *) entropy_source_pr, nonce_pers_pr, 16, 32));
+		(void *) entropy_source_pr, nonce_pers_pr, 16, 32));
 	ttls_ctr_drbg_set_prediction_resistance(&ctx, TTLS_CTR_DRBG_PR_ON);
 	CHK(ttls_ctr_drbg_random(&ctx, buf, TTLS_CTR_DRBG_BLOCKSIZE));
 	CHK(ttls_ctr_drbg_random(&ctx, buf, TTLS_CTR_DRBG_BLOCKSIZE));
@@ -541,7 +541,7 @@ int ttls_ctr_drbg_self_test(int verbose)
 
 	test_offset = 0;
 	CHK(ttls_ctr_drbg_seed_entropy_len(&ctx, ctr_drbg_self_test_entropy,
-							(void *) entropy_source_nopr, nonce_pers_nopr, 16, 32));
+				(void *) entropy_source_nopr, nonce_pers_nopr, 16, 32));
 	CHK(ttls_ctr_drbg_random(&ctx, buf, 16));
 	CHK(ttls_ctr_drbg_reseed(&ctx, NULL, 0));
 	CHK(ttls_ctr_drbg_random(&ctx, buf, 16));

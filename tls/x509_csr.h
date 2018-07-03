@@ -96,7 +96,7 @@ ttls_x509write_csr;
  * \return		 0 if successful, or a specific X509 error code
  */
 int ttls_x509_csr_parse_der(ttls_x509_csr *csr,
-						const unsigned char *buf, size_t buflen);
+			const unsigned char *buf, size_t buflen);
 
 /**
  * \brief		  Load a Certificate Signing Request (CSR), DER or PEM format
@@ -166,7 +166,7 @@ void ttls_x509write_csr_init(ttls_x509write_csr *ctx);
  *				  a specific error code
  */
 int ttls_x509write_csr_set_subject_name(ttls_x509write_csr *ctx,
-									const char *subject_name);
+			const char *subject_name);
 
 /**
  * \brief		   Set the key for a CSR (public key will be included,
@@ -207,7 +207,7 @@ int ttls_x509write_csr_set_key_usage(ttls_x509write_csr *ctx, unsigned char key_
  * \return		  0 if successful, or TTLS_ERR_X509_ALLOC_FAILED
  */
 int ttls_x509write_csr_set_ns_cert_type(ttls_x509write_csr *ctx,
-									unsigned char ns_cert_type);
+			unsigned char ns_cert_type);
 
 /**
  * \brief		   Generic function to add to or replace an extension in the
@@ -222,8 +222,8 @@ int ttls_x509write_csr_set_ns_cert_type(ttls_x509write_csr *ctx,
  * \return		  0 if successful, or a TTLS_ERR_X509_ALLOC_FAILED
  */
 int ttls_x509write_csr_set_extension(ttls_x509write_csr *ctx,
-								 const char *oid, size_t oid_len,
-								 const unsigned char *val, size_t val_len);
+		 const char *oid, size_t oid_len,
+		 const unsigned char *val, size_t val_len);
 
 /**
  * \brief		   Free the contents of a CSR context
@@ -236,8 +236,8 @@ void ttls_x509write_csr_free(ttls_x509write_csr *ctx);
  * \brief		   Write a CSR (Certificate Signing Request) to a
  *				  DER structure
  *				  Note: data is written at the end of the buffer! Use the
- *						return value to determine where you should start
- *						using the buffer
+ *			return value to determine where you should start
+ *			using the buffer
  *
  * \param ctx	   CSR to write away
  * \param buf	   buffer to write to
@@ -254,8 +254,8 @@ void ttls_x509write_csr_free(ttls_x509write_csr *ctx);
  *				  ECDSA signatures always require a non-NULL f_rng.
  */
 int ttls_x509write_csr_der(ttls_x509write_csr *ctx, unsigned char *buf, size_t size,
-					   int (*f_rng)(void *, unsigned char *, size_t),
-					   void *p_rng);
+		   int (*f_rng)(void *, unsigned char *, size_t),
+		   void *p_rng);
 
 #if defined(TTLS_PEM_WRITE_C)
 /**
@@ -276,8 +276,8 @@ int ttls_x509write_csr_der(ttls_x509write_csr *ctx, unsigned char *buf, size_t s
  *				  ECDSA signatures always require a non-NULL f_rng.
  */
 int ttls_x509write_csr_pem(ttls_x509write_csr *ctx, unsigned char *buf, size_t size,
-					   int (*f_rng)(void *, unsigned char *, size_t),
-					   void *p_rng);
+		   int (*f_rng)(void *, unsigned char *, size_t),
+		   void *p_rng);
 #endif /* TTLS_PEM_WRITE_C */
 #endif /* TTLS_X509_CSR_WRITE_C */
 

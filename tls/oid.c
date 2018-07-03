@@ -37,21 +37,21 @@
  * Macro to generate an internal function for oid_XXX_from_asn1() (used by
  * the other functions)
  */
-#define FN_OID_TYPED_FROM_ASN1(TYPE_T, NAME, LIST)						\
+#define FN_OID_TYPED_FROM_ASN1(TYPE_T, NAME, LIST)			\
 static const TYPE_T * oid_ ## NAME ## _from_asn1(const ttls_asn1_buf *oid)	 \
-{																		   \
-	const TYPE_T *p = LIST;												 \
+{						   \
+	const TYPE_T *p = LIST;			 \
 	const ttls_oid_descriptor_t *cur = (const ttls_oid_descriptor_t *) p;			 \
-	if (p == NULL || oid == NULL) return(NULL);						  \
-	while (cur->asn1 != NULL) {											\
-		if (cur->asn1_len == oid->len &&									\
+	if (p == NULL || oid == NULL) return(NULL);			  \
+	while (cur->asn1 != NULL) {		\
+		if (cur->asn1_len == oid->len &&			\
 			memcmp(cur->asn1, oid->p, oid->len) == 0) {				  \
-			return(p);													\
-		}																   \
-		p++;																\
-		cur = (const ttls_oid_descriptor_t *) p;								 \
-	}																	   \
-	return(NULL);														 \
+			return(p);				\
+		}				   \
+		p++;				\
+		cur = (const ttls_oid_descriptor_t *) p;		 \
+	}					   \
+	return(NULL);					 \
 }
 
 /*
@@ -60,11 +60,11 @@ static const TYPE_T * oid_ ## NAME ## _from_asn1(const ttls_asn1_buf *oid)	 \
  */
 #define FN_OID_GET_DESCRIPTOR_ATTR1(FN_NAME, TYPE_T, TYPE_NAME, ATTR1_TYPE, ATTR1) \
 int FN_NAME(const ttls_asn1_buf *oid, ATTR1_TYPE * ATTR1)				  \
-{																	   \
+{					   \
 	const TYPE_T *data = oid_ ## TYPE_NAME ## _from_asn1(oid);		\
 	if (data == NULL) return(TTLS_ERR_OID_NOT_FOUND);			\
-	*ATTR1 = data->descriptor.ATTR1;									\
-	return 0;														\
+	*ATTR1 = data->descriptor.ATTR1;			\
+	return 0;					\
 }
 
 /*
@@ -73,11 +73,11 @@ int FN_NAME(const ttls_asn1_buf *oid, ATTR1_TYPE * ATTR1)				  \
  */
 #define FN_OID_GET_ATTR1(FN_NAME, TYPE_T, TYPE_NAME, ATTR1_TYPE, ATTR1) \
 int FN_NAME(const ttls_asn1_buf *oid, ATTR1_TYPE * ATTR1)				  \
-{																	   \
+{					   \
 	const TYPE_T *data = oid_ ## TYPE_NAME ## _from_asn1(oid);		\
 	if (data == NULL) return(TTLS_ERR_OID_NOT_FOUND);			\
-	*ATTR1 = data->ATTR1;											   \
-	return 0;														\
+	*ATTR1 = data->ATTR1;		   \
+	return 0;					\
 }
 
 /*
@@ -85,14 +85,14 @@ int FN_NAME(const ttls_asn1_buf *oid, ATTR1_TYPE * ATTR1)				  \
  * ttls_oid_descriptor_t wrapper.
  */
 #define FN_OID_GET_ATTR2(FN_NAME, TYPE_T, TYPE_NAME, ATTR1_TYPE, ATTR1,	 \
-						 ATTR2_TYPE, ATTR2)								 \
+			 ATTR2_TYPE, ATTR2)		 \
 int FN_NAME(const ttls_asn1_buf *oid, ATTR1_TYPE * ATTR1, ATTR2_TYPE * ATTR2)  \
-{																		   \
+{						   \
 	const TYPE_T *data = oid_ ## TYPE_NAME ## _from_asn1(oid);			\
 	if (data == NULL) return(TTLS_ERR_OID_NOT_FOUND);				\
-	*ATTR1 = data->ATTR1;												   \
-	*ATTR2 = data->ATTR2;												   \
-	return 0;															\
+	*ATTR1 = data->ATTR1;			   \
+	*ATTR2 = data->ATTR2;			   \
+	return 0;			\
 }
 
 /*
@@ -101,17 +101,17 @@ int FN_NAME(const ttls_asn1_buf *oid, ATTR1_TYPE * ATTR1, ATTR2_TYPE * ATTR2)  \
  */
 #define FN_OID_GET_OID_BY_ATTR1(FN_NAME, TYPE_T, LIST, ATTR1_TYPE, ATTR1)   \
 int FN_NAME(ATTR1_TYPE ATTR1, const char **oid, size_t *olen)			 \
-{																		   \
-	const TYPE_T *cur = LIST;											   \
-	while (cur->descriptor.asn1 != NULL) {								 \
-		if (cur->ATTR1 == ATTR1) {										 \
-			*oid = cur->descriptor.asn1;									\
-			*olen = cur->descriptor.asn1_len;							   \
-			return 0;													\
-		}																   \
-		cur++;															  \
-	}																	   \
-	return(TTLS_ERR_OID_NOT_FOUND);								   \
+{						   \
+	const TYPE_T *cur = LIST;		   \
+	while (cur->descriptor.asn1 != NULL) {		 \
+		if (cur->ATTR1 == ATTR1) {				 \
+			*oid = cur->descriptor.asn1;			\
+			*olen = cur->descriptor.asn1_len;				   \
+			return 0;				\
+		}				   \
+		cur++;			  \
+	}					   \
+	return(TTLS_ERR_OID_NOT_FOUND);		   \
 }
 
 /*
@@ -119,20 +119,20 @@ int FN_NAME(ATTR1_TYPE ATTR1, const char **oid, size_t *olen)			 \
  * attributes from a ttls_oid_descriptor_t wrapper.
  */
 #define FN_OID_GET_OID_BY_ATTR2(FN_NAME, TYPE_T, LIST, ATTR1_TYPE, ATTR1,   \
-								ATTR2_TYPE, ATTR2)						  \
+		ATTR2_TYPE, ATTR2)			  \
 int FN_NAME(ATTR1_TYPE ATTR1, ATTR2_TYPE ATTR2, const char **oid ,		 \
-			 size_t *olen)												 \
-{																		   \
-	const TYPE_T *cur = LIST;											   \
-	while (cur->descriptor.asn1 != NULL) {								 \
+			 size_t *olen)			 \
+{						   \
+	const TYPE_T *cur = LIST;		   \
+	while (cur->descriptor.asn1 != NULL) {		 \
 		if (cur->ATTR1 == ATTR1 && cur->ATTR2 == ATTR2) {				  \
-			*oid = cur->descriptor.asn1;									\
-			*olen = cur->descriptor.asn1_len;							   \
-			return 0;													\
-		}																   \
-		cur++;															  \
-	}																	   \
-	return(TTLS_ERR_OID_NOT_FOUND);								   \
+			*oid = cur->descriptor.asn1;			\
+			*olen = cur->descriptor.asn1_len;				   \
+			return 0;				\
+		}				   \
+		cur++;			  \
+	}					   \
+	return(TTLS_ERR_OID_NOT_FOUND);		   \
 }
 
 /*
@@ -158,7 +158,7 @@ static const oid_x520_attr_t oid_x520_attr_type[] =
 		"L",
 	},
 	{
-		{ ADD_LEN(TTLS_OID_AT_STATE),	   "id-at-state",					"State" },
+		{ ADD_LEN(TTLS_OID_AT_STATE),	   "id-at-state",		"State" },
 		"ST",
 	},
 	{
@@ -202,7 +202,7 @@ static const oid_x520_attr_t oid_x520_attr_type[] =
 		"generationQualifier",
 	},
 	{
-		{ ADD_LEN(TTLS_OID_AT_TITLE),	   "id-at-title",					"Title" },
+		{ ADD_LEN(TTLS_OID_AT_TITLE),	   "id-at-title",		"Title" },
 		"title",
 	},
 	{
@@ -583,18 +583,18 @@ FN_OID_TYPED_FROM_ASN1(oid_pkcs12_pbe_alg_t, pkcs12_pbe_alg, oid_pkcs12_pbe_alg)
 FN_OID_GET_ATTR2(ttls_oid_get_pkcs12_pbe_alg, oid_pkcs12_pbe_alg_t, pkcs12_pbe_alg, ttls_md_type_t, md_alg, ttls_cipher_type_t, cipher_alg)
 #endif /* TTLS_PKCS12_C */
 
-#define OID_SAFE_SNPRINTF							   \
-	do {												\
+#define OID_SAFE_SNPRINTF				   \
+	do {			\
 		if (ret < 0 || (size_t) ret >= n)			  \
 			return(TTLS_ERR_OID_BUF_TOO_SMALL);	\
-														\
-		n -= (size_t) ret;							  \
-		p += (size_t) ret;							  \
+					\
+		n -= (size_t) ret;				  \
+		p += (size_t) ret;				  \
 	} while (0)
 
 /* Return the x.y.z.... style numeric string for the given OID */
 int ttls_oid_get_numeric_string(char *buf, size_t size,
-							const ttls_asn1_buf *oid)
+				const ttls_asn1_buf *oid)
 {
 	int ret;
 	size_t i, n;

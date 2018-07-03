@@ -32,13 +32,13 @@
 /*
  * ECP error codes
  */
-#define TTLS_ERR_ECP_BAD_INPUT_DATA					-0x4F80  /**< Bad input parameters to function. */
+#define TTLS_ERR_ECP_BAD_INPUT_DATA		-0x4F80  /**< Bad input parameters to function. */
 #define TTLS_ERR_ECP_BUFFER_TOO_SMALL				  -0x4F00  /**< The buffer is too small to write to. */
 #define TTLS_ERR_ECP_FEATURE_UNAVAILABLE			   -0x4E80  /**< Requested curve not available. */
-#define TTLS_ERR_ECP_VERIFY_FAILED					 -0x4E00  /**< The signature is not valid. */
-#define TTLS_ERR_ECP_ALLOC_FAILED					  -0x4D80  /**< Memory allocation failed. */
-#define TTLS_ERR_ECP_RANDOM_FAILED					 -0x4D00  /**< Generation of random value, such as (ephemeral) key, failed. */
-#define TTLS_ERR_ECP_INVALID_KEY					   -0x4C80  /**< Invalid private or public key. */
+#define TTLS_ERR_ECP_VERIFY_FAILED		 -0x4E00  /**< The signature is not valid. */
+#define TTLS_ERR_ECP_ALLOC_FAILED		  -0x4D80  /**< Memory allocation failed. */
+#define TTLS_ERR_ECP_RANDOM_FAILED		 -0x4D00  /**< Generation of random value, such as (ephemeral) key, failed. */
+#define TTLS_ERR_ECP_INVALID_KEY		   -0x4C80  /**< Invalid private or public key. */
 #define TTLS_ERR_ECP_SIG_LEN_MISMATCH				  -0x4C00  /**< Signature is valid but shorter than the user-supplied length. */
 #define TTLS_ERR_ECP_HW_ACCEL_FAILED				   -0x4B80  /**< ECP hardware accelerator failed. */
 
@@ -85,14 +85,19 @@ typedef enum
 #define TTLS_ECP_DP_MAX	 12
 
 /**
- * Curve information for use by other modules
+ * Curve information for use by other modules.
+ *
+ * @grp_id		- nternal identifier;
+ * @tls_id		- TLS NamedCurve identifier;
+ * @bit_size		- urve size in bits;
+ * @name		- uman-friendly name;
  */
 typedef struct
 {
-	ttls_ecp_group_id grp_id;	/*!< Internal identifier		*/
-	uint16_t tls_id;				/*!< TLS NamedCurve identifier  */
-	uint16_t bit_size;			  /*!< Curve size in bits		 */
-	const char *name;			   /*!< Human-friendly name		*/
+	ttls_ecp_group_id	grp_id;
+	uint16_t		tls_id;
+	uint16_t		bit_size;
+	const char		*name;
 } ttls_ecp_curve_info;
 
 /**
@@ -138,19 +143,19 @@ ttls_ecp_point;
  */
 typedef struct
 {
-	ttls_ecp_group_id id;	/*!<  internal group identifier					 */
+	ttls_ecp_group_id id;	/*!<  internal group identifier		 */
 	ttls_mpi P;			  /*!<  prime modulus of the base field			   */
 	ttls_mpi A;			  /*!<  1. A in the equation, or 2. (A + 2) / 4	   */
 	ttls_mpi B;			  /*!<  1. B in the equation, or 2. unused			*/
 	ttls_ecp_point G;		/*!<  generator of the (sub)group used			  */
 	ttls_mpi N;			  /*!<  1. the order of G, or 2. unused			   */
-	size_t pbits;	   /*!<  number of bits in P						   */
+	size_t pbits;	   /*!<  number of bits in P			   */
 	size_t nbits;	   /*!<  number of bits in 1. P, or 2. private keys	*/
 	unsigned int h;	 /*!<  internal: 1 if the constants are static	   */
 	int (*modp)(ttls_mpi *); /*!<  function for fast reduction mod P			 */
-	int (*t_pre)(ttls_ecp_point *, void *);  /*!< unused						 */
-	int (*t_post)(ttls_ecp_point *, void *); /*!< unused						 */
-	void *t_data;					   /*!< unused						 */
+	int (*t_pre)(ttls_ecp_point *, void *);  /*!< unused			 */
+	int (*t_post)(ttls_ecp_point *, void *); /*!< unused			 */
+	void *t_data;		   /*!< unused			 */
 	ttls_ecp_point *T;	   /*!<  pre-computed points for ecp_mul_comb()		*/
 	size_t T_size;	  /*!<  number for pre-computed points				*/
 }
@@ -369,7 +374,7 @@ int ttls_ecp_is_zero(ttls_ecp_point *pt);
  *				  TTLS_ERR_ECP_BAD_INPUT_DATA otherwise
  */
 int ttls_ecp_point_cmp(const ttls_ecp_point *P,
-						   const ttls_ecp_point *Q);
+			   const ttls_ecp_point *Q);
 
 /**
  * \brief		   Import a non-zero point from two ASCII strings
@@ -382,7 +387,7 @@ int ttls_ecp_point_cmp(const ttls_ecp_point *P,
  * \return		  0 if successful, or a TTLS_ERR_MPI_XXX error code
  */
 int ttls_ecp_point_read_string(ttls_ecp_point *P, int radix,
-						   const char *x, const char *y);
+			   const char *x, const char *y);
 
 /**
  * \brief		   Export a point into unsigned binary data
@@ -399,8 +404,8 @@ int ttls_ecp_point_read_string(ttls_ecp_point *P, int radix,
  *				  or TTLS_ERR_ECP_BUFFER_TOO_SMALL
  */
 int ttls_ecp_point_write_binary(const ttls_ecp_group *grp, const ttls_ecp_point *P,
-							int format, size_t *olen,
-							unsigned char *buf, size_t buflen);
+				int format, size_t *olen,
+				unsigned char *buf, size_t buflen);
 
 /**
  * \brief		   Import a point from unsigned binary data
@@ -421,7 +426,7 @@ int ttls_ecp_point_write_binary(const ttls_ecp_group *grp, const ttls_ecp_point 
  *				  that.
  */
 int ttls_ecp_point_read_binary(const ttls_ecp_group *grp, ttls_ecp_point *P,
-						   const unsigned char *buf, size_t ilen);
+			   const unsigned char *buf, size_t ilen);
 
 /**
  * \brief		   Import a point from a TLS ECPoint record
@@ -438,7 +443,7 @@ int ttls_ecp_point_read_binary(const ttls_ecp_group *grp, ttls_ecp_point *P,
  *				  TTLS_ERR_ECP_BAD_INPUT_DATA if input is invalid
  */
 int ttls_ecp_tls_read_point(const ttls_ecp_group *grp, ttls_ecp_point *pt,
-						const unsigned char **buf, size_t len);
+			const unsigned char **buf, size_t len);
 
 /**
  * \brief		   Export a point as a TLS ECPoint record
@@ -455,8 +460,8 @@ int ttls_ecp_tls_read_point(const ttls_ecp_group *grp, ttls_ecp_point *pt,
  *				  or TTLS_ERR_ECP_BUFFER_TOO_SMALL
  */
 int ttls_ecp_tls_write_point(const ttls_ecp_group *grp, const ttls_ecp_point *pt,
-						 int format, size_t *olen,
-						 unsigned char *buf, size_t blen);
+			 int format, size_t *olen,
+			 unsigned char *buf, size_t blen);
 
 /**
  * \brief		   Set a group using well-known domain parameters
@@ -500,7 +505,7 @@ int ttls_ecp_tls_read_group(ttls_ecp_group *grp, const unsigned char **buf, size
  *				  or TTLS_ERR_ECP_BUFFER_TOO_SMALL
  */
 int ttls_ecp_tls_write_group(const ttls_ecp_group *grp, size_t *olen,
-						 unsigned char *buf, size_t blen);
+			 unsigned char *buf, size_t blen);
 
 /**
  * \brief		   Multiplication by an integer: R = m * P
@@ -612,10 +617,10 @@ int ttls_ecp_check_privkey(const ttls_ecp_group *grp, const ttls_mpi *d);
  *				  ttls_ecdh_context of ttls_ecdsa_context.
  */
 int ttls_ecp_gen_keypair_base(ttls_ecp_group *grp,
-					 const ttls_ecp_point *G,
-					 ttls_mpi *d, ttls_ecp_point *Q,
-					 int (*f_rng)(void *, unsigned char *, size_t),
-					 void *p_rng);
+		 const ttls_ecp_point *G,
+		 ttls_mpi *d, ttls_ecp_point *Q,
+		 int (*f_rng)(void *, unsigned char *, size_t),
+		 void *p_rng);
 
 /**
  * \brief		   Generate a keypair
@@ -634,8 +639,8 @@ int ttls_ecp_gen_keypair_base(ttls_ecp_group *grp,
  *				  ttls_ecdh_context of ttls_ecdsa_context.
  */
 int ttls_ecp_gen_keypair(ttls_ecp_group *grp, ttls_mpi *d, ttls_ecp_point *Q,
-					 int (*f_rng)(void *, unsigned char *, size_t),
-					 void *p_rng);
+		 int (*f_rng)(void *, unsigned char *, size_t),
+		 void *p_rng);
 
 /**
  * \brief		   Generate a keypair

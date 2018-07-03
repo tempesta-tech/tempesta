@@ -42,8 +42,8 @@ static void ttls_zeroize(void *v, size_t n) {
  * 32-bit integer manipulation macros (little endian)
  */
 #ifndef GET_UINT32_LE
-#define GET_UINT32_LE(n,b,i)							\
-{													   \
+#define GET_UINT32_LE(n,b,i)				\
+{				   \
 	(n) = ((uint32_t) (b)[(i)	]	  )			 \
 		| ((uint32_t) (b)[(i) + 1] <<  8)			 \
 		| ((uint32_t) (b)[(i) + 2] << 16)			 \
@@ -52,8 +52,8 @@ static void ttls_zeroize(void *v, size_t n) {
 #endif
 
 #ifndef PUT_UINT32_LE
-#define PUT_UINT32_LE(n,b,i)									\
-{															   \
+#define PUT_UINT32_LE(n,b,i)			\
+{			   \
 	(b)[(i)	] = (unsigned char) (((n)	  ) & 0xFF);	\
 	(b)[(i) + 1] = (unsigned char) (((n) >>  8) & 0xFF);	\
 	(b)[(i) + 2] = (unsigned char) (((n) >> 16) & 0xFF);	\
@@ -343,7 +343,7 @@ void ttls_aes_free(ttls_aes_context *ctx)
  */
 #if !defined(TTLS_AES_SETKEY_ENC_ALT)
 int ttls_aes_setkey_enc(ttls_aes_context *ctx, const unsigned char *key,
-					unsigned int keybits)
+		unsigned int keybits)
 {
 	unsigned int i;
 	uint32_t *RK;
@@ -438,7 +438,7 @@ int ttls_aes_setkey_enc(ttls_aes_context *ctx, const unsigned char *key,
  */
 #if !defined(TTLS_AES_SETKEY_DEC_ALT)
 int ttls_aes_setkey_dec(ttls_aes_context *ctx, const unsigned char *key,
-					unsigned int keybits)
+		unsigned int keybits)
 {
 	int i, j, ret;
 	ttls_aes_context cty;
@@ -458,7 +458,7 @@ int ttls_aes_setkey_dec(ttls_aes_context *ctx, const unsigned char *key,
 	if (ttls_aesni_has_support(TTLS_AESNI_AES))
 	{
 		ttls_aesni_inverse_key((unsigned char *) ctx->rk,
-						   (const unsigned char *) cty.rk, ctx->nr);
+			   (const unsigned char *) cty.rk, ctx->nr);
 		goto exit;
 	}
 
@@ -474,9 +474,9 @@ int ttls_aes_setkey_dec(ttls_aes_context *ctx, const unsigned char *key,
 		for (j = 0; j < 4; j++, SK++)
 		{
 			*RK++ = RT0[ FSb[ (*SK	  ) & 0xFF ] ] ^
-					RT1[ FSb[ (*SK >>  8) & 0xFF ] ] ^
-					RT2[ FSb[ (*SK >> 16) & 0xFF ] ] ^
-					RT3[ FSb[ (*SK >> 24) & 0xFF ] ];
+		RT1[ FSb[ (*SK >>  8) & 0xFF ] ] ^
+		RT2[ FSb[ (*SK >> 16) & 0xFF ] ] ^
+		RT3[ FSb[ (*SK >> 24) & 0xFF ] ];
 		}
 	}
 
@@ -493,22 +493,22 @@ exit:
 #endif /* !TTLS_AES_SETKEY_DEC_ALT */
 
 #define AES_FROUND(X0,X1,X2,X3,Y0,Y1,Y2,Y3)	 \
-{											   \
+{		   \
 	X0 = *RK++ ^ FT0[ (Y0	  ) & 0xFF ] ^   \
 				 FT1[ (Y1 >>  8) & 0xFF ] ^   \
 				 FT2[ (Y2 >> 16) & 0xFF ] ^   \
 				 FT3[ (Y3 >> 24) & 0xFF ];	\
-												\
+			\
 	X1 = *RK++ ^ FT0[ (Y1	  ) & 0xFF ] ^   \
 				 FT1[ (Y2 >>  8) & 0xFF ] ^   \
 				 FT2[ (Y3 >> 16) & 0xFF ] ^   \
 				 FT3[ (Y0 >> 24) & 0xFF ];	\
-												\
+			\
 	X2 = *RK++ ^ FT0[ (Y2	  ) & 0xFF ] ^   \
 				 FT1[ (Y3 >>  8) & 0xFF ] ^   \
 				 FT2[ (Y0 >> 16) & 0xFF ] ^   \
 				 FT3[ (Y1 >> 24) & 0xFF ];	\
-												\
+			\
 	X3 = *RK++ ^ FT0[ (Y3	  ) & 0xFF ] ^   \
 				 FT1[ (Y0 >>  8) & 0xFF ] ^   \
 				 FT2[ (Y1 >> 16) & 0xFF ] ^   \
@@ -516,22 +516,22 @@ exit:
 }
 
 #define AES_RROUND(X0,X1,X2,X3,Y0,Y1,Y2,Y3)	 \
-{											   \
+{		   \
 	X0 = *RK++ ^ RT0[ (Y0	  ) & 0xFF ] ^   \
 				 RT1[ (Y3 >>  8) & 0xFF ] ^   \
 				 RT2[ (Y2 >> 16) & 0xFF ] ^   \
 				 RT3[ (Y1 >> 24) & 0xFF ];	\
-												\
+			\
 	X1 = *RK++ ^ RT0[ (Y1	  ) & 0xFF ] ^   \
 				 RT1[ (Y0 >>  8) & 0xFF ] ^   \
 				 RT2[ (Y3 >> 16) & 0xFF ] ^   \
 				 RT3[ (Y2 >> 24) & 0xFF ];	\
-												\
+			\
 	X2 = *RK++ ^ RT0[ (Y2	  ) & 0xFF ] ^   \
 				 RT1[ (Y1 >>  8) & 0xFF ] ^   \
 				 RT2[ (Y0 >> 16) & 0xFF ] ^   \
 				 RT3[ (Y3 >> 24) & 0xFF ];	\
-												\
+			\
 	X3 = *RK++ ^ RT0[ (Y3	  ) & 0xFF ] ^   \
 				 RT1[ (Y2 >>  8) & 0xFF ] ^   \
 				 RT2[ (Y1 >> 16) & 0xFF ] ^   \
@@ -543,8 +543,8 @@ exit:
  */
 #if !defined(TTLS_AES_ENCRYPT_ALT)
 int ttls_internal_aes_encrypt(ttls_aes_context *ctx,
-								  const unsigned char input[16],
-								  unsigned char output[16])
+		  const unsigned char input[16],
+		  unsigned char output[16])
 {
 	int i;
 	uint32_t *RK, X0, X1, X2, X3, Y0, Y1, Y2, Y3;
@@ -602,8 +602,8 @@ int ttls_internal_aes_encrypt(ttls_aes_context *ctx,
  */
 #if !defined(TTLS_AES_DECRYPT_ALT)
 int ttls_internal_aes_decrypt(ttls_aes_context *ctx,
-								  const unsigned char input[16],
-								  unsigned char output[16])
+		  const unsigned char input[16],
+		  unsigned char output[16])
 {
 	int i;
 	uint32_t *RK, X0, X1, X2, X3, Y0, Y1, Y2, Y3;
@@ -660,9 +660,9 @@ int ttls_internal_aes_decrypt(ttls_aes_context *ctx,
  * AES-ECB block encryption/decryption
  */
 int ttls_aes_crypt_ecb(ttls_aes_context *ctx,
-					int mode,
-					const unsigned char input[16],
-					unsigned char output[16])
+		int mode,
+		const unsigned char input[16],
+		unsigned char output[16])
 {
 	if (ttls_aesni_has_support(TTLS_AESNI_AES))
 		return(ttls_aesni_crypt_ecb(ctx, mode, input, output));
@@ -678,11 +678,11 @@ int ttls_aes_crypt_ecb(ttls_aes_context *ctx,
  * AES-CBC buffer encryption/decryption
  */
 int ttls_aes_crypt_cbc(ttls_aes_context *ctx,
-					int mode,
-					size_t length,
-					unsigned char iv[16],
-					const unsigned char *input,
-					unsigned char *output)
+		int mode,
+		size_t length,
+		unsigned char iv[16],
+		const unsigned char *input,
+		unsigned char *output)
 {
 	int i;
 	unsigned char temp[16];
@@ -732,12 +732,12 @@ int ttls_aes_crypt_cbc(ttls_aes_context *ctx,
  * AES-CFB128 buffer encryption/decryption
  */
 int ttls_aes_crypt_cfb128(ttls_aes_context *ctx,
-					   int mode,
-					   size_t length,
-					   size_t *iv_off,
-					   unsigned char iv[16],
-					   const unsigned char *input,
-					   unsigned char *output)
+		   int mode,
+		   size_t length,
+		   size_t *iv_off,
+		   unsigned char iv[16],
+		   const unsigned char *input,
+		   unsigned char *output)
 {
 	int c;
 	size_t n = *iv_off;
@@ -778,11 +778,11 @@ int ttls_aes_crypt_cfb128(ttls_aes_context *ctx,
  * AES-CFB8 buffer encryption/decryption
  */
 int ttls_aes_crypt_cfb8(ttls_aes_context *ctx,
-					   int mode,
-					   size_t length,
-					   unsigned char iv[16],
-					   const unsigned char *input,
-					   unsigned char *output)
+		   int mode,
+		   size_t length,
+		   unsigned char iv[16],
+		   const unsigned char *input,
+		   unsigned char *output)
 {
 	unsigned char c;
 	unsigned char ov[17];
@@ -812,12 +812,12 @@ int ttls_aes_crypt_cfb8(ttls_aes_context *ctx,
  * AES-CTR buffer encryption/decryption
  */
 int ttls_aes_crypt_ctr(ttls_aes_context *ctx,
-					   size_t length,
-					   size_t *nc_off,
-					   unsigned char nonce_counter[16],
-					   unsigned char stream_block[16],
-					   const unsigned char *input,
-					   unsigned char *output)
+		   size_t length,
+		   size_t *nc_off,
+		   unsigned char nonce_counter[16],
+		   unsigned char stream_block[16],
+		   const unsigned char *input,
+		   unsigned char *output)
 {
 	int c, i;
 	size_t n = *nc_off;
@@ -829,7 +829,7 @@ int ttls_aes_crypt_ctr(ttls_aes_context *ctx,
 
 			for (i = 16; i > 0; i--)
 				if (++nonce_counter[i - 1] != 0)
-					break;
+		break;
 		}
 		c = *input++;
 		*output++ = (unsigned char)(c ^ stream_block[n]);
@@ -1061,7 +1061,7 @@ int ttls_aes_self_test(int verbose)
 
 		if (verbose != 0)
 			ttls_printf("  AES-ECB-%3d (%s): ", keybits,
-							(mode == TTLS_AES_DECRYPT) ? "dec" : "enc");
+				(mode == TTLS_AES_DECRYPT) ? "dec" : "enc");
 
 		memset(buf, 0, 16);
 
@@ -1123,7 +1123,7 @@ int ttls_aes_self_test(int verbose)
 
 		if (verbose != 0)
 			ttls_printf("  AES-CBC-%3d (%s): ", keybits,
-							(mode == TTLS_AES_DECRYPT) ? "dec" : "enc");
+				(mode == TTLS_AES_DECRYPT) ? "dec" : "enc");
 
 		memset(iv , 0, 16);
 		memset(prv, 0, 16);
@@ -1198,7 +1198,7 @@ int ttls_aes_self_test(int verbose)
 
 		if (verbose != 0)
 			ttls_printf("  AES-CFB128-%3d (%s): ", keybits,
-							(mode == TTLS_AES_DECRYPT) ? "dec" : "enc");
+				(mode == TTLS_AES_DECRYPT) ? "dec" : "enc");
 
 		memcpy(iv,  aes_test_cfb128_iv, 16);
 		memcpy(key, aes_test_cfb128_key[u], keybits / 8);
@@ -1260,7 +1260,7 @@ int ttls_aes_self_test(int verbose)
 
 		if (verbose != 0)
 			ttls_printf("  AES-CTR-128 (%s): ",
-							(mode == TTLS_AES_DECRYPT) ? "dec" : "enc");
+				(mode == TTLS_AES_DECRYPT) ? "dec" : "enc");
 
 		memcpy(nonce_counter, aes_test_ctr_nonce_counter[u], 16);
 		memcpy(key, aes_test_ctr_key[u], 16);
@@ -1283,7 +1283,7 @@ int ttls_aes_self_test(int verbose)
 		}
 
 		ret = ttls_aes_crypt_ctr(&ctx, len, &offset, nonce_counter,
-									 stream_block, buf, buf);
+			 stream_block, buf, buf);
 		if (ret != 0)
 			goto exit;
 
