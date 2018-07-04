@@ -27,9 +27,7 @@
 #include "oid.h"
 #include "rsa.h"
 #include "ecp.h"
-#if defined(TTLS_ECDSA_C)
 #include "ecdsa.h"
-#endif
 #if defined(TTLS_PEM_PARSE_C)
 #include "pem.h"
 #endif

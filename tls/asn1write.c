@@ -22,8 +22,6 @@
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 #include "config.h"
-#if defined(TTLS_ASN1_WRITE_C)
-
 #include "asn1write.h"
 
 int ttls_asn1_write_len(unsigned char **p, unsigned char *start, size_t len)
@@ -372,4 +370,3 @@ ttls_asn1_named_data *ttls_asn1_store_named_data(ttls_asn1_named_data **head,
 
 	return(cur);
 }
-#endif /* TTLS_ASN1_WRITE_C */
