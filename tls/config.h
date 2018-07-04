@@ -338,16 +338,6 @@
 #define TTLS_DEBUG_ALL
 
 /**
- * \def TTLS_EXPORT_KEYS
- *
- * Enable support for exporting key block and master secret.
- * This is required for certain users of TLS, e.g. EAP-TLS.
- *
- * Comment this macro to disable support for key export
- */
-#define TTLS_EXPORT_KEYS
-
-/**
  * \def TTLS_X509_ALLOW_EXTENSIONS_NON_V3
  *
  * If set, the X509 parser will not break-off when parsing an X509 certificate
@@ -405,20 +395,6 @@
  * Comment this macro to disallow using RSASSA-PSS in certificates.
  */
 #define TTLS_X509_RSASSA_PSS_SUPPORT
-
-/**
- * \def TTLS_ASN1_WRITE_C
- *
- * Enable the generic ASN1 writer.
- *
- * Module:  library/asn1write.c
- * Caller:  library/ecdsa.c
- *		  library/pkwrite.c
- *		  library/x509_create.c
- *		  library/x509write_crt.c
- *		  library/x509write_csr.c
- */
-#define TTLS_ASN1_WRITE_C
 
 /**
  * \def TTLS_BASE64_C
@@ -550,35 +526,6 @@
  *
  */
 #define TTLS_DHM_C
-
-/**
- * \def TTLS_ECDH_C
- *
- * Enable the elliptic curve Diffie-Hellman library.
- *
- * Module:  library/ecdh.c
- * Caller:  library/ssl_cli.c
- *		  library/ssl_srv.c
- *
- * This module is used by the following key exchanges:
- *	  ECDHE-ECDSA, ECDHE-RSA, DHE-PSK
- */
-#define TTLS_ECDH_C
-
-/**
- * \def TTLS_ECDSA_C
- *
- * Enable the elliptic curve DSA library.
- *
- * Module:  library/ecdsa.c
- * Caller:
- *
- * This module is used by the following key exchanges:
- *	  ECDHE-ECDSA
- *
- * Requires: TTLS_ASN1_WRITE_C
- */
-#define TTLS_ECDSA_C
 
 /**
  * \def TTLS_ENTROPY_C
@@ -962,10 +909,6 @@
 
 /* CHECK CONFIG. */
 
-#if defined(TTLS_ECDSA_C) &&	(!defined(TTLS_ASN1_WRITE_C))
-#error "TTLS_ECDSA_C defined, but not all prerequisites"
-#endif
-
 #if defined(TTLS_ENTROPY_C) && (!defined(TTLS_SHA512_C) && !defined(TTLS_SHA256_C))
 #error "TTLS_ENTROPY_C defined, but not all prerequisites"
 #endif
@@ -1023,8 +966,7 @@
 #error "TTLS_PEM_WRITE_C defined, but not all prerequisites"
 #endif
 
-#if defined(TTLS_X509_CREATE_C) && (!defined(TTLS_ASN1_WRITE_C) ||	   \
-	!defined(TTLS_PK_WRITE_C))
+#if defined(TTLS_X509_CREATE_C) && (!defined(TTLS_PK_WRITE_C))
 #error "TTLS_X509_CREATE_C defined, but not all prerequisites"
 #endif
 

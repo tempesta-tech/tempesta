@@ -294,7 +294,6 @@ typedef struct {
 
 static const oid_sig_alg_t oid_sig_alg[] =
 {
-#if defined(TTLS_SHA256_C)
 	{
 		{ ADD_LEN(TTLS_OID_PKCS1_SHA224),	 "sha224WithRSAEncryption",  "RSA with SHA-224" },
 		TTLS_MD_SHA224,   TTLS_PK_RSA,
@@ -303,8 +302,6 @@ static const oid_sig_alg_t oid_sig_alg[] =
 		{ ADD_LEN(TTLS_OID_PKCS1_SHA256),	 "sha256WithRSAEncryption",  "RSA with SHA-256" },
 		TTLS_MD_SHA256,   TTLS_PK_RSA,
 	},
-#endif /* TTLS_SHA256_C */
-#if defined(TTLS_SHA512_C)
 	{
 		{ ADD_LEN(TTLS_OID_PKCS1_SHA384),	 "sha384WithRSAEncryption",  "RSA with SHA-384" },
 		TTLS_MD_SHA384,   TTLS_PK_RSA,
@@ -313,9 +310,6 @@ static const oid_sig_alg_t oid_sig_alg[] =
 		{ ADD_LEN(TTLS_OID_PKCS1_SHA512),	 "sha512WithRSAEncryption",  "RSA with SHA-512" },
 		TTLS_MD_SHA512,   TTLS_PK_RSA,
 	},
-#endif /* TTLS_SHA512_C */
-#if defined(TTLS_ECDSA_C)
-#if defined(TTLS_SHA256_C)
 	{
 		{ ADD_LEN(TTLS_OID_ECDSA_SHA224),	 "ecdsa-with-SHA224",	"ECDSA with SHA224" },
 		TTLS_MD_SHA224,   TTLS_PK_ECDSA,
@@ -324,8 +318,6 @@ static const oid_sig_alg_t oid_sig_alg[] =
 		{ ADD_LEN(TTLS_OID_ECDSA_SHA256),	 "ecdsa-with-SHA256",	"ECDSA with SHA256" },
 		TTLS_MD_SHA256,   TTLS_PK_ECDSA,
 	},
-#endif /* TTLS_SHA256_C */
-#if defined(TTLS_SHA512_C)
 	{
 		{ ADD_LEN(TTLS_OID_ECDSA_SHA384),	 "ecdsa-with-SHA384",	"ECDSA with SHA384" },
 		TTLS_MD_SHA384,   TTLS_PK_ECDSA,
@@ -334,8 +326,6 @@ static const oid_sig_alg_t oid_sig_alg[] =
 		{ ADD_LEN(TTLS_OID_ECDSA_SHA512),	 "ecdsa-with-SHA512",	"ECDSA with SHA512" },
 		TTLS_MD_SHA512,   TTLS_PK_ECDSA,
 	},
-#endif /* TTLS_SHA512_C */
-#endif /* TTLS_ECDSA_C */
 	{
 		{ ADD_LEN(TTLS_OID_RSASSA_PSS),		"RSASSA-PSS",		   "RSASSA-PSS" },
 		TTLS_MD_NONE,	 TTLS_PK_RSASSA_PSS,
