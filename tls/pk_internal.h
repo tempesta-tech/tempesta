@@ -96,10 +96,7 @@ extern const ttls_pk_info_t ttls_rsa_info;
 
 extern const ttls_pk_info_t ttls_eckey_info;
 extern const ttls_pk_info_t ttls_eckeydh_info;
-
-#if defined(TTLS_ECDSA_C)
 extern const ttls_pk_info_t ttls_ecdsa_info;
-#endif
 
 #if defined(TTLS_PK_RSA_ALT_SUPPORT)
 extern const ttls_pk_info_t ttls_rsa_alt_info;

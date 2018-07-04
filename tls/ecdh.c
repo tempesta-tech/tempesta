@@ -28,9 +28,6 @@
  * RFC 4492
  */
 #include "config.h"
-
-#if defined(TTLS_ECDH_C)
-
 #include "ecdh.h"
 
 #if !defined(TTLS_ECDH_GEN_PUBLIC_ALT)
@@ -255,5 +252,3 @@ ttls_ecdh_calc_secret(ttls_ecdh_context *ctx, size_t *olen, unsigned char *buf,
 
 	return ttls_mpi_write_binary(&ctx->z, buf, *olen);
 }
-
-#endif /* TTLS_ECDH_C */

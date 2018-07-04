@@ -38,9 +38,7 @@
 #if defined(TTLS_DHM_C)
 #include "dhm.h"
 #endif
-#if defined(TTLS_ECDH_C)
 #include "ecdh.h"
-#endif
 
 /*
  * SSL Error codes
@@ -386,13 +384,6 @@ struct ttls_config
 	/** Callback to parse a session ticket into a session structure	*/
 	int (*f_ticket_parse)(void *, TtlsSess *, unsigned char *, size_t);
 	void *p_ticket;	/*!< context for the ticket callbacks */
-
-#if defined(TTLS_EXPORT_KEYS)
-	/** Callback to export key block and master secret	*/
-	int (*f_export_keys)(void *, const unsigned char *,
-	const unsigned char *, size_t, size_t, size_t);
-	void *p_export_keys;	/*!< context for key export callback	*/
-#endif
 
 	const ttls_x509_crt_profile *cert_profile; /*!< verification profile */
 	ttls_key_cert *key_cert; /*!< own certificate/key pair(s)	*/
@@ -822,35 +813,6 @@ typedef int ttls_ticket_write_t(void *p_ticket,
 	size_t *tlen,
 	uint32_t *lifetime);
 
-#if defined(TTLS_EXPORT_KEYS)
-/**
- * \brief	Callback type: Export key block and master secret
- *
- * \note	This is required for certain uses of TLS, e.g. EAP-TLS
- *		(RFC 5216) and Thread. The key pointers are ephemeral and
- *		therefore must not be stored. The master secret and keys
- *		should not be used directly except as an input to a key
- *		derivation function.
- *
- * \param p_expkey Context for the callback
- * \param ms	Pointer to master secret (fixed length: 48 bytes)
- * \param kb	Pointer to key block, see RFC 5246 section 6.3
- *		(variable length: 2 * maclen + 2 * keylen + 2 * ivlen).
- * \param maclen	MAC length
- * \param keylen	Key length
- * \param ivlen	IV length
- *
- * \return	0 if successful, or
- *		a specific TTLS_ERR_XXX code.
- */
-typedef int ttls_export_keys_t(void *p_expkey,
-	const unsigned char *ms,
-	const unsigned char *kb,
-	size_t maclen,
-	size_t keylen,
-	size_t ivlen);
-#endif /* TTLS_EXPORT_KEYS */
-
 /**
  * \brief	Callback type: parse and load session ticket
  *
@@ -897,22 +859,6 @@ void ttls_conf_session_tickets_cb(ttls_config *conf,
 	ttls_ticket_write_t *f_ticket_write,
 	ttls_ticket_parse_t *f_ticket_parse,
 	void *p_ticket);
-
-#if defined(TTLS_EXPORT_KEYS)
-/**
- * \brief	Configure key export callback.
- *		(Default: none.)
- *
- * \note	See \c ttls_export_keys_t.
- *
- * \param conf	SSL configuration context
- * \param f_export_keys	Callback for exporting keys
- * \param p_export_keys	Context for the callback
- */
-void ttls_conf_export_keys_cb(ttls_config *conf,
-	ttls_export_keys_t *f_export_keys,
-	void *p_export_keys);
-#endif /* TTLS_EXPORT_KEYS */
 
 /**
  * \brief	Set the session cache callbacks (server-side only)

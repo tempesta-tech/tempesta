@@ -315,24 +315,14 @@ ttls_derive_keys(TlsCtx *tls) // TODO AK cipher suites
 	/*
 	 * Set appropriate PRF function and other TLS1.2 functions
 	 */
-	if (tls->minor == TTLS_MINOR_VERSION_3 &&
-		transform->ciphersuite_info->mac == TTLS_MD_SHA384)
-	{
+	if (transform->ciphersuite_info->mac == TTLS_MD_SHA384) {
 		hs->tls_prf = tls_prf_sha384;
 		hs->calc_verify = ssl_calc_verify_tls_sha384;
 		hs->calc_finished = ssl_calc_finished_tls_sha384;
-	}
-	else
-	if (tls->minor == TTLS_MINOR_VERSION_3)
-	{
+	} else {
 		hs->tls_prf = tls_prf_sha256;
 		hs->calc_verify = ssl_calc_verify_tls_sha256;
 		hs->calc_finished = ssl_calc_finished_tls_sha256;
-	}
-	else
-	{
-		TTLS_DEBUG_MSG(1, ("should never happen"));
-		return(TTLS_ERR_INTERNAL_ERROR);
 	}
 
 	/* master = PRF(premaster, "master secret", randbytes)[0..47] */
@@ -544,16 +534,6 @@ ttls_derive_keys(TlsCtx *tls) // TODO AK cipher suites
 		return(TTLS_ERR_INTERNAL_ERROR);
 	}
 
-#if defined(TTLS_EXPORT_KEYS)
-	if (tls->conf->f_export_keys != NULL)
-	{
-		tls->conf->f_export_keys(tls->conf->p_export_keys,
-				 session->master, keyblk,
-				 mac_key_len, transform->keylen,
-				 iv_copy_len);
-	}
-#endif
-
 	if ((r = ttls_cipher_setup(&transform->cipher_ctx_enc,
 		 cipher_info)) != 0)
 	{
@@ -591,7 +571,6 @@ ttls_derive_keys(TlsCtx *tls) // TODO AK cipher suites
 	return 0;
 }
 
-#if defined(TTLS_SHA256_C)
 void ssl_calc_verify_tls_sha256(ttls_context *tls, unsigned char hash[32])
 {
 	ttls_sha256_context sha256;
@@ -610,9 +589,7 @@ void ssl_calc_verify_tls_sha256(ttls_context *tls, unsigned char hash[32])
 
 	return;
 }
-#endif /* TTLS_SHA256_C */
 
-#if defined(TTLS_SHA512_C)
 void ssl_calc_verify_tls_sha384(ttls_context *tls, unsigned char hash[48])
 {
 	ttls_sha512_context sha512;
@@ -631,7 +608,6 @@ void ssl_calc_verify_tls_sha384(ttls_context *tls, unsigned char hash[48])
 
 	return;
 }
-#endif /* TTLS_SHA512_C */
 
 void
 ttls_read_version(TlsCtx *tls, const unsigned char ver[2])
@@ -1082,7 +1058,7 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 			    + ((io->hs_hdr[1] << 16) | (io->hs_hdr[2] << 8)
 				| io->hs_hdr[3]);
 		T_DBG("handshake message: msglen=%d type=%d hslen=%d\n",
-	      		io->msglen, io->hstype, io->hslen);
+		      io->msglen, io->hstype, io->hslen);
 		/* With TLS we don't handle fragmentation (for now) */
 		if (io->msglen < io->hslen) {
 			T_DBG("TLS handshake fragmentation not supported\n");
@@ -1799,23 +1775,17 @@ ssl_handshake_params_init(TlsHandshake *hs)
 {
 	bzero_fast(hs, sizeof(*hs));
 
-#if defined(TTLS_SHA256_C)
 	ttls_sha256_init(&hs->fin_sha256);
 	ttls_sha256_starts_ret(&hs->fin_sha256, 0);
-#endif
-#if defined(TTLS_SHA512_C)
 	ttls_sha512_init(&hs->fin_sha512);
 	ttls_sha512_starts_ret(&hs->fin_sha512, 1);
-#endif
 	hs->update_checksum = ssl_update_checksum_start;
 	ttls_sig_hash_set_init(&hs->hash_algs);
 
 #if defined(TTLS_DHM_C)
 	ttls_dhm_init(&hs->dhm_ctx);
 #endif
-#if defined(TTLS_ECDH_C)
 	ttls_ecdh_init(&hs->ecdh_ctx);
-#endif
 	hs->sni_authmode = TTLS_VERIFY_UNSET;
 }
 
@@ -2210,16 +2180,6 @@ void ttls_conf_session_tickets_cb(ttls_config *conf,
 	conf->p_ticket	 = p_ticket;
 }
 #endif /* TTLS_SESSION_TICKETS */
-
-#if defined(TTLS_EXPORT_KEYS)
-void ttls_conf_export_keys_cb(ttls_config *conf,
-		ttls_export_keys_t *f_export_keys,
-		void *p_export_keys)
-{
-	conf->f_export_keys = f_export_keys;
-	conf->p_export_keys = p_export_keys;
-}
-#endif
 
 /*
  * SSL get accessors
@@ -2756,10 +2716,8 @@ unsigned char ttls_sig_from_pk(ttls_pk_context *pk)
 {
 	if (ttls_pk_can_do(pk, TTLS_PK_RSA))
 		return(TTLS_SIG_RSA);
-#if defined(TTLS_ECDSA_C)
 	if (ttls_pk_can_do(pk, TTLS_PK_ECDSA))
 		return(TTLS_SIG_ECDSA);
-#endif
 	return(TTLS_SIG_ANON);
 }
 
@@ -2782,10 +2740,8 @@ ttls_pk_type_t ttls_pk_alg_from_sig(unsigned char sig)
 	{
 		case TTLS_SIG_RSA:
 			return(TTLS_PK_RSA);
-#if defined(TTLS_ECDSA_C)
 		case TTLS_SIG_ECDSA:
 			return(TTLS_PK_ECDSA);
-#endif
 		default:
 			return(TTLS_PK_NONE);
 	}
@@ -2915,7 +2871,7 @@ ttls_check_sig_hash(const TlsCtx *tls, ttls_md_type_t md)
 
 	return -1;
 }
-	
+
 /*
  * If there is no signature-algorithm extension present in ClientHello,
  * we need to fall back to the default values for allowed  signature-hash pairs.
