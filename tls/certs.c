@@ -26,7 +26,6 @@
 
 #if defined(TTLS_CERTS_C)
 
-#if defined(TTLS_ECDSA_C)
 #define TEST_CA_CRT_EC			  \
 "-----BEGIN CERTIFICATE-----\r\n"			   \
 "MIICUjCCAdegAwIBAgIJAMFD4n5iQ8zoMAoGCCqGSM49BAMCMD4xCzAJBgNVBAYT\r\n"  \
@@ -110,9 +109,7 @@ const char ttls_test_cli_key_ec[] =
 "wNUYFHDlf5/VS0UY5bBs1Vz4lo+HcKPkxw==\r\n"
 "-----END EC PRIVATE KEY-----\r\n";
 const size_t ttls_test_cli_key_ec_len = sizeof(ttls_test_cli_key_ec);
-#endif /* TTLS_ECDSA_C */
 
-#if defined(TTLS_SHA256_C)
 #define TEST_CA_CRT_RSA_SHA256				  \
 "-----BEGIN CERTIFICATE-----\r\n"			   \
 "MIIDhzCCAm+gAwIBAgIBADANBgkqhkiG9w0BAQsFADA7MQswCQYDVQQGEwJOTDER\r\n"  \
@@ -141,8 +138,6 @@ const size_t ttls_test_ca_crt_rsa_len = sizeof(ttls_test_ca_crt_rsa);
 #define TEST_CA_CRT_RSA_SOME
 
 static const char ttls_test_ca_crt_rsa_sha256[] = TEST_CA_CRT_RSA_SHA256;
-
-#endif
 
 #if !defined(TEST_CA_CRT_RSA_SOME)
 #define TEST_CA_CRT_RSA_SHA1		\
@@ -344,9 +339,7 @@ const char * ttls_test_cas[] = {
 #if defined(TEST_CA_CRT_RSA_SHA256)
 	ttls_test_ca_crt_rsa_sha256,
 #endif
-#if defined(TTLS_ECDSA_C)
 	ttls_test_ca_crt_ec,
-#endif
 	NULL
 };
 const size_t ttls_test_cas_len[] = {
@@ -356,9 +349,7 @@ const size_t ttls_test_cas_len[] = {
 #if defined(TEST_CA_CRT_RSA_SHA256)
 	sizeof(ttls_test_ca_crt_rsa_sha256),
 #endif
-#if defined(TTLS_ECDSA_C)
 	sizeof(ttls_test_ca_crt_ec),
-#endif
 	0
 };
 
