@@ -26,10 +26,7 @@
 /* Even if RSA not activated, for the sake of RSA-alt */
 #include "rsa.h"
 #include "ecp.h"
-
-#if defined(TTLS_ECDSA_C)
 #include "ecdsa.h"
-#endif
 
 #if defined(TTLS_PK_RSA_ALT_SUPPORT)
 /* Implementation that should never be optimized out by the compiler */
@@ -185,7 +182,6 @@ static size_t eckey_get_bitlen(const void *ctx)
 	return(((ttls_ecp_keypair *) ctx)->grp.pbits);
 }
 
-#if defined(TTLS_ECDSA_C)
 /* Forward declarations */
 static int ecdsa_verify_wrap(void *ctx, ttls_md_type_t md_alg,
 		   const unsigned char *hash, size_t hash_len,
@@ -232,8 +228,6 @@ static int eckey_sign_wrap(void *ctx, ttls_md_type_t md_alg,
 	return ret;
 }
 
-#endif /* TTLS_ECDSA_C */
-
 static int eckey_check_pair(const void *pub, const void *prv)
 {
 	return(ttls_ecp_check_pub_priv((const ttls_ecp_keypair *) pub,
@@ -268,13 +262,8 @@ const ttls_pk_info_t ttls_eckey_info = {
 	"EC",
 	eckey_get_bitlen,
 	eckey_can_do,
-#if defined(TTLS_ECDSA_C)
 	eckey_verify_wrap,
 	eckey_sign_wrap,
-#else
-	NULL,
-	NULL,
-#endif
 	NULL,
 	NULL,
 	eckey_check_pair,
@@ -307,7 +296,6 @@ const ttls_pk_info_t ttls_eckeydh_info = {
 	eckey_debug,			/* Same underlying key structure */
 };
 
-#if defined(TTLS_ECDSA_C)
 static int ecdsa_can_do(ttls_pk_type_t type)
 {
 	return(type == TTLS_PK_ECDSA);
@@ -368,7 +356,6 @@ const ttls_pk_info_t ttls_ecdsa_info = {
 	ecdsa_free_wrap,
 	eckey_debug,		/* Compatible key structures */
 };
-#endif /* TTLS_ECDSA_C */
 
 #if defined(TTLS_PK_RSA_ALT_SUPPORT)
 /*
