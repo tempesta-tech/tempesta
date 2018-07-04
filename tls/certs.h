@@ -56,7 +56,6 @@ extern const size_t ttls_test_cli_crt_len;
 extern const char * ttls_test_cli_key;
 extern const size_t ttls_test_cli_key_len;
 
-#if defined(TTLS_ECDSA_C)
 extern const char   ttls_test_ca_crt_ec[];
 extern const size_t ttls_test_ca_crt_ec_len;
 extern const char   ttls_test_ca_key_ec[];
@@ -71,7 +70,6 @@ extern const char   ttls_test_cli_crt_ec[];
 extern const size_t ttls_test_cli_crt_ec_len;
 extern const char   ttls_test_cli_key_ec[];
 extern const size_t ttls_test_cli_key_ec_len;
-#endif
 
 extern const char   ttls_test_ca_crt_rsa[];
 extern const size_t ttls_test_ca_crt_rsa_len;

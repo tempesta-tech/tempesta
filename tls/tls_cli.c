@@ -124,9 +124,7 @@ static void ssl_write_signature_algorithms_ext(ttls_context *ssl,
 
 	for (md = ssl->conf->sig_hashes; *md != TTLS_MD_NONE; md++)
 	{
-#if defined(TTLS_ECDSA_C)
 		sig_alg_len += 2;
-#endif
 		sig_alg_len += 2;
 	}
 
@@ -143,10 +141,8 @@ static void ssl_write_signature_algorithms_ext(ttls_context *ssl,
 
 	for (md = ssl->conf->sig_hashes; *md != TTLS_MD_NONE; md++)
 	{
-#if defined(TTLS_ECDSA_C)
 		sig_alg_list[sig_alg_len++] = ttls_hash_from_md_alg(*md);
 		sig_alg_list[sig_alg_len++] = TTLS_SIG_ECDSA;
-#endif
 		sig_alg_list[sig_alg_len++] = ttls_hash_from_md_alg(*md);
 		sig_alg_list[sig_alg_len++] = TTLS_SIG_RSA;
 	}
@@ -798,9 +794,7 @@ static int ssl_parse_supported_point_formats_ext(ttls_context *ssl,
 		if (p[0] == TTLS_ECP_PF_UNCOMPRESSED ||
 			p[0] == TTLS_ECP_PF_COMPRESSED)
 		{
-#if defined(TTLS_ECDH_C) || defined(TTLS_ECDSA_C)
 			ssl->handshake->ecdh_ctx.point_format = p[0];
-#endif
 			TTLS_DEBUG_MSG(4, ("point format selected: %d", p[0]));
 			return 0;
 		}

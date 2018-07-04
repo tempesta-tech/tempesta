@@ -26,9 +26,7 @@
 #include "pk_internal.h"
 #include "rsa.h"
 #include "ecp.h"
-#if defined(TTLS_ECDSA_C)
 #include "ecdsa.h"
-#endif
 
 /* Implementation that should never be optimized out by the compiler */
 static void ttls_zeroize(void *v, size_t n) {
@@ -72,10 +70,8 @@ const ttls_pk_info_t * ttls_pk_info_from_type(ttls_pk_type_t pk_type)
 			return(&ttls_eckey_info);
 		case TTLS_PK_ECKEY_DH:
 			return(&ttls_eckeydh_info);
-#if defined(TTLS_ECDSA_C)
 		case TTLS_PK_ECDSA:
 			return(&ttls_ecdsa_info);
-#endif
 		/* TTLS_PK_RSA_ALT omitted on purpose */
 		default:
 			return(NULL);

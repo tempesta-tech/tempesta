@@ -31,15 +31,7 @@
 #include "md.h"
 #include "rsa.h"
 #include "ecp.h"
-
-#if defined(TTLS_ECDSA_C)
 #include "ecdsa.h"
-#endif
-
-#if (defined(__ARMCC_VERSION) || defined(_MSC_VER)) && \
-	!defined(inline) && !defined(__cplusplus)
-#define inline __inline
-#endif
 
 #define TTLS_ERR_PK_ALLOC_FAILED		-0x3F80  /**< Memory allocation failed. */
 #define TTLS_ERR_PK_TYPE_MISMATCH	   -0x3F00  /**< Type mismatch, eg attempt to encrypt with an ECDSA key */

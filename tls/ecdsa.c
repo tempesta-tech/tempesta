@@ -28,9 +28,6 @@
  * SEC1 http://www.secg.org/index.php?action=secg,docs_secg
  */
 #include "config.h"
-
-#if defined(TTLS_ECDSA_C)
-
 #include "ecdsa.h"
 #include "asn1write.h"
 #if defined(TTLS_ECDSA_DETERMINISTIC)
@@ -437,5 +434,3 @@ void ttls_ecdsa_free(ttls_ecdsa_context *ctx)
 {
 	ttls_ecp_keypair_free(ctx);
 }
-
-#endif /* TTLS_ECDSA_C */
