@@ -250,10 +250,9 @@ int prio0, prio1, prio3;
  */
 #define __FRANG_CFG_VAR(name, member)					\
 	const typeof(((FrangCfg *)0)->member) name =			\
-		(req->location						\
-		 ? (req->location->frang_cfg->member			\
-		    ? : tfw_vhost_global_frang_cfg()->member)		\
-		 : tfw_vhost_global_frang_cfg()->member)
+		(req->location && req->location->frang_cfg->member	\
+		? req->location->frang_cfg->member			\
+		: tfw_vhost_global_frang_cfg()->member)
 
 #define frang_msg(check, addr, fmt, ...)				\
 do {									\
