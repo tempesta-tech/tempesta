@@ -22,64 +22,25 @@
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 #include "config.h"
-#include "error.h"
-#include "aes.h"
 #if defined(TTLS_BASE64_C)
 #include "base64.h"
 #endif
 #include "bignum.h"
-#if defined(TTLS_BLOWFISH_C)
-#include "blowfish.h"
-#endif
-#if defined(TTLS_CAMELLIA_C)
-#include "camellia.h"
-#endif
-#include "ccm.h"
 #include "cipher.h"
-#if defined(TTLS_CMAC_C)
-#include "cmac.h"
-#endif
-#if defined(TTLS_CTR_DRBG_C)
-#include "ctr_drbg.h"
-#endif
 #if defined(TTLS_DHM_C)
 #include "dhm.h"
 #endif
 #include "ecp.h"
-#if defined(TTLS_ENTROPY_C)
-#include "entropy.h"
-#endif
-#include "gcm.h"
 #if defined(TTLS_HMAC_DRBG_C)
 #include "hmac_drbg.h"
 #endif
 #include "md.h"
 #include "oid.h"
-#if defined(TTLS_PEM_PARSE_C) || defined(TTLS_PEM_WRITE_C)
 #include "pem.h"
-#endif
 #include "pk.h"
-#if defined(TTLS_PKCS12_C)
-#include "pkcs12.h"
-#endif
-#if defined(TTLS_PKCS5_C)
-#include "pkcs5.h"
-#endif
-#if defined(TTLS_RIPEMD160_C)
-#include "ripemd160.h"
-#endif
 #include "rsa.h"
-#if defined(TTLS_SHA256_C)
-#include "sha256.h"
-#endif
-#if defined(TTLS_SHA512_C)
-#include "sha512.h"
-#endif
 #include "ttls.h"
 #include "x509.h"
-#if defined(TTLS_XTEA_C)
-#include "xtea.h"
-#endif
 
 void ttls_strerror(int ret, char *buf, size_t buflen)
 {
@@ -173,7 +134,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 		if (use_ret == -(TTLS_ERR_MD_HW_ACCEL_FAILED))
 			ttls_snprintf(buf, buflen, "MD - MD hardware accelerator failed");
 
-#if defined(TTLS_PEM_PARSE_C) || defined(TTLS_PEM_WRITE_C)
 		if (use_ret == -(TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT))
 			ttls_snprintf(buf, buflen, "PEM - No PEM header or footer found");
 		if (use_ret == -(TTLS_ERR_PEM_INVALID_DATA))
@@ -192,7 +152,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			ttls_snprintf(buf, buflen, "PEM - Unavailable feature, e.g. hashing/encryption combination");
 		if (use_ret == -(TTLS_ERR_PEM_BAD_INPUT_DATA))
 			ttls_snprintf(buf, buflen, "PEM - Bad input parameters to function");
-#endif /* TTLS_PEM_PARSE_C || TTLS_PEM_WRITE_C */
 
 		if (use_ret == -(TTLS_ERR_PK_ALLOC_FAILED))
 			ttls_snprintf(buf, buflen, "PK - Memory allocation failed");
@@ -224,28 +183,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			ttls_snprintf(buf, buflen, "PK - The signature is valid but its length is less than expected");
 		if (use_ret == -(TTLS_ERR_PK_HW_ACCEL_FAILED))
 			ttls_snprintf(buf, buflen, "PK - PK hardware accelerator failed");
-
-#if defined(TTLS_PKCS12_C)
-		if (use_ret == -(TTLS_ERR_PKCS12_BAD_INPUT_DATA))
-			ttls_snprintf(buf, buflen, "PKCS12 - Bad input parameters to function");
-		if (use_ret == -(TTLS_ERR_PKCS12_FEATURE_UNAVAILABLE))
-			ttls_snprintf(buf, buflen, "PKCS12 - Feature not available, e.g. unsupported encryption scheme");
-		if (use_ret == -(TTLS_ERR_PKCS12_PBE_INVALID_FORMAT))
-			ttls_snprintf(buf, buflen, "PKCS12 - PBE ASN.1 data not as expected");
-		if (use_ret == -(TTLS_ERR_PKCS12_PASSWORD_MISMATCH))
-			ttls_snprintf(buf, buflen, "PKCS12 - Given private key password does not allow for correct decryption");
-#endif /* TTLS_PKCS12_C */
-
-#if defined(TTLS_PKCS5_C)
-		if (use_ret == -(TTLS_ERR_PKCS5_BAD_INPUT_DATA))
-			ttls_snprintf(buf, buflen, "PKCS5 - Bad input parameters to function");
-		if (use_ret == -(TTLS_ERR_PKCS5_INVALID_FORMAT))
-			ttls_snprintf(buf, buflen, "PKCS5 - Unexpected ASN.1 data");
-		if (use_ret == -(TTLS_ERR_PKCS5_FEATURE_UNAVAILABLE))
-			ttls_snprintf(buf, buflen, "PKCS5 - Requested encryption or digest alg not available");
-		if (use_ret == -(TTLS_ERR_PKCS5_PASSWORD_MISMATCH))
-			ttls_snprintf(buf, buflen, "PKCS5 - Given private key password does not allow for correct decryption");
-#endif /* TTLS_PKCS5_C */
 
 		if (use_ret == -(TTLS_ERR_RSA_BAD_INPUT_DATA))
 			ttls_snprintf(buf, buflen, "RSA - Bad input parameters to function");
@@ -490,15 +427,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 	if (use_ret == -(TTLS_ERR_MPI_ALLOC_FAILED))
 		ttls_snprintf(buf, buflen, "BIGNUM - Memory allocation failed");
 
-#if defined(TTLS_BLOWFISH_C)
-	if (use_ret == -(TTLS_ERR_BLOWFISH_INVALID_KEY_LENGTH))
-		ttls_snprintf(buf, buflen, "BLOWFISH - Invalid key length");
-	if (use_ret == -(TTLS_ERR_BLOWFISH_HW_ACCEL_FAILED))
-		ttls_snprintf(buf, buflen, "BLOWFISH - Blowfish hardware accelerator failed");
-	if (use_ret == -(TTLS_ERR_BLOWFISH_INVALID_INPUT_LENGTH))
-		ttls_snprintf(buf, buflen, "BLOWFISH - Invalid data input length");
-#endif /* TTLS_BLOWFISH_C */
-
 #if defined(TTLS_CAMELLIA_C)
 	if (use_ret == -(TTLS_ERR_CAMELLIA_INVALID_KEY_LENGTH))
 		ttls_snprintf(buf, buflen, "CAMELLIA - Invalid key length");
@@ -514,35 +442,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 		ttls_snprintf(buf, buflen, "CCM - Authenticated decryption failed");
 	if (use_ret == -(TTLS_ERR_CCM_HW_ACCEL_FAILED))
 		ttls_snprintf(buf, buflen, "CCM - CCM hardware accelerator failed");
-
-#if defined(TTLS_CMAC_C)
-	if (use_ret == -(TTLS_ERR_CMAC_HW_ACCEL_FAILED))
-		ttls_snprintf(buf, buflen, "CMAC - CMAC hardware accelerator failed");
-#endif /* TTLS_CMAC_C */
-
-#if defined(TTLS_CTR_DRBG_C)
-	if (use_ret == -(TTLS_ERR_CTR_DRBG_ENTROPY_SOURCE_FAILED))
-		ttls_snprintf(buf, buflen, "CTR_DRBG - The entropy source failed");
-	if (use_ret == -(TTLS_ERR_CTR_DRBG_REQUEST_TOO_BIG))
-		ttls_snprintf(buf, buflen, "CTR_DRBG - The requested random buffer length is too big");
-	if (use_ret == -(TTLS_ERR_CTR_DRBG_INPUT_TOO_BIG))
-		ttls_snprintf(buf, buflen, "CTR_DRBG - The input (entropy + additional data) is too large");
-	if (use_ret == -(TTLS_ERR_CTR_DRBG_FILE_IO_ERROR))
-		ttls_snprintf(buf, buflen, "CTR_DRBG - Read or write error in file");
-#endif /* TTLS_CTR_DRBG_C */
-
-#if defined(TTLS_ENTROPY_C)
-	if (use_ret == -(TTLS_ERR_ENTROPY_SOURCE_FAILED))
-		ttls_snprintf(buf, buflen, "ENTROPY - Critical entropy source failure");
-	if (use_ret == -(TTLS_ERR_ENTROPY_MAX_SOURCES))
-		ttls_snprintf(buf, buflen, "ENTROPY - No more sources can be added");
-	if (use_ret == -(TTLS_ERR_ENTROPY_NO_SOURCES_DEFINED))
-		ttls_snprintf(buf, buflen, "ENTROPY - No sources have been added to poll");
-	if (use_ret == -(TTLS_ERR_ENTROPY_NO_STRONG_SOURCE))
-		ttls_snprintf(buf, buflen, "ENTROPY - No strong sources have been added to poll");
-	if (use_ret == -(TTLS_ERR_ENTROPY_FILE_IO_ERROR))
-		ttls_snprintf(buf, buflen, "ENTROPY - Read/write error in file");
-#endif /* TTLS_ENTROPY_C */
 
 	if (use_ret == -(TTLS_ERR_GCM_AUTH_FAILED))
 		ttls_snprintf(buf, buflen, "GCM - Authenticated decryption failed");
@@ -566,29 +465,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 		ttls_snprintf(buf, buflen, "OID - OID is not found");
 	if (use_ret == -(TTLS_ERR_OID_BUF_TOO_SMALL))
 		ttls_snprintf(buf, buflen, "OID - output buffer is too small");
-
-#if defined(TTLS_RIPEMD160_C)
-	if (use_ret == -(TTLS_ERR_RIPEMD160_HW_ACCEL_FAILED))
-		ttls_snprintf(buf, buflen, "RIPEMD160 - RIPEMD160 hardware accelerator failed");
-#endif /* TTLS_RIPEMD160_C */
-
-#if defined(TTLS_SHA256_C)
-	if (use_ret == -(TTLS_ERR_SHA256_HW_ACCEL_FAILED))
-		ttls_snprintf(buf, buflen, "SHA256 - SHA-256 hardware accelerator failed");
-#endif /* TTLS_SHA256_C */
-
-#if defined(TTLS_SHA512_C)
-	if (use_ret == -(TTLS_ERR_SHA512_HW_ACCEL_FAILED))
-		ttls_snprintf(buf, buflen, "SHA512 - SHA-512 hardware accelerator failed");
-#endif /* TTLS_SHA512_C */
-
-#if defined(TTLS_XTEA_C)
-	if (use_ret == -(TTLS_ERR_XTEA_INVALID_INPUT_LENGTH))
-		ttls_snprintf(buf, buflen, "XTEA - The data input has an invalid length");
-	if (use_ret == -(TTLS_ERR_XTEA_HW_ACCEL_FAILED))
-		ttls_snprintf(buf, buflen, "XTEA - XTEA hardware accelerator failed");
-#endif /* TTLS_XTEA_C */
-	// END generated code
 
 	if (strlen(buf) != 0)
 		return;

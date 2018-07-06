@@ -27,11 +27,9 @@
 #ifndef TTLS_CERTS_H
 #define TTLS_CERTS_H
 
-#if defined(TTLS_PEM_PARSE_C)
 /* Concatenation of all CA certificates in PEM format if available */
 extern const char   ttls_test_cas_pem[];
 extern const size_t ttls_test_cas_pem_len;
-#endif
 
 /* List of all CA certificates, terminated by NULL */
 extern const char * ttls_test_cas[];

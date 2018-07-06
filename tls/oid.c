@@ -474,7 +474,6 @@ typedef struct {
 
 static const oid_md_alg_t oid_md_alg[] =
 {
-#if defined(TTLS_SHA256_C)
 	{
 		{ ADD_LEN(TTLS_OID_DIGEST_ALG_SHA224),	"id-sha224",	"SHA-224" },
 		TTLS_MD_SHA224,
@@ -483,8 +482,6 @@ static const oid_md_alg_t oid_md_alg[] =
 		{ ADD_LEN(TTLS_OID_DIGEST_ALG_SHA256),	"id-sha256",	"SHA-256" },
 		TTLS_MD_SHA256,
 	},
-#endif /* TTLS_SHA256_C */
-#if defined(TTLS_SHA512_C)
 	{
 		{ ADD_LEN(TTLS_OID_DIGEST_ALG_SHA384),	"id-sha384",	"SHA-384" },
 		TTLS_MD_SHA384,
@@ -493,7 +490,6 @@ static const oid_md_alg_t oid_md_alg[] =
 		{ ADD_LEN(TTLS_OID_DIGEST_ALG_SHA512),	"id-sha512",	"SHA-512" },
 		TTLS_MD_SHA512,
 	},
-#endif /* TTLS_SHA512_C */
 	{
 		{ NULL, 0, NULL, NULL },
 		TTLS_MD_NONE,
@@ -514,7 +510,6 @@ typedef struct {
 
 static const oid_md_hmac_t oid_md_hmac[] =
 {
-#if defined(TTLS_SHA256_C)
 	{
 		{ ADD_LEN(TTLS_OID_HMAC_SHA224),	"hmacSHA224",	"HMAC-SHA-224" },
 		TTLS_MD_SHA224,
@@ -523,8 +518,6 @@ static const oid_md_hmac_t oid_md_hmac[] =
 		{ ADD_LEN(TTLS_OID_HMAC_SHA256),	"hmacSHA256",	"HMAC-SHA-256" },
 		TTLS_MD_SHA256,
 	},
-#endif /* TTLS_SHA256_C */
-#if defined(TTLS_SHA512_C)
 	{
 		{ ADD_LEN(TTLS_OID_HMAC_SHA384),	"hmacSHA384",	"HMAC-SHA-384" },
 		TTLS_MD_SHA384,
@@ -533,7 +526,6 @@ static const oid_md_hmac_t oid_md_hmac[] =
 		{ ADD_LEN(TTLS_OID_HMAC_SHA512),	"hmacSHA512",	"HMAC-SHA-512" },
 		TTLS_MD_SHA512,
 	},
-#endif /* TTLS_SHA512_C */
 	{
 		{ NULL, 0, NULL, NULL },
 		TTLS_MD_NONE,
@@ -542,36 +534,6 @@ static const oid_md_hmac_t oid_md_hmac[] =
 
 FN_OID_TYPED_FROM_ASN1(oid_md_hmac_t, md_hmac, oid_md_hmac)
 FN_OID_GET_ATTR1(ttls_oid_get_md_hmac, oid_md_hmac_t, md_hmac, ttls_md_type_t, md_hmac)
-
-#if defined(TTLS_PKCS12_C)
-/*
- * For PKCS#12 PBEs
- */
-typedef struct {
-	ttls_oid_descriptor_t	descriptor;
-	ttls_md_type_t		   md_alg;
-	ttls_cipher_type_t	   cipher_alg;
-} oid_pkcs12_pbe_alg_t;
-
-static const oid_pkcs12_pbe_alg_t oid_pkcs12_pbe_alg[] =
-{
-	{
-		{ ADD_LEN(TTLS_OID_PKCS12_PBE_SHA1_DES3_EDE_CBC), "pbeWithSHAAnd3-KeyTripleDES-CBC", "PBE with SHA1 and 3-Key 3DES" },
-		TTLS_MD_SHA1,	  TTLS_CIPHER_DES_EDE3_CBC,
-	},
-	{
-		{ ADD_LEN(TTLS_OID_PKCS12_PBE_SHA1_DES2_EDE_CBC), "pbeWithSHAAnd2-KeyTripleDES-CBC", "PBE with SHA1 and 2-Key 3DES" },
-		TTLS_MD_SHA1,	  TTLS_CIPHER_DES_EDE_CBC,
-	},
-	{
-		{ NULL, 0, NULL, NULL },
-		TTLS_MD_NONE, TTLS_CIPHER_NONE,
-	},
-};
-
-FN_OID_TYPED_FROM_ASN1(oid_pkcs12_pbe_alg_t, pkcs12_pbe_alg, oid_pkcs12_pbe_alg)
-FN_OID_GET_ATTR2(ttls_oid_get_pkcs12_pbe_alg, oid_pkcs12_pbe_alg_t, pkcs12_pbe_alg, ttls_md_type_t, md_alg, ttls_cipher_type_t, cipher_alg)
-#endif /* TTLS_PKCS12_C */
 
 #define OID_SAFE_SNPRINTF				   \
 	do {			\
