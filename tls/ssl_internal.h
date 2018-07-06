@@ -89,7 +89,6 @@
  */
 #define TLS_MAX_HASH_LEN	12
 
-
 /*
  * Abstraction for a grid of allowed signature-hash-algorithm pairs.
  */
@@ -108,6 +107,7 @@ struct ttls_sig_hash_set_t
  * This structure contains the parameters only needed during handshake.
  *
  * @hash_algs	- set of suitable sig-hash pairs;
+ * @fin_sha{256,512} - checksum contexts;
  * @point_form	- TLS extension flags (for extensions with outgoing ServerHello
  * 		  content that need it (e.g. for RENEGOTIATION_INFO the server
  * 		  already knows because of state of the renegotiation flag, so
@@ -125,20 +125,17 @@ typedef struct
 	ttls_sig_hash_set_t		hash_algs;
 
 #if defined(TTLS_DHM_C)
-	ttls_dhm_context dhm_ctx;				/*!<  DHM key exchange		*/
+	ttls_dhm_context dhm_ctx;	/*!<  DHM key exchange		*/
 #endif
-	ttls_ecdh_context ecdh_ctx;			  /*!<  ECDH key exchange	   */
+	ttls_ecdh_context ecdh_ctx;	  /*!<  ECDH key exchange	   */
 	ttls_key_cert *key_cert;	 /*!< chosen key/cert pair (server)  */
-	int sni_authmode;				   /*!< authmode from SNI callback	 */
+	int sni_authmode;		   /*!< authmode from SNI callback	 */
 	ttls_key_cert *sni_key_cert; /*!< key/cert list from SNI		 */
 	ttls_x509_crt *sni_ca_chain;	 /*!< trusted CAs from SNI callback  */
 	ttls_x509_crl *sni_ca_crl;	   /*!< trusted CAs CRLs from SNI	  */
 
-	/*
-	 * Checksum contexts
-	 */
-	ttls_sha256_context fin_sha256;
-	ttls_sha512_context fin_sha512;
+	ttls_sha256_context	fin_sha256;
+	ttls_sha512_context	fin_sha512;
 
 	void (*update_checksum)(ttls_context *, const unsigned char *, size_t);
 	void (*calc_verify)(ttls_context *, unsigned char *);
@@ -169,7 +166,8 @@ typedef struct
  *
  * @ciphersuite_info	- chosen cipersuite_info;
  * @md_ctx		- MAC context;
- * @cipher_ctx		- crypto context;
+ * @cipher_ctx_enc	- encryption crypto context;
+ * @cipher_ctx_dec	- decryption crypto context;
  * @keylen		- symmetric key length (bytes);
  * @minlen		- min. ciphertext length;
  * @ivlen		- IV length;
@@ -177,20 +175,11 @@ typedef struct
  * @maclen		- MAC length;
  * @iv			- IV;
  */
-struct TlsXfrm
-{
+struct TlsXfrm {
 	const ttls_ciphersuite_t	*ciphersuite_info;
 	ttls_md_context_t		md_ctx;
-	ttls_cipher_context_t		cipher_ctx;
-	union {
-		// TODO AK call crypto_alloc_aead() on handshake
-		// TODO AK crypto_alloc_aead() uses GFP_KERNEL - fix
-		struct crypto_aead		*aead;
-		struct {
-			struct crypto_ahash	*ahash;
-			struct crypto_cipher	*cipher;
-		}
-	}
+	ttls_cipher_context_t		cipher_ctx_enc;
+	ttls_cipher_context_t		cipher_ctx_dec;
 	unsigned int			keylen;
 	size_t				minlen;
 	size_t				ivlen;
@@ -204,23 +193,10 @@ struct TlsXfrm
  */
 struct ttls_key_cert
 {
-	ttls_x509_crt *cert;				 /*!< cert		   */
-	ttls_pk_context *key;				/*!< private key				*/
-	ttls_key_cert *next;			 /*!< next key/cert pair		 */
+	ttls_x509_crt			*cert;
+	ttls_pk_context			*key;
+	ttls_key_cert			*next;
 };
-
-#if defined(TTLS_PROTO_DTLS)
-/*
- * List of handshake messages kept around for resending
- */
-struct ttls_flight_item
-{
-	unsigned char *p;	   /*!< message, including handshake headers   */
-	size_t len;			 /*!< length of p				*/
-	unsigned char type;	 /*!< type of the message: handshake or CCS  */
-	ttls_flight_item *next;  /*!< next handshake message(s)			  */
-};
-#endif /* TTLS_PROTO_DTLS */
 
 /* Find an entry in a signature-hash set matching a given hash algorithm. */
 ttls_md_type_t ttls_sig_hash_set_find(ttls_sig_hash_set_t *set,
@@ -230,24 +206,6 @@ void ttls_sig_hash_set_add(ttls_sig_hash_set_t *set,
 			   ttls_pk_type_t sig_alg,
 			   ttls_md_type_t md_alg);
 void ttls_set_default_sig_hash(TlsCtx *tls);
-void ttls_sig_hash_set_const_hash(ttls_sig_hash_set_t *set,
-			  ttls_md_type_t md_alg);
-
-/* Setup an empty signature-hash set */
-static inline void ttls_sig_hash_set_init(ttls_sig_hash_set_t *set)
-{
-	ttls_sig_hash_set_const_hash(set, TTLS_MD_NONE);
-}
-
-/**
- * \brief	   Free referenced items in an SSL transform context and clear
- *		  memory
- *
- * \param transform SSL transform context
- */
-void ttls_transform_free(TtlsXfrm *transform);
-
-void ttls_handshake_free(TlsHandshake *hs);
 
 int ttls_handshake_client_step(ttls_context *tls, unsigned char *buf,
 			       size_t len, unsigned int *read);
@@ -255,7 +213,6 @@ int ttls_handshake_server_step(ttls_context *tls, unsigned char *buf,
 			       size_t len, unsigned int *read);
 void ttls_handshake_wrapup(ttls_context *tls);
 
-void ttls_reset_checksum(ttls_context *tls);
 int ttls_derive_keys(ttls_context *tls);
 
 int ttls_handle_message_type(TlsCtx *tls);
@@ -387,16 +344,16 @@ int ttls_get_key_exchange_md_tls1_2(ttls_context *tls,
 /*
  * Extend the common FSM for hanshake parsing.
  */
-#define TTLS_HS_FSM_FINISH()			\
-	T_FSM_FINISH(r, tls->state);		\
-	*read = p - buf;			\
+#define TTLS_HS_FSM_FINISH()						\
+	T_FSM_FINISH(r, tls->state);					\
+	*read = p - buf;						\
 	io->rlen += p - buf;
 
 /* Move to @st if we have at least @need bytes. */
-#define TTLS_HS_FSM_MOVE(st)			\
-do {			\
-	WARN_ON_ONCE(p - buf > len);		\
-	io->rlen = 0;				\
+#define TTLS_HS_FSM_MOVE(st)						\
+do {									\
+	WARN_ON_ONCE(p - buf > len);					\
+	io->rlen = 0;							\
 	T_FSM_MOVE(st,	if (unlikely(p - buf >= len)) T_FSM_EXIT(); );	\
 } while (0)
 
@@ -437,5 +394,15 @@ typedef enum {
 	TTLS_CC_HS_READ		= __TTLS_FSM_SUBST(CLIENT_CERTIFICATE, 1),
 	TTLS_CC_HS_PARSE	= __TTLS_FSM_SUBST(CLIENT_CERTIFICATE, 2),
 };
+
+/**
+ * Whether TLS context transformation is ready for crypto and we should encrypt
+ * egress data and decrypt ingress data.
+ */
+static inline bool
+ttls_xfrm_ready(TlsCtx *tls)
+{
+	return tls->state >= TTLS_CLIENT_CHANGE_CIPHER_SPEC;
+}
 
 #endif /* ssl_internal.h */

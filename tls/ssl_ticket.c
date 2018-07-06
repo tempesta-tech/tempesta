@@ -25,11 +25,6 @@
 
 #include "ssl_ticket.h"
 
-/* Implementation that should never be optimized out by the compiler */
-static void ttls_zeroize(void *v, size_t n) {
-	volatile unsigned char *p = v; while (n--) *p++ = 0;
-}
-
 /*
  * Initialze context
  */
@@ -60,11 +55,10 @@ static int ssl_ticket_gen_key(ttls_ticket_context *ctx,
 		return ret;
 
 	/* With GCM and CCM, same context can encrypt & decrypt */
-	ret = ttls_cipher_setkey(&key->ctx, buf,
-		 ttls_cipher_get_key_bitlen(&key->ctx),
-		 TTLS_ENCRYPT);
+	ret = ttls_cipher_setkey(&key->ctx, buf, key->ctx.cipher_info->key_len,
+				 TTLS_ENCRYPT);
 
-	ttls_zeroize(buf, sizeof(buf));
+	bzero_fast(buf, sizeof(buf));
 
 	return ret;
 }
@@ -96,16 +90,11 @@ static int ssl_ticket_update_keys(ttls_ticket_context *ctx)
 /*
  * Setup context for actual use
  */
-int ttls_ticket_setup(ttls_ticket_context *ctx,
-	int (*f_rng)(void *, unsigned char *, size_t), void *p_rng,
-	ttls_cipher_type_t cipher,
+int ttls_ticket_setup(ttls_ticket_context *ctx, ttls_cipher_type_t cipher,
 	uint32_t lifetime)
 {
 	int ret;
 	const ttls_cipher_info_t *cipher_info;
-
-	ctx->f_rng = f_rng;
-	ctx->p_rng = p_rng;
 
 	ctx->ticket_lifetime = lifetime;
 
@@ -119,11 +108,12 @@ int ttls_ticket_setup(ttls_ticket_context *ctx,
 		return(TTLS_ERR_BAD_INPUT_DATA);
 	}
 
-	if (cipher_info->key_bitlen > 8 * MAX_KEY_BYTES)
+	if (cipher_info->key_len > MAX_KEY_BYTES)
 		return(TTLS_ERR_BAD_INPUT_DATA);
 
-	if ((ret = ttls_cipher_setup(&ctx->keys[0].ctx, cipher_info)) != 0 ||
-		(ret = ttls_cipher_setup(&ctx->keys[1].ctx, cipher_info)) != 0)
+	/* TODO set correct auth tag size. */
+	if ((ret = ttls_cipher_setup(&ctx->keys[0].ctx, cipher_info, 16)) ||
+		(ret = ttls_cipher_setup(&ctx->keys[1].ctx, cipher_info, 16)))
 	{
 		return ret;
 	}
@@ -304,6 +294,7 @@ int ttls_ticket_write(void *p_ticket,
 
 	/* Encrypt and authenticate */
 	tag = state + clear_len;
+	/* TODO replace with linux/crypto as in ttls.c. */
 	if ((ret = ttls_cipher_auth_encrypt(&key->ctx,
 		iv, 12, key_name, 4 + 12 + 2,
 		state, clear_len, state, &ciph_len, tag, 16)) != 0)
@@ -389,6 +380,7 @@ int ttls_ticket_parse(void *p_ticket,
 	}
 
 	/* Decrypt and authenticate */
+	/* TODO replace with linux/crypto as in ttls.c. */
 	if ((ret = ttls_cipher_auth_decrypt(&key->ctx, iv, 12,
 		key_name, 4 + 12 + 2, ticket, enc_len,
 		ticket, &clear_len, tag, 16)) != 0)
@@ -433,7 +425,7 @@ void ttls_ticket_free(ttls_ticket_context *ctx)
 {
 	ttls_cipher_free(&ctx->keys[0].ctx);
 	ttls_cipher_free(&ctx->keys[1].ctx);
-	ttls_zeroize(ctx, sizeof(ttls_ticket_context));
+	bzero_fast(ctx, sizeof(ttls_ticket_context));
 }
 
 #endif /* TTLS_TICKET_C */

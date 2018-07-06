@@ -311,8 +311,9 @@ tfw_tls_do_init(void)
 	int r;
 
 	ttls_config_init(&tfw_tls.cfg);
+	/* Use cute ECDHE-ECDSA-AES128-GCM-SHA256 by default. */
 	r = ttls_config_defaults(&tfw_tls.cfg, TTLS_IS_SERVER,
-				 TTLS_TRANSPORT_STREAM, TTLS_PRESET_DEFAULT);
+				 TTLS_TRANSPORT_STREAM);
 	if (r) {
 		TFW_ERR_NL("TLS: can't set config defaults (%x)\n", -r);
 		return -EINVAL;
@@ -331,7 +332,7 @@ tfw_tls_do_cleanup(void)
 {
 	ttls_x509_crt_free(&tfw_tls.crt);
 	ttls_pk_free(&tfw_tls.key);
-	ttls_ssl_config_free(&tfw_tls.cfg);
+	ttls_config_free(&tfw_tls.cfg);
 }
 
 /*
@@ -453,7 +454,7 @@ tfw_cfgop_ssl_certificate_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	}
 
 	r = ttls_pk_parse_key(&tfw_tls.key, (const unsigned char *)key_data,
-			      key_size, NULL, 0);
+			      key_size);
 	free_pages(key_data, get_order(key_size));
 
 	if (r) {

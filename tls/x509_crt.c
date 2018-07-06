@@ -32,10 +32,7 @@
 #include "config.h"
 #include "x509_crt.h"
 #include "oid.h"
-
-#if defined(TTLS_PEM_PARSE_C)
 #include "pem.h"
-#endif
 
 /* Implementation that should never be optimized out by the compiler */
 static void ttls_zeroize(void *v, size_t n) {
@@ -922,14 +919,12 @@ int ttls_x509_crt_parse_der(ttls_x509_crt *chain, const unsigned char *buf,
 /*
  * Parse one or more PEM certificates from a buffer and add them to the chained
  * list.
- * TODO AK don't copy @buf, reuse it instead.
+ * TODO don't copy @buf, reuse it instead.
  */
 int ttls_x509_crt_parse(ttls_x509_crt *chain, const unsigned char *buf, size_t buflen)
 {
-#if defined(TTLS_PEM_PARSE_C)
 	int success = 0, first_error = 0, total_failed = 0;
 	int buf_format = TTLS_X509_FORMAT_DER;
-#endif
 
 	/*
 	 * Check for valid input
@@ -941,7 +936,6 @@ int ttls_x509_crt_parse(ttls_x509_crt *chain, const unsigned char *buf, size_t b
 	 * Determine buffer content. Buffer contains either one DER certificate or
 	 * one or more PEM certificates.
 	 */
-#if defined(TTLS_PEM_PARSE_C)
 	if (buflen != 0 && buf[buflen - 1] == '\0' &&
 		strstr((const char *) buf, "-----BEGIN CERTIFICATE-----") != NULL)
 	{
@@ -950,11 +944,7 @@ int ttls_x509_crt_parse(ttls_x509_crt *chain, const unsigned char *buf, size_t b
 
 	if (buf_format == TTLS_X509_FORMAT_DER)
 		return ttls_x509_crt_parse_der(chain, buf, buflen);
-#else
-	return ttls_x509_crt_parse_der(chain, buf, buflen);
-#endif
 
-#if defined(TTLS_PEM_PARSE_C)
 	if (buf_format == TTLS_X509_FORMAT_PEM)
 	{
 		int ret;
@@ -1032,7 +1022,6 @@ int ttls_x509_crt_parse(ttls_x509_crt *chain, const unsigned char *buf, size_t b
 		return(first_error);
 	else
 		return(TTLS_ERR_X509_CERT_UNKNOWN_FORMAT);
-#endif /* TTLS_PEM_PARSE_C */
 }
 
 static int x509_info_subject_alt_name(char **buf, size_t *size,

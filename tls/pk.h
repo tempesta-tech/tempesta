@@ -411,8 +411,6 @@ ttls_pk_type_t ttls_pk_get_type(const ttls_pk_context *ctx);
  * \param key	   input buffer
  * \param keylen	size of the buffer
  *				  (including the terminating null byte for PEM data)
- * \param pwd	   password for decryption (optional)
- * \param pwdlen	size of the password
  *
  * \note			On entry, ctx must be empty, either freshly initialised
  *				  with ttls_pk_init() or reset with ttls_pk_free(). If you need a
@@ -422,9 +420,7 @@ ttls_pk_type_t ttls_pk_get_type(const ttls_pk_context *ctx);
  *
  * \return		  0 if successful, or a specific PK or PEM error code
  */
-int ttls_pk_parse_key(ttls_pk_context *ctx,
-				  const unsigned char *key, size_t keylen,
-				  const unsigned char *pwd, size_t pwdlen);
+int ttls_pk_parse_key(ttls_pk_context *ctx, const unsigned char *key, size_t keylen);
 
 /** \ingroup pk_module */
 /**
@@ -446,67 +442,6 @@ int ttls_pk_parse_key(ttls_pk_context *ctx,
 int ttls_pk_parse_public_key(ttls_pk_context *ctx,
 			 const unsigned char *key, size_t keylen);
 
-#if defined(TTLS_PK_WRITE_C)
-/**
- * \brief		   Write a private key to a PKCS#1 or SEC1 DER structure
- *				  Note: data is written at the end of the buffer! Use the
- *			return value to determine where you should start
- *			using the buffer
- *
- * \param ctx	   private to write away
- * \param buf	   buffer to write to
- * \param size	  size of the buffer
- *
- * \return		  length of data written if successful, or a specific
- *				  error code
- */
-int ttls_pk_write_key_der(ttls_pk_context *ctx, unsigned char *buf, size_t size);
-
-/**
- * \brief		   Write a public key to a SubjectPublicKeyInfo DER structure
- *				  Note: data is written at the end of the buffer! Use the
- *			return value to determine where you should start
- *			using the buffer
- *
- * \param ctx	   public key to write away
- * \param buf	   buffer to write to
- * \param size	  size of the buffer
- *
- * \return		  length of data written if successful, or a specific
- *				  error code
- */
-int ttls_pk_write_pubkey_der(ttls_pk_context *ctx, unsigned char *buf, size_t size);
-
-#if defined(TTLS_PEM_WRITE_C)
-/**
- * \brief		   Write a public key to a PEM string
- *
- * \param ctx	   public key to write away
- * \param buf	   buffer to write to
- * \param size	  size of the buffer
- *
- * \return		  0 if successful, or a specific error code
- */
-int ttls_pk_write_pubkey_pem(ttls_pk_context *ctx, unsigned char *buf, size_t size);
-
-/**
- * \brief		   Write a private key to a PKCS#1 or SEC1 PEM string
- *
- * \param ctx	   private to write away
- * \param buf	   buffer to write to
- * \param size	  size of the buffer
- *
- * \return		  0 if successful, or a specific error code
- */
-int ttls_pk_write_key_pem(ttls_pk_context *ctx, unsigned char *buf, size_t size);
-#endif /* TTLS_PEM_WRITE_C */
-#endif /* TTLS_PK_WRITE_C */
-
-/*
- * WARNING: Low-level functions. You probably do not want to use these unless
- *		  you are certain you do ;)
- */
-
 /**
  * \brief		   Parse a SubjectPublicKeyInfo DER structure
  *
@@ -518,25 +453,5 @@ int ttls_pk_write_key_pem(ttls_pk_context *ctx, unsigned char *buf, size_t size)
  */
 int ttls_pk_parse_subpubkey(unsigned char **p, const unsigned char *end,
 			ttls_pk_context *pk);
-
-#if defined(TTLS_PK_WRITE_C)
-/**
- * \brief		   Write a subjectPublicKey to ASN.1 data
- *				  Note: function works backwards in data buffer
- *
- * \param p		 reference to current position pointer
- * \param start	 start of the buffer (for bounds-checking)
- * \param key	   public key to write away
- *
- * \return		  the length written or a negative error code
- */
-int ttls_pk_write_pubkey(unsigned char **p, unsigned char *start,
-		 const ttls_pk_context *key);
-#endif /* TTLS_PK_WRITE_C */
-
-/*
- * Internal module functions. You probably do not want to use these unless you
- * know you do.
- */
 
 #endif /* TTLS_PK_H */

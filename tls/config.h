@@ -63,22 +63,14 @@
  *
  */
 //#define TTLS_AES_ALT
-//#define TTLS_BLOWFISH_ALT
 //#define TTLS_CAMELLIA_ALT
 //#define TTLS_CCM_ALT
-//#define TTLS_CMAC_ALT
-//#define TTLS_DES_ALT
 //#define TTLS_DHM_ALT
 //#define TTLS_GCM_ALT
-//#define TTLS_MD2_ALT
-//#define TTLS_MD4_ALT
-//#define TTLS_MD5_ALT
-//#define TTLS_RIPEMD160_ALT
 //#define TTLS_RSA_ALT
 //#define TTLS_SHA1_ALT
 //#define TTLS_SHA256_ALT
 //#define TTLS_SHA512_ALT
-//#define TTLS_XTEA_ALT
 /*
  * When replacing the elliptic curve module, pleace consider, that it is
  * implemented with two .c files:
@@ -125,16 +117,10 @@
  *			and ciphers instead.
  *
  */
-//#define TTLS_MD2_PROCESS_ALT
-//#define TTLS_MD4_PROCESS_ALT
-//#define TTLS_MD5_PROCESS_ALT
-//#define TTLS_RIPEMD160_PROCESS_ALT
 //#define TTLS_SHA1_PROCESS_ALT
 //#define TTLS_SHA256_PROCESS_ALT
 //#define TTLS_SHA512_PROCESS_ALT
 //#define TTLS_DES_SETKEY_ALT
-//#define TTLS_DES_CRYPT_ECB_ALT
-//#define TTLS_DES3_CRYPT_ECB_ALT
 //#define TTLS_AES_SETKEY_ENC_ALT
 //#define TTLS_AES_SETKEY_DEC_ALT
 //#define TTLS_AES_ENCRYPT_ALT
@@ -270,22 +256,6 @@
 #define TTLS_GENPRIME
 
 /**
- * \def TTLS_ENTROPY_FORCE_SHA256
- *
- * Force the entropy accumulator to use a SHA-256 accumulator instead of the
- * default SHA-512 based one (if both are available).
- *
- * Requires: TTLS_SHA256_C
- *
- * On 32-bit systems SHA-256 can be much faster than SHA-512. Use this option
- * if you have performance concerns.
- *
- * This option is only useful if both TTLS_SHA256_C and
- * TTLS_SHA512_C are defined. Otherwise the available hash module is used.
- */
-//#define TTLS_ENTROPY_FORCE_SHA256
-
-/**
  * \def TTLS_PK_RSA_ALT_SUPPORT
  *
  * Support external private RSA keys (eg from a HSM) in the PK layer.
@@ -304,22 +274,6 @@
  *
  */
 //#define TTLS_RSA_NO_CRT
-
-/**
- * \def TTLS_SHA256_SMALLER
- *
- * Enable an implementation of SHA-256 that has lower ROM footprint but also
- * lower performance.
- *
- * The default implementation is meant to be a reasonnable compromise between
- * performance and size. This version optimizes more aggressively for size at
- * the expense of performance. Eg on Cortex-M4 it reduces the size of
- * ttls_sha256_process() from ~2KB to ~0.5KB for a performance hit of about
- * 30%.
- *
- * Uncomment to enable the smaller implementation of SHA256.
- */
-//#define TTLS_SHA256_SMALLER
 
 /**
  * \def TTLS_DEBUG_ALL
@@ -389,7 +343,7 @@
 /**
  * \def TTLS_X509_RSASSA_PSS_SUPPORT
  *
- * Enable parsing and verification of X.509 certificates, CRLs and CSRS
+ * Enable parsing and verification of X.509 certificates, CRLs
  * signed with RSASSA-PSS (aka PKCS#1 v2.1).
  *
  * Comment this macro to disallow using RSASSA-PSS in certificates.
@@ -407,15 +361,6 @@
  * This module is required for PEM support (required by X.509).
  */
 #define TTLS_BASE64_C
-
-/**
- * \def TTLS_BLOWFISH_C
- *
- * Enable the Blowfish block cipher.
- *
- * Module:  library/blowfish.c
- */
-#define TTLS_BLOWFISH_C
 
 /**
  * \def TTLS_CAMELLIA_C
@@ -470,7 +415,7 @@
  *	  TTLS_TLS_PSK_WITH_CAMELLIA_128_GCM_SHA256
  *	  TTLS_TLS_PSK_WITH_CAMELLIA_128_CBC_SHA256
  */
-#define TTLS_CAMELLIA_C
+//#define TTLS_CAMELLIA_C
 
 /**
  * \def TTLS_CERTS_C
@@ -483,28 +428,6 @@
  * This module is used for testing (ssl_client/server).
  */
 #define TTLS_CERTS_C
-
-/**
- * \def TTLS_CMAC_C
- *
- * Enable the CMAC (Cipher-based Message Authentication Code) mode for block
- * ciphers.
- *
- * Module:  library/cmac.c
- */
-#define TTLS_CMAC_C
-
-/**
- * \def TTLS_CTR_DRBG_C
- *
- * Enable the CTR_DRBG AES-256-based random generator.
- *
- * Module:  library/ctr_drbg.c
- * Caller:
- *
- * This module provides the CTR_DRBG AES-256 random number generator.
- */
-#define TTLS_CTR_DRBG_C
 
 /**
  * \def TTLS_DHM_C
@@ -528,41 +451,6 @@
 #define TTLS_DHM_C
 
 /**
- * \def TTLS_ENTROPY_C
- *
- * Enable the platform-specific entropy code.
- *
- * Module:  library/entropy.c
- * Caller:
- *
- * Requires: TTLS_SHA512_C or TTLS_SHA256_C
- *
- * This module provides a generic entropy pool
- */
-#define TTLS_ENTROPY_C
-
-/**
- * \def TTLS_HAVEGE_C
- *
- * Enable the HAVEGE random generator.
- *
- * Warning: the HAVEGE random generator is not suitable for virtualized
- *		  environments
- *
- * Warning: the HAVEGE random generator is dependent on timing and specific
- *		  processor traits. It is therefore not advised to use HAVEGE as
- *		  your applications primary random generator or primary entropy pool
- *		  input. As a secondary input to your entropy pool, it IS able add
- *		  the (limited) extra entropy it provides.
- *
- * Module:  library/havege.c
- * Caller:
- *
- * Uncomment to enable the HAVEGE random generator.
- */
-//#define TTLS_HAVEGE_C
-
-/**
  * \def TTLS_HMAC_DRBG_C
  *
  * Enable the HMAC_DRBG random generator.
@@ -575,152 +463,24 @@
 #define TTLS_HMAC_DRBG_C
 
 /**
- * \def TTLS_PEM_PARSE_C
- *
- * Enable PEM decoding / parsing.
- *
- * Module:  library/pem.c
- * Caller:  library/dhm.c
- *		  library/pkparse.c
- *		  library/x509_crl.c
- *		  library/x509_crt.c
- *		  library/x509_csr.c
- *
- * Requires: TTLS_BASE64_C
- *
- * This modules adds support for decoding / parsing PEM files.
- */
-#define TTLS_PEM_PARSE_C
-
-/**
- * \def TTLS_PEM_WRITE_C
- *
- * Enable PEM encoding / writing.
- *
- * Module:  library/pem.c
- * Caller:  library/pkwrite.c
- *		  library/x509write_crt.c
- *		  library/x509write_csr.c
- *
- * Requires: TTLS_BASE64_C
- *
- * This modules adds support for encoding / writing PEM files.
- */
-//#define TTLS_PEM_WRITE_C
-
-/**
- * \def TTLS_PK_WRITE_C
- *
- * Enable the generic public (asymetric) key writer.
- *
- * Module:  library/pkwrite.c
- * Caller:  library/x509write.c
- *
- * Uncomment to enable generic public key write functions.
- */
-//#define TTLS_PK_WRITE_C
-
-/**
- * \def TTLS_PKCS5_C
- *
- * Enable PKCS#5 functions.
- *
- * Module:  library/pkcs5.c
- *
- * This module adds support for the PKCS#5 functions.
- */
-#define TTLS_PKCS5_C
-
-/**
- * \def TTLS_PKCS11_C
- *
- * Enable wrapper for PKCS#11 smartcard support.
- *
- * Module:  library/pkcs11.c
- * Caller:  library/pk.c
- *
- * This module enables SSL/TLS PKCS #11 smartcard support.
- * Requires the presence of the PKCS#11 helper library (libpkcs11-helper)
- */
-//#define TTLS_PKCS11_C
-
-/**
- * \def TTLS_PKCS12_C
- *
- * Enable PKCS#12 PBE functions.
- * Adds algorithms for parsing PKCS#8 encrypted private keys
- *
- * Module:  library/pkcs12.c
- * Caller:  library/pkparse.c
- *
- * This module enables PKCS#12 functions.
- */
-#define TTLS_PKCS12_C
-
-/**
- * \def TTLS_RIPEMD160_C
- *
- * Enable the RIPEMD-160 hash algorithm.
- *
- * Module:  library/ripemd160.c
- * Caller:  library/md.c
- *
- */
-#define TTLS_RIPEMD160_C
-
-/**
- * \def TTLS_SHA256_C
- *
- * Enable the SHA-224 and SHA-256 cryptographic hash algorithms.
- *
- * Module:  library/sha256.c
- * Caller:  library/entropy.c
- *		  library/md.c
- *		  library/ssl_cli.c
- *		  library/ssl_srv.c
- *		  library/ssl_tls.c
- *
- * This module adds support for SHA-224 and SHA-256.
- * This module is required for the SSL/TLS 1.2 PRF function.
- */
-#define TTLS_SHA256_C
-
-/**
- * \def TTLS_SHA512_C
- *
- * Enable the SHA-384 and SHA-512 cryptographic hash algorithms.
- *
- * Module:  library/sha512.c
- * Caller:  library/entropy.c
- *		  library/md.c
- *		  library/ssl_cli.c
- *		  library/ssl_srv.c
- *
- * This module adds support for SHA-384 and SHA-512.
- */
-#define TTLS_SHA512_C
-
-/**
- * \def TTLS_CACHE_C
+ * TODO TTLS_CACHE_C
  *
  * Enable simple SSL cache implementation.
  *
  * Module:  library/ssl_cache.c
- * Caller:
  *
  * Requires: TTLS_CACHE_C
  */
-#define TTLS_CACHE_C
+//#define TTLS_CACHE_C
 
 /**
- * \def TTLS_TICKET_C
+ * TODO TTLS_TICKET_C
  *
  * Enable an implementation of TLS server-side callbacks for session tickets.
  *
  * Module:  library/ssl_ticket.c
- * Caller:
  */
-#define TTLS_TICKET_C
+//#define TTLS_TICKET_C
 
 /**
  * \def TTLS_CLI_C
@@ -744,70 +504,7 @@
  *
  * This module is required for X.509 CRL parsing.
  */
-#define TTLS_X509_CRL_PARSE_C
-
-/**
- * \def TTLS_X509_CSR_PARSE_C
- *
- * Enable X.509 Certificate Signing Request (CSR) parsing.
- *
- * Module:  library/x509_csr.c
- * Caller:  library/x509_crt_write.c
- *
- * This module is used for reading X.509 certificate request.
- */
-#define TTLS_X509_CSR_PARSE_C
-
-/**
- * \def TTLS_X509_CREATE_C
- *
- * Enable X.509 core for creating certificates.
- *
- * Module:  library/x509_create.c
- *
- * Requires: TTLS_PK_WRITE_C
- *
- * This module is the basis for creating X.509 certificates and CSRs.
- */
-//#define TTLS_X509_CREATE_C
-
-/**
- * \def TTLS_X509_CRT_WRITE_C
- *
- * Enable creating X.509 certificates.
- *
- * Module:  library/x509_crt_write.c
- *
- * Requires: TTLS_X509_CREATE_C
- *
- * This module is required for X.509 certificate creation.
- */
-//#define TTLS_X509_CRT_WRITE_C
-
-/**
- * \def TTLS_X509_CSR_WRITE_C
- *
- * Enable creating X.509 Certificate Signing Requests (CSR).
- *
- * Module:  library/x509_csr_write.c
- *
- * Requires: TTLS_X509_CREATE_C
- *
- * This module is required for X.509 certificate request writing.
- */
-//#define TTLS_X509_CSR_WRITE_C
-
-/**
- * \def TTLS_XTEA_C
- *
- * Enable the XTEA block cipher.
- *
- * Module:  library/xtea.c
- * Caller:
- */
-#define TTLS_XTEA_C
-
-/* \} name SECTION: mbed TLS modules */
+//#define TTLS_X509_CRL_PARSE_C
 
 /**
  * \name SECTION: Module configuration options
@@ -909,23 +606,6 @@
 
 /* CHECK CONFIG. */
 
-#if defined(TTLS_ENTROPY_C) && (!defined(TTLS_SHA512_C) && !defined(TTLS_SHA256_C))
-#error "TTLS_ENTROPY_C defined, but not all prerequisites"
-#endif
-#if defined(TTLS_ENTROPY_C) && defined(TTLS_SHA512_C) &&		 \
-	defined(TTLS_CTR_DRBG_ENTROPY_LEN) && (TTLS_CTR_DRBG_ENTROPY_LEN > 64)
-#error "TTLS_CTR_DRBG_ENTROPY_LEN value too high"
-#endif
-#if defined(TTLS_ENTROPY_C) &&		\
-	(!defined(TTLS_SHA512_C) || defined(TTLS_ENTROPY_FORCE_SHA256)) \
-	&& defined(TTLS_CTR_DRBG_ENTROPY_LEN) && (TTLS_CTR_DRBG_ENTROPY_LEN > 32)
-#error "TTLS_CTR_DRBG_ENTROPY_LEN value too high"
-#endif
-#if defined(TTLS_ENTROPY_C) && \
-	defined(TTLS_ENTROPY_FORCE_SHA256) && !defined(TTLS_SHA256_C)
-#error "TTLS_ENTROPY_FORCE_SHA256 defined, but not all prerequisites"
-#endif
-
 #if defined(TTLS_ECP_RANDOMIZE_JAC_ALT) && !defined(TTLS_ECP_INTERNAL_ALT)
 #error "TTLS_ECP_RANDOMIZE_JAC_ALT defined, but not all prerequisites"
 #endif
@@ -956,26 +636,6 @@
 
 #if defined(TTLS_ECP_NORMALIZE_MXZ_ALT) && !defined(TTLS_ECP_INTERNAL_ALT)
 #error "TTLS_ECP_NORMALIZE_MXZ_ALT defined, but not all prerequisites"
-#endif
-
-#if defined(TTLS_PEM_PARSE_C) && !defined(TTLS_BASE64_C)
-#error "TTLS_PEM_PARSE_C defined, but not all prerequisites"
-#endif
-
-#if defined(TTLS_PEM_WRITE_C) && !defined(TTLS_BASE64_C)
-#error "TTLS_PEM_WRITE_C defined, but not all prerequisites"
-#endif
-
-#if defined(TTLS_X509_CREATE_C) && (!defined(TTLS_PK_WRITE_C))
-#error "TTLS_X509_CREATE_C defined, but not all prerequisites"
-#endif
-
-#if defined(TTLS_X509_CRT_WRITE_C) && (!defined(TTLS_X509_CREATE_C))
-#error "TTLS_X509_CRT_WRITE_C defined, but not all prerequisites"
-#endif
-
-#if defined(TTLS_X509_CSR_WRITE_C) && (!defined(TTLS_X509_CREATE_C))
-#error "TTLS_X509_CSR_WRITE_C defined, but not all prerequisites"
 #endif
 
 #endif /* TTLS_CONFIG_H */

@@ -27,26 +27,8 @@
 #ifndef TTLS_X509_CRL_H
 #define TTLS_X509_CRL_H
 
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
-
 #include "x509.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-/**
- * \addtogroup x509_module
- * \{ */
-
-/**
- * \name Structures and functions for parsing CRLs
- * \{
- */
 
 /**
  * Certificate revocation list entry.
@@ -152,12 +134,5 @@ void ttls_x509_crl_init(ttls_x509_crl *crl);
  * \param crl	  CRL chain to free
  */
 void ttls_x509_crl_free(ttls_x509_crl *crl);
-
-/* \} name */
-/* \} addtogroup x509_module */
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* ttls_x509_crl.h */
