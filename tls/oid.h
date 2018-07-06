@@ -173,9 +173,7 @@
 
 #define TTLS_OID_PKCS				TTLS_OID_RSA_COMPANY "\x01" /**< pkcs OBJECT IDENTIFIER ::= { iso(1) member-body(2) us(840) rsadsi(113549) 1 } */
 #define TTLS_OID_PKCS1			   TTLS_OID_PKCS "\x01" /**< pkcs-1 OBJECT IDENTIFIER ::= { iso(1) member-body(2) us(840) rsadsi(113549) pkcs(1) 1 } */
-#define TTLS_OID_PKCS5			   TTLS_OID_PKCS "\x05" /**< pkcs-5 OBJECT IDENTIFIER ::= { iso(1) member-body(2) us(840) rsadsi(113549) pkcs(1) 5 } */
 #define TTLS_OID_PKCS9			   TTLS_OID_PKCS "\x09" /**< pkcs-9 OBJECT IDENTIFIER ::= { iso(1) member-body(2) us(840) rsadsi(113549) pkcs(1) 9 } */
-#define TTLS_OID_PKCS12			  TTLS_OID_PKCS "\x0c" /**< pkcs-12 OBJECT IDENTIFIER ::= { iso(1) member-body(2) us(840) rsadsi(113549) pkcs(1) 12 } */
 
 /*
  * PKCS#1 OIDs
@@ -227,40 +225,6 @@
  */
 #define TTLS_OID_DES_CBC		 TTLS_OID_ISO_IDENTIFIED_ORG TTLS_OID_OIW_SECSIG_ALG "\x07" /**< desCBC OBJECT IDENTIFIER ::= { iso(1) identified-organization(3) oiw(14) secsig(3) algorithms(2) 7 } */
 #define TTLS_OID_DES_EDE3_CBC				TTLS_OID_RSA_COMPANY "\x03\x07" /**< des-ede3-cbc OBJECT IDENTIFIER ::= { iso(1) member-body(2) -- us(840) rsadsi(113549) encryptionAlgorithm(3) 7 } */
-
-/*
- * PKCS#5 OIDs
- */
-#define TTLS_OID_PKCS5_PBKDF2				TTLS_OID_PKCS5 "\x0c" /**< id-PBKDF2 OBJECT IDENTIFIER ::= {pkcs-5 12} */
-#define TTLS_OID_PKCS5_PBES2				 TTLS_OID_PKCS5 "\x0d" /**< id-PBES2 OBJECT IDENTIFIER ::= {pkcs-5 13} */
-#define TTLS_OID_PKCS5_PBMAC1				TTLS_OID_PKCS5 "\x0e" /**< id-PBMAC1 OBJECT IDENTIFIER ::= {pkcs-5 14} */
-
-/*
- * PKCS#5 PBES1 algorithms
- */
-#define TTLS_OID_PKCS5_PBE_MD2_DES_CBC	   TTLS_OID_PKCS5 "\x01" /**< pbeWithMD2AndDES-CBC OBJECT IDENTIFIER ::= {pkcs-5 1} */
-#define TTLS_OID_PKCS5_PBE_MD2_RC2_CBC	   TTLS_OID_PKCS5 "\x04" /**< pbeWithMD2AndRC2-CBC OBJECT IDENTIFIER ::= {pkcs-5 4} */
-#define TTLS_OID_PKCS5_PBE_MD5_DES_CBC	   TTLS_OID_PKCS5 "\x03" /**< pbeWithMD5AndDES-CBC OBJECT IDENTIFIER ::= {pkcs-5 3} */
-#define TTLS_OID_PKCS5_PBE_MD5_RC2_CBC	   TTLS_OID_PKCS5 "\x06" /**< pbeWithMD5AndRC2-CBC OBJECT IDENTIFIER ::= {pkcs-5 6} */
-#define TTLS_OID_PKCS5_PBE_SHA1_DES_CBC	  TTLS_OID_PKCS5 "\x0a" /**< pbeWithSHA1AndDES-CBC OBJECT IDENTIFIER ::= {pkcs-5 10} */
-#define TTLS_OID_PKCS5_PBE_SHA1_RC2_CBC	  TTLS_OID_PKCS5 "\x0b" /**< pbeWithSHA1AndRC2-CBC OBJECT IDENTIFIER ::= {pkcs-5 11} */
-
-/*
- * PKCS#8 OIDs
- */
-#define TTLS_OID_PKCS9_CSR_EXT_REQ		   TTLS_OID_PKCS9 "\x0e" /**< extensionRequest OBJECT IDENTIFIER ::= {pkcs-9 14} */
-
-/*
- * PKCS#12 PBE OIDs
- */
-#define TTLS_OID_PKCS12_PBE		  TTLS_OID_PKCS12 "\x01" /**< pkcs-12PbeIds OBJECT IDENTIFIER ::= {pkcs-12 1} */
-
-#define TTLS_OID_PKCS12_PBE_SHA1_RC4_128		 TTLS_OID_PKCS12_PBE "\x01" /**< pbeWithSHAAnd128BitRC4 OBJECT IDENTIFIER ::= {pkcs-12PbeIds 1} */
-#define TTLS_OID_PKCS12_PBE_SHA1_RC4_40		  TTLS_OID_PKCS12_PBE "\x02" /**< pbeWithSHAAnd40BitRC4 OBJECT IDENTIFIER ::= {pkcs-12PbeIds 2} */
-#define TTLS_OID_PKCS12_PBE_SHA1_DES3_EDE_CBC	TTLS_OID_PKCS12_PBE "\x03" /**< pbeWithSHAAnd3-KeyTripleDES-CBC OBJECT IDENTIFIER ::= {pkcs-12PbeIds 3} */
-#define TTLS_OID_PKCS12_PBE_SHA1_DES2_EDE_CBC	TTLS_OID_PKCS12_PBE "\x04" /**< pbeWithSHAAnd2-KeyTripleDES-CBC OBJECT IDENTIFIER ::= {pkcs-12PbeIds 4} */
-#define TTLS_OID_PKCS12_PBE_SHA1_RC2_128_CBC	 TTLS_OID_PKCS12_PBE "\x05" /**< pbeWithSHAAnd128BitRC2-CBC OBJECT IDENTIFIER ::= {pkcs-12PbeIds 5} */
-#define TTLS_OID_PKCS12_PBE_SHA1_RC2_40_CBC	  TTLS_OID_PKCS12_PBE "\x06" /**< pbeWithSHAAnd40BitRC2-CBC OBJECT IDENTIFIER ::= {pkcs-12PbeIds 6} */
 
 /*
  * EC key algorithms from RFC 5480
@@ -540,20 +504,5 @@ int ttls_oid_get_oid_by_md(ttls_md_type_t md_alg, const char **oid, size_t *olen
  * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
  */
 int ttls_oid_get_cipher_alg(const ttls_asn1_buf *oid, ttls_cipher_type_t *cipher_alg);
-
-#if defined(TTLS_PKCS12_C)
-/**
- * \brief		  Translate PKCS#12 PBE algorithm OID into md_type and
- *				 cipher_type
- *
- * \param oid		   OID to use
- * \param md_alg		place to store message digest algorithm
- * \param cipher_alg	place to store cipher algorithm
- *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
- */
-int ttls_oid_get_pkcs12_pbe_alg(const ttls_asn1_buf *oid, ttls_md_type_t *md_alg,
-				ttls_cipher_type_t *cipher_alg);
-#endif /* TTLS_PKCS12_C */
 
 #endif /* oid.h */

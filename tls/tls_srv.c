@@ -63,7 +63,7 @@ ttls_parse_servername_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 		if (hostname_len + 3 > servername_list_size) {
 			T_DBG("ClientHello: bad hostname size\n");
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-		TTLS_ALERT_MSG_DECODE_ERROR);
+					TTLS_ALERT_MSG_DECODE_ERROR);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
 
@@ -71,12 +71,12 @@ ttls_parse_servername_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 		    && p[0] == TTLS_TLS_EXT_SERVERNAME_HOSTNAME)
 		{
 			r = tls->conf->f_sni(tls->conf->p_sni, tls, p + 3,
-		     hostname_len);
+					     hostname_len);
 			if (!r)
 				return 0;
 			T_DBG("ClientHello: SNI error\n");
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-		TTLS_ALERT_MSG_UNRECOGNIZED_NAME);
+					TTLS_ALERT_MSG_UNRECOGNIZED_NAME);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
 
@@ -150,7 +150,7 @@ ttls_parse_signature_algorithms_ext(TlsCtl *tls, const unsigned char *buf,
 
 		if (!ttls_check_sig_hash(tls, md_cur)) {
 			ttls_sig_hash_set_add(&tls->hs->hash_algs, sig_cur,
-		      md_cur);
+					      md_cur);
 			T_DBG("ClientHello v3, signature_algorithm ext:"
 			      " match sig %d and hash %d",
 			      sig_cur, md_cur);
@@ -272,8 +272,6 @@ ttls_parse_session_ticket_ext(TlsCtx *tls, unsigned char *buf, size_t len)
 	int r;
 	TlsSess session;
 
-	bzero_fast(&session, sizeof(session));
-
 	if (!tls->conf->f_ticket_parse || !tls->conf->f_ticket_write)
 		return 0;
 
@@ -286,6 +284,7 @@ ttls_parse_session_ticket_ext(TlsCtx *tls, unsigned char *buf, size_t len)
 		return 0;
 
 	/* Failures are ok: just ignore the ticket and proceed. */
+	bzero_fast(&session, sizeof(session));
 	r = tls->conf->f_ticket_parse(tls->conf->p_ticket, &session, buf, len);
 	if (r) {
 		ttls_session_free(&session);
@@ -361,14 +360,14 @@ ttls_parse_alpn_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 		/* Current identifier must fit in list */
 		if (cur_len > (size_t)(end - theirs)) {
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-		TTLS_ALERT_MSG_DECODE_ERROR);
+					TTLS_ALERT_MSG_DECODE_ERROR);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
 
 		/* Empty strings MUST NOT be included */
 		if (!cur_len) {
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-		TTLS_ALERT_MSG_ILLEGAL_PARAMETER);
+					TTLS_ALERT_MSG_ILLEGAL_PARAMETER);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
 	}
@@ -456,7 +455,7 @@ ttls_pick_cert(TlsCtx *tls, const ttls_ciphersuite_t *ci)
 		 * avoid signing and decrypting with the same RSA key.
 		 */
 		if (ttls_check_cert_usage(cur->cert, ci, TTLS_IS_SERVER,
-		  &flags))
+					  &flags))
 		{
 			T_DBG("certificate mismatch: (extended) key usage"
 			      " extension\n");
@@ -675,7 +674,7 @@ ttls_parse_client_hello(TtlsCtx *tls, unsigned char *buf, size_t len,
 			T_DBG("ClientHello: bad version %u:%u\n",
 			      tls->major, tls->minor);
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-		TTLS_ALERT_MSG_PROTOCOL_VERSION);
+					TTLS_ALERT_MSG_PROTOCOL_VERSION);
 			return TTLS_ERR_BAD_HS_PROTOCOL_VERSION;
 		}
 		TTLS_HS_FSM_MOVE(TTLS_CH_HS_RND);
@@ -702,7 +701,7 @@ ttls_parse_client_hello(TtlsCtx *tls, unsigned char *buf, size_t len,
 		if (n > sizeof(tls->session.id) || n + 34 + 2 > io->msglen) {
 			T_DBG("ClientHello: bad session length %d\n", n);
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-			TTLS_ALERT_MSG_DECODE_ERROR);
+					TTLS_ALERT_MSG_DECODE_ERROR);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
 		tls->sess.id_len = n;
@@ -753,7 +752,7 @@ ttls_parse_client_hello(TtlsCtx *tls, unsigned char *buf, size_t len,
 		if (n < 2 || n + 1 > io->msglen || (n & 1)) {
 			T_DBG("ClientHello: bad cipher suite length %d\n", n);
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-			TTLS_ALERT_MSG_DECODE_ERROR);
+					TTLS_ALERT_MSG_DECODE_ERROR);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
 		TTLS_HS_FSM_MOVE(TTLS_CH_HS_CS);
@@ -807,7 +806,7 @@ ttls_parse_client_hello(TtlsCtx *tls, unsigned char *buf, size_t len,
 		if (n < 1 || n > 16 || n + 1 > io->msglen) {
 			T_DBG("ClientHello: bad compression number %d\n", n);
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-			TTLS_ALERT_MSG_DECODE_ERROR);
+					TTLS_ALERT_MSG_DECODE_ERROR);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
 		/*
@@ -829,8 +828,8 @@ ttls_parse_client_hello(TtlsCtx *tls, unsigned char *buf, size_t len,
 			if (!tls->hs->tmp[1]) {
 				T_DBG("ClientHello: no NULL compression\n");
 				ttls_send_alert(tls,
-			TTLS_ALERT_LEVEL_FATAL,
-			TTLS_ALERT_MSG_DECODE_ERROR);
+						TTLS_ALERT_LEVEL_FATAL,
+						TTLS_ALERT_MSG_DECODE_ERROR);
 				return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 			}
 			TTLS_HS_FSM_MOVE(TTLS_CH_HS_EXTLEN);
@@ -864,7 +863,7 @@ ttls_parse_client_hello(TtlsCtx *tls, unsigned char *buf, size_t len,
 			T_DBG("ClientHello: bad extensions length %d"
 			      " (msg len=%u)\n", n, io->msglen);
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-			TTLS_ALERT_MSG_DECODE_ERROR);
+					TTLS_ALERT_MSG_DECODE_ERROR);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
 		if (!n) {
@@ -928,7 +927,7 @@ ttls_parse_client_hello(TtlsCtx *tls, unsigned char *buf, size_t len,
 			T_DBG("ClientHello: bad extension size %d"
 			      " (ext_len=%u)\n", n, ext_len);
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-			TTLS_ALERT_MSG_DECODE_ERROR);
+					TTLS_ALERT_MSG_DECODE_ERROR);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
 		/* Swap bytes to reuse them as a pointer to short later. */
@@ -975,19 +974,19 @@ ttls_parse_client_hello(TtlsCtx *tls, unsigned char *buf, size_t len,
 		case TTLS_TLS_EXT_SIG_ALG:
 			T_DBG("found signature_algorithms extension\n");
 			if (ttls_parse_signature_algorithms_ext(tls, buf,
-		ext_sz))
+								ext_sz))
 				return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 			break;
 		case TTLS_TLS_EXT_SUPPORTED_ELLIPTIC_CURVES:
 			T_DBG("found supported elliptic curves extension\n");
 			if (ttls_parse_supported_elliptic_curves(tls, buf,
-		 ext_sz))
+								 ext_sz))
 				return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 			break;
 		case TTLS_TLS_EXT_SUPPORTED_POINT_FORMATS:
 			T_DBG("found supported point formats extension\n");
 			if (ttls_parse_supported_point_formats(tls, buf,
-				       ext_sz))
+							       ext_sz))
 				return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 			break;
 		case TTLS_TLS_EXT_ENCRYPT_THEN_MAC:
@@ -1018,7 +1017,7 @@ ttls_parse_client_hello(TtlsCtx *tls, unsigned char *buf, size_t len,
 		if (*ext_len > 0 && *ext_len < 4) {
 			T_DBG("ClientHello: bad extensions list\n");
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-		TTLS_ALERT_MSG_DECODE_ERROR);
+					TTLS_ALERT_MSG_DECODE_ERROR);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
 		if (!*ext_len)
@@ -1406,7 +1405,7 @@ ttls_write_server_key_exchange(TlsCtx *tls)
 		for ( ; *gid != TTLS_ECP_DP_NONE; gid++)
 			for (curve = tls->hs->curves; *curve; curve++)
 				if ((*curve)->grp_id == *gid)
-		goto curve_matching_done;
+					goto curve_matching_done;
 curve_matching_done:
 		if (!curve || !*curve) {
 			T_DBG("no matching curve for ECDHE key exchange\n");
@@ -1423,7 +1422,7 @@ curve_matching_done:
 		}
 
 		r = ttls_ecdh_make_params(&tls->hs->ecdh_ctx, &len, p,
-		  TTLS_MAX_CONTENT_LEN);
+					  TTLS_MAX_CONTENT_LEN);
 		if (r) {
 			T_DBG("cannot make ECDH params, %d\n", r);
 			goto err;
@@ -1469,9 +1468,9 @@ curve_matching_done:
 			/* Info from md_alg will be used instead */
 			hashlen = 0;
 			r = ttls_get_key_exchange_md_tls1_2(tls, hash,
-				   dig_signed,
-				    dig_signed_len,
-				    md_alg);
+							    dig_signed,
+							    dig_signed_len,
+							    md_alg);
 			if (r)
 				goto err;
 		} else {

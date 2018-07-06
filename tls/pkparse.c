@@ -28,22 +28,7 @@
 #include "rsa.h"
 #include "ecp.h"
 #include "ecdsa.h"
-#if defined(TTLS_PEM_PARSE_C)
 #include "pem.h"
-#endif
-#if defined(TTLS_PKCS5_C)
-#include "pkcs5.h"
-#endif
-#if defined(TTLS_PKCS12_C)
-#include "pkcs12.h"
-#endif
-
-#if defined(TTLS_PKCS12_C) || defined(TTLS_PKCS5_C)
-/* Implementation that should never be optimized out by the compiler */
-static void ttls_zeroize(void *v, size_t n) {
-	volatile unsigned char *p = v; while (n--) *p++ = 0;
-}
-#endif
 
 /* Minimally parse an ECParameters buffer to and ttls_asn1_buf
  *
@@ -876,143 +861,14 @@ static int pk_parse_key_pkcs8_unencrypted_der(
 }
 
 /*
- * Parse an encrypted PKCS#8 encoded private key
- *
- * To save space, the decryption happens in-place on the given key buffer.
- * Also, while this function may modify the keybuffer, it doesn't own it,
- * and instead it is the responsibility of the caller to zeroize and properly
- * free it after use.
- *
- */
-#if defined(TTLS_PKCS12_C) || defined(TTLS_PKCS5_C)
-static int pk_parse_key_pkcs8_encrypted_der(
-			ttls_pk_context *pk,
-			unsigned char *key, size_t keylen,
-			const unsigned char *pwd, size_t pwdlen)
-{
-	int ret, decrypted = 0;
-	size_t len;
-	unsigned char *buf;
-	unsigned char *p, *end;
-	ttls_asn1_buf pbe_alg_oid, pbe_params;
-#if defined(TTLS_PKCS12_C)
-	ttls_cipher_type_t cipher_alg;
-	ttls_md_type_t md_alg;
-#endif
-
-	p = key;
-	end = p + keylen;
-
-	if (pwdlen == 0)
-		return(TTLS_ERR_PK_PASSWORD_REQUIRED);
-
-	/*
-	 * This function parses the EncryptedPrivateKeyInfo object (PKCS#8)
-	 *
-	 *  EncryptedPrivateKeyInfo ::= SEQUENCE {
-	 *	encryptionAlgorithm  EncryptionAlgorithmIdentifier,
-	 *	encryptedData		EncryptedData
-	 *  }
-	 *
-	 *  EncryptionAlgorithmIdentifier ::= AlgorithmIdentifier
-	 *
-	 *  EncryptedData ::= OCTET STRING
-	 *
-	 *  The EncryptedData OCTET STRING is a PKCS#8 PrivateKeyInfo
-	 *
-	 */
-	if ((ret = ttls_asn1_get_tag(&p, end, &len,
-			TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE)) != 0)
-	{
-		return(TTLS_ERR_PK_KEY_INVALID_FORMAT + ret);
-	}
-
-	end = p + len;
-
-	if ((ret = ttls_asn1_get_alg(&p, end, &pbe_alg_oid, &pbe_params)) != 0)
-		return(TTLS_ERR_PK_KEY_INVALID_FORMAT + ret);
-
-	if ((ret = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_OCTET_STRING)) != 0)
-		return(TTLS_ERR_PK_KEY_INVALID_FORMAT + ret);
-
-	buf = p;
-
-	/*
-	 * Decrypt EncryptedData with appropriate PBE
-	 */
-#if defined(TTLS_PKCS12_C)
-	if (ttls_oid_get_pkcs12_pbe_alg(&pbe_alg_oid, &md_alg, &cipher_alg) == 0)
-	{
-		if ((ret = ttls_pkcs12_pbe(&pbe_params, TTLS_PKCS12_PBE_DECRYPT,
-		cipher_alg, md_alg,
-		pwd, pwdlen, p, len, buf)) != 0)
-		{
-			if (ret == TTLS_ERR_PKCS12_PASSWORD_MISMATCH)
-				return(TTLS_ERR_PK_PASSWORD_MISMATCH);
-
-			return ret;
-		}
-
-		decrypted = 1;
-	}
-	else if (TTLS_OID_CMP(TTLS_OID_PKCS12_PBE_SHA1_RC4_128, &pbe_alg_oid) == 0)
-	{
-		if ((ret = ttls_pkcs12_pbe_sha1_rc4_128(&pbe_params,
-		 TTLS_PKCS12_PBE_DECRYPT,
-		 pwd, pwdlen,
-		 p, len, buf)) != 0)
-		{
-			return ret;
-		}
-
-		// Best guess for password mismatch when using RC4. If first tag is
-		// not TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE
-		//
-		if (*buf != (TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE))
-			return(TTLS_ERR_PK_PASSWORD_MISMATCH);
-
-		decrypted = 1;
-	}
-	else
-#endif /* TTLS_PKCS12_C */
-#if defined(TTLS_PKCS5_C)
-	if (TTLS_OID_CMP(TTLS_OID_PKCS5_PBES2, &pbe_alg_oid) == 0)
-	{
-		if ((ret = ttls_pkcs5_pbes2(&pbe_params, TTLS_PKCS5_DECRYPT, pwd, pwdlen,
-		  p, len, buf)) != 0)
-		{
-			if (ret == TTLS_ERR_PKCS5_PASSWORD_MISMATCH)
-				return(TTLS_ERR_PK_PASSWORD_MISMATCH);
-
-			return ret;
-		}
-
-		decrypted = 1;
-	}
-	else
-#endif /* TTLS_PKCS5_C */
-	{
-		((void) pwd);
-	}
-
-	if (decrypted == 0)
-		return(TTLS_ERR_PK_FEATURE_UNAVAILABLE);
-
-	return(pk_parse_key_pkcs8_unencrypted_der(pk, buf, len));
-}
-#endif /* TTLS_PKCS12_C || TTLS_PKCS5_C */
-
-/*
  * Parse a private key
  */
-int ttls_pk_parse_key(ttls_pk_context *pk,
-				  const unsigned char *key, size_t keylen,
-				  const unsigned char *pwd, size_t pwdlen)
+int
+ttls_pk_parse_key(ttls_pk_context *pk, const unsigned char *key, size_t keylen)
 {
 	int ret;
 	const ttls_pk_info_t *pk_info;
 
-#if defined(TTLS_PEM_PARSE_C)
 	size_t len;
 	ttls_pem_context pem;
 
@@ -1025,7 +881,7 @@ int ttls_pk_parse_key(ttls_pk_context *pk,
 		ret = ttls_pem_read_buffer(&pem,
 				   "-----BEGIN RSA PRIVATE KEY-----",
 				   "-----END RSA PRIVATE KEY-----",
-				   key, pwd, pwdlen, &len);
+				   key, &len);
 
 	if (ret == 0)
 	{
@@ -1054,7 +910,7 @@ int ttls_pk_parse_key(ttls_pk_context *pk,
 		ret = ttls_pem_read_buffer(&pem,
 				   "-----BEGIN EC PRIVATE KEY-----",
 				   "-----END EC PRIVATE KEY-----",
-				   key, pwd, pwdlen, &len);
+				   key, &len);
 	if (ret == 0)
 	{
 		pk_info = ttls_pk_info_from_type(TTLS_PK_ECKEY);
@@ -1098,73 +954,6 @@ int ttls_pk_parse_key(ttls_pk_context *pk,
 	else if (ret != TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT)
 		return ret;
 
-#if defined(TTLS_PKCS12_C) || defined(TTLS_PKCS5_C)
-	/* Avoid calling ttls_pem_read_buffer() on non-null-terminated string */
-	if (keylen == 0 || key[keylen - 1] != '\0')
-		ret = TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT;
-	else
-		ret = ttls_pem_read_buffer(&pem,
-				   "-----BEGIN ENCRYPTED PRIVATE KEY-----",
-				   "-----END ENCRYPTED PRIVATE KEY-----",
-				   key, NULL, 0, &len);
-	if (ret == 0)
-	{
-		if ((ret = pk_parse_key_pkcs8_encrypted_der(pk,
-				  pem.buf, pem.buflen,
-				  pwd, pwdlen)) != 0)
-		{
-			ttls_pk_free(pk);
-		}
-
-		ttls_pem_free(&pem);
-		return ret;
-	}
-	else if (ret != TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT)
-		return ret;
-#endif /* TTLS_PKCS12_C || TTLS_PKCS5_C */
-#else
-	((void) ret);
-	((void) pwd);
-	((void) pwdlen);
-#endif /* TTLS_PEM_PARSE_C */
-
-	/*
-	 * At this point we only know it's not a PEM formatted key. Could be any
-	 * of the known DER encoded private key formats
-	 *
-	 * We try the different DER format parsers to see if one passes without
-	 * error
-	 */
-#if defined(TTLS_PKCS12_C) || defined(TTLS_PKCS5_C)
-	{
-		unsigned char *key_copy;
-
-		if (keylen == 0)
-			return(TTLS_ERR_PK_KEY_INVALID_FORMAT);
-
-		if ((key_copy = ttls_calloc(1, keylen)) == NULL)
-			return(TTLS_ERR_PK_ALLOC_FAILED);
-
-		memcpy(key_copy, key, keylen);
-
-		ret = pk_parse_key_pkcs8_encrypted_der(pk, key_copy, keylen,
-			pwd, pwdlen);
-
-		ttls_zeroize(key_copy, keylen);
-		ttls_free(key_copy);
-	}
-
-	if (ret == 0)
-		return 0;
-
-	ttls_pk_free(pk);
-
-	if (ret == TTLS_ERR_PK_PASSWORD_MISMATCH)
-	{
-		return ret;
-	}
-#endif /* TTLS_PKCS12_C || TTLS_PKCS5_C */
-
 	if ((ret = pk_parse_key_pkcs8_unencrypted_der(pk, key, keylen)) == 0)
 		return 0;
 
@@ -1206,7 +995,6 @@ int ttls_pk_parse_public_key(ttls_pk_context *ctx,
 	int ret;
 	unsigned char *p;
 	const ttls_pk_info_t *pk_info;
-#if defined(TTLS_PEM_PARSE_C)
 	size_t len;
 	ttls_pem_context pem;
 
@@ -1267,7 +1055,6 @@ int ttls_pk_parse_public_key(ttls_pk_context *ctx,
 		return ret;
 	}
 	ttls_pem_free(&pem);
-#endif /* TTLS_PEM_PARSE_C */
 
 	if ((pk_info = ttls_pk_info_from_type(TTLS_PK_RSA)) == NULL)
 		return(TTLS_ERR_PK_UNKNOWN_PK_ALG);

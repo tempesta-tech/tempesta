@@ -35,9 +35,7 @@
 #include "asn1.h"
 #include "certs.h"
 #include "oid.h"
-#if defined(TTLS_PEM_PARSE_C)
 #include "pem.h"
-#endif
 #include "x509.h"
 #include "x509_crt.h"
 
@@ -945,7 +943,7 @@ ttls_x509_time_is_future(const ttls_x509_time *from)
  */
 int ttls_x509_self_test(int verbose)
 {
-#if defined(TTLS_CERTS_C) && defined(TTLS_SHA256_C)
+#if defined(TTLS_CERTS_C)
 	int ret;
 	uint32_t flags;
 	ttls_x509_crt cacert;

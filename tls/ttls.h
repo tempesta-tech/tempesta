@@ -142,12 +142,6 @@
 #define TTLS_SESSION_TICKETS_DISABLED	0
 #define TTLS_SESSION_TICKETS_ENABLED	1
 
-#define TTLS_ARC4_ENABLED	0
-#define TTLS_ARC4_DISABLED	1
-
-#define TTLS_PRESET_DEFAULT	0
-#define TTLS_PRESET_SUITEB	2
-
 /*
  * Default range for DTLS retransmission timer value, in milliseconds.
  * RFC 6347 4.2.4.1 says from 1 second to 60 seconds.
@@ -298,7 +292,7 @@ union ttls_premaster_secret
 #define TTLS_HS_RBUF_SZ		TTLS_PREMASTER_SIZE
 
 /* Defined below */
-typedef struct TtlsSess ttls_session;
+typedef struct TlsSess ttls_session;
 typedef struct ttls_context ttls_context;
 typedef struct ttls_config ttls_config;
 
@@ -348,10 +342,6 @@ typedef struct {
 struct ttls_config
 {
 	/* Group items by size (largest first) to minimize padding overhead */
-
-	/*
-	* Pointers
-	*/
 
 	const int *ciphersuite_list[4]; /*!< allowed ciphersuites per version */
 
@@ -443,8 +433,6 @@ struct ttls_config
 /**
  * I/O context for a TLS context.
  *
- * @sess	- current session data;
- * @xfrm	- current transform params;
  * @__cp_start	- start to copy temporal buffer for message header and IV,
  *		  used to reduce fragmentation complexity;
  * @ctr		- 64-bit incoming message counter maintained by us for TLS and
@@ -465,8 +453,6 @@ struct ttls_config
  * @chunks	- number of contigious memory chunks in all skbs in @skb_list;
  */
 typedef struct {
-	TlsSess		*sess;
-	TlsXfrm		*xfrm
 	unsigned char	__init_start[0];
 #if defined(MBEDTLS_PROTO_DTLS)
 	union {
@@ -543,13 +529,6 @@ typedef struct ttls_context {
 	TlsXfrm			xfrm;
 
 	unsigned int		nb_zero;
-
-	/*
-	* Timers
-	*/
-	void *p_timer;	/*!< context for the timer callbacks */
-	ttls_set_timer_t *f_set_timer;	/*!< set timer callback */
-	ttls_get_timer_t *f_get_timer;	/*!< get timer callback */
 
 	/*
 	* PKI layer
@@ -761,31 +740,6 @@ void ttls_conf_authmode(ttls_config *conf, int authmode);
 void ttls_conf_verify(ttls_config *conf,
 	int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *),
 	void *p_vrfy);
-
-/**
- * \brief	Set the timer callbacks (Mandatory for DTLS.)
- *
- * \param ssl	SSL context
- * \param p_timer parameter (context) shared by timer callbacks
- * \param f_set_timer set timer callback
- * \param f_get_timer get timer callback. Must return:
- *
- * \note	See the documentation of \c ttls_set_timer_t and
- *		\c ttls_get_timer_t for the conventions this pair of
- *		callbacks must follow.
- *
- * \note	On some platforms, timing.c provides
- *		\c ttls_timing_set_delay() and
- *		\c ttls_timing_get_delay() that are suitable for using
- *		here, except if using an event-driven style.
- *
- * \note	See also the "DTLS tutorial" article in our knowledge base.
- *		https://tls.mbed.org/kb/how-to/dtls-tutorial
- */
-void ttls_set_timer_cb(ttls_context *ssl,
-	void *p_timer,
-	ttls_set_timer_t *f_set_timer,
-	ttls_get_timer_t *f_get_timer);
 
 /**
  * \brief	Callback type: generate and write session ticket
@@ -1311,18 +1265,6 @@ uint32_t ttls_get_verify_result(const ttls_context *ssl);
 const char *ttls_get_ciphersuite(const ttls_context *ssl);
 
 /**
- * \brief	Return the (maximum) number of bytes added by the record
- *		layer: header + encryption/MAC overhead (inc. padding)
- *
- * \param ssl	SSL context
- *
- * \return	Current maximum record expansion in bytes, or
- *		TTLS_ERR_FEATURE_UNAVAILABLE if compression is
- *		enabled, which makes expansion much less predictable
- */
-int ttls_get_record_expansion(const ttls_context *ssl);
-
-/**
  * \brief	Return the peer certificate from the current connection
  *
  *		Note: Can be NULL in case no certificate was sent during
@@ -1379,48 +1321,10 @@ int ttls_send_alert_msg(TlsCtx *tls, unsigned char lvl, unsigned char msg);
  */
 int ttls_close_notify(TlsCtx *ssl);
 
-/**
- * \brief	Free referenced items in an SSL context and clear memory
- *
- * \param ssl	SSL context
- */
-void ttls_free(ttls_context *ssl);
+void ttls_ctx_free(ttls_context *ssl);
 
-/**
- * \brief	Initialize an SSL configuration context
- *		Just makes the context ready for
- *		ttls_config_defaults() or ttls_config_free().
- *
- * \note	You need to call ttls_config_defaults() unless you
- *		manually set all of the relevent fields yourself.
- *
- * \param conf	SSL configuration context
- */
 void ttls_config_init(ttls_config *conf);
-
-/**
- * \brief	Load reasonnable default SSL configuration values.
- *		(You need to call ttls_config_init() first.)
- *
- * \param conf	SSL configuration context
- * \param endpoint TTLS_IS_CLIENT or TTLS_IS_SERVER
- * \param transport TTLS_TRANSPORT_STREAM for TLS, or
- *		TTLS_TRANSPORT_DATAGRAM for DTLS
- * \param preset a TTLS_PRESET_XXX value
- *
- * \note	See \c ttls_conf_transport() for notes on DTLS.
- *
- * \return	0 if successful, or
- *		TTLS_ERR_XXX_ALLOC_FAILED on memory allocation error.
- */
-int ttls_config_defaults(ttls_config *conf,
-	int endpoint, int transport, int preset);
-
-/**
- * \brief	Free an SSL configuration context
- *
- * \param conf	SSL configuration context
- */
+int ttls_config_defaults(ttls_config *conf, int endpoint, int transport);
 void ttls_config_free(ttls_config *conf);
 
 /**
@@ -1437,5 +1341,7 @@ void ttls_session_init(TtlsSess *session);
  * \param session SSL session
  */
 void ttls_session_free(TtlsSess *session);
+
+void ttls_strerror(int errnum, char *buffer, size_t buflen);
 
 #endif /* __TTLS_H__ */
