@@ -27,13 +27,10 @@
 #ifndef TTLS_PEM_H
 #define TTLS_PEM_H
 
-#include <stddef.h>
-
 /**
  * \name PEM Error codes
  * These error codes are returned in case of errors reading the
  * PEM data.
- * \{
  */
 #define TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT		  -0x1080  /**< No PEM header or footer found. */
 #define TTLS_ERR_PEM_INVALID_DATA		  -0x1100  /**< PEM string is not as expected. */
@@ -44,13 +41,7 @@
 #define TTLS_ERR_PEM_PASSWORD_MISMATCH				 -0x1380  /**< Given private key password does not allow for correct decryption. */
 #define TTLS_ERR_PEM_FEATURE_UNAVAILABLE			   -0x1400  /**< Unavailable feature, e.g. hashing/encryption combination. */
 #define TTLS_ERR_PEM_BAD_INPUT_DATA		-0x1480  /**< Bad input parameters to function. */
-/* \} name */
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-#if defined(TTLS_PEM_PARSE_C)
 /**
  * \brief	   PEM context structure
  */
@@ -77,8 +68,6 @@ void ttls_pem_init(ttls_pem_context *ctx);
  * \param header	header string to seek and expect
  * \param footer	footer string to seek and expect
  * \param data	  source data to look in (must be nul-terminated)
- * \param pwd	   password for decryption (can be NULL)
- * \param pwdlen	length of password
  * \param use_len   destination for total length used (set after header is
  *				  correctly read, so unless you get
  *				  TTLS_ERR_PEM_BAD_INPUT_DATA or
@@ -92,9 +81,7 @@ void ttls_pem_init(ttls_pem_context *ctx);
  * \return		  0 on success, or a specific PEM error code
  */
 int ttls_pem_read_buffer(ttls_pem_context *ctx, const char *header, const char *footer,
-		 const unsigned char *data,
-		 const unsigned char *pwd,
-		 size_t pwdlen, size_t *use_len);
+		 const unsigned char *data, size_t *use_len);
 
 /**
  * \brief	   PEM context memory freeing
@@ -102,32 +89,5 @@ int ttls_pem_read_buffer(ttls_pem_context *ctx, const char *header, const char *
  * \param ctx   context to be freed
  */
 void ttls_pem_free(ttls_pem_context *ctx);
-#endif /* TTLS_PEM_PARSE_C */
-
-#if defined(TTLS_PEM_WRITE_C)
-/**
- * \brief		   Write a buffer of PEM information from a DER encoded
- *				  buffer.
- *
- * \param header	header string to write
- * \param footer	footer string to write
- * \param der_data  DER data to write
- * \param der_len   length of the DER data
- * \param buf	   buffer to write to
- * \param buf_len   length of output buffer
- * \param olen	  total length written / required (if buf_len is not enough)
- *
- * \return		  0 on success, or a specific PEM or BASE64 error code. On
- *				  TTLS_ERR_BASE64_BUFFER_TOO_SMALL olen is the required
- *				  size.
- */
-int ttls_pem_write_buffer(const char *header, const char *footer,
-		  const unsigned char *der_data, size_t der_len,
-		  unsigned char *buf, size_t buf_len, size_t *olen);
-#endif /* TTLS_PEM_WRITE_C */
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* pem.h */

@@ -21,18 +21,11 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#include "config.h"
-
-#if defined(TTLS_PEM_PARSE_C) || defined(TTLS_PEM_WRITE_C)
-
 #include "pem.h"
 #include "base64.h"
-#include "des.h"
-#include "aes.h"
 #include "md5.h"
 #include "cipher.h"
 
-#if defined(TTLS_PEM_PARSE_C)
 /* Implementation that should never be optimized out by the compiler */
 static void ttls_zeroize(void *v, size_t n) {
 	volatile unsigned char *p = v; while (n--) *p++ = 0;
@@ -44,8 +37,7 @@ void ttls_pem_init(ttls_pem_context *ctx)
 }
 
 int ttls_pem_read_buffer(ttls_pem_context *ctx, const char *header, const char *footer,
-		 const unsigned char *data, const unsigned char *pwd,
-		 size_t pwdlen, size_t *use_len)
+		 const unsigned char *data, size_t *use_len)
 {
 	int ret, enc;
 	size_t len;
@@ -123,59 +115,3 @@ void ttls_pem_free(ttls_pem_context *ctx)
 
 	ttls_zeroize(ctx, sizeof(ttls_pem_context));
 }
-#endif /* TTLS_PEM_PARSE_C */
-
-#if defined(TTLS_PEM_WRITE_C)
-int ttls_pem_write_buffer(const char *header, const char *footer,
-		  const unsigned char *der_data, size_t der_len,
-		  unsigned char *buf, size_t buf_len, size_t *olen)
-{
-	int ret;
-	unsigned char *encode_buf = NULL, *c, *p = buf;
-	size_t len = 0, use_len, add_len = 0;
-
-	ttls_base64_encode(NULL, 0, &use_len, der_data, der_len);
-	add_len = strlen(header) + strlen(footer) + (use_len / 64) + 1;
-
-	if (use_len + add_len > buf_len)
-	{
-		*olen = use_len + add_len;
-		return(TTLS_ERR_BASE64_BUFFER_TOO_SMALL);
-	}
-
-	if (use_len != 0 &&
-		((encode_buf = ttls_calloc(1, use_len)) == NULL))
-		return(TTLS_ERR_PEM_ALLOC_FAILED);
-
-	if ((ret = ttls_base64_encode(encode_buf, use_len, &use_len, der_data,
-				   der_len)) != 0)
-	{
-		ttls_free(encode_buf);
-		return ret;
-	}
-
-	memcpy(p, header, strlen(header));
-	p += strlen(header);
-	c = encode_buf;
-
-	while (use_len)
-	{
-		len = (use_len > 64) ? 64 : use_len;
-		memcpy(p, c, len);
-		use_len -= len;
-		p += len;
-		c += len;
-		*p++ = '\n';
-	}
-
-	memcpy(p, footer, strlen(footer));
-	p += strlen(footer);
-
-	*p++ = '\0';
-	*olen = p - buf;
-
-	ttls_free(encode_buf);
-	return 0;
-}
-#endif /* TTLS_PEM_WRITE_C */
-#endif /* TTLS_PEM_PARSE_C || TTLS_PEM_WRITE_C */

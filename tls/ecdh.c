@@ -34,11 +34,9 @@
 /*
  * Generate public key: simple wrapper around ttls_ecp_gen_keypair
  */
-int ttls_ecdh_gen_public(ttls_ecp_group *grp, ttls_mpi *d, ttls_ecp_point *Q,
-		 int (*f_rng)(void *, unsigned char *, size_t),
-		 void *p_rng)
+int ttls_ecdh_gen_public(ttls_ecp_group *grp, ttls_mpi *d, ttls_ecp_point *Q)
 {
-	return ttls_ecp_gen_keypair(grp, d, Q, f_rng, p_rng);
+	return ttls_ecp_gen_keypair(grp, d, Q);
 }
 #endif /* TTLS_ECDH_GEN_PUBLIC_ALT */
 
@@ -110,9 +108,7 @@ void ttls_ecdh_free(ttls_ecdh_context *ctx)
  *	  } ServerECDHParams;
  */
 int ttls_ecdh_make_params(ttls_ecdh_context *ctx, size_t *olen,
-		  unsigned char *buf, size_t blen,
-		  int (*f_rng)(void *, unsigned char *, size_t),
-		  void *p_rng)
+		  unsigned char *buf, size_t blen)
 {
 	int ret;
 	size_t grp_len, pt_len;
@@ -120,8 +116,7 @@ int ttls_ecdh_make_params(ttls_ecdh_context *ctx, size_t *olen,
 	if (ctx == NULL || ctx->grp.pbits == 0)
 		return(TTLS_ERR_ECP_BAD_INPUT_DATA);
 
-	if ((ret = ttls_ecdh_gen_public(&ctx->grp, &ctx->d, &ctx->Q, f_rng, p_rng))
-				!= 0)
+	if ((ret = ttls_ecdh_gen_public(&ctx->grp, &ctx->d, &ctx->Q)))
 		return ret;
 
 	if ((ret = ttls_ecp_tls_write_group(&ctx->grp, &grp_len, buf, blen))
