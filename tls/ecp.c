@@ -1781,9 +1781,7 @@ int ttls_ecp_check_privkey(const ttls_ecp_group *grp, const ttls_mpi *d)
  */
 int ttls_ecp_gen_keypair_base(ttls_ecp_group *grp,
 		 const ttls_ecp_point *G,
-		 ttls_mpi *d, ttls_ecp_point *Q,
-		 int (*f_rng)(void *, unsigned char *, size_t),
-		 void *p_rng)
+		 ttls_mpi *d, ttls_ecp_point *Q)
 {
 	int ret;
 	size_t n_size = (grp->nbits + 7) / 8;
@@ -1853,18 +1851,16 @@ cleanup:
 	if (ret != 0)
 		return ret;
 
-	return(ttls_ecp_mul(grp, Q, d, G, f_rng, p_rng));
+	return ttls_ecp_mul(grp, Q, d, G);
 }
 
 /*
  * Generate key pair, wrapper for conventional base point
  */
 int ttls_ecp_gen_keypair(ttls_ecp_group *grp,
-		 ttls_mpi *d, ttls_ecp_point *Q,
-				 int (*f_rng)(void *, unsigned char *, size_t),
-				 void *p_rng)
+		 ttls_mpi *d, ttls_ecp_point *Q)
 {
-	return(ttls_ecp_gen_keypair_base(grp, &grp->G, d, Q, f_rng, p_rng));
+	return(ttls_ecp_gen_keypair_base(grp, &grp->G, d, Q));
 }
 
 /*

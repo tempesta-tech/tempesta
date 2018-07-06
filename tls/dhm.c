@@ -31,9 +31,7 @@
 #if defined(TTLS_DHM_C)
 
 #include "dhm.h"
-#if defined(TTLS_PEM_PARSE_C)
 #include "pem.h"
-#endif
 #include "asn1.h"
 
 #if !defined(TTLS_DHM_ALT)
@@ -413,7 +411,6 @@ int ttls_dhm_parse_dhm(ttls_dhm_context *dhm, const unsigned char *dhmin,
 	int ret;
 	size_t len;
 	unsigned char *p, *end;
-#if defined(TTLS_PEM_PARSE_C)
 	ttls_pem_context pem;
 
 	ttls_pem_init(&pem);
@@ -438,9 +435,6 @@ int ttls_dhm_parse_dhm(ttls_dhm_context *dhm, const unsigned char *dhmin,
 		goto exit;
 
 	p = (ret == 0) ? pem.buf : (unsigned char *) dhmin;
-#else
-	p = (unsigned char *) dhmin;
-#endif /* TTLS_PEM_PARSE_C */
 	end = p + dhminlen;
 
 	/*
@@ -492,9 +486,7 @@ int ttls_dhm_parse_dhm(ttls_dhm_context *dhm, const unsigned char *dhmin,
 	dhm->len = ttls_mpi_size(&dhm->P);
 
 exit:
-#if defined(TTLS_PEM_PARSE_C)
 	ttls_pem_free(&pem);
-#endif
 	if (ret != 0)
 		ttls_dhm_free(dhm);
 
