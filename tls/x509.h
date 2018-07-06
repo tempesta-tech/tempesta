@@ -293,14 +293,6 @@ int ttls_x509_sig_alg_gets(char *buf, size_t size, const ttls_x509_buf *sig_oid,
 		   ttls_pk_type_t pk_alg, ttls_md_type_t md_alg,
 		   const void *sig_opts);
 int ttls_x509_key_size_helper(char *buf, size_t buf_size, const char *name);
-int ttls_x509_string_to_names(ttls_asn1_named_data **head, const char *name);
-int ttls_x509_set_extension(ttls_asn1_named_data **head, const char *oid, size_t oid_len,
-			int critical, const unsigned char *val,
-			size_t val_len);
-int ttls_x509_write_extensions(unsigned char **p, unsigned char *start,
-			   ttls_asn1_named_data *first);
-int ttls_x509_write_names(unsigned char **p, unsigned char *start,
-		  ttls_asn1_named_data *first);
 int ttls_x509_write_sig(unsigned char **p, unsigned char *start,
 		const char *oid, size_t oid_len,
 		unsigned char *sig, size_t size);

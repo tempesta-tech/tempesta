@@ -315,7 +315,6 @@ const char ttls_test_cli_key_rsa[] =
 "-----END RSA PRIVATE KEY-----\r\n";
 const size_t ttls_test_cli_key_rsa_len = sizeof(ttls_test_cli_key_rsa);
 
-#if defined(TTLS_PEM_PARSE_C)
 /* Concatenation of all available CA certificates */
 const char ttls_test_cas_pem[] =
 #ifdef TEST_CA_CRT_RSA_SHA1
@@ -329,7 +328,6 @@ const char ttls_test_cas_pem[] =
 #endif
 	"";
 const size_t ttls_test_cas_pem_len = sizeof(ttls_test_cas_pem);
-#endif
 
 /* List of all available CA certificates */
 const char * ttls_test_cas[] = {
