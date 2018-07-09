@@ -106,9 +106,11 @@ http_match_suite_teardown(void)
 }
 
 static void
-test_chain_add_rule_str(int test_id, tfw_http_match_fld_t field, const char *in_arg)
+test_chain_add_rule_str(int test_id, tfw_http_match_fld_t field,
+			const char *hdr, const char *in_arg)
 {
 	MatchEntry *e;
+	unsigned int hid;
 	tfw_http_match_op_t op;
 	size_t len, arg_size;
 	const char *arg;
@@ -116,12 +118,17 @@ test_chain_add_rule_str(int test_id, tfw_http_match_fld_t field, const char *in_
 	len = strlen(in_arg);
 	BUG_ON(field == TFW_HTTP_MATCH_F_WILDCARD);
 	BUG_ON(in_arg[0] == '*' && len == 1);
-	arg = tfw_http_arg_adjust(in_arg, len, &arg_size, &op);
+
+	tfw_http_verify_hdr_field(field, &hdr, &hid);
+	arg = tfw_http_arg_adjust(in_arg, len, hdr, &arg_size, &op);
 
 	e = test_rule_container_new(test_chain, MatchEntry, rule,
 			  TFW_HTTP_MATCH_A_STR, arg_size);
-	tfw_http_rule_init(&e->rule, field, op, TFW_HTTP_MATCH_A_STR,
-			   arg, arg_size - 1);
+	e->rule.hid = hid;
+	e->rule.field = field;
+	e->rule.op = op;
+	e->rule.arg.type = TFW_HTTP_MATCH_A_STR;
+	tfw_http_rule_arg_init(&e->rule, arg, arg_size - 1);
 	/* Just dummy action type to avoid BUG_ON in 'do_eval()'. */
 	e->rule.act.type = TFW_HTTP_MATCH_ACT_CHAIN;
 	e->test_id = test_id;
@@ -146,6 +153,23 @@ set_tfw_str(TfwStr *str, const char *cstr)
 {
 	str->ptr = (void *)cstr;
 	str->len = strlen(cstr);
+}
+
+static void
+set_raw_hdr(const char *cstr)
+{
+	unsigned int hid;
+	TfwHttpHdrTbl *h_tbl = test_req->h_tbl;
+
+	hid = h_tbl->off;
+
+	if (hid == h_tbl->size &&
+	    tfw_http_msg_grow_hdr_tbl((TfwHttpMsg *)test_req))
+		return;
+
+	++h_tbl->off;
+
+	set_tfw_str(&test_req->h_tbl->tbl[hid], cstr);
 }
 
 TEST(tfw_http_match_req, returns_first_matching_rule)
@@ -176,9 +200,9 @@ TEST(http_match, uri_prefix)
 {
 	int match_id;
 
-	test_chain_add_rule_str(1, TFW_HTTP_MATCH_F_URI, "/foo/bar/baz*");
-	test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_URI, "/foo/ba*");
-	test_chain_add_rule_str(3, TFW_HTTP_MATCH_F_URI, "/*");
+	test_chain_add_rule_str(1, TFW_HTTP_MATCH_F_URI, NULL, "/foo/bar/baz*");
+	test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_URI, NULL, "/foo/ba*");
+	test_chain_add_rule_str(3, TFW_HTTP_MATCH_F_URI, NULL, "/*");
 
 	set_tfw_str(&test_req->uri_path, "/foo/bar/baz.html");
 	match_id = test_chain_match();
@@ -201,9 +225,10 @@ TEST(http_match, uri_suffix)
 {
 	int match_id;
 
-	test_chain_add_rule_str(1, TFW_HTTP_MATCH_F_URI, "*.jpg");
-	test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_URI, "*/people.html");
-	test_chain_add_rule_str(3, TFW_HTTP_MATCH_F_URI, "*/bar/folks.html");
+	test_chain_add_rule_str(1, TFW_HTTP_MATCH_F_URI, NULL, "*.jpg");
+	test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_URI, NULL, "*/people.html");
+	test_chain_add_rule_str(3, TFW_HTTP_MATCH_F_URI, NULL,
+				"*/bar/folks.html");
 
 	set_tfw_str(&test_req->uri_path, "/foo/bar/picture.jpg");
 	match_id = test_chain_match();
@@ -230,9 +255,12 @@ TEST(http_match, uri_wc_escaped)
 {
 	int match_id;
 
-	test_chain_add_rule_str(1, TFW_HTTP_MATCH_F_URI, "\\*/foo/bar");
-	test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_URI, "/foo/\\*people*");
-	test_chain_add_rule_str(3, TFW_HTTP_MATCH_F_URI, "*/foo\\*/bar\\*/index.html\\*");
+	test_chain_add_rule_str(1, TFW_HTTP_MATCH_F_URI, NULL,
+				"\\*/foo/bar");
+	test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_URI, NULL,
+				"/foo/\\*people*");
+	test_chain_add_rule_str(3, TFW_HTTP_MATCH_F_URI, NULL,
+				"*/foo\\*/bar\\*/index.html\\*");
 
 	set_tfw_str(&test_req->uri_path, "*/foo/bar");
 	match_id = test_chain_match();
@@ -251,9 +279,12 @@ TEST(http_match, host_eq)
 {
 	int match_id;
 
-	test_chain_add_rule_str(1, TFW_HTTP_MATCH_F_HOST, "www.natsys-lab.com");
-	test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_HOST, "natsys-lab");
-	test_chain_add_rule_str(3, TFW_HTTP_MATCH_F_HOST, "NATSYS-LAB.COM");
+	test_chain_add_rule_str(1, TFW_HTTP_MATCH_F_HOST, NULL,
+				"www.natsys-lab.com");
+	test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_HOST, NULL,
+				"natsys-lab");
+	test_chain_add_rule_str(3, TFW_HTTP_MATCH_F_HOST, NULL,
+				"NATSYS-LAB.COM");
 	set_tfw_str(&test_req->host, "natsys-lab.com");
 	match_id = test_chain_match();
 	EXPECT_EQ(3, match_id);
@@ -261,24 +292,32 @@ TEST(http_match, host_eq)
 
 TEST(http_match, headers_eq)
 {
-	int match_id;
+	create_str_pool();
 
-	test_chain_add_rule_str(1, TFW_HTTP_MATCH_F_HDR_RAW,
-				"User-Agent: U880D/4.0 (CP/M; 8-bit)");
-	test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_HDR_RAW,
-				"Connection:          close");
-	test_chain_add_rule_str(3, TFW_HTTP_MATCH_F_HDR_RAW,
-				"Connection:   Keep-Alive");
+	{
+		int match_id;
 
-	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION],
-	            "Connection:  Keep-Alive");
-	match_id = test_chain_match();
-	EXPECT_EQ(3, match_id);
+		/* Special headers must be compound */
+		TFW_STR2(hdr1, "Connection: ", "Keep-Alive");
+		TFW_STR2(hdr2, "Connection: ", "cLoSe");
 
-	set_tfw_str(&test_req->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION],
-	            "Connection: cLoSe");
-	match_id = test_chain_match();
-	EXPECT_EQ(2, match_id);
+		test_chain_add_rule_str(1, TFW_HTTP_MATCH_F_HDR,
+					"User-Agent", "U880D/4.0 (CP/M; 8-bit)");
+		test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_HDR,
+					"Connection", "close");
+		test_chain_add_rule_str(3, TFW_HTTP_MATCH_F_HDR,
+					"Connection", "Keep-Alive");
+
+		test_req->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION] = *hdr1;
+		match_id = test_chain_match();
+		EXPECT_EQ(3, match_id);
+
+		test_req->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION] = *hdr2;
+		match_id = test_chain_match();
+		EXPECT_EQ(2, match_id);
+	}
+
+	free_all_str();
 }
 
 TEST(http_match, hdr_host_prefix)
@@ -294,11 +333,12 @@ TEST(http_match, hdr_host_prefix)
 		TFW_STR2(hdr3, "Host: ", "www");
 		TFW_STR2(hdr4, "Host: ", "WWW.EXAMPLE.COM:8081");
 
-		test_chain_add_rule_str(1, TFW_HTTP_MATCH_F_HDR_CONN,
-					"Connection:    Keep-Alive");
-		test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_HDR_HOST, "ex*");
-		test_chain_add_rule_str(3, TFW_HTTP_MATCH_F_HDR_HOST,
-					"www.example.com*");
+		test_chain_add_rule_str(1, TFW_HTTP_MATCH_F_HDR,
+					"Connection", "    Keep-Alive");
+		test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_HDR,
+					"Host", "ex*");
+		test_chain_add_rule_str(3, TFW_HTTP_MATCH_F_HDR,
+					"Host",	"www.example.com*");
 
 		set_tfw_str(&test_req->host, "example.com");
 		match_id = test_chain_match();
@@ -339,12 +379,16 @@ TEST(http_match, hdr_host_suffix)
 		TFW_STR2(hdr5, "Host: ", "www");
 		TFW_STR2(hdr6, "Host: ", "TEST.FOLKS.COM");
 
-		test_chain_add_rule_str(1, TFW_HTTP_MATCH_F_HDR_CONN,
-					"Connection:  Keep-Alive");
-		test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_HDR_HOST, "*.ru");
-		test_chain_add_rule_str(3, TFW_HTTP_MATCH_F_HDR_HOST, "*.biz");
-		test_chain_add_rule_str(4, TFW_HTTP_MATCH_F_HDR_HOST, "*.folks.com");
-		test_chain_add_rule_str(5, TFW_HTTP_MATCH_F_HDR_HOST, "*.com");
+		test_chain_add_rule_str(1, TFW_HTTP_MATCH_F_HDR,
+					"Connection", "  Keep-Alive");
+		test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_HDR,
+					"Host", "*.ru");
+		test_chain_add_rule_str(3, TFW_HTTP_MATCH_F_HDR,
+					"Host", "*.biz");
+		test_chain_add_rule_str(4, TFW_HTTP_MATCH_F_HDR,
+					"Host", "*.folks.com");
+		test_chain_add_rule_str(5, TFW_HTTP_MATCH_F_HDR,
+					"Host", "*.com");
 
 		set_tfw_str(&test_req->host, "example.com");
 		match_id = test_chain_match();
@@ -376,6 +420,38 @@ TEST(http_match, hdr_host_suffix)
 	}
 
 	free_all_str();
+}
+
+TEST(http_match, raw_header_eq)
+{
+	int match_id;
+
+	test_chain_add_rule_str(1, TFW_HTTP_MATCH_F_HDR,
+				"User-Agent", "U880D/4.0 (CP/M; 8-bit)");
+	test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_HDR,
+				"Via", "test_proxy 1.0");
+
+	set_raw_hdr("Via: test_proxy 1.0");
+	match_id = test_chain_match();
+	EXPECT_EQ(2, match_id);
+}
+
+TEST(http_match, raw_header_eq_ws)
+{
+	int match_id;
+
+	test_chain_add_rule_str(1, TFW_HTTP_MATCH_F_HDR,
+				"User-Agent", "U880D/4.0 (CP/M; 8-bit)");
+	test_chain_add_rule_str(2, TFW_HTTP_MATCH_F_HDR,
+				"Connection", "close");
+	test_chain_add_rule_str(3, TFW_HTTP_MATCH_F_HDR,
+				"Connection", "Keep-Alive");
+	test_chain_add_rule_str(4, TFW_HTTP_MATCH_F_HDR,
+				"Warning", "        123 miscellaneous warning");
+
+	set_raw_hdr("Warning: 123 miscellaneous warning");
+	match_id = test_chain_match();
+	EXPECT_EQ(4, match_id);
 }
 
 TEST(http_match, method_eq)
@@ -427,5 +503,7 @@ TEST_SUITE(http_match)
 	TEST_RUN(http_match, headers_eq);
 	TEST_RUN(http_match, hdr_host_prefix);
 	TEST_RUN(http_match, hdr_host_suffix);
+	TEST_RUN(http_match, raw_header_eq);
+	TEST_RUN(http_match, raw_header_eq_ws);
 	TEST_RUN(http_match, method_eq);
 }
