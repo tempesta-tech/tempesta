@@ -125,6 +125,7 @@
  */
 typedef struct {
 	const char *fst;
+	const char *fst_ext;
 	const char *snd;
 	const char *act;
 	const char *val;

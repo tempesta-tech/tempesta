@@ -200,6 +200,7 @@ static inline void
 rule_reset(TfwCfgRule *rule)
 {
 	kfree(rule->fst);
+	kfree(rule->fst_ext);
 	kfree(rule->snd);
 	kfree(rule->act);
 	kfree(rule->val);
@@ -770,20 +771,23 @@ parse_cfg_entry(TfwCfgParserState *ps)
 
 	/* Every _PFSM_MOVE() invokes _read_next_token(), so when we enter
 	 * any state, we get a new token automatically.
-	 * Three different situations may occur here:
+	 * Four different situations may occur here:
 	 * 1. In case of plain directive parsing:
 	 *    name key = value;
 	 *    ^
 	 * 2. In case of rule parsing:
 	 *    key == (!=) value -> action [= val]
 	 *    ^
-	 * 3. In case of parsing of pure action rule:
+	 * 3. In case of extended rule parsing:
+	 *    key key_ext == (!=) value -> action [= val]
+	 *    ^
+	 * 4. In case of parsing of pure action rule:
 	 *    -> action [= val]
 	 *    ^
-	 * current token is here; so at first we need to differentiate third
-	 * situation, and in first two ones - save first token in special location
+	 * current token is here; so at first we need to differentiate fourth
+	 * situation, and in first three ones - save first token in special location
 	 * to decide later whether use it as name for plain directive or as
-	 * condition key for rule; in last two cases predefined rule name is used.
+	 * condition key for rule; in last three cases predefined rule name is used.
 	 */
 	FSM_STATE(PS_START_NEW_ENTRY) {
 		entry_reset(&ps->e);
@@ -802,9 +806,40 @@ parse_cfg_entry(TfwCfgParserState *ps)
 		PFSM_COND_MOVE(ps->t == TOKEN_DEQSIGN ||
 			       ps->t == TOKEN_NEQSIGN,
 			       PS_RULE_COND);
+		PFSM_COND_MOVE(ps->t == TOKEN_LITERAL, PS_PLAIN_OR_LONG_RULE);
+
+		/* Jump to plain val/attr scheme to make remained checks
+		 * for left brace and semicolon. */
 		ps->err = entry_set_name(&ps->e);
 		FSM_COND_JMP(ps->err, PS_EXIT);
 		FSM_JMP(PS_VAL_OR_ATTR);
+	}
+
+	FSM_STATE(PS_PLAIN_OR_LONG_RULE) {
+		FSM_COND_JMP(ps->t == TOKEN_DEQSIGN ||
+			     ps->t == TOKEN_NEQSIGN,
+			     PS_LONG_RULE_COND);
+
+		/* This is not rule (simple or extended), so jump to
+		 * plain val/attr scheme. */
+		ps->err = entry_set_name(&ps->e);
+		FSM_COND_JMP(ps->err, PS_EXIT);
+		FSM_COND_JMP(ps->t == TOKEN_EQSIGN, PS_STORE_ATTR_PREV);
+		FSM_COND_JMP(ps->t == TOKEN_LITERAL ||
+			     ps->t == TOKEN_SEMICOLON ||
+			     ps->t == TOKEN_LBRACE,
+			     PS_STORE_VAL_PREV);
+
+		ps->err = -EINVAL;
+		FSM_JMP(PS_EXIT);
+	}
+
+	FSM_STATE(PS_LONG_RULE_COND) {
+		ps->err = entry_add_rule_param(&ps->e.rule.fst_ext,
+					       ps->prev_lit,
+					       ps->prev_lit_len);
+		FSM_COND_JMP(ps->err, PS_EXIT);
+		PFSM_MOVE(PS_RULE_COND);
 	}
 
 	FSM_STATE(PS_RULE_COND) {
