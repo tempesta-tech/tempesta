@@ -189,7 +189,15 @@ tfw_sock_clnt_new(struct sock *sk)
 	tfw_connection_link_to_sk(conn, sk);
 	tfw_connection_link_from_sk(conn, sk);
 	tfw_connection_link_peer(conn, (TfwPeer *)cli);
+
 	ss_set_callbacks(sk);
+	if (TFW_CONN_TYPE(conn) & TFW_FSM_HTTPS)
+		/*
+		 * Probably, that's not beautiful to introduce an alternate
+		 * upcall beside GFSM and SS, but that's efficient and I didn't
+		 * find a simple and better solution.
+		 */
+		conn->sk->sk_write_xmit = tfw_tls_encrypt;
 
 	/* Activate keepalive timer. */
 	mod_timer(&conn->timer,

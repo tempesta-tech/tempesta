@@ -28,18 +28,11 @@
  *  You should have received a copy of the GNU General Public License along
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- *  This file is part of Mbed TLS (https://tls.mbed.org)
  */
-
 #ifndef TTLS_ECDH_H
 #define TTLS_ECDH_H
 
 #include "ecp.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /**
  * Defines the source of the imported EC key:
@@ -80,17 +73,13 @@ ttls_ecdh_context;
  * \param grp	   The ECP group.
  * \param d		 The destination MPI (private key).
  * \param Q		 The destination point (public key).
- * \param f_rng	 The RNG function.
- * \param p_rng	 The RNG parameter.
  *
  * \return		  \c 0 on success, or an \c TTLS_ERR_ECP_XXX or
  *				  \c TTLS_MPI_XXX error code on failure.
  *
  * \see			 ecp.h
  */
-int ttls_ecdh_gen_public(ttls_ecp_group *grp, ttls_mpi *d, ttls_ecp_point *Q,
-		 int (*f_rng)(void *, unsigned char *, size_t),
-		 void *p_rng);
+int ttls_ecdh_gen_public(ttls_ecp_group *grp, ttls_mpi *d, ttls_ecp_point *Q);
 
 /**
  * \brief		   This function computes the shared secret.
@@ -103,8 +92,6 @@ int ttls_ecdh_gen_public(ttls_ecp_group *grp, ttls_mpi *d, ttls_ecp_point *Q,
  * \param z		 The destination MPI (shared secret).
  * \param Q		 The public key from another party.
  * \param d		 Our secret exponent (private key).
- * \param f_rng	 The RNG function.
- * \param p_rng	 The RNG parameter.
  *
  * \return		  \c 0 on success, or an \c TTLS_ERR_ECP_XXX or
  *				  \c TTLS_MPI_XXX error code on failure.
@@ -116,9 +103,7 @@ int ttls_ecdh_gen_public(ttls_ecp_group *grp, ttls_mpi *d, ttls_ecp_point *Q,
  *				  attacks. For more information, see ttls_ecp_mul().
  */
 int ttls_ecdh_compute_shared(ttls_ecp_group *grp, ttls_mpi *z,
-			 const ttls_ecp_point *Q, const ttls_mpi *d,
-			 int (*f_rng)(void *, unsigned char *, size_t),
-			 void *p_rng);
+			 const ttls_ecp_point *Q, const ttls_mpi *d);
 
 /**
  * \brief		   This function initializes an ECDH context.
@@ -145,8 +130,6 @@ void ttls_ecdh_free(ttls_ecdh_context *ctx);
  * \param olen	  The number of characters written.
  * \param buf	   The destination buffer.
  * \param blen	  The length of the destination buffer.
- * \param f_rng	 The RNG function.
- * \param p_rng	 The RNG parameter.
  *
  * \note			This function assumes that the ECP group (grp) of the
  *				  \p ctx context has already been properly set,
@@ -158,9 +141,7 @@ void ttls_ecdh_free(ttls_ecdh_context *ctx);
  * \see			 ecp.h
  */
 int ttls_ecdh_make_params(ttls_ecdh_context *ctx, size_t *olen,
-		  unsigned char *buf, size_t blen,
-		  int (*f_rng)(void *, unsigned char *, size_t),
-		  void *p_rng);
+		  unsigned char *buf, size_t blen);
 
 /**
  * \brief		   This function parses and processes a TLS ServerKeyExhange
@@ -213,8 +194,6 @@ int ttls_ecdh_get_params(ttls_ecdh_context *ctx, const ttls_ecp_keypair *key,
  * \param olen	  The number of Bytes written.
  * \param buf	   The destination buffer.
  * \param blen	  The size of the destination buffer.
- * \param f_rng	 The RNG function.
- * \param p_rng	 The RNG parameter.
  *
  * \return		  \c 0 on success, or an \c TTLS_ERR_ECP_XXX error code
  *				  on failure.
@@ -222,9 +201,7 @@ int ttls_ecdh_get_params(ttls_ecdh_context *ctx, const ttls_ecp_keypair *key,
  * \see			 ecp.h
  */
 int ttls_ecdh_make_public(ttls_ecdh_context *ctx, size_t *olen,
-		  unsigned char *buf, size_t blen,
-		  int (*f_rng)(void *, unsigned char *, size_t),
-		  void *p_rng);
+		  unsigned char *buf, size_t blen);
 
 /**
  * \brief	   This function parses and processes a TLS ClientKeyExchange
@@ -255,8 +232,6 @@ int ttls_ecdh_read_public(ttls_ecdh_context *ctx,
  * \param olen	  The number of Bytes written.
  * \param buf	   The destination buffer.
  * \param blen	  The length of the destination buffer.
- * \param f_rng	 The RNG function.
- * \param p_rng	 The RNG parameter.
  *
  * \return		  \c 0 on success, or an \c TTLS_ERR_ECP_XXX error code
  *				  on failure.
@@ -268,12 +243,6 @@ int ttls_ecdh_read_public(ttls_ecdh_context *ctx,
  *				  attacks. For more information, see ttls_ecp_mul().
  */
 int ttls_ecdh_calc_secret(ttls_ecdh_context *ctx, size_t *olen,
-		  unsigned char *buf, size_t blen,
-		  int (*f_rng)(void *, unsigned char *, size_t),
-		  void *p_rng);
-
-#ifdef __cplusplus
-}
-#endif
+		  unsigned char *buf, size_t blen);
 
 #endif /* ecdh.h */

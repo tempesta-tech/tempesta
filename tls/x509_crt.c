@@ -960,7 +960,7 @@ int ttls_x509_crt_parse(ttls_x509_crt *chain, const unsigned char *buf, size_t b
 			ret = ttls_pem_read_buffer(&pem,
 			   "-----BEGIN CERTIFICATE-----",
 			   "-----END CERTIFICATE-----",
-			   buf, NULL, 0, &use_len);
+			   buf, &use_len);
 
 			if (ret == 0)
 			{
@@ -985,7 +985,7 @@ int ttls_x509_crt_parse(ttls_x509_crt *chain, const unsigned char *buf, size_t b
 				buf += use_len;
 
 				if (first_error == 0)
-		first_error = ret;
+					first_error = ret;
 
 				total_failed++;
 				continue;
@@ -1003,10 +1003,10 @@ int ttls_x509_crt_parse(ttls_x509_crt *chain, const unsigned char *buf, size_t b
 				 * Quit parsing on a memory error
 				 */
 				if (ret == TTLS_ERR_X509_ALLOC_FAILED)
-		return ret;
+					return ret;
 
 				if (first_error == 0)
-		first_error = ret;
+					first_error = ret;
 
 				total_failed++;
 				continue;
@@ -1023,6 +1023,7 @@ int ttls_x509_crt_parse(ttls_x509_crt *chain, const unsigned char *buf, size_t b
 	else
 		return(TTLS_ERR_X509_CERT_UNKNOWN_FORMAT);
 }
+EXPORT_SYMBOL(ttls_x509_crt_parse);
 
 static int x509_info_subject_alt_name(char **buf, size_t *size,
 			   const ttls_x509_sequence *subject_alt_name)
@@ -1437,7 +1438,7 @@ static int x509_crt_verifycrl(ttls_x509_crt *crt, ttls_x509_crt *ca,
 {
 	int flags = 0;
 	unsigned char hash[TTLS_MD_MAX_SIZE];
-	const ttls_md_info_t *md_info;
+	const TlsMdInfo *md_info;
 
 	if (ca == NULL)
 		return(flags);
@@ -1708,7 +1709,7 @@ static int x509_crt_verify_top(
 	uint32_t ca_flags = 0;
 	int check_path_cnt;
 	unsigned char hash[TTLS_MD_MAX_SIZE];
-	const ttls_md_info_t *md_info;
+	const TlsMdInfo *md_info;
 	ttls_x509_crt *future_past_ca = NULL;
 
 	if (ttls_x509_time_is_past(&child->valid_to))
@@ -1851,7 +1852,7 @@ static int x509_crt_verify_child(
 	uint32_t parent_flags = 0;
 	unsigned char hash[TTLS_MD_MAX_SIZE];
 	ttls_x509_crt *grandparent;
-	const ttls_md_info_t *md_info;
+	const TlsMdInfo *md_info;
 
 	/* Counting intermediate self signed certificates */
 	if ((path_cnt != 0) && x509_name_cmp(&child->issuer, &child->subject) == 0)
@@ -2138,6 +2139,7 @@ void ttls_x509_crt_init(ttls_x509_crt *crt)
 {
 	memset(crt, 0, sizeof(ttls_x509_crt));
 }
+EXPORT_SYMBOL(ttls_x509_crt_init);
 
 /*
  * Unallocate all certificate data
@@ -2220,3 +2222,4 @@ void ttls_x509_crt_free(ttls_x509_crt *crt)
 	}
 	while (cert_cur != NULL);
 }
+EXPORT_SYMBOL(ttls_x509_crt_free);

@@ -525,8 +525,6 @@ int ttls_ecp_tls_write_group(const ttls_ecp_group *grp, size_t *olen,
  * \param R		 Destination point
  * \param m		 Integer by which to multiply
  * \param P		 Point to multiply
- * \param f_rng	 RNG function (see notes)
- * \param p_rng	 RNG parameter
  *
  * \return		  0 if successful,
  *				  TTLS_ERR_ECP_INVALID_KEY if m is not a valid privkey
@@ -534,8 +532,7 @@ int ttls_ecp_tls_write_group(const ttls_ecp_group *grp, size_t *olen,
  *				  TTLS_ERR_MPI_ALLOC_FAILED if memory allocation failed
  */
 int ttls_ecp_mul(ttls_ecp_group *grp, ttls_ecp_point *R,
-			 const ttls_mpi *m, const ttls_ecp_point *P,
-			 int (*f_rng)(void *, unsigned char *, size_t), void *p_rng);
+			 const ttls_mpi *m, const ttls_ecp_point *P, bool rnd);
 
 /**
  * \brief		   Multiplication and addition of two points by integers:
@@ -600,36 +597,11 @@ int ttls_ecp_check_pubkey(const ttls_ecp_group *grp, const ttls_ecp_point *pt);
 int ttls_ecp_check_privkey(const ttls_ecp_group *grp, const ttls_mpi *d);
 
 /**
- * \brief		   Generate a keypair with configurable base point
- *
- * \param grp	   ECP group
- * \param G		 Chosen base point
- * \param d		 Destination MPI (secret part)
- * \param Q		 Destination point (public part)
- * \param f_rng	 RNG function
- * \param p_rng	 RNG parameter
- *
- * \return		  0 if successful,
- *				  or a TTLS_ERR_ECP_XXX or TTLS_MPI_XXX error code
- *
- * \note			Uses bare components rather than an ttls_ecp_keypair structure
- *				  in order to ease use with other structures such as
- *				  ttls_ecdh_context of ttls_ecdsa_context.
- */
-int ttls_ecp_gen_keypair_base(ttls_ecp_group *grp,
-		 const ttls_ecp_point *G,
-		 ttls_mpi *d, ttls_ecp_point *Q,
-		 int (*f_rng)(void *, unsigned char *, size_t),
-		 void *p_rng);
-
-/**
  * \brief		   Generate a keypair
  *
  * \param grp	   ECP group
  * \param d		 Destination MPI (secret part)
  * \param Q		 Destination point (public part)
- * \param f_rng	 RNG function
- * \param p_rng	 RNG parameter
  *
  * \return		  0 if successful,
  *				  or a TTLS_ERR_ECP_XXX or TTLS_MPI_XXX error code
@@ -638,23 +610,18 @@ int ttls_ecp_gen_keypair_base(ttls_ecp_group *grp,
  *				  in order to ease use with other structures such as
  *				  ttls_ecdh_context of ttls_ecdsa_context.
  */
-int ttls_ecp_gen_keypair(ttls_ecp_group *grp, ttls_mpi *d, ttls_ecp_point *Q,
-		 int (*f_rng)(void *, unsigned char *, size_t),
-		 void *p_rng);
+int ttls_ecp_gen_keypair(ttls_ecp_group *grp, ttls_mpi *d, ttls_ecp_point *Q);
 
 /**
  * \brief		   Generate a keypair
  *
  * \param grp_id	ECP group identifier
  * \param key	   Destination keypair
- * \param f_rng	 RNG function
- * \param p_rng	 RNG parameter
  *
  * \return		  0 if successful,
  *				  or a TTLS_ERR_ECP_XXX or TTLS_MPI_XXX error code
  */
-int ttls_ecp_gen_key(ttls_ecp_group_id grp_id, ttls_ecp_keypair *key,
-				int (*f_rng)(void *, unsigned char *, size_t), void *p_rng);
+int ttls_ecp_gen_key(ttls_ecp_group_id grp_id, ttls_ecp_keypair *key);
 
 /**
  * \brief		   Check a public-private key pair
