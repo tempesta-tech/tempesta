@@ -23,12 +23,11 @@
  *  You should have received a copy of the GNU General Public License along
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 #ifndef TTLS_CONFIG_H
 #define TTLS_CONFIG_H
 
+#include <linux/slab.h>
 #include <linux/spinlock.h>
 
 /* TODO remove the rest of the mess. */
@@ -219,20 +218,6 @@
  * Comment this macro to disable NIST curves optimisation.
  */
 #define TTLS_ECP_NIST_OPTIM
-
-/**
- * \def TTLS_ECDSA_DETERMINISTIC
- *
- * Enable deterministic ECDSA (RFC 6979).
- * Standard ECDSA is "fragile" in the sense that lack of entropy when signing
- * may result in a compromise of the long-term signing key. This is avoided by
- * the deterministic variant.
- *
- * Requires: TTLS_HMAC_DRBG_C
- *
- * Comment this macro to disable deterministic ECDSA.
- */
-#define TTLS_ECDSA_DETERMINISTIC
 
 /**
  * \def TTLS_PK_PARSE_EC_EXTENDED
@@ -451,18 +436,6 @@
 #define TTLS_DHM_C
 
 /**
- * \def TTLS_HMAC_DRBG_C
- *
- * Enable the HMAC_DRBG random generator.
- *
- * Module:  library/hmac_drbg.c
- * Caller:
- *
- * Uncomment to enable the HMAC_DRBG random number geerator.
- */
-#define TTLS_HMAC_DRBG_C
-
-/**
  * TODO TTLS_CACHE_C
  *
  * Enable simple SSL cache implementation.
@@ -527,12 +500,6 @@
 //#define TTLS_CTR_DRBG_MAX_INPUT				256 /**< Maximum number of additional input bytes */
 //#define TTLS_CTR_DRBG_MAX_REQUEST			 1024 /**< Maximum number of requested bytes per call */
 //#define TTLS_CTR_DRBG_MAX_SEED_INPUT		   384 /**< Maximum size of (re)seed buffer */
-
-/* HMAC_DRBG options */
-//#define TTLS_HMAC_DRBG_RESEED_INTERVAL   10000 /**< Interval before reseed is performed by default */
-//#define TTLS_HMAC_DRBG_MAX_INPUT		   256 /**< Maximum number of additional input bytes */
-//#define TTLS_HMAC_DRBG_MAX_REQUEST		1024 /**< Maximum number of requested bytes per call */
-//#define TTLS_HMAC_DRBG_MAX_SEED_INPUT	  384 /**< Maximum size of (re)seed buffer */
 
 /* ECP options */
 //#define TTLS_ECP_MAX_BITS			 521 /**< Maximum bit size of groups */

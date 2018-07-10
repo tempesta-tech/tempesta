@@ -871,11 +871,12 @@ ss_skb_expand_frags(struct sk_buff *skb, size_t head, size_t tail)
 	}
 
 	/* Split the allocated fragment to head and tail parts. */
-	frag = si->frags[0];
+	frag = &si->frags[0];
 	__skb_frag_ref(frag);
 	skb_fill_page_desc(skb, si->nr_frags, skb_frag_page(frag),
 			   frag->page_offset + head, tail);
 	skb_frag_size_sub(frag, tail);
+	ss_skb_adjust_data_len(skb, n);
 
 	return it.ptr;
 }
@@ -956,14 +957,13 @@ ss_skb_process(struct sk_buff *skb, unsigned int off, ss_skb_actor_t actor,
 {
 	int i, r = SS_OK;
 	int headlen = skb_headlen(skb);
-	struct sk_buff *f_skb;
 	struct skb_shared_info *si = skb_shinfo(skb);
 
 	/* Process linear data. */
 	if (likely(off < headlen)) {
 		++*chunks;
 		r = actor(objdata, skb->data + off, skb_headlen(skb) - off,
-			  &processed);
+			  processed);
 		if (r != SS_POSTPONE)
 			return r;
 	} else {
@@ -981,7 +981,7 @@ ss_skb_process(struct sk_buff *skb, unsigned int off, ss_skb_actor_t actor,
 		if (likely(off < frag_size)) {
 			++*chunks;
 			r = actor(objdata, frag_addr + off, frag_size - off,
-				  &processed);
+				  processed);
 			if (r != SS_POSTPONE)
 				return r;
 			off = 0;

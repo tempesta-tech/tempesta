@@ -26,7 +26,9 @@
 #else
 #pragma GCC target("mmx", "sse4.2")
 #endif
-#include <asm/bitops.h>
+#include <linux/bitops.h>
+#include <linux/types.h>
+#include <linux/string.h>
 #include <asm/fpu/api.h>
 #include <x86intrin.h>
 
@@ -131,10 +133,10 @@ tfw_dbg_vprint16(const char *prefix, const __m128i *v)
 {
 	unsigned char *d = (unsigned char *)v;
 
-	__TFW_DBG3("%s: %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x"
-		   " %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x\n",
-		   prefix, D(0), D(1), D(2), D(3), D(4), D(5), D(6), D(7),
-		   D(8), D(9), D(10), D(11), D(12), D(13), D(14), D(15));
+	__T_DBG3("%s: %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x"
+		 " %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x\n",
+		 prefix, D(0), D(1), D(2), D(3), D(4), D(5), D(6), D(7),
+		 D(8), D(9), D(10), D(11), D(12), D(13), D(14), D(15));
 }
 
 static void
@@ -142,14 +144,14 @@ tfw_dbg_vprint32(const char *prefix, const __m256i *v)
 {
 	unsigned char *d = (unsigned char *)v;
 
-	__TFW_DBG3("%s: %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x"
-		   " %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x"
-		   " %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x"
-		   " %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x\n",
-		   prefix, D(0), D(1), D(2), D(3), D(4), D(5), D(6), D(7),
-		   D(8), D(9), D(10), D(11), D(12), D(13), D(14), D(15),
-		   D(16), D(17), D(18), D(19), D(20), D(21), D(22), D(23),
-		   D(24), D(25), D(26), D(27), D(28), D(29), D(30), D(31));
+	__T_DBG3("%s: %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x"
+		 " %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x"
+		 " %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x"
+		 " %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x\n",
+		 prefix, D(0), D(1), D(2), D(3), D(4), D(5), D(6), D(7),
+		 D(8), D(9), D(10), D(11), D(12), D(13), D(14), D(15),
+		 D(16), D(17), D(18), D(19), D(20), D(21), D(22), D(23),
+		 D(24), D(25), D(26), D(27), D(28), D(29), D(30), D(31));
 }
 #else
 #define tfw_dbg_vprint16(...)

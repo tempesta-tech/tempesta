@@ -356,7 +356,7 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *rmark,
 		       TfwStr *cookie, TfwStr *body)
 {
 	TfwHttpReq *req = resp->req;
-	size_t data_len, head = 0;
+	size_t data_len;
 	int conn_flag = req->flags & __TFW_HTTP_MSG_M_CONN_MASK, ret = 0;
 	TfwMsgIter it;
 	static TfwStr rh_302 = {
@@ -1912,13 +1912,14 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 		 * request @hm is to be destroyed and won't be forwarded to
 		 * backend server.
 		 */
-		if (TFW_CONN_TYPE(hm->conn) & Conn_Srv)
+		if (TFW_CONN_TYPE(hm->conn) & Conn_Srv) {
 			if ((*skb)->len > split_offset) {
 				*skb = ss_skb_split(*skb, split_offset);
 			} else {
 				BUG_ON(!(*skb)->next);
 				*skb = (*skb)->next;
 			}
+		}
 		return NULL;
 	}
 
@@ -2727,9 +2728,9 @@ next_msg:
 	req->msg.len += parsed;
 	TFW_ADD_STAT_BH(parsed, clnt.rx_bytes);
 
-	TFW_DBG2("Request parsed: len=%u parsed=%d msg_len=%lu"
+	TFW_DBG2("Request parsed: len=%u next=%pK parsed=%d msg_len=%lu"
 		 " ver=%d res=%d\n",
-		 skb->len, parsed, req->msg.len, req->version, r);
+		 skb->len, skb->next, parsed, req->msg.len, req->version, r);
 
 	/*
 	 * We have to keep @data the same to pass it as is to FSMs
@@ -2846,6 +2847,10 @@ next_msg:
 	if((req_conn_close = req->flags & TFW_HTTP_F_CONN_CLOSE))
 		TFW_CONN_TYPE(req->conn) |= Conn_Stop;
 
+	/*
+	 * FIXME @skb is added to a list in tfw_http_msg_process().
+	 * Probably we should keep TLS record fragments in skb->frag_list...
+	 */
 	if (!req_conn_close && (parsed < skb->len || skb->next)) {
 		/*
 		 * Pipelined requests: create a new sibling message.
@@ -2914,10 +2919,7 @@ next_msg:
 	 * Note: This connection's @conn must not be dereferenced
 	 * from this point on.
 	 */
-	if (req_conn_close)
-		break;
-
-	if (hmsib) {
+	if (!req_conn_close && hmsib) {
 		/*
 		 * Switch connection to the new sibling message.
 		 * Data processing will continue with the new SKB.
@@ -3660,7 +3662,7 @@ err_2:
 err:
 	cl_buf->ptr = NULL;
 	cl_buf->len = 0;
-	free_pages(body, get_order(b_sz));
+	free_pages((unsigned long)body, get_order(b_sz));
 
 	return res;
 }

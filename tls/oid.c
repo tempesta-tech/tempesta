@@ -445,16 +445,7 @@ typedef struct {
 	ttls_cipher_type_t	   cipher_alg;
 } oid_cipher_alg_t;
 
-static const oid_cipher_alg_t oid_cipher_alg[] =
-{
-	{
-		{ ADD_LEN(TTLS_OID_DES_CBC),			  "desCBC",	   "DES-CBC" },
-		TTLS_CIPHER_DES_CBC,
-	},
-	{
-		{ ADD_LEN(TTLS_OID_DES_EDE3_CBC),		 "des-ede3-cbc", "DES-EDE3-CBC" },
-		TTLS_CIPHER_DES_EDE3_CBC,
-	},
+static const oid_cipher_alg_t oid_cipher_alg[] = {
 	{
 		{ NULL, 0, NULL, NULL },
 		TTLS_CIPHER_NONE,

@@ -39,6 +39,9 @@
  *	  https://arxiv.org/abs/1702.08719v2
  *
  */
+#include <linux/random.h>
+
+#include "lib/str.h"
 #include "config.h"
 #include "rsa.h"
 #include "rsa_internal.h"
@@ -46,11 +49,6 @@
 #include "md.h"
 
 #if !defined(TTLS_RSA_ALT)
-
-/* Implementation that should never be optimized out by the compiler */
-static void ttls_zeroize(void *v, size_t n) {
-	volatile unsigned char *p = (unsigned char*)v; while (n--) *p++ = 0;
-}
 
 /* constant-time buffer comparison */
 static inline int ttls_safer_memcmp(const void *a, const void *b, size_t n)
@@ -469,15 +467,12 @@ size_t ttls_rsa_get_len(const ttls_rsa_context *ctx)
 /*
  * Generate an RSA keypair
  */
-int ttls_rsa_gen_key(ttls_rsa_context *ctx,
-				 int (*f_rng)(void *, unsigned char *, size_t),
-				 void *p_rng,
-				 unsigned int nbits, int exponent)
+int ttls_rsa_gen_key(ttls_rsa_context *ctx, unsigned int nbits, int exponent)
 {
 	int ret;
 	ttls_mpi H, G;
 
-	if (f_rng == NULL || nbits < 128 || exponent < 3)
+	if (nbits < 128 || exponent < 3)
 		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	if (nbits % 2)
@@ -494,11 +489,8 @@ int ttls_rsa_gen_key(ttls_rsa_context *ctx,
 
 	do
 	{
-		TTLS_MPI_CHK(ttls_mpi_gen_prime(&ctx->P, nbits >> 1, 0,
-			f_rng, p_rng));
-
-		TTLS_MPI_CHK(ttls_mpi_gen_prime(&ctx->Q, nbits >> 1, 0,
-			f_rng, p_rng));
+		TTLS_MPI_CHK(ttls_mpi_gen_prime(&ctx->P, nbits >> 1, 0));
+		TTLS_MPI_CHK(ttls_mpi_gen_prime(&ctx->Q, nbits >> 1, 0));
 
 		if (ttls_mpi_cmp_mpi(&ctx->P, &ctx->Q) == 0)
 			continue;
@@ -592,7 +584,7 @@ int ttls_rsa_check_privkey(const ttls_rsa_context *ctx)
 	}
 
 	if (ttls_rsa_validate_params(&ctx->N, &ctx->P, &ctx->Q,
-			 &ctx->D, &ctx->E, NULL, NULL) != 0)
+			 &ctx->D, &ctx->E, false) != 0)
 	{
 		return(TTLS_ERR_RSA_KEY_CHECK_FAILED);
 	}
@@ -676,8 +668,7 @@ cleanup:
  *  DSS, and other systems. In : Advances in Cryptology-CRYPTO'96. Springer
  *  Berlin Heidelberg, 1996. p. 104-113.
  */
-static int rsa_prepare_blinding(ttls_rsa_context *ctx,
-				 int (*f_rng)(void *, unsigned char *, size_t), void *p_rng)
+static int rsa_prepare_blinding(ttls_rsa_context *ctx)
 {
 	int ret, count = 0;
 
@@ -695,9 +686,9 @@ static int rsa_prepare_blinding(ttls_rsa_context *ctx,
 	/* Unblinding value: Vf = random number, invertible mod N */
 	do {
 		if (count++ > 10)
-			return(TTLS_ERR_RSA_RNG_FAILED);
+			return TTLS_ERR_RSA_RNG_FAILED;
 
-		get_random_bytes_arch(&ctx->Vf, ctx->len - 1);
+		TTLS_MPI_CHK(ttls_mpi_fill_random(&ctx->Vf, ctx->len - 1));
 		TTLS_MPI_CHK(ttls_mpi_gcd(&ctx->Vi, &ctx->Vf, &ctx->N));
 	} while (ttls_mpi_cmp_int(&ctx->Vi, 1) != 0);
 
@@ -734,10 +725,7 @@ cleanup:
 /*
  * Do an RSA private key operation
  */
-int ttls_rsa_private(ttls_rsa_context *ctx,
-				 int (*f_rng)(void *, unsigned char *, size_t),
-				 void *p_rng,
-				 const unsigned char *input,
+int ttls_rsa_private(ttls_rsa_context *ctx, const unsigned char *input,
 				 unsigned char *output)
 {
 	int ret;
@@ -775,11 +763,8 @@ int ttls_rsa_private(ttls_rsa_context *ctx,
 	 * checked result; should be the same in the end. */
 	ttls_mpi I, C;
 
-	if (rsa_check_context(ctx, 1			 /* private key checks */,
-		f_rng != NULL /* blinding y/n	   */) != 0)
-	{
+	if (rsa_check_context(ctx, 1, 1) != 0)
 		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
-	}
 
 	spin_lock(&ctx->mutex);
 
@@ -790,15 +775,12 @@ int ttls_rsa_private(ttls_rsa_context *ctx,
 	ttls_mpi_init(&Q1);
 	ttls_mpi_init(&R);
 
-	if (f_rng != NULL)
-	{
 #if defined(TTLS_RSA_NO_CRT)
-		ttls_mpi_init(&D_blind);
+	ttls_mpi_init(&D_blind);
 #else
-		ttls_mpi_init(&DP_blind);
-		ttls_mpi_init(&DQ_blind);
+	ttls_mpi_init(&DP_blind);
+	ttls_mpi_init(&DQ_blind);
 #endif
-	}
 
 #if !defined(TTLS_RSA_NO_CRT)
 	ttls_mpi_init(&TP); ttls_mpi_init(&TQ);
@@ -818,54 +800,49 @@ int ttls_rsa_private(ttls_rsa_context *ctx,
 
 	TTLS_MPI_CHK(ttls_mpi_copy(&I, &T));
 
-	if (f_rng != NULL)
-	{
-		/*
-		 * Blinding
-		 * T = T * Vi mod N
-		 */
-		TTLS_MPI_CHK(rsa_prepare_blinding(ctx, f_rng, p_rng));
-		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&T, &T, &ctx->Vi));
-		TTLS_MPI_CHK(ttls_mpi_mod_mpi(&T, &T, &ctx->N));
+	/*
+	 * Blinding
+	 * T = T * Vi mod N
+	 */
+	TTLS_MPI_CHK(rsa_prepare_blinding(ctx));
+	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&T, &T, &ctx->Vi));
+	TTLS_MPI_CHK(ttls_mpi_mod_mpi(&T, &T, &ctx->N));
 
-		/*
-		 * Exponent blinding
-		 */
-		TTLS_MPI_CHK(ttls_mpi_sub_int(&P1, &ctx->P, 1));
-		TTLS_MPI_CHK(ttls_mpi_sub_int(&Q1, &ctx->Q, 1));
+	/*
+	 * Exponent blinding
+	 */
+	TTLS_MPI_CHK(ttls_mpi_sub_int(&P1, &ctx->P, 1));
+	TTLS_MPI_CHK(ttls_mpi_sub_int(&Q1, &ctx->Q, 1));
 
 #if defined(TTLS_RSA_NO_CRT)
-		/*
-		 * D_blind = (P - 1) * (Q - 1) * R + D
-		 */
-		get_random_bytes_arch(&R, RSA_EXPONENT_BLINDING);
-		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&D_blind, &P1, &Q1));
-		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&D_blind, &D_blind, &R));
-		TTLS_MPI_CHK(ttls_mpi_add_mpi(&D_blind, &D_blind, &ctx->D));
+	/*
+	 * D_blind = (P - 1) * (Q - 1) * R + D
+	 */
+	TTLS_MPI_CHK(ttls_mpi_fill_random(&R, RSA_EXPONENT_BLINDING));
+	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&D_blind, &P1, &Q1));
+	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&D_blind, &D_blind, &R));
+	TTLS_MPI_CHK(ttls_mpi_add_mpi(&D_blind, &D_blind, &ctx->D));
 
-		D = &D_blind;
+	D = &D_blind;
 #else
-		/*
-		 * DP_blind = (P - 1) * R + DP
-		 */
-		get_random_bytes_arch(&R, RSA_EXPONENT_BLINDING);
-		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&DP_blind, &P1, &R));
-		TTLS_MPI_CHK(ttls_mpi_add_mpi(&DP_blind, &DP_blind,
-		&ctx->DP));
+	/*
+	 * DP_blind = (P - 1) * R + DP
+	 */
+	TTLS_MPI_CHK(ttls_mpi_fill_random(&R, RSA_EXPONENT_BLINDING));
+	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&DP_blind, &P1, &R));
+	TTLS_MPI_CHK(ttls_mpi_add_mpi(&DP_blind, &DP_blind, &ctx->DP));
 
-		DP = &DP_blind;
+	DP = &DP_blind;
 
-		/*
-		 * DQ_blind = (Q - 1) * R + DQ
-		 */
-		get_random_bytes_arch(&R, RSA_EXPONENT_BLINDING);
-		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&DQ_blind, &Q1, &R));
-		TTLS_MPI_CHK(ttls_mpi_add_mpi(&DQ_blind, &DQ_blind,
-		&ctx->DQ));
+	/*
+	 * DQ_blind = (Q - 1) * R + DQ
+	 */
+	TTLS_MPI_CHK(ttls_mpi_fill_random(&R, RSA_EXPONENT_BLINDING));
+	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&DQ_blind, &Q1, &R));
+	TTLS_MPI_CHK(ttls_mpi_add_mpi(&DQ_blind, &DQ_blind, &ctx->DQ));
 
-		DQ = &DQ_blind;
+	DQ = &DQ_blind;
 #endif /* TTLS_RSA_NO_CRT */
-	}
 
 #if defined(TTLS_RSA_NO_CRT)
 	TTLS_MPI_CHK(ttls_mpi_exp_mod(&T, &T, D, &ctx->N, &ctx->RN));
@@ -894,15 +871,12 @@ int ttls_rsa_private(ttls_rsa_context *ctx,
 	TTLS_MPI_CHK(ttls_mpi_add_mpi(&T, &TQ, &TP));
 #endif /* TTLS_RSA_NO_CRT */
 
-	if (f_rng != NULL)
-	{
-		/*
-		 * Unblind
-		 * T = T * Vf mod N
-		 */
-		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&T, &T, &ctx->Vf));
-		TTLS_MPI_CHK(ttls_mpi_mod_mpi(&T, &T, &ctx->N));
-	}
+	/*
+	 * Unblind
+	 * T = T * Vf mod N
+	 */
+	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&T, &T, &ctx->Vf));
+	TTLS_MPI_CHK(ttls_mpi_mod_mpi(&T, &T, &ctx->N));
 
 	/* Verify the result to prevent glitching attacks. */
 	TTLS_MPI_CHK(ttls_mpi_exp_mod(&C, &T, &ctx->E,
@@ -923,15 +897,12 @@ cleanup:
 	ttls_mpi_free(&Q1);
 	ttls_mpi_free(&R);
 
-	if (f_rng != NULL)
-	{
 #if defined(TTLS_RSA_NO_CRT)
-		ttls_mpi_free(&D_blind);
+	ttls_mpi_free(&D_blind);
 #else
-		ttls_mpi_free(&DP_blind);
-		ttls_mpi_free(&DQ_blind);
+	ttls_mpi_free(&DP_blind);
+	ttls_mpi_free(&DQ_blind);
 #endif
-	}
 
 	ttls_mpi_free(&T);
 
@@ -999,7 +970,7 @@ static int mgf_mask(unsigned char *dst, size_t dlen, unsigned char *src,
 	}
 
 exit:
-	ttls_zeroize(mask, sizeof(mask));
+	bzero_fast(mask, sizeof(mask));
 
 	return ret;
 }
@@ -1007,10 +978,7 @@ exit:
 /*
  * Implementation of the PKCS#1 v2.1 RSAES-OAEP-ENCRYPT function
  */
-int ttls_rsa_rsaes_oaep_encrypt(ttls_rsa_context *ctx,
-				int (*f_rng)(void *, unsigned char *, size_t),
-				void *p_rng,
-				int mode,
+int ttls_rsa_rsaes_oaep_encrypt(ttls_rsa_context *ctx, int mode,
 				const unsigned char *label, size_t label_len,
 				size_t ilen,
 				const unsigned char *input,
@@ -1020,13 +988,10 @@ int ttls_rsa_rsaes_oaep_encrypt(ttls_rsa_context *ctx,
 	int ret;
 	unsigned char *p = output;
 	unsigned int hlen;
-	const ttls_md_info_t *md_info;
+	const TlsMdInfo *md_info;
 	ttls_md_context_t md_ctx;
 
 	if (mode == TTLS_RSA_PRIVATE && ctx->padding != TTLS_RSA_PKCS_V21)
-		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
-
-	if (f_rng == NULL)
 		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	md_info = ttls_md_info_from_type((ttls_md_type_t) ctx->hash_id);
@@ -1045,8 +1010,7 @@ int ttls_rsa_rsaes_oaep_encrypt(ttls_rsa_context *ctx,
 	*p++ = 0;
 
 	/* Generate a random octet string seed */
-	if ((ret = f_rng(p_rng, p, hlen)) != 0)
-		return(TTLS_ERR_RSA_RNG_FAILED + ret);
+	get_random_bytes_arch(p, hlen);
 
 	p += hlen;
 
@@ -1080,28 +1044,23 @@ exit:
 
 	return((mode == TTLS_RSA_PUBLIC)
 			? ttls_rsa_public( ctx, output, output)
-			: ttls_rsa_private(ctx, f_rng, p_rng, output, output));
+			: ttls_rsa_private(ctx, output, output));
 }
 
 /*
  * Implementation of the PKCS#1 v2.1 RSAES-PKCS1-V1_5-ENCRYPT function
  */
-int ttls_rsa_rsaes_pkcs1_v15_encrypt(ttls_rsa_context *ctx,
-		 int (*f_rng)(void *, unsigned char *, size_t),
-		 void *p_rng,
-		 int mode, size_t ilen,
+int ttls_rsa_rsaes_pkcs1_v15_encrypt(ttls_rsa_context *ctx, int mode, size_t ilen,
 		 const unsigned char *input,
 		 unsigned char *output)
 {
 	size_t nb_pad, olen;
-	int ret;
 	unsigned char *p = output;
 
 	if (mode == TTLS_RSA_PRIVATE && ctx->padding != TTLS_RSA_PKCS_V15)
 		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
-	// We don't check p_rng because it won't be dereferenced here
-	if (f_rng == NULL || input == NULL || output == NULL)
+	if (input == NULL || output == NULL)
 		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	olen = ctx->len;
@@ -1122,12 +1081,12 @@ int ttls_rsa_rsaes_pkcs1_v15_encrypt(ttls_rsa_context *ctx,
 			int rng_dl = 100;
 
 			do {
-				ret = f_rng(p_rng, p, 1);
-			} while (*p == 0 && --rng_dl && ret == 0);
+				get_random_bytes_arch(p, 1);
+			} while (*p == 0 && --rng_dl);
 
 			/* Check if RNG failed to generate data */
-			if (rng_dl == 0 || ret != 0)
-				return(TTLS_ERR_RSA_RNG_FAILED + ret);
+			if (rng_dl == 0)
+				return TTLS_ERR_RSA_RNG_FAILED;
 
 			p++;
 		}
@@ -1145,27 +1104,24 @@ int ttls_rsa_rsaes_pkcs1_v15_encrypt(ttls_rsa_context *ctx,
 
 	return((mode == TTLS_RSA_PUBLIC)
 			? ttls_rsa_public( ctx, output, output)
-			: ttls_rsa_private(ctx, f_rng, p_rng, output, output));
+			: ttls_rsa_private(ctx, output, output));
 }
 
 /*
  * Add the message padding, then do an RSA operation
  */
-int ttls_rsa_pkcs1_encrypt(ttls_rsa_context *ctx,
-		   int (*f_rng)(void *, unsigned char *, size_t),
-		   void *p_rng,
-		   int mode, size_t ilen,
+int ttls_rsa_pkcs1_encrypt(ttls_rsa_context *ctx, int mode, size_t ilen,
 		   const unsigned char *input,
 		   unsigned char *output)
 {
 	switch(ctx->padding)
 	{
 		case TTLS_RSA_PKCS_V15:
-			return ttls_rsa_rsaes_pkcs1_v15_encrypt(ctx, f_rng, p_rng, mode, ilen,
+			return ttls_rsa_rsaes_pkcs1_v15_encrypt(ctx, mode, ilen,
 			input, output);
 
 		case TTLS_RSA_PKCS_V21:
-			return ttls_rsa_rsaes_oaep_encrypt(ctx, f_rng, p_rng, mode, NULL, 0,
+			return ttls_rsa_rsaes_oaep_encrypt(ctx, mode, NULL, 0,
 				   ilen, input, output);
 
 		default:
@@ -1176,10 +1132,7 @@ int ttls_rsa_pkcs1_encrypt(ttls_rsa_context *ctx,
 /*
  * Implementation of the PKCS#1 v2.1 RSAES-OAEP-DECRYPT function
  */
-int ttls_rsa_rsaes_oaep_decrypt(ttls_rsa_context *ctx,
-				int (*f_rng)(void *, unsigned char *, size_t),
-				void *p_rng,
-				int mode,
+int ttls_rsa_rsaes_oaep_decrypt(ttls_rsa_context *ctx, int mode,
 				const unsigned char *label, size_t label_len,
 				size_t *olen,
 				const unsigned char *input,
@@ -1192,7 +1145,7 @@ int ttls_rsa_rsaes_oaep_decrypt(ttls_rsa_context *ctx,
 	unsigned char buf[TTLS_MPI_MAX_SIZE];
 	unsigned char lhash[TTLS_MD_MAX_SIZE];
 	unsigned int hlen;
-	const ttls_md_info_t *md_info;
+	const TlsMdInfo *md_info;
 	ttls_md_context_t md_ctx;
 
 	/*
@@ -1221,7 +1174,7 @@ int ttls_rsa_rsaes_oaep_decrypt(ttls_rsa_context *ctx,
 	 */
 	ret = (mode == TTLS_RSA_PUBLIC)
 		  ? ttls_rsa_public( ctx, input, buf)
-		  : ttls_rsa_private(ctx, f_rng, p_rng, input, buf);
+		  : ttls_rsa_private(ctx, input, buf);
 
 	if (ret != 0)
 		goto cleanup;
@@ -1303,8 +1256,8 @@ int ttls_rsa_rsaes_oaep_decrypt(ttls_rsa_context *ctx,
 	ret = 0;
 
 cleanup:
-	ttls_zeroize(buf, sizeof(buf));
-	ttls_zeroize(lhash, sizeof(lhash));
+	bzero_fast(buf, sizeof(buf));
+	bzero_fast(lhash, sizeof(lhash));
 
 	return ret;
 }
@@ -1312,10 +1265,7 @@ cleanup:
 /*
  * Implementation of the PKCS#1 v2.1 RSAES-PKCS1-V1_5-DECRYPT function
  */
-int ttls_rsa_rsaes_pkcs1_v15_decrypt(ttls_rsa_context *ctx,
-		 int (*f_rng)(void *, unsigned char *, size_t),
-		 void *p_rng,
-		 int mode, size_t *olen,
+int ttls_rsa_rsaes_pkcs1_v15_decrypt(ttls_rsa_context *ctx, int mode, size_t *olen,
 		 const unsigned char *input,
 		 unsigned char *output,
 		 size_t output_max_len)
@@ -1335,7 +1285,7 @@ int ttls_rsa_rsaes_pkcs1_v15_decrypt(ttls_rsa_context *ctx,
 
 	ret = (mode == TTLS_RSA_PUBLIC)
 		  ? ttls_rsa_public( ctx, input, buf)
-		  : ttls_rsa_private(ctx, f_rng, p_rng, input, buf);
+		  : ttls_rsa_private(ctx, input, buf);
 
 	if (ret != 0)
 		goto cleanup;
@@ -1399,7 +1349,7 @@ int ttls_rsa_rsaes_pkcs1_v15_decrypt(ttls_rsa_context *ctx,
 	ret = 0;
 
 cleanup:
-	ttls_zeroize(buf, sizeof(buf));
+	bzero_fast(buf, sizeof(buf));
 
 	return ret;
 }
@@ -1407,37 +1357,30 @@ cleanup:
 /*
  * Do an RSA operation, then remove the message padding
  */
-int ttls_rsa_pkcs1_decrypt(ttls_rsa_context *ctx,
-		   int (*f_rng)(void *, unsigned char *, size_t),
-		   void *p_rng,
-		   int mode, size_t *olen,
-		   const unsigned char *input,
-		   unsigned char *output,
-		   size_t output_max_len)
+int
+ttls_rsa_pkcs1_decrypt(ttls_rsa_context *ctx, int mode, size_t *olen,
+		       const unsigned char *input, unsigned char *output,
+		       size_t output_max_len)
 {
-	switch(ctx->padding)
-	{
-		case TTLS_RSA_PKCS_V15:
-			return ttls_rsa_rsaes_pkcs1_v15_decrypt(ctx, f_rng, p_rng, mode, olen,
-			input, output, output_max_len);
+	switch(ctx->padding) {
+	case TTLS_RSA_PKCS_V15:
+		return ttls_rsa_rsaes_pkcs1_v15_decrypt(ctx, mode, olen, input,
+							output, output_max_len);
 
-		case TTLS_RSA_PKCS_V21:
-			return ttls_rsa_rsaes_oaep_decrypt(ctx, f_rng, p_rng, mode, NULL, 0,
-				   olen, input, output,
-				   output_max_len);
+	case TTLS_RSA_PKCS_V21:
+		return ttls_rsa_rsaes_oaep_decrypt(ctx, mode, NULL, 0, olen,
+						   input, output,
+						   output_max_len);
 
-		default:
-			return(TTLS_ERR_RSA_INVALID_PADDING);
+	default:
+		return TTLS_ERR_RSA_INVALID_PADDING;
 	}
 }
 
 /*
  * Implementation of the PKCS#1 v2.1 RSASSA-PSS-SIGN function
  */
-int ttls_rsa_rsassa_pss_sign(ttls_rsa_context *ctx,
-			 int (*f_rng)(void *, unsigned char *, size_t),
-			 void *p_rng,
-			 int mode,
+int ttls_rsa_rsassa_pss_sign(ttls_rsa_context *ctx, int mode,
 			 ttls_md_type_t md_alg,
 			 unsigned int hashlen,
 			 const unsigned char *hash,
@@ -1449,13 +1392,10 @@ int ttls_rsa_rsassa_pss_sign(ttls_rsa_context *ctx,
 	unsigned int slen, hlen, offset = 0;
 	int ret;
 	size_t msb;
-	const ttls_md_info_t *md_info;
+	const TlsMdInfo *md_info;
 	ttls_md_context_t md_ctx;
 
 	if (mode == TTLS_RSA_PRIVATE && ctx->padding != TTLS_RSA_PKCS_V21)
-		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
-
-	if (f_rng == NULL)
 		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	olen = ctx->len;
@@ -1483,8 +1423,7 @@ int ttls_rsa_rsassa_pss_sign(ttls_rsa_context *ctx,
 	memset(sig, 0, olen);
 
 	/* Generate salt of length slen */
-	if ((ret = f_rng(p_rng, salt, slen)) != 0)
-		return(TTLS_ERR_RSA_RNG_FAILED + ret);
+	get_random_bytes_arch(salt, slen);
 
 	/* Note: EMSA-PSS encoding is over the length of N - 1 bits */
 	msb = ttls_mpi_bitlen(&ctx->N) - 1;
@@ -1524,7 +1463,7 @@ int ttls_rsa_rsassa_pss_sign(ttls_rsa_context *ctx,
 	p += hlen;
 	*p++ = 0xBC;
 
-	ttls_zeroize(salt, sizeof(salt));
+	bzero_fast(salt, sizeof(salt));
 
 exit:
 	ttls_md_free(&md_ctx);
@@ -1534,7 +1473,7 @@ exit:
 
 	return((mode == TTLS_RSA_PUBLIC)
 			? ttls_rsa_public( ctx, sig, sig)
-			: ttls_rsa_private(ctx, f_rng, p_rng, sig, sig));
+			: ttls_rsa_private(ctx, sig, sig));
 }
 
 /*
@@ -1573,7 +1512,7 @@ static int rsa_rsassa_pkcs1_v15_encode(ttls_md_type_t md_alg,
 	/* Are we signing hashed or raw data? */
 	if (md_alg != TTLS_MD_NONE)
 	{
-		const ttls_md_info_t *md_info = ttls_md_info_from_type(md_alg);
+		const TlsMdInfo *md_info = ttls_md_info_from_type(md_alg);
 		if (md_info == NULL)
 			return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
@@ -1664,7 +1603,7 @@ static int rsa_rsassa_pkcs1_v15_encode(ttls_md_type_t md_alg,
 	 * after the initial bounds check. */
 	if (p != dst + dst_len)
 	{
-		ttls_zeroize(dst, dst_len);
+		bzero_fast(dst, dst_len);
 		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 	}
 
@@ -1674,10 +1613,7 @@ static int rsa_rsassa_pkcs1_v15_encode(ttls_md_type_t md_alg,
 /*
  * Do an RSA operation to sign the message digest
  */
-int ttls_rsa_rsassa_pkcs1_v15_sign(ttls_rsa_context *ctx,
-				   int (*f_rng)(void *, unsigned char *, size_t),
-				   void *p_rng,
-				   int mode,
+int ttls_rsa_rsassa_pkcs1_v15_sign(ttls_rsa_context *ctx, int mode,
 				   ttls_md_type_t md_alg,
 				   unsigned int hashlen,
 				   const unsigned char *hash,
@@ -1724,7 +1660,7 @@ int ttls_rsa_rsassa_pkcs1_v15_sign(ttls_rsa_context *ctx,
 		return(TTLS_ERR_MPI_ALLOC_FAILED);
 	}
 
-	TTLS_MPI_CHK(ttls_rsa_private(ctx, f_rng, p_rng, sig, sig_try));
+	TTLS_MPI_CHK(ttls_rsa_private(ctx, sig, sig_try));
 	TTLS_MPI_CHK(ttls_rsa_public(ctx, sig_try, verif));
 
 	if (ttls_safer_memcmp(verif, sig, ctx->len) != 0)
@@ -1745,10 +1681,7 @@ cleanup:
 /*
  * Do an RSA operation to sign the message digest
  */
-int ttls_rsa_pkcs1_sign(ttls_rsa_context *ctx,
-		int (*f_rng)(void *, unsigned char *, size_t),
-		void *p_rng,
-		int mode,
+int ttls_rsa_pkcs1_sign(ttls_rsa_context *ctx, int mode,
 		ttls_md_type_t md_alg,
 		unsigned int hashlen,
 		const unsigned char *hash,
@@ -1757,11 +1690,11 @@ int ttls_rsa_pkcs1_sign(ttls_rsa_context *ctx,
 	switch(ctx->padding)
 	{
 		case TTLS_RSA_PKCS_V15:
-			return ttls_rsa_rsassa_pkcs1_v15_sign(ctx, f_rng, p_rng, mode, md_alg,
+			return ttls_rsa_rsassa_pkcs1_v15_sign(ctx, mode, md_alg,
 		  hashlen, hash, sig);
 
 		case TTLS_RSA_PKCS_V21:
-			return ttls_rsa_rsassa_pss_sign(ctx, f_rng, p_rng, mode, md_alg,
+			return ttls_rsa_rsassa_pss_sign(ctx, mode, md_alg,
 				hashlen, hash, sig);
 
 		default:
@@ -1772,10 +1705,7 @@ int ttls_rsa_pkcs1_sign(ttls_rsa_context *ctx,
 /*
  * Implementation of the PKCS#1 v2.1 RSASSA-PSS-VERIFY function
  */
-int ttls_rsa_rsassa_pss_verify_ext(ttls_rsa_context *ctx,
-				   int (*f_rng)(void *, unsigned char *, size_t),
-				   void *p_rng,
-				   int mode,
+int ttls_rsa_rsassa_pss_verify_ext(ttls_rsa_context *ctx, int mode,
 				   ttls_md_type_t md_alg,
 				   unsigned int hashlen,
 				   const unsigned char *hash,
@@ -1791,7 +1721,7 @@ int ttls_rsa_rsassa_pss_verify_ext(ttls_rsa_context *ctx,
 	unsigned char zeros[8];
 	unsigned int hlen;
 	size_t observed_salt_len, msb;
-	const ttls_md_info_t *md_info;
+	const TlsMdInfo *md_info;
 	ttls_md_context_t md_ctx;
 	unsigned char buf[TTLS_MPI_MAX_SIZE];
 
@@ -1805,7 +1735,7 @@ int ttls_rsa_rsassa_pss_verify_ext(ttls_rsa_context *ctx,
 
 	ret = (mode == TTLS_RSA_PUBLIC)
 		  ? ttls_rsa_public( ctx, sig, buf)
-		  : ttls_rsa_private(ctx, f_rng, p_rng, sig, buf);
+		  : ttls_rsa_private(ctx, sig, buf);
 
 	if (ret != 0)
 		return ret;
@@ -1915,8 +1845,6 @@ exit:
  * Simplified PKCS#1 v2.1 RSASSA-PSS-VERIFY function
  */
 int ttls_rsa_rsassa_pss_verify(ttls_rsa_context *ctx,
-			   int (*f_rng)(void *, unsigned char *, size_t),
-			   void *p_rng,
 			   int mode,
 			   ttls_md_type_t md_alg,
 			   unsigned int hashlen,
@@ -1927,7 +1855,7 @@ int ttls_rsa_rsassa_pss_verify(ttls_rsa_context *ctx,
 				 ? (ttls_md_type_t) ctx->hash_id
 				 : md_alg;
 
-	return(ttls_rsa_rsassa_pss_verify_ext(ctx, f_rng, p_rng, mode,
+	return(ttls_rsa_rsassa_pss_verify_ext(ctx, mode,
 			   md_alg, hashlen, hash,
 			   mgf1_hash_id, TTLS_RSA_SALT_LEN_ANY,
 			   sig));
@@ -1938,8 +1866,6 @@ int ttls_rsa_rsassa_pss_verify(ttls_rsa_context *ctx,
  * Implementation of the PKCS#1 v2.1 RSASSA-PKCS1-v1_5-VERIFY function
  */
 int ttls_rsa_rsassa_pkcs1_v15_verify(ttls_rsa_context *ctx,
-		 int (*f_rng)(void *, unsigned char *, size_t),
-		 void *p_rng,
 		 int mode,
 		 ttls_md_type_t md_alg,
 		 unsigned int hashlen,
@@ -1974,7 +1900,7 @@ int ttls_rsa_rsassa_pkcs1_v15_verify(ttls_rsa_context *ctx,
 
 	ret = (mode == TTLS_RSA_PUBLIC)
 		  ? ttls_rsa_public( ctx, sig, encoded)
-		  : ttls_rsa_private(ctx, f_rng, p_rng, sig, encoded);
+		  : ttls_rsa_private(ctx, sig, encoded);
 	if (ret != 0)
 		goto cleanup;
 
@@ -1993,13 +1919,13 @@ cleanup:
 
 	if (encoded != NULL)
 	{
-		ttls_zeroize(encoded, sig_len);
+		bzero_fast(encoded, sig_len);
 		ttls_free(encoded);
 	}
 
 	if (encoded_expected != NULL)
 	{
-		ttls_zeroize(encoded_expected, sig_len);
+		bzero_fast(encoded_expected, sig_len);
 		ttls_free(encoded_expected);
 	}
 
@@ -2010,8 +1936,6 @@ cleanup:
  * Do an RSA operation and check the message digest
  */
 int ttls_rsa_pkcs1_verify(ttls_rsa_context *ctx,
-		  int (*f_rng)(void *, unsigned char *, size_t),
-		  void *p_rng,
 		  int mode,
 		  ttls_md_type_t md_alg,
 		  unsigned int hashlen,
@@ -2021,11 +1945,11 @@ int ttls_rsa_pkcs1_verify(ttls_rsa_context *ctx,
 	switch(ctx->padding)
 	{
 		case TTLS_RSA_PKCS_V15:
-			return ttls_rsa_rsassa_pkcs1_v15_verify(ctx, f_rng, p_rng, mode, md_alg,
+			return ttls_rsa_rsassa_pkcs1_v15_verify(ctx, mode, md_alg,
 			hashlen, hash, sig);
 
 		case TTLS_RSA_PKCS_V21:
-			return ttls_rsa_rsassa_pss_verify(ctx, f_rng, p_rng, mode, md_alg,
+			return ttls_rsa_rsassa_pss_verify(ctx, mode, md_alg,
 				  hashlen, hash, sig);
 
 		default:
@@ -2092,9 +2016,6 @@ void ttls_rsa_free(ttls_rsa_context *ctx)
 
 #endif /* !TTLS_RSA_ALT */
 
-#include <linux/random.h>
-#include "sha1.h"
-
 /*
  * Example RSA-1024 keypair, for test purposes
  */
@@ -2133,19 +2054,6 @@ void ttls_rsa_free(ttls_rsa_context *ctx)
 #define PT_LEN  24
 #define RSA_PT  "\xAA\xBB\xCC\x03\x02\x01\x00\xFF\xFF\xFF\xFF\xFF" \
 				"\x11\x22\x33\x0A\x0B\x0C\xCC\xDD\xDD\xDD\xDD\xDD"
-
-static int myrand(void *rng_state, unsigned char *output, size_t len)
-{
-	size_t i;
-
-	if (rng_state != NULL)
-		rng_state  = NULL;
-
-	for (i = 0; i < len; ++i)
-		output[i] = get_random_int();
-
-	return 0;
-}
 
 /*
  * Checkup routine
@@ -2195,7 +2103,7 @@ int ttls_rsa_self_test(int verbose)
 
 	memcpy(rsa_plaintext, RSA_PT, PT_LEN);
 
-	if (ttls_rsa_pkcs1_encrypt(&rsa, myrand, NULL, TTLS_RSA_PUBLIC,
+	if (ttls_rsa_pkcs1_encrypt(&rsa, TTLS_RSA_PUBLIC,
 		   PT_LEN, rsa_plaintext,
 		   rsa_ciphertext) != 0)
 	{
@@ -2209,7 +2117,7 @@ int ttls_rsa_self_test(int verbose)
 	if (verbose != 0)
 		ttls_printf("passed\n  PKCS#1 decryption : ");
 
-	if (ttls_rsa_pkcs1_decrypt(&rsa, myrand, NULL, TTLS_RSA_PRIVATE,
+	if (ttls_rsa_pkcs1_decrypt(&rsa, TTLS_RSA_PRIVATE,
 		   &len, rsa_ciphertext, rsa_decrypted,
 		   sizeof(rsa_decrypted)) != 0)
 	{

@@ -821,7 +821,7 @@ int ttls_x509_sig_alg_gets(char *buf, size_t size, const ttls_x509_buf *sig_oid,
 	if (pk_alg == TTLS_PK_RSASSA_PSS)
 	{
 		const ttls_pk_rsassa_pss_options *pss_opts;
-		const ttls_md_info_t *md_info, *mgf_md_info;
+		const TlsMdInfo *md_info, *mgf_md_info;
 
 		pss_opts = (const ttls_pk_rsassa_pss_options *) sig_opts;
 
