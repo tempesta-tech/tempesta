@@ -330,9 +330,7 @@ cleanup:
  */
 int ttls_rsa_validate_params(const ttls_mpi *N, const ttls_mpi *P,
 		 const ttls_mpi *Q, const ttls_mpi *D,
-		 const ttls_mpi *E,
-		 int (*f_rng)(void *, unsigned char *, size_t),
-		 void *p_rng)
+		 const ttls_mpi *E, bool rnd)
 {
 	int ret = 0;
 	ttls_mpi K, L;
@@ -345,22 +343,15 @@ int ttls_rsa_validate_params(const ttls_mpi *N, const ttls_mpi *P,
 	 */
 
 #if defined(TTLS_GENPRIME)
-	if (f_rng != NULL && P != NULL &&
-		(ret = ttls_mpi_is_prime(P, f_rng, p_rng)) != 0)
-	{
+	if (rnd && P && (ret = ttls_mpi_is_prime(P))) {
 		ret = TTLS_ERR_RSA_KEY_CHECK_FAILED;
 		goto cleanup;
 	}
 
-	if (f_rng != NULL && Q != NULL &&
-		(ret = ttls_mpi_is_prime(Q, f_rng, p_rng)) != 0)
-	{
+	if (rnd && Q && (ret = ttls_mpi_is_prime(Q))) {
 		ret = TTLS_ERR_RSA_KEY_CHECK_FAILED;
 		goto cleanup;
 	}
-#else
-	((void) f_rng);
-	((void) p_rng);
 #endif /* TTLS_GENPRIME */
 
 	/*

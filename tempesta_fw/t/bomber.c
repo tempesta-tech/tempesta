@@ -159,9 +159,12 @@ tfw_bmb_conn_drop(struct sock *sk)
 }
 
 static int
-tfw_bmb_print_msg(void *msg_data, unsigned char *data, size_t len)
+tfw_bmb_print_msg(void *msg_data, unsigned char *data, size_t len,
+		  unsigned int *read)
 {
 	printk(KERN_INFO "%.*s\n", (int)len, data);
+	*read = len;
+
 	return 0;
 }
 

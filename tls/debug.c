@@ -65,14 +65,6 @@ void ttls_debug_print_ret(const ttls_context *ssl, int level,
 	if (ssl->conf == NULL || level > debug_threshold)
 		return;
 
-	/*
-	 * With non-blocking I/O and examples that just retry immediately,
-	 * the logs would be quickly flooded with WANT_READ, so ignore that.
-	 * Don't ignore WANT_WRITE however, since is is usually rare.
-	 */
-	if (ret == TTLS_ERR_WANT_READ)
-		return;
-
 	ttls_snprintf(str, sizeof(str), "%s() returned %d (-0x%04x)\n",
 			  text, ret, -ret);
 }

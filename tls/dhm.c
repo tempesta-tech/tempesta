@@ -144,7 +144,7 @@ int ttls_dhm_make_params(ttls_dhm_context *ctx, int x_size,
 	 */
 	do
 	{
-		get_random_bytes_arch(&ctx->X, x_size);
+		TTLS_MPI_CHK(ttls_mpi_fill_random(&ctx->X, x_size));
 
 		while (ttls_mpi_cmp_mpi(&ctx->X, &ctx->P) >= 0)
 			TTLS_MPI_CHK(ttls_mpi_shift_r(&ctx->X, 1));
@@ -253,9 +253,8 @@ int ttls_dhm_make_public(ttls_dhm_context *ctx, int x_size,
 	/*
 	 * generate X and calculate GX = G^X mod P
 	 */
-	do
-	{
-		get_random_bytes_arch(&ctx->X, x_size);
+	do {
+		TTLS_MPI_CHK(ttls_mpi_fill_random(&ctx->X, x_size));
 
 		while (ttls_mpi_cmp_mpi(&ctx->X, &ctx->P) >= 0)
 			TTLS_MPI_CHK(ttls_mpi_shift_r(&ctx->X, 1));
@@ -325,9 +324,9 @@ static int dhm_update_blinding(ttls_dhm_context *ctx)
 
 	/* Vi = random(2, P-1) */
 	count = 0;
-	do
-	{
-		get_random_bytes_arch(&ctx->Vi, ttls_mpi_size(&ctx->P));
+	do {
+		TTLS_MPI_CHK(ttls_mpi_fill_random(&ctx->Vi,
+						  ttls_mpi_size(&ctx->P)));
 
 		while (ttls_mpi_cmp_mpi(&ctx->Vi, &ctx->P) >= 0)
 			TTLS_MPI_CHK(ttls_mpi_shift_r(&ctx->Vi, 1));
@@ -422,7 +421,7 @@ int ttls_dhm_parse_dhm(ttls_dhm_context *dhm, const unsigned char *dhmin,
 		ret = ttls_pem_read_buffer(&pem,
 				   "-----BEGIN DH PARAMETERS-----",
 				   "-----END DH PARAMETERS-----",
-				   dhmin, NULL, 0, &dhminlen);
+				   dhmin, &dhminlen);
 
 	if (ret == 0)
 	{

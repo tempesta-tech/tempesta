@@ -44,6 +44,7 @@ void ttls_pk_init(ttls_pk_context *ctx)
 	ctx->pk_info = NULL;
 	ctx->pk_ctx = NULL;
 }
+EXPORT_SYMBOL(ttls_pk_init);
 
 /*
  * Free (the components of) a ttls_pk_context
@@ -57,6 +58,7 @@ void ttls_pk_free(ttls_pk_context *ctx)
 
 	ttls_zeroize(ctx, sizeof(ttls_pk_context));
 }
+EXPORT_SYMBOL(ttls_pk_free);
 
 /*
  * Get pk_info structure from type
@@ -142,7 +144,7 @@ int ttls_pk_can_do(const ttls_pk_context *ctx, ttls_pk_type_t type)
  */
 static inline int pk_hashlen_helper(ttls_md_type_t md_alg, size_t *hash_len)
 {
-	const ttls_md_info_t *md_info;
+	const TlsMdInfo *md_info;
 
 	if (*hash_len != 0)
 		return 0;
@@ -203,7 +205,7 @@ int ttls_pk_verify_ext(ttls_pk_type_t type, const void *options,
 			return(TTLS_ERR_RSA_VERIFY_FAILED);
 
 		ret = ttls_rsa_rsassa_pss_verify_ext(ttls_pk_rsa(*ctx),
-				NULL, NULL, TTLS_RSA_PUBLIC,
+				TTLS_RSA_PUBLIC,
 				md_alg, (unsigned int) hash_len, hash,
 				pss_opts->mgf1_hash_id,
 				pss_opts->expected_salt_len,
@@ -264,8 +266,7 @@ ttls_pk_decrypt(ttls_pk_context *ctx, const unsigned char *input, size_t ilen,
  */
 int ttls_pk_encrypt(ttls_pk_context *ctx,
 				const unsigned char *input, size_t ilen,
-				unsigned char *output, size_t *olen, size_t osize,
-				int (*f_rng)(void *, unsigned char *, size_t), void *p_rng)
+				unsigned char *output, size_t *olen, size_t osize)
 {
 	if (ctx == NULL || ctx->pk_info == NULL)
 		return(TTLS_ERR_PK_BAD_INPUT_DATA);
@@ -274,7 +275,7 @@ int ttls_pk_encrypt(ttls_pk_context *ctx,
 		return(TTLS_ERR_PK_TYPE_MISMATCH);
 
 	return(ctx->pk_info->encrypt_func(ctx->pk_ctx, input, ilen,
-				output, olen, osize, f_rng, p_rng));
+				output, olen, osize));
 }
 
 /*

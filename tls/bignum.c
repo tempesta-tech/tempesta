@@ -37,9 +37,9 @@
  *	  https://gmplib.org/manual/index.html
  *
  */
+#include "lib/str.h"
 #include "config.h"
 #include "bignum.h"
-#include "bn_mul.h"
 
 #define ciL	(sizeof(ttls_mpi_uint))		 /* chars in limb  */
 #define biL	(ciL << 3)			   /* bits  in limb  */
@@ -1008,6 +1008,28 @@ int ttls_mpi_sub_int(ttls_mpi *X, const ttls_mpi *A, ttls_mpi_sint b)
 	return(ttls_mpi_sub_mpi(X, A, &_B));
 }
 
+#define MULADDC_INIT							\
+	asm(	"xorq	%%r8, %%r8	\n\t"
+
+#define MULADDC_CORE							\
+		"movq	(%%rsi), %%rax	\n\t"				\
+		"mulq	%%rbx		\n\t"				\
+		"addq	$8, %%rsi	\n\t"				\
+		"addq	%%rcx, %%rax	\n\t"				\
+		"movq	%%r8, %%rcx	\n\t"				\
+		"adcq	$0, %%rdx	\n\t"				\
+		"nop			\n\t"				\
+		"addq	%%rax, (%%rdi)	\n\t"				\
+		"adcq	%%rdx, %%rcx	\n\t"				\
+		"addq	$8, %%rdi	\n\t"
+
+#define MULADDC_STOP							\
+		: "+c" (c), "+D" (d), "+S" (s)				\
+		: "b" (b)						\
+		: "rax", "rdx", "r8"					\
+	);
+
+
 /*
  * Helper for ttls_mpi multiplication
  */
@@ -1745,10 +1767,10 @@ cleanup:
  * deterministic, eg for tests).
  */
 int
-tls_mpi_fill_random(ttls_mpi *X, size_t size)
+ttls_mpi_fill_random(ttls_mpi *X, size_t size)
 {
 	int ret;
-	unsigned char buf[TTLS_MPI_MAX_SIZE];
+	unsigned char buf[TTLS_MPI_MAX_SIZE] ____cacheline_aligned;
 
 	if (size > TTLS_MPI_MAX_SIZE)
 		return TTLS_ERR_MPI_BAD_INPUT_DATA;
@@ -1919,9 +1941,7 @@ cleanup:
 /*
  * Miller-Rabin pseudo-primality test  (HAC 4.24)
  */
-static int mpi_miller_rabin(const ttls_mpi *X,
-				 int (*f_rng)(void *, unsigned char *, size_t),
-				 void *p_rng)
+static int mpi_miller_rabin(const ttls_mpi *X)
 {
 	int ret, count;
 	size_t i, j, k, n, s;
@@ -1952,7 +1972,7 @@ static int mpi_miller_rabin(const ttls_mpi *X,
 		/*
 		 * pick a random A, 1 < A < |X| - 1
 		 */
-		get_random_bytes_arch(&A, X->n * ciL);
+		TTLS_MPI_CHK(ttls_mpi_fill_random(&A, X->n * ciL));
 
 		if (ttls_mpi_cmp_mpi(&A, &W) >= 0)
 		{
@@ -1963,7 +1983,7 @@ static int mpi_miller_rabin(const ttls_mpi *X,
 
 		count = 0;
 		do {
-			get_random_bytes_arch(&A, X->n * ciL);
+			TTLS_MPI_CHK(ttls_mpi_fill_random(&A, X->n * ciL));
 
 			j = ttls_mpi_bitlen(&A);
 			k = ttls_mpi_bitlen(&W);
@@ -2023,9 +2043,7 @@ cleanup:
 /*
  * Pseudo-primality test: small factors, then Miller-Rabin
  */
-int ttls_mpi_is_prime(const ttls_mpi *X,
-				  int (*f_rng)(void *, unsigned char *, size_t),
-				  void *p_rng)
+int ttls_mpi_is_prime(const ttls_mpi *X)
 {
 	int ret;
 	ttls_mpi XX;
@@ -2049,15 +2067,13 @@ int ttls_mpi_is_prime(const ttls_mpi *X,
 		return ret;
 	}
 
-	return(mpi_miller_rabin(&XX, f_rng, p_rng));
+	return(mpi_miller_rabin(&XX));
 }
 
 /*
  * Prime number generation
  */
-int ttls_mpi_gen_prime(ttls_mpi *X, size_t nbits, int dh_flag,
-				   int (*f_rng)(void *, unsigned char *, size_t),
-				   void *p_rng)
+int ttls_mpi_gen_prime(ttls_mpi *X, size_t nbits, int dh_flag)
 {
 	int ret;
 	size_t k, n;
@@ -2071,7 +2087,7 @@ int ttls_mpi_gen_prime(ttls_mpi *X, size_t nbits, int dh_flag,
 
 	n = BITS_TO_LIMBS(nbits);
 
-	get_random_bytes_arch(X, n * ciL);
+	TTLS_MPI_CHK(ttls_mpi_fill_random(X, n * ciL));
 
 	k = ttls_mpi_bitlen(X);
 	if (k > nbits) TTLS_MPI_CHK(ttls_mpi_shift_r(X, k - nbits + 1));
@@ -2082,7 +2098,7 @@ int ttls_mpi_gen_prime(ttls_mpi *X, size_t nbits, int dh_flag,
 
 	if (dh_flag == 0)
 	{
-		while ((ret = ttls_mpi_is_prime(X, f_rng, p_rng)) != 0)
+		while ((ret = ttls_mpi_is_prime(X)) != 0)
 		{
 			if (ret != TTLS_ERR_MPI_NOT_ACCEPTABLE)
 				goto cleanup;
@@ -2118,8 +2134,8 @@ int ttls_mpi_gen_prime(ttls_mpi *X, size_t nbits, int dh_flag,
 			 */
 			if ((ret = mpi_check_small_factors( X		)) == 0 &&
 				(ret = mpi_check_small_factors(&Y		)) == 0 &&
-				(ret = mpi_miller_rabin( X, f_rng, p_rng )) == 0 &&
-				(ret = mpi_miller_rabin(&Y, f_rng, p_rng )) == 0)
+				(ret = mpi_miller_rabin( X)) == 0 &&
+				(ret = mpi_miller_rabin(&Y)) == 0)
 			{
 				break;
 			}

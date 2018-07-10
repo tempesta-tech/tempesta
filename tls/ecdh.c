@@ -58,7 +58,7 @@ ttls_ecdh_compute_shared(ttls_ecp_group *grp, ttls_mpi *z,
 	 */
 	TTLS_MPI_CHK(ttls_ecp_check_pubkey(grp, Q));
 
-	TTLS_MPI_CHK(ttls_ecp_mul(grp, &P, d, Q));
+	TTLS_MPI_CHK(ttls_ecp_mul(grp, &P, d, Q, true));
 
 	if (ttls_ecp_is_zero(&P)) {
 		ret = TTLS_ERR_ECP_BAD_INPUT_DATA;
@@ -186,16 +186,14 @@ int ttls_ecdh_get_params(ttls_ecdh_context *ctx, const ttls_ecp_keypair *key,
  * Setup and export the client public value
  */
 int ttls_ecdh_make_public(ttls_ecdh_context *ctx, size_t *olen,
-		  unsigned char *buf, size_t blen,
-		  int (*f_rng)(void *, unsigned char *, size_t),
-		  void *p_rng)
+		  unsigned char *buf, size_t blen)
 {
 	int ret;
 
 	if (ctx == NULL || ctx->grp.pbits == 0)
 		return(TTLS_ERR_ECP_BAD_INPUT_DATA);
 
-	if ((ret = ttls_ecdh_gen_public(&ctx->grp, &ctx->d, &ctx->Q, f_rng, p_rng))
+	if ((ret = ttls_ecdh_gen_public(&ctx->grp, &ctx->d, &ctx->Q))
 				!= 0)
 		return ret;
 
