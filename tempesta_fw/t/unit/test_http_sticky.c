@@ -18,6 +18,7 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <linux/types.h>
 #include <asm/fpu/api.h>
 /* prevent exporting symbols */
 #include <linux/module.h>
@@ -35,7 +36,7 @@
 #endif
 
 #include "http_msg.c"
-
+#include "msg.c"
 #include "http_sess.c"
 
 #include "filter.c"
@@ -161,8 +162,8 @@ tfw_connection_send(TfwConn *conn, TfwMsg *msg)
 
 	skb = msg->skb_head;
 	do {
-		int r = ss_skb_process(skb, 0, tfw_http_parse_resp, mock.resp,
-				       &chunks, &parsed);
+		ss_skb_process(skb, 0, tfw_http_parse_resp, mock.resp, &chunks,
+			       &parsed);
 		skb = skb->next;
 	} while (skb != msg->skb_head);
 

@@ -54,7 +54,7 @@ typedef struct ttls_cache_entry ttls_cache_entry;
 struct ttls_cache_entry
 {
 	time_t timestamp;		   /*!< entry timestamp	*/
-	TtlsSess session;		/*!< entry session	  */
+	TlsSess session;		/*!< entry session	  */
 	ttls_x509_buf peer_cert;		 /*!< entry peer_cert	*/
 	ttls_cache_entry *next;	  /*!< chain pointer	  */
 };
@@ -83,7 +83,7 @@ void ttls_cache_init(ttls_cache_context *cache);
  * \param data	 SSL cache context
  * \param session  session to retrieve entry for
  */
-int ttls_cache_get(void *data, TtlsSess *session);
+int ttls_cache_get(void *data, TlsSess *session);
 
 /**
  * \brief		  Cache set callback implementation
@@ -91,7 +91,7 @@ int ttls_cache_get(void *data, TtlsSess *session);
  * \param data	 SSL cache context
  * \param session  session to store entry for
  */
-int ttls_cache_set(void *data, const TtlsSess *session);
+int ttls_cache_set(void *data, const TlsSess *session);
 
 /**
  * \brief		  Set the cache timeout

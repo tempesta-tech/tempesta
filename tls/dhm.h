@@ -62,7 +62,6 @@
 
 #include "config.h"
 #include "bignum.h"
-#if !defined(TTLS_DHM_ALT)
 
 /*
  * DHM Error codes
@@ -133,8 +132,6 @@ int ttls_dhm_read_params(ttls_dhm_context *ctx,
  * \param x_size   The private value size in Bytes.
  * \param olen	 The number of characters written.
  * \param output   The destination buffer.
- * \param f_rng	The RNG function.
- * \param p_rng	The RNG parameter.
  *
  * \note   The destination buffer must be large enough to hold
  *		 the reduced binary presentation of the modulus, the generator
@@ -193,8 +190,6 @@ int ttls_dhm_read_public(ttls_dhm_context *ctx,
  * \param output   The destination buffer.
  * \param olen	 The length of the destination buffer. Must be at least
 				   equal to ctx->len (the size of \c P).
- * \param f_rng	The RNG function.
- * \param p_rng	The RNG parameter.
  *
  * \note		   The destination buffer will always be fully written
  *				 so as to contain a big-endian presentation of G^X mod P.
@@ -205,9 +200,7 @@ int ttls_dhm_read_public(ttls_dhm_context *ctx,
  *				 on failure.
  */
 int ttls_dhm_make_public(ttls_dhm_context *ctx, int x_size,
-		 unsigned char *output, size_t olen,
-		 int (*f_rng)(void *, unsigned char *, size_t),
-		 void *p_rng);
+		 unsigned char *output, size_t olen);
 
 /**
  * \brief			   This function derives and exports the shared secret
@@ -218,8 +211,6 @@ int ttls_dhm_make_public(ttls_dhm_context *ctx, int x_size,
  * \param output_size   The size of the destination buffer. Must be at least
  *		  the size of ctx->len.
  * \param olen		  On exit, holds the actual number of Bytes written.
- * \param f_rng		 The RNG function, for blinding purposes.
- * \param p_rng		 The RNG parameter.
  *
  * \return		 \c 0 on success, or an \c TTLS_ERR_DHM_XXX error code
  *				 on failure.
@@ -231,9 +222,7 @@ int ttls_dhm_make_public(ttls_dhm_context *ctx, int x_size,
  *				 non-NULL \p f_rng argument.
  */
 int ttls_dhm_calc_secret(ttls_dhm_context *ctx,
-		 unsigned char *output, size_t output_size, size_t *olen,
-		 int (*f_rng)(void *, unsigned char *, size_t),
-		 void *p_rng);
+		 unsigned char *output, size_t output_size, size_t *olen);
 
 /**
  * \brief		  This function frees and clears the components of a DHM key.
@@ -257,10 +246,6 @@ void ttls_dhm_free(ttls_dhm_context *ctx);
 int ttls_dhm_parse_dhm(ttls_dhm_context *dhm, const unsigned char *dhmin,
 				   size_t dhminlen);
 
-
-#else /* TTLS_DHM_ALT */
-#include "dhm_alt.h"
-#endif /* TTLS_DHM_ALT */
 
 /**
  * RFC 3526, RFC 5114 and RFC 7919 standardize a number of

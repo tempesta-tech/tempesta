@@ -147,14 +147,14 @@ index caeb159a..274c6cc0 100644
  struct kvec;
  
 diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
-index be45224b..f1c52db4 100644
+index be45224b..30ca3af1 100644
 --- a/include/linux/skbuff.h
 +++ b/include/linux/skbuff.h
 @@ -232,6 +232,12 @@
  	SKB_WITH_OVERHEAD((PAGE_SIZE << (ORDER)) - (X))
  #define SKB_MAX_HEAD(X)		(SKB_MAX_ORDER((X), 0))
  #define SKB_MAX_ALLOC		(SKB_MAX_ORDER(0, 2))
-+#ifndef CONFIG_SECURITY_TEMPESTA
++#ifdef CONFIG_SECURITY_TEMPESTA
 +#define SKB_MAX_HEADER	(PAGE_SIZE - MAX_TCP_HEADER			\
 +			 - SKB_DATA_ALIGN(sizeof(struct sk_buff))	\
 +			 - SKB_DATA_ALIGN(sizeof(struct skb_shared_info)) \
@@ -185,7 +185,7 @@ index be45224b..f1c52db4 100644
  
  #ifdef CONFIG_NET_SCHED
  	__u16			tc_index;	/* traffic control index */
-@@ -847,6 +860,52 @@ struct sk_buff {
+@@ -847,6 +860,53 @@ struct sk_buff {
  #define SKB_ALLOC_RX		0x02
  #define SKB_ALLOC_NAPI		0x04
  
@@ -207,6 +207,7 @@ index be45224b..f1c52db4 100644
 +		return -EINVAL;
 +	}
 +	skb->dev = (void *)((type << 1) | 1UL);
++	return 0;
 +}
 +
 +static inline unsigned char
@@ -238,7 +239,7 @@ index be45224b..f1c52db4 100644
  /* Returns true if the skb was allocated from PFMEMALLOC reserves */
  static inline bool skb_pfmemalloc(const struct sk_buff *skb)
  {
-@@ -965,6 +1024,7 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen);
+@@ -965,6 +1025,7 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen);
  bool skb_try_coalesce(struct sk_buff *to, struct sk_buff *from,
  		      bool *fragstolen, int *delta_truesize);
  
@@ -246,7 +247,7 @@ index be45224b..f1c52db4 100644
  struct sk_buff *__alloc_skb(unsigned int size, gfp_t priority, int flags,
  			    int node);
  struct sk_buff *__build_skb(void *data, unsigned int frag_size);
-@@ -1885,7 +1945,11 @@ static inline struct sk_buff *__skb_dequeue_tail(struct sk_buff_head *list)
+@@ -1885,7 +1946,11 @@ static inline struct sk_buff *__skb_dequeue_tail(struct sk_buff_head *list)
  
  static inline bool skb_is_nonlinear(const struct sk_buff *skb)
  {
@@ -258,7 +259,7 @@ index be45224b..f1c52db4 100644
  }
  
  static inline unsigned int skb_headlen(const struct sk_buff *skb)
-@@ -2124,6 +2188,20 @@ static inline unsigned int skb_headroom(const struct sk_buff *skb)
+@@ -2124,6 +2189,20 @@ static inline unsigned int skb_headroom(const struct sk_buff *skb)
  	return skb->data - skb->head;
  }
  
@@ -340,21 +341,22 @@ index 00000000..55049bd3
 +#endif /* __TEMPESTA_H__ */
 +
 diff --git a/include/net/sock.h b/include/net/sock.h
-index 9bd5d680..b914e197 100644
+index 9bd5d680..4b990fe9 100644
 --- a/include/net/sock.h
 +++ b/include/net/sock.h
-@@ -471,6 +471,10 @@ struct sock {
+@@ -471,6 +471,11 @@ struct sock {
  	void			(*sk_state_change)(struct sock *sk);
  	void			(*sk_data_ready)(struct sock *sk);
  	void			(*sk_write_space)(struct sock *sk);
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +	int			(*sk_write_xmit)(struct sock *sk,
-+						 struct sk_buff *skb);
++						 struct sk_buff *skb,
++						 unsigned int limit);
 +#endif
  	void			(*sk_error_report)(struct sock *sk);
  	int			(*sk_backlog_rcv)(struct sock *sk,
  						  struct sk_buff *skb);
-@@ -771,6 +775,9 @@ enum sock_flags {
+@@ -771,6 +776,9 @@ enum sock_flags {
  	SOCK_FILTER_LOCKED, /* Filter cannot be changed anymore */
  	SOCK_SELECT_ERR_QUEUE, /* Wake select on error queue */
  	SOCK_RCU_FREE, /* wait rcu grace period in sk_destruct() */
@@ -364,7 +366,7 @@ index 9bd5d680..b914e197 100644
  };
  
  #define SK_FLAGS_TIMESTAMP ((1UL << SOCK_TIMESTAMP) | (1UL << SOCK_TIMESTAMPING_RX_SOFTWARE))
-@@ -1737,8 +1744,7 @@ static inline void sk_rethink_txhash(struct sock *sk)
+@@ -1737,8 +1745,7 @@ static inline void sk_rethink_txhash(struct sock *sk)
  static inline struct dst_entry *
  __sk_dst_get(struct sock *sk)
  {
@@ -882,7 +884,7 @@ index 9b8727c6..a496888a 100644
  }
 +EXPORT_SYMBOL(reqsk_fastopen_remove);
 diff --git a/net/core/skbuff.c b/net/core/skbuff.c
-index 564beb7e..85620d3e 100644
+index 564beb7e..92e9a635 100644
 --- a/net/core/skbuff.c
 +++ b/net/core/skbuff.c
 @@ -78,7 +78,9 @@
@@ -1073,7 +1075,7 @@ index 564beb7e..85620d3e 100644
 +#undef PREEMPT_CTX_DISABLE
 +#undef PREEMPT_CTX_ENABLE
 +}
-+EXPORT_SYMBOL(pg_skg_alloc);
++EXPORT_SYMBOL(pg_skb_alloc);
 +#endif
 +
 +static void
@@ -1760,7 +1762,7 @@ index 420fecbb..67e0513a 100644
  void tcp_twsk_destructor(struct sock *sk)
  {
 diff --git a/net/ipv4/tcp_output.c b/net/ipv4/tcp_output.c
-index 83d11cd2..f9f39378 100644
+index 83d11cd2..01bd67d8 100644
 --- a/net/ipv4/tcp_output.c
 +++ b/net/ipv4/tcp_output.c
 @@ -37,6 +37,9 @@
@@ -1815,28 +1817,29 @@ index 83d11cd2..f9f39378 100644
  
  /* RFC2861, slow part. Adjust cwnd, after it was not full during one rto.
   * As additional protections, we do not touch cwnd in retransmission phases,
-@@ -2321,6 +2327,20 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
- 		}
- 
- 		limit = mss_now;
+@@ -2327,7 +2333,20 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
+ 							  cwnd_quota,
+ 							  max_segs),
+ 						    nonagle);
+-
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +		if (sk->sk_write_xmit && tempesta_tls_skb_type(skb)) {
-+			if (unlikely(limit <= TLS_MAX_MSG_OVERHEAD)) {
++			if (unlikely(limit <= TLS_MAX_OVERHEAD)) {
 +				net_warn_ratelimited("%s: too small MSS %u"
 +						     " for TLS\n",
 +						     __func__, mss_now);
 +				break;
 +			}
 +			if (limit < TLS_MAX_PAYLOAD_SIZE)
-+				limit -= TLS_MAX_MSG_OVERHEAD;
++				limit -= TLS_MAX_OVERHEAD;
 +			else
 +				limit = TLS_MAX_PAYLOAD_SIZE;
 +		}
 +#endif
- 		if (tso_segs > 1 && !tcp_urg_mode(tp))
- 			limit = tcp_mss_split_point(sk, skb, mss_now,
- 						    min_t(unsigned int,
-@@ -2336,7 +2356,23 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
+ 		if (skb->len > limit &&
+ 		    unlikely(tso_fragment(sk, skb, limit, mss_now, gfp)))
+ 			break;
+@@ -2336,7 +2355,23 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
  			clear_bit(TCP_TSQ_DEFERRED, &sk->sk_tsq_flags);
  		if (tcp_small_queue_check(sk, skb, 0))
  			break;
@@ -1855,13 +1858,13 @@ index 83d11cd2..f9f39378 100644
 +		 * get 16KB (maximum size of TLS message).
 +		 */
 +		if (sk->sk_write_xmit && tempesta_tls_skb_type(skb))
-+			if (unlikely(sk->sk_write_xmit(sk, skb)))
++			if (unlikely(sk->sk_write_xmit(sk, skb, limit)))
 +				break;
 +#endif
  		if (unlikely(tcp_transmit_skb(sk, skb, 1, gfp)))
  			break;
  
-@@ -2518,6 +2554,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
+@@ -2518,6 +2553,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
  			   sk_gfp_mask(sk, GFP_ATOMIC)))
  		tcp_check_probe_timer(sk);
  }
@@ -1869,7 +1872,7 @@ index 83d11cd2..f9f39378 100644
  
  /* Send _single_ skb sitting at the send head. This function requires
   * true push pending frames to setup probe timer etc.
-@@ -2839,9 +2876,19 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
+@@ -2839,9 +2875,19 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
  		if (tcp_fragment(sk, skb, len, cur_mss, GFP_ATOMIC))
  			return -ENOMEM; /* We'll try again later. */
  	} else {
@@ -1889,7 +1892,7 @@ index 83d11cd2..f9f39378 100644
  		diff = tcp_skb_pcount(skb);
  		tcp_set_skb_tso_segs(skb, cur_mss);
  		diff -= tcp_skb_pcount(skb);
-@@ -3129,6 +3176,7 @@ int tcp_send_synack(struct sock *sk)
+@@ -3129,6 +3175,7 @@ int tcp_send_synack(struct sock *sk)
  	}
  	return tcp_transmit_skb(sk, skb, 1, GFP_ATOMIC);
  }

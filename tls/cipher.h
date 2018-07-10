@@ -111,9 +111,9 @@ typedef enum {
  * @setkey_dec_func	- Set key for decryption purposes;
  * @ctx_alloc_func	- Allocate a new context;
  * @ctx_free_func	- Free the given context;
- * @ctx_tmpl		- context template;
+ * @tfm			- crypto driver;
  */
-struct ttls_cipher_base_t {
+typedef struct {
 	ttls_cipher_id_t	cipher;
 #if defined(TTLS_CIPHER_MODE_STREAM)
 	int (*stream_func)(void *ctx, size_t length, const unsigned char *input,
@@ -124,12 +124,12 @@ struct ttls_cipher_base_t {
 	int (*setkey_dec_func)(void *ctx, const unsigned char *key,
 			       unsigned int len);
 
-	void * (*ctx_alloc_func)(void);
+	struct crypto_aead * (*ctx_alloc_func)(void);
 
-	void (*ctx_free_func)(void *ctx);
+	void (*ctx_free_func)(struct crypto_aead *ctx);
 
 	struct crypto_aead	*tfm;
-};
+} ttls_cipher_base_t;
 
 /**
  * Cipher information. Allows calling cipher functions in a generic way.

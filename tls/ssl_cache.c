@@ -40,7 +40,7 @@ void ttls_cache_init(ttls_cache_context *cache)
 	spin_lock_init(&cache->mutex);
 }
 
-int ttls_cache_get(void *data, TtlsSess *session)
+int ttls_cache_get(void *data, TlsSess *session)
 {
 	int ret = 1;
 	time_t t = get_seconds();
@@ -107,7 +107,7 @@ exit:
 	return ret;
 }
 
-int ttls_cache_set(void *data, const TtlsSess *session)
+int ttls_cache_set(void *data, const TlsSess *session)
 {
 	int ret = 1;
 	time_t t = get_seconds(), oldest = 0;
@@ -181,7 +181,7 @@ int ttls_cache_set(void *data, const TtlsSess *session)
 		cur->timestamp = t;
 	}
 
-	memcpy(&cur->session, session, sizeof(TtlsSess));
+	memcpy(&cur->session, session, sizeof(TlsSess));
 
 	/*
 	 * If we're reusing an entry, free its certificate first
@@ -244,7 +244,7 @@ void ttls_cache_free(ttls_cache_context *cache)
 		prv = cur;
 		cur = cur->next;
 
-		ttls_session_free(&prv->session);
+		bzero_fast(&prv->session, sizeof(prv->session));
 
 		ttls_free(prv->peer_cert.p);
 

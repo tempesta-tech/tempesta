@@ -22,6 +22,8 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
+#include "lib/str.h"
+#include "debug.h"
 #include "md.h"
 
 /*
@@ -35,6 +37,12 @@ static const int supported_digests[] = {
 		TTLS_MD_RIPEMD160,
 		TTLS_MD_NONE
 };
+
+TlsMdInfo ttls_ripemd160_info;
+TlsMdInfo ttls_sha224_info;
+TlsMdInfo ttls_sha256_info;
+TlsMdInfo ttls_sha384_info;
+TlsMdInfo ttls_sha512_info;
 
 static struct kmem_cache *ttls_hmac_cache;
 
@@ -53,7 +61,8 @@ static struct shash_desc *name##_ctx_alloc(void)			\
 }									\
 static void name##_ctx_free(struct shash_desc *desc)			\
 {									\
-	bzero_fast(desc, ksize(ttls_##name##_info.ctx_tmpl));		\
+	bzero_fast(desc, sizeof(struct shash_desc)			\
+			 + crypto_shash_descsize(ttls_##name##_info.tfm));\
 	kmem_cache_free(ttls_##name##_cache, desc);			\
 }
 
@@ -63,64 +72,82 @@ DECLARE_MD_ALLOC(sha256);
 DECLARE_MD_ALLOC(sha384);
 DECLARE_MD_ALLOC(sha512);
 
-const ttls_md_info_t ttls_ripemd160_info = {
+static int
+starts_func_w(struct shash_desc *ctx)
+{
+	return crypto_shash_init(ctx);
+}
+
+static int
+update_func_w(struct shash_desc *ctx, const unsigned char *input, size_t ilen)
+{
+	return crypto_shash_update(ctx, input, ilen);
+}
+
+static int
+finish_func_w(struct shash_desc *ctx, unsigned char *output)
+{
+	return crypto_shash_final(ctx, output);
+}
+
+TlsMdInfo ttls_ripemd160_info = {
 	.type		= TTLS_MD_RIPEMD160,
 	.name		= "RIPEMD160",
 	.size		= 20,
 	.block_size	= 64,
-	.starts_func	= crypto_shash_init,
-	.update_func	= crypto_shash_update,
-	.finish_func	= crypto_shash_final,
+	.starts_func	= starts_func_w,
+	.update_func	= update_func_w,
+	.finish_func	= finish_func_w,
 	.ctx_alloc_func	= ripemd160_ctx_alloc,
 	.ctx_free_func	= ripemd160_ctx_free,
 };
 
-const ttls_md_info_t ttls_sha224_info = {
+TlsMdInfo ttls_sha224_info = {
 	.type		= TTLS_MD_SHA224,
 	.name		= "SHA224",
 	.size		= 28,
 	.block_size	= 64,
-	.starts_func	= crypto_shash_init,
-	.update_func	= crypto_shash_update,
-	.finish_func	= crypto_shash_final,
+	.starts_func	= starts_func_w,
+	.update_func	= update_func_w,
+	.finish_func	= finish_func_w,
 	.ctx_alloc_func	= sha224_ctx_alloc,
 	.ctx_free_func	= sha224_ctx_free,
 };
 
-const ttls_md_info_t ttls_sha256_info = {
+TlsMdInfo ttls_sha256_info = {
 	.type		= TTLS_MD_SHA256,
 	.name		= "SHA256",
 	.size		= 32,
 	.block_size	= 64,
-	.starts_func	= crypto_shash_init,
-	.update_func	= crypto_shash_update,
-	.finish_func	= crypto_shash_final,
-	.ctx_alloc_func	= sha224_ctx_alloc,
-	.ctx_free_func	= sha224_ctx_free,
+	.starts_func	= starts_func_w,
+	.update_func	= update_func_w,
+	.finish_func	= finish_func_w,
+	.ctx_alloc_func	= sha256_ctx_alloc,
+	.ctx_free_func	= sha256_ctx_free,
 };
 
-const ttls_md_info_t ttls_sha384_info = {
+TlsMdInfo ttls_sha384_info = {
 	.type		= TTLS_MD_SHA384,
 	.name		= "SHA384",
 	.size		= 48,
 	.block_size	= 128,
-	.starts_func	= crypto_shash_init,
-	.update_func	= crypto_shash_update,
-	.finish_func	= crypto_shash_final,
+	.starts_func	= starts_func_w,
+	.update_func	= update_func_w,
+	.finish_func	= finish_func_w,
 	.ctx_alloc_func	= sha384_ctx_alloc,
 	.ctx_free_func	= sha384_ctx_free,
 };
 
-const ttls_md_info_t ttls_sha512_info = {
+TlsMdInfo ttls_sha512_info = {
 	.type		= TTLS_MD_SHA512,
 	.name		= "SHA512",
 	.size		= 64,
 	.block_size	= 128,
-	.starts_func	= crypto_shash_init,
-	.update_func	= crypto_shash_update,
-	.finish_func	= crypto_shash_final,
-	.ctx_alloc_func	= sha384_ctx_alloc,
-	.ctx_free_func	= sha384_ctx_free,
+	.starts_func	= starts_func_w,
+	.update_func	= update_func_w,
+	.finish_func	= finish_func_w,
+	.ctx_alloc_func	= sha512_ctx_alloc,
+	.ctx_free_func	= sha512_ctx_free,
 };
 
 void
@@ -147,7 +174,7 @@ ttls_md_free(ttls_md_context_t *ctx)
 }
 
 int
-ttls_md_setup(ttls_md_context_t *ctx, const ttls_md_info_t *md_info, int hmac)
+ttls_md_setup(ttls_md_context_t *ctx, const TlsMdInfo *md_info, int hmac)
 {
 	BUG_ON(!md_info || !ctx);
 
@@ -170,7 +197,7 @@ ttls_md_setup(ttls_md_context_t *ctx, const ttls_md_info_t *md_info, int hmac)
 int
 ttls_md_starts(ttls_md_context_t *ctx)
 {
-	BUG_ON(!md_info || !ctx);
+	BUG_ON(!ctx || !ctx->md_info);
 
 	return ctx->md_info->starts_func(ctx->md_ctx);
 }
@@ -192,7 +219,7 @@ ttls_md_finish(ttls_md_context_t *ctx, unsigned char *output)
 }
 
 int
-ttls_md(const ttls_md_info_t *md_info, const unsigned char *input, size_t ilen,
+ttls_md(const TlsMdInfo *md_info, const unsigned char *input, size_t ilen,
 	unsigned char *output)
 {
 	int r;
@@ -213,7 +240,7 @@ ttls_sha256_init_start(ttls_sha256_context *ctx)
 {
 	ctx->desc.tfm = ttls_sha256_info.tfm;
 	ctx->desc.flags = 0;
-	crypto_shash_init(&ctx->desc);
+	starts_func_w(&ctx->desc);
 }
 
 void
@@ -221,7 +248,7 @@ ttls_sha384_init_start(ttls_sha512_context *ctx)
 {
 	ctx->desc.tfm = ttls_sha384_info.tfm;
 	ctx->desc.flags = 0;
-	crypto_shash_init(&ctx->desc);
+	starts_func_w(&ctx->desc);
 }
 
 /* TODO rework for linux/crypto HMAC, ex. security/keys/trusted.c */
@@ -319,27 +346,28 @@ ttls_md_hmac_reset(ttls_md_context_t *ctx)
 					 ctx->md_info->block_size);
 }
 
-const ttls_md_info_t *
+const TlsMdInfo *
 ttls_md_info_from_type(ttls_md_type_t md_type)
 {
 	switch(md_type) {
-		case TTLS_MD_RIPEMD160:
-			return &ttls_ripemd160_info;
-		case TTLS_MD_SHA224:
-			return &ttls_sha224_info;
-		case TTLS_MD_SHA256:
-			return &ttls_sha256_info;
-		case TTLS_MD_SHA384:
-			return &ttls_sha384_info;
-		case TTLS_MD_SHA512:
-			return &ttls_sha512_info;
+	case TTLS_MD_RIPEMD160:
+		return &ttls_ripemd160_info;
+	case TTLS_MD_SHA224:
+		return &ttls_sha224_info;
+	case TTLS_MD_SHA256:
+		return &ttls_sha256_info;
+	case TTLS_MD_SHA384:
+		return &ttls_sha384_info;
+	case TTLS_MD_SHA512:
+		return &ttls_sha512_info;
+	default:
+		return NULL;
 	}
-	return NULL;
 }
 
 #define FREE_MD_CACHE(name)						\
-	if (ttls_##name##_info.ctx_tmpl)				\
-		crypto_free_shash(ttls_##name##_info.ctx_tmpl);		\
+	if (ttls_##name##_info.tfm)					\
+		crypto_free_shash(ttls_##name##_info.tfm);		\
 	if (ttls_##name##_cache)					\
 		kmem_cache_destroy(ttls_##name##_cache);
 
@@ -354,18 +382,22 @@ ttls_free_md_ctx_tmpls(void)
 	kmem_cache_destroy(ttls_hmac_cache);
 }
 
-#define CREATE_MD_CACHE(name)						\
+#define CREATE_MD_CACHE(name, drv)					\
 do {									\
-	struct crypto_shash *a = rypto_alloc_shash(#name, 0, 0);	\
-	if (!a)								\
-		return -ENOMEM;						\
+	struct crypto_shash *a = crypto_alloc_shash(drv, 0, 0);		\
+	if (IS_ERR(a)) {						\
+		T_ERR("cannot initialize " #drv "(" #name ") hash. "	\
+		      "Please check /proc/crypto for the algorithm\n");	\
+		goto err_free;						\
+	}								\
 	ttls_##name##_info.tfm = a;					\
 	ttls_##name##_cache = kmem_cache_create("ttls_" #name "_cache",	\
 						sizeof(struct shash_desc)\
-						+ crypto_shash_descsize(a)\
+						+ crypto_shash_descsize(a),\
 						0, 0, NULL);		\
 	if (!ttls_##name##_cache)					\
-		goto err_free;
+		goto err_free;						\
+} while (0)
 
 int
 ttls_init_md_ctx_tmpls(void)
@@ -374,14 +406,14 @@ ttls_init_md_ctx_tmpls(void)
 	ttls_hmac_cache = kmem_cache_create("ttls_hmac_cache", 256, 0, 0, NULL);
 	if (!ttls_hmac_cache)
 		return -ENOMEM;
-	CREATE_MD_CACHE(ripemd160);
-	CREATE_MD_CACHE(sha224);
-	CREATE_MD_CACHE(sha256);
-	CREATE_MD_CACHE(sha384);
-	CREATE_MD_CACHE(sha512);
+	CREATE_MD_CACHE(ripemd160, "rmd160");
+	CREATE_MD_CACHE(sha224, "sha224-avx2");
+	CREATE_MD_CACHE(sha256, "sha256-avx2");
+	CREATE_MD_CACHE(sha384, "sha384-avx2");
+	CREATE_MD_CACHE(sha512, "sha512-avx2");
 
 	return 0;
 err_free:
-	ttls_free_cipher_ctx_tmpls();
+	ttls_free_md_ctx_tmpls();
 	return -ENOMEM;
 }

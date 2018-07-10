@@ -21,6 +21,7 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
+#include "lib/str.h"
 #include "config.h"
 #include "debug.h"
 #include "ecp.h"
@@ -28,14 +29,14 @@
 #include "ttls.h"
 
 static int
-ttls_check_scsv_fallback(const TlsCtx *tls, unsigned short cipher_suite)
+ttls_check_scsv_fallback(TlsCtx *tls, unsigned short cipher_suite)
 {
 	if (cipher_suite == TTLS_FALLBACK_SCSV_VALUE) {
 		T_DBG("received FALLBACK_SCSV\n");
-		if (tls->minor_ver < tls->conf->max_minor_ver) {
+		if (tls->minor < tls->conf->max_minor_ver) {
 			T_DBG("inapropriate fallback\n");
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-		TTLS_ALERT_MSG_INAPROPRIATE_FALLBACK);
+					TTLS_ALERT_MSG_INAPROPRIATE_FALLBACK);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
 	}
@@ -106,7 +107,7 @@ ttls_parse_servername_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
  * This needs to be done at a later stage.
  */
 static int
-ttls_parse_signature_algorithms_ext(TlsCtl *tls, const unsigned char *buf,
+ttls_parse_signature_algorithms_ext(TlsCtx *tls, const unsigned char *buf,
 				    size_t len)
 {
 	size_t sig_alg_list_size;
@@ -135,7 +136,7 @@ ttls_parse_signature_algorithms_ext(TlsCtl *tls, const unsigned char *buf,
 	for (p = buf + 2; p < end; p += 2) {
 		/* Silently ignore unknown signature or hash algorithms. */
 		if ((sig_cur = ttls_pk_alg_from_sig(p[1])) == TTLS_PK_NONE) {
-			T_DBG("ClientHello v3, signature_algorithm ext"
+			T_DBG("ClientHello: signature_algorithm ext:"
 			      " unknown sig alg encoding %d\n", p[1]);
 			continue;
 		}
@@ -143,7 +144,7 @@ ttls_parse_signature_algorithms_ext(TlsCtl *tls, const unsigned char *buf,
 		/* Check if we support the hash the user proposes */
 		md_cur = ttls_md_alg_from_hash(p[0]);
 		if (md_cur == TTLS_MD_NONE) {
-			T_DBG("ClientHello v3, signature_algorithm ext:"
+			T_DBG("ClientHello: signature_algorithm ext:"
 			      " unknown hash alg encoding %d\n", p[0]);
 			continue;
 		}
@@ -151,11 +152,11 @@ ttls_parse_signature_algorithms_ext(TlsCtl *tls, const unsigned char *buf,
 		if (!ttls_check_sig_hash(tls, md_cur)) {
 			ttls_sig_hash_set_add(&tls->hs->hash_algs, sig_cur,
 					      md_cur);
-			T_DBG("ClientHello v3, signature_algorithm ext:"
+			T_DBG("ClientHello: signature_algorithm ext:"
 			      " match sig %d and hash %d",
 			      sig_cur, md_cur);
 		} else {
-			T_DBG("ClientHello v3, signature_algorithm ext: "
+			T_DBG("ClientHello: signature_algorithm ext: "
 			      "hash alg %d not supported", md_cur);
 		}
 	}
@@ -167,7 +168,7 @@ static int
 ttls_parse_supported_elliptic_curves(TlsCtx *tls, const unsigned char *buf,
 				     size_t len)
 {
-	size_t i, list_size;
+	size_t i, c, list_size;
 	const unsigned char *p;
 	const ttls_ecp_curve_info *ci;
 
@@ -179,12 +180,13 @@ ttls_parse_supported_elliptic_curves(TlsCtx *tls, const unsigned char *buf,
 		return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 	}
 
-	if (tls->hs->curves) {
+	if (tls->hs->curves_ext) {
 		T_DBG("ClientHello: duplicate elliptic curves extension\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				TTLS_ALERT_MSG_DECODE_ERROR);
 		return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 	}
+	tls->hs->curves_ext = 1;
 
 	/*
 	 * Limit the peer in making us allocate too much memory,
@@ -193,10 +195,12 @@ ttls_parse_supported_elliptic_curves(TlsCtx *tls, const unsigned char *buf,
 	if (list_size / 2 + 1 > TTLS_ECP_DP_MAX)
 		list_size = TTLS_ECP_DP_MAX - 1;
 
-	for (i = 0, p = buf + 2; i < list_size; ++i) {
+	for (c = i = 0, p = buf + 2; i < list_size; ++i) {
 		ci = ttls_ecp_curve_info_from_tls_id((p[0] << 8) | p[1]);
-		if (ci)
-			tls->hs->curves[i] = ci;
+		if (ci) {
+			T_DBG3("set curve %s\n", ci->name);
+			tls->hs->curves[c++] = ci;
+		}
 		p += 2;
 	}
 
@@ -245,7 +249,7 @@ ttls_parse_encrypt_then_mac_ext(TlsCtx *tls, const unsigned char *buf,
 		return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 	}
 	if (tls->conf->encrypt_then_mac)
-		tls->sess.encrypt_then_mac = 1;
+		tls->encrypt_then_mac = 1;
 
 	return 0;
 }
@@ -278,7 +282,7 @@ ttls_parse_session_ticket_ext(TlsCtx *tls, unsigned char *buf, size_t len)
 	/* Remember the client asked us to send a new ticket */
 	tls->hs->new_session_ticket = 1;
 
-	T_DBG("ClientHello: ticket length: %d\n", len);
+	T_DBG("ClientHello: ticket length: %lu\n", len);
 
 	if (!len)
 		return 0;
@@ -287,7 +291,7 @@ ttls_parse_session_ticket_ext(TlsCtx *tls, unsigned char *buf, size_t len)
 	bzero_fast(&session, sizeof(session));
 	r = tls->conf->f_ticket_parse(tls->conf->p_ticket, &session, buf, len);
 	if (r) {
-		ttls_session_free(&session);
+		bzero_fast(&session, sizeof(session));
 		if (r == TTLS_ERR_INVALID_MAC)
 			T_DBG("ClientHello: ticket is not authentic\n");
 		else if (r == TTLS_ERR_SESSION_TICKET_EXPIRED)
@@ -306,7 +310,7 @@ ttls_parse_session_ticket_ext(TlsCtx *tls, unsigned char *buf, size_t len)
 	memcpy(&tls->sess, &session, sizeof(TlsSess));
 
 	/* Zeroize instead of free as we copied the content */
-	bzero_fast(&session, sizeof(TtlsSess));
+	bzero_fast(&session, sizeof(TlsSess));
 
 	T_DBG("ClientHello: session successfully restored from ticket\n");
 
@@ -412,6 +416,8 @@ ttls_check_key_curve(ttls_pk_context *pk, const ttls_ecp_curve_info **curves)
 	return -1;
 }
 
+#include "pk_internal.h" // FIXME
+
 /**
  * Try picking a certificate for this ciphersuite,
  * @return 0 on success and -1 on failure.
@@ -439,10 +445,9 @@ ttls_pick_cert(TlsCtx *tls, const ttls_ciphersuite_t *ci)
 	}
 
 	for (cur = list; cur != NULL; cur = cur->next) {
-		T_DBG("candidate certificate chain, certificate\n", cur->cert);
-
 		if (!ttls_pk_can_do(cur->key, pk_alg)) {
-			T_DBG(("certificate mismatch: key type\n");
+			T_DBG("certificate mismatch: key type (%d,%d)\n",
+			      cur->key->pk_info->type, pk_alg);
 			continue;
 		}
 
@@ -476,8 +481,6 @@ ttls_pick_cert(TlsCtx *tls, const ttls_ciphersuite_t *ci)
 	/* Do not update tls->hs->key_cert unless there is a match */
 	if (cur) {
 		tls->hs->key_cert = cur;
-		T_DBG("selected certificate chain, certificate\n",
-		      tls->hs->key_cert->cert);
 		return 0;
 	}
 
@@ -510,9 +513,7 @@ ttls_ciphersuite_match(TlsCtx *tls, int suite_id, const ttls_ciphersuite_t **ci)
 		      tls->minor);
 		return 0;
 	}
-	if (ttls_ciphersuite_uses_ec(suite_info)
-	    && (!tls->hs->curves || !tls->hs->curves[0]))
-	{
+	if (ttls_ciphersuite_uses_ec(suite_info) && !tls->hs->curves[0]) {
 		T_DBG("ciphersuite mismatch: no common elliptic curve\n");
 		return 0;
 	}
@@ -550,13 +551,14 @@ static int
 ttls_choose_ciphersuite(TlsCtx *tls, const unsigned char *csp)
 {
 	unsigned short ciph_len = ntohs(*(short *)csp);
-	int r, i, j, got_common_suite = 0;
+	int r, i, got_common_suite = 0;
 	const int *ciphersuites = tls->conf->ciphersuite_list[tls->minor];
 	const ttls_ciphersuite_t *ci = NULL;
+	const unsigned char *cs;
 
 	for (i = 0; ciphersuites[i] != 0; i++)
-		for (j = 0, csp += 2; j < ciph_len; j += 2, csp += 2) {
-			if (ntohs(*(short *)cspp[0]) != ciphersuites[i])
+		for (cs = csp + 2; cs < csp + ciph_len; cs += 2) {
+			if (ntohs(*(short *)cs) != ciphersuites[i])
 				continue;
 			got_common_suite = 1;
 			r = ttls_ciphersuite_match(tls, ciphersuites[i], &ci);
@@ -586,7 +588,7 @@ have_ciphersuite:
 
 	/* Debugging-only output for testsuite */
 #if defined(DEBUG) && (DEBUG == 3)
-	if (tls->minor == TTLS_MINOR_VERSION_3) {
+	{
 		ttls_md_type_t md_alg;
 		ttls_pk_type_t sig_alg = ttls_get_ciphersuite_sig_alg(ci);
 		if (sig_alg != TTLS_PK_NONE) {
@@ -613,7 +615,7 @@ have_ciphersuite:
  * renegotiation to take place if not secure.
  */
 static int
-ttls_parse_client_hello(TtlsCtx *tls, unsigned char *buf, size_t len,
+ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 			unsigned int *read)
 {
 	int r = T_POSTPONE, n;
@@ -631,8 +633,8 @@ ttls_parse_client_hello(TtlsCtx *tls, unsigned char *buf, size_t len,
 	 * so that we can read at least up to session id length without
 	 * worrying.
 	 */
-	if (io->msglen < 38) {
-		T_DBG("too short client handshake message: %u\n", io->msglen);
+	if (io->hslen < 38) {
+		T_DBG("too short client handshake message: %u\n", io->hslen);
 		return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 	}
 
@@ -659,17 +661,20 @@ ttls_parse_client_hello(TtlsCtx *tls, unsigned char *buf, size_t len,
 		if (unlikely(io->rlen)) {
 			tls->hs->tmp[1] = *p;
 			p++;
+			ttls_read_version(tls, tls->hs->tmp);
 		}
 		else if (unlikely(buf + len - p == 1)) {
 			tls->hs->tmp[0] = *p;
 			io->rlen = 1;
 			p++;
 			T_FSM_EXIT();
+		} else {
+			ttls_read_version(tls, p);
+			p += 2;
 		}
-		ttls_read_version(tls, tls->hs->tmp);
-		io->msglen -= 2;
+		io->hslen -= 2;
 		if (tls->major != TTLS_MAJOR_VERSION_3
-		    || tls->minor != TTLS_MINOR_VERSION_2)
+		    || tls->minor != TTLS_MINOR_VERSION_3)
 		{
 			T_DBG("ClientHello: bad version %u:%u\n",
 			      tls->major, tls->minor);
@@ -682,15 +687,16 @@ ttls_parse_client_hello(TtlsCtx *tls, unsigned char *buf, size_t len,
 
 	T_FSM_STATE(TTLS_CH_HS_RND) {
 		BUG_ON(io->rlen >= 32);
-		n = min(32 - io->rlen, buf + len - p);
+		n = min_t(int, 32 - io->rlen, buf + len - p);
 		/* Save client random (inc. Unix time). */
-		memcmp_fast(tls->hs->randbytes + io->rlen, p, n);
+		memcpy_fast(tls->hs->randbytes + io->rlen, p, n);
 		io->rlen += n;
 		p += n;
-		io->msglen -= 32;
+		io->hslen -= 32;
 		if (unlikely(io->rlen < 32))
 			T_FSM_EXIT();
-		T_DBG3_BUF("ClientHello: random bytes", tls->hs->randbytes, 32);
+		T_DBG3_BUF("ClientHello: random bytes ",
+			   tls->hs->randbytes, 32);
 		TTLS_HS_FSM_MOVE(TTLS_CH_HS_SLEN);
 	}
 
@@ -698,14 +704,15 @@ ttls_parse_client_hello(TtlsCtx *tls, unsigned char *buf, size_t len,
 	T_FSM_STATE(TTLS_CH_HS_SLEN) {
 		n = *p;
 		/* 2 for cipherlist length field. */
-		if (n > sizeof(tls->session.id) || n + 34 + 2 > io->msglen) {
+		if (n > sizeof(tls->sess.id) || n + 34 + 2 > io->hslen) {
 			T_DBG("ClientHello: bad session length %d\n", n);
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 					TTLS_ALERT_MSG_DECODE_ERROR);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
 		tls->sess.id_len = n;
-		io->msglen--;
+		T_DBG3("ClientHello: Session ID length %u\n", n);
+		io->hslen--;
 		++p;
 		if (n)
 			TTLS_HS_FSM_MOVE(TTLS_CH_HS_SESS);
@@ -714,15 +721,15 @@ ttls_parse_client_hello(TtlsCtx *tls, unsigned char *buf, size_t len,
 
 	T_FSM_STATE(TTLS_CH_HS_SESS) {
 		BUG_ON(io->rlen >= tls->sess.id_len);
-		n = min(tls->sess.id_len - io->rlen, buf + len - p);
+		n = min_t(int, tls->sess.id_len - io->rlen, buf + len - p);
 		/* The session ID is zeroed on TlsCtx initialization. */
 		memcmp_fast(tls->sess.id + io->rlen, p, n);
 		io->rlen += n;
 		p += n;
-		io->msglen -= n;
+		io->hslen -= n;
 		if (unlikely(io->rlen < tls->sess.id_len))
 			T_FSM_EXIT();
-		T_DBG3_BUF("ClientHello: session id",
+		T_DBG3_BUF("ClientHello: session id ",
 			   tls->sess.id, tls->sess.id_len);
 		TTLS_HS_FSM_MOVE(TTLS_CH_HS_CSLEN);
 	}
@@ -744,12 +751,13 @@ ttls_parse_client_hello(TtlsCtx *tls, unsigned char *buf, size_t len,
 			memcpy_fast(&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ], p, 2);
 			p += 2;
 		}
-		n = ntohs((short *)&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ]);
+		n = ntohs(*(short *)&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ]);
+		T_DBG3("ClientHello: cipher suites length %u\n", n);
 		/* Initialize number of currently read ciphersuites. */
 		*(unsigned short *)tls->hs->tmp = 0;
-		io->msglen -= 2;
+		io->hslen -= 2;
 		/* 1 for comp. alg. len */
-		if (n < 2 || n + 1 > io->msglen || (n & 1)) {
+		if (n < 2 || n + 1 > io->hslen || (n & 1)) {
 			T_DBG("ClientHello: bad cipher suite length %d\n", n);
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 					TTLS_ALERT_MSG_DECODE_ERROR);
@@ -761,81 +769,85 @@ ttls_parse_client_hello(TtlsCtx *tls, unsigned char *buf, size_t len,
 	/* Read a cipher suite. */
 	T_FSM_STATE(TTLS_CH_HS_CS) {
 		unsigned short cs, *csn = (unsigned short *)tls->hs->tmp;
-		const unsigned int off = TTLS_HS_TMP_STORE_SZ + 2
-		/* Get number of ciphersuites. */
+		const unsigned int off = TTLS_HS_TMP_STORE_SZ + 2;
+		/* Get number of ciphersuite bytes from the client. */
 		n = ntohs(*(short *)&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ]);
 		BUG_ON(io->rlen >= 2);
+		/*
+		 * Skip the last low-priority cipher suites which we can not
+		 * store.
+		 */
+		if (2 + *csn + 2 > TTLS_HS_CS_MAX_SZ) {
+			/* Write number of stored cipher suite bytes. */
+			*(short *)&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ] = htons(*csn);
+			io->hslen -= n - *csn;
+			TTLS_HS_FSM_MOVE(TTLS_CH_HS_COMPN);
+		}
+		/* Read current cipher suite, just after the counter. */
 		if (unlikely(io->rlen)) {
-			tls->hs->tmp[1] = *p;
+			tls->hs->tmp[off + *csn + 1] = *p;
 			p++;
 		}
 		else if (unlikely(buf + len - p == 1)) {
-			tls->hs->tmp[0] = *p;
+			tls->hs->tmp[off + *csn] = *p;
 			io->rlen = 1;
 			p++;
 			T_FSM_EXIT();
 		}
 		else {
-			memcpy_fast(tls->hs->tmp, p, 2);
+			memcpy_fast(&tls->hs->tmp[off + *csn], p, 2);
 			p += 2;
 		}
-		cs = ntohs(*(short *)tls->hs->tmp);
+		cs = ntohs(*(short *)&tls->hs->tmp[off + *csn]);
+		T_DBG3("ClientHello: cipher suite #%u: %#x\n",
+		       *csn / 2, cs);
 		if (ttls_check_scsv_fallback(tls, cs))
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
-		/*
-		 * Skip the last low-priority cipher suites which we can not
-		 * store.
-		 */
-		if (2 + (*csn + 1) * 2 < CS_MAX_SZ)
-			memcpy_fast(&tls->hs->tmp[off + *csn * 2],
-				    tls->hs->tmp, 2);
-		io->msglen -= 2;
-		++*csn;
-		if (*csn == n) {
-			/* Write number of stored cipher suites. */
-			unsigned short m = min((TTLS_HS_RBUF_SZ - off) / 2, n);
-			*(short *)&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ] = m;
+		io->hslen -= 2;
+		*csn += 2;
+		if (*csn == n)
 			TTLS_HS_FSM_MOVE(TTLS_CH_HS_COMPN);
-		}
 		TTLS_HS_FSM_MOVE(TTLS_CH_HS_CS);
 	}
 
-	/* Check the compression algorithms length and pick one. */
+	/* Check the compression algorithms length. */
 	T_FSM_STATE(TTLS_CH_HS_COMPN) {
 		n = *p;
-		if (n < 1 || n > 16 || n + 1 > io->msglen) {
+		if (n < 1 || n > 16 || n + 1 > io->hslen) {
 			T_DBG("ClientHello: bad compression number %d\n", n);
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 					TTLS_ALERT_MSG_DECODE_ERROR);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
 		/*
-		 * Use 2 bytes to read out compression stuff: 2nd for
-		 * compression algorithms to read and 3rd for a flag
+		 * Use 2 bytes to read out compression stuff: 1st for
+		 * compression algorithms to read and 2nd for a flag
 		 * that we've faced NULL-compression.
 		 */
 		tls->hs->tmp[0] = n;
 		tls->hs->tmp[1] = 0;
-		io->msglen--;
+		T_DBG3("ClientHello: compression algorithms length %u\n", n);
+		io->hslen--;
 		++p;
 		TTLS_HS_FSM_MOVE(TTLS_CH_HS_COMP);
 	}
 
 	T_FSM_STATE(TTLS_CH_HS_COMP) {
-		if (*p == TTLS_COMPRESS_NULL)
-			++tls->hs->tmp[1];
+		if (*p == TTLS_COMPRESS_NULL) {
+			T_DBG3("saw NULL compression\n");
+			tls->hs->tmp[1] = 1;
+		}
+		io->hslen--;
+		++p;
 		if (!--tls->hs->tmp[0]) {
 			if (!tls->hs->tmp[1]) {
 				T_DBG("ClientHello: no NULL compression\n");
-				ttls_send_alert(tls,
-						TTLS_ALERT_LEVEL_FATAL,
+				ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 						TTLS_ALERT_MSG_DECODE_ERROR);
 				return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 			}
 			TTLS_HS_FSM_MOVE(TTLS_CH_HS_EXTLEN);
 		}
-		io->msglen--;
-		++p;
 		TTLS_HS_FSM_MOVE(TTLS_CH_HS_COMP);
 	}
 
@@ -858,10 +870,10 @@ ttls_parse_client_hello(TtlsCtx *tls, unsigned char *buf, size_t len,
 			p += 2;
 		}
 		n = ntohs(*(short *)tls->hs->tmp);
-		io->msglen -= 2;
-		if (io->msglen != n || (n > 0 && n < 4)) {
+		io->hslen -= 2;
+		if (io->hslen != n || (n > 0 && n < 4)) {
 			T_DBG("ClientHello: bad extensions length %d"
-			      " (msg len=%u)\n", n, io->msglen);
+			      " (msg len=%u)\n", n, io->hslen);
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 					TTLS_ALERT_MSG_DECODE_ERROR);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
@@ -872,6 +884,7 @@ ttls_parse_client_hello(TtlsCtx *tls, unsigned char *buf, size_t len,
 		}
 		/* Swap bytes to reuse them as a pointer to short later. */
 		*(short *)tls->hs->tmp = (short)n;
+		T_DBG3("ClientHello: extensions length %u\n", n);
 		TTLS_HS_FSM_MOVE(TTLS_CH_HS_EXT);
 	}
 
@@ -895,15 +908,17 @@ ttls_parse_client_hello(TtlsCtx *tls, unsigned char *buf, size_t len,
 		}
 		/* Swap bytes to reuse them as a pointer to short later. */
 		*(short *)&tls->hs->tmp[2] = ntohs(*(short *)&tls->hs->tmp[2]);
-		io->msglen -= 2;
+		T_DBG3("ClientHello: read extension %#x...\n",
+		       *(short *)&tls->hs->tmp[2]);
+		io->hslen -= 2;
 		TTLS_HS_FSM_MOVE(TTLS_CH_HS_EXS);
 	}
 
 	/* Read an extension size. */
 	T_FSM_STATE(TTLS_CH_HS_EXS) {
 		/* Use the third 2 bytes for current extension size. */
-		unsigned short lim, ciph_len, ext_len = *(short *)tls->hs->tmp;
-		ciph_len = *(short *)&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ] * 2 + 2;
+		unsigned short lim, ciph_len = 2, ext_len = *(short *)tls->hs->tmp;
+		ciph_len += ntohs(*(short *)&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ]);
 		lim = TTLS_HS_RBUF_SZ - TTLS_HS_TMP_STORE_SZ - ciph_len;
 		BUG_ON(io->rlen >= 2);
 		WARN_ON_ONCE(lim < TTLS_HS_EXT_RES_SZ);
@@ -921,7 +936,7 @@ ttls_parse_client_hello(TtlsCtx *tls, unsigned char *buf, size_t len,
 			memcpy_fast(&tls->hs->tmp[4], p, 2);
 			p += 2;
 		}
-		io->msglen -= 2;
+		io->hslen -= 2;
 		n = ntohs(*(short *)&tls->hs->tmp[4]);
 		if (n + 4 > ext_len || n > lim) {
 			T_DBG("ClientHello: bad extension size %d"
@@ -937,7 +952,7 @@ ttls_parse_client_hello(TtlsCtx *tls, unsigned char *buf, size_t len,
 
 	/* Parse an extension. */
 	T_FSM_STATE(TTLS_CH_HS_EX) {
-		unsigned char *buf;
+		unsigned char *tmp;
 		unsigned short *ext_len = (short *)tls->hs->tmp;
 		unsigned short ext_id = *(short *)&tls->hs->tmp[2];
 		unsigned short ext_sz = *(short *)&tls->hs->tmp[4];
@@ -945,68 +960,67 @@ ttls_parse_client_hello(TtlsCtx *tls, unsigned char *buf, size_t len,
 		 * Copy the extension to the temporary buffer for further
 		 * parsing. We have to copy the data since the extension parsers
 		 * call external functions and callbacks with contigous buffers.
-		 * It's too time consumption to rework the whole API to work w/
+		 * It's too time consumptive to rework the whole API to work w/
 		 * chunked data and it's doubtful how much perfromance we get if
-		 * we avoid the copies.
+		 * we avoid the copies - the extensions are small after all.
 		 */
-		unsigned short off, ciph_len;
-		ciph_len = *(short *)&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ] * 2 + 2;
+		unsigned short off, ciph_len = 2;
+		ciph_len += ntohs(*(short *)&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ]);
 		off = TTLS_HS_TMP_STORE_SZ + ciph_len;
-		BUG_ON(io->rlen >= ext_sz);
-		n = min(ext_sz - io->rlen, buf + len - p);
+		BUG_ON(io->rlen > ext_sz);
+		n = min_t(int, ext_sz - io->rlen, buf + len - p);
 		/* Save client random (inc. Unix time). */
-		memcmp_fast(&tls->hs->tmp[off + io->rlen], p, n);
+		memcpy_fast(&tls->hs->tmp[off + io->rlen], p, n);
 		io->rlen += n;
 		p += n;
 		if (unlikely(io->rlen < ext_sz))
 			T_FSM_EXIT();
-		T_DBG("ClientHello: read %u bytes for ext %u\n",
-		      io->rlen, ext_id);
-		TTLS_HS_FSM_MOVE(TTLS_CH_HS_SLEN);
+		T_DBG3("ClientHello: read %u bytes for ext %u\n",
+		       io->rlen, ext_id);
 
-		buf = &tls->hs->tmp[off];
+		tmp = &tls->hs->tmp[off];
 		switch (ext_id) {
 		case TTLS_TLS_EXT_SERVERNAME:
 			T_DBG("found ServerName extension\n");
-			if (ttls_parse_servername_ext(tls, buf, ext_sz))
+			if (ttls_parse_servername_ext(tls, tmp, ext_sz))
 				return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 			break;
 		case TTLS_TLS_EXT_SIG_ALG:
 			T_DBG("found signature_algorithms extension\n");
-			if (ttls_parse_signature_algorithms_ext(tls, buf,
+			if (ttls_parse_signature_algorithms_ext(tls, tmp,
 								ext_sz))
 				return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 			break;
 		case TTLS_TLS_EXT_SUPPORTED_ELLIPTIC_CURVES:
 			T_DBG("found supported elliptic curves extension\n");
-			if (ttls_parse_supported_elliptic_curves(tls, buf,
+			if (ttls_parse_supported_elliptic_curves(tls, tmp,
 								 ext_sz))
 				return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 			break;
 		case TTLS_TLS_EXT_SUPPORTED_POINT_FORMATS:
 			T_DBG("found supported point formats extension\n");
-			if (ttls_parse_supported_point_formats(tls, buf,
+			if (ttls_parse_supported_point_formats(tls, tmp,
 							       ext_sz))
 				return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 			break;
 		case TTLS_TLS_EXT_ENCRYPT_THEN_MAC:
 			T_DBG("found encrypt then mac extension\n");
-			if (ttls_parse_encrypt_then_mac_ext(tls, buf, ext_sz))
+			if (ttls_parse_encrypt_then_mac_ext(tls, tmp, ext_sz))
 				return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 			break;
 		case TTLS_TLS_EXT_EXTENDED_MASTER_SECRET:
 			T_DBG("found extended master secret extension\n");
-			if (ttls_parse_extended_ms_ext(tls, buf, ext_sz))
+			if (ttls_parse_extended_ms_ext(tls, tmp, ext_sz))
 				return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 			break;
 		case TTLS_TLS_EXT_SESSION_TICKET:
 			T_DBG("found session ticket extension\n");
-			if (ttls_parse_session_ticket_ext(tls, buf, ext_sz))
+			if (ttls_parse_session_ticket_ext(tls, tmp, ext_sz))
 				return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 			break;
 		case TTLS_TLS_EXT_ALPN:
 			T_DBG("found alpn extension\n");
-			if (ttls_parse_alpn_ext(tls, buf, ext_sz))
+			if (ttls_parse_alpn_ext(tls, tmp, ext_sz))
 				return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 			break;
 		default:
@@ -1020,8 +1034,8 @@ ttls_parse_client_hello(TtlsCtx *tls, unsigned char *buf, size_t len,
 					TTLS_ALERT_MSG_DECODE_ERROR);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
-		if (!*ext_len)
-			TTLS_HS_FSM_MOVE(TTLS_CH_HS_EX);
+		if (*ext_len)
+			TTLS_HS_FSM_MOVE(TTLS_CH_HS_EXT);
 		r = T_OK;
 		T_FSM_EXIT();
 	}
@@ -1170,14 +1184,15 @@ ttls_write_server_hello(TlsCtx *tls)
 	p += 4;
 	ttls_write_version(tls, p);
 	p += 2;
-	T_DBG("server hello, chosen version %d:%d\n", buf[4], buf[5]);
+	T_DBG("server hello, chosen version %d:%d, buf=%pK\n",
+	      buf[4], buf[5], buf);
 
 	*(unsigned int *)p = htonl(get_seconds());
 	p += 4;
 	get_random_bytes_arch(p, 28);
 	p += 28;
 	memcpy(tls->hs->randbytes + 32, buf + 6, 32);
-	T_DBG3_BUF("server hello, random bytes\n", buf + 6, 32);
+	T_DBG3_BUF("server hello, random bytes ", buf + 6, 32);
 	/*
 	 * Resume is 0  by default.
 	 * It may be already set to 1 by ttls_parse_session_ticket_ext().
@@ -1229,8 +1244,8 @@ ttls_write_server_hello(TlsCtx *tls)
 	memcpy_fast(p, tls->sess.id, tls->sess.id_len);
 	p += tls->sess.id_len;
 
-	T_DBG("ServerHello: session id len %d\n", n);
-	T_DBG3_BUF("ServerHello: session id\n", buf + 39, n);
+	T_DBG("ServerHello: session id len %lu\n", n);
+	T_DBG3_BUF("ServerHello: session id ", buf + 39, n);
 	T_DBG("ServerHello: %s session has been resumed\n",
 	      tls->hs->resume ? "a" : "no");
 
@@ -1260,7 +1275,7 @@ ttls_write_server_hello(TlsCtx *tls)
 	ext_len += olen;
 	ttls_write_alpn_ext(tls, p + 2 + ext_len, &olen);
 	ext_len += olen;
-	T_DBG("ServerHello: total extension length: %d\n", ext_len);
+	T_DBG("ServerHello: total extension length: %lu\n", ext_len);
 	if (ext_len > 0) {
 		*(unsigned short *)p = htons(ext_len);
 		p += 2 + ext_len;
@@ -1268,9 +1283,12 @@ ttls_write_server_hello(TlsCtx *tls)
 
 	BUG_ON(p - buf > 128);
 	sg.length = p - buf;
-	io->msglen = 0;
+	io->hslen = 0;
+	io->msglen = sg.length;
 	io->msgtype = TTLS_MSG_HANDSHAKE;
+	io->hstype = TTLS_HS_SERVER_HELLO;
 	ttls_write_hshdr(TTLS_HS_SERVER_HELLO, buf, p - buf);
+	T_DBG3_BUF("ServerHello: write message ", buf, p - buf);
 
 	if ((r = ttls_write_record(tls, &sgt)))
 		put_page(virt_to_page(p));
@@ -1477,7 +1495,7 @@ curve_matching_done:
 			r = TTLS_ERR_INTERNAL_ERROR;
 			goto err;
 		}
-		T_DBG3_BUF("parameters hash", hash,
+		T_DBG3_BUF("parameters hash ", hash,
 			   hashlen
 			   ? hashlen
 			   : ttls_md_get_size(ttls_md_info_from_type(md_alg)));
@@ -1511,21 +1529,23 @@ curve_matching_done:
 				 p + 2, &signature_len);
 		if (r) {
 			T_DBG("cannot sign the digest, %d\n", r);
-			got err;
+			goto err;
 		}
 		*(p++) = (unsigned char)(signature_len >> 8);
 		*(p++) = (unsigned char)(signature_len);
 		n += 2;
 
-		T_DBG3_BUF("my signature", p, signature_len);
+		T_DBG3_BUF("my signature ", p, signature_len);
 		n += signature_len;
 	}
 
 	/* Done with actual work; add header and send. */
 	sg.length = 4 + n;
-	io->msglen = 0;
+	io->hslen = 0;
+	io->msglen = sg.length;
 	io->msgtype = TTLS_MSG_HANDSHAKE;
-	ttls_write_hshdr(TTLS_HS_SERVER_KEY_EXCHANGE, hdr, 4 + n);
+	io->hstype = TTLS_HS_SERVER_KEY_EXCHANGE;
+	ttls_write_hshdr(TTLS_HS_SERVER_KEY_EXCHANGE, hdr, sg.length);
 
 	tls->state = TTLS_CERTIFICATE_REQUEST;
 
@@ -1540,10 +1560,10 @@ static int
 ttls_write_certificate_request(TlsCtx *tls)
 {
 	int r = TTLS_ERR_FEATURE_UNAVAILABLE;
-	const ttls_ciphersuite_t *ci = tls->xfrm.ciphersuite_info;
+	TlsIOCtx *io = &tls->io_out;
 	size_t dn_size, total_dn_size; /* excluding length bytes */
 	size_t ct_len, sa_len; /* including length bytes */
-	unsigned char *buf, *p, end;
+	unsigned char *buf, *p, *end;
 	const int *cur;
 	const ttls_x509_crt *crt;
 	int authmode;
@@ -1653,7 +1673,7 @@ ttls_write_certificate_request(TlsCtx *tls)
 			memcpy_fast(p, crt->subject_raw.p, dn_size);
 			p += dn_size;
 
-			T_DBG3_buf("requested DN", p - dn_size, dn_size);
+			T_DBG3_BUF("requested DN ", p - dn_size, dn_size);
 
 			total_dn_size += 2 + dn_size;
 			crt = crt->next;
@@ -1661,8 +1681,10 @@ ttls_write_certificate_request(TlsCtx *tls)
 	}
 
 	sg.length = p - buf;
-	io->msglen = 0;
+	io->hslen = 0;
+	io->msglen = sg.length + ttls_hs_hdr_len(tls);
 	io->msgtype = TTLS_MSG_HANDSHAKE;
+	io->hstype = TTLS_HS_CERTIFICATE_REQUEST;
 	buf[4 + ct_len + sa_len] = (unsigned char)(total_dn_size >> 8);
 	buf[5 + ct_len + sa_len] = (unsigned char)total_dn_size;
 	ttls_write_hshdr(TTLS_HS_CERTIFICATE_REQUEST, buf, p - buf);
@@ -1680,8 +1702,9 @@ ttls_write_server_hello_done(TlsCtx *tls)
 
 	T_DBG("sending ServerHelloDone\n");
 
-	io->msglen = 4;
+	io->msglen = io->hslen = ttls_hs_hdr_len(tls);
 	io->msgtype = TTLS_MSG_HANDSHAKE;
+	io->hstype = TTLS_HS_SERVER_HELLO_DONE;
 	ttls_write_hshdr(TTLS_HS_SERVER_HELLO_DONE, io->hs_hdr, 4);
 
 	return ttls_write_record(tls, NULL);
@@ -1740,14 +1763,15 @@ ttls_parse_encrypted_pms(TlsCtx *tls, const unsigned char *p,
 	}
 
 	/* Decrypt the premaster using own private RSA key. */
-	if (*p++ != ((len >> 8) & 0xFF) || *p++ != len & 0xFF || p + len != end)
+	if (*p++ != ((len >> 8) & 0xFF) || *p++ != (len & 0xFF)
+	    || p + len != end)
 	{
 		T_DBG("bad client key exchange message\n");
 		return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE;
 	}
 
-	ver[0] = tls->hs->max_major_ver;
-	ver[1] = tls->hs->max_minor_ver;
+	ver[0] = TTLS_MAX_MAJOR_VERSION;
+	ver[1] = tls->conf->max_minor_ver;
 
 	/*
 	 * Protection against Bleichenbacher's attack: invalid PKCS#1 v1.5
@@ -1797,7 +1821,7 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 	 */
 	if (io->rlen + len < io->hslen) {
 		T_WARN("chunked key - fall back to copy (total length"
-		       " %u, shunk length %u, max copy %u)\n",
+		       " %u, shunk length %lu, max copy %lu)\n",
 		       io->hslen, len, TTLS_HS_RBUF_SZ);
 		if (io->hslen > TTLS_HS_RBUF_SZ)
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE;
@@ -1806,7 +1830,7 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 		io->rlen += len;
 		return T_POSTPONE;
 	}
-	else (io->rlen) {
+	else if (io->rlen) {
 		len = io->hslen - io->rlen;
 		memcpy_fast(&tls->hs->tmp[io->rlen], buf, len);
 		*read += len;
@@ -1884,7 +1908,6 @@ ttls_parse_certificate_verify(TlsCtx *tls, unsigned char *buf, size_t len,
 	unsigned char hash[48], *hash_start = hash;
 	ttls_pk_type_t pk_alg;
 	ttls_md_type_t md_alg;
-	const ttls_ciphersuite_t *ci = tls->xfrm.ciphersuite_info;
 	TlsIOCtx *io = &tls->io_in;
 
 	BUG_ON(io->msgtype != TTLS_MSG_HANDSHAKE);
@@ -1909,7 +1932,7 @@ ttls_parse_certificate_verify(TlsCtx *tls, unsigned char *buf, size_t len,
 	 *	 opaque signature<0..2^16-1>;
 	 *  } DigitallySigned;
 	 */
-	if (i + 2 > tls->in_hslen) {
+	if (i + 2 > io->hslen) {
 		T_DBG("bad certificate verify message\n");
 		return TTLS_ERR_BAD_HS_CERTIFICATE_VERIFY;
 	}
@@ -1934,13 +1957,13 @@ ttls_parse_certificate_verify(TlsCtx *tls, unsigned char *buf, size_t len,
 		return TTLS_ERR_BAD_HS_CERTIFICATE_VERIFY;
 	}
 	/* Check the certificate's key type matches the signature alg. */
-	if (!ttls_pk_can_do(&tls->session_negotiate->peer_cert->pk, pk_alg)) {
+	if (!ttls_pk_can_do(&tls->sess.peer_cert->pk, pk_alg)) {
 		T_DBG("sig_alg doesn't match cert key\n");
 		return TTLS_ERR_BAD_HS_CERTIFICATE_VERIFY;
 	}
 	i++;
 
-	if (i + 2 > tls->in_hslen) {
+	if (i + 2 > io->hslen) {
 		T_DBG("bad certificate verify message\n");
 		return TTLS_ERR_BAD_HS_CERTIFICATE_VERIFY;
 	}
@@ -1948,7 +1971,7 @@ ttls_parse_certificate_verify(TlsCtx *tls, unsigned char *buf, size_t len,
 	sig_len = (buf[i] << 8) | buf[i + 1];
 	i += 2;
 
-	if (i + sig_len != tls->in_hslen) {
+	if (i + sig_len != io->hslen) {
 		T_DBG("bad certificate verify message\n");
 		return TTLS_ERR_BAD_HS_CERTIFICATE_VERIFY;
 	}
@@ -1956,7 +1979,7 @@ ttls_parse_certificate_verify(TlsCtx *tls, unsigned char *buf, size_t len,
 	/* Calculate hash and verify signature */
 	tls->hs->calc_verify(tls, hash);
 
-	r = ttls_pk_verify(&tls->session_negotiate->peer_cert->pk, md_alg,
+	r = ttls_pk_verify(&tls->sess.peer_cert->pk, md_alg,
 			   hash_start, hashlen, buf + i, sig_len);
 	if (r)
 		T_DBG("cannot verify pk, %d\n", r);
@@ -2010,9 +2033,11 @@ ttls_write_new_session_ticket(TlsCtx *tls)
 	p[8] = (unsigned char)((tlen >> 8) & 0xFF);
 	p[9] = (unsigned char)(tlen & 0xFF);
 
-	io->msgtype = TTLS_MSG_HANDSHAKE;
-	io->msglen = 0;
 	sg.length = 10 + tlen;
+	io->hslen = 0;
+	io->msgtype = TTLS_MSG_HANDSHAKE;
+	io->msglen = sg.length + ttls_hs_hdr_len(tls);
+	io->hstype = TTLS_HS_NEW_SESSION_TICKET;
 	ttls_write_hshdr(TTLS_HS_NEW_SESSION_TICKET, p, 10 + tlen);
 
 	/*
@@ -2089,7 +2114,6 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 		if (ci->key_exchange == TTLS_KEY_EXCHANGE_PSK
 		    || ci->key_exchange == TTLS_KEY_EXCHANGE_DHE_PSK
 		    || ci->key_exchange == TTLS_KEY_EXCHANGE_ECDHE_PSK
-		    || ci->key_exchange == TTLS_KEY_EXCHANGE_ECJPAKE
 		    || ci->key_exchange == TTLS_KEY_EXCHANGE_RSA_PSK
 		    || (tls->hs->sni_authmode == TTLS_VERIFY_UNSET
 			&& tls->conf->authmode == TTLS_VERIFY_NONE)
@@ -2097,9 +2121,9 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 		{
 			/* Default and the only option at least before #830. */
 			tls->sess.verify_result = TTLS_X509_BADCERT_SKIP_VERIFY;
-			tls->state = TLS_CLIENT_KEY_EXCHANGE;
+			tls->state = TTLS_CLIENT_KEY_EXCHANGE;
 		} else {
-			tls->state = TLS_CLIENT_CERTIFICATE;
+			tls->state = TTLS_CLIENT_CERTIFICATE;
 		}
 		/* Exit, enter the FSM on more data from the client. */
 		return T_POSTPONE;
@@ -2119,14 +2143,15 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 		return T_POSTPONE;
 	}
 	T_FSM_STATE(TTLS_CLIENT_KEY_EXCHANGE) {
+		const ttls_ciphersuite_t *ci = tls->xfrm.ciphersuite_info;
+
 		if ((r = ttls_parse_client_key_exchange(tls, buf, len, read)))
 			return r;
-		if (!tls->session_negotiate->peer_cert
+		if (!tls->sess.peer_cert
 		    || ci->key_exchange == TTLS_KEY_EXCHANGE_PSK
 		    || ci->key_exchange == TTLS_KEY_EXCHANGE_RSA_PSK
 		    || ci->key_exchange == TTLS_KEY_EXCHANGE_ECDHE_PSK
-		    || ci->key_exchange == TTLS_KEY_EXCHANGE_DHE_PSK
-		    || ci->key_exchange == TTLS_KEY_EXCHANGE_ECJPAKE)
+		    || ci->key_exchange == TTLS_KEY_EXCHANGE_DHE_PSK)
 		{
 			T_DBG("skip parse certificate verify\n");
 			tls->state = TTLS_CLIENT_CHANGE_CIPHER_SPEC;
@@ -2148,7 +2173,7 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 		return T_POSTPONE;
 	}
 	T_FSM_STATE(TTLS_CLIENT_FINISHED) {
-		if ((r = ttls_parse_finished(tls)))
+		if ((r = ttls_parse_finished(tls, buf, len, read)))
 			return r;
 		tls->state = tls->hs->resume
 			     ? TTLS_HANDSHAKE_WRAPUP
@@ -2173,7 +2198,7 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 		T_FSM_NEXT();
 	}
 	T_FSM_STATE(TTLS_SERVER_FINISHED) {
-		if ((r = ttls_write_finished(tls, buf, len, read)))
+		if ((r = ttls_write_finished(tls)))
 			return r;
 		/*
 		 * In case of session resuming, invert the client and server

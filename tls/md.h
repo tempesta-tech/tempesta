@@ -24,6 +24,7 @@
 #define TTLS_MD_H
 
 #include <crypto/hash.h>
+#include <crypto/sha.h>
 
 /**< The selected feature is not available. */
 #define TTLS_ERR_MD_FEATURE_UNAVAILABLE		-0x5080
@@ -64,19 +65,19 @@ typedef enum {
  * @ctx_free_func	- Free the given context;
  * @ctx_tmpl		- context template;
  */
-struct ttls_md_info_t {
+typedef struct TlsMdInfo {
 	ttls_md_type_t		type;
 	const char		*name;
 	int			size;
 	int			block_size;
-	int (*starts_func)(struct crypto_shash *ctx);
-	int (*update_func)(struct crypto_shash *ctx, const unsigned char *input,
+	int (*starts_func)(struct shash_desc *ctx);
+	int (*update_func)(struct shash_desc *ctx, const unsigned char *input,
 			   size_t ilen);
-	int (*finish_func)(struct crypto_shash *ctx, unsigned char *output);
-	struct crypto_shash *(*ctx_alloc_func)(void);
-	void (*ctx_free_func)(struct crypto_shash *ctx);
+	int (*finish_func)(struct shash_desc *ctx, unsigned char *output);
+	struct shash_desc *(*ctx_alloc_func)(void);
+	void (*ctx_free_func)(struct shash_desc *ctx);
 	struct crypto_shash		*tfm;
-};
+} TlsMdInfo;
 
 /**
  * The generic message-digest context.
@@ -86,7 +87,7 @@ struct ttls_md_info_t {
  * @hmac_ctx		- The HMAC part of the context;
  */
 typedef struct {
-	const ttls_md_info_t	*md_info;
+	const TlsMdInfo		*md_info;
 	struct shash_desc	*md_ctx;
 	void			*hmac_ctx;
 } ttls_md_context_t;
@@ -101,7 +102,7 @@ typedef struct {
 	struct sha512_state	state;
 } CRYPTO_MINALIGN_ATTR ttls_sha512_context;
 
-const ttls_md_info_t *ttls_md_info_from_type(ttls_md_type_t md_type);
+const TlsMdInfo *ttls_md_info_from_type(ttls_md_type_t md_type);
 void ttls_md_init(ttls_md_context_t *ctx);
 void ttls_md_free(ttls_md_context_t *ctx);
 
@@ -110,7 +111,7 @@ void ttls_md_free(ttls_md_context_t *ctx);
  * internal structures. It should be called after ttls_md_init() or
  * ttls_md_free(). Makes it necessary to call ttls_md_free() later.
  */
-int ttls_md_setup(ttls_md_context_t *ctx, const ttls_md_info_t *md_info,
+int ttls_md_setup(ttls_md_context_t *ctx, const TlsMdInfo *md_info,
 		  int hmac);
 
 int ttls_md_starts(ttls_md_context_t *ctx);
@@ -122,7 +123,7 @@ int ttls_md_finish(ttls_md_context_t *ctx, unsigned char *output);
  * This function calculates the message-digest of a buffer, with respect to a
  * configurable message-digest algorithm in a single call.
  */
-int ttls_md(const ttls_md_info_t *md_info, const unsigned char *input,
+int ttls_md(const TlsMdInfo *md_info, const unsigned char *input,
 	    size_t ilen, unsigned char *output);
 
 /*
@@ -152,7 +153,7 @@ void ttls_free_md_ctx_tmpls(void);
 int ttls_init_md_ctx_tmpls(void);
 
 static inline unsigned char
-ttls_md_get_size(const ttls_md_info_t *md_info)
+ttls_md_get_size(const TlsMdInfo *md_info)
 {
 	BUG_ON(!md_info);
 
@@ -160,7 +161,7 @@ ttls_md_get_size(const ttls_md_info_t *md_info)
 }
 
 static inline const char *
-ttls_md_get_name(const ttls_md_info_t *md_info)
+ttls_md_get_name(const TlsMdInfo *md_info)
 {
 	BUG_ON(!md_info);
 

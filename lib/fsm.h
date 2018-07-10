@@ -24,7 +24,7 @@
 
 #define T_FSM_INIT(st, name)						\
 int __fsm_const_state = st; /* make compiler happy */			\
-static const char *__fsm_name = name;
+static const char *__fsm_name __attribute__((unused)) = name;
 
 #define T_FSM_START(st)							\
 fsm_reenter: __attribute__((unused))					\
@@ -51,7 +51,7 @@ st: __attribute__((unused))						\
 #define T_FSM_MOVE(st, code)						\
 do {									\
 	do { code; } while (0);						\
-	goto to;							\
+	goto st;							\
 } while (0)
 
 /*
@@ -60,7 +60,7 @@ do {									\
  * @state	- the FSM state keeping variable;
  */
 #define T_FSM_FINISH(ret, state)					\
-__fsm_done:								\
+__fsm_done: __attribute__((unused))					\
 	T_DBG3("Finish %s FSM at state %d, ret=%d\n",			\
 	       __fsm_name, __fsm_const_state, ret);			\
 	state = __fsm_const_state;

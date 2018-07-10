@@ -48,11 +48,8 @@ static int ssl_ticket_gen_key(ttls_ticket_context *ctx,
 
 	key->generation_time = (uint32_t) get_seconds();
 
-	if ((ret = ctx->f_rng(ctx->p_rng, key->name, sizeof(key->name))) != 0)
-		return ret;
-
-	if ((ret = ctx->f_rng(ctx->p_rng, buf, sizeof(buf))) != 0)
-		return ret;
+	get_random_bytes_arch(key->name, sizeof(key->name));
+	get_random_bytes_arch(buf, sizeof(buf));
 
 	/* With GCM and CCM, same context can encrypt & decrypt */
 	ret = ttls_cipher_setkey(&key->ctx, buf, key->ctx.cipher_info->key_len,
@@ -129,11 +126,11 @@ int ttls_ticket_setup(ttls_ticket_context *ctx, ttls_cipher_type_t cipher,
 
 /*
  * Serialize a session in the following format:
- *  0   .   n-1	 session structure, n = sizeof(TtlsSess)
+ *  0   .   n-1	 session structure, n = sizeof(TlsSess)
  *  n   .   n+2	 peer_cert length = m (0 if no certificate)
  *  n+3 .   n+2+m   peer cert ASN.1
  */
-static int ssl_save_session(const TtlsSess *session,
+static int ssl_save_session(const TlsSess *session,
 				 unsigned char *buf, size_t buf_len,
 				 size_t *olen)
 {
@@ -141,12 +138,12 @@ static int ssl_save_session(const TtlsSess *session,
 	size_t left = buf_len;
 	size_t cert_len;
 
-	if (left < sizeof(TtlsSess))
+	if (left < sizeof(TlsSess))
 		return(TTLS_ERR_BUFFER_TOO_SMALL);
 
-	memcpy(p, session, sizeof(TtlsSess));
-	p += sizeof(TtlsSess);
-	left -= sizeof(TtlsSess);
+	memcpy(p, session, sizeof(TlsSess));
+	p += sizeof(TlsSess);
+	left -= sizeof(TlsSess);
 
 	if (session->peer_cert == NULL)
 		cert_len = 0;
@@ -173,18 +170,18 @@ static int ssl_save_session(const TtlsSess *session,
 /*
  * Unserialise session, see ssl_save_session()
  */
-static int ssl_load_session(TtlsSess *session,
+static int ssl_load_session(TlsSess *session,
 				 const unsigned char *buf, size_t len)
 {
 	const unsigned char *p = buf;
 	const unsigned char * const end = buf + len;
 	size_t cert_len;
 
-	if (p + sizeof(TtlsSess) > end)
+	if (p + sizeof(TlsSess) > end)
 		return(TTLS_ERR_BAD_INPUT_DATA);
 
-	memcpy(session, p, sizeof(TtlsSess));
-	p += sizeof(TtlsSess);
+	memcpy(session, p, sizeof(TlsSess));
+	p += sizeof(TlsSess);
 
 	if (p + 3 > end)
 		return(TTLS_ERR_BAD_INPUT_DATA);
@@ -242,7 +239,7 @@ static int ssl_load_session(TtlsSess *session,
  * authenticated data.
  */
 int ttls_ticket_write(void *p_ticket,
-				  const TtlsSess *session,
+				  const TlsSess *session,
 				  unsigned char *start,
 				  const unsigned char *end,
 				  size_t *tlen,
@@ -260,7 +257,7 @@ int ttls_ticket_write(void *p_ticket,
 
 	*tlen = 0;
 
-	if (ctx == NULL || ctx->f_rng == NULL)
+	if (ctx == NULL)
 		return(TTLS_ERR_BAD_INPUT_DATA);
 
 	/* We need at least 4 bytes for key_name, 12 for IV, 2 for len 16 for tag,
@@ -279,8 +276,7 @@ int ttls_ticket_write(void *p_ticket,
 
 	memcpy(key_name, key->name, 4);
 
-	if ((ret = ctx->f_rng(ctx->p_rng, iv, 12)) != 0)
-		goto cleanup;
+	get_random_bytes_arch(iv, 12);
 
 	/* Dump session state */
 	if ((ret = ssl_save_session(session,
@@ -335,7 +331,7 @@ static ttls_ticket_key *ssl_ticket_select_key(
  * Load session ticket (see ttls_ticket_write for structure)
  */
 int ttls_ticket_parse(void *p_ticket,
-				  TtlsSess *session,
+				  TlsSess *session,
 				  unsigned char *buf,
 				  size_t len)
 {
@@ -349,7 +345,7 @@ int ttls_ticket_parse(void *p_ticket,
 	unsigned char *tag;
 	size_t enc_len, clear_len;
 
-	if (ctx == NULL || ctx->f_rng == NULL)
+	if (ctx == NULL)
 		return(TTLS_ERR_BAD_INPUT_DATA);
 
 	/* See ttls_ticket_write() */

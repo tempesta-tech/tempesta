@@ -28,8 +28,6 @@
 
 #include "cipher.h"
 #include "ttls.h"
-#include "sha256.h"
-#include "sha512.h"
 
 /* Determine minimum supported version */
 #define TTLS_MIN_MAJOR_VERSION		TTLS_MAJOR_VERSION_3
@@ -73,13 +71,8 @@
 				 + TTLS_MAX_IV_LENGTH		\
 				 + TTLS_MAC_ADD			\
 				 + TTLS_PADDING_ADD)
-#if defined(TTLS_PROTO_DTLS)
-#define TTLS_HDR_LEN		13
-#else
-#define TTLS_HDR_LEN		5
-#endif
+
 #define TTLS_BUF_LEN		(TTLS_HDR_LEN + TTLS_PAYLOAD_LEN)
-#define TTLS_IV_LEN		16
 /*
  * There is currently no ciphersuite using another length with TLS 1.2.
  * RFC 5246 7.4.9 (Page 63) says 12 is the default length and ciphersuites
@@ -115,13 +108,13 @@ struct ttls_sig_hash_set_t
  * @extended_ms	- use Extended Master Secret (RFC 7627)?
  * @new_session_ticket - use NewSessionTicket?
  * @resume	- session resume indicator;
+ * @cli_exts	- client extension presence;
  * @curves	- supported elliptic curves;
  * @randbytes	- random bytes;
  * @premaster	- premaster secret;
  * @tmp		- buffer to store temporary data between data chunks;
  */
-typedef struct
-{
+typedef struct tls_handshake_t {
 	ttls_sig_hash_set_t		hash_algs;
 
 #if defined(TTLS_DHM_C)
@@ -148,45 +141,17 @@ typedef struct
 	unsigned char		point_form:1,
 				extended_ms:1,
 				new_session_ticket:1,
-				resume:1;
+				resume:1,
+				cli_exts:1,
+				curves_ext:1;
 
-	ttls_ecp_curve_info	*curves[TTLS_ECP_DP_MAX];
+	const ttls_ecp_curve_info	*curves[TTLS_ECP_DP_MAX];
 	unsigned char		randbytes[64];
 	union {
 		unsigned char	premaster[TTLS_PREMASTER_SIZE];
 		unsigned char	tmp[TTLS_HS_RBUF_SZ];
-	}
+	};
 } TlsHandshake;
-
-/*
- * Session specific crypto layer.
- *
- * This structure contains a full set of runtime transform parameters
- * either in negotiation or active.
- *
- * @ciphersuite_info	- chosen cipersuite_info;
- * @md_ctx		- MAC context;
- * @cipher_ctx_enc	- encryption crypto context;
- * @cipher_ctx_dec	- decryption crypto context;
- * @keylen		- symmetric key length (bytes);
- * @minlen		- min. ciphertext length;
- * @ivlen		- IV length;
- * @fixed_ivlen		- fixed part of IV (AEAD);
- * @maclen		- MAC length;
- * @iv			- IV;
- */
-struct TlsXfrm {
-	const ttls_ciphersuite_t	*ciphersuite_info;
-	ttls_md_context_t		md_ctx;
-	ttls_cipher_context_t		cipher_ctx_enc;
-	ttls_cipher_context_t		cipher_ctx_dec;
-	unsigned int			keylen;
-	size_t				minlen;
-	size_t				ivlen;
-	size_t				fixed_ivlen;
-	size_t				maclen;
-	unsigned char			iv[16];
-};
 
 /*
  * List of certificate + private key pairs
@@ -217,14 +182,15 @@ int ttls_derive_keys(ttls_context *tls);
 
 int ttls_handle_message_type(TlsCtx *tls);
 
-int ttls_write_record(TlsCtx *tls);
+int ttls_write_record(TlsCtx *tls, struct sg_table *sgt);
 int ttls_sendmsg(TlsCtx *tls, const char *buf, size_t len);
 
 int ttls_parse_certificate(ttls_context *tls, unsigned char *buf, size_t len,
 			   unsigned int *read);
 int ttls_write_certificate(ttls_context *tls);
 
-int ttls_parse_change_cipher_spec(ttls_context *tls);
+int ttls_parse_change_cipher_spec(ttls_context *tls, unsigned char *buf,
+				  size_t len, unsigned int *read);
 int ttls_write_change_cipher_spec(ttls_context *tls);
 
 int ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
@@ -250,8 +216,8 @@ static inline ttls_pk_context *ttls_own_key(ttls_context *tls)
 {
 	ttls_key_cert *key_cert;
 
-	if (tls->handshake != NULL && tls->handshake->key_cert != NULL)
-		key_cert = tls->handshake->key_cert;
+	if (tls->hs && tls->hs->key_cert)
+		key_cert = tls->hs->key_cert;
 	else
 		key_cert = tls->conf->key_cert;
 
@@ -286,7 +252,7 @@ int ttls_check_cert_usage(const ttls_x509_crt *cert,
 			  uint32_t *flags);
 
 void ttls_write_version(TlsCtx *tls, unsigned char ver[2]);
-void ttls_read_version(TlsCts *tls, const unsigned char ver[2]);
+void ttls_read_version(TlsCtx *tls, const unsigned char ver[2]);
 
 static inline size_t
 ttls_hs_hdr_len(const TlsCtx *tls)
@@ -323,23 +289,25 @@ int ttls_get_key_exchange_md_tls1_2(ttls_context *tls,
 #define __TTLS_FSM_ST_MASK		(~((1U << 24) - 1))
 #define __TTLS_FSM_SUBST(st, sst)	(__TTLS_FSM_ST(TTLS_##st) | sst)
 #define __TTLS_FSM_SUBST_MASK		((1U << 24) - 1)
-#define	TTLS_CLIENT_HELLO		__TTLS_FSM_ST(0)
-#define TTLS_SERVER_HELLO		__TTLS_FSM_ST(1)
-#define TTLS_SERVER_CERTIFICATE		__TTLS_FSM_ST(2)
-#define TTLS_SERVER_KEY_EXCHANGE	__TTLS_FSM_ST(3)
-#define TTLS_CERTIFICATE_REQUEST	__TTLS_FSM_ST(4)
-#define TTLS_SERVER_HELLO_DONE		__TTLS_FSM_ST(5)
-#define TTLS_CLIENT_CERTIFICATE		__TTLS_FSM_ST(6)
-#define TTLS_CLIENT_KEY_EXCHANGE	__TTLS_FSM_ST(7)
-#define TTLS_CERTIFICATE_VERIFY		__TTLS_FSM_ST(8)
-#define TTLS_CLIENT_CHANGE_CIPHER_SPEC	__TTLS_FSM_ST(9)
-#define TTLS_CLIENT_FINISHED		__TTLS_FSM_ST(10)
-#define TTLS_SERVER_CHANGE_CIPHER_SPEC	__TTLS_FSM_ST(11)
-#define TTLS_SERVER_FINISHED		__TTLS_FSM_ST(12)
-#define TTLS_HANDSHAKE_WRAPUP		__TTLS_FSM_ST(13)
-#define TTLS_HANDSHAKE_OVER		__TTLS_FSM_ST(14)
-#define TTLS_SERVER_NEW_SESSION_TICKET	__TTLS_FSM_ST(15)
-#define TTLS_SERVER_HELLO_VERIFY_REQUEST_SENT __TTLS_FSM_ST(16)
+enum {
+	TTLS_CLIENT_HELLO,
+	TTLS_SERVER_HELLO		= __TTLS_FSM_ST(1),
+	TTLS_SERVER_CERTIFICATE		= __TTLS_FSM_ST(2),
+	TTLS_SERVER_KEY_EXCHANGE	= __TTLS_FSM_ST(3),
+	TTLS_CERTIFICATE_REQUEST	= __TTLS_FSM_ST(4),
+	TTLS_SERVER_HELLO_DONE		= __TTLS_FSM_ST(5),
+	TTLS_CLIENT_CERTIFICATE		= __TTLS_FSM_ST(6),
+	TTLS_CLIENT_KEY_EXCHANGE	= __TTLS_FSM_ST(7),
+	TTLS_CERTIFICATE_VERIFY		= __TTLS_FSM_ST(8),
+	TTLS_CLIENT_CHANGE_CIPHER_SPEC	= __TTLS_FSM_ST(9),
+	TTLS_CLIENT_FINISHED		= __TTLS_FSM_ST(10),
+	TTLS_SERVER_CHANGE_CIPHER_SPEC	= __TTLS_FSM_ST(11),
+	TTLS_SERVER_FINISHED		= __TTLS_FSM_ST(12),
+	TTLS_HANDSHAKE_WRAPUP		= __TTLS_FSM_ST(13),
+	TTLS_HANDSHAKE_OVER		= __TTLS_FSM_ST(14),
+	TTLS_SERVER_NEW_SESSION_TICKET	= __TTLS_FSM_ST(15),
+	TTLS_SERVER_HELLO_VERIFY_REQUEST_SENT = __TTLS_FSM_ST(16),
+};
 
 /*
  * Extend the common FSM for hanshake parsing.
@@ -375,7 +343,7 @@ do {									\
 				 -  TTLS_HS_TMP_STORE_SZ)
 
 /* Server specific TLS handshake states. */
-typedef enum {
+enum {
 	/* ClientHello intermediary states. */
 	TTLS_CH_HS_VER		= __TTLS_FSM_SUBST(CLIENT_HELLO, 0),
 	TTLS_CH_HS_RND		= __TTLS_FSM_SUBST(CLIENT_HELLO, 1),
@@ -395,14 +363,16 @@ typedef enum {
 	TTLS_CC_HS_PARSE	= __TTLS_FSM_SUBST(CLIENT_CERTIFICATE, 2),
 };
 
-/**
- * Whether TLS context transformation is ready for crypto and we should encrypt
- * egress data and decrypt ingress data.
- */
-static inline bool
-ttls_xfrm_ready(TlsCtx *tls)
+static inline unsigned int
+ttls_state(const TlsCtx *tls)
 {
-	return tls->state >= TTLS_CLIENT_CHANGE_CIPHER_SPEC;
+	return tls->state & __TTLS_FSM_ST_MASK;
+}
+
+static inline unsigned int
+ttls_substate(const TlsCtx *tls)
+{
+	return tls->state & __TTLS_FSM_SUBST_MASK;
 }
 
 #endif /* ssl_internal.h */

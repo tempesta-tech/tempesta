@@ -101,8 +101,6 @@ int ttls_internal_ecp_init(const ttls_ecp_group *grp);
  */
 void ttls_internal_ecp_free(const ttls_ecp_group *grp);
 
-#if defined(ECP_SHORTWEIERSTRASS)
-
 #if defined(TTLS_ECP_RANDOMIZE_JAC_ALT)
 /**
  * \brief		   Randomize jacobian coordinates:
@@ -113,15 +111,10 @@ void ttls_internal_ecp_free(const ttls_ecp_group *grp);
  * \param pt		The point on the curve to be randomised, given with Jacobian
  *				  coordinates.
  *
- * \param f_rng	 A function pointer to the random number generator.
- *
- * \param p_rng	 A pointer to the random number generator state.
- *
  * \return		  0 if successful.
  */
 int ttls_internal_ecp_randomize_jac(const ttls_ecp_group *grp,
-		ttls_ecp_point *pt, int (*f_rng)(void *, unsigned char *, size_t),
-		void *p_rng);
+		ttls_ecp_point *pt);
 #endif
 
 #if defined(TTLS_ECP_ADD_MIXED_ALT)
@@ -241,10 +234,6 @@ int ttls_internal_ecp_normalize_jac(const ttls_ecp_group *grp,
 		ttls_ecp_point *pt);
 #endif
 
-#endif /* ECP_SHORTWEIERSTRASS */
-
-#if defined(ECP_MONTGOMERY)
-
 #if defined(TTLS_ECP_DOUBLE_ADD_MXZ_ALT)
 int ttls_internal_ecp_double_add_mxz(const ttls_ecp_group *grp,
 		ttls_ecp_point *R, ttls_ecp_point *S, const ttls_ecp_point *P,
@@ -260,16 +249,11 @@ int ttls_internal_ecp_double_add_mxz(const ttls_ecp_group *grp,
  * \param P		 the point on the curve to be randomised given with
  *				  projective coordinates. This is an input/output parameter.
  *
- * \param f_rng	 a function pointer to the random number generator
- *
- * \param p_rng	 a pointer to the random number generator state
- *
  * \return		  0 if successful
  */
 #if defined(TTLS_ECP_RANDOMIZE_MXZ_ALT)
 int ttls_internal_ecp_randomize_mxz(const ttls_ecp_group *grp,
-		ttls_ecp_point *P, int (*f_rng)(void *, unsigned char *, size_t),
-		void *p_rng);
+		ttls_ecp_point *P);
 #endif
 
 /**
@@ -286,8 +270,6 @@ int ttls_internal_ecp_randomize_mxz(const ttls_ecp_group *grp,
 int ttls_internal_ecp_normalize_mxz(const ttls_ecp_group *grp,
 		ttls_ecp_point *P);
 #endif
-
-#endif /* ECP_MONTGOMERY */
 
 #endif /* TTLS_ECP_INTERNAL_ALT */
 
