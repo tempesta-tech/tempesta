@@ -115,8 +115,6 @@ ss_sock_live(struct sock *sk)
 #define SS_F_KEEP_SKB			0x02
 /* Close (drop) the connection. */
 #define SS_F_CONN_CLOSE			0x04
-/* Need TLS encryption. */
-#define SS_F_TLS			0x08
 
 #define ss_close(sk)			__ss_close(sk, 0)
 #define ss_close_sync(sk, drop)		\

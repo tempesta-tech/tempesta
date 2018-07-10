@@ -424,7 +424,6 @@ static void ssl_write_alpn_ext(ttls_context *ssl,
  */
 static int ssl_generate_random(ttls_context *ssl)
 {
-	int ret;
 	unsigned char *p = ssl->handshake->randbytes;
 	time_t t;
 
@@ -436,8 +435,7 @@ static int ssl_generate_random(ttls_context *ssl)
 
 	TTLS_DEBUG_MSG(3, ("client hello, current time: %lu", t));
 
-	if ((ret = ssl->conf->f_rng(ssl->conf->p_rng, p, 28)) != 0)
-		return ret;
+	get_random_bytes_arch(p, 28);
 
 	return 0;
 }
@@ -453,12 +451,6 @@ static int ssl_write_client_hello(ttls_context *ssl)
 	const ttls_ciphersuite_t *ciphersuite_info;
 
 	TTLS_DEBUG_MSG(2, ("=> write client hello"));
-
-	if (ssl->conf->f_rng == NULL)
-	{
-		TTLS_DEBUG_MSG(1, ("no RNG provided"));
-		return(TTLS_ERR_NO_RNG);
-	}
 
 	ssl->major_ver = ssl->conf->min_major_ver;
 	ssl->minor_ver = ssl->conf->min_minor_ver;
@@ -525,11 +517,7 @@ static int ssl_write_client_hello(ttls_context *ssl)
 	if (ssl->session_negotiate->ticket != NULL &&
 			ssl->session_negotiate->ticket_len != 0)
 	{
-		ret = ssl->conf->f_rng(ssl->conf->p_rng, ssl->session_negotiate->id, 32);
-
-		if (ret != 0)
-			return ret;
-
+		get_random_bytes_arch(ssl->session_negotiate->id, 32);
 		ssl->session_negotiate->id_len = n = 32;
 	}
 #endif /* TTLS_SESSION_TICKETS */
@@ -1322,11 +1310,7 @@ static int ssl_write_encrypted_pms(ttls_context *ssl,
 	ttls_write_version(ssl->conf->max_major_ver, ssl->conf->max_minor_ver,
 		   ssl->conf->transport, p);
 
-	if ((ret = ssl->conf->f_rng(ssl->conf->p_rng, p + 2, 46)) != 0)
-	{
-		TTLS_DEBUG_RET(1, "f_rng", ret);
-		return ret;
-	}
+	get_random_bytes_arch(p + 2, 46);
 
 	ssl->handshake->pmslen = 48;
 
@@ -1349,8 +1333,7 @@ static int ssl_write_encrypted_pms(ttls_context *ssl,
 	if ((ret = ttls_pk_encrypt(&ssl->session_negotiate->peer_cert->pk,
 			p, ssl->handshake->pmslen,
 			ssl->out_msg + offset + len_bytes, olen,
-			TTLS_MAX_CONTENT_LEN - offset - len_bytes,
-			ssl->conf->f_rng, ssl->conf->p_rng)) != 0)
+			TTLS_MAX_CONTENT_LEN - offset - len_bytes)) != 0)
 	{
 		TTLS_DEBUG_RET(1, "ttls_rsa_pkcs1_encrypt", ret);
 		return ret;
@@ -1890,8 +1873,7 @@ static int ssl_write_client_key_exchange(ttls_context *ssl)
 
 		ret = ttls_dhm_make_public(&ssl->handshake->dhm_ctx,
 				(int) ttls_mpi_size(&ssl->handshake->dhm_ctx.P),
-				&ssl->out_msg[i], n,
-				ssl->conf->f_rng, ssl->conf->p_rng);
+				&ssl->out_msg[i], n);
 		if (ret != 0)
 		{
 			TTLS_DEBUG_RET(1, "ttls_dhm_make_public", ret);
@@ -1904,8 +1886,7 @@ static int ssl_write_client_key_exchange(ttls_context *ssl)
 		if ((ret = ttls_dhm_calc_secret(&ssl->handshake->dhm_ctx,
 			ssl->handshake->premaster,
 			TTLS_PREMASTER_SIZE,
-			&ssl->handshake->pmslen,
-			ssl->conf->f_rng, ssl->conf->p_rng)) != 0)
+			&ssl->handshake->pmslen)) != 0)
 		{
 			TTLS_DEBUG_RET(1, "ttls_dhm_calc_secret", ret);
 			return ret;
@@ -1925,9 +1906,7 @@ static int ssl_write_client_key_exchange(ttls_context *ssl)
 		i = 4;
 
 		ret = ttls_ecdh_make_public(&ssl->handshake->ecdh_ctx,
-		&n,
-		&ssl->out_msg[i], 1000,
-		ssl->conf->f_rng, ssl->conf->p_rng);
+					&n, &ssl->out_msag[i], 1000);
 		if (ret != 0)
 		{
 			TTLS_DEBUG_RET(1, "ttls_ecdh_make_public", ret);
@@ -1937,10 +1916,9 @@ static int ssl_write_client_key_exchange(ttls_context *ssl)
 		TTLS_DEBUG_ECP(3, "ECDH: Q", &ssl->handshake->ecdh_ctx.Q);
 
 		if ((ret = ttls_ecdh_calc_secret(&ssl->handshake->ecdh_ctx,
-		  &ssl->handshake->pmslen,
-		   ssl->handshake->premaster,
-		   TTLS_MPI_MAX_SIZE,
-		   ssl->conf->f_rng, ssl->conf->p_rng)) != 0)
+					  &ssl->handshake->pmslen,
+					   ssl->handshake->premaster,
+					   TTLS_MPI_MAX_SIZE)) != 0)
 		{
 			TTLS_DEBUG_RET(1, "ttls_ecdh_calc_secret", ret);
 			return ret;

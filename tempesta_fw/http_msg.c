@@ -776,6 +776,8 @@ tfw_http_msg_hdr_add(TfwHttpMsg *hm, const TfwStr *hdr)
 int
 tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len)
 {
+	int r;
+
 	if ((r = tfw_msg_iter_setup(it, &hm->msg.skb_head, data_len)))
 		return r;
 	TFW_DBG2("Set up new HTTP message %p: len=%lu\n", hm, data_len);
@@ -831,10 +833,12 @@ tfw_http_msg_add_data(TfwMsgIter *it, TfwHttpMsg *hm, TfwStr *field,
 		      const TfwStr *data)
 {
 	char *p;
-	unsigned int n_copy = min(data->len, skb_tailroom(it->skb));
+	unsigned int n_copy;
 
 	WARN_ON_ONCE(TFW_STR_DUP(data));
 	WARN_ON_ONCE(!TFW_STR_PLAIN(data));
+
+	n_copy = min(data->len, (unsigned long)skb_tailroom(it->skb));
 	if (!n_copy)
 		return 0;
 

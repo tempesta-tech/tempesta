@@ -1842,7 +1842,7 @@ tfw_cfg_parse(struct list_head *mod_list)
 	if ((ret = tfw_cfg_parse_mods(cfg_text_buf, mod_list)))
 		TFW_DBG("Error parsing configuration data\n");
 
-	free_pages(cfg_text_buf, get_order(file_size));
+	free_pages((unsigned long)cfg_text_buf, get_order(file_size));
 
 	return ret;
 }
@@ -1901,7 +1901,8 @@ tfw_cfg_read_file(const char *path, size_t *file_size)
 
 	fp = filp_open(path, O_RDONLY, 0);
 	if (IS_ERR_OR_NULL(fp)) {
-		TFW_ERR_NL("can't open file: %s (err: %ld)\n", path, PTR_ERR(fp));
+		TFW_ERR_NL("can't open file: %s (err: %ld)\n",
+			   path, PTR_ERR(fp));
 		goto err_open;
 	}
 
@@ -1910,7 +1911,7 @@ tfw_cfg_read_file(const char *path, size_t *file_size)
 	buf_size += 1; /* for '\0' */
 	*file_size = buf_size;
 
-	out_buf = (char *)__get_free_pages(get_order(buf_size));
+	out_buf = (char *)__get_free_pages(GFP_KERNEL, get_order(buf_size));
 	if (!out_buf) {
 		TFW_ERR_NL("can't allocate memory\n");
 		goto err_alloc;
@@ -1940,7 +1941,7 @@ tfw_cfg_read_file(const char *path, size_t *file_size)
 	return out_buf;
 
 err_read:
-	free_pages(out_buf, get_order(buf_size));
+	free_pages((unsigned long)out_buf, get_order(buf_size));
 err_alloc:
 	filp_close(fp, NULL);
 err_open:

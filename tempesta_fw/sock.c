@@ -364,7 +364,6 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		}
 
 		ss_skb_init_for_xmit(skb);
-		skb->tls = flags & SS_F_TLS;
 
 		/* Propagate mark of message head skb.*/
 		skb->mark = mark;
@@ -379,9 +378,9 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		TCP_SKB_CB(skb)->end_seq += skb->len;
 	}
 
-	TFW_DBG3("[%d]: %s: sk=%p send_head=%p sk_state=%d\n",
+	TFW_DBG3("[%d]: %s: sk=%p send_head=%p sk_state=%d flags=%x\n",
 	         smp_processor_id(), __func__,
-	         sk, tcp_send_head(sk), sk->sk_state);
+	         sk, tcp_send_head(sk), sk->sk_state, flags);
 
 	/*
 	 * If connection close flag is specified, then @ss_do_close is used to

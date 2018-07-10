@@ -20,6 +20,8 @@
 #ifndef __LIB_STR_H__
 #define __LIB_STR_H__
 
+#include <linux/types.h>
+
 void memcpy_fast(void *to, const void *from, size_t len);
 /*
  * This memcmp() version return 0 on equal strings and non-zero otherwise -

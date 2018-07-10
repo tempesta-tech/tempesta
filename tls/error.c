@@ -31,9 +31,6 @@
 #include "dhm.h"
 #endif
 #include "ecp.h"
-#if defined(TTLS_HMAC_DRBG_C)
-#include "hmac_drbg.h"
-#endif
 #include "md.h"
 #include "oid.h"
 #include "pem.h"
@@ -296,10 +293,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			ttls_snprintf(buf, buflen, "SSL - A buffer is too small to receive or write a message");
 		if (use_ret == -(TTLS_ERR_NO_USABLE_CIPHERSUITE))
 			ttls_snprintf(buf, buflen, "SSL - None of the common ciphersuites is usable (eg, no suitable certificate, see debug messages)");
-		if (use_ret == -(TTLS_ERR_WANT_READ))
-			ttls_snprintf(buf, buflen, "SSL - Connection requires a read call");
-		if (use_ret == -(TTLS_ERR_WANT_WRITE))
-			ttls_snprintf(buf, buflen, "SSL - Connection requires a write call");
 		if (use_ret == -(TTLS_ERR_TIMEOUT))
 			ttls_snprintf(buf, buflen, "SSL - The operation timed out");
 		if (use_ret == -(TTLS_ERR_UNEXPECTED_RECORD))
@@ -376,18 +369,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 		buflen -= len + 3;
 	}
 
-	// Low level error codes
-	//
-	// BEGIN generated code
-	if (use_ret == -(TTLS_ERR_AES_INVALID_KEY_LENGTH))
-		ttls_snprintf(buf, buflen, "AES - Invalid key length");
-	if (use_ret == -(TTLS_ERR_AES_INVALID_INPUT_LENGTH))
-		ttls_snprintf(buf, buflen, "AES - Invalid data input length");
-	if (use_ret == -(TTLS_ERR_AES_FEATURE_UNAVAILABLE))
-		ttls_snprintf(buf, buflen, "AES - Feature not available. For example, an unsupported AES key size");
-	if (use_ret == -(TTLS_ERR_AES_HW_ACCEL_FAILED))
-		ttls_snprintf(buf, buflen, "AES - AES hardware accelerator failed");
-
 	if (use_ret == -(TTLS_ERR_ASN1_OUT_OF_DATA))
 		ttls_snprintf(buf, buflen, "ASN1 - Out of data when parsing an ASN1 data structure");
 	if (use_ret == -(TTLS_ERR_ASN1_UNEXPECTED_TAG))
@@ -435,31 +416,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 	if (use_ret == -(TTLS_ERR_CAMELLIA_HW_ACCEL_FAILED))
 		ttls_snprintf(buf, buflen, "CAMELLIA - Camellia hardware accelerator failed");
 #endif /* TTLS_CAMELLIA_C */
-
-	if (use_ret == -(TTLS_ERR_CCM_BAD_INPUT))
-		ttls_snprintf(buf, buflen, "CCM - Bad input parameters to the function");
-	if (use_ret == -(TTLS_ERR_CCM_AUTH_FAILED))
-		ttls_snprintf(buf, buflen, "CCM - Authenticated decryption failed");
-	if (use_ret == -(TTLS_ERR_CCM_HW_ACCEL_FAILED))
-		ttls_snprintf(buf, buflen, "CCM - CCM hardware accelerator failed");
-
-	if (use_ret == -(TTLS_ERR_GCM_AUTH_FAILED))
-		ttls_snprintf(buf, buflen, "GCM - Authenticated decryption failed");
-	if (use_ret == -(TTLS_ERR_GCM_HW_ACCEL_FAILED))
-		ttls_snprintf(buf, buflen, "GCM - GCM hardware accelerator failed");
-	if (use_ret == -(TTLS_ERR_GCM_BAD_INPUT))
-		ttls_snprintf(buf, buflen, "GCM - Bad input parameters to function");
-
-#if defined(TTLS_HMAC_DRBG_C)
-	if (use_ret == -(TTLS_ERR_HMAC_DRBG_REQUEST_TOO_BIG))
-		ttls_snprintf(buf, buflen, "HMAC_DRBG - Too many random requested in single call");
-	if (use_ret == -(TTLS_ERR_HMAC_DRBG_INPUT_TOO_BIG))
-		ttls_snprintf(buf, buflen, "HMAC_DRBG - Input too large (Entropy + additional)");
-	if (use_ret == -(TTLS_ERR_HMAC_DRBG_FILE_IO_ERROR))
-		ttls_snprintf(buf, buflen, "HMAC_DRBG - Read/write error in file");
-	if (use_ret == -(TTLS_ERR_HMAC_DRBG_ENTROPY_SOURCE_FAILED))
-		ttls_snprintf(buf, buflen, "HMAC_DRBG - The entropy source failed");
-#endif /* TTLS_HMAC_DRBG_C */
 
 	if (use_ret == -(TTLS_ERR_OID_NOT_FOUND))
 		ttls_snprintf(buf, buflen, "OID - OID is not found");
