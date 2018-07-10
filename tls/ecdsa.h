@@ -77,8 +77,6 @@ extern "C" {
  * \param d		 The private signing key.
  * \param buf	   The message hash.
  * \param blen	  The length of \p buf.
- * \param f_rng	 The RNG function.
- * \param p_rng	 The RNG parameter.
  *
  * \note			If the bitlength of the message hash is larger than the
  *				  bitlength of the group order, then the hash is truncated
@@ -92,41 +90,7 @@ extern "C" {
  * \see			 ecp.h
  */
 int ttls_ecdsa_sign(ttls_ecp_group *grp, ttls_mpi *r, ttls_mpi *s,
-				const ttls_mpi *d, const unsigned char *buf, size_t blen,
-				int (*f_rng)(void *, unsigned char *, size_t), void *p_rng);
-
-#if defined(TTLS_ECDSA_DETERMINISTIC)
-/**
- * \brief		   This function computes the ECDSA signature of a
- *				  previously-hashed message, deterministic version.
- *				  For more information, see <em>RFC-6979: Deterministic
- *				  Usage of the Digital Signature Algorithm (DSA) and Elliptic
- *				  Curve Digital Signature Algorithm (ECDSA)</em>.
- *
- * \param grp	   The ECP group.
- * \param r		 The first output integer.
- * \param s		 The second output integer.
- * \param d		 The private signing key.
- * \param buf	   The message hash.
- * \param blen	  The length of \p buf.
- * \param md_alg	The MD algorithm used to hash the message.
- *
- * \note			If the bitlength of the message hash is larger than the
- *				  bitlength of the group order, then the hash is truncated as
- *				  defined in <em>Standards for Efficient Cryptography Group
- *				  (SECG): SEC1 Elliptic Curve Cryptography</em>, section
- *				  4.1.3, step 5.
- *
- * \return		  \c 0 on success,
- *				  or an \c TTLS_ERR_ECP_XXX or \c TTLS_MPI_XXX
- *				  error code on failure.
- *
- * \see			 ecp.h
- */
-int ttls_ecdsa_sign_det(ttls_ecp_group *grp, ttls_mpi *r, ttls_mpi *s,
-		const ttls_mpi *d, const unsigned char *buf, size_t blen,
-		ttls_md_type_t md_alg);
-#endif /* TTLS_ECDSA_DETERMINISTIC */
+				const ttls_mpi *d, const unsigned char *buf, size_t blen);
 
 /**
  * \brief		   This function verifies the ECDSA signature of a
@@ -177,8 +141,6 @@ int ttls_ecdsa_verify(ttls_ecp_group *grp,
  * \param hlen	  The length of the hash.
  * \param sig	   The buffer that holds the signature.
  * \param slen	  The length of the signature written.
- * \param f_rng	 The RNG function.
- * \param p_rng	 The RNG parameter.
  *
  * \note			The \p sig buffer must be at least twice as large as the
  *				  size of the curve used, plus 9. For example, 73 Bytes if
@@ -199,9 +161,7 @@ int ttls_ecdsa_verify(ttls_ecp_group *grp,
  */
 int ttls_ecdsa_write_signature(ttls_ecdsa_context *ctx, ttls_md_type_t md_alg,
 			   const unsigned char *hash, size_t hlen,
-			   unsigned char *sig, size_t *slen,
-			   int (*f_rng)(void *, unsigned char *, size_t),
-			   void *p_rng);
+			   unsigned char *sig, size_t *slen);
 
 /**
  * \brief		   This function reads and verifies an ECDSA signature.
@@ -237,16 +197,13 @@ int ttls_ecdsa_read_signature(ttls_ecdsa_context *ctx,
  * \param ctx	  The ECDSA context to store the keypair in.
  * \param gid	  The elliptic curve to use. One of the various
  *				 \c TTLS_ECP_DP_XXX macros depending on configuration.
- * \param f_rng	The RNG function.
- * \param p_rng	The RNG parameter.
  *
  * \return		 \c 0 on success, or an \c TTLS_ERR_ECP_XXX code on
  *				 failure.
  *
  * \see			ecp.h
  */
-int ttls_ecdsa_genkey(ttls_ecdsa_context *ctx, ttls_ecp_group_id gid,
-				  int (*f_rng)(void *, unsigned char *, size_t), void *p_rng);
+int ttls_ecdsa_genkey(ttls_ecdsa_context *ctx, ttls_ecp_group_id gid);
 
 /**
  * \brief		   This function sets an ECDSA context from an EC key pair.

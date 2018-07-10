@@ -23,7 +23,6 @@
  */
 #include "pem.h"
 #include "base64.h"
-#include "md5.h"
 #include "cipher.h"
 
 /* Implementation that should never be optimized out by the compiler */

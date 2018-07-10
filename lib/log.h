@@ -85,7 +85,7 @@ enum {
 #define T_DBG3_SL(str, sglist, sgn, off, len)				\
 do {									\
 	int i;								\
-	struct scatterlist *sg;						\
+	struct scatterlist *sg = NULL;					\
 	T_DBG3(str ":\n");						\
 	for_each_sg(sglist, sg, sgn, i)					\
 		T_DBG3_BUF("  ", sg_virt(sg), sg->length);		\
@@ -112,6 +112,8 @@ do {									\
 #define T_WARN(...)	net_warn_ratelimited(__BNR "Warning: "	__VA_ARGS__)
 #define T_LOG(...)	net_info_ratelimited(__BNR __VA_ARGS__)
 #define T_DBG3(...)
+#define T_DBG3_BUF(...)
+#define T_DBG3_SL(...)
 /* Non-limited printing. */
 #define T_ERR_NL(...)	pr_err(__BNR "ERROR: " __VA_ARGS__)
 #define T_WARN_NL(...)	pr_warn(__BNR "Warning: " __VA_ARGS__)

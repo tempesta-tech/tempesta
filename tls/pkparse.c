@@ -751,7 +751,7 @@ static int pk_parse_key_sec1_der(ttls_ecp_keypair *eck,
 
 	if (! pubkey_done &&
 		(ret = ttls_ecp_mul(&eck->grp, &eck->Q, &eck->d, &eck->grp.G,
-				  NULL, NULL)) != 0)
+				  false)) != 0)
 	{
 		ttls_ecp_keypair_free(eck);
 		return(TTLS_ERR_PK_KEY_INVALID_FORMAT + ret);
@@ -939,7 +939,7 @@ ttls_pk_parse_key(ttls_pk_context *pk, const unsigned char *key, size_t keylen)
 		ret = ttls_pem_read_buffer(&pem,
 				   "-----BEGIN PRIVATE KEY-----",
 				   "-----END PRIVATE KEY-----",
-				   key, NULL, 0, &len);
+				   key, &len);
 	if (ret == 0)
 	{
 		if ((ret = pk_parse_key_pkcs8_unencrypted_der(pk,
@@ -985,6 +985,7 @@ ttls_pk_parse_key(ttls_pk_context *pk, const unsigned char *key, size_t keylen)
 
 	return(TTLS_ERR_PK_KEY_INVALID_FORMAT);
 }
+EXPORT_SYMBOL(ttls_pk_parse_key);
 
 /*
  * Parse a public key
@@ -1006,7 +1007,7 @@ int ttls_pk_parse_public_key(ttls_pk_context *ctx,
 		ret = ttls_pem_read_buffer(&pem,
 				   "-----BEGIN RSA PUBLIC KEY-----",
 				   "-----END RSA PUBLIC KEY-----",
-				   key, NULL, 0, &len);
+				   key, &len);
 
 	if (ret == 0)
 	{
@@ -1036,7 +1037,7 @@ int ttls_pk_parse_public_key(ttls_pk_context *ctx,
 		ret = ttls_pem_read_buffer(&pem,
 				"-----BEGIN PUBLIC KEY-----",
 				"-----END PUBLIC KEY-----",
-				key, NULL, 0, &len);
+				key, &len);
 
 	if (ret == 0)
 	{

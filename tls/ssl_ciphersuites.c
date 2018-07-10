@@ -442,6 +442,7 @@ ttls_ciphersuite_uses_ec(const ttls_ciphersuite_t *info)
 		case TTLS_KEY_EXCHANGE_ECDH_RSA:
 		case TTLS_KEY_EXCHANGE_ECDH_ECDSA:
 			return 1;
+		default:
+			return 0;
 	}
-	return 0;
 }

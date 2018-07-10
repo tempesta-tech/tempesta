@@ -139,9 +139,8 @@ static inline ttls_ecp_keypair *ttls_pk_ec(const ttls_pk_context pk)
 typedef int (*ttls_pk_rsa_alt_decrypt_func)(void *ctx, int mode, size_t *olen,
 		const unsigned char *input, unsigned char *output,
 		size_t output_max_len);
-typedef int (*ttls_pk_rsa_alt_sign_func)(void *ctx,
-		int (*f_rng)(void *, unsigned char *, size_t), void *p_rng,
-		int mode, ttls_md_type_t md_alg, unsigned int hashlen,
+typedef int (*ttls_pk_rsa_alt_sign_func)(void *ctx, int mode,
+		ttls_md_type_t md_alg, unsigned int hashlen,
 		const unsigned char *hash, unsigned char *sig);
 typedef size_t (*ttls_pk_rsa_alt_key_len_func)(void *ctx);
 #endif /* TTLS_PK_RSA_ALT_SUPPORT */
@@ -304,8 +303,6 @@ int ttls_pk_verify_ext(ttls_pk_type_t type, const void *options,
  * \param hash_len  Hash length or 0 (see notes)
  * \param sig	   Place to write the signature
  * \param sig_len   Number of bytes written
- * \param f_rng	 RNG function
- * \param p_rng	 RNG parameter
  *
  * \return		  0 on success, or a specific error code.
  *
@@ -332,8 +329,6 @@ int ttls_pk_sign(ttls_pk_context *ctx, ttls_md_type_t md_alg,
  * \param output	Decrypted output
  * \param olen	  Decrypted message length
  * \param osize	 Size of the output buffer
- * \param f_rng	 RNG function
- * \param p_rng	 RNG parameter
  *
  * \note			For RSA keys, the default padding type is PKCS#1 v1.5.
  *
@@ -341,8 +336,7 @@ int ttls_pk_sign(ttls_pk_context *ctx, ttls_md_type_t md_alg,
  */
 int ttls_pk_decrypt(ttls_pk_context *ctx,
 				const unsigned char *input, size_t ilen,
-				unsigned char *output, size_t *olen, size_t osize,
-				int (*f_rng)(void *, unsigned char *, size_t), void *p_rng);
+				unsigned char *output, size_t *olen, size_t osize);
 
 /**
  * \brief		   Encrypt message (including padding if relevant).
@@ -353,8 +347,6 @@ int ttls_pk_decrypt(ttls_pk_context *ctx,
  * \param output	Encrypted output
  * \param olen	  Encrypted output length
  * \param osize	 Size of the output buffer
- * \param f_rng	 RNG function
- * \param p_rng	 RNG parameter
  *
  * \note			For RSA keys, the default padding type is PKCS#1 v1.5.
  *
@@ -362,8 +354,7 @@ int ttls_pk_decrypt(ttls_pk_context *ctx,
  */
 int ttls_pk_encrypt(ttls_pk_context *ctx,
 				const unsigned char *input, size_t ilen,
-				unsigned char *output, size_t *olen, size_t osize,
-				int (*f_rng)(void *, unsigned char *, size_t), void *p_rng);
+				unsigned char *output, size_t *olen, size_t osize);
 
 /**
  * \brief		   Check if a public-private pair of keys matches.

@@ -25,8 +25,10 @@
 #include <linux/module.h>
 #include <linux/rwsem.h>
 #include <linux/tempesta.h>
+#include <linux/types.h>
 #include <net/sock.h>
 
+#include "lib/log.h"
 #include "cfg.h"
 
 #define TFW_AUTHOR		"Tempesta Technologies, Inc"

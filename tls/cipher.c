@@ -25,28 +25,33 @@
 #include <crypto/aead.h>
 #include <net/tls.h>
 
+#include "lib/str.h"
 #include "config.h"
 #include "cipher.h"
+#include "debug.h"
+
+static ttls_cipher_base_t gcm_aes_info;
+static ttls_cipher_base_t ccm_aes_info;
 
 #define DECLARE_CIPHER_ALLOC(mode, name)				\
 static struct kmem_cache *ttls_##mode##_##name##_cache;			\
-static void *mode##_##name##_ctx_alloc(void)				\
+static struct crypto_aead *mode##_##name##_ctx_alloc(void)		\
 {									\
 	void *ctx = kmem_cache_alloc(ttls_##mode##_##name##_cache, GFP_ATOMIC);\
 	if (!ctx)							\
 		return NULL;						\
-	memcpy_fast(ctx, mode##_##name##_info.ctx_tmpl,			\
-		   ksize(mode##_##name##_info.ctx_tmpl));		\
+	memcpy_fast(ctx, mode##_##name##_info.tfm,			\
+		   ksize(mode##_##name##_info.tfm));			\
 	return ctx;							\
 }									\
-static void mode##_##name##_ctx_free(void *ctx)				\
+static void mode##_##name##_ctx_free(struct crypto_aead *ctx)		\
 {									\
-	bzero_fast(ctx, ksize(mode##_##name##_info.ctx_tmpl));		\
+	bzero_fast(ctx, ksize(mode##_##name##_info.tfm));		\
 	kmem_cache_free(ttls_##mode##_##name##_cache, ctx);		\
 }
 
-DECLARE_CIPHER_ALLOC(gcm, name);
-DECLARE_CIPHER_ALLOC(ccm, name);
+DECLARE_CIPHER_ALLOC(gcm, aes);
+DECLARE_CIPHER_ALLOC(ccm, aes);
 
 const ttls_cipher_info_t *
 ttls_cipher_info_from_type(const ttls_cipher_type_t cipher_type)
@@ -133,7 +138,7 @@ aead_aes_setkey_wrap(void *ctx, const unsigned char *key, unsigned int len)
 	return crypto_aead_setkey((struct crypto_aead *)ctx, key, len);
 }
 
-static const ttls_cipher_base_t gcm_aes_info = {
+static ttls_cipher_base_t gcm_aes_info = {
 	.cipher			= TTLS_CIPHER_ID_AES,
 	.setkey_enc_func	= aead_aes_setkey_wrap,
 	.setkey_dec_func	= aead_aes_setkey_wrap,
@@ -174,7 +179,7 @@ static const ttls_cipher_info_t aes_256_gcm_info = {
 	&gcm_aes_info
 };
 
-static const ttls_cipher_base_t ccm_aes_info = {
+static ttls_cipher_base_t ccm_aes_info = {
 	.cipher			= TTLS_CIPHER_ID_AES,
 	.setkey_enc_func	= aead_aes_setkey_wrap,
 	.setkey_dec_func	= aead_aes_setkey_wrap,
@@ -421,8 +426,8 @@ const ttls_cipher_definition_t ttls_cipher_definitions[] =
 int ttls_cipher_supported[ARRAY_SIZE(ttls_cipher_definitions)];
 
 #define FREE_CIPHER_CACHE(mode, name)					\
-	if (mode##_##name##_info.ctx_tmpl)				\
-		crypto_free_aead(mode##_##name##_info.ctx_tmpl);	\
+	if (mode##_##name##_info.tfm)					\
+		crypto_free_aead(mode##_##name##_info.tfm);		\
 	if (ttls_##mode##_##name##_cache)				\
 		kmem_cache_destroy(ttls_##mode##_##name##_cache);
 
@@ -434,16 +439,21 @@ ttls_free_cipher_ctx_tmpls(void)
 }
 
 #define CREATE_CIPHER_CACHE(mode, name)					\
-	mode##_##name##_info.tfm = crypto_alloc_aead(#mode "(" #name ")",\
-							  0, 0);	\
-	if (!mode##_##name##_info.tfm)				\
-		return -ENOMEM;						\
+do {									\
+	struct crypto_aead *a = crypto_alloc_aead(#mode "(" #name ")", 0, 0);\
+	if (IS_ERR(a)) {						\
+		T_ERR("cannot initialize " #mode "(" #name ") cipher. "	\
+		      "Please check /proc/crypto for the algorithm\n");	\
+		goto err_free;						\
+	}								\
+	mode##_##name##_info.tfm = a;					\
 	ttls_##mode##_##name##_cache = kmem_cache_create(		\
 					"ttls_" #mode "_" #name "_cache",\
-					ksize(mode##_##name##_info.ctx_tmpl),\
+					ksize(mode##_##name##_info.tfm),\
 					0, 0, NULL);			\
 	if (!ttls_##mode##_##name##_cache)				\
-		goto err_free;
+		goto err_free;						\
+} while (0)
 
 int
 ttls_init_cipher_ctx_tmpls(void)

@@ -57,10 +57,6 @@ typedef struct
 
 	uint32_t ticket_lifetime;	   /*!< lifetime of tickets in seconds	 */
 
-	/** Callback for getting (pseudo-)random numbers			*/
-	int  (*f_rng)(void *, unsigned char *, size_t);
-	void *p_rng;		/*!< context for the RNG function	   */
-
 	spinlock_t mutex;
 }
 ttls_ticket_context;
@@ -78,8 +74,6 @@ void ttls_ticket_init(ttls_ticket_context *ctx);
  * \brief		   Prepare context to be actually used
  *
  * \param ctx	   Context to be set up
- * \param f_rng	 RNG callback function
- * \param p_rng	 RNG callback context
  * \param cipher	AEAD cipher to use for ticket protection.
  *				  Recommended value: TTLS_CIPHER_AES_256_GCM.
  * \param lifetime  Tickets lifetime in seconds
@@ -97,7 +91,6 @@ void ttls_ticket_init(ttls_ticket_context *ctx);
  *				  or a specific TTLS_ERR_XXX error code
  */
 int ttls_ticket_setup(ttls_ticket_context *ctx,
-	int (*f_rng)(void *, unsigned char *, size_t), void *p_rng,
 	ttls_cipher_type_t cipher,
 	uint32_t lifetime);
 

@@ -158,14 +158,10 @@ int ttls_rsa_deduce_crt(const ttls_mpi *P, const ttls_mpi *Q,
  * \param Q		Second prime factor of N
  * \param D		RSA private exponent
  * \param E		RSA public exponent
- * \param f_rng	PRNG to be used for primality check, or NULL
- * \param p_rng	PRNG context for f_rng, or NULL
  *
  * \return
  *				 - 0 if the following conditions are satisfied
  *				   if all relevant parameters are provided:
- *		- P prime if f_rng != NULL (%)
- *		- Q prime if f_rng != NULL (%)
  *		- 1 < N = P * Q
  *		- 1 < D, E < N
  *		- D and E are modular inverses modulo P-1 and Q-1
@@ -178,9 +174,7 @@ int ttls_rsa_deduce_crt(const ttls_mpi *P, const ttls_mpi *Q,
  */
 int ttls_rsa_validate_params(const ttls_mpi *N, const ttls_mpi *P,
 		 const ttls_mpi *Q, const ttls_mpi *D,
-		 const ttls_mpi *E,
-		 int (*f_rng)(void *, unsigned char *, size_t),
-		 void *p_rng);
+		 const ttls_mpi *E, bool rnd);
 
 /**
  * \brief		  Check validity of RSA CRT parameters

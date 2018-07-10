@@ -46,7 +46,7 @@
 #define TTLS_ERR_RSA_PRIVATE_FAILED		-0x4300  /**< The private key operation failed. */
 #define TTLS_ERR_RSA_VERIFY_FAILED		 -0x4380  /**< The PKCS#1 verification failed. */
 #define TTLS_ERR_RSA_OUTPUT_TOO_LARGE				  -0x4400  /**< The output buffer for decryption is not large enough. */
-#define TTLS_ERR_RSA_RNG_FAILED			-0x4480  /**< The random generator failed to generate non-zeros. */
+#define TTLS_ERR_RSA_RNG_FAILED			-0x4480 /**< The random generator failed to generate non-zeros. */
 #define TTLS_ERR_RSA_UNSUPPORTED_OPERATION			 -0x4500  /**< The implementation does not offer the requested operation, for example, because of security violations or lack of functionality. */
 #define TTLS_ERR_RSA_HW_ACCEL_FAILED				   -0x4580  /**< RSA hardware accelerator failed. */
 
@@ -385,8 +385,6 @@ size_t ttls_rsa_get_len(const ttls_rsa_context *ctx);
  * \brief		  This function generates an RSA keypair.
  *
  * \param ctx	  The RSA context used to hold the key.
- * \param f_rng	The RNG function.
- * \param p_rng	The RNG parameter.
  * \param nbits	The size of the public key in bits.
  * \param exponent The public exponent. For example, 65537.
  *
@@ -397,8 +395,6 @@ size_t ttls_rsa_get_len(const ttls_rsa_context *ctx);
 				   on failure.
  */
 int ttls_rsa_gen_key(ttls_rsa_context *ctx,
-			 int (*f_rng)(void *, unsigned char *, size_t),
-			 void *p_rng,
 			 unsigned int nbits, int exponent);
 
 /**
@@ -495,8 +491,6 @@ int ttls_rsa_public(ttls_rsa_context *ctx,
  * \brief		  This function performs an RSA private key operation.
  *
  * \param ctx	  The RSA context.
- * \param f_rng	The RNG function. Needed for blinding.
- * \param p_rng	The RNG parameter.
  * \param input	The input buffer.
  * \param output   The output buffer.
  *
@@ -519,8 +513,6 @@ int ttls_rsa_public(ttls_rsa_context *ctx,
  *
  */
 int ttls_rsa_private(ttls_rsa_context *ctx,
-				 int (*f_rng)(void *, unsigned char *, size_t),
-				 void *p_rng,
 				 const unsigned char *input,
 				 unsigned char *output);
 
@@ -533,9 +525,6 @@ int ttls_rsa_private(ttls_rsa_context *ctx,
  *
  *
  * \param ctx	  The RSA context.
- * \param f_rng	The RNG function. Needed for padding, PKCS#1 v2.1
- *				 encoding, and #TTLS_RSA_PRIVATE.
- * \param p_rng	The RNG parameter.
  * \param mode	 #TTLS_RSA_PUBLIC or #TTLS_RSA_PRIVATE.
  * \param ilen	 The length of the plaintext.
  * \param input	The buffer holding the data to encrypt.
@@ -557,8 +546,6 @@ int ttls_rsa_private(ttls_rsa_context *ctx,
  *				 of \p ctx->N. For example, 128 Bytes if RSA-1024 is used.
  */
 int ttls_rsa_pkcs1_encrypt(ttls_rsa_context *ctx,
-		   int (*f_rng)(void *, unsigned char *, size_t),
-		   void *p_rng,
 		   int mode, size_t ilen,
 		   const unsigned char *input,
 		   unsigned char *output);
@@ -568,9 +555,6 @@ int ttls_rsa_pkcs1_encrypt(ttls_rsa_context *ctx,
  *				 (RSAES-PKCS1-v1_5-ENCRYPT).
  *
  * \param ctx	  The RSA context.
- * \param f_rng	The RNG function. Needed for padding and
- *				 #TTLS_RSA_PRIVATE.
- * \param p_rng	The RNG parameter.
  * \param mode	 #TTLS_RSA_PUBLIC or #TTLS_RSA_PRIVATE.
  * \param ilen	 The length of the plaintext.
  * \param input	The buffer holding the data to encrypt.
@@ -592,8 +576,6 @@ int ttls_rsa_pkcs1_encrypt(ttls_rsa_context *ctx,
  *				 of \p ctx->N. For example, 128 Bytes if RSA-1024 is used.
  */
 int ttls_rsa_rsaes_pkcs1_v15_encrypt(ttls_rsa_context *ctx,
-		 int (*f_rng)(void *, unsigned char *, size_t),
-		 void *p_rng,
 		 int mode, size_t ilen,
 		 const unsigned char *input,
 		 unsigned char *output);
@@ -603,9 +585,6 @@ int ttls_rsa_rsaes_pkcs1_v15_encrypt(ttls_rsa_context *ctx,
  *				   operation (RSAES-OAEP-ENCRYPT).
  *
  * \param ctx		The RSA context.
- * \param f_rng	  The RNG function. Needed for padding and PKCS#1 v2.1
- *				   encoding and #TTLS_RSA_PRIVATE.
- * \param p_rng	  The RNG parameter.
  * \param mode	   #TTLS_RSA_PUBLIC or #TTLS_RSA_PRIVATE.
  * \param label	  The buffer holding the custom label to use.
  * \param label_len  The length of the label.
@@ -629,8 +608,6 @@ int ttls_rsa_rsaes_pkcs1_v15_encrypt(ttls_rsa_context *ctx,
  *				 of ctx->N. For example, 128 Bytes if RSA-1024 is used.
  */
 int ttls_rsa_rsaes_oaep_encrypt(ttls_rsa_context *ctx,
-				int (*f_rng)(void *, unsigned char *, size_t),
-				void *p_rng,
 				int mode,
 				const unsigned char *label, size_t label_len,
 				size_t ilen,
@@ -645,8 +622,6 @@ int ttls_rsa_rsaes_oaep_encrypt(ttls_rsa_context *ctx,
  *				 operation using the \p mode from the context.
  *
  * \param ctx	  The RSA context.
- * \param f_rng	The RNG function. Only needed for #TTLS_RSA_PRIVATE.
- * \param p_rng	The RNG parameter.
  * \param mode	 #TTLS_RSA_PUBLIC or #TTLS_RSA_PRIVATE.
  * \param olen	 The length of the plaintext.
  * \param input	The buffer holding the encrypted data.
@@ -676,8 +651,6 @@ int ttls_rsa_rsaes_oaep_encrypt(ttls_rsa_context *ctx,
  *				 of \p ctx->N. For example, 128 Bytes if RSA-1024 is used.
  */
 int ttls_rsa_pkcs1_decrypt(ttls_rsa_context *ctx,
-		   int (*f_rng)(void *, unsigned char *, size_t),
-		   void *p_rng,
 		   int mode, size_t *olen,
 		   const unsigned char *input,
 		   unsigned char *output,
@@ -688,8 +661,6 @@ int ttls_rsa_pkcs1_decrypt(ttls_rsa_context *ctx,
  *				 operation (RSAES-PKCS1-v1_5-DECRYPT).
  *
  * \param ctx	  The RSA context.
- * \param f_rng	The RNG function. Only needed for #TTLS_RSA_PRIVATE.
- * \param p_rng	The RNG parameter.
  * \param mode	 #TTLS_RSA_PUBLIC or #TTLS_RSA_PRIVATE.
  * \param olen	 The length of the plaintext.
  * \param input	The buffer holding the encrypted data.
@@ -719,8 +690,6 @@ int ttls_rsa_pkcs1_decrypt(ttls_rsa_context *ctx,
  *				 of \p ctx->N. For example, 128 Bytes if RSA-1024 is used.
  */
 int ttls_rsa_rsaes_pkcs1_v15_decrypt(ttls_rsa_context *ctx,
-		 int (*f_rng)(void *, unsigned char *, size_t),
-		 void *p_rng,
 		 int mode, size_t *olen,
 		 const unsigned char *input,
 		 unsigned char *output,
@@ -731,8 +700,6 @@ int ttls_rsa_rsaes_pkcs1_v15_decrypt(ttls_rsa_context *ctx,
  *				 operation (RSAES-OAEP-DECRYPT).
  *
  * \param ctx		The RSA context.
- * \param f_rng	  The RNG function. Only needed for #TTLS_RSA_PRIVATE.
- * \param p_rng	  The RNG parameter.
  * \param mode	   #TTLS_RSA_PUBLIC or #TTLS_RSA_PRIVATE.
  * \param label	  The buffer holding the custom label to use.
  * \param label_len  The length of the label.
@@ -765,8 +732,6 @@ int ttls_rsa_rsaes_pkcs1_v15_decrypt(ttls_rsa_context *ctx,
  *				 of \p ctx->N. For example, 128 Bytes if RSA-1024 is used.
  */
 int ttls_rsa_rsaes_oaep_decrypt(ttls_rsa_context *ctx,
-				int (*f_rng)(void *, unsigned char *, size_t),
-				void *p_rng,
 				int mode,
 				const unsigned char *label, size_t label_len,
 				size_t *olen,
@@ -782,9 +747,6 @@ int ttls_rsa_rsaes_oaep_decrypt(ttls_rsa_context *ctx,
  *				 signature using the \p mode from the context.
  *
  * \param ctx	  The RSA context.
- * \param f_rng	The RNG function. Needed for PKCS#1 v2.1 encoding and for
- *				 #TTLS_RSA_PRIVATE.
- * \param p_rng	The RNG parameter.
  * \param mode	 #TTLS_RSA_PUBLIC or #TTLS_RSA_PRIVATE.
  * \param md_alg   The message-digest algorithm used to hash the original data.
  *				 Use #TTLS_MD_NONE for signing raw data.
@@ -812,8 +774,6 @@ int ttls_rsa_rsaes_oaep_decrypt(ttls_rsa_context *ctx,
  *				 \p md_alg and \p hash_id.
  */
 int ttls_rsa_pkcs1_sign(ttls_rsa_context *ctx,
-		int (*f_rng)(void *, unsigned char *, size_t),
-		void *p_rng,
 		int mode,
 		ttls_md_type_t md_alg,
 		unsigned int hashlen,
@@ -825,8 +785,6 @@ int ttls_rsa_pkcs1_sign(ttls_rsa_context *ctx,
  *				 operation (RSASSA-PKCS1-v1_5-SIGN).
  *
  * \param ctx	  The RSA context.
- * \param f_rng	The RNG function. Only needed for #TTLS_RSA_PRIVATE.
- * \param p_rng	The RNG parameter.
  * \param mode	 #TTLS_RSA_PUBLIC or #TTLS_RSA_PRIVATE.
  * \param md_alg   The message-digest algorithm used to hash the original data.
  *				 Use #TTLS_MD_NONE for signing raw data.
@@ -851,8 +809,6 @@ int ttls_rsa_pkcs1_sign(ttls_rsa_context *ctx,
  *				 of \p ctx->N. For example, 128 Bytes if RSA-1024 is used.
  */
 int ttls_rsa_rsassa_pkcs1_v15_sign(ttls_rsa_context *ctx,
-				   int (*f_rng)(void *, unsigned char *, size_t),
-				   void *p_rng,
 				   int mode,
 				   ttls_md_type_t md_alg,
 				   unsigned int hashlen,
@@ -864,9 +820,6 @@ int ttls_rsa_rsassa_pkcs1_v15_sign(ttls_rsa_context *ctx,
  *				 operation (RSASSA-PSS-SIGN).
  *
  * \param ctx	  The RSA context.
- * \param f_rng	The RNG function. Needed for PKCS#1 v2.1 encoding and for
- *				 #TTLS_RSA_PRIVATE.
- * \param p_rng	The RNG parameter.
  * \param mode	 #TTLS_RSA_PUBLIC or #TTLS_RSA_PRIVATE.
  * \param md_alg   The message-digest algorithm used to hash the original data.
  *				 Use #TTLS_MD_NONE for signing raw data.
@@ -898,8 +851,6 @@ int ttls_rsa_rsassa_pkcs1_v15_sign(ttls_rsa_context *ctx,
  *				 same.
  */
 int ttls_rsa_rsassa_pss_sign(ttls_rsa_context *ctx,
-			 int (*f_rng)(void *, unsigned char *, size_t),
-			 void *p_rng,
 			 int mode,
 			 ttls_md_type_t md_alg,
 			 unsigned int hashlen,
@@ -914,8 +865,6 @@ int ttls_rsa_rsassa_pss_sign(ttls_rsa_context *ctx,
  *				 verification using the mode from the context.
  *
  * \param ctx	  The RSA public key context.
- * \param f_rng	The RNG function. Only needed for #TTLS_RSA_PRIVATE.
- * \param p_rng	The RNG parameter.
  * \param mode	 #TTLS_RSA_PUBLIC or #TTLS_RSA_PRIVATE.
  * \param md_alg   The message-digest algorithm used to hash the original data.
  *				 Use #TTLS_MD_NONE for signing raw data.
@@ -944,8 +893,6 @@ int ttls_rsa_rsassa_pss_sign(ttls_rsa_context *ctx,
  *				 \p hash_id.
  */
 int ttls_rsa_pkcs1_verify(ttls_rsa_context *ctx,
-		  int (*f_rng)(void *, unsigned char *, size_t),
-		  void *p_rng,
 		  int mode,
 		  ttls_md_type_t md_alg,
 		  unsigned int hashlen,
@@ -957,8 +904,6 @@ int ttls_rsa_pkcs1_verify(ttls_rsa_context *ctx,
  *				 operation (RSASSA-PKCS1-v1_5-VERIFY).
  *
  * \param ctx	  The RSA public key context.
- * \param f_rng	The RNG function. Only needed for #TTLS_RSA_PRIVATE.
- * \param p_rng	The RNG parameter.
  * \param mode	 #TTLS_RSA_PUBLIC or #TTLS_RSA_PRIVATE.
  * \param md_alg   The message-digest algorithm used to hash the original data.
  *				 Use #TTLS_MD_NONE for signing raw data.
@@ -983,8 +928,6 @@ int ttls_rsa_pkcs1_verify(ttls_rsa_context *ctx,
  *				 of \p ctx->N. For example, 128 Bytes if RSA-1024 is used.
  */
 int ttls_rsa_rsassa_pkcs1_v15_verify(ttls_rsa_context *ctx,
-		 int (*f_rng)(void *, unsigned char *, size_t),
-		 void *p_rng,
 		 int mode,
 		 ttls_md_type_t md_alg,
 		 unsigned int hashlen,
@@ -999,8 +942,6 @@ int ttls_rsa_rsassa_pkcs1_v15_verify(ttls_rsa_context *ctx,
  *				 is that specified in the RSA context.
  *
  * \param ctx	  The RSA public key context.
- * \param f_rng	The RNG function. Only needed for #TTLS_RSA_PRIVATE.
- * \param p_rng	The RNG parameter.
  * \param mode	 #TTLS_RSA_PUBLIC or #TTLS_RSA_PRIVATE.
  * \param md_alg   The message-digest algorithm used to hash the original data.
  *				 Use #TTLS_MD_NONE for signing raw data.
@@ -1033,8 +974,6 @@ int ttls_rsa_rsassa_pkcs1_v15_verify(ttls_rsa_context *ctx,
  *				 the \p md_alg from the function call is used.
  */
 int ttls_rsa_rsassa_pss_verify(ttls_rsa_context *ctx,
-			   int (*f_rng)(void *, unsigned char *, size_t),
-			   void *p_rng,
 			   int mode,
 			   ttls_md_type_t md_alg,
 			   unsigned int hashlen,
@@ -1049,8 +988,6 @@ int ttls_rsa_rsassa_pss_verify(ttls_rsa_context *ctx,
  *				 is that specified in \p mgf1_hash_id.
  *
  * \param ctx	  The RSA public key context.
- * \param f_rng	The RNG function. Only needed for #TTLS_RSA_PRIVATE.
- * \param p_rng	The RNG parameter.
  * \param mode	 #TTLS_RSA_PUBLIC or #TTLS_RSA_PRIVATE.
  * \param md_alg   The message-digest algorithm used to hash the original data.
  *				 Use #TTLS_MD_NONE for signing raw data.
@@ -1071,8 +1008,6 @@ int ttls_rsa_rsassa_pss_verify(ttls_rsa_context *ctx,
  * \note		   The \p hash_id in the RSA context is ignored.
  */
 int ttls_rsa_rsassa_pss_verify_ext(ttls_rsa_context *ctx,
-				   int (*f_rng)(void *, unsigned char *, size_t),
-				   void *p_rng,
 				   int mode,
 				   ttls_md_type_t md_alg,
 				   unsigned int hashlen,

@@ -18,10 +18,7 @@
  *  You should have received a copy of the GNU General Public License along
  *  with this program; if not, write to the Free Software Foundation, Inc.,
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-
 /*
  * References:
  *
@@ -30,9 +27,6 @@
 #include "config.h"
 #include "ecdsa.h"
 #include "asn1write.h"
-#if defined(TTLS_ECDSA_DETERMINISTIC)
-#include "hmac_drbg.h"
-#endif
 
 /*
  * Derive a suitable integer for group grp from a buffer of length len
@@ -62,9 +56,9 @@ cleanup:
  * Compute ECDSA signature of a hashed message (SEC1 4.1.3)
  * Obviously, compared to SEC1 4.1.3, we skip step 4 (hash message)
  */
-int ttls_ecdsa_sign(ttls_ecp_group *grp, ttls_mpi *r, ttls_mpi *s,
-				const ttls_mpi *d, const unsigned char *buf, size_t blen,
-				int (*f_rng)(void *, unsigned char *, size_t), void *p_rng)
+int
+ttls_ecdsa_sign(ttls_ecp_group *grp, ttls_mpi *r, ttls_mpi *s,
+		const ttls_mpi *d, const unsigned char *buf, size_t blen)
 {
 	int ret, key_tries, sign_tries, blind_tries;
 	ttls_ecp_point R;
@@ -91,7 +85,7 @@ int ttls_ecdsa_sign(ttls_ecp_group *grp, ttls_mpi *r, ttls_mpi *s,
 		key_tries = 0;
 		do
 		{
-			TTLS_MPI_CHK(ttls_ecp_gen_keypair(grp, &k, &R, f_rng, p_rng));
+			TTLS_MPI_CHK(ttls_ecp_gen_keypair(grp, &k, &R));
 			TTLS_MPI_CHK(ttls_mpi_mod_mpi(r, &R.X, &grp->N));
 
 			if (key_tries++ > 10)
@@ -115,7 +109,7 @@ int ttls_ecdsa_sign(ttls_ecp_group *grp, ttls_mpi *r, ttls_mpi *s,
 		do
 		{
 			size_t n_size = (grp->nbits + 7) / 8;
-			get_random_bytes_arch(&t, n_size);
+			TTLS_MPI_CHK(ttls_mpi_fill_random(&t, n_size));
 			TTLS_MPI_CHK(ttls_mpi_shift_r(&t, 8 * n_size - grp->nbits));
 
 			/* See ttls_ecp_gen_keypair() */
@@ -151,44 +145,6 @@ cleanup:
 	return ret;
 }
 #endif /* TTLS_ECDSA_SIGN_ALT */
-
-#if defined(TTLS_ECDSA_DETERMINISTIC)
-/*
- * Deterministic signature wrapper
- */
-int ttls_ecdsa_sign_det(ttls_ecp_group *grp, ttls_mpi *r, ttls_mpi *s,
-		const ttls_mpi *d, const unsigned char *buf, size_t blen,
-		ttls_md_type_t md_alg)
-{
-	int ret;
-	ttls_hmac_drbg_context rng_ctx;
-	unsigned char data[2 * TTLS_ECP_MAX_BYTES];
-	size_t grp_len = (grp->nbits + 7) / 8;
-	const ttls_md_info_t *md_info;
-	ttls_mpi h;
-
-	if ((md_info = ttls_md_info_from_type(md_alg)) == NULL)
-		return(TTLS_ERR_ECP_BAD_INPUT_DATA);
-
-	ttls_mpi_init(&h);
-	ttls_hmac_drbg_init(&rng_ctx);
-
-	/* Use private key and message hash (reduced) to initialize HMAC_DRBG */
-	TTLS_MPI_CHK(ttls_mpi_write_binary(d, data, grp_len));
-	TTLS_MPI_CHK(derive_mpi(grp, &h, buf, blen));
-	TTLS_MPI_CHK(ttls_mpi_write_binary(&h, data + grp_len, grp_len));
-	ttls_hmac_drbg_seed_buf(&rng_ctx, md_info, data, 2 * grp_len);
-
-	ret = ttls_ecdsa_sign(grp, r, s, d, buf, blen,
-		  ttls_hmac_drbg_random, &rng_ctx);
-
-cleanup:
-	ttls_hmac_drbg_free(&rng_ctx);
-	ttls_mpi_free(&h);
-
-	return ret;
-}
-#endif /* TTLS_ECDSA_DETERMINISTIC */
 
 #if !defined(TTLS_ECDSA_VERIFY_ALT)
 /*
@@ -307,9 +263,7 @@ static int ecdsa_signature_to_asn1(const ttls_mpi *r, const ttls_mpi *s,
  */
 int ttls_ecdsa_write_signature(ttls_ecdsa_context *ctx, ttls_md_type_t md_alg,
 			   const unsigned char *hash, size_t hlen,
-			   unsigned char *sig, size_t *slen,
-			   int (*f_rng)(void *, unsigned char *, size_t),
-			   void *p_rng)
+			   unsigned char *sig, size_t *slen)
 {
 	int ret;
 	ttls_mpi r, s;
@@ -317,19 +271,8 @@ int ttls_ecdsa_write_signature(ttls_ecdsa_context *ctx, ttls_md_type_t md_alg,
 	ttls_mpi_init(&r);
 	ttls_mpi_init(&s);
 
-#if defined(TTLS_ECDSA_DETERMINISTIC)
-	(void) f_rng;
-	(void) p_rng;
-
-	TTLS_MPI_CHK(ttls_ecdsa_sign_det(&ctx->grp, &r, &s, &ctx->d,
-				 hash, hlen, md_alg));
-#else
-	(void) md_alg;
-
 	TTLS_MPI_CHK(ttls_ecdsa_sign(&ctx->grp, &r, &s, &ctx->d,
-			 hash, hlen, f_rng, p_rng));
-#endif
-
+			 hash, hlen));
 	TTLS_MPI_CHK(ecdsa_signature_to_asn1(&r, &s, sig, slen));
 
 cleanup:
@@ -390,17 +333,14 @@ cleanup:
 	return ret;
 }
 
-#if !defined(TTLS_ECDSA_GENKEY_ALT)
 /*
  * Generate key pair
  */
-int ttls_ecdsa_genkey(ttls_ecdsa_context *ctx, ttls_ecp_group_id gid,
-				  int (*f_rng)(void *, unsigned char *, size_t), void *p_rng)
+int ttls_ecdsa_genkey(ttls_ecdsa_context *ctx, ttls_ecp_group_id gid)
 {
-	return(ttls_ecp_group_load(&ctx->grp, gid) ||
-			ttls_ecp_gen_keypair(&ctx->grp, &ctx->d, &ctx->Q, f_rng, p_rng));
+	return ttls_ecp_group_load(&ctx->grp, gid)
+		|| ttls_ecp_gen_keypair(&ctx->grp, &ctx->d, &ctx->Q);
 }
-#endif /* TTLS_ECDSA_GENKEY_ALT */
 
 /*
  * Set context from an ttls_ecp_keypair

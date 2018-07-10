@@ -27,6 +27,8 @@
 #ifndef TTLS_BIGNUM_H
 #define TTLS_BIGNUM_H
 
+#include <linux/random.h>
+
 /**< An error occurred while reading from or writing to a file. */
 #define TTLS_ERR_MPI_FILE_IO_ERROR		 -0x0002
 /**< Bad input parameters to function. */
@@ -561,6 +563,8 @@ int ttls_mpi_mod_int(ttls_mpi_uint *r, const ttls_mpi *A, ttls_mpi_sint b);
  */
 int ttls_mpi_exp_mod(ttls_mpi *X, const ttls_mpi *A, const ttls_mpi *E, const ttls_mpi *N, ttls_mpi *_RR);
 
+int ttls_mpi_fill_random(ttls_mpi *X, size_t size);
+
 /**
  * \brief		  Greatest common divisor: G = gcd(A, B)
  *
@@ -589,18 +593,8 @@ int ttls_mpi_inv_mod(ttls_mpi *X, const ttls_mpi *A, const ttls_mpi *N);
 
 /**
  * \brief		  Miller-Rabin primality test
- *
- * \param X		MPI to check
- * \param f_rng	RNG function
- * \param p_rng	RNG parameter
- *
- * \return		 0 if successful (probably prime),
- *				 TTLS_ERR_MPI_ALLOC_FAILED if memory allocation failed,
- *				 TTLS_ERR_MPI_NOT_ACCEPTABLE if X is not prime
  */
-int ttls_mpi_is_prime(const ttls_mpi *X,
-				  int (*f_rng)(void *, unsigned char *, size_t),
-				  void *p_rng);
+int ttls_mpi_is_prime(const ttls_mpi *X);
 
 /**
  * \brief		  Prime number generation
@@ -609,16 +603,12 @@ int ttls_mpi_is_prime(const ttls_mpi *X,
  * \param nbits	Required size of X in bits
  *				 (3 <= nbits <= TTLS_MPI_MAX_BITS)
  * \param dh_flag  If 1, then (X-1)/2 will be prime too
- * \param f_rng	RNG function
- * \param p_rng	RNG parameter
  *
  * \return		 0 if successful (probably prime),
  *				 TTLS_ERR_MPI_ALLOC_FAILED if memory allocation failed,
  *				 TTLS_ERR_MPI_BAD_INPUT_DATA if nbits is < 3
  */
-int ttls_mpi_gen_prime(ttls_mpi *X, size_t nbits, int dh_flag,
-				   int (*f_rng)(void *, unsigned char *, size_t),
-				   void *p_rng);
+int ttls_mpi_gen_prime(ttls_mpi *X, size_t nbits, int dh_flag);
 
 int ttls_mpi_modinit(void);
 void ttls_mpi_modexit(void);
