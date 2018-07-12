@@ -126,8 +126,10 @@ TfwHttpMatchRule *tfw_http_rule_new(TfwHttpChain *chain,
 
 int tfw_http_rule_arg_init(TfwHttpMatchRule *rule, const char *arg,
 			   size_t arg_len);
-const char *tfw_http_arg_adjust(const char *arg, size_t len, const char *h_name,
-				size_t *size_out, tfw_http_match_op_t *op_out);
+const char *tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
+				const char *raw_hdr_name, size_t *size_out,
+				tfw_http_match_arg_t *type_out,
+				tfw_http_match_op_t *op_out);
 int tfw_http_verify_hdr_field(tfw_http_match_fld_t field, const char **h_name,
 			      unsigned int *hid_out);
 

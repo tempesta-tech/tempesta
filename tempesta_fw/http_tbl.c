@@ -217,16 +217,6 @@ static const TfwCfgEnum tfw_http_tbl_cfg_method_enum[] = {
 	{ 0 }
 };
 
-static const tfw_http_match_arg_t
-tfw_http_tbl_cfg_arg_types[_TFW_HTTP_MATCH_F_COUNT] = {
-	[TFW_HTTP_MATCH_F_WILDCARD]	= TFW_HTTP_MATCH_A_WILDCARD,
-	[TFW_HTTP_MATCH_F_HDR]		= TFW_HTTP_MATCH_A_STR,
-	[TFW_HTTP_MATCH_F_HOST]		= TFW_HTTP_MATCH_A_STR,
-	[TFW_HTTP_MATCH_F_METHOD]	= TFW_HTTP_MATCH_A_METHOD,
-	[TFW_HTTP_MATCH_F_URI]		= TFW_HTTP_MATCH_A_STR,
-	[TFW_HTTP_MATCH_F_MARK]		= TFW_HTTP_MATCH_A_NUM,
-};
-
 int
 tfw_http_tbl_method(const char *arg, tfw_http_meth_t *method)
 {
@@ -410,7 +400,7 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 	}
 
 	/* Interpret condition part of the rule. */
-	if (in_arg && (in_arg[0] != '*' || len > 1)) {
+	if (in_arg) {
 		BUG_ON(!in_field);
 		r = tfw_cfg_map_enum(tfw_http_tbl_cfg_field_enum,
 				     in_field, &field);
@@ -422,11 +412,10 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 		if ((r = tfw_http_verify_hdr_field(field, &hdr, &hid)))
 			return r;
 
-		arg = tfw_http_arg_adjust(in_arg, len, hdr, &arg_size, &op);
-		if (!arg)
-			return -ENOMEM;
-
-		type = tfw_http_tbl_cfg_arg_types[field];
+		arg = tfw_http_arg_adjust(in_arg, field, hdr, &arg_size,
+					  &type, &op);
+		if (IS_ERR(arg))
+			return PTR_ERR(arg);
 	}
 
 	rule = tfw_http_rule_new(tfw_chain_entry, type, arg_size);

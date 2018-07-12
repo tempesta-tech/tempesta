@@ -110,24 +110,24 @@ test_chain_add_rule_str(int test_id, tfw_http_match_fld_t field,
 			const char *hdr, const char *in_arg)
 {
 	MatchEntry *e;
-	unsigned int hid;
-	tfw_http_match_op_t op;
-	size_t len, arg_size;
-	const char *arg;
+	unsigned int hid = TFW_HTTP_HDR_RAW;
+	tfw_http_match_op_t op = TFW_HTTP_MATCH_O_WILDCARD;
+	tfw_http_match_arg_t type = TFW_HTTP_MATCH_A_WILDCARD;
+	size_t arg_size = 0;
+	const char *arg = NULL;
 
-	len = strlen(in_arg);
-	BUG_ON(field == TFW_HTTP_MATCH_F_WILDCARD);
-	BUG_ON(in_arg[0] == '*' && len == 1);
+	BUG_ON(in_arg && field == TFW_HTTP_MATCH_F_WILDCARD);
+	BUG_ON(!in_arg && field != TFW_HTTP_MATCH_F_WILDCARD);
 
 	tfw_http_verify_hdr_field(field, &hdr, &hid);
-	arg = tfw_http_arg_adjust(in_arg, len, hdr, &arg_size, &op);
+	arg = tfw_http_arg_adjust(in_arg, field, hdr, &arg_size, &type, &op);
 
 	e = test_rule_container_new(test_chain, MatchEntry, rule,
-			  TFW_HTTP_MATCH_A_STR, arg_size);
+				    type, arg_size);
 	e->rule.hid = hid;
 	e->rule.field = field;
 	e->rule.op = op;
-	e->rule.arg.type = TFW_HTTP_MATCH_A_STR;
+	e->rule.arg.type = type;
 	tfw_http_rule_arg_init(&e->rule, arg, arg_size - 1);
 	/* Just dummy action type to avoid BUG_ON in 'do_eval()'. */
 	e->rule.act.type = TFW_HTTP_MATCH_ACT_CHAIN;
