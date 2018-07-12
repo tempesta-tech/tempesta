@@ -460,8 +460,6 @@ struct ttls_config
 /**
  * I/O context for a TLS context.
  *
- * @__cp_start	- start to copy temporal buffer for message header and IV,
- *		  used to reduce fragmentation complexity;
  * @ctr		- 64-bit incoming message counter maintained by us for TLS and
  * 		  read from peer for DTLS;
  * @hdr		- TLS message header;
@@ -480,7 +478,6 @@ struct ttls_config
  * @chunks	- number of contigious memory chunks in all skbs in @skb_list;
  */
 typedef struct {
-	unsigned char	__init_start[0];
 #if defined(MBEDTLS_PROTO_DTLS)
 	union {
 		unsigned char	hdr[TTLS_HDR_LEN];
