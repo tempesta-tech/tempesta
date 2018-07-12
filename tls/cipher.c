@@ -92,7 +92,7 @@ ttls_cipher_setup(ttls_cipher_context_t *ctx, const ttls_cipher_info_t *ci,
 
 	bzero_fast(ctx, sizeof(ttls_cipher_context_t));
 
-	if ((ctx->cipher_ctx = ci->base->ctx_alloc_func()))
+	if (!(ctx->cipher_ctx = ci->base->ctx_alloc_func()))
 		return TTLS_ERR_CIPHER_ALLOC_FAILED;
 	if ((r = crypto_aead_setauthsize(ctx->cipher_ctx, tag_size))) {
 		ttls_cipher_free(ctx);	
