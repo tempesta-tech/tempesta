@@ -416,8 +416,6 @@ ttls_check_key_curve(ttls_pk_context *pk, const ttls_ecp_curve_info **curves)
 	return -1;
 }
 
-#include "pk_internal.h" // FIXME
-
 /**
  * Try picking a certificate for this ciphersuite,
  * @return 0 on success and -1 on failure.
@@ -446,8 +444,7 @@ ttls_pick_cert(TlsCtx *tls, const ttls_ciphersuite_t *ci)
 
 	for (cur = list; cur != NULL; cur = cur->next) {
 		if (!ttls_pk_can_do(cur->key, pk_alg)) {
-			T_DBG("certificate mismatch: key type (%d,%d)\n",
-			      cur->key->pk_info->type, pk_alg);
+			T_DBG("certificate mismatch for alg %d\n", pk_alg);
 			continue;
 		}
 
@@ -1059,13 +1056,8 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 	 * callback triggered by the SNI extension. The server uses its own
 	 * preferences over the preference of the client.
 	 */
-	r =  ttls_choose_ciphersuite(tls, &tls->hs->tmp[TTLS_HS_TMP_STORE_SZ]);
-	if (r)
-		return r;
-
-	tls->state = TTLS_SERVER_HELLO;
-
-	return 0;
+	return ttls_choose_ciphersuite(tls,
+				       &tls->hs->tmp[TTLS_HS_TMP_STORE_SZ]);
 }
 
 static void
@@ -1156,23 +1148,13 @@ ttls_write_alpn_ext(TlsCtx *tls, unsigned char *p, size_t *olen)
 }
 
 static int
-ttls_write_server_hello(TlsCtx *tls)
+ttls_write_server_hello(TlsCtx *tls, struct sg_table *sgt,
+			unsigned char **in_buf)
 {
 	int r;
 	size_t olen, ext_len = 0, n;
-	unsigned char *buf, *p;
+	unsigned char *p, *buf = *in_buf;
 	TlsIOCtx *io = &tls->io_out;
-	struct scatterlist sg;
-	struct sg_table sgt = {
-		.sgl	= &sg,
-		.nents	= 1,
-	};
-
-	/* TODO very small page data which can be placed in skb header. */
-	p = buf = pg_skb_alloc(128, GFP_ATOMIC, NUMA_NO_NODE);
-	if (!p)
-		return -ENOMEM;
-	sg_set_page(&sg, virt_to_page(p), 128, (unsigned long)p & ~PAGE_MASK);
 
 	/*
 	 *	 0  .   0   handshake type
@@ -1181,7 +1163,7 @@ ttls_write_server_hello(TlsCtx *tls)
 	 *	 6  .   9   UNIX time()
 	 *	10  .  37   random bytes
 	 */
-	p += 4;
+	p = buf + 4;
 	ttls_write_version(tls, p);
 	p += 2;
 	T_DBG("server hello, chosen version %d:%d, buf=%pK\n",
@@ -1281,19 +1263,20 @@ ttls_write_server_hello(TlsCtx *tls)
 		p += 2 + ext_len;
 	}
 
-	BUG_ON(p - buf > 128);
-	sg.length = p - buf;
 	io->hslen = 0;
-	io->msglen = sg.length;
+	io->msglen = p - buf;
 	io->msgtype = TTLS_MSG_HANDSHAKE;
 	io->hstype = TTLS_HS_SERVER_HELLO;
 	ttls_write_hshdr(TTLS_HS_SERVER_HELLO, buf, p - buf);
 	T_DBG3_BUF("ServerHello: write message ", buf, p - buf);
 
-	if ((r = ttls_write_record(tls, &sgt)))
-		put_page(virt_to_page(p));
+	*in_buf = p;
+	sg_set_page(&sgt->sgl[sgt->nents++], virt_to_page(buf), p - buf,
+		    (unsigned long)buf & ~PAGE_MASK);
+	get_page(virt_to_page(buf));
+	__ttls_write_record(tls, sgt, sgt->nents - 1);
 
-	return r;
+	return 0;
 }
 
 static int
@@ -1316,19 +1299,14 @@ ttls_get_ecdh_params_from_cert(TlsCtx *tls)
 }
 
 static int
-ttls_write_server_key_exchange(TlsCtx *tls)
+ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
+			       unsigned char **in_buf)
 {
 	int r;
 	size_t len, n = 0, dig_signed_len = 0;
 	const ttls_ciphersuite_t *ci = tls->xfrm.ciphersuite_info;
 	TlsIOCtx *io = &tls->io_out;
-	unsigned char *dig_signed, *p, *hdr;
-	struct page *pg;
-	struct scatterlist sg;
-	struct sg_table sgt = {
-		.sgl	= &sg,
-		.nents	= 1,
-	};
+	unsigned char *dig_signed, *p, *hdr = *in_buf;
 
 	/*
 	 * Part 1: Extract static ECDH parameters and abort if
@@ -1346,21 +1324,18 @@ ttls_write_server_key_exchange(TlsCtx *tls)
 	 */
 	if (ttls_ciphersuite_no_pfs(ci)) {
 		T_DBG("the key exchanges isn't involving ephimeral keys\n");
-		tls->state = TTLS_CERTIFICATE_REQUEST;
 		return 0;
 	}
 
 	/*
 	 * Part 2: Provide key exchange parameters for chosen ciphersuite.
 	 */
-	 /* Allocate enough space for a full TLS record. */
-	pg = alloc_pages(GFP_ATOMIC, 2);
-	if (!pg)
-		return -ENOMEM;
-	sg_set_page(&sg, pg, PAGE_SIZE << 2, 0);
-	hdr = p = (unsigned char *)page_address(pg);
+	 /*
+	  * TODO estimate size of the message more accurately on configuration
+	  * time.
+	  */
 
-	p += 4;
+	p = hdr + 4;
 	dig_signed = p;
 
 	/* DHE key exchanges. */
@@ -1396,6 +1371,7 @@ ttls_write_server_key_exchange(TlsCtx *tls)
 			TTLS_DEBUG_RET(1, "ttls_dhm_make_params", r);
 			goto err;
 		}
+		WARN_ON_ONCE(len > 500);
 		dig_signed = p;
 		dig_signed_len = len;
 		p += len;
@@ -1445,6 +1421,7 @@ curve_matching_done:
 			T_DBG("cannot make ECDH params, %d\n", r);
 			goto err;
 		}
+		WARN_ON_ONCE(len > 500);
 		dig_signed = p;
 		dig_signed_len = len;
 		p += len;
@@ -1537,54 +1514,55 @@ curve_matching_done:
 
 		T_DBG3_BUF("my signature ", p, signature_len);
 		n += signature_len;
+		WARN_ON_ONCE(signature_len > 500);
 	}
 
 	/* Done with actual work; add header and send. */
-	sg.length = 4 + n;
+	WARN_ON_ONCE(n > 1020);
 	io->hslen = 0;
-	io->msglen = sg.length;
+	io->msglen = 4 + n;
 	io->msgtype = TTLS_MSG_HANDSHAKE;
 	io->hstype = TTLS_HS_SERVER_KEY_EXCHANGE;
-	ttls_write_hshdr(TTLS_HS_SERVER_KEY_EXCHANGE, hdr, sg.length);
+	ttls_write_hshdr(TTLS_HS_SERVER_KEY_EXCHANGE, hdr, 4 + n);
 
-	tls->state = TTLS_CERTIFICATE_REQUEST;
-
-	if (!(r = ttls_write_record(tls, &sgt)))
-		return 0;
+	*in_buf = hdr + 4 + n;
+	sg_set_page(&sgt->sgl[sgt->nents++], virt_to_page(hdr), 4 + n,
+		    (unsigned long)hdr & ~PAGE_MASK);
+	get_page(virt_to_page(hdr));
+	__ttls_write_record(tls, sgt, sgt->nents - 1);
 err:
-	__free_pages(pg, 2);
+	put_page(virt_to_page(hdr));
 	return r;
 }
 
 static int
-ttls_write_certificate_request(TlsCtx *tls)
+ttls_write_certificate_request(TlsCtx *tls, struct sg_table *sgt,
+			       unsigned char **in_buf)
 {
 	int r = TTLS_ERR_FEATURE_UNAVAILABLE;
 	TlsIOCtx *io = &tls->io_out;
 	size_t dn_size, total_dn_size; /* excluding length bytes */
 	size_t ct_len, sa_len; /* including length bytes */
-	unsigned char *buf, *p, *end;
+	unsigned char *buf = *in_buf, *p, *end;
 	const int *cur;
 	const ttls_x509_crt *crt;
 	int authmode;
-	struct page *pg;
-	struct scatterlist sg;
-	struct sg_table sgt = {
-		.sgl	= &sg,
-		.nents	= 1,
-	};
 
 	if (tls->hs->sni_authmode != TTLS_VERIFY_UNSET)
 		authmode = tls->hs->sni_authmode;
 	else
 		authmode = tls->conf->authmode;
 
-	pg = alloc_pages(GFP_ATOMIC, 2);
-	if (!pg)
-		return -ENOMEM;
-	sg_set_page(&sg, pg, PAGE_SIZE << 2, 0);
-	buf = p = (unsigned char *)page_address(pg);
-	end = p + TTLS_MAX_CONTENT_LEN;
+	/*
+	 * TODO estimate size of the message more accurately on configuration
+	 * time.
+	 */
+	if (tls->conf->cert_req_ca_list) {
+		T_WARN("List of acceptable CAs isn't supported"
+		       " (reference issue #830)\n");
+		return -EINVAL;
+	}
+	end = buf + 128;
 
 	/*
 	 *	 0  .   0   handshake type
@@ -1598,7 +1576,7 @@ ttls_write_certificate_request(TlsCtx *tls)
 	 *	n+4 .. ...  Distinguished Name #1
 	 *	... .. ...  length of DN 2, etc.
 	 */
-	p += 4;
+	p = buf + 4;
 
 	/*
 	 * Supported certificate types
@@ -1680,34 +1658,41 @@ ttls_write_certificate_request(TlsCtx *tls)
 		}
 	}
 
-	sg.length = p - buf;
+	BUG_ON(!tls->conf->cert_req_ca_list && p - buf > 128);
 	io->hslen = 0;
-	io->msglen = sg.length + ttls_hs_hdr_len(tls);
+	io->msglen = p - buf;
 	io->msgtype = TTLS_MSG_HANDSHAKE;
 	io->hstype = TTLS_HS_CERTIFICATE_REQUEST;
 	buf[4 + ct_len + sa_len] = (unsigned char)(total_dn_size >> 8);
 	buf[5 + ct_len + sa_len] = (unsigned char)total_dn_size;
 	ttls_write_hshdr(TTLS_HS_CERTIFICATE_REQUEST, buf, p - buf);
 
-	if ((r = ttls_write_record(tls, &sgt)))
-		__free_pages(pg, 2);
+	*in_buf = p;
+	sg_set_page(&sgt->sgl[sgt->nents++], virt_to_page(buf), p - buf,
+		    (unsigned long)buf & ~PAGE_MASK);
+	get_page(virt_to_page(buf));
+	__ttls_write_record(tls, sgt, sgt->nents - 1);
 
 	return r;
 }
 
 static int
-ttls_write_server_hello_done(TlsCtx *tls)
+ttls_write_server_hello_done(TlsCtx *tls, struct sg_table *sgt,
+			     unsigned char **in_buf)
 {
 	TlsIOCtx *io = &tls->io_out;
 
 	T_DBG("sending ServerHelloDone\n");
 
+	/* FIXME this record instead of ServerHello is written by tfw_tls_send(). */
 	io->msglen = io->hslen = ttls_hs_hdr_len(tls);
 	io->msgtype = TTLS_MSG_HANDSHAKE;
 	io->hstype = TTLS_HS_SERVER_HELLO_DONE;
-	ttls_write_hshdr(TTLS_HS_SERVER_HELLO_DONE, io->hs_hdr, 4);
+	ttls_write_hshdr(TTLS_HS_SERVER_HELLO_DONE, io->hs_hdr, io->msglen);
 
-	return ttls_write_record(tls, NULL);
+	__ttls_write_record(tls, NULL, 0);
+
+	return 0;
 }
 
 static int
@@ -1841,6 +1826,7 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 	else {
 		p = buf;
 		end = p + io->hslen;
+		*read += end - p;
 	}
 
 	if (ci->key_exchange == TTLS_KEY_EXCHANGE_ECDHE_ECDSA
@@ -1984,29 +1970,25 @@ ttls_parse_certificate_verify(TlsCtx *tls, unsigned char *buf, size_t len,
 	if (r)
 		T_DBG("cannot verify pk, %d\n", r);
 
+	*read += i + sig_len;
+
 	return r;
 }
 
 static int
-ttls_write_new_session_ticket(TlsCtx *tls)
+ttls_write_new_session_ticket(TlsCtx *tls, struct sg_table *sgt,
+			      unsigned char **in_buf)
 {
 	int r;
 	size_t tlen;
 	uint32_t lifetime;
-	unsigned char *p;
+	unsigned char *p = *in_buf;
 	TlsIOCtx *io = &tls->io_out;
-	struct page *pg;
-	struct scatterlist sg;
-	struct sg_table sgt = {
-		.sgl	= &sg,
-		.nents	= 1,
-	};
 
-	pg = alloc_pages(GFP_ATOMIC, 2);
-	if (!pg)
-		return -ENOMEM;
-	sg_set_page(&sg, pg, PAGE_SIZE << 2, 0);
-	p = (unsigned char *)page_address(pg);
+	/*
+	 * TODO estimate size of the message more accurately on configuration
+	 * time.
+	 */
 
 	/*
 	 * struct {
@@ -2025,6 +2007,7 @@ ttls_write_new_session_ticket(TlsCtx *tls)
 		T_DBG("cannot write session ticket, %d\n", r);
 		tlen = 0;
 	}
+	WARN_ON_ONCE(tlen > 502);
 
 	p[4] = (lifetime >> 24) & 0xFF;
 	p[5] = (lifetime >> 16) & 0xFF;
@@ -2033,10 +2016,10 @@ ttls_write_new_session_ticket(TlsCtx *tls)
 	p[8] = (unsigned char)((tlen >> 8) & 0xFF);
 	p[9] = (unsigned char)(tlen & 0xFF);
 
-	sg.length = 10 + tlen;
 	io->hslen = 0;
 	io->msgtype = TTLS_MSG_HANDSHAKE;
-	io->msglen = sg.length + ttls_hs_hdr_len(tls);
+	/* FIXME the header must be in the paged area as well. */
+	io->msglen = 10 + tlen + ttls_hs_hdr_len(tls);
 	io->hstype = TTLS_HS_NEW_SESSION_TICKET;
 	ttls_write_hshdr(TTLS_HS_NEW_SESSION_TICKET, p, 10 + tlen);
 
@@ -2046,10 +2029,166 @@ ttls_write_new_session_ticket(TlsCtx *tls)
 	 */
 	tls->hs->new_session_ticket = 0;
 
-	if ((r = ttls_write_record(tls, &sgt)))
-		__free_pages(pg, 2);
+	*in_buf = p + 10 + tlen;
+	sg_set_buf(&sgt->sgl[sgt->nents++], p, 10 + tlen);
+	get_page(virt_to_page(p));
+	__ttls_write_record(tls, sgt, sgt->nents - 1);
 
-	return 4;
+	return r;
+}
+
+#define CHECK_STATE(n)							\
+do {									\
+	WARN_ON_ONCE(p - begin > n);					\
+	if (sgt.nents >= MAX_SKB_FRAGS) {				\
+		T_WARN("too many frags on ServerHello\n");		\
+		r = -ENOMEM;						\
+		T_FSM_EXIT();						\
+	}								\
+	begin = p;							\
+} while (0)
+
+/**
+ * Write all the handshake messages on ServerHello state at once.
+ */
+static int
+ttls_handshake_server_hello(TlsCtx *tls)
+{
+	int r;
+	unsigned char *p, *begin;
+	struct scatterlist sg[MAX_SKB_FRAGS];
+	struct sg_table sgt = { .sgl = sg };
+	struct page *pg;
+	T_FSM_INIT(ttls_state(tls), "TLS Server Handshake: ServerHello");
+
+	begin = p = pg_skb_alloc(2048, GFP_ATOMIC, NUMA_NO_NODE);
+	if (!p)
+		return -ENOMEM;
+	pg = virt_to_page(p);
+
+	T_FSM_START(ttls_state(tls)) {
+	T_FSM_STATE(TTLS_SERVER_HELLO) {
+		if ((r = ttls_write_server_hello(tls, &sgt, &p)))
+			T_FSM_EXIT();
+		CHECK_STATE(128);
+		T_FSM_NEXT();
+	}
+	T_FSM_STATE(TTLS_SERVER_CERTIFICATE) {
+		if ((r = ttls_write_certificate(tls, &sgt, &p)))
+			T_FSM_EXIT();
+		WARN_ON_ONCE(p - begin > 128);
+		begin = p;
+		T_FSM_JMP(TTLS_SERVER_KEY_EXCHANGE);
+	}
+	T_FSM_STATE(TTLS_SERVER_KEY_EXCHANGE) {
+		if ((r = ttls_write_server_key_exchange(tls, &sgt, &p)))
+			T_FSM_EXIT();
+		WARN_ON_ONCE(p - begin > 1024);
+		begin = p;
+		/*
+		 * RFC 5246 Certificate Request is optional, so don't requiest
+		 * a certificate for now since we're unable to properly verify
+		 * it certificate until #830.
+		 */
+		T_FSM_JMP(TTLS_SERVER_HELLO_DONE);
+	}
+	T_FSM_STATE(TTLS_CERTIFICATE_REQUEST) {
+		if ((r = ttls_write_certificate_request(tls, &sgt, &p)))
+			T_FSM_EXIT();
+		WARN_ON_ONCE(p - begin > 128);
+		begin = p;
+		T_FSM_JMP(TTLS_SERVER_HELLO_DONE);
+	}
+	T_FSM_STATE(TTLS_SERVER_HELLO_DONE) {
+		const ttls_ciphersuite_t *ci = tls->xfrm.ciphersuite_info;
+
+		if ((r = ttls_write_server_hello_done(tls, &sgt, &p)))
+			return r;
+		if (ci->key_exchange == TTLS_KEY_EXCHANGE_PSK
+		    || ci->key_exchange == TTLS_KEY_EXCHANGE_DHE_PSK
+		    || ci->key_exchange == TTLS_KEY_EXCHANGE_ECDHE_PSK
+		    || ci->key_exchange == TTLS_KEY_EXCHANGE_RSA_PSK
+		    || (tls->hs->sni_authmode == TTLS_VERIFY_UNSET
+			&& tls->conf->authmode == TTLS_VERIFY_NONE)
+		    || tls->hs->sni_authmode == TTLS_VERIFY_NONE)
+		{
+			/* Default and the only option at least before #830. */
+			tls->sess.verify_result = TTLS_X509_BADCERT_SKIP_VERIFY;
+			tls->state = TTLS_CLIENT_KEY_EXCHANGE;
+		} else {
+			tls->state = TTLS_CLIENT_CERTIFICATE;
+		}
+		/* All the writers getted their frags, so put our reference. */
+		put_page(pg);
+		/* Exit, enter the FSM on more data from the client. */
+		return __ttls_send_record(tls, &sgt);
+	}
+	}
+	T_FSM_FINISH(r, tls->state);
+
+	/* If we exit here, then something went wring. */
+	BUG_ON(!r);
+	while (--sgt.nents > (unsigned int)-1)
+		put_page(sg_page(&sg[sgt.nents]));
+	put_page(pg);
+
+	return r;
+}
+
+/**
+ * Write all the handshake messages starting from TTLS_SERVER_CHANGE_CIPHER_SPEC
+ * state at once.
+ */
+static int
+ttls_handshake_finished(TlsCtx *tls)
+{
+	int r;
+	unsigned char *p, *begin;
+	struct page *pg;
+	struct scatterlist sg[MAX_SKB_FRAGS];
+	struct sg_table sgt = { .sgl = sg };
+	T_FSM_INIT(ttls_state(tls), "TLS Server Handshake: ServerHello");
+
+	begin = p = pg_skb_alloc(512, GFP_ATOMIC, NUMA_NO_NODE);
+	if (!p)
+		return -ENOMEM;
+	pg = virt_to_page(p);
+
+	T_FSM_START(ttls_state(tls)) {
+	T_FSM_STATE(TTLS_SERVER_CHANGE_CIPHER_SPEC) {
+		if (tls->hs->new_session_ticket) {
+			r = ttls_write_new_session_ticket(tls, &sgt, &p);
+		} else {
+			r = ttls_write_change_cipher_spec(tls, &sgt, &p);
+			tls->state = TTLS_SERVER_FINISHED;
+		}
+		CHECK_STATE(512);
+		if (r)
+			T_FSM_EXIT();
+		T_FSM_NEXT();
+	}
+	T_FSM_STATE(TTLS_SERVER_FINISHED) {
+		if ((r = ttls_write_finished(tls, &sgt, &p)))
+			return r;
+		/*
+		 * In case of session resuming, invert the client and server
+		 * ChangeCipherSpec messages order.
+		 */
+		tls->state = tls->hs->resume
+			     ? TTLS_CLIENT_CHANGE_CIPHER_SPEC
+			     : TTLS_HANDSHAKE_WRAPUP;
+		return __ttls_send_record(tls, &sgt);
+	}
+	}
+	T_FSM_FINISH(r, tls->state);
+
+	/* If we exit here, then something went wring. */
+	BUG_ON(!r);
+	while (--sgt.nents > (unsigned int)-1)
+		put_page(sg_page(&sg[sgt.nents]));
+	put_page(pg);
+
+	return r;
 }
 
 /**
@@ -2062,7 +2201,7 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 	int r = 0;
 	T_FSM_INIT(ttls_state(tls), "TLS Server Handshake");
 
-	T_DBG("server state: %d\n", tls->state);
+	T_DBG("server state: %x\n", tls->state);
 	BUG_ON(tls->conf->endpoint != TTLS_IS_SERVER);
 	BUG_ON(tls->state == TTLS_HANDSHAKE_OVER || !tls->hs);
 
@@ -2087,46 +2226,13 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 	 *	  ServerHelloDone
 	 */
 	T_FSM_STATE(TTLS_SERVER_HELLO) {
-		if ((r = ttls_write_server_hello(tls)))
-			return r;
-		T_FSM_NEXT();
+		return ttls_handshake_server_hello(tls);
 	}
-	T_FSM_STATE(TTLS_SERVER_CERTIFICATE) {
-		if ((r = ttls_write_certificate(tls)))
-			return r;
-		T_FSM_JMP(TTLS_SERVER_KEY_EXCHANGE);
-	}
-	T_FSM_STATE(TTLS_SERVER_KEY_EXCHANGE) {
-		if ((r = ttls_write_server_key_exchange(tls)))
-			return r;
-		T_FSM_NEXT();
-	}
-	T_FSM_STATE(TTLS_CERTIFICATE_REQUEST) {
-		if ((r = ttls_write_certificate_request(tls)))
-			return r;
-		T_FSM_JMP(TTLS_SERVER_HELLO_DONE);
-	}
+	T_FSM_STATE(TTLS_SERVER_CERTIFICATE)
+	T_FSM_STATE(TTLS_SERVER_KEY_EXCHANGE)
+	T_FSM_STATE(TTLS_CERTIFICATE_REQUEST)
 	T_FSM_STATE(TTLS_SERVER_HELLO_DONE) {
-		const ttls_ciphersuite_t *ci = tls->xfrm.ciphersuite_info;
-
-		if ((r = ttls_write_server_hello_done(tls)))
-			return r;
-		if (ci->key_exchange == TTLS_KEY_EXCHANGE_PSK
-		    || ci->key_exchange == TTLS_KEY_EXCHANGE_DHE_PSK
-		    || ci->key_exchange == TTLS_KEY_EXCHANGE_ECDHE_PSK
-		    || ci->key_exchange == TTLS_KEY_EXCHANGE_RSA_PSK
-		    || (tls->hs->sni_authmode == TTLS_VERIFY_UNSET
-			&& tls->conf->authmode == TTLS_VERIFY_NONE)
-		    || tls->hs->sni_authmode == TTLS_VERIFY_NONE)
-		{
-			/* Default and the only option at least before #830. */
-			tls->sess.verify_result = TTLS_X509_BADCERT_SKIP_VERIFY;
-			tls->state = TTLS_CLIENT_KEY_EXCHANGE;
-		} else {
-			tls->state = TTLS_CLIENT_CERTIFICATE;
-		}
-		/* Exit, enter the FSM on more data from the client. */
-		return T_POSTPONE;
+		BUG(); /* must be handled in ttls_handshake_server_hello() */
 	}
 
 	/*
@@ -2140,7 +2246,7 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 		if ((r = ttls_parse_certificate(tls, buf, len, read)))
 			return r;
 		tls->state = TTLS_CLIENT_KEY_EXCHANGE;
-		return T_POSTPONE;
+		return T_OK;
 	}
 	T_FSM_STATE(TTLS_CLIENT_KEY_EXCHANGE) {
 		const ttls_ciphersuite_t *ci = tls->xfrm.ciphersuite_info;
@@ -2158,19 +2264,19 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 		} else {
 			tls->state = TTLS_CERTIFICATE_VERIFY;
 		}
-		return T_POSTPONE;
+		return T_OK;
 	}
 	T_FSM_STATE(TTLS_CERTIFICATE_VERIFY) {
 		if ((r = ttls_parse_certificate_verify(tls, buf, len, read)))
 			return r;
 		tls->state = TTLS_CLIENT_CHANGE_CIPHER_SPEC;
-		return T_POSTPONE;
+		return T_OK;
 	}
 	T_FSM_STATE(TTLS_CLIENT_CHANGE_CIPHER_SPEC) {
 		if ((r = ttls_parse_change_cipher_spec(tls, buf, len, read)))
 			return r;
 		tls->state = TTLS_CLIENT_FINISHED;
-		return T_POSTPONE;
+		return T_OK;
 	}
 	T_FSM_STATE(TTLS_CLIENT_FINISHED) {
 		if ((r = ttls_parse_finished(tls, buf, len, read)))
@@ -2187,28 +2293,14 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 	 *	  Finished
 	 */
 	T_FSM_STATE(TTLS_SERVER_CHANGE_CIPHER_SPEC) {
-		if (tls->hs->new_session_ticket) {
-			r = ttls_write_new_session_ticket(tls);
-		} else {
-			r = ttls_write_change_cipher_spec(tls);
-			tls->state = TTLS_SERVER_FINISHED;
-		}
-		if (r)
+		if ((r = ttls_handshake_finished(tls)))
 			return r;
 		T_FSM_NEXT();
 	}
 	T_FSM_STATE(TTLS_SERVER_FINISHED) {
-		if ((r = ttls_write_finished(tls)))
-			return r;
-		/*
-		 * In case of session resuming, invert the client and server
-		 * ChangeCipherSpec messages order.
-		 */
-		tls->state = tls->hs->resume
-			     ? TTLS_CLIENT_CHANGE_CIPHER_SPEC
-			     : TTLS_HANDSHAKE_WRAPUP;
-		T_FSM_NEXT();
+		BUG(); /* must be handled in ttls_handshake_server_hello() */
 	}
+
 	T_FSM_STATE(TTLS_HANDSHAKE_WRAPUP) {
 		ttls_handshake_wrapup(tls);
 		tls->state = TTLS_HANDSHAKE_OVER;
