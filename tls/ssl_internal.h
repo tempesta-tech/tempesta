@@ -182,20 +182,25 @@ int ttls_derive_keys(ttls_context *tls);
 
 int ttls_handle_message_type(TlsCtx *tls);
 
+void __ttls_write_record(TlsCtx *tls, struct sg_table *sgt, int sg_i);
+int __ttls_send_record(TlsCtx *tls, struct sg_table *sgt);
 int ttls_write_record(TlsCtx *tls, struct sg_table *sgt);
 int ttls_sendmsg(TlsCtx *tls, const char *buf, size_t len);
 
 int ttls_parse_certificate(ttls_context *tls, unsigned char *buf, size_t len,
 			   unsigned int *read);
-int ttls_write_certificate(ttls_context *tls);
+int ttls_write_certificate(ttls_context *tls, struct sg_table *sgt,
+			   unsigned char **in_buf);
 
 int ttls_parse_change_cipher_spec(ttls_context *tls, unsigned char *buf,
 				  size_t len, unsigned int *read);
-int ttls_write_change_cipher_spec(ttls_context *tls);
+int ttls_write_change_cipher_spec(ttls_context *tls, struct sg_table *sgt,
+				  unsigned char **in_buf);
 
 int ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 			unsigned int *read);
-int ttls_write_finished(ttls_context *tls);
+int ttls_write_finished(ttls_context *tls, struct sg_table *sgt,
+			unsigned char **in_buf);
 
 void ttls_optimize_checksum(TlsCtx *tls,
 			    const ttls_ciphersuite_t *ciphersuite_info);
@@ -314,7 +319,7 @@ enum {
  */
 #define TTLS_HS_FSM_FINISH()						\
 	T_FSM_FINISH(r, tls->state);					\
-	*read = p - buf;						\
+	*read += p - buf;						\
 	io->rlen += p - buf;
 
 /* Move to @st if we have at least @need bytes. */
