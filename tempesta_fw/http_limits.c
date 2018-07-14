@@ -470,9 +470,9 @@ __frang_http_field_len(const TfwHttpReq *req, FrangAcc *ra,
 
 	FOR_EACH_HDR_FIELD(field, end, req) {
 		TFW_STR_FOR_EACH_DUP(dup, field, dup_end) {
-			if (field->len > field_len) {
+			if (dup->len > field_len) {
 				frang_limmsg("HTTP field length",
-					     field->len, field_len,
+					     dup->len, field_len,
 					     &FRANG_ACC2CLI(ra)->addr);
 				return TFW_BLOCK;
 			}
