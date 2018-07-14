@@ -998,7 +998,6 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, const TfwFsmData *data)
 					     &FRANG_ACC2CLI(ra)->addr);
 				r = TFW_BLOCK;
 			}
-			req->tm_bchunk = jiffies;
 		}
 		__FRANG_FSM_MOVE(Frang_Req_Body_ChunkCnt);
 	}
