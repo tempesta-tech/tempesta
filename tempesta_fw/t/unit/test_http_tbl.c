@@ -214,12 +214,12 @@ TEST(http_tbl, some_rules)
                                      uri == /foo/bar* -> vh2;\n\
                                      host == natsys-lab.com -> vh3;\n\
 	                             host == natsys-lab* -> vh4;\n\
-	                             hdr_host == google.com -> vh5;\n\
-	                             hdr_host == google* -> vh6;\n\
-	                             hdr_conn == close -> vh7;\n\
-	                             hdr_conn == Keep* -> vh8;\n\
-	                             hdr_raw == User-Agent:Bot -> vh9;\n\
-	                             hdr_raw == X-Forwarded-For* -> vh10;\n}\n")) {
+	                             hdr Host == google.com -> vh5;\n\
+	                             hdr Host == google* -> vh6;\n\
+	                             hdr Connection == close -> vh7;\n\
+	                             hdr Connection == Keep* -> vh8;\n\
+	                             hdr X-Forwarded-For == * -> vh9;\n\
+	                             hdr User-Agent == Bot -> vh10;\n}\n")) {
 		TEST_FAIL("can't parse rules\n");
 	}
 
@@ -231,8 +231,8 @@ TEST(http_tbl, some_rules)
 	test_req("GET http://google.com/foo/baz/ HTTP/1.1\r\nHost: google2.com\r\n\r\n", expect_conn6);
 	test_req("GET http://google.com/foo/baz/ HTTP/1.1\r\nConnection: close\r\n\r\n", expect_conn7);
 	test_req("GET http://google.com/foo/baz/ HTTP/1.1\r\nConnection: Keep-Alive\r\n\r\n", expect_conn8);
-	test_req("GET http://google.com/foo/baz/ HTTP/1.1\r\nUser-Agent:Bot\r\n\r\n", expect_conn9);
-	test_req("GET http://google.com/foo/baz/ HTTP/1.1\r\nX-Forwarded-For: 127.0.0.1\r\n\r\n", expect_conn10);
+	test_req("GET http://google.com/foo/baz/ HTTP/1.1\r\nX-Forwarded-For: 127.0.0.1\r\n\r\n", expect_conn9);
+	test_req("GET http://google.com/foo/baz/ HTTP/1.1\r\nUser-Agent:Bot\r\n\r\n", expect_conn10);
 	test_req("GET http://google.com/foo/baz/ HTTP/1.1\r\n\r\n", NULL);
 
 	cleanup_cfg();
@@ -282,39 +282,51 @@ TestCase test_cases[] = {
 	},
 	{
 		.rule_str = "vhost default {\nproxy_pass default;\n}\n\
-			     http_chain {\nhdr_host == natsys-lab.com -> default;\n}\n",
+			     http_chain {\nhdr Host == natsys-lab.com -> default;\n}\n",
 		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nHost: natsys-lab.com\r\n\r\n",
 		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nHost: natsys-lab2.com\r\n\r\n",
 	},
 	{
 		.rule_str = "vhost default {\nproxy_pass default;\n}\n\
-			     http_chain {\nhdr_host == natsys-lab* -> default;\n}\n",
+			     http_chain {\nhdr Host == natsys-lab* -> default;\n}\n",
 		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nHost: natsys-lab2.com\r\n\r\n",
 		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nHost: google.com\r\n\r\n",
 	},
 	{
 		.rule_str = "vhost default {\nproxy_pass default;\n}\n\
-			     http_chain {\nhdr_conn == Keep-Alive -> default;\n}\n",
+			     http_chain {\nhdr Connection == Keep-Alive -> default;\n}\n",
 		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nConnection: Keep-Alive\r\n\r\n",
 		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nConnection: close\r\n\r\n",
 	},
 	{
 		.rule_str = "vhost default {\nproxy_pass default;\n}\n\
-			     http_chain {\nhdr_conn == Keep* -> default;\n}\n",
+			     http_chain {\nhdr Connection == Keep* -> default;\n}\n",
 		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nConnection: Keep-Alive\r\n\r\n",
 		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nConnection: close\r\n\r\n",
 	},
 	{
 		.rule_str = "vhost default {\nproxy_pass default;\n}\n\
-			     http_chain {\nhdr_raw == User-Agent:Bot -> default;\n}\n",
+			     http_chain {\nhdr User-Agent == Bot -> default;\n}\n",
 		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nUser-Agent:Bot\r\n\r\n",
 		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nUser-Agent:Tot\r\n\r\n",
 	},
 	{
 		.rule_str = "vhost default {\nproxy_pass default;\n}\n\
-			     http_chain {\nhdr_raw == User-Agent* -> default;\n}\n",
+			     http_chain {\nhdr User-Agent == * -> default;\n}\n",
 		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nUser-Agent: Bot\r\n\r\n",
 		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nConnection: close\r\n\r\n",
+	},
+	{
+		.rule_str = "vhost default {\nproxy_pass default;\n}\n\
+			     http_chain {\nhdr Via == Sever* -> default;\n}\n",
+		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nVia: SeverExample\r\n\r\n",
+		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nVia: Proxy\r\n\r\n",
+	},
+	{
+		.rule_str = "vhost default {\nproxy_pass default;\n}\n\
+			     http_chain {\nhdr Via == * -> default;\n}\n",
+		.good_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nVia: Proxy\r\n\r\n",
+		.bad_req_str = "GET http://natsys-lab.com/foo HTTP/1.1\r\nHost: Proxy\r\n\r\n",
 	},
 };
 
