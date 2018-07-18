@@ -191,16 +191,8 @@ done:
 static const TfwCfgEnum tfw_http_tbl_cfg_field_enum[] = {
 	{ "uri",	TFW_HTTP_MATCH_F_URI },
 	{ "host",	TFW_HTTP_MATCH_F_HOST },
-	{ "hdr_host",	TFW_HTTP_MATCH_F_HDR_HOST },
-	{ "hdr_conn",	TFW_HTTP_MATCH_F_HDR_CONN },
-	{ "hdr_ctype",	TFW_HTTP_MATCH_F_HDR_CTYPE },
-	{ "hdr_uagent",	TFW_HTTP_MATCH_F_HDR_UAGENT },
-	{ "hdr_cookie",	TFW_HTTP_MATCH_F_HDR_COOKIE },
-	{ "hdr_ref",	TFW_HTTP_MATCH_F_HDR_REFERER },
-	{ "hdr_nmatch",	TFW_HTTP_MATCH_F_HDR_NMATCH },
-	{ "hdr_xfrwd",	TFW_HTTP_MATCH_F_HDR_XFRWD },
+	{ "hdr",	TFW_HTTP_MATCH_F_HDR },
 	{ "mark",	TFW_HTTP_MATCH_F_MARK },
-	{ "hdr_raw",	TFW_HTTP_MATCH_F_HDR_RAW },
 	{ "method",	TFW_HTTP_MATCH_F_METHOD },
 	{ 0 }
 };
@@ -223,24 +215,6 @@ static const TfwCfgEnum tfw_http_tbl_cfg_method_enum[] = {
 	{ "unlock",	TFW_HTTP_METH_UNLOCK, },
 	{ "purge",	TFW_HTTP_METH_PURGE },
 	{ 0 }
-};
-
-static const tfw_http_match_arg_t
-tfw_http_tbl_cfg_arg_types[_TFW_HTTP_MATCH_F_COUNT] = {
-	[TFW_HTTP_MATCH_F_WILDCARD]	= TFW_HTTP_MATCH_A_WILDCARD,
-	[TFW_HTTP_MATCH_F_HDR_CONN]	= TFW_HTTP_MATCH_A_STR,
-	[TFW_HTTP_MATCH_F_HDR_HOST]	= TFW_HTTP_MATCH_A_STR,
-	[TFW_HTTP_MATCH_F_HDR_CTYPE]	= TFW_HTTP_MATCH_A_STR,
-	[TFW_HTTP_MATCH_F_HDR_UAGENT]	= TFW_HTTP_MATCH_A_STR,
-	[TFW_HTTP_MATCH_F_HDR_COOKIE]	= TFW_HTTP_MATCH_A_STR,
-	[TFW_HTTP_MATCH_F_HDR_REFERER]	= TFW_HTTP_MATCH_A_STR,
-	[TFW_HTTP_MATCH_F_HDR_NMATCH]	= TFW_HTTP_MATCH_A_STR,
-	[TFW_HTTP_MATCH_F_HDR_XFRWD]	= TFW_HTTP_MATCH_A_STR,
-	[TFW_HTTP_MATCH_F_HDR_RAW]	= TFW_HTTP_MATCH_A_STR,
-	[TFW_HTTP_MATCH_F_HOST]		= TFW_HTTP_MATCH_A_STR,
-	[TFW_HTTP_MATCH_F_METHOD]	= TFW_HTTP_MATCH_A_METHOD,
-	[TFW_HTTP_MATCH_F_URI]		= TFW_HTTP_MATCH_A_STR,
-	[TFW_HTTP_MATCH_F_MARK]		= TFW_HTTP_MATCH_A_NUM,
 };
 
 int
@@ -389,14 +363,14 @@ static int
 tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 {
 	int r;
-	unsigned int invert;
 	TfwHttpMatchRule *rule;
-	const char *in_field, *action, *action_val, *in_arg, *arg = NULL;
+	const char *in_field, *hdr, *action, *action_val, *in_arg, *arg = NULL;
+	unsigned int invert, hid = TFW_HTTP_HDR_RAW;
 	tfw_http_match_op_t op = TFW_HTTP_MATCH_O_WILDCARD;
 	tfw_http_match_fld_t field = TFW_HTTP_MATCH_F_WILDCARD;
 	tfw_http_match_arg_t type = TFW_HTTP_MATCH_A_WILDCARD;
 	TfwCfgRule *cfg_rule = &e->rule;
-	size_t len, arg_size = 0;
+	size_t len = 0, arg_size = 0;
 	TfwHttpChain *chain = NULL;
 	TfwVhost *vhost = NULL;
 
@@ -410,6 +384,7 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 
 	invert = cfg_rule->inv;
 	in_field = cfg_rule->fst;
+	hdr = cfg_rule->fst_ext;
 	in_arg = cfg_rule->snd;
 	if (in_arg)
 		len = strlen(in_arg);
@@ -425,7 +400,7 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 	}
 
 	/* Interpret condition part of the rule. */
-	if (in_arg && (in_arg[0] != '*' || len > 1)) {
+	if (in_arg) {
 		BUG_ON(!in_field);
 		r = tfw_cfg_map_enum(tfw_http_tbl_cfg_field_enum,
 				     in_field, &field);
@@ -434,10 +409,15 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 				   in_field);
 			return r;
 		}
-		type = tfw_http_tbl_cfg_arg_types[field];
-		if (!(arg = tfw_http_arg_adjust(in_arg, len, &arg_size, &op)))
-			return -ENOMEM;
+		if ((r = tfw_http_verify_hdr_field(field, &hdr, &hid)))
+			return r;
+
+		arg = tfw_http_arg_adjust(in_arg, field, hdr, &arg_size,
+					  &type, &op);
+		if (IS_ERR(arg))
+			return PTR_ERR(arg);
 	}
+
 	rule = tfw_http_rule_new(tfw_chain_entry, type, arg_size);
 	if (!rule) {
 		TFW_ERR_NL("http_tbl: can't allocate memory for rule\n");
@@ -448,9 +428,12 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 		       && type != TFW_HTTP_MATCH_A_NUM
 		       && type != TFW_HTTP_MATCH_A_METHOD
 		       && type != TFW_HTTP_MATCH_A_WILDCARD);
+		rule->hid = hid;
 		rule->inv = invert;
-		r = tfw_http_rule_init(rule, field, op, type, arg, arg_size - 1);
-		if (r)
+		rule->field = field;
+		rule->op = op;
+		rule->arg.type = type;
+		if ((r = tfw_http_rule_arg_init(rule, arg, arg_size - 1)))
 			goto err;
 		kfree(arg);
 	}
@@ -578,13 +561,10 @@ tfw_http_tbl_cfgend(void)
 		r = -ENOMEM;
 		goto err;
 	}
-	r = tfw_http_rule_init(rule, TFW_HTTP_MATCH_F_WILDCARD,
-			       TFW_HTTP_MATCH_O_WILDCARD,
-			       TFW_HTTP_MATCH_A_WILDCARD,
-			       NULL, 0);
-	if (r)
-		goto err;
 
+	rule->op = TFW_HTTP_MATCH_O_WILDCARD;
+	rule->field = TFW_HTTP_MATCH_F_WILDCARD;
+	rule->arg.type = TFW_HTTP_MATCH_A_WILDCARD;
 	rule->act.type = TFW_HTTP_MATCH_ACT_VHOST;
 	rule->act.vhost = vhost_dflt;
 

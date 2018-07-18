@@ -110,6 +110,25 @@
  * comparison sign interpretation in rule condition part:
  *                     "==" => false / "!=" => true
  *
+ * Also extended rule form is used in case of specifying HTTP headers. Following
+ * rule:
+ *               hdr "Referer" == "*example.com" -> mark = 7;
+ *
+ * will have following representaion:
+ *   TfwCfgEntry {
+ *         .name = "rule",
+ *         ...
+ *         .rule = {
+ *                   .fst	= "hdr",
+ *                   .fst_ext	= "Referer",
+ *                   .snd	= "*example.com",
+ *                   .act	= "mark",
+ *                   .val	= "7",
+ *                   .inv	= false
+ *                 },
+ *         ...
+ *   }
+ *
  * @ftoken is an auxiliary internal field of TfwCfgEntry{} structure which
  * helps parser to differentiate plain directives from rules.
  *
@@ -125,6 +144,7 @@
  */
 typedef struct {
 	const char *fst;
+	const char *fst_ext;
 	const char *snd;
 	const char *act;
 	const char *val;
