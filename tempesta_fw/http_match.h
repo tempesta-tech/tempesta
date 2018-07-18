@@ -30,15 +30,7 @@
 typedef enum {
 	TFW_HTTP_MATCH_F_NA = 0,
 	TFW_HTTP_MATCH_F_WILDCARD,
-	TFW_HTTP_MATCH_F_HDR_CONN,
-	TFW_HTTP_MATCH_F_HDR_HOST,
-	TFW_HTTP_MATCH_F_HDR_CTYPE,
-	TFW_HTTP_MATCH_F_HDR_UAGENT,
-	TFW_HTTP_MATCH_F_HDR_COOKIE,
-	TFW_HTTP_MATCH_F_HDR_REFERER,
-	TFW_HTTP_MATCH_F_HDR_NMATCH,
-	TFW_HTTP_MATCH_F_HDR_XFRWD,
-	TFW_HTTP_MATCH_F_HDR_RAW,
+	TFW_HTTP_MATCH_F_HDR,
 	TFW_HTTP_MATCH_F_HOST,
 	TFW_HTTP_MATCH_F_METHOD,
 	TFW_HTTP_MATCH_F_URI,
@@ -101,6 +93,7 @@ typedef struct {
 	tfw_http_match_fld_t	field; /* Field of a HTTP message to compare. */
 	tfw_http_match_op_t 	op;    /* Comparison operator. */
 	TfwHttpAction		act;   /* Rule action. */
+	unsigned int		hid;   /* Header ID. */
 	unsigned int		inv;   /* Comparison inversion (inequality) flag.*/
 	TfwHttpMatchArg 	arg;   /* A value to be compared with the field.
 					  note: the @arg has variable length. */
@@ -131,12 +124,14 @@ TfwHttpMatchRule *tfw_http_rule_new(TfwHttpChain *chain,
 				    tfw_http_match_arg_t type,
 				    size_t arg_len);
 
-int tfw_http_rule_init(TfwHttpMatchRule *rule, tfw_http_match_fld_t field,
-		       tfw_http_match_op_t op, tfw_http_match_arg_t type,
-		       const char *arg, size_t arg_len );
-
-const char *tfw_http_arg_adjust(const char *arg, size_t len, size_t *size_out,
+int tfw_http_rule_arg_init(TfwHttpMatchRule *rule, const char *arg,
+			   size_t arg_len);
+const char *tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
+				const char *raw_hdr_name, size_t *size_out,
+				tfw_http_match_arg_t *type_out,
 				tfw_http_match_op_t *op_out);
+int tfw_http_verify_hdr_field(tfw_http_match_fld_t field, const char **h_name,
+			      unsigned int *hid_out);
 
 #define tfw_http_chain_rules_for_each(chain, func)			\
 ({									\

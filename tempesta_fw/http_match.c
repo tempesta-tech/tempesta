@@ -4,7 +4,7 @@
  * HTTP table logic.
  *
  * The matching process is driven by a "chain" of rules that look like this:
- *         @field      == (!=)    @arg     ->   @action [ = @action_val ]
+ *  @field  [ @hdr_name ]  == (!=)    @arg     ->   @action [ = @action_val ]
  * { TFW_HTTP_MATCH_F_HOST,   "*example.com",  TFW_HTTP_MATCH_ACT_CHAIN },
  * { TFW_HTTP_MATCH_F_URI,    "/foo/bar*",     TFW_HTTP_MATCH_ACT_VHOST },
  * { TFW_HTTP_MATCH_F_URI,    "/",             TFW_HTTP_MATCH_ACT_MARK  },
@@ -12,7 +12,8 @@
  * The table is represented by a list of linked chains, that contain rules
  * of TfwHttpMatchRule type that has the fields described above:
  *  - @field is the first argument in rule - the field of a parsed HTTP request:
- *    method/uri/host/header/etc.
+ *    method/uri/host/header/etc; @hdr_name is used only in cases when
+ *    @field == 'hdr', to specify the name of desired header.
  *  - @arg is the second argument in rule, its type is determined dynamically
  *    depending on the @field (may be number/string/addr/etc); comparison
  *    operator for @field and @arg depends on "==" ("!=") sign and on wildcard
@@ -72,39 +73,6 @@
 #include "cfg.h"
 
 /**
- * Look up a header in the @req->h_tbl by given @id,
- * and compare @str with the header's value (skipping name and LWS).
- *
- * For example:
- *   hdr_val_eq(req, TFW_HTTP_HDR_HOST, "natsys-lab", 10, TFW_STR_EQ_PREFIX);
- * will match the following headers:
- *   "Host: natsys-lab"
- *   "Host: natsys-lab.com"
- *   "Host  :  natsys-lab.com"
- */
-static bool
-hdr_val_eq(const TfwHttpReq *req, tfw_http_hdr_t id, tfw_http_match_op_t op,
-	   const char *str, int str_len, tfw_str_eq_flags_t flags)
-{
-	TfwStr *hdr;
-	TfwStr hdr_val;
-
-	BUG_ON(id < 0 || id >= TFW_HTTP_HDR_NUM);
-
-	hdr = &req->h_tbl->tbl[id];
-	if (TFW_STR_EMPTY(hdr))
-		return false;
-
-	tfw_http_msg_clnthdr_val(hdr, id, &hdr_val);
-
-	if (op == TFW_HTTP_MATCH_O_SUFFIX)
-		return tfw_str_eq_cstr_off(&hdr_val, hdr_val.len - str_len,
-					   str, str_len, flags);
-
-	return tfw_str_eq_cstr(&hdr_val, str, str_len, flags);
-}
-
-/**
  * Map an operator to that flags passed to tfw_str_eq_*() functions.
  */
 static tfw_str_eq_flags_t
@@ -120,24 +88,81 @@ map_op_to_str_eq_flags(tfw_http_match_op_t op)
 	return flags_tbl[op];
 }
 
+/**
+ * Look up a header in the @req->h_tbl by given @id,
+ * and compare @rule->arg with the header's value (skipping name and LWS).
+ *
+ * For example:
+ *   hdr_val_eq(req,
+ *		{
+ *			.arg.str="natsys-lab",
+ *			.arg.len=10,
+ *			.op=TFW_STR_EQ_PREFIX
+ *		},
+ *		TFW_HTTP_HDR_HOST);
+ * will match the following headers:
+ *   "Host: natsys-lab"
+ *   "Host: natsys-lab.com"
+ *   "Host  :  natsys-lab.com"
+ */
+static bool
+hdr_val_eq(const TfwHttpReq *req, const TfwHttpMatchRule *rule,
+	   tfw_http_hdr_t id)
+{
+	TfwStr *hdr;
+	TfwStr hdr_val;
+	tfw_str_eq_flags_t flags;
+	tfw_http_match_op_t op =  rule->op;
+	const char *str = rule->arg.str;
+	int str_len = rule->arg.len;
+
+	BUG_ON(id < 0 || id >= TFW_HTTP_HDR_NUM);
+
+	hdr = &req->h_tbl->tbl[id];
+	if (TFW_STR_EMPTY(hdr))
+		return false;
+
+	if (op == TFW_HTTP_MATCH_O_WILDCARD)
+		return true;
+
+	tfw_http_msg_clnthdr_val(hdr, id, &hdr_val);
+
+	flags = map_op_to_str_eq_flags(rule->op);
+	/*
+	 * There is no general rule, but most headers are case-insensitive.
+	 * TODO: case-sensitive matching for headers when required by RFC.
+	 */
+	flags |= TFW_STR_EQ_CASEI;
+
+	if (op == TFW_HTTP_MATCH_O_SUFFIX)
+		return tfw_str_eq_cstr_off(&hdr_val, hdr_val.len - str_len,
+					   str, str_len, flags);
+
+	return tfw_str_eq_cstr(&hdr_val, str, str_len, flags);
+}
+
 static bool
 match_method(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
-	if (rule->op == TFW_HTTP_MATCH_O_EQ)
-		return req->method == rule->arg.method;
+	/* Only WILDCARD and EQ operators are supported. */
+	if (rule->op == TFW_HTTP_MATCH_O_WILDCARD)
+		return true;
 
-	/* Only EQ operator is supported. */
-	BUG();
-	return 0;
+	BUG_ON(rule->op != TFW_HTTP_MATCH_O_EQ);
+	return req->method == rule->arg.method;
 }
 
 static bool
 match_uri(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
+	tfw_str_eq_flags_t flags;
 	const TfwStr *uri_path = &req->uri_path;
 	const TfwHttpMatchArg *arg = &rule->arg;
-	tfw_str_eq_flags_t flags = map_op_to_str_eq_flags(rule->op);
 
+	if (rule->op == TFW_HTTP_MATCH_O_WILDCARD)
+		return true;
+
+	flags = map_op_to_str_eq_flags(rule->op);
 	/* RFC 7230:
 	 *  2.7.3: the comparison is case-insensitive.
 	 *
@@ -156,10 +181,17 @@ match_uri(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 static bool
 match_host(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
+	tfw_str_eq_flags_t flags;
+	const TfwHttpMatchArg *arg;
 	const TfwStr *host = &req->host;
-	const TfwHttpMatchArg *arg = &rule->arg;
-	tfw_str_eq_flags_t flags = map_op_to_str_eq_flags(rule->op);
 
+	if (host->len == 0)
+		return hdr_val_eq(req, rule, TFW_HTTP_HDR_HOST);
+
+	if (rule->op == TFW_HTTP_MATCH_O_WILDCARD)
+		return true;
+
+	flags = map_op_to_str_eq_flags(rule->op);
 	/*
 	 * RFC 7230:
 	 *  5.4: Host header must be ignored when URI is absolute.
@@ -169,45 +201,13 @@ match_host(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	 *  5.4, 2.7.3: Port 80 is equal to a non-given/empty port (done by
 	 *  normalizing the host).
 	 */
-
 	flags |= TFW_STR_EQ_CASEI;
-
-	if (host->len == 0)
-		return hdr_val_eq(req, TFW_HTTP_HDR_HOST,
-				  rule->op, arg->str, arg->len, flags);
-
+	arg = &rule->arg;
 	if (rule->op == TFW_HTTP_MATCH_O_SUFFIX)
 		return tfw_str_eq_cstr_off(host, host->len - arg->len,
 					   arg->str, arg->len, flags);
 
 	return tfw_str_eq_cstr(host, arg->str, arg->len, flags);
-}
-
-static bool
-match_hdr(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
-{
-	static const tfw_http_hdr_t id_tbl[] = {
-		[0 ... _TFW_HTTP_MATCH_F_COUNT] = -1,
-		[TFW_HTTP_MATCH_F_HDR_CONN]	= TFW_HTTP_HDR_CONNECTION,
-		[TFW_HTTP_MATCH_F_HDR_HOST]	= TFW_HTTP_HDR_HOST,
-		[TFW_HTTP_MATCH_F_HDR_CTYPE]	= TFW_HTTP_HDR_CONTENT_TYPE,
-		[TFW_HTTP_MATCH_F_HDR_UAGENT]	= TFW_HTTP_HDR_USER_AGENT,
-		[TFW_HTTP_MATCH_F_HDR_COOKIE]	= TFW_HTTP_HDR_COOKIE,
-		[TFW_HTTP_MATCH_F_HDR_REFERER]	= TFW_HTTP_HDR_REFERER,
-		[TFW_HTTP_MATCH_F_HDR_NMATCH]	= TFW_HTTP_HDR_IF_NONE_MATCH,
-		[TFW_HTTP_MATCH_F_HDR_XFRWD]	= TFW_HTTP_HDR_X_FORWARDED_FOR,
-	};
-
-	const TfwHttpMatchArg *arg = &rule->arg;
-	tfw_str_eq_flags_t flags = map_op_to_str_eq_flags(rule->op);
-	tfw_http_hdr_t id = id_tbl[rule->field];
-	BUG_ON(id < 0);
-
-	/* There is no general rule, but most headers are case-insensitive.
-	 * TODO: case-sensitive matching for headers when required by RFC. */
-	flags |= TFW_STR_EQ_CASEI;
-
-	return hdr_val_eq(req, id, rule->op, arg->str, arg->len, flags);
 }
 
 #define _MOVE_TO_COND(p, end, cond)			\
@@ -223,7 +223,7 @@ match_hdr_raw(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	int i;
 	tfw_str_eq_flags_t flags = map_op_to_str_eq_flags(rule->op);
 
-	for (i = 0; i < req->h_tbl->off; ++i) {
+	for (i = TFW_HTTP_HDR_RAW; i < req->h_tbl->off; ++i) {
 		const TfwStr *hdr, *dup, *end, *chunk;
 		const char *c, *cend, *p, *pend;
 		char prev;
@@ -284,7 +284,7 @@ state_common:
 						}
 					}
 
-					return false;
+					break;
 				}
 
 				prev = *p++;
@@ -315,12 +315,12 @@ state_common:
 			/* If only header field doesn't finished, may be it have
 			 * trailing spaces.
 			 */
-			if (isspace(*c)) {
+			if (p == pend && isspace(*c)) {
 				c++;
 				goto state_hdr_sp;
 			}
 
-			return false;
+			continue;
 
 state_rule_sp:
 			_MOVE_TO_COND(p, pend, !isspace(*p));
@@ -336,6 +336,18 @@ state_hdr_sp:
 }
 
 static bool
+match_hdr(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
+{
+	tfw_http_hdr_t id = rule->hid;
+
+	BUG_ON(id < 0);
+	if (id == TFW_HTTP_HDR_RAW)
+		return match_hdr_raw(req, rule);
+
+	return hdr_val_eq(req, rule, id);
+}
+
+static bool
 match_wildcard(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
 	if ((rule->op == TFW_HTTP_MATCH_O_WILDCARD)
@@ -347,24 +359,23 @@ match_wildcard(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 static bool
 match_mark(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
-	BUG_ON(rule->op != TFW_HTTP_MATCH_O_EQ);
-	return req->msg.skb_head->mark == rule->arg.num;
-}
+	unsigned int mark = req->msg.skb_head->mark;
 
+	if (!mark)
+		return false;
+
+	if (rule->op == TFW_HTTP_MATCH_O_WILDCARD)
+		return true;
+
+	BUG_ON(rule->op != TFW_HTTP_MATCH_O_EQ);
+	return mark == rule->arg.num;
+}
 
 typedef bool (*match_fn)(const TfwHttpReq *, const TfwHttpMatchRule *);
 
 static const match_fn match_fn_tbl[_TFW_HTTP_MATCH_F_COUNT] = {
 	[TFW_HTTP_MATCH_F_WILDCARD]	= match_wildcard,
-	[TFW_HTTP_MATCH_F_HDR_CONN]	= match_hdr,
-	[TFW_HTTP_MATCH_F_HDR_HOST]	= match_hdr,
-	[TFW_HTTP_MATCH_F_HDR_CTYPE]	= match_hdr,
-	[TFW_HTTP_MATCH_F_HDR_UAGENT]	= match_hdr,
-	[TFW_HTTP_MATCH_F_HDR_COOKIE]	= match_hdr,
-	[TFW_HTTP_MATCH_F_HDR_REFERER]	= match_hdr,
-	[TFW_HTTP_MATCH_F_HDR_NMATCH]	= match_hdr,
-	[TFW_HTTP_MATCH_F_HDR_XFRWD]	= match_hdr,
-	[TFW_HTTP_MATCH_F_HDR_RAW]	= match_hdr_raw,
+	[TFW_HTTP_MATCH_F_HDR]		= match_hdr,
 	[TFW_HTTP_MATCH_F_HOST]		= match_host,
 	[TFW_HTTP_MATCH_F_METHOD]	= match_method,
 	[TFW_HTTP_MATCH_F_URI]		= match_uri,
@@ -411,6 +422,23 @@ do_eval(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 		return false;
 	}
 	return true;
+}
+
+static tfw_http_match_arg_t
+tfw_http_tbl_arg_type(tfw_http_match_fld_t field)
+{
+	static const tfw_http_match_arg_t arg_types[_TFW_HTTP_MATCH_F_COUNT] = {
+		[TFW_HTTP_MATCH_F_WILDCARD]	= TFW_HTTP_MATCH_A_WILDCARD,
+		[TFW_HTTP_MATCH_F_HDR]		= TFW_HTTP_MATCH_A_STR,
+		[TFW_HTTP_MATCH_F_HOST]		= TFW_HTTP_MATCH_A_STR,
+		[TFW_HTTP_MATCH_F_METHOD]	= TFW_HTTP_MATCH_A_METHOD,
+		[TFW_HTTP_MATCH_F_URI]		= TFW_HTTP_MATCH_A_STR,
+		[TFW_HTTP_MATCH_F_MARK]		= TFW_HTTP_MATCH_A_NUM,
+	};
+
+	BUG_ON(field <= 0 || field >= _TFW_HTTP_MATCH_F_COUNT);
+
+	return arg_types[field];
 }
 
 /**
@@ -509,19 +537,14 @@ tfw_http_rule_new(TfwHttpChain *chain, tfw_http_match_arg_t type,
 EXPORT_SYMBOL(tfw_http_rule_new);
 
 int
-tfw_http_rule_init(TfwHttpMatchRule *rule, tfw_http_match_fld_t field,
-		   tfw_http_match_op_t op, tfw_http_match_arg_t type,
-		   const char *arg, size_t arg_len)
+tfw_http_rule_arg_init(TfwHttpMatchRule *rule, const char *arg, size_t arg_len)
 {
-	rule->field = field;
-	rule->op = op;
-	rule->arg.type = type;
-
-	if (type == TFW_HTTP_MATCH_A_WILDCARD)
+	if (rule->arg.type == TFW_HTTP_MATCH_A_WILDCARD ||
+	    rule->op == TFW_HTTP_MATCH_O_WILDCARD)
 		return 0;
 
-	if (type == TFW_HTTP_MATCH_A_NUM) {
-		if (tfw_cfg_parse_uint(arg, &rule->arg.num)) {
+	if (rule->arg.type == TFW_HTTP_MATCH_A_NUM) {
+		if (tfw_cfg_parse_uint(arg, &rule->arg.num) || !rule->arg.num) {
 			TFW_ERR_NL("http_match: invalid 'mark' condition:"
 				   " '%s'\n", arg);
 			return -EINVAL;
@@ -530,7 +553,7 @@ tfw_http_rule_init(TfwHttpMatchRule *rule, tfw_http_match_fld_t field,
 		return 0;
 	}
 
-	if (type == TFW_HTTP_MATCH_A_METHOD) {
+	if (rule->arg.type == TFW_HTTP_MATCH_A_METHOD) {
 		if (tfw_http_tbl_method(arg, &rule->arg.method)) {
 			TFW_ERR_NL("http_tbl: invalid 'method' condition:"
 				   " '%s'\n", arg);
@@ -542,7 +565,9 @@ tfw_http_rule_init(TfwHttpMatchRule *rule, tfw_http_match_fld_t field,
 
 	rule->arg.len = arg_len;
 	memcpy(rule->arg.str, arg, arg_len);
-	if (field == TFW_HTTP_MATCH_F_HDR_RAW) {
+	if (rule->field == TFW_HTTP_MATCH_F_HDR
+	    && rule->hid == TFW_HTTP_HDR_RAW)
+	{
 		char *p = rule->arg.str;
 		while ((*p = tolower(*p)))
 			p++;
@@ -550,38 +575,79 @@ tfw_http_rule_init(TfwHttpMatchRule *rule, tfw_http_match_fld_t field,
 
 	return 0;
 }
-EXPORT_SYMBOL(tfw_http_rule_init);
+EXPORT_SYMBOL(tfw_http_rule_arg_init);
 
 const char *
-tfw_http_arg_adjust(const char *arg, size_t len, size_t *size_out,
+tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
+		    const char *raw_hdr_name, size_t *size_out,
+		    tfw_http_match_arg_t *type_out,
 		    tfw_http_match_op_t *op_out)
 {
+	int i;
 	bool escaped;
 	char *arg_out, *pos;
-	int i;
+	size_t name_len = 0, full_name_len = 0, len = strlen(arg);
+	bool wc_arg = (arg[0] == '*' && len == 1);
 
-	if (!(arg_out = kzalloc(len + 1, GFP_KERNEL))) {
-		TFW_ERR_NL("HTTP tables: unable to allocate rule"
-			   " argument.\n");
+	*type_out = tfw_http_tbl_arg_type(field);
+
+	/*
+	 * If this is simple wildcard argument and this is not raw
+	 * header case, this is wildcard type case and we do not
+	 * need any argument for matching.
+	 */
+	if (wc_arg && !raw_hdr_name)
 		return NULL;
+
+	if (raw_hdr_name) {
+		name_len = strlen(raw_hdr_name);
+		full_name_len = name_len + SLEN(S_DLM);
+	}
+
+	if (!(arg_out = kzalloc(full_name_len + len + 1, GFP_KERNEL))) {
+		TFW_ERR_NL("http_match: unable to allocate rule"
+			   " argument.\n");
+		return ERR_PTR(-ENOMEM);
+	}
+
+	if (raw_hdr_name) {
+		memcpy(arg_out, raw_hdr_name, name_len);
+		memcpy(arg_out + name_len, S_DLM, SLEN(S_DLM));
 	}
 
 	*op_out = TFW_HTTP_MATCH_O_EQ;
-	if (len > 1 && arg[len - 1] == '*' && arg[len - 2] != '\\')
+
+	/*
+	 * In cases of simple wildcard argument for raw header or
+	 * argument ended with wildcard, the prefix matching pattern
+	 * should be applied.
+	 */
+	if (wc_arg || (len > 1 && arg[len - 1] == '*' && arg[len - 2] != '\\'))
 		*op_out = TFW_HTTP_MATCH_O_PREFIX;
 
-	if (arg[0] == '*') {
+	/*
+	 * For argument started with wildcard, the suffix matching
+	 * pattern should be applied.
+	 */
+	if (!wc_arg && arg[0] == '*') {
 		if (*op_out == TFW_HTTP_MATCH_O_PREFIX)
-			TFW_WARN_NL("HTTP tables: unable to match"
+			TFW_WARN_NL("http_match: unable to match"
 				    " double-wildcard patterns '%s', so"
-				    " prefix pattern is applied\n", arg);
+				    " prefix pattern will be applied\n", arg);
+
+		else if (raw_hdr_name)
+			TFW_WARN_NL("http_match: unable to match suffix"
+				    " pattern '%s' in case of raw header"
+				    " specification: '%s', so wildcard pattern"
+				    " will not be applied\n", arg, raw_hdr_name);
+
 		else
 			*op_out = TFW_HTTP_MATCH_O_SUFFIX;
 	}
 
-	len = 0;
+	len = full_name_len;
 	escaped = false;
-	pos = arg_out;
+	pos = arg_out + full_name_len;
 	for (i = 0; arg[i]; ++i) {
 		if (arg[i] == '*' && !escaped && (i == 0 || !arg[i + 1]))
 			continue;
@@ -600,3 +666,38 @@ tfw_http_arg_adjust(const char *arg, size_t len, size_t *size_out,
 	return arg_out;
 }
 EXPORT_SYMBOL(tfw_http_arg_adjust);
+
+int
+tfw_http_verify_hdr_field(tfw_http_match_fld_t field, const char **hdr_name,
+			  unsigned int *hid_out)
+{
+	const char *h_name = *hdr_name;
+
+	if (field != TFW_HTTP_MATCH_F_HDR && h_name) {
+		TFW_ERR_NL("http_tbl: unnecessary extra field is specified:"
+			   " '%s'\n", h_name);
+		return -EINVAL;
+	} else if (field == TFW_HTTP_MATCH_F_HDR && !h_name) {
+		TFW_ERR_NL("http_tbl: header name missed\n");
+		return -EINVAL;
+	} else if (h_name) {
+		size_t h_len = strlen(h_name);
+		const TfwStr tmp_hdr = {
+			.ptr = (TfwStr []){
+				{ .ptr = (void *)h_name, .len = h_len },
+				{ .ptr = S_DLM,		 .len = SLEN(S_DLM) }
+			},
+			.len = h_len + SLEN(S_DLM),
+			.eolen = 0,
+			.flags = 2 << TFW_STR_CN_SHIFT
+		};
+
+		*hid_out = tfw_http_msg_req_spec_hid(&tmp_hdr);
+
+		if (*hid_out != TFW_HTTP_HDR_RAW)
+			*hdr_name = NULL;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(tfw_http_verify_hdr_field);
