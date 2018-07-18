@@ -87,8 +87,7 @@ tfw_cli_conn_alloc(int type)
 			 &__lockdep_no_validate__, 2);
 #endif
 
-	setup_timer(&cli_conn->timer,
-		    tfw_sock_cli_keepalive_timer_cb,
+	setup_timer(&cli_conn->timer, tfw_sock_cli_keepalive_timer_cb,
 		    (unsigned long)cli_conn);
 
 	return cli_conn;
@@ -190,6 +189,10 @@ tfw_sock_clnt_new(struct sock *sk)
 	tfw_connection_link_from_sk(conn, sk);
 	tfw_connection_link_peer(conn, (TfwPeer *)cli);
 	ss_set_callbacks(sk);
+
+	/* Activate keepalive timer. */
+	mod_timer(&conn->timer,
+		  jiffies + msecs_to_jiffies(tfw_cli_cfg_ka_timeout * 1000));
 
 	TFW_DBG3("new client socket is accepted: sk=%p, conn=%p, cli=%p\n",
 		 sk, conn, cli);
