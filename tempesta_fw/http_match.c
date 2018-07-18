@@ -284,7 +284,7 @@ state_common:
 						}
 					}
 
-					return false;
+					break;
 				}
 
 				prev = *p++;
@@ -315,12 +315,12 @@ state_common:
 			/* If only header field doesn't finished, may be it have
 			 * trailing spaces.
 			 */
-			if (isspace(*c)) {
+			if (p == pend && isspace(*c)) {
 				c++;
 				goto state_hdr_sp;
 			}
 
-			return false;
+			continue;
 
 state_rule_sp:
 			_MOVE_TO_COND(p, pend, !isspace(*p));
