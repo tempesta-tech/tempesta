@@ -679,9 +679,7 @@ void ttls_x509_crl_free(ttls_x509_crl *crl)
 
 	do
 	{
-#if defined(TTLS_X509_RSASSA_PSS_SUPPORT)
 		ttls_free(crl_cur->sig_opts);
-#endif
 
 		name_cur = crl_cur->issuer.next;
 		while (name_cur != NULL)

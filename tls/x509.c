@@ -101,7 +101,6 @@ int ttls_x509_get_alg(unsigned char **p, const unsigned char *end,
 	return 0;
 }
 
-#if defined(TTLS_X509_RSASSA_PSS_SUPPORT)
 /*
  * HashAlgorithm ::= AlgorithmIdentifier
  *
@@ -302,7 +301,6 @@ int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
 
 	return 0;
 }
-#endif /* TTLS_X509_RSASSA_PSS_SUPPORT */
 
 /*
  *  AttributeTypeAndValue ::= SEQUENCE {
@@ -627,7 +625,6 @@ int ttls_x509_get_sig_alg(const ttls_x509_buf *sig_oid, const ttls_x509_buf *sig
 	if ((ret = ttls_oid_get_sig_alg(sig_oid, md_alg, pk_alg)) != 0)
 		return(TTLS_ERR_X509_UNKNOWN_SIG_ALG + ret);
 
-#if defined(TTLS_X509_RSASSA_PSS_SUPPORT)
 	if (*pk_alg == TTLS_PK_RSASSA_PSS)
 	{
 		ttls_pk_rsassa_pss_options *pss_opts;
@@ -649,7 +646,6 @@ int ttls_x509_get_sig_alg(const ttls_x509_buf *sig_oid, const ttls_x509_buf *sig
 		*sig_opts = (void *) pss_opts;
 	}
 	else
-#endif /* TTLS_X509_RSASSA_PSS_SUPPORT */
 	{
 		/* Make sure parameters are absent or NULL */
 		if ((sig_params->tag != TTLS_ASN1_NULL && sig_params->tag != 0) ||
@@ -817,7 +813,6 @@ int ttls_x509_sig_alg_gets(char *buf, size_t size, const ttls_x509_buf *sig_oid,
 		ret = ttls_snprintf(p, n, "%s", desc);
 	TTLS_X509_SAFE_SNPRINTF;
 
-#if defined(TTLS_X509_RSASSA_PSS_SUPPORT)
 	if (pk_alg == TTLS_PK_RSASSA_PSS)
 	{
 		const ttls_pk_rsassa_pss_options *pss_opts;
@@ -834,11 +829,6 @@ int ttls_x509_sig_alg_gets(char *buf, size_t size, const ttls_x509_buf *sig_oid,
 				  pss_opts->expected_salt_len);
 		TTLS_X509_SAFE_SNPRINTF;
 	}
-#else
-	((void) pk_alg);
-	((void) md_alg);
-	((void) sig_opts);
-#endif /* TTLS_X509_RSASSA_PSS_SUPPORT */
 
 	return((int)(size - n));
 }
@@ -954,7 +944,7 @@ int ttls_x509_self_test(int verbose)
 
 	ttls_x509_crt_init(&clicert);
 
-	ret = ttls_x509_crt_parse(&clicert, (const unsigned char *) ttls_test_cli_crt,
+	ret = ttls_x509_crt_parse(&clicert, (unsigned char *) ttls_test_cli_crt,
 			   ttls_test_cli_crt_len);
 	if (ret != 0)
 	{
@@ -966,7 +956,7 @@ int ttls_x509_self_test(int verbose)
 
 	ttls_x509_crt_init(&cacert);
 
-	ret = ttls_x509_crt_parse(&cacert, (const unsigned char *) ttls_test_ca_crt,
+	ret = ttls_x509_crt_parse(&cacert, (unsigned char *) ttls_test_ca_crt,
 			  ttls_test_ca_crt_len);
 	if (ret != 0)
 	{

@@ -182,7 +182,8 @@ int ttls_derive_keys(ttls_context *tls);
 
 int ttls_handle_message_type(TlsCtx *tls);
 
-void __ttls_write_record(TlsCtx *tls, struct sg_table *sgt, int sg_i);
+void __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
+		       unsigned char *hdr_buf);
 int __ttls_send_record(TlsCtx *tls, struct sg_table *sgt);
 int ttls_write_record(TlsCtx *tls, struct sg_table *sgt);
 int ttls_sendmsg(TlsCtx *tls, const char *buf, size_t len);
