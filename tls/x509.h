@@ -165,10 +165,6 @@
 
 #define TTLS_X509_MAX_DN_NAME_SIZE		 256 /**< Maximum value size of a DN entry */
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /**
  * \addtogroup x509_module
  * \{ */
@@ -274,11 +270,9 @@ int ttls_x509_get_alg_null(unsigned char **p, const unsigned char *end,
 		   ttls_x509_buf *alg);
 int ttls_x509_get_alg(unsigned char **p, const unsigned char *end,
 				  ttls_x509_buf *alg, ttls_x509_buf *params);
-#if defined(TTLS_X509_RSASSA_PSS_SUPPORT)
 int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
 		ttls_md_type_t *md_alg, ttls_md_type_t *mgf_md,
 		int *salt_len);
-#endif
 int ttls_x509_get_sig(unsigned char **p, const unsigned char *end, ttls_x509_buf *sig);
 int ttls_x509_get_sig_alg(const ttls_x509_buf *sig_oid, const ttls_x509_buf *sig_params,
 		  ttls_md_type_t *md_alg, ttls_pk_type_t *pk_alg,
@@ -305,9 +299,5 @@ int ttls_x509_write_sig(unsigned char **p, unsigned char *start,
 		n -= (size_t) ret;		  \
 		p += (size_t) ret;		  \
 	} while (0)
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* x509.h */
