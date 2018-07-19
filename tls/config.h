@@ -277,16 +277,6 @@
 #define TTLS_DEBUG_ALL
 
 /**
- * \def TTLS_X509_ALLOW_EXTENSIONS_NON_V3
- *
- * If set, the X509 parser will not break-off when parsing an X509 certificate
- * and encountering an extension in a v1 or v2 certificate.
- *
- * Uncomment to prevent an error.
- */
-//#define TTLS_X509_ALLOW_EXTENSIONS_NON_V3
-
-/**
  * \def TTLS_X509_ALLOW_UNSUPPORTED_CRITICAL_EXTENSION
  *
  * If set, the X509 parser will not break-off when parsing an X509 certificate
@@ -324,16 +314,6 @@
  * Comment to skip extendedKeyUsage checking for certificates.
  */
 #define TTLS_X509_CHECK_EXTENDED_KEY_USAGE
-
-/**
- * \def TTLS_X509_RSASSA_PSS_SUPPORT
- *
- * Enable parsing and verification of X.509 certificates, CRLs
- * signed with RSASSA-PSS (aka PKCS#1 v2.1).
- *
- * Comment this macro to disallow using RSASSA-PSS in certificates.
- */
-#define TTLS_X509_RSASSA_PSS_SUPPORT
 
 /**
  * \def TTLS_BASE64_C
