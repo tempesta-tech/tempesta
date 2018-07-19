@@ -471,7 +471,8 @@ struct ttls_config
  * @hstype	- record header: handhsake type;
  * @msglen	- record header: message length;
  * @hslen	- current handshake message length, including the handshake
- *		  header;
+ *		  header. For egress data used as length of @__msg (copied
+ *		  data);
  * @rlen	- read bytes of the message body so far;
  * @skb_list	- list of skbs attachd to the current I/O context;
  * @off		- data offset within first skb in @skb_list;

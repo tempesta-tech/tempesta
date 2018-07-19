@@ -145,35 +145,16 @@ extern const ttls_x509_crt_profile ttls_x509_crt_profile_next;
  */
 extern const ttls_x509_crt_profile ttls_x509_crt_profile_suiteb;
 
-/**
- * \brief		  Parse a single DER formatted certificate and add it
- *				 to the chained list.
- *
- * \param chain	points to the start of the chain
- * \param buf	  buffer holding the certificate DER data
- * \param buflen   size of the buffer
- *
- * \return		 0 if successful, or a specific X509 or PEM error code
- */
-int ttls_x509_crt_parse_der(ttls_x509_crt *chain, const unsigned char *buf,
-			size_t buflen);
+int ttls_x509_crt_parse_der(ttls_x509_crt *chain, unsigned char *buf,
+			    size_t buflen);
 
 /**
- * \brief		  Parse one or more certificates and add them
- *				 to the chained list. Parses permissively. If some
- *				 certificates can be parsed, the result is the number
- *				 of failed certificates it encountered. If none complete
- *				 correctly, the first error is returned.
- *
- * \param chain	points to the start of the chain
- * \param buf	  buffer holding the certificate data in PEM or DER format
- * \param buflen   size of the buffer
- *				 (including the terminating null byte for PEM data)
- *
- * \return		 0 if all certificates parsed successfully, a positive number
- *				 if partly successful or a specific X509 or PEM error code
+ * Parse one or more certificates and add them to the chained list. Parses
+ * permissively. If some certificates can be parsed, the result is the number
+ * of failed certificates it encountered. If none complete correctly, the first
+ * error is returned.
  */
-int ttls_x509_crt_parse(ttls_x509_crt *chain, const unsigned char *buf, size_t buflen);
+int ttls_x509_crt_parse(ttls_x509_crt *chain, unsigned char *buf, size_t buflen);
 
 /**
  * \brief		  Returns an informational string about the
