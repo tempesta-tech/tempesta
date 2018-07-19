@@ -735,10 +735,10 @@ ttls_decrypt(TlsCtx *tls)
  * page fragments from @sgt.
  */
 void
-__ttls_write_record(TlsCtx *tls, struct sg_table *sgt, int sg_i)
+__ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
+		  unsigned char *hdr_buf)
 {
 	TlsIOCtx *io = &tls->io_out;
-	int msg_len = io->msglen;
 
 	T_DBG("write record: type=%d len=%d sgt=%pK/%u\n",
 	      io->msgtype, io->msglen, sgt, sgt ? sgt->nents : 0);
@@ -775,8 +775,10 @@ __ttls_write_record(TlsCtx *tls, struct sg_table *sgt, int sg_i)
 	 * Write TLS header if the record should not be encrypted.
 	 * Otherwise sk_write_xmit() call back does this for us.
 	 */
+	if (!hdr_buf)
+		hdr_buf = io->hdr;
 	if (!ttls_xfrm_ready(tls))
-		ttls_write_hdr(tls, io->msgtype, msg_len, io->hdr);
+		ttls_write_hdr(tls, io->msgtype, io->msglen, hdr_buf);
 
 	T_DBG3("output record: type=%d ver=%d:%d hdr_len=%d\n" ,
 		io->hdr[0], io->hdr[1], io->hdr[2], io->msglen);
@@ -796,7 +798,7 @@ __ttls_send_record(TlsCtx *tls, struct sg_table *sgt)
 int
 ttls_write_record(TlsCtx *tls, struct sg_table *sgt)
 {
-	__ttls_write_record(tls, sgt, 0);
+	__ttls_add_record(tls, sgt, 0, NULL);
 	return __ttls_send_record(tls, sgt);
 }
 
@@ -1132,7 +1134,7 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 	}
 #endif
 
-	/* Leave the sg for the certs descriptor. */
+	/* Leave the sg for the record header and certs descriptor. */
 	sg_nents = sgt->nents++;
 
 	if (tls->conf->endpoint == TTLS_IS_SERVER && !ttls_own_cert(tls)) {
@@ -1141,17 +1143,13 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 	}
 
 	/*
-	 *   0 . 0	handshake type
-	 *   1 . 3	handshake length
-	 *   4 . 6	length of all certs
 	 *   7 . 9	length of cert. 1
 	 *  10 . n-1	peer certificate
 	 *   n . n+2	length of cert. 2
 	 * n+3 . ...	upper level cert, etc.
 	 */
-	*p = io->hstype = TTLS_HS_CERTIFICATE;
-
-	tot_len = i = 7;
+	tot_len = 7;
+	i = tot_len + ttls_hdr_len(tls);
 	for (cn = 0, crt = ttls_own_cert(tls); crt; ) {
 		n = crt->raw.len;
 		if (n > TTLS_MAX_CONTENT_LEN - 3 - i) {
@@ -1165,10 +1163,10 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 		p[i++] = (unsigned char)n;
 
 		tot_len += 3 + n;
-		/* TODO keep certificates in separate pages. */
 		get_page(virt_to_page(crt->raw.p));
 		sg_set_page(&sgt->sgl[sgt->nents++], virt_to_page(crt->raw.p),
 			    n, (unsigned long)crt->raw.p & ~PAGE_MASK);
+		WARN_ON_ONCE((unsigned long)crt->raw.p & ~PAGE_MASK);
 		WARN_ON_ONCE(sgt->nents >= MAX_SKB_FRAGS);
 		T_DBG3("add cert page %pK,len=%lu,off=%lu seg=%u\n",
 		       crt->raw.p, n, (unsigned long)crt->raw.p & ~PAGE_MASK,
@@ -1188,23 +1186,26 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 	if (crt)
 		T_WARN("Can not write full certificates chain\n");
 
-	/* Write handshake header on our own. */
-	p[1] = (unsigned char)((tot_len - 7 + 3) >> 16);
-	p[2] = (unsigned char)((tot_len - 7 + 3) >> 8);
-	p[3] = (unsigned char)(tot_len - 7 + 3);
-	p[4] = (unsigned char)((tot_len - 7) >> 16);
-	p[5] = (unsigned char)((tot_len - 7) >> 8);
-	p[6] = (unsigned char)(tot_len - 7);
-	io->hslen = 0;
+	/*
+	 * Write thr handshake headers on our own.
+	 *
+	 *  0 . 4	record header (to be written in __ttls_add_record()
+	 *  5 . 5	handshake type
+	 *  6 . 8	handshake length
+	 *  9 . 11	length of all certs
+	 */
 	io->msglen = tot_len;
-	io->msgtype = TTLS_MSG_HANDSHAKE;
+	ttls_write_hshdr(TTLS_HS_CERTIFICATE, p + ttls_hdr_len(tls), tot_len);
+	p[9] = (unsigned char)((tot_len - 7) >> 16);
+	p[10] = (unsigned char)((tot_len - 7) >> 8);
+	p[11] = (unsigned char)(tot_len - 7);
 	T_DBG3("cert desc %pK,len=%lu segs=%u\n", p, i, sgt->nents);
 
 	*in_buf = p + i;
 	sg_set_page(&sgt->sgl[sg_nents], virt_to_page(p), i,
 		    (unsigned long)p & ~PAGE_MASK);
 	get_page(virt_to_page(p));
-	__ttls_write_record(tls, sgt, sg_nents);
+	__ttls_add_record(tls, sgt, sg_nents, p);
 
 	return r;
 }
@@ -1474,13 +1475,12 @@ ttls_write_change_cipher_spec(ttls_context *tls, struct sg_table *sgt,
 {
 	TlsIOCtx *io = &tls->io_out;
 
-	/* FIXME the header must be in the paged area as well. */
+	io->msglen = io->hslen = 1;
 	io->msgtype = TTLS_MSG_CHANGE_CIPHER_SPEC;
 	io->hstype = 0xff; /* invalid handshake type */
-	io->msglen = io->hslen = 1;
 	io->hs_hdr[0] = 1;
 
-	__ttls_write_record(tls, NULL, 0);
+	__ttls_add_record(tls, NULL, 0, NULL);
 
 	return 0;
 }
@@ -1527,19 +1527,23 @@ int
 ttls_write_finished(TlsCtx *tls, struct sg_table *sgt, unsigned char **in_buf)
 {
 	TlsIOCtx *io = &tls->io_out;
+	unsigned char *p = *in_buf;
 
 	BUILD_BUG_ON(TTLS_IV_LEN < TLS_MAX_HASH_LEN + 4);
 
 	tls->hs->calc_finished(tls, &io->__msg[4], tls->conf->endpoint);
 
 	bzero_fast(io->ctr, 8);
-	/* FIXME the header must be in the paged area as well. */
-	io->msgtype = TTLS_MSG_HANDSHAKE;
-	io->hstype = TTLS_HS_FINISHED;
-	io->msglen = io->hslen = 4 + TLS_MAX_HASH_LEN;
-	ttls_write_hshdr(TTLS_HS_FINISHED, io->hs_hdr, TLS_MAX_HASH_LEN);
+	io->msglen = 4 + TLS_MAX_HASH_LEN;
+	ttls_write_hshdr(TTLS_HS_FINISHED, p + ttls_hdr_len(tls),
+			 TLS_MAX_HASH_LEN);
 
-	__ttls_write_record(tls, NULL, 0);
+	*in_buf += ttls_hdr_len(tls) + ttls_hs_hdr_len(tls) + TLS_MAX_HASH_LEN;
+	sg_set_page(&sgt->sgl[sgt->nents++], virt_to_page(p), *in_buf - p,
+		    (unsigned long)p & ~PAGE_MASK);
+	get_page(virt_to_page(p));
+
+	__ttls_add_record(tls, sgt, sgt->nents - 1, p);
 
 	return 0;
 }

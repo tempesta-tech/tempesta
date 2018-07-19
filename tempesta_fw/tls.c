@@ -249,8 +249,11 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 	 * in tfw_tls_encrypt(), so if we have an encryption context, then we
 	 * don't send the header. Otherwise (handshake message) copy the whole
 	 * data with a header.
-	 * FIXME last record in multi-record write overwrites all the previos
-	 * records' headers.
+	 *
+	 * During handshake (!ttls_xfrm_ready(tls)), io may contain several
+	 * consequent records of the same TTLS_MSG_HANDSHAKE type. io, except
+	 * msglen containing length of the last record, describes the first
+	 * record.
 	 */
 	if (ttls_xfrm_ready(tls)) {
 		str.ptr = io->__msg;
@@ -470,7 +473,7 @@ tfw_cfgop_ssl_certificate(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	}
 
-	r = ttls_x509_crt_parse(&tfw_tls.crt, (const unsigned char *)crt_data,
+	r = ttls_x509_crt_parse(&tfw_tls.crt, (unsigned char *)crt_data,
 				crt_size);
 
 	if (r) {
