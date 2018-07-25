@@ -1,26 +1,23 @@
-/**
- * \file pem.h
- *
- * \brief Privacy Enhanced Mail (PEM) decoding
- */
 /*
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- *  SPDX-License-Identifier: GPL-2.0
+ *		Tempesta TLS
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * SPDX-License-Identifier: GPL-2.0
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include <linux/types.h>
 
@@ -28,66 +25,31 @@
 #define TTLS_PEM_H
 
 /**
- * \name PEM Error codes
- * These error codes are returned in case of errors reading the
- * PEM data.
+ * PEM Error codes
+ * These error codes are returned in case of errors reading the PEM data.
  */
-#define TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT		  -0x1080  /**< No PEM header or footer found. */
-#define TTLS_ERR_PEM_INVALID_DATA		  -0x1100  /**< PEM string is not as expected. */
-#define TTLS_ERR_PEM_ALLOC_FAILED		  -0x1180  /**< Failed to allocate memory. */
-#define TTLS_ERR_PEM_INVALID_ENC_IV		-0x1200  /**< RSA IV is not in hex-format. */
-#define TTLS_ERR_PEM_UNKNOWN_ENC_ALG				   -0x1280  /**< Unsupported key encryption algorithm. */
-#define TTLS_ERR_PEM_PASSWORD_REQUIRED				 -0x1300  /**< Private key password can't be empty. */
-#define TTLS_ERR_PEM_PASSWORD_MISMATCH				 -0x1380  /**< Given private key password does not allow for correct decryption. */
-#define TTLS_ERR_PEM_FEATURE_UNAVAILABLE			   -0x1400  /**< Unavailable feature, e.g. hashing/encryption combination. */
-#define TTLS_ERR_PEM_BAD_INPUT_DATA		-0x1480  /**< Bad input parameters to function. */
+/* No PEM header or footer found. */
+#define TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT		-0x1080
+/* PEM string is not as expected. */
+#define TTLS_ERR_PEM_INVALID_DATA			-0x1100
+/* Failed to allocate memory. */
+#define TTLS_ERR_PEM_ALLOC_FAILED			-0x1180
+/* RSA IV is not in hex-format. */
+#define TTLS_ERR_PEM_INVALID_ENC_IV			-0x1200
+/* Unsupported key encryption algorithm. */
+#define TTLS_ERR_PEM_UNKNOWN_ENC_ALG			-0x1280
+/* Private key password can't be empty. */
+#define TTLS_ERR_PEM_PASSWORD_REQUIRED			-0x1300
+/* Given private key password does not allow for correct decryption. */
+#define TTLS_ERR_PEM_PASSWORD_MISMATCH			-0x1380
+/* Unavailable feature, e.g. hashing/encryption combination. */
+#define TTLS_ERR_PEM_FEATURE_UNAVAILABLE		-0x1400
+/* Output buffer too small. */
+#define TTLS_ERR_BASE64_BUFFER_TOO_SMALL		-0x002A
+/* Invalid character in input. */
+#define TTLS_ERR_BASE64_INVALID_CHARACTER		-0x002C
 
-/**
- * \brief	   PEM context structure
- */
-typedef struct
-{
-	unsigned char *buf;	 /*!< buffer for decoded data			 */
-	size_t buflen;		  /*!< length of the buffer				*/
-	unsigned char *info;	/*!< buffer for extra header information */
-}
-ttls_pem_context;
-
-/**
- * \brief	   PEM context setup
- *
- * \param ctx   context to be initialized
- */
-void ttls_pem_init(ttls_pem_context *ctx);
-
-/**
- * \brief	   Read a buffer for PEM information and store the resulting
- *			  data into the specified context buffers.
- *
- * \param ctx	   context to use
- * \param header	header string to seek and expect
- * \param footer	footer string to seek and expect
- * \param data	  source data to look in (must be nul-terminated)
- * \param use_len   destination for total length used (set after header is
- *				  correctly read, so unless you get
- *				  TTLS_ERR_PEM_BAD_INPUT_DATA or
- *				  TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT, use_len is
- *				  the length to skip)
- *
- * \note			Attempts to check password correctness by verifying if
- *				  the decrypted text starts with an ASN.1 sequence of
- *				  appropriate length
- *
- * \return		  0 on success, or a specific PEM error code
- */
-int ttls_pem_read_buffer(ttls_pem_context *ctx, const char *header, const char *footer,
-		 const unsigned char *data, size_t *use_len);
-
-/**
- * \brief	   PEM context memory freeing
- *
- * \param ctx   context to be freed
- */
-void ttls_pem_free(ttls_pem_context *ctx);
+int ttls_pem_read_buffer(const char *header, const char *footer,
+			 unsigned char *data, size_t *use_len);
 
 #endif /* pem.h */

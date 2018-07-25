@@ -40,8 +40,6 @@ TEST(tls, name)								\
 	kernel_fpu_end();						\
 }
 
-DEFINE_TLS_TEST(base64);
-DEFINE_TLS_TEST(dhm);
 DEFINE_TLS_TEST(ecp);
 DEFINE_TLS_TEST(mpi);
 DEFINE_TLS_TEST(rsa);
@@ -49,8 +47,6 @@ DEFINE_TLS_TEST(x509);
 
 TEST_SUITE(tls)
 {
-	TEST_RUN(tls, base64);
-	TEST_RUN(tls, dhm);
 	TEST_RUN(tls, ecp);
 	TEST_RUN(tls, mpi);
 	TEST_RUN(tls, rsa);

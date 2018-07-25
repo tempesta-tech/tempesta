@@ -411,27 +411,7 @@ ttls_pk_type_t ttls_pk_get_type(const ttls_pk_context *ctx);
  *
  * \return		  0 if successful, or a specific PK or PEM error code
  */
-int ttls_pk_parse_key(ttls_pk_context *ctx, const unsigned char *key, size_t keylen);
-
-/** \ingroup pk_module */
-/**
- * \brief		   Parse a public key in PEM or DER format
- *
- * \param ctx	   key to be initialized
- * \param key	   input buffer
- * \param keylen	size of the buffer
- *				  (including the terminating null byte for PEM data)
- *
- * \note			On entry, ctx must be empty, either freshly initialised
- *				  with ttls_pk_init() or reset with ttls_pk_free(). If you need a
- *				  specific key type, check the result with ttls_pk_can_do().
- *
- * \note			The key is also checked for correctness.
- *
- * \return		  0 if successful, or a specific PK or PEM error code
- */
-int ttls_pk_parse_public_key(ttls_pk_context *ctx,
-			 const unsigned char *key, size_t keylen);
+int ttls_pk_parse_key(ttls_pk_context *ctx, unsigned char *key, size_t keylen);
 
 /**
  * \brief		   Parse a SubjectPublicKeyInfo DER structure

@@ -26,13 +26,13 @@
 #include "procfs.h"
 #include "tls.h"
 
-typedef struct {
+static struct {
 	ttls_config	cfg;
 	ttls_x509_crt	crt;
 	ttls_pk_context	key;
-} TfwTls;
-
-static TfwTls tfw_tls;
+	unsigned long	crt_pg_addr;
+	unsigned int	crt_pg_order;
+} tfw_tls;
 
 static int
 tfw_tls_msg_process(void *conn, const TfwFsmData *data)
@@ -479,8 +479,11 @@ tfw_cfgop_ssl_certificate(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (r) {
 		TFW_ERR_NL("%s: Invalid certificate specified (%x)\n",
 			   cs->name, -r);
+		free_pages((unsigned long)crt_data, get_order(crt_size));
 		return -EINVAL;
 	}
+	tfw_tls.crt_pg_addr = (unsigned long)crt_data;
+	tfw_tls.crt_pg_order = get_order(crt_size);
 	tfw_tls_cgf |= TFW_TLS_CFG_F_CERT;
 
 	return 0;
@@ -490,6 +493,7 @@ static void
 tfw_cfgop_cleanup_ssl_certificate(TfwCfgSpec *cs)
 {
 	ttls_x509_crt_free(&tfw_tls.crt);
+	free_pages(tfw_tls.crt_pg_addr, tfw_tls.crt_pg_order);
 	tfw_tls_cgf &= ~TFW_TLS_CFG_F_CERT;
 }
 
@@ -523,10 +527,10 @@ tfw_cfgop_ssl_certificate_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	}
 
-	r = ttls_pk_parse_key(&tfw_tls.key, (const unsigned char *)key_data,
+	r = ttls_pk_parse_key(&tfw_tls.key, (unsigned char *)key_data,
 			      key_size);
+	/* The key is copied, so free the paged data. */
 	free_pages((unsigned long)key_data, get_order(key_size));
-
 	if (r) {
 		TFW_ERR_NL("%s: Invalid private key specified (%x)\n",
 			   cs->name, -r);
