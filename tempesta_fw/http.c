@@ -2341,85 +2341,92 @@ tfw_http_req_mark_error(TfwHttpReq *req, int status)
 }
 
 /**
- * Functions define logging and response behaviour during detection of
- * malformed or malicious messages. Mark client connection in special
- * manner to delay its closing until transmission of error response
- * will be finished.
+ * Function defines logging and response behaviour during detection of
+ * malformed or malicious messages. If reply to client must be sent,
+ * mark client connection in special manner to delay its closing until
+ * transmission of error response will be finished; otherwise, close
+ * connection immediately.
  */
 static void
-tfw_http_cli_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
-				int status, const char *msg)
+tfw_http_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
+			    int status, const char *msg, bool close)
 {
 	if (!nolog)
 		TFW_WARN_ADDR(msg, &req->conn->peer->addr);
 
 	if (reply) {
-		TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
-		tfw_connection_unlink_msg(req->conn);
-		spin_lock(&cli_conn->seq_qlock);
-		list_add_tail(&req->msg.seq_list, &cli_conn->seq_queue);
-		spin_unlock(&cli_conn->seq_qlock);
+		if (!close) {
+			TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
+			tfw_connection_unlink_msg(req->conn);
+			spin_lock(&cli_conn->seq_qlock);
+			list_add_tail(&req->msg.seq_list, &cli_conn->seq_queue);
+			spin_unlock(&cli_conn->seq_qlock);
+		}
 		tfw_http_req_mark_error(req, status);
+		return;
 	}
-	else {
-		tfw_http_conn_req_clean(req);
-	}
-}
 
-static void
-tfw_http_srv_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
-				int status, const char *msg)
-{
-	if (!nolog)
-		TFW_WARN_ADDR(msg, &req->conn->peer->addr);
+	if (close)
+		ss_close_sync(req->conn->sk, true);
 
-	if (reply)
-		tfw_http_req_mark_error(req, status);
-	else
-		tfw_http_conn_req_clean(req);
+	tfw_http_conn_req_clean(req);
 }
 
 /**
- * Wrappers for calling tfw_http_cli_error_resp_and_log() and
- * tfw_http_srv_error_resp_and_log() functions in client/server
- * connection contexts depending on configuration settings:
- * sending response error messages and logging.
+ * Wrappers for calling tfw_http_error_resp_and_log() function in client/server
+ * connection contexts depending on configuration settings: sending response
+ * error messages and logging.
  *
- * NOTE: tfw_client_drop() and tfw_client_block() must be called
- * only from client connection context before a request was fully parsed.
- * Otherwise tfw_srv_client_drop() and tfw_srv_client_block() must be used
- * only from server connection context.
+ * NOTE: tfw_client_drop() and tfw_client_block() are intented to be called
+ * only from client connection context during request processing and before
+ * request was attached to connection's @seq_queue - these functions do this
+ * work on their own; also, these functions do not close client connection,
+ * since during request processing connection can always be closed from the
+ * caller (tfw_http_req_process() procedure) via appropriate return value.
+ * Functions tfw_client_drop_close() and tfw_client_block_close() must be
+ * used in all other cases, including server connection contexts, as they
+ * don't operate with @seq_queue and are responsible for client connection
+ * closing.
  */
+static inline void
+__tfw_client_drop(TfwHttpReq *req, int status, const char *msg, bool close)
+{
+
+	tfw_http_error_resp_and_log(tfw_blk_flags & TFW_BLK_ERR_REPLY,
+				    tfw_blk_flags & TFW_BLK_ERR_NOLOG,
+				    req, status, msg, close);
+}
+
+static inline void
+__tfw_client_block(TfwHttpReq *req, int status, const char *msg, bool close)
+{
+	tfw_http_error_resp_and_log(tfw_blk_flags & TFW_BLK_ATT_REPLY,
+				    tfw_blk_flags & TFW_BLK_ATT_NOLOG,
+				    req, status, msg, close);
+}
+
 static inline void
 tfw_client_drop(TfwHttpReq *req, int status, const char *msg)
 {
-	tfw_http_cli_error_resp_and_log(tfw_blk_flags & TFW_BLK_ERR_REPLY,
-					tfw_blk_flags & TFW_BLK_ERR_NOLOG,
-					req, status, msg);
+	__tfw_client_drop(req, status, msg, false);
 }
 
 static inline void
 tfw_client_block(TfwHttpReq *req, int status, const char *msg)
 {
-	tfw_http_cli_error_resp_and_log(tfw_blk_flags & TFW_BLK_ATT_REPLY,
-					tfw_blk_flags & TFW_BLK_ATT_NOLOG,
-					req, status, msg);
+	__tfw_client_block(req, status, msg, false);
 }
 
 static inline void
-tfw_srv_client_drop(TfwHttpReq *req, int status, const char *msg)
+tfw_client_drop_close(TfwHttpReq *req, int status, const char *msg)
 {
-	tfw_http_srv_error_resp_and_log(tfw_blk_flags & TFW_BLK_ERR_REPLY,
-					tfw_blk_flags & TFW_BLK_ERR_NOLOG,
-					req, status, msg);
+	__tfw_client_drop(req, status, msg, true);
 }
 
 static inline void
-tfw_srv_client_block(TfwHttpReq *req, int status, const char *msg)
+tfw_client_block_close(TfwHttpReq *req, int status, const char *msg)
 {
-	tfw_http_srv_error_resp_and_log(tfw_blk_flags &	TFW_BLK_ATT_REPLY,
-					tfw_blk_flags & TFW_BLK_ATT_NOLOG,
-					req, status, msg);
+	__tfw_client_block(req, status, msg, true);
 }
 
 /**
@@ -2478,7 +2485,7 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 		/* Response sent, nothing to do. */
 		return;
 	case TFW_HTTP_SESS_VIOLATE:
-		goto drop_503;
+		goto block_503;
 	case TFW_HTTP_SESS_JS_NOT_SUPPORTED:
 		goto send_503;
 	default:
@@ -2526,9 +2533,9 @@ send_503:
 			   " can't send JS challenge.");
 	TFW_INC_STAT_BH(clnt.msgs_filtout);
 	return;
-drop_503:
-	tfw_srv_client_drop(req, 503, "request dropped: invalid sticky cookie "
-				      "or js challenge");
+block_503:
+	tfw_client_block_close(req, 503, "request dropped: invalid sticky"
+			       " cookie or js challenge");
 	TFW_INC_STAT_BH(clnt.msgs_filtout);
 	return;
 send_502:
@@ -3021,7 +3028,7 @@ tfw_http_resp_gfsm(TfwHttpMsg *hmresp, const TfwFsmData *data)
 error:
 	tfw_http_popreq(hmresp);
 	tfw_http_conn_msg_free(hmresp);
-	tfw_srv_client_block(req, 502, "response blocked: filtered out");
+	tfw_client_block_close(req, 502, "response blocked: filtered out");
 	TFW_INC_STAT_BH(serv.msgs_filtout);
 	return r;
 }
@@ -3311,13 +3318,13 @@ bad_msg:
 	tfw_http_req_delist((TfwSrvConn *)conn, bad_req);
 	tfw_http_conn_msg_free(hmresp);
 	if (filtout)
-		tfw_srv_client_block(bad_req, 502,
-				     "response blocked:"
-				     " filtered out");
+		tfw_client_block_close(bad_req, 502,
+				       "response blocked:"
+				       " filtered out");
 	else
-		tfw_srv_client_drop(bad_req, 502,
-				    "response dropped:"
-				    " processing error");
+		tfw_client_drop_close(bad_req, 502,
+				      "response dropped:"
+				      " processing error");
 	return TFW_BLOCK;
 }
 
