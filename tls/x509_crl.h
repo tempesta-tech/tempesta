@@ -105,7 +105,7 @@ int ttls_x509_crl_parse_der(ttls_x509_crl *chain,
  *
  * \return		 0 if successful, or a specific X509 or PEM error code
  */
-int ttls_x509_crl_parse(ttls_x509_crl *chain, const unsigned char *buf, size_t buflen);
+int ttls_x509_crl_parse(ttls_x509_crl *chain, unsigned char *buf, size_t buflen);
 
 /**
  * \brief		  Returns an informational string about the CRL.
