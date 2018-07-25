@@ -32,6 +32,7 @@
  * @conn_users		- connections reference counter.
  * 			  The client is released, when the counter reaches zero:
  * 			  no connections to the server - no client for us :)
+ * @miss_count		- count of cookie misses in requests;
  * @class_prvt		- private client accounting data for classifier module.
  *			  Typically it's large and vastes memory in vain if
  *			  no any classification logic is used;
@@ -41,6 +42,7 @@ typedef struct {
 	struct hlist_node	hentry;
 	spinlock_t		*hb_lock;
 	atomic_t		conn_users;
+	atomic_t		miss_count;
 	TfwClassifierPrvt	class_prvt;
 } TfwClient;
 
