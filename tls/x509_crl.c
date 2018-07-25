@@ -35,9 +35,7 @@
 
 #include "x509_crl.h"
 #include "oid.h"
-#if defined(TTLS_PEM_PARSE_C)
 #include "pem.h"
-#endif
 
 /* Implementation that should never be optimized out by the compiler */
 static void ttls_zeroize(void *v, size_t n) {
@@ -510,68 +508,55 @@ int ttls_x509_crl_parse_der(ttls_x509_crl *chain,
 	return 0;
 }
 
-/*
- * Parse one or more CRLs and add them to the chained list
+/**
+ * Parse one or more CRLs and add them to the chained list.
+ * BEWARE @buf is overwritten by the PEM decoder.
  */
-int ttls_x509_crl_parse(ttls_x509_crl *chain, const unsigned char *buf, size_t buflen)
+int
+ttls_x509_crl_parse(ttls_x509_crl *chain, unsigned char *buf, size_t buflen)
 {
-#if defined(TTLS_PEM_PARSE_C)
-	int ret;
+	int r, dec_len, is_pem = 0;
 	size_t use_len;
-	ttls_pem_context pem;
-	int is_pem = 0;
 
-	if (chain == NULL || buf == NULL)
-		return(TTLS_ERR_X509_BAD_INPUT_DATA);
+	if (!chain || !buf)
+		return TTLS_ERR_X509_BAD_INPUT_DATA;
 
-	do
-	{
-		ttls_pem_init(&pem);
-
-		// Avoid calling ttls_pem_read_buffer() on non-null-terminated
-		// string
-		if (buflen == 0 || buf[buflen - 1] != '\0')
-			ret = TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT;
+	do {
+		/*
+		 * Avoid calling ttls_pem_read_buffer() on non-null-terminated
+		 * string.
+		 */
+		if (!buflen || buf[buflen - 1] != '\0')
+			r = TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT;
 		else
-			ret = ttls_pem_read_buffer(&pem,
-				   "-----BEGIN X509 CRL-----",
-				   "-----END X509 CRL-----",
-		buf, NULL, 0, &use_len);
+			r = ttls_pem_read_buffer("-----BEGIN X509 CRL-----",
+						 "-----END X509 CRL-----",
+						 buf, &use_len);
 
-		if (ret == 0)
-		{
-			/*
-			 * Was PEM encoded
-			 */
+		if (ret > 0) {
+			/* Was PEM encoded. */
 			is_pem = 1;
-
+			dec_len = r;
 			buflen -= use_len;
-			buf += use_len;
 
-			if ((ret = ttls_x509_crl_parse_der(chain,
-		pem.buf, pem.buflen)) != 0)
-			{
-				ttls_pem_free(&pem);
-				return ret;
-			}
+			if ((r = ttls_x509_crl_parse_der(chain, buf, dec_len)))
+				return r;
 		}
-		else if (is_pem)
-		{
-			ttls_pem_free(&pem);
-			return ret;
+		else if (is_pem) {
+			return r;
 		}
 
-		ttls_pem_free(&pem);
+		buf += use_len;
 	}
-	/* In the PEM case, buflen is 1 at the end, for the terminated NULL byte.
-	 * And a valid CRL cannot be less than 1 byte anyway. */
+	/*
+	 * In the PEM case, buflen is 1 at the end, for the terminated NULL
+	 * byte. And a valid CRL cannot be less than 1 byte anyway.
+	 */
 	while (is_pem && buflen > 1);
 
 	if (is_pem)
 		return 0;
-	else
-#endif /* TTLS_PEM_PARSE_C */
-		return(ttls_x509_crl_parse_der(chain, buf, buflen));
+	return ttls_x509_crl_parse_der(chain, buf, buflen);
 }
 
 /*

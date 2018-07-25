@@ -24,6 +24,7 @@
 #ifndef TTLS_INTERNAL_H
 #define TTLS_INTERNAL_H
 
+#include "debug.h"
 #include "lib/fsm.h"
 
 #include "cipher.h"
@@ -217,6 +218,19 @@ int ttls_set_calc_verify_md(ttls_context *tls, int md);
 int ttls_check_curve(const ttls_context *tls, ttls_ecp_group_id grp_id);
 
 int ttls_check_sig_hash(const ttls_context *tls, ttls_md_type_t md);
+
+/**
+ * Implementation that should never be optimized out by the compiler.
+ * Use this only for preemptable contexts and prefer bzero_fast() for siftirq.
+ */
+static inline void
+ttls_zeroize(void *v, size_t n)
+{
+	volatile unsigned char *p = v;
+
+	while (n--)
+		*p++ = 0;
+}
 
 static inline ttls_pk_context *ttls_own_key(ttls_context *tls)
 {

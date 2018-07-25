@@ -64,7 +64,6 @@
 //#define TTLS_AES_ALT
 //#define TTLS_CAMELLIA_ALT
 //#define TTLS_CCM_ALT
-//#define TTLS_DHM_ALT
 //#define TTLS_GCM_ALT
 //#define TTLS_RSA_ALT
 //#define TTLS_SHA1_ALT
@@ -316,18 +315,6 @@
 #define TTLS_X509_CHECK_EXTENDED_KEY_USAGE
 
 /**
- * \def TTLS_BASE64_C
- *
- * Enable the Base64 module.
- *
- * Module:  library/base64.c
- * Caller:  library/pem.c
- *
- * This module is required for PEM support (required by X.509).
- */
-#define TTLS_BASE64_C
-
-/**
  * \def TTLS_CAMELLIA_C
  *
  * Enable the Camellia block cipher.
@@ -517,7 +504,6 @@
 //#define TTLS_CIPHERSUITES TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
 
 /* X509 options */
-//#define TTLS_X509_MAX_INTERMEDIATE_CA   8   /**< Maximum number of intermediate CAs in a verification chain. */
 //#define TTLS_X509_MAX_FILE_PATH_LEN	 512 /**< Maximum length of a path/filename string in bytes including the null terminator character ('\0'). */
 
 /**

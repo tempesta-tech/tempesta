@@ -225,29 +225,6 @@ int ttls_dhm_calc_secret(ttls_dhm_context *ctx,
 		 unsigned char *output, size_t output_size, size_t *olen);
 
 /**
- * \brief		  This function frees and clears the components of a DHM key.
- *
- * \param ctx	  The DHM context to free and clear.
- */
-void ttls_dhm_free(ttls_dhm_context *ctx);
-
-/** \ingroup x509_module */
-/**
- * \brief			 This function parses DHM parameters in PEM or DER format.
- *
- * \param dhm		 The DHM context to initialize.
- * \param dhmin	   The input buffer.
- * \param dhminlen	The size of the buffer, including the terminating null
- *		Byte for PEM data.
- *
- * \return			\c 0 on success, or a specific DHM or PEM error code
- *		on failure.
- */
-int ttls_dhm_parse_dhm(ttls_dhm_context *dhm, const unsigned char *dhmin,
-				   size_t dhminlen);
-
-
-/**
  * RFC 3526, RFC 5114 and RFC 7919 standardize a number of
  * Diffie-Hellman groups, some of which are included here
  * for use within the SSL/TLS module and the user's convenience
