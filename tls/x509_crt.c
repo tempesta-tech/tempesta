@@ -34,11 +34,7 @@
 #include "x509_crt.h"
 #include "oid.h"
 #include "pem.h"
-
-/* Implementation that should never be optimized out by the compiler */
-static void ttls_zeroize(void *v, size_t n) {
-	volatile unsigned char *p = v; while (n--) *p++ = 0;
-}
+#include "ssl_internal.h"
 
 /*
  * Default profile
@@ -632,9 +628,10 @@ x509_crt_parse_der_core(ttls_x509_crt *crt, unsigned char *buf, size_t buflen)
 
 	/*
 	 * Certificate  ::=  SEQUENCE  {
-	 *	  tbsCertificate	   TBSCertificate,
-	 *	  signatureAlgorithm   AlgorithmIdentifier,
-	 *	  signatureValue	   BIT STRING  }
+	 *   tbsCertificate		TBSCertificate,
+	 *   signatureAlgorithm		AlgorithmIdentifier,
+	 *   signatureValue		BIT STRING
+	 * }
 	 */
 	r = ttls_asn1_get_tag(&p, end, &len,
 			      TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE);
@@ -642,7 +639,6 @@ x509_crt_parse_der_core(ttls_x509_crt *crt, unsigned char *buf, size_t buflen)
 		ttls_x509_crt_free(crt);
 		return TTLS_ERR_X509_INVALID_FORMAT;
 	}
-
 	if (len > (size_t)(end - p)) {
 		ttls_x509_crt_free(crt);
 		return TTLS_ERR_X509_INVALID_FORMAT
@@ -655,7 +651,7 @@ x509_crt_parse_der_core(ttls_x509_crt *crt, unsigned char *buf, size_t buflen)
 	 * Reuse the buffer, we're responsible to free the pages later.
 	 */
 	crt->raw.len = crt_end - buf;
-	crt->raw.p = buf;
+	crt->raw.p = p = buf;
 
 	/* Direct pointers to the new buffer. */
 	p += crt->raw.len - len;
@@ -833,7 +829,7 @@ ttls_x509_crt_parse_der(ttls_x509_crt *chain, unsigned char *buf, size_t buflen)
 
 	/* Add new certificate on the end of the chain if needed. */
 	if (crt->version && !crt->next) {
-		crt->next = ttls_calloc(1, sizeof(ttls_x509_crt));
+		crt->next = kmalloc(sizeof(ttls_x509_crt), GFP_KERNEL);
 		if (!crt->next)
 			return TTLS_ERR_X509_ALLOC_FAILED;
 
@@ -846,7 +842,7 @@ ttls_x509_crt_parse_der(ttls_x509_crt *chain, unsigned char *buf, size_t buflen)
 		if (prev)
 			prev->next = NULL;
 		if (crt != chain)
-			ttls_free(crt);
+			kfree(crt);
 		return r;
 	}
 
@@ -855,7 +851,7 @@ ttls_x509_crt_parse_der(ttls_x509_crt *chain, unsigned char *buf, size_t buflen)
 
 /**
  * Parse one or more PEM certificates from a buffer and add them to the chained
- * list.
+ * list. @buf is a page cluster reused in the certificates chain.
  */
 int
 ttls_x509_crt_parse(ttls_x509_crt *chain, unsigned char *buf, size_t buflen)
@@ -881,7 +877,6 @@ ttls_x509_crt_parse(ttls_x509_crt *chain, unsigned char *buf, size_t buflen)
 
 	if (buf_format == TTLS_X509_FORMAT_PEM) {
 		int r;
-		ttls_pem_context pem;
 
 		/*
 		 * 1 rather than 0 since the terminating NULL byte
@@ -889,27 +884,22 @@ ttls_x509_crt_parse(ttls_x509_crt *chain, unsigned char *buf, size_t buflen)
 		 */
 		while (buflen > 1) {
 			size_t use_len;
-			ttls_pem_init(&pem);
+			unsigned char *pem_dec;
 
 			/*
 			 * If we get there, we know the string is
 			 * null-terminated.
 			 */
-			r = ttls_pem_read_buffer(&pem,
-						 "-----BEGIN CERTIFICATE-----",
+			r = ttls_pem_read_buffer("-----BEGIN CERTIFICATE-----",
 						 "-----END CERTIFICATE-----",
 						 buf, &use_len);
-			if (!r) {
+			if (r > 0) {
 				/* Was PEM encoded. */
+				pem_dec = buf;
 				buflen -= use_len;
 				buf += use_len;
 			}
-			else if (r == TTLS_ERR_PEM_BAD_INPUT_DATA) {
-				return r;
-			}
 			else if (r != TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT) {
-				ttls_pem_free(&pem);
-
 				/* PEM header and footer were found. */
 				buflen -= use_len;
 				buf += use_len;
@@ -923,8 +913,7 @@ ttls_x509_crt_parse(ttls_x509_crt *chain, unsigned char *buf, size_t buflen)
 				break;
 			}
 
-			r = ttls_x509_crt_parse_der(chain, pem.buf, pem.buflen);
-			ttls_pem_free(&pem);
+			r = ttls_x509_crt_parse_der(chain, pem_dec, r);
 			if (r) {
 				/* Quit parsing on a memory error. */
 				if (r == TTLS_ERR_X509_ALLOC_FAILED)
@@ -939,12 +928,10 @@ ttls_x509_crt_parse(ttls_x509_crt *chain, unsigned char *buf, size_t buflen)
 		}
 	}
 
-	if (success) {
+	if (success)
 		return total_failed;
-	}
-	else if (first_error) {
+	if (first_error)
 		return first_error;
-	}
 	return TTLS_ERR_X509_CERT_UNKNOWN_FORMAT;
 }
 EXPORT_SYMBOL(ttls_x509_crt_parse);
@@ -2116,8 +2103,10 @@ ttls_x509_crt_free(ttls_x509_crt *crt)
 
 		if (cert_cur->raw.p) {
 			ttls_zeroize(cert_cur->raw.p, cert_cur->raw.len);
-			free_pages((unsigned long)cert_cur->raw.p,
-				   get_order(cert_cur->raw.len));
+			/*
+			 * It's a user responsibility to free the certificate
+			 * pages.
+			 */
 		}
 
 		cert_cur = cert_cur->next;

@@ -27,8 +27,6 @@
 #include <linux/string.h>
 #include <net/tls.h>
 
-#include "lib/log.h"
-
 #include "config.h"
 #include "bignum.h"
 #include "ecp.h"
