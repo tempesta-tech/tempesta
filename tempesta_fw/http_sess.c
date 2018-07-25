@@ -47,6 +47,7 @@
 #include "client.h"
 #include "http_msg.h"
 #include "http_sess.h"
+#include "filter.h"
 
 #define STICKY_NAME_MAXLEN	(32)
 #define STICKY_NAME_DEFAULT	"__tfw"
@@ -59,11 +60,13 @@
  * @name		- name of sticky cookie;
  * @name_eq		- @name plus "=" to make some operations faster;
  * @sess_lifetime	- session lifetime in seconds;
+ * @max_misses		- maximum count of requsts without cookie (per client);
  */
 typedef struct {
 	TfwStr		name;
 	TfwStr		name_eq;
 	unsigned int	sess_lifetime;
+	unsigned int	max_misses;
 	u_int		enabled : 1,
 			enforce : 1;
 } TfwCfgSticky;
@@ -151,7 +154,7 @@ tfw_http_sticky_send_redirect(TfwHttpReq *req, StickyVal *sv)
 	WARN_ON_ONCE(!list_empty(&req->nip_list));
 
 	/*
-	 * TODO: #598 rate limit requests with invalid cookie vaule.
+	 * TODO: #598 rate limit requests with invalid cookie value.
 	 * Non-challengeable requests also must be rate limited.
 	 */
 
@@ -166,7 +169,7 @@ tfw_http_sticky_send_redirect(TfwHttpReq *req, StickyVal *sv)
 	 * 	<timestamp> | HMAC(Secret, User-Agent, timestamp, Client IP)
 	 *
 	 * Open <timestamp> is required to be able to recalculate secret HMAC.
-	 * Since the secret is unknown for the attacke, they're still unable to
+	 * Since the secret is unknown for the attacker, they're still unable to
 	 * recalculate HMAC while we don't need to store session information
 	 * until we receive correct cookie value.
 	 */
@@ -408,15 +411,20 @@ tfw_http_sticky_add(TfwHttpResp *resp)
  * Calculate Tempesta sticky cookie and send redirection to the client if
  * enforcement is configured. Since the client can be malicious, we don't
  * store anything for now. HTTP session will be created when the client
- * is successfully solves the cookie challenge.
+ * is successfully solves the cookie challenge. Also, in enforcement
+ * configured case the count of requests without cookie is checked; if
+ * the configured limit is exhausted, the client will be blocked.
  */
 static int
 tfw_http_sticky_notfound(TfwHttpReq *req)
 {
 	StickyVal sv = {};
+	TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
+	TfwClient *cli = (TfwClient *)cli_conn->peer;
 
 	/*
-	 * If configured, ensure that backend server receives
+	 * If configured, ensure that limit for requests without
+	 * cookie is not exhausted and that backend server receives
 	 * requests that always carry Tempesta sticky cookie.
 	 * Return an HTTP 302 response to the client that has
 	 * the same host, URI, and includes 'Set-Cookie' header.
@@ -424,6 +432,13 @@ tfw_http_sticky_notfound(TfwHttpReq *req)
 	 */
 	if (!tfw_cfg_sticky.enforce)
 		return TFW_HTTP_SESS_SUCCESS;
+
+	if (tfw_cfg_sticky.max_misses &&
+	    atomic_inc_return(&cli->miss_count) > tfw_cfg_sticky.max_misses)
+	{
+		tfw_filter_block_ip(&cli_conn->peer->addr.v6.sin6_addr);
+		return TFW_HTTP_SESS_VIOLATE;
+	}
 
 	/* Create Tempesta sticky cookie and store it */
 	if (tfw_http_sticky_calc(req, &sv) != 0)
@@ -651,7 +666,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	 * can always send us requests w/o session cookie. HMAC will be
 	 * different due to different ingress timestamps, so DoS is very
 	 * possible. The only thing which we can do is to enforce the cookie.
-	 * However, we cal loose innocent clients w/ disabled cookies.
+	 * However, we can lose innocent clients w/ disabled cookies.
 	 * We leave this for administrator decision or more progressive DDoS
 	 * mitigation techniques.
 	 */
@@ -867,13 +882,23 @@ static int
 tfw_cfgop_sticky(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	size_t i, len;
-	const char *val;
+	const char *key, *val, *name_val = STICKY_NAME_DEFAULT;
 
-	val = tfw_cfg_get_attr(ce, "name", STICKY_NAME_DEFAULT);
-	len = strlen(val);
+	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
+		if (!strcasecmp(key, "name")) {
+			name_val = val;
+		} else if (!strcasecmp(key, "max_misses") &&
+			   tfw_cfg_parse_uint(val, &tfw_cfg_sticky.max_misses))
+		{
+			TFW_ERR_NL("%s: invalid value: '%s'\n", cs->name, val);
+			return -EINVAL;
+		}
+	}
+
+	len = strlen(name_val);
 	if (len == 0 || len > STICKY_NAME_MAXLEN)
 		return -EINVAL;
-	memcpy(tfw_cfg_sticky.name.ptr, val, len);
+	memcpy(tfw_cfg_sticky.name.ptr, name_val, len);
 	tfw_cfg_sticky.name.len = len;
 	((char*)tfw_cfg_sticky.name_eq.ptr)[len] = '=';
 	tfw_cfg_sticky.name_eq.len = len + 1;
@@ -883,6 +908,12 @@ tfw_cfgop_sticky(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			tfw_cfg_sticky.enforce = 1;
 			break;
 		}
+	}
+
+	if (tfw_cfg_sticky.max_misses && !tfw_cfg_sticky.enforce) {
+		TFW_ERR_NL("%s: 'max_misses' can be enabled only in"
+			   " 'enforce' mode\n", cs->name);
+		return -EINVAL;
 	}
 
 	return 0;
