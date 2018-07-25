@@ -22,9 +22,6 @@
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 #include "config.h"
-#if defined(TTLS_BASE64_C)
-#include "base64.h"
-#endif
 #include "bignum.h"
 #include "cipher.h"
 #if defined(TTLS_DHM_C)
@@ -147,8 +144,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			ttls_snprintf(buf, buflen, "PEM - Given private key password does not allow for correct decryption");
 		if (use_ret == -(TTLS_ERR_PEM_FEATURE_UNAVAILABLE))
 			ttls_snprintf(buf, buflen, "PEM - Unavailable feature, e.g. hashing/encryption combination");
-		if (use_ret == -(TTLS_ERR_PEM_BAD_INPUT_DATA))
-			ttls_snprintf(buf, buflen, "PEM - Bad input parameters to function");
 
 		if (use_ret == -(TTLS_ERR_PK_ALLOC_FAILED))
 			ttls_snprintf(buf, buflen, "PK - Memory allocation failed");
@@ -384,12 +379,10 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 	if (use_ret == -(TTLS_ERR_ASN1_BUF_TOO_SMALL))
 		ttls_snprintf(buf, buflen, "ASN1 - Buffer too small when writing ASN.1 data structure");
 
-#if defined(TTLS_BASE64_C)
 	if (use_ret == -(TTLS_ERR_BASE64_BUFFER_TOO_SMALL))
 		ttls_snprintf(buf, buflen, "BASE64 - Output buffer too small");
 	if (use_ret == -(TTLS_ERR_BASE64_INVALID_CHARACTER))
 		ttls_snprintf(buf, buflen, "BASE64 - Invalid character in input");
-#endif /* TTLS_BASE64_C */
 
 	if (use_ret == -(TTLS_ERR_MPI_FILE_IO_ERROR))
 		ttls_snprintf(buf, buflen, "BIGNUM - An error occurred while reading from or writing to a file");
