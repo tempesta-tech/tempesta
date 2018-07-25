@@ -860,223 +860,101 @@ static int pk_parse_key_pkcs8_unencrypted_der(
 	return 0;
 }
 
-/*
+/**
  * Parse a private key
  */
 int
-ttls_pk_parse_key(ttls_pk_context *pk, const unsigned char *key, size_t keylen)
+ttls_pk_parse_key(ttls_pk_context *pk, unsigned char *key, size_t keylen)
 {
-	int ret;
+	int r, dec_key_len;
 	const ttls_pk_info_t *pk_info;
-
 	size_t len;
-	ttls_pem_context pem;
 
-	ttls_pem_init(&pem);
-
+	if (!keylen)
+		return TTLS_ERR_PK_KEY_INVALID_FORMAT;
 	/* Avoid calling ttls_pem_read_buffer() on non-null-terminated string */
-	if (keylen == 0 || key[keylen - 1] != '\0')
-		ret = TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT;
-	else
-		ret = ttls_pem_read_buffer(&pem,
-				   "-----BEGIN RSA PRIVATE KEY-----",
-				   "-----END RSA PRIVATE KEY-----",
-				   key, &len);
+	if (key[keylen - 1] != '\0')
+		goto no_pem;
 
-	if (ret == 0)
-	{
+	r = ttls_pem_read_buffer("-----BEGIN RSA PRIVATE KEY-----",
+				 "-----END RSA PRIVATE KEY-----",
+				 key, &len);
+	if (r > 0) {
+		dec_key_len = r;
 		pk_info = ttls_pk_info_from_type(TTLS_PK_RSA);
-		if ((ret = ttls_pk_setup(pk, pk_info)) != 0 ||
-			(ret = pk_parse_key_pkcs1_der(ttls_pk_rsa(*pk),
-		pem.buf, pem.buflen)) != 0)
+		if ((r = ttls_pk_setup(pk, pk_info))
+		    || (r = pk_parse_key_pkcs1_der(ttls_pk_rsa(*pk), key,
+				    		   dec_key_len)))
 		{
 			ttls_pk_free(pk);
 		}
-
-		ttls_pem_free(&pem);
-		return ret;
+		return r;
 	}
-	else if (ret == TTLS_ERR_PEM_PASSWORD_MISMATCH)
-		return(TTLS_ERR_PK_PASSWORD_MISMATCH);
-	else if (ret == TTLS_ERR_PEM_PASSWORD_REQUIRED)
-		return(TTLS_ERR_PK_PASSWORD_REQUIRED);
-	else if (ret != TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT)
-		return ret;
-
-	/* Avoid calling ttls_pem_read_buffer() on non-null-terminated string */
-	if (keylen == 0 || key[keylen - 1] != '\0')
-		ret = TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT;
-	else
-		ret = ttls_pem_read_buffer(&pem,
-				   "-----BEGIN EC PRIVATE KEY-----",
-				   "-----END EC PRIVATE KEY-----",
-				   key, &len);
-	if (ret == 0)
+	if (r == TTLS_ERR_PEM_PASSWORD_MISMATCH
+	    || r == TTLS_ERR_PEM_PASSWORD_REQUIRED
+	    || r != TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT)
 	{
+		return r;
+	}
+
+	/* Try to read EC key. */
+	r = ttls_pem_read_buffer("-----BEGIN EC PRIVATE KEY-----",
+				 "-----END EC PRIVATE KEY-----",
+				 key, &len);
+	if (r > 0) {
+		dec_key_len = r;
 		pk_info = ttls_pk_info_from_type(TTLS_PK_ECKEY);
-
-		if ((ret = ttls_pk_setup(pk, pk_info)) != 0 ||
-			(ret = pk_parse_key_sec1_der(ttls_pk_ec(*pk),
-				   pem.buf, pem.buflen)) != 0)
+		if ((r = ttls_pk_setup(pk, pk_info))
+		    || (r = pk_parse_key_sec1_der(ttls_pk_ec(*pk), key,
+				    		  dec_key_len)))
 		{
 			ttls_pk_free(pk);
 		}
-
-		ttls_pem_free(&pem);
-		return ret;
+		return r;
 	}
-	else if (ret == TTLS_ERR_PEM_PASSWORD_MISMATCH)
-		return(TTLS_ERR_PK_PASSWORD_MISMATCH);
-	else if (ret == TTLS_ERR_PEM_PASSWORD_REQUIRED)
-		return(TTLS_ERR_PK_PASSWORD_REQUIRED);
-	else if (ret != TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT)
-		return ret;
-
-	/* Avoid calling ttls_pem_read_buffer() on non-null-terminated string */
-	if (keylen == 0 || key[keylen - 1] != '\0')
-		ret = TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT;
-	else
-		ret = ttls_pem_read_buffer(&pem,
-				   "-----BEGIN PRIVATE KEY-----",
-				   "-----END PRIVATE KEY-----",
-				   key, &len);
-	if (ret == 0)
+	if (r == TTLS_ERR_PEM_PASSWORD_MISMATCH
+	    || r == TTLS_ERR_PEM_PASSWORD_REQUIRED
+	    || r != TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT)
 	{
-		if ((ret = pk_parse_key_pkcs8_unencrypted_der(pk,
-			pem.buf, pem.buflen)) != 0)
-		{
-			ttls_pk_free(pk);
-		}
-
-		ttls_pem_free(&pem);
-		return ret;
+		return r;
 	}
-	else if (ret != TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT)
-		return ret;
 
-	if ((ret = pk_parse_key_pkcs8_unencrypted_der(pk, key, keylen)) == 0)
+	/* Try to read another key. */
+	r = ttls_pem_read_buffer("-----BEGIN PRIVATE KEY-----",
+				 "-----END PRIVATE KEY-----",
+				 key, &len);
+	if (r > 0) {
+		if ((r = pk_parse_key_pkcs8_unencrypted_der(pk, key, r)))
+			ttls_pk_free(pk);
+		return r;
+	}
+	if (r != TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT)
+		return r;
+
+no_pem:
+	if (!(r = pk_parse_key_pkcs8_unencrypted_der(pk, key, keylen)))
 		return 0;
 
 	ttls_pk_free(pk);
 
 	pk_info = ttls_pk_info_from_type(TTLS_PK_RSA);
-	if ((ret = ttls_pk_setup(pk, pk_info)) != 0 ||
-		(ret = pk_parse_key_pkcs1_der(ttls_pk_rsa(*pk),
-				key, keylen)) != 0)
+	if ((r = ttls_pk_setup(pk, pk_info))
+	    || (r = pk_parse_key_pkcs1_der(ttls_pk_rsa(*pk), key, keylen)))
 	{
 		ttls_pk_free(pk);
-	}
-	else
-	{
+	} else {
 		return 0;
 	}
 
 	pk_info = ttls_pk_info_from_type(TTLS_PK_ECKEY);
-	if ((ret = ttls_pk_setup(pk, pk_info)) != 0 ||
-		(ret = pk_parse_key_sec1_der(ttls_pk_ec(*pk),
-			   key, keylen)) != 0)
+	if ((r = ttls_pk_setup(pk, pk_info))
+	    || (r = pk_parse_key_sec1_der(ttls_pk_ec(*pk), key, keylen)))
 	{
 		ttls_pk_free(pk);
-	}
-	else
-	{
+	} else {
 		return 0;
 	}
 
-	return(TTLS_ERR_PK_KEY_INVALID_FORMAT);
+	return TTLS_ERR_PK_KEY_INVALID_FORMAT;
 }
 EXPORT_SYMBOL(ttls_pk_parse_key);
-
-/*
- * Parse a public key
- */
-int ttls_pk_parse_public_key(ttls_pk_context *ctx,
-			 const unsigned char *key, size_t keylen)
-{
-	int ret;
-	unsigned char *p;
-	const ttls_pk_info_t *pk_info;
-	size_t len;
-	ttls_pem_context pem;
-
-	ttls_pem_init(&pem);
-	/* Avoid calling ttls_pem_read_buffer() on non-null-terminated string */
-	if (keylen == 0 || key[keylen - 1] != '\0')
-		ret = TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT;
-	else
-		ret = ttls_pem_read_buffer(&pem,
-				   "-----BEGIN RSA PUBLIC KEY-----",
-				   "-----END RSA PUBLIC KEY-----",
-				   key, &len);
-
-	if (ret == 0)
-	{
-		p = pem.buf;
-		if ((pk_info = ttls_pk_info_from_type(TTLS_PK_RSA)) == NULL)
-			return(TTLS_ERR_PK_UNKNOWN_PK_ALG);
-
-		if ((ret = ttls_pk_setup(ctx, pk_info)) != 0)
-			return ret;
-
-		if ((ret = pk_get_rsapubkey(&p, p + pem.buflen, ttls_pk_rsa(*ctx))) != 0)
-			ttls_pk_free(ctx);
-
-		ttls_pem_free(&pem);
-		return ret;
-	}
-	else if (ret != TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT)
-	{
-		ttls_pem_free(&pem);
-		return ret;
-	}
-
-	/* Avoid calling ttls_pem_read_buffer() on non-null-terminated string */
-	if (keylen == 0 || key[keylen - 1] != '\0')
-		ret = TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT;
-	else
-		ret = ttls_pem_read_buffer(&pem,
-				"-----BEGIN PUBLIC KEY-----",
-				"-----END PUBLIC KEY-----",
-				key, &len);
-
-	if (ret == 0)
-	{
-		/*
-		 * Was PEM encoded
-		 */
-		p = pem.buf;
-
-		ret = ttls_pk_parse_subpubkey(&p,  p + pem.buflen, ctx);
-		ttls_pem_free(&pem);
-		return ret;
-	}
-	else if (ret != TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT)
-	{
-		ttls_pem_free(&pem);
-		return ret;
-	}
-	ttls_pem_free(&pem);
-
-	if ((pk_info = ttls_pk_info_from_type(TTLS_PK_RSA)) == NULL)
-		return(TTLS_ERR_PK_UNKNOWN_PK_ALG);
-
-	if ((ret = ttls_pk_setup(ctx, pk_info)) != 0)
-		return ret;
-
-	p = (unsigned char *)key;
-	ret = pk_get_rsapubkey(&p, p + keylen, ttls_pk_rsa(*ctx));
-	if (ret == 0)
-	{
-		return ret;
-	}
-	ttls_pk_free(ctx);
-	if (ret != (TTLS_ERR_PK_INVALID_PUBKEY + TTLS_ERR_ASN1_UNEXPECTED_TAG))
-	{
-		return ret;
-	}
-	p = (unsigned char *) key;
-
-	ret = ttls_pk_parse_subpubkey(&p, p + keylen, ctx);
-
-	return ret;
-}

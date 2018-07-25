@@ -1,43 +1,33 @@
-/**
- * \file x509.h
- *
- * \brief X.509 generic defines and structures
- */
 /*
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- *  SPDX-License-Identifier: GPL-2.0
+ *		Tempesta TLS
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * SPDX-License-Identifier: GPL-2.0
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
- *  This file is part of mbed TLS (https://tls.mbed.org)
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * This file is part of mbed TLS (https://tls.mbed.org)
  */
 #ifndef TTLS_X509_H
 #define TTLS_X509_H
 
-#include "config.h"
 #include "asn1.h"
 #include "pk.h"
 #include "rsa.h"
 
-/**
- * \addtogroup x509_module
- * \{
- */
-
-#if !defined(TTLS_X509_MAX_INTERMEDIATE_CA)
 /**
  * Maximum number of intermediate CAs in a verification chain.
  * That is, maximum length of the chain, excluding the end-entity certificate
@@ -46,38 +36,57 @@
  * Set this to a low value to prevent an adversary from making you waste
  * resources verifying an overlong certificate chain.
  */
-#define TTLS_X509_MAX_INTERMEDIATE_CA   8
-#endif
+#define TTLS_X509_MAX_INTERMEDIATE_CA			8
 
 /**
- * \name X509 Error codes
- * \{
+ * X509 Error codes
  */
-#define TTLS_ERR_X509_FEATURE_UNAVAILABLE			  -0x2080  /**< Unavailable feature, e.g. RSA hashing/encryption combination. */
-#define TTLS_ERR_X509_UNKNOWN_OID		  -0x2100  /**< Requested OID is unknown. */
-#define TTLS_ERR_X509_INVALID_FORMAT				   -0x2180  /**< The CRT/CRL/CSR format is invalid, e.g. different type expected. */
-#define TTLS_ERR_X509_INVALID_VERSION				  -0x2200  /**< The CRT/CRL/CSR version element is invalid. */
-#define TTLS_ERR_X509_INVALID_SERIAL				   -0x2280  /**< The serial tag or value is invalid. */
-#define TTLS_ERR_X509_INVALID_ALG		  -0x2300  /**< The algorithm tag or value is invalid. */
-#define TTLS_ERR_X509_INVALID_NAME		 -0x2380  /**< The name tag or value is invalid. */
-#define TTLS_ERR_X509_INVALID_DATE		 -0x2400  /**< The date tag or value is invalid. */
-#define TTLS_ERR_X509_INVALID_SIGNATURE				-0x2480  /**< The signature tag or value invalid. */
-#define TTLS_ERR_X509_INVALID_EXTENSIONS			   -0x2500  /**< The extension tag or value is invalid. */
-#define TTLS_ERR_X509_UNKNOWN_VERSION				  -0x2580  /**< CRT/CRL/CSR has an unsupported version number. */
-#define TTLS_ERR_X509_UNKNOWN_SIG_ALG				  -0x2600  /**< Signature algorithm (oid) is unsupported. */
-#define TTLS_ERR_X509_SIG_MISMATCH		 -0x2680  /**< Signature algorithms do not match. (see \c ::ttls_x509_crt sig_oid) */
-#define TTLS_ERR_X509_CERT_VERIFY_FAILED			   -0x2700  /**< Certificate verification failed, e.g. CRL, CA or signature check failed. */
-#define TTLS_ERR_X509_CERT_UNKNOWN_FORMAT			  -0x2780  /**< Format not recognized as DER or PEM. */
-#define TTLS_ERR_X509_BAD_INPUT_DATA				   -0x2800  /**< Input invalid. */
-#define TTLS_ERR_X509_ALLOC_FAILED		 -0x2880  /**< Allocation of memory failed. */
-#define TTLS_ERR_X509_FILE_IO_ERROR		-0x2900  /**< Read/write of file failed. */
-#define TTLS_ERR_X509_BUFFER_TOO_SMALL				 -0x2980  /**< Destination buffer is too small. */
-#define TTLS_ERR_X509_FATAL_ERROR		  -0x3000  /**< A fatal error occured, eg the chain is too long or the vrfy callback failed. */
-/* \} name */
+/* Unavailable feature, e.g. RSA hashing/encryption combination. */
+#define TTLS_ERR_X509_FEATURE_UNAVAILABLE		-0x2080
+/* Requested OID is unknown. */
+#define TTLS_ERR_X509_UNKNOWN_OID			-0x2100
+/* The CRT/CRL/CSR format is invalid, e.g. different type expected. */
+#define TTLS_ERR_X509_INVALID_FORMAT			-0x2180
+/* The CRT/CRL/CSR version element is invalid. */
+#define TTLS_ERR_X509_INVALID_VERSION			-0x2200
+/* The serial tag or value is invalid. */
+#define TTLS_ERR_X509_INVALID_SERIAL			-0x2280
+/* The algorithm tag or value is invalid. */
+#define TTLS_ERR_X509_INVALID_ALG			-0x2300
+/* The name tag or value is invalid. */
+#define TTLS_ERR_X509_INVALID_NAME			-0x2380
+/* The date tag or value is invalid. */
+#define TTLS_ERR_X509_INVALID_DATE			-0x2400
+/* The signature tag or value invalid. */
+#define TTLS_ERR_X509_INVALID_SIGNATURE			-0x2480
+/* The extension tag or value is invalid. */
+#define TTLS_ERR_X509_INVALID_EXTENSIONS		-0x2500
+/* CRT/CRL/CSR has an unsupported version number. */
+#define TTLS_ERR_X509_UNKNOWN_VERSION			-0x2580
+/* Signature algorithm (oid) is unsupported. */
+#define TTLS_ERR_X509_UNKNOWN_SIG_ALG			-0x2600
+/* Signature algorithms do not match. (see \c ::ttls_x509_crt sig_oid) */
+#define TTLS_ERR_X509_SIG_MISMATCH			-0x2680
+/* Certificate verification failed, e.g. CRL, CA or signature check failed. */
+#define TTLS_ERR_X509_CERT_VERIFY_FAILED		-0x2700
+/* Format not recognized as DER or PEM. */
+#define TTLS_ERR_X509_CERT_UNKNOWN_FORMAT		-0x2780
+/* Input invalid. */
+#define TTLS_ERR_X509_BAD_INPUT_DATA			-0x2800
+/* Allocation of memory failed. */
+#define TTLS_ERR_X509_ALLOC_FAILED			-0x2880
+/* Read/write of file failed. */
+#define TTLS_ERR_X509_FILE_IO_ERROR			-0x2900
+/* Destination buffer is too small. */
+#define TTLS_ERR_X509_BUFFER_TOO_SMALL			-0x2980
+/*
+ * A fatal error occured, eg the chain is too long or the vrfy callback
+ * failed.
+ */
+#define TTLS_ERR_X509_FATAL_ERROR			-0x3000
 
 /**
  * \name X509 Verify codes
- * \{
  */
 /* Reminder: update x509_crt_verify_strings[] in library/x509_crt.c */
 #define TTLS_X509_BADCERT_EXPIRED			 0x01  /**< The certificate validity has expired. */
@@ -100,9 +109,6 @@
 #define TTLS_X509_BADCRL_BAD_MD		   0x020000  /**< The CRL is signed with an unacceptable hash. */
 #define TTLS_X509_BADCRL_BAD_PK		   0x040000  /**< The CRL is signed with an unacceptable PK alg (eg RSA vs ECDSA). */
 #define TTLS_X509_BADCRL_BAD_KEY		  0x080000  /**< The CRL is signed with an unacceptable key (eg bad curve, RSA too short). */
-
-/* \} name */
-/* \} addtogroup x509_module */
 
 /*
  * X.509 v3 Key Usage Extension flags
@@ -171,7 +177,6 @@
 
 /**
  * \name Structures for parsing X.509 certificates, CRLs and CSRs
- * \{
  */
 
 /**
