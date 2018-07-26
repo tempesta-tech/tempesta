@@ -23,7 +23,7 @@
 #include "log.h"
 
 #define T_FSM_INIT(st, name)						\
-int __fsm_const_state = st; /* make compiler happy */			\
+unsigned int __fsm_const_state = st; /* make compiler happy */		\
 static const char *__fsm_name __attribute__((unused)) = name;
 
 #define T_FSM_START(st)							\
@@ -33,7 +33,7 @@ switch(st)
 #define T_FSM_STATE(st)							\
 case st:								\
 st: __attribute__((unused))						\
-	T_DBG3("enter %s FSM at state %d(" #st ")\n", __fsm_name, st);	\
+	T_DBG3("enter %s FSM at state %#x(" #st ")\n", __fsm_name, st);	\
 	__fsm_const_state = st; /* optimized out to constant */
 
 #define T_FSM_EXIT()		goto __fsm_done;
@@ -61,7 +61,7 @@ do {									\
  */
 #define T_FSM_FINISH(ret, state)					\
 __fsm_done: __attribute__((unused))					\
-	T_DBG3("Finish %s FSM at state %d, ret=%d\n",			\
+	T_DBG3("Finish %s FSM at state %#x, ret=%d\n",			\
 	       __fsm_name, __fsm_const_state, ret);			\
 	state = __fsm_const_state;
 

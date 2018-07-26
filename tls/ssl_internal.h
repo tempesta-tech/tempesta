@@ -342,7 +342,7 @@ enum {
 do {									\
 	WARN_ON_ONCE(p - buf > len);					\
 	io->rlen = 0;							\
-	T_FSM_MOVE(st,	if (unlikely(p - buf >= len)) T_FSM_EXIT(); );	\
+	T_FSM_MOVE(st, if (unlikely(p - buf >= len)) T_FSM_EXIT(); );	\
 } while (0)
 
 /*
