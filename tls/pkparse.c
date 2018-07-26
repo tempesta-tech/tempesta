@@ -884,7 +884,7 @@ ttls_pk_parse_key(ttls_pk_context *pk, unsigned char *key, size_t keylen)
 		pk_info = ttls_pk_info_from_type(TTLS_PK_RSA);
 		if ((r = ttls_pk_setup(pk, pk_info))
 		    || (r = pk_parse_key_pkcs1_der(ttls_pk_rsa(*pk), key,
-				    		   dec_key_len)))
+						   dec_key_len)))
 		{
 			ttls_pk_free(pk);
 		}
@@ -906,7 +906,7 @@ ttls_pk_parse_key(ttls_pk_context *pk, unsigned char *key, size_t keylen)
 		pk_info = ttls_pk_info_from_type(TTLS_PK_ECKEY);
 		if ((r = ttls_pk_setup(pk, pk_info))
 		    || (r = pk_parse_key_sec1_der(ttls_pk_ec(*pk), key,
-				    		  dec_key_len)))
+						  dec_key_len)))
 		{
 			ttls_pk_free(pk);
 		}
