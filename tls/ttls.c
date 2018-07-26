@@ -1119,7 +1119,6 @@ int
 ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 		       unsigned char **in_buf)
 {
-	int r = TTLS_ERR_FEATURE_UNAVAILABLE;
 	unsigned int sg_nents;
 	size_t i, n, cn, tot_len, cn_max = MAX_SKB_FRAGS / 2 - 1;
 	const ttls_x509_crt *crt;
@@ -1207,7 +1206,7 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 	get_page(virt_to_page(p));
 	__ttls_add_record(tls, sgt, sg_nents, p);
 
-	return r;
+	return 0;
 }
 
 int
@@ -1460,8 +1459,7 @@ parse:
 				alert = TTLS_ALERT_MSG_UNKNOWN_CA;
 			else
 				alert = TTLS_ALERT_MSG_CERT_UNKNOWN;
-			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-		    alert);
+			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL, alert);
 		}
 	}
 err:
