@@ -618,7 +618,7 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 	int r = T_POSTPONE, n;
 	unsigned char *p = buf;
 	TlsIOCtx *io = &tls->io_in;
-	T_FSM_INIT(ttls_substate(tls), "TLS ClientHello");
+	T_FSM_INIT(tls->state, "TLS ClientHello");
 
 	if (io->hstype != TTLS_HS_CLIENT_HELLO) {
 		T_DBG("bad type in client hello message\n");
@@ -2062,12 +2062,12 @@ do {									\
 static int
 ttls_handshake_server_hello(TlsCtx *tls)
 {
-	int r;
+	int r = 0;
 	unsigned char *p, *begin;
 	struct scatterlist sg[MAX_SKB_FRAGS];
 	struct sg_table sgt = { .sgl = sg };
 	struct page *pg;
-	T_FSM_INIT(ttls_state(tls), "TLS Server Handshake: ServerHello");
+	T_FSM_INIT(tls->state, "TLS Server Handshake (ServerHello)");
 
 	begin = p = pg_skb_alloc(2048, GFP_ATOMIC, NUMA_NO_NODE);
 	if (!p)
@@ -2153,7 +2153,7 @@ ttls_handshake_finished(TlsCtx *tls)
 	struct page *pg;
 	struct scatterlist sg[MAX_SKB_FRAGS];
 	struct sg_table sgt = { .sgl = sg };
-	T_FSM_INIT(ttls_state(tls), "TLS Server Handshake: ServerHello");
+	T_FSM_INIT(tls->state, "TLS Server Handshake (Finish)");
 
 	begin = p = pg_skb_alloc(1024, GFP_ATOMIC, NUMA_NO_NODE);
 	if (!p)
@@ -2206,7 +2206,7 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 			   unsigned int *read)
 {
 	int r = 0;
-	T_FSM_INIT(ttls_state(tls), "TLS Server Handshake");
+	T_FSM_INIT(tls->state, "TLS Server Handshake");
 
 	T_DBG("server state: %x\n", tls->state);
 	BUG_ON(tls->conf->endpoint != TTLS_IS_SERVER);
@@ -2223,7 +2223,8 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 	T_FSM_STATE(TTLS_CLIENT_HELLO) {
 		if ((r = ttls_parse_client_hello(tls, buf, len, read)))
 			return r;
-		T_FSM_JMP(TTLS_SERVER_HELLO);
+		tls->state = TTLS_SERVER_HELLO;
+		/* fall through */
 	}
 	/*
 	 *  ==>   ServerHello
@@ -2305,7 +2306,7 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 		T_FSM_NEXT();
 	}
 	T_FSM_STATE(TTLS_SERVER_FINISHED) {
-		BUG(); /* must be handled in ttls_handshake_server_hello() */
+		BUG(); /* must be handled in ttls_handshake_finished() */
 	}
 
 	T_FSM_STATE(TTLS_HANDSHAKE_WRAPUP) {
