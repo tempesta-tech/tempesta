@@ -938,13 +938,18 @@ __FSM_STATE(RGen_BodyInit) {						\
 		 msg->flags, msg->content_length);			\
 									\
 	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_TRANSFER_ENCODING])) {	\
-		/* The alternative: remove "Content-Length" header. */	\
+		/*							\
+		 * According to RFC 7230 3.3.3 p.3, more strict		\
+		 * scenario has been implemented to exclude		\
+		 * attempts of HTTP Request Smuggling or HTTP		\
+		 * Response Splitting.					\
+		 */							\
 		if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH]))	\
 			TFW_PARSER_BLOCK(RGen_BodyInit);		\
 		if (msg->flags & TFW_HTTP_F_CHUNKED)			\
 			__FSM_MOVE_nofixup(RGen_BodyStart);		\
 		/*							\
-		 * TODO: If "Transfer-Encoding:" header is present and	\
+		 * If "Transfer-Encoding:" header is present and	\
 		 * there's NO "chunked" coding, then send 400 response	\
 		 * (Bad Request) and close the connection.		\
 		 */							\
@@ -1233,17 +1238,13 @@ __parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t len)
 			return CSTR_NEQ;
 	}
 	/*
-	 * TODO: If a message is received that has multiple Content-Length
+	 * According to RFC 7230 3.3.2, in cases of multiple Content-Length
 	 * header fields with field-values consisting of the same decimal
 	 * value, or a single Content-Length header field with a field
-	 * value containing a list of identical decimal values (e.g.,
-	 * "Content-Length: 42, 42"), indicating that duplicate
-	 * Content-Length header fields have been generated or combined by
-	 * an upstream message processor, then the recipient MUST either
-	 * reject the message as invalid or replace the duplicated
-	 * field-values with a single valid Content-Length field containing
-	 * that decimal value prior to determining the message body length
-	 * or forwarding the message.
+	 * value containing a list of identical decimal values, more strict
+	 * implementation is chosen: message will be rejected as invalid,
+	 * to exclude attempts of HTTP Request Smuggling or HTTP Response
+	 * Splitting.
 	 */
 	r = parse_int_ws(data, len, &msg->content_length);
 	if (r == CSTR_POSTPONE)
