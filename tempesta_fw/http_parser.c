@@ -978,7 +978,12 @@ __FSM_STATE(RGen_BodyInit) {						\
 		FSM_EXIT(TFW_PASS);					\
 	}								\
 	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_TRANSFER_ENCODING])) {	\
-		/* The alternative: remove "Content-Length" header. */	\
+		/*							\
+		 * According to RFC 7230 3.3.3 p.3, more strict		\
+		 * scenario has been implemented to exclude		\
+		 * attempts of HTTP Request Smuggling or HTTP		\
+		 * Response Splitting.					\
+		 */							\
 		if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH]))	\
 			TFW_PARSER_BLOCK(RGen_BodyInit);		\
 		if (msg->flags & TFW_HTTP_F_CHUNKED)			\
