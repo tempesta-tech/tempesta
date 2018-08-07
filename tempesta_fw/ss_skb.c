@@ -819,11 +819,13 @@ ss_skb_get_room(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 }
 
 /**
- * Cut off @hdr->len data bytes from underlying skbs skipping the first
- * @skip bytes, and also cut off @tail bytes after @hdr.
+ * Cut off @str->len data bytes from underlying skbs skipping the first
+ * @skip bytes, and also cut off @tail bytes after @str.
+ * @str can be an HTTP header or other parsed part of HTTP message
+ * ('uri_path', 'host' etc).
  */
 int
-ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *hdr, int skip,
+ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *str, int skip,
 		   int tail)
 {
 	int r;
@@ -831,9 +833,9 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *hdr, int skip,
 	const TfwStr *c, *end;
 
 	BUG_ON(tail < 0);
-	BUG_ON((skip < 0) || (skip >= hdr->len));
+	BUG_ON((skip < 0) || (skip >= str->len));
 
-	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
+	TFW_STR_FOR_EACH_CHUNK(c, str, end) {
 		if (c->len <= skip) {
 			skip -= c->len;
 			continue;
@@ -857,7 +859,7 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *hdr, int skip,
 		bzero_fast(&it, sizeof(TfwStr));
 		r = skb_fragment(skb_head, t_skb, t_ptr, -tail, &it);
 		if (r < 0) {
-			TFW_WARN("Cannot delete hdr tail\n");
+			TFW_WARN("Cannot delete tail\n");
 			return r;
 		}
 		BUG_ON(r > tail);

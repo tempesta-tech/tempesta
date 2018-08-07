@@ -263,7 +263,7 @@ typedef struct {
 #define TFW_STR_LAST(s)		TFW_STR_CURR(s)
 
 /* Iterate over all chunks (or just a single chunk if the string is plain). */
-#define TFW_STR_FOR_EACH_CHUNK(c, s, end)				\
+#define TFW_STR_FOR_EACH_CHUNK_INIT(c, s, end)				\
 	/* Iterate over chunks, not duplicates. */			\
 	BUG_ON(TFW_STR_DUP(s));						\
 	if (TFW_STR_PLAIN(s)) {						\
@@ -272,7 +272,10 @@ typedef struct {
 	} else {							\
 		(c) = (s)->ptr;						\
 		end = (TfwStr *)(s)->ptr + TFW_STR_CHUNKN(s);		\
-	}								\
+	}
+
+#define TFW_STR_FOR_EACH_CHUNK(c, s, end)				\
+	TFW_STR_FOR_EACH_CHUNK_INIT(c, s, end);				\
 	for ( ; (c) < end; ++(c))
 
 /* The same as above, but for duplicate strings. */
@@ -353,7 +356,8 @@ tfw_str_fixup_eol(TfwStr *str, int eolen)
 }
 
 void tfw_str_del_chunk(TfwStr *str, int id);
-
+void tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
+			 const char *stop);
 TfwStr *tfw_str_add_compound(TfwPool *pool, TfwStr *str);
 TfwStr *tfw_str_add_duplicate(TfwPool *pool, TfwStr *str);
 

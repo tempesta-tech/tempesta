@@ -42,7 +42,6 @@ typedef struct {
 	struct hlist_node	hentry;
 	spinlock_t		*hb_lock;
 	atomic_t		conn_users;
-	atomic_t		miss_count;
 	TfwClassifierPrvt	class_prvt;
 } TfwClient;
 

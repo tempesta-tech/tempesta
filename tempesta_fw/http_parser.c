@@ -24,6 +24,7 @@
 #include "gfsm.h"
 #include "http_msg.h"
 #include "htype.h"
+#include "http_sess.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -67,7 +68,10 @@ enum {
  * @__msg_field_open macro is used for field opening, @__msg_field_fixup
  * is used for updating, and @__msg_field_finish is used when the field
  * is finished. The latter means that the TfwStr{} flag TFW_STR_COMPLETE
- * must be raised.
+ * must be raised. The behavior of macros with @_pos suffixes differ from
+ * the ones specified above in the sense that they fixate the field chunk
+ * with respect to an explicitly defined pointer (instead of only relative
+ * start of the data).n
  */
 #define __msg_field_open(field, pos)					\
 	tfw_http_msg_set_str_data(msg, field, pos)
@@ -78,6 +82,15 @@ enum {
 #define __msg_field_finish(field, pos)					\
 do {									\
 	__msg_field_fixup(field, pos);					\
+	(field)->flags |= TFW_STR_COMPLETE;				\
+} while (0)
+
+#define __msg_field_fixup_pos(field, data, len)				\
+	tfw_http_msg_add_str_data(msg, field, data, len)
+
+#define __msg_field_finish_pos(field, data, len)			\
+do {									\
+	__msg_field_fixup_pos(field, data, len);			\
 	(field)->flags |= TFW_STR_COMPLETE;				\
 } while (0)
 
@@ -170,19 +183,28 @@ do {									\
 /* The same as __FSM_MOVE_n(), but exactly for jumps w/o data moving. */
 #define __FSM_JMP(to)			do { goto to; } while (0)
 
-#define __FSM_MATCH_MOVE_f(alphabet, to, field)				\
+#define __FSM_MATCH_MOVE_fixup_pos(alphabet, to, field, fixup_pos)	\
 do {									\
 	__fsm_n = __data_remain(p);					\
 	__fsm_sz = tfw_match_##alphabet(p, __fsm_n);			\
 	if (unlikely(__fsm_sz == __fsm_n)) {				\
 		/* Continue field processing on next skb. */		\
 		BUG_ON(!(field)->ptr);					\
-		__msg_field_fixup(field, data + len);			\
+		if (fixup_pos)						\
+			__msg_field_fixup_pos(field, p, __fsm_sz);	\
+		else							\
+			__msg_field_fixup(field, data + len);		\
 		__fsm_const_state = to;					\
 		p += __fsm_sz;						\
 		__FSM_EXIT(TFW_POSTPONE);				\
 	}								\
 } while (0)
+
+#define __FSM_MATCH_MOVE_f(alphabet, to, field)				\
+	__FSM_MATCH_MOVE_fixup_pos(alphabet, to, field, false)
+
+#define __FSM_MATCH_MOVE_pos_f(alphabet, to, field)			\
+	__FSM_MATCH_MOVE_fixup_pos(alphabet, to, field, true)
 
 #define __FSM_MATCH_MOVE(alphabet, to)	__FSM_MATCH_MOVE_f(alphabet, to, \
 							   &msg->parser.hdr)
@@ -208,6 +230,12 @@ do {									\
 do {									\
 	TFW_DBG3("parser: add chunk flags: %u\n", flag);		\
 	TFW_STR_CURR(&msg->parser.hdr)->flags |= flag;		  	\
+} while (0)
+
+#define __FSM_I_field_chunk_flags(field, flag)				\
+do {									\
+	TFW_DBG3("parser: add chunk flags: %u\n", flag);		\
+	TFW_STR_CURR(field)->flags |= flag;		  	\
 } while (0)
 
 #define __FSM_I_MOVE_finish_n(to, n, finish)				\
@@ -256,10 +284,11 @@ do {									\
  * @p and has the size @n. Move forward to just after the chunk.
  * We have at least @n bytes as we parsed them before the fixup.
  */
-#define __FSM_I_MOVE_fixup(to, n, flag)					\
+#define __FSM_I_MOVE_fixup_f(to, n, field, flag)			\
 do {									\
-	__msg_hdr_chunk_fixup(p, n);					\
-	__FSM_I_chunk_flags(flag);					\
+	BUG_ON(!(field)->ptr);						\
+	__msg_field_fixup_pos(field, p, n);				\
+	__FSM_I_field_chunk_flags(field, flag);				\
 	parser->_i_st = to;						\
 	p += n;								\
 	if (unlikely(__data_off(p) >= len)) {				\
@@ -268,6 +297,9 @@ do {									\
 	}								\
 	goto to;							\
 } while (0)
+
+#define __FSM_I_MOVE_fixup(to, n, flag)					\
+	__FSM_I_MOVE_fixup_f(to, n, &msg->parser.hdr, flag)
 
 #define __FSM_I_MATCH_MOVE_fixup(alphabet, to, flag)			\
 do {									\
@@ -726,6 +758,31 @@ enum {
 
 #define TRY_STR(str, state)						\
 	TRY_STR_LAMBDA(str, { }, state)
+
+/**
+ * The same as @TRY_STR_LAMBDA_finish(), but @str must be of plain
+ * @TfwStr{} type and variable @field is used (instead of hard coded
+ * header field).
+ */
+#define TRY_STR_LAMBDA_fixup_field(str, field, lambda, finish, state)	\
+	BUG_ON(!TFW_STR_PLAIN(str));					\
+	if (!chunk->ptr)						\
+		chunk->ptr = p;						\
+	__fsm_n = __try_str(field, chunk, p, __data_remain(p),		\
+			    str->ptr, str->len);			\
+	if (__fsm_n > 0) {						\
+		if (chunk->len == str->len) {				\
+			lambda;						\
+			TRY_STR_INIT();					\
+			__FSM_I_MOVE_fixup_f(state, __fsm_n, field, 0);	\
+		}							\
+		__msg_field_fixup_pos(field, p, __fsm_n);		\
+		finish;							\
+		return CSTR_POSTPONE;					\
+	}
+
+#define TRY_STR_LAMBDA_fixup(str, field, lambda, state)			\
+	TRY_STR_LAMBDA_fixup_field(str, field, lambda, { }, state)
 
 /*
  * Headers EOL processing. Allow only LF and CRLF as a newline delimiters.
@@ -1439,6 +1496,7 @@ enum {
 	Req_MethUnloc,
 	Req_MUSpace,
 	Req_Uri,
+	Req_UriMark,
 	Req_UriSchH,
 	Req_UriSchHt,
 	Req_UriSchHtt,
@@ -1833,6 +1891,10 @@ enum {
 	Req_I_CookieSP,
 	/* Referer header */
 	Req_I_Referer,
+	/* Mark part of URI */
+	Req_I_UriMarkStart,
+	Req_I_UriMarkName,
+	Req_I_UriMarkValue,
 
 	Req_I_EoT,
 };
@@ -2882,6 +2944,57 @@ done:
 	return r;
 }
 
+static int
+__parse_uri_mark(TfwHttpReq *req, unsigned char *data, size_t len)
+{
+	TfwStr *str;
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(req);
+
+	__FSM_START(parser->_i_st) {
+
+	__FSM_STATE(Req_I_UriMarkStart) {
+		if (likely(c == '/')) {
+			__msg_field_open(&req->mark, p);
+			/* Place initial slash into separate chunk. */
+			__FSM_I_MOVE_fixup_f(Req_I_UriMarkName, 1,
+					     &req->mark, 0);
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_UriMarkName) {
+		str = tfw_http_sess_mark_name();
+		TRY_STR_LAMBDA_fixup(str, &req->mark, {
+				parser->to_read = tfw_http_sess_mark_size();
+		}, Req_I_UriMarkValue);
+		/*
+		 * Since mark isn't matched, copy accumulated
+		 * TfwStr values to 'req->uri_path' - it will
+		 * be finished in 'Req_UriAbsPath' state.
+		 */
+		req->uri_path = req->mark;
+		TFW_STR_INIT(&req->mark);
+		return __data_off(p);
+	}
+
+	__FSM_STATE(Req_I_UriMarkValue) {
+		__fsm_n = min_t(long, parser->to_read, __data_remain(p));
+		parser->to_read -= __fsm_n;
+		if (parser->to_read)
+			__FSM_I_MOVE_fixup_f(Req_I_UriMarkValue, __fsm_n,
+					     &req->mark, TFW_STR_VALUE);
+		parser->to_read = -1;
+		__msg_field_finish_pos(&req->mark, p, __fsm_n);
+		__FSM_I_field_chunk_flags(&req->mark, TFW_STR_VALUE);
+		return __data_off(p + __fsm_n);
+	}
+
+	} /* FSM END */
+done:
+	return r;
+}
+
 /**
  * Init parser fields common for both response and request.
  */
@@ -3079,6 +3192,16 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
 	__FSM_STATE(Req_Uri) {
 		if (likely(c == '/')) {
+			/*
+			 * Move to URI path parsing, if 'max_misses'
+			 * for redirected requests is not enabled or
+			 * redirection mark is already collected.
+			 */
+			if (tfw_http_sess_max_misses() &&
+			    TFW_STR_EMPTY(&req->mark))
+			{
+				__FSM_JMP(Req_UriMark);
+			}
 			__msg_field_open(&req->uri_path, p);
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
@@ -3093,6 +3216,33 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			__FSM_MOVE_nofixup(Req_UriSchH);
 
 		TFW_PARSER_BLOCK(Req_Uri);
+	}
+
+	__FSM_STATE(Req_UriMark) {
+		if (parser->_i_st == I_0) {
+			TRY_STR_INIT();
+			parser->_i_st = Req_I_UriMarkStart;
+		}
+		__fsm_sz = __data_remain(p);
+		__fsm_n = __parse_uri_mark(req, p, __fsm_sz);
+		if (__fsm_n == CSTR_POSTPONE) {
+			p += __fsm_sz;
+			__FSM_EXIT(TFW_POSTPONE);
+		}
+		if (__fsm_n < 0)
+			TFW_PARSER_BLOCK(Req_UriMark);
+
+		parser->_i_st = I_0;
+		if (TFW_STR_EMPTY(&req->mark)) {
+			/*
+			 * If 'req-mark' is empty - the mark isn't matched,
+			 * and we can move to 'Req_UriAbsPath' (because if
+			 * we here, the initial '/' is already found).
+			 */
+			__FSM_MOVE_nf(Req_UriAbsPath, __fsm_n, &req->uri_path);
+		}
+		BUG_ON(!__fsm_n);
+		__FSM_MOVE_nofixup_n(Req_Uri, __fsm_n);
 	}
 
 	/*
@@ -3222,13 +3372,13 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	__FSM_STATE(Req_UriAbsPath) {
 		/* Optimize single '/' case. */
 		if (c == ' ') {
-			__msg_field_finish(&req->uri_path, p);
+			__msg_field_finish_pos(&req->uri_path, p, 0);
 			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
-		__FSM_MATCH_MOVE_f(uri, TFW_HTTP_URI_HOOK, &req->uri_path);
+		__FSM_MATCH_MOVE_pos_f(uri, TFW_HTTP_URI_HOOK, &req->uri_path);
 		if (unlikely(*(p + __fsm_sz) != ' '))
 			TFW_PARSER_BLOCK(Req_UriAbsPath);
-		__msg_field_finish(&req->uri_path, p + __fsm_sz);
+		__msg_field_finish_pos(&req->uri_path, p, __fsm_sz);
 		__FSM_MOVE_nofixup_n(Req_HttpVer, __fsm_sz + 1);
 	}
 
