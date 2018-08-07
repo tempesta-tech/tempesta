@@ -27,4 +27,9 @@ void test_req_free(TfwHttpReq *req);
 TfwHttpResp *test_resp_alloc(size_t data_len);
 void test_resp_free(TfwHttpResp *req);
 
+/* Helpers to start/stop minimum 'http_sticky' functionality, necessary
+ * for some tests (e.g. in 'test_http_parser'). */
+int test_helper_sticky_start(const char *name, unsigned int misses);
+void test_helper_sticky_stop(void);
+
 #endif /* __TFW_TEST_HELPER_H__ */
