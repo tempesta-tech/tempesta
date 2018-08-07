@@ -92,8 +92,13 @@ enum {
 };
 
 int tfw_http_sess_obtain(TfwHttpReq *req);
+int tfw_http_sess_req_process(TfwHttpReq *req);
 int tfw_http_sess_resp_process(TfwHttpResp *resp);
 void tfw_http_sess_put(TfwHttpSess *sess);
+
+bool tfw_http_sess_max_misses(void);
+unsigned int tfw_http_sess_mark_size(void);
+TfwStr *tfw_http_sess_mark_name(void);
 
 /* Sticky sessions scheduling routines. */
 TfwSrvConn *tfw_http_sess_get_srv_conn(TfwMsg *msg);

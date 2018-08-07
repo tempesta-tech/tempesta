@@ -127,6 +127,40 @@ tfw_str_del_chunk(TfwStr *str, int id)
 }
 
 /**
+ * Collect string chunks into @out beginning from @chunk to the @end or
+ * until the @stop char is found (at the beginning of some chunk).
+ *
+ * NOTE: this function is intended to collect subchunks of compound
+ * strings, so the @chunk must be the plain string only.
+ */
+void tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
+			 const char *stop)
+{
+	TfwStr *next;
+
+	BUG_ON(!TFW_STR_PLAIN(chunk));
+	
+	/* If this is last chunk, just return it in this case. */
+	next = chunk + 1;
+	if (likely(next == end || (stop && *(char *)next->ptr == *stop))) {
+		*out = *chunk;
+		return;
+	}
+
+	/* Add chunks to out-string. */
+	out->ptr = chunk;
+	TFW_STR_CHUNKN_ADD(out, 1);
+	out->len = chunk->len;
+	for (; chunk != end; ++chunk) {
+		if (stop && *(char *)chunk->ptr == *stop)
+			break;
+		TFW_STR_CHUNKN_ADD(out, 1);
+		out->len += chunk->len;
+	}
+	BUG_ON(TFW_STR_CHUNKN(out) < 2);
+}
+
+/**
  * Grow @str for @n new chunks.
  * New branches of the string tree are created on 2nd level only,
  * i.e. there is no possibility to grow number of chunks of duplicate string.
