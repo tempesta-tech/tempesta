@@ -141,11 +141,6 @@ ttls_ep_check(TlsIOCtx *io, const char *iod)
 	int i;
 	int ep_len = 0; /* Length of the "epoch" field in the record header */
 
-#if defined(TTLS_PROTO_DTLS)
-	if (tls->conf->transport == TTLS_TRANSPORT_DATAGRAM)
-		ep_len = 2;
-#endif
-
 	for (i = 8; i > ep_len; i--)
 		if (++io->ctr[i - 1])
 			break;
@@ -590,19 +585,8 @@ ttls_derive_keys(TlsCtx *tls)
 void
 ttls_read_version(TlsCtx *tls, const unsigned char ver[2])
 {
-#if defined(TTLS_PROTO_DTLS)
-	if (tls->conf->transport == TTLS_TRANSPORT_DATAGRAM) {
-		tls->major = 255 - ver[0] + 2;
-		tls->minor = 255 - ver[1] + 1;
-		if (tls->minor == TTLS_MINOR_VERSION_1)
-			/* DTLS 1.0 stored as TLS 1.1 internally */
-			++tls->minor;
-	} else
-#endif
-	{
-		tls->major = ver[0];
-		tls->minor = ver[1];
-	}
+	tls->major = ver[0];
+	tls->minor = ver[1];
 }
 
 int
@@ -895,7 +879,7 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 	TlsIOCtx *io = &tls->io_in;
 
 	/* Read TLS message header, probably fragmented. */
-	hlen = ttls_hdr_len(tls);
+	hlen = TTLS_HDR_LEN;
 	if (unlikely(io->hdr_cpsz + len < hlen)) {
 		memcpy_fast(io->hdr + io->hdr_cpsz, buf, len);
 		*read += len;
@@ -946,7 +930,7 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 		 *   1 . 3   handshake length
 		 */
 		if (!ttls_xfrm_ready(tls)) {
-			ivahs_len = ttls_hs_hdr_len(tls);
+			ivahs_len = TTLS_HS_HDR_LEN;
 			if (io->msglen < ivahs_len) {
 				T_DBG("handshake message too short: %d\n",
 				      io->msglen);
@@ -1003,8 +987,8 @@ ttls_prepare_record_content(TlsCtx *tls)
 {
 	int r;
 
-	T_DBG2("input record from network: %pK len=%lu\n",
-		tls->io_in.hdr, ttls_hdr_len(tls) + tls->io_in.msglen);
+	T_DBG2("input record from network: %pK len=%d\n",
+		tls->io_in.hdr, TTLS_HDR_LEN + tls->io_in.msglen);
 
 	if (!ttls_xfrm_ready(tls))
 		return 0;
@@ -1021,11 +1005,6 @@ ttls_prepare_record_content(TlsCtx *tls)
 		T_DBG("bad message length %u\n", tls->io_in.msglen);
 		return T_DROP;
 	}
-
-#if defined(TTLS_DTLS_ANTI_REPLAY)
-	if (tls->conf->transport == TTLS_TRANSPORT_DATAGRAM)
-		ttls_dtls_replay_update(tls);
-#endif
 
 	return 0;
 }
@@ -1148,7 +1127,7 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 	 * n+3 . ...	upper level cert, etc.
 	 */
 	tot_len = 7;
-	i = tot_len + ttls_hdr_len(tls);
+	i = tot_len + TTLS_HDR_LEN;
 	for (cn = 0, crt = ttls_own_cert(tls); crt; ) {
 		n = crt->raw.len;
 		if (n > TTLS_MAX_CONTENT_LEN - 3 - i) {
@@ -1164,7 +1143,7 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 		tot_len += 3 + n;
 		get_page(virt_to_page(crt->raw.p));
 		sg_set_page(&sgt->sgl[sgt->nents++], virt_to_page(crt->raw.p),
-			    n, (unsigned long)crt->raw.p & ~PAGE_MASK);
+			    n, 0);
 		WARN_ON_ONCE((unsigned long)crt->raw.p & ~PAGE_MASK);
 		WARN_ON_ONCE(sgt->nents >= MAX_SKB_FRAGS);
 		T_DBG3("add cert page %pK,len=%lu,off=%lu seg=%u\n",
@@ -1194,7 +1173,7 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 	 *  9 . 11	length of all certs
 	 */
 	io->msglen = tot_len;
-	ttls_write_hshdr(TTLS_HS_CERTIFICATE, p + ttls_hdr_len(tls), tot_len);
+	ttls_write_hshdr(TTLS_HS_CERTIFICATE, p + TTLS_HDR_LEN, tot_len);
 	p[9] = (unsigned char)((tot_len - 7) >> 16);
 	p[10] = (unsigned char)((tot_len - 7) >> 8);
 	p[11] = (unsigned char)(tot_len - 7);
@@ -1533,10 +1512,10 @@ ttls_write_finished(TlsCtx *tls, struct sg_table *sgt, unsigned char **in_buf)
 
 	bzero_fast(io->ctr, 8);
 	io->msglen = 4 + TLS_MAX_HASH_LEN;
-	ttls_write_hshdr(TTLS_HS_FINISHED, p + ttls_hdr_len(tls),
+	ttls_write_hshdr(TTLS_HS_FINISHED, p + TTLS_HDR_LEN,
 			 TLS_MAX_HASH_LEN);
 
-	*in_buf += ttls_hdr_len(tls) + ttls_hs_hdr_len(tls) + TLS_MAX_HASH_LEN;
+	*in_buf += TTLS_HDR_LEN + TTLS_HS_HDR_LEN + TLS_MAX_HASH_LEN;
 	sg_set_page(&sgt->sgl[sgt->nents++], virt_to_page(p), *in_buf - p,
 		    (unsigned long)p & ~PAGE_MASK);
 	get_page(virt_to_page(p));
@@ -1573,12 +1552,7 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 		return TTLS_ERR_BAD_HS_FINISHED;
 	}
 
-#if defined(TTLS_PROTO_DTLS)
-	if (tls->conf->transport == TTLS_TRANSPORT_DATAGRAM)
-		ttls_recv_flight_completed(tls);
-#endif
-
-	*read += ttls_hs_hdr_len(tls) + TLS_MAX_HASH_LEN;
+	*read += TTLS_HS_HDR_LEN + TLS_MAX_HASH_LEN;
 
 	return 0;
 }
@@ -1639,11 +1613,6 @@ EXPORT_SYMBOL(ttls_ctx_init);
 void ttls_conf_endpoint(ttls_config *conf, int endpoint)
 {
 	conf->endpoint = endpoint;
-}
-
-void ttls_conf_transport(ttls_config *conf, int transport)
-{
-	conf->transport = transport;
 }
 
 void ttls_conf_authmode(ttls_config *conf, int authmode)
@@ -2009,8 +1978,8 @@ ttls_handshake(TlsCtx *tls, unsigned char *buf, size_t len, unsigned int *read)
  * Read a record, only one. A caller will call us again if a following record,
  * or it's part, is left in @buf.
  *
- * Silently ignore non-fatal alert (and for DTLS, invalid records as well,
- * RFC 6347 4.1.2.7) and continue reading until a valid record is found.
+ * Silently ignore non-fatal alert and continue reading until a valid record is
+ * found.
  *
  * @buf and @len defines a chunk of ingress network data, probably containing
  * parts of several TLS messages, e.g. a tail of last message, a short full
@@ -2194,14 +2163,13 @@ static ttls_ecp_group_id ssl_preset_suiteb_curves[] = {
  * Use NSA Suite B as a preset-specific defaults.
  */
 int
-ttls_config_defaults(ttls_config *conf, int endpoint, int transport)
+ttls_config_defaults(ttls_config *conf, int endpoint)
 {
 	/*
 	 * Use the functions here so that they are covered in tests,
 	 * but otherwise access member directly for efficiency.
 	 */
 	ttls_conf_endpoint(conf, endpoint);
-	ttls_conf_transport(conf, transport);
 
 	/* Things that are common to all presets. */
 #if defined(TTLS_CLI_C)
