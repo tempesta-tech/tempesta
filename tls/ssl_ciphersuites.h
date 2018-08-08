@@ -120,8 +120,6 @@ typedef struct ttls_ciphersuite_t ttls_ciphersuite_t;
 #define TTLS_CIPHERSUITE_WEAK		0x01
 /* Short authentication tag, eg for CCM_8 */
 #define TTLS_CIPHERSUITE_SHORT_TAG	0x02
-/* Can't be used with DTLS */
-#define TTLS_CIPHERSUITE_NODTLS		0x04
 
 /**
  * \brief   This structure is used for storing ciphersuite information
