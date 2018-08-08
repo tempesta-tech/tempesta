@@ -1339,7 +1339,7 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 	  * time.
 	  */
 
-	p = hdr + ttls_hdr_len(tls) + 4;
+	p = hdr + TTLS_HDR_LEN + TTLS_HS_HDR_LEN;
 	dig_signed = p;
 
 	/* DHE key exchanges. */
@@ -1523,12 +1523,12 @@ curve_matching_done:
 	/* Done with actual work; add handshake header and add the record. */
 	WARN_ON_ONCE(n > 1015);
 	io->msglen = 4 + n;
-	ttls_write_hshdr(TTLS_HS_SERVER_KEY_EXCHANGE, hdr + ttls_hdr_len(tls),
+	ttls_write_hshdr(TTLS_HS_SERVER_KEY_EXCHANGE, hdr + TTLS_HDR_LEN,
 			 4 + n);
 
-	*in_buf = hdr + ttls_hdr_len(tls) + 4 + n;
+	*in_buf = hdr + TTLS_HDR_LEN + 4 + n;
 	sg_set_page(&sgt->sgl[sgt->nents++], virt_to_page(hdr),
-		    ttls_hdr_len(tls) + 4 + n, (unsigned long)hdr & ~PAGE_MASK);
+		    TTLS_HDR_LEN + 4 + n, (unsigned long)hdr & ~PAGE_MASK);
 	get_page(virt_to_page(hdr));
 	__ttls_add_record(tls, sgt, sgt->nents - 1, hdr);
 
@@ -1545,7 +1545,7 @@ ttls_write_certificate_request(TlsCtx *tls, struct sg_table *sgt,
 	TlsIOCtx *io = &tls->io_out;
 	size_t dn_size, total_dn_size; /* excluding length bytes */
 	size_t ct_len, sa_len; /* including length bytes */
-	size_t hdr_len = ttls_hdr_len(tls) + 4;
+	size_t hdr_len = TTLS_HDR_LEN + 4;
 	unsigned char *buf = *in_buf, *p, *end;
 	const int *cur;
 	const ttls_x509_crt *crt;
@@ -1667,10 +1667,10 @@ ttls_write_certificate_request(TlsCtx *tls, struct sg_table *sgt,
 	}
 
 	BUG_ON(!tls->conf->cert_req_ca_list && p - buf > 128);
-	io->msglen = p - buf - ttls_hdr_len(tls);
+	io->msglen = p - buf - TTLS_HDR_LEN;
 	buf[hdr_len + ct_len + sa_len] = (unsigned char)(total_dn_size >> 8);
 	buf[hdr_len + 1 + ct_len + sa_len] = (unsigned char)total_dn_size;
-	ttls_write_hshdr(TTLS_HS_CERTIFICATE_REQUEST, buf + ttls_hdr_len(tls),
+	ttls_write_hshdr(TTLS_HS_CERTIFICATE_REQUEST, buf + TTLS_HDR_LEN,
 			 io->msglen);
 
 	*in_buf = p;
@@ -1691,10 +1691,10 @@ ttls_write_server_hello_done(TlsCtx *tls, struct sg_table *sgt,
 
 	T_DBG("sending ServerHelloDone\n");
 
-	io->msglen = ttls_hs_hdr_len(tls);
-	ttls_write_hshdr(TTLS_HS_SERVER_HELLO_DONE, p + ttls_hdr_len(tls), 0);
+	io->msglen = TTLS_HS_HDR_LEN;
+	ttls_write_hshdr(TTLS_HS_SERVER_HELLO_DONE, p + TTLS_HDR_LEN, 0);
 
-	*in_buf += ttls_hdr_len(tls) + ttls_hs_hdr_len(tls);
+	*in_buf += TTLS_HDR_LEN + TTLS_HS_HDR_LEN;
 	sg_set_page(&sgt->sgl[sgt->nents++], virt_to_page(p), *in_buf - p,
 		    (unsigned long)p & ~PAGE_MASK);
 	get_page(virt_to_page(p));
@@ -2026,7 +2026,7 @@ ttls_write_new_session_ticket(TlsCtx *tls, struct sg_table *sgt,
 	p[9] = (unsigned char)(tlen & 0xFF);
 
 	io->hslen = 0;
-	io->msglen = 10 + tlen + ttls_hs_hdr_len(tls);
+	io->msglen = 10 + tlen + TTLS_HS_HDR_LEN;
 	io->msgtype = TTLS_MSG_HANDSHAKE;
 	io->hstype = TTLS_HS_NEW_SESSION_TICKET;
 	ttls_write_hshdr(TTLS_HS_NEW_SESSION_TICKET, p, 10 + tlen);
@@ -2064,7 +2064,7 @@ ttls_handshake_server_hello(TlsCtx *tls)
 {
 	int r = 0;
 	unsigned char *p, *begin;
-	struct scatterlist sg[MAX_SKB_FRAGS];
+	struct scatterlist sg[MAX_SKB_FRAGS] = {};
 	struct sg_table sgt = { .sgl = sg };
 	struct page *pg;
 	T_FSM_INIT(tls->state, "TLS Server Handshake (ServerHello)");
@@ -2126,6 +2126,7 @@ ttls_handshake_server_hello(TlsCtx *tls)
 		}
 		/* All the writers getted their frags, so put our reference. */
 		put_page(pg);
+		sg_mark_end(&sgt.sgl[sgt.nents - 1]);
 		/* Exit, enter the FSM on more data from the client. */
 		return __ttls_send_record(tls, &sgt);
 	}
@@ -2151,7 +2152,7 @@ ttls_handshake_finished(TlsCtx *tls)
 	int r;
 	unsigned char *p, *begin;
 	struct page *pg;
-	struct scatterlist sg[MAX_SKB_FRAGS];
+	struct scatterlist sg[MAX_SKB_FRAGS] = {};
 	struct sg_table sgt = { .sgl = sg };
 	T_FSM_INIT(tls->state, "TLS Server Handshake (Finish)");
 
@@ -2184,6 +2185,7 @@ ttls_handshake_finished(TlsCtx *tls)
 		tls->state = tls->hs->resume
 			     ? TTLS_CLIENT_CHANGE_CIPHER_SPEC
 			     : TTLS_HANDSHAKE_WRAPUP;
+		sg_mark_end(&sgt.sgl[sgt.nents - 1]);
 		return __ttls_send_record(tls, &sgt);
 	}
 	}
