@@ -80,7 +80,6 @@
 #define TTLS_ERR_UNKNOWN_IDENTITY	-0x6C80 /**< Unknown identity received (eg, PSK identity) */
 #define TTLS_ERR_INTERNAL_ERROR		-0x6C00 /**< Internal error (eg, unexpected failure in lower-level module) */
 #define TTLS_ERR_COUNTER_WRAPPING	-0x6B80 /**< A counter would wrap (eg, too many messages exchanged). */
-#define TTLS_ERR_HELLO_VERIFY_REQUIRED	-0x6A80 /**< DTLS client must retry for hello verification */
 #define TTLS_ERR_BUFFER_TOO_SMALL	-0x6A00 /**< A buffer is too small to receive or write a message */
 #define TTLS_ERR_NO_USABLE_CIPHERSUITE	-0x6980 /**< None of the common ciphersuites is usable (eg, no suitable certificate, see debug messages). */
 #define TTLS_ERR_TIMEOUT			-0x6800 /**< The operation timed out. */
@@ -88,18 +87,15 @@
 #define TTLS_ERR_NON_FATAL		-0x6680 /**< The alert message received indicates a non-fatal error. */
 #define TTLS_ERR_INVALID_VERIFY_HASH	-0x6600 /**< Couldn't set the hash for verifying CertificateVerify */
 
-/*
- * Various constants
- */
+#define TTLS_HDR_LEN		5
+#define TTLS_IV_LEN		16
+
 #define TTLS_MAJOR_VERSION_3	3
 #define TTLS_MINOR_VERSION_0	0 /* SSL v3.0 */
 #define TTLS_MINOR_VERSION_1	1 /* TLS v1.0 */
 #define TTLS_MINOR_VERSION_2	2 /* TLS v1.1 */
 #define TTLS_MINOR_VERSION_3	3 /* TLS v1.2 */
 #define TTLS_MINOR_VERSION_4	4 /* TLS v1.3, not supported yet */
-
-#define TTLS_TRANSPORT_STREAM	0 /*!< TLS	*/
-#define TTLS_TRANSPORT_DATAGRAM	1 /*!< DTLS	*/
 
 #define TTLS_MAX_HOST_NAME_LEN	255 /*!< Maximum host name defined in RFC 1035 */
 
@@ -136,13 +132,6 @@
 
 #define TTLS_SESSION_TICKETS_DISABLED	0
 #define TTLS_SESSION_TICKETS_ENABLED	1
-
-/*
- * Default range for DTLS retransmission timer value, in milliseconds.
- * RFC 6347 4.2.4.1 says from 1 second to 60 seconds.
- */
-#define TTLS_DTLS_TIMEOUT_DFL_MIN	1000
-#define TTLS_DTLS_TIMEOUT_DFL_MAX 	60000
 
 #if !defined(TTLS_DEFAULT_TICKET_LIFETIME)
 #define TTLS_DEFAULT_TICKET_LIFETIME	86400 /**< Lifetime of session tickets (if enabled) */
@@ -283,9 +272,6 @@ typedef struct TtlsXfrm ttls_transform;
 typedef struct ttls_handshake_params ttls_handshake_params;
 typedef struct ttls_sig_hash_set_t ttls_sig_hash_set_t;
 typedef struct ttls_key_cert ttls_key_cert;
-#if defined(TTLS_PROTO_DTLS)
-typedef struct ttls_flight_item ttls_flight_item;
-#endif
 
 /*
  * This structure is used for storing current session data.
@@ -375,16 +361,6 @@ struct ttls_config
 	int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *);
 	void *p_vrfy;	/*!< context for X.509 verify calllback */
 
-#if defined(TTLS_DTLS_HELLO_VERIFY)
-	/** Callback to create & write a cookie for ClientHello veirifcation	*/
-	int (*f_cookie_write)(void *, unsigned char **, unsigned char *,
-	const unsigned char *, size_t);
-	/** Callback to verify validity of a ClientHello cookie	*/
-	int (*f_cookie_check)(void *, const unsigned char *, size_t,
-	const unsigned char *, size_t);
-	void *p_cookie;	/*!< context for the cookie callbacks */
-#endif
-
 	/** Callback to create & write a session ticket	*/
 	int (*f_ticket_write)(void *, const TlsSess *,
 	unsigned char *, const unsigned char *, size_t *, uint32_t *);
@@ -414,17 +390,6 @@ struct ttls_config
 
 	uint32_t read_timeout;	/*!< timeout for ttls_recv (ms) */
 
-#if defined(TTLS_PROTO_DTLS)
-	uint32_t hs_timeout_min;	/*!< initial value of the handshake
-	retransmission timeout (ms)	*/
-	uint32_t hs_timeout_max;	/*!< maximum value of the handshake
-	retransmission timeout (ms)	*/
-#endif
-
-#if defined(TTLS_DTLS_BADMAC_LIMIT)
-	unsigned int badmac_limit;	/*!< limit of records with a bad MAC	*/
-#endif
-
 #if defined(TTLS_DHM_C) && defined(TTLS_CLI_C)
 	unsigned int dhm_min_bitlen;	/*!< min. bit length of the DHM prime */
 #endif
@@ -437,7 +402,6 @@ struct ttls_config
 	*/
 
 	unsigned int endpoint : 1;	/*!< 0: client, 1: server	*/
-	unsigned int transport : 1;	/*!< stream (TLS) or datagram (DTLS)	*/
 	unsigned int authmode : 2;	/*!< TTLS_VERIFY_XXX	*/
 	unsigned int encrypt_then_mac : 1 ; /*!< negotiate encrypt-then-mac?	*/
 	unsigned int session_tickets : 1; /*!< use session tickets?	*/
@@ -445,21 +409,13 @@ struct ttls_config
 	Certificate Request messages?	*/
 };
 
-#if defined(TTLS_PROTO_DTLS)
-#define TTLS_HDR_LEN		13
-#else
-#define TTLS_HDR_LEN		5
-#endif
-#define TTLS_IV_LEN		16
-
 /* I/O state flags. */
 #define TTLS_F_ST_HDRIV		1 /* header [and IV] parsed */
 
 /**
  * I/O context for a TLS context.
  *
- * @ctr		- 64-bit incoming message counter maintained by us for TLS and
- * 		  read from peer for DTLS;
+ * @ctr		- 64-bit incoming message counter maintained by us;
  * @hdr		- TLS message header;
  * @iv		- TLS message initialization vector;
  * @hdr_cpsz	- how many bytes are copied to a header;
@@ -477,23 +433,13 @@ struct ttls_config
  * @chunks	- number of contigious memory chunks in all skbs in @skb_list;
  */
 typedef struct {
-#if defined(MBEDTLS_PROTO_DTLS)
-	union {
-		unsigned char	hdr[TTLS_HDR_LEN];
-		struct {
-			unsigned char	__padding[3];
-			unsigned char	ctr[8];
-		};
-	}
-#else
 	unsigned char	ctr[8];
 	unsigned char	hdr[TTLS_HDR_LEN];
-#endif
 	union {
 		unsigned char	__msg[0];
 		unsigned char	iv[TTLS_IV_LEN];
 		unsigned char	alert[2];
-		unsigned char	hs_hdr[4]; /* should be 12 w/ DTLS */
+		unsigned char	hs_hdr[4];
 	};
 	unsigned char	hdr_cpsz;
 	unsigned char	st_flags;
@@ -568,61 +514,15 @@ typedef struct ttls_context {
 	(and SNI if available)	*/
 
 	unsigned int encrypt_then_mac : 1 ; /*!< negotiate encrypt-then-mac?	*/
-#if defined(TTLS_DTLS_HELLO_VERIFY)
-	/* Information for DTLS hello verify. */
-	unsigned char	*cli_id;	/* transport-level ID of the client */
-	size_t		cli_id_len;	/* length of cli_id */
-#endif
-#if defined(TTLS_DTLS_BADMAC_LIMIT)
-	unsigned	badmac_seen;	/* records with a bad MAC received */
-#endif
-#if defined(TTLS_PROTO_DTLS)
-	/* DTLS epoch for incoming records. */
-	uint16_t	in_epoch;
-#endif
-#if defined(TTLS_DTLS_ANTI_REPLAY)
-	uint64_t	in_window_top;	/* last validated record seq_num */
-	uint64_t	in_window;	/* bitmask for replay detection */
-#endif
 } TlsCtx;
 
 typedef int ttls_send_cb_t(TlsCtx *tls, struct sg_table *sgt);
 
-static inline size_t
-ttls_hdr_len(const TlsCtx *tls)
-{
-#if defined(TTLS_PROTO_DTLS)
-	if (tls->conf->transport == TTLS_TRANSPORT_DATAGRAM)
-		return 13;
-#endif
-	return 5;
-}
-
-/**
- * Convert version numbers to/from wire format and, for DTLS, to/from
- * TLS equivalent.
- *
- * For TLS this is the identity.
- * For DTLS, use 1's complement (v -> 255 - v, and then map as follows:
- *	1.0 <-> 3.2	(DTLS 1.0 is based on TLS 1.1)
- *	1.x <-> 3.x+1	for x != 0 (DTLS 1.2 based on TLS 1.2)
- */
 static inline void
 ttls_write_version(TlsCtx *tls, unsigned char ver[2])
 {
-#if defined(TTLS_PROTO_DTLS)
-	if (tls->conf->transport == TTLS_TRANSPORT_DATAGRAM) {
-		unsigned char minor = tls->minor - 1;
-		if (tls->minor == TTLS_MINOR_VERSION_2)
-			--minor; /* DTLS 1.0 stored as TLS 1.1 internally */
-		ver[0] = (unsigned char)(255 - (tls->major - 2));
-		ver[1] = (unsigned char)(255 - minor);
-	} else
-#endif
-	{
-		ver[0] = (unsigned char)tls->major;
-		ver[1] = (unsigned char)tls->minor;
-	}
+	ver[0] = (unsigned char)tls->major;
+	ver[1] = (unsigned char)tls->minor;
 }
 
 static inline void
@@ -685,22 +585,6 @@ int ttls_ctx_init(TlsCtx *tls, const ttls_config *conf);
  * \param endpoint must be TTLS_IS_CLIENT or TTLS_IS_SERVER
  */
 void ttls_conf_endpoint(ttls_config *conf, int endpoint);
-
-/**
- * \brief	Set the transport type (TLS or DTLS).
- *		Default: TLS
- *
- * \note	For DTLS, you must either provide a recv callback that
- *		doesn't block, or one that handles timeouts, see
- *		\c ttls_register_bio(). You also need to provide timer
- *		callbacks with \c ttls_set_timer_cb().
- *
- * \param conf	SSL configuration
- * \param transport transport type:
- *		TTLS_TRANSPORT_STREAM for TLS,
- *		TTLS_TRANSPORT_DATAGRAM for DTLS.
- */
-void ttls_conf_transport(ttls_config *conf, int transport);
 
 /**
  * \brief	Set the certificate verification mode
@@ -905,9 +789,6 @@ void ttls_conf_ciphersuites(ttls_config *conf,
  * \param minor	Minor version number (TTLS_MINOR_VERSION_0,
  *		TTLS_MINOR_VERSION_1 and TTLS_MINOR_VERSION_2,
  *		TTLS_MINOR_VERSION_3 supported)
- *
- * \note	With DTLS, use TTLS_MINOR_VERSION_2 for DTLS 1.0
- *		and TTLS_MINOR_VERSION_3 for DTLS 1.2
  */
 void ttls_conf_ciphersuites_for_version(ttls_config *conf,
 	const int *ciphersuites,
@@ -1252,7 +1133,7 @@ int ttls_close_notify(TlsCtx *ssl);
 void ttls_ctx_clear(ttls_context *ssl);
 
 void ttls_config_init(ttls_config *conf);
-int ttls_config_defaults(ttls_config *conf, int endpoint, int transport);
+int ttls_config_defaults(ttls_config *conf, int endpoint);
 void ttls_config_free(ttls_config *conf);
 
 void ttls_strerror(int errnum, char *buffer, size_t buflen);

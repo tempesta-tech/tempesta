@@ -43,18 +43,7 @@
 
 #define TTLS_INITIAL_HANDSHAKE		0
 
-/*
- * DTLS retransmission states, see RFC 6347 4.2.4
- *
- * The SENDING state is merged in PREPARING for initial sends,
- * but is distinct for resends.
- *
- * Note: initial state is wrong for server, but is not used anyway.
- */
-#define TTLS_RETRANS_PREPARING		0
-#define TTLS_RETRANS_SENDING		1
-#define TTLS_RETRANS_WAITING		2
-#define TTLS_RETRANS_FINISHED		3
+#define TTLS_HS_HDR_LEN			4
 
 /*
  * Allow extra bytes for record, authentication and encryption overhead:
@@ -65,7 +54,7 @@
 #define TTLS_COMPRESSION_ADD		0
 /* AEAD ciphersuites: GCM and CCM use a 128 bits tag */
 #define TTLS_MAC_ADD			16
-#define TTLS_PADDING_ADD			0
+#define TTLS_PADDING_ADD		0
 
 #define TTLS_PAYLOAD_LEN	(TTLS_MAX_CONTENT_LEN		\
 				 + TTLS_COMPRESSION_ADD		\
@@ -273,28 +262,6 @@ int ttls_check_cert_usage(const ttls_x509_crt *cert,
 
 void ttls_write_version(TlsCtx *tls, unsigned char ver[2]);
 void ttls_read_version(TlsCtx *tls, const unsigned char ver[2]);
-
-static inline size_t
-ttls_hs_hdr_len(const TlsCtx *tls)
-{
-#if defined(TTLS_PROTO_DTLS)
-	if (tls->conf->transport == TTLS_TRANSPORT_DATAGRAM)
-		return 12;
-#endif
-	return 4;
-}
-
-#if defined(TTLS_PROTO_DTLS)
-void ttls_send_flight_completed(ttls_context *tls);
-void ttls_recv_flight_completed(ttls_context *tls);
-int ttls_resend(ttls_context *tls);
-#endif
-
-/* Visible for testing purposes only */
-#if defined(TTLS_DTLS_ANTI_REPLAY)
-int ttls_dtls_replay_check(ttls_context *tls);
-void ttls_dtls_replay_update(ttls_context *tls);
-#endif
 
 int ttls_get_key_exchange_md_tls1_2(ttls_context *tls,
 		unsigned char *output,
