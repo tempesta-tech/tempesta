@@ -260,10 +260,10 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 		str.len = io->msglen + TLS_MAX_TAG_SZ;
 	} else {
 		str.ptr = io->hdr;
-		str.len = ttls_hdr_len(tls) + io->hslen;
+		str.len = TTLS_HDR_LEN + io->hslen;
 	}
 	T_DBG("TLS %lu bytes +%u segments (%u bytes) are to be sent on conn=%pK"
-	      " ready=%d)\n", str.len, sgt ? sgt->nents : 0, io->msglen,
+	      " ready=%d\n", str.len, sgt ? sgt->nents : 0, io->msglen,
 	      conn, ttls_xfrm_ready(tls));
 
 	if ((r = tfw_msg_iter_setup(&it, &io->skb_list, str.len)))
@@ -290,9 +290,10 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 			skb_fill_page_desc(skb, i++, sg_page(sg), sg->offset,
 					   sg->length);
 			ss_skb_adjust_data_len(skb, sg->length);
-			T_DBG3("fill skb frag %d by %pK,len=%u in"
-			       " skb=%pK,len=%u\n",
-			       i - 1, sg_virt(sg), sg->length, skb, skb->len);
+			T_DBG3("fill skb frag %d by %pK,len=%u,flags=%lx in"
+			       " skb=%pK,len=%u\n", i - 1,
+			       sg_virt(sg), sg->length, sg->page_link & 0x3,
+			       skb, skb->len);
 		}
 	}
 
@@ -382,8 +383,7 @@ tfw_tls_do_init(void)
 
 	ttls_config_init(&tfw_tls.cfg);
 	/* Use cute ECDHE-ECDSA-AES128-GCM-SHA256 by default. */
-	r = ttls_config_defaults(&tfw_tls.cfg, TTLS_IS_SERVER,
-				 TTLS_TRANSPORT_STREAM);
+	r = ttls_config_defaults(&tfw_tls.cfg, TTLS_IS_SERVER);
 	if (r) {
 		TFW_ERR_NL("TLS: can't set config defaults (%x)\n", -r);
 		return -EINVAL;
@@ -444,10 +444,10 @@ tfw_tls_start(void)
 }
 
 /**
- * Handle 'ssl_certificate <path>' config entry.
+ * Handle 'tls_certificate <path>' config entry.
  */
 static int
-tfw_cfgop_ssl_certificate(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_tls_certificate(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 	void *crt_data;
@@ -490,7 +490,7 @@ tfw_cfgop_ssl_certificate(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static void
-tfw_cfgop_cleanup_ssl_certificate(TfwCfgSpec *cs)
+tfw_cfgop_cleanup_tls_certificate(TfwCfgSpec *cs)
 {
 	ttls_x509_crt_free(&tfw_tls.crt);
 	free_pages(tfw_tls.crt_pg_addr, tfw_tls.crt_pg_order);
@@ -498,10 +498,10 @@ tfw_cfgop_cleanup_ssl_certificate(TfwCfgSpec *cs)
 }
 
 /**
- * Handle 'ssl_certificate_key <path>' config entry.
+ * Handle 'tls_certificate_key <path>' config entry.
  */
 static int
-tfw_cfgop_ssl_certificate_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_tls_certificate_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 	void *key_data;
@@ -542,7 +542,7 @@ tfw_cfgop_ssl_certificate_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static void
-tfw_cfgop_cleanup_ssl_certificate_key(TfwCfgSpec *cs)
+tfw_cfgop_cleanup_tls_certificate_key(TfwCfgSpec *cs)
 {
 	ttls_pk_free(&tfw_tls.key);
 	tfw_tls_cgf &= ~TFW_TLS_CFG_F_CKEY;
@@ -575,18 +575,18 @@ static TfwCfgSpec tfw_tls_specs[] = {
 	{
 		.name = "tls_certificate",
 		.deflt = NULL,
-		.handler = tfw_cfgop_ssl_certificate,
+		.handler = tfw_cfgop_tls_certificate,
 		.allow_none = true,
 		.allow_repeat = false,
-		.cleanup = tfw_cfgop_cleanup_ssl_certificate,
+		.cleanup = tfw_cfgop_cleanup_tls_certificate,
 	},
 	{
 		.name = "tls_certificate_key",
 		.deflt = NULL,
-		.handler = tfw_cfgop_ssl_certificate_key,
+		.handler = tfw_cfgop_tls_certificate_key,
 		.allow_none = true,
 		.allow_repeat = false,
-		.cleanup = tfw_cfgop_cleanup_ssl_certificate_key,
+		.cleanup = tfw_cfgop_cleanup_tls_certificate_key,
 	},
 	{ 0 }
 };
