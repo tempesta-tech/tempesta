@@ -200,102 +200,100 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			ttls_snprintf(buf, buflen, "RSA - RSA hardware accelerator failed");
 
 		if (use_ret == -(TTLS_ERR_FEATURE_UNAVAILABLE))
-			ttls_snprintf(buf, buflen, "SSL - The requested feature is not available");
+			ttls_snprintf(buf, buflen, "TLS - The requested feature is not available");
 		if (use_ret == -(TTLS_ERR_BAD_INPUT_DATA))
-			ttls_snprintf(buf, buflen, "SSL - Bad input parameters to function");
+			ttls_snprintf(buf, buflen, "TLS - Bad input parameters to function");
 		if (use_ret == -(TTLS_ERR_INVALID_MAC))
-			ttls_snprintf(buf, buflen, "SSL - Verification of the message MAC failed");
+			ttls_snprintf(buf, buflen, "TLS - Verification of the message MAC failed");
 		if (use_ret == -(TTLS_ERR_INVALID_RECORD))
-			ttls_snprintf(buf, buflen, "SSL - An invalid SSL record was received");
+			ttls_snprintf(buf, buflen, "TLS - An invalid TLS record was received");
 		if (use_ret == -(TTLS_ERR_CONN_EOF))
-			ttls_snprintf(buf, buflen, "SSL - The connection indicated an EOF");
+			ttls_snprintf(buf, buflen, "TLS - The connection indicated an EOF");
 		if (use_ret == -(TTLS_ERR_UNKNOWN_CIPHER))
-			ttls_snprintf(buf, buflen, "SSL - An unknown cipher was received");
+			ttls_snprintf(buf, buflen, "TLS - An unknown cipher was received");
 		if (use_ret == -(TTLS_ERR_NO_CIPHER_CHOSEN))
-			ttls_snprintf(buf, buflen, "SSL - The server has no ciphersuites in common with the client");
+			ttls_snprintf(buf, buflen, "TLS - The server has no ciphersuites in common with the client");
 		if (use_ret == -(TTLS_ERR_NO_RNG))
-			ttls_snprintf(buf, buflen, "SSL - No RNG was provided to the SSL module");
+			ttls_snprintf(buf, buflen, "TLS - No RNG was provided to the TLS module");
 		if (use_ret == -(TTLS_ERR_NO_CLIENT_CERTIFICATE))
-			ttls_snprintf(buf, buflen, "SSL - No client certification received from the client, but required by the authentication mode");
+			ttls_snprintf(buf, buflen, "TLS - No client certification received from the client, but required by the authentication mode");
 		if (use_ret == -(TTLS_ERR_CERTIFICATE_TOO_LARGE))
-			ttls_snprintf(buf, buflen, "SSL - Our own certificate(s) is/are too large to send in an SSL message");
+			ttls_snprintf(buf, buflen, "TLS - Our own certificate(s) is/are too large to send in an TLS message");
 		if (use_ret == -(TTLS_ERR_CERTIFICATE_REQUIRED))
-			ttls_snprintf(buf, buflen, "SSL - The own certificate is not set, but needed by the server");
+			ttls_snprintf(buf, buflen, "TLS - The own certificate is not set, but needed by the server");
 		if (use_ret == -(TTLS_ERR_PRIVATE_KEY_REQUIRED))
-			ttls_snprintf(buf, buflen, "SSL - The own private key or pre-shared key is not set, but needed");
+			ttls_snprintf(buf, buflen, "TLS - The own private key or pre-shared key is not set, but needed");
 		if (use_ret == -(TTLS_ERR_CA_CHAIN_REQUIRED))
-			ttls_snprintf(buf, buflen, "SSL - No CA Chain is set, but required to operate");
+			ttls_snprintf(buf, buflen, "TLS - No CA Chain is set, but required to operate");
 		if (use_ret == -(TTLS_ERR_UNEXPECTED_MESSAGE))
-			ttls_snprintf(buf, buflen, "SSL - An unexpected message was received from our peer");
+			ttls_snprintf(buf, buflen, "TLS - An unexpected message was received from our peer");
 		if (use_ret == -(TTLS_ERR_FATAL_ALERT_MESSAGE))
 		{
-			ttls_snprintf(buf, buflen, "SSL - A fatal alert message was received from our peer");
+			ttls_snprintf(buf, buflen, "TLS - A fatal alert message was received from our peer");
 			return;
 		}
 		if (use_ret == -(TTLS_ERR_PEER_VERIFY_FAILED))
-			ttls_snprintf(buf, buflen, "SSL - Verification of our peer failed");
+			ttls_snprintf(buf, buflen, "TLS - Verification of our peer failed");
 		if (use_ret == -(TTLS_ERR_PEER_CLOSE_NOTIFY))
-			ttls_snprintf(buf, buflen, "SSL - The peer notified us that the connection is going to be closed");
+			ttls_snprintf(buf, buflen, "TLS - The peer notified us that the connection is going to be closed");
 		if (use_ret == -(TTLS_ERR_BAD_HS_CLIENT_HELLO))
-			ttls_snprintf(buf, buflen, "SSL - Processing of the ClientHello handshake message failed");
+			ttls_snprintf(buf, buflen, "TLS - Processing of the ClientHello handshake message failed");
 		if (use_ret == -(TTLS_ERR_BAD_HS_SERVER_HELLO))
-			ttls_snprintf(buf, buflen, "SSL - Processing of the ServerHello handshake message failed");
+			ttls_snprintf(buf, buflen, "TLS - Processing of the ServerHello handshake message failed");
 		if (use_ret == -(TTLS_ERR_BAD_HS_CERTIFICATE))
-			ttls_snprintf(buf, buflen, "SSL - Processing of the Certificate handshake message failed");
+			ttls_snprintf(buf, buflen, "TLS - Processing of the Certificate handshake message failed");
 		if (use_ret == -(TTLS_ERR_BAD_HS_CERTIFICATE_REQUEST))
-			ttls_snprintf(buf, buflen, "SSL - Processing of the CertificateRequest handshake message failed");
+			ttls_snprintf(buf, buflen, "TLS - Processing of the CertificateRequest handshake message failed");
 		if (use_ret == -(TTLS_ERR_BAD_HS_SERVER_KEY_EXCHANGE))
-			ttls_snprintf(buf, buflen, "SSL - Processing of the ServerKeyExchange handshake message failed");
+			ttls_snprintf(buf, buflen, "TLS - Processing of the ServerKeyExchange handshake message failed");
 		if (use_ret == -(TTLS_ERR_BAD_HS_SERVER_HELLO_DONE))
-			ttls_snprintf(buf, buflen, "SSL - Processing of the ServerHelloDone handshake message failed");
+			ttls_snprintf(buf, buflen, "TLS - Processing of the ServerHelloDone handshake message failed");
 		if (use_ret == -(TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE))
-			ttls_snprintf(buf, buflen, "SSL - Processing of the ClientKeyExchange handshake message failed");
+			ttls_snprintf(buf, buflen, "TLS - Processing of the ClientKeyExchange handshake message failed");
 		if (use_ret == -(TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_RP))
-			ttls_snprintf(buf, buflen, "SSL - Processing of the ClientKeyExchange handshake message failed in DHM / ECDH Read Public");
+			ttls_snprintf(buf, buflen, "TLS - Processing of the ClientKeyExchange handshake message failed in DHM / ECDH Read Public");
 		if (use_ret == -(TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_CS))
-			ttls_snprintf(buf, buflen, "SSL - Processing of the ClientKeyExchange handshake message failed in DHM / ECDH Calculate Secret");
+			ttls_snprintf(buf, buflen, "TLS - Processing of the ClientKeyExchange handshake message failed in DHM / ECDH Calculate Secret");
 		if (use_ret == -(TTLS_ERR_BAD_HS_CERTIFICATE_VERIFY))
-			ttls_snprintf(buf, buflen, "SSL - Processing of the CertificateVerify handshake message failed");
+			ttls_snprintf(buf, buflen, "TLS - Processing of the CertificateVerify handshake message failed");
 		if (use_ret == -(TTLS_ERR_BAD_HS_CHANGE_CIPHER_SPEC))
-			ttls_snprintf(buf, buflen, "SSL - Processing of the ChangeCipherSpec handshake message failed");
+			ttls_snprintf(buf, buflen, "TLS - Processing of the ChangeCipherSpec handshake message failed");
 		if (use_ret == -(TTLS_ERR_BAD_HS_FINISHED))
-			ttls_snprintf(buf, buflen, "SSL - Processing of the Finished handshake message failed");
+			ttls_snprintf(buf, buflen, "TLS - Processing of the Finished handshake message failed");
 		if (use_ret == -(TTLS_ERR_ALLOC_FAILED))
-			ttls_snprintf(buf, buflen, "SSL - Memory allocation failed");
+			ttls_snprintf(buf, buflen, "TLS - Memory allocation failed");
 		if (use_ret == -(TTLS_ERR_HW_ACCEL_FAILED))
-			ttls_snprintf(buf, buflen, "SSL - Hardware acceleration function returned with error");
+			ttls_snprintf(buf, buflen, "TLS - Hardware acceleration function returned with error");
 		if (use_ret == -(TTLS_ERR_HW_ACCEL_FALLTHROUGH))
-			ttls_snprintf(buf, buflen, "SSL - Hardware acceleration function skipped / left alone data");
+			ttls_snprintf(buf, buflen, "TLS - Hardware acceleration function skipped / left alone data");
 		if (use_ret == -(TTLS_ERR_COMPRESSION_FAILED))
-			ttls_snprintf(buf, buflen, "SSL - Processing of the compression / decompression failed");
+			ttls_snprintf(buf, buflen, "TLS - Processing of the compression / decompression failed");
 		if (use_ret == -(TTLS_ERR_BAD_HS_PROTOCOL_VERSION))
-			ttls_snprintf(buf, buflen, "SSL - Handshake protocol not within min/max boundaries");
+			ttls_snprintf(buf, buflen, "TLS - Handshake protocol not within min/max boundaries");
 		if (use_ret == -(TTLS_ERR_BAD_HS_NEW_SESSION_TICKET))
-			ttls_snprintf(buf, buflen, "SSL - Processing of the NewSessionTicket handshake message failed");
+			ttls_snprintf(buf, buflen, "TLS - Processing of the NewSessionTicket handshake message failed");
 		if (use_ret == -(TTLS_ERR_SESSION_TICKET_EXPIRED))
-			ttls_snprintf(buf, buflen, "SSL - Session ticket has expired");
+			ttls_snprintf(buf, buflen, "TLS - Session ticket has expired");
 		if (use_ret == -(TTLS_ERR_PK_TYPE_MISMATCH))
-			ttls_snprintf(buf, buflen, "SSL - Public key type mismatch (eg, asked for RSA key exchange and presented EC key)");
+			ttls_snprintf(buf, buflen, "TLS - Public key type mismatch (eg, asked for RSA key exchange and presented EC key)");
 		if (use_ret == -(TTLS_ERR_UNKNOWN_IDENTITY))
-			ttls_snprintf(buf, buflen, "SSL - Unknown identity received (eg, PSK identity)");
+			ttls_snprintf(buf, buflen, "TLS - Unknown identity received (eg, PSK identity)");
 		if (use_ret == -(TTLS_ERR_INTERNAL_ERROR))
-			ttls_snprintf(buf, buflen, "SSL - Internal error (eg, unexpected failure in lower-level module)");
+			ttls_snprintf(buf, buflen, "TLS - Internal error (eg, unexpected failure in lower-level module)");
 		if (use_ret == -(TTLS_ERR_COUNTER_WRAPPING))
-			ttls_snprintf(buf, buflen, "SSL - A counter would wrap (eg, too many messages exchanged)");
-		if (use_ret == -(TTLS_ERR_HELLO_VERIFY_REQUIRED))
-			ttls_snprintf(buf, buflen, "SSL - DTLS client must retry for hello verification");
+			ttls_snprintf(buf, buflen, "TLS - A counter would wrap (eg, too many messages exchanged)");
 		if (use_ret == -(TTLS_ERR_BUFFER_TOO_SMALL))
-			ttls_snprintf(buf, buflen, "SSL - A buffer is too small to receive or write a message");
+			ttls_snprintf(buf, buflen, "TLS - A buffer is too small to receive or write a message");
 		if (use_ret == -(TTLS_ERR_NO_USABLE_CIPHERSUITE))
-			ttls_snprintf(buf, buflen, "SSL - None of the common ciphersuites is usable (eg, no suitable certificate, see debug messages)");
+			ttls_snprintf(buf, buflen, "TLS - None of the common ciphersuites is usable (eg, no suitable certificate, see debug messages)");
 		if (use_ret == -(TTLS_ERR_TIMEOUT))
-			ttls_snprintf(buf, buflen, "SSL - The operation timed out");
+			ttls_snprintf(buf, buflen, "TLS - The operation timed out");
 		if (use_ret == -(TTLS_ERR_UNEXPECTED_RECORD))
-			ttls_snprintf(buf, buflen, "SSL - Record header looks valid but is not expected");
+			ttls_snprintf(buf, buflen, "TLS - Record header looks valid but is not expected");
 		if (use_ret == -(TTLS_ERR_NON_FATAL))
-			ttls_snprintf(buf, buflen, "SSL - The alert message received indicates a non-fatal error");
+			ttls_snprintf(buf, buflen, "TLS - The alert message received indicates a non-fatal error");
 		if (use_ret == -(TTLS_ERR_INVALID_VERIFY_HASH))
-			ttls_snprintf(buf, buflen, "SSL - Couldn't set the hash for verifying CertificateVerify");
+			ttls_snprintf(buf, buflen, "TLS - Couldn't set the hash for verifying CertificateVerify");
 
 		if (use_ret == -(TTLS_ERR_X509_FEATURE_UNAVAILABLE))
 			ttls_snprintf(buf, buflen, "X509 - Unavailable feature, e.g. RSA hashing/encryption combination");

@@ -531,31 +531,6 @@ static int ssl_write_client_hello(ttls_context *ssl)
 	TTLS_DEBUG_BUF(3,   "client hello, session id", buf + 39, n);
 
 	/*
-	 * DTLS cookie
-	 */
-#if defined(TTLS_PROTO_DTLS)
-	if (ssl->conf->transport == TTLS_TRANSPORT_DATAGRAM)
-	{
-		if (ssl->handshake->verify_cookie == NULL)
-		{
-			TTLS_DEBUG_MSG(3, ("no verify cookie to send"));
-			*p++ = 0;
-		}
-		else
-		{
-			TTLS_DEBUG_BUF(3, "client hello, cookie",
-				  ssl->handshake->verify_cookie,
-				  ssl->handshake->verify_cookie_len);
-
-			*p++ = ssl->handshake->verify_cookie_len;
-			memcpy(p, ssl->handshake->verify_cookie,
-		   ssl->handshake->verify_cookie_len);
-			p += ssl->handshake->verify_cookie_len;
-		}
-	}
-#endif
-
-	/*
 	 * Ciphersuite list
 	 */
 	ciphersuites = ssl->conf->ciphersuite_list[ssl->minor_ver];
@@ -575,12 +550,6 @@ static int ssl_write_client_hello(ttls_context *ssl)
 		if (ciphersuite_info->min_minor_ver > ssl->conf->max_minor_ver ||
 			ciphersuite_info->max_minor_ver < ssl->conf->min_minor_ver)
 			continue;
-
-#if defined(TTLS_PROTO_DTLS)
-		if (ssl->conf->transport == TTLS_TRANSPORT_DATAGRAM &&
-			(ciphersuite_info->flags & TTLS_CIPHERSUITE_NODTLS))
-			continue;
-#endif
 
 		TTLS_DEBUG_MSG(3, ("client hello, add ciphersuite: %04x",
 				ciphersuites[i]));
@@ -674,11 +643,6 @@ static int ssl_write_client_hello(ttls_context *ssl)
 	ssl->out_msg[0]  = TTLS_HS_CLIENT_HELLO;
 
 	ssl->state++;
-
-#if defined(TTLS_PROTO_DTLS)
-	if (ssl->conf->transport == TTLS_TRANSPORT_DATAGRAM)
-		ttls_send_flight_completed(ssl);
-#endif
 
 	if ((ret = ttls_write_record(ssl)) != 0)
 	{
@@ -892,26 +856,7 @@ static int ssl_parse_server_hello(ttls_context *ssl)
 		return(TTLS_ERR_UNEXPECTED_MESSAGE);
 	}
 
-#if defined(TTLS_PROTO_DTLS)
-	if (ssl->conf->transport == TTLS_TRANSPORT_DATAGRAM)
-	{
-		if (buf[0] == TTLS_HS_HELLO_VERIFY_REQUEST)
-		{
-			TTLS_DEBUG_MSG(2, ("received hello verify request"));
-			TTLS_DEBUG_MSG(2, ("<= parse server hello"));
-			return(ssl_parse_hello_verify_request(ssl));
-		}
-		else
-		{
-			/* We made it through the verification process */
-			ttls_free(ssl->handshake->verify_cookie);
-			ssl->handshake->verify_cookie = NULL;
-			ssl->handshake->verify_cookie_len = 0;
-		}
-	}
-#endif /* TTLS_PROTO_DTLS */
-
-	if (ssl->in_hslen < 38 + ttls_hs_hdr_len(ssl) ||
+	if (ssl->in_hslen < 38 + TTLS_HS_HDR_LEN ||
 		buf[0] != TTLS_HS_SERVER_HELLO)
 	{
 		TTLS_DEBUG_MSG(1, ("bad server hello message"));
@@ -931,7 +876,7 @@ static int ssl_parse_server_hello(ttls_context *ssl)
 	 * 38+n . 39+n  extensions length (optional)
 	 * 40+n .  ..   extensions
 	 */
-	buf += ttls_hs_hdr_len(ssl);
+	buf += TTLS_HS_HDR_LEN;
 
 	TTLS_DEBUG_BUF(3, "server hello, version", buf + 0, 2);
 	ttls_read_version(&ssl->major_ver, &ssl->minor_ver,
@@ -974,13 +919,13 @@ static int ssl_parse_server_hello(ttls_context *ssl)
 		return(TTLS_ERR_BAD_HS_SERVER_HELLO);
 	}
 
-	if (ssl->in_hslen > ttls_hs_hdr_len(ssl) + 39 + n)
+	if (ssl->in_hslen > TTLS_HS_HDR_LEN + 39 + n)
 	{
 		ext_len = ((buf[38 + n] <<  8)
 				  | (buf[39 + n]	  ));
 
 		if ((ext_len > 0 && ext_len < 4) ||
-			ssl->in_hslen != ttls_hs_hdr_len(ssl) + 40 + n + ext_len)
+			ssl->in_hslen != TTLS_HS_HDR_LEN + 40 + n + ext_len)
 		{
 			TTLS_DEBUG_MSG(1, ("bad server hello message"));
 			ttls_send_alert_msg(ssl, TTLS_ALERT_LEVEL_FATAL,
@@ -988,7 +933,7 @@ static int ssl_parse_server_hello(ttls_context *ssl)
 			return(TTLS_ERR_BAD_HS_SERVER_HELLO);
 		}
 	}
-	else if (ssl->in_hslen == ttls_hs_hdr_len(ssl) + 38 + n)
+	else if (ssl->in_hslen == TTLS_HS_HDR_LEN + 38 + n)
 	{
 		ext_len = 0;
 	}
@@ -1510,7 +1455,7 @@ static int ssl_parse_server_key_exchange(ttls_context *ssl)
 		return(TTLS_ERR_UNEXPECTED_MESSAGE);
 	}
 
-	p   = ssl->in_msg + ttls_hs_hdr_len(ssl);
+	p   = ssl->in_msg + TTLS_HS_HDR_LEN;
 	end = ssl->in_msg + ssl->in_hslen;
 	TTLS_DEBUG_BUF(3,   "server key exchange", p, end - p);
 
@@ -1550,7 +1495,7 @@ static int ssl_parse_server_key_exchange(ttls_context *ssl)
 		unsigned char hash[64];
 		ttls_md_type_t md_alg = TTLS_MD_NONE;
 		ttls_pk_type_t pk_alg = TTLS_PK_NONE;
-		unsigned char *params = ssl->in_msg + ttls_hs_hdr_len(ssl);
+		unsigned char *params = ssl->in_msg + TTLS_HS_HDR_LEN;
 		size_t params_len = p - params;
 
 		/*
@@ -1754,10 +1699,10 @@ static int ssl_parse_certificate_request(ttls_context *ssl)
 	buf = ssl->in_msg;
 
 	/* certificate_types */
-	cert_type_len = buf[ttls_hs_hdr_len(ssl)];
+	cert_type_len = buf[TTLS_HS_HDR_LEN];
 	n = cert_type_len;
 
-	if (ssl->in_hslen < ttls_hs_hdr_len(ssl) + 2 + n)
+	if (ssl->in_hslen < TTLS_HS_HDR_LEN + 2 + n)
 	{
 		TTLS_DEBUG_MSG(1, ("bad certificate request message"));
 		ttls_send_alert_msg(ssl, TTLS_ALERT_LEVEL_FATAL,
@@ -1768,10 +1713,10 @@ static int ssl_parse_certificate_request(ttls_context *ssl)
 	/* supported_signature_algorithms */
 	if (ssl->minor_ver == TTLS_MINOR_VERSION_3)
 	{
-		size_t sig_alg_len = ((buf[ttls_hs_hdr_len(ssl) + 1 + n] <<  8)
-		 | (buf[ttls_hs_hdr_len(ssl) + 2 + n]));
+		size_t sig_alg_len = ((buf[TTLS_HS_HDR_LEN + 1 + n] <<  8)
+		 | (buf[TTLS_HS_HDR_LEN + 2 + n]));
 #if defined(DEBUG) && (DEBUG == 3)
-		unsigned char* sig_alg = buf + ttls_hs_hdr_len(ssl) + 3 + n;
+		unsigned char* sig_alg = buf + TTLS_HS_HDR_LEN + 3 + n;
 		size_t i;
 
 		for (i = 0; i < sig_alg_len; i += 2)
@@ -1783,7 +1728,7 @@ static int ssl_parse_certificate_request(ttls_context *ssl)
 
 		n += 2 + sig_alg_len;
 
-		if (ssl->in_hslen < ttls_hs_hdr_len(ssl) + 2 + n)
+		if (ssl->in_hslen < TTLS_HS_HDR_LEN + 2 + n)
 		{
 			TTLS_DEBUG_MSG(1, ("bad certificate request message"));
 			ttls_send_alert_msg(ssl, TTLS_ALERT_LEVEL_FATAL,
@@ -1793,11 +1738,11 @@ static int ssl_parse_certificate_request(ttls_context *ssl)
 	}
 
 	/* certificate_authorities */
-	dn_len = ((buf[ttls_hs_hdr_len(ssl) + 1 + n] <<  8)
-			 | (buf[ttls_hs_hdr_len(ssl) + 2 + n]	  ));
+	dn_len = ((buf[TTLS_HS_HDR_LEN + 1 + n] <<  8)
+			 | (buf[TTLS_HS_HDR_LEN + 2 + n]	  ));
 
 	n += dn_len;
-	if (ssl->in_hslen != ttls_hs_hdr_len(ssl) + 3 + n)
+	if (ssl->in_hslen != TTLS_HS_HDR_LEN + 3 + n)
 	{
 		TTLS_DEBUG_MSG(1, ("bad certificate request message"));
 		ttls_send_alert_msg(ssl, TTLS_ALERT_LEVEL_FATAL,
@@ -1830,7 +1775,7 @@ static int ssl_parse_server_hello_done(ttls_context *ssl)
 		return(TTLS_ERR_UNEXPECTED_MESSAGE);
 	}
 
-	if (ssl->in_hslen  != ttls_hs_hdr_len(ssl) ||
+	if (ssl->in_hslen  != TTLS_HS_HDR_LEN ||
 		ssl->in_msg[0] != TTLS_HS_SERVER_HELLO_DONE)
 	{
 		TTLS_DEBUG_MSG(1, ("bad server hello done message"));
@@ -1840,11 +1785,6 @@ static int ssl_parse_server_hello_done(ttls_context *ssl)
 	}
 
 	ssl->state++;
-
-#if defined(TTLS_PROTO_DTLS)
-	if (ssl->conf->transport == TTLS_TRANSPORT_DATAGRAM)
-		ttls_recv_flight_completed(ssl);
-#endif
 
 	TTLS_DEBUG_MSG(2, ("<= parse server hello done"));
 
@@ -2022,7 +1962,7 @@ static int ssl_parse_new_session_ticket(ttls_context *ssl)
 	 * 6  .  5+n ticket content
 	 */
 	if (ssl->in_msg[0] != TTLS_HS_NEW_SESSION_TICKET ||
-		ssl->in_hslen < 6 + ttls_hs_hdr_len(ssl))
+		ssl->in_hslen < 6 + TTLS_HS_HDR_LEN)
 	{
 		TTLS_DEBUG_MSG(1, ("bad new session ticket message"));
 		ttls_send_alert_msg(ssl, TTLS_ALERT_LEVEL_FATAL,
@@ -2030,14 +1970,14 @@ static int ssl_parse_new_session_ticket(ttls_context *ssl)
 		return(TTLS_ERR_BAD_HS_NEW_SESSION_TICKET);
 	}
 
-	msg = ssl->in_msg + ttls_hs_hdr_len(ssl);
+	msg = ssl->in_msg + TTLS_HS_HDR_LEN;
 
 	lifetime = (msg[0] << 24) | (msg[1] << 16) |
 			   (msg[2] <<  8) | (msg[3]	  );
 
 	ticket_len = (msg[4] << 8) | (msg[5]);
 
-	if (ticket_len + 6 + ttls_hs_hdr_len(ssl) != ssl->in_hslen)
+	if (ticket_len + 6 + TTLS_HS_HDR_LEN != ssl->in_hslen)
 	{
 		TTLS_DEBUG_MSG(1, ("bad new session ticket message"));
 		ttls_send_alert_msg(ssl, TTLS_ALERT_LEVEL_FATAL,
@@ -2105,14 +2045,6 @@ int ttls_handshake_client_step(ttls_context *ssl)
 	TTLS_DEBUG_MSG(2, ("client state: %d", ssl->state));
 
 	BUG_ON(tls->conf->endpoint != TTLS_IS_CLIENT);
-#if defined(TTLS_PROTO_DTLS)
-	if (ssl->conf->transport == TTLS_TRANSPORT_DATAGRAM &&
-		ssl->handshake->retransmit_state == TTLS_RETRANS_SENDING)
-	{
-		if ((ret = ttls_resend(ssl)) != 0)
-			return ret;
-	}
-#endif
 
 	/* Change state now, so that it is right in ttls_read_record(), used
 	 * by DTLS for dropping out-of-sequence ChangeCipherSpec records */
