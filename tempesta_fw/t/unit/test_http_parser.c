@@ -899,10 +899,20 @@ TEST(http_parser, content_length)
 			  "Content-Length: 0\r\n"
 			  "\r\n");
 
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "Content-Length: 10, 10\r\n"
+			 "\r\n"
+			 "0123456789");
+
 	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
 			  "Content-Length: 0\r\n"
 			  "Content-Length: 0\r\n"
 			  "\r\n");
+
+	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
+			  "Content-Length: 10, 10\r\n"
+			  "\r\n"
+			  "0123456789");
 
 	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
 			  "Content-Length: -1\r\n"
