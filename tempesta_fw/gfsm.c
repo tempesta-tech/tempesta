@@ -236,7 +236,7 @@ tfw_gfsm_move(TfwGState *st, unsigned short state, const TfwFsmData *data)
 		 * rather than fixed priority levels to avoid spinning in vain.
 		 */
 		if (!(hooks[p] & mask))
-			return TFW_PASS;
+			return r;
 
 		/* Switch context to other FSM. */
 		fsm = tfw_gfsm_switch(st, state, p);
