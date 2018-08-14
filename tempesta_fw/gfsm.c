@@ -221,6 +221,7 @@ tfw_gfsm_move(TfwGState *st, unsigned short state, const TfwFsmData *data)
 	int r = TFW_PASS, p, fsm;
 	unsigned int *hooks = fsm_hooks_bm[FSM(st)];
 	unsigned long mask = 1 << state;
+	unsigned char curr_st = st->curr;
 
 	TFW_DBG3("GFSM move from %#x to %#x\n", FSM_STATE(st), state);
 
@@ -236,7 +237,7 @@ tfw_gfsm_move(TfwGState *st, unsigned short state, const TfwFsmData *data)
 		 * rather than fixed priority levels to avoid spinning in vain.
 		 */
 		if (!(hooks[p] & mask))
-			return r;
+			goto done;
 
 		/* Switch context to other FSM. */
 		fsm = tfw_gfsm_switch(st, state, p);
@@ -251,7 +252,8 @@ tfw_gfsm_move(TfwGState *st, unsigned short state, const TfwFsmData *data)
 
 		switch (__gfsm_fsm_exec(st, fsm, data)) {
 		case TFW_BLOCK:
-			return TFW_BLOCK;
+			r = TFW_BLOCK;
+			goto done;
 		case TFW_POSTPONE:
 			/*
 			 * Postpone processing if at least one FSM
@@ -260,6 +262,9 @@ tfw_gfsm_move(TfwGState *st, unsigned short state, const TfwFsmData *data)
 			r = TFW_POSTPONE;
 		}
 	}
+done:
+	/* Restore current FSM context. */
+	st->curr = curr_st;
 
 	return r;
 }
