@@ -80,6 +80,9 @@
 #define __GFSM_FSM(_s)		(((_s) >> TFW_GFSM_FSM_SHIFT)	\
 				 & TFW_GFSM_FSM_MASK)
 #define FSM(s)			__GFSM_FSM(FSM_STATE(s))
+#define __GFSM_PRIO(_s)		(((_s) >> TFW_GFSM_PRIO_SHIFT)	\
+				 & TFW_GFSM_PRIO_MASK)
+#define PRIO(s)			__GFSM_PRIO(FSM_STATE(s))
 #define GFSM_HOOK_N		(TFW_GFSM_PRIO_N * TFW_GFSM_STATE_N)
 #define SET_STATE(s, x)						\
 do {								\
@@ -269,6 +272,20 @@ done:
 	return r;
 }
 EXPORT_SYMBOL(tfw_gfsm_move);
+
+#ifdef DEBUG
+/**
+ * Helper function to debug current fsm state.
+ */
+void
+tfw_gfsm_debug_state(TfwGState *st, const char *msg)
+{
+	TFW_DBG("%s: curr=%d:  on_stack=%d fsm_id=%d prio=%d state=%d",
+		msg, st->curr, !!(FSM_STATE(st) & TFW_GFSM_ONSTACK), FSM(st),
+		PRIO(st), TFW_GFSM_STATE(st));
+}
+EXPORT_SYMBOL(tfw_gfsm_debug_state);
+#endif
 
 /**
  * Register a hook which will be called with priority @prio when FSM @fsm_id
