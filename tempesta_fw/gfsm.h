@@ -45,6 +45,7 @@
 /* Priorities number (1 << 4 = 16). */
 #define TFW_GFSM_PRIO_BITS	4
 #define TFW_GFSM_PRIO_N		(1 << TFW_GFSM_PRIO_BITS)
+#define TFW_GFSM_PRIO_MASK	(TFW_GFSM_PRIO_N - 1)
 #define TFW_GFSM_PRIO_SHIFT	TFW_GFSM_STATE_BITS
 /* Maximum number of different FSMs (1 << 4 = 16). */
 #define TFW_GFSM_FSM_BITS	4
@@ -187,6 +188,10 @@ typedef int (*tfw_gfsm_handler_t)(void *obj, const TfwFsmData *data);
 void tfw_gfsm_state_init(TfwGState *st, void *obj, int st0);
 int tfw_gfsm_dispatch(TfwGState *st, void *obj, const TfwFsmData *data);
 int tfw_gfsm_move(TfwGState *st, unsigned short state, const TfwFsmData *data);
+
+#ifdef DEBUG
+void tfw_gfsm_debug_state(TfwGState *st, const char *msg);
+#endif
 
 int tfw_gfsm_register_hook(int fsm_id, int prio, int state,
 			   unsigned short hndl_fsm_id, int st0);
