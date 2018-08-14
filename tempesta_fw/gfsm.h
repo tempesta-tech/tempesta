@@ -76,7 +76,7 @@
  * L5-L7 protocols stack is just TLS carrying application protocol,
  * so the secured application protocols have designated FSMs rather than
  * build real stack. This simplifies the protocols handling, makes it faster
- * and privides more flexibility to set classification FSMs' hooks for
+ * and provides more flexibility to set classification FSMs' hooks for
  * specific secured application protocol.
  */
 enum {
@@ -138,11 +138,11 @@ enum {
  * loadable user custom modules. Usually L4 data is provided to FSMs for
  * protocol handlers while L7 is for application layer FSMs, e.g. Frang security
  * limits enforcing module. HTTP FSM processes L4 data and creates L7 data
- * for further processing by other FSMs. So for futher extensions we handle all
+ * for further processing by other FSMs. So for further extensions we handle all
  * layers data in the structure instead of using a union to keep one layer data
  * at a time.
  *
- * GFSM resides at the top of classes hirarchy, so use generic message classes.
+ * GFSM resides at the top of classes hierarchy, so use generic message classes.
  *
  * @skb		- currently processed skb by the TCP/IP stack;
  * @off		- data offset within the @skb;
