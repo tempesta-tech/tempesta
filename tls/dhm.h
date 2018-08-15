@@ -1,7 +1,5 @@
 /**
- * \file dhm.h
- *
- * \brief Diffie-Hellman-Merkle key exchange.
+ * Diffie-Hellman-Merkle key exchange.
  *
  * <em>RFC-3526: More Modular Exponential (MODP) Diffie-Hellman groups for
  * Internet Key Exchange (IKE)</em> defines a number of standardized

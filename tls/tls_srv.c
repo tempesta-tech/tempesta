@@ -1522,13 +1522,14 @@ curve_matching_done:
 
 	/* Done with actual work; add handshake header and add the record. */
 	WARN_ON_ONCE(n > 1015);
-	io->msglen = 4 + n;
+	io->msglen = TTLS_HS_HDR_LEN + n;
 	ttls_write_hshdr(TTLS_HS_SERVER_KEY_EXCHANGE, hdr + TTLS_HDR_LEN,
-			 4 + n);
+			 TTLS_HS_HDR_LEN + n);
 
-	*in_buf = hdr + TTLS_HDR_LEN + 4 + n;
+	*in_buf = hdr + TTLS_HDR_LEN + TTLS_HS_HDR_LEN + n;
 	sg_set_page(&sgt->sgl[sgt->nents++], virt_to_page(hdr),
-		    TTLS_HDR_LEN + 4 + n, (unsigned long)hdr & ~PAGE_MASK);
+		    TTLS_HDR_LEN + TTLS_HS_HDR_LEN + n,
+		    (unsigned long)hdr & ~PAGE_MASK);
 	get_page(virt_to_page(hdr));
 	__ttls_add_record(tls, sgt, sgt->nents - 1, hdr);
 
@@ -1692,7 +1693,8 @@ ttls_write_server_hello_done(TlsCtx *tls, struct sg_table *sgt,
 	T_DBG("sending ServerHelloDone\n");
 
 	io->msglen = TTLS_HS_HDR_LEN;
-	ttls_write_hshdr(TTLS_HS_SERVER_HELLO_DONE, p + TTLS_HDR_LEN, 0);
+	ttls_write_hshdr(TTLS_HS_SERVER_HELLO_DONE, p + TTLS_HDR_LEN,
+			 TTLS_HS_HDR_LEN);
 
 	*in_buf += TTLS_HDR_LEN + TTLS_HS_HDR_LEN;
 	sg_set_page(&sgt->sgl[sgt->nents++], virt_to_page(p), *in_buf - p,

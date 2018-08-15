@@ -170,18 +170,36 @@ tfw_gfsm_switch(TfwGState *st, int state, int prio)
  *      processing.
  */
 static int
-__gfsm_fsm_exec(TfwGState *st, int fsm_id, const TfwFsmData *data)
+__gfsm_fsm_exec(TfwGState *st, int fsm_id, TfwFsmData *data)
 {
-	int r, slot, dummy;
+	int r = T_OK, slot, dummy;
+	struct sk_buff *next;
 
 	st->curr = slot = __gfsm_fsm_lookup(st, fsm_id, &dummy);
 	BUG_ON(st->curr < 0);
 
 	FSM_STATE(st) |= TFW_GFSM_ONSTACK;
 
-	TFW_DBG3("GFSM exec fsm %d, state %#x\n", fsm_id, st->states[slot]);
+	TFW_DBG3("GFSM exec fsm %d, state %#x: data skb=%pK off=%u\n",
+		 fsm_id, st->states[slot], data->skb, data->off);
 
-	r = fsm_htbl[fsm_id](st->obj, data);
+	/*
+	 * Execute the FSM for current 'message', as it's seen by the caller.
+	 * The message can spread over severe skb's and the first one may
+	 * contain a tail for a previous message.
+	 * The called FSM doesn't guarantee consistency of the skb list,
+	 * however the FSM is responsible for freeing all consumed skbs,
+	 * including the skb which returned an error code on. The rest of skbs
+	 * are freed by us.
+	 */
+	for (next = data->skb->next; data->skb;
+	     data->skb = next, next = next ? next->next : NULL, data->off = 0)
+	{
+		if (likely(r == T_OK || r == T_POSTPONE))
+			r = fsm_htbl[fsm_id](st->obj, data);
+		else
+			kfree(data->skb);
+	}
 
 	/* If current FSM finishes, remove its state. */
 	if ((st->states[slot] & TFW_GFSM_STATE_MASK) == TFW_GFSM_STATE_LAST) {
@@ -198,7 +216,7 @@ __gfsm_fsm_exec(TfwGState *st, int fsm_id, const TfwFsmData *data)
  * Dispatch connection data to proper FSM by application protocol type.
  */
 int
-tfw_gfsm_dispatch(TfwGState *st, void *obj, const TfwFsmData *data)
+tfw_gfsm_dispatch(TfwGState *st, void *obj, TfwFsmData *data)
 {
 	int fsm_id = TFW_FSM_TYPE(((SsProto *)obj)->type);
 
@@ -216,7 +234,7 @@ tfw_gfsm_dispatch(TfwGState *st, void *obj, const TfwFsmData *data)
  * has 32-bit states bitmap), so we use this fact to speedup the iteration.
  */
 int
-tfw_gfsm_move(TfwGState *st, unsigned short state, const TfwFsmData *data)
+tfw_gfsm_move(TfwGState *st, unsigned short state, TfwFsmData *data)
 {
 	int r = TFW_PASS, p, fsm;
 	unsigned int *hooks = fsm_hooks_bm[FSM(st)];

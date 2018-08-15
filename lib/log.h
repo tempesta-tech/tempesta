@@ -85,10 +85,10 @@ enum {
 #define T_DBG3_SL(str, sglist, sgn, off, len)				\
 do {									\
 	int i;								\
-	struct scatterlist *sg = NULL;					\
-	T_DBG3(str ":\n");						\
-	for_each_sg(sglist, sg, sgn, i)					\
-		T_DBG3_BUF("  ", sg_virt(sg), sg->length);		\
+	struct scatterlist *s = NULL;					\
+	T_DBG3(str " (sgn=%u sglist=%pK):\n", sgn, sglist);		\
+	for_each_sg(sglist, s, sgn, i)					\
+		T_DBG3_BUF("  ", sg_virt(s), s->length);		\
 } while (0)
 
 #define __CALLSTACK_MSG(...)						\
