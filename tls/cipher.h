@@ -115,10 +115,8 @@ typedef enum {
  */
 typedef struct {
 	ttls_cipher_id_t	cipher;
-#if defined(TTLS_CIPHER_MODE_STREAM)
 	int (*stream_func)(void *ctx, size_t length, const unsigned char *input,
 			   unsigned char *output);
-#endif
 	int (*setkey_enc_func)(void *ctx, const unsigned char *key,
 			       unsigned int len);
 	int (*setkey_dec_func)(void *ctx, const unsigned char *key,
@@ -191,7 +189,6 @@ typedef struct {
 const ttls_cipher_info_t *ttls_cipher_info_from_type(
 					const ttls_cipher_type_t cipher_type);
 
-void ttls_cipher_init(ttls_cipher_context_t *ctx);
 void ttls_cipher_free(ttls_cipher_context_t *ctx);
 int ttls_cipher_setup(ttls_cipher_context_t *ctx, const ttls_cipher_info_t *ci,
 		      unsigned int tag_size);
