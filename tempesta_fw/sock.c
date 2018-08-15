@@ -327,7 +327,7 @@ ss_sock_active(struct sock *sk)
  * ------------------------------------------------------------------------
  */
 /**
- * @skb_list can be invalid after the function call, don't try to use it.
+ * @skb_head can be invalid after the function call, don't try to use it.
  */
 static void
 ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)

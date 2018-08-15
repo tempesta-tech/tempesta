@@ -602,7 +602,7 @@ int tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 bool tfw_http_parse_terminate(TfwHttpMsg *hm);
 
 /* External HTTP functions. */
-int tfw_http_msg_process(void *conn, const TfwFsmData *data);
+int tfw_http_msg_process(void *conn, TfwFsmData *data);
 unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
 void tfw_http_req_destruct(void *msg);
 void tfw_http_resp_fwd(TfwHttpResp *resp);
