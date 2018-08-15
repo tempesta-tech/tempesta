@@ -144,11 +144,6 @@
 #define TTLS_MAX_CONTENT_LEN		16384
 
 /*
- * Length of the verify data for secure renegotiation
- */
-#define TTLS_VERIFY_DATA_MAX_LEN		12
-
-/*
  * Signaling ciphersuite values (SCSV)
  */
 #define TTLS_EMPTY_RENEGOTIATION_INFO	0xFF /**< renegotiation info ext */
@@ -158,21 +153,21 @@
  * Supported Signature and Hash algorithms (For TLS 1.2)
  * RFC 5246 section 7.4.1.4.1
  */
-#define TTLS_HASH_NONE			0
-#define TTLS_HASH_SHA224		3
-#define TTLS_HASH_SHA256		4
-#define TTLS_HASH_SHA384		5
-#define TTLS_HASH_SHA512		6
+#define TTLS_HASH_NONE				0
+#define TTLS_HASH_SHA224			3
+#define TTLS_HASH_SHA256			4
+#define TTLS_HASH_SHA384			5
+#define TTLS_HASH_SHA512			6
 
-#define TTLS_SIG_ANON			0
-#define TTLS_SIG_RSA			1
-#define TTLS_SIG_ECDSA			3
+#define TTLS_SIG_ANON				0
+#define TTLS_SIG_RSA				1
+#define TTLS_SIG_ECDSA				3
 
 /*
  * Client Certificate Types
  * RFC 5246 section 7.4.4 plus RFC 4492 section 5.5
  */
-#define TTLS_CERT_TYPE_RSA_SIGN		1
+#define TTLS_CERT_TYPE_RSA_SIGN			1
 #define TTLS_CERT_TYPE_ECDSA_SIGN		64
 
 /*
@@ -186,35 +181,35 @@
 #define TTLS_ALERT_LEVEL_WARNING		1
 #define TTLS_ALERT_LEVEL_FATAL			2
 
-#define TTLS_ALERT_MSG_CLOSE_NOTIFY	0 /* 0x00 */
+#define TTLS_ALERT_MSG_CLOSE_NOTIFY		0 /* 0x00 */
 #define TTLS_ALERT_MSG_UNEXPECTED_MESSAGE	10 /* 0x0A */
-#define TTLS_ALERT_MSG_BAD_RECORD_MAC	20 /* 0x14 */
+#define TTLS_ALERT_MSG_BAD_RECORD_MAC		20 /* 0x14 */
 #define TTLS_ALERT_MSG_DECRYPTION_FAILED	21 /* 0x15 */
-#define TTLS_ALERT_MSG_RECORD_OVERFLOW	22 /* 0x16 */
-#define TTLS_ALERT_MSG_DECOMPRESSION_FAILURE 30 /* 0x1E */
+#define TTLS_ALERT_MSG_RECORD_OVERFLOW		22 /* 0x16 */
+#define TTLS_ALERT_MSG_DECOMPRESSION_FAILURE	30 /* 0x1E */
 #define TTLS_ALERT_MSG_HANDSHAKE_FAILURE	40 /* 0x28 */
-#define TTLS_ALERT_MSG_NO_CERT	41 /* 0x29 */
-#define TTLS_ALERT_MSG_BAD_CERT	42 /* 0x2A */
-#define TTLS_ALERT_MSG_UNSUPPORTED_CERT	43 /* 0x2B */
-#define TTLS_ALERT_MSG_CERT_REVOKED	44 /* 0x2C */
-#define TTLS_ALERT_MSG_CERT_EXPIRED	45 /* 0x2D */
-#define TTLS_ALERT_MSG_CERT_UNKNOWN	46 /* 0x2E */
+#define TTLS_ALERT_MSG_NO_CERT			41 /* 0x29 */
+#define TTLS_ALERT_MSG_BAD_CERT			42 /* 0x2A */
+#define TTLS_ALERT_MSG_UNSUPPORTED_CERT		43 /* 0x2B */
+#define TTLS_ALERT_MSG_CERT_REVOKED		44 /* 0x2C */
+#define TTLS_ALERT_MSG_CERT_EXPIRED		45 /* 0x2D */
+#define TTLS_ALERT_MSG_CERT_UNKNOWN		46 /* 0x2E */
 #define TTLS_ALERT_MSG_ILLEGAL_PARAMETER	47 /* 0x2F */
-#define TTLS_ALERT_MSG_UNKNOWN_CA	48 /* 0x30 */
-#define TTLS_ALERT_MSG_ACCESS_DENIED	49 /* 0x31 */
-#define TTLS_ALERT_MSG_DECODE_ERROR	50 /* 0x32 */
-#define TTLS_ALERT_MSG_DECRYPT_ERROR	51 /* 0x33 */
+#define TTLS_ALERT_MSG_UNKNOWN_CA		48 /* 0x30 */
+#define TTLS_ALERT_MSG_ACCESS_DENIED		49 /* 0x31 */
+#define TTLS_ALERT_MSG_DECODE_ERROR		50 /* 0x32 */
+#define TTLS_ALERT_MSG_DECRYPT_ERROR		51 /* 0x33 */
 #define TTLS_ALERT_MSG_EXPORT_RESTRICTION	60 /* 0x3C */
-#define TTLS_ALERT_MSG_PROTOCOL_VERSION	70 /* 0x46 */
-#define TTLS_ALERT_MSG_INSUFFICIENT_SECURITY 71 /* 0x47 */
-#define TTLS_ALERT_MSG_INTERNAL_ERROR	80 /* 0x50 */
-#define TTLS_ALERT_MSG_INAPROPRIATE_FALLBACK 86 /* 0x56 */
-#define TTLS_ALERT_MSG_USER_CANCELED	90 /* 0x5A */
-#define TTLS_ALERT_MSG_NO_RENEGOTIATION	100 /* 0x64 */
-#define TTLS_ALERT_MSG_UNSUPPORTED_EXT	110 /* 0x6E */
+#define TTLS_ALERT_MSG_PROTOCOL_VERSION		70 /* 0x46 */
+#define TTLS_ALERT_MSG_INSUFFICIENT_SECURITY	71 /* 0x47 */
+#define TTLS_ALERT_MSG_INTERNAL_ERROR		80 /* 0x50 */
+#define TTLS_ALERT_MSG_INAPROPRIATE_FALLBACK	86 /* 0x56 */
+#define TTLS_ALERT_MSG_USER_CANCELED		90 /* 0x5A */
+#define TTLS_ALERT_MSG_NO_RENEGOTIATION		100 /* 0x64 */
+#define TTLS_ALERT_MSG_UNSUPPORTED_EXT		110 /* 0x6E */
 #define TTLS_ALERT_MSG_UNRECOGNIZED_NAME	112 /* 0x70 */
-#define TTLS_ALERT_MSG_UNKNOWN_PSK_IDENTITY 115 /* 0x73 */
-#define TTLS_ALERT_MSG_NO_APPLICATION_PROTOCOL 120 /* 0x78 */
+#define TTLS_ALERT_MSG_UNKNOWN_PSK_IDENTITY	115 /* 0x73 */
+#define TTLS_ALERT_MSG_NO_APPLICATION_PROTOCOL	120 /* 0x78 */
 
 #define TTLS_HS_HELLO_REQUEST			0
 #define TTLS_HS_CLIENT_HELLO			1
@@ -281,7 +276,7 @@ typedef struct ttls_key_cert ttls_key_cert;
  * @peer_cert		- peer X.509 cert chain;
  * @ciphersuite		- chosen ciphersuite;
  * @etm			- flag for Encrypt-then-MAC activation;
- * @verify_result 	- verification result;
+ * @verify_result	- verification result;
  * @id			- session identifier;
  * @master		- the master secret;
  */
@@ -429,7 +424,7 @@ struct ttls_config
  *		  data);
  * @rlen	- read bytes of the message body so far;
  * @skb_list	- list of skbs attachd to the current I/O context;
- * @off		- data offset within first skb in @skb_list;
+ * @off		- data offset within @skb_list, can be afther the 1st skb;
  * @chunks	- number of contigious memory chunks in all skbs in @skb_list;
  */
 typedef struct {
@@ -475,12 +470,8 @@ typedef struct tls_handshake_t TlsHandshake;
  * @major	- the context TLS major version, currently equal to
  *		  TTLS_MAJOR_VERSION_3;
  * @minor	- currently equal to 3 (TLS 1.2), 4 (TLS 1.3) is possible in
- * 		  future;
+ *		  future;
  * @io_{in,out}	- I/O contexts for ingress and egress messages correspondingly;
- *		  TODO if we can not process ingress data concurrently with
- *		       transmission, then we need only one IO context; if we can,
- *		       then @lock should be split to 2 or 3 locks (for each
- *		       IO plust the whole structure operations).
  * @sess	- session data;
  * @xfrm	- transform params;
  * @nb_zero	-  # of 0-length encrypted messages;
@@ -548,32 +539,8 @@ void ttls_write_hshdr(unsigned char type, unsigned char *buf,
 void *ttls_alloc_crypto_req(unsigned int extra_size, unsigned int *rsz);
 void ttls_register_bio(ttls_send_cb_t *send_cb);
 
-/**
- * \brief Returns the list of ciphersuites supported by the SSL/TLS module.
- *
- * \return	a statically allocated array of ciphersuites, the last
- *	entry is 0.
- */
 const int *ttls_list_ciphersuites(void);
-
-/**
- * \brief	Return the name of the ciphersuite associated with the
- *		given ID
- *
- * \param 	ciphersuite_id SSL ciphersuite ID
- *
- * \return	a string containing the ciphersuite name
- */
 const char *ttls_get_ciphersuite_name(const int ciphersuite_id);
-
-/**
- * \brief	Return the ID of the ciphersuite associated with the
- *		given name
- *
- * \param ciphersuite_name SSL ciphersuite name
- *
- * \return	the ID with the ciphersuite or 0 if not found
- */
 int ttls_get_ciphersuite_id(const char *ciphersuite_name);
 
 int ttls_ctx_init(TlsCtx *tls, const ttls_config *conf);

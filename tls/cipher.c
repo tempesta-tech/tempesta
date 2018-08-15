@@ -65,12 +65,6 @@ ttls_cipher_info_from_type(const ttls_cipher_type_t cipher_type)
 }
 
 void
-ttls_cipher_init(ttls_cipher_context_t *ctx)
-{
-	bzero_fast(ctx, sizeof(ttls_cipher_context_t));
-}
-
-void
 ttls_cipher_free(ttls_cipher_context_t *ctx)
 {
 	if (!ctx)
@@ -288,9 +282,7 @@ gcm_camellia_setkey_wrap(void *ctx, const unsigned char *key,
 static const ttls_cipher_base_t gcm_camellia_info = {
 	TTLS_CIPHER_ID_CAMELLIA,
 	NULL,
-#if defined(TTLS_CIPHER_MODE_STREAM)
 	NULL,
-#endif
 	gcm_camellia_setkey_wrap,
 	gcm_camellia_setkey_wrap,
 	gcm_camellia_ctx_alloc,
@@ -359,9 +351,7 @@ ccm_camellia_setkey_wrap(void *ctx, const unsigned char *key,
 static const ttls_cipher_base_t ccm_camellia_info = {
 	TTLS_CIPHER_ID_CAMELLIA,
 	NULL,
-#if defined(TTLS_CIPHER_MODE_STREAM)
 	NULL,
-#endif
 	ccm_camellia_setkey_wrap,
 	ccm_camellia_setkey_wrap,
 	ccm_camellia_ctx_alloc,

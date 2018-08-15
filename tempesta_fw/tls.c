@@ -35,7 +35,7 @@ static struct {
 } tfw_tls;
 
 static int
-tfw_tls_msg_process(void *conn, const TfwFsmData *data)
+tfw_tls_msg_process(void *conn, TfwFsmData *data)
 {
 	int r, parsed = 0;
 	struct sk_buff *nskb = NULL, *skb = data->skb;
@@ -68,8 +68,11 @@ next_msg:
 		return r;
 	case T_POSTPONE:
 		/*
-		 * No data to pass to upper protolos, typically
-		 * handshake and/or incomplete TLS record.
+		 * No data to pass to upper protolos, could be a handshake
+		 * message spread over several skbs and/or incomplete TLS
+		 * record. Typically, handshake messages fit the same skb and
+		 * all the messages are processed in one ss_skb_process() call.
+		 * Collect all skb chunks of data record in skb_list.
 		 */
 		spin_unlock(&tls->lock);
 		return TFW_PASS;
