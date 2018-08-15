@@ -101,6 +101,8 @@ struct ttls_sig_hash_set_t
  * @cli_exts	- client extension presence;
  * @curves	- supported elliptic curves;
  * @randbytes	- random bytes;
+ * @finished	- temporal buffer for chunks of Finished message,
+ *		  @randbytes were used in prvious messages, so we can reuse it
  * @premaster	- premaster secret;
  * @tmp		- buffer to store temporary data between data chunks;
  */
@@ -136,10 +138,13 @@ typedef struct tls_handshake_t {
 				curves_ext:1;
 
 	const ttls_ecp_curve_info	*curves[TTLS_ECP_DP_MAX];
-	unsigned char		randbytes[64];
 	union {
-		unsigned char	premaster[TTLS_PREMASTER_SIZE];
-		unsigned char	tmp[TTLS_HS_RBUF_SZ];
+		unsigned char		randbytes[64];
+		unsigned char		finished[64];
+	};
+	union {
+		unsigned char		premaster[TTLS_PREMASTER_SIZE];
+		unsigned char		tmp[TTLS_HS_RBUF_SZ];
 	};
 } TlsHandshake;
 

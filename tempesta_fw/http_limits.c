@@ -718,7 +718,7 @@ do {									\
 } while (0)
 
 static int
-frang_http_req_process(FrangAcc *ra, TfwConn *conn, const TfwFsmData *data)
+frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data)
 {
 	int r = TFW_PASS;
 	TfwHttpReq *req = (TfwHttpReq *)data->req;
@@ -972,7 +972,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, const TfwFsmData *data)
 }
 
 static int
-frang_http_req_handler(void *obj, const TfwFsmData *data)
+frang_http_req_handler(void *obj, TfwFsmData *data)
 {
 	int r;
 	TfwConn *conn = (TfwConn *)obj;
@@ -996,7 +996,7 @@ frang_http_req_handler(void *obj, const TfwFsmData *data)
  * for collecting purposes only.
  */
 static int
-frang_resp_handler(void *obj, const TfwFsmData *data)
+frang_resp_handler(void *obj, TfwFsmData *data)
 {
 	unsigned int ts, i;
 	FrangAcc *ra;
