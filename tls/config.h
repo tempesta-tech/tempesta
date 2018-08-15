@@ -423,14 +423,8 @@
 //#define TTLS_TICKET_C
 
 /**
- * \def TTLS_CLI_C
- *
  * Enable the SSL/TLS client code.
- *
- * Module:  library/ssl_cli.c
- * Caller:
- *
- * This module is required for SSL/TLS client support.
+ * This module is required for SSL/TLS client support (#769).
  */
 //#define TTLS_CLI_C
 

@@ -52,16 +52,16 @@ ttls_write_hshdr(unsigned char type, unsigned char *buf, unsigned short len)
 	 * 1 . 3   handshake length
 	 */
 	buf[0] = type;
-	buf[1] = (unsigned char)((len - 4) >> 16);
-	buf[2] = (unsigned char)((len - 4) >> 8);
-	buf[3] = (unsigned char)(len - 4);
-	T_DBG3_BUF("Write handshake header", buf, 4);
+	buf[1] = (unsigned char)((len - TTLS_HS_HDR_LEN) >> 16);
+	buf[2] = (unsigned char)((len - TTLS_HS_HDR_LEN) >> 8);
+	buf[3] = (unsigned char)(len - TTLS_HS_HDR_LEN);
+	T_DBG3_BUF("Write handshake header ", buf, TTLS_HS_HDR_LEN);
 }
 
 /**
  * Called to build crypto request with scatterlist acceptable by the crypto
- * layer from collected skbs when TLS sees end of current message. The function
- * is here only because it has to work with skbs.
+ * layer from collected skbs when TLS sees the end of current message or
+ * @buf of length @len if it's non-NULL.
  *
  * @len - total length of the message data to be sent to crypto framework.
  * @sg	- pointer to allocated scatterlist;
@@ -69,41 +69,61 @@ ttls_write_hshdr(unsigned char type, unsigned char *buf, unsigned short len)
  *	  and returns number of chunks in the scatter list.
  */
 static struct aead_request *
-ttls_crypto_req_sglist(TlsCtx *tls, unsigned int len, struct scatterlist **sg,
-		       unsigned int *sgn)
+ttls_crypto_req_sglist(TlsCtx *tls, unsigned int len,unsigned char *buf,
+		       struct scatterlist **sg, unsigned int *sgn)
 {
 	TlsIOCtx *io = &tls->io_in;
 	struct scatterlist *sg_i;
 	struct aead_request *req;
 	struct sk_buff *skb = io->skb_list;
-	unsigned int sz, off = io->off;
+	unsigned int sz, n, to_read, off;
 
-	BUG_ON(skb->len <= off);
+	if (buf) {
+		off = 0;
+		sz = sizeof(*req) + (*sgn + 1) * sizeof(**sg);
+	} else {
+		off = io->off;
+		sz = sizeof(*req) + (*sgn + io->chunks) * sizeof(**sg);
+	}
+	BUG_ON(!buf && (!skb || skb->len <= off)); /* nothing to decrypt */
 
-	sz = sizeof(*req) + (io->chunks + *sgn) * sizeof(**sg);
 	req = kmalloc(sz, GFP_ATOMIC);
 	if (!req)
 		return NULL;
 	*sg = (struct scatterlist *)(req + 1);
+	sg_i = *sg + *sgn;
 
-	/* The extra segments are allocated on the head. */
-	for (sg_i = *sg + *sgn; skb; skb = skb->next, off = 0) {
-		int to_read = min(len, skb->len - off);
-		int n = skb_to_sgvec(skb, sg_i, off, to_read);
-		if (n <= 0)
-			goto err;
-		len -= to_read;
-		sg_i += n;
-		if (unlikely(sg_i > *sg + io->chunks)) {
-			T_WARN("not enough scatterlist items\n");
-			goto err;
+	if (buf) {
+		sg_set_buf(sg_i++, buf, len);
+	} else {
+		/* The extra segments are allocated on the head. */
+		for ( ; skb; skb = skb->next) {
+			if (unlikely(off >= skb->len)) {
+				off -= skb->len;
+				continue;
+			}
+			to_read = min(len, skb->len - off);
+			n = skb_to_sgvec(skb, sg_i, off, to_read);
+			if (n <= 0)
+				goto err;
+			len -= to_read;
+			sg_i += n;
+			if (unlikely(sg_i > *sg + io->chunks)) {
+				T_WARN("not enough scatterlist items\n");
+				goto err;
+			}
+			off = 0;
 		}
+		/* List length must match number of chunks. */
+		WARN_ON_ONCE(!skb || skb->next);
 	}
-	/* List length must match number of chunks. */
-	WARN_ON_ONCE(!skb || skb->next);
 
 	*sgn = sg_i - *sg;
 	sg_mark_end(*sg + *sgn - 1);
+
+	T_DBG3("%s: skb=%pK buf=%pK sg=%pK off=%u len=%u sgn=%u\n",
+	       __func__, skb, buf, *sg, off, len, *sgn);
+
 	return req;
 err:
 	kfree(req);
@@ -403,7 +423,7 @@ ttls_derive_keys(TlsCtx *tls)
 	}
 	tag_size = ttls_xfrm_taglen(xfrm);
 
-	/* Set appropriate PRF function and other TLS1.2 functions. */
+	/* Set appropriate PRF function and other TLS 1.2 functions. */
 	if (xfrm->ciphersuite_info->mac == TTLS_MD_SHA384) {
 		hs->tls_prf = tls_prf_sha384;
 		hs->calc_verify = ssl_calc_verify_tls_sha384;
@@ -504,11 +524,9 @@ ttls_derive_keys(TlsCtx *tls)
 			xfrm->minlen = xfrm->maclen;
 		} else {
 			/*
-			 * GenericBlockCipher:
-			 * 1. if EtM is in use: one block plus MAC
-			 *    otherwise: first multiple of blocklen greater
-			 *    than maclen
-			 * 2. IV except for SSL3 and TLS 1.0
+			 * GenericBlockCipher: if EtM is in use: one block plus
+			 * MAC otherwise: first multiple of blocklen greater
+			 * than maclen.
 			 */
 			if (tls->encrypt_then_mac) {
 				xfrm->minlen = xfrm->maclen + ci->block_size;
@@ -636,12 +654,12 @@ ttls_make_aad(TlsCtx *tls, TlsIOCtx *io)
 {
 	memcpy_fast(io->aad_buf, io->ctr, 8);
 	ttls_write_hdr(tls, io->msgtype, io->msglen, io->aad_buf + 8);
-	T_DBG3_BUF("additional data used for AEAD",
+	T_DBG3_BUF("additional data used for AEAD ",
 		   io->aad_buf, TLS_AAD_SPACE_SIZE);
 }
 
 static int
-ttls_decrypt(TlsCtx *tls)
+__ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 {
 	size_t explicit_iv_len, dec_msglen;
 	int r;
@@ -653,7 +671,6 @@ ttls_decrypt(TlsCtx *tls)
 	struct aead_request *req;
 	struct scatterlist *sg = NULL;
 
-	BUG_ON(!ttls_xfrm_ready(tls));
 	if (unlikely(io->msglen < xfrm->minlen)) {
 		T_DBG("%s msglen (%u) < minlen (%u)\n", __func__,
 		      io->msglen, xfrm->minlen);
@@ -664,7 +681,9 @@ ttls_decrypt(TlsCtx *tls)
 	taglen = ttls_xfrm_taglen(xfrm);
 	mode = xfrm->cipher_ctx_enc.cipher_info->mode;
 	WARN_ON_ONCE(mode != TTLS_MODE_GCM && mode != TTLS_MODE_CCM);
-
+	T_DBG2("decrypt input record from network:"
+	       " hdr=%pK msglen=%d taglen=%u eiv_len=%lu\n",
+	       io->hdr, io->msglen, taglen, explicit_iv_len);
 	if (unlikely(io->msglen < explicit_iv_len + taglen)) {
 		T_DBG("%s: msglen (%u) < explicit_iv_len (%lu)"
 		      " + taglen (%u)\n", __func__,
@@ -676,7 +695,7 @@ ttls_decrypt(TlsCtx *tls)
 
 	memcpy_fast(xfrm->iv_dec + xfrm->fixed_ivlen, io->iv,
 		    xfrm->ivlen - xfrm->fixed_ivlen);
-	req = ttls_crypto_req_sglist(tls, dec_msglen + taglen, &sg, &sgn);
+	req = ttls_crypto_req_sglist(tls, dec_msglen + taglen, buf, &sg, &sgn);
 	if (!req)
 		return TTLS_ERR_INTERNAL_ERROR;
 	ttls_make_aad(tls, io);
@@ -691,8 +710,22 @@ ttls_decrypt(TlsCtx *tls)
 	aead_request_set_crypt(req, sg, sg, dec_msglen, xfrm->iv_dec);
 	r = crypto_aead_decrypt(req);
 	kfree(req);
-	if (r) {
-		T_DBG2("decrypt failed: %d", r);
+
+	return r;
+}
+
+static int
+ttls_decrypt(TlsCtx *tls, unsigned char *buf)
+{
+	int r;
+	TlsIOCtx *io = &tls->io_in;
+
+	if ((r = __ttls_decrypt(tls, buf))) {
+		/* Error out (and send alert) on invalid records */
+		if (r == TTLS_ERR_INVALID_MAC)
+			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
+					TTLS_ALERT_MSG_BAD_RECORD_MAC);
+		T_DBG2("decryption failed: %d", r);
 		return r;
 	}
 
@@ -709,6 +742,11 @@ ttls_decrypt(TlsCtx *tls)
 	}
 
 	ttls_ep_check(io, "incomming");
+
+	if (io->msglen > TTLS_MAX_CONTENT_LEN) {
+		T_DBG("bad message length %u\n", io->msglen);
+		return T_DROP;
+	}
 
 	return 0;
 }
@@ -977,36 +1015,6 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 	}
 
 	return T_OK;
-}
-
-/**
- * If applicable, decrypt (and decompress) record content.
- */
-static int
-ttls_prepare_record_content(TlsCtx *tls)
-{
-	int r;
-
-	T_DBG2("input record from network: %pK len=%d\n",
-		tls->io_in.hdr, TTLS_HDR_LEN + tls->io_in.msglen);
-
-	if (!ttls_xfrm_ready(tls))
-		return 0;
-
-	if ((r = ttls_decrypt(tls))) {
-		/* Error out (and send alert) on invalid records */
-		if (r == TTLS_ERR_INVALID_MAC)
-			ttls_send_alert(tls,
-		    TTLS_ALERT_LEVEL_FATAL,
-		    TTLS_ALERT_MSG_BAD_RECORD_MAC);
-		return r;
-	}
-	if (tls->io_in.msglen > TTLS_MAX_CONTENT_LEN) {
-		T_DBG("bad message length %u\n", tls->io_in.msglen);
-		return T_DROP;
-	}
-
-	return 0;
 }
 
 static void
@@ -1506,12 +1514,13 @@ ttls_write_finished(TlsCtx *tls, struct sg_table *sgt, unsigned char **in_buf)
 	TlsIOCtx *io = &tls->io_out;
 	unsigned char *p = *in_buf;
 
-	BUILD_BUG_ON(TTLS_IV_LEN < TLS_MAX_HASH_LEN + 4);
+	BUILD_BUG_ON(TTLS_IV_LEN < TLS_MAX_HASH_LEN + TTLS_HS_HDR_LEN);
 
-	tls->hs->calc_finished(tls, &io->__msg[4], tls->conf->endpoint);
+	tls->hs->calc_finished(tls, &io->__msg[TTLS_HS_HDR_LEN],
+			       tls->conf->endpoint);
 
 	bzero_fast(io->ctr, 8);
-	io->msglen = 4 + TLS_MAX_HASH_LEN;
+	io->msglen = TTLS_HS_HDR_LEN + TLS_MAX_HASH_LEN;
 	ttls_write_hshdr(TTLS_HS_FINISHED, p + TTLS_HDR_LEN,
 			 TLS_MAX_HASH_LEN);
 
@@ -1525,34 +1534,66 @@ ttls_write_finished(TlsCtx *tls, struct sg_table *sgt, unsigned char **in_buf)
 	return 0;
 }
 
+/*
+ * Hash of the whole handshake session is less than 64 bytes for AES-CBC and
+ * 40 bytes for AES-GCM.
+ */
+#define TTLS_HS_FINISHED_MAX_SZ		64
+
 int
 ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 		    unsigned int *read)
 {
-	unsigned int hash_len = TLS_MAX_HASH_LEN;
+	int r;
+	unsigned int n;
 	TlsIOCtx *io = &tls->io_in;
+	TlsHandshake *hs = tls->hs;
 	unsigned char hash[TLS_MAX_HASH_LEN];
 
+	T_DBG("%s: msglen=%u(rlen=%u len=%lu)\n",
+	      __func__, io->msglen, io->rlen, len);
 	BUG_ON(io->msgtype != TTLS_MSG_HANDSHAKE);
-	if (io->hstype != TTLS_HS_FINISHED || io->hslen != hash_len
-	    || len < io->hslen) /* TODO process chunked data */
+	if (unlikely(!ttls_xfrm_ready(tls))) {
+		T_WARN("TLS context isn't ready on Finished\n");
+		return TTLS_ERR_BAD_HS_FINISHED;
+	}
+	if (unlikely(io->msglen > TTLS_HS_FINISHED_MAX_SZ)) {
+		T_DBG("too large Finished body: %u\n", io->msglen);
+		return TTLS_ERR_BAD_HS_FINISHED;
+	}
+	BUG_ON(io->rlen >= TTLS_HS_FINISHED_MAX_SZ);
+
+	/* Copy small chunks to the temporary buffer. */
+	n = min_t(unsigned int, TTLS_HS_FINISHED_MAX_SZ - io->rlen, len);
+	memcpy_fast(hs->finished + io->rlen, buf, n);
+	io->rlen += n;
+	*read += n;
+	if (unlikely(io->rlen < io->msglen))
+		return T_POSTPONE;
+
+	if ((r = ttls_decrypt(tls, hs->finished)))
+		return r;
+	/* Verify the handshake header. */
+	if (unlikely(hs->finished[0] != TTLS_HS_FINISHED
+		     || hs->finished[1] || hs->finished[2]
+		     || hs->finished[3] != TLS_MAX_HASH_LEN))
 	{
-		T_DBG("bad finished message, type=%u len=%u chunk_len=%lu\n",
-		      io->hstype, io->hslen, len);
+		T_DBG3_BUF("bad finished message: ",
+			   hs->finished, TTLS_HS_HDR_LEN);
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-				    TTLS_ALERT_MSG_DECODE_ERROR);
+				TTLS_ALERT_MSG_DECODE_ERROR);
 		return TTLS_ERR_BAD_HS_FINISHED;
 	}
 
 	tls->hs->calc_finished(tls, hash, tls->conf->endpoint ^ 1);
-	if (crypto_memneq(buf, hash, hash_len)) {
+	if (crypto_memneq(&hs->finished[TTLS_HS_HDR_LEN], hash,
+			  TLS_MAX_HASH_LEN))
+	{
 		T_DBG("bad hash in finished message\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				    TTLS_ALERT_MSG_DECODE_ERROR);
 		return TTLS_ERR_BAD_HS_FINISHED;
 	}
-
-	*read += TTLS_HS_HDR_LEN + TLS_MAX_HASH_LEN;
 
 	return 0;
 }
@@ -1595,12 +1636,6 @@ ttls_ctx_init(TlsCtx *tls, const ttls_config *conf)
 	tls->hs = kmem_cache_alloc(ttls_hs_cache, GFP_ATOMIC);
 	if (!tls->hs)
 		return -ENOMEM;
-
-	/* Initialize structures */
-	ttls_cipher_init(&tls->xfrm.cipher_ctx_enc);
-	ttls_cipher_init(&tls->xfrm.cipher_ctx_dec);
-	ttls_md_init(&tls->xfrm.md_ctx_enc);
-	ttls_md_init(&tls->xfrm.md_ctx_dec);
 	ssl_handshake_params_init(tls->hs);
 
 	return 0;
@@ -2000,7 +2035,8 @@ ttls_recv(void *tls_data, unsigned char *buf, size_t len, unsigned int *read)
 	TlsIOCtx *io = &tls->io_in;
 
 	BUG_ON(!tls || !tls->conf);
-	T_DBG3("%s: tls=%pK len=%lu read=%u\n", __func__, tls, len, *read);
+	T_DBG3("%s: tls=%pK len=%lu read=%u msgtype=%u\n",
+	       __func__, tls, len, *read, io->msgtype);
 
 next_record:
 	if (!(io->st_flags & TTLS_F_ST_HDRIV))
@@ -2027,9 +2063,7 @@ next_record:
 	case TTLS_MSG_CHANGE_CIPHER_SPEC:
 		/* Parsed as part of handshake FSM. */
 	case TTLS_MSG_HANDSHAKE:
-		if (ttls_xfrm_ready(tls))
-			break;
-		if (tls->state == TTLS_HANDSHAKE_OVER) {
+		if (unlikely(tls->state == TTLS_HANDSHAKE_OVER)) {
 			T_DBG("refusing renegotiation, sending alert\n");
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_WARNING,
 					    TTLS_ALERT_MSG_NO_RENEGOTIATION);
@@ -2055,15 +2089,27 @@ next_record:
 		}
 		break;
 	}
+	if (unlikely(!ttls_xfrm_ready(tls))) {
+		T_WARN("TLS context isn't ready after handshake\n");
+		return T_DROP;
+	}
 
 	/* Encrypted application data and final encrypted handshake data. */
 	if (io->msglen > io->rlen + len) {
+		/*
+		 * Store offset of begin of current message. The most generic
+		 * case is 0-RTT with a data message after some handshake
+		 * messages: we don't know whether there are different messages
+		 * at begin of the skb_list or there is only one incomplete
+		 * data message, io->off resolves the ambiguity.
+		 */
+		io->off = *read;
 		*read += len;
 		io->rlen += len;
 		return T_POSTPONE;
 	}
 	*read += io->msglen - io->rlen;
-	if ((r = ttls_prepare_record_content(tls)))
+	if ((r = ttls_decrypt(tls, NULL)))
 		return r;
 
 	/*

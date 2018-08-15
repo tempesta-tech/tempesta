@@ -1891,7 +1891,6 @@ tfw_http_conn_send(TfwConn *conn, TfwMsg *msg)
 /**
  * Create a sibling for @hm message.
  * Siblings in HTTP are pipelined HTTP messages that share the same SKB.
- * @skb may be passed from TLS layer where it may be linked with other skbs.
  */
 static TfwHttpMsg *
 tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
@@ -1912,14 +1911,8 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 		 * request @hm is to be destroyed and won't be forwarded to
 		 * backend server.
 		 */
-		if (TFW_CONN_TYPE(hm->conn) & Conn_Srv) {
-			if ((*skb)->len > split_offset) {
-				*skb = ss_skb_split(*skb, split_offset);
-			} else {
-				BUG_ON(!(*skb)->next);
-				*skb = (*skb)->next;
-			}
-		}
+		if (TFW_CONN_TYPE(hm->conn) & Conn_Srv)
+			*skb = ss_skb_split(*skb, split_offset);
 		return NULL;
 	}
 
@@ -1929,15 +1922,10 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 	 * the first part of the new message. The original SKB is
 	 * shrunk to have just data from the original message.
 	 */
-	if ((*skb)->len > split_offset) {
-		nskb = ss_skb_split(*skb, split_offset);
-		if (!nskb) {
-			tfw_http_conn_msg_free(shm);
-			return NULL;
-		}
-	} else {
-		BUG_ON(!(*skb)->next);
-		nskb = (*skb)->next;
+	nskb = ss_skb_split(*skb, split_offset);
+	if (!nskb) {
+		tfw_http_conn_msg_free(shm);
+		return NULL;
 	}
 
 	/*
@@ -2704,6 +2692,7 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 	TfwFsmData data_up;
 
 	BUG_ON(!conn->msg);
+	BUG_ON(off >= skb->len);
 
 	TFW_DBG2("Received %u client data bytes on conn=%p msg=%p\n",
 		 skb->len, conn, conn->msg);
@@ -2847,11 +2836,7 @@ next_msg:
 	if((req_conn_close = req->flags & TFW_HTTP_F_CONN_CLOSE))
 		TFW_CONN_TYPE(req->conn) |= Conn_Stop;
 
-	/*
-	 * FIXME @skb is added to a list in tfw_http_msg_process().
-	 * Probably we should keep TLS record fragments in skb->frag_list...
-	 */
-	if (!req_conn_close && (parsed < skb->len || skb->next)) {
+	if (!req_conn_close && parsed < skb->len) {
 		/*
 		 * Pipelined requests: create a new sibling message.
 		 * @skb is replaced with pointer to a new SKB.
@@ -3023,7 +3008,7 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
  * in case of an error.
  */
 static int
-tfw_http_resp_gfsm(TfwHttpMsg *hmresp, const TfwFsmData *data)
+tfw_http_resp_gfsm(TfwHttpMsg *hmresp, TfwFsmData *data)
 {
 	int r;
 	TfwHttpReq *req = hmresp->req;
@@ -3091,6 +3076,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 * cache shouldn't be accounted.
 	 */
 	data.skb = NULL;
+	data.off = 0;
 	data.req = (TfwMsg *)req;
 	data.resp = (TfwMsg *)hmresp;
 	tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG_FWD, &data);
@@ -3157,6 +3143,7 @@ tfw_http_resp_process(TfwConn *conn, const TfwFsmData *data)
 	bool filtout = false;
 
 	BUG_ON(!conn->msg);
+	BUG_ON(off >= skb->len);
 
 	TFW_DBG2("Received %u server data bytes on conn=%p msg=%p\n",
 		skb->len, conn, conn->msg);
@@ -3261,7 +3248,7 @@ next_msg:
 	 * we have pipelined responses. Create a sibling message.
 	 * @skb is replaced with a pointer to a new SKB.
 	 */
-	if (parsed < skb->len || skb->next) {
+	if (parsed < skb->len) {
 		hmsib = tfw_http_msg_create_sibling(hmresp, &skb, parsed);
 		/*
 		 * In case of an error there's no recourse. The
@@ -3331,7 +3318,7 @@ bad_msg:
  * @return status (application logic decision) of the message processing.
  */
 int
-tfw_http_msg_process(void *conn, const TfwFsmData *data)
+tfw_http_msg_process(void *conn, TfwFsmData *data)
 {
 	TfwConn *c = (TfwConn *)conn;
 
