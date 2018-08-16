@@ -3,7 +3,7 @@
 # Tempesta FW
 
 
-### What it is?
+## What it is?
 
 **Tempesta FW** is a hybrid solution that combines a reverse proxy and
 a firewall at the same time. It accelerates Web applications and protects
@@ -17,8 +17,17 @@ We do our best to keep the kernel modifications as small as possible. Current
 [patch](https://github.com/tempesta-tech/tempesta/blob/master/linux-4.9.35.patch)
 is just about 2,000 lines.
 
+We're in [alpha](https://en.wikipedia.org/wiki/Software_release_life_cycle#Alpha)
+state for now. The alpha is available by:
 
-### Installation and Configuration
+* [source code](https://github.com/tempesta-tech/tempesta/tree/release-0.5)
+* [binary packages](https://github.com/tempesta-tech/tempesta/releases)
+* [installation script](https://github.com/tempesta-tech/tempesta/wiki/Install-from-packages#using-installer-script)
+
+The **master** branch is unstable and contains code for upcoming beta.
+
+
+## Installation and Configuration
 
 Please see our **[Wiki](https://github.com/tempesta-tech/tempesta/wiki)** for
 following topics:
