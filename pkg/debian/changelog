@@ -1,3 +1,20 @@
+tempesta-fw-dkms (0.5.3) stretch; urgency=medium
+
+  * Fix #852: don't drop a connection if it coulnd't be created due to an error
+    Move non-configured certificate error to start phase.
+    Cleanups and more user-friendly error messages.
+
+ -- Tempesta Technologies, Inc. <info@tempesta-tech.com>  Wed, 16 Aug 2018 14:48:56 +0500
+
+tempesta-fw-dkms (0.5.1) stretch; urgency=medium
+
+  * Fix #918: correct cleanup after unsuccessful start
+  * Fix #978: correct stop routine after unsuccessful configuration reload
+  * Fix #938: correct parsing of obs-text
+  * Fix errorneus call of tfw_cstricmp() in process context
+
+ -- Tempesta Technologies, Inc. <info@tempesta-tech.com>  Wed, 16 Aug 2018 14:48:56 +0500
+
 tempesta-fw-dkms (0.5.0) stretch; urgency=medium
 
   * Add HTTP health monitoring
