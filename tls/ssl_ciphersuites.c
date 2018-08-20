@@ -20,8 +20,6 @@
  * You should have received a copy of the GNU General Public License along
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * This file is part of mbed TLS (https://tls.mbed.org)
  */
 #include "config.h"
 #include "ssl_ciphersuites.h"
@@ -30,7 +28,7 @@
 /*
  * Ordered from most preferred to least preferred in terms of security.
  *
- * Current rule (except rc4, weak and null which come last):
+ * Current rule:
  * 1. By key exchange:
  *	Forward-secure non-PSK > other non-PSK
  * 2. By key length and cipher:
@@ -38,6 +36,12 @@
  * 3. By cipher mode when relevant GCM > CCM > CCM_8
  * 4. By hash function used when relevant
  * 5. By key exchange/auth again: EC > non-EC
+ *
+ * Note that there is no TLS_RSA_WITH_AES_128_CBC_SHA required by RFC 5246.
+ * Current TLS version is 1.3, so we support TLS 1.2 for legacy only clients.
+ * Next, CBC mode has security issues (so it was removed from TLS 1.3) and
+ * incurs significant pipeline stalls that hamper its efficiency and
+ * performance. Last, it requires additional code work flow.
  */
 static const int ciphersuite_preference[] = {
 	/* All AES-256 ephemeral suites */
