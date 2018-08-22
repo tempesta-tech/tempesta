@@ -1442,27 +1442,21 @@ static int
 tfw_cache_build_resp_body(TDB *db, TfwHttpResp *resp, TdbVRec *trec,
 			  TfwMsgIter *it, char *p)
 {
-	int off, f_size;
+	int off, f_size, r;
 	skb_frag_t *frag;
 
 	BUG_ON(!it->skb);
 	frag = &skb_shinfo(it->skb)->frags[it->frag];
 	if (skb_frag_size(frag))
 		++it->frag;
-	if (it->frag >= MAX_SKB_FRAGS - 1) {
-		if (!(it->skb = ss_skb_alloc(0)))
-			return -ENOMEM;
-		ss_skb_queue_tail(&resp->msg.skb_head, it->skb);
-		it->frag = 0;
-	}
+	if (it->frag >= MAX_SKB_FRAGS - 1
+	    && (r = tfw_http_msg_setup((TfwHttpMsg *)resp, it, 0)))
+		return r;
 
 	while (1) {
-		if (it->frag == MAX_SKB_FRAGS) {
-			if (!(it->skb = ss_skb_alloc(0)))
-				return -ENOMEM;
-			ss_skb_queue_tail(&resp->msg.skb_head, it->skb);
-			it->frag = 0;
-		}
+		if (it->frag == MAX_SKB_FRAGS
+		    && (r = tfw_http_msg_setup((TfwHttpMsg *)resp, it, 0)))
+			return r;
 
 		/* TDB keeps data by pages and we can reuse the pages. */
 		off = (unsigned long)p & ~PAGE_MASK;

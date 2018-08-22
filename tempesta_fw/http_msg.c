@@ -780,7 +780,7 @@ tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len)
 
 	if ((r = tfw_msg_iter_setup(it, &hm->msg.skb_head, data_len)))
 		return r;
-	TFW_DBG2("Set up new HTTP message %p: len=%lu\n", hm, data_len);
+	TFW_DBG2("Set up HTTP message %pK with %lu bytes data\n", hm, data_len);
 
 	return 0;
 }
@@ -814,7 +814,7 @@ next_frag:
 		return -ENOMEM;
 
 	if (d_size > f_room) {
-		frag = ss_skb_frag_next(&it->skb, &it->frag);
+		frag = ss_skb_frag_next(&it->skb, it->skb_head, &it->frag);
 		off += n_copy;
 		goto next_frag;
 	}

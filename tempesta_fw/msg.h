@@ -51,11 +51,14 @@ typedef struct {
 /**
  * Iterator for @skb fragments.
  *
- * @frag	- current fragment index or @skb->head if -1.
+ * @frag	- current fragment index or @skb->head if -1;
+ * @skb		- current skb fragment;
+ * @skb_head	- begin of the skb fragments list.
  */
 typedef struct {
 	int		frag;
 	struct sk_buff	*skb;
+	struct sk_buff	*skb_head;
 } TfwMsgIter;
 
 int tfw_msg_write(TfwMsgIter *it, const TfwStr *data);
