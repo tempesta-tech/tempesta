@@ -667,48 +667,6 @@ void ttls_conf_session_tickets_cb(ttls_config *conf,
 	ttls_ticket_parse_t *f_ticket_parse,
 	void *p_ticket);
 
-/**
- * \brief	Set the session cache callbacks (server-side only)
- *		If not set, no session resuming is done (except if session
- *		tickets are enabled too).
- *
- *		The session cache has the responsibility to check for stale
- *		entries based on timeout. See RFC 5246 for recommendations.
- *
- *		Warning: session.peer_cert is cleared by the SSL/TLS layer on
- *		connection shutdown, so do not cache the pointer! Either set
- *		it to NULL or make a full copy of the certificate.
- *
- *		The get callback is called once during the initial handshake
- *		to enable session resuming. The get function has the
- *		following parameters: (void *parameter, TlsSess *session)
- *		If a valid entry is found, it should fill the master of
- *		the session object with the cached values and return 0,
- *		return 1 otherwise. Optionally peer_cert can be set as well
- *		if it is properly present in cache entry.
- *
- *		The set callback is called once during the initial handshake
- *		to enable session resuming after the entire handshake has
- *		been finished. The set function has the following parameters:
- *		(void *parameter, const TlsSess *session). The function
- *		should create a cache entry for future retrieval based on
- *		the data in the session structure and should keep in mind
- *		that the TlsSess object presented (and all its referenced
- *		data) is cleared by the SSL/TLS layer when the connection is
- *		terminated. It is recommended to add metadata to determine if
- *		an entry is still valid in the future. Return 0 if
- *		successfully cached, return 1 otherwise.
- *
- * \param conf	SSL configuration
- * \param p_cache	parmater (context) for both callbacks
- * \param f_get_cache	session get callback
- * \param f_set_cache	session set callback
- */
-void ttls_conf_session_cache(ttls_config *conf,
-	void *p_cache,
-	int (*f_get_cache)(void *, TlsSess *),
-	int (*f_set_cache)(void *, const TlsSess *));
-
 #if defined(TTLS_CLI_C)
 /**
  * \brief	Request resumption of session (client-side only)
