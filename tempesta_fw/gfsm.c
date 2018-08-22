@@ -142,12 +142,9 @@ static int
 tfw_gfsm_switch(TfwGState *st, int state, int prio)
 {
 	int shift = prio * TFW_GFSM_PRIO_N + (state & TFW_GFSM_STATE_MASK);
-	int fsm_next = fsm_hooks[FSM(st)][shift].fsm_id;
 	int fsm_curr = state >> TFW_GFSM_FSM_SHIFT;
+	int fsm_next = fsm_hooks[fsm_curr][shift].fsm_id;
 	int free_slot;
-
-	TFW_DBG3("GFSM switch from fsm %d at state %d to fsm %d at state %#x\n",
-		 fsm_curr, state, fsm_next, fsm_hooks[fsm_curr][shift].st0);
 
 	st->curr = __gfsm_fsm_lookup(st, fsm_next, &free_slot);
 	if (st->curr < 0) {
@@ -156,6 +153,9 @@ tfw_gfsm_switch(TfwGState *st, int state, int prio)
 		st->curr = free_slot;
 		FSM_STATE(st) = fsm_hooks[fsm_curr][shift].st0;
 	}
+
+	TFW_DBG3("GFSM switch from fsm %d at state %d to fsm %d at state %#x\n",
+		 fsm_curr, state, fsm_next, TFW_GFSM_STATE(st));
 
 	return fsm_next;
 }
