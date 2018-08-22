@@ -284,7 +284,7 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 
 		for_each_sg(sgt->sgl, sg, sgt->nents, f) {
 			if (i >= MAX_SKB_FRAGS) {
-				if (!(it.skb = ss_skb_alloc(0)))
+				if (!(skb = ss_skb_alloc(0)))
 					return -ENOMEM;
 				tfw_tls_skb_set_enc(tls, skb);
 				ss_skb_queue_tail(&io->skb_list, skb);

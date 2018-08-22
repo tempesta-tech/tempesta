@@ -70,7 +70,8 @@ this_chunk:
 			 */
 			c_off = 0;
 		} else {
-			frag = ss_skb_frag_next(&it->skb, &it->frag);
+			frag = ss_skb_frag_next(&it->skb, it->skb_head,
+						&it->frag);
 			/*
 			 * If all data from the chunk has been copied,
 			 * then switch to the next chunk. Otherwise,
@@ -96,8 +97,8 @@ tfw_msg_iter_setup(TfwMsgIter *it, struct sk_buff **skb_head, size_t data_len)
 
 	if ((r = ss_skb_alloc_data(skb_head, data_len)))
 		return r;
-	it->skb = *skb_head;
-	it->frag = -1;
+	it->skb = it->skb_head = *skb_head;
+	it->frag = data_len ? -1 /* first 'frag' is the skb head */ : 0;
 
 	BUG_ON(!it->skb);
 

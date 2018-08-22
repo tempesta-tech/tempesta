@@ -32,7 +32,6 @@
 #define TFW_WARN_NL(...)	T_WARN_NL(__VA_ARGS__)
 #define TFW_LOG(...)		T_LOG(__VA_ARGS__)
 #define TFW_LOG_NL(...)		T_LOG_NL(__VA_ARGS__)
-#define TFW_ERR(...)		T_ERR(__VA_ARGS__)
 #define TFW_DBG(...)		T_DBG(__VA_ARGS__)
 #define TFW_DBG2(...)		T_DBG2(__VA_ARGS__)
 #define TFW_DBG3(...)		T_DBG3(__VA_ARGS__)
