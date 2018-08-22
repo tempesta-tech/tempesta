@@ -87,6 +87,8 @@ EXPORT_SYMBOL(tfw_client_put);
  * Find a client corresponding to the @sk by IP address.
  * More advanced identification is possible based on User-Agent,
  * Cookie and other HTTP headers.
+ * TODO (#488,#598,#1054?) actually clients can be relatively reliably
+ * identified with TLS sessions (#1054) or HTTP sticky cookies.
  *
  * The returned TfwClient reference must be released via tfw_client_put()
  * when the @sk is closed.

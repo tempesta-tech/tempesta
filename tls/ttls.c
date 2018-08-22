@@ -1663,16 +1663,6 @@ void ttls_conf_verify(ttls_config *conf,
 	conf->p_vrfy	 = p_vrfy;
 }
 
-void ttls_conf_session_cache(ttls_config *conf,
-		void *p_cache,
-		int (*f_get_cache)(void *, TlsSess *),
-		int (*f_set_cache)(void *, const TlsSess *))
-{
-	conf->p_cache = p_cache;
-	conf->f_get_cache = f_get_cache;
-	conf->f_set_cache = f_set_cache;
-}
-
 #if defined(TTLS_CLI_C)
 int ttls_set_session(ttls_context *tls, const ttls_ssl_session *session)
 {
