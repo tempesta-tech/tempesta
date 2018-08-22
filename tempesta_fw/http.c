@@ -466,11 +466,10 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *rmark,
  * HTTP 304 response: Not Modified.
  */
 int
-tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, void *msg_it,
+tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, TfwMsgIter *it,
 		  size_t hdrs_size)
 {
 	size_t data_len = SLEN(S_304_PART_01);
-	TfwMsgIter *it = (TfwMsgIter *)msg_it;
 	int conn_flag = req->flags & __TFW_HTTP_MSG_M_CONN_MASK, ret = 0;
 	static TfwStr rh = {
 		.ptr = S_304_PART_01, .len = SLEN(S_304_PART_01) };
