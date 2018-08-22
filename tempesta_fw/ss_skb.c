@@ -107,11 +107,13 @@ ss_skb_alloc_pages(size_t len)
 int
 ss_skb_alloc_data(struct sk_buff **skb_head, size_t len)
 {
-	int i_skb, nr_skbs = DIV_ROUND_UP(len, SS_SKB_MAX_DATA_LEN);
+	int i_skb, nr_skbs = len ? DIV_ROUND_UP(len, SS_SKB_MAX_DATA_LEN) : 1;
+	size_t n = 0;
 	struct sk_buff *skb;
 
-	for (i_skb = 0; i_skb < nr_skbs; ++i_skb) {
-		skb = ss_skb_alloc_pages(min(len, SS_SKB_MAX_DATA_LEN));
+	for (i_skb = 0; i_skb < nr_skbs; ++i_skb, len -= n) {
+		n = min(len, SS_SKB_MAX_DATA_LEN);
+		skb = ss_skb_alloc_pages(n);
 		if (!skb)
 			return -ENOMEM;
 		ss_skb_queue_tail(skb_head, skb);
@@ -290,7 +292,7 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 		struct sk_buff *nskb;
 		unsigned int e_size = 0;
 
-		/* Going out of the @skb is prohibied by the caller. */
+		/* Going out if the @skb is prohibied by the caller. */
 		if (!skb_head)
 			return -ENOMEM;
 
