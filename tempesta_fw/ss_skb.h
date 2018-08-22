@@ -90,6 +90,11 @@ ss_skb_peek_tail(struct sk_buff **skb_head)
 	return *skb_head ? (*skb_head)->prev : NULL;
 }
 
+/**
+ * Almost a copy of standard skb_dequeue() except it works with skb list
+ * instead of sk_buff_head. Several crucial data include skb list and we don't
+ * want to spend extra memory for unused members of skb_buff_head.
+ */
 static inline struct sk_buff *
 ss_skb_dequeue(struct sk_buff **skb_head)
 {
@@ -116,7 +121,7 @@ ss_skb_adjust_data_len(struct sk_buff *skb, int delta)
 }
 
 static inline skb_frag_t *
-ss_skb_frag_next(struct sk_buff **skb, int *f)
+ss_skb_frag_next(struct sk_buff **skb, const struct sk_buff *skb_head, int *f)
 {
 	if (skb_shinfo(*skb)->nr_frags > *f + 1) {
 		++*f;
@@ -124,7 +129,7 @@ ss_skb_frag_next(struct sk_buff **skb, int *f)
 	}
 
 	*skb = (*skb)->next;
-	if (!*skb || !skb_shinfo(*skb)->nr_frags)
+	if (*skb == skb_head || !skb_shinfo(*skb)->nr_frags)
 		return NULL;
 	*f = 0;
 	return &skb_shinfo(*skb)->frags[0];
