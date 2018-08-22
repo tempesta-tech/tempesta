@@ -1,35 +1,76 @@
 /*
- *  SSL session cache implementation
+ *		Tempesta TLS
  *
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- *  SPDX-License-Identifier: GPL-2.0
+ * TLS session cache implementation
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * SPDX-License-Identifier: GPL-2.0
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
- *  This file is part of mbed TLS (https://tls.mbed.org)
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 /*
  * These session callbacks use a simple chained list
  * to store and retrieve the session information.
+ * TODO #1054: the lists are bad, use TDB instead.
  */
+/**
+ * TODO #1054.
+ * ttls_conf_session_cache() was removed since we don't need to set
+ * f_get_cache() and f_set_cache() callbacks, instead just remove the callbacks
+ * completely and call the cache functions directly.
+ *
+ * The session cache has the responsibility to check for stale
+ * entries based on timeout. See RFC 5246 for recommendations.
+ *
+ * Warning: session.peer_cert is cleared by the SSL/TLS layer on
+ * connection shutdown, so do not cache the pointer! Either set
+ * it to NULL or make a full copy of the certificate.
+ *
+ * The get callback is called once during the initial handshake
+ * to enable session resuming. The get function has the
+ * following parameters: (void *parameter, TlsSess *session)
+ * If a valid entry is found, it should fill the master of
+ * the session object with the cached values and return 0,
+ * return 1 otherwise. Optionally peer_cert can be set as well
+ * if it is properly present in cache entry.
+ *
+ * The set callback is called once during the initial handshake
+ * to enable session resuming after the entire handshake has
+ * been finished. The set function has the following parameters:
+ * (void *parameter, const TlsSess *session). The function
+ * should create a cache entry for future retrieval based on
+ * the data in the session structure and should keep in mind
+ * that the TlsSess object presented (and all its referenced
+ * data) is cleared by the SSL/TLS layer when the connection is
+ * terminated. It is recommended to add metadata to determine if
+ * an entry is still valid in the future. Return 0 if
+ * successfully cached, return 1 otherwise.
+ */
+
 #include "config.h"
 
 #if defined(TTLS_CACHE_C)
 
 #include "ssl_cache.h"
+
+/* TODO #515: the constants must go to configuration directive describing
+ * the TDB collection.
+ */
+#define TTLS_CACHE_DEFAULT_TIMEOUT	86400 /* 1 day  */
+#define TTLS_CACHE_DEFAULT_MAX_ENTRIES	50 /* Maximum entries in cache */
 
 void ttls_cache_init(ttls_cache_context *cache)
 {
@@ -67,7 +108,7 @@ int ttls_cache_get(void *data, TlsSess *session)
 			continue;
 
 		if (memcmp(session->id, entry->session.id,
-		entry->session.id_len) != 0)
+				entry->session.id_len) != 0)
 			continue;
 
 		memcpy(session->master, entry->session.master, 48);
@@ -80,7 +121,7 @@ int ttls_cache_get(void *data, TlsSess *session)
 		if (entry->peer_cert.p != NULL)
 		{
 			if ((session->peer_cert = ttls_calloc(1,
-		 sizeof(ttls_x509_crt))) == NULL)
+				 sizeof(ttls_x509_crt))) == NULL)
 			{
 				ret = 1;
 				goto exit;
@@ -88,7 +129,7 @@ int ttls_cache_get(void *data, TlsSess *session)
 
 			ttls_x509_crt_init(session->peer_cert);
 			if (ttls_x509_crt_parse(session->peer_cert, entry->peer_cert.p,
-		entry->peer_cert.len) != 0)
+						entry->peer_cert.len) != 0)
 			{
 				ttls_free(session->peer_cert);
 				session->peer_cert = NULL;
