@@ -61,14 +61,15 @@
  * @name_eq		- @name plus "=" to make some operations faster;
  * @sess_lifetime	- session lifetime in seconds;
  * @max_misses		- maximum count of requsts with invalid cookie;
- * @timeout		- maximum time to wait the request with valid cookie;
+ * @tmt_sec		- maximum time (in seconds) to wait the request
+ *			  with valid cookie;
  */
 typedef struct {
 	TfwStr		name;
 	TfwStr		name_eq;
 	unsigned int	sess_lifetime;
 	unsigned int	max_misses;
-	unsigned int	timeout;
+	unsigned int	tmt_sec;
 	u_int		enabled : 1,
 			enforce : 1;
 } TfwCfgSticky;
@@ -76,6 +77,10 @@ typedef struct {
 
 /**
  * Temporal storage for calculated redirection mark value.
+ *
+ * @att_no		- number of redirection attempts;
+ * @ts			- timestamp for the first redirection attempt;
+ * @hmac		- calculated HMAC value for redirection mark;
  */
 typedef struct {
 	unsigned int	att_no;
@@ -85,6 +90,9 @@ typedef struct {
 
 /**
  * Temporal storage for calculated sticky cookie values.
+ *
+ * @ts			- timestamp of the session beginning;
+ * @hmac		- calculated HMAC value for cookie value;
  */
 typedef struct {
 	unsigned long	ts;
@@ -605,8 +613,8 @@ tfw_http_sess_check_redir_mark(TfwHttpReq *req, RedirMarkVal *mv)
 	if (tfw_http_redir_mark_get(req, &mark_val)) {
 		if (tfw_http_redir_mark_verify(req, &mark_val, mv)
 		    || ++mv->att_no > tfw_cfg_sticky.max_misses
-		    || (tfw_cfg_sticky.timeout
-			&& mv->ts + HZ * tfw_cfg_sticky.timeout < jiffies))
+		    || (tfw_cfg_sticky.tmt_sec
+			&& mv->ts + HZ * tfw_cfg_sticky.tmt_sec < jiffies))
 		{
 			tfw_filter_block_ip(&req->conn->peer->addr.v6.sin6_addr);
 			return TFW_HTTP_SESS_VIOLATE;
@@ -1117,17 +1125,23 @@ tfw_cfgop_sticky(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
 		if (!strcasecmp(key, "name")) {
 			name_val = val;
-		} else if (!strcasecmp(key, "max_misses") &&
-			   tfw_cfg_parse_uint(val, &tfw_cfg_sticky.max_misses))
-		{
-			TFW_ERR_NL("%s: invalid value for 'max_misses'"
-				   " attribute: '%s'\n", cs->name, val);
-			return -EINVAL;
-		} else if (!strcasecmp(key, "timeout") &&
-			   tfw_cfg_parse_uint(val, &tfw_cfg_sticky.timeout))
-		{
-			TFW_ERR_NL("%s: invalid value for 'timeout' attribute:"
-				   " '%s'\n", cs->name, val);
+		} else if (!strcasecmp(key, "max_misses")) {
+			if (tfw_cfg_parse_uint(val, &tfw_cfg_sticky.max_misses))
+			{
+				TFW_ERR_NL("%s: invalid value for 'max_misses'"
+					   " attribute: '%s'\n", cs->name, val);
+				return -EINVAL;
+			}
+		} else if (!strcasecmp(key, "timeout")) {
+			if (tfw_cfg_parse_uint(val, &tfw_cfg_sticky.tmt_sec))
+			{
+				TFW_ERR_NL("%s: invalid value for 'timeout'"
+					   " attribute: '%s'\n", cs->name, val);
+				return -EINVAL;
+			}
+		} else {
+			TFW_ERR_NL("%s: unsupported argument: '%s=%s'.\n",
+				   cs->name, key, val);
 			return -EINVAL;
 		}
 	}
@@ -1141,9 +1155,12 @@ tfw_cfgop_sticky(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	tfw_cfg_sticky.name_eq.len = len + 1;
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
-		 if (!strcasecmp(val, "enforce")) {
+		if (!strcasecmp(val, "enforce")) {
 			tfw_cfg_sticky.enforce = 1;
-			break;
+		} else {
+			TFW_ERR_NL("%s: unsupported argument: '%s'\n",
+				   cs->name, val);
+			return -EINVAL;
 		}
 	}
 
@@ -1152,7 +1169,7 @@ tfw_cfgop_sticky(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			   " 'enforce' mode\n", cs->name);
 		return -EINVAL;
 	}
-	if (tfw_cfg_sticky.timeout && !tfw_cfg_sticky.max_misses) {
+	if (tfw_cfg_sticky.tmt_sec && !tfw_cfg_sticky.max_misses) {
 		TFW_ERR_NL("%s: 'timeout' can be specified only with"
 			   " 'max_misses' attribute\n", cs->name);
 		return -EINVAL;
@@ -1178,7 +1195,7 @@ tfw_cfgop_cleanup_sticky(TfwCfgSpec *cs)
 	tfw_cfg_sticky.name.len = tfw_cfg_sticky.name_eq.len = 0;
 	tfw_cfg_sticky.enforce = 0;
 	tfw_cfg_sticky.max_misses = 0;
-	tfw_cfg_sticky.timeout = 0;
+	tfw_cfg_sticky.tmt_sec = 0;
 }
 
 static int

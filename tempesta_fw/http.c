@@ -418,8 +418,8 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *rmark,
 
 	/* Add variable part of data length to get the total */
 	data_len = rh->len + h_common_1.len;
-	data_len += rmark->len ? rmark->len : 0;
 	data_len += host.len ? host.len + SLEN(S_HTTP) : 0;
+	data_len += rmark->len;
 	data_len += req->uri_path.len + h_common_2.len + cookie->len;
 	data_len += cookie_crlf->len + r_end->len;
 
@@ -431,8 +431,6 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *rmark,
 	ret = tfw_http_msg_write(&it, resp, rh);
 	ret = tfw_http_msg_write(&it, resp, &h_common_1);
 
-	if (rmark->len)
-		ret |= tfw_http_msg_write(&it, resp, rmark);
 	/*
 	 * HTTP/1.0 may have no host part, so we create relative URI.
 	 * See RFC 1945 9.3 and RFC 7231 7.1.2.
@@ -442,6 +440,9 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *rmark,
 		ret |= tfw_http_msg_write(&it, resp, &proto);
 		ret |= tfw_http_msg_write(&it, resp, &host);
 	}
+
+	if (rmark->len)
+		ret |= tfw_http_msg_write(&it, resp, rmark);
 
 	ret |= tfw_http_msg_write(&it, resp, &req->uri_path);
 	ret |= tfw_http_msg_write(&it, resp, &h_common_2);
