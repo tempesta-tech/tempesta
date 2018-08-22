@@ -1496,7 +1496,6 @@ enum {
 	Req_MethUnloc,
 	Req_MUSpace,
 	Req_Uri,
-	Req_UriMark,
 	Req_UriSchH,
 	Req_UriSchHt,
 	Req_UriSchHtt,
@@ -1514,6 +1513,8 @@ enum {
 	Req_UriAuthorityIPv6,
 	Req_UriAuthorityEnd,
 	Req_UriPort,
+	Req_UriMark,
+	Req_UriMarkEnd,
 	Req_UriAbsPath,
 	Req_HttpVer,
 	Req_HttpVerT1,
@@ -3191,20 +3192,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Req_Uri) {
-		if (likely(c == '/')) {
-			/*
-			 * Move to URI path parsing, if 'max_misses'
-			 * for redirected requests is not enabled or
-			 * redirection mark is already collected.
-			 */
-			if (tfw_http_sess_max_misses() &&
-			    TFW_STR_EMPTY(&req->mark))
-			{
-				__FSM_JMP(Req_UriMark);
-			}
-			__msg_field_open(&req->uri_path, p);
-			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
-		}
+		if (likely(c == '/'))
+			__FSM_JMP(Req_UriMark);
+
 		if (likely(__data_available(p, 7)
 			   && C4_INT_LCM(p, 'h', 't', 't', 'p')
 			   && *(p + 4) == ':' && *(p + 5) == '/'
@@ -3216,33 +3206,6 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			__FSM_MOVE_nofixup(Req_UriSchH);
 
 		TFW_PARSER_BLOCK(Req_Uri);
-	}
-
-	__FSM_STATE(Req_UriMark) {
-		if (parser->_i_st == I_0) {
-			TRY_STR_INIT();
-			parser->_i_st = Req_I_UriMarkStart;
-		}
-		__fsm_sz = __data_remain(p);
-		__fsm_n = __parse_uri_mark(req, p, __fsm_sz);
-		if (__fsm_n == CSTR_POSTPONE) {
-			p += __fsm_sz;
-			__FSM_EXIT(TFW_POSTPONE);
-		}
-		if (__fsm_n < 0)
-			TFW_PARSER_BLOCK(Req_UriMark);
-
-		parser->_i_st = I_0;
-		if (TFW_STR_EMPTY(&req->mark)) {
-			/*
-			 * If 'req-mark' is empty - the mark isn't matched,
-			 * and we can move to 'Req_UriAbsPath' (because if
-			 * we here, the initial '/' is already found).
-			 */
-			__FSM_MOVE_nf(Req_UriAbsPath, __fsm_n, &req->uri_path);
-		}
-		BUG_ON(!__fsm_n);
-		__FSM_MOVE_nofixup_n(Req_Uri, __fsm_n);
 	}
 
 	/*
@@ -3268,7 +3231,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			TFW_DBG3("Handling http:///path\n");
 			tfw_http_msg_set_str_data(msg, &req->host, p);
 			req->host.flags |= TFW_STR_COMPLETE;
-			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
+			__FSM_JMP(Req_UriMark);
 		} else if (c == '[') {
 			__msg_field_open(&req->host, p);
 			__FSM_MOVE_f(Req_UriAuthorityIPv6, &req->host);
@@ -3323,8 +3286,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		TFW_DBG3("Userinfo len = %i, host len = %i\n",
 			 (int)req->userinfo.len, (int)req->host.len);
 		if (likely(c == '/')) {
-			__msg_field_open(&req->uri_path, p);
-			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
+			__FSM_JMP(Req_UriMark);
 		}
 		else if (c == ' ') {
 			__FSM_MOVE_nofixup(Req_HttpVer);
@@ -3342,8 +3304,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		if (likely(isdigit(c)))
 			__FSM_MOVE_nofixup(Req_UriPort);
 		else if (likely(c == '/')) {
-			__msg_field_open(&req->uri_path, p);
-			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
+			__FSM_JMP(Req_UriMark);
 		}
 		else if (c == ' ') {
 			__FSM_MOVE_nofixup(Req_HttpVer);
@@ -3351,6 +3312,54 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		else {
 			TFW_PARSER_BLOCK(Req_UriPort);
 		}
+	}
+
+	__FSM_STATE(Req_UriMark) {
+		if (!tfw_http_sess_max_misses()) {
+			/*
+			 * Skip redirection mark processing and move to
+			 * URI path parsing, if 'max_misses' for redirected
+			 * requests is not enabled.
+			 */
+			__msg_field_open(&req->uri_path, p);
+			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
+		}
+
+		if (parser->_i_st == I_0) {
+			TRY_STR_INIT();
+			parser->_i_st = Req_I_UriMarkStart;
+		}
+		__fsm_sz = __data_remain(p);
+		__fsm_n = __parse_uri_mark(req, p, __fsm_sz);
+		if (__fsm_n == CSTR_POSTPONE) {
+			p += __fsm_sz;
+			__FSM_EXIT(TFW_POSTPONE);
+		}
+		if (__fsm_n < 0)
+			TFW_PARSER_BLOCK(Req_UriMark);
+
+		parser->_i_st = I_0;
+		if (TFW_STR_EMPTY(&req->mark)) {
+			/*
+			 * If 'req->mark' is empty - the mark isn't matched,
+			 * and we can move to 'Req_UriAbsPath' (because if
+			 * we here, the initial '/' is already found).
+			 */
+			__FSM_MOVE_nf(Req_UriAbsPath, __fsm_n, &req->uri_path);
+		}
+		BUG_ON(!__fsm_n);
+		__FSM_MOVE_nofixup_n(Req_UriMarkEnd, __fsm_n);
+	}
+
+	__FSM_STATE(Req_UriMarkEnd) {
+		if (likely(c == '/')) {
+			__msg_field_open(&req->uri_path, p);
+			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
+		}
+		else if (c == ' ') {
+			__FSM_MOVE_nofixup(Req_HttpVer);
+		}
+		TFW_PARSER_BLOCK(Req_UriMarkEnd);
 	}
 
 	/*

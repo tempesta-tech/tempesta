@@ -501,6 +501,10 @@ TEST(http_parser, parses_enforce_ext_req_rmark)
 #define URI_3		"/foo/"
 #define URI_4		"/cgi-bin/show.pl?entry=tempesta"
 
+#define HOST		"natsys-lab.com"
+#define PORT		"80"
+#define AUTH		"http://" HOST ":" PORT
+
 	FOR_REQ("GET " RMARK URI_1 " HTTP/1.1\r\n\r\n")	{
 		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
 		EXPECT_TFWSTR_EQ(&req->uri_path, URI_1);
@@ -521,6 +525,24 @@ TEST(http_parser, parses_enforce_ext_req_rmark)
 		EXPECT_TFWSTR_EQ(&req->uri_path, URI_4);
 	}
 
+	FOR_REQ("GET " AUTH RMARK URI_1 " HTTP/1.1\r\n\r\n") {
+		EXPECT_TFWSTR_EQ(&req->host, HOST);
+		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
+		EXPECT_TFWSTR_EQ(&req->uri_path, URI_1);
+	}
+
+	FOR_REQ("GET " AUTH RMARK URI_3 " HTTP/1.1\r\n\r\n") {
+		EXPECT_TFWSTR_EQ(&req->host, HOST);
+		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
+		EXPECT_TFWSTR_EQ(&req->uri_path, URI_3);
+	}
+
+	FOR_REQ("GET " AUTH RMARK URI_4 " HTTP/1.1\r\n\r\n") {
+		EXPECT_TFWSTR_EQ(&req->host, HOST);
+		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
+		EXPECT_TFWSTR_EQ(&req->uri_path, URI_4);
+	}
+
 	/* Wrong RMARK formats. */
 	EXPECT_BLOCK_REQ("GET " ATT_NO HMAC URI_1 " HTTP/1.1\r\n\r\n");
 
@@ -537,6 +559,10 @@ TEST(http_parser, parses_enforce_ext_req_rmark)
 #undef URI_2
 #undef URI_3
 #undef URI_4
+
+#undef HOST
+#undef PORT
+#undef AUTH
 }
 
 /* TODO add HTTP attack examples. */
