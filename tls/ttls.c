@@ -498,11 +498,13 @@ ttls_derive_keys(TlsCtx *tls)
 		mac_key_len = 0;
 		xfrm->ivlen = 12;
 		xfrm->fixed_ivlen = 4;
+		WARN_ON_ONCE(xfrm->ivlen - xfrm->fixed_ivlen != TTLS_IV_LEN);
 		/* Minimum length is expicit IV + tag */
 		xfrm->minlen = xfrm->ivlen - xfrm->fixed_ivlen
 				+ ((xfrm->ciphersuite_info->flags
 				    & TTLS_CIPHERSUITE_SHORT_TAG) ? 8 : 16);
 	} else {
+		/* TODO #1031: this branch seems for stream mode only. */
 		/* Initialize HMAC contexts */
 		if ((r = ttls_md_setup(&xfrm->md_ctx_enc, md_info, 1))
 		    || (r = ttls_md_setup(&xfrm->md_ctx_dec, md_info, 1)))
@@ -628,8 +630,6 @@ ttls_encrypt(TlsCtx *tls, struct sg_table *sgt)
 	mode = c_ctx->cipher_info->mode;
 	WARN_ON_ONCE(mode != TTLS_MODE_GCM && mode != TTLS_MODE_CCM);
 
-	/* Reminder if we ever add an AEAD mode with a different size. */
-	WARN_ON_ONCE(xfrm->ivlen - xfrm->fixed_ivlen != 8);
 	/* Generate IV. */
 	*(long *)(xfrm->iv_enc + xfrm->fixed_ivlen) = *(long *)io->ctr;
 	*(long *)xfrm->iv_enc = *(long *)io->ctr;
@@ -701,7 +701,7 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 	ttls_make_aad(tls, io);
 	sg_set_buf(&sg[0], io->aad_buf, TLS_AAD_SPACE_SIZE);
 
-	T_DBG3_BUF("IV used", xfrm->iv_dec, xfrm->ivlen);
+	T_DBG3_BUF("IV used ", xfrm->iv_dec, xfrm->ivlen);
 	T_DBG3_SL("TAG used", sg, sgn, dec_msglen, taglen);
 
 	/* Decrypt and authenticate. */
@@ -892,22 +892,18 @@ ttls_hdr_check(TlsCtx *tls)
 /**
  * Read TLS message header and IV or handshake header:
  *
- *	ContentType type;
- *	ProtocolVersion version;
- *	uint16 epoch;		(TLS only)
- *	uint48 sequence_number;	(DTLS only)
+ *	uint8 type;
+ *	uint16 version;
  *	uint16 length;
- *	[uint128 IV | alert | handshake header];
+ *	[explicit IV | alert | handshake header];
  *
  * While IV and alert message aren't a part of TLS message header, we read it
  * here for application data messages to simplify further decryption logic.
  * TLS header and IV are quite small, so it's more efficiently just to always
  * copy it instead of manipulating with fragmented data.
  *
- * Return 0 if header looks sane (and, for DTLS, the record is expected)
- * TTLS_ERR_INVALID_RECORD if the header looks bad,
- * TTLS_ERR_UNEXPECTED_RECORD (DTLS only) if sane but unexpected,
- * T_POSTPONE if we need more data for the header.
+ * Return 0 if header looks sane TTLS_ERR_INVALID_RECORD if the header looks
+ * bad, and T_POSTPONE if we need more data for the header.
  */
 static int
 ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
@@ -942,7 +938,7 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 		return r;
 	switch (io->msgtype) {
 	case TTLS_MSG_APPLICATION_DATA:
-		ivahs_len = TTLS_IV_LEN;
+		ivahs_len = tls->xfrm.ivlen - tls->xfrm.fixed_ivlen;
 		break;
 	case TTLS_MSG_ALERT:
 		ivahs_len = 2; /* level & description */
@@ -974,23 +970,24 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 				      io->msglen);
 				return TTLS_ERR_INVALID_RECORD;
 			}
-			break;
+		} else {
+			ivahs_len = tls->xfrm.ivlen - tls->xfrm.fixed_ivlen;
 		}
+		break;
 	default:
-		io->st_flags |= TTLS_F_ST_HDRIV;
-		return T_OK;
+		return TTLS_ERR_INVALID_RECORD;
 	}
 
 	/* Read [IV | alert | handshake header] (probably fragmented). */
 	len -= n;
 	if (unlikely(io->hdr_cpsz + len < hlen + ivahs_len)) {
-		memcpy(io->iv + io->hdr_cpsz - hlen, buf + n, len);
+		memcpy(io->__msg + io->hdr_cpsz - hlen, buf + n, len);
 		*read += len;
 		io->hdr_cpsz += len;
 		return T_POSTPONE;
 	}
 	ivahs_len -= io->hdr_cpsz - hlen;
-	memcpy(io->iv + io->hdr_cpsz - hlen, buf + n, ivahs_len);
+	memcpy(io->__msg + io->hdr_cpsz - hlen, buf + n, ivahs_len);
 	*read += ivahs_len;
 	io->hdr_cpsz = 0;
 	io->st_flags |= TTLS_F_ST_HDRIV;
@@ -1001,7 +998,8 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 		      " msglen=%d type=%d hslen=%d read=%u\n",
 		      io->msglen, io->hstype, io->hslen, *read);
 	}
-	else if (io->msgtype == TTLS_MSG_HANDSHAKE) {
+	/* Don't try to read encrypted handshake header. */
+	else if (io->msgtype == TTLS_MSG_HANDSHAKE && !ttls_xfrm_ready(tls)) {
 		io->hstype = io->hs_hdr[0];
 		io->hslen = (io->hs_hdr[1] << 16) | (io->hs_hdr[2] << 8)
 			    | io->hs_hdr[3];
@@ -1514,7 +1512,7 @@ ttls_write_finished(TlsCtx *tls, struct sg_table *sgt, unsigned char **in_buf)
 	TlsIOCtx *io = &tls->io_out;
 	unsigned char *p = *in_buf;
 
-	BUILD_BUG_ON(TTLS_IV_LEN < TLS_MAX_HASH_LEN + TTLS_HS_HDR_LEN);
+	BUILD_BUG_ON(sizeof(io->__msg) < TLS_MAX_HASH_LEN + TTLS_HS_HDR_LEN);
 
 	tls->hs->calc_finished(tls, &io->__msg[TTLS_HS_HDR_LEN],
 			       tls->conf->endpoint);
@@ -1534,41 +1532,44 @@ ttls_write_finished(TlsCtx *tls, struct sg_table *sgt, unsigned char **in_buf)
 	return 0;
 }
 
-/*
- * Hash of the whole handshake session is less than 64 bytes for AES-CBC and
- * 40 bytes for AES-GCM.
- */
-#define TTLS_HS_FINISHED_MAX_SZ		64
-
 int
 ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 		    unsigned int *read)
 {
 	int r;
-	unsigned int n;
+	unsigned int n, ct_len;
 	TlsIOCtx *io = &tls->io_in;
+	TlsXfrm *xfrm = &tls->xfrm;
 	TlsHandshake *hs = tls->hs;
 	unsigned char hash[TLS_MAX_HASH_LEN];
 
-	T_DBG("%s: msglen=%u(rlen=%u len=%lu)\n",
-	      __func__, io->msglen, io->rlen, len);
+	T_DBG("%s: msglen=%u(rlen=%u len=%lu)\n", __func__,
+	      io->msglen, io->rlen, len);
 	BUG_ON(io->msgtype != TTLS_MSG_HANDSHAKE);
+
 	if (unlikely(!ttls_xfrm_ready(tls))) {
 		T_WARN("TLS context isn't ready on Finished\n");
 		return TTLS_ERR_BAD_HS_FINISHED;
 	}
-	if (unlikely(io->msglen > TTLS_HS_FINISHED_MAX_SZ)) {
-		T_DBG("too large Finished body: %u\n", io->msglen);
+	/*
+	 * Hash of the whole handshake session for AES-GCM is 40 bytes
+	 * including 8 bytes of explicit IV read by ttls_parse_record_hdr().
+	 */
+	if (unlikely(io->msglen != 40)) {
+		T_DBG("wrong ClientFinished message length: %u\n", io->msglen);
 		return TTLS_ERR_BAD_HS_FINISHED;
 	}
-	BUG_ON(io->rlen >= TTLS_HS_FINISHED_MAX_SZ);
+
+	ct_len = io->msglen - xfrm->ivlen - xfrm->fixed_ivlen;
+
+	T_DBG3_BUF("Client finished msg body ", buf, ct_len);
 
 	/* Copy small chunks to the temporary buffer. */
-	n = min_t(unsigned int, TTLS_HS_FINISHED_MAX_SZ - io->rlen, len);
+	n = min_t(unsigned int, ct_len - io->rlen, len);
 	memcpy_fast(hs->finished + io->rlen, buf, n);
 	io->rlen += n;
 	*read += n;
-	if (unlikely(io->rlen < io->msglen))
+	if (unlikely(io->rlen < ct_len))
 		return T_POSTPONE;
 
 	if ((r = ttls_decrypt(tls, hs->finished)))
