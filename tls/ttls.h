@@ -73,7 +73,6 @@
 #define TTLS_ERR_ALLOC_FAILED		-0x7F00 /**< Memory allocation failed */
 #define TTLS_ERR_HW_ACCEL_FAILED		-0x7F80 /**< Hardware acceleration function returned with error */
 #define TTLS_ERR_HW_ACCEL_FALLTHROUGH	-0x6F80 /**< Hardware acceleration function skipped / left alone data */
-#define TTLS_ERR_COMPRESSION_FAILED	-0x6F00 /**< Processing of the compression / decompression failed */
 #define TTLS_ERR_BAD_HS_PROTOCOL_VERSION	-0x6E80 /**< Handshake protocol not within min/max boundaries */
 #define TTLS_ERR_BAD_HS_NEW_SESSION_TICKET	-0x6E00 /**< Processing of the NewSessionTicket handshake message failed. */
 #define TTLS_ERR_SESSION_TICKET_EXPIRED	-0x6D80 /**< Session ticket has expired. */
@@ -82,20 +81,18 @@
 #define TTLS_ERR_COUNTER_WRAPPING	-0x6B80 /**< A counter would wrap (eg, too many messages exchanged). */
 #define TTLS_ERR_BUFFER_TOO_SMALL	-0x6A00 /**< A buffer is too small to receive or write a message */
 #define TTLS_ERR_NO_USABLE_CIPHERSUITE	-0x6980 /**< None of the common ciphersuites is usable (eg, no suitable certificate, see debug messages). */
-#define TTLS_ERR_TIMEOUT			-0x6800 /**< The operation timed out. */
-#define TTLS_ERR_UNEXPECTED_RECORD	-0x6700 /**< Record header looks valid but is not expected. */
 #define TTLS_ERR_NON_FATAL		-0x6680 /**< The alert message received indicates a non-fatal error. */
 #define TTLS_ERR_INVALID_VERIFY_HASH	-0x6600 /**< Couldn't set the hash for verifying CertificateVerify */
 
 #define TTLS_HDR_LEN		5
-#define TTLS_IV_LEN		16
+#define TTLS_IV_LEN		8 /* explicit IV size */
 
 #define TTLS_MAJOR_VERSION_3	3
 #define TTLS_MINOR_VERSION_0	0 /* SSL v3.0 */
 #define TTLS_MINOR_VERSION_1	1 /* TLS v1.0 */
 #define TTLS_MINOR_VERSION_2	2 /* TLS v1.1 */
 #define TTLS_MINOR_VERSION_3	3 /* TLS v1.2 */
-#define TTLS_MINOR_VERSION_4	4 /* TLS v1.3, not supported yet */
+#define TTLS_MINOR_VERSION_4	4 /* TLS v1.3 */
 
 #define TTLS_MAX_HOST_NAME_LEN	255 /*!< Maximum host name defined in RFC 1035 */
 
@@ -431,7 +428,7 @@ typedef struct {
 	unsigned char	ctr[8];
 	unsigned char	hdr[TTLS_HDR_LEN];
 	union {
-		unsigned char	__msg[0];
+		unsigned char	__msg[16];
 		unsigned char	iv[TTLS_IV_LEN];
 		unsigned char	alert[2];
 		unsigned char	hs_hdr[4];
