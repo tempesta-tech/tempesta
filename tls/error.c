@@ -266,8 +266,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			ttls_snprintf(buf, buflen, "TLS - Hardware acceleration function returned with error");
 		if (use_ret == -(TTLS_ERR_HW_ACCEL_FALLTHROUGH))
 			ttls_snprintf(buf, buflen, "TLS - Hardware acceleration function skipped / left alone data");
-		if (use_ret == -(TTLS_ERR_COMPRESSION_FAILED))
-			ttls_snprintf(buf, buflen, "TLS - Processing of the compression / decompression failed");
 		if (use_ret == -(TTLS_ERR_BAD_HS_PROTOCOL_VERSION))
 			ttls_snprintf(buf, buflen, "TLS - Handshake protocol not within min/max boundaries");
 		if (use_ret == -(TTLS_ERR_BAD_HS_NEW_SESSION_TICKET))
@@ -286,10 +284,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			ttls_snprintf(buf, buflen, "TLS - A buffer is too small to receive or write a message");
 		if (use_ret == -(TTLS_ERR_NO_USABLE_CIPHERSUITE))
 			ttls_snprintf(buf, buflen, "TLS - None of the common ciphersuites is usable (eg, no suitable certificate, see debug messages)");
-		if (use_ret == -(TTLS_ERR_TIMEOUT))
-			ttls_snprintf(buf, buflen, "TLS - The operation timed out");
-		if (use_ret == -(TTLS_ERR_UNEXPECTED_RECORD))
-			ttls_snprintf(buf, buflen, "TLS - Record header looks valid but is not expected");
 		if (use_ret == -(TTLS_ERR_NON_FATAL))
 			ttls_snprintf(buf, buflen, "TLS - The alert message received indicates a non-fatal error");
 		if (use_ret == -(TTLS_ERR_INVALID_VERIFY_HASH))

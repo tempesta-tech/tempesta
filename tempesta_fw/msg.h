@@ -52,8 +52,8 @@ typedef struct {
  * Iterator for @skb fragments.
  *
  * @frag	- current fragment index or @skb->head if -1;
- * @skb		- current skb fragment;
- * @skb_head	- begin of the skb fragments list.
+ * @skb		- current skb to process;
+ * @skb_head	- head of the skb list.
  */
 typedef struct {
 	int		frag;
