@@ -28,6 +28,7 @@
 #include "cache.h"
 #include "http_limits.h"
 #include "http_tbl.h"
+#include "http_parser.h"
 #include "client.h"
 #include "http_msg.h"
 #include "http_sess.h"
