@@ -255,11 +255,7 @@ int prio0, prio1, prio3;
 		: tfw_vhost_global_frang_cfg()->member)
 
 #define frang_msg(check, addr, fmt, ...)				\
-do {									\
-	char abuf[TFW_ADDR_STR_BUF_SIZE] = {0};				\
-	tfw_addr_fmt_v6(&(addr)->v6.sin6_addr, 0, abuf);		\
-	TFW_WARN("frang: %s for %s" fmt, check, abuf, ##__VA_ARGS__);	\
-} while (0)
+	TFW_WARN_MOD_ADDR6(frang, check, addr, fmt, ##__VA_ARGS__)
 
 #define frang_limmsg(lim_name, curr_val, lim, addr)			\
 	frang_msg(lim_name " exceeded", (addr), ": %ld (lim=%ld)\n",	\

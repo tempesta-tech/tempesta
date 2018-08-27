@@ -226,17 +226,14 @@ do {									\
  * FSMs, and so _I_ in the name means "interior" FSM.
  */
 
-#define __FSM_I_chunk_flags(flag)					\
-do {									\
-	TFW_DBG3("parser: add chunk flags: %u\n", flag);		\
-	TFW_STR_CURR(&msg->parser.hdr)->flags |= flag;		  	\
-} while (0)
-
 #define __FSM_I_field_chunk_flags(field, flag)				\
 do {									\
 	TFW_DBG3("parser: add chunk flags: %u\n", flag);		\
-	TFW_STR_CURR(field)->flags |= flag;		  	\
+	TFW_STR_CURR(field)->flags |= flag;				\
 } while (0)
+
+#define __FSM_I_chunk_flags(flag)					\
+	__FSM_I_field_chunk_flags(&msg->parser.hdr, flag)
 
 #define __FSM_I_MOVE_finish_n(to, n, finish)				\
 do {									\
@@ -762,9 +759,9 @@ enum {
 /**
  * The same as @TRY_STR_LAMBDA_finish(), but @str must be of plain
  * @TfwStr{} type and variable @field is used (instead of hard coded
- * header field).
+ * header field); besides, @finish parameter is not used in this macro.
  */
-#define TRY_STR_LAMBDA_fixup_field(str, field, lambda, finish, state)	\
+#define TRY_STR_LAMBDA_fixup(str, field, lambda, state)			\
 	BUG_ON(!TFW_STR_PLAIN(str));					\
 	if (!chunk->ptr)						\
 		chunk->ptr = p;						\
@@ -777,12 +774,8 @@ enum {
 			__FSM_I_MOVE_fixup_f(state, __fsm_n, field, 0);	\
 		}							\
 		__msg_field_fixup_pos(field, p, __fsm_n);		\
-		finish;							\
 		return CSTR_POSTPONE;					\
 	}
-
-#define TRY_STR_LAMBDA_fixup(str, field, lambda, state)			\
-	TRY_STR_LAMBDA_fixup_field(str, field, lambda, { }, state)
 
 /*
  * Headers EOL processing. Allow only LF and CRLF as a newline delimiters.
