@@ -411,8 +411,7 @@ tfw_listen_sock_start(TfwListenSock *ls)
 	if (tfw_cfg_cli_rmem) {
 		int bsz = tfw_cfg_cli_rmem * 2;
 
-		/* TODO */
-		if (/* sysctl_tcp_moderate_rcvbuf && */ (bsz > sysctl_tcp_rmem[1]))
+		if (sysctl_tcp_moderate_rcvbuf && (bsz > sysctl_tcp_rmem[1]))
 			bsz = sysctl_tcp_rmem[1];
 		sk->sk_userlocks |= SOCK_RCVBUF_LOCK;
 		sk->sk_rcvbuf = bsz;
