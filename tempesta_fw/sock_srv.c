@@ -181,7 +181,7 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	 *    connection_drop hook from SoftIRQ, there can't be another
 	 *    socket state change upcall from SS layer due to RSS.
 	 *
-	 * Thus we don't need syncronization for ss_connect().
+	 * Thus we don't need synchronization for ss_connect().
 	 */
 	TFW_INC_STAT_BH(serv.conn_attempts);
 	r = ss_connect(sk, addr, 0);
@@ -385,7 +385,7 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 	TFW_DBG_ADDR("connection error", &srv->addr, TFW_WITH_PORT);
 
 	/*
-	 * Distiguish connections that go to failover state
+	 * Distinguish connections that go to failover state
 	 * from those that are in failover state already.
 	 */
 	if (tfw_connection_live(conn)) {
@@ -808,7 +808,7 @@ static struct kmem_cache *tfw_sg_cfg_cache;
  * not possible. Instead current configuration must be updated step-by-step
  * to comply the new configuration.
  *
- * Update process is splitted in two stages:
+ * Update process is split in two stages:
  * - configuration parsing stage: tfw_sock_srv_cfgstart(), TfwCfgSpec handlers
  * and tfw_sock_srv_cfgend(). It's normal if an error happens during the
  * stage since the new configuration is provided by a user and may contain
@@ -826,7 +826,7 @@ static struct kmem_cache *tfw_sg_cfg_cache;
  *
  * On applying stage changes from @parsed_sg are distributed to @orig_sg if
  * @orig_sg is available, or @parsed_sg is promoted to active group by
- * starting it's connetions otherwize. After that list of server groups
+ * starting it's connections otherwize. After that list of server groups
  * available after reconfig replaces list of active groups by
  * tfw_sg_apply_reconfig() call.
  *

@@ -43,7 +43,7 @@
  *   2 [SUPPORT] - key events at lower (component) levels (e.g. TDB or SS).
  *                 Only events required for technical support should be logged
  *                 on this level;
- *   3 [DEVELOP] - verbose loging, used for engineer debugging internal
+ *   3 [DEVELOP] - verbose logging, used for engineer debugging internal
  *                 algorithms and so on. Typically for single slow connection
  *                 cases.
  */

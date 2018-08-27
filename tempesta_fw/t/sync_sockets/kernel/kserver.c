@@ -69,7 +69,7 @@ stat_update(int events)
 	if (last_ts == jiffies / HZ) {
 		pps_curr += events;
 	} else {
-		// recahrge
+		// recharge
 		if (pps_curr > pps_max)
 			pps_max = pps_curr;
 		pps_curr = events;

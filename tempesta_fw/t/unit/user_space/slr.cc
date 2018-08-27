@@ -27,7 +27,7 @@
 template<class T, const long wsz>
 class SLR {
 	// Use the multiplier to calculate @y with 1/MUL
-	// precission on integer arithmetic. */
+	// precision on integer arithmetic. */
 	static const long MUL	= 1000;
 
 	long n; /* observation number */
@@ -36,7 +36,7 @@ class SLR {
 	T x_avg_y_avg; /* avg(x) * avg(y) */
 	T x_sq_avg; /* avg(x * x) */
 	T x_avg_sq; /* avg(x) * avg(x) */
-	T a, b; /* coeficients for y = a + b*x + eps */
+	T a, b; /* coefficients for y = a + b*x + eps */
 	struct {
 		T x;
 		T y;

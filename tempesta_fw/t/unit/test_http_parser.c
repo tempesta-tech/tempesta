@@ -637,7 +637,7 @@ TEST(http_parser, mangled_messages)
 			 "4\r\n"
 			 "12345\r\n");
 
-	/* "chunked" conding must be the last coding. */
+	/* "chunked" coding must be the last coding. */
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 			 "Transfer-Encoding: chunked, gzip\r\n"
 			 "\r\n"
@@ -1820,12 +1820,12 @@ TEST(http_parser, if_none_match)
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 			 "If-None-Match: " ETAG_1 "\"\r\n"
 			 "\r\n");
-	/* Dublicated header. */
+	/* Duplicated header. */
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 			 "If-None-Match: \"" ETAG_1 "\"\r\n"
 			 "If-None-Match: \"" ETAG_1 "\"\r\n"
 			 "\r\n");
-	/* Incomplite header. */
+	/* Incomplete header. */
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 			 "If-None-Match: \"" ETAG_1 "\", \r\n"
 			 "\r\n");

@@ -42,12 +42,12 @@ typedef struct {
 	 */
 
 	/*
-	 * Accont and handle back-end server overload.
+	 * Account and handle back-end server overload.
 	 * @return true if there is overload and false otherwise.
 	 */
 	bool		(*account_srv)(void);
 	/*
-	 * Accont and handle local system overload.
+	 * Account and handle local system overload.
 	 * @return true if there is overload and false otherwise.
 	 */
 	bool		(*account_sys)(void);
