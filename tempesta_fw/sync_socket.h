@@ -62,7 +62,7 @@ typedef struct ss_hooks {
 	 * Drop TCP connection associated with the socket.
 	 * The callback is called on intentional socket closing when the socket
 	 * is already closed (i.e. there could not be ingress data on it) and we
-	 * can safely do some clenup stuff. We need the callback sine socket
+	 * can safely do some cleanup stuff. We need the callback since socket
 	 * closing always has chance to run asynchronously on other CPU and a
 	 * caller doesn't know the it completes.
 	 */
@@ -146,6 +146,22 @@ void ss_stop(void);
 bool ss_active(void);
 void ss_get_stat(SsStat *stat);
 
+static inline void
+ss_rmem_reserve(struct sock *sk, unsigned int sz)
+{
+	BUG_ON(!sk);
+	if (sk->sk_userlocks & SOCK_RCVBUF_LOCK)
+		atomic_add(sz, &sk->sk_rmem_alloc);
+}
+
+static inline void
+ss_rmem_release(struct sock *sk, unsigned int sz)
+{
+	BUG_ON(!sk);
+	if (sk->sk_userlocks & SOCK_RCVBUF_LOCK)
+		atomic_sub(sz, &sk->sk_rmem_alloc);
+}
+
 #define SS_CALL(f, ...)							\
 	(sk->sk_user_data && ((SsProto *)(sk)->sk_user_data)->hooks->f	\
 	? ((SsProto *)(sk)->sk_user_data)->hooks->f(__VA_ARGS__)	\
@@ -153,5 +169,7 @@ void ss_get_stat(SsStat *stat);
 
 #define SS_CONN_TYPE(sk)							\
 	(((SsProto *)(sk)->sk_user_data)->type)
+
+extern int tfw_cfg_cli_rmem;
 
 #endif /* __SS_SOCK_H__ */

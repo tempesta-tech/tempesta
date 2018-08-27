@@ -1814,6 +1814,8 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 	TFW_DBG2("%s: conn=[%p]\n", __func__, cli_conn);
 	BUG_ON(!(TFW_CONN_TYPE(cli_conn) & Conn_Clnt));
 
+	if (cli_conn->msg)
+		ss_rmem_release(cli_conn->sk, cli_conn->msg->len);
 	if (list_empty_careful(seq_queue))
 		return;
 
@@ -1827,6 +1829,7 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 	list_for_each_entry_safe(req, tmp, seq_queue, msg.seq_list) {
 		req->flags |= TFW_HTTP_F_REQ_DROP;
 		list_del_init(&req->msg.seq_list);
+		ss_rmem_release(cli_conn->sk, req->msg.len);
 		/*
 		 * Response is processed and removed from fwd_queue, need to be
 		 * destroyed.
@@ -2217,7 +2220,13 @@ __tfw_http_resp_fwd(TfwCliConn *cli_conn, struct list_head *ret_queue)
 	TfwHttpReq *req, *tmp;
 
 	list_for_each_entry_safe(req, tmp, ret_queue, msg.seq_list) {
+		unsigned int sz = req->msg.len;
 		BUG_ON(!req->resp);
+		/*
+		 * Release memory before forwarding response to client to set
+		 * proper window size.
+		 */
+		ss_rmem_release(cli_conn->sk, sz);
 		tfw_http_resp_init_ss_flags(req->resp, req);
 		if (tfw_cli_conn_send(cli_conn, (TfwMsg *)req->resp)) {
 			ss_close_sync(cli_conn->sk, true);
@@ -2698,6 +2707,7 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 		r = ss_skb_process(skb, &data_off, tfw_http_parse_req, req);
 		data_off -= parser->to_go;
 		req->msg.len += data_off - off;
+		ss_rmem_reserve(req->conn->sk, data_off - off);
 		TFW_ADD_STAT_BH(data_off - off, clnt.rx_bytes);
 
 		TFW_DBG2("Request parsed: len=%u parsed=%d msg_len=%lu"
