@@ -109,7 +109,7 @@ typedef struct {
 
 /*
  * Queues in client and server connections provide support for correct
- * handlng of requests and responses.
+ * handling of requests and responses.
  *
  * Incoming requests are put on client connection's @seq_queue in the
  * order they come in. When responses to these requests come, they're

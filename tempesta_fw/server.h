@@ -147,7 +147,7 @@ typedef struct {
 					 | TFW_SG_F_SCHED_RATIO_DYNAMIC	\
 					 | TFW_SG_F_SCHED_RATIO_PREDICT)
 
-#define TFW_SRV_RETRY_NIP		0x0100	/* Retry non-idemporent req. */
+#define TFW_SRV_RETRY_NIP		0x0100	/* Retry non-idempotent req. */
 #define TFW_SRV_STICKY			0x0200	/* Use sticky sessions. */
 #define TFW_SRV_STICKY_FAILOVER		0x0400	/* Allow failovering. */
 #define TFW_SRV_STICKY_FLAGS		\

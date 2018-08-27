@@ -655,7 +655,7 @@ err:
  * a connection failure. There's no option to prohibit re-sending.
  * Thus, request's SKB can't be passed to the network layer until
  * certain changes are implemented. For now there's no choice but
- * make a copy of requests's SKBs in SS layer.
+ * make a copy of request's SKBs in SS layer.
  *
  * TODO: Making a copy of each SKB _IS BAD_. See issues #391 and #488.
  */
@@ -1799,13 +1799,13 @@ tfw_http_resp_pair_free(TfwHttpReq *req)
 /*
  * Drop client connection's resources.
  *
- * Desintegrate the client connection's @seq_list. Requests without a paired
+ * Disintegrate the client connection's @seq_list. Requests without a paired
  * response have not been answered yet. They are held in the lists of server
  * connections until responses come. A paired response may be in use until
  * TFW_HTTP_F_RESP_READY flag is not set.  Don't free any of those requests.
  *
  * If a response comes or gets ready to forward after @seq_list is
- * desintegrated, then both the request and the response are dropped at the
+ * disintegrated, then both the request and the response are dropped at the
  *  sight of an empty list.
  *
  * Locking is necessary as @seq_list is constantly probed from server
@@ -1824,9 +1824,9 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 		return;
 
 	/*
-	 * Desintegration of the list must be done under the lock.
+	 * Disintegration of the list must be done under the lock.
 	 * The list can't be just detached from seq_queue, and then
-	 * be desintegrated without the lock. That would open a race
+	 * be disintegrated without the lock. That would open a race
 	 * condition with freeing of a request in tfw_http_resp_fwd().
 	 */
 	spin_lock(&cli_conn->seq_qlock);
@@ -2192,7 +2192,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 
 	if (resp->flags & TFW_HTTP_F_RESP_STALE) {
 #define S_WARN_110 "Warning: 110 - Response is stale"
-		/* TODO: ajust for #215 */
+		/* TODO: adjust for #215 */
 		TfwStr wh = {
 			.ptr	= S_WARN_110,
 			.len	= SLEN(S_WARN_110),
@@ -3284,7 +3284,7 @@ tfw_http_resp_process(TfwConn *conn, const TfwFsmData *data)
 		}
 
 		/*
-		 * If a non critical error occured in further GFSM processing,
+		 * If a non critical error occurred in further GFSM processing,
 		 * then the response and the paired request had been handled.
 		 * Keep the server connection open for data exchange.
 		 */
