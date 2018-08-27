@@ -84,7 +84,8 @@ typedef struct {
 static const char *ss_statename[] = {
 	"Unused",	"Established",	"Syn Sent",	"Syn Recv",
 	"Fin Wait 1",	"Fin Wait 2",	"Time Wait",	"Close",
-	"Close Wait",	"Last ACK",	"Listen",	"Closing"
+	"Close Wait",	"Last ACK",	"Listen",	"Closing",
+	"New Syn Recv"
 };
 #endif
 
