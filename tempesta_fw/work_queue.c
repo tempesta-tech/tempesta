@@ -63,7 +63,7 @@ tfw_wq_init(TfwRBQueue *q, int node)
 void
 tfw_wq_destroy(TfwRBQueue *q)
 {
-	/* Ensure that there is no peding work. */
+	/* Ensure that there is no pending work. */
 	WARN_ON_ONCE(tfw_wq_size(q));
 
 	kfree(q->array);
@@ -108,7 +108,7 @@ __tfw_wq_push(TfwRBQueue *q, void *ptr)
 		 * There is an empty slot to push a new item.
 		 * Acquire the current head position and move the global head.
 		 * If current head position is acquired by a competing
-		 * poroducer, then read the current head and try again.
+		 * producer, then read the current head and try again.
 		 */
 		if (atomic64_cmpxchg(&q->head, head, head + 1) == head)
 			break;
@@ -128,7 +128,7 @@ full_out:
 
 /**
  * Sets tail value to be compared with current turnstile ticket, so
- * @ticket is the identifier of currently successully pop()'ed item or an item
+ * @ticket is the identifier of currently successfully pop()'ed item or an item
  * to be pop()'ed next time.
  */
 int

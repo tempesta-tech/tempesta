@@ -5,7 +5,7 @@
  *
  * The goal of this module is to implement HTTP requests routing system based on
  * HTTP message contents, that is, to provide user a way to route HTTP requests
- * to different virtual hosts locations for additional analizing and then - to
+ * to different virtual hosts locations for additional analyzing and then - to
  * different back-end server groups depending on HTTP request fields:
  * Host, URI, headers, etc.
  *
@@ -18,7 +18,7 @@
  * scheduler module allows you to reach that.
  *
  * We utilize rule-based HTTP matching logic from http_match.c here.
- * User defines a namber for chains with lists of pattern-matching rules
+ * User defines a number for chains with lists of pattern-matching rules
  * in a configuration file, and we match every request against all rules,
  * in all linked chains of current HTTP table and the first matching rule
  * determines a virtual host to which the request is redirected.
@@ -346,7 +346,7 @@ tfw_cfgop_http_tbl_chain_finish(TfwCfgSpec *cs)
  * the list of rules of current chain.
  *
  * Syntax:
- *            +------------------------ First operand of rule's conition part
+ *            +------------------------ First operand of rule's condition part
  *            |                         (HTTP request field or 'mark');
  *            |   +-------------------- Condition type: equal ('==') or not
  *            |   |                     equal ('!=');
@@ -378,7 +378,7 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 	if ((r = tfw_cfg_check_val_n(e, 0)))
 		return r;
 	if (e->attr_n) {
-		TFW_ERR_NL("Attibutes count must be zero\n");
+		TFW_ERR_NL("Attributes count must be zero\n");
 		return -EINVAL;
 	}
 

@@ -1,5 +1,5 @@
 /**
- *		Tempesta DB User-space Libabry
+ *		Tempesta DB User-space Library
  *
  * Handler for database operations.
  *
@@ -216,7 +216,7 @@ TdbHndl::trx_begin()
 }
 
 /**
- * Send all peding frames.
+ * Send all pending frames.
  */
 void
 TdbHndl::trx_commit()
@@ -390,7 +390,7 @@ TdbHndl::insert(std::string &tbl_name, size_t klen, size_t vlen,
 	if (trx_.off + sizeof(nlmsghdr) + sizeof(TdbMsgRec) + klen + vlen
 	    > NL_FR_SZ)
 	{
-		// Not enugh space in current frame, alllocate a new one.
+		// Not enough space in current frame, allocate a new one.
 		advance_frame_offset(tx_fr_off_);
 		alloc_trx_frame();
 	}

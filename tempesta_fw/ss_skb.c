@@ -3,7 +3,7 @@
  *
  * Helpers for Linux socket buffers manipulation.
  *
- * Application protocol handler layers must inplement zero data copy logic
+ * Application protocol handler layers must implement zero data copy logic
  * on top on native Linux socket buffers. The helpers provide common and
  * convenient wrappers for skb processing.
  *
@@ -62,7 +62,7 @@ ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf)
 /**
  * Allocate a new skb that can hold @len bytes of data.
  *
- * An SKB is created complely headerless. The linear part of an SKB is
+ * An SKB is created completely headerless. The linear part of an SKB is
  * set apart for headers, and stream data is placed in paged fragments.
  * Lower layers will take care of prepending all required headers.
  *
@@ -1148,7 +1148,7 @@ cleanup:
  * handle frag_list fragments. Such SKBs lose data in frag_list and generally
  * get malformed.
  *
- * TODO: It's conceiveable that skb_split() can be modified to handle data
+ * TODO: It's conceivable that skb_split() can be modified to handle data
  * in frag_list. However a thorough research is required to see if such SKBs
  * are handled properly in other parts of the kernel's stack.
  *
@@ -1204,7 +1204,7 @@ ss_skb_unroll(struct sk_buff **skb_head, struct sk_buff *skb)
  * The routine helps you to dump content of any skb.
  * It's supposed to be used for debugging purpose, so non-limited printing
  * is used.
- * BEWARE: dont' call it too frequetly.
+ * BEWARE: don't call it too frequently.
  */
 void
 ss_skb_dump(struct sk_buff *skb)

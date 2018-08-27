@@ -53,10 +53,10 @@ MODULE_PARM_DESC(i, "Number of thread iterations");
 MODULE_PARM_DESC(c, "Number of connections");
 MODULE_PARM_DESC(m, "Number of messages per connection");
 MODULE_PARM_DESC(v, "Verbosity level");
-MODULE_PARM_DESC(s, "Server host address and optional port nunber");
+MODULE_PARM_DESC(s, "Server host address and optional port number");
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
-MODULE_DESCRIPTION("Tempesta Boomber");
+MODULE_DESCRIPTION("Tempesta Bomber");
 MODULE_VERSION("0.2.3");
 MODULE_LICENSE("GPL");
 
@@ -76,7 +76,7 @@ enum {
 struct tfw_bmb_task_t;
 
 /*
- * Connection descripton.
+ * Connection description.
  */
 typedef struct {
 	SsProto			proto;
@@ -88,7 +88,7 @@ typedef struct {
  * Bomber task descriptor.
  *
  * @conn		- connection descriptions
- * @conn_compl		- number of complate connections
+ * @conn_compl		- number of complete connections
  * @conn_error		- number of error connections
  * @conn_wq		- wait queue on all connections establishing
  * @ctx			- context for fuzzer

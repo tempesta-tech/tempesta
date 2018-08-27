@@ -47,7 +47,7 @@ typedef struct {
  * @srv_n	- number of available servers.
  * @curr	- pointer to current server.
  * @ri		- ratio iteration, determines how many times we have to choose
- * 		  all servers before current utill we can choose current server.
+ * 		  all servers before current until we can choose current server.
  * @rsum	- sum of all ratios, used to avoid scanning fully zeroed array
  * 		  of servers.
  * @rsum_orig	- original value of @rsum.
@@ -130,7 +130,7 @@ init_sched(const unsigned int *ratios, unsigned int n)
  * and of the right series are proportional to current iteration.
  * As the scheduler algorithm moves forward sum of the left series decreases.
  * Since each server selection just decrements current server ration, the
- * sum of the series containg the server also decrements, i.e. decreases for
+ * sum of the series contains the server also decrements, i.e. decreases for
  * 1.
  *
  * Thus, a user must not specify weights like {1000, 100} since decrement
@@ -139,7 +139,7 @@ init_sched(const unsigned int *ratios, unsigned int n)
  * specified wights on large numbers, but significant bursts are possible in
  * the first case.
  *
- * Dynamic weights must be adjusted by devision for minimal weight. The same
+ * Dynamic weights must be adjusted by division for minimal weight. The same
  * can be done for static weights. Or at least document the algorithm
  * peculiarity for a user.
  *
@@ -150,7 +150,7 @@ is_srv_turn(unsigned int i)
 {
 	unsigned int head_sum2, tail_sum2;
 
-	/* The server w/ the largest ratio is always choosen. */
+	/* The server w/ the largest ratio is always chosen. */
 	if (!i)
 		return true;
 
@@ -185,7 +185,7 @@ retry:
 		if (rs.rearm != s) {
 			/*
 			 * Do not choose the server if we fully exhausted its
-			 * caunter. Likely branch for ratios { N, 1, 1, ... },
+			 * counter. Likely branch for ratios { N, 1, 1, ... },
 			 * where N > 1, at some point. This is not the case if
 			 * all server weights were specified as 1: in this case
 			 * we're fall to plain round-robin.
@@ -228,7 +228,7 @@ retry:
 		return s;
 	}
 	/*
-	 * It isn't trun of the current server.
+	 * It isn't turn of the current server.
 	 * Start a new iteration from the server with the largest ratio.
 	 */
 	rs.curr = 0;

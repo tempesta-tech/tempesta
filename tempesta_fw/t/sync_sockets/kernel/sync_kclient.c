@@ -92,7 +92,7 @@ static TfwAddr kclient_server_address;
 static SsHooks kclient_hooks;
 
 module_param(server, charp, 0);
-MODULE_PARM_DESC(server, "Server host address and optional port nunber");
+MODULE_PARM_DESC(server, "Server host address and optional port number");
 MODULE_LICENSE("GPL");
 
 static int

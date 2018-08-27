@@ -111,7 +111,7 @@ TfwHttpChain *tfw_http_chain_add(const char *name, TfwHttpTable *table);
 void tfw_http_table_free(TfwHttpTable *table);
 
 /**
- * Match a HTTP request agains a list of rules in chain.
+ * Match a HTTP request against a list of rules in chain.
  * Return a matching rule.
  */
 TfwHttpMatchRule *tfw_http_match_req(const TfwHttpReq *req,

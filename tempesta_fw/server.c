@@ -59,9 +59,9 @@ static atomic64_t act_sg_n = ATOMIC64_INIT(0);
  * Lifetime of both TfwServer and TfwSrvGroup is controlled by reference
  * counters. Note, that TfwSrvGroup stores references to servers while
  * TfwServer stores back reference to it's server group. Thus servers
- * must be removed from a server group to breack the reference loop.
+ * must be removed from a server group to break the reference loop.
  * When a server connection is scheduled for connect it increments server's
- * reference count and decrements it after inteded disconnect.
+ * reference count and decrements it after intended disconnect.
  */
 #define TFW_SG_HBITS	10
 static DECLARE_HASHTABLE(sg_hash, TFW_SG_HBITS);
@@ -404,7 +404,7 @@ __tfw_sg_for_each_srv(TfwSrvGroup *sg,
 }
 
 /**
- * Iterate over all the acive server groups and call @cb for each server.
+ * Iterate over all the active server groups and call @cb for each server.
  * @cb is called under spin-lock, so can't sleep.
  * @cb is considered as updater, so write lock is used.
  */

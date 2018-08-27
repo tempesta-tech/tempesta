@@ -1,28 +1,28 @@
 /**
  *		Tempesta FW
  *
- * Prototype for fast precentilies calculation.
+ * Prototype for fast percentiles calculation.
  *
  * The algorithm is constructed to be as efficient as possible sacrificing
- * accuracy and answering questions different from originaly asked by user.
+ * accuracy and answering questions different from originally asked by user.
  * The main concepts and requirements are:
  *
  * 1. Small O(1) update time with only few conditions and cache line accesses;
  *
- * 2. Very fast O(1) calculation of several percentilies in parallel;
+ * 2. Very fast O(1) calculation of several percentiles in parallel;
  *
  * 3. Very small overall memory footprint for inexpensive handling of
  *    performance trends of many servers;
  *
- * 4. Buckets must dynamicaly rearrange since we don't know server response
- *    times a-priori;
+ * 4. Buckets must dynamically rearrange since we don't know server response
+ *    times a priori;
  *
  * 5. The buckets adjustments must be done in lock-less fashion on multi-core
  *    environment;
  *
  * 6. If user ask for Nth percentile, e.g. 75th, we can return inaccurate
- *    value for different percentilie, e.g. 81st. This is very possibe if we
- *    don't have enough data for accurate percentilies calculation.
+ *    value for different percentile, e.g. 81st. This is very possible if we
+ *    don't have enough data for accurate percentiles calculation.
  *
  * Copyright (C) 2016-2017 Tempesta Technologies, Inc.
  *
@@ -51,21 +51,21 @@
 #define SET(s)		{ARRAY_SIZE(s), s}
 
 /*
- * Keep arrays sorted to make our simple basic algorithm for percentlies
+ * Keep arrays sorted to make our simple basic algorithm for percentiles
  * calculation work.
  */
 static const struct {
 	size_t		len;
 	unsigned int	*set;
 } sets[] = {
-	/* Not enough data for 1-percentilie, so show 0 for 1-percentilie. */
+	/* Not enough data for 1-percentile, so show 0 for 1-percentile. */
 	SET(((unsigned int[]){1, 2, 3, 4, 5, 6, 7, 8, 9, 10})),
 	/*
 	 * `3` is outlier in first range (count=4, bucket=2).
-	 * Right bound of last range is extened to 1069.
+	 * Right bound of last range is extended to 1069.
 	 */
 	SET(((unsigned int[]){1, 2, 3, 3, 3, 3, 4, 4, 5, 1001, 1002, 1010})),
-	/* All percentilies should be calculated accurately. */
+	/* All percentiles should be calculated accurately. */
 	SET(((unsigned int[]){1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
 			      15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
 			      27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38,
@@ -78,25 +78,25 @@ static const struct {
 };
 
 /*
- * @ith	- percentilie number;
- * @val	- percentilie value;
+ * @ith	- percentile number;
+ * @val	- percentile value;
  */
 typedef struct {
 	int	ith;
 	int	val;
-} Percentilie;
+} Percentile;
 
 /**
- * Calculate @np percentilies from @pcnts over @set of size @len.
+ * Calculate @np percentiles from @pcnts over @set of size @len.
  */
 static void
-basic_percentilie(const unsigned int *set, size_t len, Percentilie *pcnts,
+basic_percentile(const unsigned int *set, size_t len, Percentile *pcnts,
 		  size_t np)
 {
 	int i;
 
 	for (i = 0; i < np; ++i) {
-		/* How many items we need to collect for each percentilie. */
+		/* How many items we need to collect for each percentile. */
 		int n = len * pcnts[i].ith / 100;
 		pcnts[i].val = n ? set[n - 1] : 0;
 	}
@@ -363,11 +363,11 @@ totals:
 }
 
 /**
- * Retrieve nearest to @pcnts->ith percentilies.
+ * Retrieve nearest to @pcnts->ith percentiles.
  * @pcnts must be sorted.
  */
 static void
-tfw_stats_calc(TfwPcntRanges *rng, Percentilie *pcnts, size_t np, bool clear)
+tfw_stats_calc(TfwPcntRanges *rng, Percentile *pcnts, size_t np, bool clear)
 {
 	int i, r, b, p = 0;
 	unsigned long cnt, tot_cnt = rng->tot_cnt;
@@ -376,7 +376,7 @@ tfw_stats_calc(TfwPcntRanges *rng, Percentilie *pcnts, size_t np, bool clear)
 	if (unlikely(!tot_cnt))
 		return;
 
-	/* How many items we need to collect for each percentilie. */
+	/* How many items we need to collect for each percentile. */
 	for (i = 0; i < np; ++i) {
 		pval[i] = tot_cnt * pcnts[i].ith / 100;
 		if (!pval[i])
@@ -413,7 +413,7 @@ static TfwPcntRanges rng = {
 };
 
 static void
-tfw_percentilie(const unsigned int *set, size_t len, Percentilie *pcnts,
+tfw_percentile(const unsigned int *set, size_t len, Percentile *pcnts,
 		size_t np)
 {
 	int i;
@@ -423,7 +423,7 @@ tfw_percentilie(const unsigned int *set, size_t len, Percentilie *pcnts,
 		tfw_stats_upd(&rng, set[i]);
 
 	/*
-	 * 2. Perform percentilies calculation.
+	 * 2. Perform percentiles calculation.
 	 * Zero the statistic on each call. In real life this should be done
 	 * once per T, configurable time.
 	 */
@@ -435,12 +435,12 @@ main(int argc, char *argv[])
 {
 	int i, j;
 
-	printf("Format: <percentilie number> -> <value>\n\n");
+	printf("Format: <percentile number> -> <value>\n\n");
 
 	for (i = 0; i < ARRAY_SIZE(sets); ++i) {
-		Percentilie pprev[6], pnext[6];
-		Percentilie p0[6] = { {1}, {50}, {75}, {90}, {95}, {99} };
-		Percentilie p1[6] = { {1}, {50}, {75}, {90}, {95}, {99} };
+		Percentile pprev[6], pnext[6];
+		Percentile p0[6] = { {1}, {50}, {75}, {90}, {95}, {99} };
+		Percentile p1[6] = { {1}, {50}, {75}, {90}, {95}, {99} };
 
 		/* Store previous statistic for Tempesta trends.
 		 * This should be used for /proc/tempesta/perfstat since
@@ -451,14 +451,14 @@ main(int argc, char *argv[])
 		 */
 		memcpy(pprev, p1, sizeof(p1));
 
-		/* Usual percentilies calculation, use it as refference. */
-		basic_percentilie(sets[i].set, sets[i].len, p0, ARRAY_SIZE(p0));
+		/* Usual percentiles calculation, use it as reference. */
+		basic_percentile(sets[i].set, sets[i].len, p0, ARRAY_SIZE(p0));
 		printf("base:\t1->%u\t50->%u\t75->%u\t90->%u\t95->%u\t99->%u\n",
 		       p0[0].val, p0[1].val, p0[2].val, p0[3].val, p0[4].val,
 		       p0[5].val);
 
-		/* Tempesta percentilies. */
-		tfw_percentilie(sets[i].set, sets[i].len, p1, ARRAY_SIZE(p1));
+		/* Tempesta percentiles. */
+		tfw_percentile(sets[i].set, sets[i].len, p1, ARRAY_SIZE(p1));
 		printf("tfw:\t%d->%u\t%d->%u\t%d->%u\t%d->%u\t%d->%u\t%d->%u\n",
 		       p1[0].ith, p1[0].val, p1[1].ith, p1[1].val,
 		       p1[2].ith, p1[2].val, p1[3].ith, p1[3].val,
