@@ -3898,8 +3898,6 @@ tfw_cfgop_whitelist_mark(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		if (tfw_cfg_parse_int(val, &tfw_wl_marks.mrks[i])) {
-			TFW_ERR_NL("Unable to parse whitelist"
-				   " mark value: '%s'\n", val);
 			kfree(tfw_wl_marks.mrks);
 			return -EINVAL;
 		}
