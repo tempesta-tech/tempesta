@@ -783,10 +783,7 @@ ss_rcv_space_adjust(struct sock *sk)
 	 * Socket buffer size is locked (SOCK_RCVBUF_LOCK), we manually control
 	 * its size and can moderate it to gain more speed.
 	 */
-	/* TODO:
-	 * if (sysctl_tcp_moderate_rcvbuf) {
-	 */
-	if (true) {
+	if (sysctl_tcp_moderate_rcvbuf) {
 		int rcvwin, rcvmem, rcvbuf;
 
 		rcvwin = (copied << 1) + 16 * tp->advmss;
