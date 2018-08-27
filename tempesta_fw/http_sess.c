@@ -364,10 +364,7 @@ __sticky_calc(TfwHttpReq *req, StickyVal *sv)
 	TfwStr ua_value = { 0 };
 	TfwAddr *addr = &req->conn->peer->addr;
 	TfwStr *hdr, *c, *end;
-	char desc[sizeof(struct shash_desc)
-		  + crypto_shash_descsize(tfw_sticky_shash)]
-		  CRYPTO_MINALIGN_ATTR;
-	struct shash_desc *shash_desc = (struct shash_desc *)desc;
+	SHASH_DESC_ON_STACK(shash_desc, tfw_sticky_shash);
 
 	/* User-Agent header field is not mandatory and may be missing. */
 	hdr = &req->h_tbl->tbl[TFW_HTTP_HDR_USER_AGENT];
@@ -377,7 +374,6 @@ __sticky_calc(TfwHttpReq *req, StickyVal *sv)
 
 	addr_len = tfw_addr_sa_len(addr);
 
-	bzero_fast(desc, sizeof(desc));
 	shash_desc->tfm = tfw_sticky_shash;
 	shash_desc->flags = 0;
 
@@ -455,15 +451,11 @@ tfw_http_sticky_add(TfwHttpResp *resp)
  * - Secret key.
  */
 static int
-__redir_hmac_calc(TfwHttpReq *req, RedirMarkVal *mv)
+__redir_hmac_calc(RedirMarkVal *mv)
 {
 	int r;
-	char desc[sizeof(struct shash_desc)
-		  + crypto_shash_descsize(tfw_sticky_shash)]
-		  CRYPTO_MINALIGN_ATTR;
-	struct shash_desc *shash_desc = (struct shash_desc *)desc;
+	SHASH_DESC_ON_STACK(shash_desc, tfw_sticky_shash);
 
-	bzero_fast(desc, sizeof(desc));
 	shash_desc->tfm = tfw_sticky_shash;
 	shash_desc->flags = 0;
 
@@ -502,11 +494,7 @@ tfw_http_redir_mark_get(TfwHttpReq *req, TfwStr *out_val)
 }
 
 #define sess_warn(check, addr, fmt, ...)				\
-do {									\
-	char abuf[TFW_ADDR_STR_BUF_SIZE] = {0};				\
-	tfw_addr_fmt_v6(&(addr)->v6.sin6_addr, 0, abuf);		\
-	TFW_WARN("http_sess: %s for %s" fmt, check, abuf, ##__VA_ARGS__); \
-} while (0)
+	TFW_WARN_MOD_ADDR6(http_sess, check, addr, fmt, ##__VA_ARGS__)
 
 /* The set of macros for parsing hex strings of following format:
  *
@@ -593,7 +581,7 @@ tfw_http_redir_mark_verify(TfwHttpReq *req, TfwStr *mark_val, RedirMarkVal *mv)
 	HEX_STR_TO_BIN_GET(mv, att_no);
 	HEX_STR_TO_BIN_GET(mv, ts);
 
-	if (__redir_hmac_calc(req, mv))
+	if (__redir_hmac_calc(mv))
 		return TFW_HTTP_SESS_VIOLATE;
 
 	return HEX_STR_TO_BIN_HMAC(mv->hmac, mv->ts, addr);
@@ -625,7 +613,7 @@ tfw_http_sess_check_redir_mark(TfwHttpReq *req, RedirMarkVal *mv)
 		mv->att_no = 1;
 	}
 
-	if (__redir_hmac_calc(req, mv) != 0)
+	if (__redir_hmac_calc(mv))
 		return TFW_HTTP_SESS_FAILURE;
 
 	return TFW_HTTP_SESS_SUCCESS;
