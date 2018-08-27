@@ -463,7 +463,6 @@ TEST(http_parser, parses_enforce_ext_req)
 		EXPECT_TFWSTR_EQ(&req->uri_path, "/index.html");
 	}
 
-
 	FOR_REQ("GET http://natsys-lab.com/ HTTP/1.1\r\n"
 		"User-Agent: Wget/1.13.4 (linux-gnu)\r\n"
 		"Accept: */*\r\n"
