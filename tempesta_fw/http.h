@@ -77,7 +77,7 @@ enum {
 	/* Whole response is read. */
 	TFW_HTTP_FSM_RESP_MSG		= TFW_GFSM_HTTP_STATE(4),
 
-	/* Run just before localy generated response sending. */
+	/* Run just before locally generated response sending. */
 	TFW_HTTP_FSM_LOCAL_RESP_FILTER	= TFW_GFSM_HTTP_STATE(5),
 
 	TFW_HTTP_FSM_RESP_MSG_FWD	= TFW_GFSM_HTTP_STATE(6),
@@ -177,7 +177,7 @@ typedef struct {
  * Cookie: singular according to RFC 6265 5.4.
  *
  * TODO split the enumeration to separate server and client sets to avoid
- * vasting of headers array slots.
+ * wasting of headers array slots.
  */
 typedef enum {
 	TFW_HTTP_HDR_HOST,
@@ -225,7 +225,7 @@ typedef struct {
  * Adding a header is faster then modify it, so this speeds up headers
  * adjusting as well as saves cache storage.
  *
- * Headers unconditionaly treated as hop-by-hop must be listed in
+ * Headers unconditionally treated as hop-by-hop must be listed in
  * tfw_http_init_parser_req()/tfw_http_init_parser_resp() functions and must be
  * members of Special headers.
  * group.

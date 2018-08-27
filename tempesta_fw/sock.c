@@ -68,7 +68,7 @@ typedef struct {
 /**
  * Node of close backlog.
  *
- * @ticket	- the work ticket used in trurnstile to order items from the
+ * @ticket	- the work ticket used in turnstile to order items from the
  * 		  backlog with ring-buffer items;
  * @list	- list entry in the backlog;
  * @sw		- work descriptor to perform.
@@ -496,7 +496,7 @@ EXPORT_SYMBOL(ss_send);
  * Note: it used to be called in process context as well, at the time when
  * Tempesta starts or stops. That's not the case right now, but it may change.
  *
- * TODO In some cases we need to close socket agresively w/o FIN_WAIT_2 state,
+ * TODO In some cases we need to close socket aggressively w/o FIN_WAIT_2 state,
  * e.g. by sending RST. So we need to add second parameter to the function
  * which says how to close the socket.
  * One of the examples is rcl_req_limit() (it should reset connections).
@@ -862,7 +862,7 @@ ss_tcp_data_ready(struct sock *sk)
 	else {
 		/*
 		 * Check for URG data.
-		 * TODO shouldn't we do it in th_tcp_process_data()?
+		 * TODO shouldn't we do it in ss_tcp_process_data()?
 		 */
 		struct tcp_sock *tp = tcp_sk(sk);
 		if (tp->urg_data & TCP_URG_VALID) {
@@ -972,7 +972,7 @@ ss_tcp_state_change(struct sock *sk)
 		 * TCP_ESTABLISHED state to a closing state, we forcefully
 		 * close the socket before it can reach the final state.
 		 *
-		 * We get here when an error has occured in the connection.
+		 * We get here when an error has occurred in the connection.
 		 * It could be that RST was received which may happen for
 		 * multiple reasons. Or it could be a case of TCP timeout
 		 * where the connection appears to be dead. In all of these
@@ -1210,7 +1210,7 @@ ss_connect(struct sock *sk, struct sockaddr *uaddr, int uaddr_len, int flags)
 	bh_unlock_sock(sk);
 
 	/*
-	 * If connect() successfully returns, then the soket is living somewhere
+	 * If connect() successfully returns, then the socket is living somewhere
 	 * in TCP code and it will move to established or closed state.
 	 * So we decrement __ss_act_cnt when the socket die, no need to do this now.
 	 */
@@ -1315,7 +1315,7 @@ ss_tx_action(void)
 	/*
 	 * @budget limits the loop to prevent live lock on constantly arriving
 	 * new items. We use some small integer as a lower bound to catch just
-	 * ariving items.
+	 * arriving items.
 	 */
 	budget = max(10UL, ss_close_q_sz());
 	while ((!ss_active() || budget--) && !ss_wq_pop(&sw, &ticket)) {
@@ -1423,7 +1423,7 @@ ss_wait_newconn(void)
 EXPORT_SYMBOL(ss_wait_newconn);
 
 /**
- * Wait until there are no queued works and no runnign tasklets.
+ * Wait until there are no queued works and no running tasklets.
  * The function should be used when all sockets are closed.
  * SS upcalls are protected with SS_V_ACT_LIVECONN.
  * Can sleep, so must be called from user-space context.

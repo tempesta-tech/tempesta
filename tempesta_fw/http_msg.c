@@ -272,7 +272,7 @@ __hdr_is_singular(const TfwStr *hdr)
 /**
  * Lookup for the header @hdr in already collected headers table @ht,
  * i.e. check whether the header is duplicate.
- * The lookup is performed untill ':', so header name only is enough in @hdr.
+ * The lookup is performed until ':', so header name only is enough in @hdr.
  * @return the header id.
  */
 unsigned int
@@ -494,7 +494,7 @@ __hdr_add(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid)
 
 	/*
 	 * Initialize the header table item by the iterator chunks.
-	 * While the data references in the item are valid, some convetions
+	 * While the data references in the item are valid, some conventions
 	 * (e.g. header name and value are placed in different chunks) aren't
 	 * satisfied. So don't consider the header for normal HTTP processing.
 	 */
@@ -613,7 +613,7 @@ cleanup:
 
 /**
  * Transform HTTP message @hm header with identifier @hid.
- * @hdr must be compaund string and contain two or three parts:
+ * @hdr must be compound string and contain two or three parts:
  * header name, colon and header value. If @hdr value is empty,
  * then the header will be deleted from @hm.
  * If @hm already has the header it will be replaced by the new header
@@ -852,7 +852,7 @@ this_chunk:
 		if (c_size < f_room) {
 			/*
 			 * The chunk fits in the SKB fragment with room
-			 * to spare. Stay in the same SKB fragment, swith
+			 * to spare. Stay in the same SKB fragment, switch
 			 * to next chunk of the string.
 			 */
 			c_off = 0;
