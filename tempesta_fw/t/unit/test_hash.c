@@ -110,7 +110,7 @@ TEST(tfw_hash_str, hashes_all_chars)
 	TfwStr s1 = { .len = 0,	.ptr = buf1 };
 	TfwStr s2 = { .len = 0, .ptr = buf2 };
 
-	/* Change of each individial byte in the string should change
+	/* Change of each individual byte in the string should change
 	 * the hash value. */
 	for (i = 0; i < 255; ++i) {
 		s1.len = s2.len = (i + 1);
@@ -180,7 +180,7 @@ TEST(tfw_hash_str, distributes_all_input_across_hash_bits)
 	 * For a good hash function, a change of a single bit in the input will
 	 * cause changing many bits in the output (with high probability).
 	 * Our hash function calculates high and low halves of 64-bit output
-	 * key, so we chage two bits simultaneously in the test.
+	 * key, so we change two bits simultaneously in the test.
 	 * Probably, this is good to fix.
 	 */
 	for (i = 0; i < sizeof(buf) / 2; ++i) {

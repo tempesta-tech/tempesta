@@ -358,7 +358,7 @@ static TfwGlobal	tfw_global = {
 
 /*
  * Get vhost matching the specified name. Vhost's reference counter
- * is incremented in case of successfull search.
+ * is incremented in case of successful search.
  */
 TfwVhost *
 tfw_vhost_lookup(const char *name)

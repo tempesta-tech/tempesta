@@ -31,7 +31,7 @@
 /**
  * Per-CPU dynamically allocated data for TDB handler.
  * Access to the data must be with preemption disabled for reentrance between
- * softirq and process cotexts.
+ * softirq and process contexts.
  *
  * @i_wcl, @d_wcl - per-CPU current partially written index and data blocks.
  *		    TdbHdr->i_wcl and TdbHdr->d_wcl are the global values for
@@ -120,7 +120,7 @@ typedef struct {
 
 /**
  * We use very small index nodes size of only one cache line.
- * So overall memory footprint of the index is mininal by a cost of more LLC
+ * So overall memory footprint of the index is minimal by a cost of more LLC
  * or main memory transfers. However, smaller memory usage means better TLB
  * utilization on huge worksets.
  */

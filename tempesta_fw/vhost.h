@@ -102,7 +102,7 @@ enum {
  * @capo	- Array of pointers to Cache Policy definitions.
  * @nipdef	- Array of pointers to Non-Idempotent Request definitions.
  * @frang_cfg	- Pointer to location-specific Frang settings structure.
- * @main_sg	- Main server group to which requsts must be proxied.
+ * @main_sg	- Main server group to which requests must be proxied.
  * @backup_sg	- Backup server group.
  * @hdrs_pool	- Pointer to parent vhost's pool (for mod. headers allocation).
  * @mod_hdrs	- Modification of request/response headers before forwarding.

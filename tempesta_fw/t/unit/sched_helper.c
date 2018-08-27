@@ -114,7 +114,7 @@ test_sg_release_all_reconfig(void)
 
 	down_write(sg_sem);
 
-	/* Copy of hash_for_each_safe() which needs localy defined hash. */
+	/* Copy of hash_for_each_safe() which needs locally defined hash. */
         for ( ; !sg && i < (1 << TFW_SG_HBITS); i++) {
                 hlist_for_each_entry_safe(sg, tmp, &sg_hash_reconfig[i],
 					  list_reconfig)

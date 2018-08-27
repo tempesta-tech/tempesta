@@ -1,5 +1,5 @@
 /**
- *		Tempesta DB User-space Libabry
+ *		Tempesta DB User-space Library
  *
  * Error/exceptions handling.
  *

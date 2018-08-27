@@ -323,8 +323,8 @@ tdb_exit(void)
 	tdb_if_exit();
 
 	/*
-	 * There are no database users, so roughtly close all abandoned
-	 * tables w/o refrence checking and so on.
+	 * There are no database users, so roughly close all abandoned
+	 * tables w/o reference checking and so on.
 	 */
 	tdb_tbl_foreach(__do_close_table);
 }

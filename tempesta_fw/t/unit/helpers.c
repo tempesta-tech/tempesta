@@ -64,7 +64,7 @@ void
 test_req_free(TfwHttpReq *req)
 {
 	/* In tests we are stricter: we don't allow to free a NULL pointer
-	 * to be sure exactly what we are free'ing and to catch bugs early. */
+	 * to be sure exactly what we are freeing and to catch bugs early. */
 	BUG_ON(!req);
 
 	tfw_http_msg_free((TfwHttpMsg *)req);

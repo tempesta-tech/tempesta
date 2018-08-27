@@ -173,7 +173,7 @@ tfw_mods_cfgstart(struct list_head *mod_list)
 			return ret;
 		}
 	}
-	TFW_LOG("Prepearing for the configuration processing.\n");
+	TFW_LOG("Preparing for the configuration processing.\n");
 
 	return 0;
 }
