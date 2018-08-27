@@ -459,7 +459,7 @@ tfw_cfgop_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	 * - a full IP address (e.g. "listen 127.0.0.1:8081").
 	 */
 	in_str = ce->vals[0];
-	r = tfw_cfg_parse_int(in_str, &port);
+	r = __tfw_cfg_parse_int(in_str, &port);
 	if (!r) {
 		r = tfw_cfg_check_range(port, 0, 65535);
 		if (r)
@@ -509,18 +509,15 @@ tfw_cfgop_keepalive_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	int r;
 
 	if ((r = tfw_cfg_check_val_n(ce, 1)))
-		return -EINVAL;
+		return r;
 
-	if ((r = tfw_cfg_parse_int(ce->vals[0], &tfw_cli_cfg_ka_timeout))) {
-		TFW_ERR_NL("Unable to parse 'keepalive_timeout' value: '%s'\n",
-			   ce->vals[0] ? : "No value specified");
-		return -EINVAL;
-	}
+	if ((r = tfw_cfg_parse_int(ce->vals[0], &tfw_cli_cfg_ka_timeout)))
+		return r;
+	if ((r = tfw_cfg_check_range(tfw_cli_cfg_ka_timeout, 0, INT_MAX)))
+		return r;
 
-	if (tfw_cli_cfg_ka_timeout < 0) {
-		TFW_ERR_NL("Unable to parse 'keepalive_timeout' value: '%s'\n",
-			   "Value less the zero");
-		return -EINVAL;
+	return 0;
+}
 	}
 
 	return 0;

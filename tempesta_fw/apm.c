@@ -1693,19 +1693,13 @@ tfw_cfgop_apm_server_failover(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			   ce->vals[0]);
 		return -EINVAL;
 	}
-	if (tfw_cfg_parse_int(ce->vals[1], &limit)) {
-		TFW_ERR_NL("Unable to parse http limit value: '%s'\n",
-			   ce->vals[1]);
+	if (tfw_cfg_parse_int(ce->vals[1], &limit))
 		return -EINVAL;
-	}
 	if (tfw_cfg_check_range(limit, 1, USHRT_MAX))
 		return -EINVAL;
 
-	if (tfw_cfg_parse_int(ce->vals[2], &tframe)) {
-		TFW_ERR_NL("Unable to parse http tframe value: '%s'\n",
-			   ce->vals[2]);
+	if (tfw_cfg_parse_int(ce->vals[2], &tframe))
 		return -EINVAL;
-	}
 	if (tfw_cfg_check_range(tframe, 1, USHRT_MAX))
 		return -EINVAL;
 
@@ -1851,10 +1845,8 @@ tfw_cfgop_apm_hm_resp_crc32(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return 0;
 	}
 
-	if (tfw_cfg_parse_uint(ce->vals[0], &crc32)) {
-		TFW_ERR_NL("Unable to parse crc32 value: '%s'\n", ce->vals[0]);
+	if (tfw_cfg_parse_uint(ce->vals[0], &crc32))
 		return -EINVAL;
-	}
 
 	tfw_hm_entry->crc32 = crc32;
 
@@ -1868,11 +1860,8 @@ tfw_cfgop_apm_hm_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	if (tfw_cfg_check_single_val(ce))
 		return -EINVAL;
-	if (tfw_cfg_parse_int(ce->vals[0], &timeout)) {
-		TFW_ERR_NL("Unable to parse http timeout value: '%s'\n",
-			   ce->vals[0]);
+	if (tfw_cfg_parse_int(ce->vals[0], &timeout))
 		return -EINVAL;
-	}
 	if (tfw_cfg_check_range(timeout, 1, USHRT_MAX))
 		return -EINVAL;
 

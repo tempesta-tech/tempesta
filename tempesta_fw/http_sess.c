@@ -1230,15 +1230,12 @@ tfw_cfgop_sess_lifetime(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_cfg_op_jsch_parse_time(TfwCfgSpec *cs, const char *key, const char *val,
-			   time_t *time)
+tfw_cfg_op_jsch_parse_time(const char *val, time_t *time)
 {
 	int r, int_val;
 
-	if ((r = tfw_cfg_parse_int(val, &int_val))) {
-		TFW_ERR_NL("%s: can't parse key '%s'\n", cs->name, key);
+	if ((r = tfw_cfg_parse_int(val, &int_val)))
 		return r;
-	}
 	*time = int_val * HZ / 1000;
 
 	return 0;
@@ -1249,10 +1246,8 @@ tfw_cfg_op_jsch_parse_resp_code(TfwCfgSpec *cs, const char *val)
 {
 	int r, int_val;
 
-	if ((r = tfw_cfg_parse_int(val, &int_val))) {
-		TFW_ERR_NL("%s: can't parse key 'resp_code'\n", cs->name);
+	if ((r = tfw_cfg_parse_int(val, &int_val)))
 		return r;
-	}
 	if ((r = tfw_cfg_check_range(int_val, 100, 599)))
 		return r;
 	tfw_cfg_js_ch->st_code = int_val;
@@ -1327,17 +1322,17 @@ tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	}
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
 		if (!strcasecmp(key, "delay_min")) {
-			r = tfw_cfg_op_jsch_parse_time(cs, key, val,
+			r = tfw_cfg_op_jsch_parse_time(val,
 						       &tfw_cfg_js_ch->delay_min);
 			if (r)
 				return r;
 		} else if (!strcasecmp(key, "delay_range")) {
-			r = tfw_cfg_op_jsch_parse_time(cs, key, val,
+			r = tfw_cfg_op_jsch_parse_time(val,
 						       &tfw_cfg_js_ch->delay_range);
 			if (r)
 				return r;
 		} else if (!strcasecmp(key, "delay_limit")) {
-			r = tfw_cfg_op_jsch_parse_time(cs, key, val,
+			r = tfw_cfg_op_jsch_parse_time(val,
 						       &delay_limit);
 			if (r)
 				return r;
