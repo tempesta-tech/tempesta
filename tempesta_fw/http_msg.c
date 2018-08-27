@@ -25,6 +25,7 @@
 #include "lib/str.h"
 #include "gfsm.h"
 #include "http_msg.h"
+#include "http_parser.h"
 #include "ss_skb.h"
 
 /**

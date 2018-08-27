@@ -594,13 +594,6 @@ tfw_http_resp_code_range(const int n)
 
 typedef void (*tfw_http_cache_cb_t)(TfwHttpMsg *);
 
-/* Internal (parser) HTTP functions. */
-void tfw_http_init_parser_req(TfwHttpReq *req);
-void tfw_http_init_parser_resp(TfwHttpResp *resp);
-int tfw_http_parse_req(void *req_data, unsigned char *data, size_t len);
-int tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len);
-bool tfw_http_parse_terminate(TfwHttpMsg *hm);
-
 /* External HTTP functions. */
 int tfw_http_msg_process(void *conn, const TfwFsmData *data);
 unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
