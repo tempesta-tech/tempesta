@@ -57,6 +57,11 @@ static struct {
 	unsigned int sz;
 } tfw_wl_marks;
 
+/* Proxy buffering size for client connections. */
+static size_t tfw_cfg_cli_msg_buff_sz;
+/* Proxy buffering size for server connections. */
+static size_t tfw_cfg_srv_msg_buff_sz;
+
 #define S_CRLFCRLF		"\r\n\r\n"
 #define S_HTTP			"http://"
 
@@ -3517,6 +3522,37 @@ tfw_cfgop_cleanup_block_action(TfwCfgSpec *cs)
 	tfw_blk_flags = TFW_CFG_BLK_DEF;
 }
 
+static int
+tfw_cfgop_proxy_buffering(TfwCfgSpec *cs, TfwCfgEntry *ce, size_t *proxy_buff_sz)
+{
+	int r;
+	long val = 0;
+
+	cs->dest = &val;
+
+	if ((r = tfw_cfg_set_long(cs, ce)))
+		return r;
+
+	if (val == -1)
+		*proxy_buff_sz = LONG_MAX;
+	else
+		*proxy_buff_sz = val;
+
+	return 0;
+}
+
+static int
+tfw_cfgop_cli_proxy_buffering(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_cfgop_proxy_buffering(cs, ce, &tfw_cfg_cli_msg_buff_sz);
+}
+
+static int
+tfw_cfgop_srv_proxy_buffering(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_cfgop_proxy_buffering(cs, ce, &tfw_cfg_srv_msg_buff_sz);
+}
+
 /* Macros specific to *_set_body() functions. */
 #define __TFW_STR_SET_BODY()						\
 	msg->len += l_size - clen_str->len + b_size - body_str->len;	\
@@ -4083,6 +4119,21 @@ tfw_cfgop_cleanup_brange_cookie(TfwCfgSpec *cs)
 	tfw_init_custom_cookie(NULL);
 }
 
+static int
+tfw_http_cfgend(void)
+{
+	if (tfw_cfg_cli_rmem < tfw_cfg_cli_msg_buff_sz) {
+		TFW_WARN_NL("client_msg_buffering: client receive window (%u) "
+			    "is too small to buffer message of size %zu, "
+			    "set client_msg_buffering to %u.\n",
+			    tfw_cfg_cli_rmem, tfw_cfg_cli_msg_buff_sz,
+			    tfw_cfg_cli_rmem);
+		tfw_cfg_cli_msg_buff_sz = tfw_cfg_cli_rmem;
+	}
+
+	return 0;
+}
+
 static TfwCfgSpec tfw_http_specs[] = {
 	{
 		.name = "block_action",
@@ -4091,6 +4142,24 @@ static TfwCfgSpec tfw_http_specs[] = {
 		.allow_repeat = true,
 		.allow_none = true,
 		.cleanup = tfw_cfgop_cleanup_block_action,
+	},
+	{
+		.name = "client_msg_buffering",
+		.deflt = "1048576", /* 1 MB */
+		.handler = tfw_cfgop_cli_proxy_buffering,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { -1, LONG_MAX },
+		},
+		.allow_none = true,
+	},
+	{
+		.name = "server_msg_buffering",
+		.deflt = "10485760", /* 10 MB */
+		.handler = tfw_cfgop_srv_proxy_buffering,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { -1, LONG_MAX },
+		},
+		.allow_none = true,
 	},
 	{
 		.name = "response_body",
@@ -4155,6 +4224,7 @@ static TfwCfgSpec tfw_http_specs[] = {
 TfwMod tfw_http_mod  = {
 	.name	= "http",
 	.specs	= tfw_http_specs,
+	.cfgend = tfw_http_cfgend,
 };
 
 /*
