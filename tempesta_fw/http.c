@@ -361,7 +361,7 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *cookie,
 {
 	TfwHttpReq *req = resp->req;
 	size_t data_len;
-	int conn_flag = req->flags & __TFW_HTTP_MSG_M_CONN_MASK, ret = 0;
+	int ret = 0;
 	TfwMsgIter it;
 	static TfwStr rh_302 = {
 		.ptr = S_REDIR_302, .len = SLEN(S_REDIR_302) };
@@ -417,10 +417,10 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *cookie,
 		host = req->host;
 
 	/* Set "Connection:" header field if needed. */
-	if (conn_flag == TFW_HTTP_F_CONN_CLOSE)
-		cookie_crlf = &crlf_close;
-	else if (conn_flag == TFW_HTTP_F_CONN_KA)
+	if (test_bit(TFW_HTTP_CONN_KA, req->flags))
 		cookie_crlf = &crlf_keep;
+	else if (test_bit(TFW_HTTP_CONN_CLOSE, req->flags))
+		cookie_crlf = &crlf_close;
 
 	/* Add variable part of data length to get the total */
 	data_len = rh->len + h_common_1.len;
@@ -465,7 +465,7 @@ tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, void *msg_it,
 {
 	size_t data_len = SLEN(S_304_PART_01);
 	TfwMsgIter *it = (TfwMsgIter *)msg_it;
-	int conn_flag = req->flags & __TFW_HTTP_MSG_M_CONN_MASK, ret = 0;
+	int ret = 0;
 	static TfwStr rh = {
 		.ptr = S_304_PART_01, .len = SLEN(S_304_PART_01) };
 	static TfwStr crlf_keep = {
@@ -475,10 +475,10 @@ tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, void *msg_it,
 	TfwStr *end = NULL;
 
 	/* Set "Connection:" header field if needed. */
-	if (conn_flag == TFW_HTTP_F_CONN_CLOSE)
-		end = &crlf_close;
-	else if (conn_flag == TFW_HTTP_F_CONN_KA)
+	if (test_bit(TFW_HTTP_CONN_KA, req->flags))
 		end = &crlf_keep;
+	else if (test_bit(TFW_HTTP_CONN_CLOSE, req->flags))
+		end = &crlf_close;
 
 	/* Add variable part of data length to get the total */
 	data_len += hdrs_size;
@@ -597,7 +597,6 @@ __tfw_http_send_resp(TfwHttpReq *req, resp_code_t code)
 	TfwMsgIter it;
 	TfwHttpResp *resp;
 	TfwStr *date, *crlf, *body;
-	int conn_flag = req->flags & __TFW_HTTP_MSG_M_CONN_MASK;
 	TfwStr msg = {
 		.ptr = (TfwStr []){ {}, {}, {}, {}, {}, {} },
 		.len = 0,
@@ -608,9 +607,11 @@ __tfw_http_send_resp(TfwHttpReq *req, resp_code_t code)
 		goto err;
 
 	crlf = TFW_STR_CRLF_CH(&msg);
-	if (conn_flag) {
+	if (test_bit(TFW_HTTP_CONN_KA, req->flags)
+	    || test_bit(TFW_HTTP_CONN_CLOSE, req->flags))
+	{
 		unsigned long crlf_len = crlf->len;
-		if (conn_flag == TFW_HTTP_F_CONN_KA) {
+		if (test_bit(TFW_HTTP_CONN_KA, req->flags)) {
 			crlf->ptr = S_H_CONN_KA;
 			crlf->len = SLEN(S_H_CONN_KA);
 		} else {
@@ -666,10 +667,13 @@ tfw_http_req_init_ss_flags(TfwSrvConn *srv_conn, TfwHttpReq *req)
 }
 
 static inline void
-tfw_http_resp_init_ss_flags(TfwHttpResp *resp, const TfwHttpReq *req)
+tfw_http_resp_init_ss_flags(TfwHttpResp *resp)
 {
-	if (req->flags & (TFW_HTTP_F_CONN_CLOSE | TFW_HTTP_F_SUSPECTED))
-		((TfwMsg *)resp)->ss_flags |= SS_F_CONN_CLOSE;
+	if (test_bit(TFW_HTTP_CONN_CLOSE, resp->req->flags)
+	    || test_bit(TFW_HTTP_SUSPECTED, resp->req->flags))
+	{
+		resp->msg.ss_flags |= SS_F_CONN_CLOSE;
+	}
 }
 
 /*
@@ -678,7 +682,7 @@ tfw_http_resp_init_ss_flags(TfwHttpResp *resp, const TfwHttpReq *req)
 static inline bool
 tfw_http_req_is_nip(TfwHttpReq *req)
 {
-	return (req->flags & TFW_HTTP_F_NON_IDEMP);
+	return test_bit(TFW_HTTP_NON_IDEMP, req->flags);
 }
 
 /*
@@ -968,7 +972,7 @@ tfw_http_mark_wl_new_msg(TfwConn *conn, TfwHttpMsg *msg,
 
 	if (bsearch(&skb->mark, tfw_wl_marks.mrks, tfw_wl_marks.sz,
 		    sizeof(tfw_wl_marks.mrks[0]), tfw_http_marks_cmp))
-		msg->flags |= TFW_HTTP_F_WHITELIST;
+		__set_bit(TFW_HTTP_WHITELIST, msg->flags);
 }
 
 
@@ -994,7 +998,7 @@ tfw_http_req_zap_error(struct list_head *eq)
 
 	list_for_each_entry_safe(req, tmp, eq, fwd_list) {
 		list_del_init(&req->fwd_list);
-		if (!(req->flags & TFW_HTTP_F_REQ_DROP))
+		if (!test_bit(TFW_HTTP_REQ_DROP, req->flags))
 			tfw_http_send_resp(req, req->httperr.status,
 					   req->httperr.reason);
 		else
@@ -1010,7 +1014,7 @@ tfw_http_req_zap_error(struct list_head *eq)
 static inline bool
 tfw_http_req_evict_dropped(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
-	if (unlikely(req->flags & TFW_HTTP_F_REQ_DROP)) {
+	if (unlikely(test_bit(TFW_HTTP_REQ_DROP, req->flags))) {
 		TFW_DBG2("%s: Eviction: req=[%p] client disconnected\n",
 			 __func__, req);
 		if (srv_conn)
@@ -1100,7 +1104,7 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv,
 	if (tfw_connection_send((TfwConn *)srv_conn, (TfwMsg *)req)) {
 		TFW_DBG2("%s: Forwarding error: conn=[%p] req=[%p]\n",
 			 __func__, srv_conn, req);
-		if (req->flags & TFW_HTTP_F_HMONITOR) {
+		if (test_bit(TFW_HTTP_HMONITOR, req->flags)) {
 			__http_req_delist(srv_conn, req);
 			WARN_ON_ONCE(req->pair);
 			tfw_http_msg_free((TfwHttpMsg *)req);
@@ -1405,7 +1409,7 @@ tfw_http_req_resched(TfwHttpReq *req, TfwServer *srv, struct list_head *eq)
 	 * the same server (other servers may not have enabled
 	 * health monitor).
 	 */
-	if (req->flags & TFW_HTTP_F_HMONITOR) {
+	if (test_bit(TFW_HTTP_HMONITOR, req->flags)) {
 		sch_conn = srv->sg->sched->sched_srv_conn((TfwMsg *)req,
 							  srv);
 		if (!sch_conn) {
@@ -1808,7 +1812,7 @@ tfw_http_resp_pair_free(TfwHttpReq *req)
  * Disintegrate the client connection's @seq_list. Requests without a paired
  * response have not been answered yet. They are held in the lists of server
  * connections until responses come. A paired response may be in use until
- * TFW_HTTP_F_RESP_READY flag is not set.  Don't free any of those requests.
+ * TFW_HTTP_RESP_READY flag is not set.  Don't free any of those requests.
  *
  * If a response comes or gets ready to forward after @seq_list is
  * disintegrated, then both the request and the response are dropped at the
@@ -1839,14 +1843,16 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 	 */
 	spin_lock(&cli_conn->seq_qlock);
 	list_for_each_entry_safe(req, tmp, seq_queue, msg.seq_list) {
-		req->flags |= TFW_HTTP_F_REQ_DROP;
+		__set_bit(TFW_HTTP_REQ_DROP, req->flags);
 		list_del_init(&req->msg.seq_list);
 		ss_rmem_release(cli_conn->sk, req->msg.len);
 		/*
 		 * Response is processed and removed from fwd_queue, need to be
 		 * destroyed.
 		 */
-		if (req->resp && (req->resp->flags & TFW_HTTP_F_RESP_READY)) {
+		if (req->resp
+		    && test_bit(TFW_HTTP_RESP_READY, req->resp->flags))
+		{
 			tfw_http_resp_pair_free(req);
 			TFW_INC_STAT_BH(serv.msgs_otherr);
 		}
@@ -1933,7 +1939,8 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 	 * we have new skb here and 'mark' propagation is needed.
 	 */
 	if (TFW_CONN_TYPE(hm->conn) & Conn_Clnt) {
-		shm->flags |= hm->flags & TFW_HTTP_F_WHITELIST;
+		if (test_bit(TFW_HTTP_WHITELIST, hm->flags))
+			__set_bit(TFW_HTTP_WHITELIST, shm->flags);
 		nskb->mark = (*skb)->mark;
 	}
 
@@ -1971,18 +1978,18 @@ tfw_http_set_hdr_date(TfwHttpMsg *hm)
  * but safely modified. Thus, a shared SKB is still owned by one CPU.
  */
 static int
-tfw_http_set_hdr_connection(TfwHttpMsg *hm, int conn_flg)
+tfw_http_set_hdr_connection(TfwHttpMsg *hm, unsigned long conn_flg)
 {
-	if (((hm->flags & __TFW_HTTP_MSG_M_CONN_MASK) == conn_flg)
+	if (((hm->flags[0] & __TFW_HTTP_MSG_M_CONN_MASK) == conn_flg)
 	    && (!TFW_STR_EMPTY(&hm->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION]))
-	    && !(hm->flags & TFW_HTTP_F_CONN_EXTRA))
+	    && !test_bit(TFW_HTTP_CONN_EXTRA, hm->flags))
 		return 0;
 
 	switch (conn_flg) {
-	case TFW_HTTP_F_CONN_CLOSE:
+	case BIT(TFW_HTTP_CONN_CLOSE):
 		return TFW_HTTP_MSG_HDR_XFRM(hm, "Connection", "close",
 					     TFW_HTTP_HDR_CONNECTION, 0);
-	case TFW_HTTP_F_CONN_KA:
+	case BIT(TFW_HTTP_CONN_KA):
 		return TFW_HTTP_MSG_HDR_XFRM(hm, "Connection", "keep-alive",
 					     TFW_HTTP_HDR_CONNECTION, 0);
 	default:
@@ -1995,22 +2002,23 @@ tfw_http_set_hdr_connection(TfwHttpMsg *hm, int conn_flg)
  * Add/Replace/Remove Keep-Alive header field to/from HTTP message.
  */
 static int
-tfw_http_set_hdr_keep_alive(TfwHttpMsg *hm, int conn_flg)
+tfw_http_set_hdr_keep_alive(TfwHttpMsg *hm, unsigned long conn_flg)
 {
 	int r;
 
-	if ((hm->flags & __TFW_HTTP_MSG_M_CONN_MASK) == conn_flg)
+	if ((hm->flags[0] & __TFW_HTTP_MSG_M_CONN_MASK) == conn_flg)
 		return 0;
 
 	switch (conn_flg) {
-	case TFW_HTTP_F_CONN_CLOSE:
-		r = TFW_HTTP_MSG_HDR_DEL(hm, "Keep-Alive", TFW_HTTP_HDR_KEEP_ALIVE);
+	case BIT(TFW_HTTP_CONN_CLOSE):
+		r = TFW_HTTP_MSG_HDR_DEL(hm, "Keep-Alive",
+					 TFW_HTTP_HDR_KEEP_ALIVE);
 		if (unlikely(r && r != -ENOENT)) {
 			TFW_WARN("Cannot delete Keep-Alive header (%d)\n", r);
 			return r;
 		}
 		return 0;
-	case TFW_HTTP_F_CONN_KA:
+	case BIT(TFW_HTTP_CONN_KA):
 		/*
 		 * If present, "Keep-Alive" header informs the other side
 		 * of the timeout policy for a connection. Otherwise, it's
@@ -2143,7 +2151,7 @@ tfw_http_adjust_req(TfwHttpReq *req)
 	if (r < 0)
 		return r;
 
-	return tfw_http_set_hdr_connection(hm, TFW_HTTP_F_CONN_KA);
+	return tfw_http_set_hdr_connection(hm, BIT(TFW_HTTP_CONN_KA));
 }
 
 /**
@@ -2154,7 +2162,8 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
 	TfwHttpMsg *hm = (TfwHttpMsg *)resp;
-	int r, conn_flg;
+	unsigned long conn_flg;
+	int r;
 
 	/*
 	 * If request violated backend rules, backend may respond with 4xx code
@@ -2162,13 +2171,16 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 	 * more such requests and cause performance degradation, close the
 	 * client connection.
 	 */
-	if ((resp->flags & TFW_HTTP_F_CONN_CLOSE) && (resp->status / 100 == 4)) {
-		req->flags = (req->flags & ~TFW_HTTP_F_CONN_KA)
-				| TFW_HTTP_F_CONN_CLOSE;
-		conn_flg = TFW_HTTP_F_CONN_CLOSE;
+	if (test_bit(TFW_HTTP_CONN_CLOSE, resp->flags)
+	    && (resp->status / 100 == 4))
+	{
+		__clear_bit(TFW_HTTP_CONN_KA, req->flags);
+		__set_bit(TFW_HTTP_CONN_CLOSE, req->flags);
+		conn_flg = BIT(TFW_HTTP_CONN_CLOSE);
 	}
-	else {
-		conn_flg = req->flags & __TFW_HTTP_MSG_M_CONN_MASK;
+	else
+	{
+		conn_flg = req->flags[0] & __TFW_HTTP_MSG_M_CONN_MASK;
 	}
 
 	r = tfw_http_sess_resp_process(resp);
@@ -2195,7 +2207,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 	if (r < 0)
 		return r;
 
-	if (resp->flags & TFW_HTTP_F_RESP_STALE) {
+	if (test_bit(TFW_HTTP_RESP_STALE, resp->flags)) {
 #define S_WARN_110 "Warning: 110 - Response is stale"
 		/* TODO: adjust for #215 */
 		TfwStr wh = {
@@ -2209,7 +2221,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 #undef S_WARN_110
 	}
 
-	if (!(resp->flags & TFW_HTTP_F_HDR_DATE)) {
+	if (!test_bit(TFW_HTTP_HDR_DATE, resp->flags)) {
 		r =  tfw_http_set_hdr_date(hm);
 		if (r < 0)
 			return r;
@@ -2239,7 +2251,7 @@ __tfw_http_resp_fwd(TfwCliConn *cli_conn, struct list_head *ret_queue)
 		 * proper window size.
 		 */
 		ss_rmem_release(cli_conn->sk, sz);
-		tfw_http_resp_init_ss_flags(req->resp, req);
+		tfw_http_resp_init_ss_flags(req->resp);
 		if (tfw_cli_conn_send(cli_conn, (TfwMsg *)req->resp)) {
 			ss_close_sync(cli_conn->sk, true);
 			return;
@@ -2291,10 +2303,11 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 		return;
 	}
 	BUG_ON(list_empty(&req->msg.seq_list));
-	resp->flags |= TFW_HTTP_F_RESP_READY;
+	__set_bit(TFW_HTTP_RESP_READY, resp->flags);
 	/* Move consecutive requests with @req->resp to @ret_queue. */
 	list_for_each_entry(req, seq_queue, msg.seq_list) {
-		if (!req->resp || !(req->resp->flags & TFW_HTTP_F_RESP_READY))
+		if (!req->resp
+		    || !test_bit(TFW_HTTP_RESP_READY, req->resp->flags))
 			break;
 		req_retent = &req->msg.seq_list;
 	}
@@ -2357,7 +2370,7 @@ static inline void
 tfw_http_req_mark_error(TfwHttpReq *req, int status)
 {
 	TFW_CONN_TYPE(req->conn) |= Conn_Stop;
-	req->flags |= TFW_HTTP_F_SUSPECTED;
+	__set_bit(TFW_HTTP_SUSPECTED, req->flags);
 	tfw_http_error_resp_switch(req, status);
 }
 
@@ -2610,7 +2623,7 @@ nip_match:
 	TFW_DBG2("non-idempotent: method=[%d] uri=[%.*s]\n",
 		 req->method, (int)TFW_STR_CHUNK(&req->uri_path, 0)->len,
 		 (char *)TFW_STR_CHUNK(&req->uri_path, 0)->ptr);
-	req->flags |= TFW_HTTP_F_NON_IDEMP;
+	__set_bit(TFW_HTTP_NON_IDEMP, req->flags);
 	return;
 }
 
@@ -2633,7 +2646,7 @@ tfw_http_req_add_seq_queue(TfwHttpReq *req)
 	req_prev = list_empty(seq_queue) ?
 		   NULL : list_last_entry(seq_queue, TfwHttpReq, msg.seq_list);
 	if (req_prev && tfw_http_req_is_nip(req_prev))
-		req_prev->flags &= ~TFW_HTTP_F_NON_IDEMP;
+		clear_bit(TFW_HTTP_NON_IDEMP, req_prev->flags);
 	list_add_tail(&req->msg.seq_list, seq_queue);
 	spin_unlock(&cli_conn->seq_qlock);
 }
@@ -2770,7 +2783,7 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 			 * The request is fully parsed,
 			 * fall through and process it.
 			 */
-			BUG_ON(!(req->flags & TFW_HTTP_F_CHUNKED)
+			BUG_ON(!test_bit(TFW_HTTP_CHUNKED, req->flags)
 			       && (req->content_length != req->body.len));
 		}
 
@@ -2824,9 +2837,9 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 		 */
 		if ((req->version == TFW_HTTP_VER_09)
 		    || ((req->version == TFW_HTTP_VER_10)
-			&& !(req->flags & __TFW_HTTP_MSG_M_CONN_MASK)))
+			&& !test_bit(TFW_HTTP_CONN_KA, req->flags)))
 		{
-			req->flags |= TFW_HTTP_F_CONN_CLOSE;
+			__set_bit(TFW_HTTP_CONN_CLOSE, req->flags);
 		}
 
 		/*
@@ -2842,7 +2855,7 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 		 * and, at the same time, to stop passing data for processing
 		 * from the lower layer.
 		 */
-		if((req_conn_close = req->flags & TFW_HTTP_F_CONN_CLOSE))
+		if((req_conn_close = test_bit(TFW_HTTP_CONN_CLOSE, req->flags)))
 			TFW_CONN_TYPE(req->conn) |= Conn_Stop;
 
 		if (!req_conn_close && (data_off < skb_len)) {
@@ -3070,7 +3083,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 * If 'Date:' header is missing in the response, then
 	 * set the date to the time the response was received.
 	 */
-	if (!(hmresp->flags & TFW_HTTP_F_HDR_DATE))
+	if (!test_bit(TFW_HTTP_HDR_DATE, hmresp->flags))
 		((TfwHttpResp *)hmresp)->date = timestamp;
 	/*
 	 * Response is fully received, delist corresponding request from
@@ -3081,7 +3094,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 * Health monitor request means that its response need not to
 	 * send anywhere.
 	 */
-	if (req->flags & TFW_HTTP_F_HMONITOR) {
+	if (test_bit(TFW_HTTP_HMONITOR, req->flags)) {
 		tfw_http_hm_drop_resp((TfwHttpResp *)hmresp);
 		return 0;
 	}
@@ -3242,10 +3255,12 @@ tfw_http_resp_process(TfwConn *conn, const TfwFsmData *data)
 			 * process it. If the response has broken length, then
 			 * block it (the server connection will be dropped).
 			 */
-			if (!(hmresp->flags & (TFW_HTTP_F_CHUNKED
-					       | TFW_HTTP_F_VOID_BODY))
+			if (!(test_bit(TFW_HTTP_CHUNKED, hmresp->flags)
+			      || test_bit(TFW_HTTP_VOID_BODY, hmresp->flags))
 			    && (hmresp->content_length != hmresp->body.len))
+			{
 				goto bad_msg;
+			}
 		}
 
 		/*
@@ -3395,7 +3410,7 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 	if (tfw_http_msg_write(&it, hmreq, &msg))
 		goto cleanup;
 
-	req->flags |= TFW_HTTP_F_HMONITOR;
+	__set_bit(TFW_HTTP_HMONITOR, req->flags);
 	req->jrxtstamp = jiffies;
 
 	srv_conn = srv->sg->sched->sched_srv_conn((TfwMsg *)req, srv);
@@ -3429,7 +3444,7 @@ tfw_http_req_key_calc(TfwHttpReq *req)
 
 	req->hash = tfw_hash_str(&req->uri_path);
 
-	if (req->flags & TFW_HTTP_F_HMONITOR)
+	if (test_bit(TFW_HTTP_HMONITOR, req->flags))
 		return req->hash;
 
 	tfw_http_msg_clnthdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],

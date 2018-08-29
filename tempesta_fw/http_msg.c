@@ -305,7 +305,7 @@ __hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
 	unsigned int id = tfw_http_msg_hdr_lookup(hm, hdr);
 
 	if ((id < hm->h_tbl->off) && __hdr_is_singular(hdr))
-		hm->flags |= TFW_HTTP_F_FIELD_DUPENTRY;
+		__set_bit(TFW_HTTP_FIELD_DUPENTRY, hm->flags);
 
 	return id;
 }
@@ -364,7 +364,7 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm, unsigned int id)
 		 * RFC 7230 3.2.2: duplicate of non-singular special
 		 * header - leave the decision to classification layer.
 		 */
-		hm->flags |= TFW_HTTP_F_FIELD_DUPENTRY;
+		__set_bit(TFW_HTTP_FIELD_DUPENTRY, hm->flags);
 		goto duplicate;
 	}
 
@@ -977,9 +977,6 @@ __tfw_http_msg_alloc(int type, bool full)
 			 ((type & Conn_Clnt) ? "request" : "response"));
 		return NULL;
 	}
-
-	BUILD_BUG_ON(FIELD_SIZEOF(TfwHttpMsg, flags) * BITS_PER_BYTE
-		     < _TFW_HTTP_FLAGS_NUM);
 
 	if (full) {
 		hm->h_tbl = (TfwHttpHdrTbl *)tfw_pool_alloc(hm->pool,

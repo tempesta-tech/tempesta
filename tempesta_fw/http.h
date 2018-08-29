@@ -208,73 +208,53 @@ enum {
 	/* Common flags for requests and responses. */
 	TFW_HTTP_FLAGS_COMMON	= 0,
 	/* 'Connection:' header contains 'close'. */
-	TFW_HTTP_B_CONN_CLOSE	= TFW_HTTP_FLAGS_COMMON,
+	TFW_HTTP_CONN_CLOSE	= TFW_HTTP_FLAGS_COMMON,
 	/* 'Connection:' header contains 'keep-alive'. */
-	TFW_HTTP_B_CONN_KA,
+	TFW_HTTP_CONN_KA,
 	/* 'Connection:' header contains additional terms. */
-	TFW_HTTP_B_CONN_EXTRA,
+	TFW_HTTP_CONN_EXTRA,
 	/* Chunked transfer encoding. */
-	TFW_HTTP_B_CHUNKED,
+	TFW_HTTP_CHUNKED,
 	/* Singular header presents more than once. */
-	TFW_HTTP_B_FIELD_DUPENTRY,
+	TFW_HTTP_FIELD_DUPENTRY,
 
 	/* Request flags. */
 	TFW_HTTP_FLAGS_REQ,
 	/* Sticky cookie is found and verified. */
-	TFW_HTTP_B_HAS_STICKY	= TFW_HTTP_FLAGS_REQ,
+	TFW_HTTP_HAS_STICKY	= TFW_HTTP_FLAGS_REQ,
 	/* URI has form http://authority/path, not just /path */
-	TFW_HTTP_B_URI_FULL,
+	TFW_HTTP_URI_FULL,
 	/* Request is non-idempotent. */
-	TFW_HTTP_B_NON_IDEMP,
+	TFW_HTTP_NON_IDEMP,
 	/* Request was sent by attacker. */
-	TFW_HTTP_B_SUSPECTED,
+	TFW_HTTP_SUSPECTED,
 	/* Request stated 'Accept: text/html' header */
-	TFW_HTTP_B_ACCEPT_HTML,
+	TFW_HTTP_ACCEPT_HTML,
 	/* Request is created by HTTP health monitor. */
-	TFW_HTTP_B_HMONITOR,
+	TFW_HTTP_HMONITOR,
 	/* Request from whitelist: skip frang and sticky modules processing. */
-	TFW_HTTP_B_WHITELIST,
+	TFW_HTTP_WHITELIST,
 	/* Client was disconnected, drop the request. */
-	TFW_HTTP_B_REQ_DROP,
+	TFW_HTTP_REQ_DROP,
 
 	/* Response flags */
 	TFW_HTTP_FLAGS_RESP,
 	/* Response has no body. */
-	TFW_HTTP_B_VOID_BODY	= TFW_HTTP_FLAGS_RESP,
+	TFW_HTTP_VOID_BODY	= TFW_HTTP_FLAGS_RESP,
 	/* Response has header 'Date:'. */
-	TFW_HTTP_B_HDR_DATE,
+	TFW_HTTP_HDR_DATE,
 	/* Response has header 'Last-Modified:'. */
-	TFW_HTTP_B_HDR_LMODIFIED,
+	TFW_HTTP_HDR_LMODIFIED,
 	/* Response is stale, but pass with a warning. */
-	TFW_HTTP_B_RESP_STALE,
+	TFW_HTTP_RESP_STALE,
 	/* Response is fully processed and ready to be forwarded to the client. */
-	TFW_HTTP_B_RESP_READY,
+	TFW_HTTP_RESP_READY,
 
 	_TFW_HTTP_FLAGS_NUM
 };
 
-#define TFW_HTTP_F_CONN_CLOSE		(1U << TFW_HTTP_B_CONN_CLOSE)
-#define TFW_HTTP_F_CONN_KA		(1U << TFW_HTTP_B_CONN_KA)
-#define __TFW_HTTP_MSG_M_CONN_MASK	\
-	(TFW_HTTP_F_CONN_KA | TFW_HTTP_F_CONN_CLOSE)
-#define TFW_HTTP_F_CONN_EXTRA		(1U << TFW_HTTP_B_CONN_EXTRA)
-#define TFW_HTTP_F_CHUNKED		(1U << TFW_HTTP_B_CHUNKED)
-#define TFW_HTTP_F_FIELD_DUPENTRY	(1U << TFW_HTTP_B_FIELD_DUPENTRY)
-
-#define TFW_HTTP_F_HAS_STICKY		(1U << TFW_HTTP_B_HAS_STICKY)
-#define TFW_HTTP_F_URI_FULL		(1U << TFW_HTTP_B_URI_FULL)
-#define TFW_HTTP_F_NON_IDEMP		(1U << TFW_HTTP_B_NON_IDEMP)
-#define TFW_HTTP_F_SUSPECTED		(1U << TFW_HTTP_B_SUSPECTED)
-#define TFW_HTTP_F_ACCEPT_HTML		(1U << TFW_HTTP_B_ACCEPT_HTML)
-#define TFW_HTTP_F_HMONITOR		(1U << TFW_HTTP_B_HMONITOR)
-#define TFW_HTTP_F_WHITELIST		(1U << TFW_HTTP_B_WHITELIST)
-#define TFW_HTTP_F_REQ_DROP		(1U << TFW_HTTP_B_REQ_DROP)
-
-#define TFW_HTTP_F_VOID_BODY		(1U << TFW_HTTP_B_VOID_BODY)
-#define TFW_HTTP_F_HDR_DATE		(1U << TFW_HTTP_B_HDR_DATE)
-#define TFW_HTTP_F_HDR_LMODIFIED	(1U << TFW_HTTP_B_HDR_LMODIFIED)
-#define TFW_HTTP_F_RESP_STALE		(1U << TFW_HTTP_B_RESP_STALE)
-#define TFW_HTTP_F_RESP_READY		(1U << TFW_HTTP_B_RESP_READY)
+#define __TFW_HTTP_MSG_M_CONN_MASK					\
+	BIT(TFW_HTTP_CONN_CLOSE) & BIT(TFW_HTTP_CONN_KA)
 
 /**
  * The structure to hold data for an HTTP error response.
@@ -326,13 +306,20 @@ typedef struct {
 	TfwHttpError	httperr;					\
 	TfwCacheControl	cache_ctl;					\
 	unsigned char	version;					\
-	unsigned int	flags;						\
-	unsigned long	content_length;					\
 	unsigned int	keep_alive;					\
+	DECLARE_BITMAP	(flags, _TFW_HTTP_FLAGS_NUM);			\
+	unsigned long	content_length;					\
 	TfwConn		*conn;						\
 	void (*destructor)(void *msg);					\
 	TfwStr		crlf;						\
 	TfwStr		body;
+
+static inline void
+tfw_http_copy_flags(unsigned long *to, unsigned long *from)
+{
+	BUILD_BUG_ON(BITS_TO_LONGS(_TFW_HTTP_FLAGS_NUM) != 1);
+	to[0] = from[0];
+}
 
 /**
  * A helper structure for operations common for requests and responses.

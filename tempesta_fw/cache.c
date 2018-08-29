@@ -111,9 +111,9 @@ typedef struct {
 	long		hdrs;
 	long		body;
 	long		hdrs_304[TFW_CACHE_304_HDRS_NUM];
+	DECLARE_BITMAP	(hmflags, _TFW_HTTP_FLAGS_NUM);
 	unsigned char	version;
 	unsigned short	resp_status;
-	unsigned int	hmflags;
 	TfwStr		etag;
 } TfwCacheEntry;
 
@@ -1208,7 +1208,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, size_t tot_len)
 	/* Write HTTP response body. */
 	ce->body = TDB_OFF(db->hdr, p);
 	n = tfw_cache_strcpy_eol(&p, &trec, &resp->body, &tot_len,
-				 resp->flags & TFW_HTTP_F_CHUNKED);
+				 test_bit(TFW_HTTP_CHUNKED, resp->flags));
 	if (n < 0) {
 		TFW_ERR("Cache: cannot copy HTTP body\n");
 		return -ENOMEM;
@@ -1216,7 +1216,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, size_t tot_len)
 	BUG_ON(tot_len != 0);
 
 	ce->version = resp->version;
-	ce->hmflags = resp->flags;
+	tfw_http_copy_flags(ce->hmflags, resp->flags);
 
 	if (resp->cache_ctl.flags
 	    & (TFW_HTTP_CC_MUST_REVAL | TFW_HTTP_CC_PROXY_REVAL))
@@ -1298,7 +1298,7 @@ __cache_entry_size(TfwHttpResp *resp)
 
 	/* Add body size accounting CRLF after the last chunk */
 	size += resp->body.len;
-	if (resp->flags & TFW_HTTP_F_CHUNKED)
+	if (test_bit(TFW_HTTP_CHUNKED, resp->flags))
 		size += SLEN(S_CRLF);
 
 	return size;
@@ -1571,7 +1571,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce)
 		goto err;
 
 	resp->version = ce->version;
-	resp->flags = ce->hmflags;
+	tfw_http_copy_flags(resp->flags, ce->hmflags);
 
 	return resp;
 err:
@@ -1637,7 +1637,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 		goto out;
 	}
 	if (lifetime > ce->lifetime)
-		resp->flags |= TFW_HTTP_F_RESP_STALE;
+		__set_bit(TFW_HTTP_RESP_STALE, resp->flags);
 out:
 	if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED))
 		tfw_http_send_resp(req, 504, "resource not cached");

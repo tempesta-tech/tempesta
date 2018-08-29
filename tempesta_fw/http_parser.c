@@ -936,8 +936,8 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 __FSM_STATE(RGen_BodyInit) {						\
 	TfwStr *tbl = msg->h_tbl->tbl;					\
 									\
-	TFW_DBG3("parse request body: flags=%#x content_length=%lu\n",	\
-		 msg->flags, msg->content_length);			\
+	TFW_DBG3("parse request body: flags=%#lx content_length=%lu\n",	\
+		 msg->flags[0], msg->content_length);			\
 									\
 	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_TRANSFER_ENCODING])) {	\
 		/*							\
@@ -948,7 +948,7 @@ __FSM_STATE(RGen_BodyInit) {						\
 		 */							\
 		if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH]))	\
 			TFW_PARSER_BLOCK(RGen_BodyInit);		\
-		if (msg->flags & TFW_HTTP_F_CHUNKED)			\
+		if (test_bit(TFW_HTTP_CHUNKED, msg->flags))		\
 			__FSM_MOVE_nofixup(RGen_BodyStart);		\
 		/*							\
 		 * If "Transfer-Encoding:" header is present and	\
@@ -971,11 +971,11 @@ __FSM_STATE(RGen_BodyInit) {						\
 __FSM_STATE(RGen_BodyInit) {						\
 	TfwStr *tbl = msg->h_tbl->tbl;					\
 									\
-	TFW_DBG3("parse response body: flags=%#x content_length=%lu\n",	\
-		 msg->flags, msg->content_length);			\
+	TFW_DBG3("parse response body: flags=%#lx content_length=%lu\n",\
+		 msg->flags[0], msg->content_length);			\
 									\
 	/* There's no body. */						\
-	if (msg->flags & TFW_HTTP_F_VOID_BODY) {			\
+	if (test_bit(TFW_HTTP_VOID_BODY, msg->flags)) {			\
 		msg->body.flags |= TFW_STR_COMPLETE;			\
 		FSM_EXIT(TFW_PASS);					\
 	}								\
@@ -988,7 +988,7 @@ __FSM_STATE(RGen_BodyInit) {						\
 		 */							\
 		if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH]))	\
 			TFW_PARSER_BLOCK(RGen_BodyInit);		\
-		if (msg->flags & TFW_HTTP_F_CHUNKED)			\
+		if (test_bit(TFW_HTTP_CHUNKED, msg->flags))		\
 			__FSM_MOVE_nofixup(RGen_BodyStart);		\
 		__FSM_MOVE_nofixup(Resp_BodyUnlimStart);		\
 	}								\
@@ -1040,11 +1040,11 @@ __FSM_STATE(RGen_BodyChunk) {						\
 }									\
 __FSM_STATE(RGen_BodyReadChunk) {					\
 	BUG_ON(parser->to_read < 0);					\
-	__fsm_sz = min_t(long, parser->to_read, __data_remain(p));      \
+	__fsm_sz = min_t(long, parser->to_read, __data_remain(p));	\
 	parser->to_read -= __fsm_sz;					\
 	if (parser->to_read)						\
 		__FSM_MOVE_nf(RGen_BodyReadChunk, __fsm_sz, &msg->body); \
-	if (msg->flags & TFW_HTTP_F_CHUNKED) {				\
+	if (test_bit(TFW_HTTP_CHUNKED, msg->flags)) {			\
 		parser->to_read = -1;					\
 		__FSM_MOVE_nf(RGen_BodyEoL, __fsm_sz, &msg->body);	\
 	}								\
@@ -1165,17 +1165,17 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_STATE(I_Conn) {
 		/* Boolean connection tokens */
 		TRY_HBH_TOKEN("close", {
-			if (msg->flags & TFW_HTTP_F_CONN_KA)
+			if (test_bit(TFW_HTTP_CONN_KA, msg->flags))
 				return CSTR_NEQ;
-			msg->flags |= TFW_HTTP_F_CONN_CLOSE;
+			__set_bit(TFW_HTTP_CONN_CLOSE, msg->flags);
 		});
 		/* Spec headers */
 		TRY_HBH_TOKEN("keep-alive", {
 			unsigned int hid = TFW_HTTP_HDR_KEEP_ALIVE;
 
-			if (msg->flags & TFW_HTTP_F_CONN_CLOSE)
+			if (test_bit(TFW_HTTP_CONN_CLOSE, msg->flags))
 				return CSTR_NEQ;
-			msg->flags |= TFW_HTTP_F_CONN_KA;
+			__set_bit(TFW_HTTP_CONN_KA, msg->flags);
 
 			parser->hbh_parser.spec |= 0x1 << hid;
 			if (!TFW_STR_EMPTY(&msg->h_tbl->tbl[hid]))
@@ -1196,7 +1196,7 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			if (__hbh_parser_add_data(hm, p, __fsm_sz, false))
 				r = CSTR_NEQ;
 		});
-		msg->flags |= TFW_HTTP_F_CONN_EXTRA;
+		__set_bit(TFW_HTTP_CONN_EXTRA, msg->flags);
 		c = *(p + __fsm_sz);
 		if (__hbh_parser_add_data(hm, p, __fsm_sz, true))
 			return  CSTR_NEQ;
@@ -1220,7 +1220,7 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 	} /* FSM END */
 done:
-	TFW_DBG3("parser: Connection parsed: flags %#x\n", msg->flags);
+	TFW_DBG3("parser: Connection parsed: flags %#lx\n", msg->flags[0]);
 
 	return r;
 }
@@ -1336,9 +1336,9 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		 * chunked message is not allowed). RFC 7230 3.3.1.
 		 */
 		TRY_STR_LAMBDA("chunked", {
-			if (unlikely(msg->flags & TFW_HTTP_F_CHUNKED))
+			if (unlikely(test_bit(TFW_HTTP_CHUNKED, msg->flags)))
 				return CSTR_NEQ;
-			msg->flags |= TFW_HTTP_F_CHUNKED;
+			__set_bit(TFW_HTTP_CHUNKED, msg->flags);
 		}, I_EoT);
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(I_TransEncodOther, 0);
@@ -1355,7 +1355,7 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			__FSM_I_MOVE_n(I_EoT, __fsm_sz + 1);
 		if (IS_CRLF(c)) {
 			/* "chunked" must be the last coding. */
-			if (unlikely(msg->flags & TFW_HTTP_F_CHUNKED))
+			if (unlikely(test_bit(TFW_HTTP_CHUNKED, msg->flags)))
 				return CSTR_NEQ;
 			return __data_off(p + __fsm_sz);
 		}
@@ -1856,7 +1856,7 @@ __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	__FSM_STATE(Req_I_Accept) {
 		TRY_STR_LAMBDA("text/html", {
-			msg->flags |= TFW_HTTP_F_ACCEPT_HTML;
+			__set_bit(TFW_HTTP_ACCEPT_HTML, req->flags);
 		}, I_EoT);
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(Req_I_AcceptOther, 0);
@@ -2434,11 +2434,11 @@ __parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len)
 				__FSM_I_MOVE_n(I_EoL, 0);
 			break;
 		case Resp_HdrDateV:
-			if (resp->flags & TFW_HTTP_F_HDR_DATE)
+			if (test_bit(TFW_HTTP_HDR_DATE, resp->flags))
 				return CSTR_NEQ;
 			break;
 		case Resp_HdrLast_ModifiedV:
-			if (resp->flags & TFW_HTTP_F_HDR_LMODIFIED)
+			if (test_bit(TFW_HTTP_HDR_LMODIFIED, resp->flags))
 				return CSTR_NEQ;
 			break;
 		case Req_HdrIf_Modified_SinceV:
@@ -2655,11 +2655,11 @@ __parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			break;
 		case Resp_HdrDateV:
 			resp->date = parser->_date;
-			resp->flags |= TFW_HTTP_F_HDR_DATE;
+			__set_bit(TFW_HTTP_HDR_DATE, resp->flags);
 			break;
 		case Resp_HdrLast_ModifiedV:
 			resp->last_modified = parser->_date;
-			resp->flags |= TFW_HTTP_F_HDR_LMODIFIED;
+			__set_bit(TFW_HTTP_HDR_LMODIFIED, resp->flags);
 			break;
 		case Req_HdrIf_Modified_SinceV:
 			req->cond.m_date = parser->_date;
@@ -3114,7 +3114,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	 * req->userinfo, reset req->host and fill it.
 	 */
 	__FSM_STATE(Req_UriAuthorityStart) {
-		req->flags |= TFW_HTTP_F_URI_FULL;
+		__set_bit(TFW_HTTP_URI_FULL, req->flags);
 		if (likely(isalnum(c) || c == '.' || c == '-')) {
 			__msg_field_open(&req->host, p);
 			__FSM_MOVE_f(Req_UriAuthority, &req->host);
@@ -4289,7 +4289,7 @@ tfw_http_adj_parser_resp(TfwHttpResp *resp)
 	TfwHttpReq *req = resp->req;
 
 	if (req->method == TFW_HTTP_METH_HEAD)
-		resp->flags |= TFW_HTTP_F_VOID_BODY;
+		__set_bit(TFW_HTTP_VOID_BODY, resp->flags);
 }
 
 int
@@ -4373,7 +4373,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			if (resp->status - 100U < 100U || resp->status == 204
 			    || resp->status == 304)
 			{
-				msg->flags |= TFW_HTTP_F_VOID_BODY;
+				__set_bit(TFW_HTTP_VOID_BODY, resp->flags);
 			}
 			__FSM_MOVE_nf(Resp_ReasonPhrase, __fsm_n,
 				      &resp->s_line);
