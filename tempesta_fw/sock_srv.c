@@ -305,16 +305,16 @@ tfw_srv_conn_release(TfwSrvConn *srv_conn)
 	 * callback). The only reason not to start new reconnect
 	 * attempt is removing server from the current configuration.
 	 *
-	 * TFW_CONN_B_ACTIVE bit is checked here to see if the connection has
+	 * TFW_CONN_ACTIVE bit is checked here to see if the connection has
 	 * already got a server's reference; if so, then server's reference must
 	 * be put. If bit is not set, this means that connection didn't have
 	 * time or was never scheduled to reach server (due to some error in
 	 * sock_srv start procedure) and consequently, it needn't to put
 	 * server here (during stop procedure).
 	 */
-	if (likely(!test_bit(TFW_CONN_B_DEL, &srv_conn->flags)))
+	if (likely(!test_bit(TFW_CONN_DEL, &srv_conn->flags)))
 		tfw_sock_srv_connect_try_later(srv_conn);
-	else if (test_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags))
+	else if (test_bit(TFW_CONN_ACTIVE, &srv_conn->flags))
 		tfw_server_put((TfwServer *)srv_conn->peer);
 }
 
@@ -441,12 +441,12 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 
 	/* Server's refcounter is decreased on disconnect. */
-	if (test_bit(TFW_CONN_B_DEL, &srv_conn->flags))
+	if (test_bit(TFW_CONN_DEL, &srv_conn->flags))
 		return 0;
 
 	/* Stop any attempts to reconnect or reschedule. */
 	del_timer_sync(&conn->timer);
-	set_bit(TFW_CONN_B_DEL, &srv_conn->flags);
+	set_bit(TFW_CONN_DEL, &srv_conn->flags);
 
 	/*
 	 * Close the connection if it's not being closed yet. Resources
@@ -485,7 +485,7 @@ static inline void
 tfw_sock_srv_conn_activate(TfwServer *srv, TfwSrvConn *srv_conn)
 {
 	tfw_server_get(srv);
-	set_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags);
+	set_bit(TFW_CONN_ACTIVE, &srv_conn->flags);
 }
 
 static void
