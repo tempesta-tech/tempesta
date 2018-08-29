@@ -1686,14 +1686,20 @@ tfw_http_resp_pair(TfwHttpMsg *hmresp)
 static TfwMsg *
 tfw_http_conn_msg_alloc(TfwConn *conn)
 {
-	TfwHttpMsg *hm = __tfw_http_msg_alloc(TFW_CONN_TYPE(conn), true);
+	int type = TFW_CONN_TYPE(conn);
+	TfwHttpMsg *hm = __tfw_http_msg_alloc(type, true);
 	if (unlikely(!hm))
 		return NULL;
 
 	hm->conn = conn;
 	tfw_connection_get(conn);
+	tfw_http_init_parser_req((TfwHttpReq *)hm);
+	if (type & Conn_Clnt)
+		tfw_http_init_parser_req((TfwHttpReq *)hm);
+	else
+		tfw_http_init_parser_resp((TfwHttpResp *)hm);
 
-	if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
+	if (type & Conn_Clnt) {
 		TFW_INC_STAT_BH(clnt.rx_messages);
 	} else {
 		if (unlikely(tfw_http_resp_pair(hm))) {
@@ -2708,7 +2714,7 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 		bool block = false;
 		TfwHttpMsg *hmsib = NULL;
 		TfwHttpReq *req = (TfwHttpReq *)conn->msg;
-		TfwHttpParser *parser = &req->parser;
+		TfwHttpParser *parser = &conn->parser;
 
 		/*
 		 * Process/parse data in the SKB.
@@ -3175,7 +3181,7 @@ tfw_http_resp_process(TfwConn *conn, const TfwFsmData *data)
 		TfwHttpParser *parser;
 
 		hmresp = (TfwHttpMsg *)conn->msg;
-		parser = &hmresp->parser;
+		parser = &conn->parser;
 
 		/*
 		 * Process/parse data in the SKB.
@@ -4248,10 +4254,6 @@ int __init
 tfw_http_init(void)
 {
 	int r;
-
-	/* Make sure @req->httperr doesn't take too much space. */
-	BUILD_BUG_ON(FIELD_SIZEOF(TfwHttpMsg, httperr)
-		     > FIELD_SIZEOF(TfwHttpMsg, parser));
 
 	r = tfw_gfsm_register_fsm(TFW_FSM_HTTP, tfw_http_msg_process);
 	if (r)

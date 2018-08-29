@@ -316,7 +316,7 @@ __hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
 void
 tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start)
 {
-	TfwStr *hdr = &hm->parser.hdr;
+	TfwStr *hdr = &hm->conn->parser.hdr;
 
 	BUG_ON(!TFW_STR_EMPTY(hdr));
 
@@ -339,11 +339,11 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm, unsigned int id)
 	TfwStr *h;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 
-	BUG_ON(hm->parser.hdr.flags & TFW_STR_DUPLICATE);
+	BUG_ON(hm->conn->parser.hdr.flags & TFW_STR_DUPLICATE);
 	BUG_ON(id > TFW_HTTP_HDR_RAW);
 
 	/* Close just parsed header. */
-	hm->parser.hdr.flags |= TFW_STR_COMPLETE;
+	hm->conn->parser.hdr.flags |= TFW_STR_COMPLETE;
 
 	/* Quick path for special headers. */
 	if (likely(id < TFW_HTTP_HDR_RAW)) {
@@ -374,7 +374,7 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm, unsigned int id)
 	 * Both the headers, the new one and existing one, can already be
 	 * compound.
 	 */
-	id = __hdr_lookup(hm, &hm->parser.hdr);
+	id = __hdr_lookup(hm, &hm->conn->parser.hdr);
 
 	/* Allocate some more room if not enough to store the header. */
 	if (unlikely(id == ht->size)) {
@@ -393,14 +393,14 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm, unsigned int id)
 duplicate:
 	h = tfw_str_add_duplicate(hm->pool, h);
 	if (unlikely(!h)) {
-		TFW_WARN("Cannot close header %p id=%d\n", &hm->parser.hdr, id);
+		TFW_WARN("Cannot close header %p id=%d\n", &hm->conn->parser.hdr, id);
 		return TFW_BLOCK;
 	}
 
 done:
-	*h = hm->parser.hdr;
+	*h = hm->conn->parser.hdr;
 
-	TFW_STR_INIT(&hm->parser.hdr);
+	TFW_STR_INIT(&hm->conn->parser.hdr);
 	TFW_DBG3("store header w/ ptr=%p len=%lu eolen=%u flags=%x id=%d\n",
 		 h->ptr, h->len, h->eolen, h->flags, id);
 
@@ -1013,11 +1013,6 @@ __tfw_http_msg_alloc(int type, bool full)
 		hm->h_tbl->size = __HHTBL_SZ(1);
 		hm->h_tbl->off = TFW_HTTP_HDR_RAW;
 		bzero_fast(hm->h_tbl->tbl, __HHTBL_SZ(1) * sizeof(TfwStr));
-
-		if (type & Conn_Clnt)
-			tfw_http_init_parser_req((TfwHttpReq *)hm);
-		else
-			tfw_http_init_parser_resp((TfwHttpResp *)hm);
 	}
 
 	hm->msg.skb_head = NULL;
