@@ -76,10 +76,14 @@ enum {
 	/* Whole response is read. */
 	TFW_HTTP_FSM_RESP_MSG		= TFW_GFSM_HTTP_STATE(4),
 
-	/* Run just before locally generated response sending. */
-	TFW_HTTP_FSM_LOCAL_RESP_FILTER	= TFW_GFSM_HTTP_STATE(5),
+	/* Response from backend server is received and ready to be processed. */
+	TFW_HTTP_FSM_RESP_MSG_FWD	= TFW_GFSM_HTTP_STATE(5),
 
-	TFW_HTTP_FSM_RESP_MSG_FWD	= TFW_GFSM_HTTP_STATE(6),
+	/*
+	 * Run just before locally generated response sending.
+	 * This is egress state unlike others, see tfw_http_resp_fwd().
+	 */
+	TFW_HTTP_FSM_LOCAL_RESP_FILTER	= TFW_GFSM_HTTP_STATE(6),
 
 	TFW_HTTP_FSM_DONE	= TFW_GFSM_HTTP_STATE(TFW_GFSM_STATE_LAST)
 };

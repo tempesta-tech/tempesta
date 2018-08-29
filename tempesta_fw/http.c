@@ -2290,6 +2290,23 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 	WARN_ON_ONCE(req->resp != resp);
 
 	/*
+	 * TODO: process TFW_HTTP_FSM_LOCAL_RESP_FILTER hook:
+	 * tfw_gfsm_move(TFW_HTTP_FSM_LOCAL_RESP_FILTER);
+	 *
+	 * Locally generated responses are not assigned to any connection,
+	 * thus resp->conn->state can't be used unlike to other HTTP FSM
+	 * hooks calls. More over, TFW_HTTP_FSM_LOCAL_RESP_FILTER is
+	 * actually egress state, while others stands to ingress traffic
+	 * processing. It's not a good idea to mix up egress and ingress
+	 * states.
+	 *
+	 * It's not a right place to discard the response, we have already
+	 * spent resources to generate it. Locally generated response is
+	 * reaction to client behaviour, so hooks must apply restrictions
+	 * to client connections and not to the response.
+	 */
+
+	/*
 	 * If the list is empty, then it's either a bug, or the client
 	 * connection had been closed. If it's a bug, then the correct
 	 * order of responses to requests may be broken. The connection
@@ -3138,38 +3155,6 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
 }
 
 /*
- * Post-process the response. Pass it to modules registered with GFSM
- * for further processing. Finish the request/response exchange properly
- * in case of an error.
- */
-static int
-tfw_http_resp_gfsm(TfwHttpMsg *hmresp, const TfwFsmData *data)
-{
-	int r;
-	TfwHttpReq *req = hmresp->req;
-
-	BUG_ON(!hmresp->conn);
-
-	r = tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG, data);
-	TFW_DBG3("TFW_HTTP_FSM_RESP_MSG return code %d\n", r);
-	if (r == TFW_BLOCK)
-		goto error;
-
-	r = tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_LOCAL_RESP_FILTER,
-			  data);
-	TFW_DBG3("TFW_HTTP_FSM_LOCAL_RESP_FILTER return code %d\n", r);
-	if (r == TFW_PASS)
-		return TFW_PASS;
-
-error:
-	tfw_http_popreq(hmresp);
-	tfw_http_conn_msg_free(hmresp);
-	tfw_srv_client_block(req, 502, "response blocked: filtered out");
-	TFW_INC_STAT_BH(serv.msgs_filtout);
-	return r;
-}
-
-/*
  * Set up the response @hmresp with data needed down the road,
  * get the paired request, and then pass the response to cache
  * for further processing.
@@ -3235,6 +3220,31 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	return 0;
 }
 
+/**
+ * Response can't be parsed or processed. This is not a network failure,
+ * it's very likely that the same situation happen if the corresponding
+ * request will be sent once again. Keep buggy request away from
+ * servers: remove the request from forward and nip queues and send
+ * a 403 response if necessary.
+ *
+ * If the issue was treated as the attack, disconnect the client and
+ * discard all pending requests.
+ */
+static void
+tfw_http_resp_process_failed(TfwHttpMsg *hmresp, bool attack)
+{
+	TfwHttpReq *bad_req = hmresp->req;
+
+	tfw_http_popreq(hmresp);
+	tfw_http_conn_msg_free(hmresp);
+	if (attack)
+		tfw_srv_client_block(bad_req, 403,
+				     "response blocked: filtered out");
+	else
+		tfw_srv_client_drop(bad_req, 403,
+				    "response dropped: processing error");
+}
+
 /*
  * Finish a response that is terminated by closing the connection.
  */
@@ -3242,6 +3252,7 @@ static void
 tfw_http_resp_terminate(TfwHttpMsg *hm)
 {
 	TfwFsmData data;
+	int r;
 
 	/*
 	 * Note that in this case we don't have data to process.
@@ -3256,9 +3267,16 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 	data.req = NULL;
 	data.resp = (TfwMsg *)hm;
 
-	if (tfw_http_resp_gfsm(hm, &data) != TFW_PASS)
-		return;
-	tfw_http_resp_cache(hm);
+	r = tfw_gfsm_move(&hm->conn->state, TFW_HTTP_FSM_RESP_MSG, &data);
+	TFW_DBG3("TFW_HTTP_FSM_RESP_MSG return code %d\n", r);
+	if (r != TFW_PASS) {
+		/* Connection is closed, all FSMs must finish their work. */
+		TFW_INC_STAT_BH(serv.msgs_filtout);
+		tfw_http_resp_process_failed(hm, true);
+	}
+	else {
+		tfw_http_resp_cache(hm);
+	}
 }
 
 /**
@@ -3272,7 +3290,6 @@ tfw_http_resp_process(TfwConn *conn, const TfwFsmData *data)
 	struct sk_buff *skb = data->skb;
 	unsigned int off = data->off;
 	unsigned int data_off = off;
-	TfwHttpReq *bad_req;
 	TfwHttpMsg *hmresp, *hmsib;
 	TfwHttpParser *parser;
 	TfwFsmData data_up;
@@ -3354,6 +3371,7 @@ next_msg:
 		      || test_bit(TFW_HTTP_VOID_BODY, hmresp->flags))
 		    && (hmresp->content_length != hmresp->body.len))
 		{
+			TFW_INC_STAT_BH(serv.msgs_parserr);
 			goto bad_msg;
 		}
 	}
@@ -3376,10 +3394,13 @@ next_msg:
 	 * Drop server connection in case of serious error or security
 	 * event.
 	 */
-	/* TODO */
-	r = tfw_http_resp_gfsm(hmresp, &data_up);
-	if (unlikely(r < TFW_PASS))
-		return TFW_BLOCK;
+	r = tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG, data);
+	TFW_DBG3("TFW_HTTP_FSM_RESP_MSG return code %d\n", r);
+	if (r == TFW_BLOCK) {
+		TFW_INC_STAT_BH(serv.msgs_filtout);
+		attack = true;
+		goto bad_msg;
+	}
 
 	/*
 	 * If @skb's data has not been processed in full, then
@@ -3406,24 +3427,13 @@ next_msg:
 			return TFW_BLOCK;
 		}
 	}
-
-	/*
-	 * If a non critical error occurred in further GFSM processing,
-	 * then the response and the paired request had been handled.
-	 * Keep the server connection open for data exchange.
-	 */
-	if (unlikely(r != TFW_PASS)) {
-		/* TODO */
-		r = TFW_PASS;
-		goto next_resp;
-	}
 	/*
 	 * Pass the response to cache for further processing.
 	 * In the end, the response is sent on to the client.
 	 */
 	if (tfw_http_resp_cache(hmresp))
 		return TFW_BLOCK;
-next_resp:
+
 	if (hmsib) {
 		/*
 		 * Switch the connection to the sibling message.
@@ -3446,25 +3456,8 @@ out:
 	return r;
 
 bad_msg:
-	/*
-	 * Response can't be parsed. This is not a network failure,
-	 * it's very likely that the same situation happen if the corresponding
-	 * request will be sent once again. Keep buggy request away from
-	 * servers: remove the request from forward and nip queues and send
-	 * a 403 response if necessary.
-	 *
-	 * If the issue was treated as the attack, disconnect the client and
-	 * discard all pending requests.
-	 */
-	bad_req = hmresp->req;
-	tfw_http_popreq(hmresp);
-	tfw_http_conn_msg_free(hmresp);
-	if (attack)
-		tfw_srv_client_block(bad_req, 403,
-				     "response blocked: filtered out");
-	else
-		tfw_srv_client_drop(bad_req, 403,
-				    "response dropped: processing error");
+	tfw_http_resp_process_failed(hmresp, attack);
+
 	return TFW_BLOCK;
 }
 
