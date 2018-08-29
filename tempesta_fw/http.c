@@ -2790,249 +2790,276 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 	struct sk_buff *skb = data->skb;
 	unsigned int off = data->off;
 	unsigned int data_off = off;
-	unsigned int skb_len = skb->len;
 	TfwFsmData data_up;
+	int req_conn_close;
+	bool block = false;
+	TfwHttpError err = { .status = 400 };
+	TfwHttpParser *parser;
+	TfwHttpMsg *hmsib;
+	TfwHttpReq *req;
+
 
 	BUG_ON(!conn->msg);
-	BUG_ON(data_off >= skb_len);
+	BUG_ON(data_off >= skb->len);
 
 	TFW_DBG2("Received %u client data bytes on conn=%p msg=%p\n",
-		 skb_len - off, conn, conn->msg);
+		 skb->len - off, conn, conn->msg);
 
 	/*
 	 * Process pipelined requests in a loop
 	 * until all data in the SKB is processed.
 	 */
-	while (data_off < skb_len) {
-		int req_conn_close;
-		bool block = false;
-		TfwHttpMsg *hmsib = NULL;
-		TfwHttpReq *req = (TfwHttpReq *)conn->msg;
-		TfwHttpParser *parser = &conn->parser;
+next_msg:
+	hmsib = NULL;
+	req = (TfwHttpReq *)conn->msg;
+	parser = &conn->parser;
 
+	/*
+	 * Process/parse data in the SKB.
+	 * @off points at the start of data for processing.
+	 * @data_off is the current offset of data to process in
+	 * the SKB. After processing @data_off points at the end
+	 * of latest data chunk. However processing may have
+	 * stopped in the middle of the chunk. Adjust it to point
+	 * to the right location within the chunk.
+	 */
+	off = data_off;
+	r = ss_skb_process(skb, &data_off, tfw_http_parse_req, req);
+	data_off -= parser->to_go;
+	req->msg.len += data_off - off;
+	ss_rmem_reserve(req->conn->sk, data_off - off);
+	TFW_ADD_STAT_BH(data_off - off, clnt.rx_bytes);
+
+	TFW_DBG2("Request parsed: len=%u parsed=%d msg_len=%lu ver=%d res=%d\n",
+		 skb->len - off, data_off - off, req->msg.len, req->version, r);
+
+	/*
+	 * We have to keep @data the same to pass it as is to FSMs
+	 * registered with lower priorities after us, but we must
+	 * feed the new data version to FSMs registered on our states.
+	 */
+	data_up.skb = skb;
+	data_up.off = off;
+	data_up.req = (TfwMsg *)req;
+	data_up.resp = NULL;
+
+	switch (r) {
+	default:
+		TFW_ERR("Unrecognized HTTP request parser return code, %d\n",
+			r);
+		err.reason = "Unrecognized HTTP request parser return code";
+		TFW_INC_STAT_BH(clnt.msgs_parserr);
+		goto drop;
+
+	case TFW_BLOCK:
 		/*
-		 * Process/parse data in the SKB.
-		 * @off points at the start of data for processing.
-		 * @data_off is the current offset of data to process in
-		 * the SKB. After processing @data_off points at the end
-		 * of latest data chunk. However processing may have
-		 * stopped in the middle of the chunk. Adjust it to point
-		 * to the right location within the chunk.
+		 * Request can't be parsed. Either the client tries to attack,
+		 * or unintentionally sent us invalid request. Don't block
+		 * the client for now, left worries for the Frang.
 		 */
-		off = data_off;
-		r = ss_skb_process(skb, &data_off, tfw_http_parse_req, req);
-		data_off -= parser->to_go;
-		req->msg.len += data_off - off;
-		ss_rmem_reserve(req->conn->sk, data_off - off);
-		TFW_ADD_STAT_BH(data_off - off, clnt.rx_bytes);
+		TFW_DBG2("Block invalid HTTP request\n");
+		err.reason = "failed to parse request";
+		TFW_INC_STAT_BH(clnt.msgs_parserr);
+		goto drop;
 
-		TFW_DBG2("Request parsed: len=%u parsed=%d msg_len=%lu"
-			 " ver=%d res=%d\n",
-			 skb_len - off, data_off - off, req->msg.len,
-			 req->version, r);
-
-		/*
-		 * We have to keep @data the same to pass it as is to FSMs
-		 * registered with lower priorities after us, but we must
-		 * feed the new data version to FSMs registered on our states.
-		 */
-		data_up.skb = skb;
-		data_up.off = off;
-		data_up.req = (TfwMsg *)req;
-		data_up.resp = NULL;
-
-		switch (r) {
-		default:
-			TFW_ERR("Unrecognized HTTP request "
-				"parser return code, %d\n", r);
-			BUG();
-		case TFW_BLOCK:
-			TFW_DBG2("Block invalid HTTP request\n");
-			TFW_INC_STAT_BH(clnt.msgs_parserr);
-			tfw_client_drop(req, 400, "failed to parse request");
-			return TFW_BLOCK;
-		case TFW_POSTPONE:
-			r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK,
-					  &data_up);
-			TFW_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
-			if (r == TFW_BLOCK) {
-				TFW_INC_STAT_BH(clnt.msgs_filtout);
-				tfw_client_block(req, 403, "postponed"
-					       " request has been"
-					       " filtered out");
-				return TFW_BLOCK;
-			}
-			/*
-			 * TFW_POSTPONE status means that parsing succeeded
-			 * but more data is needed to complete it. Lower layers
-			 * just supply data for parsing. They only want to know
-			 * if processing of a message should continue or not.
-			 */
-			return TFW_PASS;
-		case TFW_PASS:
-			/*
-			 * The request is fully parsed,
-			 * fall through and process it.
-			 */
-			BUG_ON(!test_bit(TFW_HTTP_CHUNKED, req->flags)
-			       && (req->content_length != req->body.len));
-		}
-
-		/* Assign the right virtual host for current request. */
-		if ((req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block)))
-			req->location = tfw_location_match(req->vhost,
-							   &req->uri_path);
-
-		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_MSG,
+	case TFW_POSTPONE:
+		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK,
 				  &data_up);
-		TFW_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
-		/* Don't accept any following requests from the peer. */
+		TFW_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
 		if (r == TFW_BLOCK) {
 			TFW_INC_STAT_BH(clnt.msgs_filtout);
-			tfw_client_block(req, 403, "parsed request"
-					 " has been filtered out");
-			return TFW_BLOCK;
+			err.status = 403;
+			err.reason =  "postponed request has been filtered out";
+			goto drop;
 		}
+		goto out;
 
-		if (block) {
-			TFW_INC_STAT_BH(clnt.msgs_filtout);
-			tfw_client_block(req, 403, "request has been filtered"
-					 " out via http table");
-			return TFW_BLOCK;
-		}
-
-		/*
-		 * The time the request was received is used for age
-		 * calculations in cache, and for eviction purposes.
-		 */
-		req->cache_ctl.timestamp = tfw_current_timestamp();
-		req->jrxtstamp = jiffies;
-
-		/*
-		 * In HTTP 0.9 the server always closes the connection
-		 * after sending the response.
-		 *
-		 * In HTTP 1.0 the server always closes the connection
-		 * after sending the response unless the client sent a
-		 * a "Connection: keep-alive" request header, and the
-		 * server sent a "Connection: keep-alive" response header.
-		 *
-		 * This behavior was added to existing HTTP 1.0 protocol.
-		 * RFC 1945 section 1.3 says:
-		 * "Except for experimental applications, current practice
-		 * requires that the connection be established by the client
-		 * prior to each request and closed by the server after
-		 * sending the response."
-		 *
-		 * Make it work this way in Tempesta by setting the flag.
-		 */
-		if ((req->version == TFW_HTTP_VER_09)
-		    || ((req->version == TFW_HTTP_VER_10)
-			&& !test_bit(TFW_HTTP_CONN_KA, req->flags)))
+	case TFW_PASS:
+		if (unlikely(!test_bit(TFW_HTTP_CHUNKED, req->flags)
+			     && (req->content_length != req->body.len)))
 		{
-			__set_bit(TFW_HTTP_CONN_CLOSE, req->flags);
+			err.reason = "Internal parser error";
+			TFW_INC_STAT_BH(clnt.msgs_parserr);
+			goto drop;
 		}
+		/* The request is fully parsed, fall through and process it. */
+	}
 
+	/* Assign the right virtual host for current request. */
+	if ((req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block)))
+		req->location = tfw_location_match(req->vhost, &req->uri_path);
+	if (unlikely(block)) {
+		TFW_INC_STAT_BH(clnt.msgs_filtout);
+		err.status = 403;
+		err.reason = "request has been filtered out via http table";
+		goto drop;
+	}
+	/*
+	 * If target VHost is not found, don't close the entire connection,
+	 * leave the client a chance for a error.
+	 */
+
+	r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_MSG, &data_up);
+	TFW_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
+	if (r == TFW_BLOCK) {
+		err.reason = "parsed request has been filtered out";
+		goto block;
+	}
+
+	/*
+	 * The time the request was received is used for age
+	 * calculations in cache, and for eviction purposes.
+	 */
+	req->cache_ctl.timestamp = tfw_current_timestamp();
+	req->jrxtstamp = jiffies;
+
+	/*
+	 * In HTTP 0.9 the server always closes the connection
+	 * after sending the response.
+	 *
+	 * In HTTP 1.0 the server always closes the connection
+	 * after sending the response unless the client sent a
+	 * a "Connection: keep-alive" request header, and the
+	 * server sent a "Connection: keep-alive" response header.
+	 *
+	 * This behavior was added to existing HTTP 1.0 protocol.
+	 * RFC 1945 section 1.3 says:
+	 * "Except for experimental applications, current practice
+	 * requires that the connection be established by the client
+	 * prior to each request and closed by the server after
+	 * sending the response."
+	 *
+	 * Make it work this way in Tempesta by setting the flag.
+	 */
+	if ((req->version == TFW_HTTP_VER_09)
+	    || ((req->version == TFW_HTTP_VER_10)
+		&& !test_bit(TFW_HTTP_CONN_KA, req->flags)))
+	{
+		__set_bit(TFW_HTTP_CONN_CLOSE, req->flags);
+	}
+
+	/*
+	 * The request has been successfully parsed and processed.
+	 * If the connection will be closed after the response to
+	 * the request is sent to the client, then there's no need
+	 * to process pipelined requests. Also, the request may be
+	 * released when handled in tfw_cache_req_process() below.
+	 * So, save the needed request flag for later use as it
+	 * may not be accessible later through @req->flags.
+	 * If the connection must be closed, it also should be marked
+	 * with @Conn_Stop flag - to left it alive for sending responses
+	 * and, at the same time, to stop passing data for processing
+	 * from the lower layer.
+	 */
+	if((req_conn_close = test_bit(TFW_HTTP_CONN_CLOSE, req->flags)))
+		TFW_CONN_TYPE(req->conn) |= Conn_Stop;
+
+	if (!req_conn_close && (data_off < skb->len)) {
 		/*
-		 * The request has been successfully parsed and processed.
-		 * If the connection will be closed after the response to
-		 * the request is sent to the client, then there's no need
-		 * to process pipelined requests. Also, the request may be
-		 * released when handled in tfw_cache_req_process() below.
-		 * So, save the needed request flag for later use as it
-		 * may not be accessible later through @req->flags.
-		 * If the connection must be closed, it also should be marked
-		 * with @Conn_Stop flag - to left it alive for sending responses
-		 * and, at the same time, to stop passing data for processing
-		 * from the lower layer.
+		 * Pipelined requests: create a new sibling message.
+		 * @skb is replaced with pointer to a new SKB.
 		 */
-		if((req_conn_close = test_bit(TFW_HTTP_CONN_CLOSE, req->flags)))
-			TFW_CONN_TYPE(req->conn) |= Conn_Stop;
-
-		if (!req_conn_close && (data_off < skb_len)) {
+		hmsib = tfw_http_msg_create_sibling((TfwHttpMsg *)req, &skb,
+						    data_off);
+		if (unlikely(!hmsib)) {
 			/*
-			 * Pipelined requests: create a new sibling message.
-			 * @skb is replaced with pointer to a new SKB.
+			 * Unfortunately, there's no recourse. The
+			 * caller expects that data is processed in
+			 * full, and can't deal with partially
+			 * processed data.
 			 */
-			hmsib = tfw_http_msg_create_sibling((TfwHttpMsg *)req,
-							    &skb, data_off);
-			if (unlikely(!hmsib)) {
-				/*
-				 * Unfortunately, there's no recourse. The
-				 * caller expects that data is processed in
-				 * full, and can't deal with partially
-				 * processed data.
-				 */
-				TFW_INC_STAT_BH(clnt.msgs_otherr);
-				tfw_client_drop(req, 500, "cannot create"
-					      " sibling request");
-				return TFW_BLOCK;
-			}
-		}
-
-		/*
-		 * Complete HTTP message has been collected and processed
-		 * with success. Mark the message as complete in @conn as
-		 * further handling of @conn depends on that. Future SKBs
-		 * will be put in a new message.
-		 * On an error the function returns from anywhere inside
-		 * the loop. @conn->msg holds the reference to the message,
-		 * which can be used to release it.
-		 */
-		tfw_connection_unlink_msg(conn);
-
-		/*
-		 * Add the request to the list of the client connection
-		 * to preserve the correct order of responses to requests.
-		 */
-		tfw_http_req_add_seq_queue(req);
-
-		/*
-		 * If no virtual host has been found for current request, there
-		 * is no sense for its further processing, so we drop it, send
-		 * error response to client and move on to the next request.
-		 */
-		if (!req->vhost) {
-			tfw_http_send_resp(req, 404, "request dropped: cannot"
-					   " find appropriate virtual host");
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
-		} else if (tfw_cache_process((TfwHttpMsg *)req,
-					     tfw_http_req_cache_cb))
-		{
-			/*
-			 * The request should either be stored or released.
-			 * Otherwise we lose the reference to it and get a leak.
-			 */
-			tfw_http_send_resp(req, 500, "request dropped:"
-					   " processing error");
-			TFW_INC_STAT_BH(clnt.msgs_otherr);
-		}
-
-		/*
-		 * According to RFC 7230 6.3.2, connection with a client
-		 * must be dropped after a response is sent to that client,
-		 * if the client sends "Connection: close" header field in
-		 * the request. Subsequent requests from the client coming
-		 * over the same connection are ignored.
-		 *
-		 * Note: This connection's @conn must not be dereferenced
-		 * from this point on.
-		 */
-		if (req_conn_close)
-			break;
-
-		if (hmsib) {
-			/*
-			 * Switch connection to the new sibling message.
-			 * Data processing will continue with the new SKB.
-			 */
-			data_off = 0;
-			skb_len = skb->len;
-			conn->msg = (TfwMsg *)hmsib;
+			err.status = 500;
+			err.reason = "Can't create sibling request";
+			goto drop;
 		}
 	}
 
+	/*
+	 * Complete HTTP message has been collected and processed
+	 * with success. Mark the message as complete in @conn as
+	 * further handling of @conn depends on that. Future SKBs
+	 * will be put in a new message.
+	 * On an error the function returns from anywhere inside
+	 * the loop. @conn->msg holds the reference to the message,
+	 * which can be used to release it.
+	 */
+	tfw_connection_unlink_msg(conn);
+
+	/*
+	 * Add the request to the list of the client connection
+	 * to preserve the correct order of responses to requests.
+	 */
+	tfw_http_req_add_seq_queue(req);
+
+	/*
+	 * If no virtual host has been found for current request, there
+	 * is no sense for its further processing, so we drop it, send
+	 * error response to client and move on to the next request.
+	 */
+	if (unlikely(!req->vhost)) {
+		tfw_http_send_resp(req, 404,
+				   "request dropped: can't find virtual host");
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
+	} else if (tfw_cache_process((TfwHttpMsg *)req,
+				     tfw_http_req_cache_cb))
+	{
+		/*
+		 * The request should either be stored or released.
+		 * Otherwise we lose the reference to it and get a leak.
+		 */
+		tfw_http_send_resp(req, 500,
+				   "request dropped: processing error");
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
+	}
+
+	/*
+	 * According to RFC 7230 6.3.2, connection with a client
+	 * must be dropped after a response is sent to that client,
+	 * if the client sends "Connection: close" header field in
+	 * the request. Subsequent requests from the client coming
+	 * over the same connection are ignored.
+	 */
+	if (!req_conn_close && hmsib) {
+		/*
+		 * Switch connection to the new sibling message.
+		 * Data processing will continue with the new SKB.
+		 */
+		data_off = 0;
+		conn->msg = (TfwMsg *)hmsib;
+		goto next_msg;
+	}
+	/*
+	 * This connection's @conn must not be dereferenced from this point on.
+	 */
+out:
+	/*
+	 * TFW_POSTPONE status means that parsing succeeded
+	 * but more data is needed to complete it. Lower layers
+	 * just supply data for parsing. They only want to know
+	 * if processing of a message should continue or not.
+	 */
+	if (r == TFW_POSTPONE)
+		r = TFW_PASS;
 	return r;
+
+drop:	/*
+	 * Unrecoverable error. Stop from parsing new requests,
+	 * but continue to serve previous requests.
+	 */
+	tfw_client_drop(req, err.status, err.reason);
+
+	return TFW_BLOCK;
+
+block:	/*
+	 * An attack was detected. Shutdown the client connection immediatelly
+	 * and drop all pending requests.
+	 */
+	TFW_INC_STAT_BH(clnt.msgs_filtout);
+	err.status = 403;
+	tfw_client_block(req, err.status, err.reason);
+
+	return TFW_BLOCK;
 }
 
 /**
