@@ -821,9 +821,14 @@ __http_req_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 }
 
 static inline void
-tfw_http_req_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
+tfw_http_req_delist(TfwHttpMsg *hmresp)
 {
+	TfwHttpReq *req = hmresp->req;
+	TfwSrvConn *srv_conn = (TfwSrvConn *)hmresp->conn;
+
 	spin_lock(&srv_conn->fwd_qlock);
+	if ((TfwMsg *)req == srv_conn->msg_sent)
+		srv_conn->msg_sent = NULL;
 	__http_req_delist(srv_conn, req);
 	spin_unlock(&srv_conn->fwd_qlock);
 }
@@ -3467,7 +3472,7 @@ bad_msg:
 	 * discard all pending requests.
 	 */
 	bad_req = hmresp->req;
-	tfw_http_req_delist((TfwSrvConn *)conn, bad_req);
+	tfw_http_req_delist(hmresp);
 	tfw_http_conn_msg_free(hmresp);
 	if (attack)
 		tfw_srv_client_block(bad_req, 403,
