@@ -3282,197 +3282,199 @@ tfw_http_resp_process(TfwConn *conn, const TfwFsmData *data)
 	struct sk_buff *skb = data->skb;
 	unsigned int off = data->off;
 	unsigned int data_off = off;
-	unsigned int skb_len = skb->len;
 	TfwHttpReq *bad_req;
-	TfwHttpMsg *hmresp;
+	TfwHttpMsg *hmresp, *hmsib;
+	TfwHttpParser *parser;
 	TfwFsmData data_up;
-	bool filtout = false;
+	bool attack = false;
 
 	BUG_ON(!conn->msg);
-	BUG_ON(data_off >= skb_len);
+	BUG_ON(data_off >= skb->len);
 
 	TFW_DBG2("received %u server data bytes on conn=%p msg=%p\n",
 		skb->len - off, conn, conn->msg);
 	/*
-	 * Process pipelined requests in a loop
+	 * Process pipelined responses in a loop
 	 * until all data in the SKB is processed.
 	 */
-	while (data_off < skb_len) {
-		TfwHttpMsg *hmsib = NULL;
-		TfwHttpParser *parser;
+next_msg:
+	hmsib = NULL;
+	hmresp = (TfwHttpMsg *)conn->msg;
+	parser = &conn->parser;
 
-		hmresp = (TfwHttpMsg *)conn->msg;
-		parser = &conn->parser;
+	/*
+	 * Process/parse data in the SKB.
+	 * @off points at the start of data for processing.
+	 * @data_off is the current offset of data to process in
+	 * the SKB. After processing @data_off points at the end
+	 * of latest data chunk. However processing may have
+	 * stopped in the middle of the chunk. Adjust it to point
+	 * at correct location within the chunk.
+	 */
+	off = data_off;
+	r = ss_skb_process(skb, &data_off, tfw_http_parse_resp, hmresp);
+	data_off -= parser->to_go;
+	hmresp->msg.len += data_off - off;
+	TFW_ADD_STAT_BH(data_off - off, serv.rx_bytes);
 
-		/*
-		 * Process/parse data in the SKB.
-		 * @off points at the start of data for processing.
-		 * @data_off is the current offset of data to process in
-		 * the SKB. After processing @data_off points at the end
-		 * of latest data chunk. However processing may have
-		 * stopped in the middle of the chunk. Adjust it to point
-		 * at correct location within the chunk.
-		 */
-		off = data_off;
-		r = ss_skb_process(skb, &data_off, tfw_http_parse_resp, hmresp);
-		data_off -= parser->to_go;
-		hmresp->msg.len += data_off - off;
-		TFW_ADD_STAT_BH(data_off - off, serv.rx_bytes);
+	TFW_DBG2("Response parsed: len=%u parsed=%d msg_len=%lu ver=%d res=%d\n",
+		 skb->len - off, data_off - off, hmresp->msg.len,
+		 hmresp->version, r);
 
-		TFW_DBG2("Response parsed: len=%u parsed=%d msg_len=%lu"
-			 " ver=%d res=%d\n",
-			 skb_len - off, data_off - off, hmresp->msg.len,
-			 hmresp->version, r);
+	/*
+	 * We have to keep @data the same to pass it as is to FSMs
+	 * registered with lower priorities after us, but we must
+	 * feed the new data version to FSMs registered on our states.
+	 */
+	data_up.skb = skb;
+	data_up.off = off;
+	data_up.req = (TfwMsg *)hmresp->req;
+	data_up.resp = (TfwMsg *)hmresp;
 
-		/*
-		 * We have to keep @data the same to pass it as is to FSMs
-		 * registered with lower priorities after us, but we must
-		 * feed the new data version to FSMs registered on our states.
-		 */
-		data_up.skb = skb;
-		data_up.off = off;
-		data_up.req = NULL;
-		data_up.resp = (TfwMsg *)hmresp;
+	switch (r) {
+	default:
+		TFW_ERR("Unrecognized HTTP response parser return code, %d\n",
+			r);
+		TFW_INC_STAT_BH(serv.msgs_parserr);
+		goto bad_msg;
 
-		switch (r) {
-		default:
-			TFW_ERR("Unrecognized HTTP response "
-				"parser return code, %d\n", r);
-			BUG();
-		case TFW_BLOCK:
-			/*
-			 * The response has not been fully parsed. There's no
-			 * choice but report a critical error. The lower layer
-			 * will close the connection and release the response
-			 * message, and well as all request messages that went
-			 * out on this connection and are waiting for paired
-			 * response messages.
-			 */
-			TFW_DBG2("Block invalid HTTP response\n");
-			TFW_INC_STAT_BH(serv.msgs_parserr);
+	case TFW_BLOCK:
+		TFW_DBG2("Block invalid HTTP response\n");
+		TFW_INC_STAT_BH(serv.msgs_parserr);
+		goto bad_msg;
+
+	case TFW_POSTPONE:
+		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_RESP_CHUNK,
+				  &data_up);
+		TFW_DBG3("TFW_HTTP_FSM_RESP_CHUNK return code %d\n", r);
+		if (r == TFW_BLOCK) {
+			TFW_INC_STAT_BH(serv.msgs_filtout);
+			attack = true;
 			goto bad_msg;
-		case TFW_POSTPONE:
-			r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_RESP_CHUNK,
-					  &data_up);
-			TFW_DBG3("TFW_HTTP_FSM_RESP_CHUNK return code %d\n", r);
-			if (r == TFW_BLOCK) {
-				TFW_INC_STAT_BH(serv.msgs_filtout);
-				filtout = true;
-				goto bad_msg;
-			}
-			/*
-			 * TFW_POSTPONE status means that parsing succeeded
-			 * but more data is needed to complete it. Lower layers
-			 * just supply data for parsing. They only want to know
-			 * if processing of a message should continue or not.
-			 */
-			return TFW_PASS;
-		case TFW_PASS:
-			/*
-			 * The response is fully parsed, fall through and
-			 * process it. If the response has broken length, then
-			 * block it (the server connection will be dropped).
-			 */
-			if (!(test_bit(TFW_HTTP_CHUNKED, hmresp->flags)
-			      || test_bit(TFW_HTTP_VOID_BODY, hmresp->flags))
-			    && (hmresp->content_length != hmresp->body.len))
-			{
-				goto bad_msg;
-			}
 		}
+		goto out;
 
+	case TFW_PASS:
 		/*
-		 * Verify response in context of http health monitor,
-		 * and mark server as disabled/enabled.
-		 *
-		 * TODO (TBD) Probably we should close server connection here to
-		 * make all queued request be rescheduled to other servers.
-		 * Also it's a common practice to reset and reestablish
-		 * connections with buggy applications. Now we stop scheduling
-		 * new requests to the server and forward all, probably error
-		 * responses, for queued requests to clients.
+		 * The response is fully parsed, fall through and
+		 * process it. If the response has broken length, then
+		 * block it (the server connection will be dropped).
 		 */
-		tfw_http_hm_control((TfwHttpResp *)hmresp);
-
-		/*
-		 * Pass the response to GFSM for further processing.
-		 * Drop server connection in case of serious error or security
-		 * event.
-		 */
-		r = tfw_http_resp_gfsm(hmresp, &data_up);
-		if (unlikely(r < TFW_PASS))
-			return TFW_BLOCK;
-
-		/*
-		 * If @skb's data has not been processed in full, then
-		 * we have pipelined responses. Create a sibling message.
-		 * @skb is replaced with a pointer to a new SKB.
-		 */
-		if (data_off < skb_len) {
-			hmsib = tfw_http_msg_create_sibling(hmresp, &skb,
-							    data_off);
-			/*
-			 * In case of an error there's no recourse. The
-			 * caller expects that data is processed in full,
-			 * and can't deal with partially processed data.
-			 */
-			if (unlikely(!hmsib)) {
-				TFW_INC_STAT_BH(serv.msgs_otherr);
-				/*
-				 * Unable to create a sibling message.
-				 * Send the parsed response to the client
-				 * and close the server connection.
-				 */
-				tfw_http_resp_cache(hmresp);
-				return TFW_BLOCK;
-			}
-		}
-
-		/*
-		 * If a non critical error occurred in further GFSM processing,
-		 * then the response and the paired request had been handled.
-		 * Keep the server connection open for data exchange.
-		 */
-		if (unlikely(r != TFW_PASS)) {
-			r = TFW_PASS;
-			goto next_resp;
-		}
-		/*
-		 * Pass the response to cache for further processing.
-		 * In the end, the response is sent on to the client.
-		 */
-		if (tfw_http_resp_cache(hmresp))
-			return TFW_BLOCK;
-next_resp:
-		if (hmsib) {
-			/*
-			 * Switch the connection to the sibling message.
-			 * Data processing will continue with the new SKB.
-			 */
-			data_off = 0;
-			skb_len = skb->len;
-			conn->msg = (TfwMsg *)hmsib;
+		if (!(test_bit(TFW_HTTP_CHUNKED, hmresp->flags)
+		      || test_bit(TFW_HTTP_VOID_BODY, hmresp->flags))
+		    && (hmresp->content_length != hmresp->body.len))
+		{
+			goto bad_msg;
 		}
 	}
 
+	/*
+	 * Verify response in context of http health monitor,
+	 * and mark server as disabled/enabled.
+	 *
+	 * TODO (TBD) Probably we should close server connection here to
+	 * make all queued request be rescheduled to other servers.
+	 * Also it's a common practice to reset and reestablish
+	 * connections with buggy applications. Now we stop scheduling
+	 * new requests to the server and forward all, probably error
+	 * responses, for queued requests to clients.
+	 */
+	tfw_http_hm_control((TfwHttpResp *)hmresp);
+
+	/*
+	 * Pass the response to GFSM for further processing.
+	 * Drop server connection in case of serious error or security
+	 * event.
+	 */
+	/* TODO */
+	r = tfw_http_resp_gfsm(hmresp, &data_up);
+	if (unlikely(r < TFW_PASS))
+		return TFW_BLOCK;
+
+	/*
+	 * If @skb's data has not been processed in full, then
+	 * we have pipelined responses. Create a sibling message.
+	 * @skb is replaced with a pointer to a new SKB.
+	 */
+	if (data_off < skb->len) {
+		hmsib = tfw_http_msg_create_sibling(hmresp, &skb, data_off);
+		/*
+		 * In case of an error there's no recourse. The
+		 * caller expects that data is processed in full,
+		 * and can't deal with partially processed data.
+		 */
+		if (unlikely(!hmsib)) {
+			TFW_INC_STAT_BH(serv.msgs_otherr);
+			/*
+			 * Unable to create a sibling message.
+			 * Send the parsed response to the client
+			 * and close the server connection.
+			 *
+			 * TODO: can't use response if ss_skb_split() failed.
+			 */
+			tfw_http_resp_cache(hmresp);
+			return TFW_BLOCK;
+		}
+	}
+
+	/*
+	 * If a non critical error occurred in further GFSM processing,
+	 * then the response and the paired request had been handled.
+	 * Keep the server connection open for data exchange.
+	 */
+	if (unlikely(r != TFW_PASS)) {
+		/* TODO */
+		r = TFW_PASS;
+		goto next_resp;
+	}
+	/*
+	 * Pass the response to cache for further processing.
+	 * In the end, the response is sent on to the client.
+	 */
+	if (tfw_http_resp_cache(hmresp))
+		return TFW_BLOCK;
+next_resp:
+	if (hmsib) {
+		/*
+		 * Switch the connection to the sibling message.
+		 * Data processing will continue with the new SKB.
+		 */
+		data_off = 0;
+		conn->msg = (TfwMsg *)hmsib;
+		goto next_msg;
+	}
+
+out:
+	/*
+	 * TFW_POSTPONE status means that parsing succeeded
+	 * but more data is needed to complete it. Lower layers
+	 * just supply data for parsing. They only want to know
+	 * if processing of a message should continue or not.
+	 */
+	if (r == TFW_POSTPONE)
+		r = TFW_PASS;
 	return r;
+
 bad_msg:
 	/*
-	 * Send error response for the bad requests if necessary.
-	 * In any case remove the request form forward and nip queues -
-	 * we won't resend it.
+	 * Response can't be parsed. This is not a network failure,
+	 * it's very likely that the same situation happen if the corresponding
+	 * request will be sent once again. Keep buggy request away from
+	 * servers: remove the request from forward and nip queues and send
+	 * a 403 response if necessary.
+	 *
+	 * If the issue was treated as the attack, disconnect the client and
+	 * discard all pending requests.
 	 */
 	bad_req = hmresp->req;
 	tfw_http_req_delist((TfwSrvConn *)conn, bad_req);
 	tfw_http_conn_msg_free(hmresp);
-	if (filtout)
-		tfw_srv_client_block(bad_req, 502,
-				     "response blocked:"
-				     " filtered out");
+	if (attack)
+		tfw_srv_client_block(bad_req, 403,
+				     "response blocked: filtered out");
 	else
-		tfw_srv_client_drop(bad_req, 502,
-				    "response dropped:"
-				    " processing error");
+		tfw_srv_client_drop(bad_req, 403,
+				    "response dropped: processing error");
 	return TFW_BLOCK;
 }
 
