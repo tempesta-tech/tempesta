@@ -673,6 +673,15 @@ tfw_http_resp_init_ss_flags(TfwHttpResp *resp)
 		resp->msg.ss_flags |= SS_F_CONN_CLOSE;
 }
 
+/**
+ * Check if a request is streamed.
+ */
+static inline bool
+tfw_http_msg_is_stream_done(TfwHttpMsg *hm)
+{
+	return test_bit(TFW_HTTP_STREAM_DONE, hm->flags);
+}
+
 /*
  * Check if a request is non-idempotent.
  */
@@ -2813,6 +2822,35 @@ tfw_http_hm_drop_resp(TfwHttpResp *resp)
 }
 
 /**
+ * @return TFW_PASS if the message is streamed and can be processed,
+ * and TFW_POSTPONE if more buffering is required.
+ */
+static int
+tfw_http_msg_stream_process(TfwHttpMsg *hm, size_t buff_lim)
+{
+	/* Not the first part of the message, stream if it's safe. */
+	if (test_bit(TFW_HTTP_STREAM, hm->flags))
+		return tfw_http_parser_msg_may_stream(hm);
+
+	if ((hm->msg.len <= buff_lim) ||
+	    (tfw_http_parser_msg_may_stream(hm) == TFW_POSTPONE))
+		return TFW_POSTPONE;
+
+	__set_bit(TFW_HTTP_STREAM, hm->flags);
+	/*
+	 * TODO: create sibling message, which describes the streamed part,
+	 */
+	return TFW_PASS;
+}
+
+static int
+tfw_http_req_stream_process(TfwHttpReq *req)
+{
+	return tfw_http_msg_stream_process((TfwHttpMsg *)req,
+					   tfw_cfg_cli_msg_buff_sz);
+}
+
+/**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
  */
@@ -2905,7 +2943,11 @@ next_msg:
 			err.reason =  "postponed request has been filtered out";
 			goto drop;
 		}
-		goto out;
+		r = tfw_http_req_stream_process(req);
+		if (r == TFW_POSTPONE)
+			goto out;
+		TFW_DBG2("Process streamed request\n");
+		/* Fall through to process streamed request. */
 
 	case TFW_PASS:
 		if (unlikely(!test_bit(TFW_HTTP_CHUNKED, req->flags)
@@ -3305,6 +3347,13 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 	}
 }
 
+static int
+tfw_http_resp_stream_process(TfwHttpResp *resp)
+{
+	return tfw_http_msg_stream_process((TfwHttpMsg *)resp,
+					   tfw_cfg_srv_msg_buff_sz);
+}
+
 /**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
@@ -3385,7 +3434,11 @@ next_msg:
 			attack = true;
 			goto bad_msg;
 		}
-		goto out;
+		r = tfw_http_resp_stream_process((TfwHttpResp *)hmresp);
+		if (r == TFW_POSTPONE)
+			goto out;
+		TFW_DBG2("Process streamed response\n");
+		/* Fall through to process streamed request. */
 
 	case TFW_PASS:
 		/*
@@ -3675,7 +3728,8 @@ tfw_cfgop_cleanup_block_action(TfwCfgSpec *cs)
 }
 
 static int
-tfw_cfgop_proxy_buffering(TfwCfgSpec *cs, TfwCfgEntry *ce, size_t *proxy_buff_sz)
+tfw_cfgop_proxy_buffering(TfwCfgSpec *cs, TfwCfgEntry *ce,
+			  size_t *proxy_buff_sz)
 {
 	int r;
 	long val = 0;
