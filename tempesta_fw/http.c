@@ -1687,7 +1687,7 @@ tfw_http_resp_pair(TfwHttpMsg *hmresp)
  * instance. Increment the number of users of the instance. Initialize
  * GFSM for the message.
  */
-static TfwMsg *
+static TfwHttpMsg *
 tfw_http_conn_msg_alloc(TfwConn *conn)
 {
 	int type = TFW_CONN_TYPE(conn);
@@ -1713,7 +1713,7 @@ tfw_http_conn_msg_alloc(TfwConn *conn)
 		TFW_INC_STAT_BH(serv.rx_messages);
 	}
 
-	return (TfwMsg *)hm;
+	return hm;
 }
 
 /*
@@ -1913,7 +1913,7 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
 	TFW_DBG2("Create sibling message: conn %p, skb %p\n", hm->conn, skb);
 
 	/* The sibling message belongs to the same connection. */
-	shm = (TfwHttpMsg *)tfw_http_conn_msg_alloc(hm->conn);
+	shm = tfw_http_conn_msg_alloc(hm->conn);
 	if (unlikely(!shm)) {
 		/*
 		 * Split skb to proceed with current message @hm, or rest of
@@ -3377,12 +3377,13 @@ tfw_http_msg_process(void *conn, const TfwFsmData *data)
 	TfwConn *c = (TfwConn *)conn;
 
 	if (unlikely(!c->msg)) {
-		c->msg = tfw_http_conn_msg_alloc(c);
-		if (!c->msg) {
+		TfwHttpMsg *hm = tfw_http_conn_msg_alloc(c);
+		if (!hm) {
 			__kfree_skb(data->skb);
 			return TFW_BLOCK;
 		}
-		tfw_http_mark_wl_new_msg(c, (TfwHttpMsg *)c->msg, data->skb);
+		c->msg = (TfwMsg *)hm;
+		tfw_http_mark_wl_new_msg(c, hm, data->skb);
 		TFW_DBG2("Link new msg %p with connection %p\n", c->msg, c);
 	}
 
