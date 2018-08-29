@@ -185,22 +185,17 @@ typedef struct {
 /* Connection flags are defined by the bit number. */
 enum {
 	/* Need to re-send requests. */
-	TFW_CONN_B_RESEND = 0,
+	TFW_CONN_RESEND = 0,
 	/* Need to forward requests in the queue. */
-	TFW_CONN_B_QFORWD,
+	TFW_CONN_QFORWD,
 	/* Has non-idempotent requests. */
-	TFW_CONN_B_HASNIP,
+	TFW_CONN_HASNIP,
 
 	/* Remove connection */
-	TFW_CONN_B_DEL,
+	TFW_CONN_DEL,
 	/* Connection is in use or at least scheduled to be established. */
-	TFW_CONN_B_ACTIVE
+	TFW_CONN_ACTIVE
 };
-
-#define TFW_CONN_F_RESEND	(1 << TFW_CONN_B_RESEND)
-#define TFW_CONN_F_QFORWD	(1 << TFW_CONN_B_QFORWD)
-#define TFW_CONN_F_HASNIP	(1 << TFW_CONN_B_HASNIP)
-
 
 /**
  * TLS hardened connection.
@@ -274,7 +269,7 @@ extern TfwConnHooks *conn_hooks[TFW_CONN_MAX_PROTOS];
 static inline bool
 tfw_srv_conn_restricted(TfwSrvConn *srv_conn)
 {
-	return test_bit(TFW_CONN_B_RESEND, &srv_conn->flags);
+	return test_bit(TFW_CONN_RESEND, &srv_conn->flags);
 }
 
 /*
@@ -283,7 +278,7 @@ tfw_srv_conn_restricted(TfwSrvConn *srv_conn)
 static inline bool
 tfw_srv_conn_hasnip(TfwSrvConn *srv_conn)
 {
-	return test_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
+	return test_bit(TFW_CONN_HASNIP, &srv_conn->flags);
 }
 
 static inline bool

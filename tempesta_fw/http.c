@@ -698,7 +698,7 @@ static inline void
 tfw_http_conn_nip_reset(TfwSrvConn *srv_conn)
 {
 	if (list_empty(&srv_conn->nip_queue))
-		clear_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
+		clear_bit(TFW_CONN_HASNIP, &srv_conn->flags);
 }
 
 /*
@@ -710,7 +710,7 @@ tfw_http_req_nip_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
 	BUG_ON(!list_empty(&req->nip_list));
 	list_add_tail(&req->nip_list, &srv_conn->nip_queue);
-	set_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
+	set_bit(TFW_CONN_HASNIP, &srv_conn->flags);
 }
 
 /*
@@ -1297,8 +1297,8 @@ tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *eq)
 static inline void
 __tfw_srv_conn_clear_restricted(TfwSrvConn *srv_conn)
 {
-	clear_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
-	if (test_and_clear_bit(TFW_CONN_B_RESEND, &srv_conn->flags))
+	clear_bit(TFW_CONN_QFORWD, &srv_conn->flags);
+	if (test_and_clear_bit(TFW_CONN_RESEND, &srv_conn->flags))
 		TFW_DEC_STAT_BH(serv.conn_restricted);
 }
 
@@ -1330,7 +1330,7 @@ tfw_http_conn_fwd_repair(TfwSrvConn *srv_conn, struct list_head *eq)
 
 	if (tfw_srv_conn_reenable_if_done(srv_conn))
 		return;
-	if (test_bit(TFW_CONN_B_QFORWD, &srv_conn->flags)) {
+	if (test_bit(TFW_CONN_QFORWD, &srv_conn->flags)) {
 		if (tfw_http_conn_need_fwd(srv_conn))
 			tfw_http_conn_fwd_unsent(srv_conn, eq);
 	} else {
@@ -1346,7 +1346,7 @@ tfw_http_conn_fwd_repair(TfwSrvConn *srv_conn, struct list_head *eq)
 		if (srv_conn->msg_sent)
 			srv_conn->msg_sent =
 				tfw_http_conn_resend(srv_conn, false, eq);
-		set_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
+		set_bit(TFW_CONN_QFORWD, &srv_conn->flags);
 		if (tfw_http_conn_need_fwd(srv_conn))
 			tfw_http_conn_fwd_unsent(srv_conn, eq);
 	}
@@ -1535,7 +1535,7 @@ tfw_http_conn_shrink_fwdq_resched(TfwSrvConn *srv_conn)
 	srv_conn->qsize = 0;
 	srv_conn->msg_sent = NULL;
 	INIT_LIST_HEAD(&srv_conn->nip_queue);
-	clear_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
+	clear_bit(TFW_CONN_HASNIP, &srv_conn->flags);
 
 	spin_unlock_bh(&srv_conn->fwd_qlock);
 
@@ -1615,7 +1615,7 @@ tfw_http_conn_repair(TfwConn *conn)
 	/* If none re-sent, then send the remaining unsent requests. */
 	if (!srv_conn->msg_sent) {
 		if (!list_empty(&srv_conn->fwd_queue)) {
-			set_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
+			set_bit(TFW_CONN_QFORWD, &srv_conn->flags);
 			tfw_http_conn_fwd_unsent(srv_conn, &eq);
 		}
 		tfw_srv_conn_reenable_if_done(srv_conn);
@@ -1730,7 +1730,7 @@ tfw_http_conn_init(TfwConn *conn)
 	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 		if (!list_empty(&srv_conn->fwd_queue)) {
-			set_bit(TFW_CONN_B_RESEND, &srv_conn->flags);
+			set_bit(TFW_CONN_RESEND, &srv_conn->flags);
 			TFW_INC_STAT_BH(serv.conn_restricted);
 		}
 	}
@@ -1771,7 +1771,7 @@ tfw_http_conn_release(TfwConn *conn)
 		 * Server is removed from configuration and won't be available
 		 * any more, reschedule it's forward queue.
 		 */
-		if (unlikely(test_bit(TFW_CONN_B_DEL, &srv_conn->flags)))
+		if (unlikely(test_bit(TFW_CONN_DEL, &srv_conn->flags)))
 			tfw_http_conn_shrink_fwdq_resched(srv_conn);
 		__tfw_srv_conn_clear_restricted(srv_conn);
 
