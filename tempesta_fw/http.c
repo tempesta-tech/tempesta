@@ -742,15 +742,30 @@ tfw_http_conn_nip_adjust(TfwSrvConn *srv_conn)
 
 /*
  * Tell if the server connection's forwarding queue is on hold.
- * It's on hold it the request that was sent last was non-idempotent.
+ * It's on hold it the request that was sent last was non-idempotent
+ * or streamed. Don't try to send more than one streamed requests at once:
+ * such request are not stored in Tempesta, and can't be re-forwarded in
+ * case of network errors.
  */
 static inline bool
-tfw_http_conn_on_hold(TfwSrvConn *srv_conn)
+tfw_http_srv_conn_on_hold(TfwSrvConn *srv_conn)
 {
 	TfwHttpReq *req_sent = (TfwHttpReq *)srv_conn->msg_sent;
 
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
-	return (req_sent && tfw_http_req_is_nip(req_sent));
+	return (req_sent
+		&& (tfw_http_req_is_nip(req_sent)
+		    || tfw_http_msg_is_streamed((TfwHttpMsg *)req_sent)));
+}
+
+static inline bool
+tfw_http_cli_conn_on_hold(TfwCliConn *cli_conn)
+{
+	TfwHttpResp *resp_sent = (TfwHttpResp *)cli_conn->msg_sent;
+
+	BUG_ON(!(TFW_CONN_TYPE(cli_conn) & Conn_Clnt));
+	return (resp_sent
+		&& tfw_http_msg_is_streamed((TfwHttpMsg *)resp_sent));
 }
 
 /*
@@ -782,7 +797,7 @@ tfw_http_conn_drained(TfwSrvConn *srv_conn)
 static inline bool
 tfw_http_conn_need_fwd(TfwSrvConn *srv_conn)
 {
-	return (!tfw_http_conn_on_hold(srv_conn)
+	return (!tfw_http_srv_conn_on_hold(srv_conn)
 		&& !tfw_http_conn_drained(srv_conn));
 }
 
@@ -1052,7 +1067,10 @@ static inline bool
 tfw_http_req_evict_retries(TfwSrvConn *srv_conn, TfwServer *srv,
 			   TfwHttpReq *req, struct list_head *eq)
 {
-	if (unlikely(req->retries++ >= srv->sg->max_refwd)) {
+	/* Streamed request is not stored in Tempesta, can't resend it. */
+	if (unlikely(req->retries++ >= srv->sg->max_refwd)
+	    || tfw_http_msg_is_streamed((TfwHttpMsg *)req))
+	{
 		TFW_DBG2("%s: Eviction: req=[%p] retries=[%d]\n",
 			 __func__, req, req->retries);
 		tfw_http_req_err(srv_conn, req, eq, 504,
@@ -1158,6 +1176,9 @@ tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *eq)
 	list_for_each_entry_safe_from(req, tmp, fwd_queue, fwd_list) {
 		if (!tfw_http_req_fwd_single(srv_conn, srv, req, eq))
 			continue;
+		/* Stop forwarding if the request is in streaming. */
+		if (tfw_http_msg_is_streamed((TfwHttpMsg *)req))
+			break;
 		/* Stop forwarding if the request is non-idempotent. */
 		if (tfw_http_req_is_nip(req))
 			break;
@@ -1209,7 +1230,7 @@ tfw_http_req_fwd(TfwSrvConn *srv_conn, TfwHttpReq *req, struct list_head *eq)
 	srv_conn->qsize++;
 	if (tfw_http_req_is_nip(req))
 		tfw_http_req_nip_enlist(srv_conn, req);
-	if (tfw_http_conn_on_hold(srv_conn)) {
+	if (tfw_http_srv_conn_on_hold(srv_conn)) {
 		spin_unlock_bh(&srv_conn->fwd_qlock);
 		return;
 	}
@@ -1237,7 +1258,7 @@ tfw_http_conn_treatnip(TfwSrvConn *srv_conn, struct list_head *eq)
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
 	TfwHttpReq *req_sent = (TfwHttpReq *)srv_conn->msg_sent;
 
-	if (tfw_http_conn_on_hold(srv_conn)
+	if (tfw_http_srv_conn_on_hold(srv_conn)
 	    && !(srv->sg->flags & TFW_SRV_RETRY_NIP))
 	{
 		BUG_ON(list_empty(&req_sent->nip_list));
@@ -2330,6 +2351,11 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 	}
 	BUG_ON(list_empty(&req->msg.seq_list));
 	__set_bit(TFW_HTTP_RESP_READY, resp->flags);
+	/* Client is receiving streamed response. */
+	if (tfw_http_cli_conn_on_hold(cli_conn)) {
+		spin_unlock_bh(&cli_conn->seq_qlock);
+		return;
+	}
 	/* Move consecutive requests with @req->resp to @ret_queue. */
 	list_for_each_entry(req, seq_queue, msg.seq_list) {
 		if (!req->resp

@@ -222,6 +222,14 @@ enum {
 	/* Singular header presents more than once. */
 	TFW_HTTP_FIELD_DUPENTRY,
 
+	/* Streaming flags */
+	/* Message is not fully buffered and has a streamed part. */
+	TFW_HTTP_STREAM,
+	/* Message has a streamed part, and streamed part is fully read. */
+	TFW_HTTP_STREAM_DONE,
+	/* The message represents stream part, not a full-size one. */
+	TFW_HTTP_STREAM_PART,
+
 	/* Request flags. */
 	TFW_HTTP_FLAGS_REQ,
 	/* Sticky cookie is found and verified. */
@@ -496,6 +504,12 @@ void tfw_http_resp_fwd(TfwHttpResp *resp);
 void tfw_http_resp_build_error(TfwHttpReq *req);
 int tfw_cfgop_parse_http_status(const char *status, int *out);
 void tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len);
+
+static inline bool
+tfw_http_msg_is_streamed(TfwHttpMsg *hm)
+{
+	return test_bit(TFW_HTTP_STREAM, hm->flags);
+}
 
 /*
  * Functions to send an HTTP error response to a client.
