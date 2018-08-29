@@ -675,11 +675,8 @@ tfw_http_req_init_ss_flags(TfwSrvConn *srv_conn, TfwHttpReq *req)
 static inline void
 tfw_http_resp_init_ss_flags(TfwHttpResp *resp)
 {
-	if (test_bit(TFW_HTTP_CONN_CLOSE, resp->req->flags)
-	    || test_bit(TFW_HTTP_SUSPECTED, resp->req->flags))
-	{
+	if (test_bit(TFW_HTTP_CONN_CLOSE, resp->req->flags))
 		resp->msg.ss_flags |= SS_F_CONN_CLOSE;
-	}
 }
 
 /*
@@ -1976,6 +1973,13 @@ tfw_http_set_hdr_date(TfwHttpMsg *hm)
 	return r;
 }
 
+static inline void
+tfw_http_req_set_conn_close(TfwHttpReq *req)
+{
+	__clear_bit(TFW_HTTP_CONN_KA, req->flags);
+	__set_bit(TFW_HTTP_CONN_CLOSE, req->flags);
+}
+
 /**
  * Remove Connection header from HTTP message @msg if @conn_flg is zero,
  * and replace or set a new header value otherwise.
@@ -2184,8 +2188,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 	if (test_bit(TFW_HTTP_CONN_CLOSE, resp->flags)
 	    && (resp->status / 100 == 4))
 	{
-		__clear_bit(TFW_HTTP_CONN_KA, req->flags);
-		__set_bit(TFW_HTTP_CONN_CLOSE, req->flags);
+		tfw_http_req_set_conn_close(req);
 		conn_flg = BIT(TFW_HTTP_CONN_CLOSE);
 	}
 	else
@@ -2380,7 +2383,7 @@ static inline void
 tfw_http_req_mark_error(TfwHttpReq *req, int status)
 {
 	TFW_CONN_TYPE(req->conn) |= Conn_Stop;
-	__set_bit(TFW_HTTP_SUSPECTED, req->flags);
+	tfw_http_req_set_conn_close(req);
 	tfw_http_error_resp_switch(req, status);
 }
 
