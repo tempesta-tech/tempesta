@@ -422,6 +422,19 @@ tfw_cache_employ_resp(TfwHttpResp *resp)
 #undef CC_RESP_CACHEIT
 #undef CC_RESP_DONTCACHE
 #undef CC_REQ_DONTCACHE
+	/*
+	 * TODO: caching of streamed responses.
+	 * Streamed response can be cached, but at any time the response
+	 * can be destroyed due to connection error or frang decisions.
+	 * Although incomplete cache entry might be helpful to serve ranged
+	 * responses, it's cannot be used until frang allow it.
+	 * TBD:
+	 * Size of streamed response is limited by 'server_msg_buffering'
+	 * directive to avoid memory exhaustion by single message. Same
+	 * option should be provided for cache.
+	 */
+	if (test_bit(TFW_HTTP_STREAM, resp->flags))
+		return false;
 
 	return true;
 }
