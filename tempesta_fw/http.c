@@ -3094,8 +3094,8 @@ tfw_http_resp_cache_cb(TfwHttpMsg *msg)
 	 */
 	if (tfw_http_adjust_resp(resp)) {
 		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
-		tfw_http_send_resp(req, 500, "response dropped:"
-				   " processing error");
+		tfw_http_send_resp(req, 500,
+				   "response dropped: processing error");
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return;
 	}
