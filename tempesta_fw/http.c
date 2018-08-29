@@ -3457,7 +3457,7 @@ bad_msg:
 	 * discard all pending requests.
 	 */
 	bad_req = hmresp->req;
-	tfw_http_req_delist((TfwSrvConn *)conn, bad_req);
+	tfw_http_popreq(hmresp);
 	tfw_http_conn_msg_free(hmresp);
 	if (attack)
 		tfw_srv_client_block(bad_req, 403,
