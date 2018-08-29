@@ -92,7 +92,7 @@
  * following rule:
  *                  uri != "static*" -> mark = 1;
  *
- * if parsed, will have following representaion in TfwCfgEntry{}:
+ * if parsed, will have following representation in TfwCfgEntry{}:
  *   TfwCfgEntry {
  *         .name = "rule",
  *         ...
@@ -114,7 +114,7 @@
  * rule:
  *               hdr "Referer" == "*example.com" -> mark = 7;
  *
- * will have following representaion:
+ * will have following representation:
  *   TfwCfgEntry {
  *         .name = "rule",
  *         ...
@@ -235,7 +235,7 @@ typedef struct {
  *
  * @cleanup is another callback the purpose of which is to free memory
  * allocated by @handler. It is called when the configuration is unloaded
- * (the system is stopped, or an error occured). The callback is invoked
+ * (the system is stopped, or an error occurred). The callback is invoked
  * when @handler was called at least once regardless of the handler's
  * return value.
  *
@@ -380,7 +380,7 @@ tfw_cfg_is_dflt_value(TfwCfgEntry *cfg_entry)
  * Tempesta strives to support live reconfiguration. New configuration
  * is loaded, processed and set while Tempesta is running. Ultimately,
  * directives in configuration file are translated into internal data
- * stractures in Tempesta. Internal data structures for data that may
+ * structures in Tempesta. Internal data structures for data that may
  * be reconfigured need to have a configuration flags member that will
  * indicate one of several major actions noted below. Implementation
  * of each action is specific to configuration entry.
