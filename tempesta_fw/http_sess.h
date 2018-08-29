@@ -33,7 +33,7 @@
  * scheduling routine to obtain target server and pin the session to it.
  *
  * 2. Session pinning is switched to 'disable'. Keep using pinned server until
- * session is expired. (Alternative: unpin sesion from a server and use generic
+ * session is expired. (Alternative: unpin session from a server and use generic
  * scheduling algorithm.)
  *
  * 3. A new server is added to main/backup group. New sessions will be
@@ -47,7 +47,7 @@
  * 5. Main and backup group is removed from new configuration. Same as p. 4.
  *
  * 6. Main and backup group are no more interchangeable; according to the new
- * HTTP match rules sessions must be pinned to complitely other server groups.
+ * HTTP match rules sessions must be pinned to completely other server groups.
  * This cases cannot be deduced during live reconfiguration, manual session
  * removing is required. End user should avoid such configurations.
  *
@@ -81,7 +81,7 @@ struct tfw_http_sess_t {
 enum {
 	/* Internal error, may be any number < 0. */
 	TFW_HTTP_SESS_FAILURE = -1,
-	/* Session successfuly obtained. */
+	/* Session successfully obtained. */
 	TFW_HTTP_SESS_SUCCESS = 0,
 	/* Can't obtain session: new client; a redirection message sent. */
 	TFW_HTTP_SESS_REDIRECT_SENT,

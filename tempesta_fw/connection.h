@@ -239,7 +239,7 @@ typedef struct {
 
 	/*
 	 * Called when there are no more users of a connection
-	 * and the connections's resources are finally released.
+	 * and the connection's resources are finally released.
 	 */
 	void (*conn_release)(TfwConn *conn);
 
@@ -394,7 +394,7 @@ tfw_connection_link_to_sk(TfwConn *conn, struct sock *sk)
 }
 
 /*
- * Do an oposite to what tfw_connection_link_from_sk() does.
+ * Do an opposite to what tfw_connection_link_from_sk() does.
  * Sync Sockets layer is unlinked from Tempesta, so that Tempesta
  * callbacks are not called anymore on events in the socket.
  */

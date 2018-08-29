@@ -12,7 +12,7 @@
  * challenge), safe load balancing for session oriented Web apps and so on.
  * The term 'Client' is actually vague. Different human clients can be behind
  * shared proxy having the same source IP (i.e. the same TfwClient descriptor).
- * The same human client can use differnt browsers, so they send different
+ * The same human client can use different browsers, so they send different
  * User-Agent headers and use different sticky cookies. X-Forwarded-For header
  * value can be used to cope the non anonymous forward proxy problem and
  * identify real clients.
@@ -100,7 +100,7 @@ static struct kmem_cache *sess_cache;
  *
  * @body	- body (html with JavaScript code);
  * @delay_min	- minimal timeout to make a client wait;
- * @delay_range	- allowed time range to recieve and accept client's session;
+ * @delay_range	- allowed time range to receive and accept client's session;
  * @delay_limit	- maximum difference between current time and a timestamp
  *		  specified in the sticky cookie;
  * @st_code	- status code for response with JS challenge;
@@ -127,7 +127,7 @@ static const unsigned short tfw_cfg_redirect_st_code_dflt = 302;
  * 'Accept: text/html' and GET method.
  */
 static bool
-tfw_http_sticky_redirect_allied(TfwHttpReq *req)
+tfw_http_sticky_redirect_applied(TfwHttpReq *req)
 {
 	if (!tfw_cfg_js_ch)
 		return true;
@@ -151,11 +151,11 @@ tfw_http_sticky_send_redirect(TfwHttpReq *req, StickyVal *sv)
 	WARN_ON_ONCE(!list_empty(&req->nip_list));
 
 	/*
-	 * TODO: #598 rate limit requests with invalid cookie vaule.
-	 * Non-challengeable requests also must be rate limited.
+	 * TODO: #598 rate limit requests with invalid cookie value.
+	 * Unchallengeable requests also must be rate limited.
 	 */
 
-	if (!tfw_http_sticky_redirect_allied(req))
+	if (!tfw_http_sticky_redirect_applied(req))
 		return TFW_HTTP_SESS_JS_NOT_SUPPORTED;
 
 	if (!(resp = tfw_http_msg_alloc_resp_light(req)))
@@ -166,7 +166,7 @@ tfw_http_sticky_send_redirect(TfwHttpReq *req, StickyVal *sv)
 	 * 	<timestamp> | HMAC(Secret, User-Agent, timestamp, Client IP)
 	 *
 	 * Open <timestamp> is required to be able to recalculate secret HMAC.
-	 * Since the secret is unknown for the attacke, they're still unable to
+	 * Since the secret is unknown for the attackers, they're still unable to
 	 * recalculate HMAC while we don't need to store session information
 	 * until we receive correct cookie value.
 	 */
@@ -620,7 +620,7 @@ tfw_http_sess_check_jsch(StickyVal *sv)
 	if ((min_time <= cur_time) && (cur_time <= max_time))
 		return 0;
 
-	TFW_DBG("sess: jsch block: request recieved outside allowed period.\n");
+	TFW_DBG("sess: jsch block: request received outside allowed period.\n");
 
 	return TFW_HTTP_SESS_VIOLATE;
 }
@@ -783,7 +783,7 @@ tfw_http_sess_pin_srv(TfwStickyConn *st_conn, TfwSrvConn *srv_conn)
 }
 
 /**
- * Find an outgoing connection for client with tempesta sticky cookie.
+ * Find an outgoing connection for client with Tempesta sticky cookie.
  * @sess is not null when calling the function.
  *
  * Reuse req->sess->st_conn.srv_conn if it is alive. If not,

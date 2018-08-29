@@ -80,7 +80,7 @@
  * some other context. Keep in mind that TfwStr uses the functions as well.
  *
  * The functions are optimistic for the data of length 64 and more bytes,
- * i.e. comapring or matchin long strings you assume that the strings are
+ * i.e. comparing or matching long strings you assume that the strings are
  * matched (in case of tfw_match_*) or the same (in case of tfw_stricmp).
  * 64 and 128 byte subroutines of the functions load and process 2 and 4
  * 32-byre registers in parallel utilizing the memory bus and avoiding
@@ -183,7 +183,7 @@ size_t tfw_ultoa(unsigned long ai, char *buf, unsigned int len);
 /* Str is compound from many chunks, use indirect table for the chunks. */
 #define __TFW_STR_COMPOUND 	(~((1U << TFW_STR_FBITS) - 1))
 /*
- * Str constists from compound or plain strings.
+ * Str consists from compound or plain strings.
  * Duplicate strings are also always compound on root level.
  */
 #define TFW_STR_DUPLICATE	0x01
@@ -224,7 +224,7 @@ typedef struct {
 /* Use this with "%.*s" in printing calls. */
 #define PR_TFW_STR(s)		(int)min(20UL, (s)->len), (char *)(s)->ptr
 
-/* Numner of chunks in @s. */
+/* Number of chunks in @s. */
 #define TFW_STR_CHUNKN(s)	((s)->flags >> TFW_STR_CN_SHIFT)
 #define TFW_STR_CHUNKN_LIM(s)	((s)->flags >= __TFW_STR_CN_MAX)
 #define TFW_STR_CHUNKN_ADD(s, n) ((s)->flags += ((n) << TFW_STR_CN_SHIFT))
