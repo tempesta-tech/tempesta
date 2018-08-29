@@ -485,9 +485,9 @@ __frang_http_field_len(const TfwHttpReq *req, FrangAcc *ra,
 static int
 frang_http_field_len(const TfwHttpReq *req, FrangAcc *ra, unsigned int field_len)
 {
-	if (req->parser.hdr.len > field_len) {
+	if (req->conn->parser.hdr.len > field_len) {
 		frang_limmsg("HTTP in-progress field length",
-			     req->parser.hdr.len, field_len,
+			     req->conn->parser.hdr.len, field_len,
 			     &FRANG_ACC2CLI(ra)->addr);
 		return TFW_BLOCK;
 	}

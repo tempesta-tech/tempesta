@@ -29,6 +29,8 @@
 #include "msg.h"
 #include "peer.h"
 
+#include "http_parser.h"
+
 #include "sync_socket.h"
 #include "tls.h"
 
@@ -93,6 +95,7 @@ enum {
 #define TFW_CONN_COMMON					\
 	SsProto			proto;			\
 	TfwGState		state;			\
+	TfwHttpParser		parser;			\
 	struct list_head	list;			\
 	atomic_t		refcnt;			\
 	struct timer_list	timer;			\
