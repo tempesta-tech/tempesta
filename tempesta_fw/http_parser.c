@@ -4796,3 +4796,22 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 
 	return r;
 }
+
+/**
+ * Checks if it's safe to stream the message.
+ *
+ * It's safe to stream the message in only one case: during message body
+ * parsing. Tempesta requires full set of headers to process the message;
+ * trailer headers can be modified, so must also be buffered.
+ * Return TFW_PASS if it's safe to stream the message, and TFW_POSTPONE
+ * if some buffering is required.
+ */
+int
+tfw_http_parser_msg_may_stream(TfwHttpMsg *hm)
+{
+	if (!(hm->crlf.flags & TFW_STR_COMPLETE))
+		return TFW_POSTPONE;
+	if (!(hm->body.flags & TFW_STR_COMPLETE))
+		return TFW_PASS;
+	return TFW_POSTPONE;
+}
