@@ -1967,9 +1967,15 @@ tfw_http_set_hdr_date(TfwHttpMsg *hm)
 	return r;
 }
 
+/**
+ * Connection is to be closed after response for the request @req is forwarded
+ * to the client. Don't process new requests from the client and update
+ * message flags for proper "Connection: " header value.
+ */
 static inline void
 tfw_http_req_set_conn_close(TfwHttpReq *req)
 {
+	TFW_CONN_TYPE(req->conn) |= Conn_Stop;
 	__clear_bit(TFW_HTTP_CONN_KA, req->flags);
 	__set_bit(TFW_HTTP_CONN_CLOSE, req->flags);
 }
@@ -2372,91 +2378,162 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 static inline void
 tfw_http_req_mark_error(TfwHttpReq *req, int status)
 {
-	TFW_CONN_TYPE(req->conn) |= Conn_Stop;
 	tfw_http_req_set_conn_close(req);
 	tfw_http_error_resp_switch(req, status);
 }
 
 /**
- * Functions define logging and response behaviour during detection of
- * malformed or malicious messages. Mark client connection in special
- * manner to delay its closing until transmission of error response
- * will be finished.
+ * Error happen, current request @req will be discarded. Connection should
+ * be closed after response for the previous request.
+ *
+ * Returns true, if the connection will be automatically closed with the
+ * last response sent. Returns false, if there are no responses to forward
+ * and manual connection close action is required.
  */
-static void
-tfw_http_cli_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
-				int status, const char *msg)
+static bool
+tfw_http_req_prev_conn_close(TfwHttpReq *req)
 {
-	if (!nolog)
-		TFW_WARN_ADDR(msg, &req->conn->peer->addr);
+	TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
+	TfwHttpReq *last_req = NULL;
+	struct list_head *prev;
 
-	if (reply) {
-		TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
-		tfw_connection_unlink_msg(req->conn);
-		spin_lock(&cli_conn->seq_qlock);
-		list_add_tail(&req->msg.seq_list, &cli_conn->seq_queue);
-		spin_unlock(&cli_conn->seq_qlock);
-		tfw_http_req_mark_error(req, status);
+	if (list_empty_careful(&cli_conn->seq_queue))
+		return false;
+
+	spin_lock(&cli_conn->seq_qlock);
+
+	prev = (!list_empty(&req->msg.seq_list)) ? req->msg.seq_list.prev
+						 : cli_conn->seq_queue.prev;
+	if (prev != &cli_conn->seq_queue) {
+		last_req = list_entry(prev, TfwHttpReq, msg.seq_list);
+		tfw_http_req_set_conn_close(last_req);
 	}
-	else {
-		tfw_http_conn_req_clean(req);
-	}
-}
 
-static void
-tfw_http_srv_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
-				int status, const char *msg)
-{
-	if (!nolog)
-		TFW_WARN_ADDR(msg, &req->conn->peer->addr);
+	spin_unlock(&cli_conn->seq_qlock);
 
-	if (reply)
-		tfw_http_req_mark_error(req, status);
-	else
-		tfw_http_conn_req_clean(req);
+	return !last_req;
 }
 
 /**
- * Wrappers for calling tfw_http_cli_error_resp_and_log() and
- * tfw_http_srv_error_resp_and_log() functions in client/server
- * connection contexts depending on configuration settings:
- * sending response error messages and logging.
+ * Function define logging and response behaviour during detection of
+ * malformed or malicious messages. Mark client connection in special
+ * manner to delay its closing until transmission of error response
+ * will be finished.
  *
- * NOTE: tfw_client_drop() and tfw_client_block() must be called
- * only from client connection context before a request was fully parsed.
- * Otherwise tfw_srv_client_drop() and tfw_srv_client_block() must be used
- * only from server connection context.
+ * @req			- malicious or malformed request;
+ * @status		- response status code to use;
+ * @msg			- message to be logged;
+ * @attack		- true if the request was sent intentionally, false for
+ *			  internal errors or mmisconfigurations;
+ * @on_req_recv_event	- true if request is not fully parsed and the caller
+ *			  handles the connection closing on its own.
+ */
+static void
+tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
+				bool attack, bool on_req_recv_event)
+{
+	bool reply;
+	bool nolog;
+	TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
+
+	if (attack) {
+		reply = tfw_blk_flags & TFW_BLK_ATT_REPLY;
+		nolog = tfw_blk_flags & TFW_BLK_ATT_NOLOG;
+	}
+	else {
+		reply = tfw_blk_flags & TFW_BLK_ERR_REPLY;
+		nolog = tfw_blk_flags & TFW_BLK_ERR_NOLOG;
+	}
+
+	if (!nolog)
+		TFW_WARN_ADDR(msg, &req->conn->peer->addr);
+	/* The client connection is to be closed with the last resp sent. */
+	if (reply) {
+		if (on_req_recv_event) {
+			WARN_ONCE(!list_empty_careful(&req->msg.seq_list),
+				  "Request is already in seq_queue\n");
+			tfw_connection_unlink_msg(req->conn);
+			spin_lock(&cli_conn->seq_qlock);
+			list_add_tail(&req->msg.seq_list, &cli_conn->seq_queue);
+			spin_unlock(&cli_conn->seq_qlock);
+		}
+		else {
+			WARN_ONCE(list_empty_careful(&req->msg.seq_list),
+				  "Request is not in in seq_queue\n");
+		}
+		/*
+		 * TODO:
+		 * If !on_req_recv_event, then the request @req - some
+		 * random request from the seq_queue, not the last one.
+		 * If under attack:
+		 *   Send the response and discard all the following request.
+		 * If not under attack:
+		 *   Seems like the same reaction is acceptable: we can show
+		 *   the client that an illegal request took place, send the
+		 *   response and close connection to allow client to recover.
+		 *   Alternatively, we can only prepare an error response for
+		 *   the request, without stopping the connection or
+		 *   discarding any following requests.
+		 */
+		tfw_http_req_mark_error(req, status);
+	}
+	/*
+	 * Serve all pending requests if not under attack, close immediately
+	 * otherwise.
+	 */
+	else {
+		bool close = !on_req_recv_event;
+
+		if (!attack)
+			close &= tfw_http_req_prev_conn_close(req);
+		if (close)
+			ss_close_sync(req->conn->sk, true);
+		tfw_http_conn_req_clean(req);
+	}
+}
+
+/**
+ * Unintentional error happen during request parsing. Stop the client connection
+ * from receiving new requests. Caller must return TFW_BLOCK to the
+ * ss_tcp_data_ready() function for propper connection close.
  */
 static inline void
 tfw_client_drop(TfwHttpReq *req, int status, const char *msg)
 {
-	tfw_http_cli_error_resp_and_log(tfw_blk_flags & TFW_BLK_ERR_REPLY,
-					tfw_blk_flags & TFW_BLK_ERR_NOLOG,
-					req, status, msg);
+	tfw_http_cli_error_resp_and_log(req, status, msg, false, true);
 }
 
+/**
+ * Attack is detected during request parsing.
+ * Caller must return TFW_BLOCK to the ss_tcp_data_ready() function for
+ * propper connection close.
+ */
 static inline void
 tfw_client_block(TfwHttpReq *req, int status, const char *msg)
 {
-	tfw_http_cli_error_resp_and_log(tfw_blk_flags & TFW_BLK_ATT_REPLY,
-					tfw_blk_flags & TFW_BLK_ATT_NOLOG,
-					req, status, msg);
+	tfw_http_cli_error_resp_and_log(req, status, msg, true, true);
 }
 
+/**
+ * Unintentional error happen during request processing. Caller function is
+ * not a part of ss_tcp_data_ready() function and manual connection close
+ * will be performed.
+ */
 static inline void
 tfw_srv_client_drop(TfwHttpReq *req, int status, const char *msg)
 {
-	tfw_http_srv_error_resp_and_log(tfw_blk_flags & TFW_BLK_ERR_REPLY,
-					tfw_blk_flags & TFW_BLK_ERR_NOLOG,
-					req, status, msg);
+	tfw_http_cli_error_resp_and_log(req, status, msg, false, false);
 }
 
+/**
+ * Attack is detected during request processing. Caller function is
+ * not a part of ss_tcp_data_ready() function and manual connection close
+ * will be performed.
+ */
 static inline void
 tfw_srv_client_block(TfwHttpReq *req, int status, const char *msg)
 {
-	tfw_http_srv_error_resp_and_log(tfw_blk_flags &	TFW_BLK_ATT_REPLY,
-					tfw_blk_flags & TFW_BLK_ATT_NOLOG,
-					req, status, msg);
+	tfw_http_cli_error_resp_and_log(req, status, msg, true, false);
 }
 
 /**
