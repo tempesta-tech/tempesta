@@ -88,6 +88,7 @@ enum {
  * @refcnt	- number of users of the connection structure instance;
  * @timer	- The keep-alive/retry timer for the connection;
  * @msg		- message that is currently being processed;
+ * @msg_sent	- message that was sent last to the connection;
  * @peer	- TfwClient or TfwServer handler;
  * @sk		- an appropriate sock handler;
  * @destructor	- called when a connection is destroyed;
@@ -100,6 +101,7 @@ enum {
 	atomic_t		refcnt;			\
 	struct timer_list	timer;			\
 	TfwMsg			*msg;			\
+	TfwMsg			*msg_sent;		\
 	TfwPeer 		*peer;			\
 	struct sock		*sk;			\
 	void			(*destructor)(void *);
@@ -143,7 +145,7 @@ typedef struct {
  * That way NO locking hierarchy is involved. Please see the code.
  */
 
-/*
+/**
  * These are specific properties that are relevant to client connections.
  *
  * @seq_queue	- queue of client's messages in the order they came;
@@ -157,7 +159,7 @@ typedef struct {
 	spinlock_t		ret_qlock;
 } TfwCliConn;
 
-/*
+/**
  * These are specific properties that are relevant to server connections.
  * See the description of special features of this structure in sock_srv.c.
  *
@@ -167,7 +169,6 @@ typedef struct {
  * @flags	- atomic flags related to server connection's state;
  * @qsize	- current number of requests in server's @fwd_queue;
  * @recns	- the number of reconnect attempts;
- * @msg_sent	- request that was sent last in a server connection;
  */
 typedef struct {
 	TFW_CONN_COMMON;
@@ -177,7 +178,6 @@ typedef struct {
 	unsigned long		flags;
 	unsigned int		qsize;
 	unsigned int		recns;
-	TfwMsg			*msg_sent;
 } TfwSrvConn;
 
 #define TFW_CONN_DEATHCNT	(INT_MIN / 2)
