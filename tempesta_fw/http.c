@@ -2513,7 +2513,7 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 /**
  * Unintentional error happen during request parsing. Stop the client connection
  * from receiving new requests. Caller must return TFW_BLOCK to the
- * ss_tcp_data_ready() function for propper connection close.
+ * ss_tcp_data_ready() function for proper connection close.
  */
 static inline void
 tfw_client_drop(TfwHttpReq *req, int status, const char *msg)
@@ -2524,7 +2524,7 @@ tfw_client_drop(TfwHttpReq *req, int status, const char *msg)
 /**
  * Attack is detected during request parsing.
  * Caller must return TFW_BLOCK to the ss_tcp_data_ready() function for
- * propper connection close.
+ * proper connection close.
  */
 static inline void
 tfw_client_block(TfwHttpReq *req, int status, const char *msg)
@@ -3059,7 +3059,7 @@ drop:	/*
 	return TFW_BLOCK;
 
 block:	/*
-	 * An attack was detected. Shutdown the client connection immediatelly
+	 * An attack was detected. Shutdown the client connection immediately
 	 * and drop all pending requests.
 	 */
 	TFW_INC_STAT_BH(clnt.msgs_filtout);
