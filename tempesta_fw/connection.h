@@ -106,6 +106,7 @@ typedef struct {
 } TfwConn;
 
 #define TFW_CONN_TYPE(c)	((c)->proto.type)
+#define TFW_CONN_PROTO(c)	TFW_CONN_TYPE2IDX(TFW_CONN_TYPE(c))
 
 /*
  * Queues in client and server connections provide support for correct
