@@ -2424,7 +2424,7 @@ tfw_http_req_prev_conn_close(TfwHttpReq *req)
  * @status		- response status code to use;
  * @msg			- message to be logged;
  * @attack		- true if the request was sent intentionally, false for
- *			  internal errors or mmisconfigurations;
+ *			  internal errors or misconfigurations;
  * @on_req_recv_event	- true if request is not fully parsed and the caller
  *			  handles the connection closing on its own.
  */
@@ -2473,7 +2473,8 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 		 *   response and close connection to allow client to recover.
 		 *   Alternatively, we can only prepare an error response for
 		 *   the request, without stopping the connection or
-		 *   discarding any following requests.
+		 *   discarding any following requests. This
+		 *   isn't supposed to be an attack anyway.
 		 */
 		tfw_http_req_mark_error(req, status);
 	}
