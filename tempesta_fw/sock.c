@@ -68,7 +68,7 @@ typedef struct {
 /**
  * Node of close backlog.
  *
- * @ticket	- the work ticket used in trurnstile to order items from the
+ * @ticket	- the work ticket used in turnstile to order items from the
  * 		  backlog with ring-buffer items;
  * @list	- list entry in the backlog;
  * @sw		- work descriptor to perform.
@@ -84,7 +84,8 @@ typedef struct {
 static const char *ss_statename[] = {
 	"Unused",	"Established",	"Syn Sent",	"Syn Recv",
 	"Fin Wait 1",	"Fin Wait 2",	"Time Wait",	"Close",
-	"Close Wait",	"Last ACK",	"Listen",	"Closing"
+	"Close Wait",	"Last ACK",	"Listen",	"Closing",
+	"New Syn Recv"
 };
 #endif
 
@@ -496,7 +497,7 @@ EXPORT_SYMBOL(ss_send);
  * Note: it used to be called in process context as well, at the time when
  * Tempesta starts or stops. That's not the case right now, but it may change.
  *
- * TODO In some cases we need to close socket agresively w/o FIN_WAIT_2 state,
+ * TODO In some cases we need to close socket aggressively w/o FIN_WAIT_2 state,
  * e.g. by sending RST. So we need to add second parameter to the function
  * which says how to close the socket.
  * One of the examples is rcl_req_limit() (it should reset connections).
@@ -759,6 +760,61 @@ out:
 }
 
 /**
+ * Calculates the appropriate TCP receive buffer space. Same as
+ * tcp_rcv_space_adjust().
+ */
+static void
+ss_rcv_space_adjust(struct sock *sk)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+	int time;
+	int copied;
+
+	tcp_mstamp_refresh(tp);
+	time = tcp_stamp_us_delta(tp->tcp_mstamp, tp->rcvq_space.time);
+
+	if (time < (tp->rcv_rtt_est.rtt_us >> 3) || tp->rcv_rtt_est.rtt_us == 0)
+		return;
+
+	copied = tp->copied_seq - tp->rcvq_space.seq;
+	if (copied <= tp->rcvq_space.space)
+		goto new_measure;
+
+	/*
+	 * Socket buffer size is locked (SOCK_RCVBUF_LOCK), we manually control
+	 * its size and can moderate it to gain more speed.
+	 */
+	if (sysctl_tcp_moderate_rcvbuf) {
+		int rcvwin, rcvmem, rcvbuf;
+
+		rcvwin = (copied << 1) + 16 * tp->advmss;
+		if (copied >=
+		    tp->rcvq_space.space + (tp->rcvq_space.space >> 2)) {
+			if (copied >=
+			    tp->rcvq_space.space + (tp->rcvq_space.space >> 1))
+				rcvwin <<= 1;
+			else
+				rcvwin += (rcvwin >> 1);
+		}
+
+		rcvmem = SKB_TRUESIZE(tp->advmss + MAX_TCP_HEADER);
+		while (tcp_win_from_space(rcvmem) < tp->advmss)
+			rcvmem += 128;
+
+		rcvbuf = min(rcvwin / tp->advmss * rcvmem, tfw_cfg_cli_rmem);
+		if (rcvbuf > sk->sk_rcvbuf) {
+			sk->sk_rcvbuf = rcvbuf;
+			tp->window_clamp = rcvwin;
+		}
+	}
+	tp->rcvq_space.space = copied;
+
+new_measure:
+	tp->rcvq_space.seq = tp->copied_seq;
+	tp->rcvq_space.time = tp->tcp_mstamp;
+}
+
+/**
  * Receive data on TCP socket. Very similar to standard tcp_recvmsg().
  *
  * We can't use standard tcp_read_sock() with our actor callback, because
@@ -781,7 +837,7 @@ ss_tcp_process_data(struct sock *sk)
 			TFW_WARN("recvmsg bug: TCP sequence gap at seq %X"
 				 " recvnxt %X\n",
 				 tp->copied_seq, TCP_SKB_CB(skb)->seq);
-			goto out;
+			goto drop;
 		}
 
 		__skb_unlink(skb, &sk->sk_receive_queue);
@@ -798,7 +854,7 @@ ss_tcp_process_data(struct sock *sk)
 		processed += count;
 
 		if (r < 0)
-			goto out;
+			goto drop;
 		else if (!count)
 			TFW_WARN("recvmsg bug: overlapping TCP segment at %X"
 				 " seq %X rcvnxt %X len %x\n",
@@ -806,12 +862,15 @@ ss_tcp_process_data(struct sock *sk)
 				 skb_len);
 	}
 	droplink = false;
-out:
+drop:
 	/*
 	 * Recalculate an appropriate TCP receive buffer space
 	 * and send ACK to a client with the new window.
 	 */
-	tcp_rcv_space_adjust(sk);
+	if (sk->sk_userlocks & SOCK_RCVBUF_LOCK)
+		ss_rcv_space_adjust(sk);
+	else
+		tcp_rcv_space_adjust(sk);
 	if (processed)
 		tcp_cleanup_rbuf(sk, processed);
 
@@ -835,7 +894,7 @@ ss_tcp_data_ready(struct sock *sk)
 	assert_spin_locked(&sk->sk_lock.slock);
 	TFW_VALIDATE_SK_LOCK_OWNER(sk);
 
-	if (!skb_queue_empty(&sk->sk_error_queue)) {
+	if (unlikely(!skb_queue_empty(&sk->sk_error_queue))) {
 		/*
 		 * Error packet received.
 		 * See sock_queue_err_skb() in linux/net/core/skbuff.c.
@@ -862,7 +921,7 @@ ss_tcp_data_ready(struct sock *sk)
 	else {
 		/*
 		 * Check for URG data.
-		 * TODO shouldn't we do it in th_tcp_process_data()?
+		 * TODO shouldn't we do it in ss_tcp_process_data()?
 		 */
 		struct tcp_sock *tp = tcp_sk(sk);
 		if (tp->urg_data & TCP_URG_VALID) {
@@ -972,7 +1031,7 @@ ss_tcp_state_change(struct sock *sk)
 		 * TCP_ESTABLISHED state to a closing state, we forcefully
 		 * close the socket before it can reach the final state.
 		 *
-		 * We get here when an error has occured in the connection.
+		 * We get here when an error has occurred in the connection.
 		 * It could be that RST was received which may happen for
 		 * multiple reasons. Or it could be a case of TCP timeout
 		 * where the connection appears to be dead. In all of these
@@ -1210,7 +1269,7 @@ ss_connect(struct sock *sk, struct sockaddr *uaddr, int uaddr_len, int flags)
 	bh_unlock_sock(sk);
 
 	/*
-	 * If connect() successfully returns, then the soket is living somewhere
+	 * If connect() successfully returns, then the socket is living somewhere
 	 * in TCP code and it will move to established or closed state.
 	 * So we decrement __ss_act_cnt when the socket die, no need to do this now.
 	 */
@@ -1315,7 +1374,7 @@ ss_tx_action(void)
 	/*
 	 * @budget limits the loop to prevent live lock on constantly arriving
 	 * new items. We use some small integer as a lower bound to catch just
-	 * ariving items.
+	 * arriving items.
 	 */
 	budget = max(10UL, ss_close_q_sz());
 	while ((!ss_active() || budget--) && !ss_wq_pop(&sw, &ticket)) {
@@ -1423,7 +1482,7 @@ ss_wait_newconn(void)
 EXPORT_SYMBOL(ss_wait_newconn);
 
 /**
- * Wait until there are no queued works and no runnign tasklets.
+ * Wait until there are no queued works and no running tasklets.
  * The function should be used when all sockets are closed.
  * SS upcalls are protected with SS_V_ACT_LIVECONN.
  * Can sleep, so must be called from user-space context.

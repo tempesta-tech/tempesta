@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU General Public License along
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
- * Prototype for fast precentiles calculation.
+ * Prototype for fast percentiles calculation.
  */
 #include <linux/atomic.h>
 #include <linux/kernel.h>
@@ -44,7 +44,7 @@
  * 3. Very small overall memory footprint for inexpensive handling of
  *    performance trends of many servers;
  *
- * 4. Buckets must be dynamicaly rearranged since server response times
+ * 4. Buckets must be dynamically rearranged since server response times
  *    are unknown apriori;
  *
  * 5. The adjustments of buckets must be performed in a lock-less fashion
@@ -182,7 +182,7 @@ tfw_stats_extend(TfwPcntRanges *rng, unsigned int r_time)
 	 * the upper end of the range that the data type could hold.
 	 * As the value was extended to the next order it's conceivable
 	 * that the new value exceeded the maximum for the data type.
-	 * Consirering that TfwPcntCtl{}->end is of type unsigned int,
+	 * Considering that TfwPcntCtl{}->end is of type unsigned int,
 	 * it's totally unimaginable that this situation may ever happen.
 	 */
 	BUG_ON(end >= (1UL << (FIELD_SIZEOF(TfwPcntCtl, end) * 8)));
@@ -456,7 +456,7 @@ typedef struct {
  * @rcount	- current count of health monitoring requests (in @hm->tmt);
  * @jtmstamp	- time in jiffies of last @timer call (for procfs);
  * @timer	- timer for sending health monitoring request;
- * @rearm	- flag for gracefull stopping of @timer;
+ * @rearm	- flag for graceful stopping of @timer;
  */
 typedef struct {
 	TfwApmHM		*hm;
@@ -514,7 +514,7 @@ typedef struct {
 } TfwApmRBuf;
 
 /*
- * The ring buffer contol structure.
+ * The ring buffer control structure.
  *
  * This is a supporting structure. It keeps related data that is useful
  * in making decisions on the need of recalculation of percentiles.
@@ -1693,19 +1693,13 @@ tfw_cfgop_apm_server_failover(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			   ce->vals[0]);
 		return -EINVAL;
 	}
-	if (tfw_cfg_parse_int(ce->vals[1], &limit)) {
-		TFW_ERR_NL("Unable to parse http limit value: '%s'\n",
-			   ce->vals[1]);
+	if (tfw_cfg_parse_int(ce->vals[1], &limit))
 		return -EINVAL;
-	}
 	if (tfw_cfg_check_range(limit, 1, USHRT_MAX))
 		return -EINVAL;
 
-	if (tfw_cfg_parse_int(ce->vals[2], &tframe)) {
-		TFW_ERR_NL("Unable to parse http tframe value: '%s'\n",
-			   ce->vals[2]);
+	if (tfw_cfg_parse_int(ce->vals[2], &tframe))
 		return -EINVAL;
-	}
 	if (tfw_cfg_check_range(tframe, 1, USHRT_MAX))
 		return -EINVAL;
 
@@ -1851,10 +1845,8 @@ tfw_cfgop_apm_hm_resp_crc32(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return 0;
 	}
 
-	if (tfw_cfg_parse_uint(ce->vals[0], &crc32)) {
-		TFW_ERR_NL("Unable to parse crc32 value: '%s'\n", ce->vals[0]);
+	if (tfw_cfg_parse_uint(ce->vals[0], &crc32))
 		return -EINVAL;
-	}
 
 	tfw_hm_entry->crc32 = crc32;
 
@@ -1868,11 +1860,8 @@ tfw_cfgop_apm_hm_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	if (tfw_cfg_check_single_val(ce))
 		return -EINVAL;
-	if (tfw_cfg_parse_int(ce->vals[0], &timeout)) {
-		TFW_ERR_NL("Unable to parse http timeout value: '%s'\n",
-			   ce->vals[0]);
+	if (tfw_cfg_parse_int(ce->vals[0], &timeout))
 		return -EINVAL;
-	}
 	if (tfw_cfg_check_range(timeout, 1, USHRT_MAX))
 		return -EINVAL;
 

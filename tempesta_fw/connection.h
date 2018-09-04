@@ -29,6 +29,8 @@
 #include "msg.h"
 #include "peer.h"
 
+#include "http_parser.h"
+
 #include "sync_socket.h"
 #include "tls.h"
 
@@ -86,6 +88,7 @@ enum {
  * @refcnt	- number of users of the connection structure instance;
  * @timer	- The keep-alive/retry timer for the connection;
  * @msg		- message that is currently being processed;
+ * @msg_sent	- message that was sent last to the connection;
  * @peer	- TfwClient or TfwServer handler;
  * @sk		- an appropriate sock handler;
  * @destructor	- called when a connection is destroyed;
@@ -93,10 +96,12 @@ enum {
 #define TFW_CONN_COMMON					\
 	SsProto			proto;			\
 	TfwGState		state;			\
+	TfwHttpParser		parser;			\
 	struct list_head	list;			\
 	atomic_t		refcnt;			\
 	struct timer_list	timer;			\
 	TfwMsg			*msg;			\
+	TfwMsg			*msg_sent;		\
 	TfwPeer 		*peer;			\
 	struct sock		*sk;			\
 	void			(*destructor)(void *);
@@ -109,7 +114,7 @@ typedef struct {
 
 /*
  * Queues in client and server connections provide support for correct
- * handlng of requests and responses.
+ * handling of requests and responses.
  *
  * Incoming requests are put on client connection's @seq_queue in the
  * order they come in. When responses to these requests come, they're
@@ -140,7 +145,7 @@ typedef struct {
  * That way NO locking hierarchy is involved. Please see the code.
  */
 
-/*
+/**
  * These are specific properties that are relevant to client connections.
  *
  * @seq_queue	- queue of client's messages in the order they came;
@@ -154,7 +159,7 @@ typedef struct {
 	spinlock_t		ret_qlock;
 } TfwCliConn;
 
-/*
+/**
  * These are specific properties that are relevant to server connections.
  * See the description of special features of this structure in sock_srv.c.
  *
@@ -164,7 +169,6 @@ typedef struct {
  * @flags	- atomic flags related to server connection's state;
  * @qsize	- current number of requests in server's @fwd_queue;
  * @recns	- the number of reconnect attempts;
- * @msg_sent	- request that was sent last in a server connection;
  */
 typedef struct {
 	TFW_CONN_COMMON;
@@ -174,7 +178,6 @@ typedef struct {
 	unsigned long		flags;
 	unsigned int		qsize;
 	unsigned int		recns;
-	TfwMsg			*msg_sent;
 } TfwSrvConn;
 
 #define TFW_CONN_DEATHCNT	(INT_MIN / 2)
@@ -182,22 +185,17 @@ typedef struct {
 /* Connection flags are defined by the bit number. */
 enum {
 	/* Need to re-send requests. */
-	TFW_CONN_B_RESEND = 0,
+	TFW_CONN_RESEND = 0,
 	/* Need to forward requests in the queue. */
-	TFW_CONN_B_QFORWD,
+	TFW_CONN_QFORWD,
 	/* Has non-idempotent requests. */
-	TFW_CONN_B_HASNIP,
+	TFW_CONN_HASNIP,
 
 	/* Remove connection */
-	TFW_CONN_B_DEL,
+	TFW_CONN_DEL,
 	/* Connection is in use or at least scheduled to be established. */
-	TFW_CONN_B_ACTIVE
+	TFW_CONN_ACTIVE
 };
-
-#define TFW_CONN_F_RESEND	(1 << TFW_CONN_B_RESEND)
-#define TFW_CONN_F_QFORWD	(1 << TFW_CONN_B_QFORWD)
-#define TFW_CONN_F_HASNIP	(1 << TFW_CONN_B_HASNIP)
-
 
 /**
  * TLS hardened connection.
@@ -236,7 +234,7 @@ typedef struct {
 
 	/*
 	 * Called when there are no more users of a connection
-	 * and the connections's resources are finally released.
+	 * and the connection's resources are finally released.
 	 */
 	void (*conn_release)(TfwConn *conn);
 
@@ -271,7 +269,7 @@ extern TfwConnHooks *conn_hooks[TFW_CONN_MAX_PROTOS];
 static inline bool
 tfw_srv_conn_restricted(TfwSrvConn *srv_conn)
 {
-	return test_bit(TFW_CONN_B_RESEND, &srv_conn->flags);
+	return test_bit(TFW_CONN_RESEND, &srv_conn->flags);
 }
 
 /*
@@ -280,7 +278,7 @@ tfw_srv_conn_restricted(TfwSrvConn *srv_conn)
 static inline bool
 tfw_srv_conn_hasnip(TfwSrvConn *srv_conn)
 {
-	return test_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
+	return test_bit(TFW_CONN_HASNIP, &srv_conn->flags);
 }
 
 static inline bool
@@ -391,7 +389,7 @@ tfw_connection_link_to_sk(TfwConn *conn, struct sock *sk)
 }
 
 /*
- * Do an oposite to what tfw_connection_link_from_sk() does.
+ * Do an opposite to what tfw_connection_link_from_sk() does.
  * Sync Sockets layer is unlinked from Tempesta, so that Tempesta
  * callbacks are not called anymore on events in the socket.
  */

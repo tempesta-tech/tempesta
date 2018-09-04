@@ -33,7 +33,7 @@
  * 			  The client is released, when the counter reaches zero:
  * 			  no connections to the server - no client for us :)
  * @class_prvt		- private client accounting data for classifier module.
- *			  Typically it's large and vastes memory in vain if
+ *			  Typically it's large and wastes memory in vain if
  *			  no any classification logic is used;
  */
 typedef struct {

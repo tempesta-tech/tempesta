@@ -82,7 +82,7 @@ do {									\
 } while (0)
 
 #define __msg_hdr_chunk_fixup(data, len)				\
-	tfw_http_msg_add_str_data(msg, &msg->parser.hdr, data, len)
+	tfw_http_msg_add_str_data(msg, &msg->conn->parser.hdr, data, len)
 
 /**
  * GCC 4.8 (CentOS 7) does a poor work on memory reusage of automatic local
@@ -92,7 +92,7 @@ do {									\
  */
 #define __FSM_DECLARE_VARS(ptr)						\
 	TfwHttpMsg	*msg = (TfwHttpMsg *)(ptr);			\
-	TfwHttpParser	*parser = &msg->parser;				\
+	TfwHttpParser	*parser = &msg->conn->parser;			\
 	unsigned char	*p = data;					\
 	unsigned char	c = *p;						\
 	int		__fsm_const_state;				\
@@ -164,9 +164,11 @@ do {									\
 } while (0)
 
 #define __FSM_MOVE_nofixup(to)		__FSM_MOVE_nofixup_n(to, 1)
-#define __FSM_MOVE_n(to, n)		__FSM_MOVE_nf(to, n, &msg->parser.hdr)
+#define __FSM_MOVE_n(to, n)		__FSM_MOVE_nf(to, n,		\
+						      &msg->conn->parser.hdr)
 #define __FSM_MOVE_f(to, field)		__FSM_MOVE_nf(to, 1, field)
-#define __FSM_MOVE(to)			__FSM_MOVE_nf(to, 1, &msg->parser.hdr)
+#define __FSM_MOVE(to)			__FSM_MOVE_nf(to, 1,		\
+						      &msg->conn->parser.hdr)
 /* The same as __FSM_MOVE_n(), but exactly for jumps w/o data moving. */
 #define __FSM_JMP(to)			do { goto to; } while (0)
 
@@ -184,8 +186,8 @@ do {									\
 	}								\
 } while (0)
 
-#define __FSM_MATCH_MOVE(alphabet, to)	__FSM_MATCH_MOVE_f(alphabet, to, \
-							   &msg->parser.hdr)
+#define __FSM_MATCH_MOVE(alphabet, to)					\
+	__FSM_MATCH_MOVE_f(alphabet, to, &msg->conn->parser.hdr)
 
 #define __FSM_MATCH_MOVE_nofixup(alphabet, to)				\
 do {									\
@@ -207,7 +209,7 @@ do {									\
 #define __FSM_I_chunk_flags(flag)					\
 do {									\
 	TFW_DBG3("parser: add chunk flags: %u\n", flag);		\
-	TFW_STR_CURR(&msg->parser.hdr)->flags |= flag;		  	\
+	TFW_STR_CURR(&msg->conn->parser.hdr)->flags |= flag;		\
 } while (0)
 
 #define __FSM_I_MOVE_finish_n(to, n, finish)				\
@@ -506,7 +508,7 @@ parse_int_hex(unsigned char *data, size_t len, unsigned long *acc, unsigned shor
 static void
 mark_spec_hbh(TfwHttpMsg *hm)
 {
-	TfwHttpHbhHdrs *hbh_hdrs = &hm->parser.hbh_parser;
+	TfwHttpHbhHdrs *hbh_hdrs = &hm->conn->parser.hbh_parser;
 	unsigned int id;
 
 	for (id = 0; id < TFW_HTTP_HDR_RAW; ++id) {
@@ -523,7 +525,7 @@ mark_spec_hbh(TfwHttpMsg *hm)
 static void
 mark_raw_hbh(TfwHttpMsg *hm, TfwStr *hdr)
 {
-	TfwHttpHbhHdrs *hbh = &hm->parser.hbh_parser;
+	TfwHttpHbhHdrs *hbh = &hm->conn->parser.hbh_parser;
 	unsigned int i;
 
 	/*
@@ -550,7 +552,7 @@ mark_raw_hbh(TfwHttpMsg *hm, TfwStr *hdr)
 
 /**
  * Lookup for the header @hdr in already collected headers table @ht,
- * and mark it as hop-by-hop. The lookup is performed untill ':', so header
+ * and mark it as hop-by-hop. The lookup is performed until ':', so header
  * name only is enough in @hdr.
  *
  * @return true if @hdr was found and marked as hop-by-hop
@@ -563,7 +565,7 @@ __mark_hbh_hdr(TfwHttpMsg *hm, TfwStr *hdr)
 
 	/*
 	 * This function is called before hm->h_tbl is fully parsed,
-	 * if header is epmty, don't touch it
+	 * if header is empty, don't touch it
 	 */
 	if ((hid >= ht->off) || (TFW_STR_EMPTY(&ht->tbl[hid])))
 		return false;
@@ -574,7 +576,7 @@ __mark_hbh_hdr(TfwHttpMsg *hm, TfwStr *hdr)
 
 /**
  * Add header name listed in Connection header to table of raw headers.
- * If @last is true then (@data, @len) represnts last chunk of header name and
+ * If @last is true then (@data, @len) represents last chunk of header name and
  * chunk with ':' will be added to the end. Otherwize last header in table stays
  * open to add more data.
  *
@@ -590,7 +592,7 @@ static int
 __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
 {
 	TfwStr *hdr, *append;
-	TfwHttpHbhHdrs *hbh = &hm->parser.hbh_parser;
+	TfwHttpHbhHdrs *hbh = &hm->conn->parser.hbh_parser;
 	static const TfwStr block[] = {
 #define TfwStr_string(v) { (v), NULL, sizeof(v) - 1, 0 }
 		/* End-to-end spec and raw headers */
@@ -810,7 +812,7 @@ __FSM_STATE(RGen_CRLFCR) {						\
  * We have HTTP message descriptors and special headers,
  * however we still need to store full headers (instead of just their values)
  * as well as store headers which aren't need in further processing
- * (e.g. Content-Length which is doubled by TfwHttpMsg.conent_length)
+ * (e.g. Content-Length which is doubled by TfwHttpMsg.content_length)
  * to mangle row skb data.
  */
 #define __TFW_HTTP_PARSE_SPECHDR_VAL(st_curr, st_i, hm, func, id, saveval) \
@@ -918,7 +920,7 @@ __FSM_STATE(RGen_HdrOtherN) {						\
 }									\
 __FSM_STATE(RGen_HdrOtherV) {						\
 	/*								\
-	 * The header content is opaqueue for us,			\
+	 * The header content is opaque for us,				\
 	 * so pass ctext and VCHAR.					\
 	 */								\
 	__FSM_MATCH_MOVE(ctext_vchar, RGen_HdrOtherV);			\
@@ -934,8 +936,8 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 __FSM_STATE(RGen_BodyInit) {						\
 	TfwStr *tbl = msg->h_tbl->tbl;					\
 									\
-	TFW_DBG3("parse request body: flags=%#x content_length=%lu\n",	\
-		 msg->flags, msg->content_length);			\
+	TFW_DBG3("parse request body: flags=%#lx content_length=%lu\n",	\
+		 msg->flags[0], msg->content_length);			\
 									\
 	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_TRANSFER_ENCODING])) {	\
 		/*							\
@@ -946,7 +948,7 @@ __FSM_STATE(RGen_BodyInit) {						\
 		 */							\
 		if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH]))	\
 			TFW_PARSER_BLOCK(RGen_BodyInit);		\
-		if (msg->flags & TFW_HTTP_F_CHUNKED)			\
+		if (test_bit(TFW_HTTP_CHUNKED, msg->flags))		\
 			__FSM_MOVE_nofixup(RGen_BodyStart);		\
 		/*							\
 		 * If "Transfer-Encoding:" header is present and	\
@@ -969,11 +971,11 @@ __FSM_STATE(RGen_BodyInit) {						\
 __FSM_STATE(RGen_BodyInit) {						\
 	TfwStr *tbl = msg->h_tbl->tbl;					\
 									\
-	TFW_DBG3("parse response body: flags=%#x content_length=%lu\n",	\
-		 msg->flags, msg->content_length);			\
+	TFW_DBG3("parse response body: flags=%#lx content_length=%lu\n",\
+		 msg->flags[0], msg->content_length);			\
 									\
 	/* There's no body. */						\
-	if (msg->flags & TFW_HTTP_F_VOID_BODY) {			\
+	if (test_bit(TFW_HTTP_VOID_BODY, msg->flags)) {			\
 		msg->body.flags |= TFW_STR_COMPLETE;			\
 		FSM_EXIT(TFW_PASS);					\
 	}								\
@@ -986,7 +988,7 @@ __FSM_STATE(RGen_BodyInit) {						\
 		 */							\
 		if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH]))	\
 			TFW_PARSER_BLOCK(RGen_BodyInit);		\
-		if (msg->flags & TFW_HTTP_F_CHUNKED)			\
+		if (test_bit(TFW_HTTP_CHUNKED, msg->flags))		\
 			__FSM_MOVE_nofixup(RGen_BodyStart);		\
 		__FSM_MOVE_nofixup(Resp_BodyUnlimStart);		\
 	}								\
@@ -1038,11 +1040,11 @@ __FSM_STATE(RGen_BodyChunk) {						\
 }									\
 __FSM_STATE(RGen_BodyReadChunk) {					\
 	BUG_ON(parser->to_read < 0);					\
-	__fsm_sz = min_t(long, parser->to_read, __data_remain(p));      \
+	__fsm_sz = min_t(long, parser->to_read, __data_remain(p));	\
 	parser->to_read -= __fsm_sz;					\
 	if (parser->to_read)						\
 		__FSM_MOVE_nf(RGen_BodyReadChunk, __fsm_sz, &msg->body); \
-	if (msg->flags & TFW_HTTP_F_CHUNKED) {				\
+	if (test_bit(TFW_HTTP_CHUNKED, msg->flags)) {			\
 		parser->to_read = -1;					\
 		__FSM_MOVE_nf(RGen_BodyEoL, __fsm_sz, &msg->body);	\
 	}								\
@@ -1128,7 +1130,7 @@ __FSM_STATE(RGen_OWS) {							\
 /**
  * Parse Connection header value, RFC 7230 6.1.
  *
- * Store names of listed headers in @hm->parser.hbh_parser to mark them as
+ * Store names of listed headers in @hm->conn->parser.hbh_parser to mark them as
  * hop-by-hop during parsing. Mark already parsed headers as hop-by-hop once
  * they appear in the header.
  *
@@ -1158,22 +1160,22 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	 * TODO: RFC 6455 WebSocket Protocol
 	 * During handshake client sets "Connection: update" and "Update" header.
 	 * This headers should be passed to server unchanged to allow
-	 * WebSocket porotol.
+	 * WebSocket protocol.
 	 */
 	__FSM_STATE(I_Conn) {
 		/* Boolean connection tokens */
 		TRY_HBH_TOKEN("close", {
-			if (msg->flags & TFW_HTTP_F_CONN_KA)
+			if (test_bit(TFW_HTTP_CONN_KA, msg->flags))
 				return CSTR_NEQ;
-			msg->flags |= TFW_HTTP_F_CONN_CLOSE;
+			__set_bit(TFW_HTTP_CONN_CLOSE, msg->flags);
 		});
 		/* Spec headers */
 		TRY_HBH_TOKEN("keep-alive", {
 			unsigned int hid = TFW_HTTP_HDR_KEEP_ALIVE;
 
-			if (msg->flags & TFW_HTTP_F_CONN_CLOSE)
+			if (test_bit(TFW_HTTP_CONN_CLOSE, msg->flags))
 				return CSTR_NEQ;
-			msg->flags |= TFW_HTTP_F_CONN_KA;
+			__set_bit(TFW_HTTP_CONN_KA, msg->flags);
 
 			parser->hbh_parser.spec |= 0x1 << hid;
 			if (!TFW_STR_EMPTY(&msg->h_tbl->tbl[hid]))
@@ -1187,14 +1189,14 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	 * Other connection tokens. Popular examples of the "Connection:"
 	 * header value are "Keep-Alive, TE" or "TE, close". However,
 	 * it could be names of any headers, including custom headers.
-	 * Raw headers: add to @hm->parser.hbh_parser.raw table.
+	 * Raw headers: add to @hm->conn->parser.hbh_parser.raw table.
 	 */
 	__FSM_STATE(I_ConnOther) {
 		__FSM_I_MATCH_MOVE_finish(token, I_ConnOther, {
 			if (__hbh_parser_add_data(hm, p, __fsm_sz, false))
 				r = CSTR_NEQ;
 		});
-		msg->flags |= TFW_HTTP_F_CONN_EXTRA;
+		__set_bit(TFW_HTTP_CONN_EXTRA, msg->flags);
 		c = *(p + __fsm_sz);
 		if (__hbh_parser_add_data(hm, p, __fsm_sz, true))
 			return  CSTR_NEQ;
@@ -1218,7 +1220,7 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 	} /* FSM END */
 done:
-	TFW_DBG3("parser: Connection parsed: flags %#x\n", msg->flags);
+	TFW_DBG3("parser: Connection parsed: flags %#lx\n", msg->flags[0]);
 
 	return r;
 }
@@ -1334,9 +1336,9 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		 * chunked message is not allowed). RFC 7230 3.3.1.
 		 */
 		TRY_STR_LAMBDA("chunked", {
-			if (unlikely(msg->flags & TFW_HTTP_F_CHUNKED))
+			if (unlikely(test_bit(TFW_HTTP_CHUNKED, msg->flags)))
 				return CSTR_NEQ;
-			msg->flags |= TFW_HTTP_F_CHUNKED;
+			__set_bit(TFW_HTTP_CHUNKED, msg->flags);
 		}, I_EoT);
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(I_TransEncodOther, 0);
@@ -1353,7 +1355,7 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			__FSM_I_MOVE_n(I_EoT, __fsm_sz + 1);
 		if (IS_CRLF(c)) {
 			/* "chunked" must be the last coding. */
-			if (unlikely(msg->flags & TFW_HTTP_F_CHUNKED))
+			if (unlikely(test_bit(TFW_HTTP_CHUNKED, msg->flags)))
 				return CSTR_NEQ;
 			return __data_off(p + __fsm_sz);
 		}
@@ -1854,7 +1856,7 @@ __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	__FSM_STATE(Req_I_Accept) {
 		TRY_STR_LAMBDA("text/html", {
-			msg->flags |= TFW_HTTP_F_ACCEPT_HTML;
+			__set_bit(TFW_HTTP_ACCEPT_HTML, req->flags);
 		}, I_EoT);
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(Req_I_AcceptOther, 0);
@@ -2121,7 +2123,7 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	/* ';' was already matched. */
 	__FSM_STATE(Req_I_CookieSemicolon) {
 		/*
-		 * Fixup current delimeters chunk and move to next parameter
+		 * Fixup current delimiters chunk and move to next parameter
 		 * if we can eat ';' and SP at once.
 		 */
 		if (likely(__data_available(p, 2))) {
@@ -2131,7 +2133,7 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		}
 		/*
 		 * Only ';' is available now: fixup ';' as independent chunk,
-		 * SP willbe fixed up at next enter to the FSM.
+		 * SP will be fixed up at next enter to the FSM.
 		 */
 		__FSM_I_MOVE_fixup(Req_I_CookieSP, 1, 0);
 	}
@@ -2139,7 +2141,7 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_CookieSP) {
 		if (unlikely(c != ' '))
 			return CSTR_NEQ;
-		/* Fixup current delimeters chunk and move to next parameter. */
+		/* Fixup current delimiters chunk and move to next parameter. */
 		__FSM_I_MOVE_fixup(Req_I_CookieStart, 1, 0);
 	}
 
@@ -2166,7 +2168,7 @@ __parse_etag(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 	/*
 	 * ETag value and closing DQUOTE is placed into separate chunks marked
-	 * with flags TFW_STR_VALUE and TFW_STR_ETAG_WEAK (optionaly).
+	 * with flags TFW_STR_VALUE and TFW_STR_ETAG_WEAK (optionally).
 	 * Closing DQUOTE is used to support empty Etags. Opening is not added
 	 * to simplify usage of tfw_stricmpspn()
 	 *
@@ -2358,7 +2360,7 @@ done:
  * Parse response Expires, RFC 2616 14.21.
  *
  * We support only RFC 1123 date as it's most usable by modern software.
- * However RFC 2616 reuires that all server and client software MUST support
+ * However RFC 2616 requires that all server and client software MUST support
  * all 3 formats specified in 3.3.1 chapter. We leave this for TODO.
  *
  * @return number of seconds since epoch in GMT.
@@ -2432,11 +2434,11 @@ __parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len)
 				__FSM_I_MOVE_n(I_EoL, 0);
 			break;
 		case Resp_HdrDateV:
-			if (resp->flags & TFW_HTTP_F_HDR_DATE)
+			if (test_bit(TFW_HTTP_HDR_DATE, resp->flags))
 				return CSTR_NEQ;
 			break;
 		case Resp_HdrLast_ModifiedV:
-			if (resp->flags & TFW_HTTP_F_HDR_LMODIFIED)
+			if (test_bit(TFW_HTTP_HDR_LMODIFIED, resp->flags))
 				return CSTR_NEQ;
 			break;
 		case Req_HdrIf_Modified_SinceV:
@@ -2653,11 +2655,11 @@ __parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			break;
 		case Resp_HdrDateV:
 			resp->date = parser->_date;
-			resp->flags |= TFW_HTTP_F_HDR_DATE;
+			__set_bit(TFW_HTTP_HDR_DATE, resp->flags);
 			break;
 		case Resp_HdrLast_ModifiedV:
 			resp->last_modified = parser->_date;
-			resp->flags |= TFW_HTTP_F_HDR_LMODIFIED;
+			__set_bit(TFW_HTTP_HDR_LMODIFIED, resp->flags);
 			break;
 		case Req_HdrIf_Modified_SinceV:
 			req->cond.m_date = parser->_date;
@@ -2684,9 +2686,9 @@ __req_parse_if_msince(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	ret = __parse_http_date(msg, data, len);
 	if (ret < CSTR_POSTPONE) {  /* (ret < 0) && (ret != POSTPONE) */
 		/* On error just swallow the rest of the line. */
-		BUG_ON(msg->parser.state != Req_HdrIf_Modified_SinceV);
-		msg->parser._date = 0;
-		msg->parser._i_st = I_EoL;
+		BUG_ON(msg->conn->parser.state != Req_HdrIf_Modified_SinceV);
+		msg->conn->parser._date = 0;
+		msg->conn->parser._i_st = I_EoL;
 		ret = __parse_http_date(msg, data, len);
 	}
 	return ret;
@@ -2894,16 +2896,17 @@ done:
 static inline void
 __parser_init(TfwHttpParser *parser)
 {
+	memset(parser, 0, sizeof(TfwHttpParser));
 	parser->to_read = -1; /* unknown body size */
 }
 
 void
 tfw_http_init_parser_req(TfwHttpReq *req)
 {
-	TfwHttpHbhHdrs *hbh_hdrs = &req->parser.hbh_parser;
+	TfwHttpHbhHdrs *hbh_hdrs = &req->conn->parser.hbh_parser;
 
-	__parser_init(&req->parser);
-	req->parser.state = Req_0;
+	__parser_init(&req->conn->parser);
+	req->conn->parser.state = Req_0;
 
 	/*  Add spec header indexes to list of hop-by-hop headers. */
 	BUG_ON(hbh_hdrs->spec);
@@ -3106,12 +3109,12 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	 * RFC 3986 chapter 3.2: authority = [userinfo@]host[:port]
 	 *
 	 * Authority parsing: it can be "host" or "userinfo@host" (port is
-	 * parsed later). At the begining we don't know, which of variants we
+	 * parsed later). At the beginning we don't know, which of variants we
 	 * have. So we fill req->host, and if we get '@', we copy host to
 	 * req->userinfo, reset req->host and fill it.
 	 */
 	__FSM_STATE(Req_UriAuthorityStart) {
-		req->flags |= TFW_HTTP_F_URI_FULL;
+		__set_bit(TFW_HTTP_URI_FULL, req->flags);
 		if (likely(isalnum(c) || c == '.' || c == '-')) {
 			__msg_field_open(&req->host, p);
 			__FSM_MOVE_f(Req_UriAuthority, &req->host);
@@ -4183,9 +4186,9 @@ __resp_parse_expires(TfwHttpMsg *msg, unsigned char *data, size_t len)
 		 * On error just swallow the rest of the line.
 		 * @resp->expires is set to zero - already expired.
 		 */
-		BUG_ON(msg->parser.state != Resp_HdrExpiresV);
-		msg->parser._date = 0;
-		msg->parser._i_st = I_EoL;
+		BUG_ON(msg->conn->parser.state != Resp_HdrExpiresV);
+		msg->conn->parser._date = 0;
+		msg->conn->parser._i_st = I_EoL;
 		ret = __parse_http_date(msg, data, len);
 	}
 	return ret;
@@ -4232,11 +4235,11 @@ tfw_http_parse_terminate(TfwHttpMsg *hm)
 	/*
 	 * Set Content-Length header to warn client about end of message.
 	 * Other option is to close connection to client. All the situations
-	 * when Content-Length header must not present in responce were
+	 * when Content-Length header must not present in response were
 	 * checked earlier. Refer to RFC 7230 3.3.3
 	 */
-	if (hm->parser.state == Resp_BodyUnlimRead
-	    || hm->parser.state == Resp_BodyUnlimStart)
+	if (hm->conn->parser.state == Resp_BodyUnlimRead
+	    || hm->conn->parser.state == Resp_BodyUnlimStart)
 	{
 		char c_len[TFW_ULTOA_BUF_SIZ] = {0};
 		size_t digs;
@@ -4260,10 +4263,10 @@ tfw_http_parse_terminate(TfwHttpMsg *hm)
 void
 tfw_http_init_parser_resp(TfwHttpResp *resp)
 {
-	TfwHttpHbhHdrs *hbh_hdrs = &resp->parser.hbh_parser;
+	TfwHttpHbhHdrs *hbh_hdrs = &resp->conn->parser.hbh_parser;
 
-	__parser_init(&resp->parser);
-	resp->parser.state = Resp_0;
+	__parser_init(&resp->conn->parser);
+	resp->conn->parser.state = Resp_0;
 
 	/*  Add spec header indexes to list of hop-by-hop headers. */
 	BUG_ON(hbh_hdrs->spec);
@@ -4286,7 +4289,7 @@ tfw_http_adj_parser_resp(TfwHttpResp *resp)
 	TfwHttpReq *req = resp->req;
 
 	if (req->method == TFW_HTTP_METH_HEAD)
-		resp->flags |= TFW_HTTP_F_VOID_BODY;
+		__set_bit(TFW_HTTP_VOID_BODY, resp->flags);
 }
 
 int
@@ -4370,7 +4373,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			if (resp->status - 100U < 100U || resp->status == 204
 			    || resp->status == 304)
 			{
-				msg->flags |= TFW_HTTP_F_VOID_BODY;
+				__set_bit(TFW_HTTP_VOID_BODY, resp->flags);
 			}
 			__FSM_MOVE_nf(Resp_ReasonPhrase, __fsm_n,
 				      &resp->s_line);
@@ -4417,7 +4420,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			/* Ensure we have enough data for largest match. */
 			if (unlikely(!__data_available(p, 14)))
 				__FSM_MOVE(Resp_HdrC);
-			/* Qick switch for HTTP headers with the same prefix. */
+			/* Quick switch for HTTP headers with the same prefix. */
 			switch (TFW_P2LCINT(p + 1)) {
 			case TFW_CHAR4_INT('a', 'c', 'h', 'e'):
 				if (likely(*(p + 5) == '-'
@@ -4792,4 +4795,23 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	__FSM_FINISH(resp);
 
 	return r;
+}
+
+/**
+ * Checks if it's safe to stream the message.
+ *
+ * It's safe to stream the message in only one case: during message body
+ * parsing. Tempesta requires full set of headers to process the message;
+ * trailer headers can be modified, so must also be buffered.
+ * Return TFW_PASS if it's safe to stream the message, and TFW_POSTPONE
+ * if some buffering is required.
+ */
+int
+tfw_http_parser_msg_may_stream(TfwHttpMsg *hm)
+{
+	if (!(hm->crlf.flags & TFW_STR_COMPLETE))
+		return TFW_POSTPONE;
+	if (!(hm->body.flags & TFW_STR_COMPLETE))
+		return TFW_PASS;
+	return TFW_POSTPONE;
 }

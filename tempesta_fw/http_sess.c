@@ -12,7 +12,7 @@
  * challenge), safe load balancing for session oriented Web apps and so on.
  * The term 'Client' is actually vague. Different human clients can be behind
  * shared proxy having the same source IP (i.e. the same TfwClient descriptor).
- * The same human client can use differnt browsers, so they send different
+ * The same human client can use different browsers, so they send different
  * User-Agent headers and use different sticky cookies. X-Forwarded-For header
  * value can be used to cope the non anonymous forward proxy problem and
  * identify real clients.
@@ -100,7 +100,7 @@ static struct kmem_cache *sess_cache;
  *
  * @body	- body (html with JavaScript code);
  * @delay_min	- minimal timeout to make a client wait;
- * @delay_range	- allowed time range to recieve and accept client's session;
+ * @delay_range	- allowed time range to receive and accept client's session;
  * @delay_limit	- maximum difference between current time and a timestamp
  *		  specified in the sticky cookie;
  * @st_code	- status code for response with JS challenge;
@@ -127,13 +127,13 @@ static const unsigned short tfw_cfg_redirect_st_code_dflt = 302;
  * 'Accept: text/html' and GET method.
  */
 static bool
-tfw_http_sticky_redirect_allied(TfwHttpReq *req)
+tfw_http_sticky_redirect_applied(TfwHttpReq *req)
 {
 	if (!tfw_cfg_js_ch)
 		return true;
 
 	return (req->method == TFW_HTTP_METH_GET)
-		&& (req->flags & TFW_HTTP_F_ACCEPT_HTML);
+		&& test_bit(TFW_HTTP_ACCEPT_HTML, req->flags);
 }
 
 static int
@@ -151,11 +151,11 @@ tfw_http_sticky_send_redirect(TfwHttpReq *req, StickyVal *sv)
 	WARN_ON_ONCE(!list_empty(&req->nip_list));
 
 	/*
-	 * TODO: #598 rate limit requests with invalid cookie vaule.
-	 * Non-challengeable requests also must be rate limited.
+	 * TODO: #598 rate limit requests with invalid cookie value.
+	 * Unchallengeable requests also must be rate limited.
 	 */
 
-	if (!tfw_http_sticky_redirect_allied(req))
+	if (!tfw_http_sticky_redirect_applied(req))
 		return TFW_HTTP_SESS_JS_NOT_SUPPORTED;
 
 	if (!(resp = tfw_http_msg_alloc_resp_light(req)))
@@ -166,7 +166,7 @@ tfw_http_sticky_send_redirect(TfwHttpReq *req, StickyVal *sv)
 	 * 	<timestamp> | HMAC(Secret, User-Agent, timestamp, Client IP)
 	 *
 	 * Open <timestamp> is required to be able to recalculate secret HMAC.
-	 * Since the secret is unknown for the attacke, they're still unable to
+	 * Since the secret is unknown for the attackers, they're still unable to
 	 * recalculate HMAC while we don't need to store session information
 	 * until we receive correct cookie value.
 	 */
@@ -497,7 +497,7 @@ ts_finished:
 	BUG_ON(i != STICKY_KEY_MAXLEN);
 
 	/* Sticky cookie is found and verified, now we can set the flag. */
-	req->flags |= TFW_HTTP_F_HAS_STICKY;
+	__set_bit(TFW_HTTP_HAS_STICKY, req->flags);
 
 	return TFW_HTTP_SESS_SUCCESS;
 }
@@ -546,7 +546,7 @@ tfw_http_sess_resp_process(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
 
-	if (!tfw_cfg_sticky.enabled || req->flags & TFW_HTTP_F_WHITELIST)
+	if (!tfw_cfg_sticky.enabled || test_bit(TFW_HTTP_WHITELIST, req->flags))
 		return 0;
 	BUG_ON(!req->sess);
 
@@ -556,7 +556,7 @@ tfw_http_sess_resp_process(TfwHttpResp *resp)
 	 * it seems that we don't enforce them, we can just set the cookie in
 	 * each response forwarded to the client.
 	 */
-	if (req->flags & TFW_HTTP_F_HAS_STICKY)
+	if (test_bit(TFW_HTTP_HAS_STICKY, req->flags))
 		return 0;
 	return tfw_http_sticky_add(resp);
 }
@@ -620,7 +620,7 @@ tfw_http_sess_check_jsch(StickyVal *sv)
 	if ((min_time <= cur_time) && (cur_time <= max_time))
 		return 0;
 
-	TFW_DBG("sess: jsch block: request recieved outside allowed period.\n");
+	TFW_DBG("sess: jsch block: request received outside allowed period.\n");
 
 	return TFW_HTTP_SESS_VIOLATE;
 }
@@ -639,7 +639,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	struct hlist_node *tmp;
 	StickyVal sv = { };
 
-	if (!tfw_cfg_sticky.enabled || req->flags & TFW_HTTP_F_WHITELIST)
+	if (!tfw_cfg_sticky.enabled || test_bit(TFW_HTTP_WHITELIST, req->flags))
 		return TFW_HTTP_SESS_SUCCESS;
 
 	if ((r = tfw_http_sticky_req_process(req, &sv)))
@@ -783,7 +783,7 @@ tfw_http_sess_pin_srv(TfwStickyConn *st_conn, TfwSrvConn *srv_conn)
 }
 
 /**
- * Find an outgoing connection for client with tempesta sticky cookie.
+ * Find an outgoing connection for client with Tempesta sticky cookie.
  * @sess is not null when calling the function.
  *
  * Reuse req->sess->st_conn.srv_conn if it is alive. If not,
@@ -950,15 +950,12 @@ tfw_cfgop_sess_lifetime(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_cfg_op_jsch_parse_time(TfwCfgSpec *cs, const char *key, const char *val,
-			   time_t *time)
+tfw_cfg_op_jsch_parse_time(const char *val, time_t *time)
 {
 	int r, int_val;
 
-	if ((r = tfw_cfg_parse_int(val, &int_val))) {
-		TFW_ERR_NL("%s: can't parse key '%s'\n", cs->name, key);
+	if ((r = tfw_cfg_parse_int(val, &int_val)))
 		return r;
-	}
 	*time = int_val * HZ / 1000;
 
 	return 0;
@@ -969,10 +966,8 @@ tfw_cfg_op_jsch_parse_resp_code(TfwCfgSpec *cs, const char *val)
 {
 	int r, int_val;
 
-	if ((r = tfw_cfg_parse_int(val, &int_val))) {
-		TFW_ERR_NL("%s: can't parse key 'resp_code'\n", cs->name);
+	if ((r = tfw_cfg_parse_int(val, &int_val)))
 		return r;
-	}
 	if ((r = tfw_cfg_check_range(int_val, 100, 599)))
 		return r;
 	tfw_cfg_js_ch->st_code = int_val;
@@ -1047,17 +1042,17 @@ tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	}
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
 		if (!strcasecmp(key, "delay_min")) {
-			r = tfw_cfg_op_jsch_parse_time(cs, key, val,
+			r = tfw_cfg_op_jsch_parse_time(val,
 						       &tfw_cfg_js_ch->delay_min);
 			if (r)
 				return r;
 		} else if (!strcasecmp(key, "delay_range")) {
-			r = tfw_cfg_op_jsch_parse_time(cs, key, val,
+			r = tfw_cfg_op_jsch_parse_time(val,
 						       &tfw_cfg_js_ch->delay_range);
 			if (r)
 				return r;
 		} else if (!strcasecmp(key, "delay_limit")) {
-			r = tfw_cfg_op_jsch_parse_time(cs, key, val,
+			r = tfw_cfg_op_jsch_parse_time(val,
 						       &delay_limit);
 			if (r)
 				return r;

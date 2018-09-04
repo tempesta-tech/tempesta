@@ -305,16 +305,16 @@ tfw_srv_conn_release(TfwSrvConn *srv_conn)
 	 * callback). The only reason not to start new reconnect
 	 * attempt is removing server from the current configuration.
 	 *
-	 * TFW_CONN_B_ACTIVE bit is checked here to see if the connection has
+	 * TFW_CONN_ACTIVE bit is checked here to see if the connection has
 	 * already got a server's reference; if so, then server's reference must
 	 * be put. If bit is not set, this means that connection didn't have
 	 * time or was never scheduled to reach server (due to some error in
 	 * sock_srv start procedure) and consequently, it needn't to put
 	 * server here (during stop procedure).
 	 */
-	if (likely(!test_bit(TFW_CONN_B_DEL, &srv_conn->flags)))
+	if (likely(!test_bit(TFW_CONN_DEL, &srv_conn->flags)))
 		tfw_sock_srv_connect_try_later(srv_conn);
-	else if (test_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags))
+	else if (test_bit(TFW_CONN_ACTIVE, &srv_conn->flags))
 		tfw_server_put((TfwServer *)srv_conn->peer);
 }
 
@@ -441,12 +441,12 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 
 	/* Server's refcounter is decreased on disconnect. */
-	if (test_bit(TFW_CONN_B_DEL, &srv_conn->flags))
+	if (test_bit(TFW_CONN_DEL, &srv_conn->flags))
 		return 0;
 
 	/* Stop any attempts to reconnect or reschedule. */
 	del_timer_sync(&conn->timer);
-	set_bit(TFW_CONN_B_DEL, &srv_conn->flags);
+	set_bit(TFW_CONN_DEL, &srv_conn->flags);
 
 	/*
 	 * Close the connection if it's not being closed yet. Resources
@@ -485,7 +485,7 @@ static inline void
 tfw_sock_srv_conn_activate(TfwServer *srv, TfwSrvConn *srv_conn)
 {
 	tfw_server_get(srv);
-	set_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags);
+	set_bit(TFW_CONN_ACTIVE, &srv_conn->flags);
 }
 
 static void
@@ -1334,20 +1334,16 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwCfgSrvGroup *sg_cfg)
 				TFW_ERR_NL("Duplicate argument: '%s'\n", key);
 				return -EINVAL;
 			}
-			if (tfw_cfg_parse_int(val, &conns_n)) {
-				TFW_ERR_NL("Invalid value: '%s'\n", val);
+			if (tfw_cfg_parse_int(val, &conns_n))
 				return -EINVAL;
-			}
 			has_conns_n = true;
 		} else if (!strcasecmp(key, "weight")) {
 			if (has_weight) {
 				TFW_ERR_NL("Duplicate argument: '%s'\n", key);
 				return -EINVAL;
 			}
-			if (tfw_cfg_parse_int(val, &weight)) {
-				TFW_ERR_NL("Invalid value: '%s'\n", val);
+			if (tfw_cfg_parse_int(val, &weight))
 				return -EINVAL;
-			}
 			has_weight = true;
 		} else {
 			TFW_ERR_NL("Unsupported argument: '%s'\n", key);
@@ -1645,10 +1641,8 @@ tfw_cfg_handle_ratio_predyn_opts(TfwCfgEntry *ce, unsigned int *arg_flags)
 			flags |= TFW_PSTATS_IDX_P90;
 			goto done;
 		}
-		if (tfw_cfg_parse_int(ce->vals[3], &value)) {
-			TFW_ERR_NL("Invalid value: '%s'\n", ce->vals[3]);
+		if (tfw_cfg_parse_int(ce->vals[3], &value))
 			return -EINVAL;
-		}
 		for (idx = 0; idx < ARRAY_SIZE(tfw_pstats_ith); ++idx) {
 			if (!tfw_pstats_ith[idx])
 				continue;
@@ -1694,30 +1688,24 @@ tfw_cfg_handle_ratio_predict(TfwCfgEntry *ce,
 				TFW_ERR_NL("Duplicate argument: '%s'\n", key);
 				return -EINVAL;
 			}
-			if (tfw_cfg_parse_int(val, &arg.past)) {
-				TFW_ERR_NL("Invalid value: '%s'\n", val);
+			if (tfw_cfg_parse_int(val, &arg.past))
 				return -EINVAL;
-			}
 			has_past = true;
 		} else if (!strcasecmp(key, "rate")) {
 			if (has_rate) {
 				TFW_ERR_NL("Duplicate argument: '%s'\n", key);
 				return -EINVAL;
 			}
-			if (tfw_cfg_parse_int(val, &arg.rate)) {
-				TFW_ERR_NL("Invalid value: '%s'\n", val);
+			if (tfw_cfg_parse_int(val, &arg.rate))
 				return -EINVAL;
-			}
 			has_rate = true;
 		} else if (!strcasecmp(key, "ahead")) {
 			if (has_ahead) {
 				TFW_ERR_NL("Duplicate argument: '%s'\n", key);
 				return -EINVAL;
 			}
-			if (tfw_cfg_parse_int(val, &arg.ahead)) {
-				TFW_ERR_NL("Invalid value: '%s'\n", val);
+			if (tfw_cfg_parse_int(val, &arg.ahead))
 				return -EINVAL;
-			}
 			has_ahead = true;
 		}
 	}

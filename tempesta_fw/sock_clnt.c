@@ -40,6 +40,11 @@
 static struct kmem_cache *tfw_cli_conn_cache;
 static struct kmem_cache *tfw_tls_conn_cache;
 static int tfw_cli_cfg_ka_timeout = -1;
+/*
+ * Maximum size of memory used to store requests. Used for receive window size
+ * steering
+ */
+int tfw_cfg_cli_rmem __read_mostly = 0;
 
 static inline struct kmem_cache *
 tfw_cli_cache(int type)
@@ -207,7 +212,7 @@ err_client:
 }
 
 /**
- * Do the same stuff for intetional client connection closing and due to some
+ * Do the same stuff for intentional client connection closing and due to some
  * error on TCP socket or application layers.
  */
 static void
@@ -266,7 +271,7 @@ static int
 __cli_conn_close_cb(TfwConn *conn)
 {
 	/*
-	 * Use assynchronous closing to release peer connection list and
+	 * Use asynchronous closing to release peer connection list and
 	 * client hash bucket locks as soon as possible and let softirq
 	 * do all the jobs.
 	 */
@@ -397,6 +402,22 @@ tfw_listen_sock_start(TfwListenSock *ls)
 	sk->sk_user_data = ls;
 
 	/*
+	 * Limit receive window size for accepted connections.
+	 * Similarly to setsockopt() behaviour, double the limit
+	 * on the way in to account for "struct sk_buff" etc. overhead.
+	 * Set a smaller limit for beginning, if a client performs fast the
+	 * limit will be updated in ss_rcv_space_adjust().
+	 */
+	if (tfw_cfg_cli_rmem) {
+		int bsz = tfw_cfg_cli_rmem * 2;
+
+		if (sysctl_tcp_moderate_rcvbuf && (bsz > sysctl_tcp_rmem[1]))
+			bsz = sysctl_tcp_rmem[1];
+		sk->sk_userlocks |= SOCK_RCVBUF_LOCK;
+		sk->sk_rcvbuf = bsz;
+	}
+
+	/*
 	 * For listening sockets we use
 	 * ss_set_listen() instead of ss_set_callbacks().
 	 */
@@ -459,7 +480,7 @@ tfw_cfgop_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	 * - a full IP address (e.g. "listen 127.0.0.1:8081").
 	 */
 	in_str = ce->vals[0];
-	r = tfw_cfg_parse_int(in_str, &port);
+	r = __tfw_cfg_parse_int(in_str, &port);
 	if (!r) {
 		r = tfw_cfg_check_range(port, 0, 65535);
 		if (r)
@@ -509,23 +530,82 @@ tfw_cfgop_keepalive_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	int r;
 
 	if ((r = tfw_cfg_check_val_n(ce, 1)))
-		return -EINVAL;
+		return r;
 
-	if ((r = tfw_cfg_parse_int(ce->vals[0], &tfw_cli_cfg_ka_timeout))) {
-		TFW_ERR_NL("Unable to parse 'keepalive_timeout' value: '%s'\n",
-			   ce->vals[0] ? : "No value specified");
-		return -EINVAL;
-	}
-
-	if (tfw_cli_cfg_ka_timeout < 0) {
-		TFW_ERR_NL("Unable to parse 'keepalive_timeout' value: '%s'\n",
-			   "Value less the zero");
-		return -EINVAL;
-	}
+	if ((r = tfw_cfg_parse_int(ce->vals[0], &tfw_cli_cfg_ka_timeout)))
+		return r;
+	if ((r = tfw_cfg_check_range(tfw_cli_cfg_ka_timeout, 0, INT_MAX)))
+		return r;
 
 	return 0;
 }
 
+/**
+ * Limit total memory used to serve single TCP connection.
+ *
+ * Received skb may be stored in one of two buffers: socket receive buffer
+ * (sk->sk_receive_queue) or Tempesta connection buffer (TfwCliConn->seq_queue).
+ * Receive buffer size is limited by 'net.core.rmem_max' and
+ * 'net.ipv4.tcp_rmem'. The kernel manages tcp receive window size to slow
+ * dawn clients when the socket receive buffer is about to be full.
+ *
+ * When skb is stored in receive queue, it's tracked in sk->sk_rmem_alloc.
+ * The kernel uses the parameter to calculate available receive window size.
+ * When the option is enabled, HTTP messages stored in Tempesta connection
+ * buffer are also tracked by sk->sk_rmem_alloc. Thus the kernel is aware of
+ * free space in both buffers when a new TCP window is calculated.
+ *
+ * Note, the http message size and underlying skb size can change during
+ * message processing inside the Tempesta due to message modifications.
+ * Two variants are possible: mirror all modifications to sk->sk_rmem_alloc
+ * or operate only by original message size. The second case was chosen
+ * because it's simplicity and error-free possibilities.
+ *
+ * Generally we don't want the same rmem limits for clients and servers.
+ * Server connections are fast and require relatively big buffers.
+ * Client connections doesn't require high speeds, but a big number of
+ * client connections can cause memory starvation. Limit client connection
+ * socket buffer size with SO_RCVBUF to deny automatic buffer size moderation
+ * inside the kernel functions.
+ *
+ * Restricting buffer size for a server connection in the same way is a bad
+ * idea. Responses stored as pairs for requests in client seq_queue may belong
+ * to different servers. There can be tricky situations leading to server
+ * receive and forwarding deadlocks.
+ *
+ * If zero receive window was advertised, the client connection will be
+ * closed after 'keepalive_timeout'. Responses forwarded rearm the timer,
+ * while window probe requests are not.
+ */
+static int
+tfw_cfgop_cli_rmem(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r, limit;
+
+	if ((r = tfw_cfg_set_int(cs, ce)))
+		return r;
+	/*
+	 * The value must not overflow system limits. But the SO_RCVBUF
+	 * option must be applied to the socket before listen() or connect()
+	 * to have effect, so updating the system limits in runtime has no
+	 * effect. We have to decrease the configured value to fit system
+	 * limits. Another option is to raise configuration parse error.
+	 */
+	limit = max_t(u32, sysctl_rmem_max, sysctl_tcp_rmem[2]);
+	if (tfw_cfg_cli_rmem > limit) {
+		TFW_WARN_NL("%s: value is bigger than 'net.core.rmem_max' or "
+			    "'net.ipv4.tcp_rmem', limit to %i\n",
+			    cs->name, limit);
+		tfw_cfg_cli_rmem = limit;
+	}
+	if (tfw_cfg_cli_rmem && (tfw_cfg_cli_rmem < SOCK_MIN_RCVBUF / 2)) {
+		tfw_cfg_cli_rmem = SOCK_MIN_RCVBUF / 2;
+		TFW_WARN_NL("%s: value is too small, set to %i\n",
+			    cs->name, tfw_cfg_cli_rmem);
+	}
+
+	return 0;
+}
 
 static void
 tfw_cfgop_cleanup_sock_clnt(TfwCfgSpec *cs)
@@ -593,9 +673,9 @@ tfw_sock_clnt_stop(void)
 	/*
 	 * Now all listening sockets are closed, so no new connections
 	 * can appear. Close all established client connections.
-	 * We're going to acquie client hash bucket and peer connection list
-	 * locks, so disable softiqs to avoid deadlock with the sockets closing
-	 * in softiq context.
+	 * We're going to acquire client hash bucket and peer connection list
+	 * locks, so disable softirq to avoid deadlock with the sockets closing
+	 * in softirq context.
 	 */
 	local_bh_disable();
 	while (tfw_client_for_each(tfw_cli_conn_close_all)) {
@@ -626,6 +706,20 @@ static TfwCfgSpec tfw_sock_clnt_specs[] = {
 		.handler = tfw_cfgop_keepalive_timeout,
 		.cleanup = tfw_cfgop_cleanup_sock_clnt,
 		.allow_repeat = false,
+	},
+	{
+		.name = "client_rmem",
+		.deflt = "0", /* No limit. */
+		.handler = tfw_cfgop_cli_rmem,
+		.dest = &tfw_cfg_cli_rmem,
+		.spec_ext = &(TfwCfgSpecInt) {
+			/*
+			 * The value is used for (int)sock->sk_rcvbuf and
+			 * multiplicated by 2, limit maximum possible value
+			 * to prevent overflows.
+			*/
+			.range = { 0, INT_MAX / 2 },
+		},
 	},
 	{ 0 }
 };
