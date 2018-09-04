@@ -59,6 +59,7 @@ static struct {
 
 #define S_CRLFCRLF		"\r\n\r\n"
 #define S_HTTP			"http://"
+#define S_HTTPS			"https://"
 
 #define S_0			"HTTP/1.1 "
 #define S_200			"HTTP/1.1 200 OK"
@@ -343,6 +344,21 @@ unsigned long tfw_hash_str(const TfwStr *str);
 #define S_REDIR_KEEP	S_CRLF S_F_CONNECTION S_V_CONN_KA S_CRLF
 #define S_REDIR_CLOSE	S_CRLF S_F_CONNECTION S_V_CONN_CLOSE S_CRLF
 #define S_REDIR_C_LEN	S_F_CONTENT_LENGTH "0" S_CRLFCRLF
+
+#define DEFINE_TFW_STR_PROTO(name, conn)	\
+	TfwStr name;				\
+	name.skb = NULL;			\
+	name.eolen = name.flags = 0;		\
+	switch (TFW_CONN_PROTO(conn)) {		\
+	case TFW_FSM_HTTPS:			\
+		name.ptr = S_HTTPS;		\
+		name.len = SLEN(S_HTTPS);	\
+		break;				\
+	default:				\
+		name.ptr = S_HTTP;		\
+		name.len = SLEN(S_HTTP);	\
+	}
+
 /**
  * The response redirects the client to the same URI as the original request,
  * but it includes 'Set-Cookie:' header field that sets Tempesta sticky cookie.
@@ -391,6 +407,7 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *cookie,
 	static TfwStr c_len_crlf = {
 		.ptr = S_REDIR_C_LEN, .len = SLEN(S_REDIR_C_LEN) };
 	TfwStr host, *rh, *cookie_crlf = &crlf, *r_end;
+	DEFINE_TFW_STR_PROTO(proto, req->conn);
 
 	if (status == 302) {
 		rh = &rh_302;
@@ -418,7 +435,8 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *cookie,
 
 	/* Add variable part of data length to get the total */
 	data_len = rh->len + h_common_1.len;
-	data_len += host.len ? host.len + SLEN(S_HTTP) : 0;
+	data_len += host.len ? host.len + proto.len : 0;
+	data_len += req->port.len;
 	data_len += req->uri_path.len + h_common_2.len + cookie->len;
 	data_len += cookie_crlf->len + r_end->len;
 
@@ -434,9 +452,13 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *cookie,
 	 * See RFC 1945 9.3 and RFC 7231 7.1.2.
 	 */
 	if (host.len) {
-		static TfwStr proto = { .ptr = S_HTTP, .len = SLEN(S_HTTP) };
 		ret |= tfw_http_msg_write(&it, resp, &proto);
 		ret |= tfw_http_msg_write(&it, resp, &host);
+		if (req->port.len) {
+			DEFINE_TFW_STR(s_col, ":");
+			ret |= tfw_http_msg_write(&it, resp, &s_col);
+			ret |= tfw_http_msg_write(&it, resp, &req->port);
+		}
 	}
 	ret |= tfw_http_msg_write(&it, resp, &req->uri_path);
 	ret |= tfw_http_msg_write(&it, resp, &h_common_2);
@@ -2756,7 +2778,6 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 		if ((req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block)))
 			req->location = tfw_location_match(req->vhost,
 							   &req->uri_path);
-
 		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_MSG,
 				  &data_up);
 		TFW_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);

@@ -1461,6 +1461,7 @@ enum {
 	Req_UriAuthorityResetHost,
 	Req_UriAuthorityIPv6,
 	Req_UriAuthorityEnd,
+	Req_UriPortStart,
 	Req_UriPort,
 	Req_UriAbsPath,
 	Req_HttpVer,
@@ -3186,27 +3187,34 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
 		else if (c == ':') {
-			__FSM_MOVE_nofixup(Req_UriPort);
+			__FSM_MOVE_nofixup(Req_UriPortStart);
 		}
 		else {
 			TFW_PARSER_BLOCK(Req_UriAuthorityEnd);
 		}
 	}
 
+	__FSM_STATE(Req_UriPortStart) {
+		if (likely(isdigit(c))) {
+			__msg_field_open(&req->port, p);
+			__FSM_MOVE_f(Req_UriPort, &req->port);
+		}
+		TFW_PARSER_BLOCK(Req_UriPortStart);
+	}
+
 	/* Host port in URI */
 	__FSM_STATE(Req_UriPort) {
 		if (likely(isdigit(c)))
-			__FSM_MOVE_nofixup(Req_UriPort);
-		else if (likely(c == '/')) {
+			__FSM_MOVE_f(Req_UriPort, &req->port);
+		__msg_field_finish(&req->port, p);
+		if (likely(c == '/')) {
 			__msg_field_open(&req->uri_path, p);
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
 		}
 		else if (c == ' ') {
 			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
-		else {
-			TFW_PARSER_BLOCK(Req_UriPort);
-		}
+		TFW_PARSER_BLOCK(Req_UriPort);
 	}
 
 	/*
