@@ -1967,9 +1967,15 @@ tfw_http_set_hdr_date(TfwHttpMsg *hm)
 	return r;
 }
 
+/**
+ * Connection is to be closed after response for the request @req is forwarded
+ * to the client. Don't process new requests from the client and update
+ * message flags for proper "Connection: " header value.
+ */
 static inline void
 tfw_http_req_set_conn_close(TfwHttpReq *req)
 {
+	TFW_CONN_TYPE(req->conn) |= Conn_Stop;
 	__clear_bit(TFW_HTTP_CONN_KA, req->flags);
 	__set_bit(TFW_HTTP_CONN_CLOSE, req->flags);
 }
@@ -2372,31 +2378,34 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 static inline void
 tfw_http_req_mark_error(TfwHttpReq *req, int status)
 {
-	TFW_CONN_TYPE(req->conn) |= Conn_Stop;
 	tfw_http_req_set_conn_close(req);
 	tfw_http_error_resp_switch(req, status);
 }
 
 /**
- * Error happen, close connection after last response is sent.
+ * Error happen, current request @req will be discarded. Connection should
+ * be closed after response for the previous request.
  *
- * Returns true, if the connection will be closed with the last request,
- * returns false, there are no responses to forward to the client, and manual
- * connection close action is required.
+ * Returns true, if the connection will be automatically closed with the
+ * last response sent. Returns false, if there are no responses to forward
+ * and manual connection close action is required.
  */
 static bool
-tfw_http_req_last_conn_close(TfwCliConn *cli_conn)
+tfw_http_req_prev_conn_close(TfwHttpReq *req)
 {
-	TfwHttpReq *last_req;
+	TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
+	TfwHttpReq *last_req = NULL;
+	struct list_head *prev;
+
+	if (list_empty_careful(&cli_conn->seq_queue))
+		return false;
 
 	spin_lock(&cli_conn->seq_qlock);
 
-	last_req = list_empty(&cli_conn->seq_queue)
-			? NULL
-			: list_last_entry(&cli_conn->seq_queue, TfwHttpReq,
-					  msg.seq_list);
-	if (last_req) {
-		TFW_CONN_TYPE(cli_conn) |= Conn_Stop;
+	prev = (!list_empty(&req->msg.seq_list)) ? req->msg.seq_list.prev
+						 : cli_conn->seq_queue.prev;
+	if (prev != &cli_conn->seq_queue) {
+		last_req = list_entry(prev, TfwHttpReq, msg.seq_list);
 		tfw_http_req_set_conn_close(last_req);
 	}
 
@@ -2452,17 +2461,31 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 			WARN_ONCE(list_empty_careful(&req->msg.seq_list),
 				  "Request is not in in seq_queue\n");
 		}
+		/*
+		 * TODO:
+		 * If !on_req_recv_event, then the request @req - some
+		 * random request from the seq_queue, not the last one.
+		 * If under attack:
+		 *   Send the response and discard all the following request.
+		 * If not under attack:
+		 *   Seems like the same reaction is acceptable: we can show
+		 *   the client that an illegal request took place, send the
+		 *   response and close connection to allow client to recover.
+		 *   Alternatively, we can only prepare an error response for
+		 *   the request, without stopping the connection or
+		 *   discarding any following requests.
+		 */
 		tfw_http_req_mark_error(req, status);
 	}
 	/*
-	 * Serve all pending requests if not under attack, close immediatelly
+	 * Serve all pending requests if not under attack, close immediately
 	 * otherwise.
 	 */
 	else {
 		bool close = !on_req_recv_event;
 
 		if (!attack)
-			close &= tfw_http_req_last_conn_close(cli_conn);
+			close &= tfw_http_req_prev_conn_close(req);
 		if (close)
 			ss_close_sync(req->conn->sk, true);
 		tfw_http_conn_req_clean(req);
