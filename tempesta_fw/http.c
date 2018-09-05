@@ -345,20 +345,6 @@ unsigned long tfw_hash_str(const TfwStr *str);
 #define S_REDIR_CLOSE	S_CRLF S_F_CONNECTION S_V_CONN_CLOSE S_CRLF
 #define S_REDIR_C_LEN	S_F_CONTENT_LENGTH "0" S_CRLFCRLF
 
-#define DEFINE_TFW_STR_PROTO(name, conn)	\
-	TfwStr name;				\
-	name.skb = NULL;			\
-	name.eolen = name.flags = 0;		\
-	switch (TFW_CONN_PROTO(conn)) {		\
-	case TFW_FSM_HTTPS:			\
-		name.ptr = S_HTTPS;		\
-		name.len = SLEN(S_HTTPS);	\
-		break;				\
-	default:				\
-		name.ptr = S_HTTP;		\
-		name.len = SLEN(S_HTTP);	\
-	}
-
 /**
  * The response redirects the client to the same URI as the original request,
  * but it includes 'Set-Cookie:' header field that sets Tempesta sticky cookie.
@@ -406,8 +392,12 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *cookie,
 		.ptr = S_REDIR_CLOSE, .len = SLEN(S_REDIR_CLOSE) };
 	static TfwStr c_len_crlf = {
 		.ptr = S_REDIR_C_LEN, .len = SLEN(S_REDIR_C_LEN) };
+	static TfwStr protos[] = {
+		{ .ptr = S_HTTP, .len = SLEN(S_HTTP) },
+		{ .ptr = S_HTTPS, .len = SLEN(S_HTTPS) },
+	};
+	TfwStr *proto = &protos[TFW_CONN_PROTO(req->conn) == TFW_FSM_HTTPS];
 	TfwStr host, *rh, *cookie_crlf = &crlf, *r_end;
-	DEFINE_TFW_STR_PROTO(proto, req->conn);
 
 	if (status == 302) {
 		rh = &rh_302;
@@ -422,10 +412,11 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *cookie,
 	else
 		r_end = &c_len_crlf;
 
-	tfw_http_msg_clnthdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
-				 TFW_HTTP_HDR_HOST, &host);
-	if (TFW_STR_EMPTY(&host))
+	if (req->host.len)
 		host = req->host;
+	else
+		tfw_http_msg_clnthdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
+					 TFW_HTTP_HDR_HOST, &host);
 
 	/* Set "Connection:" header field if needed. */
 	if (conn_flag == TFW_HTTP_F_CONN_CLOSE)
@@ -435,8 +426,7 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *cookie,
 
 	/* Add variable part of data length to get the total */
 	data_len = rh->len + h_common_1.len;
-	data_len += host.len ? host.len + proto.len : 0;
-	data_len += req->port.len;
+	data_len += host.len ? host.len + proto->len : 0;
 	data_len += req->uri_path.len + h_common_2.len + cookie->len;
 	data_len += cookie_crlf->len + r_end->len;
 
@@ -452,13 +442,8 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *cookie,
 	 * See RFC 1945 9.3 and RFC 7231 7.1.2.
 	 */
 	if (host.len) {
-		ret |= tfw_http_msg_write(&it, resp, &proto);
+		ret |= tfw_http_msg_write(&it, resp, proto);
 		ret |= tfw_http_msg_write(&it, resp, &host);
-		if (req->port.len) {
-			DEFINE_TFW_STR(s_col, ":");
-			ret |= tfw_http_msg_write(&it, resp, &s_col);
-			ret |= tfw_http_msg_write(&it, resp, &req->port);
-		}
 	}
 	ret |= tfw_http_msg_write(&it, resp, &req->uri_path);
 	ret |= tfw_http_msg_write(&it, resp, &h_common_2);

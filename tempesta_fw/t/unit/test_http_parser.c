@@ -403,8 +403,7 @@ TEST(http_parser, parses_req_uri)
 
 	/*
 	 * Absolute URI.
-	 * NOTE: we split host and port URI parts into separate
-	 * fields - 'req->host' and 'req->port' respectively.
+	 * NOTE: we combine host and port URI parts into one field 'req->host'.
 	 */
 	FOR_REQ("GET http://natsys-lab.com/ HTTP/1.1\r\n\r\n") {
 		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
@@ -417,14 +416,12 @@ TEST(http_parser, parses_req_uri)
 	}
 
 	FOR_REQ("GET http://natsys-lab.com:8080/ HTTP/1.1\r\n\r\n") {
-		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
-		EXPECT_TFWSTR_EQ(&req->port, "8080");
+		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com:8080");
 		EXPECT_TFWSTR_EQ(&req->uri_path, "/");
 	}
 
 	FOR_REQ("GET http://natsys-lab.com:8080 HTTP/1.1\r\n\r\n") {
-		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
-		EXPECT_TFWSTR_EQ(&req->port, "8080");
+		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com:8080");
 		EXPECT_TFWSTR_EQ(&req->uri_path, "");
 	}
 
@@ -436,8 +433,7 @@ TEST(http_parser, parses_req_uri)
 	FOR_REQ("GET http://natsys-lab.com:8080/cgi-bin/show.pl?entry=tempesta"
 		" HTTP/1.1\r\n\r\n")
 	{
-		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
-		EXPECT_TFWSTR_EQ(&req->port, "8080");
+		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com:8080");
 		EXPECT_TFWSTR_EQ(&req->uri_path,
 				 "/cgi-bin/show.pl?entry=tempesta");
 	}
