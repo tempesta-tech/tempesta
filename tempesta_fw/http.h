@@ -460,7 +460,6 @@ typedef struct {
  * @sess	- HTTP session descriptor, required for scheduling;
  * @userinfo	- userinfo in URI, not mandatory.
  * @host	- host in URI, may differ from Host header;
- * @port	- TCP port value from URI;
  * @uri_path	- path + query + fragment from URI (RFC3986.3);
  * @fwd_list	- member in the queue of forwarded/backlogged requests;
  * @nip_list	- member in the queue of non-idempotent requests;
@@ -485,7 +484,6 @@ struct tfw_http_req_t {
 	TfwHttpCond		cond;
 	TfwStr			userinfo;
 	TfwStr			host;
-	TfwStr			port;
 	TfwStr			uri_path;
 	struct list_head	fwd_list;
 	struct list_head	nip_list;
