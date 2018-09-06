@@ -992,7 +992,6 @@ TEST(http_parser, crlf_trailer)
 		"4\r\n"
 		"1234\r\n"
 		"0\r\n"
-		"\r\n"
 		"Custom-Hdr: custom-data\r\n"
 		"\r\n")
 	{
@@ -1010,7 +1009,6 @@ TEST(http_parser, crlf_trailer)
 		 "5\r\n"
 		 "abcde\r\n"
 		 "0\r\n"
-		 "\r\n"
 		 "Custom-Hdr: custom-data\r\n"
 		 "\r\n")
 	{
