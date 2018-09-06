@@ -1034,7 +1034,7 @@ TEST(http_parser, ows)
 		 "Content-Length: 10  	\r\n"
 		 "Age:   12   \r\n"
 		"\n"
-		"0123456789\r\n");
+		"0123456789");
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Host:foo.com\r\n"
