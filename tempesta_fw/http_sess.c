@@ -47,6 +47,7 @@
 #include "client.h"
 #include "http_msg.h"
 #include "http_sess.h"
+#include "filter.h"
 
 #define STICKY_NAME_MAXLEN	(32)
 #define STICKY_NAME_DEFAULT	"__tfw"
@@ -59,17 +60,39 @@
  * @name		- name of sticky cookie;
  * @name_eq		- @name plus "=" to make some operations faster;
  * @sess_lifetime	- session lifetime in seconds;
+ * @max_misses		- maximum count of requsts with invalid cookie;
+ * @tmt_sec		- maximum time (in seconds) to wait the request
+ *			  with valid cookie;
  */
 typedef struct {
 	TfwStr		name;
 	TfwStr		name_eq;
 	unsigned int	sess_lifetime;
+	unsigned int	max_misses;
+	unsigned int	tmt_sec;
 	u_int		enabled : 1,
 			enforce : 1;
 } TfwCfgSticky;
 
+
+/**
+ * Temporal storage for calculated redirection mark value.
+ *
+ * @att_no		- number of redirection attempts;
+ * @ts			- timestamp for the first redirection attempt;
+ * @hmac		- calculated HMAC value for redirection mark;
+ */
+typedef struct {
+	unsigned int	att_no;
+	unsigned long	ts;
+	unsigned char	hmac[STICKY_KEY_MAXLEN];
+} __attribute__((packed)) RedirMarkVal;
+
 /**
  * Temporal storage for calculated sticky cookie values.
+ *
+ * @ts			- timestamp of the session beginning;
+ * @hmac		- calculated HMAC value for cookie value;
  */
 typedef struct {
 	unsigned long	ts;
@@ -136,14 +159,52 @@ tfw_http_sticky_redirect_allied(TfwHttpReq *req)
 		&& (req->flags & TFW_HTTP_F_ACCEPT_HTML);
 }
 
+/*
+ * Create redirect mark in following form:
+ *
+ *	<attempt_no> | <timestamp> | HMAC(Secret, attempt_no, timestamp)
+ *
+ * Field <attempt_no> is required to track redirection limit, and <timestamp> is
+ * needed to detect bots, who repeat inital redirect mark in all subsequent
+ * requests.
+ */
+static void
+tfw_http_redir_mark_prepare(RedirMarkVal *mv, char *buf, unsigned int buf_len,
+			    TfwStr *chunks, unsigned int ch_len, TfwStr *rmark)
+{
+	unsigned int att_be32 = cpu_to_be32(mv->att_no);
+	unsigned long ts_be64 = cpu_to_be64(mv->ts);
+	DEFINE_TFW_STR(s_sl, "/");
+	DEFINE_TFW_STR(s_eq, "=");
+
+	bin2hex(buf, &att_be32, sizeof(att_be32));
+	bin2hex(&buf[sizeof(att_be32) * 2], &ts_be64, sizeof(ts_be64));
+	bin2hex(&buf[(sizeof(att_be32) + sizeof(ts_be64)) * 2],
+		mv->hmac, sizeof(mv->hmac));
+
+	bzero_fast(chunks, ch_len);
+	chunks[0] = s_sl;
+	chunks[1] = tfw_cfg_sticky.name;
+	chunks[2] = s_eq;
+	chunks[3].ptr = buf;
+	chunks[3].len = buf_len;
+
+	rmark->ptr = chunks;
+	rmark->len = chunks[0].len;
+	rmark->len += chunks[1].len;
+	rmark->len += chunks[2].len;
+	rmark->len += chunks[3].len;
+	__TFW_STR_CHUNKN_SET(rmark, 4);
+}
+
 static int
-tfw_http_sticky_send_redirect(TfwHttpReq *req, StickyVal *sv)
+tfw_http_sticky_send_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 {
 	unsigned long ts_be64 = cpu_to_be64(sv->ts);
-	TfwStr chunks[3], cookie = { 0 };
+	TfwStr c_chunks[3], m_chunks[4], cookie = { 0 }, rmark = { 0 };
 	DEFINE_TFW_STR(s_eq, "=");
 	TfwHttpResp *resp;
-	char buf[sizeof(*sv) * 2];
+	char c_buf[sizeof(*sv) * 2], m_buf[sizeof(*mv) * 2];
 	TfwStr *body = tfw_cfg_js_ch ? &tfw_cfg_js_ch->body : NULL;
 	int r;
 
@@ -151,7 +212,7 @@ tfw_http_sticky_send_redirect(TfwHttpReq *req, StickyVal *sv)
 	WARN_ON_ONCE(!list_empty(&req->nip_list));
 
 	/*
-	 * TODO: #598 rate limit requests with invalid cookie vaule.
+	 * TODO: #598 rate limit requests with invalid cookie value.
 	 * Non-challengeable requests also must be rate limited.
 	 */
 
@@ -160,31 +221,35 @@ tfw_http_sticky_send_redirect(TfwHttpReq *req, StickyVal *sv)
 
 	if (!(resp = tfw_http_msg_alloc_resp_light(req)))
 		return -ENOMEM;
+
+	if (mv)
+		tfw_http_redir_mark_prepare(mv, m_buf, sizeof(m_buf), m_chunks,
+					    sizeof(m_chunks), &rmark);
 	/*
 	 * Form the cookie as:
 	 *
 	 * 	<timestamp> | HMAC(Secret, User-Agent, timestamp, Client IP)
 	 *
 	 * Open <timestamp> is required to be able to recalculate secret HMAC.
-	 * Since the secret is unknown for the attacke, they're still unable to
+	 * Since the secret is unknown for the attacker, they're still unable to
 	 * recalculate HMAC while we don't need to store session information
 	 * until we receive correct cookie value.
 	 */
-	bin2hex(buf, &ts_be64, sizeof(ts_be64));
-	bin2hex(&buf[sizeof(ts_be64) * 2], sv->hmac, sizeof(sv->hmac));
+	bin2hex(c_buf, &ts_be64, sizeof(ts_be64));
+	bin2hex(&c_buf[sizeof(ts_be64) * 2], sv->hmac, sizeof(sv->hmac));
 
-	bzero_fast(chunks, sizeof(chunks));
-	chunks[0] = tfw_cfg_sticky.name;
-	chunks[1] = s_eq;
-	chunks[2].ptr = buf;
-	chunks[2].len = sizeof(*sv) * 2;
+	bzero_fast(c_chunks, sizeof(c_chunks));
+	c_chunks[0] = tfw_cfg_sticky.name;
+	c_chunks[1] = s_eq;
+	c_chunks[2].ptr = c_buf;
+	c_chunks[2].len = sizeof(*sv) * 2;
 
-	cookie.ptr = chunks;
-	cookie.len = chunks[0].len + chunks[1].len + chunks[2].len;
+	cookie.ptr = c_chunks;
+	cookie.len = c_chunks[0].len + c_chunks[1].len + c_chunks[2].len;
 	__TFW_STR_CHUNKN_SET(&cookie, 3);
 
 	r = tfw_http_prep_redirect((TfwHttpMsg *)resp, tfw_cfg_redirect_st_code,
-				   &cookie, body);
+				   &rmark, &cookie, body);
 	if (r) {
 		tfw_http_msg_free((TfwHttpMsg *)resp);
 		return TFW_HTTP_SESS_FAILURE;
@@ -200,7 +265,7 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 {
 	const char *const cstr = tfw_cfg_sticky.name_eq.ptr;
 	const unsigned long clen = tfw_cfg_sticky.name_eq.len;
-	TfwStr *chunk, *end, *next;
+	TfwStr *chunk, *end;
 	TfwStr tmp = { .flags = 0, };
 	unsigned int n = TFW_STR_CHUNKN(cookie);
 
@@ -235,28 +300,7 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 	if (unlikely(chunk == end))
 		return 0;
 
-	/* Check if value is plain string, just return it in this case. */
-	next = chunk + 1;
-	if (likely(next == end || *(char *)next->ptr == ';')) {
-		TFW_DBG3("%s: plain cookie value: %.*s\n", __func__,
-			 (int)chunk->len, (char *)chunk->ptr);
-		*val = *chunk;
-		return 1;
-	}
-
-	/* Add value chunks to out-string. */
-	TFW_DBG3("%s: compound cookie value found\n", __func__);
-	val->ptr = chunk;
-	TFW_STR_CHUNKN_ADD(val, 1);
-	val->len = chunk->len;
-	for (; chunk != end; ++chunk) {
-		if (*(char *)chunk->ptr == ';')
-			/* value chunks exhausted */
-			break;
-		TFW_STR_CHUNKN_ADD(val, 1);
-		val->len += chunk->len;
-	}
-	BUG_ON(TFW_STR_CHUNKN(val) < 2);
+	tfw_str_collect_cmp(chunk, end, val, ";");
 
 	return 1;
 }
@@ -320,10 +364,7 @@ __sticky_calc(TfwHttpReq *req, StickyVal *sv)
 	TfwStr ua_value = { 0 };
 	TfwAddr *addr = &req->conn->peer->addr;
 	TfwStr *hdr, *c, *end;
-	char desc[sizeof(struct shash_desc)
-		  + crypto_shash_descsize(tfw_sticky_shash)]
-		  CRYPTO_MINALIGN_ATTR;
-	struct shash_desc *shash_desc = (struct shash_desc *)desc;
+	SHASH_DESC_ON_STACK(shash_desc, tfw_sticky_shash);
 
 	/* User-Agent header field is not mandatory and may be missing. */
 	hdr = &req->h_tbl->tbl[TFW_HTTP_HDR_USER_AGENT];
@@ -333,7 +374,6 @@ __sticky_calc(TfwHttpReq *req, StickyVal *sv)
 
 	addr_len = tfw_addr_sa_len(addr);
 
-	bzero_fast(desc, sizeof(desc));
 	shash_desc->tfm = tfw_sticky_shash;
 	shash_desc->flags = 0;
 
@@ -403,41 +443,228 @@ tfw_http_sticky_add(TfwHttpResp *resp)
 }
 
 /*
+ * Calculate HMAC value for redirection mark.
+ *
+ * HMAC value is based on:
+ * - Number of attempts for session establishing;
+ * - Timestamp of first attempt;
+ * - Secret key.
+ */
+static int
+__redir_hmac_calc(RedirMarkVal *mv)
+{
+	int r;
+	SHASH_DESC_ON_STACK(shash_desc, tfw_sticky_shash);
+
+	shash_desc->tfm = tfw_sticky_shash;
+	shash_desc->flags = 0;
+
+	TFW_DBG("http_sess: calculate redirection mark: ts=%#lx(now=%#lx),"
+		" att_no=%#x\n", mv->ts, jiffies, mv->att_no);
+
+	if ((r = crypto_shash_init(shash_desc)))
+		return r;
+	r = crypto_shash_update(shash_desc, (u8 *)&mv->att_no, sizeof(mv->att_no));
+	if (r)
+		return r;
+	return crypto_shash_finup(shash_desc, (u8 *)&mv->ts, sizeof(mv->ts),
+				  mv->hmac);
+}
+
+static int
+tfw_http_redir_mark_get(TfwHttpReq *req, TfwStr *out_val)
+{
+	TfwStr *mark = &req->mark;
+	TfwStr *c, *end;
+
+	if (TFW_STR_EMPTY(mark))
+		return 0;
+
+	/* Find the value chunk. */
+	end = (TfwStr*)mark->ptr + TFW_STR_CHUNKN(mark);
+	for (c = mark->ptr; c != end; ++c)
+		if (c->flags & TFW_STR_VALUE)
+			break;
+
+	BUG_ON(c == end);
+
+	tfw_str_collect_cmp(c, end, out_val, NULL);
+
+	return 1;
+}
+
+#define sess_warn(check, addr, fmt, ...)				\
+	TFW_WARN_MOD_ADDR6(http_sess, check, addr, fmt, ##__VA_ARGS__)
+
+/* The set of macros for parsing hex strings of following format:
+ *
+ *    <value_1> | <value_2> | ... | <value_n> | HMAC_value
+ *
+ * and HMAC value verification. In 'HEX_STR_TO_BIN_HMAC()' macro the
+ * 'hmac' parameter must contain newly recalculated HMAC value.
+ */
+#define HEX_STR_TO_BIN_INIT(tr, c, str, end)				\
+	tr = NULL;							\
+	TFW_STR_FOR_EACH_CHUNK_INIT(c, str, end);
+
+#define HEX_STR_TO_BIN_GET(obj, f)					\
+({									\
+	int count = 0;							\
+	if (!tr && c < end)						\
+		tr = c->ptr;						\
+	for ( ; c < end; ++c) {						\
+		for ( ; tr < (unsigned char *)c->ptr + c->len; ++tr) {	\
+			if (count++ == sizeof((obj)->f) * 2)		\
+				goto end_##f;				\
+			(obj)->f = ((obj)->f << 4) + hex_to_bin(*tr);	\
+		}							\
+	}								\
+end_##f:								\
+	;								\
+})
+
+#define HEX_STR_TO_BIN_HMAC(hmac, ts, addr)				\
+({									\
+	unsigned char b;						\
+	int i, hi, r = TFW_HTTP_SESS_SUCCESS;				\
+	for (i = 0, hi = 1; c < end; ++c) {				\
+		for ( ; tr < (unsigned char *)c->ptr + c->len; ++tr) {	\
+			b = hi ? hex_asc_hi((hmac)[i])			\
+			       : hex_asc_lo((hmac)[i]);			\
+			if (b != *tr) {					\
+				int n = sizeof(hmac) * 2;		\
+				char buf[n];				\
+				bin2hex(buf, hmac, sizeof(hmac));	\
+				sess_warn("bad received HMAC value",	\
+					  addr, ": %c(pos=%d),"		\
+					  " ts=%#lx orig_hmac=[%.*s]\n", \
+					  *tr, i, ts, n, buf);		\
+				r = TFW_HTTP_SESS_VIOLATE;		\
+				goto end;				\
+			}						\
+			hi = !hi;					\
+			i += hi;					\
+		}							\
+	}								\
+	BUG_ON(i != STICKY_KEY_MAXLEN);					\
+end:									\
+	r;								\
+})
+
+/**
+ * Verify found redirection mark.
+ */
+static int
+tfw_http_redir_mark_verify(TfwHttpReq *req, TfwStr *mark_val, RedirMarkVal *mv)
+{
+	unsigned char *tr;
+	TfwAddr *addr = &req->conn->peer->addr;
+	TfwStr *c, *end;
+
+	TFW_DBG("Redirection mark found%s: \"%.*s\"\n",
+		TFW_STR_PLAIN(mark_val) ? "" : ", starts with",
+		TFW_STR_PLAIN(mark_val) ?
+			(int)mark_val->len :
+			(int)((TfwStr*)mark_val->ptr)->len,
+		TFW_STR_PLAIN(mark_val) ?
+			(char*)mark_val->ptr :
+			(char*)((TfwStr*)mark_val->ptr)->ptr);
+
+	if (mark_val->len != sizeof(RedirMarkVal) * 2) {
+		sess_warn("bad length of redirection mark", addr,
+			  ": %lu(%lu)\n", mark_val->len,
+			  sizeof(RedirMarkVal) * 2);
+		return TFW_HTTP_SESS_VIOLATE;
+	}
+
+	HEX_STR_TO_BIN_INIT(tr, c, mark_val, end);
+	HEX_STR_TO_BIN_GET(mv, att_no);
+	HEX_STR_TO_BIN_GET(mv, ts);
+
+	if (__redir_hmac_calc(mv))
+		return TFW_HTTP_SESS_VIOLATE;
+
+	return HEX_STR_TO_BIN_HMAC(mv->hmac, mv->ts, addr);
+}
+
+/*
+ * Find special redirection mark in request, calculate actual mark,
+ * match them and check redirection counts and timestamp (if configured).
+ * If limits are exceeded, the IP-address of corresponding client will
+ * be blocked. This verifications are intended only for enforce mode.
+ */
+static int
+tfw_http_sess_check_redir_mark(TfwHttpReq *req, RedirMarkVal *mv)
+{
+	TfwStr mark_val = {};
+
+	if (tfw_http_redir_mark_get(req, &mark_val)) {
+		if (tfw_http_redir_mark_verify(req, &mark_val, mv)
+		    || ++mv->att_no > tfw_cfg_sticky.max_misses
+		    || (tfw_cfg_sticky.tmt_sec
+			&& mv->ts + HZ * tfw_cfg_sticky.tmt_sec < jiffies))
+		{
+			tfw_filter_block_ip(&req->conn->peer->addr.v6.sin6_addr);
+			return TFW_HTTP_SESS_VIOLATE;
+		}
+		bzero_fast(mv->hmac, sizeof(mv->hmac));
+	} else {
+		mv->ts = jiffies;
+		mv->att_no = 1;
+	}
+
+	if (__redir_hmac_calc(mv))
+		return TFW_HTTP_SESS_FAILURE;
+
+	return TFW_HTTP_SESS_SUCCESS;
+}
+
+/*
  * No Tempesta sticky cookie found.
  *
  * Calculate Tempesta sticky cookie and send redirection to the client if
  * enforcement is configured. Since the client can be malicious, we don't
  * store anything for now. HTTP session will be created when the client
- * is successfully solves the cookie challenge.
+ * is successfully solves the cookie challenge. Also, in enforcement
+ * configured case the count of requests without cookie and timeout are
+ * checked (via special mark set in front of location URI in the response
+ * of during redirection); if the configured limit or timeout is exhausted,
+ * client will be blocked.
  */
 static int
 tfw_http_sticky_notfound(TfwHttpReq *req)
 {
+	int r;
 	StickyVal sv = {};
+	RedirMarkVal mv = {}, *mvp = NULL;
 
 	/*
-	 * If configured, ensure that backend server receives
+	 * In enforced mode, ensure that backend server receives
 	 * requests that always carry Tempesta sticky cookie.
-	 * Return an HTTP 302 response to the client that has
-	 * the same host, URI, and includes 'Set-Cookie' header.
-	 * Otherwise, forward the request to a backend server.
+	 * If cookie is absent in request, return an HTTP 302
+	 * response to the client that has the same host, URI,
+	 * and includes 'Set-Cookie' header. If enforced mode
+	 * is disabled, forward request to a backend server.
 	 */
 	if (!tfw_cfg_sticky.enforce)
 		return TFW_HTTP_SESS_SUCCESS;
+
+	/*
+	 * If configured, ensure that limit for requests without
+	 * cookie and timeout for redirections are not exhausted.
+	 */
+	if (tfw_cfg_sticky.max_misses) {
+		mvp = &mv;
+		if ((r = tfw_http_sess_check_redir_mark(req, mvp)))
+			return r;
+	}
 
 	/* Create Tempesta sticky cookie and store it */
 	if (tfw_http_sticky_calc(req, &sv) != 0)
 		return TFW_HTTP_SESS_FAILURE;
 
-	return tfw_http_sticky_send_redirect(req, &sv);
+	return tfw_http_sticky_send_redirect(req, &sv, mvp);
 }
-
-#define sess_warn(check, addr, fmt, ...)				\
-do {									\
-	char abuf[TFW_ADDR_STR_BUF_SIZE] = {0};				\
-	tfw_addr_fmt_v6(&(addr)->v6.sin6_addr, 0, abuf);		\
-	TFW_WARN("http_sess: %s for %s" fmt, check, abuf, ##__VA_ARGS__); \
-} while (0)
 
 /**
  * Verify found Tempesta sticky cookie.
@@ -445,8 +672,8 @@ do {									\
 static int
 tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 {
-	int i = 0, hi;
-	unsigned char *p, b;
+	int r;
+	unsigned char *tr;
 	TfwAddr *addr = &req->conn->peer->addr;
 	TfwStr *c, *end;
 
@@ -465,41 +692,19 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 		return TFW_HTTP_SESS_VIOLATE;
 	}
 
-	TFW_STR_FOR_EACH_CHUNK(c, value, end) {
-		for (p = c->ptr; p < (unsigned char *)c->ptr + c->len; ++p) {
-			if (i++ == sizeof(sv->ts) * 2)
-				goto ts_finished;
-			sv->ts = (sv->ts << 4) + hex_to_bin(*p);
-		}
-	}
-ts_finished:
+	HEX_STR_TO_BIN_INIT(tr, c, value, end);
+	HEX_STR_TO_BIN_GET(sv, ts);
 
 	if (__sticky_calc(req, sv))
 		return TFW_HTTP_SESS_VIOLATE;
-	for (i = 0, hi = 1; (c) < end; ++(c)) {
-		for ( ; p < (unsigned char *)c->ptr + c->len; ++p) {
-			b = hi ? hex_asc_hi(sv->hmac[i])
-			       : hex_asc_lo(sv->hmac[i]);
-			if (b != *p) {
-				int n = sizeof(sv->hmac) * 2;
-				char buf[n];
-				bin2hex(buf, sv->hmac, sizeof(sv->hmac));
-				sess_warn("bad sticky cookie value",
-					  addr, ": %c(pos=%d),"
-					  " ts=%#lx orig_hmac=[%.*s]\n",
-					  *p, i, sv->ts, n, buf);
-				return TFW_HTTP_SESS_VIOLATE;
-			}
-			hi = !hi;
-			i += hi;
-		}
-	}
-	BUG_ON(i != STICKY_KEY_MAXLEN);
+
+	if ((r = HEX_STR_TO_BIN_HMAC(sv->hmac, sv->ts, addr)))
+		return r;
 
 	/* Sticky cookie is found and verified, now we can set the flag. */
 	req->flags |= TFW_HTTP_F_HAS_STICKY;
 
-	return TFW_HTTP_SESS_SUCCESS;
+	return r;
 }
 
 /*
@@ -529,13 +734,31 @@ tfw_http_sticky_req_process(TfwHttpReq *req, StickyVal *sv)
 		 * cookie tries to 1. While we just send normal 302 redirect to
 		 * keep user experience intact.
 		 */
-		if (tfw_http_sticky_verify(req, &cookie_val, sv))
-			return tfw_http_sticky_send_redirect(req, sv);
+		if (tfw_http_sticky_verify(req, &cookie_val, sv)) {
+			RedirMarkVal mv = {}, *mvp = NULL;
+			if (tfw_cfg_sticky.max_misses) {
+				mvp = &mv;
+				if ((r = tfw_http_sess_check_redir_mark(req, mvp)))
+					return r;
+			}
+			return tfw_http_sticky_send_redirect(req, sv, mvp);
+		}
 		return TFW_HTTP_SESS_SUCCESS;
 	}
 	TFW_WARN("Multiple Tempesta sticky cookies found: %d\n", r);
 
 	return TFW_HTTP_SESS_FAILURE;
+}
+
+/*
+ *  Remove redirection mark from request.
+ */
+int
+tfw_http_sess_req_process(TfwHttpReq *req)
+{
+	if (!tfw_cfg_sticky.max_misses || TFW_STR_EMPTY(&req->mark))
+		return 0;
+	return tfw_http_msg_del_str((TfwHttpMsg *)req, &req->mark);
 }
 
 /*
@@ -589,6 +812,24 @@ tfw_http_sess_put(TfwHttpSess *sess)
 		tfw_http_sess_unpin_srv(&sess->st_conn);
 		kmem_cache_free(sess_cache, sess);
 	}
+}
+
+bool
+tfw_http_sess_max_misses(void)
+{
+	return tfw_cfg_sticky.max_misses > 0;
+}
+
+unsigned int
+tfw_http_sess_mark_size(void)
+{
+	return sizeof(RedirMarkVal) * 2;
+}
+
+TfwStr *
+tfw_http_sess_mark_name(void)
+{
+	return &tfw_cfg_sticky.name_eq;
 }
 
 /**
@@ -651,7 +892,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	 * can always send us requests w/o session cookie. HMAC will be
 	 * different due to different ingress timestamps, so DoS is very
 	 * possible. The only thing which we can do is to enforce the cookie.
-	 * However, we cal loose innocent clients w/ disabled cookies.
+	 * However, we can lose innocent clients w/ disabled cookies.
 	 * We leave this for administrator decision or more progressive DDoS
 	 * mitigation techniques.
 	 */
@@ -867,22 +1108,59 @@ static int
 tfw_cfgop_sticky(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	size_t i, len;
-	const char *val;
+	const char *key, *val, *name_val = STICKY_NAME_DEFAULT;
 
-	val = tfw_cfg_get_attr(ce, "name", STICKY_NAME_DEFAULT);
-	len = strlen(val);
+	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
+		if (!strcasecmp(key, "name")) {
+			name_val = val;
+		} else if (!strcasecmp(key, "max_misses")) {
+			if (tfw_cfg_parse_uint(val, &tfw_cfg_sticky.max_misses))
+			{
+				TFW_ERR_NL("%s: invalid value for 'max_misses'"
+					   " attribute: '%s'\n", cs->name, val);
+				return -EINVAL;
+			}
+		} else if (!strcasecmp(key, "timeout")) {
+			if (tfw_cfg_parse_uint(val, &tfw_cfg_sticky.tmt_sec))
+			{
+				TFW_ERR_NL("%s: invalid value for 'timeout'"
+					   " attribute: '%s'\n", cs->name, val);
+				return -EINVAL;
+			}
+		} else {
+			TFW_ERR_NL("%s: unsupported argument: '%s=%s'.\n",
+				   cs->name, key, val);
+			return -EINVAL;
+		}
+	}
+
+	len = strlen(name_val);
 	if (len == 0 || len > STICKY_NAME_MAXLEN)
 		return -EINVAL;
-	memcpy(tfw_cfg_sticky.name.ptr, val, len);
+	memcpy(tfw_cfg_sticky.name.ptr, name_val, len);
 	tfw_cfg_sticky.name.len = len;
 	((char*)tfw_cfg_sticky.name_eq.ptr)[len] = '=';
 	tfw_cfg_sticky.name_eq.len = len + 1;
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
-		 if (!strcasecmp(val, "enforce")) {
+		if (!strcasecmp(val, "enforce")) {
 			tfw_cfg_sticky.enforce = 1;
-			break;
+		} else {
+			TFW_ERR_NL("%s: unsupported argument: '%s'\n",
+				   cs->name, val);
+			return -EINVAL;
 		}
+	}
+
+	if (tfw_cfg_sticky.max_misses && !tfw_cfg_sticky.enforce) {
+		TFW_ERR_NL("%s: 'max_misses' can be enabled only in"
+			   " 'enforce' mode\n", cs->name);
+		return -EINVAL;
+	}
+	if (tfw_cfg_sticky.tmt_sec && !tfw_cfg_sticky.max_misses) {
+		TFW_ERR_NL("%s: 'timeout' can be specified only with"
+			   " 'max_misses' attribute\n", cs->name);
+		return -EINVAL;
 	}
 
 	return 0;
@@ -904,6 +1182,8 @@ tfw_cfgop_cleanup_sticky(TfwCfgSpec *cs)
 	memset(tfw_cfg_sticky.name.ptr, 0, STICKY_NAME_MAXLEN + 1);
 	tfw_cfg_sticky.name.len = tfw_cfg_sticky.name_eq.len = 0;
 	tfw_cfg_sticky.enforce = 0;
+	tfw_cfg_sticky.max_misses = 0;
+	tfw_cfg_sticky.tmt_sec = 0;
 }
 
 static int
