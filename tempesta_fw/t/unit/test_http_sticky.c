@@ -80,14 +80,61 @@
 #include "helpers.h"
 #include "tfw_str_helper.h"
 
-#define COOKIE_NAME	"QWERTY_123"
+#define TOK_NAME	"__test_name"
+#define MAX_MISSES	"3"
+
+/* Timestamp to include into Cookie header of request. */
+#define COOKIE_TIMESTAMP	"4142434445464748"
+
+/*
+ * HMAC for 24 bytes, generated for zero timestamp, in order to violate cookie
+ * verification (first 2 bytes with AF_INET value and remaining 14 zero bytes
+ * of IP address and 8 zero bytes of timestamp):
+ *
+ * $ perl -e 'print(pack("C[24]", 0x02))' | openssl sha1 -hmac "top_secret"
+ */
+#define COOKIE_INVALID_HMAC	"c40fa58c59f09c8ea81223e627c9de12cfa53679"
+
+/*
+ * Valid HMAC for 24 bytes (first 2 bytes with AF_INET value, 14 zero bytes of
+ * IP address and 8 bytes with timestamp in little-endian order to match HMAC
+ * generated in TempestaFW code on x86):
+ *
+ * $ perl -e 'print(pack("Sx14Q", 0x02, 0x4142434445464748));' |\
+ * openssl sha1 -hmac "top_secret"
+ */
+#define COOKIE_VALID_HMAC	"a8bcacb07861740dd82324bd90e57f8affafc3f0"
+
+/* Redirection attempt number to insert into redirection mark before timestamp. */
+#define RMARK_ATT_NO		"00000001"
+
+/* Redirection mark timestamp to insert into redirection mark before HMAC. */
+#define RMARK_TIMESTAMP		"535455565758595a"
+
+/*
+ * Valid HMAC for 12 bytes (first 4 bytes of ATT_NO value and 8 bytes with
+ * timestamp; these values must be passed into HMAC calculation in little-endian
+ * order to match HMAC generated in TempestaFW code on x86):
+ *
+ * $ perl -e 'print(pack("LQ", 0x00000001, 0x535455565758595a));' \|
+ * openssl sha1 -hmac "top_secret"
+ */
+#define RMARK_VALID_HMAC	"9cf5585388196965871bf4240ef44a52d0ffb23d"
+
+typedef struct {
+	int	seen_set_header;
+	int	seen;
+	int	seen_val;
+} TestHdrRes;
 
 static struct {
 	int		tfw_connection_send_was_called;
-	int		seen_set_cookie_header;
-	int		seen_cookie;
+	TestHdrRes	cookie;
+	TestHdrRes	loc_rmark;
 	unsigned int	http_status;
 
+	char		*cookie_val;
+	char		*rmark_val;
 	TfwHttpReq	*req;
 	TfwHttpResp	*resp;
 	TfwConn		conn_req;
@@ -144,6 +191,34 @@ tfw_http_field_value(TfwHttpMsg *hm, const TfwStr *field_name, TfwStr *value)
 	return 1;
 }
 
+static void
+test_http_hdr_check(const TfwStr *hdr_name, const char *val, TestHdrRes *res)
+{
+	const char *ptr;
+	DEFINE_TFW_STR(hdr_value, NULL);
+
+	res->seen_set_header =
+		tfw_http_field_value((TfwHttpMsg *)mock.resp,
+				     hdr_name, &hdr_value) > 0;
+
+	if (!res->seen_set_header)
+		return;
+
+	/* XXX assuming string is linear */
+	BUG_ON(!TFW_STR_PLAIN(&hdr_value));
+
+	/* cookie name should be somewhere in Set-Cookie header value */
+	ptr = strnstr(hdr_value.ptr, TOK_NAME, hdr_value.len);
+	res->seen = ptr != NULL;
+
+	if (ptr && val) {
+		res->seen_val =
+			strnstr(ptr, val,
+				hdr_value.len - ((void *)ptr - hdr_value.ptr))
+			!= NULL;
+	}
+}
+
 /* custom version for testing purposes */
 int
 tfw_connection_send(TfwConn *conn, TfwMsg *msg)
@@ -151,7 +226,7 @@ tfw_connection_send(TfwConn *conn, TfwMsg *msg)
 	struct sk_buff *skb;
 	unsigned int data_off = 0;
 	const DEFINE_TFW_STR(s_set_cookie, "Set-Cookie:");
-	DEFINE_TFW_STR(hdr_value, NULL);
+	const DEFINE_TFW_STR(s_set_loc, "Location:");
 
 	BUG_ON(!msg);
 	BUG_ON(!msg->skb_head);
@@ -169,19 +244,8 @@ tfw_connection_send(TfwConn *conn, TfwMsg *msg)
 
 	mock.http_status = mock.resp->status;
 
-	mock.seen_set_cookie_header =
-		tfw_http_field_value((TfwHttpMsg *)mock.resp,
-				     &s_set_cookie, &hdr_value) > 0;
-
-	if (!mock.seen_set_cookie_header)
-		return 0;
-
-	/* XXX assuming string is linear */
-	BUG_ON(!TFW_STR_PLAIN(&hdr_value));
-
-	/* cookie name should be somewhere in Set-Cookie header value */
-	mock.seen_cookie =
-	    strnstr(hdr_value.ptr, COOKIE_NAME, hdr_value.len) != NULL;
+	test_http_hdr_check(&s_set_cookie, mock.cookie_val, &mock.cookie);
+	test_http_hdr_check(&s_set_loc, mock.rmark_val, &mock.loc_rmark);
 
 	return 0;
 }
@@ -204,6 +268,35 @@ void
 tfw_tls_cfg_require(void)
 {
 	return;
+}
+
+int
+test_helper_sticky_start(const char *name, unsigned int misses)
+{
+	size_t len = strlen(name);
+
+	BUG_ON(!len || len > STICKY_NAME_MAXLEN);
+
+	tfw_cfg_sticky.name_eq.ptr = kzalloc(STICKY_NAME_MAXLEN + 1, GFP_KERNEL);
+	if (!tfw_cfg_sticky.name_eq.ptr)
+		return -ENOMEM;
+
+	memcpy(tfw_cfg_sticky.name_eq.ptr, name, len);
+	((char*)tfw_cfg_sticky.name_eq.ptr)[len] = '=';
+	tfw_cfg_sticky.name_eq.len = len + 1;
+
+	tfw_cfg_sticky.enabled = 1;
+	tfw_cfg_sticky.enforce = 1;
+	tfw_cfg_sticky.max_misses = misses;
+
+	return 0;
+}
+
+void
+test_helper_sticky_stop(void)
+{
+	kfree(tfw_cfg_sticky.name_eq.ptr);
+	memset(&tfw_cfg_sticky, 0, sizeof(tfw_cfg_sticky));
 }
 
 /* setup/teardown helpers */
@@ -283,7 +376,7 @@ TEST(http_sticky, sending_302_without_preparing)
 	TfwConn *c = mock.req->conn;
 
 	/* Cookie is calculated for zero HMAC. */
-	EXPECT_EQ(tfw_http_sticky_send_redirect(mock.req, &sv),
+	EXPECT_EQ(tfw_http_sticky_send_redirect(mock.req, &sv, NULL),
 		  TFW_HTTP_SESS_REDIRECT_SENT);
 
 	EXPECT_TRUE(mock.tfw_connection_send_was_called);
@@ -309,12 +402,12 @@ TEST(http_sticky, sending_302)
 		mock.req->h_tbl->tbl[TFW_HTTP_HDR_HOST] = *hdr1;
 
 		EXPECT_EQ(__sticky_calc(mock.req, &sv), 0);
-		EXPECT_EQ(tfw_http_sticky_send_redirect(mock.req, &sv),
+		EXPECT_EQ(tfw_http_sticky_send_redirect(mock.req, &sv, NULL),
 			  TFW_HTTP_SESS_REDIRECT_SENT);
 
 		EXPECT_TRUE(mock.tfw_connection_send_was_called);
-		EXPECT_TRUE(mock.seen_set_cookie_header);
-		EXPECT_TRUE(mock.seen_cookie);
+		EXPECT_TRUE(mock.cookie.seen_set_header);
+		EXPECT_TRUE(mock.cookie.seen);
 		EXPECT_EQ(mock.http_status, 302);
 
 		tfw_connection_put(c);
@@ -334,8 +427,8 @@ TEST(http_sticky, sending_502)
 
 	/* HTTP 502 response have no Set-Cookie header */
 	EXPECT_TRUE(mock.tfw_connection_send_was_called);
-	EXPECT_FALSE(mock.seen_set_cookie_header);
-	EXPECT_FALSE(mock.seen_cookie);
+	EXPECT_FALSE(mock.cookie.seen_set_header);
+	EXPECT_FALSE(mock.cookie.seen);
 	EXPECT_EQ(mock.http_status, 502);
 
 	tfw_connection_put(c);
@@ -390,6 +483,18 @@ http_parse_helper(TfwHttpMsg *hm, ss_skb_actor_t actor)
 static int
 http_parse_req_helper(void)
 {
+	/* XXX reset parser explicitly to be able to call it multiple times */
+	memset(&mock.req->parser, 0, sizeof(mock.req->parser));
+	tfw_http_init_parser_req(mock.req);
+	mock.req->h_tbl->off = TFW_HTTP_HDR_RAW;
+	memset(mock.req->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwStr));
+	TFW_STR_INIT(&mock.req->crlf);
+	TFW_STR_INIT(&mock.req->body);
+	TFW_STR_INIT(&mock.req->userinfo);
+	TFW_STR_INIT(&mock.req->host);
+	TFW_STR_INIT(&mock.req->uri_path);
+	TFW_STR_INIT(&mock.req->mark);
+
 	return http_parse_helper((TfwHttpMsg *)mock.req, tfw_http_parse_req);
 }
 
@@ -438,7 +543,7 @@ test_sticky_present_helper(const char *s_req)
 TEST(http_sticky, sticky_get_present_begin)
 {
 	const char *s_req = "GET / HTTP/1.0\r\nContent-Length: 0\r\n"
-			    "Cookie: " COOKIE_NAME "=67890; __utmz=12345; "
+			    "Cookie: " TOK_NAME "=67890; __utmz=12345; "
 			    "q=aa\r\n\r\n";
 
 	test_sticky_present_helper(s_req);
@@ -447,7 +552,7 @@ TEST(http_sticky, sticky_get_present_begin)
 TEST(http_sticky, sticky_get_present_middle)
 {
 	const char *s_req = "GET / HTTP/1.0\r\nContent-Length: 0\r\n"
-			    "Cookie: __utmz=12345; " COOKIE_NAME "=67890; "
+			    "Cookie: __utmz=12345; " TOK_NAME "=67890; "
 			    "q=aa\r\n\r\n";
 
 	test_sticky_present_helper(s_req);
@@ -457,7 +562,7 @@ TEST(http_sticky, sticky_get_present_end)
 {
 	const char *s_req = "GET / HTTP/1.0\r\nContent-Length: 0\r\n"
 			    "Cookie: __utmz=12345; q=aa; "
-			    COOKIE_NAME "=67890\r\n\r\n";
+			    TOK_NAME "=67890\r\n\r\n";
 
 	test_sticky_present_helper(s_req);
 }
@@ -484,8 +589,8 @@ TEST(http_sticky, req_no_cookie)
 	tfw_connection_send(&mock.conn_req, &mock.resp->msg);
 
 	EXPECT_TRUE(mock.tfw_connection_send_was_called);
-	EXPECT_TRUE(mock.seen_set_cookie_header);
-	EXPECT_TRUE(mock.seen_cookie);
+	EXPECT_TRUE(mock.cookie.seen_set_header);
+	EXPECT_TRUE(mock.cookie.seen);
 }
 
 /* request have sticky cookie */
@@ -493,18 +598,9 @@ TEST(http_sticky, req_have_cookie)
 {
 	const char *s_req = "GET / HTTP/1.0\r\n"
 			    "Host: localhost\r\n"
-			    "Cookie: " COOKIE_NAME
-			    	     /* timestamp */
-			    	     "=0000000000000000"
-				     /*
-				      * HMAC for 24 bytes (first two bytes with
-				      * AF_INET value and remaining zero bytes
-				      * of IPv6 address and zero timestamp):
-				      *
-				      * $ perl -e 'print(pack("C[24]", 0x02))' |\
-				      * openssl sha1 -hmac "top_secret"
-				      */
-				     "c40fa58c59f09c8ea81223e627c9de12cfa53679"
+			    "Cookie: " TOK_NAME "="
+			    COOKIE_TIMESTAMP
+			    COOKIE_VALID_HMAC
 			    "\r\n\r\n";
 	const char *s_resp = "HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n";
 
@@ -524,8 +620,8 @@ TEST(http_sticky, req_have_cookie)
 	tfw_connection_send(&mock.conn_req, &mock.resp->msg);
 
 	/* no Set-Cookie headers are expected */
-	EXPECT_FALSE(mock.seen_set_cookie_header);
-	EXPECT_FALSE(mock.seen_cookie);
+	EXPECT_FALSE(mock.cookie.seen_set_header);
+	EXPECT_FALSE(mock.cookie.seen);
 }
 
 /* request have no sticky cookie; enforce mode activated */
@@ -542,8 +638,8 @@ TEST(http_sticky, req_no_cookie_enforce)
 	 * before backend gets anything
 	 */
 	EXPECT_TRUE(mock.tfw_connection_send_was_called);
-	EXPECT_TRUE(mock.seen_set_cookie_header);
-	EXPECT_TRUE(mock.seen_cookie);
+	EXPECT_TRUE(mock.cookie.seen_set_header);
+	EXPECT_TRUE(mock.cookie.seen);
 
 	tfw_connection_put(c);
 	mock.req = NULL; /* already freed */
@@ -554,18 +650,9 @@ TEST(http_sticky, req_have_cookie_enforce)
 {
 	const char *s_req = "GET / HTTP/1.0\r\n"
 			    "Host: localhost\r\n"
-			    "Cookie: " COOKIE_NAME
-			    	     /* timestamp */
-			    	     "=0000000000000000"
-				     /*
-				      * HMAC for 24 bytes (first two bytes with
-				      * AF_INET value and remaining zero bytes
-				      * of IPv6 address and zero timestamp):
-				      *
-				      * $ perl -e 'print(pack("C[24]", 0x02))' |\
-				      * openssl sha1 -hmac "top_secret"
-				      */
-				     "c40fa58c59f09c8ea81223e627c9de12cfa53679"
+			    "Cookie: " TOK_NAME "="
+			    COOKIE_TIMESTAMP
+			    COOKIE_VALID_HMAC
 			    "\r\n\r\n";
 	const char *s_resp = "HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n";
 
@@ -585,8 +672,156 @@ TEST(http_sticky, req_have_cookie_enforce)
 	tfw_connection_send(&mock.conn_req, &mock.resp->msg);
 
 	/* no Set-Cookie headers are expected */
-	EXPECT_FALSE(mock.seen_set_cookie_header);
-	EXPECT_FALSE(mock.seen_cookie);
+	EXPECT_FALSE(mock.cookie.seen_set_header);
+	EXPECT_FALSE(mock.cookie.seen);
+}
+
+/* request have invalid sticky cookie; enforce mode activated */
+TEST(http_sticky, req_invalid_cookie_enforce)
+{
+	const char *s_req = "GET / HTTP/1.0\r\n"
+			    "Host: localhost\r\n"
+			    "Cookie: " TOK_NAME "="
+			    COOKIE_TIMESTAMP
+			    COOKIE_INVALID_HMAC
+			    "\r\n\r\n";
+	TfwConn *c = mock.req->conn;
+
+	mock.cookie_val = COOKIE_TIMESTAMP COOKIE_VALID_HMAC;
+
+	append_string_to_msg((TfwHttpMsg *)mock.req, s_req);
+	EXPECT_EQ(http_parse_req_helper(), 0);
+	EXPECT_EQ(tfw_http_sess_obtain(mock.req), TFW_HTTP_SESS_REDIRECT_SENT);
+
+	/* if cookie is invalid, then 302 response is sent to a client
+	 * by Tempesta instead of forwarding request to backend
+	 */
+	EXPECT_TRUE(mock.tfw_connection_send_was_called);
+	EXPECT_TRUE(mock.cookie.seen_set_header);
+	EXPECT_TRUE(mock.cookie.seen);
+	EXPECT_TRUE(mock.cookie.seen_val);
+
+	tfw_connection_put(c);
+	mock.req = NULL; /* already freed */
+}
+
+/*
+ * Request have no sticky cookie; extended (with redirection
+ * mark verification) enforce mode activated.
+ */
+TEST(http_sticky, req_no_cookie_enforce_extented)
+{
+	const char *s_req = "GET / HTTP/1.0\r\nHost: localhost\r\n\r\n";
+	TfwConn *c = mock.req->conn;
+
+	append_string_to_msg((TfwHttpMsg *)mock.req, s_req);
+	EXPECT_EQ(http_parse_req_helper(), 0);
+	EXPECT_EQ(tfw_http_sess_obtain(mock.req), TFW_HTTP_SESS_REDIRECT_SENT);
+
+	/* in enforce mode, 302 response is sent to a client by Tempesta
+	 * before backend gets anything
+	 */
+	EXPECT_TRUE(mock.tfw_connection_send_was_called);
+	EXPECT_TRUE(mock.cookie.seen_set_header);
+	EXPECT_TRUE(mock.cookie.seen);
+
+	/* in extended enforce mode 302 response must contain 'Location'
+	 * header with redirection mark set
+	 */
+	EXPECT_TRUE(mock.loc_rmark.seen_set_header);
+	EXPECT_TRUE(mock.loc_rmark.seen);
+
+	tfw_connection_put(c);
+	mock.req = NULL; /* already freed */
+}
+
+/*
+ * Request have invalid sticky cookie and valid redirection mark; extended
+ * (with redirection mark verification) enforce mode activated. 302 response
+ * must be generated, but with changed redirection mark (attempts number will
+ * be incremented), so we should verify it with new recalculated mark.
+ */
+TEST(http_sticky, req_invalid_cookie_enforce_extended)
+{
+/* New incremented attempt number and recalculated valid HMAC (timestamp
+ * remain the same - see the beginning of this file for description of
+ * calculation process).
+ */
+#define NEW_RMARK_ATT_NO	"00000002"
+#define NEW_RMARK_VALID_HMAC	"63305131e09ab5f57ebca7285bc51a562964838b"
+
+	const char *s_req = "GET " "/" TOK_NAME "="
+			    RMARK_ATT_NO
+			    RMARK_TIMESTAMP
+			    RMARK_VALID_HMAC
+			    "/ HTTP/1.0\r\n"
+			    "Host: localhost\r\n"
+			    "Cookie: " TOK_NAME "="
+			    COOKIE_TIMESTAMP
+			    COOKIE_INVALID_HMAC
+			    "\r\n\r\n";
+	TfwConn *c = mock.req->conn;
+
+	mock.cookie_val = COOKIE_TIMESTAMP COOKIE_VALID_HMAC;
+	mock.rmark_val = NEW_RMARK_ATT_NO RMARK_TIMESTAMP NEW_RMARK_VALID_HMAC;
+
+	append_string_to_msg((TfwHttpMsg *)mock.req, s_req);
+	EXPECT_EQ(http_parse_req_helper(), 0);
+	EXPECT_EQ(tfw_http_sess_obtain(mock.req), TFW_HTTP_SESS_REDIRECT_SENT);
+
+	/* if cookie is invalid, then 302 response is sent to a client
+	 * by Tempesta instead of forwarding request to backend
+	 */
+	EXPECT_TRUE(mock.tfw_connection_send_was_called);
+	EXPECT_TRUE(mock.cookie.seen_set_header);
+	EXPECT_TRUE(mock.cookie.seen);
+	EXPECT_TRUE(mock.cookie.seen_val);
+
+	/* in extended enforce mode 302 response must contain 'Location'
+	 * header with redirection mark set
+	 */
+	EXPECT_TRUE(mock.loc_rmark.seen_set_header);
+	EXPECT_TRUE(mock.loc_rmark.seen);
+	EXPECT_TRUE(mock.loc_rmark.seen_val);
+
+	tfw_connection_put(c);
+	mock.req = NULL; /* already freed */
+}
+
+/*
+ * Request have valid sticky cookie and valid redirection mark; extended
+ * (with redirection mark verification) enforce mode activated. 302 response
+ * must not be generated, and request must be forwared to backend server.
+ * Redirection mark must be deleted from request before sending to beckend.
+ */
+TEST(http_sticky, req_valid_cookie_enforce_extended)
+{
+	const char *s_req = "GET " "/" TOK_NAME "="
+			    RMARK_ATT_NO
+			    RMARK_TIMESTAMP
+			    RMARK_VALID_HMAC
+			    "/ HTTP/1.0\r\n"
+			    "Host: localhost\r\n"
+			    "Cookie: " TOK_NAME "="
+			    COOKIE_TIMESTAMP
+			    COOKIE_VALID_HMAC
+			    "\r\n\r\n";
+
+	append_string_to_msg((TfwHttpMsg *)mock.req, s_req);
+	EXPECT_EQ(http_parse_req_helper(), 0);
+
+	EXPECT_EQ(tfw_http_sess_obtain(mock.req), TFW_HTTP_SESS_SUCCESS);
+	EXPECT_TRUE(!TFW_STR_EMPTY(&mock.req->mark));
+	EXPECT_EQ(tfw_http_sess_req_process(mock.req), 0);
+
+	/* expecting no immediate responses */
+	EXPECT_FALSE(mock.tfw_connection_send_was_called);
+
+	/* since request should be modified, we need to parse it again */
+	EXPECT_EQ(http_parse_req_helper(), 0);
+
+	/* redirection mark is not expected */
+	EXPECT_TRUE(TFW_STR_EMPTY(&mock.req->mark));
 }
 
 TEST_SUITE(http_sticky)
@@ -596,7 +831,10 @@ TEST_SUITE(http_sticky)
 		.val_n = 1,
 		.vals = { "enforce" },
 		.attr_n = 1,
-		.attrs = { { .key = "name", .val = COOKIE_NAME } },
+		.attrs = {
+			{ .key = "name", .val = TOK_NAME },
+			{ .key = "max_misses", .val = MAX_MISSES }
+		},
 		.have_children = false
 	};
 	TfwCfgEntry ce_secret = {
@@ -637,6 +875,14 @@ TEST_SUITE(http_sticky)
 	tfw_cfgop_sticky(&tfw_http_sess_mod.specs[0], &ce_sticky);
 	TEST_RUN(http_sticky, req_no_cookie_enforce);
 	TEST_RUN(http_sticky, req_have_cookie_enforce);
+	TEST_RUN(http_sticky, req_invalid_cookie_enforce);
+
+	/* set "max_misses" for redirection mark testing */
+	ce_sticky.attr_n = 2;
+	tfw_cfgop_sticky(&tfw_http_sess_mod.specs[0], &ce_sticky);
+	TEST_RUN(http_sticky, req_no_cookie_enforce_extented);
+	TEST_RUN(http_sticky, req_invalid_cookie_enforce_extended);
+	TEST_RUN(http_sticky, req_valid_cookie_enforce_extended);
 
 	kernel_fpu_end();
 

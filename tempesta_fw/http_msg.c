@@ -713,6 +713,25 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 }
 
 /**
+ * Delete @str (any parsed part of HTTP message) from skb data and
+ * init @str.
+ */
+int
+tfw_http_msg_del_str(TfwHttpMsg *hm, TfwStr *str)
+{
+	int r;
+
+	BUG_ON(TFW_STR_DUP(str));
+
+	if ((r = ss_skb_cutoff_data(hm->msg.skb_head, str, 0, 0)))
+		return r;
+
+	TFW_STR_INIT(str);
+
+	return 0;
+}
+
+/**
  * Remove hop-by-hop headers in the message
  *
  * Connection header should not be removed, tfw_http_set_hdr_connection()
