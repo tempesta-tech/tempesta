@@ -520,7 +520,7 @@ tfw_http_redir_mark_get(TfwHttpReq *req, TfwStr *out_val)
 		}							\
 	}								\
 end_##f:								\
-	count;								\
+	;								\
 })
 
 #define HEX_STR_TO_BIN_HMAC(hmac, ts, addr)				\
