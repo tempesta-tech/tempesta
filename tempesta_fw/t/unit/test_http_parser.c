@@ -30,7 +30,8 @@
 static TfwHttpReq *req, *sample_req;
 static TfwHttpResp *resp;
 
-#define SAMPLE_REQ_STR "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
+#define SAMPLE_REQ_STR	"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
+#define RMARK_NAME	"__tfw_name"
 
 static int
 split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
@@ -444,6 +445,123 @@ TEST(http_parser, parses_req_uri)
 	EXPECT_BLOCK_REQ("GET /\x03uri HTTP/1.1\r\n"
 			 "Host: test\r\n"
 			 "\r\n");
+}
+
+TEST(http_parser, parses_enforce_ext_req)
+{
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"\r\n")
+	{
+		EXPECT_TFWSTR_EQ(&req->uri_path, "/");
+	}
+
+	FOR_REQ("GET /index.html HTTP/1.1\r\n"
+		"Connection: Keep-Alive\r\n"
+		"X-Forwarded-For: 127.0.0.1\r\n"
+		"\r\n")
+	{
+		EXPECT_TFWSTR_EQ(&req->uri_path, "/index.html");
+	}
+
+	FOR_REQ("GET http://natsys-lab.com/ HTTP/1.1\r\n"
+		"User-Agent: Wget/1.13.4 (linux-gnu)\r\n"
+		"Accept: */*\r\n"
+		"\r\n")
+	{
+		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
+		EXPECT_TFWSTR_EQ(&req->uri_path, "/");
+	}
+
+	FOR_REQ("GET http://natsys-lab.com:8080/cgi-bin/show.pl HTTP/1.1\r\n"
+		"Connection: Keep-Alive\r\n"
+		"Cookie: session=42\r\n"
+		"Accept: */*\r\n"
+		"\r\n")
+	{
+		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
+		EXPECT_TFWSTR_EQ(&req->uri_path, "/cgi-bin/show.pl");
+	}
+}
+
+TEST(http_parser, parses_enforce_ext_req_rmark)
+{
+/*
+ * Redirection attempt number, timestamp and calculated valid
+ * HMAC (see 'test_http_sticky.c' file for details about
+ * calculation process).
+ */
+#define ATT_NO		"00000001"
+#define TIMESTAMP	"535455565758595a"
+#define HMAC		"9cf5585388196965871bf4240ef44a52d0ffb23d"
+#define RMARK		"/" RMARK_NAME "=" ATT_NO TIMESTAMP HMAC
+
+#define URI_1		"/"
+#define URI_2		"/static/test/index.html"
+#define URI_3		"/foo/"
+#define URI_4		"/cgi-bin/show.pl?entry=tempesta"
+
+#define HOST		"natsys-lab.com"
+#define PORT		"80"
+#define AUTH		"http://" HOST ":" PORT
+
+	FOR_REQ("GET " RMARK URI_1 " HTTP/1.1\r\n\r\n")	{
+		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
+		EXPECT_TFWSTR_EQ(&req->uri_path, URI_1);
+	}
+
+	FOR_REQ("GET " RMARK URI_2 " HTTP/1.1\r\n\r\n")	{
+		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
+		EXPECT_TFWSTR_EQ(&req->uri_path, URI_2);
+	}
+
+	FOR_REQ("GET " RMARK URI_3 " HTTP/1.1\r\n\r\n")	{
+		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
+		EXPECT_TFWSTR_EQ(&req->uri_path, URI_3);
+	}
+
+	FOR_REQ("GET " RMARK URI_4 " HTTP/1.1\r\n\r\n")	{
+		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
+		EXPECT_TFWSTR_EQ(&req->uri_path, URI_4);
+	}
+
+	FOR_REQ("GET " AUTH RMARK URI_1 " HTTP/1.1\r\n\r\n") {
+		EXPECT_TFWSTR_EQ(&req->host, HOST);
+		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
+		EXPECT_TFWSTR_EQ(&req->uri_path, URI_1);
+	}
+
+	FOR_REQ("GET " AUTH RMARK URI_3 " HTTP/1.1\r\n\r\n") {
+		EXPECT_TFWSTR_EQ(&req->host, HOST);
+		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
+		EXPECT_TFWSTR_EQ(&req->uri_path, URI_3);
+	}
+
+	FOR_REQ("GET " AUTH RMARK URI_4 " HTTP/1.1\r\n\r\n") {
+		EXPECT_TFWSTR_EQ(&req->host, HOST);
+		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
+		EXPECT_TFWSTR_EQ(&req->uri_path, URI_4);
+	}
+
+	/* Wrong RMARK formats. */
+	EXPECT_BLOCK_REQ("GET " ATT_NO HMAC URI_1 " HTTP/1.1\r\n\r\n");
+
+	EXPECT_BLOCK_REQ("GET " "/" RMARK_NAME "=" URI_1 " HTTP/1.1\r\n\r\n");
+
+	EXPECT_BLOCK_REQ("GET " RMARK HMAC URI_1 " HTTP/1.1\r\n\r\n");
+
+#undef ATT_NO
+#undef TIMESTAMP
+#undef HMAC
+#undef RMARK
+
+#undef URI_1
+#undef URI_2
+#undef URI_3
+#undef URI_4
+
+#undef HOST
+#undef PORT
+#undef AUTH
 }
 
 /* TODO add HTTP attack examples. */
@@ -1237,7 +1355,7 @@ TEST(http_parser, chunk_size)
 			 "abcdefg\r\n"
 			 "0\r\n"
 			 "\r\n");
-	
+
 	FOR_REQ("POST / HTTP/1.1\r\n"
 		"Host:\r\n"
 		"Transfer-Encoding: chunked\r\n"
@@ -2042,4 +2160,15 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, req_hop_by_hop);
 	TEST_RUN(http_parser, resp_hop_by_hop);
 	TEST_RUN(http_parser, fuzzer);
+
+	/*
+	 * Testing for correctness of redirection mark parsing (in
+	 * extended enforced mode of 'http_sessions' module).
+	 */
+	test_helper_sticky_start(RMARK_NAME, 1);
+
+	TEST_RUN(http_parser, parses_enforce_ext_req);
+	TEST_RUN(http_parser, parses_enforce_ext_req_rmark);
+
+	test_helper_sticky_stop();
 }
