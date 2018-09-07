@@ -461,6 +461,7 @@ typedef struct {
  * @userinfo	- userinfo in URI, not mandatory.
  * @host	- host in URI, may differ from Host header;
  * @uri_path	- path + query + fragment from URI (RFC3986.3);
+ * @mark	- special hash mark for redirects handling in session module;
  * @fwd_list	- member in the queue of forwarded/backlogged requests;
  * @nip_list	- member in the queue of non-idempotent requests;
  * @method	- HTTP request method, one of GET/PORT/HEAD/etc;
@@ -485,6 +486,7 @@ struct tfw_http_req_t {
 	TfwStr			userinfo;
 	TfwStr			host;
 	TfwStr			uri_path;
+	TfwStr			mark;
 	struct list_head	fwd_list;
 	struct list_head	nip_list;
 	unsigned char		method;
@@ -611,8 +613,8 @@ void tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len);
 /*
  * Functions to send an HTTP error response to a client.
  */
-int tfw_http_prep_redirect(TfwHttpMsg *resp,
-			   unsigned short status, TfwStr *cookie, TfwStr *body);
+int tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status,
+			   TfwStr *rmark, TfwStr *cookie, TfwStr *body);
 int tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, void *msg_it,
 		      size_t hdrs_size);
 void tfw_http_send_resp(TfwHttpReq *req, int status, const char *reason);
