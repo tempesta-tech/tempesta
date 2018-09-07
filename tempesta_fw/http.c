@@ -2358,7 +2358,7 @@ tfw_http_req_mark_error(TfwHttpReq *req, int status)
  */
 static void
 tfw_http_cli_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
-				 int status, const char *msg)
+				int status, const char *msg)
 {
 	if (!nolog)
 		TFW_WARN_ADDR(msg, &req->conn->peer->addr);
