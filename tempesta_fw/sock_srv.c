@@ -122,6 +122,9 @@
  */
 static const unsigned long tfw_srv_tmo_vals[] = { 1, 10, 100, 250, 500, 1000 };
 
+#define srv_warn(check, addr, fmt, ...)					\
+	TFW_WARN_MOD_ADDR6(sock_srv, check, addr, fmt, ##__VA_ARGS__)
+
 /**
  * Initiate a non-blocking connect attempt.
  * Returns immediately without waiting until a connection is established.
@@ -237,10 +240,10 @@ tfw_sock_srv_connect_try_later(TfwSrvConn *srv_conn)
 		if (srv_conn->recns == ARRAY_SIZE(tfw_srv_tmo_vals)
 		    || !(srv_conn->recns % 60))
 		{
-			TFW_WARN_MOD_ADDR6(sock_srv, "cannot establish"
-					   " connection", &srv_conn->peer->addr,
-					   ": %u tries, keep trying...\n",
-					   srv_conn->recns);
+			srv_warn("cannot establish connection",
+				 &srv_conn->peer->addr,
+				 ": %u tries, keep trying...\n",
+				 srv_conn->recns);
 		}
 
 		tfw_connection_repair((TfwConn *)srv_conn);
