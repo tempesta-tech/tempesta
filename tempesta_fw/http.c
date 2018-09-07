@@ -350,8 +350,8 @@ unsigned long tfw_hash_str(const TfwStr *str);
  * Body string contains the 'Content-Legth' header, CRLF and body itself.
  */
 int
-tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *cookie,
-		       TfwStr *body)
+tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *rmark,
+		       TfwStr *cookie, TfwStr *body)
 {
 	TfwHttpReq *req = resp->req;
 	size_t data_len;
@@ -419,6 +419,7 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *cookie,
 	/* Add variable part of data length to get the total */
 	data_len = rh->len + h_common_1.len;
 	data_len += host.len ? host.len + SLEN(S_HTTP) : 0;
+	data_len += rmark->len;
 	data_len += req->uri_path.len + h_common_2.len + cookie->len;
 	data_len += cookie_crlf->len + r_end->len;
 
@@ -429,6 +430,7 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *cookie,
 
 	ret = tfw_http_msg_write(&it, resp, rh);
 	ret = tfw_http_msg_write(&it, resp, &h_common_1);
+
 	/*
 	 * HTTP/1.0 may have no host part, so we create relative URI.
 	 * See RFC 1945 9.3 and RFC 7231 7.1.2.
@@ -438,6 +440,10 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *cookie,
 		ret |= tfw_http_msg_write(&it, resp, &proto);
 		ret |= tfw_http_msg_write(&it, resp, &host);
 	}
+
+	if (rmark->len)
+		ret |= tfw_http_msg_write(&it, resp, rmark);
+
 	ret |= tfw_http_msg_write(&it, resp, &req->uri_path);
 	ret |= tfw_http_msg_write(&it, resp, &h_common_2);
 	ret |= tfw_http_msg_write(&it, resp, cookie);
@@ -2112,6 +2118,10 @@ tfw_http_adjust_req(TfwHttpReq *req)
 	int r;
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
 
+	r = tfw_http_sess_req_process(req);
+	if (r)
+		return r;
+
 	r = tfw_http_add_x_forwarded_for(hm);
 	if (r)
 		return r;
@@ -2528,7 +2538,7 @@ send_503:
 	return;
 drop_503:
 	tfw_srv_client_drop(req, 503, "request dropped: invalid sticky cookie "
-				      "or js challenge");
+			    "or js challenge");
 	TFW_INC_STAT_BH(clnt.msgs_filtout);
 	return;
 send_502:
