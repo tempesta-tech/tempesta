@@ -29,6 +29,8 @@
 
 static TfwHttpReq *req, *sample_req;
 static TfwHttpResp *resp;
+static size_t hm_exp_len = 0;
+static int chunks = 1;
 
 #define SAMPLE_REQ_STR	"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
 #define RMARK_NAME	"__tfw_name"
@@ -38,6 +40,9 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
 {
 	size_t chlen = len / chunks, rem = len % chunks, pos = 0, step;
 	int r = 0;
+	TfwHttpMsg *hm = (type == FUZZ_REQ)
+			? (TfwHttpMsg *)req
+			: (TfwHttpMsg *)resp;
 
 	while (pos < len) {
 		step = chlen;
@@ -54,6 +59,7 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
 			r = tfw_http_parse_resp(resp, str + pos, step);
 
 		pos += step;
+		hm->msg.len += step - hm->parser.to_go;
 
 		if (r != TFW_POSTPONE)
 			return r;
@@ -79,6 +85,13 @@ set_sample_req(unsigned char *str)
 	r = tfw_http_parse_req(sample_req, str, len);
 
 	return r;
+}
+
+static void
+test_case_parse_prepare(const char *str, size_t sz_diff)
+{
+	chunks = 1;
+	hm_exp_len = strlen(str) - sz_diff;
 }
 
 /**
@@ -108,8 +121,6 @@ set_sample_req(unsigned char *str)
  *  <  0 - Error: the parsing is failed.
  *  >  0 - EOF: all possible fragments are parsed, terminate the loop.
  */
-static int chunks = 1;
-
 static int
 do_split_and_parse(unsigned char *str, int type)
 {
@@ -150,10 +161,27 @@ do_split_and_parse(unsigned char *str, int type)
 	return r;
 }
 
+/**
+ * To validate message parsing we provide text string which describes
+ * HTTP message from start to end. If there any unused bytes after
+ * message is successfully parsed, then parsing was incorrect.
+ */
+static int
+validate_data_fully_parsed(int type)
+{
+	TfwHttpMsg *hm = (type == FUZZ_REQ)
+			? (TfwHttpMsg *)req
+			: (TfwHttpMsg *)resp;
+
+	EXPECT_EQ(hm->msg.len, hm_exp_len);
+	return hm->msg.len == hm_exp_len;
+}
+
 #define TRY_PARSE_EXPECT_PASS(str, type)			\
 ({ 								\
 	int _err = do_split_and_parse(str, type);		\
-	if (_err == TFW_BLOCK || _err == TFW_POSTPONE)		\
+	if (_err == TFW_BLOCK || _err == TFW_POSTPONE		\
+	    || !validate_data_fully_parsed(type))		\
 		TEST_FAIL("can't parse %s (code=%d):\n%s",	\
 			  (type == FUZZ_REQ ? "request" :	\
 				              "response"),	\
@@ -172,27 +200,32 @@ do_split_and_parse(unsigned char *str, int type)
 	_err == TFW_BLOCK || _err == TFW_POSTPONE;		\
 })
 
-#define FOR_REQ(str)						\
+
+#define __FOR_REQ(str, sz_diff)					\
 	TEST_LOG("=== request: [%s]\n", str);			\
-	chunks = 1;						\
+	test_case_parse_prepare(str, sz_diff);			\
 	while (TRY_PARSE_EXPECT_PASS(str, FUZZ_REQ))
+
+#define FOR_REQ(str)	__FOR_REQ(str, 0)
 
 #define EXPECT_BLOCK_REQ(str)					\
 do {								\
 	TEST_LOG("=== request: [%s]\n", str);			\
-	chunks = 1;						\
+	test_case_parse_prepare(str, 0);			\
 	while (TRY_PARSE_EXPECT_BLOCK(str, FUZZ_REQ));		\
 } while (0)
 
-#define FOR_RESP(str)						\
+#define __FOR_RESP(str, sz_diff)				\
 	TEST_LOG("=== response: [%s]\n", str);			\
-	chunks = 1;						\
+	test_case_parse_prepare(str, sz_diff);			\
 	while (TRY_PARSE_EXPECT_PASS(str, FUZZ_RESP))
+
+#define FOR_RESP(str)	__FOR_RESP(str, 0)
 
 #define EXPECT_BLOCK_RESP(str)					\
 do {								\
 	TEST_LOG("=== response: [%s]\n", str);			\
-	chunks = 1;						\
+	test_case_parse_prepare(str, 0);			\
 	while (TRY_PARSE_EXPECT_BLOCK(str, FUZZ_RESP));		\
 } while (0)
 
@@ -1045,12 +1078,13 @@ TEST(http_parser, eol_crlf)
 		"Host: d.com\r\n"
 		"\r\n");
 
-	FOR_REQ("POST / HTTP/1.1\n"
-		"Host: a.com\n"
-		"Content-Length: 5\n"
-		"\n"
-		"a=24\n"
-		"\n") /* the LF is ignored. */
+	__FOR_REQ("POST / HTTP/1.1\n"
+		  "Host: a.com\n"
+		  "Content-Length: 5\n"
+		  "\n"
+		  "a=24\n"
+		  "\n",  /* the LF is ignored. */
+		  1)
 	{
 		TfwHttpHdrTbl *ht = req->h_tbl;
 
@@ -1064,12 +1098,13 @@ TEST(http_parser, eol_crlf)
 	 * It seems RFC 7230 3.3 doesn't prohibit message body
 	 * for GET requests.
 	 */
-	FOR_REQ("GET / HTTP/1.1\n"
-		"Host: b.com\n"
-		"Content-Length: 6\n"
-		"\r\n"
-		"b=24\r\n"
-		"\r\n") /* last CRLF is ignored */
+	__FOR_REQ("GET / HTTP/1.1\n"
+		  "Host: b.com\n"
+		  "Content-Length: 6\n"
+		  "\r\n"
+		  "b=24\r\n"
+		  "\r\n",  /* the CRLF is ignored. */
+		  2)
 	{
 		EXPECT_TRUE(req->crlf.len == 2);
 		EXPECT_TRUE(req->body.len == 6);
@@ -1110,7 +1145,6 @@ TEST(http_parser, crlf_trailer)
 		"4\r\n"
 		"1234\r\n"
 		"0\r\n"
-		"\r\n"
 		"Custom-Hdr: custom-data\r\n"
 		"\r\n")
 	{
@@ -1128,7 +1162,6 @@ TEST(http_parser, crlf_trailer)
 		 "5\r\n"
 		 "abcde\r\n"
 		 "0\r\n"
-		 "\r\n"
 		 "Custom-Hdr: custom-data\r\n"
 		 "\r\n")
 	{
@@ -1154,7 +1187,7 @@ TEST(http_parser, ows)
 		 "Content-Length: 10  	\r\n"
 		 "Age:   12   \r\n"
 		"\n"
-		"0123456789\r\n");
+		"0123456789");
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Host:foo.com\r\n"
@@ -2083,11 +2116,11 @@ TEST(http_parser, fuzzer)
 				       FUZZ_REQ);
 			switch (ret) {
 			case FUZZ_VALID:
-				chunks = 1;
+				test_case_parse_prepare(str, 0);
 				TRY_PARSE_EXPECT_PASS(str, FUZZ_REQ);
 				break;
 			case FUZZ_INVALID:
-				chunks = 1;
+				test_case_parse_prepare(str, 0);
 				TRY_PARSE_EXPECT_BLOCK(str, FUZZ_REQ);
 				break;
 			case FUZZ_END:
@@ -2106,11 +2139,11 @@ resp:
 				       FUZZ_RESP);
 			switch (ret) {
 			case FUZZ_VALID:
-				chunks = 1;
+				test_case_parse_prepare(str, 0);
 				TRY_PARSE_EXPECT_PASS(str, FUZZ_RESP);
 				break;
 			case FUZZ_INVALID:
-				chunks = 1;
+				test_case_parse_prepare(str, 0);
 				TRY_PARSE_EXPECT_BLOCK(str, FUZZ_RESP);
 				break;
 			case FUZZ_END:
