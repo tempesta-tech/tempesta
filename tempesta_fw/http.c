@@ -3597,20 +3597,6 @@ tfw_http_resp_cache_cb(TfwHttpMsg *msg)
 
 	TFW_DBG2("%s: req = %p, resp = %p\n", __func__, req, resp);
 	/*
-	 * Typically we're at a node far from the node where @resp was
-	 * received, so we do an inter-node transfer. However, this is
-	 * the final place where the response will be stored. Upcoming
-	 * requests will get responded to by the current node without
-	 * inter-node data transfers. (see tfw_http_req_cache_cb())
-	 */
-	if (tfw_http_adjust_resp(resp)) {
-		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
-		tfw_http_send_resp(req, 500,
-				   "response dropped: processing error");
-		TFW_INC_STAT_BH(serv.msgs_otherr);
-		return;
-	}
-	/*
 	 * Responses from cache don't have @resp->conn. Also, for those
 	 * responses @req->jtxtstamp is not set and remains zero.
 	 *
@@ -3625,6 +3611,25 @@ tfw_http_resp_cache_cb(TfwHttpMsg *msg)
 		tfw_apm_update(((TfwServer *)resp->conn->peer)->apmref,
 				resp->jrxtstamp,
 				resp->jrxtstamp - req->jtxtstamp);
+	/* Client has disconnected while we was waiting the response. */
+	if (unlikely(test_bit(TFW_HTTP_REQ_DROP, req->flags))) {
+		tfw_http_resp_pair_free(req);
+		return;
+	}
+	/*
+	 * Typically we're at a node far from the node where @resp was
+	 * received, so we do an inter-node transfer. However, this is
+	 * the final place where the response will be stored. Upcoming
+	 * requests will get responded to by the current node without
+	 * inter-node data transfers. (see tfw_http_req_cache_cb())
+	 */
+	if (tfw_http_adjust_resp(resp)) {
+		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
+		tfw_http_send_resp(req, 500,
+				   "response dropped: processing error");
+		TFW_INC_STAT_BH(serv.msgs_otherr);
+		return;
+	}
 	tfw_http_resp_fwd(resp);
 }
 
