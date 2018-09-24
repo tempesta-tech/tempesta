@@ -1927,39 +1927,96 @@ tfw_http_resp_pair_free(TfwHttpReq *req)
 }
 
 /**
- * Request is dropped, stop streaming it to backend connection.
+ * Connection is to be closed after response for the request @req is forwarded
+ * to the client. Don't process new requests from the client and update
+ * message flags for proper "Connection: " header value.
+ */
+static inline void
+tfw_http_req_set_conn_close(TfwHttpReq *req)
+{
+	TFW_CONN_TYPE(req->conn) |= Conn_Stop;
+	set_bit(TFW_HTTP_CONN_CLOSE, req->flags);
+}
+
+/**
+ * Error happen, current request @req will be discarded. Connection should
+ * be closed after response for the previous request.
  *
- * Req is not in streaming mode -> nothing to do;
- * Req is fully streamed to backend, awaiting for response -> nothing to do;
- * Req is not streamed to backend *yet* -> nothing to do;
- * Req was streamed, but not in full -> stop streaming and close the server
- *   connection.
+ * Returns true, if the connection will be automatically closed with the
+ * last response sent. Returns false, if there are no responses to forward
+ * and manual connection close action is required.
+ */
+static bool
+tfw_http_req_prev_conn_close(TfwHttpReq *req)
+{
+	TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
+	TfwHttpReq *last_req = NULL;
+	struct list_head *prev;
+
+	if (list_empty_careful(&cli_conn->seq_queue))
+		return false;
+
+	spin_lock(&cli_conn->seq_qlock);
+
+	prev = (!list_empty(&req->msg.seq_list)) ? req->msg.seq_list.prev
+						 : cli_conn->seq_queue.prev;
+	if (prev != &cli_conn->seq_queue) {
+		last_req = list_entry(prev, TfwHttpReq, msg.seq_list);
+		tfw_http_req_set_conn_close(last_req);
+	}
+
+	spin_unlock(&cli_conn->seq_qlock);
+
+	return last_req;
+}
+
+/**
+ * Incomplete streamed request is dropped.
+ * If
+ *   req is not streamed to backend and served from cache or
+ *   req is not streamed to backend *yet*
+ * there is nothing to do;
+ * If req was streamed, but not in full, then close the server connection to
+ * recover.
  */
 static void
-tfw_http_conn_drop_stream_req(TfwHttpReq *req)
+tfw_http_conn_cli_drop_stream_req(TfwHttpReq *req)
 {
 	TfwHttpMsgPart *hmpart;
-	TfwConn *conn;
+	TfwSrvConn *srv_conn;
+	TfwHttpReq *req_prev;
 
-	if (tfw_http_msg_is_stream_done((TfwHttpMsg *)req))
-		return;
+	TFW_DBG2("%s: req=[%p]\n", __func__, req);
 
 	hmpart = req->stream_part;
 	spin_lock(&hmpart->stream_lock);
-	if ((conn = hmpart->stream_conn)) {
-		/*
-		 * TODO: We shouldn't close the server connection immediately.
-		 * This will cause resending of unanswered requests which
-		 * was forwarded prior this one. Not all request may be
-		 * re-sent, some of them will be evicted. Such behaviour
-		 * may degrade quality of service. Especially in full-streaming
-		 * mode (all requests are streamed).
-		 */
-		ss_close_sync(conn->sk, true);
-		hmpart->stream_conn = NULL;
-		tfw_connection_put(conn);
+
+	if (!(srv_conn = (TfwSrvConn *)hmpart->stream_conn)) {
+		/* Request wasn't scheduled yet or served from cache. */
+		spin_unlock(&hmpart->stream_lock);
+		return;
 	}
+
 	spin_unlock(&hmpart->stream_lock);
+	spin_lock_bh(&srv_conn->fwd_qlock);
+
+	if ((TfwHttpReq *)srv_conn->msg_sent != req)
+		goto out;
+	req_prev = (TfwHttpReq *)__tfw_http_conn_msg_sent_prev(srv_conn);
+	/*
+	 * Don't close the server connection immediately, there can be sent
+	 * but not replied responses. Wait for them and close the connection
+	 * after that. Immediate close will cause resending of such requests.
+	 * Streamed requests can't be re-sent, in full streaming mode
+	 * quality of service will be degraded.
+	 */
+	if (!req_prev)
+		ss_close_sync(srv_conn->sk, true);
+	else
+		set_bit(TFW_HTTP_FORCE_CLOSE, req_prev->flags);
+
+out:
+	spin_unlock_bh(&srv_conn->fwd_qlock);
 }
 
 /**
@@ -1994,13 +2051,14 @@ tfw_http_conn_cli_mem_release(TfwCliConn *cli_conn, TfwHttpReq *req)
 static void
 tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 {
-	TfwHttpReq *tmp, *req = (TfwHttpReq *)cli_conn->msg;
+	TfwHttpReq *tmp, *req;
 	struct list_head *seq_queue = &cli_conn->seq_queue;
 
 	TFW_DBG2("%s: conn=[%p]\n", __func__, cli_conn);
 	BUG_ON(!(TFW_CONN_TYPE(cli_conn) & Conn_Clnt));
 
 	if (list_empty_careful(seq_queue)) {
+		req = (TfwHttpReq *)cli_conn->msg;
 		if (req)
 			tfw_http_conn_cli_mem_release(cli_conn, req);
 		return;
@@ -2014,20 +2072,14 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 	 */
 	spin_lock(&cli_conn->seq_qlock);
 
-	/*
-	 * If last request is streamed to backend, but not received in full,
-	 * then backend connection must be closed to recover.
-	 */
-	if (req && test_bit(TFW_HTTP_STREAM_PART, req->flags)) {
-		tfw_http_conn_cli_drop_stream_req(req);
-		/* Stream part lifetime is controlled by buffered part. */
-		cli_conn->msg = NULL;
-	}
-
 	list_for_each_entry_safe(req, tmp, seq_queue, msg.seq_list) {
 		set_bit(TFW_HTTP_REQ_DROP, req->flags);
 		list_del_init(&req->msg.seq_list);
 		tfw_http_conn_cli_mem_release(cli_conn, req);
+		if (unlikely(!tfw_http_msg_is_stream_read((TfwHttpMsg *)req))) {
+			tfw_http_conn_cli_drop_stream_req(req);
+			cli_conn->msg = NULL;
+		}
 		/*
 		 * Response is processed and removed from fwd_queue, need to be
 		 * destroyed.
@@ -2039,8 +2091,36 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 			TFW_INC_STAT_BH(serv.msgs_otherr);
 		}
 	}
+
 	spin_unlock(&cli_conn->seq_qlock);
 }
+
+/**
+ * Connection with the server is dropped. New parts of streamed request can't
+ * be delivered. Don't wait for end of request transmission and close client
+ * connection now. This will allow the client to recover.
+ *
+ * The client connection is not closed immediately, try to respond to all the
+ * previous requests first.
+ */
+static void
+tfw_http_conn_srv_drop(TfwSrvConn *srv_conn)
+{
+	TfwHttpReq *req;
+	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
+
+	spin_lock_bh(&srv_conn->fwd_qlock);
+	req = (TfwHttpReq *)srv_conn->msg_sent;
+	if (req && !tfw_http_msg_is_stream_read((TfwHttpMsg *)req)
+	    && !test_bit(TFW_HTTP_REQ_DROP, req->flags))
+	{
+		if (!tfw_http_req_prev_conn_close(req))
+			ss_close_sync(req->conn->sk, true);
+	}
+	spin_unlock_bh(&srv_conn->fwd_qlock);
+}
+
+static void tfw_http_resp_terminate(TfwHttpMsg *hm);
 
 /*
  * Connection with a peer is dropped.
@@ -2048,8 +2128,6 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
  * Release resources that are not needed anymore, and keep other
  * resources that are needed while there are users of the connection.
  */
-static void tfw_http_resp_terminate(TfwHttpMsg *hm);
-
 static void
 tfw_http_conn_drop(TfwConn *conn)
 {
@@ -2057,9 +2135,14 @@ tfw_http_conn_drop(TfwConn *conn)
 
 	if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
 		tfw_http_conn_cli_drop((TfwCliConn *)conn);
-	} else if (conn->msg) {		/* Conn_Srv */
-		if (tfw_http_parse_terminate((TfwHttpMsg *)conn->msg))
+	}
+	else { /* Conn_Srv */
+		if (conn->msg
+		    && tfw_http_parse_terminate((TfwHttpMsg *)conn->msg))
+		{
 			tfw_http_resp_terminate((TfwHttpMsg *)conn->msg);
+		}
+		tfw_http_conn_srv_drop((TfwSrvConn *)conn);
 	}
 	tfw_http_conn_msg_free((TfwHttpMsg *)conn->msg);
 }
@@ -2127,18 +2210,6 @@ tfw_http_set_hdr_date(TfwHttpMsg *hm)
 	else
 		TFW_DBG2("Added Date: header to msg [%p]\n", hm);
 	return r;
-}
-
-/**
- * Connection is to be closed after response for the request @req is forwarded
- * to the client. Don't process new requests from the client and update
- * message flags for proper "Connection: " header value.
- */
-static inline void
-tfw_http_req_set_conn_close(TfwHttpReq *req)
-{
-	TFW_CONN_TYPE(req->conn) |= Conn_Stop;
-	set_bit(TFW_HTTP_CONN_CLOSE, req->flags);
 }
 
 /**
@@ -2565,38 +2636,6 @@ tfw_http_req_mark_error(TfwHttpReq *req, int status)
 }
 
 /**
- * Error happen, current request @req will be discarded. Connection should
- * be closed after response for the previous request.
- *
- * Returns true, if the connection will be automatically closed with the
- * last response sent. Returns false, if there are no responses to forward
- * and manual connection close action is required.
- */
-static bool
-tfw_http_req_prev_conn_close(TfwHttpReq *req)
-{
-	TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
-	TfwHttpReq *last_req = NULL;
-	struct list_head *prev;
-
-	if (list_empty_careful(&cli_conn->seq_queue))
-		return false;
-
-	spin_lock(&cli_conn->seq_qlock);
-
-	prev = (!list_empty(&req->msg.seq_list)) ? req->msg.seq_list.prev
-						 : cli_conn->seq_queue.prev;
-	if (prev != &cli_conn->seq_queue) {
-		last_req = list_entry(prev, TfwHttpReq, msg.seq_list);
-		tfw_http_req_set_conn_close(last_req);
-	}
-
-	spin_unlock(&cli_conn->seq_qlock);
-
-	return last_req;
-}
-
-/**
  * Function define logging and response behaviour during detection of
  * malformed or malicious messages. Mark client connection in special
  * manner to delay its closing until transmission of error response
@@ -2971,7 +3010,7 @@ tfw_http_req_stream(TfwHttpMsg *hm)
 	/* paired with tfw_http_msg_process() */
 	spin_unlock(&hmpart->stream_lock);
 	if (!srv_conn)
-		/* Request wasn't scheduled yet. */
+		/* Server connection is not ready to receive streamed part. */
 		return TFW_PASS;
 
 	spin_lock_bh(&srv_conn->fwd_qlock);
