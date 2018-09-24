@@ -330,6 +330,8 @@ http_sticky_suite_setup(void)
 
 	tfw_connection_init(&mock.conn_req);
 	tfw_connection_init(&mock.conn_resp);
+	TFW_CONN_TYPE(&mock.conn_req) |= Conn_Clnt;
+	TFW_CONN_TYPE(&mock.conn_resp) |= Conn_Srv;
 
 	cli_conn = (TfwCliConn *)&mock.conn_req;
 	INIT_LIST_HEAD(&cli_conn->seq_queue);
