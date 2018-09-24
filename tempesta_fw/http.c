@@ -2858,6 +2858,10 @@ tfw_http_check_wildcard_status(const char c, int *out)
 	return true;
 }
 
+/**
+ * Drop successfully processed response for the health monitoring
+ * subsystem request.
+ */
 static inline void
 tfw_http_hm_drop_resp(TfwHttpResp *resp)
 {
@@ -3458,6 +3462,8 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	TfwHttpReq *req = hmresp->req;
 	TfwFsmData data;
 	time_t timestamp = tfw_current_timestamp();
+	TfwHttpError err;
+	int r;
 
 	/*
 	 * The time the response was received is used in cache
@@ -3492,16 +3498,33 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	data.off = 0;
 	data.req = (TfwMsg *)req;
 	data.resp = (TfwMsg *)hmresp;
-	tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG_FWD, &data);
-
-	if (tfw_cache_process(hmresp, tfw_http_resp_cache_cb))
-	{
-		tfw_http_conn_msg_free(hmresp);
-		tfw_http_send_resp(req, 500, "response dropped:"
-				   " processing error");
-		TFW_INC_STAT_BH(serv.msgs_otherr);
-		/* Proceed with processing of the next response. */
+	r = tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG_FWD,
+			  &data);
+	TFW_DBG3("TFW_HTTP_FSM_RESP_MSG_FWD return code %d\n", r);
+	if (r == TFW_BLOCK) {
+		err.status = 403;
+		err.reason = "response dropped: filtered out";
+		TFW_INC_STAT_BH(serv.msgs_filtout);
+		goto err;
 	}
+
+	if (tfw_cache_process(hmresp, tfw_http_resp_cache_cb)) {
+		err.status = 500;
+		err.reason = "response dropped: processing error";
+		TFW_INC_STAT_BH(serv.msgs_otherr);
+		goto err;
+	}
+
+	return 0;
+
+err:	/*
+	 * Response processing has failed, but the server connection is OK.
+	 * Filter out current response and proceed to the next one. The same
+	 * request from the client may cause the same error, so send error
+	 * response to the client.
+	 */
+	tfw_http_conn_msg_free(hmresp);
+	tfw_http_send_resp(req, err.status, err.reason);
 
 	return 0;
 }
@@ -3523,12 +3546,22 @@ tfw_http_resp_process_failed(TfwHttpMsg *hmresp, bool attack)
 
 	tfw_http_req_delist(hmresp);
 	tfw_http_conn_msg_free(hmresp);
-	if (attack)
+	if (test_bit(TFW_HTTP_HMONITOR, bad_req->flags)) {
+		tfw_http_msg_free((TfwHttpMsg *)bad_req);
+		/*
+		 * TODO: Response to health monitoring request can't be parsed
+		 * and normally processed. That definitely means that the server
+		 * doesn't perform well.
+		 */
+	}
+	else if (attack) {
 		tfw_srv_client_block(bad_req, 403,
 				     "response blocked: filtered out");
-	else
+	}
+	else {
 		tfw_srv_client_drop(bad_req, 403,
 				    "response dropped: processing error");
+	}
 }
 
 /*
