@@ -448,12 +448,14 @@ struct tfw_http_resp_t {
  * @stream_lock		- lock between parse/stream operations;
  * @stream_conn		- stream receiver;
  * @off			- offset from the buffer part end;
+ * @proc_off		- offset of unprocessed data in @body
  */
 struct tfw_http_msg_part_t {
 	TFW_HTTP_MSG_COMMON;
 	spinlock_t		stream_lock;
 	TfwConn			*stream_conn;
 	size_t			off;
+	size_t			proc_off;
 };
 
 #define __FOR_EACH_HDR_FIELD(pos, end, msg, soff, eoff)			\

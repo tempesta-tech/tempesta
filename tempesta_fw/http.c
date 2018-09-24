@@ -2342,13 +2342,30 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 	return r;
 }
 
+/**
+ * Modify message header as stated in '(req|resp)_hdr_add' and
+ * '(req|resp)_hdr_set' directives.
+ *
+ * @hm		- message to modify;
+ * @req		- request message to determine header modification list;
+ * @mod_type	- TFW_VHOST_HDRMOD_REQ or TFW_VHOST_HDRMOD_RESP;
+ * @trailer	- modification is done to the trailer headers of streamed
+ *		  messages;
+ *
+ * If the @hm is fully buffered, modification is simple, just call
+ * tfw_http_msg_hdr_xfrm_str() to do the job. Processing of streamed messages
+ * is actually split in two parts: modification of primary header and
+ * modification of trailer header. Trailer headers modification takes place
+ * after all modifications was already applied to primary headers. Thus
+ * we must only remove all headers from the trailer that match
+ * '(req|resp)_hdr_add' and '(req|resp)_hdr_set' directives.
+ */
 static int
-tfw_http_set_loc_hdrs(TfwHttpMsg *hm, TfwHttpReq *req)
+__tfw_http_set_loc_hdrs(TfwHttpMsg *hm, TfwHttpReq *req, int mod_type,
+			bool trailer)
 {
 	int r;
 	size_t i;
-	int mod_type = (hm == (TfwHttpMsg *)req) ? TFW_VHOST_HDRMOD_REQ
-						 : TFW_VHOST_HDRMOD_RESP;
 	TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location, req->vhost,
 						    mod_type);
 	if (!h_mods)
@@ -2356,16 +2373,61 @@ tfw_http_set_loc_hdrs(TfwHttpMsg *hm, TfwHttpReq *req)
 
 	for (i = 0; i < h_mods->sz; ++i) {
 		TfwHdrModsDesc *d = &h_mods->hdrs[i];
-		r = tfw_http_msg_hdr_xfrm_str(hm, d->hdr, d->hid, d->append);
+		TfwStr mod = *d->hdr;
+		bool append = trailer ? false : d->append;
+
+		if (trailer) {
+			if (d->hid != TFW_HTTP_HDR_RAW)
+				continue;
+			__TFW_STR_CHUNKN_SET(&mod, 2);
+		}
+
+		r = tfw_http_msg_hdr_xfrm_str(hm, &mod, d->hid, append);
 		if (r) {
-			TFW_ERR("can't update location-specific header in msg %p\n",
-				hm);
+			TFW_ERR("can't update location-specific header in msg "
+				"%p\n", hm);
 			return r;
 		}
 		TFW_DBG2("updated location-specific header in msg %p\n", hm);
 	}
 
 	return 0;
+}
+
+static inline int
+tfw_http_set_loc_hdrs_req(TfwHttpMsg *hm)
+{
+	return __tfw_http_set_loc_hdrs(hm, (TfwHttpReq *)hm,
+				       TFW_VHOST_HDRMOD_REQ, false);
+}
+
+static inline int
+tfw_http_set_loc_hdrs_resp(TfwHttpMsg *hm)
+{
+	return __tfw_http_set_loc_hdrs(hm, hm->req, TFW_VHOST_HDRMOD_RESP,
+				       false);
+}
+
+static inline int
+tfw_http_set_loc_hdrs_req_spart(TfwHttpMsgPart *hmpart)
+{
+	if (!test_bit(TFW_HTTP_CHUNKED, hmpart->buffer_part->flags))
+		return 0;
+	return __tfw_http_set_loc_hdrs((TfwHttpMsg *)hmpart,
+				       (TfwHttpReq *)hmpart->buffer_part,
+				       TFW_VHOST_HDRMOD_REQ,
+				       true);
+}
+
+static inline int
+tfw_http_set_loc_hdrs_resp_spart(TfwHttpMsgPart *hmpart)
+{
+	if (!test_bit(TFW_HTTP_CHUNKED, hmpart->buffer_part->flags))
+		return 0;
+	return __tfw_http_set_loc_hdrs((TfwHttpMsg *)hmpart,
+				       hmpart->buffer_part->req,
+				       TFW_VHOST_HDRMOD_RESP,
+				       true);
 }
 
 /**
@@ -2393,7 +2455,7 @@ tfw_http_adjust_req(TfwHttpReq *req)
 	if (r < 0)
 		return r;
 
-	r = tfw_http_set_loc_hdrs(hm, req);
+	r = tfw_http_set_loc_hdrs_req(hm);
 	if (r < 0)
 		return r;
 
@@ -2448,7 +2510,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 	if (r < 0)
 		return r;
 
-	r = tfw_http_set_loc_hdrs(hm, req);
+	r = tfw_http_set_loc_hdrs_resp(hm);
 	if (r < 0)
 		return r;
 
@@ -3005,7 +3067,13 @@ tfw_http_req_stream(TfwHttpMsg *hm)
 	TFW_DBG2("%s: req=[%p] part=[%p]\n", __func__, hm->buffer_part, hm);
 	BUG_ON(!test_bit(TFW_HTTP_STREAM_PART, hm->flags));
 
-	/* TODO: process message part. */
+	/* TODO: simply drop the streamed part for requests served from cache. */
+
+	/* Process streamed message part. */
+	if (test_bit(TFW_HTTP_STREAM_LAST_PART, hmpart->flags)) {
+		if (tfw_http_set_loc_hdrs_req_spart(hmpart))
+			goto err;
+	}
 
 	/* paired with tfw_http_msg_process() */
 	spin_unlock(&hmpart->stream_lock);
@@ -3019,6 +3087,10 @@ tfw_http_req_stream(TfwHttpMsg *hm)
 	tfw_http_req_zap_error(&eq);
 
 	return TFW_PASS;
+err:
+	spin_unlock(&hmpart->stream_lock);
+
+	return TFW_BLOCK;
 }
 
 static inline TfwHttpMsg *
@@ -3920,6 +3992,7 @@ tfw_http_msg_process(void *conn, const TfwFsmData *data)
 	}
 	else if (test_bit(TFW_HTTP_STREAM_PART, hm->flags)) {
 		spin_lock(&((TfwHttpMsgPart *)hm)->stream_lock);
+		((TfwHttpMsgPart *)hm)->proc_off = hm->body.len;
 	}
 
 	TFW_DBG2("Add skb %p to message %p\n", data->skb, hm);
