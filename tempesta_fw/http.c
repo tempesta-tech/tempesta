@@ -690,7 +690,7 @@ tfw_http_resp_init_ss_flags(TfwHttpResp *resp)
 }
 
 /**
- * Check if a request is streamed.
+ * Check if a message is streamed.
  */
 static inline bool
 tfw_http_msg_is_stream_done(TfwHttpMsg *hm)
@@ -1242,6 +1242,7 @@ tfw_http_req_fwd_single(TfwSrvConn *srv_conn, TfwServer *srv,
 	return true;
 }
 
+static void __tfw_http_pop_stream_req(TfwSrvConn *srv_conn, TfwHttpReq *req);
 /*
  * Forward unsent requests in server connection @srv_conn. The requests
  * are forwarded until a non-idempotent request is found in the queue.
@@ -1266,9 +1267,18 @@ tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *eq)
 		req = (TfwHttpReq *)srv_conn->msg_sent;
 
 		if (!tfw_http_req_stream_send(srv_conn, srv, req, eq)
-		    || !test_bit(TFW_HTTP_STREAM_DONE, req->flags)
-		    || list_is_last(&req->fwd_list, &srv_conn->fwd_queue))
+		    || !test_bit(TFW_HTTP_STREAM_DONE, req->flags))
 		{
+			return;
+		}
+		if (req->resp) {
+			__tfw_http_pop_stream_req(srv_conn, req);
+			set_bit(TFW_HTTP_RESP_READY, req->resp->flags);
+			/* req mustn't be used from now on. */
+			if (list_empty(&srv_conn->fwd_queue))
+				return;
+		}
+		else if (list_is_last(&req->fwd_list, &srv_conn->fwd_queue)) {
 			return;
 		}
 	}
@@ -2111,10 +2121,10 @@ tfw_http_conn_srv_drop(TfwSrvConn *srv_conn)
 
 	spin_lock_bh(&srv_conn->fwd_qlock);
 	req = (TfwHttpReq *)srv_conn->msg_sent;
-	if (req && !tfw_http_msg_is_stream_read((TfwHttpMsg *)req)
-	    && !test_bit(TFW_HTTP_REQ_DROP, req->flags))
-	{
-		if (!tfw_http_req_prev_conn_close(req))
+	if (req && !tfw_http_msg_is_stream_read((TfwHttpMsg *)req)) {
+		if (test_bit(TFW_HTTP_REQ_DROP, req->flags))
+			tfw_http_conn_msg_free(req->pair);
+		else if (!tfw_http_req_prev_conn_close(req))
 			ss_close_sync(req->conn->sk, true);
 	}
 	spin_unlock_bh(&srv_conn->fwd_qlock);
@@ -2569,65 +2579,16 @@ __tfw_http_resp_fwd(TfwCliConn *cli_conn, struct list_head *ret_queue)
 	}
 }
 
-/*
- * Mark @resp as ready to transmit. Then, starting with the first request
- * in @seq_queue, pick consecutive requests that have response ready to
- * transmit. Move those requests to the list of returned responses
- * @ret_queue. Sequentially send responses from @ret_queue to the client.
- */
 void
-tfw_http_resp_fwd(TfwHttpResp *resp)
+tfw_http_resp_fwd_unsent(TfwCliConn *cli_conn)
 {
-	TfwHttpReq *req = resp->req;
-	TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
+	TfwHttpReq *req;
 	struct list_head *seq_queue = &cli_conn->seq_queue;
 	struct list_head *req_retent = NULL;
 	LIST_HEAD(ret_queue);
 
-	TFW_DBG2("%s: req=[%p], resp=[%p]\n", __func__, req, resp);
-	WARN_ON_ONCE(req->resp != resp);
-
-	/*
-	 * TODO: process TFW_HTTP_FSM_LOCAL_RESP_FILTER hook:
-	 * tfw_gfsm_move(TFW_HTTP_FSM_LOCAL_RESP_FILTER);
-	 *
-	 * Locally generated responses are not assigned to any connection,
-	 * thus resp->conn->state can't be used unlike to other HTTP FSM
-	 * hooks calls. More over, TFW_HTTP_FSM_LOCAL_RESP_FILTER is
-	 * actually egress state, while others stands to ingress traffic
-	 * processing. It's not a good idea to mix up egress and ingress
-	 * states.
-	 *
-	 * It's not a right place to discard the response, we have already
-	 * spent resources to generate it. Locally generated response is
-	 * reaction to client behaviour, so hooks must apply restrictions
-	 * to client connections and not to the response.
-	 */
-
-	/*
-	 * If the list is empty, then it's either a bug, or the client
-	 * connection had been closed. If it's a bug, then the correct
-	 * order of responses to requests may be broken. The connection
-	 * with the client must be closed immediately.
-	 *
-	 * Doing ss_close_sync() on client connection's socket is safe
-	 * as long as @req that holds a reference to the connection is
-	 * not freed.
-	 */
 	spin_lock_bh(&cli_conn->seq_qlock);
-	if (unlikely(list_empty(seq_queue))) {
-		BUG_ON(!list_empty(&req->msg.seq_list));
-		spin_unlock_bh(&cli_conn->seq_qlock);
-		TFW_DBG2("%s: The client was disconnected, drop resp and req: "
-			 "conn=[%p]\n",
-			 __func__, cli_conn);
-		ss_close_sync(cli_conn->sk, true);
-		tfw_http_resp_pair_free(req);
-		TFW_INC_STAT_BH(serv.msgs_otherr);
-		return;
-	}
-	BUG_ON(list_empty(&req->msg.seq_list));
-	set_bit(TFW_HTTP_RESP_READY, resp->flags);
+
 	/* Move consecutive requests with @req->resp to @ret_queue. */
 	list_for_each_entry(req, seq_queue, msg.seq_list) {
 		if (!req->resp
@@ -2688,6 +2649,70 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 			TFW_INC_STAT_BH(serv.msgs_otherr);
 		}
 	}
+}
+
+/*
+ * Mark @resp as ready to transmit. Then, starting with the first request
+ * in @seq_queue, pick consecutive requests that have response ready to
+ * transmit. Move those requests to the list of returned responses
+ * @ret_queue. Sequentially send responses from @ret_queue to the client.
+ */
+void
+tfw_http_resp_fwd(TfwHttpResp *resp)
+{
+	TfwHttpReq *req = resp->req;
+	TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
+	struct list_head *seq_queue = &cli_conn->seq_queue;
+
+	TFW_DBG2("%s: req=[%p], resp=[%p]\n", __func__, req, resp);
+	WARN_ON_ONCE(req->resp != resp);
+
+	/*
+	 * TODO: process TFW_HTTP_FSM_LOCAL_RESP_FILTER hook:
+	 * tfw_gfsm_move(TFW_HTTP_FSM_LOCAL_RESP_FILTER);
+	 *
+	 * Locally generated responses are not assigned to any connection,
+	 * thus resp->conn->state can't be used unlike to other HTTP FSM
+	 * hooks calls. More over, TFW_HTTP_FSM_LOCAL_RESP_FILTER is
+	 * actually egress state, while others stands to ingress traffic
+	 * processing. It's not a good idea to mix up egress and ingress
+	 * states.
+	 *
+	 * It's not a right place to discard the response, we have already
+	 * spent resources to generate it. Locally generated response is
+	 * reaction to client behaviour, so hooks must apply restrictions
+	 * to client connections and not to the response.
+	 */
+
+	/*
+	 * If the list is empty, then it's either a bug, or the client
+	 * connection had been closed. If it's a bug, then the correct
+	 * order of responses to requests may be broken. The connection
+	 * with the client must be closed immediately.
+	 *
+	 * Doing ss_close_sync() on client connection's socket is safe
+	 * as long as @req that holds a reference to the connection is
+	 * not freed.
+	 */
+	if (unlikely(list_empty_careful(seq_queue))) {
+		BUG_ON(!list_empty(&req->msg.seq_list));
+		TFW_DBG2("%s: The client was disconnected, drop resp and req: "
+			 "conn=[%p]\n",
+			 __func__, cli_conn);
+		ss_close_sync(cli_conn->sk, true);
+		tfw_http_resp_pair_free(req);
+		TFW_INC_STAT_BH(serv.msgs_otherr);
+		return;
+	}
+	BUG_ON(list_empty(&req->msg.seq_list));
+	/*
+	 * Don't send response until request is fully received. Some servers
+	 * may respond before payload is fully received.
+	 */
+	if (tfw_http_msg_is_stream_read((TfwHttpMsg *)req))
+		set_bit(TFW_HTTP_RESP_READY, resp->flags);
+
+	tfw_http_resp_fwd_unsent(cli_conn);
 }
 
 static inline void
@@ -3072,6 +3097,7 @@ tfw_http_req_stream(TfwHttpMsgPart *hmpart)
 	LIST_HEAD(eq);
 	TfwHttpMsg *hmreq = hmpart->buffer_part;
 	TfwSrvConn *srv_conn = (TfwSrvConn *)hmpart->stream_conn;
+	TfwCliConn *cli_conn = (TfwCliConn *)hmpart->buffer_part->conn;
 	int r = TFW_BLOCK;
 
 	TFW_DBG2("%s: req=[%p], part=[%p]\n", __func__, hmreq, hmpart);
@@ -3106,10 +3132,16 @@ tfw_http_req_stream(TfwHttpMsgPart *hmpart)
 	spin_unlock_bh(&srv_conn->fwd_qlock);
 	tfw_http_req_zap_error(&eq);
 
+	tfw_http_resp_fwd_unsent(cli_conn);
+
 	return TFW_PASS;
 done:
 	/* paired with tfw_http_msg_process() */
 	spin_unlock(&hmpart->stream_lock);
+
+	set_bit(TFW_HTTP_RESP_READY, hmreq->resp->flags);
+	/* hmreq mustn't be used from now on. */
+	tfw_http_resp_fwd_unsent(cli_conn);
 
 	return r;
 }
@@ -3633,6 +3665,27 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
 	tfw_http_req_zap_error(&eq);
 }
 
+/**
+ * Same as tfw_http_popreq() but called in tfw_http_conn_fwd_unsent().
+ * See comment in tfw_http_resp_cache().
+ *
+ * Called under srv_conn->fwd_qlock lock.
+ */
+static void
+__tfw_http_pop_stream_req(TfwSrvConn *srv_conn, TfwHttpReq *req)
+{
+	srv_conn->msg_sent = NULL;
+	__http_req_delist(srv_conn, req);
+	tfw_http_conn_nip_adjust(srv_conn);
+	/*
+	 * Run special processing if the connection is in repair
+	 * mode. First request was forwarded and replied, now we
+	 * can pipeline more requests.
+	 */
+	if (unlikely(tfw_srv_conn_restricted(srv_conn)))
+		tfw_srv_conn_reenable_if_done(srv_conn);
+}
+
 /*
  * Set up the response @hmresp with data needed down the road,
  * get the paired request, and then pass the response to cache
@@ -3661,9 +3714,14 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 		((TfwHttpResp *)hmresp)->date = timestamp;
 	/*
 	 * Response is fully received, delist corresponding request from
-	 * fwd_queue.
+	 * fwd_queue. Actually server may send response before request is fully
+	 * received. E.g. Nginx sends 200 OK to GET before request payload is
+	 * received. Or server may break the streaming with 4xx response and
+	 * close the connection at any time (as we do). Pop the request
+	 * once it's fully sent.
 	 */
-	tfw_http_popreq(hmresp);
+	if (tfw_http_msg_is_stream_read(hmresp->pair))
+		tfw_http_popreq(hmresp);
 	/*
 	 * Health monitor request means that its response need not to
 	 * send anywhere.
