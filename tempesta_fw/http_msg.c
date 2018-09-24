@@ -970,12 +970,30 @@ tfw_http_msg_free(TfwHttpMsg *m)
 
 	tfw_http_msg_unpair(m);
 	ss_skb_queue_purge(&m->msg.skb_head);
+	if (!test_bit(TFW_HTTP_STREAM_PART, m->flags))
+		tfw_http_msg_free((TfwHttpMsg *)m->stream_part);
 
 	if (m->destructor)
 		m->destructor(m);
 	tfw_pool_destroy(m->pool);
 }
 EXPORT_SYMBOL(tfw_http_msg_free);
+
+int
+tfw_http_msg_alloc_h_tbl(TfwHttpMsg *hm, int type)
+{
+	hm->h_tbl = (TfwHttpHdrTbl *)tfw_pool_alloc(hm->pool, TFW_HHTBL_SZ(1));
+	if (unlikely(!hm->h_tbl)) {
+		TFW_WARN("Insufficient memory to create header table for %s\n",
+			 ((type & Conn_Clnt) ? "request" : "response"));
+		return -ENOMEM;
+	}
+	hm->h_tbl->size = __HHTBL_SZ(1);
+	hm->h_tbl->off = TFW_HTTP_HDR_RAW;
+	bzero_fast(hm->h_tbl->tbl, __HHTBL_SZ(1) * sizeof(TfwStr));
+
+	return 0;
+}
 
 /**
  * Allocate a new HTTP message.
@@ -987,31 +1005,17 @@ TfwHttpMsg *
 __tfw_http_msg_alloc(int type, bool full)
 {
 	TfwHttpMsg *hm = (type & Conn_Clnt)
-			 ? (TfwHttpMsg *)tfw_pool_new(TfwHttpReq,
-						      TFW_POOL_ZERO)
-			 : (TfwHttpMsg *)tfw_pool_new(TfwHttpResp,
-						      TFW_POOL_ZERO);
+		 ? (TfwHttpMsg *)tfw_pool_new(TfwHttpReq, TFW_POOL_ZERO)
+		 : (TfwHttpMsg *)tfw_pool_new(TfwHttpResp, TFW_POOL_ZERO);
 	if (!hm) {
 		TFW_WARN("Insufficient memory to create %s message\n",
 			 ((type & Conn_Clnt) ? "request" : "response"));
 		return NULL;
 	}
 
-	if (full) {
-		hm->h_tbl = (TfwHttpHdrTbl *)tfw_pool_alloc(hm->pool,
-							    TFW_HHTBL_SZ(1));
-		if (unlikely(!hm->h_tbl)) {
-			TFW_WARN("Insufficient memory to create header table"
-				 " for %s\n",
-				 ((type & Conn_Clnt) ? "request" : "response"));
-			tfw_pool_destroy(hm->pool);
-			return NULL;
-		}
-		hm->h_tbl->size = __HHTBL_SZ(1);
-		hm->h_tbl->off = TFW_HTTP_HDR_RAW;
-		bzero_fast(hm->h_tbl->tbl, __HHTBL_SZ(1) * sizeof(TfwStr));
-	}
-
+	if (full)
+		if (unlikely(tfw_http_msg_alloc_h_tbl(hm, type)))
+			goto err;
 	hm->msg.skb_head = NULL;
 
 	if (type & Conn_Clnt) {
@@ -1022,5 +1026,68 @@ __tfw_http_msg_alloc(int type, bool full)
 	}
 
 	return hm;
+err:
+	tfw_pool_destroy(hm->pool);
+	tfw_http_msg_free(hm);
+	return NULL;
 }
 
+TfwHttpMsg *
+tfw_http_msg_alloc_stream_part(TfwHttpMsg *hm_orig)
+{
+	TfwHttpMsg *hm;
+	int type = TFW_CONN_TYPE(hm_orig->conn);
+
+	if (WARN_ON_ONCE(hm_orig->stream_part ||
+			 test_bit(TFW_HTTP_STREAM_PART, hm_orig->flags)))
+	{
+		return NULL;
+	}
+
+	hm = (TfwHttpMsg *)tfw_pool_new(TfwHttpMsgPart, TFW_POOL_ZERO);
+	if (!hm) {
+		TFW_WARN("Insufficient memory to create streamed %s message\n",
+			 ((type & Conn_Clnt) ? "request" : "response"));
+		return NULL;
+	}
+	{
+		TfwHttpMsgPart *hmpart = (TfwHttpMsgPart *)hm;
+
+		spin_lock_init(&hmpart->stream_lock);
+	}
+
+	/* Allocate space for trailer headers */
+	if (test_bit(TFW_HTTP_CHUNKED, hm_orig->flags))
+		if (unlikely(tfw_http_msg_alloc_h_tbl(hm, type)))
+			goto err;
+
+	tfw_http_copy_flags(hm->flags, hm_orig->flags);
+	/* hm_orig is responsible for get/put origin connection. */
+	hm->conn = hm_orig->conn;
+
+	__set_bit(TFW_HTTP_STREAM_PART, hm->flags);
+	__clear_bit(TFW_HTTP_STREAM, hm->flags);
+	/* Show that headers was fully parsed. */
+	hm->crlf.flags |= TFW_STR_COMPLETE;
+
+	hm_orig->stream_part = (TfwHttpMsgPart *)hm;
+	hm->buffer_part = hm_orig;
+
+	return hm;
+err:
+	tfw_pool_destroy(hm->pool);
+	tfw_http_msg_free(hm);
+	return NULL;
+}
+
+/**
+ * Message part was sent out, clean up the message to normally process this part
+ * on next message chunk.
+ */
+void
+tfw_http_msg_collapse(TfwHttpMsgPart *hm)
+{
+	hm->off += hm->msg.len;
+	hm->msg.len = 0;
+	tfw_str_free(hm->pool, &hm->body);
+}

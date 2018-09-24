@@ -222,6 +222,20 @@ enum {
 	/* Singular header presents more than once. */
 	TFW_HTTP_FIELD_DUPENTRY,
 
+	/* Streaming flags: Buffered message part only */
+	/* Message is not fully buffered and has a streamed part. */
+	TFW_HTTP_STREAM,
+	/* All streamed parts are fully sent, may proceed to the next message. */
+	TFW_HTTP_STREAM_DONE,
+
+	/* Streaming flags: Streamed message part only */
+	/* The message represents stream part, not a full-size one. */
+	TFW_HTTP_STREAM_PART,
+	/* It's the last stream part. */
+	TFW_HTTP_STREAM_LAST_PART,
+	/* Need to buffer the stream for now, don't send it. */
+	TFW_HTTP_STREAM_ON_HOLD,
+
 	/* Request flags. */
 	TFW_HTTP_FLAGS_REQ,
 	/* Sticky cookie is found and verified. */
@@ -280,6 +294,8 @@ typedef struct {
  * @pair		- the message paired with this one;
  * @req			- the request paired with this response;
  * @resp		- the response paired with this request;
+ * @stream_part		- streamed part of the message;
+ * @buffer_part		- buffered part of the message;
  * @cache_ctl		- cache control data for a message;
  * @version		- HTTP version (1.0 and 1.1 are only supported);
  * @flags		- message related flags. The flags are tested
@@ -304,6 +320,10 @@ typedef struct {
 		TfwHttpMsg	*pair;					\
 		TfwHttpReq	*req;					\
 		TfwHttpResp	*resp;					\
+	};								\
+	union {								\
+		TfwHttpMsgPart	*stream_part;				\
+		TfwHttpMsg	*buffer_part;				\
 	};								\
 	TfwHttpError	httperr;					\
 	TfwCacheControl	cache_ctl;					\
@@ -417,6 +437,20 @@ struct tfw_http_resp_t {
 #define TFW_HTTP_RESP_STR_START(r)	__MSG_STR_START(r)
 #define TFW_HTTP_RESP_STR_END(r)	((&(r)->body) + 1)
 
+/**
+ * Streamed part of response or request.
+ *
+ * @stream_lock		- lock between parse/stream operations;
+ * @stream_conn		- stream receiver;
+ * @off			- offset from the buffer part end;
+ */
+struct tfw_http_msg_part_t {
+	TFW_HTTP_MSG_COMMON;
+	spinlock_t		stream_lock;
+	TfwConn			*stream_conn;
+	size_t			off;
+};
+
 #define __FOR_EACH_HDR_FIELD(pos, end, msg, soff, eoff)			\
 	for ((pos) = &(msg)->h_tbl->tbl[soff], 				\
 	     (end) = &(msg)->h_tbl->tbl[eoff];				\
@@ -497,6 +531,12 @@ void tfw_http_resp_fwd(TfwHttpResp *resp);
 void tfw_http_resp_build_error(TfwHttpReq *req);
 int tfw_cfgop_parse_http_status(const char *status, int *out);
 void tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len);
+
+static inline bool
+tfw_http_msg_is_streamed(TfwHttpMsg *hm)
+{
+	return test_bit(TFW_HTTP_STREAM, hm->flags);
+}
 
 /*
  * Functions to send an HTTP error response to a client.

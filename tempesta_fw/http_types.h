@@ -21,9 +21,10 @@
 #define __TFW_HTTP_TYPES_H__
 
 /* Forward declaration of common HTTP types. */
-typedef struct tfw_http_sess_t	TfwHttpSess;
-typedef struct tfw_http_msg_t	TfwHttpMsg;
-typedef struct tfw_http_req_t	TfwHttpReq;
-typedef struct tfw_http_resp_t	TfwHttpResp;
+typedef struct tfw_http_sess_t		TfwHttpSess;
+typedef struct tfw_http_msg_t		TfwHttpMsg;
+typedef struct tfw_http_req_t		TfwHttpReq;
+typedef struct tfw_http_resp_t		TfwHttpResp;
+typedef struct tfw_http_msg_part_t	TfwHttpMsgPart;
 
 #endif /* __TFW_HTTP_TYPES_H__ */

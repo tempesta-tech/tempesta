@@ -99,6 +99,8 @@ tfw_http_msg_alloc_resp_light(TfwHttpReq *req)
 	return __tfw_http_msg_alloc_resp(req, false);
 }
 
+TfwHttpMsg *tfw_http_msg_alloc_stream_part(TfwHttpMsg *hm_orig);
+
 int __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str, void *data,
 				size_t len, struct sk_buff *skb);
 #define tfw_http_msg_add_str_data(hm, str, data, len)			\
@@ -130,5 +132,7 @@ void tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start);
 int tfw_http_msg_hdr_close(TfwHttpMsg *hm, unsigned int id);
 int tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm);
 void tfw_http_msg_free(TfwHttpMsg *m);
+
+void tfw_http_msg_collapse(TfwHttpMsgPart *hm);
 
 #endif /* __TFW_HTTP_MSG_H__ */
