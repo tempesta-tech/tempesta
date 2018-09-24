@@ -1052,12 +1052,16 @@ tfw_http_req_evict_timeout(TfwSrvConn *srv_conn, TfwServer *srv,
 /*
  * If the number of re-forwarding attempts for @req is exceeded, then
  * move it to the error queue @eq for sending an error response later.
+ * It's not possible to re-forward streamed request, since we don't store
+ * it's body.
  */
 static inline bool
 tfw_http_req_evict_retries(TfwSrvConn *srv_conn, TfwServer *srv,
 			   TfwHttpReq *req, struct list_head *eq)
 {
-	if (unlikely(req->retries++ >= srv->sg->max_refwd)) {
+	if (unlikely(req->retries++ >= srv->sg->max_refwd)
+	    || tfw_http_msg_is_streamed((TfwHttpMsg *)req))
+	{
 		TFW_DBG2("%s: Eviction: req=[%p] retries=[%d]\n",
 			 __func__, req, req->retries);
 		tfw_http_req_err(srv_conn, req, eq, 504,
