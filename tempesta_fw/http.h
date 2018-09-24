@@ -252,6 +252,11 @@ enum {
 	TFW_HTTP_WHITELIST,
 	/* Client was disconnected, drop the request. */
 	TFW_HTTP_REQ_DROP,
+	/*
+	 * Force server connection close after response to this request is
+	 * received.
+	 */
+	TFW_HTTP_FORCE_CLOSE,
 
 	/* Response flags */
 	TFW_HTTP_FLAGS_RESP,

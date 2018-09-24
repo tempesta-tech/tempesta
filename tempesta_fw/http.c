@@ -1170,16 +1170,21 @@ tfw_http_req_stream_send(TfwSrvConn *srv_conn, TfwServer *srv,
 
 	if (test_bit(TFW_HTTP_STREAM_LAST_PART, hmpart->flags)) {
 		TFW_DBG2("%s: Streaming done for req=[%p]\n", __func__, req);
-		hmpart->stream_conn = NULL;
-		tfw_srv_conn_put(srv_conn);
 		set_bit(TFW_HTTP_STREAM_DONE, req->flags);
+		hmpart->stream_conn = NULL;
+	}
+	else {
+		TFW_DBG2("%s: Streaming req=[%p], wait for more data\n",
+			 __func__, req);
+		hmpart->stream_conn = conn;
 	}
 
 	/*
 	 * Stream part was sent to server, we don't keep the skbs and release
 	 * them after transmission. Allow client to send more data.
 	 */
-	ss_rmem_release(req->conn->sk, hmpart->msg.len);
+	if (likely(!test_bit(TFW_HTTP_REQ_DROP, req->flags)))
+		ss_rmem_release(req->conn->sk, hmpart->msg.len);
 	tfw_http_msg_collapse(hmpart);
 done:
 	spin_unlock(&hmpart->stream_lock);
@@ -1202,8 +1207,6 @@ static bool
 tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv,
 		      TfwHttpReq *req, struct list_head *eq)
 {
-	TfwHttpMsgPart *hmpart = req->stream_part;
-
 	TFW_DBG2("%s: Forward req=[%p] to srv_conn=[%p]\n",
 		 __func__, req, srv_conn);
 	req->jtxtstamp = jiffies;
@@ -1228,11 +1231,6 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv,
 
 	if (!tfw_http_msg_is_streamed((TfwHttpMsg *)req))
 		return true;
-
-	spin_lock(&hmpart->stream_lock);
-	tfw_srv_conn_get(srv_conn);
-	hmpart->stream_conn = (TfwConn *)srv_conn;
-	spin_unlock(&hmpart->stream_lock);
 
 	return tfw_http_req_stream_send(srv_conn, srv, req, eq);
 }
@@ -1277,8 +1275,7 @@ tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *eq)
 		/* srv_conn->msg sent is buffered part of the request. */
 		req = (TfwHttpReq *)srv_conn->msg_sent;
 
-		if (unlikely(test_bit(TFW_HTTP_REQ_DROP, req->flags))
-		    || !tfw_http_req_stream_send(srv_conn, srv, req, eq)
+		if (!tfw_http_req_stream_send(srv_conn, srv, req, eq)
 		    || !test_bit(TFW_HTTP_STREAM_DONE, req->flags)
 		    || list_is_last(&req->fwd_list, &srv_conn->fwd_queue))
 		{
@@ -2027,15 +2024,19 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 	 */
 	spin_lock(&cli_conn->seq_qlock);
 
-	/* Request stream part lifetime is controlled by buffered part. */
+	/*
+	 * If last request is streamed to backend, but not received in full,
+	 * then backend connection must be closed to recover.
+	 */
 	if (req && test_bit(TFW_HTTP_STREAM_PART, req->flags)) {
+		tfw_http_conn_cli_drop_stream_req(req);
+		/* Stream part lifetime is controlled by buffered part. */
 		cli_conn->msg = NULL;
 	}
 
 	list_for_each_entry_safe(req, tmp, seq_queue, msg.seq_list) {
 		set_bit(TFW_HTTP_REQ_DROP, req->flags);
 		list_del_init(&req->msg.seq_list);
-		tfw_http_conn_drop_stream_req(req);
 		tfw_http_conn_cli_mem_release(cli_conn, req);
 		/*
 		 * Response is processed and removed from fwd_queue, need to be
@@ -2980,6 +2981,7 @@ tfw_http_req_stream(TfwHttpMsg *hm)
 	/* paired with tfw_http_msg_process() */
 	spin_unlock(&hmpart->stream_lock);
 	if (!srv_conn)
+		/* Request wasn't scheduled yet. */
 		return TFW_PASS;
 
 	spin_lock_bh(&srv_conn->fwd_qlock);
@@ -3514,7 +3516,7 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
  * get the paired request, and then pass the response to cache
  * for further processing.
  */
-static int
+static void
 tfw_http_resp_cache(TfwHttpMsg *hmresp)
 {
 	TfwHttpReq *req = hmresp->req;
@@ -3546,7 +3548,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 */
 	if (test_bit(TFW_HTTP_HMONITOR, req->flags)) {
 		tfw_http_hm_drop_resp((TfwHttpResp *)hmresp);
-		return 0;
+		return;
 	}
 	/*
 	 * This hook isn't in tfw_http_resp_fwd() because responses from the
@@ -3573,7 +3575,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 		goto err;
 	}
 
-	return 0;
+	return;
 
 err:	/*
 	 * Response processing has failed, but the server connection is OK.
@@ -3583,8 +3585,6 @@ err:	/*
 	 */
 	tfw_http_conn_msg_free(hmresp);
 	tfw_http_send_resp(req, err.status, err.reason);
-
-	return 0;
 }
 
 /**
@@ -3819,7 +3819,11 @@ next_msg:
 	 * we have pipelined responses. Create a sibling message.
 	 * @skb is replaced with a pointer to a new SKB.
 	 */
-	hmsib = tfw_http_resp_create_sibling(hmresp, skb);
+	if (unlikely(test_bit(TFW_HTTP_FORCE_CLOSE, hmresp->req->flags))) {
+		r = TFW_BLOCK;
+	}
+	else
+		hmsib = tfw_http_resp_create_sibling(hmresp, skb);
 	/*
 	 * Complete HTTP message has been collected with success. Mark
 	 * the message as complete in @conn as further handling of @conn
@@ -3830,8 +3834,7 @@ next_msg:
 	 * Pass the response to cache for further processing.
 	 * In the end, the response is sent on to the client.
 	 */
-	if (tfw_http_resp_cache(hmresp))
-		return TFW_BLOCK;
+	tfw_http_resp_cache(hmresp);
 
 	if (hmsib) {
 		/*
