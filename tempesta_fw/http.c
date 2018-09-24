@@ -2863,7 +2863,6 @@ tfw_http_hm_drop_resp(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
 
-	tfw_connection_unlink_msg(resp->conn);
 	tfw_apm_update(((TfwServer *)resp->conn->peer)->apmref,
 		       resp->jrxtstamp, resp->jrxtstamp - req->jtxtstamp);
 	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
@@ -3495,13 +3494,6 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	data.resp = (TfwMsg *)hmresp;
 	tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG_FWD, &data);
 
-	/*
-	 * Complete HTTP message has been collected and processed
-	 * with success. Mark the message as complete in @conn as
-	 * further handling of @conn depends on that. Future SKBs
-	 * will be put in a new message.
-	 */
-	tfw_connection_unlink_msg(hmresp->conn);
 	if (tfw_cache_process(hmresp, tfw_http_resp_cache_cb))
 	{
 		tfw_http_conn_msg_free(hmresp);
@@ -3737,6 +3729,12 @@ next_msg:
 	 * @skb is replaced with a pointer to a new SKB.
 	 */
 	hmsib = tfw_http_resp_create_sibling(hmresp, skb);
+	/*
+	 * Complete HTTP message has been collected with success. Mark
+	 * the message as complete in @conn as further handling of @conn
+	 * depends on that. Future SKBs will be put in a new message.
+	 */
+	tfw_connection_unlink_msg(hmresp->conn);
 	/*
 	 * Pass the response to cache for further processing.
 	 * In the end, the response is sent on to the client.
