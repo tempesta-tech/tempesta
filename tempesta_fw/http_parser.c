@@ -882,6 +882,9 @@ __FSM_STATE(st_curr) {							\
 		TFW_PARSER_BLOCK(st_curr);				\
 	/* Store header name and field in different chunks. */		\
 	__msg_hdr_chunk_fixup(data, p - data);				\
+	if (__check_trailer_hdr((msg), st_curr))			\
+		/* Header is not allowed in trailer. */			\
+		TFW_PARSER_BLOCK(st_curr);				\
 	__fsm_n = func(hm, p, __fsm_sz);				\
 	TFW_DBG3("parse special header " #func ": ret=%d data_len=%lu"	\
 		 " id=%d\n", __fsm_n, __fsm_sz, id);			\
@@ -922,6 +925,9 @@ __FSM_STATE(st_curr) {							\
 	 * before the header-value, and we lose this part. It should be forced
 	 * to save it.*/						\
 	__msg_hdr_chunk_fixup(data, p - data);				\
+	if (__check_trailer_hdr((msg), st_curr))			\
+		/* Header is not allowed in trailer. */			\
+		TFW_PARSER_BLOCK(st_curr);				\
 	__fsm_n = func(hm, p, __fsm_sz);				\
 	TFW_DBG3("parse raw header " #func ": ret=%d data_len=%lu\n",	\
 		 __fsm_n, __fsm_sz);					\
@@ -1901,6 +1907,90 @@ enum {
 	Req_I_EoT,
 };
 
+/*
+ * RFC 7230 Ssection-4.1.2
+ * A sender MUST NOT generate a trailer that contains a field necessary
+ * for message framing (e.g., Transfer-Encoding and Content-Length),
+ * routing (e.g., Host), request modifiers (e.g., controls and
+ * conditionals in Section 5 of [RFC7231]), authentication (e.g., see
+ * [RFC7235] and [RFC6265]), response control data (e.g., see Section
+ * 7.1 of [RFC7231]), or determining how to process the payload (e.g.,
+ * Content-Encoding, Content-Type, Content-Range, and Trailer).
+ */
+static int
+__check_trailer_hdr(TfwHttpMsg *hm, int st_curr)
+{
+	/* On parse primary header part. */
+	if (!(hm->crlf.flags & TFW_STR_COMPLETE))
+		return TFW_PASS;
+
+	switch (st_curr) {
+	/*
+	 * All headers currently processed by TempestaFW affects the way
+	 * message is processed. Deny all of them in trailer part.
+	 */
+	case Req_HdrAcceptV:
+	case Req_HdrAuthorizationV:
+	case Req_HdrCache_ControlV:
+	case Req_HdrConnectionV:
+	case Req_HdrContent_LengthV:
+	case Req_HdrContent_TypeV:
+	case Req_HdrCookieV:
+	case Req_HdrHostV:
+	case Req_HdrIf_Modified_SinceV:
+	case Req_HdrIf_None_MatchV:
+	case Req_HdrKeep_AliveV:
+	case Req_HdrPragmaV:
+	case Req_HdrRefererV:
+	case Req_HdrTransfer_EncodingV:
+	case Req_HdrUser_AgentV:
+	case Req_HdrX_Forwarded_ForV:
+	case Resp_HdrAgeV:
+	case Resp_HdrCache_ControlV:
+	case Resp_HdrConnectionV:
+	case Resp_HdrContent_LengthV:
+	case Resp_HdrContent_TypeV:
+	case Resp_HdrDateV:
+	case Resp_HdrEtagV:
+	case Resp_HdrExpiresV:
+	case Resp_HdrKeep_AliveV:
+	case Resp_HdrLast_ModifiedV:
+	case Resp_HdrServerV:
+	case Resp_HdrTransfer_EncodingV:
+		return TFW_BLOCK;
+
+	case RGen_HdrOtherN:
+		break;
+
+	default:
+		return TFW_BLOCK;
+	}
+	/*
+	 * TODO: Generic header, have to compare header name against all
+	 * the restricted headers. But we can avoid it after #1050 and #1053
+	 * are implemented: we will be able to populate state list above
+	 * and avoid slow string compare operations.
+	 */
+	/*
+	 * Block the message if sender violated requirements marked as
+	 * SHOULD in RFC, or pass the message. It's up to user.
+	 *
+	 * TODO:RFC 7230 Ssection-4.1.2
+	 * Unless the request includes a TE header field indicating "trailers"
+	 * is acceptable, as described in Section 4.3, a server SHOULD NOT
+	 * generate trailer fields that it believes are necessary for the user
+	 * agent to receive.
+	 *
+	 * RFC doesn't restrict situations, when client is allowed to send
+	 * headers in trailer part.
+	 *
+	 * TODO: RFC7230 Section-4.4
+	 * ... the sender SHOULD
+	 * generate a Trailer header field before the message body to indicate
+	 * which fields will be present in the trailers.
+	 */
+	return TFW_PASS;
+}
 
 static int
 __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
