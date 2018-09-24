@@ -2603,7 +2603,7 @@ tfw_http_req_prev_conn_close(TfwHttpReq *req)
 
 	spin_unlock(&cli_conn->seq_qlock);
 
-	return !last_req;
+	return last_req;
 }
 
 /**
@@ -2684,7 +2684,7 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 		bool close = !on_req_recv_event;
 
 		if (!attack)
-			close &= tfw_http_req_prev_conn_close(req);
+			close &= !tfw_http_req_prev_conn_close(req);
 		if (close)
 			ss_close_sync(req->conn->sk, true);
 		tfw_http_conn_req_clean(req);
