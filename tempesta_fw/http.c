@@ -1133,18 +1133,13 @@ tfw_http_req_evict(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
  */
 static bool
 tfw_http_req_stream_send(TfwSrvConn *srv_conn, TfwServer *srv,
-		      TfwHttpReq *req, struct list_head *eq)
+			 TfwHttpReq *req, struct list_head *eq)
 {
 	TfwHttpMsgPart *hmpart = req->stream_part;
 	bool r = true;
 
-	if (!spin_trylock(&hmpart->stream_lock))
-		/*
-		 * Another thread parses a new stream parts and pushes it to
-		 * the req->stream_part. That thread will send all stream parts
-		 * and we can safely exit.
-		 */
-		return false;
+	spin_lock(&hmpart->stream_lock);
+	hmpart->stream_conn = (TfwConn *)srv_conn;
 
 	if (test_bit(TFW_HTTP_STREAM_ON_HOLD, hmpart->flags)
 	    || !hmpart->msg.skb_head)
@@ -1172,11 +1167,6 @@ tfw_http_req_stream_send(TfwSrvConn *srv_conn, TfwServer *srv,
 		TFW_DBG2("%s: Streaming done for req=[%p]\n", __func__, req);
 		set_bit(TFW_HTTP_STREAM_DONE, req->flags);
 		hmpart->stream_conn = NULL;
-	}
-	else {
-		TFW_DBG2("%s: Streaming req=[%p], wait for more data\n",
-			 __func__, req);
-		hmpart->stream_conn = conn;
 	}
 
 	/*
@@ -1293,7 +1283,7 @@ tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *eq)
 	list_for_each_entry_safe_from(req, tmp, fwd_queue, fwd_list) {
 		if (!tfw_http_req_fwd_single(srv_conn, srv, req, eq))
 			continue;
-		/* Stop forwarding if the request is in streaming. */
+		/* Stop forwarding if streamed request is not fully received. */
 		if (!tfw_http_msg_is_stream_done((TfwHttpMsg *)req))
 			break;
 		/* Stop forwarding if the request is non-idempotent. */
