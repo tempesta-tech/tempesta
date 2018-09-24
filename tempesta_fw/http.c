@@ -353,7 +353,7 @@ unsigned long tfw_hash_str(const TfwStr *str);
  * The response redirects the client to the same URI as the original request,
  * but it includes 'Set-Cookie:' header field that sets Tempesta sticky cookie.
  * If JS challenge is enabled, then body contained JS challenge is provided.
- * Body string contains the 'Content-Legth' header, CRLF and body itself.
+ * Body string contains the 'Content-Length' header, CRLF and body itself.
  */
 int
 tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *rmark,
@@ -1650,7 +1650,7 @@ tfw_http_req_destruct(void *msg)
  * to and kept in @fwd_queue of the connection @conn for that server.
  * If a paired request is not found, then the response must be deleted.
  *
- * If a paired client request is missing, then it seems upsream server
+ * If a paired client request is missing, then it seems upstream server
  * is misbehaving, so the caller has to drop the server connection.
  *
  * Correct response parsing is only possible when request properties,
@@ -1903,57 +1903,34 @@ tfw_http_conn_send(TfwConn *conn, TfwMsg *msg)
 
 /**
  * Create a sibling for @msg message.
- * Siblings in HTTP are pipelined HTTP messages that share the same SKB.
+ * Siblings in HTTP are pipelined HTTP messages that shared the same SKB.
+ * The shared @skb must be split before call.
  */
 static TfwHttpMsg *
-tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff **skb,
-			    unsigned int split_offset)
+tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff *skb)
 {
 	TfwHttpMsg *shm;
-	struct sk_buff *nskb;
 
 	TFW_DBG2("Create sibling message: conn %p, skb %p\n", hm->conn, skb);
 
 	/* The sibling message belongs to the same connection. */
 	shm = tfw_http_conn_msg_alloc(hm->conn);
-	if (unlikely(!shm)) {
-		/*
-		 * Split skb to proceed with current message @hm, or rest of
-		 * data in this connection will be attached to the message.
-		 * Don't care about client connection, it must be closed and
-		 * request @hm is to be destroyed and won't be forwarded to
-		 * backend server.
-		 */
-		if (TFW_CONN_TYPE(hm->conn) & Conn_Srv)
-			*skb = ss_skb_split(*skb, split_offset);
+	if (unlikely(!shm))
 		return NULL;
-	}
-
-	/*
-	 * The sibling message is set up to start with a new SKB.
-	 * The new SKB is split off from the original SKB and has
-	 * the first part of the new message. The original SKB is
-	 * shrunk to have just data from the original message.
-	 */
-	nskb = ss_skb_split(*skb, split_offset);
-	if (!nskb) {
-		tfw_http_conn_msg_free(shm);
-		return NULL;
-	}
 
 	/*
 	 * New message created, so it should be in whitelist if
 	 * previous message was (for client connections). Also
 	 * we have new skb here and 'mark' propagation is needed.
 	 */
-	if (TFW_CONN_TYPE(hm->conn) & Conn_Clnt) {
-		if (test_bit(TFW_HTTP_WHITELIST, hm->flags))
-			__set_bit(TFW_HTTP_WHITELIST, shm->flags);
-		nskb->mark = (*skb)->mark;
+	if ((TFW_CONN_TYPE(hm->conn) & Conn_Clnt)
+	    && (test_bit(TFW_HTTP_WHITELIST, hm->flags)))
+	{
+		__set_bit(TFW_HTTP_WHITELIST, shm->flags);
+		skb->mark = hm->msg.skb_head->mark;
 	}
 
-	ss_skb_queue_tail(&shm->msg.skb_head, nskb);
-	*skb = nskb;
+	ss_skb_queue_tail(&shm->msg.skb_head, skb);
 
 	return shm;
 }
@@ -1987,7 +1964,6 @@ static inline void
 tfw_http_req_set_conn_close(TfwHttpReq *req)
 {
 	TFW_CONN_TYPE(req->conn) |= Conn_Stop;
-	__clear_bit(TFW_HTTP_CONN_KA, req->flags);
 	__set_bit(TFW_HTTP_CONN_CLOSE, req->flags);
 }
 
@@ -2645,11 +2621,13 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 	goto conn_put;
 
 send_502:
-	tfw_http_send_resp(req, 502, "request dropped: processing error");
+	tfw_http_send_resp(req, 502,
+			   "request dropped: no backend connection available");
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 	return;
 send_500:
-	tfw_http_send_resp(req, 500, "request dropped: processing error");
+	tfw_http_send_resp(req, 500,
+			   "request dropped: error at request adjust");
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 conn_put:
 	tfw_srv_conn_put(srv_conn);
@@ -2767,6 +2745,26 @@ tfw_http_hm_drop_resp(TfwHttpResp *resp)
 	tfw_http_msg_free((TfwHttpMsg *)req);
 }
 
+static inline TfwHttpMsg *
+tfw_http_req_create_sibling(TfwHttpMsg *hmreq, struct sk_buff *skb)
+{
+	TfwHttpMsg *hmsib = NULL;
+
+	/*
+	 * Pipelined requests: create a new sibling message.
+	 */
+	if (!test_bit(TFW_HTTP_CONN_CLOSE, hmreq->flags) && skb) {
+		hmsib = tfw_http_msg_create_sibling(hmreq, skb);
+		if (unlikely(!hmsib)) {
+			TFW_INC_STAT_BH(clnt.msgs_otherr);
+			set_bit(TFW_HTTP_CONN_CLOSE, hmreq->flags);
+			/* skb is orphaned now and must be manually released. */
+		}
+	}
+
+	return hmsib;
+}
+
 /**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
@@ -2871,6 +2869,24 @@ next_msg:
 			goto drop;
 		}
 		/* The request is fully parsed, fall through and process it. */
+	}
+
+	/*
+	 * The message is fully parsed, the rest of the data in the stream
+	 * may represent another request or it's part.
+	 * @skb is replaced with pointer to a new SKB.
+	 */
+	if (data_off < skb->len) {
+		skb = ss_skb_split(skb, data_off);
+		if (unlikely(!skb)) {
+			TFW_INC_STAT_BH(clnt.msgs_otherr);
+			err.status = 500;
+			err.reason = "Can't detach message from the stream";
+			goto drop;
+		}
+	}
+	else {
+		skb = NULL;
 	}
 
 	/*
@@ -2985,41 +3001,11 @@ next_msg:
 	}
 
 	/*
-	 * The request has been successfully parsed and processed.
-	 * If the connection will be closed after the response to
-	 * the request is sent to the client, then there's no need
-	 * to process pipelined requests. Also, the request may be
-	 * released when handled in tfw_cache_req_process() below.
-	 * So, save the needed request flag for later use as it
-	 * may not be accessible later through @req->flags.
-	 * If the connection must be closed, it also should be marked
-	 * with @Conn_Stop flag - to left it alive for sending responses
-	 * and, at the same time, to stop passing data for processing
-	 * from the lower layer.
+	 * Pipelined requests: create a new sibling message.
+	 * Sibling message will never be created for streamed message,
+	 * since skb is NULL here.
 	 */
-	if((req_conn_close = test_bit(TFW_HTTP_CONN_CLOSE, req->flags)))
-		TFW_CONN_TYPE(req->conn) |= Conn_Stop;
-
-	if (!req_conn_close && (data_off < skb->len)) {
-		/*
-		 * Pipelined requests: create a new sibling message.
-		 * @skb is replaced with pointer to a new SKB.
-		 */
-		hmsib = tfw_http_msg_create_sibling((TfwHttpMsg *)req, &skb,
-						    data_off);
-		if (unlikely(!hmsib)) {
-			/*
-			 * Unfortunately, there's no recourse. The
-			 * caller expects that data is processed in
-			 * full, and can't deal with partially
-			 * processed data.
-			 */
-			TFW_INC_STAT_BH(clnt.msgs_otherr);
-			err.status = 500;
-			err.reason = "Can't create sibling request";
-			goto drop;
-		}
-	}
+	hmsib = tfw_http_req_create_sibling((TfwHttpMsg *)req, skb);
 
 	/*
 	 * Complete HTTP message has been collected and processed
@@ -3038,10 +3024,12 @@ next_msg:
 	 */
 	tfw_http_req_add_seq_queue(req);
 
+	/* The request may be freed after response is sent */
+	req_conn_close = test_bit(TFW_HTTP_CONN_CLOSE, req->flags);
 	/*
 	 * Response is already prepared for the client.
 	 */
-	if (req->resp) {
+	if (unlikely(req->resp)) {
 		tfw_http_resp_fwd(req->resp);
 	}
 	/*
@@ -3063,6 +3051,7 @@ next_msg:
 		tfw_http_send_resp(req, 500,
 				   "request dropped: processing error");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
+		/* Proceed to the next request. */
 	}
 
 	/*
@@ -3072,7 +3061,7 @@ next_msg:
 	 * the request. Subsequent requests from the client coming
 	 * over the same connection are ignored.
 	 */
-	if (!req_conn_close && hmsib) {
+	if (hmsib) {
 		/*
 		 * Switch connection to the new sibling message.
 		 * Data processing will continue with the new SKB.
@@ -3081,11 +3070,23 @@ next_msg:
 		conn->msg = (TfwMsg *)hmsib;
 		goto next_msg;
 	}
-	/*
-	 * This connection's @conn must not be dereferenced from this point on.
-	 */
-out:
-	/*
+	else {
+		if (skb) {
+			__kfree_skb(skb);
+			r = TFW_BLOCK;
+		}
+		/*
+		 * The connection is to be closed after response to the last
+		 * one request is sent. Mark the connection with @Conn_Stop
+		 * flag - to left it alive for sending responses
+		 * and, at the same time, to stop passing data for processing
+		  * from the lower layer.
+		 */
+		if (req_conn_close)
+			TFW_CONN_TYPE(conn) |= Conn_Stop;
+	}
+
+out:	/*
 	 * TFW_POSTPONE status means that parsing succeeded
 	 * but more data is needed to complete it. Lower layers
 	 * just supply data for parsing. They only want to know
@@ -3323,6 +3324,25 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 	}
 }
 
+static inline TfwHttpMsg *
+tfw_http_resp_create_sibling(TfwHttpMsg *hmresp, struct sk_buff *skb)
+{
+	TfwHttpMsg *hmsib = NULL;
+
+	if (!skb)
+		return NULL;
+	/*
+	 * Pipelined responses: create a new sibling message.
+	 */
+	hmsib = tfw_http_msg_create_sibling(hmresp, skb);
+	if (unlikely(!hmsib)) {
+		TFW_INC_STAT_BH(serv.msgs_otherr);
+		/* skb is orphaned now and must be manually released. */
+	}
+
+	return hmsib;
+}
+
 /**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
@@ -3421,6 +3441,22 @@ next_msg:
 	}
 
 	/*
+	 * The message is fully parsed, the rest of the data in the stream
+	 * may represent another response or it's part.
+	 * @skb is replaced with pointer to a new SKB.
+	 */
+	if (data_off < skb->len) {
+		skb = ss_skb_split(skb, data_off);
+		if (unlikely(!skb)) {
+			TFW_INC_STAT_BH(serv.msgs_otherr);
+			goto bad_msg;
+		}
+	}
+	else {
+		skb = NULL;
+	}
+
+	/*
 	 * Verify response in context of http health monitor,
 	 * and mark server as disabled/enabled.
 	 *
@@ -3451,26 +3487,7 @@ next_msg:
 	 * we have pipelined responses. Create a sibling message.
 	 * @skb is replaced with a pointer to a new SKB.
 	 */
-	if (data_off < skb->len) {
-		hmsib = tfw_http_msg_create_sibling(hmresp, &skb, data_off);
-		/*
-		 * In case of an error there's no recourse. The
-		 * caller expects that data is processed in full,
-		 * and can't deal with partially processed data.
-		 */
-		if (unlikely(!hmsib)) {
-			TFW_INC_STAT_BH(serv.msgs_otherr);
-			/*
-			 * Unable to create a sibling message.
-			 * Send the parsed response to the client
-			 * and close the server connection.
-			 *
-			 * TODO: can't use response if ss_skb_split() failed.
-			 */
-			tfw_http_resp_cache(hmresp);
-			return TFW_BLOCK;
-		}
-	}
+	hmsib = tfw_http_resp_create_sibling(hmresp, skb);
 	/*
 	 * Pass the response to cache for further processing.
 	 * In the end, the response is sent on to the client.
@@ -3486,6 +3503,10 @@ next_msg:
 		data_off = 0;
 		conn->msg = (TfwMsg *)hmsib;
 		goto next_msg;
+	}
+	else if (skb) {
+		__kfree_skb(skb);
+		r = TFW_BLOCK;
 	}
 
 out:
@@ -3512,12 +3533,16 @@ int
 tfw_http_msg_process(void *conn, const TfwFsmData *data)
 {
 	TfwConn *c = (TfwConn *)conn;
+	TfwHttpMsg *hm;
+	int r = TFW_BLOCK;
 
-	if (unlikely(!c->msg)) {
-		TfwHttpMsg *hm = tfw_http_conn_msg_alloc(c);
+	tfw_connection_get(conn);
+
+	if (unlikely(!(hm = (TfwHttpMsg *)c->msg))) {
+		hm = tfw_http_conn_msg_alloc(c);
 		if (!hm) {
 			__kfree_skb(data->skb);
-			return TFW_BLOCK;
+			goto err;
 		}
 		c->msg = (TfwMsg *)hm;
 		tfw_http_mark_wl_new_msg(c, hm, data->skb);
@@ -3527,9 +3552,14 @@ tfw_http_msg_process(void *conn, const TfwFsmData *data)
 	TFW_DBG2("Add skb %p to message %p\n", data->skb, c->msg);
 	ss_skb_queue_tail(&c->msg->skb_head, data->skb);
 
-	return (TFW_CONN_TYPE(c) & Conn_Clnt)
+	r = (TFW_CONN_TYPE(c) & Conn_Clnt)
 		? tfw_http_req_process(c, data)
 		: tfw_http_resp_process(c, data);
+
+err:
+	tfw_connection_put(conn);
+
+	return r;
 }
 
 /**

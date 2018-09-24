@@ -383,7 +383,7 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 	TFW_DBG_ADDR("connection error", &srv->addr);
 
 	/*
-	 * Distiguish connections that go to failover state
+	 * Distinguish connections that go to failover state
 	 * from those that are in failover state already.
 	 */
 	if (tfw_connection_live(conn)) {
