@@ -1081,8 +1081,8 @@ err:
 }
 
 /**
- * Message part was sent out, clean up the message to normally process this part
- * on next message chunk.
+ * Message part was sent out or skipped, clean up the message to normally
+ * process the streamed part on next message chunk.
  */
 void
 tfw_http_msg_collapse(TfwHttpMsgPart *hm)
@@ -1090,4 +1090,5 @@ tfw_http_msg_collapse(TfwHttpMsgPart *hm)
 	hm->off += hm->msg.len;
 	hm->msg.len = 0;
 	tfw_str_free(hm->pool, &hm->body);
+	ss_skb_queue_purge(&hm->msg.skb_head);
 }

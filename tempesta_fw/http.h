@@ -227,6 +227,11 @@ enum {
 	TFW_HTTP_STREAM,
 	/* All streamed parts are fully sent, may proceed to the next message. */
 	TFW_HTTP_STREAM_DONE,
+	/*
+	 * Streamed part of the message is not going to be forwarded,
+	 * skip it to proceed to the next message.
+	 */
+	TFW_HTTP_STREAM_SKIP,
 
 	/* Streaming flags: Streamed message part only */
 	/* The message represents stream part, not a full-size one. */

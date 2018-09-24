@@ -3057,22 +3057,42 @@ tfw_http_req_stream_process(TfwHttpMsg *hm)
 	return tfw_http_msg_stream_process(hm, tfw_cfg_cli_msg_buff_sz);
 }
 
+/**
+ * Locally generated responses has no connection member set.
+ */
+static inline bool
+tfw_http_resp_is_local(TfwHttpResp *resp)
+{
+	return (resp && !resp->conn);
+}
+
 static int
-tfw_http_req_stream(TfwHttpMsg *hm)
+tfw_http_req_stream(TfwHttpMsgPart *hmpart)
 {
 	LIST_HEAD(eq);
-	TfwHttpMsgPart *hmpart = (TfwHttpMsgPart *)hm;
+	TfwHttpMsg *hmreq = hmpart->buffer_part;
 	TfwSrvConn *srv_conn = (TfwSrvConn *)hmpart->stream_conn;
+	int r = TFW_BLOCK;
 
-	TFW_DBG2("%s: req=[%p] part=[%p]\n", __func__, hm->buffer_part, hm);
-	BUG_ON(!test_bit(TFW_HTTP_STREAM_PART, hm->flags));
+	TFW_DBG2("%s: req=[%p], part=[%p]\n", __func__, hmreq, hmpart);
+	BUG_ON(!test_bit(TFW_HTTP_STREAM_PART, hmpart->flags));
 
-	/* TODO: simply drop the streamed part for requests served from cache. */
+	/* Drop the streamed part for requests served by Tempesta. */
+	if (tfw_http_resp_is_local(hmreq->resp)) {
+		r = TFW_PASS;
+		TFW_DBG2("%s: skip streamed part for req=[%p], part=[%p]\n",
+			 __func__, hmreq, hmpart);
+		if (!test_bit(TFW_HTTP_STREAM_ON_HOLD, hmpart->flags)) {
+			ss_rmem_release(hmreq->conn->sk, hmpart->msg.len);
+			tfw_http_msg_collapse(hmpart);
+		}
+		goto done;
+	}
 
 	/* Process streamed message part. */
 	if (test_bit(TFW_HTTP_STREAM_LAST_PART, hmpart->flags)) {
 		if (tfw_http_set_loc_hdrs_req_spart(hmpart))
-			goto err;
+			goto done;
 	}
 
 	/* paired with tfw_http_msg_process() */
@@ -3087,10 +3107,11 @@ tfw_http_req_stream(TfwHttpMsg *hm)
 	tfw_http_req_zap_error(&eq);
 
 	return TFW_PASS;
-err:
+done:
+	/* paired with tfw_http_msg_process() */
 	spin_unlock(&hmpart->stream_lock);
 
-	return TFW_BLOCK;
+	return r;
 }
 
 static inline TfwHttpMsg *
@@ -3221,7 +3242,7 @@ next_msg:
 		/* A new part of streamed request. */
 		if (test_bit(TFW_HTTP_STREAM_PART, hm->flags)) {
 			if (r == TFW_PASS)
-				r = tfw_http_req_stream(hm);
+				r = tfw_http_req_stream((TfwHttpMsgPart *)hm);
 			else
 				/* paired with tfw_http_msg_process() */
 				spin_unlock(&((TfwHttpMsgPart *)hm)->stream_lock);
@@ -3287,7 +3308,7 @@ next_msg:
 		tfw_connection_unlink_msg(conn);
 		req_conn_close = test_bit(TFW_HTTP_CONN_CLOSE, req_head->flags);
 		clear_bit(TFW_HTTP_STREAM_ON_HOLD, hm->flags);
-		r = tfw_http_req_stream(hm);
+		r = tfw_http_req_stream((TfwHttpMsgPart *)hm);
 
 		goto post_process;
 	}
