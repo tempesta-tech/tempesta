@@ -555,11 +555,15 @@ tfw_cfgop_keepalive_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
  * buffer are also tracked by sk->sk_rmem_alloc. Thus the kernel is aware of
  * free space in both buffers when a new TCP window is calculated.
  *
+ * All allocations registered in sk->sk_rmem_alloc must be purged before socket
+ * is closed to comply (sk->sk_rmem_alloc == 0) statement.
+ *
  * Note, the http message size and underlying skb size can change during
  * message processing inside the Tempesta due to message modifications.
- * Two variants are possible: mirror all modifications to sk->sk_rmem_alloc
- * or operate only by original message size. The second case was chosen
- * because it's simplicity and error-free possibilities.
+ * Don't try to mirror all modifications to sk->sk_rmem_alloc, operate only
+ * original message size. Modifications may take place after tcp receive window
+ * was advertised to the client, and the next window will be smaller than it
+ * should. RFC doesn't allow to shrink already offered windows.
  *
  * Generally we don't want the same rmem limits for clients and servers.
  * Server connections are fast and require relatively big buffers.

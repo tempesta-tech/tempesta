@@ -1939,7 +1939,57 @@ tfw_http_resp_pair_free(TfwHttpReq *req)
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 }
 
-/*
+/**
+ * Request is dropped, stop streaming it to backend connection.
+ *
+ * Req is not in streaming mode -> nothing to do;
+ * Req is fully streamed to backend, awaiting for response -> nothing to do;
+ * Req is not streamed to backend *yet* -> nothing to do;
+ * Req was streamed, but not in full -> stop streaming and close the server
+ *   connection.
+ */
+static void
+tfw_http_conn_drop_stream_req(TfwHttpReq *req)
+{
+	TfwHttpMsgPart *hmpart;
+	TfwConn *conn;
+
+	if (tfw_http_msg_is_stream_done((TfwHttpMsg *)req))
+		return;
+
+	hmpart = req->stream_part;
+	spin_lock(&hmpart->stream_lock);
+	if ((conn = hmpart->stream_conn)) {
+		/*
+		 * TODO: We shouldn't close the server connection immediately.
+		 * This will cause resending of unanswered requests which
+		 * was forwarded prior this one. Not all request may be
+		 * re-sent, some of them will be evicted. Such behaviour
+		 * may degrade quality of service. Especially in full-streaming
+		 * mode (all requests are streamed).
+		 */
+		ss_close_sync(conn->sk, true);
+		hmpart->stream_conn = NULL;
+		tfw_connection_put(conn);
+	}
+	spin_unlock(&hmpart->stream_lock);
+}
+
+/**
+ * Client connection is closed, unregister all 'acquired' memory from socket
+ * memory.
+ */
+static inline void
+tfw_http_conn_cli_mem_release(TfwCliConn *cli_conn, TfwHttpReq *req)
+{
+	TfwHttpMsgPart *hmpart = req->stream_part;
+
+	ss_rmem_release(cli_conn->sk, req->msg.len);
+	if (hmpart)
+		ss_rmem_release(cli_conn->sk, hmpart->msg.len);
+}
+
+/**
  * Drop client connection's resources.
  *
  * Disintegrate the client connection's @seq_list. Requests without a paired
@@ -1957,16 +2007,17 @@ tfw_http_resp_pair_free(TfwHttpReq *req)
 static void
 tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 {
-	TfwHttpReq *req, *tmp;
+	TfwHttpReq *tmp, *req = (TfwHttpReq *)cli_conn->msg;
 	struct list_head *seq_queue = &cli_conn->seq_queue;
 
 	TFW_DBG2("%s: conn=[%p]\n", __func__, cli_conn);
 	BUG_ON(!(TFW_CONN_TYPE(cli_conn) & Conn_Clnt));
 
-	if (cli_conn->msg)
-		ss_rmem_release(cli_conn->sk, cli_conn->msg->len);
-	if (list_empty_careful(seq_queue))
+	if (list_empty_careful(seq_queue)) {
+		if (req)
+			tfw_http_conn_cli_mem_release(cli_conn, req);
 		return;
+	}
 
 	/*
 	 * Disintegration of the list must be done under the lock.
@@ -1975,10 +2026,17 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 	 * condition with freeing of a request in tfw_http_resp_fwd().
 	 */
 	spin_lock(&cli_conn->seq_qlock);
+
+	/* Request stream part lifetime is controlled by buffered part. */
+	if (req && test_bit(TFW_HTTP_STREAM_PART, req->flags)) {
+		cli_conn->msg = NULL;
+	}
+
 	list_for_each_entry_safe(req, tmp, seq_queue, msg.seq_list) {
 		set_bit(TFW_HTTP_REQ_DROP, req->flags);
 		list_del_init(&req->msg.seq_list);
-		ss_rmem_release(cli_conn->sk, req->msg.len);
+		tfw_http_conn_drop_stream_req(req);
+		tfw_http_conn_cli_mem_release(cli_conn, req);
 		/*
 		 * Response is processed and removed from fwd_queue, need to be
 		 * destroyed.
@@ -2089,7 +2147,7 @@ static inline void
 tfw_http_req_set_conn_close(TfwHttpReq *req)
 {
 	TFW_CONN_TYPE(req->conn) |= Conn_Stop;
-	__set_bit(TFW_HTTP_CONN_CLOSE, req->flags);
+	set_bit(TFW_HTTP_CONN_CLOSE, req->flags);
 }
 
 /**
