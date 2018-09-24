@@ -2761,12 +2761,6 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 	bool nolog;
 	TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
 
-	/*
-	 * A new error response is generated for the request, drop any
-	 * previous request paired with the request.
-	 */
-	tfw_http_conn_msg_free(req->pair);
-
 	if (attack) {
 		reply = tfw_blk_flags & TFW_BLK_ATT_REPLY;
 		nolog = tfw_blk_flags & TFW_BLK_ATT_NOLOG;
@@ -2815,7 +2809,20 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 		 *   discarding any following requests. This
 		 *   isn't supposed to be an attack anyway.
 		 */
-		tfw_http_req_mark_error(req, status);
+		/*
+		 * Error happen, but there is existing response. If it's locally
+		 * generated response, drop it and send error message. User
+		 * shouldn't access content if request can't be processed.
+		 * If it's upstream response - forward it, it's know the
+		 * application better.
+		 */
+		if (tfw_http_resp_is_local(req->resp)) {
+			tfw_http_conn_msg_free(req->pair);
+			tfw_http_req_mark_error(req, status);
+		}
+		else {
+			tfw_http_req_set_conn_close(req);
+		}
 	}
 	/*
 	 * Serve all pending requests if not under attack, close immediately
