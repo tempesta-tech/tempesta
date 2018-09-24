@@ -1103,8 +1103,22 @@ tfw_http_req_evict_retries(TfwSrvConn *srv_conn, TfwServer *srv,
 		TFW_DBG2("%s: Eviction: req=[%p] retries=[%d]\n",
 			 __func__, req, req->retries);
 		tfw_http_req_err(srv_conn, req, eq, 504,
-				 "request evicted: the number"
-				 " of retries exceeded");
+				 "request evicted: the number of retries "
+				 "exceeded");
+		return true;
+	}
+	return false;
+}
+
+static inline bool
+tfw_http_req_evict_err_stream(TfwSrvConn *srv_conn, TfwHttpReq *req,
+			      struct list_head *eq)
+{
+	if (unlikely(test_bit(TFW_HTTP_STREAM_ERR, req->flags))) {
+		TFW_DBG2("%s: Eviction: req=[%p] stream read error\n",
+			 __func__, req);
+		tfw_http_req_err(srv_conn, req, eq, 504,
+				 "request evicted: stream read error");
 		return true;
 	}
 	return false;
@@ -1115,6 +1129,7 @@ tfw_http_req_evict_stale_req(TfwSrvConn *srv_conn, TfwServer *srv,
 			     TfwHttpReq *req, struct list_head *eq)
 {
 	return tfw_http_req_evict_dropped(srv_conn, req)
+	       || tfw_http_req_evict_err_stream(srv_conn, req, eq)
 	       || tfw_http_req_evict_timeout(srv_conn, srv, req, eq);
 }
 
@@ -1123,6 +1138,7 @@ tfw_http_req_evict(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 		   struct list_head *eq)
 {
 	return tfw_http_req_evict_dropped(srv_conn, req)
+	       || tfw_http_req_evict_err_stream(srv_conn, req, eq)
 	       || tfw_http_req_evict_timeout(srv_conn, srv, req, eq)
 	       || tfw_http_req_evict_retries(srv_conn, srv, req, eq);
 }
@@ -1998,6 +2014,7 @@ tfw_http_conn_cli_drop_stream_req(TfwHttpReq *req)
 
 	TFW_DBG2("%s: req=[%p]\n", __func__, req);
 
+	set_bit(TFW_HTTP_STREAM_ERR, req->flags);
 	hmpart = req->stream_part;
 	spin_lock(&hmpart->stream_lock);
 
@@ -2017,7 +2034,7 @@ tfw_http_conn_cli_drop_stream_req(TfwHttpReq *req)
 	 * Don't close the server connection immediately, there can be sent
 	 * but not replied responses. Wait for them and close the connection
 	 * after that. Immediate close will cause resending of such requests.
-	 * Streamed requests can't be re-sent, in full streaming mode
+	 * Streamed and NIP requests from other clients can't be re-sent,
 	 * quality of service will be degraded.
 	 */
 	if (!req_prev)
@@ -2761,6 +2778,14 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 
 	if (!nolog)
 		TFW_WARN_ADDR(msg, &req->conn->peer->addr);
+	/*
+	 * Error/attack was detected while processing response for a request
+	 * from already disconnected client.
+	 */
+	if (test_bit(TFW_HTTP_REQ_DROP, req->flags)) {
+		tfw_http_conn_req_clean(req);
+		return;
+	}
 	/* The client connection is to be closed with the last resp sent. */
 	if (reply) {
 		if (on_req_recv_event) {
@@ -2849,6 +2874,27 @@ static inline void
 tfw_srv_client_block(TfwHttpReq *req, int status, const char *msg)
 {
 	tfw_http_cli_error_resp_and_log(req, status, msg, true, false);
+}
+
+/**
+ * Attack or error was detected while processing the streamed part of the
+ * request. Buffered part of the request is already
+ */
+static void
+tfw_http_cli_stream_error_log(TfwHttpReq *req, const char *msg, bool attack)
+{
+	bool nolog;
+
+	if (attack)
+		nolog = tfw_blk_flags & TFW_BLK_ATT_NOLOG;
+	else
+		nolog = tfw_blk_flags & TFW_BLK_ERR_NOLOG;
+
+	if (!nolog)
+		TFW_WARN_ADDR(msg, &req->conn->peer->addr);
+	if (!attack)
+		tfw_http_req_prev_conn_close(req);
+	tfw_http_conn_cli_drop_stream_req(req);
 }
 
 /**
@@ -3560,10 +3606,14 @@ drop:	/*
 	 * Unrecoverable error. Stop from parsing new requests,
 	 * but continue to serve previous requests.
 	 */
-	req = (TfwHttpReq *)(test_bit(TFW_HTTP_STREAM_PART, hm->flags)
-			     ? hm->buffer_part
-			     : hm);
-	tfw_client_drop(req, err.status, err.reason);
+	if (!test_bit(TFW_HTTP_STREAM_PART, hm->flags)) {
+		tfw_client_drop((TfwHttpReq *)hm, err.status, err.reason);
+	} else {
+		/* paired with tfw_http_msg_process() */
+		spin_unlock(&((TfwHttpMsgPart *)hm)->stream_lock);
+		tfw_http_cli_stream_error_log((TfwHttpReq *)hm->buffer_part,
+					      err.reason, false);
+	}
 
 	return TFW_BLOCK;
 
@@ -3571,11 +3621,15 @@ block:	/*
 	 * An attack was detected. Shutdown the client connection immediately
 	 * and drop all pending requests.
 	 */
-	req = (TfwHttpReq *)(test_bit(TFW_HTTP_STREAM_PART, hm->flags)
-			     ? hm->buffer_part
-			     : hm);
 	TFW_INC_STAT_BH(clnt.msgs_filtout);
-	tfw_client_block(req, err.status, err.reason);
+	if (!test_bit(TFW_HTTP_STREAM_PART, hm->flags)) {
+		tfw_client_block(req, err.status, err.reason);
+	} else {
+		/* paired with tfw_http_msg_process() */
+		spin_unlock(&((TfwHttpMsgPart *)hm)->stream_lock);
+		tfw_http_cli_stream_error_log((TfwHttpReq *)hm->buffer_part,
+					      err.reason, true);
+	}
 
 	return TFW_BLOCK;
 }
