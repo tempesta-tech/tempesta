@@ -791,7 +791,8 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, const TfwFsmData *data)
 	__FRANG_FSM_INIT();
 
 	BUG_ON(!ra);
-	BUG_ON(req != container_of(conn->msg, TfwHttpReq, msg));
+	BUG_ON((req != (TfwHttpReq *)conn->msg)
+	       && (req != (TfwHttpReq *)((TfwHttpMsg *)conn->msg)->buffer_part));
 	frang_dbg("check request for client %s, acc=%p\n",
 		  &FRANG_ACC2CLI(ra)->addr, ra);
 

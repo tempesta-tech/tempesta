@@ -667,9 +667,19 @@ err:
  * TODO: Making a copy of each SKB _IS BAD_. See issues #391 and #488.
  */
 static inline void
-tfw_http_req_init_ss_flags(TfwSrvConn *srv_conn, TfwHttpReq *req)
+tfw_http_req_init_ss_flags(TfwHttpReq *req)
 {
-	((TfwMsg *)req)->ss_flags |= SS_F_KEEP_SKB;
+	req->msg.ss_flags |= SS_F_KEEP_SKB;
+}
+
+/*
+ * No special flags are required for stream part of the request. It's
+ * not stored inside Tempesta and released right after send.
+ */
+static inline void
+tfw_http_req_spart_init_ss_flags(TfwHttpMsgPart *hm)
+{
+	return;
 }
 
 static inline void
@@ -677,6 +687,29 @@ tfw_http_resp_init_ss_flags(TfwHttpResp *resp)
 {
 	if (test_bit(TFW_HTTP_CONN_CLOSE, resp->req->flags))
 		resp->msg.ss_flags |= SS_F_CONN_CLOSE;
+}
+
+/**
+ * Check if a request is streamed.
+ */
+static inline bool
+tfw_http_msg_is_stream_done(TfwHttpMsg *hm)
+{
+	if (!tfw_http_msg_is_streamed(hm))
+		return true;
+	return test_bit(TFW_HTTP_STREAM_DONE, hm->flags);
+}
+
+/**
+ * Return @true if the message was fully read from sender connection and
+ * @false if sender is expected to stream more data as a part of current message.
+ */
+static inline bool
+tfw_http_msg_is_stream_read(TfwHttpMsg *hm)
+{
+	if (!tfw_http_msg_is_streamed(hm))
+		return true;
+	return test_bit(TFW_HTTP_STREAM_LAST_PART, hm->stream_part->flags);
 }
 
 /*
@@ -983,7 +1016,6 @@ tfw_http_mark_wl_new_msg(TfwConn *conn, TfwHttpMsg *msg,
 		__set_bit(TFW_HTTP_WHITELIST, msg->flags);
 }
 
-
 /*
  * Forwarding of requests to a back end server is run under a lock
  * on the server connection's forwarding queue. It's performed as
@@ -1091,6 +1123,66 @@ tfw_http_req_evict(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 	       || tfw_http_req_evict_retries(srv_conn, srv, req, eq);
 }
 
+/**
+ * Send streamed part of the request to the server, buffered part was already
+ * sent in tfw_http_req_fwd_send().
+ */
+static bool
+tfw_http_req_stream_send(TfwSrvConn *srv_conn, TfwServer *srv,
+		      TfwHttpReq *req, struct list_head *eq)
+{
+	TfwHttpMsgPart *hmpart = req->stream_part;
+	bool r = true;
+
+	if (!spin_trylock(&hmpart->stream_lock))
+		/*
+		 * Another thread parses a new stream parts and pushes it to
+		 * the req->stream_part. That thread will send all stream parts
+		 * and we can safely exit.
+		 */
+		return false;
+
+	if (test_bit(TFW_HTTP_STREAM_ON_HOLD, hmpart->flags)
+	    || !hmpart->msg.skb_head)
+	{
+		goto done;
+	}
+	TFW_DBG2("%s: Stream req=[%p],part=[%p] to srv_conn=[%p]\n",
+		 __func__, req, hmpart, srv_conn);
+
+	tfw_http_req_spart_init_ss_flags(hmpart);
+	/*
+	 * Requests originated by Tempesta are never streamed, error
+	 * processing is simpler than for tfw_http_req_fwd_send()
+	 */
+	if (tfw_connection_send((TfwConn *)srv_conn, &hmpart->msg)) {
+		TFW_DBG2("%s: Streaming error: conn=[%p] req=[%p]\n",
+			 __func__, srv_conn, req);
+		tfw_http_req_err(srv_conn, req, eq, 500,
+				 "request dropped: streaming error");
+		r = false;
+		goto done;
+	}
+
+	if (test_bit(TFW_HTTP_STREAM_LAST_PART, hmpart->flags)) {
+		TFW_DBG2("%s: Streaming done for req=[%p]\n", __func__, req);
+		hmpart->stream_conn = NULL;
+		tfw_srv_conn_put(srv_conn);
+		set_bit(TFW_HTTP_STREAM_DONE, req->flags);
+	}
+
+	/*
+	 * Stream part was sent to server, we don't keep the skbs and release
+	 * them after transmission. Allow client to send more data.
+	 */
+	ss_rmem_release(req->conn->sk, hmpart->msg.len);
+	tfw_http_msg_collapse(hmpart);
+done:
+	spin_unlock(&hmpart->stream_lock);
+
+	return r;
+}
+
 /*
  * If forwarding of @req to server @srv_conn is not successful, then
  * move it to the error queue @eq for sending an error response later.
@@ -1102,14 +1194,18 @@ tfw_http_req_evict(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
  * the request. So, perhaps, instead of sending an error in that case
  * these unlucky requests can be re-sent when the connection is restored.
  */
-static inline bool
+static bool
 tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv,
 		      TfwHttpReq *req, struct list_head *eq)
 {
-	req->jtxtstamp = jiffies;
-	tfw_http_req_init_ss_flags(srv_conn, req);
+	TfwHttpMsgPart *hmpart = req->stream_part;
 
-	if (tfw_connection_send((TfwConn *)srv_conn, (TfwMsg *)req)) {
+	TFW_DBG2("%s: Forward req=[%p] to srv_conn=[%p]\n",
+		 __func__, req, srv_conn);
+	req->jtxtstamp = jiffies;
+	tfw_http_req_init_ss_flags(req);
+
+	if (tfw_connection_send((TfwConn *)srv_conn, &req->msg)) {
 		TFW_DBG2("%s: Forwarding error: conn=[%p] req=[%p]\n",
 			 __func__, srv_conn, req);
 		if (test_bit(TFW_HTTP_HMONITOR, req->flags)) {
@@ -1125,7 +1221,16 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv,
 		}
 		return false;
 	}
-	return true;
+
+	if (!tfw_http_msg_is_streamed((TfwHttpMsg *)req))
+		return true;
+
+	spin_lock(&hmpart->stream_lock);
+	tfw_srv_conn_get(srv_conn);
+	hmpart->stream_conn = (TfwConn *)srv_conn;
+	spin_unlock(&hmpart->stream_lock);
+
+	return tfw_http_req_stream_send(srv_conn, srv, req, eq);
 }
 
 /*
@@ -1160,8 +1265,26 @@ tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *eq)
 
 	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 	WARN_ON(!spin_is_locked(&srv_conn->fwd_qlock));
-	BUG_ON(tfw_http_conn_drained(srv_conn));
 
+	/* Try to finish stream first. */
+	if (srv_conn->msg_sent
+	    && !tfw_http_msg_is_stream_done((TfwHttpMsg *)srv_conn->msg_sent))
+	{
+		/* srv_conn->msg sent is buffered part of the request. */
+		req = (TfwHttpReq *)srv_conn->msg_sent;
+
+		if (unlikely(test_bit(TFW_HTTP_REQ_DROP, req->flags))
+		    || !tfw_http_req_stream_send(srv_conn, srv, req, eq)
+		    || !test_bit(TFW_HTTP_STREAM_DONE, req->flags)
+		    || list_is_last(&req->fwd_list, &srv_conn->fwd_queue))
+		{
+			return;
+		}
+	}
+	if (tfw_http_conn_on_hold(srv_conn))
+		return;
+
+	BUG_ON(tfw_http_conn_drained(srv_conn));
 	req = srv_conn->msg_sent
 	    ? list_next_entry((TfwHttpReq *)srv_conn->msg_sent, fwd_list)
 	    : list_first_entry(fwd_queue, TfwHttpReq, fwd_list);
@@ -1169,6 +1292,9 @@ tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *eq)
 	list_for_each_entry_safe_from(req, tmp, fwd_queue, fwd_list) {
 		if (!tfw_http_req_fwd_single(srv_conn, srv, req, eq))
 			continue;
+		/* Stop forwarding if the request is in streaming. */
+		if (!tfw_http_msg_is_stream_done((TfwHttpMsg *)req))
+			break;
 		/* Stop forwarding if the request is non-idempotent. */
 		if (tfw_http_req_is_nip(req))
 			break;
@@ -1220,10 +1346,6 @@ tfw_http_req_fwd(TfwSrvConn *srv_conn, TfwHttpReq *req, struct list_head *eq)
 	srv_conn->qsize++;
 	if (tfw_http_req_is_nip(req))
 		tfw_http_req_nip_enlist(srv_conn, req);
-	if (tfw_http_conn_on_hold(srv_conn)) {
-		spin_unlock_bh(&srv_conn->fwd_qlock);
-		return;
-	}
 	tfw_http_conn_fwd_unsent(srv_conn, eq);
 	spin_unlock_bh(&srv_conn->fwd_qlock);
 }
@@ -1699,7 +1821,6 @@ tfw_http_conn_msg_alloc(TfwConn *conn)
 
 	hm->conn = conn;
 	tfw_connection_get(conn);
-	tfw_http_init_parser_req((TfwHttpReq *)hm);
 	if (type & Conn_Clnt)
 		tfw_http_init_parser_req((TfwHttpReq *)hm);
 	else
@@ -2745,6 +2866,65 @@ tfw_http_hm_drop_resp(TfwHttpResp *resp)
 	tfw_http_msg_free((TfwHttpMsg *)req);
 }
 
+/**
+ * @return TFW_PASS if the message is streamed and can be processed,
+ * and TFW_POSTPONE if more buffering is required.
+ */
+static int
+tfw_http_msg_stream_process(TfwHttpMsg *hm, size_t buff_lim)
+{
+	/* Not the first part of the message, stream if it's safe. */
+	if (test_bit(TFW_HTTP_STREAM_PART, hm->flags)) {
+		int r = tfw_http_parser_msg_may_stream(hm);
+		if (r == TFW_POSTPONE)
+			set_bit(TFW_HTTP_STREAM_ON_HOLD, hm->flags);
+		return r;
+	}
+
+	/* TODO: lower down buff lim if its bigger than sk->sk_rcvbuf */
+	if ((hm->msg.len <= buff_lim) ||
+	    (tfw_http_parser_msg_may_stream(hm) == TFW_POSTPONE))
+		return TFW_POSTPONE;
+
+	__set_bit(TFW_HTTP_STREAM, hm->flags);
+
+	if (!tfw_http_msg_alloc_stream_part(hm))
+		return TFW_BLOCK;
+
+	return TFW_PASS;
+}
+
+static inline int
+tfw_http_req_stream_process(TfwHttpMsg *hm)
+{
+	return tfw_http_msg_stream_process(hm, tfw_cfg_cli_msg_buff_sz);
+}
+
+static int
+tfw_http_req_stream(TfwHttpMsg *hm)
+{
+	LIST_HEAD(eq);
+	TfwHttpMsgPart *hmpart = (TfwHttpMsgPart *)hm;
+	TfwSrvConn *srv_conn = (TfwSrvConn *)hmpart->stream_conn;
+
+	TFW_DBG2("%s: req=[%p] part=[%p]\n", __func__, hm->buffer_part, hm);
+	BUG_ON(!test_bit(TFW_HTTP_STREAM_PART, hm->flags));
+
+	/* TODO: process message part. */
+
+	/* paired with tfw_http_msg_process() */
+	spin_unlock(&hmpart->stream_lock);
+	if (!srv_conn)
+		return TFW_PASS;
+
+	spin_lock_bh(&srv_conn->fwd_qlock);
+	tfw_http_conn_fwd_unsent(srv_conn, &eq);
+	spin_unlock_bh(&srv_conn->fwd_qlock);
+	tfw_http_req_zap_error(&eq);
+
+	return TFW_PASS;
+}
+
 static inline TfwHttpMsg *
 tfw_http_req_create_sibling(TfwHttpMsg *hmreq, struct sk_buff *skb)
 {
@@ -2767,7 +2947,6 @@ tfw_http_req_create_sibling(TfwHttpMsg *hmreq, struct sk_buff *skb)
 
 /**
  * @return zero on success and negative value otherwise.
- * TODO enter the function depending on current GFSM state.
  */
 static int
 tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
@@ -2781,8 +2960,9 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 	bool block = false;
 	TfwHttpError err = { .status = 400 };
 	TfwHttpParser *parser;
-	TfwHttpMsg *hmsib;
+	TfwHttpMsg *hmsib, *hm;
 	TfwHttpReq *req;
+	bool on_stream;
 
 
 	BUG_ON(!conn->msg);
@@ -2797,8 +2977,10 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 	 */
 next_msg:
 	hmsib = NULL;
-	req = (TfwHttpReq *)conn->msg;
+	req = NULL;
+	hm = (TfwHttpMsg *)conn->msg;
 	parser = &conn->parser;
+	on_stream = false;
 
 	/*
 	 * Process/parse data in the SKB.
@@ -2810,14 +2992,14 @@ next_msg:
 	 * to the right location within the chunk.
 	 */
 	off = data_off;
-	r = ss_skb_process(skb, &data_off, tfw_http_parse_req, req);
+	r = ss_skb_process(skb, &data_off, tfw_http_parse_req, hm);
 	data_off -= parser->to_go;
-	req->msg.len += data_off - off;
-	ss_rmem_reserve(req->conn->sk, data_off - off);
+	hm->msg.len += data_off - off;
+	ss_rmem_reserve(hm->conn->sk, data_off - off);
 	TFW_ADD_STAT_BH(data_off - off, clnt.rx_bytes);
 
-	TFW_DBG2("Request parsed: len=%u parsed=%d msg_len=%lu ver=%d res=%d\n",
-		 skb->len - off, data_off - off, req->msg.len, req->version, r);
+	TFW_DBG2("Request parsed: len=%u parsed=%d msg_len=%lu res=%d\n",
+		 skb->len - off, data_off - off, hm->msg.len, r);
 
 	/*
 	 * We have to keep @data the same to pass it as is to FSMs
@@ -2826,8 +3008,10 @@ next_msg:
 	 */
 	data_up.skb = skb;
 	data_up.off = off;
-	data_up.req = (TfwMsg *)req;
 	data_up.resp = NULL;
+	data_up.req = (TfwMsg *)(test_bit(TFW_HTTP_STREAM_PART, hm->flags)
+				 ? hm->buffer_part
+				 : hm);
 
 	switch (r) {
 	default:
@@ -2858,11 +3042,38 @@ next_msg:
 			err.reason =  "postponed request has been filtered out";
 			goto drop;
 		}
-		goto out;
+		r = tfw_http_req_stream_process(hm);
+		if (unlikely(r == TFW_BLOCK)) {
+			err.status = 500;
+			err.reason =  "can't allocate memory for streamed "
+				      "request";
+			TFW_INC_STAT_BH(clnt.msgs_otherr);
+			goto drop;
+		}
+		/* A new part of streamed request. */
+		if (test_bit(TFW_HTTP_STREAM_PART, hm->flags)) {
+			if (r == TFW_PASS)
+				r = tfw_http_req_stream(hm);
+			else
+				/* paired with tfw_http_msg_process() */
+				spin_unlock(&((TfwHttpMsgPart *)hm)->stream_lock);
+			goto out;
+		}
+		/* Buffered part of request. */
+		if (r == TFW_POSTPONE) {
+			goto out;
+		}
+		TFW_DBG2("Process buffered part of streamed request\n");
+		on_stream = true;
+		break;
 
 	case TFW_PASS:
-		if (unlikely(!test_bit(TFW_HTTP_CHUNKED, req->flags)
-			     && (req->content_length != req->body.len)))
+		if (test_bit(TFW_HTTP_STREAM_PART, hm->flags)) {
+			set_bit(TFW_HTTP_STREAM_LAST_PART, hm->flags);
+			break; /* skip parser integrity checks. */
+		}
+		if (unlikely(!test_bit(TFW_HTTP_CHUNKED, hm->flags)
+			     && (hm->content_length != hm->body.len)))
 		{
 			err.reason = "Internal parser error";
 			TFW_INC_STAT_BH(clnt.msgs_parserr);
@@ -2889,6 +3100,31 @@ next_msg:
 		skb = NULL;
 	}
 
+	/*
+	 * Last part of streamed request. Stream it and proceed to the
+	 * sibling message if any.
+	 */
+	if (test_bit(TFW_HTTP_STREAM_LAST_PART, hm->flags)) {
+		TfwHttpMsg *req_head = hm->buffer_part;
+
+		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_MSG, &data_up);
+		TFW_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
+		if (r == TFW_BLOCK) {
+			err.reason = "parsed request has been filtered out";
+			err.status = 403;
+			goto block;
+		}
+
+		hmsib = tfw_http_req_create_sibling(req_head, skb);
+		tfw_connection_unlink_msg(conn);
+		req_conn_close = test_bit(TFW_HTTP_CONN_CLOSE, req_head->flags);
+		clear_bit(TFW_HTTP_STREAM_ON_HOLD, hm->flags);
+		r = tfw_http_req_stream(hm);
+
+		goto post_process;
+	}
+
+	req = (TfwHttpReq *)hm;
 	/*
 	 * Sticky cookie module must be used before request can reach cache.
 	 * Unauthorised clients mustn't be able to get any resource on
@@ -3005,7 +3241,7 @@ next_msg:
 	 * Sibling message will never be created for streamed message,
 	 * since skb is NULL here.
 	 */
-	hmsib = tfw_http_req_create_sibling((TfwHttpMsg *)req, skb);
+	hmsib = tfw_http_req_create_sibling(hm, skb);
 
 	/*
 	 * Complete HTTP message has been collected and processed
@@ -3017,6 +3253,8 @@ next_msg:
 	 * which can be used to release it.
 	 */
 	tfw_connection_unlink_msg(conn);
+	if (unlikely(tfw_http_msg_is_streamed(hm)))
+		conn->msg = (TfwMsg *)hm->stream_part;
 
 	/*
 	 * Add the request to the list of the client connection
@@ -3054,6 +3292,7 @@ next_msg:
 		/* Proceed to the next request. */
 	}
 
+post_process:
 	/*
 	 * According to RFC 7230 6.3.2, connection with a client
 	 * must be dropped after a response is sent to that client,
@@ -3082,7 +3321,7 @@ next_msg:
 		 * and, at the same time, to stop passing data for processing
 		  * from the lower layer.
 		 */
-		if (req_conn_close)
+		if (req_conn_close && !on_stream)
 			TFW_CONN_TYPE(conn) |= Conn_Stop;
 	}
 
@@ -3100,6 +3339,9 @@ drop:	/*
 	 * Unrecoverable error. Stop from parsing new requests,
 	 * but continue to serve previous requests.
 	 */
+	req = (TfwHttpReq *)(test_bit(TFW_HTTP_STREAM_PART, hm->flags)
+			     ? hm->buffer_part
+			     : hm);
 	tfw_client_drop(req, err.status, err.reason);
 
 	return TFW_BLOCK;
@@ -3108,6 +3350,9 @@ block:	/*
 	 * An attack was detected. Shutdown the client connection immediately
 	 * and drop all pending requests.
 	 */
+	req = (TfwHttpReq *)(test_bit(TFW_HTTP_STREAM_PART, hm->flags)
+			     ? hm->buffer_part
+			     : hm);
 	TFW_INC_STAT_BH(clnt.msgs_filtout);
 	tfw_client_block(req, err.status, err.reason);
 
@@ -3533,24 +3778,27 @@ int
 tfw_http_msg_process(void *conn, const TfwFsmData *data)
 {
 	TfwConn *c = (TfwConn *)conn;
-	TfwHttpMsg *hm;
+	TfwHttpMsg *hm = (TfwHttpMsg *)c->msg;
 	int r = TFW_BLOCK;
 
 	tfw_connection_get(conn);
 
-	if (unlikely(!(hm = (TfwHttpMsg *)c->msg))) {
+	if (unlikely(!hm)) {
 		hm = tfw_http_conn_msg_alloc(c);
-		if (!hm) {
+		if (unlikely(!hm)) {
 			__kfree_skb(data->skb);
 			goto err;
 		}
 		c->msg = (TfwMsg *)hm;
 		tfw_http_mark_wl_new_msg(c, hm, data->skb);
-		TFW_DBG2("Link new msg %p with connection %p\n", c->msg, c);
+		TFW_DBG2("Link new msg %p with connection %p\n", hm, c);
+	}
+	else if (test_bit(TFW_HTTP_STREAM_PART, hm->flags)) {
+		spin_lock(&((TfwHttpMsgPart *)hm)->stream_lock);
 	}
 
-	TFW_DBG2("Add skb %p to message %p\n", data->skb, c->msg);
-	ss_skb_queue_tail(&c->msg->skb_head, data->skb);
+	TFW_DBG2("Add skb %p to message %p\n", data->skb, hm);
+	ss_skb_queue_tail(&hm->msg.skb_head, data->skb);
 
 	r = (TFW_CONN_TYPE(c) & Conn_Clnt)
 		? tfw_http_req_process(c, data)
@@ -3722,8 +3970,73 @@ tfw_cfgop_cleanup_block_action(TfwCfgSpec *cs)
 	tfw_blk_flags = TFW_CFG_BLK_DEF;
 }
 
+/**
+ * Control message buffering options.
+ *
+ * Tempesta has two message forwarding strategies: buffering and streaming.
+ * In buffering mode the message is fully assembled (buffered) before it
+ * may be forwarded to destination. It's recommended mode: resources planning
+ * is simple and fast, backend connections are never blocked and performance
+ * is maximized.
+ *
+ * But buffering mode doesn't suit all situations. It not wise to assemble
+ * DVD images in memory, better to stream such huge messages by parts.
+ * Long polling events are another candidate to use stream mode.
+ * There are also disadvantages. Usually clients are much slower than servers,
+ * so the server connection will be blocked for other requests until streamed
+ * request is fully streamed to backend. Performance may be degraded for
+ * environments where majority of the requests are streamed.
+ *
+ * The streamed message may still be buffered for some amount of time if
+ * receiver is not ready for streaming. E.g. there are a number of request
+ * in servers 'fwd_queue'. Or there are other not responded request in
+ * client's 'seq_queue'. This is so called streaming bufferbloat problem.
+ *
+ * The option SHOULD be used with 'client_rmem' directive. Optimal
+ * configuration - equal values for 'client_rmem' and 'client_msg_buffering'.
+ * In this case bufferbloat problem wouldn't appear: the 'client_rmem' provides
+ * flow control to slow down client.
+ *
+ * Session persistence is a best way to cope bufferbloat problem for server
+ * connections. If all requests from the same client are served by the same
+ * server connection, client will mostly always be ready for incoming streaming
+ * transmissions. Doesn't work for proxyied connections, since single
+ * connection may multiplex hundreds of distinct HTTP sessions.
+ *
+ * There is no same option for server connections. See 'client_rmem' for
+ * explanations.
+ *
+ * User can configure the buffering limit:
+ * 0	- Full streaming mode. Message headers are fully buffered, payload is
+ *	  streamed;
+ * N	- At least first N bytes of message is buffered (including message
+ *	  headers), the rest of payload is streamed;
+ * -1	- Alias to set maximum possible value: LONG_MAX.
+ * The limit is doesn't mean that exactly N bytes will be buffered. To optimize
+ * performance Tempesta buffer single SKB at once, so more than N bytes may be
+ * buffered. Headers, including trailer part, are always buffered, since
+ * They must be processed before forwarding.
+ *
+ * Possible enhancements, further research is required:
+ *
+ * - Add minimal chunk size for streaming and maximum buffering timeout.
+ *   I.e. don't stream messages byte by byte, buffer some data before forward
+ *   it; if timeout is exceeded, stream as many data as available, don't wait
+ *   for more. It can be rather long wait in case of long polling. The idea
+ *   behind is same as for Nagle algorithm in TCP.
+ *
+ * - Per-location buffering limits.
+ *   Normally it's recommended to set buffering limit as bigger as possible.
+ *   But some locations may stand for long polling responses, thus full-stream
+ *   may be more suitable for such locations.
+ *
+ * - Dynamically allocate server connections for streaming.
+ *   Streaming over server connection can significantly degrade APM statistics
+ *   for the connection.
+ */
 static int
-tfw_cfgop_proxy_buffering(TfwCfgSpec *cs, TfwCfgEntry *ce, size_t *proxy_buff_sz)
+tfw_cfgop_proxy_buffering(TfwCfgSpec *cs, TfwCfgEntry *ce,
+			  size_t *proxy_buff_sz)
 {
 	int r;
 	long val = 0;

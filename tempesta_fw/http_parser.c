@@ -3123,9 +3123,14 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	TFW_DBG("parse %lu client data bytes (%.*s%s) on req=%p\n",
 		len, min(500, (int)len), data, len > 500 ? "..." : "", req);
 
-	__FSM_START(parser->state) {
+	/* Body is not fully stored in streamed messages and freed on send. */
+	if (unlikely(test_bit(TFW_HTTP_STREAM_PART, msg->flags)
+	    && TFW_STR_EMPTY(&msg->body)))
+	{
+		tfw_http_msg_set_str_data(msg, &msg->body, p);
+	}
 
-	/* ----------------    Request Line    ---------------- */
+	__FSM_START(parser->state) {
 
 	/* Parser internal initilizers, must be called once per message. */
 	__FSM_STATE(Req_0) {
@@ -3133,6 +3138,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			__FSM_MOVE_nofixup(Req_0);
 		/* fall through */
 	}
+
+	/* ----------------    Request Line    ---------------- */
 
 	/* HTTP method. */
 	__FSM_STATE(Req_Method) {
