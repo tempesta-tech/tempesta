@@ -1673,7 +1673,7 @@ static void
 tfw_cache_ipi(struct irq_work *work)
 {
 	TfwWorkTasklet *ct = container_of(work, TfwWorkTasklet, ipi_work);
-
+	clear_bit(TFW_QUEUE_B_IPI, &ct->wq.flags);
 	tasklet_schedule(&ct->tasklet);
 }
 
@@ -1726,7 +1726,6 @@ do_cache:
 	TFW_DBG2("Cache: schedule tasklet w/ work: to_cpu=%d from_cpu=%d"
 		 " msg=%p key=%lx\n", cpu, smp_processor_id(),
 		 cw.msg, key);
-
 	if (tfw_wq_push(&ct->wq, &cw, cpu, &ct->ipi_work, tfw_cache_ipi)) {
 		TFW_WARN("Cache work queue overrun: [%s]\n",
 			 resp ? "response" : "request");
@@ -1743,10 +1742,22 @@ static void
 tfw_wq_tasklet(unsigned long data)
 {
 	TfwWorkTasklet *ct = (TfwWorkTasklet *)data;
+	TfwRBQueue *wq = &ct->wq;
 	TfwCWork cw;
 
-	while (!tfw_wq_pop(&ct->wq, &cw))
+	while (!tfw_wq_pop(wq, &cw))
 		tfw_cache_do_action(cw.msg, cw.action);
+
+	set_bit(TFW_QUEUE_B_IPI, &wq->flags);
+
+	smp_mb__after_atomic();
+
+	if (!tfw_wq_size(wq))
+		return;
+
+	clear_bit(TFW_QUEUE_B_IPI, &wq->flags);
+
+	tasklet_schedule(&ct->tasklet);
 }
 
 /**
