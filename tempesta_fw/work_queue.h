@@ -38,12 +38,27 @@ typedef struct {
 	long			last_head;
 	atomic64_t		head ____cacheline_aligned;
 	atomic64_t		tail ____cacheline_aligned;
+	unsigned long		flags;
 } TfwRBQueue;
+
+enum {
+	/* Enable IPI generation. */
+	TFW_QUEUE_B_IPI = 0
+};
 
 int tfw_wq_init(TfwRBQueue *wq, int node);
 void tfw_wq_destroy(TfwRBQueue *wq);
 long __tfw_wq_push(TfwRBQueue *wq, void *ptr);
 int tfw_wq_pop_ticket(TfwRBQueue *wq, void *buf, long *ticket);
+
+static inline int
+tfw_wq_size(TfwRBQueue *q)
+{
+	long t = atomic64_read(&q->tail);
+	long h = atomic64_read(&q->head);
+
+	return t > h ? 0 : h - t;
+}
 
 static inline void
 tfw_raise_softirq(int cpu, struct irq_work *work,
@@ -63,7 +78,8 @@ tfw_wq_push(TfwRBQueue *q, void *ptr, int cpu, struct irq_work *work,
 	if (unlikely(ticket))
 		return ticket;
 
-	tfw_raise_softirq(cpu, work, local_cpu_cb);
+	if (test_bit(TFW_QUEUE_B_IPI, &q->flags))
+		tfw_raise_softirq(cpu, work, local_cpu_cb);
 
 	return 0;
 }
@@ -72,15 +88,6 @@ static inline int
 tfw_wq_pop(TfwRBQueue *wq, void *buf)
 {
 	return tfw_wq_pop_ticket(wq, buf, NULL);
-}
-
-static inline int
-tfw_wq_size(TfwRBQueue *q)
-{
-	long t = atomic64_read(&q->tail);
-	long h = atomic64_read(&q->head);
-
-	return t > h ? 0 : h - t;
 }
 
 #endif /* __TFW_WORK_QUEUE_H__ */
