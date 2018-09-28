@@ -211,7 +211,7 @@ ss_turnstile_push(long ticket, SsWork *sw, int cpu)
 	cn->ticket = ticket;
 	memcpy(&cn->sw, sw, sizeof(*sw));
 	spin_lock_bh(&cb->lock);
-	list_add(&cn->list, &cb->head);
+	list_add_tail(&cn->list, &cb->head);
 	cb->size++;
 	if (cb->turn > ticket)
 		cb->turn = ticket;
