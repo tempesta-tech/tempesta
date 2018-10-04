@@ -33,8 +33,6 @@
 /* TODO remove the rest of the mess. */
 #define ttls_calloc(n, s)	kzalloc((n) * (s), GFP_ATOMIC)
 #define ttls_free(p)		kfree(p)
-#define ttls_snprintf		snprintf
-#define ttls_printf		pr_info
 
 /**
  * \def TTLS_AES_ALT
@@ -61,14 +59,7 @@
  *			digests and ciphers instead.
  *
  */
-//#define TTLS_AES_ALT
-//#define TTLS_CAMELLIA_ALT
-//#define TTLS_CCM_ALT
-//#define TTLS_GCM_ALT
 //#define TTLS_RSA_ALT
-//#define TTLS_SHA1_ALT
-//#define TTLS_SHA256_ALT
-//#define TTLS_SHA512_ALT
 /*
  * When replacing the elliptic curve module, pleace consider, that it is
  * implemented with two .c files:
@@ -115,19 +106,10 @@
  *			and ciphers instead.
  *
  */
-//#define TTLS_SHA1_PROCESS_ALT
-//#define TTLS_SHA256_PROCESS_ALT
-//#define TTLS_SHA512_PROCESS_ALT
-//#define TTLS_DES_SETKEY_ALT
-//#define TTLS_AES_SETKEY_ENC_ALT
-//#define TTLS_AES_SETKEY_DEC_ALT
-//#define TTLS_AES_ENCRYPT_ALT
-//#define TTLS_AES_DECRYPT_ALT
 //#define TTLS_ECDH_GEN_PUBLIC_ALT
 //#define TTLS_ECDH_COMPUTE_SHARED_ALT
 //#define TTLS_ECDSA_VERIFY_ALT
 //#define TTLS_ECDSA_SIGN_ALT
-//#define TTLS_ECDSA_GENKEY_ALT
 
 /**
  * \def TTLS_ECP_INTERNAL_ALT

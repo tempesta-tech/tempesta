@@ -65,6 +65,6 @@ FILE - Path template file from 'js_challenge' directive. File extension
 must be '.tpl'.
 COOKIE - TempestaFW sticky cookie name (directive 'js_challenge');
 MIN_TIME - Value of 'delay_min' parameter for directive 'js_challenge';
-RANGE_TIME - Value of 'defaly_range' parameter for directive 'js_challenge';
+RANGE_TIME - Value of 'delay_range' parameter for directive 'js_challenge';
 
 =cut

@@ -45,6 +45,7 @@
 #include "config.h"
 #include "rsa.h"
 #include "rsa_internal.h"
+#include "ssl_internal.h"
 #include "oid.h"
 #include "md.h"
 
@@ -1010,7 +1011,7 @@ int ttls_rsa_rsaes_oaep_encrypt(ttls_rsa_context *ctx, int mode,
 	*p++ = 0;
 
 	/* Generate a random octet string seed */
-	get_random_bytes_arch(p, hlen);
+	ttls_rnd(p, hlen);
 
 	p += hlen;
 
@@ -1081,7 +1082,7 @@ int ttls_rsa_rsaes_pkcs1_v15_encrypt(ttls_rsa_context *ctx, int mode, size_t ile
 			int rng_dl = 100;
 
 			do {
-				get_random_bytes_arch(p, 1);
+				ttls_rnd(p, 1);
 			} while (*p == 0 && --rng_dl);
 
 			/* Check if RNG failed to generate data */
@@ -1423,7 +1424,7 @@ int ttls_rsa_rsassa_pss_sign(ttls_rsa_context *ctx, int mode,
 	memset(sig, 0, olen);
 
 	/* Generate salt of length slen */
-	get_random_bytes_arch(salt, slen);
+	ttls_rnd(salt, slen);
 
 	/* Note: EMSA-PSS encoding is over the length of N - 1 bits */
 	msb = ttls_mpi_bitlen(&ctx->N) - 1;
@@ -2086,20 +2087,20 @@ int ttls_rsa_self_test(int verbose)
 	TTLS_MPI_CHK(ttls_rsa_complete(&rsa));
 
 	if (verbose != 0)
-		ttls_printf("  RSA key validation: ");
+		pr_info("  RSA key validation: ");
 
 	if (ttls_rsa_check_pubkey( &rsa) != 0 ||
 		ttls_rsa_check_privkey(&rsa) != 0)
 	{
 		if (verbose != 0)
-			ttls_printf("failed\n");
+			pr_info("failed\n");
 
 		ret = 1;
 		goto cleanup;
 	}
 
 	if (verbose != 0)
-		ttls_printf("passed\n  PKCS#1 encryption : ");
+		pr_info("passed\n  PKCS#1 encryption : ");
 
 	memcpy(rsa_plaintext, RSA_PT, PT_LEN);
 
@@ -2108,21 +2109,21 @@ int ttls_rsa_self_test(int verbose)
 		   rsa_ciphertext) != 0)
 	{
 		if (verbose != 0)
-			ttls_printf("failed\n");
+			pr_info("failed\n");
 
 		ret = 1;
 		goto cleanup;
 	}
 
 	if (verbose != 0)
-		ttls_printf("passed\n  PKCS#1 decryption : ");
+		pr_info("passed\n  PKCS#1 decryption : ");
 
 	if (ttls_rsa_pkcs1_decrypt(&rsa, TTLS_RSA_PRIVATE,
 		   &len, rsa_ciphertext, rsa_decrypted,
 		   sizeof(rsa_decrypted)) != 0)
 	{
 		if (verbose != 0)
-			ttls_printf("failed\n");
+			pr_info("failed\n");
 
 		ret = 1;
 		goto cleanup;
@@ -2131,17 +2132,17 @@ int ttls_rsa_self_test(int verbose)
 	if (memcmp(rsa_decrypted, rsa_plaintext, len) != 0)
 	{
 		if (verbose != 0)
-			ttls_printf("failed\n");
+			pr_info("failed\n");
 
 		ret = 1;
 		goto cleanup;
 	}
 
 	if (verbose != 0)
-		ttls_printf("passed\n");
+		pr_info("passed\n");
 
 	if (verbose != 0)
-		ttls_printf("\n");
+		pr_info("\n");
 
 cleanup:
 	ttls_mpi_free(&K);
