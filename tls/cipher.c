@@ -102,11 +102,9 @@ ttls_cipher_setkey(ttls_cipher_context_t *ctx, const unsigned char *key,
 		   int key_len, const ttls_operation_t operation)
 {
 	WARN_ON_ONCE(key_len > 64);
-	if (!ctx || !ctx->cipher_info)
-		return TTLS_ERR_CIPHER_BAD_INPUT_DATA;
-
-	if (!(ctx->cipher_info->flags & TTLS_CIPHER_VARIABLE_KEY_LEN)
-	    && ctx->cipher_info->key_len != key_len)
+	if (!ctx || !ctx->cipher_info
+	    || (!(ctx->cipher_info->flags & TTLS_CIPHER_VARIABLE_KEY_LEN)
+		&& ctx->cipher_info->key_len != key_len))
 	{
 		return TTLS_ERR_CIPHER_BAD_INPUT_DATA;
 	}
@@ -114,7 +112,6 @@ ttls_cipher_setkey(ttls_cipher_context_t *ctx, const unsigned char *key,
 	ctx->key_len = key_len;
 	ctx->operation = operation;
 
-	/* For CFB and CTR mode always use the encryption key schedule. */
 	if (operation == TTLS_ENCRYPT)
 		return ctx->cipher_info->base->setkey_enc_func(ctx->cipher_ctx,
 							       key,

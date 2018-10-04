@@ -40,6 +40,7 @@
 #include "lib/str.h"
 #include "config.h"
 #include "bignum.h"
+#include "ssl_internal.h"
 
 #define ciL	(sizeof(ttls_mpi_uint))		 /* chars in limb  */
 #define biL	(ciL << 3)			   /* bits  in limb  */
@@ -1775,7 +1776,7 @@ ttls_mpi_fill_random(ttls_mpi *X, size_t size)
 	if (size > TTLS_MPI_MAX_SIZE)
 		return TTLS_ERR_MPI_BAD_INPUT_DATA;
 
-	get_random_bytes_arch(buf, size);
+	ttls_rnd(buf, size);
 	TTLS_MPI_CHK(ttls_mpi_read_binary(X, buf, size));
 
 cleanup:
@@ -2216,19 +2217,19 @@ int ttls_mpi_self_test(int verbose)
 		"30879B56C61DE584A0F53A2447A51E"));
 
 	if (verbose != 0)
-		ttls_printf("  MPI test #1 (mul_mpi): ");
+		pr_info("  MPI test #1 (mul_mpi): ");
 
 	if (ttls_mpi_cmp_mpi(&X, &U) != 0)
 	{
 		if (verbose != 0)
-			ttls_printf("failed\n");
+			pr_info("failed\n");
 
 		ret = 1;
 		goto cleanup;
 	}
 
 	if (verbose != 0)
-		ttls_printf("passed\n");
+		pr_info("passed\n");
 
 	TTLS_MPI_CHK(ttls_mpi_div_mpi(&X, &Y, &A, &N));
 
@@ -2241,20 +2242,20 @@ int ttls_mpi_self_test(int verbose)
 		"9EE50D0657C77F374E903CDFA4C642"));
 
 	if (verbose != 0)
-		ttls_printf("  MPI test #2 (div_mpi): ");
+		pr_info("  MPI test #2 (div_mpi): ");
 
 	if (ttls_mpi_cmp_mpi(&X, &U) != 0 ||
 		ttls_mpi_cmp_mpi(&Y, &V) != 0)
 	{
 		if (verbose != 0)
-			ttls_printf("failed\n");
+			pr_info("failed\n");
 
 		ret = 1;
 		goto cleanup;
 	}
 
 	if (verbose != 0)
-		ttls_printf("passed\n");
+		pr_info("passed\n");
 
 	TTLS_MPI_CHK(ttls_mpi_exp_mod(&X, &A, &E, &N, NULL));
 
@@ -2264,19 +2265,19 @@ int ttls_mpi_self_test(int verbose)
 		"325D24D6A3C12710F10A09FA08AB87"));
 
 	if (verbose != 0)
-		ttls_printf("  MPI test #3 (exp_mod): ");
+		pr_info("  MPI test #3 (exp_mod): ");
 
 	if (ttls_mpi_cmp_mpi(&X, &U) != 0)
 	{
 		if (verbose != 0)
-			ttls_printf("failed\n");
+			pr_info("failed\n");
 
 		ret = 1;
 		goto cleanup;
 	}
 
 	if (verbose != 0)
-		ttls_printf("passed\n");
+		pr_info("passed\n");
 
 	TTLS_MPI_CHK(ttls_mpi_inv_mod(&X, &A, &N));
 
@@ -2286,22 +2287,22 @@ int ttls_mpi_self_test(int verbose)
 		"C5B8A74DAC4D09E03B5E0BE779F2DF61"));
 
 	if (verbose != 0)
-		ttls_printf("  MPI test #4 (inv_mod): ");
+		pr_info("  MPI test #4 (inv_mod): ");
 
 	if (ttls_mpi_cmp_mpi(&X, &U) != 0)
 	{
 		if (verbose != 0)
-			ttls_printf("failed\n");
+			pr_info("failed\n");
 
 		ret = 1;
 		goto cleanup;
 	}
 
 	if (verbose != 0)
-		ttls_printf("passed\n");
+		pr_info("passed\n");
 
 	if (verbose != 0)
-		ttls_printf("  MPI test #5 (simple gcd): ");
+		pr_info("  MPI test #5 (simple gcd): ");
 
 	for (i = 0; i < GCD_PAIR_COUNT; i++)
 	{
@@ -2313,7 +2314,7 @@ int ttls_mpi_self_test(int verbose)
 		if (ttls_mpi_cmp_int(&A, gcd_pairs[i][2]) != 0)
 		{
 			if (verbose != 0)
-				ttls_printf("failed at %d\n", i);
+				pr_info("failed at %d\n", i);
 
 			ret = 1;
 			goto cleanup;
@@ -2321,18 +2322,18 @@ int ttls_mpi_self_test(int verbose)
 	}
 
 	if (verbose != 0)
-		ttls_printf("passed\n");
+		pr_info("passed\n");
 
 cleanup:
 
 	if (ret != 0 && verbose != 0)
-		ttls_printf("Unexpected error, return code = %08X\n", ret);
+		pr_info("Unexpected error, return code = %08X\n", ret);
 
 	ttls_mpi_free(&A); ttls_mpi_free(&E); ttls_mpi_free(&N); ttls_mpi_free(&X);
 	ttls_mpi_free(&Y); ttls_mpi_free(&U); ttls_mpi_free(&V);
 
 	if (verbose != 0)
-		ttls_printf("\n");
+		pr_info("\n");
 
 	return ret;
 }

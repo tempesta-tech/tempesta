@@ -779,7 +779,7 @@ out:
  * tcp_read_sock() calls __kfree_skb() through sk_eat_skb() which is good
  * for copying data from skb, but we need to manage skb's ourselves.
  *
- * TODO process URG.
+ * TODO #873 process URG.
  */
 static bool
 ss_tcp_process_data(struct sock *sk)

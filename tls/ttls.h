@@ -84,7 +84,6 @@
 #define TTLS_ERR_NON_FATAL		-0x6680 /**< The alert message received indicates a non-fatal error. */
 #define TTLS_ERR_INVALID_VERIFY_HASH	-0x6600 /**< Couldn't set the hash for verifying CertificateVerify */
 
-#define TTLS_HDR_LEN		5
 #define TTLS_IV_LEN		8 /* explicit IV size */
 
 #define TTLS_MAJOR_VERSION_3	3
@@ -119,26 +118,12 @@
 #define TTLS_VERIFY_REQUIRED	2
 #define TTLS_VERIFY_UNSET	3 /* Used only for sni_authmode */
 
-#define TTLS_SECURE_RENEGOTIATION	1
-
-#define TTLS_ANTI_REPLAY_DISABLED	0
-#define TTLS_ANTI_REPLAY_ENABLED	1
-
-#define TTLS_TRUNC_HMAC_DISABLED	0
-#define TTLS_TRUNC_HMAC_ENABLED	1
-
 #define TTLS_SESSION_TICKETS_DISABLED	0
 #define TTLS_SESSION_TICKETS_ENABLED	1
 
 #if !defined(TTLS_DEFAULT_TICKET_LIFETIME)
 #define TTLS_DEFAULT_TICKET_LIFETIME	86400 /**< Lifetime of session tickets (if enabled) */
 #endif
-
-/*
- * Maxium fragment length in bytes, determines the size of each of the two
- * internal I/O buffers.
- */
-#define TTLS_MAX_CONTENT_LEN		16384
 
 /*
  * Signaling ciphersuite values (SCSV)
@@ -426,7 +411,7 @@ struct ttls_config
  */
 typedef struct {
 	unsigned char	ctr[8];
-	unsigned char	hdr[TTLS_HDR_LEN];
+	unsigned char	hdr[TLS_HEADER_SIZE];
 	union {
 		unsigned char	__msg[16];
 		unsigned char	iv[TTLS_IV_LEN];
@@ -435,7 +420,6 @@ typedef struct {
 	};
 	unsigned char	hdr_cpsz;
 	unsigned char	st_flags;
-	unsigned char	aad_buf[TLS_AAD_SPACE_SIZE];
 	unsigned char	msgtype;
 	unsigned char	hstype;
 	unsigned short	msglen;
@@ -543,14 +527,6 @@ int ttls_get_ciphersuite_id(const char *ciphersuite_name);
 int ttls_ctx_init(TlsCtx *tls, const ttls_config *conf);
 
 /**
- * \brief	Set the current endpoint type
- *
- * \param conf	SSL configuration
- * \param endpoint must be TTLS_IS_CLIENT or TTLS_IS_SERVER
- */
-void ttls_conf_endpoint(ttls_config *conf, int endpoint);
-
-/**
  * \brief	Set the certificate verification mode
  *		Default: NONE on server, REQUIRED on client
  *
@@ -590,8 +566,8 @@ void ttls_conf_authmode(ttls_config *conf, int authmode);
  * \param p_vrfy verification parameter
  */
 void ttls_conf_verify(ttls_config *conf,
-	int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *),
-	void *p_vrfy);
+		      int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *),
+		      void *p_vrfy);
 
 /**
  * \brief	Callback type: generate and write session ticket
@@ -652,8 +628,6 @@ typedef int ttls_ticket_parse_t(void *p_ticket, TlsSess *session,
  * \note	On server, session tickets are enabled by providing
  *		non-NULL callbacks.
  *
- * \note	On client, use \c ttls_conf_session_tickets().
- *
  * \param conf	SSL configuration context
  * \param f_ticket_write	Callback for writing a ticket
  * \param f_ticket_parse	Callback for parsing a ticket
@@ -683,20 +657,6 @@ int ttls_set_session(ttls_context *ssl, const TlsSess *session);
 #endif /* TTLS_CLI_C */
 
 /**
- * \brief	Set the list of allowed ciphersuites and the preference
- *		order. First in the list has the highest preference.
- *		(Overrides all version-specific lists)
- *
- *		The ciphersuites array is not copied, and must remain
- *		valid for the lifetime of the ssl_config.
- *
- * \param conf	SSL configuration
- * \param ciphersuites 0-terminated list of allowed ciphersuites
- */
-void ttls_conf_ciphersuites(ttls_config *conf,
-	const int *ciphersuites);
-
-/**
  * \brief	Set the list of allowed ciphersuites and the
  *		preference order for a specific version of the protocol.
  *		(Only useful on the server side)
@@ -706,15 +666,11 @@ void ttls_conf_ciphersuites(ttls_config *conf,
  *
  * \param conf	SSL configuration
  * \param ciphersuites 0-terminated list of allowed ciphersuites
- * \param major	Major version number (only TTLS_MAJOR_VERSION_3
- *		supported)
- * \param minor	Minor version number (TTLS_MINOR_VERSION_0,
- *		TTLS_MINOR_VERSION_1 and TTLS_MINOR_VERSION_2,
- *		TTLS_MINOR_VERSION_3 supported)
+ * \param minor	Minor version number (TTLS_MINOR_VERSION_3 and
+ *  			TTLS_MINOR_VERSION_2 supported)
  */
 void ttls_conf_ciphersuites_for_version(ttls_config *conf,
-	const int *ciphersuites,
-	int major, int minor);
+					const int *ciphersuites, int minor);
 
 /**
  * \brief	Set the X.509 security profile used for verification
@@ -727,7 +683,7 @@ void ttls_conf_ciphersuites_for_version(ttls_config *conf,
  * \param profile Profile to use
  */
 void ttls_conf_cert_profile(ttls_config *conf,
-	const ttls_x509_crt_profile *profile);
+			    const ttls_x509_crt_profile *profile);
 
 /**
  * \brief	Set the data required to verify peer certificate
@@ -853,7 +809,7 @@ void ttls_conf_curves(ttls_config *conf,
  * \note	This only affects which hashes are offered and can be used
  *		for signatures during the handshake. Hashes for message
  *		authentication and the TLS PRF are controlled by the
- *		ciphersuite, see \c ttls_conf_ciphersuites(). Hashes
+ *		ciphersuite, see \c ttls_conf_ciphersuites_for_version(). Hashes
  *		used for certificate signature are controlled by the
  *		verification profile, see \c ttls_conf_cert_profile().
  *
@@ -864,8 +820,7 @@ void ttls_conf_curves(ttls_config *conf,
  * \param hashes Ordered list of allowed signature hashes,
  *		terminated by \c TTLS_MD_NONE.
  */
-void ttls_conf_sig_hashes(ttls_config *conf,
-	const int *hashes);
+void ttls_conf_sig_hashes(ttls_config *conf, const int *hashes);
 
 /**
  * \brief	Set or reset the hostname to check against the received 
@@ -899,9 +854,8 @@ int ttls_set_hostname(ttls_context *ssl, const char *hostname);
  *
  * \return	0 on success or TTLS_ERR_ALLOC_FAILED
  */
-int ttls_set_hs_own_cert(ttls_context *ssl,
-	ttls_x509_crt *own_cert,
-	ttls_pk_context *pk_key);
+int ttls_set_hs_own_cert(ttls_context *ssl, ttls_x509_crt *own_cert,
+			 ttls_pk_context *pk_key);
 
 /**
  * \brief	Set the data required to verify peer certificate for the
@@ -985,31 +939,6 @@ int ttls_conf_alpn_protocols(ttls_config *conf, const char **protos);
 const char *ttls_get_alpn_protocol(const ttls_context *ssl);
 
 void ttls_conf_version(ttls_config *conf, int min_minor, int max_minor);
-
-/**
- * \brief	Whether to send a list of acceptable CAs in
- *		CertificateRequest messages.
- *		(Default: do send)
- *
- * \param conf	SSL configuration
- * \param cert_req_ca_list 1 or 0
- */
-void ttls_conf_cert_req_ca_list(ttls_config *conf,
-	char cert_req_ca_list);
-
-#if defined(TTLS_CLI_C)
-/**
- * \brief	Enable / Disable session tickets (client only).
- *		(Default: TTLS_SESSION_TICKETS_ENABLED.)
- *
- * \note	On server, use \c ttls_conf_session_tickets_cb().
- *
- * \param conf	SSL configuration
- * \param use_tickets Enable or disable (TTLS_SESSION_TICKETS_ENABLED or
- *		TTLS_SESSION_TICKETS_DISABLED)
- */
-void ttls_conf_session_tickets(ttls_config *conf, int use_tickets);
-#endif /* TTLS_CLI_C */
 
 #if defined(TTLS_CLI_C)
 /**

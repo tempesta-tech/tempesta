@@ -56,13 +56,13 @@
 #define TTLS_MAC_ADD			16
 #define TTLS_PADDING_ADD		0
 
-#define TTLS_PAYLOAD_LEN	(TTLS_MAX_CONTENT_LEN		\
+#define TTLS_PAYLOAD_LEN	(TLS_MAX_PAYLOAD_SIZE		\
 				 + TTLS_COMPRESSION_ADD		\
 				 + TTLS_MAX_IV_LENGTH		\
 				 + TTLS_MAC_ADD			\
 				 + TTLS_PADDING_ADD)
 
-#define TTLS_BUF_LEN		(TTLS_HDR_LEN + TTLS_PAYLOAD_LEN)
+#define TTLS_BUF_LEN		(TLS_HEADER_SIZE + TTLS_PAYLOAD_LEN)
 /*
  * There is currently no ciphersuite using another length with TLS 1.2.
  * RFC 5246 7.4.9 (Page 63) says 12 is the default length and ciphersuites
@@ -119,8 +119,11 @@ typedef struct tls_handshake_t {
 	ttls_x509_crt *sni_ca_chain;	 /*!< trusted CAs from SNI callback  */
 	ttls_x509_crl *sni_ca_crl;	   /*!< trusted CAs CRLs from SNI	  */
 
-	ttls_sha256_context	fin_sha256;
-	ttls_sha512_context	fin_sha512;
+	union {
+		struct shash_desc	desc; /* common for both the contexts */
+		ttls_sha256_context	fin_sha256;
+		ttls_sha512_context	fin_sha512;
+	};
 
 	void (*update_checksum)(ttls_context *, const unsigned char *, size_t);
 	void (*calc_verify)(ttls_context *, unsigned char *);
@@ -198,10 +201,6 @@ int ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 int ttls_write_finished(ttls_context *tls, struct sg_table *sgt,
 			unsigned char **in_buf);
 
-void ttls_optimize_checksum(TlsCtx *tls,
-			    const ttls_ciphersuite_t *ciphersuite_info);
-
-unsigned char ttls_sig_from_pk(ttls_pk_context *pk);
 unsigned char ttls_sig_from_pk_alg(ttls_pk_type_t type);
 ttls_pk_type_t ttls_pk_alg_from_sig(unsigned char sig);
 
@@ -272,6 +271,27 @@ int ttls_get_key_exchange_md_tls1_2(ttls_context *tls,
 		unsigned char *output,
 		unsigned char *data, size_t data_len,
 		ttls_md_type_t md_alg);
+
+#if defined(DEBUG) && (DEBUG >= 3)
+/*
+ * Make the things repeatable, simple and INSECURE on largest debug level -
+ * this helps to debug TLS (thanks to reproducable records payload), but
+ * must not be used in any security sensitive installations.
+ */
+static inline void
+ttls_rnd(void *buf, size_t len)
+{
+	memset(buf, 0x55, len);
+}
+
+unsigned long ttls_time_debug(void);
+
+#define ttls_time()		ttls_time_debug()
+
+#else
+#define ttls_time()		get_seconds()
+#define ttls_rnd(buf, len)	get_random_bytes_arch(buf, len)
+#endif
 
 /*
  * TLS state machine (common states & definitions for client and server).

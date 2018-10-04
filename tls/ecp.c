@@ -1024,7 +1024,8 @@ cleanup:
  *
  * This countermeasure was first suggested in [2].
  */
-static int ecp_randomize_jac(const ttls_ecp_group *grp, ttls_ecp_point *pt)
+static int
+ecp_randomize_jac(const ttls_ecp_group *grp, ttls_ecp_point *pt)
 {
 	int ret;
 	ttls_mpi l, ll;
@@ -1033,41 +1034,43 @@ static int ecp_randomize_jac(const ttls_ecp_group *grp, ttls_ecp_point *pt)
 
 #if defined(TTLS_ECP_RANDOMIZE_JAC_ALT)
 	if (ttls_internal_ecp_grp_capable(grp))
-	{
 		return ttls_internal_ecp_randomize_jac(grp, pt);
-	}
-#endif /* TTLS_ECP_RANDOMIZE_JAC_ALT */
+#endif
 
 	p_size = (grp->pbits + 7) / 8;
-	ttls_mpi_init(&l); ttls_mpi_init(&ll);
+	ttls_mpi_init(&l);
+	ttls_mpi_init(&ll);
 
 	/* Generate l such that 1 < l < p */
-	do
-	{
+	do {
 		TTLS_MPI_CHK(ttls_mpi_fill_random(&l, p_size));
 
 		while (ttls_mpi_cmp_mpi(&l, &grp->P) >= 0)
 			TTLS_MPI_CHK(ttls_mpi_shift_r(&l, 1));
 
 		if (count++ > 10)
-			return(TTLS_ERR_ECP_RANDOM_FAILED);
-	}
-	while (ttls_mpi_cmp_int(&l, 1) <= 0);
+			return TTLS_ERR_ECP_RANDOM_FAILED;
+	} while (ttls_mpi_cmp_int(&l, 1) <= 0);
 
 	/* Z = l * Z */
-	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&pt->Z,   &pt->Z,	 &l )); MOD_MUL(pt->Z);
+	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&pt->Z, &pt->Z, &l));
+	MOD_MUL(pt->Z);
 
 	/* X = l^2 * X */
-	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&ll,	  &l,		 &l )); MOD_MUL(ll);
-	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&pt->X,   &pt->X,	 &ll)); MOD_MUL(pt->X);
+	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&ll, &l, &l));
+	MOD_MUL(ll);
+	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&pt->X, &pt->X, &ll));
+	MOD_MUL(pt->X);
 
 	/* Y = l^3 * Y */
-	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&ll,	  &ll,		&l )); MOD_MUL(ll);
-	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&pt->Y,   &pt->Y,	 &ll)); MOD_MUL(pt->Y);
+	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&ll, &ll,	&l));
+	MOD_MUL(ll);
+	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&pt->Y, &pt->Y, &ll));
+	MOD_MUL(pt->Y);
 
 cleanup:
-	ttls_mpi_free(&l); ttls_mpi_free(&ll);
-
+	ttls_mpi_free(&l);
+	ttls_mpi_free(&ll);
 	return ret;
 }
 
@@ -1928,7 +1931,7 @@ int ttls_ecp_self_test(int verbose)
 	TTLS_MPI_CHK(ttls_ecp_group_load(&grp, TTLS_ECP_DP_SECP192R1));
 
 	if (verbose != 0)
-		ttls_printf("  ECP test #1 (constant op_count, base point G): ");
+		pr_info("  ECP test #1 (constant op_count, base point G): ");
 
 	/* Do a dummy multiplication first to trigger precomputation */
 	TTLS_MPI_CHK(ttls_mpi_lset(&m, 2));
@@ -1957,7 +1960,7 @@ int ttls_ecp_self_test(int verbose)
 			mul_count != mul_c_prev)
 		{
 			if (verbose != 0)
-				ttls_printf("failed (%u)\n", (unsigned int) i);
+				pr_info("failed (%u)\n", (unsigned int) i);
 
 			ret = 1;
 			goto cleanup;
@@ -1965,10 +1968,10 @@ int ttls_ecp_self_test(int verbose)
 	}
 
 	if (verbose != 0)
-		ttls_printf("passed\n");
+		pr_info("passed\n");
 
 	if (verbose != 0)
-		ttls_printf("  ECP test #2 (constant op_count, other point): ");
+		pr_info("  ECP test #2 (constant op_count, other point): ");
 	/* We computed P = 2G last time, use it */
 
 	add_count = 0;
@@ -1994,7 +1997,7 @@ int ttls_ecp_self_test(int verbose)
 			mul_count != mul_c_prev)
 		{
 			if (verbose != 0)
-				ttls_printf("failed (%u)\n", (unsigned int) i);
+				pr_info("failed (%u)\n", (unsigned int) i);
 
 			ret = 1;
 			goto cleanup;
@@ -2002,12 +2005,12 @@ int ttls_ecp_self_test(int verbose)
 	}
 
 	if (verbose != 0)
-		ttls_printf("passed\n");
+		pr_info("passed\n");
 
 cleanup:
 
 	if (ret < 0 && verbose != 0)
-		ttls_printf("Unexpected error, return code = %08X\n", ret);
+		pr_info("Unexpected error, return code = %08X\n", ret);
 
 	ttls_ecp_group_free(&grp);
 	ttls_ecp_point_free(&R);
@@ -2015,7 +2018,7 @@ cleanup:
 	ttls_mpi_free(&m);
 
 	if (verbose != 0)
-		ttls_printf("\n");
+		pr_info("\n");
 
 	return ret;
 }
