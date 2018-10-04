@@ -48,10 +48,10 @@ static int ssl_ticket_gen_key(ttls_ticket_context *ctx,
 	unsigned char buf[MAX_KEY_BYTES];
 	ttls_ticket_key *key = ctx->keys + index;
 
-	key->generation_time = (uint32_t) get_seconds();
+	key->generation_time = (uint32_t) ttls_time();
 
-	get_random_bytes_arch(key->name, sizeof(key->name));
-	get_random_bytes_arch(buf, sizeof(buf));
+	ttls_rnd(key->name, sizeof(key->name));
+	ttls_rnd(buf, sizeof(buf));
 
 	/* With GCM and CCM, same context can encrypt & decrypt */
 	ret = ttls_cipher_setkey(&key->ctx, buf, key->ctx.cipher_info->key_len,
@@ -69,7 +69,7 @@ static int ssl_ticket_update_keys(ttls_ticket_context *ctx)
 {
 	if (ctx->ticket_lifetime != 0)
 	{
-		uint32_t current_time = (uint32_t) get_seconds();
+		uint32_t current_time = (uint32_t) ttls_time();
 		uint32_t key_time = ctx->keys[ctx->active].generation_time;
 
 		if (current_time > key_time &&
@@ -278,7 +278,7 @@ int ttls_ticket_write(void *p_ticket,
 
 	memcpy(key_name, key->name, 4);
 
-	get_random_bytes_arch(iv, 12);
+	ttls_rnd(iv, 12);
 
 	/* Dump session state */
 	if ((ret = ssl_save_session(session,
@@ -400,7 +400,7 @@ int ttls_ticket_parse(void *p_ticket,
 
 	{
 		/* Check for expiration */
-		time_t current_time = get_seconds();
+		time_t current_time = ttls_time();
 
 		if (current_time < session->start ||
 			(uint32_t)(current_time - session->start) > ctx->ticket_lifetime)

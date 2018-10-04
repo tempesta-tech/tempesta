@@ -184,14 +184,13 @@ static inline int ttls_ciphersuite_no_pfs(const ttls_ciphersuite_t *info)
 	}
 }
 
-static inline int ttls_ciphersuite_uses_ecdh(const ttls_ciphersuite_t *info)
+static inline int
+ttls_ciphersuite_uses_ecdh(const ttls_ciphersuite_t *info)
 {
-	switch(info->key_exchange)
-	{
+	switch (info->key_exchange) {
 		case TTLS_KEY_EXCHANGE_ECDH_RSA:
 		case TTLS_KEY_EXCHANGE_ECDH_ECDSA:
-			return(1);
-
+			return 1;
 		default:
 			return 0;
 	}

@@ -113,14 +113,12 @@ int ttls_ecdh_make_params(ttls_ecdh_context *ctx, size_t *olen,
 	int ret;
 	size_t grp_len, pt_len;
 
-	if (ctx == NULL || ctx->grp.pbits == 0)
-		return(TTLS_ERR_ECP_BAD_INPUT_DATA);
+	BUG_ON(!ctx || !ctx->grp.pbits);
 
 	if ((ret = ttls_ecdh_gen_public(&ctx->grp, &ctx->d, &ctx->Q)))
 		return ret;
 
-	if ((ret = ttls_ecp_tls_write_group(&ctx->grp, &grp_len, buf, blen))
-				!= 0)
+	if ((ret = ttls_ecp_tls_write_group(&ctx->grp, &grp_len, buf, blen)))
 		return ret;
 
 	buf += grp_len;

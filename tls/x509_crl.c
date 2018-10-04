@@ -578,23 +578,23 @@ int ttls_x509_crl_info(char *buf, size_t size, const char *prefix,
 	p = buf;
 	n = size;
 
-	ret = ttls_snprintf(p, n, "%sCRL version   : %d",
+	ret = snprintf(p, n, "%sCRL version   : %d",
 				   prefix, crl->version);
 	TTLS_X509_SAFE_SNPRINTF;
 
-	ret = ttls_snprintf(p, n, "\n%sissuer name   : ", prefix);
+	ret = snprintf(p, n, "\n%sissuer name   : ", prefix);
 	TTLS_X509_SAFE_SNPRINTF;
 	ret = ttls_x509_dn_gets(p, n, &crl->issuer);
 	TTLS_X509_SAFE_SNPRINTF;
 
-	ret = ttls_snprintf(p, n, "\n%sthis update   : " \
+	ret = snprintf(p, n, "\n%sthis update   : " \
 				   "%04d-%02d-%02d %02d:%02d:%02d", prefix,
 				   crl->this_update.year, crl->this_update.mon,
 				   crl->this_update.day,  crl->this_update.hour,
 				   crl->this_update.min,  crl->this_update.sec);
 	TTLS_X509_SAFE_SNPRINTF;
 
-	ret = ttls_snprintf(p, n, "\n%snext update   : " \
+	ret = snprintf(p, n, "\n%snext update   : " \
 				   "%04d-%02d-%02d %02d:%02d:%02d", prefix,
 				   crl->next_update.year, crl->next_update.mon,
 				   crl->next_update.day,  crl->next_update.hour,
@@ -603,20 +603,20 @@ int ttls_x509_crl_info(char *buf, size_t size, const char *prefix,
 
 	entry = &crl->entry;
 
-	ret = ttls_snprintf(p, n, "\n%sRevoked certificates:",
+	ret = snprintf(p, n, "\n%sRevoked certificates:",
 				   prefix);
 	TTLS_X509_SAFE_SNPRINTF;
 
 	while (entry != NULL && entry->raw.len != 0)
 	{
-		ret = ttls_snprintf(p, n, "\n%sserial number: ",
+		ret = snprintf(p, n, "\n%sserial number: ",
 				   prefix);
 		TTLS_X509_SAFE_SNPRINTF;
 
 		ret = ttls_x509_serial_gets(p, n, &entry->serial);
 		TTLS_X509_SAFE_SNPRINTF;
 
-		ret = ttls_snprintf(p, n, " revocation date: " \
+		ret = snprintf(p, n, " revocation date: " \
 				   "%04d-%02d-%02d %02d:%02d:%02d",
 				   entry->revocation_date.year, entry->revocation_date.mon,
 				   entry->revocation_date.day,  entry->revocation_date.hour,
@@ -626,14 +626,14 @@ int ttls_x509_crl_info(char *buf, size_t size, const char *prefix,
 		entry = entry->next;
 	}
 
-	ret = ttls_snprintf(p, n, "\n%ssigned using  : ", prefix);
+	ret = snprintf(p, n, "\n%ssigned using  : ", prefix);
 	TTLS_X509_SAFE_SNPRINTF;
 
 	ret = ttls_x509_sig_alg_gets(p, n, &crl->sig_oid, crl->sig_pk, crl->sig_md,
 				 crl->sig_opts);
 	TTLS_X509_SAFE_SNPRINTF;
 
-	ret = ttls_snprintf(p, n, "\n");
+	ret = snprintf(p, n, "\n");
 	TTLS_X509_SAFE_SNPRINTF;
 
 	return((int) (size - n));

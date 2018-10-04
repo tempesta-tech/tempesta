@@ -42,7 +42,7 @@ MODULE_VERSION("0.2.0");
 MODULE_LICENSE("GPL");
 
 static struct kmem_cache *ttls_hs_cache;
-static ttls_send_cb_t	*ttls_send_cb;
+static ttls_send_cb_t *ttls_send_cb;
 
 void
 ttls_write_hshdr(unsigned char type, unsigned char *buf, unsigned short len)
@@ -69,28 +69,30 @@ ttls_write_hshdr(unsigned char type, unsigned char *buf, unsigned short len)
  *	  and returns number of chunks in the scatter list.
  */
 static struct aead_request *
-ttls_crypto_req_sglist(TlsCtx *tls, unsigned int len,unsigned char *buf,
-		       struct scatterlist **sg, unsigned int *sgn)
+ttls_crypto_req_sglist(TlsCtx *tls, struct crypto_aead *tfm, unsigned int len,
+		       unsigned char *buf, struct scatterlist **sg,
+		       unsigned int *sgn)
 {
 	TlsIOCtx *io = &tls->io_in;
 	struct scatterlist *sg_i;
 	struct aead_request *req;
 	struct sk_buff *skb = io->skb_list;
-	unsigned int sz, n, to_read, off;
+	unsigned int sz, aead_sz, n, to_read, off;
 
+	sz = aead_sz = sizeof(*req) + crypto_aead_reqsize(tfm);
 	if (buf) {
 		off = 0;
-		sz = sizeof(*req) + (*sgn + 1) * sizeof(**sg);
+		sz += (*sgn + 1) * sizeof(**sg);
 	} else {
 		off = io->off;
-		sz = sizeof(*req) + (*sgn + io->chunks) * sizeof(**sg);
+		sz += (*sgn + io->chunks) * sizeof(**sg);
 	}
 	BUG_ON(!buf && (!skb || skb->len <= off)); /* nothing to decrypt */
 
 	req = kmalloc(sz, GFP_ATOMIC);
 	if (!req)
 		return NULL;
-	*sg = (struct scatterlist *)(req + 1);
+	*sg = (struct scatterlist *)((char *)req + aead_sz);
 	sg_i = *sg + *sgn;
 
 	if (buf) {
@@ -210,6 +212,8 @@ ssl_session_copy(TlsSess *dst, const TlsSess *src)
 
 /*
  * Key material generation.
+ * Pseudo-random function (PRF) in sense of TLS 1.1 (RFC 4346) was replaced
+ * with cipher-suite-specified hashes.
  */
 static int
 tls_prf_generic(ttls_md_type_t md_type, const unsigned char *secret,
@@ -289,27 +293,30 @@ tls_prf_sha384(const unsigned char *secret, size_t slen, const char *label,
 }
 
 static void
-ttls_update_checksum_start(TlsCtx *tls, const unsigned char *buf, size_t len)
+ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len)
 {
 	int r;
+	TlsHandshake *hs = tls->hs;
+	const ttls_ciphersuite_t *ci = tls->xfrm.ciphersuite_info;
 
-	r = crypto_shash_update(&tls->hs->fin_sha256.desc, buf, len);
+	/*
+	 * Initialize the hash context on first call to avoid double
+	 * hash calculation.
+	 */
+	BUG_ON(!ci);
+	if (unlikely(!hs->desc.tfm)) {
+		if (ci->mac == TTLS_MD_SHA384)
+			ttls_sha384_init_start(&hs->fin_sha512);
+		else
+			ttls_sha256_init_start(&hs->fin_sha256);
+	}
+
+	T_DBG2("update checksum on buf %pK len=%ld, hash=%d\n",
+	       buf, len, ci->mac);
+	T_DBG3_BUF("hash buf ", buf, len);
+
+	r = crypto_shash_update(&tls->hs->desc, buf, len);
 	WARN_ON_ONCE(r);
-	r = crypto_shash_update(&tls->hs->fin_sha512.desc, buf, len);
-	WARN_ON_ONCE(r);
-
-}
-
-static void
-ttls_update_checksum_sha256(TlsCtx *tls, const unsigned char *buf, size_t len)
-{
-	crypto_shash_update(&tls->hs->fin_sha256.desc, buf, len);
-}
-
-static void
-ttls_update_checksum_sha384(TlsCtx *tls, const unsigned char *buf, size_t len)
-{
-	crypto_shash_update(&tls->hs->fin_sha512.desc, buf, len);
 }
 
 static void
@@ -325,7 +332,8 @@ ttls_calc_verify_tls_sha256(TlsCtx *tls, unsigned char hash[32])
 	bzero_fast(&sha256, sizeof(sha256));
 }
 
-void ssl_calc_verify_tls_sha384(TlsCtx *tls, unsigned char hash[48])
+static void
+ttls_calc_verify_tls_sha384(TlsCtx *tls, unsigned char hash[48])
 {
 	ttls_sha512_context sha512;
 
@@ -360,7 +368,7 @@ ttls_calc_finished_tls_sha256(TlsCtx *tls, unsigned char *buf, int from)
 	crypto_shash_final(&sha256.desc, padbuf);
 	tls->hs->tls_prf(sess->master, 48, sender, padbuf, 32, buf, len);
 
-	T_DBG3_BUF("%s: calc finished sha256 result\n", buf, len);
+	T_DBG3_BUF("calc finished sha256 result\n", buf, len);
 
 	bzero_fast(&sha256, sizeof(sha256));
 	bzero_fast(padbuf, sizeof(padbuf));
@@ -389,7 +397,7 @@ ttls_calc_finished_tls_sha384(TlsCtx *tls, unsigned char *buf, int from)
 	crypto_shash_final(&sha512.desc, padbuf);
 	tls->hs->tls_prf(sess->master, 48, sender, padbuf, 48, buf, len);
 
-	T_DBG3_BUF("%s: calc finished sha512 result\n", buf, len);
+	T_DBG3_BUF("calc finished sha512 result\n", buf, len);
 
 	bzero_fast(&sha512, sizeof(sha512));
 	bzero_fast(padbuf, sizeof(padbuf));
@@ -399,7 +407,7 @@ int
 ttls_derive_keys(TlsCtx *tls)
 {
 	unsigned char keyblk[256];
-	unsigned char tmp[64];
+	unsigned char tmp[32];
 	unsigned char *key1, *key2, *mac_enc, *mac_dec;
 	const ttls_cipher_info_t *ci;
 	const TlsMdInfo *md_info;
@@ -426,7 +434,7 @@ ttls_derive_keys(TlsCtx *tls)
 	/* Set appropriate PRF function and other TLS 1.2 functions. */
 	if (xfrm->ciphersuite_info->mac == TTLS_MD_SHA384) {
 		hs->tls_prf = tls_prf_sha384;
-		hs->calc_verify = ssl_calc_verify_tls_sha384;
+		hs->calc_verify = ttls_calc_verify_tls_sha384;
 		hs->calc_finished = ttls_calc_finished_tls_sha384;
 	} else {
 		hs->tls_prf = tls_prf_sha256;
@@ -448,7 +456,7 @@ ttls_derive_keys(TlsCtx *tls)
 			else
 				hash_len = 32;
 
-			T_DBG3_BUF("session hash", session_hash, hash_len);
+			T_DBG3_BUF("session hash ", session_hash, hash_len);
 
 			r = hs->tls_prf(hs->premaster, hs->pmslen,
 					"extended master secret",
@@ -466,18 +474,19 @@ ttls_derive_keys(TlsCtx *tls)
 		}
 		bzero_fast(hs->premaster, sizeof(hs->premaster));
 	}
-	else
+	else {
 		T_DBG("no premaster (session resumed)\n");
+	}
 
 	/* Swap the client and server random values. */
-	memcpy_fast(tmp, hs->randbytes, 64);
-	memcpy_fast(hs->randbytes, tmp + 32, 32);
+	memcpy_fast(tmp, hs->randbytes, 32);
+	memcpy_fast(hs->randbytes, hs->randbytes + 32, 32);
 	memcpy_fast(hs->randbytes + 32, tmp, 32);
 	bzero_fast(tmp, sizeof(tmp));
 
-	/* TLSv1: key block = PRF(master, "key expansion", randbytes). */
-	r = hs->tls_prf(sess->master, 48, "key expansion", hs->randbytes,
-			64, keyblk, 256);
+	/* key block = PRF(master, "key expansion", randbytes). */
+	r = hs->tls_prf(sess->master, 48, "key expansion", hs->randbytes, 64,
+			keyblk, 256);
 	if (r) {
 		T_DBG("prf key expansion error, %d\n", r);
 		return r;
@@ -485,9 +494,9 @@ ttls_derive_keys(TlsCtx *tls)
 
 	T_DBG("ciphersuite = %s\n",
 	      ttls_get_ciphersuite_name(sess->ciphersuite));
-	T_DBG3_BUF("master secret", sess->master, 48);
-	T_DBG3_BUF("random bytes", hs->randbytes, 64);
-	T_DBG3_BUF("key block", keyblk, 256);
+	T_DBG3_BUF("master secret ", sess->master, 48);
+	T_DBG3_BUF("random bytes ", hs->randbytes, 64);
+	T_DBG3_BUF("key block ", keyblk, 256);
 
 	bzero_fast(hs->randbytes, sizeof(hs->randbytes));
 
@@ -539,8 +548,9 @@ ttls_derive_keys(TlsCtx *tls)
 			xfrm->minlen += xfrm->ivlen;
 		}
 	}
-	T_DBG("keylen: %u, minlen: %u, ivlen: %u, maclen: %u\n",
-	      xfrm->keylen, xfrm->minlen, xfrm->ivlen, xfrm->maclen);
+	T_DBG("keylen=%u minlen=%u ivlen=%u maclen=%u tagsize=%d"
+	      " mac_key_len=%lu\n", xfrm->keylen, xfrm->minlen, xfrm->ivlen,
+	      xfrm->maclen, tag_size, mac_key_len);
 
 	/* Finally setup the cipher contexts, IVs and MAC secrets. */
 #if defined(TTLS_CLI_C)
@@ -569,6 +579,10 @@ ttls_derive_keys(TlsCtx *tls)
 		memcpy_fast(xfrm->iv_enc, key1 + xfrm->keylen + iv_copy_len,
 			    iv_copy_len);
 	}
+	T_DBG3_BUF("derive keys: IV_enc fixed ", xfrm->iv_enc, iv_copy_len);
+	T_DBG3_BUF("derive keys: key_enc ", key1, ci->key_len);
+	T_DBG3_BUF("derive keys: IV_dec fixed ", xfrm->iv_dec, iv_copy_len);
+	T_DBG3_BUF("derive keys: key_dec ", key2, ci->key_len);
 
 	if (mac_key_len) {
 		ttls_md_hmac_starts(&xfrm->md_ctx_enc, mac_enc, mac_key_len);
@@ -583,7 +597,6 @@ ttls_derive_keys(TlsCtx *tls)
 		T_DBG("cannot setup decryption cipher, %d\n", r);
 		return r;
 	}
-
 	if ((r = ttls_cipher_setkey(&xfrm->cipher_ctx_enc, key1, ci->key_len,
 				    TTLS_ENCRYPT)))
 	{
@@ -620,10 +633,10 @@ ttls_encrypt(TlsCtx *tls, struct sg_table *sgt)
 	struct aead_request req;
 
 	WARN_ON_ONCE(!ttls_xfrm_ready(tls));
-	if (io->msglen > TTLS_MAX_CONTENT_LEN) {
-		T_DBG("%s record content %u too large, maximum %d\n",
+	if (io->msglen > TLS_MAX_PAYLOAD_SIZE) {
+		T_DBG("%s record content %u too large, maximum %lu\n",
 		      __func__, (unsigned)io->msglen,
-		      TTLS_MAX_CONTENT_LEN);
+		      TLS_MAX_PAYLOAD_SIZE);
 		return TTLS_ERR_BAD_INPUT_DATA;
 	}
 
@@ -648,14 +661,19 @@ ttls_encrypt(TlsCtx *tls, struct sg_table *sgt)
 }
 EXPORT_SYMBOL(ttls_encrypt);
 
-/* TODO it seems we don't need the header any more.... */
+/*
+ * Fill in the buffer with additional authentication data for AES-GCM,
+ * RFC 5246 6.2.3.3.
+ * TODO replace with standard tls_make_aad() defined in include/net/tls.h in
+ * modern kernels.
+ */
 static void
-ttls_make_aad(TlsCtx *tls, TlsIOCtx *io)
+ttls_make_aad(TlsCtx *tls, TlsIOCtx *io, unsigned char *aad_buf)
 {
-	memcpy_fast(io->aad_buf, io->ctr, 8);
-	ttls_write_hdr(tls, io->msgtype, io->msglen, io->aad_buf + 8);
+	memcpy_fast(aad_buf, io->ctr, 8);
+	ttls_write_hdr(tls, io->msgtype, io->msglen, aad_buf + 8);
 	T_DBG3_BUF("additional data used for AEAD ",
-		   io->aad_buf, TLS_AAD_SPACE_SIZE);
+		   aad_buf, TLS_AAD_SPACE_SIZE);
 }
 
 static int
@@ -666,10 +684,12 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 	ttls_cipher_mode_t mode;
 	TlsXfrm *xfrm = &tls->xfrm;
 	TlsIOCtx *io = &tls->io_in;
+	struct crypto_aead *tfm = xfrm->cipher_ctx_dec.cipher_ctx;
 	unsigned int sgn = 1;
 	unsigned char taglen;
 	struct aead_request *req;
 	struct scatterlist *sg = NULL;
+	unsigned char aad_buf[TLS_AAD_SPACE_SIZE];
 
 	if (unlikely(io->msglen < xfrm->minlen)) {
 		T_DBG("%s msglen (%u) < minlen (%u)\n", __func__,
@@ -695,20 +715,33 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 
 	memcpy_fast(xfrm->iv_dec + xfrm->fixed_ivlen, io->iv,
 		    xfrm->ivlen - xfrm->fixed_ivlen);
-	req = ttls_crypto_req_sglist(tls, dec_msglen + taglen, buf, &sg, &sgn);
-	if (!req)
+	// TODO adjust (reduce) skb->{len,truelen} after decryption
+	req = ttls_crypto_req_sglist(tls, tfm, dec_msglen + taglen, buf,
+				     &sg, &sgn);
+	if (!req || WARN_ON_ONCE(sgn < 2))
 		return TTLS_ERR_INTERNAL_ERROR;
-	ttls_make_aad(tls, io);
-	sg_set_buf(&sg[0], io->aad_buf, TLS_AAD_SPACE_SIZE);
+	ttls_make_aad(tls, io, aad_buf);
+	sg_set_buf(&sg[0], aad_buf, TLS_AAD_SPACE_SIZE);
 
+	T_DBG3("TFM: authsize=%u reqsize=%u\n", tfm->authsize, tfm->reqsize);
 	T_DBG3_BUF("IV used ", xfrm->iv_dec, xfrm->ivlen);
-	T_DBG3_SL("TAG used", sg, sgn, dec_msglen, taglen);
+	T_DBG3_SL("decrypt: AAD|msg|TAG", sg, sgn, 0, dec_msglen + taglen);
 
-	/* Decrypt and authenticate. */
-	aead_request_set_tfm(req, xfrm->cipher_ctx_dec.cipher_ctx);
+	/*
+	 * Decrypt and authenticate.
+	 * Write decrypted data in-place to the original skb by offset of IV.
+	 */
+	aead_request_set_tfm(req, tfm);
 	aead_request_set_ad(req, TLS_AAD_SPACE_SIZE);
-	aead_request_set_crypt(req, sg, sg, dec_msglen, xfrm->iv_dec);
+	aead_request_set_crypt(req, sg, sg + 1, dec_msglen + taglen,
+			       xfrm->iv_dec);
 	r = crypto_aead_decrypt(req);
+
+	// 14 00 00 0c 23 b2 18 bf d6 af a4 dc 7d 9b 7d 22
+	// FIXME includes 13-byte AAD at the begin
+	T_DBG3_SL("raw buffer after decryption", sg + 1, sgn - 1, 0,
+		  dec_msglen);
+
 	kfree(req);
 
 	return r;
@@ -743,7 +776,7 @@ ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 
 	ttls_ep_check(io, "incomming");
 
-	if (io->msglen > TTLS_MAX_CONTENT_LEN) {
+	if (io->msglen > TLS_MAX_PAYLOAD_SIZE) {
 		T_DBG("bad message length %u\n", io->msglen);
 		return T_DROP;
 	}
@@ -752,9 +785,7 @@ ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 }
 
 /**
- * Send a TLS record.
- * The record is assembled from @tls->hdr of length @tls->io_out.msglen and
- * page fragments from @sgt.
+ * Form a TLS record from segments in @sgt starting at @sg_i.
  */
 void
 __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
@@ -767,9 +798,11 @@ __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
 
 	if (io->msgtype == TTLS_MSG_HANDSHAKE) {
 		/*
-		 * Update handshake checksum with the message body excluding
-		 * TLS record header. @sgt must be present or io->hs_hdr must
-		 * be used for checksumming.
+		 * Update handshake checksum with handshake messages, not
+		 * including any HelloRequest messages, body excluding TLS
+		 * record header (RFC 5246 7.4.9).
+		 * @sgt must be present or io->hs_hdr must be used for
+		 * checksumming.
 		 */
 		BUG_ON(!io->hslen && (!sgt || !sgt->sgl || sgt->nents < 1));
 		WARN_ON_ONCE(io->hstype != TTLS_HS_HELLO_REQUEST && !tls->hs);
@@ -782,7 +815,7 @@ __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
 							 io->hslen);
 			if (sgt) {
 				struct scatterlist *sg;
-				for (sg = sgt->sgl; sg_i < sgt->nents;
+				for (sg = &sgt->sgl[sg_i]; sg_i < sgt->nents;
 				     sg_i++, sg = sg_next(sg))
 				{
 					tls->hs->update_checksum(tls,
@@ -869,7 +902,7 @@ ttls_hdr_check(TlsCtx *tls)
 	}
 	/* Check length against bounds of the current transform and version */
 	if (!ttls_xfrm_ready(tls)) {
-		if (io->msglen < 1 || io->msglen > TTLS_MAX_CONTENT_LEN) {
+		if (io->msglen < 1 || io->msglen > TLS_MAX_PAYLOAD_SIZE) {
 			T_DBG("bad message length %u\n", io->msglen);
 			return T_DROP;
 		}
@@ -879,7 +912,7 @@ ttls_hdr_check(TlsCtx *tls)
 		 */
 		if (io->msglen < tls->xfrm.minlen
 		    || io->msglen
-		       > tls->xfrm.minlen + TTLS_MAX_CONTENT_LEN + 256)
+		       > tls->xfrm.minlen + TLS_MAX_PAYLOAD_SIZE + 256)
 		{
 			T_DBG("bad message length %u\n", io->msglen);
 			return T_DROP;
@@ -913,7 +946,7 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 	TlsIOCtx *io = &tls->io_in;
 
 	/* Read TLS message header, probably fragmented. */
-	hlen = TTLS_HDR_LEN;
+	hlen = TLS_HEADER_SIZE;
 	if (unlikely(io->hdr_cpsz + len < hlen)) {
 		memcpy_fast(io->hdr + io->hdr_cpsz, buf, len);
 		*read += len;
@@ -1104,7 +1137,7 @@ int
 ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 		       unsigned char **in_buf)
 {
-	unsigned int sg_nents;
+	unsigned int sg_i;
 	size_t i, n, cn, tot_len, cn_max = MAX_SKB_FRAGS / 2 - 1;
 	const ttls_x509_crt *crt;
 	TlsIOCtx *io = &tls->io_out;
@@ -1112,14 +1145,14 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 
 #if defined(TTLS_CLI_C)
 	if (tls->conf->endpoint == TTLS_IS_CLIENT && !tls->client_auth) {
-		TTLS_DEBUG_MSG(2, ("<= skip write certificate"));
+		T_DBG2("<= skip write certificate");
 		tls->state++;
 		return 0;
 	}
 #endif
 
 	/* Leave the sg for the record header and certs descriptor. */
-	sg_nents = sgt->nents++;
+	sg_i = sgt->nents++;
 
 	if (tls->conf->endpoint == TTLS_IS_SERVER && !ttls_own_cert(tls)) {
 		T_DBG("got no certificate to send\n");
@@ -1133,12 +1166,12 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 	 * n+3 . ...	upper level cert, etc.
 	 */
 	tot_len = 7;
-	i = tot_len + TTLS_HDR_LEN;
+	i = tot_len + TLS_HEADER_SIZE;
 	for (cn = 0, crt = ttls_own_cert(tls); crt; ) {
 		n = crt->raw.len;
-		if (n > TTLS_MAX_CONTENT_LEN - 3 - i) {
-			T_WARN("certificate too large, %lu > %d\n",
-			       i + 3 + n, TTLS_MAX_CONTENT_LEN);
+		if (n > TLS_MAX_PAYLOAD_SIZE - 3 - i) {
+			T_WARN("certificate too large, %lu > %lu\n",
+			       i + 3 + n, TLS_MAX_PAYLOAD_SIZE);
 			return TTLS_ERR_CERTIFICATE_TOO_LARGE;
 		}
 
@@ -1179,17 +1212,17 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 	 *  9 . 11	length of all certs
 	 */
 	io->msglen = tot_len;
-	ttls_write_hshdr(TTLS_HS_CERTIFICATE, p + TTLS_HDR_LEN, tot_len);
+	ttls_write_hshdr(TTLS_HS_CERTIFICATE, p + TLS_HEADER_SIZE, tot_len);
 	p[9] = (unsigned char)((tot_len - 7) >> 16);
 	p[10] = (unsigned char)((tot_len - 7) >> 8);
 	p[11] = (unsigned char)(tot_len - 7);
 	T_DBG3("cert desc %pK,len=%lu segs=%u\n", p, i, sgt->nents);
 
 	*in_buf = p + i;
-	sg_set_page(&sgt->sgl[sg_nents], virt_to_page(p), i,
+	sg_set_page(&sgt->sgl[sg_i], virt_to_page(p), i,
 		    (unsigned long)p & ~PAGE_MASK);
 	get_page(virt_to_page(p));
-	__ttls_add_record(tls, sgt, sg_nents, p);
+	__ttls_add_record(tls, sgt, sg_i, p);
 
 	return 0;
 }
@@ -1344,7 +1377,7 @@ parse:
 			goto err;
 		}
 	}
-	TTLS_DEBUG_CRT(3, "peer certificate", sess->peer_cert);
+	TTLS_DEBUG_CRT("peer certificate", sess->peer_cert);
 
 	if (authmode != TTLS_VERIFY_NONE) {
 		const ttls_pk_context *pk = &sess->peer_cert->pk;
@@ -1497,15 +1530,6 @@ ttls_parse_change_cipher_spec(ttls_context *tls, unsigned char *buf, size_t len,
 	return 0;
 }
 
-void
-ttls_optimize_checksum(TlsCtx *tls, const ttls_ciphersuite_t *ciphersuite_info)
-{
-	if (ciphersuite_info->mac == TTLS_MD_SHA384)
-		tls->hs->update_checksum = ttls_update_checksum_sha384;
-	else
-		tls->hs->update_checksum = ttls_update_checksum_sha256;
-}
-
 int
 ttls_write_finished(TlsCtx *tls, struct sg_table *sgt, unsigned char **in_buf)
 {
@@ -1519,10 +1543,10 @@ ttls_write_finished(TlsCtx *tls, struct sg_table *sgt, unsigned char **in_buf)
 
 	bzero_fast(io->ctr, 8);
 	io->msglen = TTLS_HS_HDR_LEN + TLS_MAX_HASH_LEN;
-	ttls_write_hshdr(TTLS_HS_FINISHED, p + TTLS_HDR_LEN,
+	ttls_write_hshdr(TTLS_HS_FINISHED, p + TLS_HEADER_SIZE,
 			 TLS_MAX_HASH_LEN);
 
-	*in_buf += TTLS_HDR_LEN + TTLS_HS_HDR_LEN + TLS_MAX_HASH_LEN;
+	*in_buf += TLS_HEADER_SIZE + TTLS_HS_HDR_LEN + TLS_MAX_HASH_LEN;
 	sg_set_page(&sgt->sgl[sgt->nents++], virt_to_page(p), *in_buf - p,
 		    (unsigned long)p & ~PAGE_MASK);
 	get_page(virt_to_page(p));
@@ -1560,9 +1584,9 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 		return TTLS_ERR_BAD_HS_FINISHED;
 	}
 
-	ct_len = io->msglen - xfrm->ivlen - xfrm->fixed_ivlen;
+	ct_len = io->msglen - (xfrm->ivlen - xfrm->fixed_ivlen);
 
-	T_DBG3_BUF("Client finished msg body ", buf, ct_len);
+	T_DBG3_BUF("Client finished msg body", buf, ct_len);
 
 	/* Copy small chunks to the temporary buffer. */
 	n = min_t(unsigned int, ct_len - io->rlen, len);
@@ -1574,6 +1598,7 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 
 	if ((r = ttls_decrypt(tls, hs->finished)))
 		return r;
+	T_DBG3_BUF("A_DBG finished buf ", hs->finished, 16);
 	/* Verify the handshake header. */
 	if (unlikely(hs->finished[0] != TTLS_HS_FINISHED
 		     || hs->finished[1] || hs->finished[2]
@@ -1610,13 +1635,11 @@ ttls_sig_hash_set_const_hash(ttls_sig_hash_set_t *set, ttls_md_type_t md_alg)
 }
 
 static void
-ssl_handshake_params_init(TlsHandshake *hs)
+ttls_handshake_params_init(TlsHandshake *hs)
 {
 	bzero_fast(hs, sizeof(*hs));
 
-	ttls_sha256_init_start(&hs->fin_sha256);
-	ttls_sha384_init_start(&hs->fin_sha512);
-	hs->update_checksum = ttls_update_checksum_start;
+	hs->update_checksum = ttls_update_checksum;
 	ttls_sig_hash_set_const_hash(&hs->hash_algs, TTLS_MD_NONE);
 
 #if defined(TTLS_DHM_C)
@@ -1637,31 +1660,25 @@ ttls_ctx_init(TlsCtx *tls, const ttls_config *conf)
 	tls->hs = kmem_cache_alloc(ttls_hs_cache, GFP_ATOMIC);
 	if (!tls->hs)
 		return -ENOMEM;
-	ssl_handshake_params_init(tls->hs);
+	ttls_handshake_params_init(tls->hs);
 
 	return 0;
 }
 EXPORT_SYMBOL(ttls_ctx_init);
 
-/*
- * SSL set accessors
- */
-void ttls_conf_endpoint(ttls_config *conf, int endpoint)
-{
-	conf->endpoint = endpoint;
-}
-
-void ttls_conf_authmode(ttls_config *conf, int authmode)
+void
+ttls_conf_authmode(ttls_config *conf, int authmode)
 {
 	conf->authmode = authmode;
 }
 
-void ttls_conf_verify(ttls_config *conf,
-		int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *),
-		void *p_vrfy)
+void
+ttls_conf_verify(ttls_config *conf,
+		 int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *),
+		 void *p_vrfy)
 {
-	conf->f_vrfy	 = f_vrfy;
-	conf->p_vrfy	 = p_vrfy;
+	conf->f_vrfy = f_vrfy;
+	conf->p_vrfy = p_vrfy;
 }
 
 #if defined(TTLS_CLI_C)
@@ -1685,58 +1702,43 @@ int ttls_set_session(ttls_context *tls, const ttls_ssl_session *session)
 }
 #endif /* TTLS_CLI_C */
 
-void ttls_conf_ciphersuites(ttls_config *conf,
-		const int *ciphersuites)
+void
+ttls_conf_ciphersuites_for_version(ttls_config *conf, const int *ciphersuites,
+				   int minor)
 {
-	conf->ciphersuite_list[TTLS_MINOR_VERSION_0] = ciphersuites;
-	conf->ciphersuite_list[TTLS_MINOR_VERSION_1] = ciphersuites;
-	conf->ciphersuite_list[TTLS_MINOR_VERSION_2] = ciphersuites;
-	conf->ciphersuite_list[TTLS_MINOR_VERSION_3] = ciphersuites;
-}
-
-void ttls_conf_ciphersuites_for_version(ttls_config *conf,
-		const int *ciphersuites,
-		int major, int minor)
-{
-	if (major != TTLS_MAJOR_VERSION_3)
-		return;
-
-	if (minor < TTLS_MINOR_VERSION_0 || minor > TTLS_MINOR_VERSION_3)
-		return;
-
+	WARN_ON(minor < TTLS_MINOR_VERSION_3 || minor > TTLS_MINOR_VERSION_4);
 	conf->ciphersuite_list[minor] = ciphersuites;
 }
 
-void ttls_conf_cert_profile(ttls_config *conf,
-		const ttls_x509_crt_profile *profile)
+void
+ttls_conf_cert_profile(ttls_config *conf, const ttls_x509_crt_profile *profile)
 {
 	conf->cert_profile = profile;
 }
 
-/* Append a new keycert entry to a (possibly empty) list */
-static int ssl_append_key_cert(ttls_key_cert **head,
-		ttls_x509_crt *cert,
-		ttls_pk_context *key)
+/**
+ * Append a new keycert entry to a (possibly empty) list.
+ * Called in process context on the startup.
+ */
+static int
+ttls_append_key_cert(ttls_key_cert **head, ttls_x509_crt *cert,
+		     ttls_pk_context *key)
 {
 	ttls_key_cert *new;
 
-	new = ttls_calloc(1, sizeof(ttls_key_cert));
-	if (new == NULL)
-		return(TTLS_ERR_ALLOC_FAILED);
+	if (!(new = kmalloc(sizeof(ttls_key_cert), GFP_KERNEL)))
+		return TTLS_ERR_ALLOC_FAILED;
 
 	new->cert = cert;
 	new->key = key;
 	new->next = NULL;
 
 	/* Update head is the list was null, else add to the end */
-	if (*head == NULL)
-	{
+	if (!*head) {
 		*head = new;
-	}
-	else
-	{
+	} else {
 		ttls_key_cert *cur = *head;
-		while (cur->next != NULL)
+		while (cur->next)
 			cur = cur->next;
 		cur->next = new;
 	}
@@ -1744,41 +1746,40 @@ static int ssl_append_key_cert(ttls_key_cert **head,
 	return 0;
 }
 
-int ttls_conf_own_cert(ttls_config *conf,
-		ttls_x509_crt *own_cert,
-		ttls_pk_context *pk_key)
+int
+ttls_conf_own_cert(ttls_config *conf, ttls_x509_crt *own_cert,
+		   ttls_pk_context *pk_key)
 {
-	return(ssl_append_key_cert(&conf->key_cert, own_cert, pk_key));
+	return ttls_append_key_cert(&conf->key_cert, own_cert, pk_key);
 }
 EXPORT_SYMBOL(ttls_conf_own_cert);
 
-void ttls_conf_ca_chain(ttls_config *conf,
-		ttls_x509_crt *ca_chain,
-		ttls_x509_crl *ca_crl)
+void
+ttls_conf_ca_chain(ttls_config *conf, ttls_x509_crt *ca_chain,
+		   ttls_x509_crl *ca_crl)
 {
 	conf->ca_chain = ca_chain;
-	conf->ca_crl	 = ca_crl;
+	conf->ca_crl = ca_crl;
 }
 EXPORT_SYMBOL(ttls_conf_ca_chain);
 
-int ttls_set_hs_own_cert(ttls_context *tls,
-		ttls_x509_crt *own_cert,
-		ttls_pk_context *pk_key)
+int
+ttls_set_hs_own_cert(ttls_context *tls, ttls_x509_crt *own_cert,
+		     ttls_pk_context *pk_key)
 {
-	return(ssl_append_key_cert(&tls->hs->sni_key_cert,
-				 own_cert, pk_key));
+	return ttls_append_key_cert(&tls->hs->sni_key_cert, own_cert, pk_key);
 }
 
-void ttls_set_hs_ca_chain(ttls_context *tls,
-		ttls_x509_crt *ca_chain,
-		ttls_x509_crl *ca_crl)
+void
+ttls_set_hs_ca_chain(ttls_context *tls, ttls_x509_crt *ca_chain,
+		     ttls_x509_crl *ca_crl)
 {
 	tls->hs->sni_ca_chain = ca_chain;
-	tls->hs->sni_ca_crl	 = ca_crl;
+	tls->hs->sni_ca_crl = ca_crl;
 }
 
-void ttls_set_hs_authmode(ttls_context *tls,
-		int authmode)
+void
+ttls_set_hs_authmode(ttls_context *tls, int authmode)
 {
 	tls->hs->sni_authmode = authmode;
 }
@@ -1832,8 +1833,8 @@ void ttls_conf_dhm_min_bitlen(ttls_config *conf,
 /*
  * Set allowed/preferred hashes for hs signatures
  */
-void ttls_conf_sig_hashes(ttls_config *conf,
-		const int *hashes)
+void
+ttls_conf_sig_hashes(ttls_config *conf, const int *hashes)
 {
 	conf->sig_hashes = hashes;
 }
@@ -1841,8 +1842,8 @@ void ttls_conf_sig_hashes(ttls_config *conf,
 /*
  * Set the allowed elliptic curves
  */
-void ttls_conf_curves(ttls_config *conf,
-		const ttls_ecp_group_id *curve_list)
+void
+ttls_conf_curves(ttls_config *conf, const ttls_ecp_group_id *curve_list)
 {
 	conf->curve_list = curve_list;
 }
@@ -1891,18 +1892,20 @@ int ttls_set_hostname(ttls_context *tls, const char *hostname)
 	return 0;
 }
 
-void ttls_conf_sni(ttls_config *conf,
-		int (*f_sni)(void *, ttls_context *,
-			const unsigned char *, size_t),
-		void *p_sni)
+void
+ttls_conf_sni(ttls_config *conf,
+	      int (*f_sni)(void *, ttls_context *, const unsigned char *,
+			   size_t),
+	      void *p_sni)
 {
 	conf->f_sni = f_sni;
 	conf->p_sni = p_sni;
 }
 
-int ttls_conf_alpn_protocols(ttls_config *conf, const char **protos)
+int
+ttls_conf_alpn_protocols(ttls_config *conf, const char **protos)
 {
-	size_t cur_len, tot_len;
+	size_t cur_len, tot_len = 0;
 	const char **p;
 
 	/*
@@ -1910,16 +1913,13 @@ int ttls_conf_alpn_protocols(ttls_config *conf, const char **protos)
 	 * MUST NOT be truncated."
 	 * We check lengths now rather than later.
 	 */
-	tot_len = 0;
-	for (p = protos; *p != NULL; p++)
-	{
+	for (p = protos; *p; p++) {
 		cur_len = strlen(*p);
 		tot_len += cur_len;
 
-		if (cur_len == 0 || cur_len > 255 || tot_len > 65535)
-			return(TTLS_ERR_BAD_INPUT_DATA);
+		if (!cur_len || cur_len > 255 || tot_len > 65535)
+			return TTLS_ERR_BAD_INPUT_DATA;
 	}
-
 	conf->alpn_list = protos;
 
 	return 0;
@@ -1938,20 +1938,7 @@ ttls_conf_version(ttls_config *conf, int min_minor, int max_minor)
 	conf->max_minor_ver = max_minor;
 }
 
-void ttls_conf_cert_req_ca_list(ttls_config *conf,
-		char cert_req_ca_list)
-{
-	conf->cert_req_ca_list = cert_req_ca_list;
-}
-
 #if defined(TTLS_SESSION_TICKETS)
-#if defined(TTLS_CLI_C)
-void ttls_conf_session_tickets(ttls_config *conf, int use_tickets)
-{
-	conf->session_tickets = use_tickets;
-}
-#endif
-
 void ttls_conf_session_tickets_cb(ttls_config *conf,
 		ttls_ticket_write_t *f_ticket_write,
 		ttls_ticket_parse_t *f_ticket_parse,
@@ -1977,15 +1964,43 @@ int ttls_get_session(const ttls_context *tls, ttls_ssl_session *dst)
 }
 #endif /* TTLS_CLI_C */
 
+static bool
+ttls_hs_checksumable(TlsCtx *tls)
+{
+	return tls->state != TTLS_HANDSHAKE_OVER
+	       && tls->state != TTLS_CERTIFICATE_VERIFY;
+}
+
 /**
- * Perform the TLS handshake.
+ * Seems like a FSM state processing outside of the FSM - not beautiful at all,
+ * we need a cheap way to check whether we need to call FSM again when we have
+ * no more ingress data. We can not do this inside the FSM, since we need to
+ * calculate checksum with the record header outside of the FSM...
+ */
+static bool
+ttls_hs_fsm_need_send(TlsCtx *tls)
+{
+	return (tls->conf->endpoint == TTLS_IS_SERVER)
+		&& (tls->state == TTLS_SERVER_HELLO
+		    || tls->state == TTLS_SERVER_CHANGE_CIPHER_SPEC
+		    || tls->state == TTLS_HANDSHAKE_WRAPUP);
+}
+
+/**
+ * Perform the TLS handshake. The function is called for each ingress TLS
+ * record and can send a bunch of TLS records.
  *
  * The state of the context (tls->state) will be at the next state after
  * execution of this function. Do not call this function if state is
  * TTLS_HANDSHAKE_OVER.
+ *
+ * The step callees must return T_POSTPONE if more input data is required to
+ * completely read current ingress record and 0 (T_OK) if current FSM state
+ * finished successfully. All other return codes are treated as errors.
  */
 static int
-ttls_handshake(TlsCtx *tls, unsigned char *buf, size_t len, unsigned int *read)
+ttls_handshake_step(TlsCtx *tls, unsigned char *buf, size_t len,
+		    unsigned int *read)
 {
 	T_DBG3("handshake message %u on state %x\n",
 	       tls->io_in.msgtype, tls->state);
@@ -1993,7 +2008,6 @@ ttls_handshake(TlsCtx *tls, unsigned char *buf, size_t len, unsigned int *read)
 #if defined(TTLS_CLI_C)
 	if (tls->conf->endpoint == TTLS_IS_CLIENT)
 		return ttls_handshake_client_step(tls, buf, len, read);
-	else
 #endif
 	return ttls_handshake_server_step(tls, buf, len, read);
 }
@@ -2021,7 +2035,7 @@ int
 ttls_recv(void *tls_data, unsigned char *buf, size_t len, unsigned int *read)
 {
 	int r;
-	unsigned int delta = 0, parsed = *read;
+	unsigned int delta = 0, hs_hdr_len = 0, parsed = *read;
 	TlsCtx *tls = (TlsCtx *)tls_data;
 	TlsIOCtx *io = &tls->io_in;
 
@@ -2030,9 +2044,24 @@ ttls_recv(void *tls_data, unsigned char *buf, size_t len, unsigned int *read)
 	       __func__, tls, len, *read, io->msgtype);
 
 next_record:
-	if (!(io->st_flags & TTLS_F_ST_HDRIV))
+	if (!(io->st_flags & TTLS_F_ST_HDRIV)) {
 		if ((r = ttls_parse_record_hdr(tls, buf, len, read)))
 			return r;
+		if (io->msgtype == TTLS_MSG_HANDSHAKE
+		    && ttls_hs_checksumable(tls))
+		{
+			if (likely(*read - parsed >= TTLS_HS_HDR_LEN)) {
+				/*
+				 * Compute handshake checksum for the message
+				 * body and handshake header in one shot.
+				 */
+				hs_hdr_len = TTLS_HS_HDR_LEN;
+			} else {
+				tls->hs->update_checksum(tls, io->hs_hdr,
+							 TTLS_HS_HDR_LEN);
+			}
+		}
+	}
 	WARN_ON_ONCE(!io->msglen);
 	delta = *read - parsed;
 	if (delta == len)
@@ -2057,19 +2086,25 @@ next_record:
 		if (unlikely(tls->state == TTLS_HANDSHAKE_OVER)) {
 			T_DBG("refusing renegotiation, sending alert\n");
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_WARNING,
-					    TTLS_ALERT_MSG_NO_RENEGOTIATION);
+					TTLS_ALERT_MSG_NO_RENEGOTIATION);
 			return TTLS_ERR_UNEXPECTED_MESSAGE;
 		}
-		if (tls->state != TTLS_HANDSHAKE_OVER
-		    && tls->state != TTLS_CERTIFICATE_VERIFY
-		    && tls->hs)
-		{
-			tls->hs->update_checksum(tls, buf, len);
-		}
-		if ((r = ttls_handshake(tls, buf, len, read))) {
+
+		if ((r = ttls_handshake_step(tls, buf, len, read))) {
 			if (r != T_POSTPONE)
 				T_DBG("handshake error: %d\n", r);
 			return r;
+		}
+		/*
+		 * An ingress TLS record is fully processed, calculate the
+		 * handshake checksum for correct messages only and only when
+		 * we already know the hash algorithm for the cipher suite.
+		 */
+		BUG_ON(!tls->hs);
+		if (ttls_hs_checksumable(tls)) {
+			size_t cs_len = *read - (int)parsed + hs_hdr_len;
+			tls->hs->update_checksum(tls, buf - hs_hdr_len,
+						 cs_len);
 		}
 		goto skip_record;
 	case TTLS_MSG_APPLICATION_DATA:
@@ -2121,6 +2156,13 @@ skip_record:
 	parsed = *read;
 	if (len)
 		goto next_record;
+	/*
+	 * Send egress TLS handshake records if the handshake FSM got all the
+	 * required ingress data for current state.
+	 */
+	if (ttls_hs_fsm_need_send(tls))
+		if ((r = ttls_handshake_step(tls, NULL, 0, NULL)))
+			return r;
 	return T_POSTPONE;
 }
 EXPORT_SYMBOL(ttls_recv);
@@ -2202,11 +2244,7 @@ static ttls_ecp_group_id ssl_preset_suiteb_curves[] = {
 int
 ttls_config_defaults(ttls_config *conf, int endpoint)
 {
-	/*
-	 * Use the functions here so that they are covered in tests,
-	 * but otherwise access member directly for efficiency.
-	 */
-	ttls_conf_endpoint(conf, endpoint);
+	conf->endpoint = endpoint;
 
 	/* Things that are common to all presets. */
 #if defined(TTLS_CLI_C)
@@ -2258,28 +2296,17 @@ ttls_config_free(ttls_config *conf)
 }
 EXPORT_SYMBOL(ttls_config_free);
 
-/*
- * Convert between TTLS_PK_XXX and SSL_SIG_XXX
- */
-unsigned char ttls_sig_from_pk(ttls_pk_context *pk)
+unsigned char
+ttls_sig_from_pk_alg(ttls_pk_type_t type)
 {
-	if (ttls_pk_can_do(pk, TTLS_PK_RSA))
-		return(TTLS_SIG_RSA);
-	if (ttls_pk_can_do(pk, TTLS_PK_ECDSA))
-		return(TTLS_SIG_ECDSA);
-	return(TTLS_SIG_ANON);
-}
-
-unsigned char ttls_sig_from_pk_alg(ttls_pk_type_t type)
-{
-	switch(type) {
-		case TTLS_PK_RSA:
-			return(TTLS_SIG_RSA);
-		case TTLS_PK_ECDSA:
-		case TTLS_PK_ECKEY:
-			return(TTLS_SIG_ECDSA);
-		default:
-			return(TTLS_SIG_ANON);
+	switch (type) {
+	case TTLS_PK_RSA:
+		return TTLS_SIG_RSA;
+	case TTLS_PK_ECDSA:
+	case TTLS_PK_ECKEY:
+		return TTLS_SIG_ECDSA;
+	default:
+		return TTLS_SIG_ANON;
 	}
 }
 
@@ -2287,27 +2314,26 @@ ttls_pk_type_t
 ttls_pk_alg_from_sig(unsigned char sig)
 {
 	switch (sig) {
-		case TTLS_SIG_RSA:
-			return TTLS_PK_RSA;
-		case TTLS_SIG_ECDSA:
-			return TTLS_PK_ECDSA;
-		default:
-			return TTLS_PK_NONE;
+	case TTLS_SIG_RSA:
+		return TTLS_PK_RSA;
+	case TTLS_SIG_ECDSA:
+		return TTLS_PK_ECDSA;
+	default:
+		return TTLS_PK_NONE;
 	}
 }
 
 /* Find an entry in a signature-hash set matching a given hash algorithm. */
-ttls_md_type_t ttls_sig_hash_set_find(ttls_sig_hash_set_t *set,
-		 ttls_pk_type_t sig_alg)
+ttls_md_type_t
+ttls_sig_hash_set_find(ttls_sig_hash_set_t *set, ttls_pk_type_t sig_alg)
 {
-	switch(sig_alg)
-	{
-		case TTLS_PK_RSA:
-			return(set->rsa);
-		case TTLS_PK_ECDSA:
-			return(set->ecdsa);
-		default:
-			return(TTLS_MD_NONE);
+	switch (sig_alg) {
+	case TTLS_PK_RSA:
+		return set->rsa;
+	case TTLS_PK_ECDSA:
+		return set->ecdsa;
+	default:
+		return TTLS_MD_NONE;
 	}
 }
 
@@ -2339,36 +2365,36 @@ ttls_md_type_t
 ttls_md_alg_from_hash(unsigned char hash)
 {
 	switch (hash) {
-		case TTLS_HASH_SHA224:
-			return TTLS_MD_SHA224;
-		case TTLS_HASH_SHA256:
-			return TTLS_MD_SHA256;
-		case TTLS_HASH_SHA384:
-			return TTLS_MD_SHA384;
-		case TTLS_HASH_SHA512:
-			return TTLS_MD_SHA512;
-		default:
-			return TTLS_MD_NONE;
+	case TTLS_HASH_SHA224:
+		return TTLS_MD_SHA224;
+	case TTLS_HASH_SHA256:
+		return TTLS_MD_SHA256;
+	case TTLS_HASH_SHA384:
+		return TTLS_MD_SHA384;
+	case TTLS_HASH_SHA512:
+		return TTLS_MD_SHA512;
+	default:
+		return TTLS_MD_NONE;
 	}
 }
 
-/*
+/**
  * Convert from TTLS_MD_XXX to TTLS_HASH_XXX
  */
-unsigned char ttls_hash_from_md_alg(int md)
+unsigned char
+ttls_hash_from_md_alg(int md)
 {
-	switch(md)
-	{
-		case TTLS_MD_SHA224:
-			return(TTLS_HASH_SHA224);
-		case TTLS_MD_SHA256:
-			return(TTLS_HASH_SHA256);
-		case TTLS_MD_SHA384:
-			return(TTLS_HASH_SHA384);
-		case TTLS_MD_SHA512:
-			return(TTLS_HASH_SHA512);
-		default:
-			return(TTLS_HASH_NONE);
+	switch (md) {
+	case TTLS_MD_SHA224:
+		return TTLS_HASH_SHA224;
+	case TTLS_MD_SHA256:
+		return TTLS_HASH_SHA256;
+	case TTLS_MD_SHA384:
+		return TTLS_HASH_SHA384;
+	case TTLS_MD_SHA512:
+		return TTLS_HASH_SHA512;
+	default:
+		return TTLS_HASH_NONE;
 	}
 }
 
@@ -2376,18 +2402,19 @@ unsigned char ttls_hash_from_md_alg(int md)
  * Check if a curve proposed by the peer is in our list.
  * Return 0 if we're willing to use it, -1 otherwise.
  */
-int ttls_check_curve(const ttls_context *tls, ttls_ecp_group_id grp_id)
+int
+ttls_check_curve(const ttls_context *tls, ttls_ecp_group_id grp_id)
 {
 	const ttls_ecp_group_id *gid;
 
-	if (tls->conf->curve_list == NULL)
-		return(-1);
+	if (!tls->conf->curve_list)
+		return -1;
 
 	for (gid = tls->conf->curve_list; *gid != TTLS_ECP_DP_NONE; gid++)
 		if (*gid == grp_id)
 			return 0;
 
-	return(-1);
+	return -1;
 }
 
 /**
@@ -2501,21 +2528,18 @@ ttls_check_cert_usage(const ttls_x509_crt *cert,
 	return r;
 }
 
-int ttls_set_calc_verify_md(ttls_context *tls, int md)
+int
+ttls_set_calc_verify_md(TlsCtx *tls, int md)
 {
-	if (tls->minor != TTLS_MINOR_VERSION_3)
+	switch (md) {
+	case TTLS_HASH_SHA384:
+		tls->hs->calc_verify = ttls_calc_verify_tls_sha384;
+		break;
+	case TTLS_HASH_SHA256:
+		tls->hs->calc_verify = ttls_calc_verify_tls_sha256;
+		break;
+	default:
 		return TTLS_ERR_INVALID_VERIFY_HASH;
-
-	switch(md)
-	{
-		case TTLS_HASH_SHA384:
-			tls->hs->calc_verify = ssl_calc_verify_tls_sha384;
-			break;
-		case TTLS_HASH_SHA256:
-			tls->hs->calc_verify = ttls_calc_verify_tls_sha256;
-			break;
-		default:
-			return TTLS_ERR_INVALID_VERIFY_HASH;
 	}
 
 	return 0;
@@ -2568,6 +2592,16 @@ exit:
 	return r;
 }
 
+#if defined(DEBUG) && (DEBUG >= 3)
+unsigned long
+ttls_time_debug(void)
+{
+	static atomic64_t curr_time = ATOMIC_INIT(0);
+
+	return atomic64_inc_return(&curr_time);
+}
+#endif
+
 static void
 ttls_exit(void)
 {
@@ -2576,7 +2610,6 @@ ttls_exit(void)
 	ttls_free_cipher_ctx_tmpls();
 	ttls_free_md_ctx_tmpls();
 }
-
 
 static int __init
 ttls_init(void)
