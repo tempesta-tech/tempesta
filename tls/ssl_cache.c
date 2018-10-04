@@ -84,7 +84,7 @@ void ttls_cache_init(ttls_cache_context *cache)
 int ttls_cache_get(void *data, TlsSess *session)
 {
 	int ret = 1;
-	time_t t = get_seconds();
+	time_t t = ttls_time();
 	ttls_cache_context *cache = (ttls_cache_context *) data;
 	ttls_cache_entry *cur, *entry;
 
@@ -151,7 +151,7 @@ exit:
 int ttls_cache_set(void *data, const TlsSess *session)
 {
 	int ret = 1;
-	time_t t = get_seconds(), oldest = 0;
+	time_t t = ttls_time(), oldest = 0;
 	ttls_cache_entry *old = NULL;
 	ttls_cache_context *cache = (ttls_cache_context *) data;
 	ttls_cache_entry *cur, *prv;

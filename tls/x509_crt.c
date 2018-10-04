@@ -976,7 +976,7 @@ static int x509_info_subject_alt_name(char **buf, size_t *size,
 
 #define PRINT_ITEM(i)							\
 	{								\
-		ret = ttls_snprintf(p, n, "%s" i, sep);			\
+		ret = snprintf(p, n, "%s" i, sep);			\
 		TTLS_X509_SAFE_SNPRINTF;				\
 		sep = ", ";						\
 	}
@@ -1052,7 +1052,7 @@ static int x509_info_ext_key_usage(char **buf, size_t *size,
 		if (ttls_oid_get_extended_key_usage(&cur->buf, &desc) != 0)
 			desc = "???";
 
-		ret = ttls_snprintf(p, n, "%s%s", sep, desc);
+		ret = snprintf(p, n, "%s%s", sep, desc);
 		TTLS_X509_SAFE_SNPRINTF;
 
 		sep = ", ";
@@ -1084,47 +1084,47 @@ int ttls_x509_crt_info(char *buf, size_t size, const char *prefix,
 
 	if (NULL == crt)
 	{
-		ret = ttls_snprintf(p, n, "\nCertificate is uninitialised!\n");
+		ret = snprintf(p, n, "\nCertificate is uninitialised!\n");
 		TTLS_X509_SAFE_SNPRINTF;
 
 		return((int) (size - n));
 	}
 
-	ret = ttls_snprintf(p, n, "%scert. version	 : %d\n",
+	ret = snprintf(p, n, "%scert. version	 : %d\n",
 				   prefix, crt->version);
 	TTLS_X509_SAFE_SNPRINTF;
-	ret = ttls_snprintf(p, n, "%sserial number	 : ",
+	ret = snprintf(p, n, "%sserial number	 : ",
 				   prefix);
 	TTLS_X509_SAFE_SNPRINTF;
 
 	ret = ttls_x509_serial_gets(p, n, &crt->serial);
 	TTLS_X509_SAFE_SNPRINTF;
 
-	ret = ttls_snprintf(p, n, "\n%sissuer name	   : ", prefix);
+	ret = snprintf(p, n, "\n%sissuer name	   : ", prefix);
 	TTLS_X509_SAFE_SNPRINTF;
 	ret = ttls_x509_dn_gets(p, n, &crt->issuer );
 	TTLS_X509_SAFE_SNPRINTF;
 
-	ret = ttls_snprintf(p, n, "\n%ssubject name	  : ", prefix);
+	ret = snprintf(p, n, "\n%ssubject name	  : ", prefix);
 	TTLS_X509_SAFE_SNPRINTF;
 	ret = ttls_x509_dn_gets(p, n, &crt->subject);
 	TTLS_X509_SAFE_SNPRINTF;
 
-	ret = ttls_snprintf(p, n, "\n%sissued  on		: " \
+	ret = snprintf(p, n, "\n%sissued  on		: " \
 				   "%04d-%02d-%02d %02d:%02d:%02d", prefix,
 				   crt->valid_from.year, crt->valid_from.mon,
 				   crt->valid_from.day,  crt->valid_from.hour,
 				   crt->valid_from.min,  crt->valid_from.sec);
 	TTLS_X509_SAFE_SNPRINTF;
 
-	ret = ttls_snprintf(p, n, "\n%sexpires on		: " \
+	ret = snprintf(p, n, "\n%sexpires on		: " \
 				   "%04d-%02d-%02d %02d:%02d:%02d", prefix,
 				   crt->valid_to.year, crt->valid_to.mon,
 				   crt->valid_to.day,  crt->valid_to.hour,
 				   crt->valid_to.min,  crt->valid_to.sec);
 	TTLS_X509_SAFE_SNPRINTF;
 
-	ret = ttls_snprintf(p, n, "\n%ssigned using	  : ", prefix);
+	ret = snprintf(p, n, "\n%ssigned using	  : ", prefix);
 	TTLS_X509_SAFE_SNPRINTF;
 
 	ret = ttls_x509_sig_alg_gets(p, n, &crt->sig_oid, crt->sig_pk,
@@ -1138,7 +1138,7 @@ int ttls_x509_crt_info(char *buf, size_t size, const char *prefix,
 		return ret;
 	}
 
-	ret = ttls_snprintf(p, n, "\n%s%-" BC "s: %d bits", prefix, key_size_str,
+	ret = snprintf(p, n, "\n%s%-" BC "s: %d bits", prefix, key_size_str,
 			  (int) ttls_pk_get_bitlen(&crt->pk));
 	TTLS_X509_SAFE_SNPRINTF;
 
@@ -1148,20 +1148,20 @@ int ttls_x509_crt_info(char *buf, size_t size, const char *prefix,
 
 	if (crt->ext_types & TTLS_X509_EXT_BASIC_CONSTRAINTS)
 	{
-		ret = ttls_snprintf(p, n, "\n%sbasic constraints : CA=%s", prefix,
+		ret = snprintf(p, n, "\n%sbasic constraints : CA=%s", prefix,
 			crt->ca_istrue ? "true" : "false");
 		TTLS_X509_SAFE_SNPRINTF;
 
 		if (crt->max_pathlen > 0)
 		{
-			ret = ttls_snprintf(p, n, ", max_pathlen=%d", crt->max_pathlen - 1);
+			ret = snprintf(p, n, ", max_pathlen=%d", crt->max_pathlen - 1);
 			TTLS_X509_SAFE_SNPRINTF;
 		}
 	}
 
 	if (crt->ext_types & TTLS_X509_EXT_SUBJECT_ALT_NAME)
 	{
-		ret = ttls_snprintf(p, n, "\n%ssubject alt name  : ", prefix);
+		ret = snprintf(p, n, "\n%ssubject alt name  : ", prefix);
 		TTLS_X509_SAFE_SNPRINTF;
 
 		if ((ret = x509_info_subject_alt_name(&p, &n,
@@ -1171,7 +1171,7 @@ int ttls_x509_crt_info(char *buf, size_t size, const char *prefix,
 
 	if (crt->ext_types & TTLS_X509_EXT_NS_CERT_TYPE)
 	{
-		ret = ttls_snprintf(p, n, "\n%scert. type		: ", prefix);
+		ret = snprintf(p, n, "\n%scert. type		: ", prefix);
 		TTLS_X509_SAFE_SNPRINTF;
 
 		if ((ret = x509_info_cert_type(&p, &n, crt->ns_cert_type)) != 0)
@@ -1180,7 +1180,7 @@ int ttls_x509_crt_info(char *buf, size_t size, const char *prefix,
 
 	if (crt->ext_types & TTLS_X509_EXT_KEY_USAGE)
 	{
-		ret = ttls_snprintf(p, n, "\n%skey usage		 : ", prefix);
+		ret = snprintf(p, n, "\n%skey usage		 : ", prefix);
 		TTLS_X509_SAFE_SNPRINTF;
 
 		if ((ret = x509_info_key_usage(&p, &n, crt->key_usage)) != 0)
@@ -1189,7 +1189,7 @@ int ttls_x509_crt_info(char *buf, size_t size, const char *prefix,
 
 	if (crt->ext_types & TTLS_X509_EXT_EXTENDED_KEY_USAGE)
 	{
-		ret = ttls_snprintf(p, n, "\n%sext key usage	 : ", prefix);
+		ret = snprintf(p, n, "\n%sext key usage	 : ", prefix);
 		TTLS_X509_SAFE_SNPRINTF;
 
 		if ((ret = x509_info_ext_key_usage(&p, &n,
@@ -1197,7 +1197,7 @@ int ttls_x509_crt_info(char *buf, size_t size, const char *prefix,
 			return ret;
 	}
 
-	ret = ttls_snprintf(p, n, "\n");
+	ret = snprintf(p, n, "\n");
 	TTLS_X509_SAFE_SNPRINTF;
 
 	return((int) (size - n));
@@ -1245,14 +1245,14 @@ int ttls_x509_crt_verify_info(char *buf, size_t size, const char *prefix,
 		if ((flags & cur->code) == 0)
 			continue;
 
-		ret = ttls_snprintf(p, n, "%s%s\n", prefix, cur->string);
+		ret = snprintf(p, n, "%s%s\n", prefix, cur->string);
 		TTLS_X509_SAFE_SNPRINTF;
 		flags ^= cur->code;
 	}
 
 	if (flags != 0)
 	{
-		ret = ttls_snprintf(p, n, "%sUnknown reason "
+		ret = snprintf(p, n, "%sUnknown reason "
 			   "(this should not happen)\n", prefix);
 		TTLS_X509_SAFE_SNPRINTF;
 	}
