@@ -36,6 +36,7 @@
 #include "certs.h"
 #include "oid.h"
 #include "pem.h"
+#include "ssl_internal.h"
 #include "x509.h"
 #include "x509_crt.h"
 
@@ -726,16 +727,16 @@ int ttls_x509_dn_gets(char *buf, size_t size, const ttls_x509_name *dn)
 
 		if (name != dn)
 		{
-			ret = ttls_snprintf(p, n, merge ? " + " : ", ");
+			ret = snprintf(p, n, merge ? " + " : ", ");
 			TTLS_X509_SAFE_SNPRINTF;
 		}
 
 		ret = ttls_oid_get_attr_short_name(&name->oid, &short_name);
 
 		if (ret == 0)
-			ret = ttls_snprintf(p, n, "%s=", short_name);
+			ret = snprintf(p, n, "%s=", short_name);
 		else
-			ret = ttls_snprintf(p, n, "\?\?=");
+			ret = snprintf(p, n, "\?\?=");
 		TTLS_X509_SAFE_SNPRINTF;
 
 		for (i = 0; i < name->val.len; i++)
@@ -749,7 +750,7 @@ int ttls_x509_dn_gets(char *buf, size_t size, const ttls_x509_name *dn)
 			else s[i] = c;
 		}
 		s[i] = '\0';
-		ret = ttls_snprintf(p, n, "%s", s);
+		ret = snprintf(p, n, "%s", s);
 		TTLS_X509_SAFE_SNPRINTF;
 
 		merge = name->next_merged;
@@ -780,14 +781,14 @@ int ttls_x509_serial_gets(char *buf, size_t size, const ttls_x509_buf *serial)
 		if (i == 0 && nr > 1 && serial->p[i] == 0x0)
 			continue;
 
-		ret = ttls_snprintf(p, n, "%02X%s",
+		ret = snprintf(p, n, "%02X%s",
 				serial->p[i], (i < nr - 1) ? ":" : "");
 		TTLS_X509_SAFE_SNPRINTF;
 	}
 
 	if (nr != serial->len)
 	{
-		ret = ttls_snprintf(p, n, "....");
+		ret = snprintf(p, n, "....");
 		TTLS_X509_SAFE_SNPRINTF;
 	}
 
@@ -808,9 +809,9 @@ int ttls_x509_sig_alg_gets(char *buf, size_t size, const ttls_x509_buf *sig_oid,
 
 	ret = ttls_oid_get_sig_alg_desc(sig_oid, &desc);
 	if (ret != 0)
-		ret = ttls_snprintf(p, n, "???" );
+		ret = snprintf(p, n, "???" );
 	else
-		ret = ttls_snprintf(p, n, "%s", desc);
+		ret = snprintf(p, n, "%s", desc);
 	TTLS_X509_SAFE_SNPRINTF;
 
 	if (pk_alg == TTLS_PK_RSASSA_PSS)
@@ -823,7 +824,7 @@ int ttls_x509_sig_alg_gets(char *buf, size_t size, const ttls_x509_buf *sig_oid,
 		md_info = ttls_md_info_from_type(md_alg);
 		mgf_md_info = ttls_md_info_from_type(pss_opts->mgf1_hash_id);
 
-		ret = ttls_snprintf(p, n, " (%s, MGF1-%s, 0x%02X)",
+		ret = snprintf(p, n, " (%s, MGF1-%s, 0x%02X)",
 				  md_info ? ttls_md_get_name(md_info) : "???",
 				  mgf_md_info ? ttls_md_get_name(mgf_md_info) : "???",
 				  pss_opts->expected_salt_len);
@@ -842,7 +843,7 @@ int ttls_x509_key_size_helper(char *buf, size_t buf_size, const char *name)
 	size_t n = buf_size;
 	int ret;
 
-	ret = ttls_snprintf(p, n, "%s key size", name);
+	ret = snprintf(p, n, "%s key size", name);
 	TTLS_X509_SAFE_SNPRINTF;
 
 	return 0;
@@ -857,7 +858,7 @@ x509_get_current_time(ttls_x509_time *now)
 {
 	struct tm t;
 
-	time_to_tm(get_seconds(), 0, &t);
+	time_to_tm(ttls_time(), 0, &t);
 
 	now->year = t.tm_year + 1900;
 	now->mon  = t.tm_mon  + 1;
@@ -940,7 +941,7 @@ int ttls_x509_self_test(int verbose)
 	ttls_x509_crt clicert;
 
 	if (verbose != 0)
-		ttls_printf("  X.509 certificate load: ");
+		pr_info("  X.509 certificate load: ");
 
 	ttls_x509_crt_init(&clicert);
 
@@ -949,7 +950,7 @@ int ttls_x509_self_test(int verbose)
 	if (ret != 0)
 	{
 		if (verbose != 0)
-			ttls_printf("failed\n");
+			pr_info("failed\n");
 
 		return ret;
 	}
@@ -961,25 +962,25 @@ int ttls_x509_self_test(int verbose)
 	if (ret != 0)
 	{
 		if (verbose != 0)
-			ttls_printf("failed\n");
+			pr_info("failed\n");
 
 		return ret;
 	}
 
 	if (verbose != 0)
-		ttls_printf("passed\n  X.509 signature verify: ");
+		pr_info("passed\n  X.509 signature verify: ");
 
 	ret = ttls_x509_crt_verify(&clicert, &cacert, NULL, NULL, &flags, NULL, NULL);
 	if (ret != 0)
 	{
 		if (verbose != 0)
-			ttls_printf("failed\n");
+			pr_info("failed\n");
 
 		return ret;
 	}
 
 	if (verbose != 0)
-		ttls_printf("passed\n\n");
+		pr_info("passed\n\n");
 
 	ttls_x509_crt_free(&cacert );
 	ttls_x509_crt_free(&clicert);

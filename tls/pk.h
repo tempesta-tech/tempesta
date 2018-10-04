@@ -50,10 +50,10 @@
 #define TTLS_ERR_PK_HW_ACCEL_FAILED	 -0x3880  /**< PK hardware accelerator failed. */
 
 /**
- * \brief		  Public key types
+ * Public key types
  */
 typedef enum {
-	TTLS_PK_NONE=0,
+	TTLS_PK_NONE = 0,
 	TTLS_PK_RSA,
 	TTLS_PK_ECKEY,
 	TTLS_PK_ECKEY_DH,

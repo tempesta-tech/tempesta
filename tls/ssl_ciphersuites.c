@@ -397,25 +397,25 @@ int ttls_get_ciphersuite_id(const char *ciphersuite_name)
 	return(cur->id);
 }
 
-ttls_pk_type_t ttls_get_ciphersuite_sig_pk_alg(const ttls_ciphersuite_t *info)
+ttls_pk_type_t
+ttls_get_ciphersuite_sig_pk_alg(const ttls_ciphersuite_t *info)
 {
-	switch(info->key_exchange)
-	{
-		case TTLS_KEY_EXCHANGE_RSA:
-		case TTLS_KEY_EXCHANGE_DHE_RSA:
-		case TTLS_KEY_EXCHANGE_ECDHE_RSA:
-		case TTLS_KEY_EXCHANGE_RSA_PSK:
-			return(TTLS_PK_RSA);
+	switch (info->key_exchange) {
+	case TTLS_KEY_EXCHANGE_RSA:
+	case TTLS_KEY_EXCHANGE_DHE_RSA:
+	case TTLS_KEY_EXCHANGE_ECDHE_RSA:
+	case TTLS_KEY_EXCHANGE_RSA_PSK:
+		return TTLS_PK_RSA;
 
-		case TTLS_KEY_EXCHANGE_ECDHE_ECDSA:
-			return(TTLS_PK_ECDSA);
+	case TTLS_KEY_EXCHANGE_ECDHE_ECDSA:
+		return TTLS_PK_ECDSA;
 
-		case TTLS_KEY_EXCHANGE_ECDH_RSA:
-		case TTLS_KEY_EXCHANGE_ECDH_ECDSA:
-			return(TTLS_PK_ECKEY);
+	case TTLS_KEY_EXCHANGE_ECDH_RSA:
+	case TTLS_KEY_EXCHANGE_ECDH_ECDSA:
+		return TTLS_PK_ECKEY;
 
-		default:
-			return(TTLS_PK_NONE);
+	default:
+		return TTLS_PK_NONE;
 	}
 }
 

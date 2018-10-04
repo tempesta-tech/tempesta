@@ -554,7 +554,7 @@ ttls_choose_ciphersuite(TlsCtx *tls, const unsigned char *csp)
 	const unsigned char *cs;
 
 	for (i = 0; ciphersuites[i] != 0; i++)
-		for (cs = csp + 2; cs < csp + ciph_len; cs += 2) {
+		for (cs = csp + 2; cs < csp + ciph_len + 2; cs += 2) {
 			if (ntohs(*(short *)cs) != ciphersuites[i])
 				continue;
 			got_common_suite = 1;
@@ -635,7 +635,6 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 	}
 
-
 	T_FSM_START(ttls_substate(tls)) {
 
 	/*
@@ -643,9 +642,7 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 	 *	 0  .   1   protocol version
 	 *	 2  .  33   random bytes (starting with 4 bytes of Unix time)
 	 *	34  .  35   session id length (1 byte)
-	 *	35  . 34+x  session id
-	 *     35+x . 35+x  DTLS only: cookie length (1 byte)
-	 *     36+x .  ..   DTLS only: cookie
+	 *	35  . 34+s  session id
 	 *	..  .  ..   ciphersuite list length (2 bytes)
 	 *	..  .  ..   ciphersuite list
 	 *	..  .  ..   compression alg. list length (1 byte)
@@ -700,8 +697,12 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 	/* Check the session ID length and save session ID. */
 	T_FSM_STATE(TTLS_CH_HS_SLEN) {
 		n = *p;
-		/* 2 for cipherlist length field. */
-		if (n > sizeof(tls->sess.id) || n + 34 + 2 > io->hslen) {
+		/*
+		 * 9 = 1(session_id length) + 2(cipher suites length)
+		 * + 2(at least 1 cipher suite) + 1(number of compressions)
+		 * + 1(compression) + 2(extenstions length).
+		 */
+		if (n > sizeof(tls->sess.id) || n + 9 > io->hslen) {
 			T_DBG("ClientHello: bad session length %d\n", n);
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 					TTLS_ALERT_MSG_DECODE_ERROR);
@@ -1169,9 +1170,9 @@ ttls_write_server_hello(TlsCtx *tls, struct sg_table *sgt,
 	T_DBG("server hello, chosen version %d:%d, buf=%pK\n",
 	      buf[4], buf[5], buf);
 
-	*(unsigned int *)p = htonl(get_seconds());
+	*(unsigned int *)p = htonl(ttls_time());
 	p += 4;
-	get_random_bytes_arch(p, 28);
+	ttls_rnd(p, 28);
 	p += 28;
 	memcpy(tls->hs->randbytes + 32, buf + 6, 32);
 	T_DBG3_BUF("server hello, random bytes ", buf + 6, 32);
@@ -1193,14 +1194,14 @@ ttls_write_server_hello(TlsCtx *tls, struct sg_table *sgt,
 		 */
 		tls->state = TTLS_SERVER_CERTIFICATE;
 
-		tls->sess.start = get_seconds();
+		tls->sess.start = ttls_time();
 
 		if (tls->hs->new_session_ticket) {
 			tls->sess.id_len = n = 0;
 			bzero_fast(tls->sess.id, 32);
 		} else {
 			tls->sess.id_len = n = 32;
-			get_random_bytes_arch(tls->sess.id, 32);
+			ttls_rnd(tls->sess.id, 32);
 		}
 	} else {
 		/* Resuming a session. */
@@ -1333,13 +1334,12 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 
 	/*
 	 * Part 2: Provide key exchange parameters for chosen ciphersuite.
+	 *
+	 * TODO estimate size of the message more accurately on configuration
+	 * time.
 	 */
-	 /*
-	  * TODO estimate size of the message more accurately on configuration
-	  * time.
-	  */
 
-	p = hdr + TTLS_HDR_LEN + TTLS_HS_HDR_LEN;
+	p = hdr + TLS_HEADER_SIZE + TTLS_HS_HDR_LEN;
 	dig_signed = p;
 
 	/* DHE key exchanges. */
@@ -1372,7 +1372,7 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 		WARN_ON_ONCE(x_sz > PAGE_SIZE);
 		r = ttls_dhm_make_params(&tls->hs->dhm_ctx, x_sz, p, &len);
 		if (r) {
-			TTLS_DEBUG_RET(1, "ttls_dhm_make_params", r);
+			T_DBG("cannot make DHM params, %d\n", r);
 			goto err;
 		}
 		WARN_ON_ONCE(len > 500);
@@ -1381,10 +1381,10 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 		p += len;
 		n += len;
 
-		TTLS_DEBUG_MPI(3, "DHM: X ", &tls->hs->dhm_ctx.X );
-		TTLS_DEBUG_MPI(3, "DHM: P ", &tls->hs->dhm_ctx.P );
-		TTLS_DEBUG_MPI(3, "DHM: G ", &tls->hs->dhm_ctx.G );
-		TTLS_DEBUG_MPI(3, "DHM: GX", &tls->hs->dhm_ctx.GX);
+		TTLS_DEBUG_MPI("DHM: X ", &tls->hs->dhm_ctx.X );
+		TTLS_DEBUG_MPI("DHM: P ", &tls->hs->dhm_ctx.P );
+		TTLS_DEBUG_MPI("DHM: G ", &tls->hs->dhm_ctx.G );
+		TTLS_DEBUG_MPI("DHM: GX", &tls->hs->dhm_ctx.GX);
 	}
 	/* ECDHE key exchanges. */
 	else if (ttls_ciphersuite_uses_ecdhe(ci)) {
@@ -1420,7 +1420,7 @@ curve_matching_done:
 		}
 
 		r = ttls_ecdh_make_params(&tls->hs->ecdh_ctx, &len, p,
-					  TTLS_MAX_CONTENT_LEN);
+					  TLS_MAX_PAYLOAD_SIZE);
 		if (r) {
 			T_DBG("cannot make ECDH params, %d\n", r);
 			goto err;
@@ -1431,7 +1431,7 @@ curve_matching_done:
 		p += len;
 		n += len;
 
-		TTLS_DEBUG_ECP(3, "ECDH: Q ", &tls->hs->ecdh_ctx.Q);
+		TTLS_DEBUG_ECP("ECDH: Q ", &tls->hs->ecdh_ctx.Q);
 	}
 
 	/*
@@ -1523,12 +1523,12 @@ curve_matching_done:
 	/* Done with actual work; add handshake header and add the record. */
 	WARN_ON_ONCE(n > 1015);
 	io->msglen = TTLS_HS_HDR_LEN + n;
-	ttls_write_hshdr(TTLS_HS_SERVER_KEY_EXCHANGE, hdr + TTLS_HDR_LEN,
+	ttls_write_hshdr(TTLS_HS_SERVER_KEY_EXCHANGE, hdr + TLS_HEADER_SIZE,
 			 TTLS_HS_HDR_LEN + n);
 
-	*in_buf = hdr + TTLS_HDR_LEN + TTLS_HS_HDR_LEN + n;
+	*in_buf = hdr + TLS_HEADER_SIZE + TTLS_HS_HDR_LEN + n;
 	sg_set_page(&sgt->sgl[sgt->nents++], virt_to_page(hdr),
-		    TTLS_HDR_LEN + TTLS_HS_HDR_LEN + n,
+		    TLS_HEADER_SIZE + TTLS_HS_HDR_LEN + n,
 		    (unsigned long)hdr & ~PAGE_MASK);
 	get_page(virt_to_page(hdr));
 	__ttls_add_record(tls, sgt, sgt->nents - 1, hdr);
@@ -1546,7 +1546,7 @@ ttls_write_certificate_request(TlsCtx *tls, struct sg_table *sgt,
 	TlsIOCtx *io = &tls->io_out;
 	size_t dn_size, total_dn_size; /* excluding length bytes */
 	size_t ct_len, sa_len; /* including length bytes */
-	size_t hdr_len = TTLS_HDR_LEN + 4;
+	size_t hdr_len = TLS_HEADER_SIZE + 4;
 	unsigned char *buf = *in_buf, *p, *end;
 	const int *cur;
 	const ttls_x509_crt *crt;
@@ -1668,10 +1668,10 @@ ttls_write_certificate_request(TlsCtx *tls, struct sg_table *sgt,
 	}
 
 	BUG_ON(!tls->conf->cert_req_ca_list && p - buf > 128);
-	io->msglen = p - buf - TTLS_HDR_LEN;
+	io->msglen = p - buf - TLS_HEADER_SIZE;
 	buf[hdr_len + ct_len + sa_len] = (unsigned char)(total_dn_size >> 8);
 	buf[hdr_len + 1 + ct_len + sa_len] = (unsigned char)total_dn_size;
-	ttls_write_hshdr(TTLS_HS_CERTIFICATE_REQUEST, buf + TTLS_HDR_LEN,
+	ttls_write_hshdr(TTLS_HS_CERTIFICATE_REQUEST, buf + TLS_HEADER_SIZE,
 			 io->msglen);
 
 	*in_buf = p;
@@ -1693,10 +1693,10 @@ ttls_write_server_hello_done(TlsCtx *tls, struct sg_table *sgt,
 	T_DBG("sending ServerHelloDone\n");
 
 	io->msglen = TTLS_HS_HDR_LEN;
-	ttls_write_hshdr(TTLS_HS_SERVER_HELLO_DONE, p + TTLS_HDR_LEN,
+	ttls_write_hshdr(TTLS_HS_SERVER_HELLO_DONE, p + TLS_HEADER_SIZE,
 			 TTLS_HS_HDR_LEN);
 
-	*in_buf += TTLS_HDR_LEN + TTLS_HS_HDR_LEN;
+	*in_buf += TLS_HEADER_SIZE + TTLS_HS_HDR_LEN;
 	sg_set_page(&sgt->sgl[sgt->nents++], virt_to_page(p), *in_buf - p,
 		    (unsigned long)p & ~PAGE_MASK);
 	get_page(virt_to_page(p));
@@ -1734,7 +1734,7 @@ ttls_parse_client_dh_public(TlsCtx *tls, unsigned char **p,
 
 	*p += n;
 
-	TTLS_DEBUG_MPI(3, "DHM: GY", &tls->hs->dhm_ctx.GY);
+	TTLS_DEBUG_MPI("DHM: GY", &tls->hs->dhm_ctx.GY);
 
 	return r;
 }
@@ -1776,7 +1776,7 @@ ttls_parse_encrypted_pms(TlsCtx *tls, const unsigned char *p,
 	 * Also, avoid data-dependant branches here to protect against
 	 * timing-based variants.
 	 */
-	get_random_bytes_arch(fake_pms, sizeof(fake_pms));
+	ttls_rnd(fake_pms, sizeof(fake_pms));
 
 	r = ttls_pk_decrypt(ttls_own_key(tls), p, len, peer_pms, &peer_pmslen,
 			    sizeof(peer_pms));
@@ -1850,7 +1850,7 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 			T_DBG("cannot read ecdh public, %d\n", r);
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_RP;
 		}
-		TTLS_DEBUG_ECP(3, "ECDH: Qp ", &tls->hs->ecdh_ctx.Qp);
+		TTLS_DEBUG_ECP("ECDH: Qp ", &tls->hs->ecdh_ctx.Qp);
 
 		r = ttls_ecdh_calc_secret(&tls->hs->ecdh_ctx, &tls->hs->pmslen,
 					  tls->hs->premaster,
@@ -1859,7 +1859,7 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 			T_DBG("cannot calculate ecdh secret, %d\n", r);
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_CS;
 		}
-		TTLS_DEBUG_MPI(3, "ECDH: z  ", &tls->hs->ecdh_ctx.z);
+		TTLS_DEBUG_MPI("ECDH: z  ", &tls->hs->ecdh_ctx.z);
 	}
 	else if (ci->key_exchange == TTLS_KEY_EXCHANGE_DHE_RSA) {
 		if ((r = ttls_parse_client_dh_public(tls, &p, end))) {
@@ -1877,7 +1877,7 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 			T_DBG("cannot calculate dhm secret, %d\n", r);
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_CS;
 		}
-		TTLS_DEBUG_MPI(3, "DHM: K ", &tls->hs->dhm_ctx.K );
+		TTLS_DEBUG_MPI("DHM: K ", &tls->hs->dhm_ctx.K );
 	}
 	else if (ci->key_exchange == TTLS_KEY_EXCHANGE_RSA) {
 		if ((r = ttls_parse_encrypted_pms(tls, p, end))) {
@@ -2012,7 +2012,7 @@ ttls_write_new_session_ticket(TlsCtx *tls, struct sg_table *sgt,
 	 * 10 .  9+n ticket content
 	 */
 	r = tls->conf->f_ticket_write(tls->conf->p_ticket, &tls->sess, p + 10,
-				      p + TTLS_MAX_CONTENT_LEN, &tlen,
+				      p + TLS_MAX_PAYLOAD_SIZE, &tlen,
 				      &lifetime);
 	if (r) {
 		T_DBG("cannot write session ticket, %d\n", r);
@@ -2203,7 +2203,7 @@ ttls_handshake_finished(TlsCtx *tls)
 }
 
 /**
- * TLS handshake -- server side -- single step.
+ * TLS handshake server side FSM, RFC 5246 chapter 7.
  */
 int
 ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
@@ -2225,16 +2225,16 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 	 *  <==   ClientHello
 	 */
 	T_FSM_STATE(TTLS_CLIENT_HELLO) {
-		if ((r = ttls_parse_client_hello(tls, buf, len, read)))
-			return r;
-		tls->state = TTLS_SERVER_HELLO;
-		/* fall through */
+		BUG_ON(!buf || !read);
+		if (!(r = ttls_parse_client_hello(tls, buf, len, read)))
+			tls->state = TTLS_SERVER_HELLO;
+		return r;
 	}
 	/*
 	 *  ==>   ServerHello
 	 *	  Certificate
-	 *	  (ServerKeyExchange )
-	 *	  (CertificateRequest)
+	 *	 (ServerKeyExchange)
+	 *	 (CertificateRequest)
 	 *	  ServerHelloDone
 	 */
 	T_FSM_STATE(TTLS_SERVER_HELLO) {
@@ -2248,13 +2248,14 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 	}
 
 	/*
-	 *  <==   (Certificate/Alert )
+	 *  <==  (Certificate/Alert )
 	 *	  ClientKeyExchange
-	 *	  (CertificateVerify )
+	 *	 (CertificateVerify )
 	 *	  ChangeCipherSpec
 	 *	  Finished
 	 */
 	T_FSM_STATE(TTLS_CLIENT_CERTIFICATE) {
+		BUG_ON(!buf || !read);
 		if ((r = ttls_parse_certificate(tls, buf, len, read)))
 			return r;
 		tls->state = TTLS_CLIENT_KEY_EXCHANGE;
@@ -2263,6 +2264,7 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 	T_FSM_STATE(TTLS_CLIENT_KEY_EXCHANGE) {
 		const ttls_ciphersuite_t *ci = tls->xfrm.ciphersuite_info;
 
+		BUG_ON(!buf || !read);
 		if ((r = ttls_parse_client_key_exchange(tls, buf, len, read)))
 			return r;
 		if (!tls->sess.peer_cert
@@ -2279,18 +2281,21 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 		return T_OK;
 	}
 	T_FSM_STATE(TTLS_CERTIFICATE_VERIFY) {
+		BUG_ON(!buf || !read);
 		if ((r = ttls_parse_certificate_verify(tls, buf, len, read)))
 			return r;
 		tls->state = TTLS_CLIENT_CHANGE_CIPHER_SPEC;
 		return T_OK;
 	}
 	T_FSM_STATE(TTLS_CLIENT_CHANGE_CIPHER_SPEC) {
+		BUG_ON(!buf || !read);
 		if ((r = ttls_parse_change_cipher_spec(tls, buf, len, read)))
 			return r;
 		tls->state = TTLS_CLIENT_FINISHED;
 		return T_OK;
 	}
 	T_FSM_STATE(TTLS_CLIENT_FINISHED) {
+		BUG_ON(!buf || !read);
 		if ((r = ttls_parse_finished(tls, buf, len, read)))
 			return r;
 		tls->state = tls->hs->resume
@@ -2300,7 +2305,7 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 	}
 
 	/*
-	 *  ==>   (NewSessionTicket)
+	 *  ==>  (NewSessionTicket)
 	 *	  ChangeCipherSpec
 	 *	  Finished
 	 */
