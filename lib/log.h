@@ -79,16 +79,26 @@ enum {
 #if defined(DEBUG) && (DEBUG == 3)
 #define T_DBG3(...)	__T_DBG3(__VA_ARGS__)
 
-#define T_DBG3_BUF(fmt, buf, len)					\
-	print_hex_dump_bytes(__BNR "      " fmt, DUMP_PREFIX_OFFSET, buf, len)
+#define T_DBG3_BUF(str, buf, len)					\
+do {									\
+	T_DBG3("dump '" str "' (%d bytes):\n", (int)(len));		\
+	print_hex_dump_bytes(__BNR "        ", DUMP_PREFIX_OFFSET, buf, len);\
+} while (0)
 
 #define T_DBG3_SL(str, sglist, sgn, off, len)				\
 do {									\
-	int i;								\
+	int o = 0, i;							\
 	struct scatterlist *s = NULL;					\
-	T_DBG3(str " (sgn=%u sglist=%pK):\n", sgn, sglist);		\
-	for_each_sg(sglist, s, sgn, i)					\
-		T_DBG3_BUF("  ", sg_virt(s), s->length);		\
+	T_DBG3(str " (sgn=%u sglist=%pK len=%lu):\n", sgn, sglist, len);\
+	for_each_sg(sglist, s, sgn, i) {				\
+		if (off >= o + s->length) {				\
+			o += s->length;					\
+		} else {						\
+			int d = off - o;				\
+			T_DBG3_BUF("  ", sg_virt(s) + d, s->length - d);\
+			o = off;					\
+		}							\
+	}								\
 } while (0)
 
 #define __CALLSTACK_MSG(...)						\

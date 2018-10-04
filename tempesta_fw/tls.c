@@ -263,7 +263,7 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 		str.len = io->msglen + TLS_MAX_TAG_SZ;
 	} else {
 		str.ptr = io->hdr;
-		str.len = TTLS_HDR_LEN + io->hslen;
+		str.len = TLS_HEADER_SIZE + io->hslen;
 	}
 	T_DBG("TLS %lu bytes +%u segments (%u bytes) are to be sent on conn=%pK"
 	      " ready=%d\n", str.len, sgt ? sgt->nents : 0, io->msglen,
