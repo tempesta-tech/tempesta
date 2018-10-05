@@ -435,9 +435,10 @@ TEST(http_parser, parses_req_uri)
 				 "/a/b/c/dir/?foo=1&bar=2#abcd");
 	}
 
-	/* Absolute URI. */
-	/* NOTE: we don't include port to the req->host */
-
+	/*
+	 * Absolute URI.
+	 * NOTE: we combine host and port URI parts into one field 'req->host'.
+	 */
 	FOR_REQ("GET http://natsys-lab.com/ HTTP/1.1\r\n\r\n") {
 		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
 		EXPECT_TFWSTR_EQ(&req->uri_path, "/");
@@ -449,12 +450,12 @@ TEST(http_parser, parses_req_uri)
 	}
 
 	FOR_REQ("GET http://natsys-lab.com:8080/ HTTP/1.1\r\n\r\n") {
-		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
+		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com:8080");
 		EXPECT_TFWSTR_EQ(&req->uri_path, "/");
 	}
 
 	FOR_REQ("GET http://natsys-lab.com:8080 HTTP/1.1\r\n\r\n") {
-		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
+		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com:8080");
 		EXPECT_TFWSTR_EQ(&req->uri_path, "");
 	}
 
@@ -466,7 +467,7 @@ TEST(http_parser, parses_req_uri)
 	FOR_REQ("GET http://natsys-lab.com:8080/cgi-bin/show.pl?entry=tempesta"
 		" HTTP/1.1\r\n\r\n")
 	{
-		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
+		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com:8080");
 		EXPECT_TFWSTR_EQ(&req->uri_path,
 				 "/cgi-bin/show.pl?entry=tempesta");
 	}
@@ -511,7 +512,7 @@ TEST(http_parser, parses_enforce_ext_req)
 		"Accept: */*\r\n"
 		"\r\n")
 	{
-		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com");
+		EXPECT_TFWSTR_EQ(&req->host, "natsys-lab.com:8080");
 		EXPECT_TFWSTR_EQ(&req->uri_path, "/cgi-bin/show.pl");
 	}
 }
@@ -558,19 +559,19 @@ TEST(http_parser, parses_enforce_ext_req_rmark)
 	}
 
 	FOR_REQ("GET " AUTH RMARK URI_1 " HTTP/1.1\r\n\r\n") {
-		EXPECT_TFWSTR_EQ(&req->host, HOST);
+		EXPECT_TFWSTR_EQ(&req->host, HOST ":" PORT);
 		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
 		EXPECT_TFWSTR_EQ(&req->uri_path, URI_1);
 	}
 
 	FOR_REQ("GET " AUTH RMARK URI_3 " HTTP/1.1\r\n\r\n") {
-		EXPECT_TFWSTR_EQ(&req->host, HOST);
+		EXPECT_TFWSTR_EQ(&req->host, HOST ":" PORT);
 		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
 		EXPECT_TFWSTR_EQ(&req->uri_path, URI_3);
 	}
 
 	FOR_REQ("GET " AUTH RMARK URI_4 " HTTP/1.1\r\n\r\n") {
-		EXPECT_TFWSTR_EQ(&req->host, HOST);
+		EXPECT_TFWSTR_EQ(&req->host, HOST ":" PORT);
 		EXPECT_TFWSTR_EQ(&req->mark, RMARK);
 		EXPECT_TFWSTR_EQ(&req->uri_path, URI_4);
 	}

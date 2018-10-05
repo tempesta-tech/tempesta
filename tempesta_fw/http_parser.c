@@ -3280,6 +3280,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Req_UriAuthorityEnd) {
+		if (c == ':')
+			__FSM_MOVE_f(Req_UriPort, &req->host);
 		/* Authority End */
 		__msg_field_finish(&req->host, p);
 		TFW_DBG3("Userinfo len = %i, host len = %i\n",
@@ -3290,27 +3292,21 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 		else if (c == ' ') {
 			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
-		else if (c == ':') {
-			__FSM_MOVE_nofixup(Req_UriPort);
-		}
-		else {
-			TFW_PARSER_BLOCK(Req_UriAuthorityEnd);
-		}
+		TFW_PARSER_BLOCK(Req_UriAuthorityEnd);
 	}
 
 	/* Host port in URI */
 	__FSM_STATE(Req_UriPort) {
 		if (likely(isdigit(c)))
-			__FSM_MOVE_nofixup(Req_UriPort);
-		else if (likely(c == '/')) {
+			__FSM_MOVE_f(Req_UriPort, &req->host);
+		__msg_field_finish(&req->host, p);
+		if (likely(c == '/')) {
 			__FSM_JMP(Req_UriMark);
 		}
 		else if (c == ' ') {
 			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
-		else {
-			TFW_PARSER_BLOCK(Req_UriPort);
-		}
+		TFW_PARSER_BLOCK(Req_UriPort);
 	}
 
 	__FSM_STATE(Req_UriMark) {
