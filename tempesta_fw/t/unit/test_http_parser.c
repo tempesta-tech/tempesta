@@ -1120,6 +1120,13 @@ TEST(http_parser, accept)
 	{
 		EXPECT_TRUE(req->flags & TFW_HTTP_F_ACCEPT_HTML);
 	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Accept:  */*  \r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->flags & TFW_HTTP_F_ACCEPT_HTML);
+	}
 }
 
 TEST(http_parser, empty_host)
