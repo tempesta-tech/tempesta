@@ -217,6 +217,10 @@ ss_turnstile_push(long ticket, SsWork *sw, int cpu)
 		cb->turn = ticket;
 	spin_unlock_bh(&cb->lock);
 
+	/*
+	 * We do not need explicit memory barriers after
+	 * spinlock operation.
+	 */
 	if (test_bit(TFW_QUEUE_B_IPI, &wq->flags))
 		tfw_raise_softirq(cpu, iw, ss_ipi);
 
@@ -299,7 +303,7 @@ ss_wq_pop(TfwRBQueue *wq, SsWork *sw, long *ticket)
 }
 
 static size_t
-__ss_close_q_sz(int cpu)
+ss_wq_size(int cpu)
 {
 	TfwRBQueue *wq = &per_cpu(si_wq, cpu);
 	SsCloseBacklog *cb = &per_cpu(close_backlog, cpu);
@@ -308,9 +312,11 @@ __ss_close_q_sz(int cpu)
 }
 
 static size_t
-ss_close_q_sz(void)
+ss_wq_local_size(TfwRBQueue *wq)
 {
-	return __ss_close_q_sz(smp_processor_id());
+	SsCloseBacklog *cb = this_cpu_ptr(&close_backlog);
+
+	return tfw_wq_size(wq) + cb->size;
 }
 
 /*
@@ -1321,7 +1327,7 @@ ss_tx_action(void)
 	 * new items. We use some small integer as a lower bound to catch just
 	 * ariving items.
 	 */
-	budget = max(10UL, ss_close_q_sz());
+	budget = max(10UL, ss_wq_local_size(wq));
 	while ((!ss_active() || budget--) && !ss_wq_pop(wq, &sw, &ticket)) {
 		struct sock *sk = sw.sk;
 
@@ -1368,16 +1374,8 @@ dead_sock:
 	 * ss_synchronize() is responsible for raising the softirq
 	 * if there are more jobs in the work queue or the backlog.
 	 */
-	if (budget) {
-		set_bit(TFW_QUEUE_B_IPI, &wq->flags);
-
-		smp_mb__after_atomic();
-
-		if (!ss_close_q_sz())
-			return;
-
-		clear_bit(TFW_QUEUE_B_IPI, &wq->flags);
-	}
+	if (budget)
+		TFW_WQ_IPI_SYNC(ss_wq_local_size, wq);
 
 	raise_softirq(NET_TX_SOFTIRQ);
 }
@@ -1456,7 +1454,7 @@ ss_synchronize(void)
 	while (1) {
 		for_each_online_cpu(cpu) {
 			int n_conn = atomic64_read(&per_cpu(__ss_act_cnt, cpu));
-			int n_q = __ss_close_q_sz(cpu);
+			int n_q = ss_wq_size(cpu);
 			if (n_conn + n_q) {
 				irq_work_sync(&per_cpu(ipi_work, cpu));
 				schedule(); /* let softirq finish works */
