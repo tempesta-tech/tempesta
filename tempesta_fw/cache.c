@@ -1748,14 +1748,7 @@ tfw_wq_tasklet(unsigned long data)
 	while (!tfw_wq_pop(wq, &cw))
 		tfw_cache_do_action(cw.msg, cw.action);
 
-	set_bit(TFW_QUEUE_B_IPI, &wq->flags);
-
-	smp_mb__after_atomic();
-
-	if (!tfw_wq_size(wq))
-		return;
-
-	clear_bit(TFW_QUEUE_B_IPI, &wq->flags);
+	TFW_WQ_IPI_SYNC(tfw_wq_size, wq);
 
 	tasklet_schedule(&ct->tasklet);
 }

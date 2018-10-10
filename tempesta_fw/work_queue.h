@@ -46,6 +46,15 @@ enum {
 	TFW_QUEUE_B_IPI = 0
 };
 
+#define TFW_WQ_IPI_SYNC(size_cb, wq)				\
+do {								\
+	set_bit(TFW_QUEUE_B_IPI, &(wq)->flags);			\
+	smp_mb__after_atomic();					\
+	if (!size_cb(wq))					\
+		return;						\
+	clear_bit(TFW_QUEUE_B_IPI, &(wq)->flags);		\
+} while (0)
+
 int tfw_wq_init(TfwRBQueue *wq, int node);
 void tfw_wq_destroy(TfwRBQueue *wq);
 long __tfw_wq_push(TfwRBQueue *wq, void *ptr);
@@ -77,6 +86,11 @@ tfw_wq_push(TfwRBQueue *q, void *ptr, int cpu, struct irq_work *work,
 	long ticket = __tfw_wq_push(q, ptr);
 	if (unlikely(ticket))
 		return ticket;
+	/*
+	 * The atomic operation is 'atomic64_cmpxchg()' in
+	 * '__tfw_wq_push()' above.
+	 */
+	smp_mb__after_atomic();
 
 	if (test_bit(TFW_QUEUE_B_IPI, &q->flags))
 		tfw_raise_softirq(cpu, work, local_cpu_cb);
