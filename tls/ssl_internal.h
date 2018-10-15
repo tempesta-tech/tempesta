@@ -24,8 +24,11 @@
 #ifndef TTLS_INTERNAL_H
 #define TTLS_INTERNAL_H
 
+#include <asm/fpu/api.h>
+
 #include "debug.h"
 #include "lib/fsm.h"
+#include "lib/str.h"
 
 #include "cipher.h"
 #include "ttls.h"
@@ -225,7 +228,8 @@ ttls_zeroize(void *v, size_t n)
 		*p++ = 0;
 }
 
-static inline ttls_pk_context *ttls_own_key(ttls_context *tls)
+static inline ttls_pk_context *
+ttls_own_key(ttls_context *tls)
 {
 	ttls_key_cert *key_cert;
 
@@ -234,7 +238,7 @@ static inline ttls_pk_context *ttls_own_key(ttls_context *tls)
 	else
 		key_cert = tls->conf->key_cert;
 
-	return(key_cert == NULL ? NULL : key_cert->key);
+	return key_cert ? key_cert->key : NULL;
 }
 
 static inline ttls_x509_crt *
@@ -271,6 +275,18 @@ int ttls_get_key_exchange_md_tls1_2(ttls_context *tls,
 		unsigned char *output,
 		unsigned char *data, size_t data_len,
 		ttls_md_type_t md_alg);
+
+/**
+ * Use the zeroing function for process context. Softirq context should use
+ * just bzero_fast().
+ */
+static inline void
+ttls_bzero_safe(void *v, size_t n)
+{
+	kernel_fpu_begin();
+	bzero_fast(v, n);
+	kernel_fpu_end();
+}
 
 #if defined(DEBUG) && (DEBUG >= 3)
 /*

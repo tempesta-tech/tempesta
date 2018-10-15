@@ -258,12 +258,22 @@ static int ecdsa_signature_to_asn1(const ttls_mpi *r, const ttls_mpi *s,
 	return 0;
 }
 
-/*
- * Compute and write signature
+/**
+ * This function computes the ECDSA signature and writes it to a buffer,
+ * serialized as defined in RFC-4492.
+ *
+ * The sig buffer must be at least twice as large as the size of the curve used,
+ * plus 9. For example, 73 Bytes if a 256-bit curve is used. A buffer length of
+ * TTLS_ECDSA_MAX_LEN is always safe.
+ *
+ * If the bitlength of the message hash is larger than the bitlength of the
+ * group order, then the hash is truncated as defined in Standards for Efficient
+ * Cryptography Group (SECG): SEC1 Elliptic Curve Cryptography, section 4.1.3,
+ * step 5.
  */
-int ttls_ecdsa_write_signature(ttls_ecdsa_context *ctx, ttls_md_type_t md_alg,
-			   const unsigned char *hash, size_t hlen,
-			   unsigned char *sig, size_t *slen)
+int
+ttls_ecdsa_write_signature(ttls_ecdsa_context *ctx, const unsigned char *hash,
+			   size_t hlen, unsigned char *sig, size_t *slen)
 {
 	int ret;
 	ttls_mpi r, s;
@@ -271,8 +281,7 @@ int ttls_ecdsa_write_signature(ttls_ecdsa_context *ctx, ttls_md_type_t md_alg,
 	ttls_mpi_init(&r);
 	ttls_mpi_init(&s);
 
-	TTLS_MPI_CHK(ttls_ecdsa_sign(&ctx->grp, &r, &s, &ctx->d,
-			 hash, hlen));
+	TTLS_MPI_CHK(ttls_ecdsa_sign(&ctx->grp, &r, &s, &ctx->d, hash, hlen));
 	TTLS_MPI_CHK(ecdsa_signature_to_asn1(&r, &s, sig, slen));
 
 cleanup:
