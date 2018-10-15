@@ -187,6 +187,8 @@ do {									\
 static void
 ss_ipi(struct irq_work *work)
 {
+	TfwRBQueue *wq = &per_cpu(si_wq, smp_processor_id());
+	clear_bit(TFW_QUEUE_IPI, &wq->flags);
 	raise_softirq(NET_TX_SOFTIRQ);
 }
 
@@ -200,6 +202,7 @@ ss_turnstile_push(long ticket, SsWork *sw, int cpu)
 {
 	struct irq_work *iw = &per_cpu(ipi_work, cpu);
 	SsCloseBacklog *cb = &per_cpu(close_backlog, cpu);
+	TfwRBQueue *wq = &per_cpu(si_wq, cpu);
 	SsCblNode *cn;
 
 	cn = kmem_cache_alloc(ss_cbacklog_cache, GFP_ATOMIC);
@@ -208,13 +211,18 @@ ss_turnstile_push(long ticket, SsWork *sw, int cpu)
 	cn->ticket = ticket;
 	memcpy(&cn->sw, sw, sizeof(*sw));
 	spin_lock_bh(&cb->lock);
-	list_add(&cn->list, &cb->head);
+	list_add_tail(&cn->list, &cb->head);
 	cb->size++;
 	if (cb->turn > ticket)
 		cb->turn = ticket;
 	spin_unlock_bh(&cb->lock);
 
-	tfw_raise_softirq(cpu, iw, ss_ipi);
+	/*
+	 * We do not need explicit memory barriers after
+	 * spinlock operation.
+	 */
+	if (test_bit(TFW_QUEUE_IPI, &wq->flags))
+		tfw_raise_softirq(cpu, iw, ss_ipi);
 
 	return 0;
 }
@@ -254,9 +262,8 @@ ss_wq_push(SsWork *sw, int cpu)
 }
 
 static int
-ss_wq_pop(SsWork *sw, long *ticket)
+ss_wq_pop(TfwRBQueue *wq, SsWork *sw, long *ticket)
 {
-	TfwRBQueue *wq = this_cpu_ptr(&si_wq);
 	SsCloseBacklog *cb = this_cpu_ptr(&close_backlog);
 
 	/*
@@ -296,7 +303,7 @@ ss_wq_pop(SsWork *sw, long *ticket)
 }
 
 static size_t
-__ss_close_q_sz(int cpu)
+ss_wq_size(int cpu)
 {
 	TfwRBQueue *wq = &per_cpu(si_wq, cpu);
 	SsCloseBacklog *cb = &per_cpu(close_backlog, cpu);
@@ -305,9 +312,11 @@ __ss_close_q_sz(int cpu)
 }
 
 static size_t
-ss_close_q_sz(void)
+ss_wq_local_size(TfwRBQueue *wq)
 {
-	return __ss_close_q_sz(smp_processor_id());
+	SsCloseBacklog *cb = this_cpu_ptr(&close_backlog);
+
+	return tfw_wq_size(wq) + cb->size;
 }
 
 /*
@@ -1308,17 +1317,18 @@ static void
 ss_tx_action(void)
 {
 	SsWork sw;
-	struct sk_buff *skb;
-	long ticket = 0;
 	int budget;
+	struct sk_buff *skb;
+	TfwRBQueue *wq = this_cpu_ptr(&si_wq);
+	long ticket = 0;
 
 	/*
 	 * @budget limits the loop to prevent live lock on constantly arriving
 	 * new items. We use some small integer as a lower bound to catch just
 	 * ariving items.
 	 */
-	budget = max(10UL, ss_close_q_sz());
-	while ((!ss_active() || budget--) && !ss_wq_pop(&sw, &ticket)) {
+	budget = max(10UL, ss_wq_local_size(wq));
+	while ((!ss_active() || budget--) && !ss_wq_pop(wq, &sw, &ticket)) {
 		struct sock *sk = sw.sk;
 
 		bh_lock_sock(sk);
@@ -1358,11 +1368,16 @@ dead_sock:
 
 	/*
 	 * Rearm softirq for local CPU if there are more jobs to do.
-	 * ss_synchronize() is responsible for raising the softirq if there are
-	 * more jobs in the work queue or the backlog.
+	 * If all jobs are finished, and work queue and backlog are
+	 * empty, then enable IPI generation by producers (disabled
+	 * in 'ss_ipi()' handler).
+	 * ss_synchronize() is responsible for raising the softirq
+	 * if there are more jobs in the work queue or the backlog.
 	 */
-	if (!budget)
-		raise_softirq(NET_TX_SOFTIRQ);
+	if (budget)
+		TFW_WQ_IPI_SYNC(ss_wq_local_size, wq);
+
+	raise_softirq(NET_TX_SOFTIRQ);
 }
 
 /*
@@ -1439,7 +1454,7 @@ ss_synchronize(void)
 	while (1) {
 		for_each_online_cpu(cpu) {
 			int n_conn = atomic64_read(&per_cpu(__ss_act_cnt, cpu));
-			int n_q = __ss_close_q_sz(cpu);
+			int n_q = ss_wq_size(cpu);
 			if (n_conn + n_q) {
 				irq_work_sync(&per_cpu(ipi_work, cpu));
 				schedule(); /* let softirq finish works */
