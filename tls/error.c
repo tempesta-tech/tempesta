@@ -209,12 +209,8 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "TLS - An invalid TLS record was received");
 		if (use_ret == -(TTLS_ERR_CONN_EOF))
 			snprintf(buf, buflen, "TLS - The connection indicated an EOF");
-		if (use_ret == -(TTLS_ERR_UNKNOWN_CIPHER))
-			snprintf(buf, buflen, "TLS - An unknown cipher was received");
 		if (use_ret == -(TTLS_ERR_NO_CIPHER_CHOSEN))
 			snprintf(buf, buflen, "TLS - The server has no ciphersuites in common with the client");
-		if (use_ret == -(TTLS_ERR_NO_RNG))
-			snprintf(buf, buflen, "TLS - No RNG was provided to the TLS module");
 		if (use_ret == -(TTLS_ERR_NO_CLIENT_CERTIFICATE))
 			snprintf(buf, buflen, "TLS - No client certification received from the client, but required by the authentication mode");
 		if (use_ret == -(TTLS_ERR_CERTIFICATE_TOO_LARGE))
@@ -232,8 +228,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "TLS - A fatal alert message was received from our peer");
 			return;
 		}
-		if (use_ret == -(TTLS_ERR_PEER_VERIFY_FAILED))
-			snprintf(buf, buflen, "TLS - Verification of our peer failed");
 		if (use_ret == -(TTLS_ERR_PEER_CLOSE_NOTIFY))
 			snprintf(buf, buflen, "TLS - The peer notified us that the connection is going to be closed");
 		if (use_ret == -(TTLS_ERR_BAD_HS_CLIENT_HELLO))
@@ -262,10 +256,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "TLS - Processing of the Finished handshake message failed");
 		if (use_ret == -(TTLS_ERR_ALLOC_FAILED))
 			snprintf(buf, buflen, "TLS - Memory allocation failed");
-		if (use_ret == -(TTLS_ERR_HW_ACCEL_FAILED))
-			snprintf(buf, buflen, "TLS - Hardware acceleration function returned with error");
-		if (use_ret == -(TTLS_ERR_HW_ACCEL_FALLTHROUGH))
-			snprintf(buf, buflen, "TLS - Hardware acceleration function skipped / left alone data");
 		if (use_ret == -(TTLS_ERR_BAD_HS_PROTOCOL_VERSION))
 			snprintf(buf, buflen, "TLS - Handshake protocol not within min/max boundaries");
 		if (use_ret == -(TTLS_ERR_BAD_HS_NEW_SESSION_TICKET))
@@ -274,12 +264,8 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "TLS - Session ticket has expired");
 		if (use_ret == -(TTLS_ERR_PK_TYPE_MISMATCH))
 			snprintf(buf, buflen, "TLS - Public key type mismatch (eg, asked for RSA key exchange and presented EC key)");
-		if (use_ret == -(TTLS_ERR_UNKNOWN_IDENTITY))
-			snprintf(buf, buflen, "TLS - Unknown identity received (eg, PSK identity)");
 		if (use_ret == -(TTLS_ERR_INTERNAL_ERROR))
 			snprintf(buf, buflen, "TLS - Internal error (eg, unexpected failure in lower-level module)");
-		if (use_ret == -(TTLS_ERR_COUNTER_WRAPPING))
-			snprintf(buf, buflen, "TLS - A counter would wrap (eg, too many messages exchanged)");
 		if (use_ret == -(TTLS_ERR_BUFFER_TOO_SMALL))
 			snprintf(buf, buflen, "TLS - A buffer is too small to receive or write a message");
 		if (use_ret == -(TTLS_ERR_NO_USABLE_CIPHERSUITE))

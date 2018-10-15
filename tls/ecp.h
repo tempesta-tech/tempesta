@@ -242,9 +242,9 @@ ttls_ecp_keypair;
 #define TTLS_ECP_PF_COMPRESSED	  1   /**< Compressed point format */
 
 /*
- * Some other constants from RFC 4492
+ * The only allowed ECCurveType by RFC 8422 5.4.
  */
-#define TTLS_ECP_TLS_NAMED_CURVE	3   /**< ECCurveType's named_curve */
+#define TTLS_ECP_TLS_NAMED_CURVE	3
 
 /**
  * \brief		   Get the list of supported curves in order of preferrence

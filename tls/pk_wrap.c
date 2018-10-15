@@ -1,25 +1,25 @@
 /*
- *  Public Key abstraction layer: wrapper functions
+ *		Tempesta TLS
  *
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- *  SPDX-License-Identifier: GPL-2.0
+ * Public Key abstraction layer: wrapper functions.
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * SPDX-License-Identifier: GPL-2.0
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
- *  This file is part of mbed TLS (https://tls.mbed.org)
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include "config.h"
 #include "pk_internal.h"
@@ -310,40 +310,44 @@ static int ecdsa_verify_wrap(void *ctx, ttls_md_type_t md_alg,
 	return ret;
 }
 
-static int ecdsa_sign_wrap(void *ctx, ttls_md_type_t md_alg,
-				   const unsigned char *hash, size_t hash_len,
-				   unsigned char *sig, size_t *sig_len)
+static int
+ecdsa_sign_wrap(void *ctx, ttls_md_type_t md_alg,
+		const unsigned char *hash, size_t hash_len,
+		unsigned char *sig, size_t *sig_len)
 {
-	return(ttls_ecdsa_write_signature((ttls_ecdsa_context *) ctx,
-				md_alg, hash, hash_len, sig, sig_len));
+	return ttls_ecdsa_write_signature((ttls_ecdsa_context *)ctx,
+					  hash, hash_len, sig, sig_len);
 }
 
-static void *ecdsa_alloc_wrap(void)
+static void *
+ecdsa_alloc_wrap(void)
 {
-	void *ctx = ttls_calloc(1, sizeof(ttls_ecdsa_context));
+	ttls_ecdsa_context *ctx;
 
-	if (ctx != NULL)
-		ttls_ecdsa_init((ttls_ecdsa_context *) ctx);
+	ctx = kmalloc(sizeof(*ctx), GFP_KERNEL);
+	if (ctx)
+		ttls_ecdsa_init(ctx);
 
-	return(ctx);
+	return ctx;
 }
 
-static void ecdsa_free_wrap(void *ctx)
+static void
+ecdsa_free_wrap(void *ctx)
 {
-	ttls_ecdsa_free((ttls_ecdsa_context *) ctx);
-	ttls_free(ctx);
+	ttls_ecdsa_free((ttls_ecdsa_context *)ctx);
+	kfree(ctx);
 }
 
 const ttls_pk_info_t ttls_ecdsa_info = {
 	TTLS_PK_ECDSA,
 	"ECDSA",
-	eckey_get_bitlen,	 /* Compatible key structures */
+	eckey_get_bitlen,	/* Compatible key structures */
 	ecdsa_can_do,
 	ecdsa_verify_wrap,
 	ecdsa_sign_wrap,
 	NULL,
 	NULL,
-	eckey_check_pair,   /* Compatible key structures */
+	eckey_check_pair,	/* Compatible key structures */
 	ecdsa_alloc_wrap,
 	ecdsa_free_wrap,
 	eckey_debug,		/* Compatible key structures */
