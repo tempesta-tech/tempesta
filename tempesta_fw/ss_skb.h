@@ -192,8 +192,8 @@ void *ss_skb_expand_frags(struct sk_buff *skb, size_t head, size_t tail);
 int ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *hdr,
 		       int skip, int tail);
 
-int ss_skb_process(struct sk_buff *skb, unsigned int off, ss_skb_actor_t actor,
-		   void *objdata, unsigned int *chunks,
+int ss_skb_process(struct sk_buff *skb, unsigned int off, unsigned int trail,
+		   ss_skb_actor_t actor, void *objdata, unsigned int *chunks,
 		   unsigned int *processed);
 
 int ss_skb_unroll(struct sk_buff **skb_head, struct sk_buff *skb);
