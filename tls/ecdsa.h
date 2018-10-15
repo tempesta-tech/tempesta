@@ -1,35 +1,30 @@
 /**
- * \file ecdsa.h
+ *		Tempesta TLS
  *
- * \brief The Elliptic Curve Digital Signature Algorithm (ECDSA).
+ * The Elliptic Curve Digital Signature Algorithm (ECDSA).
  *
  * ECDSA is defined in <em>Standards for Efficient Cryptography Group (SECG):
  * SEC1 Elliptic Curve Cryptography</em>.
  * The use of ECDSA for TLS is defined in <em>RFC-4492: Elliptic Curve
  * Cryptography (ECC) Cipher Suites for Transport Layer Security (TLS)</em>.
  *
+ * Copyright (C) 2006-2018, Arm Limited (or its affiliates), All Rights Reserved
+ * SPDX-License-Identifier: GPL-2.0
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-/*
- *  Copyright (C) 2006-2018, Arm Limited (or its affiliates), All Rights Reserved
- *  SPDX-License-Identifier: GPL-2.0
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
- *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- *  This file is part of Mbed TLS (https://tls.mbed.org)
- */
-
 #ifndef TTLS_ECDSA_H
 #define TTLS_ECDSA_H
 
@@ -120,48 +115,9 @@ int ttls_ecdsa_verify(ttls_ecp_group *grp,
 				  const unsigned char *buf, size_t blen,
 				  const ttls_ecp_point *Q, const ttls_mpi *r, const ttls_mpi *s);
 
-/**
- * \brief		   This function computes the ECDSA signature and writes it
- *				  to a buffer, serialized as defined in <em>RFC-4492:
- *				  Elliptic Curve Cryptography (ECC) Cipher Suites for
- *				  Transport Layer Security (TLS)</em>.
- *
- * \warning		 It is not thread-safe to use the same context in
- *				  multiple threads.
- *
- * \note			The deterministic version is used if
- *				  #TTLS_ECDSA_DETERMINISTIC is defined. For more
- *				  information, see <em>RFC-6979: Deterministic Usage
- *				  of the Digital Signature Algorithm (DSA) and Elliptic
- *				  Curve Digital Signature Algorithm (ECDSA)</em>.
- *
- * \param ctx	   The ECDSA context.
- * \param md_alg	The message digest that was used to hash the message.
- * \param hash	  The message hash.
- * \param hlen	  The length of the hash.
- * \param sig	   The buffer that holds the signature.
- * \param slen	  The length of the signature written.
- *
- * \note			The \p sig buffer must be at least twice as large as the
- *				  size of the curve used, plus 9. For example, 73 Bytes if
- *				  a 256-bit curve is used. A buffer length of
- *				  #TTLS_ECDSA_MAX_LEN is always safe.
- *
- * \note			If the bitlength of the message hash is larger than the
- *				  bitlength of the group order, then the hash is truncated as
- *				  defined in <em>Standards for Efficient Cryptography Group
- *				  (SECG): SEC1 Elliptic Curve Cryptography</em>, section
- *				  4.1.3, step 5.
- *
- * \return		  \c 0 on success,
- *				  or an \c TTLS_ERR_ECP_XXX, \c TTLS_ERR_MPI_XXX or
- *				  \c TTLS_ERR_ASN1_XXX error code on failure.
- *
- * \see			 ecp.h
- */
-int ttls_ecdsa_write_signature(ttls_ecdsa_context *ctx, ttls_md_type_t md_alg,
-			   const unsigned char *hash, size_t hlen,
-			   unsigned char *sig, size_t *slen);
+int ttls_ecdsa_write_signature(ttls_ecdsa_context *ctx,
+			       const unsigned char *hash, size_t hlen,
+			       unsigned char *sig, size_t *slen);
 
 /**
  * \brief		   This function reads and verifies an ECDSA signature.

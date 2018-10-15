@@ -95,7 +95,7 @@ do {									\
 			o += s->length;					\
 		} else {						\
 			int d = off - o;				\
-			T_DBG3_BUF("  ", sg_virt(s) + d, s->length - d);\
+			T_DBG3_BUF("segment", sg_virt(s) + d, s->length - d);\
 			o = off;					\
 		}							\
 	}								\

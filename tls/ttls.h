@@ -38,71 +38,99 @@
 #endif
 #include "ecdh.h"
 
+/* The requested feature is not available. */
+#define TTLS_ERR_FEATURE_UNAVAILABLE		-0x7080
+/* Bad input parameters to function. */
+#define TTLS_ERR_BAD_INPUT_DATA			-0x7100
+/* Verification of the message MAC failed. */
+#define TTLS_ERR_INVALID_MAC			-0x7180
+/* An invalid SSL record was received. */
+#define TTLS_ERR_INVALID_RECORD			-0x7200
+/* The connection indicated an EOF. */
+#define TTLS_ERR_CONN_EOF			-0x7280
+/* The server has no ciphersuites in common with the client. */
+#define TTLS_ERR_NO_CIPHER_CHOSEN		-0x7380
 /*
- * SSL Error codes
+ * No client certification received from the client, but required by the
+ * authentication mode.
  */
-#define TTLS_ERR_FEATURE_UNAVAILABLE	-0x7080 /**< The requested feature is not available. */
-#define TTLS_ERR_BAD_INPUT_DATA		-0x7100 /**< Bad input parameters to function. */
-#define TTLS_ERR_INVALID_MAC		-0x7180 /**< Verification of the message MAC failed. */
-#define TTLS_ERR_INVALID_RECORD		-0x7200 /**< An invalid SSL record was received. */
-#define TTLS_ERR_CONN_EOF		-0x7280 /**< The connection indicated an EOF. */
-#define TTLS_ERR_UNKNOWN_CIPHER		-0x7300 /**< An unknown cipher was received. */
-#define TTLS_ERR_NO_CIPHER_CHOSEN	-0x7380 /**< The server has no ciphersuites in common with the client. */
-#define TTLS_ERR_NO_RNG			-0x7400 /**< No RNG was provided to the SSL module. */
-#define TTLS_ERR_NO_CLIENT_CERTIFICATE	-0x7480 /**< No client certification received from the client, but required by the authentication mode. */
-#define TTLS_ERR_CERTIFICATE_TOO_LARGE	-0x7500 /**< Our own certificate(s) is/are too large to send in an SSL message. */
-#define TTLS_ERR_CERTIFICATE_REQUIRED	-0x7580 /**< The own certificate is not set, but needed by the server. */
-#define TTLS_ERR_PRIVATE_KEY_REQUIRED	-0x7600 /**< The own private key or pre-shared key is not set, but needed. */
-#define TTLS_ERR_CA_CHAIN_REQUIRED	-0x7680 /**< No CA Chain is set, but required to operate. */
-#define TTLS_ERR_UNEXPECTED_MESSAGE	-0x7700 /**< An unexpected message was received from our peer. */
-#define TTLS_ERR_FATAL_ALERT_MESSAGE	-0x7780 /**< A fatal alert message was received from our peer. */
-#define TTLS_ERR_PEER_VERIFY_FAILED	-0x7800 /**< Verification of our peer failed. */
-#define TTLS_ERR_PEER_CLOSE_NOTIFY	-0x7880 /**< The peer notified us that the connection is going to be closed. */
-#define TTLS_ERR_BAD_HS_CLIENT_HELLO	-0x7900 /**< Processing of the ClientHello handshake message failed. */
-#define TTLS_ERR_BAD_HS_SERVER_HELLO	-0x7980 /**< Processing of the ServerHello handshake message failed. */
-#define TTLS_ERR_BAD_HS_CERTIFICATE	-0x7A00 /**< Processing of the Certificate handshake message failed. */
-#define TTLS_ERR_BAD_HS_CERTIFICATE_REQUEST	-0x7A80 /**< Processing of the CertificateRequest handshake message failed. */
-#define TTLS_ERR_BAD_HS_SERVER_KEY_EXCHANGE	-0x7B00 /**< Processing of the ServerKeyExchange handshake message failed. */
-#define TTLS_ERR_BAD_HS_SERVER_HELLO_DONE	-0x7B80 /**< Processing of the ServerHelloDone handshake message failed. */
-#define TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE	-0x7C00 /**< Processing of the ClientKeyExchange handshake message failed. */
-#define TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_RP	-0x7C80 /**< Processing of the ClientKeyExchange handshake message failed in DHM / ECDH Read Public. */
-#define TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_CS	-0x7D00 /**< Processing of the ClientKeyExchange handshake message failed in DHM / ECDH Calculate Secret. */
-#define TTLS_ERR_BAD_HS_CERTIFICATE_VERIFY	-0x7D80 /**< Processing of the CertificateVerify handshake message failed. */
-#define TTLS_ERR_BAD_HS_CHANGE_CIPHER_SPEC	-0x7E00 /**< Processing of the ChangeCipherSpec handshake message failed. */
-#define TTLS_ERR_BAD_HS_FINISHED		-0x7E80 /**< Processing of the Finished handshake message failed. */
-#define TTLS_ERR_ALLOC_FAILED		-0x7F00 /**< Memory allocation failed */
-#define TTLS_ERR_HW_ACCEL_FAILED		-0x7F80 /**< Hardware acceleration function returned with error */
-#define TTLS_ERR_HW_ACCEL_FALLTHROUGH	-0x6F80 /**< Hardware acceleration function skipped / left alone data */
-#define TTLS_ERR_BAD_HS_PROTOCOL_VERSION	-0x6E80 /**< Handshake protocol not within min/max boundaries */
-#define TTLS_ERR_BAD_HS_NEW_SESSION_TICKET	-0x6E00 /**< Processing of the NewSessionTicket handshake message failed. */
-#define TTLS_ERR_SESSION_TICKET_EXPIRED	-0x6D80 /**< Session ticket has expired. */
-#define TTLS_ERR_UNKNOWN_IDENTITY	-0x6C80 /**< Unknown identity received (eg, PSK identity) */
-#define TTLS_ERR_INTERNAL_ERROR		-0x6C00 /**< Internal error (eg, unexpected failure in lower-level module) */
-#define TTLS_ERR_COUNTER_WRAPPING	-0x6B80 /**< A counter would wrap (eg, too many messages exchanged). */
-#define TTLS_ERR_BUFFER_TOO_SMALL	-0x6A00 /**< A buffer is too small to receive or write a message */
-#define TTLS_ERR_NO_USABLE_CIPHERSUITE	-0x6980 /**< None of the common ciphersuites is usable (eg, no suitable certificate, see debug messages). */
-#define TTLS_ERR_NON_FATAL		-0x6680 /**< The alert message received indicates a non-fatal error. */
-#define TTLS_ERR_INVALID_VERIFY_HASH	-0x6600 /**< Couldn't set the hash for verifying CertificateVerify */
+#define TTLS_ERR_NO_CLIENT_CERTIFICATE		-0x7480
+/* Our own certificate(s) is/are too large to send in an SSL message. */
+#define TTLS_ERR_CERTIFICATE_TOO_LARGE		-0x7500
+/* The own certificate is not set, but needed by the server. */
+#define TTLS_ERR_CERTIFICATE_REQUIRED		-0x7580
+/* The own private key or pre-shared key is not set, but needed. */
+#define TTLS_ERR_PRIVATE_KEY_REQUIRED		-0x7600
+/* No CA Chain is set, but required to operate. */
+#define TTLS_ERR_CA_CHAIN_REQUIRED		-0x7680
+/* An unexpected message was received from our peer. */
+#define TTLS_ERR_UNEXPECTED_MESSAGE		-0x7700
+/* A fatal alert message was received from our peer. */
+#define TTLS_ERR_FATAL_ALERT_MESSAGE		-0x7780
+/* The peer notified us that the connection is going to be closed. */
+#define TTLS_ERR_PEER_CLOSE_NOTIFY		-0x7880
+/* Processing of the ClientHello handshake message failed. */
+#define TTLS_ERR_BAD_HS_CLIENT_HELLO		-0x7900
+/* Processing of the ServerHello handshake message failed. */
+#define TTLS_ERR_BAD_HS_SERVER_HELLO		-0x7980
+/* Processing of the Certificate handshake message failed. */
+#define TTLS_ERR_BAD_HS_CERTIFICATE		-0x7A00
+/* Processing of the CertificateRequest handshake message failed. */
+#define TTLS_ERR_BAD_HS_CERTIFICATE_REQUEST	-0x7A80
+/* Processing of the ServerKeyExchange handshake message failed. */
+#define TTLS_ERR_BAD_HS_SERVER_KEY_EXCHANGE	-0x7B00
+/* Processing of the ServerHelloDone handshake message failed. */
+#define TTLS_ERR_BAD_HS_SERVER_HELLO_DONE	-0x7B80
+/* Processing of the ClientKeyExchange handshake message failed. */
+#define TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE	-0x7C00
+/*
+ * Processing of the ClientKeyExchange handshake message failed in
+ * DHM / ECDH Read Public.
+ */
+#define TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_RP	-0x7C80
+/*
+ * Processing of the ClientKeyExchange handshake message failed in
+ * DHM / ECDH Calculate Secret.
+ */
+#define TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_CS	-0x7D00
+/* Processing of the CertificateVerify handshake message failed. */
+#define TTLS_ERR_BAD_HS_CERTIFICATE_VERIFY	-0x7D80
+/* Processing of the ChangeCipherSpec handshake message failed. */
+#define TTLS_ERR_BAD_HS_CHANGE_CIPHER_SPEC	-0x7E00
+/* Processing of the Finished handshake message failed. */
+#define TTLS_ERR_BAD_HS_FINISHED		-0x7E80
+/* Memory allocation failed */
+#define TTLS_ERR_ALLOC_FAILED			-0x7F00
+/* Handshake protocol not within min/max boundaries */
+#define TTLS_ERR_BAD_HS_PROTOCOL_VERSION	-0x6E80
+/* Processing of the NewSessionTicket handshake message failed. */
+#define TTLS_ERR_BAD_HS_NEW_SESSION_TICKET	-0x6E00
+/* Session ticket has expired. */
+#define TTLS_ERR_SESSION_TICKET_EXPIRED		-0x6D80
+/* Internal error (eg, unexpected failure in lower-level module). */
+#define TTLS_ERR_INTERNAL_ERROR			-0x6C00
+/* A buffer is too small to receive or write a message. */
+#define TTLS_ERR_BUFFER_TOO_SMALL		-0x6A00
+/*
+ * None of the common ciphersuites is usable (eg, no suitable certificate,
+ * see debug messages).
+ */
+#define TTLS_ERR_NO_USABLE_CIPHERSUITE		-0x6980
+/* The alert message received indicates a non-fatal error. */
+#define TTLS_ERR_NON_FATAL			-0x6680
+/* Couldn't set the hash for verifying CertificateVerify. */
+#define TTLS_ERR_INVALID_VERIFY_HASH		-0x6600
 
-#define TTLS_IV_LEN		8 /* explicit IV size */
+#define TTLS_IV_LEN				8 /* explicit IV size */
 
-#define TTLS_MAJOR_VERSION_3	3
-#define TTLS_MINOR_VERSION_0	0 /* SSL v3.0 */
-#define TTLS_MINOR_VERSION_1	1 /* TLS v1.0 */
-#define TTLS_MINOR_VERSION_2	2 /* TLS v1.1 */
-#define TTLS_MINOR_VERSION_3	3 /* TLS v1.2 */
-#define TTLS_MINOR_VERSION_4	4 /* TLS v1.3 */
+#define TTLS_MAJOR_VERSION_3			3
+#define TTLS_MINOR_VERSION_0			0 /* SSL v3.0 */
+#define TTLS_MINOR_VERSION_1			1 /* TLS v1.0 */
+#define TTLS_MINOR_VERSION_2			2 /* TLS v1.1 */
+#define TTLS_MINOR_VERSION_3			3 /* TLS v1.2 */
+#define TTLS_MINOR_VERSION_4			4 /* TLS v1.3 */
 
 #define TTLS_MAX_HOST_NAME_LEN	255 /*!< Maximum host name defined in RFC 1035 */
-
-/* RFC 6066 section 4, see also mfl_code_to_length in ssl_tls.c
- * NONE must be zero so that memset()ing structure to zero works */
-#define TTLS_MAX_FRAG_LEN_NONE	0 /*!< don't use this extension */
-#define TTLS_MAX_FRAG_LEN_512	1 /*!< MaxFragmentLength 2^9	*/
-#define TTLS_MAX_FRAG_LEN_1024	2 /*!< MaxFragmentLength 2^10	*/
-#define TTLS_MAX_FRAG_LEN_2048	3 /*!< MaxFragmentLength 2^11	*/
-#define TTLS_MAX_FRAG_LEN_4096	4 /*!< MaxFragmentLength 2^12	*/
-#define TTLS_MAX_FRAG_LEN_INVALID	5 /*!< first invalid value	*/
 
 #define TTLS_IS_CLIENT	0
 #define TTLS_IS_SERVER	1
@@ -512,6 +540,12 @@ ttls_xfrm_taglen(TlsXfrm *xfrm)
 {
 	return xfrm->ciphersuite_info->flags & TTLS_CIPHERSUITE_SHORT_TAG
 		? 8 : 16;
+}
+
+static inline size_t
+ttls_payload_off(void)
+{
+	return TLS_AAD_SPACE_SIZE + TLS_HEADER_SIZE;
 }
 
 bool ttls_xfrm_ready(TlsCtx *tls);
