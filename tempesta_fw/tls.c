@@ -89,7 +89,7 @@ tfw_tls_msg_process(void *conn, TfwFsmData *data)
 next_msg:
 	ss_skb_queue_tail(&tls->io_in.skb_list, skb);
 	msg_skb = tls->io_in.skb_list;
-	r = ss_skb_process(skb, off, ttls_recv, tls, &tls->io_in.chunks,
+	r = ss_skb_process(skb, off, 0, ttls_recv, tls, &tls->io_in.chunks,
 			   &parsed);
 	switch (r) {
 	default:
