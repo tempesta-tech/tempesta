@@ -2711,8 +2711,8 @@ next_msg:
 	if (TFW_CONN_TYPE(conn) & TFW_FSM_HTTPS)
 		req->flags |= TFW_HTTP_F_REQ_TLS;
 
-	r = ss_skb_process(skb, off, tfw_http_parse_req, req, &req->chunk_cnt,
-			   &parsed);
+	r = ss_skb_process(skb, off, trail, tfw_http_parse_req, req,
+			   &req->chunk_cnt, &parsed);
 	req->msg.len += parsed;
 	TFW_ADD_STAT_BH(parsed, clnt.rx_bytes);
 
@@ -3163,7 +3163,7 @@ next_msg:
 	hmresp = (TfwHttpMsg *)conn->msg;
 	parser = &hmresp->parser;
 
-	r = ss_skb_process(skb, off, tfw_http_parse_resp, hmresp,
+	r = ss_skb_process(skb, off, 0, tfw_http_parse_resp, hmresp,
 			   &chunks_unused, &parsed);
 	hmresp->msg.len += parsed;
 	TFW_ADD_STAT_BH(parsed, serv.rx_bytes);
