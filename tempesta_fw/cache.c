@@ -1673,7 +1673,7 @@ static void
 tfw_cache_ipi(struct irq_work *work)
 {
 	TfwWorkTasklet *ct = container_of(work, TfwWorkTasklet, ipi_work);
-	clear_bit(TFW_QUEUE_B_IPI, &ct->wq.flags);
+	clear_bit(TFW_QUEUE_IPI, &ct->wq.flags);
 	tasklet_schedule(&ct->tasklet);
 }
 

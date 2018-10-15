@@ -188,7 +188,7 @@ static void
 ss_ipi(struct irq_work *work)
 {
 	TfwRBQueue *wq = &per_cpu(si_wq, smp_processor_id());
-	clear_bit(TFW_QUEUE_B_IPI, &wq->flags);
+	clear_bit(TFW_QUEUE_IPI, &wq->flags);
 	raise_softirq(NET_TX_SOFTIRQ);
 }
 
@@ -221,7 +221,7 @@ ss_turnstile_push(long ticket, SsWork *sw, int cpu)
 	 * We do not need explicit memory barriers after
 	 * spinlock operation.
 	 */
-	if (test_bit(TFW_QUEUE_B_IPI, &wq->flags))
+	if (test_bit(TFW_QUEUE_IPI, &wq->flags))
 		tfw_raise_softirq(cpu, iw, ss_ipi);
 
 	return 0;
