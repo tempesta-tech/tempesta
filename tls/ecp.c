@@ -1,55 +1,49 @@
 /*
- *  Elliptic curves over GF(p): generic functions
+ *		Tempesta TLS
  *
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- *  SPDX-License-Identifier: GPL-2.0
+ * Elliptic curves over GF(p): generic functions.
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
- *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- *  This file is part of mbed TLS (https://tls.mbed.org)
- */
-
-/*
  * References:
  *
  * SEC1 http://www.secg.org/index.php?action=secg,docs_secg
  * GECC = Guide to Elliptic Curve Cryptography - Hankerson, Menezes, Vanstone
  * FIPS 186-3 http://csrc.nist.gov/publications/fips/fips186-3/fips_186-3.pdf
- * RFC 4492 for the related TLS structures and constants
+ * RFC 8422 for the related TLS structures and constants
  *
  * [Curve25519] http://cr.yp.to/ecdh/curve25519-20060209.pdf
  *
  * [2] CORON, Jean-S'ebastien. Resistance against differential power analysis
- *	 for elliptic curve cryptosystems. In : Cryptographic Hardware and
- *	 Embedded Systems. Springer Berlin Heidelberg, 1999. p. 292-302.
- *	 <http://link.springer.com/chapter/10.1007/3-540-48059-5_25>
+ *     for elliptic curve cryptosystems. In : Cryptographic Hardware and
+ *     Embedded Systems. Springer Berlin Heidelberg, 1999. p. 292-302.
+ *     <http://link.springer.com/chapter/10.1007/3-540-48059-5_25>
  *
  * [3] HEDABOU, Mustapha, PINEL, Pierre, et B'EN'ETEAU, Lucien. A comb method to
- *	 render ECC resistant against Side Channel Attacks. IACR Cryptology
- *	 ePrint Archive, 2004, vol. 2004, p. 342.
- *	 <http://eprint.iacr.org/2004/342.pdf>
+ *     render ECC resistant against Side Channel Attacks. IACR Cryptology
+ *     ePrint Archive, 2004, vol. 2004, p. 342.
+ *     <http://eprint.iacr.org/2004/342.pdf>
+ *
+ * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * SPDX-License-Identifier: GPL-2.0
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include "config.h"
+#include "ssl_internal.h"
 #include "ecp.h"
 #include "ecp_internal.h"
-
-/* Implementation that should never be optimized out by the compiler */
-static void ttls_zeroize(void *v, size_t n) {
-	volatile unsigned char *p = v; while (n--) *p++ = 0;
-}
 
 /*
  * Counts of point addition and doubling, and field multiplications.
@@ -252,18 +246,18 @@ void ttls_ecp_point_free(ttls_ecp_point *pt)
 	ttls_mpi_free(&(pt->Z));
 }
 
-/*
- * Unallocate (the components of) a group
+/**
+ * Unallocate (the components of) a group.
  */
-void ttls_ecp_group_free(ttls_ecp_group *grp)
+void
+ttls_ecp_group_free(ttls_ecp_group *grp)
 {
 	size_t i;
 
-	if (grp == NULL)
+	if (!grp)
 		return;
 
-	if (grp->h != 1)
-	{
+	if (grp->h != 1) {
 		ttls_mpi_free(&grp->P);
 		ttls_mpi_free(&grp->A);
 		ttls_mpi_free(&grp->B);
@@ -271,14 +265,13 @@ void ttls_ecp_group_free(ttls_ecp_group *grp)
 		ttls_mpi_free(&grp->N);
 	}
 
-	if (grp->T != NULL)
-	{
+	if (grp->T) {
 		for (i = 0; i < grp->T_size; i++)
 			ttls_ecp_point_free(&grp->T[i]);
 		ttls_free(grp->T);
 	}
 
-	ttls_zeroize(grp, sizeof(ttls_ecp_group));
+	ttls_bzero_safe(grp, sizeof(ttls_ecp_group));
 }
 
 /*

@@ -2683,7 +2683,7 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 {
 	int req_conn_close, r = TFW_BLOCK;
 	bool block;
-	unsigned int parsed, off = data->off;
+	unsigned int parsed, off = data->off, trail = data->trail;
 	struct sk_buff *skb = data->skb;
 	TfwHttpReq *req;
 	TfwHttpMsg *hmsib;
@@ -2727,6 +2727,7 @@ next_msg:
 	 */
 	data_up.skb = skb;
 	data_up.off = off;
+	data_up.trail = parsed + trail < skb->len ? 0 : trail;
 	data_up.req = (TfwMsg *)req;
 	data_up.resp = NULL;
 
@@ -2835,7 +2836,7 @@ next_msg:
 	if((req_conn_close = req->flags & TFW_HTTP_F_CONN_CLOSE))
 		TFW_CONN_TYPE(req->conn) |= Conn_Stop;
 
-	if (!req_conn_close && parsed < skb->len) {
+	if (!req_conn_close && parsed + trail < skb->len) {
 		/*
 		 * Pipelined requests: create a new sibling message.
 		 * @skb is replaced with pointer to a new SKB.
@@ -3075,7 +3076,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 * cache shouldn't be accounted.
 	 */
 	data.skb = NULL;
-	data.off = 0;
+	data.off = data.trail = 0;
 	data.req = (TfwMsg *)req;
 	data.resp = (TfwMsg *)hmresp;
 	tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG_FWD, &data);
@@ -3117,6 +3118,7 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 	data.skb = ss_skb_peek_tail(&hm->msg.skb_head);
 	BUG_ON(!data.skb);
 	data.off = data.skb->len;
+	data.trail = 0;
 	data.req = NULL;
 	data.resp = (TfwMsg *)hm;
 
@@ -3143,6 +3145,11 @@ tfw_http_resp_process(TfwConn *conn, const TfwFsmData *data)
 
 	BUG_ON(!conn->msg);
 	BUG_ON(off >= skb->len);
+	/*
+	 * #769: There is no client side TLS, so we don't read HTTP responses
+	 * through TLS connection, so trail should be zero.
+	 */
+	WARN_ON_ONCE(data->trail);
 
 	TFW_DBG2("Received %u server data bytes on conn=%p msg=%p\n",
 		skb->len, conn, conn->msg);
@@ -3172,6 +3179,7 @@ next_msg:
 	 */
 	data_up.skb = skb;
 	data_up.off = off;
+	data_up.trail = 0;
 	data_up.req = NULL;
 	data_up.resp = (TfwMsg *)hmresp;
 

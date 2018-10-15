@@ -299,6 +299,9 @@ ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len)
 	TlsHandshake *hs = tls->hs;
 	const ttls_ciphersuite_t *ci = tls->xfrm.ciphersuite_info;
 
+	if (!len)
+		return;
+
 	/*
 	 * Initialize the hash context on first call to avoid double
 	 * hash calculation.
@@ -368,7 +371,7 @@ ttls_calc_finished_tls_sha256(TlsCtx *tls, unsigned char *buf, int from)
 	crypto_shash_final(&sha256.desc, padbuf);
 	tls->hs->tls_prf(sess->master, 48, sender, padbuf, 32, buf, len);
 
-	T_DBG3_BUF("calc finished sha256 result\n", buf, len);
+	T_DBG3_BUF("calc finished sha256 result", buf, len);
 
 	bzero_fast(&sha256, sizeof(sha256));
 	bzero_fast(padbuf, sizeof(padbuf));
@@ -397,7 +400,7 @@ ttls_calc_finished_tls_sha384(TlsCtx *tls, unsigned char *buf, int from)
 	crypto_shash_final(&sha512.desc, padbuf);
 	tls->hs->tls_prf(sess->master, 48, sender, padbuf, 48, buf, len);
 
-	T_DBG3_BUF("calc finished sha512 result\n", buf, len);
+	T_DBG3_BUF("calc finished sha512 result", buf, len);
 
 	bzero_fast(&sha512, sizeof(sha512));
 	bzero_fast(padbuf, sizeof(padbuf));
@@ -715,13 +718,12 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 
 	memcpy_fast(xfrm->iv_dec + xfrm->fixed_ivlen, io->iv,
 		    xfrm->ivlen - xfrm->fixed_ivlen);
-	// TODO adjust (reduce) skb->{len,truelen} after decryption
 	req = ttls_crypto_req_sglist(tls, tfm, dec_msglen + taglen, buf,
 				     &sg, &sgn);
 	if (!req || WARN_ON_ONCE(sgn < 2))
 		return TTLS_ERR_INTERNAL_ERROR;
 	ttls_make_aad(tls, io, aad_buf);
-	sg_set_buf(&sg[0], aad_buf, TLS_AAD_SPACE_SIZE);
+	sg_set_buf(sg, aad_buf, TLS_AAD_SPACE_SIZE);
 
 	T_DBG3("TFM: authsize=%u reqsize=%u\n", tfm->authsize, tfm->reqsize);
 	T_DBG3_BUF("IV used ", xfrm->iv_dec, xfrm->ivlen);
@@ -730,15 +732,18 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 	/*
 	 * Decrypt and authenticate.
 	 * Write decrypted data in-place to the original skb by offset of IV.
+	 *
+	 * TODO it seems actually the kernel unable to decrypt scatterlist
+	 * w/o copies since gcmaes_decrypt() requires input and output segments
+	 * to be marked as ends. The kernel improvement is required.
 	 */
 	aead_request_set_tfm(req, tfm);
 	aead_request_set_ad(req, TLS_AAD_SPACE_SIZE);
-	aead_request_set_crypt(req, sg, sg + 1, dec_msglen + taglen,
+	/* The crypto layer expects AAD segment in output scatter list. */
+	aead_request_set_crypt(req, sg, sg, dec_msglen + taglen,
 			       xfrm->iv_dec);
 	r = crypto_aead_decrypt(req);
 
-	// 14 00 00 0c 23 b2 18 bf d6 af a4 dc 7d 9b 7d 22
-	// FIXME includes 13-byte AAD at the begin
 	T_DBG3_SL("raw buffer after decryption", sg + 1, sgn - 1, 0,
 		  dec_msglen);
 
@@ -786,6 +791,9 @@ ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 
 /**
  * Form a TLS record from segments in @sgt starting at @sg_i.
+ *
+ * If @hdr_buf != NULL, then it's expected that it's at the begin of @sgt
+ * segments.
  */
 void
 __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
@@ -793,10 +801,16 @@ __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
 {
 	TlsIOCtx *io = &tls->io_out;
 
-	T_DBG("write record: type=%d len=%d sgt=%pK/%u\n",
-	      io->msgtype, io->msglen, sgt, sgt ? sgt->nents : 0);
+	T_DBG("write record: type=%d len=%d hslen=%u sgt=%pK/%u sg_i=%d\n",
+	      io->msgtype, io->msglen, io->hslen, sgt, sgt ? sgt->nents : 0,
+	      sg_i);
 
-	if (io->msgtype == TTLS_MSG_HANDSHAKE) {
+	if (io->msgtype == TTLS_MSG_HANDSHAKE
+	    && io->hstype != TTLS_HS_HELLO_REQUEST
+	    && io->hstype != TTLS_HS_FINISHED)
+	{
+		int d = hdr_buf ? TLS_HEADER_SIZE : 0;
+
 		/*
 		 * Update handshake checksum with handshake messages, not
 		 * including any HelloRequest messages, body excluding TLS
@@ -805,23 +819,24 @@ __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
 		 * checksumming.
 		 */
 		BUG_ON(!io->hslen && (!sgt || !sgt->sgl || sgt->nents < 1));
-		WARN_ON_ONCE(io->hstype != TTLS_HS_HELLO_REQUEST && !tls->hs);
+		WARN_ON_ONCE(!tls->hs);
 
-		if (io->hstype != TTLS_HS_HELLO_REQUEST
-		    && io->hstype != TTLS_HS_FINISHED)
-		{
-			if (io->hslen)
-				tls->hs->update_checksum(tls, io->hs_hdr,
-							 io->hslen);
-			if (sgt) {
-				struct scatterlist *sg;
-				for (sg = &sgt->sgl[sg_i]; sg_i < sgt->nents;
-				     sg_i++, sg = sg_next(sg))
-				{
-					tls->hs->update_checksum(tls,
-								 sg_virt(sg),
-								 sg->length);
+		if (io->hslen && d < io->hslen)
+			tls->hs->update_checksum(tls, io->hs_hdr + d,
+						 io->hslen - d);
+		if (sgt) {
+			struct scatterlist *sg;
+			for (sg = &sgt->sgl[sg_i]; sg_i < sgt->nents;
+			     sg_i++, sg = sg_next(sg))
+			{
+				if (unlikely(d >= sg->length)) {
+					d -= sg->length;
+					continue;
 				}
+				tls->hs->update_checksum(tls,
+							 sg_virt(sg) + d,
+							 sg->length - d);
+				d = 0;
 			}
 		}
 	}
@@ -1598,7 +1613,6 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 
 	if ((r = ttls_decrypt(tls, hs->finished)))
 		return r;
-	T_DBG3_BUF("A_DBG finished buf ", hs->finished, 16);
 	/* Verify the handshake header. */
 	if (unlikely(hs->finished[0] != TTLS_HS_FINISHED
 		     || hs->finished[1] || hs->finished[2]
@@ -2100,7 +2114,7 @@ next_record:
 		 * handshake checksum for correct messages only and only when
 		 * we already know the hash algorithm for the cipher suite.
 		 */
-		BUG_ON(!tls->hs);
+		BUG_ON(!tls->hs && tls->state != TTLS_HANDSHAKE_OVER);
 		if (ttls_hs_checksumable(tls)) {
 			size_t cs_len = *read - (int)parsed + hs_hdr_len;
 			tls->hs->update_checksum(tls, buf - hs_hdr_len,
