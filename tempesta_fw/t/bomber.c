@@ -176,7 +176,7 @@ tfw_bmb_conn_recv(void *cdata, struct sk_buff *skb, unsigned int off)
 
 		TFW_LOG("Server response:\n------------------------------\n");
 
-		ss_skb_process(skb, 0, tfw_bmb_print_msg, NULL, &chunks,
+		ss_skb_process(skb, 0, 0, tfw_bmb_print_msg, NULL, &chunks,
 			       &parsed);
 
 		printk(KERN_INFO "\n------------------------------\n");

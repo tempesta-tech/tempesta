@@ -954,19 +954,26 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *str, int skip,
  * initialize them. @actor sees @chunks including current chunk of data.
  */
 int
-ss_skb_process(struct sk_buff *skb, unsigned int off, ss_skb_actor_t actor,
-	       void *objdata, unsigned int *chunks, unsigned int *processed)
+ss_skb_process(struct sk_buff *skb, unsigned int off, unsigned int trail,
+	       ss_skb_actor_t actor, void *objdata, unsigned int *chunks,
+	       unsigned int *processed)
 {
-	int i, r = SS_OK;
+	int i, n, r = SS_OK;
 	int headlen = skb_headlen(skb);
+	int frag_len = skb->len - headlen;
 	struct skb_shared_info *si = skb_shinfo(skb);
+
+	if (WARN_ON_ONCE(skb->len <= trail + off))
+		return -EIO;
 
 	/* Process linear data. */
 	if (likely(off < headlen)) {
 		++*chunks;
-		r = actor(objdata, skb->data + off, skb_headlen(skb) - off,
-			  processed);
-		if (r != SS_POSTPONE)
+		n = skb_headlen(skb) - off;
+		if (unlikely(trail > frag_len))
+			n -= trail - frag_len;
+		r = actor(objdata, skb->data + off, n, processed);
+		if (r != SS_POSTPONE || unlikely(trail >= frag_len))
 			return r;
 	} else {
 		off -= headlen;
@@ -982,9 +989,13 @@ ss_skb_process(struct sk_buff *skb, unsigned int off, ss_skb_actor_t actor,
 		unsigned char *frag_addr = skb_frag_address(frag);
 		if (likely(off < frag_size)) {
 			++*chunks;
-			r = actor(objdata, frag_addr + off, frag_size - off,
-				  processed);
-			if (r != SS_POSTPONE)
+			BUG_ON(frag_len < frag_size);
+			frag_len -= frag_size;
+			n = frag_size - off;
+			if (trail > frag_len)
+				n -= trail - frag_len;
+			r = actor(objdata, frag_addr + off, n, processed);
+			if (r != SS_POSTPONE || trail >= frag_len)
 				return r;
 			off = 0;
 		} else {
