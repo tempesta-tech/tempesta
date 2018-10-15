@@ -34,6 +34,39 @@ static struct {
 	unsigned int	crt_pg_order;
 } tfw_tls;
 
+/**
+ * Chop skb list with begin at @skb by TLS extra data at the begin and end of
+ * the the list after decryption and write the right pointer at the first skb
+ * and offset to @data for upper layers processing.
+ */
+static int
+tfw_tls_chop_skb_rec(TlsCtx *tls, struct sk_buff *skb, unsigned int off,
+		     TfwFsmData *data)
+{
+	size_t prolog = ttls_payload_off();
+
+eaten_skb:
+	if (unlikely(skb->len <= prolog)) {
+		struct sk_buff *next = skb->next;
+		if (WARN_ON_ONCE(!next))
+			return -EIO;
+		prolog -= skb->len;
+		off = 0; /* off is only for the first skb */
+		__kfree_skb(skb);
+		skb = next;
+		goto eaten_skb;
+	} else {
+		off += prolog;
+	}
+	tls->io_in.skb_list = NULL; /* not used any more */
+
+	data->skb = skb;
+	data->off = off;
+	data->trail = ttls_xfrm_taglen(&tls->xfrm);
+
+	return 0;
+}
+
 static int
 tfw_tls_msg_process(void *conn, TfwFsmData *data)
 {
@@ -115,8 +148,8 @@ next_msg:
 	}
 
 	/* At this point tls->io_in is initialized for the next record. */
-	data_up.skb = msg_skb;
-	data_up.off = off;
+	if ((r = tfw_tls_chop_skb_rec(tls, msg_skb, off, &data_up)))
+		goto out_err;
 	r = tfw_gfsm_move(&c->state, TFW_TLS_FSM_DATA_READY, data);
 	if (r == TFW_BLOCK) {
 		spin_unlock(&tls->lock);
@@ -130,6 +163,8 @@ next_msg:
 		parsed = off = 0;
 		goto next_msg;
 	}
+
+out_err:
 	spin_unlock(&tls->lock);
 
 	return r;
@@ -478,7 +513,6 @@ tfw_cfgop_tls_certificate(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	r = ttls_x509_crt_parse(&tfw_tls.crt, (unsigned char *)crt_data,
 				crt_size);
-
 	if (r) {
 		TFW_ERR_NL("%s: Invalid certificate specified (%x)\n",
 			   cs->name, -r);

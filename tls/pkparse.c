@@ -457,12 +457,15 @@ static int pk_get_pk_alg(unsigned char **p,
 	return 0;
 }
 
-/*
+/**
+ * Parse a SubjectPublicKeyInfo DER structure.
+ *
  *  SubjectPublicKeyInfo  ::=  SEQUENCE  {
  *	   algorithm			AlgorithmIdentifier,
  *	   subjectPublicKey	 BIT STRING }
  */
-int ttls_pk_parse_subpubkey(unsigned char **p, const unsigned char *end,
+int
+ttls_pk_parse_subpubkey(unsigned char **p, const unsigned char *end,
 			ttls_pk_context *pk)
 {
 	int ret;
@@ -498,8 +501,8 @@ int ttls_pk_parse_subpubkey(unsigned char **p, const unsigned char *end,
 	if (pk_alg == TTLS_PK_RSA)
 	{
 		ret = pk_get_rsapubkey(p, end, ttls_pk_rsa(*pk));
-	} else
-	if (pk_alg == TTLS_PK_ECKEY_DH || pk_alg == TTLS_PK_ECKEY)
+	}
+	else if (pk_alg == TTLS_PK_ECKEY_DH || pk_alg == TTLS_PK_ECKEY)
 	{
 		ret = pk_use_ecparams(&alg_params, &ttls_pk_ec(*pk)->grp);
 		if (ret == 0)
@@ -766,102 +769,93 @@ static int pk_parse_key_sec1_der(ttls_ecp_keypair *eck,
 	return 0;
 }
 
-/*
- * Parse an unencrypted PKCS#8 encoded private key
- *
- * Notes:
- *
- * - This function does not own the key buffer. It is the
- *   responsibility of the caller to take care of zeroizing
- *   and freeing it after use.
- *
- * - The function is responsible for freeing the provided
- *   PK context on failure.
- *
+/**
+ * Parse an unencrypted PKCS#8 encoded private key.
+ * This function does not own the key buffer. It is the responsibility of the
+ * caller to take care of zeroizing and freeing it after use.
+ * The function is responsible for freeing the provided PK context on failure.
  */
-static int pk_parse_key_pkcs8_unencrypted_der(
-			ttls_pk_context *pk,
-			const unsigned char* key,
-			size_t keylen)
+static int
+pk_parse_key_pkcs8_unencrypted_der(ttls_pk_context *pk,
+				   const unsigned char *key, size_t keylen)
 {
 	int ret, version;
 	size_t len;
 	ttls_asn1_buf params;
-	unsigned char *p = (unsigned char *) key;
+	unsigned char *p = (unsigned char *)key;
 	unsigned char *end = p + keylen;
 	ttls_pk_type_t pk_alg = TTLS_PK_NONE;
 	const ttls_pk_info_t *pk_info;
 
 	/*
-	 * This function parses the PrivateKeyInfo object (PKCS#8 v1.2 = RFC 5208)
+	 * This function parses the PrivateKeyInfo object
+	 * (PKCS#8 v1.2 = RFC 5208).
 	 *
 	 *	PrivateKeyInfo ::= SEQUENCE {
-	 *	  version				   Version,
-	 *	  privateKeyAlgorithm	   PrivateKeyAlgorithmIdentifier,
-	 *	  privateKey				PrivateKey,
-	 *	  attributes		   [0]  IMPLICIT Attributes OPTIONAL }
+	 *	  version		Version,
+	 *	  privateKeyAlgorithm	PrivateKeyAlgorithmIdentifier,
+	 *	  privateKey		PrivateKey,
+	 *	  attributes		[0]  IMPLICIT Attributes OPTIONAL }
 	 *
-	 *	Version ::= INTEGER
-	 *	PrivateKeyAlgorithmIdentifier ::= AlgorithmIdentifier
-	 *	PrivateKey ::= OCTET STRING
+	 * Version ::= INTEGER
+	 * PrivateKeyAlgorithmIdentifier ::= AlgorithmIdentifier
+	 * PrivateKey ::= OCTET STRING
 	 *
-	 *  The PrivateKey OCTET STRING is a SEC1 ECPrivateKey
+	 * The PrivateKey OCTET STRING is a SEC1 ECPrivateKey
 	 */
-
-	if ((ret = ttls_asn1_get_tag(&p, end, &len,
-			TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE)) != 0)
-	{
-		return(TTLS_ERR_PK_KEY_INVALID_FORMAT + ret);
-	}
-
+	ret = ttls_asn1_get_tag(&p, end, &len,
+			      TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE);
+	if (ret)
+		return TTLS_ERR_PK_KEY_INVALID_FORMAT + ret;
 	end = p + len;
 
-	if ((ret = ttls_asn1_get_int(&p, end, &version)) != 0)
-		return(TTLS_ERR_PK_KEY_INVALID_FORMAT + ret);
+	if ((ret = ttls_asn1_get_int(&p, end, &version)))
+		return TTLS_ERR_PK_KEY_INVALID_FORMAT + ret;
+	if (version)
+		return TTLS_ERR_PK_KEY_INVALID_VERSION + ret;
 
-	if (version != 0)
-		return(TTLS_ERR_PK_KEY_INVALID_VERSION + ret);
+	if ((ret = pk_get_pk_alg(&p, end, &pk_alg, &params)))
+		return TTLS_ERR_PK_KEY_INVALID_FORMAT + ret;
 
-	if ((ret = pk_get_pk_alg(&p, end, &pk_alg, &params)) != 0)
-		return(TTLS_ERR_PK_KEY_INVALID_FORMAT + ret);
-
-	if ((ret = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_OCTET_STRING)) != 0)
-		return(TTLS_ERR_PK_KEY_INVALID_FORMAT + ret);
+	if ((ret = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_OCTET_STRING)))
+		return TTLS_ERR_PK_KEY_INVALID_FORMAT + ret;
 
 	if (len < 1)
-		return(TTLS_ERR_PK_KEY_INVALID_FORMAT +
-				TTLS_ERR_ASN1_OUT_OF_DATA);
+		return TTLS_ERR_PK_KEY_INVALID_FORMAT
+		       + TTLS_ERR_ASN1_OUT_OF_DATA;
 
-	if ((pk_info = ttls_pk_info_from_type(pk_alg)) == NULL)
-		return(TTLS_ERR_PK_UNKNOWN_PK_ALG);
+	if (!(pk_info = ttls_pk_info_from_type(pk_alg)))
+		return TTLS_ERR_PK_UNKNOWN_PK_ALG;
 
-	if ((ret = ttls_pk_setup(pk, pk_info)) != 0)
+	if ((ret = ttls_pk_setup(pk, pk_info)))
 		return ret;
 
-	if (pk_alg == TTLS_PK_RSA)
-	{
-		if ((ret = pk_parse_key_pkcs1_der(ttls_pk_rsa(*pk), p, len)) != 0)
+	if (pk_alg == TTLS_PK_RSA) {
+		if ((ret = pk_parse_key_pkcs1_der(ttls_pk_rsa(*pk), p, len))) {
+			ttls_pk_free(pk);
+			return ret;
+		}
+	}
+	else if (pk_alg == TTLS_PK_ECKEY || pk_alg == TTLS_PK_ECKEY_DH) {
+		if ((ret = pk_use_ecparams(&params, &ttls_pk_ec(*pk)->grp))
+		    || (ret = pk_parse_key_sec1_der(ttls_pk_ec(*pk), p, len)))
 		{
 			ttls_pk_free(pk);
 			return ret;
 		}
-	} else
-	if (pk_alg == TTLS_PK_ECKEY || pk_alg == TTLS_PK_ECKEY_DH)
-	{
-		if ((ret = pk_use_ecparams(&params, &ttls_pk_ec(*pk)->grp)) != 0 ||
-			(ret = pk_parse_key_sec1_der(ttls_pk_ec(*pk), p, len) ) != 0)
-		{
-			ttls_pk_free(pk);
-			return ret;
-		}
-	} else
-		return(TTLS_ERR_PK_UNKNOWN_PK_ALG);
+	}
+	else {
+		return TTLS_ERR_PK_UNKNOWN_PK_ALG;
+	}
 
 	return 0;
 }
 
 /**
- * Parse a private key
+ * Parse a private key in PEM or DER format.
+ * On entry, ctx must be empty, either freshly initialised with ttls_pk_init()
+ * or reset with ttls_pk_free(). If you need a specific key type, check the
+ * result with ttls_pk_can_do().
  */
 int
 ttls_pk_parse_key(ttls_pk_context *pk, unsigned char *key, size_t keylen)

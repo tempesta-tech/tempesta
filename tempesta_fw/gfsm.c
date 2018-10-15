@@ -176,6 +176,7 @@ static int
 __gfsm_fsm_exec(TfwGState *st, int fsm_id, TfwFsmData *data)
 {
 	int r = T_OK, slot, dummy;
+	unsigned int trail = data->trail;
 	struct sk_buff *next;
 
 	st->curr = slot = __gfsm_fsm_lookup(st, fsm_id, &dummy);
@@ -183,12 +184,12 @@ __gfsm_fsm_exec(TfwGState *st, int fsm_id, TfwFsmData *data)
 
 	FSM_STATE(st) |= TFW_GFSM_ONSTACK;
 
-	TFW_DBG3("GFSM exec fsm %d, state %#x: data skb=%pK off=%u\n",
-		 fsm_id, st->states[slot], data->skb, data->off);
+	TFW_DBG3("GFSM exec fsm %d, state %#x: data skb=%pK off=%u trail=%u\n",
+		 fsm_id, st->states[slot], data->skb, data->off, data->trail);
 
 	/*
 	 * Execute the FSM for current 'message', as it's seen by the caller.
-	 * The message can spread over severe skb's and the first one may
+	 * The message can spread over several skb's and the first one may
 	 * contain a tail for a previous message.
 	 * The called FSM doesn't guarantee consistency of the skb list,
 	 * however the FSM is responsible for freeing all consumed skbs,
@@ -198,10 +199,12 @@ __gfsm_fsm_exec(TfwGState *st, int fsm_id, TfwFsmData *data)
 	for (next = data->skb->next; data->skb;
 	     data->skb = next, next = next ? next->next : NULL, data->off = 0)
 	{
-		if (likely(r == T_OK || r == T_POSTPONE))
+		if (likely(r == T_OK || r == T_POSTPONE)) {
+			data->trail = !next ? trail : 0;
 			r = fsm_htbl[fsm_id](st->obj, data);
-		else
+		} else {
 			kfree(data->skb);
+		}
 	}
 
 	/* If current FSM finishes, remove its state. */

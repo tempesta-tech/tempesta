@@ -148,6 +148,8 @@ enum {
  * @skb		- currently processed skb by the TCP/IP stack, probably preceded
  *		  by skbs from previous GFSM shots;
  * @off		- data offset within the first skb in @skb list;
+ * @trail	- data trailer left from the underlying protocol and not to be
+ *		  processed by the current protocol;
  * @req		- a request associated with current state of an FSM;
  * @resp	- a response associated with the state;
  */
@@ -155,6 +157,7 @@ typedef struct {
 	/* L4 (TCP) members. */
 	struct sk_buff	*skb;
 	unsigned int	off;
+	unsigned int	trail;
 
 	/* L7 members. */
 	TfwMsg		*req;

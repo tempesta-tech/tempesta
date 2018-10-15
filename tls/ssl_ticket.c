@@ -86,8 +86,9 @@ static int ssl_ticket_update_keys(ttls_ticket_context *ctx)
 		return 0;
 }
 
-/*
- * Setup context for actual use
+/**
+ * Setup context for actual use.
+ * Use strong enough, but fast, cipher, e.g. AES-GCM-256.
  */
 int ttls_ticket_setup(ttls_ticket_context *ctx, ttls_cipher_type_t cipher,
 	uint32_t lifetime)
