@@ -1011,8 +1011,14 @@ tfw_sched_ratio_del_grp(TfwSrvGroup *sg)
 	if (!ratio)
 		return;
 	/*
-	 * Make sure the timer doesn't re-arms itself. This
-	 * also ensures that no more RCU callbacks are created.
+	 * Make sure the timer doesn't re-arms itself. This also ensures
+	 * that no more RCU callbacks are created.
+	 *
+	 * TODO: check if the memory barriers is redundand here (and in
+	 * several similar places as well as in corresponding timer
+	 * callbacks); also it seems that function 'del_timer_sync'
+	 * process correctly the situation with reactivation of timer
+	 * from callback, so perhaps we don't need 'rearm' flag at all.
 	 */
 	if (sg->flags & (TFW_SG_F_SCHED_RATIO_DYNAMIC
 			 | TFW_SG_F_SCHED_RATIO_PREDICT))
