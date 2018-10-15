@@ -43,16 +43,16 @@ typedef struct {
 
 enum {
 	/* Enable IPI generation. */
-	TFW_QUEUE_B_IPI = 0
+	TFW_QUEUE_IPI = 0
 };
 
 #define TFW_WQ_IPI_SYNC(size_cb, wq)				\
 do {								\
-	set_bit(TFW_QUEUE_B_IPI, &(wq)->flags);			\
+	set_bit(TFW_QUEUE_IPI, &(wq)->flags);			\
 	smp_mb__after_atomic();					\
 	if (!size_cb(wq))					\
 		return;						\
-	clear_bit(TFW_QUEUE_B_IPI, &(wq)->flags);		\
+	clear_bit(TFW_QUEUE_IPI, &(wq)->flags);			\
 } while (0)
 
 int tfw_wq_init(TfwRBQueue *wq, int node);
@@ -92,7 +92,7 @@ tfw_wq_push(TfwRBQueue *q, void *ptr, int cpu, struct irq_work *work,
 	 */
 	smp_mb__after_atomic();
 
-	if (test_bit(TFW_QUEUE_B_IPI, &q->flags))
+	if (test_bit(TFW_QUEUE_IPI, &q->flags))
 		tfw_raise_softirq(cpu, work, local_cpu_cb);
 
 	return 0;

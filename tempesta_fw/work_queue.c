@@ -49,7 +49,7 @@ tfw_wq_init(TfwRBQueue *q, int node)
 	q->last_head = 0;
 	atomic64_set(&q->head, 0);
 	atomic64_set(&q->tail, 0);
-	set_bit(TFW_QUEUE_B_IPI, &q->flags);
+	set_bit(TFW_QUEUE_IPI, &q->flags);
 
 	q->array = kmalloc_node(QSZ * WQ_ITEM_SZ, GFP_KERNEL, node);
 	if (!q->array) {
