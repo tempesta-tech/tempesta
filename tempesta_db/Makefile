@@ -24,7 +24,7 @@ libtdb:
 	$(MAKE) -C libtdb
 
 .PHONY: tdbq
-tdbq:
+tdbq: libtdb
 	$(MAKE) -C tdbq
 
 .PHONY: clean
