@@ -152,19 +152,18 @@ ttls_pk_type_t ttls_get_ciphersuite_sig_alg(const ttls_ciphersuite_t *info);
 int ttls_ciphersuite_uses_ec(const ttls_ciphersuite_t *info);
 int ttls_ciphersuite_uses_psk(const ttls_ciphersuite_t *info);
 
-static inline int ttls_ciphersuite_has_pfs(const ttls_ciphersuite_t *info)
+static inline int
+ttls_ciphersuite_has_pfs(const ttls_ciphersuite_t *info)
 {
-	switch(info->key_exchange)
-	{
-		case TTLS_KEY_EXCHANGE_DHE_RSA:
-		case TTLS_KEY_EXCHANGE_DHE_PSK:
-		case TTLS_KEY_EXCHANGE_ECDHE_RSA:
-		case TTLS_KEY_EXCHANGE_ECDHE_PSK:
-		case TTLS_KEY_EXCHANGE_ECDHE_ECDSA:
-			return(1);
-
-		default:
-			return 0;
+	switch (info->key_exchange) {
+	case TTLS_KEY_EXCHANGE_DHE_RSA:
+	case TTLS_KEY_EXCHANGE_DHE_PSK:
+	case TTLS_KEY_EXCHANGE_ECDHE_RSA:
+	case TTLS_KEY_EXCHANGE_ECDHE_PSK:
+	case TTLS_KEY_EXCHANGE_ECDHE_ECDSA:
+		return 1;
+	default:
+		return 0;
 	}
 }
 
