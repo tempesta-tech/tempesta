@@ -32,7 +32,7 @@
  * @head	- List of configured virtual hosts.
  * @vhost_dflt	- Default virtual host with global policies (always present in
  *		  current configuration).
- * @expl_dflt	- Flag to indicate expilicit configuration of default
+ * @expl_dflt	- Flag to indicate explicit configuration of default
  *		  virtual host.
  */
 typedef struct {
@@ -1791,6 +1791,7 @@ tfw_vhost_cfgstart(void)
 		return -ENOMEM;
 	}
 
+	tfw_vhosts_reconfig->expl_dflt = false;
 	INIT_LIST_HEAD(&tfw_vhosts_reconfig->head);
 	if(!(vh_dflt = tfw_vhost_new(TFW_VH_DFT_NAME))) {
 		TFW_ERR_NL("Unable to create default vhost.\n");
