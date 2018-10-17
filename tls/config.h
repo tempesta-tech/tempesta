@@ -386,17 +386,6 @@
 #define TTLS_DHM_C
 
 /**
- * TODO TTLS_CACHE_C
- *
- * Enable simple SSL cache implementation.
- *
- * Module:  library/ssl_cache.c
- *
- * Requires: TTLS_CACHE_C
- */
-//#define TTLS_CACHE_C
-
-/**
  * TODO TTLS_TICKET_C
  *
  * Enable an implementation of TLS server-side callbacks for session tickets.
