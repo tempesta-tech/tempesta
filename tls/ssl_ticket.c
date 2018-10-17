@@ -40,6 +40,8 @@ void ttls_ticket_init(ttls_ticket_context *ctx)
 
 /*
  * Generate/update a key
+ * TODO #1054 use a configuration option to generate the key with the random
+ * number generator or on top of shared secret.
  */
 static int ssl_ticket_gen_key(ttls_ticket_context *ctx,
 				   unsigned char index)
@@ -88,7 +90,9 @@ static int ssl_ticket_update_keys(ttls_ticket_context *ctx)
 
 /**
  * Setup context for actual use.
- * Use strong enough, but fast, cipher, e.g. AES-GCM-256.
+ *
+ * TODO #1054: Use strong enough, but fast, cipher, e.g. AES-GCM-256.
+ * @lifetime should be configurable, and typically not so large, e.g. 2h.
  */
 int ttls_ticket_setup(ttls_ticket_context *ctx, ttls_cipher_type_t cipher,
 	uint32_t lifetime)
