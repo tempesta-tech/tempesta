@@ -33,22 +33,24 @@ static void
 validate_addr(const TfwAddr *addr)
 {
 	/* At this point we are not going to support addresses other than
-	 * IPv4 and IPv6, so we check it here, so all functions may safely
-	 * assume that they get either one family and nothing else. */
+	 * IPv6 and IPv4-mapped IPv6, so we check it here, so all functions
+	 * may safely assume that they get expected family and nothing else.
+	 */
 	BUG_ON(!addr);
-	BUG_ON(addr->family != AF_INET && addr->family != AF_INET6);
+	BUG_ON(addr->sin6_family != AF_INET6);
 }
 
 static int
-tfw_addr_pton_v4(const TfwStr *s, struct sockaddr_in *addr)
+tfw_addr_pton_v4(const TfwStr *s, TfwAddr *addr)
 {
 	int octet = -1, i = 0, port = 0, k;
-	unsigned char *a = (unsigned char *)&addr->sin_addr.s_addr;
+	unsigned char *a = (unsigned char *)&addr->sin6_addr.s6_addr32[3];
 	const char *p;
 	const TfwStr *c, *end;
 
-	addr->sin_family = AF_INET;
-	addr->sin_addr.s_addr = 0;
+	addr->sin6_family = AF_INET6;
+	ipv6_addr_set_v4mapped(0, &addr->sin6_addr);
+
 	TFW_STR_FOR_EACH_CHUNK(c, s, end) {
 		for (k = 0; k != c->len; ++k) {
 			p = c->ptr + k;
@@ -73,11 +75,11 @@ tfw_addr_pton_v4(const TfwStr *s, struct sockaddr_in *addr)
 		if (i == 3) {
 			/* Default port. */
 			a[i] = octet;
-			addr->sin_port = htons(TFW_ADDR_STR_DEF_PORT);
+			addr->sin6_port = htons(TFW_ADDR_STR_DEF_PORT);
 			return 0;
 		}
 		else if (i == 4) {
-			addr->sin_port = htons(octet);
+			addr->sin6_port = htons(octet);
 			return 0;
 		}
 	}
@@ -86,7 +88,7 @@ tfw_addr_pton_v4(const TfwStr *s, struct sockaddr_in *addr)
 }
 
 static int
-tfw_addr_pton_v6(const TfwStr *s, struct sockaddr_in6 *addr)
+tfw_addr_pton_v6(const TfwStr *s, TfwAddr *addr)
 {
 #define XD(x) ((x >= 'a') ? 10 + x - 'a' : x - '0')
 
@@ -144,7 +146,7 @@ tfw_addr_pton_v6(const TfwStr *s, struct sockaddr_in6 *addr)
 				 * Recalculate the first 2 hexademical octets from to
 				 * 1 decimal octet.
 				 */
-				addr->sin6_family = AF_INET;
+				addr->sin6_family = AF_INET6;
 				words[0] = ((words[2] & 0xF000) >> 12) * 1000
 					   + ((words[2] & 0x0F00) >> 8) * 100
 					   + ((words[2] & 0x00F0) >> 4) * 10
@@ -193,9 +195,11 @@ tfw_addr_pton_v6(const TfwStr *s, struct sockaddr_in6 *addr)
 
 	/* Copy parsed address. */
 	if (ipv4_mapped) {
-		struct sockaddr_in *addr4 = (struct sockaddr_in *)addr;
+		__be32 v4addr = 0;
 		for (i = 0; i < 4; ++i)
-			addr4->sin_addr.s_addr |= words[i] << (3 - i) * 8;
+			v4addr |= words[i] << (3 - i) * 8;
+		tfw_addr_set_v4(addr, v4addr);
+
 	} else {
 		for (i = a = 7; i >= 0 && a >= 0; ) {
 			if (words[i] == -1) {
@@ -260,9 +264,9 @@ delim:
 	}
 
 	if (mode == 4)
-		ret = tfw_addr_pton_v4(str, &addr->v4);
+		ret = tfw_addr_pton_v4(str, addr);
 	else if (mode == 6)
-		ret = tfw_addr_pton_v6(str, &addr->v6);
+		ret = tfw_addr_pton_v6(str, addr);
 
 	return ret;
 }
@@ -280,14 +284,13 @@ static const char *
 tfw_addr_pton_addr(const char *str, TfwAddr *addr)
 {
 	char delim = '/';
-	TfwAddr tmpaddr = {};
+	TfwAddr tmpaddr = { .sin6_family = AF_INET6 };
 	const char *pptr;
-	__be32 *v4_saddr = &tmpaddr.v4.sin_addr.s_addr;
-	struct in6_addr *v6_inaddr = &tmpaddr.v6.sin6_addr;
+	__be32 v4_saddr;
+	struct in6_addr *v6_inaddr = &tmpaddr.sin6_addr;
 
-	if (in4_pton(str, -1, (u8 *)v4_saddr, delim, &pptr)) {
-		ipv6_addr_set_v4mapped(*v4_saddr, v6_inaddr);
-		tmpaddr.family = AF_INET;
+	if (in4_pton(str, -1, (u8 *)&v4_saddr, delim, &pptr)) {
+		ipv6_addr_set_v4mapped(v4_saddr, v6_inaddr);
 		goto done;
 	}
 	if (*str == '[') {
@@ -296,7 +299,6 @@ tfw_addr_pton_addr(const char *str, TfwAddr *addr)
 	}
 	if (!in6_pton(str, -1, (u8 *)&v6_inaddr->s6_addr, delim, &pptr))
 		return NULL;
-	tmpaddr.family = AF_INET6;
 	if (*pptr == ']')
 		++pptr;
 done:
@@ -308,7 +310,7 @@ done:
  * Parse an IP address in CIDR format. That include an IPv4 or IPv6
  * address, and a potential address prefix specified as the number
  * of significant bits in the address after the '/' char. The prefix
- * is stored in the unused field v6.sin6_scope_id.
+ * is stored in the unused field sin6_scope_id.
  *
  * Return zero if the result is positive.
  * Return a negative error number in case of an error.
@@ -331,11 +333,10 @@ tfw_addr_pton_cidr(const char *str, TfwAddr *addr)
 	}
 	if (kstrtou8(pptr, 10, &prefix) || (prefix == 0))
 		return -EINVAL;
-	if (addr->family == AF_INET) {
+	if (ipv6_addr_v4mapped(&addr->sin6_addr)) {
 		if (prefix > 32)
 			return -EINVAL;
 		prefix += 128 - 32;
-		addr->family = AF_INET6;
 	} else if (prefix > 128) {
 		return -EINVAL;
 	}
@@ -344,51 +345,26 @@ tfw_addr_pton_cidr(const char *str, TfwAddr *addr)
 	return 0;
 }
 
-static bool
-tfw_addr_eq_inet(const struct sockaddr_in *a, const struct sockaddr_in *b)
-{
-	/* NOTE: we assume that all compared fields are packed to these 8 bytes:
-	 * sin_family and sin_port are 2 bytes each + sin_addr is 4 bytes. */
-	return *((u64 *)a)  == *((u64 *)b);
-}
-
-static bool
-tfw_addr_eq_inet6(const struct sockaddr_in6 *a, const struct sockaddr_in6 *b)
-{
-	/* NOTE: We are comparing only addr and port without other fields, so:
-	 *  - sin6_family has to be AF_INET6 for both arguments.
-	 *  - The addresses are treated as equal even if they have different
-	 *    sin6_flowinfo or sin6_scope_id. */
-	return ((a->sin6_port == b->sin6_port) &&
-		!memcmp(&a->sin6_addr, &b->sin6_addr, sizeof(a->sin6_addr)));
-}
-
 /**
- * Compare two IPv4/IPv6 addresses.
+ * Compare two TfwAddr addresses.
  *
  * Addresses are treated as equal if both address and port bytes are equal.
  * For IPv6, such fields as "Flow Info" and "Scope ID" are ignored, only address
  * and port fields are compared.
- *
- * Also the function returns false and gives WARN() if any of two addresses
- * has a family value other than IPv4 or IPv6.
  */
 bool
-tfw_addr_eq(const TfwAddr *addr1, const TfwAddr *addr2)
+tfw_addr_eq(const TfwAddr *a, const TfwAddr *b)
 {
-	sa_family_t family;
+	validate_addr(a);
+	validate_addr(b);
 
-	validate_addr(addr1);
-	validate_addr(addr2);
-
-	family = addr1->family;
-	if (family != addr2->family)
-		return false;
-
-	if (family == AF_INET6)
-		return tfw_addr_eq_inet6(&addr1->v6, &addr2->v6);
-
-	return tfw_addr_eq_inet(&addr1->v4, &addr2->v4);
+	/* NOTE: We are comparing only addr and port without other fields, so:
+	 *  - sin6_family has to be AF_INET6 for both arguments.
+	 *  - The addresses are treated as equal even if they have different
+	 *    sin6_flowinfo or sin6_scope_id.
+	 */
+	return a->sin6_port == b->sin6_port &&
+	       memcmp(&a->sin6_addr, &b->sin6_addr, sizeof(a->sin6_addr)) == 0;
 }
 EXPORT_SYMBOL(tfw_addr_eq);
 
@@ -400,44 +376,41 @@ EXPORT_SYMBOL(tfw_addr_eq);
 int
 tfw_addr_ifmatch(const TfwAddr *server, const TfwAddr *listener)
 {
-	switch (server->family) {
-	case AF_INET:
-		do {
-			unsigned laddr = listener->v4.sin_addr.s_addr;
-			unsigned saddr = server->v4.sin_addr.s_addr;
-			if (listener->v4.sin_port != server->v4.sin_port)
-				return 0;
-			if (laddr == 0) {
-				if (IN_LOOPBACK(ntohl(saddr)))
-					return 1;
-				/* TODO: check if client addr is
-				* one of interface adresses */
-			}
-		} while (0);
-		return tfw_addr_eq_inet(&server->v4, &listener->v4);
-		break;
-	case AF_INET6:
-		if (listener->v6.sin6_port != server->v6.sin6_port)
-			return 0;
-		if (!(listener->v6.sin6_addr.in6_u.u6_addr32[0] |
-			listener->v6.sin6_addr.in6_u.u6_addr32[1] |
-			listener->v6.sin6_addr.in6_u.u6_addr32[2] |
-			listener->v6.sin6_addr.in6_u.u6_addr32[3]))
-		{
-			/* listener = [::] */
-			if (IN6_LOOPBACK(server->v6.sin6_addr))
-			{
-				/* backend = [::1] */
-				return 1;
-			}
-			/* TODO: same as in v4 case */
-		}
-		return tfw_addr_eq_inet6(&server->v6, &listener->v6);
-	default:
-		TFW_ERR("Unknown protocol family\n");
+	if (unlikely(server->sin6_family != AF_INET6)) {
+		TFW_ERR("Unexpected protocol family\n");
 		BUG();
+		return 0;
 	}
-	return 0;
+
+	if (tfw_addr_port(listener) != tfw_addr_port(server))
+		return 0;
+
+	if (tfw_addr_is_v4mapped(server) && tfw_addr_is_v4mapped(listener)) {
+		__be32 laddr = tfw_addr_v4addr(listener);
+		__be32 saddr = tfw_addr_v4addr(server);
+
+		if (laddr == 0) {
+			if (IN_LOOPBACK(ntohl(saddr)))
+				return 1;
+				/* TODO: check if client addr is
+				 * one of interface adresses
+				 */
+		}
+
+		return tfw_addr_eq(server, listener);
+	}
+
+	if (ipv6_addr_any(&listener->sin6_addr)) {
+		/* listener = [::] */
+		if (IN6_LOOPBACK(server->sin6_addr)) {
+			/* backend = [::1] */
+			return 1;
+		}
+
+		/* TODO: same as in v4 case */
+	}
+
+	return tfw_addr_eq(server, listener);
 }
 EXPORT_SYMBOL(tfw_addr_ifmatch);
 
@@ -536,24 +509,26 @@ tfw_put_ipv6_digit_group(u16 group, char *out_buf)
  * Decide whether the port value should be included to a serialized IP address.
  * We omit port 80 because it is the default value in most HTTP specifications.
  */
-#define SHOULD_PRINT_PORT(port) \
-	unlikely(port && port != __constant_cpu_to_be16(TFW_ADDR_STR_DEF_PORT))
+#define SHOULD_PRINT_PORT(print_port, port) \
+	unlikely(print_port && port != 0 && \
+	         port != __constant_cpu_to_be16(TFW_ADDR_STR_DEF_PORT))
 
 /**
- * Convert an IPv4 address and a port value to string,
- * e.g. (both big-endian) 0x7F000001, 8081 -> "127.0.0.1:8081".
+ * Convert an address to a string, assuming it's an IPv4 address.
  *
- * @in_port is ignored if it is equal to 0 or 80.
- * @buf must be at least 21 bytes in size, or you get an overflow.
+ * @param print_port controls whenever port should be included in the resulting
+ * string. Port's omitted if it's 0 or 80, even if @param print_port is true.
+ * @param buf is an output buffer. Should be at least 21 bytes long.
  *
- * Returns position behind the latest character in the @buf.
+ * @returns position behind the latest character in the @param buf.
  * The output is NOT terminated with '\0'.
  */
-char *
-tfw_addr_fmt_v4(__be32 in_addr, __be16 in_port, char *buf)
+static char *
+tfw_addr_fmt_v4(const TfwAddr *addr, bool print_port, char *buf)
 {
 	char *pos = buf;
-	u8 *octets = (u8 *)&in_addr;
+	u8 *octets = (u8 *)&addr->sin6_addr.s6_addr32[3];
+	__be16 in_port = addr->sin6_port;
 
 	pos = tfw_put_dec(octets[0], pos);
 	*pos++ = '.';
@@ -563,7 +538,7 @@ tfw_addr_fmt_v4(__be32 in_addr, __be16 in_port, char *buf)
 	*pos++ = '.';
 	pos = tfw_put_dec(octets[3], pos);
 
-	if (SHOULD_PRINT_PORT(in_port)) {
+	if (SHOULD_PRINT_PORT(print_port, in_port)) {
 		*pos++ = ':';
 		pos = tfw_put_dec(ntohs(in_port), pos);
 	}
@@ -572,30 +547,39 @@ tfw_addr_fmt_v4(__be32 in_addr, __be16 in_port, char *buf)
 }
 
 /**
- * Convert an IPv6 address and a port value to string.
+ * Convert an address to a string.
  *
  * Output examples:
  *   "::1"
  *   "[2f1c:22::1a:0:1]:8081"
  *   "[0123:4567:89ab:cdef:0123:4567:89ab:cdef]:65535"
+ *   "192.168.0.1"
+ *   "192.168.0.2:8082"
  *
- * The address is enclosed to square brackets when @in_port is not zero.
+ * The address is enclosed by square brackets when it's an IPv6, and a port is
+ * present in the result. If the port is 0 or 80, it's omitted even if
+ * @param print_port is true.
  *
- * @in_port is ignored if it is equal to 0 or 80.
- * Size of @buf must be at least TFW_ADDR_STR_BUF_SIZE, or you get an overflow.
+ * @param print_port controls whenever port gets into the result.
+ * @param buf is an output buffer. Should be at least TFW_ADDR_STR_BUF_SIZE
+ * bytes long.
  *
- * Returns position behind the last character in @buf.
+ * @returns position behind the last character in @param buf.
  * The output is NOT terminated with '\0'.
  */
 char *
-tfw_addr_fmt_v6(const struct in6_addr *in6_addr, __be16 in_port, char *buf)
+tfw_addr_fmt(const TfwAddr *addr, bool print_port, char *buf)
 {
 	char *pos = buf;
-	const u16 *groups = in6_addr->in6_u.u6_addr16;
+	const u16 *groups = addr->sin6_addr.s6_addr16;
+	__be16 in_port = addr->sin6_port;
 	u8 zeros_already_omitted = false;
 	u8 i;
 
-	if (SHOULD_PRINT_PORT(in_port))
+	if (tfw_addr_is_v4mapped(addr))
+		return tfw_addr_fmt_v4(addr, print_port, buf);
+
+	if (SHOULD_PRINT_PORT(print_port, in_port))
 		*pos++ = '[';
 
 	/* Print groups of hexadecimal digits separated by ':'.
@@ -622,7 +606,7 @@ tfw_addr_fmt_v6(const struct in6_addr *in6_addr, __be16 in_port, char *buf)
 	/* The last group doesn't have ':' after it. */
 	pos = tfw_put_ipv6_digit_group(ntohs(groups[7]), pos);
 
-	if (SHOULD_PRINT_PORT(in_port)) {
+	if (SHOULD_PRINT_PORT(print_port, in_port)) {
 		*pos++ = ']';
 		*pos++ = ':';
 		pos = tfw_put_dec(ntohs(in_port), pos);
@@ -630,7 +614,7 @@ tfw_addr_fmt_v6(const struct in6_addr *in6_addr, __be16 in_port, char *buf)
 
 	return pos;
 }
-EXPORT_SYMBOL(tfw_addr_fmt_v6);
+EXPORT_SYMBOL(tfw_addr_fmt);
 
 /**
  * Convert IPv4/IPv6 address and a port value to string,
@@ -653,10 +637,7 @@ tfw_addr_ntop(const TfwAddr *addr, char *out_buf, size_t buf_size)
 	BUG_ON(!out_buf);
 	BUG_ON(buf_size < TFW_ADDR_STR_BUF_SIZE);
 
-	pos = (addr->sa.sa_family == AF_INET6)
-	    ? tfw_addr_fmt_v6(&addr->v6.sin6_addr, addr->v6.sin6_port, out_buf)
-	    : tfw_addr_fmt_v4(addr->v4.sin_addr.s_addr, addr->v4.sin_port,
-			       out_buf);
+	pos = tfw_addr_fmt(addr, TFW_WITH_PORT, out_buf);
 
 	BUG_ON(pos >= (out_buf + buf_size));
 	*pos = '\0';

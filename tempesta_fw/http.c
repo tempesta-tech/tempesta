@@ -39,8 +39,8 @@
 
 #include "sync_socket.h"
 
-#define TFW_WARN_ADDR_STATUS(msg, addr_ptr, status)			\
-	TFW_WITH_ADDR_FMT(addr_ptr, addr_str,				\
+#define TFW_WARN_ADDR_STATUS(msg, addr_ptr, print_port, status)		\
+	TFW_WITH_ADDR_FMT(addr_ptr, print_port, addr_str,		\
 			  TFW_WARN("%s, status %d: %s\n",		\
 				   msg, status, addr_str))
 
@@ -904,8 +904,10 @@ tfw_http_error_resp_switch(TfwHttpReq *req, int status)
 void
 tfw_http_send_resp(TfwHttpReq *req, int status, const char *reason)
 {
-	if (!(tfw_blk_flags & TFW_BLK_ERR_NOLOG))
-		TFW_WARN_ADDR_STATUS(reason, &req->conn->peer->addr, status);
+	if (!(tfw_blk_flags & TFW_BLK_ERR_NOLOG)) {
+		TFW_WARN_ADDR_STATUS(reason, &req->conn->peer->addr,
+		                     TFW_WITH_PORT, status);
+	}
 	tfw_http_error_resp_switch(req, status);
 }
 
@@ -925,8 +927,9 @@ tfw_http_hm_suspend(TfwHttpResp *resp, TfwServer *srv)
 				    flags | TFW_SRV_F_SUSPEND);
 		if (likely(old_flags == flags)) {
 			TFW_WARN_ADDR_STATUS("server has been suspended: limit "
-					     "for bad responses is exceeded",
-					     &srv->addr, resp->status);
+			                     "for bad responses is exceeded",
+			                     &srv->addr, TFW_WITH_PORT,
+			                     resp->status);
 			break;
 		}
 		flags = old_flags;
@@ -1112,8 +1115,8 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv,
 			WARN_ON_ONCE(req->pair);
 			tfw_http_msg_free((TfwHttpMsg *)req);
 			TFW_WARN_ADDR("Unable to send health"
-				      " monitoring request to server",
-				      &srv_conn->peer->addr);
+			              " monitoring request to server",
+			              &srv_conn->peer->addr, TFW_WITH_PORT);
 		} else {
 			tfw_http_req_err(srv_conn, req, eq, 500,
 					 "request dropped: forwarding error");
@@ -1419,8 +1422,9 @@ tfw_http_req_resched(TfwHttpReq *req, TfwServer *srv, struct list_head *eq)
 			list_del_init(&req->fwd_list);
 			tfw_http_conn_msg_free((TfwHttpMsg *)req);
 			TFW_WARN_ADDR("Unable to find connection to"
-				      " reschedule health monitoring"
-				      " request on server", &srv->addr);
+			              " reschedule health monitoring"
+			              " request on server", &srv->addr,
+			              TFW_WITH_PORT);
 			return;
 		}
 	} else if (!(sch_conn = tfw_http_get_srv_conn((TfwMsg *)req))) {
@@ -2368,7 +2372,7 @@ tfw_http_cli_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
 				int status, const char *msg)
 {
 	if (!nolog)
-		TFW_WARN_ADDR(msg, &req->conn->peer->addr);
+		TFW_WARN_ADDR(msg, &req->conn->peer->addr, TFW_WITH_PORT);
 
 	if (reply) {
 		TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
@@ -2388,7 +2392,7 @@ tfw_http_srv_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
 				int status, const char *msg)
 {
 	if (!nolog)
-		TFW_WARN_ADDR(msg, &req->conn->peer->addr);
+		TFW_WARN_ADDR(msg, &req->conn->peer->addr, TFW_WITH_PORT);
 
 	if (reply)
 		tfw_http_req_mark_error(req, status);
@@ -3395,7 +3399,8 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 	srv_conn = srv->sg->sched->sched_srv_conn((TfwMsg *)req, srv);
 	if (!srv_conn) {
 		TFW_WARN_ADDR("Unable to find connection for health"
-			      " monitoring of backend server", &srv->addr);
+		              " monitoring of backend server", &srv->addr,
+		              TFW_WITH_PORT);
 		goto cleanup;
 	}
 

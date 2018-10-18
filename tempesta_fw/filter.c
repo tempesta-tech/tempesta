@@ -63,7 +63,7 @@ static struct {
 static TDB *ip_filter_db;
 
 static unsigned long
-tfw_ipv6_hash(struct in6_addr *addr)
+tfw_ipv6_hash(const struct in6_addr *addr)
 {
 	return ((unsigned long)addr->s6_addr32[0] << 32)
 	       ^ ((unsigned long)addr->s6_addr32[1] << 24)
@@ -72,22 +72,22 @@ tfw_ipv6_hash(struct in6_addr *addr)
 }
 
 void
-tfw_filter_block_ip(struct in6_addr *addr)
+tfw_filter_block_ip(const TfwAddr *addr)
 {
 	TfwFRule rule = {
-		.addr	= *addr,
+		.addr	= addr->sin6_addr,
 		.action	= TFW_F_DROP,
 	};
-	unsigned long key = tfw_ipv6_hash(addr);
+	unsigned long key = tfw_ipv6_hash(&addr->sin6_addr);
 	size_t len = sizeof(rule);
 
-	TFW_DBG_ADDR6("filter: block", addr);
+	TFW_DBG_ADDR("filter: block", addr, TFW_NO_PORT);
 
 	/* TODO create records on all NUMA nodes. */
 	if (!tdb_entry_create(ip_filter_db, key, &rule, &len)) {
-		TFW_WARN_ADDR6("cannot create blocking rule", addr);
+		TFW_WARN_ADDR("cannot create blocking rule", addr, TFW_NO_PORT);
 	} else {
-		TFW_DBG_ADDR6("block client", addr);
+		TFW_DBG_ADDR("block client", addr, TFW_NO_PORT);
 	}
 }
 EXPORT_SYMBOL(tfw_filter_block_ip);

@@ -32,6 +32,9 @@
  */
 #define TFW_ADDR_STR_DEF_PORT 80
 
+#define TFW_WITH_PORT   true
+#define TFW_NO_PORT     false
+
 /* Maximum size of a buffer needed for tfw_addr_ntop(), including '\0'. */
 #define TFW_ADDR_STR_BUF_SIZE \
 	sizeof("[FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:255.255.255.255]:65535")
@@ -45,13 +48,8 @@
 	in6_addr.in6_u.u6_addr8[13] |		\
 	in6_addr.in6_u.u6_addr8[14]))		\
 
-typedef union {
-	sa_family_t family;
-	struct sockaddr_in v4;
-	struct sockaddr_in6 v6;
-	struct sockaddr sa;
-#define in6_prefix	v6.sin6_scope_id
-} TfwAddr;
+#define in6_prefix	sin6_scope_id
+typedef struct sockaddr_in6 TfwAddr;
 
 int tfw_addr_ifmatch(const TfwAddr *server, const TfwAddr *listener);
 
@@ -62,14 +60,73 @@ size_t tfw_addr_ntop(const TfwAddr *addr, char *out_buf, size_t buf_size);
 
 /* A couple of lower-level functions faster than tfw_addr_ntop().
  * Note that they don't check input arguments and don't terminate output. */
-char *tfw_addr_fmt_v4(__be32 in_addr, __be16 in_port, char *out_buf);
-char *tfw_addr_fmt_v6(const struct in6_addr *in6_addr, __be16 in_port,
-			char *out_buf);
+char *tfw_addr_fmt(const TfwAddr *addr, bool print_port, char *out_buf);
 
 static inline ssize_t
 tfw_addr_sa_len(const TfwAddr *addr)
 {
-	return (addr->family == AF_INET6) ? sizeof(addr->v6) : sizeof(addr->v4);
+	return sizeof(struct sockaddr_in6);
+}
+
+static inline struct sockaddr *
+tfw_addr_sa(TfwAddr *addr)
+{
+	return (struct sockaddr *)addr;
+}
+
+static inline unsigned short int
+tfw_addr_sa_family(TfwAddr *addr)
+{
+	return addr->sin6_family;
+}
+
+static inline bool
+tfw_addr_is_v4mapped(const TfwAddr *addr)
+{
+	return ipv6_addr_v4mapped(&addr->sin6_addr);
+}
+
+static inline void
+tfw_addr_set_v4(TfwAddr *addr, __be32 in_addr)
+{
+	ipv6_addr_set_v4mapped(in_addr, &addr->sin6_addr);
+}
+
+static inline __be16
+tfw_addr_port(const TfwAddr *addr)
+{
+	return addr->sin6_port;
+}
+
+static inline __be32
+tfw_addr_v4addr(const TfwAddr *addr)
+{
+	return addr->sin6_addr.s6_addr32[3];
+}
+
+static inline TfwAddr
+tfw_addr_new_v4(__be32 in_addr, __be16 in_port)
+{
+	TfwAddr addr = {
+		.sin6_family = AF_INET6,
+		.sin6_addr.s6_addr32[2] = htonl(0x0000FFFF),
+		.sin6_addr.s6_addr32[3] = in_addr,
+		.sin6_port = in_port,
+	};
+
+	return addr;
+}
+
+static inline TfwAddr
+tfw_addr_new_v6(const struct in6_addr *in6_addr, __be16 in_port)
+{
+	TfwAddr addr = {
+		.sin6_family = AF_INET6,
+		.sin6_addr = *in6_addr,
+		.sin6_port = in_port,
+	};
+
+	return addr;
 }
 
 static inline unsigned short
