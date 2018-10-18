@@ -85,25 +85,26 @@
 
 /* Timestamp to include into Cookie header of request. */
 #define COOKIE_TIMESTAMP	"4142434445464748"
+#define COOKIE_TIMESTAMP_N	0x4142434445464748
 
 /*
- * HMAC for 24 bytes, generated for zero timestamp, in order to violate cookie
- * verification (first 2 bytes with AF_INET value and remaining 14 zero bytes
- * of IP address and 8 zero bytes of timestamp):
+ * HMAC for 36 bytes, generated for zero timestamp, in order to violate cookie
+ * verification (2 bytes for AF_INET6, 26 zero bytes for the rest of
+ * struct sockaddr_in6, and 8 bytes for the timestamp):
  *
- * $ perl -e 'print(pack("C[24]", 0x02))' | openssl sha1 -hmac "top_secret"
+ * $ perl -e 'print(pack("Sx26Q", 0x0a, 0))' | openssl sha1 -hmac "top_secret"
  */
-#define COOKIE_INVALID_HMAC	"c40fa58c59f09c8ea81223e627c9de12cfa53679"
+#define COOKIE_INVALID_HMAC	"6ea1411681e19057b7b66efda92632bf5c19f854"
 
 /*
- * Valid HMAC for 24 bytes (first 2 bytes with AF_INET value, 14 zero bytes of
- * IP address and 8 bytes with timestamp in little-endian order to match HMAC
- * generated in TempestaFW code on x86):
+ * Valid HMAC for 36 bytes (2 bytes for AF_INET6, 26 zero bytes for the rest of
+ * struct sockaddr_in6, and 8 bytes for the timestamp in little-endian order,
+ * to match HMAC generated in TempestaFW code on x86):
  *
- * $ perl -e 'print(pack("Sx14Q", 0x02, 0x4142434445464748));' |\
+ * $ perl -e 'print(pack("Sx26Q", 0x0a, 0x4142434445464748));' |\
  * openssl sha1 -hmac "top_secret"
  */
-#define COOKIE_VALID_HMAC	"a8bcacb07861740dd82324bd90e57f8affafc3f0"
+#define COOKIE_VALID_HMAC	"b1112f024ffe4b85c95879be339facdc14badbea"
 
 /* Redirection attempt number to insert into redirection mark before timestamp. */
 #define RMARK_ATT_NO		"00000001"
@@ -338,10 +339,12 @@ http_sticky_suite_setup(void)
 
 	tfw_connection_revive(&mock.conn_req);
 	mock.conn_req.peer = (TfwPeer *)&mock.client;
-	mock.client.addr.v4.sin_family = AF_INET,
-	mock.client.addr.v4.sin_addr.s_addr = INADDR_ANY,
-	mock.client.addr.v4.sin_port = 0,
-	mock.sock.sk_family = AF_INET;
+	mock.client.addr.sin6_family = AF_INET6;
+	/*
+	 * Rest of mock.client.addr was zero-filled, including sin6_addr and
+	 * sin6_port earlier.
+	 */
+	mock.sock.sk_family = AF_INET6;
 	mock.conn_req.sk = &mock.sock;
 
 	mock.req->conn = &mock.conn_req;
@@ -368,6 +371,33 @@ http_sticky_suite_teardown(void)
 	tfw_http_msg_free((TfwHttpMsg *)mock.resp);
 
 	memset(&mock, 0, sizeof(mock));
+}
+
+TEST(http_sticky, test_cookie_constants_1)
+{
+	StickyVal sv = { .ts = COOKIE_TIMESTAMP_N };
+	char cookie[sizeof(sv.hmac) * 2];
+	char ts_str[sizeof(sv.ts) * 2];
+	unsigned long ts_be64 = cpu_to_be64(sv.ts);
+
+	EXPECT_EQ(__sticky_calc(mock.req, &sv), 0);
+
+	bin2hex(cookie, sv.hmac, sizeof(sv.hmac));
+	EXPECT_EQ(memcmp(cookie, COOKIE_VALID_HMAC, sizeof(cookie)), 0);
+
+	bin2hex(ts_str, &ts_be64, sizeof(ts_be64));
+	EXPECT_EQ(memcmp(ts_str, COOKIE_TIMESTAMP, sizeof(ts_str)), 0);
+}
+
+TEST(http_sticky, test_cookie_constants_2)
+{
+	StickyVal sv = { .ts = 0 };
+	char cookie[sizeof(sv.hmac) * 2];
+
+	EXPECT_EQ(__sticky_calc(mock.req, &sv), 0);
+
+	bin2hex(cookie, sv.hmac, sizeof(sv.hmac));
+	EXPECT_EQ(memcmp(cookie, COOKIE_INVALID_HMAC, sizeof(cookie)), 0);
 }
 
 TEST(http_sticky, sending_302_without_preparing)
@@ -859,6 +889,9 @@ TEST_SUITE(http_sticky)
 	tfw_http_sess_start();
 
 	kernel_fpu_begin();
+
+	TEST_RUN(http_sticky, test_cookie_constants_1);
+	TEST_RUN(http_sticky, test_cookie_constants_2);
 
 	TEST_RUN(http_sticky, sending_302_without_preparing);
 	TEST_RUN(http_sticky, sending_302);

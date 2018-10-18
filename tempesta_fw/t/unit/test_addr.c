@@ -25,21 +25,9 @@
 
 TEST(tfw_addr_ntop, formats_ipv4_addrs)
 {
-	TfwAddr a1 = {
-		.v4.sin_family = AF_INET,
-		.v4.sin_addr.s_addr = INADDR_ANY,
-		.v4.sin_port = 0,
-	};
-	TfwAddr a2 = {
-		.v4.sin_family = AF_INET,
-		.v4.sin_addr.s_addr = htonl(INADDR_LOOPBACK),
-		.v4.sin_port = htons(8001),
-	};
-	TfwAddr a3 = {
-		.v4.sin_family = AF_INET,
-		.v4.sin_addr.s_addr = htonl(0x0764FF0A),
-		.v4.sin_port = htons(65535),
-	};
+	TfwAddr a1 = tfw_addr_new_v4(INADDR_ANY, 0);
+	TfwAddr a2 = tfw_addr_new_v4(htonl(INADDR_LOOPBACK), htons(8001));
+	TfwAddr a3 = tfw_addr_new_v4(htonl(0x0764FF0A), htons(65535));
 
 	char s1[TFW_ADDR_STR_BUF_SIZE];
 	char s2[TFW_ADDR_STR_BUF_SIZE];
@@ -62,25 +50,25 @@ TEST(tfw_addr_ntop, formats_ipv4_addrs)
 TEST(tfw_addr_ntop, formats_ipv6_addrs)
 {
 	TfwAddr a0 = {
-		.v6.sin6_family = AF_INET6,
-		.v6.sin6_addr = IN6ADDR_ANY_INIT,
-		.v6.sin6_port = 0,
+		.sin6_family = AF_INET6,
+		.sin6_addr = IN6ADDR_ANY_INIT,
+		.sin6_port = 0,
 	};
 	TfwAddr a1 = {
-		.v6.sin6_family = AF_INET6,
-		.v6.sin6_addr = IN6ADDR_LOOPBACK_INIT,
-		.v6.sin6_port = 0,
+		.sin6_family = AF_INET6,
+		.sin6_addr = IN6ADDR_LOOPBACK_INIT,
+		.sin6_port = 0,
 	};
 	TfwAddr a2 = {
-		.v6.sin6_family = AF_INET6,
-		.v6.sin6_addr = IN6ADDR_SITELOCAL_ALLROUTERS_INIT,
-		.v6.sin6_port = htons(2718),
+		.sin6_family = AF_INET6,
+		.sin6_addr = IN6ADDR_SITELOCAL_ALLROUTERS_INIT,
+		.sin6_port = htons(2718),
 	};
 	TfwAddr a3 = {
-		.v6.sin6_family = AF_INET6,
-		.v6.sin6_addr = { { { 0x00,0x12,0x34,0x56,0x00,0x00,0xBC,0xDE,
-		                0xF0,0x01,0x00,0x00,0x00,0x00,0x06,0x07 } } },
-		.v6.sin6_port = htons(65535),
+		.sin6_family = AF_INET6,
+		.sin6_addr = { { { 0x00,0x12,0x34,0x56,0x00,0x00,0xBC,0xDE,
+		                   0xF0,0x01,0x00,0x00,0x00,0x00,0x06,0x07 } } },
+		.sin6_port = htons(65535),
 	};
 
 
@@ -113,15 +101,12 @@ TEST(tfw_addr_ntop, formats_ipv6_addrs)
 
 TEST(tfw_addr_ntop, omits_port_80)
 {
-	TfwAddr a1 = {
-		.v4.sin_family = AF_INET,
-		.v4.sin_addr.s_addr = htonl(INADDR_LOOPBACK),
-		.v4.sin_port = htons(80),
-	};
+	TfwAddr a1 = tfw_addr_new_v4(htonl(INADDR_LOOPBACK), htons(80));
+
 	TfwAddr a2 = {
-		.v6.sin6_family = AF_INET6,
-		.v6.sin6_addr = IN6ADDR_LOOPBACK_INIT,
-		.v6.sin6_port = htons(80),
+		.sin6_family = AF_INET6,
+		.sin6_addr = IN6ADDR_LOOPBACK_INIT,
+		.sin6_port = htons(80),
 	};
 
 	const char *e1 = "127.0.0.1";
@@ -149,33 +134,26 @@ TEST(tfw_addr_pton, recognizes_v4_and_v6_addrs)
         DEFINE_TFW_STR(s4, "[::1]:1234");
         DEFINE_TFW_STR(s5, "[::0]:5678");
 
-        TfwAddr e1 = {
-                .v4.sin_family = AF_INET,
-                .v4.sin_addr.s_addr = htonl(INADDR_LOOPBACK),
-		.v4.sin_port = htons(80)
-        };
-        TfwAddr e2 = {
-                .v4.sin_family = AF_INET,
-                .v4.sin_addr.s_addr = htonl(INADDR_LOOPBACK),
-                .v4.sin_port = htons(8081)
-        };
-        TfwAddr e3 = {
-                .v6.sin6_family = AF_INET6,
-                .v6.sin6_addr = { { {
-                	0x11, 0x11, 0,0,0,0,0,0,0,0, 0,0x2, 0,0xa, 0,0xB
-                } } },
-                .v6.sin6_port = htons(80)
-        };
-        TfwAddr e4 = {
-                .v6.sin6_family = AF_INET6,
-                .v6.sin6_addr = IN6ADDR_LOOPBACK_INIT,
-                .v6.sin6_port = htons(1234)
-        };
-        TfwAddr e5 = {
-                .v6.sin6_family = AF_INET6,
-                .v6.sin6_addr = IN6ADDR_ANY_INIT,
-                .v6.sin6_port = htons(5678)
-        };
+	TfwAddr e1 = tfw_addr_new_v4(htonl(INADDR_LOOPBACK), htons(80));
+	TfwAddr e2 = tfw_addr_new_v4(htonl(INADDR_LOOPBACK), htons(8081));
+
+	TfwAddr e3 = {
+		.sin6_family = AF_INET6,
+		.sin6_addr = { { {
+			0x11, 0x11, 0,0,0,0,0,0,0,0, 0,0x2, 0,0xa, 0,0xB
+		} } },
+		.sin6_port = htons(80)
+	};
+	TfwAddr e4 = {
+		.sin6_family = AF_INET6,
+		.sin6_addr = IN6ADDR_LOOPBACK_INIT,
+		.sin6_port = htons(1234)
+	};
+	TfwAddr e5 = {
+		.sin6_family = AF_INET6,
+		.sin6_addr = IN6ADDR_ANY_INIT,
+		.sin6_port = htons(5678)
+	};
 
         TfwAddr a1, a2, a3, a4, a5;
         int r1, r2, r3, r4, r5;

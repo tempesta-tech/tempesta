@@ -102,16 +102,16 @@ tfw_client_obtain(struct sock *sk, void (*init)(TfwClient *))
 	TfwAddr addr;
 
 	ss_getpeername(sk, &addr);
-	key = hash_calc((const char *)&addr.v6.sin6_addr,
-			sizeof(addr.v6.sin6_addr));
+	key = hash_calc((const char *)&addr.sin6_addr,
+			sizeof(addr.sin6_addr));
 
 	hb = &cli_hash[hash_min(key, CLI_HASH_BITS)];
 
 	spin_lock(&hb->lock);
 
 	hlist_for_each_entry_safe(cli, tmp, &hb->list, hentry)
-		if (ipv6_addr_equal(&addr.v6.sin6_addr,
-				    &cli->addr.v6.sin6_addr))
+		if (ipv6_addr_equal(&addr.sin6_addr,
+		                    &cli->addr.sin6_addr))
 			goto found;
 
 	if (!(cli = kmem_cache_alloc(cli_cache, GFP_ATOMIC | __GFP_ZERO))) {
@@ -127,7 +127,7 @@ tfw_client_obtain(struct sock *sk, void (*init)(TfwClient *))
 
 	TFW_INC_STAT_BH(clnt.online);
 	TFW_DBG("new client: cli=%p\n", cli);
-	TFW_DBG_ADDR6("client address", &cli->addr.v6.sin6_addr);
+	TFW_DBG_ADDR("client address", &cli->addr, TFW_NO_PORT);
 
 found:
 	atomic_inc(&cli->conn_users);

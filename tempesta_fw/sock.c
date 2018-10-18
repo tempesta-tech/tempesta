@@ -1198,9 +1198,11 @@ EXPORT_SYMBOL(ss_release);
  * to IPv4 and IPv6.
  */
 int
-ss_connect(struct sock *sk, struct sockaddr *uaddr, int uaddr_len, int flags)
+ss_connect(struct sock *sk, const TfwAddr *addr, int flags)
 {
 	int r;
+	struct sockaddr *uaddr = tfw_addr_sa((TfwAddr *)addr);
+	int uaddr_len = tfw_addr_sa_len((TfwAddr *)addr);
 
 	WARN_ON_ONCE((sk->sk_family != AF_INET) && (sk->sk_family != AF_INET6));
 	WARN_ON_ONCE((uaddr->sa_family != AF_INET)
@@ -1235,20 +1237,18 @@ EXPORT_SYMBOL(ss_connect);
  * These two can be made a bit shorter should that become necessary.
  */
 int
-ss_bind(struct sock *sk, struct sockaddr *uaddr, int uaddr_len)
+ss_bind(struct sock *sk, const TfwAddr *addr)
 {
 	struct socket sock = {
 		.sk = sk,
 		.type = sk->sk_type
 	};
 
-	WARN_ON_ONCE((sk->sk_family != AF_INET) && (sk->sk_family != AF_INET6));
+	WARN_ON_ONCE(sk->sk_family != AF_INET6);
 	WARN_ON_ONCE(sk->sk_type != SOCK_STREAM);
 
-	if (sk->sk_family == AF_INET)
-		return inet_bind(&sock, uaddr, uaddr_len);
-	else
-		return inet6_bind(&sock, uaddr, uaddr_len);
+	return inet6_bind(&sock, tfw_addr_sa((TfwAddr *)addr),
+	                  tfw_addr_sa_len((TfwAddr *)addr));
 }
 EXPORT_SYMBOL(ss_bind);
 
@@ -1286,20 +1286,20 @@ ss_getpeername(struct sock *sk, TfwAddr *addr)
 		TFW_WARN("%s: bad socket dport=%x state=%x\n", __func__,
 			 inet->inet_dport, sk->sk_state);
 
-	addr->family = AF_INET6;
-	addr->v6.sin6_port = inet->inet_sport;
+	addr->sin6_family = AF_INET6;
+	addr->sin6_port = inet->inet_sport;
 #if IS_ENABLED(CONFIG_IPV6)
 	if (inet6_sk(sk)) {
 		struct ipv6_pinfo *np = inet6_sk(sk);
-		addr->v6.sin6_addr = sk->sk_v6_daddr;
-		addr->v6.sin6_flowinfo = np->sndflow ? np->flow_label : 0;
-		addr->in6_prefix = ipv6_iface_scope_id(&addr->v6.sin6_addr,
+		addr->sin6_addr = sk->sk_v6_daddr;
+		addr->sin6_flowinfo = np->sndflow ? np->flow_label : 0;
+		addr->in6_prefix = ipv6_iface_scope_id(&addr->sin6_addr,
 						       sk->sk_bound_dev_if);
 	} else
 #endif
 	{
-		ipv6_addr_set_v4mapped(inet->inet_daddr, &addr->v6.sin6_addr);
-		addr->v6.sin6_flowinfo = 0;
+		ipv6_addr_set_v4mapped(inet->inet_daddr, &addr->sin6_addr);
+		addr->sin6_flowinfo = 0;
 		addr->in6_prefix = 0;
 	}
 }

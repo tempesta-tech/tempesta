@@ -102,61 +102,41 @@ do {									\
  * Print an IP address into a buffer (allocated on stack) and then evaluate
  * an expression where the buffer may be used.
  * Usage:
- *   struct sockaddr *sockaddr_in;
- *   TFW_WITH_ADDR_FMT(addr, str, printk("formatted addr: %s\n", str);
+ *   TfwAddr *addr;
+ *   TFW_WITH_ADDR_FMT(addr, TFW_WITH_PORT, str,
+ *                     printk("formatted addr: %s\n", str));
  */
-#define TFW_WITH_ADDR_FMT(addr_ptr, fmtd_addr_var_name, action_expr)	\
+#define TFW_WITH_ADDR_FMT(addr, print_port, fmtd_addr_var_name, action_expr) \
 do {									\
 	char fmtd_addr_var_name[TFW_ADDR_STR_BUF_SIZE] = { 0 };		\
-	tfw_addr_ntop(addr_ptr, fmtd_addr_var_name,			\
-		      sizeof(fmtd_addr_var_name));			\
-	action_expr;							\
-} while (0)
-
-/* The same as above, but for IPv6 only (struct in6_addr). */
-#define TFW_WITH_ADDR6_FMT(addr_ptr, fmtd_addr_var_name, action_expr)	\
-do {									\
-	char fmtd_addr_var_name[TFW_ADDR_STR_BUF_SIZE] = { 0 };		\
-	tfw_addr_fmt_v6(addr_ptr, 0, fmtd_addr_var_name);		\
+	tfw_addr_fmt(addr, print_port, fmtd_addr_var_name);		\
 	action_expr;							\
 } while (0)
 
 /* Log a debug message and append an IP address to it.*/
-#define TFW_DBG_ADDR(msg, addr_ptr)					\
-	TFW_WITH_ADDR_FMT(addr_ptr, addr_str,				\
-			  TFW_DBG("%s: %s\n", msg, addr_str))
-#define TFW_DBG_ADDR6(msg, addr_ptr)					\
-	TFW_WITH_ADDR6_FMT(addr_ptr, addr_str,				\
-			   TFW_DBG("%s: %s\n", msg, addr_str))
+#define TFW_DBG_ADDR(msg, addr_ptr, print_port)				\
+	TFW_WITH_ADDR_FMT(addr_ptr, print_port, addr_str,		\
+	                  TFW_DBG("%s: %s\n", msg, addr_str))
 
 /* Log an info message and append an IP address to it.*/
-#define TFW_LOG_ADDR(msg, addr_ptr)					\
-	TFW_WITH_ADDR_FMT(addr_ptr, addr_str,				\
-			  TFW_LOG("%s: %s\n", msg, addr_str))
-#define TFW_LOG_ADDR6(msg, addr_ptr)					\
-	TFW_WITH_ADDR6_FMT(addr_ptr, addr_str,				\
-			   TFW_LOG("%s: %s\n", msg, addr_str))
+#define TFW_LOG_ADDR(msg, addr_ptr, print_port)				\
+	TFW_WITH_ADDR_FMT(addr_ptr, print_port, addr_str,		\
+	                  TFW_LOG("%s: %s\n", msg, addr_str))
 
 /* Log a warning message and append an IP address to it.*/
-#define TFW_WARN_ADDR(msg, addr_ptr)					\
-	TFW_WITH_ADDR_FMT(addr_ptr, addr_str,				\
-			  TFW_WARN("%s: %s\n", msg, addr_str))
-#define TFW_WARN_ADDR6(msg, addr_ptr)					\
-	TFW_WITH_ADDR6_FMT(addr_ptr, addr_str,				\
-			   TFW_WARN("%s: %s\n", msg, addr_str))
+#define TFW_WARN_ADDR(msg, addr_ptr, print_port)			\
+	TFW_WITH_ADDR_FMT(addr_ptr, print_port, addr_str,		\
+	                  TFW_WARN("%s: %s\n", msg, addr_str))
 
-/* Log an error message and appen an IP address to it. */
-#define TFW_ERR_ADDR(msg, addr_ptr)					\
-	TFW_WITH_ADDR_FMT(addr_ptr, addr_str,				\
-			  TFW_ERR("%s: %s\n", msg, addr_str))
-#define TFW_ERR_ADDR6(msg, addr_ptr)					\
-	TFW_WITH_ADDR6_FMT(addr_ptr, addr_str,				\
-			   TFW_ERR("%s: %s\n", msg, addr_str))
+/* Log an error message and append an IP address to it. */
+#define TFW_ERR_ADDR(msg, addr_ptr, print_port)				\
+	TFW_WITH_ADDR_FMT(addr_ptr, print_port, addr_str,		\
+	                  TFW_ERR("%s: %s\n", msg, addr_str))
 
-#define TFW_WARN_MOD_ADDR6(mod, check, addr, fmt, ...)			\
+#define TFW_WARN_MOD_ADDR(mod, check, addr, print_port, fmt, ...)	\
 do {									\
 	char abuf[TFW_ADDR_STR_BUF_SIZE] = {0};				\
-	tfw_addr_fmt_v6(&(addr)->v6.sin6_addr, 0, abuf);		\
+	tfw_addr_fmt(addr, print_port, abuf);				\
 	TFW_WARN(#mod ": %s for %s" fmt, check, abuf, ##__VA_ARGS__);	\
 } while (0)
 
