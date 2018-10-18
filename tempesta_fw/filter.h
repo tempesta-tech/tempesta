@@ -21,8 +21,8 @@
 #ifndef __TFW_FILTER_H__
 #define __TFW_FILTER_H__
 
-#include <linux/in6.h>
+#include "addr.h"
 
-void tfw_filter_block_ip(struct in6_addr *addr);
+void tfw_filter_block_ip(const TfwAddr *addr);
 
 #endif /* __TFW_FILTER_H__ */

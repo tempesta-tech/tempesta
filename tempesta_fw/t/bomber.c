@@ -193,8 +193,8 @@ tfw_bmb_connect(TfwBmbTask *task, TfwBmbConn *conn)
 	int ret;
 	struct sock *sk;
 
-	ret = ss_sock_create(bmb_server_address.sa.sa_family, SOCK_STREAM,
-			     IPPROTO_TCP, &sk);
+	ret = ss_sock_create(tfw_addr_sa_family(&bmb_server_address),
+	                     SOCK_STREAM, IPPROTO_TCP, &sk);
 	if (ret) {
 		TFW_ERR("Unable to create kernel socket (%d)\n", ret);
 		return ret;
@@ -206,8 +206,7 @@ tfw_bmb_connect(TfwBmbTask *task, TfwBmbConn *conn)
 	conn->sk = sk;
 	conn->task = task;
 
-	ret = ss_connect(sk, &bmb_server_address.sa,
-			 tfw_addr_sa_len(&bmb_server_address), 0);
+	ret = ss_connect(sk, &bmb_server_address, 0);
 	if (ret) {
 		TFW_ERR("Connect error on server socket sk %p (%d)\n", sk, ret);
 		ss_close_sync(sk, false);
