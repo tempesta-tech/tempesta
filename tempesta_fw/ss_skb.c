@@ -52,11 +52,11 @@ ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf)
 {
 	const struct iphdr *ih4 = ip_hdr(skb);
 	const struct ipv6hdr *ih6 = ipv6_hdr(skb);
+	TfwAddr addr = (ih6->version == 6)
+	                ? tfw_addr_new_v6(&ih6->saddr, 0)
+	                : tfw_addr_new_v4(ih4->saddr, 0);
 
-	if (ih6->version == 6)
-		return tfw_addr_fmt_v6(&ih6->saddr, 0, out_buf);
-
-	return tfw_addr_fmt_v4(ih4->saddr, 0, out_buf);
+	return tfw_addr_fmt(&addr, TFW_NO_PORT, out_buf);
 }
 
 /**

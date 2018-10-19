@@ -255,7 +255,7 @@ int prio0, prio1, prio3;
 		: tfw_vhost_global_frang_cfg()->member)
 
 #define frang_msg(check, addr, fmt, ...)				\
-	TFW_WARN_MOD_ADDR6(frang, check, addr, fmt, ##__VA_ARGS__)
+	TFW_WARN_MOD_ADDR(frang, check, addr, TFW_NO_PORT, fmt, ##__VA_ARGS__)
 
 #define frang_limmsg(lim_name, curr_val, lim, addr)			\
 	frang_msg(lim_name " exceeded", (addr), ": %ld (lim=%ld)\n",	\
@@ -265,7 +265,7 @@ int prio0, prio1, prio3;
 #define frang_dbg(fmt_msg, addr, ...)					\
 do {									\
 	char abuf[TFW_ADDR_STR_BUF_SIZE] = {0};				\
-	tfw_addr_fmt_v6(&(addr)->v6.sin6_addr, 0, abuf);		\
+	tfw_addr_fmt(addr, TFW_NO_PORT, abuf);				\
 	TFW_DBG("frang: " fmt_msg, abuf, ##__VA_ARGS__);		\
 } while (0)
 #else
@@ -361,7 +361,7 @@ frang_conn_new(struct sock *sk)
 
 	r = frang_conn_limit(ra, sk, conf);
 	if (r == TFW_BLOCK && conf->ip_block) {
-		tfw_filter_block_ip(&cli->addr.v6.sin6_addr);
+		tfw_filter_block_ip(&cli->addr);
 		tfw_client_put(cli);
 	}
 
@@ -1048,7 +1048,7 @@ frang_http_req_handler(void *obj, const TfwFsmData *data)
 
 	r = frang_http_req_process(ra, conn, data);
 	if (r == TFW_BLOCK && ip_block)
-		tfw_filter_block_ip(&FRANG_ACC2CLI(ra)->addr.v6.sin6_addr);
+		tfw_filter_block_ip(&FRANG_ACC2CLI(ra)->addr);
 
 	return r;
 }

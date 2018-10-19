@@ -337,7 +337,7 @@ tfw_http_sticky_get(TfwHttpReq *req, TfwStr *cookie_val)
 do {									\
 	char abuf[TFW_ADDR_STR_BUF_SIZE] = {0};				\
 	char hbuf[STICKY_KEY_MAXLEN * 2] = {0};				\
-	tfw_addr_fmt_v6(&(addr)->v6.sin6_addr, 0, abuf);		\
+	tfw_addr_fmt(addr, TFW_NO_PORT, abuf);				\
 	bin2hex(hbuf, tfw_sticky_key, STICKY_KEY_MAXLEN);		\
 	TFW_DBG("http_sess: calculate sticky cookie for %s,"		\
 		" ts=%#lx(now=%#lx)...\n", abuf, (sv)->ts, jiffies);	\
@@ -360,7 +360,7 @@ do {									\
 static int
 __sticky_calc(TfwHttpReq *req, StickyVal *sv)
 {
-	int r, addr_len;
+	int r;
 	TfwStr ua_value = { 0 };
 	TfwAddr *addr = &req->conn->peer->addr;
 	TfwStr *hdr, *c, *end;
@@ -372,8 +372,6 @@ __sticky_calc(TfwHttpReq *req, StickyVal *sv)
 		tfw_http_msg_clnthdr_val(hdr, TFW_HTTP_HDR_USER_AGENT,
 					 &ua_value);
 
-	addr_len = tfw_addr_sa_len(addr);
-
 	shash_desc->tfm = tfw_sticky_shash;
 	shash_desc->flags = 0;
 
@@ -381,7 +379,10 @@ __sticky_calc(TfwHttpReq *req, StickyVal *sv)
 
 	if ((r = crypto_shash_init(shash_desc)))
 		return r;
-	if ((r = crypto_shash_update(shash_desc, (u8 *)&addr->sa, addr_len)))
+
+	r = crypto_shash_update(shash_desc, (u8 *)tfw_addr_sa(addr),
+	                        tfw_addr_sa_len(addr));
+	if (r)
 		return r;
 	if (ua_value.len) {
 		TFW_STR_FOR_EACH_CHUNK(c, &ua_value, end) {
@@ -494,7 +495,8 @@ tfw_http_redir_mark_get(TfwHttpReq *req, TfwStr *out_val)
 }
 
 #define sess_warn(check, addr, fmt, ...)				\
-	TFW_WARN_MOD_ADDR6(http_sess, check, addr, fmt, ##__VA_ARGS__)
+	TFW_WARN_MOD_ADDR(http_sess, check, addr, TFW_NO_PORT, fmt,	\
+	                  ##__VA_ARGS__)
 
 /* The set of macros for parsing hex strings of following format:
  *
@@ -604,7 +606,7 @@ tfw_http_sess_check_redir_mark(TfwHttpReq *req, RedirMarkVal *mv)
 		    || (tfw_cfg_sticky.tmt_sec
 			&& mv->ts + HZ * tfw_cfg_sticky.tmt_sec < jiffies))
 		{
-			tfw_filter_block_ip(&req->conn->peer->addr.v6.sin6_addr);
+			tfw_filter_block_ip(&req->conn->peer->addr);
 			return TFW_HTTP_SESS_VIOLATE;
 		}
 		bzero_fast(mv->hmac, sizeof(mv->hmac));

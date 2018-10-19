@@ -395,11 +395,11 @@ bool
 tfw_capuacl_match(TfwAddr *addr)
 {
 	size_t i;
-	struct in6_addr *inaddr = &addr->v6.sin6_addr;
+	struct in6_addr *inaddr = &addr->sin6_addr;
 
 	for (i = 0; i < tfw_global.capuacl_sz; ++i) {
 		TfwAddr *acl_addr = &tfw_global.capuacl[i];
-		if (ipv6_prefix_equal(inaddr, &acl_addr->v6.sin6_addr,
+		if (ipv6_prefix_equal(inaddr, &acl_addr->sin6_addr,
 					      acl_addr->in6_prefix))
 			return true;
 	}
@@ -1117,10 +1117,10 @@ static bool
 tfw_capuacl_lookup(TfwAddr *addr)
 {
 	size_t i;
-	struct in6_addr *inaddr = &addr->v6.sin6_addr;
+	struct in6_addr *inaddr = &addr->sin6_addr;
 
 	for (i = 0; i < tfw_global.capuacl_sz; ++i) {
-		struct in6_addr *acl_inaddr = &tfw_global.capuacl[i].v6.sin6_addr;
+		struct in6_addr *acl_inaddr = &tfw_global.capuacl[i].sin6_addr;
 		if (ipv6_prefix_equal(inaddr, acl_inaddr, addr->in6_prefix))
 			return true;
 	}

@@ -332,7 +332,8 @@ tfw_listen_sock_add(const TfwAddr *addr, int type)
 	/* Is there such an address on the list already? */
 	list_for_each_entry(ls, &tfw_listen_socks, list) {
 		if (tfw_addr_eq(addr, &ls->addr)) {
-			TFW_LOG_ADDR("Duplicate listener with", addr);
+			TFW_LOG_ADDR("Duplicate listener with", addr,
+			             TFW_WITH_PORT);
 			return -EINVAL;
 		}
 	}
@@ -349,8 +350,7 @@ tfw_listen_sock_add(const TfwAddr *addr, int type)
 	list_add(&ls->list, &tfw_listen_socks);
 	ls->addr = *addr;
 
-	/* Port is placed at the same offset in sockaddr_in and sockaddr_in6. */
-	tfw_classifier_add_inport(addr->v4.sin_port);
+	tfw_classifier_add_inport(tfw_addr_port(addr));
 
 	return 0;
 }
@@ -381,9 +381,10 @@ tfw_listen_sock_start(TfwListenSock *ls)
 	struct sock *sk;
 	TfwAddr *addr = &ls->addr;
 
-	TFW_LOG_ADDR("Open listen socket on", addr);
+	TFW_LOG_ADDR("Open listen socket on", addr, TFW_WITH_PORT);
 
-	r = ss_sock_create(addr->family, SOCK_STREAM, IPPROTO_TCP, &sk);
+	r = ss_sock_create(tfw_addr_sa_family(addr), SOCK_STREAM, IPPROTO_TCP,
+	                   &sk);
 	if (r) {
 		TFW_ERR_NL("can't create listening socket (err: %d)\n", r);
 		return r;
@@ -404,9 +405,9 @@ tfw_listen_sock_start(TfwListenSock *ls)
 
 	inet_sk(sk)->freebind = 1;
 	sk->sk_reuse = 1;
-	r = ss_bind(sk, &addr->sa, tfw_addr_sa_len(addr));
+	r = ss_bind(sk, addr);
 	if (r) {
-		TFW_ERR_ADDR("can't bind to", addr);
+		TFW_ERR_ADDR("can't bind to", addr, TFW_WITH_PORT);
 		return r;
 	}
 
@@ -466,9 +467,8 @@ tfw_cfgop_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			goto parse_err;
 
 		/* For single port, use 0.0.0.0:port (IPv4, but not IPv6). */
-		addr.v4.sin_family = AF_INET;
-		addr.v4.sin_addr.s_addr = INADDR_ANY;
-		addr.v4.sin_port = htons(port);
+		addr = tfw_addr_new_v4(INADDR_ANY, htons(port));
+
 	} else {
 		r = tfw_addr_pton(&TFW_STR_FROM(in_str), &addr);
 		if (r)
@@ -563,7 +563,8 @@ tfw_sock_clnt_start(void)
 
 	list_for_each_entry(ls, &tfw_listen_socks, list) {
 		if ((r = tfw_listen_sock_start(ls))) {
-			TFW_ERR_ADDR("can't start listening on", &ls->addr);
+			TFW_ERR_ADDR("can't start listening on", &ls->addr,
+			             TFW_WITH_PORT);
 			return r;
 		}
 	}

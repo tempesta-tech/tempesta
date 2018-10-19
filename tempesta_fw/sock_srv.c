@@ -123,7 +123,8 @@
 static const unsigned long tfw_srv_tmo_vals[] = { 1, 10, 100, 250, 500, 1000 };
 
 #define srv_warn(check, addr, fmt, ...)					\
-	TFW_WARN_MOD_ADDR6(sock_srv, check, addr, fmt, ##__VA_ARGS__)
+	TFW_WARN_MOD_ADDR(sock_srv, check, addr, TFW_NO_PORT, fmt,	\
+	                  ##__VA_ARGS__)
 
 /**
  * Initiate a non-blocking connect attempt.
@@ -138,7 +139,8 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 
 	addr = &srv_conn->peer->addr;
 
-	r = ss_sock_create(addr->family, SOCK_STREAM, IPPROTO_TCP, &sk);
+	r = ss_sock_create(tfw_addr_sa_family(addr), SOCK_STREAM, IPPROTO_TCP,
+	                   &sk);
 	if (r) {
 		TFW_ERR("Unable to create server socket\n");
 		return;
@@ -182,7 +184,7 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	 * Thus we don't need syncronization for ss_connect().
 	 */
 	TFW_INC_STAT_BH(serv.conn_attempts);
-	r = ss_connect(sk, &addr->sa, tfw_addr_sa_len(addr), 0);
+	r = ss_connect(sk, addr, 0);
 	if (r) {
 		if (r != SS_SHUTDOWN)
 			TFW_ERR("Unable to initiate a connect to server: %d\n",
@@ -234,7 +236,7 @@ tfw_sock_srv_connect_try_later(TfwSrvConn *srv_conn)
 	if (srv_conn->recns < ARRAY_SIZE(tfw_srv_tmo_vals)) {
 		if (srv_conn->recns)
 			TFW_DBG_ADDR("Cannot establish connection",
-				     &srv_conn->peer->addr);
+			             &srv_conn->peer->addr, TFW_WITH_PORT);
 		timeout = tfw_srv_tmo_vals[srv_conn->recns];
 	} else {
 		if (srv_conn->recns == ARRAY_SIZE(tfw_srv_tmo_vals)
@@ -346,7 +348,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 
 	__reset_retry_timer((TfwSrvConn *)conn);
 
-	TFW_DBG_ADDR("connected", &srv->addr);
+	TFW_DBG_ADDR("connected", &srv->addr, TFW_WITH_PORT);
 	TFW_INC_STAT_BH(serv.conn_established);
 
 	return 0;
@@ -380,7 +382,7 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 	TfwConn *conn = sk->sk_user_data;
 	TfwServer *srv = (TfwServer *)conn->peer;
 
-	TFW_DBG_ADDR("connection error", &srv->addr);
+	TFW_DBG_ADDR("connection error", &srv->addr, TFW_WITH_PORT);
 
 	/*
 	 * Distiguish connections that go to failover state
@@ -643,14 +645,16 @@ tfw_sock_srv_start_srv(TfwSrvGroup *sg, TfwServer *srv, void *hm)
 {
 	int r;
 
-	TFW_DBG_ADDR("start server", &srv->addr);
+	TFW_DBG_ADDR("start server", &srv->addr, TFW_WITH_PORT);
 
 	if ((r = tfw_sock_srv_add_conns(srv))) {
-		TFW_ERR_ADDR("cannot allocate server connections", &srv->addr);
+		TFW_ERR_ADDR("cannot allocate server connections", &srv->addr,
+		             TFW_WITH_PORT);
 		return r;
 	}
 	if ((r = tfw_apm_add_srv(srv))) {
-		TFW_ERR_ADDR("cannot initialize APM for server", &srv->addr);
+		TFW_ERR_ADDR("cannot initialize APM for server", &srv->addr,
+		             TFW_WITH_PORT);
 		return r;
 	}
 	tfw_sock_srv_connect_srv(srv);
@@ -2003,7 +2007,7 @@ tfw_cfgop_update_srv(TfwServer *orig_srv, TfwCfgSrvGroup *sg_cfg)
 	if (!(srv = tfw_server_lookup(sg_cfg->parsed_sg, &orig_srv->addr)))
 		return -EINVAL;
 
-	TFW_DBG_ADDR("Update server options", &srv->addr);
+	TFW_DBG_ADDR("Update server options", &srv->addr, TFW_WITH_PORT);
 
 	orig_srv->weight = srv->weight;
 
