@@ -126,7 +126,7 @@ tfw_server_lookup(TfwSrvGroup *sg, TfwAddr *addr)
 int
 tfw_server_start_sched(TfwServer *srv)
 {
-	TFW_DBG_ADDR("Start scheduler for server", &srv->addr);
+	TFW_DBG_ADDR("Start scheduler for server", &srv->addr, TFW_WITH_PORT);
 	if (srv->sg->sched->add_srv)
 		return srv->sg->sched->add_srv(srv);
 
@@ -136,7 +136,7 @@ tfw_server_start_sched(TfwServer *srv)
 void
 tfw_server_stop_sched(TfwServer *srv)
 {
-	TFW_DBG_ADDR("Stop scheduler for server", &srv->addr);
+	TFW_DBG_ADDR("Stop scheduler for server", &srv->addr, TFW_WITH_PORT);
 	if (srv->sg->sched && srv->sg->sched->del_srv)
 		srv->sg->sched->del_srv(srv);
 }
