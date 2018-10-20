@@ -196,10 +196,12 @@ __gfsm_fsm_exec(TfwGState *st, int fsm_id, TfwFsmData *data)
 	 * including the skb which returned an error code on. The rest of skbs
 	 * are freed by us.
 	 */
-	for (next = data->skb->next; data->skb;
+	for (data->skb->prev->next = NULL, next = data->skb->next;
+	     data->skb;
 	     data->skb = next, next = next ? next->next : NULL, data->off = 0)
 	{
 		if (likely(r == T_OK || r == T_POSTPONE)) {
+			data->skb->next = data->skb->prev = NULL;
 			data->trail = !next ? trail : 0;
 			r = fsm_htbl[fsm_id](st->obj, data);
 		} else {
@@ -247,7 +249,9 @@ tfw_gfsm_move(TfwGState *st, unsigned short state, TfwFsmData *data)
 	unsigned long mask = 1 << state;
 	unsigned char curr_st = st->curr;
 
-	TFW_DBG3("GFSM move from %#x to %#x\n", FSM_STATE(st), state);
+	TFW_DBG3("GFSM move %#x -> %#x: skb=%pK off=%u trail=%u"
+		 " req=%pK resp=%pK\n", FSM_STATE(st), state,
+		 data->skb, data->off, data->trail, data->req, data->resp);
 
 	/* Remember current FSM context. */
 	SET_STATE(st, state);

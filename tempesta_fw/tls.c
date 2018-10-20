@@ -43,7 +43,7 @@ static int
 tfw_tls_chop_skb_rec(TlsCtx *tls, struct sk_buff *skb, unsigned int off,
 		     TfwFsmData *data)
 {
-	size_t prolog = ttls_payload_off();
+	size_t prolog = ttls_payload_off(&tls->xfrm);
 
 eaten_skb:
 	if (unlikely(skb->len <= prolog)) {
@@ -93,8 +93,8 @@ next_msg:
 			   &parsed);
 	switch (r) {
 	default:
-		TFW_WARN("Unrecognized TLS receive return code %d,"
-			 " drop packet", r);
+		T_WARN("Unrecognized TLS receive return code %d, drop packet\n",
+		       r);
 	case T_DROP:
 		spin_unlock(&tls->lock);
 		__kfree_skb(skb);
@@ -114,10 +114,9 @@ next_msg:
 		 * A complete TLS message decrypted and ready for upper
 		 * layer protocols processing - fall throught.
 		 */
-		TFW_DBG("TLS got %d data bytes (%.*s) on conn=%pK\n",
-			r, r, skb->data, c);
+		T_DBG3("%s: parsed=%d skb->len=%u\n", __func__,
+		       parsed, skb->len);
 	}
-	T_DBG3("%s: parsed=%d skb->len=%u\n", __func__, parsed, skb->len);
 
 	/*
 	 * Possibly there are other TLS message in the @skb - create
@@ -150,7 +149,7 @@ next_msg:
 	/* At this point tls->io_in is initialized for the next record. */
 	if ((r = tfw_tls_chop_skb_rec(tls, msg_skb, off, &data_up)))
 		goto out_err;
-	r = tfw_gfsm_move(&c->state, TFW_TLS_FSM_DATA_READY, data);
+	r = tfw_gfsm_move(&c->state, TFW_TLS_FSM_DATA_READY, &data_up);
 	if (r == TFW_BLOCK) {
 		spin_unlock(&tls->lock);
 		kfree_skb(nskb);
