@@ -103,10 +103,9 @@ int
 tfw_connection_recv(void *cdata, struct sk_buff *skb, unsigned int off)
 {
 	TfwConn *conn = cdata;
-	TfwFsmData fsm_data = {
-		.skb = skb,
-		.off = off,
-	};
+	TfwFsmData fsm_data = { .off = off };
+
+	ss_skb_queue_tail(&fsm_data.skb, skb);
 
 	return tfw_gfsm_dispatch(&conn->state, conn, &fsm_data);
 }
