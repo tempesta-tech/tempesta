@@ -421,6 +421,7 @@ struct ttls_config
  * I/O context for a TLS context.
  *
  * @ctr		- 64-bit incoming message counter maintained by us;
+ * @__initoff	- per message offset to reinitialize the I/O context;
  * @hdr		- TLS message header;
  * @iv		- TLS message initialization vector;
  * @hdr_cpsz	- how many bytes are copied to a header;
@@ -438,7 +439,8 @@ struct ttls_config
  * @chunks	- number of contigious memory chunks in all skbs in @skb_list;
  */
 typedef struct {
-	unsigned char	ctr[8];
+	unsigned long	ctr;
+	char		__initoff[0];
 	unsigned char	hdr[TLS_HEADER_SIZE];
 	union {
 		unsigned char	__msg[16];
@@ -543,9 +545,15 @@ ttls_xfrm_taglen(TlsXfrm *xfrm)
 }
 
 static inline size_t
-ttls_payload_off(void)
+ttls_expiv_len(TlsXfrm *xfrm)
 {
-	return TLS_AAD_SPACE_SIZE + TLS_HEADER_SIZE;
+	return xfrm->ivlen - xfrm->fixed_ivlen;
+}
+
+static inline size_t
+ttls_payload_off(TlsXfrm *xfrm)
+{
+	return TLS_HEADER_SIZE + ttls_expiv_len(xfrm);
 }
 
 bool ttls_xfrm_ready(TlsCtx *tls);
