@@ -1139,7 +1139,7 @@ tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *eq)
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
 	struct list_head *fwd_queue = &srv_conn->fwd_queue;
 
-	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
+	TFW_DBG2("%s: conn=%pK\n", __func__, srv_conn);
 	WARN_ON(!spin_is_locked(&srv_conn->fwd_qlock));
 	BUG_ON(tfw_http_conn_drained(srv_conn));
 
@@ -1193,7 +1193,7 @@ tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *eq)
 static void
 tfw_http_req_fwd(TfwSrvConn *srv_conn, TfwHttpReq *req, struct list_head *eq)
 {
-	TFW_DBG2("%s: srv_conn=[%p], req=[%p]\n", __func__, srv_conn, req);
+	TFW_DBG2("%s: srv_conn=%pK req=%pK\n", __func__, srv_conn, req);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
 	spin_lock_bh(&srv_conn->fwd_qlock);
@@ -3303,8 +3303,8 @@ bad_msg:
 /**
  * @return status (application logic decision) of the message processing.
  */
-int
-tfw_http_msg_process(void *conn, TfwFsmData *data)
+static int
+__tfw_http_msg_process(void *conn, TfwFsmData *data)
 {
 	TfwConn *c = (TfwConn *)conn;
 
@@ -3324,6 +3324,37 @@ tfw_http_msg_process(void *conn, TfwFsmData *data)
 	return (TFW_CONN_TYPE(c) & Conn_Clnt)
 		? tfw_http_req_process(c, data)
 		: tfw_http_resp_process(c, data);
+}
+
+/**
+ * TLS can send us list of decrypted skbs, it doesn't care about the list any
+ * more. Meantime, HTTP uses it's own skb lists, so here we process the list
+ * and pretend that we have each skb separately.
+ *
+ * We responsible for freeing all consumed skbs, including the skb which
+ * returned an error code on. The rest of skbs are freed by us.
+ */
+int
+tfw_http_msg_process(void *conn, TfwFsmData *data)
+{
+	int r = T_OK;
+	unsigned int trail = data->trail;
+	struct sk_buff *next;
+
+	for (data->skb->prev->next = NULL, next = data->skb->next;
+	     data->skb;
+	     data->skb = next, next = next ? next->next : NULL, data->off = 0)
+	{
+		if (likely(r == T_OK || r == T_POSTPONE)) {
+			data->skb->next = data->skb->prev = NULL;
+			data->trail = !next ? trail : 0;
+			r = __tfw_http_msg_process(conn, data);
+		} else {
+			kfree(data->skb);
+		}
+	}
+
+	return r;
 }
 
 /**
