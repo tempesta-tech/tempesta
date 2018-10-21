@@ -961,6 +961,7 @@ ss_skb_process(struct sk_buff *skb, unsigned int off, unsigned int trail,
 	int i, n, r = SS_OK;
 	int headlen = skb_headlen(skb);
 	int frag_len = skb->len - headlen;
+	unsigned int _processed = 0;
 	struct skb_shared_info *si = skb_shinfo(skb);
 
 	if (WARN_ON_ONCE(skb->len <= trail + off))
@@ -972,7 +973,8 @@ ss_skb_process(struct sk_buff *skb, unsigned int off, unsigned int trail,
 		n = skb_headlen(skb) - off;
 		if (unlikely(trail > frag_len))
 			n -= trail - frag_len;
-		r = actor(objdata, skb->data + off, n, processed);
+		r = actor(objdata, skb->data + off, n, &_processed);
+		*processed += _processed;
 		if (r != SS_POSTPONE || unlikely(trail >= frag_len))
 			return r;
 	} else {
@@ -994,7 +996,8 @@ ss_skb_process(struct sk_buff *skb, unsigned int off, unsigned int trail,
 			n = frag_size - off;
 			if (trail > frag_len)
 				n -= trail - frag_len;
-			r = actor(objdata, frag_addr + off, n, processed);
+			r = actor(objdata, frag_addr + off, n, &_processed);
+			*processed += _processed;
 			if (r != SS_POSTPONE || trail >= frag_len)
 				return r;
 			off = 0;
