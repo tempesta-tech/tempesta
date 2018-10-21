@@ -2815,7 +2815,7 @@ next_msg:
 	if((req_conn_close = req->flags & TFW_HTTP_F_CONN_CLOSE))
 		TFW_CONN_TYPE(req->conn) |= Conn_Stop;
 
-	if (!req_conn_close && parsed + trail < skb->len) {
+	if (!req_conn_close && off + parsed + trail < skb->len) {
 		/*
 		 * Pipelined requests: create a new sibling message.
 		 * @skb is replaced with pointer to a new SKB.
@@ -2889,7 +2889,7 @@ next_msg:
 		 * Data processing will continue with the new SKB.
 		 */
 		conn->msg = (TfwMsg *)hmsib;
-		off = 0; /* only first shot can have the offset */
+		off += parsed;
 		goto next_msg;
 	}
 
@@ -3234,7 +3234,7 @@ next_msg:
 	 * we have pipelined responses. Create a sibling message.
 	 * @skb is replaced with a pointer to a new SKB.
 	 */
-	if (parsed < skb->len) {
+	if (off + parsed < skb->len) {
 		hmsib = tfw_http_msg_create_sibling(hmresp, &skb, parsed);
 		/*
 		 * In case of an error there's no recourse. The
@@ -3275,7 +3275,7 @@ next_resp:
 		 * Data processing will continue with the new SKB.
 		 */
 		conn->msg = (TfwMsg *)hmsib;
-		off = 0; /* only first shot can have the offset */
+		off += parsed;
 		goto next_msg;
 	}
 
