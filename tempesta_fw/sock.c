@@ -445,7 +445,6 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	 * and after the transmission.
 	 */
 	if (flags & SS_F_KEEP_SKB) {
-		sw.skb_head = NULL;
 		skb = *skb_head;
 		do {
 			/* tcp_transmit_skb() will clone the skb. */
