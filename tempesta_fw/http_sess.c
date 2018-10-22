@@ -121,18 +121,23 @@ static struct kmem_cache *sess_cache;
 /**
  * JavaScript challenge.
  *
+ * To pass JS challenge client must repeat it's request in exact time frame
+ * specified by JS code.
+ *
  * @body	- body (html with JavaScript code);
- * @delay_min	- minimal timeout to make a client wait;
- * @delay_range	- allowed time range to recieve and accept client's session;
- * @delay_limit	- maximum difference between current time and a timestamp
- *		  specified in the sticky cookie;
+ * @delay_min	- minimal timeout client must wait before repeat the request,
+ *		  in jiffies;
+ * @delay_limit	- maximum timeout between JS challenge generation and client's
+ *		  request to pass the challenge, in jiffies;
+ * @delay_range	- time interval starting after @delay_min for a client to make
+ *		  a repeated request, in msecs;
  * @st_code	- status code for response with JS challenge;
  */
 typedef struct {
 	TfwStr		body;
-	time_t		delay_min;
-	time_t		delay_range;
-	time_t		delay_limit;
+	unsigned long	delay_min;
+	unsigned long	delay_limit;
+	unsigned long	delay_range;
 	unsigned short	st_code;
 } TfwCfgJsCh;
 
@@ -150,7 +155,7 @@ static const unsigned short tfw_cfg_redirect_st_code_dflt = 302;
  * 'Accept: text/html' and GET method.
  */
 static bool
-tfw_http_sticky_redirect_allied(TfwHttpReq *req)
+tfw_http_sticky_redirect_apllied(TfwHttpReq *req)
 {
 	if (!tfw_cfg_js_ch)
 		return true;
@@ -216,7 +221,7 @@ tfw_http_sticky_send_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 	 * Non-challengeable requests also must be rate limited.
 	 */
 
-	if (!tfw_http_sticky_redirect_allied(req))
+	if (!tfw_http_sticky_redirect_apllied(req))
 		return TFW_HTTP_SESS_JS_NOT_SUPPORTED;
 
 	if (!(resp = tfw_http_msg_alloc_resp_light(req)))
@@ -849,23 +854,35 @@ tfw_http_sess_remove(TfwHttpSess *sess)
  * Challenged client must not send request before challenging timeout passed.
  */
 static int
-tfw_http_sess_check_jsch(StickyVal *sv)
+tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 {
-	time_t cur_time, min_time, max_time;
+	unsigned long cur_time, min_time, max_time;
 
 	if (!tfw_cfg_js_ch)
 		return 0;
 
 	cur_time = jiffies;
+	/*
+	 * When a client calculates it's own random delay, it uses range value
+	 * encoded as msecs, we have to use the same, to have exactly the same
+	 * calculation results. See etc/js_challenge.js.tpl .
+	 */
 	min_time = sv->ts + tfw_cfg_js_ch->delay_min
-			+ sv->ts % tfw_cfg_js_ch->delay_range;
+			+ msecs_to_jiffies(sv->ts % tfw_cfg_js_ch->delay_range);
 	max_time = sv->ts + tfw_cfg_js_ch->delay_limit;
-	if ((min_time <= cur_time) && (cur_time <= max_time))
+	if (time_in_range(cur_time, min_time, max_time))
 		return 0;
 
-	TFW_DBG("sess: jsch block: request recieved outside allowed period.\n");
-
-	return TFW_HTTP_SESS_VIOLATE;
+	if (tfw_http_sticky_redirect_apllied(req)) {
+		TFW_DBG("sess: jsch block: request received outside allowed "
+			"time range.\n");
+		return TFW_HTTP_SESS_VIOLATE;
+	}
+	else {
+		TFW_DBG("sess: jsch drop: non-challegeable resource was "
+			"requested outside allowed time range.\n");
+		return TFW_HTTP_SESS_JS_NOT_SUPPORTED;
+	}
 }
 
 /**
@@ -921,7 +938,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 			goto found;
 	}
 
-	if ((r = tfw_http_sess_check_jsch(&sv))) {
+	if ((r = tfw_http_sess_check_jsch(&sv, req))) {
 		spin_unlock(&hb->lock);
 		return r;
 	}
@@ -1231,17 +1248,16 @@ tfw_cfgop_sess_lifetime(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return r;
 }
 
-static int
-tfw_cfg_op_jsch_parse_time(TfwCfgSpec *cs, const char *key, const char *val,
-			   time_t *time)
+static inline int
+tfw_cfgop_jsch_parse(TfwCfgSpec *cs, const char *key, const char *val,
+		     unsigned int *uint_val)
 {
-	int r, int_val;
+	int r;
 
-	if ((r = tfw_cfg_parse_int(val, &int_val))) {
+	if ((r = tfw_cfg_parse_uint(val, uint_val))) {
 		TFW_ERR_NL("%s: can't parse key '%s'\n", cs->name, key);
 		return r;
 	}
-	*time = int_val * HZ / 1000;
 
 	return 0;
 }
@@ -1263,32 +1279,28 @@ tfw_cfg_op_jsch_parse_resp_code(TfwCfgSpec *cs, const char *val)
 }
 
 static void
-tfw_cfgop_jsch_set_delay_limit(TfwCfgSpec *cs, time_t limit)
+tfw_cfgop_jsch_set_delay_limit(TfwCfgSpec *cs)
 {
-	time_t min_limit = tfw_cfg_js_ch->delay_min + tfw_cfg_js_ch->delay_range;
-	time_t warn_limit = min_limit + HZ / 10; /* 0.1 sec */
-	const time_t def_limit = min_limit + HZ; /* 1 sec. */
+	const unsigned long min_limit	= tfw_cfg_js_ch->delay_min
+			+ msecs_to_jiffies(tfw_cfg_js_ch->delay_range);
+	const unsigned long warn_limit	= min_limit + msecs_to_jiffies(100);
+	const unsigned long def_limit	= min_limit + msecs_to_jiffies(1000);
 
-	if (!limit) {
+	if (!tfw_cfg_js_ch->delay_limit) {
 		tfw_cfg_js_ch->delay_limit = def_limit;
-
-		return;
 	}
-	if (limit < min_limit) {
+	else if (tfw_cfg_js_ch->delay_limit < min_limit) {
 		TFW_WARN_NL("%s: delay limit is too low, "
 			    "enforce it to minimum possible value "
-			    "'delay_range + delay_min' (%lu)\n",
-			    cs->name, min_limit * 1000 / HZ);
+			    "'delay_range + delay_min' (%u)\n",
+			    cs->name, jiffies_to_msecs(min_limit));
 		tfw_cfg_js_ch->delay_limit = min_limit;
-
-		return;
 	}
-	if (limit < warn_limit)
-		TFW_WARN_NL("%s: delay limit is less than "
-			    "'delay_range + delay_min + 100' (%lu) "
-			    "and should be increased\n",
-			    cs->name, warn_limit * 1000 / HZ);
-	tfw_cfg_js_ch->delay_limit = limit;
+	else if (tfw_cfg_js_ch->delay_limit < warn_limit) {
+		TFW_WARN_NL("%s: delay limit is less than recommended value "
+			    "'delay_range + delay_min + 100' (%u)\n",
+			    cs->name, jiffies_to_msecs(warn_limit));
+	}
 }
 
 static int
@@ -1312,7 +1324,7 @@ tfw_cfgop_jsch_set_body(TfwCfgSpec *cs, const char *script)
 static int
 tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	time_t delay_limit = 0;
+	unsigned int uint_val;
 	int i, r;
 	const char *key, *val;
 
@@ -1329,23 +1341,19 @@ tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	}
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
 		if (!strcasecmp(key, "delay_min")) {
-			r = tfw_cfg_op_jsch_parse_time(cs, key, val,
-						       &tfw_cfg_js_ch->delay_min);
-			if (r)
+			if ((r = tfw_cfgop_jsch_parse(cs, key, val, &uint_val)))
 				return r;
+			tfw_cfg_js_ch->delay_min = msecs_to_jiffies(uint_val);
 		} else if (!strcasecmp(key, "delay_range")) {
-			r = tfw_cfg_op_jsch_parse_time(cs, key, val,
-						       &tfw_cfg_js_ch->delay_range);
-			if (r)
+			if ((r = tfw_cfgop_jsch_parse(cs, key, val, &uint_val)))
 				return r;
+			tfw_cfg_js_ch->delay_range = uint_val;
 		} else if (!strcasecmp(key, "delay_limit")) {
-			r = tfw_cfg_op_jsch_parse_time(cs, key, val,
-						       &delay_limit);
-			if (r)
+			if ((r = tfw_cfgop_jsch_parse(cs, key, val, &uint_val)))
 				return r;
+			tfw_cfg_js_ch->delay_limit = msecs_to_jiffies(uint_val);
 		} else if (!strcasecmp(key, "resp_code")) {
-			r = tfw_cfg_op_jsch_parse_resp_code(cs, val);
-			if (r)
+			if ((r = tfw_cfg_op_jsch_parse_resp_code(cs, val)))
 				return r;
 		} else {
 			TFW_ERR_NL("%s: unsupported argument: '%s=%s'.\n",
@@ -1366,7 +1374,7 @@ tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (!tfw_cfg_js_ch->st_code)
 		tfw_cfg_js_ch->st_code = tfw_cfg_jsch_code_dflt;
 
-	tfw_cfgop_jsch_set_delay_limit(cs, delay_limit);
+	tfw_cfgop_jsch_set_delay_limit(cs);
 
 	return tfw_cfgop_jsch_set_body(cs,
 				       ce->val_n ? ce->vals[0] : TFW_CFG_JS_PATH);

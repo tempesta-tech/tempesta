@@ -1,10 +1,19 @@
-var prefix = "[% STICKY_NAME %]";
+var c_name = "[% STICKY_NAME %]";
 var delay_min = [% DELAY_MIN %];
 var delay_range = [% DELAY_RANGE %];
-if (navigator.cookieEnabled
-    && document.cookie.startsWith(prefix))
-{
-    var ts = "0x" + document.cookie.substr(prefix.length + 1, 16);
+
+function cookieVal(input, c_name) {
+    var re = new RegExp("(.*;)?\s*" + c_name + "=([0-9a-f]+)")
+    var found = input.match(re)
+    if (!found)
+        return ""
+    return  found[2];
+}
+
+var c_val = cookieVal(document.cookie, c_name)
+
+if (navigator.cookieEnabled && !!c_val) {
+    var ts = "0x" + c_val.substr(0, 16);
     setTimeout(function() {
         location.reload();
     }, delay_min + Number(ts) % delay_range);
