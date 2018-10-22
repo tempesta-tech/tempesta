@@ -45,6 +45,7 @@
 /* Priorities number (1 << 4 = 16). */
 #define TFW_GFSM_PRIO_BITS	4
 #define TFW_GFSM_PRIO_N		(1 << TFW_GFSM_PRIO_BITS)
+#define TFW_GFSM_PRIO_MASK	(TFW_GFSM_PRIO_N - 1)
 #define TFW_GFSM_PRIO_SHIFT	TFW_GFSM_STATE_BITS
 /* Maximum number of different FSMs (1 << 4 = 16). */
 #define TFW_GFSM_FSM_BITS	4
@@ -76,7 +77,7 @@
  * L5-L7 protocols stack is just TLS carrying application protocol,
  * so the secured application protocols have designated FSMs rather than
  * build real stack. This simplifies the protocols handling, makes it faster
- * and privides more flexibility to set classification FSMs' hooks for
+ * and provides more flexibility to set classification FSMs' hooks for
  * specific secured application protocol.
  */
 enum {
@@ -138,11 +139,11 @@ enum {
  * loadable user custom modules. Usually L4 data is provided to FSMs for
  * protocol handlers while L7 is for application layer FSMs, e.g. Frang security
  * limits enforcing module. HTTP FSM processes L4 data and creates L7 data
- * for further processing by other FSMs. So for futher extensions we handle all
+ * for further processing by other FSMs. So for further extensions we handle all
  * layers data in the structure instead of using a union to keep one layer data
  * at a time.
  *
- * GFSM resides at the top of classes hirarchy, so use generic message classes.
+ * GFSM resides at the top of classes hierarchy, so use generic message classes.
  *
  * @skb		- currently processed skb by the TCP/IP stack;
  * @off		- data offset within the @skb;
@@ -187,6 +188,10 @@ typedef int (*tfw_gfsm_handler_t)(void *obj, const TfwFsmData *data);
 void tfw_gfsm_state_init(TfwGState *st, void *obj, int st0);
 int tfw_gfsm_dispatch(TfwGState *st, void *obj, const TfwFsmData *data);
 int tfw_gfsm_move(TfwGState *st, unsigned short state, const TfwFsmData *data);
+
+#ifdef DEBUG
+void tfw_gfsm_debug_state(TfwGState *st, const char *msg);
+#endif
 
 int tfw_gfsm_register_hook(int fsm_id, int prio, int state,
 			   unsigned short hndl_fsm_id, int st0);
