@@ -280,7 +280,7 @@ EXPORT_SYMBOL(tfw_gfsm_move);
 void
 tfw_gfsm_debug_state(TfwGState *st, const char *msg)
 {
-	TFW_DBG("%s: curr=%d:  on_stack=%d fsm_id=%d prio=%d state=%d",
+	TFW_DBG("%s: curr=%d: on_stack=%d fsm_id=%d prio=%d state=%d\n",
 		msg, st->curr, !!(FSM_STATE(st) & TFW_GFSM_ONSTACK), FSM(st),
 		PRIO(st), TFW_GFSM_STATE(st));
 }
