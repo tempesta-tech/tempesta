@@ -2543,8 +2543,8 @@ send_503:
 	 * Requested resource can't be challenged. Don't break response-request
 	 * queue on client side by dropping the request.
 	 */
-	tfw_http_send_resp(req, 503, "request dropped:"
-			   " can't send JS challenge.");
+	tfw_http_send_resp(req, 503,
+			   "request dropped: can't send JS challenge.");
 	TFW_INC_STAT_BH(clnt.msgs_filtout);
 	return;
 drop_503:
