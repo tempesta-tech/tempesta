@@ -1912,6 +1912,9 @@ __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
 		TRY_STR_LAMBDA("text/html", {
 			msg->flags |= TFW_HTTP_F_ACCEPT_HTML;
 		}, I_EoT);
+		TRY_STR_LAMBDA("*/*", {
+			msg->flags |= TFW_HTTP_F_ACCEPT_HTML;
+		}, I_EoT);
 		TRY_STR_INIT();
 		__FSM_I_MOVE_n(Req_I_AcceptOther, 0);
 	}
