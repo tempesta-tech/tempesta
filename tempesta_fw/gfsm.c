@@ -11,14 +11,14 @@
  *   - loadable TL programs;
  *   - user-space modules such as FastCGI or REST.
  *
- * The FSMs are essencially subroutines in sense of Knuth definition of
+ * The FSMs are essentially subroutines in sense of Knuth definition of
  * coroutines, i.e. a subroutine can:
  *   1. call other subroutine;
  *   2. yield control to other subroutine.
  *
  * GFSM is a voluntary (co-operative) data-driven scheduler for the subroutines.
  * While traditional preemptive (time-sharing) scheduler cares about fair time
- * slice sharing among processes, GFSM cares about processing hot (in sence of
+ * slice sharing among processes, GFSM cares about processing hot (in sense of
  * CPU caches) data by all subroutines, who, and only who, are interested in
  * the data. I.e. when a packet arrives, all subroutines interested in
  * processing the packet are called immediately while the packet data resides
@@ -50,7 +50,7 @@
  *
  * GFSM stores FSM states in an array w/ free organisation to allow graph-like
  * FSM switching scheme. The entry point to GFSM is defined by current
- * connection type and the next GFSM trasitions by registered FSM hooks for
+ * connection type and the next GFSM transitions by registered FSM hooks for
  * currently running FSM.
  *
  * A subroutine yields it's control flow by moving to the next state using
@@ -80,6 +80,9 @@
 #define __GFSM_FSM(_s)		(((_s) >> TFW_GFSM_FSM_SHIFT)	\
 				 & TFW_GFSM_FSM_MASK)
 #define FSM(s)			__GFSM_FSM(FSM_STATE(s))
+#define __GFSM_PRIO(_s)		(((_s) >> TFW_GFSM_PRIO_SHIFT)	\
+				 & TFW_GFSM_PRIO_MASK)
+#define PRIO(s)			__GFSM_PRIO(FSM_STATE(s))
 #define GFSM_HOOK_N		(TFW_GFSM_PRIO_N * TFW_GFSM_STATE_N)
 #define SET_STATE(s, x)						\
 do {								\
@@ -106,7 +109,7 @@ static unsigned int fsm_hooks_bm[TFW_FSM_NUM][TFW_GFSM_WC_BMAP_SZ];
 
 /**
  * The function must be called by first FSM processing @obj or
- * independent code, such that alls FSMs can use it for dispatching.
+ * independent code, such that all FSMs can use it for dispatching.
  */
 void
 tfw_gfsm_state_init(TfwGState *st, void *obj, int st0)
@@ -139,12 +142,9 @@ static int
 tfw_gfsm_switch(TfwGState *st, int state, int prio)
 {
 	int shift = prio * TFW_GFSM_PRIO_N + (state & TFW_GFSM_STATE_MASK);
-	int fsm_next = fsm_hooks[FSM(st)][shift].fsm_id;
 	int fsm_curr = state >> TFW_GFSM_FSM_SHIFT;
+	int fsm_next = fsm_hooks[fsm_curr][shift].fsm_id;
 	int free_slot;
-
-	TFW_DBG3("GFSM switch from fsm %d at state %d to fsm %d at state %#x\n",
-		 fsm_curr, state, fsm_next, fsm_hooks[fsm_curr][shift].st0);
 
 	st->curr = __gfsm_fsm_lookup(st, fsm_next, &free_slot);
 	if (st->curr < 0) {
@@ -153,6 +153,9 @@ tfw_gfsm_switch(TfwGState *st, int state, int prio)
 		st->curr = free_slot;
 		FSM_STATE(st) = fsm_hooks[fsm_curr][shift].st0;
 	}
+
+	TFW_DBG3("GFSM switch from fsm %d at state %d to fsm %d at state %#x\n",
+		 fsm_curr, state, fsm_next, TFW_GFSM_STATE(st));
 
 	return fsm_next;
 }
@@ -221,13 +224,14 @@ tfw_gfsm_move(TfwGState *st, unsigned short state, const TfwFsmData *data)
 	int r = TFW_PASS, p, fsm;
 	unsigned int *hooks = fsm_hooks_bm[FSM(st)];
 	unsigned long mask = 1 << state;
+	unsigned char curr_st = st->curr;
 
 	TFW_DBG3("GFSM move from %#x to %#x\n", FSM_STATE(st), state);
 
 	/* Remember current FSM context. */
 	SET_STATE(st, state);
 
-	/* Start from higest priority. */
+	/* Start from highest priority. */
 	for (p = TFW_GFSM_HOOK_PRIORITY_HIGH;
 	     p < TFW_GFSM_HOOK_PRIORITY_NUM; ++p)
 	{
@@ -236,7 +240,7 @@ tfw_gfsm_move(TfwGState *st, unsigned short state, const TfwFsmData *data)
 		 * rather than fixed priority levels to avoid spinning in vain.
 		 */
 		if (!(hooks[p] & mask))
-			return TFW_PASS;
+			goto done;
 
 		/* Switch context to other FSM. */
 		fsm = tfw_gfsm_switch(st, state, p);
@@ -251,7 +255,8 @@ tfw_gfsm_move(TfwGState *st, unsigned short state, const TfwFsmData *data)
 
 		switch (__gfsm_fsm_exec(st, fsm, data)) {
 		case TFW_BLOCK:
-			return TFW_BLOCK;
+			r = TFW_BLOCK;
+			goto done;
 		case TFW_POSTPONE:
 			/*
 			 * Postpone processing if at least one FSM
@@ -260,10 +265,27 @@ tfw_gfsm_move(TfwGState *st, unsigned short state, const TfwFsmData *data)
 			r = TFW_POSTPONE;
 		}
 	}
+done:
+	/* Restore current FSM context. */
+	st->curr = curr_st;
 
 	return r;
 }
 EXPORT_SYMBOL(tfw_gfsm_move);
+
+#ifdef DEBUG
+/**
+ * Helper function to debug current fsm state.
+ */
+void
+tfw_gfsm_debug_state(TfwGState *st, const char *msg)
+{
+	TFW_DBG("%s: curr=%d: on_stack=%d fsm_id=%d prio=%d state=%d\n",
+		msg, st->curr, !!(FSM_STATE(st) & TFW_GFSM_ONSTACK), FSM(st),
+		PRIO(st), TFW_GFSM_STATE(st));
+}
+EXPORT_SYMBOL(tfw_gfsm_debug_state);
+#endif
 
 /**
  * Register a hook which will be called with priority @prio when FSM @fsm_id
@@ -287,7 +309,7 @@ tfw_gfsm_register_hook(int fsm_id, int prio, int state,
 
 	if (prio == TFW_GFSM_HOOK_PRIORITY_ANY) {
 		/*
-		 * Try to register the hook with higest priority.
+		 * Try to register the hook with highest priority.
 		 * If the state slot for the priority is already acquired,
 		 * then try lower priority.
 		 */
