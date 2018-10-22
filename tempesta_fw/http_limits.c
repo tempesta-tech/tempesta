@@ -273,7 +273,7 @@ do {									\
 #endif
 
 static int
-frang_conn_limit(FrangAcc *ra, struct sock *unused, FrangCfg *conf)
+frang_conn_limit(FrangAcc *ra, FrangCfg *conf)
 {
 	unsigned long ts = (jiffies * FRANG_FREQ) / HZ;
 	unsigned int csum = 0;
@@ -359,7 +359,7 @@ frang_conn_new(struct sock *sk)
 	 */
 	sk->sk_security = ra;
 
-	r = frang_conn_limit(ra, sk, conf);
+	r = frang_conn_limit(ra, conf);
 	if (r == TFW_BLOCK && conf->ip_block) {
 		tfw_filter_block_ip(&cli->addr);
 		tfw_client_put(cli);
