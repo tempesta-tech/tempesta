@@ -127,10 +127,10 @@ static struct kmem_cache *sess_cache;
  * @body	- body (html with JavaScript code);
  * @delay_min	- minimal timeout client must wait before repeat the request,
  *		  in jiffies;
- * @delay_limit	- maximum timeout between client's requests to pass the
- *		  challenge, in jiffies;
- * @delay_range	- allowed time range for client to make a repeated request,
- *		  in msecs;
+ * @delay_limit	- maximum timeout between JS challenge generation and client's
+ *		  request to pass the challenge, in jiffies;
+ * @delay_range	- time interval starting after @delay_min for a client to make
+ *		  a repeated request, in msecs;
  * @st_code	- status code for response with JS challenge;
  */
 typedef struct {
@@ -860,6 +860,11 @@ tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 		return 0;
 
 	cur_time = jiffies;
+	/*
+	 * When a client calculates it's own random delay, it uses range value
+	 * encoded as msecs, we have to use the same, to have exactly the same
+	 * calculation results. See etc/js_challenge.js.tpl .
+	 */
 	min_time = sv->ts + tfw_cfg_js_ch->delay_min
 			+ msecs_to_jiffies(sv->ts % tfw_cfg_js_ch->delay_range);
 	max_time = sv->ts + tfw_cfg_js_ch->delay_limit;
