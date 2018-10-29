@@ -2130,7 +2130,7 @@ ttls_handshake_server_hello(TlsCtx *tls)
 		put_page(pg);
 		sg_mark_end(&sgt.sgl[sgt.nents - 1]);
 		/* Exit, enter the FSM on more data from the client. */
-		return __ttls_send_record(tls, &sgt);
+		return __ttls_send_record(tls, &sgt, false);
 	}
 	}
 	T_FSM_FINISH(r, tls->state);
@@ -2188,7 +2188,7 @@ ttls_handshake_finished(TlsCtx *tls)
 			     ? TTLS_CLIENT_CHANGE_CIPHER_SPEC
 			     : TTLS_HANDSHAKE_WRAPUP;
 		sg_mark_end(&sgt.sgl[sgt.nents - 1]);
-		return __ttls_send_record(tls, &sgt);
+		return __ttls_send_record(tls, &sgt, false);
 	}
 	}
 	T_FSM_FINISH(r, tls->state);

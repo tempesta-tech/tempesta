@@ -60,7 +60,7 @@ tfw_sock_cli_keepalive_timer_cb(unsigned long data)
 	 * a deadlock on del_timer_sync(). In case of error try to close
 	 * it one second later.
 	 */
-	if (ss_close(cli_conn->sk))
+	if (tfw_connection_close((TfwConn *)cli_conn, false))
 		mod_timer(&cli_conn->timer, jiffies + msecs_to_jiffies(1000));
 }
 
@@ -280,7 +280,7 @@ __cli_conn_close_cb(TfwConn *conn)
 	 * client hash bucket locks as soon as possible and let softirq
 	 * do all the jobs.
 	 */
-	return ss_close(conn->sk);
+	return tfw_connection_close(conn, false);
 }
 
 static int
