@@ -640,7 +640,7 @@ static int ssl_write_client_hello(ttls_context *ssl)
 
 	ssl->state++;
 
-	if ((ret = ttls_write_record(ssl)) != 0)
+	if ((ret = ttls_write_record(ssl, /* TODO: sgt, close */)) != 0)
 		return ret;
 
 	T_DBG2("<= write client hello\n");
@@ -1852,7 +1852,7 @@ static int ssl_write_client_key_exchange(ttls_context *ssl)
 
 	ssl->state++;
 
-	if ((ret = ttls_write_record(ssl)) != 0)
+	if ((ret = ttls_write_record(ssl, /* TODO sgt, close */)) != 0)
 		return ret;
 
 	T_DBG2("<= write client key exchange\n");

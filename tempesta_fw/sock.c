@@ -639,7 +639,7 @@ ss_linkerror(struct sock *sk)
  * not care about return value.
  */
 int
-__ss_close(struct sock *sk, int flags)
+ss_close(struct sock *sk, int flags)
 {
 	int cpu;
 	long ticket;
@@ -676,7 +676,7 @@ err:
 	sock_put(sk);
 	return SS_BAD;
 }
-EXPORT_SYMBOL(__ss_close);
+EXPORT_SYMBOL(ss_close);
 
 /*
  * Process a single SKB.
@@ -750,7 +750,8 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		}
 	}
 	if (tcp_fin) {
-		TFW_DBG2("[%d]: Data FIN: sk %p\n", smp_processor_id(), sk);
+		TFW_DBG2("Received data FIN on sk=%p, cpu=%d\n",
+			 sk, smp_processor_id());
 		++tp->copied_seq;
 		r = SS_DROP;
 	}
