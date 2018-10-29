@@ -116,10 +116,6 @@ ss_sock_live(struct sock *sk)
 /* Close (drop) the connection. */
 #define SS_F_CONN_CLOSE			0x04
 
-#define ss_close(sk)			__ss_close(sk, 0)
-#define ss_close_sync(sk, drop)		\
-	__ss_close(sk, SS_F_SYNC | (drop ? SS_F_CONN_CLOSE : 0))
-
 int ss_hooks_register(SsHooks* hooks);
 void ss_hooks_unregister(SsHooks* hooks);
 
@@ -128,7 +124,7 @@ void ss_proto_inherit(const SsProto *parent, SsProto *child, int child_type);
 void ss_set_callbacks(struct sock *sk);
 void ss_set_listen(struct sock *sk);
 int ss_send(struct sock *sk, struct sk_buff **skb_head, int flags);
-int __ss_close(struct sock *sk, int flags);
+int ss_close(struct sock *sk, int flags);
 int ss_sock_create(int family, int type, int protocol, struct sock **res);
 void ss_release(struct sock *sk);
 int ss_connect(struct sock *sk, struct sockaddr *addr, int addrlen, int flags);

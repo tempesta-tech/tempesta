@@ -11,7 +11,7 @@
  * the Free Software Foundation; either version 2 of the License,
  * or (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful, but WITFWOUT
+ * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
  * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
@@ -64,6 +64,12 @@ tfw_connection_repair(TfwConn *conn)
 	TFW_CONN_HOOK_CALL(conn, conn_repair);
 }
 
+int
+tfw_connection_close(TfwConn *conn, bool sync)
+{
+	return TFW_CONN_HOOK_CALL(conn, conn_close, sync);
+}
+
 /**
  * Publish the "connection is dropped" event via TfwConnHooks.
  */
@@ -103,9 +109,10 @@ int
 tfw_connection_recv(void *cdata, struct sk_buff *skb, unsigned int off)
 {
 	TfwConn *conn = cdata;
-	TfwFsmData fsm_data = { .off = off };
-
-	ss_skb_queue_tail(&fsm_data.skb, skb);
+	TfwFsmData fsm_data = {
+		.skb = skb,
+		.off = off,
+	};
 
 	return tfw_gfsm_dispatch(&conn->state, conn, &fsm_data);
 }
