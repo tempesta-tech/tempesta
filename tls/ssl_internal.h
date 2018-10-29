@@ -185,8 +185,8 @@ int ttls_handle_message_type(TlsCtx *tls);
 
 void __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
 		       unsigned char *hdr_buf);
-int __ttls_send_record(TlsCtx *tls, struct sg_table *sgt);
-int ttls_write_record(TlsCtx *tls, struct sg_table *sgt);
+int __ttls_send_record(TlsCtx *tls, struct sg_table *sgt, bool close);
+int ttls_write_record(TlsCtx *tls, struct sg_table *sgt, bool close);
 int ttls_sendmsg(TlsCtx *tls, const char *buf, size_t len);
 
 int ttls_parse_certificate(ttls_context *tls, unsigned char *buf, size_t len,

@@ -853,20 +853,20 @@ __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
 }
 
 int
-__ttls_send_record(TlsCtx *tls, struct sg_table *sgt)
+__ttls_send_record(TlsCtx *tls, struct sg_table *sgt, bool close)
 {
 	int r;
 
-	if ((r = ttls_send_cb(tls, sgt)))
+	if ((r = ttls_send_cb(tls, sgt, close)))
 		T_DBG("TLS send callback error %d\n", r);
 	return r;
 }
 
 int
-ttls_write_record(TlsCtx *tls, struct sg_table *sgt)
+ttls_write_record(TlsCtx *tls, struct sg_table *sgt, bool close)
 {
 	__ttls_add_record(tls, sgt, 0, NULL);
-	return __ttls_send_record(tls, sgt);
+	return __ttls_send_record(tls, sgt, close);
 }
 
 static int
@@ -1135,6 +1135,7 @@ ttls_handle_alert(TlsIOCtx *io)
 int
 ttls_send_alert(TlsCtx *tls, unsigned char lvl, unsigned char msg)
 {
+	bool close = false;
 	TlsIOCtx *io = &tls->io_out;
 
 	T_DBG("send alert level=%u message=%u\n", lvl, msg);
@@ -1146,7 +1147,10 @@ ttls_send_alert(TlsCtx *tls, unsigned char lvl, unsigned char msg)
 	io->alert[0] = lvl;
 	io->alert[1] = msg;
 
-	return ttls_write_record(tls, NULL);
+	if (msg == TTLS_ALERT_MSG_CLOSE_NOTIFY)
+		close = true;
+
+	return ttls_write_record(tls, NULL, close);
 }
 
 int
@@ -2189,12 +2193,12 @@ int
 ttls_close_notify(TlsCtx *tls)
 {
 	BUG_ON(!tls || !tls->conf);
-	T_DBG3("write close notify\n");
+	T_DBG("write close notify\n");
 
 	if (tls->state != TTLS_HANDSHAKE_OVER)
 		return 0;
 	return ttls_send_alert(tls, TTLS_ALERT_LEVEL_WARNING,
-				   TTLS_ALERT_MSG_CLOSE_NOTIFY);
+			       TTLS_ALERT_MSG_CLOSE_NOTIFY);
 }
 EXPORT_SYMBOL(ttls_close_notify);
 
