@@ -229,6 +229,11 @@ typedef struct {
 	void (*conn_repair)(TfwConn *conn);
 
 	/*
+	 * Called to close a connection intentionally on Tempesta side.
+	 */
+	int (*conn_close)(TfwConn *conn, bool sync);
+
+	/*
 	 * Called when closing a connection (client or server,
 	 * as in conn_init()). This is required for modules that
 	 * maintain the number of established client connections.
@@ -459,6 +464,7 @@ void tfw_connection_link_peer(TfwConn *conn, TfwPeer *peer);
 
 int tfw_connection_new(TfwConn *conn);
 void tfw_connection_repair(TfwConn *conn);
+int tfw_connection_close(TfwConn *conn, bool sync);
 void tfw_connection_drop(TfwConn *conn);
 void tfw_connection_release(TfwConn *conn);
 

@@ -270,10 +270,11 @@ tfw_tls_skb_set_enc(TlsCtx *tls, struct sk_buff *skb)
 }
 
 /**
- * Callback function which is called by TLS library under tls->lock.
+ * Callback function which is called by TLS module under tls->lock when it
+ * initiates a record transmission, e.g. alert or a handshake message.
  */
 static int
-tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
+tfw_tls_send(TlsCtx *tls, struct sg_table *sgt, bool close)
 {
 	int r, flags = 0;
 	TfwTlsConn *conn = container_of(tls, TfwTlsConn, tls);
@@ -334,6 +335,9 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 		}
 	}
 
+	if (close)
+		flags |= SS_F_CONN_CLOSE;
+
 	return ss_send(conn->cli_conn.sk, &io->skb_list, flags);
 }
 
@@ -367,16 +371,36 @@ tfw_tls_conn_init(TfwConn *c)
 	return 0;
 }
 
+static int
+tfw_tls_conn_close(TfwConn *c, bool sync)
+{
+	int r;
+	TlsCtx *tls = tfw_tls_context(c);
+
+	spin_lock(&tls->lock);
+	r = ttls_close_notify(tls);
+	spin_unlock(&tls->lock);
+
+	/*
+	 * ttls_close_notify() calls ss_send() with SS_F_CONN_CLOSE flag, so
+	 * if the call succeeded, then we'll close the socket with the alert
+	 * transmission. Otherwise if we have to close the socket synchronously
+	 * and can not write to the socket, then there is no other way than
+	 * skip the alert and just close the socket.
+	 */
+	if (r && sync) {
+		TFW_WARN_ADDR("Close TCP socket w/o sending alert to the peer",
+			      &c->peer->addr);
+		r = ss_close(c->sk, SS_F_SYNC);
+	}
+
+	return r;
+}
+
 static void
 tfw_tls_conn_drop(TfwConn *c)
 {
-	TlsCtx *tls = tfw_tls_context(c);
-
 	tfw_conn_hook_call(TFW_FSM_HTTP, c, conn_drop);
-
-	spin_lock(&tls->lock);
-	ttls_close_notify(tls);
-	spin_unlock(&tls->lock);
 }
 
 /**
@@ -390,9 +414,14 @@ tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 	int r;
 	TlsCtx *tls = tfw_tls_context(c);
 
-	if ((r = ss_send(c->sk, &msg->skb_head, msg->ss_flags)))
+	r = ss_send(c->sk, &msg->skb_head, msg->ss_flags & ~SS_F_CONN_CLOSE);
+	if (r)
 		return r;
 
+	/*
+	 * We can not send the alert on conn_drop hook, because the hook
+	 * is called on already closed socket.
+	 */
 	if (msg->ss_flags & SS_F_CONN_CLOSE) {
 		spin_lock(&tls->lock);
 		r = ttls_close_notify(tls);
@@ -404,6 +433,7 @@ tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 
 static TfwConnHooks tls_conn_hooks = {
 	.conn_init	= tfw_tls_conn_init,
+	.conn_close	= tfw_tls_conn_close,
 	.conn_drop	= tfw_tls_conn_drop,
 	.conn_send	= tfw_tls_conn_send,
 };

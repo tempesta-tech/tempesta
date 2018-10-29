@@ -518,7 +518,7 @@ typedef struct ttls_context {
 	unsigned int encrypt_then_mac : 1 ; /*!< negotiate encrypt-then-mac?	*/
 } TlsCtx;
 
-typedef int ttls_send_cb_t(TlsCtx *tls, struct sg_table *sgt);
+typedef int ttls_send_cb_t(TlsCtx *tls, struct sg_table *sgt, bool close);
 
 static inline void
 ttls_write_version(TlsCtx *tls, unsigned char ver[2])

@@ -580,7 +580,7 @@ tfw_http_conn_req_clean(TfwHttpReq *req)
 void
 tfw_http_resp_build_error(TfwHttpReq *req)
 {
-	ss_close_sync(req->conn->sk, true);
+	tfw_connection_close(req->conn, true);
 	tfw_http_conn_req_clean(req);
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 }
@@ -1731,6 +1731,12 @@ tfw_http_conn_init(TfwConn *conn)
 	return 0;
 }
 
+static int
+tfw_http_conn_close(TfwConn *conn, bool sync)
+{
+	return ss_close(conn->sk, sync ? SS_F_SYNC : 0);
+}
+
 /*
  * Connection with a peer is released.
  *
@@ -1869,7 +1875,8 @@ tfw_http_conn_drop(TfwConn *conn)
 
 	if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
 		tfw_http_conn_cli_drop((TfwCliConn *)conn);
-	} else if (conn->msg) {		/* Conn_Srv */
+	}
+	else if (conn->msg) { /* server connection */
 		if (tfw_http_parse_terminate((TfwHttpMsg *)conn->msg))
 			tfw_http_resp_terminate((TfwHttpMsg *)conn->msg);
 	}
@@ -2239,7 +2246,7 @@ __tfw_http_resp_fwd(TfwCliConn *cli_conn, struct list_head *ret_queue)
 		BUG_ON(!req->resp);
 		tfw_http_resp_init_ss_flags(req->resp, req);
 		if (tfw_cli_conn_send(cli_conn, (TfwMsg *)req->resp)) {
-			ss_close_sync(cli_conn->sk, true);
+			tfw_connection_close((TfwConn *)cli_conn, true);
 			return;
 		}
 		list_del_init(&req->msg.seq_list);
@@ -2272,7 +2279,7 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 	 * order of responses to requests may be broken. The connection
 	 * with the client must be closed immediately.
 	 *
-	 * Doing ss_close_sync() on client connection's socket is safe
+	 * Doing ss_close() on client connection's socket is safe
 	 * as long as @req that holds a reference to the connection is
 	 * not freed.
 	 */
@@ -2283,7 +2290,7 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 		TFW_DBG2("%s: The client was disconnected, drop resp and req: "
 			 "conn=[%p]\n",
 			 __func__, cli_conn);
-		ss_close_sync(cli_conn->sk, true);
+		tfw_connection_close(req->conn, true);
 		tfw_http_resp_pair_free(req);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return;
@@ -3362,8 +3369,9 @@ tfw_http_msg_process(void *conn, TfwFsmData *data)
 	unsigned int trail = data->trail;
 	struct sk_buff *next;
 
-	for (data->skb->prev->next = NULL, next = data->skb->next;
-	     data->skb;
+	if (data->skb->prev)
+		data->skb->prev->next = NULL;
+	for (next = data->skb->next; data->skb;
 	     data->skb = next, next = next ? next->next : NULL, data->off = 0)
 	{
 		if (likely(r == T_OK || r == T_POSTPONE)) {
@@ -3453,6 +3461,7 @@ EXPORT_SYMBOL(tfw_http_req_key_calc);
 static TfwConnHooks http_conn_hooks = {
 	.conn_init	= tfw_http_conn_init,
 	.conn_repair	= tfw_http_conn_repair,
+	.conn_close	= tfw_http_conn_close,
 	.conn_drop	= tfw_http_conn_drop,
 	.conn_release	= tfw_http_conn_release,
 	.conn_send	= tfw_http_conn_send,

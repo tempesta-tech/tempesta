@@ -189,7 +189,7 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 		if (r != SS_SHUTDOWN)
 			TFW_ERR("Unable to initiate a connect to server: %d\n",
 				r);
-		ss_close_sync(sk, false);
+		tfw_connection_close((TfwConn *)srv_conn, true);
 		SS_CALL(connection_error, sk);
 		/* Another try is handled in tfw_srv_conn_release() */
 	}
@@ -440,7 +440,6 @@ static int
 tfw_sock_srv_disconnect(TfwConn *conn)
 {
 	int ret = 0;
-	struct sock *sk = conn->sk;
 	TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 
 	/* Server's refcounter is decreased on disconnect. */
@@ -457,7 +456,7 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	 * closed already, then force the release of attached resources.
 	 */
 	if (atomic_read(&conn->refcnt) != TFW_CONN_DEATHCNT)
-		ret = ss_close_sync(sk, true);
+		ret = tfw_connection_close(conn, true);
 	else
 		tfw_srv_conn_release(srv_conn);
 
