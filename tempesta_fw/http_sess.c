@@ -517,14 +517,20 @@ tfw_http_redir_mark_get(TfwHttpReq *req, TfwStr *out_val)
 #define HEX_STR_TO_BIN_GET(obj, f)					\
 ({									\
 	int count = 0;							\
-	if (!tr && c < end)						\
+	if (c >= end)							\
+		goto end_##f;						\
+	if (!tr)							\
 		tr = c->ptr;						\
-	for ( ; c < end; ++c) {						\
+	for (;;) {							\
 		for ( ; tr < (unsigned char *)c->ptr + c->len; ++tr) {	\
 			if (count++ == sizeof((obj)->f) * 2)		\
 				goto end_##f;				\
 			(obj)->f = ((obj)->f << 4) + hex_to_bin(*tr);	\
 		}							\
+		++c;							\
+		if (c >= end)						\
+			break;						\
+		tr = c->ptr;						\
 	}								\
 end_##f:								\
 	;								\
@@ -533,8 +539,11 @@ end_##f:								\
 #define HEX_STR_TO_BIN_HMAC(hmac, ts, addr)				\
 ({									\
 	unsigned char b;						\
-	int i, hi, r = TFW_HTTP_SESS_SUCCESS;				\
-	for (i = 0, hi = 1; c < end; ++c) {				\
+	int i = 0, hi = 1, r = TFW_HTTP_SESS_SUCCESS;			\
+									\
+	if (c >= end)							\
+		goto end;						\
+	for (;;) {							\
 		for ( ; tr < (unsigned char *)c->ptr + c->len; ++tr) {	\
 			b = hi ? hex_asc_hi((hmac)[i])			\
 			       : hex_asc_lo((hmac)[i]);			\
@@ -552,6 +561,10 @@ end_##f:								\
 			hi = !hi;					\
 			i += hi;					\
 		}							\
+		++c;							\
+		if (c >= end)						\
+			break;						\
+		tr = c->ptr;						\
 	}								\
 	BUG_ON(i != STICKY_KEY_MAXLEN);					\
 end:									\
@@ -696,6 +709,7 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 	if (value->len != sizeof(StickyVal) * 2) {
 		sess_warn("bad sticky cookie length", addr, ": %lu(%lu)\n",
 			  value->len, sizeof(StickyVal) * 2);
+		tfw_http_sticky_calc(req, sv);
 		return TFW_HTTP_SESS_VIOLATE;
 	}
 
