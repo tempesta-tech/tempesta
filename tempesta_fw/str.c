@@ -140,6 +140,11 @@ void tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
 
 	BUG_ON(!TFW_STR_PLAIN(chunk));
 
+	if (unlikely(chunk == end)) {
+		bzero_fast(out, sizeof(*out));
+		return;
+	}
+
 	/* If this is last chunk, just return it in this case. */
 	next = chunk + 1;
 	if (likely(next == end || (stop && *(char *)next->ptr == *stop))) {
@@ -149,8 +154,11 @@ void tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
 
 	/* Add chunks to out-string. */
 	out->ptr = chunk;
-	TFW_STR_CHUNKN_ADD(out, 1);
-	out->len = chunk->len;
+	out->flags = 0;
+	out->len = 0;
+	out->eolen = 0;
+	/* __TFW_STR_CHUNKN_SET(out, 0); is done by out->flags = 0 */
+
 	for (; chunk != end; ++chunk) {
 		if (stop && *(char *)chunk->ptr == *stop)
 			break;

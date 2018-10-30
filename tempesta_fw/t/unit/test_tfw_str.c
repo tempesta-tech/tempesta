@@ -1100,6 +1100,84 @@ TEST(tfw_str_crc32, plain_compound)
 	EXPECT_EQ(crc_pln, crc_cmpnd);
 }
 
+TEST(tfw_str_collect_cmp, collect_chunks)
+{
+	TfwStr in = {
+		.ptr = (TfwStr []){
+			TFW_STR_FROM("abcd"),
+			TFW_STR_FROM("efghi"),
+			TFW_STR_FROM("jklmnopq"),
+			TFW_STR_FROM("rst"),
+			TFW_STR_FROM("uvwxyz")
+		},
+		.len = sizeof("abcdefghijklmnopqrstuvwxyz") - 1,
+		.flags = 5 << TFW_STR_CN_SHIFT
+	};
+	TfwStr *chunks = in.ptr;
+	TfwStr out = { .ptr = (void *)123, .skb = (void *)456, .len = 789,
+	               .eolen = 10, .flags = 1112 };
+
+	tfw_str_collect_cmp(chunks, chunks + 5, &out, NULL);
+	EXPECT_TRUE(tfw_str_eq_cstr(&out, "abcdefghijklmnopqrstuvwxyz", 26, 0));
+	EXPECT_EQ(TFW_STR_CHUNKN(&out), 5);
+	EXPECT_EQ(out.len, 26);
+	/*
+	 * tfw_str_collect_cmp() is expected to clear previous values from all
+	 * other fields of the output TfwStr.
+	 */
+	EXPECT_EQ(out.eolen, 0);
+	EXPECT_EQ(out.flags & TFW_STR_FMASK, 0);
+
+	/*
+	 * Try to start at other chunks too.
+	 * Deliberately not reinitializing 'out' here to check that its previous
+	 * contents is discarded.
+	 */
+	tfw_str_collect_cmp(chunks + 1, chunks + 5, &out, NULL);
+	EXPECT_TRUE(tfw_str_eq_cstr(&out, "efghijklmnopqrstuvwxyz", 22, 0));
+	EXPECT_EQ(TFW_STR_CHUNKN(&out), 4);
+
+	tfw_str_collect_cmp(chunks + 2, chunks + 5, &out, NULL);
+	EXPECT_TRUE(tfw_str_eq_cstr(&out, "jklmnopqrstuvwxyz", 17, 0));
+	EXPECT_EQ(TFW_STR_CHUNKN(&out), 3);
+
+	tfw_str_collect_cmp(chunks + 3, chunks + 5, &out, NULL);
+	EXPECT_TRUE(tfw_str_eq_cstr(&out, "rstuvwxyz", 9, 0));
+	EXPECT_EQ(TFW_STR_CHUNKN(&out), 2);
+
+	tfw_str_collect_cmp(chunks + 4, chunks + 5, &out, NULL);
+	EXPECT_TRUE(tfw_str_eq_cstr(&out, "uvwxyz", 6, 0));
+	/*
+	 * Cutting out one segment should create a plain string, rather than
+	 * a chunked one with a single segment.
+	 */
+	EXPECT_TRUE(TFW_STR_PLAIN(&out));
+
+	/* Empty slice. */
+	tfw_str_collect_cmp(chunks + 4, chunks + 4, &out, NULL);
+	EXPECT_TRUE(tfw_str_eq_cstr(&out, "", 0, 0));
+	EXPECT_TRUE(TFW_STR_PLAIN(&out));
+
+	/* Collecting until a stop character. Two chunks. */
+	tfw_str_collect_cmp(chunks, chunks + 5, &out, "j");
+	EXPECT_TRUE(tfw_str_eq_cstr(&out, "abcdefghi", 9, 0));
+	EXPECT_EQ(TFW_STR_CHUNKN(&out), 2);
+
+	/* Collecing until a stop character. Single chunk. */
+	tfw_str_collect_cmp(chunks + 1, chunks + 5, &out, "j");
+	EXPECT_TRUE(tfw_str_eq_cstr(&out, "efghi", 5, 0));
+	EXPECT_TRUE(TFW_STR_PLAIN(&out));
+
+	/*
+	 * tfw_str_collect_cmp() is expected to check for the stop character
+	 * only at the beginning of each segment. Even if the character appears
+	 * somewhere inside, all segments are expected to be collected.
+	 */
+	tfw_str_collect_cmp(chunks, chunks + 5, &out, "k");
+	EXPECT_TRUE(tfw_str_eq_cstr(&out, "abcdefghijklmnopqrstuvwxyz", 26, 0));
+	EXPECT_EQ(TFW_STR_CHUNKN(&out), 5);
+}
+
 TEST_SUITE(tfw_str)
 {
 	TEST_SETUP(create_str_pool);
@@ -1155,4 +1233,5 @@ TEST_SUITE(tfw_str)
 	TEST_RUN(tfw_str_eq_cstr_off, compound);
 
 	TEST_RUN(tfw_str_crc32, plain_compound);
+	TEST_RUN(tfw_str_collect_cmp, collect_chunks);
 }
