@@ -468,6 +468,7 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 	if (value->len != sizeof(StickyVal) * 2) {
 		sess_warn("bad sticky cookie length", addr, ": %lu(%lu)\n",
 			  value->len, sizeof(StickyVal) * 2);
+		tfw_http_sticky_calc(req, sv);
 		return TFW_HTTP_SESS_VIOLATE;
 	}
 
