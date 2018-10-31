@@ -251,8 +251,10 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 	/* Add value chunks to out-string. */
 	TFW_DBG3("%s: compound cookie value found\n", __func__);
 	val->ptr = chunk;
-	TFW_STR_CHUNKN_ADD(val, 1);
-	val->len = chunk->len;
+	val->flags = 0;
+	/* Set by "val->flags = 0": __TFW_STR_CHUNKN_SET(val, 0); */
+	val->len = 0;
+	val->eolen = 0;
 	for (; chunk != end; ++chunk) {
 		if (*(char *)chunk->ptr == ';')
 			/* value chunks exhausted */
@@ -450,7 +452,7 @@ static int
 tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 {
 	int i = 0, hi;
-	unsigned char *p, b;
+	unsigned char *p = NULL, b;
 	TfwAddr *addr = &req->conn->peer->addr;
 	TfwStr *c, *end;
 
@@ -480,7 +482,13 @@ ts_finished:
 
 	if (__sticky_calc(req, sv))
 		return TFW_HTTP_SESS_VIOLATE;
-	for (i = 0, hi = 1; (c) < end; ++(c)) {
+	i = 0;
+	hi = 1;
+	if (unlikely(c >= end))
+		goto skip;
+	if (!p)
+		p = c->ptr;
+	for (;;) {
 		for ( ; p < (unsigned char *)c->ptr + c->len; ++p) {
 			b = hi ? hex_asc_hi(sv->hmac[i])
 			       : hex_asc_lo(sv->hmac[i]);
@@ -497,7 +505,13 @@ ts_finished:
 			hi = !hi;
 			i += hi;
 		}
+
+		++c;
+		if (c >= end)
+			break;
+		p = c->ptr;
 	}
+skip:
 	BUG_ON(i != STICKY_KEY_MAXLEN);
 
 	/* Sticky cookie is found and verified, now we can set the flag. */
