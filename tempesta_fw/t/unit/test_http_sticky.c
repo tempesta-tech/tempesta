@@ -34,6 +34,7 @@
 #define __init
 #endif
 
+#include "tls.c"
 #include "http_msg.c"
 
 #include "http_sess.c"
