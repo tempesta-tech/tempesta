@@ -1252,9 +1252,63 @@ TEST(http_parser, cookie)
 		"Cookie: session=42; theme=dark\r\n"
 		"\r\n")
 	{
+		TfwStr *end, *c;
 		TfwStr *cookie = &req->h_tbl->tbl[TFW_HTTP_HDR_COOKIE];
-		/* TODO it'd be good to accurately analyze Cookies content. */
-		EXPECT_TRUE(TFW_STR_CHUNKN(cookie) >= 4);
+		struct {
+			unsigned int flags;
+			const char *str;
+		} kv[] = {
+			{ 0, "Cookie: " },
+			{ TFW_STR_NAME, "session=" },
+			{ TFW_STR_VALUE, "42" },
+			{ 0, "; " },
+			{ TFW_STR_NAME, "theme=" },
+			{ TFW_STR_VALUE, "dark" },
+		};
+		size_t kv_count = sizeof(kv) / sizeof(kv[0]);
+		int kv_idx;
+
+		/*
+		 * Even if the entire cookie field is in a continuous chunk,
+		 * the parser splits it into multiple chunks of data, for every
+		 * key and value of a cookie parameter to start at the beginning
+		 * of a chunk.
+		 * Other code expects keys and values to always begin at the
+		 * left border of a chunk. Verifying it here.
+		 */
+
+		EXPECT_TRUE(TFW_STR_CHUNKN(cookie) >= kv_count);
+
+		kv_idx = 0;
+		c = cookie->ptr;
+		end = c + TFW_STR_CHUNKN(cookie);
+		while (c < end) {
+			TfwStr *part_end = c;
+			TfwStr part = {};
+			unsigned int part_flags = c->flags;
+
+			/*
+			 * Chunks with keys and values are marked with special
+			 * flags.
+			 */
+			while (part_end < end && part_end->flags == part_flags)
+				part_end++;
+
+			if (part_end - c > 1) {
+				part.ptr = c;
+				__TFW_STR_CHUNKN_SET(&part, part_end - c);
+			} else {
+				part = *c;
+			}
+
+			c = part_end;
+
+			EXPECT_TRUE(kv_idx < kv_count);
+			EXPECT_TRUE(tfw_str_eq_cstr(&part, kv[kv_idx].str,
+			                            strlen(kv[kv_idx].str), 0));
+			EXPECT_EQ(part_flags, kv[kv_idx].flags);
+			kv_idx++;
+		}
 	}
 
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
