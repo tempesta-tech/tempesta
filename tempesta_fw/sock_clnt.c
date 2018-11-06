@@ -125,7 +125,8 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 
 	r = tfw_connection_send((TfwConn *)cli_conn, msg);
 	mod_timer(&cli_conn->timer,
-		  jiffies + msecs_to_jiffies(tfw_cli_cfg_ka_timeout * 1000));
+		  jiffies +
+		  msecs_to_jiffies((long)tfw_cli_cfg_ka_timeout * 1000));
 
 	if (r)
 		/* Quite usual on system shutdown. */
@@ -192,7 +193,8 @@ tfw_sock_clnt_new(struct sock *sk)
 
 	/* Activate keepalive timer. */
 	mod_timer(&conn->timer,
-		  jiffies + msecs_to_jiffies(tfw_cli_cfg_ka_timeout * 1000));
+		  jiffies +
+		  msecs_to_jiffies((long)tfw_cli_cfg_ka_timeout * 1000));
 
 	TFW_DBG3("new client socket is accepted: sk=%p, conn=%p, cli=%p\n",
 		 sk, conn, cli);
