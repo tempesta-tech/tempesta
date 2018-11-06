@@ -970,9 +970,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	 */
 	atomic_set(&sess->users, 1);
 	sess->ts = sv.ts;
-	sess->expires = tfw_cfg_sticky.sess_lifetime
-			? sv.ts + tfw_cfg_sticky.sess_lifetime * HZ
-			: 0;
+	sess->expires = sv.ts + tfw_cfg_sticky.sess_lifetime * HZ;
 	sess->st_conn.srv_conn = NULL;
 	rwlock_init(&sess->st_conn.lock);
 
