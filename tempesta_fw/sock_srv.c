@@ -735,7 +735,8 @@ tfw_sock_srv_grace_shutdown_srv(TfwSrvGroup *sg, TfwServer *srv, void *data)
 		setup_timer(&srv->gs_timer, tfw_sock_srv_grace_shutdown_cb,
 			    (unsigned long)srv);
 		tfw_sock_srv_grace_list_add(srv);
-		mod_timer(&srv->gs_timer, jiffies + tfw_cfg_grace_time * HZ);
+		mod_timer(&srv->gs_timer,
+		          jiffies + (unsigned long)tfw_cfg_grace_time * HZ);
 	}
 	tfw_server_put(srv);
 
@@ -1073,7 +1074,7 @@ tfw_cfgop_fwd_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned long *to)
 
 	if((r = tfw_cfgop_intval(cs, ce, &time)))
 		return r;
-	*to = time ? msecs_to_jiffies(time * 1000) : ULONG_MAX;
+	*to = time ? msecs_to_jiffies((unsigned long)time * 1000) : ULONG_MAX;
 
 	return 0;
 }
@@ -2257,7 +2258,7 @@ static TfwCfgSpec tfw_srv_group_specs[] = {
 		.deflt = "5",
 		.handler = tfw_cfgop_in_fwd_retries,
 		.spec_ext = &(TfwCfgSpecInt) {
-			.range = { 0, INT_MAX },
+			.range = { 0, USHRT_MAX },
 		},
 		.allow_none = true,
 		.allow_repeat = false,
@@ -2350,7 +2351,7 @@ static TfwCfgSpec tfw_sock_srv_specs[] = {
 		.handler = tfw_cfgop_out_fwd_retries,
 		.cleanup = tfw_cfgop_cleanup_srv_groups,
 		.spec_ext = &(TfwCfgSpecInt) {
-			.range = { 0, INT_MAX },
+			.range = { 0, USHRT_MAX },
 		},
 		.allow_none = true,
 		.allow_repeat = false,
