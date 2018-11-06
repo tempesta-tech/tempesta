@@ -2263,7 +2263,7 @@ static TfwCfgSpec tfw_srv_group_specs[] = {
 		.deflt = "5",
 		.handler = tfw_cfgop_in_fwd_retries,
 		.spec_ext = &(TfwCfgSpecInt) {
-			.range = { 0, INT_MAX },
+			.range = { 0, USHRT_MAX },
 		},
 		.allow_none = true,
 		.allow_repeat = false,
@@ -2356,7 +2356,7 @@ static TfwCfgSpec tfw_sock_srv_specs[] = {
 		.handler = tfw_cfgop_out_fwd_retries,
 		.cleanup = tfw_cfgop_cleanup_srv_groups,
 		.spec_ext = &(TfwCfgSpecInt) {
-			.range = { 0, INT_MAX },
+			.range = { 0, USHRT_MAX },
 		},
 		.allow_none = true,
 		.allow_repeat = false,
