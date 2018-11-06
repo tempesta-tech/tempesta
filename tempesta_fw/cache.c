@@ -432,7 +432,7 @@ tfw_cache_employ_resp(TfwHttpResp *resp)
 static time_t
 tfw_cache_calc_lifetime(TfwHttpResp *resp)
 {
-	unsigned int lifetime;
+	time_t lifetime;
 
 	if (resp->cache_ctl.flags & TFW_HTTP_CC_S_MAXAGE)
 		lifetime = resp->cache_ctl.s_maxage;
