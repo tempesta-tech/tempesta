@@ -622,7 +622,8 @@ tfw_http_sess_check_redir_mark(TfwHttpReq *req, RedirMarkVal *mv)
 		if (tfw_http_redir_mark_verify(req, &mark_val, mv)
 		    || ++mv->att_no > tfw_cfg_sticky.max_misses
 		    || (tfw_cfg_sticky.tmt_sec
-			&& mv->ts + HZ * tfw_cfg_sticky.tmt_sec < jiffies))
+		        && mv->ts + HZ * (unsigned long)tfw_cfg_sticky.tmt_sec
+		           < jiffies))
 		{
 			tfw_filter_block_ip(&req->conn->peer->addr);
 			return TFW_HTTP_SESS_VIOLATE;
@@ -970,9 +971,8 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	 */
 	atomic_set(&sess->users, 1);
 	sess->ts = sv.ts;
-	sess->expires = tfw_cfg_sticky.sess_lifetime
-			? sv.ts + tfw_cfg_sticky.sess_lifetime * HZ
-			: 0;
+	sess->expires =
+		sv.ts + (unsigned long)tfw_cfg_sticky.sess_lifetime * HZ;
 	sess->st_conn.srv_conn = NULL;
 	rwlock_init(&sess->st_conn.lock);
 
