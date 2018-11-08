@@ -1909,9 +1909,11 @@ tfw_vhost_start(void)
 	if (!tfw_runstate_is_reconfig()) {
 		/* Convert Frang global timeouts to jiffies for convenience */
 		frang_cfg.clnt_hdr_timeout =
-			*(unsigned int *)&frang_cfg.clnt_hdr_timeout * HZ;
+			*(unsigned int *)&frang_cfg.clnt_hdr_timeout *
+			(unsigned long)HZ;
 		frang_cfg.clnt_body_timeout =
-			*(unsigned int *)&frang_cfg.clnt_body_timeout * HZ;
+			*(unsigned int *)&frang_cfg.clnt_body_timeout *
+			(unsigned long)HZ;
 	}
 
 	tfw_cfgop_vhosts_list_free(tfw_vhosts);
