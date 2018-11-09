@@ -126,7 +126,8 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 
 	r = tfw_connection_send((TfwConn *)cli_conn, msg);
 	mod_timer(&cli_conn->timer,
-		  jiffies + msecs_to_jiffies(tfw_cli_cfg_ka_timeout * 1000));
+		  jiffies +
+		  msecs_to_jiffies((long)tfw_cli_cfg_ka_timeout * 1000));
 
 	if (r)
 		/* Quite usual on system shutdown. */

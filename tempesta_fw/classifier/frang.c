@@ -1226,9 +1226,11 @@ frang_start(void)
 {
 	/* Convert these timeouts to jiffies for convenience */
 	frang_cfg.clnt_hdr_timeout =
-		*(unsigned int *)&frang_cfg.clnt_hdr_timeout * HZ;
+		*(unsigned int *)&frang_cfg.clnt_hdr_timeout *
+		(unsigned long)HZ;
 	frang_cfg.clnt_body_timeout =
-		*(unsigned int *)&frang_cfg.clnt_body_timeout * HZ;
+		*(unsigned int *)&frang_cfg.clnt_body_timeout *
+		(unsigned long)HZ;
 	return 0;
 }
 
