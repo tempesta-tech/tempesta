@@ -36,27 +36,32 @@ calc()
 distribute_queues()
 {
 	dev=$1
-	RXQ_MAX=$(ethtool -l $dev 2>/dev/null \
-		  | grep -m 1 RX | sed -e 's/RX\:\s*//')
+	RXQ_MAX=$2
 
-	echo "...distribute $dev queues"
+	echo "...set rx channels to $RXQ_MAX, please wait..."
+	# Set maximum number of available channels for better
+	# packets hashing.
+	ethtool -L $dev rx $RXQ_MAX >/dev/null 2>&1
+	# Wait for the interface reconfiguration.
+	opstate="$TFW_NETDEV_PATH/$dev/operstate"
+	while [ "$(cat $opstate)" = "down" ]; do
+		sleep 1
+	done
 
-	if [ -n "$RXQ_MAX" -a ${RXQ_MAX:-0} -gt 0 ]; then
-		echo "...set rx channels to $RXQ_MAX, please wait..."
-		# Set maximum number of available channels for better
-		# packets hashing.
-		ethtool -L $dev rx $RXQ_MAX >/dev/null 2>&1
-		# Wait for the interface reconfiguration.
-		opstate="$TFW_NETDEV_PATH/$dev/operstate"
-		while [ "$(cat $opstate)" = "down" ]; do
-			sleep 1
-		done
-	else
-		echo "...0 channels for $dev - skip"
+	dev_irqs_path="/sys/class/net/$dev/device/msi_irqs"
+	irqs=($(grep $dev /proc/interrupts | sed -e 's/\s*\|:.*//g'))
+	if [ -z "$irqs" -a -d $dev_irqs_path ]; then
+		irqs=($(ls $dev_irqs_path))
+	fi
+
+	if [ -z "$irqs" ]; then
+		echo "Error: cannot find interrupts for $dev"
 		return
 	fi
 
-	irqs=($(grep $dev /proc/interrupts | sed -e 's/\s*\|:.*//g'))
+	# Skip the first IRQ since this is general async interrupt
+	# for device (not assigned to any of the queues).
+	irqs=(${irqs[@]:1})
 	irq0=${irqs[0]}
 	for i in ${irqs[@]}; do
 		# Wrap around CPU mask if number of queues is
@@ -76,9 +81,8 @@ distribute_queues()
 	done
 }
 
-# Enable RPS for specified, or all by default, networking interfaces.
-# This is required for loopback interface for proper local delivery,
-# but physical interfaces can have RSS.
+# Enable RSS for networking interfaces. Enable RPS for those devices which
+# doesn't have enough hardware queues.
 tfw_set_net_queues()
 {
 	devs=$1
@@ -86,20 +90,21 @@ tfw_set_net_queues()
 	cpu_mask=$(perl -le 'printf("%x", (1 << '$CPUS_N') - 1)')
 
 	for dev in $devs; do
-		queues=$(ls -d /sys/class/net/$dev/queues/rx-* | wc -l)
-		if [ $queues -le $min_queues ]; then
-			echo "...enable RPS on $dev"
-			for rx in $TFW_NETDEV_PATH/$dev/queues/rx-*; do
-				echo $cpu_mask > $rx/rps_cpus
-			done
-		else
-
+	        queues=$(ethtool -l $dev 2>/dev/null \
+			 | grep -m 1 RX | sed -e 's/RX\:\s*//')
+		if [ -n "$queues" -a ${queues:-0} -gt $min_queues ]; then
 			# Switch off RPS for multi-queued interfaces.
 			for rx in $TFW_NETDEV_PATH/$dev/queues/rx-*; do
 				echo 0 > $rx/rps_cpus
 			done
 
-			distribute_queues $dev
+			echo "...distribute $dev queues"
+			distribute_queues $dev $queues
+		else
+			echo "...enable RPS on $dev"
+			for rx in $TFW_NETDEV_PATH/$dev/queues/rx-*; do
+				echo $cpu_mask > $rx/rps_cpus
+			done
 		fi
 	done
 }

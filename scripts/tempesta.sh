@@ -43,7 +43,8 @@ tdb_mod=tempesta_db
 tfw_mod=tempesta_fw
 declare -r LONG_OPTS="help,load,unload,start,stop,restart,reload"
 
-declare devs=$(ip addr show up | awk '/^[0-9]+/ { sub(/:/, "", $2); print $2}')
+declare devs=$(ip addr show up | grep -P '^[0-9]+' | grep -Pv '\bLOOPBACK\b' \
+	       | awk '{ sub(/:/, "", $2); print $2}')
 
 usage()
 {
