@@ -24,6 +24,11 @@ use Template;
 use Cwd 'abs_path';
 
 my ($template, $sticky_name, $delay_min, $delay_range) = @ARGV;
+if (!$template || $template !~ '.tpl$' || !$sticky_name
+    || !$delay_min || !$delay_range)
+{
+	die "bad args!\n"
+}
 
 # Assemble HTML templates and minify resulting files.
 sub assemble
@@ -61,10 +66,14 @@ JavaScript Challenge template compilation tool for TempestaFW.
 
 ./update_template.pl FILE COOKIE MIN_TIME RANGE_TIME
 
-FILE - Path template file from 'js_challenge' directive. File extension
-must be '.tpl'.
-COOKIE - TempestaFW sticky cookie name (directive 'js_challenge');
-MIN_TIME - Value of 'delay_min' parameter for directive 'js_challenge';
-RANGE_TIME - Value of 'defaly_range' parameter for directive 'js_challenge';
+FILE		- Path template file from 'js_challenge' directive.
+		  File extension must be '.tpl'.
+
+COOKIE		- Tempesta FW sticky cookie name (directive 'js_challenge').
+
+MIN_TIME	- Value of 'delay_min' parameter for directive 'js_challenge'.
+
+RANGE_TIME	- Value of 'delay_range' parameter for directive
+		  'js_challenge'.
 
 =cut
