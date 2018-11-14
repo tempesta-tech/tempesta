@@ -44,8 +44,9 @@ distribute_queues()
 	res=$(ethtool -L $dev rx $RXQ_MAX 2>&1)
 	if [ $? -ne 0 -a -z "$(echo $res | grep -P '^rx unmodified, ignoring')" ]
 	then
-	    printf "Error: cannot set new queues configuration for %s\n: %s"
-	    return
+		printf "Error: cannot set new queues count for %s:\n %s\n" \
+			$dev "$res"
+		return
 	fi
 
 	# Wait for the interface reconfiguration.
