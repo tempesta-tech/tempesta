@@ -41,13 +41,22 @@ distribute_queues()
 	echo "...set rx channels to $RXQ_MAX, please wait..."
 	# Set maximum number of available channels for better
 	# packets hashing.
-	ethtool -L $dev rx $RXQ_MAX >/dev/null 2>&1
+	res=$(ethtool -L $dev rx $RXQ_MAX 2>&1)
+	if [ $? -ne 0 -a -z "$(echo $res | grep -P '^rx unmodified, ignoring')" ]
+	then
+	    printf "Error: cannot set new queues configuration for %s\n: %s"
+	    return
+	fi
+
 	# Wait for the interface reconfiguration.
 	opstate="$TFW_NETDEV_PATH/$dev/operstate"
 	while [ "$(cat $opstate)" = "down" ]; do
 		sleep 1
 	done
 
+	# Interrupts may not have interface-like description in
+	# '/proc/interrupts' - so, to find the vectors we also need
+	# to check the MSI directory for device.
 	dev_irqs_path="/sys/class/net/$dev/device/msi_irqs"
 	irqs=($(grep $dev /proc/interrupts | sed -e 's/\s*\|:.*//g'))
 	if [ -z "$irqs" -a -d $dev_irqs_path ]; then
@@ -90,8 +99,8 @@ tfw_set_net_queues()
 	cpu_mask=$(perl -le 'printf("%x", (1 << '$CPUS_N') - 1)')
 
 	for dev in $devs; do
-	        queues=$(ethtool -l $dev 2>/dev/null \
-			 | grep -m 1 RX | sed -e 's/RX\:\s*//')
+		queues=$(ethtool -l $dev 2>/dev/null \
+				| grep -m 1 RX | sed -e 's/RX\:\s*//')
 		if [ -n "$queues" -a ${queues:-0} -gt $min_queues ]; then
 			# Switch off RPS for multi-queued interfaces.
 			for rx in $TFW_NETDEV_PATH/$dev/queues/rx-*; do
@@ -108,4 +117,3 @@ tfw_set_net_queues()
 		fi
 	done
 }
-
