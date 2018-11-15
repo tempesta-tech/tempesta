@@ -27,10 +27,53 @@ declare -r TFW_NAME=`basename $0` # program name (comm name in ps)
 declare -r TFW_NETDEV_PATH="/sys/class/net/"
 declare -r TFW_SCRIPTS="$TFW_ROOT/scripts"
 declare -r CPUS_N=$(grep -c processor /proc/cpuinfo)
+declare -r IRQB_CONF_PATH="/etc/default/irqbalance"
+declare -r SYSD_IRQB_PATH="/lib/systemd/system/irqbalance.service"
+declare -r BAN_CONF_VAR="BAN_IRQS"
+declare -a IRQS_GLOB_LIST
 
 calc()
 {
 	echo "$1" | bc -iq | tail -1
+}
+
+# Assigned IRQs can be reassigned by irqbalance. To avoid this, assigned vectors
+# should be added to irqbalance config with '--banirq' option.
+irqbalance_ban_irqs()
+{
+	args_str=""
+	sysd_conf_var="ExecStart"
+
+	echo "...ban IRQs for irqbalance..."
+	for irq in ${IRQS_GLOB_LIST[@]}; do
+		args_str=$args_str"--banirq=$irq "
+	done
+
+	conf_var_str="$BAN_CONF_VAR=$args_str"
+	perl -i.orig -ple '
+		if ($found = /^'"$BAN_CONF_VAR"'=.*$/) {
+			$_ = "'"$conf_var_str"'";
+		}
+		END {
+			unless ($found) {
+				open(CONFIG, ">>", $ARGV);
+				select(CONFIG);
+				printf("\n%s\n", "'"$conf_var_str"'");
+				select(STDOUT);
+			}
+		}
+	' $IRQB_CONF_PATH
+
+	perl -i.orig -ple '
+		if (/^('"$sysd_conf_var"'=.*)$/) {
+			unless (/.*\$'"$BAN_CONF_VAR"'\b.*/) {
+				$_ = $1 . " \$'"$BAN_CONF_VAR"'";
+			}
+		}
+	' $SYSD_IRQB_PATH
+
+	systemctl daemon-reload >/dev/null
+	systemctl restart irqbalance.service >/dev/null
 }
 
 distribute_queues()
@@ -89,6 +132,8 @@ distribute_queues()
 			}
 		' > /proc/irq/$i/smp_affinity
 	done
+
+	IRQS_GLOB_LIST+=(${irqs[@]})
 }
 
 # Enable RSS for networking interfaces. Enable RPS for those devices which
@@ -117,4 +162,10 @@ tfw_set_net_queues()
 			done
 		fi
 	done
+
+	if [ ${#IRQS_GLOB_LIST[@]} -ne 0 -a -f $SYSD_IRQB_PATH \
+	     -a -f $IRQB_CONF_PATH ]; then
+		systemctl status irqbalance.service >/dev/null
+		[ $? -ne 0 ] || irqbalance_ban_irqs
+	fi
 }
