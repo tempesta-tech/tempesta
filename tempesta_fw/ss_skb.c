@@ -937,6 +937,31 @@ ss_skb_process(struct sk_buff *skb, unsigned int *off, ss_skb_actor_t actor,
 }
 EXPORT_SYMBOL(ss_skb_process);
 
+/**
+ * Tempesta makes use of the source IP address that is kept in the IP
+ * header of the original skb @from. Copy the needed IP header contents to
+ * the new skb @to.
+ */
+static inline void
+__copy_ip_header(struct sk_buff *to, const struct sk_buff *from)
+{
+	const struct iphdr *ip4 = ip_hdr(from);
+	const struct ipv6hdr *ip6 = ipv6_hdr(from);
+
+	/*
+	 * Place IP header just after link layer headers,
+	 * see definitions of MAX_TCP_HEADER and MAX_IP_HDR_LEN.
+	 * Note that only new skbs allocated by ss_skb_alloc() are used here,
+	 * so all of them have reserved MAX_TCP_HEADER areas.
+	 */
+	BUG_ON(skb_headroom(to) < MAX_TCP_HEADER);
+	skb_set_network_header(to, -(MAX_TCP_HEADER - MAX_HEADER));
+	if (ip6->version == 6)
+		memcpy(skb_network_header(to), ip6, sizeof(*ip6));
+	else
+		memcpy(skb_network_header(to), ip4, sizeof(*ip4));
+}
+
 /*
  * Split @skb in two at a given offset. The original SKB is shrunk
  * to specified size @len, and the remaining data is put into a new SKB.
@@ -979,6 +1004,7 @@ ss_skb_split(struct sk_buff *skb, int len)
 	 * or recalculate the checksum.
 	 */
 	skb_split(skb, buff, len);
+	__copy_ip_header(buff, skb);
 
 	return buff;
 }
@@ -1026,31 +1052,6 @@ ss_skb_queue_coalesce_tail(SsSkbList *skb_list, const struct sk_buff *skb)
 	}
 
 	return 0;
-}
-
-/**
- * Tempesta makes use of the source IP address that is kept in the IP
- * header of the original skb @from. Copy the needed IP header contents to
- * the new skb @to.
- */
-static inline void
-__copy_ip_header(struct sk_buff *to, const struct sk_buff *from)
-{
-	const struct iphdr *ip4 = ip_hdr(from);
-	const struct ipv6hdr *ip6 = ipv6_hdr(from);
-
-	/*
-	 * Place IP header just after link layer headers,
-	 * see definitions of MAX_TCP_HEADER and MAX_IP_HDR_LEN.
-	 * Note that only new skbs allocated by ss_skb_alloc() are used here,
-	 * so all of them have reserved MAX_TCP_HEADER areas.
-	 */
-	BUG_ON(skb_headroom(to) < MAX_TCP_HEADER);
-	skb_set_network_header(to, -(MAX_TCP_HEADER - MAX_HEADER));
-	if (ip6->version == 6)
-		memcpy(skb_network_header(to), ip6, sizeof(*ip6));
-	else
-		memcpy(skb_network_header(to), ip4, sizeof(*ip4));
 }
 
 /**
