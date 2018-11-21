@@ -208,14 +208,7 @@ stop()
 	echo "...unload Tempesta modules"
 	unload_modules
 
-	systemctl status irqbalance.service >/dev/null
-	if [ $? -eq 0 -a -f $IRQB_CONF_PATH ]; then
-		echo "...revert irqbalance config"
-		perl -i.orig -ple '
-			s/^('"$BAN_CONF_VAR"'=).*$/$1/;
-		' $IRQB_CONF_PATH
-		systemctl restart irqbalance.service >/dev/null
-	fi
+	tfw_irqbalance_revert
 
 	echo "done"
 }
