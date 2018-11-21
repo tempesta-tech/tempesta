@@ -43,7 +43,11 @@ tdb_mod=tempesta_db
 tfw_mod=tempesta_fw
 declare -r LONG_OPTS="help,load,unload,start,stop,restart,reload"
 
-declare devs=$(ip addr show up | awk '/^[0-9]+/ { sub(/:/, "", $2); print $2}')
+# Exclude loopback interface since it needn't any tuning here: it hasn't RSS
+# while RPS just add unnecessary overhead for it (traffic redistribution, IPIs
+# introduction etc.).
+declare devs=$(ip addr show up | grep -P '^[0-9]+' | grep -Pv '\bLOOPBACK\b' \
+	       | awk '{ sub(/:/, "", $2); print $2}')
 
 usage()
 {
@@ -203,6 +207,8 @@ stop()
 
 	echo "...unload Tempesta modules"
 	unload_modules
+
+	tfw_irqbalance_revert
 
 	echo "done"
 }
