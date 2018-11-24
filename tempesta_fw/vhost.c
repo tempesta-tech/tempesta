@@ -197,6 +197,8 @@ tfw_nipdef_match(TfwLocation *loc, unsigned char method, TfwStr *arg)
  * according to the match operator in the directive. A pointer
  * to the matching TfwCaPolicy structure is returned if the
  * match is found. Null is returned if there's no match.
+ *
+ * TODO #732 use multi-pattern string matching.
  */
 static inline bool
 __tfw_capolicy_match_fn(TfwCaPolicy *capo, TfwStr *arg)
