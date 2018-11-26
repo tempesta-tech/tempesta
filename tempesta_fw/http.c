@@ -2283,6 +2283,7 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 			TFW_DBG2("%s: Forwarding error: conn=[%p] resp=[%p]\n",
 				 __func__, cli_conn, req->resp);
 			BUG_ON(!req->resp);
+			list_del_init(&req->msg.seq_list);
 			tfw_http_resp_pair_free(req);
 			TFW_INC_STAT_BH(serv.msgs_otherr);
 		}
