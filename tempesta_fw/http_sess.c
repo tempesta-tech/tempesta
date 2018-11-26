@@ -103,8 +103,8 @@ static struct kmem_cache *sess_cache;
  * @body	- body (html with JavaScript code);
  * @delay_min	- minimal timeout client must wait before repeat the request,
  *		  in jiffies;
- * @delay_limit	- maximum timeout between JS challenge generation and client's
- *		  request to pass the challenge, in jiffies;
+ * @delay_limit	- maximum time required to deliver request form a client to the
+ *		  Tempesta, in jiffies;
  * @delay_range	- time interval starting after @delay_min for a client to make
  *		  a repeated request, in msecs;
  * @st_code	- status code for response with JS challenge;
@@ -627,12 +627,11 @@ tfw_http_sess_remove(TfwHttpSess *sess)
 static int
 tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 {
-	unsigned long cur_time, min_time, max_time;
+	unsigned long min_time, max_time;
 
 	if (!tfw_cfg_js_ch)
 		return 0;
 
-	cur_time = jiffies;
 	/*
 	 * When a client calculates its own random delay, it uses range value
 	 * encoded as msecs, we have to use the same, to have exactly the same
@@ -640,8 +639,8 @@ tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 	 */
 	min_time = sv->ts + tfw_cfg_js_ch->delay_min
 			+ msecs_to_jiffies(sv->ts % tfw_cfg_js_ch->delay_range);
-	max_time = sv->ts + tfw_cfg_js_ch->delay_limit;
-	if (time_in_range(cur_time, min_time, max_time))
+	max_time = min_time + tfw_cfg_js_ch->delay_limit;
+	if (time_in_range(req->jrxtstamp, min_time, max_time))
 		return 0;
 
 	if (tfw_http_sticky_redirect_applied(req)) {
@@ -1014,25 +1013,31 @@ tfw_cfg_op_jsch_parse_resp_code(TfwCfgSpec *cs, const char *val)
 static void
 tfw_cfgop_jsch_set_delay_limit(TfwCfgSpec *cs)
 {
-	const unsigned long min_limit	= tfw_cfg_js_ch->delay_min
-			+ msecs_to_jiffies(tfw_cfg_js_ch->delay_range);
-	const unsigned long warn_limit	= min_limit + msecs_to_jiffies(100);
-	const unsigned long def_limit	= min_limit + msecs_to_jiffies(1000);
+	const unsigned long min_limit	= msecs_to_jiffies(100);
+	const unsigned long max_hc_p	= 10;
+	const unsigned long max_limit	=
+		msecs_to_jiffies(tfw_cfg_js_ch->delay_range) * max_hc_p / 100;
+	unsigned long hc_prob;
 
 	if (!tfw_cfg_js_ch->delay_limit) {
-		tfw_cfg_js_ch->delay_limit = def_limit;
+		tfw_cfg_js_ch->delay_limit = max_limit;
 	}
-	else if (tfw_cfg_js_ch->delay_limit < min_limit) {
-		TFW_WARN_NL("%s: delay limit is too low, "
-			    "enforce it to minimum possible value "
-			    "'delay_range + delay_min' (%u)\n",
-			    cs->name, jiffies_to_msecs(min_limit));
-		tfw_cfg_js_ch->delay_limit = min_limit;
+	if (tfw_cfg_js_ch->delay_limit < min_limit) {
+		TFW_WARN_NL("%s: 'delay_limit' is too low, many slow/distant "
+			    "clients will be blocked. "
+			    "Minimum recommended value is %u, "
+			    "but %u is provided\n",
+			    cs->name,
+			    jiffies_to_msecs(min_limit),
+			    jiffies_to_msecs(tfw_cfg_js_ch->delay_limit));
 	}
-	else if (tfw_cfg_js_ch->delay_limit < warn_limit) {
-		TFW_WARN_NL("%s: delay limit is less than recommended value "
-			    "'delay_range + delay_min + 100' (%u)\n",
-			    cs->name, jiffies_to_msecs(warn_limit));
+	hc_prob = tfw_cfg_js_ch->delay_limit * 100
+			/ msecs_to_jiffies(tfw_cfg_js_ch->delay_range);
+	if (hc_prob > max_hc_p) {
+		TFW_WARN_NL("%s: 'delay_limit' is too big, attacker may "
+			    "hardcode bots and breach the JavaScript challenge "
+			    "with %lu%% success probability\n",
+			    cs->name, hc_prob);
 	}
 }
 
