@@ -49,6 +49,9 @@ CliHashBucket cli_hash[CLI_HASH_SZ] = {
 
 static struct kmem_cache *cli_cache;
 
+/* Total number of created clients. */
+static atomic64_t act_cli_n = ATOMIC64_INIT(0);
+
 /**
  * Called when a client socket is closed.
  */
@@ -75,6 +78,7 @@ tfw_client_put(TfwClient *cli)
 
 	TFW_DBG("free client: cli=%p\n", cli);
 	kmem_cache_free(cli_cache, cli);
+	atomic64_dec(&act_cli_n);
 	TFW_DEC_STAT_BH(clnt.online);
 }
 EXPORT_SYMBOL(tfw_client_put);
@@ -125,6 +129,7 @@ tfw_client_obtain(struct sock *sk, void (*init)(TfwClient *))
 	if (init)
 		init(cli);
 
+	atomic64_inc(&act_cli_n);
 	TFW_INC_STAT_BH(clnt.online);
 	TFW_DBG("new client: cli=%p\n", cli);
 	TFW_DBG_ADDR("client address", &cli->addr, TFW_NO_PORT);
@@ -165,6 +170,15 @@ tfw_client_for_each(int (*fn)(TfwClient *))
 	}
 
 	return r;
+}
+
+/**
+ * Waiting for destruction of all clients.
+ */
+void
+tfw_cli_wait_release(void)
+{
+	tfw_objects_wait_release(&act_cli_n, 5, "client");
 }
 
 int __init

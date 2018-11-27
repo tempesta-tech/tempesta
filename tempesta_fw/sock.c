@@ -900,13 +900,18 @@ ss_tcp_state_change(struct sock *sk)
 		struct sock *lsk = proto->listener;
 		int r;
 
+		/*
+		 * Acquiring SS active NEWCONN and LIVECONN guards for
+		 * sockets established through a listening socket, and
+		 * acquiring SS active NEWCONN guard for sockets which came
+		 * from ss_connect(). About LIVECONN guard ss_connect() cares
+		 * on it's own.
+		 * If we cannot acquire one or both guards, that means that
+		 * Tempesta is shutting down. Tempesta isn't aware about any
+		 * @sk except connections to server, so we have to close
+		 * it on our own without calling upper layer hooks.
+		 */
 		if (ss_active_guard_enter(SS_V_ACT_NEWCONN)) {
-			/*
-			 * Tempesta is shutting down. However, Tempesta isn't
-			 * aware about any @sk except connections to server,
-			 * so we have to close it on our own without calling
-			 * upper layer hooks.
-			 */
 			ss_do_close(sk);
 			sock_put(sk);
 			/*
@@ -919,6 +924,13 @@ ss_tcp_state_change(struct sock *sk)
 			return;
 		}
 
+		if (lsk && ss_active_guard_enter(SS_V_ACT_LIVECONN)) {
+			ss_do_close(sk);
+			sock_put(sk);
+			ss_active_guard_exit(SS_V_ACT_NEWCONN);
+			return;
+		}
+
 		/*
 		 * The callback is called from tcp_rcv_state_process().
 		 *
@@ -926,13 +938,8 @@ ss_tcp_state_change(struct sock *sk)
 		 * opening from our side. Passive open is processed from
 		 * tcp_v4_rcv() under the socket lock. So there is no need
 		 * for synchronization with ss_tcp_process_data().
-		 *
-		 * Acquire SS active guard for sockets established through
-		 * a listening socket. ss_connect() cares about established
-		 * sockets on it's own.
 		 */
-		r = lsk ? SS_CALL_GUARD_ENTER(connection_new, sk)
-			: SS_CALL(connection_new, sk);
+		r = SS_CALL(connection_new, sk);
 		if (r) {
 			TFW_DBG2("[%d]: New connection hook failed, r=%d\n",
 			         smp_processor_id(), r);
@@ -1453,7 +1460,7 @@ ss_synchronize(void)
 	might_sleep();
 	while (1) {
 		for_each_online_cpu(cpu) {
-			int n_conn = atomic64_read(&per_cpu(__ss_act_cnt, cpu));
+			int n_conn = atomic64_read(&per_cpu(__ss_act_cnt, cpu)) >> 32;
 			int n_q = ss_wq_size(cpu);
 			if (n_conn + n_q) {
 				irq_work_sync(&per_cpu(ipi_work, cpu));
