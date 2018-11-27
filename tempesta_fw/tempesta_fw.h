@@ -100,6 +100,8 @@ TfwMod *tfw_mod_find(const char *name);
 
 bool tfw_runstate_is_reconfig(void);
 
+void tfw_objects_wait_release(const atomic64_t *counter, int delay,
+			      const char *name);
 /**
  * For !CONFIG_PREEMPT kernels, a CPU looping anywhere in the kernel without
  * invoking schedule() can lead to RCU CPU stall, so the function call the

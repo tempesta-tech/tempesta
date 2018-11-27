@@ -30,6 +30,7 @@
 #include "sync_socket.h"
 #include "server.h"
 #include "vhost.h"
+#include "client.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION(TFW_NAME);
@@ -124,8 +125,10 @@ tfw_cleanup(struct list_head *mod_list)
 
 	tfw_cfg_cleanup(mod_list);
 
-	if (!tfw_runstate_is_reconfig())
+	if (!tfw_runstate_is_reconfig()) {
 		tfw_sg_wait_release();
+		tfw_cli_wait_release();
+	}
 	TFW_LOG("New configuration is cleaned.\n");
 }
 
@@ -326,6 +329,46 @@ tfw_ctlfn_state_io(struct ctl_table *ctl, int is_write,
 out:
 	mutex_unlock(&tfw_sysctl_mtx);
 	return r;
+}
+
+/**
+ * Wait until all objects of some specific type @obj_name are
+ * destructed. The count of objects is specified in atomic @counter.
+ * The maximum time to wait is @delay seconds. The function is called
+ * after ss_synchronize(), after configuration cleanup: there shouldn't
+ * be any active connections, but this is still possible.
+ */
+void
+tfw_objects_wait_release(const atomic64_t *counter, int delay,
+			 const char *obj_name)
+{
+	unsigned long tend = jiffies + HZ * delay;
+	long last_n = atomic64_read(counter), curr_n;
+
+	might_sleep();
+	/*
+	 * Wait in a cycle until all objects will be destroyed.
+	 */
+	while ((curr_n = atomic64_read(counter))) {
+		schedule();
+		if (time_is_after_jiffies(tend))
+			continue;
+		if (curr_n < 0) {
+			TFW_ERR_NL("Bug in %s reference counting!\n", obj_name);
+			break;
+		}
+		else if (curr_n == last_n) {
+			TFW_ERR_NL("Got stuck in releasing of %s objects! "
+				   "%ld objects was not released.\n",
+				   obj_name, curr_n);
+			break;
+		}
+		TFW_WARN_NL("pending for %s callbacks to complete for %ds, "
+			    "%ld objects was released, %ld still exist\n",
+			    obj_name, delay, last_n - curr_n, curr_n);
+		tend = jiffies + HZ * delay;
+		last_n = curr_n;
+	}
 }
 
 static char tfw_sysctl_state_buf[32];

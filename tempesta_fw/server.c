@@ -518,43 +518,12 @@ tfw_sg_release_all(void)
 }
 
 /**
- * Wait until all server groups and server are destructed. The function is
- * called after ss_synchronize(): there shouldn't be any active server
- * connections, but this is still possible. The function is called after
- * configuration cleanup: all references taken to servers and groups are
- * already released.
+ * Waiting for destruction of all server groups and servers.
  */
 void
 tfw_sg_wait_release(void)
 {
-	unsigned long tend = jiffies + HZ * 5;
-	long last_n = atomic64_read(&act_sg_n), curr_n;
-
-	might_sleep();
-	/*
-	 * Wait until all server groups will be destroyed, otherwise a crash is
-	 * a matter of time.
-	 */
-	while ((curr_n = atomic64_read(&act_sg_n))) {
-		schedule();
-		if (time_is_after_jiffies(tend))
-			continue;
-		if (curr_n < 0) {
-			TFW_ERR_NL("Bug in server group reference counting!\n");
-			break;
-		}
-		else if (curr_n == last_n) {
-			TFW_ERR_NL("Got stuck in releasing of server groups! "
-				   "%ld server groups was not released.\n",
-				   curr_n);
-			break;
-		}
-		TFW_WARN_NL("pending for server callbacks to complete for 5s, "
-			    "%ld server groups was released, %ld still exist\n",
-			    last_n - curr_n, curr_n);
-		tend = jiffies + HZ * 5;
-		last_n = curr_n;
-	}
+	tfw_objects_wait_release(&act_sg_n, 5, "server group");
 }
 
 int __init

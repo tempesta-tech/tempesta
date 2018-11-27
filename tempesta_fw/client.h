@@ -49,5 +49,6 @@ void tfw_client_put(TfwClient *cli);
 int tfw_client_for_each(int (*fn)(TfwClient *));
 void tfw_cli_conn_release(TfwCliConn *cli_conn);
 int tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg);
+void tfw_cli_wait_release(void);
 
 #endif /* __TFW_CLIENT_H__ */
