@@ -1001,6 +1001,62 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 	}
 }
 
+TEST(http_parser, cache_control_flags)
+{
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		 "Content-Length: 0\r\n"
+		 "Connection: Keep-Alive\r\n"
+		 "Content-Type: text/html; charset=iso-8859-1\r\n"
+		 "Cache-Control: max-age=5, private, no-cache, ext=foo\r\n"
+		 "\r\n");
+	{
+		EXPECT_TRUE(resp->cache_ctl.flags & TFW_HTTP_CC_PRIVATE);
+		EXPECT_TRUE(resp->cache_ctl.flags & TFW_HTTP_CC_NO_CACHE);
+		EXPECT_TRUE(resp->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE);
+		EXPECT_FALSE(
+			resp->cache_ctl.flags & TFW_HTTP_CC_PRAGMA_NO_CACHE);
+	}
+
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		 "Content-Length: 0\r\n"
+		 "Connection: Keep-Alive\r\n"
+		 "Content-Type: text/html; charset=iso-8859-1\r\n"
+		 "Pragma: no-cache\r\n"
+		 "\r\n");
+	{
+		EXPECT_FALSE(resp->cache_ctl.flags & TFW_HTTP_CC_PRIVATE);
+		EXPECT_FALSE(resp->cache_ctl.flags & TFW_HTTP_CC_NO_CACHE);
+		EXPECT_FALSE(resp->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE);
+		EXPECT_TRUE(
+			resp->cache_ctl.flags & TFW_HTTP_CC_PRAGMA_NO_CACHE);
+	}
+
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		 "Content-Length: 0\r\n"
+		 "Connection: Keep-Alive\r\n"
+		 "Content-Type: text/html; charset=iso-8859-1\r\n"
+		 "\r\n");
+	{
+		EXPECT_FALSE(resp->cache_ctl.flags & TFW_HTTP_CC_PRIVATE);
+		EXPECT_FALSE(resp->cache_ctl.flags & TFW_HTTP_CC_NO_CACHE);
+		EXPECT_FALSE(resp->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE);
+		EXPECT_FALSE(
+			resp->cache_ctl.flags & TFW_HTTP_CC_PRAGMA_NO_CACHE);
+	}
+
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		 "Content-Length: 0\r\n"
+		 "Connection: Keep-Alive\r\n"
+		 "Pragma: nocache\r\n"
+		 "Content-Type: text/html; charset=iso-8859-1\r\n"
+		 "\r\n");
+	{
+		/* Contents of "Pragma" is not "no-cache" exactly. */
+		EXPECT_FALSE(
+			resp->cache_ctl.flags & TFW_HTTP_CC_PRAGMA_NO_CACHE);
+	}
+}
+
 TEST(http_parser, suspicious_x_forwarded_for)
 {
 	FOR_REQ("GET / HTTP/1.1\r\n"
@@ -2237,6 +2293,7 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, alphabets);
 	TEST_RUN(http_parser, fills_hdr_tbl_for_req);
 	TEST_RUN(http_parser, fills_hdr_tbl_for_resp);
+	TEST_RUN(http_parser, cache_control_flags);
 	TEST_RUN(http_parser, suspicious_x_forwarded_for);
 	TEST_RUN(http_parser, parses_connection_value);
 	TEST_RUN(http_parser, content_length);
