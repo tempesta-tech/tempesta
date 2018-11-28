@@ -724,6 +724,10 @@ enum {
 
 	I_EoT, /* end of term */
 	I_EoL,
+
+	/* Pragma header */
+	I_Pragma,
+	I_Pragma_Ext,
 };
 
 /* Initialize TRY_STR parsing context */
@@ -1813,6 +1817,13 @@ enum {
 	Resp_HdrLast_Modifie,
 	Resp_HdrLast_Modified,
 	Resp_HdrLast_ModifiedV,
+	Resp_HdrP,
+	Resp_HdrPr,
+	Resp_HdrPra,
+	Resp_HdrPrag,
+	Resp_HdrPragm,
+	Resp_HdrPragma,
+	Resp_HdrPragmaV,
 	Resp_HdrS,
 	Resp_HdrSe,
 	Resp_HdrSer,
@@ -1874,9 +1885,6 @@ enum {
 	Req_I_CC_MaxStale,
 	Req_I_CC_MaxStaleV,
 	Req_I_CC_Ext,
-	/* Pragma header */
-	Req_I_Pragma,
-	Req_I_Pragma_Ext,
 	/* X-Forwarded-For header */
 	Req_I_XFF,
 	Req_I_XFF_Node_Id,
@@ -2752,43 +2760,45 @@ __req_parse_if_msince(TfwHttpMsg *msg, unsigned char *data, size_t len)
 }
 
 /**
- * Parse request Pragma header field, RFC 7234 5.4.
- * The meaning of "Pragma: no-cache" in responses is not specified.
+ * Parse Pragma header field. Request semantics is described in RFC 7234 5.4.
+ * The meaning of "Pragma: no-cache" in responses is not specified. However,
+ * some applications may expect it to prevent caching being in responses as
+ * well.
  */
 static int
-__req_parse_pragma(TfwHttpReq *req, unsigned char *data, size_t len)
+__parse_pragma(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
 	int r = CSTR_NEQ;
-	__FSM_DECLARE_VARS(req);
+	__FSM_DECLARE_VARS(hm);
 
 	__FSM_START(parser->_i_st) {
 
-	__FSM_STATE(Req_I_Pragma) {
+	__FSM_STATE(I_Pragma) {
 		TRY_STR_LAMBDA("no-cache", {
-			req->cache_ctl.flags |= TFW_HTTP_CC_PRAGMA_NO_CACHE;
-		}, Req_I_Pragma_Ext);
+			msg->cache_ctl.flags |= TFW_HTTP_CC_PRAGMA_NO_CACHE;
+		}, I_Pragma_Ext);
 		TRY_STR_INIT();
-		__FSM_I_MOVE_n(Req_I_Pragma_Ext, 0);
+		__FSM_I_MOVE_n(I_Pragma_Ext, 0);
 	}
 
-	__FSM_STATE(Req_I_Pragma_Ext) {
+	__FSM_STATE(I_Pragma_Ext) {
 		/* Verify and just skip the extensions. */
-		__FSM_I_MATCH_MOVE(qetoken, Req_I_Pragma_Ext);
+		__FSM_I_MATCH_MOVE(qetoken, I_Pragma_Ext);
 		c = *(p + __fsm_sz);
 		if (IS_WS(c) || c == ',')
-			__FSM_I_MOVE_n(Req_I_EoT, __fsm_sz + 1);
+			__FSM_I_MOVE_n(I_EoT, __fsm_sz + 1);
 		if (IS_CRLF(c))
 			return __data_off(p + __fsm_sz);
 		return CSTR_NEQ;
 	}
 
 	/* End of term. */
-	__FSM_STATE(Req_I_EoT) {
+	__FSM_STATE(I_EoT) {
 		if (IS_WS(c) || c == ',')
-			__FSM_I_MOVE(Req_I_EoT);
+			__FSM_I_MOVE(I_EoT);
 		if (IS_CRLF(c))
 			return __data_off(p);
-		__FSM_I_MOVE_n(Req_I_Pragma_Ext, 0);
+		__FSM_I_MOVE_n(I_Pragma_Ext, 0);
 	}
 
 	} /* FSM END */
@@ -3671,8 +3681,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 				  __parse_keep_alive, TFW_HTTP_HDR_KEEP_ALIVE);
 
 	/* 'Pragma:*OWS' is read, process field-value. */
-	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrPragmaV, Req_I_Pragma,
-				  req, __req_parse_pragma);
+	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrPragmaV, I_Pragma, msg,
+				  __parse_pragma);
 
 	/* 'Referer:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrRefererV, Req_I_Referer, msg,
@@ -4648,6 +4658,17 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			}
 			__FSM_MOVE(Resp_HdrL);
 
+		case 'p':
+			if (likely(__data_available(p, 7))
+			           && C4_INT_LCM(p + 1, 'r', 'a', 'g', 'm')
+			           && TFW_LC(*(p + 5)) == 'a'
+			           && *(p + 6) == ':')
+			{
+				parser->_i_st = Resp_HdrPragmaV;
+				__FSM_MOVE_n(RGen_OWS, 7);
+			}
+			__FSM_MOVE(Resp_HdrP);
+
 		case 's':
 			if (likely(__data_available(p, 7)
 				   && C4_INT_LCM(p + 1, 'e', 'r', 'v', 'e')
@@ -4742,6 +4763,10 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	/* 'Last-Modified:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrLast_ModifiedV, I_Date, msg,
 				  __parse_http_date);
+
+	/* 'Pragma:*OWS' is read, process field-value. */
+	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrPragmaV, I_Pragma, msg,
+				  __parse_pragma);
 
 	/* 'Server:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrServerV, Resp_I_Server, resp,
@@ -4911,6 +4936,14 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 	__FSM_TX_AF(Resp_HdrLast_Modifi, 'e', Resp_HdrLast_Modifie, RGen_HdrOther);
 	__FSM_TX_AF(Resp_HdrLast_Modifie, 'd', Resp_HdrLast_Modified, RGen_HdrOther);
 	__FSM_TX_AF_OWS(Resp_HdrLast_Modified, ':', Resp_HdrLast_ModifiedV, RGen_HdrOther);
+
+	/* Pragma header processing. */
+	__FSM_TX_AF(Resp_HdrP, 'r', Resp_HdrPr, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrPr, 'a', Resp_HdrPra, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrPra, 'g', Resp_HdrPrag, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrPrag, 'm', Resp_HdrPragm, RGen_HdrOther);
+	__FSM_TX_AF(Resp_HdrPragm, 'a', Resp_HdrPragma, RGen_HdrOther);
+	__FSM_TX_AF_OWS(Resp_HdrPragma, ':', Resp_HdrPragmaV, RGen_HdrOther);
 
 	/* Server header processing. */
 	__FSM_TX_AF(Resp_HdrS, 'e', Resp_HdrSe, RGen_HdrOther);

@@ -409,6 +409,9 @@ tfw_cache_employ_resp(TfwHttpResp *resp)
 		return false;
 	if (resp->cache_ctl.flags & CC_RESP_DONTCACHE)
 		return false;
+	if (!(req->cache_ctl.flags & TFW_HTTP_CC_IS_PRESENT)
+	    && (req->cache_ctl.flags & TFW_HTTP_CC_PRAGMA_NO_CACHE))
+		return false;
 	if (!(resp->cache_ctl.flags & TFW_HTTP_CC_IS_PRESENT)
 	    && (resp->cache_ctl.flags & TFW_HTTP_CC_PRAGMA_NO_CACHE))
 		return false;
