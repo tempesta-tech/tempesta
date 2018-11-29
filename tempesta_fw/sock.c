@@ -364,13 +364,15 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		}
 
 		ss_skb_init_for_xmit(skb);
-
+		if (flags & SS_F_ENCRYPT)
+			tempesta_tls_skb_settype(skb, SS_SKB_F2TYPE(flags));
 		/* Propagate mark of message head skb.*/
 		skb->mark = mark;
 
-		TFW_DBG3("[%d]: %s: entail skb=%p data_len=%u len=%u mark=%u\n",
-		         smp_processor_id(), __func__, skb,
-			 skb->data_len, skb->len, skb->mark);
+		TFW_DBG3("[%d]: %s: entail skb=%p data_len=%u len=%u mark=%u"
+			 " tls_type=%x\n", smp_processor_id(), __func__,
+			 skb, skb->data_len, skb->len, skb->mark,
+			 tempesta_tls_skb_type(skb));
 
 		skb_entail(sk, skb);
 
