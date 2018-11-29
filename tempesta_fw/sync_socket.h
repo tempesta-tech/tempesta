@@ -115,6 +115,12 @@ ss_sock_live(struct sock *sk)
 #define SS_F_KEEP_SKB			0x02
 /* Close (drop) the connection. */
 #define SS_F_CONN_CLOSE			0x04
+/* Call TLS encryption hook on the skb transmission. */
+#define SS_F_ENCRYPT			0x08
+
+/* Conversion of skb type (flag) to/from TLS record type. */
+#define SS_SKB_TYPE2F(t)		(((int)(t)) << 8)
+#define SS_SKB_F2TYPE(f)		((f) >> 8)
 
 int ss_hooks_register(SsHooks* hooks);
 void ss_hooks_unregister(SsHooks* hooks);

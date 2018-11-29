@@ -399,8 +399,8 @@ __new_pgfrag(struct sk_buff *skb_head, struct sk_buff *skb, int size,
 }
 
 /**
- * The kernel may allocate a bit more memory for an SKB than what was
- * requested (see ksize() call in __alloc_skb()). Use the extra memory
+ * The kernel may allocate a bit more memory for an SKB than what was requested
+ * (see ksize()/PG_ALLOC_SZ() call in __alloc_skb()). Use the extra memory
  * if it's enough to hold @n bytes. Otherwise, allocate new linear data.
  *
  * @return 0 on success, -errno on failure.
@@ -847,40 +847,43 @@ ss_skb_get_room(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 }
 
 /**
- * Expand the @skb data, including frags, by @head and @tail: the two frags
- * are inserted moving current data at the middle.
- * @return address of allocated head bytes.
+ * Expand the @skb data, including frags, by @head and @tail: the head is
+ * reserved within TCP_MAX_HEADER, so skb->data is just moved, the tail
+ * requires a new frag allocation - it maybe after all the frags or at the
+ * end of the linear part.
+ *
+ * Currently the function is only needed for TLS which writes TAG inside the
+ * crypto API to the last data segment, so we don't need to return pointer
+ * to the allocated tail data.
+ *
+ * @return number of allocated fragments (0 or 1) or negative value on error.
  */
-void *
-ss_skb_expand_frags(struct sk_buff *skb, size_t head, size_t tail)
+int
+ss_skb_expand_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
+			size_t head, size_t tail)
 {
-	size_t n = head + tail;
+	int frags = 0;
 	struct skb_shared_info *si = skb_shinfo(skb);
-	skb_frag_t *frag;
 	TfwStr it = {};
 
-	if (unlikely(si->nr_frags >= MAX_SKB_FRAGS - 1))
-		return NULL;
+	if (!tail)
+		goto alloc_head;
+	if (!si->nr_frags)
+		if (!__split_try_tailroom(skb, tail, &it))
+			goto alloc_head;
+	if (__new_pgfrag(skb_head, skb, tail, si->nr_frags, 1)) {
+		T_WARN("cannot alloc space for TLS record tag.\n");
+		return -ENOMEM;
+	}
+	frags = 1;
 
-	if (skb_headlen(skb)) {
-		if (__split_linear_data(NULL, skb, skb->data, n, &it))
-			return NULL;
-		WARN_ON_ONCE(it.ptr != skb_frag_address(&si->frags[0]));
-	} else {
-		if (__new_pgfrag(NULL, skb, n, 0, 1))
-			return NULL;
-		it.ptr = skb_frag_address(&si->frags[0]);
+alloc_head:
+	if (head) {
+		frags += !skb_headlen(skb);
+		skb_push(skb, head);
 	}
 
-	/* Split the allocated fragment to head and tail parts. */
-	frag = &si->frags[0];
-	__skb_frag_ref(frag);
-	skb_fill_page_desc(skb, si->nr_frags, skb_frag_page(frag),
-			   frag->page_offset + head, tail);
-	skb_frag_size_sub(frag, tail);
-	ss_skb_adjust_data_len(skb, n);
-
-	return it.ptr;
+	return frags;
 }
 
 /**

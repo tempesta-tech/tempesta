@@ -130,34 +130,35 @@
 #define TTLS_MINOR_VERSION_3			3 /* TLS v1.2 */
 #define TTLS_MINOR_VERSION_4			4 /* TLS v1.3 */
 
-#define TTLS_MAX_HOST_NAME_LEN	255 /*!< Maximum host name defined in RFC 1035 */
+/* Maximum host name defined in RFC 1035. */
+#define TTLS_MAX_HOST_NAME_LEN			255
 
-#define TTLS_IS_CLIENT	0
-#define TTLS_IS_SERVER	1
+#define TTLS_IS_CLIENT				0
+#define TTLS_IS_SERVER				1
 
-#define TTLS_IS_NOT_FALLBACK	0
-#define TTLS_IS_FALLBACK	1
+#define TTLS_COMPRESS_NULL			0
 
-#define TTLS_COMPRESS_NULL	0
-#define TTLS_COMPRESS_DEFLATE	1
+#define TTLS_VERIFY_NONE			0
+#define TTLS_VERIFY_OPTIONAL			1
+#define TTLS_VERIFY_REQUIRED			2
+/* Used only for sni_authmode */
+#define TTLS_VERIFY_UNSET			3
 
-#define TTLS_VERIFY_NONE	0
-#define TTLS_VERIFY_OPTIONAL	1
-#define TTLS_VERIFY_REQUIRED	2
-#define TTLS_VERIFY_UNSET	3 /* Used only for sni_authmode */
-
-#define TTLS_SESSION_TICKETS_DISABLED	0
-#define TTLS_SESSION_TICKETS_ENABLED	1
+#define TTLS_SESSION_TICKETS_DISABLED		0
+#define TTLS_SESSION_TICKETS_ENABLED		1
 
 #if !defined(TTLS_DEFAULT_TICKET_LIFETIME)
-#define TTLS_DEFAULT_TICKET_LIFETIME	86400 /**< Lifetime of session tickets (if enabled) */
+/* Lifetime of session tickets (if enabled) */
+#define TTLS_DEFAULT_TICKET_LIFETIME		86400
 #endif
 
 /*
  * Signaling ciphersuite values (SCSV)
  */
-#define TTLS_EMPTY_RENEGOTIATION_INFO	0xFF /**< renegotiation info ext */
-#define TTLS_FALLBACK_SCSV_VALUE	0x5600 /**< RFC 7507 section 2 */
+/* Renegotiation info ext. */
+#define TTLS_EMPTY_RENEGOTIATION_INFO		0xFF
+/* RFC 7507 section 2. */
+#define TTLS_FALLBACK_SCSV_VALUE		0x5600
 
 /*
  * Supported Signature and Hash algorithms (For TLS 1.2)
@@ -233,6 +234,7 @@
 #define TTLS_HS_CERTIFICATE_VERIFY		15
 #define TTLS_HS_CLIENT_KEY_EXCHANGE		16
 #define TTLS_HS_FINISHED			20
+#define TTLS_HS_INVALID				0xff
 
 /*
  * TLS extensions
@@ -249,13 +251,6 @@
 #define TTLS_TLS_EXT_EXTENDED_MASTER_SECRET	23
 #define TTLS_TLS_EXT_SESSION_TICKET		35
 #define TTLS_TLS_EXT_RENEGOTIATION_INFO		0xFF01
-
-/*
- * Size defines
- */
-#if !defined(TTLS_PSK_MAX_LEN)
-#define TTLS_PSK_MAX_LEN	32 /* 256 bits */
-#endif
 
 /* Dummy type used only for its size */
 union ttls_premaster_secret
@@ -420,10 +415,10 @@ struct ttls_config
 /**
  * I/O context for a TLS context.
  *
- * @ctr		- 64-bit incoming message counter maintained by us;
+ * @ctr		- 64-bit egress message counter maintained by us;
  * @__initoff	- per message offset to reinitialize the I/O context;
  * @hdr		- TLS message header;
- * @iv		- TLS message initialization vector;
+ * @iv		- TLS message initialization vector (@ctr value);
  * @hdr_cpsz	- how many bytes are copied to a header;
  * @st_flags	- state flags;
  * @aad_buf	- temporary buffers for associated authentication data;
@@ -519,42 +514,6 @@ typedef struct ttls_context {
 } TlsCtx;
 
 typedef int ttls_send_cb_t(TlsCtx *tls, struct sg_table *sgt, bool close);
-
-static inline void
-ttls_write_version(TlsCtx *tls, unsigned char ver[2])
-{
-	ver[0] = (unsigned char)tls->major;
-	ver[1] = (unsigned char)tls->minor;
-}
-
-static inline void
-ttls_write_hdr(TlsCtx *tls, unsigned char type, unsigned short len,
-	       unsigned char *buf)
-{
-	buf[0] = type;
-	ttls_write_version(tls, buf + 1);
-	buf[3] = (unsigned char)(len >> 8);
-	buf[4] = (unsigned char)len;
-}
-
-static inline unsigned char
-ttls_xfrm_taglen(TlsXfrm *xfrm)
-{
-	return xfrm->ciphersuite_info->flags & TTLS_CIPHERSUITE_SHORT_TAG
-		? 8 : 16;
-}
-
-static inline size_t
-ttls_expiv_len(TlsXfrm *xfrm)
-{
-	return xfrm->ivlen - xfrm->fixed_ivlen;
-}
-
-static inline size_t
-ttls_payload_off(TlsXfrm *xfrm)
-{
-	return TLS_HEADER_SIZE + ttls_expiv_len(xfrm);
-}
 
 bool ttls_xfrm_ready(TlsCtx *tls);
 void ttls_write_hshdr(unsigned char type, unsigned char *buf,
@@ -910,9 +869,8 @@ int ttls_set_hs_own_cert(ttls_context *ssl, ttls_x509_crt *own_cert,
  * \param ca_chain trusted CA chain (meaning all fully trusted top-level CAs)
  * \param ca_crl trusted CA CRLs
  */
-void ttls_set_hs_ca_chain(ttls_context *ssl,
-	ttls_x509_crt *ca_chain,
-	ttls_x509_crl *ca_crl);
+void ttls_set_hs_ca_chain(ttls_context *ssl, ttls_x509_crt *ca_chain,
+			  ttls_x509_crl *ca_crl);
 
 /**
  * \brief	Set authmode for the current handshake.
@@ -924,8 +882,7 @@ void ttls_set_hs_ca_chain(ttls_context *ssl,
  * \param authmode TTLS_VERIFY_NONE, TTLS_VERIFY_OPTIONAL or
  *		TTLS_VERIFY_REQUIRED
  */
-void ttls_set_hs_authmode(ttls_context *ssl,
-	int authmode);
+void ttls_set_hs_authmode(ttls_context *ssl, int authmode);
 
 /**
  * \brief	Set server side ServerName TLS extension callback
@@ -951,9 +908,9 @@ void ttls_set_hs_authmode(ttls_context *ssl,
  * \param p_sni	verification parameter
  */
 void ttls_conf_sni(ttls_config *conf,
-	int (*f_sni)(void *, ttls_context *, const unsigned char *,
-	size_t),
-	void *p_sni);
+		   int (*f_sni)(void *, ttls_context *, const unsigned char *,
+				size_t),
+		   void *p_sni);
 
 /**
  * \brief	Set the supported Application Layer Protocols.
@@ -1030,5 +987,34 @@ int ttls_config_defaults(ttls_config *conf, int endpoint);
 void ttls_config_free(ttls_config *conf);
 
 void ttls_strerror(int errnum, char *buffer, size_t buflen);
+
+void ttls_aad2hdriv(TlsXfrm *xfrm, unsigned char *buf);
+
+static inline void
+ttls_write_version(TlsCtx *tls, unsigned char ver[2])
+{
+	ver[0] = (unsigned char)tls->major;
+	ver[1] = (unsigned char)tls->minor;
+}
+
+static inline unsigned char
+ttls_xfrm_taglen(TlsXfrm *xfrm)
+{
+	return xfrm->ciphersuite_info->flags & TTLS_CIPHERSUITE_SHORT_TAG
+		? 8 : 16;
+}
+
+static inline size_t
+ttls_expiv_len(TlsXfrm *xfrm)
+{
+	BUG_ON(xfrm->ivlen - xfrm->fixed_ivlen != TTLS_IV_LEN);
+	return xfrm->ivlen - xfrm->fixed_ivlen;
+}
+
+static inline size_t
+ttls_payload_off(TlsXfrm *xfrm)
+{
+	return TLS_HEADER_SIZE + ttls_expiv_len(xfrm);
+}
 
 #endif /* __TTLS_H__ */
