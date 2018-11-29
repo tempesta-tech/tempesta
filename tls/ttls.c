@@ -44,6 +44,19 @@ MODULE_LICENSE("GPL");
 static struct kmem_cache *ttls_hs_cache;
 static ttls_send_cb_t *ttls_send_cb;
 
+static void
+ttls_write_hdr(TlsCtx *tls, unsigned char type, unsigned short len,
+	       unsigned char *buf)
+{
+	buf[0] = type;
+	ttls_write_version(tls, buf + 1);
+	buf[3] = (unsigned char)(len >> 8);
+	buf[4] = (unsigned char)len;
+
+	T_DBG3("use record hdr: type=%d ver=%d:%d hdr_len=%d\n",
+	       buf[0], buf[1], buf[2], ntohs(*(short *)(buf + 3)));
+}
+
 void
 ttls_write_hshdr(unsigned char type, unsigned char *buf, unsigned short len)
 {
@@ -55,8 +68,34 @@ ttls_write_hshdr(unsigned char type, unsigned char *buf, unsigned short len)
 	buf[1] = (unsigned char)((len - TTLS_HS_HDR_LEN) >> 16);
 	buf[2] = (unsigned char)((len - TTLS_HS_HDR_LEN) >> 8);
 	buf[3] = (unsigned char)(len - TTLS_HS_HDR_LEN);
-	T_DBG3_BUF("Write handshake header ", buf, TTLS_HS_HDR_LEN);
+	T_DBG3_BUF("Write handshake header", buf, TTLS_HS_HDR_LEN);
 }
+
+/**
+ * Someway TLS AAD is `IV | tls_hdr`, so the function reorders IV and TLS
+ * header in @buf, so it can be transmitter to network.
+ */
+void
+ttls_aad2hdriv(TlsXfrm *xfrm, unsigned char *buf)
+{
+	unsigned short len, ivlen = ttls_expiv_len(xfrm);
+	long iv = *(long *)buf;
+
+	memmove(buf, buf + ivlen, TLS_HEADER_SIZE);
+	*(long *)(buf + TLS_HEADER_SIZE) = iv;
+
+	/*
+	 * Add IV and TAG to the message legth. The generated AAD length has
+	 * IV and TAG, so just use the length as is.
+	 */
+	len = ((unsigned short)buf[3] << 8) + buf[4];
+	buf[3] = (unsigned char)(len >> 8);
+	buf[4] = (unsigned char)len;
+
+	T_DBG3("write record hdr from AAD: type=%d ver=%d:%d hdr_len=%d\n",
+	       buf[0], buf[1], buf[2], ntohs(*(short *)(buf + 3)));
+}
+EXPORT_SYMBOL(ttls_aad2hdriv);
 
 /**
  * Called to build crypto request with scatterlist acceptable by the crypto
@@ -82,17 +121,19 @@ ttls_crypto_req_sglist(TlsCtx *tls, struct crypto_aead *tfm, unsigned int len,
 	sz = aead_sz = sizeof(*req) + crypto_aead_reqsize(tfm);
 	if (buf) {
 		off = 0;
-		sz += (*sgn + 1) * sizeof(**sg);
+		n = *sgn + 1;
 	} else {
 		off = io->off;
-		sz += (*sgn + io->chunks) * sizeof(**sg);
+		n += *sgn + io->chunks;
 	}
 	BUG_ON(!buf && (!skb || skb->len <= off)); /* nothing to decrypt */
+	sz += n * sizeof(**sg);
 
 	req = kmalloc(sz, GFP_ATOMIC);
 	if (!req)
 		return NULL;
 	*sg = (struct scatterlist *)((char *)req + aead_sz);
+	sg_init_table(*sg, n);
 	sg_i = *sg + *sgn;
 
 	if (buf) {
@@ -154,17 +195,10 @@ EXPORT_SYMBOL(ttls_register_bio);
 bool
 ttls_xfrm_ready(TlsCtx *tls)
 {
-	return tls->state >= TTLS_CLIENT_FINISHED;
+	return tls->state >= TTLS_CLIENT_FINISHED
+	       && tls->state != TTLS_SERVER_CHANGE_CIPHER_SPEC;
 }
 EXPORT_SYMBOL(ttls_xfrm_ready);
-
-static void
-ttls_ep_check(TlsIOCtx *io, const char *iod)
-{
-	if (++io->ctr > (~0UL >> 1))
-		/* The loop goes to its end iff the counter is wrapping. */
-		T_WARN("%s message counter would wrap\n", iod);
-}
 
 #if defined(TTLS_CLI_C)
 static int
@@ -505,9 +539,9 @@ ttls_derive_keys(TlsCtx *tls)
 		mac_key_len = 0;
 		xfrm->ivlen = 12;
 		xfrm->fixed_ivlen = 4;
-		WARN_ON_ONCE(xfrm->ivlen - xfrm->fixed_ivlen != TTLS_IV_LEN);
+		WARN_ON_ONCE(ttls_expiv_len(xfrm) != TTLS_IV_LEN);
 		/* Minimum length is expicit IV + tag */
-		xfrm->minlen = xfrm->ivlen - xfrm->fixed_ivlen
+		xfrm->minlen = ttls_expiv_len(xfrm)
 				+ ((xfrm->ciphersuite_info->flags
 				    & TTLS_CIPHERSUITE_SHORT_TAG) ? 8 : 16);
 	} else {
@@ -551,7 +585,6 @@ ttls_derive_keys(TlsCtx *tls)
 	      xfrm->maclen, tag_size, mac_key_len);
 
 	/* Finally setup the cipher contexts, IVs and MAC secrets. */
-#if defined(TTLS_CLI_C)
 	if (tls->conf->endpoint == TTLS_IS_CLIENT) {
 		key1 = keyblk + mac_key_len * 2;
 		key2 = keyblk + mac_key_len * 2 + xfrm->keylen;
@@ -563,9 +596,7 @@ ttls_derive_keys(TlsCtx *tls)
 		memcpy_fast(xfrm->iv_enc, key2 + xfrm->keylen, iv_copy_len);
 		memcpy_fast(xfrm->iv_dec, key2 + xfrm->keylen + iv_copy_len,
 			    iv_copy_len);
-	} else
-#endif /* TTLS_CLI_C */
-	{
+	} else {
 		key1 = keyblk + mac_key_len * 2 + xfrm->keylen;
 		key2 = keyblk + mac_key_len * 2;
 		mac_enc = keyblk + mac_key_len;
@@ -620,45 +651,6 @@ ttls_read_version(TlsCtx *tls, const unsigned char ver[2])
 	tls->minor = ver[1];
 }
 
-int
-ttls_encrypt(TlsCtx *tls, struct sg_table *sgt)
-{
-	ttls_cipher_mode_t mode;
-	int r;
-	TlsXfrm *xfrm = &tls->xfrm;
-	TlsIOCtx *io = &tls->io_out;
-	ttls_cipher_context_t *c_ctx = &xfrm->cipher_ctx_enc;
-	struct aead_request req;
-
-	WARN_ON_ONCE(!ttls_xfrm_ready(tls));
-	if (io->msglen > TLS_MAX_PAYLOAD_SIZE) {
-		T_DBG("%s record content %u too large, maximum %lu\n",
-		      __func__, (unsigned)io->msglen,
-		      TLS_MAX_PAYLOAD_SIZE);
-		return TTLS_ERR_BAD_INPUT_DATA;
-	}
-
-	mode = c_ctx->cipher_info->mode;
-	WARN_ON_ONCE(mode != TTLS_MODE_GCM && mode != TTLS_MODE_CCM);
-
-	/* Generate IV. */
-	*(long *)(xfrm->iv_enc + xfrm->fixed_ivlen) = __cpu_to_be64(io->ctr);
-	*(long *)xfrm->iv_enc = __cpu_to_be64(io->ctr);
-	T_DBG3_BUF("IV used", xfrm->iv_enc, xfrm->ivlen - xfrm->fixed_ivlen);
-
-	/* Encrypt and authenticate. */
-	aead_request_set_tfm(&req, c_ctx->cipher_ctx);
-	aead_request_set_ad(&req, TLS_AAD_SPACE_SIZE);
-	aead_request_set_crypt(&req, sgt->sgl, sgt->sgl, io->msglen,
-			       xfrm->iv_enc);
-	r = crypto_aead_encrypt(&req);
-	if (r)
-		T_DBG2("encrypt failed: %d", r);
-
-	return r;
-}
-EXPORT_SYMBOL(ttls_encrypt);
-
 /*
  * Fill in the buffer with additional authentication data for AES-GCM,
  * RFC 5246 6.2.3.3.
@@ -666,13 +658,70 @@ EXPORT_SYMBOL(ttls_encrypt);
  * modern kernels.
  */
 static void
-ttls_make_aad(TlsCtx *tls, TlsIOCtx *io, unsigned char *aad_buf)
+ttls_make_aad(TlsCtx *tls, TlsIOCtx *io, unsigned char *aad_buf,
+	      unsigned long iv)
 {
-	*(unsigned long *)aad_buf = __cpu_to_be64(io->ctr);
+	*(unsigned long *)aad_buf = iv;
 	ttls_write_hdr(tls, io->msgtype, io->msglen, aad_buf + 8);
 	T_DBG3_BUF("additional data used for AEAD ",
 		   aad_buf, TLS_AAD_SPACE_SIZE);
 }
+
+/**
+ * This TLS records encryption function can be called syncronously, on handshake
+ * finished, or asynchrnously, on callback from the TCP/IP stack. We can use TLS
+ * context very carefully - many records can be processed before a record is
+ * encrypted on TCP transmission.
+ *
+ * @sgt must have enough room for AAD header and a TAG.
+ */
+int
+ttls_encrypt(TlsCtx *tls, struct sg_table *sgt)
+{
+	ttls_cipher_mode_t mode;
+	int r, elen;
+	TlsXfrm *xfrm = &tls->xfrm;
+	TlsIOCtx *io = &tls->io_out;
+	ttls_cipher_context_t *c_ctx = &xfrm->cipher_ctx_enc;
+	unsigned long iv = __cpu_to_be64(io->ctr);
+	struct aead_request req;
+
+	WARN_ON_ONCE(!ttls_xfrm_ready(tls));
+	if (io->msglen > TLS_MAX_PAYLOAD_SIZE) {
+		T_DBG("%s record content %u too large, maximum %lu\n",
+		      __func__, io->msglen, TLS_MAX_PAYLOAD_SIZE);
+		return TTLS_ERR_BAD_INPUT_DATA;
+	}
+
+	mode = c_ctx->cipher_info->mode;
+	WARN_ON_ONCE(mode != TTLS_MODE_GCM && mode != TTLS_MODE_CCM);
+
+	*(long *)(xfrm->iv_enc + xfrm->fixed_ivlen) = iv;
+	T_DBG3_BUF("IV used", xfrm->iv_enc, xfrm->ivlen);
+
+	elen = io->msglen - ttls_expiv_len(xfrm) - ttls_xfrm_taglen(xfrm);
+	ttls_make_aad(tls, io, sg_virt(sgt->sgl), iv);
+	aead_request_set_tfm(&req, c_ctx->cipher_ctx);
+	aead_request_set_ad(&req, TLS_AAD_SPACE_SIZE);
+	aead_request_set_crypt(&req, sgt->sgl, sgt->sgl, elen,
+			       (unsigned char *)&iv);
+
+	T_DBG3_SL("plaintext buf for encryption", sgt->sgl, sgt->nents, 0,
+		  (size_t)io->msglen + TLS_HEADER_SIZE);
+
+	if ((r = crypto_aead_encrypt(&req))) {
+		T_DBG2("encrypt failed: %d\n", r);
+		return r;
+	}
+	T_DBG3_SL("encrypted buf", sgt->sgl, sgt->nents, 0,
+		  (size_t)io->msglen + TLS_HEADER_SIZE);
+
+	if (unlikely(++io->ctr > (~0UL >> 1)))
+		T_WARN("outgoing message counter would wrap\n");
+
+	return 0;
+}
+EXPORT_SYMBOL(ttls_encrypt);
 
 static int
 __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
@@ -712,18 +761,17 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 	/* Build decryption request starting from the offset. */
 	io->off = ttls_payload_off(xfrm);
 
-	memcpy_fast(xfrm->iv_dec + xfrm->fixed_ivlen, io->iv,
-		    xfrm->ivlen - xfrm->fixed_ivlen);
+	memcpy_fast(xfrm->iv_dec + xfrm->fixed_ivlen, io->iv, sizeof(io->iv));
 	req = ttls_crypto_req_sglist(tls, tfm, dec_msglen + taglen, buf,
 				     &sg, &sgn);
 	if (!req || WARN_ON_ONCE(sgn < 2))
 		return TTLS_ERR_INTERNAL_ERROR;
-	ttls_make_aad(tls, io, aad_buf);
+	ttls_make_aad(tls, io, aad_buf, *(unsigned long *)io->iv);
 	sg_set_buf(sg, aad_buf, TLS_AAD_SPACE_SIZE);
 
-	T_DBG3("TFM: authsize=%u reqsize=%u io=%pK ctr=%lu\n",
-	       tfm->authsize, tfm->reqsize, io, io->ctr);
-	T_DBG3_BUF("IV used ", xfrm->iv_dec, xfrm->ivlen);
+	T_DBG3("TFM: authsize=%u reqsize=%u io=%pK\n",
+	       tfm->authsize, tfm->reqsize, io);
+	T_DBG3_BUF("IV used", xfrm->iv_dec, xfrm->ivlen);
 	T_DBG3_SL("decrypt: AAD|msg|TAG", sg, sgn, 0, dec_msglen + taglen);
 
 	/*
@@ -775,8 +823,6 @@ ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 	} else {
 		tls->nb_zero = 0;
 	}
-
-	ttls_ep_check(io, "incomming");
 
 	if (io->msglen > TLS_MAX_PAYLOAD_SIZE) {
 		T_DBG("bad message length %u\n", io->msglen);
@@ -846,10 +892,6 @@ __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
 		hdr_buf = io->hdr;
 	if (!ttls_xfrm_ready(tls))
 		ttls_write_hdr(tls, io->msgtype, io->msglen, hdr_buf);
-
-	T_DBG3("output record: type=%d ver=%d:%d hdr_len=%d\n" ,
-		io->hdr[0], io->hdr[1], io->hdr[2], io->msglen);
-	ttls_ep_check(&tls->io_out, "outgoing");
 }
 
 int
@@ -862,10 +904,14 @@ __ttls_send_record(TlsCtx *tls, struct sg_table *sgt, bool close)
 	return r;
 }
 
-int
+static int
 ttls_write_record(TlsCtx *tls, struct sg_table *sgt, bool close)
 {
-	__ttls_add_record(tls, sgt, 0, NULL);
+	/* Change __ttls_add_record() call if you need it for handshakes. */
+	WARN_ON_ONCE(tls->io_out.msgtype == TTLS_MSG_HANDSHAKE);
+
+	__ttls_add_record(tls, NULL, 0, NULL);
+
 	return __ttls_send_record(tls, sgt, close);
 }
 
@@ -982,7 +1028,7 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 		return r;
 	switch (io->msgtype) {
 	case TTLS_MSG_APPLICATION_DATA:
-		ivahs_len = tls->xfrm.ivlen - tls->xfrm.fixed_ivlen;
+		ivahs_len = ttls_expiv_len(&tls->xfrm);
 		break;
 	case TTLS_MSG_ALERT:
 		ivahs_len = 2; /* level & description */
@@ -1015,7 +1061,7 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 				return TTLS_ERR_INVALID_RECORD;
 			}
 		} else {
-			ivahs_len = tls->xfrm.ivlen - tls->xfrm.fixed_ivlen;
+			ivahs_len = ttls_expiv_len(&tls->xfrm);
 		}
 		break;
 	default:
@@ -1141,7 +1187,7 @@ ttls_send_alert(TlsCtx *tls, unsigned char lvl, unsigned char msg)
 	T_DBG("send alert level=%u message=%u\n", lvl, msg);
 
 	io->msgtype = TTLS_MSG_ALERT;
-	io->hstype = 0xff; /* invalid handshake type */
+	io->hstype = TTLS_HS_INVALID;
 	/* Set hslen just in case of non-critical handshake alert. */
 	io->msglen = io->hslen = 2;
 	io->alert[0] = lvl;
@@ -1201,8 +1247,7 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 
 		tot_len += 3 + n;
 		get_page(virt_to_page(crt->raw.p));
-		sg_set_page(&sgt->sgl[sgt->nents++], virt_to_page(crt->raw.p),
-			    n, 0);
+		sg_set_buf(&sgt->sgl[sgt->nents++], crt->raw.p, n);
 		WARN_ON_ONCE((unsigned long)crt->raw.p & ~PAGE_MASK);
 		WARN_ON_ONCE(sgt->nents >= MAX_SKB_FRAGS);
 		T_DBG3("add cert page %pK,len=%lu,off=%lu seg=%u\n",
@@ -1215,8 +1260,7 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 		 */
 		if (crt && ++cn < cn_max) {
 			get_page(virt_to_page(p));
-			sg_set_page(&sgt->sgl[sgt->nents++], virt_to_page(p), 3,
-				    ((unsigned long)p & ~PAGE_MASK) + i);
+			sg_set_buf(&sgt->sgl[sgt->nents++], p, 3);
 			WARN_ON_ONCE(sgt->nents >= MAX_SKB_FRAGS);
 		}
 	}
@@ -1239,8 +1283,7 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 	T_DBG3("cert desc %pK,len=%lu segs=%u\n", p, i, sgt->nents);
 
 	*in_buf = p + i;
-	sg_set_page(&sgt->sgl[sg_i], virt_to_page(p), i,
-		    (unsigned long)p & ~PAGE_MASK);
+	sg_set_buf(&sgt->sgl[sg_i], p, i);
 	get_page(virt_to_page(p));
 	__ttls_add_record(tls, sgt, sg_i, p);
 
@@ -1504,21 +1547,17 @@ err:
 	__free_pages(virt_to_page(p), 2);
 	return r;
 }
-
-int
-ttls_write_change_cipher_spec(ttls_context *tls, struct sg_table *sgt,
-			      unsigned char **in_buf)
+void
+ttls_write_change_cipher_spec(ttls_context *tls)
 {
 	TlsIOCtx *io = &tls->io_out;
 
 	io->msglen = io->hslen = 1;
 	io->msgtype = TTLS_MSG_CHANGE_CIPHER_SPEC;
-	io->hstype = 0xff; /* invalid handshake type */
+	io->hstype = TTLS_HS_INVALID;
 	io->hs_hdr[0] = 1;
 
 	__ttls_add_record(tls, NULL, 0, NULL);
-
-	return 0;
 }
 
 int
@@ -1545,7 +1584,7 @@ ttls_parse_change_cipher_spec(ttls_context *tls, unsigned char *buf, size_t len,
 	 * @read was incremented by ttls_parse_record_hdr() as part of handshake
 	 * message header.
 	 */
-	bzero_fast(&io->ctr, sizeof(io->ctr));
+	io->ctr = 0;
 
 	return 0;
 }
@@ -1553,25 +1592,34 @@ ttls_parse_change_cipher_spec(ttls_context *tls, unsigned char *buf, size_t len,
 int
 ttls_write_finished(TlsCtx *tls, struct sg_table *sgt, unsigned char **in_buf)
 {
+	int r;
 	TlsIOCtx *io = &tls->io_out;
-	unsigned char *p = *in_buf;
+	TlsXfrm *xfrm = &tls->xfrm;
+	unsigned char *msg, *p = *in_buf;
+	struct scatterlist sg;
+	struct sg_table enc_sgt = {
+		.sgl	= &sg,
+		.nents	= 1,
+	};
 
-	BUILD_BUG_ON(sizeof(io->__msg) < TLS_MAX_HASH_LEN + TTLS_HS_HDR_LEN);
+	io->ctr = 0;
+	io->msglen = TTLS_HS_FINISHED_BODY_LEN;
+	io->msgtype = TTLS_MSG_HANDSHAKE;
+	msg = p + ttls_payload_off(xfrm);
 
-	tls->hs->calc_finished(tls, &io->__msg[TTLS_HS_HDR_LEN],
-			       tls->conf->endpoint);
+	ttls_write_hshdr(TTLS_HS_FINISHED, msg, TTLS_HS_HDR_LEN + TLS_HASH_LEN);
+	tls->hs->calc_finished(tls, msg + TTLS_HS_HDR_LEN, tls->conf->endpoint);
 
-	bzero_fast(&io->ctr, sizeof(io->ctr));
-	io->msglen = TTLS_HS_HDR_LEN + TLS_MAX_HASH_LEN;
-	ttls_write_hshdr(TTLS_HS_FINISHED, p + TLS_HEADER_SIZE,
-			 TLS_MAX_HASH_LEN);
+	sg_init_table(&sg, 1);
+	sg_set_buf(&sg, p, TLS_HEADER_SIZE + TTLS_HS_FINISHED_BODY_LEN);
+	if ((r = ttls_encrypt(tls, &enc_sgt)))
+		return r;
 
-	*in_buf += TLS_HEADER_SIZE + TTLS_HS_HDR_LEN + TLS_MAX_HASH_LEN;
-	sg_set_page(&sgt->sgl[sgt->nents++], virt_to_page(p), *in_buf - p,
-		    (unsigned long)p & ~PAGE_MASK);
+	ttls_aad2hdriv(xfrm, p);
+
+	*in_buf += TLS_HEADER_SIZE + TTLS_HS_FINISHED_BODY_LEN;
+	sg_set_buf(&sgt->sgl[sgt->nents++], p, *in_buf - p);
 	get_page(virt_to_page(p));
-
-	__ttls_add_record(tls, sgt, sgt->nents - 1, p);
 
 	return 0;
 }
@@ -1585,7 +1633,7 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 	TlsIOCtx *io = &tls->io_in;
 	TlsXfrm *xfrm = &tls->xfrm;
 	TlsHandshake *hs = tls->hs;
-	unsigned char hash[TLS_MAX_HASH_LEN];
+	unsigned char hash[TLS_HASH_LEN];
 
 	T_DBG("%s: msglen=%u(rlen=%u len=%lu)\n", __func__,
 	      io->msglen, io->rlen, len);
@@ -1595,17 +1643,12 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 		T_WARN("TLS context isn't ready on Finished\n");
 		return TTLS_ERR_BAD_HS_FINISHED;
 	}
-	/*
-	 * Hash of the whole handshake session for AES-GCM is 40 bytes
-	 * including 8 bytes of explicit IV read by ttls_parse_record_hdr().
-	 */
-	if (unlikely(io->msglen != 40)) {
+	if (unlikely(io->msglen != TTLS_HS_FINISHED_BODY_LEN)) {
 		T_DBG("wrong ClientFinished message length: %u\n", io->msglen);
 		return TTLS_ERR_BAD_HS_FINISHED;
 	}
 
-	ct_len = io->msglen - (xfrm->ivlen - xfrm->fixed_ivlen);
-
+	ct_len = io->msglen - ttls_expiv_len(xfrm);
 	T_DBG3_BUF("Client finished msg body", buf, ct_len);
 
 	/* Copy small chunks to the temporary buffer. */
@@ -1621,7 +1664,7 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 	/* Verify the handshake header. */
 	if (unlikely(hs->finished[0] != TTLS_HS_FINISHED
 		     || hs->finished[1] || hs->finished[2]
-		     || hs->finished[3] != TLS_MAX_HASH_LEN))
+		     || hs->finished[3] != TLS_HASH_LEN))
 	{
 		T_DBG3_BUF("bad finished message: ",
 			   hs->finished, TTLS_HS_HDR_LEN);
@@ -1631,9 +1674,7 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 	}
 
 	tls->hs->calc_finished(tls, hash, tls->conf->endpoint ^ 1);
-	if (crypto_memneq(&hs->finished[TTLS_HS_HDR_LEN], hash,
-			  TLS_MAX_HASH_LEN))
-	{
+	if (crypto_memneq(&hs->finished[TTLS_HS_HDR_LEN], hash, TLS_HASH_LEN)) {
 		T_DBG("bad hash in finished message\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				    TTLS_ALERT_MSG_DECODE_ERROR);
@@ -2154,8 +2195,11 @@ next_record:
 		return T_POSTPONE;
 	}
 	*read += io->msglen - io->rlen;
-	if ((r = ttls_decrypt(tls, NULL)))
-		return r;
+	if ((r = ttls_decrypt(tls, NULL))) {
+		T_DBG("cannot decrypt msg on state %x, ret=%d%s\n",
+		      tls->state, r, r == -EBADMSG ? "(bad ciphertext)" : "");
+		return T_DROP;
+	}
 
 	/*
 	 * At this point we have fully prepared data for the upper layer.

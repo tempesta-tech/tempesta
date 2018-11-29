@@ -188,7 +188,8 @@ int ss_skb_alloc_data(struct sk_buff **skb_head, size_t len);
 struct sk_buff *ss_skb_split(struct sk_buff *skb, int len);
 int ss_skb_get_room(struct sk_buff *skb_head, struct sk_buff *skb,
 		    char *pspt, unsigned int len, TfwStr *it);
-void *ss_skb_expand_frags(struct sk_buff *skb, size_t head, size_t tail);
+int ss_skb_expand_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
+			    size_t head, size_t tail);
 int ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *hdr,
 		       int skip, int tail);
 
