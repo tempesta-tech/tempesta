@@ -59,21 +59,30 @@
 #define TTLS_MAC_ADD			16
 #define TTLS_PADDING_ADD		0
 
-#define TTLS_PAYLOAD_LEN	(TLS_MAX_PAYLOAD_SIZE		\
-				 + TTLS_COMPRESSION_ADD		\
-				 + TTLS_MAX_IV_LENGTH		\
-				 + TTLS_MAC_ADD			\
-				 + TTLS_PADDING_ADD)
+#define TTLS_PAYLOAD_LEN		(TLS_MAX_PAYLOAD_SIZE		\
+					 + TTLS_COMPRESSION_ADD		\
+					 + TTLS_MAX_IV_LENGTH		\
+					 + TTLS_MAC_ADD			\
+					 + TTLS_PADDING_ADD)
 
-#define TTLS_BUF_LEN		(TLS_HEADER_SIZE + TTLS_PAYLOAD_LEN)
+#define TTLS_BUF_LEN			(TLS_HEADER_SIZE + TTLS_PAYLOAD_LEN)
 /*
  * There is currently no ciphersuite using another length with TLS 1.2.
  * RFC 5246 7.4.9 (Page 63) says 12 is the default length and ciphersuites
- * may define some other value. Currently (early 2016), no defined
- * ciphersuite does this (and this is unlikely to change as activity has
- * moved to TLS 1.3 now) so we can keep the hardcoded 12 here.
+ * may define some other value. Currently, no defined ciphersuite does this
+ * (and this is unlikely to change as activity has moved to TLS 1.3 now),
+ * so we can keep the hardcoded 12 here.
  */
-#define TLS_MAX_HASH_LEN	12
+#define TLS_HASH_LEN			12
+/*
+ * Hash of the whole handshake session for AES-GCM is 40 bytes:
+ *
+ *  explicit IV  handshake header    hash      tag
+ *  -----------  ----------------  --------  --------
+ *    8 bytes        4 bytes       12 bytes  16 bytes
+ */
+#define TTLS_HS_FINISHED_BODY_LEN	40
+
 
 /*
  * Abstraction for a grid of allowed signature-hash-algorithm pairs.
@@ -186,7 +195,6 @@ int ttls_handle_message_type(TlsCtx *tls);
 void __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
 		       unsigned char *hdr_buf);
 int __ttls_send_record(TlsCtx *tls, struct sg_table *sgt, bool close);
-int ttls_write_record(TlsCtx *tls, struct sg_table *sgt, bool close);
 int ttls_sendmsg(TlsCtx *tls, const char *buf, size_t len);
 
 int ttls_parse_certificate(ttls_context *tls, unsigned char *buf, size_t len,
@@ -196,8 +204,7 @@ int ttls_write_certificate(ttls_context *tls, struct sg_table *sgt,
 
 int ttls_parse_change_cipher_spec(ttls_context *tls, unsigned char *buf,
 				  size_t len, unsigned int *read);
-int ttls_write_change_cipher_spec(ttls_context *tls, struct sg_table *sgt,
-				  unsigned char **in_buf);
+void ttls_write_change_cipher_spec(ttls_context *tls);
 
 int ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 			unsigned int *read);

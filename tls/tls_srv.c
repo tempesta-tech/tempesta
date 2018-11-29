@@ -1269,11 +1269,10 @@ ttls_write_server_hello(TlsCtx *tls, struct sg_table *sgt,
 	io->msgtype = TTLS_MSG_HANDSHAKE;
 	io->hstype = TTLS_HS_SERVER_HELLO;
 	ttls_write_hshdr(TTLS_HS_SERVER_HELLO, buf, p - buf);
-	T_DBG3_BUF("ServerHello: write message ", buf, p - buf);
+	T_DBG3_BUF("ServerHello: write message", buf, p - buf);
 
 	*in_buf = p;
-	sg_set_page(&sgt->sgl[sgt->nents++], virt_to_page(buf), p - buf,
-		    (unsigned long)buf & ~PAGE_MASK);
+	sg_set_buf(&sgt->sgl[sgt->nents++], buf, p - buf);
 	get_page(virt_to_page(buf));
 	/*
 	 * ServerHello is the first record,
@@ -1527,9 +1526,8 @@ curve_matching_done:
 			 TTLS_HS_HDR_LEN + n);
 
 	*in_buf = hdr + TLS_HEADER_SIZE + TTLS_HS_HDR_LEN + n;
-	sg_set_page(&sgt->sgl[sgt->nents++], virt_to_page(hdr),
-		    TLS_HEADER_SIZE + TTLS_HS_HDR_LEN + n,
-		    (unsigned long)hdr & ~PAGE_MASK);
+	sg_set_buf(&sgt->sgl[sgt->nents++], hdr,
+		   TLS_HEADER_SIZE + TTLS_HS_HDR_LEN + n);
 	get_page(virt_to_page(hdr));
 	__ttls_add_record(tls, sgt, sgt->nents - 1, hdr);
 
@@ -1675,8 +1673,7 @@ ttls_write_certificate_request(TlsCtx *tls, struct sg_table *sgt,
 			 io->msglen);
 
 	*in_buf = p;
-	sg_set_page(&sgt->sgl[sgt->nents++], virt_to_page(buf), p - buf,
-		    (unsigned long)buf & ~PAGE_MASK);
+	sg_set_buf(&sgt->sgl[sgt->nents++], buf, p - buf);
 	get_page(virt_to_page(buf));
 	__ttls_add_record(tls, sgt, sgt->nents - 1, buf);
 
@@ -1697,8 +1694,7 @@ ttls_write_server_hello_done(TlsCtx *tls, struct sg_table *sgt,
 			 TTLS_HS_HDR_LEN);
 
 	*in_buf += TLS_HEADER_SIZE + TTLS_HS_HDR_LEN;
-	sg_set_page(&sgt->sgl[sgt->nents++], virt_to_page(p), *in_buf - p,
-		    (unsigned long)p & ~PAGE_MASK);
+	sg_set_buf(&sgt->sgl[sgt->nents++], p, *in_buf - p);
 	get_page(virt_to_page(p));
 
 	__ttls_add_record(tls, sgt, sgt->nents - 1, p);
@@ -2066,7 +2062,7 @@ ttls_handshake_server_hello(TlsCtx *tls)
 {
 	int r = 0;
 	unsigned char *p, *begin;
-	struct scatterlist sg[MAX_SKB_FRAGS] = {};
+	struct scatterlist sg[MAX_SKB_FRAGS];
 	struct sg_table sgt = { .sgl = sg };
 	struct page *pg;
 	T_FSM_INIT(tls->state, "TLS Server Handshake (ServerHello)");
@@ -2075,6 +2071,7 @@ ttls_handshake_server_hello(TlsCtx *tls)
 	if (!p)
 		return -ENOMEM;
 	pg = virt_to_page(p);
+	sg_init_table(sgt.sgl, MAX_SKB_FRAGS);
 
 	T_FSM_START(ttls_state(tls)) {
 	T_FSM_STATE(TTLS_SERVER_HELLO) {
@@ -2154,7 +2151,7 @@ ttls_handshake_finished(TlsCtx *tls)
 	int r;
 	unsigned char *p, *begin;
 	struct page *pg;
-	struct scatterlist sg[MAX_SKB_FRAGS] = {};
+	struct scatterlist sg[MAX_SKB_FRAGS];
 	struct sg_table sgt = { .sgl = sg };
 	T_FSM_INIT(tls->state, "TLS Server Handshake (Finish)");
 
@@ -2162,24 +2159,24 @@ ttls_handshake_finished(TlsCtx *tls)
 	if (!p)
 		return -ENOMEM;
 	pg = virt_to_page(p);
+	sg_init_table(sgt.sgl, MAX_SKB_FRAGS);
 
 	T_FSM_START(ttls_state(tls)) {
 	T_FSM_STATE(TTLS_SERVER_CHANGE_CIPHER_SPEC) {
 		if (tls->hs->new_session_ticket) {
-			r = ttls_write_new_session_ticket(tls, &sgt, &p);
+			if ((r = ttls_write_new_session_ticket(tls, &sgt, &p)))
+				T_FSM_EXIT();
 			CHECK_STATE(512);
 		} else {
-			r = ttls_write_change_cipher_spec(tls, &sgt, &p);
+			ttls_write_change_cipher_spec(tls);
 			tls->state = TTLS_SERVER_FINISHED;
 		}
-		if (r)
-			T_FSM_EXIT();
 		T_FSM_NEXT();
 	}
 	T_FSM_STATE(TTLS_SERVER_FINISHED) {
 		if ((r = ttls_write_finished(tls, &sgt, &p)))
 			return r;
-		CHECK_STATE(21);
+		CHECK_STATE(TLS_HEADER_SIZE + TTLS_HS_FINISHED_BODY_LEN);
 		/*
 		 * In case of session resuming, invert the client and server
 		 * ChangeCipherSpec messages order.
