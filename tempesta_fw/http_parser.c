@@ -721,13 +721,12 @@ enum {
 	I_DateSec,
 	I_DateSecSP,
 	I_DateZone,
-
-	I_EoT, /* end of term */
-	I_EoL,
-
 	/* Pragma header */
 	I_Pragma,
 	I_Pragma_Ext,
+
+	I_EoT, /* end of term */
+	I_EoL,
 };
 
 /* Initialize TRY_STR parsing context */
