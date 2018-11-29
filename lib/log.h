@@ -81,22 +81,23 @@ enum {
 
 #define T_DBG3_BUF(str, buf, len)					\
 do {									\
-	T_DBG3("dump '" str "' (%d bytes):\n", (int)(len));		\
+	T_DBG3("dump '" str "' (%lu bytes):\n", (size_t)(len));		\
 	print_hex_dump_bytes(__BNR "        ", DUMP_PREFIX_OFFSET, buf, len);\
 } while (0)
 
 #define T_DBG3_SL(str, sglist, sgn, off, len)				\
 do {									\
-	int o = 0, i;							\
-	struct scatterlist *s = NULL;					\
+	int __o = 0, __i;						\
+	struct scatterlist *__s = NULL;					\
 	T_DBG3(str " (sgn=%u sglist=%pK len=%lu):\n", sgn, sglist, len);\
-	for_each_sg(sglist, s, sgn, i) {				\
-		if (off >= o + s->length) {				\
-			o += s->length;					\
+	for_each_sg(sglist, __s, sgn, __i) {				\
+		if (off >= __o + __s->length) {				\
+			__o += __s->length;				\
 		} else {						\
-			int d = off - o;				\
-			T_DBG3_BUF("segment", sg_virt(s) + d, s->length - d);\
-			o = off;					\
+			int __d = off - __o;				\
+			T_DBG3_BUF("segment", sg_virt(__s) + __d,	\
+				   __s->length - __d);			\
+			__o = off;					\
 		}							\
 	}								\
 } while (0)

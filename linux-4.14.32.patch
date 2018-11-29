@@ -156,8 +156,37 @@ index caeb159a..274c6cc0 100644
  struct iovec;
  struct kvec;
  
+diff --git a/include/linux/netdevice.h b/include/linux/netdevice.h
+index 46bf7cc7..b698c645 100644
+--- a/include/linux/netdevice.h
++++ b/include/linux/netdevice.h
+@@ -148,11 +148,22 @@ static inline bool dev_xmit_complete(int rc)
+ # define LL_MAX_HEADER 32
+ #endif
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++/*
++ * For Tempesta case the most traffic is TLS encrypted, so we need the extra
++ * room for TLS record header and explicit IV on skb allocation to avoid data
++ * movement on tcp_write_xmit(). Not all skbs have TLS headers - not a big deal
++ * to allocate 16 more bytes (5 - TLS header, 8 - IV, 3 - alignment).
++ */
++#define TLS_MAX_HDR	16
++#else
++#define TLS_MAX_HDR	0
++#endif
+ #if !IS_ENABLED(CONFIG_NET_IPIP) && !IS_ENABLED(CONFIG_NET_IPGRE) && \
+     !IS_ENABLED(CONFIG_IPV6_SIT) && !IS_ENABLED(CONFIG_IPV6_TUNNEL)
+-#define MAX_HEADER LL_MAX_HEADER
++#define MAX_HEADER (LL_MAX_HEADER + TLS_MAX_HDR)
+ #else
+-#define MAX_HEADER (LL_MAX_HEADER + 48)
++#define MAX_HEADER (LL_MAX_HEADER + 48 + TLS_MAX_HDR)
+ #endif
+ 
+ /*
 diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
-index be45224b..30ca3af1 100644
+index be45224b..15e9d293 100644
 --- a/include/linux/skbuff.h
 +++ b/include/linux/skbuff.h
 @@ -232,6 +232,12 @@
@@ -195,29 +224,26 @@ index be45224b..30ca3af1 100644
  
  #ifdef CONFIG_NET_SCHED
  	__u16			tc_index;	/* traffic control index */
-@@ -847,6 +860,53 @@ struct sk_buff {
+@@ -847,6 +860,50 @@ struct sk_buff {
  #define SKB_ALLOC_RX		0x02
  #define SKB_ALLOC_NAPI		0x04
  
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +/**
-+ * The skb mark are used only for time between @skb was inserted into TCP send
++ * The skb type is used only for time between @skb was inserted into TCP send
 + * queue and it's processed (first time) in tcp_write_xmit(). This time the @skb
 + * isn't scheduled yet, so we can use skb->dev for our needs to avoid extending
-+ * sk_buff. We use the least significant bit to be sure that the this isn't a
++ * sk_buff. We use the least significant bit to be sure that this isn't a
 + * pointer to not to break anything. TLS message type << 1 is alwasy smaller
 + * than 0xff.
 + */
-+static inline int
++static inline void
 +tempesta_tls_skb_settype(struct sk_buff *skb, unsigned char type)
 +{
 +	BUG_ON(type >= 0x80);
-+	if (unlikely(skb->dev)) {
-+		WARN_ON_ONCE(skb->dev);
-+		return -EINVAL;
-+	}
++	WARN_ON_ONCE(skb->dev);
++
 +	skb->dev = (void *)((type << 1) | 1UL);
-+	return 0;
 +}
 +
 +static inline unsigned char
@@ -225,8 +251,8 @@ index be45224b..30ca3af1 100644
 +{
 +	unsigned long d = (unsigned long)skb->dev;
 +
-+	if (unlikely(d ^ 1UL))
-+		return 0;
++	if (!(d & 1UL))
++		return 0; /* a pointer in skb->dev */
 +	return d >> 1;
 +}
 +
@@ -249,7 +275,7 @@ index be45224b..30ca3af1 100644
  /* Returns true if the skb was allocated from PFMEMALLOC reserves */
  static inline bool skb_pfmemalloc(const struct sk_buff *skb)
  {
-@@ -965,6 +1025,7 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen);
+@@ -965,6 +1022,7 @@ void kfree_skb_partial(struct sk_buff *skb, bool head_stolen);
  bool skb_try_coalesce(struct sk_buff *to, struct sk_buff *from,
  		      bool *fragstolen, int *delta_truesize);
  
@@ -257,7 +283,7 @@ index be45224b..30ca3af1 100644
  struct sk_buff *__alloc_skb(unsigned int size, gfp_t priority, int flags,
  			    int node);
  struct sk_buff *__build_skb(void *data, unsigned int frag_size);
-@@ -1885,7 +1946,11 @@ static inline struct sk_buff *__skb_dequeue_tail(struct sk_buff_head *list)
+@@ -1885,7 +1943,11 @@ static inline struct sk_buff *__skb_dequeue_tail(struct sk_buff_head *list)
  
  static inline bool skb_is_nonlinear(const struct sk_buff *skb)
  {
@@ -269,7 +295,7 @@ index be45224b..30ca3af1 100644
  }
  
  static inline unsigned int skb_headlen(const struct sk_buff *skb)
-@@ -2124,6 +2189,20 @@ static inline unsigned int skb_headroom(const struct sk_buff *skb)
+@@ -2124,6 +2186,20 @@ static inline unsigned int skb_headroom(const struct sk_buff *skb)
  	return skb->data - skb->head;
  }
  
@@ -1772,7 +1798,7 @@ index 420fecbb..67e0513a 100644
  void tcp_twsk_destructor(struct sock *sk)
  {
 diff --git a/net/ipv4/tcp_output.c b/net/ipv4/tcp_output.c
-index 83d11cd2..01bd67d8 100644
+index 83d11cd2..60da7ef4 100644
 --- a/net/ipv4/tcp_output.c
 +++ b/net/ipv4/tcp_output.c
 @@ -37,6 +37,9 @@
@@ -1849,7 +1875,7 @@ index 83d11cd2..01bd67d8 100644
  		if (skb->len > limit &&
  		    unlikely(tso_fragment(sk, skb, limit, mss_now, gfp)))
  			break;
-@@ -2336,7 +2355,23 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
+@@ -2336,7 +2355,32 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
  			clear_bit(TCP_TSQ_DEFERRED, &sk->sk_tsq_flags);
  		if (tcp_small_queue_check(sk, skb, 0))
  			break;
@@ -1868,13 +1894,22 @@ index 83d11cd2..01bd67d8 100644
 +		 * get 16KB (maximum size of TLS message).
 +		 */
 +		if (sk->sk_write_xmit && tempesta_tls_skb_type(skb))
-+			if (unlikely(sk->sk_write_xmit(sk, skb, limit)))
++			if (unlikely(sk->sk_write_xmit(sk, skb, limit))) {
++				net_warn_ratelimited(
++					"Tempesta: cannot encrypt data,"
++					" so reset a TLS connection.\n");
++				/*
++				 * FIXME #984 WARNING: at net/core/stream.c:205
++				 * sk_stream_kill_queues+0x106/0x120
++				 */
++				tcp_reset(sk);
 +				break;
++			}
 +#endif
  		if (unlikely(tcp_transmit_skb(sk, skb, 1, gfp)))
  			break;
  
-@@ -2518,6 +2553,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
+@@ -2518,6 +2562,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
  			   sk_gfp_mask(sk, GFP_ATOMIC)))
  		tcp_check_probe_timer(sk);
  }
@@ -1882,7 +1917,7 @@ index 83d11cd2..01bd67d8 100644
  
  /* Send _single_ skb sitting at the send head. This function requires
   * true push pending frames to setup probe timer etc.
-@@ -2839,9 +2875,19 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
+@@ -2839,9 +2884,19 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
  		if (tcp_fragment(sk, skb, len, cur_mss, GFP_ATOMIC))
  			return -ENOMEM; /* We'll try again later. */
  	} else {
@@ -1902,7 +1937,7 @@ index 83d11cd2..01bd67d8 100644
  		diff = tcp_skb_pcount(skb);
  		tcp_set_skb_tso_segs(skb, cur_mss);
  		diff -= tcp_skb_pcount(skb);
-@@ -3129,6 +3175,7 @@ int tcp_send_synack(struct sock *sk)
+@@ -3129,6 +3184,7 @@ int tcp_send_synack(struct sock *sk)
  	}
  	return tcp_transmit_skb(sk, skb, 1, GFP_ATOMIC);
  }
