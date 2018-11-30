@@ -115,6 +115,7 @@ static const char *ss_statename[] = {
 #define SS_V_ACT_NEWCONN	0x0000000000000001UL
 #define SS_M_ACT_NEWCONN	0x00000000ffffffffUL
 #define SS_V_ACT_LIVECONN	0x0000000100000000UL
+#define SS_ACT_SHIFT		32
 
 static bool __ss_active = false;
 static DEFINE_PER_CPU(atomic64_t, __ss_act_cnt) ____cacheline_aligned
@@ -1460,7 +1461,8 @@ ss_synchronize(void)
 	might_sleep();
 	while (1) {
 		for_each_online_cpu(cpu) {
-			int n_conn = atomic64_read(&per_cpu(__ss_act_cnt, cpu)) >> 32;
+			atomic64_t *act_cnt = &per_cpu(__ss_act_cnt, cpu);
+			int n_conn = atomic64_read(act_cnt) >> SS_ACT_SHIFT;
 			int n_q = ss_wq_size(cpu);
 			if (n_conn + n_q) {
 				irq_work_sync(&per_cpu(ipi_work, cpu));
