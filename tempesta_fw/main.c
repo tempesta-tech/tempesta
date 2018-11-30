@@ -25,12 +25,12 @@
 
 #include "tempesta_fw.h"
 #include "cfg.h"
+#include "client.h"
 #include "log.h"
 #include "str.h"
 #include "sync_socket.h"
 #include "server.h"
 #include "vhost.h"
-#include "client.h"
 
 MODULE_AUTHOR(TFW_AUTHOR);
 MODULE_DESCRIPTION(TFW_NAME);
