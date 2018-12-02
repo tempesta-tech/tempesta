@@ -137,12 +137,10 @@ typedef struct tls_handshake_t {
 		ttls_sha512_context	fin_sha512;
 	};
 
-	void (*update_checksum)(ttls_context *, const unsigned char *, size_t);
 	void (*calc_verify)(ttls_context *, unsigned char *);
 	void (*calc_finished)(ttls_context *, unsigned char *, int);
-	int  (*tls_prf)(const unsigned char *, size_t, const char *,
-		const unsigned char *, size_t,
-		unsigned char *, size_t);
+	int  (*tls_prf)(const unsigned char *, size_t, const char *, size_t,
+			const unsigned char *, size_t, unsigned char *, size_t);
 
 	size_t pmslen;	  /*!<  premaster length*/
 	unsigned char		point_form:1,
@@ -275,7 +273,6 @@ int ttls_check_cert_usage(const ttls_x509_crt *cert,
 			  int cert_endpoint,
 			  uint32_t *flags);
 
-void ttls_write_version(TlsCtx *tls, unsigned char ver[2]);
 void ttls_read_version(TlsCtx *tls, const unsigned char ver[2]);
 
 int ttls_get_key_exchange_md_tls1_2(ttls_context *tls,
@@ -293,6 +290,13 @@ ttls_bzero_safe(void *v, size_t n)
 	kernel_fpu_begin();
 	bzero_fast(v, n);
 	kernel_fpu_end();
+}
+
+static inline void
+ttls_write_version(const TlsCtx *tls, unsigned char ver[2])
+{
+	ver[0] = (unsigned char)tls->major;
+	ver[1] = (unsigned char)tls->minor;
 }
 
 #if defined(DEBUG) && (DEBUG >= 3)
