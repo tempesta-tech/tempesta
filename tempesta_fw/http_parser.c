@@ -440,9 +440,10 @@ __try_str(TfwStr *hdr, TfwStr* chunk, unsigned char *p, size_t len,
  * Parse probably chunked string representation of an decimal integer.
  * @return number of parsed bytes.
  */
-static int
-parse_int_a(unsigned char *data, size_t len, const unsigned long *delimiter_a,
-	    unsigned long *acc)
+static __always_inline int
+__parse_ulong(unsigned char *__restrict data, size_t len,
+              const unsigned long *__restrict delimiter_a,
+              unsigned long *__restrict acc, unsigned long limit)
 {
 	unsigned char *p;
 
@@ -451,10 +452,16 @@ parse_int_a(unsigned char *data, size_t len, const unsigned long *delimiter_a,
 			return p - data;
 		if (unlikely(!isdigit(*p)))
 			return CSTR_NEQ;
-		if (unlikely(*acc > (UINT_MAX - 10) / 10))
+		if (unlikely(*acc > (limit - 10) / 10))
 			return CSTR_BADLEN;
 		*acc = *acc * 10 + *p - '0';
 	}
+
+	/*
+	 * We are expecting the compiler to deduce this expression to
+	 * a constant, to avoid division at run time.
+	 */
+	BUILD_BUG_ON(!__builtin_constant_p((limit - 10) / 10));
 
 	return CSTR_POSTPONE;
 }
@@ -462,8 +469,9 @@ parse_int_a(unsigned char *data, size_t len, const unsigned long *delimiter_a,
 /**
  * Parse an integer followed by a white space.
  */
-static inline int
-parse_int_ws(unsigned char *data, size_t len, unsigned long *acc)
+static __always_inline int
+__parse_ulong_ws(unsigned char *__restrict data, size_t len,
+                 unsigned long *__restrict acc, unsigned long limit)
 {
 	/*
 	 * Standard white-space characters are:
@@ -477,8 +485,17 @@ parse_int_ws(unsigned char *data, size_t len, unsigned long *acc)
 	static const unsigned long whitespace_a[] ____cacheline_aligned = {
 		0x0000000100003e00UL, 0, 0, 0
 	};
-	return parse_int_a(data, len, whitespace_a, acc);
+	return __parse_ulong(data, len, whitespace_a, acc, limit);
 }
+
+#define parse_int_a(data, len, a, acc)					\
+	__parse_ulong(data, len, a, acc, UINT_MAX)
+
+#define parse_int_ws(data, len, acc)					\
+	__parse_ulong_ws(data, len, acc, UINT_MAX)
+
+#define parse_ulong_ws(data, len, acc)					\
+	__parse_ulong_ws(data, len, acc, ULONG_MAX)
 
 /**
  * Parse an integer as part of HTTP list.
@@ -1304,7 +1321,7 @@ __parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	 * to exclude attempts of HTTP Request Smuggling or HTTP Response
 	 * Splitting.
 	 */
-	r = parse_int_ws(data, len, &msg->content_length);
+	r = parse_ulong_ws(data, len, &msg->content_length);
 	if (r == CSTR_POSTPONE)
 		__msg_hdr_chunk_fixup(data, len);
 
