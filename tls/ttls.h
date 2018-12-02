@@ -990,29 +990,22 @@ void ttls_strerror(int errnum, char *buffer, size_t buflen);
 
 void ttls_aad2hdriv(TlsXfrm *xfrm, unsigned char *buf);
 
-static inline void
-ttls_write_version(TlsCtx *tls, unsigned char ver[2])
-{
-	ver[0] = (unsigned char)tls->major;
-	ver[1] = (unsigned char)tls->minor;
-}
-
 static inline unsigned char
-ttls_xfrm_taglen(TlsXfrm *xfrm)
+ttls_xfrm_taglen(const TlsXfrm *xfrm)
 {
 	return xfrm->ciphersuite_info->flags & TTLS_CIPHERSUITE_SHORT_TAG
 		? 8 : 16;
 }
 
 static inline size_t
-ttls_expiv_len(TlsXfrm *xfrm)
+ttls_expiv_len(const TlsXfrm *xfrm)
 {
 	BUG_ON(xfrm->ivlen - xfrm->fixed_ivlen != TTLS_IV_LEN);
 	return xfrm->ivlen - xfrm->fixed_ivlen;
 }
 
 static inline size_t
-ttls_payload_off(TlsXfrm *xfrm)
+ttls_payload_off(const TlsXfrm *xfrm)
 {
 	return TLS_HEADER_SIZE + ttls_expiv_len(xfrm);
 }
