@@ -190,10 +190,14 @@ start()
 
 	update_js_challenge_template
 	echo "...start Tempesta FW"
-	sysctl -w net.tempesta.state=start >/dev/null
-	if [ $? -ne 0 ]; then
+	# If 'net.tempesta.state' entry exists but Tempesta start process has
+	# been failed for some reason (e.g. configuration parsing error), then
+	# 'sysctl' does not indicate any problems and exits with zero code;
+	# so, we need to parse 'stderr' here to get actual result.
+	err=$(sysctl -w net.tempesta.state=start 2>&1 1>/dev/null)
+	if [[ -n ${err} ]]; then
 		unload_modules
-		error "cannot start Tempesta FW"
+		error "cannot start Tempesta FW (sysctl code: ${err##*: })"
 	else
 		echo "done"
 	fi
