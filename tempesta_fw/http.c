@@ -1089,25 +1089,27 @@ tfw_http_req_evict(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 	       || tfw_http_req_evict_retries(srv_conn, srv, req, eq);
 }
 
+#define CONN_ACTIVE(c)	((c) != -EBADF)
 /*
- * If forwarding of @req to server @srv_conn is not successful, then
- * move it to the error queue @eq for sending an error response later.
- *
- * TODO: Perhaps, there's a small optimization. Ultimately, the thread
- * ends up in ss_send(). In some cases a connection is still active when
- * it's obtained, but not active by the time the thread is in ss_send().
- * In that case -EBADF is returned, and nothing destructive happens to
- * the request. So, perhaps, instead of sending an error in that case
- * these unlucky requests can be re-sent when the connection is restored.
+ * If forwarding of @req to server @srv_conn is not successful, requests
+ * should be leaved in @fwd_queue (to resend them to backend later) if
+ * connection is not active (-EBADF is returned), or must be moved to the
+ * error queue @eq (for sending an error response later) in other cases.
  */
-static inline bool
+static inline int
 tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv,
-		      TfwHttpReq *req, struct list_head *eq)
+		      TfwHttpReq *req, struct list_head *eq,
+		      bool drain)
 {
+	int r;
+
 	req->jtxtstamp = jiffies;
 	tfw_http_req_init_ss_flags(srv_conn, req);
 
-	if (tfw_connection_send((TfwConn *)srv_conn, (TfwMsg *)req)) {
+	if (!(r = tfw_connection_send((TfwConn *)srv_conn, (TfwMsg *)req)))
+	      return 0;
+
+	if (CONN_ACTIVE(r) || drain) {
 		TFW_DBG2("%s: Forwarding error: conn=[%p] req=[%p]\n",
 			 __func__, srv_conn, req);
 		if (req->flags & TFW_HTTP_F_HMONITOR) {
@@ -1121,26 +1123,27 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv,
 			tfw_http_req_err(srv_conn, req, eq, 500,
 					 "request dropped: forwarding error");
 		}
-		return false;
 	}
-	return true;
+	return r;
 }
 
 /*
- * Forward one request @req to server connection @srv_conn.
- * Return false if forwarding must be stopped, or true otherwise.
+ * Forward one request @req to server connection @srv_conn. Return 0 if
+ * request has been sent successfully, or error code otherwise.
  */
-static inline bool
+static inline int
 tfw_http_req_fwd_single(TfwSrvConn *srv_conn, TfwServer *srv,
 			TfwHttpReq *req, struct list_head *eq)
 {
+	int r;
+
 	if (tfw_http_req_evict_stale_req(srv_conn, srv, req, eq))
-		return false;
-	if (!tfw_http_req_fwd_send(srv_conn, srv, req, eq))
-		return false;
+		return -EINVAL;
+	if ((r = tfw_http_req_fwd_send(srv_conn, srv, req, eq, false)))
+		return r;
 	srv_conn->msg_sent = (TfwMsg *)req;
 	TFW_INC_STAT_BH(clnt.msgs_forwarded);
-	return true;
+	return 0;
 }
 
 /*
@@ -1165,7 +1168,19 @@ tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *eq)
 	    : list_first_entry(fwd_queue, TfwHttpReq, fwd_list);
 
 	list_for_each_entry_safe_from(req, tmp, fwd_queue, fwd_list) {
-		if (!tfw_http_req_fwd_single(srv_conn, srv, req, eq))
+		int ret = tfw_http_req_fwd_single(srv_conn, srv, req, eq);
+		/*
+		 * If connection is broken, we need to leave all requests
+		 * in @fwd_queue in order to resend them when connection
+		 * will be repaired.
+		 */
+		if (!CONN_ACTIVE(ret))
+			break;
+		/*
+		 * Connection is alive, but request has been removed from
+		 * @fwd_queue due to some error.
+		 */
+		if (ret)
 			continue;
 		/* Stop forwarding if the request is non-idempotent. */
 		if (tfw_http_req_is_nip(req))
@@ -1281,7 +1296,7 @@ tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *eq)
 	{
 		if (tfw_http_req_evict(srv_conn, srv, req, eq))
 			continue;
-		if (!tfw_http_req_fwd_send(srv_conn, srv, req, eq))
+		if (tfw_http_req_fwd_send(srv_conn, srv, req, eq, true))
 			continue;
 		req_resent = req;
 		if (unlikely(first))
