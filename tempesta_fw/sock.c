@@ -475,14 +475,8 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	 * leakage, so we never use synchronous sending.
 	 */
 	sock_hold(sk);
-	if (ss_wq_push(&sw, cpu)) {
-		TFW_DBG2("Cannot schedule socket %p for transmission"
-			 " (queue size %d)\n", sk,
-			 tfw_wq_size(&per_cpu(si_wq, cpu)));
-		sock_put(sk);
-		r = -EBUSY;
-		goto err;
-	}
+	while (ss_wq_push(&sw, cpu))
+		;
 
 	return 0;
 err:
