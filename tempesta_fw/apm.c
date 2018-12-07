@@ -782,6 +782,7 @@ __tfw_apm_rbent_reset(TfwApmRBEnt *crbent, unsigned long jtmistamp)
 	memset(crbent->pcntrng.__reset_from, 0,
 	       offsetof(TfwPcntRanges, __reset_till)
 	       - offsetof(TfwPcntRanges, __reset_from));
+	crbent->pcntrng.min_val = UINT_MAX;
 	crbent->jtmistamp = jtmistamp;
 	smp_mb__before_atomic();
 	atomic_set(&crbent->reset, 1);

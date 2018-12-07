@@ -1536,7 +1536,7 @@ tfw_cfg_sg_ratio_verify(TfwSrvGroup *sg)
 	int count = 0;
 
 	if (sg->flags & (TFW_SG_F_SCHED_RATIO_DYNAMIC
-			 || TFW_SG_F_SCHED_RATIO_PREDICT))
+			 | TFW_SG_F_SCHED_RATIO_PREDICT))
 	{
 		list_for_each_entry(srv, &sg->srv_list, list) {
 			if (srv->weight)
