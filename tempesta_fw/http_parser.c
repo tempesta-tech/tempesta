@@ -240,7 +240,7 @@ do {									\
 	parser->_i_st = to;						\
 	p += n;								\
 	if (unlikely(__data_off(p) >= len)) {				\
-		__fsm_const_state = to; /* start from state @to nest time */\
+		__fsm_const_state = to; /* start from state @to next time */\
 		/* Close currently parsed field chunk. */		\
 		__msg_hdr_chunk_fixup(data, len);			\
 		r = TFW_POSTPONE;					\
