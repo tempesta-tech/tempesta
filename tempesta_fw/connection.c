@@ -88,10 +88,15 @@ tfw_connection_release(TfwConn *conn)
 }
 
 /*
- * Code architecture decisions ensure that conn->sk remains valid
- * for the life of @conn instance. The socket itself may have been
- * closed, but not deleted. ss_send() makes sure that data is sent
- * only on an active socket.
+ * Send @msg through connection @conn. Code architecture decisions
+ * ensure that conn->sk remains valid for the life of @conn instance.
+ * The socket itself may have been closed, but not deleted. ss_send()
+ * makes sure that data is sent only on an active socket.
+ * Return value:
+ *   0		- @msg had been sent successfully;
+ *   -EBADF	- connection is broken;
+ *   -EBUSY	- transmission work queue is full;
+ *   -ENOMEM	- out-of-memory error occured.
  */
 int
 tfw_connection_send(TfwConn *conn, TfwMsg *msg)
