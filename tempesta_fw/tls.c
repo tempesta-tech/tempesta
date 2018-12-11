@@ -46,7 +46,9 @@ tfw_tls_chop_skb_rec(TlsCtx *tls, struct sk_buff *skb, unsigned int off,
 	size_t prolog = ttls_payload_off(&tls->xfrm);
 
 eaten_skb:
-	if (unlikely(skb->len <= prolog)) {
+	if (likely(skb->len > prolog)) {
+		off += prolog;
+	} else {
 		struct sk_buff *next = skb->next;
 		if (WARN_ON_ONCE(!next))
 			return -EIO;
@@ -55,8 +57,6 @@ eaten_skb:
 		__kfree_skb(skb);
 		skb = next;
 		goto eaten_skb;
-	} else {
-		off += prolog;
 	}
 	tls->io_in.skb_list = NULL; /* not used any more */
 
