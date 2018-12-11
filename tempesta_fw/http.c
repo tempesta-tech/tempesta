@@ -1089,17 +1089,15 @@ tfw_http_req_evict(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 	       || tfw_http_req_evict_retries(srv_conn, srv, req, eq);
 }
 
-#define CONN_ACTIVE(c)	((c) != -EBADF)
 /*
  * If forwarding of @req to server @srv_conn is not successful, requests
- * should be leaved in @fwd_queue (to resend them to backend later) if
+ * should be left in @fwd_queue (to resend them to backend later) if
  * connection is not active (-EBADF is returned), or must be moved to the
  * error queue @eq (for sending an error response later) in other cases.
  */
 static inline int
 tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv,
-		      TfwHttpReq *req, struct list_head *eq,
-		      bool drain)
+		      TfwHttpReq *req, struct list_head *eq)
 {
 	int r;
 
@@ -1109,7 +1107,7 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv,
 	if (!(r = tfw_connection_send((TfwConn *)srv_conn, (TfwMsg *)req)))
 	      return 0;
 
-	if (CONN_ACTIVE(r) || drain) {
+	if (r != -EBADF) {
 		TFW_DBG2("%s: Forwarding error: conn=[%p] req=[%p]\n",
 			 __func__, srv_conn, req);
 		if (req->flags & TFW_HTTP_F_HMONITOR) {
@@ -1139,7 +1137,7 @@ tfw_http_req_fwd_single(TfwSrvConn *srv_conn, TfwServer *srv,
 
 	if (tfw_http_req_evict_stale_req(srv_conn, srv, req, eq))
 		return -EINVAL;
-	if ((r = tfw_http_req_fwd_send(srv_conn, srv, req, eq, false)))
+	if ((r = tfw_http_req_fwd_send(srv_conn, srv, req, eq)))
 		return r;
 	srv_conn->msg_sent = (TfwMsg *)req;
 	TFW_INC_STAT_BH(clnt.msgs_forwarded);
@@ -1174,7 +1172,7 @@ tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *eq)
 		 * in @fwd_queue in order to resend them when connection
 		 * will be repaired.
 		 */
-		if (!CONN_ACTIVE(ret))
+		if (ret == -EBADF)
 			break;
 		/*
 		 * Connection is alive, but request has been removed from
@@ -1273,17 +1271,21 @@ tfw_http_conn_treatnip(TfwSrvConn *srv_conn, struct list_head *eq)
 /*
  * Re-forward requests in a server connection. Requests that exceed
  * the set limits are evicted.
+ *
+ * Note: @srv_conn->msg_sent may change in result.
  */
-static TfwMsg *
+static int
 tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *eq)
 {
 	TfwHttpReq *req, *tmp, *req_resent = NULL;
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
 	struct list_head *end, *fwd_queue = &srv_conn->fwd_queue;
 
+	if (!srv_conn->msg_sent)
+		return 0;
+
 	TFW_DBG2("%s: conn=[%p] first=[%s]\n",
 		 __func__, srv_conn, first ? "true" : "false");
-	BUG_ON(!srv_conn->msg_sent);
 	BUG_ON(list_empty(&((TfwHttpReq *)srv_conn->msg_sent)->fwd_list));
 
 	req = list_first_entry(fwd_queue, TfwHttpReq, fwd_list);
@@ -1294,16 +1296,40 @@ tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *eq)
 	     &req->fwd_list != end;
 	     req = tmp, tmp = list_next_entry(tmp, fwd_list))
 	{
+		int ret;
 		if (tfw_http_req_evict(srv_conn, srv, req, eq))
 			continue;
-		if (tfw_http_req_fwd_send(srv_conn, srv, req, eq, true))
+		ret = tfw_http_req_fwd_send(srv_conn, srv, req, eq);
+		/*
+		 * If connection is broken, leave all requests in
+		 * @fwd_queue in order to re-send them during next
+		 * repairing attempt.
+		 */
+		if (ret == -EBADF)
+			return ret;
+		/*
+		 * Request has been removed from @fwd_queue due to
+		 * some error. Connection is alive, so we continue
+		 * re-sending remaining requests.
+		 */
+		if (ret)
 			continue;
 		req_resent = req;
 		if (unlikely(first))
 			break;
 	}
 
-	return (TfwMsg *)req_resent;
+	/*
+	 * If only one first request is needed to be re-send, change
+	 * @srv_conn->msg_sent only if it must be set to NULL. That
+	 * means that all requests for re-sending - had not been
+	 * re-sent, but instead have been evicted or removed due to
+	 * some error, and we have no requests to re-send any more.
+	 */
+	if (!first || !req_resent)
+		srv_conn->msg_sent = (TfwMsg *)req_resent;
+
+	return 0;
 }
 
 /*
@@ -1358,9 +1384,8 @@ tfw_http_conn_fwd_repair(TfwSrvConn *srv_conn, struct list_head *eq)
 		 * requests that were never forwarded only if the last
 		 * request that was re-sent was NOT non-idempotent.
 		 */
-		if (srv_conn->msg_sent)
-			srv_conn->msg_sent =
-				tfw_http_conn_resend(srv_conn, false, eq);
+		if (tfw_http_conn_resend(srv_conn, false, eq))
+			return;
 		set_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
 		if (tfw_http_conn_need_fwd(srv_conn))
 			tfw_http_conn_fwd_unsent(srv_conn, eq);
@@ -1624,12 +1649,16 @@ tfw_http_conn_repair(TfwConn *conn)
 
 	/* Treat a non-idempotent request if any. */
 	tfw_http_conn_treatnip(srv_conn, &eq);
-	/* Re-send only the first unanswered request. */
-	if (srv_conn->msg_sent)
-		if (unlikely(!tfw_http_conn_resend(srv_conn, true, &eq)))
-			srv_conn->msg_sent = NULL;
-	/* If none re-sent, then send the remaining unsent requests. */
-	if (!srv_conn->msg_sent) {
+
+	/*
+	 * Re-send only the first unanswered request. If re-sending
+	 * procedure successfully passed (i.e. connection alive),
+	 * but requests had not been re-sent, and removed instead,
+	 * then send the remaining unsent requests.
+	 */
+	if (!tfw_http_conn_resend(srv_conn, true, &eq)
+	    && !srv_conn->msg_sent)
+	{
 		if (!list_empty(&srv_conn->fwd_queue)) {
 			set_bit(TFW_CONN_B_QFORWD, &srv_conn->flags);
 			tfw_http_conn_fwd_unsent(srv_conn, &eq);
