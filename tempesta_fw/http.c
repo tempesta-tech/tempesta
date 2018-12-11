@@ -2497,8 +2497,7 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 	 * not enabled.
 	 */
 	r = tfw_http_sess_obtain(req);
-	switch (r)
-	{
+	switch (r) {
 	case TFW_HTTP_SESS_SUCCESS:
 		break;
 	case TFW_HTTP_SESS_REDIRECT_SENT:
@@ -2682,6 +2681,24 @@ tfw_http_hm_drop_resp(TfwHttpResp *resp)
 }
 
 /**
+ * In general case the @skb, even if it has TLS record header @off and tag
+ * @tail, it can be at any place of resulting HTTP message. Now we have to
+ * chop the TLS extra data. It'd be good to preserve the room for the message
+ * adjusting (e.g. adding a new header), but typically we need a space only in
+ * skbs carrying CRLF and just before the CRLF pointer. So TLS rooms can be
+ * reused only if they're just before CRLF (very rarely). Thus we just chop
+ * the data.
+ *
+ * TODO #1103: this should be revised for the new placement strategies.
+ */
+static int
+tfw_http_chop_skb(TfwHttpMsg *hm, struct sk_buff *skb,
+		  unsigned int off, unsigned int trail)
+{
+	return ss_skb_chop_head_tail(hm->msg.skb_head, skb, off, trail);
+}
+
+/**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
  */
@@ -2690,7 +2707,8 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 {
 	int req_conn_close, r = TFW_BLOCK;
 	bool block;
-	unsigned int parsed, off = data->off, trail = data->trail;
+	unsigned int parsed, curr_skb_trail;
+	unsigned int off = data->off, trail = data->trail;
 	struct sk_buff *skb = data->skb;
 	TfwHttpReq *req;
 	TfwHttpMsg *hmsib;
@@ -2721,6 +2739,7 @@ next_msg:
 	r = ss_skb_process(skb, off, trail, tfw_http_parse_req, req,
 			   &req->chunk_cnt, &parsed);
 	req->msg.len += parsed;
+	curr_skb_trail = off + parsed + trail < skb->len ? 0 : trail;
 	TFW_ADD_STAT_BH(parsed, clnt.rx_bytes);
 
 	TFW_DBG2("Request parsed: len=%u next=%pK parsed=%d msg_len=%lu"
@@ -2734,7 +2753,7 @@ next_msg:
 	 */
 	data_up.skb = skb;
 	data_up.off = off;
-	data_up.trail = parsed + trail < skb->len ? 0 : trail;
+	data_up.trail = curr_skb_trail;
 	data_up.req = (TfwMsg *)req;
 	data_up.resp = NULL;
 
@@ -2843,7 +2862,7 @@ next_msg:
 	if((req_conn_close = req->flags & TFW_HTTP_F_CONN_CLOSE))
 		TFW_CONN_TYPE(req->conn) |= Conn_Stop;
 
-	if (!req_conn_close && off + parsed + trail < skb->len) {
+	if (!req_conn_close && !curr_skb_trail) {
 		/*
 		 * Pipelined requests: create a new sibling message.
 		 * @skb is replaced with pointer to a new SKB.
@@ -2863,6 +2882,9 @@ next_msg:
 			return TFW_BLOCK;
 		}
 	}
+
+	if (tfw_http_chop_skb((TfwHttpMsg *)req, skb, off, curr_skb_trail))
+		return TFW_BLOCK;
 
 	/*
 	 * Complete HTTP message has been collected and processed
@@ -3154,9 +3176,10 @@ tfw_http_resp_process(TfwConn *conn, const TfwFsmData *data)
 	BUG_ON(off >= skb->len);
 	/*
 	 * #769: There is no client side TLS, so we don't read HTTP responses
-	 * through TLS connection, so trail should be zero.
+	 * through TLS connection, so trail and off should be zero.
 	 */
 	WARN_ON_ONCE(data->trail);
+	WARN_ON_ONCE(data->off);
 
 	TFW_DBG2("Received %u server data bytes on conn=%p msg=%p\n",
 		skb->len, conn, conn->msg);

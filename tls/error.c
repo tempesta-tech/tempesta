@@ -379,15 +379,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 	if (use_ret == -(TTLS_ERR_MPI_ALLOC_FAILED))
 		snprintf(buf, buflen, "BIGNUM - Memory allocation failed");
 
-#if defined(TTLS_CAMELLIA_C)
-	if (use_ret == -(TTLS_ERR_CAMELLIA_INVALID_KEY_LENGTH))
-		snprintf(buf, buflen, "CAMELLIA - Invalid key length");
-	if (use_ret == -(TTLS_ERR_CAMELLIA_INVALID_INPUT_LENGTH))
-		snprintf(buf, buflen, "CAMELLIA - Invalid data input length");
-	if (use_ret == -(TTLS_ERR_CAMELLIA_HW_ACCEL_FAILED))
-		snprintf(buf, buflen, "CAMELLIA - Camellia hardware accelerator failed");
-#endif /* TTLS_CAMELLIA_C */
-
 	if (use_ret == -(TTLS_ERR_OID_NOT_FOUND))
 		snprintf(buf, buflen, "OID - OID is not found");
 	if (use_ret == -(TTLS_ERR_OID_BUF_TOO_SMALL))
