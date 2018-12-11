@@ -930,7 +930,7 @@ cleanup:
  * \param md_ctx	message digest context to use
  */
 static int mgf_mask(unsigned char *dst, size_t dlen, unsigned char *src,
-		  size_t slen, ttls_md_context_t *md_ctx)
+		  size_t slen, TlsMdCtx *md_ctx)
 {
 	unsigned char mask[TTLS_MD_MAX_SIZE];
 	unsigned char counter[4];
@@ -990,7 +990,7 @@ int ttls_rsa_rsaes_oaep_encrypt(ttls_rsa_context *ctx, int mode,
 	unsigned char *p = output;
 	unsigned int hlen;
 	const TlsMdInfo *md_info;
-	ttls_md_context_t md_ctx;
+	TlsMdCtx md_ctx;
 
 	if (mode == TTLS_RSA_PRIVATE && ctx->padding != TTLS_RSA_PKCS_V21)
 		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
@@ -1147,7 +1147,7 @@ int ttls_rsa_rsaes_oaep_decrypt(ttls_rsa_context *ctx, int mode,
 	unsigned char lhash[TTLS_MD_MAX_SIZE];
 	unsigned int hlen;
 	const TlsMdInfo *md_info;
-	ttls_md_context_t md_ctx;
+	TlsMdCtx md_ctx;
 
 	/*
 	 * Parameters sanity checks
@@ -1394,7 +1394,7 @@ int ttls_rsa_rsassa_pss_sign(ttls_rsa_context *ctx, int mode,
 	int ret;
 	size_t msb;
 	const TlsMdInfo *md_info;
-	ttls_md_context_t md_ctx;
+	TlsMdCtx md_ctx;
 
 	if (mode == TTLS_RSA_PRIVATE && ctx->padding != TTLS_RSA_PKCS_V21)
 		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
@@ -1723,7 +1723,7 @@ int ttls_rsa_rsassa_pss_verify_ext(ttls_rsa_context *ctx, int mode,
 	unsigned int hlen;
 	size_t observed_salt_len, msb;
 	const TlsMdInfo *md_info;
-	ttls_md_context_t md_ctx;
+	TlsMdCtx md_ctx;
 	unsigned char buf[TTLS_MPI_MAX_SIZE];
 
 	if (mode == TTLS_RSA_PRIVATE && ctx->padding != TTLS_RSA_PKCS_V21)

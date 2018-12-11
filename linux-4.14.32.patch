@@ -114,6 +114,22 @@ index f92a6593..d27c08f4 100644
  }
  EXPORT_SYMBOL_GPL(kernel_fpu_end);
  
+diff --git a/crypto/api.c b/crypto/api.c
+index 941cd4c6..5fd308d8 100644
+--- a/crypto/api.c
++++ b/crypto/api.c
+@@ -451,7 +451,11 @@ void *crypto_create_tfm(struct crypto_alg *alg,
+ 	tfmsize = frontend->tfmsize;
+ 	total = tfmsize + sizeof(*tfm) + frontend->extsize(alg);
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++	mem = kzalloc(total, GFP_ATOMIC);
++#else
+ 	mem = kzalloc(total, GFP_KERNEL);
++#endif
+ 	if (mem == NULL)
+ 		goto out_err;
+ 
 diff --git a/include/linux/interrupt.h b/include/linux/interrupt.h
 index 69c23821..58486beb 100644
 --- a/include/linux/interrupt.h

@@ -322,10 +322,10 @@ typedef struct {
  */
 typedef struct {
 	const ttls_ciphersuite_t	*ciphersuite_info;
-	ttls_md_context_t		md_ctx_enc;
-	ttls_md_context_t		md_ctx_dec;
-	ttls_cipher_context_t		cipher_ctx_enc;
-	ttls_cipher_context_t		cipher_ctx_dec;
+	TlsMdCtx			md_ctx_enc;
+	TlsMdCtx			md_ctx_dec;
+	TlsCipherCtx			cipher_ctx_enc;
+	TlsCipherCtx			cipher_ctx_dec;
 	unsigned int			keylen;
 	unsigned int			minlen;
 	unsigned char			ivlen;
