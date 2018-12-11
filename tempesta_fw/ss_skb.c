@@ -592,7 +592,7 @@ __split_pgfrag_add(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off
 }
 
 /**
- * Delete @len (the value is positive now) bytes from @frag.
+ * Delete @len (the value is positive now) bytes from skb frag @i.
  *
  * @return 0 on success, -errno on failure.
  * @return pointer to data after the deleted data in @it->ptr.
@@ -617,7 +617,7 @@ __split_pgfrag_del(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off
 	}
 
 	/* Fast path: delete a full fragment. */
-	if (!off && len == skb_frag_size(frag)) {
+	if (unlikely(!off && len == skb_frag_size(frag))) {
 		ss_skb_adjust_data_len(skb, -len);
 		__skb_frag_unref(frag);
 		if (i + 1 < si->nr_frags)
@@ -627,8 +627,8 @@ __split_pgfrag_del(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off
 		__it_next_data(skb, i, it);
 		return 0;
 	}
-	/* Fast path: delete the head part of a fragment. */
-	if (!off) {
+	/* Fast path (e.g. TLS header): delete the head part of a fragment. */
+	if (likely(!off)) {
 		frag->page_offset += len;
 		skb_frag_size_sub(frag, len);
 		ss_skb_adjust_data_len(skb, -len);
@@ -636,8 +636,8 @@ __split_pgfrag_del(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off
 		it->skb = skb;
 		return 0;
 	}
-	/* Fast path: delete the tail part of a fragment. */
-	if (off + len == skb_frag_size(frag)) {
+	/* Fast path (e.g. TLS tag): delete the tail part of a fragment. */
+	if (likely(off + len == skb_frag_size(frag))) {
 		skb_frag_size_sub(frag, len);
 		ss_skb_adjust_data_len(skb, -len);
 		__it_next_data(skb, i + 1, it);
@@ -717,9 +717,8 @@ __skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	unsigned int d_size;
 	struct skb_shared_info *si = skb_shinfo(skb);
 
-	TFW_DBG3("[%d]: %s: in: len [%d] pspt [%p], skb [%p]: head [%p]"
-		 " data [%p] tail [%p] end [%p] len [%u] data_len [%u]"
-		 " truesize [%u] nr_frags [%u]\n",
+	TFW_DBG3("[%d]: %s: len=%d pspt=%pK skb=%pK head=%pK data=%pK tail=%pK"
+		 " end=%pK len=%u data_len=%u truesize=%u nr_frags=%u\n",
 		 smp_processor_id(), __func__, len, pspt, skb, skb->head,
 		 skb->data, skb_tail_pointer(skb), skb_end_pointer(skb),
 		 skb->len, skb->data_len, skb->truesize, si->nr_frags);
@@ -884,6 +883,55 @@ alloc_head:
 	}
 
 	return frags;
+}
+
+/**
+ * Reverse operation to ss_skb_expand_head_tail(): chot @head and @tail bytes
+ * at head and end of the @skb.
+ */
+int
+ss_skb_chop_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
+		      size_t head, size_t trail)
+{
+	int n, r, i;
+	struct skb_shared_info *si = skb_shinfo(skb);
+	skb_frag_t *frag;
+	TfwStr it;
+
+	TFW_DBG3("%s: head=%#lx trail=%#lx skb=%pK (head=%pK data=%pK tail=%pK"
+		 " end=%pK len=%u data_len=%u nr_frags=%u)\n", __func__,
+		 head, trail, skb, skb->head, skb->data, skb_tail_pointer(skb),
+		 skb_end_pointer(skb), skb->len, skb->data_len, si->nr_frags);
+	if (WARN_ON_ONCE(skb->len <= head + trail))
+		return -EINVAL;
+
+	n = min_t(int, skb_headlen(skb), head);
+	if (n) {
+		__skb_pull(skb, n);
+		head -= n;
+	}
+	while (head) {
+		frag = &skb_shinfo(skb)->frags[0];
+		n = min_t(int, skb_frag_size(frag), head);
+		if ((r = __split_pgfrag_del(skb_head, skb, 0, 0, n, &it)))
+			return r;
+		head -= n;
+	}
+
+	while (trail && si->nr_frags) {
+		i = si->nr_frags - 1;
+		frag = &skb_shinfo(skb)->frags[i];
+		n = min_t(int, skb_frag_size(frag), trail);
+		r = __split_pgfrag_del(skb_head, skb, i,
+				       skb_frag_size(frag) - n, n, &it);
+		if (r)
+			return r;
+		trail -= n;
+	}
+	if (trail)
+		__skb_trim(skb, skb->len - trail);
+
+	return 0;
 }
 
 /**

@@ -45,10 +45,10 @@ typedef enum {
 	TTLS_MD_SHA256,
 	TTLS_MD_SHA384,
 	TTLS_MD_SHA512,
-	TTLS_MD_RIPEMD160,
 } ttls_md_type_t;
 
 #define TTLS_MD_MAX_SIZE		64  /* longest known is SHA512 */
+#define __MD_MAX_CTX_SZ			sizeof(struct sha512_state)
 
 /**
  * Message digest information.
@@ -56,27 +56,18 @@ typedef enum {
  *
  * @type		- Digest identifier;
  * @name		- Name of the message digest;
+ * @alg_name		- hash Linux crypto driver;
+ * @hmac_name		- HMAC Linux crypto driver;
  * @size		- Output length of the digest function in bytes;
  * @block_size		- Block length of the digest function in bytes;
- * @starts_func		- Digest initialisation function;
- * @update_func		- Digest update function;
- * @finish_func		- Digest finalisation function;
- * @ctx_alloc_func	- Allocate a new context;
- * @ctx_free_func	- Free the given context;
- * @ctx_tmpl		- context template;
  */
 typedef struct TlsMdInfo {
 	ttls_md_type_t		type;
 	const char		*name;
+	const char		*alg_name;
+	const char		*hmac_name;
 	int			size;
 	int			block_size;
-	int (*starts_func)(struct shash_desc *ctx);
-	int (*update_func)(struct shash_desc *ctx, const unsigned char *input,
-			   size_t ilen);
-	int (*finish_func)(struct shash_desc *ctx, unsigned char *output);
-	struct shash_desc *(*ctx_alloc_func)(void);
-	void (*ctx_free_func)(struct shash_desc *ctx);
-	struct crypto_shash		*tfm;
 } TlsMdInfo;
 
 /**
@@ -84,13 +75,12 @@ typedef struct TlsMdInfo {
  *
  * @md_info		- Information about the associated message digest;
  * @md_ctx		- The digest-specific context;
- * @hmac_ctx		- The HMAC part of the context;
  */
 typedef struct {
 	const TlsMdInfo		*md_info;
-	struct shash_desc	*md_ctx;
-	void			*hmac_ctx;
-} ttls_md_context_t;
+	struct shash_desc	md_ctx;
+	char			__ctx[__MD_MAX_CTX_SZ];
+} TlsMdCtx;
 
 typedef struct {
 	struct shash_desc	desc;
@@ -103,21 +93,19 @@ typedef struct {
 } CRYPTO_MINALIGN_ATTR ttls_sha512_context;
 
 const TlsMdInfo *ttls_md_info_from_type(ttls_md_type_t md_type);
-void ttls_md_init(ttls_md_context_t *ctx);
-void ttls_md_free(ttls_md_context_t *ctx);
+void ttls_md_init(TlsMdCtx *ctx);
+void ttls_md_free(TlsMdCtx *ctx);
 
 /*
  * This function selects the message digest algorithm to use, and allocates
  * internal structures. It should be called after ttls_md_init() or
  * ttls_md_free(). Makes it necessary to call ttls_md_free() later.
  */
-int ttls_md_setup(ttls_md_context_t *ctx, const TlsMdInfo *md_info,
-		  int hmac);
+int ttls_md_setup(TlsMdCtx *ctx, const TlsMdInfo *md_info, int hmac);
 
-int ttls_md_starts(ttls_md_context_t *ctx);
-int ttls_md_update(ttls_md_context_t *ctx, const unsigned char *input,
-		   size_t ilen);
-int ttls_md_finish(ttls_md_context_t *ctx, unsigned char *output);
+int ttls_md_starts(TlsMdCtx *ctx);
+int ttls_md_update(TlsMdCtx *ctx, const unsigned char *input, size_t ilen);
+int ttls_md_finish(TlsMdCtx *ctx, unsigned char *output);
 
 /*
  * This function calculates the message-digest of a buffer, with respect to a
@@ -126,31 +114,23 @@ int ttls_md_finish(ttls_md_context_t *ctx, unsigned char *output);
 int ttls_md(const TlsMdInfo *md_info, const unsigned char *input,
 	    size_t ilen, unsigned char *output);
 
-/*
- * This function sets the HMAC key and prepares to authenticate a new message.
- * Call this function after ttls_md_setup(), to use the MD context for an HMAC
- * calculation, then call ttls_md_hmac_update() to provide the input data, and
- * ttls_md_hmac_finish() to get the HMAC value.
- */
-int ttls_md_hmac_starts(ttls_md_context_t *ctx, const unsigned char *key,
-			size_t keylen);
-int ttls_md_hmac_update(ttls_md_context_t *ctx, const unsigned char *input,
-			size_t ilen);
-int ttls_md_hmac_finish(ttls_md_context_t *ctx, unsigned char *output);
+int ttls_sha256_init_start(ttls_sha256_context *ctx);
+int ttls_sha384_init_start(ttls_sha512_context *ctx);
 
-/*
- * This function prepares to authenticate a new message with the same key as
- * the previous HMAC operation. You may call this function after
- * ttls_md_hmac_finish(). Afterwards call ttls_md_hmac_update() to pass the new
- * input.
- */
-int ttls_md_hmac_reset(ttls_md_context_t *ctx);
+int ttls_md_hmac_starts(TlsMdCtx *ctx, const unsigned char *key, size_t keylen);
+int ttls_md_hmac_reset(TlsMdCtx *ctx);
 
-void ttls_sha256_init_start(ttls_sha256_context *ctx);
-void ttls_sha384_init_start(ttls_sha512_context *ctx);
+static inline int
+ttls_md_hmac_update(TlsMdCtx *ctx, const unsigned char *input, size_t ilen)
+{
+	return ttls_md_update(ctx, input, ilen);
+}
 
-void ttls_free_md_ctx_tmpls(void);
-int ttls_init_md_ctx_tmpls(void);
+static inline int
+ttls_md_hmac_finish(TlsMdCtx *ctx, unsigned char *output)
+{
+	return ttls_md_finish(ctx, output);
+}
 
 static inline unsigned char
 ttls_md_get_size(const TlsMdInfo *md_info)

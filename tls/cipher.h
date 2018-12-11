@@ -53,7 +53,6 @@
 typedef enum {
 	TTLS_CIPHER_ID_NONE = 0,
 	TTLS_CIPHER_ID_AES,
-	TTLS_CIPHER_ID_CAMELLIA,
 } ttls_cipher_id_t;
 
 /* Supported (cipher, mode) pairs. */
@@ -62,22 +61,16 @@ typedef enum {
 	TTLS_CIPHER_AES_128_GCM,
 	TTLS_CIPHER_AES_192_GCM,
 	TTLS_CIPHER_AES_256_GCM,
-	TTLS_CIPHER_CAMELLIA_128_GCM,
-	TTLS_CIPHER_CAMELLIA_192_GCM,
-	TTLS_CIPHER_CAMELLIA_256_GCM,
 	TTLS_CIPHER_AES_128_CCM,
 	TTLS_CIPHER_AES_192_CCM,
 	TTLS_CIPHER_AES_256_CCM,
-	TTLS_CIPHER_CAMELLIA_128_CCM,
-	TTLS_CIPHER_CAMELLIA_192_CCM,
-	TTLS_CIPHER_CAMELLIA_256_CCM,
 } ttls_cipher_type_t;
 
 /* Supported cipher modes. */
 typedef enum {
 	TTLS_MODE_NONE = 0,
 	TTLS_MODE_GCM,
-	TTLS_MODE_STREAM, /* TODO: ChaCha20-Poly1305 */
+	TTLS_MODE_STREAM, /* TLS 1.3: ChaCha20-Poly1305 */
 	TTLS_MODE_CCM,
 } ttls_cipher_mode_t;
 
@@ -90,25 +83,14 @@ typedef enum {
 	TTLS_PADDING_NONE,		/* never pad (full blocks only) */
 } ttls_cipher_padding_t;
 
-/* Type of operation. */
-typedef enum {
-	TTLS_OPERATION_NONE = -1,
-	TTLS_DECRYPT = 0,
-	TTLS_ENCRYPT,
-} ttls_operation_t;
-
 /** Maximum length of any IV, in Bytes. */
 #define TTLS_MAX_IV_LENGTH		16
-/** Maximum block size of any cipher, in Bytes. */
-#define TTLS_MAX_BLOCK_LENGTH		16
 
 /**
  * Base cipher information. The non-mode specific functions and values.
  *
  * @cipher		- Base Cipher type (e.g. TTLS_CIPHER_ID_AES);
  * @stream_func		- Encrypt using STREAM;
- * @setkey_enc_func	- Set key for encryption purposes;
- * @setkey_dec_func	- Set key for decryption purposes;
  * @ctx_alloc_func	- Allocate a new context;
  * @ctx_free_func	- Free the given context;
  * @tfm			- crypto driver;
@@ -117,10 +99,6 @@ typedef struct {
 	ttls_cipher_id_t	cipher;
 	int (*stream_func)(void *ctx, size_t length, const unsigned char *input,
 			   unsigned char *output);
-	int (*setkey_enc_func)(void *ctx, const unsigned char *key,
-			       unsigned int len);
-	int (*setkey_dec_func)(void *ctx, const unsigned char *key,
-			       unsigned int len);
 
 	struct crypto_aead * (*ctx_alloc_func)(void);
 
@@ -161,45 +139,26 @@ typedef struct {
  *
  * @cipher_info		- Information about the associated cipher;
  * @cipher_ctx		- The cipher-specific context;
- * @key_len		- Key length to use;
- * @operation		- Operation that the key of the context has been
- *			  initialized for;
- * @unprocessed_len	- Number of Bytes that have not been processed yet;
  * @iv_size		- IV size in Bytes, for ciphers with variable-length
  *			  IVs;
- * @unprocessed_data	- Buffer for input that has not been processed yet;
- * @iv			- Current IV or NONCE_COUNTER for CTR-mode;
+ * @iv			- Current IV;
  */
 typedef struct {
 	const ttls_cipher_info_t	*cipher_info;
 	struct crypto_aead		*cipher_ctx;
-	unsigned char			key_len;
-	unsigned char			operation;
-	unsigned char			unprocessed_len;
 	unsigned char			iv_size;
-	unsigned char			unprocessed_data[TTLS_MAX_BLOCK_LENGTH];
 	unsigned char			iv[TTLS_MAX_IV_LENGTH];
-} ttls_cipher_context_t;
-
-typedef struct {
-	ttls_cipher_type_t		type;
-	const ttls_cipher_info_t	*info;
-} ttls_cipher_definition_t;
+} TlsCipherCtx;
 
 const ttls_cipher_info_t *ttls_cipher_info_from_type(
 					const ttls_cipher_type_t cipher_type);
 
-void ttls_cipher_free(ttls_cipher_context_t *ctx);
-int ttls_cipher_setup(ttls_cipher_context_t *ctx, const ttls_cipher_info_t *ci,
+void ttls_cipher_free(TlsCipherCtx *ctx);
+int ttls_cipher_setup(TlsCipherCtx *ctx, const ttls_cipher_info_t *ci,
 		      unsigned int tag_size);
 
-int ttls_cipher_setkey(ttls_cipher_context_t *ctx, const unsigned char *key,
-		       int key_len, const ttls_operation_t operation);
-
-void ttls_free_cipher_ctx_tmpls(void);
-int ttls_init_cipher_ctx_tmpls(void);
-
-extern const ttls_cipher_definition_t ttls_cipher_definitions[];
-extern int ttls_cipher_supported[];
+int ttls_cipher_setkeys(TlsCipherCtx *ctx_enc, const unsigned char *key_enc,
+			TlsCipherCtx *ctx_dec, const unsigned char *key_dec,
+			int key_len);
 
 #endif /* TTLS_CIPHER_H */

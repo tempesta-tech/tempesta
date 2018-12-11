@@ -41,6 +41,13 @@ MODULE_DESCRIPTION("Tempesta TLS");
 MODULE_VERSION("0.2.0");
 MODULE_LICENSE("GPL");
 
+typedef struct {
+	struct aead_request	req;
+	char			__ctx_reserved[8];
+} __attribute__((packed)) __TlsReq;
+
+static DEFINE_PER_CPU(__TlsReq, g_req) ____cacheline_aligned;
+
 static struct kmem_cache *ttls_hs_cache;
 static ttls_send_cb_t *ttls_send_cb;
 
@@ -135,6 +142,7 @@ ttls_crypto_req_sglist(TlsCtx *tls, struct crypto_aead *tfm, unsigned int len,
 	BUG_ON(!buf && (!skb || skb->len <= off)); /* nothing to decrypt */
 	sz += n * sizeof(**sg);
 
+	/* Dont' use g_req for better spacial locality. */
 	req = kmalloc(sz, GFP_ATOMIC);
 	if (!req)
 		return NULL;
@@ -258,7 +266,7 @@ tls_prf_generic(ttls_md_type_t md_type, const unsigned char *secret,
 {
 	size_t i, k, md_len;
 	const TlsMdInfo *md_info;
-	ttls_md_context_t md_ctx;
+	TlsMdCtx md_ctx;
 	int r;
 	unsigned char __buf[TTLS_MD_MAX_SIZE * 3] ____cacheline_aligned;
 	unsigned char *tmp = __buf, *h_i = &__buf[TTLS_MD_MAX_SIZE * 2];
@@ -338,9 +346,11 @@ ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len)
 	BUG_ON(!ci);
 	if (unlikely(!hs->desc.tfm)) {
 		if (ci->mac == TTLS_MD_SHA384)
-			ttls_sha384_init_start(&hs->fin_sha512);
+			r = ttls_sha384_init_start(&hs->fin_sha512);
 		else
-			ttls_sha256_init_start(&hs->fin_sha256);
+			r = ttls_sha256_init_start(&hs->fin_sha256);
+		if (WARN_ON_ONCE(r))
+			return;
 	}
 
 	T_DBG2("update checksum on buf %pK len=%ld, hash=%d\n",
@@ -450,7 +460,7 @@ ttls_calc_finished_tls_sha384(TlsCtx *tls, unsigned char *buf, int from)
 int
 ttls_derive_keys(TlsCtx *tls)
 {
-	unsigned char keyblk[256];
+	unsigned char keyblk[256] ____cacheline_aligned;
 	unsigned char tmp[32];
 	unsigned char *key1, *key2, *mac_enc, *mac_dec;
 	const ttls_cipher_info_t *ci;
@@ -555,8 +565,11 @@ ttls_derive_keys(TlsCtx *tls)
 				+ ((xfrm->ciphersuite_info->flags
 				    & TTLS_CIPHERSUITE_SHORT_TAG) ? 8 : 16);
 	} else {
-		/* TODO #1031: this branch seems for stream mode only. */
-		/* Initialize HMAC contexts */
+		BUG_ON(ci->mode != TTLS_MODE_STREAM);
+		/*
+		 * TODO #1031: Initialize HMAC contexts - do we need this for
+		 * CHACHA20_POLY1305?
+		 */
 		if ((r = ttls_md_setup(&xfrm->md_ctx_enc, md_info, 1))
 		    || (r = ttls_md_setup(&xfrm->md_ctx_dec, md_info, 1)))
 		{
@@ -573,22 +586,7 @@ ttls_derive_keys(TlsCtx *tls)
 		WARN_ON_ONCE(xfrm->ivlen > 16);
 
 		/* Minimum length */
-		if (ci->mode == TTLS_MODE_STREAM) {
-			xfrm->minlen = xfrm->maclen;
-		} else {
-			/*
-			 * GenericBlockCipher: if EtM is in use: one block plus
-			 * MAC otherwise: first multiple of blocklen greater
-			 * than maclen.
-			 */
-			if (tls->encrypt_then_mac) {
-				xfrm->minlen = xfrm->maclen + ci->block_size;
-			} else {
-				xfrm->minlen = xfrm->maclen + ci->block_size
-					       - xfrm->maclen % ci->block_size;
-			}
-			xfrm->minlen += xfrm->ivlen;
-		}
+		xfrm->minlen = xfrm->maclen;
 	}
 	T_DBG("keylen=%u minlen=%u ivlen=%u maclen=%u tagsize=%d"
 	      " mac_key_len=%lu\n", xfrm->keylen, xfrm->minlen, xfrm->ivlen,
@@ -600,9 +598,7 @@ ttls_derive_keys(TlsCtx *tls)
 		key2 = keyblk + mac_key_len * 2 + xfrm->keylen;
 		mac_enc = keyblk;
 		mac_dec = keyblk + mac_key_len;
-		iv_copy_len = xfrm->fixed_ivlen
-			      ? xfrm->fixed_ivlen
-			      : xfrm->ivlen;
+		iv_copy_len = xfrm->fixed_ivlen ? : xfrm->ivlen;
 		memcpy_fast(xfrm->iv_enc, key2 + xfrm->keylen, iv_copy_len);
 		memcpy_fast(xfrm->iv_dec, key2 + xfrm->keylen + iv_copy_len,
 			    iv_copy_len);
@@ -611,17 +607,15 @@ ttls_derive_keys(TlsCtx *tls)
 		key2 = keyblk + mac_key_len * 2;
 		mac_enc = keyblk + mac_key_len;
 		mac_dec = keyblk;
-		iv_copy_len = xfrm->fixed_ivlen
-			      ? xfrm->fixed_ivlen
-			      : xfrm->ivlen;
+		iv_copy_len = xfrm->fixed_ivlen ? : xfrm->ivlen;
 		memcpy_fast(xfrm->iv_dec, key1 + xfrm->keylen, iv_copy_len);
 		memcpy_fast(xfrm->iv_enc, key1 + xfrm->keylen + iv_copy_len,
 			    iv_copy_len);
 	}
-	T_DBG3_BUF("derive keys: IV_enc fixed ", xfrm->iv_enc, iv_copy_len);
-	T_DBG3_BUF("derive keys: key_enc ", key1, ci->key_len);
-	T_DBG3_BUF("derive keys: IV_dec fixed ", xfrm->iv_dec, iv_copy_len);
-	T_DBG3_BUF("derive keys: key_dec ", key2, ci->key_len);
+	T_DBG3_BUF("derive keys: IV_enc fixed", xfrm->iv_enc, iv_copy_len);
+	T_DBG3_BUF("derive keys: key_enc", key1, ci->key_len);
+	T_DBG3_BUF("derive keys: IV_dec fixed", xfrm->iv_dec, iv_copy_len);
+	T_DBG3_BUF("derive keys: key_dec", key2, ci->key_len);
 
 	if (mac_key_len) {
 		ttls_md_hmac_starts(&xfrm->md_ctx_enc, mac_enc, mac_key_len);
@@ -636,16 +630,11 @@ ttls_derive_keys(TlsCtx *tls)
 		T_DBG("cannot setup decryption cipher, %d\n", r);
 		return r;
 	}
-	if ((r = ttls_cipher_setkey(&xfrm->cipher_ctx_enc, key1, ci->key_len,
-				    TTLS_ENCRYPT)))
-	{
-		T_DBG("cannot set encryption key, %d\n", r);
-		return r;
-	}
-	if ((r = ttls_cipher_setkey(&xfrm->cipher_ctx_dec, key2, ci->key_len,
-				    TTLS_DECRYPT)))
-	{
-		T_DBG("cannot set decryption key, %d\n", r);
+
+	r = ttls_cipher_setkeys(&xfrm->cipher_ctx_enc, key1,
+				&xfrm->cipher_ctx_dec, key2, ci->key_len);
+	if (r) {
+		T_DBG("cannot set symmetric keys, %d\n", r);
 		return r;
 	}
 
@@ -668,15 +657,44 @@ ttls_read_version(TlsCtx *tls, const unsigned char ver[2])
  * modern kernels.
  */
 static void
-ttls_make_aad(TlsCtx *tls, TlsIOCtx *io, unsigned char *aad_buf,
-	      unsigned long iv)
+ttls_make_aad(TlsCtx *tls, TlsIOCtx *io, unsigned char *aad_buf)
 {
 	unsigned short elen = ttls_msg2crypt_len(io, &tls->xfrm);
 
-	*(unsigned long *)aad_buf = iv;
+	*(unsigned long *)aad_buf = __cpu_to_be64(io->ctr);
 	ttls_write_hdr(tls, io->msgtype, elen, aad_buf + 8);
 	T_DBG3_BUF("additional data used for AEAD", aad_buf,
 		   TLS_AAD_SPACE_SIZE);
+}
+
+/**
+ * Use per-cpu AEAD crypto requests in static memory instead of allocating them
+ * each time from the heap. Tempesta TLS works in softirq context, so there are
+ * no concurrent crypto requests on the same CPU and there is no preemption.
+ * Fallabck to kmalloc() if we use not enough reserved memory in TlsReq and
+ * print a warning to reserve bit more memory.
+ */
+static struct aead_request *
+ttls_aead_req_alloc(struct crypto_aead *tfm)
+{
+	size_t need = sizeof(struct aead_request) + crypto_aead_reqsize(tfm);
+
+	if (WARN_ON_ONCE(sizeof(__TlsReq) < need))
+		return kzalloc(need, GFP_ATOMIC);
+
+	return &this_cpu_ptr(&g_req)->req;
+}
+
+static void
+ttls_aead_req_free(struct aead_request *req)
+{
+	struct crypto_aead *tfm = crypto_aead_reqtfm(req);
+	size_t need = sizeof(struct aead_request) + crypto_aead_reqsize(tfm);
+
+	if (likely(sizeof(__TlsReq) >= need))
+		bzero_fast(req, sizeof(__TlsReq));
+	else
+		kfree(req);
 }
 
 /**
@@ -686,17 +704,19 @@ ttls_make_aad(TlsCtx *tls, TlsIOCtx *io, unsigned char *aad_buf,
  * encrypted on TCP transmission.
  *
  * @sgt must have enough room for AAD header and a TAG.
+ *
+ * TODO mbed TLS uses egress record ID as IV, but it seems that this isn't a
+ * good practice and random IV is preferred.
  */
 int
 ttls_encrypt(TlsCtx *tls, struct sg_table *sgt)
 {
-	ttls_cipher_mode_t mode;
 	int r, elen;
 	TlsXfrm *xfrm = &tls->xfrm;
 	TlsIOCtx *io = &tls->io_out;
-	ttls_cipher_context_t *c_ctx = &xfrm->cipher_ctx_enc;
+	TlsCipherCtx *c_ctx = &xfrm->cipher_ctx_enc;
 	unsigned long iv = __cpu_to_be64(io->ctr);
-	struct aead_request req;
+	struct aead_request *req;
 
 	WARN_ON_ONCE(!ttls_xfrm_ready(tls));
 	if (io->msglen > TLS_MAX_PAYLOAD_SIZE) {
@@ -705,25 +725,31 @@ ttls_encrypt(TlsCtx *tls, struct sg_table *sgt)
 		return TTLS_ERR_BAD_INPUT_DATA;
 	}
 
-	mode = c_ctx->cipher_info->mode;
-	WARN_ON_ONCE(mode != TTLS_MODE_GCM && mode != TTLS_MODE_CCM);
+	req = ttls_aead_req_alloc(c_ctx->cipher_ctx);
+	if (unlikely(!req))
+		return -ENOMEM;
 
 	*(long *)(xfrm->iv_enc + xfrm->fixed_ivlen) = iv;
 	T_DBG3_BUF("IV used", xfrm->iv_enc, xfrm->ivlen);
 
 	elen = ttls_msg2crypt_len(io, xfrm);
-	ttls_make_aad(tls, io, sg_virt(sgt->sgl), iv);
-	aead_request_set_tfm(&req, c_ctx->cipher_ctx);
-	aead_request_set_ad(&req, TLS_AAD_SPACE_SIZE);
-	aead_request_set_crypt(&req, sgt->sgl, sgt->sgl, elen,
-			       (unsigned char *)&iv);
+	ttls_make_aad(tls, io, sg_virt(sgt->sgl));
+	aead_request_set_tfm(req, c_ctx->cipher_ctx);
+	aead_request_set_ad(req, TLS_AAD_SPACE_SIZE);
+	aead_request_set_crypt(req, sgt->sgl, sgt->sgl, elen, xfrm->iv_enc);
 
+	T_DBG3("%s encryption: tfm=%pK(req->tfm=%pK req=%pK) reqsize=%u"
+		" key_len=%u data_len=%d\n",
+	       c_ctx->cipher_info->name, c_ctx->cipher_ctx,
+	       crypto_aead_reqtfm(req), req,
+	       crypto_aead_reqsize(c_ctx->cipher_ctx),
+	       c_ctx->cipher_info->key_len, elen);
 	T_DBG3_SL("plaintext buf for encryption", sgt->sgl, sgt->nents, 0,
 		  (size_t)io->msglen + TLS_HEADER_SIZE);
 
-	if ((r = crypto_aead_encrypt(&req))) {
+	if ((r = crypto_aead_encrypt(req))) {
 		T_DBG2("encrypt failed: %d\n", r);
-		return r;
+		goto err;
 	}
 	T_DBG3_SL("encrypted buf", sgt->sgl, sgt->nents, 0,
 		  (size_t)io->msglen + TLS_HEADER_SIZE);
@@ -731,7 +757,10 @@ ttls_encrypt(TlsCtx *tls, struct sg_table *sgt)
 	if (unlikely(++io->ctr > (~0UL >> 1)))
 		T_WARN("outgoing message counter would wrap\n");
 
-	return 0;
+err:
+	ttls_aead_req_free(req);
+
+	return r;
 }
 EXPORT_SYMBOL(ttls_encrypt);
 
@@ -777,7 +806,7 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 				     &sg, &sgn);
 	if (!req || WARN_ON_ONCE(sgn < 2))
 		return TTLS_ERR_INTERNAL_ERROR;
-	ttls_make_aad(tls, io, aad_buf, *(unsigned long *)io->iv);
+	ttls_make_aad(tls, io, aad_buf);
 	sg_set_buf(sg, aad_buf, TLS_AAD_SPACE_SIZE);
 
 	T_DBG3("TFM: authsize=%u reqsize=%u io=%pK\n",
@@ -802,6 +831,9 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 
 	T_DBG3_SL("raw buffer after decryption", sg + 1, sgn - 1, 0,
 		  dec_msglen);
+
+	if (unlikely(++io->ctr > (~0UL >> 1)))
+		T_WARN("incoming message counter would wrap\n");
 
 	kfree(req);
 
@@ -1138,6 +1170,9 @@ ttls_handshake_free(TlsHandshake *hs)
 			cur = next;
 		}
 	}
+
+	crypto_free_shash(hs->desc.tfm);
+
 	bzero_fast(hs, sizeof(TlsHandshake));
 	kmem_cache_free(ttls_hs_cache, hs);
 }
@@ -2628,7 +2663,7 @@ ttls_get_key_exchange_md_tls1_2(TlsCtx *tls, unsigned char *output,
 				ttls_md_type_t md_alg)
 {
 	int r = 0;
-	ttls_md_context_t ctx;
+	TlsMdCtx ctx;
 	const TlsMdInfo *md_info = ttls_md_info_from_type(md_alg);
 
 	ttls_md_init(&ctx);
@@ -2684,8 +2719,6 @@ ttls_exit(void)
 {
 	ttls_mpi_modexit();
 	kmem_cache_destroy(ttls_hs_cache);
-	ttls_free_cipher_ctx_tmpls();
-	ttls_free_md_ctx_tmpls();
 }
 
 static int __init
@@ -2701,10 +2734,6 @@ ttls_init(void)
 	ttls_hs_cache = kmem_cache_create("ttls_hs_cache", sizeof(TlsHandshake),
 		  0, 0, NULL);
 	if (!ttls_hs_cache)
-		goto err_free;
-	if (ttls_init_cipher_ctx_tmpls())
-		goto err_free;
-	if (ttls_init_md_ctx_tmpls())
 		goto err_free;
 
 	return 0;

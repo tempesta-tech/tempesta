@@ -36,9 +36,9 @@
  */
 typedef struct
 {
-	unsigned char name[4];		  /*!< random key identifier			  */
-	uint32_t generation_time;	   /*!< key generation timestamp (seconds) */
-	ttls_cipher_context_t ctx;   /*!< context for auth enc/decryption	*/
+	unsigned char name[4];		/*!< random key identifier */
+	uint32_t generation_time;	/*!< key generation timestamp (seconds) */
+	TlsCipherCtx ctx;		/*!< context for auth enc/decryption	*/
 }
 ttls_ticket_key;
 
