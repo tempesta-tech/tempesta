@@ -631,10 +631,15 @@ ttls_derive_keys(TlsCtx *tls)
 		return r;
 	}
 
-	r = ttls_cipher_setkeys(&xfrm->cipher_ctx_enc, key1,
-				&xfrm->cipher_ctx_dec, key2, ci->key_len);
+	r = crypto_aead_setkey(xfrm->cipher_ctx_enc.cipher_ctx, key1, ci->key_len);
 	if (r) {
-		T_DBG("cannot set symmetric keys, %d\n", r);
+		T_DBG("cannot set encryption key, %d\n", r);
+		return r;
+	}
+
+	r = crypto_aead_setkey(xfrm->cipher_ctx_dec.cipher_ctx, key2, ci->key_len);
+	if (r) {
+		T_DBG("cannot set decryption key, %d\n", r);
 		return r;
 	}
 
