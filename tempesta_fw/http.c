@@ -2354,9 +2354,9 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 	 * a response is paired with a request, but the first response
 	 * in the queue is not ready yet, so it can't be sent out. When
 	 * there're responses to send, sending must be in correct order
-	 * which is controlled by the lock. To allow other threads pair
-	 * requests with responses, unlock the seq_queue lock and use
-	 * different lock @ret_qlock for sending.
+	 * which is controlled by the lock. To avoid delays in progress
+	 * of other threads during responses sending, unlock the seq_queue
+	 * lock and use different lock @ret_qlock for sending.
 	 *
 	 * A client may close the connection at any time. A connection
 	 * is destroyed when the last reference goes, so the argument
