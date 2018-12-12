@@ -109,36 +109,6 @@ ttls_cipher_setup(TlsCipherCtx *ctx, const ttls_cipher_info_t *ci,
 	return 0;
 }
 
-/**
- * Linux crypt API requires aligned keys to pass them to assembly layer,
- * so copy both the keys at once to avoid additional kmalloc() calls in
- * setkey_unaligned().
- */
-int
-ttls_cipher_setkeys(TlsCipherCtx *ctx_enc, const unsigned char *key_enc,
-		    TlsCipherCtx *ctx_dec, const unsigned char *key_dec,
-		    int key_len)
-{
-	int r;
-
-	if (WARN_ON_ONCE(key_len > 64
-			 || !ctx_enc || !ctx_dec
-			 || !ctx_enc->cipher_info || !ctx_dec->cipher_info
-			 || (!(ctx_enc->cipher_info->flags
-			       & TTLS_CIPHER_VARIABLE_KEY_LEN)
-				 && ctx_enc->cipher_info->key_len != key_len)
-			 || (!(ctx_dec->cipher_info->flags
-			       & TTLS_CIPHER_VARIABLE_KEY_LEN)
-				 && ctx_dec->cipher_info->key_len != key_len)))
-	{
-		return TTLS_ERR_CIPHER_BAD_INPUT_DATA;
-	}
-
-	if ((r = crypto_aead_setkey(ctx_enc->cipher_ctx, key_enc, key_len)))
-		return r;
-	return crypto_aead_setkey(ctx_dec->cipher_ctx, key_dec, key_len);
-}
-
 static ttls_cipher_base_t gcm_aes_info = {
 	.cipher			= TTLS_CIPHER_ID_AES,
 	.ctx_alloc_func		= gcm_aes_ctx_alloc,

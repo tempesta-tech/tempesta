@@ -157,8 +157,4 @@ void ttls_cipher_free(TlsCipherCtx *ctx);
 int ttls_cipher_setup(TlsCipherCtx *ctx, const ttls_cipher_info_t *ci,
 		      unsigned int tag_size);
 
-int ttls_cipher_setkeys(TlsCipherCtx *ctx_enc, const unsigned char *key_enc,
-			TlsCipherCtx *ctx_dec, const unsigned char *key_dec,
-			int key_len);
-
 #endif /* TTLS_CIPHER_H */
