@@ -24,7 +24,7 @@
  *    value for different percentile, e.g. 81st. This is very possible if we
  *    don't have enough data for accurate percentiles calculation.
  *
- * Copyright (C) 2016-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
