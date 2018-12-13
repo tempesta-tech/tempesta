@@ -7,7 +7,7 @@
  * Update the code when the library support the feature,
  * track status of https://github.com/thom311/libnl/issues/33.
  *
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2018 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
