@@ -831,6 +831,7 @@ __sched_srv(TfwRatioSrvDesc *srvdesc, int skipnip, int *nipconn)
 		TfwSrvConn *srv_conn = srvdesc->conn[idxval % srvdesc->conn_n];
 
 		if (unlikely(tfw_srv_conn_restricted(srv_conn)
+			     || tfw_srv_conn_busy(srv_conn)
 			     || tfw_srv_conn_queue_full(srv_conn)))
 			continue;
 		if (skipnip && tfw_srv_conn_hasnip(srv_conn)) {
