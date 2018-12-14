@@ -2,7 +2,7 @@
  * A client for testing Synchronous Sockets connect() that does not sleep.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -92,7 +92,7 @@ static TfwAddr kclient_server_address;
 static SsHooks kclient_hooks;
 
 module_param(server, charp, 0);
-MODULE_PARM_DESC(server, "Server host address and optional port nunber");
+MODULE_PARM_DESC(server, "Server host address and optional port number");
 MODULE_LICENSE("GPL");
 
 static int

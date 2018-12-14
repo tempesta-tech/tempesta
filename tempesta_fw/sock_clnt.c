@@ -209,7 +209,7 @@ err_client:
 }
 
 /**
- * Do the same stuff for intetional client connection closing and due to some
+ * Do the same stuff for intentional client connection closing and due to some
  * error on TCP socket or application layers.
  */
 static void
@@ -268,7 +268,7 @@ static int
 __cli_conn_close_cb(TfwConn *conn)
 {
 	/*
-	 * Use assynchronous closing to release peer connection list and
+	 * Use asynchronous closing to release peer connection list and
 	 * client hash bucket locks as soon as possible and let softirq
 	 * do all the jobs.
 	 */
@@ -596,9 +596,9 @@ tfw_sock_clnt_stop(void)
 	/*
 	 * Now all listening sockets are closed, so no new connections
 	 * can appear. Close all established client connections.
-	 * We're going to acquie client hash bucket and peer connection list
-	 * locks, so disable softiqs to avoid deadlock with the sockets closing
-	 * in softiq context.
+	 * We're going to acquire client hash bucket and peer connection list
+	 * locks, so disable softirq to avoid deadlock with the sockets closing
+	 * in softirq context.
 	 */
 	local_bh_disable();
 	while (tfw_client_for_each(tfw_cli_conn_close_all)) {

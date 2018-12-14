@@ -1473,7 +1473,7 @@ EXPORT_SYMBOL(tfw_cfg_cleanup_children);
  *     option3;
  *     ...
  * }
- * ...and invokes the TfwCfgSpec->handler which turns out to be this fucntion.
+ * ...and invokes the TfwCfgSpec->handler which turns out to be this function.
  * Here we simply continue parsing by recursing to parse_and_handle_cfg_entry().
  *
  * Also, we cheat here: we don't create a new TfwCfgParserState, but rather

@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * x86-64 SIMD routines for HTTP strings processing. See the algorithms'
- * description and perfomance comparison with other implementations at
+ * description and performance comparison with other implementations at
  * http://natsys-lab.blogspot.ru/2016/10/http-strings-processing-using-c-sse42.html
  *
  * Copyright (C) 2016-2018 Tempesta Technologies, Inc.
@@ -40,12 +40,12 @@
  * @D		- ASCII 'z' - 'a' + 1
  * @LCASE	- 0x20 converting upper case character to lower case;
  * @ARF		- ASCII rows factors;
- * @LSH		- Mask for least sigificant half of bytes;
+ * @LSH		- Mask for least significant half of bytes;
  * @_uri	- ASCII table column bitmaps for HTTP URI abs_path (RFC 3986);
  * @_token	- ASCII table column bitmaps for HTTP token, e.g. header name
  *		  (RFC 7230 3.2.6);
  * @_qetoken	- `token` with double quotes and equal sign;
- * @_nctl	- ASCII VCHAR (RFC RFC 5234, Apendix B.1.) plus SP and HTAB,
+ * @_nctl	- ASCII VCHAR (RFC RFC 5234, Appendix B.1.) plus SP and HTAB,
  *		  used to accept HTTP header values;
  * @_xff	- ASCII characters for HTTP X-Forwarded-For header (RFC 7239);
  * @_cookie	- cookie-octet as defined in RFC 6265 4.1.1 plus DQUOTE;
@@ -224,7 +224,7 @@ tfw_str_init_const(void)
 		0xe8, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
 		0xf8, 0xf8, 0xf4, 0x54, 0xd0, 0x5c, 0xf4, 0x70);
 	/*
-	 * RFC 7230, Apendix B; RFC 5234, Apendix B.1.:
+	 * RFC 7230, Appendix B; RFC 5234, Appendix B.1.:
 	 * 
 	 * 	field-value OWS = VCHAR SP HTAB = %x9 %x20-7E
 	 *
@@ -1613,7 +1613,7 @@ __tfw_match_custom16(const char *str, __m128i *bm128_0, __m128i *bm128_1)
 }
 
 /**
- * @return legth of set of custom defined characters in @str.
+ * @return length of set of custom defined characters in @str.
  * https://github.com/tempesta-tech/tempesta/issues/628
  */
 static size_t

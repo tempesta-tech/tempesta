@@ -596,7 +596,7 @@ mark_raw_hbh(TfwHttpMsg *hm, TfwStr *hdr)
 
 /**
  * Lookup for the header @hdr in already collected headers table @ht,
- * and mark it as hop-by-hop. The lookup is performed untill ':', so header
+ * and mark it as hop-by-hop. The lookup is performed until ':', so header
  * name only is enough in @hdr.
  *
  * @return true if @hdr was found and marked as hop-by-hop
@@ -609,7 +609,7 @@ __mark_hbh_hdr(TfwHttpMsg *hm, TfwStr *hdr)
 
 	/*
 	 * This function is called before hm->h_tbl is fully parsed,
-	 * if header is epmty, don't touch it
+	 * if header is empty, don't touch it
 	 */
 	if ((hid >= ht->off) || (TFW_STR_EMPTY(&ht->tbl[hid])))
 		return false;
@@ -620,7 +620,7 @@ __mark_hbh_hdr(TfwHttpMsg *hm, TfwStr *hdr)
 
 /**
  * Add header name listed in Connection header to table of raw headers.
- * If @last is true then (@data, @len) represnts last chunk of header name and
+ * If @last is true then (@data, @len) represents last chunk of header name and
  * chunk with ':' will be added to the end. Otherwize last header in table stays
  * open to add more data.
  *
@@ -880,7 +880,7 @@ __FSM_STATE(RGen_CRLFCR) {						\
  * We have HTTP message descriptors and special headers,
  * however we still need to store full headers (instead of just their values)
  * as well as store headers which aren't need in further processing
- * (e.g. Content-Length which is doubled by TfwHttpMsg.conent_length)
+ * (e.g. Content-Length which is doubled by TfwHttpMsg.content_length)
  * to mangle row skb data.
  */
 #define __TFW_HTTP_PARSE_SPECHDR_VAL(st_curr, st_i, hm, func, id, saveval) \
@@ -988,7 +988,7 @@ __FSM_STATE(RGen_HdrOtherN) {						\
 }									\
 __FSM_STATE(RGen_HdrOtherV) {						\
 	/*								\
-	 * The header content is opaqueue for us,			\
+	 * The header content is opaque for us,				\
 	 * so pass ctext and VCHAR.					\
 	 */								\
 	__FSM_MATCH_MOVE(ctext_vchar, RGen_HdrOtherV);			\
@@ -1228,7 +1228,7 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	 * TODO: RFC 6455 WebSocket Protocol
 	 * During handshake client sets "Connection: update" and "Update" header.
 	 * This headers should be passed to server unchanged to allow
-	 * WebSocket porotol.
+	 * WebSocket protocol.
 	 */
 	__FSM_STATE(I_Conn) {
 		/* Boolean connection tokens */
@@ -2204,7 +2204,7 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	/* ';' was already matched. */
 	__FSM_STATE(Req_I_CookieSemicolon) {
 		/*
-		 * Fixup current delimeters chunk and move to next parameter
+		 * Fixup current delimiters chunk and move to next parameter
 		 * if we can eat ';' and SP at once.
 		 */
 		if (likely(__data_available(p, 2))) {
@@ -2214,7 +2214,7 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		}
 		/*
 		 * Only ';' is available now: fixup ';' as independent chunk,
-		 * SP willbe fixed up at next enter to the FSM.
+		 * SP will be fixed up at next enter to the FSM.
 		 */
 		__FSM_I_MOVE_fixup(Req_I_CookieSP, 1, 0);
 	}
@@ -2222,7 +2222,7 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_CookieSP) {
 		if (unlikely(c != ' '))
 			return CSTR_NEQ;
-		/* Fixup current delimeters chunk and move to next parameter. */
+		/* Fixup current delimiters chunk and move to next parameter. */
 		__FSM_I_MOVE_fixup(Req_I_CookieStart, 1, 0);
 	}
 
@@ -2249,7 +2249,7 @@ __parse_etag(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 	/*
 	 * ETag value and closing DQUOTE is placed into separate chunks marked
-	 * with flags TFW_STR_VALUE and TFW_STR_ETAG_WEAK (optionaly).
+	 * with flags TFW_STR_VALUE and TFW_STR_ETAG_WEAK (optionally).
 	 * Closing DQUOTE is used to support empty Etags. Opening is not added
 	 * to simplify usage of tfw_stricmpspn()
 	 *
@@ -2441,7 +2441,7 @@ done:
  * Parse response Expires, RFC 2616 14.21.
  *
  * We support only RFC 1123 date as it's most usable by modern software.
- * However RFC 2616 reuires that all server and client software MUST support
+ * However RFC 2616 requires that all server and client software MUST support
  * all 3 formats specified in 3.3.1 chapter. We leave this for TODO.
  *
  * @return number of seconds since epoch in GMT.
@@ -3061,7 +3061,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 
 	/* ----------------    Request Line    ---------------- */
 
-	/* Parser internal initilizers, must be called once per message. */
+	/* Parser internal initializers, must be called once per message. */
 	__FSM_STATE(Req_0) {
 		if (unlikely(IS_CRLF(c)))
 			__FSM_MOVE_nofixup(Req_0);
@@ -3241,7 +3241,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 	 * RFC 3986 chapter 3.2: authority = [userinfo@]host[:port]
 	 *
 	 * Authority parsing: it can be "host" or "userinfo@host" (port is
-	 * parsed later). At the begining we don't know, which of variants we
+	 * parsed later). At the beginning we don't know, which of variants we
 	 * have. So we fill req->host, and if we get '@', we copy host to
 	 * req->userinfo, reset req->host and fill it.
 	 */
@@ -3477,7 +3477,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
 			/* Ensure we have enough data for largest match. */
 			if (unlikely(!__data_available(p, 14)))
 				__FSM_MOVE(Req_HdrC);
-			/* Qick switch for HTTP headers with the same prefix. */
+			/* Quick switch for HTTP headers with the same prefix. */
 			switch (TFW_P2LCINT(p + 1)) {
 			case TFW_CHAR4_INT('a', 'c', 'h', 'e'):
 				if (likely(*(p + 5) == '-'
@@ -4409,7 +4409,7 @@ tfw_http_parse_terminate(TfwHttpMsg *hm)
 	/*
 	 * Set Content-Length header to warn client about end of message.
 	 * Other option is to close connection to client. All the situations
-	 * when Content-Length header must not present in responce were
+	 * when Content-Length header must not present in response were
 	 * checked earlier. Refer to RFC 7230 3.3.3
 	 */
 	if (hm->parser.state == Resp_BodyUnlimRead
@@ -4483,7 +4483,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 
 	/* ----------------    Status Line    ---------------- */
 
-	/* Parser internal initilizers, must be called once per message. */
+	/* Parser internal initializers, must be called once per message. */
 	__FSM_STATE(Resp_0) {
 		if (unlikely(IS_CRLF(c)))
 			__FSM_MOVE_nofixup(Resp_0);
@@ -4594,7 +4594,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
 			/* Ensure we have enough data for largest match. */
 			if (unlikely(!__data_available(p, 14)))
 				__FSM_MOVE(Resp_HdrC);
-			/* Qick switch for HTTP headers with the same prefix. */
+			/* Quick switch for HTTP headers with the same prefix. */
 			switch (TFW_P2LCINT(p + 1)) {
 			case TFW_CHAR4_INT('a', 'c', 'h', 'e'):
 				if (likely(*(p + 5) == '-'

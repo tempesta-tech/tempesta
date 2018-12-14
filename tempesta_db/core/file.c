@@ -136,7 +136,7 @@ __ma_merge(MArea *left, MArea *right)
 
 /**
  * Free a memory area and merge it with free siblings if possible.
- * Never tries to free staticaly allocated MArea.
+ * Never tries to free statically allocated MArea.
  */
 static void
 __ma_free(MArea *ma)
@@ -218,7 +218,7 @@ err:
 }
 
 /**
- * Syncronize memory mapping with the file.
+ * Synchronize memory mapping with the file.
  * Called from process context.
  */
 static void
@@ -285,7 +285,7 @@ tdb_file_open(TDB *db, unsigned long size)
 		return -EBADF;
 	}
 
-	/* Allocate continous extents. */
+	/* Allocate continuous extents. */
 	inode = file_inode(filp);
 	sb_start_write(inode->i_sb);
 	ret = filp->f_op->fallocate(filp, 0, 0, size);

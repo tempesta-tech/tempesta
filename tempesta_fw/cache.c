@@ -68,7 +68,7 @@ static const TfwStr tfw_cache_raw_headers_304[] = {
 /*
  * @trec	- Database record descriptor;
  * @key_len	- length of key (URI + Host header);
- * @status_len	- length of response satus line;
+ * @status_len	- length of response status line;
  * @hdr_num	- number of headers;
  * @hdr_len	- length of whole headers data;
  * @hdr_len_304	- length of headers data used to build 304 response;
@@ -80,7 +80,7 @@ static const TfwStr tfw_cache_raw_headers_304[] = {
  * @resp_time	- the time the response was received;
  * @lifetime	- the cache entry's current lifetime;
  * @last_modified - the value of response Last-Modified: header field;
- * @key		- the cache enty key (URI + Host header);
+ * @key		- the cache entry key (URI + Host header);
  * @status	- pointer to status line  (with trailing CRLFs);
  * @hdrs	- pointer to list of HTTP headers (with trailing CRLFs);
  * @body	- pointer to response body (with a prepending CRLF);
@@ -171,7 +171,7 @@ typedef struct {
 static CaNode c_nodes[MAX_NUMNODES];
 
 /*
- * TODO the thread doesn't do anythng for now, however, kthread_stop() crashes
+ * TODO the thread doesn't do anything for now, however, kthread_stop() crashes
  * on restarts, so comment to logic out.
  */
 #if 0
@@ -205,7 +205,7 @@ static TfwStr g_crlf = { .ptr = S_CRLF, .len = SLEN(S_CRLF) };
  * The mask of non-cacheable methods per RFC 7231 4.2.3.
  * Safe methods that do not depend on a current or authoritative response
  * are defined as cacheable: GET, HEAD, and POST.
- * Note: caching of POST method responces is not supported at this time.
+ * Note: caching of POST method responses is not supported at this time.
  * Issue #506 describes, which steps must be made to support caching of POST
  * requests.
  */
@@ -356,7 +356,7 @@ tfw_cache_employ_req(TfwHttpReq *req)
 		 * response is successfully validated."
 		 *
 		 * We can validate the stored response and serve request from
-		 * cache. This reduses traffic to origin server.
+		 * cache. This reduces traffic to origin server.
 		 */
 		return false;
 
@@ -785,7 +785,7 @@ tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
 	}
 	/*
 	 * Cache may store one or more responses to the effective Request URI.
-	 * Basicaly, it is suffitient to store only the most recent response and
+	 * Basically, it is sufficient to store only the most recent response and
 	 * remove other representations from cache. (RFC 7234 4: When more than
 	 * one suitable response is stored, a cache MUST use the most recent
 	 * response) But there are still some cases when it is needed to store
@@ -848,7 +848,7 @@ tfw_cache_str_write_hdr(const TfwStr *str, char *p)
  * @return number of copied bytes (@src length).
  *
  * The function copies part of some large data of length @tot_len,
- * so it tries to minimize total number of allocations regardles
+ * so it tries to minimize total number of allocations regardless
  * how many chunks are copied.
  */
 static long
@@ -1001,12 +1001,12 @@ tfw_cache_copy_hdr(char **p, TdbVRec **trec, TfwStr *src, size_t *tot_len)
 /**
  * Fill @ce->etag with entity-tag value. RFC 7232 Section-2.3 doesn't limit
  * etag size, so can't just have a copy of entity-tag value somewhere in @ce,
- * insted fill @ce->etag TfwStr to correct offset in @ce->hdrs. Also set
+ * instead fill @ce->etag TfwStr to correct offset in @ce->hdrs. Also set
  * WEAK tag to the first chunk of @ce->etag if applied. This is needed for Range
  * requests.
  *
  * @h_off, @h_trec	- supposed offset and record of stored 'ETag:' header;
- * @curr_p, @curr_rec	- used to store compaund @ce->etag.
+ * @curr_p, @curr_rec	- used to store compound @ce->etag.
  */
 static int
 __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
@@ -1019,7 +1019,7 @@ __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
 
 	if (TFW_STR_EMPTY(h))
 		return 0;
-	etag_val = tfw_str_next_str_val(h); /* not emptpy after http parser. */
+	etag_val = tfw_str_next_str_val(h); /* not empty after http parser. */
 
 	/* Update supposed Etag offset to real value. */
 	/* FIXME: #803 */
@@ -1070,7 +1070,7 @@ __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
 		len -= c->len;
 	}
 
-	/* Compaund string was allocated in resp->pool, move to cache entry. */
+	/* Compound string was allocated in resp->pool, move to cache entry. */
 	if (!TFW_STR_PLAIN(&ce->etag)) {
 		len = sizeof(TfwStr *) * TFW_STR_CHUNKN(&ce->etag);
 		curr_p = tdb_entry_get_room(node_db(), curr_trec, curr_p, len,
@@ -1501,12 +1501,12 @@ tfw_cache_build_resp_body(TDB *db, TfwHttpResp *resp, TdbVRec *trec,
  * (copy the list of skbs is faster than scan TDB and build TfwHttpResp).
  * TLS should encrypt the data in already prepared skbs.
  *
- * Basically, skb copy/clonning involves skb creation, so it seems performance
+ * Basically, skb copy/cloning involves skb creation, so it seems performance
  * of response body creation won't change since now we just reuse TDB pages.
- * Perfromace benchmarks and profiling shows that cache_req_process_node()
+ * Performance benchmarks and profiling shows that cache_req_process_node()
  * is the bottleneck, so the problem is either in tfw_cache_dbce_get() or this
  * function, in headers compilation.
- * Also it seems cachig prebuilt responses requires introducing
+ * Also it seems caching prebuilt responses requires introducing
  * TfwCacheEntry->resp pointer to avoid additional indexing data structure.
  * However, the pointer must be zeroed on TDB shutdown and recovery.
  *
@@ -1758,7 +1758,7 @@ tfw_wq_tasklet(unsigned long data)
 
 /**
  * Cache management thread.
- * The thread loads and preprcess static Web content using inotify (TODO).
+ * The thread loads and preprocesses static Web content using inotify (TODO).
  */
 #if 0
 static int

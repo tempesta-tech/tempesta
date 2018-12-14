@@ -14,7 +14,7 @@
  *    (b) TfwHttpHdrTbl follows the message descriptor;
  *    (c) many TfwStr's for each HTTP field;
  * 2. TfwHttpHdrTbl can be rarely reallocated - since it's followed by TfwStr
- *    allocations we always lose it's memory. The table grows exponentilly
+ *    allocations we always lose it's memory. The table grows exponentially
  *    minimizing number of reallocations and Frang controls number and size
  *    of the reallocations;
  * 3. TfwStr grows while we're reading it, so this is last allocation when we
