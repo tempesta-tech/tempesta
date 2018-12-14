@@ -5,7 +5,7 @@
  * - packet classification (e.g. should we pass or block a packet);
  * - packet action (e.g. drop the packet or close whole TCP connection).
  * Tempesta classifiers are responsible for the first task while filtering
- * modules are responsible for the second one. Different classifiers can emply
+ * modules are responsible for the second one. Different classifiers can imply
  * different policies to service/block packets (e.g. QoS), so typically
  * filtering actions are called by classifiers.
  *
@@ -94,8 +94,8 @@ EXPORT_SYMBOL(tfw_filter_block_ip);
 
 /**
  * Drop early IP layer filtering.
- * The check is run agains each ingress packet - if application layer filter
- * blocks a client, then the client is totaly blocked and can't send us any
+ * The check is run against each ingress packet - if application layer filter
+ * blocks a client, then the client is totally blocked and can't send us any
  * traffic.
  */
 static int
@@ -222,7 +222,7 @@ __ipv6_hdr_check(struct sk_buff *skb)
 			break;
 		case 44 : /* fragment */
 			/* TODO we do not support fragmented IPv6 yet. */
-		default: /* unknoun or unsupported ext. header, skipping */
+		default: /* unknown or unsupported ext. header, skipping */
 			return NULL;
 		}
 	}
