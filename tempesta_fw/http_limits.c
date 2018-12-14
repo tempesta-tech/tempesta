@@ -444,11 +444,11 @@ frang_http_uri_len(const TfwHttpReq *req, FrangAcc *ra, unsigned int uri_len)
  * Check all parsed headers in request headers table.
  * We observe all headers many times, actually on each data chunk.
  * However, the check is relatively fast, so that should be Ok.
- * It's necessary to run the ckecks on each data chunk to prevent memory
- * exhausing DoS attack on many large header fields, since we don't know
+ * It's necessary to run the checks on each data chunk to prevent memory
+ * exhausting DoS attack on many large header fields, since we don't know
  * which headers were read on each data chunk.
  *
- * TODO Probably it's better to embedd a hook to HTTP parser directly to
+ * TODO Probably it's better to embed a hook to HTTP parser directly to
  * catch the long headers immediately.
  */
 static int
@@ -530,7 +530,7 @@ frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVal *ct_vals)
 	 *	media-type = type "/" subtype *( OWS ";" OWS parameter )
 	 *
 	 * FIXME this matching is too permissive, e.g. we can pass
-	 * "text/plain1", which isn't a correct subtipe. Strong FSM processing
+	 * "text/plain1", which isn't a correct subtype. Strong FSM processing
 	 * is required. Or HTTP parser must pass only known types and Frang
 	 * decides which of them are allowed.
 	 * See also comment in frang_set_ct_vals().
@@ -562,7 +562,7 @@ frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVal *ct_vals)
 
 /**
  * Require host header in HTTP request (RFC 7230 5.4).
- * Block HTTP/1.1 requiests w/o host header,
+ * Block HTTP/1.1 requests w/o host header,
  * but just print warning for older HTTP.
  */
 static int
@@ -639,7 +639,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 
 /**
  * Monotonically increasing time quantums. The configured @tframe
- * is devided by FRANG_FREQ slots to get the quantums granularity.
+ * is divided by FRANG_FREQ slots to get the quantums granularity.
  */
 static unsigned int
 frang_resp_quantum(unsigned short tframe)
@@ -827,7 +827,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, const TfwFsmData *data)
 		}
 	}
 
-	/* Сheck for chunk count here to account for possible fragmentation
+	/* Check for chunk count here to account for possible fragmentation
 	 * in HTTP status line. The rationale for not making this one of FSM
 	 * states is the same as for the code block above.
 	 */
@@ -928,7 +928,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, const TfwFsmData *data)
 
 	/*
 	 * Full HTTP header has been processed, and any possible
-	 * header faields are collected. Run final checks on them.
+	 * header fields are collected. Run final checks on them.
 	 */
 	__FRANG_FSM_STATE(Frang_Req_Hdr_FieldLenFinal) {
 		__FRANG_CFG_VAR(field_len, http_field_len);
@@ -981,7 +981,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, const TfwFsmData *data)
 	__FRANG_FSM_STATE(Frang_Req_Body_Timeout) {
 		/*
 		 * Note that this state is skipped on the first data SKB
-		 * with body part as obviously no timeout has occured yet.
+		 * with body part as obviously no timeout has occurred yet.
 		 */
 		__FRANG_CFG_VAR(body_timeout, clnt_body_timeout);
 		if (body_timeout) {
@@ -1056,7 +1056,7 @@ frang_http_req_handler(void *obj, const TfwFsmData *data)
 /*
  * Check response code and record it if it's listed in the filter.
  * Called from tfw_http_resp_fwd() by tfw_gfsm_move()
- * Always returs TFW_PASS because this handler is needed
+ * Always returns TFW_PASS because this handler is needed
  * for collecting purposes only.
  */
 static int

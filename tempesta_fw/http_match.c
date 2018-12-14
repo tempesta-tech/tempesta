@@ -17,7 +17,7 @@
  *  - @arg is the second argument in rule, its type is determined dynamically
  *    depending on the @field (may be number/string/addr/etc); comparison
  *    operator for @field and @arg depends on "==" ("!=") sign and on wildcard
- *    existance in @arg:
+ *    existence in @arg:
  *    "==": "arg" => eq / "arg*" => eq_prefix / "*arg" => eq_suffix.
  *    "!=": "arg" => non_eq / "arg*" => non_eq_prefix / "*arg" => non_eq_suffix.
  *  - @act is a rule action with appropriate type (examples specified above);
@@ -28,7 +28,7 @@
  *  - @action_val is possible value for specified action; only "mark" action is
  *    allowed to have value (unsigned integer type).
  *
- * So the tfw_http_tbl_scan() threads a HTTP request sequentally across
+ * So the tfw_http_tbl_scan() threads a HTTP request sequentially across
  * all rules in all chains in the table and stops on a first matching rule (the
  * rule is returned).
  *

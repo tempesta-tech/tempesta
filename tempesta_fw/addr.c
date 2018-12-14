@@ -4,7 +4,7 @@
  * IP address related functions.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -143,7 +143,7 @@ tfw_addr_pton_v6(const TfwStr *s, TfwAddr *addr)
 					return -EINVAL;
 				/*
 				 * IPv4 mapped address.
-				 * Recalculate the first 2 hexademical octets from to
+				 * Recalculate the first 2 hexadecimal octets from to
 				 * 1 decimal octet.
 				 */
 				addr->sin6_family = AF_INET6;
@@ -393,7 +393,7 @@ tfw_addr_ifmatch(const TfwAddr *server, const TfwAddr *listener)
 			if (IN_LOOPBACK(ntohl(saddr)))
 				return 1;
 				/* TODO: check if client addr is
-				 * one of interface adresses
+				 * one of interface addresses
 				 */
 		}
 

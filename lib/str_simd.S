@@ -1,6 +1,6 @@
 /**
  * x86-64 SIMD routines for HTTP strings processing. See the algorithms'
- * description and perfomance comparison with other implementations at
+ * description and performance comparison with other implementations at
  * http://natsys-lab.blogspot.ru/2016/10/http-strings-processing-using-c-sse42.html
  * and https://github.com/natsys/blog/tree/master/kstrings .
  * We have to write the stuff in assembly since GCC sometimes generates not the

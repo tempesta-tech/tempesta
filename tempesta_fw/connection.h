@@ -4,7 +4,7 @@
  * Definitions for generic connection management at OSI level 6 (presentation).
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -110,7 +110,7 @@ typedef struct {
 
 /*
  * Queues in client and server connections provide support for correct
- * handlng of requests and responses.
+ * handling of requests and responses.
  *
  * Incoming requests are put on client connection's @seq_queue in the
  * order they come in. When responses to these requests come, they're
@@ -237,7 +237,7 @@ typedef struct {
 
 	/*
 	 * Called when there are no more users of a connection
-	 * and the connections's resources are finally released.
+	 * and the connection's resources are finally released.
 	 */
 	void (*conn_release)(TfwConn *conn);
 
@@ -392,7 +392,7 @@ tfw_connection_link_to_sk(TfwConn *conn, struct sock *sk)
 }
 
 /*
- * Do an oposite to what tfw_connection_link_from_sk() does.
+ * Do an opposite to what tfw_connection_link_from_sk() does.
  * Sync Sockets layer is unlinked from Tempesta, so that Tempesta
  * callbacks are not called anymore on events in the socket.
  */

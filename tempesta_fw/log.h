@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -43,7 +43,7 @@
  *   2 [SUPPORT] - key events at lower (component) levels (e.g. TDB or SS).
  *                 Only events required for technical support should be logged
  *                 on this level;
- *   3 [DEVELOP] - verbose loging, used for engineer debugging internal
+ *   3 [DEVELOP] - verbose logging, used for engineer debugging internal
  *                 algorithms and so on. Typically for single slow connection
  *                 cases.
  */

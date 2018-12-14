@@ -1,5 +1,5 @@
 /**
- *		Tempesta kernel libarary
+ *		Tempesta kernel library
  *
  * Copyright (C) 2015-2018 Tempesta Technologies, INC.
  *

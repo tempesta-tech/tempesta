@@ -4,10 +4,10 @@
  * String handling.
  * There are few design concepts and properties which make our strings special:
  *
- * 1. the string is designed for zero-copy operations, i.e. it hanles pointer
+ * 1. the string is designed for zero-copy operations, i.e. it handles pointer
  *    only to actual data stored somewhere else, typically in skb;
  *
- * 2. the string handles possibly chunked data, e.g. splitted among different
+ * 2. the string handles possibly chunked data, e.g. split among different
  *    skbs. In this case COMPOUND flag is used;
  *
  * 3. it is HTTP specific in that sense that the string aggregates duplicate
@@ -24,7 +24,7 @@
  *    so we must keep skb pointers to be able to rewrite underlying packets.
  *
  * String can either contain plain data, in which case `ptr` field is used as
- * a pointer to a continuos region, or multiple chunks of data, in which case
+ * a pointer to a continuous region, or multiple chunks of data, in which case
  * `ptr` points to an array of plain TfwStr's. In other words, a single
  * indirection is expected. If string have more than one chunk, it's called
  * a "compound" string. `len` field of a compound string contains total length
@@ -33,7 +33,7 @@
  *
  * Another possibility is a so called duplicate string. A duplicate string is
  * a bunch of strings that describe HTTP fields with the same name.
- * For example, an HTTP server can return mulitple Set-Cookie fields;
+ * For example, an HTTP server can return multiple Set-Cookie fields;
  * all of those will end up in a duplicate string. Such strings use `ptr`
  * field as an array of TfwStr's, each of which can be a compound string.
  * A duplicate string can not itself consist of duplicate strings.
@@ -80,7 +80,7 @@
  * some other context. Keep in mind that TfwStr uses the functions as well.
  *
  * The functions are optimistic for the data of length 64 and more bytes,
- * i.e. comapring or matchin long strings you assume that the strings are
+ * i.e. comparing or matching long strings you assume that the strings are
  * matched (in case of tfw_match_*) or the same (in case of tfw_stricmp).
  * 64 and 128 byte subroutines of the functions load and process 2 and 4
  * 32-byre registers in parallel utilizing the memory bus and avoiding
@@ -183,7 +183,7 @@ size_t tfw_ultoa(unsigned long ai, char *buf, unsigned int len);
 /* Str is compound from many chunks, use indirect table for the chunks. */
 #define __TFW_STR_COMPOUND 	(~((1U << TFW_STR_FBITS) - 1))
 /*
- * Str constists from compound or plain strings.
+ * Str consists from compound or plain strings.
  * Duplicate strings are also always compound on root level.
  */
 #define TFW_STR_DUPLICATE	0x01
@@ -224,7 +224,7 @@ typedef struct {
 /* Use this with "%.*s" in printing calls. */
 #define PR_TFW_STR(s)		(int)min(20UL, (s)->len), (char *)(s)->ptr
 
-/* Numner of chunks in @s. */
+/* Number of chunks in @s. */
 #define TFW_STR_CHUNKN(s)	((s)->flags >> TFW_STR_CN_SHIFT)
 #define TFW_STR_CHUNKN_LIM(s)	((s)->flags >= __TFW_STR_CN_MAX)
 #define TFW_STR_CHUNKN_ADD(s, n) ((s)->flags += ((n) << TFW_STR_CN_SHIFT))

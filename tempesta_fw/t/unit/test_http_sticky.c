@@ -501,7 +501,7 @@ http_parse_helper(TfwHttpMsg *hm, ss_skb_actor_t actor)
 			continue;
 
 		case TFW_PASS:
-			/* sucessfully parsed */
+			/* successfully parsed */
 			return 0;
 
 		default:
