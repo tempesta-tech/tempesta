@@ -24,7 +24,6 @@
 #ifndef TTLS_PK_H
 #define TTLS_PK_H
 
-#include "config.h"
 #include "md.h"
 #include "rsa.h"
 #include "ecp.h"
@@ -101,9 +100,6 @@ typedef struct {
 	void			*value;
 } ttls_pk_debug_item;
 
-/* Maximum number of item send for debugging, plus 1 */
-#define TTLS_PK_DEBUG_MAX_ITEMS 3
-
 /* Public key information and operations. */
 typedef struct ttls_pk_info_t ttls_pk_info_t;
 
@@ -117,38 +113,6 @@ typedef struct {
 	const ttls_pk_info_t	*pk_info;
 	void			*pk_ctx;
 } ttls_pk_context;
-
-#if defined(TTLS_PK_RSA_ALT_SUPPORT)
-/**
- * \brief		   Types for RSA-alt abstraction
- */
-typedef int (*ttls_pk_rsa_alt_decrypt_func)(void *ctx, int mode, size_t *olen,
-		const unsigned char *input, unsigned char *output,
-		size_t output_max_len);
-typedef int (*ttls_pk_rsa_alt_sign_func)(void *ctx, int mode,
-		ttls_md_type_t md_alg, unsigned int hashlen,
-		const unsigned char *hash, unsigned char *sig);
-typedef size_t (*ttls_pk_rsa_alt_key_len_func)(void *ctx);
-
-/**
- * \brief		   Initialize an RSA-alt context
- *
- * \param ctx	   Context to initialize. Must be empty (type NONE).
- * \param key	   RSA key pointer
- * \param decrypt_func  Decryption function
- * \param sign_func	 Signing function
- * \param key_len_func  Function returning key length in bytes
- *
- * \return		  0 on success, or TTLS_ERR_PK_BAD_INPUT_DATA if the
- *				  context wasn't already initialized as RSA_ALT.
- *
- * \note			This function replaces \c ttls_pk_setup() for RSA-alt.
- */
-int ttls_pk_setup_rsa_alt(ttls_pk_context *ctx, void * key,
-			 ttls_pk_rsa_alt_decrypt_func decrypt_func,
-			 ttls_pk_rsa_alt_sign_func sign_func,
-			 ttls_pk_rsa_alt_key_len_func key_len_func);
-#endif /* TTLS_PK_RSA_ALT_SUPPORT */
 
 const ttls_pk_info_t *ttls_pk_info_from_type(ttls_pk_type_t pk_type);
 void ttls_pk_init(ttls_pk_context *ctx);

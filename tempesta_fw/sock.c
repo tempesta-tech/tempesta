@@ -746,7 +746,7 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		r = SS_CALL(connection_recv, conn, skb, off);
 
 		if (r < 0) {
-			TFW_DBG2("[%d]: Processing error: sk %p r %d\n",
+			TFW_DBG2("[%d]: Processing error: sk=%pK r=%d\n",
 			         smp_processor_id(), sk, r);
 			goto out; /* connection must be dropped */
 		}

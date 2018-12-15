@@ -73,7 +73,7 @@
 //#define TTLS_ECP_ALT
 
 /**
- * \def TTLS_MD2_PROCESS_ALT
+ * \def TTLS_*_PROCESS_ALT
  *
  * TTLS__FUNCTION_NAME__ALT: Uncomment a macro to let mbed TLS use you
  * alternate core implementation of symmetric crypto or hash function. Keep in
@@ -166,22 +166,6 @@
 //#define TTLS_ECP_NORMALIZE_MXZ_ALT
 
 /**
- * \def TTLS_CIPHER_PADDING_PKCS7
- *
- * TTLS_CIPHER_PADDING_XXX: Uncomment or comment macros to add support for
- * specific padding modes in the cipher layer with cipher modes that support
- * padding (e.g. CBC)
- *
- * If you disable all padding modes, only full blocks can be used with CBC.
- *
- * Enable padding modes in the cipher layer.
- */
-#define TTLS_CIPHER_PADDING_PKCS7
-#define TTLS_CIPHER_PADDING_ONE_AND_ZEROS
-#define TTLS_CIPHER_PADDING_ZEROS_AND_LEN
-#define TTLS_CIPHER_PADDING_ZEROS
-
-/**
  * \def TTLS_ECP_NIST_OPTIM
  *
  * Enable specific 'modulo p' routines for each NIST prime.
@@ -212,15 +196,6 @@
  * Enable the prime-number generation code.
  */
 #define TTLS_GENPRIME
-
-/**
- * \def TTLS_PK_RSA_ALT_SUPPORT
- *
- * Support external private RSA keys (eg from a HSM) in the PK layer.
- *
- * Comment this macro to disable support for external private RSA keys.
- */
-#define TTLS_PK_RSA_ALT_SUPPORT
 
 /**
  * \def TTLS_RSA_NO_CRT

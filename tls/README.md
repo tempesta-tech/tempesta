@@ -11,10 +11,16 @@ address handshakes performance at all implementing handshakes code in
 inefficient way. Tempesta TLS ephasizes TLS handshakes performance to mitigate
 DDoS attacks.
 
-The library was significantly reduced in size and is one of the smallest (yet featureful)
-TLS implementations. The small size of the cryptography library helps it to be easily
-auditable for security vulnerabilities.
+The library was significantly reduced in size and is one of the smallest (yet
+featureful) TLS implementations. The small size of the cryptography library
+helps it to be easily auditable for security vulnerabilities.
 
+Theoretically, the kernel implementation provides more security (see
+[Applied Cryptography](https://www.schneier.com/books/applied_cryptography/) by
+Bruce Schneier, chapter 8.5) in comparison with traditional user space
+applications because all the secrets are kept in the kernel memory and are not
+swapable, so it's much harder for a malicious user to get access to security
+sensitive data.
 
 # Resources
 
