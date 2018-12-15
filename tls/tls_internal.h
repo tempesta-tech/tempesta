@@ -181,14 +181,12 @@ void ttls_sig_hash_set_add(ttls_sig_hash_set_t *set,
 void ttls_set_default_sig_hash(TlsCtx *tls);
 
 int ttls_handshake_client_step(ttls_context *tls, unsigned char *buf,
-			       size_t len, unsigned int *read);
+			       size_t len, size_t hh_len, unsigned int *read);
 int ttls_handshake_server_step(ttls_context *tls, unsigned char *buf,
-			       size_t len, unsigned int *read);
+			       size_t len, size_t hh_len, unsigned int *read);
 void ttls_handshake_wrapup(ttls_context *tls);
 
 int ttls_derive_keys(ttls_context *tls);
-
-int ttls_handle_message_type(TlsCtx *tls);
 
 void __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
 		       unsigned char *hdr_buf);
@@ -219,6 +217,7 @@ int ttls_set_calc_verify_md(ttls_context *tls, int md);
 int ttls_check_curve(const ttls_context *tls, ttls_ecp_group_id grp_id);
 
 int ttls_check_sig_hash(const ttls_context *tls, ttls_md_type_t md);
+void ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len);
 
 /**
  * Implementation that should never be optimized out by the compiler.
@@ -414,4 +413,4 @@ ttls_substate(const TlsCtx *tls)
 	return tls->state & __TTLS_FSM_SUBST_MASK;
 }
 
-#endif /* ssl_internal.h */
+#endif /* tls_internal.h */

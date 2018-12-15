@@ -33,7 +33,7 @@
 #include "debug.h"
 #include "md.h"
 #include "oid.h"
-#include "ssl_internal.h"
+#include "tls_internal.h"
 #include "ttls.h"
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
@@ -264,10 +264,10 @@ tls_prf_generic(ttls_md_type_t md_type, const unsigned char *secret,
 		const unsigned char *random, size_t rlen,
 		unsigned char *dstbuf, size_t dlen)
 {
+	int r;
 	size_t i, k, md_len;
 	const TlsMdInfo *md_info;
 	TlsMdCtx md_ctx;
-	int r;
 	unsigned char __buf[TTLS_MD_MAX_SIZE * 3] ____cacheline_aligned;
 	unsigned char *tmp = __buf, *h_i = &__buf[TTLS_MD_MAX_SIZE * 2];
 
@@ -329,14 +329,14 @@ tls_prf_sha384(const unsigned char *secret, size_t slen, const char *label,
 			       random, rlen, dstbuf, dlen);
 }
 
-static void
+void
 ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len)
 {
 	int r;
 	TlsHandshake *hs = tls->hs;
 	const ttls_ciphersuite_t *ci = tls->xfrm.ciphersuite_info;
 
-	if (!len)
+	if (unlikely(!len))
 		return;
 
 	/*
@@ -369,7 +369,7 @@ ttls_calc_verify_tls_sha256(TlsCtx *tls, unsigned char hash[32])
 	memcpy_fast(&sha256, &tls->hs->fin_sha256, sizeof(sha256));
 	crypto_shash_final(&sha256.desc, hash);
 
-	T_DBG3_BUF("calculated verify sha256 result ", hash, 32);
+	T_DBG3_BUF("calculated verify sha256 result", hash, 32);
 
 	bzero_fast(&sha256, sizeof(sha256));
 }
@@ -382,7 +382,7 @@ ttls_calc_verify_tls_sha384(TlsCtx *tls, unsigned char hash[48])
 	memcpy_fast(&sha512, &tls->hs->fin_sha512, sizeof(sha512));
 	crypto_shash_final(&sha512.desc, hash);
 
-	T_DBG3_BUF("calculated verify sha384 result ", hash, 48);
+	T_DBG3_BUF("calculated verify sha384 result", hash, 48);
 
 	bzero_fast(&sha512, sizeof(sha512));
 }
@@ -510,15 +510,13 @@ ttls_derive_keys(TlsCtx *tls)
 			else
 				hash_len = 32;
 
-			T_DBG3_BUF("session hash ", session_hash, hash_len);
-
 			r = TTLS_PRF(hs, hs->premaster, hs->pmslen,
 				     "extended master secret", session_hash,
 				     hash_len, sess->master, 48);
 		} else {
 			r = TTLS_PRF(hs, hs->premaster, hs->pmslen,
-				     "master secret", hs->randbytes, 64,
-				     sess->master, 48);
+				     "master secret", hs->randbytes,
+				     64, sess->master, 48);
 		}
 		if (r) {
 			T_DBG("prf master secret error, %d\n", r);
@@ -546,9 +544,9 @@ ttls_derive_keys(TlsCtx *tls)
 
 	T_DBG("ciphersuite = %s\n",
 	      ttls_get_ciphersuite_name(sess->ciphersuite));
-	T_DBG3_BUF("master secret ", sess->master, 48);
-	T_DBG3_BUF("random bytes ", hs->randbytes, 64);
-	T_DBG3_BUF("key block ", keyblk, 256);
+	T_DBG3_BUF("master secret", sess->master, 48);
+	T_DBG3_BUF("random bytes", hs->randbytes, 64);
+	T_DBG3_BUF("key block", keyblk, 256);
 
 	bzero_fast(hs->randbytes, sizeof(hs->randbytes));
 
@@ -793,6 +791,7 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 	expiv_len = ttls_expiv_len(xfrm);
 	taglen = ttls_xfrm_taglen(xfrm);
 	mode = xfrm->cipher_ctx_enc.cipher_info->mode;
+
 	WARN_ON_ONCE(mode != TTLS_MODE_GCM && mode != TTLS_MODE_CCM);
 	T_DBG2("decrypt input record from network: hdr=%pK msglen=%d chunks=%u"
 	       " taglen=%u eiv_len=%lu\n",
@@ -802,6 +801,7 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 		      __func__, io->msglen, expiv_len, taglen);
 		return TTLS_ERR_INVALID_MAC;
 	}
+
 	dec_msglen = io->msglen - expiv_len - taglen;
 	/* Build decryption request starting from the offset. */
 	io->off = ttls_payload_off(xfrm);
@@ -814,8 +814,6 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 	ttls_make_aad(tls, io, aad_buf);
 	sg_set_buf(sg, aad_buf, TLS_AAD_SPACE_SIZE);
 
-	T_DBG3("TFM: authsize=%u reqsize=%u io=%pK\n",
-	       tfm->authsize, tfm->reqsize, io);
 	T_DBG3_BUF("IV used", xfrm->iv_dec, xfrm->ivlen);
 	T_DBG3_SL("decrypt: AAD|msg|TAG", sg, sgn, 0, dec_msglen + taglen);
 
@@ -857,7 +855,7 @@ ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 					TTLS_ALERT_MSG_BAD_RECORD_MAC);
 		T_DBG2("decryption failed: %d", r);
-		return r;
+		return T_DROP;
 	}
 
 	/*
@@ -871,7 +869,6 @@ ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 	} else {
 		tls->nb_zero = 0;
 	}
-
 	if (io->msglen > TLS_MAX_PAYLOAD_SIZE) {
 		T_DBG("bad message length %u\n", io->msglen);
 		return T_DROP;
@@ -1369,9 +1366,11 @@ ttls_parse_certificate(TlsCtx *tls, unsigned char *buf, size_t len,
 	T_FSM_START(ttls_substate(tls)) {
 
 	/*
-	 * #830 currently we don't support client certificates validation,
+	 * TODO #830 currently we don't support client certificates validation,
 	 * so just allocate a buffer to fit the data and parse it.
 	 * Don't care about copies for now.
+	 *
+	 * TODO call ttls_update_checksum() for the message as well.
 	 */
 	T_FSM_STATE(TTLS_CC_HS_ALLOC) {
 		pg = alloc_pages(GFP_ATOMIC, 2);
@@ -1678,7 +1677,6 @@ int
 ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 		    unsigned int *read)
 {
-	int r;
 	unsigned int n, ct_len;
 	TlsIOCtx *io = &tls->io_in;
 	TlsXfrm *xfrm = &tls->xfrm;
@@ -1709,8 +1707,8 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 	if (unlikely(io->rlen < ct_len))
 		return T_POSTPONE;
 
-	if ((r = ttls_decrypt(tls, hs->finished)))
-		return r;
+	if (ttls_decrypt(tls, hs->finished))
+		return T_DROP;
 	/* Verify the handshake header. */
 	if (unlikely(hs->finished[0] != TTLS_HS_FINISHED
 		     || hs->finished[1] || hs->finished[2]
@@ -1733,7 +1731,8 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 
 	/*
 	 * Calculate final message checksum before goint to
-	 * TTLS_HANDSHAKE_OVER state.
+	 * TTLS_HANDSHAKE_OVER state. According to RFC 5246 7.4.9 we need
+	 * to add the message to a checksum sent to a client.
 	 */
 	ttls_update_checksum(tls, hs->finished, TTLS_HS_HDR_LEN + TLS_HASH_LEN);
 
@@ -2087,21 +2086,6 @@ ttls_hs_checksumable(TlsCtx *tls)
 }
 
 /**
- * Seems like a FSM state processing outside of the FSM - not beautiful at all,
- * we need a cheap way to check whether we need to call FSM again when we have
- * no more ingress data. We can not do this inside the FSM, since we need to
- * calculate checksum with the record header outside of the FSM...
- */
-static bool
-ttls_hs_fsm_need_send(TlsCtx *tls)
-{
-	return (tls->conf->endpoint == TTLS_IS_SERVER)
-		&& (tls->state == TTLS_SERVER_HELLO
-		    || tls->state == TTLS_SERVER_CHANGE_CIPHER_SPEC
-		    || tls->state == TTLS_HANDSHAKE_WRAPUP);
-}
-
-/**
  * Perform the TLS handshake. The function is called for each ingress TLS
  * record and can send a bunch of TLS records.
  *
@@ -2112,9 +2096,14 @@ ttls_hs_fsm_need_send(TlsCtx *tls)
  * The step callees must return T_POSTPONE if more input data is required to
  * completely read current ingress record and 0 (T_OK) if current FSM state
  * finished successfully. All other return codes are treated as errors.
+ *
+ * @hh_len is pure optimization argument: it defines a backward offset in
+ * @buf of size of hadshake header if the header is in the @buf, so this way
+ * we can compute the whole message checksum in one shot. Only handshake steps
+ * reading ingress data use the argument.
  */
 static int
-ttls_handshake_step(TlsCtx *tls, unsigned char *buf, size_t len,
+ttls_handshake_step(TlsCtx *tls, unsigned char *buf, size_t len, size_t hh_len,
 		    unsigned int *read)
 {
 	TlsIOCtx *io = &tls->io_in;
@@ -2123,9 +2112,10 @@ ttls_handshake_step(TlsCtx *tls, unsigned char *buf, size_t len,
 
 #if defined(TTLS_CLI_C)
 	if (tls->conf->endpoint == TTLS_IS_CLIENT)
-		return ttls_handshake_client_step(tls, buf, len, read);
+		return ttls_handshake_client_step(tls, buf, len, hh_len,
+						  read);
 #endif
-	return ttls_handshake_server_step(tls, buf, len, read);
+	return ttls_handshake_server_step(tls, buf, len, hh_len, read);
 }
 
 /**
@@ -2151,7 +2141,7 @@ int
 ttls_recv(void *tls_data, unsigned char *buf, size_t len, unsigned int *read)
 {
 	int r;
-	unsigned int delta = 0, hs_hdr_len = 0, parsed = *read;
+	unsigned int delta = 0, hh_len = 0, parsed = *read;
 	TlsCtx *tls = (TlsCtx *)tls_data;
 	TlsIOCtx *io = &tls->io_in;
 
@@ -2170,7 +2160,7 @@ next_record:
 				 * Compute handshake checksum for the message
 				 * body and handshake header in one shot.
 				 */
-				hs_hdr_len = TTLS_HS_HDR_LEN;
+				hh_len = TTLS_HS_HDR_LEN;
 			} else {
 				ttls_update_checksum(tls, io->hs_hdr,
 						     TTLS_HS_HDR_LEN);
@@ -2195,6 +2185,7 @@ next_record:
 		if (r == TTLS_ERR_NON_FATAL)
 			goto skip_record;
 		return r;
+
 	case TTLS_MSG_CHANGE_CIPHER_SPEC:
 		/* Parsed as part of handshake FSM. */
 	case TTLS_MSG_HANDSHAKE:
@@ -2205,29 +2196,38 @@ next_record:
 			return TTLS_ERR_UNEXPECTED_MESSAGE;
 		}
 
-		if ((r = ttls_handshake_step(tls, buf, len, read))) {
-			if (r != T_POSTPONE)
-				T_DBG("handshake error: %d\n", r);
-			return r;
-		}
 		/*
-		 * An ingress TLS record is fully processed, calculate the
-		 * handshake checksum for correct messages only and only when
-		 * we already know the hash algorithm for the cipher suite.
+		 * We add ingress messages to the handhsake session checksum
+		 * in two different places: here for message chunks and inside
+		 * the handshake state machine. @hh_len is used for the
+		 * checksumming only. We can not compute checksum for complete
+		 * messages here (either before or after the FSM call) because
+		 * before Hello message we have no idea which hash algorithm
+		 * we should use, but key derieval on KeyExchange phase may
+		 * require complete checksum for all the messages including
+		 * the KeyEchange one.
 		 */
-		BUG_ON(!tls->hs && tls->state != TTLS_HANDSHAKE_OVER);
-		if (ttls_hs_checksumable(tls)) {
-			size_t cs_len = *read - (int)parsed + hs_hdr_len;
-			ttls_update_checksum(tls, buf - hs_hdr_len, cs_len);
+		r = ttls_handshake_step(tls, buf, len, hh_len, read);
+		if (!r)
+			goto skip_record;
+		if (r == T_POSTPONE) {
+			/* Add the handshake message chunk to the checksum. */
+			BUG_ON(!tls->hs && tls->state != TTLS_HANDSHAKE_OVER);
+			if (ttls_hs_checksumable(tls)) {
+				size_t n = *read - (int)parsed + hh_len;
+				ttls_update_checksum(tls, buf - hh_len, n);
+			}
+		} else {
+			T_DBG("handshake error: %d\n", r);
 		}
-		goto skip_record;
+		return r;
+
 	case TTLS_MSG_APPLICATION_DATA:
 		if (!io->msglen) {
 			/* OpenSSL sends empty messages to randomize the IV. */
 			T_DBG("empty application TLS record - skip\n");
 			goto skip_record;
 		}
-		break;
 	}
 	if (unlikely(!ttls_xfrm_ready(tls))) {
 		T_WARN("TLS context isn't ready after handshake\n");
@@ -2266,20 +2266,16 @@ next_record:
 skip_record:
 	T_DBG3("skip record: read=%u parsed=%u len=%lu\n", *read, parsed, len);
 	bzero_fast(io->__initoff, sizeof(*io) - offsetof(TlsIOCtx, __initoff));
+
 	delta = *read - parsed;
 	WARN_ON_ONCE(delta > len);
 	len -= delta;
-	buf += delta;
-	parsed = *read;
-	if (len)
+	if (len) {
+		buf += delta;
+		parsed = *read;
 		goto next_record;
-	/*
-	 * Send egress TLS handshake records if the handshake FSM got all the
-	 * required ingress data for current state.
-	 */
-	if (ttls_hs_fsm_need_send(tls))
-		if ((r = ttls_handshake_step(tls, NULL, 0, NULL)))
-			return r;
+	}
+
 	return T_POSTPONE;
 }
 EXPORT_SYMBOL(ttls_recv);

@@ -36,7 +36,7 @@
 #include "certs.h"
 #include "oid.h"
 #include "pem.h"
-#include "ssl_internal.h"
+#include "tls_internal.h"
 #include "x509.h"
 #include "x509_crt.h"
 

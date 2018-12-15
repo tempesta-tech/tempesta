@@ -40,7 +40,7 @@
 #include "lib/str.h"
 #include "config.h"
 #include "bignum.h"
-#include "ssl_internal.h"
+#include "tls_internal.h"
 
 #define ciL	(sizeof(ttls_mpi_uint))		 /* chars in limb  */
 #define biL	(ciL << 3)			   /* bits  in limb  */
