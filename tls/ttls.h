@@ -29,8 +29,8 @@
 
 #include "config.h"
 #include "bignum.h"
+#include "ciphersuites.h"
 #include "ecp.h"
-#include "ssl_ciphersuites.h"
 #include "x509_crt.h"
 #include "x509_crl.h"
 #if defined(TTLS_DHM_C)
@@ -237,7 +237,8 @@
 #define TTLS_HS_INVALID				0xff
 
 /*
- * TLS extensions
+ * TLS extensions.
+ * Do not support Encrypt-then-Mac since we don't support CBC modes.
  */
 #define TTLS_TLS_EXT_SERVERNAME			0
 #define TTLS_TLS_EXT_SERVERNAME_HOSTNAME	0
@@ -247,7 +248,6 @@
 #define TTLS_TLS_EXT_SUPPORTED_POINT_FORMATS	11
 #define TTLS_TLS_EXT_SIG_ALG			13
 #define TTLS_TLS_EXT_ALPN			16
-#define TTLS_TLS_EXT_ENCRYPT_THEN_MAC		22
 #define TTLS_TLS_EXT_EXTENDED_MASTER_SECRET	23
 #define TTLS_TLS_EXT_SESSION_TICKET		35
 #define TTLS_TLS_EXT_RENEGOTIATION_INFO		0xFF01
@@ -267,7 +267,7 @@ union ttls_premaster_secret
 typedef struct ttls_context ttls_context;
 typedef struct ttls_config ttls_config;
 
-/* Defined in ssl_internal.h */
+/* Defined in tls_internal.h */
 typedef struct TtlsXfrm ttls_transform;
 typedef struct ttls_handshake_params ttls_handshake_params;
 typedef struct ttls_sig_hash_set_t ttls_sig_hash_set_t;
@@ -403,7 +403,6 @@ struct ttls_config
 
 	unsigned int endpoint : 1;	/*!< 0: client, 1: server	*/
 	unsigned int authmode : 2;	/*!< TTLS_VERIFY_XXX	*/
-	unsigned int encrypt_then_mac : 1 ; /*!< negotiate encrypt-then-mac?	*/
 	unsigned int session_tickets : 1; /*!< use session tickets?	*/
 	unsigned int cert_req_ca_list : 1; /*!< enable sending CA list in
 	Certificate Request messages?	*/
@@ -509,8 +508,6 @@ typedef struct ttls_context {
 	*/
 	char *hostname;	/*!< expected peer CN for verification
 	(and SNI if available)	*/
-
-	unsigned int encrypt_then_mac : 1 ; /*!< negotiate encrypt-then-mac?	*/
 } TlsCtx;
 
 typedef int ttls_send_cb_t(TlsCtx *tls, struct sg_table *sgt, bool close);
@@ -521,9 +518,7 @@ void ttls_write_hshdr(unsigned char type, unsigned char *buf,
 void *ttls_alloc_crypto_req(unsigned int extra_size, unsigned int *rsz);
 void ttls_register_bio(ttls_send_cb_t *send_cb);
 
-const int *ttls_list_ciphersuites(void);
 const char *ttls_get_ciphersuite_name(const int ciphersuite_id);
-int ttls_get_ciphersuite_id(const char *ciphersuite_name);
 
 int ttls_ctx_init(TlsCtx *tls, const ttls_config *conf);
 

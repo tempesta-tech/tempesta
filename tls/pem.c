@@ -23,7 +23,7 @@
  */
 #include "pem.h"
 #include "cipher.h"
-#include "ssl_internal.h"
+#include "tls_internal.h"
 
 static const unsigned char base64_dec_map[128] = {
 	127, 127, 127, 127, 127, 127, 127, 127, 127, 127,

@@ -41,7 +41,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include "config.h"
-#include "ssl_internal.h"
+#include "tls_internal.h"
 #include "ecp.h"
 #include "ecp_internal.h"
 

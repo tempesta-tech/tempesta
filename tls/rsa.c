@@ -45,7 +45,7 @@
 #include "config.h"
 #include "rsa.h"
 #include "rsa_internal.h"
-#include "ssl_internal.h"
+#include "tls_internal.h"
 #include "oid.h"
 #include "md.h"
 

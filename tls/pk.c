@@ -22,11 +22,10 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include "lib/log.h"
-#include "config.h"
 #include "pk.h"
 #include "pk_internal.h"
 #include "rsa.h"
-#include "ssl_internal.h"
+#include "tls_internal.h"
 #include "ecp.h"
 #include "ecdsa.h"
 
@@ -89,37 +88,6 @@ ttls_pk_setup(ttls_pk_context *ctx, const ttls_pk_info_t *info)
 
 	return 0;
 }
-
-#if defined(TTLS_PK_RSA_ALT_SUPPORT)
-/*
- * Initialize an RSA-alt context
- */
-int ttls_pk_setup_rsa_alt(ttls_pk_context *ctx, void * key,
-			 ttls_pk_rsa_alt_decrypt_func decrypt_func,
-			 ttls_pk_rsa_alt_sign_func sign_func,
-			 ttls_pk_rsa_alt_key_len_func key_len_func)
-{
-	ttls_rsa_alt_context *rsa_alt;
-	const ttls_pk_info_t *info = &ttls_rsa_alt_info;
-
-	if (ctx == NULL || ctx->pk_info != NULL)
-		return(TTLS_ERR_PK_BAD_INPUT_DATA);
-
-	if ((ctx->pk_ctx = info->ctx_alloc_func()) == NULL)
-		return(TTLS_ERR_PK_ALLOC_FAILED);
-
-	ctx->pk_info = info;
-
-	rsa_alt = (ttls_rsa_alt_context *) ctx->pk_ctx;
-
-	rsa_alt->key = key;
-	rsa_alt->decrypt_func = decrypt_func;
-	rsa_alt->sign_func = sign_func;
-	rsa_alt->key_len_func = key_len_func;
-
-	return 0;
-}
-#endif /* TTLS_PK_RSA_ALT_SUPPORT */
 
 /**
  * Tell if a PK can do the operations of the given type.
