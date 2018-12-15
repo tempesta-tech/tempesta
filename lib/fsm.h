@@ -28,7 +28,7 @@ static const char *__fsm_name __attribute__((unused)) = name;
 
 #define T_FSM_START(st)							\
 fsm_reenter: __attribute__((unused))					\
-switch(st)
+switch (st)
 
 #define T_FSM_STATE(st)							\
 case st:								\
@@ -41,7 +41,15 @@ st: __attribute__((unused))						\
 /* Unconditional jump to state @st w/o additional logic and/or eating data. */
 #define T_FSM_JMP(st)		goto st;
 
-/* Goto next (saved) FSM state. */
+/*
+ * Goto next (saved) FSM state.
+ *
+ * This call re-enters the switch statement, so use it only if you really need
+ * to re-enter the FSM and prefer direct jumps in all other cases.
+ *
+ * #1131 will replace switch() by direct jumps, but jumping to @fsm_reenter
+ * label reduced i-cache hit, so it'll be still expensive.
+ */
 #define T_FSM_NEXT()		goto fsm_reenter;
 
 /*

@@ -25,7 +25,7 @@
 
 #include "debug.h"
 #include "ttls.h"
-#include "ssl_internal.h"
+#include "tls_internal.h"
 
 #if defined(TTLS_SESSION_TICKETS)
 /* Implementation that should never be optimized out by the compiler */
