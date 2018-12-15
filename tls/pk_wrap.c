@@ -21,19 +21,10 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#include "config.h"
 #include "pk_internal.h"
-/* Even if RSA not activated, for the sake of RSA-alt */
 #include "rsa.h"
 #include "ecp.h"
 #include "ecdsa.h"
-
-#if defined(TTLS_PK_RSA_ALT_SUPPORT)
-/* Implementation that should never be optimized out by the compiler */
-static void ttls_zeroize(void *v, size_t n) {
-	volatile unsigned char *p = v; while (n--) *p++ = 0;
-}
-#endif
 
 static int rsa_can_do(ttls_pk_type_t type)
 {
@@ -352,104 +343,3 @@ const ttls_pk_info_t ttls_ecdsa_info = {
 	ecdsa_free_wrap,
 	eckey_debug,		/* Compatible key structures */
 };
-
-#if defined(TTLS_PK_RSA_ALT_SUPPORT)
-/*
- * Support for alternative RSA-private implementations
- */
-
-static int rsa_alt_can_do(ttls_pk_type_t type)
-{
-	return(type == TTLS_PK_RSA);
-}
-
-static size_t rsa_alt_get_bitlen(const void *ctx)
-{
-	const ttls_rsa_alt_context *rsa_alt = (const ttls_rsa_alt_context *) ctx;
-
-	return(8 * rsa_alt->key_len_func(rsa_alt->key));
-}
-
-static int rsa_alt_sign_wrap(void *ctx, ttls_md_type_t md_alg,
-				   const unsigned char *hash, size_t hash_len,
-				   unsigned char *sig, size_t *sig_len)
-{
-	ttls_rsa_alt_context *rsa_alt = (ttls_rsa_alt_context *) ctx;
-
-	if (UINT_MAX < hash_len)
-		return(TTLS_ERR_PK_BAD_INPUT_DATA);
-
-	*sig_len = rsa_alt->key_len_func(rsa_alt->key);
-
-	return(rsa_alt->sign_func(rsa_alt->key, TTLS_RSA_PRIVATE,
-				md_alg, (unsigned int) hash_len, hash, sig));
-}
-
-static int rsa_alt_decrypt_wrap(void *ctx,
-		const unsigned char *input, size_t ilen,
-		unsigned char *output, size_t *olen, size_t osize)
-{
-	ttls_rsa_alt_context *rsa_alt = (ttls_rsa_alt_context *) ctx;
-
-	if (ilen != rsa_alt->key_len_func(rsa_alt->key))
-		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
-
-	return(rsa_alt->decrypt_func(rsa_alt->key,
-				TTLS_RSA_PRIVATE, olen, input, output, osize));
-}
-
-static int rsa_alt_check_pair(const void *pub, const void *prv)
-{
-	unsigned char sig[TTLS_MPI_MAX_SIZE];
-	unsigned char hash[32];
-	size_t sig_len = 0;
-	int ret;
-
-	if (rsa_alt_get_bitlen(prv) != rsa_get_bitlen(pub))
-		return(TTLS_ERR_RSA_KEY_CHECK_FAILED);
-
-	memset(hash, 0x2a, sizeof(hash));
-
-	if ((ret = rsa_alt_sign_wrap((void *) prv, TTLS_MD_NONE,
-		   hash, sizeof(hash), sig, &sig_len)) != 0)
-		return ret;
-
-	if (rsa_verify_wrap((void *) pub, TTLS_MD_NONE,
-			 hash, sizeof(hash), sig, sig_len) != 0)
-		return(TTLS_ERR_RSA_KEY_CHECK_FAILED);
-
-	return 0;
-}
-
-static void *rsa_alt_alloc_wrap(void)
-{
-	void *ctx = ttls_calloc(1, sizeof(ttls_rsa_alt_context));
-
-	if (ctx != NULL)
-		memset(ctx, 0, sizeof(ttls_rsa_alt_context));
-
-	return(ctx);
-}
-
-static void rsa_alt_free_wrap(void *ctx)
-{
-	ttls_zeroize(ctx, sizeof(ttls_rsa_alt_context));
-	ttls_free(ctx);
-}
-
-const ttls_pk_info_t ttls_rsa_alt_info = {
-	TTLS_PK_RSA_ALT,
-	"RSA-alt",
-	rsa_alt_get_bitlen,
-	rsa_alt_can_do,
-	NULL,
-	rsa_alt_sign_wrap,
-	rsa_alt_decrypt_wrap,
-	NULL,
-	rsa_alt_check_pair,
-	rsa_alt_alloc_wrap,
-	rsa_alt_free_wrap,
-	NULL,
-};
-
-#endif /* TTLS_PK_RSA_ALT_SUPPORT */

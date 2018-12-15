@@ -26,6 +26,8 @@
 #include "debug.h"
 
 #define DEBUG_BUF_SIZE	  1024
+/* Maximum number of item send for PK debugging, plus 1 */
+#define TTLS_PK_DEBUG_MAX_ITEMS		3
 
 void
 ttls_debug_print_mpi(const ttls_context *ssl, const char *file, int line,

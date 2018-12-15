@@ -24,7 +24,6 @@
 #ifndef TTLS_PK_WRAP_H
 #define TTLS_PK_WRAP_H
 
-#include "config.h"
 #include "pk.h"
 
 /*
@@ -68,18 +67,5 @@ extern const ttls_pk_info_t ttls_rsa_info;
 extern const ttls_pk_info_t ttls_eckey_info;
 extern const ttls_pk_info_t ttls_eckeydh_info;
 extern const ttls_pk_info_t ttls_ecdsa_info;
-
-#if defined(TTLS_PK_RSA_ALT_SUPPORT)
-/* Container for RSA-alt */
-typedef struct
-{
-	void *key;
-	ttls_pk_rsa_alt_decrypt_func decrypt_func;
-	ttls_pk_rsa_alt_sign_func sign_func;
-	ttls_pk_rsa_alt_key_len_func key_len_func;
-} ttls_rsa_alt_context;
-
-extern const ttls_pk_info_t ttls_rsa_alt_info;
-#endif
 
 #endif /* TTLS_PK_WRAP_H */
