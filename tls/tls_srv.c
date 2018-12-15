@@ -25,7 +25,7 @@
 #include "config.h"
 #include "debug.h"
 #include "ecp.h"
-#include "ssl_internal.h"
+#include "tls_internal.h"
 #include "ttls.h"
 
 static int
@@ -234,22 +234,6 @@ ttls_parse_supported_point_formats(TlsCtx *tls, const unsigned char *buf,
 		list_size--;
 		p++;
 	}
-
-	return 0;
-}
-
-static int
-ttls_parse_encrypt_then_mac_ext(TlsCtx *tls, const unsigned char *buf,
-				size_t len)
-{
-	if (len) {
-		T_DBG("ClientHello: bad EtM extension\n");
-		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-				TTLS_ALERT_MSG_DECODE_ERROR);
-		return TTLS_ERR_BAD_HS_CLIENT_HELLO;
-	}
-	if (tls->conf->encrypt_then_mac)
-		tls->encrypt_then_mac = 1;
 
 	return 0;
 }
@@ -613,7 +597,7 @@ have_ciphersuite:
  */
 static int
 ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
-			unsigned int *read)
+			size_t hh_len, unsigned int *read)
 {
 	int r = T_POSTPONE, n;
 	unsigned char *p = buf;
@@ -1001,11 +985,6 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 							       ext_sz))
 				return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 			break;
-		case TTLS_TLS_EXT_ENCRYPT_THEN_MAC:
-			T_DBG("found encrypt then mac extension\n");
-			if (ttls_parse_encrypt_then_mac_ext(tls, tmp, ext_sz))
-				return TTLS_ERR_BAD_HS_CLIENT_HELLO;
-			break;
 		case TTLS_TLS_EXT_EXTENDED_MASTER_SECRET:
 			T_DBG("found extended master secret extension\n");
 			if (ttls_parse_extended_ms_ext(tls, tmp, ext_sz))
@@ -1057,8 +1036,17 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 	 * callback triggered by the SNI extension. The server uses its own
 	 * preferences over the preference of the client.
 	 */
-	return ttls_choose_ciphersuite(tls,
-				       &tls->hs->tmp[TTLS_HS_TMP_STORE_SZ]);
+	r = ttls_choose_ciphersuite(tls, &tls->hs->tmp[TTLS_HS_TMP_STORE_SZ]);
+
+	/*
+	 * This is, after ttls_choose_ciphersuite() call, the earliest time when
+	 * when we know which hash function to use and now we can start to
+	 * compute the handshake session checksu.
+	 */
+	if (!r)
+		ttls_update_checksum(tls, buf - hh_len, p - buf + hh_len);
+
+	return r;
 }
 
 static void
@@ -1247,8 +1235,8 @@ ttls_write_server_hello(TlsCtx *tls, struct sg_table *sgt,
 	 * encrypt-then-MAC response extension back to the client."
 	 * We don't support other siphersuites, so we don't send EtM extension.
 	 *
-	 * We also don't support renegotiations, so also don't send the
-	 * extension.
+	 * TODO #1054 We also don't support renegotiations, so also don't send
+	 * the extension.
 	 */
 	ttls_write_extended_ms_ext(tls, p + 2 + ext_len, &olen);
 	ext_len += olen;
@@ -1438,6 +1426,8 @@ curve_matching_done:
 	 * exchange parameters, compute and add the signature here.
 	 */
 	if (ttls_ciphersuite_uses_server_signature(ci)) {
+		ttls_pk_type_t sig_alg;
+		ttls_md_type_t md_alg;
 		size_t signature_len = 0;
 		unsigned int hashlen = 0;
 		unsigned char hash[64];
@@ -1450,8 +1440,7 @@ curve_matching_done:
 		 *	(RFC 4492, Sec. 5.4)
 		 * C: Otherwise, use MD5 + SHA1 (RFC 4346, Sec. 7.4.3)
 		 */
-		ttls_pk_type_t sig_alg = ttls_get_ciphersuite_sig_pk_alg(ci);
-		ttls_md_type_t md_alg;
+		sig_alg = ttls_get_ciphersuite_sig_pk_alg(ci);
 		md_alg = ttls_sig_hash_set_find(&tls->hs->hash_algs, sig_alg);
 		/*
 		 * A: For TLS 1.2, obey signature-hash-algorithm extension
@@ -1475,7 +1464,7 @@ curve_matching_done:
 			r = TTLS_ERR_INTERNAL_ERROR;
 			goto err;
 		}
-		T_DBG3_BUF("parameters hash ", hash,
+		T_DBG3_BUF("parameters hash", hash,
 			   hashlen
 			   ? : ttls_md_get_size(ttls_md_info_from_type(md_alg)));
 
@@ -1498,7 +1487,6 @@ curve_matching_done:
 		 *	SignatureAndHashAlgorithm algorithm;
 		 *	opaque signature<0..2^16-1>;
 		 * } DigitallySigned;
-		 *
 		 */
 		*(p++) = ttls_hash_from_md_alg(md_alg);
 		*(p++) = ttls_sig_from_pk_alg(sig_alg);
@@ -1514,7 +1502,7 @@ curve_matching_done:
 		*(p++) = (unsigned char)(signature_len);
 		n += 2;
 
-		T_DBG3_BUF("my signature ", p, signature_len);
+		T_DBG3_BUF("my signature", p, signature_len);
 		n += signature_len;
 		WARN_ON_ONCE(signature_len > 500);
 	}
@@ -1794,7 +1782,7 @@ ttls_parse_encrypted_pms(TlsCtx *tls, const unsigned char *p,
 
 static int
 ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
-			       unsigned int *read)
+			       size_t hh_len, unsigned int *read)
 {
 	int r;
 	const ttls_ciphersuite_t *ci = tls->xfrm.ciphersuite_info;
@@ -1829,11 +1817,27 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 		io->rlen += len;
 		p = tls->hs->tmp;
 		end = p + io->hslen;
+		/*
+		 * Previous chunk checksums were computed in ttls_recv().
+		 * Compute the last current chunk checksum here.
+		 *
+		 * TODO After getting rid of the copy, we can move the
+		 * checksum computation to the end of the function as we
+		 * do this in other places.
+		 *
+		 * The checksum must be update before ttls_derive_keys()
+		 * call because it need the actual checksum, including
+		 * the current record, to process extended master secret
+		 * extension.
+		 */
+		ttls_update_checksum(tls, buf - hh_len, len + hh_len);
 	}
 	else {
 		p = buf;
 		end = p + io->hslen;
 		*read += end - p;
+		/* TODO see the comment above: must be only one call. */
+		ttls_update_checksum(tls, buf - hh_len, end - p + hh_len);
 	}
 
 	if (ci->key_exchange == TTLS_KEY_EXCHANGE_ECDHE_ECDSA
@@ -2204,7 +2208,7 @@ ttls_handshake_finished(TlsCtx *tls)
  */
 int
 ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
-			   unsigned int *read)
+			   size_t hh_len, unsigned int *read)
 {
 	int r = 0;
 	T_FSM_INIT(tls->state, "TLS Server Handshake");
@@ -2223,9 +2227,11 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 	 */
 	T_FSM_STATE(TTLS_CLIENT_HELLO) {
 		BUG_ON(!buf || !read);
-		if (!(r = ttls_parse_client_hello(tls, buf, len, read)))
-			tls->state = TTLS_SERVER_HELLO;
-		return r;
+		r = ttls_parse_client_hello(tls, buf, len, hh_len, read);
+		if (r)
+			return r;
+		/* Fall through. */
+		tls->state = TTLS_SERVER_HELLO;
 	}
 	/*
 	 *  ==>   ServerHello
@@ -2252,7 +2258,6 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 	 *	  Finished
 	 */
 	T_FSM_STATE(TTLS_CLIENT_CERTIFICATE) {
-		BUG_ON(!buf || !read);
 		if ((r = ttls_parse_certificate(tls, buf, len, read)))
 			return r;
 		tls->state = TTLS_CLIENT_KEY_EXCHANGE;
@@ -2261,8 +2266,8 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 	T_FSM_STATE(TTLS_CLIENT_KEY_EXCHANGE) {
 		const ttls_ciphersuite_t *ci = tls->xfrm.ciphersuite_info;
 
-		BUG_ON(!buf || !read);
-		if ((r = ttls_parse_client_key_exchange(tls, buf, len, read)))
+		r = ttls_parse_client_key_exchange(tls, buf, len, hh_len, read);
+		if (r)
 			return r;
 		if (!tls->sess.peer_cert
 		    || ci->key_exchange == TTLS_KEY_EXCHANGE_PSK
@@ -2278,21 +2283,25 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 		return T_OK;
 	}
 	T_FSM_STATE(TTLS_CERTIFICATE_VERIFY) {
-		BUG_ON(!buf || !read);
+		/* Don't add the record to the handshake checksum. */
 		if ((r = ttls_parse_certificate_verify(tls, buf, len, read)))
 			return r;
 		tls->state = TTLS_CLIENT_CHANGE_CIPHER_SPEC;
 		return T_OK;
 	}
 	T_FSM_STATE(TTLS_CLIENT_CHANGE_CIPHER_SPEC) {
-		BUG_ON(!buf || !read);
-		if ((r = ttls_parse_change_cipher_spec(tls, buf, len, read)))
+		/*
+		 * Change Cipher Spec isn't in RFC 5246 7.4, so it isn't
+		 * included in handshake_messages as of 7.4.9 and we do not
+		 * add it to the handshake checksum.
+		 */
+		r = ttls_parse_change_cipher_spec(tls, buf, len, read);
+		if (r)
 			return r;
 		tls->state = TTLS_CLIENT_FINISHED;
 		return T_OK;
 	}
 	T_FSM_STATE(TTLS_CLIENT_FINISHED) {
-		BUG_ON(!buf || !read);
 		if ((r = ttls_parse_finished(tls, buf, len, read)))
 			return r;
 		tls->state = tls->hs->resume
