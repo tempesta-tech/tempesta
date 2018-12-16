@@ -49,7 +49,8 @@ do {									\
 void
 ttls_pk_free(ttls_pk_context *ctx)
 {
-	BUG_ON(!ctx || !ctx->pk_info);
+	if (unlikely(!ctx || !ctx->pk_info))
+		return;
 
 	ctx->pk_info->ctx_free_func(ctx->pk_ctx);
 

@@ -1,39 +1,37 @@
 /*
- *  X.509 common functions for parsing and verification
+ *		Tempesta TLS
  *
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- *  SPDX-License-Identifier: GPL-2.0
+ * X.509 common functions for parsing and verification.
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ * The ITU-T X.509 standard defines a certificate format for PKI.
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * http://www.ietf.org/rfc/rfc5280.txt (Certificates and CRLs)
+ * http://www.ietf.org/rfc/rfc3279.txt (Alg IDs for CRLs)
+ * http://www.ietf.org/rfc/rfc2986.txt (CSRs, aka PKCS#10)
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * http://www.itu.int/ITU-T/studygroups/com17/languages/X.680-0207.pdf
+ * http://www.itu.int/ITU-T/studygroups/com17/languages/X.690-0207.pdf
  *
- *  This file is part of mbed TLS (https://tls.mbed.org)
- */
-/*
- *  The ITU-T X.509 standard defines a certificate format for PKI.
+ * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * SPDX-License-Identifier: GPL-2.0
  *
- *  http://www.ietf.org/rfc/rfc5280.txt (Certificates and CRLs)
- *  http://www.ietf.org/rfc/rfc3279.txt (Alg IDs for CRLs)
- *  http://www.ietf.org/rfc/rfc2986.txt (CSRs, aka PKCS#10)
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- *  http://www.itu.int/ITU-T/studygroups/com17/languages/X.680-0207.pdf
- *  http://www.itu.int/ITU-T/studygroups/com17/languages/X.690-0207.pdf
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include "ttls.h"
 #include "asn1.h"
-#include "certs.h"
 #include "oid.h"
 #include "pem.h"
 #include "tls_internal.h"
@@ -927,67 +925,4 @@ ttls_x509_time_is_future(const ttls_x509_time *from)
 	x509_get_current_time(&now);
 
 	return x509_check_time(from, &now);
-}
-
-/*
- * Checkup routine
- */
-int ttls_x509_self_test(int verbose)
-{
-#if defined(TTLS_CERTS_C)
-	int ret;
-	uint32_t flags;
-	ttls_x509_crt cacert;
-	ttls_x509_crt clicert;
-
-	if (verbose != 0)
-		pr_info("  X.509 certificate load: ");
-
-	ttls_x509_crt_init(&clicert);
-
-	ret = ttls_x509_crt_parse(&clicert, (unsigned char *) ttls_test_cli_crt,
-			   ttls_test_cli_crt_len);
-	if (ret != 0)
-	{
-		if (verbose != 0)
-			pr_info("failed\n");
-
-		return ret;
-	}
-
-	ttls_x509_crt_init(&cacert);
-
-	ret = ttls_x509_crt_parse(&cacert, (unsigned char *) ttls_test_ca_crt,
-			  ttls_test_ca_crt_len);
-	if (ret != 0)
-	{
-		if (verbose != 0)
-			pr_info("failed\n");
-
-		return ret;
-	}
-
-	if (verbose != 0)
-		pr_info("passed\n  X.509 signature verify: ");
-
-	ret = ttls_x509_crt_verify(&clicert, &cacert, NULL, NULL, &flags, NULL, NULL);
-	if (ret != 0)
-	{
-		if (verbose != 0)
-			pr_info("failed\n");
-
-		return ret;
-	}
-
-	if (verbose != 0)
-		pr_info("passed\n\n");
-
-	ttls_x509_crt_free(&cacert );
-	ttls_x509_crt_free(&clicert);
-
-	return 0;
-#else
-	((void) verbose);
-	return 0;
-#endif
 }

@@ -248,7 +248,7 @@
  *
  * Comment to skip keyUsage checking for both CA and leaf certificates.
  */
-#define TTLS_X509_CHECK_KEY_USAGE
+//#define TTLS_X509_CHECK_KEY_USAGE
 
 /**
  * \def TTLS_X509_CHECK_EXTENDED_KEY_USAGE
@@ -262,18 +262,6 @@
  * Comment to skip extendedKeyUsage checking for certificates.
  */
 #define TTLS_X509_CHECK_EXTENDED_KEY_USAGE
-
-/**
- * \def TTLS_CERTS_C
- *
- * Enable the test certificates.
- *
- * Module:  library/certs.c
- * Caller:
- *
- * This module is used for testing (ssl_client/server).
- */
-#define TTLS_CERTS_C
 
 /**
  * \def TTLS_DHM_C
