@@ -98,10 +98,11 @@ ttls_aad2hdriv(TlsXfrm *xfrm, unsigned char *buf)
 	*(long *)(buf + TLS_HEADER_SIZE) = iv;
 
 	/*
-	 * Add IV and TAG to the message legth. The generated AAD length has
-	 * IV and TAG, so just use the length as is.
+	 * The generated AAD contains length of the plaintext, so add IV and
+	 * TAG to the final record payload length.
 	 */
 	len = ((unsigned short)buf[3] << 8) + buf[4];
+	len += ttls_expiv_len(xfrm) + ttls_xfrm_taglen(xfrm);
 	buf[3] = (unsigned char)(len >> 8);
 	buf[4] = (unsigned char)len;
 
