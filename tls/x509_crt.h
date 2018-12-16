@@ -187,38 +187,38 @@ int ttls_x509_crt_verify_info(char *buf, size_t size, const char *prefix,
 			  uint32_t flags);
 
 /**
- * \brief		  Verify the certificate signature
+ * \brief	  Verify the certificate signature
  *
- *				 The verify callback is a user-supplied callback that
- *				 can clear / modify / add flags for a certificate. If set,
- *				 the verification callback is called for each
- *				 certificate in the chain (from the trust-ca down to the
- *				 presented crt). The parameters for the callback are:
- *				 (void *parameter, ttls_x509_crt *crt, int certificate_depth,
- *				 int *flags). With the flags representing current flags for
- *				 that specific certificate and the certificate depth from
- *				 the bottom (Peer cert depth = 0).
+ *			 The verify callback is a user-supplied callback that
+ *			 can clear / modify / add flags for a certificate. If set,
+ *			 the verification callback is called for each
+ *			 certificate in the chain (from the trust-ca down to the
+ *			 presented crt). The parameters for the callback are:
+ *			 (void *parameter, ttls_x509_crt *crt, int certificate_depth,
+ *			 int *flags). With the flags representing current flags for
+ *			 that specific certificate and the certificate depth from
+ *			 the bottom (Peer cert depth = 0).
  *
- *				 All flags left after returning from the callback
- *				 are also returned to the application. The function should
- *				 return 0 for anything (including invalid certificates)
- *				 other than fatal error, as a non-zero return code
- *				 immediately aborts the verification process. For fatal
- *				 errors, a specific error code should be used (different
- *				 from TTLS_ERR_X509_CERT_VERIFY_FAILED which should not
- *				 be returned at this point), or TTLS_ERR_X509_FATAL_ERROR
- *				 can be used if no better code is available.
+ *			 All flags left after returning from the callback
+ *			 are also returned to the application. The function should
+ *			 return 0 for anything (including invalid certificates)
+ *			 other than fatal error, as a non-zero return code
+ *			 immediately aborts the verification process. For fatal
+ *			 errors, a specific error code should be used (different
+ *			 from TTLS_ERR_X509_CERT_VERIFY_FAILED which should not
+ *			 be returned at this point), or TTLS_ERR_X509_FATAL_ERROR
+ *			 can be used if no better code is available.
  *
- * \note		   In case verification failed, the results can be displayed
- *				 using \c ttls_x509_crt_verify_info()
+ * \note	   In case verification failed, the results can be displayed
+ *			 using \c ttls_x509_crt_verify_info()
  *
- * \note		   Same as \c ttls_x509_crt_verify_with_profile() with the
- *				 default security profile.
+ * \note	   Same as \c ttls_x509_crt_verify_with_profile() with the
+ *			 default security profile.
  *
- * \note		   It is your responsibility to provide up-to-date CRLs for
- *				 all trusted CAs. If no CRL is provided for the CA that was
- *				 used to sign the certificate, CRL verification is skipped
- *				 silently, that is *without* setting any flag.
+ * \note	   It is your responsibility to provide up-to-date CRLs for
+ *			 all trusted CAs. If no CRL is provided for the CA that was
+ *			 used to sign the certificate, CRL verification is skipped
+ *			 silently, that is *without* setting any flag.
  *
  * \param crt	  a certificate (chain) to be verified
  * \param trust_ca the list of trusted CAs
@@ -226,23 +226,18 @@ int ttls_x509_crt_verify_info(char *buf, size_t size, const char *prefix,
  * \param cn	   expected Common Name (can be set to
  *				 NULL if the CN must not be verified)
  * \param flags	result of the verification
- * \param f_vrfy   verification function
- * \param p_vrfy   verification parameter
  *
  * \return		 0 (and flags set to 0) if the chain was verified and valid,
- *				 TTLS_ERR_X509_CERT_VERIFY_FAILED if the chain was verified
- *				 but found to be invalid, in which case *flags will have one
- *				 or more TTLS_X509_BADCERT_XXX or TTLS_X509_BADCRL_XXX
- *				 flags set, or another error (and flags set to 0xffffffff)
- *				 in case of a fatal error encountered during the
- *				 verification process.
+ *			 TTLS_ERR_X509_CERT_VERIFY_FAILED if the chain was verified
+ *			 but found to be invalid, in which case *flags will have one
+ *			 or more TTLS_X509_BADCERT_XXX or TTLS_X509_BADCRL_XXX
+ *			 flags set, or another error (and flags set to 0xffffffff)
+ *			 in case of a fatal error encountered during the
+ *			 verification process.
  */
-int ttls_x509_crt_verify(ttls_x509_crt *crt,
-		 ttls_x509_crt *trust_ca,
-		 ttls_x509_crl *ca_crl,
-		 const char *cn, uint32_t *flags,
-		 int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *),
-		 void *p_vrfy);
+int ttls_x509_crt_verify(ttls_x509_crt *crt, ttls_x509_crt *trust_ca,
+			 ttls_x509_crl *ca_crl, const char *cn,
+			 uint32_t *flags);
 
 /**
  * \brief		  Verify the certificate signature according to profile
@@ -275,9 +270,7 @@ int ttls_x509_crt_verify_with_profile(ttls_x509_crt *crt,
 		 ttls_x509_crt *trust_ca,
 		 ttls_x509_crl *ca_crl,
 		 const ttls_x509_crt_profile *profile,
-		 const char *cn, uint32_t *flags,
-		 int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *),
-		 void *p_vrfy);
+		 const char *cn, uint32_t *flags);
 
 #if defined(TTLS_X509_CHECK_KEY_USAGE)
 /**

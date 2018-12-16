@@ -19,29 +19,13 @@
 
 tfw_root = $(src)/../../../
 
-EXTRA_CFLAGS += $(TFW_CFLAGS) -I$(tfw_root)/tempesta_fw -I$(tfw_root)/tempesta_fw/t \
-		-I$(tfw_root) -I$(tfw_root)/tempesta_db/core
+EXTRA_CFLAGS += $(TFW_CFLAGS) -I$(tfw_root)/tempesta_fw -I$(tfw_root) \
+		-I$(tfw_root)/tempesta_fw/t -I$(tfw_root)/tempesta_db/core
 EXTRA_CFLAGS += $(TTLS_CFLAGS)
 
 obj-m += tfw_test.o
-tfw_test-objs = \
-	main.o \
-	test.o \
-	helpers.o \
-	test_addr.o \
-	test_cfg.o \
-	test_hash.o \
-	test_http_match.o \
-	test_http_msg.o \
-	tfw_str_helper.o \
-	test_tfw_str.o \
-	test_mem_fast.o \
-	test_http_parser.o \
-	sched_helper.o \
-	test_sched_ratio.o \
-	test_sched_hash.o \
-	test_http_tbl.o \
-	test_http_sticky.o \
-	test_wq.o \
-	kallsyms_helper.o \
-	test_tls.o
+
+t-srcs = $(wildcard $(obj)/*.c)
+t-objs = $(patsubst %.c, %.o, $(t-srcs))
+
+tfw_test-objs = $(subst $(src)/,,$(t-objs))
