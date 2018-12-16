@@ -45,6 +45,7 @@
 #include "sock_srv.c"
 #include "client.c"
 #include "http_limits.c"
+#include "tls.c"
 
 /* rename original tfw_cli_conn_send(), a custom version will be used here */
 #define tfw_cli_conn_send	divert_tfw_cli_conn_send
@@ -262,13 +263,6 @@ void
 tfw_http_resp_build_error(TfwHttpReq *req)
 {
 	(void)req;
-}
-
-/* Custom version for testing purposes. */
-void
-tfw_tls_cfg_require(void)
-{
-	return;
 }
 
 int

@@ -1609,15 +1609,11 @@ static int x509_crt_check_parent(const ttls_x509_crt *child,
 	return 0;
 }
 
-static int x509_crt_verify_top(
-				ttls_x509_crt *child, ttls_x509_crt *trust_ca,
-				ttls_x509_crl *ca_crl,
-				const ttls_x509_crt_profile *profile,
-				int path_cnt, int self_cnt, uint32_t *flags,
-				int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *),
-				void *p_vrfy)
+static int
+x509_crt_verify_top(ttls_x509_crt *child, ttls_x509_crt *trust_ca,
+		    ttls_x509_crl *ca_crl, const ttls_x509_crt_profile *profile,
+		    int path_cnt, int self_cnt, uint32_t *flags)
 {
-	int ret;
 	uint32_t ca_flags = 0;
 	int check_path_cnt;
 	unsigned char hash[TTLS_MD_MAX_SIZE];
@@ -1729,22 +1725,6 @@ static int x509_crt_verify_top(
 
 		if (ttls_x509_time_is_future(&trust_ca->valid_from))
 			ca_flags |= TTLS_X509_BADCERT_FUTURE;
-
-		if (NULL != f_vrfy)
-		{
-			if ((ret = f_vrfy(p_vrfy, trust_ca, path_cnt + 1,
-		&ca_flags)) != 0)
-			{
-				return ret;
-			}
-		}
-	}
-
-	/* Call callback on top cert */
-	if (NULL != f_vrfy)
-	{
-		if ((ret = f_vrfy(p_vrfy, child, path_cnt, flags)) != 0)
-			return ret;
 	}
 
 	*flags |= ca_flags;
@@ -1752,13 +1732,11 @@ static int x509_crt_verify_top(
 	return 0;
 }
 
-static int x509_crt_verify_child(
-				ttls_x509_crt *child, ttls_x509_crt *parent,
-				ttls_x509_crt *trust_ca, ttls_x509_crl *ca_crl,
-				const ttls_x509_crt_profile *profile,
-				int path_cnt, int self_cnt, uint32_t *flags,
-				int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *),
-				void *p_vrfy)
+static int
+x509_crt_verify_child(ttls_x509_crt *child, ttls_x509_crt *parent,
+		      ttls_x509_crt *trust_ca, ttls_x509_crl *ca_crl,
+		      const ttls_x509_crt_profile *profile,
+		      int path_cnt, int self_cnt, uint32_t *flags)
 {
 	int ret;
 	uint32_t parent_flags = 0;
@@ -1795,6 +1773,7 @@ static int x509_crt_verify_child(
 		/*
 		 * Cannot check 'unknown' hash
 		 */
+		T_WARN("certificate uses unsupported hash %d\n", child->sig_md);
 		*flags |= TTLS_X509_BADCERT_NOT_TRUSTED;
 	}
 	else
@@ -1830,7 +1809,7 @@ static int x509_crt_verify_child(
 	if (grandparent != NULL)
 	{
 		ret = x509_crt_verify_top(parent, grandparent, ca_crl, profile,
-		path_cnt + 1, self_cnt, &parent_flags, f_vrfy, p_vrfy);
+					  path_cnt + 1, self_cnt, &parent_flags);
 		if (ret != 0)
 			return ret;
 	}
@@ -1858,26 +1837,22 @@ static int x509_crt_verify_child(
 		/* Is our parent part of the chain or at the top? */
 		if (grandparent != NULL)
 		{
-			ret = x509_crt_verify_child(parent, grandparent, trust_ca, ca_crl,
-				 profile, path_cnt + 1, self_cnt, &parent_flags,
-				 f_vrfy, p_vrfy);
+			ret = x509_crt_verify_child(parent, grandparent,
+						    trust_ca, ca_crl, profile,
+						    path_cnt + 1, self_cnt,
+						    &parent_flags);
 			if (ret != 0)
 				return ret;
 		}
 		else
 		{
-			ret = x509_crt_verify_top(parent, trust_ca, ca_crl, profile,
-			   path_cnt + 1, self_cnt, &parent_flags,
-			   f_vrfy, p_vrfy);
+			ret = x509_crt_verify_top(parent, trust_ca, ca_crl,
+						  profile, path_cnt + 1,
+						  self_cnt, &parent_flags);
 			if (ret != 0)
 				return ret;
 		}
 	}
-
-	/* child is verified to be a child of the parent, call verify callback */
-	if (NULL != f_vrfy)
-		if ((ret = f_vrfy(p_vrfy, child, path_cnt, flags)) != 0)
-			return ret;
 
 	*flags |= parent_flags;
 
@@ -1887,15 +1862,13 @@ static int x509_crt_verify_child(
 /*
  * Verify the certificate validity
  */
-int ttls_x509_crt_verify(ttls_x509_crt *crt,
-		 ttls_x509_crt *trust_ca,
-		 ttls_x509_crl *ca_crl,
-		 const char *cn, uint32_t *flags,
-		 int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *),
-		 void *p_vrfy)
+int
+ttls_x509_crt_verify(ttls_x509_crt *crt, ttls_x509_crt *trust_ca,
+		     ttls_x509_crl *ca_crl, const char *cn, uint32_t *flags)
 {
-	return(ttls_x509_crt_verify_with_profile(crt, trust_ca, ca_crl,
-				&ttls_x509_crt_profile_default, cn, flags, f_vrfy, p_vrfy));
+	return ttls_x509_crt_verify_with_profile(crt, trust_ca, ca_crl,
+						 &ttls_x509_crt_profile_default,
+						 cn, flags);
 }
 
 
@@ -1906,9 +1879,7 @@ int ttls_x509_crt_verify_with_profile(ttls_x509_crt *crt,
 		 ttls_x509_crt *trust_ca,
 		 ttls_x509_crl *ca_crl,
 		 const ttls_x509_crt_profile *profile,
-		 const char *cn, uint32_t *flags,
-		 int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *),
-		 void *p_vrfy)
+		 const char *cn, uint32_t *flags)
 {
 	size_t cn_len;
 	int ret;
@@ -1995,8 +1966,8 @@ int ttls_x509_crt_verify_with_profile(ttls_x509_crt *crt,
 
 	if (parent != NULL)
 	{
-		ret = x509_crt_verify_top(crt, parent, ca_crl, profile,
-		   pathlen, selfsigned, flags, f_vrfy, p_vrfy);
+		ret = x509_crt_verify_top(crt, parent, ca_crl, profile, pathlen,
+					  selfsigned, flags);
 		if (ret != 0)
 			goto exit;
 	}
@@ -2010,15 +1981,17 @@ int ttls_x509_crt_verify_with_profile(ttls_x509_crt *crt,
 		/* Are we part of the chain or at the top? */
 		if (parent != NULL)
 		{
-			ret = x509_crt_verify_child(crt, parent, trust_ca, ca_crl, profile,
-				 pathlen, selfsigned, flags, f_vrfy, p_vrfy);
+			ret = x509_crt_verify_child(crt, parent, trust_ca,
+						    ca_crl, profile, pathlen,
+						    selfsigned, flags);
 			if (ret != 0)
 				goto exit;
 		}
 		else
 		{
-			ret = x509_crt_verify_top(crt, trust_ca, ca_crl, profile,
-			   pathlen, selfsigned, flags, f_vrfy, p_vrfy);
+			ret = x509_crt_verify_top(crt, trust_ca, ca_crl,
+						  profile, pathlen, selfsigned,
+						  flags);
 			if (ret != 0)
 				goto exit;
 		}
@@ -2038,7 +2011,7 @@ exit:
 	}
 
 	if (*flags != 0)
-		return(TTLS_ERR_X509_CERT_VERIFY_FAILED);
+		return TTLS_ERR_X509_CERT_VERIFY_FAILED;
 
 	return 0;
 }
