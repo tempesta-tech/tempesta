@@ -223,13 +223,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "TLS - No CA Chain is set, but required to operate");
 		if (use_ret == -(TTLS_ERR_UNEXPECTED_MESSAGE))
 			snprintf(buf, buflen, "TLS - An unexpected message was received from our peer");
-		if (use_ret == -(TTLS_ERR_FATAL_ALERT_MESSAGE))
-		{
-			snprintf(buf, buflen, "TLS - A fatal alert message was received from our peer");
-			return;
-		}
-		if (use_ret == -(TTLS_ERR_PEER_CLOSE_NOTIFY))
-			snprintf(buf, buflen, "TLS - The peer notified us that the connection is going to be closed");
 		if (use_ret == -(TTLS_ERR_BAD_HS_CLIENT_HELLO))
 			snprintf(buf, buflen, "TLS - Processing of the ClientHello handshake message failed");
 		if (use_ret == -(TTLS_ERR_BAD_HS_SERVER_HELLO))
@@ -270,8 +263,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "TLS - A buffer is too small to receive or write a message");
 		if (use_ret == -(TTLS_ERR_NO_USABLE_CIPHERSUITE))
 			snprintf(buf, buflen, "TLS - None of the common ciphersuites is usable (eg, no suitable certificate, see debug messages)");
-		if (use_ret == -(TTLS_ERR_NON_FATAL))
-			snprintf(buf, buflen, "TLS - The alert message received indicates a non-fatal error");
 		if (use_ret == -(TTLS_ERR_INVALID_VERIFY_HASH))
 			snprintf(buf, buflen, "TLS - Couldn't set the hash for verifying CertificateVerify");
 
