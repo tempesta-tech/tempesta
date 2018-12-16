@@ -2243,12 +2243,6 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 	T_FSM_STATE(TTLS_SERVER_HELLO) {
 		return ttls_handshake_server_hello(tls);
 	}
-	T_FSM_STATE(TTLS_SERVER_CERTIFICATE)
-	T_FSM_STATE(TTLS_SERVER_KEY_EXCHANGE)
-	T_FSM_STATE(TTLS_CERTIFICATE_REQUEST)
-	T_FSM_STATE(TTLS_SERVER_HELLO_DONE) {
-		BUG(); /* must be handled in ttls_handshake_server_hello() */
-	}
 
 	/*
 	 *  <==  (Certificate/Alert )
@@ -2319,9 +2313,6 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 		if ((r = ttls_handshake_finished(tls)))
 			return r;
 		T_FSM_NEXT();
-	}
-	T_FSM_STATE(TTLS_SERVER_FINISHED) {
-		BUG(); /* must be handled in ttls_handshake_finished() */
 	}
 
 	T_FSM_STATE(TTLS_HANDSHAKE_WRAPUP) {
