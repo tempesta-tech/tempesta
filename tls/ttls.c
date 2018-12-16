@@ -189,6 +189,29 @@ err:
 }
 
 /**
+ * Extract alert body, from the decrypted skb chain.
+ */
+static int
+ttls_skb_extract_alert(TlsIOCtx *io, TlsXfrm *xfrm)
+{
+	size_t n, copied = 0, off = ttls_payload_off(xfrm);
+	struct sk_buff *skb = io->skb_list;
+
+	for ( ; skb && copied != TTLS_ALERT_LEN; skb = skb->next) {
+		if (unlikely(skb->len <= off)) {
+			off -= skb->len;
+			continue;
+		}
+		n = min(skb->len - off, TTLS_ALERT_LEN - copied);
+		if (skb_copy_bits(skb, off, &io->alert[copied], n))
+			return T_DROP;
+		copied += n;
+	}
+
+	return skb ? 0 : T_DROP;
+}
+
+/**
  * Register I/O callbacks from the underlying network layer.
  */
 void
@@ -874,6 +897,9 @@ ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 		return T_DROP;
 	}
 
+	if (io->msgtype == TTLS_MSG_ALERT)
+		return ttls_skb_extract_alert(io, &tls->xfrm);
+
 	return 0;
 }
 
@@ -1045,6 +1071,7 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 		      unsigned int *read)
 {
 	int r, ivahs_len, n = 0;
+	bool ready = ttls_xfrm_ready(tls);
 	TlsIOCtx *io = &tls->io_in;
 
 	/* Read TLS message header, probably fragmented. */
@@ -1064,23 +1091,33 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 	io->msgtype = io->hdr[0];
 	ttls_read_version(tls, io->hdr + 1);
 	io->msglen = ((unsigned short)io->hdr[3] << 8) | io->hdr[4];
+
 	T_DBG3("input rec: type=%d ver=%d:%d msglen=%d read=%u xfrm_ready=%d\n",
-	       io->msgtype, tls->major, tls->minor, io->msglen, *read,
-	       ttls_xfrm_ready(tls));
+	       io->msgtype, tls->major, tls->minor, io->msglen, *read, ready);
 
 	if ((r = ttls_hdr_check(tls)))
 		return r;
 	switch (io->msgtype) {
+	case TTLS_MSG_ALERT:
+		/* Alerts are unencrypted during handshake only. */
+		if (!ready) {
+			ivahs_len = 2; /* level & description */
+			if (io->msglen < ivahs_len) {
+				T_DBG("alert message too short: %d\n",
+				      io->msglen);
+				return TTLS_ERR_INVALID_RECORD;
+			}
+			break;
+		}
+		/*
+		 * Read IV for the encrypted alert as we do this for
+		 * application data records.
+		 */
+
 	case TTLS_MSG_APPLICATION_DATA:
 		ivahs_len = ttls_expiv_len(&tls->xfrm);
 		break;
-	case TTLS_MSG_ALERT:
-		ivahs_len = 2; /* level & description */
-		if (io->msglen < ivahs_len) {
-			T_DBG("alert message too short: %d\n", io->msglen);
-			return TTLS_ERR_INVALID_RECORD;
-		}
-		break;
+
 	case TTLS_MSG_CHANGE_CIPHER_SPEC:
 		/* Read 1 byte equal to 0x1. */
 		ivahs_len = 1;
@@ -1090,6 +1127,7 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 			return TTLS_ERR_INVALID_RECORD;
 		}
 		break;
+
 	case TTLS_MSG_HANDSHAKE:
 		/*
 		 * Read handshake header if it's unencrypted:
@@ -1097,7 +1135,7 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 		 *   0 . 0   handshake type
 		 *   1 . 3   handshake length
 		 */
-		if (!ttls_xfrm_ready(tls)) {
+		if (!ready) {
 			ivahs_len = TTLS_HS_HDR_LEN;
 			if (io->msglen < ivahs_len) {
 				T_DBG("handshake message too short: %d\n",
@@ -1108,6 +1146,7 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 			ivahs_len = ttls_expiv_len(&tls->xfrm);
 		}
 		break;
+
 	default:
 		return TTLS_ERR_INVALID_RECORD;
 	}
@@ -1121,7 +1160,9 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 		io->hdr_cpsz += len;
 		return T_POSTPONE;
 	}
-	if (io->msgtype == TTLS_MSG_APPLICATION_DATA) {
+	if (io->msgtype == TTLS_MSG_APPLICATION_DATA
+	    || (ready && io->msgtype == TTLS_MSG_ALERT))
+	{
 		BUG_ON(io->rlen);
 		io->rlen = ivahs_len;
 	}
@@ -1138,7 +1179,7 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 		      io->msglen, io->hstype, io->hslen, *read);
 	}
 	/* Don't try to read encrypted handshake header. */
-	else if (io->msgtype == TTLS_MSG_HANDSHAKE && !ttls_xfrm_ready(tls)) {
+	else if (io->msgtype == TTLS_MSG_HANDSHAKE && !ready) {
 		io->hstype = io->hs_hdr[0];
 		io->hslen = (io->hs_hdr[1] << 16) | (io->hs_hdr[2] << 8)
 			    | io->hs_hdr[3];
@@ -1202,20 +1243,20 @@ ttls_handle_alert(TlsIOCtx *io)
 {
 	T_DBG("got an alert message, type=%d:%d\n", io->alert[0], io->alert[1]);
 
-	/* Ignore non-fatal alerts, except close_notify and no_renegotiation. */
+	/* Ignore non-fatal alerts, except close_notify. */
 	if (io->alert[0] == TTLS_ALERT_LEVEL_FATAL) {
 		T_DBG("is a fatal alert message (msg %d)\n", io->alert[1]);
-		return TTLS_ERR_FATAL_ALERT_MESSAGE;
+		return T_DROP;
 	}
 	if (io->alert[0] == TTLS_ALERT_LEVEL_WARNING
 	    && io->alert[1] == TTLS_ALERT_MSG_CLOSE_NOTIFY)
 	{
 		T_DBG("is a close notify message\n");
-		return TTLS_ERR_PEER_CLOSE_NOTIFY;
+		return T_DROP;
 	}
 
 	/* Silently ignore: fetch new message */
-	return TTLS_ERR_NON_FATAL;
+	return 0;
 }
 
 /**
@@ -2181,10 +2222,12 @@ next_record:
 	 */
 	switch (io->msgtype) {
 	case TTLS_MSG_ALERT:
-		r = ttls_handle_alert(io);
-		if (r == TTLS_ERR_NON_FATAL)
-			goto skip_record;
-		return r;
+		if (unlikely(!ttls_xfrm_ready(tls))) {
+			if (!(r = ttls_handle_alert(io)))
+				goto skip_record;
+			return T_DROP;
+		}
+		break;
 
 	case TTLS_MSG_CHANGE_CIPHER_SPEC:
 		/* Parsed as part of handshake FSM. */
@@ -2229,12 +2272,14 @@ next_record:
 			goto skip_record;
 		}
 	}
+
+	/* After the handshake the crypto context must be ready. */
 	if (unlikely(!ttls_xfrm_ready(tls))) {
 		T_WARN("TLS context isn't ready after handshake\n");
 		return T_DROP;
 	}
 
-	/* Encrypted application data. */
+	/* Encrypted data. */
 	if (io->msglen > io->rlen + len) {
 		/*
 		 * Store offset of begin of current message. The most generic
@@ -2252,6 +2297,12 @@ next_record:
 	if ((r = ttls_decrypt(tls, NULL))) {
 		T_DBG("cannot decrypt msg on state %x, ret=%d%s\n",
 		      tls->state, r, r == -EBADMSG ? "(bad ciphertext)" : "");
+		return T_DROP;
+	}
+
+	if (io->msgtype == TTLS_MSG_ALERT) {
+		if (!(r = ttls_handle_alert(io)))
+			goto skip_record;
 		return T_DROP;
 	}
 
