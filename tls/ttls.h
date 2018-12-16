@@ -65,10 +65,6 @@
 #define TTLS_ERR_CA_CHAIN_REQUIRED		-0x7680
 /* An unexpected message was received from our peer. */
 #define TTLS_ERR_UNEXPECTED_MESSAGE		-0x7700
-/* A fatal alert message was received from our peer. */
-#define TTLS_ERR_FATAL_ALERT_MESSAGE		-0x7780
-/* The peer notified us that the connection is going to be closed. */
-#define TTLS_ERR_PEER_CLOSE_NOTIFY		-0x7880
 /* Processing of the ClientHello handshake message failed. */
 #define TTLS_ERR_BAD_HS_CLIENT_HELLO		-0x7900
 /* Processing of the ServerHello handshake message failed. */
@@ -116,12 +112,11 @@
  * see debug messages).
  */
 #define TTLS_ERR_NO_USABLE_CIPHERSUITE		-0x6980
-/* The alert message received indicates a non-fatal error. */
-#define TTLS_ERR_NON_FATAL			-0x6680
 /* Couldn't set the hash for verifying CertificateVerify. */
 #define TTLS_ERR_INVALID_VERIFY_HASH		-0x6600
 
 #define TTLS_IV_LEN				8 /* explicit IV size */
+#define TTLS_ALERT_LEN				2
 
 #define TTLS_MAJOR_VERSION_3			3
 #define TTLS_MINOR_VERSION_0			0 /* SSL v3.0 */
@@ -439,7 +434,7 @@ typedef struct {
 	union {
 		unsigned char	__msg[16];
 		unsigned char	iv[TTLS_IV_LEN];
-		unsigned char	alert[2];
+		unsigned char	alert[TTLS_ALERT_LEN];
 		unsigned char	hs_hdr[4];
 	};
 	unsigned char	hdr_cpsz;
