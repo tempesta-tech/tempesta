@@ -1551,9 +1551,7 @@ parse:
 						      ca_crl,
 						      tls->conf->cert_profile,
 						      tls->hostname,
-						      &sess->verify_result,
-						      tls->conf->f_vrfy,
-						      tls->conf->p_vrfy);
+						      &sess->verify_result);
 		if (r)
 			T_DBG("client cert verification status: %d\n", r);
 
@@ -1826,15 +1824,6 @@ void
 ttls_conf_authmode(ttls_config *conf, int authmode)
 {
 	conf->authmode = authmode;
-}
-
-void
-ttls_conf_verify(ttls_config *conf,
-		 int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *),
-		 void *p_vrfy)
-{
-	conf->f_vrfy = f_vrfy;
-	conf->p_vrfy = p_vrfy;
 }
 
 #if defined(TTLS_CLI_C)
@@ -2148,9 +2137,8 @@ static int
 ttls_handshake_step(TlsCtx *tls, unsigned char *buf, size_t len, size_t hh_len,
 		    unsigned int *read)
 {
-	TlsIOCtx *io = &tls->io_in;
-
-	T_DBG3("handshake message %u on state %x\n", io->msgtype, tls->state);
+	T_DBG3("handshake message %u on state %x\n",
+	       tls->io_in.msgtype, tls->state);
 
 #if defined(TTLS_CLI_C)
 	if (tls->conf->endpoint == TTLS_IS_CLIENT)
