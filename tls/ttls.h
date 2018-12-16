@@ -546,21 +546,6 @@ int ttls_ctx_init(TlsCtx *tls, const ttls_config *conf);
 void ttls_conf_authmode(ttls_config *conf, int authmode);
 
 /**
- * \brief	Set the verification callback (Optional).
- *
- *		If set, the verify callback is called for each
- *		certificate in the chain. For implementation
- *		information, please see \c ttls_x509_crt_verify()
- *
- * \param conf	SSL configuration
- * \param f_vrfy verification function
- * \param p_vrfy verification parameter
- */
-void ttls_conf_verify(ttls_config *conf,
-		      int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *),
-		      void *p_vrfy);
-
-/**
  * \brief	Callback type: generate and write session ticket
  *
  * \note	This describes what a callback implementation should do.

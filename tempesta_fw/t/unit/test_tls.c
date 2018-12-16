@@ -43,12 +43,10 @@ TEST(tls, name)								\
 DEFINE_TLS_TEST(ecp);
 DEFINE_TLS_TEST(mpi);
 DEFINE_TLS_TEST(rsa);
-DEFINE_TLS_TEST(x509);
 
 TEST_SUITE(tls)
 {
 	TEST_RUN(tls, ecp);
 	TEST_RUN(tls, mpi);
 	TEST_RUN(tls, rsa);
-	TEST_RUN(tls, x509);
 }
