@@ -253,28 +253,8 @@ enum {
 	_TFW_HTTP_FLAGS_NUM
 };
 
-#define TFW_HTTP_F_CONN_CLOSE		(1U << TFW_HTTP_B_CONN_CLOSE)
-#define TFW_HTTP_F_CONN_KA		(1U << TFW_HTTP_B_CONN_KA)
-#define __TFW_HTTP_MSG_M_CONN_MASK	\
-	(TFW_HTTP_F_CONN_KA | TFW_HTTP_F_CONN_CLOSE)
-#define TFW_HTTP_F_CONN_EXTRA		(1U << TFW_HTTP_B_CONN_EXTRA)
-#define TFW_HTTP_F_CHUNKED		(1U << TFW_HTTP_B_CHUNKED)
-#define TFW_HTTP_F_FIELD_DUPENTRY	(1U << TFW_HTTP_B_FIELD_DUPENTRY)
-
-#define TFW_HTTP_F_HAS_STICKY		(1U << TFW_HTTP_B_HAS_STICKY)
-#define TFW_HTTP_F_URI_FULL		(1U << TFW_HTTP_B_URI_FULL)
-#define TFW_HTTP_F_NON_IDEMP		(1U << TFW_HTTP_B_NON_IDEMP)
-#define TFW_HTTP_F_SUSPECTED		(1U << TFW_HTTP_B_SUSPECTED)
-#define TFW_HTTP_F_ACCEPT_HTML		(1U << TFW_HTTP_B_ACCEPT_HTML)
-#define TFW_HTTP_F_HMONITOR		(1U << TFW_HTTP_B_HMONITOR)
-#define TFW_HTTP_F_WHITELIST		(1U << TFW_HTTP_B_WHITELIST)
-#define TFW_HTTP_F_REQ_DROP		(1U << TFW_HTTP_B_REQ_DROP)
-
-#define TFW_HTTP_F_VOID_BODY		(1U << TFW_HTTP_B_VOID_BODY)
-#define TFW_HTTP_F_HDR_DATE		(1U << TFW_HTTP_B_HDR_DATE)
-#define TFW_HTTP_F_HDR_LMODIFIED	(1U << TFW_HTTP_B_HDR_LMODIFIED)
-#define TFW_HTTP_F_RESP_STALE		(1U << TFW_HTTP_B_RESP_STALE)
-#define TFW_HTTP_F_RESP_READY		(1U << TFW_HTTP_B_RESP_READY)
+#define __TFW_HTTP_MSG_M_CONN_MASK					\
+	(BIT(TFW_HTTP_B_CONN_CLOSE) | BIT(TFW_HTTP_B_CONN_KA))
 
 /**
  * The structure to hold data for an HTTP error response.
@@ -326,13 +306,19 @@ typedef struct {
 	TfwHttpError	httperr;					\
 	TfwCacheControl	cache_ctl;					\
 	unsigned char	version;					\
-	unsigned int	flags;						\
-	unsigned long	content_length;					\
 	unsigned int	keep_alive;					\
+	unsigned long	content_length;					\
+	DECLARE_BITMAP	(flags, _TFW_HTTP_FLAGS_NUM);			\
 	TfwConn		*conn;						\
 	void (*destructor)(void *msg);					\
 	TfwStr		crlf;						\
 	TfwStr		body;
+
+static inline void
+tfw_http_copy_flags(unsigned long *to, unsigned long *from)
+{
+	bitmap_copy(to, from, _TFW_HTTP_FLAGS_NUM);
+}
 
 /**
  * A helper structure for operations common for requests and responses.
