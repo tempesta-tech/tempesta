@@ -328,7 +328,7 @@ tfw_srv_conn_clear_busy(TfwSrvConn *conn)
  * unloading of the corresponding work queue. This function is intended
  * for clearing busy bit for connection and setting busy delay, during
  * which the conection is evicted from requests' scheduling process. Due
- * to CPU reordering some requests may be occasionly scheduled (see
+ * to CPU reordering some requests may be occasionally scheduled (see
  * the tfw_srv_conn_busy() function and its usage) on busy connection
  * in the moment of clearing busy bit. To prevent this situation memory
  * barriers are used.
