@@ -91,7 +91,7 @@ tfw_wq_push(TfwRBQueue *q, void *ptr, int cpu, struct irq_work *work,
 	 * to pass through temporary queue overflow.
 	 */
 	while ((ticket = __tfw_wq_push(q, ptr))) {
-		if (--budget <= 0)
+		if (!--budget)
 			return ticket;
 	}
 	/*

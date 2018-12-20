@@ -310,8 +310,7 @@ tfw_srv_conn_busy(TfwSrvConn *conn)
 static inline void
 tfw_srv_conn_set_busy(TfwSrvConn *conn)
 {
-	if (!test_bit(TFW_CONN_B_BUSY, &conn->flags))
-		set_bit(TFW_CONN_B_BUSY, &conn->flags);
+	set_bit(TFW_CONN_B_BUSY, &conn->flags);
 }
 
 /*
@@ -326,7 +325,13 @@ tfw_srv_conn_clear_busy(TfwSrvConn *conn)
 
 /*
  * Set small delay for inactivity of busy connection to give time for
- * unloading of the corresponding work queue.
+ * unloading of the corresponding work queue. This function is intended
+ * for clearing busy bit for connection and setting busy delay, during
+ * which the conection is evicted from requests' scheduling process. Due
+ * to CPU reordering some requests may be occasionly scheduled (see
+ * the tfw_srv_conn_busy() function and its usage) on busy connection
+ * in the moment of clearing busy bit. To prevent this situation memory
+ * barriers are used.
  */
 static inline void
 tfw_srv_clear_busy_delay(TfwSrvConn *conn, bool busy)
