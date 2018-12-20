@@ -161,7 +161,7 @@ tfw_http_sticky_redirect_applied(TfwHttpReq *req)
 		return true;
 
 	return (req->method == TFW_HTTP_METH_GET)
-		&& (req->flags & TFW_HTTP_F_ACCEPT_HTML);
+		&& test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
 }
 
 /*
@@ -724,7 +724,7 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 		return r;
 
 	/* Sticky cookie is found and verified, now we can set the flag. */
-	req->flags |= TFW_HTTP_F_HAS_STICKY;
+	__set_bit(TFW_HTTP_B_HAS_STICKY, req->flags);
 
 	return r;
 }
@@ -791,8 +791,11 @@ tfw_http_sess_resp_process(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
 
-	if (!tfw_cfg_sticky.enabled || req->flags & TFW_HTTP_F_WHITELIST)
+	if (!tfw_cfg_sticky.enabled
+	    || test_bit(TFW_HTTP_B_WHITELIST, req->flags))
+	{
 		return 0;
+	}
 	BUG_ON(!req->sess);
 
 	/*
@@ -801,7 +804,7 @@ tfw_http_sess_resp_process(TfwHttpResp *resp)
 	 * it seems that we don't enforce them, we can just set the cookie in
 	 * each response forwarded to the client.
 	 */
-	if (req->flags & TFW_HTTP_F_HAS_STICKY)
+	if (test_bit(TFW_HTTP_B_HAS_STICKY, req->flags))
 		return 0;
 	return tfw_http_sticky_add(resp);
 }
@@ -913,8 +916,11 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	struct hlist_node *tmp;
 	StickyVal sv = { };
 
-	if (!tfw_cfg_sticky.enabled || req->flags & TFW_HTTP_F_WHITELIST)
+	if (!tfw_cfg_sticky.enabled
+	    || test_bit(TFW_HTTP_B_WHITELIST, req->flags))
+	{
 		return TFW_HTTP_SESS_SUCCESS;
+	}
 
 	if ((r = tfw_http_sticky_req_process(req, &sv)))
 		return r;
