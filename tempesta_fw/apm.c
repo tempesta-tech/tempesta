@@ -24,6 +24,9 @@
 #include <linux/spinlock.h>
 #include <linux/stringify.h>
 
+#ifndef DBG_APM
+#undef DEBUG
+#endif
 #include "lib/str.h"
 #include "apm.h"
 #include "cfg.h"

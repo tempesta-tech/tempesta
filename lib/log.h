@@ -87,17 +87,20 @@ do {									\
 
 #define T_DBG3_SL(str, sglist, sgn, off, len)				\
 do {									\
-	int __o = 0, __i;						\
+	int __o = 0, __i, __n = (int)(len);				\
 	struct scatterlist *__s = NULL;					\
 	T_DBG3(str " (sgn=%u sglist=%pK len=%lu):\n", sgn, sglist, len);\
 	for_each_sg(sglist, __s, sgn, __i) {				\
+		if (!__n)						\
+			break;						\
 		if (off >= __o + __s->length) {				\
 			__o += __s->length;				\
 		} else {						\
 			int __d = off - __o;				\
-			T_DBG3_BUF("segment", sg_virt(__s) + __d,	\
-				   __s->length - __d);			\
+			int __bytes = min_t(int, __n, __s->length - __d); \
+			T_DBG3_BUF("segment", sg_virt(__s) + __d, __bytes); \
 			__o = off;					\
+			__n -= __bytes;					\
 		}							\
 	}								\
 } while (0)

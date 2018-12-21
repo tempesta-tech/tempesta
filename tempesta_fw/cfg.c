@@ -85,6 +85,9 @@
 #include <linux/kernel.h>
 #include <linux/moduleparam.h>
 
+#ifndef DBG_CFG
+#undef DEBUG
+#endif
 #include "addr.h"
 #include "cfg.h"
 #include "client.h"
