@@ -771,15 +771,16 @@ ttls_encrypt(TlsCtx *tls, struct sg_table *sgt)
 	       crypto_aead_reqtfm(req), req,
 	       crypto_aead_reqsize(c_ctx->cipher_ctx),
 	       c_ctx->cipher_info->key_len, elen);
-	T_DBG3_SL("plaintext buf for encryption", sgt->sgl, sgt->nents, 0,
-		  (size_t)io->msglen + TLS_HEADER_SIZE);
+	T_DBG3_SL("plaintext buf for encryption (first 256 bytes)",
+		  sgt->sgl, sgt->nents, 0,
+		  min_t(size_t, 256, io->msglen + TLS_HEADER_SIZE));
 
 	if ((r = crypto_aead_encrypt(req))) {
 		T_DBG2("encrypt failed: %d\n", r);
 		goto err;
 	}
-	T_DBG3_SL("encrypted buf", sgt->sgl, sgt->nents, 0,
-		  (size_t)io->msglen + TLS_HEADER_SIZE);
+	T_DBG3_SL("encrypted buf (first 64 bytes)", sgt->sgl, sgt->nents, 0,
+		  min_t(size_t, 64, io->msglen + TLS_HEADER_SIZE));
 
 	if (unlikely(++io->ctr > (~0UL >> 1)))
 		T_WARN("outgoing message counter would wrap\n");
@@ -1246,13 +1247,13 @@ ttls_handle_alert(TlsIOCtx *io)
 
 	/* Ignore non-fatal alerts, except close_notify. */
 	if (io->alert[0] == TTLS_ALERT_LEVEL_FATAL) {
-		T_DBG("is a fatal alert message (msg %d)\n", io->alert[1]);
+		T_DBG2("is a fatal alert message (msg %d)\n", io->alert[1]);
 		return T_DROP;
 	}
 	if (io->alert[0] == TTLS_ALERT_LEVEL_WARNING
 	    && io->alert[1] == TTLS_ALERT_MSG_CLOSE_NOTIFY)
 	{
-		T_DBG("is a close notify message\n");
+		T_DBG2("is a close notify message\n");
 		return T_DROP;
 	}
 
