@@ -36,6 +36,10 @@
 #include "ttls.h"
 #include "x509.h"
 
+/*
+ * TODO the function must be removed. All the descriptions must be moved to
+ * the code which returns the staus codes.
+ */
 void ttls_strerror(int ret, char *buf, size_t buflen)
 {
 	size_t len;

@@ -22,6 +22,9 @@
  */
 #include <linux/ctype.h>
 
+#ifndef DBG_HTTP_PARSER
+#undef DEBUG
+#endif
 #include "lib/str.h"
 #include "gfsm.h"
 #include "http_msg.h"
