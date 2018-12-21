@@ -1890,7 +1890,7 @@ tfw_http_conn_send(TfwConn *conn, TfwMsg *msg)
 }
 
 /**
- * Create a sibling for @msg message.
+ * Create a sibling for @hm message.
  * Siblings in HTTP are pipelined HTTP messages that share the same SKB.
  */
 static TfwHttpMsg *
@@ -2759,8 +2759,8 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 		/*
 		 * The message is fully parsed, the rest of the data in the
 		 * stream may represent another request or its part.
-		 * If skb splitting has failed, the request cant be forwarded to
-		 * backend server or request-response sequence can be broken.
+		 * If skb splitting has failed, the request can't be forwarded
+		 * to backend server or request-response sequence can be broken.
 		 * @skb is replaced with pointer to a new SKB.
 		 */
 		if (data_off < skb->len) {
@@ -3251,7 +3251,7 @@ tfw_http_resp_process(TfwConn *conn, const TfwFsmData *data)
 
 		/*
 		 * The message is fully parsed, the rest of the data in the
-		 * stream may represent another request or its part.
+		 * stream may represent another response or its part.
 		 * If skb splitting has failed, the response cant be forwarded
 		 * to client or request-response sequence on client side can be
 		 * broken and client may receive sensitive data from other
