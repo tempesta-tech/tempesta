@@ -811,7 +811,7 @@ __tfw_http_conn_msg_sent_prev(TfwSrvConn *srv_conn)
 
 /**
  * Remove @req from the server connection's forwarding queue.
- * Caller must care about @srv_conn->msg sent on it's own to keep the
+ * Caller must care about @srv_conn->msg_sent on it's own to keep the
  * queue state consistent.
  */
 static inline void
