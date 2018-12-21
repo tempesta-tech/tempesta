@@ -170,11 +170,49 @@ out_err:
 }
 
 /**
+ * Add the TLS record overhead to current TCP socket control data.
+ */
+static void
+tfw_tls_tcp_add_overhead(struct sock *sk, unsigned int overhead)
+{
+	sk->sk_wmem_queued += overhead;
+	sk_mem_charge(sk, overhead);
+	tcp_sk(sk)->write_seq += overhead;
+}
+
+/**
+ * Propagate TCP correct sequence numbers from the current @skb with adjusted
+ * sequence numbers for TLS overhead to the next one on TCP write queue.
+ * So that tcp_send_head() always point to an skb with the right sequence
+ * numbers.
+ */
+static void
+tfw_tls_tcp_propagate_dseq(struct sock *sk, struct sk_buff *skb)
+{
+	struct sk_buff *next;
+	struct tcp_skb_cb *tcb_next, *tcb = TCP_SKB_CB(skb);
+
+	if (tcp_skb_is_last(sk, skb))
+		return;
+
+	next = tcp_write_queue_next(sk, skb);
+	tcb_next = TCP_SKB_CB(next);
+	WARN_ON_ONCE((tcb_next->seq || tcb_next->end_seq)
+		     && tcb_next->seq + next->len != tcb_next->end_seq);
+
+	tcb_next->seq = tcb->end_seq;
+	tcb_next->end_seq = tcb_next->seq + next->len;
+}
+
+/**
  * The callback is called by tcp_write_xmit() if @skb must be encrypted by TLS.
  * @skb is current head of the TCP send queue. @limit defines how much data
  * can be sent right now with knowledge of current congestion and the receiver's
  * advertised window. Limit can be larger than skb->len and in this case we
  * can add the next skb in the send queue to the current encrypted TLS record.
+ *
+ * We extend the skbs on TCP transmission (when CWND is calculated), so we
+ * also adjust TPC sequence numbers in the socket. See skb_entail().
  */
 int
 tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
@@ -188,7 +226,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	int r = -ENOMEM;
 	unsigned int head_sz, tag_sz, len, frags;
 	unsigned char type;
-	struct sk_buff *next, *skb_tail = skb;
+	struct sk_buff *next = skb, *skb_tail = skb;
+	struct tcp_skb_cb *tcb = TCP_SKB_CB(skb);
 	TlsCtx *tls = tfw_tls_context(sk->sk_user_data);
 	TlsIOCtx *io = &tls->io_out;
 	TlsXfrm *xfrm = &tls->xfrm;
@@ -197,13 +236,16 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	};
 	struct scatterlist sg[AUTO_SEGS_N];
 
-	T_DBG3("tcp_write_xmit() -> %s: sk=%pK skb=%pK(len=%u data_len=%u"
-	       " type=%u frags=%u headlen=%u) limit=%u\n",
-	       __func__, sk, skb, skb->len, skb->data_len,
-	       tempesta_tls_skb_type(skb), skb_shinfo(skb)->nr_frags,
-	       skb_headlen(skb), limit);
+	T_DBG3("%s: sk=%pK(snd_una=%u snd_nxt=%u limit=%u)"
+	       " skb=%pK(len=%u data_len=%u type=%u frags=%u headlen=%u"
+	       " seq=%u:%u)\n", __func__,
+	       sk, tcp_sk(sk)->snd_una, tcp_sk(sk)->snd_nxt, limit,
+	       skb, skb->len, skb->data_len, tempesta_tls_skb_type(skb),
+	       skb_shinfo(skb)->nr_frags, skb_headlen(skb),
+	       tcb->seq, tcb->end_seq);
 	BUG_ON(!ttls_xfrm_ready(tls));
 	WARN_ON_ONCE(skb->len > TLS_MAX_PAYLOAD_SIZE);
+	WARN_ON_ONCE(tcb->seq + skb->len != tcb->end_seq);
 
 	head_sz = ttls_payload_off(xfrm);
 	tag_sz = ttls_xfrm_taglen(xfrm);
@@ -214,19 +256,30 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		return -EINVAL;
 	}
 
+	/* TLS header is always allocated from the skb headroom. */
+	tcb->end_seq += head_sz;
+
+	/* Try to aggregate several skbs into one TLS record. */
 	while (!tcp_skb_is_last(sk, skb_tail)) {
 		next = tcp_write_queue_next(sk, skb_tail);
+		tcb = TCP_SKB_CB(next);
 
 		T_DBG3("next skb (%pK) in write queue: len=%u frags=%u/%u"
-		       " type=%u\n", next, next->len,
-		       skb_shinfo(next)->nr_frags, !!skb_headlen(next),
-		       tempesta_tls_skb_type(next));
+		       " type=%u seq=%u:%u\n",
+		       next, next->len, skb_shinfo(next)->nr_frags,
+		       !!skb_headlen(next), tempesta_tls_skb_type(next),
+		       tcb->seq, tcb->end_seq);
 
 		if (len + next->len > limit)
 			break;
 		/* Don't put different message types into the same record. */
 		if (type != tempesta_tls_skb_type(next))
 			break;
+
+		/* @next has original seqnos, so advance both of them. */
+		tcb->seq += head_sz;
+		tcb->end_seq += head_sz;
+
 		len += next->len;
 		sgt.nents += skb_shinfo(next)->nr_frags + !!skb_headlen(next);
 		skb_tail = next;
@@ -243,17 +296,42 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		if (r < 0)
 			goto out;
 	} else {
-		if ((r = ss_skb_expand_head_tail(NULL, skb, head_sz, 0)) < 0)
+		r = ss_skb_expand_head_tail(NULL, skb, head_sz, 0);
+		if (r < 0)
 			goto out;
+		sgt.nents += r;
+
 		r = ss_skb_expand_head_tail(skb_tail->next, skb_tail, 0,
 					    tag_sz);
 		if (r < 0)
 			goto out;
 	}
 	sgt.nents += r;
-	/* Worst case: a new skb was inserted. */
-	if (unlikely(skb_tail->next != next))
+
+	/*
+	 * The last skb in our list will bring TLS tag - add it to end_seqno.
+	 * Otherwise (in worst case), a new skb was inserted to fit TLS tag
+	 * - fix end_seqno's for @skb_tail and this new skb.
+	 */
+	if (likely(skb_tail->next == next)) {
+		TCP_SKB_CB(skb_tail)->end_seq += tag_sz;
+	} else {
+		WARN_ON_ONCE(skb_tail->next->len != tag_sz);
+		tfw_tls_tcp_propagate_dseq(sk, skb_tail);
 		skb_tail = skb_tail->next;
+	}
+
+	/*
+	 * A next skb (if any) will be left in write queue and become a new
+	 * tcp_send_head() when all the skbs for the current TLS record will be
+	 * transmitted, so adjust its seqnos to enter to the function next time
+	 * for the new tcp_send_head() and allow TCP flow control to see correct
+	 * seqnos in it. If @next is the last skb, then the whole queue is in
+	 * consistent state.
+	 */
+	tfw_tls_tcp_propagate_dseq(sk, skb_tail);
+
+	tfw_tls_tcp_add_overhead(sk, head_sz + tag_sz);
 
 	if (likely(sgt.nents <= AUTO_SEGS_N)) {
 		sgt.sgl = sg;
@@ -273,14 +351,15 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		 * so use zero offset and skb->len.
 		 */
 		r = skb_to_sgvec(next, sgt.sgl + frags, 0, next->len);
-		if (r <= 0) {
-			T_WARN("cannot generate scatter list (%u segs) from skb"
-			       " (%u bytes, %u segs), done_frags=%u ret=%d\n",
-			       sgt.nents, next->len,
-			       skb_shinfo(next)->nr_frags + !!skb_headlen(next),
-			       frags, r);
+
+		T_DBG3("skb_to_sgvec (%u segs) from skb %pK"
+		       " (%u bytes, %u segs), done_frags=%u ret=%d\n",
+		       sgt.nents, next, next->len,
+		       skb_shinfo(next)->nr_frags + !!skb_headlen(next),
+		       frags, r);
+
+		if (r <= 0)
 			goto out;
-		}
 		frags += r;
 		tempesta_tls_skb_clear(next);
 		if (next == skb_tail)
@@ -335,8 +414,8 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt, bool close)
 	 */
 	str.ptr = io->hdr;
 	str.len = TLS_HEADER_SIZE + io->hslen;
-	T_DBG("TLS %lu bytes +%u segments (%u bytes, last msgtype %#x) are to"
-	      " be sent on conn=%pK/sk_write_xmit=%pK ready=%d\n",
+	T_DBG("TLS %lu bytes +%u segments (%u bytes, last msgtype %#x)"
+	      " are to be sent on conn=%pK/sk_write_xmit=%pK ready=%d\n",
 	      str.len, sgt ? sgt->nents : 0, io->msglen, io->msgtype, conn,
 	      conn->cli_conn.sk->sk_write_xmit, ttls_xfrm_ready(tls));
 
@@ -456,8 +535,8 @@ tfw_tls_conn_send(TfwConn *c, TfwMsg *msg)
 	 * by tfw_tls_send().
 	 */
 	io->msgtype = TTLS_MSG_APPLICATION_DATA;
-	T_DBG("TLS %lu bytes (%u bytes, type %#x) are to be sent"
-	      " on conn=%pK/sk_write_xmit=%pK ready=%d\n",
+	T_DBG("TLS %lu bytes (%u bytes, type %#x)"
+	      " are to be sent on conn=%pK/sk_write_xmit=%pK ready=%d\n",
 	      msg->len, io->msglen + TLS_HEADER_SIZE, io->msgtype, c,
 	      c->sk->sk_write_xmit, ttls_xfrm_ready(tls));
 

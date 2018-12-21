@@ -1,7 +1,7 @@
 #		Tempesta FW
 #
 # Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+# Copyright (C) 2015-2018 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -23,6 +23,27 @@ ifdef NORMALIZATION
 endif
 ifdef DEBUG
 	TFW_CFLAGS += -DDEBUG=$(DEBUG)
+endif
+
+# Specify the defines below if you need to build Tempesta FW with
+# debugging of the subsystem, e.g. for Tempesta TLS:
+#
+#	$ DEBUG=3 DBG_SS=1 DBG_TLS=1 make clean all
+#
+ifdef DBG_CFG
+	TFW_CFLAGS += -DDBG_CFG
+endif
+ifdef DBG_HTTP_PARSER
+	TFW_CFLAGS += -DDBG_HTTP_PARSER
+endif
+ifdef DBG_SS
+	TFW_CFLAGS += -DDBG_SS
+endif
+ifdef DBG_TLS
+	TFW_CFLAGS += -DDBG_TLS
+endif
+ifdef DBG_APM
+	TFW_CFLAGS += -DDBG_APM
 endif
 
 PROC = $(shell cat /proc/cpuinfo)

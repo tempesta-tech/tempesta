@@ -29,6 +29,9 @@
 #include <net/tcp.h>
 #include <net/xfrm.h>
 
+#ifndef DBG_SS
+#undef DEBUG
+#endif
 #include "lib/str.h"
 #include "addr.h"
 #include "procfs.h"
