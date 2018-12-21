@@ -35,6 +35,9 @@
 #define __init
 #endif
 
+#if !defined(DBG_SS) || !defined(DBG_TLS)
+#undef DEBUG
+#endif
 #include "http_msg.c"
 #include "msg.c"
 #include "http_sess.c"

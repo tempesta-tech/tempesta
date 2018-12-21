@@ -469,17 +469,18 @@ index d323d4fa..0f6bd0cf 100644
  }
  
 diff --git a/include/net/tls.h b/include/net/tls.h
-index df950383..c3d45c5e 100644
+index df950383..4a99f03d 100644
 --- a/include/net/tls.h
 +++ b/include/net/tls.h
-@@ -55,6 +55,12 @@
+@@ -55,6 +55,13 @@
  
  #define TLS_AAD_SPACE_SIZE		13
  
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +#define TLS_MAX_TAG_SZ			16
 +/* Maximum size for required skb overhead: header, IV, tag. */
-+#define TLS_MAX_OVERHEAD		(TLS_AAD_SPACE_SIZE + TLS_MAX_TAG_SZ)
++#define TLS_MAX_OVERHEAD		(TLS_HEADER_SIZE + TLS_AAD_SPACE_SIZE \
++					 + TLS_MAX_TAG_SZ)
 +#endif
 +
  struct tls_sw_context {
@@ -1814,7 +1815,7 @@ index 420fecbb..67e0513a 100644
  void tcp_twsk_destructor(struct sock *sk)
  {
 diff --git a/net/ipv4/tcp_output.c b/net/ipv4/tcp_output.c
-index 83d11cd2..60da7ef4 100644
+index 83d11cd2..1ba5d4b3 100644
 --- a/net/ipv4/tcp_output.c
 +++ b/net/ipv4/tcp_output.c
 @@ -37,6 +37,9 @@
@@ -1869,7 +1870,7 @@ index 83d11cd2..60da7ef4 100644
  
  /* RFC2861, slow part. Adjust cwnd, after it was not full during one rto.
   * As additional protections, we do not touch cwnd in retransmission phases,
-@@ -2327,7 +2333,20 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
+@@ -2327,7 +2333,19 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
  							  cwnd_quota,
  							  max_segs),
  						    nonagle);
@@ -1882,16 +1883,15 @@ index 83d11cd2..60da7ef4 100644
 +						     __func__, mss_now);
 +				break;
 +			}
-+			if (limit < TLS_MAX_PAYLOAD_SIZE)
-+				limit -= TLS_MAX_OVERHEAD;
-+			else
++			if (limit > TLS_MAX_PAYLOAD_SIZE)
 +				limit = TLS_MAX_PAYLOAD_SIZE;
++			limit -= TLS_MAX_OVERHEAD;
 +		}
 +#endif
  		if (skb->len > limit &&
  		    unlikely(tso_fragment(sk, skb, limit, mss_now, gfp)))
  			break;
-@@ -2336,7 +2355,32 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
+@@ -2336,7 +2354,32 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
  			clear_bit(TCP_TSQ_DEFERRED, &sk->sk_tsq_flags);
  		if (tcp_small_queue_check(sk, skb, 0))
  			break;
@@ -1925,7 +1925,7 @@ index 83d11cd2..60da7ef4 100644
  		if (unlikely(tcp_transmit_skb(sk, skb, 1, gfp)))
  			break;
  
-@@ -2518,6 +2562,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
+@@ -2518,6 +2561,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
  			   sk_gfp_mask(sk, GFP_ATOMIC)))
  		tcp_check_probe_timer(sk);
  }
@@ -1933,7 +1933,7 @@ index 83d11cd2..60da7ef4 100644
  
  /* Send _single_ skb sitting at the send head. This function requires
   * true push pending frames to setup probe timer etc.
-@@ -2839,9 +2884,19 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
+@@ -2839,9 +2883,19 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
  		if (tcp_fragment(sk, skb, len, cur_mss, GFP_ATOMIC))
  			return -ENOMEM; /* We'll try again later. */
  	} else {
@@ -1953,7 +1953,7 @@ index 83d11cd2..60da7ef4 100644
  		diff = tcp_skb_pcount(skb);
  		tcp_set_skb_tso_segs(skb, cur_mss);
  		diff -= tcp_skb_pcount(skb);
-@@ -3129,6 +3184,7 @@ int tcp_send_synack(struct sock *sk)
+@@ -3129,6 +3183,7 @@ int tcp_send_synack(struct sock *sk)
  	}
  	return tcp_transmit_skb(sk, skb, 1, GFP_ATOMIC);
  }
