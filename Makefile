@@ -30,6 +30,8 @@ endif
 #
 #	$ DEBUG=3 DBG_SS=1 DBG_TLS=1 make clean all
 #
+# TODO can we generate the variables w/o the copy & paste?
+#
 ifdef DBG_CFG
 	TFW_CFLAGS += -DDBG_CFG
 endif
