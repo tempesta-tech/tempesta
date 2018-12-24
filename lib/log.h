@@ -81,7 +81,8 @@ enum {
 
 #define T_DBG3_BUF(str, buf, len)					\
 do {									\
-	T_DBG3("dump '" str "' (%lu bytes):\n", (size_t)(len));		\
+	T_DBG3("dump '" str "' (ptr=%pk, %lu bytes):\n",		\
+	       buf, (size_t)(len));					\
 	print_hex_dump_bytes(__BNR "        ", DUMP_PREFIX_OFFSET, buf, len);\
 } while (0)
 
@@ -98,7 +99,9 @@ do {									\
 		} else {						\
 			int __d = off - __o;				\
 			int __bytes = min_t(int, __n, __s->length - __d); \
-			T_DBG3_BUF("segment", sg_virt(__s) + __d, __bytes); \
+			T_DBG3("=> segment %d, ptr=%pK len=%u\n",	\
+			       __i, __s, __s->length);			\
+			T_DBG3_BUF("data", sg_virt(__s) + __d, __bytes); \
 			__o = off;					\
 			__n -= __bytes;					\
 		}							\
