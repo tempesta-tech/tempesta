@@ -367,6 +367,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		if (WARN_ON_ONCE(frags >= sgt.nents))
 			break;
 		next = tcp_write_queue_next(sk, next);
+		sg_unmark_end(&sgt.sgl[frags - 1]);
 	}
 	WARN_ON_ONCE(sgt.nents != frags);
 
