@@ -706,6 +706,7 @@ ttls_aead_req_alloc(struct crypto_aead *tfm)
 {
 	size_t need = sizeof(struct aead_request) + crypto_aead_reqsize(tfm);
 
+	WARN_ON_ONCE(!in_serving_softirq());
 	if (WARN_ON_ONCE(sizeof(__TlsReq) < need))
 		return kzalloc(need, GFP_ATOMIC);
 
@@ -713,15 +714,14 @@ ttls_aead_req_alloc(struct crypto_aead *tfm)
 }
 
 static void
-ttls_aead_req_free(struct aead_request *req)
+ttls_aead_req_free(struct crypto_aead *tfm, struct aead_request *req)
 {
-	struct crypto_aead *tfm = crypto_aead_reqtfm(req);
 	size_t need = sizeof(struct aead_request) + crypto_aead_reqsize(tfm);
 
-	if (likely(sizeof(__TlsReq) >= need))
-		bzero_fast(req, sizeof(__TlsReq));
-	else
+	if (WARN_ON_ONCE(sizeof(__TlsReq) < need))
 		kfree(req);
+	else
+		bzero_fast(req, sizeof(__TlsReq));
 }
 
 /**
@@ -732,8 +732,10 @@ ttls_aead_req_free(struct aead_request *req)
  *
  * @sgt must have enough room for AAD header and a TAG.
  *
- * TODO mbed TLS uses egress record ID as IV, but it seems that this isn't a
- * good practice and random IV is preferred.
+ * We (as well as mbed TLS) use egress record ID as IV. OpenSSL uses random for
+ * IV, which is considered a good, but not mandatory practice. Each TLS session
+ * has its own key, so similar plain text blocks, either in the same or
+ * different sessions, always have different ciphertexts.
  */
 int
 ttls_encrypt(TlsCtx *tls, struct sg_table *sgt)
@@ -786,7 +788,7 @@ ttls_encrypt(TlsCtx *tls, struct sg_table *sgt)
 		T_WARN("outgoing message counter would wrap\n");
 
 err:
-	ttls_aead_req_free(req);
+	ttls_aead_req_free(c_ctx->cipher_ctx, req);
 
 	return r;
 }
