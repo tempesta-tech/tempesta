@@ -2759,9 +2759,8 @@ next_msg:
 
 	switch (r) {
 	default:
-		TFW_ERR("Unrecognized HTTP request "
-			"parser return code, %d\n", r);
-		BUG();
+		TFW_ERR("Unrecognized HTTP request parser return code, %d\n",
+			r);
 	case TFW_BLOCK:
 		TFW_DBG2("Block invalid HTTP request\n");
 		TFW_INC_STAT_BH(clnt.msgs_parserr);
@@ -2939,7 +2938,7 @@ next_msg:
 		 * Data processing will continue with the new SKB.
 		 */
 		conn->msg = (TfwMsg *)hmsib;
-		off += parsed;
+		off = 0;
 		goto next_msg;
 	}
 
@@ -3164,7 +3163,7 @@ static int
 tfw_http_resp_process(TfwConn *conn, const TfwFsmData *data)
 {
 	int r = TFW_BLOCK;
-	unsigned int chunks_unused, parsed, off = data->off;
+	unsigned int chunks_unused, parsed;
 	struct sk_buff *skb = data->skb;
 	TfwHttpReq *bad_req;
 	TfwHttpMsg *hmresp, *hmsib;
@@ -3173,7 +3172,6 @@ tfw_http_resp_process(TfwConn *conn, const TfwFsmData *data)
 	bool filtout = false;
 
 	BUG_ON(!conn->msg);
-	BUG_ON(off >= skb->len);
 	/*
 	 * #769: There is no client side TLS, so we don't read HTTP responses
 	 * through TLS connection, so trail and off should be zero.
@@ -3193,7 +3191,7 @@ next_msg:
 	hmresp = (TfwHttpMsg *)conn->msg;
 	parser = &hmresp->parser;
 
-	r = ss_skb_process(skb, off, 0, tfw_http_parse_resp, hmresp,
+	r = ss_skb_process(skb, 0, 0, tfw_http_parse_resp, hmresp,
 			   &chunks_unused, &parsed);
 	hmresp->msg.len += parsed;
 	TFW_ADD_STAT_BH(parsed, serv.rx_bytes);
@@ -3208,16 +3206,15 @@ next_msg:
 	 * feed the new data version to FSMs registered on our states.
 	 */
 	data_up.skb = skb;
-	data_up.off = off;
+	data_up.off = 0;
 	data_up.trail = 0;
 	data_up.req = NULL;
 	data_up.resp = (TfwMsg *)hmresp;
 
 	switch (r) {
 	default:
-		TFW_ERR("Unrecognized HTTP response "
-			"parser return code, %d\n", r);
-		BUG();
+		TFW_ERR("Unrecognized HTTP response parser return code, %d\n",
+			r);
 	case TFW_BLOCK:
 		/*
 		 * The response has not been fully parsed. There's no
@@ -3285,7 +3282,7 @@ next_msg:
 	 * we have pipelined responses. Create a sibling message.
 	 * @skb is replaced with a pointer to a new SKB.
 	 */
-	if (off + parsed < skb->len) {
+	if (parsed < skb->len) {
 		hmsib = tfw_http_msg_create_sibling(hmresp, &skb, parsed);
 		/*
 		 * In case of an error there's no recourse. The
@@ -3326,7 +3323,6 @@ next_resp:
 		 * Data processing will continue with the new SKB.
 		 */
 		conn->msg = (TfwMsg *)hmsib;
-		off += parsed;
 		goto next_msg;
 	}
 
