@@ -2194,7 +2194,7 @@ ttls_handshake_finished(TlsCtx *tls)
 	}
 	T_FSM_FINISH(r, tls->state);
 
-	/* If we exit here, then something went wring. */
+	/* If we exit here, then something went wrong. */
 	BUG_ON(!r);
 	while (--sgt.nents > (unsigned int)-1)
 		put_page(sg_page(&sg[sgt.nents]));
