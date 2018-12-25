@@ -506,7 +506,7 @@ tfw_tls_conn_close(TfwConn *c, bool sync)
 	 */
 	if (r && sync) {
 		TFW_WARN_ADDR("Close TCP socket w/o sending alert to the peer",
-			      &c->peer->addr);
+			      &c->peer->addr, TFW_WITH_PORT);
 		r = ss_close(c->sk, SS_F_SYNC);
 	}
 

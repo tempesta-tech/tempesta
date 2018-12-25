@@ -40,8 +40,8 @@ static int
 split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
 {
 	size_t chlen = len / chunks, rem = len % chunks, pos = 0, step;
-	int r = 0;
 	unsigned int parsed;
+	int r = 0;
 	TfwHttpMsg *hm = (type == FUZZ_REQ)
 			? (TfwHttpMsg *)req
 			: (TfwHttpMsg *)resp;
@@ -61,7 +61,7 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
 			r = tfw_http_parse_resp(resp, str + pos, step, &parsed);
 
 		pos += step;
-		hm->msg.len += step - hm->parser.to_go;
+		hm->msg.len += parsed;
 
 		if (r != TFW_POSTPONE)
 			return r;
