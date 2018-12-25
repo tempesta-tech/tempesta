@@ -227,7 +227,7 @@ int ttls_dhm_calc_secret(ttls_dhm_context *ctx,
  * Diffie-Hellman groups, some of which are included here
  * for use within the SSL/TLS module and the user's convenience
  * when configuring the Diffie-Hellman parameters by hand
- * through \c ttls_ssl_conf_dh_param.
+ * through \c ttls_conf_dh_param.
  *
  * The following lists the source of the above groups in the standards:
  * - RFC 5114 section 2.2:  2048-bit MODP Group with 224-bit Prime Order Subgroup

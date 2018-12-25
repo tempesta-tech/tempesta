@@ -1815,7 +1815,7 @@ index 420fecbb..67e0513a 100644
  void tcp_twsk_destructor(struct sock *sk)
  {
 diff --git a/net/ipv4/tcp_output.c b/net/ipv4/tcp_output.c
-index 83d11cd2..1ba5d4b3 100644
+index 83d11cd2..c1f604a5 100644
 --- a/net/ipv4/tcp_output.c
 +++ b/net/ipv4/tcp_output.c
 @@ -37,6 +37,9 @@
@@ -1870,7 +1870,7 @@ index 83d11cd2..1ba5d4b3 100644
  
  /* RFC2861, slow part. Adjust cwnd, after it was not full during one rto.
   * As additional protections, we do not touch cwnd in retransmission phases,
-@@ -2327,7 +2333,19 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
+@@ -2327,7 +2333,20 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
  							  cwnd_quota,
  							  max_segs),
  						    nonagle);
@@ -1883,15 +1883,16 @@ index 83d11cd2..1ba5d4b3 100644
 +						     __func__, mss_now);
 +				break;
 +			}
-+			if (limit > TLS_MAX_PAYLOAD_SIZE)
++			if (limit > TLS_MAX_PAYLOAD_SIZE + TLS_MAX_OVERHEAD)
 +				limit = TLS_MAX_PAYLOAD_SIZE;
-+			limit -= TLS_MAX_OVERHEAD;
++			else
++				limit -= TLS_MAX_OVERHEAD;
 +		}
 +#endif
  		if (skb->len > limit &&
  		    unlikely(tso_fragment(sk, skb, limit, mss_now, gfp)))
  			break;
-@@ -2336,7 +2354,32 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
+@@ -2336,7 +2355,34 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
  			clear_bit(TCP_TSQ_DEFERRED, &sk->sk_tsq_flags);
  		if (tcp_small_queue_check(sk, skb, 0))
  			break;
@@ -1909,11 +1910,12 @@ index 83d11cd2..1ba5d4b3 100644
 +		 * different TCP segments, so coalese skbs for transmission to
 +		 * get 16KB (maximum size of TLS message).
 +		 */
-+		if (sk->sk_write_xmit && tempesta_tls_skb_type(skb))
-+			if (unlikely(sk->sk_write_xmit(sk, skb, limit))) {
++		if (sk->sk_write_xmit && tempesta_tls_skb_type(skb)) {
++			result = sk->sk_write_xmit(sk, skb, limit);
++			if (unlikely(result)) {
 +				net_warn_ratelimited(
-+					"Tempesta: cannot encrypt data,"
-+					" so reset a TLS connection.\n");
++					"Tempesta: cannot encrypt data (%d),"
++					" reset a TLS connection.\n", result);
 +				/*
 +				 * FIXME #984 WARNING: at net/core/stream.c:205
 +				 * sk_stream_kill_queues+0x106/0x120
@@ -1921,11 +1923,12 @@ index 83d11cd2..1ba5d4b3 100644
 +				tcp_reset(sk);
 +				break;
 +			}
++		}
 +#endif
  		if (unlikely(tcp_transmit_skb(sk, skb, 1, gfp)))
  			break;
  
-@@ -2518,6 +2561,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
+@@ -2518,6 +2564,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
  			   sk_gfp_mask(sk, GFP_ATOMIC)))
  		tcp_check_probe_timer(sk);
  }
@@ -1933,7 +1936,7 @@ index 83d11cd2..1ba5d4b3 100644
  
  /* Send _single_ skb sitting at the send head. This function requires
   * true push pending frames to setup probe timer etc.
-@@ -2839,9 +2883,19 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
+@@ -2839,9 +2886,19 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
  		if (tcp_fragment(sk, skb, len, cur_mss, GFP_ATOMIC))
  			return -ENOMEM; /* We'll try again later. */
  	} else {
@@ -1953,7 +1956,7 @@ index 83d11cd2..1ba5d4b3 100644
  		diff = tcp_skb_pcount(skb);
  		tcp_set_skb_tso_segs(skb, cur_mss);
  		diff -= tcp_skb_pcount(skb);
-@@ -3129,6 +3183,7 @@ int tcp_send_synack(struct sock *sk)
+@@ -3129,6 +3186,7 @@ int tcp_send_synack(struct sock *sk)
  	}
  	return tcp_transmit_skb(sk, skb, 1, GFP_ATOMIC);
  }

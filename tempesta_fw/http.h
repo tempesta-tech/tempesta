@@ -617,7 +617,7 @@ void tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len);
  */
 int tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status,
 			   TfwStr *rmark, TfwStr *cookie, TfwStr *body);
-int tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, void *msg_it,
+int tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, TfwMsgIter *msg_it,
 		      size_t hdrs_size);
 void tfw_http_send_resp(TfwHttpReq *req, int status, const char *reason);
 
