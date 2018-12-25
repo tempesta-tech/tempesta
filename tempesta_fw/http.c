@@ -38,6 +38,7 @@
 #include "apm.h"
 
 #include "sync_socket.h"
+#include "lib/common.h"
 
 #define TFW_WARN_ADDR_STATUS(msg, addr_ptr, print_port, status)		\
 	TFW_WITH_ADDR_FMT(addr_ptr, print_port, addr_str,		\
