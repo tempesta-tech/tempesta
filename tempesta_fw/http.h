@@ -490,15 +490,6 @@ enum {
 #define HTTP_CODE_MAX 599
 #define HTTP_CODE_BIT_NUM(code) ((code) - HTTP_CODE_MIN)
 
-/* Get current timestamp in secs. */
-static inline time_t
-tfw_current_timestamp(void)
-{
-	struct timespec ts;
-	getnstimeofday(&ts);
-	return ts.tv_sec;
-}
-
 static inline int
 tfw_http_resp_code_range(const int n)
 {
