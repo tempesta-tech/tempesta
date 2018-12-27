@@ -25,6 +25,7 @@
 #include "http_msg.h"
 #include "htype.h"
 #include "http_sess.h"
+#include "lib/str.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -95,7 +96,7 @@ do {									\
 } while (0)
 
 #define __msg_hdr_chunk_fixup(data, len)				\
-	tfw_http_msg_add_str_data(msg, &msg->parser.hdr, data, len)
+	tfw_http_msg_add_str_data(msg, &msg->conn->parser.hdr, data, len)
 
 /**
  * GCC 4.8 (CentOS 7) does a poor work on memory reusage of automatic local
@@ -105,7 +106,7 @@ do {									\
  */
 #define __FSM_DECLARE_VARS(ptr)						\
 	TfwHttpMsg	*msg = (TfwHttpMsg *)(ptr);			\
-	TfwHttpParser	*parser = &msg->parser;				\
+	TfwHttpParser	*parser = &msg->conn->parser;			\
 	unsigned char	*p = data;					\
 	unsigned char	c = *p;						\
 	int		__fsm_const_state;				\
@@ -177,9 +178,11 @@ do {									\
 } while (0)
 
 #define __FSM_MOVE_nofixup(to)		__FSM_MOVE_nofixup_n(to, 1)
-#define __FSM_MOVE_n(to, n)		__FSM_MOVE_nf(to, n, &msg->parser.hdr)
+#define __FSM_MOVE_n(to, n)						\
+	__FSM_MOVE_nf(to, n, &msg->conn->parser.hdr)
 #define __FSM_MOVE_f(to, field)		__FSM_MOVE_nf(to, 1, field)
-#define __FSM_MOVE(to)			__FSM_MOVE_nf(to, 1, &msg->parser.hdr)
+#define __FSM_MOVE(to)							\
+	__FSM_MOVE_nf(to, 1, &msg->conn->parser.hdr)
 /* The same as __FSM_MOVE_n(), but exactly for jumps w/o data moving. */
 #define __FSM_JMP(to)			do { goto to; } while (0)
 
@@ -206,8 +209,8 @@ do {									\
 #define __FSM_MATCH_MOVE_pos_f(alphabet, to, field)			\
 	__FSM_MATCH_MOVE_fixup_pos(alphabet, to, field, true)
 
-#define __FSM_MATCH_MOVE(alphabet, to)	__FSM_MATCH_MOVE_f(alphabet, to, \
-							   &msg->parser.hdr)
+#define __FSM_MATCH_MOVE(alphabet, to)					\
+	__FSM_MATCH_MOVE_f(alphabet, to, &msg->conn->parser.hdr)
 
 #define __FSM_MATCH_MOVE_nofixup(alphabet, to)				\
 do {									\
@@ -233,7 +236,7 @@ do {									\
 } while (0)
 
 #define __FSM_I_chunk_flags(flag)					\
-	__FSM_I_field_chunk_flags(&msg->parser.hdr, flag)
+	__FSM_I_field_chunk_flags(&msg->conn->parser.hdr, flag)
 
 #define __FSM_I_MOVE_finish_n(to, n, finish)				\
 do {									\
@@ -296,7 +299,7 @@ do {									\
 } while (0)
 
 #define __FSM_I_MOVE_fixup(to, n, flag)					\
-	__FSM_I_MOVE_fixup_f(to, n, &msg->parser.hdr, flag)
+	__FSM_I_MOVE_fixup_f(to, n, &msg->conn->parser.hdr, flag)
 
 #define __FSM_I_MATCH_MOVE_fixup(alphabet, to, flag)			\
 do {									\
@@ -552,7 +555,7 @@ parse_int_hex(unsigned char *data, size_t len, unsigned long *acc, unsigned shor
 static void
 mark_spec_hbh(TfwHttpMsg *hm)
 {
-	TfwHttpHbhHdrs *hbh_hdrs = &hm->parser.hbh_parser;
+	TfwHttpHbhHdrs *hbh_hdrs = &hm->conn->parser.hbh_parser;
 	unsigned int id;
 
 	for (id = 0; id < TFW_HTTP_HDR_RAW; ++id) {
@@ -569,7 +572,7 @@ mark_spec_hbh(TfwHttpMsg *hm)
 static void
 mark_raw_hbh(TfwHttpMsg *hm, TfwStr *hdr)
 {
-	TfwHttpHbhHdrs *hbh = &hm->parser.hbh_parser;
+	TfwHttpHbhHdrs *hbh = &hm->conn->parser.hbh_parser;
 	unsigned int i;
 
 	/*
@@ -636,7 +639,7 @@ static int
 __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
 {
 	TfwStr *hdr, *append;
-	TfwHttpHbhHdrs *hbh = &hm->parser.hbh_parser;
+	TfwHttpHbhHdrs *hbh = &hm->conn->parser.hbh_parser;
 	static const TfwStr block[] = {
 #define TfwStr_string(v) { (v), NULL, sizeof(v) - 1, 0 }
 		/* End-to-end spec and raw headers */
@@ -2764,12 +2767,14 @@ static int
 __req_parse_if_msince(TfwHttpMsg *msg, unsigned char *data, size_t len)
 {
 	int ret;
+	TfwHttpParser *parser = &msg->conn->parser;
+
 	ret = __parse_http_date(msg, data, len);
 	if (ret < CSTR_POSTPONE) {  /* (ret < 0) && (ret != POSTPONE) */
 		/* On error just swallow the rest of the line. */
-		BUG_ON(msg->parser.state != Req_HdrIf_Modified_SinceV);
-		msg->parser._date = 0;
-		msg->parser._i_st = I_EoL;
+		BUG_ON(parser->state != Req_HdrIf_Modified_SinceV);
+		parser->_date = 0;
+		parser->_i_st = I_EoL;
 		ret = __parse_http_date(msg, data, len);
 	}
 	return ret;
@@ -3030,20 +3035,25 @@ done:
 static inline void
 __parser_init(TfwHttpParser *parser)
 {
+	bzero_fast(parser, sizeof(TfwHttpParser));
 	parser->to_read = -1; /* unknown body size */
 }
 
 void
 tfw_http_init_parser_req(TfwHttpReq *req)
 {
-	TfwHttpHbhHdrs *hbh_hdrs = &req->parser.hbh_parser;
+	TfwHttpHbhHdrs *hbh_hdrs = &req->conn->parser.hbh_parser;
 
-	__parser_init(&req->parser);
-	req->parser.state = Req_0;
+	__parser_init(&req->conn->parser);
+	req->conn->parser.state = Req_0;
 
-	/*  Add spec header indexes to list of hop-by-hop headers. */
-	BUG_ON(hbh_hdrs->spec);
-	/* Connection is hop-by-hop header by RFC 7230 6.1 */
+	/*
+	 * Expected hop-by-hop headers:
+	 * - spec:
+	 *     none;
+	 * - raw:
+	 *     Connection: RFC 7230 6.1.
+	 */
 	hbh_hdrs->spec = 0x1 << TFW_HTTP_HDR_CONNECTION;
 }
 
@@ -4353,6 +4363,7 @@ static int
 __resp_parse_expires(TfwHttpMsg *msg, unsigned char *data, size_t len)
 {
 	int ret;
+	TfwHttpParser *parser = &msg->conn->parser;
 
 	ret = __parse_http_date(msg, data, len);
 	if (ret < CSTR_POSTPONE) {  /* (ret < 0) && (ret != POSTPONE) */
@@ -4360,9 +4371,9 @@ __resp_parse_expires(TfwHttpMsg *msg, unsigned char *data, size_t len)
 		 * On error just swallow the rest of the line.
 		 * @resp->expires is set to zero - already expired.
 		 */
-		BUG_ON(msg->parser.state != Resp_HdrExpiresV);
-		msg->parser._date = 0;
-		msg->parser._i_st = I_EoL;
+		BUG_ON(parser->state != Resp_HdrExpiresV);
+		parser->_date = 0;
+		parser->_i_st = I_EoL;
 		ret = __parse_http_date(msg, data, len);
 	}
 	return ret;
@@ -4412,8 +4423,8 @@ tfw_http_parse_terminate(TfwHttpMsg *hm)
 	 * when Content-Length header must not present in response were
 	 * checked earlier. Refer to RFC 7230 3.3.3
 	 */
-	if (hm->parser.state == Resp_BodyUnlimRead
-	    || hm->parser.state == Resp_BodyUnlimStart)
+	if (hm->conn->parser.state == Resp_BodyUnlimRead
+	    || hm->conn->parser.state == Resp_BodyUnlimStart)
 	{
 		char c_len[TFW_ULTOA_BUF_SIZ] = {0};
 		size_t digs;
@@ -4437,18 +4448,18 @@ tfw_http_parse_terminate(TfwHttpMsg *hm)
 void
 tfw_http_init_parser_resp(TfwHttpResp *resp)
 {
-	TfwHttpHbhHdrs *hbh_hdrs = &resp->parser.hbh_parser;
+	TfwHttpHbhHdrs *hbh_hdrs = &resp->conn->parser.hbh_parser;
 
-	__parser_init(&resp->parser);
-	resp->parser.state = Resp_0;
+	__parser_init(&resp->conn->parser);
+	resp->conn->parser.state = Resp_0;
 
-	/*  Add spec header indexes to list of hop-by-hop headers. */
-	BUG_ON(hbh_hdrs->spec);
 	/*
-	 * Connection is hop-by-hop header by RFC 7230 6.1
-	 *
-	 * Server header isn't defined as hop-by-hop by the RFC, but we
-	 * don't show protected server to world.
+	 * Expected hop-by-hop headers:
+	 * - spec:
+	 *     none;
+	 * - raw:
+	 *     Connection: RFC 7230 6.1,
+	 *     Server: hide protected server from the world.
 	 */
 	hbh_hdrs->spec = (0x1 << TFW_HTTP_HDR_CONNECTION) |
 			 (0x1 << TFW_HTTP_HDR_SERVER);
