@@ -22,6 +22,7 @@
 #include <linux/vmalloc.h>
 
 #include "http_msg.h"
+#include "http_parser.h"
 
 #include "test.h"
 #include "helpers.h"
@@ -59,7 +60,7 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
 			r = tfw_http_parse_resp(resp, str + pos, step);
 
 		pos += step;
-		hm->msg.len += step - hm->parser.to_go;
+		hm->msg.len += step - hm->conn->parser.to_go;
 
 		if (r != TFW_POSTPONE)
 			return r;
