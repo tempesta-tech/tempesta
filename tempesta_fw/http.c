@@ -809,23 +809,17 @@ __tfw_http_conn_msg_sent_prev(TfwSrvConn *srv_conn)
 		NULL : (TfwMsg *)list_prev_entry(req_sent, fwd_list);
 }
 
-/*
+/**
  * Remove @req from the server connection's forwarding queue.
+ * Caller must care about @srv_conn->msg_sent on it's own to keep the
+ * queue state consistent.
  */
 static inline void
-__http_req_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
+tfw_http_req_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
 	tfw_http_req_nip_delist(srv_conn, req);
 	list_del_init(&req->fwd_list);
 	srv_conn->qsize--;
-}
-
-static inline void
-tfw_http_req_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
-{
-	spin_lock(&srv_conn->fwd_qlock);
-	__http_req_delist(srv_conn, req);
-	spin_unlock(&srv_conn->fwd_qlock);
 }
 
 /*
@@ -849,7 +843,7 @@ tfw_http_req_err(TfwSrvConn *srv_conn, TfwHttpReq *req,
 		 const char *reason)
 {
 	if (srv_conn)
-		__http_req_delist(srv_conn, req);
+		tfw_http_req_delist(srv_conn, req);
 	__tfw_http_req_err(req, eq, status, reason);
 }
 
@@ -1024,7 +1018,7 @@ tfw_http_req_evict_dropped(TfwSrvConn *srv_conn, TfwHttpReq *req)
 		TFW_DBG2("%s: Eviction: req=[%p] client disconnected\n",
 			 __func__, req);
 		if (srv_conn)
-			__http_req_delist(srv_conn, req);
+			tfw_http_req_delist(srv_conn, req);
 		tfw_http_conn_msg_free((TfwHttpMsg *)req);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 		return true;
@@ -1111,7 +1105,7 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv,
 		TFW_DBG2("%s: Forwarding error: conn=[%p] req=[%p]\n",
 			 __func__, srv_conn, req);
 		if (req->flags & TFW_HTTP_F_HMONITOR) {
-			__http_req_delist(srv_conn, req);
+			tfw_http_req_delist(srv_conn, req);
 			WARN_ON_ONCE(req->pair);
 			tfw_http_msg_free((TfwHttpMsg *)req);
 			TFW_WARN_ADDR("Unable to send health"
@@ -2978,7 +2972,21 @@ tfw_http_resp_cache_cb(TfwHttpMsg *msg)
 	tfw_http_resp_fwd(resp);
 }
 
-/*
+/**
+ * Just received response is parsed and processed. The corresponding
+ * request is the first one in the connection forwarding
+ * queue, and srv_conn->msg_sent points to it or to one of the next requests.
+ * @fwd_unsent is set to true if progress inside connection is possible.
+ * The forwarding queue state is fully consistent after the call.
+ *
+ * If processing of the response is successful then it's possible to forward
+ * all unsent requests.
+ *
+ * Upstreams don't normally send invalid responses. The processing error will
+ * happen once again if the request will be re-sent or forwarded to another
+ * server. Delist the request to prevent future errors. The server connection
+ * is about to be closed and there is no sense in forwarding unsent requests.
+ *
  * TODO: When a response is received and a paired request is found,
  * pending (unsent) requests in the connection are forwarded to the
  * server right away. In current design, @fwd_queue is locked until
@@ -2987,7 +2995,7 @@ tfw_http_resp_cache_cb(TfwHttpMsg *msg)
  * comment to tfw_http_req_fwd(). Also, please see the issue #687.
  */
 static void
-tfw_http_popreq(TfwHttpMsg *hmresp)
+tfw_http_popreq(TfwHttpMsg *hmresp, bool fwd_unsent)
 {
 	TfwHttpReq *req = hmresp->req;
 	TfwSrvConn *srv_conn = (TfwSrvConn *)hmresp->conn;
@@ -2996,8 +3004,13 @@ tfw_http_popreq(TfwHttpMsg *hmresp)
 	spin_lock(&srv_conn->fwd_qlock);
 	if ((TfwMsg *)req == srv_conn->msg_sent)
 		srv_conn->msg_sent = NULL;
-	__http_req_delist(srv_conn, req);
+	tfw_http_req_delist(srv_conn, req);
 	tfw_http_conn_nip_adjust(srv_conn);
+
+	if (unlikely(!fwd_unsent)) {
+		spin_unlock(&srv_conn->fwd_qlock);
+		return;
+	}
 	/*
 	 * Run special processing if the connection is in repair
 	 * mode. Otherwise, forward pending requests to the server.
@@ -3040,7 +3053,7 @@ tfw_http_resp_gfsm(TfwHttpMsg *hmresp, const TfwFsmData *data)
 		return TFW_PASS;
 
 error:
-	tfw_http_popreq(hmresp);
+	tfw_http_popreq(hmresp, false);
 	tfw_http_conn_msg_free(hmresp);
 	tfw_srv_client_block(req, 502, "response blocked: filtered out");
 	TFW_INC_STAT_BH(serv.msgs_filtout);
@@ -3075,7 +3088,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 * Response is fully received, delist corresponding request from
 	 * fwd_queue.
 	 */
-	tfw_http_popreq(hmresp);
+	tfw_http_popreq(hmresp, true);
 	/*
 	 * Health monitor request means that its response need not to
 	 * send anywhere.
@@ -3324,21 +3337,22 @@ next_resp:
 	return r;
 bad_msg:
 	/*
-	 * Send error response for the bad requests if necessary.
-	 * In any case remove the request form forward and nip queues -
-	 * we won't resend it.
+	 * Response can't be parsed or processed. This is abnormal situation,
+	 * upstream server usually sends valid responses or closes the
+	 * connection when it refuses to serve the request. But this exact
+	 * request makes server to send invalid response. Most likely that the
+	 * situation will happen once again if the request will be re-sent.
+	 * Send error or drop the request.
 	 */
 	bad_req = hmresp->req;
-	tfw_http_req_delist((TfwSrvConn *)conn, bad_req);
+	tfw_http_popreq(hmresp, false);
 	tfw_http_conn_msg_free(hmresp);
 	if (filtout)
 		tfw_srv_client_block(bad_req, 502,
-				     "response blocked:"
-				     " filtered out");
+				     "response blocked: filtered out");
 	else
 		tfw_srv_client_drop(bad_req, 502,
-				    "response dropped:"
-				    " processing error");
+				    "response dropped: processing error");
 	return TFW_BLOCK;
 }
 
