@@ -2844,8 +2844,13 @@ tfw_http_req_process(TfwConn *conn, const TfwFsmData *data)
 		 * and, at the same time, to stop passing data for processing
 		 * from the lower layer.
 		 */
-		if((req_conn_close = req->flags & TFW_HTTP_F_CONN_CLOSE))
+		if ((req_conn_close = req->flags & TFW_HTTP_F_CONN_CLOSE)) {
 			TFW_CONN_TYPE(req->conn) |= Conn_Stop;
+			if (unlikely(skb)) {
+				__kfree_skb(skb);
+				skb = NULL;
+			}
+		}
 
 		/*
 		 * Pipelined requests: create a new sibling message.
