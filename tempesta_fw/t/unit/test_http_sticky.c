@@ -349,6 +349,8 @@ http_sticky_suite_setup(void)
 
 	mock.req->conn = &mock.conn_req;
 	mock.resp->conn = &mock.conn_resp;
+	tfw_http_init_parser_req(mock.req);
+	tfw_http_init_parser_resp(mock.resp);
 	mock.req->vhost = tfw_vhost_new(TFW_VH_DFT_NAME);
 
 	tfw_http_req_add_seq_queue(mock.req);
@@ -514,7 +516,6 @@ static int
 http_parse_req_helper(void)
 {
 	/* XXX reset parser explicitly to be able to call it multiple times */
-	memset(&mock.req->parser, 0, sizeof(mock.req->parser));
 	tfw_http_init_parser_req(mock.req);
 	mock.req->h_tbl->off = TFW_HTTP_HDR_RAW;
 	memset(mock.req->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwStr));
@@ -532,7 +533,6 @@ static int
 http_parse_resp_helper(void)
 {
 	/* XXX reset parser explicitly to be able to call it multiple times */
-	memset(&mock.resp->parser, 0, sizeof(mock.resp->parser));
 	tfw_http_init_parser_resp(mock.resp);
 	mock.resp->h_tbl->off = TFW_HTTP_HDR_RAW;
 	memset(mock.resp->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwStr));
