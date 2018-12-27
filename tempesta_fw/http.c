@@ -815,7 +815,7 @@ __tfw_http_conn_msg_sent_prev(TfwSrvConn *srv_conn)
  * queue state consistent.
  */
 static inline void
-__http_req_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
+tfw_http_req_delist(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
 	tfw_http_req_nip_delist(srv_conn, req);
 	list_del_init(&req->fwd_list);
@@ -843,7 +843,7 @@ tfw_http_req_err(TfwSrvConn *srv_conn, TfwHttpReq *req,
 		 const char *reason)
 {
 	if (srv_conn)
-		__http_req_delist(srv_conn, req);
+		tfw_http_req_delist(srv_conn, req);
 	__tfw_http_req_err(req, eq, status, reason);
 }
 
@@ -1018,7 +1018,7 @@ tfw_http_req_evict_dropped(TfwSrvConn *srv_conn, TfwHttpReq *req)
 		TFW_DBG2("%s: Eviction: req=[%p] client disconnected\n",
 			 __func__, req);
 		if (srv_conn)
-			__http_req_delist(srv_conn, req);
+			tfw_http_req_delist(srv_conn, req);
 		tfw_http_conn_msg_free((TfwHttpMsg *)req);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 		return true;
@@ -1105,7 +1105,7 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv,
 		TFW_DBG2("%s: Forwarding error: conn=[%p] req=[%p]\n",
 			 __func__, srv_conn, req);
 		if (req->flags & TFW_HTTP_F_HMONITOR) {
-			__http_req_delist(srv_conn, req);
+			tfw_http_req_delist(srv_conn, req);
 			WARN_ON_ONCE(req->pair);
 			tfw_http_msg_free((TfwHttpMsg *)req);
 			TFW_WARN_ADDR("Unable to send health"
@@ -3004,7 +3004,7 @@ tfw_http_popreq(TfwHttpMsg *hmresp, bool fwd_unsent)
 	spin_lock(&srv_conn->fwd_qlock);
 	if ((TfwMsg *)req == srv_conn->msg_sent)
 		srv_conn->msg_sent = NULL;
-	__http_req_delist(srv_conn, req);
+	tfw_http_req_delist(srv_conn, req);
 	tfw_http_conn_nip_adjust(srv_conn);
 
 	if (unlikely(!fwd_unsent)) {
