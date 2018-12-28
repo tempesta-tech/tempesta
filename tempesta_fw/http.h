@@ -268,7 +268,7 @@ enum {
 	_TFW_HTTP_FLAGS_NUM
 };
 
-#define __TFW_HTTP_MSG_M_CONN_MASK					\
+#define __TFW_HTTP_MSG_M_CONN						\
 	(BIT(TFW_HTTP_B_CONN_CLOSE) | BIT(TFW_HTTP_B_CONN_KA))
 
 /**
