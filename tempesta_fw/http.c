@@ -1961,7 +1961,7 @@ tfw_http_set_hdr_date(TfwHttpMsg *hm)
 static int
 tfw_http_set_hdr_connection(TfwHttpMsg *hm, unsigned long conn_flg)
 {
-	BUILD_BUG_ON(__TFW_HTTP_MSG_M_CONN_MASK > BITS_PER_LONG);
+	BUILD_BUG_ON(BIT_WORD(__TFW_HTTP_MSG_M_CONN_MASK) != 0);
 	if (((hm->flags[0] & __TFW_HTTP_MSG_M_CONN_MASK) == conn_flg)
 	    && (!TFW_STR_EMPTY(&hm->h_tbl->tbl[TFW_HTTP_HDR_CONNECTION]))
 	    && !test_bit(TFW_HTTP_B_CONN_EXTRA, hm->flags))
@@ -1988,7 +1988,7 @@ tfw_http_set_hdr_keep_alive(TfwHttpMsg *hm, unsigned long conn_flg)
 {
 	int r;
 
-	BUILD_BUG_ON(__TFW_HTTP_MSG_M_CONN_MASK > BITS_PER_LONG);
+	BUILD_BUG_ON(BIT_WORD(__TFW_HTTP_MSG_M_CONN_MASK) != 0);
 	if ((hm->flags[0] & __TFW_HTTP_MSG_M_CONN_MASK) == conn_flg)
 		return 0;
 
