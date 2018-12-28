@@ -207,11 +207,26 @@ typedef enum {
 enum {
 	/* Common flags for requests and responses. */
 	TFW_HTTP_FLAGS_COMMON	= 0,
-	/* 'Connection:' header contains 'close'. */
+	/*
+	 * Connection management flags.
+	 *
+	 * CONN_CLOSE: the connection is to be closed after response is
+	 * forwarded to the client. Set if:
+	 * - 'Connection:' header contains 'close' term;
+	 * - there is no possibility to serve further requests from the same
+	 * connection due to errors or protocol restrictions.
+	 *
+	 * CONN_KA: 'Connection:' header contains 'keep-alive' term. The flag
+	 * is not set for HTTP/1.1 connections which are persistent by default.
+	 * CONN_EXTRA: 'Connection:' header contains additional terms.
+	 *
+	 * There is no requirement for mutual exclusivity for CONN_CLOSE and
+	 * CONN_KA flags, their meaning is not limited by connection
+	 * persistence and states about 'Connection:' header value. CONN_CLOSE
+	 * always takes precedence over CONN_KA flag.
+	 */
 	TFW_HTTP_B_CONN_CLOSE	= TFW_HTTP_FLAGS_COMMON,
-	/* 'Connection:' header contains 'keep-alive'. */
 	TFW_HTTP_B_CONN_KA,
-	/* 'Connection:' header contains additional terms. */
 	TFW_HTTP_B_CONN_EXTRA,
 	/* Chunked transfer encoding. */
 	TFW_HTTP_B_CHUNKED,
