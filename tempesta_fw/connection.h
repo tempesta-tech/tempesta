@@ -198,11 +198,6 @@ enum {
 	TFW_CONN_B_ACTIVE
 };
 
-#define TFW_CONN_F_RESEND	(1 << TFW_CONN_B_RESEND)
-#define TFW_CONN_F_QFORWD	(1 << TFW_CONN_B_QFORWD)
-#define TFW_CONN_F_HASNIP	(1 << TFW_CONN_B_HASNIP)
-
-
 /**
  * TLS hardened connection.
  */
