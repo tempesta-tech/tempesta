@@ -40,9 +40,8 @@ static struct {
  * and offset to @data for upper layers processing.
  */
 static int
-tfw_tls_chop_skb_rec(TlsCtx *tls, TfwFsmData *data)
+tfw_tls_chop_skb_rec(TlsCtx *tls, struct sk_buff *skb, TfwFsmData *data)
 {
-	struct sk_buff *skb = tls->io_in.skb_list;
 	size_t off = ttls_payload_off(&tls->xfrm);
 
 	while (unlikely(skb->len <= off)) {
@@ -52,7 +51,6 @@ tfw_tls_chop_skb_rec(TlsCtx *tls, TfwFsmData *data)
 		if (WARN_ON_ONCE(!skb))
 			return -EIO;
 	}
-	tls->io_in.skb_list = NULL; /* not used any more */
 
 	data->skb = skb;
 	data->off = off;
@@ -65,7 +63,7 @@ static int
 tfw_tls_msg_process(void *conn, TfwFsmData *data)
 {
 	int r, parsed = 0;
-	struct sk_buff *nskb = NULL, *skb = data->skb;
+	struct sk_buff *msg_skb, *nskb = NULL, *skb = data->skb;
 	TfwConn *c = conn;
 	TlsCtx *tls = tfw_tls_context(c);
 	TfwFsmData data_up = {};
@@ -90,6 +88,11 @@ tfw_tls_msg_process(void *conn, TfwFsmData *data)
 	spin_lock(&tls->lock);
 next_msg:
 	ss_skb_queue_tail(&tls->io_in.skb_list, skb);
+	/*
+	 * Store skb_list since ttls_recv() reinitializes IO context for each
+	 * TLS record.
+	 */
+	msg_skb = tls->io_in.skb_list;
 
 	/* Call TLS layer to place skb into a TLS record on top of skb_list. */
 	r = ss_skb_process(skb, 0, 0, ttls_recv, tls, &tls->io_in.chunks,
@@ -150,7 +153,7 @@ next_msg:
 	}
 
 	/* At this point tls->io_in is initialized for the next record. */
-	if ((r = tfw_tls_chop_skb_rec(tls, &data_up)))
+	if ((r = tfw_tls_chop_skb_rec(tls, msg_skb, &data_up)))
 		goto out_err;
 	r = tfw_gfsm_move(&c->state, TFW_TLS_FSM_DATA_READY, &data_up);
 	if (r == TFW_BLOCK) {
