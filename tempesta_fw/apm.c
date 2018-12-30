@@ -24,7 +24,7 @@
 #include <linux/spinlock.h>
 #include <linux/stringify.h>
 
-#ifndef DBG_APM
+#if DBG_APM == 0
 #undef DEBUG
 #endif
 #include "lib/str.h"

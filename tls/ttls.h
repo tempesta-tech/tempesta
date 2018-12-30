@@ -27,7 +27,7 @@
 #include <linux/string.h>
 #include <net/tls.h>
 
-#ifndef DBG_TLS
+#if DBG_TLS == 0
 #undef DEBUG
 #endif
 #include "config.h"
@@ -426,8 +426,8 @@ struct ttls_config
  *		  header. For egress data used as length of @__msg (copied
  *		  data);
  * @rlen	- read bytes of the message body so far;
- * @skb_list	- list of skbs attachd to the current I/O context;
- * @off		- data offset within @skb_list, can be afther the 1st skb;
+ * @skb_list	- list of skbs attached to the current I/O context;
+ * @off		- data offset within @skb_list, can be after the 1st skb;
  * @chunks	- number of contigious memory chunks in all skbs in @skb_list;
  */
 typedef struct {
@@ -911,7 +911,7 @@ int ttls_conf_alpn_protocols(ttls_config *conf, const char **protos);
  *
  * \param ssl	SSL context
  *
- * \return	Protcol name, or NULL if no protocol was negotiated.
+ * \return	Protocol name, or NULL if no protocol was negotiated.
  */
 const char *ttls_get_alpn_protocol(const ttls_context *ssl);
 

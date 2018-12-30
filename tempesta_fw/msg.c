@@ -65,7 +65,7 @@ this_chunk:
 		if (c_size < f_room) {
 			/*
 			 * The chunk fits in the SKB fragment with room
-			 * to spare. Stay in the same SKB fragment, swith
+			 * to spare. Stay in the same SKB fragment, switch
 			 * to next chunk of the string.
 			 */
 			c_off = 0;

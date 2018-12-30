@@ -25,7 +25,7 @@
 #include <net/inet_common.h>
 #include <net/ip6_route.h>
 
-#ifndef DBG_SS
+#if DBG_SS == 0
 #undef DEBUG
 #endif
 #include "lib/str.h"

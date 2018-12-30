@@ -202,7 +202,7 @@ index 46bf7cc7..b698c645 100644
  
  /*
 diff --git a/include/linux/skbuff.h b/include/linux/skbuff.h
-index be45224b..15e9d293 100644
+index be45224b..0d90fcf0 100644
 --- a/include/linux/skbuff.h
 +++ b/include/linux/skbuff.h
 @@ -232,6 +232,12 @@
@@ -250,7 +250,7 @@ index be45224b..15e9d293 100644
 + * queue and it's processed (first time) in tcp_write_xmit(). This time the @skb
 + * isn't scheduled yet, so we can use skb->dev for our needs to avoid extending
 + * sk_buff. We use the least significant bit to be sure that this isn't a
-+ * pointer to not to break anything. TLS message type << 1 is alwasy smaller
++ * pointer to not to break anything. TLS message type << 1 is always smaller
 + * than 0xff.
 + */
 +static inline void
@@ -1815,7 +1815,7 @@ index 420fecbb..67e0513a 100644
  void tcp_twsk_destructor(struct sock *sk)
  {
 diff --git a/net/ipv4/tcp_output.c b/net/ipv4/tcp_output.c
-index 83d11cd2..c1f604a5 100644
+index 83d11cd2..4e79cb5e 100644
 --- a/net/ipv4/tcp_output.c
 +++ b/net/ipv4/tcp_output.c
 @@ -37,6 +37,9 @@
@@ -1900,14 +1900,14 @@ index 83d11cd2..c1f604a5 100644
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +		/*
 +		 * This isn't the only place where tcp_transmit_skb() is called,
-+		 * but this is the only place were we are from Tempesta FW
++		 * but this is the only place where we are from Tempesta FW
 +		 * ss_do_send(), so call the hook here. At this point, with
 +		 * @limit adjusted above, we have exact understanding how much
 +		 * data we can and should send to the peer, so we call
 +		 * encryption here and get the best TLS record size.
 +		 *
 +		 * TODO Sometimes HTTP servers send headers and response body in
-+		 * different TCP segments, so coalese skbs for transmission to
++		 * different TCP segments, so coalesce skbs for transmission to
 +		 * get 16KB (maximum size of TLS message).
 +		 */
 +		if (sk->sk_write_xmit && tempesta_tls_skb_type(skb)) {

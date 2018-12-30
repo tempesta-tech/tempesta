@@ -25,7 +25,7 @@
 
 #define BANNER	"fw"
 #include "lib/log.h"
-/* TODO remvoe the defefines after moving to unified logging. */
+/* TODO remove the definitions after moving to unified logging. */
 #define TFW_ERR(...)		T_ERR(__VA_ARGS__)
 #define TFW_ERR_NL(...)		T_ERR_NL(__VA_ARGS__)
 #define TFW_WARN(...)		T_WARN(__VA_ARGS__)

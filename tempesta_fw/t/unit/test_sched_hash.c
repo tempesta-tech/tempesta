@@ -35,6 +35,7 @@
 
 #include "helpers.h"
 #include "http_msg.h"
+#include "http_parser.h"
 #include "sched_helper.h"
 #include "test.h"
 

@@ -40,23 +40,17 @@ static struct {
  * and offset to @data for upper layers processing.
  */
 static int
-tfw_tls_chop_skb_rec(TlsCtx *tls, struct sk_buff *skb, unsigned int off,
-		     TfwFsmData *data)
+tfw_tls_chop_skb_rec(TlsCtx *tls, TfwFsmData *data)
 {
-	size_t prolog = ttls_payload_off(&tls->xfrm);
+	struct sk_buff *skb = tls->io_in.skb_list;
+	size_t off = ttls_payload_off(&tls->xfrm);
 
-eaten_skb:
-	if (likely(skb->len > prolog)) {
-		off += prolog;
-	} else {
-		struct sk_buff *next = skb->next;
-		if (WARN_ON_ONCE(!next))
+	while (unlikely(skb->len <= off)) {
+		struct sk_buff *skb_head = ss_skb_dequeue(&skb);
+		off -= skb_head->len;
+		__kfree_skb(skb_head);
+		if (WARN_ON_ONCE(!skb))
 			return -EIO;
-		prolog -= skb->len;
-		off = 0; /* off is only for the first skb */
-		__kfree_skb(skb);
-		skb = next;
-		goto eaten_skb;
 	}
 	tls->io_in.skb_list = NULL; /* not used any more */
 
@@ -72,24 +66,33 @@ tfw_tls_msg_process(void *conn, TfwFsmData *data)
 {
 	int r, parsed = 0;
 	struct sk_buff *nskb = NULL, *skb = data->skb;
-	unsigned int off = data->off;
 	TfwConn *c = conn;
 	TlsCtx *tls = tfw_tls_context(c);
-	struct sk_buff *msg_skb;
 	TfwFsmData data_up = {};
 
-	BUG_ON(off >= skb->len);
+	/*
+	 * @off is from TCP layer due to possible, but rare (usually malicious),
+	 * sequence numbers overlapping. We have to join the skb into a list
+	 * containing a complete TLS record with offset as TLS header, so now
+	 * we have to chop the header if there is any.
+	 */
+	if (unlikely(data->off)) {
+		BUG_ON(data->off >= skb->len);
+		if (ss_skb_chop_head_tail(NULL, skb, data->off, 0))
+			return TFW_BLOCK;
+	}
 
 	/*
 	 * Perform TLS handshake if necessary and decrypt the TLS message
-	 * in-place by chunks. Add skb to the list to build scatterlist if it
+	 * in-place by chunks. Add skb to the list to build scatterlist if
 	 * it contains end of current message.
 	 */
 	spin_lock(&tls->lock);
 next_msg:
 	ss_skb_queue_tail(&tls->io_in.skb_list, skb);
-	msg_skb = tls->io_in.skb_list;
-	r = ss_skb_process(skb, off, 0, ttls_recv, tls, &tls->io_in.chunks,
+
+	/* Call TLS layer to place skb into a TLS record on top of skb_list. */
+	r = ss_skb_process(skb, 0, 0, ttls_recv, tls, &tls->io_in.chunks,
 			   &parsed);
 	switch (r) {
 	default:
@@ -112,7 +115,7 @@ next_msg:
 	case T_OK:
 		/*
 		 * A complete TLS message decrypted and ready for upper
-		 * layer protocols processing - fall throught.
+		 * layer protocols processing - fall through.
 		 */
 		T_DBG3("%s: parsed=%d skb->len=%u\n", __func__,
 		       parsed, skb->len);
@@ -127,7 +130,7 @@ next_msg:
 	 *
 	 * Many sibling skbs can be produced by TLS and HTTP layers
 	 * together - don't coalesce them: we process messages at once
-	 * and it hase sense to work with sparse skbs in HTTP
+	 * and it has sense to work with sparse skbs in HTTP
 	 * adjustment logic to have some room to place a new fragments.
 	 * The logic is simple because each layer works with messages
 	 * from previous layer not crossing skb boundaries. The drawback
@@ -147,7 +150,7 @@ next_msg:
 	}
 
 	/* At this point tls->io_in is initialized for the next record. */
-	if ((r = tfw_tls_chop_skb_rec(tls, msg_skb, off, &data_up)))
+	if ((r = tfw_tls_chop_skb_rec(tls, &data_up)))
 		goto out_err;
 	r = tfw_gfsm_move(&c->state, TFW_TLS_FSM_DATA_READY, &data_up);
 	if (r == TFW_BLOCK) {
@@ -159,7 +162,7 @@ next_msg:
 	if (nskb) {
 		skb = nskb;
 		nskb = NULL;
-		parsed = off = 0;
+		parsed = 0;
 		goto next_msg;
 	}
 
