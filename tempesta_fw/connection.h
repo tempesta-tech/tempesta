@@ -29,6 +29,8 @@
 #include "msg.h"
 #include "peer.h"
 
+#include "http_parser.h"
+
 #include "sync_socket.h"
 #include "tls.h"
 
@@ -93,6 +95,7 @@ enum {
 #define TFW_CONN_COMMON					\
 	SsProto			proto;			\
 	TfwGState		state;			\
+	TfwHttpParser		parser;			\
 	struct list_head	list;			\
 	atomic_t		refcnt;			\
 	struct timer_list	timer;			\
@@ -194,11 +197,6 @@ enum {
 	/* Connection is in use or at least scheduled to be established. */
 	TFW_CONN_B_ACTIVE
 };
-
-#define TFW_CONN_F_RESEND	(1 << TFW_CONN_B_RESEND)
-#define TFW_CONN_F_QFORWD	(1 << TFW_CONN_B_QFORWD)
-#define TFW_CONN_F_HASNIP	(1 << TFW_CONN_B_HASNIP)
-
 
 /**
  * TLS hardened connection.

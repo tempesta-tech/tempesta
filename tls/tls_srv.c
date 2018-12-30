@@ -684,7 +684,7 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		/*
 		 * 9 = 1(session_id length) + 2(cipher suites length)
 		 * + 2(at least 1 cipher suite) + 1(number of compressions)
-		 * + 1(compression) + 2(extenstions length).
+		 * + 1(compression) + 2(extensions length).
 		 */
 		if (n > sizeof(tls->sess.id) || n + 9 > io->hslen) {
 			T_DBG("ClientHello: bad session length %d\n", n);
@@ -833,9 +833,9 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		TTLS_HS_FSM_MOVE(TTLS_CH_HS_COMP);
 	}
 
-	/* Read extensins length. */
+	/* Read extensions length. */
 	T_FSM_STATE(TTLS_CH_HS_EXTLEN) {
-		/* Use the first 2 bytes for toal number of extensions. */
+		/* Use the first 2 bytes for total number of extensions. */
 		BUG_ON(io->rlen >= 2);
 		if (unlikely(io->rlen)) {
 			tls->hs->tmp[1] = *p;
@@ -1039,9 +1039,9 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 	r = ttls_choose_ciphersuite(tls, &tls->hs->tmp[TTLS_HS_TMP_STORE_SZ]);
 
 	/*
-	 * This is, after ttls_choose_ciphersuite() call, the earliest time when
+	 * This is, after ttls_choose_ciphersuite() call, the earliest time
 	 * when we know which hash function to use and now we can start to
-	 * compute the handshake session checksu.
+	 * compute the handshake session checksum.
 	 */
 	if (!r)
 		ttls_update_checksum(tls, buf - hh_len, p - buf + hh_len);
@@ -1233,7 +1233,7 @@ ttls_write_server_hello(TlsCtx *tls, struct sg_table *sgt,
 	 * from a client and then selects a stream or Authenticated Encryption
 	 * with Associated Data (AEAD) ciphersuite, it MUST NOT send an
 	 * encrypt-then-MAC response extension back to the client."
-	 * We don't support other siphersuites, so we don't send EtM extension.
+	 * We don't support other ciphersuites, so we don't send EtM extension.
 	 *
 	 * TODO #1054 We also don't support renegotiations, so also don't send
 	 * the extension.
@@ -2095,7 +2095,7 @@ ttls_handshake_server_hello(TlsCtx *tls)
 			T_FSM_EXIT();
 		CHECK_STATE(1024);
 		/*
-		 * RFC 5246 Certificate Request is optional, so don't requiest
+		 * RFC 5246 Certificate Request is optional, so don't request
 		 * a certificate for now since we're unable to properly verify
 		 * it certificate until #830.
 		 */

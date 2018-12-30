@@ -480,9 +480,11 @@ __frang_http_field_len(const TfwHttpReq *req, FrangAcc *ra,
 static int
 frang_http_field_len(const TfwHttpReq *req, FrangAcc *ra, unsigned int field_len)
 {
-	if (req->parser.hdr.len > field_len) {
+	TfwHttpParser *parser = &req->conn->parser;
+
+	if (parser->hdr.len > field_len) {
 		frang_limmsg("HTTP in-progress field length",
-			     req->parser.hdr.len, field_len,
+			     parser->hdr.len, field_len,
 			     &FRANG_ACC2CLI(ra)->addr);
 		return TFW_BLOCK;
 	}
@@ -595,7 +597,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 		}
 	}
 
-	if (req->flags & TFW_HTTP_F_URI_FULL) {
+	if (test_bit(TFW_HTTP_B_URI_FULL, req->flags)) {
 		char *hdrhost;
 
 		/* If host in URI is empty, host header also must be empty. */
@@ -837,7 +839,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data)
 
 	/* Ensure that singular header fields are not duplicated. */
 	T_FSM_STATE(Frang_Req_Hdr_FieldDup) {
-		if (req->flags & TFW_HTTP_F_FIELD_DUPENTRY) {
+		if (test_bit(TFW_HTTP_B_FIELD_DUPENTRY, req->flags)) {
 			frang_msg("duplicate header field found",
 				  &FRANG_ACC2CLI(ra)->addr, "\n");
 			r = TFW_BLOCK;
@@ -979,7 +981,7 @@ frang_http_req_handler(void *obj, TfwFsmData *data)
 	FrangAcc *ra = conn->sk->sk_security;
 	bool ip_block = tfw_vhost_global_frang_cfg()->ip_block;
 
-	if (((TfwHttpReq *)data->req)->flags & TFW_HTTP_F_WHITELIST)
+	if (test_bit(TFW_HTTP_B_WHITELIST, ((TfwHttpReq *)data->req)->flags))
 		return TFW_PASS;
 
 	r = frang_http_req_process(ra, conn, data);

@@ -91,7 +91,7 @@ __ttls_md_hash_setup(struct shash_desc *md_ctx, const TlsMdInfo *md_info)
 {
 	md_ctx->tfm = crypto_alloc_shash(md_info->alg_name, 0, 0);
 	if (IS_ERR(md_ctx->tfm)) {
-		T_ERR("cannot initizlize hash driver %s."
+		T_ERR("cannot initialize hash driver %s."
 		      " Please check /proc/crypto for the algorithm\n",
 		      md_info->alg_name);
 		return TTLS_ERR_MD_ALLOC_FAILED;
@@ -105,7 +105,7 @@ __ttls_md_hmac_setup(struct shash_desc *md_ctx, const TlsMdInfo *md_info)
 {
 	md_ctx->tfm = crypto_alloc_shash(md_info->hmac_name, 0, 0);
 	if (IS_ERR(md_ctx->tfm)) {
-		T_ERR("cannot initizlize HMAC driver %s."
+		T_ERR("cannot initialize HMAC driver %s."
 		      " Please check /proc/crypto for the algorithm\n",
 		      md_info->hmac_name);
 		return TTLS_ERR_MD_ALLOC_FAILED;

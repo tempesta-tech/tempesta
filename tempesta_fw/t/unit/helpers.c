@@ -56,6 +56,7 @@ test_req_alloc(size_t data_len)
 	tfw_connection_init(&conn_req);
 	conn_req.proto.type = Conn_HttpClnt;
 	hmreq->conn = &conn_req;
+	tfw_http_init_parser_req((TfwHttpReq *)hmreq);
 
 	return (TfwHttpReq *)hmreq;
 }
@@ -87,6 +88,7 @@ test_resp_alloc(size_t data_len)
 	tfw_connection_init(&conn_req);
 	conn_resp.proto.type = Conn_HttpSrv;
 	hmresp->conn = &conn_resp;
+	tfw_http_init_parser_resp((TfwHttpResp *)hmresp);
 
 	return (TfwHttpResp *)hmresp;
 }

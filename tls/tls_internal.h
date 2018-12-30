@@ -114,7 +114,7 @@ struct ttls_sig_hash_set_t
  * @curves	- supported elliptic curves;
  * @randbytes	- random bytes;
  * @finished	- temporal buffer for chunks of Finished message,
- *		  @randbytes were used in prvious messages, so we can reuse it
+ *		  @randbytes were used in previous messages, so we can reuse it
  * @premaster	- premaster secret;
  * @tmp		- buffer to store temporary data between data chunks;
  */
@@ -348,14 +348,14 @@ enum {
 };
 
 /*
- * Extend the common FSM for hanshake parsing.
+ * Extend the common FSM for handshake parsing.
  */
 #define TTLS_HS_FSM_FINISH()						\
 	T_FSM_FINISH(r, tls->state);					\
 	*read += p - buf;						\
 	io->rlen += p - buf;
 
-/* Move to @st if we have at least @need bytes. */
+/* Move to @st if we have some bytes to process. */
 #define TTLS_HS_FSM_MOVE(st)						\
 do {									\
 	WARN_ON_ONCE(p - buf > len);					\

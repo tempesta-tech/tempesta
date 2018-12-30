@@ -197,7 +197,7 @@ tfw_sock_clnt_new(struct sock *sk)
 		 * upcall beside GFSM and SS, but that's efficient and I didn't
 		 * find a simple and better solution.
 		 */
-		conn->sk->sk_write_xmit = tfw_tls_encrypt;
+		sk->sk_write_xmit = tfw_tls_encrypt;
 
 	/* Activate keepalive timer. */
 	mod_timer(&conn->timer,
