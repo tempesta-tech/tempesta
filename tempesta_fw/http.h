@@ -250,8 +250,6 @@ enum {
 	TFW_HTTP_B_WHITELIST,
 	/* Client was disconnected, drop the request. */
 	TFW_HTTP_B_REQ_DROP,
-	/* Request was received on TLS connection. */
-	TFW_HTTP_B_REQ_TLS,
 
 	/* Response flags */
 	TFW_HTTP_FLAGS_RESP,
