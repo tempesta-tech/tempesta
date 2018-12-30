@@ -29,7 +29,7 @@
 #include <net/tcp.h>
 #include <net/xfrm.h>
 
-#ifndef DBG_SS
+#if DBG_SS == 0
 #undef DEBUG
 #endif
 #include "lib/str.h"
@@ -889,7 +889,7 @@ alloc_head:
 }
 
 /**
- * Reverse operation to ss_skb_expand_head_tail(): chot @head and @tail bytes
+ * Reverse operation to ss_skb_expand_head_tail(): chop @head and @tail bytes
  * at head and end of the @skb.
  */
 int

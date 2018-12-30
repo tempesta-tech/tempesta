@@ -30,23 +30,13 @@ endif
 #
 #	$ DEBUG=3 DBG_SS=1 DBG_TLS=1 make clean all
 #
-# TODO can we generate the variables w/o the copy & paste?
-#
-ifdef DBG_CFG
-	TFW_CFLAGS += -DDBG_CFG
-endif
-ifdef DBG_HTTP_PARSER
-	TFW_CFLAGS += -DDBG_HTTP_PARSER
-endif
-ifdef DBG_SS
-	TFW_CFLAGS += -DDBG_SS
-endif
-ifdef DBG_TLS
-	TFW_CFLAGS += -DDBG_TLS
-endif
-ifdef DBG_APM
-	TFW_CFLAGS += -DDBG_APM
-endif
+DBG_CFG ?= 0
+DBG_HTTP_PARSER ?= 0
+DBG_SS ?= 0
+DBG_TLS ?= 0
+DBG_APM ?= 0
+TFW_CFLAGS += -DDBG_CFG=$(DBG_CFG) -DDBG_HTTP_PARSER=$(DBG_HTTP_PARSER)
+TFW_CFLAGS += -DDBG_SS=$(DBG_SS) -DDBG_TLS=$(DBG_TLS) -DDBG_APM=$(DBG_APM)
 
 PROC = $(shell cat /proc/cpuinfo)
 ARCH = $(shell uname -m)

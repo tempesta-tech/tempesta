@@ -225,7 +225,7 @@ EXPORT_SYMBOL(ttls_register_bio);
 /**
  * Whether TLS context transformation is ready for crypto and we should encrypt
  * egress data and decrypt ingress data.
- * The first encrypted record is the record sent by a clinet just after
+ * The first encrypted record is the record sent by a client just after
  * ChangeCipherSpec record in handshake. TTLS_CLIENT_FINISHED is the first
  * state after TTLS_MSG_CHANGE_CIPHER_SPEC, so we check it here to learn the
  * context state.
@@ -1207,7 +1207,7 @@ ttls_handshake_free(TlsHandshake *hs)
 
 	/*
 	 * Free only the linked list wrapper, not the keys themselves
-	 * since the belong to the SNI callback.
+	 * since they belong to the SNI callback.
 	 */
 	if (hs->sni_key_cert) {
 		ttls_key_cert *cur = hs->sni_key_cert, *next;
@@ -1773,7 +1773,7 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 	}
 
 	/*
-	 * Calculate final message checksum before goint to
+	 * Calculate final message checksum before going to
 	 * TTLS_HANDSHAKE_OVER state. According to RFC 5246 7.4.9 we need
 	 * to add the message to a checksum sent to a client.
 	 */

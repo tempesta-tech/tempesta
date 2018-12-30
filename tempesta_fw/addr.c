@@ -53,7 +53,7 @@ tfw_addr_pton_v4(const TfwStr *s, TfwAddr *addr)
 
 	TFW_STR_FOR_EACH_CHUNK(c, s, end) {
 		for (k = 0; k != c->len; ++k) {
-			p = c->ptr + k;
+			p = (char *)c->ptr + k;
 			if (isdigit(*p)) {
 				octet = (octet == -1)
 					? *p - '0'
@@ -101,7 +101,7 @@ tfw_addr_pton_v6(const TfwStr *s, TfwAddr *addr)
 
 	TFW_STR_FOR_EACH_CHUNK(c, s, end) {
 		for (k = 0; k != c->len; ++k) {
-			p = c->ptr + k;
+			p = (char *)c->ptr + k;
 			if (i > 7 && !(i == 8 && port == 1))
 				return -EINVAL;
 
@@ -249,7 +249,7 @@ tfw_addr_pton(const TfwStr *str, TfwAddr *addr)
 		TFW_STR_FOR_EACH_CHUNK(c, str, end) {
 			int i;
 			for (i = 0; i != c->len; ++i) {
-				pos = c->ptr + i;
+				pos = (char *)c->ptr + i;
 				if (!isdigit(*pos))
 					goto delim;
 			}
