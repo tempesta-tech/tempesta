@@ -203,7 +203,6 @@ typedef enum {
 	TFW_HTTP_HDR_NUM	= 16,
 } tfw_http_hdr_t;
 
-
 enum {
 	/* Common flags for requests and responses. */
 	TFW_HTTP_FLAGS_COMMON	= 0,
@@ -281,7 +280,7 @@ enum {
 typedef struct {
 	const char	*reason;
 	unsigned short	status;
-}TfwHttpError;
+} TfwHttpError;
 
 /**
  * Common HTTP message members.
@@ -503,7 +502,7 @@ tfw_http_resp_code_range(const int n)
 typedef void (*tfw_http_cache_cb_t)(TfwHttpMsg *);
 
 /* External HTTP functions. */
-int tfw_http_msg_process(void *conn, const TfwFsmData *data);
+int tfw_http_msg_process(void *conn, TfwFsmData *data);
 unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
 void tfw_http_req_destruct(void *msg);
 void tfw_http_resp_fwd(TfwHttpResp *resp);
@@ -516,7 +515,7 @@ void tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len);
  */
 int tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status,
 			   TfwStr *rmark, TfwStr *cookie, TfwStr *body);
-int tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, void *msg_it,
+int tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, TfwMsgIter *msg_it,
 		      size_t hdrs_size);
 void tfw_http_send_resp(TfwHttpReq *req, int status, const char *reason);
 

@@ -203,10 +203,10 @@ enum {
  */
 typedef struct {
 	TfwCliConn	cli_conn;
-	TfwTlsContext	tls;
+	TlsCtx		tls;
 } TfwTlsConn;
 
-#define tfw_tls_context(p)	(TfwTlsContext *)(&((TfwTlsConn *)p)->tls)
+#define tfw_tls_context(conn)	(TlsCtx *)(&((TfwTlsConn *)conn)->tls)
 
 /* Callbacks used by l5-l7 protocols to operate on connection level. */
 typedef struct {
@@ -225,6 +225,11 @@ typedef struct {
 	 * left in the connection queue.
 	 */
 	void (*conn_repair)(TfwConn *conn);
+
+	/*
+	 * Called to close a connection intentionally on Tempesta side.
+	 */
+	int (*conn_close)(TfwConn *conn, bool sync);
 
 	/*
 	 * Called when closing a connection (client or server,
@@ -457,6 +462,7 @@ void tfw_connection_link_peer(TfwConn *conn, TfwPeer *peer);
 
 int tfw_connection_new(TfwConn *conn);
 void tfw_connection_repair(TfwConn *conn);
+int tfw_connection_close(TfwConn *conn, bool sync);
 void tfw_connection_drop(TfwConn *conn);
 void tfw_connection_release(TfwConn *conn);
 

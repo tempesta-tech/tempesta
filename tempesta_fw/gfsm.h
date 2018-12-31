@@ -145,8 +145,11 @@ enum {
  *
  * GFSM resides at the top of classes hierarchy, so use generic message classes.
  *
- * @skb		- currently processed skb by the TCP/IP stack;
- * @off		- data offset within the @skb;
+ * @skb		- currently processed skb by the TCP/IP stack, probably preceded
+ *		  by skbs from previous GFSM shots;
+ * @off		- data offset within the first skb in @skb list;
+ * @trail	- data trailer left from the underlying protocol and not to be
+ *		  processed by the current protocol;
  * @req		- a request associated with current state of an FSM;
  * @resp	- a response associated with the state;
  */
@@ -154,6 +157,7 @@ typedef struct {
 	/* L4 (TCP) members. */
 	struct sk_buff	*skb;
 	unsigned int	off;
+	unsigned int	trail;
 
 	/* L7 members. */
 	TfwMsg		*req;
@@ -183,11 +187,11 @@ typedef struct {
 				 & ((TFW_GFSM_FSM_MASK << TFW_GFSM_FSM_SHIFT) \
 				    | TFW_GFSM_STATE_MASK))
 
-typedef int (*tfw_gfsm_handler_t)(void *obj, const TfwFsmData *data);
+typedef int (*tfw_gfsm_handler_t)(void *obj, TfwFsmData *data);
 
 void tfw_gfsm_state_init(TfwGState *st, void *obj, int st0);
-int tfw_gfsm_dispatch(TfwGState *st, void *obj, const TfwFsmData *data);
-int tfw_gfsm_move(TfwGState *st, unsigned short state, const TfwFsmData *data);
+int tfw_gfsm_dispatch(TfwGState *st, void *obj, TfwFsmData *data);
+int tfw_gfsm_move(TfwGState *st, unsigned short state, TfwFsmData *data);
 
 #ifdef DEBUG
 void tfw_gfsm_debug_state(TfwGState *st, const char *msg);

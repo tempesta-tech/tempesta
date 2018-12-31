@@ -549,7 +549,7 @@ tfw_cache_write_field(TDB *db, TdbVRec **trec, TfwHttpResp *resp,
 			    (long)(len - copied));
 		r = hdr
 		    ? tfw_http_msg_add_data(it, (TfwHttpMsg *)resp, hdr, &c)
-		    : tfw_http_msg_write(it, (TfwHttpMsg *)resp, &c);
+		    : tfw_msg_write(it, &c);
 		if (r)
 			return r;
 
@@ -621,7 +621,7 @@ tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwStr *hdr,
  * Last-Modified might be used if the response does not have an ETag field.
  *
  * The 304 response should be as short as possible, we don't need to add
- * extra headers with tfw_http_adjust_resp(). Use quicker tfw_http_msg_write()
+ * extra headers with tfw_http_adjust_resp(). Use quicker tfw_msg_write()
  * instead of tfw_http_msg_add_data() used to build full response.
  */
 static void
@@ -658,7 +658,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 			goto err_setup;
 	}
 
-	if (tfw_http_msg_write(&it, (TfwHttpMsg *)resp, &g_crlf))
+	if (tfw_msg_write(&it, &g_crlf))
 		goto err_setup;
 
 	tfw_http_resp_fwd(resp);
@@ -1445,27 +1445,21 @@ static int
 tfw_cache_build_resp_body(TDB *db, TfwHttpResp *resp, TdbVRec *trec,
 			  TfwMsgIter *it, char *p)
 {
-	int off, f_size;
+	int off, f_size, r;
 	skb_frag_t *frag;
 
 	BUG_ON(!it->skb);
 	frag = &skb_shinfo(it->skb)->frags[it->frag];
 	if (skb_frag_size(frag))
 		++it->frag;
-	if (it->frag >= MAX_SKB_FRAGS - 1) {
-		if (!(it->skb = ss_skb_alloc()))
-			return -ENOMEM;
-		ss_skb_queue_tail(&resp->msg.skb_head, it->skb);
-		it->frag = 0;
-	}
+	if (it->frag >= MAX_SKB_FRAGS - 1
+	    && (r = tfw_http_msg_setup((TfwHttpMsg *)resp, it, 0)))
+		return r;
 
 	while (1) {
-		if (it->frag == MAX_SKB_FRAGS) {
-			if (!(it->skb = ss_skb_alloc()))
-				return -ENOMEM;
-			ss_skb_queue_tail(&resp->msg.skb_head, it->skb);
-			it->frag = 0;
-		}
+		if (it->frag == MAX_SKB_FRAGS
+		    && (r = tfw_http_msg_setup((TfwHttpMsg *)resp, it, 0)))
+			return r;
 
 		/* TDB keeps data by pages and we can reuse the pages. */
 		off = (unsigned long)p & ~PAGE_MASK;
