@@ -60,10 +60,10 @@
  *	 Springer Science & Business Media, 1 Aug 2000
  */
 
-#ifndef MBEDTLS_ECP_INTERNAL_H
-#define MBEDTLS_ECP_INTERNAL_H
+#ifndef TTLS_ECP_INTERNAL_H
+#define TTLS_ECP_INTERNAL_H
 
-#if defined(MBEDTLS_ECP_INTERNAL_ALT)
+#if defined(TTLS_ECP_INTERNAL_ALT)
 
 /**
  * \brief		   Indicate if the Elliptic Curve Point module extension can
@@ -74,12 +74,12 @@
  *
  * \return		  Non-zero if successful.
  */
-unsigned char mbedtls_internal_ecp_grp_capable(const mbedtls_ecp_group *grp);
+unsigned char ttls_internal_ecp_grp_capable(const ttls_ecp_group *grp);
 
 /**
  * \brief		   Initialise the Elliptic Curve Point module extension.
  *
- *				  If mbedtls_internal_ecp_grp_capable returns true for a
+ *				  If ttls_internal_ecp_grp_capable returns true for a
  *				  group, this function has to be able to initialise the
  *				  module for it.
  *
@@ -91,7 +91,7 @@ unsigned char mbedtls_internal_ecp_grp_capable(const mbedtls_ecp_group *grp);
  *
  * \return		  0 if successful.
  */
-int mbedtls_internal_ecp_init(const mbedtls_ecp_group *grp);
+int ttls_internal_ecp_init(const ttls_ecp_group *grp);
 
 /**
  * \brief		   Frees and deallocates the Elliptic Curve Point module
@@ -99,11 +99,9 @@ int mbedtls_internal_ecp_init(const mbedtls_ecp_group *grp);
  *
  * \param grp	   The pointer to the group the module was initialised for.
  */
-void mbedtls_internal_ecp_free(const mbedtls_ecp_group *grp);
+void ttls_internal_ecp_free(const ttls_ecp_group *grp);
 
-#if defined(ECP_SHORTWEIERSTRASS)
-
-#if defined(MBEDTLS_ECP_RANDOMIZE_JAC_ALT)
+#if defined(TTLS_ECP_RANDOMIZE_JAC_ALT)
 /**
  * \brief		   Randomize jacobian coordinates:
  *				  (X, Y, Z) -> (l^2 X, l^3 Y, l Z) for random l.
@@ -113,18 +111,13 @@ void mbedtls_internal_ecp_free(const mbedtls_ecp_group *grp);
  * \param pt		The point on the curve to be randomised, given with Jacobian
  *				  coordinates.
  *
- * \param f_rng	 A function pointer to the random number generator.
- *
- * \param p_rng	 A pointer to the random number generator state.
- *
  * \return		  0 if successful.
  */
-int mbedtls_internal_ecp_randomize_jac(const mbedtls_ecp_group *grp,
-		mbedtls_ecp_point *pt, int (*f_rng)(void *, unsigned char *, size_t),
-		void *p_rng);
+int ttls_internal_ecp_randomize_jac(const ttls_ecp_group *grp,
+		ttls_ecp_point *pt);
 #endif
 
-#if defined(MBEDTLS_ECP_ADD_MIXED_ALT)
+#if defined(TTLS_ECP_ADD_MIXED_ALT)
 /**
  * \brief		   Addition: R = P + Q, mixed affine-Jacobian coordinates.
  *
@@ -135,22 +128,22 @@ int mbedtls_internal_ecp_randomize_jac(const mbedtls_ecp_group *grp,
  *				  ecp_mul_comb().
  *
  *				  Special cases: (1) P or Q is zero, (2) R is zero,
- *					  (3) P == Q.
+ *		  (3) P == Q.
  *				  None of these cases can happen as intermediate step in
  *				  ecp_mul_comb():
- *					  - at each step, P, Q and R are multiples of the base
- *					  point, the factor being less than its order, so none of
- *					  them is zero;
- *					  - Q is an odd multiple of the base point, P an even
- *					  multiple, due to the choice of precomputed points in the
- *					  modified comb method.
+ *		  - at each step, P, Q and R are multiples of the base
+ *		  point, the factor being less than its order, so none of
+ *		  them is zero;
+ *		  - Q is an odd multiple of the base point, P an even
+ *		  multiple, due to the choice of precomputed points in the
+ *		  modified comb method.
  *				  So branches for these cases do not leak secret information.
  *
  *				  We accept Q->Z being unset (saving memory in tables) as
  *				  meaning 1.
  *
  *				  Cost in field operations if done by [5] 3.22:
- *					  1A := 8M + 3S
+ *		  1A := 8M + 3S
  *
  * \param grp	   Pointer to the group representing the curve.
  *
@@ -164,17 +157,17 @@ int mbedtls_internal_ecp_randomize_jac(const mbedtls_ecp_group *grp,
  *
  * \return		  0 if successful.
  */
-int mbedtls_internal_ecp_add_mixed(const mbedtls_ecp_group *grp,
-		mbedtls_ecp_point *R, const mbedtls_ecp_point *P,
-		const mbedtls_ecp_point *Q);
+int ttls_internal_ecp_add_mixed(const ttls_ecp_group *grp,
+		ttls_ecp_point *R, const ttls_ecp_point *P,
+		const ttls_ecp_point *Q);
 #endif
 
 /**
  * \brief		   Point doubling R = 2 P, Jacobian coordinates.
  *
  *				  Cost:   1D := 3M + 4S	(A ==  0)
- *						  4M + 4S		  (A == -3)
- *						  3M + 6S + 1a	 otherwise
+ *			  4M + 4S		  (A == -3)
+ *			  3M + 6S + 1a	 otherwise
  *				  when the implementation is based on the "dbl-1998-cmo-2"
  *				  doubling formulas in [8] and standard optimizations are
  *				  applied when curve parameter A is one of { 0, -3 }.
@@ -188,9 +181,9 @@ int mbedtls_internal_ecp_add_mixed(const mbedtls_ecp_group *grp,
  *
  * \return		  0 if successful.
  */
-#if defined(MBEDTLS_ECP_DOUBLE_JAC_ALT)
-int mbedtls_internal_ecp_double_jac(const mbedtls_ecp_group *grp,
-		mbedtls_ecp_point *R, const mbedtls_ecp_point *P);
+#if defined(TTLS_ECP_DOUBLE_JAC_ALT)
+int ttls_internal_ecp_double_jac(const ttls_ecp_group *grp,
+		ttls_ecp_point *R, const ttls_ecp_point *P);
 #endif
 
 /**
@@ -199,7 +192,7 @@ int mbedtls_internal_ecp_double_jac(const mbedtls_ecp_group *grp,
  *
  *				  Using Montgomery's trick to perform only one inversion mod P
  *				  the cost is:
- *					  1N(t) := 1I + (6t - 3)M + 1S
+ *		  1N(t) := 1I + (6t - 3)M + 1S
  *				  (See for example Algorithm 10.3.4. in [9])
  *
  *				  This function is used only as a subrutine of
@@ -216,18 +209,18 @@ int mbedtls_internal_ecp_double_jac(const mbedtls_ecp_group *grp,
  * \param t_len	 Number of elements in the array.
  *
  * \return		  0 if successful,
- *					  an error if one of the points is zero.
+ *		  an error if one of the points is zero.
  */
-#if defined(MBEDTLS_ECP_NORMALIZE_JAC_MANY_ALT)
-int mbedtls_internal_ecp_normalize_jac_many(const mbedtls_ecp_group *grp,
-		mbedtls_ecp_point *T[], size_t t_len);
+#if defined(TTLS_ECP_NORMALIZE_JAC_MANY_ALT)
+int ttls_internal_ecp_normalize_jac_many(const ttls_ecp_group *grp,
+		ttls_ecp_point *T[], size_t t_len);
 #endif
 
 /**
  * \brief		   Normalize jacobian coordinates so that Z == 0 || Z == 1.
  *
  *				  Cost in field operations if done by [5] 3.2.1:
- *					  1N := 1I + 3M + 1S
+ *		  1N := 1I + 3M + 1S
  *
  * \param grp	   Pointer to the group representing the curve.
  *
@@ -236,40 +229,31 @@ int mbedtls_internal_ecp_normalize_jac_many(const mbedtls_ecp_group *grp,
  *
  * \return		  0 if successful.
  */
-#if defined(MBEDTLS_ECP_NORMALIZE_JAC_ALT)
-int mbedtls_internal_ecp_normalize_jac(const mbedtls_ecp_group *grp,
-		mbedtls_ecp_point *pt);
+#if defined(TTLS_ECP_NORMALIZE_JAC_ALT)
+int ttls_internal_ecp_normalize_jac(const ttls_ecp_group *grp,
+		ttls_ecp_point *pt);
 #endif
 
-#endif /* ECP_SHORTWEIERSTRASS */
-
-#if defined(ECP_MONTGOMERY)
-
-#if defined(MBEDTLS_ECP_DOUBLE_ADD_MXZ_ALT)
-int mbedtls_internal_ecp_double_add_mxz(const mbedtls_ecp_group *grp,
-		mbedtls_ecp_point *R, mbedtls_ecp_point *S, const mbedtls_ecp_point *P,
-		const mbedtls_ecp_point *Q, const mbedtls_mpi *d);
+#if defined(TTLS_ECP_DOUBLE_ADD_MXZ_ALT)
+int ttls_internal_ecp_double_add_mxz(const ttls_ecp_group *grp,
+		ttls_ecp_point *R, ttls_ecp_point *S, const ttls_ecp_point *P,
+		const ttls_ecp_point *Q, const ttls_mpi *d);
 #endif
 
 /**
  * \brief		   Randomize projective x/z coordinates:
- *					  (X, Z) -> (l X, l Z) for random l
+ *		  (X, Z) -> (l X, l Z) for random l
  *
  * \param grp	   pointer to the group representing the curve
  *
  * \param P		 the point on the curve to be randomised given with
  *				  projective coordinates. This is an input/output parameter.
  *
- * \param f_rng	 a function pointer to the random number generator
- *
- * \param p_rng	 a pointer to the random number generator state
- *
  * \return		  0 if successful
  */
-#if defined(MBEDTLS_ECP_RANDOMIZE_MXZ_ALT)
-int mbedtls_internal_ecp_randomize_mxz(const mbedtls_ecp_group *grp,
-		mbedtls_ecp_point *P, int (*f_rng)(void *, unsigned char *, size_t),
-		void *p_rng);
+#if defined(TTLS_ECP_RANDOMIZE_MXZ_ALT)
+int ttls_internal_ecp_randomize_mxz(const ttls_ecp_group *grp,
+		ttls_ecp_point *P);
 #endif
 
 /**
@@ -282,14 +266,12 @@ int mbedtls_internal_ecp_randomize_mxz(const mbedtls_ecp_group *grp,
  *
  * \return		  0 if successful
  */
-#if defined(MBEDTLS_ECP_NORMALIZE_MXZ_ALT)
-int mbedtls_internal_ecp_normalize_mxz(const mbedtls_ecp_group *grp,
-		mbedtls_ecp_point *P);
+#if defined(TTLS_ECP_NORMALIZE_MXZ_ALT)
+int ttls_internal_ecp_normalize_mxz(const ttls_ecp_group *grp,
+		ttls_ecp_point *P);
 #endif
 
-#endif /* ECP_MONTGOMERY */
-
-#endif /* MBEDTLS_ECP_INTERNAL_ALT */
+#endif /* TTLS_ECP_INTERNAL_ALT */
 
 #endif /* ecp_internal.h */
 

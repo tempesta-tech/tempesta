@@ -18,6 +18,7 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <linux/types.h>
 #include <asm/fpu/api.h>
 /* prevent exporting symbols */
 #include <linux/module.h>
@@ -34,8 +35,11 @@
 #define __init
 #endif
 
+#if DBG_SS == 0 || DBG_TLS == 0
+#undef DEBUG
+#endif
 #include "http_msg.c"
-
+#include "msg.c"
 #include "http_sess.c"
 
 #include "filter.c"
@@ -44,6 +48,7 @@
 #include "sock_srv.c"
 #include "client.c"
 #include "http_limits.c"
+#include "tls.c"
 
 /* rename original tfw_cli_conn_send(), a custom version will be used here */
 #define tfw_cli_conn_send	divert_tfw_cli_conn_send
@@ -225,7 +230,7 @@ int
 tfw_connection_send(TfwConn *conn, TfwMsg *msg)
 {
 	struct sk_buff *skb;
-	unsigned int data_off = 0;
+	unsigned int parsed = 0, chunks = 0;
 	const DEFINE_TFW_STR(s_set_cookie, "Set-Cookie:");
 	const DEFINE_TFW_STR(s_set_loc, "Location:");
 
@@ -237,9 +242,8 @@ tfw_connection_send(TfwConn *conn, TfwMsg *msg)
 
 	skb = msg->skb_head;
 	do {
-		int ret;
-		ret = ss_skb_process(skb, &data_off, tfw_http_parse_resp,
-				     mock.resp);
+		ss_skb_process(skb, 0, 0, tfw_http_parse_resp, mock.resp,
+			       &chunks, &parsed);
 		skb = skb->next;
 	} while (skb != msg->skb_head);
 
@@ -262,13 +266,6 @@ void
 tfw_http_resp_build_error(TfwHttpReq *req)
 {
 	(void)req;
-}
-
-/* Custom version for testing purposes. */
-void
-tfw_tls_cfg_require(void)
-{
-	return;
 }
 
 int
@@ -489,13 +486,13 @@ static int
 http_parse_helper(TfwHttpMsg *hm, ss_skb_actor_t actor)
 {
 	struct sk_buff *skb;
-	unsigned int off;
+	unsigned int parsed = 0, chunks = 0;
 
 	skb = hm->msg.skb_head;
 	BUG_ON(!skb);
-	off = 0;
 	while (1) {
-		switch (ss_skb_process(skb, &off, actor, hm)) {
+		int r = ss_skb_process(skb, 0, 0, actor, hm, &chunks, &parsed);
+		switch (r) {
 		case TFW_POSTPONE:
 			if (skb->next == hm->msg.skb_head)
 				return -1;

@@ -159,9 +159,12 @@ tfw_bmb_conn_drop(struct sock *sk)
 }
 
 static int
-tfw_bmb_print_msg(void *msg_data, unsigned char *data, size_t len)
+tfw_bmb_print_msg(void *msg_data, unsigned char *data, size_t len,
+		  unsigned int *read)
 {
 	printk(KERN_INFO "%.*s\n", (int)len, data);
+	*read = len;
+
 	return 0;
 }
 
@@ -169,10 +172,13 @@ static int
 tfw_bmb_conn_recv(void *cdata, struct sk_buff *skb, unsigned int off)
 {
 	if (verbose) {
-		unsigned int data_off = 0;
+		unsigned int parsed = 0, chunks = 0;
 
 		TFW_LOG("Server response:\n------------------------------\n");
-		ss_skb_process(skb, &data_off, tfw_bmb_print_msg, NULL);
+
+		ss_skb_process(skb, 0, 0, tfw_bmb_print_msg, NULL, &chunks,
+			       &parsed);
+
 		printk(KERN_INFO "\n------------------------------\n");
 	}
 
@@ -209,7 +215,7 @@ tfw_bmb_connect(TfwBmbTask *task, TfwBmbConn *conn)
 	ret = ss_connect(sk, &bmb_server_address, 0);
 	if (ret) {
 		TFW_ERR("Connect error on server socket sk %p (%d)\n", sk, ret);
-		ss_close_sync(sk, false);
+		ss_close(sk, 0);
 		conn->sk = NULL;
 		return ret;
 	}
@@ -226,7 +232,7 @@ tfw_bmb_release_sockets(TfwBmbTask *task)
 		if (task->conn[i].proto.type == TFW_BMB_SK_INACTIVE)
 			/* The socket is dead or softirq is killing it. */
 			continue;
-		if (ss_close_sync(task->conn[i].sk, true))
+		if (ss_close(task->conn[i].sk, SS_F_SYNC))
 			TFW_WARN("Cannot close %dth socket\n", i);
 	}
 }
@@ -276,7 +282,7 @@ tfw_bmb_msg_send(TfwBmbTask *task, int cn)
 			"------------------------------\n",
 			task->buf);
 
-	tfw_http_msg_write(&it, &hmreq, &msg);
+	tfw_msg_write(&it, &msg);
 	ss_send(task->conn[cn].sk, &hmreq.msg.skb_head, true);
 
 	atomic_inc(&bmb_request_send);
@@ -359,7 +365,7 @@ release_sockets:
 				schedule();
 				if (++tries == DEAD_TRIES) {
 					local_bh_disable();
-					ss_close_sync(task->conn[c].sk, false);
+					ss_close(task->conn[c].sk, 0);
 					local_bh_enable();
 					break;
 				}

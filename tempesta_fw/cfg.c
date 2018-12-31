@@ -84,8 +84,10 @@
 #include <linux/ctype.h>
 #include <linux/kernel.h>
 #include <linux/moduleparam.h>
-#include <linux/vmalloc.h>
 
+#if DBG_CFG == 0
+#undef DEBUG
+#endif
 #include "addr.h"
 #include "cfg.h"
 #include "client.h"
@@ -1867,17 +1869,18 @@ int
 tfw_cfg_parse(struct list_head *mod_list)
 {
 	int ret;
+	size_t file_size = 0;
 	char *cfg_text_buf;
 
 	TFW_DBG3("reading configuration file...\n");
-	if (!(cfg_text_buf = tfw_cfg_read_file(tfw_cfg_path, NULL)))
+	if (!(cfg_text_buf = tfw_cfg_read_file(tfw_cfg_path, &file_size)))
 		return -ENOENT;
 
 	TFW_DBG2("parsing configuration and pushing it to modules...\n");
 	if ((ret = tfw_cfg_parse_mods(cfg_text_buf, mod_list)))
 		TFW_DBG("Error parsing configuration data\n");
 
-	vfree(cfg_text_buf);
+	free_pages((unsigned long)cfg_text_buf, get_order(file_size));
 
 	return ret;
 }
@@ -1912,7 +1915,7 @@ tfw_cfg_conclude(struct list_head *mod_list)
  */
 /**
  * The functions returns a buffer containing the whole file.
- * The buffer must be freed with vfree().
+ * The buffer must be freed with free_pages().
  */
 void *
 tfw_cfg_read_file(const char *path, size_t *file_size)
@@ -1921,7 +1924,7 @@ tfw_cfg_read_file(const char *path, size_t *file_size)
 	struct file *fp;
 	ssize_t bytes_read;
 	size_t read_size, buf_size;
-	loff_t offset;
+	loff_t off = 0;
 	mm_segment_t oldfs;
 
 	if (!path || !*path) {
@@ -1936,29 +1939,26 @@ tfw_cfg_read_file(const char *path, size_t *file_size)
 
 	fp = filp_open(path, O_RDONLY, 0);
 	if (IS_ERR_OR_NULL(fp)) {
-		TFW_ERR_NL("can't open file: %s (err: %ld)\n", path, PTR_ERR(fp));
+		TFW_ERR_NL("can't open file: %s (err: %ld)\n",
+			   path, PTR_ERR(fp));
 		goto err_open;
 	}
 
 	buf_size = fp->f_inode->i_size;
 	TFW_DBG2("file size: %zu bytes\n", buf_size);
 	buf_size += 1; /* for '\0' */
+	*file_size = buf_size;
 
-	if (file_size)
-		*file_size = buf_size;
-
-	out_buf = vmalloc(buf_size);
+	out_buf = (char *)__get_free_pages(GFP_KERNEL, get_order(buf_size));
 	if (!out_buf) {
 		TFW_ERR_NL("can't allocate memory\n");
 		goto err_alloc;
 	}
 
-	offset = 0;
 	do {
-		TFW_DBG3("read by offset: %d\n", (int)offset);
-		read_size = min((size_t)(buf_size - offset), PAGE_SIZE);
-		bytes_read = kernel_read(fp, out_buf + offset, read_size,
-					 &offset);
+		TFW_DBG3("read by offset: %d\n", (int)off);
+		read_size = min((size_t)(buf_size - off), PAGE_SIZE);
+		bytes_read = kernel_read(fp, out_buf + off, read_size, &off);
 		if (bytes_read < 0) {
 			TFW_ERR_NL("can't read file: %s (err: %zu)\n", path,
 				bytes_read);
@@ -1967,19 +1967,19 @@ tfw_cfg_read_file(const char *path, size_t *file_size)
 	} while (bytes_read);
 
 	/* Exactly one byte (reserved for '\0') should remain. */
-	if (buf_size - offset - 1) {
+	if (buf_size - off - 1) {
 		TFW_ERR_NL("file size changed during the read: '%s'\n,", path);
 		goto err_read;
 	}
 
 	filp_close(fp, NULL);
 
-	out_buf[offset] = '\0';
+	out_buf[off] = '\0';
 	set_fs(oldfs);
 	return out_buf;
 
 err_read:
-	vfree(out_buf);
+	free_pages((unsigned long)out_buf, get_order(buf_size));
 err_alloc:
 	filp_close(fp, NULL);
 err_open:

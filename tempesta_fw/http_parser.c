@@ -21,6 +21,9 @@
 #include <linux/ctype.h>
 #include <linux/kernel.h>
 
+#if DBG_HTTP_PARSER == 0
+#undef DEBUG
+#endif
 #include "gfsm.h"
 #include "http_msg.h"
 #include "htype.h"
@@ -152,7 +155,7 @@ do {									\
 done:									\
 	parser->state = __fsm_const_state;				\
 	/* Remaining number of bytes to process in the data chunk. */	\
-	parser->to_go = __data_remain(p);
+	*parsed = __data_off(p);
 
 #define __FSM_MOVE_nofixup_n(to, n)					\
 do {									\
@@ -1214,8 +1217,7 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(hm);
 
-	BUILD_BUG_ON(sizeof(parser->hbh_parser.spec) * CHAR_BIT
-		     < TFW_HTTP_HDR_RAW);
+	BUILD_BUG_ON(sizeof(parser->hbh_parser.spec) * 8 < TFW_HTTP_HDR_RAW);
 
 	__FSM_START(parser->_i_st) {
 
@@ -3058,11 +3060,13 @@ tfw_http_init_parser_req(TfwHttpReq *req)
 }
 
 int
-tfw_http_parse_req(void *req_data, unsigned char *data, size_t len)
+tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
+		   unsigned int *parsed)
 {
 	int r = TFW_BLOCK;
 	TfwHttpReq *req = (TfwHttpReq *)req_data;
 	__FSM_DECLARE_VARS(req);
+	*parsed = 0;
 
 	TFW_DBG("parse %lu client data bytes (%.*s%s) on req=%p\n",
 		len, min(500, (int)len), data, len > 500 ? "..." : "", req);
@@ -4478,11 +4482,13 @@ tfw_http_adj_parser_resp(TfwHttpResp *resp)
 }
 
 int
-tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len)
+tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
+		    unsigned int *parsed)
 {
 	int r = TFW_BLOCK;
 	TfwHttpResp *resp = (TfwHttpResp *)resp_data;
 	__FSM_DECLARE_VARS(resp);
+	*parsed = 0;
 
 	BUILD_BUG_ON((int)Req_StatesNum >= (int)Resp_0);
 	BUILD_BUG_ON((int)Resp_StatesNum >= (int)RGen_OWS);
