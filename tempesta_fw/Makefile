@@ -17,47 +17,15 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-TTLS_CFLAGS += -I$(src)/../tls -I$(src)/../tls/dummy_headers -include ttls.h
+TTLS_CFLAGS += -I$(src)/../tls -I$(src)/../tls/dummy_headers
 export TTLS_CFLAGS
 
 EXTRA_CFLAGS += $(TFW_CFLAGS) $(TTLS_CFLAGS)
 EXTRA_CFLAGS += -I$(src)/../tempesta_db/core -I$(src)/../
 
-obj-m	= tempesta_fw.o 
+obj-m	= tempesta_fw.o t/
 
-tempesta_fw-objs = \
-	addr.o \
-	apm.o \
-	cache.o \
-	cfg.o \
-	http_limits.o \
-	client.o \
-	connection.o \
-	filter.o \
-	gfsm.o \
-	hash.o \
-	http.o \
-	http_match.o \
-	http_msg.o \
-	http_parser.o \
-	http_sess.o \
-	http_tbl.o \
-	http_sched_hash.o \
-	http_sched_ratio.o \
-	main.o \
-	pool.o \
-	procfs.o \
-	sched.o \
-	server.o \
-	sock.o \
-	sock_clnt.o \
-	sock_srv.o \
-	ss_skb.o \
-	stress.o \
-	str.o \
-	str_simd.o \
-	tls.o \
-	vhost.o \
-	work_queue.o
+tfw-srcs = $(wildcard $(obj)/*.c)
+tfw-objs = $(patsubst %.c, %.o, $(tfw-srcs))
 
-obj-m	+= stress/ t/
+tempesta_fw-objs = $(subst $(src)/,,$(tfw-objs))

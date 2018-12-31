@@ -22,6 +22,9 @@
  */
 #include <linux/ctype.h>
 
+#if DBG_HTTP_PARSER == 0
+#undef DEBUG
+#endif
 #include "lib/str.h"
 #include "gfsm.h"
 #include "http_msg.h"
@@ -777,32 +780,10 @@ tfw_http_msg_hdr_add(TfwHttpMsg *hm, const TfwStr *hdr)
 }
 
 /**
- * Given the total message length as @len, allocate an appropriate number
- * of SKBs and page fragments to hold the payload, and add them to the
- * message. Put as much as possible in one SKB. TCP GSO will take care of
- * segmentation. The allocated payload space will be filled with data.
- */
-static int
-__msg_alloc_skb_data(TfwHttpMsg *hm, size_t len)
-{
-	int i_skb, nr_skbs = DIV_ROUND_UP(len, SS_SKB_MAX_DATA_LEN);
-	struct sk_buff *skb;
-
-	for (i_skb = 0; i_skb < nr_skbs; ++i_skb) {
-		skb = ss_skb_alloc_pages(min(len, SS_SKB_MAX_DATA_LEN));
-		if (!skb)
-			return -ENOMEM;
-		ss_skb_queue_tail(&hm->msg.skb_head, skb);
-	}
-
-	return 0;
-}
-
-/**
  * Set up @hm with empty SKB space of size @data_len for data writing.
  * Set up the iterator @it to support consecutive writes.
  *
- * This function is intended to work together with tfw_http_msg_write()
+ * This function is intended to work together with tfw_msg_write()
  * or tfw_http_msg_add_data() which use the @it iterator.
  *
  * @hm must be allocated dynamically (NOT statically) as it may have
@@ -819,86 +800,54 @@ __msg_alloc_skb_data(TfwHttpMsg *hm, size_t len)
 int
 tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len)
 {
-	int ret;
+	int r;
 
-	if ((ret = __msg_alloc_skb_data(hm, data_len)))
-		return ret;
-
-	it->skb = hm->msg.skb_head;
-	it->frag = 0;
-
-	BUG_ON(!it->skb);
-	BUG_ON(!skb_shinfo(it->skb)->nr_frags);
-
-	TFW_DBG2("Set up new HTTP message %p: len=%lu\n", hm, data_len);
+	if ((r = tfw_msg_iter_setup(it, &hm->msg.skb_head, data_len)))
+		return r;
+	TFW_DBG2("Set up HTTP message %pK with %lu bytes data\n", hm, data_len);
 
 	return 0;
 }
 EXPORT_SYMBOL(tfw_http_msg_setup);
 
-/*
- * Fill up an HTTP message @hm with data from string @data.
- * This is a quick message creator which doesn't maintain properly
- * parts of the message structure like headers table. So @hm cannot
- * be used where HTTP message transformations are required.
- *
- * An iterator @it is used to support multiple calls to this function
- * after the set up. This function can only be called after a call to
- * tfw_http_msg_setup(). It works only with empty SKB space prepared
- * by the function.
- */
-int
-tfw_http_msg_write(TfwMsgIter *it, TfwHttpMsg *hm, const TfwStr *data)
+static int
+__http_msg_add_data_frag(TfwMsgIter *it, TfwHttpMsg *hm, TfwStr *field,
+			 const TfwStr *data, unsigned int off)
 {
-	const TfwStr *c, *end;
+	char *p;
 	skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
-	unsigned int c_off = 0, f_size, c_size, f_room, n_copy;
+	unsigned int f_size, d_size, f_room, n_copy;
 
-	BUG_ON(TFW_STR_DUP(data));
-	TFW_STR_FOR_EACH_CHUNK(c, data, end) {
-this_chunk:
-		if (!frag)
-			return -E2BIG;
+next_frag:
+	if (!frag)
+		return -E2BIG;
 
-		c_size = c->len - c_off;
-		f_size = skb_frag_size(frag);
-		f_room = PAGE_SIZE - frag->page_offset - f_size;
-		n_copy = min(c_size, f_room);
+	d_size = data->len - off;
+	f_size = skb_frag_size(frag);
+	f_room = PAGE_SIZE - frag->page_offset - f_size;
+	n_copy = min(d_size, f_room);
+	if (!n_copy)
+		return 0;
 
-		memcpy_fast((char *)skb_frag_address(frag) + f_size,
-			    (char *)c->ptr + c_off, n_copy);
-		skb_frag_size_add(frag, n_copy);
-		ss_skb_adjust_data_len(it->skb, n_copy);
+	p = (char *)skb_frag_address(frag) + f_size;
+	memcpy_fast(p, (char *)data->ptr + off, n_copy);
+	skb_frag_size_add(frag, n_copy);
+	ss_skb_adjust_data_len(it->skb, n_copy);
 
-		if (c_size < f_room) {
-			/*
-			 * The chunk fits in the SKB fragment with room
-			 * to spare. Stay in the same SKB fragment, switch
-			 * to next chunk of the string.
-			 */
-			c_off = 0;
-		} else {
-			frag = ss_skb_frag_next(&it->skb, &it->frag);
-			/*
-			 * If all data from the chunk has been copied,
-			 * then switch to the next chunk. Otherwise,
-			 * stay in the current chunk.
-			 */
-			if (c_size == f_room) {
-				c_off = 0;
-			} else {
-				c_off += n_copy;
-				goto this_chunk;
-			}
-		}
+	if (__tfw_http_msg_add_str_data(hm, field, p, n_copy, it->skb))
+		return -ENOMEM;
+
+	if (d_size > f_room) {
+		frag = ss_skb_frag_next(&it->skb, it->skb_head, &it->frag);
+		off += n_copy;
+		goto next_frag;
 	}
 
 	return 0;
 }
-EXPORT_SYMBOL(tfw_http_msg_write);
 
 /**
- * Similar to tfw_http_msg_write(), but properly maintain @hm header
+ * Similar to tfw_msg_write(), but properly maintain @hm header
  * fields, so that @hm can be used in regular transformations. However,
  * the header name and the value are not split into different chunks,
  * so advanced headers matching is not available for @hm.
@@ -908,38 +857,33 @@ tfw_http_msg_add_data(TfwMsgIter *it, TfwHttpMsg *hm, TfwStr *field,
 		      const TfwStr *data)
 {
 	char *p;
-	skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
-	unsigned int d_off = 0, f_size, d_size, f_room, n_copy;
+	unsigned int n_copy;
 
-	BUG_ON(TFW_STR_DUP(data));
-	BUG_ON(!TFW_STR_PLAIN(data));
+	WARN_ON_ONCE(TFW_STR_DUP(data));
+	WARN_ON_ONCE(!TFW_STR_PLAIN(data));
 
-next_frag:
-	if (!frag)
-		return -E2BIG;
-
-	d_size = data->len - d_off;
-	f_size = skb_frag_size(frag);
-	f_room = PAGE_SIZE - frag->page_offset - f_size;
-	n_copy = min(d_size, f_room);
+	n_copy = min(data->len, (unsigned long)skb_tailroom(it->skb));
 	if (!n_copy)
 		return 0;
 
-	p = (char *)skb_frag_address(frag) + f_size;
-	memcpy_fast(p, (char *)data->ptr + d_off, n_copy);
-	skb_frag_size_add(frag, n_copy);
-	ss_skb_adjust_data_len(it->skb, n_copy);
+	if (it->frag >= 0)
+		goto add_frag;
+
+	p = skb_put(it->skb, n_copy);
+	memcpy_fast(p, (char *)data->ptr, n_copy);
 
 	if (__tfw_http_msg_add_str_data(hm, field, p, n_copy, it->skb))
 		return -ENOMEM;
 
-	if (d_size > f_room) {
-		frag = ss_skb_frag_next(&it->skb, &it->frag);
-		d_off += n_copy;
-		goto next_frag;
+	if (data->len == n_copy) {
+		if (!skb_tailroom(it->skb))
+			it->frag = 0;
+		return 0;
 	}
 
-	return 0;
+add_frag:
+	it->frag = 0;
+	return __http_msg_add_data_frag(it, hm, field, data, n_copy);
 }
 
 void

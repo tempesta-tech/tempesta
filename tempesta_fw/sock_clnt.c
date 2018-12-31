@@ -60,7 +60,7 @@ tfw_sock_cli_keepalive_timer_cb(unsigned long data)
 	 * a deadlock on del_timer_sync(). In case of error try to close
 	 * it one second later.
 	 */
-	if (ss_close(cli_conn->sk))
+	if (tfw_connection_close((TfwConn *)cli_conn, false))
 		mod_timer(&cli_conn->timer, jiffies + msecs_to_jiffies(1000));
 }
 
@@ -189,7 +189,15 @@ tfw_sock_clnt_new(struct sock *sk)
 	tfw_connection_link_to_sk(conn, sk);
 	tfw_connection_link_from_sk(conn, sk);
 	tfw_connection_link_peer(conn, (TfwPeer *)cli);
+
 	ss_set_callbacks(sk);
+	if (TFW_CONN_TYPE(conn) & TFW_FSM_HTTPS)
+		/*
+		 * Probably, that's not beautiful to introduce an alternate
+		 * upcall beside GFSM and SS, but that's efficient and I didn't
+		 * find a simple and better solution.
+		 */
+		sk->sk_write_xmit = tfw_tls_encrypt;
 
 	/* Activate keepalive timer. */
 	mod_timer(&conn->timer,
@@ -272,7 +280,7 @@ __cli_conn_close_cb(TfwConn *conn)
 	 * client hash bucket locks as soon as possible and let softirq
 	 * do all the jobs.
 	 */
-	return ss_close(conn->sk);
+	return tfw_connection_close(conn, false);
 }
 
 static int

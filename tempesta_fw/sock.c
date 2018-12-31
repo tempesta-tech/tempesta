@@ -25,6 +25,9 @@
 #include <net/inet_common.h>
 #include <net/ip6_route.h>
 
+#if DBG_SS == 0
+#undef DEBUG
+#endif
 #include "lib/str.h"
 #include "addr.h"
 #include "log.h"
@@ -337,7 +340,7 @@ ss_sock_active(struct sock *sk)
  * ------------------------------------------------------------------------
  */
 /**
- * @skb_list can be invalid after the function call, don't try to use it.
+ * @skb_head can be invalid after the function call, don't try to use it.
  */
 static void
 ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
@@ -374,13 +377,15 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		}
 
 		ss_skb_init_for_xmit(skb);
-
+		if (flags & SS_F_ENCRYPT)
+			tempesta_tls_skb_settype(skb, SS_SKB_F2TYPE(flags));
 		/* Propagate mark of message head skb.*/
 		skb->mark = mark;
 
-		TFW_DBG3("[%d]: %s: entail skb=%p data_len=%u len=%u mark=%u\n",
-		         smp_processor_id(), __func__, skb,
-			 skb->data_len, skb->len, skb->mark);
+		TFW_DBG3("[%d]: %s: entail skb=%p data_len=%u len=%u mark=%u"
+			 " tls_type=%x\n", smp_processor_id(), __func__,
+			 skb, skb->data_len, skb->len, skb->mark,
+			 tempesta_tls_skb_type(skb));
 
 		skb_entail(sk, skb);
 
@@ -388,9 +393,9 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		TCP_SKB_CB(skb)->end_seq += skb->len;
 	}
 
-	TFW_DBG3("[%d]: %s: sk=%p send_head=%p sk_state=%d\n",
+	TFW_DBG3("[%d]: %s: sk=%p send_head=%p sk_state=%d flags=%x\n",
 	         smp_processor_id(), __func__,
-	         sk, tcp_send_head(sk), sk->sk_state);
+	         sk, tcp_send_head(sk), sk->sk_state, flags);
 
 	/*
 	 * If connection close flag is specified, then @ss_do_close is used to
@@ -445,7 +450,6 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	 * and after the transmission.
 	 */
 	if (flags & SS_F_KEEP_SKB) {
-		sw.skb_head = NULL;
 		skb = *skb_head;
 		do {
 			/* tcp_transmit_skb() will clone the skb. */
@@ -650,7 +654,7 @@ ss_linkerror(struct sock *sk)
  * not care about return value.
  */
 int
-__ss_close(struct sock *sk, int flags)
+ss_close(struct sock *sk, int flags)
 {
 	int cpu;
 	long ticket;
@@ -687,7 +691,7 @@ err:
 	sock_put(sk);
 	return SS_BAD;
 }
-EXPORT_SYMBOL(__ss_close);
+EXPORT_SYMBOL(ss_close);
 
 /*
  * Process a single SKB.
@@ -727,6 +731,10 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 			continue;
 		}
 
+		/*
+		 * TCP can ship an skb with overlapped seqnos, so we have to
+		 * work with the offset to avoid probably costly skb_pull().
+		 */
 		count = skb->len - offset;
 		tp->copied_seq += count;
 		*processed += count;
@@ -751,13 +759,14 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		r = SS_CALL(connection_recv, conn, skb, off);
 
 		if (r < 0) {
-			TFW_DBG2("[%d]: Processing error: sk %p r %d\n",
+			TFW_DBG2("[%d]: Processing error: sk=%pK r=%d\n",
 			         smp_processor_id(), sk, r);
 			goto out; /* connection must be dropped */
 		}
 	}
 	if (tcp_fin) {
-		TFW_DBG2("[%d]: Data FIN: sk %p\n", smp_processor_id(), sk);
+		TFW_DBG2("Received data FIN on sk=%p, cpu=%d\n",
+			 sk, smp_processor_id());
 		++tp->copied_seq;
 		r = SS_DROP;
 	}
@@ -775,7 +784,7 @@ out:
  * tcp_read_sock() calls __kfree_skb() through sk_eat_skb() which is good
  * for copying data from skb, but we need to manage skb's ourselves.
  *
- * TODO process URG.
+ * TODO #873 process URG.
  */
 static bool
 ss_tcp_process_data(struct sock *sk)

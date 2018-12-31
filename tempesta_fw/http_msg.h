@@ -39,11 +39,6 @@ const void *__tfw_http_msg_find_hdr(const TfwStr *hdr, const void *array,
 	(TfwStr *)__tfw_http_msg_find_hdr(hdr, array,			\
 					  ARRAY_SIZE(array), sizeof(TfwStr))
 
-typedef struct {
-	unsigned int	frag;
-	struct sk_buff	*skb;
-} TfwMsgIter;
-
 static inline void
 __tfw_http_msg_set_str_data(TfwStr *str, void *data, struct sk_buff *skb)
 {
@@ -122,7 +117,6 @@ int tfw_http_msg_del_str(TfwHttpMsg *hm, TfwStr *str);
 int tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm);
 
 int tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len);
-int tfw_http_msg_write(TfwMsgIter *it, TfwHttpMsg *hm, const TfwStr *data);
 int tfw_http_msg_add_data(TfwMsgIter *it, TfwHttpMsg *hm, TfwStr *field,
 			  const TfwStr *data);
 
