@@ -130,7 +130,8 @@ ttls_crypto_req_sglist(TlsCtx *tls, struct crypto_aead *tfm, unsigned int len,
 	struct scatterlist *sg_i;
 	struct aead_request *req;
 	struct sk_buff *skb = io->skb_list;
-	unsigned int sz, aead_sz, n, to_read, off;
+	unsigned int sz, aead_sz, to_read, off;
+	int n;
 
 	sz = aead_sz = sizeof(*req) + crypto_aead_reqsize(tfm);
 	if (buf) {
@@ -138,7 +139,7 @@ ttls_crypto_req_sglist(TlsCtx *tls, struct crypto_aead *tfm, unsigned int len,
 		n = *sgn + 1;
 	} else {
 		off = io->off;
-		n += *sgn + io->chunks;
+		n = *sgn + io->chunks;
 	}
 	BUG_ON(!buf && (!skb || skb->len <= off)); /* nothing to decrypt */
 	sz += n * sizeof(**sg);

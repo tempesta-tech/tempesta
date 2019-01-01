@@ -1735,8 +1735,8 @@ ttls_parse_encrypted_pms(TlsCtx *tls, const unsigned char *p,
 	unsigned char *pms = tls->hs->premaster;
 	unsigned char ver[2], fake_pms[48], peer_pms[48];
 
-	BUILD_BUG_ON(sizeof(tls->hs->premaster) < 0
-		     || sizeof(tls->hs->premaster) < 48);
+	BUILD_BUG_ON(sizeof(tls->hs->premaster) < 48);
+
 	if (!ttls_pk_can_do(ttls_own_key(tls), TTLS_PK_RSA)) {
 		T_DBG("got no RSA private key\n");
 		return TTLS_ERR_PRIVATE_KEY_REQUIRED;
@@ -1765,7 +1765,7 @@ ttls_parse_encrypted_pms(TlsCtx *tls, const unsigned char *p,
 	r = ttls_pk_decrypt(ttls_own_key(tls), p, len, peer_pms, &peer_pmslen,
 			    sizeof(peer_pms));
 
-	diff  = (unsigned int) r;
+	diff  = (unsigned int)r;
 	diff |= peer_pmslen ^ 48;
 	diff |= peer_pms[0] ^ ver[0];
 	diff |= peer_pms[1] ^ ver[1];
@@ -1773,7 +1773,7 @@ ttls_parse_encrypted_pms(TlsCtx *tls, const unsigned char *p,
 
 	tls->hs->pmslen = 48;
 	/* mask = diff ? 0xff : 0x00 using bit operations to avoid branches */
-	mask = - ((diff | - diff) >> (sizeof(unsigned int) * 8 - 1));
+	mask = -((diff | -diff) >> (sizeof(unsigned int) * 8 - 1));
 	for (i = 0; i < tls->hs->pmslen; i++)
 		pms[i] = (mask & fake_pms[i]) | ((~mask) & peer_pms[i]);
 
