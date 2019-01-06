@@ -183,7 +183,6 @@ tfw_tls_tcp_add_overhead(struct sock *sk, unsigned int overhead)
 {
 	sk->sk_wmem_queued += overhead;
 	sk_mem_charge(sk, overhead);
-	tcp_sk(sk)->write_seq += overhead;
 }
 
 /**
@@ -231,6 +230,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 
 	int r = -ENOMEM;
 	unsigned int head_sz, tag_sz, len, frags;
+	unsigned int t_sz_curr, t_sz_next;
 	unsigned char type;
 	struct sk_buff *next = skb, *skb_tail = skb;
 	struct tcp_skb_cb *tcb = TCP_SKB_CB(skb);
@@ -297,6 +297,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	 * if there is no free frag slot in skb_tail, a new skb is allocated.
 	 */
 	next = skb_tail->next;
+	t_sz_curr = skb_tail->truesize;
+	t_sz_next = next != skb ? next->truesize : 0;
 	if (skb_tail == skb) {
 		r = ss_skb_expand_head_tail(skb->next, skb, head_sz, tag_sz);
 		if (r < 0)
@@ -321,9 +323,26 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	 */
 	if (likely(skb_tail->next == next)) {
 		TCP_SKB_CB(skb_tail)->end_seq += tag_sz;
-	} else {
+
+		/*
+		 * A new frag is added to the end of the current skb or
+		 * begin of the next skb.
+		 */
+		WARN_ON_ONCE(t_sz_curr > skb_tail->truesize);
+		WARN_ON_ONCE(t_sz_next > next->truesize);
+		t_sz_curr = skb_tail->truesize - t_sz_curr;
+		t_sz_next = next->truesize - t_sz_next;
+	}
+	else {
 		WARN_ON_ONCE(skb_tail->next->len != tag_sz);
+		WARN_ON_ONCE(skb_tail->truesize != t_sz_curr);
+
 		tfw_tls_tcp_propagate_dseq(sk, skb_tail);
+
+		/* A new skb is added to the socket wmem. */
+		t_sz_curr = 0;
+		t_sz_next = skb_tail->next->truesize;
+
 		skb_tail = skb_tail->next;
 	}
 
@@ -336,8 +355,17 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	 * consistent state.
 	 */
 	tfw_tls_tcp_propagate_dseq(sk, skb_tail);
+	tcp_sk(sk)->write_seq += head_sz + tag_sz;
 
-	tfw_tls_tcp_add_overhead(sk, head_sz + tag_sz);
+	/*
+	 * TLS record header is always allocated form the reserved skb headroom.
+	 * The room for the tag may also be allocated from the reserved tailroom
+	 * or in a new page frament in slb_tail or next, probably new, skb.
+	 * So to adjust the socket write memory we have to check the both skbs
+	 * and only for tag_sz.
+	 */
+	WARN_ON_ONCE(t_sz_curr + t_sz_next < tag_sz);
+	tfw_tls_tcp_add_overhead(sk, t_sz_curr + t_sz_next);
 
 	if (likely(sgt.nents <= AUTO_SEGS_N)) {
 		sgt.sgl = sg;
