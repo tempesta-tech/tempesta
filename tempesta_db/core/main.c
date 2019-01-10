@@ -28,12 +28,15 @@
 #include "table.h"
 #include "tdb_if.h"
 
-#define TDB_VERSION	"0.1.16"
+#define TDB_VERSION	"0.1.17"
 
 MODULE_AUTHOR("Tempesta Technologies");
 MODULE_DESCRIPTION("Tempesta DB");
 MODULE_VERSION(TDB_VERSION);
 MODULE_LICENSE("GPL");
+
+/* Lock for atomic execution of lookup and create a record TDB */
+static DEFINE_SPINLOCK(get_alloc_lock);
 
 /**
  * Create TDB entry and copy @len contiguous bytes from @data to the entry.
@@ -52,6 +55,7 @@ EXPORT_SYMBOL(tdb_entry_create);
 
 /**
  * Create TDB entry to store @len bytes.
+ * TODO #515 function must holds a lock upon return.
  */
 TdbRec *
 tdb_entry_alloc(TDB *db, unsigned long key, size_t *len)
@@ -221,6 +225,63 @@ tdb_get_db(const char *path, int node)
 
 	return tdb_get(db);
 }
+
+/**
+ * Lookup and get a record if the record is found or create TDB entry to store
+ * @len bytes. If record exist then since we don't copy returned records,
+ * we have to lock the memory location where the record is placed and
+ * the user must call tdb_rec_put() when finish with the record.
+ *
+ * The caller must not call sleeping functions during work with the record.
+ * Typically there is only one large record per bucket, so the bucket lock
+ * is exactly the same as to lock the record. While there could be many
+ * small records in a bucket, so the caller should not perform long jobs
+ * with small records.
+ *
+ * @return pointer to record with acquired bucket lock if the record is
+ * found and create TDB entry without acquired locks otherwise.
+ *
+ * TODO #515 rework the function in lock-free way.
+ * TODO #515 TDB must be extended to support small records with constant memory
+ * address.
+ */
+TdbRec *
+tdb_rec_get_alloc(TDB *db, unsigned long key, size_t *len,
+		  bool (*predicate)(TdbRec *, void (*)(void *), void *),
+		  void (*init)(TdbRec *, void (*)(void *), void *),
+		  void (*cb)(void *), void *data, bool *is_new)
+{
+	TdbIter iter;
+	TdbRec *r;
+
+	spin_lock(&get_alloc_lock);
+
+	*is_new = false;
+	iter = tdb_rec_get(db, key);
+	while (!TDB_ITER_BAD(iter)) {
+		if ((*predicate)(iter.rec, cb, data)) {
+			spin_unlock(&get_alloc_lock);
+			return iter.rec;
+		}
+		tdb_rec_next(db, &iter);
+	}
+
+	*is_new = true;
+	r = tdb_entry_alloc(db, key, len);
+	init(r, cb, data);
+
+	spin_unlock(&get_alloc_lock);
+
+	return r;
+}
+EXPORT_SYMBOL(tdb_rec_get_alloc);
+
+int
+tdb_entry_walk(TDB *db, int (*fn)(void *))
+{
+	return tdb_htrie_walk(db->hdr, fn);
+}
+EXPORT_SYMBOL(tdb_entry_walk);
 
 /**
  * Open database file and @return its descriptor.
