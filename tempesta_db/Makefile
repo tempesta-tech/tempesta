@@ -19,11 +19,9 @@
 
 all: libtdb tdbq
 
-.PHONY: libtdb
 libtdb:
 	$(MAKE) -C libtdb
 
-.PHONY: tdbq
 tdbq: libtdb
 	$(MAKE) -C tdbq
 

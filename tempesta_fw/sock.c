@@ -350,7 +350,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 	unsigned int mark = (*skb_head)->mark;
 
-	TFW_DBG3("[%d]: %s: sk=%p queue_empty=%d send_head=%p"
+	TFW_DBG3("[%d]: %s: sk=%pK queue_empty=%d send_head=%pK"
 	         " sk_state=%d mss=%d size=%d\n",
 	         smp_processor_id(), __func__,
 	         sk, tcp_write_queue_empty(sk), tcp_send_head(sk),
@@ -369,7 +369,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		 * these SKBs.
 		 */
 		if (!skb->len) {
-			TFW_DBG3("[%d]: %s: drop skb=%p data_len=%u len=%u\n",
+			TFW_DBG3("[%d]: %s: drop skb=%pK data_len=%u len=%u\n",
 			         smp_processor_id(), __func__,
 			         skb, skb->data_len, skb->len);
 			kfree_skb(skb);
@@ -382,7 +382,7 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		/* Propagate mark of message head skb.*/
 		skb->mark = mark;
 
-		TFW_DBG3("[%d]: %s: entail skb=%p data_len=%u len=%u mark=%u"
+		TFW_DBG3("[%d]: %s: entail skb=%pK data_len=%u len=%u mark=%u"
 			 " tls_type=%x\n", smp_processor_id(), __func__,
 			 skb, skb->data_len, skb->len, skb->mark,
 			 tempesta_tls_skb_type(skb));
@@ -449,7 +449,11 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	 * or copy them if they're going to be used by Tempesta during
 	 * and after the transmission.
 	 */
-	if (flags & SS_F_KEEP_SKB) {
+	/*
+	 * FIXME #984 the `true ||` statement at the below fixes the issue
+	 * (at least basic tests are passed now).
+	 */
+	if (/*true ||*/ flags & SS_F_KEEP_SKB) {
 		skb = *skb_head;
 		do {
 			/* tcp_transmit_skb() will clone the skb. */
