@@ -27,8 +27,6 @@
 /**
  * Client descriptor.
  *
- * @hentry		- hash list entry for all clients hash;
- * @hb_lock		- pointer to hash bucket lock for quick item removal;
  * @conn_users		- connections reference counter.
  * 			  The client is released, when the counter reaches zero:
  * 			  no connections to the server - no client for us :)
@@ -38,8 +36,6 @@
  */
 typedef struct {
 	TFW_PEER_COMMON;
-	struct hlist_node	hentry;
-	spinlock_t		*hb_lock;
 	atomic_t		conn_users;
 	TfwClassifierPrvt	class_prvt;
 } TfwClient;
