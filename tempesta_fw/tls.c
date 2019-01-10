@@ -3,7 +3,7 @@
  *
  * Transport Layer Security (TLS) interfaces to Tempesta TLS.
  *
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -320,6 +320,9 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	 * The last skb in our list will bring TLS tag - add it to end_seqno.
 	 * Otherwise (in worst case), a new skb was inserted to fit TLS tag
 	 * - fix end_seqno's for @skb_tail and this new skb.
+	 *
+	 * @limit = mss_now - tls_overhead, so {tso,tcp}_fragment() called from
+	 * tcp_write_xmit() should set proper skb->tcp_gso_segs.
 	 */
 	if (likely(skb_tail->next == next)) {
 		TCP_SKB_CB(skb_tail)->end_seq += tag_sz;
@@ -339,7 +342,12 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 
 		tfw_tls_tcp_propagate_dseq(sk, skb_tail);
 
-		/* A new skb is added to the socket wmem. */
+		/*
+		 * A new skb is added to the socket wmem.
+		 *
+		 * pcount for a new skb is zero, to tcp_write_xmit() will
+		 * set TSO segs to proper value on next iteration.
+		 */
 		t_sz_curr = 0;
 		t_sz_next = skb_tail->next->truesize;
 
