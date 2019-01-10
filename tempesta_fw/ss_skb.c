@@ -7,7 +7,7 @@
  * on top on native Linux socket buffers. The helpers provide common and
  * convenient wrappers for skb processing.
  *
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1102,27 +1102,29 @@ struct sk_buff *
 ss_skb_split(struct sk_buff *skb, int len)
 {
 	struct sk_buff *buff;
-	int nsize, asize, nlen;
+	int n = 0;
 
 	/* Assert that the SKB is orphaned. */
 	WARN_ON_ONCE(skb->destructor);
 
-	nsize = skb_headlen(skb) - len;
-	if (nsize < 0)
-		nsize = 0;
-	asize = ALIGN(nsize, 4);
+	if (len < skb_headlen(skb))
+		n = skb_headlen(skb) - len;
 
-	buff = alloc_skb_fclone(asize + MAX_TCP_HEADER, GFP_ATOMIC);
-	if (buff == NULL)
+	buff = alloc_skb_fclone(ALIGN(n, 4) + MAX_TCP_HEADER, GFP_ATOMIC);
+	if (!buff)
 		return NULL;
 
 	skb_reserve(buff, MAX_TCP_HEADER);
-	/* Make sure there's exactly asize bytes available. */
-	buff->reserved_tailroom = buff->end - buff->tail - asize;
 
-	nlen = skb->len - len - nsize;
-	buff->truesize += nlen;
-	skb->truesize -= nlen;
+	n = skb->len - len;
+	buff->truesize += n;
+	skb->truesize -= n;
+
+	/*
+	 * Initialize GSO segments counter to let TCP set it accoring to
+	 * the current MSS on egress path.
+	 */
+	tcp_skb_pcount_set(skb, 0);
 
 	/*
 	 * These are orphaned SKBs that are taken out of the TCP/IP
