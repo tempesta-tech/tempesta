@@ -126,10 +126,8 @@ tfw_cleanup(struct list_head *mod_list)
 
 	tfw_cfg_cleanup(mod_list);
 
-	if (!tfw_runstate_is_reconfig()) {
+	if (!tfw_runstate_is_reconfig())
 		tfw_sg_wait_release();
-		tfw_cli_wait_release();
-	}
 	TFW_LOG("New configuration is cleaned.\n");
 }
 

@@ -321,8 +321,9 @@ frang_conn_limit(FrangAcc *ra, FrangCfg *conf)
 }
 
 static void
-__frang_init_acc(TfwClient *cli)
+__frang_init_acc(void *data)
 {
+	TfwClient *cli = (TfwClient *)data;
 	FrangAcc *ra = FRANG_CLI2ACC(cli);
 
 	spin_lock_init(&ra->lock);
