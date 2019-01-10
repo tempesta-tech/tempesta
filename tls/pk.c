@@ -21,7 +21,7 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#include "lib/log.h"
+#include "debug.h"
 #include "pk.h"
 #include "pk_internal.h"
 #include "rsa.h"
