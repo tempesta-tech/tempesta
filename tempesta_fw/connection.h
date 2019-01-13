@@ -191,8 +191,6 @@ enum {
 	TFW_CONN_B_QFORWD,
 	/* Has non-idempotent requests. */
 	TFW_CONN_B_HASNIP,
-	/* Temporary inactive due to overflow of corresponding work queue. */
-	TFW_CONN_B_BUSY,
 
 	/* Remove connection */
 	TFW_CONN_B_DEL,
@@ -295,9 +293,6 @@ tfw_srv_conn_hasnip(TfwSrvConn *srv_conn)
 static inline bool
 tfw_srv_conn_busy(TfwSrvConn *conn)
 {
-	if (test_bit(TFW_CONN_B_BUSY, &conn->flags))
-		return true;
-	rmb();
 	if (time_is_after_jiffies(READ_ONCE(conn->jbusytstamp)))
 		return true;
 
@@ -305,42 +300,13 @@ tfw_srv_conn_busy(TfwSrvConn *conn)
 }
 
 /*
- * Make connection temporary inactive due to full work queue.
- */
-static inline void
-tfw_srv_conn_set_busy(TfwSrvConn *conn)
-{
-	set_bit(TFW_CONN_B_BUSY, &conn->flags);
-}
-
-/*
- * Clear busy bit for server connection (if set).
- */
-static inline void
-tfw_srv_conn_clear_busy(TfwSrvConn *conn)
-{
-	if (test_bit(TFW_CONN_B_BUSY, &conn->flags))
-		clear_bit(TFW_CONN_B_BUSY, &conn->flags);
-}
-
-/*
  * Set small delay for inactivity of busy connection to give time for
- * unloading of the corresponding work queue. This function is intended
- * for clearing busy bit for connection and setting busy delay, during
- * which the conection is evicted from requests' scheduling process. Due
- * to CPU reordering some requests may be occasionally scheduled (see
- * the tfw_srv_conn_busy() function and its usage) on busy connection
- * in the moment of clearing busy bit. To prevent this situation memory
- * barriers are used.
+ * unloading of corresponding work queue.
  */
 static inline void
-tfw_srv_clear_busy_delay(TfwSrvConn *conn, bool busy)
+tfw_srv_set_busy_delay(TfwSrvConn *conn)
 {
-	if (busy)
-		WRITE_ONCE(conn->jbusytstamp, jiffies + msecs_to_jiffies(30));
-
-	smp_mb__before_atomic();
-	tfw_srv_conn_clear_busy(conn);
+	WRITE_ONCE(conn->jbusytstamp, jiffies + msecs_to_jiffies(30));
 }
 
 static inline bool
