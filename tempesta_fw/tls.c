@@ -419,7 +419,7 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt, bool close)
 	 * msglen contains length of the last record, describes the first
 	 * record.
 	 */
-	str.ptr = io->hdr;
+	str.data = io->hdr;
 	str.len = TLS_HEADER_SIZE + io->hslen;
 	T_DBG("TLS %lu bytes +%u segments (%u bytes, last msgtype %#x)"
 	      " are to be sent on conn=%pK/sk_write_xmit=%pK ready=%d\n",
