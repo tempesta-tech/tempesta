@@ -42,10 +42,10 @@ tfw_http_msg_make_hdr(TfwPool *pool, const char *name, const char *val)
 	size_t n_len = strlen(name);
 	size_t v_len = val ? strlen(val) : 0;
 	const TfwStr tmp_hdr = {
-		.ptr = (TfwStr []){
-			{ .ptr = (void *)name,	.len = n_len },
-			{ .ptr = S_DLM,		.len = SLEN(S_DLM) },
-			{ .ptr = (void *)val,	.len = v_len },
+		.chunks = (TfwStr []){
+			{ .data = (void *)name,	.len = n_len },
+			{ .data = S_DLM,	.len = SLEN(S_DLM) },
+			{ .data = (void *)val,	.len = v_len },
 		},
 		.len = n_len + SLEN(S_DLM) + v_len,
 		.eolen = 2,
@@ -70,13 +70,13 @@ __tfw_http_msg_find_hdr(const TfwStr *hdr, const void *array, size_t n,
 	if (!TFW_STR_DUP(hdr))
 		h = hdr;
 	else
-		h = (TfwStr *)hdr->ptr;
-	fc = tolower(*(unsigned char *)(TFW_STR_CHUNK(h, 0)->ptr));
+		h = hdr->chunks;
+	fc = tolower(*(unsigned char *)(TFW_STR_CHUNK(h, 0)->data));
 
 	while (start < end) {
 		size_t mid = start + (end - start) / 2;
 		const TfwStr *sh = array + mid * member_sz;
-		int sc = *(unsigned char *)sh->ptr;
+		int sc = *(unsigned char *)sh->data;
 
 		result = fc - sc;
 		if (!result)
@@ -98,7 +98,7 @@ typedef struct {
 	TfwStr			hdr;	/* Header name. */
 	unsigned int		id;	/* id in TfwHttpHdrTbl */
 } TfwHdrDef;
-#define TfwStrDefV(v, id)	{{ (v), NULL, sizeof(v) - 1, 0 }, (id) }
+#define TfwStrDefV(v, id)	{{ .data = (v), NULL, sizeof(v) - 1, 0 }, (id) }
 
 static inline unsigned int
 __tfw_http_msg_spec_hid(const TfwStr *hdr, const TfwHdrDef array[])
@@ -213,10 +213,10 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 	/* Field value, if it exist, lies in the separate chunk.
 	 * So we skip several first chunks, containing field name,
 	 * to get the field value. If we have field with empty value,
-	 * we get an empty string with val->len = 0 and val->ptr from the
+	 * we get an empty string with val->len = 0 and val->data from the
 	 * last name's chunk, but it is unimportant.
 	 */
-	for (c = hdr->ptr, end = (TfwStr *)hdr->ptr + TFW_STR_CHUNKN(hdr);
+	for (c = hdr->chunks, end = hdr->chunks + TFW_STR_CHUNKN(hdr);
 	     c < end; ++c)
 	{
 		BUG_ON(!c->len);
@@ -225,8 +225,8 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 			nlen -= c->len;
 			val->len -= c->len;
 		}
-		else if (unlikely(((char *)c->ptr)[0] == ' '
-				  || ((char *)c->ptr)[0] == '\t'))
+		else if (unlikely((c->data)[0] == ' '
+				  || (c->data)[0] == '\t'))
 		{
 			/*
 			 * RFC 7230: skip OWS before header field.
@@ -237,7 +237,7 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 			val->len -= c->len;
 		}
 		else {
-			val->ptr = c;
+			val->chunks = c;
 			return;
 		}
 		BUG_ON(TFW_STR_CHUNKN(val) < 1);
@@ -259,7 +259,7 @@ static inline bool
 __hdr_is_singular(const TfwStr *hdr)
 {
 	static const TfwStr hdr_singular[] = {
-#define TfwStr_string(v) { (v), NULL, sizeof(v) - 1, 0 }
+#define TfwStr_string(v) { .data = (v), NULL, sizeof(v) - 1, 0 }
 		TfwStr_string("authorization:"),
 		TfwStr_string("from:"),
 		TfwStr_string("if-unmodified-since:"),
@@ -323,7 +323,7 @@ tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start)
 
 	BUG_ON(!TFW_STR_EMPTY(hdr));
 
-	hdr->ptr = hdr_start;
+	hdr->data = hdr_start;
 	hdr->skb = ss_skb_peek_tail(&hm->msg.skb_head);
 
 	BUG_ON(!hdr->skb);
@@ -406,7 +406,7 @@ done:
 
 	TFW_STR_INIT(&parser->hdr);
 	TFW_DBG3("store header w/ ptr=%p len=%lu eolen=%u flags=%x id=%d\n",
-		 h->ptr, h->len, h->eolen, h->flags, id);
+		 h->data, h->len, h->eolen, h->flags, id);
 
 	/* Move the offset forward if current header is fully read. */
 	if (id == ht->off)
@@ -436,12 +436,12 @@ __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str, void *data,
 
 	TFW_DBG3("store field chunk len=%lu data=%p(%c) field=<%#x,%lu,%p>\n",
 		 len, data, isprint(*(char *)data) ? *(char *)data : '.',
-		 str->flags, str->len, str->ptr);
+		 str->flags, str->len, str->data);
 
 	if (TFW_STR_EMPTY(str)) {
-		if (!str->ptr)
+		if (!str->data)
 			__tfw_http_msg_set_str_data(str, data, skb);
-		str->len = data + len - str->ptr;
+		str->len = data + len - (void *)str->data;
 		BUG_ON(!str->len);
 	}
 	else if (likely(len)) {
@@ -488,7 +488,7 @@ __hdr_add(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid)
 	TfwStr it = {};
 	TfwStr *h = TFW_STR_CHUNK(&hm->crlf, 0);
 
-	r = ss_skb_get_room(hm->msg.skb_head, hm->crlf.skb, h->ptr,
+	r = ss_skb_get_room(hm->msg.skb_head, hm->crlf.skb, h->data,
 			    tfw_str_total_len(hdr), &it);
 	if (r)
 		return r;
@@ -525,7 +525,7 @@ __hdr_expand(TfwHttpMsg *hm, TfwStr *orig_hdr, const TfwStr *hdr, bool append)
 	BUG_ON(!append && (hdr->len < orig_hdr->len));
 
 	h = TFW_STR_LAST(orig_hdr);
-	r = ss_skb_get_room(hm->msg.skb_head, h->skb, (char *)h->ptr + h->len,
+	r = ss_skb_get_room(hm->msg.skb_head, h->skb, h->data + h->len,
 			    append ? hdr->len : hdr->len - orig_hdr->len, &it);
 	if (r)
 		return r;
@@ -681,9 +681,9 @@ tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid,
 
 	if (append) {
 		TfwStr hdr_app = {
-			.ptr = (TfwStr []){
-				{ .ptr = ", ",		.len = 2 },
-				{ .ptr = s_val->ptr,	.len = s_val->len }
+			.chunks = (TfwStr []){
+				{ .data = ", ",		.len = 2 },
+				{ .data = s_val->data,	.len = s_val->len }
 			},
 			.len = s_val->len + 2,
 			.flags = 2 << TFW_STR_CN_SHIFT
@@ -702,10 +702,10 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 		      char *val, size_t v_len, unsigned int hid, bool append)
 {
 	TfwStr new_hdr = {
-		.ptr = (TfwStr []){
-			{ .ptr = name,	.len = n_len },
-			{ .ptr = S_DLM,	.len = SLEN(S_DLM) },
-			{ .ptr = val,	.len = v_len },
+		.chunks = (TfwStr []){
+			{ .data = name,		.len = n_len },
+			{ .data = S_DLM,	.len = SLEN(S_DLM) },
+			{ .data = val,		.len = v_len },
 		},
 		.len = n_len + SLEN(S_DLM) + v_len,
 		.eolen = 2,
@@ -830,7 +830,7 @@ next_frag:
 		return 0;
 
 	p = (char *)skb_frag_address(frag) + f_size;
-	memcpy_fast(p, (char *)data->ptr + off, n_copy);
+	memcpy_fast(p, data->data + off, n_copy);
 	skb_frag_size_add(frag, n_copy);
 	ss_skb_adjust_data_len(it->skb, n_copy);
 
@@ -870,7 +870,7 @@ tfw_http_msg_add_data(TfwMsgIter *it, TfwHttpMsg *hm, TfwStr *field,
 		goto add_frag;
 
 	p = skb_put(it->skb, n_copy);
-	memcpy_fast(p, (char *)data->ptr, n_copy);
+	memcpy_fast(p, data->data, n_copy);
 
 	if (__tfw_http_msg_add_str_data(hm, field, p, n_copy, it->skb))
 		return -ENOMEM;

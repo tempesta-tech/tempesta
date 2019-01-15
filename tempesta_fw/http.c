@@ -120,13 +120,13 @@ static struct {
  */
 static TfwStr http_predef_resps[RESP_NUM] = {
 	[RESP_200] = {
-		.ptr = (TfwStr []){
-			{ .ptr = S_200_PART_01, .len = SLEN(S_200_PART_01) },
-			{ .ptr = NULL, .len = SLEN(S_V_DATE) },
-			{ .ptr = S_200_PART_02, .len = SLEN(S_200_PART_02) },
-			{ .ptr = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
-			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
-			{ .ptr = NULL, .len = 0 },
+		.chunks = (TfwStr []){
+			{ .data = S_200_PART_01, .len = SLEN(S_200_PART_01) },
+			{ .data = NULL, .len = SLEN(S_V_DATE) },
+			{ .data = S_200_PART_02, .len = SLEN(S_200_PART_02) },
+			{ .data = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
+			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
+			{ .data = NULL, .len = 0 },
 		},
 		.len = SLEN(S_200_PART_01 S_V_DATE S_200_PART_02 S_DEF_PART_03
 			    S_CRLF),
@@ -134,13 +134,13 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 	},
 	/* Response has invalid syntax, client shouldn't repeat it. */
 	[RESP_400] = {
-		.ptr = (TfwStr []){
-			{ .ptr = S_400_PART_01, .len = SLEN(S_400_PART_01) },
-			{ .ptr = NULL, .len = SLEN(S_V_DATE) },
-			{ .ptr = S_400_PART_02, .len = SLEN(S_400_PART_02) },
-			{ .ptr = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
-			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
-			{ .ptr = NULL, .len = 0 },
+		.chunks = (TfwStr []){
+			{ .data = S_400_PART_01, .len = SLEN(S_400_PART_01) },
+			{ .data = NULL, .len = SLEN(S_V_DATE) },
+			{ .data = S_400_PART_02, .len = SLEN(S_400_PART_02) },
+			{ .data = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
+			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
+			{ .data = NULL, .len = 0 },
 		},
 		.len = SLEN(S_400_PART_01 S_V_DATE S_400_PART_02 S_DEF_PART_03
 			    S_CRLF),
@@ -148,13 +148,13 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 	},
 	/* Response is syntactically valid, but refuse to authorize it. */
 	[RESP_403] = {
-		.ptr = (TfwStr []){
-			{ .ptr = S_403_PART_01, .len = SLEN(S_403_PART_01) },
-			{ .ptr = NULL, .len = SLEN(S_V_DATE) },
-			{ .ptr = S_403_PART_02, .len = SLEN(S_403_PART_02) },
-			{ .ptr = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
-			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
-			{ .ptr = NULL, .len = 0 },
+		.chunks = (TfwStr []){
+			{ .data = S_403_PART_01, .len = SLEN(S_403_PART_01) },
+			{ .data = NULL, .len = SLEN(S_V_DATE) },
+			{ .data = S_403_PART_02, .len = SLEN(S_403_PART_02) },
+			{ .data = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
+			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
+			{ .data = NULL, .len = 0 },
 		},
 		.len = SLEN(S_403_PART_01 S_V_DATE S_403_PART_02 S_DEF_PART_03
 			    S_CRLF),
@@ -162,26 +162,26 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 	},
 	/* Can't find the requested resource. */
 	[RESP_404] = {
-		.ptr = (TfwStr []){
-			{ .ptr = S_404_PART_01, .len = SLEN(S_404_PART_01) },
-			{ .ptr = NULL, .len = SLEN(S_V_DATE) },
-			{ .ptr = S_404_PART_02, .len = SLEN(S_404_PART_02) },
-			{ .ptr = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
-			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
-			{ .ptr = NULL, .len = 0 },
+		.chunks = (TfwStr []){
+			{ .data = S_404_PART_01, .len = SLEN(S_404_PART_01) },
+			{ .data = NULL, .len = SLEN(S_V_DATE) },
+			{ .data = S_404_PART_02, .len = SLEN(S_404_PART_02) },
+			{ .data = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
+			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
+			{ .data = NULL, .len = 0 },
 		},
 		.len = SLEN(S_404_PART_01 S_V_DATE S_404_PART_02 S_DEF_PART_03
 			    S_CRLF),
 		.flags = 6 << TFW_STR_CN_SHIFT
 	},
 	[RESP_412] = {
-		.ptr = (TfwStr []){
-			{ .ptr = S_412_PART_01, .len = SLEN(S_412_PART_01) },
-			{ .ptr = NULL, .len = SLEN(S_V_DATE) },
-			{ .ptr = S_412_PART_02, .len = SLEN(S_412_PART_02) },
-			{ .ptr = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
-			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
-			{ .ptr = NULL, .len = 0 },
+		.chunks = (TfwStr []){
+			{ .data = S_412_PART_01, .len = SLEN(S_412_PART_01) },
+			{ .data = NULL, .len = SLEN(S_V_DATE) },
+			{ .data = S_412_PART_02, .len = SLEN(S_412_PART_02) },
+			{ .data = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
+			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
+			{ .data = NULL, .len = 0 },
 		},
 		.len = SLEN(S_412_PART_01 S_V_DATE S_412_PART_02 S_DEF_PART_03
 			    S_CRLF),
@@ -189,13 +189,13 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 	},
 	/* Internal error in TempestaFW. */
 	[RESP_500] = {
-		.ptr = (TfwStr []){
-			{ .ptr = S_500_PART_01, .len = SLEN(S_500_PART_01) },
-			{ .ptr = NULL, .len = SLEN(S_V_DATE) },
-			{ .ptr = S_500_PART_02, .len = SLEN(S_500_PART_02) },
-			{ .ptr = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
-			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
-			{ .ptr = NULL, .len = 0 },
+		.chunks = (TfwStr []){
+			{ .data = S_500_PART_01, .len = SLEN(S_500_PART_01) },
+			{ .data = NULL, .len = SLEN(S_V_DATE) },
+			{ .data = S_500_PART_02, .len = SLEN(S_500_PART_02) },
+			{ .data = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
+			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
+			{ .data = NULL, .len = 0 },
 		},
 		.len = SLEN(S_500_PART_01 S_V_DATE S_500_PART_02 S_DEF_PART_03
 			    S_CRLF),
@@ -203,13 +203,13 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 	},
 	/* Error (syntax or network) while receiving request from backend. */
 	[RESP_502] = {
-		.ptr = (TfwStr []){
-			{ .ptr = S_502_PART_01, .len = SLEN(S_502_PART_01) },
-			{ .ptr = NULL, .len = SLEN(S_V_DATE) },
-			{ .ptr = S_502_PART_02, .len = SLEN(S_502_PART_02) },
-			{ .ptr = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
-			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
-			{ .ptr = NULL, .len = 0 },
+		.chunks = (TfwStr []){
+			{ .data = S_502_PART_01, .len = SLEN(S_502_PART_01) },
+			{ .data = NULL, .len = SLEN(S_V_DATE) },
+			{ .data = S_502_PART_02, .len = SLEN(S_502_PART_02) },
+			{ .data = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
+			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
+			{ .data = NULL, .len = 0 },
 		},
 		.len = SLEN(S_502_PART_01 S_V_DATE S_502_PART_02 S_DEF_PART_03
 			    S_CRLF),
@@ -221,13 +221,13 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 	 * after given time, 10s by default.
 	 */
 	[RESP_503] = {
-		.ptr = (TfwStr []){
-			{ .ptr = S_503_PART_01, .len = SLEN(S_503_PART_01) },
-			{ .ptr = NULL, .len = SLEN(S_V_DATE) },
-			{ .ptr = S_503_PART_02, .len = SLEN(S_503_PART_02) },
-			{ .ptr = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
-			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
-			{ .ptr = NULL, .len = 0 },
+		.chunks = (TfwStr []){
+			{ .data = S_503_PART_01, .len = SLEN(S_503_PART_01) },
+			{ .data = NULL, .len = SLEN(S_V_DATE) },
+			{ .data = S_503_PART_02, .len = SLEN(S_503_PART_02) },
+			{ .data = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
+			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
+			{ .data = NULL, .len = 0 },
 		},
 		.len = SLEN(S_503_PART_01 S_V_DATE S_503_PART_02 S_DEF_PART_03
 			    S_CRLF),
@@ -235,13 +235,13 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 	},
 	/* Can't get a response in time. */
 	[RESP_504] = {
-		.ptr = (TfwStr []){
-			{ .ptr = S_504_PART_01, .len = SLEN(S_504_PART_01) },
-			{ .ptr = NULL, .len = SLEN(S_V_DATE) },
-			{ .ptr = S_504_PART_02, .len = SLEN(S_504_PART_02) },
-			{ .ptr = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
-			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
-			{ .ptr = NULL, .len = 0 },
+		.chunks = (TfwStr []){
+			{ .data = S_504_PART_01, .len = SLEN(S_504_PART_01) },
+			{ .data = NULL, .len = SLEN(S_V_DATE) },
+			{ .data = S_504_PART_02, .len = SLEN(S_504_PART_02) },
+			{ .data = S_DEF_PART_03, .len = SLEN(S_DEF_PART_03) },
+			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
+			{ .data = NULL, .len = 0 },
 		},
 		.len = SLEN(S_504_PART_01 S_V_DATE S_504_PART_02 S_DEF_PART_03
 			    S_CRLF),
@@ -274,16 +274,16 @@ static TfwStr http_predef_resps[RESP_NUM] = {
  * page body - for the remaining 5xx answers.
  */
 static TfwStr http_4xx_resp_body = {
-	.ptr = (TfwStr []){
-		{ .ptr = NULL, .len = 0 },
-		{ .ptr = NULL, .len = 0 },
+	.chunks = (TfwStr []){
+		{ .data = NULL, .len = 0 },
+		{ .data = NULL, .len = 0 },
 	},
 	.len = 0,
 };
 static TfwStr http_5xx_resp_body = {
-	.ptr = (TfwStr []){
-		{ .ptr = NULL, .len = 0 },
-		{ .ptr = NULL, .len = 0 },
+	.chunks = (TfwStr []){
+		{ .data = NULL, .len = 0 },
+		{ .data = NULL, .len = 0 },
 	},
 	.len = 0,
 };
@@ -361,41 +361,41 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *rmark,
 	int ret = 0;
 	TfwMsgIter it;
 	static TfwStr rh_302 = {
-		.ptr = S_REDIR_302, .len = SLEN(S_REDIR_302) };
+		.data = S_REDIR_302, .len = SLEN(S_REDIR_302) };
 	static TfwStr rh_503 = {
-		.ptr = S_REDIR_503, .len = SLEN(S_REDIR_503) };
+		.data = S_REDIR_503, .len = SLEN(S_REDIR_503) };
 	TfwStr rh_gen = {
-		.ptr = (TfwStr []){
-			{ .ptr = S_0, .len = SLEN(S_0) },
-			{ .ptr = (*this_cpu_ptr(&g_buf) + RESP_BUF_LEN / 2),
+		.chunks = (TfwStr []){
+			{ .data = S_0, .len = SLEN(S_0) },
+			{ .data = (*this_cpu_ptr(&g_buf) + RESP_BUF_LEN / 2),
 			  .len = 3 },
-			{ .ptr = S_REDIR_GEN, .len = SLEN(S_REDIR_GEN) }
+			{ .data = S_REDIR_GEN, .len = SLEN(S_REDIR_GEN) }
 		},
 		.len = SLEN(S_0 S_REDIR_GEN) + 3,
 		.flags = 3 << TFW_STR_CN_SHIFT
 	};
 	TfwStr h_common_1 = {
-		.ptr = (TfwStr []){
-			{ .ptr = S_REDIR_P_01, .len = SLEN(S_REDIR_P_01) },
-			{ .ptr = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
-			{ .ptr = S_REDIR_P_02, .len = SLEN(S_REDIR_P_02) }
+		.chunks = (TfwStr []){
+			{ .data = S_REDIR_P_01, .len = SLEN(S_REDIR_P_01) },
+			{ .data = *this_cpu_ptr(&g_buf), .len = SLEN(S_V_DATE) },
+			{ .data = S_REDIR_P_02, .len = SLEN(S_REDIR_P_02) }
 		},
 		.len = SLEN(S_REDIR_P_01 S_V_DATE S_REDIR_P_02),
 		.flags = 3 << TFW_STR_CN_SHIFT
 	};
 	static TfwStr h_common_2 = {
-		.ptr = S_REDIR_P_03, .len = SLEN(S_REDIR_P_03) };
+		.data = S_REDIR_P_03, .len = SLEN(S_REDIR_P_03) };
 	static TfwStr crlf = {
-		.ptr = S_CRLF, .len = SLEN(S_CRLF) };
+		.data = S_CRLF, .len = SLEN(S_CRLF) };
 	static TfwStr crlf_keep = {
-		.ptr = S_REDIR_KEEP, .len = SLEN(S_REDIR_KEEP) };
+		.data = S_REDIR_KEEP, .len = SLEN(S_REDIR_KEEP) };
 	static TfwStr crlf_close = {
-		.ptr = S_REDIR_CLOSE, .len = SLEN(S_REDIR_CLOSE) };
+		.data = S_REDIR_CLOSE, .len = SLEN(S_REDIR_CLOSE) };
 	static TfwStr c_len_crlf = {
-		.ptr = S_REDIR_C_LEN, .len = SLEN(S_REDIR_C_LEN) };
+		.data = S_REDIR_C_LEN, .len = SLEN(S_REDIR_C_LEN) };
 	static TfwStr protos[] = {
-		{ .ptr = S_HTTP, .len = SLEN(S_HTTP) },
-		{ .ptr = S_HTTPS, .len = SLEN(S_HTTPS) },
+		{ .data = S_HTTP, .len = SLEN(S_HTTP) },
+		{ .data = S_HTTPS, .len = SLEN(S_HTTPS) },
 	};
 	TfwStr *proto = &protos[TFW_CONN_PROTO(req->conn) == TFW_FSM_HTTPS];
 	TfwStr host, *rh, *cookie_crlf = &crlf, *r_end;
@@ -405,7 +405,7 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *rmark,
 	} else if (status == 503) {
 		rh = &rh_503;
 	} else {
-		tfw_ultoa(status, __TFW_STR_CH(&rh_gen, 1)->ptr, 3);
+		tfw_ultoa(status, __TFW_STR_CH(&rh_gen, 1)->data, 3);
 		rh = &rh_gen;
 	}
 	if (body)
@@ -435,7 +435,7 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *rmark,
 	if (tfw_http_msg_setup(resp, &it, data_len))
 		return TFW_BLOCK;
 
-	tfw_http_prep_date(__TFW_STR_CH(&h_common_1, 1)->ptr);
+	tfw_http_prep_date(__TFW_STR_CH(&h_common_1, 1)->data);
 
 	ret = tfw_msg_write(&it, rh);
 	ret = tfw_msg_write(&it, &h_common_1);
@@ -473,11 +473,11 @@ tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, TfwMsgIter *it,
 	size_t data_len = SLEN(S_304_PART_01);
 	int ret = 0;
 	static TfwStr rh = {
-		.ptr = S_304_PART_01, .len = SLEN(S_304_PART_01) };
+		.data = S_304_PART_01, .len = SLEN(S_304_PART_01) };
 	static TfwStr crlf_keep = {
-		.ptr = S_304_KEEP, .len = SLEN(S_304_KEEP) };
+		.data = S_304_KEEP, .len = SLEN(S_304_KEEP) };
 	static TfwStr crlf_close = {
-		.ptr = S_304_CLOSE, .len = SLEN(S_304_CLOSE) };
+		.data = S_304_CLOSE, .len = SLEN(S_304_CLOSE) };
 	TfwStr *end = NULL;
 
 	/* Set "Connection:" header field if needed. */
@@ -604,7 +604,7 @@ __tfw_http_send_resp(TfwHttpReq *req, resp_code_t code)
 	TfwHttpResp *resp;
 	TfwStr *date, *crlf, *body;
 	TfwStr msg = {
-		.ptr = (TfwStr []){ {}, {}, {}, {}, {}, {} },
+		.chunks = (TfwStr []){ {}, {}, {}, {}, {}, {} },
 		.len = 0,
 		.flags = 6 << TFW_STR_CN_SHIFT
 	};
@@ -618,10 +618,10 @@ __tfw_http_send_resp(TfwHttpReq *req, resp_code_t code)
 	{
 		unsigned long crlf_len = crlf->len;
 		if (test_bit(TFW_HTTP_B_CONN_CLOSE, req->flags)) {
-			crlf->ptr = S_H_CONN_CLOSE;
+			crlf->data = S_H_CONN_CLOSE;
 			crlf->len = SLEN(S_H_CONN_CLOSE);
 		} else {
-			crlf->ptr = S_H_CONN_KA;
+			crlf->data = S_H_CONN_KA;
 			crlf->len = SLEN(S_H_CONN_KA);
 		}
 		msg.len += crlf->len - crlf_len;
@@ -634,9 +634,9 @@ __tfw_http_send_resp(TfwHttpReq *req, resp_code_t code)
 
 	body = TFW_STR_BODY_CH(&msg);
 	date = TFW_STR_DATE_CH(&msg);
-	date->ptr = *this_cpu_ptr(&g_buf);
-	tfw_http_prep_date(date->ptr);
-	if (!body->ptr)
+	date->data = *this_cpu_ptr(&g_buf);
+	tfw_http_prep_date(date->data);
+	if (!body->data)
 		__TFW_STR_CHUNKN_SET(&msg, 5);
 
 	if (tfw_msg_write(&it, &msg))
@@ -2044,11 +2044,11 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 	TfwGlobal *g_vhost = tfw_vhost_get_global();
 	const TfwStr rh = {
 #define S_VIA	"Via: "
-		.ptr = (TfwStr []) {
-			{ .ptr = S_VIA, .len = SLEN(S_VIA) },
-			{ .ptr = (void *)s_http_version[hm->version],
+		.chunks = (TfwStr []) {
+			{ .data = S_VIA, .len = SLEN(S_VIA) },
+			{ .data = (void *)s_http_version[hm->version],
 			  .len = 4 },
-			{ .ptr = *this_cpu_ptr(&g_buf),
+			{ .data = *this_cpu_ptr(&g_buf),
 			  .len = g_vhost->hdr_via_len },
 		},
 		.len = SLEN(S_VIA) + 4 + g_vhost->hdr_via_len,
@@ -2057,7 +2057,7 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 #undef S_VIA
 	};
 
-	memcpy_fast(__TFW_STR_CH(&rh, 2)->ptr, g_vhost->hdr_via,
+	memcpy_fast(__TFW_STR_CH(&rh, 2)->data, g_vhost->hdr_via,
 		    g_vhost->hdr_via_len);
 
 	r = tfw_http_msg_hdr_add(hm, &rh);
@@ -2131,7 +2131,7 @@ static int
 tfw_http_recreate_content_type_multipart_hdr(TfwHttpReq *req)
 {
 	TfwStr replacement = {
-		.ptr = (TfwStr []) {
+		.chunks = (TfwStr []) {
 			TFW_STR_FROM("Content-Type"),
 			TFW_STR_FROM(": "),
 			TFW_STR_FROM("multipart/form-data; boundary="),
@@ -2139,7 +2139,7 @@ tfw_http_recreate_content_type_multipart_hdr(TfwHttpReq *req)
 		},
 		.flags = 4 << TFW_STR_CN_SHIFT,
 	};
-	TfwStr *c = replacement.ptr;
+	TfwStr *c = replacement.chunks;
 
 	BUG_ON(!TFW_STR_PLAIN(&req->multipart_boundary_raw));
 	replacement.len = c[0].len + c[1].len + c[2].len + c[3].len;
@@ -2267,9 +2267,9 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 #define S_WARN_110 "Warning: 110 - Response is stale"
 		/* TODO: adjust for #865 */
 		TfwStr wh = {
-			.ptr	= S_WARN_110,
-			.len	= SLEN(S_WARN_110),
-			.eolen	= 2
+			.data		= S_WARN_110,
+			.len		= SLEN(S_WARN_110),
+			.eolen		= 2
 		};
 		r = tfw_http_msg_hdr_add(hm, &wh);
 		if (r)
@@ -2681,7 +2681,7 @@ tfw_http_req_mark_nip(TfwHttpReq *req)
 nip_match:
 	TFW_DBG2("non-idempotent: method=[%d] uri=[%.*s]\n",
 		 req->method, (int)TFW_STR_CHUNK(&req->uri_path, 0)->len,
-		 (char *)TFW_STR_CHUNK(&req->uri_path, 0)->ptr);
+		 TFW_STR_CHUNK(&req->uri_path, 0)->data);
 	__set_bit(TFW_HTTP_B_NON_IDEMP, req->flags);
 	return;
 }
@@ -3563,7 +3563,7 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 	TfwHttpMsg *hmreq;
 	TfwSrvConn *srv_conn;
 	TfwStr msg = {
-		.ptr = data,
+		.data = data,
 		.len = len,
 	};
 	LIST_HEAD(equeue);
@@ -3715,9 +3715,9 @@ tfw_cfgop_cleanup_block_action(TfwCfgSpec *cs)
 /* Macros specific to *_set_body() functions. */
 #define __TFW_STR_SET_BODY()						\
 	msg->len += l_size - clen_str->len + b_size - body_str->len;	\
-	body_str->ptr = new_body;					\
+	body_str->data = new_body;					\
 	body_str->len = b_size;						\
-	clen_str->ptr = new_length;					\
+	clen_str->data = new_length;					\
 	clen_str->len = l_size;
 
 static void
@@ -3728,11 +3728,11 @@ tfw_http_set_body(resp_code_t code, char *new_length, size_t l_size,
 	TfwStr *msg = &http_predef_resps[code];
 	TfwStr *clen_str = TFW_STR_CLEN_CH(msg);
 	TfwStr *body_str = TFW_STR_BODY_CH(msg);
-	void *prev_body_ptr = body_str->ptr;
+	void *prev_body_ptr = body_str->data;
 	void *prev_clen_ptr = NULL;
 
 	if (prev_body_ptr) {
-		prev_clen_ptr = clen_str->ptr;
+		prev_clen_ptr = clen_str->data;
 		prev_len = clen_str->len + body_str->len;
 	}
 
@@ -3742,8 +3742,8 @@ tfw_http_set_body(resp_code_t code, char *new_length, size_t l_size,
 		return;
 
 	BUG_ON(!prev_clen_ptr);
-	if (prev_body_ptr != __TFW_STR_CH(&http_4xx_resp_body, 1)->ptr &&
-	    prev_body_ptr != __TFW_STR_CH(&http_5xx_resp_body, 1)->ptr)
+	if (prev_body_ptr != __TFW_STR_CH(&http_4xx_resp_body, 1)->data &&
+	    prev_body_ptr != __TFW_STR_CH(&http_5xx_resp_body, 1)->data)
 	{
 		free_pages((unsigned long)prev_clen_ptr, get_order(prev_len));
 	}
@@ -3779,10 +3779,10 @@ tfw_http_set_common_body(int status_code, char *new_length, size_t l_size,
 
 	clen_str = __TFW_STR_CH(msg, 0);
 	body_str = __TFW_STR_CH(msg, 1);
-	prev_body_ptr = body_str->ptr;
+	prev_body_ptr = body_str->data;
 
 	if (prev_body_ptr) {
-		prev_clen_ptr = clen_str->ptr;
+		prev_clen_ptr = clen_str->data;
 		prev_len = clen_str->len + body_str->len;
 	}
 
@@ -3791,8 +3791,8 @@ tfw_http_set_common_body(int status_code, char *new_length, size_t l_size,
 	for (i = begin; i < end; ++i) {
 		TfwStr *msg = &http_predef_resps[i];
 		TfwStr *body_str = TFW_STR_BODY_CH(msg);
-		if (!body_str->ptr ||
-		    body_str->ptr == prev_body_ptr)
+		if (!body_str->data ||
+		    body_str->data == prev_body_ptr)
 		{
 			TfwStr *clen_str = TFW_STR_CLEN_CH(msg);
 			__TFW_STR_SET_BODY();
@@ -3834,8 +3834,8 @@ __tfw_http_msg_body_dup(const char *filename, TfwStr *c_len_hdr, size_t *len,
 		*len = *body_offset = 0;
 		return NULL;
 	}
-	cl_buf->ptr = buff;
-	cl_buf->len = tfw_ultoa(b_sz, cl_buf->ptr, TFW_ULTOA_BUF_SIZ);
+	cl_buf->data = buff;
+	cl_buf->len = tfw_ultoa(b_sz, cl_buf->data, TFW_ULTOA_BUF_SIZ);
 	if (unlikely(!cl_buf->len)) {
 		TFW_ERR_NL("Can't copy file %s: too big\n", filename);
 		goto err;
@@ -3859,7 +3859,7 @@ __tfw_http_msg_body_dup(const char *filename, TfwStr *c_len_hdr, size_t *len,
 err_2:
 	c_len_hdr->len -= cl_buf->len;
 err:
-	cl_buf->ptr = NULL;
+	cl_buf->data = NULL;
 	cl_buf->len = 0;
 	free_pages((unsigned long)body, get_order(b_sz));
 
@@ -3876,11 +3876,11 @@ char *
 tfw_http_msg_body_dup(const char *filename, size_t *len)
 {
 	TfwStr c_len_hdr = {
-		.ptr = (TfwStr []){
-			{ .ptr = S_F_CONTENT_LENGTH,
+		.chunks = (TfwStr []){
+			{ .data = S_F_CONTENT_LENGTH,
 			  .len = SLEN(S_F_CONTENT_LENGTH) },
-			{ .ptr = NULL, .len = 0 },
-			{ .ptr = S_CRLFCRLF, .len = SLEN(S_CRLFCRLF) },
+			{ .data = NULL, .len = 0 },
+			{ .data = S_CRLFCRLF, .len = SLEN(S_CRLFCRLF) },
 		},
 		.len = SLEN(S_F_CONTENT_LENGTH S_CRLFCRLF),
 		.flags = 3 << TFW_STR_CN_SHIFT
@@ -3901,11 +3901,11 @@ tfw_http_config_resp_body(int status_code, const char *filename)
 	size_t cl_sz, b_sz, sz, b_off;
 	char *cl, *body;
 	TfwStr c_len_hdr = {
-		.ptr = (TfwStr []){
-			{ .ptr = S_CRLF S_F_CONTENT_LENGTH,
+		.chunks = (TfwStr []){
+			{ .data = S_CRLF S_F_CONTENT_LENGTH,
 			  .len = SLEN(S_CRLF S_F_CONTENT_LENGTH) },
-			{ .ptr = NULL, .len = 0 },
-			{ .ptr = S_CRLF, .len = SLEN(S_CRLF) },
+			{ .data = NULL, .len = 0 },
+			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
 		},
 		.len = SLEN(S_CRLF S_F_CONTENT_LENGTH S_CRLF),
 		.flags = 3 << TFW_STR_CN_SHIFT
@@ -3944,7 +3944,7 @@ tfw_http_config_resp_body(int status_code, const char *filename)
 static void
 tfw_cfgop_resp_body_restore_clen(TfwStr *hdr, int resp_num)
 {
-#define CLEN_STR_INIT(s) { hdr->ptr = s; hdr->len = SLEN(s); }
+#define CLEN_STR_INIT(s) { hdr->data = s; hdr->len = SLEN(s); }
 	switch (resp_num)
 	{
 	case RESP_200:
@@ -3998,30 +3998,30 @@ tfw_cfgop_cleanup_resp_body(TfwCfgSpec *cs)
 	for (i = 0; i < RESP_NUM; ++i) {
 		TfwStr *clen_str;
 		TfwStr *body_str = TFW_STR_BODY_CH(&http_predef_resps[i]);
-		if (!body_str->ptr)
+		if (!body_str->data)
 			continue;
 
-		if (body_str->ptr == body_str_4xx->ptr ||
-		    body_str->ptr == body_str_5xx->ptr)
+		if (body_str->data == body_str_4xx->data ||
+		    body_str->data == body_str_5xx->data)
 			continue;
 
 		clen_str = TFW_STR_CLEN_CH(&http_predef_resps[i]);
-		free_pages((unsigned long)clen_str->ptr,
+		free_pages((unsigned long)clen_str->data,
 			   get_order(clen_str->len + body_str->len));
 		TFW_STR_INIT(body_str);
 		tfw_cfgop_resp_body_restore_clen(clen_str, i);
 	}
 
-	if (body_str_4xx->ptr) {
-		BUG_ON(!clen_str_4xx->ptr);
-		free_pages((unsigned long)clen_str_4xx->ptr,
+	if (body_str_4xx->data) {
+		BUG_ON(!clen_str_4xx->data);
+		free_pages((unsigned long)clen_str_4xx->data,
 			   get_order(clen_str_4xx->len + body_str_4xx->len));
 		TFW_STR_INIT(body_str_4xx);
 		TFW_STR_INIT(clen_str_4xx);
 	}
-	if (body_str_5xx->ptr) {
-		BUG_ON(!clen_str_5xx->ptr);
-		free_pages((unsigned long)clen_str_5xx->ptr,
+	if (body_str_5xx->data) {
+		BUG_ON(!clen_str_5xx->data);
+		free_pages((unsigned long)clen_str_5xx->data,
 			   get_order(clen_str_5xx->len + body_str_5xx->len));
 		TFW_STR_INIT(body_str_5xx);
 		TFW_STR_INIT(clen_str_5xx);

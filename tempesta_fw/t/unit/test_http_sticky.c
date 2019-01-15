@@ -177,7 +177,7 @@ tfw_http_field_value(TfwHttpMsg *hm, const TfwStr *field_name, TfwStr *value)
 	size_t len;
 	TfwStr *hdr_field;
 
-	hdr_field = tfw_http_field_raw(hm, field_name->ptr, field_name->len);
+	hdr_field = tfw_http_field_raw(hm, field_name->data, field_name->len);
 	if (hdr_field == NULL) {
 		return 0;
 	}
@@ -191,7 +191,7 @@ tfw_http_field_value(TfwHttpMsg *hm, const TfwStr *field_name, TfwStr *value)
 	}
 	len = tfw_str_to_cstr(hdr_field, buf, len);
 	ptr = strim(buf + field_name->len);
-	value->ptr = ptr;
+	value->data = ptr;
 	value->len = len - (ptr - buf);
 
 	return 1;
@@ -214,13 +214,13 @@ test_http_hdr_check(const TfwStr *hdr_name, const char *val, TestHdrRes *res)
 	BUG_ON(!TFW_STR_PLAIN(&hdr_value));
 
 	/* cookie name should be somewhere in Set-Cookie header value */
-	ptr = strnstr(hdr_value.ptr, TOK_NAME, hdr_value.len);
+	ptr = strnstr(hdr_value.data, TOK_NAME, hdr_value.len);
 	res->seen = ptr != NULL;
 
 	if (ptr && val) {
 		res->seen_val =
 			strnstr(ptr, val,
-				hdr_value.len - ((void *)ptr - hdr_value.ptr))
+				hdr_value.len - (ptr - hdr_value.data))
 			!= NULL;
 	}
 }
@@ -275,12 +275,12 @@ test_helper_sticky_start(const char *name, unsigned int misses)
 
 	BUG_ON(!len || len > STICKY_NAME_MAXLEN);
 
-	tfw_cfg_sticky.name_eq.ptr = kzalloc(STICKY_NAME_MAXLEN + 1, GFP_KERNEL);
-	if (!tfw_cfg_sticky.name_eq.ptr)
+	tfw_cfg_sticky.name_eq.data = kzalloc(STICKY_NAME_MAXLEN + 1, GFP_KERNEL);
+	if (!tfw_cfg_sticky.name_eq.data)
 		return -ENOMEM;
 
-	memcpy(tfw_cfg_sticky.name_eq.ptr, name, len);
-	((char*)tfw_cfg_sticky.name_eq.ptr)[len] = '=';
+	memcpy(tfw_cfg_sticky.name_eq.data, name, len);
+	tfw_cfg_sticky.name_eq.data[len] = '=';
 	tfw_cfg_sticky.name_eq.len = len + 1;
 
 	tfw_cfg_sticky.enabled = 1;
@@ -293,7 +293,7 @@ test_helper_sticky_start(const char *name, unsigned int misses)
 void
 test_helper_sticky_stop(void)
 {
-	kfree(tfw_cfg_sticky.name_eq.ptr);
+	kfree(tfw_cfg_sticky.name_eq.data);
 	memset(&tfw_cfg_sticky, 0, sizeof(tfw_cfg_sticky));
 }
 
@@ -564,7 +564,7 @@ test_sticky_present_helper(const char *s_req)
 	EXPECT_EQ(tfw_http_sticky_get(mock.req, &value), 1);
 
 	EXPECT_TRUE(value.len == 5);
-	EXPECT_TRUE(value.ptr && memcmp(value.ptr, "67890", 5) == 0);
+	EXPECT_TRUE(value.data && memcmp(value.data, "67890", 5) == 0);
 }
 
 TEST(http_sticky, sticky_get_present_begin)
