@@ -120,6 +120,7 @@ typedef struct {
 	TfwSrvGroup		*backup_sg;
 	TfwPool			*hdrs_pool;
 	TfwHdrMods		mod_hdrs[TFW_VHOST_HDRMOD_NUM];
+	unsigned int		validate_post_req:1;
 } TfwLocation;
 
 /* Cache purge configuration modes. */

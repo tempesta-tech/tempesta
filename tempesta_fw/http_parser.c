@@ -259,7 +259,7 @@ do {									\
 #define __FSM_I_MOVE_n(to, n)  		__FSM_I_MOVE_finish_n(to, n, {})
 #define __FSM_I_MOVE(to)		__FSM_I_MOVE_n(to, 1)
 /* The same as __FSM_I_MOVE_n(), but exactly for jumps w/o data moving. */
-#define __FSM_I_JMP(to)			do { goto to; } while (0)
+#define __FSM_I_JMP(to)			do { parser->_i_st = to; goto to; } while (0)
 
 #define __FSM_I_MATCH_MOVE_finish(alphabet, to, finish)			\
 do {									\
@@ -713,6 +713,26 @@ enum {
 	I_ConnOther,
 	I_ContLen, /* Content-Length */
 	I_ContType, /* Content-Type */
+	I_ContTypeBoundaryValue,
+	I_ContTypeBoundaryValueEscapedChar,
+	I_ContTypeBoundaryValueQuoted,
+	I_ContTypeBoundaryValueUnquoted,
+	I_ContTypeMaybeMultipart,
+	I_ContTypeMediaType,
+	I_ContTypeMultipartOWS,
+	I_ContTypeOtherSubtype,
+	I_ContTypeOtherType,
+	I_ContTypeOtherTypeOWS,
+	I_ContTypeOtherTypeSlash,
+	I_ContTypeParam,
+	I_ContTypeParamOWS,
+	I_ContTypeParamOther,
+	I_ContTypeParamValue,
+	I_ContTypeParamValueEscapedChar,
+	I_ContTypeParamValueOWS,
+	I_ContTypeParamValueQuoted,
+	I_ContTypeParamValueQuotedEnd,
+	I_ContTypeParamValueUnquoted,
 	I_KeepAlive, /* Keep-Alive header */
 	I_KeepAliveTO, /* Keep-Alive TimeOut */
 	I_KeepAliveExt,
@@ -792,9 +812,9 @@ enum {
 	if (!chunk->ptr)						\
 		chunk->ptr = p;						\
 	__fsm_n = __try_str(field, chunk, p, __data_remain(p),		\
-			    str->ptr, str->len);			\
+			    (str)->ptr, (str)->len);			\
 	if (__fsm_n > 0) {						\
-		if (chunk->len == str->len) {				\
+		if (chunk->len == (str)->len) {				\
 			lambda;						\
 			TRY_STR_INIT();					\
 			__FSM_I_MOVE_fixup_f(state, __fsm_n, field, 0);	\
@@ -1339,7 +1359,7 @@ __parse_content_length(TfwHttpMsg *msg, unsigned char *data, size_t len)
  * Parse Content-Type header value, RFC 7231 3.1.1.5.
  */
 static int
-__parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
+__resp_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(hm);
@@ -1373,6 +1393,341 @@ __parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	} /* FSM END */
 done:
 	return r;
+}
+
+static int
+__strdup_multipart_boundaries(TfwHttpReq *req)
+{
+	unsigned char *data_raw, *data, *ptr_raw, *ptr;
+	TfwStr *c, *end;
+
+	data_raw = tfw_pool_alloc(req->pool, req->multipart_boundary_raw.len);
+	data = tfw_pool_alloc(req->pool, req->multipart_boundary.len);
+
+	if (!data_raw || !data)
+		return -ENOMEM;
+
+	ptr_raw = data_raw;
+	ptr = data;
+	TFW_STR_FOR_EACH_CHUNK(c, &req->multipart_boundary_raw, end) {
+		memcpy_fast(ptr_raw, c->ptr, c->len);
+		ptr_raw += c->len;
+		if (c->flags & TFW_STR_VALUE) {
+			memcpy_fast(ptr, c->ptr, c->len);
+			ptr += c->len;
+		}
+	}
+
+	if (ptr_raw != data_raw + req->multipart_boundary_raw.len ||
+	    ptr != data + req->multipart_boundary.len)
+	{
+		TFW_WARN("Multipart boundary string length mismatch");
+		return -1;
+	}
+
+	req->multipart_boundary_raw.ptr = data_raw;
+	req->multipart_boundary.ptr = data;
+	__TFW_STR_CHUNKN_SET(&req->multipart_boundary_raw, 0);
+	__TFW_STR_CHUNKN_SET(&req->multipart_boundary, 0);
+
+	return 0;
+}
+
+static int
+__req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	TfwHttpReq *req = (TfwHttpReq *)hm;
+	__FSM_DECLARE_VARS(hm);
+
+	__FSM_START(parser->_i_st) {
+
+	__FSM_STATE(I_ContType) {
+		if (req->method != TFW_HTTP_METH_POST)
+			__FSM_I_JMP(I_EoL);
+		__FSM_I_JMP(I_ContTypeMediaType);
+	}
+
+	__FSM_STATE(I_ContTypeMediaType) {
+		static const TfwStr s_multipart_form_data =
+			TFW_STR_FROM("multipart/form-data");
+		TRY_STR_LAMBDA_fixup(&s_multipart_form_data, &parser->hdr, {},
+				     I_ContTypeMaybeMultipart);
+		if (chunk->len >= sizeof("multipart/") - 1) {
+			TRY_STR_INIT();
+			__FSM_I_JMP(I_ContTypeOtherSubtype);
+		} else {
+			TRY_STR_INIT();
+			__FSM_I_JMP(I_ContTypeOtherType);
+		}
+	}
+
+	__FSM_STATE(I_ContTypeMaybeMultipart) {
+		if (c == ';') {
+			__set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
+			__FSM_I_MOVE_fixup(I_ContTypeParamOWS, 1, 0);
+		}
+		if (IS_WS(c))
+			__FSM_I_MOVE_fixup(I_ContTypeMultipartOWS, 1, 0);
+		if (IS_CRLF(c)) {
+			__set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
+			goto finalize;
+		}
+		__FSM_I_JMP(I_ContTypeOtherSubtype);
+	}
+
+	__FSM_STATE(I_ContTypeMultipartOWS) {
+		if (IS_WS(c))
+			__FSM_I_MOVE_fixup(I_ContTypeMultipartOWS, 1, 0);
+		if (c == ';') {
+			__set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
+			__FSM_I_MOVE_fixup(I_ContTypeParamOWS, 1, 0);
+		}
+		if (IS_CRLF(c)) {
+			__set_bit(TFW_HTTP_B_CT_MULTIPART, req->flags);
+			goto finalize;
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_ContTypeParamOWS) {
+		if (IS_WS(c))
+			__FSM_I_MOVE_fixup(I_ContTypeParamOWS, 1, 0);
+		if (IS_CRLF(c))
+			goto finalize;
+		__FSM_I_JMP(I_ContTypeParam);
+	}
+
+	__FSM_STATE(I_ContTypeParam) {
+		static const TfwStr s_boundary = TFW_STR_FROM("boundary=");
+		if (!test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags))
+			__FSM_I_JMP(I_ContTypeParamOther);
+
+		TRY_STR_LAMBDA_fixup(&s_boundary, &parser->hdr, {
+			/*
+			 * Requests with multipart/form-data payload should have
+			 * only one boundary parameter.
+			 */
+			if (__test_and_set_bit(
+			      TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY, req->flags))
+				return CSTR_NEQ;
+		}, I_ContTypeBoundaryValue);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_ContTypeParamOther);
+	}
+
+	__FSM_STATE(I_ContTypeParamOther) {
+		__FSM_I_MATCH_MOVE_fixup(token, I_ContTypeParamOther, 0);
+		if (IS_CRLF(*(p + __fsm_sz))) {
+			/* Line terminated just after parameter name. Value is
+			 * missing.
+			 */
+			return CSTR_NEQ;
+		}
+		if (*(p + __fsm_sz) != '=')
+			return CSTR_NEQ;
+		__FSM_I_MOVE_fixup(I_ContTypeParamValue, __fsm_sz + 1, 0);
+	}
+
+	__FSM_STATE(I_ContTypeBoundaryValue) {
+		req->multipart_boundary_raw.len = 0;
+		req->multipart_boundary.len = 0;
+		/*
+		 * msg->parser.hdr.ptr can't be used as a base here, since its
+		 * value can change due to reallocation during msg->parser.hdr
+		 * growth. Let's store chunk number instead for now.
+		 */
+		req->multipart_boundary_raw.ptr =
+			(void *)(size_t)TFW_STR_CHUNKN(&parser->hdr);
+		if (*p == '"') {
+			req->multipart_boundary_raw.len += 1;
+			__FSM_I_MOVE_fixup(I_ContTypeBoundaryValueQuoted, 1, 0);
+		}
+		__FSM_I_JMP(I_ContTypeBoundaryValueUnquoted);
+	}
+
+	__FSM_STATE(I_ContTypeBoundaryValueUnquoted) {
+		__fsm_n = __data_remain(p);
+		__fsm_sz = tfw_match_token(p, __fsm_n);
+		if (__fsm_sz > 0) {
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
+			__FSM_I_chunk_flags(TFW_STR_VALUE);
+			req->multipart_boundary_raw.len += __fsm_sz;
+			req->multipart_boundary.len += __fsm_sz;
+		}
+		if (unlikely(__fsm_sz == __fsm_n))
+			return CSTR_POSTPONE;
+
+		p += __fsm_sz;
+		__TFW_STR_CHUNKN_SET(&req->multipart_boundary_raw,
+				     TFW_STR_CHUNKN(&parser->hdr) -
+				     (size_t)req->multipart_boundary_raw.ptr);
+		/* __fsm_sz != __fsm_n, therefore __data_remain(p) > 0 */
+		__FSM_I_JMP(I_ContTypeParamValueOWS);
+	}
+
+	__FSM_STATE(I_ContTypeBoundaryValueQuoted) {
+		__fsm_n = __data_remain(p);
+		__fsm_sz = tfw_match_token(p, __fsm_n);
+		if (__fsm_sz > 0) {
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
+			__FSM_I_chunk_flags(TFW_STR_VALUE);
+			req->multipart_boundary_raw.len += __fsm_sz;
+			req->multipart_boundary.len += __fsm_sz;
+		}
+		if (unlikely(__fsm_sz == __fsm_n))
+			return CSTR_POSTPONE;
+		p += __fsm_sz;
+
+		if (*p == '\\') {
+			req->multipart_boundary_raw.len += 1;
+			__FSM_I_MOVE_fixup(I_ContTypeBoundaryValueEscapedChar,
+					   1, 0);
+		}
+		if (IS_CRLF(*p)) {
+			/* Missing closing '"'. */
+			return CSTR_NEQ;
+		}
+		if (*p != '"') {
+			/* TODO: faster qdtext/quoted-pair matcher. */
+			req->multipart_boundary_raw.len += 1;
+			req->multipart_boundary.len += 1;
+			__FSM_I_MOVE_fixup(I_ContTypeBoundaryValueQuoted, 1,
+					   TFW_STR_VALUE);
+		}
+
+		/* *p == '"' */
+		__msg_hdr_chunk_fixup(p, 1);
+		p += 1;
+		req->multipart_boundary_raw.len += 1;
+		__TFW_STR_CHUNKN_SET(&req->multipart_boundary_raw,
+				     TFW_STR_CHUNKN(&parser->hdr) -
+				     (size_t)req->multipart_boundary_raw.ptr);
+
+		if (unlikely(__data_remain(p) == 0)) {
+			parser->_i_st = I_ContTypeParamValueOWS;
+			return CSTR_POSTPONE;
+		}
+		__FSM_I_JMP(I_ContTypeParamValueOWS);
+	}
+
+	__FSM_STATE(I_ContTypeBoundaryValueEscapedChar) {
+		if (IS_CRLF(*p))
+			return CSTR_NEQ;
+		req->multipart_boundary_raw.len += 1;
+		req->multipart_boundary.len += 1;
+		__FSM_I_MOVE_fixup(I_ContTypeBoundaryValueQuoted, 1,
+				   TFW_STR_VALUE);
+	}
+
+	__FSM_STATE(I_ContTypeParamValue) {
+		if (*p == '"')
+			__FSM_I_MOVE_fixup(I_ContTypeParamValueQuoted, 1, 0);
+		__FSM_I_JMP(I_ContTypeParamValueUnquoted);
+	}
+
+	__FSM_STATE(I_ContTypeParamValueUnquoted) {
+		__FSM_I_MATCH_MOVE_fixup(token, I_ContTypeParamValueUnquoted,
+					 TFW_STR_VALUE);
+		__FSM_I_MOVE_fixup(I_ContTypeParamValueOWS, __fsm_sz, 0);
+	}
+
+	__FSM_STATE(I_ContTypeParamValueOWS) {
+		if (IS_WS(c))
+			__FSM_I_MOVE_fixup(I_ContTypeParamValueOWS, 1, 0);
+		if (c == ';')
+			__FSM_I_MOVE_fixup(I_ContTypeParamOWS, 1, 0);
+		if (IS_CRLF(c))
+			goto finalize;
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_ContTypeParamValueQuoted) {
+		__FSM_I_MATCH_MOVE_fixup(token, I_ContTypeParamValueQuoted,
+					 TFW_STR_VALUE);
+		if (__fsm_sz > 0) {
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
+			__FSM_I_chunk_flags(TFW_STR_VALUE);
+		}
+		p += __fsm_sz;
+		if (*p == '\\')
+			__FSM_I_MOVE_fixup(I_ContTypeParamValueEscapedChar, 1,
+					   0);
+		if (*p == '"')
+			__FSM_I_MOVE_fixup(I_ContTypeParamValueOWS, 1, 0);
+		if (IS_CRLF(*p)) {
+			/* Missing closing '"'. */
+			return CSTR_NEQ;
+		}
+		/* TODO: faster qdtext/quoted-pair matcher. */
+		__FSM_I_MOVE_fixup(I_ContTypeParamValueQuoted, 1, 0);
+	}
+
+	__FSM_STATE(I_ContTypeParamValueEscapedChar) {
+		if (IS_CRLF(*p))
+			return CSTR_NEQ;
+		__FSM_I_MOVE_fixup(I_ContTypeParamValueQuoted, 1,
+				   TFW_STR_VALUE);
+	}
+
+	__FSM_STATE(I_ContTypeOtherType) {
+		__FSM_I_MATCH_MOVE_fixup(token, I_ContTypeOtherType, 0);
+		if (IS_CRLF(*(p + __fsm_sz))) {
+			p += __fsm_sz;
+			goto finalize;
+		}
+		__FSM_I_MOVE_n(I_ContTypeOtherTypeSlash, __fsm_sz);
+	}
+
+	__FSM_STATE(I_ContTypeOtherTypeSlash) {
+		if (c != '/')
+			return CSTR_NEQ;
+		__FSM_I_MOVE_fixup(I_ContTypeOtherSubtype, 1, 0);
+	}
+
+	__FSM_STATE(I_ContTypeOtherSubtype) {
+		__FSM_I_MATCH_MOVE_fixup(token, I_ContTypeOtherSubtype, 0);
+		__FSM_I_MOVE_fixup(I_ContTypeOtherTypeOWS, __fsm_sz, 0);
+	}
+
+	__FSM_STATE(I_ContTypeOtherTypeOWS) {
+		if (IS_WS(c))
+			__FSM_I_MOVE_fixup(I_ContTypeOtherTypeOWS, 1, 0);
+		if (c == ';')
+			__FSM_I_MOVE_fixup(I_ContTypeParamOWS, 1, 0);
+		if (IS_CRLF(c))
+			goto finalize;
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_EoL) {
+		__FSM_I_MATCH_MOVE_fixup(ctext_vchar, I_EoL, 0);
+		if (IS_CRLF(*(p + __fsm_sz))) {
+			p += __fsm_sz;
+			goto finalize;
+		}
+		return CSTR_NEQ;
+	}
+
+	} /* FSM END */
+done:
+	return r;
+
+finalize:
+	if (req->multipart_boundary_raw.len > 0) {
+		req->multipart_boundary_raw.ptr = (TfwStr *)parser->hdr.ptr +
+			(size_t)req->multipart_boundary_raw.ptr;
+
+		/*
+		 * Raw value of multipart boundary is going to be used during
+		 * Content-Type field composing. So to prevent memcpy'ing
+		 * intersecting buffers, we have to make a separate copy.
+		 */
+		if (__strdup_multipart_boundaries(req))
+			return CSTR_NEQ;
+	}
+
+	return __data_off(p);
 }
 
 /**
@@ -3690,9 +4045,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				   TFW_HTTP_HDR_CONTENT_LENGTH);
 
 	/* 'Content-Type:*OWS' is read, process field-value. */
-	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrContent_TypeV, I_ContType,
-				   msg, __parse_content_type,
-				   TFW_HTTP_HDR_CONTENT_TYPE);
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrContent_TypeV, I_ContType,
+				     msg, __req_parse_content_type,
+				     TFW_HTTP_HDR_CONTENT_TYPE, 0);
 
 	/* 'Host:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrHostV, Req_I_H_Start, req,
@@ -4774,7 +5129,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 
 	/* 'Content-Type:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrContent_TypeV, I_ContType,
-				   msg, __parse_content_type,
+				   msg, __resp_parse_content_type,
 				   TFW_HTTP_HDR_CONTENT_TYPE);
 
 	/* 'Date:*OWS' is read, process field-value. */

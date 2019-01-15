@@ -229,6 +229,10 @@ enum {
 	TFW_HTTP_B_CONN_EXTRA,
 	/* Chunked transfer encoding. */
 	TFW_HTTP_B_CHUNKED,
+	/* Media type is multipart/form-data. */
+	TFW_HTTP_B_CT_MULTIPART,
+	/* Multipart/form-data request have boundary parameter. */
+	TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
 	/* Singular header presents more than once. */
 	TFW_HTTP_B_FIELD_DUPENTRY,
 
@@ -369,6 +373,8 @@ typedef struct {
  * @host	- host in URI, may differ from Host header;
  * @uri_path	- path + query + fragment from URI (RFC3986.3);
  * @mark	- special hash mark for redirects handling in session module;
+ * @multipart_boundary_raw - multipart boundary as is, maybe with escaped chars;
+ * @multipart_boundary - decoded multipart boundary;
  * @fwd_list	- member in the queue of forwarded/backlogged requests;
  * @nip_list	- member in the queue of non-idempotent requests;
  * @method	- HTTP request method, one of GET/PORT/HEAD/etc;
@@ -394,6 +400,8 @@ struct tfw_http_req_t {
 	TfwStr			host;
 	TfwStr			uri_path;
 	TfwStr			mark;
+	TfwStr			multipart_boundary_raw;
+	TfwStr			multipart_boundary;
 	struct list_head	fwd_list;
 	struct list_head	nip_list;
 	unsigned char		method;
