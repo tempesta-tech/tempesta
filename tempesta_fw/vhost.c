@@ -879,6 +879,13 @@ tfw_cfgop_in_cache_bypass(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
+tfw_cfgop_in_http_post_validate(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	tfw_vhost_entry->loc_dflt->validate_post_req = 1;
+	return 0;
+}
+
+static int
 tfw_cfgop_out_cache_fulfill(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	TfwVhost *vh_dflt = tfw_vhosts_reconfig->vhost_dflt;
@@ -892,6 +899,13 @@ tfw_cfgop_out_cache_bypass(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TfwVhost *vh_dflt = tfw_vhosts_reconfig->vhost_dflt;
 	return tfw_cfgop_capolicy(cs, ce, vh_dflt->loc_dflt,
 				  TFW_D_CACHE_BYPASS);
+}
+
+static int
+tfw_cfgop_out_http_post_validate(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	tfw_vhosts_reconfig->vhost_dflt->loc_dflt->validate_post_req = 1;
+	return 0;
 }
 
 /*
@@ -1768,6 +1782,13 @@ tfw_cfgop_frang_out_http_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
+tfw_cfgop_http_post_validate(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	tfwcfg_this_location->validate_post_req = 1;
+	return 0;
+}
+
+static int
 tfw_cfgop_frang_loc_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	BUG_ON(!tfwcfg_this_location);
@@ -2121,6 +2142,13 @@ static TfwCfgSpec tfw_vhost_location_specs[] = {
 		.allow_reconfig = true,
 	},
 	{
+		.name = "http_post_validate",
+		.handler = tfw_cfgop_http_post_validate,
+		.allow_none = true,
+		.allow_repeat = false,
+		.allow_reconfig = true,
+	},
+	{
 		.name = "http_resp_code_block",
 		.handler = tfw_cfgop_frang_loc_rsp_code_block,
 		.allow_none = true,
@@ -2153,6 +2181,14 @@ static TfwCfgSpec tfw_vhost_internal_specs[] = {
 		.handler = tfw_cfgop_in_cache_fulfill,
 		.allow_none = true,
 		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "http_post_validate",
+		.deflt = NULL,
+		.handler = tfw_cfgop_in_http_post_validate,
+		.allow_none = true,
+		.allow_repeat = false,
 		.allow_reconfig = true,
 	},
 	{
@@ -2374,6 +2410,14 @@ static TfwCfgSpec tfw_vhost_specs[] = {
 		.name = "cache_fulfill",
 		.deflt = NULL,
 		.handler = tfw_cfgop_out_cache_fulfill,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "http_post_validate",
+		.deflt = NULL,
+		.handler = tfw_cfgop_out_http_post_validate,
 		.allow_none = true,
 		.allow_repeat = true,
 		.allow_reconfig = true,

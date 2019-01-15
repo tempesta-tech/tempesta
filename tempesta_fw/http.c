@@ -2115,6 +2115,58 @@ tfw_http_set_loc_hdrs(TfwHttpMsg *hm, TfwHttpReq *req)
 }
 
 /**
+ * Compose Content-Type header field from scratch.
+ *
+ * A POST-request with multipart/form-data payload need a boundary, which is
+ * supplied by a parameter in the Content-Type header field. There are strict
+ * instructions on how to parse that parameter (see RFC 7231 and RFC 7230), but
+ * application servers parse it in a non-standard way. For example, PHP checks
+ * whenever parameter name contains substring "boundary", and thus happily takes
+ * "xxboundaryxx". Such quirks are used to bypass web application firewalls.
+ *
+ * To make evasions harder, this function composes value of the Content-Type
+ * field from the parsed data. All parameters other than "boundary" are dropped.
+ */
+static int
+tfw_http_recreate_content_type_multipart_hdr(TfwHttpReq *req)
+{
+	TfwStr replacement = {
+		.ptr = (TfwStr []) {
+			TFW_STR_FROM("Content-Type"),
+			TFW_STR_FROM(": "),
+			TFW_STR_FROM("multipart/form-data; boundary="),
+			req->multipart_boundary_raw,
+		},
+		.flags = 4 << TFW_STR_CN_SHIFT,
+	};
+	TfwStr *c = replacement.ptr;
+
+	BUG_ON(!TFW_STR_PLAIN(&req->multipart_boundary_raw));
+	replacement.len = c[0].len + c[1].len + c[2].len + c[3].len;
+	return tfw_http_msg_hdr_xfrm_str((TfwHttpMsg *)req, &replacement,
+					 TFW_HTTP_HDR_CONTENT_TYPE, false);
+}
+
+static bool
+tfw_http_should_validate_post_req(TfwHttpReq *req)
+{
+	if (req->location && req->location->validate_post_req)
+		return true;
+
+	if (!req->vhost)
+		return false;
+
+	if (req->vhost->loc_dflt && req->vhost->loc_dflt->validate_post_req)
+		return true;
+
+	if (req->vhost->vhost_dflt &&
+	    req->vhost->vhost_dflt->loc_dflt->validate_post_req)
+		return true;
+
+	return false;
+}
+
+/**
  * Adjust the request before proxying it to real server.
  */
 static int
@@ -2142,6 +2194,15 @@ tfw_http_adjust_req(TfwHttpReq *req)
 	r = tfw_http_set_loc_hdrs(hm, req);
 	if (r < 0)
 		return r;
+
+	if (req->method == TFW_HTTP_METH_POST &&
+	    test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags) &&
+	    tfw_http_should_validate_post_req(req))
+	{
+		r = tfw_http_recreate_content_type_multipart_hdr(req);
+		if (r)
+			return r;
+	}
 
 	return tfw_http_set_hdr_connection(hm, BIT(TFW_HTTP_B_CONN_KA));
 }
