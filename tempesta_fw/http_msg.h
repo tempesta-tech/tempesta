@@ -42,7 +42,7 @@ const void *__tfw_http_msg_find_hdr(const TfwStr *hdr, const void *array,
 static inline void
 __tfw_http_msg_set_str_data(TfwStr *str, void *data, struct sk_buff *skb)
 {
-	str->ptr = data;
+	str->data = data;
 	str->skb = skb;
 }
 #define tfw_http_msg_set_str_data(hm, str, data)			\

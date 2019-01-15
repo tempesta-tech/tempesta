@@ -209,20 +209,23 @@ size_t tfw_ultoa(unsigned long ai, char *buf, unsigned int len);
  * @flags	- 3 most significant bytes for number of chunks of compound
  * 		  string and the least significant byte for flags;
  */
-typedef struct {
-	void		*ptr;
+typedef struct tfwstr_t {
+	union {
+		char *data;
+		struct tfwstr_t *chunks;
+	};
 	struct sk_buff	*skb;
 	unsigned long	len;
 	unsigned char	eolen;
 	unsigned int	flags;
 } TfwStr;
 
-#define DEFINE_TFW_STR(name, val) TfwStr name = { (val), NULL,		\
+#define DEFINE_TFW_STR(name, val) TfwStr name = { .data = (val), NULL, \
 						  sizeof(val) - 1, 0 }
-#define TFW_STR_FROM(s)		((TfwStr){(char*)s, NULL, strlen(s)})
+#define TFW_STR_FROM(s)		((TfwStr){.data = (char*)s, NULL, strlen(s)})
 
 /* Use this with "%.*s" in printing calls. */
-#define PR_TFW_STR(s)		(int)min(20UL, (s)->len), (char *)(s)->ptr
+#define PR_TFW_STR(s)		(int)min(20UL, (s)->len), (s)->data
 
 /* Number of chunks in @s. */
 #define TFW_STR_CHUNKN(s)	((s)->flags >> TFW_STR_CN_SHIFT)
@@ -241,7 +244,7 @@ typedef struct {
 #define TFW_STR_DUP(s)		((s)->flags & TFW_STR_DUPLICATE)
 
 /* Get @c'th chunk of @s. */
-#define __TFW_STR_CH(s, c)	((TfwStr *)(s)->ptr + (c))
+#define __TFW_STR_CH(s, c)	((s)->chunks + (c))
 #define TFW_STR_CHUNK(s, c)	(((s)->flags & __TFW_STR_COMPOUND)	\
 				 ? ((c) >= TFW_STR_CHUNKN(s)		\
 				    ? NULL				\
@@ -254,10 +257,10 @@ typedef struct {
 #define TFW_STR_CURR(s)							\
 ({									\
 	typeof(s) _tmp = TFW_STR_DUP(s)					\
-		       ? (TfwStr *)(s)->ptr + TFW_STR_CHUNKN(s) - 1	\
+		       ? (s)->chunks + TFW_STR_CHUNKN(s) - 1		\
 		       : (s);						\
 	(_tmp->flags & __TFW_STR_COMPOUND)				\
-		? (TfwStr *)_tmp->ptr + TFW_STR_CHUNKN(_tmp) - 1	\
+		? _tmp->chunks + TFW_STR_CHUNKN(_tmp) - 1		\
 		: (_tmp);						\
  })
 #define TFW_STR_LAST(s)		TFW_STR_CURR(s)
@@ -270,8 +273,8 @@ typedef struct {
 		(c) = (s);						\
 		end = (s) + 1;						\
 	} else {							\
-		(c) = (s)->ptr;						\
-		end = (TfwStr *)(s)->ptr + TFW_STR_CHUNKN(s);		\
+		(c) = (s)->chunks;					\
+		end = (s)->chunks + TFW_STR_CHUNKN(s);			\
 	}
 
 #define TFW_STR_FOR_EACH_CHUNK(c, s, end)				\
@@ -281,8 +284,8 @@ typedef struct {
 /* The same as above, but for duplicate strings. */
 #define TFW_STR_FOR_EACH_DUP(d, s, end)					\
 	if (TFW_STR_DUP(s)) {						\
-		(end) = (TfwStr *)(s)->ptr + TFW_STR_CHUNKN(s);		\
-		(d) = (s)->ptr;						\
+		(end) = (s)->chunks + TFW_STR_CHUNKN(s);		\
+		(d) = (s)->chunks;					\
 	} else {							\
 		(d) = (s);						\
 		(end) = (s) + 1;					\
@@ -298,15 +301,15 @@ tfw_str_updlen(TfwStr *s, const char *curr_p)
 	unsigned int n;
 
 	if (s->flags & __TFW_STR_COMPOUND) {
-		TfwStr *chunk = (TfwStr *)s->ptr + TFW_STR_CHUNKN(s) - 1;
+		TfwStr *chunk = s->chunks + TFW_STR_CHUNKN(s) - 1;
 
 		BUG_ON(chunk->len);
-		BUG_ON(!chunk->ptr || curr_p <= (char *)chunk->ptr);
+		BUG_ON(!chunk->data || curr_p <= chunk->data);
 
-		n = curr_p - (char *)chunk->ptr;
+		n = curr_p - chunk->data;
 		chunk->len = n;
 	} else {
-		n = curr_p - (char *)s->ptr;
+		n = curr_p - s->data;
 	}
 	s->len += n;
 }
@@ -350,9 +353,9 @@ tfw_str_fixup_eol(TfwStr *str, int eolen)
 
 	str->len -= (str->eolen = eolen);
 	if (eolen == 1)
-		*(char *)(str->ptr + str->len) = 0x0a; /* LF, '\n' */
+		*(str->data + str->len) = 0x0a; /* LF, '\n' */
 	else if (eolen == 2)
-		*(short *)(str->ptr + str->len) = 0x0a0d; /* CRLF, '\r\n' */
+		*(short *)(str->data + str->len) = 0x0a0d; /* CRLF, '\r\n' */
 }
 
 void tfw_str_del_chunk(TfwStr *str, int id);

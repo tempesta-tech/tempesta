@@ -173,7 +173,7 @@ do {									\
 	if (unlikely(__data_off(p) >= len)) {				\
 		__fsm_const_state = to; /* start from state @to next time */\
 		/* Close currently parsed field chunk. */		\
-		BUG_ON(!(field)->ptr);					\
+		BUG_ON(!(field)->data);					\
 		__msg_field_fixup(field, data + len);			\
 		__FSM_EXIT(TFW_POSTPONE);				\
 	}								\
@@ -195,7 +195,7 @@ do {									\
 	__fsm_sz = tfw_match_##alphabet(p, __fsm_n);			\
 	if (unlikely(__fsm_sz == __fsm_n)) {				\
 		/* Continue field processing on next skb. */		\
-		BUG_ON(!(field)->ptr);					\
+		BUG_ON(!(field)->data);					\
 		if (fixup_pos)						\
 			__msg_field_fixup_pos(field, p, __fsm_sz);	\
 		else							\
@@ -289,7 +289,7 @@ do {									\
  */
 #define __FSM_I_MOVE_fixup_f(to, n, field, flag)			\
 do {									\
-	BUG_ON(!(field)->ptr);						\
+	BUG_ON(!(field)->data);						\
 	__msg_field_fixup_pos(field, p, n);				\
 	__FSM_I_field_chunk_flags(field, flag);				\
 	parser->_i_st = to;						\
@@ -413,7 +413,7 @@ __FSM_STATE(st) {							\
  * Compare a mixed pair of strings with the string @str of length @str_len where
  * the first string is a part of the header @hdr which is being processed and
  * the second string is yet unhandled data of length @len starting from @p. The
- * @chunk->ptr is used to refer to the start of the first string within the
+ * @chunk->data is used to refer to the start of the first string within the
  * @hdr, while the @chunk->len is used to track gathered length.
  *
  * @str is always in lower case.
@@ -434,7 +434,7 @@ __try_str(TfwStr *hdr, TfwStr* chunk, unsigned char *p, size_t len,
 
 	len = min(len, str_len - offset);
 	if (tfw_cstricmp_2lc(p, str + offset, len) ||
-	    (chunk->len && !tfw_str_eq_cstr_pos(hdr, chunk->ptr, str,
+	    (chunk->len && !tfw_str_eq_cstr_pos(hdr, chunk->data, str,
 						chunk->len, TFW_STR_EQ_CASEI)))
 		return CSTR_NEQ;
 
@@ -644,7 +644,7 @@ __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
 	TfwStr *hdr, *append;
 	TfwHttpHbhHdrs *hbh = &hm->conn->parser.hbh_parser;
 	static const TfwStr block[] = {
-#define TfwStr_string(v) { (v), NULL, sizeof(v) - 1, 0 }
+#define TfwStr_string(v) { .data = (v), NULL, sizeof(v) - 1, 0 }
 		/* End-to-end spec and raw headers */
 		TfwStr_string("age:"),
 		TfwStr_string("authorization:"),
@@ -674,17 +674,17 @@ __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
 	}
 	else {
 		append = (TfwStr *)tfw_pool_alloc(hm->pool, sizeof(TfwStr));
-		hdr->ptr = append;
+		hdr->chunks = append;
 		__TFW_STR_CHUNKN_SET(hdr, 1);
 	}
 	if (!append)
 		return -ENOMEM;
 	append->len = len;
-	append->ptr = data;
+	append->data = data;
 	hdr->len += len;
 
 	if (last) {
-		TfwStr s_colon = { .ptr = ":", .len = 1 };
+		TfwStr s_colon = { .data = ":", .len = 1 };
 		append = tfw_str_add_compound(hm->pool, hdr);
 		if (!append)
 			return -ENOMEM;
@@ -781,8 +781,8 @@ enum {
  * @str in TRY_STR_LAMBDA must be in lower case.
  */
 #define TRY_STR_LAMBDA_finish(str, lambda, finish, state)		\
-	if (!chunk->ptr)						\
-		chunk->ptr = p;						\
+	if (!chunk->data)						\
+		chunk->data = p;					\
 	__fsm_n = __try_str(&parser->hdr, chunk, p, __data_remain(p),	\
 			    str, sizeof(str) - 1);			\
 	if (__fsm_n > 0) {						\
@@ -809,10 +809,10 @@ enum {
  */
 #define TRY_STR_LAMBDA_fixup(str, field, lambda, state)			\
 	BUG_ON(!TFW_STR_PLAIN(str));					\
-	if (!chunk->ptr)						\
-		chunk->ptr = p;						\
+	if (!chunk->data)						\
+		chunk->data = p;					\
 	__fsm_n = __try_str(field, chunk, p, __data_remain(p),		\
-			    (str)->ptr, (str)->len);			\
+			    (str)->data, (str)->len);			\
 	if (__fsm_n > 0) {						\
 		if (chunk->len == (str)->len) {				\
 			lambda;						\
@@ -835,7 +835,7 @@ __FSM_STATE(RGen_EoL) {							\
 	if (c == '\r')							\
 		__FSM_MOVE_nofixup(RGen_CR);				\
 	if (c == '\n') {						\
-		if (parser->hdr.ptr) {					\
+		if (parser->hdr.data) {					\
 			tfw_str_set_eolen(&parser->hdr, 1);		\
 			if (tfw_http_msg_hdr_close(msg, parser->_hdr_tag)) \
 				TFW_PARSER_BLOCK(RGen_EoL);		\
@@ -847,7 +847,7 @@ __FSM_STATE(RGen_EoL) {							\
 __FSM_STATE(RGen_CR) {							\
 	if (unlikely(c != '\n'))					\
 		TFW_PARSER_BLOCK(RGen_CR);				\
-	if (parser->hdr.ptr) {						\
+	if (parser->hdr.data) {						\
 		tfw_str_set_eolen(&parser->hdr, 2);			\
 		if (tfw_http_msg_hdr_close(msg, parser->_hdr_tag))	\
 			TFW_PARSER_BLOCK(RGen_CR);			\
@@ -866,13 +866,13 @@ do {									\
 	if (unlikely(c == '\r')) {					\
 		if (msg->crlf.flags & TFW_STR_COMPLETE)			\
 			__FSM_MOVE_nofixup(RGen_CRLFCR);		\
-		if (!msg->crlf.ptr)					\
+		if (!msg->crlf.data)					\
 			/* The end of the headers part. */		\
 			tfw_http_msg_set_str_data(msg, &msg->crlf, p);	\
 		__FSM_MOVE_f(RGen_CRLFCR, &msg->crlf);			\
 	}								\
 	if (c == '\n') {						\
-		if (!msg->crlf.ptr) {					\
+		if (!msg->crlf.data) {					\
 			/*						\
 			 * Set data and length explicitly for a single	\
 			 * LF w/o calling complex __msg_field_fixup().	\
@@ -895,7 +895,7 @@ __FSM_STATE(RGen_CRLFCR) {						\
 		TFW_PARSER_BLOCK(RGen_CRLFCR);				\
 	mark_spec_hbh(msg);						\
 	if (!(msg->crlf.flags & TFW_STR_COMPLETE)) {			\
-		BUG_ON(!msg->crlf.ptr);					\
+		BUG_ON(!msg->crlf.data);				\
 		__msg_field_finish(&msg->crlf, p + 1);			\
 		__FSM_JMP(RGen_BodyInit);				\
 	}								\
@@ -1410,10 +1410,10 @@ __strdup_multipart_boundaries(TfwHttpReq *req)
 	ptr_raw = data_raw;
 	ptr = data;
 	TFW_STR_FOR_EACH_CHUNK(c, &req->multipart_boundary_raw, end) {
-		memcpy_fast(ptr_raw, c->ptr, c->len);
+		memcpy_fast(ptr_raw, c->data, c->len);
 		ptr_raw += c->len;
 		if (c->flags & TFW_STR_VALUE) {
-			memcpy_fast(ptr, c->ptr, c->len);
+			memcpy_fast(ptr, c->data, c->len);
 			ptr += c->len;
 		}
 	}
@@ -1425,8 +1425,8 @@ __strdup_multipart_boundaries(TfwHttpReq *req)
 		return -1;
 	}
 
-	req->multipart_boundary_raw.ptr = data_raw;
-	req->multipart_boundary.ptr = data;
+	req->multipart_boundary_raw.data = data_raw;
+	req->multipart_boundary.data = data;
 	__TFW_STR_CHUNKN_SET(&req->multipart_boundary_raw, 0);
 	__TFW_STR_CHUNKN_SET(&req->multipart_boundary, 0);
 
@@ -1533,12 +1533,12 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		req->multipart_boundary_raw.len = 0;
 		req->multipart_boundary.len = 0;
 		/*
-		 * msg->parser.hdr.ptr can't be used as a base here, since its
+		 * msg->parser.hdr.data can't be used as a base here, since its
 		 * value can change due to reallocation during msg->parser.hdr
 		 * growth. Let's store chunk number instead for now.
 		 */
-		req->multipart_boundary_raw.ptr =
-			(void *)(size_t)TFW_STR_CHUNKN(&parser->hdr);
+		req->multipart_boundary_raw.data =
+			(char *)(size_t)TFW_STR_CHUNKN(&parser->hdr);
 		if (*p == '"') {
 			req->multipart_boundary_raw.len += 1;
 			__FSM_I_MOVE_fixup(I_ContTypeBoundaryValueQuoted, 1, 0);
@@ -1561,7 +1561,7 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		p += __fsm_sz;
 		__TFW_STR_CHUNKN_SET(&req->multipart_boundary_raw,
 				     TFW_STR_CHUNKN(&parser->hdr) -
-				     (size_t)req->multipart_boundary_raw.ptr);
+				     (size_t)req->multipart_boundary_raw.data);
 		/* __fsm_sz != __fsm_n, therefore __data_remain(p) > 0 */
 		__FSM_I_JMP(I_ContTypeParamValueOWS);
 	}
@@ -1602,7 +1602,7 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		req->multipart_boundary_raw.len += 1;
 		__TFW_STR_CHUNKN_SET(&req->multipart_boundary_raw,
 				     TFW_STR_CHUNKN(&parser->hdr) -
-				     (size_t)req->multipart_boundary_raw.ptr);
+				     (size_t)req->multipart_boundary_raw.data);
 
 		if (unlikely(__data_remain(p) == 0)) {
 			parser->_i_st = I_ContTypeParamValueOWS;
@@ -1715,8 +1715,8 @@ done:
 
 finalize:
 	if (req->multipart_boundary_raw.len > 0) {
-		req->multipart_boundary_raw.ptr = (TfwStr *)parser->hdr.ptr +
-			(size_t)req->multipart_boundary_raw.ptr;
+		req->multipart_boundary_raw.chunks = parser->hdr.chunks +
+			(size_t)req->multipart_boundary_raw.data;
 
 		/*
 		 * Raw value of multipart boundary is going to be used during
