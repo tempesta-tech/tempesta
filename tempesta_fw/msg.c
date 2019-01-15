@@ -36,7 +36,7 @@ tfw_msg_write(TfwMsgIter *it, const TfwStr *data)
 {
 	char *p;
 	const TfwStr *c, *end;
-	skb_frag_t *frag;
+	skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
 	unsigned int c_off = 0, f_size, c_size, f_room, n_copy;
 
 	BUG_ON(TFW_STR_DUP(data));
