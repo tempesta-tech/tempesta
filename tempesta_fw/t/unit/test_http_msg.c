@@ -64,7 +64,8 @@ TEST(http_msg, hdr_in_array)
 			TfwStr_string(S_PART_01),
 		},
 		.len = SLEN(S_PART_01 S_PART_02),
-		.flags = (2 << TFW_STR_CN_SHIFT) | TFW_STR_DUPLICATE,
+		.nchunks = 2,
+		.flags = TFW_STR_DUPLICATE,
 	};
 #undef TfwStr_string
 #undef S_PART_01

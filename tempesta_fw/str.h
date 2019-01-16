@@ -176,12 +176,7 @@ size_t tfw_ultoa(unsigned long ai, char *buf, unsigned int len);
  * casually from sleepable context, e.g. on configuration phase.
  * ------------------------------------------------------------------------
  */
-#define TFW_STR_FBITS		8
-#define TFW_STR_FMASK		((1U << TFW_STR_FBITS) - 1)
-#define TFW_STR_CN_SHIFT	TFW_STR_FBITS
-#define __TFW_STR_CN_MAX	(~TFW_STR_FMASK)
-/* Str is compound from many chunks, use indirect table for the chunks. */
-#define __TFW_STR_COMPOUND 	(~((1U << TFW_STR_FBITS) - 1))
+#define __TFW_STR_CN_MAX	UINT_MAX
 /*
  * Str consists from compound or plain strings.
  * Duplicate strings are also always compound on root level.
@@ -206,8 +201,8 @@ size_t tfw_ultoa(unsigned long ai, char *buf, unsigned int len);
  * @eolen	- the length of string's line endings, if present (as for now,
  *		  it should be 0 if the string has no EOL at all, 1 for LF and
  *		  2 for CRLF);
- * @flags	- 3 most significant bytes for number of chunks of compound
- * 		  string and the least significant byte for flags;
+ * @nchunks  	- number of chunks of compound string;
+ * @flags	- flags;
  */
 typedef struct tfwstr_t {
 	union {
@@ -216,37 +211,29 @@ typedef struct tfwstr_t {
 	};
 	struct sk_buff	*skb;
 	unsigned long	len;
+	unsigned int	nchunks;
+	unsigned short	flags;
 	unsigned char	eolen;
-	unsigned int	flags;
 } TfwStr;
 
-#define DEFINE_TFW_STR(name, val) TfwStr name = { .data = (val), NULL, \
-						  sizeof(val) - 1, 0 }
-#define TFW_STR_FROM(s)		((TfwStr){.data = (char*)s, NULL, strlen(s)})
+#define DEFINE_TFW_STR(name, val)	TfwStr name =			\
+	{.data = (val), NULL, sizeof(val) - 1, 0, 0, 0}
+#define TFW_STR_FROM(s)			((TfwStr){.data = (char*)s,	\
+						  NULL, strlen(s), 0, 0, 0})
 
 /* Use this with "%.*s" in printing calls. */
 #define PR_TFW_STR(s)		(int)min(20UL, (s)->len), (s)->data
 
-/* Number of chunks in @s. */
-#define TFW_STR_CHUNKN(s)	((s)->flags >> TFW_STR_CN_SHIFT)
-#define TFW_STR_CHUNKN_LIM(s)	((s)->flags >= __TFW_STR_CN_MAX)
-#define TFW_STR_CHUNKN_ADD(s, n) ((s)->flags += ((n) << TFW_STR_CN_SHIFT))
-#define TFW_STR_CHUNKN_SUB(s, n) ((s)->flags -= ((n) << TFW_STR_CN_SHIFT))
-#define __TFW_STR_CHUNKN_SET(s, n) ((s)->flags = ((s)->flags & TFW_STR_FMASK) \
-						  | ((n) << TFW_STR_CN_SHIFT))
-/* Compound string contains at least 2 chunks. */
-#define TFW_STR_CHUNKN_INIT(s)	__TFW_STR_CHUNKN_SET(s, 2)
-
 #define TFW_STR_INIT(s)		memset(s, 0, sizeof(TfwStr))
 
-#define TFW_STR_EMPTY(s)	(!((s)->flags | (s)->len))
-#define TFW_STR_PLAIN(s)	(!((s)->flags & __TFW_STR_COMPOUND))
+#define TFW_STR_EMPTY(s)	(!((s)->nchunks | (s)->len))
+#define TFW_STR_PLAIN(s)	(!((s)->nchunks))
 #define TFW_STR_DUP(s)		((s)->flags & TFW_STR_DUPLICATE)
 
 /* Get @c'th chunk of @s. */
 #define __TFW_STR_CH(s, c)	((s)->chunks + (c))
-#define TFW_STR_CHUNK(s, c)	(((s)->flags & __TFW_STR_COMPOUND)	\
-				 ? ((c) >= TFW_STR_CHUNKN(s)		\
+#define TFW_STR_CHUNK(s, c)	(!TFW_STR_PLAIN(s)			\
+				 ? ((c) >= (s)->nchunks			\
 				    ? NULL				\
 				    : __TFW_STR_CH(s, (c)))		\
 				 : (!(c) ? s : NULL))
@@ -257,10 +244,10 @@ typedef struct tfwstr_t {
 #define TFW_STR_CURR(s)							\
 ({									\
 	typeof(s) _tmp = TFW_STR_DUP(s)					\
-		       ? (s)->chunks + TFW_STR_CHUNKN(s) - 1		\
+		       ? (s)->chunks + (s)->nchunks - 1			\
 		       : (s);						\
-	(_tmp->flags & __TFW_STR_COMPOUND)				\
-		? _tmp->chunks + TFW_STR_CHUNKN(_tmp) - 1		\
+	!TFW_STR_PLAIN(_tmp)						\
+		? _tmp->chunks + _tmp->nchunks - 1			\
 		: (_tmp);						\
  })
 #define TFW_STR_LAST(s)		TFW_STR_CURR(s)
@@ -274,7 +261,7 @@ typedef struct tfwstr_t {
 		end = (s) + 1;						\
 	} else {							\
 		(c) = (s)->chunks;					\
-		end = (s)->chunks + TFW_STR_CHUNKN(s);			\
+		end = (s)->chunks + (s)->nchunks;			\
 	}
 
 #define TFW_STR_FOR_EACH_CHUNK(c, s, end)				\
@@ -284,7 +271,7 @@ typedef struct tfwstr_t {
 /* The same as above, but for duplicate strings. */
 #define TFW_STR_FOR_EACH_DUP(d, s, end)					\
 	if (TFW_STR_DUP(s)) {						\
-		(end) = (s)->chunks + TFW_STR_CHUNKN(s);		\
+		(end) = (s)->chunks + (s)->nchunks;			\
 		(d) = (s)->chunks;					\
 	} else {							\
 		(d) = (s);						\
@@ -300,8 +287,8 @@ tfw_str_updlen(TfwStr *s, const char *curr_p)
 {
 	unsigned int n;
 
-	if (s->flags & __TFW_STR_COMPOUND) {
-		TfwStr *chunk = s->chunks + TFW_STR_CHUNKN(s) - 1;
+	if (!TFW_STR_PLAIN(s)) {
+		TfwStr *chunk = s->chunks + (s)->nchunks - 1;
 
 		BUG_ON(chunk->len);
 		BUG_ON(!chunk->data || curr_p <= chunk->data);
