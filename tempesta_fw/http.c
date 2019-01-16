@@ -130,7 +130,7 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 		},
 		.len = SLEN(S_200_PART_01 S_V_DATE S_200_PART_02 S_DEF_PART_03
 			    S_CRLF),
-		.flags = 6 << TFW_STR_CN_SHIFT
+		.nchunks = 6
 	},
 	/* Response has invalid syntax, client shouldn't repeat it. */
 	[RESP_400] = {
@@ -144,7 +144,7 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 		},
 		.len = SLEN(S_400_PART_01 S_V_DATE S_400_PART_02 S_DEF_PART_03
 			    S_CRLF),
-		.flags = 6 << TFW_STR_CN_SHIFT
+		.nchunks = 6
 	},
 	/* Response is syntactically valid, but refuse to authorize it. */
 	[RESP_403] = {
@@ -158,7 +158,7 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 		},
 		.len = SLEN(S_403_PART_01 S_V_DATE S_403_PART_02 S_DEF_PART_03
 			    S_CRLF),
-		.flags = 6 << TFW_STR_CN_SHIFT
+		.nchunks = 6
 	},
 	/* Can't find the requested resource. */
 	[RESP_404] = {
@@ -172,7 +172,7 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 		},
 		.len = SLEN(S_404_PART_01 S_V_DATE S_404_PART_02 S_DEF_PART_03
 			    S_CRLF),
-		.flags = 6 << TFW_STR_CN_SHIFT
+		.nchunks = 6
 	},
 	[RESP_412] = {
 		.chunks = (TfwStr []){
@@ -185,7 +185,7 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 		},
 		.len = SLEN(S_412_PART_01 S_V_DATE S_412_PART_02 S_DEF_PART_03
 			    S_CRLF),
-		.flags = 6 << TFW_STR_CN_SHIFT
+		.nchunks = 6
 	},
 	/* Internal error in TempestaFW. */
 	[RESP_500] = {
@@ -199,7 +199,7 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 		},
 		.len = SLEN(S_500_PART_01 S_V_DATE S_500_PART_02 S_DEF_PART_03
 			    S_CRLF),
-		.flags = 6 << TFW_STR_CN_SHIFT
+		.nchunks = 6
 	},
 	/* Error (syntax or network) while receiving request from backend. */
 	[RESP_502] = {
@@ -213,7 +213,7 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 		},
 		.len = SLEN(S_502_PART_01 S_V_DATE S_502_PART_02 S_DEF_PART_03
 			    S_CRLF),
-		.flags = 6 << TFW_STR_CN_SHIFT
+		.nchunks = 6
 	},
 	/*
 	 * Sticky cookie or JS challenge failed, refuse to serve the client.
@@ -231,7 +231,7 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 		},
 		.len = SLEN(S_503_PART_01 S_V_DATE S_503_PART_02 S_DEF_PART_03
 			    S_CRLF),
-		.flags = 6 << TFW_STR_CN_SHIFT
+		.nchunks = 6
 	},
 	/* Can't get a response in time. */
 	[RESP_504] = {
@@ -245,7 +245,7 @@ static TfwStr http_predef_resps[RESP_NUM] = {
 		},
 		.len = SLEN(S_504_PART_01 S_V_DATE S_504_PART_02 S_DEF_PART_03
 			    S_CRLF),
-		.flags = 6 << TFW_STR_CN_SHIFT
+		.nchunks = 6
 	}
 };
 
@@ -372,7 +372,7 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *rmark,
 			{ .data = S_REDIR_GEN, .len = SLEN(S_REDIR_GEN) }
 		},
 		.len = SLEN(S_0 S_REDIR_GEN) + 3,
-		.flags = 3 << TFW_STR_CN_SHIFT
+		.nchunks = 3
 	};
 	TfwStr h_common_1 = {
 		.chunks = (TfwStr []){
@@ -381,7 +381,7 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *rmark,
 			{ .data = S_REDIR_P_02, .len = SLEN(S_REDIR_P_02) }
 		},
 		.len = SLEN(S_REDIR_P_01 S_V_DATE S_REDIR_P_02),
-		.flags = 3 << TFW_STR_CN_SHIFT
+		.nchunks = 3
 	};
 	static TfwStr h_common_2 = {
 		.data = S_REDIR_P_03, .len = SLEN(S_REDIR_P_03) };
@@ -606,7 +606,7 @@ __tfw_http_send_resp(TfwHttpReq *req, resp_code_t code)
 	TfwStr msg = {
 		.chunks = (TfwStr []){ {}, {}, {}, {}, {}, {} },
 		.len = 0,
-		.flags = 6 << TFW_STR_CN_SHIFT
+		.nchunks = 6
 	};
 
 	if (tfw_strcpy_desc(&msg, &http_predef_resps[code]))
@@ -637,7 +637,7 @@ __tfw_http_send_resp(TfwHttpReq *req, resp_code_t code)
 	date->data = *this_cpu_ptr(&g_buf);
 	tfw_http_prep_date(date->data);
 	if (!body->data)
-		__TFW_STR_CHUNKN_SET(&msg, 5);
+		msg.nchunks = 5;
 
 	if (tfw_msg_write(&it, &msg))
 		goto err_setup;
@@ -2062,7 +2062,7 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 		},
 		.len = SLEN(S_VIA) + 4 + g_vhost->hdr_via_len,
 		.eolen = 2,
-		.flags = 3 << TFW_STR_CN_SHIFT
+		.nchunks = 3
 #undef S_VIA
 	};
 
@@ -2146,7 +2146,7 @@ tfw_http_recreate_content_type_multipart_hdr(TfwHttpReq *req)
 			TFW_STR_FROM("multipart/form-data; boundary="),
 			req->multipart_boundary_raw,
 		},
-		.flags = 4 << TFW_STR_CN_SHIFT,
+		.nchunks = 4,
 	};
 	TfwStr *c = replacement.chunks;
 
@@ -3994,7 +3994,7 @@ tfw_http_msg_body_dup(const char *filename, size_t *len)
 			{ .data = S_CRLFCRLF, .len = SLEN(S_CRLFCRLF) },
 		},
 		.len = SLEN(S_F_CONTENT_LENGTH S_CRLFCRLF),
-		.flags = 3 << TFW_STR_CN_SHIFT
+		.nchunks = 3
 	};
 	size_t b_off;
 
@@ -4019,7 +4019,7 @@ tfw_http_config_resp_body(int status_code, const char *filename)
 			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
 		},
 		.len = SLEN(S_CRLF S_F_CONTENT_LENGTH S_CRLF),
-		.flags = 3 << TFW_STR_CN_SHIFT
+		.nchunks = 3
 	};
 
 	if (!(cl = __tfw_http_msg_body_dup(filename, &c_len_hdr, &sz, &b_off)))

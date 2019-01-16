@@ -49,7 +49,7 @@ tfw_http_msg_make_hdr(TfwPool *pool, const char *name, const char *val)
 		},
 		.len = n_len + SLEN(S_DLM) + v_len,
 		.eolen = 2,
-		.flags = (val ? 3 : 2) << TFW_STR_CN_SHIFT
+		.nchunks = (val ? 3 : 2)
 	};
 
 	return tfw_strdup(pool, &tmp_hdr);
@@ -216,7 +216,7 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 	 * we get an empty string with val->len = 0 and val->data from the
 	 * last name's chunk, but it is unimportant.
 	 */
-	for (c = hdr->chunks, end = hdr->chunks + TFW_STR_CHUNKN(hdr);
+	for (c = hdr->chunks, end = hdr->chunks + hdr->nchunks;
 	     c < end; ++c)
 	{
 		BUG_ON(!c->len);
@@ -240,8 +240,8 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 			val->chunks = c;
 			return;
 		}
-		BUG_ON(TFW_STR_CHUNKN(val) < 1);
-		TFW_STR_CHUNKN_SUB(val, 1);
+		BUG_ON(val->nchunks < 1);
+		val->nchunks--;
 	}
 
 	/* Empty header value part. */
@@ -686,7 +686,7 @@ tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid,
 				{ .data = s_val->data,	.len = s_val->len }
 			},
 			.len = s_val->len + 2,
-			.flags = 2 << TFW_STR_CN_SHIFT
+			.nchunks = 2
 		};
 		return __hdr_expand(hm, orig_hdr, &hdr_app, true);
 	}
@@ -709,7 +709,7 @@ tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 		},
 		.len = n_len + SLEN(S_DLM) + v_len,
 		.eolen = 2,
-		.flags = (val ? 3 : 2) << TFW_STR_CN_SHIFT
+		.nchunks = (val ? 3 : 2)
 	};
 
 	BUG_ON(!val && v_len);
