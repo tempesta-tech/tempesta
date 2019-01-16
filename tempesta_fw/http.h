@@ -23,14 +23,13 @@
 
 #include <crypto/sha.h>
 
+#include "http_types.h"
 #include "connection.h"
 #include "gfsm.h"
 #include "msg.h"
 #include "server.h"
 #include "str.h"
 #include "vhost.h"
-
-typedef struct tfw_http_sess_t TfwHttpSess;
 
 /**
  * HTTP Generic FSM states.
@@ -77,7 +76,7 @@ enum {
 	/* Whole response is read. */
 	TFW_HTTP_FSM_RESP_MSG		= TFW_GFSM_HTTP_STATE(4),
 
-	/* Run just before localy generated response sending. */
+	/* Run just before locally generated response sending. */
 	TFW_HTTP_FSM_LOCAL_RESP_FILTER	= TFW_GFSM_HTTP_STATE(5),
 
 	TFW_HTTP_FSM_RESP_MSG_FWD	= TFW_GFSM_HTTP_STATE(6),
@@ -177,7 +176,7 @@ typedef struct {
  * Cookie: singular according to RFC 6265 5.4.
  *
  * TODO split the enumeration to separate server and client sets to avoid
- * vasting of headers array slots.
+ * wasting of headers array slots.
  */
 typedef enum {
 	TFW_HTTP_HDR_HOST,
@@ -204,91 +203,29 @@ typedef enum {
 	TFW_HTTP_HDR_NUM	= 16,
 } tfw_http_hdr_t;
 
-typedef struct {
-	unsigned int	size;	/* number of elements in the table */
-	unsigned int	off;
-	TfwStr		tbl[0];
-} TfwHttpHdrTbl;
-
-#define __HHTBL_SZ(o)			(TFW_HTTP_HDR_NUM * (o))
-#define TFW_HHTBL_EXACTSZ(s)		(sizeof(TfwHttpHdrTbl)		\
-					 + sizeof(TfwStr) * (s))
-#define TFW_HHTBL_SZ(o)			TFW_HHTBL_EXACTSZ(__HHTBL_SZ(o))
-
-/** Maximum of hop-by-hop tokens listed in Connection header. */
-#define TFW_HBH_TOKENS_MAX		16
-
-/**
- * Non-cacheable hop-by-hop headers in terms of RFC 7230.
- *
- * We don't store the headers in cache and create them from scratch if needed.
- * Adding a header is faster then modify it, so this speeds up headers
- * adjusting as well as saves cache storage.
- *
- * Headers unconditionaly treated as hop-by-hop must be listed in
- * tfw_http_init_parser_req()/tfw_http_init_parser_resp() functions and must be
- * members of Special headers.
- * group.
- *
- * @spec	- bit array for special headers. Hop-by-hop special header is
- *		  stored as (0x1 << tfw_http_hdr_t[hid]);
- * @raw		- table of raw headers names, parsed form connection field;
- * @off		- offset of last added raw header name;
- */
-typedef struct {
-	unsigned int	spec;
-	unsigned int	off;
-	TfwStr		raw[TFW_HBH_TOKENS_MAX];
-} TfwHttpHbhHdrs;
-
-/**
- * We use goto/switch-driven automaton, so compiler typically generates binary
- * search code over jump labels, so it gives log(N) lookup complexity where
- * N is number of states. However, DFA for full HTTP processing can be quite
- * large and log(N) becomes expensive and hard to code.
- *
- * So we use states space splitting to avoid states explosion.
- * @_i_st is used to save current state and go to interior sub-automaton
- * (e.g. process OWS using @state while current state is saved in @_i_st
- * or using @_i_st parse value of a header described.
- *
- * @_cnt	- currently the count of hex digits in a body chunk size;
- * @to_go	- remaining number of bytes to process in the data chunk;
- *		  (limited by single packet size and never exceeds 64KB)
- * @state	- current parser state;
- * @_i_st	- helping (interior) state;
- * @to_read	- remaining number of bytes to read;
- * @_hdr_tag	- stores header id which must be closed on generic EoL handling
- *		  (see RGEN_EOL());
- * @_acc	- integer accumulator for parsing chunked integers;
- * @_tmp_chunk	- currently parsed (sub)string, possibly chunked;
- * @hdr		- currently parsed header.
- * @hbh_parser	- list of special and raw headers names to be treated as
- *		  hop-by-hop
- * @_date	- currently parsed http date value;
- */
-typedef struct {
-	unsigned short	to_go;
-	unsigned short	_cnt;
-	unsigned int	_hdr_tag;
-	int		state;
-	int		_i_st;
-	long		to_read;
-	unsigned long	_acc;
-	time_t		_date;
-	TfwStr		_tmp_chunk;
-	TfwStr		hdr;
-	TfwHttpHbhHdrs	hbh_parser;
-} TfwHttpParser;
-
 enum {
 	/* Common flags for requests and responses. */
 	TFW_HTTP_FLAGS_COMMON	= 0,
-	/* 'Connection:' header contains 'close'. */
+	/*
+	 * Connection management flags.
+	 *
+	 * CONN_CLOSE: the connection is to be closed after response is
+	 * forwarded to the client. Set if:
+	 * - 'Connection:' header contains 'close' term;
+	 * - there is no possibility to serve further requests from the same
+	 * connection due to errors or protocol restrictions.
+	 *
+	 * CONN_KA: 'Connection:' header contains 'keep-alive' term. The flag
+	 * is not set for HTTP/1.1 connections which are persistent by default.
+	 * CONN_EXTRA: 'Connection:' header contains additional terms.
+	 *
+	 * There is no requirement for mutual exclusivity for CONN_CLOSE and
+	 * CONN_KA flags, their meaning is not limited by connection
+	 * persistence and states about 'Connection:' header value. CONN_CLOSE
+	 * always takes precedence over CONN_KA flag.
+	 */
 	TFW_HTTP_B_CONN_CLOSE	= TFW_HTTP_FLAGS_COMMON,
-	/* 'Connection:' header contains 'keep-alive'. */
 	TFW_HTTP_B_CONN_KA,
-	/* 'Connection:' header contains additional terms. */
 	TFW_HTTP_B_CONN_EXTRA,
 	/* Chunked transfer encoding. */
 	TFW_HTTP_B_CHUNKED,
@@ -330,30 +267,10 @@ enum {
 	_TFW_HTTP_FLAGS_NUM
 };
 
-#define TFW_HTTP_F_CONN_CLOSE		(1U << TFW_HTTP_B_CONN_CLOSE)
-#define TFW_HTTP_F_CONN_KA		(1U << TFW_HTTP_B_CONN_KA)
-#define __TFW_HTTP_MSG_M_CONN_MASK	\
-	(TFW_HTTP_F_CONN_KA | TFW_HTTP_F_CONN_CLOSE)
-#define TFW_HTTP_F_CONN_EXTRA		(1U << TFW_HTTP_B_CONN_EXTRA)
-#define TFW_HTTP_F_CHUNKED		(1U << TFW_HTTP_B_CHUNKED)
-#define TFW_HTTP_F_FIELD_DUPENTRY	(1U << TFW_HTTP_B_FIELD_DUPENTRY)
+#define __TFW_HTTP_MSG_M_CONN						\
+	(BIT(TFW_HTTP_B_CONN_CLOSE) | BIT(TFW_HTTP_B_CONN_KA))
 
-#define TFW_HTTP_F_HAS_STICKY		(1U << TFW_HTTP_B_HAS_STICKY)
-#define TFW_HTTP_F_URI_FULL		(1U << TFW_HTTP_B_URI_FULL)
-#define TFW_HTTP_F_NON_IDEMP		(1U << TFW_HTTP_B_NON_IDEMP)
-#define TFW_HTTP_F_SUSPECTED		(1U << TFW_HTTP_B_SUSPECTED)
-#define TFW_HTTP_F_ACCEPT_HTML		(1U << TFW_HTTP_B_ACCEPT_HTML)
-#define TFW_HTTP_F_HMONITOR		(1U << TFW_HTTP_B_HMONITOR)
-#define TFW_HTTP_F_WHITELIST		(1U << TFW_HTTP_B_WHITELIST)
-#define TFW_HTTP_F_REQ_DROP		(1U << TFW_HTTP_B_REQ_DROP)
-
-#define TFW_HTTP_F_VOID_BODY		(1U << TFW_HTTP_B_VOID_BODY)
-#define TFW_HTTP_F_HDR_DATE		(1U << TFW_HTTP_B_HDR_DATE)
-#define TFW_HTTP_F_HDR_LMODIFIED	(1U << TFW_HTTP_B_HDR_LMODIFIED)
-#define TFW_HTTP_F_RESP_STALE		(1U << TFW_HTTP_B_RESP_STALE)
-#define TFW_HTTP_F_RESP_READY		(1U << TFW_HTTP_B_RESP_READY)
-
-/*
+/**
  * The structure to hold data for an HTTP error response.
  * An error response is sent later in an unlocked queue context.
  *
@@ -363,11 +280,7 @@ enum {
 typedef struct {
 	const char	*reason;
 	unsigned short	status;
-}TfwHttpError;
-
-typedef struct tfw_http_msg_t	TfwHttpMsg;
-typedef struct tfw_http_req_t	TfwHttpReq;
-typedef struct tfw_http_resp_t	TfwHttpResp;
+} TfwHttpError;
 
 /**
  * Common HTTP message members.
@@ -375,7 +288,6 @@ typedef struct tfw_http_resp_t	TfwHttpResp;
  * @msg			- the base data of an HTTP message;
  * @pool		- message's memory allocation pool;
  * @h_tbl		- table of message's HTTP headers in internal form;
- * @parser		- parser state data while a message is parsed;
  * @httperr		- HTTP error data used to form an error response;
  * @pair		- the message paired with this one;
  * @req			- the request paired with this response;
@@ -395,14 +307,6 @@ typedef struct tfw_http_resp_t	TfwHttpResp;
  *
  * TfwStr members must be the last for efficient scanning.
  *
- * NOTE: The space taken by @parser member is shared with @httperr member.
- * When a message results in an error, the parser state data is not used
- * anymore, so this is safe. The reason for reuse is that it's imperative
- * that saving the error data succeeds. If it fails, that will lead to
- * a request without a response - a hole in @seq_queue. Alternatively,
- * memory allocation from pool may fail, even if that's a rare case.
- * BUILD_BUG_ON() is used in tfw_http_init() to ensure that @httperr
- * doesn't make the whole structure bigger.
  */
 #define TFW_HTTP_MSG_COMMON						\
 	TfwMsg		msg;						\
@@ -413,19 +317,22 @@ typedef struct tfw_http_resp_t	TfwHttpResp;
 		TfwHttpReq	*req;					\
 		TfwHttpResp	*resp;					\
 	};								\
-	union {								\
-		TfwHttpParser	parser;					\
-		TfwHttpError	httperr;				\
-	};								\
+	TfwHttpError	httperr;					\
 	TfwCacheControl	cache_ctl;					\
 	unsigned char	version;					\
-	unsigned int	flags;						\
-	unsigned long	content_length;					\
 	unsigned int	keep_alive;					\
+	unsigned long	content_length;					\
+	DECLARE_BITMAP	(flags, _TFW_HTTP_FLAGS_NUM);			\
 	TfwConn		*conn;						\
 	void (*destructor)(void *msg);					\
 	TfwStr		crlf;						\
 	TfwStr		body;
+
+static inline void
+tfw_http_copy_flags(unsigned long *to, unsigned long *from)
+{
+	bitmap_copy(to, from, _TFW_HTTP_FLAGS_NUM);
+}
 
 /**
  * A helper structure for operations common for requests and responses.
@@ -594,15 +501,8 @@ tfw_http_resp_code_range(const int n)
 
 typedef void (*tfw_http_cache_cb_t)(TfwHttpMsg *);
 
-/* Internal (parser) HTTP functions. */
-void tfw_http_init_parser_req(TfwHttpReq *req);
-void tfw_http_init_parser_resp(TfwHttpResp *resp);
-int tfw_http_parse_req(void *req_data, unsigned char *data, size_t len);
-int tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len);
-bool tfw_http_parse_terminate(TfwHttpMsg *hm);
-
 /* External HTTP functions. */
-int tfw_http_msg_process(void *conn, const TfwFsmData *data);
+int tfw_http_msg_process(void *conn, TfwFsmData *data);
 unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
 void tfw_http_req_destruct(void *msg);
 void tfw_http_resp_fwd(TfwHttpResp *resp);
@@ -615,7 +515,7 @@ void tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len);
  */
 int tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status,
 			   TfwStr *rmark, TfwStr *cookie, TfwStr *body);
-int tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, void *msg_it,
+int tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, TfwMsgIter *msg_it,
 		      size_t hdrs_size);
 void tfw_http_send_resp(TfwHttpReq *req, int status, const char *reason);
 

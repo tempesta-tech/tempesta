@@ -1,5 +1,5 @@
 /**
- *		Tempesta kernel libarary
+ *		Tempesta kernel library
  *
  * Copyright (C) 2018 Tempesta Technologies, INC.
  *
@@ -19,6 +19,8 @@
  */
 #ifndef __LIB_STR_H__
 #define __LIB_STR_H__
+
+#include <linux/types.h>
 
 void memcpy_fast(void *to, const void *from, size_t len);
 /*

@@ -18,6 +18,7 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <linux/types.h>
 #include <asm/fpu/api.h>
 
 #undef tfw_sock_srv_init
@@ -114,7 +115,7 @@ test_sg_release_all_reconfig(void)
 
 	down_write(sg_sem);
 
-	/* Copy of hash_for_each_safe() which needs localy defined hash. */
+	/* Copy of hash_for_each_safe() which needs locally defined hash. */
         for ( ; !sg && i < (1 << TFW_SG_HBITS); i++) {
                 hlist_for_each_entry_safe(sg, tmp, &sg_hash_reconfig[i],
 					  list_reconfig)

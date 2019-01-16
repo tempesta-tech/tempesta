@@ -12,7 +12,7 @@
  * challenge), safe load balancing for session oriented Web apps and so on.
  * The term 'Client' is actually vague. Different human clients can be behind
  * shared proxy having the same source IP (i.e. the same TfwClient descriptor).
- * The same human client can use differnt browsers, so they send different
+ * The same human client can use different browsers, so they send different
  * User-Agent headers and use different sticky cookies. X-Forwarded-For header
  * value can be used to cope the non anonymous forward proxy problem and
  * identify real clients.
@@ -60,7 +60,7 @@
  * @name		- name of sticky cookie;
  * @name_eq		- @name plus "=" to make some operations faster;
  * @sess_lifetime	- session lifetime in seconds;
- * @max_misses		- maximum count of requsts with invalid cookie;
+ * @max_misses		- maximum count of requests with invalid cookie;
  * @tmt_sec		- maximum time (in seconds) to wait the request
  *			  with valid cookie;
  */
@@ -155,13 +155,13 @@ static const unsigned short tfw_cfg_redirect_st_code_dflt = 302;
  * 'Accept: text/html' and GET method.
  */
 static bool
-tfw_http_sticky_redirect_apllied(TfwHttpReq *req)
+tfw_http_sticky_redirect_applied(TfwHttpReq *req)
 {
 	if (!tfw_cfg_js_ch)
 		return true;
 
 	return (req->method == TFW_HTTP_METH_GET)
-		&& (req->flags & TFW_HTTP_F_ACCEPT_HTML);
+		&& test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
 }
 
 /*
@@ -221,7 +221,7 @@ tfw_http_sticky_send_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 	 * Non-challengeable requests also must be rate limited.
 	 */
 
-	if (!tfw_http_sticky_redirect_apllied(req))
+	if (!tfw_http_sticky_redirect_applied(req))
 		return TFW_HTTP_SESS_JS_NOT_SUPPORTED;
 
 	if (!(resp = tfw_http_msg_alloc_resp_light(req)))
@@ -236,8 +236,8 @@ tfw_http_sticky_send_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 	 * 	<timestamp> | HMAC(Secret, User-Agent, timestamp, Client IP)
 	 *
 	 * Open <timestamp> is required to be able to recalculate secret HMAC.
-	 * Since the secret is unknown for the attacker, they're still unable to
-	 * recalculate HMAC while we don't need to store session information
+	 * Since the secret is unknown for the attackers, they're still unable
+	 * to recalculate HMAC while we don't need to store session information
 	 * until we receive correct cookie value.
 	 */
 	bin2hex(c_buf, &ts_be64, sizeof(ts_be64));
@@ -724,7 +724,7 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 		return r;
 
 	/* Sticky cookie is found and verified, now we can set the flag. */
-	req->flags |= TFW_HTTP_F_HAS_STICKY;
+	__set_bit(TFW_HTTP_B_HAS_STICKY, req->flags);
 
 	return r;
 }
@@ -791,8 +791,11 @@ tfw_http_sess_resp_process(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
 
-	if (!tfw_cfg_sticky.enabled || req->flags & TFW_HTTP_F_WHITELIST)
+	if (!tfw_cfg_sticky.enabled
+	    || test_bit(TFW_HTTP_B_WHITELIST, req->flags))
+	{
 		return 0;
+	}
 	BUG_ON(!req->sess);
 
 	/*
@@ -801,7 +804,7 @@ tfw_http_sess_resp_process(TfwHttpResp *resp)
 	 * it seems that we don't enforce them, we can just set the cookie in
 	 * each response forwarded to the client.
 	 */
-	if (req->flags & TFW_HTTP_F_HAS_STICKY)
+	if (test_bit(TFW_HTTP_B_HAS_STICKY, req->flags))
 		return 0;
 	return tfw_http_sticky_add(resp);
 }
@@ -887,7 +890,7 @@ tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 	if (time_in_range(req->jrxtstamp, min_time, max_time))
 		return 0;
 
-	if (tfw_http_sticky_redirect_apllied(req)) {
+	if (tfw_http_sticky_redirect_applied(req)) {
 		TFW_DBG("sess: jsch block: request received outside allowed "
 			"time range.\n");
 		return TFW_HTTP_SESS_VIOLATE;
@@ -913,8 +916,11 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	struct hlist_node *tmp;
 	StickyVal sv = { };
 
-	if (!tfw_cfg_sticky.enabled || req->flags & TFW_HTTP_F_WHITELIST)
+	if (!tfw_cfg_sticky.enabled
+	    || test_bit(TFW_HTTP_B_WHITELIST, req->flags))
+	{
 		return TFW_HTTP_SESS_SUCCESS;
+	}
 
 	if ((r = tfw_http_sticky_req_process(req, &sv)))
 		return r;
@@ -1057,7 +1063,7 @@ tfw_http_sess_pin_srv(TfwStickyConn *st_conn, TfwSrvConn *srv_conn)
 }
 
 /**
- * Find an outgoing connection for client with tempesta sticky cookie.
+ * Find an outgoing connection for client with Tempesta sticky cookie.
  * @sess is not null when calling the function.
  *
  * Reuse req->sess->st_conn.srv_conn if it is alive. If not,

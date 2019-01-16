@@ -68,7 +68,7 @@ static const TfwStr tfw_cache_raw_headers_304[] = {
 /*
  * @trec	- Database record descriptor;
  * @key_len	- length of key (URI + Host header);
- * @status_len	- length of response satus line;
+ * @status_len	- length of response status line;
  * @hdr_num	- number of headers;
  * @hdr_len	- length of whole headers data;
  * @hdr_len_304	- length of headers data used to build 304 response;
@@ -80,7 +80,7 @@ static const TfwStr tfw_cache_raw_headers_304[] = {
  * @resp_time	- the time the response was received;
  * @lifetime	- the cache entry's current lifetime;
  * @last_modified - the value of response Last-Modified: header field;
- * @key		- the cache enty key (URI + Host header);
+ * @key		- the cache entry key (URI + Host header);
  * @status	- pointer to status line  (with trailing CRLFs);
  * @hdrs	- pointer to list of HTTP headers (with trailing CRLFs);
  * @body	- pointer to response body (with a prepending CRLF);
@@ -111,9 +111,9 @@ typedef struct {
 	long		hdrs;
 	long		body;
 	long		hdrs_304[TFW_CACHE_304_HDRS_NUM];
+	DECLARE_BITMAP	(hmflags, _TFW_HTTP_FLAGS_NUM);
 	unsigned char	version;
 	unsigned short	resp_status;
-	unsigned int	hmflags;
 	TfwStr		etag;
 } TfwCacheEntry;
 
@@ -171,7 +171,7 @@ typedef struct {
 static CaNode c_nodes[MAX_NUMNODES];
 
 /*
- * TODO the thread doesn't do anythng for now, however, kthread_stop() crashes
+ * TODO the thread doesn't do anything for now, however, kthread_stop() crashes
  * on restarts, so comment to logic out.
  */
 #if 0
@@ -205,7 +205,7 @@ static TfwStr g_crlf = { .ptr = S_CRLF, .len = SLEN(S_CRLF) };
  * The mask of non-cacheable methods per RFC 7231 4.2.3.
  * Safe methods that do not depend on a current or authoritative response
  * are defined as cacheable: GET, HEAD, and POST.
- * Note: caching of POST method responces is not supported at this time.
+ * Note: caching of POST method responses is not supported at this time.
  * Issue #506 describes, which steps must be made to support caching of POST
  * requests.
  */
@@ -356,7 +356,7 @@ tfw_cache_employ_req(TfwHttpReq *req)
 		 * response is successfully validated."
 		 *
 		 * We can validate the stored response and serve request from
-		 * cache. This reduses traffic to origin server.
+		 * cache. This reduces traffic to origin server.
 		 */
 		return false;
 
@@ -549,7 +549,7 @@ tfw_cache_write_field(TDB *db, TdbVRec **trec, TfwHttpResp *resp,
 			    (long)(len - copied));
 		r = hdr
 		    ? tfw_http_msg_add_data(it, (TfwHttpMsg *)resp, hdr, &c)
-		    : tfw_http_msg_write(it, (TfwHttpMsg *)resp, &c);
+		    : tfw_msg_write(it, &c);
 		if (r)
 			return r;
 
@@ -621,7 +621,7 @@ tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwStr *hdr,
  * Last-Modified might be used if the response does not have an ETag field.
  *
  * The 304 response should be as short as possible, we don't need to add
- * extra headers with tfw_http_adjust_resp(). Use quicker tfw_http_msg_write()
+ * extra headers with tfw_http_adjust_resp(). Use quicker tfw_msg_write()
  * instead of tfw_http_msg_add_data() used to build full response.
  */
 static void
@@ -658,7 +658,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 			goto err_setup;
 	}
 
-	if (tfw_http_msg_write(&it, (TfwHttpMsg *)resp, &g_crlf))
+	if (tfw_msg_write(&it, &g_crlf))
 		goto err_setup;
 
 	tfw_http_resp_fwd(resp);
@@ -785,7 +785,7 @@ tfw_cache_dbce_get(TDB *db, TdbIter *iter, TfwHttpReq *req)
 	}
 	/*
 	 * Cache may store one or more responses to the effective Request URI.
-	 * Basicaly, it is suffitient to store only the most recent response and
+	 * Basically, it is sufficient to store only the most recent response and
 	 * remove other representations from cache. (RFC 7234 4: When more than
 	 * one suitable response is stored, a cache MUST use the most recent
 	 * response) But there are still some cases when it is needed to store
@@ -848,7 +848,7 @@ tfw_cache_str_write_hdr(const TfwStr *str, char *p)
  * @return number of copied bytes (@src length).
  *
  * The function copies part of some large data of length @tot_len,
- * so it tries to minimize total number of allocations regardles
+ * so it tries to minimize total number of allocations regardless
  * how many chunks are copied.
  */
 static long
@@ -1001,12 +1001,12 @@ tfw_cache_copy_hdr(char **p, TdbVRec **trec, TfwStr *src, size_t *tot_len)
 /**
  * Fill @ce->etag with entity-tag value. RFC 7232 Section-2.3 doesn't limit
  * etag size, so can't just have a copy of entity-tag value somewhere in @ce,
- * insted fill @ce->etag TfwStr to correct offset in @ce->hdrs. Also set
+ * instead fill @ce->etag TfwStr to correct offset in @ce->hdrs. Also set
  * WEAK tag to the first chunk of @ce->etag if applied. This is needed for Range
  * requests.
  *
  * @h_off, @h_trec	- supposed offset and record of stored 'ETag:' header;
- * @curr_p, @curr_rec	- used to store compaund @ce->etag.
+ * @curr_p, @curr_rec	- used to store compound @ce->etag.
  */
 static int
 __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
@@ -1019,7 +1019,7 @@ __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
 
 	if (TFW_STR_EMPTY(h))
 		return 0;
-	etag_val = tfw_str_next_str_val(h); /* not emptpy after http parser. */
+	etag_val = tfw_str_next_str_val(h); /* not empty after http parser. */
 
 	/* Update supposed Etag offset to real value. */
 	/* FIXME: #803 */
@@ -1070,7 +1070,7 @@ __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
 		len -= c->len;
 	}
 
-	/* Compaund string was allocated in resp->pool, move to cache entry. */
+	/* Compound string was allocated in resp->pool, move to cache entry. */
 	if (!TFW_STR_PLAIN(&ce->etag)) {
 		len = sizeof(TfwStr *) * TFW_STR_CHUNKN(&ce->etag);
 		curr_p = tdb_entry_get_room(node_db(), curr_trec, curr_p, len,
@@ -1211,7 +1211,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, size_t tot_len)
 	/* Write HTTP response body. */
 	ce->body = TDB_OFF(db->hdr, p);
 	n = tfw_cache_strcpy_eol(&p, &trec, &resp->body, &tot_len,
-				 resp->flags & TFW_HTTP_F_CHUNKED);
+				 test_bit(TFW_HTTP_B_CHUNKED, resp->flags));
 	if (n < 0) {
 		TFW_ERR("Cache: cannot copy HTTP body\n");
 		return -ENOMEM;
@@ -1219,7 +1219,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, size_t tot_len)
 	BUG_ON(tot_len != 0);
 
 	ce->version = resp->version;
-	ce->hmflags = resp->flags;
+	tfw_http_copy_flags(ce->hmflags, resp->flags);
 
 	if (resp->cache_ctl.flags
 	    & (TFW_HTTP_CC_MUST_REVAL | TFW_HTTP_CC_PROXY_REVAL))
@@ -1301,7 +1301,7 @@ __cache_entry_size(TfwHttpResp *resp)
 
 	/* Add body size accounting CRLF after the last chunk */
 	size += resp->body.len;
-	if (resp->flags & TFW_HTTP_F_CHUNKED)
+	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags))
 		size += SLEN(S_CRLF);
 
 	return size;
@@ -1445,27 +1445,21 @@ static int
 tfw_cache_build_resp_body(TDB *db, TfwHttpResp *resp, TdbVRec *trec,
 			  TfwMsgIter *it, char *p)
 {
-	int off, f_size;
+	int off, f_size, r;
 	skb_frag_t *frag;
 
 	BUG_ON(!it->skb);
 	frag = &skb_shinfo(it->skb)->frags[it->frag];
 	if (skb_frag_size(frag))
 		++it->frag;
-	if (it->frag >= MAX_SKB_FRAGS - 1) {
-		if (!(it->skb = ss_skb_alloc()))
-			return -ENOMEM;
-		ss_skb_queue_tail(&resp->msg.skb_head, it->skb);
-		it->frag = 0;
-	}
+	if (it->frag >= MAX_SKB_FRAGS - 1
+	    && (r = tfw_http_msg_setup((TfwHttpMsg *)resp, it, 0)))
+		return r;
 
 	while (1) {
-		if (it->frag == MAX_SKB_FRAGS) {
-			if (!(it->skb = ss_skb_alloc()))
-				return -ENOMEM;
-			ss_skb_queue_tail(&resp->msg.skb_head, it->skb);
-			it->frag = 0;
-		}
+		if (it->frag == MAX_SKB_FRAGS
+		    && (r = tfw_http_msg_setup((TfwHttpMsg *)resp, it, 0)))
+			return r;
 
 		/* TDB keeps data by pages and we can reuse the pages. */
 		off = (unsigned long)p & ~PAGE_MASK;
@@ -1501,12 +1495,12 @@ tfw_cache_build_resp_body(TDB *db, TfwHttpResp *resp, TdbVRec *trec,
  * (copy the list of skbs is faster than scan TDB and build TfwHttpResp).
  * TLS should encrypt the data in already prepared skbs.
  *
- * Basically, skb copy/clonning involves skb creation, so it seems performance
+ * Basically, skb copy/cloning involves skb creation, so it seems performance
  * of response body creation won't change since now we just reuse TDB pages.
- * Perfromace benchmarks and profiling shows that cache_req_process_node()
+ * Performance benchmarks and profiling shows that cache_req_process_node()
  * is the bottleneck, so the problem is either in tfw_cache_dbce_get() or this
  * function, in headers compilation.
- * Also it seems cachig prebuilt responses requires introducing
+ * Also it seems caching prebuilt responses requires introducing
  * TfwCacheEntry->resp pointer to avoid additional indexing data structure.
  * However, the pointer must be zeroed on TDB shutdown and recovery.
  *
@@ -1574,7 +1568,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce)
 		goto err;
 
 	resp->version = ce->version;
-	resp->flags = ce->hmflags;
+	tfw_http_copy_flags(resp->flags, ce->hmflags);
 
 	return resp;
 err:
@@ -1640,7 +1634,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 		goto out;
 	}
 	if (lifetime > ce->lifetime)
-		resp->flags |= TFW_HTTP_F_RESP_STALE;
+		__set_bit(TFW_HTTP_B_RESP_STALE, resp->flags);
 out:
 	if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED))
 		tfw_http_send_resp(req, 504, "resource not cached");
@@ -1758,7 +1752,7 @@ tfw_wq_tasklet(unsigned long data)
 
 /**
  * Cache management thread.
- * The thread loads and preprcess static Web content using inotify (TODO).
+ * The thread loads and preprocesses static Web content using inotify (TODO).
  */
 #if 0
 static int

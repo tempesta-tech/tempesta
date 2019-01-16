@@ -3,7 +3,7 @@
  *
  * Tempesta Bomber: a tool for HTTP servers stress testing.
  *
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -53,10 +53,10 @@ MODULE_PARM_DESC(i, "Number of thread iterations");
 MODULE_PARM_DESC(c, "Number of connections");
 MODULE_PARM_DESC(m, "Number of messages per connection");
 MODULE_PARM_DESC(v, "Verbosity level");
-MODULE_PARM_DESC(s, "Server host address and optional port nunber");
+MODULE_PARM_DESC(s, "Server host address and optional port number");
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
-MODULE_DESCRIPTION("Tempesta Boomber");
+MODULE_DESCRIPTION("Tempesta Bomber");
 MODULE_VERSION("0.2.3");
 MODULE_LICENSE("GPL");
 
@@ -76,7 +76,7 @@ enum {
 struct tfw_bmb_task_t;
 
 /*
- * Connection descripton.
+ * Connection description.
  */
 typedef struct {
 	SsProto			proto;
@@ -88,7 +88,7 @@ typedef struct {
  * Bomber task descriptor.
  *
  * @conn		- connection descriptions
- * @conn_compl		- number of complate connections
+ * @conn_compl		- number of complete connections
  * @conn_error		- number of error connections
  * @conn_wq		- wait queue on all connections establishing
  * @ctx			- context for fuzzer
@@ -159,9 +159,12 @@ tfw_bmb_conn_drop(struct sock *sk)
 }
 
 static int
-tfw_bmb_print_msg(void *msg_data, unsigned char *data, size_t len)
+tfw_bmb_print_msg(void *msg_data, unsigned char *data, size_t len,
+		  unsigned int *read)
 {
 	printk(KERN_INFO "%.*s\n", (int)len, data);
+	*read = len;
+
 	return 0;
 }
 
@@ -169,10 +172,13 @@ static int
 tfw_bmb_conn_recv(void *cdata, struct sk_buff *skb, unsigned int off)
 {
 	if (verbose) {
-		unsigned int data_off = 0;
+		unsigned int parsed = 0, chunks = 0;
 
 		TFW_LOG("Server response:\n------------------------------\n");
-		ss_skb_process(skb, &data_off, tfw_bmb_print_msg, NULL);
+
+		ss_skb_process(skb, 0, 0, tfw_bmb_print_msg, NULL, &chunks,
+			       &parsed);
+
 		printk(KERN_INFO "\n------------------------------\n");
 	}
 
@@ -209,7 +215,7 @@ tfw_bmb_connect(TfwBmbTask *task, TfwBmbConn *conn)
 	ret = ss_connect(sk, &bmb_server_address, 0);
 	if (ret) {
 		TFW_ERR("Connect error on server socket sk %p (%d)\n", sk, ret);
-		ss_close_sync(sk, false);
+		ss_close(sk, 0);
 		conn->sk = NULL;
 		return ret;
 	}
@@ -226,7 +232,7 @@ tfw_bmb_release_sockets(TfwBmbTask *task)
 		if (task->conn[i].proto.type == TFW_BMB_SK_INACTIVE)
 			/* The socket is dead or softirq is killing it. */
 			continue;
-		if (ss_close_sync(task->conn[i].sk, true))
+		if (ss_close(task->conn[i].sk, SS_F_SYNC))
 			TFW_WARN("Cannot close %dth socket\n", i);
 	}
 }
@@ -276,7 +282,7 @@ tfw_bmb_msg_send(TfwBmbTask *task, int cn)
 			"------------------------------\n",
 			task->buf);
 
-	tfw_http_msg_write(&it, &hmreq, &msg);
+	tfw_msg_write(&it, &msg);
 	ss_send(task->conn[cn].sk, &hmreq.msg.skb_head, true);
 
 	atomic_inc(&bmb_request_send);
@@ -359,7 +365,7 @@ release_sockets:
 				schedule();
 				if (++tries == DEAD_TRIES) {
 					local_bh_disable();
-					ss_close_sync(task->conn[c].sk, false);
+					ss_close(task->conn[c].sk, 0);
 					local_bh_enable();
 					break;
 				}

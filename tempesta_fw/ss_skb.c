@@ -3,7 +3,7 @@
  *
  * Helpers for Linux socket buffers manipulation.
  *
- * Application protocol handler layers must inplement zero data copy logic
+ * Application protocol handler layers must implement zero data copy logic
  * on top on native Linux socket buffers. The helpers provide common and
  * convenient wrappers for skb processing.
  *
@@ -29,6 +29,9 @@
 #include <net/tcp.h>
 #include <net/xfrm.h>
 
+#if DBG_SS == 0
+#undef DEBUG
+#endif
 #include "lib/str.h"
 #include "addr.h"
 #include "procfs.h"
@@ -62,25 +65,26 @@ ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf)
 /**
  * Allocate a new skb that can hold @len bytes of data.
  *
- * An SKB is created complely headerless. The linear part of an SKB is
+ * An SKB is created completely headerless. The linear part of an SKB is
  * set apart for headers, and stream data is placed in paged fragments.
  * Lower layers will take care of prepending all required headers.
  *
  * Similar to alloc_skb_with_frags() except it doesn't allocate multi-page
  * fragments, and it sets up fragments with zero size.
- *
- * TODO #391: use less pages by allocating the skb from ss_skb_alloc()
- * with maximum page header to fully utilize the page.
  */
-struct sk_buff *
+static struct sk_buff *
 ss_skb_alloc_pages(size_t len)
 {
-	int i, nr_frags = DIV_ROUND_UP(len, PAGE_SIZE);
+	int i, nr_frags = 0;
 	struct sk_buff *skb;
 
-	BUG_ON(nr_frags > MAX_SKB_FRAGS);
+	if (len > SKB_MAX_HEADER) {
+		nr_frags = DIV_ROUND_UP(len - SKB_MAX_HEADER, PAGE_SIZE);
+		BUG_ON(nr_frags > MAX_SKB_FRAGS);
+		len = SKB_MAX_HEADER;
+	}
 
-	if ((skb = ss_skb_alloc()) == NULL)
+	if (!(skb = ss_skb_alloc(len)))
 		return NULL;
 
 	for (i = 0; i < nr_frags; ++i) {
@@ -95,6 +99,30 @@ ss_skb_alloc_pages(size_t len)
 	}
 
 	return skb;
+}
+
+/**
+ * Given the total message length as @len, allocate an appropriate number
+ * of SKBs and page fragments to hold the payload, and add them to the
+ * message. Put as much as possible in one SKB. TCP GSO will take care of
+ * segmentation. The allocated payload space will be filled with data.
+ */
+int
+ss_skb_alloc_data(struct sk_buff **skb_head, size_t len)
+{
+	int i_skb, nr_skbs = len ? DIV_ROUND_UP(len, SS_SKB_MAX_DATA_LEN) : 1;
+	size_t n = 0;
+	struct sk_buff *skb;
+
+	for (i_skb = 0; i_skb < nr_skbs; ++i_skb, len -= n) {
+		n = min(len, SS_SKB_MAX_DATA_LEN);
+		skb = ss_skb_alloc_pages(n);
+		if (!skb)
+			return -ENOMEM;
+		ss_skb_queue_tail(skb_head, skb);
+	}
+
+	return 0;
 }
 
 static inline int
@@ -267,6 +295,10 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 		struct sk_buff *nskb;
 		unsigned int e_size = 0;
 
+		/* Going out if the @skb is prohibied by the caller. */
+		if (!skb_head)
+			return -ENOMEM;
+
 		/*
 		 * The number of page fragments that don't fit in the SKB
 		 * after the room is prepared for @n page fragments.
@@ -286,7 +318,7 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 			if (r)
 				return r;
 		} else {
-			nskb = ss_skb_alloc();
+			nskb = ss_skb_alloc(0);
 			if (nskb == NULL)
 				return -ENOMEM;
 			__skb_insert_after(skb, nskb);
@@ -370,8 +402,8 @@ __new_pgfrag(struct sk_buff *skb_head, struct sk_buff *skb, int size,
 }
 
 /**
- * The kernel may allocate a bit more memory for an SKB than what was
- * requested (see ksize() call in __alloc_skb()). Use the extra memory
+ * The kernel may allocate a bit more memory for an SKB than what was requested
+ * (see ksize()/PG_ALLOC_SZ() call in __alloc_skb()). Use the extra memory
  * if it's enough to hold @n bytes. Otherwise, allocate new linear data.
  *
  * @return 0 on success, -errno on failure.
@@ -563,7 +595,7 @@ __split_pgfrag_add(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off
 }
 
 /**
- * Delete @len (the value is positive now) bytes from @frag.
+ * Delete @len (the value is positive now) bytes from skb frag @i.
  *
  * @return 0 on success, -errno on failure.
  * @return pointer to data after the deleted data in @it->ptr.
@@ -588,7 +620,7 @@ __split_pgfrag_del(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off
 	}
 
 	/* Fast path: delete a full fragment. */
-	if (!off && len == skb_frag_size(frag)) {
+	if (unlikely(!off && len == skb_frag_size(frag))) {
 		ss_skb_adjust_data_len(skb, -len);
 		__skb_frag_unref(frag);
 		if (i + 1 < si->nr_frags)
@@ -598,8 +630,8 @@ __split_pgfrag_del(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off
 		__it_next_data(skb, i, it);
 		return 0;
 	}
-	/* Fast path: delete the head part of a fragment. */
-	if (!off) {
+	/* Fast path (e.g. TLS header): delete the head part of a fragment. */
+	if (likely(!off)) {
 		frag->page_offset += len;
 		skb_frag_size_sub(frag, len);
 		ss_skb_adjust_data_len(skb, -len);
@@ -607,8 +639,8 @@ __split_pgfrag_del(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off
 		it->skb = skb;
 		return 0;
 	}
-	/* Fast path: delete the tail part of a fragment. */
-	if (off + len == skb_frag_size(frag)) {
+	/* Fast path (e.g. TLS tag): delete the tail part of a fragment. */
+	if (likely(off + len == skb_frag_size(frag))) {
 		skb_frag_size_sub(frag, len);
 		ss_skb_adjust_data_len(skb, -len);
 		__it_next_data(skb, i + 1, it);
@@ -688,9 +720,8 @@ __skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	unsigned int d_size;
 	struct skb_shared_info *si = skb_shinfo(skb);
 
-	TFW_DBG3("[%d]: %s: in: len [%d] pspt [%p], skb [%p]: head [%p]"
-		 " data [%p] tail [%p] end [%p] len [%u] data_len [%u]"
-		 " truesize [%u] nr_frags [%u]\n",
+	TFW_DBG3("[%d]: %s: len=%d pspt=%pK skb=%pK head=%pK data=%pK tail=%pK"
+		 " end=%pK len=%u data_len=%u truesize=%u nr_frags=%u\n",
 		 smp_processor_id(), __func__, len, pspt, skb, skb->head,
 		 skb->data, skb_tail_pointer(skb), skb_end_pointer(skb),
 		 skb->len, skb->data_len, skb->truesize, si->nr_frags);
@@ -787,13 +818,12 @@ static inline int
 skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	     int len, TfwStr *it)
 {
-	if (abs(len) > PAGE_SIZE) {
+	if (unlikely(abs(len) > PAGE_SIZE)) {
 		TFW_WARN("Attempt to add or delete too much data: %u\n", len);
 		return -EINVAL;
 	}
-
 	/* skbs with skb fragments are not expected. */
-	if (skb_has_frag_list(skb)) {
+	if (unlikely(skb_has_frag_list(skb))) {
 		WARN_ON(skb_has_frag_list(skb));
 		return -EINVAL;
 	}
@@ -816,6 +846,95 @@ ss_skb_get_room(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	if (r == len)
 		return 0;
 	return r;
+}
+
+/**
+ * Expand the @skb data, including frags, by @head and @tail: the head is
+ * reserved within TCP_MAX_HEADER, so skb->data is just moved, the tail
+ * requires a new frag allocation - it maybe after all the frags or at the
+ * end of the linear part.
+ *
+ * Currently the function is only needed for TLS which writes TAG inside the
+ * crypto API to the last data segment, so we don't need to return pointer
+ * to the allocated tail data.
+ *
+ * @return number of allocated fragments (0 or 1) or negative value on error.
+ */
+int
+ss_skb_expand_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
+			size_t head, size_t tail)
+{
+	int frags = 0;
+	struct skb_shared_info *si = skb_shinfo(skb);
+	TfwStr it = {};
+
+	if (!tail)
+		goto alloc_head;
+	if (!si->nr_frags)
+		if (!__split_try_tailroom(skb, tail, &it))
+			goto alloc_head;
+	if (__new_pgfrag(skb_head, skb, tail, si->nr_frags, 1)) {
+		T_WARN("cannot alloc space for TLS record tag.\n");
+		return -ENOMEM;
+	}
+	frags = 1;
+
+alloc_head:
+	if (head) {
+		frags += !skb_headlen(skb);
+		skb_push(skb, head);
+	}
+
+	return frags;
+}
+
+/**
+ * Reverse operation to ss_skb_expand_head_tail(): chop @head and @tail bytes
+ * at head and end of the @skb.
+ */
+int
+ss_skb_chop_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
+		      size_t head, size_t trail)
+{
+	int n, r, i;
+	struct skb_shared_info *si = skb_shinfo(skb);
+	skb_frag_t *frag;
+	TfwStr it;
+
+	TFW_DBG3("%s: head=%#lx trail=%#lx skb=%pK (head=%pK data=%pK tail=%pK"
+		 " end=%pK len=%u data_len=%u nr_frags=%u)\n", __func__,
+		 head, trail, skb, skb->head, skb->data, skb_tail_pointer(skb),
+		 skb_end_pointer(skb), skb->len, skb->data_len, si->nr_frags);
+	if (WARN_ON_ONCE(skb->len <= head + trail))
+		return -EINVAL;
+
+	n = min_t(int, skb_headlen(skb), head);
+	if (n) {
+		__skb_pull(skb, n);
+		head -= n;
+	}
+	while (head) {
+		frag = &skb_shinfo(skb)->frags[0];
+		n = min_t(int, skb_frag_size(frag), head);
+		if ((r = __split_pgfrag_del(skb_head, skb, 0, 0, n, &it)))
+			return r;
+		head -= n;
+	}
+
+	while (trail && si->nr_frags) {
+		i = si->nr_frags - 1;
+		frag = &skb_shinfo(skb)->frags[i];
+		n = min_t(int, skb_frag_size(frag), trail);
+		r = __split_pgfrag_del(skb_head, skb, i,
+				       skb_frag_size(frag) - n, n, &it);
+		if (r)
+			return r;
+		trail -= n;
+	}
+	if (trail)
+		__skb_trim(skb, skb->len - trail);
+
+	return 0;
 }
 
 /**
@@ -870,37 +989,50 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *str, int skip,
 }
 
 /**
- * Process a socket buffer.
- * See standard skb_copy_datagram_iovec() implementation.
- * @return SS_OK, SS_DROP, SS_POSTPONE, or a negative value of error code.
+ * Process a socket buffer like standard skb_seq_read(), but return when the
+ * @actor finishes processing, so a caller gets control w/o looping when an
+ * application level message is fully read. The function is reentrant: @actor
+ * called from the function can call it again with another @actor for upper
+ * layer protocol (e.g. TLS handler calls HTTP parser), so @len defines how
+ * much data is available for now.
  *
  * The function is unaware of an application layer, but it still splits
  * @skb into messages. If @actor returns POSTPONE and there is more data
  * in @skb, then the function continues to process the @skb. Otherwise
  * it returns, thus allowing an upper layer to process a full message
- * or an error code. @off is used as an iterator between function calls
- * over the same @skb.
+ * or an error code.
  *
- * FIXME it seems standard skb_seq_read() does the same.
+ * @return SS_OK, SS_DROP, SS_POSTPONE, or a negative value of error code.
+ * @processed and @chunks are incremented by number of effectively processed
+ * bytes and contigous data chunks correspondingly. A caller must properly
+ * initialize them. @actor sees @chunks including current chunk of data.
  */
 int
-ss_skb_process(struct sk_buff *skb, unsigned int *off, ss_skb_actor_t actor,
-	       void *objdata)
+ss_skb_process(struct sk_buff *skb, unsigned int off, unsigned int trail,
+	       ss_skb_actor_t actor, void *objdata, unsigned int *chunks,
+	       unsigned int *processed)
 {
-	int i, r = SS_OK;
+	int i, n, r = SS_OK;
 	int headlen = skb_headlen(skb);
-	unsigned int offset = *off;
+	int frag_len = skb->len - headlen;
+	unsigned int _processed = 0;
 	struct skb_shared_info *si = skb_shinfo(skb);
 
+	if (WARN_ON_ONCE(skb->len <= trail + off))
+		return -EIO;
+
 	/* Process linear data. */
-	if (offset < headlen) {
-		*off = headlen;
-		r = actor(objdata, skb->data + offset, headlen - offset);
-		if (r != SS_POSTPONE)
+	if (likely(off < headlen)) {
+		++*chunks;
+		n = skb_headlen(skb) - off;
+		if (unlikely(trail > frag_len))
+			n -= trail - frag_len;
+		r = actor(objdata, skb->data + off, n, &_processed);
+		*processed += _processed;
+		if (r != SS_POSTPONE || unlikely(trail >= frag_len))
 			return r;
-		offset = 0;
 	} else {
-		offset -= headlen;
+		off -= headlen;
 	}
 
 	/*
@@ -910,16 +1042,21 @@ ss_skb_process(struct sk_buff *skb, unsigned int *off, ss_skb_actor_t actor,
 	for (i = 0; i < si->nr_frags; ++i) {
 		const skb_frag_t *frag = &si->frags[i];
 		unsigned int frag_size = skb_frag_size(frag);
-		if (offset < frag_size) {
-			unsigned char *frag_addr = skb_frag_address(frag);
-			*off += frag_size - offset;
-			r = actor(objdata, frag_addr + offset,
-					   frag_size - offset);
-			if (r != SS_POSTPONE)
+		unsigned char *frag_addr = skb_frag_address(frag);
+		if (likely(off < frag_size)) {
+			++*chunks;
+			BUG_ON(frag_len < frag_size);
+			frag_len -= frag_size;
+			n = frag_size - off;
+			if (trail > frag_len)
+				n -= trail - frag_len;
+			r = actor(objdata, frag_addr + off, n, &_processed);
+			*processed += _processed;
+			if (r != SS_POSTPONE || trail >= frag_len)
 				return r;
-			offset = 0;
+			off = 0;
 		} else {
-			offset -= frag_size;
+			off -= frag_size;
 		}
 	}
 
@@ -1006,7 +1143,7 @@ __coalesce_frag(struct sk_buff **skb_head, skb_frag_t *frag,
 	struct sk_buff *skb = ss_skb_peek_tail(skb_head);
 
 	if (!skb || skb_shinfo(skb)->nr_frags == MAX_SKB_FRAGS) {
-		skb = ss_skb_alloc();
+		skb = ss_skb_alloc(0);
 		if (!skb)
 			return -ENOMEM;
 		ss_skb_queue_tail(skb_head, skb);
@@ -1148,7 +1285,7 @@ cleanup:
  * handle frag_list fragments. Such SKBs lose data in frag_list and generally
  * get malformed.
  *
- * TODO: It's conceiveable that skb_split() can be modified to handle data
+ * TODO: It's conceivable that skb_split() can be modified to handle data
  * in frag_list. However a thorough research is required to see if such SKBs
  * are handled properly in other parts of the kernel's stack.
  *
@@ -1204,7 +1341,7 @@ ss_skb_unroll(struct sk_buff **skb_head, struct sk_buff *skb)
  * The routine helps you to dump content of any skb.
  * It's supposed to be used for debugging purpose, so non-limited printing
  * is used.
- * BEWARE: dont' call it too frequetly.
+ * BEWARE: don't call it too frequently.
  */
 void
 ss_skb_dump(struct sk_buff *skb)

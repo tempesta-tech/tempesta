@@ -1,9 +1,9 @@
 /**
- *		Tempesta DB User-space Libabry
+ *		Tempesta DB User-space Library
  *
  * Error/exceptions handling.
  *
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2018 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by

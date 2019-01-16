@@ -15,7 +15,7 @@
  * and generic testing functions/macros are located in test.c/test.h
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -56,6 +56,7 @@ test_req_alloc(size_t data_len)
 	tfw_connection_init(&conn_req);
 	conn_req.proto.type = Conn_HttpClnt;
 	hmreq->conn = &conn_req;
+	tfw_http_init_parser_req((TfwHttpReq *)hmreq);
 
 	return (TfwHttpReq *)hmreq;
 }
@@ -64,7 +65,7 @@ void
 test_req_free(TfwHttpReq *req)
 {
 	/* In tests we are stricter: we don't allow to free a NULL pointer
-	 * to be sure exactly what we are free'ing and to catch bugs early. */
+	 * to be sure exactly what we are freeing and to catch bugs early. */
 	BUG_ON(!req);
 
 	tfw_http_msg_free((TfwHttpMsg *)req);
@@ -87,6 +88,7 @@ test_resp_alloc(size_t data_len)
 	tfw_connection_init(&conn_req);
 	conn_resp.proto.type = Conn_HttpSrv;
 	hmresp->conn = &conn_resp;
+	tfw_http_init_parser_resp((TfwHttpResp *)hmresp);
 
 	return (TfwHttpResp *)hmresp;
 }

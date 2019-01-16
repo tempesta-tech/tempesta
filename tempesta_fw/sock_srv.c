@@ -181,7 +181,7 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	 *    connection_drop hook from SoftIRQ, there can't be another
 	 *    socket state change upcall from SS layer due to RSS.
 	 *
-	 * Thus we don't need syncronization for ss_connect().
+	 * Thus we don't need synchronization for ss_connect().
 	 */
 	TFW_INC_STAT_BH(serv.conn_attempts);
 	r = ss_connect(sk, addr, 0);
@@ -189,7 +189,7 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 		if (r != SS_SHUTDOWN)
 			TFW_ERR("Unable to initiate a connect to server: %d\n",
 				r);
-		ss_close_sync(sk, false);
+		tfw_connection_close((TfwConn *)srv_conn, true);
 		SS_CALL(connection_error, sk);
 		/* Another try is handled in tfw_srv_conn_release() */
 	}
@@ -385,7 +385,7 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 	TFW_DBG_ADDR("connection error", &srv->addr, TFW_WITH_PORT);
 
 	/*
-	 * Distiguish connections that go to failover state
+	 * Distinguish connections that go to failover state
 	 * from those that are in failover state already.
 	 */
 	if (tfw_connection_live(conn)) {
@@ -440,7 +440,6 @@ static int
 tfw_sock_srv_disconnect(TfwConn *conn)
 {
 	int ret = 0;
-	struct sock *sk = conn->sk;
 	TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 
 	/* Server's refcounter is decreased on disconnect. */
@@ -457,7 +456,7 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	 * closed already, then force the release of attached resources.
 	 */
 	if (atomic_read(&conn->refcnt) != TFW_CONN_DEATHCNT)
-		ret = ss_close_sync(sk, true);
+		ret = tfw_connection_close(conn, true);
 	else
 		tfw_srv_conn_release(srv_conn);
 
@@ -808,7 +807,7 @@ static struct kmem_cache *tfw_sg_cfg_cache;
  * not possible. Instead current configuration must be updated step-by-step
  * to comply the new configuration.
  *
- * Update process is splitted in two stages:
+ * Update process is split in two stages:
  * - configuration parsing stage: tfw_sock_srv_cfgstart(), TfwCfgSpec handlers
  * and tfw_sock_srv_cfgend(). It's normal if an error happens during the
  * stage since the new configuration is provided by a user and may contain
@@ -826,7 +825,7 @@ static struct kmem_cache *tfw_sg_cfg_cache;
  *
  * On applying stage changes from @parsed_sg are distributed to @orig_sg if
  * @orig_sg is available, or @parsed_sg is promoted to active group by
- * starting it's connetions otherwize. After that list of server groups
+ * starting it's connections otherwize. After that list of server groups
  * available after reconfig replaces list of active groups by
  * tfw_sg_apply_reconfig() call.
  *
@@ -1536,7 +1535,7 @@ tfw_cfg_sg_ratio_verify(TfwSrvGroup *sg)
 	int count = 0;
 
 	if (sg->flags & (TFW_SG_F_SCHED_RATIO_DYNAMIC
-			 || TFW_SG_F_SCHED_RATIO_PREDICT))
+			 | TFW_SG_F_SCHED_RATIO_PREDICT))
 	{
 		list_for_each_entry(srv, &sg->srv_list, list) {
 			if (srv->weight)
