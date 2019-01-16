@@ -18,6 +18,7 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <linux/types.h>
 #include <asm/fpu/api.h>
 #include <linux/module.h>
 #include "test.h"
@@ -36,7 +37,7 @@ test_fixture_fn_t test_teardown_fn;
  *
  * The problem with logging is that it is hard to find a real error
  * message among all logs generated during a test run.
- * That happpens because:
+ * That happens because:
  *  - Some tests intentionally make calls with invalid input data.
  *    The code generates TFW_ERR() messages indistinguishable from
  *    real errors.
@@ -118,7 +119,7 @@ test_run_all(void)
 	tfw_str_init_const();
 
 	/*
-	 * Preemption is diabled by kernel_fpu_begin(), so
+	 * Preemption is disabled by kernel_fpu_begin(), so
 	 * the tests can not sleep.
 	 */
 	TEST_SUITE_RUN(tfw_str);

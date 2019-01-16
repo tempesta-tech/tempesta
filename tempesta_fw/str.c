@@ -226,7 +226,7 @@ tfw_str_add_compound(TfwPool *pool, TfwStr *str)
 
 /**
  * Add place for a new duplicate to string tree @str,
- * the string is probably alredy a set of duplicate compound strings.
+ * the string is probably already a set of duplicate compound strings.
  */
 TfwStr *
 tfw_str_add_duplicate(TfwPool *pool, TfwStr *str)
@@ -718,7 +718,7 @@ tfw_str_eq_cstr_off(const TfwStr *str, ssize_t offset, const char *cstr,
 EXPORT_SYMBOL(tfw_str_eq_cstr_off);
 
 /**
- * The function intentionaly breaks zero-copy string design. And should
+ * The function intentionally breaks zero-copy string design. And should
  * be used for short-strings only.
  *
  * Join all chunks of @str to a single plain C string.
@@ -765,11 +765,11 @@ tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size)
 EXPORT_SYMBOL(tfw_str_to_cstr);
 
 /**
- * HTTP parser can break strings into several chuncks and mark some of them
- * with TFW_STR_VALUE flag. Single string value may oqupie more than one chunk,
+ * HTTP parser can break strings into several chunks and mark some of them
+ * with TFW_STR_VALUE flag. Single string value may occupy more than one chunk,
  * independent string values divided by non-flagged chunks.
  *
- * Return compaund TfwStr starting at next string value.
+ * Return compound TfwStr starting at next string value.
  */
 TfwStr
 tfw_str_next_str_val(const TfwStr *str)

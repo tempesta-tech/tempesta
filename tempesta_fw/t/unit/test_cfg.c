@@ -393,7 +393,7 @@ TEST(cfg_parser, handles_escaped_special_characters)
 		{ 0 }
 	};
 
-	/* The leaning toothpick syndrome here: have to escape backslahes and
+	/* The leaning toothpick syndrome here: have to escape backslashes and
 	 * quotes both in C and the configuration language. */
 	int r = parse_cfg("escaped  \\ \\\r\\\n\\#\\\"\\;\\\\;", specs);
 	EXPECT_OK(r);

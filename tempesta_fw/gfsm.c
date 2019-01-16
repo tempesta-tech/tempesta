@@ -173,7 +173,7 @@ tfw_gfsm_switch(TfwGState *st, int state, int prio)
  *      processing.
  */
 static int
-__gfsm_fsm_exec(TfwGState *st, int fsm_id, const TfwFsmData *data)
+__gfsm_fsm_exec(TfwGState *st, int fsm_id, TfwFsmData *data)
 {
 	int r, slot, dummy;
 
@@ -201,7 +201,7 @@ __gfsm_fsm_exec(TfwGState *st, int fsm_id, const TfwFsmData *data)
  * Dispatch connection data to proper FSM by application protocol type.
  */
 int
-tfw_gfsm_dispatch(TfwGState *st, void *obj, const TfwFsmData *data)
+tfw_gfsm_dispatch(TfwGState *st, void *obj, TfwFsmData *data)
 {
 	int fsm_id = TFW_FSM_TYPE(((SsProto *)obj)->type);
 
@@ -219,14 +219,16 @@ tfw_gfsm_dispatch(TfwGState *st, void *obj, const TfwFsmData *data)
  * has 32-bit states bitmap), so we use this fact to speedup the iteration.
  */
 int
-tfw_gfsm_move(TfwGState *st, unsigned short state, const TfwFsmData *data)
+tfw_gfsm_move(TfwGState *st, unsigned short state, TfwFsmData *data)
 {
 	int r = TFW_PASS, p, fsm;
 	unsigned int *hooks = fsm_hooks_bm[FSM(st)];
 	unsigned long mask = 1 << state;
 	unsigned char curr_st = st->curr;
 
-	TFW_DBG3("GFSM move from %#x to %#x\n", FSM_STATE(st), state);
+	TFW_DBG3("GFSM move %#x -> %#x: skb=%pK off=%u trail=%u"
+		 " req=%pK resp=%pK\n", FSM_STATE(st), state,
+		 data->skb, data->off, data->trail, data->req, data->resp);
 
 	/* Remember current FSM context. */
 	SET_STATE(st, state);

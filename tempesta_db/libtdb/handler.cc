@@ -1,5 +1,5 @@
 /**
- *		Tempesta DB User-space Libabry
+ *		Tempesta DB User-space Library
  *
  * Handler for database operations.
  *
@@ -7,7 +7,7 @@
  * Update the code when the library support the feature,
  * track status of https://github.com/thom311/libnl/issues/33.
  *
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2018 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -216,7 +216,7 @@ TdbHndl::trx_begin()
 }
 
 /**
- * Send all peding frames.
+ * Send all pending frames.
  */
 void
 TdbHndl::trx_commit()
@@ -390,7 +390,7 @@ TdbHndl::insert(std::string &tbl_name, size_t klen, size_t vlen,
 	if (trx_.off + sizeof(nlmsghdr) + sizeof(TdbMsgRec) + klen + vlen
 	    > NL_FR_SZ)
 	{
-		// Not enugh space in current frame, alllocate a new one.
+		// Not enough space in current frame, allocate a new one.
 		advance_frame_offset(tx_fr_off_);
 		alloc_trx_frame();
 	}

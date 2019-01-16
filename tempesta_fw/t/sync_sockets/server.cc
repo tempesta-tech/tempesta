@@ -3,6 +3,7 @@
  * Synchronous Socket API.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -56,7 +57,7 @@ public:
 		if (last_ts_ == t) {
 			curr_ += events;
 		} else {
-			// recahrge
+			// recharge
 			if (curr_ > max_)
 				max_ = curr_;
 			curr_ = events;
@@ -241,7 +242,7 @@ main(int argc, char *argv[])
 	if (setsockopt(listen_sd, SOL_SOCKET, SO_REUSEADDR, (char *)&on,
 		       sizeof(on)) < 0)
 	{
-		std::cerr << "can't set reuseaddr for listenong socket"
+		std::cerr << "can't set reuseaddr for listening socket"
 			<< std::endl;
 		exit(1);
 	}

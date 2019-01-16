@@ -18,6 +18,7 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <linux/types.h>
 #include <asm/fpu/api.h>
 
 #undef tfw_sock_srv_init
@@ -34,6 +35,7 @@
 
 #include "helpers.h"
 #include "http_msg.h"
+#include "http_parser.h"
 #include "sched_helper.h"
 #include "test.h"
 
@@ -64,13 +66,13 @@ static TfwMsg *
 sched_hash_get_arg(size_t conn_type)
 {
 	TfwHttpReq *req = NULL;
+	unsigned int parsed;
 
 	BUG_ON(conn_type >= sched_helper_hash.conn_types);
 
 	req = test_req_alloc(strlen(req_strs[conn_type]));
-	tfw_http_parse_req(req,
-			   (unsigned char *) req_strs[conn_type],
-			   strlen(req_strs[conn_type]));
+	tfw_http_parse_req(req, (unsigned char *)req_strs[conn_type],
+			   strlen(req_strs[conn_type]), &parsed);
 
 	return (TfwMsg *) req;
 }

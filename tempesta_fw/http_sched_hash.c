@@ -144,7 +144,7 @@ __is_conn_suitable(TfwSrvConn *conn, bool hmonitor)
  * The server is chosen based on the hash value of URI/Host fields of the @msg,
  * so multiple requests to the same resource are mapped to the same server.
  *
- * Higest Random Weight hashing method is involved: for each message we
+ * Highest Random Weight hashing method is involved: for each message we
  * calculate randomized weights as follows: (msg_hash ^ srv_conn_hash),
  * and pick a server/connection with the highest weight.
  * That sticks messages with certain Host/URI to certain server connection.
@@ -164,7 +164,8 @@ __find_best_conn(TfwMsg *msg, TfwHashConnList *cl)
 {
 	ssize_t l_idx, r_idx, idx;
 	TfwSrvConn *conn;
-	bool hmonitor = ((TfwHttpReq *)msg)->flags & TFW_HTTP_F_HMONITOR;
+	bool hmonitor = test_bit(TFW_HTTP_B_HMONITOR,
+				 ((TfwHttpReq *)msg)->flags);
 	unsigned long msg_hash = tfw_http_req_key_calc((TfwHttpReq *)msg);
 	unsigned long best_hash = (~0UL ^ msg_hash);
 

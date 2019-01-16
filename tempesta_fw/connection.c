@@ -11,7 +11,7 @@
  * the Free Software Foundation; either version 2 of the License,
  * or (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful, but WITFWOUT
+ * This program is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
  * FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
@@ -62,6 +62,12 @@ void
 tfw_connection_repair(TfwConn *conn)
 {
 	TFW_CONN_HOOK_CALL(conn, conn_repair);
+}
+
+int
+tfw_connection_close(TfwConn *conn, bool sync)
+{
+	return TFW_CONN_HOOK_CALL(conn, conn_close, sync);
 }
 
 /**

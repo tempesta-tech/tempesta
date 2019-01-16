@@ -48,4 +48,21 @@ typedef struct {
 	size_t			len;
 } TfwMsg;
 
+/**
+ * Iterator for @skb fragments.
+ *
+ * @frag	- current fragment index or @skb->head if -1;
+ * @skb		- current skb to process;
+ * @skb_head	- head of the skb list.
+ */
+typedef struct {
+	int		frag;
+	struct sk_buff	*skb;
+	struct sk_buff	*skb_head;
+} TfwMsgIter;
+
+int tfw_msg_write(TfwMsgIter *it, const TfwStr *data);
+int tfw_msg_iter_setup(TfwMsgIter *it, struct sk_buff **skb_head,
+		       size_t data_len);
+
 #endif /* __TFW_MSG_H__ */

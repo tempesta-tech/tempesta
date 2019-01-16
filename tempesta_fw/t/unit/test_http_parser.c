@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -18,10 +18,12 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <linux/types.h>
 #include <asm/fpu/api.h>
 #include <linux/vmalloc.h>
 
 #include "http_msg.h"
+#include "http_parser.h"
 
 #include "test.h"
 #include "helpers.h"
@@ -39,6 +41,7 @@ static int
 split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
 {
 	size_t chlen = len / chunks, rem = len % chunks, pos = 0, step;
+	unsigned int parsed;
 	int r = 0;
 	TfwHttpMsg *hm = (type == FUZZ_REQ)
 			? (TfwHttpMsg *)req
@@ -54,12 +57,12 @@ split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
 		TEST_DBG3("split: len=%zu pos=%zu, chunks=%zu step=%zu\n",
 			  len, pos, chunks, step);
 		if (type == FUZZ_REQ)
-			r = tfw_http_parse_req(req, str + pos, step);
+			r = tfw_http_parse_req(req, str + pos, step, &parsed);
 		else
-			r = tfw_http_parse_resp(resp, str + pos, step);
+			r = tfw_http_parse_resp(resp, str + pos, step, &parsed);
 
 		pos += step;
-		hm->msg.len += step - hm->parser.to_go;
+		hm->msg.len += parsed;
 
 		if (r != TFW_POSTPONE)
 			return r;
@@ -77,12 +80,13 @@ set_sample_req(unsigned char *str)
 {
 	size_t len = strlen(str);
 	int r;
+	unsigned int parsed;
 
 	if (sample_req)
 		test_req_free(sample_req);
 	sample_req = test_req_alloc(len);
 
-	r = tfw_http_parse_req(sample_req, str, len);
+	r = tfw_http_parse_req(sample_req, str, len, &parsed);
 
 	return r;
 }
@@ -637,7 +641,7 @@ TEST(http_parser, mangled_messages)
 			 "4\r\n"
 			 "12345\r\n");
 
-	/* "chunked" conding must be the last coding. */
+	/* "chunked" coding must be the last coding. */
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 			 "Transfer-Encoding: chunked, gzip\r\n"
 			 "\r\n"
@@ -1087,16 +1091,18 @@ TEST(http_parser, parses_connection_value)
 		"Connection: Keep-Alive\r\n"
 		"\r\n")
 	{
-		EXPECT_EQ(req->flags & __TFW_HTTP_MSG_M_CONN_MASK,
-			  TFW_HTTP_F_CONN_KA);
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CONN_CLOSE, req->flags));
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_CONN_KA, req->flags));
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CONN_EXTRA, req->flags));
 	}
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Connection: Close\r\n"
 		"\r\n")
 	{
-		EXPECT_EQ(req->flags & __TFW_HTTP_MSG_M_CONN_MASK,
-			  TFW_HTTP_F_CONN_CLOSE);
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_CONN_CLOSE, req->flags));
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CONN_KA, req->flags));
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CONN_EXTRA, req->flags));
 	}
 }
 
@@ -1300,21 +1306,21 @@ TEST(http_parser, accept)
 		"Accept:  text/html \r\n"
 		"\r\n")
 	{
-		EXPECT_TRUE(req->flags & TFW_HTTP_F_ACCEPT_HTML);
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
 	}
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Accept:  text/html, application/xhtml+xml \r\n"
 		"\r\n")
 	{
-		EXPECT_TRUE(req->flags & TFW_HTTP_F_ACCEPT_HTML);
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
 	}
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Accept:  text/html;q=0.8 \r\n"
 		"\r\n")
 	{
-		EXPECT_TRUE(req->flags & TFW_HTTP_F_ACCEPT_HTML);
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
 	}
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
@@ -1322,28 +1328,28 @@ TEST(http_parser, accept)
 		"q=0.9,image/webp,image/apng,*/*;q=0.8\r\n"
 		"\r\n")
 	{
-		EXPECT_TRUE(req->flags & TFW_HTTP_F_ACCEPT_HTML);
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
 	}
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Accept:  text/*  \r\n"
 		"\r\n")
 	{
-		EXPECT_FALSE(req->flags & TFW_HTTP_F_ACCEPT_HTML);
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
 	}
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Accept:  text/html, */*  \r\n"
 		"\r\n")
 	{
-		EXPECT_TRUE(req->flags & TFW_HTTP_F_ACCEPT_HTML);
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
 	}
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Accept:  */*  \r\n"
 		"\r\n")
 	{
-		EXPECT_TRUE(req->flags & TFW_HTTP_F_ACCEPT_HTML);
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
 	}
 }
 
@@ -1820,12 +1826,12 @@ TEST(http_parser, if_none_match)
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 			 "If-None-Match: " ETAG_1 "\"\r\n"
 			 "\r\n");
-	/* Dublicated header. */
+	/* Duplicated header. */
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 			 "If-None-Match: \"" ETAG_1 "\"\r\n"
 			 "If-None-Match: \"" ETAG_1 "\"\r\n"
 			 "\r\n");
-	/* Incomplite header. */
+	/* Incomplete header. */
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 			 "If-None-Match: \"" ETAG_1 "\", \r\n"
 			 "\r\n");
