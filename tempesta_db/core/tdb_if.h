@@ -3,7 +3,7 @@
  *
  * User-space communication interfaces.
  *
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2018 Tempesta Technologies.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -48,7 +48,7 @@ enum tdb_msg_type {
 };
 
 #define TDB_NLF_TYPE_MASK	0x00ff
-#define TDB_NLF_RESP_OK		0x0100 /* good reposne status */
+#define TDB_NLF_RESP_OK		0x0100 /* good response status */
 #define TDB_NLF_RESP_TRUNC	0x0200 /* response was truncated */
 #define TDB_NLF_RESP_END	0x0400 /* end of chunked response */
 

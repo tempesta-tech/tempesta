@@ -25,8 +25,10 @@
 #include <linux/module.h>
 #include <linux/rwsem.h>
 #include <linux/tempesta.h>
+#include <linux/types.h>
 #include <net/sock.h>
 
+#include "lib/log.h"
 #include "cfg.h"
 
 #define TFW_AUTHOR		"Tempesta Technologies, Inc"
@@ -53,7 +55,7 @@
  * @specs is the specification for the configuration parser. It lists
  * all possible configuration sections and directives for the module and
  * describes how to handle them. @specs must be an array of TfwCfgSpec{}
- * structures which is terminated by a null (zero'ed) element.
+ * structures which is terminated by a null (zeroed) element.
  *
  * @start and @stop callbacks are invoked when corresponding events are
  * received via sysctl. The @start is called after the configuration is

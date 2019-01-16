@@ -25,6 +25,9 @@
 #include <net/inet_common.h>
 #include <net/ip6_route.h>
 
+#if DBG_SS == 0
+#undef DEBUG
+#endif
 #include "lib/str.h"
 #include "addr.h"
 #include "log.h"
@@ -68,7 +71,7 @@ typedef struct {
 /**
  * Node of close backlog.
  *
- * @ticket	- the work ticket used in trurnstile to order items from the
+ * @ticket	- the work ticket used in turnstile to order items from the
  * 		  backlog with ring-buffer items;
  * @list	- list entry in the backlog;
  * @sw		- work descriptor to perform.
@@ -102,7 +105,7 @@ static const char *ss_statename[] = {
  * Meantime, system shutdown is performed in process context.
  * So __ss_act_cnt and the constants at the below are used to count number of
  * upcalls and downcalls on the fly and synchronize shutdown process with the
- * calls: the shutdown process must wait untill all the calls finished and
+ * calls: the shutdown process must wait until all the calls finished and
  * no new calls can be executed.
  *
  * However, softirqs can call SS down- or upcall any time. Moreover, there could
@@ -337,7 +340,7 @@ ss_sock_active(struct sock *sk)
  * ------------------------------------------------------------------------
  */
 /**
- * @skb_list can be invalid after the function call, don't try to use it.
+ * @skb_head can be invalid after the function call, don't try to use it.
  */
 static void
 ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
@@ -374,13 +377,15 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		}
 
 		ss_skb_init_for_xmit(skb);
-
+		if (flags & SS_F_ENCRYPT)
+			tempesta_tls_skb_settype(skb, SS_SKB_F2TYPE(flags));
 		/* Propagate mark of message head skb.*/
 		skb->mark = mark;
 
-		TFW_DBG3("[%d]: %s: entail skb=%p data_len=%u len=%u mark=%u\n",
-		         smp_processor_id(), __func__, skb,
-			 skb->data_len, skb->len, skb->mark);
+		TFW_DBG3("[%d]: %s: entail skb=%p data_len=%u len=%u mark=%u"
+			 " tls_type=%x\n", smp_processor_id(), __func__,
+			 skb, skb->data_len, skb->len, skb->mark,
+			 tempesta_tls_skb_type(skb));
 
 		skb_entail(sk, skb);
 
@@ -388,9 +393,9 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		TCP_SKB_CB(skb)->end_seq += skb->len;
 	}
 
-	TFW_DBG3("[%d]: %s: sk=%p send_head=%p sk_state=%d\n",
+	TFW_DBG3("[%d]: %s: sk=%p send_head=%p sk_state=%d flags=%x\n",
 	         smp_processor_id(), __func__,
-	         sk, tcp_send_head(sk), sk->sk_state);
+	         sk, tcp_send_head(sk), sk->sk_state, flags);
 
 	/*
 	 * If connection close flag is specified, then @ss_do_close is used to
@@ -445,7 +450,6 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	 * and after the transmission.
 	 */
 	if (flags & SS_F_KEEP_SKB) {
-		sw.skb_head = NULL;
 		skb = *skb_head;
 		do {
 			/* tcp_transmit_skb() will clone the skb. */
@@ -506,7 +510,7 @@ EXPORT_SYMBOL(ss_send);
  * Note: it used to be called in process context as well, at the time when
  * Tempesta starts or stops. That's not the case right now, but it may change.
  *
- * TODO In some cases we need to close socket agresively w/o FIN_WAIT_2 state,
+ * TODO In some cases we need to close socket aggressively w/o FIN_WAIT_2 state,
  * e.g. by sending RST. So we need to add second parameter to the function
  * which says how to close the socket.
  * One of the examples is rcl_req_limit() (it should reset connections).
@@ -650,7 +654,7 @@ ss_linkerror(struct sock *sk)
  * not care about return value.
  */
 int
-__ss_close(struct sock *sk, int flags)
+ss_close(struct sock *sk, int flags)
 {
 	int cpu;
 	long ticket;
@@ -687,7 +691,7 @@ err:
 	sock_put(sk);
 	return SS_BAD;
 }
-EXPORT_SYMBOL(__ss_close);
+EXPORT_SYMBOL(ss_close);
 
 /*
  * Process a single SKB.
@@ -727,6 +731,10 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 			continue;
 		}
 
+		/*
+		 * TCP can ship an skb with overlapped seqnos, so we have to
+		 * work with the offset to avoid probably costly skb_pull().
+		 */
 		count = skb->len - offset;
 		tp->copied_seq += count;
 		*processed += count;
@@ -751,13 +759,14 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		r = SS_CALL(connection_recv, conn, skb, off);
 
 		if (r < 0) {
-			TFW_DBG2("[%d]: Processing error: sk %p r %d\n",
+			TFW_DBG2("[%d]: Processing error: sk=%pK r=%d\n",
 			         smp_processor_id(), sk, r);
 			goto out; /* connection must be dropped */
 		}
 	}
 	if (tcp_fin) {
-		TFW_DBG2("[%d]: Data FIN: sk %p\n", smp_processor_id(), sk);
+		TFW_DBG2("Received data FIN on sk=%p, cpu=%d\n",
+			 sk, smp_processor_id());
 		++tp->copied_seq;
 		r = SS_DROP;
 	}
@@ -775,7 +784,7 @@ out:
  * tcp_read_sock() calls __kfree_skb() through sk_eat_skb() which is good
  * for copying data from skb, but we need to manage skb's ourselves.
  *
- * TODO process URG.
+ * TODO #873 process URG.
  */
 static bool
 ss_tcp_process_data(struct sock *sk)
@@ -872,7 +881,7 @@ ss_tcp_data_ready(struct sock *sk)
 	else {
 		/*
 		 * Check for URG data.
-		 * TODO shouldn't we do it in th_tcp_process_data()?
+		 * TODO shouldn't we do it in ss_tcp_process_data()?
 		 */
 		struct tcp_sock *tp = tcp_sk(sk);
 		if (tp->urg_data & TCP_URG_VALID) {
@@ -989,7 +998,7 @@ ss_tcp_state_change(struct sock *sk)
 		 * TCP_ESTABLISHED state to a closing state, we forcefully
 		 * close the socket before it can reach the final state.
 		 *
-		 * We get here when an error has occured in the connection.
+		 * We get here when an error has occurred in the connection.
 		 * It could be that RST was received which may happen for
 		 * multiple reasons. Or it could be a case of TCP timeout
 		 * where the connection appears to be dead. In all of these
@@ -1229,7 +1238,7 @@ ss_connect(struct sock *sk, const TfwAddr *addr, int flags)
 	bh_unlock_sock(sk);
 
 	/*
-	 * If connect() successfully returns, then the soket is living somewhere
+	 * If connect() successfully returns, then the socket is living somewhere
 	 * in TCP code and it will move to established or closed state.
 	 * So we decrement __ss_act_cnt when the socket die, no need to do this now.
 	 */
@@ -1333,7 +1342,7 @@ ss_tx_action(void)
 	/*
 	 * @budget limits the loop to prevent live lock on constantly arriving
 	 * new items. We use some small integer as a lower bound to catch just
-	 * ariving items.
+	 * arriving items.
 	 */
 	budget = max(10UL, ss_wq_local_size(wq));
 	while ((!ss_active() || budget--) && !ss_wq_pop(wq, &sw, &ticket)) {
@@ -1446,7 +1455,7 @@ ss_wait_newconn(void)
 EXPORT_SYMBOL(ss_wait_newconn);
 
 /**
- * Wait until there are no queued works and no runnign tasklets.
+ * Wait until there are no queued works and no running tasklets.
  * The function should be used when all sockets are closed.
  * SS upcalls are protected with SS_V_ACT_LIVECONN.
  * Can sleep, so must be called from user-space context.

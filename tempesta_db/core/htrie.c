@@ -197,7 +197,7 @@ retry:
 
 	if (likely(g_nwb & ~TDB_EXT_MASK)) {
 		/*
-		 * Current extent was already getted.
+		 * Current extent was already got.
 		 * Probably we can allocate some memory in this extent.
 		 */
 		rptr = __tdb_alloc_blk_ext(dbh, e);
@@ -265,7 +265,7 @@ tdb_htrie_init_bucket(TdbBucket *b)
 
 /**
  * @return byte offset of the allocated data block and sets @len to actually
- * available room for writting if @len doesn't fit to block.
+ * available room for writing if @len doesn't fit to block.
  *
  * Return 0 on error.
  *
@@ -486,7 +486,7 @@ do {									\
 			memcpy_fast(TDB_HTRIE_BCKT_1ST_REC(b), r, n);	\
 			nb[k].off = sizeof(*b) + n;			\
 			new_in->shifts[k] = TDB_O2DI(nb[k].b) | TDB_HTRIE_DBIT;\
-			/* We copied a record, clear its orignal place. */\
+			/* We copied a record, clear its original place. */\
 			free_nb = free_nb > 0 ? free_nb : -free_nb;	\
 			TDB_DBG("burst: copied rec=%p (len=%lu key=%#lx)"\
 				" to new dblk=%#lx w/ idx=%#lx\n",	\
@@ -540,7 +540,7 @@ err_cleanup:
 /**
  * Descend the the tree starting at @node.
  *
- * @retrurn byte offset of data (w/o TDB_HTRIE_DBIT bit) on success
+ * @return byte offset of data (w/o TDB_HTRIE_DBIT bit) on success
  * or 0 if key @key was not found.
  * When function exits @node stores the last index node.
  * @bits - number of bits (from less significant to most significant) from
@@ -648,7 +648,7 @@ retry:
 /**
  * @len returns number of copied data on success.
  *
- * TODO it seems the function can be rewrited w/o RW-lock using transactional
+ * TODO it seems the function can be rewritten w/o RW-lock using transactional
  * notation: assemble set of operations to do in double word in shared location
  * and do CAS on it with comparing the location with zero.
  * If competing context helps the current trx owner, then we get true lock-free.

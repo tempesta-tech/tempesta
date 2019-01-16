@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU General Public License along
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
- * Prototype for fast precentiles calculation.
+ * Prototype for fast percentiles calculation.
  */
 #include <linux/atomic.h>
 #include <linux/kernel.h>
@@ -24,6 +24,9 @@
 #include <linux/spinlock.h>
 #include <linux/stringify.h>
 
+#if DBG_APM == 0
+#undef DEBUG
+#endif
 #include "lib/str.h"
 #include "apm.h"
 #include "cfg.h"
@@ -44,7 +47,7 @@
  * 3. Very small overall memory footprint for inexpensive handling of
  *    performance trends of many servers;
  *
- * 4. Buckets must be dynamicaly rearranged since server response times
+ * 4. Buckets must be dynamically rearranged since server response times
  *    are unknown apriori;
  *
  * 5. The adjustments of buckets must be performed in a lock-less fashion
@@ -182,7 +185,7 @@ tfw_stats_extend(TfwPcntRanges *rng, unsigned int r_time)
 	 * the upper end of the range that the data type could hold.
 	 * As the value was extended to the next order it's conceivable
 	 * that the new value exceeded the maximum for the data type.
-	 * Consirering that TfwPcntCtl{}->end is of type unsigned int,
+	 * Considering that TfwPcntCtl{}->end is of type unsigned int,
 	 * it's totally unimaginable that this situation may ever happen.
 	 */
 	BUG_ON(end >= (1UL << (FIELD_SIZEOF(TfwPcntCtl, end) * 8)));
@@ -456,7 +459,7 @@ typedef struct {
  * @rcount	- current count of health monitoring requests (in @hm->tmt);
  * @jtmstamp	- time in jiffies of last @timer call (for procfs);
  * @timer	- timer for sending health monitoring request;
- * @rearm	- flag for gracefull stopping of @timer;
+ * @rearm	- flag for graceful stopping of @timer;
  */
 typedef struct {
 	TfwApmHM		*hm;
@@ -514,7 +517,7 @@ typedef struct {
 } TfwApmRBuf;
 
 /*
- * The ring buffer contol structure.
+ * The ring buffer control structure.
  *
  * This is a supporting structure. It keeps related data that is useful
  * in making decisions on the need of recalculation of percentiles.
@@ -782,6 +785,7 @@ __tfw_apm_rbent_reset(TfwApmRBEnt *crbent, unsigned long jtmistamp)
 	memset(crbent->pcntrng.__reset_from, 0,
 	       offsetof(TfwPcntRanges, __reset_till)
 	       - offsetof(TfwPcntRanges, __reset_from));
+	crbent->pcntrng.min_val = UINT_MAX;
 	crbent->jtmistamp = jtmistamp;
 	smp_mb__before_atomic();
 	atomic_set(&crbent->reset, 1);

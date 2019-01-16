@@ -18,6 +18,7 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <linux/types.h>
 #include <asm/fpu/api.h>
 
 #undef tfw_sock_srv_init
@@ -35,6 +36,7 @@
 #include "helpers.h"
 #include "sched_helper.h"
 #include "server.h"
+#include "http_parser.h"
 #include "test.h"
 
 static TfwMsg *sched_ratio_get_arg(size_t conn_type);
@@ -53,11 +55,12 @@ sched_ratio_get_arg(size_t conn_type)
 {
 	static char *str = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
 	TfwHttpReq *req = NULL;
+	unsigned int parsed;
 
 	BUG_ON(conn_type >= sched_helper_ratio.conn_types);
 
 	req = test_req_alloc(strlen(str));
-	tfw_http_parse_req(req, str, strlen(str));
+	tfw_http_parse_req(req, str, strlen(str), &parsed);
 
 	return (TfwMsg *)req;
 }

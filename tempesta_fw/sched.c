@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Requst schedulers interface.
+ * Request schedulers interface.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015-2018 Tempesta Technologies, Inc.

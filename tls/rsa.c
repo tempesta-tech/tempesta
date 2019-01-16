@@ -39,34 +39,20 @@
  *	  https://arxiv.org/abs/1702.08719v2
  *
  */
+#include <linux/random.h>
 
-#if !defined(MBEDTLS_CONFIG_FILE)
+#include "lib/str.h"
 #include "config.h"
-#else
-#include MBEDTLS_CONFIG_FILE
-#endif
-
-#if defined(MBEDTLS_RSA_C)
-
 #include "rsa.h"
 #include "rsa_internal.h"
+#include "tls_internal.h"
 #include "oid.h"
-
-#include <string.h>
-
-#if defined(MBEDTLS_PKCS1_V21)
 #include "md.h"
-#endif
 
-#if !defined(MBEDTLS_RSA_ALT)
-
-/* Implementation that should never be optimized out by the compiler */
-static void mbedtls_zeroize(void *v, size_t n) {
-	volatile unsigned char *p = (unsigned char*)v; while (n--) *p++ = 0;
-}
+#if !defined(TTLS_RSA_ALT)
 
 /* constant-time buffer comparison */
-static inline int mbedtls_safer_memcmp(const void *a, const void *b, size_t n)
+static inline int ttls_safer_memcmp(const void *a, const void *b, size_t n)
 {
 	size_t i;
 	const unsigned char *A = (const unsigned char *) a;
@@ -79,59 +65,59 @@ static inline int mbedtls_safer_memcmp(const void *a, const void *b, size_t n)
 	return(diff);
 }
 
-int mbedtls_rsa_import(mbedtls_rsa_context *ctx,
-						const mbedtls_mpi *N,
-						const mbedtls_mpi *P, const mbedtls_mpi *Q,
-						const mbedtls_mpi *D, const mbedtls_mpi *E)
+int ttls_rsa_import(ttls_rsa_context *ctx,
+			const ttls_mpi *N,
+			const ttls_mpi *P, const ttls_mpi *Q,
+			const ttls_mpi *D, const ttls_mpi *E)
 {
 	int ret;
 
-	if ((N != NULL && (ret = mbedtls_mpi_copy(&ctx->N, N)) != 0) ||
-		(P != NULL && (ret = mbedtls_mpi_copy(&ctx->P, P)) != 0) ||
-		(Q != NULL && (ret = mbedtls_mpi_copy(&ctx->Q, Q)) != 0) ||
-		(D != NULL && (ret = mbedtls_mpi_copy(&ctx->D, D)) != 0) ||
-		(E != NULL && (ret = mbedtls_mpi_copy(&ctx->E, E)) != 0))
+	if ((N != NULL && (ret = ttls_mpi_copy(&ctx->N, N)) != 0) ||
+		(P != NULL && (ret = ttls_mpi_copy(&ctx->P, P)) != 0) ||
+		(Q != NULL && (ret = ttls_mpi_copy(&ctx->Q, Q)) != 0) ||
+		(D != NULL && (ret = ttls_mpi_copy(&ctx->D, D)) != 0) ||
+		(E != NULL && (ret = ttls_mpi_copy(&ctx->E, E)) != 0))
 	{
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA + ret);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA + ret);
 	}
 
 	if (N != NULL)
-		ctx->len = mbedtls_mpi_size(&ctx->N);
+		ctx->len = ttls_mpi_size(&ctx->N);
 
 	return 0;
 }
 
-int mbedtls_rsa_import_raw(mbedtls_rsa_context *ctx,
-							unsigned char const *N, size_t N_len,
-							unsigned char const *P, size_t P_len,
-							unsigned char const *Q, size_t Q_len,
-							unsigned char const *D, size_t D_len,
-							unsigned char const *E, size_t E_len)
+int ttls_rsa_import_raw(ttls_rsa_context *ctx,
+				unsigned char const *N, size_t N_len,
+				unsigned char const *P, size_t P_len,
+				unsigned char const *Q, size_t Q_len,
+				unsigned char const *D, size_t D_len,
+				unsigned char const *E, size_t E_len)
 {
 	int ret = 0;
 
 	if (N != NULL)
 	{
-		MBEDTLS_MPI_CHK(mbedtls_mpi_read_binary(&ctx->N, N, N_len));
-		ctx->len = mbedtls_mpi_size(&ctx->N);
+		TTLS_MPI_CHK(ttls_mpi_read_binary(&ctx->N, N, N_len));
+		ctx->len = ttls_mpi_size(&ctx->N);
 	}
 
 	if (P != NULL)
-		MBEDTLS_MPI_CHK(mbedtls_mpi_read_binary(&ctx->P, P, P_len));
+		TTLS_MPI_CHK(ttls_mpi_read_binary(&ctx->P, P, P_len));
 
 	if (Q != NULL)
-		MBEDTLS_MPI_CHK(mbedtls_mpi_read_binary(&ctx->Q, Q, Q_len));
+		TTLS_MPI_CHK(ttls_mpi_read_binary(&ctx->Q, Q, Q_len));
 
 	if (D != NULL)
-		MBEDTLS_MPI_CHK(mbedtls_mpi_read_binary(&ctx->D, D, D_len));
+		TTLS_MPI_CHK(ttls_mpi_read_binary(&ctx->D, D, D_len));
 
 	if (E != NULL)
-		MBEDTLS_MPI_CHK(mbedtls_mpi_read_binary(&ctx->E, E, E_len));
+		TTLS_MPI_CHK(ttls_mpi_read_binary(&ctx->E, E, E_len));
 
 cleanup:
 
 	if (ret != 0)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA + ret);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA + ret);
 
 	return 0;
 }
@@ -141,19 +127,19 @@ cleanup:
  * that the RSA primitives will be able to execute without error.
  * It does *not* make guarantees for consistency of the parameters.
  */
-static int rsa_check_context(mbedtls_rsa_context const *ctx, int is_priv,
-							  int blinding_needed)
+static int rsa_check_context(ttls_rsa_context const *ctx, int is_priv,
+				  int blinding_needed)
 {
-#if !defined(MBEDTLS_RSA_NO_CRT)
+#if !defined(TTLS_RSA_NO_CRT)
 	/* blinding_needed is only used for NO_CRT to decide whether
 	 * P,Q need to be present or not. */
 	((void) blinding_needed);
 #endif
 
-	if (ctx->len != mbedtls_mpi_size(&ctx->N) ||
-		ctx->len > MBEDTLS_MPI_MAX_SIZE)
+	if (ctx->len != ttls_mpi_size(&ctx->N) ||
+		ctx->len > TTLS_MPI_MAX_SIZE)
 	{
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 	}
 
 	/*
@@ -162,82 +148,82 @@ static int rsa_check_context(mbedtls_rsa_context const *ctx, int is_priv,
 
 	/* Modular exponentiation wrt. N is always used for
 	 * RSA public key operations. */
-	if (mbedtls_mpi_cmp_int(&ctx->N, 0) <= 0 ||
-		mbedtls_mpi_get_bit(&ctx->N, 0) == 0 )
+	if (ttls_mpi_cmp_int(&ctx->N, 0) <= 0 ||
+		ttls_mpi_get_bit(&ctx->N, 0) == 0 )
 	{
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 	}
 
-#if !defined(MBEDTLS_RSA_NO_CRT)
+#if !defined(TTLS_RSA_NO_CRT)
 	/* Modular exponentiation for P and Q is only
 	 * used for private key operations and if CRT
 	 * is used. */
 	if (is_priv &&
-		(mbedtls_mpi_cmp_int(&ctx->P, 0) <= 0 ||
-		  mbedtls_mpi_get_bit(&ctx->P, 0) == 0 ||
-		  mbedtls_mpi_cmp_int(&ctx->Q, 0) <= 0 ||
-		  mbedtls_mpi_get_bit(&ctx->Q, 0) == 0 ))
+		(ttls_mpi_cmp_int(&ctx->P, 0) <= 0 ||
+		  ttls_mpi_get_bit(&ctx->P, 0) == 0 ||
+		  ttls_mpi_cmp_int(&ctx->Q, 0) <= 0 ||
+		  ttls_mpi_get_bit(&ctx->Q, 0) == 0 ))
 	{
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 	}
-#endif /* !MBEDTLS_RSA_NO_CRT */
+#endif /* !TTLS_RSA_NO_CRT */
 
 	/*
 	 * 2. Exponents must be positive
 	 */
 
 	/* Always need E for public key operations */
-	if (mbedtls_mpi_cmp_int(&ctx->E, 0) <= 0)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+	if (ttls_mpi_cmp_int(&ctx->E, 0) <= 0)
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
-#if defined(MBEDTLS_RSA_NO_CRT)
+#if defined(TTLS_RSA_NO_CRT)
 	/* For private key operations, use D or DP & DQ
 	 * as (unblinded) exponents. */
-	if (is_priv && mbedtls_mpi_cmp_int(&ctx->D, 0) <= 0)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+	if (is_priv && ttls_mpi_cmp_int(&ctx->D, 0) <= 0)
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 #else
 	if (is_priv &&
-		(mbedtls_mpi_cmp_int(&ctx->DP, 0) <= 0 ||
-		  mbedtls_mpi_cmp_int(&ctx->DQ, 0) <= 0 ))
+		(ttls_mpi_cmp_int(&ctx->DP, 0) <= 0 ||
+		  ttls_mpi_cmp_int(&ctx->DQ, 0) <= 0 ))
 	{
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 	}
-#endif /* MBEDTLS_RSA_NO_CRT */
+#endif /* TTLS_RSA_NO_CRT */
 
 	/* Blinding shouldn't make exponents negative either,
 	 * so check that P, Q >= 1 if that hasn't yet been
 	 * done as part of 1. */
-#if defined(MBEDTLS_RSA_NO_CRT)
+#if defined(TTLS_RSA_NO_CRT)
 	if (is_priv && blinding_needed &&
-		(mbedtls_mpi_cmp_int(&ctx->P, 0) <= 0 ||
-		  mbedtls_mpi_cmp_int(&ctx->Q, 0) <= 0))
+		(ttls_mpi_cmp_int(&ctx->P, 0) <= 0 ||
+		  ttls_mpi_cmp_int(&ctx->Q, 0) <= 0))
 	{
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 	}
 #endif
 
 	/* It wouldn't lead to an error if it wasn't satisfied,
 	 * but check for QP >= 1 nonetheless. */
-#if !defined(MBEDTLS_RSA_NO_CRT)
+#if !defined(TTLS_RSA_NO_CRT)
 	if (is_priv &&
-		mbedtls_mpi_cmp_int(&ctx->QP, 0) <= 0)
+		ttls_mpi_cmp_int(&ctx->QP, 0) <= 0)
 	{
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 	}
 #endif
 
 	return 0;
 }
 
-int mbedtls_rsa_complete(mbedtls_rsa_context *ctx)
+int ttls_rsa_complete(ttls_rsa_context *ctx)
 {
 	int ret = 0;
 
-	const int have_N = (mbedtls_mpi_cmp_int(&ctx->N, 0) != 0);
-	const int have_P = (mbedtls_mpi_cmp_int(&ctx->P, 0) != 0);
-	const int have_Q = (mbedtls_mpi_cmp_int(&ctx->Q, 0) != 0);
-	const int have_D = (mbedtls_mpi_cmp_int(&ctx->D, 0) != 0);
-	const int have_E = (mbedtls_mpi_cmp_int(&ctx->E, 0) != 0);
+	const int have_N = (ttls_mpi_cmp_int(&ctx->N, 0) != 0);
+	const int have_P = (ttls_mpi_cmp_int(&ctx->P, 0) != 0);
+	const int have_Q = (ttls_mpi_cmp_int(&ctx->Q, 0) != 0);
+	const int have_D = (ttls_mpi_cmp_int(&ctx->D, 0) != 0);
+	const int have_E = (ttls_mpi_cmp_int(&ctx->E, 0) != 0);
 
 	/*
 	 * Check whether provided parameters are enough
@@ -258,7 +244,7 @@ int mbedtls_rsa_complete(mbedtls_rsa_context *ctx)
 	const int is_priv = n_missing || pq_missing || d_missing;
 
 	if (!is_priv && !is_pub)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	/*
 	 * Step 1: Deduce N if P, Q are provided.
@@ -266,13 +252,13 @@ int mbedtls_rsa_complete(mbedtls_rsa_context *ctx)
 
 	if (!have_N && have_P && have_Q)
 	{
-		if ((ret = mbedtls_mpi_mul_mpi(&ctx->N, &ctx->P,
-										 &ctx->Q)) != 0)
+		if ((ret = ttls_mpi_mul_mpi(&ctx->N, &ctx->P,
+				 &ctx->Q)) != 0)
 		{
-			return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA + ret);
+			return(TTLS_ERR_RSA_BAD_INPUT_DATA + ret);
 		}
 
-		ctx->len = mbedtls_mpi_size(&ctx->N);
+		ctx->len = ttls_mpi_size(&ctx->N);
 	}
 
 	/*
@@ -281,20 +267,20 @@ int mbedtls_rsa_complete(mbedtls_rsa_context *ctx)
 
 	if (pq_missing)
 	{
-		ret = mbedtls_rsa_deduce_primes(&ctx->N, &ctx->E, &ctx->D,
-										 &ctx->P, &ctx->Q);
+		ret = ttls_rsa_deduce_primes(&ctx->N, &ctx->E, &ctx->D,
+				 &ctx->P, &ctx->Q);
 		if (ret != 0)
-			return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA + ret);
+			return(TTLS_ERR_RSA_BAD_INPUT_DATA + ret);
 
 	}
 	else if (d_missing)
 	{
-		if ((ret = mbedtls_rsa_deduce_private_exponent(&ctx->P,
-														 &ctx->Q,
-														 &ctx->E,
-														 &ctx->D)) != 0)
+		if ((ret = ttls_rsa_deduce_private_exponent(&ctx->P,
+					 &ctx->Q,
+					 &ctx->E,
+					 &ctx->D)) != 0)
 		{
-			return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA + ret);
+			return(TTLS_ERR_RSA_BAD_INPUT_DATA + ret);
 		}
 	}
 
@@ -303,15 +289,15 @@ int mbedtls_rsa_complete(mbedtls_rsa_context *ctx)
 	 *		 to our current RSA implementation.
 	 */
 
-#if !defined(MBEDTLS_RSA_NO_CRT)
+#if !defined(TTLS_RSA_NO_CRT)
 	if (is_priv)
 	{
-		ret = mbedtls_rsa_deduce_crt(&ctx->P,  &ctx->Q,  &ctx->D,
-									  &ctx->DP, &ctx->DQ, &ctx->QP);
+		ret = ttls_rsa_deduce_crt(&ctx->P,  &ctx->Q,  &ctx->D,
+			  &ctx->DP, &ctx->DQ, &ctx->QP);
 		if (ret != 0)
-			return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA + ret);
+			return(TTLS_ERR_RSA_BAD_INPUT_DATA + ret);
 	}
-#endif /* MBEDTLS_RSA_NO_CRT */
+#endif /* TTLS_RSA_NO_CRT */
 
 	/*
 	 * Step 3: Basic sanity checks
@@ -320,82 +306,82 @@ int mbedtls_rsa_complete(mbedtls_rsa_context *ctx)
 	return(rsa_check_context(ctx, is_priv, 1));
 }
 
-int mbedtls_rsa_export_raw(const mbedtls_rsa_context *ctx,
-							unsigned char *N, size_t N_len,
-							unsigned char *P, size_t P_len,
-							unsigned char *Q, size_t Q_len,
-							unsigned char *D, size_t D_len,
-							unsigned char *E, size_t E_len)
+int ttls_rsa_export_raw(const ttls_rsa_context *ctx,
+				unsigned char *N, size_t N_len,
+				unsigned char *P, size_t P_len,
+				unsigned char *Q, size_t Q_len,
+				unsigned char *D, size_t D_len,
+				unsigned char *E, size_t E_len)
 {
 	int ret = 0;
 
 	/* Check if key is private or public */
 	const int is_priv =
-		mbedtls_mpi_cmp_int(&ctx->N, 0) != 0 &&
-		mbedtls_mpi_cmp_int(&ctx->P, 0) != 0 &&
-		mbedtls_mpi_cmp_int(&ctx->Q, 0) != 0 &&
-		mbedtls_mpi_cmp_int(&ctx->D, 0) != 0 &&
-		mbedtls_mpi_cmp_int(&ctx->E, 0) != 0;
+		ttls_mpi_cmp_int(&ctx->N, 0) != 0 &&
+		ttls_mpi_cmp_int(&ctx->P, 0) != 0 &&
+		ttls_mpi_cmp_int(&ctx->Q, 0) != 0 &&
+		ttls_mpi_cmp_int(&ctx->D, 0) != 0 &&
+		ttls_mpi_cmp_int(&ctx->E, 0) != 0;
 
 	if (!is_priv)
 	{
 		/* If we're trying to export private parameters for a public key,
 		 * something must be wrong. */
 		if (P != NULL || Q != NULL || D != NULL)
-			return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+			return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	}
 
 	if (N != NULL)
-		MBEDTLS_MPI_CHK(mbedtls_mpi_write_binary(&ctx->N, N, N_len));
+		TTLS_MPI_CHK(ttls_mpi_write_binary(&ctx->N, N, N_len));
 
 	if (P != NULL)
-		MBEDTLS_MPI_CHK(mbedtls_mpi_write_binary(&ctx->P, P, P_len));
+		TTLS_MPI_CHK(ttls_mpi_write_binary(&ctx->P, P, P_len));
 
 	if (Q != NULL)
-		MBEDTLS_MPI_CHK(mbedtls_mpi_write_binary(&ctx->Q, Q, Q_len));
+		TTLS_MPI_CHK(ttls_mpi_write_binary(&ctx->Q, Q, Q_len));
 
 	if (D != NULL)
-		MBEDTLS_MPI_CHK(mbedtls_mpi_write_binary(&ctx->D, D, D_len));
+		TTLS_MPI_CHK(ttls_mpi_write_binary(&ctx->D, D, D_len));
 
 	if (E != NULL)
-		MBEDTLS_MPI_CHK(mbedtls_mpi_write_binary(&ctx->E, E, E_len));
+		TTLS_MPI_CHK(ttls_mpi_write_binary(&ctx->E, E, E_len));
 
 cleanup:
 
 	return ret;
 }
 
-int mbedtls_rsa_export(const mbedtls_rsa_context *ctx,
-						mbedtls_mpi *N, mbedtls_mpi *P, mbedtls_mpi *Q,
-						mbedtls_mpi *D, mbedtls_mpi *E)
+int ttls_rsa_export(const ttls_rsa_context *ctx,
+			ttls_mpi *N, ttls_mpi *P, ttls_mpi *Q,
+			ttls_mpi *D, ttls_mpi *E)
 {
 	int ret;
 
 	/* Check if key is private or public */
 	int is_priv =
-		mbedtls_mpi_cmp_int(&ctx->N, 0) != 0 &&
-		mbedtls_mpi_cmp_int(&ctx->P, 0) != 0 &&
-		mbedtls_mpi_cmp_int(&ctx->Q, 0) != 0 &&
-		mbedtls_mpi_cmp_int(&ctx->D, 0) != 0 &&
-		mbedtls_mpi_cmp_int(&ctx->E, 0) != 0;
+		ttls_mpi_cmp_int(&ctx->N, 0) != 0 &&
+		ttls_mpi_cmp_int(&ctx->P, 0) != 0 &&
+		ttls_mpi_cmp_int(&ctx->Q, 0) != 0 &&
+		ttls_mpi_cmp_int(&ctx->D, 0) != 0 &&
+		ttls_mpi_cmp_int(&ctx->E, 0) != 0;
 
 	if (!is_priv)
 	{
 		/* If we're trying to export private parameters for a public key,
 		 * something must be wrong. */
 		if (P != NULL || Q != NULL || D != NULL)
-			return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+			return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	}
 
 	/* Export all requested core parameters. */
 
-	if ((N != NULL && (ret = mbedtls_mpi_copy(N, &ctx->N)) != 0) ||
-		(P != NULL && (ret = mbedtls_mpi_copy(P, &ctx->P)) != 0) ||
-		(Q != NULL && (ret = mbedtls_mpi_copy(Q, &ctx->Q)) != 0) ||
-		(D != NULL && (ret = mbedtls_mpi_copy(D, &ctx->D)) != 0) ||
-		(E != NULL && (ret = mbedtls_mpi_copy(E, &ctx->E)) != 0))
+	if ((N != NULL && (ret = ttls_mpi_copy(N, &ctx->N)) != 0) ||
+		(P != NULL && (ret = ttls_mpi_copy(P, &ctx->P)) != 0) ||
+		(Q != NULL && (ret = ttls_mpi_copy(Q, &ctx->Q)) != 0) ||
+		(D != NULL && (ret = ttls_mpi_copy(D, &ctx->D)) != 0) ||
+		(E != NULL && (ret = ttls_mpi_copy(E, &ctx->E)) != 0))
 	{
 		return ret;
 	}
@@ -406,38 +392,38 @@ int mbedtls_rsa_export(const mbedtls_rsa_context *ctx,
 /*
  * Export CRT parameters
  * This must also be implemented if CRT is not used, for being able to
- * write DER encoded RSA keys. The helper function mbedtls_rsa_deduce_crt
+ * write DER encoded RSA keys. The helper function ttls_rsa_deduce_crt
  * can be used in this case.
  */
-int mbedtls_rsa_export_crt(const mbedtls_rsa_context *ctx,
-							mbedtls_mpi *DP, mbedtls_mpi *DQ, mbedtls_mpi *QP)
+int ttls_rsa_export_crt(const ttls_rsa_context *ctx,
+				ttls_mpi *DP, ttls_mpi *DQ, ttls_mpi *QP)
 {
 	int ret;
 
 	/* Check if key is private or public */
 	int is_priv =
-		mbedtls_mpi_cmp_int(&ctx->N, 0) != 0 &&
-		mbedtls_mpi_cmp_int(&ctx->P, 0) != 0 &&
-		mbedtls_mpi_cmp_int(&ctx->Q, 0) != 0 &&
-		mbedtls_mpi_cmp_int(&ctx->D, 0) != 0 &&
-		mbedtls_mpi_cmp_int(&ctx->E, 0) != 0;
+		ttls_mpi_cmp_int(&ctx->N, 0) != 0 &&
+		ttls_mpi_cmp_int(&ctx->P, 0) != 0 &&
+		ttls_mpi_cmp_int(&ctx->Q, 0) != 0 &&
+		ttls_mpi_cmp_int(&ctx->D, 0) != 0 &&
+		ttls_mpi_cmp_int(&ctx->E, 0) != 0;
 
 	if (!is_priv)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
-#if !defined(MBEDTLS_RSA_NO_CRT)
+#if !defined(TTLS_RSA_NO_CRT)
 	/* Export all requested blinding parameters. */
-	if ((DP != NULL && (ret = mbedtls_mpi_copy(DP, &ctx->DP)) != 0) ||
-		(DQ != NULL && (ret = mbedtls_mpi_copy(DQ, &ctx->DQ)) != 0) ||
-		(QP != NULL && (ret = mbedtls_mpi_copy(QP, &ctx->QP)) != 0))
+	if ((DP != NULL && (ret = ttls_mpi_copy(DP, &ctx->DP)) != 0) ||
+		(DQ != NULL && (ret = ttls_mpi_copy(DQ, &ctx->DQ)) != 0) ||
+		(QP != NULL && (ret = ttls_mpi_copy(QP, &ctx->QP)) != 0))
 	{
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA + ret);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA + ret);
 	}
 #else
-	if ((ret = mbedtls_rsa_deduce_crt(&ctx->P, &ctx->Q, &ctx->D,
-										DP, DQ, QP)) != 0)
+	if ((ret = ttls_rsa_deduce_crt(&ctx->P, &ctx->Q, &ctx->D,
+				DP, DQ, QP)) != 0)
 	{
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA + ret);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA + ret);
 	}
 #endif
 
@@ -447,13 +433,13 @@ int mbedtls_rsa_export_crt(const mbedtls_rsa_context *ctx,
 /*
  * Initialize an RSA context
  */
-void mbedtls_rsa_init(mbedtls_rsa_context *ctx,
+void ttls_rsa_init(ttls_rsa_context *ctx,
 			   int padding,
 			   int hash_id)
 {
-	memset(ctx, 0, sizeof(mbedtls_rsa_context));
+	memset(ctx, 0, sizeof(ttls_rsa_context));
 
-	mbedtls_rsa_set_padding(ctx, padding, hash_id);
+	ttls_rsa_set_padding(ctx, padding, hash_id);
 
 	spin_lock_init(&ctx->mutex);
 }
@@ -461,7 +447,7 @@ void mbedtls_rsa_init(mbedtls_rsa_context *ctx,
 /*
  * Set padding for an existing RSA context
  */
-void mbedtls_rsa_set_padding(mbedtls_rsa_context *ctx, int padding, int hash_id)
+void ttls_rsa_set_padding(ttls_rsa_context *ctx, int padding, int hash_id)
 {
 	ctx->padding = padding;
 	ctx->hash_id = hash_id;
@@ -471,71 +457,65 @@ void mbedtls_rsa_set_padding(mbedtls_rsa_context *ctx, int padding, int hash_id)
  * Get length in bytes of RSA modulus
  */
 
-size_t mbedtls_rsa_get_len(const mbedtls_rsa_context *ctx)
+size_t ttls_rsa_get_len(const ttls_rsa_context *ctx)
 {
 	return(ctx->len);
 }
 
 
-#if defined(MBEDTLS_GENPRIME)
+#if defined(TTLS_GENPRIME)
 
 /*
  * Generate an RSA keypair
  */
-int mbedtls_rsa_gen_key(mbedtls_rsa_context *ctx,
-				 int (*f_rng)(void *, unsigned char *, size_t),
-				 void *p_rng,
-				 unsigned int nbits, int exponent)
+int ttls_rsa_gen_key(ttls_rsa_context *ctx, unsigned int nbits, int exponent)
 {
 	int ret;
-	mbedtls_mpi H, G;
+	ttls_mpi H, G;
 
-	if (f_rng == NULL || nbits < 128 || exponent < 3)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+	if (nbits < 128 || exponent < 3)
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	if (nbits % 2)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
-	mbedtls_mpi_init(&H);
-	mbedtls_mpi_init(&G);
+	ttls_mpi_init(&H);
+	ttls_mpi_init(&G);
 
 	/*
 	 * find primes P and Q with Q < P so that:
 	 * GCD(E, (P-1)*(Q-1)) == 1
 	 */
-	MBEDTLS_MPI_CHK(mbedtls_mpi_lset(&ctx->E, exponent));
+	TTLS_MPI_CHK(ttls_mpi_lset(&ctx->E, exponent));
 
 	do
 	{
-		MBEDTLS_MPI_CHK(mbedtls_mpi_gen_prime(&ctx->P, nbits >> 1, 0,
-												f_rng, p_rng));
+		TTLS_MPI_CHK(ttls_mpi_gen_prime(&ctx->P, nbits >> 1, 0));
+		TTLS_MPI_CHK(ttls_mpi_gen_prime(&ctx->Q, nbits >> 1, 0));
 
-		MBEDTLS_MPI_CHK(mbedtls_mpi_gen_prime(&ctx->Q, nbits >> 1, 0,
-												f_rng, p_rng));
-
-		if (mbedtls_mpi_cmp_mpi(&ctx->P, &ctx->Q) == 0)
+		if (ttls_mpi_cmp_mpi(&ctx->P, &ctx->Q) == 0)
 			continue;
 
-		MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(&ctx->N, &ctx->P, &ctx->Q));
-		if (mbedtls_mpi_bitlen(&ctx->N) != nbits)
+		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&ctx->N, &ctx->P, &ctx->Q));
+		if (ttls_mpi_bitlen(&ctx->N) != nbits)
 			continue;
 
-		if (mbedtls_mpi_cmp_mpi(&ctx->P, &ctx->Q) < 0)
-			mbedtls_mpi_swap(&ctx->P, &ctx->Q);
+		if (ttls_mpi_cmp_mpi(&ctx->P, &ctx->Q) < 0)
+			ttls_mpi_swap(&ctx->P, &ctx->Q);
 
 		/* Temporarily replace P,Q by P-1, Q-1 */
-		MBEDTLS_MPI_CHK(mbedtls_mpi_sub_int(&ctx->P, &ctx->P, 1));
-		MBEDTLS_MPI_CHK(mbedtls_mpi_sub_int(&ctx->Q, &ctx->Q, 1));
-		MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(&H, &ctx->P, &ctx->Q));
-		MBEDTLS_MPI_CHK(mbedtls_mpi_gcd(&G, &ctx->E, &H ));
+		TTLS_MPI_CHK(ttls_mpi_sub_int(&ctx->P, &ctx->P, 1));
+		TTLS_MPI_CHK(ttls_mpi_sub_int(&ctx->Q, &ctx->Q, 1));
+		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&H, &ctx->P, &ctx->Q));
+		TTLS_MPI_CHK(ttls_mpi_gcd(&G, &ctx->E, &H ));
 	}
-	while (mbedtls_mpi_cmp_int(&G, 1) != 0);
+	while (ttls_mpi_cmp_int(&G, 1) != 0);
 
 	/* Restore P,Q */
-	MBEDTLS_MPI_CHK(mbedtls_mpi_add_int(&ctx->P,  &ctx->P, 1));
-	MBEDTLS_MPI_CHK(mbedtls_mpi_add_int(&ctx->Q,  &ctx->Q, 1));
+	TTLS_MPI_CHK(ttls_mpi_add_int(&ctx->P,  &ctx->P, 1));
+	TTLS_MPI_CHK(ttls_mpi_add_int(&ctx->Q,  &ctx->Q, 1));
 
-	ctx->len = mbedtls_mpi_size(&ctx->N);
+	ctx->len = ttls_mpi_size(&ctx->N);
 
 	/*
 	 * D  = E^-1 mod ((P-1)*(Q-1))
@@ -544,50 +524,50 @@ int mbedtls_rsa_gen_key(mbedtls_rsa_context *ctx,
 	 * QP = Q^-1 mod P
 	 */
 
-	MBEDTLS_MPI_CHK(mbedtls_mpi_inv_mod(&ctx->D, &ctx->E, &H ));
+	TTLS_MPI_CHK(ttls_mpi_inv_mod(&ctx->D, &ctx->E, &H ));
 
-#if !defined(MBEDTLS_RSA_NO_CRT)
-	MBEDTLS_MPI_CHK(mbedtls_rsa_deduce_crt(&ctx->P, &ctx->Q, &ctx->D,
-											 &ctx->DP, &ctx->DQ, &ctx->QP));
-#endif /* MBEDTLS_RSA_NO_CRT */
+#if !defined(TTLS_RSA_NO_CRT)
+	TTLS_MPI_CHK(ttls_rsa_deduce_crt(&ctx->P, &ctx->Q, &ctx->D,
+		 &ctx->DP, &ctx->DQ, &ctx->QP));
+#endif /* TTLS_RSA_NO_CRT */
 
 	/* Double-check */
-	MBEDTLS_MPI_CHK(mbedtls_rsa_check_privkey(ctx));
+	TTLS_MPI_CHK(ttls_rsa_check_privkey(ctx));
 
 cleanup:
 
-	mbedtls_mpi_free(&H);
-	mbedtls_mpi_free(&G);
+	ttls_mpi_free(&H);
+	ttls_mpi_free(&G);
 
 	if (ret != 0)
 	{
-		mbedtls_rsa_free(ctx);
-		return(MBEDTLS_ERR_RSA_KEY_GEN_FAILED + ret);
+		ttls_rsa_free(ctx);
+		return(TTLS_ERR_RSA_KEY_GEN_FAILED + ret);
 	}
 
 	return 0;
 }
 
-#endif /* MBEDTLS_GENPRIME */
+#endif /* TTLS_GENPRIME */
 
 /*
  * Check a public RSA key
  */
-int mbedtls_rsa_check_pubkey(const mbedtls_rsa_context *ctx)
+int ttls_rsa_check_pubkey(const ttls_rsa_context *ctx)
 {
 	if (rsa_check_context(ctx, 0 /* public */, 0 /* no blinding */) != 0)
-		return(MBEDTLS_ERR_RSA_KEY_CHECK_FAILED);
+		return(TTLS_ERR_RSA_KEY_CHECK_FAILED);
 
-	if (mbedtls_mpi_bitlen(&ctx->N) < 128)
+	if (ttls_mpi_bitlen(&ctx->N) < 128)
 	{
-		return(MBEDTLS_ERR_RSA_KEY_CHECK_FAILED);
+		return(TTLS_ERR_RSA_KEY_CHECK_FAILED);
 	}
 
-	if (mbedtls_mpi_get_bit(&ctx->E, 0) == 0 ||
-		mbedtls_mpi_bitlen(&ctx->E)	 < 2  ||
-		mbedtls_mpi_cmp_mpi(&ctx->E, &ctx->N) >= 0)
+	if (ttls_mpi_get_bit(&ctx->E, 0) == 0 ||
+		ttls_mpi_bitlen(&ctx->E)	 < 2  ||
+		ttls_mpi_cmp_mpi(&ctx->E, &ctx->N) >= 0)
 	{
-		return(MBEDTLS_ERR_RSA_KEY_CHECK_FAILED);
+		return(TTLS_ERR_RSA_KEY_CHECK_FAILED);
 	}
 
 	return 0;
@@ -596,25 +576,25 @@ int mbedtls_rsa_check_pubkey(const mbedtls_rsa_context *ctx)
 /*
  * Check for the consistency of all fields in an RSA private key context
  */
-int mbedtls_rsa_check_privkey(const mbedtls_rsa_context *ctx)
+int ttls_rsa_check_privkey(const ttls_rsa_context *ctx)
 {
-	if (mbedtls_rsa_check_pubkey(ctx) != 0 ||
+	if (ttls_rsa_check_pubkey(ctx) != 0 ||
 		rsa_check_context(ctx, 1 /* private */, 1 /* blinding */) != 0)
 	{
-		return(MBEDTLS_ERR_RSA_KEY_CHECK_FAILED);
+		return(TTLS_ERR_RSA_KEY_CHECK_FAILED);
 	}
 
-	if (mbedtls_rsa_validate_params(&ctx->N, &ctx->P, &ctx->Q,
-									 &ctx->D, &ctx->E, NULL, NULL) != 0)
+	if (ttls_rsa_validate_params(&ctx->N, &ctx->P, &ctx->Q,
+			 &ctx->D, &ctx->E, false) != 0)
 	{
-		return(MBEDTLS_ERR_RSA_KEY_CHECK_FAILED);
+		return(TTLS_ERR_RSA_KEY_CHECK_FAILED);
 	}
 
-#if !defined(MBEDTLS_RSA_NO_CRT)
-	else if (mbedtls_rsa_validate_crt(&ctx->P, &ctx->Q, &ctx->D,
-									   &ctx->DP, &ctx->DQ, &ctx->QP) != 0)
+#if !defined(TTLS_RSA_NO_CRT)
+	else if (ttls_rsa_validate_crt(&ctx->P, &ctx->Q, &ctx->D,
+			   &ctx->DP, &ctx->DQ, &ctx->QP) != 0)
 	{
-		return(MBEDTLS_ERR_RSA_KEY_CHECK_FAILED);
+		return(TTLS_ERR_RSA_KEY_CHECK_FAILED);
 	}
 #endif
 
@@ -624,19 +604,19 @@ int mbedtls_rsa_check_privkey(const mbedtls_rsa_context *ctx)
 /*
  * Check if contexts holding a public and private key match
  */
-int mbedtls_rsa_check_pub_priv(const mbedtls_rsa_context *pub,
-								const mbedtls_rsa_context *prv)
+int ttls_rsa_check_pub_priv(const ttls_rsa_context *pub,
+		const ttls_rsa_context *prv)
 {
-	if (mbedtls_rsa_check_pubkey(pub)  != 0 ||
-		mbedtls_rsa_check_privkey(prv) != 0)
+	if (ttls_rsa_check_pubkey(pub)  != 0 ||
+		ttls_rsa_check_privkey(prv) != 0)
 	{
-		return(MBEDTLS_ERR_RSA_KEY_CHECK_FAILED);
+		return(TTLS_ERR_RSA_KEY_CHECK_FAILED);
 	}
 
-	if (mbedtls_mpi_cmp_mpi(&pub->N, &prv->N) != 0 ||
-		mbedtls_mpi_cmp_mpi(&pub->E, &prv->E) != 0)
+	if (ttls_mpi_cmp_mpi(&pub->N, &prv->N) != 0 ||
+		ttls_mpi_cmp_mpi(&pub->E, &prv->E) != 0)
 	{
-		return(MBEDTLS_ERR_RSA_KEY_CHECK_FAILED);
+		return(TTLS_ERR_RSA_KEY_CHECK_FAILED);
 	}
 
 	return 0;
@@ -645,40 +625,40 @@ int mbedtls_rsa_check_pub_priv(const mbedtls_rsa_context *pub,
 /*
  * Do an RSA public key operation
  */
-int mbedtls_rsa_public(mbedtls_rsa_context *ctx,
+int ttls_rsa_public(ttls_rsa_context *ctx,
 				const unsigned char *input,
 				unsigned char *output)
 {
 	int ret;
 	size_t olen;
-	mbedtls_mpi T;
+	ttls_mpi T;
 
 	if (rsa_check_context(ctx, 0 /* public */, 0 /* no blinding */))
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
-	mbedtls_mpi_init(&T);
+	ttls_mpi_init(&T);
 
 	spin_lock(&ctx->mutex);
 
-	MBEDTLS_MPI_CHK(mbedtls_mpi_read_binary(&T, input, ctx->len));
+	TTLS_MPI_CHK(ttls_mpi_read_binary(&T, input, ctx->len));
 
-	if (mbedtls_mpi_cmp_mpi(&T, &ctx->N) >= 0)
+	if (ttls_mpi_cmp_mpi(&T, &ctx->N) >= 0)
 	{
-		ret = MBEDTLS_ERR_MPI_BAD_INPUT_DATA;
+		ret = TTLS_ERR_MPI_BAD_INPUT_DATA;
 		goto cleanup;
 	}
 
 	olen = ctx->len;
-	MBEDTLS_MPI_CHK(mbedtls_mpi_exp_mod(&T, &T, &ctx->E, &ctx->N, &ctx->RN));
-	MBEDTLS_MPI_CHK(mbedtls_mpi_write_binary(&T, output, olen));
+	TTLS_MPI_CHK(ttls_mpi_exp_mod(&T, &T, &ctx->E, &ctx->N, &ctx->RN));
+	TTLS_MPI_CHK(ttls_mpi_write_binary(&T, output, olen));
 
 cleanup:
 	spin_unlock(&ctx->mutex);
 
-	mbedtls_mpi_free(&T);
+	ttls_mpi_free(&T);
 
 	if (ret != 0)
-		return(MBEDTLS_ERR_RSA_PUBLIC_FAILED + ret);
+		return(TTLS_ERR_RSA_PUBLIC_FAILED + ret);
 
 	return 0;
 }
@@ -689,18 +669,17 @@ cleanup:
  *  DSS, and other systems. In : Advances in Cryptology-CRYPTO'96. Springer
  *  Berlin Heidelberg, 1996. p. 104-113.
  */
-static int rsa_prepare_blinding(mbedtls_rsa_context *ctx,
-				 int (*f_rng)(void *, unsigned char *, size_t), void *p_rng)
+static int rsa_prepare_blinding(ttls_rsa_context *ctx)
 {
 	int ret, count = 0;
 
 	if (ctx->Vf.p != NULL)
 	{
 		/* We already have blinding values, just update them by squaring */
-		MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(&ctx->Vi, &ctx->Vi, &ctx->Vi));
-		MBEDTLS_MPI_CHK(mbedtls_mpi_mod_mpi(&ctx->Vi, &ctx->Vi, &ctx->N));
-		MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(&ctx->Vf, &ctx->Vf, &ctx->Vf));
-		MBEDTLS_MPI_CHK(mbedtls_mpi_mod_mpi(&ctx->Vf, &ctx->Vf, &ctx->N));
+		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&ctx->Vi, &ctx->Vi, &ctx->Vi));
+		TTLS_MPI_CHK(ttls_mpi_mod_mpi(&ctx->Vi, &ctx->Vi, &ctx->N));
+		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&ctx->Vf, &ctx->Vf, &ctx->Vf));
+		TTLS_MPI_CHK(ttls_mpi_mod_mpi(&ctx->Vf, &ctx->Vf, &ctx->N));
 
 		goto cleanup;
 	}
@@ -708,15 +687,15 @@ static int rsa_prepare_blinding(mbedtls_rsa_context *ctx,
 	/* Unblinding value: Vf = random number, invertible mod N */
 	do {
 		if (count++ > 10)
-			return(MBEDTLS_ERR_RSA_RNG_FAILED);
+			return TTLS_ERR_RSA_RNG_FAILED;
 
-		MBEDTLS_MPI_CHK(mbedtls_mpi_fill_random(&ctx->Vf, ctx->len - 1, f_rng, p_rng));
-		MBEDTLS_MPI_CHK(mbedtls_mpi_gcd(&ctx->Vi, &ctx->Vf, &ctx->N));
-	} while (mbedtls_mpi_cmp_int(&ctx->Vi, 1) != 0);
+		TTLS_MPI_CHK(ttls_mpi_fill_random(&ctx->Vf, ctx->len - 1));
+		TTLS_MPI_CHK(ttls_mpi_gcd(&ctx->Vi, &ctx->Vf, &ctx->N));
+	} while (ttls_mpi_cmp_int(&ctx->Vi, 1) != 0);
 
 	/* Blinding value: Vi =  Vf^(-e) mod N */
-	MBEDTLS_MPI_CHK(mbedtls_mpi_inv_mod(&ctx->Vi, &ctx->Vf, &ctx->N));
-	MBEDTLS_MPI_CHK(mbedtls_mpi_exp_mod(&ctx->Vi, &ctx->Vi, &ctx->E, &ctx->N, &ctx->RN));
+	TTLS_MPI_CHK(ttls_mpi_inv_mod(&ctx->Vi, &ctx->Vf, &ctx->N));
+	TTLS_MPI_CHK(ttls_mpi_exp_mod(&ctx->Vi, &ctx->Vi, &ctx->E, &ctx->N, &ctx->RN));
 
 
 cleanup:
@@ -747,144 +726,127 @@ cleanup:
 /*
  * Do an RSA private key operation
  */
-int mbedtls_rsa_private(mbedtls_rsa_context *ctx,
-				 int (*f_rng)(void *, unsigned char *, size_t),
-				 void *p_rng,
-				 const unsigned char *input,
+int ttls_rsa_private(ttls_rsa_context *ctx, const unsigned char *input,
 				 unsigned char *output)
 {
 	int ret;
 	size_t olen;
 
 	/* Temporary holding the result */
-	mbedtls_mpi T;
+	ttls_mpi T;
 
 	/* Temporaries holding P-1, Q-1 and the
 	 * exponent blinding factor, respectively. */
-	mbedtls_mpi P1, Q1, R;
+	ttls_mpi P1, Q1, R;
 
-#if !defined(MBEDTLS_RSA_NO_CRT)
+#if !defined(TTLS_RSA_NO_CRT)
 	/* Temporaries holding the results mod p resp. mod q. */
-	mbedtls_mpi TP, TQ;
+	ttls_mpi TP, TQ;
 
 	/* Temporaries holding the blinded exponents for
 	 * the mod p resp. mod q computation (if used). */
-	mbedtls_mpi DP_blind, DQ_blind;
+	ttls_mpi DP_blind, DQ_blind;
 
 	/* Pointers to actual exponents to be used - either the unblinded
 	 * or the blinded ones, depending on the presence of a PRNG. */
-	mbedtls_mpi *DP = &ctx->DP;
-	mbedtls_mpi *DQ = &ctx->DQ;
+	ttls_mpi *DP = &ctx->DP;
+	ttls_mpi *DQ = &ctx->DQ;
 #else
 	/* Temporary holding the blinded exponent (if used). */
-	mbedtls_mpi D_blind;
+	ttls_mpi D_blind;
 
 	/* Pointer to actual exponent to be used - either the unblinded
 	 * or the blinded one, depending on the presence of a PRNG. */
-	mbedtls_mpi *D = &ctx->D;
-#endif /* MBEDTLS_RSA_NO_CRT */
+	ttls_mpi *D = &ctx->D;
+#endif /* TTLS_RSA_NO_CRT */
 
 	/* Temporaries holding the initial input and the double
 	 * checked result; should be the same in the end. */
-	mbedtls_mpi I, C;
+	ttls_mpi I, C;
 
-	if (rsa_check_context(ctx, 1			 /* private key checks */,
-								f_rng != NULL /* blinding y/n	   */) != 0)
-	{
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
-	}
+	if (rsa_check_context(ctx, 1, 1) != 0)
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	spin_lock(&ctx->mutex);
 
 	/* MPI Initialization */
-	mbedtls_mpi_init(&T);
+	ttls_mpi_init(&T);
 
-	mbedtls_mpi_init(&P1);
-	mbedtls_mpi_init(&Q1);
-	mbedtls_mpi_init(&R);
+	ttls_mpi_init(&P1);
+	ttls_mpi_init(&Q1);
+	ttls_mpi_init(&R);
 
-	if (f_rng != NULL)
-	{
-#if defined(MBEDTLS_RSA_NO_CRT)
-		mbedtls_mpi_init(&D_blind);
+#if defined(TTLS_RSA_NO_CRT)
+	ttls_mpi_init(&D_blind);
 #else
-		mbedtls_mpi_init(&DP_blind);
-		mbedtls_mpi_init(&DQ_blind);
-#endif
-	}
-
-#if !defined(MBEDTLS_RSA_NO_CRT)
-	mbedtls_mpi_init(&TP); mbedtls_mpi_init(&TQ);
+	ttls_mpi_init(&DP_blind);
+	ttls_mpi_init(&DQ_blind);
 #endif
 
-	mbedtls_mpi_init(&I);
-	mbedtls_mpi_init(&C);
+#if !defined(TTLS_RSA_NO_CRT)
+	ttls_mpi_init(&TP); ttls_mpi_init(&TQ);
+#endif
+
+	ttls_mpi_init(&I);
+	ttls_mpi_init(&C);
 
 	/* End of MPI initialization */
 
-	MBEDTLS_MPI_CHK(mbedtls_mpi_read_binary(&T, input, ctx->len));
-	if (mbedtls_mpi_cmp_mpi(&T, &ctx->N) >= 0)
+	TTLS_MPI_CHK(ttls_mpi_read_binary(&T, input, ctx->len));
+	if (ttls_mpi_cmp_mpi(&T, &ctx->N) >= 0)
 	{
-		ret = MBEDTLS_ERR_MPI_BAD_INPUT_DATA;
+		ret = TTLS_ERR_MPI_BAD_INPUT_DATA;
 		goto cleanup;
 	}
 
-	MBEDTLS_MPI_CHK(mbedtls_mpi_copy(&I, &T));
+	TTLS_MPI_CHK(ttls_mpi_copy(&I, &T));
 
-	if (f_rng != NULL)
-	{
-		/*
-		 * Blinding
-		 * T = T * Vi mod N
-		 */
-		MBEDTLS_MPI_CHK(rsa_prepare_blinding(ctx, f_rng, p_rng));
-		MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(&T, &T, &ctx->Vi));
-		MBEDTLS_MPI_CHK(mbedtls_mpi_mod_mpi(&T, &T, &ctx->N));
+	/*
+	 * Blinding
+	 * T = T * Vi mod N
+	 */
+	TTLS_MPI_CHK(rsa_prepare_blinding(ctx));
+	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&T, &T, &ctx->Vi));
+	TTLS_MPI_CHK(ttls_mpi_mod_mpi(&T, &T, &ctx->N));
 
-		/*
-		 * Exponent blinding
-		 */
-		MBEDTLS_MPI_CHK(mbedtls_mpi_sub_int(&P1, &ctx->P, 1));
-		MBEDTLS_MPI_CHK(mbedtls_mpi_sub_int(&Q1, &ctx->Q, 1));
+	/*
+	 * Exponent blinding
+	 */
+	TTLS_MPI_CHK(ttls_mpi_sub_int(&P1, &ctx->P, 1));
+	TTLS_MPI_CHK(ttls_mpi_sub_int(&Q1, &ctx->Q, 1));
 
-#if defined(MBEDTLS_RSA_NO_CRT)
-		/*
-		 * D_blind = (P - 1) * (Q - 1) * R + D
-		 */
-		MBEDTLS_MPI_CHK(mbedtls_mpi_fill_random(&R, RSA_EXPONENT_BLINDING,
-						 f_rng, p_rng));
-		MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(&D_blind, &P1, &Q1));
-		MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(&D_blind, &D_blind, &R));
-		MBEDTLS_MPI_CHK(mbedtls_mpi_add_mpi(&D_blind, &D_blind, &ctx->D));
+#if defined(TTLS_RSA_NO_CRT)
+	/*
+	 * D_blind = (P - 1) * (Q - 1) * R + D
+	 */
+	TTLS_MPI_CHK(ttls_mpi_fill_random(&R, RSA_EXPONENT_BLINDING));
+	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&D_blind, &P1, &Q1));
+	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&D_blind, &D_blind, &R));
+	TTLS_MPI_CHK(ttls_mpi_add_mpi(&D_blind, &D_blind, &ctx->D));
 
-		D = &D_blind;
+	D = &D_blind;
 #else
-		/*
-		 * DP_blind = (P - 1) * R + DP
-		 */
-		MBEDTLS_MPI_CHK(mbedtls_mpi_fill_random(&R, RSA_EXPONENT_BLINDING,
-						 f_rng, p_rng));
-		MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(&DP_blind, &P1, &R));
-		MBEDTLS_MPI_CHK(mbedtls_mpi_add_mpi(&DP_blind, &DP_blind,
-					&ctx->DP));
+	/*
+	 * DP_blind = (P - 1) * R + DP
+	 */
+	TTLS_MPI_CHK(ttls_mpi_fill_random(&R, RSA_EXPONENT_BLINDING));
+	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&DP_blind, &P1, &R));
+	TTLS_MPI_CHK(ttls_mpi_add_mpi(&DP_blind, &DP_blind, &ctx->DP));
 
-		DP = &DP_blind;
+	DP = &DP_blind;
 
-		/*
-		 * DQ_blind = (Q - 1) * R + DQ
-		 */
-		MBEDTLS_MPI_CHK(mbedtls_mpi_fill_random(&R, RSA_EXPONENT_BLINDING,
-						 f_rng, p_rng));
-		MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(&DQ_blind, &Q1, &R));
-		MBEDTLS_MPI_CHK(mbedtls_mpi_add_mpi(&DQ_blind, &DQ_blind,
-					&ctx->DQ));
+	/*
+	 * DQ_blind = (Q - 1) * R + DQ
+	 */
+	TTLS_MPI_CHK(ttls_mpi_fill_random(&R, RSA_EXPONENT_BLINDING));
+	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&DQ_blind, &Q1, &R));
+	TTLS_MPI_CHK(ttls_mpi_add_mpi(&DQ_blind, &DQ_blind, &ctx->DQ));
 
-		DQ = &DQ_blind;
-#endif /* MBEDTLS_RSA_NO_CRT */
-	}
+	DQ = &DQ_blind;
+#endif /* TTLS_RSA_NO_CRT */
 
-#if defined(MBEDTLS_RSA_NO_CRT)
-	MBEDTLS_MPI_CHK(mbedtls_mpi_exp_mod(&T, &T, D, &ctx->N, &ctx->RN));
+#if defined(TTLS_RSA_NO_CRT)
+	TTLS_MPI_CHK(ttls_mpi_exp_mod(&T, &T, D, &ctx->N, &ctx->RN));
 #else
 	/*
 	 * Faster decryption using the CRT
@@ -893,78 +855,71 @@ int mbedtls_rsa_private(mbedtls_rsa_context *ctx,
 	 * TQ = input ^ dQ mod Q
 	 */
 
-	MBEDTLS_MPI_CHK(mbedtls_mpi_exp_mod(&TP, &T, DP, &ctx->P, &ctx->RP));
-	MBEDTLS_MPI_CHK(mbedtls_mpi_exp_mod(&TQ, &T, DQ, &ctx->Q, &ctx->RQ));
+	TTLS_MPI_CHK(ttls_mpi_exp_mod(&TP, &T, DP, &ctx->P, &ctx->RP));
+	TTLS_MPI_CHK(ttls_mpi_exp_mod(&TQ, &T, DQ, &ctx->Q, &ctx->RQ));
 
 	/*
 	 * T = (TP - TQ) * (Q^-1 mod P) mod P
 	 */
-	MBEDTLS_MPI_CHK(mbedtls_mpi_sub_mpi(&T, &TP, &TQ));
-	MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(&TP, &T, &ctx->QP));
-	MBEDTLS_MPI_CHK(mbedtls_mpi_mod_mpi(&T, &TP, &ctx->P));
+	TTLS_MPI_CHK(ttls_mpi_sub_mpi(&T, &TP, &TQ));
+	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&TP, &T, &ctx->QP));
+	TTLS_MPI_CHK(ttls_mpi_mod_mpi(&T, &TP, &ctx->P));
 
 	/*
 	 * T = TQ + T * Q
 	 */
-	MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(&TP, &T, &ctx->Q));
-	MBEDTLS_MPI_CHK(mbedtls_mpi_add_mpi(&T, &TQ, &TP));
-#endif /* MBEDTLS_RSA_NO_CRT */
+	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&TP, &T, &ctx->Q));
+	TTLS_MPI_CHK(ttls_mpi_add_mpi(&T, &TQ, &TP));
+#endif /* TTLS_RSA_NO_CRT */
 
-	if (f_rng != NULL)
-	{
-		/*
-		 * Unblind
-		 * T = T * Vf mod N
-		 */
-		MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(&T, &T, &ctx->Vf));
-		MBEDTLS_MPI_CHK(mbedtls_mpi_mod_mpi(&T, &T, &ctx->N));
-	}
+	/*
+	 * Unblind
+	 * T = T * Vf mod N
+	 */
+	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&T, &T, &ctx->Vf));
+	TTLS_MPI_CHK(ttls_mpi_mod_mpi(&T, &T, &ctx->N));
 
 	/* Verify the result to prevent glitching attacks. */
-	MBEDTLS_MPI_CHK(mbedtls_mpi_exp_mod(&C, &T, &ctx->E,
-										  &ctx->N, &ctx->RN));
-	if (mbedtls_mpi_cmp_mpi(&C, &I) != 0)
+	TTLS_MPI_CHK(ttls_mpi_exp_mod(&C, &T, &ctx->E,
+				  &ctx->N, &ctx->RN));
+	if (ttls_mpi_cmp_mpi(&C, &I) != 0)
 	{
-		ret = MBEDTLS_ERR_RSA_VERIFY_FAILED;
+		ret = TTLS_ERR_RSA_VERIFY_FAILED;
 		goto cleanup;
 	}
 
 	olen = ctx->len;
-	MBEDTLS_MPI_CHK(mbedtls_mpi_write_binary(&T, output, olen));
+	TTLS_MPI_CHK(ttls_mpi_write_binary(&T, output, olen));
 
 cleanup:
 	spin_unlock(&ctx->mutex);
 
-	mbedtls_mpi_free(&P1);
-	mbedtls_mpi_free(&Q1);
-	mbedtls_mpi_free(&R);
+	ttls_mpi_free(&P1);
+	ttls_mpi_free(&Q1);
+	ttls_mpi_free(&R);
 
-	if (f_rng != NULL)
-	{
-#if defined(MBEDTLS_RSA_NO_CRT)
-		mbedtls_mpi_free(&D_blind);
+#if defined(TTLS_RSA_NO_CRT)
+	ttls_mpi_free(&D_blind);
 #else
-		mbedtls_mpi_free(&DP_blind);
-		mbedtls_mpi_free(&DQ_blind);
-#endif
-	}
-
-	mbedtls_mpi_free(&T);
-
-#if !defined(MBEDTLS_RSA_NO_CRT)
-	mbedtls_mpi_free(&TP); mbedtls_mpi_free(&TQ);
+	ttls_mpi_free(&DP_blind);
+	ttls_mpi_free(&DQ_blind);
 #endif
 
-	mbedtls_mpi_free(&C);
-	mbedtls_mpi_free(&I);
+	ttls_mpi_free(&T);
+
+#if !defined(TTLS_RSA_NO_CRT)
+	ttls_mpi_free(&TP); ttls_mpi_free(&TQ);
+#endif
+
+	ttls_mpi_free(&C);
+	ttls_mpi_free(&I);
 
 	if (ret != 0)
-		return(MBEDTLS_ERR_RSA_PRIVATE_FAILED + ret);
+		return(TTLS_ERR_RSA_PRIVATE_FAILED + ret);
 
 	return 0;
 }
 
-#if defined(MBEDTLS_PKCS1_V21)
 /**
  * Generate and apply the MGF1 operation (from PKCS#1 v2.1) to a buffer.
  *
@@ -975,19 +930,19 @@ cleanup:
  * \param md_ctx	message digest context to use
  */
 static int mgf_mask(unsigned char *dst, size_t dlen, unsigned char *src,
-					  size_t slen, mbedtls_md_context_t *md_ctx)
+		  size_t slen, TlsMdCtx *md_ctx)
 {
-	unsigned char mask[MBEDTLS_MD_MAX_SIZE];
+	unsigned char mask[TTLS_MD_MAX_SIZE];
 	unsigned char counter[4];
 	unsigned char *p;
 	unsigned int hlen;
 	size_t i, use_len;
 	int ret = 0;
 
-	memset(mask, 0, MBEDTLS_MD_MAX_SIZE);
+	memset(mask, 0, TTLS_MD_MAX_SIZE);
 	memset(counter, 0, 4);
 
-	hlen = mbedtls_md_get_size(md_ctx->md_info);
+	hlen = ttls_md_get_size(md_ctx->md_info);
 
 	/* Generate and apply dbMask */
 	p = dst;
@@ -998,13 +953,13 @@ static int mgf_mask(unsigned char *dst, size_t dlen, unsigned char *src,
 		if (dlen < hlen)
 			use_len = dlen;
 
-		if ((ret = mbedtls_md_starts(md_ctx)) != 0)
+		if ((ret = ttls_md_starts(md_ctx)) != 0)
 			goto exit;
-		if ((ret = mbedtls_md_update(md_ctx, src, slen)) != 0)
+		if ((ret = ttls_md_update(md_ctx, src, slen)) != 0)
 			goto exit;
-		if ((ret = mbedtls_md_update(md_ctx, counter, 4)) != 0)
+		if ((ret = ttls_md_update(md_ctx, counter, 4)) != 0)
 			goto exit;
-		if ((ret = mbedtls_md_finish(md_ctx, mask)) != 0)
+		if ((ret = ttls_md_finish(md_ctx, mask)) != 0)
 			goto exit;
 
 		for (i = 0; i < use_len; ++i)
@@ -1016,146 +971,130 @@ static int mgf_mask(unsigned char *dst, size_t dlen, unsigned char *src,
 	}
 
 exit:
-	mbedtls_zeroize(mask, sizeof(mask));
+	bzero_fast(mask, sizeof(mask));
 
 	return ret;
 }
-#endif /* MBEDTLS_PKCS1_V21 */
 
-#if defined(MBEDTLS_PKCS1_V21)
 /*
  * Implementation of the PKCS#1 v2.1 RSAES-OAEP-ENCRYPT function
  */
-int mbedtls_rsa_rsaes_oaep_encrypt(mbedtls_rsa_context *ctx,
-							int (*f_rng)(void *, unsigned char *, size_t),
-							void *p_rng,
-							int mode,
-							const unsigned char *label, size_t label_len,
-							size_t ilen,
-							const unsigned char *input,
-							unsigned char *output)
+int ttls_rsa_rsaes_oaep_encrypt(ttls_rsa_context *ctx, int mode,
+				const unsigned char *label, size_t label_len,
+				size_t ilen,
+				const unsigned char *input,
+				unsigned char *output)
 {
 	size_t olen;
 	int ret;
 	unsigned char *p = output;
 	unsigned int hlen;
-	const mbedtls_md_info_t *md_info;
-	mbedtls_md_context_t md_ctx;
+	const TlsMdInfo *md_info;
+	TlsMdCtx md_ctx;
 
-	if (mode == MBEDTLS_RSA_PRIVATE && ctx->padding != MBEDTLS_RSA_PKCS_V21)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+	if (mode == TTLS_RSA_PRIVATE && ctx->padding != TTLS_RSA_PKCS_V21)
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
-	if (f_rng == NULL)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
-
-	md_info = mbedtls_md_info_from_type((mbedtls_md_type_t) ctx->hash_id);
+	md_info = ttls_md_info_from_type((ttls_md_type_t) ctx->hash_id);
 	if (md_info == NULL)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	olen = ctx->len;
-	hlen = mbedtls_md_get_size(md_info);
+	hlen = ttls_md_get_size(md_info);
 
 	/* first comparison checks for overflow */
 	if (ilen + 2 * hlen + 2 < ilen || olen < ilen + 2 * hlen + 2)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	memset(output, 0, olen);
 
 	*p++ = 0;
 
 	/* Generate a random octet string seed */
-	if ((ret = f_rng(p_rng, p, hlen)) != 0)
-		return(MBEDTLS_ERR_RSA_RNG_FAILED + ret);
+	ttls_rnd(p, hlen);
 
 	p += hlen;
 
 	/* Construct DB */
-	if ((ret = mbedtls_md(md_info, label, label_len, p)) != 0)
+	if ((ret = ttls_md(md_info, label, label_len, p)) != 0)
 		return ret;
 	p += hlen;
 	p += olen - 2 * hlen - 2 - ilen;
 	*p++ = 1;
 	memcpy(p, input, ilen);
 
-	mbedtls_md_init(&md_ctx);
-	if ((ret = mbedtls_md_setup(&md_ctx, md_info, 0)) != 0)
+	ttls_md_init(&md_ctx);
+	if ((ret = ttls_md_setup(&md_ctx, md_info, 0)) != 0)
 		goto exit;
 
 	/* maskedDB: Apply dbMask to DB */
 	if ((ret = mgf_mask(output + hlen + 1, olen - hlen - 1, output + 1, hlen,
-						  &md_ctx)) != 0)
+			  &md_ctx)) != 0)
 		goto exit;
 
 	/* maskedSeed: Apply seedMask to seed */
 	if ((ret = mgf_mask(output + 1, hlen, output + hlen + 1, olen - hlen - 1,
-						  &md_ctx)) != 0)
+			  &md_ctx)) != 0)
 		goto exit;
 
 exit:
-	mbedtls_md_free(&md_ctx);
+	ttls_md_free(&md_ctx);
 
 	if (ret != 0)
 		return ret;
 
-	return((mode == MBEDTLS_RSA_PUBLIC)
-			? mbedtls_rsa_public( ctx, output, output)
-			: mbedtls_rsa_private(ctx, f_rng, p_rng, output, output));
+	return((mode == TTLS_RSA_PUBLIC)
+			? ttls_rsa_public( ctx, output, output)
+			: ttls_rsa_private(ctx, output, output));
 }
-#endif /* MBEDTLS_PKCS1_V21 */
 
-#if defined(MBEDTLS_PKCS1_V15)
 /*
  * Implementation of the PKCS#1 v2.1 RSAES-PKCS1-V1_5-ENCRYPT function
  */
-int mbedtls_rsa_rsaes_pkcs1_v15_encrypt(mbedtls_rsa_context *ctx,
-								 int (*f_rng)(void *, unsigned char *, size_t),
-								 void *p_rng,
-								 int mode, size_t ilen,
-								 const unsigned char *input,
-								 unsigned char *output)
+int ttls_rsa_rsaes_pkcs1_v15_encrypt(ttls_rsa_context *ctx, int mode, size_t ilen,
+		 const unsigned char *input,
+		 unsigned char *output)
 {
 	size_t nb_pad, olen;
-	int ret;
 	unsigned char *p = output;
 
-	if (mode == MBEDTLS_RSA_PRIVATE && ctx->padding != MBEDTLS_RSA_PKCS_V15)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+	if (mode == TTLS_RSA_PRIVATE && ctx->padding != TTLS_RSA_PKCS_V15)
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
-	// We don't check p_rng because it won't be dereferenced here
-	if (f_rng == NULL || input == NULL || output == NULL)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+	if (input == NULL || output == NULL)
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	olen = ctx->len;
 
 	/* first comparison checks for overflow */
 	if (ilen + 11 < ilen || olen < ilen + 11)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	nb_pad = olen - 3 - ilen;
 
 	*p++ = 0;
-	if (mode == MBEDTLS_RSA_PUBLIC)
+	if (mode == TTLS_RSA_PUBLIC)
 	{
-		*p++ = MBEDTLS_RSA_CRYPT;
+		*p++ = TTLS_RSA_CRYPT;
 
 		while (nb_pad-- > 0)
 		{
 			int rng_dl = 100;
 
 			do {
-				ret = f_rng(p_rng, p, 1);
-			} while (*p == 0 && --rng_dl && ret == 0);
+				ttls_rnd(p, 1);
+			} while (*p == 0 && --rng_dl);
 
 			/* Check if RNG failed to generate data */
-			if (rng_dl == 0 || ret != 0)
-				return(MBEDTLS_ERR_RSA_RNG_FAILED + ret);
+			if (rng_dl == 0)
+				return TTLS_ERR_RSA_RNG_FAILED;
 
 			p++;
 		}
 	}
 	else
 	{
-		*p++ = MBEDTLS_RSA_SIGN;
+		*p++ = TTLS_RSA_SIGN;
 
 		while (nb_pad-- > 0)
 			*p++ = 0xFF;
@@ -1164,91 +1103,79 @@ int mbedtls_rsa_rsaes_pkcs1_v15_encrypt(mbedtls_rsa_context *ctx,
 	*p++ = 0;
 	memcpy(p, input, ilen);
 
-	return((mode == MBEDTLS_RSA_PUBLIC)
-			? mbedtls_rsa_public( ctx, output, output)
-			: mbedtls_rsa_private(ctx, f_rng, p_rng, output, output));
+	return((mode == TTLS_RSA_PUBLIC)
+			? ttls_rsa_public( ctx, output, output)
+			: ttls_rsa_private(ctx, output, output));
 }
-#endif /* MBEDTLS_PKCS1_V15 */
 
 /*
  * Add the message padding, then do an RSA operation
  */
-int mbedtls_rsa_pkcs1_encrypt(mbedtls_rsa_context *ctx,
-					   int (*f_rng)(void *, unsigned char *, size_t),
-					   void *p_rng,
-					   int mode, size_t ilen,
-					   const unsigned char *input,
-					   unsigned char *output)
+int ttls_rsa_pkcs1_encrypt(ttls_rsa_context *ctx, int mode, size_t ilen,
+		   const unsigned char *input,
+		   unsigned char *output)
 {
 	switch(ctx->padding)
 	{
-#if defined(MBEDTLS_PKCS1_V15)
-		case MBEDTLS_RSA_PKCS_V15:
-			return mbedtls_rsa_rsaes_pkcs1_v15_encrypt(ctx, f_rng, p_rng, mode, ilen,
-												input, output);
-#endif
+		case TTLS_RSA_PKCS_V15:
+			return ttls_rsa_rsaes_pkcs1_v15_encrypt(ctx, mode, ilen,
+			input, output);
 
-#if defined(MBEDTLS_PKCS1_V21)
-		case MBEDTLS_RSA_PKCS_V21:
-			return mbedtls_rsa_rsaes_oaep_encrypt(ctx, f_rng, p_rng, mode, NULL, 0,
-										   ilen, input, output);
-#endif
+		case TTLS_RSA_PKCS_V21:
+			return ttls_rsa_rsaes_oaep_encrypt(ctx, mode, NULL, 0,
+				   ilen, input, output);
 
 		default:
-			return(MBEDTLS_ERR_RSA_INVALID_PADDING);
+			return(TTLS_ERR_RSA_INVALID_PADDING);
 	}
 }
 
-#if defined(MBEDTLS_PKCS1_V21)
 /*
  * Implementation of the PKCS#1 v2.1 RSAES-OAEP-DECRYPT function
  */
-int mbedtls_rsa_rsaes_oaep_decrypt(mbedtls_rsa_context *ctx,
-							int (*f_rng)(void *, unsigned char *, size_t),
-							void *p_rng,
-							int mode,
-							const unsigned char *label, size_t label_len,
-							size_t *olen,
-							const unsigned char *input,
-							unsigned char *output,
-							size_t output_max_len)
+int ttls_rsa_rsaes_oaep_decrypt(ttls_rsa_context *ctx, int mode,
+				const unsigned char *label, size_t label_len,
+				size_t *olen,
+				const unsigned char *input,
+				unsigned char *output,
+				size_t output_max_len)
 {
 	int ret;
 	size_t ilen, i, pad_len;
 	unsigned char *p, bad, pad_done;
-	unsigned char buf[MBEDTLS_MPI_MAX_SIZE];
-	unsigned char lhash[MBEDTLS_MD_MAX_SIZE];
+	unsigned char buf[TTLS_MPI_MAX_SIZE];
+	unsigned char lhash[TTLS_MD_MAX_SIZE];
 	unsigned int hlen;
-	const mbedtls_md_info_t *md_info;
-	mbedtls_md_context_t md_ctx;
+	const TlsMdInfo *md_info;
+	TlsMdCtx md_ctx;
 
 	/*
 	 * Parameters sanity checks
 	 */
-	if (mode == MBEDTLS_RSA_PRIVATE && ctx->padding != MBEDTLS_RSA_PKCS_V21)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+	if (mode == TTLS_RSA_PRIVATE && ctx->padding != TTLS_RSA_PKCS_V21)
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	ilen = ctx->len;
 
 	if (ilen < 16 || ilen > sizeof(buf))
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
-	md_info = mbedtls_md_info_from_type((mbedtls_md_type_t) ctx->hash_id);
+	md_info = ttls_md_info_from_type((ttls_md_type_t) ctx->hash_id);
 	if (md_info == NULL)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
-	hlen = mbedtls_md_get_size(md_info);
+	hlen = ttls_md_get_size(md_info);
 
 	// checking for integer underflow
 	if (2 * hlen + 2 > ilen)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	/*
 	 * RSA operation
 	 */
-	ret = (mode == MBEDTLS_RSA_PUBLIC)
-		  ? mbedtls_rsa_public( ctx, input, buf)
-		  : mbedtls_rsa_private(ctx, f_rng, p_rng, input, buf);
+	ret = (mode == TTLS_RSA_PUBLIC)
+		  ? ttls_rsa_public( ctx, input, buf)
+		  : ttls_rsa_private(ctx, input, buf);
 
 	if (ret != 0)
 		goto cleanup;
@@ -1256,28 +1183,28 @@ int mbedtls_rsa_rsaes_oaep_decrypt(mbedtls_rsa_context *ctx,
 	/*
 	 * Unmask data and generate lHash
 	 */
-	mbedtls_md_init(&md_ctx);
-	if ((ret = mbedtls_md_setup(&md_ctx, md_info, 0)) != 0)
+	ttls_md_init(&md_ctx);
+	if ((ret = ttls_md_setup(&md_ctx, md_info, 0)) != 0)
 	{
-		mbedtls_md_free(&md_ctx);
+		ttls_md_free(&md_ctx);
 		goto cleanup;
 	}
 
 	/* seed: Apply seedMask to maskedSeed */
 	if ((ret = mgf_mask(buf + 1, hlen, buf + hlen + 1, ilen - hlen - 1,
-						  &md_ctx)) != 0 ||
+			  &md_ctx)) != 0 ||
 	/* DB: Apply dbMask to maskedDB */
 		(ret = mgf_mask(buf + hlen + 1, ilen - hlen - 1, buf + 1, hlen,
-						  &md_ctx)) != 0)
+			  &md_ctx)) != 0)
 	{
-		mbedtls_md_free(&md_ctx);
+		ttls_md_free(&md_ctx);
 		goto cleanup;
 	}
 
-	mbedtls_md_free(&md_ctx);
+	ttls_md_free(&md_ctx);
 
 	/* Generate lHash */
-	if ((ret = mbedtls_md(md_info, label, label_len, lhash)) != 0)
+	if ((ret = ttls_md(md_info, label, label_len, lhash)) != 0)
 		goto cleanup;
 
 	/*
@@ -1315,13 +1242,13 @@ int mbedtls_rsa_rsaes_oaep_decrypt(mbedtls_rsa_context *ctx,
 	 */
 	if (bad != 0)
 	{
-		ret = MBEDTLS_ERR_RSA_INVALID_PADDING;
+		ret = TTLS_ERR_RSA_INVALID_PADDING;
 		goto cleanup;
 	}
 
 	if (ilen - (p - buf) > output_max_len)
 	{
-		ret = MBEDTLS_ERR_RSA_OUTPUT_TOO_LARGE;
+		ret = TTLS_ERR_RSA_OUTPUT_TOO_LARGE;
 		goto cleanup;
 	}
 
@@ -1330,41 +1257,36 @@ int mbedtls_rsa_rsaes_oaep_decrypt(mbedtls_rsa_context *ctx,
 	ret = 0;
 
 cleanup:
-	mbedtls_zeroize(buf, sizeof(buf));
-	mbedtls_zeroize(lhash, sizeof(lhash));
+	bzero_fast(buf, sizeof(buf));
+	bzero_fast(lhash, sizeof(lhash));
 
 	return ret;
 }
-#endif /* MBEDTLS_PKCS1_V21 */
 
-#if defined(MBEDTLS_PKCS1_V15)
 /*
  * Implementation of the PKCS#1 v2.1 RSAES-PKCS1-V1_5-DECRYPT function
  */
-int mbedtls_rsa_rsaes_pkcs1_v15_decrypt(mbedtls_rsa_context *ctx,
-								 int (*f_rng)(void *, unsigned char *, size_t),
-								 void *p_rng,
-								 int mode, size_t *olen,
-								 const unsigned char *input,
-								 unsigned char *output,
-								 size_t output_max_len)
+int ttls_rsa_rsaes_pkcs1_v15_decrypt(ttls_rsa_context *ctx, int mode, size_t *olen,
+		 const unsigned char *input,
+		 unsigned char *output,
+		 size_t output_max_len)
 {
 	int ret;
 	size_t ilen, pad_count = 0, i;
 	unsigned char *p, bad, pad_done = 0;
-	unsigned char buf[MBEDTLS_MPI_MAX_SIZE];
+	unsigned char buf[TTLS_MPI_MAX_SIZE];
 
-	if (mode == MBEDTLS_RSA_PRIVATE && ctx->padding != MBEDTLS_RSA_PKCS_V15)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+	if (mode == TTLS_RSA_PRIVATE && ctx->padding != TTLS_RSA_PKCS_V15)
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	ilen = ctx->len;
 
 	if (ilen < 16 || ilen > sizeof(buf))
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
-	ret = (mode == MBEDTLS_RSA_PUBLIC)
-		  ? mbedtls_rsa_public( ctx, input, buf)
-		  : mbedtls_rsa_private(ctx, f_rng, p_rng, input, buf);
+	ret = (mode == TTLS_RSA_PUBLIC)
+		  ? ttls_rsa_public( ctx, input, buf)
+		  : ttls_rsa_private(ctx, input, buf);
 
 	if (ret != 0)
 		goto cleanup;
@@ -1378,9 +1300,9 @@ int mbedtls_rsa_rsaes_pkcs1_v15_decrypt(mbedtls_rsa_context *ctx,
 	bad |= *p++; /* First byte must be 0 */
 
 	/* This test does not depend on secret data */
-	if (mode == MBEDTLS_RSA_PRIVATE)
+	if (mode == TTLS_RSA_PRIVATE)
 	{
-		bad |= *p++ ^ MBEDTLS_RSA_CRYPT;
+		bad |= *p++ ^ TTLS_RSA_CRYPT;
 
 		/* Get padding len, but always read till end of buffer
 		 * (minus one, for the 00 byte) */
@@ -1395,7 +1317,7 @@ int mbedtls_rsa_rsaes_pkcs1_v15_decrypt(mbedtls_rsa_context *ctx,
 	}
 	else
 	{
-		bad |= *p++ ^ MBEDTLS_RSA_SIGN;
+		bad |= *p++ ^ TTLS_RSA_SIGN;
 
 		/* Get padding len, but always read till end of buffer
 		 * (minus one, for the 00 byte) */
@@ -1413,13 +1335,13 @@ int mbedtls_rsa_rsaes_pkcs1_v15_decrypt(mbedtls_rsa_context *ctx,
 
 	if (bad)
 	{
-		ret = MBEDTLS_ERR_RSA_INVALID_PADDING;
+		ret = TTLS_ERR_RSA_INVALID_PADDING;
 		goto cleanup;
 	}
 
 	if (ilen - (p - buf) > output_max_len)
 	{
-		ret = MBEDTLS_ERR_RSA_OUTPUT_TOO_LARGE;
+		ret = TTLS_ERR_RSA_OUTPUT_TOO_LARGE;
 		goto cleanup;
 	}
 
@@ -1428,120 +1350,103 @@ int mbedtls_rsa_rsaes_pkcs1_v15_decrypt(mbedtls_rsa_context *ctx,
 	ret = 0;
 
 cleanup:
-	mbedtls_zeroize(buf, sizeof(buf));
+	bzero_fast(buf, sizeof(buf));
 
 	return ret;
 }
-#endif /* MBEDTLS_PKCS1_V15 */
 
 /*
  * Do an RSA operation, then remove the message padding
  */
-int mbedtls_rsa_pkcs1_decrypt(mbedtls_rsa_context *ctx,
-					   int (*f_rng)(void *, unsigned char *, size_t),
-					   void *p_rng,
-					   int mode, size_t *olen,
-					   const unsigned char *input,
-					   unsigned char *output,
-					   size_t output_max_len)
+int
+ttls_rsa_pkcs1_decrypt(ttls_rsa_context *ctx, int mode, size_t *olen,
+		       const unsigned char *input, unsigned char *output,
+		       size_t output_max_len)
 {
-	switch(ctx->padding)
-	{
-#if defined(MBEDTLS_PKCS1_V15)
-		case MBEDTLS_RSA_PKCS_V15:
-			return mbedtls_rsa_rsaes_pkcs1_v15_decrypt(ctx, f_rng, p_rng, mode, olen,
-												input, output, output_max_len);
-#endif
+	switch(ctx->padding) {
+	case TTLS_RSA_PKCS_V15:
+		return ttls_rsa_rsaes_pkcs1_v15_decrypt(ctx, mode, olen, input,
+							output, output_max_len);
 
-#if defined(MBEDTLS_PKCS1_V21)
-		case MBEDTLS_RSA_PKCS_V21:
-			return mbedtls_rsa_rsaes_oaep_decrypt(ctx, f_rng, p_rng, mode, NULL, 0,
-										   olen, input, output,
-										   output_max_len);
-#endif
+	case TTLS_RSA_PKCS_V21:
+		return ttls_rsa_rsaes_oaep_decrypt(ctx, mode, NULL, 0, olen,
+						   input, output,
+						   output_max_len);
 
-		default:
-			return(MBEDTLS_ERR_RSA_INVALID_PADDING);
+	default:
+		return TTLS_ERR_RSA_INVALID_PADDING;
 	}
 }
 
-#if defined(MBEDTLS_PKCS1_V21)
 /*
  * Implementation of the PKCS#1 v2.1 RSASSA-PSS-SIGN function
  */
-int mbedtls_rsa_rsassa_pss_sign(mbedtls_rsa_context *ctx,
-						 int (*f_rng)(void *, unsigned char *, size_t),
-						 void *p_rng,
-						 int mode,
-						 mbedtls_md_type_t md_alg,
-						 unsigned int hashlen,
-						 const unsigned char *hash,
-						 unsigned char *sig)
+int ttls_rsa_rsassa_pss_sign(ttls_rsa_context *ctx, int mode,
+			 ttls_md_type_t md_alg,
+			 unsigned int hashlen,
+			 const unsigned char *hash,
+			 unsigned char *sig)
 {
 	size_t olen;
 	unsigned char *p = sig;
-	unsigned char salt[MBEDTLS_MD_MAX_SIZE];
+	unsigned char salt[TTLS_MD_MAX_SIZE];
 	unsigned int slen, hlen, offset = 0;
 	int ret;
 	size_t msb;
-	const mbedtls_md_info_t *md_info;
-	mbedtls_md_context_t md_ctx;
+	const TlsMdInfo *md_info;
+	TlsMdCtx md_ctx;
 
-	if (mode == MBEDTLS_RSA_PRIVATE && ctx->padding != MBEDTLS_RSA_PKCS_V21)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
-
-	if (f_rng == NULL)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+	if (mode == TTLS_RSA_PRIVATE && ctx->padding != TTLS_RSA_PKCS_V21)
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	olen = ctx->len;
 
-	if (md_alg != MBEDTLS_MD_NONE)
+	if (md_alg != TTLS_MD_NONE)
 	{
 		/* Gather length of hash to sign */
-		md_info = mbedtls_md_info_from_type(md_alg);
+		md_info = ttls_md_info_from_type(md_alg);
 		if (md_info == NULL)
-			return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+			return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
-		hashlen = mbedtls_md_get_size(md_info);
+		hashlen = ttls_md_get_size(md_info);
 	}
 
-	md_info = mbedtls_md_info_from_type((mbedtls_md_type_t) ctx->hash_id);
+	md_info = ttls_md_info_from_type((ttls_md_type_t) ctx->hash_id);
 	if (md_info == NULL)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
-	hlen = mbedtls_md_get_size(md_info);
+	hlen = ttls_md_get_size(md_info);
 	slen = hlen;
 
 	if (olen < hlen + slen + 2)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	memset(sig, 0, olen);
 
 	/* Generate salt of length slen */
-	if ((ret = f_rng(p_rng, salt, slen)) != 0)
-		return(MBEDTLS_ERR_RSA_RNG_FAILED + ret);
+	ttls_rnd(salt, slen);
 
 	/* Note: EMSA-PSS encoding is over the length of N - 1 bits */
-	msb = mbedtls_mpi_bitlen(&ctx->N) - 1;
+	msb = ttls_mpi_bitlen(&ctx->N) - 1;
 	p += olen - hlen * 2 - 2;
 	*p++ = 0x01;
 	memcpy(p, salt, slen);
 	p += slen;
 
-	mbedtls_md_init(&md_ctx);
-	if ((ret = mbedtls_md_setup(&md_ctx, md_info, 0)) != 0)
+	ttls_md_init(&md_ctx);
+	if ((ret = ttls_md_setup(&md_ctx, md_info, 0)) != 0)
 		goto exit;
 
 	/* Generate H = Hash(M') */
-	if ((ret = mbedtls_md_starts(&md_ctx)) != 0)
+	if ((ret = ttls_md_starts(&md_ctx)) != 0)
 		goto exit;
-	if ((ret = mbedtls_md_update(&md_ctx, p, 8)) != 0)
+	if ((ret = ttls_md_update(&md_ctx, p, 8)) != 0)
 		goto exit;
-	if ((ret = mbedtls_md_update(&md_ctx, hash, hashlen)) != 0)
+	if ((ret = ttls_md_update(&md_ctx, hash, hashlen)) != 0)
 		goto exit;
-	if ((ret = mbedtls_md_update(&md_ctx, salt, slen)) != 0)
+	if ((ret = ttls_md_update(&md_ctx, salt, slen)) != 0)
 		goto exit;
-	if ((ret = mbedtls_md_finish(&md_ctx, p)) != 0)
+	if ((ret = ttls_md_finish(&md_ctx, p)) != 0)
 		goto exit;
 
 	/* Compensate for boundary condition when applying mask */
@@ -1550,30 +1455,28 @@ int mbedtls_rsa_rsassa_pss_sign(mbedtls_rsa_context *ctx,
 
 	/* maskedDB: Apply dbMask to DB */
 	if ((ret = mgf_mask(sig + offset, olen - hlen - 1 - offset, p, hlen,
-						  &md_ctx)) != 0)
+			  &md_ctx)) != 0)
 		goto exit;
 
-	msb = mbedtls_mpi_bitlen(&ctx->N) - 1;
+	msb = ttls_mpi_bitlen(&ctx->N) - 1;
 	sig[0] &= 0xFF >> (olen * 8 - msb);
 
 	p += hlen;
 	*p++ = 0xBC;
 
-	mbedtls_zeroize(salt, sizeof(salt));
+	bzero_fast(salt, sizeof(salt));
 
 exit:
-	mbedtls_md_free(&md_ctx);
+	ttls_md_free(&md_ctx);
 
 	if (ret != 0)
 		return ret;
 
-	return((mode == MBEDTLS_RSA_PUBLIC)
-			? mbedtls_rsa_public( ctx, sig, sig)
-			: mbedtls_rsa_private(ctx, f_rng, p_rng, sig, sig));
+	return((mode == TTLS_RSA_PUBLIC)
+			? ttls_rsa_public( ctx, sig, sig)
+			: ttls_rsa_private(ctx, sig, sig));
 }
-#endif /* MBEDTLS_PKCS1_V21 */
 
-#if defined(MBEDTLS_PKCS1_V15)
 /*
  * Implementation of the PKCS#1 v2.1 RSASSA-PKCS1-V1_5-SIGN function
  */
@@ -1584,23 +1487,23 @@ exit:
  *
  * Parameters:
  * - md_alg:  Identifies the hash algorithm used to generate the given hash;
- *			MBEDTLS_MD_NONE if raw data is signed.
- * - hashlen: Length of hash in case hashlen is MBEDTLS_MD_NONE.
+ *			TTLS_MD_NONE if raw data is signed.
+ * - hashlen: Length of hash in case hashlen is TTLS_MD_NONE.
  * - hash:	Buffer containing the hashed message or the raw data.
  * - dst_len: Length of the encoded message.
  * - dst:	 Buffer to hold the encoded message.
  *
  * Assumptions:
- * - hash has size hashlen if md_alg == MBEDTLS_MD_NONE.
- * - hash has size corresponding to md_alg if md_alg != MBEDTLS_MD_NONE.
+ * - hash has size hashlen if md_alg == TTLS_MD_NONE.
+ * - hash has size corresponding to md_alg if md_alg != TTLS_MD_NONE.
  * - dst points to a buffer of size at least dst_len.
  *
  */
-static int rsa_rsassa_pkcs1_v15_encode(mbedtls_md_type_t md_alg,
-										unsigned int hashlen,
-										const unsigned char *hash,
-										size_t dst_len,
-										unsigned char *dst)
+static int rsa_rsassa_pkcs1_v15_encode(ttls_md_type_t md_alg,
+				unsigned int hashlen,
+				const unsigned char *hash,
+				size_t dst_len,
+				unsigned char *dst)
 {
 	size_t oid_size  = 0;
 	size_t nb_pad	= dst_len;
@@ -1608,23 +1511,23 @@ static int rsa_rsassa_pkcs1_v15_encode(mbedtls_md_type_t md_alg,
 	const char *oid  = NULL;
 
 	/* Are we signing hashed or raw data? */
-	if (md_alg != MBEDTLS_MD_NONE)
+	if (md_alg != TTLS_MD_NONE)
 	{
-		const mbedtls_md_info_t *md_info = mbedtls_md_info_from_type(md_alg);
+		const TlsMdInfo *md_info = ttls_md_info_from_type(md_alg);
 		if (md_info == NULL)
-			return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+			return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
-		if (mbedtls_oid_get_oid_by_md(md_alg, &oid, &oid_size) != 0)
-			return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		if (ttls_oid_get_oid_by_md(md_alg, &oid, &oid_size) != 0)
+			return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
-		hashlen = mbedtls_md_get_size(md_info);
+		hashlen = ttls_md_get_size(md_info);
 
 		/* Double-check that 8 + hashlen + oid_size can be used as a
 		 * 1-byte ASN.1 length encoding and that there's no overflow. */
 		if (8 + hashlen + oid_size  >= 0x80		 ||
 			10 + hashlen			<  hashlen	  ||
 			10 + hashlen + oid_size <  10 + hashlen)
-			return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+			return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 		/*
 		 * Static bounds check:
@@ -1635,13 +1538,13 @@ static int rsa_rsassa_pkcs1_v15_encode(mbedtls_md_type_t md_alg,
 		 * - Need oid_size bytes for hash alg OID.
 		 */
 		if (nb_pad < 10 + hashlen + oid_size)
-			return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+			return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 		nb_pad -= 10 + hashlen + oid_size;
 	}
 	else
 	{
 		if (nb_pad < hashlen)
-			return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+			return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 		nb_pad -= hashlen;
 	}
@@ -1649,7 +1552,7 @@ static int rsa_rsassa_pkcs1_v15_encode(mbedtls_md_type_t md_alg,
 	/* Need space for signature header and padding delimiter (3 bytes),
 	 * and 8 bytes for the minimal padding */
 	if (nb_pad < 3 + 8)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 	nb_pad -= 3;
 
 	/* Now nb_pad is the amount of memory to be filled
@@ -1657,13 +1560,13 @@ static int rsa_rsassa_pkcs1_v15_encode(mbedtls_md_type_t md_alg,
 
 	/* Write signature header and padding */
 	*p++ = 0;
-	*p++ = MBEDTLS_RSA_SIGN;
+	*p++ = TTLS_RSA_SIGN;
 	memset(p, 0xFF, nb_pad);
 	p += nb_pad;
 	*p++ = 0;
 
 	/* Are we signing raw data? */
-	if (md_alg == MBEDTLS_MD_NONE)
+	if (md_alg == TTLS_MD_NONE)
 	{
 		memcpy(p, hash, hashlen);
 		return 0;
@@ -1679,20 +1582,20 @@ static int rsa_rsassa_pkcs1_v15_encode(mbedtls_md_type_t md_alg,
 	 *
 	 * Schematic:
 	 * TAG-SEQ + LEN [ TAG-SEQ + LEN [ TAG-OID  + LEN [ OID  ]
-	 *								 TAG-NULL + LEN [ NULL ] ]
+	 *		 TAG-NULL + LEN [ NULL ] ]
 	 *				 TAG-OCTET + LEN [ HASH ] ]
 	 */
-	*p++ = MBEDTLS_ASN1_SEQUENCE | MBEDTLS_ASN1_CONSTRUCTED;
+	*p++ = TTLS_ASN1_SEQUENCE | TTLS_ASN1_CONSTRUCTED;
 	*p++ = (unsigned char)(0x08 + oid_size + hashlen);
-	*p++ = MBEDTLS_ASN1_SEQUENCE | MBEDTLS_ASN1_CONSTRUCTED;
+	*p++ = TTLS_ASN1_SEQUENCE | TTLS_ASN1_CONSTRUCTED;
 	*p++ = (unsigned char)(0x04 + oid_size);
-	*p++ = MBEDTLS_ASN1_OID;
+	*p++ = TTLS_ASN1_OID;
 	*p++ = (unsigned char) oid_size;
 	memcpy(p, oid, oid_size);
 	p += oid_size;
-	*p++ = MBEDTLS_ASN1_NULL;
+	*p++ = TTLS_ASN1_NULL;
 	*p++ = 0x00;
-	*p++ = MBEDTLS_ASN1_OCTET_STRING;
+	*p++ = TTLS_ASN1_OCTET_STRING;
 	*p++ = (unsigned char) hashlen;
 	memcpy(p, hash, hashlen);
 	p += hashlen;
@@ -1701,8 +1604,8 @@ static int rsa_rsassa_pkcs1_v15_encode(mbedtls_md_type_t md_alg,
 	 * after the initial bounds check. */
 	if (p != dst + dst_len)
 	{
-		mbedtls_zeroize(dst, dst_len);
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		bzero_fast(dst, dst_len);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 	}
 
 	return 0;
@@ -1711,37 +1614,34 @@ static int rsa_rsassa_pkcs1_v15_encode(mbedtls_md_type_t md_alg,
 /*
  * Do an RSA operation to sign the message digest
  */
-int mbedtls_rsa_rsassa_pkcs1_v15_sign(mbedtls_rsa_context *ctx,
-							   int (*f_rng)(void *, unsigned char *, size_t),
-							   void *p_rng,
-							   int mode,
-							   mbedtls_md_type_t md_alg,
-							   unsigned int hashlen,
-							   const unsigned char *hash,
-							   unsigned char *sig)
+int ttls_rsa_rsassa_pkcs1_v15_sign(ttls_rsa_context *ctx, int mode,
+				   ttls_md_type_t md_alg,
+				   unsigned int hashlen,
+				   const unsigned char *hash,
+				   unsigned char *sig)
 {
 	int ret;
 	unsigned char *sig_try = NULL, *verif = NULL;
 
-	if (mode == MBEDTLS_RSA_PRIVATE && ctx->padding != MBEDTLS_RSA_PKCS_V15)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+	if (mode == TTLS_RSA_PRIVATE && ctx->padding != TTLS_RSA_PKCS_V15)
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	/*
 	 * Prepare PKCS1-v1.5 encoding (padding and hash identifier)
 	 */
 
 	if ((ret = rsa_rsassa_pkcs1_v15_encode(md_alg, hashlen, hash,
-											 ctx->len, sig)) != 0)
+		 ctx->len, sig)) != 0)
 		return ret;
 
 	/*
 	 * Call respective RSA primitive
 	 */
 
-	if (mode == MBEDTLS_RSA_PUBLIC)
+	if (mode == TTLS_RSA_PUBLIC)
 	{
 		/* Skip verification on a public key operation */
-		return(mbedtls_rsa_public(ctx, sig, sig));
+		return(ttls_rsa_public(ctx, sig, sig));
 	}
 
 	/* Private key operation
@@ -1750,105 +1650,93 @@ int mbedtls_rsa_rsassa_pkcs1_v15_sign(mbedtls_rsa_context *ctx,
 	 * temporary buffer and check it before returning it.
 	 */
 
-	sig_try = mbedtls_calloc(1, ctx->len);
+	sig_try = ttls_calloc(1, ctx->len);
 	if (sig_try == NULL)
-		return(MBEDTLS_ERR_MPI_ALLOC_FAILED);
+		return(TTLS_ERR_MPI_ALLOC_FAILED);
 
-	verif = mbedtls_calloc(1, ctx->len);
+	verif = ttls_calloc(1, ctx->len);
 	if (verif == NULL)
 	{
-		mbedtls_free(sig_try);
-		return(MBEDTLS_ERR_MPI_ALLOC_FAILED);
+		ttls_free(sig_try);
+		return(TTLS_ERR_MPI_ALLOC_FAILED);
 	}
 
-	MBEDTLS_MPI_CHK(mbedtls_rsa_private(ctx, f_rng, p_rng, sig, sig_try));
-	MBEDTLS_MPI_CHK(mbedtls_rsa_public(ctx, sig_try, verif));
+	TTLS_MPI_CHK(ttls_rsa_private(ctx, sig, sig_try));
+	TTLS_MPI_CHK(ttls_rsa_public(ctx, sig_try, verif));
 
-	if (mbedtls_safer_memcmp(verif, sig, ctx->len) != 0)
+	if (ttls_safer_memcmp(verif, sig, ctx->len) != 0)
 	{
-		ret = MBEDTLS_ERR_RSA_PRIVATE_FAILED;
+		ret = TTLS_ERR_RSA_PRIVATE_FAILED;
 		goto cleanup;
 	}
 
 	memcpy(sig, sig_try, ctx->len);
 
 cleanup:
-	mbedtls_free(sig_try);
-	mbedtls_free(verif);
+	ttls_free(sig_try);
+	ttls_free(verif);
 
 	return ret;
 }
-#endif /* MBEDTLS_PKCS1_V15 */
 
 /*
  * Do an RSA operation to sign the message digest
  */
-int mbedtls_rsa_pkcs1_sign(mbedtls_rsa_context *ctx,
-					int (*f_rng)(void *, unsigned char *, size_t),
-					void *p_rng,
-					int mode,
-					mbedtls_md_type_t md_alg,
-					unsigned int hashlen,
-					const unsigned char *hash,
-					unsigned char *sig)
+int ttls_rsa_pkcs1_sign(ttls_rsa_context *ctx, int mode,
+		ttls_md_type_t md_alg,
+		unsigned int hashlen,
+		const unsigned char *hash,
+		unsigned char *sig)
 {
 	switch(ctx->padding)
 	{
-#if defined(MBEDTLS_PKCS1_V15)
-		case MBEDTLS_RSA_PKCS_V15:
-			return mbedtls_rsa_rsassa_pkcs1_v15_sign(ctx, f_rng, p_rng, mode, md_alg,
-											  hashlen, hash, sig);
-#endif
+		case TTLS_RSA_PKCS_V15:
+			return ttls_rsa_rsassa_pkcs1_v15_sign(ctx, mode, md_alg,
+		  hashlen, hash, sig);
 
-#if defined(MBEDTLS_PKCS1_V21)
-		case MBEDTLS_RSA_PKCS_V21:
-			return mbedtls_rsa_rsassa_pss_sign(ctx, f_rng, p_rng, mode, md_alg,
-										hashlen, hash, sig);
-#endif
+		case TTLS_RSA_PKCS_V21:
+			return ttls_rsa_rsassa_pss_sign(ctx, mode, md_alg,
+				hashlen, hash, sig);
 
 		default:
-			return(MBEDTLS_ERR_RSA_INVALID_PADDING);
+			return(TTLS_ERR_RSA_INVALID_PADDING);
 	}
 }
 
-#if defined(MBEDTLS_PKCS1_V21)
 /*
  * Implementation of the PKCS#1 v2.1 RSASSA-PSS-VERIFY function
  */
-int mbedtls_rsa_rsassa_pss_verify_ext(mbedtls_rsa_context *ctx,
-							   int (*f_rng)(void *, unsigned char *, size_t),
-							   void *p_rng,
-							   int mode,
-							   mbedtls_md_type_t md_alg,
-							   unsigned int hashlen,
-							   const unsigned char *hash,
-							   mbedtls_md_type_t mgf1_hash_id,
-							   int expected_salt_len,
-							   const unsigned char *sig)
+int ttls_rsa_rsassa_pss_verify_ext(ttls_rsa_context *ctx, int mode,
+				   ttls_md_type_t md_alg,
+				   unsigned int hashlen,
+				   const unsigned char *hash,
+				   ttls_md_type_t mgf1_hash_id,
+				   int expected_salt_len,
+				   const unsigned char *sig)
 {
 	int ret;
 	size_t siglen;
 	unsigned char *p;
 	unsigned char *hash_start;
-	unsigned char result[MBEDTLS_MD_MAX_SIZE];
+	unsigned char result[TTLS_MD_MAX_SIZE];
 	unsigned char zeros[8];
 	unsigned int hlen;
 	size_t observed_salt_len, msb;
-	const mbedtls_md_info_t *md_info;
-	mbedtls_md_context_t md_ctx;
-	unsigned char buf[MBEDTLS_MPI_MAX_SIZE];
+	const TlsMdInfo *md_info;
+	TlsMdCtx md_ctx;
+	unsigned char buf[TTLS_MPI_MAX_SIZE];
 
-	if (mode == MBEDTLS_RSA_PRIVATE && ctx->padding != MBEDTLS_RSA_PKCS_V21)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+	if (mode == TTLS_RSA_PRIVATE && ctx->padding != TTLS_RSA_PKCS_V21)
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	siglen = ctx->len;
 
 	if (siglen < 16 || siglen > sizeof(buf))
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
-	ret = (mode == MBEDTLS_RSA_PUBLIC)
-		  ? mbedtls_rsa_public( ctx, sig, buf)
-		  : mbedtls_rsa_private(ctx, f_rng, p_rng, sig, buf);
+	ret = (mode == TTLS_RSA_PUBLIC)
+		  ? ttls_rsa_public( ctx, sig, buf)
+		  : ttls_rsa_private(ctx, sig, buf);
 
 	if (ret != 0)
 		return ret;
@@ -1856,33 +1744,33 @@ int mbedtls_rsa_rsassa_pss_verify_ext(mbedtls_rsa_context *ctx,
 	p = buf;
 
 	if (buf[siglen - 1] != 0xBC)
-		return(MBEDTLS_ERR_RSA_INVALID_PADDING);
+		return(TTLS_ERR_RSA_INVALID_PADDING);
 
-	if (md_alg != MBEDTLS_MD_NONE)
+	if (md_alg != TTLS_MD_NONE)
 	{
 		/* Gather length of hash to sign */
-		md_info = mbedtls_md_info_from_type(md_alg);
+		md_info = ttls_md_info_from_type(md_alg);
 		if (md_info == NULL)
-			return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+			return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
-		hashlen = mbedtls_md_get_size(md_info);
+		hashlen = ttls_md_get_size(md_info);
 	}
 
-	md_info = mbedtls_md_info_from_type(mgf1_hash_id);
+	md_info = ttls_md_info_from_type(mgf1_hash_id);
 	if (md_info == NULL)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
-	hlen = mbedtls_md_get_size(md_info);
+	hlen = ttls_md_get_size(md_info);
 
 	memset(zeros, 0, 8);
 
 	/*
 	 * Note: EMSA-PSS verification is over the length of N - 1 bits
 	 */
-	msb = mbedtls_mpi_bitlen(&ctx->N) - 1;
+	msb = ttls_mpi_bitlen(&ctx->N) - 1;
 
 	if (buf[0] >> (8 - siglen * 8 + msb))
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	/* Compensate for boundary condition when applying mask */
 	if (msb % 8 == 0)
@@ -1892,11 +1780,11 @@ int mbedtls_rsa_rsassa_pss_verify_ext(mbedtls_rsa_context *ctx,
 	}
 
 	if (siglen < hlen + 2)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 	hash_start = p + siglen - hlen - 1;
 
-	mbedtls_md_init(&md_ctx);
-	if ((ret = mbedtls_md_setup(&md_ctx, md_info, 0)) != 0)
+	ttls_md_init(&md_ctx);
+	if ((ret = ttls_md_setup(&md_ctx, md_info, 0)) != 0)
 		goto exit;
 
 	ret = mgf_mask(p, siglen - hlen - 1, hash_start, hlen, &md_ctx);
@@ -1910,46 +1798,46 @@ int mbedtls_rsa_rsassa_pss_verify_ext(mbedtls_rsa_context *ctx,
 
 	if (*p++ != 0x01)
 	{
-		ret = MBEDTLS_ERR_RSA_INVALID_PADDING;
+		ret = TTLS_ERR_RSA_INVALID_PADDING;
 		goto exit;
 	}
 
 	observed_salt_len = hash_start - p;
 
-	if (expected_salt_len != MBEDTLS_RSA_SALT_LEN_ANY &&
+	if (expected_salt_len != TTLS_RSA_SALT_LEN_ANY &&
 		observed_salt_len != (size_t) expected_salt_len)
 	{
-		ret = MBEDTLS_ERR_RSA_INVALID_PADDING;
+		ret = TTLS_ERR_RSA_INVALID_PADDING;
 		goto exit;
 	}
 
 	/*
 	 * Generate H = Hash(M')
 	 */
-	ret = mbedtls_md_starts(&md_ctx);
+	ret = ttls_md_starts(&md_ctx);
 	if (ret != 0)
 		goto exit;
-	ret = mbedtls_md_update(&md_ctx, zeros, 8);
+	ret = ttls_md_update(&md_ctx, zeros, 8);
 	if (ret != 0)
 		goto exit;
-	ret = mbedtls_md_update(&md_ctx, hash, hashlen);
+	ret = ttls_md_update(&md_ctx, hash, hashlen);
 	if (ret != 0)
 		goto exit;
-	ret = mbedtls_md_update(&md_ctx, p, observed_salt_len);
+	ret = ttls_md_update(&md_ctx, p, observed_salt_len);
 	if (ret != 0)
 		goto exit;
-	ret = mbedtls_md_finish(&md_ctx, result);
+	ret = ttls_md_finish(&md_ctx, result);
 	if (ret != 0)
 		goto exit;
 
 	if (memcmp(hash_start, result, hlen) != 0)
 	{
-		ret = MBEDTLS_ERR_RSA_VERIFY_FAILED;
+		ret = TTLS_ERR_RSA_VERIFY_FAILED;
 		goto exit;
 	}
 
 exit:
-	mbedtls_md_free(&md_ctx);
+	ttls_md_free(&md_ctx);
 
 	return ret;
 }
@@ -1957,69 +1845,63 @@ exit:
 /*
  * Simplified PKCS#1 v2.1 RSASSA-PSS-VERIFY function
  */
-int mbedtls_rsa_rsassa_pss_verify(mbedtls_rsa_context *ctx,
-						   int (*f_rng)(void *, unsigned char *, size_t),
-						   void *p_rng,
-						   int mode,
-						   mbedtls_md_type_t md_alg,
-						   unsigned int hashlen,
-						   const unsigned char *hash,
-						   const unsigned char *sig)
+int ttls_rsa_rsassa_pss_verify(ttls_rsa_context *ctx,
+			   int mode,
+			   ttls_md_type_t md_alg,
+			   unsigned int hashlen,
+			   const unsigned char *hash,
+			   const unsigned char *sig)
 {
-	mbedtls_md_type_t mgf1_hash_id = (ctx->hash_id != MBEDTLS_MD_NONE)
-							 ? (mbedtls_md_type_t) ctx->hash_id
-							 : md_alg;
+	ttls_md_type_t mgf1_hash_id = (ctx->hash_id != TTLS_MD_NONE)
+				 ? (ttls_md_type_t) ctx->hash_id
+				 : md_alg;
 
-	return(mbedtls_rsa_rsassa_pss_verify_ext(ctx, f_rng, p_rng, mode,
-									   md_alg, hashlen, hash,
-									   mgf1_hash_id, MBEDTLS_RSA_SALT_LEN_ANY,
-									   sig));
+	return(ttls_rsa_rsassa_pss_verify_ext(ctx, mode,
+			   md_alg, hashlen, hash,
+			   mgf1_hash_id, TTLS_RSA_SALT_LEN_ANY,
+			   sig));
 
 }
-#endif /* MBEDTLS_PKCS1_V21 */
 
-#if defined(MBEDTLS_PKCS1_V15)
 /*
  * Implementation of the PKCS#1 v2.1 RSASSA-PKCS1-v1_5-VERIFY function
  */
-int mbedtls_rsa_rsassa_pkcs1_v15_verify(mbedtls_rsa_context *ctx,
-								 int (*f_rng)(void *, unsigned char *, size_t),
-								 void *p_rng,
-								 int mode,
-								 mbedtls_md_type_t md_alg,
-								 unsigned int hashlen,
-								 const unsigned char *hash,
-								 const unsigned char *sig)
+int ttls_rsa_rsassa_pkcs1_v15_verify(ttls_rsa_context *ctx,
+		 int mode,
+		 ttls_md_type_t md_alg,
+		 unsigned int hashlen,
+		 const unsigned char *hash,
+		 const unsigned char *sig)
 {
 	int ret = 0;
 	const size_t sig_len = ctx->len;
 	unsigned char *encoded = NULL, *encoded_expected = NULL;
 
-	if (mode == MBEDTLS_RSA_PRIVATE && ctx->padding != MBEDTLS_RSA_PKCS_V15)
-		return(MBEDTLS_ERR_RSA_BAD_INPUT_DATA);
+	if (mode == TTLS_RSA_PRIVATE && ctx->padding != TTLS_RSA_PKCS_V15)
+		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	/*
 	 * Prepare expected PKCS1 v1.5 encoding of hash.
 	 */
 
-	if ((encoded		  = mbedtls_calloc(1, sig_len)) == NULL ||
-		(encoded_expected = mbedtls_calloc(1, sig_len)) == NULL)
+	if ((encoded		  = ttls_calloc(1, sig_len)) == NULL ||
+		(encoded_expected = ttls_calloc(1, sig_len)) == NULL)
 	{
-		ret = MBEDTLS_ERR_MPI_ALLOC_FAILED;
+		ret = TTLS_ERR_MPI_ALLOC_FAILED;
 		goto cleanup;
 	}
 
 	if ((ret = rsa_rsassa_pkcs1_v15_encode(md_alg, hashlen, hash, sig_len,
-											 encoded_expected)) != 0)
+		 encoded_expected)) != 0)
 		goto cleanup;
 
 	/*
 	 * Apply RSA primitive to get what should be PKCS1 encoded hash.
 	 */
 
-	ret = (mode == MBEDTLS_RSA_PUBLIC)
-		  ? mbedtls_rsa_public( ctx, sig, encoded)
-		  : mbedtls_rsa_private(ctx, f_rng, p_rng, sig, encoded);
+	ret = (mode == TTLS_RSA_PUBLIC)
+		  ? ttls_rsa_public( ctx, sig, encoded)
+		  : ttls_rsa_private(ctx, sig, encoded);
 	if (ret != 0)
 		goto cleanup;
 
@@ -2027,10 +1909,10 @@ int mbedtls_rsa_rsassa_pkcs1_v15_verify(mbedtls_rsa_context *ctx,
 	 * Compare
 	 */
 
-	if ((ret = mbedtls_safer_memcmp(encoded, encoded_expected,
-									  sig_len)) != 0)
+	if ((ret = ttls_safer_memcmp(encoded, encoded_expected,
+			  sig_len)) != 0)
 	{
-		ret = MBEDTLS_ERR_RSA_VERIFY_FAILED;
+		ret = TTLS_ERR_RSA_VERIFY_FAILED;
 		goto cleanup;
 	}
 
@@ -2038,87 +1920,80 @@ cleanup:
 
 	if (encoded != NULL)
 	{
-		mbedtls_zeroize(encoded, sig_len);
-		mbedtls_free(encoded);
+		bzero_fast(encoded, sig_len);
+		ttls_free(encoded);
 	}
 
 	if (encoded_expected != NULL)
 	{
-		mbedtls_zeroize(encoded_expected, sig_len);
-		mbedtls_free(encoded_expected);
+		bzero_fast(encoded_expected, sig_len);
+		ttls_free(encoded_expected);
 	}
 
 	return ret;
 }
-#endif /* MBEDTLS_PKCS1_V15 */
 
 /*
  * Do an RSA operation and check the message digest
  */
-int mbedtls_rsa_pkcs1_verify(mbedtls_rsa_context *ctx,
-					  int (*f_rng)(void *, unsigned char *, size_t),
-					  void *p_rng,
-					  int mode,
-					  mbedtls_md_type_t md_alg,
-					  unsigned int hashlen,
-					  const unsigned char *hash,
-					  const unsigned char *sig)
+int ttls_rsa_pkcs1_verify(ttls_rsa_context *ctx,
+		  int mode,
+		  ttls_md_type_t md_alg,
+		  unsigned int hashlen,
+		  const unsigned char *hash,
+		  const unsigned char *sig)
 {
 	switch(ctx->padding)
 	{
-#if defined(MBEDTLS_PKCS1_V15)
-		case MBEDTLS_RSA_PKCS_V15:
-			return mbedtls_rsa_rsassa_pkcs1_v15_verify(ctx, f_rng, p_rng, mode, md_alg,
-												hashlen, hash, sig);
-#endif
+		case TTLS_RSA_PKCS_V15:
+			return ttls_rsa_rsassa_pkcs1_v15_verify(ctx, mode, md_alg,
+			hashlen, hash, sig);
 
-#if defined(MBEDTLS_PKCS1_V21)
-		case MBEDTLS_RSA_PKCS_V21:
-			return mbedtls_rsa_rsassa_pss_verify(ctx, f_rng, p_rng, mode, md_alg,
-										  hashlen, hash, sig);
-#endif
+		case TTLS_RSA_PKCS_V21:
+			return ttls_rsa_rsassa_pss_verify(ctx, mode, md_alg,
+				  hashlen, hash, sig);
 
 		default:
-			return(MBEDTLS_ERR_RSA_INVALID_PADDING);
+			return(TTLS_ERR_RSA_INVALID_PADDING);
 	}
 }
 
 /*
  * Copy the components of an RSA key
  */
-int mbedtls_rsa_copy(mbedtls_rsa_context *dst, const mbedtls_rsa_context *src)
+int ttls_rsa_copy(ttls_rsa_context *dst, const ttls_rsa_context *src)
 {
 	int ret;
 
 	dst->ver = src->ver;
 	dst->len = src->len;
 
-	MBEDTLS_MPI_CHK(mbedtls_mpi_copy(&dst->N, &src->N));
-	MBEDTLS_MPI_CHK(mbedtls_mpi_copy(&dst->E, &src->E));
+	TTLS_MPI_CHK(ttls_mpi_copy(&dst->N, &src->N));
+	TTLS_MPI_CHK(ttls_mpi_copy(&dst->E, &src->E));
 
-	MBEDTLS_MPI_CHK(mbedtls_mpi_copy(&dst->D, &src->D));
-	MBEDTLS_MPI_CHK(mbedtls_mpi_copy(&dst->P, &src->P));
-	MBEDTLS_MPI_CHK(mbedtls_mpi_copy(&dst->Q, &src->Q));
+	TTLS_MPI_CHK(ttls_mpi_copy(&dst->D, &src->D));
+	TTLS_MPI_CHK(ttls_mpi_copy(&dst->P, &src->P));
+	TTLS_MPI_CHK(ttls_mpi_copy(&dst->Q, &src->Q));
 
-#if !defined(MBEDTLS_RSA_NO_CRT)
-	MBEDTLS_MPI_CHK(mbedtls_mpi_copy(&dst->DP, &src->DP));
-	MBEDTLS_MPI_CHK(mbedtls_mpi_copy(&dst->DQ, &src->DQ));
-	MBEDTLS_MPI_CHK(mbedtls_mpi_copy(&dst->QP, &src->QP));
-	MBEDTLS_MPI_CHK(mbedtls_mpi_copy(&dst->RP, &src->RP));
-	MBEDTLS_MPI_CHK(mbedtls_mpi_copy(&dst->RQ, &src->RQ));
+#if !defined(TTLS_RSA_NO_CRT)
+	TTLS_MPI_CHK(ttls_mpi_copy(&dst->DP, &src->DP));
+	TTLS_MPI_CHK(ttls_mpi_copy(&dst->DQ, &src->DQ));
+	TTLS_MPI_CHK(ttls_mpi_copy(&dst->QP, &src->QP));
+	TTLS_MPI_CHK(ttls_mpi_copy(&dst->RP, &src->RP));
+	TTLS_MPI_CHK(ttls_mpi_copy(&dst->RQ, &src->RQ));
 #endif
 
-	MBEDTLS_MPI_CHK(mbedtls_mpi_copy(&dst->RN, &src->RN));
+	TTLS_MPI_CHK(ttls_mpi_copy(&dst->RN, &src->RN));
 
-	MBEDTLS_MPI_CHK(mbedtls_mpi_copy(&dst->Vi, &src->Vi));
-	MBEDTLS_MPI_CHK(mbedtls_mpi_copy(&dst->Vf, &src->Vf));
+	TTLS_MPI_CHK(ttls_mpi_copy(&dst->Vi, &src->Vi));
+	TTLS_MPI_CHK(ttls_mpi_copy(&dst->Vf, &src->Vf));
 
 	dst->padding = src->padding;
 	dst->hash_id = src->hash_id;
 
 cleanup:
 	if (ret != 0)
-		mbedtls_rsa_free(dst);
+		ttls_rsa_free(dst);
 
 	return ret;
 }
@@ -2126,24 +2001,21 @@ cleanup:
 /*
  * Free the components of an RSA key
  */
-void mbedtls_rsa_free(mbedtls_rsa_context *ctx)
+void ttls_rsa_free(ttls_rsa_context *ctx)
 {
-	mbedtls_mpi_free(&ctx->Vi); mbedtls_mpi_free(&ctx->Vf);
-	mbedtls_mpi_free(&ctx->RN); mbedtls_mpi_free(&ctx->D );
-	mbedtls_mpi_free(&ctx->Q ); mbedtls_mpi_free(&ctx->P );
-	mbedtls_mpi_free(&ctx->E ); mbedtls_mpi_free(&ctx->N );
+	ttls_mpi_free(&ctx->Vi); ttls_mpi_free(&ctx->Vf);
+	ttls_mpi_free(&ctx->RN); ttls_mpi_free(&ctx->D );
+	ttls_mpi_free(&ctx->Q ); ttls_mpi_free(&ctx->P );
+	ttls_mpi_free(&ctx->E ); ttls_mpi_free(&ctx->N );
 
-#if !defined(MBEDTLS_RSA_NO_CRT)
-	mbedtls_mpi_free(&ctx->RQ); mbedtls_mpi_free(&ctx->RP);
-	mbedtls_mpi_free(&ctx->QP); mbedtls_mpi_free(&ctx->DQ);
-	mbedtls_mpi_free(&ctx->DP);
-#endif /* MBEDTLS_RSA_NO_CRT */
+#if !defined(TTLS_RSA_NO_CRT)
+	ttls_mpi_free(&ctx->RQ); ttls_mpi_free(&ctx->RP);
+	ttls_mpi_free(&ctx->QP); ttls_mpi_free(&ctx->DQ);
+	ttls_mpi_free(&ctx->DP);
+#endif /* TTLS_RSA_NO_CRT */
 }
 
-#endif /* !MBEDTLS_RSA_ALT */
-
-#include <linux/random.h>
-#include "sha1.h"
+#endif /* !TTLS_RSA_ALT */
 
 /*
  * Example RSA-1024 keypair, for test purposes
@@ -2184,93 +2056,74 @@ void mbedtls_rsa_free(mbedtls_rsa_context *ctx)
 #define RSA_PT  "\xAA\xBB\xCC\x03\x02\x01\x00\xFF\xFF\xFF\xFF\xFF" \
 				"\x11\x22\x33\x0A\x0B\x0C\xCC\xDD\xDD\xDD\xDD\xDD"
 
-#if defined(MBEDTLS_PKCS1_V15)
-static int myrand(void *rng_state, unsigned char *output, size_t len)
-{
-	size_t i;
-
-	if (rng_state != NULL)
-		rng_state  = NULL;
-
-	for (i = 0; i < len; ++i)
-		output[i] = get_random_int();
-
-	return 0;
-}
-#endif /* MBEDTLS_PKCS1_V15 */
-
 /*
  * Checkup routine
  */
-int mbedtls_rsa_self_test(int verbose)
+int ttls_rsa_self_test(int verbose)
 {
 	int ret = 0;
-#if defined(MBEDTLS_PKCS1_V15)
 	size_t len;
-	mbedtls_rsa_context rsa;
+	ttls_rsa_context rsa;
 	unsigned char rsa_plaintext[PT_LEN];
 	unsigned char rsa_decrypted[PT_LEN];
 	unsigned char rsa_ciphertext[KEY_LEN];
-#if defined(MBEDTLS_SHA1_C)
-	unsigned char sha1sum[20];
-#endif
 
-	mbedtls_mpi K;
+	ttls_mpi K;
 
-	mbedtls_mpi_init(&K);
-	mbedtls_rsa_init(&rsa, MBEDTLS_RSA_PKCS_V15, 0);
+	ttls_mpi_init(&K);
+	ttls_rsa_init(&rsa, TTLS_RSA_PKCS_V15, 0);
 
-	MBEDTLS_MPI_CHK(mbedtls_mpi_read_string(&K, 16, RSA_N ));
-	MBEDTLS_MPI_CHK(mbedtls_rsa_import(&rsa, &K, NULL, NULL, NULL, NULL));
-	MBEDTLS_MPI_CHK(mbedtls_mpi_read_string(&K, 16, RSA_P ));
-	MBEDTLS_MPI_CHK(mbedtls_rsa_import(&rsa, NULL, &K, NULL, NULL, NULL));
-	MBEDTLS_MPI_CHK(mbedtls_mpi_read_string(&K, 16, RSA_Q ));
-	MBEDTLS_MPI_CHK(mbedtls_rsa_import(&rsa, NULL, NULL, &K, NULL, NULL));
-	MBEDTLS_MPI_CHK(mbedtls_mpi_read_string(&K, 16, RSA_D ));
-	MBEDTLS_MPI_CHK(mbedtls_rsa_import(&rsa, NULL, NULL, NULL, &K, NULL));
-	MBEDTLS_MPI_CHK(mbedtls_mpi_read_string(&K, 16, RSA_E ));
-	MBEDTLS_MPI_CHK(mbedtls_rsa_import(&rsa, NULL, NULL, NULL, NULL, &K));
+	TTLS_MPI_CHK(ttls_mpi_read_string(&K, 16, RSA_N ));
+	TTLS_MPI_CHK(ttls_rsa_import(&rsa, &K, NULL, NULL, NULL, NULL));
+	TTLS_MPI_CHK(ttls_mpi_read_string(&K, 16, RSA_P ));
+	TTLS_MPI_CHK(ttls_rsa_import(&rsa, NULL, &K, NULL, NULL, NULL));
+	TTLS_MPI_CHK(ttls_mpi_read_string(&K, 16, RSA_Q ));
+	TTLS_MPI_CHK(ttls_rsa_import(&rsa, NULL, NULL, &K, NULL, NULL));
+	TTLS_MPI_CHK(ttls_mpi_read_string(&K, 16, RSA_D ));
+	TTLS_MPI_CHK(ttls_rsa_import(&rsa, NULL, NULL, NULL, &K, NULL));
+	TTLS_MPI_CHK(ttls_mpi_read_string(&K, 16, RSA_E ));
+	TTLS_MPI_CHK(ttls_rsa_import(&rsa, NULL, NULL, NULL, NULL, &K));
 
-	MBEDTLS_MPI_CHK(mbedtls_rsa_complete(&rsa));
+	TTLS_MPI_CHK(ttls_rsa_complete(&rsa));
 
 	if (verbose != 0)
-		mbedtls_printf("  RSA key validation: ");
+		pr_info("  RSA key validation: ");
 
-	if (mbedtls_rsa_check_pubkey( &rsa) != 0 ||
-		mbedtls_rsa_check_privkey(&rsa) != 0)
+	if (ttls_rsa_check_pubkey( &rsa) != 0 ||
+		ttls_rsa_check_privkey(&rsa) != 0)
 	{
 		if (verbose != 0)
-			mbedtls_printf("failed\n");
+			pr_info("failed\n");
 
 		ret = 1;
 		goto cleanup;
 	}
 
 	if (verbose != 0)
-		mbedtls_printf("passed\n  PKCS#1 encryption : ");
+		pr_info("passed\n  PKCS#1 encryption : ");
 
 	memcpy(rsa_plaintext, RSA_PT, PT_LEN);
 
-	if (mbedtls_rsa_pkcs1_encrypt(&rsa, myrand, NULL, MBEDTLS_RSA_PUBLIC,
-								   PT_LEN, rsa_plaintext,
-								   rsa_ciphertext) != 0)
+	if (ttls_rsa_pkcs1_encrypt(&rsa, TTLS_RSA_PUBLIC,
+		   PT_LEN, rsa_plaintext,
+		   rsa_ciphertext) != 0)
 	{
 		if (verbose != 0)
-			mbedtls_printf("failed\n");
+			pr_info("failed\n");
 
 		ret = 1;
 		goto cleanup;
 	}
 
 	if (verbose != 0)
-		mbedtls_printf("passed\n  PKCS#1 decryption : ");
+		pr_info("passed\n  PKCS#1 decryption : ");
 
-	if (mbedtls_rsa_pkcs1_decrypt(&rsa, myrand, NULL, MBEDTLS_RSA_PRIVATE,
-								   &len, rsa_ciphertext, rsa_decrypted,
-								   sizeof(rsa_decrypted)) != 0)
+	if (ttls_rsa_pkcs1_decrypt(&rsa, TTLS_RSA_PRIVATE,
+		   &len, rsa_ciphertext, rsa_decrypted,
+		   sizeof(rsa_decrypted)) != 0)
 	{
 		if (verbose != 0)
-			mbedtls_printf("failed\n");
+			pr_info("failed\n");
 
 		ret = 1;
 		goto cleanup;
@@ -2279,67 +2132,20 @@ int mbedtls_rsa_self_test(int verbose)
 	if (memcmp(rsa_decrypted, rsa_plaintext, len) != 0)
 	{
 		if (verbose != 0)
-			mbedtls_printf("failed\n");
+			pr_info("failed\n");
 
 		ret = 1;
 		goto cleanup;
 	}
 
 	if (verbose != 0)
-		mbedtls_printf("passed\n");
-
-#if defined(MBEDTLS_SHA1_C)
-	if (verbose != 0)
-		mbedtls_printf("  PKCS#1 data sign  : ");
-
-	if (mbedtls_sha1_ret(rsa_plaintext, PT_LEN, sha1sum) != 0)
-	{
-		if (verbose != 0)
-			mbedtls_printf("failed\n");
-
-		return(1);
-	}
-
-	if (mbedtls_rsa_pkcs1_sign(&rsa, myrand, NULL,
-								MBEDTLS_RSA_PRIVATE, MBEDTLS_MD_SHA1, 0,
-								sha1sum, rsa_ciphertext) != 0)
-	{
-		if (verbose != 0)
-			mbedtls_printf("failed\n");
-
-		ret = 1;
-		goto cleanup;
-	}
+		pr_info("passed\n");
 
 	if (verbose != 0)
-		mbedtls_printf("passed\n  PKCS#1 sig. verify: ");
-
-	if (mbedtls_rsa_pkcs1_verify(&rsa, NULL, NULL,
-								  MBEDTLS_RSA_PUBLIC, MBEDTLS_MD_SHA1, 0,
-								  sha1sum, rsa_ciphertext) != 0)
-	{
-		if (verbose != 0)
-			mbedtls_printf("failed\n");
-
-		ret = 1;
-		goto cleanup;
-	}
-
-	if (verbose != 0)
-		mbedtls_printf("passed\n");
-#endif /* MBEDTLS_SHA1_C */
-
-	if (verbose != 0)
-		mbedtls_printf("\n");
+		pr_info("\n");
 
 cleanup:
-	mbedtls_mpi_free(&K);
-	mbedtls_rsa_free(&rsa);
-#else /* MBEDTLS_PKCS1_V15 */
-	((void) verbose);
-#endif /* MBEDTLS_PKCS1_V15 */
+	ttls_mpi_free(&K);
+	ttls_rsa_free(&rsa);
 	return ret;
 }
-
-
-#endif /* MBEDTLS_RSA_C */

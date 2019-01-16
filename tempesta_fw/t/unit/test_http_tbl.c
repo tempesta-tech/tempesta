@@ -17,6 +17,7 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <linux/types.h>
 #include <asm/fpu/api.h>
 
 #undef tfw_sock_srv_init
@@ -34,6 +35,7 @@
 
 #include "cfg.h"
 #include "http_msg.h"
+#include "http_parser.h"
 #include "helpers.h"
 #include "sched_helper.h"
 #include "test.h"
@@ -95,6 +97,7 @@ static void
 test_req(char *req_str, TfwSrvConn *expect_conn)
 {
 	bool block = false;
+	unsigned int parsed;
 	TfwSrvConn *srv_conn = NULL;
 	TfwHttpReq *req = test_req_alloc(req_str? strlen(req_str): 1);
 
@@ -104,7 +107,7 @@ test_req(char *req_str, TfwSrvConn *expect_conn)
 
 		BUG_ON(req_str_len + 1 > sizeof(req_str_copy));
 		strcpy(req_str_copy, req_str);
-		tfw_http_parse_req(req, req_str_copy, req_str_len);
+		tfw_http_parse_req(req, req_str_copy, req_str_len, &parsed);
 	}
 
 	req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block);

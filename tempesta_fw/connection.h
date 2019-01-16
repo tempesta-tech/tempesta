@@ -4,7 +4,7 @@
  * Definitions for generic connection management at OSI level 6 (presentation).
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -28,6 +28,8 @@
 #include "gfsm.h"
 #include "msg.h"
 #include "peer.h"
+
+#include "http_parser.h"
 
 #include "sync_socket.h"
 #include "tls.h"
@@ -93,6 +95,7 @@ enum {
 #define TFW_CONN_COMMON					\
 	SsProto			proto;			\
 	TfwGState		state;			\
+	TfwHttpParser		parser;			\
 	struct list_head	list;			\
 	atomic_t		refcnt;			\
 	struct timer_list	timer;			\
@@ -110,7 +113,7 @@ typedef struct {
 
 /*
  * Queues in client and server connections provide support for correct
- * handlng of requests and responses.
+ * handling of requests and responses.
  *
  * Incoming requests are put on client connection's @seq_queue in the
  * order they come in. When responses to these requests come, they're
@@ -198,20 +201,15 @@ enum {
 	TFW_CONN_B_ACTIVE
 };
 
-#define TFW_CONN_F_RESEND	(1 << TFW_CONN_B_RESEND)
-#define TFW_CONN_F_QFORWD	(1 << TFW_CONN_B_QFORWD)
-#define TFW_CONN_F_HASNIP	(1 << TFW_CONN_B_HASNIP)
-
-
 /**
  * TLS hardened connection.
  */
 typedef struct {
 	TfwCliConn	cli_conn;
-	TfwTlsContext	tls;
+	TlsCtx		tls;
 } TfwTlsConn;
 
-#define tfw_tls_context(p)	(TfwTlsContext *)(&((TfwTlsConn *)p)->tls)
+#define tfw_tls_context(conn)	(TlsCtx *)(&((TfwTlsConn *)conn)->tls)
 
 /* Callbacks used by l5-l7 protocols to operate on connection level. */
 typedef struct {
@@ -232,6 +230,11 @@ typedef struct {
 	void (*conn_repair)(TfwConn *conn);
 
 	/*
+	 * Called to close a connection intentionally on Tempesta side.
+	 */
+	int (*conn_close)(TfwConn *conn, bool sync);
+
+	/*
 	 * Called when closing a connection (client or server,
 	 * as in conn_init()). This is required for modules that
 	 * maintain the number of established client connections.
@@ -240,7 +243,7 @@ typedef struct {
 
 	/*
 	 * Called when there are no more users of a connection
-	 * and the connections's resources are finally released.
+	 * and the connection's resources are finally released.
 	 */
 	void (*conn_release)(TfwConn *conn);
 
@@ -417,7 +420,7 @@ tfw_connection_link_to_sk(TfwConn *conn, struct sock *sk)
 }
 
 /*
- * Do an oposite to what tfw_connection_link_from_sk() does.
+ * Do an opposite to what tfw_connection_link_from_sk() does.
  * Sync Sockets layer is unlinked from Tempesta, so that Tempesta
  * callbacks are not called anymore on events in the socket.
  */
@@ -484,6 +487,7 @@ void tfw_connection_link_peer(TfwConn *conn, TfwPeer *peer);
 
 int tfw_connection_new(TfwConn *conn);
 void tfw_connection_repair(TfwConn *conn);
+int tfw_connection_close(TfwConn *conn, bool sync);
 void tfw_connection_drop(TfwConn *conn);
 void tfw_connection_release(TfwConn *conn);
 

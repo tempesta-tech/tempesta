@@ -18,6 +18,7 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#include <linux/types.h> /* must be the first */
 #include <asm/fpu/api.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -173,7 +174,7 @@ tfw_mods_cfgstart(struct list_head *mod_list)
 			return ret;
 		}
 	}
-	TFW_LOG("Prepearing for the configuration processing.\n");
+	TFW_LOG("Preparing for the configuration processing.\n");
 
 	return 0;
 }

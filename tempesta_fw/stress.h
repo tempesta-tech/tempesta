@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -42,12 +42,12 @@ typedef struct {
 	 */
 
 	/*
-	 * Accont and handle back-end server overload.
+	 * Account and handle back-end server overload.
 	 * @return true if there is overload and false otherwise.
 	 */
 	bool		(*account_srv)(void);
 	/*
-	 * Accont and handle local system overload.
+	 * Account and handle local system overload.
 	 * @return true if there is overload and false otherwise.
 	 */
 	bool		(*account_sys)(void);

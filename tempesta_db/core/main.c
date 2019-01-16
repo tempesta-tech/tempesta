@@ -4,7 +4,7 @@
  * This is the entry point: initialization functions and public interfaces.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 - 2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015 - 2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -323,8 +323,8 @@ tdb_exit(void)
 	tdb_if_exit();
 
 	/*
-	 * There are no database users, so roughtly close all abandoned
-	 * tables w/o refrence checking and so on.
+	 * There are no database users, so roughly close all abandoned
+	 * tables w/o reference checking and so on.
 	 */
 	tdb_tbl_foreach(__do_close_table);
 }

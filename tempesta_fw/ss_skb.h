@@ -3,7 +3,7 @@
  *
  * Synchronous Sockets API for Linux socket buffers manipulation.
  *
- * Copyright (C) 2015-2017 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -46,7 +46,8 @@ enum {
 	SS_OK		= 0,
 };
 
-typedef int (*ss_skb_actor_t)(void *conn, unsigned char *data, size_t len);
+typedef int ss_skb_actor_t(void *conn, unsigned char *data, size_t len,
+			   unsigned int *read);
 
 /**
  * Add new @skb to the queue in FIFO order.
@@ -89,6 +90,11 @@ ss_skb_peek_tail(struct sk_buff **skb_head)
 	return *skb_head ? (*skb_head)->prev : NULL;
 }
 
+/**
+ * Almost a copy of standard skb_dequeue() except it works with skb list
+ * instead of sk_buff_head. Several crucial data include skb list and we don't
+ * want to spend extra memory for unused members of skb_buff_head.
+ */
 static inline struct sk_buff *
 ss_skb_dequeue(struct sk_buff **skb_head)
 {
@@ -115,7 +121,7 @@ ss_skb_adjust_data_len(struct sk_buff *skb, int delta)
 }
 
 static inline skb_frag_t *
-ss_skb_frag_next(struct sk_buff **skb, int *f)
+ss_skb_frag_next(struct sk_buff **skb, const struct sk_buff *skb_head, int *f)
 {
 	if (skb_shinfo(*skb)->nr_frags > *f + 1) {
 		++*f;
@@ -123,7 +129,7 @@ ss_skb_frag_next(struct sk_buff **skb, int *f)
 	}
 
 	*skb = (*skb)->next;
-	if (!*skb || !skb_shinfo(*skb)->nr_frags)
+	if (*skb == skb_head || !skb_shinfo(*skb)->nr_frags)
 		return NULL;
 	*f = 0;
 	return &skb_shinfo(*skb)->frags[0];
@@ -163,9 +169,9 @@ ss_skb_put(struct sk_buff *skb, const int len)
 }
 
 static inline struct sk_buff *
-ss_skb_alloc(void)
+ss_skb_alloc(size_t n)
 {
-	struct sk_buff *skb = alloc_skb(MAX_TCP_HEADER, GFP_ATOMIC);
+	struct sk_buff *skb = alloc_skb(MAX_TCP_HEADER + n, GFP_ATOMIC);
 
 	if (!skb)
 		return NULL;
@@ -174,19 +180,24 @@ ss_skb_alloc(void)
 	return skb;
 }
 
-#define SS_SKB_MAX_DATA_LEN	(MAX_SKB_FRAGS * PAGE_SIZE)
+#define SS_SKB_MAX_DATA_LEN	(SKB_MAX_HEADER + MAX_SKB_FRAGS * PAGE_SIZE)
 
 char *ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf);
 
-struct sk_buff *ss_skb_alloc_pages(size_t len);
+int ss_skb_alloc_data(struct sk_buff **skb_head, size_t len);
 struct sk_buff *ss_skb_split(struct sk_buff *skb, int len);
 int ss_skb_get_room(struct sk_buff *skb_head, struct sk_buff *skb,
 		    char *pspt, unsigned int len, TfwStr *it);
+int ss_skb_expand_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
+			    size_t head, size_t tail);
+int ss_skb_chop_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
+			  size_t head, size_t tail);
 int ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *hdr,
 		       int skip, int tail);
 
-int ss_skb_process(struct sk_buff *skb, unsigned int *off,
-		   ss_skb_actor_t actor, void *objdata);
+int ss_skb_process(struct sk_buff *skb, unsigned int off, unsigned int trail,
+		   ss_skb_actor_t actor, void *objdata, unsigned int *chunks,
+		   unsigned int *processed);
 
 int ss_skb_unroll(struct sk_buff **skb_head, struct sk_buff *skb);
 void ss_skb_init_for_xmit(struct sk_buff *skb);
