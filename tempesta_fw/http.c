@@ -2488,6 +2488,14 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 	bool nolog;
 	TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
 
+	/*
+	 * Error was happened and request should be dropped or blocked,
+	 * but other modules (e.g. sticky cookie module) may have a response
+	 * prepared for this request. A new error response is to be generated
+	 * for the request, drop any previous request paired with the request.
+	 */
+	tfw_http_conn_msg_free(req->pair);
+
 	if (attack) {
 		reply = tfw_blk_flags & TFW_BLK_ATT_REPLY;
 		nolog = tfw_blk_flags & TFW_BLK_ATT_NOLOG;
@@ -2621,36 +2629,11 @@ tfw_http_req_cache_service(TfwHttpResp *resp)
 static void
 tfw_http_req_cache_cb(TfwHttpMsg *msg)
 {
-	int r;
 	TfwHttpReq *req = (TfwHttpReq *)msg;
 	TfwSrvConn *srv_conn = NULL;
 	LIST_HEAD(eq);
 
 	TFW_DBG2("%s: req = %p, resp = %p\n", __func__, req, req->resp);
-
-	/*
-	 * Sticky cookie module used for HTTP session identification may send
-	 * a response to the client when sticky cookie presence is enforced
-	 * and the cookie is missing from the request.
-	 *
-	 * HTTP session may be required for request scheduling, so obtain it
-	 * first. However, req->sess still may be NULL if sticky cookies are
-	 * not enabled.
-	 */
-	r = tfw_http_sess_obtain(req);
-	switch (r) {
-	case TFW_HTTP_SESS_SUCCESS:
-		break;
-	case TFW_HTTP_SESS_REDIRECT_SENT:
-		/* Response sent, nothing to do. */
-		return;
-	case TFW_HTTP_SESS_VIOLATE:
-		goto drop_503;
-	case TFW_HTTP_SESS_JS_NOT_SUPPORTED:
-		goto send_503;
-	default:
-		goto send_500;
-	}
 
 	if (req->resp) {
 		tfw_http_req_cache_service(req->resp);
@@ -2684,20 +2667,6 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 	tfw_http_req_zap_error(&eq);
 	goto conn_put;
 
-send_503:
-	/*
-	 * Requested resource can't be challenged. Don't break response-request
-	 * queue on client side by dropping the request.
-	 */
-	tfw_http_send_resp(req, 503,
-			   "request dropped: can't send JS challenge.");
-	TFW_INC_STAT_BH(clnt.msgs_filtout);
-	return;
-drop_503:
-	tfw_http_req_drop(req, 503, "request dropped: invalid sticky cookie "
-				    "or js challenge");
-	TFW_INC_STAT_BH(clnt.msgs_filtout);
-	return;
 send_502:
 	tfw_http_send_resp(req, 502, "request dropped: processing error");
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
@@ -2958,9 +2927,80 @@ next_msg:
 		skb = NULL;
 	}
 
-	/* Assign the right virtual host for current request. */
-	if ((req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block)))
-		req->location = tfw_location_match(req->vhost, &req->uri_path);
+	/*
+	 * Sticky cookie module must be used before request can reach cache.
+	 * Unauthorised clients mustn't be able to get any resource on
+	 * protected service and stress cache subsystem. The module is also
+	 * the quickest way to obtain target VHost and target backend server
+	 * connection since it allows to avoid expensive tables lookups.
+	 *
+	 * TODO: #685 Sticky cookie are to be configured per-vhost. Http_tables
+	 * used to assign target vhost can be extremely long, while the
+	 * client may use just a few cookie variants. Even if different
+	 * sticky cookies are used for each vhost, the sticky module should
+	 * be faster than tfw_http_tbl_vhost().
+	 *
+	 * TODO: #1043 sticky cookie module must assign correct vhost when it
+	 * returns TFW_HTTP_SESS_SUCCESS or TFW_HTTP_SESS_REDIRECT_NEED;
+	 */
+	switch (tfw_http_sess_obtain(req))
+	{
+	case TFW_HTTP_SESS_SUCCESS:
+		break;
+
+	case TFW_HTTP_SESS_REDIRECT_NEED:
+		/* Response is built and stored in @req->resp. */
+		break;
+
+	case TFW_HTTP_SESS_VIOLATE:
+		TFW_INC_STAT_BH(clnt.msgs_filtout);
+		tfw_http_req_parse_block(
+			req, 503,
+			"request dropped: sticky cookie challenge was "
+			"failed");
+		return TFW_BLOCK;
+
+	case TFW_HTTP_SESS_JS_NOT_SUPPORTED:
+		/*
+		 * Requested resource can't be challenged, forward all pending
+		 * responses and close the connection to allow client to recover.
+		 */
+		TFW_INC_STAT_BH(clnt.msgs_filtout);
+		tfw_http_req_parse_block(
+			req, 503,
+			"request dropped: can't send JS challenge");
+		return TFW_BLOCK;
+
+	default:
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
+		tfw_http_req_parse_block(
+			req, 500,
+			"request dropped: internal error in Sticky "
+			"module");
+		return TFW_BLOCK;
+	}
+
+	/*
+	 * Assign the right virtual host for current request if it
+	 * wasn't assigned by a sticky module. VHost is not assigned
+	 * if client doesn't support cookies or sticky cookies are
+	 * disabled.
+	 *
+	 * In the same time location may differ between requests, so the
+	 * sticky module can't fill it.
+	 */
+	if (!req->vhost)
+		req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block);
+	if (req->vhost)
+		req->location = tfw_location_match(req->vhost,
+						   &req->uri_path);
+	if (block) {
+		TFW_INC_STAT_BH(clnt.msgs_filtout);
+		tfw_http_req_parse_block(
+			req, 403,
+			"request has been filtered out via http table");
+		return TFW_BLOCK;
+	}
 
 	r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_MSG, &data_up);
 	TFW_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
@@ -2969,13 +3009,6 @@ next_msg:
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
 		tfw_http_req_parse_block(req, 403,
 					 "parsed request has been filtered out");
-		return TFW_BLOCK;
-	}
-
-	if (block) {
-		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		tfw_http_req_parse_block(req, 403, "request has been filtered "
-						   "out via http table");
 		return TFW_BLOCK;
 	}
 
@@ -3069,11 +3102,17 @@ next_msg:
 	tfw_http_req_add_seq_queue(req);
 
 	/*
+	 * Response is already prepared for the client by sticky module.
+	 */
+	if (unlikely(req->resp)) {
+		tfw_http_resp_fwd(req->resp);
+	}
+	/*
 	 * If no virtual host has been found for current request, there
 	 * is no sense for its further processing, so we drop it, send
 	 * error response to client and move on to the next request.
 	 */
-	if (!req->vhost) {
+	else if (!req->vhost) {
 		tfw_http_send_resp(req, 404, "request dropped: cannot find"
 					     " appropriate virtual host");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
