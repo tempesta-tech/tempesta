@@ -244,8 +244,6 @@ enum {
 	TFW_HTTP_B_URI_FULL,
 	/* Request is non-idempotent. */
 	TFW_HTTP_B_NON_IDEMP,
-	/* Request was sent by attacker. */
-	TFW_HTTP_B_SUSPECTED,
 	/* Request stated 'Accept: text/html' header */
 	TFW_HTTP_B_ACCEPT_HTML,
 	/* Request is created by HTTP health monitor. */
