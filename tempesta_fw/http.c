@@ -2552,7 +2552,7 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
  * ss_tcp_data_ready() function for propper connection close.
  */
 static inline void
-tfw_client_drop(TfwHttpReq *req, int status, const char *msg)
+tfw_http_req_parse_drop(TfwHttpReq *req, int status, const char *msg)
 {
 	tfw_http_cli_error_resp_and_log(req, status, msg, false, true);
 }
@@ -2563,7 +2563,7 @@ tfw_client_drop(TfwHttpReq *req, int status, const char *msg)
  * propper connection close.
  */
 static inline void
-tfw_client_block(TfwHttpReq *req, int status, const char *msg)
+tfw_http_req_parse_block(TfwHttpReq *req, int status, const char *msg)
 {
 	tfw_http_cli_error_resp_and_log(req, status, msg, true, true);
 }
@@ -2574,7 +2574,7 @@ tfw_client_block(TfwHttpReq *req, int status, const char *msg)
  * will be performed.
  */
 static inline void
-tfw_srv_client_drop(TfwHttpReq *req, int status, const char *msg)
+tfw_http_req_drop(TfwHttpReq *req, int status, const char *msg)
 {
 	tfw_http_cli_error_resp_and_log(req, status, msg, false, false);
 }
@@ -2585,7 +2585,7 @@ tfw_srv_client_drop(TfwHttpReq *req, int status, const char *msg)
  * will be performed.
  */
 static inline void
-tfw_srv_client_block(TfwHttpReq *req, int status, const char *msg)
+tfw_http_req_block(TfwHttpReq *req, int status, const char *msg)
 {
 	tfw_http_cli_error_resp_and_log(req, status, msg, true, false);
 }
@@ -2694,8 +2694,8 @@ send_503:
 	TFW_INC_STAT_BH(clnt.msgs_filtout);
 	return;
 drop_503:
-	tfw_srv_client_drop(req, 503, "request dropped: invalid sticky cookie "
-			    "or js challenge");
+	tfw_http_req_drop(req, 503, "request dropped: invalid sticky cookie "
+				    "or js challenge");
 	TFW_INC_STAT_BH(clnt.msgs_filtout);
 	return;
 send_502:
@@ -2902,7 +2902,7 @@ next_msg:
 	case TFW_BLOCK:
 		TFW_DBG2("Block invalid HTTP request\n");
 		TFW_INC_STAT_BH(clnt.msgs_parserr);
-		tfw_client_drop(req, 400, "failed to parse request");
+		tfw_http_req_parse_drop(req, 400, "failed to parse request");
 		return TFW_BLOCK;
 	case TFW_POSTPONE:
 		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK,
@@ -2910,8 +2910,9 @@ next_msg:
 		TFW_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
 		if (r == TFW_BLOCK) {
 			TFW_INC_STAT_BH(clnt.msgs_filtout);
-			tfw_client_block(req, 403, "postponed request has been"
-						   " filtered out");
+			tfw_http_req_parse_block(req, 403,
+						 "postponed request has been"
+						 " filtered out");
 			return TFW_BLOCK;
 		}
 		/*
@@ -2948,8 +2949,8 @@ next_msg:
 		skb = ss_skb_split(skb, parsed);
 		if (unlikely(!skb)) {
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
-			tfw_client_block(req, 500,
-					 "Can't split pipelined requests");
+			tfw_http_req_parse_block(req, 500,
+						 "Can't split pipelined requests");
 			return TFW_BLOCK;
 		}
 		off = 0;
@@ -2966,15 +2967,15 @@ next_msg:
 	/* Don't accept any following requests from the peer. */
 	if (r == TFW_BLOCK) {
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		tfw_client_block(req, 403, "parsed request has been filtered"
-					   " out");
+		tfw_http_req_parse_block(req, 403,
+					 "parsed request has been filtered out");
 		return TFW_BLOCK;
 	}
 
 	if (block) {
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		tfw_client_block(req, 403, "request has been filtered out via"
-					   " http table");
+		tfw_http_req_parse_block(req, 403, "request has been filtered "
+						   "out via http table");
 		return TFW_BLOCK;
 	}
 
@@ -3240,7 +3241,7 @@ tfw_http_resp_gfsm(TfwHttpMsg *hmresp, TfwFsmData *data)
 error:
 	tfw_http_popreq(hmresp, false);
 	tfw_http_conn_msg_free(hmresp);
-	tfw_srv_client_block(req, 502, "response blocked: filtered out");
+	tfw_http_req_block(req, 502, "response blocked: filtered out");
 	TFW_INC_STAT_BH(serv.msgs_filtout);
 	return r;
 }
@@ -3559,11 +3560,11 @@ bad_msg:
 	tfw_http_popreq(hmresp, false);
 	tfw_http_conn_msg_free(hmresp);
 	if (filtout)
-		tfw_srv_client_block(bad_req, 502,
-				     "response blocked: filtered out");
+		tfw_http_req_block(bad_req, 502,
+				   "response blocked: filtered out");
 	else
-		tfw_srv_client_drop(bad_req, 502,
-				    "response dropped: processing error");
+		tfw_http_req_drop(bad_req, 502,
+				  "response dropped: processing error");
 	return TFW_BLOCK;
 }
 
