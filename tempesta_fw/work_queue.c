@@ -80,6 +80,7 @@ __tfw_wq_push(TfwRBQueue *q, void *ptr)
 {
 	long head, tail;
 	atomic64_t *head_local;
+	int budget = 10;
 
 	/*
 	 * Producers can run on the same CPU (softirq and user space process),
@@ -101,8 +102,17 @@ __tfw_wq_push(TfwRBQueue *q, void *ptr)
 	for ( ; ; head = atomic64_read(&q->head)) {
 		tail = atomic64_read(&q->tail);
 		WARN_ON_ONCE(head > tail + QSZ);
-		if (unlikely(head == tail + QSZ))
+		if (unlikely(head == tail + QSZ)) {
+			/*
+			 * Small threshold budget to pass through temporary
+			 * queue overflow.
+			 */
+			if (--budget) {
+				cpu_relax();
+				continue;
+			}
 			goto full_out;
+		}
 
 		/*
 		 * There is an empty slot to push a new item.

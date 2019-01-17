@@ -83,17 +83,9 @@ static inline long
 tfw_wq_push(TfwRBQueue *q, void *ptr, int cpu, struct irq_work *work,
 	    void (*local_cpu_cb)(struct irq_work *))
 {
-	long ticket;
-	int budget = 10;
-
-	/*
-	 * Set small threshold budget for push attempts in order
-	 * to pass through temporary queue overflow.
-	 */
-	while ((ticket = __tfw_wq_push(q, ptr))) {
-		if (!--budget)
-			return ticket;
-	}
+	long ticket = __tfw_wq_push(q, ptr);
+	if (unlikely(ticket))
+		return ticket;
 	/*
 	 * The atomic operation is 'atomic64_cmpxchg()' in
 	 * '__tfw_wq_push()' above.
