@@ -2442,9 +2442,6 @@ tfw_http_req_prev_conn_close(TfwHttpReq *req)
 	TfwHttpReq *last_req = NULL;
 	struct list_head *prev;
 
-	if (list_empty_careful(&cli_conn->seq_queue))
-		return false;
-
 	spin_lock(&cli_conn->seq_qlock);
 
 	prev = (!list_empty(&req->msg.seq_list)) ? req->msg.seq_list.prev
@@ -2577,9 +2574,9 @@ tfw_http_req_parse_block(TfwHttpReq *req, int status, const char *msg)
 }
 
 /**
- * Unintentional error happen during request processing. Caller function is
- * not a part of ss_tcp_data_ready() function and manual connection close
- * will be performed.
+ * Unintentional error happen during request or response processing. Caller
+ * function is not a part of ss_tcp_data_ready() function and manual connection
+ * close will be performed.
  */
 static inline void
 tfw_http_req_drop(TfwHttpReq *req, int status, const char *msg)
@@ -2588,7 +2585,7 @@ tfw_http_req_drop(TfwHttpReq *req, int status, const char *msg)
 }
 
 /**
- * Attack is detected during request processing. Caller function is
+ * Attack is detected during request or response processing. Caller function is
  * not a part of ss_tcp_data_ready() function and manual connection close
  * will be performed.
  */
@@ -2954,10 +2951,8 @@ next_msg:
 
 	case TFW_HTTP_SESS_VIOLATE:
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		tfw_http_req_parse_block(
-			req, 503,
-			"request dropped: sticky cookie challenge was "
-			"failed");
+		tfw_http_req_parse_block(req, 503,
+			"request dropped: sticky cookie challenge was failed");
 		return TFW_BLOCK;
 
 	case TFW_HTTP_SESS_JS_NOT_SUPPORTED:
@@ -2966,15 +2961,13 @@ next_msg:
 		 * responses and close the connection to allow client to recover.
 		 */
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		tfw_http_req_parse_block(
-			req, 503,
+		tfw_http_req_parse_block(req, 503,
 			"request dropped: can't send JS challenge");
 		return TFW_BLOCK;
 
 	default:
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
-		tfw_http_req_parse_block(
-			req, 500,
+		tfw_http_req_parse_block(req, 500,
 			"request dropped: internal error in Sticky "
 			"module");
 		return TFW_BLOCK;
@@ -2996,8 +2989,7 @@ next_msg:
 						   &req->uri_path);
 	if (block) {
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		tfw_http_req_parse_block(
-			req, 403,
+		tfw_http_req_parse_block(req, 403,
 			"request has been filtered out via http table");
 		return TFW_BLOCK;
 	}
@@ -3008,7 +3000,7 @@ next_msg:
 	if (r == TFW_BLOCK) {
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
 		tfw_http_req_parse_block(req, 403,
-					 "parsed request has been filtered out");
+			"parsed request has been filtered out");
 		return TFW_BLOCK;
 	}
 
