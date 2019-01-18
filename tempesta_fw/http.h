@@ -231,7 +231,7 @@ enum {
 	TFW_HTTP_B_CHUNKED,
 	/* Media type is multipart/form-data. */
 	TFW_HTTP_B_CT_MULTIPART,
-	/* Multipart/form-data request have boundary parameter. */
+	/* Multipart/form-data request has a boundary parameter. */
 	TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
 	/* Singular header presents more than once. */
 	TFW_HTTP_B_FIELD_DUPENTRY,

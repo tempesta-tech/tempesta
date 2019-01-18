@@ -2153,7 +2153,7 @@ tfw_http_should_validate_post_req(TfwHttpReq *req)
 	if (req->location && req->location->validate_post_req)
 		return true;
 
-	if (!req->vhost)
+	if (WARN_ON_ONCE(!req->vhost))
 		return false;
 
 	if (req->vhost->loc_dflt && req->vhost->loc_dflt->validate_post_req)
