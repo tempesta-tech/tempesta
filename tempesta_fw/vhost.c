@@ -2419,7 +2419,7 @@ static TfwCfgSpec tfw_vhost_specs[] = {
 		.deflt = NULL,
 		.handler = tfw_cfgop_out_http_post_validate,
 		.allow_none = true,
-		.allow_repeat = true,
+		.allow_repeat = false,
 		.allow_reconfig = true,
 	},
 	{
