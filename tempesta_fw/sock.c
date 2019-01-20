@@ -382,9 +382,10 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		/* Propagate mark of message head skb.*/
 		skb->mark = mark;
 
-		TFW_DBG3("[%d]: %s: entail skb=%pK data_len=%u len=%u mark=%u"
-			 " tls_type=%x\n", smp_processor_id(), __func__,
-			 skb, skb->data_len, skb->len, skb->mark,
+		TFW_DBG3("[%d]: %s: entail sk=%pK skb=%pK data_len=%u len=%u"
+			 " truesize=%u mark=%u tls_type=%x\n",
+			 smp_processor_id(), __func__, sk,
+			 skb, skb->data_len, skb->len, skb->truesize, skb->mark,
 			 tempesta_tls_skb_type(skb));
 
 		skb_entail(sk, skb);
@@ -449,11 +450,7 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	 * or copy them if they're going to be used by Tempesta during
 	 * and after the transmission.
 	 */
-	/*
-	 * FIXME #984 the `true ||` statement at the below fixes the issue
-	 * (at least basic tests are passed now).
-	 */
-	if (/*true ||*/ flags & SS_F_KEEP_SKB) {
+	if (flags & SS_F_KEEP_SKB) {
 		skb = *skb_head;
 		do {
 			/* tcp_transmit_skb() will clone the skb. */
