@@ -634,7 +634,8 @@ __split_pgfrag_del(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off
 	if (likely(!off)) {
 		frag->page_offset += len;
 		skb_frag_size_sub(frag, len);
-		ss_skb_adjust_data_len(skb, -len);
+		skb->len -= len;
+		skb->data_len -= len;
 		it->ptr = skb_frag_address(frag);
 		it->skb = skb;
 		return 0;
@@ -642,7 +643,8 @@ __split_pgfrag_del(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off
 	/* Fast path (e.g. TLS tag): delete the tail part of a fragment. */
 	if (likely(off + len == skb_frag_size(frag))) {
 		skb_frag_size_sub(frag, len);
-		ss_skb_adjust_data_len(skb, -len);
+		skb->len -= len;
+		skb->data_len -= len;
 		__it_next_data(skb, i + 1, it);
 		return 0;
 	}
@@ -679,7 +681,8 @@ __split_pgfrag_del(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off
 		ss_skb_adjust_data_len(skb, -tail_len);
 		ss_skb_adjust_data_len(skb_dst, tail_len);
 	}
-	ss_skb_adjust_data_len(skb, -len);
+	skb->len -= len;
+	skb->data_len -= len;
 
 	/* Get the SKB and the address for data after the deleted data. */
 	it->ptr = skb_frag_address(&skb_shinfo(skb_dst)->frags[i]);
@@ -1138,52 +1141,6 @@ ss_skb_split(struct sk_buff *skb, int len)
 	return buff;
 }
 
-static inline int
-__coalesce_frag(struct sk_buff **skb_head, skb_frag_t *frag,
-		const struct sk_buff *orig_skb)
-{
-	struct sk_buff *skb = ss_skb_peek_tail(skb_head);
-
-	if (!skb || skb_shinfo(skb)->nr_frags == MAX_SKB_FRAGS) {
-		skb = ss_skb_alloc(0);
-		if (!skb)
-			return -ENOMEM;
-		ss_skb_queue_tail(skb_head, skb);
-		skb->mark = orig_skb->mark;
-	}
-
-	skb_shinfo(skb)->frags[skb_shinfo(skb)->nr_frags++] = *frag;
-	ss_skb_adjust_data_len(skb, frag->size);
-	__skb_frag_ref(frag);
-
-	return 0;
-}
-
-static int
-ss_skb_queue_coalesce_tail(struct sk_buff **skb_head, const struct sk_buff *skb)
-{
-	int i;
-	skb_frag_t head_frag;
-	unsigned int headlen = skb_headlen(skb);
-
-	if (headlen) {
-		BUG_ON(!skb->head_frag);
-		head_frag.size = headlen;
-		head_frag.page.p = virt_to_page(skb->head);
-		head_frag.page_offset = skb->data -
-			(unsigned char *)page_address(head_frag.page.p);
-		if (__coalesce_frag(skb_head, &head_frag, skb))
-			return -ENOMEM;
-	}
-
-	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
-		if (__coalesce_frag(skb_head, &skb_shinfo(skb)->frags[i], skb))
-			return -ENOMEM;
-	}
-
-	return 0;
-}
-
 /**
  * Tempesta FW forwards skbs with application and transport payload as is,
  * so initialize such skbs such that TCP/IP stack won't stumble on dirty
@@ -1234,6 +1191,52 @@ ss_skb_init_for_xmit(struct sk_buff *skb)
 	shinfo->destructor_arg = NULL;
 
 	skb->ip_summed = CHECKSUM_PARTIAL;
+}
+
+static inline int
+__coalesce_frag(struct sk_buff **skb_head, skb_frag_t *frag,
+		const struct sk_buff *orig_skb)
+{
+	struct sk_buff *skb = ss_skb_peek_tail(skb_head);
+
+	if (!skb || skb_shinfo(skb)->nr_frags == MAX_SKB_FRAGS) {
+		skb = ss_skb_alloc(0);
+		if (!skb)
+			return -ENOMEM;
+		ss_skb_queue_tail(skb_head, skb);
+		skb->mark = orig_skb->mark;
+	}
+
+	skb_shinfo(skb)->frags[skb_shinfo(skb)->nr_frags++] = *frag;
+	ss_skb_adjust_data_len(skb, frag->size);
+	__skb_frag_ref(frag);
+
+	return 0;
+}
+
+static int
+ss_skb_queue_coalesce_tail(struct sk_buff **skb_head, const struct sk_buff *skb)
+{
+	int i;
+	skb_frag_t head_frag;
+	unsigned int headlen = skb_headlen(skb);
+
+	if (headlen) {
+		BUG_ON(!skb->head_frag);
+		head_frag.size = headlen;
+		head_frag.page.p = virt_to_page(skb->head);
+		head_frag.page_offset = skb->data -
+			(unsigned char *)page_address(head_frag.page.p);
+		if (__coalesce_frag(skb_head, &head_frag, skb))
+			return -ENOMEM;
+	}
+
+	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
+		if (__coalesce_frag(skb_head, &skb_shinfo(skb)->frags[i], skb))
+			return -ENOMEM;
+	}
+
+	return 0;
 }
 
 /*
@@ -1328,7 +1331,9 @@ ss_skb_unroll(struct sk_buff **skb_head, struct sk_buff *skb)
 		 * when we track whitelist requests during HTTP processing.
 		 */
 		f_skb->mark = skb->mark;
-		ss_skb_adjust_data_len(skb, -f_skb->len);
+		skb->len -= f_skb->len;
+		skb->data_len -= f_skb->len;
+		skb->truesize -= f_skb->truesize;
 		f_skb->prev = prev_skb;
 		prev_skb = f_skb;
 	}
