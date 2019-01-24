@@ -129,9 +129,9 @@ ss_skb_frag_next(struct sk_buff **skb, const struct sk_buff *skb_head, int *f)
 	}
 
 	*skb = (*skb)->next;
+	*f = 0;
 	if (*skb == skb_head || !skb_shinfo(*skb)->nr_frags)
 		return NULL;
-	*f = 0;
 	return &skb_shinfo(*skb)->frags[0];
 }
 
