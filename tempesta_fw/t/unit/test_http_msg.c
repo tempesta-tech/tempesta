@@ -25,7 +25,7 @@
 TEST(http_msg, hdr_in_array)
 {
 	size_t i;
-#define TfwStr_string(v)	{ (v), NULL, sizeof(v) - 1, 0 }
+#define TfwStr_string(v)	{ .data = (v), NULL, sizeof(v) - 1, 0 }
 	static const TfwStr hdrs[] = {
 		TfwStr_string("age:"),
 		TfwStr_string("authorization:"),
@@ -59,7 +59,7 @@ TEST(http_msg, hdr_in_array)
 #define S_PART_01	"cache-control: no-cache"
 #define S_PART_02	"cache-control: no-store"
 	TfwStr dup_hdr = {
-		.ptr = (TfwStr []){
+		.chunks = (TfwStr []){
 			TfwStr_string(S_PART_01),
 			TfwStr_string(S_PART_01),
 		},

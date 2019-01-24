@@ -60,7 +60,7 @@ this_chunk:
 			p = skb_put(it->skb, n_copy);
 		}
 
-		memcpy_fast(p, (char *)c->ptr + c_off, n_copy);
+		memcpy_fast(p, c->data + c_off, n_copy);
 
 		if (c_size < f_room) {
 			/*
