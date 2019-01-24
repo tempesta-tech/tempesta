@@ -2552,7 +2552,7 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 		if (!attack)
 			close &= !tfw_http_req_prev_conn_close(req);
 		if (close)
-			ss_close_sync(req->conn->sk, true);
+			tfw_connection_close(req->conn, true);
 		tfw_http_conn_req_clean(req);
 	}
 }
