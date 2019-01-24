@@ -84,7 +84,7 @@ enum {
 	/* Session successfully obtained. */
 	TFW_HTTP_SESS_SUCCESS = 0,
 	/* Can't obtain session: new client; a redirection message sent. */
-	TFW_HTTP_SESS_REDIRECT_SENT,
+	TFW_HTTP_SESS_REDIRECT_NEED,
 	/* Sticky cookie violated, client must be blocked. */
 	TFW_HTTP_SESS_VIOLATE,
 	/* JS challenge enabled, but request is not challengable. */
