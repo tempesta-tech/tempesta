@@ -115,14 +115,14 @@ tfw_str_del_chunk(TfwStr *str, int id)
 
 	if (TFW_STR_CHUNKN(str) == 2) {
 		/* Just fall back to plain string. */
-		*str = *((TfwStr *)str->ptr + (id ^ 1));
+		*str = *(str->chunks + (id ^ 1));
 		return;
 	}
 
 	str->len -= TFW_STR_CHUNK(str, id)->len;
 	TFW_STR_CHUNKN_SUB(str, 1);
 	/* Move all chunks after @id. */
-	memmove((TfwStr *)str->ptr + id, (TfwStr *)str->ptr + id + 1,
+	memmove(str->chunks + id, str->chunks + id + 1,
 		(cn - id - 1) * sizeof(TfwStr));
 }
 
@@ -147,20 +147,20 @@ void tfw_str_collect_cmp(TfwStr *chunk, TfwStr *end, TfwStr *out,
 
 	/* If this is last chunk, just return it in this case. */
 	next = chunk + 1;
-	if (likely(next == end || (stop && *(char *)next->ptr == *stop))) {
+	if (likely(next == end || (stop && *next->data == *stop))) {
 		*out = *chunk;
 		return;
 	}
 
 	/* Add chunks to out-string. */
-	out->ptr = chunk;
+	out->chunks = chunk;
 	out->flags = 0;
 	out->len = 0;
 	out->eolen = 0;
 	/* __TFW_STR_CHUNKN_SET(out, 0); is done by out->flags = 0 */
 
 	for (; chunk != end; ++chunk) {
-		if (stop && *(char *)chunk->ptr == *stop)
+		if (stop && *chunk->data == *stop)
 			break;
 		TFW_STR_CHUNKN_ADD(out, 1);
 		out->len += chunk->len;
@@ -190,11 +190,11 @@ __str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag, int n)
 		}
 
 		l = TFW_STR_CHUNKN(str) * sizeof(TfwStr);
-		p = tfw_pool_realloc(pool, str->ptr, l,
+		p = tfw_pool_realloc(pool, str->data, l,
 				     l + n * sizeof(TfwStr));
 		if (!p)
 			return NULL;
-		str->ptr = p;
+		str->data = p;
 		TFW_STR_CHUNKN_ADD(str, n);
 	}
 	else {
@@ -202,11 +202,11 @@ __str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag, int n)
 		if (!a)
 			return NULL;
 		a[0] = *str;
-		str->ptr = a;
+		str->chunks = a;
 		__TFW_STR_CHUNKN_SET(str, n + 1);
 	}
 
-	str = (TfwStr *)str->ptr + TFW_STR_CHUNKN(str) - n;
+	str = str->chunks + TFW_STR_CHUNKN(str) - n;
 	bzero_fast(str, sizeof(TfwStr) * n);
 
 	return str;
@@ -259,22 +259,22 @@ tfw_strcpy(TfwStr *dst, const TfwStr *src)
 
 	switch (mode) {
 	case 3: /* The both are plain. */
-		memcpy_fast(dst->ptr, src->ptr, min(src->len, dst->len));
+		memcpy_fast(dst->data, src->data, min(src->len, dst->len));
 		break;
 	case 1: /* @src is compound, @dst is plain. */
 		n1 = TFW_STR_CHUNKN(src);
-		end = (TfwStr *)src->ptr + n1;
-		for (c1 = (TfwStr *)src->ptr; c1 < end; ++c1) {
-			memcpy_fast((char *)dst->ptr + o2, c1->ptr, c1->len);
+		end = src->chunks + n1;
+		for (c1 = src->chunks; c1 < end; ++c1) {
+			memcpy_fast(dst->data + o2, c1->data, c1->len);
 			o2 += c1->len;
 		}
 		BUG_ON(o2 != src->len);
 		break;
 	case 2: /* @src is plain, @dst is compound. */
-		for (c2 = (TfwStr *)dst->ptr; o1 < src->len; ++c2) {
+		for (c2 = dst->chunks; o1 < src->len; ++c2) {
 			/* Update length of the last chunk. */
 			c2->len = min(c2->len, src->len - o1);
-			memcpy_fast(c2->ptr, (char *)src->ptr + o1, c2->len);
+			memcpy_fast(c2->data, src->data + o1, c2->len);
 			++chunks;
 			o1 += c2->len;
 		}
@@ -282,12 +282,12 @@ tfw_strcpy(TfwStr *dst, const TfwStr *src)
 	case 0: /* The both are compound. */
 		n1 = TFW_STR_CHUNKN(src);
 		n2 = TFW_STR_CHUNKN(dst);
-		c1 = (TfwStr *)src->ptr;
-		c2 = (TfwStr *)dst->ptr;
+		c1 = src->chunks;
+		c2 = dst->chunks;
 		end = c1 + n1 - 1;
 		while (1) {
 			int _n = min(c1->len - o1, c2->len - o2);
-			memcpy_fast((char *)c2->ptr + o2, (char *)c1->ptr + o1,
+			memcpy_fast(c2->data + o2, c1->data + o1,
 				    _n);
 			if (c1 == end && _n == c1->len - o1) {
 				/* Adjust @dst last chunk length. */
@@ -341,14 +341,14 @@ tfw_strdup(TfwPool *pool, const TfwStr *src)
 		return NULL;
 
 	*dst = *src;
-	dst->ptr = dst + 1;
+	dst->chunks = dst + 1;
 	data = (char *)(TFW_STR_LAST(dst) + 1);
 
 	d_c = TFW_STR_CHUNK(dst, 0);
 	TFW_STR_FOR_EACH_CHUNK(s_c, src, end) {
 		*d_c = *s_c;
-		d_c->ptr = data;
-		memcpy_fast(data, s_c->ptr, s_c->len);
+		d_c->data = data;
+		memcpy_fast(data, s_c->data, s_c->len);
 		data += s_c->len;
 		++d_c;
 	}
@@ -373,7 +373,7 @@ tfw_strcpy_desc(TfwStr *dst, TfwStr *src)
 	if (unlikely(src_num != dst_num))
 		return -E2BIG;
 
-	c2 = dst_num ? dst->ptr : dst;
+	c2 = dst_num ? dst->chunks : dst;
 	TFW_STR_FOR_EACH_CHUNK(c1, src, end) {
 		*c2 = *c1;
 		++c2;
@@ -404,7 +404,7 @@ tfw_strcat(TfwPool *pool, TfwStr *dst, TfwStr *src)
 	n = 0;
 	TFW_STR_FOR_EACH_CHUNK(c, src, end) {
 		n += c->len;
-		to->ptr = c->ptr;
+		to->data = c->data;
 		to->len = c->len;
 		to->skb = c->skb;
 		++to;
@@ -444,8 +444,8 @@ __tfw_strcmp(const TfwStr *s1, const TfwStr *s2, int cs)
 	c2 = TFW_STR_CHUNK(s2, 0);
 	while (n) {
 		int cn = min(c1->len - off1, c2->len - off2);
-		int r = (*cmp)((char *)c1->ptr + off1,
-			       (char *)c2->ptr + off2, cn);
+		int r = (*cmp)(c1->data + off1,
+			       c2->data + off2, cn);
 		if (r)
 			return r;
 
@@ -541,8 +541,8 @@ __tfw_strcmpspn(const TfwStr *s1, const TfwStr *s2, int stop, int cs)
 	c2 = TFW_STR_CHUNK(s2, 0);
 	while (n) {
 		int cn = min(c1->len - off1, c2->len - off2);
-		int r = __cstricmpspn((unsigned char *)c1->ptr + off1,
-				      (unsigned char *)c2->ptr + off2,
+		int r = __cstricmpspn((unsigned char *)c1->data + off1,
+				      (unsigned char *)c2->data + off2,
 				      cn, stop, cs);
 		if (r == INT_MAX)
 			return 0;
@@ -600,12 +600,12 @@ tfw_str_eq_cstr(const TfwStr *str, const char *cstr, int cstr_len,
 			       ? tfw_cstricmp
 			       : (typeof(&strncmp))memcmp_fast;
 
-	BUG_ON(str->len && !str->ptr);
+	BUG_ON(str->len && !str->data);
 	TFW_STR_FOR_EACH_CHUNK(chunk, str, end) {
-		BUG_ON(chunk->len &&  !chunk->ptr);
+		BUG_ON(chunk->len &&  !chunk->data);
 
 		len = min(clen, (int)chunk->len);
-		if (cmp(cstr, chunk->ptr, len))
+		if (cmp(cstr, chunk->data, len))
 			return false;
 
 		/*
@@ -644,12 +644,12 @@ tfw_str_eq_cstr_pos(const TfwStr *str, const char *pos, const char *cstr,
 	BUG_ON(!pos || !cstr || !cstr_len);
 
 	TFW_STR_FOR_EACH_CHUNK(c, &tmp, end) {
-		long offset = pos - (char *)c->ptr;
+		long offset = pos - c->data;
 
 		if (offset >= 0 && (offset < c->len)) {
 			TfwStr t = *c, *v = (TfwStr *)c;
 
-			v->ptr += offset;
+			v->data += offset;
 			v->len -= offset;
 
 			r = tfw_str_eq_cstr(&tmp, cstr, cstr_len, flags);
@@ -659,7 +659,7 @@ tfw_str_eq_cstr_pos(const TfwStr *str, const char *pos, const char *cstr,
 		}
 
 		tmp.len -= c->len;
-		tmp.ptr += sizeof(TfwStr);
+		tmp.chunks++;
 
 		TFW_STR_CHUNKN_SUB(&tmp, 1);
 	}
@@ -699,12 +699,12 @@ tfw_str_eq_cstr_off(const TfwStr *str, ssize_t offset, const char *cstr,
 		if (offset >= c->len) {
 			offset -= c->len;
 			tmp.len -= c->len;
-			tmp.ptr += sizeof(TfwStr);
+			tmp.chunks++;
 			TFW_STR_CHUNKN_SUB(&tmp, 1);
 			continue;
 		}
 		t = *c;
-		c->ptr += offset;
+		c->data += offset;
 		c->len -= offset;
 
 		ret = tfw_str_eq_cstr(&tmp, cstr, cstr_len, flags);
@@ -750,7 +750,7 @@ tfw_str_to_cstr(const TfwStr *str, char *out_buf, int buf_size)
 
 	TFW_STR_FOR_EACH_CHUNK(chunk, str, end) {
 		len = min(buf_size, (int)chunk->len);
-		strncpy(pos, chunk->ptr, len);
+		strncpy(pos, chunk->data, len);
 		pos += len;
 		buf_size -= len;
 
@@ -781,11 +781,11 @@ tfw_str_next_str_val(const TfwStr *str)
 	if (!str || TFW_STR_PLAIN(str))
 		return r_str;
 
-	end =  (TfwStr*)str->ptr + TFW_STR_CHUNKN(str);
+	end =  str->chunks + TFW_STR_CHUNKN(str);
 	__TFW_STR_CHUNKN_SET(&r_str, TFW_STR_CHUNKN(str));
 	r_str.len = str->len;
 
-	for (chunk = str->ptr; chunk != end; ++chunk) {
+	for (chunk = str->chunks; chunk != end; ++chunk) {
 		if (!skip && (chunk->flags & TFW_STR_VALUE))
 			break;
 		if (!(chunk->flags & TFW_STR_VALUE))
@@ -796,7 +796,7 @@ tfw_str_next_str_val(const TfwStr *str)
 	if (unlikely(chunk == end))
 		TFW_STR_INIT(&r_str);
 	else
-		r_str.ptr = chunk;
+		r_str.chunks = chunk;
 
 	return r_str;
 }
@@ -811,9 +811,9 @@ tfw_str_crc32_calc(const TfwStr *str)
 	const TfwStr *c, *end;
 	u32 crc = 0;
 
-	BUG_ON(str->len && !str->ptr);
+	BUG_ON(str->len && !str->data);
 	TFW_STR_FOR_EACH_CHUNK(c, str, end)
-		crc = crc32(crc, c->ptr, c->len);
+		crc = crc32(crc, c->data, c->len);
 
 	return crc;
 }
@@ -832,8 +832,8 @@ tfw_str_dprint(const TfwStr *str, const char *msg)
 			dup, dup->len, dup->flags, dup->eolen);
 		TFW_STR_FOR_EACH_CHUNK(c, dup, chunk_end)
 			TFW_DBG("   len=%lu, eolen=%u ptr=%p flags=%x '%.*s'\n",
-				c->len, c->eolen, c->ptr, c->flags,
-				(int)c->len, (char *)c->ptr);
+				c->len, c->eolen, c->data, c->flags,
+				(int)c->len, c->data);
 	}
 }
 #endif

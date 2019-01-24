@@ -1504,7 +1504,7 @@ TEST(http_parser, cookie)
 		EXPECT_TRUE(TFW_STR_CHUNKN(cookie) >= kv_count);
 
 		kv_idx = 0;
-		c = cookie->ptr;
+		c = cookie->chunks;
 		end = c + TFW_STR_CHUNKN(cookie);
 		while (c < end) {
 			TfwStr *part_end = c;
@@ -1519,7 +1519,7 @@ TEST(http_parser, cookie)
 				part_end++;
 
 			if (part_end - c > 1) {
-				part.ptr = c;
+				part.chunks = c;
 				__TFW_STR_CHUNKN_SET(&part, part_end - c);
 			} else {
 				part = *c;
