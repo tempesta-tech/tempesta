@@ -203,7 +203,7 @@ tfw_http_redir_mark_prepare(RedirMarkVal *mv, char *buf, unsigned int buf_len,
 }
 
 static int
-tfw_http_sticky_send_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
+tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 {
 	unsigned long ts_be64 = cpu_to_be64(sv->ts);
 	TfwStr c_chunks[3], m_chunks[4], cookie = { 0 }, rmark = { 0 };
@@ -260,9 +260,12 @@ tfw_http_sticky_send_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 		return TFW_HTTP_SESS_FAILURE;
 	}
 
-	tfw_http_resp_fwd(resp);
-
-	return TFW_HTTP_SESS_REDIRECT_SENT;
+	/*
+	 * Don't send @resp now: cookie check take place on very early @req
+	 * processing stage, store @resp as @req->resp, the response will be
+	 * sent as soon as @req will be fully processed.
+	 */
+	return TFW_HTTP_SESS_REDIRECT_NEED;
 }
 
 static int
@@ -434,7 +437,7 @@ tfw_http_sticky_add(TfwHttpResp *resp)
 		.flags = 3 << TFW_STR_CN_SHIFT
 	};
 
-	/* See comment from tfw_http_sticky_send_redirect(). */
+	/* See comment from tfw_http_sticky_build_redirect(). */
 	bin2hex(buf, &ts_be64, sizeof(ts_be64));
 	bin2hex(&buf[sizeof(ts_be64) * 2], sess->hmac, sizeof(sess->hmac));
 
@@ -684,7 +687,7 @@ tfw_http_sticky_notfound(TfwHttpReq *req)
 	if (tfw_http_sticky_calc(req, &sv) != 0)
 		return TFW_HTTP_SESS_FAILURE;
 
-	return tfw_http_sticky_send_redirect(req, &sv, mvp);
+	return tfw_http_sticky_build_redirect(req, &sv, mvp);
 }
 
 /**
@@ -763,7 +766,7 @@ tfw_http_sticky_req_process(TfwHttpReq *req, StickyVal *sv)
 				if ((r = tfw_http_sess_check_redir_mark(req, mvp)))
 					return r;
 			}
-			return tfw_http_sticky_send_redirect(req, sv, mvp);
+			return tfw_http_sticky_build_redirect(req, sv, mvp);
 		}
 		return TFW_HTTP_SESS_SUCCESS;
 	}
