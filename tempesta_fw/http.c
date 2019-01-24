@@ -675,11 +675,8 @@ tfw_http_req_init_ss_flags(TfwSrvConn *srv_conn, TfwHttpReq *req)
 static inline void
 tfw_http_resp_init_ss_flags(TfwHttpResp *resp)
 {
-	if (test_bit(TFW_HTTP_B_CONN_CLOSE, resp->req->flags)
-	    || test_bit(TFW_HTTP_B_SUSPECTED, resp->req->flags))
-	{
+	if (test_bit(TFW_HTTP_B_CONN_CLOSE, resp->req->flags))
 		resp->msg.ss_flags |= SS_F_CONN_CLOSE;
-	}
 }
 
 /*
@@ -1957,6 +1954,18 @@ tfw_http_set_hdr_date(TfwHttpMsg *hm)
 }
 
 /**
+ * Connection is to be closed after response for the request @req is forwarded
+ * to the client. Don't process new requests from the client and update
+ * message flags for proper "Connection: " header value.
+ */
+static inline void
+tfw_http_req_set_conn_close(TfwHttpReq *req)
+{
+	TFW_CONN_TYPE(req->conn) |= Conn_Stop;
+	set_bit(TFW_HTTP_B_CONN_CLOSE, req->flags);
+}
+
+/**
  * Remove Connection header from HTTP message @msg if @conn_flg is zero,
  * and replace or set a new header value otherwise.
  *
@@ -2227,8 +2236,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 	if (test_bit(TFW_HTTP_B_CONN_CLOSE, resp->flags)
 	    && (resp->status / 100 == 4))
 	{
-		__clear_bit(TFW_HTTP_B_CONN_KA, req->flags);
-		__set_bit(TFW_HTTP_B_CONN_CLOSE, req->flags);
+		tfw_http_req_set_conn_close(req);
 		conn_flg = BIT(TFW_HTTP_B_CONN_CLOSE);
 	}
 	else
@@ -2419,12 +2427,39 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 	}
 }
 
-static inline void
-tfw_http_req_mark_error(TfwHttpReq *req, int status)
+/**
+ * Error happen, current request @req will be discarded. Connection should
+ * be closed after response for the previous request is sent.
+ *
+ * Returns true, if the connection will be automatically closed with the
+ * last response sent. Returns false, if there are no responses to forward
+ * and manual connection close action is required.
+ */
+static bool
+tfw_http_req_prev_conn_close(TfwHttpReq *req)
 {
-	TFW_CONN_TYPE(req->conn) |= Conn_Stop;
-	__set_bit(TFW_HTTP_B_SUSPECTED, req->flags);
-	tfw_http_error_resp_switch(req, status);
+	TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
+	TfwHttpReq *last_req = NULL;
+	struct list_head *prev;
+
+	spin_lock(&cli_conn->seq_qlock);
+	/*
+	 * The request may be not stored in any lists. There are several reasons
+	 * for this:
+	 * - Error happened during request parsing. Client connection is alive.
+	 * - Error happened during response processing, but the client
+	 * connection is already closed, and the request is marked as dropped.
+	 */
+	prev = (!list_empty(&req->msg.seq_list)) ? req->msg.seq_list.prev
+						 : cli_conn->seq_queue.prev;
+	if (prev != &cli_conn->seq_queue) {
+		last_req = list_entry(prev, TfwHttpReq, msg.seq_list);
+		tfw_http_req_set_conn_close(last_req);
+	}
+
+	spin_unlock(&cli_conn->seq_qlock);
+
+	return last_req;
 }
 
 static void
@@ -2435,85 +2470,135 @@ tfw_http_conn_error_log(TfwConn *conn, const char *msg)
 }
 
 /**
- * Functions define logging and response behaviour during detection of
+ * Function define logging and response behaviour during detection of
  * malformed or malicious messages. Mark client connection in special
  * manner to delay its closing until transmission of error response
  * will be finished.
+ *
+ * @req			- malicious or malformed request;
+ * @status		- response status code to use;
+ * @msg			- message to be logged;
+ * @attack		- true if the request was sent intentionally, false for
+ *			  internal errors or misconfigurations;
+ * @on_req_recv_event	- true if request is not fully parsed and the caller
+ *			  handles the connection closing on its own.
  */
 static void
-tfw_http_cli_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
-				int status, const char *msg)
+tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
+				bool attack, bool on_req_recv_event)
 {
-	if (!nolog)
-		TFW_WARN_ADDR(msg, &req->conn->peer->addr, TFW_WITH_PORT);
+	bool reply;
+	bool nolog;
+	TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
 
-	if (reply) {
-		TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
-		tfw_connection_unlink_msg(req->conn);
-		spin_lock(&cli_conn->seq_qlock);
-		list_add_tail(&req->msg.seq_list, &cli_conn->seq_queue);
-		spin_unlock(&cli_conn->seq_qlock);
-		tfw_http_req_mark_error(req, status);
+	/*
+	 * Error was happened and request should be dropped or blocked,
+	 * but other modules (e.g. sticky cookie module) may have a response
+	 * prepared for this request. A new error response is to be generated
+	 * for the request, drop any previous response paired with the request.
+	 */
+	tfw_http_conn_msg_free(req->pair);
+
+	if (attack) {
+		reply = tfw_blk_flags & TFW_BLK_ATT_REPLY;
+		nolog = tfw_blk_flags & TFW_BLK_ATT_NOLOG;
 	}
 	else {
-		tfw_http_conn_req_clean(req);
+		reply = tfw_blk_flags & TFW_BLK_ERR_REPLY;
+		nolog = tfw_blk_flags & TFW_BLK_ERR_NOLOG;
 	}
-}
 
-static void
-tfw_http_srv_error_resp_and_log(bool reply, bool nolog, TfwHttpReq *req,
-				int status, const char *msg)
-{
 	if (!nolog)
 		TFW_WARN_ADDR(msg, &req->conn->peer->addr, TFW_WITH_PORT);
+	/* The client connection is to be closed with the last resp sent. */
+	if (reply) {
+		if (on_req_recv_event) {
+			WARN_ONCE(!list_empty_careful(&req->msg.seq_list),
+				  "Request is already in seq_queue\n");
+			tfw_connection_unlink_msg(req->conn);
+			spin_lock(&cli_conn->seq_qlock);
+			list_add_tail(&req->msg.seq_list, &cli_conn->seq_queue);
+			spin_unlock(&cli_conn->seq_qlock);
+		}
+		else {
+			WARN_ONCE(list_empty_careful(&req->msg.seq_list),
+				  "Request is not in in seq_queue\n");
+		}
+		/*
+		 * If !on_req_recv_event, then the request @req may be some
+		 * random request from the seq_queue, not the last one.
+		 * If under attack:
+		 *   Send the response and discard all the following requests.
+		 * If not under attack and not on_req_recv_event:
+		 *   Prepare an error response for the request, without stopping
+		 *   the connection or discarding any following requests. This
+		 *   isn't supposed to be an attack anyway.
+		 * If not under attack and on_req_recv_event:
+		 *   Can't proceed with this client connection, show the client
+		 *   that an illegal request took place, send the response and
+		 *   close client connection.
+		 */
+		if (on_req_recv_event || attack)
+			tfw_http_req_set_conn_close(req);
+		tfw_http_error_resp_switch(req, status);
+	}
+	/*
+	 * Serve all pending requests if not under attack, close immediately
+	 * otherwise.
+	 */
+	else {
+		bool close = !on_req_recv_event;
 
-	if (reply)
-		tfw_http_req_mark_error(req, status);
-	else
+		if (!attack)
+			close &= !tfw_http_req_prev_conn_close(req);
+		if (close)
+			tfw_connection_close(req->conn, true);
 		tfw_http_conn_req_clean(req);
+	}
 }
 
 /**
- * Wrappers for calling tfw_http_cli_error_resp_and_log() and
- * tfw_http_srv_error_resp_and_log() functions in client/server
- * connection contexts depending on configuration settings:
- * sending response error messages and logging.
- *
- * NOTE: tfw_client_drop() and tfw_client_block() must be called
- * only from client connection context before a request was fully parsed.
- * Otherwise tfw_srv_client_drop() and tfw_srv_client_block() must be used
- * only from server connection context.
+ * Unintentional error happen during request parsing. Stop the client connection
+ * from receiving new requests. Caller must return TFW_BLOCK to the
+ * ss_tcp_data_ready() function for propper connection close.
  */
 static inline void
-tfw_client_drop(TfwHttpReq *req, int status, const char *msg)
+tfw_http_req_parse_drop(TfwHttpReq *req, int status, const char *msg)
 {
-	tfw_http_cli_error_resp_and_log(tfw_blk_flags & TFW_BLK_ERR_REPLY,
-					tfw_blk_flags & TFW_BLK_ERR_NOLOG,
-					req, status, msg);
+	tfw_http_cli_error_resp_and_log(req, status, msg, false, true);
 }
 
+/**
+ * Attack is detected during request parsing.
+ * Caller must return TFW_BLOCK to the ss_tcp_data_ready() function for
+ * propper connection close.
+ */
 static inline void
-tfw_client_block(TfwHttpReq *req, int status, const char *msg)
+tfw_http_req_parse_block(TfwHttpReq *req, int status, const char *msg)
 {
-	tfw_http_cli_error_resp_and_log(tfw_blk_flags & TFW_BLK_ATT_REPLY,
-					tfw_blk_flags & TFW_BLK_ATT_NOLOG,
-					req, status, msg);
+	tfw_http_cli_error_resp_and_log(req, status, msg, true, true);
 }
 
+/**
+ * Unintentional error happen during request or response processing. Caller
+ * function is not a part of ss_tcp_data_ready() function and manual connection
+ * close will be performed.
+ */
 static inline void
-tfw_srv_client_drop(TfwHttpReq *req, int status, const char *msg)
+tfw_http_req_drop(TfwHttpReq *req, int status, const char *msg)
 {
-	tfw_http_srv_error_resp_and_log(tfw_blk_flags & TFW_BLK_ERR_REPLY,
-					tfw_blk_flags & TFW_BLK_ERR_NOLOG,
-					req, status, msg);
+	tfw_http_cli_error_resp_and_log(req, status, msg, false, false);
 }
 
+/**
+ * Attack is detected during request or response processing. Caller function is
+ * not a part of ss_tcp_data_ready() function and manual connection close
+ * will be performed.
+ */
 static inline void
-tfw_srv_client_block(TfwHttpReq *req, int status, const char *msg)
+tfw_http_req_block(TfwHttpReq *req, int status, const char *msg)
 {
-	tfw_http_srv_error_resp_and_log(tfw_blk_flags &	TFW_BLK_ATT_REPLY,
-					tfw_blk_flags & TFW_BLK_ATT_NOLOG,
-					req, status, msg);
+	tfw_http_cli_error_resp_and_log(req, status, msg, true, false);
 }
 
 /**
@@ -2547,36 +2632,11 @@ tfw_http_req_cache_service(TfwHttpResp *resp)
 static void
 tfw_http_req_cache_cb(TfwHttpMsg *msg)
 {
-	int r;
 	TfwHttpReq *req = (TfwHttpReq *)msg;
 	TfwSrvConn *srv_conn = NULL;
 	LIST_HEAD(eq);
 
 	TFW_DBG2("%s: req = %p, resp = %p\n", __func__, req, req->resp);
-
-	/*
-	 * Sticky cookie module used for HTTP session identification may send
-	 * a response to the client when sticky cookie presence is enforced
-	 * and the cookie is missing from the request.
-	 *
-	 * HTTP session may be required for request scheduling, so obtain it
-	 * first. However, req->sess still may be NULL if sticky cookies are
-	 * not enabled.
-	 */
-	r = tfw_http_sess_obtain(req);
-	switch (r) {
-	case TFW_HTTP_SESS_SUCCESS:
-		break;
-	case TFW_HTTP_SESS_REDIRECT_SENT:
-		/* Response sent, nothing to do. */
-		return;
-	case TFW_HTTP_SESS_VIOLATE:
-		goto drop_503;
-	case TFW_HTTP_SESS_JS_NOT_SUPPORTED:
-		goto send_503;
-	default:
-		goto send_500;
-	}
 
 	if (req->resp) {
 		tfw_http_req_cache_service(req->resp);
@@ -2610,20 +2670,6 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 	tfw_http_req_zap_error(&eq);
 	goto conn_put;
 
-send_503:
-	/*
-	 * Requested resource can't be challenged. Don't break response-request
-	 * queue on client side by dropping the request.
-	 */
-	tfw_http_send_resp(req, 503,
-			   "request dropped: can't send JS challenge.");
-	TFW_INC_STAT_BH(clnt.msgs_filtout);
-	return;
-drop_503:
-	tfw_srv_client_drop(req, 503, "request dropped: invalid sticky cookie "
-			    "or js challenge");
-	TFW_INC_STAT_BH(clnt.msgs_filtout);
-	return;
 send_502:
 	tfw_http_send_resp(req, 502, "request dropped: processing error");
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
@@ -2828,7 +2874,7 @@ next_msg:
 	case TFW_BLOCK:
 		TFW_DBG2("Block invalid HTTP request\n");
 		TFW_INC_STAT_BH(clnt.msgs_parserr);
-		tfw_client_drop(req, 400, "failed to parse request");
+		tfw_http_req_parse_drop(req, 400, "failed to parse request");
 		return TFW_BLOCK;
 	case TFW_POSTPONE:
 		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK,
@@ -2836,8 +2882,9 @@ next_msg:
 		TFW_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
 		if (r == TFW_BLOCK) {
 			TFW_INC_STAT_BH(clnt.msgs_filtout);
-			tfw_client_block(req, 403, "postponed request has been"
-						   " filtered out");
+			tfw_http_req_parse_block(req, 403,
+						 "postponed request has been"
+						 " filtered out");
 			return TFW_BLOCK;
 		}
 		/*
@@ -2874,8 +2921,8 @@ next_msg:
 		skb = ss_skb_split(skb, parsed);
 		if (unlikely(!skb)) {
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
-			tfw_client_block(req, 500,
-					 "Can't split pipelined requests");
+			tfw_http_req_parse_block(req, 500,
+						 "Can't split pipelined requests");
 			return TFW_BLOCK;
 		}
 		off = 0;
@@ -2883,24 +2930,82 @@ next_msg:
 		skb = NULL;
 	}
 
-	/* Assign the right virtual host for current request. */
-	if ((req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block)))
-		req->location = tfw_location_match(req->vhost, &req->uri_path);
+	/*
+	 * Sticky cookie module must be used before request can reach cache.
+	 * Unauthorised clients mustn't be able to get any resource on
+	 * protected service and stress cache subsystem. The module is also
+	 * the quickest way to obtain target VHost and target backend server
+	 * connection since it allows to avoid expensive tables lookups.
+	 *
+	 * TODO: #685 Sticky cookie are to be configured per-vhost. Http_tables
+	 * used to assign target vhost can be extremely long, while the
+	 * client may use just a few cookie variants. Even if different
+	 * sticky cookies are used for each vhost, the sticky module should
+	 * be faster than tfw_http_tbl_vhost().
+	 *
+	 * TODO: #1043 sticky cookie module must assign correct vhost when it
+	 * returns TFW_HTTP_SESS_SUCCESS or TFW_HTTP_SESS_REDIRECT_NEED;
+	 */
+	switch (tfw_http_sess_obtain(req))
+	{
+	case TFW_HTTP_SESS_SUCCESS:
+		break;
+
+	case TFW_HTTP_SESS_REDIRECT_NEED:
+		/* Response is built and stored in @req->resp. */
+		break;
+
+	case TFW_HTTP_SESS_VIOLATE:
+		TFW_INC_STAT_BH(clnt.msgs_filtout);
+		tfw_http_req_parse_block(req, 503,
+			"request dropped: sticky cookie challenge was failed");
+		return TFW_BLOCK;
+
+	case TFW_HTTP_SESS_JS_NOT_SUPPORTED:
+		/*
+		 * Requested resource can't be challenged, forward all pending
+		 * responses and close the connection to allow client to recover.
+		 */
+		TFW_INC_STAT_BH(clnt.msgs_filtout);
+		tfw_http_req_parse_block(req, 503,
+			"request dropped: can't send JS challenge");
+		return TFW_BLOCK;
+
+	default:
+		TFW_INC_STAT_BH(clnt.msgs_otherr);
+		tfw_http_req_parse_block(req, 500,
+			"request dropped: internal error in Sticky module");
+		return TFW_BLOCK;
+	}
+
+	/*
+	 * Assign the right virtual host for current request if it
+	 * wasn't assigned by a sticky module. VHost is not assigned
+	 * if client doesn't support cookies or sticky cookies are
+	 * disabled.
+	 *
+	 * In the same time location may differ between requests, so the
+	 * sticky module can't fill it.
+	 */
+	if (!req->vhost)
+		req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block);
+	if (req->vhost)
+		req->location = tfw_location_match(req->vhost,
+						   &req->uri_path);
+	if (block) {
+		TFW_INC_STAT_BH(clnt.msgs_filtout);
+		tfw_http_req_parse_block(req, 403,
+			"request has been filtered out via http table");
+		return TFW_BLOCK;
+	}
 
 	r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_MSG, &data_up);
 	TFW_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
 	/* Don't accept any following requests from the peer. */
 	if (r == TFW_BLOCK) {
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		tfw_client_block(req, 403, "parsed request has been filtered"
-					   " out");
-		return TFW_BLOCK;
-	}
-
-	if (block) {
-		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		tfw_client_block(req, 403, "request has been filtered out via"
-					   " http table");
+		tfw_http_req_parse_block(req, 403,
+			"parsed request has been filtered out");
 		return TFW_BLOCK;
 	}
 
@@ -2994,11 +3099,17 @@ next_msg:
 	tfw_http_req_add_seq_queue(req);
 
 	/*
+	 * Response is already prepared for the client by sticky module.
+	 */
+	if (unlikely(req->resp)) {
+		tfw_http_resp_fwd(req->resp);
+	}
+	/*
 	 * If no virtual host has been found for current request, there
 	 * is no sense for its further processing, so we drop it, send
 	 * error response to client and move on to the next request.
 	 */
-	if (!req->vhost) {
+	else if (!req->vhost) {
 		tfw_http_send_resp(req, 404, "request dropped: cannot find"
 					     " appropriate virtual host");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
@@ -3166,7 +3277,7 @@ tfw_http_resp_gfsm(TfwHttpMsg *hmresp, TfwFsmData *data)
 error:
 	tfw_http_popreq(hmresp, false);
 	tfw_http_conn_msg_free(hmresp);
-	tfw_srv_client_block(req, 502, "response blocked: filtered out");
+	tfw_http_req_block(req, 502, "response blocked: filtered out");
 	TFW_INC_STAT_BH(serv.msgs_filtout);
 	return r;
 }
@@ -3485,11 +3596,11 @@ bad_msg:
 	tfw_http_popreq(hmresp, false);
 	tfw_http_conn_msg_free(hmresp);
 	if (filtout)
-		tfw_srv_client_block(bad_req, 502,
-				     "response blocked: filtered out");
+		tfw_http_req_block(bad_req, 502,
+				   "response blocked: filtered out");
 	else
-		tfw_srv_client_drop(bad_req, 502,
-				    "response dropped: processing error");
+		tfw_http_req_drop(bad_req, 502,
+				  "response dropped: processing error");
 	return TFW_BLOCK;
 }
 
