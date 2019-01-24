@@ -241,7 +241,7 @@ __skb_data_address(struct sk_buff *skb)
 }
 
 /*
- * Set @it->ptr and @it->skb to proper values. The data should
+ * Set @it->data and @it->skb to proper values. The data should
  * be located in the paged fragment @i of @skb. If the paged
  * fragment is not there, then find the next data location.
  */
@@ -250,11 +250,11 @@ __it_next_data(struct sk_buff *skb, int i, TfwStr *it)
 {
 	struct skb_shared_info *si = skb_shinfo(skb);
 	if (i < si->nr_frags) {
-		it->ptr = skb_frag_address(&si->frags[i]);
+		it->data = skb_frag_address(&si->frags[i]);
 		it->skb = skb;
 	} else {
 		it->skb = skb->next;
-		it->ptr = __skb_data_address(it->skb);
+		it->data = __skb_data_address(it->skb);
 	}
 }
 
@@ -407,9 +407,9 @@ __new_pgfrag(struct sk_buff *skb_head, struct sk_buff *skb, int size,
  * if it's enough to hold @n bytes. Otherwise, allocate new linear data.
  *
  * @return 0 on success, -errno on failure.
- * @return pointer to the room for new data in @it->ptr if making room.
- * @return pointer to data right after the deleted fragment in @it->ptr.
- * @return pointer to SKB with data at @it->ptr in @it->skb.
+ * @return pointer to the room for new data in @it->data if making room.
+ * @return pointer to data right after the deleted fragment in @it->data.
+ * @return pointer to SKB with data at @it->data in @it->skb.
  */
 static int
 __split_linear_data(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
@@ -495,7 +495,7 @@ __split_linear_data(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	 * Get the SKB and the address for data. It's either
 	 * the area for new data, or data after the deleted data.
 	 */
-	it->ptr = skb_frag_address(&skb_shinfo(skb)->frags[0]);
+	it->data = skb_frag_address(&skb_shinfo(skb)->frags[0]);
 	it->skb = skb;
 
 	return 0;
@@ -514,8 +514,8 @@ __split_linear_data(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
  * can be zero, but it can not be equal to the size of fragment @i.
  *
  * @return 0 on success, -errno on failure.
- * @return pointer to the room for new data in @it->ptr.
- * @return pointer to SKB with data at @it->ptr in @it->skb.
+ * @return pointer to the room for new data in @it->data.
+ * @return pointer to SKB with data at @it->data in @it->skb.
  */
 static int
 __split_pgfrag_add(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off,
@@ -542,7 +542,7 @@ __split_pgfrag_add(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off
 
 	/* If @off is zero, the job is done in __new_pgfrag(). */
 	if (!off) {
-		it->ptr = skb_frag_address(frag);
+		it->data = skb_frag_address(frag);
 		it->skb = skb;
 		return 0;
 	}
@@ -588,7 +588,7 @@ __split_pgfrag_add(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off
 		frag_dst = &skb_shinfo(skb_new)->frags[0];
 		skb = skb_new;
 	}
-	it->ptr = skb_frag_address(frag_dst);
+	it->data = skb_frag_address(frag_dst);
 	it->skb = skb;
 
 	return 0;
@@ -598,8 +598,8 @@ __split_pgfrag_add(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off
  * Delete @len (the value is positive now) bytes from skb frag @i.
  *
  * @return 0 on success, -errno on failure.
- * @return pointer to data after the deleted data in @it->ptr.
- * @return pointer to SKB with data at @it->ptr in @it->skb.
+ * @return pointer to data after the deleted data in @it->data.
+ * @return pointer to SKB with data at @it->data in @it->skb.
  */
 static int
 __split_pgfrag_del(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off,
@@ -635,7 +635,7 @@ __split_pgfrag_del(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off
 		frag->page_offset += len;
 		skb_frag_size_sub(frag, len);
 		ss_skb_adjust_data_len(skb, -len);
-		it->ptr = skb_frag_address(frag);
+		it->data = skb_frag_address(frag);
 		it->skb = skb;
 		return 0;
 	}
@@ -682,7 +682,7 @@ __split_pgfrag_del(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off
 	ss_skb_adjust_data_len(skb, -len);
 
 	/* Get the SKB and the address for data after the deleted data. */
-	it->ptr = skb_frag_address(&skb_shinfo(skb_dst)->frags[i]);
+	it->data = skb_frag_address(&skb_shinfo(skb_dst)->frags[i]);
 	it->skb = skb_dst;
 
 	return 0;
@@ -702,7 +702,7 @@ __split_try_tailroom(struct sk_buff *skb, int len, TfwStr *it)
 {
 	if (len > skb_tailroom_locked(skb))
 		return -ENOSPC;
-	it->ptr = ss_skb_put(skb, len);
+	it->data = ss_skb_put(skb, len);
 	it->skb = skb;
 	return 0;
 }
@@ -729,10 +729,10 @@ __skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 
 	/*
 	 * Use @it to hold the return values from __split_pgfrag()
-	 * and __split_linear_data(). @it->ptr and @it->skb are set
-	 * to actual values. @it->ptr holds the address either of
+	 * and __split_linear_data(). @it->data and @it->skb are set
+	 * to actual values. @it->data holds the address either of
 	 * data after the deleted data, or of the area for new data.
-	 * @it->skb is the SKB where @it->ptr address is located.
+	 * @it->skb is the SKB where @it->data address is located.
 	 *
 	 * Determine where the split starts within the SKB, then do
 	 * the job using the right function.
@@ -800,13 +800,13 @@ done:
 	TFW_DBG3("[%d]: %s: out: res [%p], skb [%p]: head [%p] data [%p]"
 		 " tail [%p] end [%p] len [%u] data_len [%u]"
 		 " truesize [%u] nr_frags [%u]\n",
-		 smp_processor_id(), __func__, it->ptr, skb, skb->head,
+		 smp_processor_id(), __func__, it->data, skb, skb->head,
 		 skb->data, skb_tail_pointer(skb), skb_end_pointer(skb),
 		 skb->len, skb->data_len, skb->truesize, si->nr_frags);
 
 	if (ret < 0)
 		return ret;
-	if ((it->ptr == NULL) || (it->skb == NULL))
+	if ((it->data == NULL) || (it->skb == NULL))
 		return -EFAULT;
 	it->len = max(0, len);
 
@@ -960,7 +960,7 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *str, int skip,
 			continue;
 		}
 		bzero_fast(&it, sizeof(TfwStr));
-		r = skb_fragment(skb_head, c->skb, (char *)c->ptr + skip,
+		r = skb_fragment(skb_head, c->skb, c->data + skip,
 				 skip - c->len, &it);
 		if (r < 0)
 			return r;
@@ -968,12 +968,12 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *str, int skip,
 		skip = 0;
 	}
 
-	BUG_ON(it.ptr == NULL);
+	BUG_ON(it.data == NULL);
 	BUG_ON(it.skb == NULL);
 
 	/* Cut off the tail. */
 	while (tail) {
-		void *t_ptr = it.ptr;
+		void *t_ptr = it.data;
 		struct sk_buff *t_skb = it.skb;
 		bzero_fast(&it, sizeof(TfwStr));
 		r = skb_fragment(skb_head, t_skb, t_ptr, -tail, &it);

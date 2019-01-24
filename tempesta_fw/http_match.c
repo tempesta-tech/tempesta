@@ -243,16 +243,16 @@ match_hdr_raw(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 			if (!chunk) {
 				return p == NULL;
 			}
-			c = chunk->ptr;
-			cend = chunk->ptr + chunk->len;
+			c = chunk->data;
+			cend = chunk->data + chunk->len;
 
 #define _TRY_NEXT_CHUNK(ok_code, err_code)		\
 	if (unlikely(c == cend))	{		\
 		++cnum;					\
 		chunk = TFW_STR_CHUNK(dup, cnum); 	\
 		if (chunk) {				\
-			c = chunk->ptr;			\
-			cend = chunk->ptr + chunk->len; \
+			c = chunk->data;		\
+			cend = chunk->data + chunk->len;\
 			ok_code;			\
 		} else {				\
 			err_code;			\
@@ -683,9 +683,9 @@ tfw_http_verify_hdr_field(tfw_http_match_fld_t field, const char **hdr_name,
 	} else if (h_name) {
 		size_t h_len = strlen(h_name);
 		const TfwStr tmp_hdr = {
-			.ptr = (TfwStr []){
-				{ .ptr = (void *)h_name, .len = h_len },
-				{ .ptr = S_DLM,		 .len = SLEN(S_DLM) }
+			.chunks = (TfwStr []){
+				{ .data = (void *)h_name,	.len = h_len },
+				{ .data = S_DLM,		.len = SLEN(S_DLM) }
 			},
 			.len = h_len + SLEN(S_DLM),
 			.eolen = 0,

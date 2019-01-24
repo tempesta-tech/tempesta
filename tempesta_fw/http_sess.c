@@ -191,10 +191,10 @@ tfw_http_redir_mark_prepare(RedirMarkVal *mv, char *buf, unsigned int buf_len,
 	chunks[0] = s_sl;
 	chunks[1] = tfw_cfg_sticky.name;
 	chunks[2] = s_eq;
-	chunks[3].ptr = buf;
+	chunks[3].data = buf;
 	chunks[3].len = buf_len;
 
-	rmark->ptr = chunks;
+	rmark->chunks = chunks;
 	rmark->len = chunks[0].len;
 	rmark->len += chunks[1].len;
 	rmark->len += chunks[2].len;
@@ -246,10 +246,10 @@ tfw_http_sticky_send_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 	bzero_fast(c_chunks, sizeof(c_chunks));
 	c_chunks[0] = tfw_cfg_sticky.name;
 	c_chunks[1] = s_eq;
-	c_chunks[2].ptr = c_buf;
+	c_chunks[2].data = c_buf;
 	c_chunks[2].len = sizeof(*sv) * 2;
 
-	cookie.ptr = c_chunks;
+	cookie.chunks = c_chunks;
 	cookie.len = c_chunks[0].len + c_chunks[1].len + c_chunks[2].len;
 	__TFW_STR_CHUNKN_SET(&cookie, 3);
 
@@ -268,7 +268,7 @@ tfw_http_sticky_send_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 static int
 search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 {
-	const char *const cstr = tfw_cfg_sticky.name_eq.ptr;
+	const char *const cstr = tfw_cfg_sticky.name_eq.data;
 	const unsigned long clen = tfw_cfg_sticky.name_eq.len;
 	TfwStr *chunk, *end;
 	TfwStr tmp = { .flags = 0, };
@@ -277,8 +277,8 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 	BUG_ON(!TFW_STR_PLAIN(&tfw_cfg_sticky.name_eq));
 
 	/* Search cookie name. */
-	end = (TfwStr*)cookie->ptr + TFW_STR_CHUNKN(cookie);
-	for (chunk = cookie->ptr; chunk != end; ++chunk, --n) {
+	end = cookie->chunks + TFW_STR_CHUNKN(cookie);
+	for (chunk = cookie->chunks; chunk != end; ++chunk, --n) {
 		if (!(chunk->flags & TFW_STR_NAME))
 			continue;
 		/*
@@ -286,7 +286,7 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 		 * chunk. The total string length is not used here, so it
 		 * is not set.
 		 */
-		tmp.ptr = (void *)chunk;
+		tmp.chunks = chunk;
 		__TFW_STR_CHUNKN_SET(&tmp, n);
 		if (tfw_str_eq_cstr(&tmp, cstr, clen, TFW_STR_EQ_PREFIX))
 			break;
@@ -391,7 +391,7 @@ __sticky_calc(TfwHttpReq *req, StickyVal *sv)
 		return r;
 	if (ua_value.len) {
 		TFW_STR_FOR_EACH_CHUNK(c, &ua_value, end) {
-			r = crypto_shash_update(shash_desc, c->ptr, c->len);
+			r = crypto_shash_update(shash_desc, c->data, c->len);
 			if (r)
 				return r;
 		}
@@ -423,11 +423,11 @@ tfw_http_sticky_add(TfwHttpResp *resp)
 	unsigned long ts_be64 = cpu_to_be64(sess->ts);
 	char buf[len];
 	TfwStr set_cookie = {
-		.ptr = (TfwStr []) {
-			{ .ptr = S_F_SET_COOKIE, .len = SLEN(S_F_SET_COOKIE) },
-			{ .ptr = tfw_cfg_sticky.name_eq.ptr,
+		.chunks = (TfwStr []) {
+			{ .data = S_F_SET_COOKIE, .len = SLEN(S_F_SET_COOKIE) },
+			{ .data = tfw_cfg_sticky.name_eq.data,
 			  .len = tfw_cfg_sticky.name_eq.len },
-			{ .ptr = buf, .len = len },
+			{ .data = buf, .len = len },
 		},
 		.len = SLEN(S_F_SET_COOKIE) + tfw_cfg_sticky.name_eq.len + len,
 		.eolen = 2,
@@ -487,8 +487,8 @@ tfw_http_redir_mark_get(TfwHttpReq *req, TfwStr *out_val)
 		return 0;
 
 	/* Find the value chunk. */
-	end = (TfwStr*)mark->ptr + TFW_STR_CHUNKN(mark);
-	for (c = mark->ptr; c != end; ++c)
+	end = mark->chunks + TFW_STR_CHUNKN(mark);
+	for (c = mark->chunks; c != end; ++c)
 		if (c->flags & TFW_STR_VALUE)
 			break;
 
@@ -520,9 +520,9 @@ tfw_http_redir_mark_get(TfwHttpReq *req, TfwStr *out_val)
 	if (c >= end)							\
 		goto end_##f;						\
 	if (!tr)							\
-		tr = c->ptr;						\
+		tr = c->data;						\
 	for (;;) {							\
-		for ( ; tr < (unsigned char *)c->ptr + c->len; ++tr) {	\
+		for ( ; tr < (unsigned char *)c->data + c->len; ++tr) {	\
 			if (count++ == sizeof((obj)->f) * 2)		\
 				goto end_##f;				\
 			(obj)->f = ((obj)->f << 4) + hex_to_bin(*tr);	\
@@ -530,7 +530,7 @@ tfw_http_redir_mark_get(TfwHttpReq *req, TfwStr *out_val)
 		++c;							\
 		if (c >= end)						\
 			break;						\
-		tr = c->ptr;						\
+		tr = c->data;						\
 	}								\
 end_##f:								\
 	;								\
@@ -544,7 +544,7 @@ end_##f:								\
 	if (c >= end)							\
 		goto end;						\
 	for (;;) {							\
-		for ( ; tr < (unsigned char *)c->ptr + c->len; ++tr) {	\
+		for ( ; tr < (unsigned char *)c->data + c->len; ++tr) {	\
 			b = hi ? hex_asc_hi((hmac)[i])			\
 			       : hex_asc_lo((hmac)[i]);			\
 			if (b != *tr) {					\
@@ -564,7 +564,7 @@ end_##f:								\
 		++c;							\
 		if (c >= end)						\
 			break;						\
-		tr = c->ptr;						\
+		tr = c->data;						\
 	}								\
 	BUG_ON(i != STICKY_KEY_MAXLEN);					\
 end:									\
@@ -585,10 +585,10 @@ tfw_http_redir_mark_verify(TfwHttpReq *req, TfwStr *mark_val, RedirMarkVal *mv)
 		TFW_STR_PLAIN(mark_val) ? "" : ", starts with",
 		TFW_STR_PLAIN(mark_val) ?
 			(int)mark_val->len :
-			(int)((TfwStr*)mark_val->ptr)->len,
+			(int)mark_val->chunks->len,
 		TFW_STR_PLAIN(mark_val) ?
-			(char*)mark_val->ptr :
-			(char*)((TfwStr*)mark_val->ptr)->ptr);
+			mark_val->data :
+			mark_val->chunks->data);
 
 	if (mark_val->len != sizeof(RedirMarkVal) * 2) {
 		sess_warn("bad length of redirection mark", addr,
@@ -702,10 +702,10 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 		TFW_STR_PLAIN(value) ? "" : ", starts with",
 		TFW_STR_PLAIN(value) ?
 			(int)value->len :
-			(int)((TfwStr*)value->ptr)->len,
+			(int)value->chunks->len,
 		TFW_STR_PLAIN(value) ?
-			(char*)value->ptr :
-			(char*)((TfwStr*)value->ptr)->ptr);
+			value->data :
+			value->chunks->data);
 
 	if (value->len != sizeof(StickyVal) * 2) {
 		sess_warn("bad sticky cookie length", addr, ": %lu(%lu)\n",
@@ -1175,9 +1175,9 @@ tfw_cfgop_sticky(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	len = strlen(name_val);
 	if (len == 0 || len > STICKY_NAME_MAXLEN)
 		return -EINVAL;
-	memcpy(tfw_cfg_sticky.name.ptr, name_val, len);
+	memcpy(tfw_cfg_sticky.name.data, name_val, len);
 	tfw_cfg_sticky.name.len = len;
-	((char*)tfw_cfg_sticky.name_eq.ptr)[len] = '=';
+	tfw_cfg_sticky.name_eq.data[len] = '=';
 	tfw_cfg_sticky.name_eq.len = len + 1;
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
@@ -1217,7 +1217,7 @@ tfw_cfgop_cleanup_sticky(TfwCfgSpec *cs)
 		hlist_for_each_entry_safe(sess, tmp, &hb->list, hentry)
 			tfw_http_sess_remove(sess);
 	}
-	memset(tfw_cfg_sticky.name.ptr, 0, STICKY_NAME_MAXLEN + 1);
+	memset(tfw_cfg_sticky.name.data, 0, STICKY_NAME_MAXLEN + 1);
 	tfw_cfg_sticky.name.len = tfw_cfg_sticky.name_eq.len = 0;
 	tfw_cfg_sticky.enforce = 0;
 	tfw_cfg_sticky.max_misses = 0;
@@ -1341,7 +1341,7 @@ tfw_cfgop_jsch_set_body(TfwCfgSpec *cs, const char *script)
 		return -ENOMEM;
 	}
 	tfw_cfg_js_ch->body.len = sz;
-	tfw_cfg_js_ch->body.ptr = body_data;
+	tfw_cfg_js_ch->body.data = body_data;
 
 	return 0;
 }
@@ -1411,8 +1411,8 @@ tfw_cfgop_cleanup_js_challenge(TfwCfgSpec *cs)
 	if (!tfw_cfg_js_ch)
 		return;
 
-	if (tfw_cfg_js_ch->body.ptr)
-		free_pages((unsigned long)tfw_cfg_js_ch->body.ptr,
+	if (tfw_cfg_js_ch->body.data)
+		free_pages((unsigned long)tfw_cfg_js_ch->body.data,
 			   get_order(tfw_cfg_js_ch->body.len));
 	kfree(tfw_cfg_js_ch);
 	tfw_cfg_js_ch = NULL;
@@ -1504,7 +1504,7 @@ tfw_http_sess_init(void)
 	if ((ptr = kzalloc(STICKY_NAME_MAXLEN + 1, GFP_KERNEL)) == NULL)
 		return -ENOMEM;
 
-	tfw_cfg_sticky.name.ptr = tfw_cfg_sticky.name_eq.ptr = ptr;
+	tfw_cfg_sticky.name.data = tfw_cfg_sticky.name_eq.data = ptr;
 	tfw_cfg_sticky.name.len = tfw_cfg_sticky.name_eq.len = 0;
 
 	tfw_sticky_shash = crypto_alloc_shash("hmac(sha1)", 0, 0);
@@ -1533,7 +1533,7 @@ tfw_http_sess_init(void)
 err_shash:
 	crypto_free_shash(tfw_sticky_shash);
 err:
-	kfree(tfw_cfg_sticky.name.ptr);
+	kfree(tfw_cfg_sticky.name.data);
 	return ret;
 }
 
@@ -1542,7 +1542,7 @@ tfw_http_sess_exit(void)
 {
 	tfw_mod_unregister(&tfw_http_sess_mod);
 	kmem_cache_destroy(sess_cache);
-	kfree(tfw_cfg_sticky.name.ptr);
+	kfree(tfw_cfg_sticky.name.data);
 	memset(&tfw_cfg_sticky, 0, sizeof(tfw_cfg_sticky));
 	crypto_free_shash(tfw_sticky_shash);
 }

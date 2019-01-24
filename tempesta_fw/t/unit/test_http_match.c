@@ -151,7 +151,7 @@ test_chain_match(void)
 static void
 set_tfw_str(TfwStr *str, const char *cstr)
 {
-	str->ptr = (void *)cstr;
+	str->data = (void *)cstr;
 	str->len = strlen(cstr);
 }
 

@@ -47,7 +47,7 @@ static const int tfw_cache_spec_headers_304[] = {
 	[TFW_HTTP_HDR_ETAG] = 1,
 };
 static const TfwStr tfw_cache_raw_headers_304[] = {
-#define TfwStr_string(v)	{ (v), NULL, sizeof(v) - 1, 0 }
+#define TfwStr_string(v)	{ .data = (v), NULL, sizeof(v) - 1, 0 }
 	TfwStr_string("cache-control:"),
 	TfwStr_string("content-location:"),
 	TfwStr_string("date:"),
@@ -179,7 +179,7 @@ static struct task_struct *cache_mgr_thr;
 #endif
 static DEFINE_PER_CPU(TfwWorkTasklet, cache_wq);
 
-static TfwStr g_crlf = { .ptr = S_CRLF, .len = SLEN(S_CRLF) };
+static TfwStr g_crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
 
 /* Iterate over request URI and Host header to process request key. */
 #define TFW_CACHE_REQ_KEYITER(c, req, u_end, h_start, h_end)		\
@@ -187,16 +187,16 @@ static TfwStr g_crlf = { .ptr = S_CRLF, .len = SLEN(S_CRLF) };
 		c = &req->uri_path;					\
 		u_end = &req->uri_path + 1;				\
 	} else {							\
-		c = req->uri_path.ptr;					\
-		u_end = (TfwStr *)req->uri_path.ptr			\
+		c = req->uri_path.chunks;				\
+		u_end = req->uri_path.chunks				\
 			+ TFW_STR_CHUNKN(&req->uri_path);		\
 	}								\
 	if (TFW_STR_PLAIN(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST])) {	\
 		h_start = req->h_tbl->tbl + TFW_HTTP_HDR_HOST;		\
 		h_end = req->h_tbl->tbl + TFW_HTTP_HDR_HOST + 1;	\
 	} else {							\
-		h_start = req->h_tbl->tbl[TFW_HTTP_HDR_HOST].ptr;	\
-		h_end = (TfwStr *)req->h_tbl->tbl[TFW_HTTP_HDR_HOST].ptr \
+		h_start = req->h_tbl->tbl[TFW_HTTP_HDR_HOST].chunks;	\
+		h_end = req->h_tbl->tbl[TFW_HTTP_HDR_HOST].chunks 	\
 			+ TFW_STR_CHUNKN(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST]);\
 	}								\
 	for ( ; c != h_end; ++c, c = (c == u_end) ? h_start : c)
@@ -544,7 +544,7 @@ tfw_cache_write_field(TDB *db, TdbVRec **trec, TfwHttpResp *resp,
 	TfwStr c = { 0 };
 
 	while (1)  {
-		c.ptr = *data;
+		c.data = *data;
 		c.len = min(tr->data + tr->len - *data,
 			    (long)(len - copied));
 		r = hdr
@@ -607,7 +607,7 @@ tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwStr *hdr,
 	}
 
 	if (hdr) {
-		hdr->ptr = dups;
+		hdr->chunks = dups;
 		__TFW_STR_CHUNKN_SET(hdr, dn);
 		hdr->flags |= TFW_STR_DUPLICATE;
 	}
@@ -755,8 +755,7 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 this_chunk:
 		n = min(c->len - c_off, (unsigned long)trec->len - t_off);
 		/* Cache key is stored in lower case. */
-		if (tfw_cstricmp_2lc((char *)c->ptr + c_off,
-				     trec->data + t_off, n))
+		if (tfw_cstricmp_2lc(c->data + c_off, trec->data + t_off, n))
 			return false;
 		c_off = (n == c->len - c_off) ? 0 : c_off + n;
 		if (n == trec->len - t_off) {
@@ -876,7 +875,7 @@ __tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len,
 			 (*trec)->chunk_next, *p, tot_len, room, copied);
 
 		room = min((unsigned long)room, src->len - copied);
-		cpy(*p, (char *)src->ptr + copied, room);
+		cpy(*p, src->data + copied, room);
 		*p += room;
 		copied += room;
 	}
@@ -1052,7 +1051,7 @@ __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
 		len += c->len;
 
 	/* Create TfWStr that contains only entity-tag value. */
-	ce->etag.ptr = e_p;
+	ce->etag.data = e_p;
 	ce->etag.flags = TFW_STR_CHUNK(&etag_val, 0)->flags;
 	ce->etag.len = min(len, (size_t)(h_trec->len -
 					 (e_p - h_trec->data)));
@@ -1064,7 +1063,7 @@ __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
 		c = tfw_str_add_compound(resp->pool, &ce->etag);
 		if (!c)
 			return -ENOMEM;
-		c->ptr = e_p;
+		c->data = e_p;
 		c->len = min(len, (size_t)(h_trec->len -
 					   (e_p - h_trec->data)));
 		len -= c->len;
@@ -1077,9 +1076,9 @@ __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
 					    len);
 		if (!curr_p)
 			return -ENOMEM;
-		memcpy_fast(curr_p, ce->etag.ptr, len);
-		ce->etag.ptr = curr_p;
-		/* Old ce->etag.ptr will be destroyed with resp. */
+		memcpy_fast(curr_p, ce->etag.data, len);
+		ce->etag.data = curr_p;
+		/* Old ce->etag.data will be destroyed with resp. */
 	}
 
 	return 0;
@@ -1113,7 +1112,7 @@ __save_hdr_304_off(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *hdr, long off)
 
 	match = tfw_http_msg_find_hdr(hdr, tfw_cache_raw_headers_304);
 	if (match) {
-		unsigned char sc = *(unsigned char *)match->ptr;
+		unsigned char sc = *(unsigned char *)match->data;
 
 		/* RFC 7234 4.1: Don't send Last-Modified if ETag is present. */
 		 if ((sc == 'l')
