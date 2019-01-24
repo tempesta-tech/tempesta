@@ -34,20 +34,22 @@
 int
 tfw_msg_write(TfwMsgIter *it, const TfwStr *data)
 {
-	char *p;
 	const TfwStr *c, *end;
-	skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
-	unsigned int c_off = 0, f_size, c_size, f_room, n_copy;
 
 	BUG_ON(TFW_STR_DUP(data));
+	if (WARN_ON_ONCE(it->frag >= skb_shinfo(it->skb)->nr_frags))
+		return -E2BIG;
+
 	TFW_STR_FOR_EACH_CHUNK(c, data, end) {
+		char *p;
+		unsigned int c_off = 0, c_size, f_room, n_copy;
 this_chunk:
-		if (!frag)
-			return -E2BIG;
 
 		c_size = c->len - c_off;
 		if (it->frag >= 0) {
-			frag = &skb_shinfo(it->skb)->frags[it->frag];
+			unsigned int f_size;
+			skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
+
 			f_size = skb_frag_size(frag);
 			f_room = PAGE_SIZE - frag->page_offset - f_size;
 			p = (char *)skb_frag_address(frag) + f_size;
@@ -62,24 +64,25 @@ this_chunk:
 
 		memcpy_fast(p, c->data + c_off, n_copy);
 
-		if (c_size < f_room) {
+		/*
+		 * The chunk occupied all the spare space in the SKB fragment,
+		 * switch to the next fragment.
+		 */
+		if (c_size >= f_room) {
+			skb_frag_t *frag = ss_skb_frag_next(&it->skb,
+							    it->skb_head,
+							    &it->frag);
+			if (unlikely(!frag)
+			    && ((c_size != f_room) || (c + 1 < end)))
+			{
+				return -E2BIG;
+			}
 			/*
-			 * The chunk fits in the SKB fragment with room
-			 * to spare. Stay in the same SKB fragment, switch
-			 * to next chunk of the string.
+			 * Not all data from the chunk has been copied,
+			 * stay in the current chunk and copy the rest to the
+			 * next fragment.
 			 */
-			c_off = 0;
-		} else {
-			frag = ss_skb_frag_next(&it->skb, it->skb_head,
-						&it->frag);
-			/*
-			 * If all data from the chunk has been copied,
-			 * then switch to the next chunk. Otherwise,
-			 * stay in the current chunk.
-			 */
-			if (c_size == f_room) {
-				c_off = 0;
-			} else {
+			if (c_size != f_room) {
 				c_off += n_copy;
 				goto this_chunk;
 			}
