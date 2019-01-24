@@ -4,7 +4,7 @@
  * TLS server-side finite state machine.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
@@ -405,7 +405,7 @@ ttls_check_key_curve(ttls_pk_context *pk, const ttls_ecp_curve_info **curves)
  * @return 0 on success and -1 on failure.
  */
 static int
-ttls_pick_cert(TlsCtx *tls, const ttls_ciphersuite_t *ci)
+ttls_pick_cert(TlsCtx *tls, const TlsCiphersuite *ci)
 {
 	ttls_key_cert *cur, *list;
 	ttls_pk_type_t pk_alg = ttls_get_ciphersuite_sig_pk_alg(ci);
@@ -473,9 +473,9 @@ ttls_pick_cert(TlsCtx *tls, const ttls_ciphersuite_t *ci)
  * Sets @ci only if the suite matches.
  */
 static int
-ttls_ciphersuite_match(TlsCtx *tls, int suite_id, const ttls_ciphersuite_t **ci)
+ttls_ciphersuite_match(TlsCtx *tls, int suite_id, const TlsCiphersuite **ci)
 {
-	const ttls_ciphersuite_t *suite_info;
+	const TlsCiphersuite *suite_info;
 	ttls_pk_type_t sig_type;
 
 	suite_info = ttls_ciphersuite_from_id(suite_id);
@@ -534,7 +534,7 @@ ttls_choose_ciphersuite(TlsCtx *tls, const unsigned char *csp)
 	unsigned short ciph_len = ntohs(*(short *)csp);
 	int r, i, got_common_suite = 0;
 	const int *ciphersuites = tls->conf->ciphersuite_list[tls->minor];
-	const ttls_ciphersuite_t *ci = NULL;
+	const TlsCiphersuite *ci = NULL;
 	const unsigned char *cs;
 
 	for (i = 0; ciphersuites[i] != 0; i++)
@@ -1038,11 +1038,6 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 	 */
 	r = ttls_choose_ciphersuite(tls, &tls->hs->tmp[TTLS_HS_TMP_STORE_SZ]);
 
-	/*
-	 * This is, after ttls_choose_ciphersuite() call, the earliest time
-	 * when we know which hash function to use and now we can start to
-	 * compute the handshake session checksum.
-	 */
 	if (!r)
 		ttls_update_checksum(tls, buf - hh_len, p - buf + hh_len);
 
@@ -1296,7 +1291,7 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 {
 	int r;
 	size_t len, n = 0, dig_signed_len = 0;
-	const ttls_ciphersuite_t *ci = tls->xfrm.ciphersuite_info;
+	const TlsCiphersuite *ci = tls->xfrm.ciphersuite_info;
 	TlsIOCtx *io = &tls->io_out;
 	unsigned char *dig_signed, *p, *hdr = *in_buf;
 
@@ -1785,7 +1780,7 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 			       size_t hh_len, unsigned int *read)
 {
 	int r;
-	const ttls_ciphersuite_t *ci = tls->xfrm.ciphersuite_info;
+	const TlsCiphersuite *ci = tls->xfrm.ciphersuite_info;
 	unsigned char *p, *end;
 	TlsIOCtx *io = &tls->io_in;
 
@@ -2108,7 +2103,7 @@ ttls_handshake_server_hello(TlsCtx *tls)
 		T_FSM_JMP(TTLS_SERVER_HELLO_DONE);
 	}
 	T_FSM_STATE(TTLS_SERVER_HELLO_DONE) {
-		const ttls_ciphersuite_t *ci = tls->xfrm.ciphersuite_info;
+		const TlsCiphersuite *ci = tls->xfrm.ciphersuite_info;
 
 		if ((r = ttls_write_server_hello_done(tls, &sgt, &p)))
 			return r;
@@ -2258,7 +2253,7 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 		return T_OK;
 	}
 	T_FSM_STATE(TTLS_CLIENT_KEY_EXCHANGE) {
-		const ttls_ciphersuite_t *ci = tls->xfrm.ciphersuite_info;
+		const TlsCiphersuite *ci = tls->xfrm.ciphersuite_info;
 
 		r = ttls_parse_client_key_exchange(tls, buf, len, hh_len, read);
 		if (r)
