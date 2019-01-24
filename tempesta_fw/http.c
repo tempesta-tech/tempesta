@@ -2429,7 +2429,7 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 
 /**
  * Error happen, current request @req will be discarded. Connection should
- * be closed after response for the previous request.
+ * be closed after response for the previous request is sent.
  *
  * Returns true, if the connection will be automatically closed with the
  * last response sent. Returns false, if there are no responses to forward
@@ -2443,7 +2443,13 @@ tfw_http_req_prev_conn_close(TfwHttpReq *req)
 	struct list_head *prev;
 
 	spin_lock(&cli_conn->seq_qlock);
-
+	/*
+	 * The request may be not stored in any lists. There are several reasons
+	 * for this:
+	 * - Error happened during request parsing. Client connection is alive.
+	 * - Error happened during response processing, but the client
+	 * connection is already closed, and the request is marked as dropped.
+	 */
 	prev = (!list_empty(&req->msg.seq_list)) ? req->msg.seq_list.prev
 						 : cli_conn->seq_queue.prev;
 	if (prev != &cli_conn->seq_queue) {
@@ -2489,7 +2495,7 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 	 * Error was happened and request should be dropped or blocked,
 	 * but other modules (e.g. sticky cookie module) may have a response
 	 * prepared for this request. A new error response is to be generated
-	 * for the request, drop any previous request paired with the request.
+	 * for the request, drop any previous response paired with the request.
 	 */
 	tfw_http_conn_msg_free(req->pair);
 
@@ -2519,7 +2525,7 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 				  "Request is not in in seq_queue\n");
 		}
 		/*
-		 * If !on_req_recv_event, then the request @req - some
+		 * If !on_req_recv_event, then the request @req may be some
 		 * random request from the seq_queue, not the last one.
 		 * If under attack:
 		 *   Send the response and discard all the following requests.
@@ -2968,8 +2974,7 @@ next_msg:
 	default:
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 		tfw_http_req_parse_block(req, 500,
-			"request dropped: internal error in Sticky "
-			"module");
+			"request dropped: internal error in Sticky module");
 		return TFW_BLOCK;
 	}
 
