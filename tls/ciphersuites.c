@@ -76,7 +76,7 @@ static const int ciphersuite_preference[] = {
 	0
 };
 
-static const ttls_ciphersuite_t ciphersuite_definitions[] =
+static const TlsCiphersuite ciphersuite_definitions[] =
 {
 	{ TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 	  "TLS-ECDHE-ECDSA-WITH-AES-128-GCM-SHA256",
@@ -259,10 +259,10 @@ static const ttls_ciphersuite_t ciphersuite_definitions[] =
 	  0, 0, 0, 0, 0 }
 };
 
-const ttls_ciphersuite_t *
+const TlsCiphersuite *
 ttls_ciphersuite_from_id(int ciphersuite)
 {
-	const ttls_ciphersuite_t *cur = ciphersuite_definitions;
+	const TlsCiphersuite *cur = ciphersuite_definitions;
 
 	while (cur->id) {
 		if (cur->id == ciphersuite)
@@ -276,7 +276,7 @@ ttls_ciphersuite_from_id(int ciphersuite)
 const char *
 ttls_get_ciphersuite_name(const int ciphersuite_id)
 {
-	const ttls_ciphersuite_t *cur;
+	const TlsCiphersuite *cur;
 
 	if (!(cur = ttls_ciphersuite_from_id(ciphersuite_id)))
 		return("unknown");
@@ -285,7 +285,7 @@ ttls_get_ciphersuite_name(const int ciphersuite_id)
 }
 
 ttls_pk_type_t
-ttls_get_ciphersuite_sig_pk_alg(const ttls_ciphersuite_t *info)
+ttls_get_ciphersuite_sig_pk_alg(const TlsCiphersuite *info)
 {
 	switch (info->key_exchange) {
 	case TTLS_KEY_EXCHANGE_RSA:
@@ -307,7 +307,7 @@ ttls_get_ciphersuite_sig_pk_alg(const ttls_ciphersuite_t *info)
 }
 
 ttls_pk_type_t
-ttls_get_ciphersuite_sig_alg(const ttls_ciphersuite_t *info)
+ttls_get_ciphersuite_sig_alg(const TlsCiphersuite *info)
 {
 	switch (info->key_exchange) {
 	case TTLS_KEY_EXCHANGE_RSA:
@@ -324,7 +324,7 @@ ttls_get_ciphersuite_sig_alg(const ttls_ciphersuite_t *info)
 }
 
 int
-ttls_ciphersuite_uses_ec(const ttls_ciphersuite_t *info)
+ttls_ciphersuite_uses_ec(const TlsCiphersuite *info)
 {
 	switch (info->key_exchange) {
 	case TTLS_KEY_EXCHANGE_ECDHE_RSA:
