@@ -115,7 +115,7 @@ struct ttls_sig_hash_set_t
  * @key_cert	- chosen key/cert pair (server);
  * @sni_key_cert - key/cert list from SNI;
  * @sni_ca_chain - trusted CAs from SNI callback;
- * @sni_ca_crt	- trusted CAs CRLs from SNI;
+ * @sni_ca_crl	- trusted CAs CRLs from SNI;
  * @dhm_ctx	- DHM key exchange;
  * @ecdh_ctx	- ECDH key exchange;
  * @fin_sha{256,512} - checksum contexts;

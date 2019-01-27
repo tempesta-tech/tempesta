@@ -406,7 +406,6 @@ ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len)
 				    sizeof(*sha256));
 			bzero_fast(&hs->ecdh_ctx, sizeof(ttls_ecdh_context));
 		}
-
 	}
 	if (unlikely(!hs->desc.tfm)) {
 		if (mac == TTLS_MD_SHA384)
