@@ -1119,12 +1119,12 @@ ss_skb_split(struct sk_buff *skb, int len)
 
 	skb_reserve(buff, MAX_TCP_HEADER);
 
-	n = skb->len - len;
-	buff->truesize += n;
-	skb->truesize -= n;
+	/* @buff already accounts @n in truesize. */
+	buff->truesize += skb->len - len - n;
+	skb->truesize -= skb->len - len;
 
 	/*
-	 * Initialize GSO segments counter to let TCP set it accoring to
+	 * Initialize GSO segments counter to let TCP set it according to
 	 * the current MSS on egress path.
 	 */
 	tcp_skb_pcount_set(skb, 0);
