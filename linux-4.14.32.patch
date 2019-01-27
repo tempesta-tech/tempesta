@@ -1815,7 +1815,7 @@ index 420fecbb..67e0513a 100644
  void tcp_twsk_destructor(struct sock *sk)
  {
 diff --git a/net/ipv4/tcp_output.c b/net/ipv4/tcp_output.c
-index 83d11cd2..14918c14 100644
+index 83d11cd2..3066c3ac 100644
 --- a/net/ipv4/tcp_output.c
 +++ b/net/ipv4/tcp_output.c
 @@ -37,6 +37,9 @@
@@ -1943,7 +1943,7 @@ index 83d11cd2..14918c14 100644
  		if (skb->len > limit &&
  		    unlikely(tso_fragment(sk, skb, limit, mss_now, gfp)))
  			break;
-@@ -2336,7 +2381,33 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
+@@ -2336,7 +2381,32 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
  			clear_bit(TCP_TSQ_DEFERRED, &sk->sk_tsq_flags);
  		if (tcp_small_queue_check(sk, skb, 0))
  			break;
@@ -1970,15 +1970,14 @@ index 83d11cd2..14918c14 100644
 +				tcp_reset(sk);
 +				break;
 +			}
-+			/* We must not break TSO. */
-+			WARN_ON_ONCE(tcp_skb_pcount(skb)
-+				     != DIV_ROUND_UP(skb->len, mss_now));
++			/* Fix up TSO segments after TLS overhead. */
++			tcp_set_skb_tso_segs(skb, mss_now);
 +		}
 +#endif
  		if (unlikely(tcp_transmit_skb(sk, skb, 1, gfp)))
  			break;
  
-@@ -2518,6 +2589,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
+@@ -2518,6 +2588,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
  			   sk_gfp_mask(sk, GFP_ATOMIC)))
  		tcp_check_probe_timer(sk);
  }
@@ -1986,7 +1985,7 @@ index 83d11cd2..14918c14 100644
  
  /* Send _single_ skb sitting at the send head. This function requires
   * true push pending frames to setup probe timer etc.
-@@ -2839,7 +2911,7 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
+@@ -2839,7 +2910,7 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
  		if (tcp_fragment(sk, skb, len, cur_mss, GFP_ATOMIC))
  			return -ENOMEM; /* We'll try again later. */
  	} else {
@@ -1995,7 +1994,7 @@ index 83d11cd2..14918c14 100644
  			return -ENOMEM;
  
  		diff = tcp_skb_pcount(skb);
-@@ -3129,6 +3201,7 @@ int tcp_send_synack(struct sock *sk)
+@@ -3129,6 +3200,7 @@ int tcp_send_synack(struct sock *sk)
  	}
  	return tcp_transmit_skb(sk, skb, 1, GFP_ATOMIC);
  }
