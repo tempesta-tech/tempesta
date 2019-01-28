@@ -283,11 +283,11 @@ __skb_insert_after(struct sk_buff *skb, struct sk_buff *nskb)
 static int
 __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 {
-	int i, n_shift, n_excess = 0;
 	struct skb_shared_info *si = skb_shinfo(skb);
+	int i, n_shift, n_excess = 0, tail_frags = si->nr_frags - from;
 
 	BUG_ON((n <= 0) || (n > 2));
-	BUG_ON(from > si->nr_frags);
+	BUG_ON(tail_frags < 0);
 
 	/* No room for @n extra page fragments in the SKB. */
 	if (si->nr_frags + n > MAX_SKB_FRAGS) {
@@ -326,11 +326,11 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 		}
 
 		/* No fragments to shift. */
-		if (from == si->nr_frags)
+		if (!tail_frags)
 			return 0;
 
 		/* Shift @n_excess number of page fragments to new SKB. */
-		for (i = n_excess - 1; i >= 0; --i) {
+		for (i = n_excess - 1; i >= max(n_excess - tail_frags, 0); --i) {
 			f = &si->frags[MAX_SKB_FRAGS - n + i];
 			skb_shinfo(nskb)->frags[i] = *f;
 			e_size += skb_frag_size(f);
@@ -338,11 +338,14 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 		ss_skb_adjust_data_len(skb, -e_size);
 		ss_skb_adjust_data_len(nskb, e_size);
 	}
-
-	/* Make room for @n page fragments in the SKB. */
-	n_shift = si->nr_frags - from - n_excess;
-	BUG_ON(n_shift < 0);
-	if (n_shift)
+	/*
+	 * Make room for @n page fragments in the SKB. Considering maximum @n
+	 * value must be not greater than 2, the minimum @n_shift value must
+	 * be not less then -1.
+	 */
+	n_shift = tail_frags - n_excess;
+	BUG_ON(n_shift + 1 < 0);
+	if (n_shift > 0)
 		memmove(&si->frags[from + n],
 			&si->frags[from], n_shift * sizeof(skb_frag_t));
 	si->nr_frags += n - n_excess;
