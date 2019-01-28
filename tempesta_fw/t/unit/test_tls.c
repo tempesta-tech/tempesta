@@ -102,7 +102,7 @@ static const int gcd_pairs[GCD_PAIR_COUNT][3] =
  */
 TEST(tls, mpi)
 {
-	int ret, i;
+	int ret = 0, i;
 	ttls_mpi A, E, N, X, Y, U, V;
 
 	ttls_mpi_init(&Y);
@@ -138,9 +138,9 @@ TEST(tls, mpi)
 
 	pr_info("  MPI test #1 (mul_mpi): ");
 
-	if ((ret = ttls_mpi_cmp_mpi(&X, &U)))
+	EXPECT_ZERO((ret = ttls_mpi_cmp_mpi(&X, &U)));
+	if (ret)
 		goto cleanup;
-	pr_info("passed\n");
 
 	TTLS_MPI_CHK(ttls_mpi_div_mpi(&X, &Y, &A, &N));
 	TTLS_MPI_CHK(ttls_mpi_read_string(&U, 16,
@@ -152,11 +152,12 @@ TEST(tls, mpi)
 
 	pr_info("  MPI test #2 (div_mpi): ");
 
-	if ((ret = ttls_mpi_cmp_mpi(&X, &U)))
+	EXPECT_ZERO((ret = ttls_mpi_cmp_mpi(&X, &U)));
+	if (ret)
 		goto cleanup;
-	if ((ret = ttls_mpi_cmp_mpi(&Y, &V)))
+	EXPECT_ZERO((ret = ttls_mpi_cmp_mpi(&Y, &V)));
+	if (ret)
 		goto cleanup;
-	pr_info("passed\n");
 
 	TTLS_MPI_CHK(ttls_mpi_exp_mod(&X, &A, &E, &N, NULL));
 	TTLS_MPI_CHK(ttls_mpi_read_string(&U, 16,
@@ -166,9 +167,9 @@ TEST(tls, mpi)
 
 	pr_info("  MPI test #3 (exp_mod): ");
 
-	if ((ret = ttls_mpi_cmp_mpi(&X, &U)))
+	EXPECT_ZERO((ret = ttls_mpi_cmp_mpi(&X, &U)));
+	if (ret)
 		goto cleanup;
-	pr_info("passed\n");
 
 	TTLS_MPI_CHK(ttls_mpi_inv_mod(&X, &A, &N));
 	TTLS_MPI_CHK(ttls_mpi_read_string(&U, 16,
@@ -178,9 +179,9 @@ TEST(tls, mpi)
 
 	pr_info("  MPI test #4 (inv_mod): ");
 
-	if ((ret = ttls_mpi_cmp_mpi(&X, &U)))
+	EXPECT_ZERO((ret = ttls_mpi_cmp_mpi(&X, &U)));
+	if (ret)
 		goto cleanup;
-	pr_info("passed\n");
 
 	pr_info("  MPI test #5 (simple gcd): ");
 
@@ -190,12 +191,10 @@ TEST(tls, mpi)
 
 		TTLS_MPI_CHK(ttls_mpi_gcd(&A, &X, &Y));
 
-		if ((ret = ttls_mpi_cmp_int(&A, gcd_pairs[i][2]))) {
-			pr_info("failed at %d\n", i);
+		EXPECT_ZERO((ret = ttls_mpi_cmp_int(&A, gcd_pairs[i][2])));
+		if (ret)
 			goto cleanup;
-		}
 	}
-	pr_info("passed\n\n");
 
 cleanup:
 	if (ret)
@@ -208,13 +207,11 @@ cleanup:
 	ttls_mpi_free(&Y);
 	ttls_mpi_free(&U);
 	ttls_mpi_free(&V);
-
-	EXPECT_ZERO(ret);
 }
 
 TEST(tls, ecp)
 {
-	int ret;
+	int ret = 0;
 	size_t i;
 	ttls_ecp_group grp;
 	ttls_ecp_point R, P;
@@ -267,15 +264,12 @@ TEST(tls, ecp)
 		TTLS_MPI_CHK(ttls_mpi_read_string(&m, 16, exponents[i]));
 		TTLS_MPI_CHK(ttls_ecp_mul(&grp, &R, &m, &grp.G, false));
 
-		if (add_count != add_c_prev || dbl_count != dbl_c_prev
-		    || mul_count != mul_c_prev)
-		{
-			pr_info("failed (%u)\n", (unsigned int)i);
-			ret = 1;
+		ret = !(add_count == add_c_prev && dbl_count == dbl_c_prev
+			&& mul_count == mul_c_prev);
+		EXPECT_ZERO(ret);
+		if (ret)
 			goto cleanup;
-		}
 	}
-	pr_info("passed\n");
 
 	pr_info("  ECP test #2 (constant op_count, other point): ");
 	/* We computed P = 2G last time, use it */
@@ -297,26 +291,21 @@ TEST(tls, ecp)
 		TTLS_MPI_CHK(ttls_mpi_read_string(&m, 16, exponents[i]));
 		TTLS_MPI_CHK(ttls_ecp_mul(&grp, &R, &m, &P, false));
 
-		if (add_count != add_c_prev || dbl_count != dbl_c_prev
-		    || mul_count != mul_c_prev)
-		{
-			pr_info("failed (%u)\n", (unsigned int)i);
-			ret = 1;
+		ret = !(add_count == add_c_prev && dbl_count == dbl_c_prev
+			&& mul_count == mul_c_prev);
+		EXPECT_ZERO(ret);
+		if (ret)
 			goto cleanup;
-		}
 	}
-	pr_info("passed\n\n");
 
 cleanup:
-	if (ret < 0)
+	if (ret)
 		pr_info("Unexpected error, return code = %08X\n\n", ret);
 
 	ttls_ecp_group_free(&grp);
 	ttls_ecp_point_free(&R);
 	ttls_ecp_point_free(&P);
 	ttls_mpi_free(&m);
-
-	EXPECT_ZERO(ret);
 }
 
 /*
@@ -387,11 +376,12 @@ TEST(tls, rsa)
 
 	pr_info("  RSA key validation: ");
 
-	if ((ret = ttls_rsa_check_pubkey(&rsa)))
+	EXPECT_ZERO((ret = ttls_rsa_check_pubkey(&rsa)));
+	if (ret)
 		goto cleanup;
-	if ((ret = ttls_rsa_check_privkey(&rsa)))
+	EXPECT_ZERO((ret = ttls_rsa_check_privkey(&rsa)));
+	if (ret)
 		goto cleanup;
-	pr_info("passed\n");
 
 	pr_info("  PKCS#1 encryption : ");
 
@@ -401,20 +391,21 @@ TEST(tls, rsa)
 	memcpy(rsa_plaintext, RSA_PT, PT_LEN);
 	ret = ttls_rsa_pkcs1_encrypt(&rsa, TTLS_RSA_PUBLIC, PT_LEN,
 				     rsa_plaintext, rsa_ciphertext);
+	EXPECT_ZERO(ret);
 	if (ret)
 		goto cleanup_si;
-	pr_info("passed\n");
 
 	pr_info("  PKCS#1 decryption : ");
 
 	ret = ttls_rsa_pkcs1_decrypt(&rsa, TTLS_RSA_PRIVATE, &len, rsa_ciphertext,
 				     rsa_decrypted, sizeof(rsa_decrypted));
+	EXPECT_ZERO(ret);
 	if (ret)
 		goto cleanup_si;
 
-	if ((ret = memcmp(rsa_decrypted, rsa_plaintext, len)))
+	EXPECT_ZERO((ret = memcmp(rsa_decrypted, rsa_plaintext, len)));
+	if (ret)
 		goto cleanup_si;
-	pr_info("passed\n\n");
 
 cleanup_si:
 	kernel_fpu_end();
@@ -424,8 +415,6 @@ cleanup:
 
 	ttls_mpi_free(&K);
 	ttls_rsa_free(&rsa);
-
-	EXPECT_ZERO(ret);
 }
 
 TEST_SUITE(tls)
