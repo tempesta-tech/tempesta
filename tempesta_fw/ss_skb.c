@@ -573,9 +573,9 @@ __split_pgfrag_add(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off
 	skb_frag_size_sub(frag, tail_len);
 
 	/* Make the fragment with the tail part. */
-	i = (i + 2) % MAX_SKB_FRAGS;
-	__skb_fill_page_desc(skb_dst, i, skb_frag_page(frag),
-			     frag->page_offset + off, tail_len);
+	__skb_fill_page_desc(skb_dst, (i + 2) % MAX_SKB_FRAGS,
+			     skb_frag_page(frag), frag->page_offset + off,
+			     tail_len);
 	__skb_frag_ref(frag);
 
 	/* Adjust SKB data lengths. */
