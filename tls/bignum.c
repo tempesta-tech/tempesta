@@ -2,7 +2,7 @@
  *  Multi-precision integer library
  *
  *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ *  Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *  SPDX-License-Identifier: GPL-2.0
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -58,12 +58,10 @@
 #define MPI_W_SZ	(2 << TTLS_MPI_WINDOW_SIZE)
 static DEFINE_PER_CPU(ttls_mpi *, g_buf);
 
-/*
- * Initialize one MPI
- */
-void ttls_mpi_init(ttls_mpi *X)
+void
+ttls_mpi_init(ttls_mpi *X)
 {
-	if (X == NULL)
+	if (unlikely(!X))
 		return;
 
 	X->s = 1;
@@ -71,18 +69,15 @@ void ttls_mpi_init(ttls_mpi *X)
 	X->p = NULL;
 }
 
-/*
- * Unallocate one MPI
- */
-void ttls_mpi_free(ttls_mpi *X)
+void
+ttls_mpi_free(ttls_mpi *X)
 {
-	if (X == NULL)
+	if (unlikely(!X))
 		return;
 
-	if (X->p != NULL)
-	{
+	if (X->p) {
 		memset(X->p, 0, X->n);
-		ttls_free(X->p);
+		kfree(X->p);
 	}
 
 	X->s = 1;
@@ -2162,181 +2157,6 @@ cleanup:
 }
 
 #endif /* TTLS_GENPRIME */
-
-#define GCD_PAIR_COUNT  3
-
-static const int gcd_pairs[GCD_PAIR_COUNT][3] =
-{
-	{ 693, 609, 21 },
-	{ 1764, 868, 28 },
-	{ 768454923, 542167814, 1 }
-};
-
-/*
- * Checkup routine
- */
-int ttls_mpi_self_test(int verbose)
-{
-	int ret, i;
-	ttls_mpi A, E, N, X, Y, U, V;
-
-	ttls_mpi_init(&A);
-	ttls_mpi_init(&E);
-	ttls_mpi_init(&N);
-	ttls_mpi_init(&X);
-	ttls_mpi_init(&Y);
-	ttls_mpi_init(&U);
-	ttls_mpi_init(&V);
-
-	TTLS_MPI_CHK(ttls_mpi_read_string(&A, 16,
-		"EFE021C2645FD1DC586E69184AF4A31E" \
-		"D5F53E93B5F123FA41680867BA110131" \
-		"944FE7952E2517337780CB0DB80E61AA" \
-		"E7C8DDC6C5C6AADEB34EB38A2F40D5E6"));
-
-	TTLS_MPI_CHK(ttls_mpi_read_string(&E, 16,
-		"B2E7EFD37075B9F03FF989C7C5051C20" \
-		"34D2A323810251127E7BF8625A4F49A5" \
-		"F3E27F4DA8BD59C47D6DAABA4C8127BD" \
-		"5B5C25763222FEFCCFC38B832366C29E"));
-
-	TTLS_MPI_CHK(ttls_mpi_read_string(&N, 16,
-		"0066A198186C18C10B2F5ED9B522752A" \
-		"9830B69916E535C8F047518A889A43A5" \
-		"94B6BED27A168D31D4A52F88925AA8F5"));
-
-	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&X, &A, &N));
-
-	TTLS_MPI_CHK(ttls_mpi_read_string(&U, 16,
-		"602AB7ECA597A3D6B56FF9829A5E8B85" \
-		"9E857EA95A03512E2BAE7391688D264A" \
-		"A5663B0341DB9CCFD2C4C5F421FEC814" \
-		"8001B72E848A38CAE1C65F78E56ABDEF" \
-		"E12D3C039B8A02D6BE593F0BBBDA56F1" \
-		"ECF677152EF804370C1A305CAF3B5BF1" \
-		"30879B56C61DE584A0F53A2447A51E"));
-
-	if (verbose != 0)
-		pr_info("  MPI test #1 (mul_mpi): ");
-
-	if (ttls_mpi_cmp_mpi(&X, &U) != 0)
-	{
-		if (verbose != 0)
-			pr_info("failed\n");
-
-		ret = 1;
-		goto cleanup;
-	}
-
-	if (verbose != 0)
-		pr_info("passed\n");
-
-	TTLS_MPI_CHK(ttls_mpi_div_mpi(&X, &Y, &A, &N));
-
-	TTLS_MPI_CHK(ttls_mpi_read_string(&U, 16,
-		"256567336059E52CAE22925474705F39A94"));
-
-	TTLS_MPI_CHK(ttls_mpi_read_string(&V, 16,
-		"6613F26162223DF488E9CD48CC132C7A" \
-		"0AC93C701B001B092E4E5B9F73BCD27B" \
-		"9EE50D0657C77F374E903CDFA4C642"));
-
-	if (verbose != 0)
-		pr_info("  MPI test #2 (div_mpi): ");
-
-	if (ttls_mpi_cmp_mpi(&X, &U) != 0 ||
-		ttls_mpi_cmp_mpi(&Y, &V) != 0)
-	{
-		if (verbose != 0)
-			pr_info("failed\n");
-
-		ret = 1;
-		goto cleanup;
-	}
-
-	if (verbose != 0)
-		pr_info("passed\n");
-
-	TTLS_MPI_CHK(ttls_mpi_exp_mod(&X, &A, &E, &N, NULL));
-
-	TTLS_MPI_CHK(ttls_mpi_read_string(&U, 16,
-		"36E139AEA55215609D2816998ED020BB" \
-		"BD96C37890F65171D948E9BC7CBAA4D9" \
-		"325D24D6A3C12710F10A09FA08AB87"));
-
-	if (verbose != 0)
-		pr_info("  MPI test #3 (exp_mod): ");
-
-	if (ttls_mpi_cmp_mpi(&X, &U) != 0)
-	{
-		if (verbose != 0)
-			pr_info("failed\n");
-
-		ret = 1;
-		goto cleanup;
-	}
-
-	if (verbose != 0)
-		pr_info("passed\n");
-
-	TTLS_MPI_CHK(ttls_mpi_inv_mod(&X, &A, &N));
-
-	TTLS_MPI_CHK(ttls_mpi_read_string(&U, 16,
-		"003A0AAEDD7E784FC07D8F9EC6E3BFD5" \
-		"C3DBA76456363A10869622EAC2DD84EC" \
-		"C5B8A74DAC4D09E03B5E0BE779F2DF61"));
-
-	if (verbose != 0)
-		pr_info("  MPI test #4 (inv_mod): ");
-
-	if (ttls_mpi_cmp_mpi(&X, &U) != 0)
-	{
-		if (verbose != 0)
-			pr_info("failed\n");
-
-		ret = 1;
-		goto cleanup;
-	}
-
-	if (verbose != 0)
-		pr_info("passed\n");
-
-	if (verbose != 0)
-		pr_info("  MPI test #5 (simple gcd): ");
-
-	for (i = 0; i < GCD_PAIR_COUNT; i++)
-	{
-		TTLS_MPI_CHK(ttls_mpi_lset(&X, gcd_pairs[i][0]));
-		TTLS_MPI_CHK(ttls_mpi_lset(&Y, gcd_pairs[i][1]));
-
-		TTLS_MPI_CHK(ttls_mpi_gcd(&A, &X, &Y));
-
-		if (ttls_mpi_cmp_int(&A, gcd_pairs[i][2]) != 0)
-		{
-			if (verbose != 0)
-				pr_info("failed at %d\n", i);
-
-			ret = 1;
-			goto cleanup;
-		}
-	}
-
-	if (verbose != 0)
-		pr_info("passed\n");
-
-cleanup:
-
-	if (ret != 0 && verbose != 0)
-		pr_info("Unexpected error, return code = %08X\n", ret);
-
-	ttls_mpi_free(&A); ttls_mpi_free(&E); ttls_mpi_free(&N); ttls_mpi_free(&X);
-	ttls_mpi_free(&Y); ttls_mpi_free(&U); ttls_mpi_free(&V);
-
-	if (verbose != 0)
-		pr_info("\n");
-
-	return ret;
-}
 
 void
 ttls_mpi_modexit(void)
