@@ -341,7 +341,7 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 	/*
 	 * Make room for @n page fragments in the SKB. Considering maximum @n
 	 * value must be not greater than 2, the minimum @n_shift value must
-	 * be not less then -1.
+	 * be not less than -1.
 	 */
 	n_shift = tail_frags - n_excess;
 	BUG_ON(n_shift + 1 < 0);
