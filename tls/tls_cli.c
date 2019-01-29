@@ -448,7 +448,7 @@ static int ssl_write_client_hello(ttls_context *ssl)
 	unsigned char *p, *q;
 	unsigned char offer_compress;
 	const int *ciphersuites;
-	const ttls_ciphersuite_t *ciphersuite_info;
+	const TlsCiphersuite *ciphersuite_info;
 
 	T_DBG2("=> write client hello\n");
 
@@ -828,7 +828,7 @@ static int ssl_parse_server_hello(ttls_context *ssl)
 	unsigned char *buf, *ext;
 	unsigned char comp;
 	int handshake_failure = 0;
-	const ttls_ciphersuite_t *suite_info;
+	const TlsCiphersuite *suite_info;
 
 	T_DBG2("=> parse server hello\n");
 
@@ -1374,7 +1374,7 @@ static int ssl_get_ecdh_params_from_cert(ttls_context *ssl)
 static int ssl_parse_server_key_exchange(ttls_context *ssl)
 {
 	int ret;
-	const ttls_ciphersuite_t *ciphersuite_info =
+	const TlsCiphersuite *ciphersuite_info =
 		ssl->transform_negotiate->ciphersuite_info;
 	unsigned char *p = NULL, *end = NULL;
 
@@ -1591,7 +1591,7 @@ exit:
 #if ! defined(TTLS_KEY_EXCHANGE__CERT_REQ_ALLOWED__ENABLED)
 static int ssl_parse_certificate_request(ttls_context *ssl)
 {
-	const ttls_ciphersuite_t *ciphersuite_info =
+	const TlsCiphersuite *ciphersuite_info =
 		ssl->transform_negotiate->ciphersuite_info;
 
 	T_DBG2("=> parse certificate request\n");
@@ -1613,7 +1613,7 @@ static int ssl_parse_certificate_request(ttls_context *ssl)
 	unsigned char *buf;
 	size_t n = 0;
 	size_t cert_type_len = 0, dn_len = 0;
-	const ttls_ciphersuite_t *ciphersuite_info =
+	const TlsCiphersuite *ciphersuite_info =
 		ssl->transform_negotiate->ciphersuite_info;
 
 	T_DBG2("=> parse certificate request\n");
@@ -1769,7 +1769,7 @@ static int ssl_write_client_key_exchange(ttls_context *ssl)
 {
 	int ret;
 	size_t i, n;
-	const ttls_ciphersuite_t *ciphersuite_info =
+	const TlsCiphersuite *ciphersuite_info =
 		ssl->transform_negotiate->ciphersuite_info;
 
 	T_DBG2("=> write client key exchange\n");
@@ -1862,7 +1862,7 @@ static int ssl_write_client_key_exchange(ttls_context *ssl)
 
 static int ssl_write_certificate_verify(ttls_context *ssl)
 {
-	const ttls_ciphersuite_t *ciphersuite_info =
+	const TlsCiphersuite *ciphersuite_info =
 		ssl->transform_negotiate->ciphersuite_info;
 	int ret;
 

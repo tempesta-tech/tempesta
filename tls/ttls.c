@@ -4,7 +4,7 @@
  * Main TLS shared functions for the server and client.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
@@ -38,7 +38,7 @@
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
 MODULE_DESCRIPTION("Tempesta TLS");
-MODULE_VERSION("0.2.0");
+MODULE_VERSION("0.2.1");
 MODULE_LICENSE("GPL");
 
 typedef struct {
@@ -359,7 +359,9 @@ ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len)
 {
 	int r;
 	TlsHandshake *hs = tls->hs;
-	const ttls_ciphersuite_t *ci = tls->xfrm.ciphersuite_info;
+	const TlsCiphersuite *ci = tls->xfrm.ciphersuite_info;
+	ttls_sha256_context *sha256 = (ttls_sha256_context *)&hs->ecdh_ctx;
+	ttls_md_type_t mac;
 
 	if (unlikely(!len))
 		return;
@@ -367,10 +369,46 @@ ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len)
 	/*
 	 * Initialize the hash context on first call to avoid double
 	 * hash calculation.
+	 *
+	 * We may find empty ciphersuite_info here only if we process a part of
+	 * ClientHello message, when we hadn't read the extension yet. If so,
+	 * then do a trick: compute both the checksums for the chunk and use
+	 * hs->ecdh_ctx to store SHA256 checksum data.
 	 */
-	BUG_ON(!ci);
+	if (unlikely(IS_ERR_OR_NULL(ci))) {
+		WARN_ON_ONCE(tls->state >= TTLS_SERVER_HELLO);
+		BUILD_BUG_ON(sizeof(ttls_ecdh_context)
+			     < sizeof(ttls_sha256_context));
+
+		if (!ci) {
+			if (WARN_ON_ONCE(ttls_sha256_init_start(sha256)))
+				return;
+			tls->xfrm.ciphersuite_info = ERR_PTR(0xdead);
+		}
+		r = crypto_shash_update((struct shash_desc *)sha256, buf, len);
+		if (WARN_ON_ONCE(r))
+			return;
+		mac = TTLS_MD_SHA384;
+	} else {
+		mac = ci->mac;
+		/*
+		 * This is, after ttls_choose_ciphersuite() call but still at
+		 * ClientHello state, the earliest time when we know which hash
+		 * function to use. If the hash context is initialized, then
+		 * there were ClientHello chunks and probably we need to copy
+		 * the hash context.
+		 */
+		if (unlikely(tls->state < TTLS_SERVER_HELLO && hs->desc.tfm
+			     && mac == TTLS_MD_SHA256))
+		{
+			crypto_free_shash(hs->desc.tfm);
+			memcpy_fast(&tls->hs->fin_sha256, sha256,
+				    sizeof(*sha256));
+			bzero_fast(&hs->ecdh_ctx, sizeof(ttls_ecdh_context));
+		}
+	}
 	if (unlikely(!hs->desc.tfm)) {
-		if (ci->mac == TTLS_MD_SHA384)
+		if (mac == TTLS_MD_SHA384)
 			r = ttls_sha384_init_start(&hs->fin_sha512);
 		else
 			r = ttls_sha256_init_start(&hs->fin_sha256);
@@ -379,11 +417,10 @@ ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len)
 	}
 
 	T_DBG2("update checksum on buf %pK len=%ld, hash=%d\n",
-	       buf, len, ci->mac);
+	       buf, len, mac);
 	T_DBG3_BUF("hash buf ", buf, len);
 
-	r = crypto_shash_update(&tls->hs->desc, buf, len);
-	WARN_ON_ONCE(r);
+	WARN_ON_ONCE(crypto_shash_update(&tls->hs->desc, buf, len));
 }
 
 static void
@@ -2614,7 +2651,7 @@ ttls_set_default_sig_hash(TlsCtx *tls)
 
 int
 ttls_check_cert_usage(const ttls_x509_crt *cert,
-		      const ttls_ciphersuite_t *ciphersuite, int cert_endpoint,
+		      const TlsCiphersuite *ciphersuite, int cert_endpoint,
 		      uint32_t *flags)
 {
 	int r = 0;
