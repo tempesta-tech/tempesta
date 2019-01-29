@@ -3176,21 +3176,6 @@ tfw_http_resp_cache_cb(TfwHttpMsg *msg)
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return;
 	}
-	/*
-	 * Responses from cache don't have @resp->conn. Also, for those
-	 * responses @req->jtxtstamp is not set and remains zero.
-	 *
-	 * TODO: Currently APM holds the pure roundtrip time (RTT) from
-	 * the time a request is forwarded to the time a response to it
-	 * is received and parsed. Perhaps it makes sense to penalize
-	 * server connections which get broken too often. What would be
-	 * a fast and simple algorithm for that? Keep in mind, that the
-	 * value of RTT has an upper boundary in the APM.
-	 */
-	if (resp->conn)
-		tfw_apm_update(((TfwServer *)resp->conn->peer)->apmref,
-				resp->jrxtstamp,
-				resp->jrxtstamp - req->jtxtstamp);
 	tfw_http_resp_fwd(resp);
 }
 
@@ -3290,6 +3275,7 @@ error:
 static int
 tfw_http_resp_cache(TfwHttpMsg *hmresp)
 {
+	TfwHttpResp *resp = (TfwHttpResp *)hmresp;
 	TfwHttpReq *req = hmresp->req;
 	TfwFsmData data;
 	time_t timestamp = tfw_current_timestamp();
@@ -3299,7 +3285,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 * for age calculations, and for APM and Load Balancing.
 	 */
 	hmresp->cache_ctl.timestamp = timestamp;
-	((TfwHttpResp *)hmresp)->jrxtstamp = jiffies;
+	resp->jrxtstamp = jiffies;
 	/*
 	 * If 'Date:' header is missing in the response, then
 	 * set the date to the time the response was received.
@@ -3311,6 +3297,16 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 * fwd_queue.
 	 */
 	tfw_http_popreq(hmresp, true);
+	/*
+	 * TODO: Currently APM holds the pure roundtrip time (RTT) from
+	 * the time a request is forwarded to the time a response to it
+	 * is received and parsed. Perhaps it makes sense to penalize
+	 * server connections which get broken too often. What would be
+	 * a fast and simple algorithm for that? Keep in mind, that the
+	 * value of RTT has an upper boundary in the APM.
+	 */
+	tfw_apm_update(((TfwServer *)resp->conn->peer)->apmref,
+		       resp->jrxtstamp, resp->jrxtstamp - req->jtxtstamp);
 	/*
 	 * Health monitor request means that its response need not to
 	 * send anywhere.
