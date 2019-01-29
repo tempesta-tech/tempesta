@@ -319,7 +319,7 @@ typedef struct {
  * @iv_dec		- IV for decryption;
  */
 typedef struct {
-	const ttls_ciphersuite_t	*ciphersuite_info;
+	const TlsCiphersuite	*ciphersuite_info;
 	TlsMdCtx			md_ctx_enc;
 	TlsMdCtx			md_ctx_dec;
 	TlsCipherCtx			cipher_ctx_enc;

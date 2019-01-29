@@ -102,7 +102,7 @@ struct ttls_sig_hash_set_t
  * This structure contains the parameters only needed during handshake.
  *
  * @hash_algs	- set of suitable sig-hash pairs;
- * @fin_sha{256,512} - checksum contexts;
+ * @sni_authmode - authmode from SNI callback;
  * @point_form	- TLS extension flags (for extensions with outgoing ServerHello
  * 		  content that need it (e.g. for RENEGOTIATION_INFO the server
  * 		  already knows because of state of the renegotiation flag, so
@@ -111,6 +111,14 @@ struct ttls_sig_hash_set_t
  * @new_session_ticket - use NewSessionTicket?
  * @resume	- session resume indicator;
  * @cli_exts	- client extension presence;
+ * @pmslen	- premaster length;
+ * @key_cert	- chosen key/cert pair (server);
+ * @sni_key_cert - key/cert list from SNI;
+ * @sni_ca_chain - trusted CAs from SNI callback;
+ * @sni_ca_crl	- trusted CAs CRLs from SNI;
+ * @dhm_ctx	- DHM key exchange;
+ * @ecdh_ctx	- ECDH key exchange;
+ * @fin_sha{256,512} - checksum contexts;
  * @curves	- supported elliptic curves;
  * @randbytes	- random bytes;
  * @finished	- temporal buffer for chunks of Finished message,
@@ -120,36 +128,35 @@ struct ttls_sig_hash_set_t
  */
 typedef struct tls_handshake_t {
 	ttls_sig_hash_set_t		hash_algs;
+	int				sni_authmode;
 
-#if defined(TTLS_DHM_C)
-	ttls_dhm_context dhm_ctx;	/*!<  DHM key exchange		*/
-#endif
-	ttls_ecdh_context ecdh_ctx;	  /*!<  ECDH key exchange	   */
-	ttls_key_cert *key_cert;	 /*!< chosen key/cert pair (server)  */
-	int sni_authmode;		   /*!< authmode from SNI callback	 */
-	ttls_key_cert *sni_key_cert; /*!< key/cert list from SNI		 */
-	ttls_x509_crt *sni_ca_chain;	 /*!< trusted CAs from SNI callback  */
-	ttls_x509_crl *sni_ca_crl;	   /*!< trusted CAs CRLs from SNI	  */
+	unsigned char			point_form		: 1,
+					extended_ms		: 1,
+					new_session_ticket	: 1,
+					resume			: 1,
+					cli_exts		: 1,
+					curves_ext		: 1;
 
-	union {
-		struct shash_desc	desc; /* common for both the contexts */
-		ttls_sha256_context	fin_sha256;
-		ttls_sha512_context	fin_sha512;
-	};
+	size_t				pmslen;
+	ttls_key_cert			*key_cert;
+	ttls_key_cert			*sni_key_cert;
+	ttls_x509_crt			*sni_ca_chain;
+	ttls_x509_crl			*sni_ca_crl;
 
 	void (*calc_verify)(ttls_context *, unsigned char *);
 	void (*calc_finished)(ttls_context *, unsigned char *, int);
 	int  (*tls_prf)(const unsigned char *, size_t, const char *, size_t,
 			const unsigned char *, size_t, unsigned char *, size_t);
 
-	size_t pmslen;	  /*!<  premaster length*/
-	unsigned char		point_form:1,
-				extended_ms:1,
-				new_session_ticket:1,
-				resume:1,
-				cli_exts:1,
-				curves_ext:1;
-
+#if defined(TTLS_DHM_C)
+	ttls_dhm_context		dhm_ctx;
+#endif
+	ttls_ecdh_context		ecdh_ctx;
+	union {
+		struct shash_desc	desc; /* common for both the contexts */
+		ttls_sha256_context	fin_sha256;
+		ttls_sha512_context	fin_sha512;
+	};
 	const ttls_ecp_curve_info	*curves[TTLS_ECP_DP_MAX];
 	union {
 		unsigned char		randbytes[64];
@@ -268,7 +275,7 @@ ttls_own_cert(TlsCtx *tls)
  * Return 0 if everything is OK, -1 if not.
  */
 int ttls_check_cert_usage(const ttls_x509_crt *cert,
-			  const ttls_ciphersuite_t *ciphersuite,
+			  const TlsCiphersuite *ciphersuite,
 			  int cert_endpoint,
 			  uint32_t *flags);
 

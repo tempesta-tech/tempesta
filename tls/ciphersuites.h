@@ -95,43 +95,37 @@ typedef enum {
 /* Key exchanges allowing client certificate requests */
 //#define TTLS_KEY_EXCHANGE__CERT_REQ_ALLOWED__ENABLED
 
-typedef struct ttls_ciphersuite_t ttls_ciphersuite_t;
-
 /* Weak ciphersuite flag  */
 #define TTLS_CIPHERSUITE_WEAK		0x01
 /* Short authentication tag, eg for CCM_8 */
 #define TTLS_CIPHERSUITE_SHORT_TAG	0x02
 
 /**
- * \brief   This structure is used for storing ciphersuite information
+ * This structure is used for storing ciphersuite information.
  */
-struct ttls_ciphersuite_t
-{
-	int id;
-	const char * name;
+typedef struct {
+	int				id;
+	const char			*name;
+	ttls_cipher_type_t		cipher;
+	ttls_md_type_t			mac;
+	ttls_key_exchange_type_t	key_exchange;
+	int				min_major_ver;
+	int				min_minor_ver;
+	int				max_major_ver;
+	int				max_minor_ver;
+	unsigned char			flags;
+} TlsCiphersuite;
 
-	ttls_cipher_type_t cipher;
-	ttls_md_type_t mac;
-	ttls_key_exchange_type_t key_exchange;
+const TlsCiphersuite *ttls_ciphersuite_from_id(int ciphersuite_id);
 
-	int min_major_ver;
-	int min_minor_ver;
-	int max_major_ver;
-	int max_minor_ver;
+ttls_pk_type_t ttls_get_ciphersuite_sig_pk_alg(const TlsCiphersuite *info);
+ttls_pk_type_t ttls_get_ciphersuite_sig_alg(const TlsCiphersuite *info);
 
-	unsigned char flags;
-};
-
-const ttls_ciphersuite_t *ttls_ciphersuite_from_id(int ciphersuite_id);
-
-ttls_pk_type_t ttls_get_ciphersuite_sig_pk_alg(const ttls_ciphersuite_t *info);
-ttls_pk_type_t ttls_get_ciphersuite_sig_alg(const ttls_ciphersuite_t *info);
-
-int ttls_ciphersuite_uses_ec(const ttls_ciphersuite_t *info);
-int ttls_ciphersuite_uses_psk(const ttls_ciphersuite_t *info);
+int ttls_ciphersuite_uses_ec(const TlsCiphersuite *info);
+int ttls_ciphersuite_uses_psk(const TlsCiphersuite *info);
 
 static inline int
-ttls_ciphersuite_has_pfs(const ttls_ciphersuite_t *info)
+ttls_ciphersuite_has_pfs(const TlsCiphersuite *info)
 {
 	switch (info->key_exchange) {
 	case TTLS_KEY_EXCHANGE_DHE_RSA:
@@ -146,7 +140,7 @@ ttls_ciphersuite_has_pfs(const ttls_ciphersuite_t *info)
 }
 
 static inline int
-ttls_ciphersuite_no_pfs(const ttls_ciphersuite_t *info)
+ttls_ciphersuite_no_pfs(const TlsCiphersuite *info)
 {
 	switch (info->key_exchange) {
 	case TTLS_KEY_EXCHANGE_ECDH_RSA:
@@ -161,7 +155,7 @@ ttls_ciphersuite_no_pfs(const ttls_ciphersuite_t *info)
 }
 
 static inline int
-ttls_ciphersuite_uses_ecdh(const ttls_ciphersuite_t *info)
+ttls_ciphersuite_uses_ecdh(const TlsCiphersuite *info)
 {
 	switch (info->key_exchange) {
 	case TTLS_KEY_EXCHANGE_ECDH_RSA:
@@ -173,7 +167,7 @@ ttls_ciphersuite_uses_ecdh(const ttls_ciphersuite_t *info)
 }
 
 static inline int
-ttls_ciphersuite_cert_req_allowed(const ttls_ciphersuite_t *info)
+ttls_ciphersuite_cert_req_allowed(const TlsCiphersuite *info)
 {
 	switch (info->key_exchange) {
 	case TTLS_KEY_EXCHANGE_RSA:
@@ -189,7 +183,7 @@ ttls_ciphersuite_cert_req_allowed(const ttls_ciphersuite_t *info)
 }
 
 static inline int
-ttls_ciphersuite_uses_dhe(const ttls_ciphersuite_t *info)
+ttls_ciphersuite_uses_dhe(const TlsCiphersuite *info)
 {
 	switch (info->key_exchange) {
 	case TTLS_KEY_EXCHANGE_DHE_RSA:
@@ -201,7 +195,7 @@ ttls_ciphersuite_uses_dhe(const ttls_ciphersuite_t *info)
 }
 
 static inline int
-ttls_ciphersuite_uses_ecdhe(const ttls_ciphersuite_t *info)
+ttls_ciphersuite_uses_ecdhe(const TlsCiphersuite *info)
 {
 	switch (info->key_exchange) {
 	case TTLS_KEY_EXCHANGE_ECDHE_ECDSA:
@@ -214,7 +208,7 @@ ttls_ciphersuite_uses_ecdhe(const ttls_ciphersuite_t *info)
 }
 
 static inline int
-ttls_ciphersuite_uses_server_signature(const ttls_ciphersuite_t *info)
+ttls_ciphersuite_uses_server_signature(const TlsCiphersuite *info)
 {
 	switch (info->key_exchange) {
 	case TTLS_KEY_EXCHANGE_DHE_RSA:
