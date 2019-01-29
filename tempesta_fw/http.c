@@ -2141,9 +2141,9 @@ tfw_http_recreate_content_type_multipart_hdr(TfwHttpReq *req)
 {
 	TfwStr replacement = {
 		.chunks = (TfwStr []) {
-			TFW_STR_FROM_CSTR("Content-Type"),
-			TFW_STR_FROM_CSTR(": "),
-			TFW_STR_FROM_CSTR("multipart/form-data; boundary="),
+			TFW_STR_STRING("Content-Type"),
+			TFW_STR_STRING(": "),
+			TFW_STR_STRING("multipart/form-data; boundary="),
 			req->multipart_boundary_raw,
 		},
 		.nchunks = 4,
