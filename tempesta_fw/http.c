@@ -3163,6 +3163,16 @@ tfw_http_resp_cache_cb(TfwHttpMsg *msg)
 
 	TFW_DBG2("%s: req = %p, resp = %p\n", __func__, req, resp);
 	/*
+	 * Response will never be sent: client has disconnected already.
+	 * Don't adjust response, simply destroy it.
+	 */
+	if (unlikely(test_bit(TFW_HTTP_B_REQ_DROP, req->flags))) {
+		TFW_DBG2("%s: resp=[%p] dropped: client disconnected\n",
+			 __func__, resp);
+		tfw_http_resp_pair_free(req);
+		return;
+	}
+	/*
 	 * Typically we're at a node far from the node where @resp was
 	 * received, so we do an inter-node transfer. However, this is
 	 * the final place where the response will be stored. Upcoming
@@ -3171,8 +3181,8 @@ tfw_http_resp_cache_cb(TfwHttpMsg *msg)
 	 */
 	if (tfw_http_adjust_resp(resp)) {
 		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
-		tfw_http_send_resp(req, 500, "response dropped:"
-				   " processing error");
+		tfw_http_send_resp(req, 500,
+				   "response dropped: processing error");
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return;
 	}
