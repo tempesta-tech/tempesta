@@ -1104,11 +1104,11 @@ TEST(tfw_str_collect_cmp, collect_chunks)
 {
 	TfwStr in = {
 		.chunks = (TfwStr []){
-			TFW_STR_FROM_CSTR("abcd"),
-			TFW_STR_FROM_CSTR("efghi"),
-			TFW_STR_FROM_CSTR("jklmnopq"),
-			TFW_STR_FROM_CSTR("rst"),
-			TFW_STR_FROM_CSTR("uvwxyz")
+			TFW_STR_STRING("abcd"),
+			TFW_STR_STRING("efghi"),
+			TFW_STR_STRING("jklmnopq"),
+			TFW_STR_STRING("rst"),
+			TFW_STR_STRING("uvwxyz")
 		},
 		.len = sizeof("abcdefghijklmnopqrstuvwxyz") - 1,
 		.nchunks = 5
@@ -1331,11 +1331,11 @@ TEST(tfw_str_del_chunk, first)
 {
 	TfwStr s = {
 		.chunks = (TfwStr []){
-			TFW_STR_FROM_CSTR("abcd"),
-			TFW_STR_FROM_CSTR("efghi"),
-			TFW_STR_FROM_CSTR("jklmnopq"),
-			TFW_STR_FROM_CSTR("rst"),
-			TFW_STR_FROM_CSTR("uvwxyz")
+			TFW_STR_STRING("abcd"),
+			TFW_STR_STRING("efghi"),
+			TFW_STR_STRING("jklmnopq"),
+			TFW_STR_STRING("rst"),
+			TFW_STR_STRING("uvwxyz")
 		},
 		.len = SLEN("abcdefghijklmnopqrstuvwxyz"),
 		.nchunks = 5
@@ -1351,11 +1351,11 @@ TEST(tfw_str_del_chunk, middle)
 {
 	TfwStr s = {
 		.chunks = (TfwStr []){
-			TFW_STR_FROM_CSTR("abcd"),
-			TFW_STR_FROM_CSTR("efghi"),
-			TFW_STR_FROM_CSTR("jklmnopq"),
-			TFW_STR_FROM_CSTR("rst"),
-			TFW_STR_FROM_CSTR("uvwxyz")
+			TFW_STR_STRING("abcd"),
+			TFW_STR_STRING("efghi"),
+			TFW_STR_STRING("jklmnopq"),
+			TFW_STR_STRING("rst"),
+			TFW_STR_STRING("uvwxyz")
 		},
 		.len = SLEN("abcdefghijklmnopqrstuvwxyz"),
 		.nchunks = 5
@@ -1371,11 +1371,11 @@ TEST(tfw_str_del_chunk, last)
 {
 	TfwStr s = {
 		.chunks = (TfwStr []){
-			TFW_STR_FROM_CSTR("abcd"),
-			TFW_STR_FROM_CSTR("efghi"),
-			TFW_STR_FROM_CSTR("jklmnopq"),
-			TFW_STR_FROM_CSTR("rst"),
-			TFW_STR_FROM_CSTR("uvwxyz")
+			TFW_STR_STRING("abcd"),
+			TFW_STR_STRING("efghi"),
+			TFW_STR_STRING("jklmnopq"),
+			TFW_STR_STRING("rst"),
+			TFW_STR_STRING("uvwxyz")
 		},
 		.len = SLEN("abcdefghijklmnopqrstuvwxyz"),
 		.nchunks = 5
