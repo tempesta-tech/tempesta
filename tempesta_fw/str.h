@@ -219,7 +219,7 @@ typedef struct tfwstr_t {
 #define TFW_STR_STRING(val)		((TfwStr){.data = (val), NULL,	\
 						  sizeof(val) - 1, 0, 0, 0})
 #define DEFINE_TFW_STR(name, val)	TfwStr name = TFW_STR_STRING(val)
-#define TFW_STR_FROM(s)			((TfwStr){.data = (char*)s,	\
+#define TFW_STR_FROM_CSTR(s)		((TfwStr){.data = (char*)s,	\
 						  NULL, strlen(s), 0, 0, 0})
 
 /* Use this with "%.*s" in printing calls. */

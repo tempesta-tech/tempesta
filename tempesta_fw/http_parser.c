@@ -1448,7 +1448,7 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 	__FSM_STATE(I_ContTypeMediaType) {
 		static const TfwStr s_multipart_form_data =
-			TFW_STR_FROM("multipart/form-data");
+			TFW_STR_FROM_CSTR("multipart/form-data");
 		TRY_STR_LAMBDA_fixup(&s_multipart_form_data, &parser->hdr, {},
 				     I_ContTypeMaybeMultipart);
 		if (chunk->len >= sizeof("multipart/") - 1) {
@@ -1497,7 +1497,7 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(I_ContTypeParam) {
-		static const TfwStr s_boundary = TFW_STR_FROM("boundary=");
+		static const TfwStr s_boundary = TFW_STR_FROM_CSTR("boundary=");
 		if (!test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags))
 			__FSM_I_JMP(I_ContTypeParamOther);
 
