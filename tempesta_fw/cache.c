@@ -47,15 +47,13 @@ static const int tfw_cache_spec_headers_304[] = {
 	[TFW_HTTP_HDR_ETAG] = 1,
 };
 static const TfwStr tfw_cache_raw_headers_304[] = {
-#define TfwStr_string(v)	{ .data = (v), NULL, sizeof(v) - 1, 0 }
-	TfwStr_string("cache-control:"),
-	TfwStr_string("content-location:"),
-	TfwStr_string("date:"),
-	TfwStr_string("expires:"),
-	TfwStr_string("last-modified:"),
-	TfwStr_string("vary:"),
+	TFW_STR_STRING("cache-control:"),
+	TFW_STR_STRING("content-location:"),
+	TFW_STR_STRING("date:"),
+	TFW_STR_STRING("expires:"),
+	TFW_STR_STRING("last-modified:"),
+	TFW_STR_STRING("vary:"),
 	/* Etag are Spec headers */
-#undef TfwStr_string
 };
 #define TFW_CACHE_304_SPEC_HDRS_NUM	1	/* ETag. */
 #define TFW_CACHE_304_HDRS_NUM						\

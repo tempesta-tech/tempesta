@@ -644,25 +644,23 @@ __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
 	TfwStr *hdr, *append;
 	TfwHttpHbhHdrs *hbh = &hm->conn->parser.hbh_parser;
 	static const TfwStr block[] = {
-#define TfwStr_string(v) { .data = (v), NULL, sizeof(v) - 1, 0 }
 		/* End-to-end spec and raw headers */
-		TfwStr_string("age:"),
-		TfwStr_string("authorization:"),
-		TfwStr_string("cache-control:"),
-		TfwStr_string("connection:"),
-		TfwStr_string("content-length:"),
-		TfwStr_string("content-type:"),
-		TfwStr_string("cookie:"),
-		TfwStr_string("date:"),
-		TfwStr_string("etag:"),
-		TfwStr_string("expires:"),
-		TfwStr_string("host:"),
-		TfwStr_string("pragma:"),
-		TfwStr_string("server:"),
-		TfwStr_string("transfer-encoding:"),
-		TfwStr_string("user-agent:"),
-		TfwStr_string("x-forwarded-for:"),
-#undef TfwStr_string
+		TFW_STR_STRING("age:"),
+		TFW_STR_STRING("authorization:"),
+		TFW_STR_STRING("cache-control:"),
+		TFW_STR_STRING("connection:"),
+		TFW_STR_STRING("content-length:"),
+		TFW_STR_STRING("content-type:"),
+		TFW_STR_STRING("cookie:"),
+		TFW_STR_STRING("date:"),
+		TFW_STR_STRING("etag:"),
+		TFW_STR_STRING("expires:"),
+		TFW_STR_STRING("host:"),
+		TFW_STR_STRING("pragma:"),
+		TFW_STR_STRING("server:"),
+		TFW_STR_STRING("transfer-encoding:"),
+		TFW_STR_STRING("user-agent:"),
+		TFW_STR_STRING("x-forwarded-for:"),
 	};
 
 	if (hbh->off == TFW_HBH_TOKENS_MAX)

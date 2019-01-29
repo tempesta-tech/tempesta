@@ -259,15 +259,13 @@ static inline bool
 __hdr_is_singular(const TfwStr *hdr)
 {
 	static const TfwStr hdr_singular[] = {
-#define TfwStr_string(v) { .data = (v), NULL, sizeof(v) - 1, 0 }
-		TfwStr_string("authorization:"),
-		TfwStr_string("from:"),
-		TfwStr_string("if-unmodified-since:"),
-		TfwStr_string("location:"),
-		TfwStr_string("max-forwards:"),
-		TfwStr_string("proxy-authorization:"),
-		TfwStr_string("referer:"),
-#undef TfwStr_string
+		TFW_STR_STRING("authorization:"),
+		TFW_STR_STRING("from:"),
+		TFW_STR_STRING("if-unmodified-since:"),
+		TFW_STR_STRING("location:"),
+		TFW_STR_STRING("max-forwards:"),
+		TFW_STR_STRING("proxy-authorization:"),
+		TFW_STR_STRING("referer:"),
 	};
 
 	return tfw_http_msg_find_hdr(hdr, hdr_singular);
