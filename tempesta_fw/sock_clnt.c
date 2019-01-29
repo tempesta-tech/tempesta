@@ -480,7 +480,7 @@ tfw_cfgop_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		addr = tfw_addr_new_v4(INADDR_ANY, htons(port));
 
 	} else {
-		r = tfw_addr_pton(&TFW_STR_FROM(in_str), &addr);
+		r = tfw_addr_pton(&TFW_STR_FROM_CSTR(in_str), &addr);
 		if (r)
 			goto parse_err;
 	}

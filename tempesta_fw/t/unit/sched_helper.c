@@ -158,7 +158,7 @@ test_create_srv(const char *in_addr, TfwSrvGroup *sg)
 	TfwServer *srv;
 
 	{
-		int r = tfw_addr_pton(&TFW_STR_FROM(in_addr), &addr);
+		int r = tfw_addr_pton(&TFW_STR_FROM_CSTR(in_addr), &addr);
 		BUG_ON(r);
 	}
 
