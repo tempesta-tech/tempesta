@@ -219,13 +219,13 @@ typedef struct tfwstr_t {
 #define TFW_STR_STRING(val)		((TfwStr){.data = (val), NULL,	\
 						  sizeof(val) - 1, 0, 0, 0})
 #define DEFINE_TFW_STR(name, val)	TfwStr name = TFW_STR_STRING(val)
-#define TFW_STR_FROM_CSTR(s)		((TfwStr){.data = (char*)s,	\
+#define TFW_STR_FROM_CSTR(s)		((TfwStr){.data = (char*)(s),	\
 						  NULL, strlen(s), 0, 0, 0})
 
 /* Use this with "%.*s" in printing calls. */
 #define PR_TFW_STR(s)		(int)min(20UL, (s)->len), (s)->data
 
-#define TFW_STR_INIT(s)		memset(s, 0, sizeof(TfwStr))
+#define TFW_STR_INIT(s)		memset((s), 0, sizeof(TfwStr))
 
 #define TFW_STR_EMPTY(s)	(!((s)->nchunks | (s)->len))
 #define TFW_STR_PLAIN(s)	(!((s)->nchunks))
@@ -236,7 +236,7 @@ typedef struct tfwstr_t {
 #define TFW_STR_CHUNK(s, c)	(!TFW_STR_PLAIN(s)			\
 				 ? ((c) >= (s)->nchunks			\
 				    ? NULL				\
-				    : __TFW_STR_CH(s, (c)))		\
+				    : __TFW_STR_CH((s), (c)))		\
 				 : (!(c) ? s : NULL))
 /*
  * Get last/current chunk of @s.
@@ -266,7 +266,7 @@ typedef struct tfwstr_t {
 	}
 
 #define TFW_STR_FOR_EACH_CHUNK(c, s, end)				\
-	TFW_STR_FOR_EACH_CHUNK_INIT(c, s, end);				\
+	TFW_STR_FOR_EACH_CHUNK_INIT(c, (s), end);				\
 	for ( ; (c) < end; ++(c))
 
 /* The same as above, but for duplicate strings. */
