@@ -4,7 +4,7 @@
  * TLS Ciphersuites definitions.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
@@ -25,8 +25,7 @@
 #define TTLS_CIPHERSUITES_H
 
 #include "pk.h"
-#include "cipher.h"
-#include "md.h"
+#include "crypto.h"
 
 /*
  * Supported ciphersuites (Official IANA names)
