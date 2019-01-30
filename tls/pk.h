@@ -24,7 +24,7 @@
 #ifndef TTLS_PK_H
 #define TTLS_PK_H
 
-#include "md.h"
+#include "crypto.h"
 #include "rsa.h"
 #include "ecp.h"
 #include "ecdsa.h"

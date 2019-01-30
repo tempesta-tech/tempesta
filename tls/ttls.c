@@ -31,14 +31,14 @@
 #include "lib/str.h"
 #include "config.h"
 #include "debug.h"
-#include "md.h"
+#include "crypto.h"
 #include "oid.h"
 #include "tls_internal.h"
 #include "ttls.h"
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
 MODULE_DESCRIPTION("Tempesta TLS");
-MODULE_VERSION("0.2.1");
+MODULE_VERSION("0.2.2");
 MODULE_LICENSE("GPL");
 
 typedef struct {

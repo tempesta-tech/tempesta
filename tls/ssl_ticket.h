@@ -28,7 +28,7 @@
  * secrecy.
  */
 
-#include "cipher.h"
+#include "crypto.h"
 #include "ttls.h"
 
 /**
