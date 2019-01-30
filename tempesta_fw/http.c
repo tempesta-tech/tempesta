@@ -3163,8 +3163,11 @@ tfw_http_resp_cache_cb(TfwHttpMsg *msg)
 
 	TFW_DBG2("%s: req = %p, resp = %p\n", __func__, req, resp);
 	/*
-	 * Response will never be sent: client has disconnected already.
-	 * Don't adjust response, simply destroy it.
+	 * A client can disconnect at any time after the request was
+	 * forwarded to backend. In this case the response will never be sent
+	 * to the client. Keep the response until it's saved in the cache,
+	 * so other clients can served from cache. After response is saved to
+	 * cache it can be dropped.
 	 */
 	if (unlikely(test_bit(TFW_HTTP_B_REQ_DROP, req->flags))) {
 		TFW_DBG2("%s: resp=[%p] dropped: client disconnected\n",
