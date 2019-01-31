@@ -98,7 +98,7 @@ int ttls_ticket_setup(ttls_ticket_context *ctx, ttls_cipher_type_t cipher,
 	uint32_t lifetime)
 {
 	int ret;
-	const ttls_cipher_info_t *cipher_info;
+	const TlsCipherInfo *cipher_info;
 
 	ctx->ticket_lifetime = lifetime;
 
@@ -388,9 +388,6 @@ int ttls_ticket_parse(void *p_ticket,
 		key_name, 4 + 12 + 2, ticket, enc_len,
 		ticket, &clear_len, tag, 16)) != 0)
 	{
-		if (ret == TTLS_ERR_CIPHER_AUTH_FAILED)
-			ret = TTLS_ERR_INVALID_MAC;
-
 		goto cleanup;
 	}
 	if (clear_len != enc_len)

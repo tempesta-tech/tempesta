@@ -4,7 +4,7 @@
  * Error message information.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
@@ -56,26 +56,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 	{
 		use_ret = ret & 0xFF80;
 
-		// High level error codes
-		//
-		// BEGIN generated code
-		if (use_ret == -(TTLS_ERR_CIPHER_FEATURE_UNAVAILABLE))
-			snprintf(buf, buflen, "CIPHER - The selected feature is not available");
-		if (use_ret == -(TTLS_ERR_CIPHER_BAD_INPUT_DATA))
-			snprintf(buf, buflen, "CIPHER - Bad input parameters");
-		if (use_ret == -(TTLS_ERR_CIPHER_ALLOC_FAILED))
-			snprintf(buf, buflen, "CIPHER - Failed to allocate memory");
-		if (use_ret == -(TTLS_ERR_CIPHER_INVALID_PADDING))
-			snprintf(buf, buflen, "CIPHER - Input data contains invalid padding and is rejected");
-		if (use_ret == -(TTLS_ERR_CIPHER_FULL_BLOCK_EXPECTED))
-			snprintf(buf, buflen, "CIPHER - Decryption of block requires a full block");
-		if (use_ret == -(TTLS_ERR_CIPHER_AUTH_FAILED))
-			snprintf(buf, buflen, "CIPHER - Authentication failed (for AEAD modes)");
-		if (use_ret == -(TTLS_ERR_CIPHER_INVALID_CONTEXT))
-			snprintf(buf, buflen, "CIPHER - The context is invalid. For example, because it was freed");
-		if (use_ret == -(TTLS_ERR_CIPHER_HW_ACCEL_FAILED))
-			snprintf(buf, buflen, "CIPHER - Cipher hardware accelerator failed");
-
 #if defined(TTLS_DHM_C)
 		if (use_ret == -(TTLS_ERR_DHM_BAD_INPUT_DATA))
 			snprintf(buf, buflen, "DHM - Bad input parameters");
@@ -119,17 +99,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "ECP - Signature is valid but shorter than the user-supplied length");
 		if (use_ret == -(TTLS_ERR_ECP_HW_ACCEL_FAILED))
 			snprintf(buf, buflen, "ECP - ECP hardware accelerator failed");
-
-		if (use_ret == -(TTLS_ERR_MD_FEATURE_UNAVAILABLE))
-			snprintf(buf, buflen, "MD - The selected feature is not available");
-		if (use_ret == -(TTLS_ERR_MD_BAD_INPUT_DATA))
-			snprintf(buf, buflen, "MD - Bad input parameters to function");
-		if (use_ret == -(TTLS_ERR_MD_ALLOC_FAILED))
-			snprintf(buf, buflen, "MD - Failed to allocate memory");
-		if (use_ret == -(TTLS_ERR_MD_FILE_IO_ERROR))
-			snprintf(buf, buflen, "MD - Opening or reading of file failed");
-		if (use_ret == -(TTLS_ERR_MD_HW_ACCEL_FAILED))
-			snprintf(buf, buflen, "MD - MD hardware accelerator failed");
 
 		if (use_ret == -(TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT))
 			snprintf(buf, buflen, "PEM - No PEM header or footer found");
