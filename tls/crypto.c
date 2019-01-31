@@ -28,54 +28,173 @@
 
 /*
  * ------------------------------------------------------------------------
+ *	Ciphers
+ * ------------------------------------------------------------------------
+ */
+typedef struct {
+	ttls_cipher_type_t	type;
+	TlsCipherInfo		*info;
+} TlsCipherDef;
+
+void
+ttls_cipher_free(TlsCipherCtx *ctx)
+{
+	if (!ctx)
+		return;
+	if (ctx->cipher_ctx)
+		crypto_free_aead(ctx->cipher_ctx);
+	bzero_fast(ctx, sizeof(TlsCipherCtx));
+}
+
+int
+ttls_cipher_setup(TlsCipherCtx *ctx, const TlsCipherInfo *ci,
+		  unsigned int tag_size)
+{
+	int r;
+
+	BUG_ON(!ci || !ctx);
+
+	bzero_fast(ctx, sizeof(TlsCipherCtx));
+
+	ctx->cipher_ctx = crypto_alloc_aead_atomic(ci->alg);
+	if (IS_ERR(ctx->cipher_ctx))
+		return PTR_ERR(ctx->cipher_ctx);
+
+	if ((r = crypto_aead_setauthsize(ctx->cipher_ctx, tag_size))) {
+		ttls_cipher_free(ctx);
+		return r;
+	}
+
+	/* See IV definitions for all cipher suites at the below. */
+	WARN_ON_ONCE(crypto_aead_ivsize(ctx->cipher_ctx) != 12);
+
+	ctx->cipher_info = ci;
+
+	return 0;
+}
+
+static TlsCipherInfo aes_128_gcm_info = {
+	TTLS_CIPHER_AES_128_GCM,
+	TTLS_MODE_GCM,
+	16,
+	"AES-128-GCM",
+	"gcm(aes)",
+	12,
+};
+
+static TlsCipherInfo aes_192_gcm_info = {
+	TTLS_CIPHER_AES_192_GCM,
+	TTLS_MODE_GCM,
+	24,
+	"AES-192-GCM",
+	"gcm(aes)",
+	12,
+};
+
+static TlsCipherInfo aes_256_gcm_info = {
+	TTLS_CIPHER_AES_256_GCM,
+	TTLS_MODE_GCM,
+	32,
+	"AES-256-GCM",
+	"gcm(aes)",
+	12,
+};
+
+static TlsCipherInfo aes_128_ccm_info = {
+	TTLS_CIPHER_AES_128_CCM,
+	TTLS_MODE_CCM,
+	16,
+	"AES-128-CCM",
+	"ccm(aes)",
+	12,
+};
+
+static TlsCipherInfo aes_192_ccm_info = {
+	TTLS_CIPHER_AES_192_CCM,
+	TTLS_MODE_CCM,
+	24,
+	"AES-192-CCM",
+	"ccm(aes)",
+	12,
+};
+
+static TlsCipherInfo aes_256_ccm_info = {
+	TTLS_CIPHER_AES_256_CCM,
+	TTLS_MODE_CCM,
+	32,
+	"AES-256-CCM",
+	"ccm(aes)",
+	12,
+};
+
+static TlsCipherDef ttls_ciphers[] = {
+	{ TTLS_CIPHER_AES_128_GCM,	&aes_128_gcm_info },
+	{ TTLS_CIPHER_AES_192_GCM,	&aes_192_gcm_info },
+	{ TTLS_CIPHER_AES_256_GCM,	&aes_256_gcm_info },
+	{ TTLS_CIPHER_AES_128_CCM,	&aes_128_ccm_info },
+	{ TTLS_CIPHER_AES_192_CCM,	&aes_192_ccm_info },
+	{ TTLS_CIPHER_AES_256_CCM,	&aes_256_ccm_info },
+	{ TTLS_CIPHER_NONE,		NULL }
+};
+
+const TlsCipherInfo *
+ttls_cipher_info_from_type(const ttls_cipher_type_t cipher_type)
+{
+	const TlsCipherDef *def;
+
+	for (def = ttls_ciphers; def->info; def++)
+		if (def->type == cipher_type)
+			return def->info;
+	return NULL;
+}
+
+/*
+ * ------------------------------------------------------------------------
  *	Message digests
  * ------------------------------------------------------------------------
  */
-/*
- * Reminder: update profiles in x509_crt.c when adding a new hash!
- */
-static const int supported_digests[] = {
-	TTLS_MD_SHA512,
-	TTLS_MD_SHA384,
-	TTLS_MD_SHA256,
-	TTLS_MD_SHA224,
-	TTLS_MD_NONE
-};
+typedef struct {
+	ttls_md_type_t		type;
+	TlsMdInfo		*info;
+} TlsHashDef;
 
-TlsMdInfo ttls_sha224_info = {
+static TlsMdInfo ttls_sha224_info = {
 	.type		= TTLS_MD_SHA224,
 	.name		= "SHA224",
 	.alg_name	= "sha224-avx2",
 	.hmac_name	= "hmac(sha224-avx2)",
-	.size		= 28,
-	.block_size	= 64,
 };
 
-TlsMdInfo ttls_sha256_info = {
+static TlsMdInfo ttls_sha256_info = {
 	.type		= TTLS_MD_SHA256,
 	.name		= "SHA256",
 	.alg_name	= "sha256-avx2",
 	.hmac_name	= "hmac(sha256-avx2)",
-	.size		= 32,
-	.block_size	= 64,
 };
 
-TlsMdInfo ttls_sha384_info = {
+static TlsMdInfo ttls_sha384_info = {
 	.type		= TTLS_MD_SHA384,
 	.name		= "SHA384",
 	.alg_name	= "sha384-avx2",
 	.hmac_name	= "hmac(sha384-avx2)",
-	.size		= 48,
-	.block_size	= 128,
 };
 
-TlsMdInfo ttls_sha512_info = {
+static TlsMdInfo ttls_sha512_info = {
 	.type		= TTLS_MD_SHA512,
 	.name		= "SHA512",
 	.alg_name	= "sha512-avx2",
 	.hmac_name	= "hmac(sha512-avx2)",
-	.size		= 64,
-	.block_size	= 128,
+};
+
+/*
+ * Reminder: update profiles in x509_crt.c when adding a new hash!
+ */
+static TlsHashDef ttls_hashes[] = {
+	{ TTLS_MD_SHA512,	&ttls_sha512_info },
+	{ TTLS_MD_SHA384,	&ttls_sha384_info },
+	{ TTLS_MD_SHA256,	&ttls_sha256_info },
+	{ TTLS_MD_SHA224,	&ttls_sha224_info },
+	{ TTLS_MD_NONE,		NULL }
 };
 
 void
@@ -87,19 +206,19 @@ ttls_md_init(TlsMdCtx *ctx)
 void
 ttls_md_free(TlsMdCtx *ctx)
 {
-	if (ctx)
-		crypto_free_shash(ctx->md_ctx.tfm);
+	if (!ctx)
+		return;
+	crypto_free_shash(ctx->md_ctx.tfm);
+	bzero_fast(ctx, sizeof(TlsMdCtx));
 }
 
 static int
 __ttls_md_hash_setup(struct shash_desc *md_ctx, const TlsMdInfo *md_info)
 {
-	md_ctx->tfm = crypto_alloc_shash(md_info->alg_name, 0, 0);
+	md_ctx->tfm = crypto_alloc_shash_atomic(md_info->alg_hash);
 	if (IS_ERR(md_ctx->tfm)) {
-		T_ERR("cannot initialize hash driver %s."
-		      " Please check /proc/crypto for the algorithm\n",
-		      md_info->alg_name);
-		return TTLS_ERR_MD_ALLOC_FAILED;
+		T_DBG("Cannot setup hash ctx, %ld\n", PTR_ERR(md_ctx->tfm));
+		return PTR_ERR(md_ctx->tfm);
 	}
 
 	return 0;
@@ -108,12 +227,10 @@ __ttls_md_hash_setup(struct shash_desc *md_ctx, const TlsMdInfo *md_info)
 static int
 __ttls_md_hmac_setup(struct shash_desc *md_ctx, const TlsMdInfo *md_info)
 {
-	md_ctx->tfm = crypto_alloc_shash(md_info->hmac_name, 0, 0);
+	md_ctx->tfm = crypto_alloc_shash_atomic(md_info->alg_hmac);
 	if (IS_ERR(md_ctx->tfm)) {
-		T_ERR("cannot initialize HMAC driver %s."
-		      " Please check /proc/crypto for the algorithm\n",
-		      md_info->hmac_name);
-		return TTLS_ERR_MD_ALLOC_FAILED;
+		T_DBG("Cannot setup hmac ctx, %ld\n", PTR_ERR(md_ctx->tfm));
+		return PTR_ERR(md_ctx->tfm);
 	}
 
 	return 0;
@@ -135,25 +252,43 @@ ttls_md_setup(TlsMdCtx *ctx, const TlsMdInfo *md_info, int hmac)
 int
 ttls_md_starts(TlsMdCtx *ctx)
 {
+	int r;
+
 	BUG_ON(!ctx || !ctx->md_info);
 
-	return crypto_shash_init(&ctx->md_ctx);
+	r = crypto_shash_init(&ctx->md_ctx);
+	if (r)
+		T_DBG("cannot start hash ctx, %d\n", r);
+
+	return r;
 }
 
 int
 ttls_md_update(TlsMdCtx *ctx, const unsigned char *input, size_t ilen)
 {
+	int r;
+
 	BUG_ON(!ctx || !ctx->md_info);
 
-	return crypto_shash_update(&ctx->md_ctx, input, ilen);
+	r = crypto_shash_update(&ctx->md_ctx, input, ilen);
+	if (r)
+		T_DBG("cannot update hash ctx, %d\n", r);
+
+	return r;
 }
 
 int
 ttls_md_finish(TlsMdCtx *ctx, unsigned char *output)
 {
+	int r;
+
 	BUG_ON(!ctx || !ctx->md_info);
 
-	return crypto_shash_final(&ctx->md_ctx, output);
+	r = crypto_shash_final(&ctx->md_ctx, output);
+	if (r)
+		T_DBG("cannot finish hash context, %d\n", r);
+
+	return r;
 }
 
 int
@@ -219,7 +354,7 @@ ttls_md_hmac_reset(TlsMdCtx *ctx)
 const TlsMdInfo *
 ttls_md_info_from_type(ttls_md_type_t md_type)
 {
-	switch(md_type) {
+	switch (md_type) {
 	case TTLS_MD_SHA224:
 		return &ttls_sha224_info;
 	case TTLS_MD_SHA256:
@@ -235,180 +370,101 @@ ttls_md_info_from_type(ttls_md_type_t md_type)
 
 /*
  * ------------------------------------------------------------------------
- *	Ciphers
+ *	Common initialization routines
  * ------------------------------------------------------------------------
  */
-typedef struct {
-	ttls_cipher_type_t		type;
-	const ttls_cipher_info_t	*info;
-} TlsCipherDef;
+static unsigned int g_aead_max_reqsize = sizeof(struct aead_request);
 
-extern const TlsCipherDef ttls_cipher_definitions[];
-
-static struct crypto_aead *
-gcm_aes_ctx_alloc(void)
+unsigned int
+ttls_aead_reqsize(void)
 {
-	struct crypto_aead *a = crypto_alloc_aead("gcm(aes)", 0, 0);
-
-	if (IS_ERR(a))
-		T_ERR("cannot initialize gcm(aes) cipher."
-		      " Please check /proc/crypto for the algorithm\n");
-
-	return a;
+	return g_aead_max_reqsize;
 }
 
-static struct crypto_aead *
-ccm_aes_ctx_alloc(void)
+/**
+ * Crypto framework may load crypto modules on the fly during a particular
+ * algorithm initialization, so the two routines at the below just allocate and
+ * immediately free algorithm descriptors to make all the necessary modules
+ * loaded.
+ */
+static int __init
+ttls_ciphermod_preload(const char *alg_name)
 {
-	struct crypto_aead *a = crypto_alloc_aead("ccm(aes)", 0, 0);
+	unsigned int rs;
+	struct crypto_aead *a = crypto_alloc_aead(alg_name, 0, 0);
 
-	if (IS_ERR(a))
-		T_ERR("cannot initialize ccm(aes) cipher."
-		      " Please check /proc/crypto for the algorithm\n");
-
-	return a;
-}
-
-const ttls_cipher_info_t *
-ttls_cipher_info_from_type(const ttls_cipher_type_t cipher_type)
-{
-	const TlsCipherDef *def;
-
-	for (def = ttls_cipher_definitions; def->info; def++)
-		if (def->type == cipher_type)
-			return def->info;
-	return NULL;
-}
-
-void
-ttls_cipher_free(TlsCipherCtx *ctx)
-{
-	if (!ctx)
-		return;
-
-	if (ctx->cipher_ctx)
-		ctx->cipher_info->base->ctx_free_func(ctx->cipher_ctx);
-
-	bzero_fast(ctx, sizeof(TlsCipherCtx));
-}
-
-int
-ttls_cipher_setup(TlsCipherCtx *ctx, const ttls_cipher_info_t *ci,
-		  unsigned int tag_size)
-{
-	int r;
-
-	BUG_ON(!ci || !ctx);
-
-	bzero_fast(ctx, sizeof(TlsCipherCtx));
-
-	if (!(ctx->cipher_ctx = ci->base->ctx_alloc_func()))
-		return TTLS_ERR_CIPHER_ALLOC_FAILED;
-	if ((r = crypto_aead_setauthsize(ctx->cipher_ctx, tag_size))) {
-		ttls_cipher_free(ctx);	
-		return r;
+	if (IS_ERR(a)) {
+		T_ERR("Cannot preload %s module, please check /proc/crypto.\n",
+		      alg_name);
+		return PTR_ERR(a);
 	}
 
-	/* See IV definitions for all cipher suites at the below. */
-	WARN_ON_ONCE(crypto_aead_ivsize(ctx->cipher_ctx) != 12);
+	rs = crypto_aead_reqsize(a) + sizeof(struct aead_request);
+	if (rs > g_aead_max_reqsize)
+		g_aead_max_reqsize = rs;
 
-	ctx->cipher_info = ci;
+	crypto_free_aead(a);
 
 	return 0;
 }
 
-static ttls_cipher_base_t gcm_aes_info = {
-	.cipher			= TTLS_CIPHER_ID_AES,
-	.ctx_alloc_func		= gcm_aes_ctx_alloc,
-	.ctx_free_func		= crypto_free_aead,
-};
-
-static const ttls_cipher_info_t aes_128_gcm_info = {
-	TTLS_CIPHER_AES_128_GCM,
-	TTLS_MODE_GCM,
-	16,
-	"AES-128-GCM",
-	12,
-	TTLS_CIPHER_VARIABLE_IV_LEN,
-	16,
-	&gcm_aes_info
-};
-
-static const ttls_cipher_info_t aes_192_gcm_info = {
-	TTLS_CIPHER_AES_192_GCM,
-	TTLS_MODE_GCM,
-	24,
-	"AES-192-GCM",
-	12,
-	TTLS_CIPHER_VARIABLE_IV_LEN,
-	16,
-	&gcm_aes_info
-};
-
-static const ttls_cipher_info_t aes_256_gcm_info = {
-	TTLS_CIPHER_AES_256_GCM,
-	TTLS_MODE_GCM,
-	32,
-	"AES-256-GCM",
-	12,
-	TTLS_CIPHER_VARIABLE_IV_LEN,
-	16,
-	&gcm_aes_info
-};
-
-static ttls_cipher_base_t ccm_aes_info = {
-	.cipher			= TTLS_CIPHER_ID_AES,
-	.ctx_alloc_func		= ccm_aes_ctx_alloc,
-	.ctx_free_func		= crypto_free_aead,
-};
-
-static const ttls_cipher_info_t aes_128_ccm_info = {
-	TTLS_CIPHER_AES_128_CCM,
-	TTLS_MODE_CCM,
-	16,
-	"AES-128-CCM",
-	12,
-	TTLS_CIPHER_VARIABLE_IV_LEN,
-	16,
-	&ccm_aes_info
-};
-
-static const ttls_cipher_info_t aes_192_ccm_info = {
-	TTLS_CIPHER_AES_192_CCM,
-	TTLS_MODE_CCM,
-	24,
-	"AES-192-CCM",
-	12,
-	TTLS_CIPHER_VARIABLE_IV_LEN,
-	16,
-	&ccm_aes_info
-};
-
-static const ttls_cipher_info_t aes_256_ccm_info = {
-	TTLS_CIPHER_AES_256_CCM,
-	TTLS_MODE_CCM,
-	32,
-	"AES-256-CCM",
-	12,
-	TTLS_CIPHER_VARIABLE_IV_LEN,
-	16,
-	&ccm_aes_info
-};
-
-const TlsCipherDef ttls_cipher_definitions[] =
+static int __init
+ttls_hashmod_preload(const char *alg_name)
 {
-	{ TTLS_CIPHER_AES_128_GCM,		  &aes_128_gcm_info },
-	{ TTLS_CIPHER_AES_192_GCM,		  &aes_192_gcm_info },
-	{ TTLS_CIPHER_AES_256_GCM,		  &aes_256_gcm_info },
-	{ TTLS_CIPHER_AES_128_CCM,		  &aes_128_ccm_info },
-	{ TTLS_CIPHER_AES_192_CCM,		  &aes_192_ccm_info },
-	{ TTLS_CIPHER_AES_256_CCM,		  &aes_256_ccm_info },
-	{ TTLS_CIPHER_NONE, NULL }
-};
+	struct crypto_shash *h = crypto_alloc_shash(alg_name, 0, 0);
 
-/*
- * ------------------------------------------------------------------------
- *	Common initialization routines
- * ------------------------------------------------------------------------
- */
+	if (IS_ERR(h)) {
+		T_ERR("Cannot preload %s module, please check /proc/crypto.\n",
+		      alg_name);
+		return PTR_ERR(h);
+	}
+	crypto_free_shash(h);
 
+	return 0;
+}
+
+int __init
+ttls_crypto_modinit(void)
+{
+	int r;
+	const char *name;
+	TlsCipherDef *c;
+	TlsHashDef *h;
+
+	for (c = ttls_ciphers; c->info; c++) {
+		name = c->info->drv_name;
+		if ((r = ttls_ciphermod_preload(name)))
+			return r;
+		c->info->alg = crypto_find_aead(name, 0, 0);
+		if (IS_ERR(c->info->alg)) {
+			r = PTR_ERR(c->info->alg);
+			goto err;
+		}
+	}
+
+	for (h = ttls_hashes; h->info; h++) {
+		name = h->info->alg_name;
+		if ((r = ttls_hashmod_preload(name)))
+			return r;
+		h->info->alg_hash = crypto_find_shash(name, 0, 0);
+		if (IS_ERR(h->info->alg_hash)) {
+			r = PTR_ERR(h->info->alg_hash);
+			goto err;
+		}
+
+		name = h->info->hmac_name;
+		if ((r = ttls_hashmod_preload(name)))
+			return r;
+		h->info->alg_hmac = crypto_find_shash(name, 0, 0);
+		if (IS_ERR(h->info->alg_hmac)) {
+			r = PTR_ERR(h->info->alg_hmac);
+			goto err;
+		}
+	}
+
+	return 0;
+err:
+	T_ERR("Cannot find %s algorithm, please check /proc/crypto for it\n",
+	      name);
+	return r;
+}
