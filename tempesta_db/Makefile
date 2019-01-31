@@ -18,7 +18,7 @@
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 all: libtdb tdbq
-.PHONY: all
+.PHONY: all libtdb tdbq
 
 libtdb:
 	$(MAKE) -C libtdb
