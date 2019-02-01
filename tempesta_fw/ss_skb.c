@@ -283,11 +283,11 @@ __skb_insert_after(struct sk_buff *skb, struct sk_buff *nskb)
 static int
 __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 {
-	int i, n_shift, n_excess = 0;
 	struct skb_shared_info *si = skb_shinfo(skb);
+	int i, n_shift, n_excess = 0, tail_frags = si->nr_frags - from;
 
 	BUG_ON((n <= 0) || (n > 2));
-	BUG_ON(from > si->nr_frags);
+	BUG_ON(tail_frags < 0);
 
 	/* No room for @n extra page fragments in the SKB. */
 	if (si->nr_frags + n > MAX_SKB_FRAGS) {
@@ -326,11 +326,18 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 		}
 
 		/* No fragments to shift. */
-		if (from == si->nr_frags)
+		if (!tail_frags)
 			return 0;
 
-		/* Shift @n_excess number of page fragments to new SKB. */
-		for (i = n_excess - 1; i >= 0; --i) {
+		/*
+		 * Move @n_excess number of page fragments to new SKB. We
+		 * must move @n_excess fragments to next/new skb, except
+		 * those, which we are inserting (@n fragments) - so we
+		 * must move last @n_excess fragments: not more than
+		 * @tail_frags, and not more than @n_excess itself
+		 * (maximum @n_excess fragments can be moved).
+		 */
+		for (i = n_excess - 1; i >= max(n_excess - tail_frags, 0); --i) {
 			f = &si->frags[MAX_SKB_FRAGS - n + i];
 			skb_shinfo(nskb)->frags[i] = *f;
 			e_size += skb_frag_size(f);
@@ -338,11 +345,17 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 		ss_skb_adjust_data_len(skb, -e_size);
 		ss_skb_adjust_data_len(nskb, e_size);
 	}
-
-	/* Make room for @n page fragments in the SKB. */
-	n_shift = si->nr_frags - from - n_excess;
-	BUG_ON(n_shift < 0);
-	if (n_shift)
+	/*
+	 * Make room for @n page fragments in current SKB. We must shift
+	 * @tail_frags fragments inside current skb, except those, which we
+	 * moved to next/new skb (above); in case of too small @tail_frags
+	 * and/or too big @n values, the value of @n_shift will be negative,
+	 * but considering maximum @n value must be not greater than 2, the
+	 * minimum @n_shift value must be not less than -1.
+	 */
+	n_shift = tail_frags - n_excess;
+	BUG_ON(n_shift + 1 < 0);
+	if (n_shift > 0)
 		memmove(&si->frags[from + n],
 			&si->frags[from], n_shift * sizeof(skb_frag_t));
 	si->nr_frags += n - n_excess;
@@ -570,9 +583,9 @@ __split_pgfrag_add(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off
 	skb_frag_size_sub(frag, tail_len);
 
 	/* Make the fragment with the tail part. */
-	i = (i + 2) % MAX_SKB_FRAGS;
-	__skb_fill_page_desc(skb_dst, i, skb_frag_page(frag),
-			     frag->page_offset + off, tail_len);
+	__skb_fill_page_desc(skb_dst, (i + 2) % MAX_SKB_FRAGS,
+			     skb_frag_page(frag), frag->page_offset + off,
+			     tail_len);
 	__skb_frag_ref(frag);
 
 	/* Adjust SKB data lengths. */
