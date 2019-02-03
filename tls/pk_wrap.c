@@ -113,8 +113,10 @@ static int rsa_check_pair_wrap(const void *pub, const void *prv)
 static void *
 rsa_alloc_wrap(void)
 {
-	void *ctx = kzalloc(sizeof(ttls_rsa_context), GFP_ATOMIC);
-	if (!ctx)
+	void *ctx;
+
+	might_sleep();
+	if ((ctx = kzalloc(sizeof(ttls_rsa_context), GFP_KERNEL)))
 		ttls_rsa_init((ttls_rsa_context *)ctx, 0, 0);
 
 	return ctx;

@@ -35,32 +35,6 @@
 #define ttls_calloc(n, s)	kzalloc((n) * (s), GFP_ATOMIC)
 #define ttls_free(p)		kfree(p)
 
-/**
- * \def TTLS_AES_ALT
- *
- * TTLS__MODULE_NAME__ALT: Uncomment a macro to let mbed TLS use your
- * alternate core implementation of a symmetric crypto, an arithmetic or hash
- * module (e.g. platform specific assembly optimized implementations). Keep
- * in mind that the function prototypes should remain the same.
- *
- * This replaces the whole module. If you only want to replace one of the
- * functions, use one of the TTLS__FUNCTION_NAME__ALT flags.
- *
- * Example: In case you uncomment TTLS_AES_ALT, mbed TLS will no longer
- * provide the "struct ttls_aes_context" definition and omit the base
- * function declarations and implementations. "aes_alt.h" will be included from
- * "aes.h" to include the new function definitions.
- *
- * Uncomment a macro to enable alternate implementation of the corresponding
- * module.
- *
- * \warning   MD2, MD4, MD5, DES and SHA-1 are considered weak and their
- *			use constitutes a security risk. If possible, we recommend
- *			avoiding dependencies on them, and considering stronger message
- *			digests and ciphers instead.
- *
- */
-//#define TTLS_RSA_ALT
 /*
  * When replacing the elliptic curve module, pleace consider, that it is
  * implemented with two .c files:
