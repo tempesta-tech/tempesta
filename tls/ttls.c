@@ -780,11 +780,8 @@ ttls_encrypt(TlsCtx *tls, struct sg_table *sgt)
 	struct aead_request *req;
 
 	WARN_ON_ONCE(!ttls_xfrm_ready(tls));
-	if (io->msglen > TLS_MAX_PAYLOAD_SIZE) {
-		T_WARN("cannot encrypt a record: content %u too large,"
-		       " maximum %lu\n", io->msglen, TLS_MAX_PAYLOAD_SIZE);
-		return TTLS_ERR_BAD_INPUT_DATA;
-	}
+	WARN_ON_ONCE(io->msglen > TLS_MAX_PAYLOAD_SIZE + TLS_MAX_OVERHEAD
+				  - TLS_HEADER_SIZE);
 
 	req = ttls_aead_req_alloc(c_ctx->cipher_ctx);
 	if (unlikely(!req))
