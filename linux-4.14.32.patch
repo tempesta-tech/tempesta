@@ -744,18 +744,17 @@ index d323d4fa..0f6bd0cf 100644
  }
  
 diff --git a/include/net/tls.h b/include/net/tls.h
-index df950383..4a99f03d 100644
+index df950383..c3d45c5e 100644
 --- a/include/net/tls.h
 +++ b/include/net/tls.h
-@@ -55,6 +55,13 @@
+@@ -55,6 +55,12 @@
  
  #define TLS_AAD_SPACE_SIZE		13
  
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +#define TLS_MAX_TAG_SZ			16
 +/* Maximum size for required skb overhead: header, IV, tag. */
-+#define TLS_MAX_OVERHEAD		(TLS_HEADER_SIZE + TLS_AAD_SPACE_SIZE \
-+					 + TLS_MAX_TAG_SZ)
++#define TLS_MAX_OVERHEAD		(TLS_AAD_SPACE_SIZE + TLS_MAX_TAG_SZ)
 +#endif
 +
  struct tls_sw_context {
