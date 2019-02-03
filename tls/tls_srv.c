@@ -550,15 +550,16 @@ ttls_choose_ciphersuite(TlsCtx *tls, const unsigned char *csp)
 		}
 
 	if (got_common_suite) {
-		T_DBG("got ciphersuites in common, but none of them usable\n");
+		T_WARN("None of the common ciphersuites is usable"
+		       " (e.g. no suitable certificate)\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				TTLS_ALERT_MSG_HANDSHAKE_FAILURE);
-		return TTLS_ERR_NO_USABLE_CIPHERSUITE;
+		return -EINVAL;
 	} else {
-		T_DBG("got no ciphersuites in common\n");
+		T_WARN("Got no ciphersuites in common\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				TTLS_ALERT_MSG_HANDSHAKE_FAILURE);
-		return TTLS_ERR_NO_CIPHER_CHOSEN;
+		return -EINVAL;
 	}
 
 have_ciphersuite:
@@ -1388,8 +1389,8 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 					goto curve_matching_done;
 curve_matching_done:
 		if (!curve || !*curve) {
-			T_DBG("no matching curve for ECDHE key exchange\n");
-			r = TTLS_ERR_NO_CIPHER_CHOSEN;
+			T_WARN("No matching curve for ECDHE key exchange\n");
+			r = -EINVAL;
 			goto err;
 		}
 		T_DBG("ECDHE curve: %s\n", (*curve)->name);

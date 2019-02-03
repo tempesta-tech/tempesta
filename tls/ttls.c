@@ -2407,9 +2407,39 @@ ttls_config_init(ttls_config *conf)
 }
 EXPORT_SYMBOL(ttls_config_init);
 
-static int ssl_preset_suiteb_ciphersuites[] = {
+static int ttls_default_ciphersuites[] = {
+	/* All AES-128 ephemeral suites */
 	TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+	TTLS_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+	TTLS_TLS_DHE_RSA_WITH_AES_128_GCM_SHA256,
+	TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CCM,
+	TTLS_TLS_DHE_RSA_WITH_AES_128_CCM,
+	TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8,
+	TTLS_TLS_DHE_RSA_WITH_AES_128_CCM_8,
+
+	/* All AES-256 ephemeral suites */
 	TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+	TTLS_TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+	TTLS_TLS_DHE_RSA_WITH_AES_256_GCM_SHA384,
+	TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CCM,
+	TTLS_TLS_DHE_RSA_WITH_AES_256_CCM,
+	TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8,
+	TTLS_TLS_DHE_RSA_WITH_AES_256_CCM_8,
+
+	/* All AES-256 suites */
+	TTLS_TLS_RSA_WITH_AES_256_GCM_SHA384,
+	TTLS_TLS_RSA_WITH_AES_256_CCM,
+	TTLS_TLS_ECDH_RSA_WITH_AES_256_GCM_SHA384,
+	TTLS_TLS_ECDH_ECDSA_WITH_AES_256_GCM_SHA384,
+	TTLS_TLS_RSA_WITH_AES_256_CCM_8,
+
+	/* All AES-128 suites */
+	TTLS_TLS_RSA_WITH_AES_128_GCM_SHA256,
+	TTLS_TLS_RSA_WITH_AES_128_CCM,
+	TTLS_TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256,
+	TTLS_TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256,
+	TTLS_TLS_RSA_WITH_AES_128_CCM_8,
+
 	0
 };
 
@@ -2462,11 +2492,8 @@ ttls_config_defaults(ttls_config *conf, int endpoint)
 	conf->min_minor_ver = TTLS_MINOR_VERSION_3; /* TLS 1.2 */
 	conf->max_minor_ver = TTLS_MAX_MINOR_VERSION;
 
-	conf->ciphersuite_list[TTLS_MINOR_VERSION_0]
-	= conf->ciphersuite_list[TTLS_MINOR_VERSION_1]
-	= conf->ciphersuite_list[TTLS_MINOR_VERSION_2]
-	= conf->ciphersuite_list[TTLS_MINOR_VERSION_3]
-	= ssl_preset_suiteb_ciphersuites;
+	ttls_conf_ciphersuites_for_version(conf, ttls_default_ciphersuites,
+					   TTLS_MINOR_VERSION_3);
 
 	conf->cert_profile = &ttls_x509_crt_profile_suiteb;
 	conf->sig_hashes = ssl_preset_suiteb_hashes;
