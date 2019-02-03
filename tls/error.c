@@ -181,8 +181,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "TLS - An invalid TLS record was received");
 		if (use_ret == -(TTLS_ERR_CONN_EOF))
 			snprintf(buf, buflen, "TLS - The connection indicated an EOF");
-		if (use_ret == -(TTLS_ERR_NO_CIPHER_CHOSEN))
-			snprintf(buf, buflen, "TLS - The server has no ciphersuites in common with the client");
 		if (use_ret == -(TTLS_ERR_NO_CLIENT_CERTIFICATE))
 			snprintf(buf, buflen, "TLS - No client certification received from the client, but required by the authentication mode");
 		if (use_ret == -(TTLS_ERR_CERTIFICATE_TOO_LARGE))
@@ -233,8 +231,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "TLS - Internal error (eg, unexpected failure in lower-level module)");
 		if (use_ret == -(TTLS_ERR_BUFFER_TOO_SMALL))
 			snprintf(buf, buflen, "TLS - A buffer is too small to receive or write a message");
-		if (use_ret == -(TTLS_ERR_NO_USABLE_CIPHERSUITE))
-			snprintf(buf, buflen, "TLS - None of the common ciphersuites is usable (eg, no suitable certificate, see debug messages)");
 		if (use_ret == -(TTLS_ERR_INVALID_VERIFY_HASH))
 			snprintf(buf, buflen, "TLS - Couldn't set the hash for verifying CertificateVerify");
 
