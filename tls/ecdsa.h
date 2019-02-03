@@ -57,10 +57,6 @@
  */
 typedef ttls_ecp_keypair ttls_ecdsa_context;
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /**
  * \brief		   This function computes the ECDSA signature of a
  *				  previously-hashed message.
@@ -188,9 +184,5 @@ void ttls_ecdsa_init(ttls_ecdsa_context *ctx);
  * \param ctx	   The ECDSA context to free.
  */
 void ttls_ecdsa_free(ttls_ecdsa_context *ctx);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* ecdsa.h */

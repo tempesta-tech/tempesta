@@ -106,35 +106,7 @@ typedef struct
 }
 ttls_rsa_context;
 
-/**
- * \brief		  This function initializes an RSA context.
- *
- * \note		   Set padding to #TTLS_RSA_PKCS_V21 for the RSAES-OAEP
- *				 encryption scheme and the RSASSA-PSS signature scheme.
- *
- * \param ctx	  The RSA context to initialize.
- * \param padding  Selects padding mode: #TTLS_RSA_PKCS_V15 or
- *				 #TTLS_RSA_PKCS_V21.
- * \param hash_id  The hash identifier of #ttls_md_type_t type, if
- *				 \p padding is #TTLS_RSA_PKCS_V21.
- *
- * \note		   The \p hash_id parameter is ignored when using
- *				 #TTLS_RSA_PKCS_V15 padding.
- *
- * \note		   The choice of padding mode is strictly enforced for private key
- *				 operations, since there might be security concerns in
- *				 mixing padding modes. For public key operations it is
- *				 a default value, which can be overriden by calling specific
- *				 \c rsa_rsaes_xxx or \c rsa_rsassa_xxx functions.
- *
- * \note		   The hash selected in \p hash_id is always used for OEAP
- *				 encryption. For PSS signatures, it is always used for
- *				 making signatures, but can be overriden for verifying them.
- *				 If set to #TTLS_MD_NONE, it is always overriden.
- */
-void ttls_rsa_init(ttls_rsa_context *ctx,
-		   int padding,
-		   int hash_id);
+void ttls_rsa_init(ttls_rsa_context *ctx, int padding, int hash_id);
 
 /**
  * \brief		  This function imports a set of core parameters into an
@@ -349,18 +321,6 @@ int ttls_rsa_export_raw(const ttls_rsa_context *ctx,
  */
 int ttls_rsa_export_crt(const ttls_rsa_context *ctx,
 				ttls_mpi *DP, ttls_mpi *DQ, ttls_mpi *QP);
-
-/**
- * \brief		  This function sets padding for an already initialized RSA
- *				 context. See ttls_rsa_init() for details.
- *
- * \param ctx	  The RSA context to be set.
- * \param padding  Selects padding mode: #TTLS_RSA_PKCS_V15 or
- *				 #TTLS_RSA_PKCS_V21.
- * \param hash_id  The #TTLS_RSA_PKCS_V21 hash identifier.
- */
-void ttls_rsa_set_padding(ttls_rsa_context *ctx, int padding,
-				  int hash_id);
 
 /**
  * \brief		  This function retrieves the length of RSA modulus in Bytes.

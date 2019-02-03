@@ -781,8 +781,8 @@ ttls_encrypt(TlsCtx *tls, struct sg_table *sgt)
 
 	WARN_ON_ONCE(!ttls_xfrm_ready(tls));
 	if (io->msglen > TLS_MAX_PAYLOAD_SIZE) {
-		T_DBG("%s record content %u too large, maximum %lu\n",
-		      __func__, io->msglen, TLS_MAX_PAYLOAD_SIZE);
+		T_WARN("cannot encrypt a record: content %u too large,"
+		       " maximum %lu\n", io->msglen, TLS_MAX_PAYLOAD_SIZE);
 		return TTLS_ERR_BAD_INPUT_DATA;
 	}
 
@@ -810,7 +810,7 @@ ttls_encrypt(TlsCtx *tls, struct sg_table *sgt)
 		  min_t(size_t, 256, io->msglen + TLS_HEADER_SIZE));
 
 	if ((r = crypto_aead_encrypt(req))) {
-		T_DBG2("encrypt failed: %d\n", r);
+		T_WARN("AEAD encryption failed: %d\n", r);
 		goto err;
 	}
 	T_DBG3_SL("encrypted buf (first 64 bytes)", sgt->sgl, sgt->nents, 0,
