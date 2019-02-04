@@ -86,8 +86,8 @@ TEST(tfw_hash_str, calcs_same_hash_for_diff_chunks_n)
 		.chunks = s3chunks
 	};
 
-	TFW_STR_CHUNKN_INIT(&s2);
-	__TFW_STR_CHUNKN_SET(&s3, 6);
+	s2.nchunks = 2;
+	s3.nchunks = 6;
 
 	h1 = tfw_hash_str(&s1);
 	h2 = tfw_hash_str(&s2);

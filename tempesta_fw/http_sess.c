@@ -199,7 +199,7 @@ tfw_http_redir_mark_prepare(RedirMarkVal *mv, char *buf, unsigned int buf_len,
 	rmark->len += chunks[1].len;
 	rmark->len += chunks[2].len;
 	rmark->len += chunks[3].len;
-	__TFW_STR_CHUNKN_SET(rmark, 4);
+	rmark->nchunks = 4;
 }
 
 static int
@@ -251,7 +251,7 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 
 	cookie.chunks = c_chunks;
 	cookie.len = c_chunks[0].len + c_chunks[1].len + c_chunks[2].len;
-	__TFW_STR_CHUNKN_SET(&cookie, 3);
+	cookie.nchunks = 3;
 
 	r = tfw_http_prep_redirect((TfwHttpMsg *)resp, tfw_cfg_redirect_st_code,
 				   &rmark, &cookie, body);
@@ -275,12 +275,12 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 	const unsigned long clen = tfw_cfg_sticky.name_eq.len;
 	TfwStr *chunk, *end;
 	TfwStr tmp = { .flags = 0, };
-	unsigned int n = TFW_STR_CHUNKN(cookie);
+	unsigned int n = cookie->nchunks;
 
 	BUG_ON(!TFW_STR_PLAIN(&tfw_cfg_sticky.name_eq));
 
 	/* Search cookie name. */
-	end = cookie->chunks + TFW_STR_CHUNKN(cookie);
+	end = cookie->chunks + cookie->nchunks;
 	for (chunk = cookie->chunks; chunk != end; ++chunk, --n) {
 		if (!(chunk->flags & TFW_STR_NAME))
 			continue;
@@ -290,7 +290,7 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 		 * is not set.
 		 */
 		tmp.chunks = chunk;
-		__TFW_STR_CHUNKN_SET(&tmp, n);
+		tmp.nchunks = n;
 		if (tfw_str_eq_cstr(&tmp, cstr, clen, TFW_STR_EQ_PREFIX))
 			break;
 	}
@@ -434,7 +434,7 @@ tfw_http_sticky_add(TfwHttpResp *resp)
 		},
 		.len = SLEN(S_F_SET_COOKIE) + tfw_cfg_sticky.name_eq.len + len,
 		.eolen = 2,
-		.flags = 3 << TFW_STR_CN_SHIFT
+		.nchunks = 3
 	};
 
 	/* See comment from tfw_http_sticky_build_redirect(). */
@@ -490,7 +490,7 @@ tfw_http_redir_mark_get(TfwHttpReq *req, TfwStr *out_val)
 		return 0;
 
 	/* Find the value chunk. */
-	end = mark->chunks + TFW_STR_CHUNKN(mark);
+	end = mark->chunks + mark->nchunks;
 	for (c = mark->chunks; c != end; ++c)
 		if (c->flags & TFW_STR_VALUE)
 			break;

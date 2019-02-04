@@ -47,15 +47,13 @@ static const int tfw_cache_spec_headers_304[] = {
 	[TFW_HTTP_HDR_ETAG] = 1,
 };
 static const TfwStr tfw_cache_raw_headers_304[] = {
-#define TfwStr_string(v)	{ .data = (v), NULL, sizeof(v) - 1, 0 }
-	TfwStr_string("cache-control:"),
-	TfwStr_string("content-location:"),
-	TfwStr_string("date:"),
-	TfwStr_string("expires:"),
-	TfwStr_string("last-modified:"),
-	TfwStr_string("vary:"),
+	TFW_STR_STRING("cache-control:"),
+	TFW_STR_STRING("content-location:"),
+	TFW_STR_STRING("date:"),
+	TFW_STR_STRING("expires:"),
+	TFW_STR_STRING("last-modified:"),
+	TFW_STR_STRING("vary:"),
 	/* Etag are Spec headers */
-#undef TfwStr_string
 };
 #define TFW_CACHE_304_SPEC_HDRS_NUM	1	/* ETag. */
 #define TFW_CACHE_304_HDRS_NUM						\
@@ -189,15 +187,15 @@ static TfwStr g_crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
 	} else {							\
 		c = req->uri_path.chunks;				\
 		u_end = req->uri_path.chunks				\
-			+ TFW_STR_CHUNKN(&req->uri_path);		\
+			+ req->uri_path.nchunks;			\
 	}								\
 	if (TFW_STR_PLAIN(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST])) {	\
 		h_start = req->h_tbl->tbl + TFW_HTTP_HDR_HOST;		\
 		h_end = req->h_tbl->tbl + TFW_HTTP_HDR_HOST + 1;	\
 	} else {							\
 		h_start = req->h_tbl->tbl[TFW_HTTP_HDR_HOST].chunks;	\
-		h_end = req->h_tbl->tbl[TFW_HTTP_HDR_HOST].chunks 	\
-			+ TFW_STR_CHUNKN(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST]);\
+		h_end = req->h_tbl->tbl[TFW_HTTP_HDR_HOST].chunks	\
+			+ req->h_tbl->tbl[TFW_HTTP_HDR_HOST].nchunks;	\
 	}								\
 	for ( ; c != h_end; ++c, c = (c == u_end) ? h_start : c)
 
@@ -608,7 +606,7 @@ tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwStr *hdr,
 
 	if (hdr) {
 		hdr->chunks = dups;
-		__TFW_STR_CHUNKN_SET(hdr, dn);
+		hdr->nchunks = dn;
 		hdr->flags |= TFW_STR_DUPLICATE;
 	}
 
@@ -835,7 +833,7 @@ tfw_cache_str_write_hdr(const TfwStr *str, char *p)
 
 	if (TFW_STR_DUP(str)) {
 		s->flags = TFW_STR_DUPLICATE;
-		s->len = TFW_STR_CHUNKN(str);
+		s->len = str->nchunks;
 	} else {
 		s->flags = 0;
 		s->len = str->len ? str->len + SLEN(S_CRLF) : 0;
@@ -1071,7 +1069,7 @@ __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
 
 	/* Compound string was allocated in resp->pool, move to cache entry. */
 	if (!TFW_STR_PLAIN(&ce->etag)) {
-		len = sizeof(TfwStr *) * TFW_STR_CHUNKN(&ce->etag);
+		len = sizeof(TfwStr *) * ce->etag.nchunks;
 		curr_p = tdb_entry_get_room(node_db(), curr_trec, curr_p, len,
 					    len);
 		if (!curr_p)
