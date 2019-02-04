@@ -644,25 +644,23 @@ __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
 	TfwStr *hdr, *append;
 	TfwHttpHbhHdrs *hbh = &hm->conn->parser.hbh_parser;
 	static const TfwStr block[] = {
-#define TfwStr_string(v) { .data = (v), NULL, sizeof(v) - 1, 0 }
 		/* End-to-end spec and raw headers */
-		TfwStr_string("age:"),
-		TfwStr_string("authorization:"),
-		TfwStr_string("cache-control:"),
-		TfwStr_string("connection:"),
-		TfwStr_string("content-length:"),
-		TfwStr_string("content-type:"),
-		TfwStr_string("cookie:"),
-		TfwStr_string("date:"),
-		TfwStr_string("etag:"),
-		TfwStr_string("expires:"),
-		TfwStr_string("host:"),
-		TfwStr_string("pragma:"),
-		TfwStr_string("server:"),
-		TfwStr_string("transfer-encoding:"),
-		TfwStr_string("user-agent:"),
-		TfwStr_string("x-forwarded-for:"),
-#undef TfwStr_string
+		TFW_STR_STRING("age:"),
+		TFW_STR_STRING("authorization:"),
+		TFW_STR_STRING("cache-control:"),
+		TFW_STR_STRING("connection:"),
+		TFW_STR_STRING("content-length:"),
+		TFW_STR_STRING("content-type:"),
+		TFW_STR_STRING("cookie:"),
+		TFW_STR_STRING("date:"),
+		TFW_STR_STRING("etag:"),
+		TFW_STR_STRING("expires:"),
+		TFW_STR_STRING("host:"),
+		TFW_STR_STRING("pragma:"),
+		TFW_STR_STRING("server:"),
+		TFW_STR_STRING("transfer-encoding:"),
+		TFW_STR_STRING("user-agent:"),
+		TFW_STR_STRING("x-forwarded-for:"),
 	};
 
 	if (hbh->off == TFW_HBH_TOKENS_MAX)
@@ -675,7 +673,7 @@ __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
 	else {
 		append = (TfwStr *)tfw_pool_alloc(hm->pool, sizeof(TfwStr));
 		hdr->chunks = append;
-		__TFW_STR_CHUNKN_SET(hdr, 1);
+		hdr->nchunks = 1;
 	}
 	if (!append)
 		return -ENOMEM;
@@ -1427,8 +1425,8 @@ __strdup_multipart_boundaries(TfwHttpReq *req)
 
 	req->multipart_boundary_raw.data = data_raw;
 	req->multipart_boundary.data = data;
-	__TFW_STR_CHUNKN_SET(&req->multipart_boundary_raw, 0);
-	__TFW_STR_CHUNKN_SET(&req->multipart_boundary, 0);
+	req->multipart_boundary_raw.nchunks = 0;
+	req->multipart_boundary.nchunks = 0;
 
 	return 0;
 }
@@ -1450,7 +1448,7 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 	__FSM_STATE(I_ContTypeMediaType) {
 		static const TfwStr s_multipart_form_data =
-			TFW_STR_FROM("multipart/form-data");
+			TFW_STR_STRING("multipart/form-data");
 		TRY_STR_LAMBDA_fixup(&s_multipart_form_data, &parser->hdr, {},
 				     I_ContTypeMaybeMultipart);
 		if (chunk->len >= sizeof("multipart/") - 1) {
@@ -1499,7 +1497,7 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(I_ContTypeParam) {
-		static const TfwStr s_boundary = TFW_STR_FROM("boundary=");
+		static const TfwStr s_boundary = TFW_STR_STRING("boundary=");
 		if (!test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags))
 			__FSM_I_JMP(I_ContTypeParamOther);
 
@@ -1538,7 +1536,7 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		 * growth. Let's store chunk number instead for now.
 		 */
 		req->multipart_boundary_raw.data =
-			(char *)(size_t)TFW_STR_CHUNKN(&parser->hdr);
+			(char *)(size_t)parser->hdr.nchunks;
 		if (*p == '"') {
 			req->multipart_boundary_raw.len += 1;
 			__FSM_I_MOVE_fixup(I_ContTypeBoundaryValueQuoted, 1, 0);
@@ -1559,9 +1557,8 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			return CSTR_POSTPONE;
 
 		p += __fsm_sz;
-		__TFW_STR_CHUNKN_SET(&req->multipart_boundary_raw,
-				     TFW_STR_CHUNKN(&parser->hdr) -
-				     (size_t)req->multipart_boundary_raw.data);
+		req->multipart_boundary_raw.nchunks = parser->hdr.nchunks -
+				     (size_t)req->multipart_boundary_raw.data;
 		/* __fsm_sz != __fsm_n, therefore __data_remain(p) > 0 */
 		__FSM_I_JMP(I_ContTypeParamValueOWS);
 	}
@@ -1600,9 +1597,8 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		__msg_hdr_chunk_fixup(p, 1);
 		p += 1;
 		req->multipart_boundary_raw.len += 1;
-		__TFW_STR_CHUNKN_SET(&req->multipart_boundary_raw,
-				     TFW_STR_CHUNKN(&parser->hdr) -
-				     (size_t)req->multipart_boundary_raw.data);
+		req->multipart_boundary_raw.nchunks = parser->hdr.nchunks -
+				     (size_t)req->multipart_boundary_raw.data;
 
 		if (unlikely(__data_remain(p) == 0)) {
 			parser->_i_st = I_ContTypeParamValueOWS;

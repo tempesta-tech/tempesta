@@ -1501,11 +1501,11 @@ TEST(http_parser, cookie)
 		 * left border of a chunk. Verifying it here.
 		 */
 
-		EXPECT_TRUE(TFW_STR_CHUNKN(cookie) >= kv_count);
+		EXPECT_TRUE(cookie->nchunks >= kv_count);
 
 		kv_idx = 0;
 		c = cookie->chunks;
-		end = c + TFW_STR_CHUNKN(cookie);
+		end = c + cookie->nchunks;
 		while (c < end) {
 			TfwStr *part_end = c;
 			TfwStr part = {};
@@ -1520,7 +1520,7 @@ TEST(http_parser, cookie)
 
 			if (part_end - c > 1) {
 				part.chunks = c;
-				__TFW_STR_CHUNKN_SET(&part, part_end - c);
+				part.nchunks = part_end - c;
 			} else {
 				part = *c;
 			}

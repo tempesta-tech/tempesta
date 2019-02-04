@@ -689,7 +689,7 @@ tfw_http_verify_hdr_field(tfw_http_match_fld_t field, const char **hdr_name,
 			},
 			.len = h_len + SLEN(S_DLM),
 			.eolen = 0,
-			.flags = 2 << TFW_STR_CN_SHIFT
+			.nchunks = 2
 		};
 
 		*hid_out = tfw_http_msg_req_spec_hid(&tmp_hdr);

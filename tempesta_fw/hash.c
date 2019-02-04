@@ -39,7 +39,7 @@ tfw_hash_str(const TfwStr *str)
 	}
 	else {
 		const TfwStr *c = str->chunks;
-		const TfwStr *end = c + TFW_STR_CHUNKN(str);
+		const TfwStr *end = c + str->nchunks;
 		unsigned char *p, *e;
 		unsigned int tail = 0;
 

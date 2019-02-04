@@ -1323,7 +1323,7 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwCfgSrvGroup *sg_cfg)
 		return -EINVAL;
 	}
 
-	if (tfw_addr_pton(&TFW_STR_FROM(ce->vals[0]), &addr)) {
+	if (tfw_addr_pton(&TFW_STR_FROM_CSTR(ce->vals[0]), &addr)) {
 		TFW_ERR_NL("Invalid IP address: '%s'\n", ce->vals[0]);
 		return -EINVAL;
 	}

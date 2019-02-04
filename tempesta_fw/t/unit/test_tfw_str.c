@@ -531,7 +531,7 @@ TEST(tfw_strcpy, both_compound)
 			{ .data = "p", 		.len = 1 }
 		},
 		.len = sizeof("abcdefghijklmnop") - 1,
-		.flags = 7 << TFW_STR_CN_SHIFT
+		.nchunks = 7
 	};
 
 	EXPECT_ZERO(tfw_strcpy(s1, &s2));
@@ -580,10 +580,10 @@ TEST(tfw_strcat, plain)
 		.data = "0123456789"
 	};
 
-	chunks = TFW_STR_CHUNKN(s1);
+	chunks = s1->nchunks;
 
 	EXPECT_ZERO(tfw_strcat(str_pool, s1, &s2));
-	EXPECT_TRUE(TFW_STR_CHUNKN(s1) == chunks + 1);
+	EXPECT_TRUE(s1->nchunks == chunks + 1);
 	EXPECT_TRUE(tfw_str_eq_cstr(s1, "abcdefghijklmnop0123456789",
 				    sizeof("abcdefghijklmnop0123456789") - 1,
 				    0));
@@ -595,11 +595,11 @@ TEST(tfw_strcat, compound)
 	TFW_STR(s1, "abcdefghijklmnop");
 	TFW_STR(s2, "0123456789");
 
-	chunks1 = TFW_STR_CHUNKN(s1);
-	chunks2 = TFW_STR_CHUNKN(s2);
+	chunks1 = s1->nchunks;
+	chunks2 = s2->nchunks;
 
 	EXPECT_ZERO(tfw_strcat(str_pool, s1, s2));
-	EXPECT_TRUE(TFW_STR_CHUNKN(s1) == chunks1 + chunks2);
+	EXPECT_TRUE(s1->nchunks == chunks1 + chunks2);
 	EXPECT_TRUE(tfw_str_eq_cstr(s1, "abcdefghijklmnop0123456789",
 				    sizeof("abcdefghijklmnop0123456789") - 1,
 				    0));
@@ -613,7 +613,7 @@ TEST(tfw_strdup, plain)
 
 	copy = tfw_strdup(str_pool, s);
 
-	EXPECT_EQ(TFW_STR_CHUNKN(copy), 0);
+	EXPECT_EQ(copy->nchunks, 0);
 	EXPECT_EQ(tfw_strcmp(s, copy), 0);
 }
 
@@ -624,14 +624,14 @@ TEST(tfw_strdup, compound)
 
 	copy = tfw_strdup(str_pool, s);
 
-	EXPECT_EQ(TFW_STR_CHUNKN(s), TFW_STR_CHUNKN(copy));
-	if (TFW_STR_CHUNKN(s) != TFW_STR_CHUNKN(copy))
+	EXPECT_EQ(s->nchunks, copy->nchunks);
+	if (s->nchunks != copy->nchunks)
 		return;
 
 	/* Same as TFW_STR_FOR_EACH_CHUNK(). */
 	c = s->chunks;
 	c_copy = copy->chunks;
-	end = s->chunks + TFW_STR_CHUNKN(s);
+	end = s->chunks + s->nchunks;
 	for ( ; c < end; ++c, ++c_copy)
 		EXPECT_EQ(tfw_strcmp(c, c_copy), 0);
 }
@@ -696,7 +696,7 @@ TEST(tfw_stricmp, handles_different_size_strs)
 			  .len = sizeof("cdefghijklmnopqrst") - 1 }
 		},
 		.len = sizeof("abcdefghijklmnopqrst") - 1,
-		.flags = 2 << TFW_STR_CN_SHIFT
+		.nchunks = 2
 	};
 	TfwStr s2 = {
 		.chunks = (TfwStr []){
@@ -706,7 +706,7 @@ TEST(tfw_stricmp, handles_different_size_strs)
 			  .len = sizeof("jklmnopqrst") - 1 }
 		},
 		.len = sizeof("abcdefghijklmnopqrst") - 1,
-		.flags = 3 << TFW_STR_CN_SHIFT
+		.nchunks = 3
 	};
 
 	EXPECT_ZERO(tfw_stricmp(&s1, &s2));
@@ -775,7 +775,7 @@ TEST(tfw_strcmp, handles_different_size_strs)
 			  .len = sizeof("cdefghijklmnopqrst") - 1 }
 		},
 		.len = sizeof("abcdefghijklmnopqrst") - 1,
-		.flags = 2 << TFW_STR_CN_SHIFT
+		.nchunks = 2
 	};
 	TfwStr s2 = {
 		.chunks = (TfwStr []){
@@ -785,7 +785,7 @@ TEST(tfw_strcmp, handles_different_size_strs)
 			  .len = sizeof("jklmnopqrst") - 1 }
 		},
 		.len = sizeof("abcdefghijklmnopqrst") - 1,
-		.flags = 3 << TFW_STR_CN_SHIFT
+		.nchunks = 3
 	};
 	TfwStr s3 = {
 		.chunks = (TfwStr []){
@@ -795,7 +795,7 @@ TEST(tfw_strcmp, handles_different_size_strs)
 			  .len = sizeof("jklmNopQRst") - 1 }
 		},
 		.len = sizeof("abcdefghijklmnopqrst") - 1,
-		.flags = 3 << TFW_STR_CN_SHIFT
+		.nchunks = 3
 	};
 
 	EXPECT_ZERO(tfw_strcmp(&s1, &s2));
@@ -872,7 +872,7 @@ TEST(tfw_str_eq_cstr, handles_empty_strs)
 	const char *cstr_ne = "bar";
 	size_t len = strlen(cstr_ne);
 
-	TFW_STR_CHUNKN_INIT(&s3);
+	s3.nchunks = 2;
 
 	EXPECT_TRUE(tfw_str_eq_cstr(&s1, cstr, 0, TFW_STR_EQ_DEFAULT));
 	EXPECT_TRUE(tfw_str_eq_cstr(&s2, cstr, 0, TFW_STR_EQ_DEFAULT));
@@ -1104,29 +1104,30 @@ TEST(tfw_str_collect_cmp, collect_chunks)
 {
 	TfwStr in = {
 		.chunks = (TfwStr []){
-			TFW_STR_FROM("abcd"),
-			TFW_STR_FROM("efghi"),
-			TFW_STR_FROM("jklmnopq"),
-			TFW_STR_FROM("rst"),
-			TFW_STR_FROM("uvwxyz")
+			TFW_STR_STRING("abcd"),
+			TFW_STR_STRING("efghi"),
+			TFW_STR_STRING("jklmnopq"),
+			TFW_STR_STRING("rst"),
+			TFW_STR_STRING("uvwxyz")
 		},
 		.len = sizeof("abcdefghijklmnopqrstuvwxyz") - 1,
-		.flags = 5 << TFW_STR_CN_SHIFT
+		.nchunks = 5
 	};
+
 	TfwStr *chunks = in.chunks;
 	TfwStr out = { .data = (void *)123, .skb = (void *)456, .len = 789,
-	               .eolen = 10, .flags = 1112 };
+	               .eolen = 10, .flags = 111, .nchunks = 123};
 
 	tfw_str_collect_cmp(chunks, chunks + 5, &out, NULL);
 	EXPECT_TRUE(tfw_str_eq_cstr(&out, "abcdefghijklmnopqrstuvwxyz", 26, 0));
-	EXPECT_EQ(TFW_STR_CHUNKN(&out), 5);
+	EXPECT_EQ(out.nchunks, 5);
 	EXPECT_EQ(out.len, 26);
 	/*
 	 * tfw_str_collect_cmp() is expected to clear previous values from all
 	 * other fields of the output TfwStr.
 	 */
 	EXPECT_EQ(out.eolen, 0);
-	EXPECT_EQ(out.flags & TFW_STR_FMASK, 0);
+	EXPECT_EQ(out.flags, 0);
 
 	/*
 	 * Try to start at other chunks too.
@@ -1135,15 +1136,15 @@ TEST(tfw_str_collect_cmp, collect_chunks)
 	 */
 	tfw_str_collect_cmp(chunks + 1, chunks + 5, &out, NULL);
 	EXPECT_TRUE(tfw_str_eq_cstr(&out, "efghijklmnopqrstuvwxyz", 22, 0));
-	EXPECT_EQ(TFW_STR_CHUNKN(&out), 4);
+	EXPECT_EQ(out.nchunks, 4);
 
 	tfw_str_collect_cmp(chunks + 2, chunks + 5, &out, NULL);
 	EXPECT_TRUE(tfw_str_eq_cstr(&out, "jklmnopqrstuvwxyz", 17, 0));
-	EXPECT_EQ(TFW_STR_CHUNKN(&out), 3);
+	EXPECT_EQ(out.nchunks, 3);
 
 	tfw_str_collect_cmp(chunks + 3, chunks + 5, &out, NULL);
 	EXPECT_TRUE(tfw_str_eq_cstr(&out, "rstuvwxyz", 9, 0));
-	EXPECT_EQ(TFW_STR_CHUNKN(&out), 2);
+	EXPECT_EQ(out.nchunks, 2);
 
 	tfw_str_collect_cmp(chunks + 4, chunks + 5, &out, NULL);
 	EXPECT_TRUE(tfw_str_eq_cstr(&out, "uvwxyz", 6, 0));
@@ -1161,7 +1162,7 @@ TEST(tfw_str_collect_cmp, collect_chunks)
 	/* Collecting until a stop character. Two chunks. */
 	tfw_str_collect_cmp(chunks, chunks + 5, &out, "j");
 	EXPECT_TRUE(tfw_str_eq_cstr(&out, "abcdefghi", 9, 0));
-	EXPECT_EQ(TFW_STR_CHUNKN(&out), 2);
+	EXPECT_EQ(out.nchunks, 2);
 
 	/* Collecing until a stop character. Single chunk. */
 	tfw_str_collect_cmp(chunks + 1, chunks + 5, &out, "j");
@@ -1175,7 +1176,7 @@ TEST(tfw_str_collect_cmp, collect_chunks)
 	 */
 	tfw_str_collect_cmp(chunks, chunks + 5, &out, "k");
 	EXPECT_TRUE(tfw_str_eq_cstr(&out, "abcdefghijklmnopqrstuvwxyz", 26, 0));
-	EXPECT_EQ(TFW_STR_CHUNKN(&out), 5);
+	EXPECT_EQ(out.nchunks, 5);
 }
 
 #define SLEN(s)	(sizeof(s) - 1)
@@ -1189,7 +1190,7 @@ TEST(tfw_str_add_compound, plain)
 	s = tfw_str_add_compound(str_pool, s1);
 	EXPECT_NOT_NULL(s);
 	*s = *s2;
-	EXPECT_TRUE(TFW_STR_CHUNKN(s1) == 2);
+	EXPECT_TRUE(s1->nchunks == 2);
 	EXPECT_TRUE(tfw_str_eq_cstr(s1, "abcdefghijklmnopqrstuvwxyz",
 				    SLEN("abcdefghijklmnopqrstuvwxyz"),
 				    0));
@@ -1202,12 +1203,12 @@ TEST(tfw_str_add_compound, compound)
 	TFW_STR(s1, "abcdefghijklmnop");
 	TfwStr *s2 = make_plain_str("qrstuvwxyz");
 
-	chunks = TFW_STR_CHUNKN(s1);
+	chunks = s1->nchunks;
 
 	s = tfw_str_add_compound(str_pool, s1);
 	EXPECT_NOT_NULL(s);
 	*s = *s2;
-	EXPECT_TRUE(TFW_STR_CHUNKN(s1) == chunks + 1);
+	EXPECT_TRUE(s1->nchunks == chunks + 1);
 	EXPECT_TRUE(tfw_str_eq_cstr(s1, "abcdefghijklmnopqrstuvwxyz",
 				    SLEN("abcdefghijklmnopqrstuvwxyz"),
 				    0));
@@ -1223,7 +1224,7 @@ TEST(tfw_str_add_duplicate, both_plain)
 	EXPECT_NOT_NULL(s);
 	*s = *s2;
 	EXPECT_TRUE(TFW_STR_DUP(s1));
-	EXPECT_TRUE(TFW_STR_CHUNKN(s1) == 2);
+	EXPECT_TRUE(s1->nchunks == 2);
 	dup = (s1)->chunks;
 	EXPECT_TRUE(tfw_str_eq_cstr(dup, "abcdefghijklmnop",
 				    SLEN("abcdefghijklmnop"),
@@ -1244,7 +1245,7 @@ TEST(tfw_str_add_duplicate, first_plain)
 	EXPECT_NOT_NULL(s);
 	*s = *s2;
 	EXPECT_TRUE(TFW_STR_DUP(s1));
-	EXPECT_TRUE(TFW_STR_CHUNKN(s1) == 2);
+	EXPECT_TRUE(s1->nchunks == 2);
 	dup = (s1)->chunks;
 	EXPECT_TRUE(tfw_str_eq_cstr(dup, "abcdefghijklmnop",
 				    SLEN("abcdefghijklmnop"),
@@ -1265,7 +1266,7 @@ TEST(tfw_str_add_duplicate, second_plain)
 	EXPECT_NOT_NULL(s);
 	*s = *s2;
 	EXPECT_TRUE(TFW_STR_DUP(s1));
-	EXPECT_TRUE(TFW_STR_CHUNKN(s1) == 2);
+	EXPECT_TRUE(s1->nchunks == 2);
 	dup = (s1)->chunks;
 	EXPECT_TRUE(tfw_str_eq_cstr(dup, "abcdefghijklmnop",
 				    SLEN("abcdefghijklmnop"),
@@ -1286,7 +1287,7 @@ TEST(tfw_str_add_duplicate, both_compound)
 	EXPECT_NOT_NULL(s);
 	*s = *s2;
 	EXPECT_TRUE(TFW_STR_DUP(s1));
-	EXPECT_TRUE(TFW_STR_CHUNKN(s1) == 2);
+	EXPECT_TRUE(s1->nchunks == 2);
 	dup = (s1)->chunks;
 	EXPECT_TRUE(tfw_str_eq_cstr(dup, "abcdefghijklmnop",
 				    SLEN("abcdefghijklmnop"),
@@ -1330,14 +1331,14 @@ TEST(tfw_str_del_chunk, first)
 {
 	TfwStr s = {
 		.chunks = (TfwStr []){
-			TFW_STR_FROM("abcd"),
-			TFW_STR_FROM("efghi"),
-			TFW_STR_FROM("jklmnopq"),
-			TFW_STR_FROM("rst"),
-			TFW_STR_FROM("uvwxyz")
+			TFW_STR_STRING("abcd"),
+			TFW_STR_STRING("efghi"),
+			TFW_STR_STRING("jklmnopq"),
+			TFW_STR_STRING("rst"),
+			TFW_STR_STRING("uvwxyz")
 		},
 		.len = SLEN("abcdefghijklmnopqrstuvwxyz"),
-		.flags = 5 << TFW_STR_CN_SHIFT
+		.nchunks = 5
 	};
 
 	tfw_str_del_chunk(&s, 0);
@@ -1350,14 +1351,14 @@ TEST(tfw_str_del_chunk, middle)
 {
 	TfwStr s = {
 		.chunks = (TfwStr []){
-			TFW_STR_FROM("abcd"),
-			TFW_STR_FROM("efghi"),
-			TFW_STR_FROM("jklmnopq"),
-			TFW_STR_FROM("rst"),
-			TFW_STR_FROM("uvwxyz")
+			TFW_STR_STRING("abcd"),
+			TFW_STR_STRING("efghi"),
+			TFW_STR_STRING("jklmnopq"),
+			TFW_STR_STRING("rst"),
+			TFW_STR_STRING("uvwxyz")
 		},
 		.len = SLEN("abcdefghijklmnopqrstuvwxyz"),
-		.flags = 5 << TFW_STR_CN_SHIFT
+		.nchunks = 5
 	};
 
 	tfw_str_del_chunk(&s, 2);
@@ -1370,14 +1371,14 @@ TEST(tfw_str_del_chunk, last)
 {
 	TfwStr s = {
 		.chunks = (TfwStr []){
-			TFW_STR_FROM("abcd"),
-			TFW_STR_FROM("efghi"),
-			TFW_STR_FROM("jklmnopq"),
-			TFW_STR_FROM("rst"),
-			TFW_STR_FROM("uvwxyz")
+			TFW_STR_STRING("abcd"),
+			TFW_STR_STRING("efghi"),
+			TFW_STR_STRING("jklmnopq"),
+			TFW_STR_STRING("rst"),
+			TFW_STR_STRING("uvwxyz")
 		},
 		.len = SLEN("abcdefghijklmnopqrstuvwxyz"),
-		.flags = 5 << TFW_STR_CN_SHIFT
+		.nchunks = 5
 	};
 
 	tfw_str_del_chunk(&s, 4);
@@ -1407,7 +1408,7 @@ TEST(tfw_str_next_str_val, no_flag)
 			{ .data = "uvwxyz", .len = SLEN("uvwxyz") }
 		},
 		.len = SLEN("abcdefghijklmnopqrstuvwxyz"),
-		.flags = 5 << TFW_STR_CN_SHIFT
+		.nchunks = 5
 	};
 
 	iter = tfw_str_next_str_val(&s);
@@ -1427,7 +1428,7 @@ TEST(tfw_str_next_str_val, first)
 			{ .data = "uvwxyz", .len = SLEN("uvwxyz") }
 		},
 		.len = SLEN("abcdefghijklmnopqrstuvwxyz"),
-		.flags = 5 << TFW_STR_CN_SHIFT
+		.nchunks = 5
 	};
 
 	iter = tfw_str_next_str_val(&s);
@@ -1447,7 +1448,7 @@ TEST(tfw_str_next_str_val, middle)
 			{ .data = "uvwxyz", .len = SLEN("uvwxyz") }
 		},
 		.len = SLEN("abcdefghijklmnopqrstuvwxyz"),
-		.flags = 5 << TFW_STR_CN_SHIFT
+		.nchunks = 5
 	};
 
 	iter = tfw_str_next_str_val(&s);
@@ -1469,7 +1470,7 @@ TEST(tfw_str_next_str_val, last)
 			  .flags = TFW_STR_VALUE }
 		},
 		.len = SLEN("abcdefghijklmnopqrstuvwxyz"),
-		.flags = 5 << TFW_STR_CN_SHIFT
+		.nchunks = 5
 	};
 
 	iter = tfw_str_next_str_val(&s);

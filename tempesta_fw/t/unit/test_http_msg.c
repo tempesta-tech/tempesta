@@ -25,48 +25,47 @@
 TEST(http_msg, hdr_in_array)
 {
 	size_t i;
-#define TfwStr_string(v)	{ .data = (v), NULL, sizeof(v) - 1, 0 }
 	static const TfwStr hdrs[] = {
-		TfwStr_string("age:"),
-		TfwStr_string("authorization:"),
-		TfwStr_string("cache-control:"),
-		TfwStr_string("connection:"),
-		TfwStr_string("content-length:"),
-		TfwStr_string("content-type:"),
-		TfwStr_string("cookie:"),
-		TfwStr_string("date:"),
-		TfwStr_string("etag:"),
-		TfwStr_string("expires:"),
-		TfwStr_string("from:"),
-		TfwStr_string("host:"),
-		TfwStr_string("if-unmodified-since:"),
-		TfwStr_string("last-modified:"),
-		TfwStr_string("location:"),
-		TfwStr_string("pragma:"),
-		TfwStr_string("proxy-authorization:"),
-		TfwStr_string("referer:"),
-		TfwStr_string("server:"),
-		TfwStr_string("transfer-encoding:"),
-		TfwStr_string("user-agent:"),
-		TfwStr_string("vary:"),
-		TfwStr_string("x-forwarded-for:"),
+		TFW_STR_STRING("age:"),
+		TFW_STR_STRING("authorization:"),
+		TFW_STR_STRING("cache-control:"),
+		TFW_STR_STRING("connection:"),
+		TFW_STR_STRING("content-length:"),
+		TFW_STR_STRING("content-type:"),
+		TFW_STR_STRING("cookie:"),
+		TFW_STR_STRING("date:"),
+		TFW_STR_STRING("etag:"),
+		TFW_STR_STRING("expires:"),
+		TFW_STR_STRING("from:"),
+		TFW_STR_STRING("host:"),
+		TFW_STR_STRING("if-unmodified-since:"),
+		TFW_STR_STRING("last-modified:"),
+		TFW_STR_STRING("location:"),
+		TFW_STR_STRING("pragma:"),
+		TFW_STR_STRING("proxy-authorization:"),
+		TFW_STR_STRING("referer:"),
+		TFW_STR_STRING("server:"),
+		TFW_STR_STRING("transfer-encoding:"),
+		TFW_STR_STRING("user-agent:"),
+		TFW_STR_STRING("vary:"),
+		TFW_STR_STRING("x-forwarded-for:"),
 	};
 	static const TfwStr o_hdrs[] = {
-		TfwStr_string("keep-alive:"),
-		TfwStr_string("max-forwards:"),
-		TfwStr_string("content-location:"),
+		TFW_STR_STRING("keep-alive:"),
+		TFW_STR_STRING("max-forwards:"),
+		TFW_STR_STRING("content-location:"),
 	};
 #define S_PART_01	"cache-control: no-cache"
 #define S_PART_02	"cache-control: no-store"
 	TfwStr dup_hdr = {
 		.chunks = (TfwStr []){
-			TfwStr_string(S_PART_01),
-			TfwStr_string(S_PART_01),
+			TFW_STR_STRING(S_PART_01),
+			TFW_STR_STRING(S_PART_01),
 		},
 		.len = SLEN(S_PART_01 S_PART_02),
-		.flags = (2 << TFW_STR_CN_SHIFT) | TFW_STR_DUPLICATE,
+		.nchunks = 2,
+		.flags = TFW_STR_DUPLICATE,
 	};
-#undef TfwStr_string
 #undef S_PART_01
 #undef S_PART_02
 
