@@ -3011,7 +3011,7 @@ tfw_http_get_ip_from_xff(TfwHttpReq *req)
 static int
 tfw_http_req_client_link(TfwConn *conn, TfwHttpReq *req)
 {
-	TfwStr s_ip;
+	TfwStr s_ip, s_user_agent, *ua;
 	TfwAddr addr;
 	TfwClient *cli, *conn_cli;
 
@@ -3021,7 +3021,11 @@ tfw_http_req_client_link(TfwConn *conn, TfwHttpReq *req)
 			return TFW_BLOCK;
 
 		conn_cli = (TfwClient *)conn->peer;
-		cli = tfw_client_obtain(conn_cli->addr, &addr, NULL);
+		ua = &req->h_tbl->tbl[TFW_HTTP_HDR_USER_AGENT];
+		tfw_http_msg_clnthdr_val(ua, TFW_HTTP_HDR_USER_AGENT,
+					 &s_user_agent);
+		cli = tfw_client_obtain(conn_cli->addr, &addr, &s_user_agent,
+					NULL);
 		if (cli) {
 			if (cli != conn_cli)
 				req->peer = cli;

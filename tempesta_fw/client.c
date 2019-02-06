@@ -32,6 +32,9 @@
 #include "lib/str.h"
 #include "lib/common.h"
 
+/* Length of comparison of clients entry by User-Agent. */
+#define UA_CMP_LEN	256
+
 static struct {
 	unsigned int	db_size;
 	const char	*db_path;
@@ -49,6 +52,8 @@ static struct {
  * @users		- reference counter.
  * 			  Expiration state will begind, when the counter reaches
  *			  zero;
+ * @user_agent_len	- Length of @user_agent
+ * @user_agent		- UA_CMP_LEN first characters of User-Agent
  */
 typedef struct {
 	TfwClient	cli;
@@ -56,9 +61,13 @@ typedef struct {
 	time_t		expires;
 	spinlock_t	lock;
 	atomic_t	users;
+	unsigned long	user_agent_len;
+	char		user_agent[UA_CMP_LEN];
 } TfwClientEntry;
 
 static TDB *client_db;
+
+unsigned long tfw_hash_str_len(const TfwStr *str, unsigned long str_len);
 
 /**
  * Called when a client socket is closed.
@@ -93,6 +102,7 @@ tfw_client_put(TfwClient *cli)
 typedef struct {
 	TfwAddr addr;
 	TfwAddr xff_addr;
+	TfwStr	user_agent;
 } TfwClientEqCtx;
 
 static struct in6_addr any_addr = IN6ADDR_ANY_INIT;
@@ -114,6 +124,12 @@ tfw_client_addr_eq(TdbRec *rec, void (*init)(void *), void *data)
 
 	if (memcmp_fast(&ent->xff_addr.sin6_addr, &ctx->xff_addr.sin6_addr,
 			sizeof(ent->xff_addr.sin6_addr)))
+	{
+		return false;
+	}
+
+	if (!tfw_str_eq_cstr(&ctx->user_agent, ent->user_agent,
+			     ent->user_agent_len, 0))
 	{
 		return false;
 	}
@@ -159,6 +175,9 @@ tfw_client_ent_init(TdbRec *rec, void (*init)(void *), void *data)
 
 	tfw_peer_init((TfwPeer *)cli, &ctx->addr);
 	ent->xff_addr = ctx->xff_addr;
+	tfw_str_to_cstr(&ctx->user_agent, ent->user_agent,
+			sizeof(ent->user_agent));
+	ent->user_agent_len = min(ctx->user_agent.len, sizeof(ent->user_agent));
 
 	TFW_DBG("new client: cli=%p\n", cli);
 	TFW_DBG_ADDR("client address", &cli->addr, TFW_NO_PORT);
@@ -166,16 +185,16 @@ tfw_client_ent_init(TdbRec *rec, void (*init)(void *), void *data)
 }
 
 /**
- * Find a client corresponding to @addr and @xff_addr (e.g. from X-Forwarded-For).
- * More advanced identification is possible based on User-Agent,
- * Cookie and other HTTP headers.
+ * Find a client corresponding to @addr, @xff_addr (e.g. from X-Forwarded-For)
+ * and @user_agent.
  *
  * The returned TfwClient reference must be released via tfw_client_put()
  * when the @sk is closed.
  * TODO #515 employ eviction strategy for the table.
  */
 TfwClient *
-tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, void (*init)(void *))
+tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
+		  void (*init)(void *))
 {
 	TfwClientEntry *ent;
 	TfwClient *cli;
@@ -196,6 +215,13 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, void (*init)(void *))
 		ctx.xff_addr = *xff_addr;
 	} else {
 		ctx.xff_addr.sin6_addr = any_addr;
+	}
+
+	if (user_agent) {
+		key ^= tfw_hash_str_len(user_agent, UA_CMP_LEN);
+		ctx.user_agent = *user_agent;
+	} else {
+		TFW_STR_INIT(&ctx.user_agent);
 	}
 
 	len = sizeof(TfwClientEntry);

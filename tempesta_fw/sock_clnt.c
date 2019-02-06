@@ -160,7 +160,7 @@ tfw_sock_clnt_new(struct sock *sk)
 	tfw_connection_unlink_from_sk(sk);
 
 	ss_getpeername(sk, &addr);
-	cli = tfw_client_obtain(addr, NULL, NULL);
+	cli = tfw_client_obtain(addr, NULL, NULL, NULL);
 	if (!cli) {
 		TFW_ERR("can't obtain a client for the new socket\n");
 		return -ENOENT;
