@@ -145,6 +145,7 @@ tfw_sock_clnt_new(struct sock *sk)
 	TfwClient *cli;
 	TfwConn *conn;
 	SsProto *listen_sock_proto;
+	TfwAddr addr;
 
 	TFW_DBG3("new client socket: sk=%p, state=%u\n", sk, sk->sk_state);
 	TFW_INC_STAT_BH(clnt.conn_attempts);
@@ -158,7 +159,8 @@ tfw_sock_clnt_new(struct sock *sk)
 	listen_sock_proto = sk->sk_user_data;
 	tfw_connection_unlink_from_sk(sk);
 
-	cli = tfw_client_obtain(sk, NULL);
+	ss_getpeername(sk, &addr);
+	cli = tfw_client_obtain(addr, NULL, NULL);
 	if (!cli) {
 		TFW_ERR("can't obtain a client for the new socket\n");
 		return -ENOENT;

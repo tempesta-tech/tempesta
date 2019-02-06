@@ -30,6 +30,7 @@
 #include "server.h"
 #include "str.h"
 #include "vhost.h"
+#include "client.h"
 
 /**
  * HTTP Generic FSM states.
@@ -367,6 +368,9 @@ typedef struct {
  * @vhost	- virtual host for the request;
  * @location	- URI location;
  * @sess	- HTTP session descriptor, required for scheduling;
+ * @peer	- end-to-end peer. The peer is not set if
+ *		  hop-by-hop peer (TfwConnection->peer) and end-to-end peer are
+ *		  the same;
  * @userinfo	- userinfo in URI, not mandatory.
  * @host	- host in URI, may differ from Host header;
  * @uri_path	- path + query + fragment from URI (RFC3986.3);
@@ -393,6 +397,7 @@ struct tfw_http_req_t {
 	TfwVhost		*vhost;
 	TfwLocation		*location;
 	TfwHttpSess		*sess;
+	TfwClient		*peer;
 	TfwHttpCond		cond;
 	TfwStr			userinfo;
 	TfwStr			host;

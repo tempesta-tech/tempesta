@@ -88,7 +88,7 @@ enum {
  * @refcnt	- number of users of the connection structure instance;
  * @timer	- The keep-alive/retry timer for the connection;
  * @msg		- message that is currently being processed;
- * @peer	- TfwClient or TfwServer handler;
+ * @peer	- TfwClient or TfwServer handler. Hop-by-hop peer;
  * @sk		- an appropriate sock handler;
  * @destructor	- called when a connection is destroyed;
  */

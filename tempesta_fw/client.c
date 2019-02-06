@@ -41,16 +41,18 @@ static struct {
 /**
  * Client tdb entry.
  *
- * @cli			- client descriptor
- * @expires		- expiration time for the client descriptor after all
- *			  connections are closed
+ * @cli			- client descriptor;
+ * @xff_addr		- peer IPv6 address from X-Forwarded-For;
+ * @expires		- expiration time for the client descriptor after all;
+ *			  connections are closed;
  * @lock		- lock for atomic change @expires and @users;
  * @users		- reference counter.
  * 			  Expiration state will begind, when the counter reaches
- *			  zero
+ *			  zero;
  */
 typedef struct {
 	TfwClient	cli;
+	TfwAddr		xff_addr;
 	time_t		expires;
 	spinlock_t	lock;
 	atomic_t	users;
@@ -88,17 +90,30 @@ tfw_client_put(TfwClient *cli)
 	TFW_DEC_STAT_BH(clnt.online);
 }
 
+typedef struct {
+	TfwAddr addr;
+	TfwAddr xff_addr;
+} TfwClientEqCtx;
+
+static struct in6_addr any_addr = IN6ADDR_ANY_INIT;
+
 static bool
 tfw_client_addr_eq(TdbRec *rec, void (*init)(void *), void *data)
 {
 	TfwClientEntry *ent = (TfwClientEntry *)rec->data;
 	TfwClient *cli = &ent->cli;
-	TfwAddr *addr = (TfwAddr *)data;
+	TfwClientEqCtx *ctx = (TfwClientEqCtx *)data;
 	time_t curr_time = tfw_current_timestamp();
 	int users;
 
-	if (memcmp_fast(&cli->addr.sin6_addr, &addr->sin6_addr,
+	if (memcmp_fast(&cli->addr.sin6_addr, &ctx->addr.sin6_addr,
 			sizeof(cli->addr.sin6_addr)))
+	{
+		return false;
+	}
+
+	if (memcmp_fast(&ent->xff_addr.sin6_addr, &ctx->xff_addr.sin6_addr,
+			sizeof(ent->xff_addr.sin6_addr)))
 	{
 		return false;
 	}
@@ -130,7 +145,7 @@ tfw_client_ent_init(TdbRec *rec, void (*init)(void *), void *data)
 {
 	TfwClientEntry *ent = (TfwClientEntry *)rec->data;
 	TfwClient *cli = &ent->cli;
-	TfwAddr *addr = (TfwAddr *)data;
+	TfwClientEqCtx *ctx = (TfwClientEqCtx *)data;
 
 	spin_lock_init(&ent->lock);
 
@@ -142,7 +157,8 @@ tfw_client_ent_init(TdbRec *rec, void (*init)(void *), void *data)
 	atomic_set(&ent->users, 1);
 	TFW_INC_STAT_BH(clnt.online);
 
-	tfw_peer_init((TfwPeer *)cli, addr);
+	tfw_peer_init((TfwPeer *)cli, &ctx->addr);
+	ent->xff_addr = ctx->xff_addr;
 
 	TFW_DBG("new client: cli=%p\n", cli);
 	TFW_DBG_ADDR("client address", &cli->addr, TFW_NO_PORT);
@@ -150,7 +166,7 @@ tfw_client_ent_init(TdbRec *rec, void (*init)(void *), void *data)
 }
 
 /**
- * Find a client corresponding to the @sk by IP address.
+ * Find a client corresponding to @addr and @xff_addr (e.g. from X-Forwarded-For).
  * More advanced identification is possible based on User-Agent,
  * Cookie and other HTTP headers.
  *
@@ -159,23 +175,32 @@ tfw_client_ent_init(TdbRec *rec, void (*init)(void *), void *data)
  * TODO #515 employ eviction strategy for the table.
  */
 TfwClient *
-tfw_client_obtain(struct sock *sk, void (*init)(void *))
+tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, void (*init)(void *))
 {
 	TfwClientEntry *ent;
 	TfwClient *cli;
 	unsigned long key;
-	TfwAddr addr;
+	TfwClientEqCtx ctx;
 	size_t len;
 	TdbRec *rec;
 	bool is_new;
 
-	ss_getpeername(sk, &addr);
+	ctx.addr = addr;
+
 	key = hash_calc((const char *)&addr.sin6_addr,
 			sizeof(addr.sin6_addr));
 
+	if (xff_addr) {
+		key ^= hash_calc((const char *)&xff_addr->sin6_addr,
+				 sizeof(xff_addr->sin6_addr));
+		ctx.xff_addr = *xff_addr;
+	} else {
+		ctx.xff_addr.sin6_addr = any_addr;
+	}
+
 	len = sizeof(TfwClientEntry);
 	rec = tdb_rec_get_alloc(client_db, key, &len, &tfw_client_addr_eq,
-				&tfw_client_ent_init, init, &addr, &is_new);
+				&tfw_client_ent_init, init, &ctx, &is_new);
 	BUG_ON(len < sizeof(TfwClientEntry));
 	if (!rec) {
 		TFW_WARN("cannot allocate TDB space for client\n");

@@ -336,8 +336,10 @@ frang_conn_new(struct sock *sk)
 	FrangAcc *ra;
 	TfwClient *cli;
 	FrangCfg *conf = tfw_vhost_global_frang_cfg();
+	TfwAddr addr;
 
-	cli = tfw_client_obtain(sk, __frang_init_acc);
+	ss_getpeername(sk, &addr);
+	cli = tfw_client_obtain(addr, NULL, __frang_init_acc);
 	if (unlikely(!cli)) {
 		TFW_ERR("can't obtain a client for frang accounting\n");
 		return TFW_BLOCK;
@@ -986,6 +988,10 @@ frang_http_req_handler(void *obj, TfwFsmData *data)
 	TfwConn *conn = (TfwConn *)obj;
 	FrangAcc *ra = conn->sk->sk_security;
 	bool ip_block = tfw_vhost_global_frang_cfg()->ip_block;
+	TfwHttpReq *req = (TfwHttpReq *)data->req;
+
+	if (req->peer)
+		ra = FRANG_CLI2ACC(req->peer);
 
 	if (test_bit(TFW_HTTP_B_WHITELIST, ((TfwHttpReq *)data->req)->flags))
 		return TFW_PASS;
@@ -1013,6 +1019,8 @@ frang_resp_process(TfwHttpResp *resp)
 		return TFW_PASS;
 
 	ra = (FrangAcc *)req->conn->sk->sk_security;
+	if (req->peer)
+		ra = FRANG_CLI2ACC(req->peer);
 
 	/* Ensure message body size doesn't overcome acceptable limits. */
 	if ((resp->content_length > body_len) || (resp->body.len > body_len)) {
@@ -1044,6 +1052,8 @@ frang_resp_fwd_process(TfwHttpResp *resp)
 		return TFW_PASS;
 
 	ra = (FrangAcc *)req->conn->sk->sk_security;
+	if (req->peer)
+		ra = FRANG_CLI2ACC(req->peer);
 	stat = ra->resp_code_stat;
 	frang_dbg("client %s check response %d, acc=%p\n",
 		  &FRANG_ACC2CLI(ra)->addr, resp->status, ra);
