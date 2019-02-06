@@ -2787,8 +2787,6 @@ tfw_http_hm_drop_resp(TfwHttpResp *resp)
 	TfwHttpReq *req = resp->req;
 
 	tfw_connection_unlink_msg(resp->conn);
-	tfw_apm_update(((TfwServer *)resp->conn->peer)->apmref,
-		       resp->jrxtstamp, resp->jrxtstamp - req->jtxtstamp);
 	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 	tfw_http_msg_free((TfwHttpMsg *)req);
 }
