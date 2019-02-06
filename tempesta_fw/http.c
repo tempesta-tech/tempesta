@@ -438,7 +438,7 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *rmark,
 	tfw_http_prep_date(__TFW_STR_CH(&h_common_1, 1)->data);
 
 	ret = tfw_msg_write(&it, rh);
-	ret = tfw_msg_write(&it, &h_common_1);
+	ret |= tfw_msg_write(&it, &h_common_1);
 	/*
 	 * HTTP/1.0 may have no host part, so we create relative URI.
 	 * See RFC 1945 9.3 and RFC 7231 7.1.2.
