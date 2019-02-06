@@ -339,7 +339,7 @@ frang_conn_new(struct sock *sk)
 	TfwAddr addr;
 
 	ss_getpeername(sk, &addr);
-	cli = tfw_client_obtain(addr, NULL, __frang_init_acc);
+	cli = tfw_client_obtain(addr, NULL, NULL, __frang_init_acc);
 	if (unlikely(!cli)) {
 		TFW_ERR("can't obtain a client for frang accounting\n");
 		return TFW_BLOCK;

@@ -37,7 +37,7 @@ typedef struct {
 } TfwClient;
 
 TfwClient *tfw_client_obtain(TfwAddr addr, TfwAddr *cli_addr,
-			     void (*init)(void *));
+			     TfwStr *user_agent, void (*init)(void *));
 void tfw_client_put(TfwClient *cli);
 int tfw_client_for_each(int (*fn)(void *));
 void tfw_client_set_expires_time(unsigned int expires_time);
