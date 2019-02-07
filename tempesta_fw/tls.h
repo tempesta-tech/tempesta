@@ -23,21 +23,6 @@
 #include "gfsm.h"
 #include "ttls.h"
 
-/*
- * TLS context handling for chunked data in skb list.
- * TlsCtx is unaware of network datata chunks, so this structure links
- * network chunked I/O with the higher layer TLS processing.
- *
- * @off		- data offset within first skb in @skb_list;
- * @chunks	- number of contigious memory chunks in all skbs in @skb_list;
- */
-typedef struct {
-	TlsCtx		tls;
-	struct sk_buff	*skb_list;
-	unsigned int	off;
-	unsigned int	chunks;
-} TfwTlsCtx;
-
 #define TFW_FSM_TLS		TFW_FSM_HTTPS
 
 /**
