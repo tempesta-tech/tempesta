@@ -317,8 +317,10 @@ tfw_srv_conn_release(TfwSrvConn *srv_conn)
 	 */
 	if (likely(!test_bit(TFW_CONN_B_DEL, &srv_conn->flags)))
 		tfw_sock_srv_connect_try_later(srv_conn);
-	else if (test_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags))
+	else if (test_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags)) {
+		set_bit(TFW_CONN_B_STOPPED, &srv_conn->flags);
 		tfw_server_put((TfwServer *)srv_conn->peer);
+	}
 }
 
 /**
@@ -439,28 +441,54 @@ static const SsHooks tfw_sock_srv_ss_hooks = {
 static int
 tfw_sock_srv_disconnect(TfwConn *conn)
 {
-	int ret = 0;
 	TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 
-	/* Server's refcounter is decreased on disconnect. */
-	if (test_bit(TFW_CONN_B_DEL, &srv_conn->flags))
+	/*
+	 * Exit if connection is already in stopping state, or if
+	 * it has never been activated (so it will never gets to
+	 * its destructor).
+	 */
+	if (!test_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags)
+	    || test_bit(TFW_CONN_B_DEL, &srv_conn->flags))
 		return 0;
 
 	/* Stop any attempts to reconnect or reschedule. */
-	del_timer_sync(&conn->timer);
 	set_bit(TFW_CONN_B_DEL, &srv_conn->flags);
-
+	smp_mb__after_atomic();
+	do {
+		/*
+		 * If timer successfully deactivated here, that means the
+		 * connection's destructor had activated it before in failover
+		 * procedure, and server had not been put. See for details in
+		 * connection's destructor @tfw_srv_conn_release().
+		 */
+		if (del_timer_sync(&conn->timer)) {
+			set_bit(TFW_CONN_B_STOPPED, &srv_conn->flags);
+			tfw_server_put((TfwServer *)srv_conn->peer);
+			break;
+		}
+		/*
+		 * Close the connection if it's not being closed yet or has been
+		 * restored already. Resources attached to the connection are
+		 * released. If the connection is closed already, then check
+		 * its stop bit.
+		 */
+		if (atomic_read(&conn->refcnt) != TFW_CONN_DEATHCNT)
+			return tfw_connection_close(conn, true);
+		/*
+		 * If stop flag is set, we can exit. Otherwise, continue waiting
+		 * until connection's destructor finish it's work.
+		*/
+	} while (!test_bit(TFW_CONN_B_STOPPED, &srv_conn->flags));
 	/*
-	 * Close the connection if it's not being closed yet. Resources
-	 * attached to the connection are released. If the connection is
-	 * closed already, then force the release of attached resources.
+	 * If we here, connection is stopped (in destructor or after deactivation
+	 * of rearmed timer), and connection's resources should be cleaned - just
+	 * in case that wasn't done in destructor (bit TFW_CONN_B_DEL had been
+	 * set too late).
 	 */
-	if (atomic_read(&conn->refcnt) != TFW_CONN_DEATHCNT)
-		ret = tfw_connection_close(conn, true);
-	else
-		tfw_srv_conn_release(srv_conn);
+	tfw_connection_release((TfwConn *)srv_conn);
 
-	return ret;
+	return 0;
 }
 
 /*
