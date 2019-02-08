@@ -72,8 +72,9 @@ this_chunk:
 			skb_frag_t *frag = ss_skb_frag_next(&it->skb,
 							    it->skb_head,
 							    &it->frag);
-			if (unlikely(!frag)
-			    && ((c_size != f_room) || (c + 1 < end)))
+			if (WARN_ON_ONCE(!frag
+					 && ((c_size != f_room)
+					     || (c + 1 < end))))
 			{
 				return -E2BIG;
 			}
