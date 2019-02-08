@@ -195,7 +195,9 @@ enum {
 	/* Remove connection */
 	TFW_CONN_B_DEL,
 	/* Connection is in use or at least scheduled to be established. */
-	TFW_CONN_B_ACTIVE
+	TFW_CONN_B_ACTIVE,
+	/* Connection is disconnected and stopped. */
+	TFW_CONN_B_STOPPED
 };
 
 /**

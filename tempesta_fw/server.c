@@ -344,7 +344,7 @@ __tfw_sg_del_srv(TfwSrvGroup *sg, TfwServer *srv, bool lock)
 	/*
 	 * Don't remove srv->sg reference, it's not supposed, that a server can
 	 * change it's group on the fly.
-	*/
+	 */
 
 	TFW_DBG2("Remove backend server from group '%s'\n", sg->name);
 
