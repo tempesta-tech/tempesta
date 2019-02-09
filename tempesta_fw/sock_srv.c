@@ -123,7 +123,7 @@
 static const unsigned long tfw_srv_tmo_vals[] = { 1, 10, 100, 250, 500, 1000 };
 
 #define srv_warn(check, addr, fmt, ...)					\
-	TFW_WARN_MOD_ADDR(sock_srv, check, addr, TFW_NO_PORT, fmt,	\
+	TFW_WARN_MOD_ADDR(sock_srv, check, addr, TFW_WITH_PORT, fmt,	\
 	                  ##__VA_ARGS__)
 
 /**
