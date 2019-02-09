@@ -2520,6 +2520,7 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 		reply = tfw_blk_flags & TFW_BLK_ERR_REPLY;
 		nolog = tfw_blk_flags & TFW_BLK_ERR_NOLOG;
 	}
+	reply &= !test_bit(TFW_HTTP_B_REQ_DROP, req->flags);
 
 	if (!nolog)
 		TFW_WARN_ADDR(msg, &req->conn->peer->addr, TFW_WITH_PORT);
