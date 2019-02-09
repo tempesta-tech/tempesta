@@ -1839,9 +1839,6 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 	TFW_DBG2("%s: conn=[%p]\n", __func__, cli_conn);
 	BUG_ON(!(TFW_CONN_TYPE(cli_conn) & Conn_Clnt));
 
-	if (list_empty_careful(seq_queue))
-		return;
-
 	/*
 	 * Disintegration of the list must be done under the lock.
 	 * The list can't be just detached from seq_queue, and then
@@ -1864,6 +1861,8 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 		}
 	}
 	spin_unlock(&cli_conn->seq_qlock);
+
+	tfw_cli_rmem_drop(cli_conn);
 }
 
 /*
@@ -2309,6 +2308,11 @@ __tfw_http_resp_fwd(TfwCliConn *cli_conn, struct list_head *ret_queue)
 
 	list_for_each_entry_safe(req, tmp, ret_queue, msg.seq_list) {
 		BUG_ON(!req->resp);
+		/*
+		 * Release memory before forwarding response to client to set
+		 * proper window size.
+		 */
+		tfw_cli_rmem_release(cli_conn, req->msg.len);
 		tfw_http_resp_init_ss_flags(req->resp);
 		if (tfw_cli_conn_send(cli_conn, (TfwMsg *)req->resp)) {
 			tfw_connection_close((TfwConn *)cli_conn, true);
@@ -2849,6 +2853,7 @@ next_msg:
 	r = ss_skb_process(skb, off, trail, tfw_http_parse_req, req,
 			   &req->chunk_cnt, &parsed);
 	req->msg.len += parsed;
+	tfw_cli_rmem_reserve((TfwCliConn *)req->conn, parsed);
 	curr_skb_trail = off + parsed + trail < skb->len ? 0 : trail;
 	TFW_ADD_STAT_BH(parsed, clnt.rx_bytes);
 
