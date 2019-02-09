@@ -4222,11 +4222,11 @@ tfw_cfgop_whitelist_mark(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -ENOMEM;
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
-		if (tfw_cfg_parse_int(val, &tfw_wl_marks.mrks[i])) {
-			TFW_ERR_NL("Unable to parse whitelist"
-				   " mark value: '%s'\n", val);
+		int r;
+
+		if ((r = tfw_cfg_parse_int(val, &tfw_wl_marks.mrks[i]))) {
 			kfree(tfw_wl_marks.mrks);
-			return -EINVAL;
+			return r;
 		}
 	}
 
@@ -4260,11 +4260,12 @@ __cfgop_brange_hndl(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned char *a)
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		unsigned long i0 = 0, i1 = 0;
+		int r;
 
-		if (tfw_cfg_parse_intvl(val, &i0, &i1)) {
+		if ((r = tfw_cfg_parse_intvl(val, &i0, &i1))) {
 			TFW_ERR_NL("Cannot parse %s interval: '%s'\n",
 				   cs->name, val);
-			return -EINVAL;
+			return r;
 		}
 		if (i0 > 255 || i1 > 255) {
 			TFW_ERR_NL("Too large interval bounds in %s: '%s'\n",
