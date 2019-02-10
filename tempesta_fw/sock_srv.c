@@ -126,6 +126,13 @@ static const unsigned long tfw_srv_tmo_vals[] = { 1, 10, 100, 250, 500, 1000 };
 	TFW_WARN_MOD_ADDR(sock_srv, check, addr, TFW_NO_PORT, fmt,	\
 	                  ##__VA_ARGS__)
 
+static inline void
+tfw_srv_conn_stop(TfwSrvConn *srv_conn)
+{
+	set_bit(TFW_CONN_B_STOPPED, &srv_conn->flags);
+	tfw_server_put((TfwServer *)srv_conn->peer);
+}
+
 /**
  * Initiate a non-blocking connect attempt.
  * Returns immediately without waiting until a connection is established.
@@ -143,6 +150,7 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	                   &sk);
 	if (r) {
 		TFW_ERR("Unable to create server socket\n");
+		tfw_srv_conn_stop(srv_conn);
 		return;
 	}
 
@@ -229,10 +237,6 @@ tfw_sock_srv_connect_try_later(TfwSrvConn *srv_conn)
 {
 	unsigned long timeout;
 
-	/* Don't rearm the reconnection timer if we're about to shutdown. */
-	if (unlikely(!ss_active()))
-		return;
-
 	if (srv_conn->recns < ARRAY_SIZE(tfw_srv_tmo_vals)) {
 		if (srv_conn->recns)
 			TFW_DBG_ADDR("Cannot establish connection",
@@ -317,10 +321,8 @@ tfw_srv_conn_release(TfwSrvConn *srv_conn)
 	 */
 	if (likely(!test_bit(TFW_CONN_B_DEL, &srv_conn->flags)))
 		tfw_sock_srv_connect_try_later(srv_conn);
-	else if (test_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags)) {
-		set_bit(TFW_CONN_B_STOPPED, &srv_conn->flags);
-		tfw_server_put((TfwServer *)srv_conn->peer);
-	}
+	else if (test_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags))
+		tfw_srv_conn_stop(srv_conn);
 }
 
 /**
@@ -424,7 +426,7 @@ static const SsHooks tfw_sock_srv_ss_hooks = {
  * Tempesta is in the process of being shut down when this function is
  * called. First, any attempts to reconnect are stopped. Then, closing
  * of the connection is initiated if it's not being closed yet. Still,
- * Closing of a connection may be initiated concurrently by a backend
+ * closing of a connection may be initiated concurrently by a backend
  * or Tempesta. Only one request for a close is allowed to proceed, so
  * it may happen that request from a backend is serviced first. Either
  * way, all resources attached to a connection are released by calling
@@ -436,7 +438,7 @@ static const SsHooks tfw_sock_srv_ss_hooks = {
  * If a server connection is closed at the time this function runs, then
  * it had been closed by a backend before the shutdown, and the connection
  * is still in failover (not re-connected yet). The resources attached to
- * the connection had not been released, and it has to be done forcefully.
+ * the connection may had not been released, and it has to be done forcefully.
  */
 static int
 tfw_sock_srv_disconnect(TfwConn *conn)
@@ -451,8 +453,26 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 	if (!test_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags)
 	    || test_bit(TFW_CONN_B_DEL, &srv_conn->flags))
 		return 0;
-
-	/* Stop any attempts to reconnect or reschedule. */
+	/*
+	 * Stop any attempts to reconnect or reschedule. Every activated
+	 * connection must pass through its destructor @tfw_srv_conn_release():
+	 * either during failovering procedure or after it had been intentionally
+	 * closed via @tfw_connection_close(). So, in the following cycle, after
+	 * TFW_CONN_B_DEL bit set, we are waiting for all active connections'
+	 * destructors to be finished.
+	 *
+	 * NOTE: Considering mentioned cycle, connection's destructor execution
+	 * may have one of three allowed results:
+	 * 1. Connection is restored after failovering procedure (in this case
+	 *    it will be closed via @tfw_connection_close() from the cycle, and
+	 *    we still continue waiting for destructor execution);
+	 * 2. Error occurred during failovering procedure and connection's
+	 *    destructor is called;
+	 * 3. Unrecoverable error occurred during failovering procedure and
+	 *    connection is stopped via @tfw_srv_conn_stop().
+	 * If connection's destructor will have any other result - the cycle
+	 * will last forever.
+	 */
 	set_bit(TFW_CONN_B_DEL, &srv_conn->flags);
 	smp_mb__after_atomic();
 	do {
@@ -463,21 +483,19 @@ tfw_sock_srv_disconnect(TfwConn *conn)
 		 * connection's destructor @tfw_srv_conn_release().
 		 */
 		if (del_timer_sync(&conn->timer)) {
-			set_bit(TFW_CONN_B_STOPPED, &srv_conn->flags);
-			tfw_server_put((TfwServer *)srv_conn->peer);
+			tfw_srv_conn_stop(srv_conn);
 			break;
 		}
 		/*
 		 * Close the connection if it's not being closed yet or has been
-		 * restored already. Resources attached to the connection are
-		 * released. If the connection is closed already, then check
-		 * its stop bit.
+		 * restored already. If the connection is closed already, then
+		 * check its stop bit.
 		 */
 		if (atomic_read(&conn->refcnt) != TFW_CONN_DEATHCNT)
 			return tfw_connection_close(conn, true);
 		/*
 		 * If stop flag is set, we can exit. Otherwise, continue waiting
-		 * until connection's destructor finish it's work.
+		 * until connection's destructor finish its work.
 		*/
 	} while (!test_bit(TFW_CONN_B_STOPPED, &srv_conn->flags));
 	/*
