@@ -76,10 +76,14 @@ enum {
 	/* Whole response is read. */
 	TFW_HTTP_FSM_RESP_MSG		= TFW_GFSM_HTTP_STATE(4),
 
-	/* Run just before locally generated response sending. */
-	TFW_HTTP_FSM_LOCAL_RESP_FILTER	= TFW_GFSM_HTTP_STATE(5),
+	/* Response from backend server is received and ready to be processed. */
+	TFW_HTTP_FSM_RESP_MSG_FWD	= TFW_GFSM_HTTP_STATE(5),
 
-	TFW_HTTP_FSM_RESP_MSG_FWD	= TFW_GFSM_HTTP_STATE(6),
+	/*
+	 * Run just before locally generated response sending.
+	 * This is egress state unlike others, see tfw_http_resp_fwd().
+	 */
+	TFW_HTTP_FSM_LOCAL_RESP_FILTER	= TFW_GFSM_HTTP_STATE(6),
 
 	TFW_HTTP_FSM_DONE	= TFW_GFSM_HTTP_STATE(TFW_GFSM_STATE_LAST)
 };
@@ -237,6 +241,8 @@ enum {
 	TFW_HTTP_B_FIELD_DUPENTRY,
 
 	/* Streaming flags: Buffered message part only */
+	/* Message is not fully buffered and has a streamed part. */
+	TFW_HTTP_B_STREAM,
 	/* All streamed parts are fully sent, may proceed to the next message. */
 	TFW_HTTP_B_STREAM_DONE,
 	/*
@@ -269,6 +275,11 @@ enum {
 	TFW_HTTP_B_WHITELIST,
 	/* Client was disconnected, drop the request. */
 	TFW_HTTP_B_REQ_DROP,
+	/*
+	 * Force server connection close after response to this request is
+	 * received.
+	 */
+	TFW_HTTP_B_FORCE_CLOSE,
 
 	/* Response flags */
 	TFW_HTTP_FLAGS_RESP,
@@ -590,7 +601,7 @@ void tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len);
 static inline bool
 tfw_http_msg_is_streamed(TfwHttpMsg *hm)
 {
-	return hm->stream;
+	return test_bit(TFW_HTTP_B_STREAM, hm->flags);
 }
 
 /*
