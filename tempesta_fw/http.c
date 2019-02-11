@@ -58,6 +58,11 @@ static struct {
 	unsigned int sz;
 } tfw_wl_marks;
 
+/* Proxy buffering size for client connections. */
+static size_t tfw_cfg_cli_msg_buff_sz __read_mostly;
+/* Proxy buffering size for server connections. */
+static size_t tfw_cfg_srv_msg_buff_sz __read_mostly;
+
 #define S_CRLFCRLF		"\r\n\r\n"
 #define S_HTTP			"http://"
 #define S_HTTPS			"https://"
@@ -3841,6 +3846,37 @@ tfw_cfgop_cleanup_block_action(TfwCfgSpec *cs)
 	tfw_blk_flags = TFW_CFG_BLK_DEF;
 }
 
+static int
+tfw_cfgop_proxy_buffering(TfwCfgSpec *cs, TfwCfgEntry *ce, size_t *proxy_buff_sz)
+{
+	int r;
+	long val = 0;
+
+	cs->dest = &val;
+
+	if ((r = tfw_cfg_set_long(cs, ce)))
+		return r;
+
+	if (val == -1)
+		*proxy_buff_sz = LONG_MAX;
+	else
+		*proxy_buff_sz = val;
+
+	return 0;
+}
+
+static int
+tfw_cfgop_cli_proxy_buffering(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_cfgop_proxy_buffering(cs, ce, &tfw_cfg_cli_msg_buff_sz);
+}
+
+static int
+tfw_cfgop_srv_proxy_buffering(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_cfgop_proxy_buffering(cs, ce, &tfw_cfg_srv_msg_buff_sz);
+}
+
 /* Macros specific to *_set_body() functions. */
 #define __TFW_STR_SET_BODY()						\
 	msg->len += l_size - clen_str->len + b_size - body_str->len;	\
@@ -4418,6 +4454,24 @@ static TfwCfgSpec tfw_http_specs[] = {
 		.allow_repeat = true,
 		.allow_none = true,
 		.cleanup = tfw_cfgop_cleanup_block_action,
+	},
+	{
+		.name = "client_msg_buffering",
+		.deflt = "1048576", /* 1 MB */
+		.handler = tfw_cfgop_cli_proxy_buffering,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { -1, LONG_MAX },
+		},
+		.allow_none = true,
+	},
+	{
+		.name = "server_msg_buffering",
+		.deflt = "10485760", /* 10 MB */
+		.handler = tfw_cfgop_srv_proxy_buffering,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { -1, LONG_MAX },
+		},
+		.allow_none = true,
 	},
 	{
 		.name = "response_body",
