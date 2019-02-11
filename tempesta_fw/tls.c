@@ -103,7 +103,7 @@ next_msg:
 		       r);
 	case T_DROP:
 		spin_unlock(&tls->lock);
-		__kfree_skb(skb);
+		/* The skb is freed in tfw_tls_conn_dtor(). */
 		return r;
 	case T_POSTPONE:
 		/*
@@ -495,7 +495,15 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt, bool close)
 static void
 tfw_tls_conn_dtor(void *c)
 {
+	struct sk_buff *skb;
 	TlsCtx *tls = tfw_tls_context(c);
+
+	if (tls) {
+		while ((skb = ss_skb_dequeue(&tls->io_in.skb_list)))
+			kfree_skb(skb);
+		while ((skb = ss_skb_dequeue(&tls->io_out.skb_list)))
+			kfree_skb(skb);
+	}
 
 	ttls_ctx_clear(tls);
 	tfw_cli_conn_release((TfwCliConn *)c);
