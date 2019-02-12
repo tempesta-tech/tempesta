@@ -133,6 +133,63 @@ tfw_srv_conn_stop(TfwSrvConn *srv_conn)
 	tfw_server_put((TfwServer *)srv_conn->peer);
 }
 
+/*
+ * There are several stages in the reconnect process. All stages are
+ * covered by tfw_connection_repair() function.
+ *
+ * 1. The attempts to reconnect are repeated at short intervals that are
+ *    gradually increased. There's a great chance that the connection is
+ *    restored during this stage. When that happens, all requests in the
+ *    connection are re-sent to the server.
+ * 2. The attempts to reconnect are continued at one second intervals.
+ *    This covers a short server's downtime such as a service restart.
+ *    During this time requests in the connection are checked to see if
+ *    they should be evicted for a variety of reasons (timed out, etc.).
+ *    Again, when the connection is restored, requests in the connection
+ *    are re-sent to the server.
+ * 3. When the number of attempts to reconnect exceeds the configured
+ *    value, then the connection is marked as faulty. All requests in
+ *    the connection are then re-scheduled to other servers/connections.
+ *    Attempts to reconnect are still continued at one second intervals.
+ *    This would cover longer server's downtime due to a reboot or any
+ *    other maintenance, Should the connection be restored at some time,
+ *    everything will continue to work as usual.
+ *
+ * TODO: There's an interesting side effect in the described procedure.
+ * Connections that are currently in failover may still accept incoming
+ * requests if there are no active connections. When connections are
+ * restored, all requests will be correctly forwarded/re-sent to their
+ * respective servers. This may serve as a QoS feature that mitigates
+ * some temporary short periods when servers are not available.
+ */
+static inline void
+tfw_sock_srv_connect_try_later(TfwSrvConn *srv_conn)
+{
+	unsigned long timeout;
+
+	if (srv_conn->recns < ARRAY_SIZE(tfw_srv_tmo_vals)) {
+		if (srv_conn->recns)
+			TFW_DBG_ADDR("Cannot establish connection",
+			             &srv_conn->peer->addr, TFW_WITH_PORT);
+		timeout = tfw_srv_tmo_vals[srv_conn->recns];
+	} else {
+		if (srv_conn->recns == ARRAY_SIZE(tfw_srv_tmo_vals)
+		    || !(srv_conn->recns % 60))
+		{
+			srv_warn("cannot establish connection",
+				 &srv_conn->peer->addr,
+				 ": %u tries, keep trying...\n",
+				 srv_conn->recns);
+		}
+
+		tfw_connection_repair((TfwConn *)srv_conn);
+		timeout = tfw_srv_tmo_vals[ARRAY_SIZE(tfw_srv_tmo_vals) - 1];
+	}
+	srv_conn->recns++;
+
+	mod_timer(&srv_conn->timer, jiffies + msecs_to_jiffies(timeout));
+}
+
 static void
 tfw_srv_conn_release(TfwSrvConn *srv_conn)
 {
@@ -220,67 +277,9 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 		if (r != SS_SHUTDOWN)
 			TFW_ERR("Unable to initiate a connect to server: %d\n",
 				r);
-		tfw_connection_close((TfwConn *)srv_conn, true);
 		SS_CALL(connection_error, sk);
 		/* Another try is handled in tfw_srv_conn_release() */
 	}
-}
-
-/*
- * There are several stages in the reconnect process. All stages are
- * covered by tfw_connection_repair() function.
- *
- * 1. The attempts to reconnect are repeated at short intervals that are
- *    gradually increased. There's a great chance that the connection is
- *    restored during this stage. When that happens, all requests in the
- *    connection are re-sent to the server.
- * 2. The attempts to reconnect are continued at one second intervals.
- *    This covers a short server's downtime such as a service restart.
- *    During this time requests in the connection are checked to see if
- *    they should be evicted for a variety of reasons (timed out, etc.).
- *    Again, when the connection is restored, requests in the connection
- *    are re-sent to the server.
- * 3. When the number of attempts to reconnect exceeds the configured
- *    value, then the connection is marked as faulty. All requests in
- *    the connection are then re-scheduled to other servers/connections. 
- *    Attempts to reconnect are still continued at one second intervals.
- *    This would cover longer server's downtime due to a reboot or any
- *    other maintenance, Should the connection be restored at some time,
- *    everything will continue to work as usual.
- *
- * TODO: There's an interesting side effect in the described procedure.
- * Connections that are currently in failover may still accept incoming
- * requests if there are no active connections. When connections are
- * restored, all requests will be correctly forwarded/re-sent to their
- * respective servers. This may serve as a QoS feature that mitigates
- * some temporary short periods when servers are not available.
- */
-static inline void
-tfw_sock_srv_connect_try_later(TfwSrvConn *srv_conn)
-{
-	unsigned long timeout;
-
-	if (srv_conn->recns < ARRAY_SIZE(tfw_srv_tmo_vals)) {
-		if (srv_conn->recns)
-			TFW_DBG_ADDR("Cannot establish connection",
-			             &srv_conn->peer->addr, TFW_WITH_PORT);
-		timeout = tfw_srv_tmo_vals[srv_conn->recns];
-	} else {
-		if (srv_conn->recns == ARRAY_SIZE(tfw_srv_tmo_vals)
-		    || !(srv_conn->recns % 60))
-		{
-			srv_warn("cannot establish connection",
-				 &srv_conn->peer->addr,
-				 ": %u tries, keep trying...\n",
-				 srv_conn->recns);
-		}
-
-		tfw_connection_repair((TfwConn *)srv_conn);
-		timeout = tfw_srv_tmo_vals[ARRAY_SIZE(tfw_srv_tmo_vals) - 1];
-	}
-	srv_conn->recns++;
-
-	mod_timer(&srv_conn->timer, jiffies + msecs_to_jiffies(timeout));
 }
 
 static void
