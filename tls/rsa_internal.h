@@ -1,70 +1,51 @@
 /**
- * \file rsa_internal.h
+ *		Tempesta TLS
  *
- * \brief Context-independent RSA helper functions
+ * Context-independent RSA helper functions.
+ *
+ * This file declares some RSA-related helper functions useful when
+ * implementing the RSA interface. They are public and provided in a
+ * separate compilation unit in order to make it easy for designers of
+ * alternative RSA implementations to use them in their code, as it is
+ * conceived that the functionality they provide will be necessary
+ * for most complete implementations.
+ *
+ * There are two classes of helper functions:
+ * (1) Parameter-generating helpers. These are:
+ *  - ttls_rsa_deduce_primes
+ *  - ttls_rsa_deduce_private_exponent
+ *  - ttls_rsa_deduce_crt
+ *   Each of these functions takes a set of core RSA parameters
+ *   and generates some other, or CRT related parameters.
+ * (2) Parameter-checking helpers. These are:
+ *  - ttls_rsa_validate_params
+ *  - ttls_rsa_validate_crt
+ *  They take a set of core or CRT related RSA parameters
+ *  and check their validity.
+ *
+ * Copyright (C) 2006-2017, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * SPDX-License-Identifier: GPL-2.0
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-/*
- *  Copyright (C) 2006-2017, ARM Limited, All Rights Reserved
- *  SPDX-License-Identifier: GPL-2.0
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
- *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- *  This file is part of mbed TLS (https://tls.mbed.org)
- *
- *
- *  This file declares some RSA-related helper functions useful when
- *  implementing the RSA interface. They are public and provided in a
- *  separate compilation unit in order to make it easy for designers of
- *  alternative RSA implementations to use them in their code, as it is
- *  conceived that the functionality they provide will be necessary
- *  for most complete implementations.
- *
- *  End-users of Mbed TLS not intending to re-implement the RSA functionality
- *  are not expected to get into the need of making use of these functions directly,
- *  but instead should be able to use the functions declared in rsa.h.
- *
- *  There are two classes of helper functions:
- *  (1) Parameter-generating helpers. These are:
- *	  - ttls_rsa_deduce_primes
- *	  - ttls_rsa_deduce_private_exponent
- *	  - ttls_rsa_deduce_crt
- *	   Each of these functions takes a set of core RSA parameters
- *	   and generates some other, or CRT related parameters.
- *  (2) Parameter-checking helpers. These are:
- *	  - ttls_rsa_validate_params
- *	  - ttls_rsa_validate_crt
- *	  They take a set of core or CRT related RSA parameters
- *	  and check their validity.
- *
- */
-
 #ifndef TTLS_RSA_INTERNAL_H
 #define TTLS_RSA_INTERNAL_H
 
-#if !defined(TTLS_CONFIG_FILE)
 #include "config.h"
-#else
-#include TTLS_CONFIG_FILE
-#endif
-
 #include "bignum.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 
 /**
  * \brief		  Compute RSA prime moduli P, Q from public modulus N=PQ

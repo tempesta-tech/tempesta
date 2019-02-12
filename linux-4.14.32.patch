@@ -114,8 +114,63 @@ index f92a6593..d27c08f4 100644
  }
  EXPORT_SYMBOL_GPL(kernel_fpu_end);
  
+diff --git a/crypto/aead.c b/crypto/aead.c
+index f794b30a..b6c3062b 100644
+--- a/crypto/aead.c
++++ b/crypto/aead.c
+@@ -343,6 +343,22 @@ struct crypto_aead *crypto_alloc_aead(const char *alg_name, u32 type, u32 mask)
+ }
+ EXPORT_SYMBOL_GPL(crypto_alloc_aead);
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++struct crypto_alg *
++crypto_find_aead(const char *alg_name, u32 type, u32 mask)
++{
++	return crypto_find_alg(alg_name, &crypto_aead_type, type, mask);
++}
++EXPORT_SYMBOL_GPL(crypto_find_aead);
++
++struct crypto_aead *
++crypto_alloc_aead_atomic(struct crypto_alg *alg)
++{
++	return crypto_create_tfm(alg, &crypto_aead_type);
++}
++EXPORT_SYMBOL_GPL(crypto_alloc_aead_atomic);
++#endif
++
+ static int aead_prepare_alg(struct aead_alg *alg)
+ {
+ 	struct crypto_alg *base = &alg->base;
+diff --git a/crypto/ahash.c b/crypto/ahash.c
+index f75b5c1f..9d659002 100644
+--- a/crypto/ahash.c
++++ b/crypto/ahash.c
+@@ -559,6 +559,23 @@ struct crypto_ahash *crypto_alloc_ahash(const char *alg_name, u32 type,
+ }
+ EXPORT_SYMBOL_GPL(crypto_alloc_ahash);
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++/* Asynch hash is required by GHASH used in GCM. */
++struct crypto_alg *
++crypto_find_ahash(const char *alg_name, u32 type, u32 mask)
++{
++	return crypto_find_alg(alg_name, &crypto_ahash_type, type, mask);
++}
++EXPORT_SYMBOL_GPL(crypto_find_ahash);
++
++struct crypto_ahash *
++crypto_alloc_ahash_atomic(struct crypto_alg *alg)
++{
++	return crypto_create_tfm(alg, &crypto_ahash_type);
++}
++EXPORT_SYMBOL_GPL(crypto_alloc_ahash_atomic);
++#endif
++
+ int crypto_has_ahash(const char *alg_name, u32 type, u32 mask)
+ {
+ 	return crypto_type_has_alg(alg_name, &crypto_ahash_type, type, mask);
 diff --git a/crypto/api.c b/crypto/api.c
-index 941cd4c6..5fd308d8 100644
+index 941cd4c6..77dab1fd 100644
 --- a/crypto/api.c
 +++ b/crypto/api.c
 @@ -451,7 +451,11 @@ void *crypto_create_tfm(struct crypto_alg *alg,
@@ -130,6 +185,226 @@ index 941cd4c6..5fd308d8 100644
  	if (mem == NULL)
  		goto out_err;
  
+@@ -487,6 +491,9 @@ struct crypto_alg *crypto_find_alg(const char *alg_name,
+ 	struct crypto_alg *(*lookup)(const char *name, u32 type, u32 mask) =
+ 		crypto_alg_mod_lookup;
+ 
++	/* The function is slow and preemptable to be called in softirq. */
++	WARN_ON_ONCE(in_serving_softirq());
++
+ 	if (frontend) {
+ 		type &= frontend->maskclear;
+ 		mask &= frontend->maskclear;
+diff --git a/crypto/cryptd.c b/crypto/cryptd.c
+index 248f6ba4..3fe4f2c1 100644
+--- a/crypto/cryptd.c
++++ b/crypto/cryptd.c
+@@ -1217,12 +1217,29 @@ struct cryptd_skcipher *cryptd_alloc_skcipher(const char *alg_name,
+ 	char cryptd_alg_name[CRYPTO_MAX_ALG_NAME];
+ 	struct cryptd_skcipher_ctx *ctx;
+ 	struct crypto_skcipher *tfm;
+-
++#ifdef CONFIG_SECURITY_TEMPESTA
++	static struct crypto_alg *alg = NULL;
++
++	if (unlikely(!alg)) {
++		WARN_ON_ONCE(in_serving_softirq());
++		if (snprintf(cryptd_alg_name, CRYPTO_MAX_ALG_NAME, "cryptd(%s)",
++			     alg_name)
++		    >= CRYPTO_MAX_ALG_NAME)
++		{
++			return ERR_PTR(-EINVAL);
++		}
++		alg = crypto_find_skcipher(cryptd_alg_name, type, mask);
++		if (IS_ERR(alg))
++			return (struct cryptd_skcipher *)alg;
++	}
++	tfm = crypto_alloc_skcipher_atomic(alg);
++#else
+ 	if (snprintf(cryptd_alg_name, CRYPTO_MAX_ALG_NAME,
+ 		     "cryptd(%s)", alg_name) >= CRYPTO_MAX_ALG_NAME)
+ 		return ERR_PTR(-EINVAL);
+ 
+ 	tfm = crypto_alloc_skcipher(cryptd_alg_name, type, mask);
++#endif
+ 	if (IS_ERR(tfm))
+ 		return ERR_CAST(tfm);
+ 
+@@ -1269,11 +1286,28 @@ struct cryptd_ahash *cryptd_alloc_ahash(const char *alg_name,
+ 	char cryptd_alg_name[CRYPTO_MAX_ALG_NAME];
+ 	struct cryptd_hash_ctx *ctx;
+ 	struct crypto_ahash *tfm;
+-
++#ifdef CONFIG_SECURITY_TEMPESTA
++	static struct crypto_alg *alg = NULL;
++
++	if (unlikely(!alg)) {
++		WARN_ON_ONCE(in_serving_softirq());
++		if (snprintf(cryptd_alg_name, CRYPTO_MAX_ALG_NAME, "cryptd(%s)",
++			     alg_name)
++		    >= CRYPTO_MAX_ALG_NAME)
++		{
++			return ERR_PTR(-EINVAL);
++		}
++		alg = crypto_find_ahash(cryptd_alg_name, type, mask);
++		if (IS_ERR(alg))
++			return (struct cryptd_ahash *)alg;
++	}
++	tfm = crypto_alloc_ahash_atomic(alg);
++#else
+ 	if (snprintf(cryptd_alg_name, CRYPTO_MAX_ALG_NAME,
+ 		     "cryptd(%s)", alg_name) >= CRYPTO_MAX_ALG_NAME)
+ 		return ERR_PTR(-EINVAL);
+ 	tfm = crypto_alloc_ahash(cryptd_alg_name, type, mask);
++#endif
+ 	if (IS_ERR(tfm))
+ 		return ERR_CAST(tfm);
+ 	if (tfm->base.__crt_alg->cra_module != THIS_MODULE) {
+@@ -1326,11 +1360,28 @@ struct cryptd_aead *cryptd_alloc_aead(const char *alg_name,
+ 	char cryptd_alg_name[CRYPTO_MAX_ALG_NAME];
+ 	struct cryptd_aead_ctx *ctx;
+ 	struct crypto_aead *tfm;
+-
++#ifdef CONFIG_SECURITY_TEMPESTA
++	static struct crypto_alg *alg = NULL;
++
++	if (unlikely(!alg)) {
++		WARN_ON_ONCE(in_serving_softirq());
++		if (snprintf(cryptd_alg_name, CRYPTO_MAX_ALG_NAME, "cryptd(%s)",
++			     alg_name)
++		    >= CRYPTO_MAX_ALG_NAME)
++		{
++			return ERR_PTR(-EINVAL);
++		}
++		alg = crypto_find_aead(cryptd_alg_name, type, mask);
++		if (IS_ERR(alg))
++			return (struct cryptd_aead *)alg;
++	}
++	tfm = crypto_alloc_aead_atomic(alg);
++#else
+ 	if (snprintf(cryptd_alg_name, CRYPTO_MAX_ALG_NAME,
+ 		     "cryptd(%s)", alg_name) >= CRYPTO_MAX_ALG_NAME)
+ 		return ERR_PTR(-EINVAL);
+ 	tfm = crypto_alloc_aead(cryptd_alg_name, type, mask);
++#endif
+ 	if (IS_ERR(tfm))
+ 		return ERR_CAST(tfm);
+ 	if (tfm->base.__crt_alg->cra_module != THIS_MODULE) {
+diff --git a/crypto/shash.c b/crypto/shash.c
+index 5d732c6b..f3f35aba 100644
+--- a/crypto/shash.c
++++ b/crypto/shash.c
+@@ -454,6 +454,22 @@ struct crypto_shash *crypto_alloc_shash(const char *alg_name, u32 type,
+ }
+ EXPORT_SYMBOL_GPL(crypto_alloc_shash);
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++struct crypto_alg *
++crypto_find_shash(const char *alg_name, u32 type, u32 mask)
++{
++	return crypto_find_alg(alg_name, &crypto_shash_type, type, mask);
++}
++EXPORT_SYMBOL_GPL(crypto_find_shash);
++
++struct crypto_shash *
++crypto_alloc_shash_atomic(struct crypto_alg *alg)
++{
++	return crypto_create_tfm(alg, &crypto_shash_type);
++}
++EXPORT_SYMBOL_GPL(crypto_alloc_shash_atomic);
++#endif
++
+ static int shash_prepare_alg(struct shash_alg *alg)
+ {
+ 	struct crypto_alg *base = &alg->base;
+diff --git a/crypto/skcipher.c b/crypto/skcipher.c
+index 11af5fd6..f45933b6 100644
+--- a/crypto/skcipher.c
++++ b/crypto/skcipher.c
+@@ -928,6 +928,22 @@ struct crypto_skcipher *crypto_alloc_skcipher(const char *alg_name,
+ }
+ EXPORT_SYMBOL_GPL(crypto_alloc_skcipher);
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++struct crypto_alg *
++crypto_find_skcipher(const char *alg_name, u32 type, u32 mask)
++{
++	return crypto_find_alg(alg_name, &crypto_skcipher_type2, type, mask);
++}
++EXPORT_SYMBOL_GPL(crypto_find_skcipher);
++
++struct crypto_skcipher *
++crypto_alloc_skcipher_atomic(struct crypto_alg *alg)
++{
++	return crypto_create_tfm(alg, &crypto_skcipher_type2);
++}
++EXPORT_SYMBOL_GPL(crypto_alloc_skcipher_atomic);
++#endif
++
+ int crypto_has_skcipher2(const char *alg_name, u32 type, u32 mask)
+ {
+ 	return crypto_type_has_alg(alg_name, &crypto_skcipher_type2,
+diff --git a/include/crypto/aead.h b/include/crypto/aead.h
+index 03b97629..1089ee66 100644
+--- a/include/crypto/aead.h
++++ b/include/crypto/aead.h
+@@ -179,6 +179,11 @@ static inline struct crypto_aead *__crypto_aead_cast(struct crypto_tfm *tfm)
+  */
+ struct crypto_aead *crypto_alloc_aead(const char *alg_name, u32 type, u32 mask);
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++struct crypto_alg *crypto_find_aead(const char *alg_name, u32 type, u32 mask);
++struct crypto_aead *crypto_alloc_aead_atomic(struct crypto_alg *alg);
++#endif
++
+ static inline struct crypto_tfm *crypto_aead_tfm(struct crypto_aead *tfm)
+ {
+ 	return &tfm->base;
+diff --git a/include/crypto/hash.h b/include/crypto/hash.h
+index 74827781..6fc97be4 100644
+--- a/include/crypto/hash.h
++++ b/include/crypto/hash.h
+@@ -245,6 +245,11 @@ static inline struct crypto_ahash *__crypto_ahash_cast(struct crypto_tfm *tfm)
+ struct crypto_ahash *crypto_alloc_ahash(const char *alg_name, u32 type,
+ 					u32 mask);
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++struct crypto_alg *crypto_find_ahash(const char *alg_name, u32 type, u32 mask);
++struct crypto_ahash *crypto_alloc_ahash_atomic(struct crypto_alg *alg);
++#endif
++
+ static inline struct crypto_tfm *crypto_ahash_tfm(struct crypto_ahash *tfm)
+ {
+ 	return &tfm->base;
+@@ -681,6 +686,11 @@ static inline void ahash_request_set_crypt(struct ahash_request *req,
+ struct crypto_shash *crypto_alloc_shash(const char *alg_name, u32 type,
+ 					u32 mask);
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++struct crypto_alg *crypto_find_shash(const char *alg_name, u32 type, u32 mask);
++struct crypto_shash *crypto_alloc_shash_atomic(struct crypto_alg *alg);
++#endif
++
+ static inline struct crypto_tfm *crypto_shash_tfm(struct crypto_shash *tfm)
+ {
+ 	return &tfm->base;
+diff --git a/include/crypto/skcipher.h b/include/crypto/skcipher.h
+index 562001cb..b99ea7bb 100644
+--- a/include/crypto/skcipher.h
++++ b/include/crypto/skcipher.h
+@@ -197,6 +197,12 @@ static inline struct crypto_skcipher *__crypto_skcipher_cast(
+ struct crypto_skcipher *crypto_alloc_skcipher(const char *alg_name,
+ 					      u32 type, u32 mask);
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++struct crypto_alg *crypto_find_skcipher(const char *alg_name, u32 type,
++					u32 mask);
++struct crypto_skcipher *crypto_alloc_skcipher_atomic(struct crypto_alg *alg);
++#endif
++
+ static inline struct crypto_tfm *crypto_skcipher_tfm(
+ 	struct crypto_skcipher *tfm)
+ {
 diff --git a/include/linux/interrupt.h b/include/linux/interrupt.h
 index 69c23821..58486beb 100644
 --- a/include/linux/interrupt.h
@@ -469,18 +744,17 @@ index d323d4fa..0f6bd0cf 100644
  }
  
 diff --git a/include/net/tls.h b/include/net/tls.h
-index df950383..4a99f03d 100644
+index df950383..c3d45c5e 100644
 --- a/include/net/tls.h
 +++ b/include/net/tls.h
-@@ -55,6 +55,13 @@
+@@ -55,6 +55,12 @@
  
  #define TLS_AAD_SPACE_SIZE		13
  
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +#define TLS_MAX_TAG_SZ			16
 +/* Maximum size for required skb overhead: header, IV, tag. */
-+#define TLS_MAX_OVERHEAD		(TLS_HEADER_SIZE + TLS_AAD_SPACE_SIZE \
-+					 + TLS_MAX_TAG_SZ)
++#define TLS_MAX_OVERHEAD		(TLS_AAD_SPACE_SIZE + TLS_MAX_TAG_SZ)
 +#endif
 +
  struct tls_sw_context {

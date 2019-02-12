@@ -30,7 +30,7 @@
 #include "lib/fsm.h"
 #include "lib/str.h"
 
-#include "cipher.h"
+#include "crypto.h"
 #include "ttls.h"
 
 /* Determine minimum supported version */

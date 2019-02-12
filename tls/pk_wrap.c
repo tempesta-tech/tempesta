@@ -4,7 +4,7 @@
  * Public Key abstraction layer: wrapper functions.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
@@ -110,20 +110,22 @@ static int rsa_check_pair_wrap(const void *pub, const void *prv)
 		(const ttls_rsa_context *) prv));
 }
 
-static void *rsa_alloc_wrap(void)
+static void *
+rsa_alloc_wrap(void)
 {
-	void *ctx = ttls_calloc(1, sizeof(ttls_rsa_context));
+	void *ctx;
 
-	if (ctx != NULL)
-		ttls_rsa_init((ttls_rsa_context *) ctx, 0, 0);
+	might_sleep();
+	if ((ctx = kzalloc(sizeof(ttls_rsa_context), GFP_KERNEL)))
+		ttls_rsa_init((ttls_rsa_context *)ctx, 0, 0);
 
-	return(ctx);
+	return ctx;
 }
 
 static void rsa_free_wrap(void *ctx)
 {
 	ttls_rsa_free((ttls_rsa_context *) ctx);
-	ttls_free(ctx);
+	kfree(ctx);
 }
 
 static void rsa_debug(const void *ctx, ttls_pk_debug_item *items)
@@ -218,20 +220,20 @@ static int eckey_check_pair(const void *pub, const void *prv)
 		(const ttls_ecp_keypair *) prv));
 }
 
-static void *eckey_alloc_wrap(void)
+static void *
+eckey_alloc_wrap(void)
 {
-	void *ctx = ttls_calloc(1, sizeof(ttls_ecp_keypair));
-
-	if (ctx != NULL)
+	void *ctx = kzalloc(sizeof(ttls_ecp_keypair), GFP_ATOMIC);
+	if (!ctx)
 		ttls_ecp_keypair_init(ctx);
 
-	return(ctx);
+	return ctx;
 }
 
 static void eckey_free_wrap(void *ctx)
 {
 	ttls_ecp_keypair_free((ttls_ecp_keypair *) ctx);
-	ttls_free(ctx);
+	kfree(ctx);
 }
 
 static void eckey_debug(const void *ctx, ttls_pk_debug_item *items)

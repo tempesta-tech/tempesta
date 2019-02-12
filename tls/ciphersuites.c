@@ -4,7 +4,7 @@
  * TLS ciphersuites.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,58 +23,6 @@
  */
 #include "ciphersuites.h"
 #include "ttls.h"
-
-/*
- * Ordered from most preferred to least preferred in terms of security.
- *
- * Current rule:
- * 1. By key exchange: Forward-secure non-PSK > other non-PSK
- * 2. By key length and cipher: AES-256 > AES-128
- * 3. By cipher mode when relevant GCM > CCM > CCM_8
- * 4. By hash function used when relevant
- * 5. By key exchange/auth again: EC > non-EC
- *
- * Note that there is no TLS_RSA_WITH_AES_128_CBC_SHA required by RFC 5246.
- * Current TLS version is 1.3, so we support TLS 1.2 for legacy only clients.
- * Next, CBC mode has security issues (so it was removed from TLS 1.3) and
- * incurs significant pipeline stalls that hamper its efficiency and
- * performance. Last, it requires additional code work flow.
- */
-static const int ciphersuite_preference[] = {
-	/* All AES-256 ephemeral suites */
-	TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-	TTLS_TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-	TTLS_TLS_DHE_RSA_WITH_AES_256_GCM_SHA384,
-	TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CCM,
-	TTLS_TLS_DHE_RSA_WITH_AES_256_CCM,
-	TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8,
-	TTLS_TLS_DHE_RSA_WITH_AES_256_CCM_8,
-
-	/* All AES-128 ephemeral suites */
-	TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-	TTLS_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-	TTLS_TLS_DHE_RSA_WITH_AES_128_GCM_SHA256,
-	TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CCM,
-	TTLS_TLS_DHE_RSA_WITH_AES_128_CCM,
-	TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8,
-	TTLS_TLS_DHE_RSA_WITH_AES_128_CCM_8,
-
-	/* All AES-256 suites */
-	TTLS_TLS_RSA_WITH_AES_256_GCM_SHA384,
-	TTLS_TLS_RSA_WITH_AES_256_CCM,
-	TTLS_TLS_ECDH_RSA_WITH_AES_256_GCM_SHA384,
-	TTLS_TLS_ECDH_ECDSA_WITH_AES_256_GCM_SHA384,
-	TTLS_TLS_RSA_WITH_AES_256_CCM_8,
-
-	/* All AES-128 suites */
-	TTLS_TLS_RSA_WITH_AES_128_GCM_SHA256,
-	TTLS_TLS_RSA_WITH_AES_128_CCM,
-	TTLS_TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256,
-	TTLS_TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256,
-	TTLS_TLS_RSA_WITH_AES_128_CCM_8,
-
-	0
-};
 
 static const TlsCiphersuite ciphersuite_definitions[] =
 {
@@ -279,7 +227,7 @@ ttls_get_ciphersuite_name(const int ciphersuite_id)
 	const TlsCiphersuite *cur;
 
 	if (!(cur = ttls_ciphersuite_from_id(ciphersuite_id)))
-		return("unknown");
+		return "unknown";
 
 	return cur->name;
 }
