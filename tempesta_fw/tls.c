@@ -250,7 +250,8 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	       tcb->seq, tcb->end_seq);
 	BUG_ON(!ttls_xfrm_ready(tls));
 	WARN_ON_ONCE(skb->len > TLS_MAX_PAYLOAD_SIZE);
-	WARN_ON_ONCE(tcb->seq + skb->len != tcb->end_seq);
+	WARN_ON_ONCE(tcb->seq + skb->len + !!(tcb->tcp_flags & TCPHDR_FIN)
+		     != tcb->end_seq);
 
 	head_sz = ttls_payload_off(xfrm);
 	tag_sz = ttls_xfrm_taglen(xfrm);

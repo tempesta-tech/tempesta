@@ -31,24 +31,19 @@
 #include "lib/str.h"
 #include "config.h"
 #include "debug.h"
-#include "md.h"
+#include "crypto.h"
 #include "oid.h"
 #include "tls_internal.h"
 #include "ttls.h"
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
 MODULE_DESCRIPTION("Tempesta TLS");
-MODULE_VERSION("0.2.1");
+MODULE_VERSION("0.2.2");
 MODULE_LICENSE("GPL");
 
-typedef struct {
-	struct aead_request	req;
-	char			__ctx_reserved[8];
-} __attribute__((packed)) __TlsReq;
+static DEFINE_PER_CPU(struct aead_request *, g_req) ____cacheline_aligned;
 
-static DEFINE_PER_CPU(__TlsReq, g_req) ____cacheline_aligned;
-
-static struct kmem_cache *ttls_hs_cache;
+static struct kmem_cache *ttls_hs_cache = NULL;
 static ttls_send_cb_t *ttls_send_cb;
 
 static inline unsigned short
@@ -525,7 +520,7 @@ ttls_derive_keys(TlsCtx *tls)
 	unsigned char keyblk[256] ____cacheline_aligned;
 	unsigned char tmp[32];
 	unsigned char *key1, *key2, *mac_enc, *mac_dec;
-	const ttls_cipher_info_t *ci;
+	const TlsCipherInfo *ci;
 	const TlsMdInfo *md_info;
 	size_t mac_key_len, iv_copy_len;
 	int r = 0, tag_size;
@@ -633,7 +628,6 @@ ttls_derive_keys(TlsCtx *tls)
 		if ((r = ttls_md_setup(&xfrm->md_ctx_enc, md_info, 1))
 		    || (r = ttls_md_setup(&xfrm->md_ctx_dec, md_info, 1)))
 		{
-			T_DBG("cannot setup hash context, %d\n", r);
 			return r;
 		}
 
@@ -745,10 +739,10 @@ ttls_aead_req_alloc(struct crypto_aead *tfm)
 	size_t need = sizeof(struct aead_request) + crypto_aead_reqsize(tfm);
 
 	WARN_ON_ONCE(!in_serving_softirq());
-	if (WARN_ON_ONCE(sizeof(__TlsReq) < need))
+	if (WARN_ON_ONCE(ttls_aead_reqsize() < need))
 		return kzalloc(need, GFP_ATOMIC);
 
-	return &this_cpu_ptr(&g_req)->req;
+	return *this_cpu_ptr(&g_req);
 }
 
 static void
@@ -756,10 +750,10 @@ ttls_aead_req_free(struct crypto_aead *tfm, struct aead_request *req)
 {
 	size_t need = sizeof(struct aead_request) + crypto_aead_reqsize(tfm);
 
-	if (WARN_ON_ONCE(sizeof(__TlsReq) < need))
+	if (WARN_ON_ONCE(ttls_aead_reqsize() < need))
 		kfree(req);
 	else
-		bzero_fast(req, sizeof(__TlsReq));
+		bzero_fast(req, ttls_aead_reqsize());
 }
 
 /**
@@ -786,11 +780,8 @@ ttls_encrypt(TlsCtx *tls, struct sg_table *sgt)
 	struct aead_request *req;
 
 	WARN_ON_ONCE(!ttls_xfrm_ready(tls));
-	if (io->msglen > TLS_MAX_PAYLOAD_SIZE) {
-		T_DBG("%s record content %u too large, maximum %lu\n",
-		      __func__, io->msglen, TLS_MAX_PAYLOAD_SIZE);
-		return TTLS_ERR_BAD_INPUT_DATA;
-	}
+	WARN_ON_ONCE(io->msglen > TLS_MAX_PAYLOAD_SIZE + TLS_MAX_OVERHEAD
+				  - TLS_HEADER_SIZE);
 
 	req = ttls_aead_req_alloc(c_ctx->cipher_ctx);
 	if (unlikely(!req))
@@ -816,7 +807,7 @@ ttls_encrypt(TlsCtx *tls, struct sg_table *sgt)
 		  min_t(size_t, 256, io->msglen + TLS_HEADER_SIZE));
 
 	if ((r = crypto_aead_encrypt(req))) {
-		T_DBG2("encrypt failed: %d\n", r);
+		T_WARN("AEAD encryption failed: %d\n", r);
 		goto err;
 	}
 	T_DBG3_SL("encrypted buf (first 64 bytes)", sgt->sgl, sgt->nents, 0,
@@ -2413,9 +2404,39 @@ ttls_config_init(ttls_config *conf)
 }
 EXPORT_SYMBOL(ttls_config_init);
 
-static int ssl_preset_suiteb_ciphersuites[] = {
+static int ttls_default_ciphersuites[] = {
+	/* All AES-128 ephemeral suites */
 	TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+	TTLS_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+	TTLS_TLS_DHE_RSA_WITH_AES_128_GCM_SHA256,
+	TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CCM,
+	TTLS_TLS_DHE_RSA_WITH_AES_128_CCM,
+	TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8,
+	TTLS_TLS_DHE_RSA_WITH_AES_128_CCM_8,
+
+	/* All AES-256 ephemeral suites */
 	TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+	TTLS_TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+	TTLS_TLS_DHE_RSA_WITH_AES_256_GCM_SHA384,
+	TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CCM,
+	TTLS_TLS_DHE_RSA_WITH_AES_256_CCM,
+	TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8,
+	TTLS_TLS_DHE_RSA_WITH_AES_256_CCM_8,
+
+	/* All AES-256 suites */
+	TTLS_TLS_RSA_WITH_AES_256_GCM_SHA384,
+	TTLS_TLS_RSA_WITH_AES_256_CCM,
+	TTLS_TLS_ECDH_RSA_WITH_AES_256_GCM_SHA384,
+	TTLS_TLS_ECDH_ECDSA_WITH_AES_256_GCM_SHA384,
+	TTLS_TLS_RSA_WITH_AES_256_CCM_8,
+
+	/* All AES-128 suites */
+	TTLS_TLS_RSA_WITH_AES_128_GCM_SHA256,
+	TTLS_TLS_RSA_WITH_AES_128_CCM,
+	TTLS_TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256,
+	TTLS_TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256,
+	TTLS_TLS_RSA_WITH_AES_128_CCM_8,
+
 	0
 };
 
@@ -2468,11 +2489,8 @@ ttls_config_defaults(ttls_config *conf, int endpoint)
 	conf->min_minor_ver = TTLS_MINOR_VERSION_3; /* TLS 1.2 */
 	conf->max_minor_ver = TTLS_MAX_MINOR_VERSION;
 
-	conf->ciphersuite_list[TTLS_MINOR_VERSION_0]
-	= conf->ciphersuite_list[TTLS_MINOR_VERSION_1]
-	= conf->ciphersuite_list[TTLS_MINOR_VERSION_2]
-	= conf->ciphersuite_list[TTLS_MINOR_VERSION_3]
-	= ssl_preset_suiteb_ciphersuites;
+	ttls_conf_ciphersuites_for_version(conf, ttls_default_ciphersuites,
+					   TTLS_MINOR_VERSION_3);
 
 	conf->cert_profile = &ttls_x509_crt_profile_suiteb;
 	conf->sig_hashes = ssl_preset_suiteb_hashes;
@@ -2757,26 +2775,16 @@ ttls_get_key_exchange_md_tls1_2(TlsCtx *tls, unsigned char *output,
 	 *	 ServerDHParams params;
 	 * };
 	 */
-	if ((r = ttls_md_setup(&ctx, md_info, 0))) {
-		T_DBG("cannot setup digest context, %d\n", r);
+	if ((r = ttls_md_setup(&ctx, md_info, 0)))
 		goto exit;
-	}
-	if ((r = ttls_md_starts(&ctx))) {
-		T_DBG("cannot start digest context, %d\n", r);
+	if ((r = ttls_md_starts(&ctx)))
 		goto exit;
-	}
-	if ((r = ttls_md_update(&ctx, tls->hs->randbytes, 64))) {
-		T_DBG("cannot update digest context for random, %d\n", r);
+	if ((r = ttls_md_update(&ctx, tls->hs->randbytes, 64)))
 		goto exit;
-	}
-	if ((r = ttls_md_update(&ctx, data, data_len))) {
-		T_DBG("cannot update digest context for data, %d\n", r);
+	if ((r = ttls_md_update(&ctx, data, data_len)))
 		goto exit;
-	}
-	if ((r = ttls_md_finish(&ctx, output))) {
-		T_DBG("cannot finish digest context, %d\n", r);
+	if ((r = ttls_md_finish(&ctx, output)))
 		goto exit;
-	}
 
 exit:
 	ttls_md_free(&ctx);
@@ -2799,22 +2807,43 @@ ttls_time_debug(void)
 static void
 ttls_exit(void)
 {
-	ttls_mpi_modexit();
+	int cpu;
+
 	kmem_cache_destroy(ttls_hs_cache);
+
+	for_each_possible_cpu(cpu) {
+		struct aead_request **req = per_cpu_ptr(&g_req, cpu);
+		kfree(*req);
+	}
+
+	ttls_mpi_modexit();
 }
 
 static int __init
 ttls_init(void)
 {
-	int r;
+	int cpu, r;
 
 	/* Bad configuration - protected record payload too large. */
 	BUILD_BUG_ON(TTLS_PAYLOAD_LEN > 16384 + 2048);
 
 	if ((r = ttls_mpi_modinit()))
 		return r;
+
+	if ((r = ttls_crypto_modinit())) {
+		ttls_mpi_modexit();
+		return r;
+	}
+
+	for_each_possible_cpu(cpu) {
+		struct aead_request **req = per_cpu_ptr(&g_req, cpu);
+		*req = kmalloc(ttls_aead_reqsize(), GFP_KERNEL);
+		if (!*req)
+			goto err_free;
+	}
+
 	ttls_hs_cache = kmem_cache_create("ttls_hs_cache", sizeof(TlsHandshake),
-		  0, 0, NULL);
+					  0, 0, NULL);
 	if (!ttls_hs_cache)
 		goto err_free;
 

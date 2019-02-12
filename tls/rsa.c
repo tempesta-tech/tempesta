@@ -1,55 +1,54 @@
-/*
- *  The RSA public-key cryptosystem
+/**
+ *		Tempesta TLS
  *
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- *  SPDX-License-Identifier: GPL-2.0
+ * The RSA public-key cryptosystem.
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ * TODO #1064: The Linux crypt API already has RSA implementation, so probably
+ * the stuff below should be just thrown out. Fallback to GPU is necessary
+ * however, so maybe not... A careful rethinking is requiered.
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * The following sources were referenced in the design of this implementation
+ * of the RSA algorithm:
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * [1] A method for obtaining digital signatures and public-key cryptosystems
+ *     R Rivest, A Shamir, and L Adleman
+ *     http://people.csail.mit.edu/rivest/pubs.html#RSA78
  *
- *  This file is part of mbed TLS (https://tls.mbed.org)
- */
-
-/*
- *  The following sources were referenced in the design of this implementation
- *  of the RSA algorithm:
+ * [2] Handbook of Applied Cryptography - 1997, Chapter 8
+ *     Menezes, van Oorschot and Vanstone
  *
- *  [1] A method for obtaining digital signatures and public-key cryptosystems
- *	  R Rivest, A Shamir, and L Adleman
- *	  http://people.csail.mit.edu/rivest/pubs.html#RSA78
+ * [3] Malware Guard Extension: Using SGX to Conceal Cache Attacks
+ *     Michael Schwarz, Samuel Weiser, Daniel Gruss, Clémentine Maurice and
+ *     Stefan Mangard
+ *     https://arxiv.org/abs/1702.08719v2
  *
- *  [2] Handbook of Applied Cryptography - 1997, Chapter 8
- *	  Menezes, van Oorschot and Vanstone
+ * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * SPDX-License-Identifier: GPL-2.0
  *
- *  [3] Malware Guard Extension: Using SGX to Conceal Cache Attacks
- *	  Michael Schwarz, Samuel Weiser, Daniel Gruss, Clémentine Maurice and
- *	  Stefan Mangard
- *	  https://arxiv.org/abs/1702.08719v2
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include <linux/random.h>
 
 #include "lib/str.h"
 #include "config.h"
+#include "crypto.h"
 #include "rsa.h"
 #include "rsa_internal.h"
 #include "tls_internal.h"
 #include "oid.h"
-#include "md.h"
-
-#if !defined(TTLS_RSA_ALT)
 
 /* constant-time buffer comparison */
 static inline int ttls_safer_memcmp(const void *a, const void *b, size_t n)
@@ -430,36 +429,44 @@ int ttls_rsa_export_crt(const ttls_rsa_context *ctx,
 	return 0;
 }
 
-/*
- * Initialize an RSA context
+/**
+ * Initialize an RSA context.
+ *
+ * TODO #1064: Set padding to #TTLS_RSA_PKCS_V21 for the RSAES-OAEP encryption
+ * scheme and the RSASSA-PSS signature scheme. The choice of padding mode is
+ * strictly enforced for private key operations, since there might be security
+ * concerns in mixing padding modes. For public key operations it is a default
+ * value, which can be overriden by calling specific rsa_rsaes_xxx or
+ * rsa_rsassa_xxx functions.
+ *
+ * The hash selected in hash_id is always used for OEAP encryption. For PSS
+ * signatures, it is always used for making signatures, but can be overriden
+ * for verifying them. If set to TTLS_MD_NONE, it is always overriden.
  */
-void ttls_rsa_init(ttls_rsa_context *ctx,
-			   int padding,
-			   int hash_id)
+void
+ttls_rsa_init(ttls_rsa_context *ctx, int padding, int hash_id)
 {
-	memset(ctx, 0, sizeof(ttls_rsa_context));
-
-	ttls_rsa_set_padding(ctx, padding, hash_id);
+	/*
+	 * TODO Select padding mode: TTLS_RSA_PKCS_V15 or TTLS_RSA_PKCS_V21.
+	 */
+	ctx->padding = padding;
+	/*
+	 * TODO The hash identifier of ttls_md_type_t type, if padding is
+	 * TTLS_RSA_PKCS_V21. The hash_id parameter is ignored when using
+	 * TTLS_RSA_PKCS_V15 padding.
+	 */
+	ctx->hash_id = hash_id;
 
 	spin_lock_init(&ctx->mutex);
 }
 
-/*
- * Set padding for an existing RSA context
+/**
+ * Get length in bytes of RSA modulus.
  */
-void ttls_rsa_set_padding(ttls_rsa_context *ctx, int padding, int hash_id)
+size_t
+ttls_rsa_get_len(const ttls_rsa_context *ctx)
 {
-	ctx->padding = padding;
-	ctx->hash_id = hash_id;
-}
-
-/*
- * Get length in bytes of RSA modulus
- */
-
-size_t ttls_rsa_get_len(const ttls_rsa_context *ctx)
-{
-	return(ctx->len);
+	return ctx->len;
 }
 
 
@@ -2014,5 +2021,3 @@ void ttls_rsa_free(ttls_rsa_context *ctx)
 	ttls_mpi_free(&ctx->DP);
 #endif /* TTLS_RSA_NO_CRT */
 }
-
-#endif /* !TTLS_RSA_ALT */

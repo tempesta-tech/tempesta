@@ -51,8 +51,6 @@
 #define TTLS_ERR_INVALID_RECORD			-0x7200
 /* The connection indicated an EOF. */
 #define TTLS_ERR_CONN_EOF			-0x7280
-/* The server has no ciphersuites in common with the client. */
-#define TTLS_ERR_NO_CIPHER_CHOSEN		-0x7380
 /*
  * No client certification received from the client, but required by the
  * authentication mode.
@@ -110,11 +108,6 @@
 #define TTLS_ERR_INTERNAL_ERROR			-0x6C00
 /* A buffer is too small to receive or write a message. */
 #define TTLS_ERR_BUFFER_TOO_SMALL		-0x6A00
-/*
- * None of the common ciphersuites is usable (eg, no suitable certificate,
- * see debug messages).
- */
-#define TTLS_ERR_NO_USABLE_CIPHERSUITE		-0x6980
 /* Couldn't set the hash for verifying CertificateVerify. */
 #define TTLS_ERR_INVALID_VERIFY_HASH		-0x6600
 

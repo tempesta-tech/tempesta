@@ -2169,7 +2169,7 @@ ttls_mpi_modexit(void)
 	}
 }
 
-int
+int __init
 ttls_mpi_modinit(void)
 {
 	int cpu;

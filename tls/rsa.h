@@ -1,39 +1,34 @@
 /**
- * \file rsa.h
+ *		Tempesta TLS
  *
- * \brief The RSA public-key cryptosystem.
+ * The RSA public-key cryptosystem.
  *
  * For more information, see <em>Public-Key Cryptography Standards (PKCS)
  * #1 v1.5: RSA Encryption</em> and <em>Public-Key Cryptography Standards
  * (PKCS) #1 v2.1: RSA Cryptography Specifications</em>.
  *
- */
-/*
- *  Copyright (C) 2006-2018, Arm Limited (or its affiliates), All Rights Reserved
- *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- *  SPDX-License-Identifier: GPL-2.0
+ * Copyright (C) 2006-2018, Arm Limited (or its affiliates), All Rights Reserved
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * SPDX-License-Identifier: GPL-2.0
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- *  This file is part of Mbed TLS (https://tls.mbed.org)
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #ifndef TTLS_RSA_H
 #define TTLS_RSA_H
-#include "config.h"
+#include "crypto.h"
 #include "bignum.h"
-#include "md.h"
 
 /*
  * RSA Error codes
@@ -68,10 +63,6 @@
  * The above constants may be used even if the RSA module is compile out,
  * eg for alternative (PKCS#11) RSA implemenations in the PK layers.
  */
-
-#if !defined(TTLS_RSA_ALT)
-// Regular implementation
-//
 
 /**
  * \brief   The RSA context structure.
@@ -108,42 +99,14 @@ typedef struct
 			 #TTLS_RSA_PKCS_V15 for 1.5 padding and
 			 #TTLS_RSA_PKCS_V21 for OAEP or PSS. */
 	int hash_id;				/*!< Hash identifier of ttls_md_type_t type,
-			 as specified in md.h for use in the MGF
+			 as specified in crypto.h for use in the MGF
 			 mask generating function used in the
 			 EME-OAEP and EMSA-PSS encodings. */
 	spinlock_t mutex;	/*!<  Thread-safety mutex. */
 }
 ttls_rsa_context;
 
-/**
- * \brief		  This function initializes an RSA context.
- *
- * \note		   Set padding to #TTLS_RSA_PKCS_V21 for the RSAES-OAEP
- *				 encryption scheme and the RSASSA-PSS signature scheme.
- *
- * \param ctx	  The RSA context to initialize.
- * \param padding  Selects padding mode: #TTLS_RSA_PKCS_V15 or
- *				 #TTLS_RSA_PKCS_V21.
- * \param hash_id  The hash identifier of #ttls_md_type_t type, if
- *				 \p padding is #TTLS_RSA_PKCS_V21.
- *
- * \note		   The \p hash_id parameter is ignored when using
- *				 #TTLS_RSA_PKCS_V15 padding.
- *
- * \note		   The choice of padding mode is strictly enforced for private key
- *				 operations, since there might be security concerns in
- *				 mixing padding modes. For public key operations it is
- *				 a default value, which can be overriden by calling specific
- *				 \c rsa_rsaes_xxx or \c rsa_rsassa_xxx functions.
- *
- * \note		   The hash selected in \p hash_id is always used for OEAP
- *				 encryption. For PSS signatures, it is always used for
- *				 making signatures, but can be overriden for verifying them.
- *				 If set to #TTLS_MD_NONE, it is always overriden.
- */
-void ttls_rsa_init(ttls_rsa_context *ctx,
-		   int padding,
-		   int hash_id);
+void ttls_rsa_init(ttls_rsa_context *ctx, int padding, int hash_id);
 
 /**
  * \brief		  This function imports a set of core parameters into an
@@ -358,18 +321,6 @@ int ttls_rsa_export_raw(const ttls_rsa_context *ctx,
  */
 int ttls_rsa_export_crt(const ttls_rsa_context *ctx,
 				ttls_mpi *DP, ttls_mpi *DQ, ttls_mpi *QP);
-
-/**
- * \brief		  This function sets padding for an already initialized RSA
- *				 context. See ttls_rsa_init() for details.
- *
- * \param ctx	  The RSA context to be set.
- * \param padding  Selects padding mode: #TTLS_RSA_PKCS_V15 or
- *				 #TTLS_RSA_PKCS_V21.
- * \param hash_id  The #TTLS_RSA_PKCS_V21 hash identifier.
- */
-void ttls_rsa_set_padding(ttls_rsa_context *ctx, int padding,
-				  int hash_id);
 
 /**
  * \brief		  This function retrieves the length of RSA modulus in Bytes.
@@ -1033,9 +984,5 @@ int ttls_rsa_copy(ttls_rsa_context *dst, const ttls_rsa_context *src);
  * \param ctx	  The RSA Context to free.
  */
 void ttls_rsa_free(ttls_rsa_context *ctx);
-
-#else  /* TTLS_RSA_ALT */
-#include "rsa_alt.h"
-#endif /* TTLS_RSA_ALT */
 
 #endif /* rsa.h */
