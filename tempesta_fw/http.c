@@ -438,7 +438,7 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *rmark,
 	tfw_http_prep_date(__TFW_STR_CH(&h_common_1, 1)->data);
 
 	ret = tfw_msg_write(&it, rh);
-	ret = tfw_msg_write(&it, &h_common_1);
+	ret |= tfw_msg_write(&it, &h_common_1);
 	/*
 	 * HTTP/1.0 may have no host part, so we create relative URI.
 	 * See RFC 1945 9.3 and RFC 7231 7.1.2.
@@ -2787,8 +2787,6 @@ tfw_http_hm_drop_resp(TfwHttpResp *resp)
 	TfwHttpReq *req = resp->req;
 
 	tfw_connection_unlink_msg(resp->conn);
-	tfw_apm_update(((TfwServer *)resp->conn->peer)->apmref,
-		       resp->jrxtstamp, resp->jrxtstamp - req->jtxtstamp);
 	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
 	tfw_http_msg_free((TfwHttpMsg *)req);
 }
