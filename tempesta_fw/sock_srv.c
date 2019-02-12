@@ -4,7 +4,7 @@
  * Handling server connections.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -131,6 +131,29 @@ tfw_srv_conn_stop(TfwSrvConn *srv_conn)
 {
 	set_bit(TFW_CONN_B_STOPPED, &srv_conn->flags);
 	tfw_server_put((TfwServer *)srv_conn->peer);
+}
+
+static void
+tfw_srv_conn_release(TfwSrvConn *srv_conn)
+{
+	tfw_connection_release((TfwConn *)srv_conn);
+	/*
+	 * conn->sk may be zeroed if we get here after a failed
+	 * connect attempt. In that case no connection has been
+	 * established yet, and conn->sk has not been set.
+	 */
+	if (likely(srv_conn->sk))
+		tfw_connection_unlink_to_sk((TfwConn *)srv_conn);
+	/*
+	 * After a disconnect, new connect attempts are started
+	 * in deferred context after a short pause (in a timer
+	 * callback). The only reason not to start new reconnect
+	 * attempt is removing server from the current configuration.
+	 */
+	if (likely(!test_bit(TFW_CONN_B_DEL, &srv_conn->flags)))
+		tfw_sock_srv_connect_try_later(srv_conn);
+	else
+		tfw_srv_conn_stop(srv_conn);
 }
 
 /**
@@ -293,29 +316,6 @@ tfw_srv_reset_cfg_actions(TfwServer *srv)
 		new_flags = flags = READ_ONCE(srv->flags);
 		new_flags &= ~TFW_CFG_M_ACTION;
 	} while (cmpxchg(&srv->flags, flags, new_flags) != flags);
-}
-
-void
-tfw_srv_conn_release(TfwSrvConn *srv_conn)
-{
-	tfw_connection_release((TfwConn *)srv_conn);
-	/*
-	 * conn->sk may be zeroed if we get here after a failed
-	 * connect attempt. In that case no connection has been
-	 * established yet, and conn->sk has not been set.
-	 */
-	if (likely(srv_conn->sk))
-		tfw_connection_unlink_to_sk((TfwConn *)srv_conn);
-	/*
-	 * After a disconnect, new connect attempts are started
-	 * in deferred context after a short pause (in a timer
-	 * callback). The only reason not to start new reconnect
-	 * attempt is removing server from the current configuration.
-	 */
-	if (likely(!test_bit(TFW_CONN_B_DEL, &srv_conn->flags)))
-		tfw_sock_srv_connect_try_later(srv_conn);
-	else
-		tfw_srv_conn_stop(srv_conn);
 }
 
 /**
