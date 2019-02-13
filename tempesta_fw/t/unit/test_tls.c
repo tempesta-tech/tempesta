@@ -351,7 +351,7 @@ TEST(tls, rsa)
 {
 	int ret = 0;
 	size_t len;
-	ttls_rsa_context rsa;
+	ttls_rsa_context rsa = { 0 };
 	unsigned char rsa_plaintext[PT_LEN];
 	unsigned char rsa_decrypted[PT_LEN];
 	unsigned char rsa_ciphertext[KEY_LEN];
