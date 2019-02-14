@@ -81,6 +81,11 @@ ttls_md_update(TlsMdCtx *ctx, const unsigned char *input, size_t ilen)
  * FPU for them on its own.
  * ------------------------------------------------------------------------
  */
+#ifdef __init
+#undef __init
+#define __init
+#endif
+
 #include "../../../tls/bignum.c"
 #include "../../../tls/ecp_curves.c"
 #include "../../../tls/ecp.c"
