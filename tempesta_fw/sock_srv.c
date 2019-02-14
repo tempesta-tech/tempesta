@@ -224,13 +224,24 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	TfwAddr *addr;
 	struct sock *sk;
 
+	WARN_ON(srv_conn->sk);
 	addr = &srv_conn->peer->addr;
 
 	r = ss_sock_create(tfw_addr_sa_family(addr), SOCK_STREAM, IPPROTO_TCP,
 	                   &sk);
 	if (r) {
-		TFW_ERR("Unable to create server socket\n");
-		tfw_srv_conn_stop(srv_conn);
+		/*
+		 * Continue reconnection attempts in case of out-of-memory
+		 * (probably temporary) error until connection will be
+		 * intentionally stopped.
+		 */
+		if (r == -ENOBUFS) {
+			TFW_WARN("Not enough memory to create server socket\n");
+			tfw_srv_conn_release(srv_conn);
+		} else {
+			TFW_ERR("Unable to create server socket\n");
+			tfw_srv_conn_stop(srv_conn);
+		}
 		return;
 	}
 
