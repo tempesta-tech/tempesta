@@ -30,12 +30,12 @@
  * properly stored/restored in the caller.
  */
 unsigned long
-tfw_hash_str(const TfwStr *str)
+tfw_hash_str_len(const TfwStr *str, unsigned long str_len)
 {
 	unsigned long crc0 = 0, crc1 = 0;
 
 	if (likely(TFW_STR_PLAIN(str))) {
-		__hash_calc(&crc0, &crc1, str->data, str->len);
+		__hash_calc(&crc0, &crc1, str->data, min(str->len, str_len));
 	}
 	else {
 		const TfwStr *c = str->chunks;
@@ -43,9 +43,13 @@ tfw_hash_str(const TfwStr *str)
 		unsigned char *p, *e;
 		unsigned int tail = 0;
 
-		while (c < end) {
+		while (c < end && str_len) {
+			unsigned long len;
+
 			p = c->data;
-			e = p + c->len;
+			len = min(c->len, str_len);
+			e = p + len;
+			str_len -= len;
 
 			if (tail) {
 				for ( ; tail < 8; ++p, ++tail) {
@@ -68,4 +72,10 @@ next_chunk:
 	}
 
 	return (crc1 << 32) | crc0;
+}
+
+unsigned long
+tfw_hash_str(const TfwStr *str)
+{
+	return tfw_hash_str_len(str, ULONG_MAX);
 }
