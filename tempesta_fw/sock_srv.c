@@ -4,7 +4,7 @@
  * Handling server connections.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -126,6 +126,93 @@ static const unsigned long tfw_srv_tmo_vals[] = { 1, 10, 100, 250, 500, 1000 };
 	TFW_WARN_MOD_ADDR(sock_srv, check, addr, TFW_NO_PORT, fmt,	\
 	                  ##__VA_ARGS__)
 
+static inline void
+tfw_srv_conn_stop(TfwSrvConn *srv_conn)
+{
+	set_bit(TFW_CONN_B_STOPPED, &srv_conn->flags);
+	tfw_server_put((TfwServer *)srv_conn->peer);
+}
+
+/*
+ * There are several stages in the reconnect process. All stages are
+ * covered by tfw_connection_repair() function.
+ *
+ * 1. The attempts to reconnect are repeated at short intervals that are
+ *    gradually increased. There's a great chance that the connection is
+ *    restored during this stage. When that happens, all requests in the
+ *    connection are re-sent to the server.
+ * 2. The attempts to reconnect are continued at one second intervals.
+ *    This covers a short server's downtime such as a service restart.
+ *    During this time requests in the connection are checked to see if
+ *    they should be evicted for a variety of reasons (timed out, etc.).
+ *    Again, when the connection is restored, requests in the connection
+ *    are re-sent to the server.
+ * 3. When the number of attempts to reconnect exceeds the configured
+ *    value, then the connection is marked as faulty. All requests in
+ *    the connection are then re-scheduled to other servers/connections.
+ *    Attempts to reconnect are still continued at one second intervals.
+ *    This would cover longer server's downtime due to a reboot or any
+ *    other maintenance, Should the connection be restored at some time,
+ *    everything will continue to work as usual.
+ *
+ * TODO: There's an interesting side effect in the described procedure.
+ * Connections that are currently in failover may still accept incoming
+ * requests if there are no active connections. When connections are
+ * restored, all requests will be correctly forwarded/re-sent to their
+ * respective servers. This may serve as a QoS feature that mitigates
+ * some temporary short periods when servers are not available.
+ */
+static inline void
+tfw_sock_srv_connect_try_later(TfwSrvConn *srv_conn)
+{
+	unsigned long timeout;
+
+	if (srv_conn->recns < ARRAY_SIZE(tfw_srv_tmo_vals)) {
+		if (srv_conn->recns)
+			TFW_DBG_ADDR("Cannot establish connection",
+			             &srv_conn->peer->addr, TFW_WITH_PORT);
+		timeout = tfw_srv_tmo_vals[srv_conn->recns];
+	} else {
+		if (srv_conn->recns == ARRAY_SIZE(tfw_srv_tmo_vals)
+		    || !(srv_conn->recns % 60))
+		{
+			srv_warn("cannot establish connection",
+				 &srv_conn->peer->addr,
+				 ": %u tries, keep trying...\n",
+				 srv_conn->recns);
+		}
+
+		tfw_connection_repair((TfwConn *)srv_conn);
+		timeout = tfw_srv_tmo_vals[ARRAY_SIZE(tfw_srv_tmo_vals) - 1];
+	}
+	srv_conn->recns++;
+
+	mod_timer(&srv_conn->timer, jiffies + msecs_to_jiffies(timeout));
+}
+
+static void
+tfw_srv_conn_release(TfwSrvConn *srv_conn)
+{
+	tfw_connection_release((TfwConn *)srv_conn);
+	/*
+	 * conn->sk may be zeroed if we get here after a failed
+	 * connect attempt. In that case no connection has been
+	 * established yet, and conn->sk has not been set.
+	 */
+	if (likely(srv_conn->sk))
+		tfw_connection_unlink_to_sk((TfwConn *)srv_conn);
+	/*
+	 * After a disconnect, new connect attempts are started
+	 * in deferred context after a short pause (in a timer
+	 * callback). The only reason not to start new reconnect
+	 * attempt is removing server from the current configuration.
+	 */
+	if (likely(!test_bit(TFW_CONN_B_DEL, &srv_conn->flags)))
+		tfw_sock_srv_connect_try_later(srv_conn);
+	else
+		tfw_srv_conn_stop(srv_conn);
+}
+
 /**
  * Initiate a non-blocking connect attempt.
  * Returns immediately without waiting until a connection is established.
@@ -137,12 +224,24 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	TfwAddr *addr;
 	struct sock *sk;
 
+	WARN_ON(srv_conn->sk);
 	addr = &srv_conn->peer->addr;
 
 	r = ss_sock_create(tfw_addr_sa_family(addr), SOCK_STREAM, IPPROTO_TCP,
 	                   &sk);
 	if (r) {
-		TFW_ERR("Unable to create server socket\n");
+		/*
+		 * Continue reconnection attempts in case of out-of-memory
+		 * (probably temporary) error until connection will be
+		 * intentionally stopped.
+		 */
+		if (r == -ENOBUFS) {
+			TFW_WARN("Not enough memory to create server socket\n");
+			tfw_srv_conn_release(srv_conn);
+		} else {
+			TFW_ERR("Unable to create server socket\n");
+			tfw_srv_conn_stop(srv_conn);
+		}
 		return;
 	}
 
@@ -189,71 +288,9 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 		if (r != SS_SHUTDOWN)
 			TFW_ERR("Unable to initiate a connect to server: %d\n",
 				r);
-		tfw_connection_close((TfwConn *)srv_conn, true);
 		SS_CALL(connection_error, sk);
 		/* Another try is handled in tfw_srv_conn_release() */
 	}
-}
-
-/*
- * There are several stages in the reconnect process. All stages are
- * covered by tfw_connection_repair() function.
- *
- * 1. The attempts to reconnect are repeated at short intervals that are
- *    gradually increased. There's a great chance that the connection is
- *    restored during this stage. When that happens, all requests in the
- *    connection are re-sent to the server.
- * 2. The attempts to reconnect are continued at one second intervals.
- *    This covers a short server's downtime such as a service restart.
- *    During this time requests in the connection are checked to see if
- *    they should be evicted for a variety of reasons (timed out, etc.).
- *    Again, when the connection is restored, requests in the connection
- *    are re-sent to the server.
- * 3. When the number of attempts to reconnect exceeds the configured
- *    value, then the connection is marked as faulty. All requests in
- *    the connection are then re-scheduled to other servers/connections. 
- *    Attempts to reconnect are still continued at one second intervals.
- *    This would cover longer server's downtime due to a reboot or any
- *    other maintenance, Should the connection be restored at some time,
- *    everything will continue to work as usual.
- *
- * TODO: There's an interesting side effect in the described procedure.
- * Connections that are currently in failover may still accept incoming
- * requests if there are no active connections. When connections are
- * restored, all requests will be correctly forwarded/re-sent to their
- * respective servers. This may serve as a QoS feature that mitigates
- * some temporary short periods when servers are not available.
- */
-static inline void
-tfw_sock_srv_connect_try_later(TfwSrvConn *srv_conn)
-{
-	unsigned long timeout;
-
-	/* Don't rearm the reconnection timer if we're about to shutdown. */
-	if (unlikely(!ss_active()))
-		return;
-
-	if (srv_conn->recns < ARRAY_SIZE(tfw_srv_tmo_vals)) {
-		if (srv_conn->recns)
-			TFW_DBG_ADDR("Cannot establish connection",
-			             &srv_conn->peer->addr, TFW_WITH_PORT);
-		timeout = tfw_srv_tmo_vals[srv_conn->recns];
-	} else {
-		if (srv_conn->recns == ARRAY_SIZE(tfw_srv_tmo_vals)
-		    || !(srv_conn->recns % 60))
-		{
-			srv_warn("cannot establish connection",
-				 &srv_conn->peer->addr,
-				 ": %u tries, keep trying...\n",
-				 srv_conn->recns);
-		}
-
-		tfw_connection_repair((TfwConn *)srv_conn);
-		timeout = tfw_srv_tmo_vals[ARRAY_SIZE(tfw_srv_tmo_vals) - 1];
-	}
-	srv_conn->recns++;
-
-	mod_timer(&srv_conn->timer, jiffies + msecs_to_jiffies(timeout));
 }
 
 static void
@@ -289,36 +326,6 @@ tfw_srv_reset_cfg_actions(TfwServer *srv)
 		new_flags = flags = READ_ONCE(srv->flags);
 		new_flags &= ~TFW_CFG_M_ACTION;
 	} while (cmpxchg(&srv->flags, flags, new_flags) != flags);
-}
-
-void
-tfw_srv_conn_release(TfwSrvConn *srv_conn)
-{
-	tfw_connection_release((TfwConn *)srv_conn);
-	/*
-	 * conn->sk may be zeroed if we get here after a failed
-	 * connect attempt. In that case no connection has been
-	 * established yet, and conn->sk has not been set.
-	 */
-	if (likely(srv_conn->sk))
-		tfw_connection_unlink_to_sk((TfwConn *)srv_conn);
-	/*
-	 * After a disconnect, new connect attempts are started
-	 * in deferred context after a short pause (in a timer
-	 * callback). The only reason not to start new reconnect
-	 * attempt is removing server from the current configuration.
-	 *
-	 * TFW_CONN_B_ACTIVE bit is checked here to see if the connection has
-	 * already got a server's reference; if so, then server's reference must
-	 * be put. If bit is not set, this means that connection didn't have
-	 * time or was never scheduled to reach server (due to some error in
-	 * sock_srv start procedure) and consequently, it needn't to put
-	 * server here (during stop procedure).
-	 */
-	if (likely(!test_bit(TFW_CONN_B_DEL, &srv_conn->flags)))
-		tfw_sock_srv_connect_try_later(srv_conn);
-	else if (test_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags))
-		tfw_server_put((TfwServer *)srv_conn->peer);
 }
 
 /**
@@ -422,7 +429,7 @@ static const SsHooks tfw_sock_srv_ss_hooks = {
  * Tempesta is in the process of being shut down when this function is
  * called. First, any attempts to reconnect are stopped. Then, closing
  * of the connection is initiated if it's not being closed yet. Still,
- * Closing of a connection may be initiated concurrently by a backend
+ * closing of a connection may be initiated concurrently by a backend
  * or Tempesta. Only one request for a close is allowed to proceed, so
  * it may happen that request from a backend is serviced first. Either
  * way, all resources attached to a connection are released by calling
@@ -434,33 +441,76 @@ static const SsHooks tfw_sock_srv_ss_hooks = {
  * If a server connection is closed at the time this function runs, then
  * it had been closed by a backend before the shutdown, and the connection
  * is still in failover (not re-connected yet). The resources attached to
- * the connection had not been released, and it has to be done forcefully.
+ * the connection may had not been released, and it has to be done forcefully.
  */
 static int
 tfw_sock_srv_disconnect(TfwConn *conn)
 {
-	int ret = 0;
 	TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 
-	/* Server's refcounter is decreased on disconnect. */
-	if (test_bit(TFW_CONN_B_DEL, &srv_conn->flags))
-		return 0;
-
-	/* Stop any attempts to reconnect or reschedule. */
-	del_timer_sync(&conn->timer);
-	set_bit(TFW_CONN_B_DEL, &srv_conn->flags);
-
 	/*
-	 * Close the connection if it's not being closed yet. Resources
-	 * attached to the connection are released. If the connection is
-	 * closed already, then force the release of attached resources.
+	 * Exit if connection is already stopping, or if it has never been
+	 * activated (due to some error in @sock_srv start procedure; so,
+	 * consequently, it will never gets to its destructor and will never
+	 * reach the stopped state).
 	 */
-	if (atomic_read(&conn->refcnt) != TFW_CONN_DEATHCNT)
-		ret = tfw_connection_close(conn, true);
-	else
-		tfw_srv_conn_release(srv_conn);
+	if (test_bit(TFW_CONN_B_DEL, &srv_conn->flags)
+	    || !test_bit(TFW_CONN_B_ACTIVE, &srv_conn->flags))
+		return 0;
+	/*
+	 * Stop any attempts to reconnect or reschedule. Every activated
+	 * connection must pass through its destructor @tfw_srv_conn_release():
+	 * either during failovering procedure or after it had been intentionally
+	 * closed via @tfw_connection_close(). So, in the following cycle, after
+	 * TFW_CONN_B_DEL bit set, we are waiting for all active connections'
+	 * destructors to be finished.
+	 *
+	 * NOTE: Considering mentioned cycle, connection's destructor execution
+	 * may have one of three allowed results:
+	 * 1. Connection is restored after failovering procedure (in this case
+	 *    it will be closed via @tfw_connection_close() from the cycle, and
+	 *    we still continue waiting for destructor execution);
+	 * 2. Error occurred during failovering procedure and connection's
+	 *    destructor is called;
+	 * 3. Unrecoverable error occurred during failovering procedure and
+	 *    connection is stopped via @tfw_srv_conn_stop().
+	 * If connection's destructor will have any other result - the cycle
+	 * will last forever.
+	 */
+	set_bit(TFW_CONN_B_DEL, &srv_conn->flags);
+	smp_mb__after_atomic();
+	do {
+		/*
+		 * If timer successfully deactivated here, that means the
+		 * connection's destructor had activated it before in failover
+		 * procedure, and server had not been put. See for details in
+		 * connection's destructor @tfw_srv_conn_release().
+		 */
+		if (del_timer_sync(&conn->timer)) {
+			tfw_srv_conn_stop(srv_conn);
+			break;
+		}
+		/*
+		 * Close the connection if it's not being closed yet or has been
+		 * restored already. If the connection is closed already, then
+		 * check its stop bit.
+		 */
+		if (atomic_read(&conn->refcnt) != TFW_CONN_DEATHCNT)
+			return tfw_connection_close(conn, true);
+		/*
+		 * If stop flag is set, we can exit. Otherwise, continue waiting
+		 * until connection's destructor finish its work.
+		*/
+	} while (!test_bit(TFW_CONN_B_STOPPED, &srv_conn->flags));
+	/*
+	 * If we here, connection is stopped (in destructor or after deactivation
+	 * of rearmed timer), and connection's resources should be cleaned - just
+	 * in case that wasn't done in destructor (bit TFW_CONN_B_DEL had been
+	 * set too late).
+	 */
+	tfw_connection_release((TfwConn *)srv_conn);
 
-	return ret;
+	return 0;
 }
 
 /*
