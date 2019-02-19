@@ -2319,7 +2319,7 @@ static TfwCfgSpec tfw_vhost_frang_limits_specs[] = {
 	},
 	{
 		.name = "http_body_len",
-		.deflt = "0",
+		.deflt = "1073741824", /* 1 Gb. */
 		.handler = tfw_cfg_set_int,
 		.dest = &frang_cfg.http_body_len,
 	},
