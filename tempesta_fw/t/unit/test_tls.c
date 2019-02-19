@@ -81,6 +81,11 @@ ttls_md_update(TlsMdCtx *ctx, const unsigned char *input, size_t ilen)
  * FPU for them on its own.
  * ------------------------------------------------------------------------
  */
+#ifdef __init
+#undef __init
+#define __init
+#endif
+
 #include "../../../tls/bignum.c"
 #include "../../../tls/ecp_curves.c"
 #include "../../../tls/ecp.c"
@@ -136,7 +141,7 @@ TEST(tls, mpi)
 					  "ECF677152EF804370C1A305CAF3B5BF1"
 					  "30879B56C61DE584A0F53A2447A51E"));
 
-	pr_info("  MPI test #1 (mul_mpi): ");
+	pr_debug("  MPI test #1 (mul_mpi)");
 
 	EXPECT_ZERO((ret = ttls_mpi_cmp_mpi(&X, &U)));
 	if (ret)
@@ -150,7 +155,7 @@ TEST(tls, mpi)
 					  "0AC93C701B001B092E4E5B9F73BCD27B"
 					  "9EE50D0657C77F374E903CDFA4C642"));
 
-	pr_info("  MPI test #2 (div_mpi): ");
+	pr_debug("  MPI test #2 (div_mpi)");
 
 	EXPECT_ZERO((ret = ttls_mpi_cmp_mpi(&X, &U)));
 	if (ret)
@@ -165,7 +170,7 @@ TEST(tls, mpi)
 					  "BD96C37890F65171D948E9BC7CBAA4D9"
 					  "325D24D6A3C12710F10A09FA08AB87"));
 
-	pr_info("  MPI test #3 (exp_mod): ");
+	pr_debug("  MPI test #3 (exp_mod)");
 
 	EXPECT_ZERO((ret = ttls_mpi_cmp_mpi(&X, &U)));
 	if (ret)
@@ -177,13 +182,13 @@ TEST(tls, mpi)
 					  "C3DBA76456363A10869622EAC2DD84EC"
 					  "C5B8A74DAC4D09E03B5E0BE779F2DF61"));
 
-	pr_info("  MPI test #4 (inv_mod): ");
+	pr_debug("  MPI test #4 (inv_mod)");
 
 	EXPECT_ZERO((ret = ttls_mpi_cmp_mpi(&X, &U)));
 	if (ret)
 		goto cleanup;
 
-	pr_info("  MPI test #5 (simple gcd): ");
+	pr_debug("  MPI test #5 (simple gcd)");
 
 	for (i = 0; i < GCD_PAIR_COUNT; i++) {
 		TTLS_MPI_CHK(ttls_mpi_lset(&X, gcd_pairs[i][0]));
@@ -241,7 +246,7 @@ TEST(tls, ecp)
 	/* Use secp192r1 if available, or any available curve */
 	TTLS_MPI_CHK(ttls_ecp_group_load(&grp, TTLS_ECP_DP_SECP192R1));
 
-	pr_info("  ECP test #1 (constant op_count, base point G): ");
+	pr_debug("  ECP test #1 (constant op_count, base point G)");
 
 	/* Do a dummy multiplication first to trigger precomputation */
 	TTLS_MPI_CHK(ttls_mpi_lset(&m, 2));
@@ -271,7 +276,7 @@ TEST(tls, ecp)
 			goto cleanup;
 	}
 
-	pr_info("  ECP test #2 (constant op_count, other point): ");
+	pr_debug("  ECP test #2 (constant op_count, other point)");
 	/* We computed P = 2G last time, use it */
 
 	add_count = 0;
@@ -374,7 +379,7 @@ TEST(tls, rsa)
 
 	TTLS_MPI_CHK(ttls_rsa_complete(&rsa));
 
-	pr_info("  RSA key validation: ");
+	pr_debug("  RSA key validation");
 
 	EXPECT_ZERO((ret = ttls_rsa_check_pubkey(&rsa)));
 	if (ret)
@@ -383,7 +388,7 @@ TEST(tls, rsa)
 	if (ret)
 		goto cleanup;
 
-	pr_info("  PKCS#1 encryption : ");
+	pr_debug("  PKCS#1 encryption");
 
 	/* Run-time (softirq) logic. */
 	kernel_fpu_begin();
@@ -395,7 +400,7 @@ TEST(tls, rsa)
 	if (ret)
 		goto cleanup_si;
 
-	pr_info("  PKCS#1 decryption : ");
+	pr_debug("  PKCS#1 decryption");
 
 	ret = ttls_rsa_pkcs1_decrypt(&rsa, TTLS_RSA_PRIVATE, &len, rsa_ciphertext,
 				     rsa_decrypted, sizeof(rsa_decrypted));
