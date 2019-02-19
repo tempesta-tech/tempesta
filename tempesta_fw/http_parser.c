@@ -4763,41 +4763,29 @@ done:
 }
 
 /*
- * The connection is being closed. Terminate the current message.
+ * The server connection is being closed. Terminate the current message.
  * Note that eolen is not set on the body string.
  */
-bool
+int
 tfw_http_parse_terminate(TfwHttpMsg *hm)
 {
 	BUG_ON(!hm);
 	BUG_ON(!(TFW_CONN_TYPE(hm->conn) & Conn_Srv));
 
 	/*
-	 * Set Content-Length header to warn client about end of message.
-	 * Other option is to close connection to client. All the situations
-	 * when Content-Length header must not present in response were
-	 * checked earlier. Refer to RFC 7230 3.3.3
+	 * If response has no framing information, end of response is indicated
+	 * by connection close, RFC 7230 3.3.3. Upper level should provide
+	 * correct message framing to the client somehow.
 	 */
 	if (hm->conn->parser.state == Resp_BodyUnlimRead
 	    || hm->conn->parser.state == Resp_BodyUnlimStart)
 	{
-		char c_len[TFW_ULTOA_BUF_SIZ] = {0};
-		size_t digs;
-		int r;
-
 		BUG_ON(hm->body.flags & TFW_STR_COMPLETE);
 		hm->body.flags |= TFW_STR_COMPLETE;
-		hm->content_length = hm->body.len;
-		if (!(digs = tfw_ultoa(hm->content_length, c_len,
-				       TFW_ULTOA_BUF_SIZ)))
-			return false;
-		r = tfw_http_msg_hdr_xfrm(hm, "Content-Length",
-					  sizeof("Content-Length") - 1,
-					  c_len, digs,
-					  TFW_HTTP_HDR_CONTENT_LENGTH, 0);
-		return (r == 0);
+
+		return TFW_PASS;
 	}
-	return false;
+	return TFW_BLOCK;
 }
 
 void
