@@ -830,7 +830,8 @@ tfw_http_fwdq_reset(TfwSrvConn *srv_conn, struct list_head *dst)
  * Add @req to the server connection's forwarding queue.
  */
 static inline void
-tfw_http_req_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req) {
+tfw_http_req_enlist(TfwSrvConn *srv_conn, TfwHttpReq *req)
+{
 	list_add_tail(&req->fwd_list, &srv_conn->fwd_queue);
 	srv_conn->qsize++;
 	if (tfw_http_req_is_nip(req))
