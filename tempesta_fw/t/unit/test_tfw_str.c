@@ -28,6 +28,10 @@
 #include "test.h"
 #include "tfw_str_helper.h"
 
+#ifndef SLEN
+#define SLEN(s)	(sizeof(s) - 1)
+#endif
+
 TEST(cstr, tolower)
 {
 	EXPECT_TRUE(TFW_LC('A') == tolower('A'));
@@ -605,6 +609,95 @@ TEST(tfw_strcat, compound)
 				    0));
 }
 
+TEST(tfw_str_insert, plain_prepend)
+{
+	TfwStr *s1 = make_plain_str("abcdefghijklmnop");
+	DEFINE_TFW_STR(s2, "0123456789");
+
+	EXPECT_ZERO(tfw_str_insert(str_pool, s1, &s2, 0));
+	EXPECT_EQ(s1->nchunks, 2);
+	EXPECT_TRUE(tfw_str_eq_cstr(s1, "0123456789abcdefghijklmnop",
+				    SLEN("0123456789abcdefghijklmnop"),
+				    0));
+}
+
+TEST(tfw_str_insert, plain_append)
+{
+	TfwStr *s1 = make_plain_str("abcdefghijklmnop");
+	DEFINE_TFW_STR(s2, "0123456789");
+
+	EXPECT_ZERO(tfw_str_insert(str_pool, s1, &s2, 1));
+	EXPECT_EQ(s1->nchunks, 2);
+	EXPECT_TRUE(tfw_str_eq_cstr(s1, "abcdefghijklmnop0123456789",
+				    SLEN("abcdefghijklmnop0123456789"),
+				    0));
+}
+
+TEST(tfw_str_insert, compound_prepend)
+{
+	int chunks1, chunks2;
+	TFW_STR(s1, "abcdefghijklmnop");
+	TFW_STR(s2, "0123456789");
+
+	chunks1 = s1->nchunks;
+	chunks2 = s2->nchunks;
+
+	EXPECT_ZERO(tfw_str_insert(str_pool, s1, s2, 0));
+	EXPECT_EQ(s1->nchunks, chunks1 + chunks2);
+	EXPECT_TRUE(tfw_str_eq_cstr(s1, "0123456789abcdefghijklmnop",
+				    SLEN("0123456789abcdefghijklmnop"),
+				    0));
+}
+
+TEST(tfw_str_insert, compound_append)
+{
+	int chunks1, chunks2;
+	TFW_STR(s1, "abcdefghijklmnop");
+	TFW_STR(s2, "0123456789");
+
+	chunks1 = s1->nchunks;
+	chunks2 = s2->nchunks;
+
+	EXPECT_ZERO(tfw_str_insert(str_pool, s1, s2, s1->nchunks));
+	EXPECT_TRUE(s1->nchunks == chunks1 + chunks2);
+	EXPECT_TRUE(tfw_str_eq_cstr(s1, "abcdefghijklmnop0123456789",
+				    SLEN("abcdefghijklmnop0123456789"),
+				    0));
+}
+
+TEST(tfw_str_insert, compound_insert)
+{
+	int chunks1, chunks2;
+	TFW_STR(s1, "abcdefghijklmnop");
+	TFW_STR(s2, "0123456789");
+
+	chunks1 = s1->nchunks;
+	chunks2 = s2->nchunks;
+
+	EXPECT_ZERO(tfw_str_insert(str_pool, s1, s2, 3));
+	EXPECT_EQ(s1->nchunks, chunks1 + chunks2);
+	/*
+	 * Second string is inserted after 3rd chunk,
+	 * First 3 chunks of s1: 'a', 'bc', 'def'.
+	 */
+	EXPECT_TRUE(tfw_str_eq_cstr(s1, "abcdef0123456789ghijklmnop",
+				    SLEN("abcdef0123456789ghijklmnop"),
+				    0));
+}
+
+TEST(tfw_str_insert, out_of_range)
+{
+	int chunks2;
+	TfwStr *s1 = make_plain_str("abcdefghijklmnop");
+	TFW_STR(s2, "abcdefghijklmnop");
+	TFW_STR(s3, "0123456789");
+
+	chunks2 = s2->nchunks;
+
+	EXPECT_NE(tfw_str_insert(str_pool, s1, s3, 2), 2);
+	EXPECT_NE(tfw_str_insert(str_pool, s2, s3, 2), chunks2 + 1);
+}
+
 TEST(tfw_strdup, plain)
 {
 	const char *cstr = "abcdefghijklmnop";
@@ -1179,8 +1272,6 @@ TEST(tfw_str_collect_cmp, collect_chunks)
 	EXPECT_EQ(out.nchunks, 5);
 }
 
-#define SLEN(s)	(sizeof(s) - 1)
-
 TEST(tfw_str_add_compound, plain)
 {
 	TfwStr *s;
@@ -1506,6 +1597,13 @@ TEST_SUITE(tfw_str)
 
 	TEST_RUN(tfw_strcat, plain);
 	TEST_RUN(tfw_strcat, compound);
+
+	TEST_RUN(tfw_str_insert, plain_prepend);
+	TEST_RUN(tfw_str_insert, plain_append);
+	TEST_RUN(tfw_str_insert, compound_prepend);
+	TEST_RUN(tfw_str_insert, compound_append);
+	TEST_RUN(tfw_str_insert, compound_insert);
+	TEST_RUN(tfw_str_insert, out_of_range);
 
 	TEST_RUN(tfw_strdup, plain);
 	TEST_RUN(tfw_strdup, compound);
