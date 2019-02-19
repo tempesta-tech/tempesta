@@ -169,6 +169,8 @@ typedef struct {
  * @qsize	- current number of requests in server's @fwd_queue;
  * @recns	- the number of reconnect attempts;
  * @msg_sent	- request that was sent last in a server connection;
+ * @jbusytstamp - timestamp (in jiffies) until which connection is considered
+ *		  as inactive due to busy corresponding work queue;
  */
 typedef struct {
 	TFW_CONN_COMMON;
@@ -179,6 +181,7 @@ typedef struct {
 	unsigned int		qsize;
 	unsigned int		recns;
 	TfwMsg			*msg_sent;
+	unsigned long		jbusytstamp;
 } TfwSrvConn;
 
 #define TFW_CONN_DEATHCNT	(INT_MIN / 2)
@@ -287,6 +290,28 @@ static inline bool
 tfw_srv_conn_hasnip(TfwSrvConn *srv_conn)
 {
 	return test_bit(TFW_CONN_B_HASNIP, &srv_conn->flags);
+}
+
+/*
+ * Tell if connection is temporary inactive due to full work queue.
+ */
+static inline bool
+tfw_srv_conn_busy(TfwSrvConn *conn)
+{
+	if (time_is_after_jiffies(READ_ONCE(conn->jbusytstamp)))
+		return true;
+
+	return false;
+}
+
+/*
+ * Set small delay for inactivity of busy connection to give time for
+ * unloading of corresponding work queue.
+ */
+static inline void
+tfw_srv_set_busy_delay(TfwSrvConn *conn)
+{
+	WRITE_ONCE(conn->jbusytstamp, jiffies + msecs_to_jiffies(30));
 }
 
 static inline bool
