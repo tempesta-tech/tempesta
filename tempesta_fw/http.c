@@ -2054,7 +2054,8 @@ tfw_http_conn_drop(TfwConn *conn)
 		tfw_http_conn_cli_drop((TfwCliConn *)conn);
 	}
 	else if (conn->msg) { /* server connection */
-		if (tfw_http_parse_terminate((TfwHttpMsg *)conn->msg))
+		int r = tfw_http_parse_terminate((TfwHttpMsg *)conn->msg);
+		if (r == TFW_PASS)
 			tfw_http_resp_terminate((TfwHttpMsg *)conn->msg);
 	}
 	tfw_http_conn_msg_free((TfwHttpMsg *)conn->msg);
@@ -3554,6 +3555,26 @@ static void
 tfw_http_resp_terminate(TfwHttpMsg *hm)
 {
 	TfwFsmData data;
+	int r;
+
+	/*
+	 * Add absent message framing information. If there is no body, add
+	 *  Content-length header: it requires less modifications.
+	 */
+	r = (hm->body.len)
+		? tfw_http_msg_to_chunked(hm)
+		: TFW_HTTP_MSG_HDR_XFRM(hm, "Content-Length", "0",
+					TFW_HTTP_HDR_CONTENT_LENGTH, 0);
+
+	if (r) {
+		TfwHttpReq *req = hm->req;
+
+		tfw_http_popreq(hm, false);
+		tfw_http_conn_msg_free(hm);
+		tfw_http_req_block(req, 502, "response blocked: filtered out");
+		TFW_INC_STAT_BH(serv.msgs_filtout);
+		return;
+	}
 
 	/*
 	 * Note that in this case we don't have data to process.
