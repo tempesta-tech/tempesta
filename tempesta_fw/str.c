@@ -407,16 +407,14 @@ __tfw_str_insert(TfwPool *pool, TfwStr *dst, TfwStr *src, unsigned int chunk)
 
 	if (chunk != last_chunk) {
 		memmove(dst->chunks + chunk + n, dst->chunks + chunk,
-			sizeof(TfwStr) * (dst->nchunks - chunk));
+			sizeof(TfwStr) * (dst->nchunks - chunk - n));
 		to = dst->chunks + chunk;
 	}
 
 	n = 0;
 	TFW_STR_FOR_EACH_CHUNK(c, src, end) {
 		n += c->len;
-		to->data = c->data;
-		to->len = c->len;
-		to->skb = c->skb;
+		*to = *c;
 		++to;
 	}
 	dst->len += n;
@@ -430,7 +428,7 @@ __tfw_str_insert(TfwPool *pool, TfwStr *dst, TfwStr *src, unsigned int chunk)
 int
 tfw_str_insert(TfwPool *pool, TfwStr *dst, TfwStr *src, unsigned int chunk)
 {
-	if (chunk > (TFW_STR_PLAIN(dst) ? 2 : dst->nchunks + 1))
+	if (unlikely(chunk > (TFW_STR_PLAIN(dst) ? 1 : dst->nchunks)))
 		return -ERANGE;
 
 	return __tfw_str_insert(pool, dst, src, chunk);

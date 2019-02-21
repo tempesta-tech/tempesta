@@ -668,7 +668,20 @@ TEST(tfw_str_insert, compound_append)
 TEST(tfw_str_insert, compound_insert)
 {
 	int chunks1, chunks2;
-	TFW_STR(s1, "abcdefghijklmnop");
+	TfwStr s0 = {
+		.chunks = (TfwStr []){
+			{ .data = "a",		.len = 1 },
+			{ .data = "bc",		.len = 2 },
+			{ .data = "def",	.len = 3 },
+			{ .data = "g",		.len = 1 },
+			{ .data = "h",		.len = 1 },
+			{ .data = "ijklmno",	.len = 7 },
+			{ .data = "p", 		.len = 1 }
+		},
+		.len = sizeof("abcdefghijklmnop") - 1,
+		.nchunks = 7
+	};
+	TfwStr *s1 = tfw_strdup(str_pool, &s0);
 	TFW_STR(s2, "0123456789");
 
 	chunks1 = s1->nchunks;
@@ -676,10 +689,6 @@ TEST(tfw_str_insert, compound_insert)
 
 	EXPECT_ZERO(tfw_str_insert(str_pool, s1, s2, 3));
 	EXPECT_EQ(s1->nchunks, chunks1 + chunks2);
-	/*
-	 * Second string is inserted after 3rd chunk,
-	 * First 3 chunks of s1: 'a', 'bc', 'def'.
-	 */
 	EXPECT_TRUE(tfw_str_eq_cstr(s1, "abcdef0123456789ghijklmnop",
 				    SLEN("abcdef0123456789ghijklmnop"),
 				    0));
@@ -694,8 +703,8 @@ TEST(tfw_str_insert, out_of_range)
 
 	chunks2 = s2->nchunks;
 
-	EXPECT_NE(tfw_str_insert(str_pool, s1, s3, 2), 2);
-	EXPECT_NE(tfw_str_insert(str_pool, s2, s3, 2), chunks2 + 1);
+	EXPECT_NE(tfw_str_insert(str_pool, s1, s3, 2), 0);
+	EXPECT_NE(tfw_str_insert(str_pool, s2, s3, chunks2 + 1), 0);
 }
 
 TEST(tfw_strdup, plain)
@@ -1598,15 +1607,15 @@ TEST_SUITE(tfw_str)
 	TEST_RUN(tfw_strcat, plain);
 	TEST_RUN(tfw_strcat, compound);
 
+	TEST_RUN(tfw_strdup, plain);
+	TEST_RUN(tfw_strdup, compound);
+
 	TEST_RUN(tfw_str_insert, plain_prepend);
 	TEST_RUN(tfw_str_insert, plain_append);
 	TEST_RUN(tfw_str_insert, compound_prepend);
 	TEST_RUN(tfw_str_insert, compound_append);
 	TEST_RUN(tfw_str_insert, compound_insert);
 	TEST_RUN(tfw_str_insert, out_of_range);
-
-	TEST_RUN(tfw_strdup, plain);
-	TEST_RUN(tfw_strdup, compound);
 
 	TEST_RUN(tfw_stricmp, returns_true_only_for_equal_tfw_strs);
 	TEST_RUN(tfw_stricmp, handles_plain_and_compound_strs);
