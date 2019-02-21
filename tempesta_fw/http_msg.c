@@ -780,7 +780,13 @@ tfw_http_msg_body_xfrm(TfwHttpMsg *hm, TfwStr *data, bool append)
 	struct sk_buff *skb = append
 		? ss_skb_peek_tail(&hm->msg.skb_head)
 		: hm->body.skb;
-
+	/*
+	 * TODO: #498. During stream forwarding the message is to be forwarded
+	 * skb by skb without full assembling in memory and chunked encoding
+	 * is to be applied on the fly. It's crucial to write last-chunk at the
+	 * skb->tail to reuse allocation overhead and avoid possible skb
+	 * allocations.
+	 */
 	r = ss_skb_get_room(hm->msg.skb_head, skb, st, data->len, &it);
 	if (r)
 		return r;

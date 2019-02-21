@@ -2054,8 +2054,7 @@ tfw_http_conn_drop(TfwConn *conn)
 		tfw_http_conn_cli_drop((TfwCliConn *)conn);
 	}
 	else if (conn->msg) { /* server connection */
-		int r = tfw_http_parse_terminate((TfwHttpMsg *)conn->msg);
-		if (r == TFW_PASS)
+		if (!tfw_http_parse_terminate((TfwHttpMsg *)conn->msg))
 			tfw_http_resp_terminate((TfwHttpMsg *)conn->msg);
 	}
 	tfw_http_conn_msg_free((TfwHttpMsg *)conn->msg);
