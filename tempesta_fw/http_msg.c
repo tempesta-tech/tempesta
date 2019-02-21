@@ -771,10 +771,17 @@ tfw_http_msg_body_xfrm(TfwHttpMsg *hm, TfwStr *data, bool append)
 	char *st = append
 		? (TFW_STR_CURR(&hm->body)->data + TFW_STR_CURR(&hm->body)->len)
 		: (TFW_STR_CHUNK(&hm->body, 0)->data);
+	/*
+	 * Last skb in the message skb list is the last skb of the body,
+	 * it's safe to add more chunks there. There are no trailer headers
+	 * since trailer may appear only after chunked body, but the message
+	 * wasn't in chunked encoding before.
+	 */
+	struct sk_buff *skb = append
+		? ss_skb_peek_tail(&hm->msg.skb_head)
+		: hm->body.skb;
 
-	r = ss_skb_get_room(hm->msg.skb_head, hm->body.skb,
-			    st,
-			    data->len, &it);
+	r = ss_skb_get_room(hm->msg.skb_head, skb, st, data->len, &it);
 	if (r)
 		return r;
 
