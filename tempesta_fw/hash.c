@@ -61,7 +61,7 @@ tfw_hash_str(const TfwStr *str)
 			}
 
 			__hash_calc(&crc0, &crc1, p, e - p);
-			tail = c->len & 0xf;
+			tail = (e - p) & 0xf;
 next_chunk:
 			++c;
 		}
