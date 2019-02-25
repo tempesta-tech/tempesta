@@ -1064,7 +1064,7 @@ frang_resp_fwd_process(TfwHttpResp *resp)
 
 	spin_unlock(&ra->lock);
 
-	return 0;
+	return TFW_PASS;
 }
 
 static int
@@ -1088,7 +1088,9 @@ frang_resp_handler(void *obj, TfwFsmData *data)
 		break;
 	}
 
-	tfw_gfsm_move(&conn->state, TFW_FRANG_RESP_FSM_DONE, data);
+	if (r != TFW_PASS)
+		return r;
+	r = tfw_gfsm_move(&conn->state, TFW_FRANG_RESP_FSM_DONE, data);
 
 	return r;
 }
