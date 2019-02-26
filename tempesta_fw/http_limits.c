@@ -236,9 +236,6 @@ typedef struct {
 	FrangRespCodeStat	resp_code_stat[FRANG_FREQ];
 } FrangAcc;
 
-/* GFSM hooks priorities. */
-int prio0, prio1, prio2, prio3, prio4;
-
 #define FRANG_CLI2ACC(c)	((FrangAcc *)(&(c)->class_prvt))
 #define FRANG_ACC2CLI(a)	container_of((TfwClassifierPrvt *)a,	\
 					     TfwClient, class_prvt)
@@ -1144,6 +1141,87 @@ static TfwClassifier frang_class_ops = {
  * ------------------------------------------------------------------------
  */
 
+typedef struct {
+	int			prio;
+	int			hook_state;
+	int			st0;
+	unsigned short		fsm_id;
+	const char		*name;
+} FrangGfsmHook;
+
+static FrangGfsmHook frang_gfsm_hooks[] = {
+	{
+		.prio		= -1,
+		.hook_state	= TFW_HTTP_FSM_REQ_MSG,
+		.fsm_id		= TFW_FSM_FRANG_REQ,
+		.st0		= TFW_FRANG_REQ_FSM_INIT,
+		.name		= "request_msg_end",
+	},
+	{
+		.prio		= -1,
+		.hook_state	= TFW_HTTP_FSM_REQ_CHUNK,
+		.fsm_id		= TFW_FSM_FRANG_REQ,
+		.st0		= TFW_FRANG_REQ_FSM_INIT,
+		.name		= "request_skb_end",
+	},
+	{
+		.prio		= -1,
+		.hook_state	= TFW_HTTP_FSM_RESP_MSG,
+		.fsm_id		= TFW_FSM_FRANG_RESP,
+		.st0		= TFW_FRANG_RESP_FSM_INIT,
+		.name		= "response_msg_end",
+	},
+	{
+		.prio		= -1,
+		.hook_state	= TFW_HTTP_FSM_RESP_CHUNK,
+		.fsm_id		= TFW_FSM_FRANG_RESP,
+		.st0		= TFW_FRANG_RESP_FSM_INIT,
+		.name		= "response_skb_end",
+	},
+	{
+		.prio		= -1,
+		.hook_state	= TFW_HTTP_FSM_RESP_MSG_FWD,
+		.fsm_id		= TFW_FSM_FRANG_RESP,
+		.st0		= TFW_FRANG_RESP_FSM_INIT,
+		.name		= "response_fwd",
+	},
+};
+
+void
+tfw_http_limits_hooks_remove(void)
+{
+	int i;
+
+	for (i = ARRAY_SIZE(frang_gfsm_hooks) - 1; i >= 0; i--) {
+		FrangGfsmHook *h = &frang_gfsm_hooks[i];
+		if (h->prio == -1)
+			continue;
+		tfw_gfsm_unregister_hook(TFW_FSM_HTTP, h->prio, h->hook_state);
+		h->prio = -1;
+	}
+}
+
+int
+tfw_http_limits_hooks_register(void)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(frang_gfsm_hooks); i++) {
+		FrangGfsmHook *h = &frang_gfsm_hooks[i];
+
+		h->prio = tfw_gfsm_register_hook(TFW_FSM_HTTP,
+						 TFW_GFSM_HOOK_PRIORITY_ANY,
+						 h->hook_state, h->fsm_id,
+						 h->st0);
+		if (h->prio < 0) {
+			TFW_ERR_NL("frang: can't register %s hook\n", h->name);
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
 int __init
 tfw_http_limits_init(void)
 {
@@ -1167,70 +1245,13 @@ tfw_http_limits_init(void)
 		goto err_fsm_resp;
 	}
 
-	/* Request hooks. */
-	prio0 = tfw_gfsm_register_hook(TFW_FSM_HTTP,
-				       TFW_GFSM_HOOK_PRIORITY_ANY,
-				       TFW_HTTP_FSM_REQ_MSG,
-				       TFW_FSM_FRANG_REQ,
-				       TFW_FRANG_REQ_FSM_INIT);
-	if (prio0 < 0) {
-		TFW_ERR_NL("frang: can't register req gfsm msg hook\n");
-		r = prio0;
-		goto err_hook0;
-	}
-	prio1 = tfw_gfsm_register_hook(TFW_FSM_HTTP,
-				       TFW_GFSM_HOOK_PRIORITY_ANY,
-				       TFW_HTTP_FSM_REQ_CHUNK,
-				       TFW_FSM_FRANG_REQ,
-				       TFW_FRANG_REQ_FSM_INIT);
-	if (prio1 < 0) {
-		TFW_ERR_NL("frang: can't register req gfsm chunk hook\n");
-		r = prio1;
-		goto err_hook1;
-	}
-
-	/* Response hooks. */
-	prio2 = tfw_gfsm_register_hook(TFW_FSM_HTTP,
-				       TFW_GFSM_HOOK_PRIORITY_ANY,
-				       TFW_HTTP_FSM_RESP_MSG,
-				       TFW_FSM_FRANG_RESP,
-				       TFW_FRANG_RESP_FSM_INIT);
-	if (prio2 < 0) {
-		TFW_ERR_NL("frang: can't register resp gfsm msg hook\n");
-		r = prio2;
-		goto err_hook2;
-	}
-	prio3 = tfw_gfsm_register_hook(TFW_FSM_HTTP,
-				       TFW_GFSM_HOOK_PRIORITY_ANY,
-				       TFW_HTTP_FSM_RESP_CHUNK,
-				       TFW_FSM_FRANG_RESP,
-				       TFW_FRANG_RESP_FSM_INIT);
-	if (prio3 < 0) {
-		TFW_ERR_NL("frang: can't register resp gfsm chunk hook\n");
-		r = prio3;
-		goto err_hook3;
-	}
-	prio4 = tfw_gfsm_register_hook(TFW_FSM_HTTP,
-				       TFW_GFSM_HOOK_PRIORITY_ANY,
-				       TFW_HTTP_FSM_RESP_MSG_FWD,
-				       TFW_FSM_FRANG_RESP,
-				       TFW_FRANG_RESP_FSM_FWD);
-	if (prio4 < 0) {
-		TFW_ERR_NL("frang: can't register resp gfsm msg fwd hook\n");
-		r = prio4;
-		goto err_hook4;
-	}
+	r = tfw_http_limits_hooks_register();
+	if (r)
+		goto err_hooks;
 
 	return 0;
-err_hook4:
-	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio3, TFW_HTTP_FSM_RESP_CHUNK);
-err_hook3:
-	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio2, TFW_HTTP_FSM_RESP_MSG);
-err_hook2:
-	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio1, TFW_HTTP_FSM_REQ_CHUNK);
-err_hook1:
-	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio0, TFW_HTTP_FSM_REQ_MSG);
-err_hook0:
+err_hooks:
+	tfw_http_limits_hooks_remove();
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_RESP);
 err_fsm_resp:
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_REQ);
@@ -1245,11 +1266,7 @@ tfw_http_limits_exit(void)
 {
 	TFW_DBG("frang exit\n");
 
-	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio4, TFW_HTTP_FSM_RESP_MSG_FWD);
-	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio3, TFW_HTTP_FSM_RESP_CHUNK);
-	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio2, TFW_HTTP_FSM_RESP_MSG);
-	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio1, TFW_HTTP_FSM_REQ_CHUNK);
-	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio0, TFW_HTTP_FSM_REQ_MSG);
+	tfw_http_limits_hooks_remove();
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_RESP);
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_REQ);
 	tfw_classifier_unregister();
