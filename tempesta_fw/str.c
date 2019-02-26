@@ -391,30 +391,55 @@ tfw_strcpy_desc(TfwStr *dst, TfwStr *src)
 }
 EXPORT_SYMBOL(tfw_strcpy_desc);
 
-int
-tfw_strcat(TfwPool *pool, TfwStr *dst, TfwStr *src)
+static inline int
+__tfw_str_insert(TfwPool *pool, TfwStr *dst, TfwStr *src, unsigned int chunk)
 {
-	int n = src->nchunks;
+	int n = src->nchunks ? : 1;
+	int last_chunk = TFW_STR_PLAIN(dst) ? 1 : dst->nchunks;
 	TfwStr *to, *c, *end;
 
 	BUG_ON(TFW_STR_DUP(dst));
 	BUG_ON(TFW_STR_DUP(src));
 
-	to = __str_grow_tree(pool, dst, 0, n ? : 1);
+	to = __str_grow_tree(pool, dst, 0, n);
 	if (!to)
 		return -ENOMEM;
+
+	if (chunk != last_chunk) {
+		memmove(dst->chunks + chunk + n, dst->chunks + chunk,
+			sizeof(TfwStr) * (dst->nchunks - chunk - n));
+		to = dst->chunks + chunk;
+	}
 
 	n = 0;
 	TFW_STR_FOR_EACH_CHUNK(c, src, end) {
 		n += c->len;
-		to->data = c->data;
-		to->len = c->len;
-		to->skb = c->skb;
+		*to = *c;
 		++to;
 	}
 	dst->len += n;
 
 	return 0;
+}
+
+/**
+ * Insert string @src into @dst string before chunk @chunk.
+ */
+int
+tfw_str_insert(TfwPool *pool, TfwStr *dst, TfwStr *src, unsigned int chunk)
+{
+	if (unlikely(chunk > (TFW_STR_PLAIN(dst) ? 1 : dst->nchunks)))
+		return -ERANGE;
+
+	return __tfw_str_insert(pool, dst, src, chunk);
+}
+EXPORT_SYMBOL(tfw_str_insert);
+
+int
+tfw_strcat(TfwPool *pool, TfwStr *dst, TfwStr *src)
+{
+	return __tfw_str_insert(pool, dst, src,
+				TFW_STR_PLAIN(dst) ? 1 : dst->nchunks);
 }
 EXPORT_SYMBOL(tfw_strcat);
 

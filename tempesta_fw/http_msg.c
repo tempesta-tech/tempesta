@@ -760,6 +760,87 @@ tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
 }
 
 /**
+ * Modify message body, add string @data to the end of the body (if @append) or
+ * to its beginning.
+ */
+static int
+tfw_http_msg_body_xfrm(TfwHttpMsg *hm, TfwStr *data, bool append)
+{
+	int r;
+	TfwStr it = {};
+	char *st = append
+		? (TFW_STR_CURR(&hm->body)->data + TFW_STR_CURR(&hm->body)->len)
+		: (TFW_STR_CHUNK(&hm->body, 0)->data);
+	/*
+	 * Last skb in the message skb list is the last skb of the body,
+	 * it's safe to add more chunks there. There are no trailer headers
+	 * since trailer may appear only after chunked body, but the message
+	 * wasn't in chunked encoding before.
+	 */
+	struct sk_buff *skb = append
+		? ss_skb_peek_tail(&hm->msg.skb_head)
+		: hm->body.skb;
+	/*
+	 * TODO: #498. During stream forwarding the message is to be forwarded
+	 * skb by skb without full assembling in memory and chunked encoding
+	 * is to be applied on the fly. It's crucial to write last-chunk at the
+	 * skb->tail to reuse allocation overhead and avoid possible skb
+	 * allocations.
+	 */
+	r = ss_skb_get_room(hm->msg.skb_head, skb, st, data->len, &it);
+	if (r)
+		return r;
+
+	if ((r = tfw_strcpy(&it, data)))
+		return r;
+	r = tfw_str_insert(hm->pool, &hm->body, &it,
+			   append ? hm->body.nchunks : 0);
+	if (r) {
+		TFW_WARN("Can't concatenate body %.*s with %.*s\n",
+			 PR_TFW_STR(&hm->body), PR_TFW_STR(data));
+		return r;
+	}
+
+	return 0;
+}
+
+/**
+ * Transform message to chunked encoding.
+ */
+int
+tfw_http_msg_to_chunked(TfwHttpMsg *hm)
+{
+	int r;
+	DEFINE_TFW_STR(chunked_body_end, "\r\n0\r\n\r\n");
+
+	r = TFW_HTTP_MSG_HDR_XFRM(hm, "Transfer-Encoding", "chunked",
+				  TFW_HTTP_HDR_TRANSFER_ENCODING, 1);
+	if (r)
+		return r;
+
+	if (hm->body.len) {
+		char data[TFW_ULTOA_BUF_SIZ + 2] = {0};
+		TfwStr sz = {.data = data};
+
+		sz.len = tfw_ultoa(hm->body.len, sz.data, TFW_ULTOA_BUF_SIZ);
+		if (!sz.len)
+			return -EINVAL;
+		*(short *)(sz.data + sz.len) = 0x0a0d; /* CRLF, '\r\n' */
+		sz.len += 2;
+
+		if ((r = tfw_http_msg_body_xfrm(hm, &sz, false)))
+			return r;
+	}
+
+	if ((r = tfw_http_msg_body_xfrm(hm, &chunked_body_end, true)))
+		return r;
+
+	__set_bit(TFW_HTTP_B_CHUNKED, hm->flags);
+
+	return 0;
+}
+
+/**
  * Add a header, probably duplicated, without any checking of current headers.
  */
 int
