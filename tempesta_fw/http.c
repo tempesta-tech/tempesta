@@ -2021,15 +2021,18 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 	 */
 	spin_lock(&cli_conn->seq_qlock);
 	list_for_each_entry_safe(req, tmp, seq_queue, msg.seq_list) {
-		set_bit(TFW_HTTP_B_REQ_DROP, req->flags);
-		list_del_init(&req->msg.seq_list);
 		/*
-		 * Response is processed and removed from fwd_queue, need to be
-		 * destroyed.
+		 * Request must be destroyed if the response is fully processed
+		 * and removed from fwd_queue. If the request is still in use
+		 * immediately after REQ_DROP flag is set, the request-response
+		 * pair can be destroyed in other thread.
 		 */
-		if (req->resp
-		    && test_bit(TFW_HTTP_B_RESP_READY, req->resp->flags))
-		{
+		bool unused = req->resp
+			&& test_bit(TFW_HTTP_B_RESP_READY, req->resp->flags);
+		list_del_init(&req->msg.seq_list);
+		smp_mb__before_atomic();
+		set_bit(TFW_HTTP_B_REQ_DROP, req->flags);
+		if (unused) {
 			tfw_http_resp_pair_free(req);
 			TFW_INC_STAT_BH(serv.msgs_otherr);
 		}
@@ -2693,8 +2696,11 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 			spin_unlock(&cli_conn->seq_qlock);
 		}
 		else {
-			WARN_ONCE(list_empty_careful(&req->msg.seq_list),
+			spin_lock(&cli_conn->seq_qlock);
+			WARN_ONCE(list_empty(&req->msg.seq_list)
+				  && !test_bit(TFW_HTTP_B_REQ_DROP, req->flags),
 				  "Request is not in in seq_queue\n");
+			spin_unlock(&cli_conn->seq_qlock);
 		}
 		/*
 		 * If !on_req_recv_event, then the request @req may be some
