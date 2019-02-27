@@ -2695,13 +2695,6 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 			list_add_tail(&req->msg.seq_list, &cli_conn->seq_queue);
 			spin_unlock(&cli_conn->seq_qlock);
 		}
-		else {
-			spin_lock(&cli_conn->seq_qlock);
-			WARN_ONCE(list_empty(&req->msg.seq_list)
-				  && !test_bit(TFW_HTTP_B_REQ_DROP, req->flags),
-				  "Request is not in in seq_queue\n");
-			spin_unlock(&cli_conn->seq_qlock);
-		}
 		/*
 		 * If !on_req_recv_event, then the request @req may be some
 		 * random request from the seq_queue, not the last one.
