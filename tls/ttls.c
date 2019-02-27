@@ -2393,6 +2393,9 @@ ttls_ctx_clear(TlsCtx *tls)
 		ttls_free(tls->hostname);
 	}
 
+	ttls_cipher_free(&tls->xfrm.cipher_ctx_enc);
+	ttls_cipher_free(&tls->xfrm.cipher_ctx_dec);
+
 	bzero_fast(tls, sizeof(TlsCtx));
 }
 EXPORT_SYMBOL(ttls_ctx_clear);
