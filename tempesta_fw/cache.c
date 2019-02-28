@@ -37,6 +37,7 @@
 #include "procfs.h"
 #include "sync_socket.h"
 #include "work_queue.h"
+#include "lib/common.h"
 
 #if MAX_NUMNODES > ((1 << 16) - 1)
 #warning "Please set CONFIG_NODES_SHIFT to less than 16"

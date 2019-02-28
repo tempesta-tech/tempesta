@@ -4,7 +4,7 @@
  * Clients handling.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -28,29 +28,46 @@
 #include "connection.h"
 #include "log.h"
 #include "procfs.h"
+#include "tdb.h"
+#include "lib/str.h"
+#include "lib/common.h"
 
-#define CLI_HASH_BITS	17
-#define CLI_HASH_SZ	(1 << CLI_HASH_BITS)
+/* Length of comparison of clients entry by User-Agent. */
+#define UA_CMP_LEN	256
 
-typedef struct {
-	struct hlist_head	list;
-	spinlock_t		lock;
-} CliHashBucket;
+static struct {
+	unsigned int	db_size;
+	const char	*db_path;
+	unsigned int	expires_time;
+} client_cfg __read_mostly;
 
-/*
- * TODO probably not the best container for the task and
- * HTrie should be used instead.
+/**
+ * Client tdb entry.
+ *
+ * @cli			- client descriptor;
+ * @xff_addr		- peer IPv6 address from X-Forwarded-For;
+ * @expires		- expiration time for the client descriptor after all;
+ *			  connections are closed;
+ * @lock		- lock for atomic change @expires and @users;
+ * @users		- reference counter.
+ * 			  Expiration state will begind, when the counter reaches
+ *			  zero;
+ * @user_agent_len	- Length of @user_agent
+ * @user_agent		- UA_CMP_LEN first characters of User-Agent
  */
-CliHashBucket cli_hash[CLI_HASH_SZ] = {
-	[0 ... (CLI_HASH_SZ - 1)] = {
-		HLIST_HEAD_INIT,
-	}
-};
+typedef struct {
+	TfwClient	cli;
+	TfwAddr		xff_addr;
+	time_t		expires;
+	spinlock_t	lock;
+	atomic_t	users;
+	unsigned long	user_agent_len;
+	char		user_agent[UA_CMP_LEN];
+} TfwClientEntry;
 
-static struct kmem_cache *cli_cache;
+static TDB *client_db;
 
-/* Total number of created clients. */
-static atomic64_t act_cli_n = ATOMIC64_INIT(0);
+unsigned long tfw_hash_str_len(const TfwStr *str, unsigned long str_len);
 
 /**
  * Called when a client socket is closed.
@@ -58,92 +75,174 @@ static atomic64_t act_cli_n = ATOMIC64_INIT(0);
 void
 tfw_client_put(TfwClient *cli)
 {
-	TFW_DBG2("put client %p, conn_users=%d\n",
-		 cli, atomic_read(&cli->conn_users));
+	TfwClientEntry *ent = (TfwClientEntry *)cli;
 
-	if (!atomic_dec_and_test(&cli->conn_users))
+	TFW_DBG2("put client %p, users=%d\n",
+		 cli, atomic_read(&ent->users));
+
+	if (!atomic_dec_and_test(&ent->users))
 		return;
 
-	spin_lock(cli->hb_lock);
+	spin_lock(&ent->lock);
 
-	if (atomic_read(&cli->conn_users)) {
-		spin_unlock(cli->hb_lock);
+	if (atomic_read(&ent->users)) {
+		spin_unlock(&ent->lock);
 		return;
 	}
 	BUG_ON(!list_empty(&cli->conn_list));
 
-	hlist_del(&cli->hentry);
+	ent->expires = tfw_current_timestamp() + client_cfg.expires_time;
 
-	spin_unlock(cli->hb_lock);
+	spin_unlock(&ent->lock);
 
-	TFW_DBG("free client: cli=%p\n", cli);
-	kmem_cache_free(cli_cache, cli);
-	atomic64_dec(&act_cli_n);
+	TFW_DBG("put client: cli=%p\n", cli);
 	TFW_DEC_STAT_BH(clnt.online);
 }
-EXPORT_SYMBOL(tfw_client_put);
 
-/**
- * Find a client corresponding to the @sk by IP address.
- * More advanced identification is possible based on User-Agent,
- * Cookie and other HTTP headers.
- * TODO (#488,#598,#1054?) actually clients can be relatively reliably
- * identified with TLS sessions (#1054) or HTTP sticky cookies.
- *
- * The returned TfwClient reference must be released via tfw_client_put()
- * when the @sk is closed.
- *
- * TODO #488 (#100): evict connections and/or clients and drop their accounting.
- * For now a client is freed immediately when the last of its connections is
- * closed, probably we should evict clients after some timeout to keep their
- * classifier statistic for following sessions...
- */
-TfwClient *
-tfw_client_obtain(struct sock *sk, void (*init)(TfwClient *))
-{
-	TfwClient *cli;
-	CliHashBucket *hb;
-	struct hlist_node *tmp;
-	unsigned long key;
+typedef struct {
 	TfwAddr addr;
+	TfwAddr xff_addr;
+	TfwStr	user_agent;
+} TfwClientEqCtx;
 
-	ss_getpeername(sk, &addr);
-	key = hash_calc((const char *)&addr.sin6_addr,
-			sizeof(addr.sin6_addr));
+static struct in6_addr any_addr = IN6ADDR_ANY_INIT;
 
-	hb = &cli_hash[hash_min(key, CLI_HASH_BITS)];
+static bool
+tfw_client_addr_eq(TdbRec *rec, void (*init)(void *), void *data)
+{
+	TfwClientEntry *ent = (TfwClientEntry *)rec->data;
+	TfwClient *cli = &ent->cli;
+	TfwClientEqCtx *ctx = (TfwClientEqCtx *)data;
+	time_t curr_time = tfw_current_timestamp();
+	int users;
 
-	spin_lock(&hb->lock);
-
-	hlist_for_each_entry_safe(cli, tmp, &hb->list, hentry)
-		if (ipv6_addr_equal(&addr.sin6_addr,
-		                    &cli->addr.sin6_addr))
-			goto found;
-
-	if (!(cli = kmem_cache_alloc(cli_cache, GFP_ATOMIC | __GFP_ZERO))) {
-		spin_unlock(&hb->lock);
-		return NULL;
+	if (memcmp_fast(&cli->addr.sin6_addr, &ctx->addr.sin6_addr,
+			sizeof(cli->addr.sin6_addr)))
+	{
+		return false;
 	}
 
-	tfw_peer_init((TfwPeer *)cli, &addr);
-	hlist_add_head(&cli->hentry, &hb->list);
-	cli->hb_lock = &hb->lock;
+	if (memcmp_fast(&ent->xff_addr.sin6_addr, &ctx->xff_addr.sin6_addr,
+			sizeof(ent->xff_addr.sin6_addr)))
+	{
+		return false;
+	}
+
+	if (!tfw_str_eq_cstr(&ctx->user_agent, ent->user_agent,
+			     ent->user_agent_len, 0))
+	{
+		return false;
+	}
+
+	spin_lock(&ent->lock);
+
+	if (curr_time > ent->expires) {
+		bzero_fast(&cli->class_prvt, sizeof(cli->class_prvt));
+		if (init)
+			init(cli);
+	}
+
+	ent->expires = LONG_MAX;
+
+	users = atomic_inc_return(&ent->users);
+	if (users == 1)
+		TFW_INC_STAT_BH(clnt.online);
+
+	spin_unlock(&ent->lock);
+
+	TFW_DBG("client was found in tdb\n");
+	TFW_DBG2("client %p, users=%d\n", cli, users);
+
+	return true;
+}
+
+static void
+tfw_client_ent_init(TdbRec *rec, void (*init)(void *), void *data)
+{
+	TfwClientEntry *ent = (TfwClientEntry *)rec->data;
+	TfwClient *cli = &ent->cli;
+	TfwClientEqCtx *ctx = (TfwClientEqCtx *)data;
+
+	spin_lock_init(&ent->lock);
+
+	ent->expires = LONG_MAX;
+	bzero_fast(&cli->class_prvt, sizeof(cli->class_prvt));
 	if (init)
 		init(cli);
 
-	atomic64_inc(&act_cli_n);
+	atomic_set(&ent->users, 1);
 	TFW_INC_STAT_BH(clnt.online);
+
+	tfw_peer_init((TfwPeer *)cli, &ctx->addr);
+	ent->xff_addr = ctx->xff_addr;
+	tfw_str_to_cstr(&ctx->user_agent, ent->user_agent,
+			sizeof(ent->user_agent));
+	ent->user_agent_len = min(ctx->user_agent.len, sizeof(ent->user_agent));
+
 	TFW_DBG("new client: cli=%p\n", cli);
 	TFW_DBG_ADDR("client address", &cli->addr, TFW_NO_PORT);
+	TFW_DBG2("client %p, users=%d\n", cli, 1);
+}
 
-found:
-	atomic_inc(&cli->conn_users);
+/**
+ * Find a client corresponding to @addr, @xff_addr (e.g. from X-Forwarded-For)
+ * and @user_agent.
+ *
+ * The returned TfwClient reference must be released via tfw_client_put()
+ * when the @sk is closed.
+ * TODO #515 employ eviction strategy for the table.
+ */
+TfwClient *
+tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
+		  void (*init)(void *))
+{
+	TfwClientEntry *ent;
+	TfwClient *cli;
+	unsigned long key;
+	TfwClientEqCtx ctx;
+	size_t len;
+	TdbRec *rec;
+	bool is_new;
 
-	TFW_DBG2("client %p, conn_users=%d\n",
-		 cli, atomic_read(&cli->conn_users));
+	ctx.addr = addr;
 
-	spin_unlock(&hb->lock);
+	key = hash_calc((const char *)&addr.sin6_addr,
+			sizeof(addr.sin6_addr));
 
+	if (xff_addr) {
+		key ^= hash_calc((const char *)&xff_addr->sin6_addr,
+				 sizeof(xff_addr->sin6_addr));
+		ctx.xff_addr = *xff_addr;
+	} else {
+		ctx.xff_addr.sin6_addr = any_addr;
+	}
+
+	if (user_agent) {
+		key ^= tfw_hash_str_len(user_agent, UA_CMP_LEN);
+		ctx.user_agent = *user_agent;
+	} else {
+		TFW_STR_INIT(&ctx.user_agent);
+	}
+
+	len = sizeof(TfwClientEntry);
+	rec = tdb_rec_get_alloc(client_db, key, &len, &tfw_client_addr_eq,
+				&tfw_client_ent_init, init, &ctx, &is_new);
+	BUG_ON(len < sizeof(TfwClientEntry));
+	if (!rec) {
+		TFW_WARN("cannot allocate TDB space for client\n");
+		return NULL;
+	}
+
+	if (!is_new)
+		/*
+		 * The record doesn't change its location in TDB, since it is
+		 * more than TDB_HTRIE_MINDREC, and we need to unlock the bucket
+		 * with the client as soon as possible.
+		 */
+		tdb_rec_put(rec);
+
+	ent = (TfwClientEntry *)rec->data;
+	cli = &ent->cli;
 	return cli;
 }
 EXPORT_SYMBOL(tfw_client_obtain);
@@ -152,53 +251,78 @@ EXPORT_SYMBOL(tfw_client_obtain);
  * Beware: @fn is called under client hash bucket spin lock.
  */
 int
-tfw_client_for_each(int (*fn)(TfwClient *))
+tfw_client_for_each(int (*fn)(void *))
 {
-	int i, r = 0;
-
-	for (i = 0; i < CLI_HASH_SZ && !r; ++i) {
-		TfwClient *c;
-		CliHashBucket *hb = &cli_hash[i];
-
-		spin_lock(&hb->lock);
-
-		hlist_for_each_entry(c, &hb->list, hentry) {
-			r = fn(c);
-			if (unlikely(r))
-				break;
-		}
-
-		spin_unlock(&hb->lock);
-	}
-
-	return r;
+	return tdb_entry_walk(client_db, fn);
 }
 
-/**
- * Waiting for destruction of all clients.
- */
 void
-tfw_cli_wait_release(void)
+tfw_client_set_expires_time(unsigned int expires_time)
 {
-	tfw_objects_wait_release(&act_cli_n, 5, "client");
+	if (client_cfg.expires_time < expires_time + 1) {
+		client_cfg.expires_time = expires_time + 1;
+	}
 }
+
+static int
+tfw_client_start(void)
+{
+	if (tfw_runstate_is_reconfig())
+		return 0;
+
+	client_db = tdb_open(client_cfg.db_path, client_cfg.db_size,
+			     sizeof(TfwClientEntry), numa_node_id());
+	if (!client_db)
+		return -EINVAL;
+
+	return 0;
+}
+
+static void
+tfw_client_stop(void)
+{
+	if (tfw_runstate_is_reconfig())
+		return;
+	if (client_db)
+		tdb_close(client_db);
+}
+
+static TfwCfgSpec tfw_client_specs[] = {
+	{
+		.name = "client_tbl_size",
+		.deflt = "16777216",
+		.handler = tfw_cfg_set_int,
+		.dest = &client_cfg.db_size,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.multiple_of = PAGE_SIZE,
+			.range = { PAGE_SIZE, (1 << 30) },
+		}
+	},
+	{
+		.name = "client_db",
+		.deflt = "/opt/tempesta/db/client.tdb",
+		.handler = tfw_cfg_set_str,
+		.dest = &client_cfg.db_path,
+		.spec_ext = &(TfwCfgSpecStr) {
+			.len_range = { 1, PATH_MAX },
+		}
+	},
+	{ 0 }
+};
+
+TfwMod tfw_client_mod = {
+	.name 	= "client",
+	.start	= tfw_client_start,
+	.stop	= tfw_client_stop,
+	.specs	= tfw_client_specs,
+};
 
 int __init
 tfw_client_init(void)
 {
-	int i;
+	client_cfg.expires_time = 1;
 
-	cli_cache = kmem_cache_create("tfw_cli_cache", sizeof(TfwClient),
-				      0, 0, NULL);
-	if (!cli_cache)
-		return -ENOMEM;
-
-	/*
-	 * Dynamically initialize hash table spinlocks to avoid lockdep leakage
-	 * (see Troubleshooting in Documentation/locking/lockdep-design.txt).
-	 */
-	for (i = 0; i < CLI_HASH_SZ; ++i)
-		spin_lock_init(&cli_hash[i].lock);
+	tfw_mod_register(&tfw_client_mod);
 
 	return 0;
 }
@@ -206,22 +330,5 @@ tfw_client_init(void)
 void
 tfw_client_exit(void)
 {
-	int i;
-
-	/*
-	 * Free client records with classification modules accounting records.
-	 * There are must not be users.
-	 */
-	for (i = 0; i < (1 << CLI_HASH_BITS); ++i) {
-		TfwClient *c;
-		struct hlist_node *tmp;
-		CliHashBucket *hb = &cli_hash[i];
-
-		hlist_for_each_entry_safe(c, tmp, &hb->list, hentry) {
-			BUG_ON(!list_empty(&c->conn_list));
-			hash_del(&c->hentry);
-			kmem_cache_free(cli_cache, c);
-		}
-	}
-	kmem_cache_destroy(cli_cache);
+	tfw_mod_unregister(&tfw_client_mod);
 }

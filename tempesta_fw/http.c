@@ -39,6 +39,7 @@
 #include "apm.h"
 
 #include "sync_socket.h"
+#include "lib/common.h"
 
 #define TFW_WARN_ADDR_STATUS(msg, addr_ptr, print_port, status)		\
 	TFW_WITH_ADDR_FMT(addr_ptr, print_port, addr_str,		\
@@ -1809,6 +1810,9 @@ tfw_http_req_destruct(void *msg)
 	tfw_vhost_put(req->vhost);
 	if (req->sess)
 		tfw_http_sess_put(req->sess);
+
+	if (req->peer)
+		tfw_client_put(req->peer);
 }
 
 /**
@@ -2980,6 +2984,58 @@ tfw_http_chop_skb(TfwHttpMsg *hm, struct sk_buff *skb,
 	return ss_skb_chop_head_tail(hm->msg.skb_head, skb, off, trail);
 }
 
+static TfwStr
+tfw_http_get_ip_from_xff(TfwHttpReq *req)
+{
+	TfwStr s_xff, s_ip, *c, *end;
+	unsigned int nchunks;
+
+	/*
+	 * If a client works through a forward proxy, then a proxy can pass it's
+	 * IP address by the first value in X-Forwarded-For
+	 */
+	s_xff = req->h_tbl->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR];
+	s_ip = tfw_str_next_str_val(&s_xff);
+	nchunks = 0;
+	TFW_STR_FOR_EACH_CHUNK(c, &s_ip, end) {
+		if (!(c->flags & TFW_STR_VALUE))
+			break;
+		nchunks++;
+	}
+	s_ip.nchunks = nchunks;
+
+	return s_ip;
+}
+
+static int
+tfw_http_req_client_link(TfwConn *conn, TfwHttpReq *req)
+{
+	TfwStr s_ip, s_user_agent, *ua;
+	TfwAddr addr;
+	TfwClient *cli, *conn_cli;
+
+	s_ip = tfw_http_get_ip_from_xff(req);
+	if (!TFW_STR_EMPTY(&s_ip)) {
+		if (tfw_addr_pton(&s_ip, &addr) != 0)
+			return TFW_BLOCK;
+
+		conn_cli = (TfwClient *)conn->peer;
+		ua = &req->h_tbl->tbl[TFW_HTTP_HDR_USER_AGENT];
+		tfw_http_msg_clnthdr_val(ua, TFW_HTTP_HDR_USER_AGENT,
+					 &s_user_agent);
+		cli = tfw_client_obtain(conn_cli->addr, &addr, &s_user_agent,
+					NULL);
+		if (cli) {
+			if (cli != conn_cli)
+				req->peer = cli;
+			else
+				tfw_client_put(cli);
+		}
+	}
+
+	return 0;
+}
+
 /**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
@@ -3098,6 +3154,9 @@ next_msg:
 	} else {
 		skb = NULL;
 	}
+
+	if ((r = tfw_http_req_client_link(conn, req)))
+		return r;
 
 	/*
 	 * Sticky cookie module must be used before request can reach cache.

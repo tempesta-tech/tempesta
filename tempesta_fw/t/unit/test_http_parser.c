@@ -2421,6 +2421,48 @@ TEST(http_parser, content_type_line_parser)
 #undef TAIL
 }
 
+static
+TfwStr get_next_str_val(TfwStr *str)
+{
+	TfwStr v, *c, *end;
+	unsigned int nchunks = 0;
+
+	v = *str = tfw_str_next_str_val(str);
+	TFW_STR_FOR_EACH_CHUNK(c, &v, end) {
+		if (!(c->flags & TFW_STR_VALUE))
+			break;
+		nchunks++;
+	}
+	v.nchunks = nchunks;
+
+	return v;
+}
+
+TEST(http_parser, xff)
+{
+	TfwStr xff, v;
+
+	const char *s_client = "203.0.113.195";
+	const char *s_proxy1 = "70.41.3.18";
+	const char *s_proxy2 = "150.172.238.178";
+
+	FOR_REQ("GET /foo HTTP/1.1\r\n"
+		"X-Forwarded-For: 203.0.113.195,70.41.3.18,150.172.238.178\r\n"
+		"\r\n");
+	{
+		xff = req->h_tbl->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR];
+
+		v = get_next_str_val(&xff);
+		EXPECT_TRUE(tfw_str_eq_cstr(&v, s_client, strlen(s_client), 0));
+
+		v = get_next_str_val(&xff);
+		EXPECT_TRUE(tfw_str_eq_cstr(&v, s_proxy1, strlen(s_proxy1), 0));
+
+		v = get_next_str_val(&xff);
+		EXPECT_TRUE(tfw_str_eq_cstr(&v, s_proxy2, strlen(s_proxy2), 0));
+	}
+}
+
 TEST_SUITE(http_parser)
 {
 	int r;
@@ -2458,6 +2500,7 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, resp_hop_by_hop);
 	TEST_RUN(http_parser, fuzzer);
 	TEST_RUN(http_parser, content_type_line_parser);
+	TEST_RUN(http_parser, xff);
 
 	/*
 	 * Testing for correctness of redirection mark parsing (in
