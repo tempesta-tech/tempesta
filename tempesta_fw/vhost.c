@@ -24,6 +24,7 @@
 #include "vhost.h"
 #include "str.h"
 #include "http_limits.h"
+#include "client.h"
 
 /**
  * Control object for holding full set of virtual hosts specific for current
@@ -1602,6 +1603,13 @@ tfw_cfgop_frang_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce, FrangCfg *conf)
 	if (frang_parse_ushort(ce->vals[ce->val_n - 2], &cb->limit)
 	    || frang_parse_ushort(ce->vals[ce->val_n - 1], &cb->tf))
 		return -EINVAL;
+
+	/*
+	 * We need the maximum time frame used by all the limiting logic
+	 * to keep limit accounting data during this time if the connection is
+	 * closed
+	 */
+	tfw_client_set_expires_time(cb->tf);
 
 	return 0;
 }

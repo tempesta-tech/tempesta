@@ -173,6 +173,12 @@ TdbIter tdb_rec_get(TDB *db, unsigned long key);
 void tdb_rec_next(TDB *db, TdbIter *iter);
 void tdb_rec_put(void *rec);
 int tdb_info(char *buf, size_t len);
+TdbRec * tdb_rec_get_alloc(TDB *db, unsigned long key, size_t *len,
+			   bool (*predicate)(TdbRec *, void (*)(void *), void *),
+			   void (*init)(TdbRec *, void (*)(void *), void *),
+			   void (*cb)(void *), void *data, bool *is_new);
+int tdb_entry_walk(TDB *db, int (*fn)(void *));
+void tdb_rec_get_lock(void *rec);
 
 /* Open/close database handler. */
 TDB *tdb_open(const char *path, size_t fsize, unsigned int rec_size, int node);

@@ -3223,7 +3223,7 @@ __req_parse_x_forwarded_for(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_XFF) {
 		/* Eat OWS before the node ID. */
 		if (unlikely(IS_WS(c)))
-			__FSM_I_MOVE(Req_I_XFF);
+			__FSM_I_MOVE_fixup(Req_I_XFF, 1, 0);
 		/*
 		 * Eat IP address or host name.
 		 *
@@ -3231,10 +3231,10 @@ __req_parse_x_forwarded_for(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		 * Currently we just validate separate characters, but the
 		 * whole value may be invalid (e.g. "---[_..[[").
 		 */
-		__FSM_I_MATCH_MOVE(xff, Req_I_XFF_Node_Id);
+		__FSM_I_MATCH_MOVE_fixup(xff, Req_I_XFF_Node_Id, TFW_STR_VALUE);
 		if (unlikely(!__fsm_sz))
 			return CSTR_NEQ;
-		__FSM_I_MOVE_n(Req_I_XFF_Sep, __fsm_sz);
+		__FSM_I_MOVE_fixup(Req_I_XFF_Sep, __fsm_sz, TFW_STR_VALUE);
 	}
 
 	/*
@@ -3242,8 +3242,8 @@ __req_parse_x_forwarded_for(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	 * a host address and now we can pass zero length token.
 	 */
 	__FSM_STATE(Req_I_XFF_Node_Id) {
-		__FSM_I_MATCH_MOVE(xff, Req_I_XFF_Node_Id);
-		__FSM_I_MOVE_n(Req_I_XFF_Sep, __fsm_sz);
+		__FSM_I_MATCH_MOVE_fixup(xff, Req_I_XFF_Node_Id, TFW_STR_VALUE);
+		__FSM_I_MOVE_fixup(Req_I_XFF_Sep, __fsm_sz, TFW_STR_VALUE);
 	}
 
 	__FSM_STATE(Req_I_XFF_Sep) {
@@ -3256,14 +3256,14 @@ __req_parse_x_forwarded_for(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 		/* OWS before comma or before EOL (is unusual). */
 		if (unlikely(IS_WS(c)))
-			__FSM_I_MOVE(Req_I_XFF_Sep);
+			__FSM_I_MOVE_fixup(Req_I_XFF_Sep, 1, 0);
 
 		/*
 		 * Multiple subsequent commas look suspicious, so we don't
 		 * stay in this state after the first comma is met.
 		 */
 		if (likely(c == ','))
-			__FSM_I_MOVE(Req_I_XFF);
+			__FSM_I_MOVE_fixup(Req_I_XFF, 1, 0);
 
 		return CSTR_NEQ;
 	}
@@ -4075,9 +4075,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				  TFW_HTTP_HDR_TRANSFER_ENCODING);
 
 	/* 'X-Forwarded-For:*OWS' is read, process field-value. */
-	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrX_Forwarded_ForV, Req_I_XFF,
-				   msg, __req_parse_x_forwarded_for,
-				   TFW_HTTP_HDR_X_FORWARDED_FOR);
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrX_Forwarded_ForV, Req_I_XFF,
+				     msg, __req_parse_x_forwarded_for,
+				     TFW_HTTP_HDR_X_FORWARDED_FOR, 0);
 
 	/* 'User-Agent:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrUser_AgentV, Req_I_UserAgent,

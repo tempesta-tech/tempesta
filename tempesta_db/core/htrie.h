@@ -140,5 +140,6 @@ TdbRec *tdb_htrie_next_rec(TdbHdr *dbh, TdbRec *r, TdbBucket **b,
 			   unsigned long key);
 TdbHdr *tdb_htrie_init(void *p, size_t db_size, unsigned int rec_len);
 void tdb_htrie_exit(TdbHdr *dbh);
+int tdb_htrie_walk(TdbHdr *dbh, int (*fn)(void *));
 
 #endif /* __HTRIE_H__ */

@@ -27,28 +27,21 @@
 /**
  * Client descriptor.
  *
- * @hentry		- hash list entry for all clients hash;
- * @hb_lock		- pointer to hash bucket lock for quick item removal;
- * @conn_users		- connections reference counter.
- * 			  The client is released, when the counter reaches zero:
- * 			  no connections to the server - no client for us :)
  * @class_prvt		- private client accounting data for classifier module.
  *			  Typically it's large and wastes memory in vain if
  *			  no any classification logic is used;
  */
 typedef struct {
 	TFW_PEER_COMMON;
-	struct hlist_node	hentry;
-	spinlock_t		*hb_lock;
-	atomic_t		conn_users;
 	TfwClassifierPrvt	class_prvt;
 } TfwClient;
 
-TfwClient *tfw_client_obtain(struct sock *sk, void (*init)(TfwClient *));
+TfwClient *tfw_client_obtain(TfwAddr addr, TfwAddr *cli_addr,
+			     TfwStr *user_agent, void (*init)(void *));
 void tfw_client_put(TfwClient *cli);
-int tfw_client_for_each(int (*fn)(TfwClient *));
+int tfw_client_for_each(int (*fn)(void *));
+void tfw_client_set_expires_time(unsigned int expires_time);
 void tfw_cli_conn_release(TfwCliConn *cli_conn);
 int tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg);
-void tfw_cli_wait_release(void);
 
 #endif /* __TFW_CLIENT_H__ */
