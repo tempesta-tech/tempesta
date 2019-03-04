@@ -80,8 +80,8 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #include <linux/ctype.h>
+#include <linux/frame.h>
 #include <linux/kernel.h>
 #include <linux/moduleparam.h>
 
@@ -705,6 +705,7 @@ read_next_token(TfwCfgParserState *ps)
 			 ps->t, ps->lit_len, ps->lit);
 	}
 }
+STACK_FRAME_NON_STANDARD(read_next_token);
 
 static int
 entry_set_cond(TfwCfgEntry *e, token_t cond_type, const char *src, int len)

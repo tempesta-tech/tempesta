@@ -23,7 +23,7 @@
 #include <linux/vmalloc.h>
 
 #include "http_msg.h"
-#include "http_parser.h"
+#include "http_parser.c"
 
 #include "test.h"
 #include "helpers.h"
