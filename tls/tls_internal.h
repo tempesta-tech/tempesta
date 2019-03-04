@@ -26,6 +26,11 @@
 
 #include <asm/fpu/api.h>
 
+/* Affects only TempestaTLS internal debug symbols. */
+#if DBG_TLS == 0
+#undef DEBUG
+#endif
+
 #include "debug.h"
 #include "lib/fsm.h"
 #include "lib/str.h"

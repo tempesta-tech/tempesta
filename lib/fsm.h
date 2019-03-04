@@ -1,6 +1,13 @@
 /**
  *		Tempesta kernel library
  *
+ * Simple FSM routines using switch() together with direct jumps.
+ * Unlike HTTP parser FSM using labels as values GCC extension to avoid
+ * switch() completely, FSMs using the routines aren't supposed to handle
+ * many states for small input data. Labels as values make FSM more complex
+ * and make sense only if states lookup introduce significant overhead, e.g.
+ * lokkup a state for each input character as it is in HTTP parser.
+ *
  * Copyright (C) 2018 Tempesta Technologies, INC.
  *
  * This program is free software; you can redistribute it and/or modify it
