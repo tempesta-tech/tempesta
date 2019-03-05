@@ -1047,6 +1047,7 @@ ss_skb_process(struct sk_buff *skb, unsigned int off, unsigned int trail,
 		*processed += _processed;
 		if (r != SS_POSTPONE || unlikely(trail >= frag_len))
 			return r;
+		off = 0;
 	} else {
 		off -= headlen;
 	}
