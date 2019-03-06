@@ -1421,6 +1421,7 @@ ttls_parse_certificate(TlsCtx *tls, unsigned char *buf, size_t len,
 	TlsSess *sess = &tls->sess;
 	struct page *pg;
 	unsigned char *p = buf;
+	unsigned char *state_p = buf;
 	T_FSM_INIT(ttls_substate(tls), "TLS ClientCertificate");
 
 	BUG_ON(io->msgtype != TTLS_MSG_HANDSHAKE);
