@@ -1706,7 +1706,7 @@ tfw_match_ctext_vchar(const char *str, size_t len)
 {
 	size_t r;
 
-	if (custom_cookie_enabled)
+	if (custom_ctext_vchar_enabled)
 #ifdef AVX2
 		r = __tfw_match_custom(str, len, custom_ctext_vchar,
 				       &__C.C_ctext_vchar_BM128_0,
