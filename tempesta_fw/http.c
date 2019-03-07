@@ -4548,125 +4548,30 @@ __cfgop_brange_hndl(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned char *a)
 	return 0;
 }
 
-static int
-tfw_cfgop_brange_uri(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int r;
-	unsigned char a[256] = {};
-
-	r = __cfgop_brange_hndl(cs, ce, a);
-	if (r)
-		return r;
-	tfw_init_custom_uri(a);
-
-	return 0;
+#define TFW_HTTP_CFG_CUSTOM_BRANGE(name)				\
+static int								\
+tfw_cfgop_brange_##name(TfwCfgSpec *cs, TfwCfgEntry *ce)			\
+{									\
+	int r;								\
+	unsigned char a[256] = {};					\
+	if ((r = __cfgop_brange_hndl(cs, ce, a)))			\
+		return r;						\
+	tfw_init_custom_##name(a);					\
+	return 0;							\
+}									\
+static void								\
+tfw_cfgop_cleanup_brange_##name(TfwCfgSpec *cs)				\
+{									\
+	tfw_init_custom_##name(NULL);					\
 }
 
-static void
-tfw_cfgop_cleanup_brange_uri(TfwCfgSpec *cs)
-{
-	tfw_init_custom_uri(NULL);
-}
-
-static int
-tfw_cfgop_brange_token(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int r;
-	unsigned char a[256] = {};
-
-	r = __cfgop_brange_hndl(cs, ce, a);
-	if (r)
-		return r;
-	tfw_init_custom_token(a);
-
-	return 0;
-}
-
-static void
-tfw_cfgop_cleanup_brange_token(TfwCfgSpec *cs)
-{
-	tfw_init_custom_token(NULL);
-}
-
-static int
-tfw_cfgop_brange_qetoken(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int r;
-	unsigned char a[256] = {};
-
-	r = __cfgop_brange_hndl(cs, ce, a);
-	if (r)
-		return r;
-	tfw_init_custom_qetoken(a);
-
-	return 0;
-}
-
-static void
-tfw_cfgop_cleanup_brange_qetoken(TfwCfgSpec *cs)
-{
-	tfw_init_custom_qetoken(NULL);
-}
-
-static int
-tfw_cfgop_brange_nctl(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int r;
-	unsigned char a[256] = {};
-
-	r = __cfgop_brange_hndl(cs, ce, a);
-	if (r)
-		return r;
-	tfw_init_custom_nctl(a);
-
-	return 0;
-}
-
-static void
-tfw_cfgop_cleanup_brange_nctl(TfwCfgSpec *cs)
-{
-	tfw_init_custom_nctl(NULL);
-}
-
-static int
-tfw_cfgop_brange_xff(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int r;
-	unsigned char a[256] = {};
-
-	r = __cfgop_brange_hndl(cs, ce, a);
-	if (r)
-		return r;
-	tfw_init_custom_xff(a);
-
-	return 0;
-}
-
-static void
-tfw_cfgop_cleanup_brange_xff(TfwCfgSpec *cs)
-{
-	tfw_init_custom_xff(NULL);
-}
-
-static int
-tfw_cfgop_brange_cookie(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int r;
-	unsigned char a[256] = {};
-
-	r = __cfgop_brange_hndl(cs, ce, a);
-	if (r)
-		return r;
-	tfw_init_custom_cookie(a);
-
-	return 0;
-}
-
-static void
-tfw_cfgop_cleanup_brange_cookie(TfwCfgSpec *cs)
-{
-	tfw_init_custom_cookie(NULL);
-}
+TFW_HTTP_CFG_CUSTOM_BRANGE(uri);
+TFW_HTTP_CFG_CUSTOM_BRANGE(token);
+TFW_HTTP_CFG_CUSTOM_BRANGE(qetoken);
+TFW_HTTP_CFG_CUSTOM_BRANGE(nctl);
+TFW_HTTP_CFG_CUSTOM_BRANGE(ctext_vchar);
+TFW_HTTP_CFG_CUSTOM_BRANGE(xff);
+TFW_HTTP_CFG_CUSTOM_BRANGE(cookie);
 
 static TfwCfgSpec tfw_http_specs[] = {
 	{
@@ -4719,6 +4624,13 @@ static TfwCfgSpec tfw_http_specs[] = {
 		.handler = tfw_cfgop_brange_nctl,
 		.allow_none = true,
 		.cleanup = tfw_cfgop_cleanup_brange_nctl,
+	},
+	{
+		.name = "http_ctext_vchar_brange",
+		.deflt = NULL,
+		.handler = tfw_cfgop_brange_ctext_vchar,
+		.allow_none = true,
+		.cleanup = tfw_cfgop_cleanup_brange_ctext_vchar,
 	},
 	{
 		.name = "http_xff_brange",
