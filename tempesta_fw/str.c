@@ -36,7 +36,7 @@
  * It's assumed that small numbers are likely.
  */
 static inline unsigned int
-__dig_num(unsigned long a)
+__dig_num_dec(unsigned long a)
 {
 	if (a < 10)
 		return 0;
@@ -80,23 +80,34 @@ __dig_num(unsigned long a)
 }
 
 /**
+ * Same as __dig_num_dec() but for hex conversion.
+ */
+static inline unsigned int
+__dig_num_hex(unsigned long a)
+{
+	if (a == 0)
+		return 0;
+	return __fls(a) / 4;
+}
+
+/**
  * Convert an integer @ai to a string @buf, don't insert training '\0'.
  * @len - maximum string length.
  * @return number of characters written.
  */
 size_t
-tfw_ultoa(unsigned long ai, char *buf, unsigned int len)
+tfw_ultoa(unsigned long ai, char *buf, unsigned int len, int base)
 {
-	size_t n = __dig_num(ai);
+	size_t n = (base == 10) ? __dig_num_dec(ai) : __dig_num_hex(ai);
 	char *p = buf + n;
 
-	if (unlikely(n + 1 > len))
+	if (unlikely((n + 1 > len) || (base != 10 && base != 16)))
 		return 0;
 
 	do {
 		/* Compiled to only one MUL instruction with -O2. */
-		*p-- = "0123456789"[ai % 10];
-		ai /= 10;
+		*p-- = "0123456789abcdef"[ai % base];
+		ai /= base;
 	} while (ai);
 
 	return n + 1;

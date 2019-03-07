@@ -822,7 +822,7 @@ tfw_http_msg_to_chunked(TfwHttpMsg *hm)
 		char data[TFW_ULTOA_BUF_SIZ + 2] = {0};
 		TfwStr sz = {.data = data};
 
-		sz.len = tfw_ultoa(hm->body.len, sz.data, TFW_ULTOA_BUF_SIZ);
+		sz.len = tfw_ultoa(hm->body.len, sz.data, TFW_ULTOA_BUF_SIZ, 16);
 		if (!sz.len)
 			return -EINVAL;
 		*(short *)(sz.data + sz.len) = 0x0a0d; /* CRLF, '\r\n' */
