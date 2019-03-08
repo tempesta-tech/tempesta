@@ -18,6 +18,8 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#pragma GCC optimize("O3", "unroll-loops", "inline")
+#pragma GCC target("mmx", "sse4.2", "avx2")
 #include <linux/ctype.h>
 #include <linux/frame.h>
 #include <linux/kernel.h>
@@ -25,11 +27,18 @@
 #if DBG_HTTP_PARSER == 0
 #undef DEBUG
 #endif
+
+/* Disable strict aliasing warnings from Linux includes. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wstrict-aliasing"
+
 #include "gfsm.h"
 #include "http_msg.h"
 #include "htype.h"
 #include "http_sess.h"
 #include "lib/str.h"
+
+#pragma GCC diagnostic pop
 
 /*
  * ------------------------------------------------------------------------
@@ -2854,8 +2863,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 		if (likely(__data_available(p, 4))) {
 			switch (*(unsigned int *)p) {
 			/*
-			 * The most expected methods are GET & POST,
-			 * so use a very short lookup table for them.
+			 * The most expected methods are GET & POST, so use
+			 * a very short binary search space for them.
 			 */
 			case TFW_CHAR4_INT('G', 'E', 'T', ' '):
 				req->method = TFW_HTTP_METH_GET;
