@@ -96,23 +96,45 @@ __dig_num_hex(unsigned long a)
  * @return number of characters written.
  */
 size_t
-tfw_ultoa(unsigned long ai, char *buf, unsigned int len, int base)
+tfw_ultoa(unsigned long ai, char *buf, unsigned int len)
 {
-	size_t n = (base == 10) ? __dig_num_dec(ai) : __dig_num_hex(ai);
+	size_t n = __dig_num_dec(ai);
 	char *p = buf + n;
 
-	if (unlikely((n + 1 > len) || (base != 10 && base != 16)))
+	if (unlikely(n + 1 > len))
 		return 0;
 
 	do {
 		/* Compiled to only one MUL instruction with -O2. */
-		*p-- = "0123456789abcdef"[ai % base];
-		ai /= base;
+		*p-- = "0123456789"[ai % 10];
+		ai /= 10;
 	} while (ai);
 
 	return n + 1;
 }
 EXPORT_SYMBOL(tfw_ultoa);
+
+/**
+ * Same as @tfw_ultoa() but constructs hexadecimal value.
+ */
+size_t
+tfw_ultohex(unsigned long ai, char *buf, unsigned int len)
+{
+	size_t n = __dig_num_hex(ai);
+	char *p = buf + n;
+
+	if (unlikely(n + 1 > len))
+		return 0;
+
+	do {
+		/* Compiled to only one MUL instruction with -O2. */
+		*p-- = "0123456789abcdef"[ai % 16];
+		ai /= 16;
+	} while (ai);
+
+	return n + 1;
+}
+EXPORT_SYMBOL(tfw_ultohex);
 
 void
 tfw_str_del_chunk(TfwStr *str, int id)

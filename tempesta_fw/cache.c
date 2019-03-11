@@ -1583,7 +1583,7 @@ tfw_cache_set_hdr_age(TfwHttpMsg *hmresp, TfwCacheEntry *ce)
 	char cstr_age[TFW_ULTOA_BUF_SIZ] = {0};
 	time_t age = tfw_cache_entry_age(ce);
 
-	if (!(digs = tfw_ultoa(age, cstr_age, TFW_ULTOA_BUF_SIZ, 10)))
+	if (!(digs = tfw_ultoa(age, cstr_age, TFW_ULTOA_BUF_SIZ)))
 		return -E2BIG;
 
 	return tfw_http_msg_hdr_xfrm(hmresp, "Age", sizeof("Age") - 1,
