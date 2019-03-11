@@ -406,7 +406,7 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *rmark,
 	} else if (status == 503) {
 		rh = &rh_503;
 	} else {
-		tfw_ultoa(status, __TFW_STR_CH(&rh_gen, 1)->data, 3, 10);
+		tfw_ultoa(status, __TFW_STR_CH(&rh_gen, 1)->data, 3);
 		rh = &rh_gen;
 	}
 	if (body)
@@ -4223,7 +4223,7 @@ __tfw_http_msg_body_dup(const char *filename, TfwStr *c_len_hdr, size_t *len,
 		return NULL;
 	}
 	cl_buf->data = buff;
-	cl_buf->len = tfw_ultoa(b_sz, cl_buf->data, TFW_ULTOA_BUF_SIZ, 10);
+	cl_buf->len = tfw_ultoa(b_sz, cl_buf->data, TFW_ULTOA_BUF_SIZ);
 	if (unlikely(!cl_buf->len)) {
 		TFW_ERR_NL("Can't copy file %s: too big\n", filename);
 		goto err;
