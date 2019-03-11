@@ -69,10 +69,7 @@ this_chunk:
 		 * switch to the next fragment.
 		 */
 		if (c_size >= f_room) {
-			skb_frag_t *frag = ss_skb_frag_next(&it->skb,
-							    it->skb_head,
-							    &it->frag);
-			if (WARN_ON_ONCE(!frag
+			if (WARN_ON_ONCE(tfw_msg_iter_next_data_frag(it)
 					 && ((c_size != f_room)
 					     || (c + 1 < end))))
 			{
