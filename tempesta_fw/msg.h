@@ -65,4 +65,21 @@ int tfw_msg_write(TfwMsgIter *it, const TfwStr *data);
 int tfw_msg_iter_setup(TfwMsgIter *it, struct sk_buff **skb_head,
 		       size_t data_len);
 
+static inline int
+tfw_msg_iter_next_data_frag(TfwMsgIter *it)
+{
+	if (skb_shinfo(it->skb)->nr_frags > it->frag + 1) {
+		++it->frag;
+		return 0;
+	}
+
+	it->skb = it->skb->next;
+	if (it->skb == it->skb_head || !skb_shinfo(it->skb)->nr_frags) {
+		it->frag = MAX_SKB_FRAGS;
+		return -EINVAL;
+	}
+	it->frag = -1;
+	return 0;
+}
+
 #endif /* __TFW_MSG_H__ */

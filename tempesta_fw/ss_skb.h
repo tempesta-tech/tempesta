@@ -120,21 +120,6 @@ ss_skb_adjust_data_len(struct sk_buff *skb, int delta)
 	skb->truesize += delta;
 }
 
-static inline skb_frag_t *
-ss_skb_frag_next(struct sk_buff **skb, const struct sk_buff *skb_head, int *f)
-{
-	if (skb_shinfo(*skb)->nr_frags > *f + 1) {
-		++*f;
-		return &skb_shinfo(*skb)->frags[*f];
-	}
-
-	*skb = (*skb)->next;
-	*f = 0;
-	if (*skb == skb_head || !skb_shinfo(*skb)->nr_frags)
-		return NULL;
-	return &skb_shinfo(*skb)->frags[0];
-}
-
 /*
  * skb_tailroom - number of bytes at buffer end
  *
