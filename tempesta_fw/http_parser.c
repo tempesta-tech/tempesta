@@ -130,6 +130,7 @@ if (!s)	{								\
 goto *s;
 
 #define __FSM_STATE(st)							\
+barrier();								\
 st: __attribute__((unused)) 						\
 	__fsm_const_state = &&st; /* optimized out to constant */	\
 	c = *p;								\
@@ -382,6 +383,9 @@ __FSM_STATE(st) {							\
 	__FSM_MOVE_nofixup(Req_MUSpace);				\
 }
 
+/* 4-byte (Integer) access to a string Pointer. */
+#define PI(p)	(*(unsigned int *)(p))
+
 /**
  * Little endian.
  * These two at the below can be used for characters only.
@@ -393,13 +397,13 @@ __FSM_STATE(st) {							\
 #define TFW_CHAR8_INT(a, b, c, d, e, f, g, h)				\
 	 (((long)h << 56) | ((long)g << 48) | ((long)f << 40)		\
 	  | ((long)e << 32) | (d << 24) | (c << 16) | (b << 8) | a)
-#define TFW_P2LCINT(p)	((*(unsigned int *)(p)) | TFW_LC_INT)
+#define TFW_P2LCINT(p)	(PI(p) | TFW_LC_INT)
 /*
  * Match 4 or 8 characters with conversion to lower case
  * and type conversion to int or long type.
  */
 #define C4_INT_LCM(p, a, b, c, d)					\
-	 !((*(unsigned int *)(p) | TFW_LC_INT) ^ TFW_CHAR4_INT(a, b, c, d))
+	 !((PI(p) | TFW_LC_INT) ^ TFW_CHAR4_INT(a, b, c, d))
 #define C8_INT_LCM(p, a, b, c, d, e, f, g, h)				\
 	 !((*(unsigned long *)(p) | TFW_LC_LONG)			\
 	   ^ TFW_CHAR8_INT(a, b, c, d, e, f, g, h))
@@ -2858,121 +2862,113 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 		/* fall through */
 	}
 
+/*
+ * Fot most (or at least most frequent) methods @step_inc should be
+ * optimized out. The macro is used to reduce the FSM size, so there is not
+ * sense to use it specific versions for the few states, e.g. for 'GET '.
+ */
+#define __MATCH_METH(meth, step_inc)					\
+do {									\
+	req->method = TFW_HTTP_METH_##meth;				\
+	__fsm_n += step_inc;						\
+	goto match_meth;						\
+} while (0)
+#define __MATH_METH_SP(meth, step_inc)					\
+do {									\
+
 	/* HTTP method. */
 	__FSM_STATE(Req_Method) {
-		/* Fast path: compare 4 characters at once. */
-		if (likely(__data_available(p, 4))) {
-			switch (*(unsigned int *)p) {
+		if (likely(__data_available(p, 9))) {
 			/*
-			 * The most expected methods are GET & POST, so use
-			 * a very short binary search space for them.
+			 * Move most frequent methods forward and do not use
+			 * switch to make compiler not to merge it with the
+			 * switch at the below.
+			 *
+			 * Usually we have enough data (smalest HTTP/1.1 reqeust
+			 * is "GET / HTTP/1.1\n\n"), so handle the case for fast
+			 * path and fail to 1-character FSM for slow path.
 			 */
-			case TFW_CHAR4_INT('G', 'E', 'T', ' '):
+			__fsm_n = 4;
+			if (likely(PI(p) == TFW_CHAR4_INT('G', 'E', 'T', ' ')))
+			{
 				req->method = TFW_HTTP_METH_GET;
 				__FSM_MOVE_nofixup_n(Req_Uri, 4);
-			case TFW_CHAR4_INT('P', 'O', 'S', 'T'):
-				req->method = TFW_HTTP_METH_POST;
-				__FSM_MOVE_nofixup_n(Req_MUSpace, 4);
 			}
+			if (likely(PI(p) == TFW_CHAR4_INT('P', 'O', 'S', 'T')))
+				__MATCH_METH(POST, 0);
+			barrier();
 
 			/*
 			 * Other popular methods: HEAD, COPY, DELETE, LOCK,
 			 * MKCOL, MOVE, OPTIONS, PATCH, PROPFIND, PROPPATCH,
 			 * PUT, TRACE, UNLOCK, PURGE.
 			 */
-			switch (*(unsigned int *)p) {
+			switch (PI(p)) {
 			case TFW_CHAR4_INT('H', 'E', 'A', 'D'):
-				req->method = TFW_HTTP_METH_HEAD;
-				__FSM_MOVE_nofixup_n(Req_MUSpace, 4);
+				__MATCH_METH(HEAD, 0);
 			/* PURGE Method for Tempesta Configuration: PURGE. */
 			case TFW_CHAR4_INT('P', 'U', 'R', 'G'):
-				if (likely(__data_available(p, 5))
-				    && (*(p + 4) == 'E'))
-				{
-					req->method = TFW_HTTP_METH_PURGE;
-					__FSM_MOVE_nofixup_n(Req_MUSpace, 5);
-				}
+				if (likely(*(p + 4) == 'E'))
+					__MATCH_METH(PURGE, 1);
 				__FSM_MOVE_nofixup_n(Req_MethPurg, 4);
 			case TFW_CHAR4_INT('C', 'O', 'P', 'Y'):
-				req->method = TFW_HTTP_METH_COPY;
-				__FSM_MOVE_nofixup_n(Req_MUSpace, 4);
+				__MATCH_METH(COPY, 0);
 			case TFW_CHAR4_INT('D', 'E', 'L', 'E'):
-				if (likely(__data_available(p, 6))
-				    && (*(p + 4) == 'T') && (*(p + 5) == 'E'))
-				{
-					req->method = TFW_HTTP_METH_DELETE;
-					__FSM_MOVE_nofixup_n(Req_MUSpace, 6);
-				}
+				if (likely(*(p + 4) == 'T' && *(p + 5) == 'E'))
+					__MATCH_METH(DELETE, 2);
 				__FSM_MOVE_nofixup_n(Req_MethDele, 4);
 			case TFW_CHAR4_INT('L', 'O', 'C', 'K'):
-				req->method = TFW_HTTP_METH_LOCK;
-				__FSM_MOVE_nofixup_n(Req_MUSpace, 4);
+				__MATCH_METH(LOCK, 0);
 			case TFW_CHAR4_INT('M', 'K', 'C', 'O'):
-				if (likely(__data_available(p, 5))
-				    && (*(p + 4) == 'L'))
-				{
-					req->method = TFW_HTTP_METH_MKCOL;
-					__FSM_MOVE_nofixup_n(Req_MUSpace, 5);
-				}
+				if (likely(*(p + 4) == 'L'))
+					__MATCH_METH(MKCOL, 1);
 				__FSM_MOVE_nofixup_n(Req_MethMkco, 4);
 			case TFW_CHAR4_INT('M', 'O', 'V', 'E'):
-				req->method = TFW_HTTP_METH_MOVE;
-				__FSM_MOVE_nofixup_n(Req_MUSpace, 4);
+				__MATCH_METH(MOVE, 0);
 			case TFW_CHAR4_INT('O', 'P', 'T', 'I'):
-				if (likely(__data_available(p, 8))
-				    && (*((unsigned int *)p + 1)
-					== TFW_CHAR4_INT('O', 'N', 'S', ' ')))
+				if (likely(*((unsigned int *)p + 1)
+					 == TFW_CHAR4_INT('O', 'N', 'S', ' ')))
 				{
 					req->method = TFW_HTTP_METH_OPTIONS;
 					__FSM_MOVE_nofixup_n(Req_Uri, 8);
 				}
 				__FSM_MOVE_nofixup_n(Req_MethOpti, 4);
 			case TFW_CHAR4_INT('P', 'A', 'T', 'C'):
-				if (likely(__data_available(p, 5))
-				    && (*(p + 4) == 'H'))
-				{
-					req->method = TFW_HTTP_METH_PATCH;
-					__FSM_MOVE_nofixup_n(Req_MUSpace, 5);
-				}
+				if (likely(*(p + 4) == 'H'))
+					__MATCH_METH(PATCH, 1);
 				__FSM_MOVE_nofixup_n(Req_MethPatc, 4);
 			case TFW_CHAR4_INT('P', 'R', 'O', 'P'):
-				if (likely(__data_available(p, 8))
-				    && (*((unsigned int *)p + 1)
-					== TFW_CHAR4_INT('F', 'I', 'N', 'D')))
+				if (likely(*((unsigned int *)p + 1)
+					  == TFW_CHAR4_INT('F', 'I', 'N', 'D')))
 				{
-					req->method = TFW_HTTP_METH_PROPFIND;
-					__FSM_MOVE_nofixup_n(Req_MUSpace, 8);
+					__MATCH_METH(PROPFIND, 4);
 				}
-				if (likely(__data_available(p, 9))
-				    && (*((unsigned int *)p + 1)
-					== TFW_CHAR4_INT('P', 'A', 'T', 'C'))
-				    && (*(p + 8) == 'H'))
+				if (likely(*((unsigned int *)p + 1)
+					   == TFW_CHAR4_INT('P', 'A', 'T', 'C'))
+						&& (*(p + 8) == 'H'))
 				{
-					req->method = TFW_HTTP_METH_PROPPATCH;
-					__FSM_MOVE_nofixup_n(Req_MUSpace, 9);
+					__MATCH_METH(PROPPATCH, 5);
 				}
 				__FSM_MOVE_nofixup_n(Req_MethProp, 4);
 			case TFW_CHAR4_INT('P', 'U', 'T', ' '):
 				req->method = TFW_HTTP_METH_PUT;
 				__FSM_MOVE_nofixup_n(Req_Uri, 4);
 			case TFW_CHAR4_INT('T', 'R', 'A', 'C'):
-				if (likely(__data_available(p, 5))
-				    && (*(p + 4) == 'E'))
-				{
-					req->method = TFW_HTTP_METH_TRACE;
-					__FSM_MOVE_nofixup_n(Req_MUSpace, 5);
-				}
+				if (likely(*(p + 4) == 'E'))
+					__MATCH_METH(TRACE, 1);
 				__FSM_MOVE_nofixup_n(Req_MethTrac, 4);
 			case TFW_CHAR4_INT('U', 'N', 'L', 'O'):
-				if (likely(__data_available(p, 6))
-				    && (*(p + 4) == 'C') && (*(p + 5) == 'K'))
-				{
-					req->method = TFW_HTTP_METH_UNLOCK;
-					__FSM_MOVE_nofixup_n(Req_MUSpace, 6);
-				}
+				if (likely(*(p + 4) == 'C' && *(p + 5) == 'K'))
+					__MATCH_METH(UNLOCK, 2);
 				__FSM_MOVE_nofixup_n(Req_MethUnlo, 4);
+			default:
+				__FSM_MOVE_nofixup(Req_MethodUnknown);
 			}
-			__FSM_MOVE_nofixup(Req_MethodUnknown);
+			barrier();
+match_meth:
+			__FSM_MOVE_nofixup_n(Req_MUSpace, __fsm_n);
+			barrier();
+#undef __MATCH_METH
 		}
 		/* Slow path: step char-by-char. */
 		switch (c) {
