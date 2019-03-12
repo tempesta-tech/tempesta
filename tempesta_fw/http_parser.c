@@ -1042,7 +1042,8 @@ __FSM_STATE(RGen_BodyInit) {						\
 	 * transmitting it to a client. This behaviour is considered	\
 	 * dangerous and the issue must be solved in generic way:	\
 	 * Tempesta must use chunked transfer encoding for proxied	\
-	 * responses w/o lengths. Refer issue #534 for more information	\
+	 * responses w/o lengths. Refer issues #534 and #498 for more	\
+	 * information.							\
 	 */								\
 	__FSM_MOVE_nofixup(Resp_BodyUnlimStart);			\
 }
@@ -4234,7 +4235,7 @@ tfw_http_parse_terminate(TfwHttpMsg *hm)
 	BUG_ON(!hm);
 	BUG_ON(!(TFW_CONN_TYPE(hm->conn) & Conn_Srv));
 
-	if (!test_bit(TFW_HTTP_B_CHUNKED, hm->flags))
+	if (!test_bit(TFW_HTTP_B_UNLIMITED, hm->flags))
 		return TFW_BLOCK;
 
 	/*
