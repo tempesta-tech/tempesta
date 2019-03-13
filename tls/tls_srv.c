@@ -602,6 +602,7 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 {
 	int r = T_POSTPONE, n;
 	unsigned char *p = buf;
+	unsigned char *state_p = buf;
 	TlsIOCtx *io = &tls->io_in;
 	T_FSM_INIT(tls->state, "TLS ClientHello");
 
@@ -644,7 +645,6 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		}
 		else if (unlikely(buf + len - p == 1)) {
 			tls->hs->tmp[0] = *p;
-			io->rlen = 1;
 			p++;
 			T_FSM_EXIT();
 		} else {
@@ -669,10 +669,9 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		n = min_t(int, 32 - io->rlen, buf + len - p);
 		/* Save client random (inc. Unix time). */
 		memcpy_fast(tls->hs->randbytes + io->rlen, p, n);
-		io->rlen += n;
 		p += n;
 		io->hslen -= 32;
-		if (unlikely(io->rlen < 32))
+		if (unlikely(io->rlen + n < 32))
 			T_FSM_EXIT();
 		T_DBG3_BUF("ClientHello: random bytes ",
 			   tls->hs->randbytes, 32);
@@ -707,10 +706,9 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		n = min_t(int, tls->sess.id_len - io->rlen, buf + len - p);
 		/* The session ID is zeroed on TlsCtx initialization. */
 		memcmp_fast(tls->sess.id + io->rlen, p, n);
-		io->rlen += n;
 		p += n;
 		io->hslen -= n;
-		if (unlikely(io->rlen < tls->sess.id_len))
+		if (unlikely(io->rlen + n < tls->sess.id_len))
 			T_FSM_EXIT();
 		T_DBG3_BUF("ClientHello: session id ",
 			   tls->sess.id, tls->sess.id_len);
@@ -726,7 +724,6 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		}
 		else if (unlikely(buf + len - p == 1)) {
 			tls->hs->tmp[TTLS_HS_TMP_STORE_SZ] = *p;
-			io->rlen = 1;
 			p++;
 			T_FSM_EXIT();
 		}
@@ -773,7 +770,6 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		}
 		else if (unlikely(buf + len - p == 1)) {
 			tls->hs->tmp[off + *csn] = *p;
-			io->rlen = 1;
 			p++;
 			T_FSM_EXIT();
 		}
@@ -844,7 +840,6 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		}
 		else if (unlikely(buf + len - p == 1)) {
 			tls->hs->tmp[0] = *p;
-			io->rlen = 1;
 			p++;
 			T_FSM_EXIT();
 		}
@@ -881,7 +876,6 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		}
 		else if (unlikely(buf + len - p == 1)) {
 			tls->hs->tmp[2] = *p;
-			io->rlen = 1;
 			p++;
 			T_FSM_EXIT();
 		}
@@ -911,7 +905,6 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		}
 		else if (unlikely(buf + len - p == 1)) {
 			tls->hs->tmp[4] = *p;
-			io->rlen = 1;
 			p++;
 			T_FSM_EXIT();
 		}
@@ -954,12 +947,11 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		n = min_t(int, ext_sz - io->rlen, buf + len - p);
 		/* Save client random (inc. Unix time). */
 		memcpy_fast(&tls->hs->tmp[off + io->rlen], p, n);
-		io->rlen += n;
 		p += n;
-		if (unlikely(io->rlen < ext_sz))
+		if (unlikely(io->rlen + n < ext_sz))
 			T_FSM_EXIT();
 		T_DBG3("ClientHello: read %u bytes for ext %u\n",
-		       io->rlen, ext_id);
+		       io->rlen + n, ext_id);
 
 		tmp = &tls->hs->tmp[off];
 		switch (ext_id) {
