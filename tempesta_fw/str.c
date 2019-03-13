@@ -36,7 +36,7 @@
  * It's assumed that small numbers are likely.
  */
 static inline unsigned int
-__dig_num(unsigned long a)
+__dig_num_dec(unsigned long a)
 {
 	if (a < 10)
 		return 0;
@@ -80,6 +80,17 @@ __dig_num(unsigned long a)
 }
 
 /**
+ * Same as __dig_num_dec() but for hex conversion.
+ */
+static inline unsigned int
+__dig_num_hex(unsigned long a)
+{
+	if (a == 0)
+		return 0;
+	return __fls(a) / 4;
+}
+
+/**
  * Convert an integer @ai to a string @buf, don't insert training '\0'.
  * @len - maximum string length.
  * @return number of characters written.
@@ -87,7 +98,7 @@ __dig_num(unsigned long a)
 size_t
 tfw_ultoa(unsigned long ai, char *buf, unsigned int len)
 {
-	size_t n = __dig_num(ai);
+	size_t n = __dig_num_dec(ai);
 	char *p = buf + n;
 
 	if (unlikely(n + 1 > len))
@@ -102,6 +113,28 @@ tfw_ultoa(unsigned long ai, char *buf, unsigned int len)
 	return n + 1;
 }
 EXPORT_SYMBOL(tfw_ultoa);
+
+/**
+ * Same as @tfw_ultoa() but constructs hexadecimal value.
+ */
+size_t
+tfw_ultohex(unsigned long ai, char *buf, unsigned int len)
+{
+	size_t n = __dig_num_hex(ai);
+	char *p = buf + n;
+
+	if (unlikely(n + 1 > len))
+		return 0;
+
+	do {
+		/* Compiled to only one MUL instruction with -O2. */
+		*p-- = "0123456789abcdef"[ai % 16];
+		ai /= 16;
+	} while (ai);
+
+	return n + 1;
+}
+EXPORT_SYMBOL(tfw_ultohex);
 
 void
 tfw_str_del_chunk(TfwStr *str, int id)
