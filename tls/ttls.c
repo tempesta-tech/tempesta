@@ -1249,6 +1249,11 @@ ttls_handshake_free(TlsHandshake *hs)
 
 	crypto_free_shash(hs->desc.tfm);
 
+#if defined(TTLS_DHM_C)
+	ttls_dhm_free(&hs->dhm_ctx);
+#endif
+	ttls_ecdh_free(&hs->ecdh_ctx);
+
 	bzero_fast(hs, sizeof(TlsHandshake));
 	kmem_cache_free(ttls_hs_cache, hs);
 }
@@ -2396,6 +2401,11 @@ ttls_ctx_clear(TlsCtx *tls)
 
 	ttls_cipher_free(&tls->xfrm.cipher_ctx_enc);
 	ttls_cipher_free(&tls->xfrm.cipher_ctx_dec);
+
+	if (tls->sess.peer_cert) {
+		ttls_x509_crt_free(tls->sess.peer_cert);
+		ttls_free(tls->sess.peer_cert);
+	}
 
 	bzero_fast(tls, sizeof(TlsCtx));
 }
