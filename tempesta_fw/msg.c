@@ -91,6 +91,11 @@ this_chunk:
 }
 EXPORT_SYMBOL(tfw_msg_write);
 
+/**
+ * Allocate list of skbs to store data with given length @data_len and
+ * initialise the iterator it. Shouldn't be called against previously used
+ * iterator, since its current state is to be rewritten.
+ */
 int
 tfw_msg_iter_setup(TfwMsgIter *it, struct sk_buff **skb_head, size_t data_len)
 {
@@ -102,6 +107,24 @@ tfw_msg_iter_setup(TfwMsgIter *it, struct sk_buff **skb_head, size_t data_len)
 	it->frag = data_len ? -1 /* first 'frag' is the skb head */ : 0;
 
 	BUG_ON(!it->skb);
+
+	return 0;
+}
+
+/**
+ * Allocate and add a single empty skb (with a place for TCP headers though)
+ * to the iterator. The allocated skb has no space for the data, user is
+ * expected to add new paged fragments.
+ */
+int
+tfw_msg_iter_append_skb(TfwMsgIter *it)
+{
+	int r;
+
+	if ((r = ss_skb_alloc_data(&it->skb_head, 0)))
+		return r;
+	it->skb = ss_skb_peek_tail(&it->skb_head);
+	it->frag = 0;
 
 	return 0;
 }

@@ -64,6 +64,7 @@ typedef struct {
 int tfw_msg_write(TfwMsgIter *it, const TfwStr *data);
 int tfw_msg_iter_setup(TfwMsgIter *it, struct sk_buff **skb_head,
 		       size_t data_len);
+int tfw_msg_iter_append_skb(TfwMsgIter *it);
 
 static inline int
 tfw_msg_iter_next_data_frag(TfwMsgIter *it)
@@ -79,6 +80,7 @@ tfw_msg_iter_next_data_frag(TfwMsgIter *it)
 		return -EINVAL;
 	}
 	it->frag = -1;
+
 	return 0;
 }
 
