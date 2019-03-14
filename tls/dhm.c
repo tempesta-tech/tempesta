@@ -94,6 +94,21 @@ void ttls_dhm_init(ttls_dhm_context *ctx)
 	memset(ctx, 0, sizeof(ttls_dhm_context));
 }
 
+void
+ttls_dhm_free(ttls_dhm_context *ctx)
+{
+	ttls_mpi_free(&ctx->pX);
+	ttls_mpi_free(&ctx->Vf);
+	ttls_mpi_free(&ctx->Vi);
+	ttls_mpi_free(&ctx->RP);
+	ttls_mpi_free(&ctx->K);
+	ttls_mpi_free(&ctx->GY);
+	ttls_mpi_free(&ctx->GX);
+	ttls_mpi_free(&ctx->X);
+	ttls_mpi_free(&ctx->G);
+	ttls_mpi_free(&ctx->P);
+}
+
 /*
  * Parse the ServerKeyExchange parameters
  */
