@@ -103,6 +103,13 @@ ttls_dhm_context;
 void ttls_dhm_init(ttls_dhm_context *ctx);
 
 /**
+ * \brief Frees the components of the DHM context.
+ *
+ * \param ctx DHM context.
+ */
+void ttls_dhm_free(ttls_dhm_context *ctx);
+
+/**
  * \brief		  This function parses the ServerKeyExchange parameters.
  *
  * \param ctx	  The DHM context.
