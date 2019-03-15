@@ -115,10 +115,10 @@ index f92a6593..d27c08f4 100644
  EXPORT_SYMBOL_GPL(kernel_fpu_end);
  
 diff --git a/crypto/aead.c b/crypto/aead.c
-index f794b30a..b6c3062b 100644
+index f794b30a..631a96a4 100644
 --- a/crypto/aead.c
 +++ b/crypto/aead.c
-@@ -343,6 +343,22 @@ struct crypto_aead *crypto_alloc_aead(const char *alg_name, u32 type, u32 mask)
+@@ -343,6 +343,24 @@ struct crypto_aead *crypto_alloc_aead(const char *alg_name, u32 type, u32 mask)
  }
  EXPORT_SYMBOL_GPL(crypto_alloc_aead);
  
@@ -133,6 +133,8 @@ index f794b30a..b6c3062b 100644
 +struct crypto_aead *
 +crypto_alloc_aead_atomic(struct crypto_alg *alg)
 +{
++	alg = crypto_mod_get(alg);
++	BUG_ON(!alg);
 +	return crypto_create_tfm(alg, &crypto_aead_type);
 +}
 +EXPORT_SYMBOL_GPL(crypto_alloc_aead_atomic);
@@ -142,10 +144,10 @@ index f794b30a..b6c3062b 100644
  {
  	struct crypto_alg *base = &alg->base;
 diff --git a/crypto/ahash.c b/crypto/ahash.c
-index f75b5c1f..9d659002 100644
+index f75b5c1f..575c2e18 100644
 --- a/crypto/ahash.c
 +++ b/crypto/ahash.c
-@@ -559,6 +559,23 @@ struct crypto_ahash *crypto_alloc_ahash(const char *alg_name, u32 type,
+@@ -559,6 +559,25 @@ struct crypto_ahash *crypto_alloc_ahash(const char *alg_name, u32 type,
  }
  EXPORT_SYMBOL_GPL(crypto_alloc_ahash);
  
@@ -161,6 +163,8 @@ index f75b5c1f..9d659002 100644
 +struct crypto_ahash *
 +crypto_alloc_ahash_atomic(struct crypto_alg *alg)
 +{
++	alg = crypto_mod_get(alg);
++	BUG_ON(!alg);
 +	return crypto_create_tfm(alg, &crypto_ahash_type);
 +}
 +EXPORT_SYMBOL_GPL(crypto_alloc_ahash_atomic);
@@ -196,105 +200,164 @@ index 941cd4c6..77dab1fd 100644
  		type &= frontend->maskclear;
  		mask &= frontend->maskclear;
 diff --git a/crypto/cryptd.c b/crypto/cryptd.c
-index 248f6ba4..3fe4f2c1 100644
+index 248f6ba4..4b4453b7 100644
 --- a/crypto/cryptd.c
 +++ b/crypto/cryptd.c
-@@ -1217,12 +1217,29 @@ struct cryptd_skcipher *cryptd_alloc_skcipher(const char *alg_name,
- 	char cryptd_alg_name[CRYPTO_MAX_ALG_NAME];
- 	struct cryptd_skcipher_ctx *ctx;
- 	struct crypto_skcipher *tfm;
--
-+#ifdef CONFIG_SECURITY_TEMPESTA
-+	static struct crypto_alg *alg = NULL;
+@@ -32,6 +32,8 @@
+ #include <linux/sched.h>
+ #include <linux/slab.h>
+ 
++#include "internal.h"
 +
-+	if (unlikely(!alg)) {
-+		WARN_ON_ONCE(in_serving_softirq());
-+		if (snprintf(cryptd_alg_name, CRYPTO_MAX_ALG_NAME, "cryptd(%s)",
-+			     alg_name)
-+		    >= CRYPTO_MAX_ALG_NAME)
+ #define CRYPTD_MAX_CPU_QLEN 1000
+ 
+ struct cryptd_cpu_queue {
+@@ -1211,6 +1213,75 @@ void cryptd_free_ablkcipher(struct cryptd_ablkcipher *tfm)
+ }
+ EXPORT_SYMBOL_GPL(cryptd_free_ablkcipher);
+ 
++#ifdef CONFIG_SECURITY_TEMPESTA
++
++#define MAX_CACHED_ALG_COUNT	8
++struct alg_cache {
++	int n;
++	spinlock_t lock;
++	struct {
++		u32 type;
++		u32 mask;
++		struct crypto_alg *alg;
++		char alg_name[CRYPTO_MAX_ALG_NAME];
++	} a[MAX_CACHED_ALG_COUNT];
++};
++
++static struct alg_cache skcipher_alg_cache;
++static struct alg_cache ahash_alg_cache;
++static struct alg_cache aead_alg_cache;
++
++/*
++ * Finds a previously allocated algorithm or allocates a new one. In any case,
++ * returned alg holds at least one reference to its module.
++ */
++static struct crypto_alg *
++cryptd_find_alg_cached(const char *cryptd_alg_name, u32 type, u32 mask,
++		       struct crypto_alg *(*find_alg)(const char *, u32, u32),
++		       struct alg_cache *__restrict ac)
++{
++	struct crypto_alg *alg;
++	int k;
++
++	spin_lock(&ac->lock);
++	for (k = 0; k < ac->n; k++) {
++		if (strcmp(ac->a[k].alg_name, cryptd_alg_name) == 0
++		    && ac->a[k].type == type && ac->a[k].mask == mask)
 +		{
-+			return ERR_PTR(-EINVAL);
++			spin_unlock(&ac->lock);
++			return ac->a[k].alg;
 +		}
-+		alg = crypto_find_skcipher(cryptd_alg_name, type, mask);
-+		if (IS_ERR(alg))
-+			return (struct cryptd_skcipher *)alg;
 +	}
-+	tfm = crypto_alloc_skcipher_atomic(alg);
-+#else
- 	if (snprintf(cryptd_alg_name, CRYPTO_MAX_ALG_NAME,
++	spin_unlock(&ac->lock);
++
++	/* Searching for the algorithm may sleep, so warn about it. */
++	WARN_ON_ONCE(in_serving_softirq());
++
++	alg = find_alg(cryptd_alg_name, type, mask);
++	if (IS_ERR(alg))
++		return alg;
++
++	spin_lock(&ac->lock);
++	if (ac->n >= MAX_CACHED_ALG_COUNT) {
++		spin_unlock(&ac->lock);
++		BUG();
++		return ERR_PTR(-ENOMEM);
++	}
++
++	snprintf(ac->a[ac->n].alg_name, sizeof(ac->a[ac->n].alg_name), "%s",
++		 cryptd_alg_name);
++
++	ac->a[ac->n].type = type;
++	ac->a[ac->n].mask = mask;
++	ac->a[ac->n].alg = alg;
++
++	ac->n += 1;
++	spin_unlock(&ac->lock);
++
++	return alg;
++}
++#endif /* CONFIG_SECURITY_TEMPESTA */
++
+ struct cryptd_skcipher *cryptd_alloc_skcipher(const char *alg_name,
+ 					      u32 type, u32 mask)
+ {
+@@ -1222,7 +1293,20 @@ struct cryptd_skcipher *cryptd_alloc_skcipher(const char *alg_name,
  		     "cryptd(%s)", alg_name) >= CRYPTO_MAX_ALG_NAME)
  		return ERR_PTR(-EINVAL);
  
++#ifdef CONFIG_SECURITY_TEMPESTA
++	{
++		struct crypto_alg *alg =
++			cryptd_find_alg_cached(cryptd_alg_name, type, mask,
++					       crypto_find_skcipher,
++					       &skcipher_alg_cache);
++		if (IS_ERR(alg))
++			return (struct cryptd_skcipher *)alg;
++
++		tfm = crypto_alloc_skcipher_atomic(alg);
++	}
++#else
  	tfm = crypto_alloc_skcipher(cryptd_alg_name, type, mask);
 +#endif
  	if (IS_ERR(tfm))
  		return ERR_CAST(tfm);
  
-@@ -1269,11 +1286,28 @@ struct cryptd_ahash *cryptd_alloc_ahash(const char *alg_name,
- 	char cryptd_alg_name[CRYPTO_MAX_ALG_NAME];
- 	struct cryptd_hash_ctx *ctx;
- 	struct crypto_ahash *tfm;
--
-+#ifdef CONFIG_SECURITY_TEMPESTA
-+	static struct crypto_alg *alg = NULL;
-+
-+	if (unlikely(!alg)) {
-+		WARN_ON_ONCE(in_serving_softirq());
-+		if (snprintf(cryptd_alg_name, CRYPTO_MAX_ALG_NAME, "cryptd(%s)",
-+			     alg_name)
-+		    >= CRYPTO_MAX_ALG_NAME)
-+		{
-+			return ERR_PTR(-EINVAL);
-+		}
-+		alg = crypto_find_ahash(cryptd_alg_name, type, mask);
-+		if (IS_ERR(alg))
-+			return (struct cryptd_ahash *)alg;
-+	}
-+	tfm = crypto_alloc_ahash_atomic(alg);
-+#else
+@@ -1273,7 +1357,21 @@ struct cryptd_ahash *cryptd_alloc_ahash(const char *alg_name,
  	if (snprintf(cryptd_alg_name, CRYPTO_MAX_ALG_NAME,
  		     "cryptd(%s)", alg_name) >= CRYPTO_MAX_ALG_NAME)
  		return ERR_PTR(-EINVAL);
++
++#ifdef CONFIG_SECURITY_TEMPESTA
++	{
++		struct crypto_alg *alg =
++			cryptd_find_alg_cached(cryptd_alg_name, type, mask,
++					       crypto_find_ahash,
++					       &ahash_alg_cache);
++		if (IS_ERR(alg))
++			return (struct cryptd_ahash *)alg;
++
++		tfm = crypto_alloc_ahash_atomic(alg);
++	}
++#else
  	tfm = crypto_alloc_ahash(cryptd_alg_name, type, mask);
 +#endif
  	if (IS_ERR(tfm))
  		return ERR_CAST(tfm);
  	if (tfm->base.__crt_alg->cra_module != THIS_MODULE) {
-@@ -1326,11 +1360,28 @@ struct cryptd_aead *cryptd_alloc_aead(const char *alg_name,
- 	char cryptd_alg_name[CRYPTO_MAX_ALG_NAME];
- 	struct cryptd_aead_ctx *ctx;
- 	struct crypto_aead *tfm;
--
-+#ifdef CONFIG_SECURITY_TEMPESTA
-+	static struct crypto_alg *alg = NULL;
-+
-+	if (unlikely(!alg)) {
-+		WARN_ON_ONCE(in_serving_softirq());
-+		if (snprintf(cryptd_alg_name, CRYPTO_MAX_ALG_NAME, "cryptd(%s)",
-+			     alg_name)
-+		    >= CRYPTO_MAX_ALG_NAME)
-+		{
-+			return ERR_PTR(-EINVAL);
-+		}
-+		alg = crypto_find_aead(cryptd_alg_name, type, mask);
-+		if (IS_ERR(alg))
-+			return (struct cryptd_aead *)alg;
-+	}
-+	tfm = crypto_alloc_aead_atomic(alg);
-+#else
+@@ -1330,7 +1428,21 @@ struct cryptd_aead *cryptd_alloc_aead(const char *alg_name,
  	if (snprintf(cryptd_alg_name, CRYPTO_MAX_ALG_NAME,
  		     "cryptd(%s)", alg_name) >= CRYPTO_MAX_ALG_NAME)
  		return ERR_PTR(-EINVAL);
++
++#ifdef CONFIG_SECURITY_TEMPESTA
++	{
++		struct crypto_alg *alg =
++			cryptd_find_alg_cached(cryptd_alg_name, type, mask,
++					       crypto_find_aead,
++					       &aead_alg_cache);
++		if (IS_ERR(alg))
++			return (struct cryptd_aead *)alg;
++
++		tfm = crypto_alloc_aead_atomic(alg);
++	}
++#else
  	tfm = crypto_alloc_aead(cryptd_alg_name, type, mask);
 +#endif
  	if (IS_ERR(tfm))
  		return ERR_CAST(tfm);
  	if (tfm->base.__crt_alg->cra_module != THIS_MODULE) {
 diff --git a/crypto/shash.c b/crypto/shash.c
-index 5d732c6b..f3f35aba 100644
+index 5d732c6b..32cbc16b 100644
 --- a/crypto/shash.c
 +++ b/crypto/shash.c
-@@ -454,6 +454,22 @@ struct crypto_shash *crypto_alloc_shash(const char *alg_name, u32 type,
+@@ -454,6 +454,24 @@ struct crypto_shash *crypto_alloc_shash(const char *alg_name, u32 type,
  }
  EXPORT_SYMBOL_GPL(crypto_alloc_shash);
  
@@ -309,6 +372,8 @@ index 5d732c6b..f3f35aba 100644
 +struct crypto_shash *
 +crypto_alloc_shash_atomic(struct crypto_alg *alg)
 +{
++	alg = crypto_mod_get(alg);
++	BUG_ON(!alg);
 +	return crypto_create_tfm(alg, &crypto_shash_type);
 +}
 +EXPORT_SYMBOL_GPL(crypto_alloc_shash_atomic);
@@ -318,10 +383,10 @@ index 5d732c6b..f3f35aba 100644
  {
  	struct crypto_alg *base = &alg->base;
 diff --git a/crypto/skcipher.c b/crypto/skcipher.c
-index 11af5fd6..f45933b6 100644
+index 11af5fd6..7ee692e6 100644
 --- a/crypto/skcipher.c
 +++ b/crypto/skcipher.c
-@@ -928,6 +928,22 @@ struct crypto_skcipher *crypto_alloc_skcipher(const char *alg_name,
+@@ -928,6 +928,24 @@ struct crypto_skcipher *crypto_alloc_skcipher(const char *alg_name,
  }
  EXPORT_SYMBOL_GPL(crypto_alloc_skcipher);
  
@@ -336,6 +401,8 @@ index 11af5fd6..f45933b6 100644
 +struct crypto_skcipher *
 +crypto_alloc_skcipher_atomic(struct crypto_alg *alg)
 +{
++	alg = crypto_mod_get(alg);
++	BUG_ON(!alg);
 +	return crypto_create_tfm(alg, &crypto_skcipher_type2);
 +}
 +EXPORT_SYMBOL_GPL(crypto_alloc_skcipher_atomic);
@@ -744,17 +811,18 @@ index d323d4fa..0f6bd0cf 100644
  }
  
 diff --git a/include/net/tls.h b/include/net/tls.h
-index df950383..c3d45c5e 100644
+index df950383..4a99f03d 100644
 --- a/include/net/tls.h
 +++ b/include/net/tls.h
-@@ -55,6 +55,12 @@
+@@ -55,6 +55,13 @@
  
  #define TLS_AAD_SPACE_SIZE		13
  
 +#ifdef CONFIG_SECURITY_TEMPESTA
 +#define TLS_MAX_TAG_SZ			16
 +/* Maximum size for required skb overhead: header, IV, tag. */
-+#define TLS_MAX_OVERHEAD		(TLS_AAD_SPACE_SIZE + TLS_MAX_TAG_SZ)
++#define TLS_MAX_OVERHEAD		(TLS_HEADER_SIZE + TLS_AAD_SPACE_SIZE \
++					 + TLS_MAX_TAG_SZ)
 +#endif
 +
  struct tls_sw_context {
@@ -824,7 +892,7 @@ index e89c3b0c..7715cad7 100644
  restart:
  	/* Reset the pending bitmask before enabling irqs */
  	set_softirq_pending(0);
-@@ -305,6 +310,9 @@ asmlinkage __visible void __softirq_entry __do_softirq(void)
+@@ -305,6 +310,9 @@ restart:
  		wakeup_softirqd();
  	}
  
@@ -1232,7 +1300,7 @@ index 564beb7e..92e9a635 100644
  /*
   * kmalloc_reserve is a wrapper around kmalloc_node_track_caller that tells
   * the caller if emergency pfmemalloc reserves are being used. If it is and
-@@ -150,6 +153,219 @@ static void *__kmalloc_reserve(size_t size, gfp_t flags, int node,
+@@ -150,6 +153,219 @@ out:
  
  	return obj;
  }
@@ -1452,7 +1520,7 @@ index 564beb7e..92e9a635 100644
  
  /* 	Allocate a new skbuff. We do this ourselves so we can fill in a few
   *	'private' fields and also do memory statistics to find all the
-@@ -174,11 +390,11 @@ static void *__kmalloc_reserve(size_t size, gfp_t flags, int node,
+@@ -174,11 +390,11 @@ out:
   *	Buffers may only be allocated from interrupts using a @gfp_mask of
   *	%GFP_ATOMIC.
   */
@@ -1505,7 +1573,7 @@ index 564beb7e..92e9a635 100644
  out:
  	return skb;
  nodata:
-@@ -251,6 +436,42 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
+@@ -251,6 +436,42 @@ nodata:
  	skb = NULL;
  	goto out;
  }
@@ -1882,7 +1950,7 @@ diff --git a/net/ipv4/inet_hashtables.c b/net/ipv4/inet_hashtables.c
 index e7d15fb0..09a21845 100644
 --- a/net/ipv4/inet_hashtables.c
 +++ b/net/ipv4/inet_hashtables.c
-@@ -616,7 +616,8 @@ int __inet_hash_connect(struct inet_timewait_death_row *death_row,
+@@ -616,7 +616,8 @@ other_parity_scan:
  		goto ok;
  next_port:
  		spin_unlock_bh(&head->lock);
@@ -2021,7 +2089,7 @@ diff --git a/net/ipv4/tcp_input.c b/net/ipv4/tcp_input.c
 index 14474ace..73325b48 100644
 --- a/net/ipv4/tcp_input.c
 +++ b/net/ipv4/tcp_input.c
-@@ -654,6 +654,7 @@ void tcp_rcv_space_adjust(struct sock *sk)
+@@ -654,6 +654,7 @@ new_measure:
  	tp->rcvq_space.seq = tp->copied_seq;
  	tp->rcvq_space.time = tp->tcp_mstamp;
  }
