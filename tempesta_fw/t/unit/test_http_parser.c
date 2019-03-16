@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -784,31 +784,109 @@ TEST(http_parser, casesense)
 		"0\r\n"
 		"\r\n");
 
-
 	/*
 	 * Check that we don't apply 0x20 mask to special characters.
 	 */
 
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 			 "Host\x1a test\r\n"
+			 "\r\n");
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 			 "Cache-Control\x1a no-cache\r\n"
+			 "\r\n");
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 			 "X-Forwarded-For\x1a 1.1.1.1\r\n"
+			 "\r\n");
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 			 "Content-Type\x1a chunked\n"
 			 "\r\n");
 
 	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
 			  "Age\x1a\t10\r\n"
-			  "Cache-Control\x1a no-cache\r\n"
-			  "date\x1a Tue, 31 Jan 2012 15:02:53 GMT\r\n"
-			  "Expires\x1a Tue, 31 Jan 2012 15:02:53 GMT \t \r\n"
-			  "eTaG\x1a \"3f80f-1b6-3e1cb03b\"\r\n"
-			  "Content-Type\x1a text/html; charset=iso-8859-1\r\n"
-			  "Server\x1a Apache/2.4.6 (CentOS)\r\n"
 			  "\r\n"
-			  "4\r\n"
-			  "1234\r\n"
-			  "0\r\n"
+			  "4\r\n");
+	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
+			  "Cache-Control\x1a no-cache\r\n"
+			  "Content-Length: 0\r\n"
 			  "\r\n");
+	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
+			  "date\x1a Tue, 31 Jan 2012 15:02:53 GMT\r\n"
+			  "Content-Length: 0\r\n"
+			  "\r\n");
+	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
+			  "Expires\x1a Tue, 31 Jan 2012 15:02:53 GMT \t \r\n"
+			  "Content-Length: 0\r\n"
+			  "\r\n");
+	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
+			  "eTaG\x1a \"3f80f-1b6-3e1cb03b\"\r\n"
+			  "Content-Length: 0\r\n"
+			  "\r\n");
+	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
+			  "Content-Type\x1a text/html; charset=iso-8859-1\r\n"
+			  "Content-Length: 0\r\n"
+			  "\r\n");
+	EXPECT_BLOCK_RESP("HTTP/1.0 200 OK\r\n"
+			  "Server\x1a Apache/2.4.6 (CentOS)\r\n"
+			  "Content-Length: 0\r\n"
+			  "\r\n");
+}
+
+/**
+ * Test that we don't treat invalid token prefixes as allowed tokens.
+ */
+TEST(http_parser, hdr_token_confusion)
+{
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Accept: */*text/html\r\n"
+		"Connection: closekeep-alive\n"
+		"Pragma: no-cacheX, fooo \r\n"
+		"Cache-Control: max-staleno-cache, no-storeno-store\r\n"
+		"\r\n");
+	{
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CONN_CLOSE, req->flags));
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CONN_KA, req->flags));
+		EXPECT_FALSE(req->cache_ctl.flags & (TFW_HTTP_CC_MAX_STALE
+						     | TFW_HTTP_CC_NO_CACHE
+						     | TFW_HTTP_CC_NO_STORE));
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Accept: text/htmlK, foo\r\n"
+		"Connection: keep-aliveA\r\n"
+		"Cache-Control: no-transform\", only-if-cachedd\r\n"
+		"\r\n");
+	{
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_CONN_KA, req->flags));
+		EXPECT_FALSE(req->cache_ctl.flags & (TFW_HTTP_CC_NO_TRANSFORM
+						     | TFW_HTTP_CC_OIFCACHED
+						     | TFW_HTTP_CC_NO_STORE));
+
+	}
+
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		 "Content-Length: 0\r\n"
+		 "Cache-Control: privatee, no-cacheO, proxy-revalidateX\r\n"
+		 "\r\n");
+	{
+		EXPECT_FALSE(resp->cache_ctl.flags & (TFW_HTTP_CC_MAX_STALE
+						      | TFW_HTTP_CC_NO_CACHE
+						      | TFW_HTTP_CC_NO_STORE));
+	}
+
+	EXPECT_BLOCK_RESP("GET / HTTP/1.1\r\n"
+			  "Date: Jana, 23 May 2005 22:38:34 GMT\r\n"
+			  "Content-Length: 0\r\n"
+			  "\r\n");
+
+	/*
+	 * If we have Chunked-Encoding, then we must have 'chunked' among
+	 * values, so the response must be blocked.
+	 */
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 "Transfer-Encoding: chunkedchunked\r\n"
+			 "\r\n");
 }
 
 TEST(http_parser, fills_hdr_tbl_for_req)
@@ -2535,6 +2613,7 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, mangled_messages);
 	TEST_RUN(http_parser, alphabets);
 	TEST_RUN(http_parser, casesense);
+	TEST_RUN(http_parser, hdr_token_confusion);
 	TEST_RUN(http_parser, fills_hdr_tbl_for_req);
 	TEST_RUN(http_parser, fills_hdr_tbl_for_resp);
 	TEST_RUN(http_parser, cache_control_flags);

@@ -441,8 +441,7 @@ __try_str(TfwStr *hdr, TfwStr* chunk, unsigned char *p, size_t len,
 {
 	size_t offset = chunk->len;
 
-	if (unlikely(offset > str_len ||
-	    (TFW_LC(*p) != TFW_LC(*(str + offset)))))
+	if (unlikely(offset > str_len || TFW_LC(*p) != str[offset]))
 		return CSTR_NEQ;
 
 	len = min(len, str_len - offset);
@@ -727,7 +726,6 @@ enum {
 };
 
 #define I_ST(i)		(void *)(__##i)
-
 
 /* Initialize TRY_STR parsing context */
 #define TRY_STR_INIT()		TFW_STR_INIT(chunk)
@@ -1173,7 +1171,7 @@ __FSM_STATE(RGen_OWS) {							\
 	TRY_STR_LAMBDA_finish(name, lambda, {				\
 		if (__hbh_parser_add_data(hm, data, len, false))	\
 			r = CSTR_NEQ;					\
-	}, I_EoT)
+	}, I_ConnTok)
 
 /**
  * Parse Connection header value, RFC 7230 6.1.
@@ -1210,14 +1208,28 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	 * WebSocket protocol.
 	 */
 	__FSM_STATE(I_Conn) {
+		WARN_ON_ONCE(parser->_acc);
 		/* Boolean connection tokens */
 		TRY_HBH_TOKEN("close", {
-			if (test_bit(TFW_HTTP_B_CONN_KA, msg->flags))
-				return CSTR_NEQ;
-			__set_bit(TFW_HTTP_B_CONN_CLOSE, msg->flags);
+			parser->_acc = TFW_HTTP_B_CONN_CLOSE;
 		});
 		/* Spec headers */
 		TRY_HBH_TOKEN("keep-alive", {
+			parser->_acc = TFW_HTTP_B_CONN_KA;
+		})
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_ConnOther);
+	}
+
+	__FSM_STATE(I_ConnTok) {
+		WARN_ON_ONCE(!parser->_acc);
+
+		if (!IS_WS(c) && c != ',' && !IS_CRLF(c)) {
+			parser->_acc = 0;
+			__FSM_I_JMP(I_ConnOther);
+		}
+
+		if (parser->_acc == TFW_HTTP_B_CONN_KA) {
 			unsigned int hid = TFW_HTTP_HDR_KEEP_ALIVE;
 
 			if (test_bit(TFW_HTTP_B_CONN_CLOSE, msg->flags))
@@ -1226,10 +1238,17 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 			parser->hbh_parser.spec |= 0x1 << hid;
 			if (!TFW_STR_EMPTY(&msg->h_tbl->tbl[hid]))
-				msg->h_tbl->tbl[hid].flags |= TFW_STR_HBH_HDR;
-			})
-		TRY_STR_INIT();
-		__FSM_I_MOVE_n(I_ConnOther, 0);
+				msg->h_tbl->tbl[hid].flags
+					|= TFW_STR_HBH_HDR;
+		}
+		else if (parser->_acc == TFW_HTTP_B_CONN_CLOSE) {
+			if (test_bit(TFW_HTTP_B_CONN_KA, msg->flags))
+				return CSTR_NEQ;
+			__set_bit(TFW_HTTP_B_CONN_CLOSE, msg->flags);
+		}
+
+		parser->_acc = 0;
+		__FSM_I_JMP(I_EoT);
 	}
 
 	/*
@@ -1259,7 +1278,7 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE(I_EoT);
 		if (IS_TOKEN(c))
-			__FSM_I_MOVE_n(I_Conn, 0);
+			__FSM_I_JMP(I_Conn);
 		if (IS_CRLF(c))
 			return __data_off(p);
 		return CSTR_NEQ;
@@ -1702,25 +1721,32 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_STATE(I_TransEncod) {
 		if (TFW_CONN_TYPE(hm->conn) & Conn_Srv) {
 			unsigned int status = ((TfwHttpResp *)hm)->status;
-			if ((status - 100U < 100U) || (status == 204))
+			if (status - 100U < 100U || status == 204)
 				return CSTR_NEQ;
 		}
-		__FSM_I_JMP(I_TransEncodChunked);
+		/* Fall through. */
 	}
 
-	__FSM_STATE(I_TransEncodChunked) {
+	__FSM_STATE(I_TransEncodTok) {
+
 		/*
 		 * A sender MUST NOT apply chunked more than once
 		 * to a message body (i.e., chunking an already
 		 * chunked message is not allowed). RFC 7230 3.3.1.
 		 */
-		TRY_STR_LAMBDA("chunked", {
+		TRY_STR("chunked", I_TransEncodChunked);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_TransEncodOther);
+	}
+
+	__FSM_STATE(I_TransEncodChunked) {
+		if (IS_WS(c) || c == ',' || IS_CRLF(c)) {
 			if (unlikely(test_bit(TFW_HTTP_B_CHUNKED, msg->flags)))
 				return CSTR_NEQ;
 			__set_bit(TFW_HTTP_B_CHUNKED, msg->flags);
-		}, I_EoT);
-		TRY_STR_INIT();
-		__FSM_I_MOVE_n(I_TransEncodOther, 0);
+			__FSM_I_JMP(I_EoT);
+		}
+		__FSM_I_JMP(I_TransEncodOther);
 	}
 
 	__FSM_STATE(I_TransEncodOther) {
@@ -1746,7 +1772,7 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE(I_EoT);
 		if (IS_TOKEN(c))
-			__FSM_I_MOVE_n(I_TransEncodChunked, 0);
+			__FSM_I_JMP(I_TransEncodTok);
 		if (IS_CRLF(c))
 			return __data_off(p);
 		return CSTR_NEQ;
@@ -1762,6 +1788,9 @@ STACK_FRAME_NON_STANDARD(__parse_transfer_encoding);
  *	HTTP request parsing
  * ------------------------------------------------------------------------
  */
+/**
+ * Accept header parser, RFC 7321 5.3.2.
+ */
 static int
 __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
 {
@@ -1771,14 +1800,18 @@ __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_START(parser->_i_st, Req_I_Accept);
 
 	__FSM_STATE(Req_I_Accept) {
-		TRY_STR_LAMBDA("text/html", {
-			__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
-		}, I_EoT);
-		TRY_STR_LAMBDA("*/*", {
-			__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
-		}, I_EoT);
+		TRY_STR("text/html", Req_I_AcceptHtml);
+		TRY_STR("*/*", Req_I_AcceptHtml);
 		TRY_STR_INIT();
-		__FSM_I_MOVE_n(Req_I_AcceptOther, 0);
+		__FSM_I_JMP(Req_I_AcceptOther);
+	}
+
+	__FSM_STATE(Req_I_AcceptHtml) {
+		if (IS_WS(c) || c == ',' || c == ';' || IS_CRLF(c)) {
+			__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
+			__FSM_I_JMP(I_EoT);
+		}
+		__FSM_I_MOVE(Req_I_AcceptOther);
 	}
 
 	__FSM_STATE(Req_I_AcceptOther) {
@@ -1797,9 +1830,10 @@ __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE(I_EoT);
 		if (c == ';')
+			/* Skip weight parameter. */
 			__FSM_I_MOVE(Req_I_AcceptOther);
 		if (IS_TOKEN(c))
-			__FSM_I_MOVE_n(Req_I_Accept, 0);
+			__FSM_I_JMP(Req_I_Accept);
 		if (IS_CRLF(c))
 			return __data_off(p);
 		return CSTR_NEQ;
@@ -1847,15 +1881,16 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_START(parser->_i_st, Req_I_CC);
 
 	__FSM_STATE(Req_I_CC) {
+		WARN_ON_ONCE(parser->_acc);
 		switch (TFW_LC(c)) {
 		case 'm':
-			__FSM_I_MOVE_n(Req_I_CC_m, 0);
+			__FSM_I_JMP(Req_I_CC_m);
 		case 'n':
-			__FSM_I_MOVE_n(Req_I_CC_n, 0);
+			__FSM_I_JMP(Req_I_CC_n);
 		case 'o':
-			__FSM_I_MOVE_n(Req_I_CC_o, 0);
+			__FSM_I_JMP(Req_I_CC_o);
 		}
-		__FSM_I_MOVE_n(Req_I_CC_Ext, 0);
+		__FSM_I_JMP(Req_I_CC_Ext);
 	}
 
 	__FSM_STATE(Req_I_CC_m) {
@@ -1863,29 +1898,40 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		TRY_STR("min-fresh=", Req_I_CC_MinFreshV);
 		TRY_STR("max-stale", Req_I_CC_MaxStale);
 		TRY_STR_INIT();
-		__FSM_I_MOVE_n(Req_I_CC_Ext, 0);
+		__FSM_I_JMP(Req_I_CC_Ext);
 	}
 
 	__FSM_STATE(Req_I_CC_n) {
 		TRY_STR_LAMBDA("no-cache", {
-			req->cache_ctl.flags |= TFW_HTTP_CC_NO_CACHE;
-		}, Req_I_EoT);
+			parser->_acc = TFW_HTTP_CC_NO_CACHE;
+		}, Req_I_CC_Flag);
 		TRY_STR_LAMBDA("no-store", {
-			req->cache_ctl.flags |= TFW_HTTP_CC_NO_STORE;
-		}, Req_I_EoT);
+			parser->_acc = TFW_HTTP_CC_NO_STORE;
+		}, Req_I_CC_Flag);
 		TRY_STR_LAMBDA("no-transform", {
-			req->cache_ctl.flags |= TFW_HTTP_CC_NO_TRANSFORM;
-		}, Req_I_EoT);
+			parser->_acc = TFW_HTTP_CC_NO_TRANSFORM;
+		}, Req_I_CC_Flag);
 		TRY_STR_INIT();
-		__FSM_I_MOVE_n(Req_I_CC_Ext, 0);
+		__FSM_I_JMP(Req_I_CC_Ext);
 	}
 
 	__FSM_STATE(Req_I_CC_o) {
 		TRY_STR_LAMBDA("only-if-cached", {
-			req->cache_ctl.flags |= TFW_HTTP_CC_OIFCACHED;
-		}, Req_I_EoT);
+			parser->_acc = TFW_HTTP_CC_OIFCACHED;
+		}, Req_I_CC_Flag);
 		TRY_STR_INIT();
-		__FSM_I_MOVE_n(Req_I_CC_Ext, 0);
+		__FSM_I_JMP(Req_I_CC_Ext);
+	}
+
+	__FSM_STATE(Req_I_CC_Flag) {
+		WARN_ON_ONCE(!parser->_acc);
+		if (IS_WS(c) || c == ',' || IS_CRLF(c)) {
+			req->cache_ctl.flags |= parser->_acc;
+			parser->_acc = 0;
+			__FSM_I_JMP(Req_I_EoT);
+		}
+		parser->_acc = 0;
+		__FSM_I_JMP(Req_I_CC_Ext);
 	}
 
 	__FSM_STATE(Req_I_CC_MaxAgeV) {
@@ -1923,9 +1969,12 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_CC_MaxStale) {
 		if (c == '=')
 			__FSM_I_MOVE(Req_I_CC_MaxStaleV);
-		req->cache_ctl.max_stale = UINT_MAX;
-		req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
-		__FSM_I_MOVE_n(Req_I_EoT, 0);
+		if (IS_WS(c) || c == ',' || IS_CRLF(c)) {
+			req->cache_ctl.max_stale = UINT_MAX;
+			req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
+			__FSM_I_JMP(Req_I_EoT);
+		}
+		__FSM_I_JMP(Req_I_CC_Ext);
 	}
 
 	__FSM_STATE(Req_I_CC_MaxStaleV) {
@@ -1960,7 +2009,7 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE(Req_I_EoT);
 		if (IS_TOKEN(c))
-			__FSM_I_MOVE_n(Req_I_CC, 0);
+			__FSM_I_JMP(Req_I_CC);
 		if (IS_CRLF(c))
 			return __data_off(p);
 		return CSTR_NEQ;
@@ -2384,74 +2433,67 @@ __parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_STATE(I_DateMonth) {
 		switch (TFW_LC(c)) {
 		case 'a':
-			__FSM_I_MOVE_n(I_DateMonth_A, 0);
+			__FSM_I_JMP(I_DateMonth_A);
 		case 'j':
-			__FSM_I_MOVE_n(I_DateMonth_J, 0);
+			__FSM_I_JMP(I_DateMonth_J);
 		case 'm':
-			__FSM_I_MOVE_n(I_DateMonth_M, 0);
+			__FSM_I_JMP(I_DateMonth_M);
 		}
-		__FSM_I_MOVE_n(I_DateMonth_Other, 0);
+		__FSM_I_JMP(I_DateMonth_Other);
 	}
 
 	__FSM_STATE(I_DateMonth_A) {
-		TRY_STR_LAMBDA("apr", {
+		TRY_STR_LAMBDA("apr ", {
 			parser->_date += SB_APR;
-		}, I_DateYearSP);
-		TRY_STR_LAMBDA("aug", {
+		}, I_DateYear);
+		TRY_STR_LAMBDA("aug ", {
 			parser->_date += SB_AUG;
-		}, I_DateYearSP);
+		}, I_DateYear);
 		TRY_STR_INIT();
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(I_DateMonth_J) {
-		TRY_STR("jan", I_DateYearSP);
-		TRY_STR_LAMBDA("jun", {
+		TRY_STR("jan ", I_DateYear);
+		TRY_STR_LAMBDA("jun ", {
 			parser->_date += SB_JUN;
-		}, I_DateYearSP);
-		TRY_STR_LAMBDA("jul", {
+		}, I_DateYear);
+		TRY_STR_LAMBDA("jul ", {
 			parser->_date += SB_JUL;
-		}, I_DateYearSP);
+		}, I_DateYear);
 		TRY_STR_INIT();
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(I_DateMonth_M) {
-		TRY_STR_LAMBDA("mar", {
+		TRY_STR_LAMBDA("mar ", {
 			/* Add SEC24H for leap year on year parsing. */
 			parser->_date += SB_MAR;
-		}, I_DateYearSP);
-		TRY_STR_LAMBDA("may", {
+		}, I_DateYear);
+		TRY_STR_LAMBDA("may ", {
 			parser->_date += SB_MAY;
-		}, I_DateYearSP);
+		}, I_DateYear);
 		TRY_STR_INIT();
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(I_DateMonth_Other) {
-		TRY_STR_LAMBDA("feb", {
+		TRY_STR_LAMBDA("feb ", {
 			parser->_date += SB_FEB;
-		}, I_DateYearSP);
-		TRY_STR_LAMBDA("sep", {
+		}, I_DateYear);
+		TRY_STR_LAMBDA("sep ", {
 			parser->_date += SB_SEP;
-		}, I_DateYearSP);
-		TRY_STR_LAMBDA("oct", {
+		}, I_DateYear);
+		TRY_STR_LAMBDA("oct ", {
 			parser->_date += SB_OCT;
-		}, I_DateYearSP);
-		TRY_STR_LAMBDA("nov", {
+		}, I_DateYear);
+		TRY_STR_LAMBDA("nov ", {
 			parser->_date += SB_NOV;
-		}, I_DateYearSP);
-		TRY_STR_LAMBDA("dec", {
+		}, I_DateYear);
+		TRY_STR_LAMBDA("dec ", {
 			parser->_date += SB_DEC;
-		}, I_DateYearSP);
+		}, I_DateYear);
 		TRY_STR_INIT();
-		return CSTR_NEQ;
-	}
-
-	/* Eat SP between Month and Year. */
-	__FSM_STATE(I_DateYearSP) {
-		if (c == ' ')
-			__FSM_I_MOVE(I_DateYear);
 		return CSTR_NEQ;
 	}
 
@@ -2595,11 +2637,15 @@ __parse_pragma(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_START(parser->_i_st, I_Pragma);
 
 	__FSM_STATE(I_Pragma) {
-		TRY_STR_LAMBDA("no-cache", {
-			msg->cache_ctl.flags |= TFW_HTTP_CC_PRAGMA_NO_CACHE;
-		}, I_Pragma_Ext);
+		TRY_STR("no-cache", I_Pragma_NoCache);
 		TRY_STR_INIT();
-		__FSM_I_MOVE_n(I_Pragma_Ext, 0);
+		__FSM_I_JMP(I_Pragma_Ext);
+	}
+
+	__FSM_STATE(I_Pragma_NoCache) {
+		if (IS_WS(c) || c == ',' || IS_CRLF(c))
+			msg->cache_ctl.flags |= TFW_HTTP_CC_PRAGMA_NO_CACHE;
+		__FSM_I_JMP(I_Pragma_Ext);
 	}
 
 	__FSM_STATE(I_Pragma_Ext) {
@@ -2619,7 +2665,7 @@ __parse_pragma(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			__FSM_I_MOVE(I_EoT);
 		if (IS_CRLF(c))
 			return __data_off(p);
-		__FSM_I_MOVE_n(I_Pragma_Ext, 0);
+		__FSM_I_JMP(I_Pragma_Ext);
 	}
 
 done:
@@ -2729,7 +2775,7 @@ __parse_keep_alive(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_STATE(I_KeepAlive) {
 		TRY_STR("timeout=", I_KeepAliveTO);
 		TRY_STR_INIT();
-		__FSM_I_MOVE_n(I_KeepAliveExt, 0);
+		__FSM_I_JMP(I_KeepAliveExt);
 	}
 
 	__FSM_STATE(I_KeepAliveTO) {
@@ -2765,7 +2811,7 @@ __parse_keep_alive(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		if (c == '=')
 			__FSM_I_MOVE(I_KeepAliveExt);
 		if (IS_TOKEN(c))
-			__FSM_I_MOVE_n(I_KeepAlive, 0);
+			__FSM_I_JMP(I_KeepAlive);
 		if (IS_CRLF(c))
 			return __data_off(p);
 		return CSTR_NEQ;
@@ -2798,7 +2844,7 @@ __parse_uri_mark(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_UriMarkName) {
 		str = tfw_http_sess_mark_name();
 		TRY_STR_LAMBDA_fixup(str, &req->mark, {
-				parser->to_read = tfw_http_sess_mark_size();
+			parser->to_read = tfw_http_sess_mark_size();
 		}, Req_I_UriMarkValue);
 		/*
 		 * Since mark isn't matched, copy accumulated
@@ -3408,7 +3454,7 @@ match_meth:
 				   && C8_INT_LCM(p, 'x', '-', 'f', 'o',
 						 'r', 'w', 'a', 'r')
 				   && C8_INT7_LCM(p + 8, 'd', 'e', 'd', '-',
-					   	  'f', 'o', 'r', ':')))
+						  'f', 'o', 'r', ':')))
 			{
 				parser->_i_st = &&Req_HdrX_Forwarded_ForV;
 				__FSM_MOVE_n(RGen_OWS, 16);
@@ -3986,66 +4032,78 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 	__FSM_START(parser->_i_st, Resp_I_CC);
 
 	__FSM_STATE(Resp_I_CC) {
+		WARN_ON_ONCE(parser->_acc);
 		switch (TFW_LC(c)) {
 		case 'm':
-			__FSM_I_MOVE_n(Resp_I_CC_m, 0);
+			__FSM_I_JMP(Resp_I_CC_m);
 		case 'n':
-			__FSM_I_MOVE_n(Resp_I_CC_n, 0);
+			__FSM_I_JMP(Resp_I_CC_n);
 		case 'p':
-			__FSM_I_MOVE_n(Resp_I_CC_p, 0);
+			__FSM_I_JMP(Resp_I_CC_p);
 		case 's':
-			__FSM_I_MOVE_n(Resp_I_CC_s, 0);
+			__FSM_I_JMP(Resp_I_CC_s);
 		}
-		__FSM_I_MOVE_n(Resp_I_Ext, 0);
+		__FSM_I_JMP(Resp_I_Ext);
 	}
 
 	__FSM_STATE(Resp_I_CC_m) {
 		TRY_STR("max-age=", Resp_I_CC_MaxAgeV);
 		TRY_STR_LAMBDA("must-revalidate", {
-			resp->cache_ctl.flags |= TFW_HTTP_CC_MUST_REVAL;
-		}, Resp_I_EoT);
+			parser->_acc = TFW_HTTP_CC_MUST_REVAL;
+		}, Resp_I_Flag);
 		TRY_STR_INIT();
-		__FSM_I_MOVE_n(Resp_I_Ext, 0);
+		__FSM_I_JMP(Resp_I_Ext);
 	}
 
 	__FSM_STATE(Resp_I_CC_n) {
 		TRY_STR_LAMBDA("no-cache", {
-			resp->cache_ctl.flags |= TFW_HTTP_CC_NO_CACHE;
-		}, Resp_I_EoT);
+			parser->_acc = TFW_HTTP_CC_NO_CACHE;
+		}, Resp_I_Flag);
 		TRY_STR_LAMBDA("no-store", {
-			resp->cache_ctl.flags |= TFW_HTTP_CC_NO_STORE;
-		}, Resp_I_EoT);
+			parser->_acc = TFW_HTTP_CC_NO_STORE;
+		}, Resp_I_Flag);
 		TRY_STR_LAMBDA("no-transform", {
-			resp->cache_ctl.flags |= TFW_HTTP_CC_NO_TRANSFORM;
-		}, Resp_I_EoT);
+			parser->_acc = TFW_HTTP_CC_NO_TRANSFORM;
+		}, Resp_I_Flag);
 		TRY_STR_INIT();
-		__FSM_I_MOVE_n(Resp_I_Ext, 0);
+		__FSM_I_JMP(Resp_I_Ext);
 	}
 
 	__FSM_STATE(Resp_I_CC_p) {
 		TRY_STR_LAMBDA("public", {
-			resp->cache_ctl.flags |= TFW_HTTP_CC_PUBLIC;
-		}, Resp_I_EoT);
+			parser->_acc = TFW_HTTP_CC_PUBLIC;
+		}, Resp_I_Flag);
 		TRY_STR_LAMBDA("private", {
-			resp->cache_ctl.flags |= TFW_HTTP_CC_PRIVATE;
-		}, Resp_I_EoT);
+			parser->_acc = TFW_HTTP_CC_PRIVATE;
+		}, Resp_I_Flag);
 		TRY_STR_LAMBDA("proxy-revalidate", {
-			resp->cache_ctl.flags |= TFW_HTTP_CC_PROXY_REVAL;
-		}, Resp_I_EoT);
+			parser->_acc = TFW_HTTP_CC_PROXY_REVAL;
+		}, Resp_I_Flag);
 		TRY_STR_INIT();
-		__FSM_I_MOVE_n(Resp_I_Ext, 0);
+		__FSM_I_JMP(Resp_I_Ext);
+	}
+
+	__FSM_STATE(Resp_I_Flag) {
+		WARN_ON_ONCE(!parser->_acc);
+		if (IS_WS(c) || c == ',' || IS_CRLF(c)) {
+			resp->cache_ctl.flags |= parser->_acc;
+			parser->_acc = 0;
+			__FSM_I_JMP(Resp_I_EoT);
+		}
+		parser->_acc = 0;
+		__FSM_I_JMP(Resp_I_Ext);
 	}
 
 	__FSM_STATE(Resp_I_CC_s) {
 		TRY_STR("s-maxage=", Resp_I_CC_SMaxAgeV);
 		TRY_STR_INIT();
-		__FSM_I_MOVE_n(Resp_I_Ext, 0);
+		__FSM_I_JMP(Resp_I_Ext);
 	}
 
 	__FSM_STATE(Resp_I_CC_MaxAgeV) {
 		if (unlikely(resp->cache_ctl.flags & TFW_HTTP_CC_MAX_AGE)) {
 			resp->cache_ctl.max_age = 0;
-			__FSM_I_MOVE_n(Resp_I_Ext, 0);
+			__FSM_I_JMP(Resp_I_Ext);
 		}
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
@@ -4065,7 +4123,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 	__FSM_STATE(Resp_I_CC_SMaxAgeV) {
 		if (unlikely(resp->cache_ctl.flags & TFW_HTTP_CC_S_MAXAGE)) {
 			resp->cache_ctl.s_maxage = 0;
-			__FSM_I_MOVE_n(Resp_I_Ext, 0);
+			__FSM_I_JMP(Resp_I_Ext);
 		}
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
@@ -4105,7 +4163,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		if (c == '=')
 			__FSM_I_MOVE(Resp_I_Ext);
 		if (IS_TOKEN(c))
-			__FSM_I_MOVE_n(Resp_I_CC, 0);
+			__FSM_I_JMP(Resp_I_CC);
 		if (IS_CRLF(c))
 			return __data_off(p);
 		return CSTR_NEQ;
