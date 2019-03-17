@@ -36,7 +36,7 @@
 #endif
 
 /*
- * TODO #74: the test is complete mess - it includes half of Tempesta spurce
+ * TODO #74: the test is complete mess - it includes half of Tempesta source
  * code and I gave up to fix multiple definition conflicts for debug mode.
  */
 #undef DEBUG
