@@ -890,26 +890,26 @@ tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len)
 EXPORT_SYMBOL(tfw_http_msg_setup);
 
 /**
- * Similar to tfw_msg_write(), but properly maintain @hm header
- * fields, so that @hm can be used in regular transformations. However,
- * the header name and the value are not split into different chunks,
- * so advanced headers matching is not available for @hm.
+ * Fill up an HTTP message by iterator @it with data from string @data.
+ * Properly maintain @hm header @field, so that @hm can be used in regular
+ * transformations. However, the header name and the value are not split into
+ * different chunks, so advanced headers matching is not available for @hm.
  */
 int
 tfw_http_msg_add_data(TfwMsgIter *it, TfwHttpMsg *hm, TfwStr *field,
 		      const TfwStr *data)
 {
-	unsigned int c_off = 0, c_size;
+	const TfwStr *c, *end;
 
-	if (WARN_ON_ONCE(TFW_STR_DUP(data) || !TFW_STR_PLAIN(data)))
-		return -EINVAL;
+	BUG_ON(TFW_STR_DUP(data));
 	if (WARN_ON_ONCE(it->frag >= skb_shinfo(it->skb)->nr_frags))
 		return -E2BIG;
 
-	while ((c_size = data->len - c_off)) {
+	TFW_STR_FOR_EACH_CHUNK(c, data, end) {
 		char *p;
-		unsigned int n_copy, f_room;
-
+		unsigned int c_off = 0, c_size, f_room, n_copy;
+this_chunk:
+		c_size = c->len - c_off;
 		if (it->frag >= 0) {
 			unsigned int f_size;
 			skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
@@ -926,16 +926,33 @@ tfw_http_msg_add_data(TfwMsgIter *it, TfwHttpMsg *hm, TfwStr *field,
 			p = skb_put(it->skb, n_copy);
 		}
 
-		memcpy_fast(p, data->data, n_copy);
-		if (__tfw_http_msg_add_str_data(hm, field, p, n_copy, it->skb))
+		memcpy_fast(p, c->data + c_off, n_copy);
+		if (field && n_copy
+		    && __tfw_http_msg_add_str_data(hm, field, p, n_copy,
+						   it->skb))
+		{
 			return -ENOMEM;
-		c_off += n_copy;
+		}
 
+		/*
+		 * The chunk occupied all the spare space in the SKB fragment,
+		 * switch to the next fragment.
+		 */
 		if (c_size >= f_room) {
 			if (WARN_ON_ONCE(tfw_msg_iter_next_data_frag(it)
-					 && (c_size != f_room)))
+					 && ((c_size != f_room)
+					     || (c + 1 < end))))
 			{
 				return -E2BIG;
+			}
+			/*
+			 * Not all data from the chunk has been copied,
+			 * stay in the current chunk and copy the rest to the
+			 * next fragment.
+			 */
+			if (c_size != f_room) {
+				c_off += n_copy;
+				goto this_chunk;
 			}
 		}
 	}
