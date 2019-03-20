@@ -19,7 +19,11 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #pragma GCC optimize("O3", "unroll-loops", "inline", "no-strict-aliasing")
+#ifdef AVX2
 #pragma GCC target("mmx", "sse4.2", "avx2")
+#else
+#pragma GCC target("mmx", "sse4.2")
+#endif
 #include <linux/ctype.h>
 #include <linux/frame.h>
 #include <linux/kernel.h>
