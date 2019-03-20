@@ -268,7 +268,7 @@ do {									\
 	TFW_DBG("frang: " fmt_msg, abuf, ##__VA_ARGS__);		\
 } while (0)
 #else
-#define frang_dbg(...)
+#define frang_dbg(...)	do { } while (0)
 #endif
 
 static int

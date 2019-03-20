@@ -353,7 +353,7 @@ do {									\
 	tfw_str_dprint(ua, "\t...User-Agent");				\
 } while (0)
 #else
-#define TFW_DBG_PRINT_STICKY_COOKIE(addr, ua, sv)
+#define TFW_DBG_PRINT_STICKY_COOKIE(addr, ua, sv)	do { } while (0)
 #endif
 
 /*

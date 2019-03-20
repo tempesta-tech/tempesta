@@ -28,8 +28,8 @@
  * In user space all threads have different identifiers,
  * so there is no problems with preemption.
  */
-#define local_bh_disable()
-#define local_bh_enable()
+#define local_bh_disable()	do { } while (0)
+#define local_bh_enable()	do { } while (0)
 
 static size_t __thr_max = 0;
 static size_t __thread __thr_id;

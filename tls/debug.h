@@ -51,9 +51,9 @@ void ttls_dbg_print_scatterlist(const char *str, struct scatterlist *sg,
 
 #else
 
-#define TTLS_DEBUG_MPI(text, X)
-#define TTLS_DEBUG_ECP(text, X)
-#define TTLS_DEBUG_CRT(text, crt)
+#define TTLS_DEBUG_MPI(text, X)		do { } while (0)
+#define TTLS_DEBUG_ECP(text, X)		do { } while (0)
+#define TTLS_DEBUG_CRT(text, crt)	do { } while (0)
 
 #endif
 

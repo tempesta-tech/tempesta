@@ -67,13 +67,13 @@ enum {
 #if defined(DEBUG) && (DEBUG >= 1)
 #define T_DBG(...) 	__T_DBG1(__VA_ARGS__)
 #else
-#define T_DBG(...)
+#define T_DBG(...)	do { } while (0)
 #endif
 
 #if defined(DEBUG) && (DEBUG >= 2)
 #define T_DBG2(...)	__T_DBG2(__VA_ARGS__)
 #else
-#define T_DBG2(...)
+#define T_DBG2(...)	do { } while (0)
 #endif
 
 #if defined(DEBUG) && (DEBUG == 3)
@@ -128,9 +128,9 @@ do {									\
 #define T_ERR(...)	net_err_ratelimited(__BNR "ERROR: " __VA_ARGS__)
 #define T_WARN(...)	net_warn_ratelimited(__BNR "Warning: "	__VA_ARGS__)
 #define T_LOG(...)	net_info_ratelimited(__BNR __VA_ARGS__)
-#define T_DBG3(...)
-#define T_DBG3_BUF(...)
-#define T_DBG3_SL(...)
+#define T_DBG3(...)	do { } while (0)
+#define T_DBG3_BUF(...)	do { } while (0)
+#define T_DBG3_SL(...)	do { } while (0)
 /* Non-limited printing. */
 #define T_ERR_NL(...)	pr_err(__BNR "ERROR: " __VA_ARGS__)
 #define T_WARN_NL(...)	pr_warn(__BNR "Warning: " __VA_ARGS__)

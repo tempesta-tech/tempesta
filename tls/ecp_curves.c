@@ -557,7 +557,7 @@ static int ecp_mod_p521(ttls_mpi *);
 
 #define NIST_MODP(P)	  grp->modp = ecp_mod_ ## P;
 #else
-#define NIST_MODP(P)
+#define NIST_MODP(P)	do { } while (0)
 #endif /* TTLS_ECP_NIST_OPTIM */
 
 /* Additional forward declarations */

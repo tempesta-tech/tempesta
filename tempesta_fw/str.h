@@ -388,7 +388,7 @@ u32 tfw_str_crc32_calc(const TfwStr *str);
 #ifdef DEBUG
 void tfw_str_dprint(const TfwStr *str, const char *msg);
 #else
-#define tfw_str_dprint(str, msg)
+#define tfw_str_dprint(str, msg)	do { } while (0)
 #endif
 
 #endif /* __TFW_STR_H__ */

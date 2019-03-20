@@ -154,8 +154,8 @@ tfw_dbg_vprint32(const char *prefix, const __m256i *v)
 		 D(24), D(25), D(26), D(27), D(28), D(29), D(30), D(31));
 }
 #else
-#define tfw_dbg_vprint16(...)
-#define tfw_dbg_vprint32(...)
+#define tfw_dbg_vprint16(...)	do { } while (0)
+#define tfw_dbg_vprint32(...)	do { } while (0)
 #endif
 
 static void

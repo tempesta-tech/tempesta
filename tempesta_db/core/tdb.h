@@ -152,7 +152,7 @@ typedef struct {
 #if defined(DEBUG) && (DEBUG >= 2)
 #define TDB_DBG(...)		pr_debug(TDB_BANNER "  " __VA_ARGS__)
 #else
-#define TDB_DBG(...)
+#define TDB_DBG(...)		do { } while (0)
 #endif
 #define TDB_LOG(...)		pr_info(TDB_BANNER __VA_ARGS__)
 #define TDB_WARN(...)		pr_warn(TDB_BANNER "Warning: " __VA_ARGS__)

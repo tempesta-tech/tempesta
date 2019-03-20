@@ -60,19 +60,19 @@ do {				\
 #if defined(DEBUG) && (DEBUG >= 1)
 #define TEST_DBG(...) pr_debug(TEST_BANNER "  " __VA_ARGS__)
 #else
-#define TEST_DBG(...)
+#define TEST_DBG(...) do { } while (0)
 #endif
 
 #if defined(DEBUG) && (DEBUG >= 2)
 #define TEST_DBG2(...) pr_debug(TEST_BANNER "    " __VA_ARGS__)
 #else
-#define TEST_DBG2(...)
+#define TEST_DBG2(...) do { } while (0)
 #endif
 
 #if defined(DEBUG) && (DEBUG >= 3)
 #define TEST_DBG3(...) pr_debug(TEST_BANNER "      " __VA_ARGS__)
 #else
-#define TEST_DBG3(...)
+#define TEST_DBG3(...) do { } while (0)
 #endif
 
 /*
