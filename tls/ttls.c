@@ -38,7 +38,7 @@
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
 MODULE_DESCRIPTION("Tempesta TLS");
-MODULE_VERSION("0.2.2");
+MODULE_VERSION("0.2.3");
 MODULE_LICENSE("GPL");
 
 static DEFINE_PER_CPU(struct aead_request *, g_req) ____cacheline_aligned;
@@ -1249,6 +1249,11 @@ ttls_handshake_free(TlsHandshake *hs)
 
 	crypto_free_shash(hs->desc.tfm);
 
+#if defined(TTLS_DHM_C)
+	ttls_dhm_free(&hs->dhm_ctx);
+#endif
+	ttls_ecdh_free(&hs->ecdh_ctx);
+
 	bzero_fast(hs, sizeof(TlsHandshake));
 	kmem_cache_free(ttls_hs_cache, hs);
 }
@@ -1421,6 +1426,7 @@ ttls_parse_certificate(TlsCtx *tls, unsigned char *buf, size_t len,
 	TlsSess *sess = &tls->sess;
 	struct page *pg;
 	unsigned char *p = buf;
+	unsigned char *state_p = buf;
 	T_FSM_INIT(ttls_substate(tls), "TLS ClientCertificate");
 
 	BUG_ON(io->msgtype != TTLS_MSG_HANDSHAKE);
@@ -2395,6 +2401,11 @@ ttls_ctx_clear(TlsCtx *tls)
 
 	ttls_cipher_free(&tls->xfrm.cipher_ctx_enc);
 	ttls_cipher_free(&tls->xfrm.cipher_ctx_dec);
+
+	if (tls->sess.peer_cert) {
+		ttls_x509_crt_free(tls->sess.peer_cert);
+		ttls_free(tls->sess.peer_cert);
+	}
 
 	bzero_fast(tls, sizeof(TlsCtx));
 }
