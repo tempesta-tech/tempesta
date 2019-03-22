@@ -762,7 +762,6 @@ TEST(http_parser, casesense)
 {
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"hOST: test\r\n"
-		/* We don't match open and closing quotes. */
 		"cAchE-CoNtRoL: no-cache\n"
 		"x-fORWarDED-For: 1.1.1.1\r\n"
 		"conTent-typE: chunked\n"
@@ -881,7 +880,7 @@ TEST(http_parser, hdr_token_confusion)
 			  "\r\n");
 
 	/*
-	 * If we have Chunked-Encoding, then we must have 'chunked' among
+	 * If we have Transfer-Encoding, then we must have 'chunked' among
 	 * values, so the response must be blocked.
 	 */
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"

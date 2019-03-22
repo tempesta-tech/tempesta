@@ -32,17 +32,11 @@
 #undef DEBUG
 #endif
 
-/* Disable strict aliasing warnings from Linux includes. */
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wstrict-aliasing"
-
 #include "gfsm.h"
 #include "http_msg.h"
 #include "htype.h"
 #include "http_sess.h"
 #include "lib/str.h"
-
-#pragma GCC diagnostic pop
 
 /*
  * ------------------------------------------------------------------------
@@ -235,27 +229,21 @@ do {									\
 #define __FSM_I_chunk_flags(flag)					\
 	__FSM_I_field_chunk_flags(&msg->conn->parser.hdr, flag)
 
-#define __FSM_I_MOVE_finish_n(to, n, finish)				\
+#define __FSM_I_MOVE_n(to, n)						\
 do {									\
 	parser->_i_st = &&to;						\
 	p += n;								\
 	if (unlikely(__data_off(p) >= len)) {				\
 		/* Close currently parsed field chunk. */		\
 		__msg_hdr_chunk_fixup(data, len);			\
-		finish;							\
-		__FSM_EXIT(TFW_POSTPONE); /* let finish update the @r */\
+		__FSM_EXIT(TFW_POSTPONE);				\
 	}								\
 	goto to;							\
 } while (0)
 
-#define __FSM_I_MOVE_n(to, n)  		__FSM_I_MOVE_finish_n(to, n, {})
 #define __FSM_I_MOVE(to)		__FSM_I_MOVE_n(to, 1)
 /* The same as __FSM_I_MOVE_n(), but exactly for jumps w/o data moving. */
-#define __FSM_I_JMP(to)							\
-do {									\
-	parser->_i_st = &&to;						\
-	goto to;							\
-} while (0)
+#define __FSM_I_JMP(to)			goto to
 
 #define __FSM_I_MATCH_MOVE_finish(alphabet, to, finish)			\
 do {									\
@@ -264,8 +252,9 @@ do {									\
 	if (unlikely(__fsm_sz == __fsm_n)) {				\
 		__msg_hdr_chunk_fixup(data, len);			\
 		parser->_i_st = &&to;					\
+		r = TFW_POSTPONE;					\
 		finish;							\
-		__FSM_EXIT(TFW_POSTPONE); /* let finish update the @r */\
+		__FSM_EXIT(r); /* let finish update the @r */		\
 	}								\
 } while (0)
 
@@ -2943,8 +2932,6 @@ do {									\
 	__fsm_n += step_inc;						\
 	goto match_meth;						\
 } while (0)
-#define __MATH_METH_SP(meth, step_inc)					\
-do {									\
 
 	/* HTTP method. */
 	__FSM_STATE(Req_Method) {
@@ -2954,9 +2941,10 @@ do {									\
 			 * switch to make compiler not to merge it with the
 			 * switch at the below.
 			 *
-			 * Usually we have enough data (smalest HTTP/1.1 reqeust
-			 * is "GET / HTTP/1.1\n\n"), so handle the case for fast
-			 * path and fail to 1-character FSM for slow path.
+			 * Usually we have enough data (smallest HTTP/1.1
+			 * request is "GET / HTTP/1.1\n\n"), so handle the case
+			 * for fast path and fail to 1-character FSM for slow
+			 * path.
 			 */
 			__fsm_n = 4;
 			if (likely(PI(p) == TFW_CHAR4_INT('G', 'E', 'T', ' ')))
