@@ -1,6 +1,6 @@
 #		Tempesta DB
 #
-# Copyright (C) 2018 Tempesta Technologies, Inc.
+# Copyright (C) 2018-2019 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -20,7 +20,9 @@ EXTRA_CFLAGS += $(TFW_CFLAGS)
 
 obj-m	= tempesta_lib.o
 
+GCOV_PROFILE := $(TFW_GCOV)
+
 tempesta_lib-objs = hash.o main.o
 ifdef AVX2
-tempesta_lib-objs += str_simd.o
+	tempesta_lib-objs += str_simd.o
 endif

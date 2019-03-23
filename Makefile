@@ -22,6 +22,13 @@ ifdef DEBUG
 	TFW_CFLAGS += -DDEBUG=$(DEBUG)
 endif
 
+# Use `$ TFW_GCOV=y make` to compile Tempesta modules with GCOV.
+# The kernel should be built with:
+#	CONFIG_GCOV_KERNEL=y
+#	CONFIG_GCOV_PROFILE_ALL=y
+#	CONFIG_GCOV_FORMAT_AUTODETECT=y
+TFW_GCOV ?= n
+
 # Specify the defines below if you need to build Tempesta FW with
 # debugging of the subsystem, e.g. for Tempesta TLS:
 #
@@ -55,7 +62,7 @@ TFW_CFLAGS += -mmmx -msse4.2
 
 KERNEL = /lib/modules/$(shell uname -r)/build
 
-export KERNEL TFW_CFLAGS AVX2
+export KERNEL TFW_CFLAGS AVX2 TFW_GCOV
 
 obj-m	+= lib/ tempesta_db/core/ tempesta_fw/ tls/
 
