@@ -114,10 +114,10 @@ T_DBG3("enter FSM at state %pK\n", s);					\
 if (s)									\
 	goto *s; /* Fall through to the first state otherwise. */
 
-#define __FSM_START_ALT(s, st_alt)					\
+#define __FSM_START_ALT(s)						\
 T_DBG3("enter FSM at state %pK\n", s);					\
-if (s == I_ST(st_alt))							\
-	goto st_alt;							\
+if (s == __I_EoL)							\
+	goto I_EoL;							\
 if (s)									\
 	goto *s; /* Fall through to the first state otherwise. */
 
@@ -696,14 +696,9 @@ __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
 /*
  * Helping state identifiers used to define which jump address an FSM should
  * set as the entry point.
- * Keep the enum small!
+ * Don't introduce too much of such identifies!
  */
-enum {
-	__I_0,
-	__I_EoL,
-};
-
-#define I_ST(i)		(void *)(__##i)
+#define __I_EoL			(void *)1
 
 /* Initialize TRY_STR parsing context */
 #define TRY_STR_INIT()		TFW_STR_INIT(chunk)
@@ -1786,7 +1781,7 @@ STACK_FRAME_NON_STANDARD(__parse_transfer_encoding);
  * ------------------------------------------------------------------------
  */
 /**
- * Accept header parser, RFC 7321 5.3.2.
+ * Accept header parser, RFC 7231 5.3.2.
  */
 static int
 __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
@@ -2381,7 +2376,7 @@ __parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(hm);
 
-	__FSM_START_ALT(parser->_i_st, I_EoL);
+	__FSM_START_ALT(parser->_i_st);
 
 	__FSM_STATE(I_Date) {
 		/*
@@ -2607,7 +2602,7 @@ __req_parse_if_msince(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	if (r < 0 && r != CSTR_POSTPONE) {
 		/* On error just swallow the rest of the line. */
 		parser->_date = 0;
-		parser->_i_st = I_ST(I_EoL);
+		parser->_i_st = __I_EoL;
 		r = __parse_http_date(msg, data, len);
 	}
 
@@ -3211,7 +3206,7 @@ match_meth:
 		if (__fsm_n < 0)
 			TFW_PARSER_BLOCK(Req_UriMark);
 
-		parser->_i_st = I_ST(I_0);
+		parser->_i_st = NULL;
 		if (TFW_STR_EMPTY(&req->mark)) {
 			/*
 			 * If 'req->mark' is empty - the mark isn't matched,
@@ -4189,7 +4184,7 @@ __resp_parse_expires(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	 * @resp->expires is set to zero - already expired.
 	 */
 	if (resp->cache_ctl.flags & TFW_HTTP_CC_HDR_EXPIRES)
-		parser->_i_st = I_ST(I_EoL);
+		parser->_i_st = __I_EoL;
 
 	r = __parse_http_date(msg, data, len);
 	if (r < 0 && r != CSTR_POSTPONE) {
@@ -4198,7 +4193,7 @@ __resp_parse_expires(TfwHttpMsg *msg, unsigned char *data, size_t len)
 		 * @resp->expires is set to zero - already expired.
 		 */
 		parser->_date = 0;
-		parser->_i_st = I_ST(I_EoL);
+		parser->_i_st = __I_EoL;
 		r = __parse_http_date(msg, data, len);
 	}
 
@@ -4226,7 +4221,7 @@ __resp_parse_date(TfwHttpMsg *msg, unsigned char *data, size_t len)
 		 * @resp->expires is set to zero - already expired.
 		 */
 		parser->_date = 0;
-		parser->_i_st = I_ST(I_EoL);
+		parser->_i_st = __I_EoL;
 		r = __parse_http_date(msg, data, len);
 	}
 
@@ -4254,7 +4249,7 @@ __resp_parse_if_modified(TfwHttpMsg *msg, unsigned char *data, size_t len)
 		 * @resp->expires is set to zero - already expired.
 		 */
 		parser->_date = 0;
-		parser->_i_st = I_ST(I_EoL);
+		parser->_i_st = __I_EoL;
 		r = __parse_http_date(msg, data, len);
 	}
 

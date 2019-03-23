@@ -53,9 +53,6 @@ st: __attribute__((unused))						\
  *
  * This call re-enters the switch statement, so use it only if you really need
  * to re-enter the FSM and prefer direct jumps in all other cases.
- *
- * #1131 will replace switch() by direct jumps, but jumping to @fsm_reenter
- * label reduced i-cache hit, so it'll be still expensive.
  */
 #define T_FSM_NEXT()		goto fsm_reenter;
 
