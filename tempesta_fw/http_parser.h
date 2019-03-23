@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2018-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -90,8 +90,8 @@ typedef struct {
 	unsigned short	to_go;
 	unsigned short	_cnt;
 	unsigned int	_hdr_tag;
-	int		state;
-	int		_i_st;
+	void		*state;
+	void		*_i_st;
 	long		to_read;
 	unsigned long	_acc;
 	time_t		_date;

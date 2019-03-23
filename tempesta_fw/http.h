@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -230,6 +230,8 @@ enum {
 	TFW_HTTP_B_CONN_EXTRA,
 	/* Chunked transfer encoding. */
 	TFW_HTTP_B_CHUNKED,
+	/* The message body is limited by the connection closing. */
+	TFW_HTTP_B_UNLIMITED,
 	/* Media type is multipart/form-data. */
 	TFW_HTTP_B_CT_MULTIPART,
 	/* Multipart/form-data request has a boundary parameter. */

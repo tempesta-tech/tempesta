@@ -18,7 +18,7 @@
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 TTLS_CFLAGS += -I$(src)/../tls -I$(src)/../tls/dummy_headers
-export TTLS_CFLAGS
+export TTLS_CFLAGS TFW_CFLAGS
 
 EXTRA_CFLAGS += $(TFW_CFLAGS) $(TTLS_CFLAGS)
 EXTRA_CFLAGS += -I$(src)/../tempesta_db/core -I$(src)/../

@@ -1,6 +1,13 @@
 /**
  *		Tempesta kernel library
  *
+ * Simple FSM routines use switch() together with direct jumps.
+ * Unlike HTTP parser FSM using labels as values GCC extension to avoid
+ * switch() completely, FSMs using the routines aren't supposed to handle
+ * many states for small input data. Labels as values make FSM more complex
+ * and make sense only if state lookup introduce significant overhead, e.g.
+ * lookup a state for each input character as it is in HTTP parser.
+ *
  * Copyright (C) 2018 Tempesta Technologies, INC.
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -46,9 +53,6 @@ st: __attribute__((unused))						\
  *
  * This call re-enters the switch statement, so use it only if you really need
  * to re-enter the FSM and prefer direct jumps in all other cases.
- *
- * #1131 will replace switch() by direct jumps, but jumping to @fsm_reenter
- * label reduced i-cache hit, so it'll be still expensive.
  */
 #define T_FSM_NEXT()		goto fsm_reenter;
 

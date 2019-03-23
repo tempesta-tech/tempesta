@@ -35,9 +35,13 @@
 #define __init
 #endif
 
-#if DBG_SS == 0 || DBG_TLS == 0
+/*
+ * TODO #74: the test is complete mess - it includes half of Tempesta source
+ * code and I gave up to fix multiple definition conflicts for debug mode.
+ */
 #undef DEBUG
-#endif
+
+#include "str.c"
 #include "http_msg.c"
 #include "msg.c"
 #include "http_sess.c"
@@ -70,8 +74,12 @@
 #include "sched.c"
 #include "gfsm.c"
 #include "cache.c"
-#include "http_parser.c"
-#include "str.c"
+/*
+ * Use the header file here to declare functions from http_parser.c included
+ * by test_http_parser.c. We can not include the C file to avoid linker
+ * conflicts on the module assembling.
+ */
+#include "http_parser.h"
 #include "work_queue.c"
 #include "procfs.c"
 

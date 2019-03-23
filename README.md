@@ -20,7 +20,7 @@ is just about 2,000 lines.
 We're in [alpha](https://en.wikipedia.org/wiki/Software_release_life_cycle#Alpha)
 state for now. The alpha is available by:
 
-* [source code](https://github.com/tempesta-tech/tempesta/tree/release-0.5)
+* [source code](https://github.com/tempesta-tech/tempesta/wiki/Install-from-Sources)
 * [binary packages](https://github.com/tempesta-tech/tempesta/releases)
 * [installation script](https://github.com/tempesta-tech/tempesta/wiki/Install-from-packages#using-installer-script)
 
