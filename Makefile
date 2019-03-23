@@ -1,7 +1,7 @@
 #		Tempesta FW
 #
 # Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+# Copyright (C) 2015-2019 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -18,9 +18,6 @@
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 TFW_CFLAGS = $(DEFINES) -Werror -mpreferred-stack-boundary=4
-ifdef NORMALIZATION
-	TFW_CFLAGS += -DTFW_HTTP_NORMALIZATION
-endif
 ifdef DEBUG
 	TFW_CFLAGS += -DDEBUG=$(DEBUG)
 endif

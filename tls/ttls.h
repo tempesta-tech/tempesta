@@ -27,9 +27,6 @@
 #include <linux/string.h>
 #include <net/tls.h>
 
-#if DBG_TLS == 0
-#undef DEBUG
-#endif
 #include "config.h"
 #include "bignum.h"
 #include "ciphersuites.h"

@@ -28,9 +28,7 @@
 #include "gfsm.h"
 #include "msg.h"
 #include "peer.h"
-
 #include "http_parser.h"
-
 #include "sync_socket.h"
 #include "tls.h"
 
