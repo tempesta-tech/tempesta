@@ -670,7 +670,7 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		/* Save client random (inc. Unix time). */
 		memcpy_fast(tls->hs->randbytes + io->rlen, p, n);
 		p += n;
-		io->hslen -= 32;
+		io->hslen -= n;
 		if (unlikely(io->rlen + n < 32))
 			T_FSM_EXIT();
 		T_DBG3_BUF("ClientHello: random bytes ",
