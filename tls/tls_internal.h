@@ -373,7 +373,11 @@ do {									\
 	WARN_ON_ONCE(p - buf > len);					\
 	io->rlen = 0;							\
 	state_p = p;							\
-	T_FSM_MOVE(st, if (unlikely(p - buf >= len)) T_FSM_EXIT(); );	\
+	if (unlikely(p - buf >= len)) {					\
+		__fsm_const_state = ttls_state(tls) + st;		\
+		T_FSM_EXIT();						\
+	}								\
+	T_FSM_MOVE(st, {});						\
 } while (0)
 
 /*
