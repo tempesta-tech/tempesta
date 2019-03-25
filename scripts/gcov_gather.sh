@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Gcov gather script for Tempesta FW data.
-# Mainly bothered from linux/Documentation/dev-tools/gcov.rst
+# Mainly borrowed from linux/Documentation/dev-tools/gcov.rst
 #
 # Copyright (C) 2019 Tempesta Technologies, Inc.
 #
