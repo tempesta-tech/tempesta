@@ -158,42 +158,78 @@ typedef struct {
 	TlsMdInfo		*info;
 } TlsHashDef;
 
-static TlsMdInfo ttls_sha224_info = {
+static TlsMdInfo ttls_sha224_avx2_info = {
 	.type		= TTLS_MD_SHA224,
 	.name		= "SHA224",
 	.alg_name	= "sha224-avx2",
 	.hmac_name	= "hmac(sha224-avx2)",
 };
 
-static TlsMdInfo ttls_sha256_info = {
+static TlsMdInfo ttls_sha256_avx2_info = {
 	.type		= TTLS_MD_SHA256,
 	.name		= "SHA256",
 	.alg_name	= "sha256-avx2",
 	.hmac_name	= "hmac(sha256-avx2)",
 };
 
-static TlsMdInfo ttls_sha384_info = {
+static TlsMdInfo ttls_sha384_avx2_info = {
 	.type		= TTLS_MD_SHA384,
 	.name		= "SHA384",
 	.alg_name	= "sha384-avx2",
 	.hmac_name	= "hmac(sha384-avx2)",
 };
 
-static TlsMdInfo ttls_sha512_info = {
+static TlsMdInfo ttls_sha512_avx2_info = {
 	.type		= TTLS_MD_SHA512,
 	.name		= "SHA512",
 	.alg_name	= "sha512-avx2",
 	.hmac_name	= "hmac(sha512-avx2)",
 };
 
+static TlsMdInfo ttls_sha224_avx_info = {
+	.type		= TTLS_MD_SHA224,
+	.name		= "SHA224",
+	.alg_name	= "sha224-avx",
+	.hmac_name	= "hmac(sha224-avx)",
+};
+
+static TlsMdInfo ttls_sha256_avx_info = {
+	.type		= TTLS_MD_SHA256,
+	.name		= "SHA256",
+	.alg_name	= "sha256-avx",
+	.hmac_name	= "hmac(sha256-avx)",
+};
+
+static TlsMdInfo ttls_sha384_avx_info = {
+	.type		= TTLS_MD_SHA384,
+	.name		= "SHA384",
+	.alg_name	= "sha384-avx",
+	.hmac_name	= "hmac(sha384-avx)",
+};
+
+static TlsMdInfo ttls_sha512_avx_info = {
+	.type		= TTLS_MD_SHA512,
+	.name		= "SHA512",
+	.alg_name	= "sha512-avx",
+	.hmac_name	= "hmac(sha512-avx)",
+};
+
 /*
  * Reminder: update profiles in x509_crt.c when adding a new hash!
  */
-static TlsHashDef ttls_hashes[] = {
-	{ TTLS_MD_SHA512,	&ttls_sha512_info },
-	{ TTLS_MD_SHA384,	&ttls_sha384_info },
-	{ TTLS_MD_SHA256,	&ttls_sha256_info },
-	{ TTLS_MD_SHA224,	&ttls_sha224_info },
+static TlsHashDef ttls_avx2_hashes[] = {
+	{ TTLS_MD_SHA512,	&ttls_sha512_avx2_info },
+	{ TTLS_MD_SHA384,	&ttls_sha384_avx2_info },
+	{ TTLS_MD_SHA256,	&ttls_sha256_avx2_info },
+	{ TTLS_MD_SHA224,	&ttls_sha224_avx2_info },
+	{ TTLS_MD_NONE,		NULL }
+};
+
+static TlsHashDef ttls_avx_hashes[] = {
+	{ TTLS_MD_SHA512,	&ttls_sha512_avx_info },
+	{ TTLS_MD_SHA384,	&ttls_sha384_avx_info },
+	{ TTLS_MD_SHA256,	&ttls_sha256_avx_info },
+	{ TTLS_MD_SHA224,	&ttls_sha224_avx_info },
 	{ TTLS_MD_NONE,		NULL }
 };
 
@@ -314,8 +350,13 @@ ttls_sha256_init_start(ttls_sha256_context *ctx)
 {
 	int r;
 
-	if ((r = __ttls_md_hash_setup(&ctx->desc, &ttls_sha256_info)))
-		return r;
+	if (boot_cpu_has(X86_FEATURE_BMI2)) {
+		if ((r = __ttls_md_hash_setup(&ctx->desc, &ttls_sha256_avx2_info)))
+			return r;
+	} else {
+		if ((r = __ttls_md_hash_setup(&ctx->desc, &ttls_sha256_avx_info)))
+			return r;
+	}
 	ctx->desc.flags = 0;
 
 	return crypto_shash_init(&ctx->desc);
@@ -326,8 +367,13 @@ ttls_sha384_init_start(ttls_sha512_context *ctx)
 {
 	int r;
 
-	if ((r = __ttls_md_hash_setup(&ctx->desc, &ttls_sha384_info)))
-		return r;
+	if (boot_cpu_has(X86_FEATURE_BMI2)) {
+		if ((r = __ttls_md_hash_setup(&ctx->desc, &ttls_sha384_avx2_info)))
+			return r;
+	} else {
+		if ((r = __ttls_md_hash_setup(&ctx->desc, &ttls_sha384_avx_info)))
+			return r;
+	}
 	ctx->desc.flags = 0;
 
 	return crypto_shash_init(&ctx->desc);
@@ -354,18 +400,32 @@ ttls_md_hmac_reset(TlsMdCtx *ctx)
 const TlsMdInfo *
 ttls_md_info_from_type(ttls_md_type_t md_type)
 {
-	switch (md_type) {
-	case TTLS_MD_SHA224:
-		return &ttls_sha224_info;
-	case TTLS_MD_SHA256:
-		return &ttls_sha256_info;
-	case TTLS_MD_SHA384:
-		return &ttls_sha384_info;
-	case TTLS_MD_SHA512:
-		return &ttls_sha512_info;
-	default:
-		return NULL;
-	}
+	if (boot_cpu_has(X86_FEATURE_BMI2))
+		switch (md_type) {
+		case TTLS_MD_SHA224:
+			return &ttls_sha224_avx2_info;
+		case TTLS_MD_SHA256:
+			return &ttls_sha256_avx2_info;
+		case TTLS_MD_SHA384:
+			return &ttls_sha384_avx2_info;
+		case TTLS_MD_SHA512:
+			return &ttls_sha512_avx2_info;
+		default:
+			return NULL;
+		}
+	else
+		switch (md_type) {
+		case TTLS_MD_SHA224:
+			return &ttls_sha224_avx_info;
+		case TTLS_MD_SHA256:
+			return &ttls_sha256_avx_info;
+		case TTLS_MD_SHA384:
+			return &ttls_sha384_avx_info;
+		case TTLS_MD_SHA512:
+			return &ttls_sha512_avx_info;
+		default:
+			return NULL;
+		}
 }
 
 /*
@@ -442,7 +502,8 @@ ttls_crypto_modinit(void)
 		}
 	}
 
-	for (h = ttls_hashes; h->info; h++) {
+	h = boot_cpu_has(X86_FEATURE_BMI2)? ttls_avx2_hashes: ttls_avx_hashes;
+	for (; h->info; h++) {
 		name = h->info->alg_name;
 		if ((r = ttls_hashmod_preload(name)))
 			return r;
