@@ -19,5 +19,7 @@
 
 EXTRA_CFLAGS += $(TFW_CFLAGS) -I$(src)/../../
 
+GCOV_PROFILE := $(TFW_GCOV)
+
 obj-m	= tempesta_db.o
 tempesta_db-objs = file.o htrie.o if.o main.o table.o
