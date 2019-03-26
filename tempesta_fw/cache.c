@@ -1451,7 +1451,7 @@ tfw_cache_build_resp_body(TDB *db, TfwHttpResp *resp, TdbVRec *trec,
 	 * If headers perfectly fit allocated skbs, then
 	 * it->skb == it->skb_head, see tfw_msg_iter_next_data_frag().
 	 * Normally all the headers fit single skb, but these two situations
-	 * can't be distingueshed. Start after last fragment of last skb in list.
+	 * can't be distinguished. Start after last fragment of last skb in list.
 	 */
 	if ((it->skb == it->skb_head) || (it->frag == -1)) {
 		it->skb = ss_skb_peek_tail(&it->skb_head);
