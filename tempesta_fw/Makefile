@@ -1,7 +1,7 @@
 #		Tempesta FW
 #
 # Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+# Copyright (C) 2015-2019 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -22,6 +22,8 @@ export TTLS_CFLAGS TFW_CFLAGS
 
 EXTRA_CFLAGS += $(TFW_CFLAGS) $(TTLS_CFLAGS)
 EXTRA_CFLAGS += -I$(src)/../tempesta_db/core -I$(src)/../
+
+GCOV_PROFILE := $(TFW_GCOV)
 
 obj-m	= tempesta_fw.o t/
 

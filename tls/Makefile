@@ -1,6 +1,6 @@
 #		Tempesta FW
 #
-# Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+# Copyright (C) 2015-2019 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -17,6 +17,8 @@
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 EXTRA_CFLAGS += $(TFW_CFLAGS) -I$(src)/../ -I$(src)/../tls/dummy_headers
+
+GCOV_PROFILE := $(TFW_GCOV)
 
 obj-m = tempesta_tls.o
 
