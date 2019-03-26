@@ -1444,19 +1444,33 @@ tfw_cache_build_resp_body(TDB *db, TfwHttpResp *resp, TdbVRec *trec,
 			  TfwMsgIter *it, char *p)
 {
 	int off, f_size, r;
-	skb_frag_t *frag;
 
-	BUG_ON(!it->skb);
-	frag = &skb_shinfo(it->skb)->frags[it->frag];
-	if (skb_frag_size(frag))
-		++it->frag;
+	if (WARN_ON_ONCE(!it->skb))
+		return -EINVAL;
+	/*
+	 * If headers perfectly fit allocated skbs, then
+	 * it->skb == it->skb_head, see tfw_msg_iter_next_data_frag().
+	 * Normally all the headers fit single skb, but these two situations
+	 * can't be distinguished. Start after last fragment of last skb in list.
+	 */
+	if ((it->skb == it->skb_head) || (it->frag == -1)) {
+		it->skb = ss_skb_peek_tail(&it->skb_head);
+		it->frag = skb_shinfo(it->skb)->nr_frags;
+	}
+	else {
+		skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
+		if (skb_frag_size(frag))
+			++it->frag;
+	}
+	BUG_ON(it->frag < 0);
+
 	if (it->frag >= MAX_SKB_FRAGS - 1
-	    && (r = tfw_http_msg_setup((TfwHttpMsg *)resp, it, 0)))
+	    && (r = tfw_msg_iter_append_skb(it)))
 		return r;
 
 	while (1) {
 		if (it->frag == MAX_SKB_FRAGS
-		    && (r = tfw_http_msg_setup((TfwHttpMsg *)resp, it, 0)))
+		    && (r = tfw_msg_iter_append_skb(it)))
 			return r;
 
 		/* TDB keeps data by pages and we can reuse the pages. */
