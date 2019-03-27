@@ -610,16 +610,6 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		T_DBG("bad type in client hello message\n");
 		return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 	}
-	/*
-	 * Minimal length (with everything empty and extensions
-	 * ommitted) is 2 + 32 + 1 + 2 + 1 = 38 bytes. Check that first,
-	 * so that we can read at least up to session id length without
-	 * worrying.
-	 */
-	if (io->hslen < 38) {
-		T_DBG("too short client handshake message: %u\n", io->hslen);
-		return TTLS_ERR_BAD_HS_CLIENT_HELLO;
-	}
 
 	T_FSM_START(ttls_substate(tls)) {
 
