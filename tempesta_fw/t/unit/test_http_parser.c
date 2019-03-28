@@ -869,9 +869,10 @@ TEST(http_parser, hdr_token_confusion)
 		 "Cache-Control: privatee, no-cacheO, proxy-revalidateX\r\n"
 		 "\r\n");
 	{
-		EXPECT_FALSE(resp->cache_ctl.flags & (TFW_HTTP_CC_MAX_STALE
-						      | TFW_HTTP_CC_NO_CACHE
-						      | TFW_HTTP_CC_NO_STORE));
+		EXPECT_FALSE(resp->cache_ctl.flags
+			     & (TFW_HTTP_CC_MAX_STALE | TFW_HTTP_CC_NO_CACHE
+				| TFW_HTTP_CC_NO_STORE | TFW_HTTP_CC_PRIVATE
+				| TFW_HTTP_CC_PROXY_REVAL));
 	}
 
 	EXPECT_BLOCK_RESP("GET / HTTP/1.1\r\n"
@@ -880,8 +881,8 @@ TEST(http_parser, hdr_token_confusion)
 			  "\r\n");
 
 	/*
-	 * If we have Transfer-Encoding, then we must have 'chunked' among
-	 * values, so the response must be blocked.
+	 * If we have Transfer-Encoding, then we must have 'chunked',
+	 * so the request must be blocked.
 	 */
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 			 "Transfer-Encoding: chunkedchunked\r\n"
