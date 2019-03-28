@@ -209,9 +209,11 @@ enum {
 typedef struct {
 	TfwCliConn	cli_conn;
 	TlsCtx		tls;
+	TfwHttp2Ctx	*h2;
 } TfwTlsConn;
 
 #define tfw_tls_context(conn)	(TlsCtx *)(&((TfwTlsConn *)conn)->tls)
+#define tfw_http2_context(conn)	((TfwHttp2Ctx *)((TfwTlsConn *)conn)->h2)
 
 /* Callbacks used by l5-l7 protocols to operate on connection level. */
 typedef struct {

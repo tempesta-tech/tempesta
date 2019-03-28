@@ -24,6 +24,7 @@
 #include "client.h"
 #include "msg.h"
 #include "procfs.h"
+#include "http_frame.h"
 #include "tls.h"
 
 static struct {
@@ -59,6 +60,34 @@ tfw_tls_chop_skb_rec(TlsCtx *tls, struct sk_buff *skb, TfwFsmData *data)
 	return 0;
 }
 
+static bool
+tfw_tls_http2_mode(void *c) {
+	/*
+	 * TODO: need to be implemented (from ALPN extension)
+	 */
+	return false;
+}
+
+static inline int
+tfw_tls_check_alloc_h2_context(void *c)
+{
+	TfwHttp2Ctx *h2;
+	TfwTlsConn *conn = c;
+
+	if (likely(!tfw_tls_http2_mode(c) || conn->h2))
+		return 0;
+
+	h2 = ttls_calloc(1, sizeof(TfwHttp2Ctx));
+	if (unlikely(!h2))
+		return -ENOMEM;
+
+	conn->h2 = h2;
+	h2->state = HTTP2_RECV_CLI_START_SEQ;
+	h2->conn = c;
+
+	return 0;
+}
+
 static int
 tfw_tls_msg_process(void *conn, TfwFsmData *data)
 {
@@ -67,6 +96,10 @@ tfw_tls_msg_process(void *conn, TfwFsmData *data)
 	TfwConn *c = conn;
 	TlsCtx *tls = tfw_tls_context(c);
 	TfwFsmData data_up = {};
+
+	/* Enable HTTP/2 mode if this protocol has been negotiated in APLN. */
+	if (tfw_tls_check_alloc_h2_context(conn))
+		return T_DROP;
 
 	/*
 	 * @off is from TCP layer due to possible, but rare (usually malicious),
@@ -498,6 +531,7 @@ tfw_tls_conn_dtor(void *c)
 {
 	struct sk_buff *skb;
 	TlsCtx *tls = tfw_tls_context(c);
+	TfwHttp2Ctx *h2 = tfw_http2_context(c);
 
 	if (tls) {
 		while ((skb = ss_skb_dequeue(&tls->io_in.skb_list)))
@@ -505,6 +539,9 @@ tfw_tls_conn_dtor(void *c)
 		while ((skb = ss_skb_dequeue(&tls->io_out.skb_list)))
 			kfree_skb(skb);
 	}
+
+	if (h2)
+		ttls_free(h2);
 
 	ttls_ctx_clear(tls);
 	tfw_cli_conn_release((TfwCliConn *)c);
