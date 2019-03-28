@@ -44,7 +44,7 @@
  * the number of chunks in a compound string. Zero means a plain string.
 
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -86,9 +86,10 @@
  * 32-byre registers in parallel utilizing the memory bus and avoiding
  * conditional branches. However, they may load unnecessary data is the first
  * 32 bytes contain non-matching data.
+ *
+ * Fall back to slow dummy C implementations if there is no AVX2.
  * ------------------------------------------------------------------------
  */
-void tfw_str_init_const(void);
 size_t tfw_match_uri(const char *s, size_t len);
 size_t tfw_match_token(const char *s, size_t len);
 size_t tfw_match_qetoken(const char *s, size_t len);
@@ -106,6 +107,8 @@ void tfw_init_custom_xff(const unsigned char *a);
 void tfw_init_custom_cookie(const unsigned char *a);
 
 #ifdef AVX2
+void tfw_str_init_const(void);
+
 void __tfw_strtolower_avx2(unsigned char *dest, const unsigned char *src,
 			    size_t len);
 int __tfw_stricmp_avx2(const char *s1, const char *s2, size_t len);
@@ -139,6 +142,8 @@ tfw_cstricmp_2lc(const char *s1, const char *s2, size_t len)
 	return __tfw_stricmp_avx2_2lc(s1, s2, len);
 }
 #else /* AVX2 */
+
+#define tfw_str_init_const()
 
 static inline void
 tfw_cstrtolower(void *dest, const void *src, size_t len)

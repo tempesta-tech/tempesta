@@ -5,7 +5,7 @@
  * description and performance comparison with other implementations at
  * http://natsys-lab.blogspot.ru/2016/10/http-strings-processing-using-c-sse42.html
  *
- * Copyright (C) 2016-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -21,16 +21,12 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifdef AVX2
+#ifdef AVX2 // TODO move to Makefile switch
 #pragma GCC target("mmx", "sse4.2", "avx2")
-#else
-#pragma GCC target("mmx", "sse4.2")
-#endif
 #include <linux/bitops.h>
 #include <linux/types.h>
 #include <linux/string.h>
 #include <asm/fpu/api.h>
-#include <x86intrin.h>
 
 #include "htype.h"
 #include "log.h"
@@ -91,7 +87,7 @@ static struct {
 	__m128i HTAB128;
 	__m128i DEL128;
 	__m128i ASCII128;
-#ifdef AVX2
+
 	__m256i A256;
 	__m256i a256;
 	__m256i D256;
@@ -123,7 +119,6 @@ static struct {
 	__m256i HTAB256;
 	__m256i DEL256;
 	__m256i ASCII256;
-#endif
 } __C ____cacheline_aligned __read_mostly;
 
 #if defined(DEBUG) && (DEBUG >= 3)
@@ -160,11 +155,8 @@ tfw_dbg_vprint32(const char *prefix, const __m256i *v)
 
 static void
 __init_custom_a(const unsigned char *cfg_a, unsigned char *a,
-		   __m128i *bm128_0, __m128i *bm128_1
-#ifdef AVX2
-		   , __m256i *bm256_0, __m256i *bm256_1
-#endif
-		   )
+		__m128i *bm128_0, __m128i *bm128_1,
+		__m256i *bm256_0, __m256i *bm256_1)
 {
 	unsigned char a0[32] = {}, a1[32];
 	int i;
@@ -186,12 +178,10 @@ __init_custom_a(const unsigned char *cfg_a, unsigned char *a,
 	*bm128_1 = _mm_lddqu_si128((void *)a1);
 	tfw_dbg_vprint16("load custom alphabet/0", bm128_0);
 	tfw_dbg_vprint16("load custom alphabet/1", bm128_1);
-#ifdef AVX2
 	*bm256_0 = _mm256_lddqu_si256((void *)a0);
 	*bm256_1 = _mm256_lddqu_si256((void *)a1);
 	tfw_dbg_vprint32("load custom alphabet/0", bm256_0);
 	tfw_dbg_vprint32("load custom alphabet/1", bm256_1);
-#endif
 }
 
 void
@@ -259,7 +249,6 @@ tfw_str_init_const(void)
 	__C.DEL128 = _mm_set1_epi8(0x7f);
 	__C.ASCII128 = _mm_set1_epi8(0x80);
 
-#ifdef AVX2
 	__C.A256 = _mm256_set1_epi8('A' - 0x80);
 	__C.a256 = _mm256_set1_epi8('a' - 0x80);
 	__C.D256 = _mm256_set1_epi8('Z' - 'A' + 1 - 0x80);
@@ -305,7 +294,6 @@ tfw_str_init_const(void)
 	__C.HTAB256 = _mm256_set1_epi8('\t');
 	__C.DEL256 = _mm256_set1_epi8(0x7f);
 	__C.ASCII256 = _mm256_set1_epi8(0x80);
-#endif
 }
 EXPORT_SYMBOL(tfw_str_init_const);
 
@@ -500,7 +488,6 @@ static const unsigned char cookie[] ____cacheline_aligned = {
 static unsigned long
 __tzcnt(unsigned long x)
 {
-#ifdef AVX2
 	unsigned long r;
 
 	asm volatile ("tzcnt %1, %0\n"
@@ -508,15 +495,11 @@ __tzcnt(unsigned long x)
 		      : "r"(x));
 
 	return r;
-#else
-	return x ? __ffs(x) : 64;
-#endif
 }
 
 static unsigned int
 __tzcnt32(unsigned int x)
 {
-#ifdef AVX2
 	unsigned int r;
 
 	asm volatile ("tzcnt %1, %0\n"
@@ -524,12 +507,7 @@ __tzcnt32(unsigned int x)
 		      : "r"(x));
 
 	return r;
-#else
-	return x ? __ffs(0xffffffff00000000UL | x) : 32;
-#endif
 }
-
-#ifdef AVX2
 
 static inline void
 __strtolower_avx2_8(unsigned char *dest, const unsigned char *src)
@@ -1394,8 +1372,6 @@ __tfw_match_custom128(const char *str, __m256i *bm256_0, __m256i *bm256_1)
 	return res0 < 64 ? res0 : 64 + res1;
 }
 
-#endif
-
 static inline size_t
 __tfw_strspn_sse_16(const char *str, __m128i sm)
 {
@@ -1414,11 +1390,7 @@ __tfw_strspn_sse_16(const char *str, __m128i sm)
 
 static size_t
 __tfw_strspn_simd(const char *str, size_t len, const unsigned char *tbl,
-		  __m128i sm128
-#ifdef AVX2
-		  , __m256i sm256
-#endif
-		  )
+		  __m128i sm128, __m256i sm256)
 {
 	unsigned char *s = (unsigned char *)str;
 	const unsigned char *end = s + len;
@@ -1444,7 +1416,6 @@ __tfw_strspn_simd(const char *str, size_t len, const unsigned char *tbl,
 		}
 		return (c0 & c1) == 0 ? c0 : 2 + (c2 ? c2 + c3 : 0);
 	}
-#ifdef AVX2
 	/* Use unlikely() to speedup short strings processing. */
 	for ( ; unlikely(s + 128 <= end); s += 128) {
 		n = __tfw_strspn_avx2_128(s, sm256);
@@ -1463,7 +1434,6 @@ __tfw_strspn_simd(const char *str, size_t len, const unsigned char *tbl,
 			return s - (unsigned char *)str + n;
 		s += 32;
 	}
-#endif
 	for ( ; unlikely(s + 16 <= end); s += 16) {
 		n = __tfw_strspn_sse_16(s, sm128);
 		if (n < 16)
@@ -1538,7 +1508,6 @@ __tfw_match_ctext_vchar(const char *str, size_t len)
 		}
 		return (c0 & c1) == 0 ? c0 : 2 + (c2 ? c2 + c3 : 0);
 	}
-#ifdef AVX2
 	/* Use unlikely() to speedup short strings processing. */
 	for ( ; unlikely(s + 128 <= end); s += 128) {
 		n = __tfw_match_ctext_vchar128(s);
@@ -1557,7 +1526,6 @@ __tfw_match_ctext_vchar(const char *str, size_t len)
 			return s - (unsigned char *)str + n;
 		s += 32;
 	}
-#endif
 	for ( ; unlikely(s + 16 <= end); s += 16) {
 		n = __tfw_match_ctext_vchar16(s);
 		if (n < 16)
@@ -1621,9 +1589,7 @@ __tfw_match_custom16(const char *str, __m128i *bm128_0, __m128i *bm128_1)
 static size_t
 __tfw_match_custom(const char *str, size_t len, const unsigned char *a,
 		 __m128i *bm128_0, __m128i *bm128_1
-#ifdef AVX2
 		 , __m256i *bm256_0, __m256i *bm256_1
-#endif
 		 )
 {
 	unsigned char *s = (unsigned char *)str;
@@ -1650,7 +1616,6 @@ __tfw_match_custom(const char *str, size_t len, const unsigned char *a,
 		}
 		return (c0 & c1) == 0 ? c0 : 2 + (c2 ? c2 + c3 : 0);
 	}
-#ifdef AVX2
 	/* Use unlikely() to speedup short strings processing. */
 	for ( ; unlikely(s + 128 <= end); s += 128) {
 		n = __tfw_match_custom128(s, bm256_0, bm256_1);
@@ -1669,7 +1634,6 @@ __tfw_match_custom(const char *str, size_t len, const unsigned char *a,
 			return s - (unsigned char *)str + n;
 		s += 32;
 	}
-#endif
 	for ( ; unlikely(s + 16 <= end); s += 16) {
 		n = __tfw_match_custom16(s, bm128_0, bm128_1);
 		if (n < 16)
@@ -1707,17 +1671,11 @@ tfw_match_ctext_vchar(const char *str, size_t len)
 	size_t r;
 
 	if (custom_ctext_vchar_enabled)
-#ifdef AVX2
 		r = __tfw_match_custom(str, len, custom_ctext_vchar,
 				       &__C.C_ctext_vchar_BM128_0,
 				       &__C.C_ctext_vchar_BM128_1,
 				       &__C.C_ctext_vchar_BM256_0,
 				       &__C.C_ctext_vchar_BM256_1);
-#else
-		r = __tfw_match_custom(str, len, custom_ctext_vchar,
-				       &__C.C_ctext_vchar_BM128_0,
-				       &__C.C_ctext_vchar_BM128_1);
-#endif
 	else
 		r = __tfw_match_ctext_vchar(str, len);
 
@@ -1727,7 +1685,6 @@ tfw_match_ctext_vchar(const char *str, size_t len)
 }
 EXPORT_SYMBOL(tfw_match_ctext_vchar);
 
-#ifdef AVX2
 #define TFW_MATCH(a_name)						\
 size_t tfw_match_##a_name(const char *str, size_t len)			\
 {									\
@@ -1760,37 +1717,6 @@ void tfw_init_custom_##a_name(const unsigned char *a)			\
 }									\
 EXPORT_SYMBOL(tfw_init_custom_##a_name);
 
-#else
-
-#define TFW_MATCH(a_name)						\
-size_t tfw_match_##a_name(const char *str, size_t len)			\
-{									\
-	size_t r;							\
-	if (custom_##a_name##_enabled)					\
-		r = __tfw_match_custom(str, len, custom_##a_name,	\
-				       &__C.C_##a_name##_BM128_0,	\
-				       &__C.C_##a_name##_BM128_1);	\
-	else								\
-		r = __tfw_strspn_simd(str, len, a_name, __C._##a_name##128);\
-	TFW_DBG3("%s: str[0]=%#x len=%lu r=%lu cust=%d\n",		\
-		 __func__, str[0], len, r, custom_##a_name##_enabled);	\
-	return r;							\
-}									\
-EXPORT_SYMBOL(tfw_match_##a_name);
-
-#define TFW_INIT_CUSTOM_A(a_name)					\
-void tfw_init_custom_##a_name(const unsigned char *a)			\
-{									\
-	custom_##a_name##_enabled = !!a;				\
-	if (!!a)							\
-		__init_custom_a(a, custom_##a_name,			\
-			&__C.C_##a_name##_BM128_0,			\
-			&__C.C_##a_name##_BM128_1);			\
-}									\
-EXPORT_SYMBOL(tfw_init_custom_##a_name);
-
-#endif
-
 TFW_MATCH(uri);
 TFW_MATCH(token);
 TFW_MATCH(qetoken);
@@ -1805,3 +1731,5 @@ TFW_INIT_CUSTOM_A(nctl);
 TFW_INIT_CUSTOM_A(ctext_vchar);
 TFW_INIT_CUSTOM_A(xff);
 TFW_INIT_CUSTOM_A(cookie);
+
+#endif

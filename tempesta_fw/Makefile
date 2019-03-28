@@ -17,7 +17,7 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-TTLS_CFLAGS += -I$(src)/../tls -I$(src)/../tls/dummy_headers
+TTLS_CFLAGS += -I$(src)/../tls
 export TTLS_CFLAGS TFW_CFLAGS
 
 EXTRA_CFLAGS += $(TFW_CFLAGS) $(TTLS_CFLAGS)
