@@ -1036,6 +1036,7 @@ __FSM_STATE(RGen_BodyInit) {						\
 	 * responses w/o lengths. Refer issues #534 and #498 for more	\
 	 * information.							\
 	 */								\
+	__set_bit(TFW_HTTP_B_UNLIMITED, msg->flags);			\
 	__FSM_MOVE_nofixup(Resp_BodyUnlimStart);			\
 no_body:								\
 	msg->body.flags |= TFW_STR_COMPLETE;				\
@@ -1045,7 +1046,6 @@ no_body:								\
 
 #define TFW_HTTP_PARSE_BODY_UNLIM()					\
 __FSM_STATE(Resp_BodyUnlimStart) {					\
-	__set_bit(TFW_HTTP_B_UNLIMITED, msg->flags);			\
 	tfw_http_msg_set_str_data(msg, &msg->body, p);			\
 	/* fall through */						\
 }									\
