@@ -26,6 +26,25 @@
 #define FRAME_HEADER_SIZE	9
 
 /**
+ * FSM states for HTTP/2 frames processing.
+ */
+typedef enum {
+	HTTP2_RECV_FRAME_HEADER,
+	HTTP2_RECV_CLI_START_SEQ,
+	HTTP2_RECV_FIRST_SETTINGS,
+	HTTP2_RECV_FRAME_SERVICE,
+	HTTP2_RECV_FRAME_SETTINGS,
+	HTTP2_RECV_FRAME_GOAWAY,
+	HTTP2_RECV_FRAME_PADDED,
+	HTTP2_RECV_HEADER_PRI,
+	HTTP2_IGNORE_FRAME_DATA,
+	__HTTP2_RECV_FRAME_APP,
+	HTTP2_RECV_HEADER = __HTTP2_RECV_FRAME_APP,
+	HTTP2_RECV_CONT,
+	HTTP2_RECV_DATA
+} TfwFrameState;
+
+/**
  * Unpacked header data of currently processed frame (RFC 7540 section
  * 4.1). Reserved bit is not present here since it has no any semantic
  * value for now and should be always ignored.
@@ -91,25 +110,6 @@ struct tfw_http2_ctx_t {
 	unsigned char	padlen;
 	unsigned char	data_off;
 };
-
-/**
- * FSM states for HTTP/2 frames processing.
- */
-typedef enum {
-	HTTP2_RECV_FRAME_HEADER,
-	HTTP2_RECV_CLI_START_SEQ,
-	HTTP2_RECV_FIRST_SETTINGS,
-	HTTP2_RECV_FRAME_SERVICE,
-	HTTP2_RECV_FRAME_SETTINGS,
-	HTTP2_RECV_FRAME_GOAWAY,
-	HTTP2_RECV_FRAME_PADDED,
-	HTTP2_RECV_HEADER_PRI,
-	HTTP2_IGNORE_FRAME_DATA,
-	__HTTP2_RECV_FRAME_APP,
-	HTTP2_RECV_HEADER = __HTTP2_RECV_FRAME_APP,
-	HTTP2_RECV_CONT,
-	HTTP2_RECV_DATA
-} TfwFrameState;
 
 int tfw_http2_frame_process(void *c, TfwFsmData *data);
 
