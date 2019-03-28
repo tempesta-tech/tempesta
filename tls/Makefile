@@ -16,7 +16,7 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-EXTRA_CFLAGS += $(TFW_CFLAGS) -I$(src)/../ -I$(src)/../tls/dummy_headers
+EXTRA_CFLAGS += $(TFW_CFLAGS) -I$(src)/../
 
 GCOV_PROFILE := $(TFW_GCOV)
 
