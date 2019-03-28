@@ -1218,6 +1218,19 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 			    | io->hs_hdr[3];
 		T_DBG("handshake message: msglen=%d type=%d hslen=%d read=%u\n",
 		      io->msglen, io->hstype, io->hslen, *read);
+
+		/*
+		 * Minimal length of the ClientHello with everything empty and
+		 * extensions ommitted is 2 + 32 + 1 + 2 + 1 = 38 bytes.
+		 */
+		if (unlikely(io->hstype == TTLS_HS_CLIENT_HELLO &&
+			     io->hslen < 38))
+		{
+			T_DBG("too short client handshake message: %u\n",
+			      io->hslen);
+			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
+		}
+
 		/* With TLS we don't handle fragmentation (for now) */
 		if (io->msglen < io->hslen) {
 			T_DBG("TLS handshake fragmentation not supported\n");
