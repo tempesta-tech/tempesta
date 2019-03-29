@@ -8,8 +8,7 @@ Type=oneshot
 Environment="TFW_PATH=/lib/modules/%v/updates/dkms/"
 Environment="TDB_PATH=/lib/modules/%v/updates/dkms/"
 Environment="TLS_PATH=/lib/modules/%v/updates/dkms/"
-Environment="TFW_CLS_PATH=/lib/modules/%v/updates/dkms/"
-Environment="TFW_SCHED_PATH=/lib/modules/%v/updates/dkms/"
+Environment="LIB_PATH=/lib/modules/%v/updates/dkms/"
 Environment=TFW_CFG_PATH=/etc/tempesta/tempesta_fw.conf
 RemainAfterExit=yes
 ExecStart=/lib/tempesta/scripts/tempesta.sh --start
