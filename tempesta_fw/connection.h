@@ -110,6 +110,7 @@ typedef struct {
 
 #define TFW_CONN_TYPE(c)	((c)->proto.type)
 #define TFW_CONN_PROTO(c)	TFW_CONN_TYPE2IDX(TFW_CONN_TYPE(c))
+#define TFW_CONN_TLS(c)		(TFW_CONN_TYPE(c) & TFW_FSM_HTTPS)
 
 /*
  * Queues in client and server connections provide support for correct
