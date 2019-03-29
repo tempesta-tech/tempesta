@@ -948,4 +948,3 @@ out:
 	ss_skb_queue_purge(&h2->skb_head);
 	return r;
 }
-EXPORT_SYMBOL(tfw_http2_frame_process);
