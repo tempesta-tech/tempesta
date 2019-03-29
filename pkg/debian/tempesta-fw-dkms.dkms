@@ -14,33 +14,18 @@ BUILT_MODULE_LOCATION[1]="tls"
 DEST_MODULE_LOCATION[1]="/kernel/net"
 STRIP[1]=no
 
-BUILT_MODULE_NAME[2]="tfw_sched_hash"
-BUILT_MODULE_LOCATION[2]="tempesta_fw/sched"
+BUILT_MODULE_NAME[2]="tempesta_fw"
+BUILT_MODULE_LOCATION[2]="tempesta_fw"
 DEST_MODULE_LOCATION[2]="/kernel/net"
 STRIP[2]=no
 
-BUILT_MODULE_NAME[3]="tfw_sched_http"
-BUILT_MODULE_LOCATION[3]="tempesta_fw/sched"
+BUILT_MODULE_NAME[3]="tempesta_lib"
+BUILT_MODULE_LOCATION[3]="lib"
 DEST_MODULE_LOCATION[3]="/kernel/net"
 STRIP[3]=no
-
-BUILT_MODULE_NAME[4]="tfw_sched_ratio"
-BUILT_MODULE_LOCATION[4]="tempesta_fw/sched"
-DEST_MODULE_LOCATION[4]="/kernel/net"
-STRIP[4]=no
-
-BUILT_MODULE_NAME[5]="tempesta_fw"
-BUILT_MODULE_LOCATION[5]="tempesta_fw"
-DEST_MODULE_LOCATION[5]="/kernel/net"
-STRIP[5]=no
-
-BUILT_MODULE_NAME[6]="tfw_frang"
-BUILT_MODULE_LOCATION[6]="tempesta_fw/classifier"
-DEST_MODULE_LOCATION[6]="/kernel/net"
-STRIP[6]=no
 
 
 REMAKE_INITRD=no
 AUTOINSTALL=yes
-BUILD_EXCLUSIVE_KERNEL="^4.9.0-tempesta*"
+BUILD_EXCLUSIVE_KERNEL="^4.14.0-tempesta*"
 BUILD_EXCLUSIVE_ARCH="x86_64"

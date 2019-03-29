@@ -15,6 +15,7 @@ override_dh_auto_install:
 	dh_install tempesta_fw usr/src/$(NAME)-$(VERSION)
 	dh_install tempesta_db usr/src/$(NAME)-$(VERSION)
 	dh_install tls usr/src/$(NAME)-$(VERSION)
+	dh_install lib usr/src/$(NAME)-$(VERSION)
 	dh_install Makefile usr/src/$(NAME)-$(VERSION)
 	dh_install etc/* /etc/tempesta
 	dh_install scripts /lib/tempesta
