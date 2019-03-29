@@ -193,7 +193,7 @@ tfw_sock_clnt_new(struct sock *sk)
 	tfw_connection_link_peer(conn, (TfwPeer *)cli);
 
 	ss_set_callbacks(sk);
-	if (TFW_CONN_TYPE(conn) & TFW_FSM_HTTPS)
+	if (TFW_CONN_TLS(conn))
 		/*
 		 * Probably, that's not beautiful to introduce an alternate
 		 * upcall beside GFSM and SS, but that's efficient and I didn't
