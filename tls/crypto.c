@@ -161,29 +161,29 @@ typedef struct {
 static TlsMdInfo ttls_sha224_info = {
 	.type		= TTLS_MD_SHA224,
 	.name		= "SHA224",
-	.alg_name	= "sha224-avx2",
-	.hmac_name	= "hmac(sha224-avx2)",
+	.alg_name	= "sha224",
+	.hmac_name	= "hmac(sha224)",
 };
 
 static TlsMdInfo ttls_sha256_info = {
 	.type		= TTLS_MD_SHA256,
 	.name		= "SHA256",
-	.alg_name	= "sha256-avx2",
-	.hmac_name	= "hmac(sha256-avx2)",
+	.alg_name	= "sha256",
+	.hmac_name	= "hmac(sha256)",
 };
 
 static TlsMdInfo ttls_sha384_info = {
 	.type		= TTLS_MD_SHA384,
 	.name		= "SHA384",
-	.alg_name	= "sha384-avx2",
-	.hmac_name	= "hmac(sha384-avx2)",
+	.alg_name	= "sha384",
+	.hmac_name	= "hmac(sha384)",
 };
 
 static TlsMdInfo ttls_sha512_info = {
 	.type		= TTLS_MD_SHA512,
 	.name		= "SHA512",
-	.alg_name	= "sha512-avx2",
-	.hmac_name	= "hmac(sha512-avx2)",
+	.alg_name	= "sha512",
+	.hmac_name	= "hmac(sha512)",
 };
 
 /*
@@ -430,6 +430,15 @@ ttls_crypto_modinit(void)
 	const char *name;
 	TlsCipherDef *c;
 	TlsHashDef *h;
+	char *inst_sets[] = {
+		"",
+		"-ssse3",
+		"-avx",
+		"-avx2",
+		"-ni",
+		NULL
+	};
+	char **inst_set;
 
 	for (c = ttls_ciphers; c->info; c++) {
 		name = c->info->drv_name;
@@ -441,6 +450,17 @@ ttls_crypto_modinit(void)
 			goto err;
 		}
 	}
+
+	/*
+	 * Each hash algorithm may have multiple implementations, optimized for
+	 * different instruction set extensions (such as AVX, AVX2, and so on).
+	 * As we want the fastest available, we try to load
+	 * all the implementations. Crypto API will then choose one with
+	 * the highest priority.
+	 */
+	for (inst_set = inst_sets; *inst_set; ++inst_set)
+		for (h = ttls_hashes; h->info; ++h)
+			request_module("crypto-%s%s", h->info->alg_name, *inst_set);
 
 	for (h = ttls_hashes; h->info; h++) {
 		name = h->info->alg_name;
