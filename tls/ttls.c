@@ -378,7 +378,7 @@ ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len)
 		if (!ci) {
 			if (WARN_ON_ONCE(ttls_sha256_init_start(sha256)))
 				return;
-			tls->xfrm.ciphersuite_info = ERR_PTR(0xdead);
+			tls->xfrm.ciphersuite_info = ERR_PTR(-1);
 		}
 		r = crypto_shash_update((struct shash_desc *)sha256, buf, len);
 		if (WARN_ON_ONCE(r))
