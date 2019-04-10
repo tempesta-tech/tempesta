@@ -364,25 +364,24 @@ static void ssl_write_session_ticket_ext(ttls_context *ssl,
 static void ssl_write_alpn_ext(ttls_context *ssl,
 		unsigned char *buf, size_t *olen)
 {
+	int i;
 	unsigned char *p = buf;
 	const unsigned char *end = ssl->out_msg + TLS_MAX_PAYLOAD_SIZE;
 	size_t alpnlen = 0;
-	const char **cur;
+	const ttls_alpn_proto *cur;
 
 	*olen = 0;
 
-	if (ssl->conf->alpn_list == NULL)
-	{
-		return;
-	}
+	BUG_ON(!ssl->conf->alpn_list);
 
 	T_DBG3("client hello, adding alpn extension\n");
 
-	for (cur = ssl->conf->alpn_list; *cur != NULL; cur++)
-		alpnlen += (unsigned char)(strlen(*cur) & 0xFF) + 1;
+	for (i = 0; i < TTLS_ALPN_PROTOS; ++i) {
+		cur = &ssl->conf->alpn_list[i];
+		alpnlen += (unsigned char)(cur->len & 0xFF) + 1;
+	}
 
-	if (end < p || (size_t)(end - p) < 6 + alpnlen)
-	{
+	if (end < p || (size_t)(end - p) < 6 + alpnlen)	{
 		T_DBG("buffer too small\n");
 		return;
 	}
@@ -401,10 +400,10 @@ static void ssl_write_alpn_ext(ttls_context *ssl,
 	/* Skip writing extension and list length for now */
 	p += 4;
 
-	for (cur = ssl->conf->alpn_list; *cur != NULL; cur++)
-	{
-		*p = (unsigned char)(strlen(*cur) & 0xFF);
-		memcpy(p + 1, *cur, *p);
+	for (i = 0; i < TTLS_ALPN_PROTOS; ++i) {
+		cur = &ssl->conf->alpn_list[i];
+		*p = (unsigned char)(cur->len & 0xFF);
+		memcpy(p + 1, cur->name, *p);
 		p += 1 + *p;
 	}
 
@@ -757,8 +756,9 @@ static int ssl_parse_supported_point_formats_ext(ttls_context *ssl,
 static int ssl_parse_alpn_ext(ttls_context *ssl,
 		const unsigned char *buf, size_t len)
 {
+	int i;
 	size_t list_len, name_len;
-	const char **p;
+	const ttls_alpn_proto *p;
 
 	/* If we didn't send it, the server shouldn't send it */
 	if (ssl->conf->alpn_list == NULL)
@@ -804,12 +804,10 @@ static int ssl_parse_alpn_ext(ttls_context *ssl,
 	}
 
 	/* Check that the server chosen protocol was in our list and save it */
-	for (p = ssl->conf->alpn_list; *p != NULL; p++)
-	{
-		if (name_len == strlen(*p) &&
-			memcmp(buf + 3, *p, name_len) == 0)
-		{
-			ssl->alpn_chosen = *p;
+	for (i = 0; i < TTLS_ALPN_PROTOS; ++i) {
+		p = &ssl->conf->alpn_list[i];
+		if (ttls_alpn_ext_eq(p, buf + 3, name_len)) {
+			ssl->alpn_chosen = p;
 			return 0;
 		}
 	}

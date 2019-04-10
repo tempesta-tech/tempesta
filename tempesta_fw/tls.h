@@ -39,6 +39,8 @@ enum {
 };
 
 void tfw_tls_cfg_require(void);
+int tfw_tls_cfg_alpn_protos(const char *cfg_str);
+void tfw_tls_free_alpn_protos(void);
 int tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit);
 
 #endif /* __TFW_TLS_H__ */

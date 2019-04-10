@@ -65,13 +65,13 @@ typedef struct {
  * Unpacked data from priority payload of frames (RFC 7540 section 6.2
  * and section 6.3).
  *
- * @weight	- stream's priority weight;
  * @stream_id	- id for the stream that the current stream depends on;
+ * @weight	- stream's priority weight;
  * @exclusive	- flag indicating exclusive stream dependency;
  */
 typedef struct {
-	int		weight;
 	unsigned int	stream_id;
+	unsigned short	weight;
 	unsigned char	exclusive;
 } TfwFramePri;
 
@@ -85,13 +85,13 @@ typedef struct {
  *		  be read on next FSM @state;
  * @lstream_id	- highest id of stream processed by peer (GOAWAY frame);
  * @skb_head	- collected list of processed skbs containing HTTP/2 frames;
- * @state	- current FSM state of HTTP/2 processing context;
  * @hdr		- unpacked data from header of currently processed frame;
+ * @state	- current FSM state of HTTP/2 processing context;
  * @priority	- unpacked data from priority part of payload of processed
  *		  HEADERS or PRIORITY frames;
+ * @rlen	- length of accumulated data in @rbuf;
  * @rbuf	- buffer for data accumulation from frames headers and
  *		  payloads (for service frames) during frames processing;
- * @rlen	- length of accumulated data in @rbuf;
  * @padlen	- length of current frame's padding (if exists);
  * @data_off	- offset of app data in HEADERS, CONTINUATION and DATA
  *		  frames (after all service payloads);
@@ -102,11 +102,11 @@ struct tfw_http2_ctx_t {
 	int		to_read;
 	unsigned int	lstream_id;
 	struct sk_buff	*skb_head;
-	TfwFrameState	state;
 	TfwFrameHdr	hdr;
+	TfwFrameState	state;
 	TfwFramePri	priority;
+	int		rlen;
 	unsigned char	rbuf[FRAME_HEADER_SIZE];
-	unsigned char	rlen;
 	unsigned char	padlen;
 	unsigned char	data_off;
 };
