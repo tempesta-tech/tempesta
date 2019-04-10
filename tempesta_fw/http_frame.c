@@ -137,8 +137,7 @@ do {									\
 } while (0)
 
 #define APP_FRAME(ctx)							\
-	(false)//!!! remove this temporary stub
-	/* ((ctx)->state >= __HTTP2_RECV_FRAME_APP) */
+	((ctx)->state >= __HTTP2_RECV_FRAME_APP)
 
 #define PAYLOAD(ctx)							\
 	((ctx)->state != HTTP2_RECV_FRAME_HEADER)
