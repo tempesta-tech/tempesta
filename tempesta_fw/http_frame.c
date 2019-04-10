@@ -19,6 +19,9 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+#if DBG_HTTP_FRAME == 0
+#undef DEBUG
+#endif
 #include "lib/fsm.h"
 #include "lib/str.h"
 #include "procfs.h"
@@ -134,7 +137,8 @@ do {									\
 } while (0)
 
 #define APP_FRAME(ctx)							\
-	((ctx)->state >= __HTTP2_RECV_FRAME_APP)
+	(false)//!!! remove this temporary stub
+	/* ((ctx)->state >= __HTTP2_RECV_FRAME_APP) */
 
 #define PAYLOAD(ctx)							\
 	((ctx)->state != HTTP2_RECV_FRAME_HEADER)
@@ -146,6 +150,9 @@ tfw_http2_unpack_frame_header(TfwFrameHdr *hdr, const unsigned char *buf)
 	hdr->type = buf[3];
 	hdr->flags = buf[4];
 	hdr->stream_id = ntohl(*(unsigned int *)&buf[5]) & FRAME_STREAM_ID_MASK;
+
+	T_DBG3("%s: parsed, length=%d, stream_id=%u, type=%hhu, flags=0x%hhx\n",
+	       __func__, hdr->length, hdr->stream_id, hdr->type, hdr->flags);
 }
 
 static inline void
@@ -156,8 +163,8 @@ tfw_http2_pack_frame_header(unsigned char *p, const TfwFrameHdr *hdr)
 	*p++ = hdr->type;
 	*p++ = hdr->flags;
 	/*
-	 * Stream id must not occupy not more than 31 bit and reserved
-	 * bit must be 0.
+	 * Stream id must occupy not more than 31 bit and reserved bit
+	 * must be 0.
 	 */
 	WARN_ON_ONCE((unsigned int)(hdr->stream_id & ~FRAME_STREAM_ID_MASK));
 
@@ -169,7 +176,7 @@ tfw_http2_unpack_priority(TfwFramePri *pri, const unsigned char *buf)
 {
 	pri->stream_id = ntohl(*(unsigned int *)buf) & FRAME_STREAM_ID_MASK;
 	pri->exclusive = (buf[0] & 0x80) > 0;
-	pri->weight = buf[4];
+	pri->weight = buf[4] + 1;
 }
 
 /**
@@ -215,7 +222,7 @@ err:
 	return r;
 }
 
-static int
+static inline int
 tfw_http2_send_ping(TfwHttp2Ctx *ctx)
 {
 	TfwStr data = {
@@ -227,25 +234,27 @@ tfw_http2_send_ping(TfwHttp2Ctx *ctx)
 		.nchunks = 2
 	};
 	TfwFrameHdr hdr = {
-		.length = FRAME_SRVC2_SIZE,
+		.length = ctx->rlen,
 		.stream_id = 0,
 		.type = HTTP2_PING,
 		.flags = HTTP2_F_ACK
 	};
 
+	WARN_ON_ONCE(ctx->rlen != FRAME_SRVC2_SIZE);
+
 	return tfw_http2_send_frame(ctx, &hdr, &data);
 
 }
 
-static int
-tfw_http2_send_settings_ack(TfwHttp2Ctx *ctx)
+static inline int
+tfw_http2_send_settings(TfwHttp2Ctx *ctx, bool ack)
 {
 	TfwStr data = {};
 	TfwFrameHdr hdr = {
 		.length = 0,
 		.stream_id = 0,
 		.type = HTTP2_SETTINGS,
-		.flags = HTTP2_F_ACK
+		.flags = ack ? HTTP2_F_ACK : 0
 	};
 
 	return tfw_http2_send_frame(ctx, &hdr, &data);
@@ -265,13 +274,13 @@ tfw_http2_conn_terminate(TfwHttp2Ctx *ctx, int err_code)
 
 #define VERIFY_FRAME_SIZE(ctx)						\
 do {									\
-	if ((ctx)->hdr.length < 0)					\
+	if ((ctx)->hdr.length <= 0)					\
 		return tfw_http2_conn_terminate(ctx,			\
 						FRAME_ECODE_SIZE_ERROR); \
 } while (0)
 
 static int
-tfw_htt2_stream_verify(TfwHttp2Ctx *ctx)
+tfw_http2_stream_verify(TfwHttp2Ctx *ctx)
 {
 	int stream = ctx->hdr.stream_id;
 	int err_code = 0;
@@ -315,7 +324,7 @@ tfw_http2_headers_pri_process(TfwHttp2Ctx *ctx)
 
 	tfw_http2_unpack_priority(&ctx->priority, ctx->rbuf);
 
-	if (tfw_htt2_stream_verify(ctx))
+	if (tfw_http2_stream_verify(ctx))
 		return T_BAD;
 	if (ctx->state != HTTP2_IGNORE_FRAME_DATA) {
 		ctx->data_off += FRAME_PRIORITY_SIZE;
@@ -356,6 +365,21 @@ tfw_http2_wnd_update_process(TfwHttp2Ctx *ctx)
 }
 
 static int
+tfw_http2_priority_process(TfwHttp2Ctx *ctx)
+{
+	TfwFramePri *pri = &ctx->priority;
+
+	tfw_http2_unpack_priority(pri, ctx->rbuf);
+
+	T_DBG3("%s: parsed, stream_id=%u, weight=%hu, excl=%hhu\n",
+	       __func__, pri->stream_id, pri->weight, pri->exclusive);
+	/*
+	 * TODO: apply stream prioritization.
+	 */
+	return T_OK;
+}
+
+static int
 tfw_http2_rst_stream_process(TfwHttp2Ctx *ctx)
 {
 	unsigned int err_code = ntohl(*(unsigned int *)ctx->rbuf);
@@ -369,7 +393,7 @@ tfw_http2_rst_stream_process(TfwHttp2Ctx *ctx)
 	return T_OK;
 }
 static int
-tfw_http2_apply_settings_entry(int id, unsigned int val)
+tfw_http2_apply_settings_entry(unsigned short id, unsigned int val)
 {
 	/*
 	 * TODO: apply settings entry.
@@ -377,14 +401,25 @@ tfw_http2_apply_settings_entry(int id, unsigned int val)
 	return T_OK;
 }
 
+static void
+tfw_http2_settings_ack_process(TfwHttp2Ctx *ctx)
+{
+	/*
+	 * TODO: apply settings ACK.
+	 */
+	return;
+}
+
 static int
 tfw_http2_settings_process(TfwHttp2Ctx *ctx)
 {
 	TfwFrameHdr *hdr = &ctx->hdr;
-	int id  = ntohl(*(int *)&ctx->rbuf[0]);
+	unsigned short id  = ntohs(*(unsigned short *)&ctx->rbuf[0]);
 	unsigned int val = ntohl(*(unsigned int *)&ctx->rbuf[2]);
 
-	if (!tfw_http2_apply_settings_entry(id, val))
+	T_DBG3("%s: entry parsed, id=%hu, val=%u\n", __func__, id, val);
+
+	if (tfw_http2_apply_settings_entry(id, val))
 		return T_BAD;
 
 	ctx->to_read = hdr->length ? FRAME_STNGS_ENTRY_SIZE : 0;
@@ -399,13 +434,16 @@ tfw_http2_goaway_process(TfwHttp2Ctx *ctx)
 	unsigned int err_code = ntohl(*(unsigned int *)&ctx->rbuf[4]);
 
 	ctx->lstream_id = ntohl(*(unsigned int *)ctx->rbuf) & FRAME_STREAM_ID_MASK;
-	SET_TO_READ(ctx);
+
+	T_DBG3("%s: parsed, last_stream_id=%u, err_code=%u\n", __func__,
+	       ctx->lstream_id, err_code);
 	/*
 	 * TODO: close streams with @id greater than @ctx->lstream_id
 	 */
 	if (err_code)
-		return T_BAD;
-
+		T_LOG("HTTP/2 connection is closed by client with error code:"
+		      " %u\n", err_code);
+	SET_TO_READ(ctx);
 	return T_OK;
 }
 
@@ -417,19 +455,17 @@ tfw_http2_first_settings_verify(TfwHttp2Ctx *ctx)
 
 	BUG_ON(ctx->to_read);
 
-	if (ctx->rbuf[3] != HTTP2_SETTINGS
-	    || (ctx->rbuf[4] & HTTP2_F_ACK)
+	tfw_http2_unpack_frame_header(hdr, ctx->rbuf);
+
+	if (hdr->type != HTTP2_SETTINGS
+	    || (hdr->flags & HTTP2_F_ACK)
 	    || hdr->stream_id)
 	{
 		err_code = FRAME_ECODE_PROTO;
 	}
 
-	if (hdr->length
-	    && ((hdr->length % FRAME_STNGS_ENTRY_SIZE)
-		|| (hdr->flags & HTTP2_F_ACK)))
-	{
+	if (hdr->length && (hdr->length % FRAME_STNGS_ENTRY_SIZE))
 		err_code = FRAME_ECODE_SIZE_ERROR;
-	}
 
 	if (err_code)
 		return tfw_http2_conn_terminate(ctx, err_code);
@@ -445,7 +481,11 @@ tfw_http2_frame_pad_process(TfwHttp2Ctx *ctx)
 {
 	TfwFrameHdr *hdr = &ctx->hdr;
 
+	++ctx->data_off;
 	ctx->padlen = ctx->rbuf[0];
+	hdr->length -= ctx->padlen;
+	VERIFY_FRAME_SIZE(ctx);
+
 	switch (hdr->type) {
 	case HTTP2_DATA:
 		ctx->state = HTTP2_RECV_DATA;
@@ -462,9 +502,7 @@ tfw_http2_frame_pad_process(TfwHttp2Ctx *ctx)
 		BUG();
 	}
 
-	++ctx->data_off;
-	ctx->to_read = hdr->length - ctx->padlen;
-	hdr->length = 0;
+	SET_TO_READ(ctx);
 
 	return T_OK;
 }
@@ -476,10 +514,16 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 	int err_code = FRAME_ECODE_SIZE_ERROR;
 	TfwFrameHdr *hdr = &ctx->hdr;
 
+	T_DBG3("%s: hdr->type=%hhu, ctx->state=%d\n", __func__, hdr->type,
+	       ctx->state);
+
 	switch (hdr->type) {
 	case HTTP2_DATA:
 		BUG_ON(PAYLOAD(ctx));
-		if (tfw_htt2_stream_verify(ctx))
+		if (!ctx->hdr.length)
+			goto out_term;
+
+		if (tfw_http2_stream_verify(ctx))
 			return T_BAD;
 		if (ctx->state == HTTP2_IGNORE_FRAME_DATA) {
 			SET_TO_READ(ctx);
@@ -502,6 +546,9 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 
 	case HTTP2_HEADERS:
 		BUG_ON(PAYLOAD(ctx));
+		if (!ctx->hdr.length)
+			goto out_term;
+
 		if (tfw_http2_headers_check(ctx))
 			return T_BAD;
 		if (ctx->state == HTTP2_IGNORE_FRAME_DATA) {
@@ -522,7 +569,7 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 		if (hdr->flags & HTTP2_F_PRIORITY)
 			return tfw_http2_recv_priority(ctx);
 
-		if (tfw_htt2_stream_verify(ctx))
+		if (tfw_http2_stream_verify(ctx))
 			return T_BAD;
 		if (ctx->state != HTTP2_IGNORE_FRAME_DATA)
 			ctx->state = HTTP2_RECV_HEADER;
@@ -531,10 +578,20 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 		return T_OK;
 
 	case HTTP2_PRIORITY:
-		/*
-		 * TODO
-		 */
-		return T_BAD;
+		if (!PAYLOAD(ctx)) {
+			if (ctx->hdr.length != FRAME_PRIORITY_SIZE)
+				goto out_term;
+
+			if (tfw_http2_stream_verify(ctx))
+				return T_BAD;
+			if (ctx->state != HTTP2_IGNORE_FRAME_DATA)
+				ctx->state = HTTP2_RECV_FRAME_SERVICE;
+
+			SET_TO_READ(ctx);
+			return T_OK;
+		}
+
+		return tfw_http2_priority_process(ctx);
 
 	case HTTP2_WINDOW_UPDATE:
 		if (!PAYLOAD(ctx)) {
@@ -561,21 +618,27 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 			goto out_term;
 		}
 
-		if (!(hdr->flags & HTTP2_F_ACK) && hdr->length) {
+		if (hdr->flags & HTTP2_F_ACK)
+			tfw_http2_settings_ack_process(ctx);
+
+		if (hdr->length) {
 			ctx->state = HTTP2_RECV_FRAME_SETTINGS;
 			ctx->to_read = FRAME_STNGS_ENTRY_SIZE;
 			hdr->length -= ctx->to_read;
 		} else {
-			ctx->state = HTTP2_RECV_FRAME_HEADER;
+			/*
+			 * SETTINGS frame does not have any payload in
+			 * this case, so frame is fully received now.
+			 */
+			ctx->to_read = 0;
 		}
 
 		return T_OK;
 
 	case HTTP2_PUSH_PROMISE:
-		/*
-		 * TODO
-		 */
-		return T_BAD;
+		/* Client cannot push (RFC 7540 section 8.2). */
+		err_code = FRAME_ECODE_PROTO;
+		goto out_term;
 
 	case HTTP2_PING:
 		if (!PAYLOAD(ctx)) {
@@ -672,6 +735,8 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 				FRAME_FSM_EXIT(T_DROP);
 			}
 		});
+		if (tfw_http2_send_settings(ctx, false))
+			FRAME_FSM_EXIT(T_DROP);
 
 		FRAME_FSM_MOVE(HTTP2_RECV_FIRST_SETTINGS);
 	}
@@ -685,7 +750,7 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 		if (ctx->to_read)
 			FRAME_FSM_MOVE(HTTP2_RECV_FRAME_SETTINGS);
 
-		FRAME_FSM_MOVE(HTTP2_RECV_FRAME_HEADER);
+		FRAME_FSM_EXIT(T_OK);
 	}
 
 	T_FSM_STATE(HTTP2_RECV_FRAME_HEADER) {
@@ -696,7 +761,10 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 		if (tfw_http2_frame_type_process(ctx))
 			FRAME_FSM_EXIT(T_DROP);
 
-		FRAME_FSM_NEXT();
+		if (ctx->to_read)
+			FRAME_FSM_NEXT();
+
+		FRAME_FSM_EXIT(T_OK);
 	}
 
 	T_FSM_STATE(HTTP2_RECV_FRAME_PADDED) {
@@ -729,7 +797,7 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 		if (ctx->to_read)
 			FRAME_FSM_MOVE(HTTP2_RECV_FRAME_SETTINGS);
 
-		if (tfw_http2_send_settings_ack(ctx))
+		if (tfw_http2_send_settings(ctx, true))
 			FRAME_FSM_EXIT(T_DROP);
 
 		FRAME_FSM_EXIT(T_OK);

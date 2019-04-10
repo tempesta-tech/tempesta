@@ -463,8 +463,7 @@ tfw_cfgop_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TfwAddr addr;
 	const char *in_str = NULL;
 
-	r = tfw_cfg_check_val_n(ce, 1);
-	if (r)
+	if (tfw_cfg_check_val_n(ce, 1) || ce->attr_n > 1)
 		goto parse_err;
 
 	/*
@@ -502,17 +501,15 @@ tfw_cfgop_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (!strcasecmp(in_str, "http")) {
 		return tfw_listen_sock_add(&addr, TFW_FSM_HTTP);
 	}
-	else if (!strcasecmp(in_str, "https")) {
+
+	if (!tfw_tls_cfg_alpn_protos(in_str)) {
 		tfw_tls_cfg_require();
 		return tfw_listen_sock_add(&addr, TFW_FSM_HTTPS);
-	}
-	else {
-		goto parse_err;
 	}
 
 parse_err:
 	TFW_ERR_NL("Unable to parse 'listen' value: '%s'\n",
-		   in_str ? in_str : "No value specified");
+		   in_str ? in_str : "Invalid directive format");
 	return -EINVAL;
 }
 
@@ -544,6 +541,7 @@ static void
 tfw_cfgop_cleanup_sock_clnt(TfwCfgSpec *cs)
 {
 	tfw_listen_sock_del_all();
+	tfw_tls_free_alpn_protos();
 }
 
 static int

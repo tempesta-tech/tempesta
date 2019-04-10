@@ -60,24 +60,21 @@ tfw_tls_chop_skb_rec(TlsCtx *tls, struct sk_buff *skb, TfwFsmData *data)
 	return 0;
 }
 
-static bool
-tfw_tls_http2_mode(void *c) {
-	/*
-	 * TODO: need to be implemented (from ALPN extension)
-	 */
-	return false;
-}
-
 static inline int
 tfw_tls_check_alloc_h2_context(void *c)
 {
 	TfwHttp2Ctx *h2;
 	TfwTlsConn *conn = c;
+	TlsCtx *tls = &conn->tls;
 
-	if (likely(!tfw_tls_http2_mode(c) || conn->h2))
+	if (likely(!tls->alpn_chosen
+		   || tls->alpn_chosen->id != TTLS_ALPN_ID_HTTP2
+		   || conn->h2))
+	{
 		return 0;
+	}
 
-	h2 = ttls_calloc(1, sizeof(TfwHttp2Ctx));
+	h2 = kzalloc(sizeof(TfwHttp2Ctx), GFP_ATOMIC);
 	if (unlikely(!h2))
 		return -ENOMEM;
 
@@ -541,7 +538,7 @@ tfw_tls_conn_dtor(void *c)
 	}
 
 	if (h2)
-		ttls_free(h2);
+		kfree(h2);
 
 	ttls_ctx_clear(tls);
 	tfw_cli_conn_release((TfwCliConn *)c);
@@ -552,6 +549,9 @@ tfw_tls_conn_init(TfwConn *c)
 {
 	int r;
 	TlsCtx *tls = tfw_tls_context(c);
+	TfwTlsConn *conn = (TfwTlsConn *)c;
+
+	conn->h2 = NULL;
 
 	if ((r = ttls_ctx_init(tls, &tfw_tls.cfg))) {
 		TFW_ERR("TLS (%pK) setup failed (%x)\n", tls, -r);
@@ -701,6 +701,84 @@ void
 tfw_tls_cfg_require(void)
 {
 	tfw_tls_cgf |= TFW_TLS_CFG_F_REQUIRED;
+}
+
+int
+tfw_tls_cfg_alpn_protos(const char *cfg_str)
+{
+	ttls_alpn_proto *protos;
+	size_t len = strlen(cfg_str);
+	int order = 0;
+
+#define CONF_HTTPS	"https"
+#define CONF_HTTP1	"http1"
+#define CONF_HTTP2	"http2"
+#define CONF_LEN	5
+	if (strncasecmp(cfg_str, CONF_HTTPS, CONF_LEN))
+		return -EINVAL;
+
+	if (len == CONF_LEN)
+		goto found;
+
+	cfg_str += CONF_LEN;
+	if (cfg_str[0] != ':')
+		return -EINVAL;
+
+	++cfg_str;
+	len -= CONF_LEN + 1;
+	if (len >= CONF_LEN && !strncasecmp(cfg_str, CONF_HTTP1, CONF_LEN))
+	{
+		cfg_str += CONF_LEN;
+		len -= CONF_LEN;
+		if (!len || (cfg_str[0] == ','
+			     && !strcasecmp(++cfg_str, CONF_HTTP2)))
+		{
+			goto found;
+		}
+	}
+	else if (len >= CONF_LEN &&
+		 !strncasecmp(cfg_str, CONF_HTTP2, CONF_LEN))
+	{
+		order = 1;
+		cfg_str += CONF_LEN;
+		len -= CONF_LEN;
+		if (!len || (cfg_str[0] == ','
+			     && !strcasecmp(++cfg_str, CONF_HTTP1)))
+		{
+			goto found;
+		}
+	}
+
+	return -EINVAL;
+
+found:
+	protos = kzalloc(TTLS_ALPN_PROTOS * sizeof(ttls_alpn_proto), GFP_ATOMIC);
+	if (unlikely(!protos))
+		return -ENOMEM;
+
+	protos[order].name = TTLS_ALPN_HTTP1;
+	protos[order].len = sizeof(TTLS_ALPN_HTTP1) - 1;
+	protos[order].id = TTLS_ALPN_ID_HTTP1;
+	protos[!order].name = TTLS_ALPN_HTTP2;
+	protos[!order].len = sizeof(TTLS_ALPN_HTTP2) - 1;
+	protos[!order].id = TTLS_ALPN_ID_HTTP2;
+
+	tfw_tls.cfg.alpn_list = protos;
+
+	return 0;
+#undef CONF_HTTPS
+#undef CONF_HTTP1
+#undef CONF_HTTP2
+#undef CONF_LEN
+}
+
+void
+tfw_tls_free_alpn_protos(void)
+{
+	if (tfw_tls.cfg.alpn_list) {
+		kfree(tfw_tls.cfg.alpn_list);
+		tfw_tls.cfg.alpn_list = NULL;
+	}
 }
 
 static int

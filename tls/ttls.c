@@ -2079,33 +2079,10 @@ ttls_conf_sni(ttls_config *conf,
 	conf->p_sni = p_sni;
 }
 
-int
-ttls_conf_alpn_protocols(ttls_config *conf, const char **protos)
-{
-	size_t cur_len, tot_len = 0;
-	const char **p;
-
-	/*
-	 * RFC 7301 3.1: "Empty strings MUST NOT be included and byte strings
-	 * MUST NOT be truncated."
-	 * We check lengths now rather than later.
-	 */
-	for (p = protos; *p; p++) {
-		cur_len = strlen(*p);
-		tot_len += cur_len;
-
-		if (!cur_len || cur_len > 255 || tot_len > 65535)
-			return TTLS_ERR_BAD_INPUT_DATA;
-	}
-	conf->alpn_list = protos;
-
-	return 0;
-}
-
 const char *
 ttls_get_alpn_protocol(const TlsCtx *tls)
 {
-	return tls->alpn_chosen;
+	return tls->alpn_chosen->name;
 }
 
 void
@@ -2795,6 +2772,20 @@ exit:
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				TTLS_ALERT_MSG_INTERNAL_ERROR);
 	return r;
+}
+
+bool
+ttls_alpn_ext_eq(const ttls_alpn_proto *proto, const unsigned char *buf,
+		 size_t len)
+{
+	if (proto->len != len)
+		return false;
+	if (len == 8)
+		return *(unsigned long *)proto->name == *(unsigned long *)buf;
+	if (len == 2)
+		return *(unsigned short *)proto->name == *(unsigned short *)buf;
+
+	return !memcmp_fast(proto->name, buf, len);
 }
 
 #if defined(DEBUG) && (DEBUG >= 3)
