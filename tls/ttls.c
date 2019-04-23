@@ -1824,6 +1824,12 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 	 * Calculate final message checksum before going to
 	 * TTLS_HANDSHAKE_OVER state. According to RFC 5246 7.4.9 we need
 	 * to add the message to a checksum sent to a client.
+	 *
+	 * There are two Finished messages, one from a client, and one from a
+	 * server. At this point, we've verified the client's Finished using
+	 * checksum of everything up to that Finished. To calculate our (server)
+	 * Finished, we are continuing to checksum data, including this
+	 * (client's) Finished.
 	 */
 	ttls_update_checksum(tls, hs->finished, TTLS_HS_HDR_LEN + TLS_HASH_LEN);
 
@@ -2163,8 +2169,17 @@ int ttls_get_session(const ttls_context *tls, ttls_ssl_session *dst)
 static bool
 ttls_hs_checksumable(TlsCtx *tls)
 {
+	/*
+	 * Checksumming is currently spread through the code, but if we happen
+	 * to receive only part of the data, is performed here too. To avoid
+	 * calculating it twice, some states are omitted. Aside from completed
+	 * handshake and CertificateVerify message, Finished message is skipped
+	 * too: we may fall out of the parser if for some reason only some bytes
+	 * of a Finished are received.
+	 */
 	return tls->state != TTLS_HANDSHAKE_OVER
-	       && tls->state != TTLS_CERTIFICATE_VERIFY;
+	       && tls->state != TTLS_CERTIFICATE_VERIFY
+	       && tls->state != TTLS_CLIENT_FINISHED;
 }
 
 /**
