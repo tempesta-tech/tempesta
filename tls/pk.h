@@ -106,7 +106,7 @@ typedef struct ttls_pk_info_t ttls_pk_info_t;
 /**
  * Public key container.
  *
- * @pk_info	- Public key informations;
+ * @pk_info	- Public key information;
  * @pk_ctx	- Underlying public key context.
  */
 typedef struct {

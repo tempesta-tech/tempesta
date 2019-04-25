@@ -27,7 +27,7 @@ To simplify the build, TempestaFW is built as native Debian module using
 `git-buildpackage` tool set. The tool set does not honor builds from any
 branches except `master` or builds with dirty index, so warning will appear
 and build will fail. But the tool set does not track ignored files, so unneeded
-files may appear in package. Clone the the repo to a new directory or remove
+files may appear in package. Clone the repo to a new directory or remove
 untracked files with:
 ```sh
 git clean -fd
