@@ -96,7 +96,7 @@ int ttls_x509_crl_parse_der(ttls_x509_crl *chain,
 /**
  * \brief		  Parse one or more CRLs and append them to the chained list
  *
- * \note		   Mutliple CRLs are accepted only if using PEM format
+ * \note		   Multiple CRLs are accepted only if using PEM format
  *
  * \param chain	points to the start of the chain
  * \param buf	  buffer holding the CRL data in PEM or DER format

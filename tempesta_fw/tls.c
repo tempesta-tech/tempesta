@@ -36,8 +36,8 @@ static struct {
 
 /**
  * Chop skb list with begin at @skb by TLS extra data at the begin and end of
- * the the list after decryption and write the right pointer at the first skb
- * and offset to @data for upper layers processing.
+ * the list after decryption and write the right pointer at the first skb and
+ * offset to @data for upper layers processing.
  */
 static int
 tfw_tls_chop_skb_rec(TlsCtx *tls, struct sk_buff *skb, TfwFsmData *data)

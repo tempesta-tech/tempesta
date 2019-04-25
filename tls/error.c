@@ -273,7 +273,7 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 		if (use_ret == -(TTLS_ERR_X509_BUFFER_TOO_SMALL))
 			snprintf(buf, buflen, "X509 - Destination buffer is too small");
 		if (use_ret == -(TTLS_ERR_X509_FATAL_ERROR))
-			snprintf(buf, buflen, "X509 - A fatal error occured, eg the chain is too long or the vrfy callback failed");
+			snprintf(buf, buflen, "X509 - A fatal error occurred, eg the chain is too long or the vrfy callback failed");
 		// END generated code
 
 		if (strlen(buf) == 0)

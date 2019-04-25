@@ -364,7 +364,7 @@ Let's consider following *bad* example of C++ function definition:
 
 In this example function type occupies almost full line, so there is no space
 for name of the function and its arguments. To make function declarations more
-convinient we place template argumenta at first line, function return type at
+convenient we place template arguments at first line, function return type at
 the second one and the function name with its arguments at the last line:
 
 	template<typename T>
@@ -376,7 +376,7 @@ the second one and the function name with its arguments at the last line:
 	}
 
 Please note that if some function arguments ("c" at the example above) don't
-fit one line, they are placed at the next line with identation by tabs and
+fit one line, they are placed at the next line with indentation by tabs and
 spaces to the first argument.
 
 
@@ -846,7 +846,7 @@ headers from other standard libraries and lastly the project's internal headers:
 
 It is also good idea to sort includes alhpabetically.
 
-By the way, C++ is very powerfull tool which in many cases uses TIMTOWTDI (There
+By the way, C++ is very powerful tool which in many cases uses TIMTOWTDI (There
 Is More Than One Way To Do It) concept. For example in some cases you can use
 simple C-array, STL vector or Boost array. In such cases keep you code as simple
 as possibly. It means that if there is no difference, then you should prefer
@@ -867,7 +867,7 @@ of the type as <some_prefix>_<type_name> or <type_name>_<some_suffix>. E.g.:
 	some_func_t some_func_var2 = yyy_some_func;
 
 This way it is pretty simple to grep whole code for all functions which can be
-refered by "var1_some_func". Exception of the rule could be variable names
+referred by "var1_some_func". Exception of the rule could be variable names
 defined and used in one function scope.
 
 In Linux kernel pointer specifier "*" is placed near to the argument name.
@@ -897,7 +897,7 @@ specify it with noexcept statement:
 Yes, it makes risk to get unexpected exception. But such exceptions must be
 tested and fixed during test phase. And, yes, each time when you need to modify
 source code of a function you have to check that your changes don't affect
-the function exception specification. However, it is much simplier to analyze
+the function exception specification. However, it is much simpler to analyze
 which work flow could lead to and to which exceptions.
 
 Do not use following stupid safe programming for conditions:
