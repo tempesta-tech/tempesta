@@ -1,8 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -22,6 +21,7 @@
 #define __HTTP_FRAME__
 
 #include "connection.h"
+#include "http_stream.h"
 
 #define FRAME_HEADER_SIZE	9
 
@@ -75,15 +75,45 @@ typedef struct {
 	unsigned char	exclusive;
 } TfwFramePri;
 
+/**
+ * Representation of SETTINGS parameters for HTTP/2 connection (RFC 7540
+ * section 6.5.2).
+ *
+ * @hdr_tbl_sz		- maximum size of the endpoint's header compression
+ *			  table used to decode header blocks;
+ * @push		- enable/disable indicator for server push;
+ * @max_streams		- maximum number of streams that the endpoint will
+ *			  allow;
+ * @wnd_sz		- endpoint's initial window size for stream-level
+ *			  flow control;
+ * @max_frame_sz	- size of the largest frame payload the endpoint wish
+ *			  to receive;
+ * @max_lhdr_sz		- maximum size of header list the endpoint prepared
+ *			  to accept;
+ */
+typedef struct {
+	unsigned int hdr_tbl_sz;
+	unsigned int push;
+	unsigned int max_streams;
+	unsigned int wnd_sz;
+	unsigned int max_frame_sz;
+	unsigned int max_lhdr_sz;
+} TfwSettings;
 
 /**
  * Context for HTTP/2 frames processing.
  *
  * @conn	- pointer to corresponding connection instance;
+ * @lsettings	- local settings for HTTP/2 connection;
+ * @rsettings	- settings for HTTP/2 connection received from the remote
+ *		  endpoint;
+ * @streams_num	- number of the streams initiated by client;
+ * @sched	- streams' priority scheduler;
+ * @lstream_id	- ID of last stream initiated by client and processed on the
+ *		  server side;
  * @__off	- offset to reinitialize processing context;
  * @to_read	- indicates how much data of HTTP/2 frame should
  *		  be read on next FSM @state;
- * @lstream_id	- highest id of stream processed by peer (GOAWAY frame);
  * @skb_head	- collected list of processed skbs containing HTTP/2 frames;
  * @hdr		- unpacked data from header of currently processed frame;
  * @state	- current FSM state of HTTP/2 processing context;
@@ -98,9 +128,13 @@ typedef struct {
  */
 struct tfw_http2_ctx_t {
 	TfwConn		*conn;
+	TfwSettings	lsettings;
+	TfwSettings	rsettings;
+	unsigned long	streams_num;
+	TfwStreamSched	sched;
+	unsigned int	lstream_id;
 	char		__off[0];
 	int		to_read;
-	unsigned int	lstream_id;
 	struct sk_buff	*skb_head;
 	TfwFrameHdr	hdr;
 	TfwFrameState	state;
@@ -112,5 +146,6 @@ struct tfw_http2_ctx_t {
 };
 
 int tfw_http2_frame_process(void *c, TfwFsmData *data);
+void tfw_http2_settings_init(TfwHttp2Ctx *ctx);
 
 #endif /* __HTTP_FRAME__ */
