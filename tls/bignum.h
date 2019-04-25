@@ -170,7 +170,7 @@ int ttls_mpi_copy(ttls_mpi *X, const ttls_mpi *Y);
 void ttls_mpi_swap(ttls_mpi *X, ttls_mpi *Y);
 
 /**
- * \brief		  Safe conditional assignement X = Y if assign is 1
+ * \brief		  Safe conditional assignment X = Y if assign is 1
  *
  * \param X		MPI to conditionally assign to
  * \param Y		Value to be assigned

@@ -47,7 +47,7 @@
  * @_token	- ASCII table column bitmaps for HTTP token, e.g. header name
  *		  (RFC 7230 3.2.6);
  * @_qetoken	- `token` with double quotes and equal sign;
- * @_nctl	- ASCII VCHAR (RFC RFC 5234, Appendix B.1.) plus SP and HTAB,
+ * @_nctl	- ASCII VCHAR (RFC 5234, Appendix B.1.) plus SP and HTAB,
  *		  used to accept HTTP header values;
  * @_xff	- ASCII characters for HTTP X-Forwarded-For header (RFC 7239);
  * @_cookie	- cookie-octet as defined in RFC 6265 4.1.1 plus DQUOTE;
