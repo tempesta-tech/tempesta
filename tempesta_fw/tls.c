@@ -79,8 +79,9 @@ tfw_tls_check_alloc_h2_context(void *c)
 		return -ENOMEM;
 
 	conn->h2 = h2;
-	h2->state = HTTP2_RECV_CLI_START_SEQ;
 	h2->conn = c;
+	h2->state = HTTP2_RECV_CLI_START_SEQ;
+	tfw_http2_settings_init(h2);
 
 	return 0;
 }
@@ -537,8 +538,10 @@ tfw_tls_conn_dtor(void *c)
 			kfree_skb(skb);
 	}
 
-	if (h2)
+	if (h2) {
+		tfw_http2_streams_cleanup(&h2->sched);
 		kfree(h2);
+	}
 
 	ttls_ctx_clear(tls);
 	tfw_cli_conn_release((TfwCliConn *)c);
