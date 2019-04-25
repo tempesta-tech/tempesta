@@ -222,7 +222,7 @@ int ttls_asn1_write_octet_string(unsigned char **p, unsigned char *start,
  * \param val	   Data to store (can be NULL if you want to fill it by hand)
  * \param val_len   Minimum length of the data buffer needed
  *
- * \return	  NULL if if there was a memory allocation error, or a pointer
+ * \return	  NULL if there was a memory allocation error, or a pointer
  *			  to the new / existing entry.
  */
 ttls_asn1_named_data *ttls_asn1_store_named_data(ttls_asn1_named_data **list,

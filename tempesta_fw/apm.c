@@ -1636,7 +1636,7 @@ tfw_apm_cfgclean(void)
 }
 
 /**
- * Cleanup the configuration values when when all server groups are stopped
+ * Cleanup the configuration values when all server groups are stopped
  * and the APM timers are deleted.
  */
 static void

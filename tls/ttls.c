@@ -139,7 +139,7 @@ ttls_crypto_req_sglist(TlsCtx *tls, struct crypto_aead *tfm, unsigned int len,
 	BUG_ON(!buf && (!skb || skb->len <= off)); /* nothing to decrypt */
 	sz += n * sizeof(**sg);
 
-	/* Dont' use g_req for better spacial locality. */
+	/* Don't use g_req for better spacial locality. */
 	req = kmalloc(sz, GFP_ATOMIC);
 	if (!req)
 		return NULL;
@@ -757,10 +757,10 @@ ttls_aead_req_free(struct crypto_aead *tfm, struct aead_request *req)
 }
 
 /**
- * This TLS records encryption function can be called syncronously, on handshake
- * finished, or asynchrnously, on callback from the TCP/IP stack. We can use TLS
- * context very carefully - many records can be processed before a record is
- * encrypted on TCP transmission.
+ * This TLS records encryption function can be called synchronously, on
+ * handshake finished, or asynchronously, on callback from the TCP/IP stack. We
+ * can use TLS context very carefully - many records can be processed before a
+ * record is encrypted on TCP transmission.
  *
  * @sgt must have enough room for AAD header and a TAG.
  *
@@ -1221,7 +1221,7 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 
 		/*
 		 * Minimal length of the ClientHello with everything empty and
-		 * extensions ommitted is 2 + 32 + 1 + 2 + 1 = 38 bytes.
+		 * extensions omitted is 2 + 32 + 1 + 2 + 1 = 38 bytes.
 		 */
 		if (unlikely(io->hstype == TTLS_HS_CLIENT_HELLO &&
 			     io->hslen < 38))
@@ -2288,7 +2288,7 @@ next_record:
 		 * before Hello message we have no idea which hash algorithm
 		 * we should use, but key derieval on KeyExchange phase may
 		 * require complete checksum for all the messages including
-		 * the KeyEchange one.
+		 * the KeyExchange one.
 		 */
 		r = ttls_handshake_step(tls, buf, len, hh_len, read);
 		if (!r)
@@ -2480,7 +2480,7 @@ static ttls_ecp_group_id ssl_preset_suiteb_curves[] = {
 };
 
 /**
- * Load reasonnable default TLS configuration values.
+ * Load reasonable default TLS configuration values.
  * Use NSA Suite B as a preset-specific defaults.
  */
 int

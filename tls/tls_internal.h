@@ -228,7 +228,7 @@ void ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len);
 
 /**
  * Implementation that should never be optimized out by the compiler.
- * Use this only for preemptable contexts and prefer bzero_fast() for siftirq.
+ * Use this only for preemptable contexts and prefer bzero_fast() for softirq.
  */
 static inline void
 ttls_zeroize(void *v, size_t n)
@@ -308,7 +308,7 @@ ttls_write_version(const TlsCtx *tls, unsigned char ver[2])
 #if defined(DEBUG) && (DEBUG >= 3)
 /*
  * Make the things repeatable, simple and INSECURE on largest debug level -
- * this helps to debug TLS (thanks to reproducable records payload), but
+ * this helps to debug TLS (thanks to reproducible records payload), but
  * must not be used in any security sensitive installations.
  */
 static inline void
