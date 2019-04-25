@@ -22,7 +22,7 @@ The implementation is done as simple as possible:
 
 - Test functions are organized into suites, one suite per file, for example: `test_http_parser.c`, `test_str.c`. Usually for each suite there is a corresponding unit in the Tempesta code (i.e. `test_http_parser.c` -> `http_parser.c`, `test_str.c` -> `str.c`, etc).
 
-- There is a tiny testing framework located at `unit/test.h` which is just a bunch of macros mimicing Google Test API. We hope to run tests in the user-space in future.
+- There is a tiny testing framework located at `unit/test.h` which is just a bunch of macros mimicking Google Test API. We hope to run tests in the user-space in future.
 
 - The `tfw_test` module are compiled together with the main Tempesta FW module, there is no separate build system or configuration for them. The process is controlled by the root `Makefile`. When you compile Tempesta Fw, you get tests compiled for free. That allows to keep `Makefile`s simple and ensure that you always run recent tests for the recent main module.
 

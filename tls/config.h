@@ -65,10 +65,10 @@
  * \note Because of a signature change, the core AES encryption and decryption routines are
  *	   currently named ttls_aes_internal_encrypt and ttls_aes_internal_decrypt,
  *	   respectively. When setting up alternative implementations, these functions should
- *	   be overriden, but the wrapper functions ttls_aes_decrypt and ttls_aes_encrypt
+ *	   be overridden, but the wrapper functions ttls_aes_decrypt and ttls_aes_encrypt
  *	   must stay untouched.
  *
- * \note If you use the AES_xxx_ALT macros, then is is recommended to also set
+ * \note If you use the AES_xxx_ALT macros, then it is recommended to also set
  *	   TTLS_AES_ROM_TABLES in order to help the linker garbage-collect the AES
  *	   tables.
  *

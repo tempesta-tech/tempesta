@@ -75,11 +75,11 @@ void ttls_ticket_init(ttls_ticket_context *ctx);
  *				  Recommended value: 86400 (one day).
  *
  * \note			It is highly recommended to select a cipher that is at
- *				  least as strong as the the strongest ciphersuite
+ *				  least as strong as the strongest ciphersuite
  *				  supported. Usually that means a 256-bit key.
  *
  * \note			The lifetime of the keys is twice the lifetime of tickets.
- *				  It is recommended to pick a reasonnable lifetime so as not
+ *				  It is recommended to pick a reasonable lifetime so as not
  *				  to negate the benefits of forward secrecy.
  *
  * \return		  0 if successful,
