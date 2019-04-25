@@ -28,7 +28,7 @@
 #include "ssl_ticket.h"
 
 /*
- * Initialze context
+ * Initialize context
  */
 void ttls_ticket_init(ttls_ticket_context *ctx)
 {

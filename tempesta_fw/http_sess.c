@@ -170,7 +170,7 @@ tfw_http_sticky_redirect_applied(TfwHttpReq *req)
  *	<attempt_no> | <timestamp> | HMAC(Secret, attempt_no, timestamp)
  *
  * Field <attempt_no> is required to track redirection limit, and <timestamp> is
- * needed to detect bots, who repeat inital redirect mark in all subsequent
+ * needed to detect bots, who repeat initial redirect mark in all subsequent
  * requests.
  */
 static void

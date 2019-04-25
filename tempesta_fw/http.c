@@ -3823,7 +3823,7 @@ next_msg:
 	}
 
 	/*
-	 * If a non critical error occured in further GFSM processing,
+	 * If a non critical error occurred in further GFSM processing,
 	 * then the response and the paired request had been handled.
 	 * Keep the server connection open for data exchange.
 	 */
