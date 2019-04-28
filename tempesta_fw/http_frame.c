@@ -30,10 +30,12 @@
 
 #define FRAME_CLI_MAGIC			"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 #define FRAME_CLI_MAGIC_LEN		24
-#define FRAME_SRVC1_SIZE		4
+#define FRAME_WND_UPDATE_SIZE		4
+#define FRAME_RST_STREAM_SIZE		4
 #define FRAME_PRIORITY_SIZE		5
-#define FRAME_STNGS_ENTRY_SIZE		6
-#define FRAME_SRVC2_SIZE		8
+#define FRAME_SETTINGS_ENTRY_SIZE	6
+#define FRAME_PING_SIZE			8
+#define FRAME_GOAWAY_SIZE		8
 
 #define FRAME_STREAM_ID_MASK		((1U << 31) - 1)
 
@@ -56,8 +58,22 @@ typedef enum {
  * and GOAWAY frames to report the reasons of the stream or
  * connection error.
  */
-#define FRAME_ECODE_PROTO		0x1
-#define FRAME_ECODE_SIZE_ERROR		0x6
+typedef enum {
+	FRAME_ECODE_NO_ERROR,
+	FRAME_ECODE_PROTO,
+	FRAME_ECODE_INTERNAL,
+	FRAME_ECODE_FLOW_CONTROL,
+	FRAME_ECODE_SETTINGS_TIMEOUT,
+	FRAME_ECODE_STREAM_CLOSED,
+	FRAME_ECODE_SIZE,
+	FRAME_ECODE_REFUSED_STREAM,
+	FRAME_ECODE_CANCEL,
+	FRAME_ECODE_COMPRESSION,
+	FRAME_ECODE_CONNECT,
+	FRAME_ECODE_ENHANCE_YOUR_CALM,
+	FRAME_ECODE_INADEQUATE_SECURITY,
+	FRAME_ECODE_HTTP_1_1_REQUIRED
+} TfwFrameErr;
 
 /*
  * HTTP/2 frame flags. Can be specified in frame's header and
@@ -135,6 +151,7 @@ do {									\
 } while (0)
 
 #define FRAME_FSM_READ_SRVC(to_read)					\
+	BUG_ON((to_read) > sizeof(ctx->rbuf));				\
 	FRAME_FSM_READ_LAMBDA(to_read, {				\
 		memcpy_fast(ctx->rbuf + ctx->rlen, p, n);		\
 	})
@@ -251,7 +268,7 @@ tfw_http2_send_ping(TfwHttp2Ctx *ctx)
 		.flags = HTTP2_F_ACK
 	};
 
-	WARN_ON_ONCE(ctx->rlen != FRAME_SRVC2_SIZE);
+	WARN_ON_ONCE(ctx->rlen != FRAME_PING_SIZE);
 
 	return tfw_http2_send_frame(ctx, &hdr, &data);
 
@@ -286,8 +303,7 @@ tfw_http2_conn_terminate(TfwHttp2Ctx *ctx, int err_code)
 #define VERIFY_FRAME_SIZE(ctx)						\
 do {									\
 	if ((ctx)->hdr.length <= 0)					\
-		return tfw_http2_conn_terminate(ctx,			\
-						FRAME_ECODE_SIZE_ERROR); \
+		return tfw_http2_conn_terminate(ctx, FRAME_ECODE_SIZE);	\
 } while (0)
 
 static int
@@ -587,7 +603,7 @@ tfw_http2_settings_process(TfwHttp2Ctx *ctx)
 	if (tfw_http2_apply_settings_entry(&ctx->rsettings, id, val))
 		return T_BAD;
 
-	ctx->to_read = hdr->length ? FRAME_STNGS_ENTRY_SIZE : 0;
+	ctx->to_read = hdr->length ? FRAME_SETTINGS_ENTRY_SIZE : 0;
 	hdr->length -= ctx->to_read;
 
 	return T_OK;
@@ -629,13 +645,13 @@ tfw_http2_first_settings_verify(TfwHttp2Ctx *ctx)
 		err_code = FRAME_ECODE_PROTO;
 	}
 
-	if (hdr->length && (hdr->length % FRAME_STNGS_ENTRY_SIZE))
-		err_code = FRAME_ECODE_SIZE_ERROR;
+	if (hdr->length && (hdr->length % FRAME_SETTINGS_ENTRY_SIZE))
+		err_code = FRAME_ECODE_SIZE;
 
 	if (err_code)
 		return tfw_http2_conn_terminate(ctx, err_code);
 
-	ctx->to_read = hdr->length ? FRAME_STNGS_ENTRY_SIZE : 0;
+	ctx->to_read = hdr->length ? FRAME_SETTINGS_ENTRY_SIZE : 0;
 	hdr->length -= ctx->to_read;
 
 	return T_OK;
@@ -663,7 +679,7 @@ tfw_http2_frame_pad_process(TfwHttp2Ctx *ctx)
 		break;
 
 	default:
-		/* Only DATA and HEADERS frames cab be padded. */
+		/* Only DATA and HEADERS frames can be padded. */
 		BUG();
 	}
 
@@ -676,7 +692,7 @@ tfw_http2_frame_pad_process(TfwHttp2Ctx *ctx)
 static int
 tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 {
-	int err_code = FRAME_ECODE_SIZE_ERROR;
+	int err_code = FRAME_ECODE_SIZE;
 	TfwFrameHdr *hdr = &ctx->hdr;
 
 	T_DBG3("%s: hdr->type=%hhu, ctx->state=%d\n", __func__, hdr->type,
@@ -759,7 +775,7 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 
 	case HTTP2_WINDOW_UPDATE:
 		if (!PAYLOAD(ctx)) {
-			if (hdr->length != FRAME_SRVC1_SIZE)
+			if (hdr->length != FRAME_WND_UPDATE_SIZE)
 				goto out_term;
 
 			ctx->state = HTTP2_RECV_FRAME_SERVICE;
@@ -775,7 +791,7 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 			err_code = FRAME_ECODE_PROTO;
 			goto out_term;
 		}
-		if ((hdr->length % FRAME_STNGS_ENTRY_SIZE)
+		if ((hdr->length % FRAME_SETTINGS_ENTRY_SIZE)
 		    || ((hdr->flags & HTTP2_F_ACK)
 			&& hdr->length > 0))
 		{
@@ -787,7 +803,7 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 
 		if (hdr->length) {
 			ctx->state = HTTP2_RECV_FRAME_SETTINGS;
-			ctx->to_read = FRAME_STNGS_ENTRY_SIZE;
+			ctx->to_read = FRAME_SETTINGS_ENTRY_SIZE;
 			hdr->length -= ctx->to_read;
 		} else {
 			/*
@@ -810,7 +826,7 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 				err_code = FRAME_ECODE_PROTO;
 				goto out_term;
 			}
-			if (hdr->length != FRAME_SRVC2_SIZE)
+			if (hdr->length != FRAME_PING_SIZE)
 				goto out_term;
 
 			ctx->state = HTTP2_RECV_FRAME_SERVICE;
@@ -829,7 +845,7 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 				err_code = FRAME_ECODE_PROTO;
 				goto out_term;
 			}
-			if (hdr->length != FRAME_SRVC1_SIZE)
+			if (hdr->length != FRAME_RST_STREAM_SIZE)
 				goto out_term;
 
 			ctx->state = HTTP2_RECV_FRAME_SERVICE;
@@ -850,11 +866,11 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 			err_code = FRAME_ECODE_PROTO;
 			goto out_term;
 		}
-		if (hdr->length < FRAME_SRVC2_SIZE)
+		if (hdr->length < FRAME_GOAWAY_SIZE)
 			goto out_term;
 
 		ctx->state = HTTP2_RECV_FRAME_GOAWAY;
-		ctx->to_read = FRAME_SRVC2_SIZE;
+		ctx->to_read = FRAME_GOAWAY_SIZE;
 		hdr->length -= ctx->to_read;
 		return T_OK;
 
@@ -943,7 +959,6 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 	}
 
 	T_FSM_STATE(HTTP2_RECV_FRAME_PADDED) {
-		BUG_ON(ctx->to_read > FRAME_HEADER_SIZE);
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
 		if (tfw_http2_frame_pad_process(ctx))
@@ -953,7 +968,6 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 	}
 
 	T_FSM_STATE(HTTP2_RECV_FRAME_SERVICE) {
-		BUG_ON(ctx->to_read > FRAME_HEADER_SIZE);
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
 		if (tfw_http2_frame_type_process(ctx))
@@ -963,7 +977,6 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 	}
 
 	T_FSM_STATE(HTTP2_RECV_FRAME_SETTINGS) {
-		BUG_ON(ctx->to_read > FRAME_HEADER_SIZE);
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
 		if (tfw_http2_settings_process(ctx))
@@ -979,7 +992,6 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 	}
 
 	T_FSM_STATE(HTTP2_RECV_FRAME_GOAWAY) {
-		BUG_ON(ctx->to_read > FRAME_HEADER_SIZE);
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
 		if (tfw_http2_goaway_process(ctx))
@@ -992,7 +1004,6 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 	}
 
 	T_FSM_STATE(HTTP2_RECV_HEADER_PRI) {
-		BUG_ON(ctx->to_read > FRAME_HEADER_SIZE);
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
 		if (tfw_http2_headers_pri_process(ctx))
@@ -1036,13 +1047,16 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 }
 
 /*
- * Initialization of HTTP/2 framing context. Due to passing frames to
+ * Re-initialization of HTTP/2 framing context. Due to passing frames to
  * upper level in per-skb granularity (not per-frame) and processing of
  * padded frames - we need to pass upstairs postponed frames too (only
  * app frames: HEADERS, DATA, CONTINUATION); thus, three situations can
  * appear during framing context initialization:
  * 1. On fully received service (non-app) frames and fully received app
- *    frames without padding - context must be reset;
+ *    frames without padding - context must be reset; in this case the
+ *    @ctx->state field will be set to HTTP2_RECV_FRAME_HEADER state (since
+ *    its value is zero), and processing of the next frame will start from
+ *    this state;
  * 2. On fully received app frames with padding - context must not be
  *    reset and should be reinitialized to continue processing until all
  *    padding will be processed;
@@ -1051,7 +1065,7 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
  *    the frame will be fully received.
  */
 static inline void
-tfw_http2_context_init(TfwHttp2Ctx *ctx, bool postponed)
+tfw_http2_context_reinit(TfwHttp2Ctx *ctx, bool postponed)
 {
 	if (!APP_FRAME(ctx) || (!postponed && !ctx->padlen)) {
 		bzero_fast(ctx->__off,
@@ -1139,10 +1153,10 @@ next_msg:
 	 * certain service data should be separated from it (placed at the
 	 * frame's beginning): frame header, optional pad length and optional
 	 * priority data (the latter is for HEADERS frames only). Besides,
-	 * DATA and HEADERS frames can containing some padding in the frame's
+	 * DATA and HEADERS frames can contain some padding in the frame's
 	 * tail, but we don't need to worry about that here since such padding
 	 * is processed as service data, separately from app frame, and it
-	 * will be just splitted into separate skb (above).
+	 * will be just split into separate skb (above).
 	 */
 	if (APP_FRAME(h2)) {
 		while (unlikely(h2->skb_head->len <= h2->data_off)) {
@@ -1177,7 +1191,7 @@ next_msg:
 		ss_skb_queue_purge(&h2->skb_head);
 	}
 
-	tfw_http2_context_init(h2, r == T_POSTPONE);
+	tfw_http2_context_reinit(h2, r == T_POSTPONE);
 
 	if (nskb) {
 		skb = nskb;
