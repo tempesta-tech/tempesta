@@ -116,9 +116,9 @@ typedef struct {
  *		  be read on next FSM @state;
  * @skb_head	- collected list of processed skbs containing HTTP/2 frames;
  * @hdr		- unpacked data from header of currently processed frame;
- * @state	- current FSM state of HTTP/2 processing context;
  * @priority	- unpacked data from priority part of payload of processed
  *		  HEADERS or PRIORITY frames;
+ * @state	- current FSM state of HTTP/2 processing context;
  * @rlen	- length of accumulated data in @rbuf;
  * @rbuf	- buffer for data accumulation from frames headers and
  *		  payloads (for service frames) during frames processing;
@@ -137,8 +137,8 @@ struct tfw_http2_ctx_t {
 	int		to_read;
 	struct sk_buff	*skb_head;
 	TfwFrameHdr	hdr;
-	TfwFrameState	state;
 	TfwFramePri	priority;
+	TfwFrameState	state;
 	int		rlen;
 	unsigned char	rbuf[FRAME_HEADER_SIZE];
 	unsigned char	padlen;

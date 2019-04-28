@@ -313,7 +313,7 @@ ttls_parse_alpn_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 	const unsigned char *theirs, *start, *end;
 	const ttls_alpn_proto *our;
 
-	/* If TLS processig is enabled, ALPN must be configured. */
+	/* If TLS processing is enabled, ALPN must be configured. */
 	BUG_ON(!tls->conf->alpn_list);
 
 	/*
