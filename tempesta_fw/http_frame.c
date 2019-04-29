@@ -165,6 +165,17 @@ do {									\
 	(ctx)->hdr.length = 0;						\
 } while (0)
 
+#define SET_TO_READ_VERIFY(ctx, next_state)				\
+do {									\
+	(ctx)->to_read = (ctx)->hdr.length;				\
+	if ((ctx)->hdr.length) {					\
+		(ctx)->state = next_state;				\
+		(ctx)->hdr.length = 0;					\
+	} else {							\
+		(ctx)->state = HTTP2_IGNORE_FRAME_DATA;			\
+	}								\
+} while (0)
+
 #define APP_FRAME(ctx)							\
 	((ctx)->state >= __HTTP2_RECV_FRAME_APP)
 
@@ -302,7 +313,7 @@ tfw_http2_conn_terminate(TfwHttp2Ctx *ctx, int err_code)
 
 #define VERIFY_FRAME_SIZE(ctx)						\
 do {									\
-	if ((ctx)->hdr.length <= 0)					\
+	if ((ctx)->hdr.length < 0)					\
 		return tfw_http2_conn_terminate(ctx, FRAME_ECODE_SIZE);	\
 } while (0)
 
@@ -343,6 +354,16 @@ tfw_http2_recv_priority(TfwHttp2Ctx *ctx)
 	return T_OK;
 }
 
+static inline int
+tfw_http2_recv_padded(TfwHttp2Ctx *ctx)
+{
+	ctx->to_read = 1;
+	ctx->hdr.length -= ctx->to_read;
+	VERIFY_FRAME_SIZE(ctx);
+	ctx->state = HTTP2_RECV_FRAME_PADDED;
+	return T_OK;
+}
+
 static int
 tfw_http2_headers_pri_process(TfwHttp2Ctx *ctx)
 {
@@ -353,18 +374,20 @@ tfw_http2_headers_pri_process(TfwHttp2Ctx *ctx)
 
 	tfw_http2_unpack_priority(pri, ctx->rbuf);
 
-	if (tfw_http2_stream_verify(ctx))
-		return T_BAD;
-	if (ctx->state != HTTP2_IGNORE_FRAME_DATA) {
-		ctx->data_off += FRAME_PRIORITY_SIZE;
-		ctx->state = HTTP2_RECV_HEADER;
-	}
-
 	T_DBG3("%s: parsed, stream_id=%u, dep_stream_id=%u, weight=%hu,"
 	       " excl=%hhu\n", __func__, hdr->stream_id, pri->stream_id,
 	       pri->weight, pri->exclusive);
 
-	SET_TO_READ(ctx);
+	if (tfw_http2_stream_verify(ctx))
+		return T_BAD;
+	if (ctx->state == HTTP2_IGNORE_FRAME_DATA) {
+		SET_TO_READ(ctx);
+		return T_OK;
+	}
+
+	ctx->data_off += FRAME_PRIORITY_SIZE;
+
+	SET_TO_READ_VERIFY(ctx, HTTP2_RECV_HEADER);
 	return T_OK;
 }
 
@@ -667,6 +690,12 @@ tfw_http2_frame_pad_process(TfwHttp2Ctx *ctx)
 	hdr->length -= ctx->padlen;
 	VERIFY_FRAME_SIZE(ctx);
 
+	if (!hdr->length) {
+		ctx->state = HTTP2_IGNORE_FRAME_DATA;
+		ctx->to_read = 0;
+		return T_OK;
+	}
+
 	switch (hdr->type) {
 	case HTTP2_DATA:
 		ctx->state = HTTP2_RECV_DATA;
@@ -706,21 +735,12 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 			goto out_term;
 		}
 
-		if (!hdr->length)
-			goto out_term;
-
 		ctx->data_off = FRAME_HEADER_SIZE;
 
-		if (hdr->flags & HTTP2_F_PADDED) {
-			ctx->to_read = 1;
-			hdr->length -= ctx->to_read;
-			VERIFY_FRAME_SIZE(ctx);
-			ctx->state = HTTP2_RECV_FRAME_PADDED;
-			return T_OK;
-		}
+		if (hdr->flags & HTTP2_F_PADDED)
+			return tfw_http2_recv_padded(ctx);
 
-		ctx->state = HTTP2_RECV_DATA;
-		SET_TO_READ(ctx);
+		SET_TO_READ_VERIFY(ctx, HTTP2_RECV_DATA);
 		return T_OK;
 
 	case HTTP2_HEADERS:
@@ -730,25 +750,15 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 			goto out_term;
 		}
 
-		if (!hdr->length)
-			goto out_term;
-
 		ctx->data_off = FRAME_HEADER_SIZE;
 
-		if (hdr->flags & HTTP2_F_PADDED) {
-			ctx->to_read = 1;
-			hdr->length -= ctx->to_read;
-			VERIFY_FRAME_SIZE(ctx);
-			ctx->state = HTTP2_RECV_FRAME_PADDED;
-			return T_OK;
-		}
+		if (hdr->flags & HTTP2_F_PADDED)
+			return tfw_http2_recv_padded(ctx);
 
 		if (hdr->flags & HTTP2_F_PRIORITY)
 			return tfw_http2_recv_priority(ctx);
 
-		ctx->state = HTTP2_RECV_HEADER;
-
-		SET_TO_READ(ctx);
+		SET_TO_READ_VERIFY(ctx, HTTP2_RECV_HEADER);
 		return T_OK;
 
 	case HTTP2_PRIORITY:
@@ -878,12 +888,14 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 		BUG_ON(PAYLOAD(ctx));
 		if (tfw_http2_cont_check(ctx))
 			return T_BAD;
-		if (ctx->state != HTTP2_IGNORE_FRAME_DATA)
-			ctx->state = HTTP2_RECV_CONT;
+		if (ctx->state == HTTP2_IGNORE_FRAME_DATA) {
+			SET_TO_READ(ctx);
+			return T_OK;
+		}
 
 		ctx->data_off = FRAME_HEADER_SIZE;
 
-		SET_TO_READ(ctx);
+		SET_TO_READ_VERIFY(ctx, HTTP2_RECV_CONT);
 		return T_OK;
 
 	default:
@@ -964,7 +976,10 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 		if (tfw_http2_frame_pad_process(ctx))
 			FRAME_FSM_EXIT(T_DROP);
 
-		FRAME_FSM_NEXT();
+		if (ctx->to_read)
+			FRAME_FSM_NEXT();
+
+		FRAME_FSM_EXIT(T_OK);
 	}
 
 	T_FSM_STATE(HTTP2_RECV_FRAME_SERVICE) {
@@ -1009,7 +1024,10 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 		if (tfw_http2_headers_pri_process(ctx))
 			FRAME_FSM_EXIT(T_DROP);
 
-		FRAME_FSM_NEXT();
+		if (ctx->to_read)
+			FRAME_FSM_NEXT();
+
+		FRAME_FSM_EXIT(T_OK);
 	}
 
 	T_FSM_STATE(HTTP2_RECV_DATA) {
@@ -1028,10 +1046,6 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 
 	T_FSM_STATE(HTTP2_RECV_CONT) {
 		FRAME_FSM_READ(ctx->to_read);
-
-		if ((r = tfw_http2_cont_check(ctx)))
-			FRAME_FSM_EXIT(T_DROP);
-
 		FRAME_FSM_EXIT(T_OK);
 	}
 
