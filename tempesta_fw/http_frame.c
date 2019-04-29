@@ -28,8 +28,8 @@
 #include "http_frame.h"
 
 
-#define FRAME_CLI_MAGIC			"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
-#define FRAME_CLI_MAGIC_LEN		24
+#define FRAME_PREFACE_CLI_MAGIC		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+#define FRAME_PREFACE_CLI_MAGIC_LEN	24
 #define FRAME_WND_UPDATE_SIZE		4
 #define FRAME_RST_STREAM_SIZE		4
 #define FRAME_PRIORITY_SIZE		5
@@ -931,8 +931,10 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 	T_FSM_START(ctx->state) {
 
 	T_FSM_STATE(HTTP2_RECV_CLI_START_SEQ) {
-		FRAME_FSM_READ_LAMBDA(FRAME_CLI_MAGIC_LEN, {
-			if (memcmp_fast(FRAME_CLI_MAGIC + ctx->rlen, p, n)) {
+		FRAME_FSM_READ_LAMBDA(FRAME_PREFACE_CLI_MAGIC_LEN, {
+			if (memcmp_fast(FRAME_PREFACE_CLI_MAGIC + ctx->rlen,
+					p, n))
+			{
 				T_DBG("Invalid client magic received,"
 					 " connection must be dropped\n");
 				FRAME_FSM_EXIT(T_DROP);
