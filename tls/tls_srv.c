@@ -227,7 +227,7 @@ ttls_parse_supported_point_formats(TlsCtx *tls, const unsigned char *buf,
 		if (p[0] == TTLS_ECP_PF_UNCOMPRESSED
 		    || p[0] == TTLS_ECP_PF_COMPRESSED)
 		{
-			tls->hs->ecdh_ctx.point_format = p[0];
+			tls->hs->ecdh_point_format = p[0];
 			T_DBG("ClientHello: point format selected: %d\n", p[0]);
 			return 0;
 		}
@@ -1287,8 +1287,13 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 	 * For suites involving ECDH, extract DH parameters from certificate at
 	 * this point.
 	 */
-	if (ttls_ciphersuite_uses_ecdh(ci))
+	if (ttls_ciphersuite_uses_ecdh(ci)) {
+		tls->hs->ecdh_ctx.point_format = tls->hs->ecdh_point_format;
 		ttls_get_ecdh_params_from_cert(tls);
+	} else if (ttls_ciphersuite_uses_ecdhe(ci)) {
+		tls->hs->ecdh_ctx.point_format = tls->hs->ecdh_point_format;
+	}
+
 	/*
 	 * Key exchanges not involving ephemeral keys don't use
 	 * ServerKeyExchange, so end here.

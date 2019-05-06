@@ -135,6 +135,7 @@ typedef struct tls_handshake_t {
 	ttls_sig_hash_set_t		hash_algs;
 	int				sni_authmode;
 
+	unsigned char			ecdh_point_format;
 	unsigned char			point_form		: 1,
 					extended_ms		: 1,
 					new_session_ticket	: 1,
