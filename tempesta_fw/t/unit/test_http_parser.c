@@ -2384,6 +2384,9 @@ TEST(http_parser, fuzzer)
 			default:
 				goto resp;
 			}
+
+			/* Fuzzer generates huge debug message flow. */
+			test_debug_relax();
 		}
 	}
 resp:
@@ -2407,6 +2410,9 @@ resp:
 			default:
 				goto end;
 			}
+
+			/* Fuzzer generates huge debug message flow. */
+			test_debug_relax();
 		}
 	}
 end:

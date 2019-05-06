@@ -9,7 +9,7 @@
  * imitate the GoogleTest API. That should facilitate the future migration.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2016 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -59,8 +59,17 @@ do {				\
 
 #if defined(DEBUG) && (DEBUG >= 1)
 #define TEST_DBG(...) pr_debug(TEST_BANNER "  " __VA_ARGS__)
+
+/* Sleep a little bit to relax the console. */
+#define test_debug_relax()						\
+do {									\
+	BUG_ON(in_serving_softirq());					\
+	schedule();							\
+} while (0)
+
 #else
 #define TEST_DBG(...)
+#define test_debug_relax()
 #endif
 
 #if defined(DEBUG) && (DEBUG >= 2)
@@ -100,6 +109,7 @@ do { 							\
 	test_suite__##name(); 				\
 	test_set_setup_fn(NULL);			\
 	test_set_teardown_fn(NULL);			\
+	test_debug_relax();				\
 } while (0)
 
 #define TEST_FAIL(...) 					\
