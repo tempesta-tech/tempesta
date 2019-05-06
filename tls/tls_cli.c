@@ -739,7 +739,7 @@ static int ssl_parse_supported_point_formats_ext(ttls_context *ssl,
 		if (p[0] == TTLS_ECP_PF_UNCOMPRESSED ||
 			p[0] == TTLS_ECP_PF_COMPRESSED)
 		{
-			ssl->handshake->ecdh_ctx.point_format = p[0];
+			TTLS_HS_ecdh_ctx(ssl->handshake).point_format = p[0];
 			T_DBG3("point format selected: %d\n", p[0]);
 			return 0;
 		}
@@ -1149,20 +1149,21 @@ static int ssl_parse_server_dh_params(ttls_context *ssl, unsigned char **p,
 	 *	 opaque dh_Ys<1..2^16-1>;
 	 * } ServerDHParams;
 	 */
-	if ((ret = ttls_dhm_read_params(&ssl->handshake->dhm_ctx, p, end)) != 0)
+	if ((ret = ttls_dhm_read_params(&TTLS_HS_dhm_ctx(ssl->handshake), p,
+					end)) != 0)
 		return ret;
 
-	if (ssl->handshake->dhm_ctx.len * 8 < ssl->conf->dhm_min_bitlen)
+	if (TTLS_HS_dhm_ctx(ssl->handshake).len * 8 < ssl->conf->dhm_min_bitlen)
 	{
 		T_DBG("DHM prime too short: %d < %d\n",
-			ssl->handshake->dhm_ctx.len * 8,
-			ssl->conf->dhm_min_bitlen);
+		      TTLS_HS_dhm_ctx(ssl->handshake).len * 8,
+		      ssl->conf->dhm_min_bitlen);
 		return(TTLS_ERR_BAD_HS_SERVER_KEY_EXCHANGE);
 	}
 
-	TTLS_DEBUG_MPI("DHM: P ", &ssl->handshake->dhm_ctx.P );
-	TTLS_DEBUG_MPI("DHM: G ", &ssl->handshake->dhm_ctx.G );
-	TTLS_DEBUG_MPI("DHM: GY", &ssl->handshake->dhm_ctx.GY);
+	TTLS_DEBUG_MPI("DHM: P ", &TTLS_HS_dhm_ctx(ssl->handshake).P);
+	TTLS_DEBUG_MPI("DHM: G ", &TTLS_HS_dhm_ctx(ssl->handshake).G);
+	TTLS_DEBUG_MPI("DHM: GY", &TTLS_HS_dhm_ctx(ssl->handshake).GY);
 
 	return ret;
 }
@@ -1171,7 +1172,8 @@ static int ssl_check_server_ecdh_params(const ttls_context *ssl)
 {
 	const ttls_ecp_curve_info *curve_info;
 
-	curve_info = ttls_ecp_curve_info_from_grp_id(ssl->handshake->ecdh_ctx.grp.id);
+	curve_info = ttls_ecp_curve_info_from_grp_id(
+		TTLS_HS_ecdh_ctx(ssl->handshake).grp.id);
 	if (curve_info == NULL)
 	{
 		T_DBG("should never happen\n");
@@ -1180,10 +1182,10 @@ static int ssl_check_server_ecdh_params(const ttls_context *ssl)
 
 	T_DBG2("ECDH curve: %s\n", curve_info->name);
 
-	if (ttls_check_curve(ssl, ssl->handshake->ecdh_ctx.grp.id) != 0)
+	if (ttls_check_curve(ssl, TTLS_HS_ecdh_ctx(ssl->handshake).grp.id) != 0)
 		return(-1);
 
-	TTLS_DEBUG_ECP("ECDH: Qp", &ssl->handshake->ecdh_ctx.Qp);
+	TTLS_DEBUG_ECP("ECDH: Qp", &TTLS_HS_ecdh_ctx(ssl->handshake).Qp);
 
 	return 0;
 }
@@ -1202,7 +1204,7 @@ static int ssl_parse_server_ecdh_params(ttls_context *ssl,
 	 *	 ECPoint	  public;
 	 * } ServerECDHParams;
 	 */
-	if ((ret = ttls_ecdh_read_params(&ssl->handshake->ecdh_ctx,
+	if ((ret = ttls_ecdh_read_params(&TTLS_HS_ecdh_ctx(ssl->handshake),
 				  (const unsigned char **) p, end)) != 0)
 	{
 		return ret;
@@ -1356,8 +1358,8 @@ static int ssl_get_ecdh_params_from_cert(ttls_context *ssl)
 
 	peer_key = ttls_pk_ec(ssl->session_negotiate->peer_cert->pk);
 
-	if ((ret = ttls_ecdh_get_params(&ssl->handshake->ecdh_ctx, peer_key,
-		 TTLS_ECDH_THEIRS)) != 0)
+	if ((ret = ttls_ecdh_get_params(&TTLS_HS_ecdh_ctx(ssl->handshake),
+					peer_key, TTLS_ECDH_THEIRS)) != 0)
 	{
 		return ret;
 	}
@@ -1779,22 +1781,22 @@ static int ssl_write_client_key_exchange(ttls_context *ssl)
 		/*
 		 * DHM key exchange -- send G^X mod P
 		 */
-		n = ssl->handshake->dhm_ctx.len;
+		n = TTLS_HS_dhm_ctx(ssl->handshake).len;
 
 		ssl->out_msg[4] = (unsigned char)(n >> 8);
 		ssl->out_msg[5] = (unsigned char)(n	 );
 		i = 6;
 
-		ret = ttls_dhm_make_public(&ssl->handshake->dhm_ctx,
-				(int) ttls_mpi_size(&ssl->handshake->dhm_ctx.P),
-				&ssl->out_msg[i], n);
+		ret = ttls_dhm_make_public(&TTLS_HS_dhm_ctx(ssl->handshake),
+			(int)ttls_mpi_size(&TTLS_HS_dhm_ctx(ssl->handshake).P),
+			&ssl->out_msg[i], n);
 		if (ret != 0)
 			return ret;
 
-		TTLS_DEBUG_MPI("DHM: X ", &ssl->handshake->dhm_ctx.X );
-		TTLS_DEBUG_MPI("DHM: GX", &ssl->handshake->dhm_ctx.GX);
+		TTLS_DEBUG_MPI("DHM: X ", &TTLS_HS_dhm_ctx(ssl->handshake).X);
+		TTLS_DEBUG_MPI("DHM: GX", &TTLS_HS_dhm_ctx(ssl->handshake).GX);
 
-		if ((ret = ttls_dhm_calc_secret(&ssl->handshake->dhm_ctx,
+		if ((ret = ttls_dhm_calc_secret(&TTLS_HS_dhm_ctx(ssl->handshake),
 			ssl->handshake->premaster,
 			TTLS_PREMASTER_SIZE,
 			&ssl->handshake->pmslen)) != 0)
@@ -1802,7 +1804,7 @@ static int ssl_write_client_key_exchange(ttls_context *ssl)
 			return ret;
 		}
 
-		TTLS_DEBUG_MPI("DHM: K ", &ssl->handshake->dhm_ctx.K );
+		TTLS_DEBUG_MPI("DHM: K ", &TTLS_HS_dhm_ctx(ssl->handshake).K);
 	}
 	else
 	if (ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_ECDHE_RSA ||
@@ -1815,22 +1817,23 @@ static int ssl_write_client_key_exchange(ttls_context *ssl)
 		 */
 		i = 4;
 
-		ret = ttls_ecdh_make_public(&ssl->handshake->ecdh_ctx,
+		ret = ttls_ecdh_make_public(&TTLS_HS_ecdh_ctx(ssl->handshake),
 					&n, &ssl->out_msag[i], 1000);
 		if (ret != 0)
 			return ret;
 
-		TTLS_DEBUG_ECP("ECDH: Q", &ssl->handshake->ecdh_ctx.Q);
+		TTLS_DEBUG_ECP("ECDH: Q", &TTLS_HS_ecdh_ctx(ssl->handshake).Q);
 
-		if ((ret = ttls_ecdh_calc_secret(&ssl->handshake->ecdh_ctx,
-					  &ssl->handshake->pmslen,
-					   ssl->handshake->premaster,
-					   TTLS_MPI_MAX_SIZE)) != 0)
+		if ((ret = ttls_ecdh_calc_secret(
+				&TTLS_HS_ecdh_ctx(ssl->handshake),
+				&ssl->handshake->pmslen,
+				ssl->handshake->premaster,
+				TTLS_MPI_MAX_SIZE)) != 0)
 		{
 			return ret;
 		}
 
-		TTLS_DEBUG_MPI("ECDH: z", &ssl->handshake->ecdh_ctx.z);
+		TTLS_DEBUG_MPI("ECDH: z", &TTLS_HS_ecdh_ctx(ssl->handshake).z);
 	}
 	else
 	if (ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_RSA)

@@ -1259,7 +1259,7 @@ ttls_get_ecdh_params_from_cert(TlsCtx *tls)
 		T_DBG("server key not ECDH capable\n");
 		return TTLS_ERR_PK_TYPE_MISMATCH;
 	}
-	if ((r = ttls_ecdh_get_params(&tls->hs->ecdh_ctx,
+	if ((r = ttls_ecdh_get_params(&TTLS_HS_ecdh_ctx(tls->hs),
 				      ttls_pk_ec(*ttls_own_key(tls)),
 				      TTLS_ECDH_OURS)))
 	{
@@ -1288,10 +1288,16 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 	 * this point.
 	 */
 	if (ttls_ciphersuite_uses_ecdh(ci)) {
-		tls->hs->ecdh_ctx.point_format = tls->hs->ecdh_point_format;
+		ttls_ecdh_init(&TTLS_HS_ecdh_ctx_reset_tag(tls->hs));
+		TTLS_HS_ecdh_ctx(tls->hs).point_format =
+			tls->hs->ecdh_point_format;
 		ttls_get_ecdh_params_from_cert(tls);
 	} else if (ttls_ciphersuite_uses_ecdhe(ci)) {
-		tls->hs->ecdh_ctx.point_format = tls->hs->ecdh_point_format;
+		ttls_ecdh_init(&TTLS_HS_ecdh_ctx_reset_tag(tls->hs));
+		TTLS_HS_ecdh_ctx(tls->hs).point_format =
+			tls->hs->ecdh_point_format;
+	} else if (ttls_ciphersuite_uses_dhe(ci)) {
+		ttls_dhm_init(&TTLS_HS_dhm_ctx_reset_tag(tls->hs));
 	}
 
 	/*
@@ -1332,16 +1338,16 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 		 *	 opaque dh_Ys<1..2^16-1>;
 		 * } ServerDHParams;
 		 */
-		r = ttls_dhm_set_group(&tls->hs->dhm_ctx, &tls->conf->dhm_P,
-				       &tls->conf->dhm_G);
+		r = ttls_dhm_set_group(&TTLS_HS_dhm_ctx(tls->hs),
+				       &tls->conf->dhm_P, &tls->conf->dhm_G);
 		if (r) {
 			T_DBG("cannot set DHM group, %d\n", r);
 			goto err;
 		}
 
-		x_sz = (int)ttls_mpi_size(&tls->hs->dhm_ctx.P);
+		x_sz = (int)ttls_mpi_size(&TTLS_HS_dhm_ctx(tls->hs).P);
 		WARN_ON_ONCE(x_sz > PAGE_SIZE);
-		r = ttls_dhm_make_params(&tls->hs->dhm_ctx, x_sz, p, &len);
+		r = ttls_dhm_make_params(&TTLS_HS_dhm_ctx(tls->hs), x_sz, p, &len);
 		if (r) {
 			T_DBG("cannot make DHM params, %d\n", r);
 			goto err;
@@ -1352,10 +1358,10 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 		p += len;
 		n += len;
 
-		TTLS_DEBUG_MPI("DHM: X ", &tls->hs->dhm_ctx.X );
-		TTLS_DEBUG_MPI("DHM: P ", &tls->hs->dhm_ctx.P );
-		TTLS_DEBUG_MPI("DHM: G ", &tls->hs->dhm_ctx.G );
-		TTLS_DEBUG_MPI("DHM: GX", &tls->hs->dhm_ctx.GX);
+		TTLS_DEBUG_MPI("DHM: X ", &TTLS_HS_dhm_ctx(tls->hs).X);
+		TTLS_DEBUG_MPI("DHM: P ", &TTLS_HS_dhm_ctx(tls->hs).P);
+		TTLS_DEBUG_MPI("DHM: G ", &TTLS_HS_dhm_ctx(tls->hs).G);
+		TTLS_DEBUG_MPI("DHM: GX", &TTLS_HS_dhm_ctx(tls->hs).GX);
 	}
 	/* ECDHE key exchanges. */
 	else if (ttls_ciphersuite_uses_ecdhe(ci)) {
@@ -1383,14 +1389,14 @@ curve_matching_done:
 		}
 		T_DBG("ECDHE curve: %s\n", (*curve)->name);
 
-		r = ttls_ecp_group_load(&tls->hs->ecdh_ctx.grp,
-		(*curve)->grp_id);
+		r = ttls_ecp_group_load(&TTLS_HS_ecdh_ctx(tls->hs).grp,
+					(*curve)->grp_id);
 		if (r) {
 			T_DBG("cannot load ECP group, %d\n", r);
 			goto err;
 		}
 
-		r = ttls_ecdh_make_params(&tls->hs->ecdh_ctx, &len, p,
+		r = ttls_ecdh_make_params(&TTLS_HS_ecdh_ctx(tls->hs), &len, p,
 					  TLS_MAX_PAYLOAD_SIZE);
 		if (r) {
 			T_DBG("cannot make ECDH params, %d\n", r);
@@ -1402,7 +1408,7 @@ curve_matching_done:
 		p += len;
 		n += len;
 
-		TTLS_DEBUG_ECP("ECDH: Q ", &tls->hs->ecdh_ctx.Q);
+		TTLS_DEBUG_ECP("ECDH: Q ", &TTLS_HS_ecdh_ctx(tls->hs).Q);
 	}
 
 	/*
@@ -1695,14 +1701,14 @@ ttls_parse_client_dh_public(TlsCtx *tls, unsigned char **p,
 		return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE;
 	}
 
-	if ((r = ttls_dhm_read_public(&tls->hs->dhm_ctx, *p, n))) {
+	if ((r = ttls_dhm_read_public(&TTLS_HS_dhm_ctx(tls->hs), *p, n))) {
 		T_DBG("cannot read dhm public, %d\n", r);
 		return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_RP;
 	}
 
 	*p += n;
 
-	TTLS_DEBUG_MPI("DHM: GY", &tls->hs->dhm_ctx.GY);
+	TTLS_DEBUG_MPI("DHM: GY", &TTLS_HS_dhm_ctx(tls->hs).GY);
 
 	return r;
 }
@@ -1829,21 +1835,21 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 	    || ci->key_exchange == TTLS_KEY_EXCHANGE_ECDH_RSA
 	    || ci->key_exchange == TTLS_KEY_EXCHANGE_ECDH_ECDSA)
 	{
-		r = ttls_ecdh_read_public(&tls->hs->ecdh_ctx, p, end - p);
+		r = ttls_ecdh_read_public(&TTLS_HS_ecdh_ctx(tls->hs), p, end - p);
 		if (r) {
 			T_DBG("cannot read ecdh public, %d\n", r);
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_RP;
 		}
-		TTLS_DEBUG_ECP("ECDH: Qp ", &tls->hs->ecdh_ctx.Qp);
+		TTLS_DEBUG_ECP("ECDH: Qp ", &TTLS_HS_ecdh_ctx(tls->hs).Qp);
 
-		r = ttls_ecdh_calc_secret(&tls->hs->ecdh_ctx, &tls->hs->pmslen,
-					  tls->hs->premaster,
+		r = ttls_ecdh_calc_secret(&TTLS_HS_ecdh_ctx(tls->hs),
+					  &tls->hs->pmslen, tls->hs->premaster,
 					  TTLS_MPI_MAX_SIZE);
 		if (r) {
 			T_DBG("cannot calculate ecdh secret, %d\n", r);
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_CS;
 		}
-		TTLS_DEBUG_MPI("ECDH: z  ", &tls->hs->ecdh_ctx.z);
+		TTLS_DEBUG_MPI("ECDH: z  ", &TTLS_HS_ecdh_ctx(tls->hs).z);
 	}
 	else if (ci->key_exchange == TTLS_KEY_EXCHANGE_DHE_RSA) {
 		if ((r = ttls_parse_client_dh_public(tls, &p, end))) {
@@ -1855,13 +1861,14 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE;
 		}
 
-		r = ttls_dhm_calc_secret(&tls->hs->dhm_ctx, tls->hs->premaster,
+		r = ttls_dhm_calc_secret(&TTLS_HS_dhm_ctx(tls->hs),
+					 tls->hs->premaster,
 					 TTLS_PREMASTER_SIZE, &tls->hs->pmslen);
 		if (r) {
 			T_DBG("cannot calculate dhm secret, %d\n", r);
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_CS;
 		}
-		TTLS_DEBUG_MPI("DHM: K ", &tls->hs->dhm_ctx.K );
+		TTLS_DEBUG_MPI("DHM: K ", &TTLS_HS_dhm_ctx(tls->hs).K);
 	}
 	else if (ci->key_exchange == TTLS_KEY_EXCHANGE_RSA) {
 		if ((r = ttls_parse_encrypted_pms(tls, p, end))) {

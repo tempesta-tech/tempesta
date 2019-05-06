@@ -143,6 +143,14 @@ typedef struct tls_handshake_t {
 					cli_exts		: 1,
 					curves_ext		: 1;
 
+#ifdef DEBUG
+	union {
+		unsigned char dhm_ctx_tag : 2;
+		unsigned char ecdh_ctx_tag : 2;
+		unsigned char tmp_sha256_tag : 2;
+	};
+#endif /* DEBUG */
+
 	size_t				pmslen;
 	ttls_key_cert			*key_cert;
 	ttls_key_cert			*sni_key_cert;
@@ -154,10 +162,14 @@ typedef struct tls_handshake_t {
 	int  (*tls_prf)(const unsigned char *, size_t, const char *, size_t,
 			const unsigned char *, size_t, unsigned char *, size_t);
 
+	union {
 #if defined(TTLS_DHM_C)
-	ttls_dhm_context		dhm_ctx;
+		ttls_dhm_context	dhm_ctx;
 #endif
-	ttls_ecdh_context		ecdh_ctx;
+		ttls_ecdh_context	ecdh_ctx;
+		ttls_sha256_context	tmp_sha256;
+	};
+
 	union {
 		struct shash_desc	desc; /* common for both the contexts */
 		ttls_sha256_context	fin_sha256;
@@ -173,6 +185,55 @@ typedef struct tls_handshake_t {
 		unsigned char		tmp[TTLS_HS_RBUF_SZ];
 	};
 } TlsHandshake;
+
+#if defined(DEBUG) && (DEBUG >= 1)
+
+/*
+ * Debug helper macro that checks if it's OK to use a particular union field.
+ * Current valid union field is tracked in a separate variable — tag.
+ *
+ * Initially, the tag value is expected to be zero. That means it's not decided
+ * yet what union field is used. First access to a protected union field with
+ * help of the macro, sets a tag to some non-zero value. Then access to any
+ * other union field fires a BUG_ON.
+ */
+#define TTLS_HS_generic_field(hs, field, tag)				\
+(*({									\
+	T_DBG3("%s:%d accessing hs->%s, tag: %d → %d\n",		\
+	       __func__, __LINE__, #field, (hs)->field##_tag, tag);	\
+	BUG_ON((hs)->field##_tag != 0 && (hs)->field##_tag != tag);	\
+	(hs)->field##_tag = tag;					\
+	&(hs)->field;							\
+}))
+
+/*
+ * Similar to TTLS_HS_generic_field, but without tag checking.
+ * Always resets the tag.
+ */
+#define TTLS_HS_generic_field_reset_tag(hs, field, tag)			\
+(*({									\
+	T_DBG3("%s:%d accessing hs->%s, tag %d → %d (override)\n",	\
+	       __func__, __LINE__, #field, (hs)->field##_tag, tag);	\
+	(hs)->field##_tag = tag;					\
+	&(hs)->field;							\
+}))
+
+#else
+
+#define TTLS_HS_generic_field(hs, fieldname, tag) ((hs)->fieldname)
+#define TTLS_HS_generic_field_reset_tag(hs, fieldname, tag) ((hs)->fieldname)
+
+#endif /* defined(DEBUG) && (DEBUG >= 1) */
+
+#define TTLS_HS_dhm_ctx(hs)	TTLS_HS_generic_field(hs, dhm_ctx, 1)
+#define TTLS_HS_ecdh_ctx(hs)	TTLS_HS_generic_field(hs, ecdh_ctx, 2)
+#define TTLS_HS_tmp_sha256(hs)	TTLS_HS_generic_field(hs, tmp_sha256, 3)
+
+#define TTLS_HS_dhm_ctx_reset_tag(hs) 					\
+	TTLS_HS_generic_field_reset_tag(hs, dhm_ctx, 1)
+
+#define TTLS_HS_ecdh_ctx_reset_tag(hs) 					\
+	TTLS_HS_generic_field_reset_tag(hs, ecdh_ctx, 2)
 
 /*
  * List of certificate + private key pairs
