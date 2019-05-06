@@ -29,5 +29,8 @@ obj-m	= tempesta_fw.o t/
 
 tfw-srcs = $(wildcard $(obj)/*.c)
 tfw-objs = $(patsubst %.c, %.o, $(tfw-srcs))
+ifdef AVX2
+	tfw-objs += str_avx2.o
+endif
 
 tempesta_fw-objs = $(subst $(src)/,,$(tfw-objs))

@@ -32,11 +32,133 @@
 #include "str.h"
 
 /**
+ * Lower case conversion table.
+ */
+const unsigned char __tfw_lct[256] ____cacheline_aligned = {
+	0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+	0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+	0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+	0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+	0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
+	0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f,
+	0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
+	0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f,
+	0x40, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67,
+	0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f,
+	0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77,
+	0x78, 0x79, 0x7a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f,
+	0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67,
+	0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f,
+	0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77,
+	0x78, 0x79, 0x7a, 0x7b, 0x7c, 0x7d, 0x7e, 0x7f,
+	0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87,
+	0x88, 0x89, 0x8a, 0x8b, 0x8c, 0x8d, 0x8e, 0x8f,
+	0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97,
+	0x98, 0x99, 0x9a, 0x9b, 0x9c, 0x9d, 0x9e, 0x9f,
+	0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7,
+	0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf,
+	0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7,
+	0xb8, 0xb9, 0xba, 0xbb, 0xbc, 0xbd, 0xbe, 0xbf,
+	0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7,
+	0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf,
+	0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7,
+	0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf,
+	0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7,
+	0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef,
+	0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7,
+	0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff
+};
+
+/* Tables for custom alphabets. */
+bool custom_uri_enabled = false;
+bool custom_token_enabled = false;
+bool custom_qetoken_enabled = false;
+bool custom_nctl_enabled = false;
+bool custom_ctext_vchar_enabled = false;
+bool custom_xff_enabled = false;
+bool custom_cookie_enabled = false;
+
+unsigned char custom_uri[256] ____cacheline_aligned __read_mostly;
+unsigned char custom_token[256] ____cacheline_aligned __read_mostly;
+unsigned char custom_qetoken[256] ____cacheline_aligned __read_mostly;
+unsigned char custom_nctl[256] ____cacheline_aligned __read_mostly;
+unsigned char custom_ctext_vchar[256] ____cacheline_aligned __read_mostly;
+unsigned char custom_xff[256] ____cacheline_aligned __read_mostly;
+unsigned char custom_cookie[256] ____cacheline_aligned __read_mostly;
+
+#ifdef AVX2
+
+/**
+ * Custom alphabets (top and bottom ASCII halves) for AVX2 processing:
+ * uri, token, qetoken, nctl, ctext_vchar, xff, cookie.
+ */
+unsigned char __CUSTOM[14][32] ____cacheline_aligned __read_mostly = {{0}};
+
+extern size_t __tfw_match_custom(const char *str, size_t len,
+				 const unsigned char *a,
+				 const unsigned char *va0,
+				 const unsigned char *va1);
+extern size_t __tfw_match_ctext_vchar(const char *str, size_t len);
+
+size_t
+tfw_match_ctext_vchar(const char *str, size_t len)
+{
+	size_t r;
+
+	if (custom_ctext_vchar_enabled)
+		r = __tfw_match_custom(str, len, custom_ctext_vchar,
+				       __CUSTOM[4], __CUSTOM[5]);
+	else
+		r = __tfw_match_ctext_vchar(str, len);
+
+	TFW_DBG3("%s: str[0]=%#x len=%lu r=%lu\n", __func__, str[0], len, r);
+
+	return r;
+}
+EXPORT_SYMBOL(tfw_match_ctext_vchar);
+
+static void
+__init_custom_a(const unsigned char *cfg_a, unsigned char *a, size_t c_off)
+{
+	unsigned char *a0 = __CUSTOM[c_off * 2], *a1 = __CUSTOM[c_off * 2 + 1];
+	int i;
+
+	memcpy(a, cfg_a, 256);
+
+	/* Initializes an alphabet bit mask a0 by the byte set @a. */
+	for (i = 0; i < 256; ++i) {
+		if (!cfg_a[i])
+			continue;
+		a0[(i & 0xf) + 16 * !!(i & 0x80)] |= 1 << ((i & 0x70) >> 4);
+	}
+	/* Split ASCII table to 2 duplicate halves. */
+	memcpy(a1, &a0[16], 16);
+	memcpy(&a1[16], &a0[16], 16);
+	memcpy(&a0[16], a0, 16);
+}
+
+#define TFW_INIT_CUSTOM_A(a_name, off)					\
+void tfw_init_custom_##a_name(const unsigned char *a)			\
+{									\
+	custom_##a_name##_enabled = !!a;				\
+	if (!!a)							\
+		__init_custom_a(a, custom_##a_name, off);		\
+}									\
+EXPORT_SYMBOL(tfw_init_custom_##a_name);
+
+TFW_INIT_CUSTOM_A(uri, 0);
+TFW_INIT_CUSTOM_A(token, 1);
+TFW_INIT_CUSTOM_A(qetoken, 2);
+TFW_INIT_CUSTOM_A(nctl, 3);
+TFW_INIT_CUSTOM_A(ctext_vchar, 4);
+TFW_INIT_CUSTOM_A(xff, 5);
+TFW_INIT_CUSTOM_A(cookie, 6);
+
+#else
+/**
  * Slow dummy C strings matching implementations just for compatibility
  * with old systems.
  */
-#ifndef AVX2
-
 /*
  * ASCII codes to accept URI string.
  *
@@ -205,22 +327,6 @@ static const unsigned char cookie[] = {
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 };
 
-/* Tables for custom alphabets. */
-static bool custom_uri_enabled = false;
-static bool custom_token_enabled = false;
-static bool custom_qetoken_enabled = false;
-static bool custom_nctl_enabled = false;
-static bool custom_ctext_vchar_enabled = false;
-static bool custom_xff_enabled = false;
-static bool custom_cookie_enabled = false;
-static unsigned char custom_uri[256];
-static unsigned char custom_token[256];
-static unsigned char custom_qetoken[256];
-static unsigned char custom_nctl[256];
-static unsigned char custom_ctext_vchar[256];
-static unsigned char custom_xff[256];
-static unsigned char custom_cookie[256];
-
 static size_t
 __tfw_match_slow(const char *str, size_t len, const unsigned char *tbl)
 {
@@ -271,7 +377,7 @@ TFW_INIT_CUSTOM_A(ctext_vchar);
 TFW_INIT_CUSTOM_A(xff);
 TFW_INIT_CUSTOM_A(cookie);
 
-#endif /* slow & dummy */
+#endif /* AVX2 */
 
 /**
  * Quickly get number of digits - 1, e.g. returns '0' for '7' and '2' for '333'.
@@ -1139,4 +1245,25 @@ tfw_str_dprint(const TfwStr *str, const char *msg)
 				(int)c->len, c->data);
 	}
 }
+
+#define D(n)	(unsigned int)v[n]
+
+void
+tfw_dbg_vprint32(const char *prefix, const unsigned char *v)
+{
+	if (IS_ERR(v)) {
+		T_DBG3("%s: bad ptr (%pK)\n", prefix, v);
+		return;
+	}
+	T_DBG3("%s (ptr=%pK): %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x"
+	       " %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x"
+	       " %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x"
+	       " %.2x %.2x %.2x %.2x %.2x %.2x %.2x %.2x\n",
+	       prefix, v, D(0), D(1), D(2), D(3), D(4), D(5), D(6), D(7),
+	       D(8), D(9), D(10), D(11), D(12), D(13), D(14), D(15),
+	       D(16), D(17), D(18), D(19), D(20), D(21), D(22), D(23),
+	       D(24), D(25), D(26), D(27), D(28), D(29), D(30), D(31));
+}
+EXPORT_SYMBOL(tfw_dbg_vprint32);
+
 #endif
