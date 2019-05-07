@@ -23,7 +23,7 @@
 #include "connection.h"
 #include "http_stream.h"
 
-#define FRAME_HEADER_SIZE	9
+#define FRAME_HEADER_SIZE		9
 
 /**
  * FSM states for HTTP/2 frames processing.
@@ -39,10 +39,39 @@ typedef enum {
 	HTTP2_RECV_HEADER_PRI,
 	HTTP2_IGNORE_FRAME_DATA,
 	__HTTP2_RECV_FRAME_APP,
-	HTTP2_RECV_HEADER = __HTTP2_RECV_FRAME_APP,
+	HTTP2_RECV_HEADER		= __HTTP2_RECV_FRAME_APP,
 	HTTP2_RECV_CONT,
 	HTTP2_RECV_DATA
 } TfwFrameState;
+
+/**
+ * HTTP/2 frame types (RFC 7540 section 6).
+ */
+typedef enum {
+	HTTP2_DATA			= 0,
+	HTTP2_HEADERS,
+	HTTP2_PRIORITY,
+	HTTP2_RST_STREAM,
+	HTTP2_SETTINGS,
+	HTTP2_PUSH_PROMISE,
+	HTTP2_PING,
+	HTTP2_GOAWAY,
+	HTTP2_WINDOW_UPDATE,
+	HTTP2_CONTINUATION
+} TfwFrameType;
+
+/**
+ * HTTP/2 frame flags. Can be specified in frame's header and
+ * are specific to the particular frame types (RFC 7540 section
+ * 4.1 and section 6).
+ */
+typedef enum {
+	HTTP2_F_ACK			= 0x01,
+	HTTP2_F_END_STREAM		= 0x01,
+	HTTP2_F_END_HEADERS		= 0x04,
+	HTTP2_F_PADDED			= 0x08,
+	HTTP2_F_PRIORITY		= 0x20
+} TfwFrameFlag;
 
 /**
  * Unpacked header data of currently processed frame (RFC 7540 section
@@ -115,6 +144,7 @@ typedef struct {
  * @to_read	- indicates how much data of HTTP/2 frame should
  *		  be read on next FSM @state;
  * @skb_head	- collected list of processed skbs containing HTTP/2 frames;
+ * @cur_stream	- found stream for the frame currently being processed;
  * @hdr		- unpacked data from header of currently processed frame;
  * @priority	- unpacked data from priority part of payload of processed
  *		  HEADERS or PRIORITY frames;
@@ -136,6 +166,7 @@ struct tfw_http2_ctx_t {
 	char		__off[0];
 	int		to_read;
 	struct sk_buff	*skb_head;
+	TfwStream	*cur_stream;
 	TfwFrameHdr	hdr;
 	TfwFramePri	priority;
 	TfwFrameState	state;

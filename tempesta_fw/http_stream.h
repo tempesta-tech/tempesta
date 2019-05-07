@@ -22,20 +22,37 @@
 
 #include <linux/rbtree.h>
 
-#define TFW_STREAMS_TBL_HBITS	10
-
 /**
- * States for HTTP/2 streams processing.
+ * Final statuses of Stream FSM processing.
  */
 typedef enum {
-	HTTP2_STREAM_IDLE,
-	HTTP2_STREAM_LOC_RESERVED,
-	HTTP2_STREAM_REM_RESERVED,
-	HTTP2_STREAM_OPENED,
-	HTTP2_STREAM_LOC_HALF_CLOSED,
-	HTTP2_STREAM_REM_HALF_CLOSED,
-	HTTP2_STREAM_CLOSED
-} TfwStreamState;
+	STREAM_FSM_RES_OK,
+	STREAM_FSM_RES_TERM_CONN,
+	STREAM_FSM_RES_TERM_STREAM,
+	STREAM_FSM_RES_IGNORE
+} TfwStreamFsmRes;
+
+/**
+ * HTTP/2 error codes (RFC 7540 section 7). Used in RST_STREAM
+ * and GOAWAY frames to report the reasons of the stream or
+ * connection error.
+ */
+typedef enum {
+	HTTP2_ECODE_NO_ERROR		= 0,
+	HTTP2_ECODE_PROTO,
+	HTTP2_ECODE_INTERNAL,
+	HTTP2_ECODE_FLOW_CONTROL,
+	HTTP2_ECODE_SETTINGS_TIMEOUT,
+	HTTP2_ECODE_CLOSED,
+	HTTP2_ECODE_SIZE,
+	HTTP2_ECODE_REFUSED,
+	HTTP2_ECODE_CANCEL,
+	HTTP2_ECODE_COMPRESSION,
+	HTTP2_ECODE_CONNECT,
+	HTTP2_ECODE_ENHANCE_YOUR_CALM,
+	HTTP2_ECODE_INADEQUATE_SECURITY,
+	HTTP2_ECODE_HTTP_1_1_REQUIRED
+} TfwHttp2Err;
 
 /**
  * Representation of HTTP/2 stream entity.
@@ -48,7 +65,7 @@ typedef enum {
 typedef struct {
 	struct rb_node		node;
 	unsigned int		id;
-	TfwStreamState		state;
+	int			state;
 	unsigned short		weight;
 } TfwStream;
 
@@ -64,10 +81,12 @@ typedef struct {
 	struct rb_root streams;
 } TfwStreamSched;
 
-
+TfwStreamFsmRes tfw_http2_stream_fsm(TfwStream *stream, unsigned char type,
+				     unsigned char flags, TfwHttp2Err *err);
+bool tfw_http2_stream_is_closed(TfwStream *stream);
 TfwStream *tfw_http2_find_stream(TfwStreamSched *sched, unsigned int id);
-int tfw_http2_add_stream(TfwStreamSched *sched, TfwStream *stream);
-void tfw_http2_remove_stream(TfwStreamSched *sched, TfwStream *stream);
+TfwStream *tfw_http2_add_stream(TfwStreamSched *sched, unsigned int id,
+			 unsigned short weight);
 void tfw_http2_streams_cleanup(TfwStreamSched *sched);
 int tfw_http2_find_stream_dep(TfwStreamSched *sched, unsigned int id,
 			      TfwStream **dep);
@@ -76,6 +95,6 @@ void tfw_http2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 void tfw_http2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 				 unsigned int new_dep, unsigned short new_weight,
 				 bool excl);
-void tfw_http2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream);
+void tfw_http2_stop_stream(TfwStreamSched *sched, TfwStream **stream);
 
 #endif /* __HTTP_STREAM__ */
