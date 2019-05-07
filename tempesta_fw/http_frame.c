@@ -132,9 +132,6 @@ do {									\
 #define APP_FRAME(ctx)							\
 	((ctx)->state >= __HTTP2_RECV_FRAME_APP)
 
-#define PAYLOAD(ctx)							\
-	((ctx)->state != HTTP2_RECV_FRAME_HEADER)
-
 #define STREAM_RECV_PROCESS(ctx, hdr)					\
 ({									\
 	TfwStreamFsmRes res;						\
@@ -765,7 +762,6 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 
 	switch (hdr->type) {
 	case HTTP2_DATA:
-		BUG_ON(PAYLOAD(ctx));
 		if (!hdr->stream_id) {
 			err_code = HTTP2_ECODE_PROTO;
 			goto conn_term;
@@ -802,7 +798,6 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 		return T_OK;
 
 	case HTTP2_HEADERS:
-		BUG_ON(PAYLOAD(ctx));
 		if (!hdr->stream_id) {
 			err_code = HTTP2_ECODE_PROTO;
 			goto conn_term;
@@ -877,65 +872,55 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 		return T_OK;
 
 	case HTTP2_PRIORITY:
-		if (!PAYLOAD(ctx)) {
-			if (!hdr->stream_id) {
-				err_code = HTTP2_ECODE_PROTO;
-				goto conn_term;
-			}
-
-			ctx->cur_stream = tfw_http2_find_stream(&ctx->sched,
-								hdr->stream_id);
-			if (hdr->length != FRAME_PRIORITY_SIZE) {
-				SET_TO_READ(ctx);
-				return tfw_http2_stream_terminate(ctx,
-								  hdr->stream_id,
-								  &ctx->cur_stream,
-								  HTTP2_ECODE_SIZE);
-			}
-
-			if (ctx->cur_stream)
-				STREAM_RECV_PROCESS(ctx, hdr);
-
-			ctx->state = HTTP2_RECV_FRAME_SERVICE;
-			SET_TO_READ(ctx);
-			return T_OK;
+		if (!hdr->stream_id) {
+			err_code = HTTP2_ECODE_PROTO;
+			goto conn_term;
 		}
 
-		return tfw_http2_priority_process(ctx);
+		ctx->cur_stream = tfw_http2_find_stream(&ctx->sched,
+							hdr->stream_id);
+		if (hdr->length != FRAME_PRIORITY_SIZE) {
+			SET_TO_READ(ctx);
+			return tfw_http2_stream_terminate(ctx, hdr->stream_id,
+							  &ctx->cur_stream,
+							  HTTP2_ECODE_SIZE);
+		}
+
+		if (ctx->cur_stream)
+			STREAM_RECV_PROCESS(ctx, hdr);
+
+		ctx->state = HTTP2_RECV_FRAME_PRIORITY;
+		SET_TO_READ(ctx);
+		return T_OK;
 
 	case HTTP2_WINDOW_UPDATE:
-		if (!PAYLOAD(ctx)) {
-			if (hdr->length != FRAME_WND_UPDATE_SIZE)
-				goto conn_term;
-			/*
-			 * WINDOW_UPDATE frame not allowed for idle streams (see
-			 * RFC 7540 section 5.1 for details).
-			 */
-			if (hdr->stream_id > ctx->lstream_id) {
-				err_code = HTTP2_ECODE_PROTO;
-				goto conn_term;
-			}
-
-			if (hdr->stream_id) {
-				ctx->cur_stream = tfw_http2_find_stream(&ctx->sched,
-									hdr->stream_id);
-				if (!ctx->cur_stream) {
-					err_code = HTTP2_ECODE_CLOSED;
-					goto conn_term;
-				}
-
-				STREAM_RECV_PROCESS(ctx, hdr);
-			}
-
-			ctx->state = HTTP2_RECV_FRAME_SERVICE;
-			SET_TO_READ(ctx);
-			return T_OK;
+		if (hdr->length != FRAME_WND_UPDATE_SIZE)
+			goto conn_term;
+		/*
+		 * WINDOW_UPDATE frame not allowed for idle streams (see RFC
+		 * 7540 section 5.1 for details).
+		 */
+		if (hdr->stream_id > ctx->lstream_id) {
+			err_code = HTTP2_ECODE_PROTO;
+			goto conn_term;
 		}
 
-		return tfw_http2_wnd_update_process(ctx);
+		if (hdr->stream_id) {
+			ctx->cur_stream = tfw_http2_find_stream(&ctx->sched,
+								hdr->stream_id);
+			if (!ctx->cur_stream) {
+				err_code = HTTP2_ECODE_CLOSED;
+				goto conn_term;
+			}
+
+			STREAM_RECV_PROCESS(ctx, hdr);
+		}
+
+		ctx->state = HTTP2_RECV_FRAME_WND_UPDATE;
+		SET_TO_READ(ctx);
+		return T_OK;
 
 	case HTTP2_SETTINGS:
-		BUG_ON(PAYLOAD(ctx));
 		if (hdr->stream_id) {
 			err_code = HTTP2_ECODE_PROTO;
 			goto conn_term;
@@ -970,61 +955,48 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 		goto conn_term;
 
 	case HTTP2_PING:
-		if (!PAYLOAD(ctx)) {
-			if (hdr->stream_id) {
-				err_code = HTTP2_ECODE_PROTO;
-				goto conn_term;
-			}
-			if (hdr->length != FRAME_PING_SIZE)
-				goto conn_term;
-
-			ctx->state = HTTP2_RECV_FRAME_SERVICE;
-			SET_TO_READ(ctx);
-			return T_OK;
+		if (hdr->stream_id) {
+			err_code = HTTP2_ECODE_PROTO;
+			goto conn_term;
 		}
-		if (!(hdr->flags & HTTP2_F_ACK))
-			return tfw_http2_send_ping(ctx);
+		if (hdr->length != FRAME_PING_SIZE)
+			goto conn_term;
 
+		ctx->state = HTTP2_RECV_FRAME_PING;
+		SET_TO_READ(ctx);
 		return T_OK;
 
 	case HTTP2_RST_STREAM:
-		if (!PAYLOAD(ctx)) {
-			if (!hdr->stream_id)
-			{
-				err_code = HTTP2_ECODE_PROTO;
-				goto conn_term;
-			}
-			if (hdr->length != FRAME_RST_STREAM_SIZE)
-				goto conn_term;
-			/*
-			 * RST_STREAM frames are not allowed for idle streams
-			 * (see RFC 7540 section 5.1 and section 6.4 for
-			 * details).
-			 */
-			if (hdr->stream_id > ctx->lstream_id) {
-				err_code = HTTP2_ECODE_PROTO;
-				goto conn_term;
-			}
-
-			ctx->cur_stream = tfw_http2_find_stream(&ctx->sched,
-								hdr->stream_id);
-			if (!ctx->cur_stream) {
-				err_code = HTTP2_ECODE_CLOSED;
-				goto conn_term;
-			}
-
-			STREAM_RECV_PROCESS(ctx, hdr);
-
-			ctx->state = HTTP2_RECV_FRAME_SERVICE;
-			SET_TO_READ(ctx);
-			return T_OK;
+		if (!hdr->stream_id)
+		{
+			err_code = HTTP2_ECODE_PROTO;
+			goto conn_term;
+		}
+		if (hdr->length != FRAME_RST_STREAM_SIZE)
+			goto conn_term;
+		/*
+		 * RST_STREAM frames are not allowed for idle streams (see RFC
+		 * 7540 section 5.1 and section 6.4 for details).
+		 */
+		if (hdr->stream_id > ctx->lstream_id) {
+			err_code = HTTP2_ECODE_PROTO;
+			goto conn_term;
 		}
 
-		tfw_http2_rst_stream_process(ctx);
+		ctx->cur_stream = tfw_http2_find_stream(&ctx->sched,
+							hdr->stream_id);
+		if (!ctx->cur_stream) {
+			err_code = HTTP2_ECODE_CLOSED;
+			goto conn_term;
+		}
+
+		STREAM_RECV_PROCESS(ctx, hdr);
+
+		ctx->state = HTTP2_RECV_FRAME_RST_STREAM;
+		SET_TO_READ(ctx);
 		return T_OK;
 
 	case HTTP2_GOAWAY:
-		BUG_ON(PAYLOAD(ctx));
 		if (hdr->stream_id) {
 			err_code = HTTP2_ECODE_PROTO;
 			goto conn_term;
@@ -1038,14 +1010,13 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 		return T_OK;
 
 	case HTTP2_CONTINUATION:
-		BUG_ON(PAYLOAD(ctx));
 		if (!hdr->stream_id) {
 			err_code = HTTP2_ECODE_PROTO;
 			goto conn_term;
 		}
 		/*
-		 * CONTINUATION frames are not allowed for idle streams (see RFC
-		 * 7540 section 5.1 and section 6.4 for details).
+		 * CONTINUATION frames are not allowed for idle streams (see
+		 * RFC 7540 section 5.1 and section 6.4 for details).
 		 */
 		if (hdr->stream_id > ctx->lstream_id) {
 			err_code = HTTP2_ECODE_PROTO;
@@ -1152,11 +1123,40 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 		FRAME_FSM_EXIT(T_OK);
 	}
 
-	T_FSM_STATE(HTTP2_RECV_FRAME_SERVICE) {
+	T_FSM_STATE(HTTP2_RECV_FRAME_PRIORITY) {
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
-		if (tfw_http2_frame_type_process(ctx))
+		if (tfw_http2_priority_process(ctx))
 			FRAME_FSM_EXIT(T_DROP);
+
+		FRAME_FSM_EXIT(T_OK);
+	}
+
+	T_FSM_STATE(HTTP2_RECV_FRAME_WND_UPDATE) {
+		FRAME_FSM_READ_SRVC(ctx->to_read);
+
+		if (tfw_http2_wnd_update_process(ctx))
+			FRAME_FSM_EXIT(T_DROP);
+
+		FRAME_FSM_EXIT(T_OK);
+	}
+
+	T_FSM_STATE(HTTP2_RECV_FRAME_PING) {
+		FRAME_FSM_READ_SRVC(ctx->to_read);
+
+		if (!(ctx->hdr.flags & HTTP2_F_ACK)
+		    && tfw_http2_send_ping(ctx))
+		{
+			FRAME_FSM_EXIT(T_DROP);
+		}
+
+		FRAME_FSM_EXIT(T_OK);
+	}
+
+	T_FSM_STATE(HTTP2_RECV_FRAME_RST_STREAM) {
+		FRAME_FSM_READ_SRVC(ctx->to_read);
+
+		tfw_http2_rst_stream_process(ctx);
 
 		FRAME_FSM_EXIT(T_OK);
 	}
