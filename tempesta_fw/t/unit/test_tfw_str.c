@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -187,10 +187,10 @@ TEST(cstr, simd_match_ctext_vchar)
 #undef __S
 }
 
-TEST(cstr, simd_match_custom)
+static void
+__init_custom_a(unsigned char a[256])
 {
 	int i;
-	unsigned char a[256] = {};
 
 	for (i = 0; i < 256; ++i) {
 		if (i == 0x21
@@ -202,6 +202,14 @@ TEST(cstr, simd_match_custom)
 		    || i == 0x7E || i == 0x98)
 			a[i] = 1;
 	}
+}
+
+TEST(cstr, simd_match_custom)
+{
+	int i;
+	unsigned char a[256] = {};
+
+	__init_custom_a(a);
 
 	/*
 	 * Set custom alphabet to URI character set plus x98, but use xff
@@ -1606,6 +1614,58 @@ TEST(tfw_str_next_str_val, last)
 				    0));
 }
 
+/**
+ * Microbenchmark for AVX2 string algorithms.
+ * Do not test small strings as they're handled by C prologs.
+ */
+#define N	5000000
+
+#ifndef AVX2
+#warning "Measure performance of dummy implementation"
+#endif
+TEST(str_avx2, perf)
+{
+	int i;
+	volatile unsigned long t0;
+	static char a[256] ____cacheline_aligned = {};
+	/* Test 128, 64, 32, 16 and epilogs, i.e. 255 bytes. */
+	static char dst[255] ____cacheline_aligned = {};
+	static char str[255] ____cacheline_aligned = {
+		'A', 'A', 'A', 'A', 'A', 'A', 'A', 'A',
+		'A', 'A', 'A', 'a', 'a', 'a', 'A', 'A',
+		'B', 'B', 'B', 'B', 'B', 'B', 'B', 'B',
+		'B', 'B', 'B', 'B', 'B', 'B', 'B', 'B',
+		'C', 'C', 'C', 'C', 'C', 'C', 'C', 'C',
+		'C', 'C', 'C', 'C', 'C', 'C', 'C', 'C',
+		'D', 'D', 'D', 'D', 'D', 'D', 'D', 'D',
+		'D', 'D', 'd', 'd', 'd', 'd', 'd', 'd',
+		'e', 'e', 'e', 'e', 'e', 'e', 'e', 'e',
+		'e', 'e', 'e', 'e', 'e', 'e', 'e', 'e',
+		'f', 'f', 'f', 'F', 'F', 'F', 'F', 'F',
+		'F', 'F', 'F', 'F', 'F', 'F', 'F', 'F',
+		'G', 'G', 'G', 'G', 'G', 'G', 'G', 'G',
+		'G', 'G', 'G', 'G', 'G', 'G', 'G', 'G',
+		'0', '1', '2', '3', '4', '5', '6', '7',
+		'8', '9', 'a', 'b', 'C', 'D', 'E', 'F',
+		'0', '1', '2', '3', '4', '5', '6', '7',
+		'8', '9', 'a', 0x98, 'C', 'D', 'E'
+	};
+
+	tfw_init_custom_xff(a);
+	barrier();
+
+	t0 = jiffies;
+	for (i = 0; i < N; ++i) {
+		tfw_cstrtolower(dst, str, 255);
+		tfw_match_uri(str, 255);
+		tfw_cstricmp(str, str, 255);
+		tfw_cstricmp_2lc(str, str, 255);
+		tfw_match_xff(str, 255);
+		tfw_match_ctext_vchar(str, 255);
+	}
+	pr_info("   str AVX2 time: %lums\n", jiffies - t0);
+}
+
 TEST_SUITE(tfw_str)
 {
 	TEST_SETUP(create_str_pool);
@@ -1692,4 +1752,6 @@ TEST_SUITE(tfw_str)
 	TEST_RUN(tfw_str_next_str_val, first);
 	TEST_RUN(tfw_str_next_str_val, middle);
 	TEST_RUN(tfw_str_next_str_val, last);
+
+	TEST_RUN(str_avx2, perf);
 }
