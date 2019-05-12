@@ -514,7 +514,6 @@ ENTRY(__tfw_strtolower_avx2)
 	popq	%r12
 	popq	%rbp
 	leaq	-8(%r10), %rsp
-	vzeroupper
 	ret
 
 	/*
@@ -813,7 +812,6 @@ ENTRY(__tfw_stricmp_avx2)
 	vpmovmskb %xmm0, %eax
 .stricmp_short_nomatch:
 	xorl	$0xffff, %eax
-	vzeroupper
 	ret
 
 .stricmp_try128:
@@ -866,7 +864,6 @@ ENTRY(__tfw_stricmp_avx2)
 	vpcmpeqb %xmm1, %xmm0, %xmm0
 	vpmovmskb %xmm0, %eax
 	xorl	$0xffff, %eax
-	vzeroupper
 	ret
 
 .stricmp_match:
@@ -937,7 +934,6 @@ ENTRY(__tfw_stricmp_avx2)
 
 .stricmp_nomatch:
 	movl	$1, %eax
-	vzeroupper
 	ret
 
 .stricmp_64:
@@ -1141,7 +1137,6 @@ ENTRY(__tfw_stricmp_avx2_2lc)
 	vpmovmskb %xmm0, %eax
 .sic2lc_short_nomatch:
 	xorl	$0xffff, %eax
-	vzeroupper
 	ret
 
 .sic2lc_try128:
@@ -1188,7 +1183,6 @@ ENTRY(__tfw_stricmp_avx2_2lc)
 	vpmovmskb %xmm0, %eax
 .sic2lc_tail_maybe_match:
 	xorl	$0xffff, %eax
-	vzeroupper
 	ret
 .sic2lc_tail_big:
 	addq	%r8, %rsi
@@ -1221,7 +1215,6 @@ ENTRY(__tfw_stricmp_avx2_2lc)
 
 .sic2lc_match:
 	xorl	%eax, %eax
-	vzeroupper
 	ret
 
 .sic2lc_128:
@@ -1272,7 +1265,6 @@ ENTRY(__tfw_stricmp_avx2_2lc)
 
 .sic2lc_nomatch:
 	movl	$1, %eax
-	vzeroupper
 	ret
 
 .sic2lc_64:
@@ -1604,7 +1596,6 @@ ENTRY(__tfw_match_custom)
 .mcust_add_len_end:
 	addq	%rdi, %rax
 .mcust_end:
-	vzeroupper
 	addq	$64, %rsp
 	popq	%rbx
 	popq	%r10
@@ -1899,7 +1890,6 @@ ENTRY(__tfw_strspn_simd)
 .strspn_add_len:
 	addq	%rdi, %rax
 .strspn_end:
-	vzeroupper
 	popq	%rbx
 	popq	%r10
 	popq	%rbp
@@ -2144,7 +2134,6 @@ ENTRY(__tfw_match_ctext_vchar)
 	jmp	.ctxt_vchr_tail
 
 .ctxt_vchr_mistmatch:
-	vzeroupper
 	subq	%rdi, %rax
 	addq	%rcx, %rax
 	ret
@@ -2181,7 +2170,6 @@ ENTRY(__tfw_match_ctext_vchar)
 	movq	%rax, %rsi
 	xorl	%eax, %eax
 .ctxt_vchr_add_len:
-	vzeroupper
 	addq	%rsi, %rax
 	ret
 .ctxt_vchr_end:
@@ -2193,11 +2181,9 @@ ENTRY(__tfw_match_ctext_vchar)
 	cmovne	%r9d, %r8d
 	movl	%r8d, %r8d
 	leaq	2(%rax,%r8), %rax
-	vzeroupper
 	ret
 .ctxt_vchr_mismatch_1:
 	addq	%rdx, %rax
-	vzeroupper
 	ret
 .ctxt_vchr_tail_1:
 	movzbl	(%rax), %edx
@@ -2218,7 +2204,6 @@ ENTRY(__tfw_match_ctext_vchar)
 	testb	%cl, ctext_vchar(%rax)
 	je	.ctxt_vchr_add_tail_len
 	leaq	2(%rsi,%rdx), %rax
-	vzeroupper
 	ret
 .ctxt_vchr_tail_3:
 	movzbl	2(%rax), %edx
