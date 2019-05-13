@@ -35,13 +35,41 @@
 #define FRAME_SETTINGS_ENTRY_SIZE	6
 #define FRAME_PING_SIZE			8
 #define FRAME_GOAWAY_SIZE		8
+#define FRAME_STREAM_ID_MASK		((1U << 31) - 1)
+#define FRAME_RESERVED_BIT_MASK		(~FRAME_STREAM_ID_MASK)
 
+#define WND_INCREMENT_SIZE		4
+#define SETTINGS_KEY_SIZE		2
+#define SETTINGS_VAL_SIZE		4
 #define SREAM_ID_SIZE			4
 #define ERR_CODE_SIZE			4
 
-#define FRAME_STREAM_ID_MASK		((1U << 31) - 1)
+#define MAX_WND_SIZE			((1U << 31) - 1)
+#define DEF_WND_SIZE			((1U << 16) - 1)
 
-/*
+/**
+ * FSM states for HTTP/2 frames processing.
+ */
+typedef enum {
+	HTTP2_RECV_FRAME_HEADER,
+	HTTP2_RECV_CLI_START_SEQ,
+	HTTP2_RECV_FIRST_SETTINGS,
+	HTTP2_RECV_FRAME_PRIORITY,
+	HTTP2_RECV_FRAME_WND_UPDATE,
+	HTTP2_RECV_FRAME_PING,
+	HTTP2_RECV_FRAME_RST_STREAM,
+	HTTP2_RECV_FRAME_SETTINGS,
+	HTTP2_RECV_FRAME_GOAWAY,
+	HTTP2_RECV_FRAME_PADDED,
+	HTTP2_RECV_HEADER_PRI,
+	HTTP2_IGNORE_FRAME_DATA,
+	__HTTP2_RECV_FRAME_APP,
+	HTTP2_RECV_HEADER		= __HTTP2_RECV_FRAME_APP,
+	HTTP2_RECV_CONT,
+	HTTP2_RECV_DATA
+} TfwFrameState;
+
+/**
  * IDs for SETTINGS parameters of HTTP/2 connection (RFC 7540
  * section 6.5.2).
  */
@@ -180,7 +208,7 @@ tfw_http2_pack_frame_header(unsigned char *p, const TfwFrameHdr *hdr)
 	 * Stream id must occupy not more than 31 bit and reserved bit
 	 * must be 0.
 	 */
-	WARN_ON_ONCE((unsigned int)(hdr->stream_id & ~FRAME_STREAM_ID_MASK));
+	WARN_ON_ONCE((unsigned int)(hdr->stream_id & FRAME_RESERVED_BIT_MASK));
 
 	*(unsigned int *)p = htonl(hdr->stream_id);
 }
@@ -288,14 +316,72 @@ tfw_http2_send_ping(TfwHttp2Ctx *ctx)
 }
 
 static inline int
-tfw_http2_send_settings(TfwHttp2Ctx *ctx, bool ack)
+tfw_http2_send_wnd_update(TfwHttp2Ctx *ctx, unsigned int id,
+			  unsigned int wnd_incr)
+{
+	unsigned char incr_buf[WND_INCREMENT_SIZE];
+	TfwStr data = {
+		.chunks = (TfwStr []){
+			{},
+			{ .data = incr_buf, .len = WND_INCREMENT_SIZE }
+		},
+		.len = WND_INCREMENT_SIZE,
+		.nchunks = 2
+	};
+	TfwFrameHdr hdr = {
+		.length = data.len,
+		.stream_id = id,
+		.type = HTTP2_WINDOW_UPDATE,
+		.flags = 0
+	};
+
+	WARN_ON_ONCE((unsigned int)(wnd_incr & FRAME_RESERVED_BIT_MASK));
+
+	*(unsigned int *)incr_buf = htonl(wnd_incr);
+
+	return tfw_http2_send_frame(ctx, &hdr, &data);
+}
+
+static inline int
+tfw_http2_send_settings_init(TfwHttp2Ctx *ctx)
+{
+	unsigned char key_buf[SETTINGS_KEY_SIZE];
+	unsigned char val_buf[SETTINGS_VAL_SIZE];
+	TfwStr data = {
+		.chunks = (TfwStr []){
+			{},
+			{ .data = key_buf, .len = SETTINGS_KEY_SIZE },
+			{ .data = val_buf, .len = SETTINGS_VAL_SIZE }
+		},
+		.len = SETTINGS_KEY_SIZE + SETTINGS_VAL_SIZE,
+		.nchunks = 3
+	};
+	TfwFrameHdr hdr = {
+		.length = data.len,
+		.stream_id = 0,
+		.type = HTTP2_SETTINGS,
+		.flags = 0
+	};
+
+	BUILD_BUG_ON(SETTINGS_KEY_SIZE != sizeof(unsigned short)
+		     || SETTINGS_VAL_SIZE != sizeof(unsigned int)
+		     || SETTINGS_VAL_SIZE != sizeof(ctx->lsettings.wnd_sz));
+
+	*(unsigned short *)key_buf = htons(HTTP2_SETTINGS_INIT_WND_SIZE);
+	*(unsigned int *)val_buf = htonl(ctx->lsettings.wnd_sz);
+
+	return tfw_http2_send_frame(ctx, &hdr, &data);
+}
+
+static inline int
+tfw_http2_send_settings_ack(TfwHttp2Ctx *ctx)
 {
 	TfwStr data = {};
 	TfwFrameHdr hdr = {
 		.length = 0,
 		.stream_id = 0,
 		.type = HTTP2_SETTINGS,
-		.flags = ack ? HTTP2_F_ACK : 0
+		.flags = HTTP2_F_ACK
 	};
 
 	return tfw_http2_send_frame(ctx, &hdr, &data);
@@ -322,7 +408,7 @@ tfw_http2_send_goaway(TfwHttp2Ctx *ctx, TfwHttp2Err err_code)
 		.flags = 0
 	};
 
-	WARN_ON_ONCE((unsigned int)(ctx->lstream_id & ~FRAME_STREAM_ID_MASK));
+	WARN_ON_ONCE((unsigned int)(ctx->lstream_id & FRAME_RESERVED_BIT_MASK));
 	BUILD_BUG_ON(SREAM_ID_SIZE != sizeof(unsigned int)
 		     || SREAM_ID_SIZE != sizeof(ctx->lstream_id)
 		     || ERR_CODE_SIZE != sizeof(unsigned int)
@@ -450,7 +536,9 @@ tfw_http2_stream_create(TfwHttp2Ctx *ctx, unsigned int id)
 	if (tfw_http2_find_stream_dep(&ctx->sched, pri->stream_id, &dep))
 		return NULL;
 
-	if (!(stream = tfw_http2_add_stream(&ctx->sched, id, pri->weight)))
+	stream = tfw_http2_add_stream(&ctx->sched, id, pri->weight,
+				      ctx->lsettings.wnd_sz);
+	if (!stream)
 		return NULL;
 
 	tfw_http2_add_stream_dep(&ctx->sched, stream, dep, excl);
@@ -703,6 +791,41 @@ tfw_http2_first_settings_verify(TfwHttp2Ctx *ctx)
 	return T_OK;
 }
 
+static inline int
+tfw_http2_flow_control(TfwHttp2Ctx *ctx)
+{
+	TfwFrameHdr *hdr = &ctx->hdr;
+	TfwStream *stream = ctx->cur_stream;
+	TfwSettings *lset = &ctx->lsettings;
+
+	BUG_ON(!stream);
+	if (hdr->length > stream->loc_wnd)
+		T_WARN("Stream flow control window exceeded: frame payload %d,"
+		       " current window %u\n", hdr->length, stream->loc_wnd);
+
+	if(hdr->length > ctx->loc_wnd)
+		T_WARN("Connection flow control window exceeded: frame payload"
+		       " %d, current window %u\n", hdr->length, ctx->loc_wnd);
+
+	stream->loc_wnd -= hdr->length;
+	ctx->loc_wnd -= hdr->length;
+
+	if (stream->loc_wnd <= lset->wnd_sz / 2
+	    && tfw_http2_send_wnd_update(ctx, stream->id,
+					 lset->wnd_sz - stream->loc_wnd))
+	{
+		return T_DROP;
+	}
+
+	if (ctx->loc_wnd <= MAX_WND_SIZE / 2
+	    && tfw_http2_send_wnd_update(ctx, 0, MAX_WND_SIZE - ctx->loc_wnd))
+	{
+		return T_DROP;
+	}
+
+	return T_OK;
+}
+
 static int
 tfw_http2_frame_pad_process(TfwHttp2Ctx *ctx)
 {
@@ -786,6 +909,9 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 			err_code = HTTP2_ECODE_CLOSED;
 			goto conn_term;
 		}
+
+		if (tfw_http2_flow_control(ctx))
+			return T_DROP;
 
 		STREAM_RECV_PROCESS(ctx, hdr);
 
@@ -1079,8 +1205,13 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 				FRAME_FSM_EXIT(T_DROP);
 			}
 		});
-		if (tfw_http2_send_settings(ctx, false))
+
+		if (tfw_http2_send_settings_init(ctx)
+		    || tfw_http2_send_wnd_update(ctx, 0,
+						 MAX_WND_SIZE - DEF_WND_SIZE))
+		{
 			FRAME_FSM_EXIT(T_DROP);
+		}
 
 		FRAME_FSM_MOVE(HTTP2_RECV_FIRST_SETTINGS);
 	}
@@ -1170,7 +1301,7 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 		if (ctx->to_read)
 			FRAME_FSM_MOVE(HTTP2_RECV_FRAME_SETTINGS);
 
-		if (tfw_http2_send_settings(ctx, true))
+		if (tfw_http2_send_settings_ack(ctx))
 			FRAME_FSM_EXIT(T_DROP);
 
 		FRAME_FSM_EXIT(T_OK);
@@ -1397,7 +1528,7 @@ out:
 }
 
 void
-tfw_http2_settings_init(TfwHttp2Ctx *ctx)
+tfw_http2_init(TfwHttp2Ctx *ctx)
 {
 	TfwSettings *lset = &ctx->lsettings;
 	TfwSettings *rset = &ctx->rsettings;
@@ -1405,7 +1536,14 @@ tfw_http2_settings_init(TfwHttp2Ctx *ctx)
 	lset->hdr_tbl_sz = rset->hdr_tbl_sz = 1 << 12;
 	lset->push = rset->push = 1;
 	lset->max_streams = rset->max_streams = 0xffffffff;
-	lset->wnd_sz = rset->wnd_sz = (1 << 16) - 1;
 	lset->max_frame_sz = rset->max_frame_sz = 1 << 14;
 	lset->max_lhdr_sz = rset->max_lhdr_sz = UINT_MAX;
+	/*
+	 * We ignore client's window size until #498, so currently
+	 * we set it to maximum allowed value.
+	 */
+	lset->wnd_sz = rset->wnd_sz = MAX_WND_SIZE;
+
+	ctx->state = HTTP2_RECV_CLI_START_SEQ;
+	ctx->loc_wnd = MAX_WND_SIZE;
 }
