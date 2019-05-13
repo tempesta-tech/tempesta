@@ -279,11 +279,13 @@ tfw_http2_stream_is_closed(TfwStream *stream)
 }
 
 static inline void
-tfw_http2_init_stream(TfwStream *stream, unsigned int id, unsigned short weight)
+tfw_http2_init_stream(TfwStream *stream, unsigned int id, unsigned short weight,
+		      unsigned int wnd)
 {
 	RB_CLEAR_NODE(&stream->node);
 	stream->id = id;
 	stream->state = HTTP2_STREAM_OPENED;
+	stream->loc_wnd = wnd;
 	stream->weight = weight ? weight : HTTP2_DEF_WEIGHT;
 }
 
@@ -308,7 +310,7 @@ tfw_http2_find_stream(TfwStreamSched *sched, unsigned int id)
 
 TfwStream *
 tfw_http2_add_stream(TfwStreamSched *sched, unsigned int id,
-		     unsigned short weight)
+		     unsigned short weight,  unsigned int wnd)
 {
 	TfwStream *new_stream;
 	struct rb_node **new = &sched->streams.rb_node;
@@ -332,7 +334,7 @@ tfw_http2_add_stream(TfwStreamSched *sched, unsigned int id,
 	if (unlikely(!new_stream))
 		return NULL;
 
-	tfw_http2_init_stream(new_stream, id, weight);
+	tfw_http2_init_stream(new_stream, id, weight, wnd);
 
 	rb_link_node(&new_stream->node, parent, new);
 	rb_insert_color(&new_stream->node, &sched->streams);

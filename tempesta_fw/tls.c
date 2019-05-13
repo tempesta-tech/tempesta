@@ -80,8 +80,7 @@ tfw_tls_check_alloc_h2_context(void *c)
 
 	conn->h2 = h2;
 	h2->conn = c;
-	h2->state = HTTP2_RECV_CLI_START_SEQ;
-	tfw_http2_settings_init(h2);
+	tfw_http2_init(h2);
 
 	return 0;
 }

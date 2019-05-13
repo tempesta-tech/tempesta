@@ -41,7 +41,7 @@ typedef enum {
 	HTTP2_ECODE_NO_ERROR		= 0,
 	HTTP2_ECODE_PROTO,
 	HTTP2_ECODE_INTERNAL,
-	HTTP2_ECODE_FLOW_CONTROL,
+	HTTP2_ECODE_FLOW,
 	HTTP2_ECODE_SETTINGS_TIMEOUT,
 	HTTP2_ECODE_CLOSED,
 	HTTP2_ECODE_SIZE,
@@ -60,12 +60,14 @@ typedef enum {
  * @node	- entry in per-connection storage of streams (red-black tree);
  * @id		- stream ID;
  * @state	- stream's current state;
+ * @loc_wnd	- stream's current flow controlled window;
  * @weight	- stream's priority weight;
  */
 typedef struct {
 	struct rb_node		node;
 	unsigned int		id;
 	int			state;
+	unsigned int		loc_wnd;
 	unsigned short		weight;
 } TfwStream;
 
@@ -86,7 +88,7 @@ TfwStreamFsmRes tfw_http2_stream_fsm(TfwStream *stream, unsigned char type,
 bool tfw_http2_stream_is_closed(TfwStream *stream);
 TfwStream *tfw_http2_find_stream(TfwStreamSched *sched, unsigned int id);
 TfwStream *tfw_http2_add_stream(TfwStreamSched *sched, unsigned int id,
-			 unsigned short weight);
+				unsigned short weight, unsigned int wnd);
 void tfw_http2_streams_cleanup(TfwStreamSched *sched);
 int tfw_http2_find_stream_dep(TfwStreamSched *sched, unsigned int id,
 			      TfwStream **dep);

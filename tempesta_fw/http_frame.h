@@ -26,28 +26,6 @@
 #define FRAME_HEADER_SIZE		9
 
 /**
- * FSM states for HTTP/2 frames processing.
- */
-typedef enum {
-	HTTP2_RECV_FRAME_HEADER,
-	HTTP2_RECV_CLI_START_SEQ,
-	HTTP2_RECV_FIRST_SETTINGS,
-	HTTP2_RECV_FRAME_PRIORITY,
-	HTTP2_RECV_FRAME_WND_UPDATE,
-	HTTP2_RECV_FRAME_PING,
-	HTTP2_RECV_FRAME_RST_STREAM,
-	HTTP2_RECV_FRAME_SETTINGS,
-	HTTP2_RECV_FRAME_GOAWAY,
-	HTTP2_RECV_FRAME_PADDED,
-	HTTP2_RECV_HEADER_PRI,
-	HTTP2_IGNORE_FRAME_DATA,
-	__HTTP2_RECV_FRAME_APP,
-	HTTP2_RECV_HEADER		= __HTTP2_RECV_FRAME_APP,
-	HTTP2_RECV_CONT,
-	HTTP2_RECV_DATA
-} TfwFrameState;
-
-/**
  * HTTP/2 frame types (RFC 7540 section 6).
  */
 typedef enum {
@@ -143,15 +121,16 @@ typedef struct {
  * @sched	- streams' priority scheduler;
  * @lstream_id	- ID of last stream initiated by client and processed on the
  *		  server side;
+ * @loc_wnd	- connection's current flow controlled window;
  * @__off	- offset to reinitialize processing context;
- * @to_read	- indicates how much data of HTTP/2 frame should
- *		  be read on next FSM @state;
  * @skb_head	- collected list of processed skbs containing HTTP/2 frames;
  * @cur_stream	- found stream for the frame currently being processed;
- * @hdr		- unpacked data from header of currently processed frame;
  * @priority	- unpacked data from priority part of payload of processed
  *		  HEADERS or PRIORITY frames;
+ * @hdr		- unpacked data from header of currently processed frame;
  * @state	- current FSM state of HTTP/2 processing context;
+ * @to_read	- indicates how much data of HTTP/2 frame should
+ *		  be read on next FSM @state;
  * @rlen	- length of accumulated data in @rbuf;
  * @rbuf	- buffer for data accumulation from frames headers and
  *		  payloads (for service frames) during frames processing;
@@ -166,13 +145,14 @@ struct tfw_http2_ctx_t {
 	unsigned long	streams_num;
 	TfwStreamSched	sched;
 	unsigned int	lstream_id;
+	unsigned int	loc_wnd;
 	char		__off[0];
-	int		to_read;
 	struct sk_buff	*skb_head;
 	TfwStream	*cur_stream;
-	TfwFrameHdr	hdr;
 	TfwFramePri	priority;
-	TfwFrameState	state;
+	TfwFrameHdr	hdr;
+	int		state;
+	int		to_read;
 	int		rlen;
 	unsigned char	rbuf[FRAME_HEADER_SIZE];
 	unsigned char	padlen;
@@ -180,6 +160,6 @@ struct tfw_http2_ctx_t {
 };
 
 int tfw_http2_frame_process(void *c, TfwFsmData *data);
-void tfw_http2_settings_init(TfwHttp2Ctx *ctx);
+void tfw_http2_init(TfwHttp2Ctx *ctx);
 
 #endif /* __HTTP_FRAME__ */
