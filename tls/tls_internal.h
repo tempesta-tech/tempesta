@@ -153,10 +153,14 @@ typedef struct tls_handshake_t {
 	int  (*tls_prf)(const unsigned char *, size_t, const char *, size_t,
 			const unsigned char *, size_t, unsigned char *, size_t);
 
+	union {
 #if defined(TTLS_DHM_C)
-	ttls_dhm_context		dhm_ctx;
+		ttls_dhm_context	dhm_ctx;
 #endif
-	ttls_ecdh_context		ecdh_ctx;
+		ttls_ecdh_context	ecdh_ctx;
+		ttls_sha256_context	tmp_sha256;
+	};
+
 	union {
 		struct shash_desc	desc; /* common for both the contexts */
 		ttls_sha256_context	fin_sha256;
