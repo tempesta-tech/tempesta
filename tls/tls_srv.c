@@ -1021,11 +1021,38 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 	 * preferences over the preference of the client.
 	 */
 	r = ttls_choose_ciphersuite(tls, &tls->hs->tmp[TTLS_HS_TMP_STORE_SZ]);
+	if (r) {
+		/*
+		 * If tls->xfrm.ciphersuite_info contains some valid pointer,
+		 * we'll try to free dhm_ctx or ecdh_ctx later. But since they
+		 * weren't initialized, some unexpected and untrackable bugs
+		 * will appear. Let's crash here and now instead.
+		 */
+		BUG_ON(IS_ERR_OR_NULL(tls->xfrm.ciphersuite_info));
+		return r;
+	}
 
-	if (!r)
-		ttls_update_checksum(tls, buf - hh_len, p - buf + hh_len);
+	ttls_update_checksum(tls, buf - hh_len, p - buf + hh_len);
 
-	return r;
+	if (ttls_ciphersuite_uses_ecdh(tls->xfrm.ciphersuite_info) ||
+	    ttls_ciphersuite_uses_ecdhe(tls->xfrm.ciphersuite_info))
+	{
+		unsigned char pf = tls->hs->ecdh_ctx.point_format;
+		ttls_ecdh_init(&tls->hs->ecdh_ctx);
+		tls->hs->ecdh_ctx.point_format = pf;
+
+		/*
+		 * Storage space of ecdh_ctx is used for temporary sha256
+		 * context. Ensure that point_format field is safe from
+		 * accidental overwrite.
+		 */
+		BUILD_BUG_ON(offsetof(ttls_ecdh_context, point_format) <=
+			     sizeof(ttls_sha256_context));
+	} else {
+		ttls_dhm_init(&tls->hs->dhm_ctx);
+	}
+
+	return 0;
 }
 
 static void
