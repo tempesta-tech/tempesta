@@ -1613,7 +1613,7 @@ TEST(tfw_str_next_str_val, last)
 				    0));
 }
 
-#ifndef AVX2
+#ifdef AVX2
 /**
  * Microbenchmark for AVX2 string algorithms.
  * Do not test small strings as they're handled by C prologs.
@@ -1753,7 +1753,7 @@ TEST_SUITE(tfw_str)
 	TEST_RUN(tfw_str_next_str_val, middle);
 	TEST_RUN(tfw_str_next_str_val, last);
 
-#ifndef AVX2
+#ifdef AVX2
 	TEST_RUN(str_avx2, perf);
 #endif
 }
