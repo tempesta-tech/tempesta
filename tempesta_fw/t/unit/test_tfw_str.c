@@ -209,13 +209,12 @@ TEST(cstr, simd_match_custom)
 	int i;
 	unsigned char a[256] = {};
 
-	__init_custom_a(a);
-
 	/*
 	 * Set custom alphabet to URI character set plus x98, but use xff
 	 * matcher just because it's different from URI and CTEXT+VCHAR to
 	 * enforce custom matching.
 	 */
+	__init_custom_a(a);
 	tfw_init_custom_xff(a);
 
 #define __test_custom(s)						\
@@ -1614,18 +1613,15 @@ TEST(tfw_str_next_str_val, last)
 				    0));
 }
 
+#ifndef AVX2
 /**
  * Microbenchmark for AVX2 string algorithms.
  * Do not test small strings as they're handled by C prologs.
  */
-#define N	5000000
-
-#ifndef AVX2
-#warning "Measure performance of dummy implementation"
-#endif
 TEST(str_avx2, perf)
 {
 	int i;
+	static const size_t N = 5000000;
 	volatile unsigned long t0;
 	static char a[256] ____cacheline_aligned = {};
 	/* Test 128, 64, 32, 16 and epilogs, i.e. 255 bytes. */
@@ -1651,6 +1647,7 @@ TEST(str_avx2, perf)
 		'8', '9', 'a', 0x98, 'C', 'D', 'E'
 	};
 
+	__init_custom_a(a);
 	tfw_init_custom_xff(a);
 	barrier();
 
@@ -1664,7 +1661,10 @@ TEST(str_avx2, perf)
 		tfw_match_ctext_vchar(str, 255);
 	}
 	pr_info("   str AVX2 time: %lums\n", jiffies - t0);
+
+	tfw_init_custom_xff(NULL);
 }
+#endif
 
 TEST_SUITE(tfw_str)
 {
@@ -1753,5 +1753,7 @@ TEST_SUITE(tfw_str)
 	TEST_RUN(tfw_str_next_str_val, middle);
 	TEST_RUN(tfw_str_next_str_val, last);
 
+#ifndef AVX2
 	TEST_RUN(str_avx2, perf);
+#endif
 }
