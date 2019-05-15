@@ -52,7 +52,7 @@ typedef enum {
 	HTTP2_ECODE_ENHANCE_YOUR_CALM,
 	HTTP2_ECODE_INADEQUATE_SECURITY,
 	HTTP2_ECODE_HTTP_1_1_REQUIRED
-} TfwHttp2Err;
+} TfwH2Err;
 
 /**
  * Representation of HTTP/2 stream entity.
@@ -83,20 +83,22 @@ typedef struct {
 	struct rb_root streams;
 } TfwStreamSched;
 
-TfwStreamFsmRes tfw_http2_stream_fsm(TfwStream *stream, unsigned char type,
-				     unsigned char flags, TfwHttp2Err *err);
-bool tfw_http2_stream_is_closed(TfwStream *stream);
-TfwStream *tfw_http2_find_stream(TfwStreamSched *sched, unsigned int id);
-TfwStream *tfw_http2_add_stream(TfwStreamSched *sched, unsigned int id,
-				unsigned short weight, unsigned int wnd);
-void tfw_http2_streams_cleanup(TfwStreamSched *sched);
-int tfw_http2_find_stream_dep(TfwStreamSched *sched, unsigned int id,
-			      TfwStream **dep);
-void tfw_http2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
-			      TfwStream *dep, bool excl);
-void tfw_http2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
-				 unsigned int new_dep, unsigned short new_weight,
-				 bool excl);
-void tfw_http2_stop_stream(TfwStreamSched *sched, TfwStream **stream);
+int tfw_h2_stream_cache_create(void);
+void tfw_h2_stream_cache_destroy(void);
+TfwStreamFsmRes tfw_h2_stream_fsm(TfwStream *stream, unsigned char type,
+				  unsigned char flags, TfwH2Err *err);
+bool tfw_h2_stream_is_closed(TfwStream *stream);
+TfwStream *tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id);
+TfwStream *tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id,
+			     unsigned short weight, unsigned int wnd);
+void tfw_h2_streams_cleanup(TfwStreamSched *sched);
+int tfw_h2_find_stream_dep(TfwStreamSched *sched, unsigned int id,
+			   TfwStream **dep);
+void tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
+			   TfwStream *dep, bool excl);
+void tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
+			      unsigned int new_dep, unsigned short new_weight,
+			      bool excl);
+void tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream **stream);
 
 #endif /* __HTTP_STREAM__ */
