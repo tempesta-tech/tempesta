@@ -138,7 +138,7 @@ typedef struct {
  * @data_off	- offset of app data in HEADERS, CONTINUATION and DATA
  *		  frames (after all service payloads);
  */
-struct tfw_http2_ctx_t {
+struct tfw_h2_ctx_t {
 	TfwConn		*conn;
 	TfwSettings	lsettings;
 	TfwSettings	rsettings;
@@ -159,7 +159,10 @@ struct tfw_http2_ctx_t {
 	unsigned char	data_off;
 };
 
-int tfw_http2_frame_process(void *c, TfwFsmData *data);
-void tfw_http2_init(TfwHttp2Ctx *ctx);
+int tfw_h2_init(void);
+void tfw_h2_cleanup(void);
+int tfw_h2_context_create(TfwTlsConn *conn);
+void tfw_h2_context_free(TfwTlsConn *conn);
+int tfw_h2_frame_process(void *c, TfwFsmData *data);
 
 #endif /* __HTTP_FRAME__ */

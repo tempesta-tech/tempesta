@@ -61,9 +61,9 @@ tfw_tls_chop_skb_rec(TlsCtx *tls, struct sk_buff *skb, TfwFsmData *data)
 }
 
 static inline int
-tfw_tls_check_alloc_h2_context(void *c)
+tfw_tls_check_create_h2_context(void *c)
 {
-	TfwHttp2Ctx *h2;
+	int r;
 	TfwTlsConn *conn = c;
 	TlsCtx *tls = &conn->tls;
 
@@ -74,13 +74,8 @@ tfw_tls_check_alloc_h2_context(void *c)
 		return 0;
 	}
 
-	h2 = kzalloc(sizeof(TfwHttp2Ctx), GFP_ATOMIC);
-	if (unlikely(!h2))
-		return -ENOMEM;
-
-	conn->h2 = h2;
-	h2->conn = c;
-	tfw_http2_init(h2);
+	if ((r = tfw_h2_context_create(conn)))
+		return r;
 
 	return 0;
 }
@@ -95,7 +90,7 @@ tfw_tls_msg_process(void *conn, TfwFsmData *data)
 	TfwFsmData data_up = {};
 
 	/* Enable HTTP/2 mode if this protocol has been negotiated in APLN. */
-	if (tfw_tls_check_alloc_h2_context(conn))
+	if (tfw_tls_check_create_h2_context(conn))
 		return T_DROP;
 
 	/*
@@ -528,7 +523,6 @@ tfw_tls_conn_dtor(void *c)
 {
 	struct sk_buff *skb;
 	TlsCtx *tls = tfw_tls_context(c);
-	TfwHttp2Ctx *h2 = tfw_http2_context(c);
 
 	if (tls) {
 		while ((skb = ss_skb_dequeue(&tls->io_in.skb_list)))
@@ -537,11 +531,7 @@ tfw_tls_conn_dtor(void *c)
 			kfree_skb(skb);
 	}
 
-	if (h2) {
-		tfw_http2_streams_cleanup(&h2->sched);
-		kfree(h2);
-	}
-
+	tfw_h2_context_free((TfwTlsConn *)c);
 	ttls_ctx_clear(tls);
 	tfw_cli_conn_release((TfwCliConn *)c);
 }
@@ -971,16 +961,23 @@ tfw_tls_init(void)
 
 	ttls_register_bio(tfw_tls_send);
 
-	r = tfw_gfsm_register_fsm(TFW_FSM_TLS, tfw_tls_msg_process);
-	if (r) {
-		tfw_tls_do_cleanup();
-		return -EINVAL;
-	}
+	if ((r = tfw_h2_init()))
+		goto err_h2;
+
+	if ((r = tfw_gfsm_register_fsm(TFW_FSM_TLS, tfw_tls_msg_process)))
+		goto err_fsm;
 
 	tfw_connection_hooks_register(&tls_conn_hooks, TFW_FSM_TLS);
 	tfw_mod_register(&tfw_tls_mod);
 
 	return 0;
+
+err_fsm:
+	tfw_h2_cleanup();
+err_h2:
+	tfw_tls_do_cleanup();
+
+	return r;
 }
 
 void
@@ -989,5 +986,6 @@ tfw_tls_exit(void)
 	tfw_mod_unregister(&tfw_tls_mod);
 	tfw_connection_hooks_unregister(TFW_FSM_TLS);
 	tfw_gfsm_unregister_fsm(TFW_FSM_TLS);
+	tfw_h2_cleanup();
 	tfw_tls_do_cleanup();
 }

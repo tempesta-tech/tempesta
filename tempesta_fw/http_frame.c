@@ -163,9 +163,9 @@ do {									\
 #define STREAM_RECV_PROCESS(ctx, hdr)					\
 ({									\
 	TfwStreamFsmRes res;						\
-	TfwHttp2Err err = HTTP2_ECODE_NO_ERROR;				\
+	TfwH2Err err = HTTP2_ECODE_NO_ERROR;				\
 	BUG_ON(!(ctx)->cur_stream);					\
-	if ((res = tfw_http2_stream_fsm((ctx)->cur_stream, (hdr)->type,	\
+	if ((res = tfw_h2_stream_fsm((ctx)->cur_stream, (hdr)->type,	\
 					(hdr)->flags, &err)))		\
 	{								\
 		T_DBG3("stream recv processed: result=%d, state=%d, id=%u," \
@@ -173,10 +173,10 @@ do {									\
 		       (ctx)->cur_stream->id, err);			\
 		SET_TO_READ_VERIFY((ctx), HTTP2_IGNORE_FRAME_DATA);	\
 		if (res == STREAM_FSM_RES_TERM_CONN) {			\
-			tfw_http2_conn_terminate((ctx), err);		\
+			tfw_h2_conn_terminate((ctx), err);		\
 			return T_DROP;					\
 		} else if (res == STREAM_FSM_RES_TERM_STREAM) {		\
-			return tfw_http2_stream_terminate((ctx),	\
+			return tfw_h2_stream_terminate((ctx),		\
 							  (hdr)->stream_id, \
 							  &(ctx)->cur_stream, \
 							  err);		\
@@ -185,8 +185,80 @@ do {									\
 	}								\
 })
 
+static struct kmem_cache *h2_ctx_cache;
+
+int
+tfw_h2_init(void)
+{
+	int r = 0;
+
+	h2_ctx_cache = kmem_cache_create("tfw_h2_ctx_cache", sizeof(TfwH2Ctx),
+					 0, 0, NULL);
+	if (!h2_ctx_cache)
+		return -ENOMEM;
+
+	if ((r = tfw_h2_stream_cache_create())) {
+		kmem_cache_destroy(h2_ctx_cache);
+		return r;
+	}
+
+	return 0;
+}
+
+void
+tfw_h2_cleanup(void)
+{
+	tfw_h2_stream_cache_destroy();
+	kmem_cache_destroy(h2_ctx_cache);
+}
+
+int
+tfw_h2_context_create(TfwTlsConn *conn)
+{
+	TfwH2Ctx *ctx;
+	TfwSettings *lset;
+	TfwSettings *rset;
+
+	ctx = kmem_cache_alloc(h2_ctx_cache, GFP_ATOMIC | __GFP_ZERO);
+	if (unlikely(!ctx))
+		return -ENOMEM;
+
+	conn->h2 = ctx;
+	ctx->conn = (TfwConn *)conn;
+	ctx->state = HTTP2_RECV_CLI_START_SEQ;
+	ctx->loc_wnd = MAX_WND_SIZE;
+
+	lset = &ctx->lsettings;
+	rset = &ctx->rsettings;
+
+	lset->hdr_tbl_sz = rset->hdr_tbl_sz = 1 << 12;
+	lset->push = rset->push = 1;
+	lset->max_streams = rset->max_streams = 0xffffffff;
+	lset->max_frame_sz = rset->max_frame_sz = 1 << 14;
+	lset->max_lhdr_sz = rset->max_lhdr_sz = UINT_MAX;
+	/*
+	 * We ignore client's window size until #498, so currently
+	 * we set it to maximum allowed value.
+	 */
+	lset->wnd_sz = rset->wnd_sz = MAX_WND_SIZE;
+
+	return 0;
+}
+
+void
+tfw_h2_context_free(TfwTlsConn *conn)
+{
+	TfwH2Ctx *ctx = conn->h2;
+
+	if (!ctx)
+		return;
+
+	tfw_h2_streams_cleanup(&ctx->sched);
+	kmem_cache_free(h2_ctx_cache, ctx);
+}
+
 static inline void
-tfw_http2_unpack_frame_header(TfwFrameHdr *hdr, const unsigned char *buf)
+tfw_h2_unpack_frame_header(TfwFrameHdr *hdr, const unsigned char *buf)
 {
 	hdr->length = ntohl(*(int *)buf) >> 8;
 	hdr->type = buf[3];
@@ -198,7 +270,7 @@ tfw_http2_unpack_frame_header(TfwFrameHdr *hdr, const unsigned char *buf)
 }
 
 static inline void
-tfw_http2_pack_frame_header(unsigned char *p, const TfwFrameHdr *hdr)
+tfw_h2_pack_frame_header(unsigned char *p, const TfwFrameHdr *hdr)
 {
 	*(unsigned int *)p = htonl((unsigned int)(hdr->length << 8));
 	p += 3;
@@ -214,7 +286,7 @@ tfw_http2_pack_frame_header(unsigned char *p, const TfwFrameHdr *hdr)
 }
 
 static inline void
-tfw_http2_unpack_priority(TfwFramePri *pri, const unsigned char *buf)
+tfw_h2_unpack_priority(TfwFramePri *pri, const unsigned char *buf)
 {
 	pri->stream_id = ntohl(*(unsigned int *)buf) & FRAME_STREAM_ID_MASK;
 	pri->exclusive = (buf[0] & 0x80) > 0;
@@ -231,8 +303,7 @@ tfw_http2_unpack_priority(TfwFramePri *pri, const unsigned char *buf)
  * written in this procedure.
  */
 static int
-__tfw_http2_send_frame(TfwHttp2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
-		       bool close)
+__tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data, bool close)
 {
 	int r;
 	TfwMsgIter it;
@@ -247,7 +318,7 @@ __tfw_http2_send_frame(TfwHttp2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data,
 	if (data != hdr_str)
 		data->len += FRAME_HEADER_SIZE;
 
-	tfw_http2_pack_frame_header(buf, hdr);
+	tfw_h2_pack_frame_header(buf, hdr);
 
 	T_DBG2("Preparing HTTP/2 message with %lu bytes data\n", data->len);
 
@@ -280,19 +351,19 @@ err:
 }
 
 static inline int
-tfw_http2_send_frame(TfwHttp2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data)
+tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data)
 {
-	return __tfw_http2_send_frame(ctx, hdr, data, false);
+	return __tfw_h2_send_frame(ctx, hdr, data, false);
 }
 
 static inline int
-tfw_http2_send_frame_close(TfwHttp2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data)
+tfw_h2_send_frame_close(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data)
 {
-	return __tfw_http2_send_frame(ctx, hdr, data, true);
+	return __tfw_h2_send_frame(ctx, hdr, data, true);
 }
 
 static inline int
-tfw_http2_send_ping(TfwHttp2Ctx *ctx)
+tfw_h2_send_ping(TfwH2Ctx *ctx)
 {
 	TfwStr data = {
 		.chunks = (TfwStr []){
@@ -311,13 +382,12 @@ tfw_http2_send_ping(TfwHttp2Ctx *ctx)
 
 	WARN_ON_ONCE(ctx->rlen != FRAME_PING_SIZE);
 
-	return tfw_http2_send_frame(ctx, &hdr, &data);
+	return tfw_h2_send_frame(ctx, &hdr, &data);
 
 }
 
 static inline int
-tfw_http2_send_wnd_update(TfwHttp2Ctx *ctx, unsigned int id,
-			  unsigned int wnd_incr)
+tfw_h2_send_wnd_update(TfwH2Ctx *ctx, unsigned int id, unsigned int wnd_incr)
 {
 	unsigned char incr_buf[WND_INCREMENT_SIZE];
 	TfwStr data = {
@@ -339,11 +409,11 @@ tfw_http2_send_wnd_update(TfwHttp2Ctx *ctx, unsigned int id,
 
 	*(unsigned int *)incr_buf = htonl(wnd_incr);
 
-	return tfw_http2_send_frame(ctx, &hdr, &data);
+	return tfw_h2_send_frame(ctx, &hdr, &data);
 }
 
 static inline int
-tfw_http2_send_settings_init(TfwHttp2Ctx *ctx)
+tfw_h2_send_settings_init(TfwH2Ctx *ctx)
 {
 	unsigned char key_buf[SETTINGS_KEY_SIZE];
 	unsigned char val_buf[SETTINGS_VAL_SIZE];
@@ -370,11 +440,11 @@ tfw_http2_send_settings_init(TfwHttp2Ctx *ctx)
 	*(unsigned short *)key_buf = htons(HTTP2_SETTINGS_INIT_WND_SIZE);
 	*(unsigned int *)val_buf = htonl(ctx->lsettings.wnd_sz);
 
-	return tfw_http2_send_frame(ctx, &hdr, &data);
+	return tfw_h2_send_frame(ctx, &hdr, &data);
 }
 
 static inline int
-tfw_http2_send_settings_ack(TfwHttp2Ctx *ctx)
+tfw_h2_send_settings_ack(TfwH2Ctx *ctx)
 {
 	TfwStr data = {};
 	TfwFrameHdr hdr = {
@@ -384,11 +454,11 @@ tfw_http2_send_settings_ack(TfwHttp2Ctx *ctx)
 		.flags = HTTP2_F_ACK
 	};
 
-	return tfw_http2_send_frame(ctx, &hdr, &data);
+	return tfw_h2_send_frame(ctx, &hdr, &data);
 }
 
 static inline int
-tfw_http2_send_goaway(TfwHttp2Ctx *ctx, TfwHttp2Err err_code)
+tfw_h2_send_goaway(TfwH2Ctx *ctx, TfwH2Err err_code)
 {
 	unsigned char id_buf[SREAM_ID_SIZE];
 	unsigned char err_buf[ERR_CODE_SIZE];
@@ -417,12 +487,11 @@ tfw_http2_send_goaway(TfwHttp2Ctx *ctx, TfwHttp2Err err_code)
 	*(unsigned int *)id_buf = htonl(ctx->lstream_id);
 	*(unsigned int *)err_buf = htonl(err_code);
 
-	return tfw_http2_send_frame_close(ctx, &hdr, &data);
+	return tfw_h2_send_frame_close(ctx, &hdr, &data);
 }
 
 static inline int
-tfw_http2_send_rst_stream(TfwHttp2Ctx *ctx, unsigned int id,
-			  TfwHttp2Err err_code)
+tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code)
 {
 	unsigned char buf[ERR_CODE_SIZE];
 	TfwStr data = {
@@ -442,29 +511,29 @@ tfw_http2_send_rst_stream(TfwHttp2Ctx *ctx, unsigned int id,
 
 	*(unsigned int *)buf = htonl(err_code);
 
-	return tfw_http2_send_frame(ctx, &hdr, &data);
+	return tfw_h2_send_frame(ctx, &hdr, &data);
 }
 
 static inline int
-tfw_http2_conn_terminate(TfwHttp2Ctx *ctx, TfwHttp2Err err_code)
+tfw_h2_conn_terminate(TfwH2Ctx *ctx, TfwH2Err err_code)
 {
-	return tfw_http2_send_goaway(ctx, err_code);
+	return tfw_h2_send_goaway(ctx, err_code);
 }
 
 static inline int
-tfw_http2_stream_terminate(TfwHttp2Ctx *ctx, unsigned int id,
-			   TfwStream **stream, TfwHttp2Err err_code)
+tfw_h2_stream_terminate(TfwH2Ctx *ctx, unsigned int id, TfwStream **stream,
+			TfwH2Err err_code)
 {
 	if (stream && *stream) {
 		--ctx->streams_num;
-		tfw_http2_stop_stream(&ctx->sched, stream);
+		tfw_h2_stop_stream(&ctx->sched, stream);
 	}
 
-	return tfw_http2_send_rst_stream(ctx, id, err_code);
+	return tfw_h2_send_rst_stream(ctx, id, err_code);
 }
 
 static inline void
-tfw_http2_check_closed_stream(TfwHttp2Ctx *ctx)
+tfw_h2_check_closed_stream(TfwH2Ctx *ctx)
 {
 	BUG_ON(!ctx->cur_stream);
 
@@ -472,22 +541,22 @@ tfw_http2_check_closed_stream(TfwHttp2Ctx *ctx)
 	       "%lu\n", __func__, ctx->cur_stream->id, ctx->cur_stream->state,
 	       ctx->cur_stream, ctx->streams_num);
 
-	if (tfw_http2_stream_is_closed(ctx->cur_stream)) {
+	if (tfw_h2_stream_is_closed(ctx->cur_stream)) {
 		--ctx->streams_num;
-		tfw_http2_stop_stream(&ctx->sched, &ctx->cur_stream);
+		tfw_h2_stop_stream(&ctx->sched, &ctx->cur_stream);
 	}
 }
 
 #define VERIFY_FRAME_SIZE(ctx)						\
 do {									\
 	if ((ctx)->hdr.length < 0) {					\
-		tfw_http2_conn_terminate(ctx, HTTP2_ECODE_SIZE);	\
+		tfw_h2_conn_terminate(ctx, HTTP2_ECODE_SIZE);	\
 		return T_DROP;						\
 	}								\
 } while (0)
 
 static inline int
-tfw_http2_recv_priority(TfwHttp2Ctx *ctx)
+tfw_h2_recv_priority(TfwH2Ctx *ctx)
 {
 	ctx->to_read = FRAME_PRIORITY_SIZE;
 	ctx->hdr.length -= ctx->to_read;
@@ -497,7 +566,7 @@ tfw_http2_recv_priority(TfwHttp2Ctx *ctx)
 }
 
 static inline int
-tfw_http2_recv_padded(TfwHttp2Ctx *ctx)
+tfw_h2_recv_padded(TfwH2Ctx *ctx)
 {
 	ctx->to_read = 1;
 	ctx->hdr.length -= ctx->to_read;
@@ -507,14 +576,14 @@ tfw_http2_recv_padded(TfwHttp2Ctx *ctx)
 }
 
 static int
-tfw_http2_headers_pri_process(TfwHttp2Ctx *ctx)
+tfw_h2_headers_pri_process(TfwH2Ctx *ctx)
 {
 	TfwFramePri *pri = &ctx->priority;
 	TfwFrameHdr *hdr = &ctx->hdr;
 
 	BUG_ON(!(hdr->flags & HTTP2_F_PRIORITY));
 
-	tfw_http2_unpack_priority(pri, ctx->rbuf);
+	tfw_h2_unpack_priority(pri, ctx->rbuf);
 
 	T_DBG3("%s: parsed, stream_id=%u, dep_stream_id=%u, weight=%hu,"
 	       " excl=%hhu\n", __func__, hdr->stream_id, pri->stream_id,
@@ -527,21 +596,21 @@ tfw_http2_headers_pri_process(TfwHttp2Ctx *ctx)
 }
 
 static TfwStream *
-tfw_http2_stream_create(TfwHttp2Ctx *ctx, unsigned int id)
+tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 {
 	TfwStream *stream, *dep = NULL;
 	TfwFramePri *pri = &ctx->priority;
 	bool excl = pri->exclusive;
 
-	if (tfw_http2_find_stream_dep(&ctx->sched, pri->stream_id, &dep))
+	if (tfw_h2_find_stream_dep(&ctx->sched, pri->stream_id, &dep))
 		return NULL;
 
-	stream = tfw_http2_add_stream(&ctx->sched, id, pri->weight,
+	stream = tfw_h2_add_stream(&ctx->sched, id, pri->weight,
 				      ctx->lsettings.wnd_sz);
 	if (!stream)
 		return NULL;
 
-	tfw_http2_add_stream_dep(&ctx->sched, stream, dep, excl);
+	tfw_h2_add_stream_dep(&ctx->sched, stream, dep, excl);
 
 	++ctx->streams_num;
 
@@ -554,7 +623,7 @@ tfw_http2_stream_create(TfwHttp2Ctx *ctx, unsigned int id)
 }
 
 static int
-tfw_http2_headers_process(TfwHttp2Ctx *ctx)
+tfw_h2_headers_process(TfwH2Ctx *ctx)
 {
 	TfwFrameHdr *hdr = &ctx->hdr;
 
@@ -570,13 +639,13 @@ tfw_http2_headers_process(TfwHttp2Ctx *ctx)
 
 		ctx->state = HTTP2_IGNORE_FRAME_DATA;
 
-		return tfw_http2_stream_terminate(ctx, hdr->stream_id,
+		return tfw_h2_stream_terminate(ctx, hdr->stream_id,
 						  &ctx->cur_stream,
 						  HTTP2_ECODE_PROTO);
 	}
 
 	if (!ctx->cur_stream) {
-		ctx->cur_stream = tfw_http2_stream_create(ctx, hdr->stream_id);
+		ctx->cur_stream = tfw_h2_stream_create(ctx, hdr->stream_id);
 		if (!ctx->cur_stream)
 			return T_DROP;
 		ctx->lstream_id = hdr->stream_id;
@@ -590,13 +659,13 @@ tfw_http2_headers_process(TfwHttp2Ctx *ctx)
 	 */
 	STREAM_RECV_PROCESS(ctx, hdr);
 
-	tfw_http2_check_closed_stream(ctx);
+	tfw_h2_check_closed_stream(ctx);
 
 	return T_OK;
 }
 
 static int
-tfw_http2_wnd_update_process(TfwHttp2Ctx *ctx)
+tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 {
 	unsigned int wnd_incr;
 	TfwFrameHdr *hdr = &ctx->hdr;
@@ -604,10 +673,10 @@ tfw_http2_wnd_update_process(TfwHttp2Ctx *ctx)
 	wnd_incr = ntohl(*(unsigned int *)ctx->rbuf) & ((1U << 31) - 1);
 	if (!wnd_incr) {
 		if (ctx->cur_stream)
-			return tfw_http2_stream_terminate(ctx, hdr->stream_id,
+			return tfw_h2_stream_terminate(ctx, hdr->stream_id,
 							  &ctx->cur_stream,
 							  HTTP2_ECODE_PROTO);
-		tfw_http2_conn_terminate(ctx, HTTP2_ECODE_PROTO);
+		tfw_h2_conn_terminate(ctx, HTTP2_ECODE_PROTO);
 		return T_DROP;
 	}
 	/*
@@ -618,12 +687,12 @@ tfw_http2_wnd_update_process(TfwHttp2Ctx *ctx)
 }
 
 static inline int
-tfw_http2_priority_process(TfwHttp2Ctx *ctx)
+tfw_h2_priority_process(TfwH2Ctx *ctx)
 {
 	TfwFrameHdr *hdr = &ctx->hdr;
 	TfwFramePri *pri = &ctx->priority;
 
-	tfw_http2_unpack_priority(pri, ctx->rbuf);
+	tfw_h2_unpack_priority(pri, ctx->rbuf);
 
 	/*
 	 * Stream cannot depend on itself (see RFC 7540 section 5.1.2 for
@@ -633,7 +702,7 @@ tfw_http2_priority_process(TfwHttp2Ctx *ctx)
 		T_DBG("Invalid dependency: new stream with %u depends on"
 		      " itself\n", hdr->stream_id);
 
-		return tfw_http2_stream_terminate(ctx, hdr->stream_id,
+		return tfw_h2_stream_terminate(ctx, hdr->stream_id,
 						  &ctx->cur_stream,
 						  HTTP2_ECODE_PROTO);
 	}
@@ -642,13 +711,13 @@ tfw_http2_priority_process(TfwHttp2Ctx *ctx)
 	       " excl=%hhu\n", __func__, hdr->stream_id, pri->stream_id,
 	       pri->weight, pri->exclusive);
 
-	tfw_http2_change_stream_dep(&ctx->sched, hdr->stream_id, pri->stream_id,
+	tfw_h2_change_stream_dep(&ctx->sched, hdr->stream_id, pri->stream_id,
 				    pri->weight, pri->exclusive);
 	return T_OK;
 }
 
 static void
-tfw_http2_rst_stream_process(TfwHttp2Ctx *ctx)
+tfw_h2_rst_stream_process(TfwH2Ctx *ctx)
 {
 	BUG_ON(!ctx->cur_stream);
 	T_DBG3("%s: parsed, stream_id=%u, stream=[%p], err_code=%u\n",
@@ -657,12 +726,12 @@ tfw_http2_rst_stream_process(TfwHttp2Ctx *ctx)
 
 	--ctx->streams_num;
 
-	tfw_http2_stop_stream(&ctx->sched, &ctx->cur_stream);
+	tfw_h2_stop_stream(&ctx->sched, &ctx->cur_stream);
 }
 
 static int
-tfw_http2_apply_settings_entry(TfwSettings *dest, unsigned short id,
-			       unsigned int val)
+tfw_h2_apply_settings_entry(TfwSettings *dest, unsigned short id,
+			    unsigned int val)
 {
 	switch (id) {
 	case HTTP2_SETTINGS_TABLE_SIZE:
@@ -704,7 +773,7 @@ tfw_http2_apply_settings_entry(TfwSettings *dest, unsigned short id,
 }
 
 static void
-tfw_http2_settings_ack_process(TfwHttp2Ctx *ctx)
+tfw_h2_settings_ack_process(TfwH2Ctx *ctx)
 {
 	T_DBG3("%s: parsed, stream_id=%u, flags=%hhu\n", __func__,
 	       ctx->hdr.stream_id, ctx->hdr.flags);
@@ -714,7 +783,7 @@ tfw_http2_settings_ack_process(TfwHttp2Ctx *ctx)
 }
 
 static int
-tfw_http2_settings_process(TfwHttp2Ctx *ctx)
+tfw_h2_settings_process(TfwH2Ctx *ctx)
 {
 	TfwFrameHdr *hdr = &ctx->hdr;
 	unsigned short id  = ntohs(*(unsigned short *)&ctx->rbuf[0]);
@@ -722,7 +791,7 @@ tfw_http2_settings_process(TfwHttp2Ctx *ctx)
 
 	T_DBG3("%s: entry parsed, id=%hu, val=%u\n", __func__, id, val);
 
-	if (tfw_http2_apply_settings_entry(&ctx->rsettings, id, val))
+	if (tfw_h2_apply_settings_entry(&ctx->rsettings, id, val))
 		return T_BAD;
 
 	ctx->to_read = hdr->length ? FRAME_SETTINGS_ENTRY_SIZE : 0;
@@ -732,7 +801,7 @@ tfw_http2_settings_process(TfwHttp2Ctx *ctx)
 }
 
 static int
-tfw_http2_goaway_process(TfwHttp2Ctx *ctx)
+tfw_h2_goaway_process(TfwH2Ctx *ctx)
 {
 	unsigned int last_id, err_code;
 
@@ -761,14 +830,14 @@ tfw_http2_goaway_process(TfwHttp2Ctx *ctx)
 }
 
 static inline int
-tfw_http2_first_settings_verify(TfwHttp2Ctx *ctx)
+tfw_h2_first_settings_verify(TfwH2Ctx *ctx)
 {
 	int err_code = 0;
 	TfwFrameHdr *hdr = &ctx->hdr;
 
 	BUG_ON(ctx->to_read);
 
-	tfw_http2_unpack_frame_header(hdr, ctx->rbuf);
+	tfw_h2_unpack_frame_header(hdr, ctx->rbuf);
 
 	if (hdr->type != HTTP2_SETTINGS
 	    || (hdr->flags & HTTP2_F_ACK)
@@ -781,7 +850,7 @@ tfw_http2_first_settings_verify(TfwHttp2Ctx *ctx)
 		err_code = HTTP2_ECODE_SIZE;
 
 	if (err_code) {
-		tfw_http2_conn_terminate(ctx, err_code);
+		tfw_h2_conn_terminate(ctx, err_code);
 		return T_DROP;
 	}
 
@@ -792,7 +861,42 @@ tfw_http2_first_settings_verify(TfwHttp2Ctx *ctx)
 }
 
 static inline int
-tfw_http2_flow_control(TfwHttp2Ctx *ctx)
+tfw_h2_stream_id_verify(TfwH2Ctx *ctx)
+{
+	TfwFrameHdr *hdr = &ctx->hdr;
+
+	if (ctx->cur_stream)
+		return T_OK;
+	/*
+	 * If stream ID is not greater than last processed ID,
+	 * there may be two reasons for that:
+	 * 1. Stream has been created, processed, closed and
+	 *    removed by now;
+	 * 2. Stream was never created and has been moved from
+	 *    idle to closed without processing (see RFC 7540
+	 *    section 5.1.1 for details).
+	 */
+	if (ctx->lstream_id >= hdr->stream_id) {
+		T_DBG("Invalid ID of new stream: %u stream is"
+		      " closed and removed, %u last initiated\n",
+		      hdr->stream_id, ctx->lstream_id);
+		return T_DROP;
+	}
+	/*
+	 * Streams initiated by client must use odd-numbered
+	 * identifiers (see RFC 7540 section 5.1.1 for details).
+	 */
+	if (!(hdr->stream_id & 0x1)) {
+		T_DBG("Invalid ID of new stream: initiated by"
+		      " server\n");
+		return T_DROP;
+	}
+
+	return T_OK;
+}
+
+static inline int
+tfw_h2_flow_control(TfwH2Ctx *ctx)
 {
 	TfwFrameHdr *hdr = &ctx->hdr;
 	TfwStream *stream = ctx->cur_stream;
@@ -811,14 +915,14 @@ tfw_http2_flow_control(TfwHttp2Ctx *ctx)
 	ctx->loc_wnd -= hdr->length;
 
 	if (stream->loc_wnd <= lset->wnd_sz / 2
-	    && tfw_http2_send_wnd_update(ctx, stream->id,
+	    && tfw_h2_send_wnd_update(ctx, stream->id,
 					 lset->wnd_sz - stream->loc_wnd))
 	{
 		return T_DROP;
 	}
 
 	if (ctx->loc_wnd <= MAX_WND_SIZE / 2
-	    && tfw_http2_send_wnd_update(ctx, 0, MAX_WND_SIZE - ctx->loc_wnd))
+	    && tfw_h2_send_wnd_update(ctx, 0, MAX_WND_SIZE - ctx->loc_wnd))
 	{
 		return T_DROP;
 	}
@@ -827,7 +931,7 @@ tfw_http2_flow_control(TfwHttp2Ctx *ctx)
 }
 
 static int
-tfw_http2_frame_pad_process(TfwHttp2Ctx *ctx)
+tfw_h2_frame_pad_process(TfwH2Ctx *ctx)
 {
 	TfwFrameHdr *hdr = &ctx->hdr;
 
@@ -849,7 +953,7 @@ tfw_http2_frame_pad_process(TfwHttp2Ctx *ctx)
 
 	case HTTP2_HEADERS:
 		if (hdr->flags & HTTP2_F_PRIORITY)
-			return tfw_http2_recv_priority(ctx);
+			return tfw_h2_recv_priority(ctx);
 		ctx->state = HTTP2_RECV_HEADER;
 		break;
 
@@ -871,13 +975,13 @@ tfw_http2_frame_pad_process(TfwHttp2Ctx *ctx)
  * since we should drop invalid frames/streams/connections as soon as
  * possible in order not to waste resources on their further processing.
  * The only exception is received HEADERS frame which state are processed
- * after full frame reception (see comments in @tfw_http2_headers_process()
+ * after full frame reception (see comments in @tfw_h2_headers_process()
  * procedure).
  */
 static int
-tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
+tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 {
-	TfwHttp2Err err_code = HTTP2_ECODE_SIZE;
+	TfwH2Err err_code = HTTP2_ECODE_SIZE;
 	TfwFrameHdr *hdr = &ctx->hdr;
 
 	T_DBG3("%s: hdr->type=%hhu, ctx->state=%d\n", __func__, hdr->type,
@@ -899,7 +1003,7 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 			goto conn_term;
 		}
 
-		ctx->cur_stream = tfw_http2_find_stream(&ctx->sched,
+		ctx->cur_stream = tfw_h2_find_stream(&ctx->sched,
 							hdr->stream_id);
 		/*
 		 * If stream is removed, it had been closed before, so this is
@@ -910,7 +1014,7 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 			goto conn_term;
 		}
 
-		if (tfw_http2_flow_control(ctx))
+		if (tfw_h2_flow_control(ctx))
 			return T_DROP;
 
 		STREAM_RECV_PROCESS(ctx, hdr);
@@ -918,7 +1022,7 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 		ctx->data_off = FRAME_HEADER_SIZE;
 
 		if (hdr->flags & HTTP2_F_PADDED)
-			return tfw_http2_recv_padded(ctx);
+			return tfw_h2_recv_padded(ctx);
 
 		SET_TO_READ_VERIFY(ctx, HTTP2_RECV_DATA);
 		return T_OK;
@@ -942,57 +1046,36 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 		 * streams (see comments for @TfwStreamState enum at the
 		 * beginning of http_stream.c).
 		 */
-		ctx->cur_stream = tfw_http2_find_stream(&ctx->sched,
+		ctx->cur_stream = tfw_h2_find_stream(&ctx->sched,
 							hdr->stream_id);
-		if (!ctx->cur_stream) {
-			/*
-			 * If stream ID is not greater than last processed ID,
-			 * there may be two reasons for that:
-			 * 1. Stream has been created, processed, closed and
-			 *    removed by now;
-			 * 2. Stream was never created and has been moved from
-			 *    idle to closed without processing (see RFC 7540
-			 *    section 5.1.1 for details).
-			 */
-			if (ctx->lstream_id >= hdr->stream_id) {
-				T_DBG("Invalid ID of new stream: %u stream is"
-				      " closed and removed, %u last initiated\n",
-				      hdr->stream_id, ctx->lstream_id);
-				err_code = HTTP2_ECODE_PROTO;
-				goto conn_term;
-			}
-			/*
-			 * Streams initiated by client must use odd-numbered
-			 * identifiers (see RFC 7540 section 5.1.1 for details).
-			 */
-			if (!(hdr->stream_id & 0x1)) {
-				T_DBG("Invalid ID of new stream: initiated by"
-				      " server\n");
-				err_code = HTTP2_ECODE_PROTO;
-				goto conn_term;
-			}
-			/*
-			 * Endpoints must not exceed the limit set by their peer
-			 * (see RFC 7540 section 5.1.2 for details).
-			 */
-			if (ctx->lsettings.max_streams <= ctx->streams_num) {
-				T_DBG("Max streams number exceeded: %lu\n",
-				      ctx->streams_num);
-				SET_TO_READ_VERIFY(ctx, HTTP2_IGNORE_FRAME_DATA);
-				return tfw_http2_stream_terminate(ctx,
-								  hdr->stream_id,
-								  NULL,
-								  HTTP2_ECODE_REFUSED);
-			}
+		/*
+		 * Endpoints must not exceed the limit set by their peer for
+		 * maximum number of concurrent streams (see RFC 7540 section
+		 * 5.1.2 for details).
+		 */
+		if (!ctx->cur_stream
+		    && ctx->lsettings.max_streams <= ctx->streams_num)
+		{
+			T_DBG("Max streams number exceeded: %lu\n",
+			      ctx->streams_num);
+			SET_TO_READ_VERIFY(ctx, HTTP2_IGNORE_FRAME_DATA);
+			return tfw_h2_stream_terminate(ctx, hdr->stream_id,
+						       NULL,
+						       HTTP2_ECODE_REFUSED);
+		}
+
+		if (tfw_h2_stream_id_verify(ctx)) {
+			err_code = HTTP2_ECODE_PROTO;
+			goto conn_term;
 		}
 
 		ctx->data_off = FRAME_HEADER_SIZE;
 
 		if (hdr->flags & HTTP2_F_PADDED)
-			return tfw_http2_recv_padded(ctx);
+			return tfw_h2_recv_padded(ctx);
 
 		if (hdr->flags & HTTP2_F_PRIORITY)
-			return tfw_http2_recv_priority(ctx);
+			return tfw_h2_recv_priority(ctx);
 
 		SET_TO_READ_VERIFY(ctx, HTTP2_RECV_HEADER);
 		return T_OK;
@@ -1003,11 +1086,11 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 			goto conn_term;
 		}
 
-		ctx->cur_stream = tfw_http2_find_stream(&ctx->sched,
+		ctx->cur_stream = tfw_h2_find_stream(&ctx->sched,
 							hdr->stream_id);
 		if (hdr->length != FRAME_PRIORITY_SIZE) {
 			SET_TO_READ(ctx);
-			return tfw_http2_stream_terminate(ctx, hdr->stream_id,
+			return tfw_h2_stream_terminate(ctx, hdr->stream_id,
 							  &ctx->cur_stream,
 							  HTTP2_ECODE_SIZE);
 		}
@@ -1032,7 +1115,7 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 		}
 
 		if (hdr->stream_id) {
-			ctx->cur_stream = tfw_http2_find_stream(&ctx->sched,
+			ctx->cur_stream = tfw_h2_find_stream(&ctx->sched,
 								hdr->stream_id);
 			if (!ctx->cur_stream) {
 				err_code = HTTP2_ECODE_CLOSED;
@@ -1059,7 +1142,7 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 		}
 
 		if (hdr->flags & HTTP2_F_ACK)
-			tfw_http2_settings_ack_process(ctx);
+			tfw_h2_settings_ack_process(ctx);
 
 		if (hdr->length) {
 			ctx->state = HTTP2_RECV_FRAME_SETTINGS;
@@ -1109,7 +1192,7 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 			goto conn_term;
 		}
 
-		ctx->cur_stream = tfw_http2_find_stream(&ctx->sched,
+		ctx->cur_stream = tfw_h2_find_stream(&ctx->sched,
 							hdr->stream_id);
 		if (!ctx->cur_stream) {
 			err_code = HTTP2_ECODE_CLOSED;
@@ -1149,7 +1232,7 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 			goto conn_term;
 		}
 
-		ctx->cur_stream = tfw_http2_find_stream(&ctx->sched,
+		ctx->cur_stream = tfw_h2_find_stream(&ctx->sched,
 							hdr->stream_id);
 		if (!ctx->cur_stream) {
 			err_code = HTTP2_ECODE_CLOSED;
@@ -1177,7 +1260,7 @@ tfw_http2_frame_type_process(TfwHttp2Ctx *ctx)
 
 conn_term:
 	BUG_ON(!err_code);
-	tfw_http2_conn_terminate(ctx, err_code);
+	tfw_h2_conn_terminate(ctx, err_code);
 	return T_DROP;
 }
 
@@ -1185,12 +1268,12 @@ conn_term:
  * Main FSM for processing HTTP/2 frames.
  */
 static int
-tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
-		     unsigned int *read)
+tfw_h2_frame_recv(void *data, unsigned char *buf, size_t len,
+		  unsigned int *read)
 {
 	int n, r = T_POSTPONE;
 	unsigned char *p = buf;
-	TfwHttp2Ctx *ctx = data;
+	TfwH2Ctx *ctx = data;
 	T_FSM_INIT(ctx->state, "HTTP/2 Frame Receive");
 
 	T_FSM_START(ctx->state) {
@@ -1206,8 +1289,8 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 			}
 		});
 
-		if (tfw_http2_send_settings_init(ctx)
-		    || tfw_http2_send_wnd_update(ctx, 0,
+		if (tfw_h2_send_settings_init(ctx)
+		    || tfw_h2_send_wnd_update(ctx, 0,
 						 MAX_WND_SIZE - DEF_WND_SIZE))
 		{
 			FRAME_FSM_EXIT(T_DROP);
@@ -1219,7 +1302,7 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 	T_FSM_STATE(HTTP2_RECV_FIRST_SETTINGS) {
 		FRAME_FSM_READ_SRVC(FRAME_HEADER_SIZE);
 
-		if (tfw_http2_first_settings_verify(ctx))
+		if (tfw_h2_first_settings_verify(ctx))
 			FRAME_FSM_EXIT(T_DROP);
 
 		if (ctx->to_read)
@@ -1231,9 +1314,9 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 	T_FSM_STATE(HTTP2_RECV_FRAME_HEADER) {
 		FRAME_FSM_READ_SRVC(FRAME_HEADER_SIZE);
 
-		tfw_http2_unpack_frame_header(&ctx->hdr, ctx->rbuf);
+		tfw_h2_unpack_frame_header(&ctx->hdr, ctx->rbuf);
 
-		if (tfw_http2_frame_type_process(ctx))
+		if (tfw_h2_frame_type_process(ctx))
 			FRAME_FSM_EXIT(T_DROP);
 
 		if (ctx->to_read)
@@ -1245,7 +1328,7 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 	T_FSM_STATE(HTTP2_RECV_FRAME_PADDED) {
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
-		if (tfw_http2_frame_pad_process(ctx))
+		if (tfw_h2_frame_pad_process(ctx))
 			FRAME_FSM_EXIT(T_DROP);
 
 		if (ctx->to_read)
@@ -1257,7 +1340,7 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 	T_FSM_STATE(HTTP2_RECV_FRAME_PRIORITY) {
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
-		if (tfw_http2_priority_process(ctx))
+		if (tfw_h2_priority_process(ctx))
 			FRAME_FSM_EXIT(T_DROP);
 
 		FRAME_FSM_EXIT(T_OK);
@@ -1266,7 +1349,7 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 	T_FSM_STATE(HTTP2_RECV_FRAME_WND_UPDATE) {
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
-		if (tfw_http2_wnd_update_process(ctx))
+		if (tfw_h2_wnd_update_process(ctx))
 			FRAME_FSM_EXIT(T_DROP);
 
 		FRAME_FSM_EXIT(T_OK);
@@ -1276,7 +1359,7 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
 		if (!(ctx->hdr.flags & HTTP2_F_ACK)
-		    && tfw_http2_send_ping(ctx))
+		    && tfw_h2_send_ping(ctx))
 		{
 			FRAME_FSM_EXIT(T_DROP);
 		}
@@ -1287,7 +1370,7 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 	T_FSM_STATE(HTTP2_RECV_FRAME_RST_STREAM) {
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
-		tfw_http2_rst_stream_process(ctx);
+		tfw_h2_rst_stream_process(ctx);
 
 		FRAME_FSM_EXIT(T_OK);
 	}
@@ -1295,13 +1378,13 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 	T_FSM_STATE(HTTP2_RECV_FRAME_SETTINGS) {
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
-		if (tfw_http2_settings_process(ctx))
+		if (tfw_h2_settings_process(ctx))
 			FRAME_FSM_EXIT(T_DROP);
 
 		if (ctx->to_read)
 			FRAME_FSM_MOVE(HTTP2_RECV_FRAME_SETTINGS);
 
-		if (tfw_http2_send_settings_ack(ctx))
+		if (tfw_h2_send_settings_ack(ctx))
 			FRAME_FSM_EXIT(T_DROP);
 
 		FRAME_FSM_EXIT(T_OK);
@@ -1310,7 +1393,7 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 	T_FSM_STATE(HTTP2_RECV_FRAME_GOAWAY) {
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
-		if (tfw_http2_goaway_process(ctx))
+		if (tfw_h2_goaway_process(ctx))
 			FRAME_FSM_EXIT(T_DROP);
 
 		if (ctx->to_read)
@@ -1322,7 +1405,7 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 	T_FSM_STATE(HTTP2_RECV_HEADER_PRI) {
 		FRAME_FSM_READ_SRVC(ctx->to_read);
 
-		if (tfw_http2_headers_pri_process(ctx))
+		if (tfw_h2_headers_pri_process(ctx))
 			FRAME_FSM_EXIT(T_DROP);
 
 		if (ctx->to_read)
@@ -1334,7 +1417,7 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 	T_FSM_STATE(HTTP2_RECV_DATA) {
 		FRAME_FSM_READ(ctx->to_read);
 
-		tfw_http2_check_closed_stream(ctx);
+		tfw_h2_check_closed_stream(ctx);
 
 		FRAME_FSM_EXIT(T_OK);
 	}
@@ -1342,7 +1425,7 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 	T_FSM_STATE(HTTP2_RECV_HEADER) {
 		FRAME_FSM_READ(ctx->to_read);
 
-		if (tfw_http2_headers_process(ctx))
+		if (tfw_h2_headers_process(ctx))
 			FRAME_FSM_EXIT(T_DROP);
 
 		FRAME_FSM_EXIT(T_OK);
@@ -1351,7 +1434,7 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
 	T_FSM_STATE(HTTP2_RECV_CONT) {
 		FRAME_FSM_READ(ctx->to_read);
 
-		tfw_http2_check_closed_stream(ctx);
+		tfw_h2_check_closed_stream(ctx);
 
 		FRAME_FSM_EXIT(T_OK);
 	}
@@ -1386,11 +1469,11 @@ tfw_http2_frame_recv(void *data, unsigned char *buf, size_t len,
  *    the frame will be fully received.
  */
 static inline void
-tfw_http2_context_reinit(TfwHttp2Ctx *ctx, bool postponed)
+tfw_h2_context_reinit(TfwH2Ctx *ctx, bool postponed)
 {
 	if (!APP_FRAME(ctx) || (!postponed && !ctx->padlen)) {
 		bzero_fast(ctx->__off,
-			   sizeof(*ctx) - offsetof(TfwHttp2Ctx, __off));
+			   sizeof(*ctx) - offsetof(TfwH2Ctx, __off));
 		return;
 	}
 	if (!postponed && ctx->padlen) {
@@ -1401,12 +1484,12 @@ tfw_http2_context_reinit(TfwHttp2Ctx *ctx, bool postponed)
 }
 
 int
-tfw_http2_frame_process(void *c, TfwFsmData *data)
+tfw_h2_frame_process(void *c, TfwFsmData *data)
 {
 	int r;
 	unsigned int unused, curr_tail;
 	TfwFsmData data_up = {};
-	TfwHttp2Ctx *h2 = tfw_http2_context(c);
+	TfwH2Ctx *h2 = tfw_h2_context(c);
 	struct sk_buff *nskb = NULL, *skb = data->skb;
 	unsigned int parsed = 0, off = data->off, tail = data->trail;
 
@@ -1415,7 +1498,7 @@ tfw_http2_frame_process(void *c, TfwFsmData *data)
 
 next_msg:
 	ss_skb_queue_tail(&h2->skb_head, skb);
-	r = ss_skb_process(skb, off, tail, tfw_http2_frame_recv, h2, &unused,
+	r = ss_skb_process(skb, off, tail, tfw_h2_frame_recv, h2, &unused,
 			   &parsed);
 
 	curr_tail = off + parsed + tail < skb->len ? 0 : tail;
@@ -1512,7 +1595,7 @@ next_msg:
 		ss_skb_queue_purge(&h2->skb_head);
 	}
 
-	tfw_http2_context_reinit(h2, r == T_POSTPONE);
+	tfw_h2_context_reinit(h2, r == T_POSTPONE);
 
 	if (nskb) {
 		skb = nskb;
@@ -1525,25 +1608,4 @@ next_msg:
 out:
 	ss_skb_queue_purge(&h2->skb_head);
 	return r;
-}
-
-void
-tfw_http2_init(TfwHttp2Ctx *ctx)
-{
-	TfwSettings *lset = &ctx->lsettings;
-	TfwSettings *rset = &ctx->rsettings;
-
-	lset->hdr_tbl_sz = rset->hdr_tbl_sz = 1 << 12;
-	lset->push = rset->push = 1;
-	lset->max_streams = rset->max_streams = 0xffffffff;
-	lset->max_frame_sz = rset->max_frame_sz = 1 << 14;
-	lset->max_lhdr_sz = rset->max_lhdr_sz = UINT_MAX;
-	/*
-	 * We ignore client's window size until #498, so currently
-	 * we set it to maximum allowed value.
-	 */
-	lset->wnd_sz = rset->wnd_sz = MAX_WND_SIZE;
-
-	ctx->state = HTTP2_RECV_CLI_START_SEQ;
-	ctx->loc_wnd = MAX_WND_SIZE;
 }
