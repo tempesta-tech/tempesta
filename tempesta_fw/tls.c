@@ -698,8 +698,8 @@ do {								\
 	if (unlikely(!protos))
 		return -ENOMEM;
 
-	/* Currently HTTP/2 protocol is default option. */
-	PROTO_INIT(0, HTTP2);
+	/* Currently HTTP/1.1 protocol is default option. */
+	PROTO_INIT(0, HTTP1);
 	tfw_tls.cfg.alpn_list = protos;
 
 	if (len == CONF_HTTPS_LEN)
