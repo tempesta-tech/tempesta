@@ -87,7 +87,7 @@
  * conditional branches. However, they may load unnecessary data is the first
  * 32 bytes contain non-matching data.
  *
- * Fall back to slow dummy C implementations if there is no AVX2.
+ * Fall back to slow legacy C implementations if there is no AVX2.
  * ------------------------------------------------------------------------
  */
 size_t tfw_match_uri(const char *s, size_t len);
