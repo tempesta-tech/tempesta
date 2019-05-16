@@ -80,7 +80,7 @@
 /* Destination buffer is too small. */
 #define TTLS_ERR_X509_BUFFER_TOO_SMALL			-0x2980
 /*
- * A fatal error occured, eg the chain is too long or the vrfy callback
+ * A fatal error occurred, eg the chain is too long or the vrfy callback
  * failed.
  */
 #define TTLS_ERR_X509_FATAL_ERROR			-0x3000
@@ -246,7 +246,7 @@ int ttls_x509_serial_gets(char *buf, size_t size, const ttls_x509_buf *serial);
  *
  * \param to	   ttls_x509_time to check
  *
- * \return		 1 if the given time is in the past or an error occured,
+ * \return		 1 if the given time is in the past or an error occurred,
  *				 0 otherwise.
  */
 int ttls_x509_time_is_past(const ttls_x509_time *to);
@@ -260,8 +260,8 @@ int ttls_x509_time_is_past(const ttls_x509_time *to);
  *
  * \param from	 ttls_x509_time to check
  *
- * \return		 1 if the given time is in the future or an error occured,
- *				 0 otherwise.
+ * \return		 1 if the given time is in the future or an error
+ *			 occurred, 0 otherwise.
  */
 int ttls_x509_time_is_future(const ttls_x509_time *from);
 

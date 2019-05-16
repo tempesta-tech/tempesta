@@ -418,7 +418,7 @@ struct ttls_config
  * @rlen	- read bytes of the message body so far;
  * @skb_list	- list of skbs attached to the current I/O context;
  * @off		- data offset within @skb_list, can be after the 1st skb;
- * @chunks	- number of contigious memory chunks in all skbs in @skb_list;
+ * @chunks	- number of contiguous memory chunks in all skbs in @skb_list;
  */
 typedef struct {
 	unsigned long	ctr;
@@ -676,7 +676,7 @@ void ttls_conf_ca_chain(ttls_config *conf,
  *		provision more than one cert/key pair (eg one ECDSA, one
  *		RSA with SHA-256, one RSA with SHA-1). An adequate
  *		certificate will be selected according to the client's
- *		advertised capabilities. In case mutliple certificates are
+ *		advertised capabilities. In case multiple certificates are
  *		adequate, preference is given to the one set by the first
  *		call to this function, then second, etc.
  *

@@ -166,7 +166,7 @@ int ttls_ecdh_read_params(ttls_ecdh_context *ctx,
  * \brief		   This function sets up an ECDH context from an EC key.
  *
  *				  It is used by clients and servers in place of the
- *				  ServerKeyEchange for static ECDH, and imports ECDH
+ *				  ServerKeyExchange for static ECDH, and imports ECDH
  *				  parameters from the EC key information of a certificate.
  *
  * \param ctx	   The ECDH context to set up.

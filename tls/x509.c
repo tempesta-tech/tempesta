@@ -87,7 +87,7 @@ int ttls_x509_get_alg_null(unsigned char **p, const unsigned char *end,
 }
 
 /*
- * Parse an algorithm identifier with (optional) paramaters
+ * Parse an algorithm identifier with (optional) parameters
  */
 int ttls_x509_get_alg(unsigned char **p, const unsigned char *end,
 				  ttls_x509_buf *alg, ttls_x509_buf *params)

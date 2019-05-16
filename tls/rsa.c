@@ -5,7 +5,7 @@
  *
  * TODO #1064: The Linux crypt API already has RSA implementation, so probably
  * the stuff below should be just thrown out. Fallback to GPU is necessary
- * however, so maybe not... A careful rethinking is requiered.
+ * however, so maybe not... A careful rethinking is required.
  *
  * The following sources were referenced in the design of this implementation
  * of the RSA algorithm:
@@ -436,12 +436,12 @@ int ttls_rsa_export_crt(const ttls_rsa_context *ctx,
  * scheme and the RSASSA-PSS signature scheme. The choice of padding mode is
  * strictly enforced for private key operations, since there might be security
  * concerns in mixing padding modes. For public key operations it is a default
- * value, which can be overriden by calling specific rsa_rsaes_xxx or
+ * value, which can be overridden by calling specific rsa_rsaes_xxx or
  * rsa_rsassa_xxx functions.
  *
  * The hash selected in hash_id is always used for OEAP encryption. For PSS
- * signatures, it is always used for making signatures, but can be overriden
- * for verifying them. If set to TTLS_MD_NONE, it is always overriden.
+ * signatures, it is always used for making signatures, but can be overridden
+ * for verifying them. If set to TTLS_MD_NONE, it is always overridden.
  */
 void
 ttls_rsa_init(ttls_rsa_context *ctx, int padding, int hash_id)

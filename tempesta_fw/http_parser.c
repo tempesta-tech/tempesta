@@ -111,7 +111,7 @@ do {									\
 
 #define __FSM_START(s)							\
 T_DBG3("enter FSM at state %pK\n", s);					\
-if (s)									\
+if (unlikely(s))							\
 	goto *s; /* Fall through to the first state otherwise. */
 
 #define __FSM_START_ALT(s)						\
@@ -1036,6 +1036,7 @@ __FSM_STATE(RGen_BodyInit) {						\
 	 * responses w/o lengths. Refer issues #534 and #498 for more	\
 	 * information.							\
 	 */								\
+	__set_bit(TFW_HTTP_B_UNLIMITED, msg->flags);			\
 	__FSM_MOVE_nofixup(Resp_BodyUnlimStart);			\
 no_body:								\
 	msg->body.flags |= TFW_STR_COMPLETE;				\
@@ -1045,7 +1046,6 @@ no_body:								\
 
 #define TFW_HTTP_PARSE_BODY_UNLIM()					\
 __FSM_STATE(Resp_BodyUnlimStart) {					\
-	__set_bit(TFW_HTTP_B_UNLIMITED, msg->flags);			\
 	tfw_http_msg_set_str_data(msg, &msg->body, p);			\
 	/* fall through */						\
 }									\
@@ -1148,18 +1148,6 @@ __FSM_STATE(RGen_OWS) {							\
 	goto *parser->state;						\
 }
 
-/*
- * Save parsed data to list of raw hop-by-hop headers if data doesn't match
- * to @name and do @lambda otherwize
-*/
-#define TRY_HBH_TOKEN(name, curr_st, lambda)				\
-	TRY_STR_LAMBDA_finish(name, lambda, {				\
-			if (__hbh_parser_add_data(hm, data, len, false))\
-				r = CSTR_NEQ;				\
-			else						\
-				parser->_i_st = &&curr_st;		\
-		}, I_ConnTok)
-
 /**
  * Parse Connection header value, RFC 7230 6.1.
  *
@@ -1180,6 +1168,18 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 	__FSM_START(parser->_i_st);
 
+/*
+ * Save parsed data to list of raw hop-by-hop headers if data doesn't match
+ * to @name and do @lambda otherwize
+*/
+#define TRY_CONN_TOKEN(name, lambda)					\
+	TRY_STR_LAMBDA_finish(name, lambda, {				\
+			if (__hbh_parser_add_data(hm, data, len, false))\
+				r = CSTR_NEQ;				\
+			else						\
+				parser->_i_st = &&I_Conn;		\
+		}, I_ConnTok)
+
 	/*
 	 * Connection header lists either boolean connection tokens or
 	 * names of hop-by-hop headers.
@@ -1197,26 +1197,25 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_STATE(I_Conn) {
 		WARN_ON_ONCE(parser->_acc);
 		/* Boolean connection tokens */
-		TRY_HBH_TOKEN("close", I_Conn, {
-			parser->_acc = TFW_HTTP_B_CONN_CLOSE;
+		TRY_CONN_TOKEN("close", {
+			__set_bit(TFW_HTTP_B_CONN_CLOSE, &parser->_acc);
 		});
 		/* Spec headers */
-		TRY_HBH_TOKEN("keep-alive", I_Conn, {
-			parser->_acc = TFW_HTTP_B_CONN_KA;
-		})
+		TRY_CONN_TOKEN("keep-alive", {
+			__set_bit(TFW_HTTP_B_CONN_KA, &parser->_acc);
+		});
 		TRY_STR_INIT();
 		__FSM_I_JMP(I_ConnOther);
 	}
+#undef TRY_CONN_TOKEN
 
 	__FSM_STATE(I_ConnTok) {
 		WARN_ON_ONCE(!parser->_acc);
 
-		if (!IS_WS(c) && c != ',' && !IS_CRLF(c)) {
-			parser->_acc = 0;
+		if (!IS_WS(c) && c != ',' && !IS_CRLF(c))
 			__FSM_I_JMP(I_ConnOther);
-		}
 
-		if (parser->_acc == TFW_HTTP_B_CONN_KA) {
+		if (test_bit(TFW_HTTP_B_CONN_KA, &parser->_acc)) {
 			unsigned int hid = TFW_HTTP_HDR_KEEP_ALIVE;
 
 			if (test_bit(TFW_HTTP_B_CONN_CLOSE, msg->flags))
@@ -1225,16 +1224,14 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 			parser->hbh_parser.spec |= 0x1 << hid;
 			if (!TFW_STR_EMPTY(&msg->h_tbl->tbl[hid]))
-				msg->h_tbl->tbl[hid].flags
-					|= TFW_STR_HBH_HDR;
+				msg->h_tbl->tbl[hid].flags |= TFW_STR_HBH_HDR;
 		}
-		else if (parser->_acc == TFW_HTTP_B_CONN_CLOSE) {
+		else if (test_bit(TFW_HTTP_B_CONN_CLOSE, &parser->_acc)) {
 			if (test_bit(TFW_HTTP_B_CONN_KA, msg->flags))
 				return CSTR_NEQ;
 			__set_bit(TFW_HTTP_B_CONN_CLOSE, msg->flags);
 		}
 
-		parser->_acc = 0;
 		__FSM_I_JMP(I_EoT);
 	}
 
@@ -1255,8 +1252,10 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 			return  CSTR_NEQ;
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE_n(I_EoT, __fsm_sz + 1);
-		if (IS_CRLF(c))
+		if (IS_CRLF(c)) {
+			parser->_acc = 0;
 			return __data_off(p + __fsm_sz);
+		}
 		return CSTR_NEQ;
 	}
 
@@ -1264,6 +1263,9 @@ __parse_connection(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_STATE(I_EoT) {
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE(I_EoT);
+
+		parser->_acc = 0; /* reinit for next token */
+
 		if (IS_TOKEN(c))
 			__FSM_I_JMP(I_Conn);
 		if (IS_CRLF(c))
@@ -1919,10 +1921,8 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		WARN_ON_ONCE(!parser->_acc);
 		if (IS_WS(c) || c == ',' || IS_CRLF(c)) {
 			req->cache_ctl.flags |= parser->_acc;
-			parser->_acc = 0;
 			__FSM_I_JMP(Req_I_EoT);
 		}
-		parser->_acc = 0;
 		__FSM_I_JMP(Req_I_CC_Ext);
 	}
 
@@ -1938,7 +1938,6 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		}
 		req->cache_ctl.max_age = parser->_acc;
 		req->cache_ctl.flags |= TFW_HTTP_CC_MAX_AGE;
-		parser->_acc = 0;
 		__FSM_I_MOVE_n(Req_I_EoT, __fsm_n);
 	}
 
@@ -1954,7 +1953,6 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		}
 		req->cache_ctl.min_fresh = parser->_acc;
 		req->cache_ctl.flags |= TFW_HTTP_CC_MIN_FRESH;
-		parser->_acc = 0;
 		__FSM_I_MOVE_n(Req_I_EoT, __fsm_n);
 	}
 
@@ -1981,7 +1979,6 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		}
 		req->cache_ctl.max_stale = parser->_acc;
 		req->cache_ctl.flags |= TFW_HTTP_CC_MAX_STALE;
-		parser->_acc = 0;
 		__FSM_I_MOVE_n(Req_I_EoT, __fsm_n);
 	}
 
@@ -1991,8 +1988,10 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 		c = *(p + __fsm_sz);
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE_n(Req_I_EoT, __fsm_sz + 1);
-		if (IS_CRLF(c))
+		if (IS_CRLF(c)) {
+			parser->_acc = 0;
 			return __data_off(p + __fsm_sz);
+		}
 		return CSTR_NEQ;
 	}
 
@@ -2000,6 +1999,9 @@ __req_parse_cache_control(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_EoT) {
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE(Req_I_EoT);
+
+		parser->_acc = 0; /* reinit for next token */
+
 		if (IS_TOKEN(c))
 			__FSM_I_JMP(Req_I_CC);
 		if (IS_CRLF(c))
@@ -2396,8 +2398,10 @@ __parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		/* Parse a 2-digit day. */
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
-		if (__fsm_n == CSTR_POSTPONE)
+		if (__fsm_n == CSTR_POSTPONE) {
+			parser->_i_st = &&I_DateDay;
 			__msg_hdr_chunk_fixup(data, len);
+		}
 		if (__fsm_n < 0)
 			return __fsm_n;
 		if (parser->_acc < 1 || parser->_acc > 31)
@@ -2493,8 +2497,10 @@ __parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_STATE(I_DateYear) {
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
-		if (__fsm_n == CSTR_POSTPONE)
+		if (__fsm_n == CSTR_POSTPONE) {
+			parser->_i_st = &&I_DateYear;
 			__msg_hdr_chunk_fixup(data, len);
+		}
 		if (__fsm_n < 0)
 			return __fsm_n;
 		parser->_date = __year_day_secs(parser->_acc, parser->_date);
@@ -2513,8 +2519,10 @@ __parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_STATE(I_DateHour) {
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_acc);
-		if (__fsm_n == CSTR_POSTPONE)
+		if (__fsm_n == CSTR_POSTPONE) {
+			parser->_i_st = &&I_DateHour;
 			__msg_hdr_chunk_fixup(data, len);
+		}
 		if (__fsm_n < 0)
 			return __fsm_n;
 		parser->_date += parser->_acc * 3600;
@@ -2531,8 +2539,10 @@ __parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_STATE(I_DateMin) {
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_acc);
-		if (__fsm_n == CSTR_POSTPONE)
+		if (__fsm_n == CSTR_POSTPONE) {
+			parser->_i_st = &&I_DateMin;
 			__msg_hdr_chunk_fixup(data, len);
+		}
 		if (__fsm_n < 0)
 			return __fsm_n;
 		parser->_date += parser->_acc * 60;
@@ -2549,8 +2559,10 @@ __parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_STATE(I_DateSec) {
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
-		if (__fsm_n == CSTR_POSTPONE)
+		if (__fsm_n == CSTR_POSTPONE) {
+			parser->_i_st = &&I_DateSec;
 			__msg_hdr_chunk_fixup(data, len);
+		}
 		if (__fsm_n < 0)
 			return __fsm_n;
 		parser->_date += parser->_acc;
@@ -2602,6 +2614,7 @@ __req_parse_if_msince(TfwHttpMsg *msg, unsigned char *data, size_t len)
 	if (r < 0 && r != CSTR_POSTPONE) {
 		/* On error just swallow the rest of the line. */
 		parser->_date = 0;
+		parser->_acc = 0;
 		parser->_i_st = __I_EoL;
 		r = __parse_http_date(msg, data, len);
 	}
@@ -3997,6 +4010,7 @@ __resp_parse_age(TfwHttpResp *resp, unsigned char *data, size_t len)
 		parser->_acc = 0;
 		__FSM_I_MOVE_n(Resp_I_EoL, __fsm_n);
 	}
+
 	__FSM_STATE(Resp_I_EoL) {
 		if (IS_WS(c))
 			__FSM_I_MOVE(Resp_I_EoL);
@@ -4082,7 +4096,6 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 			parser->_acc = 0;
 			__FSM_I_JMP(Resp_I_EoT);
 		}
-		parser->_acc = 0;
 		__FSM_I_JMP(Resp_I_Ext);
 	}
 
@@ -4108,7 +4121,6 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		}
 		resp->cache_ctl.max_age = parser->_acc;
 		resp->cache_ctl.flags |= TFW_HTTP_CC_MAX_AGE;
-		parser->_acc = 0;
 		__FSM_I_MOVE_n(Resp_I_EoT, __fsm_n);
 	}
 
@@ -4128,7 +4140,6 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		}
 		resp->cache_ctl.s_maxage = parser->_acc;
 		resp->cache_ctl.flags |= TFW_HTTP_CC_S_MAXAGE;
-		parser->_acc = 0;
 		__FSM_I_MOVE_n(Resp_I_EoT, __fsm_n);
 	}
 
@@ -4138,8 +4149,10 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		c = *(p + __fsm_sz);
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE_n(Resp_I_EoT, __fsm_sz + 1);
-		if (IS_CRLF(c))
+		if (IS_CRLF(c)) {
+			parser->_acc = 0;
 			return __data_off(p + __fsm_sz);
+		}
 		return CSTR_NEQ;
 	}
 
@@ -4147,6 +4160,9 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 	__FSM_STATE(Resp_I_EoT) {
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE(Resp_I_EoT);
+
+		parser->_acc = 0; /* reinit for next token */
+
 		/*
 		 * TODO
 		 * - For the time being we don't support field values for
@@ -4193,6 +4209,7 @@ __resp_parse_expires(TfwHttpMsg *msg, unsigned char *data, size_t len)
 		 * @resp->expires is set to zero - already expired.
 		 */
 		parser->_date = 0;
+		parser->_acc = 0;
 		parser->_i_st = __I_EoL;
 		r = __parse_http_date(msg, data, len);
 	}
@@ -4221,6 +4238,7 @@ __resp_parse_date(TfwHttpMsg *msg, unsigned char *data, size_t len)
 		 * @resp->expires is set to zero - already expired.
 		 */
 		parser->_date = 0;
+		parser->_acc = 0;
 		parser->_i_st = __I_EoL;
 		r = __parse_http_date(msg, data, len);
 	}
@@ -4249,6 +4267,7 @@ __resp_parse_if_modified(TfwHttpMsg *msg, unsigned char *data, size_t len)
 		 * @resp->expires is set to zero - already expired.
 		 */
 		parser->_date = 0;
+		parser->_acc = 0;
 		parser->_i_st = __I_EoL;
 		r = __parse_http_date(msg, data, len);
 	}

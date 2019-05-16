@@ -10,7 +10,7 @@ Meantime, the database has much lower overhead for data transport in comparison
 with client-server databases. The library should be considered as an embedded
 database.
 
-The database is designed to work in deffered interrupt context, so it doesn't
+The database is designed to work in deferred interrupt context, so it doesn't
 sleep on read or write operations.
 
 Fixed and variable length records can be stored. However, fixed size records
