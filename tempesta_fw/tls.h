@@ -38,7 +38,12 @@ enum {
 	TFW_TLS_FSM_DONE	= TFW_GFSM_TLS_STATE(TFW_GFSM_STATE_LAST)
 };
 
+#define TFW_CONN_H2(c)							\
+	(tfw_tls_context(c)->alpn_chosen->id == TTLS_ALPN_ID_HTTP2)
+
 void tfw_tls_cfg_require(void);
+int tfw_tls_cfg_alpn_protos(const char *cfg_str);
+void tfw_tls_free_alpn_protos(void);
 int tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit);
 
 #endif /* __TFW_TLS_H__ */

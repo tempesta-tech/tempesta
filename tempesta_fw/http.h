@@ -507,6 +507,7 @@ typedef void (*tfw_http_cache_cb_t)(TfwHttpMsg *);
 
 /* External HTTP functions. */
 int tfw_http_msg_process(void *conn, TfwFsmData *data);
+int tfw_http_msg_process_generic(void *conn, TfwFsmData *data);
 unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
 void tfw_http_req_destruct(void *msg);
 void tfw_http_resp_fwd(TfwHttpResp *resp);

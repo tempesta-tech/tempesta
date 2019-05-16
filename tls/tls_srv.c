@@ -308,14 +308,13 @@ ttls_parse_session_ticket_ext(TlsCtx *tls, unsigned char *buf, size_t len)
 static int
 ttls_parse_alpn_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 {
-	size_t list_len, cur_len, ours_len;
+	int i;
+	size_t list_len, cur_len;
 	const unsigned char *theirs, *start, *end;
-	const char **ours;
+	const ttls_alpn_proto *our, *alpn_list = tls->conf->alpn_list;
 
-	/* If ALPN not configured, just ignore the extension */
-	/* TODO #309 #834 confugure on Tempesta side: "h2, http/1.1" */
-	if (!tls->conf->alpn_list)
-		return 0;
+	/* If TLS processing is enabled, ALPN must be configured. */
+	BUG_ON(!alpn_list);
 
 	/*
 	 * opaque ProtocolName<1..2^8-1>;
@@ -361,16 +360,13 @@ ttls_parse_alpn_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 	}
 
 	/* Use our order of preference. */
-	for (ours = tls->conf->alpn_list; *ours; ours++) {
-		/* TODO store the string length to avoid strlen(). */
-		ours_len = strlen(*ours);
-		WARN_ON_ONCE(ours_len > 32);
+	for (i = 0; i < TTLS_ALPN_PROTOS && alpn_list[i].name; ++i) {
+		our = &alpn_list[i];
+		WARN_ON_ONCE(our->len > 32);
 		for (theirs = start; theirs != end; theirs += cur_len) {
 			cur_len = *theirs++;
-			if (cur_len == ours_len
-			    && !memcmp_fast(theirs, *ours, cur_len))
-			{
-				tls->alpn_chosen = *ours;
+			if (ttls_alpn_ext_eq(our, theirs, cur_len)) {
+				tls->alpn_chosen = our;
 				return 0;
 			}
 		}
@@ -1131,7 +1127,7 @@ ttls_write_alpn_ext(TlsCtx *tls, unsigned char *p, size_t *olen)
 	 */
 	*(unsigned short *)p = htons(TTLS_TLS_EXT_ALPN);
 
-	*olen = 7 + strlen(tls->alpn_chosen);
+	*olen = 7 + tls->alpn_chosen->len;
 
 	p[2] = (unsigned char)(((*olen - 4) >> 8) & 0xFF);
 	p[3] = (unsigned char)((*olen - 4) & 0xFF);
@@ -1139,7 +1135,7 @@ ttls_write_alpn_ext(TlsCtx *tls, unsigned char *p, size_t *olen)
 	p[5] = (unsigned char)((*olen - 6) & 0xFF);
 	p[6] = (unsigned char)((*olen - 7) & 0xFF);
 
-	memcpy_fast(p + 7, tls->alpn_chosen, *olen - 7);
+	memcpy_fast(p + 7, tls->alpn_chosen->name, *olen - 7);
 }
 
 static int

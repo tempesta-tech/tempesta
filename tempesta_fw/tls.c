@@ -24,6 +24,7 @@
 #include "client.h"
 #include "msg.h"
 #include "procfs.h"
+#include "http_frame.h"
 #include "tls.h"
 
 static struct {
@@ -498,6 +499,7 @@ tfw_tls_conn_dtor(void *c)
 {
 	struct sk_buff *skb;
 	TlsCtx *tls = tfw_tls_context(c);
+	TfwH2Ctx *h2 = tfw_h2_context(c);
 
 	if (tls) {
 		while ((skb = ss_skb_dequeue(&tls->io_in.skb_list)))
@@ -506,6 +508,7 @@ tfw_tls_conn_dtor(void *c)
 			kfree_skb(skb);
 	}
 
+	tfw_h2_context_clear(h2);
 	ttls_ctx_clear(tls);
 	tfw_cli_conn_release((TfwCliConn *)c);
 }
@@ -515,6 +518,7 @@ tfw_tls_conn_init(TfwConn *c)
 {
 	int r;
 	TlsCtx *tls = tfw_tls_context(c);
+	TfwH2Ctx *h2 = tfw_h2_context(c);
 
 	if ((r = ttls_ctx_init(tls, &tfw_tls.cfg))) {
 		TFW_ERR("TLS (%pK) setup failed (%x)\n", tls, -r);
@@ -523,6 +527,8 @@ tfw_tls_conn_init(TfwConn *c)
 
 	if (tfw_conn_hook_call(TFW_FSM_HTTP, c, conn_init))
 		return -EINVAL;
+
+	tfw_h2_context_init(h2);
 
 	tfw_gfsm_state_init(&c->state, c, TFW_TLS_FSM_INIT);
 
@@ -664,6 +670,92 @@ void
 tfw_tls_cfg_require(void)
 {
 	tfw_tls_cgf |= TFW_TLS_CFG_F_REQUIRED;
+}
+
+int
+tfw_tls_cfg_alpn_protos(const char *cfg_str)
+{
+	ttls_alpn_proto *protos;
+	size_t len = strlen(cfg_str);
+
+#define CONF_HTTPS		"https"
+#define CONF_HTTP1		TTLS_ALPN_HTTP1
+#define CONF_HTTP2		TTLS_ALPN_HTTP2
+#define CONF_HTTPS_LEN		(sizeof(CONF_HTTPS) - 1)
+#define CONF_HTTP1_LEN		(sizeof(CONF_HTTP1) - 1)
+#define CONF_HTTP2_LEN		(sizeof(CONF_HTTP2) - 1)
+#define PROTO_INIT(order, proto)				\
+do {								\
+	protos[order].name = TTLS_ALPN_##proto;			\
+	protos[order].len = sizeof(TTLS_ALPN_##proto) - 1;	\
+	protos[order].id = TTLS_ALPN_ID_##proto;		\
+} while (0)
+
+	if (strncasecmp(cfg_str, CONF_HTTPS, CONF_HTTPS_LEN))
+		return -EINVAL;
+
+	protos = kzalloc(TTLS_ALPN_PROTOS * sizeof(ttls_alpn_proto), GFP_ATOMIC);
+	if (unlikely(!protos))
+		return -ENOMEM;
+
+	/* Currently HTTP/1.1 protocol is default option. */
+	PROTO_INIT(0, HTTP1);
+	tfw_tls.cfg.alpn_list = protos;
+
+	if (len == CONF_HTTPS_LEN)
+		return 0;
+
+	cfg_str += CONF_HTTPS_LEN;
+	if (cfg_str[0] != ':')
+		goto err;
+
+	++cfg_str;
+	len -= CONF_HTTPS_LEN + 1;
+	if (len >= CONF_HTTP2_LEN
+	    && !strncasecmp(cfg_str, CONF_HTTP2, CONF_HTTP2_LEN))
+	{
+		cfg_str += CONF_HTTP2_LEN;
+		len -= CONF_HTTP2_LEN;
+		if (!len)
+			return 0;
+		if (cfg_str[0] == ',' && !strcasecmp(++cfg_str, CONF_HTTP1)) {
+			PROTO_INIT(1, HTTP1);
+			return 0;
+		}
+	}
+	else if (len >= CONF_HTTP1_LEN
+		 && !strncasecmp(cfg_str, CONF_HTTP1, CONF_HTTP1_LEN))
+	{
+		PROTO_INIT(0, HTTP1);
+		cfg_str += CONF_HTTP1_LEN;
+		len -= CONF_HTTP1_LEN;
+		if (!len)
+			return 0;
+		if (cfg_str[0] == ','  && !strcasecmp(++cfg_str, CONF_HTTP2)) {
+			PROTO_INIT(1, HTTP2);
+			return 0;
+		}
+	}
+
+err:
+	tfw_tls.cfg.alpn_list = NULL;
+	kfree(protos);
+
+	return -EINVAL;
+#undef CONF_HTTPS
+#undef CONF_HTTP1
+#undef CONF_HTTP2
+#undef CONF_LEN
+#undef PROTO_INIT
+}
+
+void
+tfw_tls_free_alpn_protos(void)
+{
+	if (tfw_tls.cfg.alpn_list) {
+		kfree(tfw_tls.cfg.alpn_list);
+		tfw_tls.cfg.alpn_list = NULL;
+	}
 }
 
 static int
@@ -854,16 +946,23 @@ tfw_tls_init(void)
 
 	ttls_register_bio(tfw_tls_send);
 
-	r = tfw_gfsm_register_fsm(TFW_FSM_TLS, tfw_tls_msg_process);
-	if (r) {
-		tfw_tls_do_cleanup();
-		return -EINVAL;
-	}
+	if ((r = tfw_h2_init()))
+		goto err_h2;
+
+	if ((r = tfw_gfsm_register_fsm(TFW_FSM_TLS, tfw_tls_msg_process)))
+		goto err_fsm;
 
 	tfw_connection_hooks_register(&tls_conn_hooks, TFW_FSM_TLS);
 	tfw_mod_register(&tfw_tls_mod);
 
 	return 0;
+
+err_fsm:
+	tfw_h2_cleanup();
+err_h2:
+	tfw_tls_do_cleanup();
+
+	return r;
 }
 
 void
@@ -872,5 +971,6 @@ tfw_tls_exit(void)
 	tfw_mod_unregister(&tfw_tls_mod);
 	tfw_connection_hooks_unregister(TFW_FSM_TLS);
 	tfw_gfsm_unregister_fsm(TFW_FSM_TLS);
+	tfw_h2_cleanup();
 	tfw_tls_do_cleanup();
 }
