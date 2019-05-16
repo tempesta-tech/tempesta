@@ -24,6 +24,7 @@
 #include <linux/linkage.h>
 #include <asm/alternative-asm.h>
 #include <asm/export.h>
+#include <asm/nospec-branch.h>
 
 #define CASE	0x2020202020202020
 
@@ -360,25 +361,31 @@ dbg_prefix_vec:
  *	DPRN_V	%rcx
 	vlddqu	(%rcx), %xmm15
  */
-.macro DPRN_V	R
+.macro DPRN_V	R:req
 	push	%rax
+	push	%rcx
+	push	%rdx
 	push	%rdi
 	push	%rsi
-	push	%rdx
-	push	%rcx
 	push	%r8
 	push	%r9
+	push	%r10
+	push	%r11
+	push	%elfags
 
 	movq	$dbg_prefix_vec, %rdi
 	movq	\R, %rsi
 	call	tfw_dbg_vprint32
 
+	pop	%eflags
+	pop	%r11
+	pop	%r10
 	pop	%r9
 	pop	%r8
-	pop	%rcx
-	pop	%rdx
 	pop	%rsi
 	pop	%rdi
+	pop	%rdx
+	pop	%rcx
 	pop	%rax
 .endm
 
@@ -387,7 +394,7 @@ dbg_prefix_vec:
  * Can be used to any size registers, but top bytes for small register will
  * contain zeros from stack.
  */
-.macro __DPRN_R	R MOV
+.macro __DPRN_R	R:req MOV:req
 	push	%rsi
 	push	%rdi
 	subq	$64, %rsp
@@ -413,11 +420,11 @@ dbg_prefix_vec:
 	pop	%rsi
 .endm
 
-.macro DPRN_VR	R
+.macro DPRN_VR	R:req
 	__DPRN_R \R vmovaps
 .endm
 
-.macro DPRN_R	R
+.macro DPRN_R	R:req
 	/* Use RAX as temporary storage in R is either RSI or RDI. */
 	push	%rax
 	movq	\R, %rax
@@ -428,13 +435,13 @@ dbg_prefix_vec:
 .endm
 #endif
 
-.macro __STRTOLOWER_SMALL_STR	SZ
+.macro __STRTOLOWER_SMALL_STR	SZ:req
 	movzbl	\SZ(%rsi), %eax
 	movzbl	__tfw_lct(%rax), %eax
 	movb	%al, \SZ(%rdi)
 .endm
 
-.macro __STRTOLOWER_TEST_LEN	SZ R1 R2 L
+.macro __STRTOLOWER_TEST_LEN	SZ:req R1:req R2:req L:req
 	leal	\SZ(%rax), \R1
 	movslq	\R1, \R2
 	cmpq	\R2, %rdx
@@ -476,6 +483,11 @@ ENTRY(__tfw_strtolower_avx2)
 	cmpq	$8, %rdx
 	ja	.str2low_test_len128
 	movq	.str2low_switch(,%rdx,8), %rax
+	/*
+	 * The code is Spectre-safe since we check the array bounds against
+	 * a constant and there is no speculation required for the attack.
+	 */
+	ANNOTATE_RETPOLINE_SAFE
 	jmpq	*%rax
 .section .rodata
 .align	8
@@ -618,21 +630,13 @@ ENTRY(__tfw_strtolower_avx2)
 
 .str2low_tolower8:
 	movq	(%rsi,%r11), %rax
-	movq	%r9, -88(%rbp)
-	movq	-88(%rbp), %mm2
-	movq	%r8, -88(%rbp)
-	movq	-88(%rbp), %mm1
-	movq	%rax, -72(%rbp)
-	movq	-72(%rbp), %mm0
+	movq	%r9, %mm2
+	movq	%r8, %mm1
+	movq	%rax, %mm0
+	movq	%rax, %r12
 	psubb	%mm2, %mm0
-	movq	%mm0, -64(%rbp)
-	movq	-64(%rbp), %mm0
 	pcmpgtb	%mm0, %mm1
-	movq	%mm1, -88(%rbp)
-	movq	-88(%rbp), %rax
-	movq	%rax, -56(%rbp)
-	movq	-72(%rbp), %r12
-	movq	-56(%rbp), %rax
+	movq	%mm1, %rax
 	andq	%rcx, %rax
 	orq	%r12, %rax
 	movq	%rax, (%rdi,%r11)
@@ -653,6 +657,7 @@ ENTRY(__tfw_stricmp_avx2)
 
 	/* Process short strings below 8 bytes in length. */
 	movq	.stricmp_switch(,%rdx,8), %rax
+	ANNOTATE_RETPOLINE_SAFE /* constant bounds check */
 	jmpq	*%rax
 .section .rodata
 .align 8
@@ -997,7 +1002,7 @@ ENTRY(__tfw_stricmp_avx2)
 ENDPROC(__tfw_stricmp_avx2)
 
 /**
- * Case insensitive comprison of the strings %RDI and %RSI of length %RDX.
+ * Case insensitive comparison of the strings %RDI and %RSI of length %RDX.
  * This function converts ONLY the first string to lower case, so the second
  * is expected to be in lower case.
  * Return 0 if strings match and non-zero otherwise.
@@ -1009,6 +1014,7 @@ ENTRY(__tfw_stricmp_avx2_2lc)
 	ja	.sic2lc_short
 
 	movq	.sic2lc_switch(,%rdx,8), %rax
+	ANNOTATE_RETPOLINE_SAFE /* constant bounds check */
 	jmpq	*%rax
 .section	.rodata
 .align 8
@@ -1313,7 +1319,7 @@ ENTRY(__tfw_stricmp_avx2_2lc)
 ENDPROC(__tfw_stricmp_avx2_2lc)
 
 /**
- * Match input string %RDI with legth %RSI against custom allowed alphabet
+ * Match input string %RDI with length %RSI against custom allowed alphabet
  * encoded in bytes (%RDX) and 2 vectors (%RCX & %R8) and return number of
  * matched characters.
  * See the benchmark mentioned above for C implementation.
