@@ -538,7 +538,7 @@ err_cleanup:
 }
 
 /**
- * Descend the the tree starting at @node.
+ * Descend the tree starting at @node.
  *
  * @return byte offset of data (w/o TDB_HTRIE_DBIT bit) on success
  * or 0 if key @key was not found.

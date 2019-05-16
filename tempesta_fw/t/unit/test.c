@@ -50,7 +50,7 @@ test_fixture_fn_t test_teardown_fn;
  * thus avoid all this noise in the test log.
  *
  * Currently the Tempesta FW logger module interface is not established
- * yet, so here is just a BUG() that terminates the the testing process.
+ * yet, so here is just a BUG() that terminates the testing process.
  * It doesn't prevent flooding, but at least it makes interesting
  * messages appear at the end of the log where they can be found easily.
  */

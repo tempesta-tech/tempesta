@@ -610,16 +610,6 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		T_DBG("bad type in client hello message\n");
 		return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 	}
-	/*
-	 * Minimal length (with everything empty and extensions
-	 * ommitted) is 2 + 32 + 1 + 2 + 1 = 38 bytes. Check that first,
-	 * so that we can read at least up to session id length without
-	 * worrying.
-	 */
-	if (io->hslen < 38) {
-		T_DBG("too short client handshake message: %u\n", io->hslen);
-		return TTLS_ERR_BAD_HS_CLIENT_HELLO;
-	}
 
 	T_FSM_START(ttls_substate(tls)) {
 
@@ -935,9 +925,10 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		/*
 		 * Copy the extension to the temporary buffer for further
 		 * parsing. We have to copy the data since the extension parsers
-		 * call external functions and callbacks with contigous buffers.
+		 * call external functions and callbacks with contiguous
+		 * buffers.
 		 * It's too time consumptive to rework the whole API to work w/
-		 * chunked data and it's doubtful how much perfromance we get if
+		 * chunked data and it's doubtful how much performance we get if
 		 * we avoid the copies - the extensions are small after all.
 		 */
 		unsigned short off, ciph_len = 2;
@@ -1789,7 +1780,7 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 	 */
 	if (io->rlen + len < io->hslen) {
 		T_WARN("chunked key - fall back to copy (total length"
-		       " %u, shunk length %lu, max copy %lu)\n",
+		       " %u, chunk length %lu, max copy %lu)\n",
 		       io->hslen, len, TTLS_HS_RBUF_SZ);
 		if (io->hslen > TTLS_HS_RBUF_SZ)
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE;

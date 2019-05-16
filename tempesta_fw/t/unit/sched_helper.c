@@ -353,7 +353,7 @@ test_sched_srv_one_srv_zero_conn(struct TestSchedHelper *sched_helper)
 
 /**
  * Unit test. Message cannot be scheduled to any server of server group if
- * there is no no live connections across all server.
+ * there are no live connections across all server.
  */
 void
 test_sched_srv_max_srv_zero_conn(struct TestSchedHelper *sched_helper)

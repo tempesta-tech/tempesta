@@ -76,7 +76,7 @@ ttls_md_update(TlsMdCtx *ctx, const unsigned char *input, size_t ilen)
  *	Tests for Tempesta TLS low-level basic math/crypto operations.
  *
  * Note that some of the routines are designed to be called in process
- * context during Tempesta FW intialization and some of them are for
+ * context during Tempesta FW initialization and some of them are for
  * run-time softirq context, so the testing routines must enable/disable
  * FPU for them on its own.
  * ------------------------------------------------------------------------

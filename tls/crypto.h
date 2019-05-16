@@ -70,7 +70,8 @@ typedef enum {
 /** Maximum length of any IV, in Bytes. */
 #define TTLS_MAX_IV_LENGTH		16
 #define TTLS_MD_MAX_SIZE		64  /* longest known is SHA512 */
-#define __MD_MAX_CTX_SZ			sizeof(struct sha512_state)
+#define __MD_MAX_CTX_SZ			(sizeof(struct sha512_state) + \
+					 sizeof(struct shash_desc))
 
 /**
  * Cipher information. Allows calling cipher functions in a generic way.

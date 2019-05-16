@@ -421,6 +421,11 @@ tfw_init(void)
 
 	TFW_LOG("Initializing Tempesta FW kernel module...\n");
 
+#ifndef AVX2
+	TFW_LOG("ATTENTION: TEMPESTA IS BUILT WIHTOUT AVX2 SUPPORT, "
+		"PERFORMANCE IS DEGRADED.");
+#endif
+
 	tfw_sysctl_hdr = register_net_sysctl(&init_net, "net/tempesta",
 					     tfw_sysctl_tbl);
 	if (!tfw_sysctl_hdr) {

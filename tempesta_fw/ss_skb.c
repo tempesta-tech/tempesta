@@ -1020,7 +1020,7 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *str, int skip,
  *
  * @return SS_OK, SS_DROP, SS_POSTPONE, or a negative value of error code.
  * @processed and @chunks are incremented by number of effectively processed
- * bytes and contigous data chunks correspondingly. A caller must properly
+ * bytes and contiguous data chunks correspondingly. A caller must properly
  * initialize them. @actor sees @chunks including current chunk of data.
  */
 int

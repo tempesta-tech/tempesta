@@ -139,7 +139,7 @@ ttls_crypto_req_sglist(TlsCtx *tls, struct crypto_aead *tfm, unsigned int len,
 	BUG_ON(!buf && (!skb || skb->len <= off)); /* nothing to decrypt */
 	sz += n * sizeof(**sg);
 
-	/* Dont' use g_req for better spacial locality. */
+	/* Don't use g_req for better spacial locality. */
 	req = kmalloc(sz, GFP_ATOMIC);
 	if (!req)
 		return NULL;
@@ -378,7 +378,7 @@ ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len)
 		if (!ci) {
 			if (WARN_ON_ONCE(ttls_sha256_init_start(sha256)))
 				return;
-			tls->xfrm.ciphersuite_info = ERR_PTR(0xdead);
+			tls->xfrm.ciphersuite_info = ERR_PTR(-1);
 		}
 		r = crypto_shash_update((struct shash_desc *)sha256, buf, len);
 		if (WARN_ON_ONCE(r))
@@ -757,10 +757,10 @@ ttls_aead_req_free(struct crypto_aead *tfm, struct aead_request *req)
 }
 
 /**
- * This TLS records encryption function can be called syncronously, on handshake
- * finished, or asynchrnously, on callback from the TCP/IP stack. We can use TLS
- * context very carefully - many records can be processed before a record is
- * encrypted on TCP transmission.
+ * This TLS records encryption function can be called synchronously, on
+ * handshake finished, or asynchronously, on callback from the TCP/IP stack. We
+ * can use TLS context very carefully - many records can be processed before a
+ * record is encrypted on TCP transmission.
  *
  * @sgt must have enough room for AAD header and a TAG.
  *
@@ -1218,6 +1218,19 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 			    | io->hs_hdr[3];
 		T_DBG("handshake message: msglen=%d type=%d hslen=%d read=%u\n",
 		      io->msglen, io->hstype, io->hslen, *read);
+
+		/*
+		 * Minimal length of the ClientHello with everything empty and
+		 * extensions omitted is 2 + 32 + 1 + 2 + 1 = 38 bytes.
+		 */
+		if (unlikely(io->hstype == TTLS_HS_CLIENT_HELLO &&
+			     io->hslen < 38))
+		{
+			T_DBG("too short client handshake message: %u\n",
+			      io->hslen);
+			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
+		}
+
 		/* With TLS we don't handle fragmentation (for now) */
 		if (io->msglen < io->hslen) {
 			T_DBG("TLS handshake fragmentation not supported\n");
@@ -1811,6 +1824,12 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 	 * Calculate final message checksum before going to
 	 * TTLS_HANDSHAKE_OVER state. According to RFC 5246 7.4.9 we need
 	 * to add the message to a checksum sent to a client.
+	 *
+	 * There are two Finished messages, one from a client, and one from a
+	 * server. At this point, we've verified the client's Finished using
+	 * checksum of everything up to that Finished. To calculate our (server)
+	 * Finished, we are continuing to checksum data, including this
+	 * (client's) Finished.
 	 */
 	ttls_update_checksum(tls, hs->finished, TTLS_HS_HDR_LEN + TLS_HASH_LEN);
 
@@ -2150,8 +2169,17 @@ int ttls_get_session(const ttls_context *tls, ttls_ssl_session *dst)
 static bool
 ttls_hs_checksumable(TlsCtx *tls)
 {
+	/*
+	 * Checksumming is currently spread through the code, but if we happen
+	 * to receive only part of the data, is performed here too. To avoid
+	 * calculating it twice, some states are omitted. Aside from completed
+	 * handshake and CertificateVerify message, Finished message is skipped
+	 * too: we may fall out of the parser if for some reason only some bytes
+	 * of a Finished are received.
+	 */
 	return tls->state != TTLS_HANDSHAKE_OVER
-	       && tls->state != TTLS_CERTIFICATE_VERIFY;
+	       && tls->state != TTLS_CERTIFICATE_VERIFY
+	       && tls->state != TTLS_CLIENT_FINISHED;
 }
 
 /**
@@ -2275,7 +2303,7 @@ next_record:
 		 * before Hello message we have no idea which hash algorithm
 		 * we should use, but key derieval on KeyExchange phase may
 		 * require complete checksum for all the messages including
-		 * the KeyEchange one.
+		 * the KeyExchange one.
 		 */
 		r = ttls_handshake_step(tls, buf, len, hh_len, read);
 		if (!r)
@@ -2467,7 +2495,7 @@ static ttls_ecp_group_id ssl_preset_suiteb_curves[] = {
 };
 
 /**
- * Load reasonnable default TLS configuration values.
+ * Load reasonable default TLS configuration values.
  * Use NSA Suite B as a preset-specific defaults.
  */
 int

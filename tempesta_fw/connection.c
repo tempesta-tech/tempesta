@@ -102,7 +102,7 @@ tfw_connection_release(TfwConn *conn)
  *   0		- @msg had been sent successfully;
  *   -EBADF	- connection is broken;
  *   -EBUSY	- transmission work queue is full;
- *   -ENOMEM	- out-of-memory error occured.
+ *   -ENOMEM	- out-of-memory error occurred.
  */
 int
 tfw_connection_send(TfwConn *conn, TfwMsg *msg)

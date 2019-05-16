@@ -24,7 +24,7 @@ declare -r DOWNLOAD_DIR=tfw_downloads
 
 declare -r GITHUB_USER="tempesta-tech"
 declare -r GITHUB_REPO_TEMPESTA="tempesta"
-declare -r GITHUB_REPO_LINUX="linux-4.9.35-tfw"
+declare -r GITHUB_REPO_LINUX="linux-4.14.32-tfw"
 
 #TODO: currently Debian 9 is the only supported distribution, other
 # distributions may have other names.
@@ -53,7 +53,7 @@ usage()
 # Use github API to get information about latest release.
 #
 # `latest` release shows ONLY releases which are not marked as `prereleases`.
-# Github restricts 60 API requests per hour without autorisation. Enough for
+# Github restricts 60 API requests per hour without authorisation. Enough for
 # our needs.
 tfw_download()
 {
