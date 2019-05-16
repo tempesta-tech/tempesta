@@ -32,6 +32,7 @@
 #include "http_parser.h"
 
 #include "sync_socket.h"
+#include "http_frame.h"
 #include "tls.h"
 
 /*
@@ -210,11 +211,19 @@ enum {
 typedef struct {
 	TfwCliConn	cli_conn;
 	TlsCtx		tls;
-	TfwH2Ctx	*h2;
 } TfwTlsConn;
 
-#define tfw_tls_context(conn)	(TlsCtx *)(&((TfwTlsConn *)conn)->tls)
-#define tfw_h2_context(conn)	((TfwH2Ctx *)((TfwTlsConn *)conn)->h2)
+#define tfw_tls_context(conn)	((TlsCtx *)(&((TfwTlsConn *)conn)->tls))
+
+/**
+ * HTTP/2 connection.
+ */
+typedef struct {
+	TfwTlsConn	tls_conn;
+	TfwH2Ctx	h2;
+} TfwH2Conn;
+
+#define tfw_h2_context(conn)	((TfwH2Ctx *)(&((TfwH2Conn *)conn)->h2))
 
 /* Callbacks used by l5-l7 protocols to operate on connection level. */
 typedef struct {

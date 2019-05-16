@@ -3931,7 +3931,7 @@ tfw_http_msg_process(void *conn, TfwFsmData *data)
 		if (likely(r == T_OK || r == T_POSTPONE)) {
 			data->skb->next = data->skb->prev = NULL;
 			data->trail = !next ? trail : 0;
-			r = TFW_CONN_TLS((TfwConn *)conn) && tfw_h2_context(conn)
+			r = TFW_CONN_TLS((TfwConn *)conn) && TFW_CONN_H2(conn)
 				? tfw_h2_frame_process(conn, data)
 				: tfw_http_msg_process_generic(conn, data);
 		} else {
