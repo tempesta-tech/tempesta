@@ -355,7 +355,6 @@ ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len)
 	int r;
 	TlsHandshake *hs = tls->hs;
 	const TlsCiphersuite *ci = tls->xfrm.ciphersuite_info;
-	ttls_sha256_context *sha256 = (ttls_sha256_context *)&hs->ecdh_ctx;
 	ttls_md_type_t mac;
 
 	if (unlikely(!len))
@@ -371,6 +370,7 @@ ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len)
 	 * hs->ecdh_ctx to store SHA256 checksum data.
 	 */
 	if (unlikely(IS_ERR_OR_NULL(ci))) {
+		ttls_sha256_context *sha256 = &hs->tmp_sha256;
 		WARN_ON_ONCE(tls->state >= TTLS_SERVER_HELLO);
 		BUILD_BUG_ON(sizeof(ttls_ecdh_context)
 			     < sizeof(ttls_sha256_context));
@@ -396,10 +396,10 @@ ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len)
 		if (unlikely(tls->state < TTLS_SERVER_HELLO && hs->desc.tfm
 			     && mac == TTLS_MD_SHA256))
 		{
+			ttls_sha256_context *sha256 = &hs->tmp_sha256;
 			crypto_free_shash(hs->desc.tfm);
 			memcpy_fast(&tls->hs->fin_sha256, sha256,
 				    sizeof(*sha256));
-			bzero_fast(&hs->ecdh_ctx, sizeof(ttls_ecdh_context));
 		}
 	}
 	if (unlikely(!hs->desc.tfm)) {
@@ -1242,7 +1242,7 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 }
 
 static void
-ttls_handshake_free(TlsHandshake *hs)
+ttls_handshake_free(TlsHandshake *hs, const TlsCiphersuite *ci)
 {
 	if (!hs)
 		return;
@@ -1262,10 +1262,18 @@ ttls_handshake_free(TlsHandshake *hs)
 
 	crypto_free_shash(hs->desc.tfm);
 
+	if (!IS_ERR_OR_NULL(ci)) {
+		if (ttls_ciphersuite_uses_ecdh(ci) ||
+		    ttls_ciphersuite_uses_ecdhe(ci))
+		{
+			ttls_ecdh_free(&hs->ecdh_ctx);
+		}
+
 #if defined(TTLS_DHM_C)
-	ttls_dhm_free(&hs->dhm_ctx);
+		if (ttls_ciphersuite_uses_dhe(ci))
+			ttls_dhm_free(&hs->dhm_ctx);
 #endif
-	ttls_ecdh_free(&hs->ecdh_ctx);
+	}
 
 	bzero_fast(hs, sizeof(TlsHandshake));
 	kmem_cache_free(ttls_hs_cache, hs);
@@ -1282,7 +1290,7 @@ ttls_handshake_wrapup(TlsCtx *tls)
 		T_DBG("cache did not store session\n");
 
 	/* Free our hs params. */
-	ttls_handshake_free(tls->hs);
+	ttls_handshake_free(tls->hs, tls->xfrm.ciphersuite_info);
 	tls->hs = NULL;
 }
 
@@ -1853,10 +1861,6 @@ ttls_handshake_params_init(TlsHandshake *hs)
 
 	ttls_sig_hash_set_const_hash(&hs->hash_algs, TTLS_MD_NONE);
 
-#if defined(TTLS_DHM_C)
-	ttls_dhm_init(&hs->dhm_ctx);
-#endif
-	ttls_ecdh_init(&hs->ecdh_ctx);
 	hs->sni_authmode = TTLS_VERIFY_UNSET;
 }
 
@@ -2420,7 +2424,7 @@ ttls_ctx_clear(TlsCtx *tls)
 	if (!tls)
 		return;
 
-	ttls_handshake_free(tls->hs);
+	ttls_handshake_free(tls->hs, tls->xfrm.ciphersuite_info);
 
 	if (tls->hostname) {
 		bzero_fast(tls->hostname, strlen(tls->hostname));

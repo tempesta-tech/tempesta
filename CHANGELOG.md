@@ -1,3 +1,11 @@
+0.6.3 (2019-05-17)
+
+  * Fix crashes on TLS handshakes utilizing SHA384.
+  * Fix crashes on heavily fragmented TLS handshakes.
+  * Fix crashes on premature handshake termination from a client.
+  * Decrease TLS handshake context a bit.
+
+
 0.6.2 (2019-03-30)
 
   * Fix TLS FSM jumps on exiting out of FSM.
