@@ -52,6 +52,8 @@
 #include "sock_srv.c"
 #include "client.c"
 #include "http_limits.c"
+#include "http_stream.c"
+#include "http_frame.c"
 #include "tls.c"
 
 /* rename original tfw_cli_conn_send(), a custom version will be used here */

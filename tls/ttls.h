@@ -240,6 +240,25 @@
 #define TTLS_TLS_EXT_SESSION_TICKET		35
 #define TTLS_TLS_EXT_RENEGOTIATION_INFO		0xFF01
 
+/*
+ * Supported protocols for APLN extension. Currently only two
+ * protocols for ALPN are supported: HTTP/1.1 and HTTP/2.
+ * NOTE: according RFC 7301 3.1 the length of each protocol's name
+ * must be not greater than 255 and the total length of all names
+ * in the list must not exceed 65535.
+ */
+#define TTLS_ALPN_HTTP1				"http/1.1"
+#define TTLS_ALPN_HTTP2				"h2"
+
+/* Number of protocols for negotiation in APLN extension. */
+#define TTLS_ALPN_PROTOS			2
+
+/* The id numbers of supported protocols for APLN extension. */
+typedef enum {
+	TTLS_ALPN_ID_HTTP1,
+	TTLS_ALPN_ID_HTTP2
+} ttls_alpn_proto_id;
+
 /* Dummy type used only for its size */
 union ttls_premaster_secret
 {
@@ -252,6 +271,7 @@ union ttls_premaster_secret
 #define TTLS_HS_RBUF_SZ		TTLS_PREMASTER_SIZE
 
 /* Defined below */
+typedef struct ttls_alpn_proto ttls_alpn_proto;
 typedef struct ttls_context ttls_context;
 typedef struct ttls_config ttls_config;
 
@@ -260,6 +280,19 @@ typedef struct TtlsXfrm ttls_transform;
 typedef struct ttls_handshake_params ttls_handshake_params;
 typedef struct ttls_sig_hash_set_t ttls_sig_hash_set_t;
 typedef struct ttls_key_cert ttls_key_cert;
+
+/*
+ * ALPN protocol descriptor.
+ *
+ * @name		- protocol name;
+ * @len			- length of @name string;
+ * @id			- protocol's internal number;
+ */
+struct ttls_alpn_proto {
+	const char *name;
+	unsigned int len;
+	int id;
+};
 
 /*
  * This structure is used for storing current session data.
@@ -370,7 +403,7 @@ struct ttls_config
 	ttls_mpi dhm_G;	/*!< generator for DHM	*/
 #endif
 
-	const char **alpn_list;	/*!< ordered list of protocols	*/
+	const ttls_alpn_proto *alpn_list;	/*!< ordered list of protocols */
 
 	/*
 	* Numerical settings (int then char)
@@ -473,7 +506,7 @@ typedef struct ttls_context {
 	spinlock_t		lock;
 	const ttls_config	*conf;
 	TlsHandshake		*hs;
-	const char		*alpn_chosen;
+	const ttls_alpn_proto	*alpn_chosen;
 
 	unsigned int		state;
 	unsigned char		major;
@@ -881,20 +914,6 @@ void ttls_conf_sni(ttls_config *conf,
 		   void *p_sni);
 
 /**
- * \brief	Set the supported Application Layer Protocols.
- *
- * \param conf	SSL configuration
- * \param protos Pointer to a NULL-terminated list of supported protocols,
- *		in decreasing preference order. The pointer to the list is
- *		recorded by the library for later reference as required, so
- *		the lifetime of the table must be atleast as long as the
- *		lifetime of the SSL configuration structure.
- *
- * \return	0 on success, or TTLS_ERR_BAD_INPUT_DATA.
- */
-int ttls_conf_alpn_protocols(ttls_config *conf, const char **protos);
-
-/**
  * \brief	Get the name of the negotiated Application Layer Protocol.
  *		This function should be called after the handshake is
  *		completed.
@@ -957,6 +976,9 @@ void ttls_config_free(ttls_config *conf);
 void ttls_strerror(int errnum, char *buffer, size_t buflen);
 
 void ttls_aad2hdriv(TlsXfrm *xfrm, unsigned char *buf);
+
+bool ttls_alpn_ext_eq(const ttls_alpn_proto *proto, const unsigned char *buf,
+		      size_t len);
 
 static inline unsigned char
 ttls_xfrm_taglen(const TlsXfrm *xfrm)

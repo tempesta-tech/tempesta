@@ -29,6 +29,7 @@
 #include "http_limits.h"
 #include "http_tbl.h"
 #include "http_parser.h"
+#include "http_frame.h"
 #include "client.h"
 #include "http_msg.h"
 #include "http_sess.h"
@@ -3884,8 +3885,8 @@ bad_msg:
 /**
  * @return status (application logic decision) of the message processing.
  */
-static int
-__tfw_http_msg_process(void *conn, TfwFsmData *data)
+int
+tfw_http_msg_process_generic(void *conn, TfwFsmData *data)
 {
 	TfwConn *c = (TfwConn *)conn;
 
@@ -3930,7 +3931,9 @@ tfw_http_msg_process(void *conn, TfwFsmData *data)
 		if (likely(r == T_OK || r == T_POSTPONE)) {
 			data->skb->next = data->skb->prev = NULL;
 			data->trail = !next ? trail : 0;
-			r = __tfw_http_msg_process(conn, data);
+			r = TFW_CONN_TLS((TfwConn *)conn) && TFW_CONN_H2(conn)
+				? tfw_h2_frame_process(conn, data)
+				: tfw_http_msg_process_generic(conn, data);
 		} else {
 			kfree(data->skb);
 		}

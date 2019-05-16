@@ -30,6 +30,7 @@
 #include "peer.h"
 #include "http_parser.h"
 #include "sync_socket.h"
+#include "http_frame.h"
 #include "tls.h"
 
 /*
@@ -108,6 +109,7 @@ typedef struct {
 
 #define TFW_CONN_TYPE(c)	((c)->proto.type)
 #define TFW_CONN_PROTO(c)	TFW_CONN_TYPE2IDX(TFW_CONN_TYPE(c))
+#define TFW_CONN_TLS(c)		(TFW_CONN_TYPE(c) & TFW_FSM_HTTPS)
 
 /*
  * Queues in client and server connections provide support for correct
@@ -209,7 +211,17 @@ typedef struct {
 	TlsCtx		tls;
 } TfwTlsConn;
 
-#define tfw_tls_context(conn)	(TlsCtx *)(&((TfwTlsConn *)conn)->tls)
+#define tfw_tls_context(conn)	((TlsCtx *)(&((TfwTlsConn *)conn)->tls))
+
+/**
+ * HTTP/2 connection.
+ */
+typedef struct {
+	TfwTlsConn	tls_conn;
+	TfwH2Ctx	h2;
+} TfwH2Conn;
+
+#define tfw_h2_context(conn)	((TfwH2Ctx *)(&((TfwH2Conn *)conn)->h2))
 
 /* Callbacks used by l5-l7 protocols to operate on connection level. */
 typedef struct {
