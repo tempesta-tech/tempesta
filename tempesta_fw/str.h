@@ -44,7 +44,7 @@
  * the number of chunks in a compound string. Zero means a plain string.
 
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -86,9 +86,10 @@
  * 32-byre registers in parallel utilizing the memory bus and avoiding
  * conditional branches. However, they may load unnecessary data is the first
  * 32 bytes contain non-matching data.
+ *
+ * Fall back to slow legacy C implementations if there is no AVX2.
  * ------------------------------------------------------------------------
  */
-void tfw_str_init_const(void);
 size_t tfw_match_uri(const char *s, size_t len);
 size_t tfw_match_token(const char *s, size_t len);
 size_t tfw_match_qetoken(const char *s, size_t len);
@@ -106,13 +107,20 @@ void tfw_init_custom_xff(const unsigned char *a);
 void tfw_init_custom_cookie(const unsigned char *a);
 
 #ifdef AVX2
-void __tfw_strtolower_avx2(unsigned char *dest, const unsigned char *src,
-			    size_t len);
-int __tfw_stricmp_avx2(const char *s1, const char *s2, size_t len);
-int __tfw_stricmp_avx2_2lc(const char *s1, const char *s2, size_t len);
+/*
+ * The functions expect non-ovelapping strings, so use restrict notation in
+ * the declarations just as a specification.
+ */
+void __tfw_strtolower_avx2(unsigned char *__restrict dest,
+			   const unsigned char *__restrict src,
+			   size_t len);
+int __tfw_stricmp_avx2(const char *__restrict s1, const char *__restrict s2,
+		       size_t len);
+int __tfw_stricmp_avx2_2lc(const char *__restrict s1, const char *__restrict s2,
+			   size_t len);
 
 static inline void
-tfw_cstrtolower(void *dest, const void *src, size_t len)
+tfw_cstrtolower(void *__restrict dest, const void *__restrict src, size_t len)
 {
 	__tfw_strtolower_avx2((unsigned char *)dest, (const unsigned char *)src,
 			      len);
@@ -122,7 +130,7 @@ tfw_cstrtolower(void *dest, const void *src, size_t len)
  * @return 0 if the strings match and non-zero otherwise.
  */
 static inline int
-tfw_cstricmp(const char *s1, const char *s2, size_t len)
+tfw_cstricmp(const char *__restrict s1, const char *__restrict s2, size_t len)
 {
 	return __tfw_stricmp_avx2(s1, s2, len);
 }
@@ -134,7 +142,8 @@ tfw_cstricmp(const char *s1, const char *s2, size_t len)
  * 3. required @s2 is always in lower case.
  */
 static inline int
-tfw_cstricmp_2lc(const char *s1, const char *s2, size_t len)
+tfw_cstricmp_2lc(const char *__restrict s1, const char *__restrict s2,
+		 size_t len)
 {
 	return __tfw_stricmp_avx2_2lc(s1, s2, len);
 }
@@ -267,7 +276,7 @@ typedef struct tfwstr_t {
 	}
 
 #define TFW_STR_FOR_EACH_CHUNK(c, s, end)				\
-	TFW_STR_FOR_EACH_CHUNK_INIT(c, (s), end);				\
+	TFW_STR_FOR_EACH_CHUNK_INIT(c, (s), end);			\
 	for ( ; (c) < end; ++(c))
 
 /* The same as above, but for duplicate strings. */
@@ -387,8 +396,10 @@ u32 tfw_str_crc32_calc(const TfwStr *str);
 
 #ifdef DEBUG
 void tfw_str_dprint(const TfwStr *str, const char *msg);
+void tfw_dbg_vprint32(const char *prefix, const unsigned char *v);
 #else
 #define tfw_str_dprint(str, msg)
+#define tfw_dbg_vprint32(prefix, v)
 #endif
 
 #endif /* __TFW_STR_H__ */

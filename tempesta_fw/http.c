@@ -4550,7 +4550,7 @@ __cfgop_brange_hndl(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned char *a)
 
 #define TFW_HTTP_CFG_CUSTOM_BRANGE(name)				\
 static int								\
-tfw_cfgop_brange_##name(TfwCfgSpec *cs, TfwCfgEntry *ce)			\
+tfw_cfgop_brange_##name(TfwCfgSpec *cs, TfwCfgEntry *ce)		\
 {									\
 	int r;								\
 	unsigned char a[256] = {};					\
