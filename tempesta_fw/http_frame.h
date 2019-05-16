@@ -20,7 +20,7 @@
 #ifndef __HTTP_FRAME__
 #define __HTTP_FRAME__
 
-#include "connection.h"
+#include "gfsm.h"
 #include "http_stream.h"
 
 #define FRAME_HEADER_SIZE		9
@@ -113,7 +113,6 @@ typedef struct {
 /**
  * Context for HTTP/2 frames processing.
  *
- * @conn	- pointer to corresponding connection instance;
  * @lsettings	- local settings for HTTP/2 connection;
  * @rsettings	- settings for HTTP/2 connection received from the remote
  *		  endpoint;
@@ -138,8 +137,7 @@ typedef struct {
  * @data_off	- offset of app data in HEADERS, CONTINUATION and DATA
  *		  frames (after all service payloads);
  */
-struct tfw_h2_ctx_t {
-	TfwConn		*conn;
+typedef struct {
 	TfwSettings	lsettings;
 	TfwSettings	rsettings;
 	unsigned long	streams_num;
@@ -157,12 +155,12 @@ struct tfw_h2_ctx_t {
 	unsigned char	rbuf[FRAME_HEADER_SIZE];
 	unsigned char	padlen;
 	unsigned char	data_off;
-};
+} TfwH2Ctx;
 
 int tfw_h2_init(void);
 void tfw_h2_cleanup(void);
-int tfw_h2_context_create(TfwTlsConn *conn);
-void tfw_h2_context_free(TfwTlsConn *conn);
+void tfw_h2_context_init(TfwH2Ctx *ctx);
+void tfw_h2_context_clear(TfwH2Ctx *ctx);
 int tfw_h2_frame_process(void *c, TfwFsmData *data);
 
 #endif /* __HTTP_FRAME__ */

@@ -185,51 +185,28 @@ do {									\
 	}								\
 })
 
-static struct kmem_cache *h2_ctx_cache;
-
 int
 tfw_h2_init(void)
 {
-	int r = 0;
-
-	h2_ctx_cache = kmem_cache_create("tfw_h2_ctx_cache", sizeof(TfwH2Ctx),
-					 0, 0, NULL);
-	if (!h2_ctx_cache)
-		return -ENOMEM;
-
-	if ((r = tfw_h2_stream_cache_create())) {
-		kmem_cache_destroy(h2_ctx_cache);
-		return r;
-	}
-
-	return 0;
+	return tfw_h2_stream_cache_create();
 }
 
 void
 tfw_h2_cleanup(void)
 {
 	tfw_h2_stream_cache_destroy();
-	kmem_cache_destroy(h2_ctx_cache);
 }
 
-int
-tfw_h2_context_create(TfwTlsConn *conn)
+void
+tfw_h2_context_init(TfwH2Ctx *ctx)
 {
-	TfwH2Ctx *ctx;
-	TfwSettings *lset;
-	TfwSettings *rset;
+	TfwSettings *lset = &ctx->lsettings;
+	TfwSettings *rset = &ctx->rsettings;
 
-	ctx = kmem_cache_alloc(h2_ctx_cache, GFP_ATOMIC | __GFP_ZERO);
-	if (unlikely(!ctx))
-		return -ENOMEM;
+	bzero_fast(ctx, sizeof(*ctx));
 
-	conn->h2 = ctx;
-	ctx->conn = (TfwConn *)conn;
 	ctx->state = HTTP2_RECV_CLI_START_SEQ;
 	ctx->loc_wnd = MAX_WND_SIZE;
-
-	lset = &ctx->lsettings;
-	rset = &ctx->rsettings;
 
 	lset->hdr_tbl_sz = rset->hdr_tbl_sz = 1 << 12;
 	lset->push = rset->push = 1;
@@ -241,20 +218,12 @@ tfw_h2_context_create(TfwTlsConn *conn)
 	 * we set it to maximum allowed value.
 	 */
 	lset->wnd_sz = rset->wnd_sz = MAX_WND_SIZE;
-
-	return 0;
 }
 
 void
-tfw_h2_context_free(TfwTlsConn *conn)
+tfw_h2_context_clear(TfwH2Ctx *ctx)
 {
-	TfwH2Ctx *ctx = conn->h2;
-
-	if (!ctx)
-		return;
-
 	tfw_h2_streams_cleanup(&ctx->sched);
-	kmem_cache_free(h2_ctx_cache, ctx);
 }
 
 static inline void
@@ -310,6 +279,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data, bool close)
 	TfwMsg msg = {};
 	unsigned char buf[FRAME_HEADER_SIZE];
 	TfwStr *hdr_str = TFW_STR_CHUNK(data, 0);
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 
 	BUG_ON(hdr_str->data);
 	hdr_str->data = buf;
@@ -332,7 +302,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data, bool close)
 	if (close)
 		msg.ss_flags |= SS_F_CONN_CLOSE;
 
-	if ((r = tfw_connection_send(ctx->conn, &msg)))
+	if ((r = tfw_connection_send((TfwConn *)conn, &msg)))
 		goto err;
 	/*
 	 * For HTTP/2 we do not close client connection automatically in case
@@ -341,7 +311,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data, bool close)
 	 * avoid hanged unclosed client connection.
 	 */
 	if (close)
-		TFW_CONN_TYPE(ctx->conn) |= Conn_Stop;
+		TFW_CONN_TYPE((TfwConn *)conn) |= Conn_Stop;
 
 	return 0;
 

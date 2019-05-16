@@ -38,14 +38,18 @@
  */
 
 static struct kmem_cache *tfw_cli_conn_cache;
-static struct kmem_cache *tfw_tls_conn_cache;
+static struct kmem_cache *tfw_h2_conn_cache;
 static int tfw_cli_cfg_ka_timeout = -1;
 
 static inline struct kmem_cache *
 tfw_cli_cache(int type)
 {
+	/*
+	 * Currently any secure (TLS) connection is considered as HTTP/2
+	 * connection, since we don't have any business with plain TLS.
+	 */
 	return type & TFW_FSM_HTTPS ?
-		tfw_tls_conn_cache : tfw_cli_conn_cache;
+		tfw_h2_conn_cache : tfw_cli_conn_cache;
 }
 
 static void
@@ -668,22 +672,22 @@ tfw_sock_clnt_init(void)
 				  TFW_FSM_HTTP |
 				  TFW_FSM_HTTPS));
 	BUG_ON(tfw_cli_conn_cache);
-	BUG_ON(tfw_tls_conn_cache);
+	BUG_ON(tfw_h2_conn_cache);
 
 	tfw_cli_conn_cache = kmem_cache_create("tfw_cli_conn_cache",
 					       sizeof(TfwCliConn), 0, 0, NULL);
-	tfw_tls_conn_cache = kmem_cache_create("tfw_tls_conn_cache",
-					       sizeof(TfwTlsConn), 0, 0, NULL);
+	tfw_h2_conn_cache = kmem_cache_create("tfw_h2_conn_cache",
+					       sizeof(TfwH2Conn), 0, 0, NULL);
 
-	if (tfw_cli_conn_cache && tfw_tls_conn_cache) {
+	if (tfw_cli_conn_cache && tfw_h2_conn_cache) {
 		tfw_mod_register(&tfw_sock_clnt_mod);
 		return 0;
 	}
 
 	if (tfw_cli_conn_cache)
 		kmem_cache_destroy(tfw_cli_conn_cache);
-	if (tfw_tls_conn_cache)
-		kmem_cache_destroy(tfw_tls_conn_cache);
+	if (tfw_h2_conn_cache)
+		kmem_cache_destroy(tfw_h2_conn_cache);
 
 	return -ENOMEM;
 }
@@ -692,6 +696,6 @@ void
 tfw_sock_clnt_exit(void)
 {
 	tfw_mod_unregister(&tfw_sock_clnt_mod);
-	kmem_cache_destroy(tfw_tls_conn_cache);
+	kmem_cache_destroy(tfw_h2_conn_cache);
 	kmem_cache_destroy(tfw_cli_conn_cache);
 }

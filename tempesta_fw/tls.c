@@ -60,26 +60,6 @@ tfw_tls_chop_skb_rec(TlsCtx *tls, struct sk_buff *skb, TfwFsmData *data)
 	return 0;
 }
 
-static inline int
-tfw_tls_check_create_h2_context(void *c)
-{
-	int r;
-	TfwTlsConn *conn = c;
-	TlsCtx *tls = &conn->tls;
-
-	if (likely(!tls->alpn_chosen
-		   || tls->alpn_chosen->id != TTLS_ALPN_ID_HTTP2
-		   || conn->h2))
-	{
-		return 0;
-	}
-
-	if ((r = tfw_h2_context_create(conn)))
-		return r;
-
-	return 0;
-}
-
 static int
 tfw_tls_msg_process(void *conn, TfwFsmData *data)
 {
@@ -88,10 +68,6 @@ tfw_tls_msg_process(void *conn, TfwFsmData *data)
 	TfwConn *c = conn;
 	TlsCtx *tls = tfw_tls_context(c);
 	TfwFsmData data_up = {};
-
-	/* Enable HTTP/2 mode if this protocol has been negotiated in APLN. */
-	if (tfw_tls_check_create_h2_context(conn))
-		return T_DROP;
 
 	/*
 	 * @off is from TCP layer due to possible, but rare (usually malicious),
@@ -523,6 +499,7 @@ tfw_tls_conn_dtor(void *c)
 {
 	struct sk_buff *skb;
 	TlsCtx *tls = tfw_tls_context(c);
+	TfwH2Ctx *h2 = tfw_h2_context(c);
 
 	if (tls) {
 		while ((skb = ss_skb_dequeue(&tls->io_in.skb_list)))
@@ -531,7 +508,7 @@ tfw_tls_conn_dtor(void *c)
 			kfree_skb(skb);
 	}
 
-	tfw_h2_context_free((TfwTlsConn *)c);
+	tfw_h2_context_clear(h2);
 	ttls_ctx_clear(tls);
 	tfw_cli_conn_release((TfwCliConn *)c);
 }
@@ -541,9 +518,7 @@ tfw_tls_conn_init(TfwConn *c)
 {
 	int r;
 	TlsCtx *tls = tfw_tls_context(c);
-	TfwTlsConn *conn = (TfwTlsConn *)c;
-
-	conn->h2 = NULL;
+	TfwH2Ctx *h2 = tfw_h2_context(c);
 
 	if ((r = ttls_ctx_init(tls, &tfw_tls.cfg))) {
 		TFW_ERR("TLS (%pK) setup failed (%x)\n", tls, -r);
@@ -552,6 +527,8 @@ tfw_tls_conn_init(TfwConn *c)
 
 	if (tfw_conn_hook_call(TFW_FSM_HTTP, c, conn_init))
 		return -EINVAL;
+
+	tfw_h2_context_init(h2);
 
 	tfw_gfsm_state_init(&c->state, c, TFW_TLS_FSM_INIT);
 
@@ -700,68 +677,76 @@ tfw_tls_cfg_alpn_protos(const char *cfg_str)
 {
 	ttls_alpn_proto *protos;
 	size_t len = strlen(cfg_str);
-	int order = 0;
 
-#define CONF_HTTPS	"https"
-#define CONF_HTTP1	"http1"
-#define CONF_HTTP2	"http2"
-#define CONF_LEN	5
-	if (strncasecmp(cfg_str, CONF_HTTPS, CONF_LEN))
+#define CONF_HTTPS		"https"
+#define CONF_HTTP1		TTLS_ALPN_HTTP1
+#define CONF_HTTP2		TTLS_ALPN_HTTP2
+#define CONF_HTTPS_LEN		(sizeof(CONF_HTTPS) - 1)
+#define CONF_HTTP1_LEN		(sizeof(CONF_HTTP1) - 1)
+#define CONF_HTTP2_LEN		(sizeof(CONF_HTTP2) - 1)
+#define PROTO_INIT(order, proto)				\
+do {								\
+	protos[order].name = TTLS_ALPN_##proto;			\
+	protos[order].len = sizeof(TTLS_ALPN_##proto) - 1;	\
+	protos[order].id = TTLS_ALPN_ID_##proto;		\
+} while (0)
+
+	if (strncasecmp(cfg_str, CONF_HTTPS, CONF_HTTPS_LEN))
 		return -EINVAL;
 
-	if (len == CONF_LEN)
-		goto found;
-
-	cfg_str += CONF_LEN;
-	if (cfg_str[0] != ':')
-		return -EINVAL;
-
-	++cfg_str;
-	len -= CONF_LEN + 1;
-	if (len >= CONF_LEN && !strncasecmp(cfg_str, CONF_HTTP1, CONF_LEN))
-	{
-		cfg_str += CONF_LEN;
-		len -= CONF_LEN;
-		if (!len || (cfg_str[0] == ','
-			     && !strcasecmp(++cfg_str, CONF_HTTP2)))
-		{
-			goto found;
-		}
-	}
-	else if (len >= CONF_LEN &&
-		 !strncasecmp(cfg_str, CONF_HTTP2, CONF_LEN))
-	{
-		order = 1;
-		cfg_str += CONF_LEN;
-		len -= CONF_LEN;
-		if (!len || (cfg_str[0] == ','
-			     && !strcasecmp(++cfg_str, CONF_HTTP1)))
-		{
-			goto found;
-		}
-	}
-
-	return -EINVAL;
-
-found:
 	protos = kzalloc(TTLS_ALPN_PROTOS * sizeof(ttls_alpn_proto), GFP_ATOMIC);
 	if (unlikely(!protos))
 		return -ENOMEM;
 
-	protos[order].name = TTLS_ALPN_HTTP1;
-	protos[order].len = sizeof(TTLS_ALPN_HTTP1) - 1;
-	protos[order].id = TTLS_ALPN_ID_HTTP1;
-	protos[!order].name = TTLS_ALPN_HTTP2;
-	protos[!order].len = sizeof(TTLS_ALPN_HTTP2) - 1;
-	protos[!order].id = TTLS_ALPN_ID_HTTP2;
-
+	/* Currently HTTP/2 protocol is default option. */
+	PROTO_INIT(0, HTTP2);
 	tfw_tls.cfg.alpn_list = protos;
 
-	return 0;
+	if (len == CONF_HTTPS_LEN)
+		return 0;
+
+	cfg_str += CONF_HTTPS_LEN;
+	if (cfg_str[0] != ':')
+		goto err;
+
+	++cfg_str;
+	len -= CONF_HTTPS_LEN + 1;
+	if (len >= CONF_HTTP2_LEN
+	    && !strncasecmp(cfg_str, CONF_HTTP2, CONF_HTTP2_LEN))
+	{
+		cfg_str += CONF_HTTP2_LEN;
+		len -= CONF_HTTP2_LEN;
+		if (!len)
+			return 0;
+		if (cfg_str[0] == ',' && !strcasecmp(++cfg_str, CONF_HTTP1)) {
+			PROTO_INIT(1, HTTP1);
+			return 0;
+		}
+	}
+	else if (len >= CONF_HTTP1_LEN
+		 && !strncasecmp(cfg_str, CONF_HTTP1, CONF_HTTP1_LEN))
+	{
+		PROTO_INIT(0, HTTP1);
+		cfg_str += CONF_HTTP1_LEN;
+		len -= CONF_HTTP1_LEN;
+		if (!len)
+			return 0;
+		if (cfg_str[0] == ','  && !strcasecmp(++cfg_str, CONF_HTTP2)) {
+			PROTO_INIT(1, HTTP2);
+			return 0;
+		}
+	}
+
+err:
+	tfw_tls.cfg.alpn_list = NULL;
+	kfree(protos);
+
+	return -EINVAL;
 #undef CONF_HTTPS
 #undef CONF_HTTP1
 #undef CONF_HTTP2
 #undef CONF_LEN
+#undef PROTO_INIT
 }
 
 void

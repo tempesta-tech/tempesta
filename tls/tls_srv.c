@@ -311,10 +311,10 @@ ttls_parse_alpn_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 	int i;
 	size_t list_len, cur_len;
 	const unsigned char *theirs, *start, *end;
-	const ttls_alpn_proto *our;
+	const ttls_alpn_proto *our, *alpn_list = tls->conf->alpn_list;
 
 	/* If TLS processing is enabled, ALPN must be configured. */
-	BUG_ON(!tls->conf->alpn_list);
+	BUG_ON(!alpn_list);
 
 	/*
 	 * opaque ProtocolName<1..2^8-1>;
@@ -360,8 +360,8 @@ ttls_parse_alpn_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 	}
 
 	/* Use our order of preference. */
-	for (i = 0; i < TTLS_ALPN_PROTOS; ++i) {
-		our = &tls->conf->alpn_list[i];
+	for (i = 0; i < TTLS_ALPN_PROTOS && alpn_list[i].name; ++i) {
+		our = &alpn_list[i];
 		WARN_ON_ONCE(our->len > 32);
 		for (theirs = start; theirs != end; theirs += cur_len) {
 			cur_len = *theirs++;
