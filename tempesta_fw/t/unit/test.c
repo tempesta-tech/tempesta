@@ -116,7 +116,6 @@ test_run_all(void)
 	TEST_SUITE_RUN(tls);
 
 	kernel_fpu_begin();
-	tfw_str_init_const();
 
 	/*
 	 * Preemption is disabled by kernel_fpu_begin(), so
