@@ -39,7 +39,8 @@ enum {
 };
 
 #define TFW_CONN_H2(c)							\
-	(tfw_tls_context(c)->alpn_chosen->id == TTLS_ALPN_ID_HTTP2)
+	(tfw_tls_context(c)->alpn_chosen				\
+	 && tfw_tls_context(c)->alpn_chosen->id == TTLS_ALPN_ID_HTTP2)
 
 void tfw_tls_cfg_require(void);
 int tfw_tls_cfg_alpn_protos(const char *cfg_str);
