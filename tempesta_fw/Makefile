@@ -30,6 +30,7 @@ obj-m	= tempesta_fw.o t/
 tfw-srcs = $(wildcard $(obj)/*.c)
 tfw-objs = $(patsubst %.c, %.o, $(tfw-srcs))
 ifdef AVX2
+	EXTRA_CFLAGS += -mno-vzeroupper
 	tfw-objs += str_avx2.o
 endif
 

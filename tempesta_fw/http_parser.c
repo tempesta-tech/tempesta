@@ -121,9 +121,9 @@ if (s == __I_EoL)							\
 if (s)									\
 	goto *s; /* Fall through to the first state otherwise. */
 
-#define __FSM_STATE(st)							\
+#define __FSM_STATE(st, ...)						\
 barrier();								\
-st: __attribute__((unused)) 						\
+st: __attribute__((unused, __VA_ARGS__))				\
 	c = *p;								\
 	T_DBG3("parser at " #st ": c=%#x(%c), p_off=%ld\n",		\
 		 c, isprint(c) ? c : '.', p - data);
@@ -326,9 +326,12 @@ __FSM_STATE(st) {							\
 #define __FSM_TX_LC_nofixup(st, ch, st_next) 				\
 	__FSM_TX_COND_nofixup(st, TFW_LC(c) == (ch), st_next)
 
-/* Automaton transition with alphabet checking and fallback state. */
+/*
+ * Automaton transition with alphabet checking and fallback state.
+ * Improbble states only, so cold label.
+ */
 #define __FSM_TX_AF(st, ch, st_next)					\
-__FSM_STATE(st) {							\
+__FSM_STATE(st, cold) {							\
 	if (likely(TFW_LC(c) == ch))					\
 		__FSM_MOVE(st_next);					\
 	/* It should be checked in st_fallback if `c` is allowed */	\
@@ -337,7 +340,7 @@ __FSM_STATE(st) {							\
 
 /* As above, but reads OWS through transitional state. */
 #define __FSM_TX_AF_OWS(st, st_next)					\
-__FSM_STATE(st) {							\
+__FSM_STATE(st, cold) {							\
 	if (likely(c == ':')) {						\
 		parser->_i_st = &&st_next;				\
 		__FSM_MOVE(RGen_OWS);					\
@@ -346,15 +349,16 @@ __FSM_STATE(st) {							\
 	__FSM_JMP(RGen_HdrOther);					\
 }
 
+/* Used for improbable states only, so use cold label. */
 #define __FSM_METH_MOVE(st, ch, st_next)				\
-__FSM_STATE(st) {							\
+__FSM_STATE(st, cold) {							\
 	if (likely(c == (ch)))						\
 		__FSM_MOVE_nofixup(st_next);				\
 	__FSM_MOVE_nofixup(Req_MethodUnknown);				\
 }
 
 #define __FSM_METH_MOVE_finish(st, ch, m_type)				\
-__FSM_STATE(st) {							\
+__FSM_STATE(st, cold) {							\
 	if (unlikely(c != (ch)))					\
 		__FSM_MOVE_nofixup(Req_MethodUnknown);			\
 	req->method = (m_type);						\
@@ -768,7 +772,7 @@ __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
  * chunked-body trailer-part (4.1).
  */
 #define RGEN_EOL()							\
-__FSM_STATE(RGen_EoL) {							\
+__FSM_STATE(RGen_EoL, hot) {						\
 	if (c == '\r')							\
 		__FSM_MOVE_nofixup(RGen_CR);				\
 	if (c == '\n') {						\
@@ -781,7 +785,7 @@ __FSM_STATE(RGen_EoL) {							\
 	}								\
 	TFW_PARSER_BLOCK(RGen_EoL);					\
 }									\
-__FSM_STATE(RGen_CR) {							\
+__FSM_STATE(RGen_CR, hot) {						\
 	if (unlikely(c != '\n'))					\
 		TFW_PARSER_BLOCK(RGen_CR);				\
 	if (parser->hdr.data) {						\
@@ -828,7 +832,7 @@ do {									\
  * State processing a character just after CRLFCR, i.e. the final LF.
  */
 #define RGEN_CRLF()							\
-__FSM_STATE(RGen_CRLFCR) {						\
+__FSM_STATE(RGen_CRLFCR, hot) {						\
 	if (unlikely(c != '\n'))					\
 		TFW_PARSER_BLOCK(RGen_CRLFCR);				\
 	mark_spec_hbh(msg);						\
@@ -962,7 +966,7 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 
 /* Process according RFC 7230 3.3.3 */
 #define TFW_HTTP_INIT_REQ_BODY_PARSING()				\
-__FSM_STATE(RGen_BodyInit) {						\
+__FSM_STATE(RGen_BodyInit, cold) {					\
 	TfwStr *tbl = msg->h_tbl->tbl;					\
 									\
 	T_DBG3("parse request body: flags=%#lx content_length=%lu\n",	\
@@ -1053,13 +1057,13 @@ __FSM_STATE(Resp_BodyUnlimRead) {					\
 	__FSM_MOVE_nf(Resp_BodyUnlimRead, __data_remain(p), &msg->body); \
 }
 
-#define TFW_HTTP_PARSE_BODY()						\
+#define TFW_HTTP_PARSE_BODY(...)					\
 /* Read request|response body. */					\
-__FSM_STATE(RGen_BodyStart) {						\
+__FSM_STATE(RGen_BodyStart, __VA_ARGS__) {				\
 	tfw_http_msg_set_str_data(msg, &msg->body, p);			\
 	/* Fall through. */						\
 }									\
-__FSM_STATE(RGen_BodyChunk) {						\
+__FSM_STATE(RGen_BodyChunk, __VA_ARGS__) {				\
 	T_DBG3("read body: to_read=%ld\n", parser->to_read);		\
 	if (parser->to_read == -1) {					\
 		/* Prevent @parse_int_hex false positives. */		\
@@ -1069,7 +1073,7 @@ __FSM_STATE(RGen_BodyChunk) {						\
 	}								\
 	/* Fall through. */						\
 }									\
-__FSM_STATE(RGen_BodyReadChunk) {					\
+__FSM_STATE(RGen_BodyReadChunk, __VA_ARGS__) {				\
 	BUG_ON(parser->to_read < 0);					\
 	__fsm_sz = min_t(long, parser->to_read, __data_remain(p));	\
 	parser->to_read -= __fsm_sz;					\
@@ -1087,7 +1091,7 @@ __FSM_STATE(RGen_BodyReadChunk) {					\
 	parser->state = &&RGen_BodyReadChunk;				\
 	__FSM_EXIT(TFW_PASS);						\
 }									\
-__FSM_STATE(RGen_BodyChunkLen) {					\
+__FSM_STATE(RGen_BodyChunkLen, __VA_ARGS__) {				\
 	__fsm_sz = __data_remain(p);					\
 	/* Read next chunk length. */					\
 	__fsm_n = parse_int_hex(p, __fsm_sz, &parser->_acc, &parser->_cnt); \
@@ -1106,17 +1110,17 @@ __FSM_STATE(RGen_BodyChunkLen) {					\
 		__FSM_MOVE_nf(RGen_BodyChunkExt, __fsm_n, &msg->body);	\
 	}								\
 }									\
-__FSM_STATE(RGen_BodyChunkExt) {					\
+__FSM_STATE(RGen_BodyChunkExt, __VA_ARGS__) {				\
 	if (unlikely(c == ';' || c == '=' || IS_TOKEN(c)))		\
 		__FSM_MOVE_f(RGen_BodyChunkExt, &msg->body);		\
 	/* Fall through. */						\
 }									\
-__FSM_STATE(RGen_BodyEoL) {						\
+__FSM_STATE(RGen_BodyEoL, __VA_ARGS__) {				\
 	if (likely(c == '\r'))						\
 		__FSM_MOVE_f(RGen_BodyCR, &msg->body);			\
 	/* Fall through. */						\
 }									\
-__FSM_STATE(RGen_BodyCR) {						\
+__FSM_STATE(RGen_BodyCR, __VA_ARGS__) {					\
 	if (unlikely(c != '\n'))					\
 		TFW_PARSER_BLOCK(RGen_BodyCR);				\
 	if (parser->to_read)						\
@@ -1139,7 +1143,7 @@ __FSM_STATE(RGen_BodyCR) {						\
  * a plain pushdown automaton), but reduces FSM code size.
  */
 #define RGEN_OWS()							\
-__FSM_STATE(RGen_OWS) {							\
+__FSM_STATE(RGen_OWS, hot) {						\
 	if (likely(IS_WS(c)))						\
 		__FSM_MOVE(RGen_OWS);					\
 	parser->state = parser->_i_st;					\
@@ -2923,26 +2927,14 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 	/* ----------------    Request Line    ---------------- */
 
 	/* Parser internal initializers, must be called once per message. */
-	__FSM_STATE(Req_0) {
+	__FSM_STATE(Req_0, hot) {
 		if (unlikely(IS_CRLF(c)))
 			__FSM_MOVE_nofixup(Req_0);
 		/* fall through */
 	}
 
-/*
- * Fot most (or at least most frequent) methods @step_inc should be
- * optimized out. The macro is used to reduce the FSM size, so there is not
- * sense to use it specific versions for the few states, e.g. for 'GET '.
- */
-#define __MATCH_METH(meth, step_inc)					\
-do {									\
-	req->method = TFW_HTTP_METH_##meth;				\
-	__fsm_n += step_inc;						\
-	goto match_meth;						\
-} while (0)
-
 	/* HTTP method. */
-	__FSM_STATE(Req_Method) {
+	__FSM_STATE(Req_Method, hot) {
 		if (likely(__data_available(p, 9))) {
 			/*
 			 * Move most frequent methods forward and do not use
@@ -2954,117 +2946,17 @@ do {									\
 			 * for fast path and fail to 1-character FSM for slow
 			 * path.
 			 */
-			__fsm_n = 4;
-			if (likely(PI(p) == TFW_CHAR4_INT('G', 'E', 'T', ' ')))
-			{
+			if (PI(p) == TFW_CHAR4_INT('G', 'E', 'T', ' ')) {
 				req->method = TFW_HTTP_METH_GET;
 				__FSM_MOVE_nofixup_n(Req_Uri, 4);
 			}
-			if (likely(PI(p) == TFW_CHAR4_INT('P', 'O', 'S', 'T')))
-				__MATCH_METH(POST, 0);
-			barrier();
-
-			/*
-			 * Other popular methods: HEAD, COPY, DELETE, LOCK,
-			 * MKCOL, MOVE, OPTIONS, PATCH, PROPFIND, PROPPATCH,
-			 * PUT, TRACE, UNLOCK, PURGE.
-			 */
-			switch (PI(p)) {
-			case TFW_CHAR4_INT('H', 'E', 'A', 'D'):
-				__MATCH_METH(HEAD, 0);
-			/* PURGE Method for Tempesta Configuration: PURGE. */
-			case TFW_CHAR4_INT('P', 'U', 'R', 'G'):
-				if (likely(*(p + 4) == 'E'))
-					__MATCH_METH(PURGE, 1);
-				__FSM_MOVE_nofixup_n(Req_MethPurg, 4);
-			case TFW_CHAR4_INT('C', 'O', 'P', 'Y'):
-				__MATCH_METH(COPY, 0);
-			case TFW_CHAR4_INT('D', 'E', 'L', 'E'):
-				if (likely(*(p + 4) == 'T' && *(p + 5) == 'E'))
-					__MATCH_METH(DELETE, 2);
-				__FSM_MOVE_nofixup_n(Req_MethDele, 4);
-			case TFW_CHAR4_INT('L', 'O', 'C', 'K'):
-				__MATCH_METH(LOCK, 0);
-			case TFW_CHAR4_INT('M', 'K', 'C', 'O'):
-				if (likely(*(p + 4) == 'L'))
-					__MATCH_METH(MKCOL, 1);
-				__FSM_MOVE_nofixup_n(Req_MethMkco, 4);
-			case TFW_CHAR4_INT('M', 'O', 'V', 'E'):
-				__MATCH_METH(MOVE, 0);
-			case TFW_CHAR4_INT('O', 'P', 'T', 'I'):
-				if (likely(*((unsigned int *)p + 1)
-					 == TFW_CHAR4_INT('O', 'N', 'S', ' ')))
-				{
-					req->method = TFW_HTTP_METH_OPTIONS;
-					__FSM_MOVE_nofixup_n(Req_Uri, 8);
-				}
-				__FSM_MOVE_nofixup_n(Req_MethOpti, 4);
-			case TFW_CHAR4_INT('P', 'A', 'T', 'C'):
-				if (likely(*(p + 4) == 'H'))
-					__MATCH_METH(PATCH, 1);
-				__FSM_MOVE_nofixup_n(Req_MethPatc, 4);
-			case TFW_CHAR4_INT('P', 'R', 'O', 'P'):
-				if (likely(*((unsigned int *)p + 1)
-					  == TFW_CHAR4_INT('F', 'I', 'N', 'D')))
-				{
-					__MATCH_METH(PROPFIND, 4);
-				}
-				if (likely(*((unsigned int *)p + 1)
-					   == TFW_CHAR4_INT('P', 'A', 'T', 'C'))
-						&& (*(p + 8) == 'H'))
-				{
-					__MATCH_METH(PROPPATCH, 5);
-				}
-				__FSM_MOVE_nofixup_n(Req_MethProp, 4);
-			case TFW_CHAR4_INT('P', 'U', 'T', ' '):
-				req->method = TFW_HTTP_METH_PUT;
-				__FSM_MOVE_nofixup_n(Req_Uri, 4);
-			case TFW_CHAR4_INT('T', 'R', 'A', 'C'):
-				if (likely(*(p + 4) == 'E'))
-					__MATCH_METH(TRACE, 1);
-				__FSM_MOVE_nofixup_n(Req_MethTrac, 4);
-			case TFW_CHAR4_INT('U', 'N', 'L', 'O'):
-				if (likely(*(p + 4) == 'C' && *(p + 5) == 'K'))
-					__MATCH_METH(UNLOCK, 2);
-				__FSM_MOVE_nofixup_n(Req_MethUnlo, 4);
-			default:
-				__FSM_MOVE_nofixup(Req_MethodUnknown);
+			if (PI(p) == TFW_CHAR4_INT('P', 'O', 'S', 'T')) {
+				req->method = TFW_HTTP_METH_POST;
+				__FSM_MOVE_nofixup_n(Req_MUSpace, 4);
 			}
-			barrier();
-match_meth:
-			__FSM_MOVE_nofixup_n(Req_MUSpace, __fsm_n);
-			barrier();
-#undef __MATCH_METH
+			goto Req_Method_RareMethods;
 		}
-		/* Slow path: step char-by-char. */
-		switch (c) {
-		case 'G':
-			__FSM_MOVE_nofixup(Req_MethG);
-		case 'H':
-			__FSM_MOVE_nofixup(Req_MethH);
-		case 'P':
-			__FSM_MOVE_nofixup(Req_MethP);
-		case 'C':
-			__FSM_MOVE_nofixup(Req_MethC);
-		case 'D':
-			__FSM_MOVE_nofixup(Req_MethD);
-		case 'L':
-			__FSM_MOVE_nofixup(Req_MethL);
-		case 'M':
-			__FSM_MOVE_nofixup(Req_MethM);
-		case 'O':
-			__FSM_MOVE_nofixup(Req_MethO);
-		case 'T':
-			__FSM_MOVE_nofixup(Req_MethT);
-		case 'U':
-			__FSM_MOVE_nofixup(Req_MethU);
-		}
-		__FSM_MOVE_nofixup(Req_MethodUnknown);
-	}
-	__FSM_STATE(Req_MethodUnknown) {
-		__FSM_MATCH_MOVE_nofixup(token, Req_MethodUnknown);
-		req->method = _TFW_HTTP_METH_UNKNOWN;
-		__FSM_MOVE_nofixup_n(Req_MUSpace, 0);
+		goto Req_Method_1CharStep;
 	}
 
 	/*
@@ -3077,7 +2969,7 @@ match_meth:
 		__FSM_MOVE_nofixup(Req_Uri);
 	}
 
-	__FSM_STATE(Req_Uri) {
+	__FSM_STATE(Req_Uri, hot) {
 		if (likely(c == '/'))
 			__FSM_JMP(Req_UriMark);
 
@@ -3196,7 +3088,7 @@ match_meth:
 		TFW_PARSER_BLOCK(Req_UriPort);
 	}
 
-	__FSM_STATE(Req_UriMark) {
+	__FSM_STATE(Req_UriMark, hot) {
 		if (!tfw_http_sess_max_misses()) {
 			/*
 			 * Skip redirection mark processing and move to
@@ -3232,7 +3124,7 @@ match_meth:
 		__FSM_MOVE_nofixup_n(Req_UriMarkEnd, __fsm_n);
 	}
 
-	__FSM_STATE(Req_UriMarkEnd) {
+	__FSM_STATE(Req_UriMarkEnd, hot) {
 		if (likely(c == '/')) {
 			__msg_field_open(&req->uri_path, p);
 			__FSM_MOVE_f(Req_UriAbsPath, &req->uri_path);
@@ -3273,7 +3165,7 @@ match_meth:
 	}
 
 	/* HTTP version */
-	__FSM_STATE(Req_HttpVer) {
+	__FSM_STATE(Req_HttpVer, hot) {
 		if (unlikely(!__data_available(p, 8))) {
 			/* Slow path. */
 			if (c == 'H')
@@ -3300,7 +3192,7 @@ match_meth:
 	 * of the request. There is a switch for the first character
 	 * of a header field name.
 	 */
-	__FSM_STATE(RGen_Hdr) {
+	__FSM_STATE(RGen_Hdr, hot) {
 		TFW_HTTP_PARSE_CRLF();
 
 		tfw_http_msg_hdr_open(msg, p);
@@ -3580,11 +3472,138 @@ match_meth:
 	RGEN_EOL();
 	RGEN_CRLF();
 
+	/* Normal end of the FSM. */
+	__FSM_FINISH(req);
+	return r;
 
-	/* ----------------    Request body    ---------------- */
-
+	/*
+	 * ----------------    Request body    ----------------
+	 *
+	 * Most requests do not have body, so move body parser after the end.
+	 */
 	TFW_HTTP_INIT_REQ_BODY_PARSING();
-	TFW_HTTP_PARSE_BODY();
+	TFW_HTTP_PARSE_BODY(cold);
+
+	/*
+	 * ----------------    Slow path    ----------------
+	 *
+	 * The code at the below is the slow path,
+	 * so this is why it's at the end of the function.
+	 */
+	barrier();
+
+	/*
+	 * Process other (imporbable) states here, on slow path.
+	 * We're on state Req_Method.
+	 *
+	 * For most (or at least most frequent) methods @step_inc should be
+	 * optimized out. The macro is used to reduce the FSM size, so there is
+	 * no sense to use it's specific versions for the few states,
+	 * e.g. for 'GET '.
+	 *
+	 * We already sure that there is enough data available from fast path
+	 * of Req_Method.
+	 */
+Req_Method_RareMethods: __attribute__((cold))
+#define __MATCH_METH(meth, step_inc)					\
+do {									\
+	req->method = TFW_HTTP_METH_##meth;				\
+	__fsm_n += step_inc;						\
+	goto match_meth;						\
+} while (0)
+
+	__fsm_n = 4;
+	switch (PI(p)) {
+	case TFW_CHAR4_INT('H', 'E', 'A', 'D'):
+		__MATCH_METH(HEAD, 0);
+	/* PURGE Method for Tempesta Configuration: PURGE. */
+	case TFW_CHAR4_INT('P', 'U', 'R', 'G'):
+		if (likely(*(p + 4) == 'E'))
+			__MATCH_METH(PURGE, 1);
+		__FSM_MOVE_nofixup_n(Req_MethPurg, 4);
+	case TFW_CHAR4_INT('C', 'O', 'P', 'Y'):
+		__MATCH_METH(COPY, 0);
+	case TFW_CHAR4_INT('D', 'E', 'L', 'E'):
+		if (likely(*(p + 4) == 'T' && *(p + 5) == 'E'))
+			__MATCH_METH(DELETE, 2);
+		__FSM_MOVE_nofixup_n(Req_MethDele, 4);
+	case TFW_CHAR4_INT('L', 'O', 'C', 'K'):
+		__MATCH_METH(LOCK, 0);
+	case TFW_CHAR4_INT('M', 'K', 'C', 'O'):
+		if (likely(*(p + 4) == 'L'))
+			__MATCH_METH(MKCOL, 1);
+		__FSM_MOVE_nofixup_n(Req_MethMkco, 4);
+	case TFW_CHAR4_INT('M', 'O', 'V', 'E'):
+		__MATCH_METH(MOVE, 0);
+	case TFW_CHAR4_INT('O', 'P', 'T', 'I'):
+		if (likely(*((unsigned int *)p + 1)
+			 == TFW_CHAR4_INT('O', 'N', 'S', ' ')))
+		{
+			req->method = TFW_HTTP_METH_OPTIONS;
+			__FSM_MOVE_nofixup_n(Req_Uri, 8);
+		}
+		__FSM_MOVE_nofixup_n(Req_MethOpti, 4);
+	case TFW_CHAR4_INT('P', 'A', 'T', 'C'):
+		if (likely(*(p + 4) == 'H'))
+			__MATCH_METH(PATCH, 1);
+		__FSM_MOVE_nofixup_n(Req_MethPatc, 4);
+	case TFW_CHAR4_INT('P', 'R', 'O', 'P'):
+		if (likely(*((unsigned int *)p + 1)
+			  == TFW_CHAR4_INT('F', 'I', 'N', 'D')))
+		{
+			__MATCH_METH(PROPFIND, 4);
+		}
+		if (likely(*((unsigned int *)p + 1)
+			   == TFW_CHAR4_INT('P', 'A', 'T', 'C'))
+				&& (*(p + 8) == 'H'))
+		{
+			__MATCH_METH(PROPPATCH, 5);
+		}
+		__FSM_MOVE_nofixup_n(Req_MethProp, 4);
+	case TFW_CHAR4_INT('P', 'U', 'T', ' '):
+		req->method = TFW_HTTP_METH_PUT;
+		__FSM_MOVE_nofixup_n(Req_Uri, 4);
+	case TFW_CHAR4_INT('T', 'R', 'A', 'C'):
+		if (likely(*(p + 4) == 'E'))
+			__MATCH_METH(TRACE, 1);
+		__FSM_MOVE_nofixup_n(Req_MethTrac, 4);
+	case TFW_CHAR4_INT('U', 'N', 'L', 'O'):
+		if (likely(*(p + 4) == 'C' && *(p + 5) == 'K'))
+			__MATCH_METH(UNLOCK, 2);
+		__FSM_MOVE_nofixup_n(Req_MethUnlo, 4);
+	default:
+		__FSM_MOVE_nofixup(Req_MethodUnknown);
+	}
+match_meth:
+	__FSM_MOVE_nofixup_n(Req_MUSpace, __fsm_n);
+#undef __MATCH_METH
+
+	/* Req_Method slow path: step char-by-char. */
+Req_Method_1CharStep: __attribute__((cold))
+	switch (c) {
+	case 'G':
+		__FSM_MOVE_nofixup(Req_MethG);
+	case 'H':
+		__FSM_MOVE_nofixup(Req_MethH);
+	case 'P':
+		__FSM_MOVE_nofixup(Req_MethP);
+	case 'C':
+		__FSM_MOVE_nofixup(Req_MethC);
+	case 'D':
+		__FSM_MOVE_nofixup(Req_MethD);
+	case 'L':
+		__FSM_MOVE_nofixup(Req_MethL);
+	case 'M':
+		__FSM_MOVE_nofixup(Req_MethM);
+	case 'O':
+		__FSM_MOVE_nofixup(Req_MethO);
+	case 'T':
+		__FSM_MOVE_nofixup(Req_MethT);
+	case 'U':
+		__FSM_MOVE_nofixup(Req_MethU);
+	}
+	__FSM_MOVE_nofixup(Req_MethodUnknown);
+
 
 	/* ----------------    Improbable states    ---------------- */
 
@@ -3593,7 +3612,7 @@ match_meth:
 	__FSM_METH_MOVE(Req_MethG, 'E', Req_MethGe);
 	__FSM_METH_MOVE_finish(Req_MethGe, 'T', TFW_HTTP_METH_GET);
 	/* P* */
-	__FSM_STATE(Req_MethP) {
+	__FSM_STATE(Req_MethP, cold) {
 		switch (c) {
 		case 'O':
 			__FSM_MOVE_nofixup(Req_MethPo);
@@ -3616,7 +3635,7 @@ match_meth:
 	/* PROP* */
 	__FSM_METH_MOVE(Req_MethPr, 'O', Req_MethPro);
 	__FSM_METH_MOVE(Req_MethPro, 'P', Req_MethProp);
-	__FSM_STATE(Req_MethProp) {
+	__FSM_STATE(Req_MethProp, cold) {
 		switch (c) {
 		case 'F':
 			__FSM_MOVE_nofixup(Req_MethPropf);
@@ -3635,7 +3654,7 @@ match_meth:
 	__FSM_METH_MOVE(Req_MethProppat, 'C', Req_MethProppatc);
 	__FSM_METH_MOVE_finish(Req_MethProppatc, 'H', TFW_HTTP_METH_PROPPATCH);
 	/* PU* */
-	__FSM_STATE(Req_MethPu) {
+	__FSM_STATE(Req_MethPu, cold) {
 		switch (c) {
 		case 'R':
 			__FSM_MOVE_nofixup(Req_MethPur);
@@ -3668,7 +3687,7 @@ match_meth:
 	__FSM_METH_MOVE(Req_MethLo, 'C', Req_MethLoc);
 	__FSM_METH_MOVE_finish(Req_MethLoc, 'K', TFW_HTTP_METH_LOCK);
 	/* M* */
-	__FSM_STATE(Req_MethM) {
+	__FSM_STATE(Req_MethM, cold) {
 		switch (c) {
 		case 'K':
 			__FSM_MOVE_nofixup(Req_MethMk);
@@ -3703,6 +3722,12 @@ match_meth:
 	__FSM_METH_MOVE(Req_MethUnlo, 'C', Req_MethUnloc);
 	__FSM_METH_MOVE_finish(Req_MethUnloc, 'K', TFW_HTTP_METH_UNLOCK);
 
+	__FSM_STATE(Req_MethodUnknown, cold) {
+		__FSM_MATCH_MOVE_nofixup(token, Req_MethodUnknown);
+		req->method = _TFW_HTTP_METH_UNKNOWN;
+		__FSM_MOVE_nofixup_n(Req_MUSpace, 0);
+	}
+
 	/* process URI scheme: "http://" */
 	__FSM_TX_LC_nofixup(Req_UriSchH, 't', Req_UriSchHt);
 	__FSM_TX_LC_nofixup(Req_UriSchHt, 't', Req_UriSchHtt);
@@ -3718,7 +3743,7 @@ match_meth:
 	__FSM_TX_nofixup(Req_HttpVerSlash, '/', Req_HttpVer11);
 	__FSM_TX_nofixup(Req_HttpVer11, '1', Req_HttpVerDot);
 	__FSM_TX_nofixup(Req_HttpVerDot, '.', Req_HttpVer12);
-	__FSM_STATE(Req_HttpVer12) {
+	__FSM_STATE(Req_HttpVer12, cold) {
 		switch(c) {
 		case '1':
 			req->version = TFW_HTTP_VER_11;
@@ -3731,7 +3756,7 @@ match_meth:
 		}
 	}
 
-	__FSM_STATE(Req_HdrA) {
+	__FSM_STATE(Req_HdrA, cold) {
 		switch (TFW_LC(c)) {
 		case 'c':
 			__FSM_MOVE(Req_HdrAc);
@@ -3763,7 +3788,7 @@ match_meth:
 	__FSM_TX_AF(Req_HdrAuthorizatio, 'n', Req_HdrAuthorization);
 	__FSM_TX_AF_OWS(Req_HdrAuthorization, Req_HdrAuthorizationV);
 
-	__FSM_STATE(Req_HdrC) {
+	__FSM_STATE(Req_HdrC, cold) {
 		switch (TFW_LC(c)) {
 		case 'a':
 			__FSM_MOVE(Req_HdrCa);
@@ -3788,7 +3813,7 @@ match_meth:
 	__FSM_TX_AF(Req_HdrCache_Contro, 'l', Req_HdrCache_Control);
 	__FSM_TX_AF_OWS(Req_HdrCache_Control, Req_HdrCache_ControlV);
 
-	__FSM_STATE(Req_HdrCo) {
+	__FSM_STATE(Req_HdrCo, cold) {
 		switch (TFW_LC(c)) {
 		case 'n':
 			__FSM_MOVE(Req_HdrCon);
@@ -3800,7 +3825,7 @@ match_meth:
 	}
 
 	/* Connection header processing. */
-	__FSM_STATE(Req_HdrCon) {
+	__FSM_STATE(Req_HdrCon, cold) {
 		switch (TFW_LC(c)) {
 		case 'n':
 			__FSM_MOVE(Req_HdrConn);
@@ -3843,7 +3868,7 @@ match_meth:
 	__FSM_TX_AF(Req_HdrHo, 's', Req_HdrHos);
 	__FSM_TX_AF(Req_HdrHos, 't', Req_HdrHost);
 	/* NOTE: Allow empty host field-value there. RFC 7230 5.4. */
-	__FSM_STATE(Req_HdrHost) {
+	__FSM_STATE(Req_HdrHost, cold) {
 		if (likely(c == ':')) {
 			parser->_i_st = &&Req_HdrHostV;
 			__FSM_MOVE(RGen_OWS);
@@ -3854,7 +3879,7 @@ match_meth:
 	/* If-* header processing. */
 	__FSM_TX_AF(Req_HdrI, 'f', Req_HdrIf);
 	__FSM_TX_AF(Req_HdrIf, '-', Req_HdrIf_);
-	__FSM_STATE(Req_HdrIf_) {
+	__FSM_STATE(Req_HdrIf_, cold) {
 		switch (TFW_LC(c)) {
 		case 'm':
 			__FSM_MOVE(Req_HdrIf_M);
@@ -3979,10 +4004,6 @@ match_meth:
 	__FSM_TX_AF(Req_HdrCook, 'i', Req_HdrCooki);
 	__FSM_TX_AF(Req_HdrCooki, 'e', Req_HdrCookie);
 	__FSM_TX_AF_OWS(Req_HdrCookie, Req_HdrCookieV);
-
-	__FSM_FINISH(req);
-
-	return r;
 }
 STACK_FRAME_NON_STANDARD(tfw_http_parse_req);
 
