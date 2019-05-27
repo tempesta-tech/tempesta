@@ -276,13 +276,12 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	/* Try to aggregate several skbs into one TLS record. */
 	while (!tcp_skb_is_last(sk, skb_tail)) {
 		next = tcp_write_queue_next(sk, skb_tail);
-		tcb = TCP_SKB_CB(next);
 
 		T_DBG3("next skb (%pK) in write queue: len=%u frags=%u/%u"
 		       " type=%u seq=%u:%u\n",
 		       next, next->len, skb_shinfo(next)->nr_frags,
 		       !!skb_headlen(next), tempesta_tls_skb_type(next),
-		       tcb->seq, tcb->end_seq);
+		       TCP_SKB_CB(next)->seq, TCP_SKB_CB(next)->end_seq);
 
 		if (len + next->len > limit)
 			break;
@@ -290,9 +289,11 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		if (type != tempesta_tls_skb_type(next))
 			break;
 
-		/* @next has original seqnos, so advance both of them. */
-		tcb->seq += head_sz;
-		tcb->end_seq += head_sz;
+		/*
+		 * skb at @next may lag behind in sequence numbers. Recalculate
+		 * them from the previous skb which happens to be @skb_tail.
+		 */
+		tfw_tls_tcp_propagate_dseq(sk, skb_tail);
 
 		len += next->len;
 		sgt.nents += skb_shinfo(next)->nr_frags + !!skb_headlen(next);
