@@ -233,13 +233,20 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	unsigned char type;
 	struct sk_buff *next = skb, *skb_tail = skb;
 	struct tcp_skb_cb *tcb = TCP_SKB_CB(skb);
-	TlsCtx *tls = tfw_tls_context(sk->sk_user_data);
-	TlsIOCtx *io = &tls->io_out;
-	TlsXfrm *xfrm = &tls->xfrm;
+	TlsCtx *tls;
+	TlsIOCtx *io;
+	TlsXfrm *xfrm;
 	struct sg_table sgt = {
 		.nents = skb_shinfo(skb)->nr_frags + !!skb_headlen(skb),
 	};
 	struct scatterlist sg[AUTO_SEGS_N];
+
+	if (unlikely(sk->sk_user_data == NULL))
+		return -EINVAL;
+
+	tls = tfw_tls_context(sk->sk_user_data);
+	io = &tls->io_out;
+	xfrm = &tls->xfrm;
 
 	T_DBG3("%s: sk=%pK(snd_una=%u snd_nxt=%u limit=%u)"
 	       " skb=%pK(len=%u data_len=%u type=%u frags=%u headlen=%u"
