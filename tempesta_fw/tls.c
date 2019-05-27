@@ -336,7 +336,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		TCP_SKB_CB(skb_tail)->end_seq += tag_sz;
 
 		/* A new frag is added to the end of the current skb. */
-		WARN_ON_ONCE(t_sz >= skb_tail->truesize);
+		WARN_ON_ONCE(t_sz > skb_tail->truesize);
 		t_sz = skb_tail->truesize - t_sz;
 	}
 	else {
@@ -374,7 +374,6 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	 * So to adjust the socket write memory we have to check the both skbs
 	 * and only for tag_sz.
 	 */
-	WARN_ON_ONCE(t_sz < tag_sz);
 	tfw_tls_tcp_add_overhead(sk, t_sz);
 
 	if (likely(sgt.nents <= AUTO_SEGS_N)) {
