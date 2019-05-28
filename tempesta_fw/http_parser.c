@@ -3493,7 +3493,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 	barrier();
 
 	/*
-	 * Process other (imporbable) states here, on slow path.
+	 * Process other (improbable) states here, on slow path.
 	 * We're on state Req_Method.
 	 *
 	 * For most (or at least most frequent) methods @step_inc should be
