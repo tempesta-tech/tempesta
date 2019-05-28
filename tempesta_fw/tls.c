@@ -234,13 +234,20 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	unsigned char type;
 	struct sk_buff *next = skb, *skb_tail = skb;
 	struct tcp_skb_cb *tcb = TCP_SKB_CB(skb);
-	TlsCtx *tls = tfw_tls_context(sk->sk_user_data);
-	TlsIOCtx *io = &tls->io_out;
-	TlsXfrm *xfrm = &tls->xfrm;
+	TlsCtx *tls;
+	TlsIOCtx *io;
+	TlsXfrm *xfrm;
 	struct sg_table sgt = {
 		.nents = skb_shinfo(skb)->nr_frags + !!skb_headlen(skb),
 	};
 	struct scatterlist sg[AUTO_SEGS_N];
+
+	if (unlikely(sk->sk_user_data == NULL))
+		return -EINVAL;
+
+	tls = tfw_tls_context(sk->sk_user_data);
+	io = &tls->io_out;
+	xfrm = &tls->xfrm;
 
 	T_DBG3("%s: sk=%pK(snd_una=%u snd_nxt=%u limit=%u)"
 	       " skb=%pK(len=%u data_len=%u type=%u frags=%u headlen=%u"
@@ -269,13 +276,12 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	/* Try to aggregate several skbs into one TLS record. */
 	while (!tcp_skb_is_last(sk, skb_tail)) {
 		next = tcp_write_queue_next(sk, skb_tail);
-		tcb = TCP_SKB_CB(next);
 
 		T_DBG3("next skb (%pK) in write queue: len=%u frags=%u/%u"
 		       " type=%u seq=%u:%u\n",
 		       next, next->len, skb_shinfo(next)->nr_frags,
 		       !!skb_headlen(next), tempesta_tls_skb_type(next),
-		       tcb->seq, tcb->end_seq);
+		       TCP_SKB_CB(next)->seq, TCP_SKB_CB(next)->end_seq);
 
 		if (len + next->len > limit)
 			break;
@@ -283,9 +289,11 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		if (type != tempesta_tls_skb_type(next))
 			break;
 
-		/* @next has original seqnos, so advance both of them. */
-		tcb->seq += head_sz;
-		tcb->end_seq += head_sz;
+		/*
+		 * skb at @next may lag behind in sequence numbers. Recalculate
+		 * them from the previous skb which happens to be @skb_tail.
+		 */
+		tfw_tls_tcp_propagate_dseq(sk, skb_tail);
 
 		len += next->len;
 		sgt.nents += skb_shinfo(next)->nr_frags + !!skb_headlen(next);
@@ -329,7 +337,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		TCP_SKB_CB(skb_tail)->end_seq += tag_sz;
 
 		/* A new frag is added to the end of the current skb. */
-		WARN_ON_ONCE(t_sz >= skb_tail->truesize);
+		WARN_ON_ONCE(t_sz > skb_tail->truesize);
 		t_sz = skb_tail->truesize - t_sz;
 	}
 	else {
@@ -367,7 +375,6 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	 * So to adjust the socket write memory we have to check the both skbs
 	 * and only for tag_sz.
 	 */
-	WARN_ON_ONCE(t_sz < tag_sz);
 	tfw_tls_tcp_add_overhead(sk, t_sz);
 
 	if (likely(sgt.nents <= AUTO_SEGS_N)) {
