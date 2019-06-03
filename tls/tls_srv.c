@@ -739,15 +739,14 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		/* Get number of ciphersuite bytes from the client. */
 		n = ntohs(*(short *)&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ]);
 		BUG_ON(io->rlen >= 2);
-		/*
-		 * Skip the last low-priority cipher suites which we can not
-		 * store.
-		 */
+
 		if (2 + *csn + 2 > TTLS_HS_CS_MAX_SZ) {
-			/* Write number of stored cipher suite bytes. */
-			*(short *)&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ] = htons(*csn);
-			io->hslen -= n - *csn;
-			TTLS_HS_FSM_MOVE(TTLS_CH_HS_COMPN);
+			/*
+			 * Client declares too many cipher suites, we have no
+			 * room to store them all. Skipping them since the last
+			 * ones have low priority.
+			 */
+			TTLS_HS_FSM_MOVE(TTLS_CH_HS_CS_SKIP);
 		}
 		/* Read current cipher suite, just after the counter. */
 		if (unlikely(io->rlen)) {
@@ -773,6 +772,24 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		if (*csn == n)
 			TTLS_HS_FSM_MOVE(TTLS_CH_HS_COMPN);
 		TTLS_HS_FSM_MOVE(TTLS_CH_HS_CS);
+	}
+
+	T_FSM_STATE(TTLS_CH_HS_CS_SKIP) {
+		unsigned short *csn = (unsigned short *)tls->hs->tmp;
+		unsigned short n, delta;
+
+		n = ntohs(*(short *)&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ]);
+		delta = min_t(int, buf + len - p, n - *csn);
+		io->hslen -= delta;
+		*csn += delta;
+		p += delta;
+		if (*csn == n) {
+			/* Clamp the ciphersuite list size to fit the storage */
+			*(unsigned short *)&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ] =
+				htons(TTLS_HS_CS_MAX_SZ - 2);
+			TTLS_HS_FSM_MOVE(TTLS_CH_HS_COMPN);
+		}
+		TTLS_HS_FSM_MOVE(TTLS_CH_HS_CS_SKIP);
 	}
 
 	/* Check the compression algorithms length. */
