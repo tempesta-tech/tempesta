@@ -24,7 +24,8 @@
 #ifndef HPACK_INDEX_H
 #define HPACK_INDEX_H
 
-#include "common.h"
+#include <inttypes.h>
+
 #include "../pool.h"
 #include "../str.h"
 #include "subs.h"

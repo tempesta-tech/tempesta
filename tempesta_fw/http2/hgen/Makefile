@@ -1,6 +1,6 @@
 options = -Wall -Wextra -Wstrict-overflow=5 -fno-strict-overflow -O3
 
-hfiles = ../common.h hfcode.h
+hfiles = hfcode.h
 
 all: hfstate.h
 

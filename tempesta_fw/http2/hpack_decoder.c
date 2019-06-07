@@ -24,7 +24,6 @@
 #include <string.h>
 #include <inttypes.h>
 #include <stdio.h>
-#include "common.h"
 #include "../pool.h"
 #include "../str.h"
 #include "../http.h"
@@ -74,7 +73,7 @@ hpack_decode(HPack * __restrict hp,
 	*rc = 0;
 	if (n) {
 		uintptr_t m;
-		const uchar *__restrict src = buffer_get(source, &m);
+		const unsigned char *__restrict src = buffer_get(source, &m);
 		unsigned int state = hp->state;
 
 		do {
@@ -144,7 +143,7 @@ hpack_decode(HPack * __restrict hp,
 			default:
 				/* case HPack_State_Ready: */
 				{
-					uchar c;
+					unsigned char c;
 
 					field =
 					    tfw_pool_alloc(pool,
@@ -240,7 +239,7 @@ hpack_decode(HPack * __restrict hp,
 				}
 			case HPack_State_Name:
 				{
-					uchar c;
+					unsigned char c;
 
 					DPUTS("Decode header name length...");
 					if (unlikely(m == 0)) {
@@ -325,7 +324,7 @@ hpack_decode(HPack * __restrict hp,
 				}
 			case HPack_State_Value:
 				{
-					uchar c;
+					unsigned char c;
 
  Get_Value:
 					DPUTS("Decode header value length...");
@@ -361,7 +360,7 @@ hpack_decode(HPack * __restrict hp,
 				}
 			case HPack_State_Value_Text:
 				{
-					uchar *dst;
+					unsigned char *dst;
 					unsigned int hrc;
 
 					length = field->value.len;
@@ -428,27 +427,12 @@ hpack_decode(HPack * __restrict hp,
 						DPRINTF
 						    ("Add header by dictionary index: %"
 						     PRIuPTR "\n", index);
-#if Fast_Capacity > 32
-						if ((index >> 32) == 0) {
-							hrc =
-							    hpack_add_index(hp->
-									    dynamic,
-									    field,
-									    index,
-									    state,
-									    buffer);
-						} else {
-							hrc =
-							    Err_HTTP2_IntegerOveflow;
-						}
-#else
 						hrc =
 						    hpack_add_index(hp->dynamic,
 								    field,
 								    index,
 								    state,
 								    buffer);
-#endif
 					} else {
 						DPUTS
 						    ("Add header with name and value...");
@@ -558,11 +542,6 @@ hpack_free_list(HTTP2Output * __restrict buffer, HTTP2Field * __restrict p)
 unsigned int
 hpack_set_max_window(HPack * __restrict hp, unsigned int max_window)
 {
-#if Fast_Capacity > 32
-	if (unlikely(max_window > (uint32_t) - 1)) {
-		return Err_HPack_InvalidTableSize;
-	}
-#endif
 	if (max_window == 0) {
 		max_window = (uint32_t) - 1;
 	}
@@ -592,11 +571,6 @@ hpack_new(unsigned int max_window, unsigned char is_encoder,
 {
 	HTTP2Index *__restrict dynamic;
 
-#if Fast_Capacity > 32
-	if (unlikely(max_window > (uint32_t) - 1)) {
-		return NULL;
-	}
-#endif
 	if (max_window == 0) {
 		max_window = (uint32_t) - 1;
 	}

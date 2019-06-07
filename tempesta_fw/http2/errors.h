@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Conversion between little and big endian numbers.
+ * HTTP/2 error codes
  *
  * Copyright (C) 2017 Tempesta Technologies, Inc.
  *

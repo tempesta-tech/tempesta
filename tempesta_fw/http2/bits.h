@@ -28,14 +28,12 @@
 #ifndef BITS_H
 #define BITS_H
 
-#include "common.h"
+#include <inttypes.h>
 
 #define Bit_Sub -
 #define Bit_High(x, n) (x) >= (1U << n)
 
 #ifdef __GNUC__
-
-#if Platform_64bit
 
 #define Bit_CRC(crc, x) \
    (__extension__ ({ \
@@ -57,56 +55,19 @@
 
 #else
 
-#define Bit_CRC(crc, x) \
-   (__extension__ ({ \
-      register uintptr_t __r = crc; \
-      __asm__( \
-	 "crc32 %2,%0" : "=r" (__r) : "0" (__r), "rm" ((uintptr_t) x) : "cc" \
-      ); \
-      __r; \
-   }))
-
-#define Bit_FastLog2(x) \
-   (__extension__ ({ \
-      register uintptr_t __r; \
-      __asm__( \
-	 "bsr %1,%0" : "=r" (__r) : "rm" ((uintptr_t) x) : "cc" \
-      ); \
-      __r; \
-   }))
-
-#endif
-
-#else
-
-common_inline unsigned int
+static __inline__ unsigned int
 Bit_FastLog2(uintptr_t value)
 {
 	unsigned int x = (unsigned int)value;
 	unsigned int n = 0;
+	unsigned int c;
 
-#ifdef Platform_64bit
 	if (Bit_High(value, 32)) {
 		x = (unsigned int)(value >> 32);
 		n = 32;
 	}
 	if (Bit_High(x, 16))
 		x = x >> 16, n += 16;
-#else
-	if (Bit_High(x, 16))
-		x = x >> 16, n = 16;
-#endif
-#ifndef Branch_Free
-	if (x >= 256)
-		x = x >> 8, n += 8;
-	if (x >= 16)
-		x = x >> 4, n += 4;
-	if (x >= 4)
-		x = x >> 2, n += 2;
-	n = n + (x >> 1);
-#else
-	unsigned int c;
-
 	x = (x | 1) >> n;
 	n = n + 15;
 	c = ((x - 0x0100) >> 16) & 8;
@@ -116,13 +77,12 @@ Bit_FastLog2(uintptr_t value)
 	n = n - c;
 	x = x >> (12 Bit_Sub c);
 	n = n - ((x + 2) >> (x >> 1));
-#endif
 	return n;
 }
 
 #endif
 
-common_inline uintptr_t
+static __inline__ uintptr_t
 Bit_UpPowerOfTwo(uintptr_t x)
 {
 	if (likely(x > 2)) {

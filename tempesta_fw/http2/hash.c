@@ -27,12 +27,23 @@
 
 #include <stdint.h>
 #include <string.h>
-#include "common.h"
+#include <inttypes.h>
 #include "../pool.h"
 #include "bits.h"
 #include "subs.h"
-#include "rotate.h"
 #include "hash.h"
+
+static __inline__ uintptr_t
+Rotate_Left(const uintptr_t x, const unsigned int Shift)
+{
+	if (Shift) {
+		return (x << Shift) | (x >> (64 - Shift));
+	} else {
+		return x;
+	}
+}
+
+#define Bit_Shift(x, y, z) (((x) << (y)) | (z))
 
 typedef struct Hash_Entry {
 	struct Hash_Entry *Next;
@@ -85,7 +96,7 @@ static void Hash_Compress(Hash * __restrict const ht, const uintptr_t c);
 /* Some helper routines:		       */
 /* ------------------------------------------- */
 
-local_function uintptr_t
+static __inline__ uintptr_t
 HF(const uintptr_t k)
 {
 #ifdef __GNUC__
@@ -604,76 +615,20 @@ Byte_Hash_Chain(const void *__restrict const x, const uintptr_t Length,
 		l = sizeof(uintptr_t) - l;
 		if (n >= l) {
 			n = n - l;
-#ifdef Platform_Big
-			if (l & 1) {
-				h = *t++;
-			}
-#ifdef Platform_32bit
-			if (l >= 2) {
-#else
-			if (l & 2) {
-#endif
-				h = Bit_Shift(h, 16, *(uint16_t *) t);
-				t = t + 2;
-			}
-#ifdef Platform_64bit
-			if (l >= 4) {
-				h = Bit_Shift(h, 32, *(uint32_t *) t);
-				t = t + 4;
-			}
-#endif
-#else
-#ifdef Platform_32bit
-			if (l & 1) {
-				h = *t++ << 24;
-			}
-			if (l >= 2) {
-#if defined(Compiler_Rotate) && ! defined(_MSC_VER)
-				h = Rotate_Left(h | *(uint16_t *) t, 16);
-#else
-				h = Bit_Shift(*(uint16_t *) t, 16, h >> 16);
-#endif
-				t = t + 2;
-			}
-#else
 			if (l & 1) {
 				h = (uintptr_t) * t++ << 56;
 			}
 			if (l & 2) {
-#if defined(Compiler_Rotate64)
-				h = Rotate_Left(h | *(uint16_t *) t, 48);
-#else
 				h = Bit_Shift((uintptr_t) * (uint16_t *) t, 48,
 					      h >> 16);
-#endif
 				t = t + 2;
 			}
 			if (l >= 4) {
-#if defined(Compiler_Rotate64)
-				h = Rotate_Left(h | *(uint32_t *) t, 32);
-#else
 				h = Bit_Shift((uintptr_t) * (uint32_t *) t, 32,
 					      h >> 32);
-#endif
 				t = t + 4;
 			}
-#endif
-#endif
 		} else {
-#ifdef Platform_32bit
-#ifdef Platform_Little
-			h = *t++;
-			if (n == 2) {
-				h = Bit_Join8(*t, h);
-			}
-#else
-			h = *t++ << 24;
-			if (n == 2) {
-				h = Bit_Shift(*t, 16, h);
-			}
-#endif
-#else
-#ifdef Platform_Little
 			unsigned int s = (l & 1) << 3;
 
 			if (s) {
@@ -703,48 +658,11 @@ Byte_Hash_Chain(const void *__restrict const x, const uintptr_t Length,
 				}
 			}
 			h = Bit_Shift((uintptr_t) * t, s, h);
-#else
-			unsigned int s = 64;
-
-			if (l & 1) {
-				h = (uintptr_t) * t << 56;
-				if (--n == 0) {
-					goto L0;
-				}
-				t = t + 1;
-				s = 56;
-			}
-			if (n >= 2) {
-				s = s - 16;
-				h = Bit_Shift((uintptr_t) * (uint16_t *) t, s,
-					      h);
-				n = n - 2;
-				if (n == 0) {
-					goto L0;
-				}
-				t = t + 2;
-				if (n >= 2) {
-					s = s - 16;
-					h = Bit_Shift((uintptr_t) *
-						      (uint16_t *) t, s, h);
-					if (n == 2) {
-						goto L0;
-					}
-					t = t + 2;
-				}
-			}
-			h = Bit_Shift((uintptr_t) * t, s - 8, h);
-#endif
  L0:
-#endif
-#ifdef Platform_Little
-			return Rotate_Left(h, (Shift & (Word_Size - 1)) * 8);
-#else
-			return Rotate_Right(h, (Shift & (Word_Size - 1)) * 8);
-#endif
+			return Rotate_Left(h, (Shift & (sizeof(uintptr_t) - 1)) * 8);
 		}
 	}
-	l = (l + Shift) & (Word_Size - 1);
+	l = (l + Shift) & (sizeof(uintptr_t) - 1);
 	m = n / sizeof(uintptr_t);
 	if (m) {
 		do {
@@ -755,8 +673,6 @@ Byte_Hash_Chain(const void *__restrict const x, const uintptr_t Length,
 	if (n & (sizeof(uintptr_t) - 1)) {
 		unsigned int s;
 
-#ifdef Platform_Little
-#ifdef Platform_64bit
 		s = (n & 4) << 3;
 		if (s) {
 			h = h ^ *(uint32_t *) t;
@@ -770,48 +686,6 @@ Byte_Hash_Chain(const void *__restrict const x, const uintptr_t Length,
 		if (n & 1) {
 			h = h ^ ((uintptr_t) * t << s);
 		}
-#else
-		s = n & 2;
-		if (s) {
-			h = h ^ *(uint16_t *) t;
-			t = t + 2;
-		}
-		if (n & 1) {
-			h = h ^ (*t << (s << 3));
-		}
-#endif
-#else
-#ifdef Platform_64bit
-		s = 64;
-		if (n & 4) {
-			h = h ^ ((uintptr_t) * (uint32_t *) t << 32);
-			t = t + 4;
-			s = 32;
-		}
-		if (n & 2) {
-			s = s - 16;
-			h = h ^ ((uintptr_t) * (uint16_t *) t << s);
-			t = t + 2;
-		}
-		if (n & 1) {
-			h = h ^ ((uintptr_t) * t << (s - 8));
-		}
-#else
-		s = 24;
-		if (n & 2) {
-			h = h ^ (*(uint16_t *) t << 16);
-			t = t + 2;
-			s = 8;
-		}
-		if (n & 1) {
-			h = h ^ (*t << s);
-		}
-#endif
-#endif
 	}
-#ifdef Platform_Little
 	return Rotate_Left(h, l * 8);
-#else
-	return Rotate_Right(h, l * 8);
-#endif
 }

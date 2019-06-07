@@ -23,7 +23,8 @@
 #ifndef HTTP2_BUFFERS_H
 #define HTTP2_BUFFERS_H
 
-#include "common.h"
+#include <inttypes.h>
+
 #include "../pool.h"
 #include "../str.h"
 #include "errors.h"
@@ -322,7 +323,7 @@ void buffer_str_print(const TfwStr * __restrict str);
 /* Free memory occupied by the TfwStr descriptors, */
 /* which may be allocated for compound strings:    */
 
-common_inline void
+static __inline__ void
 buffer_str_free(TfwPool * __restrict pool, TfwStr * __restrict str)
 {
 	if (!TFW_STR_PLAIN(str)) {

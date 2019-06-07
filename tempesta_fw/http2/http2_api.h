@@ -23,6 +23,8 @@
 #ifndef HTTP2_API_H
 #define HTTP2_API_H
 
+#include <inttypes.h>
+
 #include "../pool.h"
 #include "../str.h"
 #include "../http.h"

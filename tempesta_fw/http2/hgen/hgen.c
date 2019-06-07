@@ -22,7 +22,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include "../common.h"
+#include <inttypes.h>
 
 #include "hfcode.h"
 

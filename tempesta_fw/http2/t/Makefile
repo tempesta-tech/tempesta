@@ -7,7 +7,7 @@ options = -Wall -Wextra -Wstrict-overflow=5 -Wno-unused-parameter \
 	  -ftree-loop-im -fivopts -fira-hoist-pressure \
 	  -fbranch-target-load-optimize
 
-hfiles = ../common.h ../bits.h ../netconv.h ../rotate.h
+hfiles = ../bits.h
 hfiles += ../subs.h ../hash.h
 hfiles += ../buffers.h ../errors.h ../hfstate.h ../huffman.h
 

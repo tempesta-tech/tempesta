@@ -26,7 +26,6 @@
 #include <inttypes.h>
 #include <string.h>
 
-#include "../common.h"
 #include "../../pool.h"
 #include "../../str.h"
 #include "../buffers.h"

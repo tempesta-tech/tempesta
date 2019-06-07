@@ -23,28 +23,65 @@
 #ifndef HPACK_HELPERS_H
 #define HPACK_HELPERS_H
 
-#include "common.h"
-#include "netconv.h"
+#include <inttypes.h>
+#include <stdlib.h>
+#include <arpa/inet.h>
 
-#ifdef Platform_Alignment
+/*
+ * Macros to use LEA on the x86, barrel shifter and other
+ * hardware-specific instructions istead of "|" if suitable:
+ */
+#define Bit_Add(x, y) ((x) | (y))
+#define Bit_Join1(x, y) (((x) << 1) + (y))
+#define Bit_Join2(x, y) (((x) << 2) + (y))
+#define Bit_Join3(x, y) (((x) << 3) + (y))
+#define Bit_Join4(x, y) (((x) << 4) | (y))
+#define Bit_Join8(x, y) (((x) << 8) | (y))
+#define Bit_Shift(x, y, z) (((x) << (y)) | (z))
+#define Bit_Join Bit_Shift
 
-#define GET_INT32_FLAT(x)		\
-	x = Bit_Join(src[0], 24,	\
-	    Bit_Join(src[1], 16,	\
-	    Bit_Join8(src[2], src[3])))
+#define Big16 htons
+#define Big32 htonl
 
-#define GET_INT16_FLAT(x) \
-	x = Bit_Join8(src[0], src[1])
+#ifdef __GNUC__
+
+#if __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 3)
+
+#define Big64(x) (uint64_t) __builtin_bswap64(x)
 
 #else
+
+#define Big64(x) \
+	(__extension__ ({ \
+		register uint64_t __r = x; \
+		__asm__( \
+			"bswapq %0" : "=r" (__r) : "0" (__r) \
+		); \
+		__r; \
+	}))
+
+#endif
+
+#else
+
+static __inline__ uint64_t
+Big64 (const uint64_t x)
+{
+	uint64_t y;
+	y = Bit_Join8(x & 0x00FF00FF00FF00FF, (x >> 8) & 0x00FF00FF00FF00FF);
+	y = Bit_Shift(y & 0x0000FFFF0000FFFF, 16, (y >> 16) & 0x0000FFFF0000FFFF);
+	return return (y << 32) | (y >> (64 - 32));
+}
+
+#endif
+
+#define BigWide Big64
 
 #define GET_INT32_FLAT(x) \
 	x = Big32(* (uint32_t_t *) src)
 
 #define GET_INT16_FLAT(x) \
 	x = Big16(* (uint16_t_t *) src)
-
-#endif
 
 #define GET_INT32(x)					       \
 do {							       \
@@ -94,34 +131,6 @@ do {							       \
 	}						       \
 } while (0)
 
-#ifdef Platform_Alignment
-
-#define PUT_INT32_FLAT(x)		      \
-do {					      \
-	dst[0] = (x) >> 24;		      \
-	dst[1] = (unsigned char) ((x) >> 16); \
-	dst[2] = (unsigned char) ((x) >> 8);  \
-	dst[3] = (unsigned char)  (x);	      \
-	dst += 4;			      \
-} while (0)
-
-#define PUT_INT24_FLAT(x)		     \
-do {					     \
-	dst[0] = (x) >> 16;		     \
-	dst[1] = (unsigned char) ((x) >> 8); \
-	dst[2] = (unsigned char)  (x);	     \
-	dst += 3;			     \
-} while (0)
-
-#define PUT_INT16_FLAT(x)	      \
-do {				      \
-	dst[0] = (x) >> 8;	      \
-	dst[2] = (unsigned char) (x); \
-	dst += 2;		      \
-} while (0)
-
-#else
-
 #define PUT_INT32_FLAT(x)	\
 do {				\
 	* (uint32_t_t *) dst = x; \
@@ -141,10 +150,8 @@ do {				\
 	dst += 2;		\
 } while (0)
 
-#endif
-
-#define HPACK_LIMIT (Bit_Capacity / 7) * 7
-#define HPACK_LAST ((1 << (Bit_Capacity % 7)) - 1)
+#define HPACK_LIMIT (64 / 7) * 7
+#define HPACK_LAST ((1 << (64 % 7)) - 1)
 
 /* Flexible integer decoding as specified */
 /* in the HPACK RFC-7541: */

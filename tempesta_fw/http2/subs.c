@@ -26,7 +26,7 @@
  */
 
 #include <stdint.h>
-#include "common.h"
+#include <inttypes.h>
 #include "subs.h"
 
 #ifndef offsetof
@@ -35,12 +35,12 @@
 
 #define Bit_UMul32(x, y) (uint32_t) ((x) * (y))
 
-#define Sub_Shift(n) \
-   Shift = (offsetof(Sub, Data) + (Word_Size - 1)) & \
-				 ~(Word_Size - 1); \
-   if ((n & (2 * Word_Size - 1)) == 0) { \
-      Shift = (offsetof(Sub, Data) + (2 * Word_Size - 1)) & \
-				    ~(2 * Word_Size - 1); \
+#define Sub_Shift(n) 						    \
+   Shift = (offsetof(Sub, Data) + (sizeof(uintptr_t) - 1)) &        \
+				 ~(sizeof(uintptr_t) - 1); 	    \
+   if ((n & (2 * sizeof(uintptr_t) - 1)) == 0) {		    \
+      Shift = (offsetof(Sub, Data) + (2 * sizeof(uintptr_t) - 1)) & \
+				    ~(2 * sizeof(uintptr_t) - 1);   \
    }
 
 static void Sub_Chunk(Sub * const Object, void *const x, unsigned int n,
@@ -54,7 +54,7 @@ Sub_New_Internal(const char *const Name, const int Length,
 {
 	if (Length >= 1) {
 		const unsigned int n =
-		    (Length + (Word_Size - 1)) & ~(Word_Size - 1);
+		    (Length + (sizeof(uintptr_t) - 1)) & ~(sizeof(uintptr_t) - 1);
 		if ((Quant | Initial) >= 0) {
 			unsigned int Allocated;
 			Sub *Object;

@@ -23,7 +23,8 @@
 #ifndef HPACK_STATIC_H
 #define HPACK_STATIC_H
 
-#include "common.h"
+#include <inttypes.h>
+
 #include "../str.h"
 #include "hpack.h"
 #include "hindex.h"

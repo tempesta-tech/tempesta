@@ -22,7 +22,7 @@
 
 #include <stdio.h>
 #include <math.h>
-#include "../common.h"
+#include <inttypes.h>
 #include "../huffman.h"
 
 #include "../hgen/hfcode.h"

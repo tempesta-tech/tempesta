@@ -25,8 +25,8 @@
 #include <stdint.h>
 #include <string.h>
 #include <time.h>
+#include <inttypes.h>
 
-#include "../common.h"
 #include "../../pool.h"
 #include "../../str.h"
 #include "../buffers.h"

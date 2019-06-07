@@ -5,16 +5,16 @@
 
 #include <stdint.h>
 #include <stdio.h>
-#include "../common.h"
+#include <inttypes.h>
 
-typedef uchar u_char;
-typedef fast ngx_int_t;
-typedef ufast ngx_uint_t;
+typedef unsigned char u_char;
+typedef int ngx_int_t;
+typedef unsigned int ngx_uint_t;
 
 #define NGX_OK 0
 #define NGX_ERROR 1
 
-#define ngx_inline common_inline
+#define ngx_inline static __inline__
 
 typedef struct {
     u_char  next;

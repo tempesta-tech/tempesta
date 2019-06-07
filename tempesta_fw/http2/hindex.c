@@ -31,7 +31,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <inttypes.h>
-#include "common.h"
+
 #include "../pool.h"
 #include "../str.h"
 #include "bits.h"
@@ -152,7 +152,7 @@ hpack_hash_add(Hash * const __restrict ht,
 		return prev;
 	} else if (p->arena == HPack_Arena_User) {
 		const unsigned int length = p->len;
-		uchar *__restrict data = hpack_mem_allocate(length);
+		unsigned char *__restrict data = hpack_mem_allocate(length);
 
 		if (data) {
 			const TfwStr *__restrict source = p->ptr;
@@ -404,7 +404,7 @@ hpack_copy_data(HTTP2Index * __restrict ip,
 
 	if (name->arena == HPack_Arena_User) {
 		const uintptr_t length = name->len;
-		uchar *__restrict data = hpack_mem_allocate(length);
+		unsigned char *__restrict data = hpack_mem_allocate(length);
 
 		if (data) {
 			HPackStr *__restrict np = Sub_Allocate(ip->sub);
@@ -428,7 +428,7 @@ hpack_copy_data(HTTP2Index * __restrict ip,
 	}
 	if (value && value->arena == HPack_Arena_User) {
 		const uintptr_t length = value->len;
-		uchar *__restrict data = hpack_mem_allocate(length);
+		unsigned char *__restrict data = hpack_mem_allocate(length);
 
 		if (data) {
 			HPackStr *__restrict vp = Sub_Allocate(ip->sub);
@@ -582,11 +582,11 @@ hpack_add_and_prune(HTTP2Index * __restrict ip,
 
 			block = (block >> 1) - wrap;
 			if (block) {
-				memcpy(entries, (uchar *) previous + wrap,
+				memcpy(entries, (unsigned char *) previous + wrap,
 				       block);
 			}
 			if (wrap) {
-				memcpy((uchar *) entries + block, previous,
+				memcpy((unsigned char *) entries + block, previous,
 				       wrap);
 			}
 			tfw_pool_free(pool, previous, block);

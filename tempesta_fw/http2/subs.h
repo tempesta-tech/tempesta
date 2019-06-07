@@ -28,8 +28,21 @@
 #ifndef SUBS_H
 #define SUBS_H
 
-#include "common.h"
+#include <inttypes.h>
+
 #include "../pool.h"
+
+/*
+ * Remove aliasing effects from the pointer, because ANSI-compliant
+ * compiler should assume that any  pointer to a union, which containing
+ * "char", potentially overlap with any other pointers in the program:
+ */
+typedef union {
+	char  c;
+	void *p;
+} AntiAliasType;
+
+#define AntiAliasLink(x) ((AntiAliasType *) (x))->p
 
 typedef struct Sub Sub;
 
@@ -73,7 +86,7 @@ void *Sub_Allocate_List(Sub * const Object, const int Count, void *const Last);
 void Sub_Free_List(Sub * const Object, void *const First_Element);
 unsigned int Sub_Query_Length(const Sub * const Object);
 
-common_inline void *
+static __inline__ void *
 Sub_Allocate(Sub * const Object)
 {
 	void **const Block = Object->Next.p;
@@ -86,14 +99,14 @@ Sub_Allocate(Sub * const Object)
 	}
 }
 
-common_inline void
+static __inline__ void
 Sub_Free(Sub * const Object, void *const Block)
 {
 	AntiAliasLink(Block) = Object->Next.p;
 	Object->Next.p = (void * *)Block;
 }
 
-common_inline void
+static __inline__ void
 Sub_Free_Chain(Sub * const Object, void *const p, void *const q)
 {
 	AntiAliasLink(q) = Object->Next.p;

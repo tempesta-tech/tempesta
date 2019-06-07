@@ -28,7 +28,8 @@
 #ifndef HASH_H
 #define HASH_H
 
-#include "common.h"
+#include <inttypes.h>
+
 #include "../pool.h"
 
 typedef struct Hash Hash;

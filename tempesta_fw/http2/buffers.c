@@ -24,7 +24,6 @@
 #include <string.h>
 #include <stdio.h>
 #include <inttypes.h>
-#include "common.h"
 #include "../pool.h"
 #include "../str.h"
 #include "hash.h"
@@ -422,7 +421,7 @@ void
 buffer_new(HTTP2Output * __restrict p,
 	   TfwPool * __restrict pool, unsigned int alignment)
 {
-	unsigned int align = Word_Size - 1;
+	unsigned int align = sizeof(uintptr_t) - 1;
 
 	if (alignment) {
 		align = ~alignment & (alignment - 1);
@@ -1202,11 +1201,7 @@ buffer_str_cmp(const TfwStr * __restrict x, const TfwStr * __restrict y)
  Final:
 	delta = (cx >> 1) - (cy >> 1);
 	if (delta) {
-#if Fast_Capacity < Bit_Capacity
-		return (delta >> (Bit_Capacity - Fast_Capacity)) | 1;
-#else
-		return delta;
-#endif
+		return (delta >> 32) | 1;
 	}
 	return (int)(cx - cy);
 }

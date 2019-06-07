@@ -23,7 +23,8 @@
 #ifndef HPACK_H
 #define HPACK_H
 
-#include "common.h"
+#include <inttypes.h>
+
 #include "../pool.h"
 #include "../str.h"
 #include "../http.h"

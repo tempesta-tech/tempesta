@@ -24,7 +24,6 @@
 #include <string.h>
 #include <inttypes.h>
 #include <stdio.h>
-#include "common.h"
 #include "../pool.h"
 #include "../str.h"
 #include "../http.h"
@@ -46,9 +45,9 @@
 #define DPUTS(...)
 #endif
 
-static uchar *
+static unsigned char *
 write_index(HTTP2Output * __restrict out,
-	    uchar * __restrict dst,
+	    unsigned char * __restrict dst,
 	    unsigned int *__restrict k_new,
 	    unsigned int index,
 	    unsigned int max, unsigned int mask, unsigned int *__restrict rc)
@@ -80,9 +79,9 @@ write_index(HTTP2Output * __restrict out,
 	return NULL;
 }
 
-static uchar *
+static unsigned char *
 write_string(HTTP2Output * __restrict out,
-	     uchar * __restrict dst,
+	     unsigned char * __restrict dst,
 	     unsigned int *__restrict k_new,
 	     const HPackStr * __restrict x, unsigned int *__restrict rc)
 {
@@ -149,7 +148,7 @@ hpack_encode(HPack * __restrict hp,
 	HTTP2Index *const __restrict ip = hp->dynamic;
 	unsigned int rc;
 	unsigned int k;
-	uchar *__restrict dst = buffer_open(out, &k, 0);
+	unsigned char *__restrict dst = buffer_open(out, &k, 0);
 
 	do {
 		uintptr_t value_len;
