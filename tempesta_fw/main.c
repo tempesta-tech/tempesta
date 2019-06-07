@@ -422,7 +422,7 @@ tfw_init(void)
 	TFW_LOG("Initializing Tempesta FW kernel module...\n");
 
 #ifndef AVX2
-	TFW_LOG("ATTENTION: TEMPESTA IS BUILT WIHTOUT AVX2 SUPPORT, "
+	TFW_LOG("ATTENTION: TEMPESTA IS BUILT WITHOUT AVX2 SUPPORT, "
 		"PERFORMANCE IS DEGRADED.");
 #endif
 
