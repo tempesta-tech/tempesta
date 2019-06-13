@@ -1539,6 +1539,13 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce)
 		goto free;
 
 	/*
+	 * Mark skb as SKBTX_SHARED_FRAG so that when sending it to the client
+	 * via https, encryption routines do not change data in-place.
+	 */
+	if (TFW_CONN_TLS(req->conn))
+		skb_shinfo(it.skb)->tx_flags |= SKBTX_SHARED_FRAG;
+
+	/*
 	 * Allocate HTTP headers table of proper size.
 	 * There were no other allocations since the table is allocated,
 	 * so realloc() just grows the table and returns the same pointer.

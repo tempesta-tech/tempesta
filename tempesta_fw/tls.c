@@ -229,7 +229,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 #define AUTO_SEGS_N	8
 
 	int r = -ENOMEM;
-	unsigned int head_sz, tag_sz, len, frags, t_sz;
+	unsigned int head_sz, tag_sz, len, frags, t_sz, out_frags;
 	unsigned char type;
 	struct sk_buff *next = skb, *skb_tail = skb;
 	struct tcp_skb_cb *tcb = TCP_SKB_CB(skb);
@@ -238,8 +238,12 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	TlsXfrm *xfrm;
 	struct sg_table sgt = {
 		.nents = skb_shinfo(skb)->nr_frags + !!skb_headlen(skb),
+	}, out_sgt = {
+		.nents = skb_shinfo(skb)->nr_frags + !!skb_headlen(skb),
 	};
-	struct scatterlist sg[AUTO_SEGS_N];
+	struct scatterlist sg[AUTO_SEGS_N], out_sg[AUTO_SEGS_N];
+	struct page **pages = NULL, **pages_end, **p;
+	struct page *auto_pages[AUTO_SEGS_N];
 
 	if (unlikely(sk->sk_user_data == NULL))
 		return -EINVAL;
@@ -296,6 +300,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 
 		len += next->len;
 		sgt.nents += skb_shinfo(next)->nr_frags + !!skb_headlen(next);
+		out_sgt.nents += skb_shinfo(next)->nr_frags + !!skb_headlen(next);
 		skb_tail = next;
 	}
 
@@ -316,6 +321,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		if (r < 0)
 			goto out;
 		sgt.nents += r;
+		out_sgt.nents += r;
 
 		r = ss_skb_expand_head_tail(skb_tail->next, skb_tail, 0,
 					    tag_sz);
@@ -323,6 +329,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 			goto out;
 	}
 	sgt.nents += r;
+	out_sgt.nents += r;
 
 	/*
 	 * The last skb in our list will bring TLS tag - add it to end_seqno.
@@ -378,17 +385,29 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 
 	if (likely(sgt.nents <= AUTO_SEGS_N)) {
 		sgt.sgl = sg;
+		out_sgt.sgl = out_sg;
+		pages = pages_end = auto_pages;
 	} else {
-		sgt.sgl = kmalloc(sizeof(struct scatterlist) * sgt.nents,
-				  GFP_ATOMIC);
+		char *ptr = kmalloc(sizeof(struct scatterlist) * sgt.nents +
+			            sizeof(struct scatterlist) * out_sgt.nents +
+			            sizeof(struct page *) * out_sgt.nents,
+				    GFP_ATOMIC);
+		sgt.sgl = (struct scatterlist *)ptr;
 		if (!sgt.sgl) {
-			T_WARN("cannot alloc TLS encryption scatter list.\n");
+			T_WARN("cannot alloc memory for TLS encryption.\n");
 			return -ENOMEM;
 		}
+
+		ptr += sizeof(struct scatterlist) * sgt.nents;
+		out_sgt.sgl = (struct scatterlist *)ptr;
+
+		ptr += sizeof(struct scatterlist) * out_sgt.nents;
+		pages = pages_end = (struct page **)ptr;
 	}
 	sg_init_table(sgt.sgl, sgt.nents);
+	sg_init_table(out_sgt.sgl, out_sgt.nents);
 
-	for (next = skb, frags = 0; ; ) {
+	for (next = skb, frags = 0, out_frags = 0; ; ) {
 		/*
 		 * skb data and tails are already adjusted above,
 		 * so use zero offset and skb->len.
@@ -404,6 +423,14 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		if (r <= 0)
 			goto out;
 		frags += r;
+
+		r = ss_skb_to_sgvec_with_new_pages(next,
+		                                   out_sgt.sgl + out_frags,
+		                                   &pages_end);
+		if (r <= 0)
+			goto out;
+		out_frags += r;
+
 		tempesta_tls_skb_clear(next);
 		if (next == skb_tail)
 			break;
@@ -411,6 +438,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 			break;
 		next = tcp_write_queue_next(sk, next);
 		sg_unmark_end(&sgt.sgl[frags - 1]);
+		sg_unmark_end(&out_sgt.sgl[out_frags - 1]);
 	}
 	WARN_ON_ONCE(sgt.nents != frags);
 
@@ -419,10 +447,13 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	/* Set IO context under the lock before encryption. */
 	io->msglen = len - TLS_HEADER_SIZE;
 	io->msgtype = type;
-	if (!(r = ttls_encrypt(tls, &sgt)))
+	if (!(r = ttls_encrypt(tls, &sgt, &out_sgt)))
 		ttls_aad2hdriv(xfrm, skb->data);
 
 	spin_unlock(&tls->lock);
+
+	for (p = pages; p < pages_end; ++p)
+		put_page(*p);
 
 out:
 	if (unlikely(sgt.nents > AUTO_SEGS_N))
