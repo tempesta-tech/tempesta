@@ -1,3 +1,10 @@
+0.6.4 (2019-06-18)
+
+  * Fix TCP sequence numbering when working with fast same-host backends.
+  * Handle enormous ciphersuite lists in ClientHello messages.
+  * Fix crashes on server-client ciphersuite mismatch.
+
+
 0.6.3 (2019-05-17)
 
   * Fix crashes on TLS handshakes utilizing SHA384.
