@@ -676,14 +676,7 @@ int
 tfw_tls_cfg_alpn_protos(const char *cfg_str)
 {
 	ttls_alpn_proto *protos;
-	size_t len = strlen(cfg_str);
 
-#define CONF_HTTPS		"https"
-#define CONF_HTTP1		TTLS_ALPN_HTTP1
-#define CONF_HTTP2		TTLS_ALPN_HTTP2
-#define CONF_HTTPS_LEN		(sizeof(CONF_HTTPS) - 1)
-#define CONF_HTTP1_LEN		(sizeof(CONF_HTTP1) - 1)
-#define CONF_HTTP2_LEN		(sizeof(CONF_HTTP2) - 1)
 #define PROTO_INIT(order, proto)				\
 do {								\
 	protos[order].name = TTLS_ALPN_##proto;			\
@@ -691,61 +684,26 @@ do {								\
 	protos[order].id = TTLS_ALPN_ID_##proto;		\
 } while (0)
 
-	if (strncasecmp(cfg_str, CONF_HTTPS, CONF_HTTPS_LEN))
-		return -EINVAL;
-
-	protos = kzalloc(TTLS_ALPN_PROTOS * sizeof(ttls_alpn_proto), GFP_ATOMIC);
+	protos = kzalloc(TTLS_ALPN_PROTOS * sizeof(ttls_alpn_proto), GFP_KERNEL);
 	if (unlikely(!protos))
 		return -ENOMEM;
 
-	/* Currently HTTP/1.1 protocol is default option. */
-	PROTO_INIT(0, HTTP1);
 	tfw_tls.cfg.alpn_list = protos;
 
-	if (len == CONF_HTTPS_LEN)
-		return 0;
-
-	cfg_str += CONF_HTTPS_LEN;
-	if (cfg_str[0] != ':')
-		goto err;
-
-	++cfg_str;
-	len -= CONF_HTTPS_LEN + 1;
-	if (len >= CONF_HTTP2_LEN
-	    && !strncasecmp(cfg_str, CONF_HTTP2, CONF_HTTP2_LEN))
-	{
-		cfg_str += CONF_HTTP2_LEN;
-		len -= CONF_HTTP2_LEN;
-		if (!len)
-			return 0;
-		if (cfg_str[0] == ',' && !strcasecmp(++cfg_str, CONF_HTTP1)) {
-			PROTO_INIT(1, HTTP1);
-			return 0;
-		}
-	}
-	else if (len >= CONF_HTTP1_LEN
-		 && !strncasecmp(cfg_str, CONF_HTTP1, CONF_HTTP1_LEN))
-	{
+	if (!strcasecmp(cfg_str, "https")) {
 		PROTO_INIT(0, HTTP1);
-		cfg_str += CONF_HTTP1_LEN;
-		len -= CONF_HTTP1_LEN;
-		if (!len)
-			return 0;
-		if (cfg_str[0] == ','  && !strcasecmp(++cfg_str, CONF_HTTP2)) {
-			PROTO_INIT(1, HTTP2);
-			return 0;
-		}
+		return 0;
 	}
 
-err:
+	if (!strcasecmp(cfg_str, "h2")) {
+		PROTO_INIT(0, HTTP2);
+		return 0;
+	}
+
 	tfw_tls.cfg.alpn_list = NULL;
 	kfree(protos);
 
 	return -EINVAL;
-#undef CONF_HTTPS
-#undef CONF_HTTP1
-#undef CONF_HTTP2
-#undef CONF_LEN
 #undef PROTO_INIT
 }
 
