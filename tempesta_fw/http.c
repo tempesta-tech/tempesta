@@ -1068,6 +1068,14 @@ tfw_http_req_zap_error(struct list_head *eq)
 static inline bool
 tfw_http_req_evict_dropped(TfwSrvConn *srv_conn, TfwHttpReq *req)
 {
+	/*
+	 * The special case are the health monitor requests, which have
+	 * not corresponding client connection and, consequently, cannot
+	 * be dropped.
+	 */
+	if (!req->conn)
+		return false;
+
 	if (TFW_CONN_H2(req->conn)) {
 		if (req->stream)
 			return false;
