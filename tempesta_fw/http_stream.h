@@ -22,6 +22,9 @@
 
 #include <linux/rbtree.h>
 
+#include "msg.h"
+#include "http_parser.h"
+
 /**
  * Final statuses of Stream FSM processing.
  */
@@ -58,17 +61,23 @@ typedef enum {
  * Representation of HTTP/2 stream entity.
  *
  * @node	- entry in per-connection storage of streams (red-black tree);
+ * @cl_node	- entry in queue of closed streams;
  * @id		- stream ID;
  * @state	- stream's current state;
  * @loc_wnd	- stream's current flow controlled window;
  * @weight	- stream's priority weight;
+ * @msg		- message that is currently being processed;
+ * @parser	- the state of message processing;
  */
 typedef struct {
 	struct rb_node		node;
+	struct list_head	cl_node;
 	unsigned int		id;
 	int			state;
 	unsigned int		loc_wnd;
 	unsigned short		weight;
+	TfwMsg			*msg;
+	TfwHttpParser		parser;
 } TfwStream;
 
 /**
@@ -87,11 +96,12 @@ int tfw_h2_stream_cache_create(void);
 void tfw_h2_stream_cache_destroy(void);
 TfwStreamFsmRes tfw_h2_stream_fsm(TfwStream *stream, unsigned char type,
 				  unsigned char flags, TfwH2Err *err);
+bool tfw_h2_stream_req_complete(TfwStream *stream);
 bool tfw_h2_stream_is_closed(TfwStream *stream);
 TfwStream *tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id);
 TfwStream *tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id,
 			     unsigned short weight, unsigned int wnd);
-void tfw_h2_streams_cleanup(TfwStreamSched *sched);
+void tfw_h2_delete_stream(TfwStream *stream);
 int tfw_h2_find_stream_dep(TfwStreamSched *sched, unsigned int id,
 			   TfwStream **dep);
 void tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
@@ -99,6 +109,6 @@ void tfw_h2_add_stream_dep(TfwStreamSched *sched, TfwStream *stream,
 void tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 			      unsigned int new_dep, unsigned short new_weight,
 			      bool excl);
-void tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream **stream);
+void tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream);
 
 #endif /* __HTTP_STREAM__ */

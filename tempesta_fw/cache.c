@@ -660,7 +660,10 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 	if (tfw_msg_write(&it, &g_crlf))
 		goto err_setup;
 
-	tfw_http_resp_fwd(resp);
+	if (TFW_CONN_H2(req->conn))
+		tfw_h2_resp_adjust_fwd(resp);
+	else
+		tfw_http_resp_fwd(resp);
 
 	return;
 err_setup:
