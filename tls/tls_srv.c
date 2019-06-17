@@ -1038,16 +1038,8 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 	 * preferences over the preference of the client.
 	 */
 	r = ttls_choose_ciphersuite(tls, &tls->hs->tmp[TTLS_HS_TMP_STORE_SZ]);
-	if (r) {
-		/*
-		 * If tls->xfrm.ciphersuite_info contains some valid pointer,
-		 * we'll try to free dhm_ctx or ecdh_ctx later. But since they
-		 * weren't initialized, some unexpected and untrackable bugs
-		 * will appear. Let's crash here and now instead.
-		 */
-		BUG_ON(IS_ERR_OR_NULL(tls->xfrm.ciphersuite_info));
+	if (r)
 		return r;
-	}
 
 	ttls_update_checksum(tls, buf - hh_len, p - buf + hh_len);
 
