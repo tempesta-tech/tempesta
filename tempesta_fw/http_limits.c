@@ -483,7 +483,7 @@ __frang_http_field_len(const TfwHttpReq *req, FrangAcc *ra,
 static int
 frang_http_field_len(const TfwHttpReq *req, FrangAcc *ra, unsigned int field_len)
 {
-	TfwHttpParser *parser = &req->conn->parser;
+	TfwHttpParser *parser = &req->stream->parser;
 
 	if (parser->hdr.len > field_len) {
 		frang_limmsg("HTTP in-progress field length",
@@ -739,7 +739,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data)
 	T_FSM_INIT(Frang_Req_0, "frang");
 
 	BUG_ON(!ra);
-	BUG_ON(req != container_of(conn->msg, TfwHttpReq, msg));
+	BUG_ON(req != container_of(req->stream->msg, TfwHttpReq, msg));
 	frang_dbg("check request for client %s, acc=%p\n",
 		  &FRANG_ACC2CLI(ra)->addr, ra);
 

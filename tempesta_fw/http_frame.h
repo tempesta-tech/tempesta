@@ -111,13 +111,33 @@ typedef struct {
 } TfwSettings;
 
 /**
+ * Limited queue for temporary storage of closed streams. This structure
+ * provides the possibility of temporary existing in memory - for streams
+ * which are in HTTP2_STREAM_LOC_CLOSED or HTTP2_STREAM_REM_CLOSED states
+ * (see RFC 7540, section 5.1, the 'closed' paragraph). Note, that streams
+ * in  HTTP2_STREAM_CLOSED state are not stored in this queue and must be
+ * removed right away.
+ *
+ * @closed	- list of streams which are in closed state;
+ * @num_closed	- number of streams in the list;
+ */
+typedef struct {
+	struct list_head	closed;
+	unsigned long		num_closed;
+} TfwClosedQueue;
+
+/**
  * Context for HTTP/2 frames processing.
  *
+ * @lock	- spinlock to protect stream-request linkage;
  * @lsettings	- local settings for HTTP/2 connection;
  * @rsettings	- settings for HTTP/2 connection received from the remote
  *		  endpoint;
  * @streams_num	- number of the streams initiated by client;
  * @sched	- streams' priority scheduler;
+ * @cl_queue	- queue of closed streams (in HTTP2_STREAM_LOC_CLOSED or
+ *		  HTTP2_STREAM_REM_CLOSED states), which are waiting for
+ *		  removal;
  * @lstream_id	- ID of last stream initiated by client and processed on the
  *		  server side;
  * @loc_wnd	- connection's current flow controlled window;
@@ -138,10 +158,12 @@ typedef struct {
  *		  frames (after all service payloads);
  */
 typedef struct {
+	spinlock_t	lock;
 	TfwSettings	lsettings;
 	TfwSettings	rsettings;
 	unsigned long	streams_num;
 	TfwStreamSched	sched;
+	TfwClosedQueue	cl_queue;
 	unsigned int	lstream_id;
 	unsigned int	loc_wnd;
 	char		__off[0];
@@ -162,5 +184,9 @@ void tfw_h2_cleanup(void);
 void tfw_h2_context_init(TfwH2Ctx *ctx);
 void tfw_h2_context_clear(TfwH2Ctx *ctx);
 int tfw_h2_frame_process(void *c, TfwFsmData *data);
+void tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx);
+unsigned int tfw_h2_stream_id_close(TfwHttpReq *req);
+void tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close);
+int tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code);
 
 #endif /* __HTTP_FRAME__ */
