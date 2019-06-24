@@ -18,6 +18,7 @@
  * 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include "tempesta_fw.h"
+#include "hash.h"
 #include "http.h"
 #include "http_match.h"
 #include "http_msg.h"
@@ -26,6 +27,7 @@
 #include "http_limits.h"
 #include "client.h"
 
+#define TFW_VH_HBITS	10
 /**
  * Control object for holding full set of virtual hosts specific for current
  * configuration/reconfiguration stage.
@@ -37,9 +39,9 @@
  *		  virtual host.
  */
 typedef struct {
-	struct list_head head;
 	TfwVhost	*vhost_dflt;
 	bool		expl_dflt;
+	DECLARE_HASHTABLE(vh_hash, TFW_VH_HBITS);
 } TfwVhostList;
 
 /* Mappings for match operators. */
@@ -343,36 +345,99 @@ tfw_vhost_get_hdr_mods(TfwLocation *loc, TfwVhost *vhost, int mod_type)
  * Pointer to the current location structure.
  * The pointer is shared among multiple functions below.
  */
-static TfwLocation *tfwcfg_this_location;
+static TfwLocation		*tfwcfg_this_location;
 /* Entry for configuration of separate vhost. */
-static TfwVhost		*tfw_vhost_entry;
+static TfwVhost			*tfw_vhost_entry;
 /* Pointer to all current vhosts. */
-static TfwVhostList	*tfw_vhosts;
+static TfwVhostList __rcu	*tfw_vhosts;
 /* Pointer to all vhosts parsed during reconfiguration. */
-static TfwVhostList	*tfw_vhosts_reconfig;
+static TfwVhostList		*tfw_vhosts_reconfig;
 /* Object with global level settings (non-reconfigurable). */
-static TfwGlobal	tfw_global = {
+static TfwGlobal		tfw_global = {
 	.hdr_via	= s_hdr_via_dflt,
 	.hdr_via_len	= sizeof(s_hdr_via_dflt) - 1,
 	.capuacl	= tfw_capuacl_dflt,
 };
+
+/**
+ * comparing during configuration processing, both string are plain.
+ */
+static bool
+tfw_vhost_name_match(TfwVhost *vh, const TfwStr *name)
+{
+	if (WARN_ON_ONCE(!TFW_STR_PLAIN(name)))
+		return false;
+	return vh->name.len == name->len
+		&& !strncasecmp(vh->name.data, name->data, vh->name.len);
+}
+
+static bool
+tfw_vhost_name_match_fast(TfwVhost *vh, const TfwStr *name)
+{
+	return !tfw_stricmp(&vh->name, name);
+}
+
+static inline TfwVhost *
+__tfw_vhost_lookup(TfwVhostList *vh_list, const TfwStr *name,
+		   bool (*match_fn)(TfwVhost *, const TfwStr *))
+{
+	TfwVhost *vhost;
+	unsigned long key = tfw_hash_str(name);
+
+	hash_for_each_possible(vh_list->vh_hash, vhost, hlist, key) {
+		if (match_fn(vhost, name)) {
+			tfw_vhost_get(vhost);
+			return vhost;
+		}
+	}
+	return NULL;
+}
 
 /*
  * Get vhost matching the specified name. Vhost's reference counter
  * is incremented in case of successful search.
  */
 TfwVhost *
-tfw_vhost_lookup(const char *name)
+tfw_vhost_lookup_reconfig(const char *name)
+{
+	TfwStr ns = TFW_STR_FROM_CSTR(name);
+	return __tfw_vhost_lookup(tfw_vhosts_reconfig, &ns,
+				  tfw_vhost_name_match);
+}
+
+TfwVhost *
+tfw_vhost_lookup(const TfwStr *name)
 {
 	TfwVhost *vhost;
+	TfwVhostList *vhlist;
 
-	list_for_each_entry(vhost, &tfw_vhosts_reconfig->head, list) {
-		if (!strcasecmp(vhost->name, name)) {
-			tfw_vhost_get(vhost);
-			return vhost;
-		}
-	}
-	return NULL;
+	if (unlikely(TFW_STR_EMPTY(name)))
+		return NULL;
+
+	rcu_read_lock_bh();
+	vhlist = rcu_dereference_bh(tfw_vhosts);
+	BUG_ON(!vhlist);
+	vhost = __tfw_vhost_lookup(vhlist, name,
+				   tfw_vhost_name_match_fast);
+	rcu_read_unlock_bh();
+
+	return vhost;
+}
+
+TfwVhost *
+tfw_vhost_lookup_default(void)
+{
+	TfwVhost *vhost;
+	TfwVhostList *vhlist;
+
+	rcu_read_lock_bh();
+	vhlist = rcu_dereference_bh(tfw_vhosts);
+	BUG_ON(!vhlist);
+	vhost = vhlist->vhost_dflt;
+	tfw_vhost_get(vhost);
+	rcu_read_unlock_bh();
+
+	return vhost;
 }
 
 TfwGlobal *
@@ -1027,7 +1092,7 @@ tfw_cfgop_location_begin(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwVhost *vhost)
 	if (vhost->loc_sz == TFW_LOCATION_ARRAY_SZ) {
 		TFW_ERR_NL("%s: There is no empty slots in '%s' vhost to"
 			   " add new location: '%s %s %s'\n", cs->name,
-			   vhost->name, cs->name, in_op, arg);
+			   vhost->name.data, cs->name, in_op, arg);
 		return -EINVAL;
 	}
 
@@ -1073,7 +1138,7 @@ tfw_cfgop_in_location_finish(TfwCfgSpec *cs)
 		TFW_ERR_NL("Directive 'proxy_pass' is not specified for"
 			   " location (with arg '%s') inside not default"
 			   " vhost '%s'.\n", tfwcfg_this_location->arg,
-			   tfw_vhost_entry->name);
+			   tfw_vhost_entry->name.data);
 		return -EINVAL;
 	}
 	tfwcfg_this_location = NULL;
@@ -1382,11 +1447,12 @@ tfw_vhost_create(const char *name)
 		TFW_ERR_NL("Cannot allocate vhost entry '%s'\n", name);
 		return NULL;
 	}
-	INIT_LIST_HEAD(&vhost->list);
-	vhost->name = (char *)(vhost + 1);
-	vhost->loc_dflt = (TfwLocation *)(vhost->name + name_sz);
+	INIT_HLIST_NODE(&vhost->hlist);
+	vhost->name.data = (char *)(vhost + 1);
+	vhost->name.len = name_sz - 1;
+	vhost->loc_dflt = (TfwLocation *)(vhost->name.data + name_sz);
 	vhost->loc = (TfwLocation *)(vhost->loc_dflt + 1);
-	memcpy((void *)vhost->name, (void *)name, name_sz);
+	memcpy(vhost->name.data, name, name_sz);
 	vhost->hdrs_pool = pool;
 	atomic64_set(&vhost->refcnt, 1);
 
@@ -1418,7 +1484,9 @@ tfw_vhost_new(const char *name)
 static inline void
 tfw_vhost_add(TfwVhost *vhost)
 {
-	list_add(&vhost->list, &tfw_vhosts_reconfig->head);
+	unsigned long key = tfw_hash_str(&vhost->name);
+
+	hash_add(tfw_vhosts_reconfig->vh_hash, &vhost->hlist, key);
 	tfw_vhost_get(vhost);
 	if (!tfw_vhost_default(vhost)) {
 		vhost->vhost_dflt = tfw_vhosts_reconfig->vhost_dflt;
@@ -1823,7 +1891,7 @@ tfw_vhost_cfgstart(void)
 	}
 
 	tfw_vhosts_reconfig->expl_dflt = false;
-	INIT_LIST_HEAD(&tfw_vhosts_reconfig->head);
+	hash_init(tfw_vhosts_reconfig->vh_hash);
 	if(!(vh_dflt = tfw_vhost_new(TFW_VH_DFT_NAME))) {
 		TFW_ERR_NL("Unable to create default vhost.\n");
 		return -ENOMEM;
@@ -1867,6 +1935,7 @@ static int
 tfw_cfgop_vhost_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	TfwVhost *vhost;
+	int i;
 
 	BUG_ON(tfw_vhost_entry);
 
@@ -1876,8 +1945,8 @@ tfw_cfgop_vhost_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		TFW_ERR_NL("Unexpected attributes\n");
 		return -EINVAL;
 	}
-	list_for_each_entry(vhost, &tfw_vhosts_reconfig->head, list) {
-		if (!strcasecmp(vhost->name, ce->vals[0])) {
+	hash_for_each(tfw_vhosts_reconfig->vh_hash, i, vhost, hlist) {
+		if (!strcasecmp(vhost->name.data, ce->vals[0])) {
 			TFW_ERR_NL("Duplicate vhost entry: '%s'\n",
 				   ce->vals[0]);
 			return -EINVAL;
@@ -1911,7 +1980,7 @@ tfw_cfgop_vhost_finish(TfwCfgSpec *cs)
 		BUG_ON(tfw_vhost_default(tfw_vhost_entry));
 		TFW_ERR_NL("Directive 'proxy_pass' is not specified"
 			   " for not default vhost '%s'.\n",
-			   tfw_vhost_entry->name);
+			   tfw_vhost_entry->name.data);
 		return -EINVAL;
 	}
 	tfw_vhost_entry = NULL;
@@ -1921,15 +1990,18 @@ tfw_cfgop_vhost_finish(TfwCfgSpec *cs)
 static void
 tfw_cfgop_vhosts_list_free(TfwVhostList *vhosts)
 {
-	TfwVhost *tmp, *vhost;
+	TfwVhost *vhost;
+	struct hlist_node *tmp;
+	int i;
 
 	if (!vhosts)
 		return;
 
-	list_for_each_entry_safe(vhost, tmp, &vhosts->head, list) {
-		list_del(&vhost->list);
+	hash_for_each_safe((vhosts->vh_hash), i, tmp, vhost, hlist) {
+		hash_del(&vhost->hlist);
 		set_bit(TFW_VHOST_B_REMOVED, &vhost->flags);
 		tfw_vhost_put(vhost);
+		tfw_srv_loop_sched_rcu();
 	}
 	set_bit(TFW_VHOST_B_REMOVED, &vhosts->vhost_dflt->flags);
 	tfw_vhost_put(vhosts->vhost_dflt);
@@ -1939,6 +2011,8 @@ tfw_cfgop_vhosts_list_free(TfwVhostList *vhosts)
 static int
 tfw_vhost_start(void)
 {
+	TfwVhostList *vh_list;
+
 	if (!tfw_runstate_is_reconfig()) {
 		/* Convert Frang global timeouts to jiffies for convenience */
 		frang_cfg.clnt_hdr_timeout =
@@ -1949,8 +2023,13 @@ tfw_vhost_start(void)
 			(unsigned long)HZ;
 	}
 
-	tfw_cfgop_vhosts_list_free(tfw_vhosts);
-	tfw_vhosts = tfw_vhosts_reconfig;
+	rcu_read_lock();
+	vh_list = rcu_dereference(tfw_vhosts);
+	rcu_read_unlock();
+	rcu_assign_pointer(tfw_vhosts, tfw_vhosts_reconfig);
+	synchronize_rcu();
+
+	tfw_cfgop_vhosts_list_free(vh_list);
 	tfw_vhosts_reconfig = NULL;
 
 	return 0;

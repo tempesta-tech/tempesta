@@ -25,5 +25,7 @@ typedef struct tfw_http_sess_t	TfwHttpSess;
 typedef struct tfw_http_msg_t	TfwHttpMsg;
 typedef struct tfw_http_req_t	TfwHttpReq;
 typedef struct tfw_http_resp_t	TfwHttpResp;
+typedef struct tfw_vhost_t	TfwVhost;
+
 
 #endif /* __TFW_HTTP_TYPES_H__ */

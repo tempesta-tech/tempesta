@@ -458,7 +458,7 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 	} else if ((chain = tfw_chain_lookup(action))) {
 		rule->act.type = TFW_HTTP_MATCH_ACT_CHAIN;
 		rule->act.chain = chain;
-	} else if ((vhost = tfw_vhost_lookup(action))) {
+	} else if ((vhost = tfw_vhost_lookup_reconfig(action))) {
 		rule->act.type = TFW_HTTP_MATCH_ACT_VHOST;
 		rule->act.vhost = vhost;
 	} else {
@@ -473,7 +473,7 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 		return -EINVAL;
 	}
 
-	if (vhost && !strcasecmp(vhost->name, TFW_VH_DFT_NAME))
+	if (vhost && !strcasecmp(vhost->name.data, TFW_VH_DFT_NAME))
 		tfw_table_reconfig->chain_dflt = true;
 
 	return 0;
@@ -551,7 +551,7 @@ tfw_http_tbl_cfgend(void)
 	if (tfw_table_reconfig->chain_dflt)
 		return 0;
 
-	if (!(vhost_dflt = tfw_vhost_lookup(TFW_VH_DFT_NAME)))
+	if (!(vhost_dflt = tfw_vhost_lookup_reconfig(TFW_VH_DFT_NAME)))
 		return 0;
 
 	rule = tfw_http_rule_new(chain, TFW_HTTP_MATCH_A_WILDCARD, 0);

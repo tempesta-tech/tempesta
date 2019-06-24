@@ -2270,7 +2270,7 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 		TFW_ERR("can't add X-Forwarded-For header for %.*s to msg %p",
 			(int)(p - buf), buf, hm);
 	else
-		TFW_DBG2("added X-Forwarded-For header for %*s\n",
+		TFW_DBG2("added X-Forwarded-For header for %.*s\n",
 			 (int)(p - buf), buf);
 	return r;
 }
