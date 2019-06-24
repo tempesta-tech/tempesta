@@ -22,9 +22,8 @@
 #include <linux/bug.h>
 
 #include "str.h"
+#include "hash.h"
 #include "test.h"
-
-unsigned long tfw_hash_str(const TfwStr *str);
 
 /* NOTE: hashing is a probabilistic thing. Some tests may give false results. */
 

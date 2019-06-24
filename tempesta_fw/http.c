@@ -26,6 +26,7 @@
 #include "lib/hash.h"
 #include "lib/str.h"
 #include "cache.h"
+#include "hash.h"
 #include "http_limits.h"
 #include "http_tbl.h"
 #include "http_parser.h"
@@ -335,8 +336,6 @@ tfw_http_prep_date(char *buf)
 {
 	tfw_http_prep_date_from(buf, tfw_current_timestamp());
 }
-
-unsigned long tfw_hash_str(const TfwStr *str);
 
 #define S_REDIR_302	S_302 S_CRLF
 #define S_REDIR_503	S_503 S_CRLF
