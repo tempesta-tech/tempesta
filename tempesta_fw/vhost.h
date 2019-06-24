@@ -133,13 +133,12 @@ enum {
 	TFW_VHOST_B_REMOVED = 0,
 };
 
-typedef struct tfw_vhost_t TfwVhost;
-
 /**
  * Virtual host defined by directives and policies.
  *
  * @list	- Entry in list of all configured virtual hosts.
- * @name	- Name of virtual host.
+ * @name	- Name of virtual host. Contains zero terminator in the end,
+ *		  which is not counted by 'len' member.
  * @loc		- Array of groups of policies by specific location.
  * @loc_dflt	- Default policy.
  * @vhost_dflt	- Pointer to default virtual host with global policies.
@@ -149,8 +148,8 @@ typedef struct tfw_vhost_t TfwVhost;
  * @flags	- flags.
  */
 struct  tfw_vhost_t {
-	struct list_head	list;
-	const char		*name;
+	struct hlist_node	hlist;
+	TfwStr			name;
 	TfwLocation		*loc;
 	TfwLocation		*loc_dflt;
 	TfwVhost		*vhost_dflt;
@@ -205,7 +204,9 @@ TfwNipDef *tfw_nipdef_match(TfwLocation *loc, unsigned char meth, TfwStr *arg);
 bool tfw_capuacl_match(TfwAddr *addr);
 TfwCaPolicy *tfw_capolicy_match(TfwLocation *loc, TfwStr *arg);
 TfwLocation *tfw_location_match(TfwVhost *vhost, TfwStr *arg);
-TfwVhost *tfw_vhost_lookup(const char *name);
+TfwVhost *tfw_vhost_lookup_reconfig(const char *name);
+TfwVhost *tfw_vhost_lookup(const TfwStr *name);
+TfwVhost *tfw_vhost_lookup_default(void);
 TfwSrvConn *tfw_vhost_get_srv_conn(TfwMsg *msg);
 TfwVhost *tfw_vhost_new(const char *name);
 TfwGlobal *tfw_vhost_get_global(void);
