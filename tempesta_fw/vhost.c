@@ -1498,8 +1498,6 @@ tfw_vhost_destroy(TfwVhost *vhost)
 {
 	int i;
 
-	T_DBG2("destroy vhost '%s'\n", vhost->name);
-
 	for (i = 0; i < vhost->loc_sz; ++i)
 		tfw_location_del(&vhost->loc[i]);
 	tfw_location_del(vhost->loc_dflt);
