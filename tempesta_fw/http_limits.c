@@ -807,6 +807,38 @@ block:
 	return TFW_BLOCK;
 }
 
+/*
+ * RFC 7230 Section-4.1.2:
+ * When a chunked message containing a non-empty trailer is received,
+ * the recipient MAY process the fields.
+ *
+ * RFC 7230 Section-4.1.2:
+ * ...a server SHOULD NOT
+ * generate trailer fields that it believes are necessary for the user
+ * agent to receive.  Without a TE containing "trailers", the server
+ * ought to assume that the trailer fields might be silently discarded
+ * along the path to the user agent.  This requirement allows
+ * intermediaries to forward a de-chunked message to an HTTP/1.0
+ * recipient without buffering the entire response.
+ *
+ * RFC doesn't prohibit trailers in request, but it always speaks about
+ * trailers in response context. But request with trailer headers
+ * are valid http messages. Support for them is not documented,
+ * and implementation-dependent. E.g. Apache doesn't care about trailer
+ * headers, but ModSecurity for Apache does.
+ * https://swende.se/blog/HTTPChunked.html
+ * Some discussions also highlights that trailer headers are poorly
+ * supported on both servers and clients, while CDNs tend to add
+ * trailers. https://github.com/whatwg/fetch/issues/34
+ *
+ * Since RFC doesn't speak clearly about trailer headers in requests, the
+ * following assumptions was used:
+ * - Our intermediaries on client side doesn't care about trailers and send
+ *   them in the manner as the body. Thus frang's body limitations are used,
+ *   not headers ones.
+ * - Same header may have different values depending on how the servers works
+ *   with the trailer. Administrator can block that behaviour.
+ */
 static int
 frang_http_req_trailer_check(FrangAcc *ra, TfwFsmData *data,
 			     FrangGlobCfg *fg_cfg, FrangCfg *f_cfg)
@@ -838,8 +870,11 @@ frang_http_req_trailer_check(FrangAcc *ra, TfwFsmData *data,
 	/*
 	 * Block request if the same header appear in both main and
 	 * trailer headers part. Some intermediates doesn't read trailers, so
-	 * request processing may differ.
+	 * request processing may depend on implementation.
 	 */
+	if (!f_cfg->http_trailer_split)
+		return TFW_PASS;
+
 	FOR_EACH_HDR_FIELD(field, end, req) {
 		int trailers = 0, dups = 0;
 		TFW_STR_FOR_EACH_DUP(dup, field, dup_end) {
