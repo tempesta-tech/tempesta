@@ -3213,6 +3213,28 @@ next_msg:
 	 *
 	 * In the same time location may differ between requests, so the
 	 * sticky module can't fill it.
+	 *
+	 * TODO:
+	 * There are multiple ways to get target vhost:
+	 * - search in HTTP chains (defined in the configuration by admin),
+	 * very slow on big configurations;
+	 * - get vhost from the HTTP session information (by Sticky cookie);
+	 * - get Vhost according to TLS SNI header parsing.
+	 * But vhost returned from all that functions can be very different
+	 * depending on HTTP chain configuration due to it flexibility and
+	 * client (attacker) behaviour.
+	 * The most secure and a slow way: compare all of them and reject if
+	 * at least some doesn't match. Can be too strict, service quality can
+	 * be degraded.
+	 * The fastest way: compute as minimum as possible: use TLS first
+	 * (anyway we use it to send right certificate), then cookie, then HTTP
+	 * chain. There can be possibility that a request will be forwarded to
+	 * a wrong server. May happen when a single certificate is used to
+	 * speak with multiple vhosts (multy-domain (SAN) certificate as
+	 * globally default TLS certificate in Tempesta config file).
+	 * The most reliable way: use the highest OSI level vhost: by HTTP
+	 * session, if no -> by http chain, if no -> by TLS conn.
+	 *
 	 */
 	if (!req->vhost) {
 		req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block);
