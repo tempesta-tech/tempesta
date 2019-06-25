@@ -1755,6 +1755,8 @@ __tfw_cfgop_frang_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce,
 	 * closed
 	 */
 	tfw_client_set_expires_time(cb->tf);
+	/* Update time frame value to reduce calculations in hot-path. */
+	cb->tf = (cb->tf * HZ) / FRANG_FREQ;
 
 	return 0;
 }
