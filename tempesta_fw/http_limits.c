@@ -703,10 +703,6 @@ enum {
 	TFW_FRANG_RESP_FSM_DONE	= TFW_GFSM_FRANG_RESP_STATE(TFW_GFSM_STATE_LAST)
 };
 
-/* Extend basic FSM with necessary ad-hoc logic. */
-#define FSM_HDR_STATE(state)						\
-	((state > Frang_Req_Hdr_Start) && (state < Frang_Req_Hdr_NoState))
-
 #define __FRANG_FSM_MOVE(st)	T_FSM_MOVE(st, if (r) T_FSM_EXIT(); )
 
 #define __FRANG_FSM_JUMP_EXIT(st)					\
@@ -766,7 +762,6 @@ frang_http_req_incomplete_body_check(FrangAcc *ra, TfwFsmData *data,
 	unsigned int body_len = f_cfg->http_body_len;
 	unsigned int bchunk_cnt = fg_cfg->http_bchunk_cnt;
 	unsigned long body_timeout = fg_cfg->clnt_body_timeout;
-
 	struct sk_buff *skb = data->skb;
 
 	frang_dbg("check incomplete request body for client %s, acc=%p\n",
