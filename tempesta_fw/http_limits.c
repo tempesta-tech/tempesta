@@ -338,11 +338,11 @@ frang_conn_new(struct sock *sk)
 	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
 
 	/*
-	 * On reboot under heavy load global vhost may be not ready yet.
-	 * Don't pass such connections, force client to reconnect later, when
-	 * we will be ready.
+	 * Default vhost configuration stores global frang settings, it's always
+	 * available even on reload under heavy load. But the pointer comes
+	 * from other module, take care of probable null-dereferences.
 	 */
-	if (unlikely(!dflt_vh))
+	if (WARN_ON_ONCE(!dflt_vh))
 		return TFW_BLOCK;
 
 	ss_getpeername(sk, &addr);
@@ -368,7 +368,20 @@ frang_conn_new(struct sock *sk)
 	 * TfwConn{}.
 	 */
 	sk->sk_security = ra;
-
+	/*
+	 * TBD: Since we can determine vhost by SNI field in TLS headers, there
+	 * will be a desire to make all frang limits per-vhost. After some
+	 * thinking I have found this counter-intuitive: The way, how the
+	 * frang limits work will depend on too many conditions. E.g.
+	 * TLS-enabled clients will use higher limits than non-TLS clients;
+	 * the same client can break security rules for one vhost, but be a
+	 * legitimate client for other vhosts, so it's a big question how to
+	 * block him by IP or by connection resets; if multy-domain certificate
+	 * (SAN) is configured, TLS clients will behave as non-TLS. Too
+	 * complicated for administrator to understand how client is blocked
+	 * and to configure it, while making some of the limits to be global
+	 * for a single client is absolutely straight-forward.
+	 */
 	r = frang_conn_limit(ra, dflt_vh->frang_gconf);
 	if (r == TFW_BLOCK && dflt_vh->frang_gconf->ip_block) {
 		tfw_filter_block_ip(&cli->addr);
@@ -1163,6 +1176,14 @@ frang_resp_fwd_process(TfwHttpResp *resp)
 		return TFW_PASS;
 
 	spin_lock(&ra->lock);
+	/*
+	 * According to backend response code attacker may be trying to crack
+	 * the password. This security event must be triggered when the response
+	 * received, and can't be triggered on request context because client
+	 * can send a huge number of pipelined requests to crack the password
+	 * and wait for the results. If the attack is spotted, block the client
+	 * and wipe all it's received but not responded requests ASAP.
+	 */
 	r = frang_resp_code_limit(ra, conf);
 	spin_unlock(&ra->lock);
 
