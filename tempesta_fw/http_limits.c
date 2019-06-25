@@ -197,9 +197,6 @@ static TempestaOps tempesta_ops = {
  * ------------------------------------------------------------------------
  */
 
-/* We account users with FRANG_FREQ frequency per second. */
-#define FRANG_FREQ	8
-
 typedef struct {
 	unsigned long	ts;
 	unsigned int	conn_new;
@@ -1104,11 +1101,13 @@ frang_resp_process(TfwHttpResp *resp)
 /**
  * Monotonically increasing time quantums. The configured @tframe
  * is divided by FRANG_FREQ slots to get the quantums granularity.
+ * To reduce calculations, tframe is already stored as result of multiplication
+ * operation, see __tfw_cfgop_frang_rsp_code_block().
  */
 static inline unsigned int
 frang_resp_quantum(unsigned short tframe)
 {
-	return jiffies * FRANG_FREQ / (tframe * HZ);
+	return jiffies / tframe;
 }
 
 static int

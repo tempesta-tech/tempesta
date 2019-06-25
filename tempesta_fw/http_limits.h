@@ -108,6 +108,9 @@ extern void tfw_classifier_unregister(void);
  * ------------------------------------------------------------------------
  */
 
+/* We account users with FRANG_FREQ frequency per second. */
+#define FRANG_FREQ	8
+
 /**
  * Response code block setting
  *
