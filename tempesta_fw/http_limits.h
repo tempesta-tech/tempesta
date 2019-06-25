@@ -195,6 +195,7 @@ struct frang_vhost_cfg_t {
 
 	bool			http_ct_required;
 	bool			http_host_required;
+	bool			http_trailer_split;
 };
 
 #endif /* __HTTP_LIMITS__ */

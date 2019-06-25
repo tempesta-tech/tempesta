@@ -1922,6 +1922,20 @@ tfw_cfgop_frang_ct_required(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
+tfw_cfgop_frang_trailer_split(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r;
+	FrangCfg *cfg = tfw_cfgop_frang_get_cfg();
+
+	if (ce->dflt_value && cfg->http_trailer_split)
+		return 0;
+	cs->dest = &cfg->http_trailer_split;
+	r = tfw_cfg_set_bool(cs, ce);
+	cs->dest = NULL;
+	return r;
+}
+
+static int
 tfw_cfgop_frang_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	FrangCfg *cfg = tfw_cfgop_frang_get_cfg();
@@ -2410,6 +2424,12 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 		.allow_reconfig = true,
 	},
 	{
+		.name = "http_trailer_split_allowed",
+		.deflt = "false",
+		.handler = tfw_cfgop_frang_trailer_split,
+		.allow_reconfig = true,
+	},
+	{
 		.name = "http_methods",
 		.deflt = "",
 		.handler = tfw_cfgop_frang_http_methods,
@@ -2529,6 +2549,12 @@ static TfwCfgSpec tfw_vhost_frang_specs[] = {
 		.name = "http_ct_required",
 		.deflt = "false",
 		.handler = tfw_cfgop_frang_ct_required,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "http_trailer_split_allowed",
+		.deflt = "false",
+		.handler = tfw_cfgop_frang_trailer_split,
 		.allow_reconfig = true,
 	},
 	{
