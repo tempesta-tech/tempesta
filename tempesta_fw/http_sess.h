@@ -50,14 +50,7 @@
  * HTTP match rules sessions must be pinned to completely other server groups.
  * This cases cannot be deduced during live reconfiguration, manual session
  * removing is required. End user should avoid such configurations.
- *
- * @srv_conn	- last used connection;
- * @lock	- protects whole @TfwStickyConn;
  */
-typedef struct {
-	TfwSrvConn		*srv_conn;
-	rwlock_t		lock;
-} TfwStickyConn;
 
 /**
  * HTTP session descriptor.
@@ -67,7 +60,8 @@ typedef struct {
  * @users	- the session use counter;
  * @ts		- timestamp for the client's session;
  * @expire	- expiration time for the session;
- * @st_conn	- upstream server connection servicing the session;
+ * @srv_conn	- upstream server connection for the session;
+ * @lock	- protects @srv_conn;
  */
 struct tfw_http_sess_t {
 	unsigned char		hmac[SHA1_DIGEST_SIZE];
@@ -75,7 +69,8 @@ struct tfw_http_sess_t {
 	atomic_t		users;
 	unsigned long		ts;
 	unsigned long		expires;
-	TfwStickyConn		st_conn;
+	TfwSrvConn		*srv_conn;
+	rwlock_t		lock;
 };
 
 enum {

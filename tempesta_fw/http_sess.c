@@ -817,15 +817,15 @@ tfw_http_sess_resp_process(TfwHttpResp *resp)
  * current configuration.
  */
 static void
-tfw_http_sess_unpin_srv(TfwStickyConn *st_conn)
+tfw_http_sess_unpin_srv(TfwHttpSess *sess)
 {
 	TfwServer *srv;
 
-	if (!st_conn->srv_conn)
+	if (!sess->srv_conn)
 		return;
 
-	srv = (TfwServer *)st_conn->srv_conn->peer;
-	st_conn->srv_conn = NULL;
+	srv = (TfwServer *)sess->srv_conn->peer;
+	sess->srv_conn = NULL;
 	tfw_server_unpin_sess(srv);
 }
 
@@ -837,7 +837,7 @@ tfw_http_sess_put(TfwHttpSess *sess)
 		 * Use counter reached 0, so session already expired and evicted
 		 * from the hash table.
 		 */
-		tfw_http_sess_unpin_srv(&sess->st_conn);
+		tfw_http_sess_unpin_srv(sess);
 		kmem_cache_free(sess_cache, sess);
 	}
 }
@@ -981,8 +981,8 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	sess->ts = sv.ts;
 	sess->expires =
 		sv.ts + (unsigned long)tfw_cfg_sticky.sess_lifetime * HZ;
-	sess->st_conn.srv_conn = NULL;
-	rwlock_init(&sess->st_conn.lock);
+	sess->srv_conn = NULL;
+	rwlock_init(&sess->lock);
 
 	TFW_DBG("new session %p\n", sess);
 
@@ -1040,7 +1040,7 @@ __try_conn(TfwMsg *msg, TfwSrvConn *srv_conn)
 
 	/*
 	 * Try to sched from the same server. The server may be removed from
-	 * server group, see comment for TfwStickyConn.
+	 * server group, see comment for TfwHttpSess.
 	 */
 	return srv->sg->sched->sched_srv_conn(msg, srv);
 }
@@ -1049,11 +1049,11 @@ __try_conn(TfwMsg *msg, TfwSrvConn *srv_conn)
  * Pin HTTP session to specified server. Called under write lock.
  */
 static void
-tfw_http_sess_pin_srv(TfwStickyConn *st_conn, TfwSrvConn *srv_conn)
+tfw_http_sess_pin_srv(TfwHttpSess *sess, TfwSrvConn *srv_conn)
 {
 	TfwServer *srv;
 
-	tfw_http_sess_unpin_srv(st_conn);
+	tfw_http_sess_unpin_srv(sess);
 
 	if (!srv_conn)
 		return;
@@ -1061,7 +1061,7 @@ tfw_http_sess_pin_srv(TfwStickyConn *st_conn, TfwSrvConn *srv_conn)
 	srv = (TfwServer *)srv_conn->peer;
 	if (srv->sg->flags & TFW_SRV_STICKY) {
 		tfw_server_pin_sess(srv);
-		st_conn->srv_conn = srv_conn;
+		sess->srv_conn = srv_conn;
 	}
 }
 
@@ -1069,46 +1069,44 @@ tfw_http_sess_pin_srv(TfwStickyConn *st_conn, TfwSrvConn *srv_conn)
  * Find an outgoing connection for client with Tempesta sticky cookie.
  * @sess is not null when calling the function.
  *
- * Reuse req->sess->st_conn.srv_conn if it is alive. If not,
+ * Reuse req->sess->srv_conn if it is alive. If not,
  * then get a new connection for the same server.
  */
 TfwSrvConn *
 tfw_http_sess_get_srv_conn(TfwMsg *msg)
 {
 	TfwHttpSess *sess = ((TfwHttpReq *)msg)->sess;
-	TfwStickyConn *st_conn;
 	TfwSrvConn *srv_conn;
 
 	BUG_ON(!sess);
-	st_conn = &sess->st_conn;
 
-	read_lock(&st_conn->lock);
+	read_lock(&sess->lock);
 
 	/* The session pinning won't be needed, avoid write_lock(). */
-	if (!st_conn->srv_conn && !tfw_http_sess_has_sticky_sess()) {
-		read_unlock(&st_conn->lock);
+	if (!sess->srv_conn && !tfw_http_sess_has_sticky_sess()) {
+		read_unlock(&sess->lock);
 		return tfw_vhost_get_srv_conn(msg);
 	}
 
-	if ((srv_conn = __try_conn(msg, st_conn->srv_conn))) {
-		read_unlock(&st_conn->lock);
+	if ((srv_conn = __try_conn(msg, sess->srv_conn))) {
+		read_unlock(&sess->lock);
 		return srv_conn;
 	}
 
-	read_unlock(&st_conn->lock);
-	write_lock(&st_conn->lock);
+	read_unlock(&sess->lock);
+	write_lock(&sess->lock);
 	/*
 	 * Sessions was pinned to a new connection (or server returned back
 	 * online) while we were trying for a lock.
 	 */
-	if ((srv_conn = __try_conn(msg, st_conn->srv_conn))) {
-		write_unlock(&st_conn->lock);
+	if ((srv_conn = __try_conn(msg, sess->srv_conn))) {
+		write_unlock(&sess->lock);
 		return srv_conn;
 	}
 
-	if (st_conn->srv_conn) {
+	if (sess->srv_conn) {
 		/* Failed to sched from the same server. */
-		TfwServer *srv = (TfwServer *)st_conn->srv_conn->peer;
+		TfwServer *srv = (TfwServer *)sess->srv_conn->peer;
 		char addr_str[TFW_ADDR_STR_BUF_SIZE] = { 0 };
 
 		tfw_addr_ntop(&srv->addr, addr_str, sizeof(addr_str));
@@ -1139,9 +1137,9 @@ tfw_http_sess_get_srv_conn(TfwMsg *msg)
 	}
 
 	srv_conn = tfw_vhost_get_srv_conn(msg);
-	tfw_http_sess_pin_srv(st_conn, srv_conn);
+	tfw_http_sess_pin_srv(sess, srv_conn);
 err:
-	write_unlock(&st_conn->lock);
+	write_unlock(&sess->lock);
 
 	return srv_conn;
 }
