@@ -838,6 +838,8 @@ tfw_http_sess_put(TfwHttpSess *sess)
 		 * from the hash table.
 		 */
 		tfw_http_sess_unpin_srv(sess);
+		if (sess->vhost)
+			tfw_vhost_put(sess->vhost);
 		kmem_cache_free(sess_cache, sess);
 	}
 }
@@ -907,6 +909,7 @@ tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 
 /**
  * Obtains appropriate HTTP session for the request based on Sticky cookies.
+ * Gets a reference of vhost if it was stored in the session.
  * Return TFW_HTTP_SESS_* enum or error code on internal errors.
  */
 int
@@ -957,8 +960,38 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 			continue;
 		}
 
-		if (!memcmp_fast(sv.hmac, sess->hmac, sizeof(sess->hmac)))
+		if (!memcmp_fast(sv.hmac, sess->hmac, sizeof(sess->hmac))) {
+			read_lock(&sess->lock);
+			if (!sess->vhost) {
+				read_unlock(&sess->lock);
+				goto found;
+			}
+
+			if (unlikely(test_bit(TFW_VHOST_B_REMOVED,
+					      &sess->vhost->flags)))
+			{
+				/*
+				 * The session holds the last reference to the
+				 * vhost. It's not a part of the active
+				 * configuration anymore and therefore is not
+				 * useful to us at all. We can only release it
+				 * to free associated resources.
+				 */
+				read_unlock(&sess->lock);
+				write_lock(&sess->lock);
+				if (sess->vhost) {
+					tfw_vhost_put(sess->vhost);
+					sess->vhost = NULL;
+				}
+				write_unlock(&sess->lock);
+				goto found;
+			}
+
+			tfw_vhost_get(sess->vhost);
+			req->vhost = sess->vhost;
+			read_unlock(&sess->lock);
 			goto found;
+		}
 	}
 
 	if ((r = tfw_http_sess_check_jsch(&sv, req))) {
@@ -982,6 +1015,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	sess->expires =
 		sv.ts + (unsigned long)tfw_cfg_sticky.sess_lifetime * HZ;
 	sess->srv_conn = NULL;
+	sess->vhost = NULL;
 	rwlock_init(&sess->lock);
 
 	TFW_DBG("new session %p\n", sess);
@@ -1063,6 +1097,24 @@ tfw_http_sess_pin_srv(TfwHttpSess *sess, TfwSrvConn *srv_conn)
 		tfw_server_pin_sess(srv);
 		sess->srv_conn = srv_conn;
 	}
+}
+
+/**
+ * Saves a reference to a vhost in the session.
+ */
+void
+tfw_http_sess_pin_vhost(TfwHttpSess *sess, TfwVhost *vhost)
+{
+	if (!sess)
+		return;
+
+	write_lock(&sess->lock);
+	if (sess->vhost)
+		tfw_vhost_put(sess->vhost);
+	if (vhost)
+		tfw_vhost_get(vhost);
+	sess->vhost = vhost;
+	write_unlock(&sess->lock);
 }
 
 /**

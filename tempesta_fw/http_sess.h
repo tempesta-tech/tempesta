@@ -60,8 +60,9 @@
  * @users	- the session use counter;
  * @ts		- timestamp for the client's session;
  * @expire	- expiration time for the session;
+ * @vhost	- vhost for the session if known;
  * @srv_conn	- upstream server connection for the session;
- * @lock	- protects @srv_conn;
+ * @lock	- protects @vhost and @srv_conn;
  */
 struct tfw_http_sess_t {
 	unsigned char		hmac[SHA1_DIGEST_SIZE];
@@ -69,6 +70,7 @@ struct tfw_http_sess_t {
 	atomic_t		users;
 	unsigned long		ts;
 	unsigned long		expires;
+	TfwVhost		*vhost;
 	TfwSrvConn		*srv_conn;
 	rwlock_t		lock;
 };
@@ -90,6 +92,7 @@ int tfw_http_sess_obtain(TfwHttpReq *req);
 int tfw_http_sess_req_process(TfwHttpReq *req);
 int tfw_http_sess_resp_process(TfwHttpResp *resp);
 void tfw_http_sess_put(TfwHttpSess *sess);
+void tfw_http_sess_pin_vhost(TfwHttpSess *sess, TfwVhost *vhost);
 
 bool tfw_http_sess_max_misses(void);
 unsigned int tfw_http_sess_mark_size(void);

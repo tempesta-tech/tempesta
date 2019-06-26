@@ -3171,9 +3171,6 @@ next_msg:
 	 * client may use just a few cookie variants. Even if different
 	 * sticky cookies are used for each vhost, the sticky module should
 	 * be faster than tfw_http_tbl_vhost().
-	 *
-	 * TODO: #1043 sticky cookie module must assign correct vhost when it
-	 * returns TFW_HTTP_SESS_SUCCESS or TFW_HTTP_SESS_REDIRECT_NEED;
 	 */
 	switch (tfw_http_sess_obtain(req))
 	{
@@ -3216,8 +3213,10 @@ next_msg:
 	 * In the same time location may differ between requests, so the
 	 * sticky module can't fill it.
 	 */
-	if (!req->vhost)
+	if (!req->vhost) {
 		req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block);
+		tfw_http_sess_pin_vhost(req->sess, req->vhost);
+	}
 	if (req->vhost)
 		req->location = tfw_location_match(req->vhost,
 						   &req->uri_path);

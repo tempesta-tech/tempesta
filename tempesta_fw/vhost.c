@@ -1928,8 +1928,10 @@ tfw_cfgop_vhosts_list_free(TfwVhostList *vhosts)
 
 	list_for_each_entry_safe(vhost, tmp, &vhosts->head, list) {
 		list_del(&vhost->list);
+		set_bit(TFW_VHOST_B_REMOVED, &vhost->flags);
 		tfw_vhost_put(vhost);
 	}
+	set_bit(TFW_VHOST_B_REMOVED, &vhosts->vhost_dflt->flags);
 	tfw_vhost_put(vhosts->vhost_dflt);
 	kfree(vhosts);
 }
