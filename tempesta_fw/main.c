@@ -141,8 +141,10 @@ tfw_mods_stop(struct list_head *mod_list)
 	TFW_LOG("Stopping all modules...\n");
 	MOD_FOR_EACH_REVERSE(mod, mod_list) {
 		TFW_DBG2("mod_stop(): %s\n", mod->name);
-		if (mod->stop)
+		if (mod->stop && mod->started) {
 			mod->stop();
+			mod->started = 0;
+		}
 	}
 
 	TFW_LOG("modules are stopped\n");
@@ -193,6 +195,7 @@ tfw_mods_start(struct list_head *mod_list)
 				   mod->name, ret);
 			return ret;
 		}
+		mod->started = 1;
 	}
 	TFW_LOG("modules are started\n");
 
