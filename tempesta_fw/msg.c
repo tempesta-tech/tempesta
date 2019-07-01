@@ -74,5 +74,7 @@ tfw_msg_iter_append_skb(TfwMsgIter *it)
 	it->skb = ss_skb_peek_tail(&it->skb_head);
 	it->frag = 0;
 
+	skb_shinfo(it->skb)->tx_flags = skb_shinfo(it->skb->prev)->tx_flags;
+
 	return 0;
 }

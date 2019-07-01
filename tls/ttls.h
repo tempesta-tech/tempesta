@@ -948,7 +948,7 @@ int ttls_get_session(const ttls_context *ssl, TlsSess *session);
 
 int ttls_recv(void *tls_data, unsigned char *buf, size_t len,
 	      unsigned int *read);
-int ttls_encrypt(TlsCtx *tls, struct sg_table *sgt);
+int ttls_encrypt(TlsCtx *tls, struct sg_table *sgt, struct sg_table *out_sgt);
 
 int ttls_send_alert(TlsCtx *tls, unsigned char lvl, unsigned char msg);
 

@@ -770,7 +770,7 @@ ttls_aead_req_free(struct crypto_aead *tfm, struct aead_request *req)
  * different sessions, always have different ciphertexts.
  */
 int
-ttls_encrypt(TlsCtx *tls, struct sg_table *sgt)
+ttls_encrypt(TlsCtx *tls, struct sg_table *sgt, struct sg_table *out_sgt)
 {
 	int r, elen;
 	TlsXfrm *xfrm = &tls->xfrm;
@@ -791,10 +791,10 @@ ttls_encrypt(TlsCtx *tls, struct sg_table *sgt)
 	T_DBG3_BUF("IV used", xfrm->iv_enc, xfrm->ivlen);
 
 	elen = ttls_msg2crypt_len(io, xfrm);
-	ttls_make_aad(tls, io, sg_virt(sgt->sgl));
+	ttls_make_aad(tls, io, sg_virt(out_sgt->sgl));
 	aead_request_set_tfm(req, c_ctx->cipher_ctx);
 	aead_request_set_ad(req, TLS_AAD_SPACE_SIZE);
-	aead_request_set_crypt(req, sgt->sgl, sgt->sgl, elen, xfrm->iv_enc);
+	aead_request_set_crypt(req, sgt->sgl, out_sgt->sgl, elen, xfrm->iv_enc);
 
 	T_DBG3("%s encryption: tfm=%pK(req->tfm=%pK req=%pK) reqsize=%u"
 		" key_len=%u data_len=%d\n",
@@ -1760,7 +1760,7 @@ ttls_write_finished(TlsCtx *tls, struct sg_table *sgt, unsigned char **in_buf)
 
 	sg_init_table(&sg, 1);
 	sg_set_buf(&sg, p, TLS_HEADER_SIZE + TTLS_HS_FINISHED_BODY_LEN);
-	if ((r = ttls_encrypt(tls, &enc_sgt)))
+	if ((r = ttls_encrypt(tls, &enc_sgt, &enc_sgt)))
 		return r;
 
 	ttls_aad2hdriv(xfrm, p);
