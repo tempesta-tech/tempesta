@@ -50,14 +50,7 @@
  * HTTP match rules sessions must be pinned to completely other server groups.
  * This cases cannot be deduced during live reconfiguration, manual session
  * removing is required. End user should avoid such configurations.
- *
- * @srv_conn	- last used connection;
- * @lock	- protects whole @TfwStickyConn;
  */
-typedef struct {
-	TfwSrvConn		*srv_conn;
-	rwlock_t		lock;
-} TfwStickyConn;
 
 /**
  * HTTP session descriptor.
@@ -67,7 +60,9 @@ typedef struct {
  * @users	- the session use counter;
  * @ts		- timestamp for the client's session;
  * @expire	- expiration time for the session;
- * @st_conn	- upstream server connection servicing the session;
+ * @vhost	- vhost for the session if known;
+ * @srv_conn	- upstream server connection for the session;
+ * @lock	- protects @vhost and @srv_conn;
  */
 struct tfw_http_sess_t {
 	unsigned char		hmac[SHA1_DIGEST_SIZE];
@@ -75,7 +70,9 @@ struct tfw_http_sess_t {
 	atomic_t		users;
 	unsigned long		ts;
 	unsigned long		expires;
-	TfwStickyConn		st_conn;
+	TfwVhost		*vhost;
+	TfwSrvConn		*srv_conn;
+	rwlock_t		lock;
 };
 
 enum {
@@ -95,6 +92,7 @@ int tfw_http_sess_obtain(TfwHttpReq *req);
 int tfw_http_sess_req_process(TfwHttpReq *req);
 int tfw_http_sess_resp_process(TfwHttpResp *resp);
 void tfw_http_sess_put(TfwHttpSess *sess);
+void tfw_http_sess_pin_vhost(TfwHttpSess *sess, TfwVhost *vhost);
 
 bool tfw_http_sess_max_misses(void);
 unsigned int tfw_http_sess_mark_size(void);
