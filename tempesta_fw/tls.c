@@ -393,17 +393,17 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 			            sizeof(struct scatterlist) * out_sgt.nents +
 			            sizeof(struct page *) * out_sgt.nents,
 				    GFP_ATOMIC);
-		sgt.sgl = ptr;
+		sgt.sgl = (struct scatterlist *)ptr;
 		if (!sgt.sgl) {
 			T_WARN("cannot alloc memory for TLS encryption.\n");
 			return -ENOMEM;
 		}
 
 		ptr += sizeof(struct scatterlist) * sgt.nents;
-		out_sgt.sgl = ptr;
+		out_sgt.sgl = (struct scatterlist *)ptr;
 
 		ptr += sizeof(struct scatterlist) * out_sgt.nents;
-		pages = pages_end = ptr;
+		pages = pages_end = (struct page **)ptr;
 	}
 	sg_init_table(sgt.sgl, sgt.nents);
 	sg_init_table(out_sgt.sgl, out_sgt.nents);
