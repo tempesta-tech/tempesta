@@ -128,6 +128,11 @@ enum {
 	TFW_D_CACHE_PURGE_INVALIDATE,
 };
 
+enum {
+	/* Vhost was removed during reconfiguration. */
+	TFW_VHOST_B_REMOVED = 0,
+};
+
 typedef struct tfw_vhost_t TfwVhost;
 
 /**
@@ -141,6 +146,7 @@ typedef struct tfw_vhost_t TfwVhost;
  * @hdrs_pool	- Modification headers allocation pool for vhost's policies.
  * @refcnt	- Number of users of the virtual host object.
  * @loc_sz	- Count of elements in @loc array.
+ * @flags	- flags.
  */
 struct  tfw_vhost_t {
 	struct list_head	list;
@@ -151,6 +157,7 @@ struct  tfw_vhost_t {
 	TfwPool			*hdrs_pool;
 	atomic64_t		refcnt;
 	size_t			loc_sz;
+	unsigned long		flags;
 };
 
 #define TFW_VH_DFT_NAME		"default"
