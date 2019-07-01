@@ -387,7 +387,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	if (likely(sgt.nents <= AUTO_SEGS_N)) {
 		sgt.sgl = sg;
 		out_sgt.sgl = out_sg;
-		pages = auto_pages;
+		pages = pages_end = auto_pages;
 	} else {
 		char *ptr = kmalloc(sizeof(struct scatterlist) * sgt.nents +
 			            sizeof(struct scatterlist) * out_sgt.nents +
