@@ -88,6 +88,7 @@ typedef struct {
 	int			(*start)(void);
 	void			(*stop)(void);
 	TfwCfgSpec		*specs;
+	unsigned int		started:1;
 } TfwMod;
 
 #define MOD_FOR_EACH(pos, head)		\

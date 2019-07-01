@@ -253,6 +253,8 @@ EXPORT_SYMBOL(tfw_client_obtain);
 int
 tfw_client_for_each(int (*fn)(void *))
 {
+	if (!client_db)
+		return 0;
 	return tdb_entry_walk(client_db, fn);
 }
 
