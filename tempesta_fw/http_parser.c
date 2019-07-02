@@ -457,11 +457,13 @@ __parse_ulong(unsigned char *__restrict data, size_t len,
 		*acc = *acc * 10 + *p - '0';
 	}
 
+#if !defined(CONFIG_KASAN)
 	/*
 	 * We are expecting the compiler to deduce this expression to
 	 * a constant, to avoid division at run time.
 	 */
 	BUILD_BUG_ON(!__builtin_constant_p((limit - 10) / 10));
+#endif
 
 	return CSTR_POSTPONE;
 }
