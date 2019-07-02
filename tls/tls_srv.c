@@ -930,7 +930,10 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		}
 		/* Swap bytes to reuse them as a pointer to short later. */
 		*(short *)&tls->hs->tmp[4] = (short)n;
-		TTLS_HS_FSM_MOVE(TTLS_CH_HS_EX);
+		if (n)
+			TTLS_HS_FSM_MOVE(TTLS_CH_HS_EX);
+		else
+			T_FSM_JMP(TTLS_CH_HS_EX);
 	}
 
 	/* Parse an extension. */
