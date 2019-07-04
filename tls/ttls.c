@@ -2377,7 +2377,7 @@ ttls_close_notify(TlsCtx *tls)
 	T_DBG("write close notify\n");
 
 	if (tls->state != TTLS_HANDSHAKE_OVER)
-		return 0;
+		return -EINVAL;
 	return ttls_send_alert(tls, TTLS_ALERT_LEVEL_WARNING,
 			       TTLS_ALERT_MSG_CLOSE_NOTIFY);
 }
