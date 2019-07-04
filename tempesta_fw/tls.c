@@ -582,14 +582,14 @@ tfw_tls_conn_close(TfwConn *c, bool sync)
 	/*
 	 * ttls_close_notify() calls ss_send() with SS_F_CONN_CLOSE flag, so
 	 * if the call succeeded, then we'll close the socket with the alert
-	 * transmission. Otherwise if we have to close the socket synchronously
+	 * transmission. Otherwise if we have to close the socket
 	 * and can not write to the socket, then there is no other way than
 	 * skip the alert and just close the socket.
 	 */
-	if (r && sync) {
+	if (r) {
 		TFW_WARN_ADDR("Close TCP socket w/o sending alert to the peer",
 			      &c->peer->addr, TFW_WITH_PORT);
-		r = ss_close(c->sk, SS_F_SYNC);
+		r = ss_close(c->sk, sync ? SS_F_SYNC : 0);
 	}
 
 	return r;
