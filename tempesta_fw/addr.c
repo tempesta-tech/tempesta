@@ -406,8 +406,6 @@ tfw_addr_ifmatch(const TfwAddr *server, const TfwAddr *listener)
 			/* backend = [::1] */
 			return 1;
 		}
-
-		/* TODO: same as in v4 case */
 	}
 
 	return tfw_addr_eq(server, listener);
