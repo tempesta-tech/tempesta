@@ -3102,6 +3102,8 @@ next_msg:
 		tfw_http_req_parse_drop(req, 400, "failed to parse request");
 		return TFW_BLOCK;
 	case TFW_POSTPONE:
+		if (tfw_http_chop_skb((TfwHttpMsg *)req, skb, off, curr_skb_trail))
+			return TFW_BLOCK;
 		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK,
 				  &data_up);
 		TFW_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
