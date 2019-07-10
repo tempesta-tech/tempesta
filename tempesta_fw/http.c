@@ -750,7 +750,7 @@ tfw_http_conn_nip_adjust(TfwSrvConn *srv_conn)
 
 /*
  * Tell if the server connection's forwarding queue is on hold.
- * It's on hold it the request that was sent last was non-idempotent.
+ * It's on hold if the request that was sent last was non-idempotent.
  */
 static inline bool
 tfw_http_conn_on_hold(TfwSrvConn *srv_conn)
