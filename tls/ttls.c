@@ -164,6 +164,7 @@ ttls_crypto_req_sglist(TlsCtx *tls, struct crypto_aead *tfm, unsigned int len,
 			n = skb_to_sgvec(skb, sg_i, off, to_read);
 			if (n <= 0)
 				goto err;
+			sg_unmark_end(sg_i + n - 1);
 			T_DBG3_SL("build req sglist", sg_i, n, 0, (size_t)len);
 			len -= to_read;
 			sg_i += n;
