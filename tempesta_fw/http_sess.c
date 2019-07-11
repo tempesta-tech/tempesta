@@ -224,7 +224,7 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 	if (!tfw_http_sticky_redirect_applied(req))
 		return TFW_HTTP_SESS_JS_NOT_SUPPORTED;
 
-	if (TFW_CONN_H2(req->conn)) {
+	if (TFW_MSG_H2(req)) {
 		/*
 		 * TODO: add separate flow for HTTP/2 response preparing
 		 * and sending (HPACK index, encode in HTTP/2 format, add

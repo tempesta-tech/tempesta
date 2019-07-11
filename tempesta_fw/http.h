@@ -255,6 +255,8 @@ enum {
 	TFW_HTTP_B_WHITELIST,
 	/* Client was disconnected, drop the request. */
 	TFW_HTTP_B_REQ_DROP,
+	/* Request has HTTP/2 format (applicable for HTTP/2 mode only). */
+	TFW_HTTP_B_REQ_H2,
 	/* Request is fully assembled (applicable for HTTP/2 mode only). */
 	TFW_HTTP_B_REQ_COMPLETE,
 
@@ -276,6 +278,9 @@ enum {
 
 #define __TFW_HTTP_MSG_M_CONN						\
 	(BIT(TFW_HTTP_B_CONN_CLOSE) | BIT(TFW_HTTP_B_CONN_KA))
+
+#define TFW_MSG_H2(hmmsg)						\
+	test_bit(TFW_HTTP_B_REQ_H2, ((TfwHttpMsg *)hmmsg)->flags)
 
 /**
  * The structure to hold data for an HTTP error response.
