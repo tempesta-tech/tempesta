@@ -27,32 +27,6 @@
 
 #define HTTP2_DEF_WEIGHT	16
 
-/**
- * States for HTTP/2 streams processing.
- *
- * NOTE: there is no exact matching between these states and states from
- * RFC 7540 (section 5.1), since several intermediate states were added in
- * current implementation to handle some edge states which are not mentioned
- * explicitly in RFC (e.g. additional continuation states, and special kinds
- * of closed state). Besides, there is no explicit 'idle' state here, since
- * in current implementation idle stream is just a stream that has not been
- * created yet.
- */
-typedef enum {
-	HTTP2_STREAM_LOC_RESERVED,
-	HTTP2_STREAM_REM_RESERVED,
-	HTTP2_STREAM_OPENED,
-	HTTP2_STREAM_CONT,
-	HTTP2_STREAM_CONT_CLOSED,
-	HTTP2_STREAM_CONT_HC,
-	HTTP2_STREAM_CONT_HC_CLOSED,
-	HTTP2_STREAM_LOC_HALF_CLOSED,
-	HTTP2_STREAM_REM_HALF_CLOSED,
-	HTTP2_STREAM_LOC_CLOSED,
-	HTTP2_STREAM_REM_CLOSED,
-	HTTP2_STREAM_CLOSED
-} TfwStreamState;
-
 static struct kmem_cache *stream_cache;
 
 int
@@ -197,10 +171,12 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 			return STREAM_FSM_RES_TERM_CONN;
 		}
 
-		if (type == HTTP2_RST_STREAM) {
+		if (type == HTTP2_RST_STREAM)
+		{
 			stream->state = HTTP2_STREAM_CLOSED;
 		}
-		else if (type != HTTP2_PRIORITY || type != HTTP2_WINDOW_UPDATE) {
+		else if (type != HTTP2_PRIORITY || type != HTTP2_WINDOW_UPDATE)
+		{
 			*err = HTTP2_ECODE_CLOSED;
 			return STREAM_FSM_RES_TERM_STREAM;
 		}
@@ -278,18 +254,6 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 	T_DBG3("exit %s: stream->state=%d\n", __func__, stream->state);
 
 	return STREAM_FSM_RES_OK;
-}
-
-bool
-tfw_h2_stream_req_complete(TfwStream *stream)
-{
-	return stream->state == HTTP2_STREAM_REM_HALF_CLOSED;
-}
-
-bool
-tfw_h2_stream_is_closed(TfwStream *stream)
-{
-	return stream->state == HTTP2_STREAM_CLOSED;
 }
 
 static inline void

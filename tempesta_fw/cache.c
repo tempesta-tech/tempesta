@@ -636,6 +636,15 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 	WARN_ON_ONCE(!list_empty(&req->fwd_list));
 	WARN_ON_ONCE(!list_empty(&req->nip_list));
 
+	if (TFW_CONN_H2(req->conn)) {
+		/*
+		 * TODO: add separate flow for HTTP/2 response preparing
+		 * and sending (HPACK index, encode in HTTP/2 format, add
+		 * frame headers and send via @tfw_h2_resp_fwd()).
+		 */
+		return;
+	}
+
 	if (!(resp = tfw_http_msg_alloc_resp_light(req)))
 		goto err_create;
 
@@ -660,10 +669,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 	if (tfw_msg_write(&it, &g_crlf))
 		goto err_setup;
 
-	if (TFW_CONN_H2(req->conn))
-		tfw_h2_resp_adjust_fwd(resp);
-	else
-		tfw_http_resp_fwd(resp);
+	tfw_http_resp_fwd(resp);
 
 	return;
 err_setup:
