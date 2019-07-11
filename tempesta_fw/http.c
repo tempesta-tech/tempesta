@@ -599,6 +599,16 @@ tfw_http_resp_build_error(TfwHttpReq *req)
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 }
 
+static void
+tfw_h2_send_resp(TfwHttpReq *req, resp_code_t code)
+{
+	/*
+	 * TODO: add separate flow for HTTP/2 response preparing and
+	 * sending (HPACK index, encode in HTTP/2 format, add frame
+	 * headers and send via @tfw_h2_resp_fwd()).
+	 */
+}
+
 /*
  * Perform operations common to sending an error response to a client.
  * Set current date in the header of an HTTP error response, and set
@@ -611,7 +621,7 @@ tfw_http_resp_build_error(TfwHttpReq *req)
  * the fourth chunk must be CRLF.
  */
 static void
-__tfw_http_send_resp(TfwHttpReq *req, resp_code_t code)
+tfw_h1_send_resp(TfwHttpReq *req, resp_code_t code)
 {
 	TfwMsgIter it;
 	TfwHttpResp *resp;
@@ -655,10 +665,7 @@ __tfw_http_send_resp(TfwHttpReq *req, resp_code_t code)
 	if (tfw_msg_write(&it, &msg))
 		goto err_setup;
 
-	if (TFW_CONN_H2(req->conn))
-		tfw_h2_resp_adjust_fwd(resp);
-	else
-		tfw_http_resp_fwd(resp);
+	tfw_http_resp_fwd(resp);
 
 	return;
 err_setup:
@@ -933,7 +940,11 @@ tfw_http_error_resp_switch(TfwHttpReq *req, int status)
 		TFW_WARN("Unexpected response error code: [%d]\n", status);
 		code = RESP_500;
 	}
-	__tfw_http_send_resp(req, code);
+
+	if (TFW_CONN_H2(req->conn))
+		tfw_h2_send_resp(req, code);
+	else
+		tfw_h1_send_resp(req, code);
 }
 
 /* Common interface for sending error responses. */
@@ -1041,10 +1052,8 @@ tfw_http_req_zap_error(struct list_head *eq)
 	if (list_empty(eq))
 		return;
 
-	if (!list_empty(eq)) {
-		req = list_first_entry(eq, TfwHttpReq, fwd_list);
-		h2_mode = TFW_CONN_H2(req->conn);
-	}
+	req = list_first_entry(eq, TfwHttpReq, fwd_list);
+	h2_mode = TFW_CONN_H2(req->conn);
 
 	list_for_each_entry_safe(req, tmp, eq, fwd_list) {
 		list_del_init(&req->fwd_list);
@@ -2421,11 +2430,6 @@ tfw_http_adjust_req(TfwHttpReq *req)
 	int r;
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
 
-	/*
-	 * TODO: generate HTTP/1.1 request from collected sequence of
-	 * HEADERS/CONTINUATION/DATA frames' payload (for HTTP/2 mode).
-	 */
-
 	r = tfw_http_sess_req_process(req);
 	if (r)
 		return r;
@@ -2562,6 +2566,23 @@ __tfw_http_resp_fwd(TfwCliConn *cli_conn, struct list_head *ret_queue)
 	}
 }
 
+static inline void
+tfw_h2_resp_fwd(TfwHttpResp *resp)
+{
+	TfwHttpReq *req = resp->req;
+
+	if (tfw_connection_send(req->conn, (TfwMsg *)resp)) {
+		TFW_DBG("Cannot send data to client (%d) via HTTP/2\n", r);
+		TFW_INC_STAT_BH(serv.msgs_otherr);
+		tfw_connection_close(req->conn, true);
+	}
+	else {
+		TFW_INC_STAT_BH(serv.msgs_forwarded);
+	}
+
+	tfw_http_resp_pair_free(req);
+}
+
 /*
  * Mark @resp as ready to transmit. Then, starting with the first request
  * in @seq_queue, pick consecutive requests that have response ready to
@@ -2681,10 +2702,49 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 		return;
 	}
 	/*
-	 * TODO: adjust, transform response into HTTP/2 and send it.
+	 * TODO: transforming response into HTTP/2 format and sending (HPACK
+	 * index, replace headers/names with indexes in HTTP/2 format, add
+	 * lengths in HTTP/2 format for not replaced headers/values, apply
+	 * @tfw_http_adjust_resp() optimized for HTTP/2 HPACK, insert frame
+	 * headers for HEADERS and DATA frames and send via @tfw_h2_resp_fwd()).
 	 */
 	tfw_http_resp_pair_free(req);
 	TFW_INC_STAT_BH(serv.msgs_forwarded);
+}
+
+static void
+tfw_h1_resp_adjust_fwd(TfwHttpResp *resp)
+{
+	TfwHttpReq *req = resp->req;
+
+	/*
+	 * A client can disconnect at any time after the request was
+	 * forwarded to backend. In this case the response will never be sent
+	 * to the client. Keep the response until it's saved in the cache,
+	 * so other clients can served from cache. After response is saved to
+	 * cache it can be dropped.
+	 */
+	if (unlikely(test_bit(TFW_HTTP_B_REQ_DROP, req->flags))) {
+		TFW_DBG2("%s: resp=[%p] dropped: client disconnected\n",
+			 __func__, resp);
+		tfw_http_resp_pair_free(req);
+		return;
+	}
+	/*
+	 * Typically we're at a node far from the node where @resp was
+	 * received, so we do an inter-node transfer. However, this is
+	 * the final place where the response will be stored. Upcoming
+	 * requests will get responded to by the current node without
+	 * inter-node data transfers. (see tfw_http_req_cache_cb())
+	 */
+	if (tfw_http_adjust_resp(resp)) {
+		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
+		tfw_http_send_resp(req, 500,
+				   "response dropped: processing error");
+		TFW_INC_STAT_BH(serv.msgs_otherr);
+		return;
+	}
+	tfw_http_resp_fwd(resp);
 }
 
 /**
@@ -2786,52 +2846,11 @@ skip_stream:
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 }
 
-/**
- * Function define logging and response behaviour during detection of
- * malformed or malicious messages. Mark client connection in special
- * manner to delay its closing until transmission of error response
- * will be finished.
- *
- * @req			- malicious or malformed request;
- * @status		- response status code to use;
- * @msg			- message to be logged;
- * @attack		- true if the request was sent intentionally, false for
- *			  internal errors or misconfigurations;
- * @on_req_recv_event	- true if request is not fully parsed and the caller
- *			  handles the connection closing on its own.
- */
 static void
-tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
-				bool attack, bool on_req_recv_event)
+tfw_h1_error_resp(TfwHttpReq *req, int status, bool reply, bool attack,
+		  bool on_req_recv_event)
 {
-	bool reply;
-	bool nolog;
 	TfwCliConn *cli_conn = (TfwCliConn *)req->conn;
-
-	/*
-	 * Error was happened and request should be dropped or blocked,
-	 * but other modules (e.g. sticky cookie module) may have a response
-	 * prepared for this request. A new error response is to be generated
-	 * for the request, drop any previous response paired with the request.
-	 */
-	tfw_http_conn_msg_free(req->pair);
-
-	if (attack) {
-		reply = tfw_blk_flags & TFW_BLK_ATT_REPLY;
-		nolog = tfw_blk_flags & TFW_BLK_ATT_NOLOG;
-	}
-	else {
-		reply = tfw_blk_flags & TFW_BLK_ERR_REPLY;
-		nolog = tfw_blk_flags & TFW_BLK_ERR_NOLOG;
-	}
-
-	if (!nolog)
-		TFW_WARN_ADDR(msg, &req->conn->peer->addr, TFW_WITH_PORT);
-
-	if (TFW_CONN_H2(cli_conn)) {
-		tfw_h2_error_resp(req, status, reply, attack, on_req_recv_event);
-		return;
-	}
 
 	/* The client connection is to be closed with the last resp sent. */
 	reply &= !test_bit(TFW_HTTP_B_REQ_DROP, req->flags);
@@ -2875,6 +2894,53 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 			tfw_connection_close(req->conn, true);
 		tfw_http_conn_req_clean(req);
 	}
+}
+
+/**
+ * Function define logging and response behaviour during detection of
+ * malformed or malicious messages. Mark client connection in special
+ * manner to delay its closing until transmission of error response
+ * will be finished.
+ *
+ * @req			- malicious or malformed request;
+ * @status		- response status code to use;
+ * @msg			- message to be logged;
+ * @attack		- true if the request was sent intentionally, false for
+ *			  internal errors or misconfigurations;
+ * @on_req_recv_event	- true if request is not fully parsed and the caller
+ *			  handles the connection closing on its own.
+ */
+static void
+tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
+				bool attack, bool on_req_recv_event)
+{
+	bool reply;
+	bool nolog;
+
+	/*
+	 * Error was happened and request should be dropped or blocked,
+	 * but other modules (e.g. sticky cookie module) may have a response
+	 * prepared for this request. A new error response is to be generated
+	 * for the request, drop any previous response paired with the request.
+	 */
+	tfw_http_conn_msg_free(req->pair);
+
+	if (attack) {
+		reply = tfw_blk_flags & TFW_BLK_ATT_REPLY;
+		nolog = tfw_blk_flags & TFW_BLK_ATT_NOLOG;
+	}
+	else {
+		reply = tfw_blk_flags & TFW_BLK_ERR_REPLY;
+		nolog = tfw_blk_flags & TFW_BLK_ERR_NOLOG;
+	}
+
+	if (!nolog)
+		TFW_WARN_ADDR(msg, &req->conn->peer->addr, TFW_WITH_PORT);
+
+	if (TFW_CONN_H2(req->conn))
+		tfw_h2_error_resp(req, status, reply, attack, on_req_recv_event);
+	else
+		tfw_h1_error_resp(req, status, reply, attack, on_req_recv_event);
 }
 
 /**
@@ -3185,6 +3251,94 @@ tfw_http_req_client_link(TfwConn *conn, TfwHttpReq *req)
 	return 0;
 }
 
+static TfwHttpMsg *
+tfw_h1_req_process(TfwStream *stream, struct sk_buff *skb)
+{
+	TfwHttpReq *req = (TfwHttpReq *)stream->msg;
+	TfwHttpMsg *hmsib = NULL;
+
+	/*
+	 * In HTTP 1.0 the server always closes the connection
+	 * after sending the response unless the client sent a
+	 * a "Connection: keep-alive" request header, and the
+	 * server sent a "Connection: keep-alive" response header.
+	 *
+	 * This behavior was added to existing HTTP 1.0 protocol.
+	 * RFC 1945 section 1.3 says:
+	 * "Except for experimental applications, current practice
+	 * requires that the connection be established by the client
+	 * prior to each request and closed by the server after
+	 * sending the response."
+	 *
+	 * Make it work this way in Tempesta by setting the flag.
+	 */
+	if ((req->version == TFW_HTTP_VER_09)
+	    || ((req->version == TFW_HTTP_VER_10)
+		&& !test_bit(TFW_HTTP_B_CONN_KA, req->flags)))
+	{
+		__set_bit(TFW_HTTP_B_CONN_CLOSE, req->flags);
+	}
+
+	/*
+	 * The request has been successfully parsed and processed.
+	 * If the connection will be closed after the response to
+	 * the request is sent to the client, then there's no need
+	 * to process pipelined requests. Also, the request may be
+	 * released when handled in general HTTP processing in caller
+	 * function. So, reset sibling skb pointer (if it exists)
+	 * to indicate for the following code that processing must be
+	 * stopped, since corresponding flag may not be accessible later
+	 * through @req->flags. If the connection must be closed, it
+	 * also should be marked with @Conn_Stop flag - to left it alive
+	 * for sending responses and, at the same time, to stop passing
+	 * data for processing from the lower layer.
+	 */
+	if (test_bit(TFW_HTTP_B_CONN_CLOSE, req->flags)) {
+		TFW_CONN_TYPE(req->conn) |= Conn_Stop;
+		if (unlikely(skb)) {
+			__kfree_skb(skb);
+			skb = NULL;
+		}
+	}
+
+	/*
+	 * Pipelined requests: create a new sibling message.
+	 * If pipelined message can't be created, it still possible to
+	 * process current one. But @skb must be freed then, since it's
+	 * not owned by any message.
+	 */
+	if (skb) {
+		hmsib = tfw_http_msg_create_sibling((TfwHttpMsg *)req, skb);
+		if (unlikely(!hmsib)) {
+			TFW_INC_STAT_BH(clnt.msgs_otherr);
+			__set_bit(TFW_HTTP_B_CONN_CLOSE, req->flags);
+			TFW_CONN_TYPE(req->conn) |= Conn_Stop;
+			tfw_http_conn_error_log(req->conn, "Can't create"
+						" pipelined request");
+			__kfree_skb(skb);
+		}
+	}
+
+	/*
+	 * Complete HTTP message has been collected and processed
+	 * with success. Mark the message as complete in @stream as
+	 * further handling of @stream depends on that. Future SKBs
+	 * will be put in a new message.
+	 * On an error the function returns from anywhere inside
+	 * the loop. @stream->msg holds the reference to the message,
+	 * which can be used to release it.
+	 */
+	tfw_stream_unlink_msg(stream);
+
+	/*
+	 * Add the request to the list of the client connection
+	 * to preserve the correct order of responses to requests.
+	 */
+	tfw_http_req_add_seq_queue(req);
+
+	return hmsib;
+}
+
 /**
  * @return zero on success and negative value otherwise.
  * TODO enter the function depending on current GFSM state.
@@ -3194,7 +3348,7 @@ tfw_http_req_process(TfwConn *conn, TfwStream *stream, const TfwFsmData *data)
 {
 	int r = TFW_BLOCK;
 	unsigned int parsed, curr_skb_trail;
-	bool block, req_conn_close = false, h2_mode = TFW_CONN_H2(conn);
+	bool block, h2_mode = TFW_CONN_H2(conn);
 	ss_skb_actor_t *actor = h2_mode ? tfw_h2_parse_req : tfw_http_parse_req;
 	unsigned int off = data->off, trail = data->trail;
 	struct sk_buff *skb = data->skb;
@@ -3250,11 +3404,7 @@ next_msg:
 		TFW_DBG2("Block invalid HTTP request\n");
 		TFW_INC_STAT_BH(clnt.msgs_parserr);
 		tfw_http_req_parse_drop(req, 400, "failed to parse request");
-		/*
-		 * In HTTP/2 mode we can just drop particular stream and
-		 * continue processing client connection as a whole.
-		 */
-		return h2_mode ? TFW_PASS : TFW_BLOCK;
+		return TFW_BLOCK;
 	case TFW_POSTPONE:
 		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK,
 				  &data_up);
@@ -3418,100 +3568,17 @@ next_msg:
 	 * yet, it must be deleted during corresponding stream
 	 * removal.
 	 */
-	if (h2_mode) {
+	if (h2_mode)
 		__set_bit(TFW_HTTP_B_REQ_COMPLETE, req->flags);
-		goto skip_http1;
-	}
+	else
+		hmsib = tfw_h1_req_process(stream, skb);
 
-	/*
-	 * In HTTP 0.9 the server always closes the connection
-	 * after sending the response.
-	 *
-	 * In HTTP 1.0 the server always closes the connection
-	 * after sending the response unless the client sent a
-	 * a "Connection: keep-alive" request header, and the
-	 * server sent a "Connection: keep-alive" response header.
-	 *
-	 * This behavior was added to existing HTTP 1.0 protocol.
-	 * RFC 1945 section 1.3 says:
-	 * "Except for experimental applications, current practice
-	 * requires that the connection be established by the client
-	 * prior to each request and closed by the server after
-	 * sending the response."
-	 *
-	 * Make it work this way in Tempesta by setting the flag.
-	 */
-	if ((req->version == TFW_HTTP_VER_09)
-	    || ((req->version == TFW_HTTP_VER_10)
-		&& !test_bit(TFW_HTTP_B_CONN_KA, req->flags)))
-	{
-		__set_bit(TFW_HTTP_B_CONN_CLOSE, req->flags);
-	}
-
-	/*
-	 * The request has been successfully parsed and processed.
-	 * If the connection will be closed after the response to
-	 * the request is sent to the client, then there's no need
-	 * to process pipelined requests. Also, the request may be
-	 * released when handled in tfw_cache_req_process() below.
-	 * So, save the needed request flag for later use as it
-	 * may not be accessible later through @req->flags.
-	 * If the connection must be closed, it also should be marked
-	 * with @Conn_Stop flag - to left it alive for sending responses
-	 * and, at the same time, to stop passing data for processing
-	 * from the lower layer.
-	 */
-	if ((req_conn_close = test_bit(TFW_HTTP_B_CONN_CLOSE, req->flags))) {
-		TFW_CONN_TYPE(req->conn) |= Conn_Stop;
-		if (unlikely(skb)) {
-			__kfree_skb(skb);
-			skb = NULL;
-		}
-	}
-
-	/*
-	 * Pipelined requests: create a new sibling message.
-	 * If pipelined message can't be created, it still possible to
-	 * process current one. But @skb must be freed then, since it's
-	 * not owned by any message.
-	 */
-	if (skb && !req_conn_close) {
-		hmsib = tfw_http_msg_create_sibling((TfwHttpMsg *)req, skb);
-		if (unlikely(!hmsib)) {
-			TFW_INC_STAT_BH(clnt.msgs_otherr);
-			__set_bit(TFW_HTTP_B_CONN_CLOSE, req->flags);
-			TFW_CONN_TYPE(conn) |= Conn_Stop;
-			tfw_http_conn_error_log(conn, "Can't create pipelined"
-						      " request");
-			__kfree_skb(skb);
-			skb = NULL;
-		}
-	}
-
-	/*
-	 * Complete HTTP message has been collected and processed
-	 * with success. Mark the message as complete in @stream as
-	 * further handling of @stream depends on that. Future SKBs
-	 * will be put in a new message.
-	 * On an error the function returns from anywhere inside
-	 * the loop. @stream->msg holds the reference to the message,
-	 * which can be used to release it.
-	 */
-	tfw_stream_unlink_msg(stream);
-
-	/*
-	 * Add the request to the list of the client connection
-	 * to preserve the correct order of responses to requests.
-	 */
-	tfw_http_req_add_seq_queue(req);
-
-skip_http1:
 	/*
 	 * Response is already prepared for the client by sticky module.
 	 */
 	if (unlikely(req->resp)) {
 		if (h2_mode)
-			tfw_h2_resp_adjust_fwd(req->resp);
+			tfw_h2_resp_fwd(req->resp);
 		else
 			tfw_http_resp_fwd(req->resp);
 	}
@@ -3539,13 +3606,14 @@ skip_http1:
 	 * According to RFC 7230 6.3.2, connection with a client
 	 * must be dropped after a response is sent to that client,
 	 * if the client sends "Connection: close" header field in
-	 * the request. Subsequent requests from the client coming
+	 * the request (@tfw_h1_req_process() return NULL for @hmsib
+	 * in this case). Subsequent requests from the client coming
 	 * over the same connection are ignored.
 	 *
 	 * Note: This connection's @conn must not be dereferenced
 	 * from this point on.
 	 */
-	if (hmsib && !req_conn_close) {
+	if (hmsib) {
 		/*
 		 * No sibling messages should appear in processing
 		 * of HTTP/2 protocol.
@@ -3571,46 +3639,17 @@ skip_http1:
  * better to transfer requests to a TDB node to make any adjustments.
  * The other benefit of the scheme is that less work is done in SoftIRQ.
  */
-static void
+static inline void
 tfw_http_resp_cache_cb(TfwHttpMsg *msg)
 {
 	TfwHttpResp *resp = (TfwHttpResp *)msg;
-	TfwHttpReq *req = resp->req;
 
-	TFW_DBG2("%s: req = %p, resp = %p\n", __func__, req, resp);
+	TFW_DBG2("%s: req = %p, resp = %p\n", __func__, resp->req, resp);
 
-	if (TFW_CONN_H2(req->conn)) {
+	if (TFW_CONN_H2(resp->req->conn))
 		tfw_h2_resp_adjust_fwd(resp);
-		return;
-	}
-	/*
-	 * A client can disconnect at any time after the request was
-	 * forwarded to backend. In this case the response will never be sent
-	 * to the client. Keep the response until it's saved in the cache,
-	 * so other clients can served from cache. After response is saved to
-	 * cache it can be dropped.
-	 */
-	if (unlikely(test_bit(TFW_HTTP_B_REQ_DROP, req->flags))) {
-		TFW_DBG2("%s: resp=[%p] dropped: client disconnected\n",
-			 __func__, resp);
-		tfw_http_resp_pair_free(req);
-		return;
-	}
-	/*
-	 * Typically we're at a node far from the node where @resp was
-	 * received, so we do an inter-node transfer. However, this is
-	 * the final place where the response will be stored. Upcoming
-	 * requests will get responded to by the current node without
-	 * inter-node data transfers. (see tfw_http_req_cache_cb())
-	 */
-	if (tfw_http_adjust_resp(resp)) {
-		tfw_http_conn_msg_free((TfwHttpMsg *)resp);
-		tfw_http_send_resp(req, 500,
-				   "response dropped: processing error");
-		TFW_INC_STAT_BH(serv.msgs_otherr);
-		return;
-	}
-	tfw_http_resp_fwd(resp);
+	else
+		tfw_h1_resp_adjust_fwd(resp);
 }
 
 /**

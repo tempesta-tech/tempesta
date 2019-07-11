@@ -595,9 +595,7 @@ tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream)
 
 /*
  * Unlink stream from corresponding request (if linked) and from special
- * queue of closed streams (if it is contained there). If request is linked
- * with stream, but not assembled yet, it must be deleted right here to
- * avoid leakage, because in this case it is not used anywhere yet.
+ * queue of closed streams (if it is contained there).
  *
  * NOTE: call to this procedure should be protected by special lock for
  * Stream linkage protection.
@@ -614,6 +612,15 @@ tfw_h2_stream_unlink(TfwH2Ctx *ctx, TfwStream *stream)
 
 	if (hmreq) {
 		hmreq->stream = NULL;
+		/*
+		 * If request is linked with stream, but not complete yet, it
+		 * must be deleted right here to avoid leakage, because in this
+		 * case it is not used anywhere yet. When request is assembled
+		 * and complete, it will be removed (due to some processing
+		 * error) in @tfw_http_req_process(), or in other cases
+		 * controlled by server connection side (after adding to
+		 * @fwd_queue): successful response sending, eviction etc.
+		 */
 		if (!test_bit(TFW_HTTP_B_REQ_COMPLETE, hmreq->flags))
 			tfw_http_conn_msg_free(hmreq);
 	}
@@ -1616,17 +1623,16 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, size_t len,
  * padded frames - we need to pass upstairs postponed frames too (only
  * app frames: HEADERS, DATA, CONTINUATION); thus, three situations can
  * appear during framing context initialization:
- * 1. On fully received service (non-app) frames and fully received app
- *    frames without padding - context must be reset; in this case the
- *    @ctx->state field will be set to HTTP2_RECV_FRAME_HEADER state (since
- *    its value is zero), and processing of the next frame will start from
- *    this state;
- * 2. On fully received app frames with padding - context must not be
- *    reset and should be reinitialized to continue processing until all
- *    padding will be processed;
- * 3. On postponed app frames (with or without padding) - context must
- *    not be reinitialized at all and should be further processed until
- *    the frame will be fully received.
+ * 1. For all service (non-app) frames and for fully received app frames
+ *    without padding - context must be reset; in this case the @ctx->state
+ *    field will be set to HTTP2_RECV_FRAME_HEADER state (since its value
+ *    is zero), and processing of the next frame will start from this state;
+ * 2. On fully received app frames with padding - context must not be reset
+ *    and should be reinitialized to continue processing until all padding
+ *    will be processed;
+ * 3. On postponed app frames (with or without padding) - context must not
+ *    be reinitialized at all and should be further processed until the
+ *    frame will be fully received.
  */
 static inline void
 tfw_h2_context_reinit(TfwH2Ctx *ctx, bool postponed)

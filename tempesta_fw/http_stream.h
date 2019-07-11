@@ -26,6 +26,32 @@
 #include "http_parser.h"
 
 /**
+ * States for HTTP/2 streams processing.
+ *
+ * NOTE: there is no exact matching between these states and states from
+ * RFC 7540 (section 5.1), since several intermediate states were added in
+ * current implementation to handle some edge states which are not mentioned
+ * explicitly in RFC (e.g. additional continuation states, and special kinds
+ * of closed state). Besides, there is no explicit 'idle' state here, since
+ * in current implementation idle stream is just a stream that has not been
+ * created yet.
+ */
+typedef enum {
+	HTTP2_STREAM_LOC_RESERVED,
+	HTTP2_STREAM_REM_RESERVED,
+	HTTP2_STREAM_OPENED,
+	HTTP2_STREAM_CONT,
+	HTTP2_STREAM_CONT_CLOSED,
+	HTTP2_STREAM_CONT_HC,
+	HTTP2_STREAM_CONT_HC_CLOSED,
+	HTTP2_STREAM_LOC_HALF_CLOSED,
+	HTTP2_STREAM_REM_HALF_CLOSED,
+	HTTP2_STREAM_LOC_CLOSED,
+	HTTP2_STREAM_REM_CLOSED,
+	HTTP2_STREAM_CLOSED
+} TfwStreamState;
+
+/**
  * Final statuses of Stream FSM processing.
  */
 typedef enum {
@@ -96,8 +122,6 @@ int tfw_h2_stream_cache_create(void);
 void tfw_h2_stream_cache_destroy(void);
 TfwStreamFsmRes tfw_h2_stream_fsm(TfwStream *stream, unsigned char type,
 				  unsigned char flags, TfwH2Err *err);
-bool tfw_h2_stream_req_complete(TfwStream *stream);
-bool tfw_h2_stream_is_closed(TfwStream *stream);
 TfwStream *tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id);
 TfwStream *tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id,
 			     unsigned short weight, unsigned int wnd);
@@ -110,5 +134,17 @@ void tfw_h2_change_stream_dep(TfwStreamSched *sched, unsigned int stream_id,
 			      unsigned int new_dep, unsigned short new_weight,
 			      bool excl);
 void tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream);
+
+static inline bool
+tfw_h2_stream_req_complete(TfwStream *stream)
+{
+	return stream->state == HTTP2_STREAM_REM_HALF_CLOSED;
+}
+
+static inline bool
+tfw_h2_stream_is_closed(TfwStream *stream)
+{
+	return stream->state == HTTP2_STREAM_CLOSED;
+}
 
 #endif /* __HTTP_STREAM__ */
