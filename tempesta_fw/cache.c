@@ -636,7 +636,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 	WARN_ON_ONCE(!list_empty(&req->fwd_list));
 	WARN_ON_ONCE(!list_empty(&req->nip_list));
 
-	if (TFW_CONN_H2(req->conn)) {
+	if (TFW_MSG_H2(req)) {
 		/*
 		 * TODO: add separate flow for HTTP/2 response preparing
 		 * and sending (HPACK index, encode in HTTP/2 format, add

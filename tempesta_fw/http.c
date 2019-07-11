@@ -562,7 +562,7 @@ tfw_http_conn_msg_free(TfwHttpMsg *hm)
 static inline void
 tfw_http_conn_req_clean(TfwHttpReq *req)
 {
-	if (TFW_CONN_H2(req->conn)) {
+	if (TFW_MSG_H2(req)) {
 		tfw_h2_stream_id_close(req);
 	} else {
 		spin_lock_bh(&((TfwCliConn *)req->conn)->seq_qlock);
@@ -941,7 +941,7 @@ tfw_http_error_resp_switch(TfwHttpReq *req, int status)
 		code = RESP_500;
 	}
 
-	if (TFW_CONN_H2(req->conn))
+	if (TFW_MSG_H2(req))
 		tfw_h2_send_resp(req, code);
 	else
 		tfw_h1_send_resp(req, code);
@@ -1044,7 +1044,6 @@ tfw_http_mark_wl_new_msg(TfwConn *conn, TfwHttpMsg *msg,
 static void
 tfw_http_req_zap_error(struct list_head *eq)
 {
-	bool h2_mode = true;
 	TfwHttpReq *req, *tmp;
 
 	TFW_DBG2("%s: queue is %sempty\n",
@@ -1052,13 +1051,11 @@ tfw_http_req_zap_error(struct list_head *eq)
 	if (list_empty(eq))
 		return;
 
-	req = list_first_entry(eq, TfwHttpReq, fwd_list);
-	h2_mode = TFW_CONN_H2(req->conn);
-
 	list_for_each_entry_safe(req, tmp, eq, fwd_list) {
 		list_del_init(&req->fwd_list);
-		if ((h2_mode && req->stream)
-		    || (!h2_mode && !test_bit(TFW_HTTP_B_REQ_DROP, req->flags)))
+		if ((TFW_MSG_H2(req) && req->stream)
+		    || (!TFW_MSG_H2(req)
+			&& !test_bit(TFW_HTTP_B_REQ_DROP, req->flags)))
 		{
 			tfw_http_send_resp(req, req->httperr.status,
 					   req->httperr.reason);
@@ -1085,7 +1082,7 @@ tfw_http_req_evict_dropped(TfwSrvConn *srv_conn, TfwHttpReq *req)
 	if (!req->conn)
 		return false;
 
-	if (TFW_CONN_H2(req->conn)) {
+	if (TFW_MSG_H2(req)) {
 		if (req->stream)
 			return false;
 		TFW_DBG2("%s: Eviction: req=[%p] corresponding stream has been"
@@ -1922,6 +1919,9 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 	tfw_connection_get(conn);
 	hm->stream = stream;
 
+	if (TFW_CONN_H2(conn))
+		__set_bit(TFW_HTTP_B_REQ_H2, hm->flags);
+
 	if (type & Conn_Clnt)
 		tfw_http_init_parser_req((TfwHttpReq *)hm);
 	else
@@ -1990,7 +1990,6 @@ static void
 tfw_http_conn_release(TfwConn *conn)
 {
 	TfwHttpReq *req, *tmp;
-	bool h2_mode = true;
 	TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 	LIST_HEAD(zap_queue);
 
@@ -2017,18 +2016,13 @@ tfw_http_conn_release(TfwConn *conn)
 	tfw_http_conn_snip_fwd_queue(srv_conn, &zap_queue);
 	spin_unlock_bh(&srv_conn->fwd_qlock);
 
-	if (!list_empty(&zap_queue)) {
-		req = list_first_entry(&zap_queue, TfwHttpReq, fwd_list);
-		h2_mode = TFW_CONN_H2(req->conn);
-	}
-
 	/*
 	 * Remove requests from @zap_queue (formerly @fwd_queue) and from
 	 * @seq_queue of respective client connections, then destroy them.
 	 */
 	list_for_each_entry_safe(req, tmp, &zap_queue, fwd_list) {
 		list_del_init(&req->fwd_list);
-		if (h2_mode) {
+		if (TFW_MSG_H2(req)) {
 			tfw_h2_stream_id_close(req);
 		}
 		else if (unlikely(!list_empty_careful(&req->msg.seq_list))) {
@@ -2937,7 +2931,7 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 	if (!nolog)
 		TFW_WARN_ADDR(msg, &req->conn->peer->addr, TFW_WITH_PORT);
 
-	if (TFW_CONN_H2(req->conn))
+	if (TFW_MSG_H2(req))
 		tfw_h2_error_resp(req, status, reply, attack, on_req_recv_event);
 	else
 		tfw_h1_error_resp(req, status, reply, attack, on_req_recv_event);
@@ -2999,7 +2993,7 @@ tfw_http_req_cache_service(TfwHttpResp *resp)
 	WARN_ON_ONCE(!list_empty(&req->fwd_list));
 	WARN_ON_ONCE(!list_empty(&req->nip_list));
 
-	if (TFW_CONN_H2(req->conn)) {
+	if (TFW_MSG_H2(req)) {
 		tfw_h2_resp_adjust_fwd(resp);
 	} else {
 		if (tfw_http_adjust_resp(resp)) {
@@ -3346,16 +3340,16 @@ tfw_h1_req_process(TfwStream *stream, struct sk_buff *skb)
 static int
 tfw_http_req_process(TfwConn *conn, TfwStream *stream, const TfwFsmData *data)
 {
-	int r = TFW_BLOCK;
+	bool block;
+	ss_skb_actor_t *actor;
 	unsigned int parsed, curr_skb_trail;
-	bool block, h2_mode = TFW_CONN_H2(conn);
-	ss_skb_actor_t *actor = h2_mode ? tfw_h2_parse_req : tfw_http_parse_req;
 	unsigned int off = data->off, trail = data->trail;
 	struct sk_buff *skb = data->skb;
 	TfwHttpReq *req;
 	TfwHttpMsg *hmsib;
 	TfwHttpParser *parser;
 	TfwFsmData data_up;
+	int r = TFW_BLOCK;
 
 	BUG_ON(!stream->msg);
 	BUG_ON(off >= skb->len);
@@ -3374,6 +3368,7 @@ next_msg:
 	hmsib = NULL;
 	req = (TfwHttpReq *)stream->msg;
 	parser = &stream->parser;
+	actor = TFW_MSG_H2(req) ? tfw_h2_parse_req : tfw_http_parse_req;
 
 	r = ss_skb_process(skb, off, trail, actor, req, &req->chunk_cnt,
 			   &parsed);
@@ -3422,7 +3417,7 @@ next_msg:
 		 * number of frames; only stream's state can indicate the
 		 * moment when request is completed.
 		 */
-		if (h2_mode && tfw_h2_stream_req_complete(stream)) {
+		if (TFW_MSG_H2(req) && tfw_h2_stream_req_complete(stream)) {
 			r = TFW_PASS;
 			break;
 		}
@@ -3434,7 +3429,7 @@ next_msg:
 		 */
 		return TFW_PASS;
 	case TFW_PASS:
-		WARN_ON_ONCE(h2_mode);
+		WARN_ON_ONCE(TFW_MSG_H2(req));
 		/*
 		 * The request is fully parsed,
 		 * fall through and process it.
@@ -3458,7 +3453,7 @@ next_msg:
 	 * @skb is replaced with pointer to a new SKB.
 	 */
 	if (parsed < skb->len) {
-		WARN_ON_ONCE(h2_mode);
+		WARN_ON_ONCE(TFW_MSG_H2(req));
 		skb = ss_skb_split(skb, parsed);
 		if (unlikely(!skb)) {
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
@@ -3568,7 +3563,7 @@ next_msg:
 	 * yet, it must be deleted during corresponding stream
 	 * removal.
 	 */
-	if (h2_mode)
+	if (TFW_MSG_H2(req))
 		__set_bit(TFW_HTTP_B_REQ_COMPLETE, req->flags);
 	else
 		hmsib = tfw_h1_req_process(stream, skb);
@@ -3577,7 +3572,7 @@ next_msg:
 	 * Response is already prepared for the client by sticky module.
 	 */
 	if (unlikely(req->resp)) {
-		if (h2_mode)
+		if (TFW_MSG_H2(req))
 			tfw_h2_resp_fwd(req->resp);
 		else
 			tfw_http_resp_fwd(req->resp);
@@ -3618,7 +3613,7 @@ next_msg:
 		 * No sibling messages should appear in processing
 		 * of HTTP/2 protocol.
 		 */
-		WARN_ON_ONCE(h2_mode);
+		WARN_ON_ONCE(TFW_MSG_H2(hmsib));
 		/*
 		 * Switch connection to the new sibling message.
 		 * Data processing will continue with the new SKB.
@@ -3646,7 +3641,7 @@ tfw_http_resp_cache_cb(TfwHttpMsg *msg)
 
 	TFW_DBG2("%s: req = %p, resp = %p\n", __func__, resp->req, resp);
 
-	if (TFW_CONN_H2(resp->req->conn))
+	if (TFW_MSG_H2(resp->req))
 		tfw_h2_resp_adjust_fwd(resp);
 	else
 		tfw_h1_resp_adjust_fwd(resp);
