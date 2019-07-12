@@ -1987,12 +1987,6 @@ tfw_cfgop_tls_fallback(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_cfgop_in_tls_fallback(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	return tfw_cfgop_tls_fallback(tfw_vhost_entry, cs, ce);
-}
-
-static int
 tfw_cfgop_out_tls_fallback(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	return tfw_cfgop_tls_fallback(tfw_vhosts_reconfig->vhost_dflt, cs, ce);
@@ -2469,12 +2463,6 @@ static TfwCfgSpec tfw_vhost_internal_specs[] = {
 		.handler = tfw_cfgop_in_tls_certificate_key,
 		.allow_none = true,
 		.allow_repeat = true,
-		.allow_reconfig = true,
-	},
-	{
-		.name = "tls_fallback_default",
-		.deflt = "off",
-		.handler = tfw_cfgop_in_tls_fallback,
 		.allow_reconfig = true,
 	},
 	{
