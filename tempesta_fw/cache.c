@@ -638,9 +638,9 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 
 	if (TFW_MSG_H2(req)) {
 		/*
-		 * TODO: add separate flow for HTTP/2 response preparing
-		 * and sending (HPACK index, encode in HTTP/2 format, add
-		 * frame headers and send via @tfw_h2_resp_fwd()).
+		 * TODO #309: add separate flow for HTTP/2 response preparing
+		 * and sending (HPACK index, encode in HTTP/2 format, add frame
+		 * headers and send via @tfw_h2_resp_fwd()).
 		 */
 		return;
 	}

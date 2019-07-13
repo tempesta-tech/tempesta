@@ -603,8 +603,8 @@ static void
 tfw_h2_send_resp(TfwHttpReq *req, resp_code_t code)
 {
 	/*
-	 * TODO: add separate flow for HTTP/2 response preparing and
-	 * sending (HPACK index, encode in HTTP/2 format, add frame
+	 * TODO #309: add separate flow for HTTP/2 response preparing
+	 * and sending (HPACK index, encode in HTTP/2 format, add frame
 	 * headers and send via @tfw_h2_resp_fwd()).
 	 */
 }
@@ -2696,9 +2696,9 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 		return;
 	}
 	/*
-	 * TODO: transforming response into HTTP/2 format and sending (HPACK
-	 * index, replace headers/names with indexes in HTTP/2 format, add
-	 * lengths in HTTP/2 format for not replaced headers/values, apply
+	 * TODO #309: transforming response into HTTP/2 format and sending
+	 * (HPACK index, replace headers/names with indexes in HTTP/2 format,
+	 * add lengths in HTTP/2 format for not replaced headers/values, apply
 	 * @tfw_http_adjust_resp() optimized for HTTP/2 HPACK, insert frame
 	 * headers for HEADERS and DATA frames and send via @tfw_h2_resp_fwd()).
 	 */
