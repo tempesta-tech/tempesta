@@ -226,9 +226,9 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 
 	if (TFW_MSG_H2(req)) {
 		/*
-		 * TODO: add separate flow for HTTP/2 response preparing
-		 * and sending (HPACK index, encode in HTTP/2 format, add
-		 * frame headers and send via @tfw_h2_resp_fwd()).
+		 * TODO #309: add separate flow for HTTP/2 response preparing
+		 * and sending (HPACK index, encode in HTTP/2 format, add frame
+		 * headers and send via @tfw_h2_resp_fwd()).
 		 */
 		return TFW_HTTP_SESS_REDIRECT_NEED;
 	}
