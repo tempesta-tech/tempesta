@@ -1312,7 +1312,7 @@ static FrangGfsmHook frang_gfsm_hooks[] = {
 		.prio		= -1,
 		.hook_state	= TFW_HTTP_FSM_RESP_MSG_FWD,
 		.fsm_id		= TFW_FSM_FRANG_RESP,
-		.st0		= TFW_FRANG_RESP_FSM_INIT,
+		.st0		= TFW_FRANG_RESP_FSM_FWD,
 		.name		= "response_fwd",
 	},
 };
