@@ -1050,6 +1050,8 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 
 	/* All limits are verified for current request. */
 	T_FSM_STATE(Frang_Req_Done) {
+		frang_dbg("checks done for client %s\n",
+			  &FRANG_ACC2CLI(ra)->addr);
 		tfw_gfsm_move(&conn->state, TFW_FRANG_REQ_FSM_DONE, data);
 		T_FSM_EXIT();
 	}
