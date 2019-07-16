@@ -168,16 +168,7 @@ ttls_parse_signature_algorithms_ext(TlsCtx *tls, const unsigned char *buf,
 			continue;
 		}
 
-		if (!ttls_check_sig_hash(tls, md_cur)) {
-			ttls_sig_hash_set_add(&tls->hs->hash_algs, sig_cur,
-					      md_cur);
-			T_DBG("ClientHello: signature_algorithm ext:"
-			      " match sig %d and hash %d",
-			      sig_cur, md_cur);
-		} else {
-			T_DBG("ClientHello: signature_algorithm ext: "
-			      "hash alg %d not supported", md_cur);
-		}
+		ttls_sig_hash_set_add(&tls->hs->hash_algs, sig_cur, md_cur);
 	}
 
 	return 0;
@@ -1079,8 +1070,14 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 			return -TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
 	}
+	/*
+	 * Server TLS configuration is found, match it with client capabilities.
+	 */
 
-	ttls_set_default_sig_hash(tls);
+	/* Search for a matching signature hash functions. */
+	r = ttls_match_sig_hashes(tls);
+	if (r)
+		return r;
 
 	/*
 	 * Search for a matching ciphersuite. At the end because we need

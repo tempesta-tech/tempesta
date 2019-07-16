@@ -1824,22 +1824,10 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 	return 0;
 }
 
-/**
- * Allow exactly one hash algorithm for each signature.
- */
-void
-ttls_sig_hash_set_const_hash(ttls_sig_hash_set_t *set, ttls_md_type_t md_alg)
-{
-	set->rsa = md_alg;
-	set->ecdsa = md_alg;
-}
-
 static void
 ttls_handshake_params_init(TlsHandshake *hs)
 {
 	bzero_fast(hs, sizeof(*hs));
-
-	ttls_sig_hash_set_const_hash(&hs->hash_algs, TTLS_MD_NONE);
 
 	hs->sni_authmode = TTLS_VERIFY_UNSET;
 }
@@ -2543,15 +2531,19 @@ ttls_pk_alg_from_sig(unsigned char sig)
 	}
 }
 
-/* Find an entry in a signature-hash set matching a given hash algorithm. */
+/*
+ * Find an entry in a signature-hash set matching a given hash algorithm.
+ * Most secure are preferred.
+ */
 ttls_md_type_t
 ttls_sig_hash_set_find(ttls_sig_hash_set_t *set, ttls_pk_type_t sig_alg)
 {
+	/* fls(0x1) == fls(0x0) = TTLS_MD_NONE. */
 	switch (sig_alg) {
 	case TTLS_PK_RSA:
-		return set->rsa;
+		return fls(set->rsa);
 	case TTLS_PK_ECDSA:
-		return set->ecdsa;
+		return fls(set->ecdsa);
 	default:
 		return TTLS_MD_NONE;
 	}
@@ -2566,12 +2558,40 @@ ttls_sig_hash_set_add(ttls_sig_hash_set_t *set, ttls_pk_type_t sig_alg,
 {
 	switch (sig_alg) {
 	case TTLS_PK_RSA:
-		if (set->rsa == TTLS_MD_NONE)
-			set->rsa = md_alg;
+		set->rsa |= 1 << md_alg;
 		break;
 	case TTLS_PK_ECDSA:
-		if (set->ecdsa == TTLS_MD_NONE)
-			set->ecdsa = md_alg;
+		set->ecdsa |= 1 << md_alg;
+		break;
+	default:
+		return;
+	}
+}
+
+bool
+ttls_sig_hash_set_has(ttls_sig_hash_set_t *set, ttls_pk_type_t sig_alg,
+		      ttls_md_type_t md_alg)
+{
+	switch (sig_alg) {
+	case TTLS_PK_RSA:
+		return set->rsa && (1 << md_alg);
+	case TTLS_PK_ECDSA:
+		return set->ecdsa && (1 << md_alg);
+	default:
+		return false;
+	}
+}
+
+void
+ttls_sig_hash_set_const(ttls_sig_hash_set_t *set, ttls_pk_type_t sig_alg,
+		      ttls_md_type_t md_alg)
+{
+	switch (sig_alg) {
+	case TTLS_PK_RSA:
+		set->rsa = 1 << md_alg;
+		break;
+	case TTLS_PK_ECDSA:
+		set->ecdsa = 1 << md_alg;
 		break;
 	default:
 		return;
@@ -2657,23 +2677,82 @@ ttls_check_sig_hash(const TlsCtx *tls, ttls_md_type_t md)
 	return -1;
 }
 
-/*
- * If there is no signature-algorithm extension present in ClientHello,
- * we need to fall back to the default values for allowed  signature-hash pairs.
- */
-void
-ttls_set_default_sig_hash(TlsCtx *tls)
+int
+ttls_match_sig_hashes(const TlsCtx *tls)
 {
-	ttls_sig_hash_set_t *ha = &tls->hs->hash_algs;
+	ttls_sig_hash_set_t *set = &tls->hs->hash_algs;
+	bool dflt_available = false, has_rsa = false, has_ecdsa = false;
+	const int *cur;
 
-	if (ha->rsa == TTLS_MD_NONE && ha->ecdsa == TTLS_MD_NONE) {
+	if (WARN_ON_ONCE(!tls->peer_conf))
+		goto err;
+	if (unlikely(!tls->peer_conf->sig_hashes))
+		goto err;
+
+	/*
+	 * Normally peers advertise supported functions, hashes supported by
+	 * us is stored in order of preference in @tls->peer_conf.
+	 * Grab the first matched and avoid spinning in the list.
+	 */
+	for (cur = tls->peer_conf->sig_hashes; *cur != TTLS_MD_NONE; cur++) {
+		if (!has_rsa
+		    && ttls_sig_hash_set_has(set, TTLS_PK_RSA, *cur))
+		{
+			has_rsa = true;
+			ttls_sig_hash_set_const(set, TTLS_PK_RSA, *cur);
+			T_DBG("ClientHello: signature_algorithm ext:"
+			      " choose hash %d for sig RSA",
+			      *cur);
+		}
+		if (!has_ecdsa
+		    && ttls_sig_hash_set_has(set, TTLS_PK_ECDSA, *cur))
+		{
+			has_ecdsa = true;
+			ttls_sig_hash_set_const(set, TTLS_PK_ECDSA, *cur);
+			T_DBG("ClientHello: signature_algorithm ext:"
+			      " choose hash %d for sig ECDSA",
+			      *cur);
+		}
+
+		if (likely(has_rsa && has_ecdsa))
+			return 0;
+
 		/*
-		 * Try to fall back to default hash SHA256 if the client
-		 * hasn't provided any preferred signature-hash combinations.
+		 * SHA256 is fallback default function, used if none was
+		 * advertised by remote peer.
 		 */
-		if (!ttls_check_sig_hash(tls, TTLS_MD_SHA256))
-			ttls_sig_hash_set_const_hash(ha, TTLS_MD_SHA256);
+		if (*cur == TTLS_MD_SHA256)
+			dflt_available = true;
 	}
+
+	/*
+	 * No match between our list and remote peer list. If remote peer didn't
+	 * advertised anything, peek default values.
+	 */
+	if (!dflt_available)
+		goto err;
+	if (!has_rsa) {
+		if (ttls_sig_hash_set_find(set, TTLS_PK_RSA) != TTLS_MD_NONE)
+			goto err;
+		T_DBG("ClientHello: signature_algorithm ext:"
+		      "No hash for RSA signature algorithm advertised by "
+		      "client, fallback to SHA256\n");
+		ttls_sig_hash_set_const(set, TTLS_PK_RSA, TTLS_MD_SHA256);
+	}
+	if (!has_ecdsa) {
+		if (ttls_sig_hash_set_find(set, TTLS_PK_ECDSA) != TTLS_MD_NONE)
+			goto err;
+		T_DBG("ClientHello: signature_algorithm ext:"
+		      "No hash for ECDSA signature algorithm advertised by "
+		      "client, by peer, fallback to SHA256\n");
+		ttls_sig_hash_set_const(set, TTLS_PK_ECDSA, TTLS_MD_SHA256);
+	}
+
+	return 0;
+err:
+	T_DBG("ClientHello: signature_algorithm ext: client and server "
+	      "hash function capabilities has no match");
+	return -1;
 }
 
 int

@@ -87,16 +87,25 @@
 
 /*
  * Abstraction for a grid of allowed signature-hash-algorithm pairs.
+ *
+ * @rsa			- bitmap to store values from ttls_md_type_t;
+ * @ecdsa		- bitmap to store values from ttls_md_type_t;
+ *
+ * When signature_algorithm extension in ClientHello is parsed, target server
+ * is not known, and the grit contain all (known) client capabilities.
+ * After target server is determined, the most preferred hash function is
+ * stored in the grid while others are dropped.
+ *
+ * At the moment, we only need to remember and use a single suitable
+ * hash algorithm per signature algorithm. As long as that's
+ * the case - and we don't need a general lookup function -
+ * we can implement the sig-hash-set as a map from signatures
+ * to hash algorithms
  */
 struct ttls_sig_hash_set_t
 {
-	/* At the moment, we only need to remember a single suitable
-	 * hash algorithm per signature algorithm. As long as that's
-	 * the case - and we don't need a general lookup function -
-	 * we can implement the sig-hash-set as a map from signatures
-	 * to hash algorithms. */
-	ttls_md_type_t rsa;
-	ttls_md_type_t ecdsa;
+	unsigned int rsa;
+	unsigned int ecdsa;
 };
 
 /*
@@ -192,7 +201,6 @@ ttls_md_type_t ttls_sig_hash_set_find(ttls_sig_hash_set_t *set,
 void ttls_sig_hash_set_add(ttls_sig_hash_set_t *set,
 			   ttls_pk_type_t sig_alg,
 			   ttls_md_type_t md_alg);
-void ttls_set_default_sig_hash(TlsCtx *tls);
 
 int ttls_handshake_client_step(ttls_context *tls, unsigned char *buf,
 			       size_t len, size_t hh_len, unsigned int *read);
@@ -231,6 +239,7 @@ int ttls_set_calc_verify_md(ttls_context *tls, int md);
 int ttls_check_curve(const ttls_context *tls, ttls_ecp_group_id grp_id);
 
 int ttls_check_sig_hash(const ttls_context *tls, ttls_md_type_t md);
+int ttls_match_sig_hashes(const TlsCtx *tls);
 void ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len);
 
 /**
