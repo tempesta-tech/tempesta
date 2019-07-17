@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2018-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -26,6 +26,5 @@ typedef struct tfw_http_msg_t	TfwHttpMsg;
 typedef struct tfw_http_req_t	TfwHttpReq;
 typedef struct tfw_http_resp_t	TfwHttpResp;
 typedef struct tfw_vhost_t	TfwVhost;
-
 
 #endif /* __TFW_HTTP_TYPES_H__ */
