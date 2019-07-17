@@ -26,13 +26,12 @@
 #include "procfs.h"
 #include "http_frame.h"
 #include "tls.h"
+#include "vhost.h"
 
 static struct {
 	ttls_config	cfg;
-	ttls_x509_crt	crt;
-	ttls_pk_context	key;
-	unsigned long	crt_pg_addr;
-	unsigned int	crt_pg_order;
+	bool		allow_unknown_sni;
+	bool		fallback_to_dflt_sni;
 } tfw_tls;
 
 /**
@@ -546,6 +545,10 @@ tfw_tls_conn_dtor(void *c)
 	}
 
 	tfw_h2_context_clear(h2);
+	if (tls && tls->peer_conf) {
+		tfw_vhost_put(tfw_vhost_from_tls_conf(tls->peer_conf));
+		tls->peer_conf = NULL;
+	}
 	ttls_ctx_clear(tls);
 	tfw_cli_conn_release((TfwCliConn *)c);
 }
@@ -556,6 +559,8 @@ tfw_tls_conn_init(TfwConn *c)
 	int r;
 	TlsCtx *tls = tfw_tls_context(c);
 	TfwH2Ctx *h2 = tfw_h2_context(c);
+
+	T_DBG2("%s: conn=[%p]\n", __func__, c);
 
 	if ((r = ttls_ctx_init(tls, &tfw_tls.cfg))) {
 		TFW_ERR("TLS (%pK) setup failed (%x)\n", tls, -r);
@@ -655,6 +660,74 @@ static TfwConnHooks tls_conn_hooks = {
 	.conn_send	= tfw_tls_conn_send,
 };
 
+static bool
+tfw_tls_get_if_configured(TlsCtx *ctx, TfwVhost *vhost)
+{
+	TlsPeerCfg *cfg;
+
+	if (unlikely(!vhost))
+		return false;
+
+	cfg = &vhost->tls_cfg;
+	if (likely(cfg->key_cert)) {
+		ctx->peer_conf = cfg;
+		return true;
+	}
+
+	if (!READ_ONCE(tfw_tls.fallback_to_dflt_sni) || !vhost->vhost_dflt) {
+		tfw_vhost_put(vhost);
+		return false;
+	}
+
+	cfg = &vhost->vhost_dflt->tls_cfg;
+	if (!cfg->key_cert) {
+		tfw_vhost_put(vhost);
+		return false;
+	}
+
+	tfw_vhost_get(vhost->vhost_dflt);
+	ctx->peer_conf = cfg;
+	tfw_vhost_put(vhost);
+
+	return true;
+}
+
+/**
+ * Find matching vhost according to server name in SNI extension. The function
+ * is also called if there is no SNI extension and fallback to some default
+ * configuration is required. In the last case @data is NULL and @len is 0.
+ */
+static int
+tfw_tls_sni(void *p_sni, TlsCtx *ctx, const unsigned char *data, size_t len)
+{
+	const TfwStr srv_name = {.data = (unsigned char *)data, .len = len};
+	TfwVhost *vhost = NULL;
+	bool found;
+
+	T_DBG2("%s: server name '%.*s'\n",  __func__, (int)len, data);
+
+	if (WARN_ON_ONCE(ctx->peer_conf))
+		return -TTLS_ERR_BAD_HS_CLIENT_HELLO;
+
+	if (data && len)
+		 vhost = tfw_vhost_lookup(&srv_name);
+	if (READ_ONCE(tfw_tls.allow_unknown_sni) && !vhost)
+		vhost = tfw_vhost_lookup_default();
+
+	if (unlikely(!vhost))
+		return -TTLS_ERR_CERTIFICATE_REQUIRED;
+
+	found = tfw_tls_get_if_configured(ctx, vhost);
+	if (DBG_TLS && found) {
+		vhost = tfw_vhost_from_tls_conf(ctx->peer_conf);
+		T_DBG2("%s: for server name '%.*s' vhost '%.*s' is chosen\n",
+		       __func__, PR_TFW_STR(&srv_name),
+		       PR_TFW_STR(&vhost->name));
+	}
+
+	return found ? 0 : -TTLS_ERR_CERTIFICATE_REQUIRED;
+}
+
 /*
  * ------------------------------------------------------------------------
  *	TLS library configuration
@@ -672,11 +745,7 @@ tfw_tls_do_init(void)
 		TFW_ERR_NL("TLS: can't set config defaults (%x)\n", -r);
 		return -EINVAL;
 	}
-
-	/*
-	 * TODO #715 set SNI callback with ttls_conf_sni() to get per-vhost
-	 * certificates.
-	 */
+	ttls_conf_sni(&tfw_tls.cfg, tfw_tls_sni, NULL);
 
 	return 0;
 }
@@ -684,8 +753,6 @@ tfw_tls_do_init(void)
 static void
 tfw_tls_do_cleanup(void)
 {
-	ttls_x509_crt_free(&tfw_tls.crt);
-	ttls_pk_free(&tfw_tls.key);
 	ttls_config_free(&tfw_tls.cfg);
 }
 
@@ -697,9 +764,6 @@ tfw_tls_do_cleanup(void)
 /* TLS configuration state. */
 #define TFW_TLS_CFG_F_DISABLED	0U
 #define TFW_TLS_CFG_F_REQUIRED	1U
-#define TFW_TLS_CFG_F_CERT	2U
-#define TFW_TLS_CFG_F_CKEY	4U
-#define TFW_TLS_CFG_M_ALL	(TFW_TLS_CFG_F_CERT | TFW_TLS_CFG_F_CKEY)
 
 static unsigned int tfw_tls_cgf = TFW_TLS_CFG_F_DISABLED;
 
@@ -707,6 +771,13 @@ void
 tfw_tls_cfg_require(void)
 {
 	tfw_tls_cgf |= TFW_TLS_CFG_F_REQUIRED;
+}
+
+void
+tfw_tls_cfg_allow_fallback(bool allow_any_sni, bool fbk_dflt_vhost)
+{
+	WRITE_ONCE(tfw_tls.allow_unknown_sni, allow_any_sni);
+	WRITE_ONCE(tfw_tls.fallback_to_dflt_sni, fbk_dflt_vhost);
 }
 
 int
@@ -796,128 +867,6 @@ tfw_tls_free_alpn_protos(void)
 }
 
 static int
-tfw_tls_start(void)
-{
-	int r;
-
-	if (tfw_runstate_is_reconfig())
-		return 0;
-
-	ttls_conf_ca_chain(&tfw_tls.cfg, tfw_tls.crt.next, NULL);
-	r = ttls_conf_own_cert(&tfw_tls.cfg, &tfw_tls.crt, &tfw_tls.key);
-	if (r) {
-		TFW_ERR_NL("TLS: can't set own certificate (%x)\n", -r);
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
-/**
- * Handle 'tls_certificate <path>' config entry.
- */
-static int
-tfw_cfgop_tls_certificate(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int r;
-	void *crt_data;
-	size_t crt_size;
-
-	ttls_x509_crt_init(&tfw_tls.crt);
-
-	if (ce->attr_n) {
-		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
-			   cs->name);
-		return -EINVAL;
-	}
-	if (ce->val_n != 1) {
-		TFW_ERR_NL("%s: Invalid number of arguments: %d\n",
-			   cs->name, (int)ce->val_n);
-		return -EINVAL;
-	}
-
-	crt_data = tfw_cfg_read_file((const char *)ce->vals[0], &crt_size);
-	if (!crt_data) {
-		TFW_ERR_NL("%s: Can't read certificate file '%s'\n",
-			   ce->name, (const char *)ce->vals[0]);
-		return -EINVAL;
-	}
-
-	r = ttls_x509_crt_parse(&tfw_tls.crt, (unsigned char *)crt_data,
-				crt_size);
-	if (r) {
-		TFW_ERR_NL("%s: Invalid certificate specified (%x)\n",
-			   cs->name, -r);
-		free_pages((unsigned long)crt_data, get_order(crt_size));
-		return -EINVAL;
-	}
-	tfw_tls.crt_pg_addr = (unsigned long)crt_data;
-	tfw_tls.crt_pg_order = get_order(crt_size);
-	tfw_tls_cgf |= TFW_TLS_CFG_F_CERT;
-
-	return 0;
-}
-
-static void
-tfw_cfgop_cleanup_tls_certificate(TfwCfgSpec *cs)
-{
-	ttls_x509_crt_free(&tfw_tls.crt);
-	free_pages(tfw_tls.crt_pg_addr, tfw_tls.crt_pg_order);
-	tfw_tls_cgf &= ~TFW_TLS_CFG_F_CERT;
-}
-
-/**
- * Handle 'tls_certificate_key <path>' config entry.
- */
-static int
-tfw_cfgop_tls_certificate_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int r;
-	void *key_data;
-	size_t key_size;
-
-	ttls_pk_init(&tfw_tls.key);
-
-	if (ce->attr_n) {
-		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
-			   cs->name);
-		return -EINVAL;
-	}
-	if (ce->val_n != 1) {
-		TFW_ERR_NL("%s: Invalid number of arguments: %d\n",
-			   cs->name, (int)ce->val_n);
-		return -EINVAL;
-	}
-
-	key_data = tfw_cfg_read_file((const char *)ce->vals[0], &key_size);
-	if (!key_data) {
-		TFW_ERR_NL("%s: Can't read certificate file '%s'\n",
-			   ce->name, (const char *)ce->vals[0]);
-		return -EINVAL;
-	}
-
-	r = ttls_pk_parse_key(&tfw_tls.key, (unsigned char *)key_data,
-			      key_size);
-	/* The key is copied, so free the paged data. */
-	free_pages((unsigned long)key_data, get_order(key_size));
-	if (r) {
-		TFW_ERR_NL("%s: Invalid private key specified (%x)\n",
-			   cs->name, -r);
-		return -EINVAL;
-	}
-	tfw_tls_cgf |= TFW_TLS_CFG_F_CKEY;
-
-	return 0;
-}
-
-static void
-tfw_cfgop_cleanup_tls_certificate_key(TfwCfgSpec *cs)
-{
-	ttls_pk_free(&tfw_tls.key);
-	tfw_tls_cgf &= ~TFW_TLS_CFG_F_CKEY;
-}
-
-static int
 tfw_tls_cfgend(void)
 {
 	if (!(tfw_tls_cgf & TFW_TLS_CFG_F_REQUIRED)) {
@@ -926,44 +875,17 @@ tfw_tls_cfgend(void)
 				    " configuration ignored\n");
 		return 0;
 	}
-	if (!(tfw_tls_cgf & TFW_TLS_CFG_F_CERT)) {
-		TFW_ERR_NL("TLS: please specify a certificate with"
-			   " tls_certificate configuration option\n");
-		return -EINVAL;
-	}
-	if (!(tfw_tls_cgf & TFW_TLS_CFG_F_CKEY)) {
-		TFW_ERR_NL("TLS: please specify a certificate key with"
-			   " tls_certificate_key configuration option\n");
-		return -EINVAL;
-	}
 
 	return 0;
 }
 
 static TfwCfgSpec tfw_tls_specs[] = {
-	{
-		.name = "tls_certificate",
-		.deflt = NULL,
-		.handler = tfw_cfgop_tls_certificate,
-		.allow_none = true,
-		.allow_repeat = false,
-		.cleanup = tfw_cfgop_cleanup_tls_certificate,
-	},
-	{
-		.name = "tls_certificate_key",
-		.deflt = NULL,
-		.handler = tfw_cfgop_tls_certificate_key,
-		.allow_none = true,
-		.allow_repeat = false,
-		.cleanup = tfw_cfgop_cleanup_tls_certificate_key,
-	},
 	{ 0 }
 };
 
 TfwMod tfw_tls_mod = {
 	.name	= "tls",
 	.cfgend = tfw_tls_cfgend,
-	.start	= tfw_tls_start,
 	.specs	= tfw_tls_specs,
 };
 

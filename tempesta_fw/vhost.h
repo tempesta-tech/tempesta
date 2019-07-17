@@ -24,6 +24,7 @@
 #include "addr.h"
 #include "msg.h"
 #include "server.h"
+#include "tls.h"
 
 /**
  * Non-Idempotent Request definition.
@@ -146,6 +147,7 @@ enum {
  * @refcnt	- Number of users of the virtual host object.
  * @loc_sz	- Count of elements in @loc array.
  * @flags	- flags.
+ * @tls_cfg	- TLS per-vhost configuration data used in data processing.
  */
 struct  tfw_vhost_t {
 	struct hlist_node	hlist;
@@ -157,6 +159,7 @@ struct  tfw_vhost_t {
 	atomic64_t		refcnt;
 	size_t			loc_sz;
 	unsigned long		flags;
+	TlsPeerCfg		tls_cfg;
 };
 
 #define TFW_VH_DFT_NAME		"default"
@@ -213,5 +216,11 @@ TfwGlobal *tfw_vhost_get_global(void);
 TfwHdrMods *tfw_vhost_get_hdr_mods(TfwLocation *loc, TfwVhost *vhost,
 				   int mod_type);
 struct frang_cfg_t *tfw_vhost_global_frang_cfg(void);
+
+static inline TfwVhost*
+tfw_vhost_from_tls_conf(const TlsPeerCfg *cfg)
+{
+	return  container_of(cfg, TfwVhost, tls_cfg);
+}
 
 #endif /* __TFW_VHOST_H__ */

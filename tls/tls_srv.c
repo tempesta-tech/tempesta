@@ -81,7 +81,6 @@ ttls_parse_servername_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 					TTLS_ALERT_MSG_DECODE_ERROR);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
-
 		if (tls->conf->f_sni
 		    && p[0] == TTLS_TLS_EXT_SERVERNAME_HOSTNAME)
 		{
@@ -446,14 +445,9 @@ ttls_check_key_curve(ttls_pk_context *pk, const ttls_ecp_curve_info **curves)
 static int
 ttls_pick_cert(TlsCtx *tls, const TlsCiphersuite *ci)
 {
-	ttls_key_cert *cur, *list;
+	ttls_key_cert *cur, *list = tls->peer_conf->key_cert;
 	ttls_pk_type_t pk_alg = ttls_get_ciphersuite_sig_pk_alg(ci);
 	uint32_t flags;
-
-	if (tls->hs->sni_key_cert)
-		list = tls->hs->sni_key_cert;
-	else
-		list = tls->conf->key_cert;
 
 	if (pk_alg == TTLS_PK_NONE)
 		return 0;
@@ -572,7 +566,7 @@ ttls_choose_ciphersuite(TlsCtx *tls, const unsigned char *csp)
 {
 	unsigned short ciph_len = ntohs(*(short *)csp);
 	int r, i, got_common_suite = 0;
-	const int *ciphersuites = tls->conf->ciphersuite_list[tls->minor];
+	const int *ciphersuites = tls->peer_conf->ciphersuite_list[tls->minor];
 	const TlsCiphersuite *ci = NULL;
 	const unsigned char *cs;
 
@@ -1072,6 +1066,20 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		return r;
 	/* The message data is parsed, do final checks and setups. */
 
+	/*
+	 * Server side certificates are stored per vhost, so some vhost must be
+	 * determined at this stage. If no matching vhost found, no certificates
+	 * are available and no working tls configuration, close the connection.
+	 */
+	if (!tls->peer_conf) {
+		if (tls->conf->f_sni)
+			r = tls->conf->f_sni(tls->conf->p_sni, tls, NULL, 0);
+		if (!tls->conf->f_sni || r || !tls->peer_conf) {
+			T_DBG2("No matching server certificate found.\n");
+			return -TTLS_ERR_BAD_HS_CLIENT_HELLO;
+		}
+	}
+
 	ttls_set_default_sig_hash(tls);
 
 	/*
@@ -1466,7 +1474,7 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 		 * } ServerECDHParams;
 		 */
 		const ttls_ecp_curve_info **curve = NULL;
-		const ttls_ecp_group_id *gid = tls->conf->curve_list;
+		const ttls_ecp_group_id *gid = tls->peer_conf->curve_list;
 
 		/* Match our preference list against the offered curves */
 		for ( ; *gid != TTLS_ECP_DP_NONE; gid++)
@@ -1617,7 +1625,6 @@ ttls_write_certificate_request(TlsCtx *tls, struct sg_table *sgt,
 	size_t hdr_len = TLS_HEADER_SIZE + 4;
 	unsigned char *buf = *in_buf, *p, *end;
 	const int *cur;
-	const ttls_x509_crt *crt;
 	int authmode;
 
 	if (tls->hs->sni_authmode != TTLS_VERIFY_UNSET)
@@ -1682,7 +1689,7 @@ ttls_write_certificate_request(TlsCtx *tls, struct sg_table *sgt,
 	 *  enum { (255) } SignatureAlgorithm;
 	 */
 	/* Supported signature algorithms. */
-	for (cur = tls->conf->sig_hashes; *cur != TTLS_MD_NONE; cur++) {
+	for (cur = tls->peer_conf->sig_hashes; *cur != TTLS_MD_NONE; cur++) {
 		unsigned char hash = ttls_hash_from_md_alg(*cur);
 
 		if (TTLS_HASH_NONE == hash
@@ -1708,10 +1715,7 @@ ttls_write_certificate_request(TlsCtx *tls, struct sg_table *sgt,
 	total_dn_size = 0;
 
 	if (tls->conf->cert_req_ca_list) {
-		if (tls->hs->sni_ca_chain)
-			crt = tls->hs->sni_ca_chain;
-		else
-			crt = tls->conf->ca_chain;
+		const ttls_x509_crt * crt = tls->hs->key_cert->ca_chain;
 
 		while (crt && crt->version) {
 			dn_size = crt->subject_raw.len;

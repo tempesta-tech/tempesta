@@ -26,6 +26,7 @@
 #include "str.h"
 #include "http_limits.h"
 #include "client.h"
+#include "tls_conf.h"
 
 #define TFW_VH_HBITS	10
 /**
@@ -1426,6 +1427,7 @@ tfw_vhost_destroy(TfwVhost *vhost)
 	tfw_location_del(vhost->loc_dflt);
 	tfw_vhost_put(vhost->vhost_dflt);
 	tfw_pool_destroy(vhost->hdrs_pool);
+	tfw_tls_cert_clean(vhost);
 	kfree(vhost);
 }
 
@@ -1437,7 +1439,8 @@ tfw_vhost_create(const char *name)
 	int name_sz = strlen(name) + 1;
 	int size = sizeof(TfwVhost)
 		+ name_sz
-		+ sizeof(TfwLocation) * (TFW_LOCATION_ARRAY_SZ + 1);
+		+ sizeof(TfwLocation) * (TFW_LOCATION_ARRAY_SZ + 1)
+		+ tfw_tls_vhost_priv_data_sz();
 
 	if (!(pool = __tfw_pool_new(0)))
 		return NULL;
@@ -1452,6 +1455,7 @@ tfw_vhost_create(const char *name)
 	vhost->name.len = name_sz - 1;
 	vhost->loc_dflt = (TfwLocation *)(vhost->name.data + name_sz);
 	vhost->loc = (TfwLocation *)(vhost->loc_dflt + 1);
+	vhost->tls_cfg.priv = vhost->loc + TFW_LOCATION_ARRAY_SZ;
 	memcpy(vhost->name.data, name, name_sz);
 	vhost->hdrs_pool = pool;
 	atomic64_set(&vhost->refcnt, 1);
@@ -1879,6 +1883,122 @@ tfw_cfgop_frang_out_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
+tfw_cfgop_out_tls_certificate(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_tls_set_cert(tfw_vhosts_reconfig->vhost_dflt, cs, ce);
+}
+
+static int
+tfw_cfgop_in_tls_certificate(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_tls_set_cert(tfw_vhost_entry, cs, ce);
+}
+
+static int
+tfw_cfgop_out_tls_certificate_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_tls_set_cert_key(tfw_vhosts_reconfig->vhost_dflt, cs, ce);
+}
+
+static int
+tfw_cfgop_in_tls_certificate_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_tls_set_cert_key(tfw_vhost_entry, cs, ce);
+}
+
+static int
+tfw_cfgop_tls_flk_parse_arg(const char *arg, int *dis, int *a_any, int *a_fbk)
+{
+	struct val_def {
+		const char	*name;
+		int		*val;
+	} vals[] = {
+		{"off", dis}, {"allow_any", a_any}, {"allow_fallback", a_fbk},
+		{NULL, NULL}
+	};
+	struct val_def *iter;
+
+	for (iter = &vals[0]; iter->name; iter++) {
+		if (strcasecmp(iter->name, arg))
+			continue;
+		if (*iter->val) {
+			T_ERR_NL("value '%s' can be defined only once.\n", arg);
+		}
+		*iter->val = 1;
+
+		return 0;
+	}
+
+	T_ERR_NL("Value '%s' is not known.\n", arg);
+	return -EINVAL;
+}
+
+static int
+tfw_cfgop_tls_fallback(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int disabled = 0, allow_any = 0, allow_fallback = 0;
+	int i;
+
+	if (!tfw_vhost_default(vhost)) {
+		if (tfw_cfg_is_dflt_value(ce))
+			return 0;
+
+		T_ERR_NL("Directive '%s' can be applied only to 'default' "
+			 "vhost.\n", cs->name);
+		return -EINVAL;
+	}
+
+	if (ce->val_n < 1) {
+		TFW_ERR_NL("'%s': at least one value must be specified\n",
+			   ce->name);
+		return -EINVAL;
+	}
+	else if (ce->attr_n) {
+		TFW_ERR_NL("'%s': no attributes are allowed\n", ce->name);
+		return -EINVAL;
+	}
+
+	for (i = 0; i < ce->val_n; ++i) {
+		const char *arg = ce->vals[i];
+		int r;
+
+		if (i > 2) {
+			T_ERR_NL("'%s': unexpectedly got value '%s', only 2 "
+				 "values are allowed.\n",
+				 ce->name, arg);
+			return -EINVAL;
+		}
+		r = tfw_cfgop_tls_flk_parse_arg(arg, &disabled, &allow_any,
+						&allow_fallback);
+		if (r)
+			return r;
+	}
+
+	if (disabled && (allow_any || allow_fallback)) {
+		T_ERR_NL("'%s': value 'off' can't be defined "
+			 "when 'allow_any' or 'allow_fallback' values are "
+			 "defined.\n",
+			 ce->name);
+		return -EINVAL;
+	}
+
+	tfw_tls_cfg_allow_fallback(allow_any, allow_fallback);
+	return 0;
+}
+
+static int
+tfw_cfgop_in_tls_fallback(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_cfgop_tls_fallback(tfw_vhost_entry, cs, ce);
+}
+
+static int
+tfw_cfgop_out_tls_fallback(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_cfgop_tls_fallback(tfw_vhosts_reconfig->vhost_dflt, cs, ce);
+}
+
+static int
 tfw_vhost_cfgstart(void)
 {
 	TfwVhost *vh_dflt;
@@ -1907,6 +2027,7 @@ tfw_vhost_cfgend(void)
 {
 	TfwSrvGroup *sg_def;
 	TfwVhost *vh_dflt;
+	int r;
 
 	/*
 	 * Add default vhost into list if it hadn't been added
@@ -1923,6 +2044,8 @@ tfw_vhost_cfgend(void)
 	vh_dflt = tfw_vhosts_reconfig->vhost_dflt;
 	vh_dflt->loc_dflt->main_sg = sg_def;
 	tfw_vhost_add(vh_dflt);
+	if ((r = tfw_tls_cert_cfg_finish(vh_dflt)))
+		return r;
 
 	if (tfw_global.cache_purge && !tfw_global.cache_purge_acl)
 		TFW_WARN_NL("Directives mismatching: cache_purge directive"
@@ -1975,6 +2098,8 @@ tfw_cfgop_vhost_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_cfgop_vhost_finish(TfwCfgSpec *cs)
 {
+	int r;
+
 	BUG_ON(!tfw_vhost_entry);
 	if (!tfw_vhost_entry->loc_dflt->main_sg) {
 		BUG_ON(tfw_vhost_default(tfw_vhost_entry));
@@ -1983,6 +2108,8 @@ tfw_cfgop_vhost_finish(TfwCfgSpec *cs)
 			   tfw_vhost_entry->name.data);
 		return -EINVAL;
 	}
+	if ((r = tfw_tls_cert_cfg_finish(tfw_vhost_entry)))
+		return r;
 	tfw_vhost_entry = NULL;
 	return 0;
 }
@@ -2329,6 +2456,28 @@ static TfwCfgSpec tfw_vhost_internal_specs[] = {
 		.allow_reconfig = true,
 	},
 	{
+		.name = "tls_certificate",
+		.deflt = NULL,
+		.handler = tfw_cfgop_in_tls_certificate,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "tls_certificate_key",
+		.deflt = NULL,
+		.handler = tfw_cfgop_in_tls_certificate_key,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "tls_fallback_default",
+		.deflt = "off",
+		.handler = tfw_cfgop_in_tls_fallback,
+		.allow_reconfig = true,
+	},
+	{
 		.name = "location",
 		.deflt = NULL,
 		.handler = tfw_cfg_handle_children,
@@ -2549,6 +2698,28 @@ static TfwCfgSpec tfw_vhost_specs[] = {
 		.handler = tfw_cfgop_out_resp_hdr_set,
 		.allow_none = true,
 		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "tls_certificate",
+		.deflt = NULL,
+		.handler = tfw_cfgop_out_tls_certificate,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "tls_certificate_key",
+		.deflt = NULL,
+		.handler = tfw_cfgop_out_tls_certificate_key,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "tls_fallback_default",
+		.deflt = "off",
+		.handler = tfw_cfgop_out_tls_fallback,
 		.allow_reconfig = true,
 	},
 	{

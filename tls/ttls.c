@@ -1248,19 +1248,6 @@ ttls_handshake_free(TlsHandshake *hs, const TlsCiphersuite *ci)
 	if (!hs)
 		return;
 
-	/*
-	 * Free only the linked list wrapper, not the keys themselves
-	 * since they belong to the SNI callback.
-	 */
-	if (hs->sni_key_cert) {
-		ttls_key_cert *cur = hs->sni_key_cert, *next;
-		while (cur) {
-			next = cur->next;
-			kfree(cur);
-			cur = next;
-		}
-	}
-
 	crypto_free_shash(hs->desc.tfm);
 
 	if (!IS_ERR_OR_NULL(ci)) {
@@ -1595,16 +1582,8 @@ parse:
 
 	if (authmode != TTLS_VERIFY_NONE) {
 		const ttls_pk_context *pk = &sess->peer_cert->pk;
-		ttls_x509_crt *ca_chain;
-		ttls_x509_crl *ca_crl;
-
-		if (tls->hs->sni_ca_chain) {
-			ca_chain = tls->hs->sni_ca_chain;
-			ca_crl = tls->hs->sni_ca_crl;
-		} else {
-			ca_chain = tls->conf->ca_chain;
-			ca_crl = tls->conf->ca_crl;
-		}
+		ttls_x509_crt *ca_chain = tls->hs->key_cert->ca_chain;
+		ttls_x509_crl *ca_crl = tls->hs->key_cert->ca_crl;
 
 		/* Main check: verify certificate */
 		r = ttls_x509_crt_verify_with_profile(sess->peer_cert, ca_chain,
@@ -1910,11 +1889,12 @@ int ttls_set_session(ttls_context *tls, const ttls_ssl_session *session)
 #endif /* TTLS_CLI_C */
 
 void
-ttls_conf_ciphersuites_for_version(ttls_config *conf, const int *ciphersuites,
+ttls_conf_ciphersuites_for_version(const int **ciphersuite_list,
+				   const int *ciphersuites,
 				   int minor)
 {
 	WARN_ON(minor < TTLS_MINOR_VERSION_3 || minor > TTLS_MINOR_VERSION_4);
-	conf->ciphersuite_list[minor] = ciphersuites;
+	ciphersuite_list[minor] = ciphersuites;
 }
 
 void
@@ -1929,7 +1909,8 @@ ttls_conf_cert_profile(ttls_config *conf, const ttls_x509_crt_profile *profile)
  */
 static int
 ttls_append_key_cert(ttls_key_cert **head, ttls_x509_crt *cert,
-		     ttls_pk_context *key)
+		     ttls_pk_context *key, ttls_x509_crt *ca_chain,
+		     ttls_x509_crl *ca_crl)
 {
 	ttls_key_cert *new;
 
@@ -1938,6 +1919,8 @@ ttls_append_key_cert(ttls_key_cert **head, ttls_x509_crt *cert,
 
 	new->cert = cert;
 	new->key = key;
+	new->ca_chain = ca_chain;
+	new->ca_crl = ca_crl;
 	new->next = NULL;
 
 	/* Update head is the list was null, else add to the end */
@@ -1954,36 +1937,14 @@ ttls_append_key_cert(ttls_key_cert **head, ttls_x509_crt *cert,
 }
 
 int
-ttls_conf_own_cert(ttls_config *conf, ttls_x509_crt *own_cert,
-		   ttls_pk_context *pk_key)
-{
-	return ttls_append_key_cert(&conf->key_cert, own_cert, pk_key);
-}
-EXPORT_SYMBOL(ttls_conf_own_cert);
-
-void
-ttls_conf_ca_chain(ttls_config *conf, ttls_x509_crt *ca_chain,
+ttls_conf_own_cert(TlsPeerCfg *conf, ttls_x509_crt *own_cert,
+		   ttls_pk_context *pk_key, ttls_x509_crt *ca_chain,
 		   ttls_x509_crl *ca_crl)
 {
-	conf->ca_chain = ca_chain;
-	conf->ca_crl = ca_crl;
+	return ttls_append_key_cert(&conf->key_cert, own_cert, pk_key, ca_chain,
+				    ca_crl);
 }
-EXPORT_SYMBOL(ttls_conf_ca_chain);
-
-int
-ttls_set_hs_own_cert(ttls_context *tls, ttls_x509_crt *own_cert,
-		     ttls_pk_context *pk_key)
-{
-	return ttls_append_key_cert(&tls->hs->sni_key_cert, own_cert, pk_key);
-}
-
-void
-ttls_set_hs_ca_chain(ttls_context *tls, ttls_x509_crt *ca_chain,
-		     ttls_x509_crl *ca_crl)
-{
-	tls->hs->sni_ca_chain = ca_chain;
-	tls->hs->sni_ca_crl = ca_crl;
-}
+EXPORT_SYMBOL(ttls_conf_own_cert);
 
 void
 ttls_set_hs_authmode(ttls_context *tls, int authmode)
@@ -2041,7 +2002,7 @@ void ttls_conf_dhm_min_bitlen(ttls_config *conf,
  * Set allowed/preferred hashes for hs signatures
  */
 void
-ttls_conf_sig_hashes(ttls_config *conf, const int *hashes)
+ttls_conf_sig_hashes(TlsPeerCfg *conf, const int *hashes)
 {
 	conf->sig_hashes = hashes;
 }
@@ -2050,7 +2011,7 @@ ttls_conf_sig_hashes(ttls_config *conf, const int *hashes)
  * Set the allowed elliptic curves
  */
 void
-ttls_conf_curves(ttls_config *conf, const ttls_ecp_group_id *curve_list)
+ttls_conf_curves(TlsPeerCfg *conf, const ttls_ecp_group_id *curve_list)
 {
 	conf->curve_list = curve_list;
 }
@@ -2108,6 +2069,7 @@ ttls_conf_sni(ttls_config *conf,
 	conf->f_sni = f_sni;
 	conf->p_sni = p_sni;
 }
+EXPORT_SYMBOL(ttls_conf_sni);
 
 const char *
 ttls_get_alpn_protocol(const TlsCtx *tls)
@@ -2384,7 +2346,7 @@ ttls_close_notify(TlsCtx *tls)
 }
 EXPORT_SYMBOL(ttls_close_notify);
 
-static void
+void
 ttls_key_cert_free(ttls_key_cert *key_cert)
 {
 	ttls_key_cert *cur = key_cert, *next;
@@ -2395,6 +2357,7 @@ ttls_key_cert_free(ttls_key_cert *key_cert)
 		cur = next;
 	}
 }
+EXPORT_SYMBOL(ttls_key_cert_free);
 
 void
 ttls_ctx_clear(TlsCtx *tls)
@@ -2513,24 +2476,45 @@ ttls_config_defaults(ttls_config *conf, int endpoint)
 	conf->min_minor_ver = TTLS_MINOR_VERSION_3; /* TLS 1.2 */
 	conf->max_minor_ver = TTLS_MAX_MINOR_VERSION;
 
-	ttls_conf_ciphersuites_for_version(conf, ttls_default_ciphersuites,
-					   TTLS_MINOR_VERSION_3);
-
 	conf->cert_profile = &ttls_x509_crt_profile_suiteb;
-	conf->sig_hashes = ssl_preset_suiteb_hashes;
-	conf->curve_list = ssl_preset_suiteb_curves;
 
 	return 0;
 }
 EXPORT_SYMBOL(ttls_config_defaults);
 
+int
+ttls_config_peer_defaults(TlsPeerCfg *conf, int endpoint)
+{
+	conf->endpoint = endpoint;
+	conf->cert_req_ca_list = 0;
+
+	conf->min_minor_ver = TTLS_MINOR_VERSION_3; /* TLS 1.2 */
+	conf->max_minor_ver = TTLS_MAX_MINOR_VERSION;
+
+	ttls_conf_ciphersuites_for_version(conf->ciphersuite_list,
+					   ttls_default_ciphersuites,
+					   TTLS_MINOR_VERSION_3);
+
+	conf->sig_hashes = ssl_preset_suiteb_hashes;
+	conf->curve_list = ssl_preset_suiteb_curves;
+
+	return 0;
+}
+EXPORT_SYMBOL(ttls_config_peer_defaults);
+
 void
 ttls_config_free(ttls_config *conf)
 {
-	ttls_key_cert_free(conf->key_cert);
 	bzero_fast(conf, sizeof(ttls_config));
 }
 EXPORT_SYMBOL(ttls_config_free);
+
+void
+ttls_config_peer_free(TlsPeerCfg *conf)
+{
+	bzero_fast(conf, sizeof(TlsPeerCfg));
+}
+EXPORT_SYMBOL(ttls_config_peer_free);
 
 unsigned char
 ttls_sig_from_pk_alg(ttls_pk_type_t type)
@@ -2642,11 +2626,12 @@ int
 ttls_check_curve(const ttls_context *tls, ttls_ecp_group_id grp_id)
 {
 	const ttls_ecp_group_id *gid;
+	const ttls_ecp_group_id	*curve_list = tls->peer_conf->curve_list;
 
-	if (!tls->conf->curve_list)
+	if (!curve_list)
 		return -1;
 
-	for (gid = tls->conf->curve_list; *gid != TTLS_ECP_DP_NONE; gid++)
+	for (gid = curve_list; *gid != TTLS_ECP_DP_NONE; gid++)
 		if (*gid == grp_id)
 			return 0;
 
@@ -2662,10 +2647,10 @@ ttls_check_sig_hash(const TlsCtx *tls, ttls_md_type_t md)
 {
 	const int *cur;
 
-	if (!tls->conf->sig_hashes)
+	if (!tls->peer_conf->sig_hashes)
 		return -1;
 
-	for (cur = tls->conf->sig_hashes; *cur != TTLS_MD_NONE; cur++)
+	for (cur = tls->peer_conf->sig_hashes; *cur != TTLS_MD_NONE; cur++)
 		if (*cur == (int)md)
 			return 0;
 
