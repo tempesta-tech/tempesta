@@ -31,6 +31,7 @@
 
 #include "sock_srv.c"
 #include "vhost.c"
+#include "tls_conf.c"
 #include "http_tbl.c"
 
 #include "cfg.h"

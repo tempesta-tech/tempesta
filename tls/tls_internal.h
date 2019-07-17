@@ -114,9 +114,6 @@ struct ttls_sig_hash_set_t
  * @cli_exts	- client extension presence;
  * @pmslen	- premaster length;
  * @key_cert	- chosen key/cert pair (server);
- * @sni_key_cert - key/cert list from SNI;
- * @sni_ca_chain - trusted CAs from SNI callback;
- * @sni_ca_crl	- trusted CAs CRLs from SNI;
  * @dhm_ctx	- DHM key exchange;
  * @ecdh_ctx	- ECDH key exchange;
  * @fin_sha{256,512} - checksum contexts;
@@ -141,9 +138,6 @@ typedef struct tls_handshake_t {
 
 	size_t				pmslen;
 	ttls_key_cert			*key_cert;
-	ttls_key_cert			*sni_key_cert;
-	ttls_x509_crt			*sni_ca_chain;
-	ttls_x509_crl			*sni_ca_crl;
 
 	void (*calc_verify)(ttls_context *, unsigned char *);
 	void (*calc_finished)(ttls_context *, unsigned char *, int);
@@ -176,11 +170,18 @@ typedef struct tls_handshake_t {
 
 /*
  * List of certificate + private key pairs
+ *
+ * @cert		- Server certificate;
+ * @key			- key for the certificate;
+ * @ca_chain		- trusted CA chain for the issues certificate;
+ * @ca_crl		- trusted CAs CRLs
  */
 struct ttls_key_cert
 {
 	ttls_x509_crt			*cert;
 	ttls_pk_context			*key;
+	ttls_x509_crt			*ca_chain;
+	ttls_x509_crl			*ca_crl;
 	ttls_key_cert			*next;
 };
 
@@ -253,7 +254,7 @@ ttls_own_key(ttls_context *tls)
 	if (tls->hs && tls->hs->key_cert)
 		key_cert = tls->hs->key_cert;
 	else
-		key_cert = tls->conf->key_cert;
+		key_cert = tls->peer_conf ? tls->peer_conf->key_cert : NULL;
 
 	return key_cert ? key_cert->key : NULL;
 }
@@ -266,7 +267,7 @@ ttls_own_cert(TlsCtx *tls)
 	if (tls->hs && tls->hs->key_cert)
 		key_cert = tls->hs->key_cert;
 	else
-		key_cert = tls->conf->key_cert;
+		key_cert = tls->peer_conf ? tls->peer_conf->key_cert : NULL;
 
 	return key_cert ? key_cert->cert : NULL;
 }
