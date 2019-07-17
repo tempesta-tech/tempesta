@@ -1,5 +1,5 @@
 /**
- *		Tempesta kernel library
+ *		Tempesta FW
  *
  * Copyright (C) 2019 Tempesta Technologies, INC.
  *

@@ -88,7 +88,7 @@ ttls_parse_servername_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 					     hostname_len);
 			if (!r)
 				return 0;
-			T_DBG("ClientHello: SNI error\n");
+			T_WARN("TLS: server requested by client is not known.\n");
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 					TTLS_ALERT_MSG_UNRECOGNIZED_NAME);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
@@ -1066,7 +1066,7 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		if (tls->conf->f_sni)
 			r = tls->conf->f_sni(tls->conf->p_sni, tls, NULL, 0);
 		if (!tls->conf->f_sni || r || !tls->peer_conf) {
-			T_DBG2("No matching server certificate found.\n");
+			T_WARN("TLS: server requested by client is not known.\n");
 			return -TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
 	}
