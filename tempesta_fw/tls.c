@@ -28,6 +28,17 @@
 #include "tls.h"
 #include "vhost.h"
 
+/**
+ * Global level TLS configuration.
+ *
+ * @cfg			- common tls configuration for all vhosts;
+ * @allow_unknown_sni	- if server name requested by client is not known
+ *			  (no such vhost), or client doesn't provide server
+ *			  name extension, use global-level certificates
+ *			  for the connection.
+ * @fallback_to_dflt_sni - use global-level certificates if no provided by
+ *			  vhost chosen by server name tls extension.
+ */
 static struct {
 	ttls_config	cfg;
 	bool		allow_unknown_sni;

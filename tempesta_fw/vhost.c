@@ -33,11 +33,11 @@
  * Control object for holding full set of virtual hosts specific for current
  * configuration/reconfiguration stage.
  *
- * @head	- List of configured virtual hosts.
  * @vhost_dflt	- Default virtual host with global policies (always present in
  *		  current configuration).
  * @expl_dflt	- Flag to indicate explicit configuration of default
  *		  virtual host.
+ * @vh_hash	- Hashtable with configured virtual hosts.
  */
 typedef struct {
 	TfwVhost	*vhost_dflt;
@@ -394,9 +394,11 @@ __tfw_vhost_lookup(TfwVhostList *vh_list, const TfwStr *name,
 	return NULL;
 }
 
-/*
- * Get vhost matching the specified name. Vhost's reference counter
- * is incremented in case of successful search.
+/**
+ * Find vhost named @name in the _currently parsed and not yet applied_
+ * configuration. The operation is safe to use in process context.
+ * If vhost is found, an additional reference is taken. Caller is responsible to
+ * release the reference after use.
  */
 TfwVhost *
 tfw_vhost_lookup_reconfig(const char *name)
@@ -406,6 +408,12 @@ tfw_vhost_lookup_reconfig(const char *name)
 				  tfw_vhost_name_match);
 }
 
+/**
+ * Find vhost in the _running_ configuration, matching name @name. The operation
+ * involves fast avx2 operations and can be done only in softirq context.
+ * If vhost is found, an additional reference is taken. Caller is responsible to
+ * release the reference after use.
+ */
 TfwVhost *
 tfw_vhost_lookup(const TfwStr *name)
 {
