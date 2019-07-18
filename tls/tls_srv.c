@@ -57,7 +57,7 @@ ttls_parse_servername_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 	}
 
 	servername_list_size = ((buf[0] << 8) | (buf[1]));
-	if (servername_list_size + 2 != len) {
+	if (unlikely(servername_list_size + 2 != len)) {
 		T_DBG("ClientHello: bad SNI list size\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				TTLS_ALERT_MSG_DECODE_ERROR);
@@ -69,8 +69,8 @@ ttls_parse_servername_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 		hostname_len = ((p[1] << 8) | p[2]);
 		if (hostname_len + 3 > servername_list_size) {
 			T_DBG("ClientHello: bad hostname size"
-			      " (%lu, expected not more %lu)\n",
-			      hostname_len, servername_list_size + 3);
+			      " (%lu, expected not more than (%lu - 3))\n",
+			      hostname_len, servername_list_size);
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 					TTLS_ALERT_MSG_DECODE_ERROR);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
@@ -130,7 +130,7 @@ ttls_parse_signature_algorithms_ext(TlsCtx *tls, const unsigned char *buf,
 	}
 
 	sig_alg_list_size = (buf[0] << 8) | buf[1];
-	if (sig_alg_list_size + 2 != len || sig_alg_list_size % 2) {
+	if (unlikely(sig_alg_list_size + 2 != len || sig_alg_list_size % 2)) {
 		T_DBG("ClientHello: bad signature algorithm extension\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				TTLS_ALERT_MSG_DECODE_ERROR);
@@ -193,7 +193,7 @@ ttls_parse_supported_elliptic_curves(TlsCtx *tls, const unsigned char *buf,
 	}
 
 	list_size = (buf[0] << 8) | buf[1];
-	if (list_size + 2 != len || list_size % 2) {
+	if (unlikely(list_size + 2 != len || list_size % 2)) {
 		T_DBG("ClientHello: bad elliptic curves extension\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				TTLS_ALERT_MSG_DECODE_ERROR);
@@ -231,19 +231,18 @@ static int
 ttls_parse_supported_point_formats(TlsCtx *tls, const unsigned char *buf,
 				   size_t len)
 {
-	size_t list_size = buf[0];
-	const unsigned char *p = buf + 1;
+	size_t list_size;
+	const unsigned char *p;
 
-	tls->hs->cli_exts = 1;
-
-	if (list_size + 1 != len) {
+	if (unlikely(!len || buf[0] + 1 != len)) {
 		T_DBG("ClientHello: bad supported point formats extension\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				TTLS_ALERT_MSG_DECODE_ERROR);
 		return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 	}
 
-	while (list_size > 0) {
+	tls->hs->cli_exts = 1;
+	for (list_size = buf[0], p = buf + 1; list_size > 0; --list_size, ++p) {
 		if (p[0] == TTLS_ECP_PF_UNCOMPRESSED
 		    || p[0] == TTLS_ECP_PF_COMPRESSED)
 		{
@@ -251,8 +250,6 @@ ttls_parse_supported_point_formats(TlsCtx *tls, const unsigned char *buf,
 			T_DBG("ClientHello: point format selected: %d\n", p[0]);
 			return 0;
 		}
-		list_size--;
-		p++;
 	}
 
 	return 0;
@@ -352,7 +349,7 @@ ttls_parse_alpn_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 	}
 
 	list_len = (buf[0] << 8) | buf[1];
-	if (list_len != len - 2) {
+	if (unlikely(list_len != len - 2)) {
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				TTLS_ALERT_MSG_DECODE_ERROR);
 		return TTLS_ERR_BAD_HS_CLIENT_HELLO;
