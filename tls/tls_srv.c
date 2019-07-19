@@ -1535,7 +1535,7 @@ curve_matching_done:
 
 		T_DBG3_BUF("my signature", p, signature_len);
 		n += signature_len;
-		WARN_ON_ONCE(signature_len > 500);
+		WARN_ON_ONCE(signature_len > 512);
 	}
 
 	/* Done with actual work; add handshake header and add the record. */
