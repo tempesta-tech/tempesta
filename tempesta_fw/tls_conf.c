@@ -50,7 +50,7 @@ size_t tfw_tls_vhost_priv_data_sz(void)
 static int
 tfw_tls_peer_tls_init(TfwVhost *vhost)
 {
-	TlsConfEntry *conf = (TlsConfEntry *)vhost->tls_cfg.priv;
+	TlsConfEntry *conf = vhost->tls_cfg.priv;
 	int r;
 
 	if (conf->init_done)
@@ -66,7 +66,7 @@ tfw_tls_peer_tls_init(TfwVhost *vhost)
 static inline TlsCertConf *
 tfw_tls_get_cert_conf(TfwVhost *vhost, unsigned int directive)
 {
-	TlsConfEntry *conf = (TlsConfEntry *)vhost->tls_cfg.priv;
+	TlsConfEntry *conf = vhost->tls_cfg.priv;
 	TlsCertConf *curr_cert_conf;
 
 	if (conf->certs_num >= TLS_CONF_CERT_NUM) {
@@ -146,7 +146,7 @@ tfw_tls_set_cert(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 int
 tfw_tls_cert_cfg_finish_cert(TfwVhost *vhost)
 {
-	TlsConfEntry *conf_entry = (TlsConfEntry *)vhost->tls_cfg.priv;
+	TlsConfEntry *conf_entry = vhost->tls_cfg.priv;
 	TlsCertConf *conf = &conf_entry->certs[conf_entry->certs_num];
 	int r;
 
@@ -205,7 +205,7 @@ tfw_tls_set_cert_key(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 int
 tfw_tls_cert_cfg_finish(TfwVhost *vhost)
 {
-	TlsConfEntry *conf = (TlsConfEntry *)vhost->tls_cfg.priv;
+	TlsConfEntry *conf = vhost->tls_cfg.priv;
 	TlsCertConf *curr_cert_conf;
 
 	BUG_ON(!vhost->tls_cfg.priv);
@@ -214,7 +214,7 @@ tfw_tls_cert_cfg_finish(TfwVhost *vhost)
 	curr_cert_conf = &conf->certs[conf->certs_num];
 	if (curr_cert_conf->conf_stage) {
 		TFW_ERR_NL("TLS: certificate configuration is not done, "
-			   "directive 'tls_certificate_key'is missing. \n");
+			   "directive 'tls_certificate_key' is missing. \n");
 		return -EINVAL;
 	}
 
@@ -241,7 +241,7 @@ tfw_tls_cleanup_tls_ckey(TlsCertConf *conf)
 void
 tfw_tls_cert_clean(TfwVhost *vhost)
 {
-	TlsConfEntry *conf = (TlsConfEntry *)vhost->tls_cfg.priv;
+	TlsConfEntry *conf = vhost->tls_cfg.priv;
 	int i;
 
 	ttls_key_cert_free(vhost->tls_cfg.key_cert);
