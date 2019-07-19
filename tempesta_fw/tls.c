@@ -706,7 +706,7 @@ tfw_tls_get_if_configured(TlsCtx *ctx, TfwVhost *vhost)
 /**
  * Find matching vhost according to server name in SNI extension. The function
  * is also called if there is no SNI extension and fallback to some default
- * configuration is required. In the last case @data is NULL and @len is 0.
+ * configuration is required. In the latter case @data is NULL and @len is 0.
  */
 static int
 tfw_tls_sni(void *p_sni, TlsCtx *ctx, const unsigned char *data, size_t len)
@@ -721,7 +721,7 @@ tfw_tls_sni(void *p_sni, TlsCtx *ctx, const unsigned char *data, size_t len)
 		return -TTLS_ERR_BAD_HS_CLIENT_HELLO;
 
 	if (data && len)
-		 vhost = tfw_vhost_lookup(&srv_name);
+		vhost = tfw_vhost_lookup(&srv_name);
 	if (READ_ONCE(tfw_tls.allow_unknown_sni) && !vhost)
 		vhost = tfw_vhost_lookup_default();
 
@@ -731,9 +731,9 @@ tfw_tls_sni(void *p_sni, TlsCtx *ctx, const unsigned char *data, size_t len)
 	found = tfw_tls_get_if_configured(ctx, vhost);
 	if (DBG_TLS && found) {
 		vhost = tfw_vhost_from_tls_conf(ctx->peer_conf);
-		T_DBG2("%s: for server name '%.*s' vhost '%.*s' is chosen\n",
-		       __func__, PR_TFW_STR(&srv_name),
-		       PR_TFW_STR(&vhost->name));
+		T_DBG("%s: for server name '%.*s' vhost '%.*s' is chosen\n",
+		      __func__, PR_TFW_STR(&srv_name),
+		      PR_TFW_STR(&vhost->name));
 	}
 
 	return found ? 0 : -TTLS_ERR_CERTIFICATE_REQUIRED;

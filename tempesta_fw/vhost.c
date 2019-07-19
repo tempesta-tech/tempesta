@@ -361,7 +361,8 @@ static TfwGlobal		tfw_global = {
 };
 
 /**
- * comparing during configuration processing, both string are plain.
+ * Match vhost to requested name. Called in process context during configuration
+ * processing, both string are guaranteed to be plain.
  */
 static bool
 tfw_vhost_name_match(TfwVhost *vh, const TfwStr *name)
@@ -372,6 +373,9 @@ tfw_vhost_name_match(TfwVhost *vh, const TfwStr *name)
 		&& !strncasecmp(vh->name.data, name->data, vh->name.len);
 }
 
+/**
+ *  Match vhost to requested name. Can be called in softirq context only.
+ */
 static bool
 tfw_vhost_name_match_fast(TfwVhost *vh, const TfwStr *name)
 {
