@@ -4,7 +4,7 @@
  * Internal functions shared by the TLS modules.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
@@ -140,7 +140,8 @@ typedef struct tls_handshake_t {
 					new_session_ticket	: 1,
 					resume			: 1,
 					cli_exts		: 1,
-					curves_ext		: 1;
+					curves_ext		: 1,
+					secure_renegotiation	: 1;
 
 	size_t				pmslen;
 	ttls_key_cert			*key_cert;
