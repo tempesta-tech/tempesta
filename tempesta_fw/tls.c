@@ -86,8 +86,8 @@ tfw_tls_msg_process(void *conn, TfwFsmData *data)
 	 * in-place by chunks. Add skb to the list to build scatterlist if
 	 * it contains end of current message.
 	 */
-	spin_lock(&tls->lock);
 next_msg:
+	spin_lock(&tls->lock);
 	ss_skb_queue_tail(&tls->io_in.skb_list, skb);
 	/*
 	 * Store skb_list since ttls_recv() reinitializes IO context for each
@@ -154,11 +154,13 @@ next_msg:
 	}
 
 	/* At this point tls->io_in is initialized for the next record. */
-	if ((r = tfw_tls_chop_skb_rec(tls, msg_skb, &data_up)))
-		goto out_err;
+	if ((r = tfw_tls_chop_skb_rec(tls, msg_skb, &data_up))) {
+		spin_unlock(&tls->lock);
+		return r;
+	}
+	spin_unlock(&tls->lock);
 	r = tfw_gfsm_move(&c->state, TFW_TLS_FSM_DATA_READY, &data_up);
 	if (r == TFW_BLOCK) {
-		spin_unlock(&tls->lock);
 		kfree_skb(nskb);
 		return r;
 	}
@@ -169,9 +171,6 @@ next_msg:
 		parsed = 0;
 		goto next_msg;
 	}
-
-out_err:
-	spin_unlock(&tls->lock);
 
 	return r;
 }
