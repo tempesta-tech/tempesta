@@ -49,8 +49,6 @@
 #define TTLS_MAX_MAJOR_VERSION		TTLS_MAJOR_VERSION_3
 #define TTLS_MAX_MINOR_VERSION		TTLS_MINOR_VERSION_3
 
-#define TTLS_INITIAL_HANDSHAKE		0
-
 #define TTLS_HS_HDR_LEN			4
 
 /*
@@ -69,8 +67,6 @@
 					 + TTLS_MAX_IV_LENGTH		\
 					 + TTLS_MAC_ADD			\
 					 + TTLS_PADDING_ADD)
-
-#define TTLS_BUF_LEN			(TLS_HEADER_SIZE + TTLS_PAYLOAD_LEN)
 /*
  * There is currently no ciphersuite using another length with TLS 1.2.
  * RFC 5246 7.4.9 (Page 63) says 12 is the default length and ciphersuites
