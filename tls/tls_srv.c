@@ -29,9 +29,10 @@
 #include "ttls.h"
 
 static int
-ttls_check_scsv_fallback(TlsCtx *tls, unsigned short cipher_suite)
+ttls_check_scsvs(TlsCtx *tls, unsigned short cipher_suite)
 {
-	if (cipher_suite == TTLS_FALLBACK_SCSV_VALUE) {
+	switch (cipher_suite) {
+	case TTLS_FALLBACK_SCSV_VALUE:
 		T_DBG("received FALLBACK_SCSV\n");
 		if (tls->minor < tls->conf->max_minor_ver) {
 			T_DBG("inapropriate fallback\n");
@@ -39,6 +40,11 @@ ttls_check_scsv_fallback(TlsCtx *tls, unsigned short cipher_suite)
 					TTLS_ALERT_MSG_INAPROPRIATE_FALLBACK);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
+		break;
+	case TTLS_EMPTY_RENEGOTIATION_INFO:
+		T_DBG("received EMPTY_RENEGOTIATION_INFO_SCSV\n");
+		tls->hs->secure_renegotiation = 1;
+		break;
 	}
 	return 0;
 }
@@ -396,6 +402,26 @@ ttls_parse_alpn_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 }
 
 /**
+ * RFC 5746 3.6 we must check renegotiation_info and set secure_renegotiation
+ * flag for ServerHello extension.
+ */
+static int
+ttls_parse_renegotiation_info_ext(TlsCtx *tls, const unsigned char *buf,
+				  size_t len)
+{
+	if (len != 1 || buf[0] != 0x0) {
+		T_DBG("ClientHello: bad renegotiation_info extension\n");
+		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
+				TTLS_ALERT_MSG_DECODE_ERROR);
+		return TTLS_ERR_BAD_HS_CLIENT_HELLO;
+	}
+
+	tls->hs->secure_renegotiation = 1;
+
+	return 0;
+}
+
+/**
  * @return 0 if the given key uses one of the acceptable curves, -1 otherwise.
  */
 static int
@@ -604,10 +630,6 @@ have_ciphersuite:
  * This function doesn't alert on errors that happen early during
  * ClientHello parsing because they might indicate that the client is
  * not talking SSL/TLS at all and would not understand our alert.
- *
- * We use legacy no renegotiation option: allow connections to be established
- * even if the peer does not support secure renegotiation, but does not allow
- * renegotiation to take place if not secure.
  */
 static int
 ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
@@ -782,7 +804,7 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		cs = ntohs(*(short *)&tls->hs->tmp[off + *csn]);
 		T_DBG3("ClientHello: cipher suite #%u: %#x\n",
 		       *csn / 2, cs);
-		if (ttls_check_scsv_fallback(tls, cs))
+		if (ttls_check_scsvs(tls, cs))
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		io->hslen -= 2;
 		*csn += 2;
@@ -1017,6 +1039,11 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 			if (ttls_parse_alpn_ext(tls, tmp, ext_sz))
 				return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 			break;
+		case TTLS_TLS_EXT_RENEGOTIATION_INFO:
+			T_DBG("found renegotiation_info extension\n");
+			if (ttls_parse_renegotiation_info_ext(tls, tmp, ext_sz))
+				return TTLS_ERR_BAD_HS_CLIENT_HELLO;
+			break;
 		default:
 			T_DBG("unknown extension found: %d (ignoring)\n",
 			      ext_id);
@@ -1078,6 +1105,31 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 	}
 
 	return 0;
+}
+
+/**
+ * We don't support renegotiation, but according to RFC 5746 3.6 we MUST include
+ * empty "renegotiation_info" extension in the ServerHello message if
+ * ClientHello had TLS_EMPTY_RENEGOTIATION_INFO_SCSV SCSV or renegotiation_info
+ * extension.
+ */
+static void
+ttls_write_renegotiation_info(TlsCtx *tls, unsigned char *p, size_t *olen)
+{
+	if (!tls->hs->secure_renegotiation) {
+		*olen = 0;
+		return;
+	}
+
+	T_DBG("ServerHello: adding empty renegotiation_info extension\n");
+
+	*(unsigned short *)p = htons(TTLS_TLS_EXT_RENEGOTIATION_INFO);
+	p += 2;
+	*p++ = 0x00;
+	*p++ = 0x01;
+	*p++ = 0x00;
+
+	*olen = 5;
 }
 
 static void
@@ -1265,10 +1317,9 @@ ttls_write_server_hello(TlsCtx *tls, struct sg_table *sgt,
 	 * with Associated Data (AEAD) ciphersuite, it MUST NOT send an
 	 * encrypt-then-MAC response extension back to the client."
 	 * We don't support other ciphersuites, so we don't send EtM extension.
-	 *
-	 * TODO #1054 We also don't support renegotiations, so also don't send
-	 * the extension.
 	 */
+	ttls_write_renegotiation_info(tls, p + 2 + ext_len, &olen);
+	ext_len += olen;
 	ttls_write_extended_ms_ext(tls, p + 2 + ext_len, &olen);
 	ext_len += olen;
 	ttls_write_session_ticket_ext(tls, p + 2 + ext_len, &olen);
