@@ -189,7 +189,6 @@ tfw_bmb_conn_recv(void *cdata, struct sk_buff *skb, unsigned int off)
 static SsHooks bmb_hooks = {
 	.connection_new		= tfw_bmb_conn_compl,
 	.connection_drop	= tfw_bmb_conn_drop,
-	.connection_error	= tfw_bmb_conn_drop,
 	.connection_recv	= tfw_bmb_conn_recv,
 };
 
