@@ -276,8 +276,6 @@ typedef struct ttls_context ttls_context;
 typedef struct ttls_config ttls_config;
 
 /* Defined in tls_internal.h */
-typedef struct TtlsXfrm ttls_transform;
-typedef struct ttls_handshake_params ttls_handshake_params;
 typedef struct ttls_sig_hash_set_t ttls_sig_hash_set_t;
 typedef struct ttls_key_cert ttls_key_cert;
 
