@@ -530,9 +530,10 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt, bool close)
 			       skb, skb->len);
 		}
 	}
-
-	if (close)
+	if (close) {
 		flags |= SS_F_CONN_CLOSE;
+		TFW_CONN_TYPE(&conn->cli_conn) |= Conn_Stop;
+	}
 	if (ttls_xfrm_ready(tls))
 		flags |= SS_F_ENCRYPT;
 

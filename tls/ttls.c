@@ -1334,7 +1334,7 @@ ttls_send_alert(TlsCtx *tls, unsigned char lvl, unsigned char msg)
 	io->alert[0] = lvl;
 	io->alert[1] = msg;
 
-	if (msg == TTLS_ALERT_MSG_CLOSE_NOTIFY)
+	if (msg == TTLS_ALERT_MSG_CLOSE_NOTIFY || lvl == TTLS_ALERT_LEVEL_FATAL)
 		close = true;
 
 	return ttls_write_record(tls, NULL, close);
@@ -2227,7 +2227,7 @@ next_record:
 	case TTLS_MSG_HANDSHAKE:
 		if (unlikely(tls->state == TTLS_HANDSHAKE_OVER)) {
 			T_DBG("refusing renegotiation, sending alert\n");
-			ttls_send_alert(tls, TTLS_ALERT_LEVEL_WARNING,
+			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 					TTLS_ALERT_MSG_NO_RENEGOTIATION);
 			return TTLS_ERR_UNEXPECTED_MESSAGE;
 		}
