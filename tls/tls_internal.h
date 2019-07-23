@@ -133,7 +133,7 @@ struct ttls_sig_hash_set_t
  * @premaster	- premaster secret;
  * @tmp		- buffer to store temporary data between data chunks;
  */
-typedef struct tls_handshake_t {
+struct tls_handshake_t {
 	ttls_sig_hash_set_t		hash_algs;
 	int				sni_authmode;
 
@@ -175,7 +175,7 @@ typedef struct tls_handshake_t {
 		unsigned char		premaster[TTLS_PREMASTER_SIZE];
 		unsigned char		tmp[TTLS_HS_RBUF_SZ];
 	};
-} TlsHandshake;
+};
 
 /*
  * List of certificate + private key pairs
