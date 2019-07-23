@@ -59,21 +59,16 @@ typedef struct ss_hooks {
 	int (*connection_new)(struct sock *sk);
 
 	/*
-	 * Drop TCP connection associated with the socket.
-	 * The callback is called on intentional socket closing when the socket
-	 * is already closed (i.e. there could not be ingress data on it) and we
-	 * can safely do some clenup stuff. We need the callback sine socket
-	 * closing always has chance to run asynchronously on other CPU and a
-	 * caller doesn't know the it completes.
+	 * Intentional socket closing when the socket is already closed (i.e. there
+	 * could not be ingress data on it) and we can safely do some clenup stuff
+	 * or error on TCP connection (on Linux TCP socket layer) associated with
+	 * the socket or at application (data processing) layer, i.e. unintentional
+	 * connection closing.
+	 * We need the callback since socket closing always has a chance to run
+	 * asynchronously on another CPU and a caller doesn't know when it
+	 * completes.
 	 */
 	void (*connection_drop)(struct sock *sk);
-
-	/*
-	 * Error on TCP connection (on Linux TCP socket layer) associated
-	 * with the socket or at application (data processing) layer,
-	 * i.e. unintentional connection closing.
-	 */
-	void (*connection_error)(struct sock *sk);
 
 	/* Process data received on the socket. */
 	int (*connection_recv)(void *conn, struct sk_buff *skb,

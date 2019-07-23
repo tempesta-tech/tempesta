@@ -276,9 +276,8 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	 *
 	 * 2. tfw_sock_srv_do_failover() upcalled from SS layer and with
 	 *    inactive @srv_conn->sk, so nobody can send through the socket.
-	 *    Also since the function is called by connection_error or
-	 *    connection_drop hook from SoftIRQ, there can't be another
-	 *    socket state change upcall from SS layer due to RSS.
+	 *    There can't be another socket state change upcall from SS layer
+	 *    due to RSS.
 	 *
 	 * Thus we don't need synchronization for ss_connect().
 	 */
@@ -286,8 +285,9 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	r = ss_connect(sk, addr, 0);
 	if (r) {
 		if (r != SS_SHUTDOWN)
-			T_ERR("Unable to initiate a connect to server: %d\n", r);
-		SS_CALL(connection_error, sk);
+			T_ERR("Unable to initiate a connect to server: %d\n",
+				r);
+		SS_CALL(connection_drop, sk);
 		/* Another try is handled in tfw_srv_conn_release() */
 	}
 }
@@ -360,34 +360,31 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 	return 0;
 }
 
-/**
- * The hook is executed when we intentionally close a server connection during
- * shutdown process. Now @sk is closed (but still alive) and we release all
- * associated resources before SS put()'s the socket.
- */
 static void
 tfw_sock_srv_connect_drop(struct sock *sk)
 {
 	TfwConn *conn = sk->sk_user_data;
-
-	TFW_INC_STAT_BH(serv.conn_disconnects);
-	tfw_connection_drop(conn);
-	tfw_connection_put(conn);
-}
-
-/**
- * The hook is executed when there's unrecoverable error in a connection
- * (and not executed when an established connection is closed as usual).
- * An error may occur in any TCP state including data processing on application
- * layer. All Tempesta resources associated with the socket must be released in
- * case they were allocated before. Server socket must be recovered.
- */
-static void
-tfw_sock_srv_connect_failover(struct sock *sk)
-{
-	TfwConn *conn = sk->sk_user_data;
 	TfwServer *srv = (TfwServer *)conn->peer;
 
+	if (test_bit(TFW_CONN_B_DEL, &((TfwSrvConn *)conn)->flags)) {
+		/**
+		 * This is executed when we intentionally close a server connection during
+		 * shutdown process. Now @sk is closed (but still alive) and we release all
+		 * associated resources before SS put()'s the socket.
+		 */
+		TFW_INC_STAT_BH(serv.conn_disconnects);
+		tfw_connection_drop(conn);
+		tfw_connection_put(conn);
+		return;
+	}
+
+	/**
+	 * This is executed when there's unrecoverable error in a connection
+	 * (and not executed when an established connection is closed as usual).
+	 * An error may occur in any TCP state including data processing on application
+	 * layer. All Tempesta resources associated with the socket must be released in
+	 * case they were allocated before. Server socket must be recovered.
+	 */
 	T_DBG_ADDR("connection error", &srv->addr, TFW_WITH_PORT);
 
 	/*
@@ -407,7 +404,6 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 static const SsHooks tfw_sock_srv_ss_hooks = {
 	.connection_new		= tfw_sock_srv_connect_complete,
 	.connection_drop	= tfw_sock_srv_connect_drop,
-	.connection_error	= tfw_sock_srv_connect_failover,
 	.connection_recv	= tfw_connection_recv,
 };
 
