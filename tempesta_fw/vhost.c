@@ -297,20 +297,20 @@ tfw_vhost_get_srv_conn(TfwMsg *msg)
 
 	if (unlikely(!main_sg))
 		return NULL;
-	TFW_DBG2("vhost: use server group: '%s'\n", main_sg->name);
+	T_DBG2("vhost: use server group: '%s'\n", main_sg->name);
 
 	if (likely(main_sg->sched))
 		srv_conn = main_sg->sched->sched_sg_conn(msg, main_sg);
 
 	if (unlikely(!srv_conn && backup_sg && backup_sg->sched)) {
-		TFW_DBG("vhost: the main group is offline, use backup: '%s'\n",
-			backup_sg->name);
+		T_DBG("vhost: the main group is offline, use backup: '%s'\n",
+		      backup_sg->name);
 		srv_conn = backup_sg->sched->sched_sg_conn(msg, backup_sg);
 	}
 
 	if (unlikely(!srv_conn))
-		TFW_DBG2("vhost: Unable to select server from group '%s'\n",
-			 backup_sg ? backup_sg->name : main_sg->name);
+		T_DBG2("vhost: Unable to select server from group '%s'\n",
+		       backup_sg ? backup_sg->name : main_sg->name);
 
 	return srv_conn;
 }
@@ -587,12 +587,12 @@ tfw_cfgop_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 		     < _TFW_HTTP_METH_COUNT);
 
 	if (ce->attr_n) {
-		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
-			   cs->name);
+		T_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
+			 cs->name);
 		return -EINVAL;
 	}
 	if (ce->val_n != 3) {
-		TFW_ERR_NL("%s: Invalid number of arguments.\n", cs->name);
+		T_ERR_NL("%s: Invalid number of arguments.\n", cs->name);
 		return -EINVAL;
 	}
 
@@ -600,8 +600,8 @@ tfw_cfgop_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 	in_method = ce->vals[0];
 	ret = tfw_cfg_map_enum(tfw_method_enum, in_method, &method);
 	if (ret) {
-		TFW_ERR_NL("Unsupported HTTP method: '%s %s'\n",
-			   cs->name, in_method);
+		T_ERR_NL("Unsupported HTTP method: '%s %s'\n",
+			 cs->name, in_method);
 		return -EINVAL;
 	}
 
@@ -609,7 +609,7 @@ tfw_cfgop_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 	in_op = ce->vals[1];
 	ret = tfw_cfg_map_enum(tfw_match_enum, in_op, &op);
 	if (ret) {
-		TFW_ERR_NL("Unsupported match OP: '%s %s'\n", cs->name, in_op);
+		T_ERR_NL("Unsupported match OP: '%s %s'\n", cs->name, in_op);
 		return -EINVAL;
 	}
 
@@ -623,10 +623,10 @@ tfw_cfgop_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 	 */
 	vh_dflt = tfw_vhosts_reconfig->vhost_dflt;
 	if (tfw_nipdef_lookup_dup(loc, method, op, arg, len))
-		TFW_WARN_NL("%s: Duplicate entry in location '%s': "
-			    "'%s %s %s %s'\n", cs->name,
-			    loc == vh_dflt->loc_dflt ? "default" : loc->arg,
-			    cs->name, in_method, in_op, arg);
+		T_WARN_NL("%s: Duplicate entry in location '%s': "
+			  "'%s %s %s %s'\n", cs->name,
+			  loc == vh_dflt->loc_dflt ? "default" : loc->arg,
+			  cs->name, in_method, in_op, arg);
 
 	/*
 	 * Do not add a "duplicate" entry within a location. If the
@@ -675,12 +675,12 @@ tfw_cfgop_mod_hdr_add(TfwLocation *loc, const char *name, const char *value,
 	TfwHdrModsDesc *desc = &h_mods->hdrs[h_mods->sz];
 
 	if (h_mods->sz == TFW_USRHDRS_ARRAY_SZ) {
-		TFW_WARN_NL("Too lot of custom headers, %d supported.\n",
-			    TFW_USRHDRS_ARRAY_SZ);
+		T_WARN_NL("Too lot of custom headers, %d supported.\n",
+			  TFW_USRHDRS_ARRAY_SZ);
 		return -EINVAL;
 	}
 	if (!(hdr = tfw_http_msg_make_hdr(loc->hdrs_pool, name, value))) {
-		TFW_WARN_NL("Can't create header.\n");
+		T_WARN_NL("Can't create header.\n");
 		return -ENOMEM;
 	}
 	desc->hdr = hdr;
@@ -707,8 +707,8 @@ tfw_cfgop_mod_hdr(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc,
 	const char *value = NULL;
 
 	if (ce->attr_n) {
-		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
-			   cs->name);
+		T_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
+			 cs->name);
 		return -EINVAL;
 	}
 	switch (ce->val_n)
@@ -720,7 +720,7 @@ tfw_cfgop_mod_hdr(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc,
 			break;
 		/* Fall through */
 	default:
-		TFW_ERR_NL("%s: Invalid number of values.\n", cs->name);
+		T_ERR_NL("%s: Invalid number of values.\n", cs->name);
 		return -EINVAL;
 	}
 
@@ -884,13 +884,13 @@ tfw_cfgop_capolicy(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc, int cmd)
 	BUG_ON((cmd != TFW_D_CACHE_BYPASS) && (cmd != TFW_D_CACHE_FULFILL));
 
 	if (ce->attr_n) {
-		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
-			   cs->name);
+		T_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
+			 cs->name);
 		return -EINVAL;
 	}
 	if (ce->val_n < 2) {
-		TFW_ERR_NL("%s: Invalid number of arguments: %d\n",
-			   cs->name, (int)ce->val_n);
+		T_ERR_NL("%s: Invalid number of arguments: %d\n",
+			 cs->name, (int)ce->val_n);
 		return -EINVAL;
 	}
 
@@ -899,7 +899,7 @@ tfw_cfgop_capolicy(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc, int cmd)
 	/* Convert the match operator string to the enum value. */
 	ret = tfw_cfg_map_enum(tfw_match_enum, in_op, &op);
 	if (ret) {
-		TFW_ERR_NL("Unknown match OP: '%s %s'\n", cs->name, in_op);
+		T_ERR_NL("Unknown match OP: '%s %s'\n", cs->name, in_op);
 		return -EINVAL;
 	}
 
@@ -911,8 +911,8 @@ tfw_cfgop_capolicy(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc, int cmd)
 		len = strlen(arg);
 
 		if (tfw_capolicy_lookup(loc, cmd, op, arg, len)) {
-			TFW_WARN_NL("%s: Duplicate entry: '%s %s %s'\n",
-				    cs->name, cs->name, in_op, arg);
+			T_WARN_NL("%s: Duplicate entry: '%s %s %s'\n",
+				  cs->name, cs->name, in_op, arg);
 			continue;
 		}
 		if (loc->capo_sz == TFW_CAPOLICY_ARRAY_SZ)
@@ -1116,12 +1116,12 @@ tfw_cfgop_location_begin(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwVhost *vhost)
 	const char *in_op, *arg;
 
 	if (ce->attr_n) {
-		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
+		T_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
 			   cs->name);
 		return -EINVAL;
 	}
 	if (ce->val_n != 2) {
-		TFW_ERR_NL("%s: Invalid number of arguments: %d\n",
+		T_ERR_NL("%s: Invalid number of arguments: %d\n",
 			   cs->name, (int)ce->val_n);
 		return -EINVAL;
 	}
@@ -1134,21 +1134,21 @@ tfw_cfgop_location_begin(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwVhost *vhost)
 	/* Convert the match operator string to the enum value. */
 	ret = tfw_cfg_map_enum(tfw_match_enum, in_op, &op);
 	if (ret) {
-		TFW_ERR_NL("%s: Unknown match OP: '%s %s %s'\n",
+		T_ERR_NL("%s: Unknown match OP: '%s %s %s'\n",
 			   cs->name, cs->name, in_op, arg);
 		return -EINVAL;
 	}
 
 	/* Make sure the location is not a duplicate. */
 	if (tfw_location_lookup(vhost, op, arg, len)) {
-		TFW_ERR_NL("%s: Duplicate entry: '%s %s %s'\n",
+		T_ERR_NL("%s: Duplicate entry: '%s %s %s'\n",
 			   cs->name, cs->name, in_op, arg);
 		return -EINVAL;
 	}
 
 
 	if (vhost->loc_sz == TFW_LOCATION_ARRAY_SZ) {
-		TFW_ERR_NL("%s: There is no empty slots in '%s' vhost to"
+		T_ERR_NL("%s: There is no empty slots in '%s' vhost to"
 			   " add new location: '%s %s %s'\n", cs->name,
 			   vhost->name.data, cs->name, in_op, arg);
 		return -EINVAL;
@@ -1157,7 +1157,7 @@ tfw_cfgop_location_begin(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwVhost *vhost)
 	/* Add new location and set it to be the current one. */
 	tfwcfg_this_location = tfw_location_new(vhost, op, arg, len);
 	if (!tfwcfg_this_location) {
-		TFW_ERR_NL("%s: Unable to create new location: '%s %s %s'\n",
+		T_ERR_NL("%s: Unable to create new location: '%s %s %s'\n",
 			   cs->name, cs->name, in_op, arg);
 		return -ENOMEM;
 	}
@@ -1193,7 +1193,7 @@ tfw_cfgop_in_location_finish(TfwCfgSpec *cs)
 	if (!tfw_vhost_is_default_reconfig(tfw_vhost_entry)
 	    && !tfwcfg_this_location->main_sg)
 	{
-		TFW_ERR_NL("Directive 'proxy_pass' is not specified for"
+		T_ERR_NL("Directive 'proxy_pass' is not specified for"
 			   " location (with arg '%s') inside not default"
 			   " vhost '%s'.\n", tfwcfg_this_location->arg,
 			   tfw_vhost_entry->name.data);
@@ -1295,7 +1295,7 @@ tfw_cfgop_cache_purge_acl(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	const char *val;
 
 	if (ce->attr_n) {
-		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
+		T_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
 			cs->name);
 		return -EINVAL;
 	}
@@ -1304,20 +1304,20 @@ tfw_cfgop_cache_purge_acl(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		TfwAddr addr = { 0 };
 
 		if (tfw_addr_pton_cidr(val, &addr)) {
-			TFW_ERR_NL("%s: Invalid ACL entry: '%s'\n",
-				   cs->name, val);
+			T_ERR_NL("%s: Invalid ACL entry: '%s'\n",
+				 cs->name, val);
 			return -EINVAL;
 		}
 		/* Make sure the address is not a duplicate. */
 		if (tfw_capuacl_lookup(&addr)) {
-			TFW_ERR_NL("%s: Duplicate IP address or prefix: '%s'\n",
-				   cs->name, val);
+			T_ERR_NL("%s: Duplicate IP address or prefix: '%s'\n",
+				 cs->name, val);
 			return -EINVAL;
 		}
 		/* Add new ACL entry. */
 		if (tfw_global.capuacl_sz == TFW_CAPUACL_ARRAY_SZ) {
-			TFW_ERR_NL("%s: Unable to add new ACL: '%s'\n",
-				   cs->name, val);
+			T_ERR_NL("%s: Unable to add new ACL: '%s'\n",
+				 cs->name, val);
 			return -EINVAL;
 		}
 		tfw_global.capuacl[tfw_global.capuacl_sz++] = addr;
@@ -1337,8 +1337,8 @@ tfw_cfgop_cache_purge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	const char *val;
 
 	if (ce->attr_n) {
-		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
-			cs->name);
+		T_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
+			 cs->name);
 		return -EINVAL;
 	}
 	if (!ce->val_n) {
@@ -1350,8 +1350,8 @@ tfw_cfgop_cache_purge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		if (!strcasecmp(val, "invalidate")) {
 			tfw_global.cache_purge_mode = TFW_D_CACHE_PURGE_INVALIDATE;
 		} else {
-			TFW_ERR_NL("%s: unsupported argument: '%s'\n",
-				   cs->name, val);
+			T_ERR_NL("%s: unsupported argument: '%s'\n",
+				 cs->name, val);
 			return -EINVAL;
 		}
 	}
@@ -1371,13 +1371,13 @@ tfw_cfgop_hdr_via(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	size_t len;
 
 	if (ce->attr_n) {
-		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
-			   cs->name);
+		T_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
+			 cs->name);
 		return -EINVAL;
 	}
 	if (ce->val_n != 1) {
-		TFW_ERR_NL("%s: Invalid number of arguments: %d\n",
-			   cs->name, (int)ce->val_n);
+		T_ERR_NL("%s: Invalid number of arguments: %d\n",
+			 cs->name, (int)ce->val_n);
 		return -EINVAL;
 	}
 
@@ -1401,9 +1401,9 @@ tfw_cfgop_vhost_check_flags(TfwSrvGroup *main_sg, TfwSrvGroup *backup_sg)
 	int r = ((main_sg->flags & TFW_SRV_STICKY_FLAGS) ^
 		 (backup_sg->flags & TFW_SRV_STICKY_FLAGS));
 	if (r)
-		TFW_ERR_NL("vhost: srv_groups '%s' and '%s' must "
-			   "have the same sticky sessions settings\n",
-			   main_sg->name, backup_sg->name);
+		T_ERR_NL("vhost: srv_groups '%s' and '%s' must "
+			 "have the same sticky sessions settings\n",
+			 main_sg->name, backup_sg->name);
 
 	return r;
 }
@@ -1417,16 +1417,16 @@ __tfw_cfgop_proxy_pass(const char *main_sg_nm, const char *backup_sg_nm,
 
 	main_sg = tfw_sg_lookup_reconfig(main_sg_nm, strlen(main_sg_nm));
 	if (!main_sg) {
-		TFW_ERR_NL("proxy_pass: srv_group is not found: '%s'\n",
-			   main_sg_nm);
+		T_ERR_NL("proxy_pass: srv_group is not found: '%s'\n",
+			 main_sg_nm);
 		return -EINVAL;
 	}
 	if (backup_sg_nm) {
 		backup_sg = tfw_sg_lookup_reconfig(backup_sg_nm,
 						   strlen(backup_sg_nm));
 		if (!backup_sg) {
-			TFW_ERR_NL("proxy_pass: backup srv_group is not found:"
-				   " '%s'\n", backup_sg_nm);
+			T_ERR_NL("proxy_pass: backup srv_group is not found:"
+				 " '%s'\n", backup_sg_nm);
 			r = -EINVAL;
 			goto err;
 		}
@@ -1470,10 +1470,10 @@ tfw_cfgop_proxy_pass(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 		    && (!in_backup_sg
 			|| !strcasecmp(in_backup_sg, TFW_VH_DFT_NAME)))
 			return 0;
-		TFW_ERR_NL("Default vhost must point to default server"
-			   " group only, so it is not allowed to specify"
-			   " any not default 'proxy_pass' directive inside of"
-			   " default vhost.\n");
+		T_ERR_NL("Default vhost must point to default server"
+			 " group only, so it is not allowed to specify"
+			 " any not default 'proxy_pass' directive inside of"
+			 " default vhost.\n");
 		return -EINVAL;
 	}
 	return __tfw_cfgop_proxy_pass(in_main_sg, in_backup_sg, loc);
@@ -1525,7 +1525,7 @@ tfw_vhost_create(const char *name)
 
 	if (!(vhost = kzalloc(size, GFP_KERNEL))) {
 		tfw_pool_destroy(pool);
-		TFW_ERR_NL("Cannot allocate vhost entry '%s'\n", name);
+		T_ERR_NL("Cannot allocate vhost entry '%s'\n", name);
 		return NULL;
 	}
 	INIT_HLIST_NODE(&vhost->hlist);
@@ -1621,16 +1621,16 @@ __tfw_cfgop_frang_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce,
 		int r = tfw_cfg_map_enum(frang_http_methods_enum, method_str,
 					 &method_id);
 		if (r) {
-			TFW_ERR_NL("frang: invalid method: '%s'\n", method_str);
+			T_ERR_NL("frang: invalid method: '%s'\n", method_str);
 			return -EINVAL;
 		}
 
-		TFW_DBG3("frang: parsed method: %s => %d\n",
-			 method_str, method_id);
+		T_DBG3("frang: parsed method: %s => %d\n",
+		       method_str, method_id);
 		methods_mask |= (1UL << method_id);
 	}
 
-	TFW_DBG3("parsed methods_mask: %#lx\n", methods_mask);
+	T_DBG3("parsed methods_mask: %#lx\n", methods_mask);
 	*cfg_methods_mask = methods_mask;
 	return 0;
 }
@@ -1680,7 +1680,7 @@ __tfw_cfgop_frang_http_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce, FrangCfg *conf)
 		vals_pos->str = strs_pos;
 		vals_pos->len = (len - 1);
 
-		TFW_DBG3("parsed Content-Type value: '%s'\n", in_str);
+		T_DBG3("parsed Content-Type value: '%s'\n", in_str);
 
 		vals_pos++;
 		strs_pos += len;
@@ -1698,8 +1698,8 @@ frang_parse_ushort(const char *s, unsigned short *out)
 {
 	int n;
 	if (tfw_cfg_parse_int(s, &n)) {
-		TFW_ERR_NL("frang: http_resp_code_block: "
-			   "\"%s\" isn't a valid value\n", s);
+		T_ERR_NL("frang: http_resp_code_block: "
+			 "\"%s\" isn't a valid value\n", s);
 		return -EINVAL;
 	}
 	if (tfw_cfg_check_range(n, 1, USHRT_MAX))
@@ -1720,13 +1720,13 @@ __tfw_cfgop_frang_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce,
 	int n, i;
 
 	if (ce->attr_n) {
-		TFW_ERR_NL("%s arguments may not have the \'=\' sign\n",
-			   error_msg_begin);
+		T_ERR_NL("%s arguments may not have the \'=\' sign\n",
+			 error_msg_begin);
 		return -EINVAL;
 	}
 
 	if (ce->val_n < 3) {
-		TFW_ERR_NL("%s too few arguments\n", error_msg_begin);
+		T_ERR_NL("%s too few arguments\n", error_msg_begin);
 		return -EINVAL;
 	}
 
@@ -1739,8 +1739,8 @@ __tfw_cfgop_frang_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce,
 	while (--i >= 0) {
 		if (tfw_cfg_parse_int(ce->vals[i], &n)
 		    || !tfw_http_resp_code_range(n)) {
-			TFW_ERR_NL("%s invalid HTTP code \"%s\"",
-				   error_msg_begin, ce->vals[i]);
+			T_ERR_NL("%s invalid HTTP code \"%s\"",
+				 error_msg_begin, ce->vals[i]);
 			return -EINVAL;
 		}
 		/* Atomic restriction isn't needed here */
@@ -2073,14 +2073,14 @@ tfw_vhost_cfgstart(void)
 	BUG_ON(tfw_vhosts_reconfig);
 	tfw_vhosts_reconfig = kmalloc(sizeof(TfwVhostList), GFP_KERNEL);
 	if (!tfw_vhosts_reconfig) {
-		TFW_ERR_NL("Unable to allocate vhosts' list.\n");
+		T_ERR_NL("Unable to allocate vhosts' list.\n");
 		return -ENOMEM;
 	}
 
 	tfw_vhosts_reconfig->expl_dflt = false;
 	hash_init(tfw_vhosts_reconfig->vh_hash);
 	if(!(vh_dflt = tfw_vhost_new(TFW_VH_DFT_NAME))) {
-		TFW_ERR_NL("Unable to create default vhost.\n");
+		T_ERR_NL("Unable to create default vhost.\n");
 		return -ENOMEM;
 	}
 
@@ -2139,13 +2139,13 @@ tfw_cfgop_vhost_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (tfw_cfg_check_val_n(ce, 1))
 		return -EINVAL;
 	if (ce->attr_n) {
-		TFW_ERR_NL("Unexpected attributes\n");
+		T_ERR_NL("Unexpected attributes\n");
 		return -EINVAL;
 	}
 	hash_for_each(tfw_vhosts_reconfig->vh_hash, i, vhost, hlist) {
 		if (!strcasecmp(vhost->name.data, ce->vals[0])) {
-			TFW_ERR_NL("Duplicate vhost entry: '%s'\n",
-				   ce->vals[0]);
+			T_ERR_NL("Duplicate vhost entry: '%s'\n",
+				 ce->vals[0]);
 			return -EINVAL;
 		}
 	}
@@ -2160,8 +2160,8 @@ tfw_cfgop_vhost_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			return -ENOMEM;
 	} else {
 		if (!(tfw_vhost_entry = tfw_vhost_new(ce->vals[0]))) {
-			TFW_ERR_NL("Unable to create new vhost entry: '%s'\n",
-				   ce->vals[0]);
+			T_ERR_NL("Unable to create new vhost entry: '%s'\n",
+				 ce->vals[0]);
 			return -ENOMEM;
 		}
 	}
@@ -2180,9 +2180,9 @@ tfw_cfgop_vhost_finish(TfwCfgSpec *cs)
 	BUG_ON(!tfw_vhost_entry);
 	if (!tfw_vhost_entry->loc_dflt->main_sg) {
 		BUG_ON(tfw_vhost_is_default_reconfig(tfw_vhost_entry));
-		TFW_ERR_NL("Directive 'proxy_pass' is not specified"
-			   " for not default vhost '%s'.\n",
-			   tfw_vhost_entry->name.data);
+		T_ERR_NL("Directive 'proxy_pass' is not specified"
+			 " for not default vhost '%s'.\n",
+			 tfw_vhost_entry->name.data);
 		return -EINVAL;
 	}
 	if ((r = tfw_tls_cert_cfg_finish(tfw_vhost_entry)))
