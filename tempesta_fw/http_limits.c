@@ -373,7 +373,7 @@ frang_conn_new(struct sock *sk)
 	 * TLS-enabled clients will use higher limits than non-TLS clients;
 	 * the same client can break security rules for one vhost, but be a
 	 * legitimate client for other vhosts, so it's a big question how to
-	 * block him by IP or by connection resets; if multy-domain certificate
+	 * block him by IP or by connection resets; if multi-domain certificate
 	 * (SAN) is configured, TLS clients will behave as non-TLS. Too
 	 * complicated for administrator to understand how client is blocked
 	 * and to configure it, while making some of the limits to be global
@@ -822,7 +822,7 @@ block:
  * recipient without buffering the entire response.
  *
  * RFC doesn't prohibit trailers in request, but it always speaks about
- * trailers in response context. But request with trailer headers
+ * trailers in response context. But requests with trailer headers
  * are valid http messages. Support for them is not documented,
  * and implementation-dependent. E.g. Apache doesn't care about trailer
  * headers, but ModSecurity for Apache does.
