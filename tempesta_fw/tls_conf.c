@@ -91,6 +91,12 @@ tfw_tls_get_cert_conf(TfwVhost *vhost, unsigned int directive)
 				  "before 'tls_certificate' has encountered.\n");
 			curr_cert_conf = NULL;
 		}
+		if (curr_cert_conf->conf_stage & TFW_TLS_CFG_F_CKEY) {
+			T_WARN_NL("'tls_certificate_key' directive was found"
+				  "twice for the same 'tls_certificate' "
+				  "directive.\n");
+			curr_cert_conf = NULL;
+		}
 		break;
 
 	default:
