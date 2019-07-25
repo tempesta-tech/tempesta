@@ -295,7 +295,8 @@ tfw_vhost_get_srv_conn(TfwMsg *msg)
 	main_sg = loc->main_sg;
 	backup_sg = loc->backup_sg;
 
-	BUG_ON(!main_sg);
+	if (unlikely(!main_sg))
+		return NULL;
 	TFW_DBG2("vhost: use server group: '%s'\n", main_sg->name);
 
 	if (likely(main_sg->sched))
@@ -2036,18 +2037,19 @@ tfw_vhost_cfgend(void)
 	int r;
 
 	/*
-	 * Add default vhost into list if it hadn't been added
-	 * yet explicitly and if there is default server group
-	 * (explicit or implicit).
+	 * Add default vhost into list if it hadn't been added yet explicitly
+	 * to keep default location policies.
 	 */
 	if (tfw_vhosts_reconfig->expl_dflt)
 		return 0;
-
-	sg_def = tfw_sg_lookup_reconfig(TFW_VH_DFT_NAME, sizeof("default") - 1);
-	if (!sg_def)
-		return 0;
-
+	/*
+	 * Implicit default vhost is still useful even if it's never used to
+	 * forward the traffic. It stores fallback location providing
+	 * default policies and options that can be used before incoming
+	 * request is parsed and assigned to any location.
+	 */
 	vh_dflt = tfw_vhosts_reconfig->vhost_dflt;
+	sg_def = tfw_sg_lookup_reconfig(TFW_VH_DFT_NAME, SLEN("default"));
 	vh_dflt->loc_dflt->main_sg = sg_def;
 	tfw_vhost_add(vh_dflt);
 	if ((r = tfw_tls_cert_cfg_finish(vh_dflt)))
