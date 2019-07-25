@@ -290,12 +290,26 @@ __cli_conn_close_cb(TfwConn *conn)
 }
 
 static int
+__cli_conn_close_sync_cb(TfwConn *conn)
+{
+	return tfw_connection_close(conn, true);
+}
+
+static int
 tfw_cli_conn_close_all(void *data)
 {
 	TfwClient *cli = (TfwClient *)data;
 	TfwConn *conn;
 
 	return tfw_peer_for_each_conn(cli, conn, list, __cli_conn_close_cb);
+}
+
+int tfw_cli_conn_close_all_sync(TfwClient *cli)
+{
+	TfwConn *conn;
+
+	return tfw_peer_for_each_conn(cli, conn, list,
+				      __cli_conn_close_sync_cb);
 }
 
 /*
