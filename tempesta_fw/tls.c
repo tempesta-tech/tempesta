@@ -32,17 +32,9 @@
  * Global level TLS configuration.
  *
  * @cfg			- common tls configuration for all vhosts;
- * @allow_unknown_sni	- if server name requested by client is not known
- *			  (no such vhost), or client doesn't provide server
- *			  name extension, use global-level certificates
- *			  for the connection.
- * @fallback_to_dflt_sni - use global-level certificates if no provided by
- *			  vhost chosen by server name tls extension.
  */
 static struct {
 	TlsCfg		cfg;
-	bool		allow_unknown_sni;
-	bool		fallback_to_dflt_sni;
 } tfw_tls;
 
 /**
@@ -671,36 +663,33 @@ static TfwConnHooks tls_conn_hooks = {
 	.conn_send	= tfw_tls_conn_send,
 };
 
-static bool
-tfw_tls_get_if_configured(TlsCtx *ctx, TfwVhost *vhost)
+static const TlsPeerCfg	*
+tfw_tls_get_if_configured(TfwVhost *vhost)
 {
-	TlsPeerCfg *cfg;
+	const TlsPeerCfg *cfg;
 
 	if (unlikely(!vhost))
 		return false;
 
 	cfg = &vhost->tls_cfg;
-	if (likely(cfg->key_cert)) {
-		ctx->peer_conf = cfg;
-		return true;
-	}
+	if (likely(cfg->key_cert))
+		return cfg;
 
-	if (!READ_ONCE(tfw_tls.fallback_to_dflt_sni) || !vhost->vhost_dflt) {
+	if (!vhost->vhost_dflt) {
 		tfw_vhost_put(vhost);
-		return false;
+		return NULL;
 	}
 
 	cfg = &vhost->vhost_dflt->tls_cfg;
 	if (!cfg->key_cert) {
 		tfw_vhost_put(vhost);
-		return false;
+		return NULL;
 	}
 
 	tfw_vhost_get(vhost->vhost_dflt);
-	ctx->peer_conf = cfg;
 	tfw_vhost_put(vhost);
 
-	return true;
+	return cfg;
 }
 
 /**
@@ -713,30 +702,41 @@ tfw_tls_sni(void *p_sni, TlsCtx *ctx, const unsigned char *data, size_t len)
 {
 	const TfwStr srv_name = {.data = (unsigned char *)data, .len = len};
 	TfwVhost *vhost = NULL;
-	bool found;
+	const TlsPeerCfg *peer_cfg;
 
 	T_DBG2("%s: server name '%.*s'\n",  __func__, (int)len, data);
 
 	if (WARN_ON_ONCE(ctx->peer_conf))
 		return -TTLS_ERR_BAD_HS_CLIENT_HELLO;
 
-	if (data && len)
+	if (data && len) {
 		vhost = tfw_vhost_lookup(&srv_name);
-	if (READ_ONCE(tfw_tls.allow_unknown_sni) && !vhost)
+		if (unlikely(vhost && !vhost->vhost_dflt)) {
+			T_WARN("TLS: sni ext: client requested default vhost "
+			       "by name, reject connection.\n");
+			tfw_vhost_put(vhost);
+			return -TTLS_ERR_BAD_HS_CLIENT_HELLO;
+		}
+	}
+	/*
+	 * If accurate vhost is not found or client doesn't send sni extension,
+	 * map the connection to default vhost.
+	 */
+	if (!vhost)
 		vhost = tfw_vhost_lookup_default();
-
 	if (unlikely(!vhost))
 		return -TTLS_ERR_CERTIFICATE_REQUIRED;
 
-	found = tfw_tls_get_if_configured(ctx, vhost);
-	if (DBG_TLS && found) {
+	peer_cfg = tfw_tls_get_if_configured(vhost);
+	ctx->peer_conf = peer_cfg;
+	if (DBG_TLS && peer_cfg) {
 		vhost = tfw_vhost_from_tls_conf(ctx->peer_conf);
 		T_DBG("%s: for server name '%.*s' vhost '%.*s' is chosen\n",
 		      __func__, PR_TFW_STR(&srv_name),
 		      PR_TFW_STR(&vhost->name));
 	}
 
-	return found ? 0 : -TTLS_ERR_CERTIFICATE_REQUIRED;
+	return peer_cfg ? 0 : -TTLS_ERR_CERTIFICATE_REQUIRED;
 }
 
 /*
@@ -792,14 +792,6 @@ tfw_tls_cfg_configured(bool global)
 	tfw_tls_cgf |= TFW_TLS_CFG_F_CERTS;
 	if (global)
 		tfw_tls_cgf |= TFW_TLS_CFG_F_CERTS_GLOBAL;
-}
-
-void
-tfw_tls_cfg_allow_fallback(bool allow_any_sni, bool fbk_dflt_vhost)
-{
-	/* TODO! run only at start()! reconfig event! */
-	WRITE_ONCE(tfw_tls.allow_unknown_sni, allow_any_sni);
-	WRITE_ONCE(tfw_tls.fallback_to_dflt_sni, fbk_dflt_vhost);
 }
 
 int
