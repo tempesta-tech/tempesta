@@ -210,6 +210,7 @@ TfwLocation *tfw_location_match(TfwVhost *vhost, TfwStr *arg);
 TfwVhost *tfw_vhost_lookup_reconfig(const char *name);
 TfwVhost *tfw_vhost_lookup(const TfwStr *name);
 TfwVhost *tfw_vhost_lookup_default(void);
+bool tfw_vhost_is_default_reconfig(TfwVhost *vhost);
 TfwSrvConn *tfw_vhost_get_srv_conn(TfwMsg *msg);
 TfwVhost *tfw_vhost_new(const char *name);
 TfwGlobal *tfw_vhost_get_global(void);
