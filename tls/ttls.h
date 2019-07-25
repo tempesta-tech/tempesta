@@ -324,7 +324,7 @@ typedef struct {
  * This structure contains a full set of runtime transform parameters
  * either in negotiation or active.
  *
- * @ciphersuite_info	- chosen cipersuite_info;
+ * @ciphersuite_info	- chosen ciphersuite_info;
  * @md_ctx_enc		- MAC encryption context;
  * @md_ctx_dec		- MAC decryption context;
  * @cipher_ctx_enc	- encryption crypto context;

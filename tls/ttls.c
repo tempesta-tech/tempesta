@@ -1525,7 +1525,7 @@ parse:
 	}
 	sess->peer_cert = kmalloc(sizeof(ttls_x509_crt), GFP_KERNEL);
 	if (!sess->peer_cert) {
-		T_DBG("can npt allocacte a certificate (%lu bytes)\n",
+		T_DBG("can not allocate a certificate (%lu bytes)\n",
 		      sizeof(ttls_x509_crt));
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				    TTLS_ALERT_MSG_INTERNAL_ERROR);
@@ -2122,12 +2122,12 @@ ttls_hs_checksumable(TlsCtx *tls)
  * execution of this function. Do not call this function if state is
  * TTLS_HANDSHAKE_OVER.
  *
- * The step callees must return T_POSTPONE if more input data is required to
+ * The step callers must return T_POSTPONE if more input data is required to
  * completely read current ingress record and 0 (T_OK) if current FSM state
  * finished successfully. All other return codes are treated as errors.
  *
  * @hh_len is pure optimization argument: it defines a backward offset in
- * @buf of size of hadshake header if the header is in the @buf, so this way
+ * @buf of size of handshake header if the header is in the @buf, so this way
  * we can compute the whole message checksum in one shot. Only handshake steps
  * reading ingress data use the argument.
  */
@@ -2227,7 +2227,7 @@ next_record:
 		}
 
 		/*
-		 * We add ingress messages to the handhsake session checksum
+		 * We add ingress messages to the handshake session checksum
 		 * in two different places: here for message chunks and inside
 		 * the handshake state machine. @hh_len is used for the
 		 * checksumming only. We can not compute checksum for complete

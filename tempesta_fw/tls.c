@@ -118,7 +118,7 @@ next_msg:
 		return r;
 	case T_POSTPONE:
 		/*
-		 * No data to pass to upper protolos, could be a handshake
+		 * No data to pass to upper protocols, could be a handshake
 		 * message spread over several skbs and/or incomplete TLS
 		 * record. Typically, handshake messages fit the same skb and
 		 * all the messages are processed in one ss_skb_process() call.
@@ -233,7 +233,7 @@ int
 tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 {
 	/*
-	 * TODO #1103 currently even trivail 500-bytes HTTP message generates
+	 * TODO #1103 currently even trivial 500-bytes HTTP message generates
 	 * 6 segment skb. After the fix the number probably should be decreased.
 	 */
 #define AUTO_SEGS_N	8

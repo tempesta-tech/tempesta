@@ -35,7 +35,7 @@ ttls_check_scsvs(TlsCtx *tls, unsigned short cipher_suite)
 	case TTLS_FALLBACK_SCSV_VALUE:
 		T_DBG("received FALLBACK_SCSV\n");
 		if (tls->minor < tls->conf->max_minor_ver) {
-			T_DBG("inapropriate fallback\n");
+			T_DBG("inappropriate fallback\n");
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 					TTLS_ALERT_MSG_INAPROPRIATE_FALLBACK);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
@@ -1402,7 +1402,7 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 	 * ServerKeyExchange, so end here.
 	 */
 	if (ttls_ciphersuite_no_pfs(ci)) {
-		T_DBG("the key exchanges isn't involving ephimeral keys\n");
+		T_DBG("the key exchanges isn't involving ephemeral keys\n");
 		return 0;
 	}
 
@@ -2210,7 +2210,7 @@ ttls_handshake_server_hello(TlsCtx *tls)
 		} else {
 			tls->state = TTLS_CLIENT_CERTIFICATE;
 		}
-		/* All the writers getted their frags, so put our reference. */
+		/* All the writers got their frags, so put our reference. */
 		put_page(pg);
 		sg_mark_end(&sgt.sgl[sgt.nents - 1]);
 		/* Exit, enter the FSM on more data from the client. */

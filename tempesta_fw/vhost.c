@@ -37,7 +37,7 @@
  *		  current configuration).
  * @expl_dflt	- Flag to indicate explicit configuration of default
  *		  virtual host.
- * @vh_hash	- Hashtable with configured virtual hosts.
+ * @vh_hash	- Hash table with configured virtual hosts.
  */
 typedef struct {
 	TfwVhost	*vhost_dflt;
