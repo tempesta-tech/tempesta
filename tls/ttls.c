@@ -1833,7 +1833,7 @@ ttls_handshake_params_init(TlsHandshake *hs)
 }
 
 int
-ttls_ctx_init(TlsCtx *tls, const ttls_config *conf)
+ttls_ctx_init(TlsCtx *tls, const TlsCfg *conf)
 {
 	bzero_fast(tls, sizeof(*tls));
 	spin_lock_init(&tls->lock);
@@ -1850,7 +1850,7 @@ ttls_ctx_init(TlsCtx *tls, const ttls_config *conf)
 EXPORT_SYMBOL(ttls_ctx_init);
 
 void
-ttls_conf_authmode(ttls_config *conf, int authmode)
+ttls_conf_authmode(TlsCfg *conf, int authmode)
 {
 	conf->authmode = authmode;
 }
@@ -1886,7 +1886,7 @@ ttls_conf_ciphersuites_for_version(const int **ciphersuite_list,
 }
 
 void
-ttls_conf_cert_profile(ttls_config *conf, const ttls_x509_crt_profile *profile)
+ttls_conf_cert_profile(TlsCfg *conf, const ttls_x509_crt_profile *profile)
 {
 	conf->cert_profile = profile;
 }
@@ -1942,9 +1942,9 @@ ttls_set_hs_authmode(ttls_context *tls, int authmode)
 
 #if defined(TTLS_DHM_C)
 
-int ttls_conf_dh_param_bin(ttls_config *conf,
-		const unsigned char *dhm_P, size_t P_len,
-		const unsigned char *dhm_G, size_t G_len)
+int ttls_conf_dh_param_bin(TlsCfg *conf,
+			   const unsigned char *dhm_P, size_t P_len,
+			   const unsigned char *dhm_G, size_t G_len)
 {
 	int r;
 
@@ -1959,7 +1959,7 @@ int ttls_conf_dh_param_bin(ttls_config *conf,
 	return 0;
 }
 
-int ttls_conf_dh_param_ctx(ttls_config *conf, ttls_dhm_context *dhm_ctx)
+int ttls_conf_dh_param_ctx(TlsCfg *conf, ttls_dhm_context *dhm_ctx)
 {
 	int r;
 
@@ -1979,8 +1979,8 @@ int ttls_conf_dh_param_ctx(ttls_config *conf, ttls_dhm_context *dhm_ctx)
 /*
  * Set the minimum length for Diffie-Hellman parameters
  */
-void ttls_conf_dhm_min_bitlen(ttls_config *conf,
-		unsigned int bitlen)
+void ttls_conf_dhm_min_bitlen(TlsCfg *conf,
+			      unsigned int bitlen)
 {
 	conf->dhm_min_bitlen = bitlen;
 }
@@ -2049,7 +2049,7 @@ int ttls_set_hostname(ttls_context *tls, const char *hostname)
 }
 
 void
-ttls_conf_sni(ttls_config *conf,
+ttls_conf_sni(TlsCfg *conf,
 	      int (*f_sni)(void *, ttls_context *, const unsigned char *,
 			   size_t),
 	      void *p_sni)
@@ -2066,17 +2066,17 @@ ttls_get_alpn_protocol(const TlsCtx *tls)
 }
 
 void
-ttls_conf_version(ttls_config *conf, int min_minor, int max_minor)
+ttls_conf_version(TlsCfg *conf, int min_minor, int max_minor)
 {
 	conf->min_minor_ver = min_minor;
 	conf->max_minor_ver = max_minor;
 }
 
 #if defined(TTLS_SESSION_TICKETS)
-void ttls_conf_session_tickets_cb(ttls_config *conf,
-		ttls_ticket_write_t *f_ticket_write,
-		ttls_ticket_parse_t *f_ticket_parse,
-		void *p_ticket)
+void ttls_conf_session_tickets_cb(TlsCfg *conf,
+				  ttls_ticket_write_t *f_ticket_write,
+				  ttls_ticket_parse_t *f_ticket_parse,
+				  void *p_ticket)
 {
 	conf->f_ticket_write = f_ticket_write;
 	conf->f_ticket_parse = f_ticket_parse;
@@ -2373,9 +2373,9 @@ ttls_ctx_clear(TlsCtx *tls)
 EXPORT_SYMBOL(ttls_ctx_clear);
 
 void
-ttls_config_init(ttls_config *conf)
+ttls_config_init(TlsCfg *conf)
 {
-	bzero_fast(conf, sizeof(ttls_config));
+	bzero_fast(conf, sizeof(TlsCfg));
 }
 EXPORT_SYMBOL(ttls_config_init);
 
@@ -2432,7 +2432,7 @@ static ttls_ecp_group_id ssl_preset_suiteb_curves[] = {
  * Use NSA Suite B as a preset-specific defaults.
  */
 int
-ttls_config_defaults(ttls_config *conf, int endpoint)
+ttls_config_defaults(TlsCfg *conf, int endpoint)
 {
 	conf->endpoint = endpoint;
 
@@ -2491,9 +2491,9 @@ ttls_config_peer_defaults(TlsPeerCfg *conf, int endpoint)
 EXPORT_SYMBOL(ttls_config_peer_defaults);
 
 void
-ttls_config_free(ttls_config *conf)
+ttls_config_free(TlsCfg *conf)
 {
-	bzero_fast(conf, sizeof(ttls_config));
+	bzero_fast(conf, sizeof(TlsCfg));
 }
 EXPORT_SYMBOL(ttls_config_free);
 
@@ -2536,7 +2536,7 @@ ttls_pk_alg_from_sig(unsigned char sig)
  * Most secure are preferred.
  */
 ttls_md_type_t
-ttls_sig_hash_set_find(ttls_sig_hash_set_t *set, ttls_pk_type_t sig_alg)
+ttls_sig_hash_set_find(TlsSigHashSet *set, ttls_pk_type_t sig_alg)
 {
 	/* fls(0x1) == fls(0x0) = TTLS_MD_NONE. */
 	switch (sig_alg) {
@@ -2553,7 +2553,7 @@ ttls_sig_hash_set_find(ttls_sig_hash_set_t *set, ttls_pk_type_t sig_alg)
  * Add a signature-hash-pair to a signature-hash set/
  */
 void
-ttls_sig_hash_set_add(ttls_sig_hash_set_t *set, ttls_pk_type_t sig_alg,
+ttls_sig_hash_set_add(TlsSigHashSet *set, ttls_pk_type_t sig_alg,
 		      ttls_md_type_t md_alg)
 {
 	switch (sig_alg) {
@@ -2569,7 +2569,7 @@ ttls_sig_hash_set_add(ttls_sig_hash_set_t *set, ttls_pk_type_t sig_alg,
 }
 
 bool
-ttls_sig_hash_set_has(ttls_sig_hash_set_t *set, ttls_pk_type_t sig_alg,
+ttls_sig_hash_set_has(TlsSigHashSet *set, ttls_pk_type_t sig_alg,
 		      ttls_md_type_t md_alg)
 {
 	switch (sig_alg) {
@@ -2583,8 +2583,8 @@ ttls_sig_hash_set_has(ttls_sig_hash_set_t *set, ttls_pk_type_t sig_alg,
 }
 
 void
-ttls_sig_hash_set_const(ttls_sig_hash_set_t *set, ttls_pk_type_t sig_alg,
-		      ttls_md_type_t md_alg)
+ttls_sig_hash_set_const(TlsSigHashSet *set, ttls_pk_type_t sig_alg,
+			ttls_md_type_t md_alg)
 {
 	switch (sig_alg) {
 	case TTLS_PK_RSA:
@@ -2680,7 +2680,7 @@ ttls_check_sig_hash(const TlsCtx *tls, ttls_md_type_t md)
 int
 ttls_match_sig_hashes(const TlsCtx *tls)
 {
-	ttls_sig_hash_set_t *set = &tls->hs->hash_algs;
+	TlsSigHashSet *set = &tls->hs->hash_algs;
 	bool dflt_available = false, has_rsa = false, has_ecdsa = false;
 	const int *cur;
 

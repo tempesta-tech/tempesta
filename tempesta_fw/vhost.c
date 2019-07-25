@@ -362,7 +362,7 @@ static TfwGlobal		tfw_global = {
 
 /**
  * Match vhost to requested name. Called in process context during configuration
- * processing, both string are guaranteed to be plain.
+ * processing, both strings are guaranteed to be plain.
  */
 static bool
 tfw_vhost_name_match(TfwVhost *vh, const TfwStr *name)
