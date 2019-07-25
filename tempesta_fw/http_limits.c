@@ -264,7 +264,7 @@ typedef struct {
 do {									\
 	char abuf[TFW_ADDR_STR_BUF_SIZE] = {0};				\
 	tfw_addr_fmt(addr, TFW_NO_PORT, abuf);				\
-	TFW_DBG("frang: " fmt_msg, abuf, ##__VA_ARGS__);		\
+	T_DBG("frang: " fmt_msg, abuf, ##__VA_ARGS__);			\
 } while (0)
 #else
 #define frang_dbg(...)
@@ -348,7 +348,7 @@ frang_conn_new(struct sock *sk)
 	ss_getpeername(sk, &addr);
 	cli = tfw_client_obtain(addr, NULL, NULL, __frang_init_acc);
 	if (unlikely(!cli)) {
-		TFW_ERR("can't obtain a client for frang accounting\n");
+		T_ERR("can't obtain a client for frang accounting\n");
 		tfw_vhost_put(dflt_vh);
 		return TFW_BLOCK;
 	}
@@ -626,7 +626,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 
 		hdrhost = tfw_pool_alloc(req->pool, field.len + 1);
 		if (unlikely(!hdrhost)) {
-			TFW_ERR("Can not allocate memory\n");
+			T_ERR("Can not allocate memory\n");
 			return TFW_BLOCK;
 		}
 		tfw_str_to_cstr(&field, hdrhost, field.len + 1);
@@ -1292,7 +1292,7 @@ tfw_http_limits_hooks_register(void)
 						 h->hook_state, h->fsm_id,
 						 h->st0);
 		if (h->prio < 0) {
-			TFW_ERR_NL("frang: can't register %s hook\n", h->name);
+			T_ERR_NL("frang: can't register %s hook\n", h->name);
 			return -EINVAL;
 		}
 	}
@@ -1313,13 +1313,13 @@ tfw_http_limits_init(void)
 
 	r = tfw_gfsm_register_fsm(TFW_FSM_FRANG_REQ, frang_http_req_handler);
 	if (r) {
-		TFW_ERR_NL("frang: can't register request fsm\n");
+		T_ERR_NL("frang: can't register request fsm\n");
 		goto err_fsm;
 	}
 
 	r = tfw_gfsm_register_fsm(TFW_FSM_FRANG_RESP, frang_resp_handler);
 	if (r) {
-		TFW_ERR_NL("frang: can't register response fsm\n");
+		T_ERR_NL("frang: can't register response fsm\n");
 		goto err_fsm_resp;
 	}
 
@@ -1342,7 +1342,7 @@ err_fsm:
 void
 tfw_http_limits_exit(void)
 {
-	TFW_DBG("frang exit\n");
+	T_DBG("frang exit\n");
 
 	tfw_http_limits_hooks_remove();
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_RESP);
