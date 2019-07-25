@@ -273,10 +273,8 @@ union ttls_premaster_secret
 /* Defined below */
 typedef struct ttls_alpn_proto ttls_alpn_proto;
 typedef struct ttls_context ttls_context;
-typedef struct ttls_config ttls_config;
 
 /* Defined in tls_internal.h */
-typedef struct ttls_sig_hash_set_t ttls_sig_hash_set_t;
 typedef struct ttls_key_cert ttls_key_cert;
 
 /*
@@ -354,90 +352,114 @@ typedef struct {
 	unsigned char			iv_dec[16];
 } TlsXfrm;
 
+/**
+ * Peer TLS configuration. Each virtual server (vhost) inside Tempesta
+ * may have its own settings and limitations.
+ *
+ * @ciphersuite_list	- Allowed ciphersuites per TLS version;
+ * @curve_list		- Allowed curves;
+ * @sig_hashes		- Allowed signature hashes;
+ * @key_cert		- Own certificate/key list;
+ * @priv		- Private section, used for configuration storing;
+ * @min_minor_ver	- Minimum supported TLS version;
+ * @max_minor_ver	- Maximum supported TLS version;
+ *
+ * @endpoint		- Peer type: 0: client, 1: server;
+ * @authmode		- TTLS_VERIFY_XXX;
+ * @session_tickets	- Use session tickets if set;
+ * @cert_req_ca_list	- Enable sending CA list in Certificate Request messages;
+ *
+ * The structure is to be populated by more fields from the TlsCfg, arrange
+ * them by size to reduce padding overhead.
+ */
 typedef struct {
-	/** allowed ciphersuites per version */
 	const int			*ciphersuite_list[4];
-	/** allowed curves	*/
 	const ttls_ecp_group_id		*curve_list;
-	/** allowed signature hashes	*/
 	const int			*sig_hashes;
-
-	/** Own certificate/key list */
 	ttls_key_cert			*key_cert;
-	/** Private section, used for configuration storing. */
 	void				*priv;
 
 	unsigned char			min_minor_ver;
 	unsigned char			max_minor_ver;
 
-	unsigned int endpoint : 1;	/*!< 0: client, 1: server	*/
-	unsigned int authmode : 2;	/*!< TTLS_VERIFY_XXX	*/
-	unsigned int session_tickets : 1; /*!< use session tickets?	*/
-	unsigned int cert_req_ca_list : 1; /*!< enable sending CA list in
-	Certificate Request messages?	*/
+	unsigned int			endpoint : 1;
+	unsigned int			authmode : 2;
+	unsigned int			session_tickets : 1;
+	unsigned int			cert_req_ca_list : 1;
 } TlsPeerCfg;
 
 /**
- * SSL/TLS configuration to be shared between ttls_context structures.
+ * Global TLS configuration to be shared between all vhosts and to be used in
+ * ttls_context structures.
+ *
+ * @f_get_cache		- Callback to retrieve a session from the cache;
+ * @f_set_cache		- Callback to store a session into the cache;
+ * @p_cache		- Context for cache callbacks;
+ *
+ * @f_sni		- Callback for setting cert according to SNI extension;
+ * @p_sni		- Context for SNI callback;
+ * @f_vrfy		- Callback to customize X.509 certificate chain
+ *			  verification;
+ * @p_vrfy		- Context for X.509 verify callback;
+ *
+ * @f_ticket_write	- Callback to create & write a session ticket;
+ * @f_ticket_parse	- Callback to parse a session ticket into a session
+ *			  structure;
+ * @p_ticket		- Context for the ticket callbacks;
+ *
+ * @cert_profile	- Verification profile;
+ *
+ * @dhm_P		- prime modulus for DHM;
+ * @dhm_G		- generator for DHM;
+ *
+ * @alpn_list		- Ordered list of protocols;
+ * @read_timeout	- timeout for ttls_recv (ms);
  *
  * @min_minor_ver	- minimum allowed minor version;
  * @max_minor_ver	- always 3 for now, and used for SCSV fallbacks only.
  *			  Preserved for TLS 1.3.
+ *
+ * @dhm_min_bitlen	- Minimum bit length of the DHM prime;
+ *
+ * @endpoint		- Peer type: 0: client, 1: server;
+ * @authmode		- TTLS_VERIFY_XXX;
+ * @session_tickets	- Use session tickets if set;
+ * @cert_req_ca_list	- Enable sending CA list in Certificate Request messages;
+ *
+ * Members are grouped by size (largest first) to minimize padding overhead.
  */
-struct ttls_config
+typedef struct
 {
-	/* Group items by size (largest first) to minimize padding overhead */
-
-	/** Callback to retrieve a session from the cache	*/
 	int (*f_get_cache)(void *, TlsSess *);
-	/** Callback to store a session into the cache	*/
 	int (*f_set_cache)(void *, const TlsSess *);
-	void *p_cache;	/*!< context for cache callbacks	*/
-
-	/** Callback for setting cert according to SNI extension	*/
+	void *p_cache;
 	int (*f_sni)(void *, ttls_context *, const unsigned char *, size_t);
-	void *p_sni;	/*!< context for SNI callback	*/
-	/** Callback to customize X.509 certificate chain verification	*/
+	void *p_sni;
 	int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *);
-	void *p_vrfy;	/*!< context for X.509 verify calllback */
-
-	/** Callback to create & write a session ticket	*/
+	void *p_vrfy;
 	int (*f_ticket_write)(void *, const TlsSess *,
 	unsigned char *, const unsigned char *, size_t *, uint32_t *);
-	/** Callback to parse a session ticket into a session structure	*/
 	int (*f_ticket_parse)(void *, TlsSess *, unsigned char *, size_t);
-	void *p_ticket;	/*!< context for the ticket callbacks */
+	void *p_ticket;
 
-	const ttls_x509_crt_profile *cert_profile; /*!< verification profile */
-
+	const ttls_x509_crt_profile	*cert_profile;
 #if defined(TTLS_DHM_C)
-	ttls_mpi dhm_P;	/*!< prime modulus for DHM	*/
-	ttls_mpi dhm_G;	/*!< generator for DHM	*/
+	ttls_mpi			dhm_P;
+	ttls_mpi			dhm_G;
 #endif
+	const ttls_alpn_proto		*alpn_list;
 
-	const ttls_alpn_proto *alpn_list;	/*!< ordered list of protocols */
-
-	/*
-	* Numerical settings (int then char)
-	*/
-	uint32_t read_timeout;	/*!< timeout for ttls_recv (ms) */
+	uint32_t			read_timeout;
 	unsigned char			min_minor_ver;
 	unsigned char			max_minor_ver;
-
 #if defined(TTLS_DHM_C) && defined(TTLS_CLI_C)
-	unsigned int dhm_min_bitlen;	/*!< min. bit length of the DHM prime */
+	unsigned int			dhm_min_bitlen;
 #endif
-
-	/*
-	* Flags (bitfields)
-	*/
-
-	unsigned int endpoint : 1;	/*!< 0: client, 1: server	*/
-	unsigned int authmode : 2;	/*!< TTLS_VERIFY_XXX	*/
-	unsigned int session_tickets : 1; /*!< use session tickets?	*/
-	unsigned int cert_req_ca_list : 1; /*!< enable sending CA list in
-	Certificate Request messages?	*/
-};
+	unsigned int			endpoint : 1;
+	unsigned int			authmode : 2;
+	unsigned int			session_tickets : 1;
+	unsigned int			cert_req_ca_list : 1;
+} TlsCfg;
 
 /* I/O state flags. */
 #define TTLS_F_ST_HDRIV		1 /* header [and IV] parsed */
@@ -514,7 +536,7 @@ typedef struct tls_handshake_t TlsHandshake;
  */
 typedef struct ttls_context {
 	spinlock_t		lock;
-	const ttls_config	*conf;
+	const TlsCfg		*conf;
 	const TlsPeerCfg	*peer_conf;
 	TlsHandshake		*hs;
 	const ttls_alpn_proto	*alpn_chosen;
@@ -552,7 +574,7 @@ void ttls_register_bio(ttls_send_cb_t *send_cb);
 
 const char *ttls_get_ciphersuite_name(const int ciphersuite_id);
 
-int ttls_ctx_init(TlsCtx *tls, const ttls_config *conf);
+int ttls_ctx_init(TlsCtx *tls, const TlsCfg *conf);
 
 /**
  * \brief	Set the certificate verification mode
@@ -580,7 +602,7 @@ int ttls_ctx_init(TlsCtx *tls, const ttls_config *conf);
  * the verification as soon as possible. For example, REQUIRED was protecting
  * against the "triple handshake" attack even before it was found.
  */
-void ttls_conf_authmode(ttls_config *conf, int authmode);
+void ttls_conf_authmode(TlsCfg *conf, int authmode);
 
 /**
  * \brief	Callback type: generate and write session ticket
@@ -646,10 +668,10 @@ typedef int ttls_ticket_parse_t(void *p_ticket, TlsSess *session,
  * \param f_ticket_parse	Callback for parsing a ticket
  * \param p_ticket	Context shared by the two callbacks
  */
-void ttls_conf_session_tickets_cb(ttls_config *conf,
-	ttls_ticket_write_t *f_ticket_write,
-	ttls_ticket_parse_t *f_ticket_parse,
-	void *p_ticket);
+void ttls_conf_session_tickets_cb(TlsCfg *conf,
+				  ttls_ticket_write_t *f_ticket_write,
+				  ttls_ticket_parse_t *f_ticket_parse,
+				  void *p_ticket);
 
 #if defined(TTLS_CLI_C)
 /**
@@ -696,7 +718,7 @@ void ttls_conf_ciphersuites_for_version(const int **ciphersuite_list,
  * \param conf	SSL configuration
  * \param profile Profile to use
  */
-void ttls_conf_cert_profile(ttls_config *conf,
+void ttls_conf_cert_profile(TlsCfg *conf,
 			    const ttls_x509_crt_profile *profile);
 
 /**
@@ -750,9 +772,9 @@ int ttls_conf_own_cert(TlsPeerCfg *conf,
  *
  * \return	0 if successful
  */
-int ttls_conf_dh_param_bin(ttls_config *conf,
-	const unsigned char *dhm_P, size_t P_len,
-	const unsigned char *dhm_G, size_t G_len);
+int ttls_conf_dh_param_bin(TlsCfg *conf,
+			   const unsigned char *dhm_P, size_t P_len,
+			   const unsigned char *dhm_G, size_t G_len);
 
 /**
  * \brief	Set the Diffie-Hellman public P and G values,
@@ -763,7 +785,7 @@ int ttls_conf_dh_param_bin(ttls_config *conf,
  *
  * \return	0 if successful
  */
-int ttls_conf_dh_param_ctx(ttls_config *conf, ttls_dhm_context *dhm_ctx);
+int ttls_conf_dh_param_ctx(TlsCfg *conf, ttls_dhm_context *dhm_ctx);
 #endif /* TTLS_DHM_C */
 
 #if defined(TTLS_DHM_C) && defined(TTLS_CLI_C)
@@ -775,8 +797,8 @@ int ttls_conf_dh_param_ctx(ttls_config *conf, ttls_dhm_context *dhm_ctx);
  * \param conf	SSL configuration
  * \param bitlen Minimum bit length of the DHM prime
  */
-void ttls_conf_dhm_min_bitlen(ttls_config *conf,
-	unsigned int bitlen);
+void ttls_conf_dhm_min_bitlen(TlsCfg *conf,
+			      unsigned int bitlen);
 #endif /* TTLS_DHM_C && TTLS_CLI_C */
 
 /**
@@ -884,7 +906,7 @@ void ttls_set_hs_authmode(ttls_context *ssl, int authmode);
  * \param f_sni	verification function
  * \param p_sni	verification parameter
  */
-void ttls_conf_sni(ttls_config *conf,
+void ttls_conf_sni(TlsCfg *conf,
 		   int (*f_sni)(void *, ttls_context *, const unsigned char *,
 				size_t),
 		   void *p_sni);
@@ -900,7 +922,7 @@ void ttls_conf_sni(ttls_config *conf,
  */
 const char *ttls_get_alpn_protocol(const ttls_context *ssl);
 
-void ttls_conf_version(ttls_config *conf, int min_minor, int max_minor);
+void ttls_conf_version(TlsCfg *conf, int min_minor, int max_minor);
 
 #if defined(TTLS_CLI_C)
 /**
@@ -946,10 +968,10 @@ int ttls_close_notify(TlsCtx *tls);
 void ttls_ctx_clear(ttls_context *tls);
 void ttls_key_cert_free(ttls_key_cert *key_cert);
 
-void ttls_config_init(ttls_config *conf);
-int ttls_config_defaults(ttls_config *conf, int endpoint);
+void ttls_config_init(TlsCfg *conf);
+int ttls_config_defaults(TlsCfg *conf, int endpoint);
 int ttls_config_peer_defaults(TlsPeerCfg *conf, int endpoint);
-void ttls_config_free(ttls_config *conf);
+void ttls_config_free(TlsCfg *conf);
 void ttls_config_peer_free(TlsPeerCfg *conf);
 
 void ttls_strerror(int errnum, char *buffer, size_t buflen);

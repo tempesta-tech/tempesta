@@ -92,7 +92,7 @@
  * @ecdsa		- bitmap to store values from ttls_md_type_t;
  *
  * When signature_algorithm extension in ClientHello is parsed, target server
- * is not known, and the grit contain all (known) client capabilities.
+ * is not known, and the grid contain all (known) client capabilities.
  * After target server is determined, the most preferred hash function is
  * stored in the grid while others are dropped.
  *
@@ -102,11 +102,11 @@
  * we can implement the sig-hash-set as a map from signatures
  * to hash algorithms
  */
-struct ttls_sig_hash_set_t
+typedef struct
 {
 	unsigned int rsa;
 	unsigned int ecdsa;
-};
+} TlsSigHashSet;
 
 /*
  * This structure contains the parameters only needed during handshake.
@@ -134,7 +134,7 @@ struct ttls_sig_hash_set_t
  * @tmp		- buffer to store temporary data between data chunks;
  */
 struct tls_handshake_t {
-	ttls_sig_hash_set_t		hash_algs;
+	TlsSigHashSet			hash_algs;
 	int				sni_authmode;
 
 	unsigned char			point_form		: 1,
@@ -195,10 +195,10 @@ struct ttls_key_cert
 };
 
 /* Find an entry in a signature-hash set matching a given hash algorithm. */
-ttls_md_type_t ttls_sig_hash_set_find(ttls_sig_hash_set_t *set,
-			 ttls_pk_type_t sig_alg);
+ttls_md_type_t ttls_sig_hash_set_find(TlsSigHashSet *set,
+				      ttls_pk_type_t sig_alg);
 /* Add a signature-hash-pair to a signature-hash set */
-void ttls_sig_hash_set_add(ttls_sig_hash_set_t *set,
+void ttls_sig_hash_set_add(TlsSigHashSet *set,
 			   ttls_pk_type_t sig_alg,
 			   ttls_md_type_t md_alg);
 

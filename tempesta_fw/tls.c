@@ -40,7 +40,7 @@
  *			  vhost chosen by server name tls extension.
  */
 static struct {
-	ttls_config	cfg;
+	TlsCfg		cfg;
 	bool		allow_unknown_sni;
 	bool		fallback_to_dflt_sni;
 } tfw_tls;
