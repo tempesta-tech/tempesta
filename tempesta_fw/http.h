@@ -230,6 +230,8 @@ enum {
 	TFW_HTTP_B_CONN_EXTRA,
 	/* Chunked transfer encoding. */
 	TFW_HTTP_B_CHUNKED,
+	/* Message has chunked trailer headers part. */
+	TFW_HTTP_B_CHUNKED_TRAILER,
 	/* The message body is limited by the connection closing. */
 	TFW_HTTP_B_UNLIMITED,
 	/* Media type is multipart/form-data. */
@@ -238,6 +240,8 @@ enum {
 	TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
 	/* Singular header presents more than once. */
 	TFW_HTTP_B_FIELD_DUPENTRY,
+	/* Message is fully parsed */
+	TFW_HTTP_B_FULLY_PARSED,
 
 	/* Request flags. */
 	TFW_HTTP_FLAGS_REQ,

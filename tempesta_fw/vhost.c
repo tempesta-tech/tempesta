@@ -2217,16 +2217,6 @@ tfw_vhost_start(void)
 {
 	TfwVhostList *vh_list;
 
-	if (!tfw_runstate_is_reconfig()) {
-		/* Convert Frang global timeouts to jiffies for convenience */
-		frang_cfg.clnt_hdr_timeout =
-			*(unsigned int *)&frang_cfg.clnt_hdr_timeout *
-			(unsigned long)HZ;
-		frang_cfg.clnt_body_timeout =
-			*(unsigned int *)&frang_cfg.clnt_body_timeout *
-			(unsigned long)HZ;
-	}
-
 	rcu_read_lock();
 	vh_list = rcu_dereference(tfw_vhosts);
 	rcu_read_unlock();

@@ -219,7 +219,6 @@ bool tfw_vhost_is_default_reconfig(TfwVhost *vhost);
 TfwSrvConn *tfw_vhost_get_srv_conn(TfwMsg *msg);
 TfwVhost *tfw_vhost_new(const char *name);
 TfwGlobal *tfw_vhost_get_global(void);
-TfwLocation *tfw_vhost_get_global_location(void);
 TfwHdrMods *tfw_vhost_get_hdr_mods(TfwLocation *loc, TfwVhost *vhost,
 				   int mod_type);
 
