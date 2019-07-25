@@ -438,6 +438,10 @@ tfw_vhost_lookup(const TfwStr *name)
 	return vhost;
 }
 
+/**
+ * Get default vhost in the running configuration. Default vhost is special
+ * entity that contains default policies if more precise vhost cannot be found.
+ */
 TfwVhost *
 tfw_vhost_lookup_default(void)
 {
@@ -460,8 +464,8 @@ tfw_vhost_get_global(void)
 	return &tfw_global;
 }
 
-static inline bool
-tfw_vhost_default(TfwVhost *vhost)
+bool
+tfw_vhost_is_default_reconfig(TfwVhost *vhost)
 {
 	return tfw_vhosts_reconfig->vhost_dflt == vhost;
 }
@@ -1146,7 +1150,7 @@ tfw_cfgop_in_location_finish(TfwCfgSpec *cs)
 {
 	BUG_ON(!tfw_vhost_entry);
 	BUG_ON(!tfwcfg_this_location);
-	if (!tfw_vhost_default(tfw_vhost_entry)
+	if (!tfw_vhost_is_default_reconfig(tfw_vhost_entry)
 	    && !tfwcfg_this_location->main_sg)
 	{
 		TFW_ERR_NL("Directive 'proxy_pass' is not specified for"
@@ -1402,7 +1406,8 @@ tfw_cfgop_proxy_pass(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 	in_main_sg = ce->vals[0];
 	in_backup_sg = tfw_cfg_get_attr(ce, "backup", NULL);
 
-	if (!tfw_vhost_entry || tfw_vhost_default(tfw_vhost_entry)) {
+	if (!tfw_vhost_entry || tfw_vhost_is_default_reconfig(tfw_vhost_entry))
+	{
 		if (!strcasecmp(in_main_sg, TFW_VH_DFT_NAME)
 		    && (!in_backup_sg
 			|| !strcasecmp(in_backup_sg, TFW_VH_DFT_NAME)))
@@ -1505,7 +1510,7 @@ tfw_vhost_add(TfwVhost *vhost)
 
 	hash_add(tfw_vhosts_reconfig->vh_hash, &vhost->hlist, key);
 	tfw_vhost_get(vhost);
-	if (!tfw_vhost_default(vhost)) {
+	if (!tfw_vhost_is_default_reconfig(vhost)) {
 		vhost->vhost_dflt = tfw_vhosts_reconfig->vhost_dflt;
 		tfw_vhost_get(vhost->vhost_dflt);
 	}
@@ -1898,6 +1903,12 @@ tfw_cfgop_frang_out_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_cfgop_out_tls_certificate(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
+	if (tfw_vhosts_reconfig->expl_dflt) {
+		T_ERR_NL("%s: global level certificates are to be configured "
+			 "outside of explicit '%s' vhost.\n",
+			 cs->name, TFW_VH_DFT_NAME);
+		return -EINVAL;
+	}
 	return tfw_tls_set_cert(tfw_vhosts_reconfig->vhost_dflt, cs, ce);
 }
 
@@ -1910,6 +1921,12 @@ tfw_cfgop_in_tls_certificate(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_cfgop_out_tls_certificate_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
+	if (tfw_vhosts_reconfig->expl_dflt) {
+		T_ERR_NL("%s: global level certificates are to be configured "
+			 "outside of explicit '%s' vhost.\n",
+			 cs->name, TFW_VH_DFT_NAME);
+		return -EINVAL;
+	}
 	return tfw_tls_set_cert_key(tfw_vhosts_reconfig->vhost_dflt, cs, ce);
 }
 
@@ -1952,7 +1969,7 @@ tfw_cfgop_tls_fallback(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 	int disabled = 0, allow_any = 0, allow_fallback = 0;
 	int i;
 
-	if (!tfw_vhost_default(vhost)) {
+	if (!tfw_vhost_is_default_reconfig(vhost)) {
 		if (tfw_cfg_is_dflt_value(ce))
 			return 0;
 
@@ -2097,7 +2114,7 @@ tfw_cfgop_vhost_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		}
 	}
 	tfw_vhost_add(tfw_vhost_entry);
-	if (!tfw_vhost_default(tfw_vhost_entry))
+	if (!tfw_vhost_is_default_reconfig(tfw_vhost_entry))
 		tfw_vhost_put(tfw_vhost_entry);
 
 	return 0;
@@ -2110,7 +2127,7 @@ tfw_cfgop_vhost_finish(TfwCfgSpec *cs)
 
 	BUG_ON(!tfw_vhost_entry);
 	if (!tfw_vhost_entry->loc_dflt->main_sg) {
-		BUG_ON(tfw_vhost_default(tfw_vhost_entry));
+		BUG_ON(tfw_vhost_is_default_reconfig(tfw_vhost_entry));
 		TFW_ERR_NL("Directive 'proxy_pass' is not specified"
 			   " for not default vhost '%s'.\n",
 			   tfw_vhost_entry->name.data);

@@ -773,8 +773,10 @@ tfw_tls_do_cleanup(void)
  * ------------------------------------------------------------------------
  */
 /* TLS configuration state. */
-#define TFW_TLS_CFG_F_DISABLED	0U
-#define TFW_TLS_CFG_F_REQUIRED	1U
+#define TFW_TLS_CFG_F_DISABLED		0U
+#define TFW_TLS_CFG_F_REQUIRED		1U
+#define TFW_TLS_CFG_F_CERTS		2U
+#define TFW_TLS_CFG_F_CERTS_GLOBAL	4U
 
 static unsigned int tfw_tls_cgf = TFW_TLS_CFG_F_DISABLED;
 
@@ -785,8 +787,17 @@ tfw_tls_cfg_require(void)
 }
 
 void
+tfw_tls_cfg_configured(bool global)
+{
+	tfw_tls_cgf |= TFW_TLS_CFG_F_CERTS;
+	if (global)
+		tfw_tls_cgf |= TFW_TLS_CFG_F_CERTS_GLOBAL;
+}
+
+void
 tfw_tls_cfg_allow_fallback(bool allow_any_sni, bool fbk_dflt_vhost)
 {
+	/* TODO! run only at start()! reconfig event! */
 	WRITE_ONCE(tfw_tls.allow_unknown_sni, allow_any_sni);
 	WRITE_ONCE(tfw_tls.fallback_to_dflt_sni, fbk_dflt_vhost);
 }
@@ -882,9 +893,22 @@ tfw_tls_cfgend(void)
 {
 	if (!(tfw_tls_cgf & TFW_TLS_CFG_F_REQUIRED)) {
 		if (tfw_tls_cgf)
-			TFW_WARN_NL("TLS: no HTTPS listener,"
-				    " configuration ignored\n");
+			TFW_WARN_NL("TLS: no HTTPS listener set, configuration "
+				    "is ignored.\n");
 		return 0;
+	}
+	else if (!(tfw_tls_cgf & TFW_TLS_CFG_F_CERTS)) {
+		TFW_ERR_NL("TLS: HTTPS listener set but no TLS certificates "
+			    "provided. At least one vhost must have TLS "
+			   "certificates configured.\n");
+		return -EINVAL;
+	}
+
+	if (!(tfw_tls_cgf & TFW_TLS_CFG_F_CERTS_GLOBAL)) {
+		TFW_WARN_NL("TLS: no global TLS certificates provided. "
+			    "Client TLS connections with unknown "
+			    "server name values or with no server name "
+			    "specified will be dropped.\n");
 	}
 
 	return 0;

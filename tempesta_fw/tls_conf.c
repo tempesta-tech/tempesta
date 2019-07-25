@@ -209,6 +209,8 @@ tfw_tls_cert_cfg_finish(TfwVhost *vhost)
 	TlsCertConf *curr_cert_conf;
 
 	BUG_ON(!vhost->tls_cfg.priv);
+	if (conf->certs_num)
+		tfw_tls_cfg_configured(tfw_vhost_is_default_reconfig(vhost));
 	if (conf->certs_num >= TLS_CONF_CERT_NUM)
 		return 0;
 	curr_cert_conf = &conf->certs[conf->certs_num];
