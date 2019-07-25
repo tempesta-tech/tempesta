@@ -116,7 +116,7 @@ typedef struct {
 	size_t			nipdef_sz;
 	TfwCaPolicy		**capo;
 	TfwNipDef		**nipdef;
-	struct frang_cfg_t	*frang_cfg;
+	FrangCfg		*frang_cfg;
 	TfwSrvGroup		*main_sg;
 	TfwSrvGroup		*backup_sg;
 	TfwPool			*hdrs_pool;
@@ -144,6 +144,10 @@ enum {
  * @loc_dflt	- Default policy.
  * @vhost_dflt	- Pointer to default virtual host with global policies.
  * @hdrs_pool	- Modification headers allocation pool for vhost's policies.
+ * @frang_gconf	- Global frang configuration. Applicable only for 'default'
+ *		  vhost and NULL for others. Provides frang configuration
+ *		  options used before request is parsed and assigned to any
+ *		  vhost.
  * @refcnt	- Number of users of the virtual host object.
  * @loc_sz	- Count of elements in @loc array.
  * @flags	- flags.
@@ -156,6 +160,7 @@ struct  tfw_vhost_t {
 	TfwLocation		*loc_dflt;
 	TfwVhost		*vhost_dflt;
 	TfwPool			*hdrs_pool;
+	FrangGlobCfg		*frang_gconf;
 	atomic64_t		refcnt;
 	size_t			loc_sz;
 	unsigned long		flags;
@@ -214,9 +219,9 @@ bool tfw_vhost_is_default_reconfig(TfwVhost *vhost);
 TfwSrvConn *tfw_vhost_get_srv_conn(TfwMsg *msg);
 TfwVhost *tfw_vhost_new(const char *name);
 TfwGlobal *tfw_vhost_get_global(void);
+TfwLocation *tfw_vhost_get_global_location(void);
 TfwHdrMods *tfw_vhost_get_hdr_mods(TfwLocation *loc, TfwVhost *vhost,
 				   int mod_type);
-struct frang_cfg_t *tfw_vhost_global_frang_cfg(void);
 
 static inline TfwVhost*
 tfw_vhost_from_tls_conf(const TlsPeerCfg *cfg)

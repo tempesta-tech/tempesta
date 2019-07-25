@@ -126,40 +126,72 @@ typedef struct {
 	size_t len;	/* The pre-computed strlen(@str). */
 } FrangCtVal;
 
-typedef struct frang_cfg_t FrangCfg;
-
-struct frang_cfg_t {
-	/* Limits (zero means unlimited). */
+/**
+ * Global Frang limits. As a request is received, it's not possible to determine
+ * it's target vhost or/and location until all the headers are parsed. Thus some
+ * limits can't be redefined for vhost or location and can exist only as
+ * unique top-level limits.
+ *
+ * @clnt_hdr_timeout	- Maximum time to receive the full headers set,
+ *			  in jiffies;
+ * @clnt_body_timeout	- Maximum time to receive the full body, in jiffies;
+ * @req_rate		- Maximum requests per second over all the
+ *			  connections from the single client;
+ * @req_burst		- Allowed request rate burst;
+ * @conn_rate		- Maximum new connections per second from the same
+ *			  client;
+ * @conn_burst		- Allowed connection rate burst;
+ * @conn_max		- Maximum number of allowed concurrent connections;
+ * @http_hchunk_cnt	- Maximum number of chunks in header part;
+ * @http_bchunk_cnt	- Maximum number of chunks in body part;
+ * @ip_block		- Block clients by IP address if set, if not - just
+ *			  close the client connection.
+ *
+ * Zero value means unlimited value.
+ */
+struct frang_global_cfg_t {
+	unsigned long		clnt_hdr_timeout;
+	unsigned long		clnt_body_timeout;
 	unsigned int		req_rate;
 	unsigned int		req_burst;
 	unsigned int		conn_rate;
 	unsigned int		conn_burst;
 	unsigned int		conn_max;
 
-	/*
-	 * Limits on time it takes to receive
-	 * a full header or a body chunk.
-	 */
-	unsigned long		clnt_hdr_timeout;
-	unsigned long		clnt_body_timeout;
+	unsigned int		http_hchunk_cnt;
+	unsigned int		http_bchunk_cnt;
 
-	/* Limits for HTTP request contents: uri, headers, body, etc. */
+	bool			ip_block;
+};
+
+/**
+ * Vhost|location -specific Frang directives.
+ *
+ * @http_methods_mask	- Allowed HTTP request methods;
+ * @http_uri_len	- Maximum allowed URI len;
+ * @http_field_len	- Maximum HTTP header length;
+ * @http_body_len	- Maximum body size;
+ * @http_hdr_cnt	- Maximum number of headers;
+ * @http_ct_vals	- Allowed 'Content-Type:' values;
+ * @http_ct_vals_sz	- Size of @http_ct_vals member;
+ * @http_resp_code_block - Response status codes and maximum number of each
+ *			   code before client connection is closed.
+ * @http_ct_required	- Header 'Content-Type:' is required;
+ * @http_host_required	- Header 'Host:' is required;
+ */
+struct frang_vhost_cfg_t {
+	unsigned long		http_methods_mask;
 	unsigned int		http_uri_len;
 	unsigned int		http_field_len;
 	unsigned int		http_body_len;
-	unsigned int		http_hchunk_cnt;
-	unsigned int		http_bchunk_cnt;
 	unsigned int		http_hdr_cnt;
+
+	FrangCtVal		*http_ct_vals;
+	size_t			http_ct_vals_sz;
+	FrangHttpRespCodeBlock	*http_resp_code_block;
+
 	bool			http_ct_required;
 	bool			http_host_required;
-
-	bool			ip_block;
-
-	/* The bitmask of allowed HTTP Method values. */
-	unsigned long		http_methods_mask;
-	/* The list of allowed Content-Type values. */
-	FrangCtVal		*http_ct_vals;
-	FrangHttpRespCodeBlock	*http_resp_code_block;
 };
 
 #endif /* __HTTP_LIMITS__ */
