@@ -20,11 +20,11 @@
 #include "tempesta_fw.h"
 #include "hash.h"
 #include "http.h"
+#include "http_limits.h"
 #include "http_match.h"
 #include "http_msg.h"
 #include "vhost.h"
 #include "str.h"
-#include "http_limits.h"
 #include "client.h"
 #include "tls_conf.h"
 
@@ -360,6 +360,10 @@ static TfwGlobal		tfw_global = {
 	.hdr_via_len	= sizeof(s_hdr_via_dflt) - 1,
 	.capuacl	= tfw_capuacl_dflt,
 };
+/* Temporal structures to parse top level (outside vhost) Frang configuration. */
+static FrangCfg		tfw_frang_vhost_reconfig;
+static FrangGlobCfg	tfw_frang_glob_reconfig;
+
 
 /**
  * Match vhost to requested name. Called in process context during configuration
@@ -1012,6 +1016,38 @@ tfw_location_lookup(TfwVhost *vhost, tfw_match_t op, const char *arg, size_t len
 }
 
 static int
+tfw_frang_cfg_inherit(FrangCfg *curr, FrangCfg *from)
+{
+	int r = 0;
+
+	memcpy(curr, from, sizeof(FrangCfg));
+
+	if (from->http_ct_vals) {
+		size_t sz = from->http_ct_vals_sz;
+		curr->http_ct_vals = kmalloc(sz, GFP_KERNEL);
+		if (!curr->http_ct_vals)
+			r = -ENOMEM;
+		else
+			memcpy(curr->http_ct_vals, from->http_ct_vals, sz);
+	}
+	if (!r && from->http_resp_code_block) {
+		size_t sz = sizeof(FrangHttpRespCodeBlock);
+		curr->http_resp_code_block = kmalloc(sz, GFP_KERNEL);
+		if (!curr->http_resp_code_block) {
+			r = -ENOMEM;
+		}
+		else {
+			memcpy(curr->http_resp_code_block,
+			       from->http_resp_code_block, sz);
+		}
+	}
+	if (unlikely(r))
+		T_WARN_NL("Failed to inherit Frang limits: %d.", r);
+
+	return r;
+}
+
+static int
 tfw_location_init(TfwLocation *loc, tfw_match_t op, const char *arg,
 		  size_t len, TfwPool *pool)
 {
@@ -1060,6 +1096,10 @@ tfw_location_new(TfwVhost *vhost, tfw_match_t op, const char *arg, size_t len)
 	if (tfw_location_init(loc, op, arg, len, vhost->hdrs_pool))
 		return NULL;
 	vhost->loc_sz++;
+
+	if (tfw_frang_cfg_inherit(loc->frang_cfg, vhost->loc_dflt->frang_cfg))
+		return NULL;
+
 	return loc;
 }
 
@@ -1175,6 +1215,26 @@ tfw_cfgop_out_location_finish(TfwCfgSpec *cs)
 	return 0;
 }
 
+static void
+__tfw_frang_clean(FrangCfg *cfg)
+{
+	kfree(cfg->http_ct_vals);
+	kfree(cfg->http_resp_code_block);
+}
+
+static void
+tfw_frang_clean(FrangCfg *cfg)
+{
+	__tfw_frang_clean(cfg);
+	memset(cfg, 0, sizeof(FrangCfg));
+}
+
+static void
+tfw_frang_global_clean(FrangGlobCfg *cfg)
+{
+	memset(cfg, 0, sizeof(FrangGlobCfg));
+}
+
 /*
  * Free 'location' memory which has been allocated while processing
  * configuration directives.
@@ -1196,9 +1256,7 @@ tfw_location_del(TfwLocation *loc)
 		kfree(loc->nipdef[i]);
 	}
 
-	kfree(loc->frang_cfg->http_ct_vals);
-	kfree(loc->frang_cfg->http_resp_code_block);
-
+	__tfw_frang_clean(loc->frang_cfg);
 	/*
 	 * Free loc->arg and loc->frang_cfg, loc->capo,
 	 * loc->nipdef and loc->mod_hdrs.
@@ -1440,6 +1498,8 @@ tfw_vhost_destroy(TfwVhost *vhost)
 {
 	int i;
 
+	T_DBG2("destroy vhost '%s'\n", vhost->name);
+
 	for (i = 0; i < vhost->loc_sz; ++i)
 		tfw_location_del(&vhost->loc[i]);
 	tfw_location_del(vhost->loc_dflt);
@@ -1473,7 +1533,8 @@ tfw_vhost_create(const char *name)
 	vhost->name.len = name_sz - 1;
 	vhost->loc_dflt = (TfwLocation *)(vhost->name.data + name_sz);
 	vhost->loc = (TfwLocation *)(vhost->loc_dflt + 1);
-	vhost->tls_cfg.priv = vhost->loc + TFW_LOCATION_ARRAY_SZ;
+	vhost->frang_gconf = (FrangGlobCfg *)(vhost->loc + TFW_LOCATION_ARRAY_SZ);
+	vhost->tls_cfg.priv = (vhost->frang_gconf + 1);
 	memcpy(vhost->name.data, name, name_sz);
 	vhost->hdrs_pool = pool;
 	atomic64_set(&vhost->refcnt, 1);
@@ -1494,10 +1555,19 @@ tfw_vhost_new(const char *name)
 			      TFW_HTTP_MATCH_O_WILDCARD, "*", 1,
 			      vhost->hdrs_pool))
 	{
-		TFW_ERR_NL("Unable to add default location"
-			   " for vhost '%s'.\n", name);
+		T_ERR_NL("Unable to add default location for vhost '%s'.\n",
+			 name);
 		tfw_vhost_destroy(vhost);
 		return NULL;
+	}
+	if (strcasecmp(name, TFW_VH_DFT_NAME)) {
+		TfwVhost *dvh = tfw_vhosts_reconfig->vhost_dflt;
+		if (tfw_frang_cfg_inherit(vhost->loc_dflt->frang_cfg,
+					  dvh->loc_dflt->frang_cfg))
+		{
+			tfw_vhost_destroy(vhost);
+			return NULL;
+		}
 	}
 
 	return vhost;
@@ -1515,14 +1585,6 @@ tfw_vhost_add(TfwVhost *vhost)
 		tfw_vhost_get(vhost->vhost_dflt);
 	}
 }
-
-/*
- * Frang configuration for global and location-specific settings.
- * Note, global Frang settings are not reconfigurable.
- */
-
-/* Frang global settings object. */
-static FrangCfg frang_cfg __read_mostly;
 
 static const TfwCfgEnum frang_http_methods_enum[] = {
 	{ "copy",	TFW_HTTP_METH_COPY },
@@ -1544,18 +1606,11 @@ static const TfwCfgEnum frang_http_methods_enum[] = {
 	{}
 };
 
-/* Return Frang global configuration settings. */
-FrangCfg *
-tfw_vhost_global_frang_cfg(void)
-{
-	return &frang_cfg;
-}
-
 static int
-tfw_cfgop_frang_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce,
+__tfw_cfgop_frang_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce,
 			     unsigned long *cfg_methods_mask)
 {
-	int i, r, method_id;
+	int i, method_id;
 	const char *method_str;
 	unsigned long methods_mask = 0;
 
@@ -1563,8 +1618,8 @@ tfw_cfgop_frang_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce,
 		     < _TFW_HTTP_METH_COUNT);
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, method_str) {
-		r = tfw_cfg_map_enum(frang_http_methods_enum, method_str,
-				     &method_id);
+		int r = tfw_cfg_map_enum(frang_http_methods_enum, method_str,
+					 &method_id);
 		if (r) {
 			TFW_ERR_NL("frang: invalid method: '%s'\n", method_str);
 			return -EINVAL;
@@ -1581,7 +1636,7 @@ tfw_cfgop_frang_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce,
 }
 
 static int
-tfw_cfgop_frang_http_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce, FrangCfg *conf)
+__tfw_cfgop_frang_http_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce, FrangCfg *conf)
 {
 	void *mem;
 	const char *in_str;
@@ -1634,6 +1689,7 @@ tfw_cfgop_frang_http_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce, FrangCfg *conf)
 	BUG_ON(strs_pos != (strs + strs_size));
 
 	conf->http_ct_vals = vals;
+	conf->http_ct_vals_sz = vals_size + strs_size;
 	return 0;
 }
 
@@ -1656,7 +1712,8 @@ frang_parse_ushort(const char *s, unsigned short *out)
  * Save response code block configuration
  */
 static int
-tfw_cfgop_frang_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce, FrangCfg *conf)
+__tfw_cfgop_frang_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce,
+				 FrangCfg *conf)
 {
 	FrangHttpRespCodeBlock *cb;
 	static const char *error_msg_begin = "frang: http_resp_code_block:";
@@ -1705,178 +1762,202 @@ tfw_cfgop_frang_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce, FrangCfg *conf)
 }
 
 static int
-tfw_cfgop_frang_loc_req_rate(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_frang_glob_in_vhost(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
+	T_ERR_NL("Directive '%s' from 'frang_limits' group can be used "
+		 "only as top-level directive (outside of any 'vhost' "
+		 "directive).\n",
+		 cs->name);
+	return -EINVAL;
+}
+
+static int
+tfw_cfgop_frang_glob_set_bool(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	/*
+	 * 'frang_limits' section may appear multiple times to modify defaults
+	 * values for future 'frang_limits' directives.
+	 */
+	if (ce->dflt_value && *(bool *)(cs->dest))
+		return 0;
+	return tfw_cfg_set_bool(cs, ce);
+}
+
+static int
+tfw_cfgop_frang_glob_set_int(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	if (ce->dflt_value && *(unsigned int *)(cs->dest))
+		return 0;
+	return tfw_cfg_set_int(cs, ce);
+}
+
+static int
+tfw_cfgop_frang_hdr_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	unsigned int secs;
 	int r;
 
-	BUG_ON(!tfwcfg_this_location);
-	cs->dest = &tfwcfg_this_location->frang_cfg->req_rate;
+	if (ce->dflt_value && tfw_frang_glob_reconfig.clnt_hdr_timeout)
+		return 0;
+	cs->dest = &secs;
+	r = tfw_cfg_set_int(cs, ce);
+	cs->dest = NULL;
+	if (!r)
+		tfw_frang_glob_reconfig.clnt_hdr_timeout = (unsigned long) HZ
+				* secs;
+
+	return r;
+}
+
+static int
+tfw_cfgop_frang_body_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	unsigned int secs;
+	int r;
+
+	if (ce->dflt_value && tfw_frang_glob_reconfig.clnt_body_timeout)
+		return 0;
+	cs->dest = &secs;
+	r = tfw_cfg_set_int(cs, ce);
+	cs->dest = NULL;
+	if (!r)
+		tfw_frang_glob_reconfig.clnt_body_timeout = (unsigned long) HZ
+				* secs;
+
+	return r;
+}
+
+static FrangCfg *
+tfw_cfgop_frang_get_cfg(void)
+{
+	if (tfwcfg_this_location)
+		return tfwcfg_this_location->frang_cfg;
+	if (tfw_vhost_entry)
+		return tfw_vhost_entry->loc_dflt->frang_cfg;
+	return &tfw_frang_vhost_reconfig;
+}
+
+static int
+tfw_cfgop_frang_uri_len(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r;
+	FrangCfg *cfg = tfw_cfgop_frang_get_cfg();
+
+	if (ce->dflt_value && cfg->http_uri_len)
+		return 0;
+	cs->dest = &cfg->http_uri_len;
 	r = tfw_cfg_set_int(cs, ce);
 	cs->dest = NULL;
 	return r;
 }
 
 static int
-tfw_cfgop_frang_loc_req_burst(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_frang_field_len(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
+	FrangCfg *cfg = tfw_cfgop_frang_get_cfg();
 
-	BUG_ON(!tfwcfg_this_location);
-	cs->dest = &tfwcfg_this_location->frang_cfg->req_burst;
+	if (ce->dflt_value && cfg->http_field_len)
+		return 0;
+	cs->dest = &cfg->http_field_len;
 	r = tfw_cfg_set_int(cs, ce);
 	cs->dest = NULL;
 	return r;
 }
 
 static int
-tfw_cfgop_frang_loc_hdr_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_frang_body_len(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
+	FrangCfg *cfg = tfw_cfgop_frang_get_cfg();
 
-	BUG_ON(!tfwcfg_this_location);
-	cs->dest = &tfwcfg_this_location->frang_cfg->clnt_hdr_timeout;
+	if (ce->dflt_value && cfg->http_body_len)
+		return 0;
+	cs->dest = &cfg->http_body_len;
 	r = tfw_cfg_set_int(cs, ce);
 	cs->dest = NULL;
 	return r;
 }
 
 static int
-tfw_cfgop_frang_loc_body_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_frang_hdr_cnt(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
+	FrangCfg *cfg = tfw_cfgop_frang_get_cfg();
 
-	BUG_ON(!tfwcfg_this_location);
-	cs->dest = &tfwcfg_this_location->frang_cfg->clnt_body_timeout;
+	if (ce->dflt_value && cfg->http_hdr_cnt)
+		return 0;
+	cs->dest = &cfg->http_hdr_cnt;
 	r = tfw_cfg_set_int(cs, ce);
 	cs->dest = NULL;
 	return r;
 }
 
 static int
-tfw_cfgop_frang_loc_uri_len(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_frang_host_required(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
+	FrangCfg *cfg = tfw_cfgop_frang_get_cfg();
 
-	BUG_ON(!tfwcfg_this_location);
-	cs->dest = &tfwcfg_this_location->frang_cfg->http_uri_len;
-	r = tfw_cfg_set_int(cs, ce);
-	cs->dest = NULL;
-	return r;
-}
-
-static int
-tfw_cfgop_frang_loc_field_len(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int r;
-
-	BUG_ON(!tfwcfg_this_location);
-	cs->dest = &tfwcfg_this_location->frang_cfg->http_field_len;
-	r = tfw_cfg_set_int(cs, ce);
-	cs->dest = NULL;
-	return r;
-}
-
-static int
-tfw_cfgop_frang_loc_body_len(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int r;
-
-	BUG_ON(!tfwcfg_this_location);
-	cs->dest = &tfwcfg_this_location->frang_cfg->http_body_len;
-	r = tfw_cfg_set_int(cs, ce);
-	cs->dest = NULL;
-	return r;
-}
-
-static int
-tfw_cfgop_frang_loc_hdr_cnt(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int r;
-
-	BUG_ON(!tfwcfg_this_location);
-	cs->dest = &tfwcfg_this_location->frang_cfg->http_hdr_cnt;
-	r = tfw_cfg_set_int(cs, ce);
-	cs->dest = NULL;
-	return r;
-}
-
-static int
-tfw_cfgop_frang_loc_hdr_chunk_cnt(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int r;
-
-	BUG_ON(!tfwcfg_this_location);
-	cs->dest = &tfwcfg_this_location->frang_cfg->http_hchunk_cnt;
-	r = tfw_cfg_set_int(cs, ce);
-	cs->dest = NULL;
-	return r;
-}
-
-static int
-tfw_cfgop_frang_loc_body_chunk_cnt(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int r;
-
-	BUG_ON(!tfwcfg_this_location);
-	cs->dest = &tfwcfg_this_location->frang_cfg->http_bchunk_cnt;
-	r = tfw_cfg_set_int(cs, ce);
-	cs->dest = NULL;
-	return r;
-}
-
-static int
-tfw_cfgop_frang_loc_host_required(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int r;
-
-	BUG_ON(!tfwcfg_this_location);
-	cs->dest = &tfwcfg_this_location->frang_cfg->http_host_required;
+	if (ce->dflt_value && cfg->http_host_required)
+		return 0;
+	cs->dest = &cfg->http_host_required;
 	r = tfw_cfg_set_bool(cs, ce);
 	cs->dest = NULL;
 	return r;
 }
 
 static int
-tfw_cfgop_frang_loc_ct_required(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_frang_ct_required(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
+	FrangCfg *cfg = tfw_cfgop_frang_get_cfg();
 
-	BUG_ON(!tfwcfg_this_location);
-	cs->dest = &tfwcfg_this_location->frang_cfg->http_ct_required;
+	if (ce->dflt_value && cfg->http_ct_required)
+		return 0;
+	cs->dest = &cfg->http_ct_required;
 	r = tfw_cfg_set_bool(cs, ce);
 	cs->dest = NULL;
 	return r;
 }
 
 static int
-tfw_cfgop_frang_loc_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_frang_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	unsigned long *methods_mask;
+	FrangCfg *cfg = tfw_cfgop_frang_get_cfg();
 
-	BUG_ON(!tfwcfg_this_location);
-	methods_mask = &tfwcfg_this_location->frang_cfg->http_methods_mask;
-	return tfw_cfgop_frang_http_methods(cs, ce, methods_mask);
+	if (ce->dflt_value && cfg->http_methods_mask)
+		return 0;
+	return __tfw_cfgop_frang_http_methods(cs, ce, &cfg->http_methods_mask);
 }
 
 static int
-tfw_cfgop_frang_out_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_frang_http_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	return tfw_cfgop_frang_http_methods(cs, ce,
-					    &frang_cfg.http_methods_mask);
+	FrangCfg *cfg = tfw_cfgop_frang_get_cfg();
+
+	if (cfg->http_ct_vals) {
+		if (ce->dflt_value)
+			return 0;
+		kfree(cfg->http_ct_vals);
+		cfg->http_ct_vals = NULL;
+		cfg->http_ct_vals_sz = 0;
+	}
+	return __tfw_cfgop_frang_http_ct_vals(cs, ce, cfg);
 }
 
 static int
-tfw_cfgop_frang_loc_http_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_cfgop_frang_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	BUG_ON(!tfwcfg_this_location);
-	return tfw_cfgop_frang_http_ct_vals(cs, ce,
-					    tfwcfg_this_location->frang_cfg);
-}
+	FrangCfg *cfg = tfw_cfgop_frang_get_cfg();
 
-static int
-tfw_cfgop_frang_out_http_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	return tfw_cfgop_frang_http_ct_vals(cs, ce, &frang_cfg);
+	if (cfg->http_resp_code_block) {
+		if (ce->dflt_value)
+			return 0;
+		kfree(cfg->http_resp_code_block);
+		cfg->http_resp_code_block = NULL;
+	}
+	return __tfw_cfgop_frang_rsp_code_block(cs, ce, cfg);
 }
 
 static int
@@ -1886,18 +1967,15 @@ tfw_cfgop_http_post_validate(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
-static int
-tfw_cfgop_frang_loc_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce)
+/*
+ * Frang objects are cleaned when its location is destroyed. This dummy function
+ * is required to save time during reconfiguration by skipping traversing over
+ * the list of child directives cleanup functions.
+ */
+static void
+tfw_cfgop_frang_cleanup(TfwCfgSpec *cs)
 {
-	BUG_ON(!tfwcfg_this_location);
-	return tfw_cfgop_frang_rsp_code_block(cs, ce,
-					      tfwcfg_this_location->frang_cfg);
-}
-
-static int
-tfw_cfgop_frang_out_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	return tfw_cfgop_frang_rsp_code_block(cs, ce, &frang_cfg);
+	return;
 }
 
 static int
@@ -2007,6 +2085,8 @@ tfw_vhost_cfgstart(void)
 	}
 
 	tfw_vhosts_reconfig->vhost_dflt = vh_dflt;
+	tfw_frang_clean(&tfw_frang_vhost_reconfig);
+	tfw_frang_global_clean(&tfw_frang_glob_reconfig);
 
 	return 0;
 }
@@ -2018,6 +2098,7 @@ tfw_vhost_cfgend(void)
 	TfwVhost *vh_dflt;
 	int r;
 
+	*tfw_vhosts_reconfig->vhost_dflt->frang_gconf = tfw_frang_glob_reconfig;
 	/*
 	 * Add default vhost into list if it hadn't been added yet explicitly
 	 * to keep default location policies.
@@ -2031,6 +2112,9 @@ tfw_vhost_cfgend(void)
 	 * request is parsed and assigned to any location.
 	 */
 	vh_dflt = tfw_vhosts_reconfig->vhost_dflt;
+	if (tfw_frang_cfg_inherit(vh_dflt->loc_dflt->frang_cfg,
+				  &tfw_frang_vhost_reconfig))
+		return -ENOMEM;
 	sg_def = tfw_sg_lookup_reconfig(TFW_VH_DFT_NAME, SLEN("default"));
 	vh_dflt->loc_dflt->main_sg = sg_def;
 	tfw_vhost_add(vh_dflt);
@@ -2038,9 +2122,9 @@ tfw_vhost_cfgend(void)
 		return r;
 
 	if (tfw_global.cache_purge && !tfw_global.cache_purge_acl)
-		TFW_WARN_NL("Directives mismatching: cache_purge directive"
-			    " works only in combination with cache_purge_acl"
-			    " directive.\n");
+		T_WARN_NL("Directives mismatching: 'cache_purge' directive "
+			  "requires 'cache_purge_acl', but it wasn't "
+			  "provided. 'cache_purge' directive is ignored.\n");
 	return 0;
 }
 
@@ -2071,6 +2155,9 @@ tfw_cfgop_vhost_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		if (__tfw_cfgop_proxy_pass(TFW_VH_DFT_NAME, NULL,
 					   tfw_vhost_entry->loc_dflt))
 			return -EINVAL;
+		if (tfw_frang_cfg_inherit(tfw_vhost_entry->loc_dflt->frang_cfg,
+					  &tfw_frang_vhost_reconfig))
+			return -ENOMEM;
 	} else {
 		if (!(tfw_vhost_entry = tfw_vhost_new(ce->vals[0]))) {
 			TFW_ERR_NL("Unable to create new vhost entry: '%s'\n",
@@ -2178,10 +2265,6 @@ tfw_vhost_cfgclean(void)
 	if (tfw_runstate_is_reconfig())
 		return;
 
-	kfree(frang_cfg.http_ct_vals);
-	kfree(frang_cfg.http_resp_code_block);
-	memset(&frang_cfg, 0, sizeof(frang_cfg));
-
 	tfw_global.capuacl_sz =
 	tfw_global.cache_purge =
 	tfw_global.cache_purge_mode =
@@ -2191,6 +2274,295 @@ tfw_vhost_cfgclean(void)
 		kfree(tfw_global.hdr_via);
 	tfw_global.hdr_via = s_hdr_via_dflt;
 }
+
+/*
+ * Not all Frang specs can be applied to nested locations and can be applied
+ * only as high-level options. It's possible to provide it's own sets for global
+ * and inner (location) options. But warning "line 32: the frang limit can be
+ * assigned only at global level" is much more user friendly than generic
+ * "line 32: unknown command".
+ */
+static TfwCfgSpec tfw_global_frang_specs[] = {
+	/* Options that can be enabled|disabled only globally. */
+	{
+		.name = "ip_block",
+		.deflt = "off",
+		.handler = tfw_cfgop_frang_glob_set_bool,
+		.dest = &tfw_frang_glob_reconfig.ip_block,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 0, INT_MAX },
+		},
+		.allow_reconfig = true,
+	},
+	{
+		.name = "request_rate",
+		.deflt = "0",
+		.handler = tfw_cfgop_frang_glob_set_int,
+		.dest = &tfw_frang_glob_reconfig.req_rate,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 0, INT_MAX },
+		},
+		.allow_reconfig = true,
+	},
+	{
+		.name = "request_burst",
+		.deflt = "0",
+		.handler = tfw_cfgop_frang_glob_set_int,
+		.dest = &tfw_frang_glob_reconfig.req_burst,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 0, INT_MAX },
+		},
+		.allow_reconfig = true,
+	},
+	{
+		.name = "connection_rate",
+		.deflt = "0",
+		.handler = tfw_cfgop_frang_glob_set_int,
+		.dest = &tfw_frang_glob_reconfig.conn_rate,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 0, INT_MAX },
+		},
+		.allow_reconfig = true,
+	},
+	{
+		.name = "connection_burst",
+		.deflt = "0",
+		.handler = tfw_cfgop_frang_glob_set_int,
+		.dest = &tfw_frang_glob_reconfig.conn_burst,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 0, INT_MAX },
+		},
+		.allow_reconfig = true,
+	},
+	{
+		.name = "concurrent_connections",
+		.deflt = "0",
+		.handler = tfw_cfgop_frang_glob_set_int,
+		.dest = &tfw_frang_glob_reconfig.conn_max,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 0, INT_MAX },
+		},
+		.allow_reconfig = true,
+	},
+	{
+		.name = "client_header_timeout",
+		.deflt = "0",
+		.handler = tfw_cfgop_frang_hdr_timeout,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 0, INT_MAX },
+		},
+		.allow_reconfig = true,
+	},
+	{
+		.name = "client_body_timeout",
+		.deflt = "0",
+		.handler = tfw_cfgop_frang_body_timeout,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 0, INT_MAX },
+		},
+		.allow_reconfig = true,
+	},
+	{
+		.name = "http_header_chunk_cnt",
+		.deflt = "0",
+		.handler = tfw_cfgop_frang_glob_set_int,
+		.dest = &tfw_frang_glob_reconfig.http_hchunk_cnt,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 0, INT_MAX },
+		},
+		.allow_reconfig = true,
+	},
+	{
+		.name = "http_body_chunk_cnt",
+		.deflt = "0",
+		.handler = tfw_cfgop_frang_glob_set_int,
+		.dest = &tfw_frang_glob_reconfig.http_bchunk_cnt,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.range = { 0, INT_MAX },
+		},
+		.allow_reconfig = true,
+	},
+	/* Option can be redefined per vhost|location. */
+	{
+		.name = "http_uri_len",
+		.deflt = "0",
+		.handler = tfw_cfgop_frang_uri_len,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "http_field_len",
+		.deflt = "0",
+		.handler = tfw_cfgop_frang_field_len,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "http_body_len",
+		.deflt = "1073741824", /* 1 Gb. */
+		.handler = tfw_cfgop_frang_body_len,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "http_header_cnt",
+		.deflt = "0",
+		.handler = tfw_cfgop_frang_hdr_cnt,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "http_host_required",
+		.deflt = "true",
+		.handler = tfw_cfgop_frang_host_required,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "http_ct_required",
+		.deflt = "false",
+		.handler = tfw_cfgop_frang_ct_required,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "http_methods",
+		.deflt = "",
+		.handler = tfw_cfgop_frang_http_methods,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "http_ct_vals",
+		.deflt = NULL,
+		.handler = tfw_cfgop_frang_http_ct_vals,
+		.allow_none = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "http_resp_code_block",
+		.deflt = NULL,
+		.handler = tfw_cfgop_frang_rsp_code_block,
+		.allow_none = true,
+		.allow_reconfig = true,
+	},
+	{ 0 }
+};
+
+static TfwCfgSpec tfw_vhost_frang_specs[] = {
+	/* Options that can be enabled|disabled only globally. */
+	{
+		.name = "ip_block",
+		.handler = tfw_cfgop_frang_glob_in_vhost,
+		.allow_reconfig = true,
+		.allow_none = true,
+	},
+	{
+		.name = "request_rate",
+		.handler = tfw_cfgop_frang_glob_in_vhost,
+		.allow_reconfig = true,
+		.allow_none = true,
+	},
+	{
+		.name = "request_burst",
+		.handler = tfw_cfgop_frang_glob_in_vhost,
+		.allow_reconfig = true,
+		.allow_none = true,
+	},
+	{
+		.name = "connection_rate",
+		.handler = tfw_cfgop_frang_glob_in_vhost,
+		.allow_reconfig = true,
+		.allow_none = true,
+	},
+	{
+		.name = "connection_burst",
+		.handler = tfw_cfgop_frang_glob_in_vhost,
+		.allow_reconfig = true,
+		.allow_none = true,
+	},
+	{
+		.name = "concurrent_connections",
+		.handler = tfw_cfgop_frang_glob_in_vhost,
+		.allow_reconfig = true,
+		.allow_none = true,
+	},
+	{
+		.name = "client_header_timeout",
+		.handler = tfw_cfgop_frang_glob_in_vhost,
+		.allow_reconfig = true,
+		.allow_none = true,
+	},
+	{
+		.name = "client_body_timeout",
+		.handler = tfw_cfgop_frang_glob_in_vhost,
+		.allow_reconfig = true,
+		.allow_none = true,
+	},
+	{
+		.name = "http_header_chunk_cnt",
+		.handler = tfw_cfgop_frang_glob_in_vhost,
+		.allow_reconfig = true,
+		.allow_none = true,
+	},
+	{
+		.name = "http_body_chunk_cnt",
+		.handler = tfw_cfgop_frang_glob_in_vhost,
+		.allow_reconfig = true,
+		.allow_none = true,
+	},
+	/* Option can be redefined per vhost|location. */
+	{
+		.name = "http_uri_len",
+		.deflt = "0",
+		.handler = tfw_cfgop_frang_uri_len,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "http_field_len",
+		.deflt = "0",
+		.handler = tfw_cfgop_frang_field_len,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "http_body_len",
+		.deflt = "1073741824", /* 1 Gb. */
+		.handler = tfw_cfgop_frang_body_len,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "http_header_cnt",
+		.deflt = "0",
+		.handler = tfw_cfgop_frang_hdr_cnt,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "http_host_required",
+		.deflt = "true",
+		.handler = tfw_cfgop_frang_host_required,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "http_ct_required",
+		.deflt = "false",
+		.handler = tfw_cfgop_frang_ct_required,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "http_methods",
+		.deflt = "",
+		.handler = tfw_cfgop_frang_http_methods,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "http_ct_vals",
+		.deflt = NULL,
+		.handler = tfw_cfgop_frang_http_ct_vals,
+		.allow_none = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "http_resp_code_block",
+		.deflt = NULL,
+		.handler = tfw_cfgop_frang_rsp_code_block,
+		.allow_none = true,
+		.allow_reconfig = true,
+	},
+	{ 0 }
+};
 
 static TfwCfgSpec tfw_vhost_location_specs[] = {
 	{
@@ -2250,104 +2622,6 @@ static TfwCfgSpec tfw_vhost_location_specs[] = {
 		.allow_reconfig = true,
 	},
 	{
-		.name = "request_rate",
-		.handler = tfw_cfgop_frang_loc_req_rate,
-		.allow_none = true,
-		.allow_repeat = false,
-		.allow_reconfig = true,
-	},
-	{
-		.name = "request_burst",
-		.handler = tfw_cfgop_frang_loc_req_burst,
-		.allow_none = true,
-		.allow_repeat = false,
-		.allow_reconfig = true,
-	},
-	{
-		.name = "client_header_timeout",
-		.handler = tfw_cfgop_frang_loc_hdr_timeout,
-		.allow_none = true,
-		.allow_repeat = false,
-		.allow_reconfig = true,
-	},
-	{
-		.name = "client_body_timeout",
-		.handler = tfw_cfgop_frang_loc_body_timeout,
-		.allow_none = true,
-		.allow_repeat = false,
-		.allow_reconfig = true,
-	},
-	{
-		.name = "http_uri_len",
-		.handler = tfw_cfgop_frang_loc_uri_len,
-		.allow_none = true,
-		.allow_repeat = false,
-		.allow_reconfig = true,
-	},
-	{
-		.name = "http_field_len",
-		.handler = tfw_cfgop_frang_loc_field_len,
-		.allow_none = true,
-		.allow_repeat = false,
-		.allow_reconfig = true,
-	},
-	{
-		.name = "http_body_len",
-		.handler = tfw_cfgop_frang_loc_body_len,
-		.allow_none = true,
-		.allow_repeat = false,
-		.allow_reconfig = true,
-	},
-	{
-		.name = "http_header_cnt",
-		.handler = tfw_cfgop_frang_loc_hdr_cnt,
-		.allow_none = true,
-		.allow_repeat = false,
-		.allow_reconfig = true,
-	},
-	{
-		.name = "http_header_chunk_cnt",
-		.handler = tfw_cfgop_frang_loc_hdr_chunk_cnt,
-		.allow_none = true,
-		.allow_repeat = false,
-		.allow_reconfig = true,
-	},
-	{
-		.name = "http_body_chunk_cnt",
-		.handler = tfw_cfgop_frang_loc_body_chunk_cnt,
-		.allow_none = true,
-		.allow_repeat = false,
-		.allow_reconfig = true,
-	},
-	{
-		.name = "http_host_required",
-		.handler = tfw_cfgop_frang_loc_host_required,
-		.allow_none = true,
-		.allow_repeat = false,
-		.allow_reconfig = true,
-	},
-	{
-		.name = "http_ct_required",
-		.handler = tfw_cfgop_frang_loc_ct_required,
-		.allow_none = true,
-		.allow_repeat = false,
-		.allow_reconfig = true,
-	},
-	{
-		.name = "http_methods",
-		.handler = tfw_cfgop_frang_loc_http_methods,
-		.allow_none = true,
-		.allow_repeat = false,
-		.allow_reconfig = true,
-	},
-	{
-		.name = "http_ct_vals",
-		.handler = tfw_cfgop_frang_loc_http_ct_vals,
-		.allow_none = true,
-		.allow_repeat = false,
-		.allow_reconfig = true,
-	},
-	{
 		.name = "http_post_validate",
 		.handler = tfw_cfgop_http_post_validate,
 		.allow_none = true,
@@ -2356,7 +2630,7 @@ static TfwCfgSpec tfw_vhost_location_specs[] = {
 	},
 	{
 		.name = "http_resp_code_block",
-		.handler = tfw_cfgop_frang_loc_rsp_code_block,
+		.handler = tfw_cfgop_frang_rsp_code_block,
 		.allow_none = true,
 		.allow_repeat = false,
 		.allow_reconfig = true,
@@ -2365,6 +2639,15 @@ static TfwCfgSpec tfw_vhost_location_specs[] = {
 		.name = "proxy_pass",
 		.deflt = NULL,
 		.handler = tfw_cfgop_loc_proxy_pass,
+		.allow_none = true,
+		.allow_repeat = false,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "frang_limits",
+		.handler = tfw_cfg_handle_children,
+		.cleanup = tfw_cfgop_frang_cleanup,
+		.dest = tfw_vhost_frang_specs,
 		.allow_none = true,
 		.allow_repeat = false,
 		.allow_reconfig = true,
@@ -2482,122 +2765,14 @@ static TfwCfgSpec tfw_vhost_internal_specs[] = {
 		.allow_repeat = true,
 		.allow_reconfig = true,
 	},
-	{ 0 }
-};
-
-static TfwCfgSpec tfw_vhost_frang_limits_specs[] = {
 	{
-		.name = "ip_block",
-		.deflt = "off",
-		.handler = tfw_cfg_set_bool,
-		.dest = &frang_cfg.ip_block,
-	},
-	{
-		.name = "request_rate",
-		.deflt = "0",
-		.handler = tfw_cfg_set_int,
-		.dest = &frang_cfg.req_rate,
-	},
-	{
-		.name = "request_burst",
-		.deflt = "0",
-		.handler = tfw_cfg_set_int,
-		.dest = &frang_cfg.req_burst,
-	},
-	{
-		.name = "connection_rate",
-		.deflt = "0",
-		.handler = tfw_cfg_set_int,
-		.dest = &frang_cfg.conn_rate,
-	},
-	{
-		.name = "connection_burst",
-		.deflt = "0",
-		.handler = tfw_cfg_set_int,
-		.dest = &frang_cfg.conn_burst,
-	},
-	{
-		.name = "concurrent_connections",
-		.deflt = "0",
-		.handler = tfw_cfg_set_int,
-		.dest = &frang_cfg.conn_max,
-	},
-	{
-		.name = "client_header_timeout",
-		.deflt = "0",
-		.handler = tfw_cfg_set_int,
-		.dest = (unsigned int *)&frang_cfg.clnt_hdr_timeout,
-	},
-	{
-		.name = "client_body_timeout",
-		.deflt = "0",
-		.handler = tfw_cfg_set_int,
-		.dest = (unsigned int *)&frang_cfg.clnt_body_timeout,
-	},
-	{
-		.name = "http_uri_len",
-		.deflt = "0",
-		.handler = tfw_cfg_set_int,
-		.dest = &frang_cfg.http_uri_len,
-	},
-	{
-		.name = "http_field_len",
-		.deflt = "0",
-		.handler = tfw_cfg_set_int,
-		.dest = &frang_cfg.http_field_len,
-	},
-	{
-		.name = "http_body_len",
-		.deflt = "1073741824", /* 1 Gb. */
-		.handler = tfw_cfg_set_int,
-		.dest = &frang_cfg.http_body_len,
-	},
-	{
-		.name = "http_header_cnt",
-		.deflt = "0",
-		.handler = tfw_cfg_set_int,
-		.dest = &frang_cfg.http_hdr_cnt,
-	},
-	{
-		.name = "http_header_chunk_cnt",
-		.deflt = "0",
-		.handler = tfw_cfg_set_int,
-		.dest = &frang_cfg.http_hchunk_cnt,
-	},
-	{
-		.name = "http_body_chunk_cnt",
-		.deflt = "0",
-		.handler = tfw_cfg_set_int,
-		.dest = &frang_cfg.http_bchunk_cnt,
-	},
-	{
-		.name = "http_host_required",
-		.deflt = "true",
-		.handler = tfw_cfg_set_bool,
-		.dest = &frang_cfg.http_host_required,
-	},
-	{
-		.name = "http_ct_required",
-		.deflt = "false",
-		.handler = tfw_cfg_set_bool,
-		.dest = &frang_cfg.http_ct_required,
-	},
-	{
-		.name = "http_methods",
-		.deflt = "",
-		.handler = tfw_cfgop_frang_out_http_methods,
-	},
-	{
-		.name = "http_ct_vals",
-		.deflt = NULL,
-		.handler = tfw_cfgop_frang_out_http_ct_vals,
+		.name = "frang_limits",
+		.handler = tfw_cfg_handle_children,
+		.cleanup = tfw_cfgop_frang_cleanup,
+		.dest = tfw_vhost_frang_specs,
 		.allow_none = true,
-	},
-	{
-		.name = "http_resp_code_block",
-		.deflt = NULL,
-		.handler = tfw_cfgop_frang_out_rsp_code_block,
-		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
 	},
 	{ 0 }
 };
@@ -2745,11 +2920,11 @@ static TfwCfgSpec tfw_vhost_specs[] = {
 	{
 		.name = "frang_limits",
 		.handler = tfw_cfg_handle_children,
-		.cleanup = tfw_cfg_cleanup_children,
-		.dest = tfw_vhost_frang_limits_specs,
+		.cleanup = tfw_cfgop_frang_cleanup,
+		.dest = tfw_global_frang_specs,
 		.allow_none = true,
-		.allow_repeat = false,
-		.allow_reconfig = false,
+		.allow_repeat = true,
+		.allow_reconfig = true,
 	},
 	{ 0 }
 };
