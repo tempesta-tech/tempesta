@@ -1016,23 +1016,33 @@ tfw_location_lookup(TfwVhost *vhost, tfw_match_t op, const char *arg, size_t len
 }
 
 static int
-tfw_frang_cfg_inherit(FrangVhostCfg *curr, FrangVhostCfg *from)
+tfw_frang_cfg_inherit(FrangVhostCfg *curr, const FrangVhostCfg *from)
 {
 	int r = 0;
 
 	memcpy(curr, from, sizeof(FrangVhostCfg));
 
 	if (from->http_ct_vals) {
-		size_t sz = from->http_ct_vals_sz;
-		curr->http_ct_vals = kmalloc(sz, GFP_KERNEL);
-		if (!curr->http_ct_vals)
+		size_t sz = from->http_ct_vals->alloc_sz;
+		FrangCtVal *val;
+		long delta;
+
+		curr->http_ct_vals = kzalloc(sz, GFP_KERNEL);
+		if (!curr->http_ct_vals) {
 			r = -ENOMEM;
-		else
-			memcpy(curr->http_ct_vals, from->http_ct_vals, sz);
+		}
+		delta = (void *)from->http_ct_vals - (void *)curr->http_ct_vals;
+		memcpy(curr->http_ct_vals, from->http_ct_vals, sz);
+		curr->http_ct_vals->vals = (void *)curr->http_ct_vals
+				+ sizeof(FrangCtVals);
+		curr->http_ct_vals->data -= delta;
+		/* Restore data pointers. */
+		for (val = curr->http_ct_vals->vals; val->str; ++ val)
+			val->str -= delta;
 	}
 	if (!r && from->http_resp_code_block) {
 		size_t sz = sizeof(FrangHttpRespCodeBlock);
-		curr->http_resp_code_block = kmalloc(sz, GFP_KERNEL);
+		curr->http_resp_code_block = kzalloc(sz, GFP_KERNEL);
 		if (!curr->http_resp_code_block) {
 			r = -ENOMEM;
 		}
@@ -1639,22 +1649,14 @@ __tfw_cfgop_frang_http_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce,
 {
 	void *mem;
 	const char *in_str;
-	char *strs, *strs_pos;
-	FrangCtVal *vals, *vals_pos;
-	size_t i, strs_size, vals_n, vals_size;
+	char *strs_pos;
+	FrangCtVals *vals;
+	FrangCtVal *vals_pos;
+	size_t i, strs_size, vals_n, vals_size, alloc_sz;
 
 	/* Allocate a single chunk of memory which is suitable to hold the
-	 * variable-sized list of variable-sized strings.
-	 *
-	 * Basically that will look like:
-	 *  [[FrangCtVal, FrangCtVal, FrangCtVal, NULL]str1\0\str2\0\str3\0]
-	 *           +         +         +             ^      ^      ^
-	 *           |         |         |             |      |      |
-	 *           +---------------------------------+      |      |
-	 *                     |         |                    |      |
-	 *                     +------------------------------+      |
-	 *                               |                           |
-	 *                               +---------------------------+
+	 * variable-sized list of variable-sized strings. See FrangCtVals
+	 * definition for details.
 	 */
 	vals_n = ce->val_n;
 	vals_size = sizeof(FrangCtVal) * (vals_n + 1);
@@ -1662,16 +1664,19 @@ __tfw_cfgop_frang_http_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce,
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, in_str) {
 		strs_size += strlen(in_str) + 1;
 	}
-	mem = kzalloc(vals_size + strs_size, GFP_KERNEL);
+	alloc_sz = vals_size + strs_size + sizeof(FrangCtVals);
+	mem = kzalloc(alloc_sz, GFP_KERNEL);
 	if (!mem)
 		return -ENOMEM;
 	vals = mem;
-	strs = mem + vals_size;
+	vals->alloc_sz = alloc_sz;
+	vals->vals = mem + sizeof(FrangCtVals);
+	vals->data = mem + sizeof(FrangCtVals) + vals_size;
 
 	/* Copy tokens to the new vals/strs list. */
 	/* TODO: validate tokens, they should look like: "text/plain". */
-	vals_pos = vals;
-	strs_pos = strs;
+	vals_pos = vals->vals;
+	strs_pos = vals->data;
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, in_str) {
 		size_t len = strlen(in_str) + 1;
 
@@ -1684,11 +1689,10 @@ __tfw_cfgop_frang_http_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce,
 		vals_pos++;
 		strs_pos += len;
 	}
-	BUG_ON(vals_pos != (vals + vals_n));
-	BUG_ON(strs_pos != (strs + strs_size));
+	BUG_ON(vals_pos != (vals->vals + vals_n));
+	BUG_ON(strs_pos != (vals->data + strs_size));
 
 	conf->http_ct_vals = vals;
-	conf->http_ct_vals_sz = vals_size + strs_size;
 	return 0;
 }
 
@@ -1956,7 +1960,6 @@ tfw_cfgop_frang_http_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			return 0;
 		kfree(cfg->http_ct_vals);
 		cfg->http_ct_vals = NULL;
-		cfg->http_ct_vals_sz = 0;
 	}
 	return __tfw_cfgop_frang_http_ct_vals(cs, ce, cfg);
 }
