@@ -124,10 +124,39 @@ typedef struct {
 	unsigned short	tf;
 } FrangHttpRespCodeBlock;
 
+/**
+ * Single allowed Content-Type value.
+ * @str			- pointer to allowed value;
+ * @len			- The pre-computed strlen(@str);
+ */
 typedef struct {
-	char   *str;
-	size_t len;	/* The pre-computed strlen(@str). */
+	char		*str;
+	size_t		len;
 } FrangCtVal;
+
+/**
+ * Variable-sized array of allowed Content-Type values. It's allocated by single
+ * memory piece to keep all the data as close as possible.
+ * @alloc_sz		- Full size of the structure;
+ * @vals		- Variable array of allowed values;
+ * @data		- Variable sized data area where @vals points to.
+ *
+ * Basically that will look like:
+ *   [@vals                                   ][@data               ]
+ *   [FrangCtVal, FrangCtVal, FrangCtVal, NULL][str1\0\str2\0\str3\0]
+ *           +         +         +              ^      ^      ^
+ *           |         |         |              |      |      |
+ *           +----------------------------------+      |      |
+ *                     |         |                     |      |
+ *                     +-------------------------------+      |
+ *                               |                            |
+ *                               +----------------------------+
+ */
+typedef struct {
+	size_t		alloc_sz;
+	FrangCtVal	*vals;
+	char		*data;
+} FrangCtVals;
 
 /**
  * Global Frang limits. As a request is received, it's not possible to determine
@@ -191,8 +220,7 @@ struct frang_vhost_cfg_t {
 	unsigned int		http_field_len;
 	unsigned int		http_hdr_cnt;
 
-	FrangCtVal		*http_ct_vals;
-	size_t			http_ct_vals_sz;
+	FrangCtVals		*http_ct_vals;
 	FrangHttpRespCodeBlock	*http_resp_code_block;
 
 	bool			http_ct_required;

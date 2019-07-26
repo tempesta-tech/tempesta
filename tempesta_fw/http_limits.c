@@ -533,7 +533,7 @@ frang_http_methods(const TfwHttpReq *req, FrangAcc *ra, unsigned long m_mask)
 }
 
 static int
-frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVal *ct_vals)
+frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVals *ct_vals)
 {
 	TfwStr field, *s;
 	FrangCtVal *curr;
@@ -569,7 +569,7 @@ frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVal *ct_vals)
 	 * switch between the two if performance is critical here,
 	 * but benchmarks should be done to measure the impact.
 	 */
-	for (curr = ct_vals; curr->str; ++curr) {
+	for (curr = ct_vals->vals; curr->str; ++curr) {
 		if (tfw_str_eq_cstr(&field, curr->str, curr->len,
 				    TFW_STR_EQ_PREFIX_CASEI))
 			return TFW_PASS;
