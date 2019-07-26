@@ -759,7 +759,7 @@ frang_http_req_incomplete_body_check(FrangAcc *ra, TfwFsmData *data,
 				     FrangGlobCfg *fg_cfg, FrangVhostCfg *f_cfg)
 {
 	TfwHttpReq *req = (TfwHttpReq *)data->req;
-	unsigned int body_len = f_cfg->http_body_len;
+	unsigned long body_len = f_cfg->http_body_len;
 	unsigned int bchunk_cnt = fg_cfg->http_bchunk_cnt;
 	unsigned long body_timeout = fg_cfg->clnt_body_timeout;
 	struct sk_buff *skb = data->skb;

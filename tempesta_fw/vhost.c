@@ -1875,7 +1875,7 @@ tfw_cfgop_frang_body_len(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (ce->dflt_value && cfg->http_body_len)
 		return 0;
 	cs->dest = &cfg->http_body_len;
-	r = tfw_cfg_set_int(cs, ce);
+	r = tfw_cfg_set_long(cs, ce);
 	cs->dest = NULL;
 	return r;
 }
