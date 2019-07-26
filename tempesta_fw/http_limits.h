@@ -186,9 +186,9 @@ struct frang_global_cfg_t {
  */
 struct frang_vhost_cfg_t {
 	unsigned long		http_methods_mask;
+	unsigned long		http_body_len;
 	unsigned int		http_uri_len;
 	unsigned int		http_field_len;
-	unsigned int		http_body_len;
 	unsigned int		http_hdr_cnt;
 
 	FrangCtVal		*http_ct_vals;

@@ -1355,6 +1355,16 @@ tfw_cfg_parse_int(const char *s, int *out_int)
 EXPORT_SYMBOL(tfw_cfg_parse_int);
 
 int
+tfw_cfg_parse_long(const char *s, long *out_long)
+{
+	int base = detect_base(&s);
+	if (!base)
+		return -EINVAL;
+	return kstrtol(s, base, out_long);
+}
+EXPORT_SYMBOL(tfw_cfg_parse_long);
+
+int
 tfw_cfg_parse_uint(const char *s, unsigned int *out_uint)
 {
 	int base = detect_base(&s);
@@ -1660,6 +1670,41 @@ err:
 	return -EINVAL;
 }
 EXPORT_SYMBOL(tfw_cfg_set_int);
+
+int
+tfw_cfg_set_long(TfwCfgSpec *cs, TfwCfgEntry *e)
+{
+	int r;
+	long val, *dest_long;
+	TfwCfgSpecInt *cse;
+
+	BUG_ON(!cs->dest);
+
+	if ((r = tfw_cfg_check_single_val(e)))
+		goto err;
+
+	r = tfw_cfg_parse_long(e->vals[0], &val);
+	if (r)
+		goto err;
+
+	/* Check value restrictions if we have any in the spec extension. */
+	cse = cs->spec_ext;
+	if (cse) {
+		r  = tfw_cfg_check_multiple_of(val, cse->multiple_of);
+		r |= tfw_cfg_check_range(val, cse->range.min, cse->range.max);
+		if (r)
+			goto err;
+	}
+
+	dest_long = cs->dest;
+	*dest_long = val;
+	return 0;
+
+err:
+	TFW_ERR_NL("can't parse long integer");
+	return -EINVAL;
+}
+EXPORT_SYMBOL(tfw_cfg_set_long);
 
 static void
 tfw_cfg_cleanup_str(TfwCfgSpec *cs)
