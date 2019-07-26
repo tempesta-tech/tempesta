@@ -361,7 +361,7 @@ static TfwGlobal		tfw_global = {
 	.capuacl	= tfw_capuacl_dflt,
 };
 /* Temporal structures to parse top level (outside vhost) Frang configuration. */
-static FrangCfg		tfw_frang_vhost_reconfig;
+static FrangVhostCfg	tfw_frang_vhost_reconfig;
 static FrangGlobCfg	tfw_frang_glob_reconfig;
 
 
@@ -1016,11 +1016,11 @@ tfw_location_lookup(TfwVhost *vhost, tfw_match_t op, const char *arg, size_t len
 }
 
 static int
-tfw_frang_cfg_inherit(FrangCfg *curr, FrangCfg *from)
+tfw_frang_cfg_inherit(FrangVhostCfg *curr, FrangVhostCfg *from)
 {
 	int r = 0;
 
-	memcpy(curr, from, sizeof(FrangCfg));
+	memcpy(curr, from, sizeof(FrangVhostCfg));
 
 	if (from->http_ct_vals) {
 		size_t sz = from->http_ct_vals_sz;
@@ -1042,7 +1042,7 @@ tfw_frang_cfg_inherit(FrangCfg *curr, FrangCfg *from)
 		}
 	}
 	if (unlikely(r))
-		T_WARN_NL("Failed to inherit Frang limits: %d.", r);
+		T_WARN_NL("Failed to inherit Frang limits: %d.\n", r);
 
 	return r;
 }
@@ -1052,7 +1052,7 @@ tfw_location_init(TfwLocation *loc, tfw_match_t op, const char *arg,
 		  size_t len, TfwPool *pool)
 {
 	char *argmem, *data;
-	size_t size = sizeof(FrangCfg)
+	size_t size = sizeof(FrangVhostCfg)
 		    + sizeof(TfwCaPolicy *) * TFW_CAPOLICY_ARRAY_SZ
 		    + sizeof(TfwNipDef *) * TFW_NIPDEF_ARRAY_SZ
 		    + sizeof(TfwHdrModsDesc) * TFW_USRHDRS_ARRAY_SZ * 2;
@@ -1067,7 +1067,7 @@ tfw_location_init(TfwLocation *loc, tfw_match_t op, const char *arg,
 	loc->op = op;
 	loc->arg = argmem;
 	loc->len = len;
-	loc->frang_cfg = (FrangCfg *)data;
+	loc->frang_cfg = (FrangVhostCfg *)data;
 	loc->capo = (TfwCaPolicy **)(loc->frang_cfg + 1);
 	loc->capo_sz = 0;
 	loc->nipdef = (TfwNipDef **)(loc->capo + TFW_CAPOLICY_ARRAY_SZ);
@@ -1216,17 +1216,17 @@ tfw_cfgop_out_location_finish(TfwCfgSpec *cs)
 }
 
 static void
-__tfw_frang_clean(FrangCfg *cfg)
+__tfw_frang_clean(FrangVhostCfg *cfg)
 {
 	kfree(cfg->http_ct_vals);
 	kfree(cfg->http_resp_code_block);
 }
 
 static void
-tfw_frang_clean(FrangCfg *cfg)
+tfw_frang_clean(FrangVhostCfg *cfg)
 {
 	__tfw_frang_clean(cfg);
-	memset(cfg, 0, sizeof(FrangCfg));
+	memset(cfg, 0, sizeof(FrangVhostCfg));
 }
 
 static void
@@ -1634,7 +1634,8 @@ __tfw_cfgop_frang_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce,
 }
 
 static int
-__tfw_cfgop_frang_http_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce, FrangCfg *conf)
+__tfw_cfgop_frang_http_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce,
+			       FrangVhostCfg *conf)
 {
 	void *mem;
 	const char *in_str;
@@ -1711,7 +1712,7 @@ frang_parse_ushort(const char *s, unsigned short *out)
  */
 static int
 __tfw_cfgop_frang_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce,
-				 FrangCfg *conf)
+				 FrangVhostCfg *conf)
 {
 	FrangHttpRespCodeBlock *cb;
 	static const char *error_msg_begin = "frang: http_resp_code_block:";
@@ -1827,7 +1828,7 @@ tfw_cfgop_frang_body_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return r;
 }
 
-static FrangCfg *
+static FrangVhostCfg *
 tfw_cfgop_frang_get_cfg(void)
 {
 	if (tfwcfg_this_location)
@@ -1841,7 +1842,7 @@ static int
 tfw_cfgop_frang_uri_len(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
-	FrangCfg *cfg = tfw_cfgop_frang_get_cfg();
+	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
 
 	if (ce->dflt_value && cfg->http_uri_len)
 		return 0;
@@ -1855,7 +1856,7 @@ static int
 tfw_cfgop_frang_field_len(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
-	FrangCfg *cfg = tfw_cfgop_frang_get_cfg();
+	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
 
 	if (ce->dflt_value && cfg->http_field_len)
 		return 0;
@@ -1869,7 +1870,7 @@ static int
 tfw_cfgop_frang_body_len(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
-	FrangCfg *cfg = tfw_cfgop_frang_get_cfg();
+	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
 
 	if (ce->dflt_value && cfg->http_body_len)
 		return 0;
@@ -1883,7 +1884,7 @@ static int
 tfw_cfgop_frang_hdr_cnt(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
-	FrangCfg *cfg = tfw_cfgop_frang_get_cfg();
+	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
 
 	if (ce->dflt_value && cfg->http_hdr_cnt)
 		return 0;
@@ -1897,7 +1898,7 @@ static int
 tfw_cfgop_frang_host_required(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
-	FrangCfg *cfg = tfw_cfgop_frang_get_cfg();
+	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
 
 	if (ce->dflt_value && cfg->http_host_required)
 		return 0;
@@ -1911,7 +1912,7 @@ static int
 tfw_cfgop_frang_ct_required(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
-	FrangCfg *cfg = tfw_cfgop_frang_get_cfg();
+	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
 
 	if (ce->dflt_value && cfg->http_ct_required)
 		return 0;
@@ -1925,7 +1926,7 @@ static int
 tfw_cfgop_frang_trailer_split(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
-	FrangCfg *cfg = tfw_cfgop_frang_get_cfg();
+	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
 
 	if (ce->dflt_value && cfg->http_trailer_split)
 		return 0;
@@ -1938,7 +1939,7 @@ tfw_cfgop_frang_trailer_split(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_cfgop_frang_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	FrangCfg *cfg = tfw_cfgop_frang_get_cfg();
+	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
 
 	if (ce->dflt_value && cfg->http_methods_mask)
 		return 0;
@@ -1948,7 +1949,7 @@ tfw_cfgop_frang_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_cfgop_frang_http_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	FrangCfg *cfg = tfw_cfgop_frang_get_cfg();
+	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
 
 	if (cfg->http_ct_vals) {
 		if (ce->dflt_value)
@@ -1963,7 +1964,7 @@ tfw_cfgop_frang_http_ct_vals(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_cfgop_frang_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	FrangCfg *cfg = tfw_cfgop_frang_get_cfg();
+	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
 
 	if (cfg->http_resp_code_block) {
 		if (ce->dflt_value)
@@ -1982,9 +1983,9 @@ tfw_cfgop_http_post_validate(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 /*
- * Frang objects are cleaned when its location is destroyed. This dummy function
- * is required to save time during reconfiguration by skipping traversing over
- * the list of child directives cleanup functions.
+ * Frang objects are cleaned when their location is destroyed. This dummy
+ * function is required to save time during reconfiguration by skipping
+ * traversing over the list of child directives cleanup functions.
  */
 static void
 tfw_cfgop_frang_cleanup(TfwCfgSpec *cs)
@@ -2281,9 +2282,9 @@ tfw_vhost_cfgclean(void)
 
 /*
  * Not all Frang specs can be applied to nested locations and can be applied
- * only as high-level options. It's possible to provide it's own sets for global
- * and inner (location) options. But warning "line 32: the frang limit can be
- * assigned only at global level" is much more user friendly than generic
+ * only as high-level options. It's possible to provide their own sets for
+ * global and inner (location) options. But warning "line 32: the frang limit
+ * can be assigned only at global level" is much more user friendly than generic
  * "line 32: unknown command".
  */
 static TfwCfgSpec tfw_global_frang_specs[] = {

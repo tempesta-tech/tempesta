@@ -131,7 +131,7 @@ typedef struct {
 
 /**
  * Global Frang limits. As a request is received, it's not possible to determine
- * it's target vhost or/and location until all the headers are parsed. Thus some
+ * its target vhost or/and location until all the headers are parsed. Thus some
  * limits can't be redefined for vhost or location and can exist only as
  * unique top-level limits.
  *
@@ -168,7 +168,9 @@ struct frang_global_cfg_t {
 };
 
 /**
- * Vhost|location -specific Frang directives.
+ * Vhost and location specific Frang limits. As soon as full headers set is
+ * received, it's possible to determine target vhost and location. The structure
+ * contains full effective set of limits for chosen vhost and location.
  *
  * @http_methods_mask	- Allowed HTTP request methods;
  * @http_uri_len	- Maximum allowed URI len;

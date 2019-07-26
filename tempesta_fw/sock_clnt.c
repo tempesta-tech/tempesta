@@ -297,9 +297,8 @@ __cli_conn_close_sync_cb(TfwConn *conn)
 
 /**
  * Asynchronously close all client connections. Some connection close requests
- * may be lost due to workqueue overrun. So the function must be closed
- * repeatedly to guarantee that all the connection was closed.
- *
+ * may be lost due to workqueue overrun. So the function must be called
+ * repeatedly until 0 is returned to guarantee that all connections are closed.
  */
 static int
 tfw_cli_conn_close_all(void *data)
@@ -311,10 +310,10 @@ tfw_cli_conn_close_all(void *data)
 }
 
 /**
- * Close all connections with given client, called on security events. Unlike
- * asynchronous function above, this one must guarantee that all the close
+ * Close all connections with a given client, called on security events. Unlike
+ * @tfw_cli_conn_close_all(), this one must guarantee that all the close
  * requests will be done. Attackers can spam Tempesta with lot of requests and
- * connections, trying to cause work queue overrun and delay of security events
+ * connections, trying to cause a work queue overrun and delay security events
  * handlers. To detach attackers efficiently, we have to use synchronous close.
  */
 int tfw_cli_conn_close_all_sync(TfwClient *cli)
