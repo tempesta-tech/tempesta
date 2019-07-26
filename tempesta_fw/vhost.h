@@ -116,7 +116,7 @@ typedef struct {
 	size_t			nipdef_sz;
 	TfwCaPolicy		**capo;
 	TfwNipDef		**nipdef;
-	FrangCfg		*frang_cfg;
+	FrangVhostCfg		*frang_cfg;
 	TfwSrvGroup		*main_sg;
 	TfwSrvGroup		*backup_sg;
 	TfwPool			*hdrs_pool;

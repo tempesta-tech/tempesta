@@ -27,6 +27,6 @@ typedef struct tfw_http_req_t		TfwHttpReq;
 typedef struct tfw_http_resp_t		TfwHttpResp;
 typedef struct tfw_vhost_t		TfwVhost;
 typedef struct frang_global_cfg_t	FrangGlobCfg;
-typedef struct frang_vhost_cfg_t	FrangCfg;
+typedef struct frang_vhost_cfg_t	FrangVhostCfg;
 
 #endif /* __TFW_HTTP_TYPES_H__ */

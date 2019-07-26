@@ -686,7 +686,7 @@ enum {
 	Frang_Req_Hdr_NoState,
 
 	Frang_Req_Body_Start,
-	Frang_Req_Body_End,
+	Frang_Req_Body,
 
 	Frang_Req_Body_NoState,
 
@@ -756,7 +756,7 @@ block:
 
 static int
 frang_http_req_incomplete_body_check(FrangAcc *ra, TfwFsmData *data,
-				     FrangGlobCfg *fg_cfg, FrangCfg *f_cfg)
+				     FrangGlobCfg *fg_cfg, FrangVhostCfg *f_cfg)
 {
 	TfwHttpReq *req = (TfwHttpReq *)data->req;
 	unsigned int body_len = f_cfg->http_body_len;
@@ -827,21 +827,21 @@ block:
  * and implementation-dependent. E.g. Apache doesn't care about trailer
  * headers, but ModSecurity for Apache does.
  * https://swende.se/blog/HTTPChunked.html
- * Some discussions also highlights that trailer headers are poorly
+ * Some discussions also highlight that trailer headers are poorly
  * supported on both servers and clients, while CDNs tend to add
  * trailers. https://github.com/whatwg/fetch/issues/34
  *
  * Since RFC doesn't speak clearly about trailer headers in requests, the
- * following assumptions was used:
- * - Our intermediaries on client side doesn't care about trailers and send
+ * following assumptions were used:
+ * - Our intermediaries on client side do not care about trailers and send
  *   them in the manner as the body. Thus frang's body limitations are used,
  *   not headers ones.
- * - Same header may have different values depending on how the servers works
+ * - Same header may have different values depending on how the servers work
  *   with the trailer. Administrator can block that behaviour.
  */
 static int
 frang_http_req_trailer_check(FrangAcc *ra, TfwFsmData *data,
-			     FrangGlobCfg *fg_cfg, FrangCfg *f_cfg)
+			     FrangGlobCfg *fg_cfg, FrangVhostCfg *f_cfg)
 {
 	int r = TFW_PASS;
 	TfwHttpReq *req = (TfwHttpReq *)data->req;
@@ -898,7 +898,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 {
 	int r = TFW_PASS;
 	TfwHttpReq *req = (TfwHttpReq *)data->req;
-	FrangCfg *f_cfg = NULL;
+	FrangVhostCfg *f_cfg = NULL;
 	FrangGlobCfg *fg_cfg = NULL;
 	T_FSM_INIT(Frang_Req_0, "frang");
 
@@ -925,7 +925,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 	spin_lock(&ra->lock);
 
 	/*
-	 * Detect slowris attack first, and then proceed with more precise
+	 * Detect slowloris attack first, and then proceed with more precise
 	 * checks. This is not an FSM state, because the checks are required
 	 * every time a new request chunk is received and will be present in
 	 * every FSM state.
@@ -979,8 +979,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 
 	/*
 	 * Headers are not fully parsed, a new request chunk was received.
-	 * Test that all currently received headers doesn't overcome frang
-	 * limits.
+	 * Test that all currently received headers do not exceed frang limits.
 	 */
 	T_FSM_STATE(Frang_Req_Hdr_Check) {
 		if (test_bit(TFW_HTTP_B_FIELD_DUPENTRY, req->flags)) {
@@ -996,7 +995,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 
 		/* Headers are not fully parsed yet. */
 		if (!(req->crlf.flags & TFW_STR_COMPLETE))
-			__FRANG_FSM_JUMP_EXIT(Frang_Req_Hdr_UriLen);
+			__FRANG_FSM_JUMP_EXIT(Frang_Req_Hdr_Check);
 		/*
 		* Full HTTP header has been processed, and any possible
 		* header fields are collected. Run final checks on them.
@@ -1027,17 +1026,16 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 		req->tm_bchunk = jiffies;
 		r = frang_http_req_incomplete_body_check(ra, data, fg_cfg,
 							 f_cfg);
-		__FRANG_FSM_MOVE(Frang_Req_Body_End);
+		__FRANG_FSM_MOVE(Frang_Req_Body);
 	}
 
 	/*
 	 * Body is not fully parsed, a new body chunk was received.
 	 */
-	T_FSM_STATE(Frang_Req_Body_End) {
-
+	T_FSM_STATE(Frang_Req_Body) {
 		/* Body is not fully parsed yet. */
 		if (!(req->body.flags & TFW_STR_COMPLETE))
-			__FRANG_FSM_JUMP_EXIT(Frang_Req_Body_End);
+			__FRANG_FSM_JUMP_EXIT(Frang_Req_Body);
 
 		__FRANG_FSM_MOVE(Frang_Req_Trailer);
 	}
@@ -1184,8 +1182,8 @@ frang_resp_fwd_process(TfwHttpResp *resp)
 	int r;
 	FrangAcc *ra;
 	TfwHttpReq *req = resp->req;
-	FrangCfg *fcfg = req->location ? req->location->frang_cfg
-				       : req->vhost->loc_dflt->frang_cfg;
+	FrangVhostCfg *fcfg = req->location ? req->location->frang_cfg
+					    : req->vhost->loc_dflt->frang_cfg;
 	FrangHttpRespCodeBlock *conf = fcfg->http_resp_code_block;
 
 	/*
@@ -1208,12 +1206,12 @@ frang_resp_fwd_process(TfwHttpResp *resp)
 
 	spin_lock(&ra->lock);
 	/*
-	 * According to backend response code attacker may be trying to crack
+	 * According to the backend response code attacker may be trying to crack
 	 * the password. This security event must be triggered when the response
 	 * received, and can't be triggered on request context because client
 	 * can send a huge number of pipelined requests to crack the password
 	 * and wait for the results. If the attack is spotted, block the client
-	 * and wipe all it's received but not responded requests ASAP.
+	 * and wipe all their received but not processed requests ASAP.
 	 */
 	r = frang_resp_code_limit(ra, conf);
 	spin_unlock(&ra->lock);
