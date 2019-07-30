@@ -1937,6 +1937,57 @@ tfw_cfgop_in_tls_certificate_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
+tfw_cfgop_tls_any_sni(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	bool val;
+	int r;
+
+	cs->dest = &val;
+	r = tfw_cfg_set_bool(cs, ce);
+	cs->dest = NULL;
+	if (r)
+		return r;
+
+	tfw_tls_match_any_sni_to_dflt(val);
+
+	return 0;
+}
+
+static int
+tfw_cfgop_in_tls_any_sni(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	if (!tfw_vhost_is_default_reconfig(tfw_vhost_entry)) {
+		if (ce->dflt_value)
+			return 0;
+		T_ERR_NL("%s: directive can be applied only to '%s' vhost.\n",
+			 cs->name, TFW_VH_DFT_NAME);
+		return -EINVAL;
+	}
+
+	return tfw_cfgop_tls_any_sni(cs, ce);
+}
+
+static int
+tfw_cfgop_out_tls_any_sni(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	if (tfw_vhosts_reconfig->expl_dflt && ce->dflt_value)
+		return 0;
+	if (tfw_vhosts_reconfig->expl_dflt) {
+		if (ce->dflt_value) {
+			return 0;
+		}
+		else {
+			T_ERR_NL("%s: directive defined outside explicit '%s'"
+				 "vhost definition\n",
+				 cs->name, TFW_VH_DFT_NAME);
+			return -EINVAL;
+		}
+	}
+
+	return tfw_cfgop_tls_any_sni(cs, ce);
+}
+
+static int
 tfw_vhost_cfgstart(void)
 {
 	TfwVhost *vh_dflt;
@@ -2411,6 +2462,13 @@ static TfwCfgSpec tfw_vhost_internal_specs[] = {
 		.allow_reconfig = true,
 	},
 	{
+		.name = "tls_match_any_server_name",
+		.deflt = "false",
+		.handler = tfw_cfgop_in_tls_any_sni,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
 		.name = "location",
 		.deflt = NULL,
 		.handler = tfw_cfg_handle_children,
@@ -2646,6 +2704,13 @@ static TfwCfgSpec tfw_vhost_specs[] = {
 		.deflt = NULL,
 		.handler = tfw_cfgop_out_tls_certificate_key,
 		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "tls_match_any_server_name",
+		.deflt = "false",
+		.handler = tfw_cfgop_out_tls_any_sni,
 		.allow_repeat = true,
 		.allow_reconfig = true,
 	},

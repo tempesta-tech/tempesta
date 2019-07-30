@@ -32,10 +32,16 @@
  * Global level TLS configuration.
  *
  * @cfg			- common tls configuration for all vhosts;
+ * @allow_any_sni	- If set, all the unknown SNI are matched to default
+ *			  vhost.
  */
 static struct {
 	TlsCfg		cfg;
+	bool		allow_any_sni;
 } tfw_tls;
+
+/* Temporal value for reconfiguration stage. */
+static bool allow_any_sni_reconfig;
 
 /**
  * Chop skb list with begin at @skb by TLS extra data at the begin and end of
@@ -692,6 +698,11 @@ tfw_tls_get_if_configured(TfwVhost *vhost)
 	return cfg;
 }
 
+#define SNI_WARN(fmt, ...)						\
+	TFW_WITH_ADDR_FMT(&cli_conn->peer->addr, TFW_NO_PORT, addr_str,	\
+			  T_WARN("TLS: sni ext: client %s requested "fmt, \
+				 addr_str, __VA_ARGS__))
+
 /**
  * Find matching vhost according to server name in SNI extension. The function
  * is also called if there is no SNI extension and fallback to some default
@@ -703,6 +714,7 @@ tfw_tls_sni(void *p_sni, TlsCtx *ctx, const unsigned char *data, size_t len)
 	const TfwStr srv_name = {.data = (unsigned char *)data, .len = len};
 	TfwVhost *vhost = NULL;
 	const TlsPeerCfg *peer_cfg;
+	TfwCliConn *cli_conn = &container_of(ctx, TfwTlsConn, tls)->cli_conn;
 
 	T_DBG2("%s: server name '%.*s'\n",  __func__, (int)len, data);
 
@@ -712,9 +724,14 @@ tfw_tls_sni(void *p_sni, TlsCtx *ctx, const unsigned char *data, size_t len)
 	if (data && len) {
 		vhost = tfw_vhost_lookup(&srv_name);
 		if (unlikely(vhost && !vhost->vhost_dflt)) {
-			T_WARN("TLS: sni ext: client requested default vhost "
-			       "by name, reject connection.\n");
+			SNI_WARN(" '%s' vhost by name, reject connection.\n",
+				 TFW_VH_DFT_NAME);
 			tfw_vhost_put(vhost);
+			return -TTLS_ERR_BAD_HS_CLIENT_HELLO;
+		}
+		if (unlikely(!vhost && !tfw_tls.allow_any_sni)) {
+			SNI_WARN(" unknown server name '%.*s', reject connection.\n",
+				 (int)len, data);
 			return -TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
 	}
@@ -792,6 +809,12 @@ tfw_tls_cfg_configured(bool global)
 	tfw_tls_cgf |= TFW_TLS_CFG_F_CERTS;
 	if (global)
 		tfw_tls_cgf |= TFW_TLS_CFG_F_CERTS_GLOBAL;
+}
+
+void
+tfw_tls_match_any_sni_to_dflt(bool match)
+{
+	allow_any_sni_reconfig = match;
 }
 
 int
@@ -881,6 +904,14 @@ tfw_tls_free_alpn_protos(void)
 }
 
 static int
+tfw_tls_cfgstart(void)
+{
+	allow_any_sni_reconfig = false;
+
+	return 0;
+}
+
+static int
 tfw_tls_cfgend(void)
 {
 	if (!(tfw_tls_cgf & TFW_TLS_CFG_F_REQUIRED)) {
@@ -906,14 +937,24 @@ tfw_tls_cfgend(void)
 	return 0;
 }
 
+static int
+tfw_tls_start(void)
+{
+	tfw_tls.allow_any_sni = allow_any_sni_reconfig;
+
+	return 0;
+}
+
 static TfwCfgSpec tfw_tls_specs[] = {
 	{ 0 }
 };
 
 TfwMod tfw_tls_mod = {
-	.name	= "tls",
-	.cfgend = tfw_tls_cfgend,
-	.specs	= tfw_tls_specs,
+	.name		= "tls",
+	.cfgend		= tfw_tls_cfgend,
+	.cfgstart	= tfw_tls_cfgstart,
+	.start		= tfw_tls_start,
+	.specs		= tfw_tls_specs,
 };
 
 /*
