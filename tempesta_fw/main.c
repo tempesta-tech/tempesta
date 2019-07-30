@@ -73,7 +73,7 @@ void
 tfw_mod_register(TfwMod *mod)
 {
 	BUG_ON(!mod || !mod->name);
-	TFW_DBG2("%s: %s\n", __func__, mod->name);
+	T_DBG2("%s: %s\n", __func__, mod->name);
 
 	write_lock(&tfw_mods_lock);
 	INIT_LIST_HEAD(&mod->list);
@@ -89,7 +89,7 @@ void
 tfw_mod_unregister(TfwMod *mod)
 {
 	BUG_ON(!mod || !mod->name);
-	TFW_DBG2("%s: %s\n", __func__, mod->name);
+	T_DBG2("%s: %s\n", __func__, mod->name);
 
 	write_lock(&tfw_mods_lock);
 	list_del(&mod->list);
@@ -128,7 +128,7 @@ tfw_cleanup(struct list_head *mod_list)
 
 	if (!tfw_runstate_is_reconfig())
 		tfw_sg_wait_release();
-	TFW_LOG("New configuration is cleaned.\n");
+	T_DBG("New configuration is cleaned.\n");
 }
 
 static inline void
@@ -138,16 +138,16 @@ tfw_mods_stop(struct list_head *mod_list)
 
 	ss_stop();
 
-	TFW_LOG("Stopping all modules...\n");
+	T_DBG("Stopping all modules...\n");
 	MOD_FOR_EACH_REVERSE(mod, mod_list) {
-		TFW_DBG2("mod_stop(): %s\n", mod->name);
+		T_DBG2("mod_stop(): %s\n", mod->name);
 		if (mod->stop && mod->started) {
 			mod->stop();
 			mod->started = 0;
 		}
 	}
 
-	TFW_LOG("modules are stopped\n");
+	T_LOG("modules are stopped\n");
 }
 
 static void
@@ -163,18 +163,18 @@ tfw_mods_cfgstart(struct list_head *mod_list)
 	int ret;
 	TfwMod *mod;
 
-	TFW_DBG2("Prepare the configuration processing...\n");
+	T_DBG2("Prepare the configuration processing...\n");
 	MOD_FOR_EACH(mod, mod_list) {
 		if (!mod->cfgstart)
 			continue;
-		TFW_DBG2("mod_cfgstart(): %s\n", mod->name);
+		T_DBG2("mod_cfgstart(): %s\n", mod->name);
 		if ((ret = mod->cfgstart())) {
-			TFW_ERR_NL("Unable to prepare for the configuration "
-				   "of module '%s': %d\n", mod->name, ret);
+			T_ERR_NL("Unable to prepare for the configuration "
+				 "of module '%s': %d\n", mod->name, ret);
 			return ret;
 		}
 	}
-	TFW_LOG("Preparing for the configuration processing.\n");
+	T_DBG("Preparing for the configuration processing.\n");
 
 	return 0;
 }
@@ -185,19 +185,19 @@ tfw_mods_start(struct list_head *mod_list)
 	int ret;
 	TfwMod *mod;
 
-	TFW_DBG2("starting modules...\n");
+	T_DBG2("starting modules...\n");
 	MOD_FOR_EACH(mod, mod_list) {
 		if (!mod->start)
 			continue;
-		TFW_DBG2("mod_start(): %s\n", mod->name);
+		T_DBG2("mod_start(): %s\n", mod->name);
 		if ((ret = mod->start())) {
-			TFW_ERR_NL("Unable to start module '%s': %d\n",
-				   mod->name, ret);
+			T_ERR_NL("Unable to start module '%s': %d\n",
+				 mod->name, ret);
 			return ret;
 		}
 		mod->started = 1;
 	}
-	TFW_LOG("modules are started\n");
+	T_LOG("modules are started\n");
 
 	return 0;
 }
@@ -208,18 +208,18 @@ tfw_mods_cfgend(struct list_head *mod_list)
 	int ret;
 	TfwMod *mod;
 
-	TFW_DBG2("Completing the configuration processing...\n");
+	T_DBG2("Completing the configuration processing...\n");
 	MOD_FOR_EACH(mod, mod_list) {
 		if (!mod->cfgend)
 			continue;
-		TFW_DBG2("mod_cfgend(): %s\n", mod->name);
+		T_DBG2("mod_cfgend(): %s\n", mod->name);
 		if ((ret = mod->cfgend())) {
-			TFW_ERR_NL("Unable to complete the configuration "
-				   "of module '%s': %d\n", mod->name, ret);
+			T_ERR_NL("Unable to complete the configuration "
+				 "of module '%s': %d\n", mod->name, ret);
 			return ret;
 		}
 	}
-	TFW_LOG("Configuration processing is completed.\n");
+	T_LOG("Configuration processing is completed.\n");
 
 	return 0;
 }
@@ -251,7 +251,7 @@ stop_mods:
 	tfw_mods_stop(mod_list);
 	WRITE_ONCE(tfw_started, false);
 cleanup:
-	TFW_WARN_NL("Configuration parsing has failed. Clean up...\n");
+	T_WARN_NL("Configuration parsing has failed. Clean up...\n");
 	tfw_cleanup(mod_list);
 	return ret;
 }
@@ -263,14 +263,14 @@ cleanup:
 static int
 tfw_ctlfn_state_change(const char *old_state, const char *new_state)
 {
-	TFW_DBG2("got state via sysctl: %s\n", new_state);
+	T_DBG2("got state via sysctl: %s\n", new_state);
 
 	if (!strcasecmp("start", new_state)) {
 		int r;
 
 		if (READ_ONCE(tfw_started)) {
 			WRITE_ONCE(tfw_reconfig, true);
-			TFW_LOG("Live reconfiguration of Tempesta.\n");
+			T_LOG("Live reconfiguration of Tempesta.\n");
 		}
 
 		r = tfw_start(&tfw_mods);
@@ -281,7 +281,7 @@ tfw_ctlfn_state_change(const char *old_state, const char *new_state)
 
 	if (!strcasecmp("stop", new_state)) {
 		if (!READ_ONCE(tfw_started)) {
-			TFW_WARN_NL("Trying to stop an inactive system\n");
+			T_WARN_NL("Trying to stop an inactive system\n");
 			return -EINVAL;
 		}
 
@@ -291,8 +291,8 @@ tfw_ctlfn_state_change(const char *old_state, const char *new_state)
 		return 0;
 	}
 
-	TFW_ERR_NL("invalid state: '%s'. Should be either 'start' or 'stop'\n",
-		   new_state);
+	T_ERR_NL("invalid state: '%s'. Should be either 'start' or 'stop'\n",
+		 new_state);
 
 	return -EINVAL;
 }
@@ -356,18 +356,18 @@ tfw_objects_wait_release(const atomic64_t *counter, int delay,
 		if (time_is_after_jiffies(tend))
 			continue;
 		if (curr_n < 0) {
-			TFW_ERR_NL("Bug in %s reference counting!\n", obj_name);
+			T_ERR_NL("Bug in %s reference counting!\n", obj_name);
 			break;
 		}
 		else if (curr_n == last_n) {
-			TFW_ERR_NL("Got stuck in releasing of %s objects! "
-				   "%ld objects was not released.\n",
-				   obj_name, curr_n);
+			T_ERR_NL("Got stuck in releasing of %s objects! "
+				 "%ld objects was not released.\n",
+				 obj_name, curr_n);
 			break;
 		}
-		TFW_WARN_NL("pending for %s callbacks to complete for %ds, "
-			    "%ld objects was released, %ld still exist\n",
-			    obj_name, delay, last_n - curr_n, curr_n);
+		T_WARN_NL("pending for %s callbacks to complete for %ds, "
+			  "%ld objects was released, %ld still exist\n",
+			  obj_name, delay, last_n - curr_n, curr_n);
 		tend = jiffies + HZ * delay;
 		last_n = curr_n;
 	}
@@ -391,10 +391,10 @@ do {								\
 	extern int tfw_##mod##_init(void);			\
 	extern void tfw_##mod##_exit(void);			\
 	BUG_ON(exit_hooks_n >= ARRAY_SIZE(exit_hooks));		\
-	TFW_DBG("init: %s\n", #mod);				\
+	T_DBG("init: %s\n", #mod);				\
 	r = tfw_##mod##_init();					\
 	if (r) {						\
-		TFW_ERR_NL("can't initialize Tempesta FW module: '%s' (%d)\n", \
+		T_ERR_NL("can't initialize Tempesta FW module: '%s' (%d)\n", \
 			   #mod, r);				\
 		goto err;					\
 	}							\
@@ -406,7 +406,7 @@ tfw_exit(void)
 {
 	int i;
 
-	TFW_LOG("exiting...\n");
+	T_LOG("exiting...\n");
 
 	/* Wait for outstanding RCU callbacks to complete. */
 	rcu_barrier_bh();
@@ -422,17 +422,17 @@ tfw_init(void)
 {
 	int r;
 
-	TFW_LOG("Initializing Tempesta FW kernel module...\n");
+	T_LOG("Initializing Tempesta FW kernel module...\n");
 
 #ifndef AVX2
-	TFW_LOG("ATTENTION: TEMPESTA IS BUILT WITHOUT AVX2 SUPPORT, "
-		"PERFORMANCE IS DEGRADED.");
+	T_LOG("ATTENTION: TEMPESTA IS BUILT WITHOUT AVX2 SUPPORT, "
+	      "PERFORMANCE IS DEGRADED.");
 #endif
 
 	tfw_sysctl_hdr = register_net_sysctl(&init_net, "net/tempesta",
 					     tfw_sysctl_tbl);
 	if (!tfw_sysctl_hdr) {
-		TFW_ERR_NL("can't register sysctl table\n");
+		T_ERR_NL("can't register sysctl table\n");
 		return -1;
 	}
 
