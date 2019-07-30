@@ -170,7 +170,7 @@ tfw_classify_tcp(struct sock *sk, struct sk_buff *skb)
 void
 tfw_classifier_register(TfwClassifier *mod)
 {
-	TFW_LOG("Registering new classifier: %s\n", mod->name);
+	T_DBG("Registering new classifier: %s\n", mod->name);
 
 	BUG_ON(classifier);
 	rcu_assign_pointer(classifier, mod);
@@ -179,7 +179,7 @@ tfw_classifier_register(TfwClassifier *mod)
 void
 tfw_classifier_unregister(void)
 {
-	TFW_LOG("Unregistering classifier: %s\n", classifier->name);
+	T_DBG("Un-registering classifier: %s\n", classifier->name);
 
 	rcu_assign_pointer(classifier, NULL);
 	synchronize_rcu();
