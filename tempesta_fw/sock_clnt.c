@@ -425,7 +425,7 @@ tfw_listen_sock_start(TfwListenSock *ls)
 	r = ss_bind(sk, addr);
 	if (r) {
 		TFW_ERR_ADDR("can't bind to", addr, TFW_WITH_PORT);
-		return r;
+		goto err;
 	}
 
 	TFW_DBG("start listening on socket: sk=%p\n", sk);
@@ -433,10 +433,15 @@ tfw_listen_sock_start(TfwListenSock *ls)
 	if (r) {
 		TFW_ERR_NL("can't listen on front-end socket sk=%p (%d)\n",
 			   sk, r);
-		return r;
+		goto err;
 	}
 
 	return 0;
+
+err:
+	ss_release(ls->sk);
+	ls->sk = NULL;
+	return r;
 }
 
 static int
@@ -580,11 +585,21 @@ tfw_sock_clnt_start(void)
 		if ((r = tfw_listen_sock_start(ls))) {
 			TFW_ERR_ADDR("can't start listening on", &ls->addr,
 			             TFW_WITH_PORT);
-			return r;
+			goto err;
 		}
 	}
 
 	return 0;
+
+err:
+	list_for_each_entry(ls, &tfw_listen_socks, list) {
+		if (!ls->sk)
+			continue;
+		ss_release(ls->sk);
+		ls->sk = NULL;
+	}
+
+	return r;
 }
 
 static void
