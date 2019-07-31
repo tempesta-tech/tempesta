@@ -3980,6 +3980,7 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 		.len = len,
 	};
 	LIST_HEAD(equeue);
+	bool block = false;
 
 	if (!(req = tfw_http_msg_alloc_req_light()))
 		return;
@@ -3991,6 +3992,28 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 
 	__set_bit(TFW_HTTP_B_HMONITOR, req->flags);
 	req->jrxtstamp = jiffies;
+
+	/*
+	 * Vhost and location store policies definitions that can be
+	 * required on various stages of request-response processing.
+	 * E.g. response to HM request still needs to be processed by frang,
+	 * and vhost keeps the frang configuration.
+	 *
+	 * The request is created using lightweight function, req->uri_path
+	 * is not set, thus default location is used.
+	 *
+	 * TBD: it's more natural to configure HM not in server group section,
+	 * but in vhost: instead of table lookups target vhost could be chosen
+	 * directly.
+	 */
+	req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block);
+	if (unlikely(!req->vhost || block)) {
+		TFW_WARN_ADDR("Unable to assign vhost for health monitoring "
+			      "request of backend server", &srv->addr,
+			      TFW_WITH_PORT);
+		goto cleanup;
+	}
+	req->location = req->vhost->loc_dflt;
 
 	srv_conn = srv->sg->sched->sched_srv_conn((TfwMsg *)req, srv);
 	if (!srv_conn) {
