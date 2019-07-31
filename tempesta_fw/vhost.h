@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,6 +24,7 @@
 #include "addr.h"
 #include "msg.h"
 #include "server.h"
+#include "tls.h"
 
 /**
  * Non-Idempotent Request definition.
@@ -133,13 +134,12 @@ enum {
 	TFW_VHOST_B_REMOVED = 0,
 };
 
-typedef struct tfw_vhost_t TfwVhost;
-
 /**
  * Virtual host defined by directives and policies.
  *
  * @list	- Entry in list of all configured virtual hosts.
- * @name	- Name of virtual host.
+ * @name	- Name of virtual host. Contains zero terminator in the end,
+ *		  which is not counted by 'len' member.
  * @loc		- Array of groups of policies by specific location.
  * @loc_dflt	- Default policy.
  * @vhost_dflt	- Pointer to default virtual host with global policies.
@@ -147,10 +147,11 @@ typedef struct tfw_vhost_t TfwVhost;
  * @refcnt	- Number of users of the virtual host object.
  * @loc_sz	- Count of elements in @loc array.
  * @flags	- flags.
+ * @tls_cfg	- TLS per-vhost configuration data used in data processing.
  */
 struct  tfw_vhost_t {
-	struct list_head	list;
-	const char		*name;
+	struct hlist_node	hlist;
+	TfwStr			name;
 	TfwLocation		*loc;
 	TfwLocation		*loc_dflt;
 	TfwVhost		*vhost_dflt;
@@ -158,6 +159,7 @@ struct  tfw_vhost_t {
 	atomic64_t		refcnt;
 	size_t			loc_sz;
 	unsigned long		flags;
+	TlsPeerCfg		tls_cfg;
 };
 
 #define TFW_VH_DFT_NAME		"default"
@@ -205,12 +207,21 @@ TfwNipDef *tfw_nipdef_match(TfwLocation *loc, unsigned char meth, TfwStr *arg);
 bool tfw_capuacl_match(TfwAddr *addr);
 TfwCaPolicy *tfw_capolicy_match(TfwLocation *loc, TfwStr *arg);
 TfwLocation *tfw_location_match(TfwVhost *vhost, TfwStr *arg);
-TfwVhost *tfw_vhost_lookup(const char *name);
+TfwVhost *tfw_vhost_lookup_reconfig(const char *name);
+TfwVhost *tfw_vhost_lookup(const TfwStr *name);
+TfwVhost *tfw_vhost_lookup_default(void);
+bool tfw_vhost_is_default_reconfig(TfwVhost *vhost);
 TfwSrvConn *tfw_vhost_get_srv_conn(TfwMsg *msg);
 TfwVhost *tfw_vhost_new(const char *name);
 TfwGlobal *tfw_vhost_get_global(void);
 TfwHdrMods *tfw_vhost_get_hdr_mods(TfwLocation *loc, TfwVhost *vhost,
 				   int mod_type);
 struct frang_cfg_t *tfw_vhost_global_frang_cfg(void);
+
+static inline TfwVhost*
+tfw_vhost_from_tls_conf(const TlsPeerCfg *cfg)
+{
+	return  container_of(cfg, TfwVhost, tls_cfg);
+}
 
 #endif /* __TFW_VHOST_H__ */

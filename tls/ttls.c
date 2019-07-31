@@ -1248,19 +1248,6 @@ ttls_handshake_free(TlsHandshake *hs, const TlsCiphersuite *ci)
 	if (!hs)
 		return;
 
-	/*
-	 * Free only the linked list wrapper, not the keys themselves
-	 * since they belong to the SNI callback.
-	 */
-	if (hs->sni_key_cert) {
-		ttls_key_cert *cur = hs->sni_key_cert, *next;
-		while (cur) {
-			next = cur->next;
-			kfree(cur);
-			cur = next;
-		}
-	}
-
 	crypto_free_shash(hs->desc.tfm);
 
 	if (!IS_ERR_OR_NULL(ci)) {
@@ -1538,7 +1525,7 @@ parse:
 	}
 	sess->peer_cert = kmalloc(sizeof(ttls_x509_crt), GFP_KERNEL);
 	if (!sess->peer_cert) {
-		T_DBG("can npt allocacte a certificate (%lu bytes)\n",
+		T_DBG("can not allocate a certificate (%lu bytes)\n",
 		      sizeof(ttls_x509_crt));
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				    TTLS_ALERT_MSG_INTERNAL_ERROR);
@@ -1595,16 +1582,8 @@ parse:
 
 	if (authmode != TTLS_VERIFY_NONE) {
 		const ttls_pk_context *pk = &sess->peer_cert->pk;
-		ttls_x509_crt *ca_chain;
-		ttls_x509_crl *ca_crl;
-
-		if (tls->hs->sni_ca_chain) {
-			ca_chain = tls->hs->sni_ca_chain;
-			ca_crl = tls->hs->sni_ca_crl;
-		} else {
-			ca_chain = tls->conf->ca_chain;
-			ca_crl = tls->conf->ca_crl;
-		}
+		ttls_x509_crt *ca_chain = tls->hs->key_cert->ca_chain;
+		ttls_x509_crl *ca_crl = tls->hs->key_cert->ca_crl;
 
 		/* Main check: verify certificate */
 		r = ttls_x509_crt_verify_with_profile(sess->peer_cert, ca_chain,
@@ -1845,28 +1824,16 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 	return 0;
 }
 
-/**
- * Allow exactly one hash algorithm for each signature.
- */
-void
-ttls_sig_hash_set_const_hash(ttls_sig_hash_set_t *set, ttls_md_type_t md_alg)
-{
-	set->rsa = md_alg;
-	set->ecdsa = md_alg;
-}
-
 static void
 ttls_handshake_params_init(TlsHandshake *hs)
 {
 	bzero_fast(hs, sizeof(*hs));
 
-	ttls_sig_hash_set_const_hash(&hs->hash_algs, TTLS_MD_NONE);
-
 	hs->sni_authmode = TTLS_VERIFY_UNSET;
 }
 
 int
-ttls_ctx_init(TlsCtx *tls, const ttls_config *conf)
+ttls_ctx_init(TlsCtx *tls, const TlsCfg *conf)
 {
 	bzero_fast(tls, sizeof(*tls));
 	spin_lock_init(&tls->lock);
@@ -1883,7 +1850,7 @@ ttls_ctx_init(TlsCtx *tls, const ttls_config *conf)
 EXPORT_SYMBOL(ttls_ctx_init);
 
 void
-ttls_conf_authmode(ttls_config *conf, int authmode)
+ttls_conf_authmode(TlsCfg *conf, int authmode)
 {
 	conf->authmode = authmode;
 }
@@ -1910,15 +1877,16 @@ int ttls_set_session(ttls_context *tls, const ttls_ssl_session *session)
 #endif /* TTLS_CLI_C */
 
 void
-ttls_conf_ciphersuites_for_version(ttls_config *conf, const int *ciphersuites,
+ttls_conf_ciphersuites_for_version(const int **ciphersuite_list,
+				   const int *ciphersuites,
 				   int minor)
 {
 	WARN_ON(minor < TTLS_MINOR_VERSION_3 || minor > TTLS_MINOR_VERSION_4);
-	conf->ciphersuite_list[minor] = ciphersuites;
+	ciphersuite_list[minor] = ciphersuites;
 }
 
 void
-ttls_conf_cert_profile(ttls_config *conf, const ttls_x509_crt_profile *profile)
+ttls_conf_cert_profile(TlsCfg *conf, const ttls_x509_crt_profile *profile)
 {
 	conf->cert_profile = profile;
 }
@@ -1929,7 +1897,8 @@ ttls_conf_cert_profile(ttls_config *conf, const ttls_x509_crt_profile *profile)
  */
 static int
 ttls_append_key_cert(ttls_key_cert **head, ttls_x509_crt *cert,
-		     ttls_pk_context *key)
+		     ttls_pk_context *key, ttls_x509_crt *ca_chain,
+		     ttls_x509_crl *ca_crl)
 {
 	ttls_key_cert *new;
 
@@ -1938,6 +1907,8 @@ ttls_append_key_cert(ttls_key_cert **head, ttls_x509_crt *cert,
 
 	new->cert = cert;
 	new->key = key;
+	new->ca_chain = ca_chain;
+	new->ca_crl = ca_crl;
 	new->next = NULL;
 
 	/* Update head is the list was null, else add to the end */
@@ -1954,36 +1925,14 @@ ttls_append_key_cert(ttls_key_cert **head, ttls_x509_crt *cert,
 }
 
 int
-ttls_conf_own_cert(ttls_config *conf, ttls_x509_crt *own_cert,
-		   ttls_pk_context *pk_key)
-{
-	return ttls_append_key_cert(&conf->key_cert, own_cert, pk_key);
-}
-EXPORT_SYMBOL(ttls_conf_own_cert);
-
-void
-ttls_conf_ca_chain(ttls_config *conf, ttls_x509_crt *ca_chain,
+ttls_conf_own_cert(TlsPeerCfg *conf, ttls_x509_crt *own_cert,
+		   ttls_pk_context *pk_key, ttls_x509_crt *ca_chain,
 		   ttls_x509_crl *ca_crl)
 {
-	conf->ca_chain = ca_chain;
-	conf->ca_crl = ca_crl;
+	return ttls_append_key_cert(&conf->key_cert, own_cert, pk_key, ca_chain,
+				    ca_crl);
 }
-EXPORT_SYMBOL(ttls_conf_ca_chain);
-
-int
-ttls_set_hs_own_cert(ttls_context *tls, ttls_x509_crt *own_cert,
-		     ttls_pk_context *pk_key)
-{
-	return ttls_append_key_cert(&tls->hs->sni_key_cert, own_cert, pk_key);
-}
-
-void
-ttls_set_hs_ca_chain(ttls_context *tls, ttls_x509_crt *ca_chain,
-		     ttls_x509_crl *ca_crl)
-{
-	tls->hs->sni_ca_chain = ca_chain;
-	tls->hs->sni_ca_crl = ca_crl;
-}
+EXPORT_SYMBOL(ttls_conf_own_cert);
 
 void
 ttls_set_hs_authmode(ttls_context *tls, int authmode)
@@ -1993,9 +1942,9 @@ ttls_set_hs_authmode(ttls_context *tls, int authmode)
 
 #if defined(TTLS_DHM_C)
 
-int ttls_conf_dh_param_bin(ttls_config *conf,
-		const unsigned char *dhm_P, size_t P_len,
-		const unsigned char *dhm_G, size_t G_len)
+int ttls_conf_dh_param_bin(TlsCfg *conf,
+			   const unsigned char *dhm_P, size_t P_len,
+			   const unsigned char *dhm_G, size_t G_len)
 {
 	int r;
 
@@ -2010,7 +1959,7 @@ int ttls_conf_dh_param_bin(ttls_config *conf,
 	return 0;
 }
 
-int ttls_conf_dh_param_ctx(ttls_config *conf, ttls_dhm_context *dhm_ctx)
+int ttls_conf_dh_param_ctx(TlsCfg *conf, ttls_dhm_context *dhm_ctx)
 {
 	int r;
 
@@ -2030,8 +1979,8 @@ int ttls_conf_dh_param_ctx(ttls_config *conf, ttls_dhm_context *dhm_ctx)
 /*
  * Set the minimum length for Diffie-Hellman parameters
  */
-void ttls_conf_dhm_min_bitlen(ttls_config *conf,
-		unsigned int bitlen)
+void ttls_conf_dhm_min_bitlen(TlsCfg *conf,
+			      unsigned int bitlen)
 {
 	conf->dhm_min_bitlen = bitlen;
 }
@@ -2041,7 +1990,7 @@ void ttls_conf_dhm_min_bitlen(ttls_config *conf,
  * Set allowed/preferred hashes for hs signatures
  */
 void
-ttls_conf_sig_hashes(ttls_config *conf, const int *hashes)
+ttls_conf_sig_hashes(TlsPeerCfg *conf, const int *hashes)
 {
 	conf->sig_hashes = hashes;
 }
@@ -2050,7 +1999,7 @@ ttls_conf_sig_hashes(ttls_config *conf, const int *hashes)
  * Set the allowed elliptic curves
  */
 void
-ttls_conf_curves(ttls_config *conf, const ttls_ecp_group_id *curve_list)
+ttls_conf_curves(TlsPeerCfg *conf, const ttls_ecp_group_id *curve_list)
 {
 	conf->curve_list = curve_list;
 }
@@ -2100,7 +2049,7 @@ int ttls_set_hostname(ttls_context *tls, const char *hostname)
 }
 
 void
-ttls_conf_sni(ttls_config *conf,
+ttls_conf_sni(TlsCfg *conf,
 	      int (*f_sni)(void *, ttls_context *, const unsigned char *,
 			   size_t),
 	      void *p_sni)
@@ -2108,6 +2057,7 @@ ttls_conf_sni(ttls_config *conf,
 	conf->f_sni = f_sni;
 	conf->p_sni = p_sni;
 }
+EXPORT_SYMBOL(ttls_conf_sni);
 
 const char *
 ttls_get_alpn_protocol(const TlsCtx *tls)
@@ -2116,17 +2066,17 @@ ttls_get_alpn_protocol(const TlsCtx *tls)
 }
 
 void
-ttls_conf_version(ttls_config *conf, int min_minor, int max_minor)
+ttls_conf_version(TlsCfg *conf, int min_minor, int max_minor)
 {
 	conf->min_minor_ver = min_minor;
 	conf->max_minor_ver = max_minor;
 }
 
 #if defined(TTLS_SESSION_TICKETS)
-void ttls_conf_session_tickets_cb(ttls_config *conf,
-		ttls_ticket_write_t *f_ticket_write,
-		ttls_ticket_parse_t *f_ticket_parse,
-		void *p_ticket)
+void ttls_conf_session_tickets_cb(TlsCfg *conf,
+				  ttls_ticket_write_t *f_ticket_write,
+				  ttls_ticket_parse_t *f_ticket_parse,
+				  void *p_ticket)
 {
 	conf->f_ticket_write = f_ticket_write;
 	conf->f_ticket_parse = f_ticket_parse;
@@ -2172,12 +2122,12 @@ ttls_hs_checksumable(TlsCtx *tls)
  * execution of this function. Do not call this function if state is
  * TTLS_HANDSHAKE_OVER.
  *
- * The step callees must return T_POSTPONE if more input data is required to
+ * The step callers must return T_POSTPONE if more input data is required to
  * completely read current ingress record and 0 (T_OK) if current FSM state
  * finished successfully. All other return codes are treated as errors.
  *
  * @hh_len is pure optimization argument: it defines a backward offset in
- * @buf of size of hadshake header if the header is in the @buf, so this way
+ * @buf of size of handshake header if the header is in the @buf, so this way
  * we can compute the whole message checksum in one shot. Only handshake steps
  * reading ingress data use the argument.
  */
@@ -2277,7 +2227,7 @@ next_record:
 		}
 
 		/*
-		 * We add ingress messages to the handhsake session checksum
+		 * We add ingress messages to the handshake session checksum
 		 * in two different places: here for message chunks and inside
 		 * the handshake state machine. @hh_len is used for the
 		 * checksumming only. We can not compute checksum for complete
@@ -2384,7 +2334,7 @@ ttls_close_notify(TlsCtx *tls)
 }
 EXPORT_SYMBOL(ttls_close_notify);
 
-static void
+void
 ttls_key_cert_free(ttls_key_cert *key_cert)
 {
 	ttls_key_cert *cur = key_cert, *next;
@@ -2395,6 +2345,7 @@ ttls_key_cert_free(ttls_key_cert *key_cert)
 		cur = next;
 	}
 }
+EXPORT_SYMBOL(ttls_key_cert_free);
 
 void
 ttls_ctx_clear(TlsCtx *tls)
@@ -2422,9 +2373,9 @@ ttls_ctx_clear(TlsCtx *tls)
 EXPORT_SYMBOL(ttls_ctx_clear);
 
 void
-ttls_config_init(ttls_config *conf)
+ttls_config_init(TlsCfg *conf)
 {
-	bzero_fast(conf, sizeof(ttls_config));
+	bzero_fast(conf, sizeof(TlsCfg));
 }
 EXPORT_SYMBOL(ttls_config_init);
 
@@ -2481,7 +2432,7 @@ static ttls_ecp_group_id ssl_preset_suiteb_curves[] = {
  * Use NSA Suite B as a preset-specific defaults.
  */
 int
-ttls_config_defaults(ttls_config *conf, int endpoint)
+ttls_config_defaults(TlsCfg *conf, int endpoint)
 {
 	conf->endpoint = endpoint;
 
@@ -2513,24 +2464,45 @@ ttls_config_defaults(ttls_config *conf, int endpoint)
 	conf->min_minor_ver = TTLS_MINOR_VERSION_3; /* TLS 1.2 */
 	conf->max_minor_ver = TTLS_MAX_MINOR_VERSION;
 
-	ttls_conf_ciphersuites_for_version(conf, ttls_default_ciphersuites,
-					   TTLS_MINOR_VERSION_3);
-
 	conf->cert_profile = &ttls_x509_crt_profile_suiteb;
-	conf->sig_hashes = ssl_preset_suiteb_hashes;
-	conf->curve_list = ssl_preset_suiteb_curves;
 
 	return 0;
 }
 EXPORT_SYMBOL(ttls_config_defaults);
 
-void
-ttls_config_free(ttls_config *conf)
+int
+ttls_config_peer_defaults(TlsPeerCfg *conf, int endpoint)
 {
-	ttls_key_cert_free(conf->key_cert);
-	bzero_fast(conf, sizeof(ttls_config));
+	conf->endpoint = endpoint;
+	conf->cert_req_ca_list = 0;
+
+	conf->min_minor_ver = TTLS_MINOR_VERSION_3; /* TLS 1.2 */
+	conf->max_minor_ver = TTLS_MAX_MINOR_VERSION;
+
+	ttls_conf_ciphersuites_for_version(conf->ciphersuite_list,
+					   ttls_default_ciphersuites,
+					   TTLS_MINOR_VERSION_3);
+
+	conf->sig_hashes = ssl_preset_suiteb_hashes;
+	conf->curve_list = ssl_preset_suiteb_curves;
+
+	return 0;
+}
+EXPORT_SYMBOL(ttls_config_peer_defaults);
+
+void
+ttls_config_free(TlsCfg *conf)
+{
+	bzero_fast(conf, sizeof(TlsCfg));
 }
 EXPORT_SYMBOL(ttls_config_free);
+
+void
+ttls_config_peer_free(TlsPeerCfg *conf)
+{
+	bzero_fast(conf, sizeof(TlsPeerCfg));
+}
+EXPORT_SYMBOL(ttls_config_peer_free);
 
 unsigned char
 ttls_sig_from_pk_alg(ttls_pk_type_t type)
@@ -2559,15 +2531,19 @@ ttls_pk_alg_from_sig(unsigned char sig)
 	}
 }
 
-/* Find an entry in a signature-hash set matching a given hash algorithm. */
+/*
+ * Find an entry in a signature-hash set matching a given hash algorithm.
+ * Most secure are preferred.
+ */
 ttls_md_type_t
-ttls_sig_hash_set_find(ttls_sig_hash_set_t *set, ttls_pk_type_t sig_alg)
+ttls_sig_hash_set_find(TlsSigHashSet *set, ttls_pk_type_t sig_alg)
 {
+	/* fls(0x1) == fls(0x0) = TTLS_MD_NONE. */
 	switch (sig_alg) {
 	case TTLS_PK_RSA:
-		return set->rsa;
+		return fls(set->rsa);
 	case TTLS_PK_ECDSA:
-		return set->ecdsa;
+		return fls(set->ecdsa);
 	default:
 		return TTLS_MD_NONE;
 	}
@@ -2577,17 +2553,45 @@ ttls_sig_hash_set_find(ttls_sig_hash_set_t *set, ttls_pk_type_t sig_alg)
  * Add a signature-hash-pair to a signature-hash set/
  */
 void
-ttls_sig_hash_set_add(ttls_sig_hash_set_t *set, ttls_pk_type_t sig_alg,
+ttls_sig_hash_set_add(TlsSigHashSet *set, ttls_pk_type_t sig_alg,
 		      ttls_md_type_t md_alg)
 {
 	switch (sig_alg) {
 	case TTLS_PK_RSA:
-		if (set->rsa == TTLS_MD_NONE)
-			set->rsa = md_alg;
+		set->rsa |= 1 << md_alg;
 		break;
 	case TTLS_PK_ECDSA:
-		if (set->ecdsa == TTLS_MD_NONE)
-			set->ecdsa = md_alg;
+		set->ecdsa |= 1 << md_alg;
+		break;
+	default:
+		return;
+	}
+}
+
+bool
+ttls_sig_hash_set_has(TlsSigHashSet *set, ttls_pk_type_t sig_alg,
+		      ttls_md_type_t md_alg)
+{
+	switch (sig_alg) {
+	case TTLS_PK_RSA:
+		return set->rsa && (1 << md_alg);
+	case TTLS_PK_ECDSA:
+		return set->ecdsa && (1 << md_alg);
+	default:
+		return false;
+	}
+}
+
+void
+ttls_sig_hash_set_const(TlsSigHashSet *set, ttls_pk_type_t sig_alg,
+			ttls_md_type_t md_alg)
+{
+	switch (sig_alg) {
+	case TTLS_PK_RSA:
+		set->rsa = 1 << md_alg;
+		break;
+	case TTLS_PK_ECDSA:
+		set->ecdsa = 1 << md_alg;
 		break;
 	default:
 		return;
@@ -2642,11 +2646,12 @@ int
 ttls_check_curve(const ttls_context *tls, ttls_ecp_group_id grp_id)
 {
 	const ttls_ecp_group_id *gid;
+	const ttls_ecp_group_id	*curve_list = tls->peer_conf->curve_list;
 
-	if (!tls->conf->curve_list)
+	if (!curve_list)
 		return -1;
 
-	for (gid = tls->conf->curve_list; *gid != TTLS_ECP_DP_NONE; gid++)
+	for (gid = curve_list; *gid != TTLS_ECP_DP_NONE; gid++)
 		if (*gid == grp_id)
 			return 0;
 
@@ -2662,33 +2667,92 @@ ttls_check_sig_hash(const TlsCtx *tls, ttls_md_type_t md)
 {
 	const int *cur;
 
-	if (!tls->conf->sig_hashes)
+	if (!tls->peer_conf->sig_hashes)
 		return -1;
 
-	for (cur = tls->conf->sig_hashes; *cur != TTLS_MD_NONE; cur++)
+	for (cur = tls->peer_conf->sig_hashes; *cur != TTLS_MD_NONE; cur++)
 		if (*cur == (int)md)
 			return 0;
 
 	return -1;
 }
 
-/*
- * If there is no signature-algorithm extension present in ClientHello,
- * we need to fall back to the default values for allowed  signature-hash pairs.
- */
-void
-ttls_set_default_sig_hash(TlsCtx *tls)
+int
+ttls_match_sig_hashes(const TlsCtx *tls)
 {
-	ttls_sig_hash_set_t *ha = &tls->hs->hash_algs;
+	TlsSigHashSet *set = &tls->hs->hash_algs;
+	bool dflt_available = false, has_rsa = false, has_ecdsa = false;
+	const int *cur;
 
-	if (ha->rsa == TTLS_MD_NONE && ha->ecdsa == TTLS_MD_NONE) {
+	if (WARN_ON_ONCE(!tls->peer_conf))
+		goto err;
+	if (unlikely(!tls->peer_conf->sig_hashes))
+		goto err;
+
+	/*
+	 * Normally peers advertise supported functions, hashes supported by
+	 * us is stored in order of preference in @tls->peer_conf.
+	 * Grab the first matched and avoid spinning in the list.
+	 */
+	for (cur = tls->peer_conf->sig_hashes; *cur != TTLS_MD_NONE; cur++) {
+		if (!has_rsa
+		    && ttls_sig_hash_set_has(set, TTLS_PK_RSA, *cur))
+		{
+			has_rsa = true;
+			ttls_sig_hash_set_const(set, TTLS_PK_RSA, *cur);
+			T_DBG("ClientHello: signature_algorithm ext:"
+			      " choose hash %d for sig RSA",
+			      *cur);
+		}
+		if (!has_ecdsa
+		    && ttls_sig_hash_set_has(set, TTLS_PK_ECDSA, *cur))
+		{
+			has_ecdsa = true;
+			ttls_sig_hash_set_const(set, TTLS_PK_ECDSA, *cur);
+			T_DBG("ClientHello: signature_algorithm ext:"
+			      " choose hash %d for sig ECDSA",
+			      *cur);
+		}
+
+		if (likely(has_rsa && has_ecdsa))
+			return 0;
+
 		/*
-		 * Try to fall back to default hash SHA256 if the client
-		 * hasn't provided any preferred signature-hash combinations.
+		 * SHA256 is fallback default function, used if none was
+		 * advertised by remote peer.
 		 */
-		if (!ttls_check_sig_hash(tls, TTLS_MD_SHA256))
-			ttls_sig_hash_set_const_hash(ha, TTLS_MD_SHA256);
+		if (*cur == TTLS_MD_SHA256)
+			dflt_available = true;
 	}
+
+	/*
+	 * No match between our list and remote peer list. If remote peer didn't
+	 * advertised anything, peek default values.
+	 */
+	if (!dflt_available)
+		goto err;
+	if (!has_rsa) {
+		if (ttls_sig_hash_set_find(set, TTLS_PK_RSA) != TTLS_MD_NONE)
+			goto err;
+		T_DBG("ClientHello: signature_algorithm ext:"
+		      "No hash for RSA signature algorithm advertised by "
+		      "client, fallback to SHA256\n");
+		ttls_sig_hash_set_const(set, TTLS_PK_RSA, TTLS_MD_SHA256);
+	}
+	if (!has_ecdsa) {
+		if (ttls_sig_hash_set_find(set, TTLS_PK_ECDSA) != TTLS_MD_NONE)
+			goto err;
+		T_DBG("ClientHello: signature_algorithm ext:"
+		      "No hash for ECDSA signature algorithm advertised by "
+		      "client, by peer, fallback to SHA256\n");
+		ttls_sig_hash_set_const(set, TTLS_PK_ECDSA, TTLS_MD_SHA256);
+	}
+
+	return 0;
+err:
+	T_DBG("ClientHello: signature_algorithm ext: client and server "
+	      "hash function capabilities has no match");
+	return -1;
 }
 
 int

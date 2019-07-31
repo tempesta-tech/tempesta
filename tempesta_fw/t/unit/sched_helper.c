@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -116,8 +116,8 @@ test_sg_release_all_reconfig(void)
 	down_write(sg_sem);
 
 	/* Copy of hash_for_each_safe() which needs locally defined hash. */
-        for ( ; !sg && i < (1 << TFW_SG_HBITS); i++) {
-                hlist_for_each_entry_safe(sg, tmp, &sg_hash_reconfig[i],
+	for ( ; !sg && i < (1 << TFW_SG_HBITS); i++) {
+		hlist_for_each_entry_safe(sg, tmp, &sg_hash_reconfig[i],
 					  list_reconfig)
 		{
 			TfwServer *srv, *srv_tmp;

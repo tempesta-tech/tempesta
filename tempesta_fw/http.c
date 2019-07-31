@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -26,6 +26,7 @@
 #include "lib/hash.h"
 #include "lib/str.h"
 #include "cache.h"
+#include "hash.h"
 #include "http_limits.h"
 #include "http_tbl.h"
 #include "http_parser.h"
@@ -335,8 +336,6 @@ tfw_http_prep_date(char *buf)
 {
 	tfw_http_prep_date_from(buf, tfw_current_timestamp());
 }
-
-unsigned long tfw_hash_str(const TfwStr *str);
 
 #define S_REDIR_302	S_302 S_CRLF
 #define S_REDIR_503	S_503 S_CRLF
@@ -2271,7 +2270,7 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 		TFW_ERR("can't add X-Forwarded-For header for %.*s to msg %p",
 			(int)(p - buf), buf, hm);
 	else
-		TFW_DBG2("added X-Forwarded-For header for %*s\n",
+		TFW_DBG2("added X-Forwarded-For header for %.*s\n",
 			 (int)(p - buf), buf);
 	return r;
 }
