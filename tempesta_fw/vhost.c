@@ -1569,9 +1569,8 @@ tfw_vhost_new(const char *name)
 		return NULL;
 	}
 	if (strcasecmp(name, TFW_VH_DFT_NAME)) {
-		TfwVhost *dvh = tfw_vhosts_reconfig->vhost_dflt;
 		if (tfw_frang_cfg_inherit(vhost->loc_dflt->frang_cfg,
-					  dvh->loc_dflt->frang_cfg))
+					  &tfw_frang_vhost_reconfig))
 		{
 			tfw_vhost_destroy(vhost);
 			return NULL;
