@@ -87,17 +87,26 @@
 
 /*
  * Abstraction for a grid of allowed signature-hash-algorithm pairs.
+ *
+ * @rsa			- bitmap to store values from ttls_md_type_t;
+ * @ecdsa		- bitmap to store values from ttls_md_type_t;
+ *
+ * When signature_algorithm extension in ClientHello is parsed, target server
+ * is not known, and the grid contain all (known) client capabilities.
+ * After target server is determined, the most preferred hash function is
+ * stored in the grid while others are dropped.
+ *
+ * At the moment, we only need to remember and use a single suitable
+ * hash algorithm per signature algorithm. As long as that's
+ * the case - and we don't need a general lookup function -
+ * we can implement the sig-hash-set as a map from signatures
+ * to hash algorithms
  */
-struct ttls_sig_hash_set_t
+typedef struct
 {
-	/* At the moment, we only need to remember a single suitable
-	 * hash algorithm per signature algorithm. As long as that's
-	 * the case - and we don't need a general lookup function -
-	 * we can implement the sig-hash-set as a map from signatures
-	 * to hash algorithms. */
-	ttls_md_type_t rsa;
-	ttls_md_type_t ecdsa;
-};
+	unsigned int rsa;
+	unsigned int ecdsa;
+} TlsSigHashSet;
 
 /*
  * This structure contains the parameters only needed during handshake.
@@ -114,9 +123,6 @@ struct ttls_sig_hash_set_t
  * @cli_exts	- client extension presence;
  * @pmslen	- premaster length;
  * @key_cert	- chosen key/cert pair (server);
- * @sni_key_cert - key/cert list from SNI;
- * @sni_ca_chain - trusted CAs from SNI callback;
- * @sni_ca_crl	- trusted CAs CRLs from SNI;
  * @dhm_ctx	- DHM key exchange;
  * @ecdh_ctx	- ECDH key exchange;
  * @fin_sha{256,512} - checksum contexts;
@@ -127,8 +133,8 @@ struct ttls_sig_hash_set_t
  * @premaster	- premaster secret;
  * @tmp		- buffer to store temporary data between data chunks;
  */
-typedef struct tls_handshake_t {
-	ttls_sig_hash_set_t		hash_algs;
+struct tls_handshake_t {
+	TlsSigHashSet			hash_algs;
 	int				sni_authmode;
 
 	unsigned char			point_form		: 1,
@@ -141,9 +147,6 @@ typedef struct tls_handshake_t {
 
 	size_t				pmslen;
 	ttls_key_cert			*key_cert;
-	ttls_key_cert			*sni_key_cert;
-	ttls_x509_crt			*sni_ca_chain;
-	ttls_x509_crl			*sni_ca_crl;
 
 	void (*calc_verify)(ttls_context *, unsigned char *);
 	void (*calc_finished)(ttls_context *, unsigned char *, int);
@@ -172,26 +175,32 @@ typedef struct tls_handshake_t {
 		unsigned char		premaster[TTLS_PREMASTER_SIZE];
 		unsigned char		tmp[TTLS_HS_RBUF_SZ];
 	};
-} TlsHandshake;
+};
 
 /*
  * List of certificate + private key pairs
+ *
+ * @cert		- Server certificate;
+ * @key			- key for the certificate;
+ * @ca_chain		- trusted CA chain for the issues certificate;
+ * @ca_crl		- trusted CAs CRLs
  */
 struct ttls_key_cert
 {
 	ttls_x509_crt			*cert;
 	ttls_pk_context			*key;
+	ttls_x509_crt			*ca_chain;
+	ttls_x509_crl			*ca_crl;
 	ttls_key_cert			*next;
 };
 
 /* Find an entry in a signature-hash set matching a given hash algorithm. */
-ttls_md_type_t ttls_sig_hash_set_find(ttls_sig_hash_set_t *set,
-			 ttls_pk_type_t sig_alg);
+ttls_md_type_t ttls_sig_hash_set_find(TlsSigHashSet *set,
+				      ttls_pk_type_t sig_alg);
 /* Add a signature-hash-pair to a signature-hash set */
-void ttls_sig_hash_set_add(ttls_sig_hash_set_t *set,
+void ttls_sig_hash_set_add(TlsSigHashSet *set,
 			   ttls_pk_type_t sig_alg,
 			   ttls_md_type_t md_alg);
-void ttls_set_default_sig_hash(TlsCtx *tls);
 
 int ttls_handshake_client_step(ttls_context *tls, unsigned char *buf,
 			       size_t len, size_t hh_len, unsigned int *read);
@@ -230,6 +239,7 @@ int ttls_set_calc_verify_md(ttls_context *tls, int md);
 int ttls_check_curve(const ttls_context *tls, ttls_ecp_group_id grp_id);
 
 int ttls_check_sig_hash(const ttls_context *tls, ttls_md_type_t md);
+int ttls_match_sig_hashes(const TlsCtx *tls);
 void ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len);
 
 /**
@@ -253,7 +263,7 @@ ttls_own_key(ttls_context *tls)
 	if (tls->hs && tls->hs->key_cert)
 		key_cert = tls->hs->key_cert;
 	else
-		key_cert = tls->conf->key_cert;
+		key_cert = tls->peer_conf ? tls->peer_conf->key_cert : NULL;
 
 	return key_cert ? key_cert->key : NULL;
 }
@@ -266,7 +276,7 @@ ttls_own_cert(TlsCtx *tls)
 	if (tls->hs && tls->hs->key_cert)
 		key_cert = tls->hs->key_cert;
 	else
-		key_cert = tls->conf->key_cert;
+		key_cert = tls->peer_conf ? tls->peer_conf->key_cert : NULL;
 
 	return key_cert ? key_cert->cert : NULL;
 }

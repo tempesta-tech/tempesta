@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,6 +18,7 @@
  * 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include "tempesta_fw.h"
+#include "hash.h"
 #include "http.h"
 #include "http_match.h"
 #include "http_msg.h"
@@ -25,21 +26,23 @@
 #include "str.h"
 #include "http_limits.h"
 #include "client.h"
+#include "tls_conf.h"
 
+#define TFW_VH_HBITS	10
 /**
  * Control object for holding full set of virtual hosts specific for current
  * configuration/reconfiguration stage.
  *
- * @head	- List of configured virtual hosts.
  * @vhost_dflt	- Default virtual host with global policies (always present in
  *		  current configuration).
  * @expl_dflt	- Flag to indicate explicit configuration of default
  *		  virtual host.
+ * @vh_hash	- Hash table with configured virtual hosts.
  */
 typedef struct {
-	struct list_head head;
 	TfwVhost	*vhost_dflt;
 	bool		expl_dflt;
+	DECLARE_HASHTABLE(vh_hash, TFW_VH_HBITS);
 } TfwVhostList;
 
 /* Mappings for match operators. */
@@ -292,7 +295,8 @@ tfw_vhost_get_srv_conn(TfwMsg *msg)
 	main_sg = loc->main_sg;
 	backup_sg = loc->backup_sg;
 
-	BUG_ON(!main_sg);
+	if (unlikely(!main_sg))
+		return NULL;
 	TFW_DBG2("vhost: use server group: '%s'\n", main_sg->name);
 
 	if (likely(main_sg->sched))
@@ -343,36 +347,115 @@ tfw_vhost_get_hdr_mods(TfwLocation *loc, TfwVhost *vhost, int mod_type)
  * Pointer to the current location structure.
  * The pointer is shared among multiple functions below.
  */
-static TfwLocation *tfwcfg_this_location;
+static TfwLocation		*tfwcfg_this_location;
 /* Entry for configuration of separate vhost. */
-static TfwVhost		*tfw_vhost_entry;
+static TfwVhost			*tfw_vhost_entry;
 /* Pointer to all current vhosts. */
-static TfwVhostList	*tfw_vhosts;
+static TfwVhostList __rcu	*tfw_vhosts;
 /* Pointer to all vhosts parsed during reconfiguration. */
-static TfwVhostList	*tfw_vhosts_reconfig;
+static TfwVhostList		*tfw_vhosts_reconfig;
 /* Object with global level settings (non-reconfigurable). */
-static TfwGlobal	tfw_global = {
+static TfwGlobal		tfw_global = {
 	.hdr_via	= s_hdr_via_dflt,
 	.hdr_via_len	= sizeof(s_hdr_via_dflt) - 1,
 	.capuacl	= tfw_capuacl_dflt,
 };
 
-/*
- * Get vhost matching the specified name. Vhost's reference counter
- * is incremented in case of successful search.
+/**
+ * Match vhost to requested name. Called in process context during configuration
+ * processing, both strings are guaranteed to be plain.
  */
-TfwVhost *
-tfw_vhost_lookup(const char *name)
+static bool
+tfw_vhost_name_match(TfwVhost *vh, const TfwStr *name)
+{
+	if (WARN_ON_ONCE(!TFW_STR_PLAIN(name)))
+		return false;
+	return vh->name.len == name->len
+		&& !strncasecmp(vh->name.data, name->data, vh->name.len);
+}
+
+/**
+ *  Match vhost to requested name. Can be called in softirq context only.
+ */
+static bool
+tfw_vhost_name_match_fast(TfwVhost *vh, const TfwStr *name)
+{
+	return !tfw_stricmp(&vh->name, name);
+}
+
+static inline TfwVhost *
+__tfw_vhost_lookup(TfwVhostList *vh_list, const TfwStr *name,
+		   bool (*match_fn)(TfwVhost *, const TfwStr *))
 {
 	TfwVhost *vhost;
+	unsigned long key = tfw_hash_str(name);
 
-	list_for_each_entry(vhost, &tfw_vhosts_reconfig->head, list) {
-		if (!strcasecmp(vhost->name, name)) {
+	hash_for_each_possible(vh_list->vh_hash, vhost, hlist, key) {
+		if (match_fn(vhost, name)) {
 			tfw_vhost_get(vhost);
 			return vhost;
 		}
 	}
 	return NULL;
+}
+
+/**
+ * Find vhost named @name in the _currently parsed and not yet applied_
+ * configuration. The operation is safe to use in process context.
+ * If vhost is found, an additional reference is taken. Caller is responsible to
+ * release the reference after use.
+ */
+TfwVhost *
+tfw_vhost_lookup_reconfig(const char *name)
+{
+	TfwStr ns = TFW_STR_FROM_CSTR(name);
+	return __tfw_vhost_lookup(tfw_vhosts_reconfig, &ns,
+				  tfw_vhost_name_match);
+}
+
+/**
+ * Find vhost in the _running_ configuration, matching name @name. The operation
+ * involves fast avx2 operations and can be done only in softirq context.
+ * If vhost is found, an additional reference is taken. Caller is responsible to
+ * release the reference after use.
+ */
+TfwVhost *
+tfw_vhost_lookup(const TfwStr *name)
+{
+	TfwVhost *vhost;
+	TfwVhostList *vhlist;
+
+	if (unlikely(TFW_STR_EMPTY(name)))
+		return NULL;
+
+	rcu_read_lock_bh();
+	vhlist = rcu_dereference_bh(tfw_vhosts);
+	BUG_ON(!vhlist);
+	vhost = __tfw_vhost_lookup(vhlist, name,
+				   tfw_vhost_name_match_fast);
+	rcu_read_unlock_bh();
+
+	return vhost;
+}
+
+/**
+ * Get default vhost in the running configuration. Default vhost is special
+ * entity that contains default policies if more precise vhost cannot be found.
+ */
+TfwVhost *
+tfw_vhost_lookup_default(void)
+{
+	TfwVhost *vhost;
+	TfwVhostList *vhlist;
+
+	rcu_read_lock_bh();
+	vhlist = rcu_dereference_bh(tfw_vhosts);
+	BUG_ON(!vhlist);
+	vhost = vhlist->vhost_dflt;
+	tfw_vhost_get(vhost);
+	rcu_read_unlock_bh();
+
+	return vhost;
 }
 
 TfwGlobal *
@@ -381,8 +464,8 @@ tfw_vhost_get_global(void)
 	return &tfw_global;
 }
 
-static inline bool
-tfw_vhost_default(TfwVhost *vhost)
+bool
+tfw_vhost_is_default_reconfig(TfwVhost *vhost)
 {
 	return tfw_vhosts_reconfig->vhost_dflt == vhost;
 }
@@ -1027,7 +1110,7 @@ tfw_cfgop_location_begin(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwVhost *vhost)
 	if (vhost->loc_sz == TFW_LOCATION_ARRAY_SZ) {
 		TFW_ERR_NL("%s: There is no empty slots in '%s' vhost to"
 			   " add new location: '%s %s %s'\n", cs->name,
-			   vhost->name, cs->name, in_op, arg);
+			   vhost->name.data, cs->name, in_op, arg);
 		return -EINVAL;
 	}
 
@@ -1067,13 +1150,13 @@ tfw_cfgop_in_location_finish(TfwCfgSpec *cs)
 {
 	BUG_ON(!tfw_vhost_entry);
 	BUG_ON(!tfwcfg_this_location);
-	if (!tfw_vhost_default(tfw_vhost_entry)
+	if (!tfw_vhost_is_default_reconfig(tfw_vhost_entry)
 	    && !tfwcfg_this_location->main_sg)
 	{
 		TFW_ERR_NL("Directive 'proxy_pass' is not specified for"
 			   " location (with arg '%s') inside not default"
 			   " vhost '%s'.\n", tfwcfg_this_location->arg,
-			   tfw_vhost_entry->name);
+			   tfw_vhost_entry->name.data);
 		return -EINVAL;
 	}
 	tfwcfg_this_location = NULL;
@@ -1323,7 +1406,8 @@ tfw_cfgop_proxy_pass(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 	in_main_sg = ce->vals[0];
 	in_backup_sg = tfw_cfg_get_attr(ce, "backup", NULL);
 
-	if (!tfw_vhost_entry || tfw_vhost_default(tfw_vhost_entry)) {
+	if (!tfw_vhost_entry || tfw_vhost_is_default_reconfig(tfw_vhost_entry))
+	{
 		if (!strcasecmp(in_main_sg, TFW_VH_DFT_NAME)
 		    && (!in_backup_sg
 			|| !strcasecmp(in_backup_sg, TFW_VH_DFT_NAME)))
@@ -1361,6 +1445,7 @@ tfw_vhost_destroy(TfwVhost *vhost)
 	tfw_location_del(vhost->loc_dflt);
 	tfw_vhost_put(vhost->vhost_dflt);
 	tfw_pool_destroy(vhost->hdrs_pool);
+	tfw_tls_cert_clean(vhost);
 	kfree(vhost);
 }
 
@@ -1372,7 +1457,8 @@ tfw_vhost_create(const char *name)
 	int name_sz = strlen(name) + 1;
 	int size = sizeof(TfwVhost)
 		+ name_sz
-		+ sizeof(TfwLocation) * (TFW_LOCATION_ARRAY_SZ + 1);
+		+ sizeof(TfwLocation) * (TFW_LOCATION_ARRAY_SZ + 1)
+		+ tfw_tls_vhost_priv_data_sz();
 
 	if (!(pool = __tfw_pool_new(0)))
 		return NULL;
@@ -1382,11 +1468,13 @@ tfw_vhost_create(const char *name)
 		TFW_ERR_NL("Cannot allocate vhost entry '%s'\n", name);
 		return NULL;
 	}
-	INIT_LIST_HEAD(&vhost->list);
-	vhost->name = (char *)(vhost + 1);
-	vhost->loc_dflt = (TfwLocation *)(vhost->name + name_sz);
+	INIT_HLIST_NODE(&vhost->hlist);
+	vhost->name.data = (char *)(vhost + 1);
+	vhost->name.len = name_sz - 1;
+	vhost->loc_dflt = (TfwLocation *)(vhost->name.data + name_sz);
 	vhost->loc = (TfwLocation *)(vhost->loc_dflt + 1);
-	memcpy((void *)vhost->name, (void *)name, name_sz);
+	vhost->tls_cfg.priv = vhost->loc + TFW_LOCATION_ARRAY_SZ;
+	memcpy(vhost->name.data, name, name_sz);
 	vhost->hdrs_pool = pool;
 	atomic64_set(&vhost->refcnt, 1);
 
@@ -1418,9 +1506,11 @@ tfw_vhost_new(const char *name)
 static inline void
 tfw_vhost_add(TfwVhost *vhost)
 {
-	list_add(&vhost->list, &tfw_vhosts_reconfig->head);
+	unsigned long key = tfw_hash_str(&vhost->name);
+
+	hash_add(tfw_vhosts_reconfig->vh_hash, &vhost->hlist, key);
 	tfw_vhost_get(vhost);
-	if (!tfw_vhost_default(vhost)) {
+	if (!tfw_vhost_is_default_reconfig(vhost)) {
 		vhost->vhost_dflt = tfw_vhosts_reconfig->vhost_dflt;
 		tfw_vhost_get(vhost->vhost_dflt);
 	}
@@ -1811,6 +1901,93 @@ tfw_cfgop_frang_out_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
+tfw_cfgop_out_tls_certificate(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	if (tfw_vhosts_reconfig->expl_dflt) {
+		T_ERR_NL("%s: global level certificates are to be configured "
+			 "outside of explicit '%s' vhost.\n",
+			 cs->name, TFW_VH_DFT_NAME);
+		return -EINVAL;
+	}
+	return tfw_tls_set_cert(tfw_vhosts_reconfig->vhost_dflt, cs, ce);
+}
+
+static int
+tfw_cfgop_in_tls_certificate(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_tls_set_cert(tfw_vhost_entry, cs, ce);
+}
+
+static int
+tfw_cfgop_out_tls_certificate_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	if (tfw_vhosts_reconfig->expl_dflt) {
+		T_ERR_NL("%s: global level certificates are to be configured "
+			 "outside of explicit '%s' vhost.\n",
+			 cs->name, TFW_VH_DFT_NAME);
+		return -EINVAL;
+	}
+	return tfw_tls_set_cert_key(tfw_vhosts_reconfig->vhost_dflt, cs, ce);
+}
+
+static int
+tfw_cfgop_in_tls_certificate_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_tls_set_cert_key(tfw_vhost_entry, cs, ce);
+}
+
+static int
+tfw_cfgop_tls_any_sni(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	bool val;
+	int r;
+
+	cs->dest = &val;
+	r = tfw_cfg_set_bool(cs, ce);
+	cs->dest = NULL;
+	if (r)
+		return r;
+
+	tfw_tls_match_any_sni_to_dflt(val);
+
+	return 0;
+}
+
+static int
+tfw_cfgop_in_tls_any_sni(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	if (!tfw_vhost_is_default_reconfig(tfw_vhost_entry)) {
+		if (ce->dflt_value)
+			return 0;
+		T_ERR_NL("%s: directive can be applied only to '%s' vhost.\n",
+			 cs->name, TFW_VH_DFT_NAME);
+		return -EINVAL;
+	}
+
+	return tfw_cfgop_tls_any_sni(cs, ce);
+}
+
+static int
+tfw_cfgop_out_tls_any_sni(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	if (tfw_vhosts_reconfig->expl_dflt && ce->dflt_value)
+		return 0;
+	if (tfw_vhosts_reconfig->expl_dflt) {
+		if (ce->dflt_value) {
+			return 0;
+		}
+		else {
+			T_ERR_NL("%s: directive defined outside explicit '%s'"
+				 "vhost definition\n",
+				 cs->name, TFW_VH_DFT_NAME);
+			return -EINVAL;
+		}
+	}
+
+	return tfw_cfgop_tls_any_sni(cs, ce);
+}
+
+static int
 tfw_vhost_cfgstart(void)
 {
 	TfwVhost *vh_dflt;
@@ -1823,7 +2000,7 @@ tfw_vhost_cfgstart(void)
 	}
 
 	tfw_vhosts_reconfig->expl_dflt = false;
-	INIT_LIST_HEAD(&tfw_vhosts_reconfig->head);
+	hash_init(tfw_vhosts_reconfig->vh_hash);
 	if(!(vh_dflt = tfw_vhost_new(TFW_VH_DFT_NAME))) {
 		TFW_ERR_NL("Unable to create default vhost.\n");
 		return -ENOMEM;
@@ -1839,22 +2016,26 @@ tfw_vhost_cfgend(void)
 {
 	TfwSrvGroup *sg_def;
 	TfwVhost *vh_dflt;
+	int r;
 
 	/*
-	 * Add default vhost into list if it hadn't been added
-	 * yet explicitly and if there is default server group
-	 * (explicit or implicit).
+	 * Add default vhost into list if it hadn't been added yet explicitly
+	 * to keep default location policies.
 	 */
 	if (tfw_vhosts_reconfig->expl_dflt)
 		return 0;
-
-	sg_def = tfw_sg_lookup_reconfig(TFW_VH_DFT_NAME, sizeof("default") - 1);
-	if (!sg_def)
-		return 0;
-
+	/*
+	 * Implicit default vhost is still useful even if it's never used to
+	 * forward the traffic. It stores fallback location providing
+	 * default policies and options that can be used before incoming
+	 * request is parsed and assigned to any location.
+	 */
 	vh_dflt = tfw_vhosts_reconfig->vhost_dflt;
+	sg_def = tfw_sg_lookup_reconfig(TFW_VH_DFT_NAME, SLEN("default"));
 	vh_dflt->loc_dflt->main_sg = sg_def;
 	tfw_vhost_add(vh_dflt);
+	if ((r = tfw_tls_cert_cfg_finish(vh_dflt)))
+		return r;
 
 	if (tfw_global.cache_purge && !tfw_global.cache_purge_acl)
 		TFW_WARN_NL("Directives mismatching: cache_purge directive"
@@ -1867,6 +2048,7 @@ static int
 tfw_cfgop_vhost_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	TfwVhost *vhost;
+	int i;
 
 	BUG_ON(tfw_vhost_entry);
 
@@ -1876,8 +2058,8 @@ tfw_cfgop_vhost_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		TFW_ERR_NL("Unexpected attributes\n");
 		return -EINVAL;
 	}
-	list_for_each_entry(vhost, &tfw_vhosts_reconfig->head, list) {
-		if (!strcasecmp(vhost->name, ce->vals[0])) {
+	hash_for_each(tfw_vhosts_reconfig->vh_hash, i, vhost, hlist) {
+		if (!strcasecmp(vhost->name.data, ce->vals[0])) {
 			TFW_ERR_NL("Duplicate vhost entry: '%s'\n",
 				   ce->vals[0]);
 			return -EINVAL;
@@ -1897,7 +2079,7 @@ tfw_cfgop_vhost_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		}
 	}
 	tfw_vhost_add(tfw_vhost_entry);
-	if (!tfw_vhost_default(tfw_vhost_entry))
+	if (!tfw_vhost_is_default_reconfig(tfw_vhost_entry))
 		tfw_vhost_put(tfw_vhost_entry);
 
 	return 0;
@@ -1906,14 +2088,18 @@ tfw_cfgop_vhost_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_cfgop_vhost_finish(TfwCfgSpec *cs)
 {
+	int r;
+
 	BUG_ON(!tfw_vhost_entry);
 	if (!tfw_vhost_entry->loc_dflt->main_sg) {
-		BUG_ON(tfw_vhost_default(tfw_vhost_entry));
+		BUG_ON(tfw_vhost_is_default_reconfig(tfw_vhost_entry));
 		TFW_ERR_NL("Directive 'proxy_pass' is not specified"
 			   " for not default vhost '%s'.\n",
-			   tfw_vhost_entry->name);
+			   tfw_vhost_entry->name.data);
 		return -EINVAL;
 	}
+	if ((r = tfw_tls_cert_cfg_finish(tfw_vhost_entry)))
+		return r;
 	tfw_vhost_entry = NULL;
 	return 0;
 }
@@ -1921,15 +2107,18 @@ tfw_cfgop_vhost_finish(TfwCfgSpec *cs)
 static void
 tfw_cfgop_vhosts_list_free(TfwVhostList *vhosts)
 {
-	TfwVhost *tmp, *vhost;
+	TfwVhost *vhost;
+	struct hlist_node *tmp;
+	int i;
 
 	if (!vhosts)
 		return;
 
-	list_for_each_entry_safe(vhost, tmp, &vhosts->head, list) {
-		list_del(&vhost->list);
+	hash_for_each_safe((vhosts->vh_hash), i, tmp, vhost, hlist) {
+		hash_del(&vhost->hlist);
 		set_bit(TFW_VHOST_B_REMOVED, &vhost->flags);
 		tfw_vhost_put(vhost);
+		tfw_srv_loop_sched_rcu();
 	}
 	set_bit(TFW_VHOST_B_REMOVED, &vhosts->vhost_dflt->flags);
 	tfw_vhost_put(vhosts->vhost_dflt);
@@ -1939,6 +2128,8 @@ tfw_cfgop_vhosts_list_free(TfwVhostList *vhosts)
 static int
 tfw_vhost_start(void)
 {
+	TfwVhostList *vh_list;
+
 	if (!tfw_runstate_is_reconfig()) {
 		/* Convert Frang global timeouts to jiffies for convenience */
 		frang_cfg.clnt_hdr_timeout =
@@ -1949,8 +2140,13 @@ tfw_vhost_start(void)
 			(unsigned long)HZ;
 	}
 
-	tfw_cfgop_vhosts_list_free(tfw_vhosts);
-	tfw_vhosts = tfw_vhosts_reconfig;
+	rcu_read_lock();
+	vh_list = rcu_dereference(tfw_vhosts);
+	rcu_read_unlock();
+	rcu_assign_pointer(tfw_vhosts, tfw_vhosts_reconfig);
+	synchronize_rcu();
+
+	tfw_cfgop_vhosts_list_free(vh_list);
 	tfw_vhosts_reconfig = NULL;
 
 	return 0;
@@ -2250,6 +2446,29 @@ static TfwCfgSpec tfw_vhost_internal_specs[] = {
 		.allow_reconfig = true,
 	},
 	{
+		.name = "tls_certificate",
+		.deflt = NULL,
+		.handler = tfw_cfgop_in_tls_certificate,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "tls_certificate_key",
+		.deflt = NULL,
+		.handler = tfw_cfgop_in_tls_certificate_key,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "tls_match_any_server_name",
+		.deflt = "false",
+		.handler = tfw_cfgop_in_tls_any_sni,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
 		.name = "location",
 		.deflt = NULL,
 		.handler = tfw_cfg_handle_children,
@@ -2469,6 +2688,29 @@ static TfwCfgSpec tfw_vhost_specs[] = {
 		.deflt = NULL,
 		.handler = tfw_cfgop_out_resp_hdr_set,
 		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "tls_certificate",
+		.deflt = NULL,
+		.handler = tfw_cfgop_out_tls_certificate,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "tls_certificate_key",
+		.deflt = NULL,
+		.handler = tfw_cfgop_out_tls_certificate_key,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "tls_match_any_server_name",
+		.deflt = "false",
+		.handler = tfw_cfgop_out_tls_any_sni,
 		.allow_repeat = true,
 		.allow_reconfig = true,
 	},

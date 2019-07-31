@@ -24,6 +24,7 @@
 #include <linux/slab.h>
 
 #include "lib/hash.h"
+#include "hash.h"
 #include "client.h"
 #include "connection.h"
 #include "log.h"
@@ -66,8 +67,6 @@ typedef struct {
 } TfwClientEntry;
 
 static TDB *client_db;
-
-unsigned long tfw_hash_str_len(const TfwStr *str, unsigned long str_len);
 
 /**
  * Called when a client socket is closed.
