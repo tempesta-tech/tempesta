@@ -1067,6 +1067,7 @@ ss_skb_process(struct sk_buff *skb, unsigned int off, unsigned int trail,
 			n = frag_size - off;
 			if (trail > frag_len)
 				n -= trail - frag_len;
+			_processed = 0;
 			r = actor(objdata, frag_addr + off, n, &_processed);
 			*processed += _processed;
 			if (r != SS_POSTPONE || trail >= frag_len)
