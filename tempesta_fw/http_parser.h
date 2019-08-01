@@ -108,5 +108,6 @@ int tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 int tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 			unsigned int *parsed);
 int tfw_http_parse_terminate(TfwHttpMsg *hm);
+bool tfw_http_parse_is_done(TfwHttpMsg *hm);
 
 #endif /* __TFW_HTTP_PARSER_H__ */

@@ -3213,6 +3213,28 @@ next_msg:
 	 *
 	 * In the same time location may differ between requests, so the
 	 * sticky module can't fill it.
+	 *
+	 * TODO:
+	 * There are multiple ways to get target vhost:
+	 * - search in HTTP chains (defined in the configuration by admin),
+	 * very slow on big configurations;
+	 * - get vhost from the HTTP session information (by Sticky cookie);
+	 * - get Vhost according to TLS SNI header parsing.
+	 * But vhost returned from all that functions can be very different
+	 * depending on HTTP chain configuration due to its flexibility and
+	 * client (attacker) behaviour.
+	 * The most secure and slow way: compare all of them and reject if
+	 * at least some do not match. Can be too strict, service quality can
+	 * be degraded.
+	 * The fastest way: compute as minimum as possible: use TLS first
+	 * (anyway we use it to send right certificate), then cookie, then HTTP
+	 * chain. There can be possibility that a request will be forwarded to
+	 * a wrong server. May happen when a single certificate is used to
+	 * speak with multiple vhosts (multi-domain (SAN) certificate as
+	 * globally default TLS certificate in Tempesta config file).
+	 * The most reliable way: use the highest OSI level vhost: by HTTP
+	 * session, if no -> by http chain, if no -> by TLS conn.
+	 *
 	 */
 	if (!req->vhost) {
 		req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block);
@@ -3958,6 +3980,7 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 		.len = len,
 	};
 	LIST_HEAD(equeue);
+	bool block = false;
 
 	if (!(req = tfw_http_msg_alloc_req_light()))
 		return;
@@ -3969,6 +3992,28 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 
 	__set_bit(TFW_HTTP_B_HMONITOR, req->flags);
 	req->jrxtstamp = jiffies;
+
+	/*
+	 * Vhost and location store policies definitions that can be
+	 * required on various stages of request-response processing.
+	 * E.g. response to HM request still needs to be processed by frang,
+	 * and vhost keeps the frang configuration.
+	 *
+	 * The request is created using lightweight function, req->uri_path
+	 * is not set, thus default location is used.
+	 *
+	 * TBD: it's more natural to configure HM not in server group section,
+	 * but in vhost: instead of table lookups target vhost could be chosen
+	 * directly.
+	 */
+	req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block);
+	if (unlikely(!req->vhost || block)) {
+		TFW_WARN_ADDR("Unable to assign vhost for health monitoring "
+			      "request of backend server", &srv->addr,
+			      TFW_WITH_PORT);
+		goto cleanup;
+	}
+	req->location = req->vhost->loc_dflt;
 
 	srv_conn = srv->sg->sched->sched_srv_conn((TfwMsg *)req, srv);
 	if (!srv_conn) {
