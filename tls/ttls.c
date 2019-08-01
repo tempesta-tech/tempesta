@@ -46,6 +46,19 @@ static DEFINE_PER_CPU(struct aead_request *, g_req) ____cacheline_aligned;
 static struct kmem_cache *ttls_hs_cache = NULL;
 static ttls_send_cb_t *ttls_send_cb;
 
+static inline size_t
+ttls_max_ciphertext_len(const TlsXfrm *xfrm)
+{
+	/*
+	 * Although RFC 5246 6.2.3 allows ciphertexts to be as large as
+	 * (2^14 + 2048) bytes, actual limits are specific to particular
+	 * cipher suites. We are supporting only AEAD ciphers (GCM and CCM).
+	 * Their transforms increase data size by a constant amount of bytes.
+	 * To be specific, those are explicit part of IV and a tag.
+	 */
+	return TLS_MAX_PAYLOAD_SIZE + xfrm->minlen;
+}
+
 static inline unsigned short
 ttls_msg2crypt_len(const TlsIOCtx *io, const TlsXfrm *xfrm)
 {
@@ -906,6 +919,11 @@ ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 	int r;
 	TlsIOCtx *io = &tls->io_in;
 
+	if (io->msglen > ttls_max_ciphertext_len(&tls->xfrm)) {
+		T_DBG("bad message length %u\n", io->msglen);
+		return T_DROP;
+	}
+
 	if ((r = __ttls_decrypt(tls, buf))) {
 		/* Error out (and send alert) on invalid records */
 		if (r == TTLS_ERR_INVALID_MAC)
@@ -925,10 +943,6 @@ ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 		return T_DROP;
 	} else {
 		tls->nb_zero = 0;
-	}
-	if (io->msglen > TLS_MAX_PAYLOAD_SIZE) {
-		T_DBG("bad message length %u\n", io->msglen);
-		return T_DROP;
 	}
 
 	if (io->msgtype == TTLS_MSG_ALERT)
@@ -1049,11 +1063,6 @@ ttls_hdr_check(TlsCtx *tls)
 		T_DBG("minor version mismatch %d\n", tls->minor);
 		return T_DROP;
 	}
-	/* Check length against the size of our buffer */
-	if (unlikely(io->msglen > TTLS_PAYLOAD_LEN)) {
-		T_DBG("too big message length: %u\n", io->msglen);
-		return T_DROP;
-	}
 	/* Drop unexpected ChangeCipherSpec messages. */
 	if (io->msgtype == TTLS_MSG_CHANGE_CIPHER_SPEC
 	    && ttls_state(tls) != TTLS_CLIENT_CHANGE_CIPHER_SPEC
@@ -1064,17 +1073,14 @@ ttls_hdr_check(TlsCtx *tls)
 	}
 	/* Check length against bounds of the current transform and version */
 	if (!ttls_xfrm_ready(tls)) {
+		/* Cipher's not ready yet, plaintext limits apply. */
 		if (io->msglen < 1 || io->msglen > TLS_MAX_PAYLOAD_SIZE) {
 			T_DBG("bad message length %u\n", io->msglen);
 			return T_DROP;
 		}
 	} else {
-		/*
-		 * TLS encrypted messages can have up to 256 bytes of padding.
-		 */
-		if (io->msglen < tls->xfrm.minlen
-		    || io->msglen
-		       > tls->xfrm.minlen + TLS_MAX_PAYLOAD_SIZE + 256)
+		if (io->msglen < tls->xfrm.minlen ||
+		    io->msglen > ttls_max_ciphertext_len(&tls->xfrm))
 		{
 			T_DBG("bad message length %u\n", io->msglen);
 			return T_DROP;
