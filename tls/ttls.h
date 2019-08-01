@@ -893,7 +893,7 @@ void ttls_set_hs_authmode(ttls_context *ssl, int authmode);
  *		following parameters: (void *parameter, ttls_context *ssl,
  *		const unsigned char *hostname, size_t len). If a suitable
  *		certificate is found, the callback must fill the
- *		peer tls configuration part in TLS context,
+ *		peer tls configuration part in the TLS context,
  *		and may optionally adjust authentication mode with
  *		\c ttls_set_hs_authmode(),
  *		then must return 0. If no matching name is found, the
