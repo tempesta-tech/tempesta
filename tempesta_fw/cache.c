@@ -1539,11 +1539,16 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce)
 		goto free;
 
 	/*
-	 * Mark skb as SKBTX_SHARED_FRAG so that when sending it to the client
-	 * via https, encryption routines do not change data in-place.
+	 * Apply SKBTX_SHARED_FRAG flag to all skb's in the message so that
+	 * encryption routines know when it's unsafe to change data in-place.
 	 */
-	if (TFW_CONN_TLS(req->conn))
-		skb_shinfo(it.skb)->tx_flags |= SKBTX_SHARED_FRAG;
+	if (TFW_CONN_TLS(req->conn)) {
+		struct sk_buff *skb = it.skb_head;
+		do {
+			skb_shinfo(skb)->tx_flags |= SKBTX_SHARED_FRAG;
+			skb = skb->next;
+		} while (skb != it.skb_head);
+	}
 
 	/*
 	 * Allocate HTTP headers table of proper size.
