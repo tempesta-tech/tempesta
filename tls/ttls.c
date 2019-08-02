@@ -38,7 +38,7 @@
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
 MODULE_DESCRIPTION("Tempesta TLS");
-MODULE_VERSION("0.2.4");
+MODULE_VERSION("0.2.5");
 MODULE_LICENSE("GPL");
 
 static DEFINE_PER_CPU(struct aead_request *, g_req) ____cacheline_aligned;
