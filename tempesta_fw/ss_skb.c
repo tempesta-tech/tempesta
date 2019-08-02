@@ -321,6 +321,7 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 			nskb = ss_skb_alloc(0);
 			if (nskb == NULL)
 				return -ENOMEM;
+			skb_shinfo(nskb)->tx_flags = skb_shinfo(skb)->tx_flags;
 			__skb_insert_after(skb, nskb);
 			skb_shinfo(nskb)->nr_frags = n_excess;
 		}
@@ -1067,6 +1068,7 @@ ss_skb_process(struct sk_buff *skb, unsigned int off, unsigned int trail,
 			n = frag_size - off;
 			if (trail > frag_len)
 				n -= trail - frag_len;
+			_processed = 0;
 			r = actor(objdata, frag_addr + off, n, &_processed);
 			*processed += _processed;
 			if (r != SS_POSTPONE || trail >= frag_len)

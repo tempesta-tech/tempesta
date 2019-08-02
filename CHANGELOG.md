@@ -1,3 +1,14 @@
+0.6.5 (2019-08-02)
+
+  * Fix parsing of an empty extension if it comes last in ClientHello.
+  * Fix cached data corruption during encryption.
+  * Close the connection on errors during TLS handshake stage.
+  * Fix decryption of large records spanning multiple skb's.
+  * Verify ClientHello extention lengths before trying to read their data.
+  * Fix the deadlock caused by the error reporting during handshake stage.
+  * Handle ciphertexts larger than 16384 bytes.
+
+
 0.6.4 (2019-06-18)
 
   * Fix TCP sequence numbering when working with fast same-host backends.
