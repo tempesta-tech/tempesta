@@ -2231,6 +2231,11 @@ next_record:
 		if (unlikely(!ttls_xfrm_ready(tls))) {
 			if (!(r = ttls_handle_alert(io)))
 				goto skip_record;
+			if (io->alert[0] == TTLS_ALERT_LEVEL_WARNING
+			    && io->alert[1] == TTLS_ALERT_MSG_CLOSE_NOTIFY)
+			{
+				ttls_close_notify(tls);
+			}
 			return T_DROP;
 		}
 		break;
@@ -2309,6 +2314,11 @@ next_record:
 	if (io->msgtype == TTLS_MSG_ALERT) {
 		if (!(r = ttls_handle_alert(io)))
 			goto skip_record;
+		if (io->alert[0] == TTLS_ALERT_LEVEL_WARNING
+		    && io->alert[1] == TTLS_ALERT_MSG_CLOSE_NOTIFY)
+		{
+			ttls_close_notify(tls);
+		}
 		return T_DROP;
 	}
 
