@@ -38,7 +38,7 @@
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
 MODULE_DESCRIPTION("Tempesta TLS");
-MODULE_VERSION("0.2.5");
+MODULE_VERSION("0.2.6");
 MODULE_LICENSE("GPL");
 
 static DEFINE_PER_CPU(struct aead_request *, g_req) ____cacheline_aligned;
@@ -414,6 +414,7 @@ ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len)
 			crypto_free_shash(hs->desc.tfm);
 			memcpy_fast(&tls->hs->fin_sha256, sha256,
 				    sizeof(*sha256));
+			bzero_fast(sha256, sizeof(*sha256));
 		}
 	}
 	if (unlikely(!hs->desc.tfm)) {
