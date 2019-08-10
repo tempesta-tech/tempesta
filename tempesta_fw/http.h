@@ -238,6 +238,8 @@ enum {
 	TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
 	/* Singular header presents more than once. */
 	TFW_HTTP_B_FIELD_DUPENTRY,
+	/* Message has HTTP/2 format. */
+	TFW_HTTP_B_H2,
 
 	/* Request flags. */
 	TFW_HTTP_FLAGS_REQ,
@@ -255,8 +257,6 @@ enum {
 	TFW_HTTP_B_WHITELIST,
 	/* Client was disconnected, drop the request. */
 	TFW_HTTP_B_REQ_DROP,
-	/* Request has HTTP/2 format (applicable for HTTP/2 mode only). */
-	TFW_HTTP_B_REQ_H2,
 	/* Request is fully assembled (applicable for HTTP/2 mode only). */
 	TFW_HTTP_B_REQ_COMPLETE,
 
@@ -280,7 +280,7 @@ enum {
 	(BIT(TFW_HTTP_B_CONN_CLOSE) | BIT(TFW_HTTP_B_CONN_KA))
 
 #define TFW_MSG_H2(hmmsg)						\
-	test_bit(TFW_HTTP_B_REQ_H2, ((TfwHttpMsg *)hmmsg)->flags)
+	test_bit(TFW_HTTP_B_H2, ((TfwHttpMsg *)hmmsg)->flags)
 
 /**
  * The structure to hold data for an HTTP error response.

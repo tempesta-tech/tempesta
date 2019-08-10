@@ -1085,13 +1085,13 @@ tfw_http_req_evict_dropped(TfwSrvConn *srv_conn, TfwHttpReq *req)
 	if (TFW_MSG_H2(req)) {
 		if (req->stream)
 			return false;
-		TFW_DBG2("%s: Eviction: req=[%p] corresponding stream has been"
-			 " dropped\n", __func__, req);
+		T_DBG2("%s: Eviction: req=[%p] corresponding stream has been"
+		       " dropped\n", __func__, req);
 	} else {
 		if (likely(!test_bit(TFW_HTTP_B_REQ_DROP, req->flags)))
 			return false;
-		TFW_DBG2("%s: Eviction: req=[%p] client disconnected\n",
-			 __func__, req);
+		T_DBG2("%s: Eviction: req=[%p] client disconnected\n", __func__,
+		       req);
 	}
 
 	if (srv_conn)
@@ -1920,7 +1920,7 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 	hm->stream = stream;
 
 	if (TFW_CONN_H2(conn))
-		__set_bit(TFW_HTTP_B_REQ_H2, hm->flags);
+		__set_bit(TFW_HTTP_B_H2, hm->flags);
 
 	if (type & Conn_Clnt)
 		tfw_http_init_parser_req((TfwHttpReq *)hm);
@@ -2566,7 +2566,7 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 	TfwHttpReq *req = resp->req;
 
 	if (tfw_connection_send(req->conn, (TfwMsg *)resp)) {
-		TFW_DBG("Cannot send data to client (%d) via HTTP/2\n", r);
+		T_DBG("%s: cannot send data to client via HTTP/2\n");
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		tfw_connection_close(req->conn, true);
 	}
@@ -3634,7 +3634,7 @@ next_msg:
  * better to transfer requests to a TDB node to make any adjustments.
  * The other benefit of the scheme is that less work is done in SoftIRQ.
  */
-static inline void
+static void
 tfw_http_resp_cache_cb(TfwHttpMsg *msg)
 {
 	TfwHttpResp *resp = (TfwHttpResp *)msg;

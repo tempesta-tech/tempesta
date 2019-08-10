@@ -202,7 +202,7 @@ tfw_h2_cleanup(void)
 void
 tfw_h2_context_init(TfwH2Ctx *ctx)
 {
-	TfwClosedQueue *cl_queue = &ctx->cl_queue;
+	TfwClosedQueue *hclosed_streams = &ctx->hclosed_streams;
 	TfwSettings *lset = &ctx->lsettings;
 	TfwSettings *rset = &ctx->rsettings;
 
@@ -211,7 +211,7 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 	ctx->state = HTTP2_RECV_CLI_START_SEQ;
 	ctx->loc_wnd = MAX_WND_SIZE;
 	spin_lock_init(&ctx->lock);
-	INIT_LIST_HEAD(&cl_queue->closed);
+	INIT_LIST_HEAD(&hclosed_streams->list);
 
 	lset->hdr_tbl_sz = rset->hdr_tbl_sz = 1 << 12;
 	lset->push = rset->push = 1;
@@ -553,8 +553,8 @@ tfw_h2_headers_pri_process(TfwH2Ctx *ctx)
 }
 
 /*
- * Create new stream and add it to streams storage and to dependency tree.
- * Note, that we do not need to protect streams storage in @sched from
+ * Create a new stream and add it to the streams storage and to the dependency
+ * tree. Note, that we do not need to protect the streams storage in @sched from
  * concurrent access, since all operations with it (adding, searching and
  * deletion) are done only in receiving flow of Frame layer.
  */
@@ -594,31 +594,31 @@ tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream)
 }
 
 /*
- * Unlink stream from corresponding request (if linked) and from special
+ * Unlink the stream from a corresponding request (if linked) and from special
  * queue of closed streams (if it is contained there).
  *
  * NOTE: call to this procedure should be protected by special lock for
  * Stream linkage protection.
  */
 static void
-tfw_h2_stream_unlink(TfwH2Ctx *ctx, TfwStream *stream)
+__tfw_h2_stream_unlink(TfwH2Ctx *ctx, TfwStream *stream)
 {
 	TfwHttpMsg *hmreq = (TfwHttpMsg *)stream->msg;
 
 	if (!list_empty(&stream->cl_node)) {
 		list_del_init(&stream->cl_node);
-		--ctx->cl_queue.num_closed;
+		--ctx->hclosed_streams.num;
 	}
 
 	if (hmreq) {
 		hmreq->stream = NULL;
 		/*
-		 * If request is linked with stream, but not complete yet, it
-		 * must be deleted right here to avoid leakage, because in this
-		 * case it is not used anywhere yet. When request is assembled
-		 * and complete, it will be removed (due to some processing
-		 * error) in @tfw_http_req_process(), or in other cases
-		 * controlled by server connection side (after adding to
+		 * If the request is linked with a stream, but not complete yet,
+		 * it must be deleted right here to avoid leakage, because in
+		 * this case it is not used anywhere yet. When request is
+		 * assembled and complete, it will be removed (due to some
+		 * processing error) in @tfw_http_req_process(), or in other
+		 * cases controlled by server connection side (after adding to
 		 * @fwd_queue): successful response sending, eviction etc.
 		 */
 		if (!test_bit(TFW_HTTP_B_REQ_COMPLETE, hmreq->flags))
@@ -627,11 +627,11 @@ tfw_h2_stream_unlink(TfwH2Ctx *ctx, TfwStream *stream)
 }
 
 static inline void
-tfw_h2_stream_unlink_locked(TfwH2Ctx *ctx, TfwStream *stream)
+tfw_h2_stream_unlink(TfwH2Ctx *ctx, TfwStream *stream)
 {
 	spin_lock(&ctx->lock);
 
-	tfw_h2_stream_unlink(ctx, stream);
+	__tfw_h2_stream_unlink(ctx, stream);
 
 	spin_unlock(&ctx->lock);
 }
@@ -639,7 +639,7 @@ tfw_h2_stream_unlink_locked(TfwH2Ctx *ctx, TfwStream *stream)
 static inline void
 tfw_h2_current_stream_remove(TfwH2Ctx *ctx)
 {
-	tfw_h2_stream_unlink_locked(ctx, ctx->cur_stream);
+	tfw_h2_stream_unlink(ctx, ctx->cur_stream);
 	tfw_h2_stream_clean(ctx, ctx->cur_stream);
 	ctx->cur_stream = NULL;
 }
@@ -654,7 +654,7 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 	WARN_ON_ONCE(((TfwConn *)conn)->stream.msg);
 
 	rbtree_postorder_for_each_entry_safe(cur, next, &sched->streams, node) {
-		tfw_h2_stream_unlink_locked(ctx, cur);
+		tfw_h2_stream_unlink(ctx, cur);
 		tfw_h2_stream_clean(ctx, cur);
 	}
 }
@@ -666,21 +666,21 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
  * Stream linkage protection.
  */
 static inline void
-tfw_h2_stream_add_closed(TfwClosedQueue *cl_queue, TfwStream *stream)
+__tfw_h2_stream_add_closed(TfwClosedQueue *hclosed_streams, TfwStream *stream)
 {
 	if (!list_empty(&stream->cl_node))
 		return;
 
-	list_add_tail(&stream->cl_node, &cl_queue->closed);
-	++cl_queue->num_closed;
+	list_add_tail(&stream->cl_node, &hclosed_streams->list);
+	++hclosed_streams->num;
 }
 
 static inline void
-tfw_h2_stream_add_closed_locked(TfwH2Ctx *ctx, TfwStream *stream)
+tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream)
 {
 	spin_lock(&ctx->lock);
 
-	tfw_h2_stream_add_closed(&ctx->cl_queue, stream);
+	__tfw_h2_stream_add_closed(&ctx->hclosed_streams, stream);
 
 	spin_unlock(&ctx->lock);
 }
@@ -699,7 +699,7 @@ tfw_h2_stream_close(TfwH2Ctx *ctx, unsigned int id, TfwStream **stream,
 		    TfwH2Err err_code)
 {
 	if (stream && *stream) {
-		tfw_h2_stream_add_closed_locked(ctx, *stream);
+		tfw_h2_stream_add_closed(ctx, *stream);
 		*stream = NULL;
 	}
 
@@ -728,7 +728,7 @@ tfw_h2_stream_id_close(TfwHttpReq *req)
 	id = stream->id;
 	stream->msg = NULL;
 
-	tfw_h2_stream_add_closed(&ctx->cl_queue, stream);
+	__tfw_h2_stream_add_closed(&ctx->hclosed_streams, stream);
 
 	spin_unlock(&ctx->lock);
 
@@ -744,23 +744,24 @@ tfw_h2_closed_streams_shrink(TfwH2Ctx *ctx)
 {
 	TfwStream *cur;
 	unsigned int max_streams = ctx->lsettings.max_streams;
-	TfwClosedQueue *cl_queue = &ctx->cl_queue;
+	TfwClosedQueue *hclosed_streams = &ctx->hclosed_streams;
 
 	while (1)
 	{
 		spin_lock(&ctx->lock);
 
-		if (cl_queue->num_closed <= TFW_MAX_CLOSED_STREAMS
+		if (hclosed_streams->num <= TFW_MAX_CLOSED_STREAMS
 		    || (max_streams == ctx->streams_num
-			&& cl_queue->num_closed))
+			&& hclosed_streams->num))
 		{
 			spin_unlock(&ctx->lock);
 			break;
 		}
 
-		BUG_ON(list_empty(&cl_queue->closed));
-		cur = list_first_entry(&cl_queue->closed, TfwStream, cl_node);
-		tfw_h2_stream_unlink(ctx, cur);
+		BUG_ON(list_empty(&hclosed_streams->list));
+		cur = list_first_entry(&hclosed_streams->list, TfwStream,
+				       cl_node);
+		__tfw_h2_stream_unlink(ctx, cur);
 
 		spin_unlock(&ctx->lock);
 
@@ -1043,7 +1044,7 @@ tfw_h2_stream_id_verify(TfwH2Ctx *ctx)
 	 * can be switched into special closed states: HTTP2_STREAM_LOC_CLOSED
 	 * or HTTP2_STREAM_REM_CLOSED (which indicates that situation is possible
 	 * when stream had been already closed on server side, but the client
-	 * does not aware about that yet); according to RFC 7540, section 5.1
+	 * is not aware about that yet); according to RFC 7540, section 5.1
 	 * ('closed' paragraph) - we should silently discard such stream, i.e.
 	 * continue process entire HTTP/2 connection but ignore HEADERS,
 	 * CONTINUATION and DATA frames from this stream (not pass upstairs);
