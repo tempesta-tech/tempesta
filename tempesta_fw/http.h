@@ -230,6 +230,8 @@ enum {
 	TFW_HTTP_B_CONN_EXTRA,
 	/* Chunked transfer encoding. */
 	TFW_HTTP_B_CHUNKED,
+	/* Message has chunked trailer headers part. */
+	TFW_HTTP_B_CHUNKED_TRAILER,
 	/* The message body is limited by the connection closing. */
 	TFW_HTTP_B_UNLIMITED,
 	/* Media type is multipart/form-data. */

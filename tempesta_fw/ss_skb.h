@@ -187,5 +187,7 @@ int ss_skb_process(struct sk_buff *skb, unsigned int off, unsigned int trail,
 int ss_skb_unroll(struct sk_buff **skb_head, struct sk_buff *skb);
 void ss_skb_init_for_xmit(struct sk_buff *skb);
 void ss_skb_dump(struct sk_buff *skb);
+int ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
+                                   struct page ***old_pages);
 
 #endif /* __TFW_SS_SKB_H__ */

@@ -290,12 +290,38 @@ __cli_conn_close_cb(TfwConn *conn)
 }
 
 static int
+__cli_conn_close_sync_cb(TfwConn *conn)
+{
+	return tfw_connection_close(conn, true);
+}
+
+/**
+ * Asynchronously close all client connections. Some connection close requests
+ * may be lost due to workqueue overrun. So the function must be called
+ * repeatedly until 0 is returned to guarantee that all connections are closed.
+ */
+static int
 tfw_cli_conn_close_all(void *data)
 {
 	TfwClient *cli = (TfwClient *)data;
 	TfwConn *conn;
 
 	return tfw_peer_for_each_conn(cli, conn, list, __cli_conn_close_cb);
+}
+
+/**
+ * Close all connections with a given client, called on security events. Unlike
+ * @tfw_cli_conn_close_all(), this one must guarantee that all the close
+ * requests will be done. Attackers can spam Tempesta with lot of requests and
+ * connections, trying to cause a work queue overrun and delay security events
+ * handlers. To detach attackers efficiently, we have to use synchronous close.
+ */
+int tfw_cli_conn_close_all_sync(TfwClient *cli)
+{
+	TfwConn *conn;
+
+	return tfw_peer_for_each_conn(cli, conn, list,
+				      __cli_conn_close_sync_cb);
 }
 
 /*
@@ -425,7 +451,7 @@ tfw_listen_sock_start(TfwListenSock *ls)
 	r = ss_bind(sk, addr);
 	if (r) {
 		TFW_ERR_ADDR("can't bind to", addr, TFW_WITH_PORT);
-		return r;
+		goto err;
 	}
 
 	TFW_DBG("start listening on socket: sk=%p\n", sk);
@@ -433,10 +459,15 @@ tfw_listen_sock_start(TfwListenSock *ls)
 	if (r) {
 		TFW_ERR_NL("can't listen on front-end socket sk=%p (%d)\n",
 			   sk, r);
-		return r;
+		goto err;
 	}
 
 	return 0;
+
+err:
+	ss_release(ls->sk);
+	ls->sk = NULL;
+	return r;
 }
 
 static int
@@ -580,11 +611,21 @@ tfw_sock_clnt_start(void)
 		if ((r = tfw_listen_sock_start(ls))) {
 			TFW_ERR_ADDR("can't start listening on", &ls->addr,
 			             TFW_WITH_PORT);
-			return r;
+			goto err;
 		}
 	}
 
 	return 0;
+
+err:
+	list_for_each_entry(ls, &tfw_listen_socks, list) {
+		if (!ls->sk)
+			continue;
+		ss_release(ls->sk);
+		ls->sk = NULL;
+	}
+
+	return r;
 }
 
 static void

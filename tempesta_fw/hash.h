@@ -1,7 +1,7 @@
 /**
- *		Tempesta kernel library
+ *		Tempesta FW
  *
- * Copyright (C) 2015-2019 Tempesta Technologies, INC.
+ * Copyright (C) 2019 Tempesta Technologies, INC.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -17,26 +17,13 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __LIB_HASH_H__
-#define __LIB_HASH_H__
 
-#define CRCQ(crc, data64) \
-	asm volatile("crc32q %2, %0" : "=r"(crc) : "0"(crc), "r"(data64))
+#ifndef __TFW_HASH_H__
+#define __TFW_HASH_H__
 
-#define CRCB(crc, data8) \
-	asm volatile("crc32b %2, %0" : "=r"(crc) : "0"(crc), "r"(data8))
+#include "str.h"
 
-void __hash_calc(unsigned long *crc0, unsigned long *crc1, const char *data,
-		 size_t len);
+unsigned long tfw_hash_str_len(const TfwStr *str, unsigned long str_len);
+#define tfw_hash_str(str)     tfw_hash_str_len((str), ULONG_MAX)
 
-static inline unsigned long
-hash_calc(const char *data, size_t len)
-{
-	unsigned long crc0 = 0, crc1 = 0;
-
-	__hash_calc(&crc0, &crc1, data, len);
-
-	return (crc1 << 32) | crc0;
-}
-
-#endif /* __LIB_HASH_H__ */
+#endif /* __TFW_HASH_H__ */

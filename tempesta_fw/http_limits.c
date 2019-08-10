@@ -170,7 +170,7 @@ tfw_classify_tcp(struct sock *sk, struct sk_buff *skb)
 void
 tfw_classifier_register(TfwClassifier *mod)
 {
-	TFW_LOG("Registering new classifier: %s\n", mod->name);
+	T_DBG("Registering new classifier: %s\n", mod->name);
 
 	BUG_ON(classifier);
 	rcu_assign_pointer(classifier, mod);
@@ -179,7 +179,7 @@ tfw_classifier_register(TfwClassifier *mod)
 void
 tfw_classifier_unregister(void)
 {
-	TFW_LOG("Unregistering classifier: %s\n", classifier->name);
+	T_DBG("Un-registering classifier: %s\n", classifier->name);
 
 	rcu_assign_pointer(classifier, NULL);
 	synchronize_rcu();
@@ -196,9 +196,6 @@ static TempestaOps tempesta_ops = {
  *	Frang classifier - static http limits implementation.
  * ------------------------------------------------------------------------
  */
-
-/* We account users with FRANG_FREQ frequency per second. */
-#define FRANG_FREQ	8
 
 typedef struct {
 	unsigned long	ts;
@@ -236,43 +233,42 @@ typedef struct {
 	FrangRespCodeStat	resp_code_stat[FRANG_FREQ];
 } FrangAcc;
 
-/* GFSM hooks priorities. */
-int prio0, prio1, prio2, prio3, prio4;
-
 #define FRANG_CLI2ACC(c)	((FrangAcc *)(&(c)->class_prvt))
 #define FRANG_ACC2CLI(a)	container_of((TfwClassifierPrvt *)a,	\
 					     TfwClient, class_prvt)
-/*
- * Get frang configuration variable from request's location;
- * if variable is zero or request has no location, use global
- * frang configuration.
- */
-#define __FRANG_CFG_VAR(name, member)					\
-	const typeof(((FrangCfg *)0)->member) name =			\
-		(req->location && req->location->frang_cfg->member	\
-		? req->location->frang_cfg->member			\
-		: tfw_vhost_global_frang_cfg()->member)
 
 #define frang_msg(check, addr, fmt, ...)				\
 	TFW_WARN_MOD_ADDR(frang, check, addr, TFW_NO_PORT, fmt, ##__VA_ARGS__)
 
+/*
+ * Client actions has triggered a security event. Log the client addr and
+ * Frang limit name.
+ */
 #define frang_limmsg(lim_name, curr_val, lim, addr)			\
 	frang_msg(lim_name " exceeded", (addr), ": %ld (lim=%ld)\n",	\
 		  (long)curr_val, (long)lim)
+/*
+ * Local subsystem has triggered a security event, mostly it's a
+ * misconfiguration issue. Log the event and subsystem name.
+ */
+#define frang_limmsg_local(lim_name, curr_val, lim, system)		\
+	T_WARN("frang: " lim_name " exceeded for '%s' subsystem: "	\
+	       "%ld (lim=%ld)\n",					\
+	       system, (long)curr_val, (long)lim)
 
 #ifdef DEBUG
 #define frang_dbg(fmt_msg, addr, ...)					\
 do {									\
 	char abuf[TFW_ADDR_STR_BUF_SIZE] = {0};				\
 	tfw_addr_fmt(addr, TFW_NO_PORT, abuf);				\
-	TFW_DBG("frang: " fmt_msg, abuf, ##__VA_ARGS__);		\
+	T_DBG("frang: " fmt_msg, abuf, ##__VA_ARGS__);			\
 } while (0)
 #else
 #define frang_dbg(...)
 #endif
 
 static int
-frang_conn_limit(FrangAcc *ra, FrangCfg *conf)
+frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 {
 	unsigned long ts = (jiffies * FRANG_FREQ) / HZ;
 	unsigned int csum = 0;
@@ -332,16 +328,25 @@ __frang_init_acc(void *data)
 static int
 frang_conn_new(struct sock *sk)
 {
-	int r;
+	int r = TFW_BLOCK;
 	FrangAcc *ra;
 	TfwClient *cli;
-	FrangCfg *conf = tfw_vhost_global_frang_cfg();
 	TfwAddr addr;
+	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
+
+	/*
+	 * Default vhost configuration stores global frang settings, it's always
+	 * available even on reload under heavy load. But the pointer comes
+	 * from other module, take care of probable null-dereferences.
+	 */
+	if (WARN_ON_ONCE(!dflt_vh))
+		return TFW_BLOCK;
 
 	ss_getpeername(sk, &addr);
 	cli = tfw_client_obtain(addr, NULL, NULL, __frang_init_acc);
 	if (unlikely(!cli)) {
-		TFW_ERR("can't obtain a client for frang accounting\n");
+		T_ERR("can't obtain a client for frang accounting\n");
+		tfw_vhost_put(dflt_vh);
 		return TFW_BLOCK;
 	}
 
@@ -360,14 +365,28 @@ frang_conn_new(struct sock *sk)
 	 * TfwConn{}.
 	 */
 	sk->sk_security = ra;
-
-	r = frang_conn_limit(ra, conf);
-	if (r == TFW_BLOCK && conf->ip_block) {
+	/*
+	 * TBD: Since we can determine vhost by SNI field in TLS headers, there
+	 * will be a desire to make all frang limits per-vhost. After some
+	 * thinking I have found this counter-intuitive: The way, how the
+	 * frang limits work will depend on too many conditions. E.g.
+	 * TLS-enabled clients will use higher limits than non-TLS clients;
+	 * the same client can break security rules for one vhost, but be a
+	 * legitimate client for other vhosts, so it's a big question how to
+	 * block him by IP or by connection resets; if multi-domain certificate
+	 * (SAN) is configured, TLS clients will behave as non-TLS. Too
+	 * complicated for administrator to understand how client is blocked
+	 * and to configure it, while making some of the limits to be global
+	 * for a single client is absolutely straight-forward.
+	 */
+	r = frang_conn_limit(ra, dflt_vh->frang_gconf);
+	if (r == TFW_BLOCK && dflt_vh->frang_gconf->ip_block) {
 		tfw_filter_block_ip(&cli->addr);
 		tfw_client_put(cli);
 	}
 
 	spin_unlock(&ra->lock);
+	tfw_vhost_put(dflt_vh);
 
 	return r;
 }
@@ -404,6 +423,9 @@ frang_req_limit(FrangAcc *ra, unsigned int req_burst, unsigned int req_rate)
 	unsigned long ts = jiffies * FRANG_FREQ / HZ;
 	unsigned int rsum = 0;
 	int i = ts % FRANG_FREQ;
+
+	if (!req_burst && !req_rate)
+		return TFW_PASS;
 
 	if (ra->history[i].ts != ts) {
 		ra->history[i].ts = ts;
@@ -455,16 +477,17 @@ frang_http_uri_len(const TfwHttpReq *req, FrangAcc *ra, unsigned int uri_len)
  */
 static int
 __frang_http_field_len(const TfwHttpReq *req, FrangAcc *ra,
-		       unsigned int field_len)
+		       unsigned int field_len,  unsigned int hdr_cnt)
 {
 	const TfwStr *field, *end, *dup, *dup_end;
-	__FRANG_CFG_VAR(hdr_cnt, http_hdr_cnt);
 
 	if (hdr_cnt && req->h_tbl->off >= hdr_cnt) {
 		frang_limmsg("HTTP headers number", req->h_tbl->off,
 			     hdr_cnt, &FRANG_ACC2CLI(ra)->addr);
 		return TFW_BLOCK;
 	}
+	if (!field_len)
+		return TFW_PASS;
 
 	FOR_EACH_HDR_FIELD(field, end, req) {
 		TFW_STR_FOR_EACH_DUP(dup, field, dup_end) {
@@ -481,18 +504,19 @@ __frang_http_field_len(const TfwHttpReq *req, FrangAcc *ra,
 }
 
 static int
-frang_http_field_len(const TfwHttpReq *req, FrangAcc *ra, unsigned int field_len)
+frang_http_field_len(const TfwHttpReq *req, FrangAcc *ra, unsigned int field_len,
+		     unsigned int hdr_cnt)
 {
 	TfwHttpParser *parser = &req->stream->parser;
 
-	if (parser->hdr.len > field_len) {
+	if (field_len && (parser->hdr.len > field_len)) {
 		frang_limmsg("HTTP in-progress field length",
 			     parser->hdr.len, field_len,
 			     &FRANG_ACC2CLI(ra)->addr);
 		return TFW_BLOCK;
 	}
 
-	return __frang_http_field_len(req, ra, field_len);
+	return __frang_http_field_len(req, ra, field_len, hdr_cnt);
 }
 
 static int
@@ -509,7 +533,7 @@ frang_http_methods(const TfwHttpReq *req, FrangAcc *ra, unsigned long m_mask)
 }
 
 static int
-frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVal *ct_vals)
+frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVals *ct_vals)
 {
 	TfwStr field, *s;
 	FrangCtVal *curr;
@@ -545,7 +569,7 @@ frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVal *ct_vals)
 	 * switch between the two if performance is critical here,
 	 * but benchmarks should be done to measure the impact.
 	 */
-	for (curr = ct_vals; curr->str; ++curr) {
+	for (curr = ct_vals->vals; curr->str; ++curr) {
 		if (tfw_str_eq_cstr(&field, curr->str, curr->len,
 				    TFW_STR_EQ_PREFIX_CASEI))
 			return TFW_PASS;
@@ -612,7 +636,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 
 		hdrhost = tfw_pool_alloc(req->pool, field.len + 1);
 		if (unlikely(!hdrhost)) {
-			TFW_ERR("Can not allocate memory\n");
+			T_ERR("Can not allocate memory\n");
 			return TFW_BLOCK;
 		}
 		tfw_str_to_cstr(&field, hdrhost, field.len + 1);
@@ -641,36 +665,6 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	return ret;
 }
 
-/**
- * Monotonically increasing time quantums. The configured @tframe
- * is divided by FRANG_FREQ slots to get the quantums granularity.
- */
-static unsigned int
-frang_resp_quantum(unsigned short tframe)
-{
-	return jiffies * FRANG_FREQ / (tframe * HZ);
-}
-
-static int
-frang_bad_resp_limit(FrangAcc *ra, FrangHttpRespCodeBlock *resp_cblk)
-{
-	FrangRespCodeStat *stat = ra->resp_code_stat;
-	unsigned long cnt = 0;
-	const unsigned int ts = frang_resp_quantum(resp_cblk->tf);
-	int i = 0;
-
-	for (; i < FRANG_FREQ; ++i) {
-		if (frang_time_in_frame(ts, stat[i].ts))
-			cnt += stat[i].cnt;
-	}
-	if (cnt > resp_cblk->limit) {
-		frang_limmsg("http_resp_code_block limit", cnt,
-			     resp_cblk->limit, &FRANG_ACC2CLI(ra)->addr);
-		return TFW_BLOCK;
-	}
-	return TFW_PASS;
-}
-
 /*
  * The GFSM states aren't hookable, so don't open the states definitions and
  * only start and finish states are present.
@@ -685,24 +679,18 @@ enum {
 enum {
 	Frang_Req_0 = 0,
 
-	Frang_Req_Hdr_Start,
 	Frang_Req_Hdr_Method,
 	Frang_Req_Hdr_UriLen,
-	Frang_Req_Hdr_FieldDup,
-	Frang_Req_Hdr_FieldLen,
-	Frang_Req_Hdr_FieldLenFinal,
-	Frang_Req_Hdr_Crlf,
-	Frang_Req_Hdr_Host,
-	Frang_Req_Hdr_ContentType,
+	Frang_Req_Hdr_Check,
 
 	Frang_Req_Hdr_NoState,
 
 	Frang_Req_Body_Start,
-	Frang_Req_Body_Timeout,
-	Frang_Req_Body_ChunkCnt,
-	Frang_Req_Body_Len,
+	Frang_Req_Body,
 
 	Frang_Req_Body_NoState,
+
+	Frang_Req_Trailer,
 
 	Frang_Req_Done
 };
@@ -715,10 +703,6 @@ enum {
 	TFW_FRANG_RESP_FSM_DONE	= TFW_GFSM_FRANG_RESP_STATE(TFW_GFSM_STATE_LAST)
 };
 
-/* Extend basic FSM with necessary ad-hoc logic. */
-#define FSM_HDR_STATE(state)						\
-	((state > Frang_Req_Hdr_Start) && (state < Frang_Req_Hdr_NoState))
-
 #define __FRANG_FSM_MOVE(st)	T_FSM_MOVE(st, if (r) T_FSM_EXIT(); )
 
 #define __FRANG_FSM_JUMP_EXIT(st)					\
@@ -728,23 +712,16 @@ do {									\
 } while (0)
 
 static int
-frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data)
+frang_http_req_incomplete_hdrs_check(FrangAcc *ra, TfwFsmData *data,
+				     FrangGlobCfg *fg_cfg)
 {
-	int r = TFW_PASS;
 	TfwHttpReq *req = (TfwHttpReq *)data->req;
 	struct sk_buff *skb = data->skb;
 	struct sk_buff *head_skb = req->msg.skb_head;
-	__FRANG_CFG_VAR(hdr_tmt, clnt_hdr_timeout);
-	__FRANG_CFG_VAR(hchnk_cnt, http_hchunk_cnt);
-	T_FSM_INIT(Frang_Req_0, "frang");
+	unsigned int hchnk_cnt = fg_cfg->http_hchunk_cnt;
 
-	BUG_ON(!ra);
-	BUG_ON(req != container_of(req->stream->msg, TfwHttpReq, msg));
-	frang_dbg("check request for client %s, acc=%p\n",
+	frang_dbg("check incomplete request headers for client %s, acc=%p\n",
 		  &FRANG_ACC2CLI(ra)->addr, ra);
-
-	spin_lock(&ra->lock);
-
 	/*
 	 * There's no need to check for header timeout if this is the very
 	 * first chunk of a request (first full separate SKB with data).
@@ -752,40 +729,215 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data)
 	 * either block or move to one of header states. Then header timeout
 	 * is checked on each consecutive SKB with data - while we're still
 	 * in one of header processing states.
-	 *
-	 * Why is this not one of FSM states? Basically, that's to avoid
-	 * going through unnecessary FSM states each time this is run. When
-	 * there's a slowris attack, we may stay long in Hdr_Method or in
-	 * Hdr_UriLen states, and that would require including the header
-	 * timeout state in the loop. But when we're past these states, we
-	 * don't want to run through them on each run again, and just want
-	 * to loop in FieldDup and FieldLen states. I guess that can be
-	 * done with some clever FSM programming, but this is just simpler.
 	 */
-	if (hdr_tmt && (skb != head_skb) && FSM_HDR_STATE(req->frang_st))
-	{
+	if (fg_cfg->clnt_hdr_timeout && (skb != head_skb)) {
 		unsigned long start = req->tm_header;
-		unsigned long delta = hdr_tmt;
+		unsigned long delta = fg_cfg->clnt_hdr_timeout;
 
 		if (time_is_before_jiffies(start + delta)) {
-			frang_limmsg("client header timeout", jiffies - start,
-				     delta, &FRANG_ACC2CLI(ra)->addr);
-			spin_unlock(&ra->lock);
+			frang_limmsg("client header timeout",
+				     jiffies_to_msecs(jiffies - start),
+				     jiffies_to_msecs(delta),
+				     &FRANG_ACC2CLI(ra)->addr);
+			goto block;
+		}
+	}
+
+	if (hchnk_cnt && (req->chunk_cnt > hchnk_cnt)) {
+		frang_limmsg("HTTP header chunk count", req->chunk_cnt,
+			     hchnk_cnt, &FRANG_ACC2CLI(ra)->addr);
+		goto block;
+	}
+
+	return TFW_PASS;
+block:
+	return TFW_BLOCK;
+}
+
+static int
+frang_http_req_incomplete_body_check(FrangAcc *ra, TfwFsmData *data,
+				     FrangGlobCfg *fg_cfg, FrangVhostCfg *f_cfg)
+{
+	TfwHttpReq *req = (TfwHttpReq *)data->req;
+	unsigned long body_len = f_cfg->http_body_len;
+	unsigned int bchunk_cnt = fg_cfg->http_bchunk_cnt;
+	unsigned long body_timeout = fg_cfg->clnt_body_timeout;
+	struct sk_buff *skb = data->skb;
+
+	frang_dbg("check incomplete request body for client %s, acc=%p\n",
+		  &FRANG_ACC2CLI(ra)->addr, ra);
+
+	/* CLRF after headers was parsed, but the body didn't arrive yet. */
+	if (TFW_STR_EMPTY(&req->body))
+		return TFW_PASS;
+	/*
+	 * Ensure that HTTP request body is coming without delays.
+	 * The timeout is between chunks of the body, so reset
+	 * the start time after each check.
+	 */
+	if (body_timeout && req->tm_bchunk && (skb != req->body.skb)) {
+		unsigned long start = req->tm_bchunk;
+		unsigned long delta = body_timeout;
+
+		if (time_is_before_jiffies(start + delta)) {
+			frang_limmsg("client body timeout",
+				     jiffies_to_msecs(jiffies - start),
+				     jiffies_to_msecs(delta),
+				     &FRANG_ACC2CLI(ra)->addr);
+			goto block;
+		}
+		req->tm_bchunk = jiffies;
+	}
+
+	/* Limit number of chunks in request body */
+	if (bchunk_cnt && (req->chunk_cnt > bchunk_cnt)) {
+		frang_limmsg("HTTP body chunk count", req->chunk_cnt,
+			     bchunk_cnt, &FRANG_ACC2CLI(ra)->addr);
+		goto block;
+	}
+
+	if (body_len && (req->body.len > body_len)) {
+		frang_limmsg("HTTP body length", req->body.len,
+			     body_len, &FRANG_ACC2CLI(ra)->addr);
+		goto block;
+	}
+
+	return TFW_PASS;
+block:
+	return TFW_BLOCK;
+}
+
+/*
+ * RFC 7230 Section-4.1.2:
+ * When a chunked message containing a non-empty trailer is received,
+ * the recipient MAY process the fields.
+ *
+ * RFC 7230 Section-4.1.2:
+ * ...a server SHOULD NOT
+ * generate trailer fields that it believes are necessary for the user
+ * agent to receive.  Without a TE containing "trailers", the server
+ * ought to assume that the trailer fields might be silently discarded
+ * along the path to the user agent.  This requirement allows
+ * intermediaries to forward a de-chunked message to an HTTP/1.0
+ * recipient without buffering the entire response.
+ *
+ * RFC doesn't prohibit trailers in request, but it always speaks about
+ * trailers in response context. But requests with trailer headers
+ * are valid http messages. Support for them is not documented,
+ * and implementation-dependent. E.g. Apache doesn't care about trailer
+ * headers, but ModSecurity for Apache does.
+ * https://swende.se/blog/HTTPChunked.html
+ * Some discussions also highlight that trailer headers are poorly
+ * supported on both servers and clients, while CDNs tend to add
+ * trailers. https://github.com/whatwg/fetch/issues/34
+ *
+ * Since RFC doesn't speak clearly about trailer headers in requests, the
+ * following assumptions were used:
+ * - Our intermediaries on client side do not care about trailers and send
+ *   them in the manner as the body. Thus frang's body limitations are used,
+ *   not headers ones.
+ * - Same header may have different values depending on how the servers work
+ *   with the trailer. Administrator can block that behaviour.
+ */
+static int
+frang_http_req_trailer_check(FrangAcc *ra, TfwFsmData *data,
+			     FrangGlobCfg *fg_cfg, FrangVhostCfg *f_cfg)
+{
+	int r = TFW_PASS;
+	TfwHttpReq *req = (TfwHttpReq *)data->req;
+	const TfwStr *field, *end, *dup, *dup_end;
+
+	if (!test_bit(TFW_HTTP_B_CHUNKED_TRAILER, req->flags))
+		return TFW_PASS;
+	/*
+	 * Don't use special settings for the trailer part, keep on
+	 * using body limits.
+	 */
+	r = frang_http_req_incomplete_body_check(ra, data, fg_cfg, f_cfg);
+	if (test_bit(TFW_HTTP_B_FIELD_DUPENTRY, req->flags)) {
+		frang_msg("duplicate header field found",
+			  &FRANG_ACC2CLI(ra)->addr, "\n");
+		return TFW_BLOCK;
+	}
+	if (!r)
+		r = frang_http_field_len(req, ra, f_cfg->http_field_len,
+					 f_cfg->http_hdr_cnt);
+	if (r)
+		return r;
+
+	if (!tfw_http_parse_is_done((TfwHttpMsg *)req))
+		return TFW_POSTPONE;
+	/*
+	 * Block request if the same header appear in both main and
+	 * trailer headers part. Some intermediates doesn't read trailers, so
+	 * request processing may depend on implementation.
+	 */
+	if (!f_cfg->http_trailer_split)
+		return TFW_PASS;
+
+	FOR_EACH_HDR_FIELD(field, end, req) {
+		int trailers = 0, dups = 0;
+		TFW_STR_FOR_EACH_DUP(dup, field, dup_end) {
+			trailers += !!(dup->flags & TFW_STR_TRAILER);
+			dups += 1;
+		}
+		if (trailers && (dups != trailers)) {
+			frang_msg("HTTP field appear in header and trailer "
+				  "for client %p",
+				  &FRANG_ACC2CLI(ra)->addr, "\n");
 			return TFW_BLOCK;
 		}
 	}
 
-	/* Check for chunk count here to account for possible fragmentation
-	 * in HTTP status line. The rationale for not making this one of FSM
-	 * states is the same as for the code block above.
+	return r;
+}
+
+static int
+frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
+		       TfwVhost *dvh)
+{
+	int r = TFW_PASS;
+	TfwHttpReq *req = (TfwHttpReq *)data->req;
+	FrangVhostCfg *f_cfg = NULL;
+	FrangGlobCfg *fg_cfg = NULL;
+	T_FSM_INIT(Frang_Req_0, "frang");
+
+	BUG_ON(!ra);
+	BUG_ON(req != container_of(conn->msg, TfwHttpReq, msg));
+	frang_dbg("check request for client %s, acc=%p\n",
+		  &FRANG_ACC2CLI(ra)->addr, ra);
+
+	if (req->vhost) {
+		/* Default vhost has no 'vhost_dflt' member set. */
+		fg_cfg = req->vhost->vhost_dflt
+				? req->vhost->vhost_dflt->frang_gconf
+				: req->vhost->frang_gconf;
+		f_cfg = req->location ? req->location->frang_cfg
+				      : req->vhost->loc_dflt->frang_cfg;
+	}
+	else {
+		fg_cfg = dvh->frang_gconf;
+		f_cfg = dvh->loc_dflt->frang_cfg;
+	}
+	if (WARN_ON_ONCE(!fg_cfg || !f_cfg))
+		return TFW_BLOCK;
+
+	spin_lock(&ra->lock);
+
+	/*
+	 * Detect slowloris attack first, and then proceed with more precise
+	 * checks. This is not an FSM state, because the checks are required
+	 * every time a new request chunk is received and will be present in
+	 * every FSM state.
 	 */
-	if (hchnk_cnt && FSM_HDR_STATE(req->frang_st)) {
-		if (req->chunk_cnt > hchnk_cnt) {
-			frang_limmsg("HTTP header chunk count", req->chunk_cnt,
-				     hchnk_cnt, &FRANG_ACC2CLI(ra)->addr);
-			spin_unlock(&ra->lock);
-			return TFW_BLOCK;
-		}
+	if (req->frang_st < Frang_Req_Hdr_NoState)
+		r = frang_http_req_incomplete_hdrs_check(ra, data, fg_cfg);
+	else
+		r = frang_http_req_incomplete_body_check(ra, data, fg_cfg,
+							 f_cfg);
+	if (r) {
+		spin_unlock(&ra->lock);
+		return r;
 	}
 
 	T_FSM_START(req->frang_st) {
@@ -797,110 +949,71 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data)
 	 * that run when a connection is established or destroyed.
 	 */
 	T_FSM_STATE(Frang_Req_0) {
-		__FRANG_CFG_VAR(req_burst, req_burst);
-		__FRANG_CFG_VAR(req_rate, req_rate);
-		__FRANG_CFG_VAR(resp_cblk, http_resp_code_block);
-		if (req_burst || req_rate)
-			r = frang_req_limit(ra, req_burst, req_rate);
-		if (r == TFW_PASS && resp_cblk)
-			r = frang_bad_resp_limit(ra, resp_cblk);
-		__FRANG_FSM_MOVE(Frang_Req_Hdr_Start);
+		r = frang_req_limit(ra, fg_cfg->req_burst, fg_cfg->req_rate);
+		/* Set the time the header started coming in. */
+		req->tm_header = jiffies;
+		__FRANG_FSM_MOVE(Frang_Req_Hdr_Method);
 	}
 
-	/*
-	 * Prepare for HTTP request header checks. Set the time
-	 * the header started coming in. Set starting position
-	 * for checking raw (non-special) headers.
-	 */
-	T_FSM_STATE(Frang_Req_Hdr_Start) {
-		if (hdr_tmt) {
-			req->tm_header = jiffies;
-		}
-		T_FSM_JMP(Frang_Req_Hdr_Method);
-	}
-
-	/*
-	 * Ensure that HTTP request method is one of those
-	 * defined by a user.
-	 */
+	/* Ensure that HTTP request method is one of those defined by a user. */
 	T_FSM_STATE(Frang_Req_Hdr_Method) {
-		__FRANG_CFG_VAR(m_mask, http_methods_mask);
-		if (m_mask) {
+		if (f_cfg->http_methods_mask) {
 			if (req->method == _TFW_HTTP_METH_NONE) {
 				T_FSM_EXIT();
 			}
-			r = frang_http_methods(req, ra, m_mask);
+			r = frang_http_methods(req, ra,
+					       f_cfg->http_methods_mask);
 		}
 		__FRANG_FSM_MOVE(Frang_Req_Hdr_UriLen);
 	}
 
 	/* Ensure that length of URI is within limits. */
 	T_FSM_STATE(Frang_Req_Hdr_UriLen) {
-		__FRANG_CFG_VAR(uri_len, http_uri_len);
-		if (uri_len) {
-			r = frang_http_uri_len(req, ra, uri_len);
+		if (f_cfg->http_uri_len) {
+			r = frang_http_uri_len(req, ra, f_cfg->http_uri_len);
 			if (!(req->uri_path.flags & TFW_STR_COMPLETE))
 				__FRANG_FSM_JUMP_EXIT(Frang_Req_Hdr_UriLen);
 		}
-		__FRANG_FSM_MOVE(Frang_Req_Hdr_FieldDup);
+		__FRANG_FSM_MOVE(Frang_Req_Hdr_Check);
 	}
 
-	/* Ensure that singular header fields are not duplicated. */
-	T_FSM_STATE(Frang_Req_Hdr_FieldDup) {
+	/*
+	 * Headers are not fully parsed, a new request chunk was received.
+	 * Test that all currently received headers do not exceed frang limits.
+	 */
+	T_FSM_STATE(Frang_Req_Hdr_Check) {
 		if (test_bit(TFW_HTTP_B_FIELD_DUPENTRY, req->flags)) {
 			frang_msg("duplicate header field found",
 				  &FRANG_ACC2CLI(ra)->addr, "\n");
 			r = TFW_BLOCK;
+			T_FSM_EXIT();
 		}
-		__FRANG_FSM_MOVE(Frang_Req_Hdr_FieldLen);
-	}
+		r = frang_http_field_len(req, ra, f_cfg->http_field_len,
+					 f_cfg->http_hdr_cnt);
+		if (r)
+			T_FSM_EXIT();
 
-	/* Ensure that length of all parsed headers fields is within limits. */
-	T_FSM_STATE(Frang_Req_Hdr_FieldLen) {
-		__FRANG_CFG_VAR(field_len, http_field_len);
-		if (field_len)
-			r = frang_http_field_len(req, ra, field_len);
-		__FRANG_FSM_MOVE(Frang_Req_Hdr_Crlf);
-	}
+		/* Headers are not fully parsed yet. */
+		if (!(req->crlf.flags & TFW_STR_COMPLETE))
+			__FRANG_FSM_JUMP_EXIT(Frang_Req_Hdr_Check);
+		/*
+		* Full HTTP header has been processed, and any possible
+		* header fields are collected. Run final checks on them.
+		*/
 
-	/*
-	 * See if the full HTTP header is processed.
-	 * If not, continue checks on header fields.
-	 */
-	T_FSM_STATE(Frang_Req_Hdr_Crlf) {
-		if (req->crlf.flags & TFW_STR_COMPLETE)
-			T_FSM_JMP(Frang_Req_Hdr_FieldLenFinal);
-		__FRANG_FSM_JUMP_EXIT(Frang_Req_Hdr_FieldDup);
-	}
+		/* Ensure presence and the value of Host: header field. */
+		if (f_cfg->http_host_required
+		    && (r = frang_http_host_check(req, ra)))
+		{
+			T_FSM_EXIT();
+		}
+		/*
+		* Ensure presence of Content-Type: header field.
+		* Ensure that the value is one of those defined by a user.
+		*/
+		if (f_cfg->http_ct_required || f_cfg->http_ct_vals)
+			r = frang_http_ct_check(req, ra, f_cfg->http_ct_vals);
 
-	/*
-	 * Full HTTP header has been processed, and any possible
-	 * header fields are collected. Run final checks on them.
-	 */
-	T_FSM_STATE(Frang_Req_Hdr_FieldLenFinal) {
-		__FRANG_CFG_VAR(field_len, http_field_len);
-		if (field_len)
-			r = __frang_http_field_len(req, ra, field_len);
-		__FRANG_FSM_MOVE(Frang_Req_Hdr_Host);
-	}
-
-	/* Ensure presence and the value of Host: header field. */
-	T_FSM_STATE(Frang_Req_Hdr_Host) {
-		__FRANG_CFG_VAR(host_required, http_host_required);
-		if (host_required)
-			r = frang_http_host_check(req, ra);
-		__FRANG_FSM_MOVE(Frang_Req_Hdr_ContentType);
-	}
-
-	/*
-	 * Ensure presence of Content-Type: header field.
-	 * Ensure that the value is one of those defined by a user.
-	 */
-	T_FSM_STATE(Frang_Req_Hdr_ContentType) {
-		__FRANG_CFG_VAR(ct_required, http_ct_required);
-		__FRANG_CFG_VAR(ct_vals, http_ct_vals);
-		if (ct_required || ct_vals)
-			r = frang_http_ct_check(req, ra, ct_vals);
 		__FRANG_FSM_MOVE(Frang_Req_Body_Start);
 	}
 
@@ -909,66 +1022,34 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data)
 	 * Set the time the body started coming in.
 	 */
 	T_FSM_STATE(Frang_Req_Body_Start) {
-		__FRANG_CFG_VAR(body_len, http_body_len);
-		__FRANG_CFG_VAR(body_timeout, clnt_body_timeout);
-		__FRANG_CFG_VAR(bchunk_cnt, http_bchunk_cnt);
-		if (body_len || body_timeout || bchunk_cnt) {
-			req->chunk_cnt = 0; /* start counting body chunks now */
-			req->tm_bchunk = jiffies;
-			__FRANG_FSM_MOVE(Frang_Req_Body_ChunkCnt);
-		}
-		__FRANG_FSM_JUMP_EXIT(Frang_Req_Done);
+		req->chunk_cnt = 0; /* start counting body chunks now. */
+		req->tm_bchunk = jiffies;
+		r = frang_http_req_incomplete_body_check(ra, data, fg_cfg,
+							 f_cfg);
+		__FRANG_FSM_MOVE(Frang_Req_Body);
 	}
 
 	/*
-	 * Ensure that HTTP request body is coming without delays.
-	 * The timeout is between chunks of the body, so reset
-	 * the start time after each check.
+	 * Body is not fully parsed, a new body chunk was received.
 	 */
-	T_FSM_STATE(Frang_Req_Body_Timeout) {
-		/*
-		 * Note that this state is skipped on the first data SKB
-		 * with body part as obviously no timeout has occurred yet.
-		 */
-		__FRANG_CFG_VAR(body_timeout, clnt_body_timeout);
-		if (body_timeout) {
-			unsigned long start = req->tm_bchunk;
-			unsigned long delta = body_timeout;
+	T_FSM_STATE(Frang_Req_Body) {
+		/* Body is not fully parsed yet. */
+		if (!(req->body.flags & TFW_STR_COMPLETE))
+			__FRANG_FSM_JUMP_EXIT(Frang_Req_Body);
 
-			if (time_is_before_jiffies(start + delta)) {
-				frang_limmsg("client body timeout",
-					     jiffies - start, delta,
-					     &FRANG_ACC2CLI(ra)->addr);
-				r = TFW_BLOCK;
-			}
-		}
-		__FRANG_FSM_MOVE(Frang_Req_Body_ChunkCnt);
+		__FRANG_FSM_MOVE(Frang_Req_Trailer);
 	}
 
-	/* Limit number of chunks in request body */
-	T_FSM_STATE(Frang_Req_Body_ChunkCnt) {
-		__FRANG_CFG_VAR(bchunk_cnt, http_bchunk_cnt);
-		if (bchunk_cnt && req->chunk_cnt > bchunk_cnt) {
-			frang_limmsg("HTTP body chunk count", req->chunk_cnt,
-				     bchunk_cnt, &FRANG_ACC2CLI(ra)->addr);
-			r = TFW_BLOCK;
-		}
-		__FRANG_FSM_MOVE(Frang_Req_Body_Len);
-	}
-
-	/* Ensure that the length of HTTP request body is within limits. */
-	T_FSM_STATE(Frang_Req_Body_Len) {
-		__FRANG_CFG_VAR(body_len, http_body_len);
-		if (body_len && (req->body.len > body_len)) {
-			frang_limmsg("HTTP body length", req->body.len,
-				     body_len, &FRANG_ACC2CLI(ra)->addr);
-			r = TFW_BLOCK;
-		}
-		__FRANG_FSM_JUMP_EXIT(Frang_Req_Body_Timeout);
+	/* Trailer headers. */
+	T_FSM_STATE(Frang_Req_Trailer) {
+		r = frang_http_req_trailer_check(ra, data, fg_cfg, f_cfg);
+		__FRANG_FSM_MOVE(Frang_Req_Done);
 	}
 
 	/* All limits are verified for current request. */
 	T_FSM_STATE(Frang_Req_Done) {
+		frang_dbg("checks done for client %s\n",
+			  &FRANG_ACC2CLI(ra)->addr);
 		tfw_gfsm_move(&conn->state, TFW_FRANG_REQ_FSM_DONE, data);
 		T_FSM_EXIT();
 	}
@@ -987,7 +1068,7 @@ frang_http_req_handler(void *obj, TfwFsmData *data)
 	int r;
 	TfwConn *conn = (TfwConn *)obj;
 	FrangAcc *ra = conn->sk->sk_security;
-	bool ip_block = tfw_vhost_global_frang_cfg()->ip_block;
+	TfwVhost *dvh = NULL;
 	TfwHttpReq *req = (TfwHttpReq *)data->req;
 
 	if (req->peer)
@@ -996,9 +1077,13 @@ frang_http_req_handler(void *obj, TfwFsmData *data)
 	if (test_bit(TFW_HTTP_B_WHITELIST, ((TfwHttpReq *)data->req)->flags))
 		return TFW_PASS;
 
-	r = frang_http_req_process(ra, conn, data);
-	if (r == TFW_BLOCK && ip_block)
+	dvh = tfw_vhost_lookup_default();
+	if (WARN_ON_ONCE(!dvh))
+		return TFW_BLOCK;
+	r = frang_http_req_process(ra, conn, data, dvh);
+	if (r == TFW_BLOCK && dvh->frang_gconf->ip_block)
 		tfw_filter_block_ip(&FRANG_ACC2CLI(ra)->addr);
+	tfw_vhost_put(dvh);
 
 	return r;
 }
@@ -1011,50 +1096,107 @@ static int
 frang_resp_process(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
-	FrangAcc *ra;
-	__FRANG_CFG_VAR(body_len, http_body_len);
+	TfwAddr *cli_addr = NULL;
+	TfwLocation *loc = req->location ? : req->vhost->loc_dflt;
+	unsigned long body_len = loc->frang_cfg->http_body_len;
 	int r = TFW_PASS;
 
 	if (!body_len)
 		return TFW_PASS;
 
-	ra = (FrangAcc *)req->conn->sk->sk_security;
-	if (req->peer)
-		ra = FRANG_CLI2ACC(req->peer);
+	if (likely(req->conn)) {
+		if (req->peer)
+			cli_addr = &req->peer->addr;
+		else
+			cli_addr = &req->conn->peer->addr;
+	}
 
 	/* Ensure message body size doesn't overcome acceptable limits. */
 	if ((resp->content_length > body_len) || (resp->body.len > body_len)) {
-		frang_limmsg("HTTP response body length",
-			     resp->body.len, body_len,
-			     &FRANG_ACC2CLI(ra)->addr);
+		if (cli_addr) {
+			frang_limmsg("HTTP response body length",
+				     resp->body.len, body_len, cli_addr);
+		}
+		else {
+			frang_limmsg_local("HTTP response body length",
+					   resp->body.len, body_len,
+					   "Health Monitor");
+		}
 		r = TFW_BLOCK;
 	}
 
 	return r;
 }
 
-/*
- * Check response code and record it if it's listed in the filter.
- * Called from tfw_http_resp_fwd() by tfw_gfsm_move()
- * Always returns TFW_PASS because this handler is needed
- * for collecting purposes only.
+/**
+ * Monotonically increasing time quantums. The configured @tframe
+ * is divided by FRANG_FREQ slots to get the quantums granularity.
+ * To reduce calculations, tframe is already stored as result of multiplication
+ * operation, see __tfw_cfgop_frang_rsp_code_block().
+ */
+static inline unsigned int
+frang_resp_quantum(unsigned short tframe)
+{
+	return jiffies / tframe;
+}
+
+static int
+frang_resp_code_limit(FrangAcc *ra, FrangHttpRespCodeBlock *resp_cblk)
+{
+	FrangRespCodeStat *stat = ra->resp_code_stat;
+	unsigned long cnt = 0;
+	const unsigned int ts = frang_resp_quantum(resp_cblk->tf);
+	int i = 0;
+
+	i = ts % FRANG_FREQ;
+	if (ts != stat[i].ts) {
+		stat[i].ts = ts;
+		stat[i].cnt = 1;
+	} else {
+		++stat[i].cnt;
+	}
+	for (i = 0; i < FRANG_FREQ; ++i) {
+		if (frang_time_in_frame(ts, stat[i].ts))
+			cnt += stat[i].cnt;
+	}
+	if (cnt > resp_cblk->limit) {
+		frang_limmsg("http_resp_code_block limit", cnt,
+			     resp_cblk->limit, &FRANG_ACC2CLI(ra)->addr);
+		return TFW_BLOCK;
+	}
+
+	return TFW_PASS;
+}
+
+/**
+ * Block client connection if not allowed response code appears too frequently
+ * in responses for that client. Called from tfw_http_resp_fwd() by
+ * tfw_gfsm_move().
+ * Always returns TFW_PASS because there is no error in processing response,
+ * client may do something illegal and is to be blocked. Allow upper levels
+ * to continue working with the response and the server connection.
  */
 static int
 frang_resp_fwd_process(TfwHttpResp *resp)
 {
-	unsigned int ts, i;
+	int r;
 	FrangAcc *ra;
-	FrangRespCodeStat *stat;
 	TfwHttpReq *req = resp->req;
-	__FRANG_CFG_VAR(conf, http_resp_code_block);
+	FrangVhostCfg *fcfg = req->location ? req->location->frang_cfg
+					    : req->vhost->loc_dflt->frang_cfg;
+	FrangHttpRespCodeBlock *conf = fcfg->http_resp_code_block;
 
-	if (!conf)
+	/*
+	 * Requests originated by Health Monitor are generated by Tempesta,
+	 * there is no reason to limit them. Such requests have no connection
+	 * attached.
+	 */
+	if (unlikely(!resp->req->conn) || !conf)
 		return TFW_PASS;
 
 	ra = (FrangAcc *)req->conn->sk->sk_security;
 	if (req->peer)
 		ra = FRANG_CLI2ACC(req->peer);
-	stat = ra->resp_code_stat;
 	frang_dbg("client %s check response %d, acc=%p\n",
 		  &FRANG_ACC2CLI(ra)->addr, resp->status, ra);
 
@@ -1063,17 +1205,26 @@ frang_resp_fwd_process(TfwHttpResp *resp)
 		return TFW_PASS;
 
 	spin_lock(&ra->lock);
-
-	ts = frang_resp_quantum(conf->tf);
-	i = ts % FRANG_FREQ;
-	if (ts != stat[i].ts) {
-		stat[i].ts = ts;
-		stat[i].cnt = 1;
-	} else {
-		++stat[i].cnt;
-	}
-
+	/*
+	 * According to the backend response code attacker may be trying to crack
+	 * the password. This security event must be triggered when the response
+	 * received, and can't be triggered on request context because client
+	 * can send a huge number of pipelined requests to crack the password
+	 * and wait for the results. If the attack is spotted, block the client
+	 * and wipe all their received but not processed requests ASAP.
+	 */
+	r = frang_resp_code_limit(ra, conf);
 	spin_unlock(&ra->lock);
+
+	if (r == TFW_BLOCK) {
+		/* Default vhost has no 'vhost_dflt' member set. */
+		FrangGlobCfg *fg_cfg = req->vhost->vhost_dflt
+				? req->vhost->vhost_dflt->frang_gconf
+				: req->vhost->frang_gconf;
+		tfw_cli_conn_close_all_sync((TfwClient *)req->conn->peer);
+		if (fg_cfg->ip_block)
+			tfw_filter_block_ip(&FRANG_ACC2CLI(ra)->addr);
+	}
 
 	return TFW_PASS;
 }
@@ -1118,6 +1269,87 @@ static TfwClassifier frang_class_ops = {
  * ------------------------------------------------------------------------
  */
 
+typedef struct {
+	int			prio;
+	int			hook_state;
+	int			st0;
+	unsigned short		fsm_id;
+	const char		*name;
+} FrangGfsmHook;
+
+static FrangGfsmHook frang_gfsm_hooks[] = {
+	{
+		.prio		= -1,
+		.hook_state	= TFW_HTTP_FSM_REQ_MSG,
+		.fsm_id		= TFW_FSM_FRANG_REQ,
+		.st0		= TFW_FRANG_REQ_FSM_INIT,
+		.name		= "request_msg_end",
+	},
+	{
+		.prio		= -1,
+		.hook_state	= TFW_HTTP_FSM_REQ_CHUNK,
+		.fsm_id		= TFW_FSM_FRANG_REQ,
+		.st0		= TFW_FRANG_REQ_FSM_INIT,
+		.name		= "request_skb_end",
+	},
+	{
+		.prio		= -1,
+		.hook_state	= TFW_HTTP_FSM_RESP_MSG,
+		.fsm_id		= TFW_FSM_FRANG_RESP,
+		.st0		= TFW_FRANG_RESP_FSM_INIT,
+		.name		= "response_msg_end",
+	},
+	{
+		.prio		= -1,
+		.hook_state	= TFW_HTTP_FSM_RESP_CHUNK,
+		.fsm_id		= TFW_FSM_FRANG_RESP,
+		.st0		= TFW_FRANG_RESP_FSM_INIT,
+		.name		= "response_skb_end",
+	},
+	{
+		.prio		= -1,
+		.hook_state	= TFW_HTTP_FSM_RESP_MSG_FWD,
+		.fsm_id		= TFW_FSM_FRANG_RESP,
+		.st0		= TFW_FRANG_RESP_FSM_FWD,
+		.name		= "response_fwd",
+	},
+};
+
+void
+tfw_http_limits_hooks_remove(void)
+{
+	int i;
+
+	for (i = ARRAY_SIZE(frang_gfsm_hooks) - 1; i >= 0; i--) {
+		FrangGfsmHook *h = &frang_gfsm_hooks[i];
+		if (h->prio == -1)
+			continue;
+		tfw_gfsm_unregister_hook(TFW_FSM_HTTP, h->prio, h->hook_state);
+		h->prio = -1;
+	}
+}
+
+int
+tfw_http_limits_hooks_register(void)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(frang_gfsm_hooks); i++) {
+		FrangGfsmHook *h = &frang_gfsm_hooks[i];
+
+		h->prio = tfw_gfsm_register_hook(TFW_FSM_HTTP,
+						 TFW_GFSM_HOOK_PRIORITY_ANY,
+						 h->hook_state, h->fsm_id,
+						 h->st0);
+		if (h->prio < 0) {
+			T_ERR_NL("frang: can't register %s hook\n", h->name);
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
 int __init
 tfw_http_limits_init(void)
 {
@@ -1131,80 +1363,23 @@ tfw_http_limits_init(void)
 
 	r = tfw_gfsm_register_fsm(TFW_FSM_FRANG_REQ, frang_http_req_handler);
 	if (r) {
-		TFW_ERR_NL("frang: can't register request fsm\n");
+		T_ERR_NL("frang: can't register request fsm\n");
 		goto err_fsm;
 	}
 
 	r = tfw_gfsm_register_fsm(TFW_FSM_FRANG_RESP, frang_resp_handler);
 	if (r) {
-		TFW_ERR_NL("frang: can't register response fsm\n");
+		T_ERR_NL("frang: can't register response fsm\n");
 		goto err_fsm_resp;
 	}
 
-	/* Request hooks. */
-	prio0 = tfw_gfsm_register_hook(TFW_FSM_HTTP,
-				       TFW_GFSM_HOOK_PRIORITY_ANY,
-				       TFW_HTTP_FSM_REQ_MSG,
-				       TFW_FSM_FRANG_REQ,
-				       TFW_FRANG_REQ_FSM_INIT);
-	if (prio0 < 0) {
-		TFW_ERR_NL("frang: can't register req gfsm msg hook\n");
-		r = prio0;
-		goto err_hook0;
-	}
-	prio1 = tfw_gfsm_register_hook(TFW_FSM_HTTP,
-				       TFW_GFSM_HOOK_PRIORITY_ANY,
-				       TFW_HTTP_FSM_REQ_CHUNK,
-				       TFW_FSM_FRANG_REQ,
-				       TFW_FRANG_REQ_FSM_INIT);
-	if (prio1 < 0) {
-		TFW_ERR_NL("frang: can't register req gfsm chunk hook\n");
-		r = prio1;
-		goto err_hook1;
-	}
-
-	/* Response hooks. */
-	prio2 = tfw_gfsm_register_hook(TFW_FSM_HTTP,
-				       TFW_GFSM_HOOK_PRIORITY_ANY,
-				       TFW_HTTP_FSM_RESP_MSG,
-				       TFW_FSM_FRANG_RESP,
-				       TFW_FRANG_RESP_FSM_INIT);
-	if (prio2 < 0) {
-		TFW_ERR_NL("frang: can't register resp gfsm msg hook\n");
-		r = prio2;
-		goto err_hook2;
-	}
-	prio3 = tfw_gfsm_register_hook(TFW_FSM_HTTP,
-				       TFW_GFSM_HOOK_PRIORITY_ANY,
-				       TFW_HTTP_FSM_RESP_CHUNK,
-				       TFW_FSM_FRANG_RESP,
-				       TFW_FRANG_RESP_FSM_INIT);
-	if (prio3 < 0) {
-		TFW_ERR_NL("frang: can't register resp gfsm chunk hook\n");
-		r = prio3;
-		goto err_hook3;
-	}
-	prio4 = tfw_gfsm_register_hook(TFW_FSM_HTTP,
-				       TFW_GFSM_HOOK_PRIORITY_ANY,
-				       TFW_HTTP_FSM_RESP_MSG_FWD,
-				       TFW_FSM_FRANG_RESP,
-				       TFW_FRANG_RESP_FSM_FWD);
-	if (prio4 < 0) {
-		TFW_ERR_NL("frang: can't register resp gfsm msg fwd hook\n");
-		r = prio4;
-		goto err_hook4;
-	}
+	r = tfw_http_limits_hooks_register();
+	if (r)
+		goto err_hooks;
 
 	return 0;
-err_hook4:
-	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio3, TFW_HTTP_FSM_RESP_CHUNK);
-err_hook3:
-	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio2, TFW_HTTP_FSM_RESP_MSG);
-err_hook2:
-	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio1, TFW_HTTP_FSM_REQ_CHUNK);
-err_hook1:
-	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio0, TFW_HTTP_FSM_REQ_MSG);
-err_hook0:
+err_hooks:
+	tfw_http_limits_hooks_remove();
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_RESP);
 err_fsm_resp:
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_REQ);
@@ -1217,13 +1392,9 @@ err_fsm:
 void
 tfw_http_limits_exit(void)
 {
-	TFW_DBG("frang exit\n");
+	T_DBG("frang exit\n");
 
-	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio4, TFW_HTTP_FSM_RESP_MSG_FWD);
-	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio3, TFW_HTTP_FSM_RESP_CHUNK);
-	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio2, TFW_HTTP_FSM_RESP_MSG);
-	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio1, TFW_HTTP_FSM_REQ_CHUNK);
-	tfw_gfsm_unregister_hook(TFW_FSM_HTTP, prio0, TFW_HTTP_FSM_REQ_MSG);
+	tfw_http_limits_hooks_remove();
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_RESP);
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_REQ);
 	tfw_classifier_unregister();

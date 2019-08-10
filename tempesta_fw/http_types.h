@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2018-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -21,9 +21,12 @@
 #define __TFW_HTTP_TYPES_H__
 
 /* Forward declaration of common HTTP types. */
-typedef struct tfw_http_sess_t	TfwHttpSess;
-typedef struct tfw_http_msg_t	TfwHttpMsg;
-typedef struct tfw_http_req_t	TfwHttpReq;
-typedef struct tfw_http_resp_t	TfwHttpResp;
+typedef struct tfw_http_sess_t		TfwHttpSess;
+typedef struct tfw_http_msg_t		TfwHttpMsg;
+typedef struct tfw_http_req_t		TfwHttpReq;
+typedef struct tfw_http_resp_t		TfwHttpResp;
+typedef struct tfw_vhost_t		TfwVhost;
+typedef struct frang_global_cfg_t	FrangGlobCfg;
+typedef struct frang_vhost_cfg_t	FrangVhostCfg;
 
 #endif /* __TFW_HTTP_TYPES_H__ */

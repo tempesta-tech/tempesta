@@ -83,6 +83,7 @@ endif
 	$(MAKE) -C $(KERNEL) M=$(shell pwd) modules
 
 test: build
+	./scripts/tempesta.sh --stop
 	./scripts/tempesta.sh --load
 	./tempesta_fw/t/unit/run_all_tests.sh
 	./scripts/tempesta.sh --unload
