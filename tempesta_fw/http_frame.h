@@ -59,10 +59,10 @@ typedef enum {
  * 4.1). Reserved bit is not present here since it has no any semantic
  * value for now and should be always ignored.
  *
- * @length	- the frame's payload length;
- * @stream_id	- id of current stream (which frame is processed);
- * @type	- the type of frame being processed;
- * @flags	- frame's flags;
+ * @length		- the frame's payload length;
+ * @stream_id		- id of current stream (which frame is processed);
+ * @type		- the type of frame being processed;
+ * @flags		- frame's flags;
  */
 typedef struct {
 	int		length;
@@ -75,9 +75,9 @@ typedef struct {
  * Unpacked data from priority payload of frames (RFC 7540 section 6.2
  * and section 6.3).
  *
- * @stream_id	- id for the stream that the current stream depends on;
- * @weight	- stream's priority weight;
- * @exclusive	- flag indicating exclusive stream dependency;
+ * @stream_id		- id for the stream that the current stream depends on;
+ * @weight		- stream's priority weight;
+ * @exclusive		- flag indicating exclusive stream dependency;
  */
 typedef struct {
 	unsigned int	stream_id;
@@ -111,51 +111,54 @@ typedef struct {
 } TfwSettings;
 
 /**
- * Limited queue for temporary storage of closed streams. This structure
- * provides the possibility of temporary existing in memory - for streams
- * which are in HTTP2_STREAM_LOC_CLOSED or HTTP2_STREAM_REM_CLOSED states
- * (see RFC 7540, section 5.1, the 'closed' paragraph). Note, that streams
- * in  HTTP2_STREAM_CLOSED state are not stored in this queue and must be
- * removed right away.
+ * Limited queue for temporary storage of half-closed streams. This structure
+ * provides the possibility of temporary existing in memory - for streams which
+ * are in HTTP2_STREAM_LOC_CLOSED or HTTP2_STREAM_REM_CLOSED states (see RFC
+ * 7540, section 5.1, the 'closed' paragraph). Note, that streams in
+ * HTTP2_STREAM_CLOSED state are not stored in this queue and must be removed
+ * right away.
  *
- * @closed	- list of streams which are in closed state;
- * @num_closed	- number of streams in the list;
+ * @list		- list of streams which are in closed state;
+ * @num			- number of streams in the list;
  */
 typedef struct {
-	struct list_head	closed;
-	unsigned long		num_closed;
+	struct list_head	list;
+	unsigned long		num;
 } TfwClosedQueue;
 
 /**
  * Context for HTTP/2 frames processing.
  *
- * @lock	- spinlock to protect stream-request linkage;
- * @lsettings	- local settings for HTTP/2 connection;
- * @rsettings	- settings for HTTP/2 connection received from the remote
- *		  endpoint;
- * @streams_num	- number of the streams initiated by client;
- * @sched	- streams' priority scheduler;
- * @cl_queue	- queue of closed streams (in HTTP2_STREAM_LOC_CLOSED or
- *		  HTTP2_STREAM_REM_CLOSED states), which are waiting for
- *		  removal;
- * @lstream_id	- ID of last stream initiated by client and processed on the
- *		  server side;
- * @loc_wnd	- connection's current flow controlled window;
- * @__off	- offset to reinitialize processing context;
- * @skb_head	- collected list of processed skbs containing HTTP/2 frames;
- * @cur_stream	- found stream for the frame currently being processed;
- * @priority	- unpacked data from priority part of payload of processed
- *		  HEADERS or PRIORITY frames;
- * @hdr		- unpacked data from header of currently processed frame;
- * @state	- current FSM state of HTTP/2 processing context;
- * @to_read	- indicates how much data of HTTP/2 frame should
- *		  be read on next FSM @state;
- * @rlen	- length of accumulated data in @rbuf;
- * @rbuf	- buffer for data accumulation from frames headers and
- *		  payloads (for service frames) during frames processing;
- * @padlen	- length of current frame's padding (if exists);
- * @data_off	- offset of app data in HEADERS, CONTINUATION and DATA
- *		  frames (after all service payloads);
+ * @lock		- spinlock to protect stream-request linkage;
+ * @lsettings		- local settings for HTTP/2 connection;
+ * @rsettings		- settings for HTTP/2 connection received from the
+ *			  remote endpoint;
+ * @streams_num		- number of the streams initiated by client;
+ * @sched		- streams' priority scheduler;
+ * @hclosed_streams	- queue of half-closed streams (in
+ *			  HTTP2_STREAM_LOC_CLOSED or HTTP2_STREAM_REM_CLOSED
+ *			  states), which are waiting for removal;
+ * @lstream_id		- ID of last stream initiated by client and processed on
+ *			  the server side;
+ * @loc_wnd		- connection's current flow controlled window;
+ * @__off		- offset to reinitialize processing context;
+ * @skb_head		- collected list of processed skbs containing HTTP/2
+ *			  frames;
+ * @cur_stream		- found stream for the frame currently being processed;
+ * @priority		- unpacked data from priority part of payload of
+ *			  processed HEADERS or PRIORITY frames;
+ * @hdr			- unpacked data from header of currently processed
+ *			  frame;
+ * @state		- current FSM state of HTTP/2 processing context;
+ * @to_read		- indicates how much data of HTTP/2 frame should
+ *			  be read on next FSM @state;
+ * @rlen		- length of accumulated data in @rbuf;
+ * @rbuf		- buffer for data accumulation from frames headers and
+ *			  payloads (for service frames) during frames
+ *			  processing;
+ * @padlen		- length of current frame's padding (if exists);
+ * @data_off		- offset of app data in HEADERS, CONTINUATION and DATA
+ *			  frames (after all service payloads);
  */
 typedef struct {
 	spinlock_t	lock;
@@ -163,7 +166,7 @@ typedef struct {
 	TfwSettings	rsettings;
 	unsigned long	streams_num;
 	TfwStreamSched	sched;
-	TfwClosedQueue	cl_queue;
+	TfwClosedQueue	hclosed_streams;
 	unsigned int	lstream_id;
 	unsigned int	loc_wnd;
 	char		__off[0];
