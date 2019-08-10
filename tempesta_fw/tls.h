@@ -38,10 +38,6 @@ enum {
 	TFW_TLS_FSM_DONE	= TFW_GFSM_TLS_STATE(TFW_GFSM_STATE_LAST)
 };
 
-#define TFW_CONN_H2(c)							\
-	(tfw_tls_context(c)->alpn_chosen				\
-	 && tfw_tls_context(c)->alpn_chosen->id == TTLS_ALPN_ID_HTTP2)
-
 void tfw_tls_cfg_require(void);
 void tfw_tls_cfg_configured(bool global);
 void tfw_tls_match_any_sni_to_dflt(bool match);

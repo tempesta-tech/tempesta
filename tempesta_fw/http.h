@@ -242,6 +242,8 @@ enum {
 	TFW_HTTP_B_FIELD_DUPENTRY,
 	/* Message is fully parsed */
 	TFW_HTTP_B_FULLY_PARSED,
+	/* Message has HTTP/2 format. */
+	TFW_HTTP_B_H2,
 
 	/* Request flags. */
 	TFW_HTTP_FLAGS_REQ,
@@ -279,6 +281,9 @@ enum {
 #define __TFW_HTTP_MSG_M_CONN						\
 	(BIT(TFW_HTTP_B_CONN_CLOSE) | BIT(TFW_HTTP_B_CONN_KA))
 
+#define TFW_MSG_H2(hmmsg)						\
+	test_bit(TFW_HTTP_B_H2, ((TfwHttpMsg *)hmmsg)->flags)
+
 /**
  * The structure to hold data for an HTTP error response.
  * An error response is sent later in an unlocked queue context.
@@ -301,6 +306,7 @@ typedef struct {
  * @pair		- the message paired with this one;
  * @req			- the request paired with this response;
  * @resp		- the response paired with this request;
+ * @stream		- stream which the message is linked with;
  * @cache_ctl		- cache control data for a message;
  * @version		- HTTP version (1.0 and 1.1 are only supported);
  * @flags		- message related flags. The flags are tested
@@ -326,6 +332,7 @@ typedef struct {
 		TfwHttpReq	*req;					\
 		TfwHttpResp	*resp;					\
 	};								\
+	TfwStream	*stream;					\
 	TfwHttpError	httperr;					\
 	TfwCacheControl	cache_ctl;					\
 	unsigned char	version;					\
@@ -377,7 +384,7 @@ typedef struct {
  * @peer	- end-to-end peer. The peer is not set if
  *		  hop-by-hop peer (TfwConnection->peer) and end-to-end peer are
  *		  the same;
- * @userinfo	- userinfo in URI, not mandatory.
+ * @userinfo	- userinfo in URI, not mandatory;
  * @host	- host in URI, may differ from Host header;
  * @uri_path	- path + query + fragment from URI (RFC3986.3);
  * @mark	- special hash mark for redirects handling in session module;
@@ -511,10 +518,12 @@ typedef void (*tfw_http_cache_cb_t)(TfwHttpMsg *);
 
 /* External HTTP functions. */
 int tfw_http_msg_process(void *conn, TfwFsmData *data);
-int tfw_http_msg_process_generic(void *conn, TfwFsmData *data);
+int tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
+				 TfwFsmData *data);
 unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
 void tfw_http_req_destruct(void *msg);
 void tfw_http_resp_fwd(TfwHttpResp *resp);
+void tfw_h2_resp_adjust_fwd(TfwHttpResp *resp);
 void tfw_http_resp_build_error(TfwHttpReq *req);
 int tfw_cfgop_parse_http_status(const char *status, int *out);
 void tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len);
@@ -526,6 +535,7 @@ int tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status,
 			   TfwStr *rmark, TfwStr *cookie, TfwStr *body);
 int tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, TfwMsgIter *msg_it,
 		      size_t hdrs_size);
+void tfw_http_conn_msg_free(TfwHttpMsg *hm);
 void tfw_http_send_resp(TfwHttpReq *req, int status, const char *reason);
 
 /* Helper functions */

@@ -251,7 +251,7 @@
 #define TTLS_ALPN_HTTP2				"h2"
 
 /* Number of protocols for negotiation in APLN extension. */
-#define TTLS_ALPN_PROTOS			2
+#define TTLS_ALPN_PROTOS			1
 
 /* The id numbers of supported protocols for APLN extension. */
 typedef enum {

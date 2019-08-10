@@ -83,7 +83,7 @@ do {									\
 } while (0)
 
 #define __msg_hdr_chunk_fixup(data, len)				\
-	tfw_http_msg_add_str_data(msg, &msg->conn->parser.hdr, data, len)
+	tfw_http_msg_add_str_data(msg, &msg->stream->parser.hdr, data, len)
 
 /**
  * GCC 4.8 (CentOS 7) does a poor work on memory reusage of automatic local
@@ -93,7 +93,7 @@ do {									\
  */
 #define __FSM_DECLARE_VARS(ptr)						\
 	TfwHttpMsg	*msg = (TfwHttpMsg *)(ptr);			\
-	TfwHttpParser	*parser = &msg->conn->parser;			\
+	TfwHttpParser	*parser = &msg->stream->parser;			\
 	unsigned char	*p = data;					\
 	unsigned char	c = *p;						\
 	int		__maybe_unused __fsm_n;				\
@@ -172,10 +172,10 @@ do {									\
 
 #define __FSM_MOVE_nofixup(to)		__FSM_MOVE_nofixup_n(to, 1)
 #define __FSM_MOVE_n(to, n)						\
-	__FSM_MOVE_nf(to, n, &msg->conn->parser.hdr)
+	__FSM_MOVE_nf(to, n, &msg->stream->parser.hdr)
 #define __FSM_MOVE_f(to, field)		__FSM_MOVE_nf(to, 1, field)
 #define __FSM_MOVE(to)							\
-	__FSM_MOVE_nf(to, 1, &msg->conn->parser.hdr)
+	__FSM_MOVE_nf(to, 1, &msg->stream->parser.hdr)
 /* The same as __FSM_MOVE_n(), but exactly for jumps w/o data moving. */
 #define __FSM_JMP(to)			do { goto to; } while (0)
 
@@ -203,7 +203,7 @@ do {									\
 	__FSM_MATCH_MOVE_fixup_pos(alphabet, to, field, true)
 
 #define __FSM_MATCH_MOVE(alphabet, to)					\
-	__FSM_MATCH_MOVE_f(alphabet, to, &msg->conn->parser.hdr)
+	__FSM_MATCH_MOVE_f(alphabet, to, &msg->stream->parser.hdr)
 
 #define __FSM_MATCH_MOVE_nofixup(alphabet, to)				\
 do {									\
@@ -229,7 +229,7 @@ do {									\
 } while (0)
 
 #define __FSM_I_chunk_flags(flag)					\
-	__FSM_I_field_chunk_flags(&msg->conn->parser.hdr, flag)
+	__FSM_I_field_chunk_flags(&msg->stream->parser.hdr, flag)
 
 #define __FSM_I_MOVE_n(to, n)						\
 do {									\
@@ -285,7 +285,7 @@ do {									\
 } while (0)
 
 #define __FSM_I_MOVE_fixup(to, n, flag)					\
-	__FSM_I_MOVE_fixup_f(to, n, &msg->conn->parser.hdr, flag)
+	__FSM_I_MOVE_fixup_f(to, n, &msg->stream->parser.hdr, flag)
 
 #define __FSM_I_MATCH_MOVE_fixup(alphabet, to, flag)			\
 do {									\
@@ -556,7 +556,7 @@ parse_int_hex(unsigned char *data, size_t len, unsigned long *acc, unsigned shor
 static void
 mark_spec_hbh(TfwHttpMsg *hm)
 {
-	TfwHttpHbhHdrs *hbh_hdrs = &hm->conn->parser.hbh_parser;
+	TfwHttpHbhHdrs *hbh_hdrs = &hm->stream->parser.hbh_parser;
 	unsigned int id;
 
 	for (id = 0; id < TFW_HTTP_HDR_RAW; ++id) {
@@ -573,7 +573,7 @@ mark_spec_hbh(TfwHttpMsg *hm)
 static void
 mark_raw_hbh(TfwHttpMsg *hm, TfwStr *hdr)
 {
-	TfwHttpHbhHdrs *hbh = &hm->conn->parser.hbh_parser;
+	TfwHttpHbhHdrs *hbh = &hm->stream->parser.hbh_parser;
 	unsigned int i;
 
 	/*
@@ -640,7 +640,7 @@ static int
 __hbh_parser_add_data(TfwHttpMsg *hm, char *data, unsigned long len, bool last)
 {
 	TfwStr *hdr, *append;
-	TfwHttpHbhHdrs *hbh = &hm->conn->parser.hbh_parser;
+	TfwHttpHbhHdrs *hbh = &hm->stream->parser.hbh_parser;
 	static const TfwStr block[] = {
 		/* End-to-end spec and raw headers */
 		TFW_STR_STRING("age:"),
@@ -2626,7 +2626,7 @@ __req_parse_if_msince(TfwHttpMsg *msg, unsigned char *data, size_t len)
 {
 	int r = CSTR_NEQ;
 	TfwHttpReq *req = (TfwHttpReq *)msg;
-	TfwHttpParser *parser = &msg->conn->parser;
+	TfwHttpParser *parser = &msg->stream->parser;
 
 	if (!(req->cond.flags & TFW_HTTP_COND_IF_MSINCE))
 		r = __parse_http_date(msg, data, len);
@@ -2911,10 +2911,10 @@ __parser_init(TfwHttpParser *parser)
 void
 tfw_http_init_parser_req(TfwHttpReq *req)
 {
-	TfwHttpHbhHdrs *hbh_hdrs = &req->conn->parser.hbh_parser;
+	TfwHttpHbhHdrs *hbh_hdrs = &req->stream->parser.hbh_parser;
 
-	__parser_init(&req->conn->parser);
-	req->conn->parser.state = NULL;
+	__parser_init(&req->stream->parser);
+	req->stream->parser.state = NULL;
 
 	/*
 	 * Expected hop-by-hop headers:
@@ -4023,6 +4023,36 @@ Req_Method_1CharStep: __attribute__((cold))
 }
 STACK_FRAME_NON_STANDARD(tfw_http_parse_req);
 
+int
+tfw_h2_parse_req(void *req_data, unsigned char *data, size_t len,
+		 unsigned int *parsed)
+{
+	int r = TFW_POSTPONE;
+	TfwHttpReq *req = (TfwHttpReq *)req_data;
+
+	/*
+	 * TODO #309: implement parsing of HTTP/2 frame's payload:
+	 * HEADERS/CONTINUATION (through HPACK at first) and DATA.
+	 */
+
+	/*
+	 * Parsing of HTTP/2 frames' payload never gives TFW_PASS result since
+	 * request can be assembled from different number of frames; only
+	 * stream's state can indicate the moment when request is completed.
+	 * Note, due to persistent linkage Stream<->Request in HTTP/2 mode
+	 * special flag is necessary for tracking the request completeness; if
+	 * the request is not fully assembled and is not passed to forwarding
+	 * procedures yet, it must be deleted during corresponding stream
+	 * removal.
+	 */
+	if (tfw_h2_stream_req_complete(req->stream)) {
+		__set_bit(TFW_HTTP_B_FULLY_PARSED, req->flags);
+		r = TFW_PASS;
+	}
+
+	return r;
+}
+
 /*
  * ------------------------------------------------------------------------
  *	HTTP response parsing
@@ -4230,7 +4260,7 @@ __resp_parse_expires(TfwHttpMsg *msg, unsigned char *data, size_t len)
 {
 	int r;
 	TfwHttpResp *resp = (TfwHttpResp *)msg;
-	TfwHttpParser *parser = &msg->conn->parser;
+	TfwHttpParser *parser = &msg->stream->parser;
 
 	/*
 	 * A duplicate invalidates the header's value.
@@ -4264,7 +4294,7 @@ __resp_parse_date(TfwHttpMsg *msg, unsigned char *data, size_t len)
 {
 	int r = CSTR_NEQ;
 	TfwHttpResp *resp = (TfwHttpResp *)msg;
-	TfwHttpParser *parser = &msg->conn->parser;
+	TfwHttpParser *parser = &msg->stream->parser;
 
 	if (!test_bit(TFW_HTTP_B_HDR_DATE, resp->flags))
 		r = __parse_http_date(msg, data, len);
@@ -4293,7 +4323,7 @@ __resp_parse_if_modified(TfwHttpMsg *msg, unsigned char *data, size_t len)
 {
 	int r = CSTR_NEQ;
 	TfwHttpResp *resp = (TfwHttpResp *)msg;
-	TfwHttpParser *parser = &msg->conn->parser;
+	TfwHttpParser *parser = &msg->stream->parser;
 
 	if (!test_bit(TFW_HTTP_B_HDR_LMODIFIED, resp->flags))
 		r = __parse_http_date(msg, data, len);
@@ -4371,9 +4401,9 @@ tfw_http_parse_terminate(TfwHttpMsg *hm)
 void
 tfw_http_init_parser_resp(TfwHttpResp *resp)
 {
-	TfwHttpHbhHdrs *hbh_hdrs = &resp->conn->parser.hbh_parser;
+	TfwHttpHbhHdrs *hbh_hdrs = &resp->stream->parser.hbh_parser;
 
-	__parser_init(&resp->conn->parser);
+	__parser_init(&resp->stream->parser);
 
 	/*
 	 * Expected hop-by-hop headers:

@@ -78,7 +78,7 @@ tfw_connection_drop(TfwConn *conn)
 {
 	/* Ask higher levels to free resources at connection close. */
 	TFW_CONN_HOOK_CALL(conn, conn_drop);
-	BUG_ON(conn->msg);
+	BUG_ON(conn->stream.msg);
 }
 
 /*
