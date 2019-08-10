@@ -903,7 +903,7 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 	T_FSM_INIT(Frang_Req_0, "frang");
 
 	BUG_ON(!ra);
-	BUG_ON(req != container_of(conn->msg, TfwHttpReq, msg));
+	BUG_ON(req != container_of(req->stream->msg, TfwHttpReq, msg));
 	frang_dbg("check request for client %s, acc=%p\n",
 		  &FRANG_ACC2CLI(ra)->addr, ra);
 
