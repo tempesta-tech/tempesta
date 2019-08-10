@@ -26,14 +26,22 @@
 #include "procfs.h"
 #include "http_frame.h"
 #include "tls.h"
+#include "vhost.h"
 
+/**
+ * Global level TLS configuration.
+ *
+ * @cfg			- common tls configuration for all vhosts;
+ * @allow_any_sni	- If set, all the unknown SNI are matched to default
+ *			  vhost.
+ */
 static struct {
-	ttls_config	cfg;
-	ttls_x509_crt	crt;
-	ttls_pk_context	key;
-	unsigned long	crt_pg_addr;
-	unsigned int	crt_pg_order;
+	TlsCfg		cfg;
+	bool		allow_any_sni;
 } tfw_tls;
+
+/* Temporal value for reconfiguration stage. */
+static bool allow_any_sni_reconfig;
 
 /**
  * Chop skb list with begin at @skb by TLS extra data at the begin and end of
@@ -86,8 +94,8 @@ tfw_tls_msg_process(void *conn, TfwFsmData *data)
 	 * in-place by chunks. Add skb to the list to build scatterlist if
 	 * it contains end of current message.
 	 */
-	spin_lock(&tls->lock);
 next_msg:
+	spin_lock(&tls->lock);
 	ss_skb_queue_tail(&tls->io_in.skb_list, skb);
 	/*
 	 * Store skb_list since ttls_recv() reinitializes IO context for each
@@ -108,7 +116,7 @@ next_msg:
 		return r;
 	case T_POSTPONE:
 		/*
-		 * No data to pass to upper protolos, could be a handshake
+		 * No data to pass to upper protocols, could be a handshake
 		 * message spread over several skbs and/or incomplete TLS
 		 * record. Typically, handshake messages fit the same skb and
 		 * all the messages are processed in one ss_skb_process() call.
@@ -154,11 +162,13 @@ next_msg:
 	}
 
 	/* At this point tls->io_in is initialized for the next record. */
-	if ((r = tfw_tls_chop_skb_rec(tls, msg_skb, &data_up)))
-		goto out_err;
+	if ((r = tfw_tls_chop_skb_rec(tls, msg_skb, &data_up))) {
+		spin_unlock(&tls->lock);
+		return r;
+	}
+	spin_unlock(&tls->lock);
 	r = tfw_gfsm_move(&c->state, TFW_TLS_FSM_DATA_READY, &data_up);
 	if (r == TFW_BLOCK) {
-		spin_unlock(&tls->lock);
 		kfree_skb(nskb);
 		return r;
 	}
@@ -169,9 +179,6 @@ next_msg:
 		parsed = 0;
 		goto next_msg;
 	}
-
-out_err:
-	spin_unlock(&tls->lock);
 
 	return r;
 }
@@ -224,23 +231,34 @@ int
 tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 {
 	/*
-	 * TODO #1103 currently even trivail 500-bytes HTTP message generates
+	 * TODO #1103 currently even trivial 500-bytes HTTP message generates
 	 * 6 segment skb. After the fix the number probably should be decreased.
 	 */
 #define AUTO_SEGS_N	8
 
 	int r = -ENOMEM;
-	unsigned int head_sz, tag_sz, len, frags, t_sz;
+	unsigned int head_sz, tag_sz, len, frags, t_sz, out_frags;
 	unsigned char type;
 	struct sk_buff *next = skb, *skb_tail = skb;
 	struct tcp_skb_cb *tcb = TCP_SKB_CB(skb);
-	TlsCtx *tls = tfw_tls_context(sk->sk_user_data);
-	TlsIOCtx *io = &tls->io_out;
-	TlsXfrm *xfrm = &tls->xfrm;
+	TlsCtx *tls;
+	TlsIOCtx *io;
+	TlsXfrm *xfrm;
 	struct sg_table sgt = {
 		.nents = skb_shinfo(skb)->nr_frags + !!skb_headlen(skb),
+	}, out_sgt = {
+		.nents = skb_shinfo(skb)->nr_frags + !!skb_headlen(skb),
 	};
-	struct scatterlist sg[AUTO_SEGS_N];
+	struct scatterlist sg[AUTO_SEGS_N], out_sg[AUTO_SEGS_N];
+	struct page **pages = NULL, **pages_end, **p;
+	struct page *auto_pages[AUTO_SEGS_N];
+
+	if (unlikely(sk->sk_user_data == NULL))
+		return -EINVAL;
+
+	tls = tfw_tls_context(sk->sk_user_data);
+	io = &tls->io_out;
+	xfrm = &tls->xfrm;
 
 	T_DBG3("%s: sk=%pK(snd_una=%u snd_nxt=%u limit=%u)"
 	       " skb=%pK(len=%u data_len=%u type=%u frags=%u headlen=%u"
@@ -269,13 +287,12 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	/* Try to aggregate several skbs into one TLS record. */
 	while (!tcp_skb_is_last(sk, skb_tail)) {
 		next = tcp_write_queue_next(sk, skb_tail);
-		tcb = TCP_SKB_CB(next);
 
 		T_DBG3("next skb (%pK) in write queue: len=%u frags=%u/%u"
 		       " type=%u seq=%u:%u\n",
 		       next, next->len, skb_shinfo(next)->nr_frags,
 		       !!skb_headlen(next), tempesta_tls_skb_type(next),
-		       tcb->seq, tcb->end_seq);
+		       TCP_SKB_CB(next)->seq, TCP_SKB_CB(next)->end_seq);
 
 		if (len + next->len > limit)
 			break;
@@ -283,12 +300,15 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		if (type != tempesta_tls_skb_type(next))
 			break;
 
-		/* @next has original seqnos, so advance both of them. */
-		tcb->seq += head_sz;
-		tcb->end_seq += head_sz;
+		/*
+		 * skb at @next may lag behind in sequence numbers. Recalculate
+		 * them from the previous skb which happens to be @skb_tail.
+		 */
+		tfw_tls_tcp_propagate_dseq(sk, skb_tail);
 
 		len += next->len;
 		sgt.nents += skb_shinfo(next)->nr_frags + !!skb_headlen(next);
+		out_sgt.nents += skb_shinfo(next)->nr_frags + !!skb_headlen(next);
 		skb_tail = next;
 	}
 
@@ -309,6 +329,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		if (r < 0)
 			goto out;
 		sgt.nents += r;
+		out_sgt.nents += r;
 
 		r = ss_skb_expand_head_tail(skb_tail->next, skb_tail, 0,
 					    tag_sz);
@@ -316,6 +337,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 			goto out;
 	}
 	sgt.nents += r;
+	out_sgt.nents += r;
 
 	/*
 	 * The last skb in our list will bring TLS tag - add it to end_seqno.
@@ -329,7 +351,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		TCP_SKB_CB(skb_tail)->end_seq += tag_sz;
 
 		/* A new frag is added to the end of the current skb. */
-		WARN_ON_ONCE(t_sz >= skb_tail->truesize);
+		WARN_ON_ONCE(t_sz > skb_tail->truesize);
 		t_sz = skb_tail->truesize - t_sz;
 	}
 	else {
@@ -367,22 +389,33 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	 * So to adjust the socket write memory we have to check the both skbs
 	 * and only for tag_sz.
 	 */
-	WARN_ON_ONCE(t_sz < tag_sz);
 	tfw_tls_tcp_add_overhead(sk, t_sz);
 
 	if (likely(sgt.nents <= AUTO_SEGS_N)) {
 		sgt.sgl = sg;
+		out_sgt.sgl = out_sg;
+		pages = pages_end = auto_pages;
 	} else {
-		sgt.sgl = kmalloc(sizeof(struct scatterlist) * sgt.nents,
-				  GFP_ATOMIC);
+		char *ptr = kmalloc(sizeof(struct scatterlist) * sgt.nents +
+			            sizeof(struct scatterlist) * out_sgt.nents +
+			            sizeof(struct page *) * out_sgt.nents,
+				    GFP_ATOMIC);
+		sgt.sgl = (struct scatterlist *)ptr;
 		if (!sgt.sgl) {
-			T_WARN("cannot alloc TLS encryption scatter list.\n");
+			T_WARN("cannot alloc memory for TLS encryption.\n");
 			return -ENOMEM;
 		}
+
+		ptr += sizeof(struct scatterlist) * sgt.nents;
+		out_sgt.sgl = (struct scatterlist *)ptr;
+
+		ptr += sizeof(struct scatterlist) * out_sgt.nents;
+		pages = pages_end = (struct page **)ptr;
 	}
 	sg_init_table(sgt.sgl, sgt.nents);
+	sg_init_table(out_sgt.sgl, out_sgt.nents);
 
-	for (next = skb, frags = 0; ; ) {
+	for (next = skb, frags = 0, out_frags = 0; ; ) {
 		/*
 		 * skb data and tails are already adjusted above,
 		 * so use zero offset and skb->len.
@@ -398,6 +431,14 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 		if (r <= 0)
 			goto out;
 		frags += r;
+
+		r = ss_skb_to_sgvec_with_new_pages(next,
+		                                   out_sgt.sgl + out_frags,
+		                                   &pages_end);
+		if (r <= 0)
+			goto out;
+		out_frags += r;
+
 		tempesta_tls_skb_clear(next);
 		if (next == skb_tail)
 			break;
@@ -405,6 +446,7 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 			break;
 		next = tcp_write_queue_next(sk, next);
 		sg_unmark_end(&sgt.sgl[frags - 1]);
+		sg_unmark_end(&out_sgt.sgl[out_frags - 1]);
 	}
 	WARN_ON_ONCE(sgt.nents != frags);
 
@@ -413,10 +455,13 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	/* Set IO context under the lock before encryption. */
 	io->msglen = len - TLS_HEADER_SIZE;
 	io->msgtype = type;
-	if (!(r = ttls_encrypt(tls, &sgt)))
+	if (!(r = ttls_encrypt(tls, &sgt, &out_sgt)))
 		ttls_aad2hdriv(xfrm, skb->data);
 
 	spin_unlock(&tls->lock);
+
+	for (p = pages; p < pages_end; ++p)
+		put_page(*p);
 
 out:
 	if (unlikely(sgt.nents > AUTO_SEGS_N))
@@ -509,6 +554,10 @@ tfw_tls_conn_dtor(void *c)
 	}
 
 	tfw_h2_context_clear(h2);
+	if (tls && tls->peer_conf) {
+		tfw_vhost_put(tfw_vhost_from_tls_conf(tls->peer_conf));
+		tls->peer_conf = NULL;
+	}
 	ttls_ctx_clear(tls);
 	tfw_cli_conn_release((TfwCliConn *)c);
 }
@@ -519,6 +568,8 @@ tfw_tls_conn_init(TfwConn *c)
 	int r;
 	TlsCtx *tls = tfw_tls_context(c);
 	TfwH2Ctx *h2 = tfw_h2_context(c);
+
+	T_DBG2("%s: conn=[%p]\n", __func__, c);
 
 	if ((r = ttls_ctx_init(tls, &tfw_tls.cfg))) {
 		TFW_ERR("TLS (%pK) setup failed (%x)\n", tls, -r);
@@ -550,14 +601,14 @@ tfw_tls_conn_close(TfwConn *c, bool sync)
 	/*
 	 * ttls_close_notify() calls ss_send() with SS_F_CONN_CLOSE flag, so
 	 * if the call succeeded, then we'll close the socket with the alert
-	 * transmission. Otherwise if we have to close the socket synchronously
+	 * transmission. Otherwise if we have to close the socket
 	 * and can not write to the socket, then there is no other way than
 	 * skip the alert and just close the socket.
 	 */
-	if (r && sync) {
+	if (r) {
 		TFW_WARN_ADDR("Close TCP socket w/o sending alert to the peer",
 			      &c->peer->addr, TFW_WITH_PORT);
-		r = ss_close(c->sk, SS_F_SYNC);
+		r = ss_close(c->sk, sync ? SS_F_SYNC : 0);
 	}
 
 	return r;
@@ -618,6 +669,93 @@ static TfwConnHooks tls_conn_hooks = {
 	.conn_send	= tfw_tls_conn_send,
 };
 
+static const TlsPeerCfg	*
+tfw_tls_get_if_configured(TfwVhost *vhost)
+{
+	const TlsPeerCfg *cfg;
+
+	if (unlikely(!vhost))
+		return false;
+
+	cfg = &vhost->tls_cfg;
+	if (likely(cfg->key_cert))
+		return cfg;
+
+	if (!vhost->vhost_dflt) {
+		tfw_vhost_put(vhost);
+		return NULL;
+	}
+
+	cfg = &vhost->vhost_dflt->tls_cfg;
+	if (!cfg->key_cert) {
+		tfw_vhost_put(vhost);
+		return NULL;
+	}
+
+	tfw_vhost_get(vhost->vhost_dflt);
+	tfw_vhost_put(vhost);
+
+	return cfg;
+}
+
+#define SNI_WARN(fmt, ...)						\
+	TFW_WITH_ADDR_FMT(&cli_conn->peer->addr, TFW_NO_PORT, addr_str,	\
+			  T_WARN("TLS: sni ext: client %s requested "fmt, \
+				 addr_str, __VA_ARGS__))
+
+/**
+ * Find matching vhost according to server name in SNI extension. The function
+ * is also called if there is no SNI extension and fallback to some default
+ * configuration is required. In the latter case @data is NULL and @len is 0.
+ */
+static int
+tfw_tls_sni(void *p_sni, TlsCtx *ctx, const unsigned char *data, size_t len)
+{
+	const TfwStr srv_name = {.data = (unsigned char *)data, .len = len};
+	TfwVhost *vhost = NULL;
+	const TlsPeerCfg *peer_cfg;
+	TfwCliConn *cli_conn = &container_of(ctx, TfwTlsConn, tls)->cli_conn;
+
+	T_DBG2("%s: server name '%.*s'\n",  __func__, (int)len, data);
+
+	if (WARN_ON_ONCE(ctx->peer_conf))
+		return -TTLS_ERR_BAD_HS_CLIENT_HELLO;
+
+	if (data && len) {
+		vhost = tfw_vhost_lookup(&srv_name);
+		if (unlikely(vhost && !vhost->vhost_dflt)) {
+			SNI_WARN(" '%s' vhost by name, reject connection.\n",
+				 TFW_VH_DFT_NAME);
+			tfw_vhost_put(vhost);
+			return -TTLS_ERR_BAD_HS_CLIENT_HELLO;
+		}
+		if (unlikely(!vhost && !tfw_tls.allow_any_sni)) {
+			SNI_WARN(" unknown server name '%.*s', reject connection.\n",
+				 (int)len, data);
+			return -TTLS_ERR_BAD_HS_CLIENT_HELLO;
+		}
+	}
+	/*
+	 * If accurate vhost is not found or client doesn't send sni extension,
+	 * map the connection to default vhost.
+	 */
+	if (!vhost)
+		vhost = tfw_vhost_lookup_default();
+	if (unlikely(!vhost))
+		return -TTLS_ERR_CERTIFICATE_REQUIRED;
+
+	peer_cfg = tfw_tls_get_if_configured(vhost);
+	ctx->peer_conf = peer_cfg;
+	if (DBG_TLS && peer_cfg) {
+		vhost = tfw_vhost_from_tls_conf(ctx->peer_conf);
+		T_DBG("%s: for server name '%.*s' vhost '%.*s' is chosen\n",
+		      __func__, PR_TFW_STR(&srv_name),
+		      PR_TFW_STR(&vhost->name));
+	}
+
+	return peer_cfg ? 0 : -TTLS_ERR_CERTIFICATE_REQUIRED;
+}
+
 /*
  * ------------------------------------------------------------------------
  *	TLS library configuration
@@ -635,11 +773,7 @@ tfw_tls_do_init(void)
 		TFW_ERR_NL("TLS: can't set config defaults (%x)\n", -r);
 		return -EINVAL;
 	}
-
-	/*
-	 * TODO #715 set SNI callback with ttls_conf_sni() to get per-vhost
-	 * certificates.
-	 */
+	ttls_conf_sni(&tfw_tls.cfg, tfw_tls_sni, NULL);
 
 	return 0;
 }
@@ -647,8 +781,6 @@ tfw_tls_do_init(void)
 static void
 tfw_tls_do_cleanup(void)
 {
-	ttls_x509_crt_free(&tfw_tls.crt);
-	ttls_pk_free(&tfw_tls.key);
 	ttls_config_free(&tfw_tls.cfg);
 }
 
@@ -658,11 +790,10 @@ tfw_tls_do_cleanup(void)
  * ------------------------------------------------------------------------
  */
 /* TLS configuration state. */
-#define TFW_TLS_CFG_F_DISABLED	0U
-#define TFW_TLS_CFG_F_REQUIRED	1U
-#define TFW_TLS_CFG_F_CERT	2U
-#define TFW_TLS_CFG_F_CKEY	4U
-#define TFW_TLS_CFG_M_ALL	(TFW_TLS_CFG_F_CERT | TFW_TLS_CFG_F_CKEY)
+#define TFW_TLS_CFG_F_DISABLED		0U
+#define TFW_TLS_CFG_F_REQUIRED		1U
+#define TFW_TLS_CFG_F_CERTS		2U
+#define TFW_TLS_CFG_F_CERTS_GLOBAL	4U
 
 static unsigned int tfw_tls_cgf = TFW_TLS_CFG_F_DISABLED;
 
@@ -670,6 +801,20 @@ void
 tfw_tls_cfg_require(void)
 {
 	tfw_tls_cgf |= TFW_TLS_CFG_F_REQUIRED;
+}
+
+void
+tfw_tls_cfg_configured(bool global)
+{
+	tfw_tls_cgf |= TFW_TLS_CFG_F_CERTS;
+	if (global)
+		tfw_tls_cgf |= TFW_TLS_CFG_F_CERTS_GLOBAL;
+}
+
+void
+tfw_tls_match_any_sni_to_dflt(bool match)
+{
+	allow_any_sni_reconfig = match;
 }
 
 int
@@ -717,125 +862,11 @@ tfw_tls_free_alpn_protos(void)
 }
 
 static int
-tfw_tls_start(void)
+tfw_tls_cfgstart(void)
 {
-	int r;
-
-	if (tfw_runstate_is_reconfig())
-		return 0;
-
-	ttls_conf_ca_chain(&tfw_tls.cfg, tfw_tls.crt.next, NULL);
-	r = ttls_conf_own_cert(&tfw_tls.cfg, &tfw_tls.crt, &tfw_tls.key);
-	if (r) {
-		TFW_ERR_NL("TLS: can't set own certificate (%x)\n", -r);
-		return -EINVAL;
-	}
+	allow_any_sni_reconfig = false;
 
 	return 0;
-}
-
-/**
- * Handle 'tls_certificate <path>' config entry.
- */
-static int
-tfw_cfgop_tls_certificate(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int r;
-	void *crt_data;
-	size_t crt_size;
-
-	ttls_x509_crt_init(&tfw_tls.crt);
-
-	if (ce->attr_n) {
-		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
-			   cs->name);
-		return -EINVAL;
-	}
-	if (ce->val_n != 1) {
-		TFW_ERR_NL("%s: Invalid number of arguments: %d\n",
-			   cs->name, (int)ce->val_n);
-		return -EINVAL;
-	}
-
-	crt_data = tfw_cfg_read_file((const char *)ce->vals[0], &crt_size);
-	if (!crt_data) {
-		TFW_ERR_NL("%s: Can't read certificate file '%s'\n",
-			   ce->name, (const char *)ce->vals[0]);
-		return -EINVAL;
-	}
-
-	r = ttls_x509_crt_parse(&tfw_tls.crt, (unsigned char *)crt_data,
-				crt_size);
-	if (r) {
-		TFW_ERR_NL("%s: Invalid certificate specified (%x)\n",
-			   cs->name, -r);
-		free_pages((unsigned long)crt_data, get_order(crt_size));
-		return -EINVAL;
-	}
-	tfw_tls.crt_pg_addr = (unsigned long)crt_data;
-	tfw_tls.crt_pg_order = get_order(crt_size);
-	tfw_tls_cgf |= TFW_TLS_CFG_F_CERT;
-
-	return 0;
-}
-
-static void
-tfw_cfgop_cleanup_tls_certificate(TfwCfgSpec *cs)
-{
-	ttls_x509_crt_free(&tfw_tls.crt);
-	free_pages(tfw_tls.crt_pg_addr, tfw_tls.crt_pg_order);
-	tfw_tls_cgf &= ~TFW_TLS_CFG_F_CERT;
-}
-
-/**
- * Handle 'tls_certificate_key <path>' config entry.
- */
-static int
-tfw_cfgop_tls_certificate_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int r;
-	void *key_data;
-	size_t key_size;
-
-	ttls_pk_init(&tfw_tls.key);
-
-	if (ce->attr_n) {
-		TFW_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
-			   cs->name);
-		return -EINVAL;
-	}
-	if (ce->val_n != 1) {
-		TFW_ERR_NL("%s: Invalid number of arguments: %d\n",
-			   cs->name, (int)ce->val_n);
-		return -EINVAL;
-	}
-
-	key_data = tfw_cfg_read_file((const char *)ce->vals[0], &key_size);
-	if (!key_data) {
-		TFW_ERR_NL("%s: Can't read certificate file '%s'\n",
-			   ce->name, (const char *)ce->vals[0]);
-		return -EINVAL;
-	}
-
-	r = ttls_pk_parse_key(&tfw_tls.key, (unsigned char *)key_data,
-			      key_size);
-	/* The key is copied, so free the paged data. */
-	free_pages((unsigned long)key_data, get_order(key_size));
-	if (r) {
-		TFW_ERR_NL("%s: Invalid private key specified (%x)\n",
-			   cs->name, -r);
-		return -EINVAL;
-	}
-	tfw_tls_cgf |= TFW_TLS_CFG_F_CKEY;
-
-	return 0;
-}
-
-static void
-tfw_cfgop_cleanup_tls_certificate_key(TfwCfgSpec *cs)
-{
-	ttls_pk_free(&tfw_tls.key);
-	tfw_tls_cgf &= ~TFW_TLS_CFG_F_CKEY;
 }
 
 static int
@@ -843,49 +874,45 @@ tfw_tls_cfgend(void)
 {
 	if (!(tfw_tls_cgf & TFW_TLS_CFG_F_REQUIRED)) {
 		if (tfw_tls_cgf)
-			TFW_WARN_NL("TLS: no HTTPS listener,"
-				    " configuration ignored\n");
+			TFW_WARN_NL("TLS: no HTTPS listener set, configuration "
+				    "is ignored.\n");
 		return 0;
 	}
-	if (!(tfw_tls_cgf & TFW_TLS_CFG_F_CERT)) {
-		TFW_ERR_NL("TLS: please specify a certificate with"
-			   " tls_certificate configuration option\n");
+	else if (!(tfw_tls_cgf & TFW_TLS_CFG_F_CERTS)) {
+		TFW_ERR_NL("TLS: HTTPS listener set but no TLS certificates "
+			    "provided. At least one vhost must have TLS "
+			   "certificates configured.\n");
 		return -EINVAL;
 	}
-	if (!(tfw_tls_cgf & TFW_TLS_CFG_F_CKEY)) {
-		TFW_ERR_NL("TLS: please specify a certificate key with"
-			   " tls_certificate_key configuration option\n");
-		return -EINVAL;
+
+	if (!(tfw_tls_cgf & TFW_TLS_CFG_F_CERTS_GLOBAL)) {
+		TFW_WARN_NL("TLS: no global TLS certificates provided. "
+			    "Client TLS connections with unknown "
+			    "server name values or with no server name "
+			    "specified will be dropped.\n");
 	}
 
 	return 0;
 }
 
+static int
+tfw_tls_start(void)
+{
+	tfw_tls.allow_any_sni = allow_any_sni_reconfig;
+
+	return 0;
+}
+
 static TfwCfgSpec tfw_tls_specs[] = {
-	{
-		.name = "tls_certificate",
-		.deflt = NULL,
-		.handler = tfw_cfgop_tls_certificate,
-		.allow_none = true,
-		.allow_repeat = false,
-		.cleanup = tfw_cfgop_cleanup_tls_certificate,
-	},
-	{
-		.name = "tls_certificate_key",
-		.deflt = NULL,
-		.handler = tfw_cfgop_tls_certificate_key,
-		.allow_none = true,
-		.allow_repeat = false,
-		.cleanup = tfw_cfgop_cleanup_tls_certificate_key,
-	},
 	{ 0 }
 };
 
 TfwMod tfw_tls_mod = {
-	.name	= "tls",
-	.cfgend = tfw_tls_cfgend,
-	.start	= tfw_tls_start,
-	.specs	= tfw_tls_specs,
+	.name		= "tls",
+	.cfgend		= tfw_tls_cfgend,
+	.cfgstart	= tfw_tls_cfgstart,
+	.start		= tfw_tls_start,
+	.specs		= tfw_tls_specs,
 };
 
 /*

@@ -321,6 +321,7 @@ __extend_pgfrags(struct sk_buff *skb_head, struct sk_buff *skb, int from, int n)
 			nskb = ss_skb_alloc(0);
 			if (nskb == NULL)
 				return -ENOMEM;
+			skb_shinfo(nskb)->tx_flags = skb_shinfo(skb)->tx_flags;
 			__skb_insert_after(skb, nskb);
 			skb_shinfo(nskb)->nr_frags = n_excess;
 		}
@@ -1067,6 +1068,7 @@ ss_skb_process(struct sk_buff *skb, unsigned int off, unsigned int trail,
 			n = frag_size - off;
 			if (trail > frag_len)
 				n -= trail - frag_len;
+			_processed = 0;
 			r = actor(objdata, frag_addr + off, n, &_processed);
 			*processed += _processed;
 			if (r != SS_POSTPONE || trail >= frag_len)
@@ -1217,6 +1219,7 @@ __coalesce_frag(struct sk_buff **skb_head, skb_frag_t *frag,
 		skb = ss_skb_alloc(0);
 		if (!skb)
 			return -ENOMEM;
+		skb_shinfo(skb)->tx_flags = skb_shinfo(orig_skb)->tx_flags;
 		ss_skb_queue_tail(skb_head, skb);
 		skb->mark = orig_skb->mark;
 	}
@@ -1396,3 +1399,63 @@ ss_skb_dump(struct sk_buff *skb)
 		ss_skb_dump(f_skb);
 }
 EXPORT_SYMBOL(ss_skb_dump);
+
+/*
+ * Replace the skb fragments with new pages and add them to the scatter list.
+ */
+int
+ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
+                               struct page ***old_pages)
+{
+	unsigned int head_data_len = skb_headlen(skb);
+	unsigned int out_frags = 0;
+	int remain = 0, offset = 0;
+	int i;
+
+	/* TODO: process of SKBTX_ZEROCOPY_FRAG for MSG_ZEROCOPY */
+	if (skb_shinfo(skb)->tx_flags & SKBTX_SHARED_FRAG) {
+		if (head_data_len) {
+			sg_set_buf(sgl + out_frags, skb->data, head_data_len);
+			out_frags++;
+		}
+
+		for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
+			skb_frag_t *f = &skb_shinfo(skb)->frags[i];
+			unsigned int size;
+			struct page *p;
+
+			size = skb_frag_size(f);
+			if (remain < size) {
+				int order = get_order(size);
+				p = alloc_pages(GFP_ATOMIC, order);
+				if (!p)
+					return -ENOMEM;
+				remain = (1 << order) * PAGE_SIZE;
+				offset = 0;
+			} else {
+				skb_frag_t *prev_f;
+
+				prev_f = &skb_shinfo(skb)->frags[i - 1];
+				p = skb_frag_page(prev_f);
+				get_page(p);
+			}
+			**old_pages = skb_frag_page(f);
+			(*old_pages)++;
+			sg_set_page(sgl + out_frags, p, size, offset);
+			__skb_fill_page_desc(skb, i, p, offset, size);
+			remain -= size;
+			offset += size;
+			out_frags++;
+		}
+		if (out_frags > 0)
+			sg_mark_end(&sgl[out_frags - 1]);
+		skb_shinfo(skb)->tx_flags &= ~SKBTX_SHARED_FRAG;
+	} else {
+		int r = skb_to_sgvec(skb, sgl + out_frags, 0, skb->len);
+		if (r <= 0)
+			return r;
+		out_frags += r;
+	}
+
+	return out_frags;
+}

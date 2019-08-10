@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -31,6 +31,7 @@
 
 #include "sock_srv.c"
 #include "vhost.c"
+#include "tls_conf.c"
 #include "http_tbl.c"
 
 #include "cfg.h"

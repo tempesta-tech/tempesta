@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -39,6 +39,8 @@ enum {
 };
 
 void tfw_tls_cfg_require(void);
+void tfw_tls_cfg_configured(bool global);
+void tfw_tls_match_any_sni_to_dflt(bool match);
 int tfw_tls_cfg_alpn_protos(const char *cfg_str);
 void tfw_tls_free_alpn_protos(void);
 int tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit);

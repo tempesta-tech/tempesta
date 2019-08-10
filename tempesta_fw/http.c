@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -26,6 +26,7 @@
 #include "lib/hash.h"
 #include "lib/str.h"
 #include "cache.h"
+#include "hash.h"
 #include "http_limits.h"
 #include "http_tbl.h"
 #include "http_parser.h"
@@ -335,8 +336,6 @@ tfw_http_prep_date(char *buf)
 {
 	tfw_http_prep_date_from(buf, tfw_current_timestamp());
 }
-
-unsigned long tfw_hash_str(const TfwStr *str);
 
 #define S_REDIR_302	S_302 S_CRLF
 #define S_REDIR_503	S_503 S_CRLF
@@ -771,7 +770,7 @@ tfw_http_conn_nip_adjust(TfwSrvConn *srv_conn)
 
 /*
  * Tell if the server connection's forwarding queue is on hold.
- * It's on hold it the request that was sent last was non-idempotent.
+ * It's on hold if the request that was sent last was non-idempotent.
  */
 static inline bool
 tfw_http_conn_on_hold(TfwSrvConn *srv_conn)
@@ -2332,7 +2331,7 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 		TFW_ERR("can't add X-Forwarded-For header for %.*s to msg %p",
 			(int)(p - buf), buf, hm);
 	else
-		TFW_DBG2("added X-Forwarded-For header for %*s\n",
+		TFW_DBG2("added X-Forwarded-For header for %.*s\n",
 			 (int)(p - buf), buf);
 	return r;
 }
@@ -3401,6 +3400,8 @@ next_msg:
 		tfw_http_req_parse_drop(req, 400, "failed to parse request");
 		return TFW_BLOCK;
 	case TFW_POSTPONE:
+		if (tfw_http_chop_skb((TfwHttpMsg *)req, skb, off, curr_skb_trail))
+			return TFW_BLOCK;
 		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK,
 				  &data_up);
 		TFW_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
@@ -3471,9 +3472,6 @@ next_msg:
 	 * client may use just a few cookie variants. Even if different
 	 * sticky cookies are used for each vhost, the sticky module should
 	 * be faster than tfw_http_tbl_vhost().
-	 *
-	 * TODO: #1043 sticky cookie module must assign correct vhost when it
-	 * returns TFW_HTTP_SESS_SUCCESS or TFW_HTTP_SESS_REDIRECT_NEED;
 	 */
 	switch (tfw_http_sess_obtain(req))
 	{
@@ -3515,9 +3513,33 @@ next_msg:
 	 *
 	 * In the same time location may differ between requests, so the
 	 * sticky module can't fill it.
+	 *
+	 * TODO:
+	 * There are multiple ways to get target vhost:
+	 * - search in HTTP chains (defined in the configuration by admin),
+	 * very slow on big configurations;
+	 * - get vhost from the HTTP session information (by Sticky cookie);
+	 * - get Vhost according to TLS SNI header parsing.
+	 * But vhost returned from all that functions can be very different
+	 * depending on HTTP chain configuration due to its flexibility and
+	 * client (attacker) behaviour.
+	 * The most secure and slow way: compare all of them and reject if
+	 * at least some do not match. Can be too strict, service quality can
+	 * be degraded.
+	 * The fastest way: compute as minimum as possible: use TLS first
+	 * (anyway we use it to send right certificate), then cookie, then HTTP
+	 * chain. There can be possibility that a request will be forwarded to
+	 * a wrong server. May happen when a single certificate is used to
+	 * speak with multiple vhosts (multi-domain (SAN) certificate as
+	 * globally default TLS certificate in Tempesta config file).
+	 * The most reliable way: use the highest OSI level vhost: by HTTP
+	 * session, if no -> by http chain, if no -> by TLS conn.
+	 *
 	 */
-	if (!req->vhost)
+	if (!req->vhost) {
 		req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block);
+		tfw_http_sess_pin_vhost(req->sess, req->vhost);
+	}
 	if (req->vhost)
 		req->location = tfw_location_match(req->vhost,
 						   &req->uri_path);
@@ -4162,6 +4184,7 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 		.len = len,
 	};
 	LIST_HEAD(equeue);
+	bool block = false;
 
 	if (!(req = tfw_http_msg_alloc_req_light()))
 		return;
@@ -4173,6 +4196,28 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 
 	__set_bit(TFW_HTTP_B_HMONITOR, req->flags);
 	req->jrxtstamp = jiffies;
+
+	/*
+	 * Vhost and location store policies definitions that can be
+	 * required on various stages of request-response processing.
+	 * E.g. response to HM request still needs to be processed by frang,
+	 * and vhost keeps the frang configuration.
+	 *
+	 * The request is created using lightweight function, req->uri_path
+	 * is not set, thus default location is used.
+	 *
+	 * TBD: it's more natural to configure HM not in server group section,
+	 * but in vhost: instead of table lookups target vhost could be chosen
+	 * directly.
+	 */
+	req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block);
+	if (unlikely(!req->vhost || block)) {
+		TFW_WARN_ADDR("Unable to assign vhost for health monitoring "
+			      "request of backend server", &srv->addr,
+			      TFW_WITH_PORT);
+		goto cleanup;
+	}
+	req->location = req->vhost->loc_dflt;
 
 	srv_conn = srv->sg->sched->sched_srv_conn((TfwMsg *)req, srv);
 	if (!srv_conn) {

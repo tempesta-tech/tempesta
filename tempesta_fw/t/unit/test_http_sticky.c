@@ -377,8 +377,8 @@ http_sticky_suite_teardown(void)
 		INIT_LIST_HEAD(&mock.req->fwd_list);
 		INIT_LIST_HEAD(&mock.req->nip_list);
 		/* We have no server, so don't try to unpin a server session. */
-		if (mock.req->sess && mock.req->sess->st_conn.srv_conn)
-			mock.req->sess->st_conn.srv_conn = NULL;
+		if (mock.req->sess && mock.req->sess->srv_conn)
+			mock.req->sess->srv_conn = NULL;
 		tfw_http_msg_free((TfwHttpMsg *)mock.req);
 	}
 	if (mock.resp)

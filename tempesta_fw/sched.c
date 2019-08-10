@@ -60,7 +60,7 @@ tfw_sched_lookup(const char *name)
 int
 tfw_sched_register(TfwScheduler *sched)
 {
-	TFW_LOG("Registering new scheduler: %s\n", sched->name);
+	T_DBG("Registering new scheduler: %s\n", sched->name);
 	BUG_ON(!list_empty(&sched->list));
 	list_add_tail(&sched->list, &sched_list);
 
@@ -74,7 +74,7 @@ tfw_sched_register(TfwScheduler *sched)
 void
 tfw_sched_unregister(TfwScheduler *sched)
 {
-	TFW_LOG("Un-registering scheduler: %s\n", sched->name);
+	T_DBG("Un-registering scheduler: %s\n", sched->name);
 	BUG_ON(list_empty(&sched->list));
 	list_del_init(&sched->list);
 }

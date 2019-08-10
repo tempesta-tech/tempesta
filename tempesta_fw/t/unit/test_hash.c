@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -22,9 +22,8 @@
 #include <linux/bug.h>
 
 #include "str.h"
+#include "hash.h"
 #include "test.h"
-
-unsigned long tfw_hash_str(const TfwStr *str);
 
 /* NOTE: hashing is a probabilistic thing. Some tests may give false results. */
 

@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -108,6 +108,9 @@ extern void tfw_classifier_unregister(void);
  * ------------------------------------------------------------------------
  */
 
+/* We account users with FRANG_FREQ frequency per second. */
+#define FRANG_FREQ	8
+
 /**
  * Response code block setting
  *
@@ -121,45 +124,108 @@ typedef struct {
 	unsigned short	tf;
 } FrangHttpRespCodeBlock;
 
+/**
+ * Single allowed Content-Type value.
+ * @str			- pointer to allowed value;
+ * @len			- The pre-computed strlen(@str);
+ */
 typedef struct {
-	char   *str;
-	size_t len;	/* The pre-computed strlen(@str). */
+	char		*str;
+	size_t		len;
 } FrangCtVal;
 
-typedef struct frang_cfg_t FrangCfg;
+/**
+ * Variable-sized array of allowed Content-Type values. It's allocated by single
+ * memory piece to keep all the data as close as possible.
+ * @alloc_sz		- Full size of the structure;
+ * @vals		- Variable array of allowed values;
+ * @data		- Variable sized data area where @vals points to.
+ *
+ * Basically that will look like:
+ *   [@vals                                   ][@data               ]
+ *   [FrangCtVal, FrangCtVal, FrangCtVal, NULL][str1\0\str2\0\str3\0]
+ *           +         +         +              ^      ^      ^
+ *           |         |         |              |      |      |
+ *           +----------------------------------+      |      |
+ *                     |         |                     |      |
+ *                     +-------------------------------+      |
+ *                               |                            |
+ *                               +----------------------------+
+ */
+typedef struct {
+	size_t		alloc_sz;
+	FrangCtVal	*vals;
+	char		*data;
+} FrangCtVals;
 
-struct frang_cfg_t {
-	/* Limits (zero means unlimited). */
+/**
+ * Global Frang limits. As a request is received, it's not possible to determine
+ * its target vhost or/and location until all the headers are parsed. Thus some
+ * limits can't be redefined for vhost or location and can exist only as
+ * unique top-level limits.
+ *
+ * @clnt_hdr_timeout	- Maximum time to receive the full headers set,
+ *			  in jiffies;
+ * @clnt_body_timeout	- Maximum time to receive the full body, in jiffies;
+ * @req_rate		- Maximum requests per second over all the
+ *			  connections from the single client;
+ * @req_burst		- Allowed request rate burst;
+ * @conn_rate		- Maximum new connections per second from the same
+ *			  client;
+ * @conn_burst		- Allowed connection rate burst;
+ * @conn_max		- Maximum number of allowed concurrent connections;
+ * @http_hchunk_cnt	- Maximum number of chunks in header part;
+ * @http_bchunk_cnt	- Maximum number of chunks in body part;
+ * @ip_block		- Block clients by IP address if set, if not - just
+ *			  close the client connection.
+ *
+ * Zero value means unlimited value.
+ */
+struct frang_global_cfg_t {
+	unsigned long		clnt_hdr_timeout;
+	unsigned long		clnt_body_timeout;
 	unsigned int		req_rate;
 	unsigned int		req_burst;
 	unsigned int		conn_rate;
 	unsigned int		conn_burst;
 	unsigned int		conn_max;
 
-	/*
-	 * Limits on time it takes to receive
-	 * a full header or a body chunk.
-	 */
-	unsigned long		clnt_hdr_timeout;
-	unsigned long		clnt_body_timeout;
-
-	/* Limits for HTTP request contents: uri, headers, body, etc. */
-	unsigned int		http_uri_len;
-	unsigned int		http_field_len;
-	unsigned int		http_body_len;
 	unsigned int		http_hchunk_cnt;
 	unsigned int		http_bchunk_cnt;
-	unsigned int		http_hdr_cnt;
-	bool			http_ct_required;
-	bool			http_host_required;
 
 	bool			ip_block;
+};
 
-	/* The bitmask of allowed HTTP Method values. */
+/**
+ * Vhost and location specific Frang limits. As soon as full headers set is
+ * received, it's possible to determine target vhost and location. The structure
+ * contains full effective set of limits for chosen vhost and location.
+ *
+ * @http_methods_mask	- Allowed HTTP request methods;
+ * @http_uri_len	- Maximum allowed URI len;
+ * @http_field_len	- Maximum HTTP header length;
+ * @http_body_len	- Maximum body size;
+ * @http_hdr_cnt	- Maximum number of headers;
+ * @http_ct_vals	- Allowed 'Content-Type:' values;
+ * @http_ct_vals_sz	- Size of @http_ct_vals member;
+ * @http_resp_code_block - Response status codes and maximum number of each
+ *			   code before client connection is closed.
+ * @http_ct_required	- Header 'Content-Type:' is required;
+ * @http_host_required	- Header 'Host:' is required;
+ */
+struct frang_vhost_cfg_t {
 	unsigned long		http_methods_mask;
-	/* The list of allowed Content-Type values. */
-	FrangCtVal		*http_ct_vals;
+	unsigned long		http_body_len;
+	unsigned int		http_uri_len;
+	unsigned int		http_field_len;
+	unsigned int		http_hdr_cnt;
+
+	FrangCtVals		*http_ct_vals;
 	FrangHttpRespCodeBlock	*http_resp_code_block;
+
+	bool			http_ct_required;
+	bool			http_host_required;
+	bool			http_trailer_split;
 };
 
 #endif /* __HTTP_LIMITS__ */

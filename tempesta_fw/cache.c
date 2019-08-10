@@ -1548,6 +1548,18 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce)
 		goto free;
 
 	/*
+	 * Apply SKBTX_SHARED_FRAG flag to all skb's in the message so that
+	 * encryption routines know when it's unsafe to change data in-place.
+	 */
+	if (TFW_CONN_TLS(req->conn)) {
+		struct sk_buff *skb = it.skb_head;
+		do {
+			skb_shinfo(skb)->tx_flags |= SKBTX_SHARED_FRAG;
+			skb = skb->next;
+		} while (skb != it.skb_head);
+	}
+
+	/*
 	 * Allocate HTTP headers table of proper size.
 	 * There were no other allocations since the table is allocated,
 	 * so realloc() just grows the table and returns the same pointer.

@@ -73,9 +73,3 @@ next_chunk:
 
 	return (crc1 << 32) | crc0;
 }
-
-unsigned long
-tfw_hash_str(const TfwStr *str)
-{
-	return tfw_hash_str_len(str, ULONG_MAX);
-}

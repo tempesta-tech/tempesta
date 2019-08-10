@@ -29,16 +29,22 @@
 #include "ttls.h"
 
 static int
-ttls_check_scsv_fallback(TlsCtx *tls, unsigned short cipher_suite)
+ttls_check_scsvs(TlsCtx *tls, unsigned short cipher_suite)
 {
-	if (cipher_suite == TTLS_FALLBACK_SCSV_VALUE) {
+	switch (cipher_suite) {
+	case TTLS_FALLBACK_SCSV_VALUE:
 		T_DBG("received FALLBACK_SCSV\n");
 		if (tls->minor < tls->conf->max_minor_ver) {
-			T_DBG("inapropriate fallback\n");
+			T_DBG("inappropriate fallback\n");
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 					TTLS_ALERT_MSG_INAPROPRIATE_FALLBACK);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
+		break;
+	case TTLS_EMPTY_RENEGOTIATION_INFO:
+		T_DBG("received EMPTY_RENEGOTIATION_INFO_SCSV\n");
+		tls->hs->secure_renegotiation = 1;
+		break;
 	}
 	return 0;
 }
@@ -50,8 +56,14 @@ ttls_parse_servername_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 	size_t servername_list_size, hostname_len;
 	const unsigned char *p;
 
+	if (unlikely(len < 2)) {
+		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
+				TTLS_ALERT_MSG_DECODE_ERROR);
+		return TTLS_ERR_BAD_HS_CLIENT_HELLO;
+	}
+
 	servername_list_size = ((buf[0] << 8) | (buf[1]));
-	if (servername_list_size + 2 != len) {
+	if (unlikely(servername_list_size + 2 != len)) {
 		T_DBG("ClientHello: bad SNI list size\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				TTLS_ALERT_MSG_DECODE_ERROR);
@@ -62,12 +74,13 @@ ttls_parse_servername_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 	while (servername_list_size > 0) {
 		hostname_len = ((p[1] << 8) | p[2]);
 		if (hostname_len + 3 > servername_list_size) {
-			T_DBG("ClientHello: bad hostname size\n");
+			T_DBG("ClientHello: bad hostname size"
+			      " (%lu, expected not more than (%lu - 3))\n",
+			      hostname_len, servername_list_size);
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 					TTLS_ALERT_MSG_DECODE_ERROR);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
-
 		if (tls->conf->f_sni
 		    && p[0] == TTLS_TLS_EXT_SERVERNAME_HOSTNAME)
 		{
@@ -75,7 +88,7 @@ ttls_parse_servername_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 					     hostname_len);
 			if (!r)
 				return 0;
-			T_DBG("ClientHello: SNI error\n");
+			T_WARN("TLS: server requested by client is not known.\n");
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 					TTLS_ALERT_MSG_UNRECOGNIZED_NAME);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
@@ -115,8 +128,14 @@ ttls_parse_signature_algorithms_ext(TlsCtx *tls, const unsigned char *buf,
 	ttls_md_type_t md_cur;
 	ttls_pk_type_t sig_cur;
 
+	if (unlikely(len < 2)) {
+		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
+				TTLS_ALERT_MSG_DECODE_ERROR);
+		return TTLS_ERR_BAD_HS_CLIENT_HELLO;
+	}
+
 	sig_alg_list_size = (buf[0] << 8) | buf[1];
-	if (sig_alg_list_size + 2 != len || sig_alg_list_size % 2) {
+	if (unlikely(sig_alg_list_size + 2 != len || sig_alg_list_size % 2)) {
 		T_DBG("ClientHello: bad signature algorithm extension\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				TTLS_ALERT_MSG_DECODE_ERROR);
@@ -149,16 +168,7 @@ ttls_parse_signature_algorithms_ext(TlsCtx *tls, const unsigned char *buf,
 			continue;
 		}
 
-		if (!ttls_check_sig_hash(tls, md_cur)) {
-			ttls_sig_hash_set_add(&tls->hs->hash_algs, sig_cur,
-					      md_cur);
-			T_DBG("ClientHello: signature_algorithm ext:"
-			      " match sig %d and hash %d",
-			      sig_cur, md_cur);
-		} else {
-			T_DBG("ClientHello: signature_algorithm ext: "
-			      "hash alg %d not supported", md_cur);
-		}
+		ttls_sig_hash_set_add(&tls->hs->hash_algs, sig_cur, md_cur);
 	}
 
 	return 0;
@@ -172,8 +182,14 @@ ttls_parse_supported_elliptic_curves(TlsCtx *tls, const unsigned char *buf,
 	const unsigned char *p;
 	const ttls_ecp_curve_info *ci;
 
+	if (unlikely(len < 2)) {
+		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
+				TTLS_ALERT_MSG_DECODE_ERROR);
+		return TTLS_ERR_BAD_HS_CLIENT_HELLO;
+	}
+
 	list_size = (buf[0] << 8) | buf[1];
-	if (list_size + 2 != len || list_size % 2) {
+	if (unlikely(list_size + 2 != len || list_size % 2)) {
 		T_DBG("ClientHello: bad elliptic curves extension\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				TTLS_ALERT_MSG_DECODE_ERROR);
@@ -211,19 +227,18 @@ static int
 ttls_parse_supported_point_formats(TlsCtx *tls, const unsigned char *buf,
 				   size_t len)
 {
-	size_t list_size = buf[0];
-	const unsigned char *p = buf + 1;
+	size_t list_size;
+	const unsigned char *p;
 
-	tls->hs->cli_exts = 1;
-
-	if (list_size + 1 != len) {
+	if (unlikely(!len || buf[0] + 1 != len)) {
 		T_DBG("ClientHello: bad supported point formats extension\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				TTLS_ALERT_MSG_DECODE_ERROR);
 		return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 	}
 
-	while (list_size > 0) {
+	tls->hs->cli_exts = 1;
+	for (list_size = buf[0], p = buf + 1; list_size > 0; --list_size, ++p) {
 		if (p[0] == TTLS_ECP_PF_UNCOMPRESSED
 		    || p[0] == TTLS_ECP_PF_COMPRESSED)
 		{
@@ -231,8 +246,6 @@ ttls_parse_supported_point_formats(TlsCtx *tls, const unsigned char *buf,
 			T_DBG("ClientHello: point format selected: %d\n", p[0]);
 			return 0;
 		}
-		list_size--;
-		p++;
 	}
 
 	return 0;
@@ -325,14 +338,14 @@ ttls_parse_alpn_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 	 */
 
 	/* Min length is 2 (list_len) + 1 (name_len) + 1 (name) */
-	if (len < 4) {
+	if (unlikely(len < 4)) {
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				TTLS_ALERT_MSG_DECODE_ERROR);
 		return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 	}
 
 	list_len = (buf[0] << 8) | buf[1];
-	if (list_len != len - 2) {
+	if (unlikely(list_len != len - 2)) {
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				TTLS_ALERT_MSG_DECODE_ERROR);
 		return TTLS_ERR_BAD_HS_CLIENT_HELLO;
@@ -379,6 +392,26 @@ ttls_parse_alpn_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 }
 
 /**
+ * RFC 5746 3.6 we must check renegotiation_info and set secure_renegotiation
+ * flag for ServerHello extension.
+ */
+static int
+ttls_parse_renegotiation_info_ext(TlsCtx *tls, const unsigned char *buf,
+				  size_t len)
+{
+	if (len != 1 || buf[0] != 0x0) {
+		T_DBG("ClientHello: bad renegotiation_info extension\n");
+		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
+				TTLS_ALERT_MSG_DECODE_ERROR);
+		return TTLS_ERR_BAD_HS_CLIENT_HELLO;
+	}
+
+	tls->hs->secure_renegotiation = 1;
+
+	return 0;
+}
+
+/**
  * @return 0 if the given key uses one of the acceptable curves, -1 otherwise.
  */
 static int
@@ -403,14 +436,9 @@ ttls_check_key_curve(ttls_pk_context *pk, const ttls_ecp_curve_info **curves)
 static int
 ttls_pick_cert(TlsCtx *tls, const TlsCiphersuite *ci)
 {
-	ttls_key_cert *cur, *list;
+	ttls_key_cert *cur, *list = tls->peer_conf->key_cert;
 	ttls_pk_type_t pk_alg = ttls_get_ciphersuite_sig_pk_alg(ci);
 	uint32_t flags;
-
-	if (tls->hs->sni_key_cert)
-		list = tls->hs->sni_key_cert;
-	else
-		list = tls->conf->key_cert;
 
 	if (pk_alg == TTLS_PK_NONE)
 		return 0;
@@ -529,7 +557,7 @@ ttls_choose_ciphersuite(TlsCtx *tls, const unsigned char *csp)
 {
 	unsigned short ciph_len = ntohs(*(short *)csp);
 	int r, i, got_common_suite = 0;
-	const int *ciphersuites = tls->conf->ciphersuite_list[tls->minor];
+	const int *ciphersuites = tls->peer_conf->ciphersuite_list[tls->minor];
 	const TlsCiphersuite *ci = NULL;
 	const unsigned char *cs;
 
@@ -587,10 +615,6 @@ have_ciphersuite:
  * This function doesn't alert on errors that happen early during
  * ClientHello parsing because they might indicate that the client is
  * not talking SSL/TLS at all and would not understand our alert.
- *
- * We use legacy no renegotiation option: allow connections to be established
- * even if the peer does not support secure renegotiation, but does not allow
- * renegotiation to take place if not secure.
  */
 static int
 ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
@@ -739,15 +763,14 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		/* Get number of ciphersuite bytes from the client. */
 		n = ntohs(*(short *)&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ]);
 		BUG_ON(io->rlen >= 2);
-		/*
-		 * Skip the last low-priority cipher suites which we can not
-		 * store.
-		 */
+
 		if (2 + *csn + 2 > TTLS_HS_CS_MAX_SZ) {
-			/* Write number of stored cipher suite bytes. */
-			*(short *)&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ] = htons(*csn);
-			io->hslen -= n - *csn;
-			TTLS_HS_FSM_MOVE(TTLS_CH_HS_COMPN);
+			/*
+			 * Client declares too many cipher suites, we have no
+			 * room to store them all. Skipping them since the last
+			 * ones have low priority.
+			 */
+			TTLS_HS_FSM_MOVE(TTLS_CH_HS_CS_SKIP);
 		}
 		/* Read current cipher suite, just after the counter. */
 		if (unlikely(io->rlen)) {
@@ -766,13 +789,31 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		cs = ntohs(*(short *)&tls->hs->tmp[off + *csn]);
 		T_DBG3("ClientHello: cipher suite #%u: %#x\n",
 		       *csn / 2, cs);
-		if (ttls_check_scsv_fallback(tls, cs))
+		if (ttls_check_scsvs(tls, cs))
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		io->hslen -= 2;
 		*csn += 2;
 		if (*csn == n)
 			TTLS_HS_FSM_MOVE(TTLS_CH_HS_COMPN);
 		TTLS_HS_FSM_MOVE(TTLS_CH_HS_CS);
+	}
+
+	T_FSM_STATE(TTLS_CH_HS_CS_SKIP) {
+		unsigned short *csn = (unsigned short *)tls->hs->tmp;
+		unsigned short n, delta;
+
+		n = ntohs(*(short *)&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ]);
+		delta = min_t(int, buf + len - p, n - *csn);
+		io->hslen -= delta;
+		*csn += delta;
+		p += delta;
+		if (*csn == n) {
+			/* Clamp the ciphersuite list size to fit the storage */
+			*(unsigned short *)&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ] =
+				htons(TTLS_HS_CS_MAX_SZ - 2);
+			TTLS_HS_FSM_MOVE(TTLS_CH_HS_COMPN);
+		}
+		TTLS_HS_FSM_MOVE(TTLS_CH_HS_CS_SKIP);
 	}
 
 	/* Check the compression algorithms length. */
@@ -909,7 +950,10 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		}
 		/* Swap bytes to reuse them as a pointer to short later. */
 		*(short *)&tls->hs->tmp[4] = (short)n;
-		TTLS_HS_FSM_MOVE(TTLS_CH_HS_EX);
+		if (n)
+			TTLS_HS_FSM_MOVE(TTLS_CH_HS_EX);
+		else
+			T_FSM_JMP(TTLS_CH_HS_EX);
 	}
 
 	/* Parse an extension. */
@@ -980,6 +1024,11 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 			if (ttls_parse_alpn_ext(tls, tmp, ext_sz))
 				return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 			break;
+		case TTLS_TLS_EXT_RENEGOTIATION_INFO:
+			T_DBG("found renegotiation_info extension\n");
+			if (ttls_parse_renegotiation_info_ext(tls, tmp, ext_sz))
+				return TTLS_ERR_BAD_HS_CLIENT_HELLO;
+			break;
 		default:
 			T_DBG("unknown extension found: %d (ignoring)\n",
 			      ext_id);
@@ -1008,7 +1057,27 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		return r;
 	/* The message data is parsed, do final checks and setups. */
 
-	ttls_set_default_sig_hash(tls);
+	/*
+	 * Server side certificates are stored per vhost, so some vhost must be
+	 * determined at this stage. If no matching vhost found, no certificates
+	 * are available and no working tls configuration, close the connection.
+	 */
+	if (!tls->peer_conf) {
+		if (tls->conf->f_sni)
+			r = tls->conf->f_sni(tls->conf->p_sni, tls, NULL, 0);
+		if (!tls->conf->f_sni || r || !tls->peer_conf) {
+			T_WARN("TLS: server requested by client is not known.\n");
+			return -TTLS_ERR_BAD_HS_CLIENT_HELLO;
+		}
+	}
+	/*
+	 * Server TLS configuration is found, match it with client capabilities.
+	 */
+
+	/* Search for a matching signature hash functions. */
+	r = ttls_match_sig_hashes(tls);
+	if (r)
+		return r;
 
 	/*
 	 * Search for a matching ciphersuite. At the end because we need
@@ -1017,16 +1086,8 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 	 * preferences over the preference of the client.
 	 */
 	r = ttls_choose_ciphersuite(tls, &tls->hs->tmp[TTLS_HS_TMP_STORE_SZ]);
-	if (r) {
-		/*
-		 * If tls->xfrm.ciphersuite_info contains some valid pointer,
-		 * we'll try to free dhm_ctx or ecdh_ctx later. But since they
-		 * weren't initialized, some unexpected and untrackable bugs
-		 * will appear. Let's crash here and now instead.
-		 */
-		BUG_ON(IS_ERR_OR_NULL(tls->xfrm.ciphersuite_info));
+	if (r)
 		return r;
-	}
 
 	ttls_update_checksum(tls, buf - hh_len, p - buf + hh_len);
 
@@ -1049,6 +1110,31 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 	}
 
 	return 0;
+}
+
+/**
+ * We don't support renegotiation, but according to RFC 5746 3.6 we MUST include
+ * empty "renegotiation_info" extension in the ServerHello message if
+ * ClientHello had TLS_EMPTY_RENEGOTIATION_INFO_SCSV SCSV or renegotiation_info
+ * extension.
+ */
+static void
+ttls_write_renegotiation_info(TlsCtx *tls, unsigned char *p, size_t *olen)
+{
+	if (!tls->hs->secure_renegotiation) {
+		*olen = 0;
+		return;
+	}
+
+	T_DBG("ServerHello: adding empty renegotiation_info extension\n");
+
+	*(unsigned short *)p = htons(TTLS_TLS_EXT_RENEGOTIATION_INFO);
+	p += 2;
+	*p++ = 0x00;
+	*p++ = 0x01;
+	*p++ = 0x00;
+
+	*olen = 5;
 }
 
 static void
@@ -1236,10 +1322,9 @@ ttls_write_server_hello(TlsCtx *tls, struct sg_table *sgt,
 	 * with Associated Data (AEAD) ciphersuite, it MUST NOT send an
 	 * encrypt-then-MAC response extension back to the client."
 	 * We don't support other ciphersuites, so we don't send EtM extension.
-	 *
-	 * TODO #1054 We also don't support renegotiations, so also don't send
-	 * the extension.
 	 */
+	ttls_write_renegotiation_info(tls, p + 2 + ext_len, &olen);
+	ext_len += olen;
 	ttls_write_extended_ms_ext(tls, p + 2 + ext_len, &olen);
 	ext_len += olen;
 	ttls_write_session_ticket_ext(tls, p + 2 + ext_len, &olen);
@@ -1317,7 +1402,7 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 	 * ServerKeyExchange, so end here.
 	 */
 	if (ttls_ciphersuite_no_pfs(ci)) {
-		T_DBG("the key exchanges isn't involving ephimeral keys\n");
+		T_DBG("the key exchanges isn't involving ephemeral keys\n");
 		return 0;
 	}
 
@@ -1386,7 +1471,7 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 		 * } ServerECDHParams;
 		 */
 		const ttls_ecp_curve_info **curve = NULL;
-		const ttls_ecp_group_id *gid = tls->conf->curve_list;
+		const ttls_ecp_group_id *gid = tls->peer_conf->curve_list;
 
 		/* Match our preference list against the offered curves */
 		for ( ; *gid != TTLS_ECP_DP_NONE; gid++)
@@ -1506,7 +1591,7 @@ curve_matching_done:
 
 		T_DBG3_BUF("my signature", p, signature_len);
 		n += signature_len;
-		WARN_ON_ONCE(signature_len > 500);
+		WARN_ON_ONCE(signature_len > 512);
 	}
 
 	/* Done with actual work; add handshake header and add the record. */
@@ -1537,7 +1622,6 @@ ttls_write_certificate_request(TlsCtx *tls, struct sg_table *sgt,
 	size_t hdr_len = TLS_HEADER_SIZE + 4;
 	unsigned char *buf = *in_buf, *p, *end;
 	const int *cur;
-	const ttls_x509_crt *crt;
 	int authmode;
 
 	if (tls->hs->sni_authmode != TTLS_VERIFY_UNSET)
@@ -1602,7 +1686,7 @@ ttls_write_certificate_request(TlsCtx *tls, struct sg_table *sgt,
 	 *  enum { (255) } SignatureAlgorithm;
 	 */
 	/* Supported signature algorithms. */
-	for (cur = tls->conf->sig_hashes; *cur != TTLS_MD_NONE; cur++) {
+	for (cur = tls->peer_conf->sig_hashes; *cur != TTLS_MD_NONE; cur++) {
 		unsigned char hash = ttls_hash_from_md_alg(*cur);
 
 		if (TTLS_HASH_NONE == hash
@@ -1628,10 +1712,7 @@ ttls_write_certificate_request(TlsCtx *tls, struct sg_table *sgt,
 	total_dn_size = 0;
 
 	if (tls->conf->cert_req_ca_list) {
-		if (tls->hs->sni_ca_chain)
-			crt = tls->hs->sni_ca_chain;
-		else
-			crt = tls->conf->ca_chain;
+		const ttls_x509_crt * crt = tls->hs->key_cert->ca_chain;
 
 		while (crt && crt->version) {
 			dn_size = crt->subject_raw.len;
@@ -2129,7 +2210,7 @@ ttls_handshake_server_hello(TlsCtx *tls)
 		} else {
 			tls->state = TTLS_CLIENT_CERTIFICATE;
 		}
-		/* All the writers getted their frags, so put our reference. */
+		/* All the writers got their frags, so put our reference. */
 		put_page(pg);
 		sg_mark_end(&sgt.sgl[sgt.nents - 1]);
 		/* Exit, enter the FSM on more data from the client. */

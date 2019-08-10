@@ -202,6 +202,8 @@ size_t tfw_ultohex(unsigned long ai, char *buf, unsigned int len);
 #define TFW_STR_HBH_HDR		0x10
 /* Weak identifier was set for Etag value. */
 #define TFW_STR_ETAG_WEAK	0x20
+/* Trailer  header. */
+#define TFW_STR_TRAILER		0x40
 
 /*
  * @ptr		- pointer to string data or array of nested strings;
