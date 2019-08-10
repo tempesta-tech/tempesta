@@ -3412,16 +3412,6 @@ next_msg:
 			return TFW_BLOCK;
 		}
 		/*
-		 * Parsing of HTTP/2 frames' payload never gives TFW_PASS
-		 * result since request can be assembled from different
-		 * number of frames; only stream's state can indicate the
-		 * moment when request is completed.
-		 */
-		if (TFW_MSG_H2(req) && tfw_h2_stream_req_complete(stream)) {
-			r = TFW_PASS;
-			break;
-		}
-		/*
 		 * TFW_POSTPONE status means that parsing succeeded
 		 * but more data is needed to complete it. Lower layers
 		 * just supply data for parsing. They only want to know
@@ -3555,17 +3545,7 @@ next_msg:
 	req->cache_ctl.timestamp = tfw_current_timestamp();
 	req->jrxtstamp = jiffies;
 
-	/*
-	 * Due to persistent linkage Stream<->Request in HTTP/2
-	 * mode - special flag is necessary for tracking the
-	 * request completeness; if the request is not fully
-	 * assembled and is not passed to forwarding procedures
-	 * yet, it must be deleted during corresponding stream
-	 * removal.
-	 */
-	if (TFW_MSG_H2(req))
-		__set_bit(TFW_HTTP_B_REQ_COMPLETE, req->flags);
-	else
+	if (!TFW_MSG_H2(req))
 		hmsib = tfw_h1_req_process(stream, skb);
 
 	/*

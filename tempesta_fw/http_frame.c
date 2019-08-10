@@ -605,8 +605,8 @@ __tfw_h2_stream_unlink(TfwH2Ctx *ctx, TfwStream *stream)
 {
 	TfwHttpMsg *hmreq = (TfwHttpMsg *)stream->msg;
 
-	if (!list_empty(&stream->cl_node)) {
-		list_del_init(&stream->cl_node);
+	if (!list_empty(&stream->hcl_node)) {
+		list_del_init(&stream->hcl_node);
 		--ctx->hclosed_streams.num;
 	}
 
@@ -621,7 +621,7 @@ __tfw_h2_stream_unlink(TfwH2Ctx *ctx, TfwStream *stream)
 		 * cases controlled by server connection side (after adding to
 		 * @fwd_queue): successful response sending, eviction etc.
 		 */
-		if (!test_bit(TFW_HTTP_B_REQ_COMPLETE, hmreq->flags))
+		if (!test_bit(TFW_HTTP_B_FULLY_PARSED, hmreq->flags))
 			tfw_http_conn_msg_free(hmreq);
 	}
 }
@@ -668,10 +668,10 @@ tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
 static inline void
 __tfw_h2_stream_add_closed(TfwClosedQueue *hclosed_streams, TfwStream *stream)
 {
-	if (!list_empty(&stream->cl_node))
+	if (!list_empty(&stream->hcl_node))
 		return;
 
-	list_add_tail(&stream->cl_node, &hclosed_streams->list);
+	list_add_tail(&stream->hcl_node, &hclosed_streams->list);
 	++hclosed_streams->num;
 }
 
@@ -760,7 +760,7 @@ tfw_h2_closed_streams_shrink(TfwH2Ctx *ctx)
 
 		BUG_ON(list_empty(&hclosed_streams->list));
 		cur = list_first_entry(&hclosed_streams->list, TfwStream,
-				       cl_node);
+				       hcl_node);
 		__tfw_h2_stream_unlink(ctx, cur);
 
 		spin_unlock(&ctx->lock);

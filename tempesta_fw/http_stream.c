@@ -261,7 +261,7 @@ tfw_h2_init_stream(TfwStream *stream, unsigned int id, unsigned short weight,
 		   unsigned int wnd)
 {
 	RB_CLEAR_NODE(&stream->node);
-	INIT_LIST_HEAD(&stream->cl_node);
+	INIT_LIST_HEAD(&stream->hcl_node);
 	stream->id = id;
 	stream->state = HTTP2_STREAM_OPENED;
 	stream->loc_wnd = wnd;

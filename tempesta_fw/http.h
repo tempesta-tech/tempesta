@@ -238,6 +238,8 @@ enum {
 	TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
 	/* Singular header presents more than once. */
 	TFW_HTTP_B_FIELD_DUPENTRY,
+	/* Message is fully parsed */
+	TFW_HTTP_B_FULLY_PARSED,
 	/* Message has HTTP/2 format. */
 	TFW_HTTP_B_H2,
 
@@ -257,8 +259,6 @@ enum {
 	TFW_HTTP_B_WHITELIST,
 	/* Client was disconnected, drop the request. */
 	TFW_HTTP_B_REQ_DROP,
-	/* Request is fully assembled (applicable for HTTP/2 mode only). */
-	TFW_HTTP_B_REQ_COMPLETE,
 
 	/* Response flags */
 	TFW_HTTP_FLAGS_RESP,

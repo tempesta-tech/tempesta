@@ -3991,11 +3991,28 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, size_t len,
 		 unsigned int *parsed)
 {
 	int r = TFW_POSTPONE;
+	TfwHttpReq *req = (TfwHttpReq *)req_data;
 
 	/*
-	 * TODO: implement parsing of HTTP/2 frame's payload:
+	 * TODO #309: implement parsing of HTTP/2 frame's payload:
 	 * HEADERS/CONTINUATION (through HPACK at first) and DATA.
 	 */
+
+	/*
+	 * Parsing of HTTP/2 frames' payload never gives TFW_PASS result since
+	 * request can be assembled from different number of frames; only
+	 * stream's state can indicate the moment when request is completed.
+	 * Note, due to persistent linkage Stream<->Request in HTTP/2 mode
+	 * special flag is necessary for tracking the request completeness; if
+	 * the request is not fully assembled and is not passed to forwarding
+	 * procedures yet, it must be deleted during corresponding stream
+	 * removal.
+	 */
+	if (tfw_h2_stream_req_complete(req->stream)) {
+		__set_bit(TFW_HTTP_B_FULLY_PARSED, req->flags);
+		r = TFW_PASS;
+	}
+
 	return r;
 }
 
