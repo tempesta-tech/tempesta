@@ -317,7 +317,7 @@ __hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
 void
 tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start)
 {
-	TfwStr *hdr = &hm->conn->parser.hdr;
+	TfwStr *hdr = &hm->stream->parser.hdr;
 
 	BUG_ON(!TFW_STR_EMPTY(hdr));
 
@@ -339,7 +339,7 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm, unsigned int id)
 {
 	TfwStr *h;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
-	TfwHttpParser *parser = &hm->conn->parser;
+	TfwHttpParser *parser = &hm->stream->parser;
 
 	BUG_ON(parser->hdr.flags & TFW_STR_DUPLICATE);
 	BUG_ON(id > TFW_HTTP_HDR_RAW);

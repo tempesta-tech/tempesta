@@ -358,6 +358,8 @@ http_sticky_suite_setup(void)
 
 	mock.req->conn = (TfwConn *)&mock.conn_req;
 	mock.resp->conn = &mock.conn_resp;
+	mock.req->stream = &mock.conn_req.stream;
+	mock.resp->stream = &mock.conn_resp.stream;
 	tfw_http_init_parser_req(mock.req);
 	tfw_http_init_parser_resp(mock.resp);
 	mock.req->vhost = tfw_vhost_new(TFW_VH_DFT_NAME);
@@ -438,6 +440,7 @@ TEST(http_sticky, sending_302_without_preparing)
 
 	mock.resp = mock.req->resp;
 	mock.resp->conn = &mock.conn_resp;
+	mock.resp->stream = &mock.conn_resp.stream;
 
 	/*
 	 * tfw_http_sticky_build_redirect() uses quick HTTP message allocator,
@@ -496,6 +499,7 @@ TEST(http_sticky, sending_302)
 	/* See test sending_302_without_preparing. */
 	mock.resp = mock.req->resp;
 	mock.resp->conn = &mock.conn_resp;
+	mock.resp->stream = &mock.conn_resp.stream;
 	mock.resp->h_tbl = (TfwHttpHdrTbl *)tfw_pool_alloc(mock.resp->pool,
 							   TFW_HHTBL_SZ(1));
 	EXPECT_NOT_NULL(mock.resp->h_tbl);

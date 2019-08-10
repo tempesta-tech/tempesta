@@ -26,9 +26,7 @@
 #include <net/sock.h>
 
 #include "gfsm.h"
-#include "msg.h"
 #include "peer.h"
-#include "http_parser.h"
 #include "sync_socket.h"
 #include "http_frame.h"
 #include "tls.h"
@@ -86,7 +84,7 @@ enum {
  * @list	- member in the list of connections with @peer;
  * @refcnt	- number of users of the connection structure instance;
  * @timer	- The keep-alive/retry timer for the connection;
- * @msg		- message that is currently being processed;
+ * @stream	- instance for control messages processing;
  * @peer	- TfwClient or TfwServer handler. Hop-by-hop peer;
  * @sk		- an appropriate sock handler;
  * @destructor	- called when a connection is destroyed;
@@ -94,11 +92,10 @@ enum {
 #define TFW_CONN_COMMON					\
 	SsProto			proto;			\
 	TfwGState		state;			\
-	TfwHttpParser		parser;			\
 	struct list_head	list;			\
 	atomic_t		refcnt;			\
 	struct timer_list	timer;			\
-	TfwMsg			*msg;			\
+	TfwStream		stream;			\
 	TfwPeer 		*peer;			\
 	struct sock		*sk;			\
 	void			(*destructor)(void *);
@@ -222,6 +219,11 @@ typedef struct {
 } TfwH2Conn;
 
 #define tfw_h2_context(conn)	((TfwH2Ctx *)(&((TfwH2Conn *)conn)->h2))
+
+#define TFW_CONN_H2(c)							\
+	(TFW_CONN_TLS((TfwConn *)c)					\
+	 && tfw_tls_context(c)->alpn_chosen				\
+	 && tfw_tls_context(c)->alpn_chosen->id == TTLS_ALPN_ID_HTTP2)
 
 /* Callbacks used by l5-l7 protocols to operate on connection level. */
 typedef struct {
@@ -468,9 +470,9 @@ tfw_connection_unlink_from_peer(TfwConn *conn)
 }
 
 static inline void
-tfw_connection_unlink_msg(TfwConn *conn)
+tfw_stream_unlink_msg(TfwStream *stream)
 {
-	conn->msg = NULL;
+	stream->msg = NULL;
 }
 
 /**
@@ -483,7 +485,7 @@ tfw_connection_validate_cleanup(TfwConn *conn)
 
 	BUG_ON(!conn);
 	BUG_ON(!list_empty(&conn->list));
-	BUG_ON(conn->msg);
+	BUG_ON(conn->stream.msg);
 
 	rc = atomic_read(&conn->refcnt);
 	BUG_ON(rc && rc != TFW_CONN_DEATHCNT);

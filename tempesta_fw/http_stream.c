@@ -27,41 +27,6 @@
 
 #define HTTP2_DEF_WEIGHT	16
 
-/**
- * States for HTTP/2 streams processing.
- *
- * NOTE: there is no exact matching between these states and states from
- * RFC 7540 (section 5.1), since several intermediate states were added in
- * current implementation to handle some edge states which are not mentioned
- * explicitly in RFC (e.g. additional continuation states, and special kinds
- * of closed state). Besides, there is no explicit 'idle' state here, since
- * in current implementation idle stream is just a stream that has not been
- * created yet.
- *
- * TODO: in HTTP2_STREAM_CLOSED state stream is removed from stream's storage,
- * but for HTTP2_STREAM_LOC_CLOSED and HTTP2_STREAM_REM_CLOSED states stream
- * must be present in memory for some period of time (see RFC 7540, section
- * 5.1, the 'closed' paragraph). Since transitions to these states can occur
- * only during response sending, thus some additional structure for temporary
- * storage of closed streams (e.g. simple limited queue based on linked list -
- * on top of existing storage structure) should be implemented in context of
- * responses' sending functionality of #309.
- */
-typedef enum {
-	HTTP2_STREAM_LOC_RESERVED,
-	HTTP2_STREAM_REM_RESERVED,
-	HTTP2_STREAM_OPENED,
-	HTTP2_STREAM_CONT,
-	HTTP2_STREAM_CONT_CLOSED,
-	HTTP2_STREAM_CONT_HC,
-	HTTP2_STREAM_CONT_HC_CLOSED,
-	HTTP2_STREAM_LOC_HALF_CLOSED,
-	HTTP2_STREAM_REM_HALF_CLOSED,
-	HTTP2_STREAM_LOC_CLOSED,
-	HTTP2_STREAM_REM_CLOSED,
-	HTTP2_STREAM_CLOSED
-} TfwStreamState;
-
 static struct kmem_cache *stream_cache;
 
 int
@@ -201,21 +166,21 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 		 * will be removed from stream's storage (i.e. moved into final
 		 * 'closed' state).
 		 */
-		if (type == HTTP2_DATA
-		    || type == HTTP2_HEADERS
-		    || type == HTTP2_CONTINUATION)
-		{
-			*err = HTTP2_ECODE_CLOSED;
-			return STREAM_FSM_RES_TERM_STREAM;
-		}
-
 		if (type == HTTP2_CONTINUATION) {
 			*err = HTTP2_ECODE_PROTO;
 			return STREAM_FSM_RES_TERM_CONN;
 		}
 
 		if (type == HTTP2_RST_STREAM)
+		{
 			stream->state = HTTP2_STREAM_CLOSED;
+		}
+		else if (type != HTTP2_PRIORITY || type != HTTP2_WINDOW_UPDATE)
+		{
+			*err = HTTP2_ECODE_CLOSED;
+			return STREAM_FSM_RES_TERM_STREAM;
+		}
+
 		break;
 
 	case HTTP2_STREAM_CONT_HC:
@@ -291,17 +256,12 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 	return STREAM_FSM_RES_OK;
 }
 
-bool
-tfw_h2_stream_is_closed(TfwStream *stream)
-{
-	return stream->state == HTTP2_STREAM_CLOSED;
-}
-
 static inline void
 tfw_h2_init_stream(TfwStream *stream, unsigned int id, unsigned short weight,
 		   unsigned int wnd)
 {
 	RB_CLEAR_NODE(&stream->node);
+	INIT_LIST_HEAD(&stream->hcl_node);
 	stream->id = id;
 	stream->state = HTTP2_STREAM_OPENED;
 	stream->loc_wnd = wnd;
@@ -361,19 +321,10 @@ tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id, unsigned short weight,
 	return new_stream;
 }
 
-static inline void
-tfw_h2_remove_stream(TfwStreamSched *sched, TfwStream *stream)
-{
-	rb_erase(&stream->node, &sched->streams);
-}
-
 void
-tfw_h2_streams_cleanup(TfwStreamSched *sched)
+tfw_h2_delete_stream(TfwStream *stream)
 {
-	TfwStream *cur, *next;
-
-	rbtree_postorder_for_each_entry_safe(cur, next, &sched->streams, node)
-		kmem_cache_free(stream_cache, cur);
+	kmem_cache_free(stream_cache, stream);
 }
 
 int
@@ -417,11 +368,8 @@ tfw_h2_remove_stream_dep(TfwStreamSched *sched, TfwStream *stream)
 }
 
 void
-tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream **stream)
+tfw_h2_stop_stream(TfwStreamSched *sched, TfwStream *stream)
 {
-	tfw_h2_remove_stream_dep(sched, *stream);
-	tfw_h2_remove_stream(sched, *stream);
-
-	kmem_cache_free(stream_cache, *stream);
-	*stream = NULL;
+	tfw_h2_remove_stream_dep(sched, stream);
+	rb_erase(&stream->node, &sched->streams);
 }

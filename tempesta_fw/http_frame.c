@@ -47,6 +47,8 @@
 #define MAX_WND_SIZE			((1U << 31) - 1)
 #define DEF_WND_SIZE			((1U << 16) - 1)
 
+#define TFW_MAX_CLOSED_STREAMS		5
+
 /**
  * FSM states for HTTP/2 frames processing.
  */
@@ -176,10 +178,10 @@ do {									\
 			tfw_h2_conn_terminate((ctx), err);		\
 			return T_DROP;					\
 		} else if (res == STREAM_FSM_RES_TERM_STREAM) {		\
-			return tfw_h2_stream_terminate((ctx),		\
-							  (hdr)->stream_id, \
-							  &(ctx)->cur_stream, \
-							  err);		\
+			return tfw_h2_stream_close((ctx),		\
+						   (hdr)->stream_id,	\
+						   &(ctx)->cur_stream,	\
+						   err);		\
 		}							\
 		return T_OK;						\
 	}								\
@@ -200,6 +202,7 @@ tfw_h2_cleanup(void)
 void
 tfw_h2_context_init(TfwH2Ctx *ctx)
 {
+	TfwClosedQueue *hclosed_streams = &ctx->hclosed_streams;
 	TfwSettings *lset = &ctx->lsettings;
 	TfwSettings *rset = &ctx->rsettings;
 
@@ -207,6 +210,8 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 
 	ctx->state = HTTP2_RECV_CLI_START_SEQ;
 	ctx->loc_wnd = MAX_WND_SIZE;
+	spin_lock_init(&ctx->lock);
+	INIT_LIST_HEAD(&hclosed_streams->list);
 
 	lset->hdr_tbl_sz = rset->hdr_tbl_sz = 1 << 12;
 	lset->push = rset->push = 1;
@@ -223,7 +228,7 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 void
 tfw_h2_context_clear(TfwH2Ctx *ctx)
 {
-	tfw_h2_streams_cleanup(&ctx->sched);
+	WARN_ON_ONCE(ctx->streams_num);
 }
 
 static inline void
@@ -460,7 +465,7 @@ tfw_h2_send_goaway(TfwH2Ctx *ctx, TfwH2Err err_code)
 	return tfw_h2_send_frame_close(ctx, &hdr, &data);
 }
 
-static inline int
+int
 tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code)
 {
 	unsigned char buf[ERR_CODE_SIZE];
@@ -484,43 +489,25 @@ tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code)
 	return tfw_h2_send_frame(ctx, &hdr, &data);
 }
 
-static inline int
-tfw_h2_conn_terminate(TfwH2Ctx *ctx, TfwH2Err err_code)
+void
+tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close)
 {
-	return tfw_h2_send_goaway(ctx, err_code);
-}
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
 
-static inline int
-tfw_h2_stream_terminate(TfwH2Ctx *ctx, unsigned int id, TfwStream **stream,
-			TfwH2Err err_code)
-{
-	if (stream && *stream) {
-		--ctx->streams_num;
-		tfw_h2_stop_stream(&ctx->sched, stream);
-	}
-
-	return tfw_h2_send_rst_stream(ctx, id, err_code);
+	if (tfw_h2_send_goaway(ctx, err_code) && close)
+		tfw_connection_close((TfwConn *)conn, true);
 }
 
 static inline void
-tfw_h2_check_closed_stream(TfwH2Ctx *ctx)
+tfw_h2_conn_terminate(TfwH2Ctx *ctx, TfwH2Err err_code)
 {
-	BUG_ON(!ctx->cur_stream);
-
-	T_DBG3("%s: stream->id=%u, stream->state=%d, stream=[%p], streams_num="
-	       "%lu\n", __func__, ctx->cur_stream->id, ctx->cur_stream->state,
-	       ctx->cur_stream, ctx->streams_num);
-
-	if (tfw_h2_stream_is_closed(ctx->cur_stream)) {
-		--ctx->streams_num;
-		tfw_h2_stop_stream(&ctx->sched, &ctx->cur_stream);
-	}
+	tfw_h2_conn_terminate_close(ctx, err_code, false);
 }
 
 #define VERIFY_FRAME_SIZE(ctx)						\
 do {									\
 	if ((ctx)->hdr.length < 0) {					\
-		tfw_h2_conn_terminate(ctx, HTTP2_ECODE_SIZE);	\
+		tfw_h2_conn_terminate(ctx, HTTP2_ECODE_SIZE);		\
 		return T_DROP;						\
 	}								\
 } while (0)
@@ -565,6 +552,12 @@ tfw_h2_headers_pri_process(TfwH2Ctx *ctx)
 	return T_OK;
 }
 
+/*
+ * Create a new stream and add it to the streams storage and to the dependency
+ * tree. Note, that we do not need to protect the streams storage in @sched from
+ * concurrent access, since all operations with it (adding, searching and
+ * deletion) are done only in receiving flow of Frame layer.
+ */
 static TfwStream *
 tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 {
@@ -592,6 +585,215 @@ tfw_h2_stream_create(TfwH2Ctx *ctx, unsigned int id)
 	return stream;
 }
 
+static inline void
+tfw_h2_stream_clean(TfwH2Ctx *ctx, TfwStream *stream)
+{
+	tfw_h2_stop_stream(&ctx->sched, stream);
+	tfw_h2_delete_stream(stream);
+	--ctx->streams_num;
+}
+
+/*
+ * Unlink the stream from a corresponding request (if linked) and from special
+ * queue of closed streams (if it is contained there).
+ *
+ * NOTE: call to this procedure should be protected by special lock for
+ * Stream linkage protection.
+ */
+static void
+__tfw_h2_stream_unlink(TfwH2Ctx *ctx, TfwStream *stream)
+{
+	TfwHttpMsg *hmreq = (TfwHttpMsg *)stream->msg;
+
+	if (!list_empty(&stream->hcl_node)) {
+		list_del_init(&stream->hcl_node);
+		--ctx->hclosed_streams.num;
+	}
+
+	if (hmreq) {
+		hmreq->stream = NULL;
+		/*
+		 * If the request is linked with a stream, but not complete yet,
+		 * it must be deleted right here to avoid leakage, because in
+		 * this case it is not used anywhere yet. When request is
+		 * assembled and complete, it will be removed (due to some
+		 * processing error) in @tfw_http_req_process(), or in other
+		 * cases controlled by server connection side (after adding to
+		 * @fwd_queue): successful response sending, eviction etc.
+		 */
+		if (!test_bit(TFW_HTTP_B_FULLY_PARSED, hmreq->flags))
+			tfw_http_conn_msg_free(hmreq);
+	}
+}
+
+static inline void
+tfw_h2_stream_unlink(TfwH2Ctx *ctx, TfwStream *stream)
+{
+	spin_lock(&ctx->lock);
+
+	__tfw_h2_stream_unlink(ctx, stream);
+
+	spin_unlock(&ctx->lock);
+}
+
+static inline void
+tfw_h2_current_stream_remove(TfwH2Ctx *ctx)
+{
+	tfw_h2_stream_unlink(ctx, ctx->cur_stream);
+	tfw_h2_stream_clean(ctx, ctx->cur_stream);
+	ctx->cur_stream = NULL;
+}
+
+void
+tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx)
+{
+	TfwStream *cur, *next;
+	TfwH2Conn *conn = container_of(ctx, TfwH2Conn, h2);
+	TfwStreamSched *sched = &ctx->sched;
+
+	WARN_ON_ONCE(((TfwConn *)conn)->stream.msg);
+
+	rbtree_postorder_for_each_entry_safe(cur, next, &sched->streams, node) {
+		tfw_h2_stream_unlink(ctx, cur);
+		tfw_h2_stream_clean(ctx, cur);
+	}
+}
+
+/*
+ * Add stream to special queue of closed streams.
+ *
+ * NOTE: call to this procedure should be protected by special lock for
+ * Stream linkage protection.
+ */
+static inline void
+__tfw_h2_stream_add_closed(TfwClosedQueue *hclosed_streams, TfwStream *stream)
+{
+	if (!list_empty(&stream->hcl_node))
+		return;
+
+	list_add_tail(&stream->hcl_node, &hclosed_streams->list);
+	++hclosed_streams->num;
+}
+
+static inline void
+tfw_h2_stream_add_closed(TfwH2Ctx *ctx, TfwStream *stream)
+{
+	spin_lock(&ctx->lock);
+
+	__tfw_h2_stream_add_closed(&ctx->hclosed_streams, stream);
+
+	spin_unlock(&ctx->lock);
+}
+
+/*
+ * Stream closing procedure: move the stream into special queue of closed
+ * streams and send RST_STREAM frame to peer. This procedure is intended
+ * for usage only in receiving flow of Framing layer, thus the stream is
+ * definitely alive here and we need not any unlinking operations since
+ * all the unlinking and cleaning work will be made later, during shrinking
+ * the queue of closed streams; thus, we just move the stream into the
+ * closed queue here.
+ */
+static int
+tfw_h2_stream_close(TfwH2Ctx *ctx, unsigned int id, TfwStream **stream,
+		    TfwH2Err err_code)
+{
+	if (stream && *stream) {
+		tfw_h2_stream_add_closed(ctx, *stream);
+		*stream = NULL;
+	}
+
+	return tfw_h2_send_rst_stream(ctx, id, err_code);
+}
+
+/*
+ * Unlink request from corresponding stream (if linked) and move the stream
+ * to the queue of closed streams (if it is not contained there yet).
+ */
+unsigned int
+tfw_h2_stream_id_close(TfwHttpReq *req)
+{
+	TfwStream *stream;
+	unsigned int id;
+	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
+
+	spin_lock(&ctx->lock);
+
+	stream = req->stream;
+	if (!stream) {
+		spin_unlock(&ctx->lock);
+		return 0;
+	}
+
+	id = stream->id;
+	stream->msg = NULL;
+
+	__tfw_h2_stream_add_closed(&ctx->hclosed_streams, stream);
+
+	spin_unlock(&ctx->lock);
+
+	return id;
+}
+
+/*
+ * Clean the queue of closed streams if its size has exceeded a certain
+ * value.
+ */
+static void
+tfw_h2_closed_streams_shrink(TfwH2Ctx *ctx)
+{
+	TfwStream *cur;
+	unsigned int max_streams = ctx->lsettings.max_streams;
+	TfwClosedQueue *hclosed_streams = &ctx->hclosed_streams;
+
+	while (1)
+	{
+		spin_lock(&ctx->lock);
+
+		if (hclosed_streams->num <= TFW_MAX_CLOSED_STREAMS
+		    || (max_streams == ctx->streams_num
+			&& hclosed_streams->num))
+		{
+			spin_unlock(&ctx->lock);
+			break;
+		}
+
+		BUG_ON(list_empty(&hclosed_streams->list));
+		cur = list_first_entry(&hclosed_streams->list, TfwStream,
+				       hcl_node);
+		__tfw_h2_stream_unlink(ctx, cur);
+
+		spin_unlock(&ctx->lock);
+
+		tfw_h2_stream_clean(ctx, cur);
+	}
+}
+
+static inline void
+tfw_h2_check_closed_stream(TfwH2Ctx *ctx)
+{
+	BUG_ON(!ctx->cur_stream);
+
+	T_DBG3("%s: stream->id=%u, stream->state=%d, stream=[%p], streams_num="
+	       "%lu\n", __func__, ctx->cur_stream->id, ctx->cur_stream->state,
+	       ctx->cur_stream, ctx->streams_num);
+
+	if (tfw_h2_stream_is_closed(ctx->cur_stream))
+		tfw_h2_current_stream_remove(ctx);
+}
+
+static inline int
+tfw_h2_stream_state_process(TfwH2Ctx *ctx)
+{
+	TfwFrameHdr *hdr = &ctx->hdr;
+
+	STREAM_RECV_PROCESS(ctx, hdr);
+
+	tfw_h2_check_closed_stream(ctx);
+
+	return T_OK;
+}
+
 static int
 tfw_h2_headers_process(TfwH2Ctx *ctx)
 {
@@ -609,9 +811,9 @@ tfw_h2_headers_process(TfwH2Ctx *ctx)
 
 		ctx->state = HTTP2_IGNORE_FRAME_DATA;
 
-		return tfw_h2_stream_terminate(ctx, hdr->stream_id,
-						  &ctx->cur_stream,
-						  HTTP2_ECODE_PROTO);
+		return tfw_h2_stream_close(ctx, hdr->stream_id,
+					   &ctx->cur_stream,
+					   HTTP2_ECODE_PROTO);
 	}
 
 	if (!ctx->cur_stream) {
@@ -627,11 +829,7 @@ tfw_h2_headers_process(TfwH2Ctx *ctx)
 	 * HEADERS frame), we should process its state here - when frame is
 	 * fully received and new stream is created.
 	 */
-	STREAM_RECV_PROCESS(ctx, hdr);
-
-	tfw_h2_check_closed_stream(ctx);
-
-	return T_OK;
+	return tfw_h2_stream_state_process(ctx);
 }
 
 static int
@@ -643,9 +841,9 @@ tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 	wnd_incr = ntohl(*(unsigned int *)ctx->rbuf) & ((1U << 31) - 1);
 	if (!wnd_incr) {
 		if (ctx->cur_stream)
-			return tfw_h2_stream_terminate(ctx, hdr->stream_id,
-							  &ctx->cur_stream,
-							  HTTP2_ECODE_PROTO);
+			return tfw_h2_stream_close(ctx, hdr->stream_id,
+						   &ctx->cur_stream,
+						   HTTP2_ECODE_PROTO);
 		tfw_h2_conn_terminate(ctx, HTTP2_ECODE_PROTO);
 		return T_DROP;
 	}
@@ -672,9 +870,9 @@ tfw_h2_priority_process(TfwH2Ctx *ctx)
 		T_DBG("Invalid dependency: new stream with %u depends on"
 		      " itself\n", hdr->stream_id);
 
-		return tfw_h2_stream_terminate(ctx, hdr->stream_id,
-						  &ctx->cur_stream,
-						  HTTP2_ECODE_PROTO);
+		return tfw_h2_stream_close(ctx, hdr->stream_id,
+					   &ctx->cur_stream,
+					   HTTP2_ECODE_PROTO);
 	}
 
 	T_DBG3("%s: parsed, stream_id=%u, dep_stream_id=%u, weight=%hu,"
@@ -686,7 +884,7 @@ tfw_h2_priority_process(TfwH2Ctx *ctx)
 	return T_OK;
 }
 
-static void
+static inline void
 tfw_h2_rst_stream_process(TfwH2Ctx *ctx)
 {
 	BUG_ON(!ctx->cur_stream);
@@ -694,9 +892,7 @@ tfw_h2_rst_stream_process(TfwH2Ctx *ctx)
 	       __func__, ctx->hdr.stream_id, ctx->cur_stream,
 	       ntohl(*(unsigned int *)ctx->rbuf));
 
-	--ctx->streams_num;
-
-	tfw_h2_stop_stream(&ctx->sched, &ctx->cur_stream);
+	tfw_h2_current_stream_remove(ctx);
 }
 
 static int
@@ -838,13 +1034,23 @@ tfw_h2_stream_id_verify(TfwH2Ctx *ctx)
 	if (ctx->cur_stream)
 		return T_OK;
 	/*
-	 * If stream ID is not greater than last processed ID,
-	 * there may be two reasons for that:
-	 * 1. Stream has been created, processed, closed and
-	 *    removed by now;
-	 * 2. Stream was never created and has been moved from
-	 *    idle to closed without processing (see RFC 7540
-	 *    section 5.1.1 for details).
+	 * If stream ID is not greater than last processed ID, there may be
+	 * two reasons for that:
+	 * 1. Stream has been created, processed, closed and removed by now;
+	 * 2. Stream was never created and has been moved from idle to closed
+	 *    without processing (see RFC 7540 section 5.1.1 for details).
+	 *
+	 * NOTE: in cases of sending RST_STREAM frame or END_STREAM flag, stream
+	 * can be switched into special closed states: HTTP2_STREAM_LOC_CLOSED
+	 * or HTTP2_STREAM_REM_CLOSED (which indicates that situation is possible
+	 * when stream had been already closed on server side, but the client
+	 * is not aware about that yet); according to RFC 7540, section 5.1
+	 * ('closed' paragraph) - we should silently discard such stream, i.e.
+	 * continue process entire HTTP/2 connection but ignore HEADERS,
+	 * CONTINUATION and DATA frames from this stream (not pass upstairs);
+	 * to achieve such behavior (to avoid removing of such closed streams
+	 * right away), streams in these states are temporary stored in special
+	 * queue @TfwClosedQueue.
 	 */
 	if (ctx->lstream_id >= hdr->stream_id) {
 		T_DBG("Invalid ID of new stream: %u stream is"
@@ -1002,41 +1208,31 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 			err_code = HTTP2_ECODE_PROTO;
 			goto conn_term;
 		}
-		/*
-		 * TODO: in cases of sending RST_STREAM frame or END_STREAM
-		 * flag - stream can be switched into the closed state - this
-		 * is the race condition (when stream had been closed on server
-		 * side, but the client does not aware about that yet), and we
-		 * should silently discard such stream, i.e. continue process
-		 * entire HTTP/2 connection but ignore HEADERS, CONTINUATION and
-		 * DATA frames from this stream (not pass upstairs); to achieve
-		 * such behavior (to avoid removing of such closed streams right
-		 * away), we should store closed streams - for some predefined
-		 * period of time or just limiting the amount of closed stored
-		 * streams (see comments for @TfwStreamState enum at the
-		 * beginning of http_stream.c).
-		 */
+
 		ctx->cur_stream = tfw_h2_find_stream(&ctx->sched,
-							hdr->stream_id);
+						     hdr->stream_id);
+		if (tfw_h2_stream_id_verify(ctx)) {
+			err_code = HTTP2_ECODE_PROTO;
+			goto conn_term;
+		}
 		/*
 		 * Endpoints must not exceed the limit set by their peer for
 		 * maximum number of concurrent streams (see RFC 7540 section
 		 * 5.1.2 for details).
 		 */
-		if (!ctx->cur_stream
-		    && ctx->lsettings.max_streams <= ctx->streams_num)
-		{
-			T_DBG("Max streams number exceeded: %lu\n",
-			      ctx->streams_num);
-			SET_TO_READ_VERIFY(ctx, HTTP2_IGNORE_FRAME_DATA);
-			return tfw_h2_stream_terminate(ctx, hdr->stream_id,
-						       NULL,
-						       HTTP2_ECODE_REFUSED);
-		}
+		if (!ctx->cur_stream) {
+			unsigned int max_streams = ctx->lsettings.max_streams;
 
-		if (tfw_h2_stream_id_verify(ctx)) {
-			err_code = HTTP2_ECODE_PROTO;
-			goto conn_term;
+			WARN_ON_ONCE(max_streams < ctx->streams_num);
+			tfw_h2_closed_streams_shrink(ctx);
+
+			if (max_streams == ctx->streams_num) {
+				T_DBG("Max streams number exceeded: %lu\n",
+				      ctx->streams_num);
+				SET_TO_READ_VERIFY(ctx, HTTP2_IGNORE_FRAME_DATA);
+				return tfw_h2_send_rst_stream(ctx, hdr->stream_id,
+							      HTTP2_ECODE_REFUSED);
+			}
 		}
 
 		ctx->data_off = FRAME_HEADER_SIZE;
@@ -1060,9 +1256,9 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 							hdr->stream_id);
 		if (hdr->length != FRAME_PRIORITY_SIZE) {
 			SET_TO_READ(ctx);
-			return tfw_h2_stream_terminate(ctx, hdr->stream_id,
-							  &ctx->cur_stream,
-							  HTTP2_ECODE_SIZE);
+			return tfw_h2_stream_close(ctx, hdr->stream_id,
+						   &ctx->cur_stream,
+						   HTTP2_ECODE_SIZE);
 		}
 
 		if (ctx->cur_stream)
@@ -1387,7 +1583,8 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, size_t len,
 	T_FSM_STATE(HTTP2_RECV_DATA) {
 		FRAME_FSM_READ(ctx->to_read);
 
-		tfw_h2_check_closed_stream(ctx);
+		if (tfw_h2_stream_state_process(ctx))
+			FRAME_FSM_EXIT(T_DROP);
 
 		FRAME_FSM_EXIT(T_OK);
 	}
@@ -1404,7 +1601,8 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, size_t len,
 	T_FSM_STATE(HTTP2_RECV_CONT) {
 		FRAME_FSM_READ(ctx->to_read);
 
-		tfw_h2_check_closed_stream(ctx);
+		if (tfw_h2_stream_state_process(ctx))
+			FRAME_FSM_EXIT(T_DROP);
 
 		FRAME_FSM_EXIT(T_OK);
 	}
@@ -1426,17 +1624,16 @@ tfw_h2_frame_recv(void *data, unsigned char *buf, size_t len,
  * padded frames - we need to pass upstairs postponed frames too (only
  * app frames: HEADERS, DATA, CONTINUATION); thus, three situations can
  * appear during framing context initialization:
- * 1. On fully received service (non-app) frames and fully received app
- *    frames without padding - context must be reset; in this case the
- *    @ctx->state field will be set to HTTP2_RECV_FRAME_HEADER state (since
- *    its value is zero), and processing of the next frame will start from
- *    this state;
- * 2. On fully received app frames with padding - context must not be
- *    reset and should be reinitialized to continue processing until all
- *    padding will be processed;
- * 3. On postponed app frames (with or without padding) - context must
- *    not be reinitialized at all and should be further processed until
- *    the frame will be fully received.
+ * 1. For all service (non-app) frames and for fully received app frames
+ *    without padding - context must be reset; in this case the @ctx->state
+ *    field will be set to HTTP2_RECV_FRAME_HEADER state (since its value
+ *    is zero), and processing of the next frame will start from this state;
+ * 2. On fully received app frames with padding - context must not be reset
+ *    and should be reinitialized to continue processing until all padding
+ *    will be processed;
+ * 3. On postponed app frames (with or without padding) - context must not
+ *    be reinitialized at all and should be further processed until the
+ *    frame will be fully received.
  */
 static inline void
 tfw_h2_context_reinit(TfwH2Ctx *ctx, bool postponed)
@@ -1457,6 +1654,7 @@ int
 tfw_h2_frame_process(void *c, TfwFsmData *data)
 {
 	int r;
+	bool postponed;
 	unsigned int unused, curr_tail;
 	TfwFsmData data_up = {};
 	TfwH2Ctx *h2 = tfw_h2_context(c);
@@ -1467,6 +1665,7 @@ tfw_h2_frame_process(void *c, TfwFsmData *data)
 	BUG_ON(tail >= skb->len);
 
 next_msg:
+	postponed = false;
 	ss_skb_queue_tail(&h2->skb_head, skb);
 	r = ss_skb_process(skb, off, tail, tfw_h2_frame_recv, h2, &unused,
 			   &parsed);
@@ -1496,10 +1695,12 @@ next_msg:
 		 * all collected skbs are dropped at once when service
 		 * frame fully received, processed and applied.
 		 */
-		if (!APP_FRAME(h2))
-			return T_OK;
+		if (APP_FRAME(h2)) {
+			postponed = true;
+			break;
+		}
 
-		break;
+		return T_OK;
 	case T_OK:
 		T_DBG3("%s: parsed=%d skb->len=%u\n", __func__,
 		       parsed, skb->len);
@@ -1555,8 +1756,8 @@ next_msg:
 		data_up.off = h2->data_off;
 		data_up.skb = h2->skb_head;
 		h2->data_off = 0;
-		h2->skb_head = NULL;
-		r = tfw_http_msg_process_generic(c, &data_up);
+		h2->skb_head = data_up.skb->next = data_up.skb->prev = NULL;
+		r = tfw_http_msg_process_generic(c, h2->cur_stream, &data_up);
 		if (r == T_DROP) {
 			kfree_skb(nskb);
 			goto out;
@@ -1565,7 +1766,7 @@ next_msg:
 		ss_skb_queue_purge(&h2->skb_head);
 	}
 
-	tfw_h2_context_reinit(h2, r == T_POSTPONE);
+	tfw_h2_context_reinit(h2, postponed);
 
 	if (nskb) {
 		skb = nskb;
