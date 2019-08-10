@@ -87,7 +87,7 @@ typedef enum {
  * Representation of HTTP/2 stream entity.
  *
  * @node	- entry in per-connection storage of streams (red-black tree);
- * @cl_node	- entry in queue of closed streams;
+ * @hcl_node	- entry in queue of half-closed streams;
  * @id		- stream ID;
  * @state	- stream's current state;
  * @loc_wnd	- stream's current flow controlled window;
@@ -97,7 +97,7 @@ typedef enum {
  */
 typedef struct {
 	struct rb_node		node;
-	struct list_head	cl_node;
+	struct list_head	hcl_node;
 	unsigned int		id;
 	int			state;
 	unsigned int		loc_wnd;
