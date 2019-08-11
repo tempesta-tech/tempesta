@@ -76,7 +76,7 @@ ttls_mpi_free(ttls_mpi *X)
 		return;
 
 	if (X->p) {
-		memset(X->p, 0, X->n);
+		memset(X->p, 0, X->n * ciL);
 		kfree(X->p);
 	}
 
@@ -103,7 +103,7 @@ int ttls_mpi_grow(ttls_mpi *X, size_t nblimbs)
 		if (X->p != NULL)
 		{
 			memcpy(p, X->p, X->n * ciL);
-			memset(X->p, 0, X->n);
+			memset(X->p, 0, X->n * ciL);
 			ttls_free(X->p);
 		}
 
@@ -141,7 +141,7 @@ int ttls_mpi_shrink(ttls_mpi *X, size_t nblimbs)
 	if (X->p != NULL)
 	{
 		memcpy(p, X->p, i * ciL);
-		memset(X->p, 0, X->n);
+		memset(X->p, 0, X->n * ciL);
 		ttls_free(X->p);
 	}
 
