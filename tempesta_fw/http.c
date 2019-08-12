@@ -2565,7 +2565,7 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 	TfwHttpReq *req = resp->req;
 
 	if (tfw_connection_send(req->conn, (TfwMsg *)resp)) {
-		T_DBG("%s: cannot send data to client via HTTP/2\n");
+		T_DBG("%s: cannot send data to client via HTTP/2\n", __func__);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		tfw_connection_close(req->conn, true);
 	}
