@@ -125,8 +125,8 @@ __range_grow_right(TfwPcntRanges *rng, TfwPcntCtl *pc, int r)
 	++pc->order;
 	pc->end = pc->begin + TFW_STATS_RSPAN(pc->order);
 
-	TFW_DBG3("  -- extend right bound of range %d to begin=%u order=%u"
-		 " end=%u\n", r, pc->begin, pc->order, pc->end);
+	T_DBG3("  -- extend right bound of range %d to begin=%u order=%u"
+	       " end=%u\n", r, pc->begin, pc->order, pc->end);
 
 	/* Coalesce counters to buckets on the left half of the range. */
 	for (i = 0; i < TFW_STATS_BCKTS / 2; ++i)
@@ -142,8 +142,8 @@ __range_shrink_left(TfwPcntRanges *rng, TfwPcntCtl *pc, int r)
 	--pc->order;
 	pc->begin = pc->end - TFW_STATS_RSPAN(pc->order);
 
-	TFW_DBG3("  -- shrink left bound of range %d to begin=%u order=%u"
-		 " end=%u\n", r, pc->begin, pc->order, pc->end);
+	T_DBG3("  -- shrink left bound of range %d to begin=%u order=%u"
+	       " end=%u\n", r, pc->begin, pc->order, pc->end);
 	/*
 	 * Write sum of the left half counters to the first bucket and equally
 	 * split counters of the right half among the rest of the buckets.
@@ -197,8 +197,8 @@ tfw_stats_extend(TfwPcntRanges *rng, unsigned int r_time)
 
 	pc->order = order;
 
-	TFW_DBG3("  -- extend last range to begin=%u order=%u end=%u\n",
-		 pc->begin, pc->order, pc->end);
+	T_DBG3("  -- extend last range to begin=%u order=%u end=%u\n",
+	       pc->begin, pc->order, pc->end);
 
 	/*
 	 * Coalesce counters to buckets on the left side of the range.
@@ -265,8 +265,8 @@ tfw_stats_adjust(TfwPcntRanges *rng, int r)
 	if (likely(max <= sum * 2 / cnt))
 		return;
 
-	TFW_DBG3("  -- range %d has an outlier %lu (avg=%lu total=%lu) at"
-		 " bucket %lu\n", r, max, sum / cnt, sum, i_max);
+	T_DBG3("  -- range %d has an outlier %lu (avg=%lu total=%lu) at"
+	       " bucket %lu\n", r, max, sum / cnt, sum, i_max);
 
 	/*
 	 * If too many hits fall in the gap between r'th and (r - 1)'th
@@ -848,8 +848,8 @@ tfw_apm_rbctl_update(TfwApmData *data)
 		rbctl->total_cnt = total_cnt;
 		rbctl->jtmwstamp = jtmwstart;
 
-		TFW_DBG3("%s: New time window: centry [%d] total_cnt [%lu]\n",
-			 __func__, centry, rbctl->total_cnt);
+		T_DBG3("%s: New time window: centry [%d] total_cnt [%lu]\n",
+		       __func__, centry, rbctl->total_cnt);
 
 		return true;
 	}
@@ -869,8 +869,8 @@ tfw_apm_rbctl_update(TfwApmData *data)
 	rbctl->total_cnt += entry_cnt - rbctl->entry_cnt;
 	rbctl->entry_cnt = entry_cnt;
 
-	TFW_DBG3("%s: Old time window: centry [%d] total_cnt [%lu]\n",
-		 __func__, centry, rbctl->total_cnt);
+	T_DBG3("%s: Old time window: centry [%d] total_cnt [%lu]\n",
+	       __func__, centry, rbctl->total_cnt);
 
 	return true;
 }
@@ -897,7 +897,7 @@ tfw_apm_calc(TfwApmData *data)
 		return;
 	tfw_apm_prnctl_calc(&data->rbuf, &data->rbctl, &pstats);
 
-	TFW_DBG3("%s: Percentile values may have changed.\n", __func__);
+	T_DBG3("%s: Percentile values may have changed.\n", __func__);
 	write_lock(&asent->rwlock);
 	memcpy_fast(asent->pstats.val, pstats.val,
 		    asent->pstats.psz * sizeof(asent->pstats.val[0]));
@@ -1102,7 +1102,7 @@ tfw_apm_create(void)
 
 	might_sleep();
 	if (!tfw_apm_tmwscale) {
-		TFW_ERR("Late initialization of 'apm_stats' option\n");
+		T_ERR("Late initialization of 'apm_stats' option\n");
 		return NULL;
 	}
 
@@ -1245,8 +1245,8 @@ tfw_apm_hm_srv_alive(int status, TfwStr *body, void *apmref)
 
 	BUG_ON(!hm);
 	if (hm->codes && !test_bit(HTTP_CODE_BIT_NUM(status), hm->codes)) {
-		TFW_WARN_NL("Response for health monitor '%s': status"
-			 " '%d' mismatched\n", hm->name, status);
+		T_WARN_NL("Response for health monitor '%s': status '%d' "
+			  "mismatched\n", hm->name, status);
 		return false;
 	}
 
@@ -1270,8 +1270,8 @@ tfw_apm_hm_srv_alive(int status, TfwStr *body, void *apmref)
 
 	return true;
 crc_err:
-	TFW_WARN_NL("Response for health monitor '%s': crc32"
-		 " value '%u' mismatched (expected value:"
+	T_WARN_NL("Response for health monitor '%s': crc32"
+		  " value '%u' mismatched (expected value:"
 		 " '%u')\n", hm->name, crc32, hm->crc32);
 	return false;
 }
@@ -1445,16 +1445,15 @@ bool
 tfw_apm_check_hm(const char *name)
 {
 	if (!tfw_hm_codes_cnt) {
-		TFW_ERR_NL("No response codes specified for"
-			   " server's health monitoring\n");
+		T_ERR_NL("No response codes specified for server's health "
+			 "monitoring\n");
 		return false;
 	}
 
 	if (!strcasecmp(name, TFW_APM_HM_AUTO) || tfw_apm_get_hm(name))
 		return true;
 
-	TFW_ERR_NL("health monitor with name"
-		   " '%s' does not exist\n", name);
+	T_ERR_NL("health monitor with name '%s' does not exist\n", name);
 
 	return false;
 }
@@ -1466,7 +1465,7 @@ tfw_cfgop_apm_add_hm(const char *name)
 	BUG_ON(tfw_hm_entry);
 	tfw_hm_entry = kzalloc(sizeof(TfwApmHM) + size, GFP_KERNEL);
 	if (!tfw_hm_entry) {
-		TFW_ERR_NL("Can't allocate health check entry '%s'\n", name);
+		T_ERR_NL("Can't allocate health check entry '%s'\n", name);
 		return -ENOMEM;
 	}
 	INIT_LIST_HEAD(&tfw_hm_entry->list);
@@ -1486,8 +1485,8 @@ tfw_cfgop_apm_add_hm_req(const char *req_cstr, TfwApmHM *hm_entry)
 	hm_entry->req = (char *)__get_free_pages(GFP_KERNEL,
 						     get_order(size));
 	if (!hm_entry->req) {
-		TFW_ERR_NL("Can't allocate memory for health"
-			   " monitoring request\n");
+		T_ERR_NL("Can't allocate memory for health monitoring request"
+			 "\n");
 		return -ENOMEM;
 	}
 	memcpy(hm_entry->req, req_cstr, size);
@@ -1505,7 +1504,7 @@ tfw_cfgop_apm_add_hm_url(const char *url, TfwApmHM *hm_entry)
 	size = strlen(url);
 	mptr = kzalloc(size, GFP_KERNEL);
 	if (!mptr) {
-		TFW_ERR_NL("Can't allocate memory for '%s'\n", url);
+		T_ERR_NL("Can't allocate memory for '%s'\n", url);
 		return -ENOMEM;
 	}
 	memcpy(mptr, url, size);
@@ -1521,9 +1520,9 @@ tfw_cfgop_apm_alloc_hm_codes(TfwApmHM *hm_entry)
 	tfw_hm_entry->codes = kzalloc(BITS_TO_LONGS(512) * sizeof(long),
 				      GFP_KERNEL);
 	if (!tfw_hm_entry->codes) {
-		TFW_ERR_NL("Can't allocate memory for HTTP codes"
-			   " field for '%s' health check entry\n",
-			   tfw_hm_entry->name);
+		T_ERR_NL("Can't allocate memory for HTTP codes field for '%s' "
+			 "health check entry\n",
+			 tfw_hm_entry->name);
 		return -ENOMEM;
 	}
 	return 0;
@@ -1566,15 +1565,15 @@ tfw_apm_cfgend(void)
 	if ((tfw_apm_jtmwindow < TFW_APM_MIN_TMWINDOW)
 	    || (tfw_apm_jtmwindow > TFW_APM_MAX_TMWINDOW))
 	{
-		TFW_ERR_NL("apm_stats: window: value '%d' is out of limits.\n",
-			   tfw_apm_jtmwindow);
+		T_ERR_NL("apm_stats: window: value '%d' is out of limits.\n",
+			 tfw_apm_jtmwindow);
 		return -EINVAL;
 	}
 	if ((tfw_apm_tmwscale < TFW_APM_MIN_TMWSCALE)
 	    || (tfw_apm_tmwscale > TFW_APM_MAX_TMWSCALE))
 	{
-		TFW_ERR_NL("apm_stats: scale: value '%d' is out of limits.\n",
-			   tfw_apm_tmwscale);
+		T_ERR_NL("apm_stats: scale: value '%d' is out of limits.\n",
+			 tfw_apm_tmwscale);
 		return -EINVAL;
 	}
 
@@ -1587,8 +1586,8 @@ tfw_apm_cfgend(void)
 			    + !!(jtmwindow % tfw_apm_tmwscale);
 
 	if (tfw_apm_jtmintrvl < TFW_APM_MIN_TMINTRVL) {
-		TFW_ERR_NL("apm_stats window=%d scale=%d: scale is too long.\n",
-			   tfw_apm_jtmwindow, tfw_apm_tmwscale);
+		T_ERR_NL("apm_stats window=%d scale=%d: scale is too long.\n",
+			 tfw_apm_jtmwindow, tfw_apm_tmwscale);
 		return -EINVAL;
 	}
 	tfw_apm_jtmwindow = tfw_apm_jtmintrvl * tfw_apm_tmwscale;
@@ -1652,13 +1651,12 @@ tfw_cfgop_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	const char *key, *val;
 
 	if (ce->val_n) {
-		TFW_ERR_NL("%s: Arguments must be a key=value pair.\n",
-			   cs->name);
+		T_ERR_NL("%s: Arguments must be a key=value pair.\n", cs->name);
 		return -EINVAL;
 	}
 	if (!ce->attr_n) {
-		TFW_WARN_NL("%s: arguments missing, using default values.\n",
-			    cs->name);
+		T_WARN_NL("%s: arguments missing, using default values.\n",
+			  cs->name);
 		return 0;
 	}
 
@@ -1670,8 +1668,8 @@ tfw_cfgop_apm_stats(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			if ((r = tfw_cfg_parse_int(val, &tfw_apm_tmwscale)))
 				return r;
 		} else {
-			TFW_ERR_NL("%s: unsupported argument: '%s=%s'.\n",
-				   cs->name, key, val);
+			T_ERR_NL("%s: unsupported argument: '%s=%s'.\n",
+				 cs->name, key, val);
 			return -EINVAL;
 		}
 	}
@@ -1688,26 +1686,26 @@ tfw_cfgop_apm_server_failover(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (tfw_cfg_check_val_n(ce, 3))
 		return -EINVAL;
 	if (ce->attr_n) {
-		TFW_ERR_NL("Unexpected attributes\n");
+		T_ERR_NL("Unexpected attributes\n");
 		return -EINVAL;
 	}
 
 	if (tfw_cfgop_parse_http_status(ce->vals[0], &code)) {
-		TFW_ERR_NL("Unable to parse http code value: '%s'\n",
-			   ce->vals[0]);
+		T_ERR_NL("Unable to parse http code value: '%s'\n",
+			 ce->vals[0]);
 		return -EINVAL;
 	}
 	if (tfw_cfg_parse_int(ce->vals[1], &limit)) {
-		TFW_ERR_NL("Unable to parse http limit value: '%s'\n",
-			   ce->vals[1]);
+		T_ERR_NL("Unable to parse http limit value: '%s'\n",
+			 ce->vals[1]);
 		return -EINVAL;
 	}
 	if (tfw_cfg_check_range(limit, 1, USHRT_MAX))
 		return -EINVAL;
 
 	if (tfw_cfg_parse_int(ce->vals[2], &tframe)) {
-		TFW_ERR_NL("Unable to parse http tframe value: '%s'\n",
-			   ce->vals[2]);
+		T_ERR_NL("Unable to parse http tframe value: '%s'\n",
+			 ce->vals[2]);
 		return -EINVAL;
 	}
 	if (tfw_cfg_check_range(tframe, 1, USHRT_MAX))
@@ -1749,14 +1747,14 @@ tfw_cfgop_begin_apm_hm(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (tfw_cfg_check_val_n(ce, 1))
 		return -EINVAL;
 	if (ce->attr_n) {
-		TFW_ERR_NL("Unexpected attributes\n");
+		T_ERR_NL("Unexpected attributes\n");
 		return -EINVAL;
 	}
 
 	list_for_each_entry(hm, &tfw_hm_list, list) {
 		if (!strcasecmp(hm->name, ce->vals[0])) {
-			TFW_ERR_NL("Duplicate health check entry: '%s'\n",
-				   ce->vals[0]);
+			T_ERR_NL("Duplicate health check entry: '%s'\n",
+				 ce->vals[0]);
 			return -EINVAL;
 		}
 	}
@@ -1778,9 +1776,9 @@ tfw_cfgop_finish_apm_hm(TfwCfgSpec *cs)
 	BUG_ON(!tfw_hm_entry);
 	BUG_ON(list_empty(&tfw_hm_list));
 	if (!tfw_hm_entry->codes && !tfw_hm_entry->crc32) {
-		TFW_ERR_NL("At least one of 'resp_code' or 'resp_crc32'"
-			   " explicit (not 'auto') values must be"
-			   " configured for '%s'\n", cs->name);
+		T_ERR_NL("At least one of 'resp_code' or 'resp_crc32' explicit "
+			 "(not 'auto') values must be configured for '%s'\n",
+			 cs->name);
 		return -EINVAL;
 	}
 	tfw_hm_entry = NULL;
@@ -1816,11 +1814,11 @@ tfw_cfgop_apm_hm_resp_code(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	const char *val;
 
 	if (!ce->val_n) {
-		TFW_ERR_NL("No arguments found.\n");
+		T_ERR_NL("No arguments found.\n");
 		return -EINVAL;
 	}
 	if (ce->attr_n) {
-		TFW_ERR_NL("Unexpected attributes\n");
+		T_ERR_NL("Unexpected attributes\n");
 		return -EINVAL;
 	}
 
@@ -1831,8 +1829,8 @@ tfw_cfgop_apm_hm_resp_code(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		if (tfw_cfgop_parse_http_status(val, &code)
 		    || tfw_cfg_check_range(code, HTTP_CODE_MIN, HTTP_CODE_MAX))
 		{
-			TFW_ERR_NL("Unable to parse http code value: '%s'\n",
-				   val);
+			T_ERR_NL("Unable to parse http code value: '%s'\n",
+				 val);
 			kfree(tfw_hm_entry->codes);
 			return -EINVAL;
 		}
@@ -1856,7 +1854,7 @@ tfw_cfgop_apm_hm_resp_crc32(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	}
 
 	if (tfw_cfg_parse_uint(ce->vals[0], &crc32)) {
-		TFW_ERR_NL("Unable to parse crc32 value: '%s'\n", ce->vals[0]);
+		T_ERR_NL("Unable to parse crc32 value: '%s'\n", ce->vals[0]);
 		return -EINVAL;
 	}
 
@@ -1873,8 +1871,8 @@ tfw_cfgop_apm_hm_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (tfw_cfg_check_single_val(ce))
 		return -EINVAL;
 	if (tfw_cfg_parse_int(ce->vals[0], &timeout)) {
-		TFW_ERR_NL("Unable to parse http timeout value: '%s'\n",
-			   ce->vals[0]);
+		T_ERR_NL("Unable to parse http timeout value: '%s'\n",
+			 ce->vals[0]);
 		return -EINVAL;
 	}
 	if (tfw_cfg_check_range(timeout, 1, USHRT_MAX))

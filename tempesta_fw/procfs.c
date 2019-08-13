@@ -92,7 +92,7 @@ tfw_perfstat_seq_show(struct seq_file *seq, void *off)
 	SsStat *ss_stat = kmalloc(sizeof(SsStat) * num_online_cpus(),
 				  GFP_KERNEL);
 	if (!ss_stat)
-		TFW_WARN("Cannot allocate sync sockets statistics\n");
+		T_WARN("Cannot allocate sync sockets statistics\n");
 
 	memset(&stat, 0, sizeof(stat));
 	tfw_perfstat_collect(&stat);

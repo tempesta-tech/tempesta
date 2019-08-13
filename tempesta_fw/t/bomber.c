@@ -174,7 +174,7 @@ tfw_bmb_conn_recv(void *cdata, struct sk_buff *skb, unsigned int off)
 	if (verbose) {
 		unsigned int parsed = 0, chunks = 0;
 
-		TFW_LOG("Server response:\n------------------------------\n");
+		T_LOG("Server response:\n------------------------------\n");
 
 		ss_skb_process(skb, 0, 0, tfw_bmb_print_msg, NULL, &chunks,
 			       &parsed);
@@ -202,7 +202,7 @@ tfw_bmb_connect(TfwBmbTask *task, TfwBmbConn *conn)
 	ret = ss_sock_create(tfw_addr_sa_family(&bmb_server_address),
 	                     SOCK_STREAM, IPPROTO_TCP, &sk);
 	if (ret) {
-		TFW_ERR("Unable to create kernel socket (%d)\n", ret);
+		T_ERR("Unable to create kernel socket (%d)\n", ret);
 		return ret;
 	}
 
@@ -214,7 +214,7 @@ tfw_bmb_connect(TfwBmbTask *task, TfwBmbConn *conn)
 
 	ret = ss_connect(sk, &bmb_server_address, 0);
 	if (ret) {
-		TFW_ERR("Connect error on server socket sk %p (%d)\n", sk, ret);
+		T_ERR("Connect error on server socket sk %p (%d)\n", sk, ret);
 		ss_close(sk, 0);
 		conn->sk = NULL;
 		return ret;
@@ -233,7 +233,7 @@ tfw_bmb_release_sockets(TfwBmbTask *task)
 			/* The socket is dead or softirq is killing it. */
 			continue;
 		if (ss_close(task->conn[i].sk, SS_F_SYNC))
-			TFW_WARN("Cannot close %dth socket\n", i);
+			T_WARN("Cannot close %dth socket\n", i);
 	}
 }
 
@@ -247,14 +247,14 @@ tfw_bmb_msg_send(TfwBmbTask *task, int cn)
 
 	do {
 		if (++fz_tries > 10) {
-			TFW_ERR("Too many fuzzer tries to generate request\n");
+			T_ERR("Too many fuzzer tries to generate request\n");
 			return;
 		}
 
 		r = fuzz_gen(&task->ctx, task->buf, &task->buf[BUF_SIZE], 0, 1,
 			     FUZZ_REQ);
 		if (r < 0) {
-			TFW_ERR("Cannot generate HTTP request, r=%d\n", r);
+			T_ERR("Cannot generate HTTP request, r=%d\n", r);
 			return;
 		}
 		if (r == FUZZ_END)
@@ -271,13 +271,13 @@ tfw_bmb_msg_send(TfwBmbTask *task, int cn)
 	hmreq.msg.skb_head = NULL;
 
 	if (!tfw_http_msg_setup(&hmreq, &it, msg.len)) {
-		TFW_WARN("Cannot create HTTP request.\n");
+		T_WARN("Cannot create HTTP request.\n");
 		return;
 	}
 
 	if (verbose)
-		TFW_LOG("Send request:\n"
-			"------------------------------\n"
+		T_LOG("Send request:\n"
+		      "------------------------------\n"
 			"%s\n"
 			"------------------------------\n",
 			task->buf);
@@ -305,7 +305,7 @@ do_send_work(TfwBmbTask *task, int to_send)
 		}
 		if (prev_sent == sent) {
 			if (++dead_try == DEAD_TRIES) {
-				TFW_WARN("Dead sockets, sent %d\n", sent);
+				T_WARN("Dead sockets, sent %d\n", sent);
 				return;
 			} else {
 				schedule();
@@ -345,7 +345,7 @@ tfw_bmb_worker(void *data)
 			if (atomic_read(&task->conn_error) == attempt)
 				goto release_sockets;
 			if (jiffies > time_max) {
-				TFW_ERR("worker exceeded maximum wait time\n");
+				T_ERR("worker exceeded maximum wait time\n");
 				goto release_sockets;
 			}
 		} while (!kthread_should_stop());
@@ -461,10 +461,10 @@ tfw_bmb_init(void)
 	int r = 0;
 
 	if (tfw_addr_pton(&TFW_STR_FROM_CSTR(server), &bmb_server_address)) {
-		TFW_ERR("Unable to parse server's address: %s", server);
+		T_ERR("Unable to parse server's address: %s", server);
 		return -EINVAL;
 	}
-	TFW_LOG("Started bomber module, server's address is %s\n", server);
+	T_LOG("Started bomber module, server's address is %s\n", server);
 
 	if (tfw_bmb_alloc())
 		return -ENOMEM;
@@ -474,7 +474,7 @@ tfw_bmb_init(void)
 	for (i = 0; i < nthreads; i++) {
 		task = kthread_create(tfw_bmb_worker, bmb_tasks + i, "bomber");
 		if (IS_ERR_OR_NULL(task)) {
-			TFW_ERR("Unable to create worker\n");
+			T_ERR("Unable to create worker\n");
 			r = -EINVAL;
 			tfw_bmb_stop_threads();
 			goto out;

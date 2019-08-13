@@ -94,8 +94,8 @@ ss_skb_alloc_pages(size_t len)
 			return NULL;
 		}
 		skb_fill_page_desc(skb, i, page, 0, 0);
-		TFW_DBG3("Created new frag %d,%p for skb %p\n",
-			 i, page_address(page), skb);
+		T_DBG3("Created new frag %d,%p for skb %p\n",
+		       i, page_address(page), skb);
 	}
 
 	return skb;
@@ -434,8 +434,8 @@ __split_linear_data(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	int tail_len = (char *)skb_tail_pointer(skb) - pspt;
 	int tail_off = pspt - (char *)page_address(page);
 
-	TFW_DBG3("[%d]: %s: skb [%p] pspt [%p] len [%d] tail_len [%d]\n",
-		 smp_processor_id(), __func__, skb, pspt, len, tail_len);
+	T_DBG3("[%d]: %s: skb [%p] pspt [%p] len [%d] tail_len [%d]\n",
+	       smp_processor_id(), __func__, skb, pspt, len, tail_len);
 	BUG_ON(!skb->head_frag);
 	BUG_ON(tail_len <= 0);
 	BUG_ON(!(alloc | tail_len));
@@ -539,8 +539,8 @@ __split_pgfrag_add(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off
 	struct sk_buff *skb_dst, *skb_new;
 	skb_frag_t *frag_dst, *frag = &skb_shinfo(skb)->frags[i];
 
-	TFW_DBG3("[%d]: %s: skb [%p] i [%d] off [%d] len [%d] fragsize [%d]\n",
-		 smp_processor_id(), __func__,
+	T_DBG3("[%d]: %s: skb [%p] i [%d] off [%d] len [%d] fragsize [%d]\n",
+	       smp_processor_id(), __func__,
 		 skb, i, off, len, skb_frag_size(frag));
 
 	/*
@@ -624,12 +624,12 @@ __split_pgfrag_del(struct sk_buff *skb_head, struct sk_buff *skb, int i, int off
 	skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
 	struct skb_shared_info *si = skb_shinfo(skb);
 
-	TFW_DBG3("[%d]: %s: skb [%p] i [%d] off [%d] len [%d] fragsize [%d]\n",
-		 smp_processor_id(), __func__,
+	T_DBG3("[%d]: %s: skb [%p] i [%d] off [%d] len [%d] fragsize [%d]\n",
+	       smp_processor_id(), __func__,
 		 skb, i, off, len, skb_frag_size(frag));
 
 	if (unlikely(off + len > skb_frag_size(frag))) {
-		TFW_WARN("Attempt to delete too much\n");
+		T_WARN("Attempt to delete too much\n");
 		return -EFAULT;
 	}
 
@@ -737,11 +737,11 @@ __skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	unsigned int d_size;
 	struct skb_shared_info *si = skb_shinfo(skb);
 
-	TFW_DBG3("[%d]: %s: len=%d pspt=%pK skb=%pK head=%pK data=%pK tail=%pK"
-		 " end=%pK len=%u data_len=%u truesize=%u nr_frags=%u\n",
-		 smp_processor_id(), __func__, len, pspt, skb, skb->head,
-		 skb->data, skb_tail_pointer(skb), skb_end_pointer(skb),
-		 skb->len, skb->data_len, skb->truesize, si->nr_frags);
+	T_DBG3("[%d]: %s: len=%d pspt=%pK skb=%pK head=%pK data=%pK tail=%pK"
+	       " end=%pK len=%u data_len=%u truesize=%u nr_frags=%u\n",
+	       smp_processor_id(), __func__, len, pspt, skb, skb->head,
+	       skb->data, skb_tail_pointer(skb), skb_end_pointer(skb),
+	       skb->len, skb->data_len, skb->truesize, si->nr_frags);
 	BUG_ON(!len);
 
 	/*
@@ -814,12 +814,12 @@ append:
 	__it_next_data(skb, i + 1, it);
 
 done:
-	TFW_DBG3("[%d]: %s: out: res [%p], skb [%p]: head [%p] data [%p]"
-		 " tail [%p] end [%p] len [%u] data_len [%u]"
-		 " truesize [%u] nr_frags [%u]\n",
-		 smp_processor_id(), __func__, it->data, skb, skb->head,
-		 skb->data, skb_tail_pointer(skb), skb_end_pointer(skb),
-		 skb->len, skb->data_len, skb->truesize, si->nr_frags);
+	T_DBG3("[%d]: %s: out: res [%p], skb [%p]: head [%p] data [%p]"
+	       " tail [%p] end [%p] len [%u] data_len [%u]"
+	       " truesize [%u] nr_frags [%u]\n",
+	       smp_processor_id(), __func__, it->data, skb, skb->head,
+	       skb->data, skb_tail_pointer(skb), skb_end_pointer(skb),
+	       skb->len, skb->data_len, skb->truesize, si->nr_frags);
 
 	if (ret < 0)
 		return ret;
@@ -836,7 +836,7 @@ skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	     int len, TfwStr *it)
 {
 	if (unlikely(abs(len) > PAGE_SIZE)) {
-		TFW_WARN("Attempt to add or delete too much data: %u\n", len);
+		T_WARN("Attempt to add or delete too much data: %u\n", len);
 		return -EINVAL;
 	}
 	/* skbs with skb fragments are not expected. */
@@ -918,10 +918,10 @@ ss_skb_chop_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
 	skb_frag_t *frag;
 	TfwStr it;
 
-	TFW_DBG3("%s: head=%#lx trail=%#lx skb=%pK (head=%pK data=%pK tail=%pK"
-		 " end=%pK len=%u data_len=%u nr_frags=%u)\n", __func__,
-		 head, trail, skb, skb->head, skb->data, skb_tail_pointer(skb),
-		 skb_end_pointer(skb), skb->len, skb->data_len, si->nr_frags);
+	T_DBG3("%s: head=%#lx trail=%#lx skb=%pK (head=%pK data=%pK tail=%pK"
+	       " end=%pK len=%u data_len=%u nr_frags=%u)\n", __func__,
+	       head, trail, skb, skb->head, skb->data, skb_tail_pointer(skb),
+	       skb_end_pointer(skb), skb->len, skb->data_len, si->nr_frags);
 	if (WARN_ON_ONCE(skb->len <= head + trail))
 		return -EINVAL;
 
@@ -995,7 +995,7 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *str, int skip,
 		bzero_fast(&it, sizeof(TfwStr));
 		r = skb_fragment(skb_head, t_skb, t_ptr, -tail, &it);
 		if (r < 0) {
-			TFW_WARN("Cannot delete tail\n");
+			T_WARN("Cannot delete tail\n");
 			return r;
 		}
 		BUG_ON(r > tail);
@@ -1374,23 +1374,23 @@ ss_skb_dump(struct sk_buff *skb)
 	struct sk_buff *f_skb;
 	struct skb_shared_info *si = skb_shinfo(skb);
 
-	TFW_LOG_NL("SKB (%p) DUMP: len=%u data_len=%u truesize=%u users=%u\n",
-		   skb, skb->len, skb->data_len, skb->truesize,
-		   refcount_read(&skb->users));
-	TFW_LOG_NL("  head=%p data=%p tail=%x end=%x\n",
-		   skb->head, skb->data, skb->tail, skb->end);
-	TFW_LOG_NL("  nr_frags=%u frag_list=%p next=%p prev=%p\n",
-		   si->nr_frags, skb_shinfo(skb)->frag_list,
-		   skb->next, skb->prev);
-	TFW_LOG_NL("  head data (%u):\n", skb_headlen(skb));
+	T_LOG_NL("SKB (%p) DUMP: len=%u data_len=%u truesize=%u users=%u\n",
+		 skb, skb->len, skb->data_len, skb->truesize,
+		 refcount_read(&skb->users));
+	T_LOG_NL("  head=%p data=%p tail=%x end=%x\n",
+		 skb->head, skb->data, skb->tail, skb->end);
+	T_LOG_NL("  nr_frags=%u frag_list=%p next=%p prev=%p\n",
+		 si->nr_frags, skb_shinfo(skb)->frag_list,
+		 skb->next, skb->prev);
+	T_LOG_NL("  head data (%u):\n", skb_headlen(skb));
 	print_hex_dump(KERN_INFO, "    ", DUMP_PREFIX_OFFSET, 16, 1,
 		       skb->data, skb_headlen(skb), true);
 
 	for (i = 0; i < si->nr_frags; ++i) {
 		const skb_frag_t *f = &si->frags[i];
-		TFW_LOG_NL("  frag %d (addr=%p pg_off=%u size=%u pg_ref=%d):\n",
-			   i, skb_frag_address(f), f->page_offset,
-			   skb_frag_size(f), page_ref_count(skb_frag_page(f)));
+		T_LOG_NL("  frag %d (addr=%p pg_off=%u size=%u pg_ref=%d):\n",
+			 i, skb_frag_address(f), f->page_offset,
+			 skb_frag_size(f), page_ref_count(skb_frag_page(f)));
 		print_hex_dump(KERN_INFO, "    ", DUMP_PREFIX_OFFSET, 16, 1,
 			       skb_frag_address(f), skb_frag_size(f), true);
 	}

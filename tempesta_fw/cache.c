@@ -673,7 +673,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 
 	return;
 err_setup:
-	TFW_WARN("Can't build 304 response, key=%lx\n", ce->key);
+	T_WARN("Can't build 304 response, key=%lx\n", ce->key);
 	tfw_http_msg_free((TfwHttpMsg *)resp);
 err_create:
 	tfw_http_resp_build_error(req);
@@ -877,10 +877,10 @@ __tfw_cache_strcpy(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len,
 			room = (*trec)->len;
 		}
 
-		TFW_DBG3("Cache: copy [%.*s](%lu) to rec=%p(len=%u, next=%u),"
-			 " p=%p tot_len=%lu room=%d copied=%ld\n",
-			 PR_TFW_STR(src), src->len, *trec, (*trec)->len,
-			 (*trec)->chunk_next, *p, tot_len, room, copied);
+		T_DBG3("Cache: copy [%.*s](%lu) to rec=%p(len=%u, next=%u),"
+		       " p=%p tot_len=%lu room=%d copied=%ld\n",
+		       PR_TFW_STR(src), src->len, *trec, (*trec)->len,
+		       (*trec)->chunk_next, *p, tot_len, room, copied);
 
 		room = min((unsigned long)room, src->len - copied);
 		cpy(*p, src->data + copied, room);
@@ -936,7 +936,7 @@ tfw_cache_strcpy_eol(char **p, TdbVRec **trec,
 
 	TFW_STR_FOR_EACH_CHUNK(c, src, end) {
 		if ((n = tfw_cache_strcpy(p, trec, c, *tot_len)) < 0) {
-			TFW_ERR("Cache: cannot copy chunk of string\n");
+			T_ERR("Cache: cannot copy chunk of string\n");
 			return -ENOMEM;
 		}
 		*tot_len -= n;
@@ -966,8 +966,8 @@ tfw_cache_copy_hdr(char **p, TdbVRec **trec, TfwStr *src, size_t *tot_len)
 	TfwStr *dup, *dup_end;
 
 	if (unlikely(src->len >= TFW_CSTR_MAXLEN)) {
-		TFW_WARN("Cache: trying to store too big string %lx\n",
-			 src->len);
+		T_WARN("Cache: trying to store too big string %lx\n",
+		       src->len);
 		return -E2BIG;
 	}
 	/* Don't split short strings. */
@@ -983,7 +983,7 @@ tfw_cache_copy_hdr(char **p, TdbVRec **trec, TfwStr *src, size_t *tot_len)
 
 	*p = tdb_entry_get_room(node_db(), trec, *p, n, *tot_len);
 	if (!*p) {
-		TFW_WARN("Cache: cannot allocate TDB space\n");
+		T_WARN("Cache: cannot allocate TDB space\n");
 		return -ENOMEM;
 	}
 
@@ -1165,7 +1165,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, size_t tot_len)
 	ce->key_len = 0;
 	TFW_CACHE_REQ_KEYITER(field, req, end1, h, end2) {
 		if ((n = tfw_cache_strcpy_lc(&p, &trec, field, tot_len)) < 0) {
-			TFW_ERR("Cache: cannot copy request key\n");
+			T_ERR("Cache: cannot copy request key\n");
 			return -ENOMEM;
 		}
 		BUG_ON(n > tot_len);
@@ -1177,7 +1177,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, size_t tot_len)
 
 	ce->status = TDB_OFF(db->hdr, p);
 	if ((n = tfw_cache_strcpy_eol(&p, &trec, &resp->s_line, &tot_len, 1)) < 0) {
-		TFW_ERR("Cache: cannot copy HTTP status line\n");
+		T_ERR("Cache: cannot copy HTTP status line\n");
 		return -ENOMEM;
 	}
 	ce->status_len += n;
@@ -1207,7 +1207,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, size_t tot_len)
 
 		n = tfw_cache_copy_hdr(&p, &trec, h, &tot_len);
 		if (n < 0) {
-			TFW_ERR("Cache: cannot copy HTTP header\n");
+			T_ERR("Cache: cannot copy HTTP header\n");
 			return -ENOMEM;
 		} else if (hdr_304) {
 			ce->hdr_len_304 += n;
@@ -1220,7 +1220,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, size_t tot_len)
 	n = tfw_cache_strcpy_eol(&p, &trec, &resp->body, &tot_len,
 				 test_bit(TFW_HTTP_B_CHUNKED, resp->flags));
 	if (n < 0) {
-		TFW_ERR("Cache: cannot copy HTTP body\n");
+		T_ERR("Cache: cannot copy HTTP body\n");
 		return -ENOMEM;
 	}
 	BUG_ON(tot_len != 0);
@@ -1240,7 +1240,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, size_t tot_len)
 	ce->resp_status = resp->status;
 
 	if ((r = __set_etag(ce, resp, etag_off, etag_trec, p, &trec))) {
-		TFW_ERR("Cache: cannot copy entity-tag\n");
+		T_ERR("Cache: cannot copy entity-tag\n");
 		return r;
 	}
 
@@ -1260,12 +1260,12 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, size_t tot_len)
 		ce->hdrs_304[i] = TDB_OFF(db->hdr, p);
 	}
 
-	TFW_DBG("Cache copied msg: content-length=%lu msg_len=%lu, ce=%p"
-		" (len=%u key_len=%u status_len=%u hdr_num=%u hdr_len=%u"
-		" key_off=%ld status_off=%ld hdrs_off=%ld body_off=%ld)\n",
-		resp->content_length, resp->msg.len, ce, ce->trec.len,
-		ce->key_len, ce->status_len, ce->hdr_num, ce->hdr_len,
-		ce->key, ce->status, ce->hdrs, ce->body);
+	T_DBG("Cache copied msg: content-length=%lu msg_len=%lu, ce=%p"
+	      " (len=%u key_len=%u status_len=%u hdr_num=%u hdr_len=%u"
+	      " key_off=%ld status_off=%ld hdrs_off=%ld body_off=%ld)\n",
+	      resp->content_length, resp->msg.len, ce, ce->trec.len,
+	      ce->key_len, ce->status_len, ce->hdr_num, ce->hdr_len,
+	      ce->key, ce->status, ce->hdrs, ce->body);
 
 	return 0;
 }
@@ -1333,8 +1333,8 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 	if (!ce)
 		return;
 
-	TFW_DBG3("cache db=%p resp=%p/req=%p/ce=%p: alloc_len=%lu\n",
-		 db, resp, resp->req, ce, len);
+	T_DBG3("cache db=%p resp=%p/req=%p/ce=%p: alloc_len=%lu\n",
+	       db, resp, resp->req, ce, len);
 
 	if (tfw_cache_copy_resp(ce, resp, data_len)) {
 		/* TODO delete the probably partially built TDB entry. */
@@ -1575,8 +1575,8 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce)
 	     trec = tdb_next_rec_chunk(db, trec))
 		;
 	if (unlikely(!trec)) {
-		TFW_WARN("Huh, partially stored cache entry (key=%lx)?\n",
-			 ce->key);
+		T_WARN("Huh, partially stored cache entry (key=%lx)?\n",
+		       ce->key);
 		goto err;
 	}
 
@@ -1605,7 +1605,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce)
 
 	return resp;
 err:
-	TFW_WARN("Cannot use cached response, key=%lx\n", ce->key);
+	T_WARN("Cannot use cached response, key=%lx\n", ce->key);
 free:
 	tfw_http_msg_free((TfwHttpMsg *)resp);
 	return NULL;
@@ -1640,8 +1640,8 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	if (!(lifetime = tfw_cache_entry_is_live(req, ce)))
 		goto out;
 
-	TFW_DBG("Cache: service request w/ key=%lx, ce=%p (len=%u key_len=%u"
-		" status_len=%u hdr_num=%u hdr_len=%u key_off=%ld"
+	T_DBG("Cache: service request w/ key=%lx, ce=%p (len=%u key_len=%u"
+	      " status_len=%u hdr_num=%u hdr_len=%u key_off=%ld"
 		" status_off=%ld hdrs_off=%ld body_off=%ld)\n",
 		ce->trec.key, ce, ce->trec.len, ce->key_len, ce->status_len,
 		ce->hdr_num, ce->hdr_len, ce->key, ce->status, ce->hdrs,
@@ -1659,8 +1659,8 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	 * validation, a cache MUST generate an Age header field.
 	 */
 	if (tfw_cache_set_hdr_age((TfwHttpMsg *)resp, ce)) {
-		TFW_WARN("Unable to add Age: header, cached"
-			 " response [%p] dropped\n", resp);
+		T_WARN("Unable to add Age: header, cached response [%p] "
+		       "dropped\n", resp);
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 		tfw_http_msg_free((TfwHttpMsg *)resp);
 		resp = NULL;
@@ -1753,12 +1753,12 @@ do_cache:
 	cpu = tfw_cache_sched_cpu(req);
 	ct = per_cpu_ptr(&cache_wq, cpu);
 
-	TFW_DBG2("Cache: schedule tasklet w/ work: to_cpu=%d from_cpu=%d"
-		 " msg=%p key=%lx\n", cpu, smp_processor_id(),
-		 cw.msg, key);
+	T_DBG2("Cache: schedule tasklet w/ work: to_cpu=%d from_cpu=%d"
+	       " msg=%p key=%lx\n", cpu, smp_processor_id(),
+	       cw.msg, key);
 	if (tfw_wq_push(&ct->wq, &cw, cpu, &ct->ipi_work, tfw_cache_ipi)) {
-		TFW_WARN("Cache work queue overrun: [%s]\n",
-			 resp ? "response" : "request");
+		T_WARN("Cache work queue overrun: [%s]\n",
+		       resp ? "response" : "request");
 		return -EBUSY;
 	}
 	return 0;
@@ -1831,7 +1831,7 @@ tfw_cache_start(void)
 	cache_mgr_thr = kthread_run(tfw_cache_mgr, NULL, "tfw_cache_mgr");
 	if (IS_ERR(cache_mgr_thr)) {
 		r = PTR_ERR(cache_mgr_thr);
-		TFW_ERR_NL("Can't start cache manager, %d\n", r);
+		T_ERR_NL("Can't start cache manager, %d\n", r);
 		goto close_db;
 	}
 #endif
@@ -1908,18 +1908,18 @@ tfw_cfgop_cache_methods(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		if (tfw_cfg_map_enum(cache_http_methods_enum, val, &method)) {
-			TFW_ERR_NL("%s: unsupported method: '%s'\n",
+			T_ERR_NL("%s: unsupported method: '%s'\n",
 				   cs->name, val);
 			return -EINVAL;
 		}
 		if (__cache_method_nc_test(method)) {
-			TFW_WARN_NL("%s: non-cacheable method '%s' is set "
-				    "as cacheable\n",
-				   cs->name, val);
+			T_WARN_NL("%s: non-cacheable method '%s' is set "
+				  "as cacheable\n",
+				  cs->name, val);
 		}
 		if (__cache_method_test(method)) {
-			TFW_WARN_NL("%s: duplicate method: '%s'\n",
-				    cs->name, val);
+			T_WARN_NL("%s: duplicate method: '%s'\n",
+				  cs->name, val);
 			continue;
 		}
 		__cache_method_add(method);

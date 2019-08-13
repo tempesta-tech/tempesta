@@ -57,7 +57,7 @@ tfw_sock_cli_keepalive_timer_cb(unsigned long data)
 {
 	TfwCliConn *cli_conn = (TfwCliConn *)data;
 
-	TFW_DBG("Client timeout end\n");
+	T_DBG("Client timeout end\n");
 
 	/*
 	 * Close the socket (and the connection) asynchronously to avoid
@@ -134,7 +134,7 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 
 	if (r)
 		/* Quite usual on system shutdown. */
-		TFW_DBG("Cannot send data to client (%d)\n", r);
+		T_DBG("Cannot send data to client (%d)\n", r);
 
 	return r;
 }
@@ -151,7 +151,7 @@ tfw_sock_clnt_new(struct sock *sk)
 	SsProto *listen_sock_proto;
 	TfwAddr addr;
 
-	TFW_DBG3("new client socket: sk=%p, state=%u\n", sk, sk->sk_state);
+	T_DBG3("new client socket: sk=%p, state=%u\n", sk, sk->sk_state);
 	TFW_INC_STAT_BH(clnt.conn_attempts);
 
 	/*
@@ -166,13 +166,13 @@ tfw_sock_clnt_new(struct sock *sk)
 	ss_getpeername(sk, &addr);
 	cli = tfw_client_obtain(addr, NULL, NULL, NULL);
 	if (!cli) {
-		TFW_ERR("can't obtain a client for the new socket\n");
+		T_ERR("can't obtain a client for the new socket\n");
 		return -ENOENT;
 	}
 
 	conn = (TfwConn *)tfw_cli_conn_alloc(listen_sock_proto->type);
 	if (!conn) {
-		TFW_ERR("can't allocate a new client connection\n");
+		T_ERR("can't allocate a new client connection\n");
 		goto err_client;
 	}
 
@@ -182,7 +182,7 @@ tfw_sock_clnt_new(struct sock *sk)
 
 	r = tfw_connection_new(conn);
 	if (r) {
-		TFW_ERR("cannot establish a new client connection\n");
+		T_ERR("cannot establish a new client connection\n");
 		goto err_conn;
 	}
 
@@ -210,8 +210,8 @@ tfw_sock_clnt_new(struct sock *sk)
 		  jiffies +
 		  msecs_to_jiffies((long)tfw_cli_cfg_ka_timeout * 1000));
 
-	TFW_DBG3("new client socket is accepted: sk=%p, conn=%p, cli=%p\n",
-		 sk, conn, cli);
+	T_DBG3("new client socket is accepted: sk=%p, conn=%p, cli=%p\n",
+	       sk, conn, cli);
 	TFW_INC_STAT_BH(clnt.conn_established);
 	return 0;
 
@@ -231,8 +231,8 @@ tfw_sock_clnt_do_drop(struct sock *sk, const char *msg)
 {
 	TfwConn *conn = sk->sk_user_data;
 
-	TFW_DBG3("%s: close client socket: sk=%p, conn=%p, client=%p\n",
-		 msg, sk, conn, conn->peer);
+	T_DBG3("%s: close client socket: sk=%p, conn=%p, client=%p\n",
+	       msg, sk, conn, conn->peer);
 	/*
 	 * Withdraw from socket activity. Connection is now closed,
 	 * and Tempesta is not called anymore on events in the socket.
@@ -375,8 +375,8 @@ tfw_listen_sock_add(const TfwAddr *addr, int type)
 	/* Is there such an address on the list already? */
 	list_for_each_entry(ls, &tfw_listen_socks, list) {
 		if (tfw_addr_eq(addr, &ls->addr)) {
-			TFW_LOG_ADDR("Duplicate listener with", addr,
-			             TFW_WITH_PORT);
+			T_LOG_ADDR("Duplicate listener with", addr,
+				   TFW_WITH_PORT);
 			return -EINVAL;
 		}
 	}
@@ -424,12 +424,12 @@ tfw_listen_sock_start(TfwListenSock *ls)
 	struct sock *sk;
 	TfwAddr *addr = &ls->addr;
 
-	TFW_LOG_ADDR("Open listen socket on", addr, TFW_WITH_PORT);
+	T_LOG_ADDR("Open listen socket on", addr, TFW_WITH_PORT);
 
 	r = ss_sock_create(tfw_addr_sa_family(addr), SOCK_STREAM, IPPROTO_TCP,
 	                   &sk);
 	if (r) {
-		TFW_ERR_NL("can't create listening socket (err: %d)\n", r);
+		T_ERR_NL("can't create listening socket (err: %d)\n", r);
 		return r;
 	}
 
@@ -450,15 +450,15 @@ tfw_listen_sock_start(TfwListenSock *ls)
 	sk->sk_reuse = 1;
 	r = ss_bind(sk, addr);
 	if (r) {
-		TFW_ERR_ADDR("can't bind to", addr, TFW_WITH_PORT);
+		T_ERR_ADDR("can't bind to", addr, TFW_WITH_PORT);
 		goto err;
 	}
 
-	TFW_DBG("start listening on socket: sk=%p\n", sk);
+	T_DBG("start listening on socket: sk=%p\n", sk);
 	r = ss_listen(sk, TFW_LISTEN_SOCK_BACKLOG_LEN);
 	if (r) {
-		TFW_ERR_NL("can't listen on front-end socket sk=%p (%d)\n",
-			   sk, r);
+		T_ERR_NL("can't listen on front-end socket sk=%p (%d)\n",
+			 sk, r);
 		goto err;
 	}
 
@@ -475,9 +475,9 @@ tfw_sock_check_lst(TfwServer *srv)
 {
 	TfwListenSock *ls;
 
-	TFW_DBG3("Checking server....\n");
+	T_DBG3("Checking server....\n");
 	list_for_each_entry(ls, &tfw_listen_socks, list) {
-		TFW_DBG3("Iterating listener\n");
+		T_DBG3("Iterating listener\n");
 		if (tfw_addr_ifmatch(&srv->addr, &ls->addr))
 			return -EINVAL;
 	}
@@ -543,8 +543,8 @@ tfw_cfgop_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	}
 
 parse_err:
-	TFW_ERR_NL("Unable to parse 'listen' value: '%s'\n",
-		   in_str ? in_str : "Invalid directive format");
+	T_ERR_NL("Unable to parse 'listen' value: '%s'\n",
+		 in_str ? in_str : "Invalid directive format");
 	return -EINVAL;
 }
 
@@ -557,14 +557,14 @@ tfw_cfgop_keepalive_timeout(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 
 	if ((r = tfw_cfg_parse_int(ce->vals[0], &tfw_cli_cfg_ka_timeout))) {
-		TFW_ERR_NL("Unable to parse 'keepalive_timeout' value: '%s'\n",
-			   ce->vals[0] ? : "No value specified");
+		T_ERR_NL("Unable to parse 'keepalive_timeout' value: '%s'\n",
+			 ce->vals[0] ? : "No value specified");
 		return -EINVAL;
 	}
 
 	if (tfw_cli_cfg_ka_timeout < 0) {
-		TFW_ERR_NL("Unable to parse 'keepalive_timeout' value: '%s'\n",
-			   "Value less the zero");
+		T_ERR_NL("Unable to parse 'keepalive_timeout' value: '%s'\n",
+			 "Value less the zero");
 		return -EINVAL;
 	}
 
@@ -584,9 +584,9 @@ tfw_sock_clnt_cfgend(void)
 {
 	int r;
 
-	TFW_DBG("Checking backends and listeners\n");
+	T_DBG("Checking backends and listeners\n");
 	if ((r = tfw_sg_for_each_srv_reconfig(tfw_sock_check_lst))) {
-		TFW_ERR_NL("One of the backends is Tempesta itself!"
+		T_ERR_NL("One of the backends is Tempesta itself!"
 			   " Please, fix the configuration.\n");
 		return r;
 	}
@@ -609,8 +609,8 @@ tfw_sock_clnt_start(void)
 
 	list_for_each_entry(ls, &tfw_listen_socks, list) {
 		if ((r = tfw_listen_sock_start(ls))) {
-			TFW_ERR_ADDR("can't start listening on", &ls->addr,
-			             TFW_WITH_PORT);
+			T_ERR_ADDR("can't start listening on", &ls->addr,
+				   TFW_WITH_PORT);
 			goto err;
 		}
 	}
