@@ -406,8 +406,8 @@ __add_field(TfwFuzzContext *ctx, int type, char **p, char *end, int t, int n)
 			r = fmsg.flags;
 
 		if (r & FUZZ_MSG_F_INVAL) {
-			TFW_DBG("generate invalid field %d for header %d\n",
-				 n, t);
+			T_DBG("generate invalid field %d for header %d\n",
+			      n, t);
 			r |= FUZZ_INVALID;
 		}
 
@@ -437,8 +437,8 @@ __add_field(TfwFuzzContext *ctx, int type, char **p, char *end, int t, int n)
 		}
 
 		if (r == FUZZ_INVALID)
-			TFW_DBG("generate invalid random field for header %d\n",
-				t);
+			T_DBG("generate invalid random field for header %d\n",
+			      t);
 
 		return r;
 	}
@@ -473,7 +473,7 @@ __add_header(TfwFuzzContext *ctx, int type, char **p, char *end, int t, int n)
 	add_string(p, end, "\r\n");
 
 	if (v & FUZZ_INVALID)
-		TFW_DBG("generate invalid header %d\n", t);
+		T_DBG("generate invalid header %d\n", t);
 
 	ctx->hdr_flags |= 1 << t;
 
@@ -513,8 +513,8 @@ add_body(TfwFuzzContext *ctx, char **p, char *end, int type)
 
 	err = kstrtoul(len_str, 10, &len);
 	if (err) {
-		TFW_ERR("error %d on getting content length from \"%s\""
-			"(%lu)\n", err, len_str, i);
+		T_ERR("error %d on getting content length from \"%s\" (%lu)\n",
+		      err, len_str, i);
 		return FUZZ_INVALID;
 	}
 
@@ -522,7 +522,7 @@ add_body(TfwFuzzContext *ctx, char **p, char *end, int type)
 		if (!ctx->is_only_valid && len && !(i % INVALID_BODY_PERIOD)) {
 			len /= 2;
 			ret = FUZZ_INVALID;
-			TFW_DBG("1/2 invalid body %lu\n", len);
+			T_DBG("1/2 invalid body %lu\n", len);
 		}
 
 		add_rand_string(p, end, len, A_BODY);
@@ -555,8 +555,8 @@ add_body(TfwFuzzContext *ctx, char **p, char *end, int type)
 				{
 					step /= 2;
 					ret = FUZZ_INVALID;
-					TFW_DBG("1/2 invalid chunked body %lu,"
-						" chunks %d\n", len, chunks);
+					T_DBG("1/2 invalid chunked body %lu,"
+					      " chunks %d\n", len, chunks);
 				}
 
 				add_rand_string(p, end, step, A_BODY);
@@ -596,7 +596,7 @@ __add_duplicates(TfwFuzzContext *ctx, int type,
 	}
 
 	if (gen_vector[t].singular && i > 0) {
-		TFW_DBG("generate duplicate for singular header %d\n", t);
+		T_DBG("generate duplicate for singular header %d\n", t);
 		return FUZZ_INVALID;
 	}
 

@@ -377,7 +377,7 @@ int
 tfw_addr_ifmatch(const TfwAddr *server, const TfwAddr *listener)
 {
 	if (unlikely(server->sin6_family != AF_INET6)) {
-		TFW_ERR("Unexpected protocol family\n");
+		T_ERR("Unexpected protocol family\n");
 		BUG();
 		return 0;
 	}

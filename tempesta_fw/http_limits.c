@@ -238,7 +238,7 @@ typedef struct {
 					     TfwClient, class_prvt)
 
 #define frang_msg(check, addr, fmt, ...)				\
-	TFW_WARN_MOD_ADDR(frang, check, addr, TFW_NO_PORT, fmt, ##__VA_ARGS__)
+	T_WARN_MOD_ADDR(frang, check, addr, TFW_NO_PORT, fmt, ##__VA_ARGS__)
 
 /*
  * Client actions has triggered a security event. Log the client addr and

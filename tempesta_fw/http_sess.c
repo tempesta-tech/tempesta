@@ -350,19 +350,19 @@ tfw_http_sticky_get(TfwHttpReq *req, TfwStr *cookie_val)
 }
 
 #ifdef DEBUG
-#define TFW_DBG_PRINT_STICKY_COOKIE(addr, ua, sv)			\
+#define T_DBG_PRINT_STICKY_COOKIE(addr, ua, sv)				\
 do {									\
 	char abuf[TFW_ADDR_STR_BUF_SIZE] = {0};				\
 	char hbuf[STICKY_KEY_MAXLEN * 2] = {0};				\
 	tfw_addr_fmt(addr, TFW_NO_PORT, abuf);				\
 	bin2hex(hbuf, tfw_sticky_key, STICKY_KEY_MAXLEN);		\
-	TFW_DBG("http_sess: calculate sticky cookie for %s,"		\
-		" ts=%#lx(now=%#lx)...\n", abuf, (sv)->ts, jiffies);	\
-	TFW_DBG("\t...secret: %.*s\n", (int)STICKY_KEY_MAXLEN * 2, hbuf);\
+	T_DBG("http_sess: calculate sticky cookie for %s,"		\
+	      " ts=%#lx(now=%#lx)...\n", abuf, (sv)->ts, jiffies);	\
+	T_DBG("\t...secret: %.*s\n", (int)STICKY_KEY_MAXLEN * 2, hbuf);	\
 	tfw_str_dprint(ua, "\t...User-Agent");				\
 } while (0)
 #else
-#define TFW_DBG_PRINT_STICKY_COOKIE(addr, ua, sv)
+#define T_DBG_PRINT_STICKY_COOKIE(addr, ua, sv)
 #endif
 
 /*
@@ -392,7 +392,7 @@ __sticky_calc(TfwHttpReq *req, StickyVal *sv)
 	shash_desc->tfm = tfw_sticky_shash;
 	shash_desc->flags = 0;
 
-	TFW_DBG_PRINT_STICKY_COOKIE(addr, &ua_value, sv);
+	T_DBG_PRINT_STICKY_COOKIE(addr, &ua_value, sv);
 
 	if ((r = crypto_shash_init(shash_desc)))
 		return r;
@@ -450,13 +450,13 @@ tfw_http_sticky_add(TfwHttpResp *resp)
 	bin2hex(buf, &ts_be64, sizeof(ts_be64));
 	bin2hex(&buf[sizeof(ts_be64) * 2], sess->hmac, sizeof(sess->hmac));
 
-	TFW_DBG("%s: \"" S_F_SET_COOKIE "%.*s=%.*s\"\n", __func__,
-		PR_TFW_STR(&tfw_cfg_sticky.name), len, buf);
+	T_DBG("%s: \"" S_F_SET_COOKIE "%.*s=%.*s\"\n", __func__,
+	      PR_TFW_STR(&tfw_cfg_sticky.name), len, buf);
 
 	r = tfw_http_msg_hdr_add((TfwHttpMsg *)resp, &set_cookie);
 	if (r)
-		TFW_WARN("Cannot add \"" S_F_SET_COOKIE "%.*s=%.*s\"\n",
-			 PR_TFW_STR(&tfw_cfg_sticky.name), len, buf);
+		T_WARN("Cannot add \"" S_F_SET_COOKIE "%.*s=%.*s\"\n",
+		       PR_TFW_STR(&tfw_cfg_sticky.name), len, buf);
 	return r;
 }
 
@@ -477,8 +477,8 @@ __redir_hmac_calc(RedirMarkVal *mv)
 	shash_desc->tfm = tfw_sticky_shash;
 	shash_desc->flags = 0;
 
-	TFW_DBG("http_sess: calculate redirection mark: ts=%#lx(now=%#lx),"
-		" att_no=%#x\n", mv->ts, jiffies, mv->att_no);
+	T_DBG("http_sess: calculate redirection mark: ts=%#lx(now=%#lx),"
+	      " att_no=%#x\n", mv->ts, jiffies, mv->att_no);
 
 	if ((r = crypto_shash_init(shash_desc)))
 		return r;
@@ -512,7 +512,7 @@ tfw_http_redir_mark_get(TfwHttpReq *req, TfwStr *out_val)
 }
 
 #define sess_warn(check, addr, fmt, ...)				\
-	TFW_WARN_MOD_ADDR(http_sess, check, addr, TFW_NO_PORT, fmt,	\
+	T_WARN_MOD_ADDR(http_sess, check, addr, TFW_NO_PORT, fmt,	\
 	                  ##__VA_ARGS__)
 
 /* The set of macros for parsing hex strings of following format:
@@ -593,14 +593,14 @@ tfw_http_redir_mark_verify(TfwHttpReq *req, TfwStr *mark_val, RedirMarkVal *mv)
 	TfwAddr *addr = &req->conn->peer->addr;
 	TfwStr *c, *end;
 
-	TFW_DBG("Redirection mark found%s: \"%.*s\"\n",
-		TFW_STR_PLAIN(mark_val) ? "" : ", starts with",
-		TFW_STR_PLAIN(mark_val) ?
-			(int)mark_val->len :
-			(int)mark_val->chunks->len,
-		TFW_STR_PLAIN(mark_val) ?
-			mark_val->data :
-			mark_val->chunks->data);
+	T_DBG("Redirection mark found%s: \"%.*s\"\n",
+	      TFW_STR_PLAIN(mark_val) ? "" : ", starts with",
+	      TFW_STR_PLAIN(mark_val) ?
+		      (int)mark_val->len :
+		      (int)mark_val->chunks->len,
+	      TFW_STR_PLAIN(mark_val) ?
+		      mark_val->data :
+		      mark_val->chunks->data);
 
 	if (mark_val->len != sizeof(RedirMarkVal) * 2) {
 		sess_warn("bad length of redirection mark", addr,
@@ -710,14 +710,14 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 	TfwAddr *addr = &req->conn->peer->addr;
 	TfwStr *c, *end;
 
-	TFW_DBG("Sticky cookie found%s: \"%.*s\"\n",
-		TFW_STR_PLAIN(value) ? "" : ", starts with",
-		TFW_STR_PLAIN(value) ?
-			(int)value->len :
-			(int)value->chunks->len,
-		TFW_STR_PLAIN(value) ?
-			value->data :
-			value->chunks->data);
+	T_DBG("Sticky cookie found%s: \"%.*s\"\n",
+	      TFW_STR_PLAIN(value) ? "" : ", starts with",
+	      TFW_STR_PLAIN(value) ?
+		      (int)value->len :
+		      (int)value->chunks->len,
+	      TFW_STR_PLAIN(value) ?
+		      value->data :
+		      value->chunks->data);
 
 	if (value->len != sizeof(StickyVal) * 2) {
 		sess_warn("bad sticky cookie length", addr, ": %lu(%lu)\n",
@@ -779,7 +779,7 @@ tfw_http_sticky_req_process(TfwHttpReq *req, StickyVal *sv)
 		}
 		return TFW_HTTP_SESS_SUCCESS;
 	}
-	TFW_WARN("Multiple Tempesta sticky cookies found: %d\n", r);
+	T_WARN("Multiple Tempesta sticky cookies found: %d\n", r);
 
 	return TFW_HTTP_SESS_FAILURE;
 }
@@ -905,13 +905,13 @@ tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 		return 0;
 
 	if (tfw_http_sticky_redirect_applied(req)) {
-		TFW_DBG("sess: jsch block: request received outside allowed "
-			"time range.\n");
+		T_DBG("sess: jsch block: request received outside allowed "
+		      "time range.\n");
 		return TFW_HTTP_SESS_VIOLATE;
 	}
 	else {
-		TFW_DBG("sess: jsch drop: non-challegeable resource was "
-			"requested outside allowed time range.\n");
+		T_DBG("sess: jsch drop: non-challegeable resource was "
+		      "requested outside allowed time range.\n");
 		return TFW_HTTP_SESS_JS_NOT_SUPPORTED;
 	}
 }
@@ -1027,7 +1027,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	sess->vhost = NULL;
 	rwlock_init(&sess->lock);
 
-	TFW_DBG("new session %p\n", sess);
+	T_DBG("new session %p\n", sess);
 
 found:
 	atomic_inc(&sess->users);
@@ -1181,9 +1181,9 @@ tfw_http_sess_get_srv_conn(TfwMsg *msg)
 			 * session destructor (tfw_http_sess_put()).
 			 */
 			if (unlikely(test_bit(TFW_CFG_B_DEL, &srv->flags))) {
-				TFW_LOG("sticky sched: server %s"
-					" was removed, set session expired\n",
-					addr_str);
+				T_LOG("sticky sched: server %s"
+				      " was removed, set session expired\n",
+				      addr_str);
 				tfw_http_sess_set_expired(sess);
 				goto err;
 			}
@@ -1217,20 +1217,20 @@ tfw_cfgop_sticky(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		} else if (!strcasecmp(key, "max_misses")) {
 			if (tfw_cfg_parse_uint(val, &tfw_cfg_sticky.max_misses))
 			{
-				TFW_ERR_NL("%s: invalid value for 'max_misses'"
-					   " attribute: '%s'\n", cs->name, val);
+				T_ERR_NL("%s: invalid value for 'max_misses'"
+					 " attribute: '%s'\n", cs->name, val);
 				return -EINVAL;
 			}
 		} else if (!strcasecmp(key, "timeout")) {
 			if (tfw_cfg_parse_uint(val, &tfw_cfg_sticky.tmt_sec))
 			{
-				TFW_ERR_NL("%s: invalid value for 'timeout'"
-					   " attribute: '%s'\n", cs->name, val);
+				T_ERR_NL("%s: invalid value for 'timeout'"
+					 " attribute: '%s'\n", cs->name, val);
 				return -EINVAL;
 			}
 		} else {
-			TFW_ERR_NL("%s: unsupported argument: '%s=%s'.\n",
-				   cs->name, key, val);
+			T_ERR_NL("%s: unsupported argument: '%s=%s'.\n",
+				 cs->name, key, val);
 			return -EINVAL;
 		}
 	}
@@ -1247,20 +1247,20 @@ tfw_cfgop_sticky(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		if (!strcasecmp(val, "enforce")) {
 			tfw_cfg_sticky.enforce = 1;
 		} else {
-			TFW_ERR_NL("%s: unsupported argument: '%s'\n",
-				   cs->name, val);
+			T_ERR_NL("%s: unsupported argument: '%s'\n",
+				 cs->name, val);
 			return -EINVAL;
 		}
 	}
 
 	if (tfw_cfg_sticky.max_misses && !tfw_cfg_sticky.enforce) {
-		TFW_ERR_NL("%s: 'max_misses' can be enabled only in"
-			   " 'enforce' mode\n", cs->name);
+		T_ERR_NL("%s: 'max_misses' can be enabled only in 'enforce' "
+			 "mode\n", cs->name);
 		return -EINVAL;
 	}
 	if (tfw_cfg_sticky.tmt_sec && !tfw_cfg_sticky.max_misses) {
-		TFW_ERR_NL("%s: 'timeout' can be specified only with"
-			   " 'max_misses' attribute\n", cs->name);
+		T_ERR_NL("%s: 'timeout' can be specified only with"
+			 " 'max_misses' attribute\n", cs->name);
 		return -EINVAL;
 	}
 
@@ -1337,7 +1337,7 @@ tfw_cfgop_jsch_parse(TfwCfgSpec *cs, const char *key, const char *val,
 	int r;
 
 	if ((r = tfw_cfg_parse_uint(val, uint_val))) {
-		TFW_ERR_NL("%s: can't parse key '%s'\n", cs->name, key);
+		T_ERR_NL("%s: can't parse key '%s'\n", cs->name, key);
 		return r;
 	}
 
@@ -1350,7 +1350,7 @@ tfw_cfg_op_jsch_parse_resp_code(TfwCfgSpec *cs, const char *val)
 	int r, int_val;
 
 	if ((r = tfw_cfg_parse_int(val, &int_val))) {
-		TFW_ERR_NL("%s: can't parse key 'resp_code'\n", cs->name);
+		T_ERR_NL("%s: can't parse key 'resp_code'\n", cs->name);
 		return r;
 	}
 	if ((r = tfw_cfg_check_range(int_val, 100, 599)))
@@ -1373,8 +1373,8 @@ tfw_cfgop_jsch_set_delay_limit(TfwCfgSpec *cs)
 		tfw_cfg_js_ch->delay_limit = max_limit;
 	}
 	if (tfw_cfg_js_ch->delay_limit < min_limit) {
-		TFW_WARN_NL("%s: 'delay_limit' is too low, many slow/distant "
-			    "clients will be blocked. "
+		T_WARN_NL("%s: 'delay_limit' is too low, many slow/distant "
+			  "clients will be blocked. "
 			    "Minimum recommended value is %u, "
 			    "but %u is provided\n",
 			    cs->name,
@@ -1384,10 +1384,10 @@ tfw_cfgop_jsch_set_delay_limit(TfwCfgSpec *cs)
 	hc_prob = tfw_cfg_js_ch->delay_limit * 100
 			/ msecs_to_jiffies(tfw_cfg_js_ch->delay_range);
 	if (hc_prob > max_hc_p) {
-		TFW_WARN_NL("%s: 'delay_limit' is too big, attacker may "
-			    "hardcode bots and breach the JavaScript challenge "
-			    "with %lu%% success probability\n",
-			    cs->name, hc_prob);
+		T_WARN_NL("%s: 'delay_limit' is too big, attacker may "
+			  "hardcode bots and breach the JavaScript challenge "
+			  "with %lu%% success probability\n",
+			  cs->name, hc_prob);
 	}
 }
 
@@ -1418,13 +1418,13 @@ tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	tfw_cfg_js_ch = kzalloc(sizeof(TfwCfgJsCh), GFP_KERNEL);
 	if (!tfw_cfg_js_ch) {
-		TFW_ERR_NL("%s: can't alloc memory\n", cs->name);
+		T_ERR_NL("%s: can't alloc memory\n", cs->name);
 		return -ENOMEM;
 	}
 
 	if (ce->val_n > 1) {
-		TFW_ERR_NL("invalid number of values; 1 possible, got: %zu\n",
-			   ce->val_n);
+		T_ERR_NL("invalid number of values; 1 possible, got: %zu\n",
+			 ce->val_n);
 		return -EINVAL;
 	}
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
@@ -1444,19 +1444,19 @@ tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			if ((r = tfw_cfg_op_jsch_parse_resp_code(cs, val)))
 				return r;
 		} else {
-			TFW_ERR_NL("%s: unsupported argument: '%s=%s'.\n",
-				   cs->name, key, val);
+			T_ERR_NL("%s: unsupported argument: '%s=%s'.\n",
+				 cs->name, key, val);
 			return -EINVAL;
 		}
 	}
 	if (!tfw_cfg_js_ch->delay_min) {
-		TFW_ERR_NL("%s: required argument 'delay_min' not set.\n",
-			   cs->name);
+		T_ERR_NL("%s: required argument 'delay_min' not set.\n",
+			 cs->name);
 		return -EINVAL;
 	}
 	if (!tfw_cfg_js_ch->delay_range) {
-		TFW_ERR_NL("%s: required argument 'delay_range' not set.\n",
-			   cs->name);
+		T_ERR_NL("%s: required argument 'delay_range' not set.\n",
+			 cs->name);
 		return -EINVAL;
 	}
 	if (!tfw_cfg_js_ch->st_code)
@@ -1485,8 +1485,8 @@ static int
 tfw_http_sess_cfgend(void)
 {
 	if (tfw_cfg_js_ch && TFW_STR_EMPTY(&tfw_cfg_sticky.name)) {
-		TFW_ERR_NL("JavaScript challenge requires sticky cookies "
-			   "enabled\r\n");
+		T_ERR_NL("JavaScript challenge requires sticky cookies "
+			 "enabled\r\n");
 		return -EINVAL;
 	}
 	if (tfw_cfg_js_ch) {

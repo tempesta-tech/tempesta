@@ -131,15 +131,15 @@ tfw_tls_set_cert(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 	ttls_x509_crt_init(&conf->crt);
 	crt_data = tfw_cfg_read_file(ce->vals[0], &crt_size);
 	if (!crt_data) {
-		TFW_ERR_NL("%s: Can't read certificate file '%s'\n",
-			   ce->name, ce->vals[0]);
+		T_ERR_NL("%s: Can't read certificate file '%s'\n",
+			 ce->name, ce->vals[0]);
 		return -EINVAL;
 	}
 
 	r = ttls_x509_crt_parse(&conf->crt, crt_data, crt_size);
 	if (r) {
-		TFW_ERR_NL("%s: Invalid certificate specified (%x)\n",
-			   cs->name, -r);
+		T_ERR_NL("%s: Invalid certificate specified (%x)\n",
+			 cs->name, -r);
 		free_pages((unsigned long)crt_data, get_order(crt_size));
 		return -EINVAL;
 	}
@@ -159,7 +159,7 @@ tfw_tls_cert_cfg_finish_cert(TfwVhost *vhost)
 	r = ttls_conf_own_cert(&vhost->tls_cfg, &conf->crt, &conf->key,
 			       conf->crt.next, NULL);
 	if (r) {
-		TFW_ERR_NL("TLS: can't set own certificate (%x)\n", r);
+		T_ERR_NL("TLS: can't set own certificate (%x)\n", r);
 		return -EINVAL;
 	}
 	conf_entry->certs_num++;
@@ -188,8 +188,8 @@ tfw_tls_set_cert_key(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	key_data = tfw_cfg_read_file(ce->vals[0], &key_size);
 	if (!key_data) {
-		TFW_ERR_NL("%s: Can't read certificate file '%s'\n",
-			   ce->name, ce->vals[0]);
+		T_ERR_NL("%s: Can't read certificate file '%s'\n",
+			 ce->name, ce->vals[0]);
 		return -EINVAL;
 	}
 
@@ -197,8 +197,8 @@ tfw_tls_set_cert_key(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 	/* The key is copied, so free the paged data. */
 	free_pages((unsigned long)key_data, get_order(key_size));
 	if (r) {
-		TFW_ERR_NL("%s: Invalid private key specified (%x)\n",
-			   cs->name, -r);
+		T_ERR_NL("%s: Invalid private key specified (%x)\n",
+			 cs->name, -r);
 		return -EINVAL;
 	}
 
@@ -221,8 +221,8 @@ tfw_tls_cert_cfg_finish(TfwVhost *vhost)
 		return 0;
 	curr_cert_conf = &conf->certs[conf->certs_num];
 	if (curr_cert_conf->conf_stage) {
-		TFW_ERR_NL("TLS: certificate configuration is not done, "
-			   "directive 'tls_certificate_key' is missing. \n");
+		T_ERR_NL("TLS: certificate configuration is not done, "
+			 "directive 'tls_certificate_key' is missing. \n");
 		return -EINVAL;
 	}
 

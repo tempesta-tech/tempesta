@@ -123,8 +123,8 @@
 static const unsigned long tfw_srv_tmo_vals[] = { 1, 10, 100, 250, 500, 1000 };
 
 #define srv_warn(check, addr, fmt, ...)					\
-	TFW_WARN_MOD_ADDR(sock_srv, check, addr, TFW_WITH_PORT, fmt,	\
-	                  ##__VA_ARGS__)
+	T_WARN_MOD_ADDR(sock_srv, check, addr, TFW_WITH_PORT, fmt,	\
+			##__VA_ARGS__)
 
 static inline void
 tfw_srv_conn_stop(TfwSrvConn *srv_conn)
@@ -169,8 +169,8 @@ tfw_sock_srv_connect_try_later(TfwSrvConn *srv_conn)
 
 	if (srv_conn->recns < ARRAY_SIZE(tfw_srv_tmo_vals)) {
 		if (srv_conn->recns)
-			TFW_DBG_ADDR("Cannot establish connection",
-			             &srv_conn->peer->addr, TFW_WITH_PORT);
+			T_DBG_ADDR("Cannot establish connection",
+				   &srv_conn->peer->addr, TFW_WITH_PORT);
 		timeout = tfw_srv_tmo_vals[srv_conn->recns];
 	} else {
 		if (srv_conn->recns == ARRAY_SIZE(tfw_srv_tmo_vals)
@@ -236,10 +236,10 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 		 * intentionally stopped.
 		 */
 		if (r == -ENOBUFS) {
-			TFW_WARN("Not enough memory to create server socket\n");
+			T_WARN("Not enough memory to create server socket\n");
 			tfw_srv_conn_release(srv_conn);
 		} else {
-			TFW_ERR("Unable to create server socket\n");
+			T_ERR("Unable to create server socket\n");
 			tfw_srv_conn_stop(srv_conn);
 		}
 		return;
@@ -286,8 +286,7 @@ tfw_sock_srv_connect_try(TfwSrvConn *srv_conn)
 	r = ss_connect(sk, addr, 0);
 	if (r) {
 		if (r != SS_SHUTDOWN)
-			TFW_ERR("Unable to initiate a connect to server: %d\n",
-				r);
+			T_ERR("Unable to initiate a connect to server: %d\n", r);
 		SS_CALL(connection_error, sk);
 		/* Another try is handled in tfw_srv_conn_release() */
 	}
@@ -342,7 +341,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 
 	/* Notify higher level layers. */
 	if ((r = tfw_connection_new(conn))) {
-		TFW_ERR("conn_init() hook returned error\n");
+		T_ERR("conn_init() hook returned error\n");
 		return r;
 	}
 
@@ -355,7 +354,7 @@ tfw_sock_srv_connect_complete(struct sock *sk)
 
 	__reset_retry_timer((TfwSrvConn *)conn);
 
-	TFW_DBG_ADDR("connected", &srv->addr, TFW_WITH_PORT);
+	T_DBG_ADDR("connected", &srv->addr, TFW_WITH_PORT);
 	TFW_INC_STAT_BH(serv.conn_established);
 
 	return 0;
@@ -389,7 +388,7 @@ tfw_sock_srv_connect_failover(struct sock *sk)
 	TfwConn *conn = sk->sk_user_data;
 	TfwServer *srv = (TfwServer *)conn->peer;
 
-	TFW_DBG_ADDR("connection error", &srv->addr, TFW_WITH_PORT);
+	T_DBG_ADDR("connection error", &srv->addr, TFW_WITH_PORT);
 
 	/*
 	 * Distinguish connections that go to failover state
@@ -694,16 +693,16 @@ tfw_sock_srv_start_srv(TfwSrvGroup *sg, TfwServer *srv, void *hm)
 {
 	int r;
 
-	TFW_DBG_ADDR("start server", &srv->addr, TFW_WITH_PORT);
+	T_DBG_ADDR("start server", &srv->addr, TFW_WITH_PORT);
 
 	if ((r = tfw_sock_srv_add_conns(srv))) {
-		TFW_ERR_ADDR("cannot allocate server connections", &srv->addr,
-		             TFW_WITH_PORT);
+		T_ERR_ADDR("cannot allocate server connections", &srv->addr,
+			   TFW_WITH_PORT);
 		return r;
 	}
 	if ((r = tfw_apm_add_srv(srv))) {
-		TFW_ERR_ADDR("cannot initialize APM for server", &srv->addr,
-		             TFW_WITH_PORT);
+		T_ERR_ADDR("cannot initialize APM for server", &srv->addr,
+			   TFW_WITH_PORT);
 		return r;
 	}
 	tfw_sock_srv_connect_srv(srv);
@@ -1080,11 +1079,11 @@ static int
 tfw_cfgop_intval(TfwCfgSpec *cs, TfwCfgEntry *ce, int *intval)
 {
 	if (ce->val_n != 1) {
-		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
+		T_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
 			return -EINVAL;
 	}
 	if (ce->attr_n) {
-		TFW_ERR_NL("Arguments may not have the \'=\' sign\n");
+		T_ERR_NL("Arguments may not have the \'=\' sign\n");
 		return -EINVAL;
 	}
 
@@ -1168,7 +1167,7 @@ tfw_cfgop_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned int *sg_flags)
 	unsigned int retry_nip;
 
 	if (ce->attr_n) {
-		TFW_ERR_NL("Arguments may not have the \'=\' sign\n");
+		T_ERR_NL("Arguments may not have the \'=\' sign\n");
 		return -EINVAL;
 	}
 	if (tfw_cfg_is_dflt_value(ce)) {
@@ -1176,7 +1175,7 @@ tfw_cfgop_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned int *sg_flags)
 	} else if (!ce->val_n) {
 		retry_nip = TFW_SRV_RETRY_NIP;
 	} else {
-		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
+		T_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
 		return -EINVAL;
 	}
 	*sg_flags |= retry_nip;
@@ -1202,11 +1201,11 @@ static inline int
 tfw_cfgop_sticky_sess(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned int *use_sticky)
 {
 	if (ce->attr_n) {
-		TFW_ERR_NL("Arguments may not have the \'=\' sign\n");
+		T_ERR_NL("Arguments may not have the \'=\' sign\n");
 		return -EINVAL;
 	}
 	if (ce->val_n > 1) {
-		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
+		T_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
 		return -EINVAL;
 	}
 	if (tfw_cfg_is_dflt_value(ce)) {
@@ -1216,7 +1215,7 @@ tfw_cfgop_sticky_sess(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned int *use_sticky)
 	} else if (!strcasecmp(ce->vals[0], "allow_failover")) {
 		*use_sticky = TFW_SRV_STICKY | TFW_SRV_STICKY_FAILOVER;
 	} else {
-		TFW_ERR_NL("Unsupported argument: %s\n", ce->vals[0]);
+		T_ERR_NL("Unsupported argument: %s\n", ce->vals[0]);
 		return  -EINVAL;
 	}
 	if (*use_sticky & TFW_SRV_STICKY_FLAGS)
@@ -1259,8 +1258,8 @@ tfw_cfgop_health_monitor(TfwCfgSpec *cs, TfwCfgEntry *ce,
 	if (tfw_cfg_check_single_val(ce))
 		return -EINVAL;
 	if (!tfw_cfgop_sg_set_hm_name(sg_cfg, ce->vals[0])) {
-		TFW_ERR_NL("Unable to add group's health monitor name: '%s'\n",
-			   ce->vals[0]);
+		T_ERR_NL("Unable to add group's health monitor name: '%s'\n",
+			 ce->vals[0]);
 		return -ENOMEM;
 	}
 
@@ -1364,21 +1363,21 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwCfgSrvGroup *sg_cfg)
 	const char *key, *val;
 
 	if (ce->val_n != 1) {
-		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
+		T_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
 		return -EINVAL;
 	}
 	if (ce->attr_n > 3) {
-		TFW_ERR_NL("Invalid number of key=value pairs: %zu\n",
-			   ce->attr_n);
+		T_ERR_NL("Invalid number of key=value pairs: %zu\n",
+			 ce->attr_n);
 		return -EINVAL;
 	}
 
 	if (tfw_addr_pton(&TFW_STR_FROM_CSTR(ce->vals[0]), &addr)) {
-		TFW_ERR_NL("Invalid IP address: '%s'\n", ce->vals[0]);
+		T_ERR_NL("Invalid IP address: '%s'\n", ce->vals[0]);
 		return -EINVAL;
 	}
 	if ((srv = tfw_server_lookup(sg_cfg->parsed_sg, &addr))) {
-		TFW_ERR_NL("Duplicated server '%s'\n", ce->vals[0]);
+		T_ERR_NL("Duplicated server '%s'\n", ce->vals[0]);
 		tfw_server_put(srv);
 		return -EEXIST;
 	}
@@ -1386,26 +1385,26 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwCfgSrvGroup *sg_cfg)
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
 		if (!strcasecmp(key, "conns_n")) {
 			if (has_conns_n) {
-				TFW_ERR_NL("Duplicate argument: '%s'\n", key);
+				T_ERR_NL("Duplicate argument: '%s'\n", key);
 				return -EINVAL;
 			}
 			if (tfw_cfg_parse_int(val, &conns_n)) {
-				TFW_ERR_NL("Invalid value: '%s'\n", val);
+				T_ERR_NL("Invalid value: '%s'\n", val);
 				return -EINVAL;
 			}
 			has_conns_n = true;
 		} else if (!strcasecmp(key, "weight")) {
 			if (has_weight) {
-				TFW_ERR_NL("Duplicate argument: '%s'\n", key);
+				T_ERR_NL("Duplicate argument: '%s'\n", key);
 				return -EINVAL;
 			}
 			if (tfw_cfg_parse_int(val, &weight)) {
-				TFW_ERR_NL("Invalid value: '%s'\n", val);
+				T_ERR_NL("Invalid value: '%s'\n", val);
 				return -EINVAL;
 			}
 			has_weight = true;
 		} else {
-			TFW_ERR_NL("Unsupported argument: '%s'\n", key);
+			T_ERR_NL("Unsupported argument: '%s'\n", key);
 			return -EINVAL;
 		}
 	}
@@ -1413,22 +1412,22 @@ tfw_cfgop_server(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwCfgSrvGroup *sg_cfg)
 	if (!has_conns_n) {
 		conns_n = TFW_CFG_SRV_CONNS_N_DEF;
 	} else if ((conns_n < 1) || (conns_n > TFW_SRV_MAX_CONN_N)) {
-		TFW_ERR_NL("Out of range of [1..%d]: 'conns_n=%d'\n",
-			   TFW_SRV_MAX_CONN_N, conns_n);
+		T_ERR_NL("Out of range of [1..%d]: 'conns_n=%d'\n",
+			 TFW_SRV_MAX_CONN_N, conns_n);
 		return -EINVAL;
 	}
 	/* Default weight is set only for static ratio scheduler. */
 	if (has_weight && ((weight < TFW_CFG_SRV_WEIGHT_MIN)
 			   || (weight > TFW_CFG_SRV_WEIGHT_MAX)))
 	{
-		TFW_ERR_NL("Out of range of [%d..%d]: 'weight=%d'\n",
-			   TFW_CFG_SRV_WEIGHT_MIN, TFW_CFG_SRV_WEIGHT_MAX,
+		T_ERR_NL("Out of range of [%d..%d]: 'weight=%d'\n",
+			 TFW_CFG_SRV_WEIGHT_MIN, TFW_CFG_SRV_WEIGHT_MAX,
 			   weight);
 		return -EINVAL;
 	}
 
 	if (!(srv = tfw_server_create(&addr))) {
-		TFW_ERR_NL("Error handling the server: '%s'\n", ce->vals[0]);
+		T_ERR_NL("Error handling the server: '%s'\n", ce->vals[0]);
 		return -EINVAL;
 	}
 
@@ -1480,8 +1479,8 @@ static int
 tfw_cfgop_out_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	if (!tfw_cfg_sg_def) {
-		TFW_ERR_NL("'default' group is declared implicitly after "
-			   "explicit declaration.\n");
+		T_ERR_NL("'default' group is declared implicitly after "
+			 "explicit declaration.\n");
 		return -EINVAL;
 	}
 	if (list_empty(&tfw_cfg_sg_def->parsed_sg->srv_list)) {
@@ -1489,7 +1488,7 @@ tfw_cfgop_out_server(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 		sg = tfw_cfg_sg_def->orig_sg ? : tfw_cfg_sg_def->parsed_sg;
 		if (tfw_sg_add_reconfig(sg)) {
-			TFW_ERR_NL("Unable to register implicit 'default' group\n");
+			T_ERR_NL("Unable to register implicit 'default' group\n");
 			return -EINVAL;
 		}
 		list_add(&tfw_cfg_sg_def->list, &sg_cfg_list);
@@ -1519,19 +1518,18 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	BUILD_BUG_ON(TFW_CFG_ENTRY_VAL_MAX < sizeof(TFW_CFG_SG_DFT_NAME));
 	if (ce->val_n != 1) {
-		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
+		T_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
 		return -EINVAL;
 	}
 	if (ce->attr_n) {
-		TFW_ERR_NL("Invalid number of key=value pairs: %zu\n",
-			   ce->attr_n);
+		T_ERR_NL("Invalid number of key=value pairs: %zu\n", ce->attr_n);
 		return -EINVAL;
 	}
 
 	nlen = strlen(ce->vals[0]);
 	if (tfw_cfgop_lookup_sg_cfg(ce->vals[0], nlen)) {
-		TFW_ERR_NL("Group '%s' already exists in configuration"
-			   "\n", ce->vals[0]);
+		T_ERR_NL("Group '%s' already exists in configuration\n",
+			 ce->vals[0]);
 		return -EINVAL;
 	}
 	if (!memcmp(ce->vals[0], TFW_CFG_SG_DFT_NAME,
@@ -1544,21 +1542,21 @@ tfw_cfgop_begin_srv_group(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	else {
 		sg_cfg = tfw_cfgop_new_sg_cfg(ce->vals[0], nlen);
 		if (!sg_cfg) {
-			TFW_ERR_NL("Unable to create a group: '%s'\n",
-				   ce->vals[0]);
+			T_ERR_NL("Unable to create a group: '%s'\n",
+				 ce->vals[0]);
 			return -ENOMEM;
 		}
 	}
 	/* Reuse original group if possible. */
 	sg = sg_cfg->orig_sg ? : sg_cfg->parsed_sg;
 	if (tfw_sg_add_reconfig(sg)) {
-		TFW_ERR_NL("Can't register already registered group '%s'\n",
-			   ce->vals[0]);
+		T_ERR_NL("Can't register already registered group '%s'\n",
+			 ce->vals[0]);
 		return -EINVAL;
 	}
 
 	tfw_cfg_sg = sg_cfg;
-	TFW_DBG("begin srv_group: %s\n", tfw_cfg_sg->parsed_sg->name);
+	T_DBG("begin srv_group: %s\n", tfw_cfg_sg->parsed_sg->name);
 
 	return 0;
 }
@@ -1593,9 +1591,9 @@ tfw_cfg_sg_ratio_verify(TfwSrvGroup *sg)
 			++count;
 		}
 		if (count < sg->srv_n) {
-			TFW_ERR_NL("srv_group %s: static weight [%d] used "
-				   "with 'dynamic' scheduler option\n",
-				   sg->name, srv->weight);
+			T_ERR_NL("srv_group %s: static weight [%d] used "
+				 "with 'dynamic' scheduler option\n",
+				 sg->name, srv->weight);
 			return -EINVAL;
 		}
 	}
@@ -1672,7 +1670,7 @@ tfw_cfgop_finish_srv_group(TfwCfgSpec *cs)
 	if ((r = tfw_cfgop_setup_srv_group(tfw_cfg_sg)))
 		return r;
 
-	TFW_DBG("finish srv_group: %s\n", tfw_cfg_sg->parsed_sg->name);
+	T_DBG("finish srv_group: %s\n", tfw_cfg_sg->parsed_sg->name);
 	tfw_cfg_sg = tfw_cfg_sg_opts;
 
 	return 0;
@@ -1701,7 +1699,7 @@ tfw_cfg_handle_ratio_predyn_opts(TfwCfgEntry *ce, unsigned int *arg_flags)
 			goto done;
 		}
 		if (tfw_cfg_parse_int(ce->vals[3], &value)) {
-			TFW_ERR_NL("Invalid value: '%s'\n", ce->vals[3]);
+			T_ERR_NL("Invalid value: '%s'\n", ce->vals[3]);
 			return -EINVAL;
 		}
 		for (idx = 0; idx < ARRAY_SIZE(tfw_pstats_ith); ++idx) {
@@ -1711,11 +1709,11 @@ tfw_cfg_handle_ratio_predyn_opts(TfwCfgEntry *ce, unsigned int *arg_flags)
 				break;
 		}
 		if (idx == ARRAY_SIZE(tfw_pstats_ith)) {
-			TFW_ERR_NL("Invalid value: '%s'\n", ce->vals[3]);
+			T_ERR_NL("Invalid value: '%s'\n", ce->vals[3]);
 			return -EINVAL;
 		}
 	} else {
-		TFW_ERR_NL("Unsupported argument: '%s'\n", ce->vals[2]);
+		T_ERR_NL("Unsupported argument: '%s'\n", ce->vals[2]);
 		return -EINVAL;
 	}
 	flags |= idx;
@@ -1746,31 +1744,31 @@ tfw_cfg_handle_ratio_predict(TfwCfgEntry *ce,
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
 		if (!strcasecmp(key, "past")) {
 			if (has_past) {
-				TFW_ERR_NL("Duplicate argument: '%s'\n", key);
+				T_ERR_NL("Duplicate argument: '%s'\n", key);
 				return -EINVAL;
 			}
 			if (tfw_cfg_parse_int(val, &arg.past)) {
-				TFW_ERR_NL("Invalid value: '%s'\n", val);
+				T_ERR_NL("Invalid value: '%s'\n", val);
 				return -EINVAL;
 			}
 			has_past = true;
 		} else if (!strcasecmp(key, "rate")) {
 			if (has_rate) {
-				TFW_ERR_NL("Duplicate argument: '%s'\n", key);
+				T_ERR_NL("Duplicate argument: '%s'\n", key);
 				return -EINVAL;
 			}
 			if (tfw_cfg_parse_int(val, &arg.rate)) {
-				TFW_ERR_NL("Invalid value: '%s'\n", val);
+				T_ERR_NL("Invalid value: '%s'\n", val);
 				return -EINVAL;
 			}
 			has_rate = true;
 		} else if (!strcasecmp(key, "ahead")) {
 			if (has_ahead) {
-				TFW_ERR_NL("Duplicate argument: '%s'\n", key);
+				T_ERR_NL("Duplicate argument: '%s'\n", key);
 				return -EINVAL;
 			}
 			if (tfw_cfg_parse_int(val, &arg.ahead)) {
-				TFW_ERR_NL("Invalid value: '%s'\n", val);
+				T_ERR_NL("Invalid value: '%s'\n", val);
 				return -EINVAL;
 			}
 			has_ahead = true;
@@ -1779,23 +1777,23 @@ tfw_cfg_handle_ratio_predict(TfwCfgEntry *ce,
 	if (!has_past) {
 		arg.past = TFW_CFG_PAST_DEF;
 	} else if ((arg.past < 1) || (arg.past > TFW_CFG_PAST_MAX)) {
-		TFW_ERR_NL("Out of range of [1..%d]: 'past=%d'\n",
-			   TFW_CFG_PAST_MAX, arg.past);
+		T_ERR_NL("Out of range of [1..%d]: 'past=%d'\n",
+			 TFW_CFG_PAST_MAX, arg.past);
 		return -EINVAL;
 	}
 	if (!has_rate) {
 		arg.rate = TFW_CFG_RATE_DEF;
 	} else if ((arg.rate < 1) || (arg.rate > TFW_CFG_RATE_MAX)) {
-		TFW_ERR_NL("Out of range of [1..%d]: 'rate=%d'\n",
-			   TFW_CFG_RATE_MAX, arg.rate);
+		T_ERR_NL("Out of range of [1..%d]: 'rate=%d'\n",
+			 TFW_CFG_RATE_MAX, arg.rate);
 		return -EINVAL;
 	}
 	if (!has_ahead) {
 		arg.ahead = arg.past > 1 ? arg.past / 2 : 1;
 	} else if ((arg.ahead < 1) || (arg.ahead > arg.past / 2)) {
-		TFW_ERR_NL("Out of range of [1..%d]: 'ahead=%d'."
-			   "Can't be greater than half of 'past=%d'.\n",
-			   arg.past / 2, arg.ahead, arg.past);
+		T_ERR_NL("Out of range of [1..%d]: 'ahead=%d'."
+			 "Can't be greater than half of 'past=%d'.\n",
+			 arg.past / 2, arg.ahead, arg.past);
 		return -EINVAL;
 	}
 
@@ -1806,7 +1804,7 @@ static int
 tfw_cfg_handle_ratio_dynamic(TfwCfgEntry *ce, unsigned int *arg_flags)
 {
 	if (ce->attr_n) {
-		TFW_ERR_NL("Arguments may not have the \'=\' sign\n");
+		T_ERR_NL("Arguments may not have the \'=\' sign\n");
 		return -EINVAL;
 	}
 
@@ -1833,7 +1831,7 @@ tfw_cfg_handle_ratio(TfwCfgEntry *ce, void *scharg, unsigned int *sched_flags)
 		if ((ret = tfw_cfg_handle_ratio_predict(ce, scharg, &flags)))
 			return ret;
 	} else {
-		TFW_ERR_NL("Unsupported argument: '%s'\n", ce->vals[1]);
+		T_ERR_NL("Unsupported argument: '%s'\n", ce->vals[1]);
 		return -EINVAL;
 	}
 
@@ -1851,12 +1849,12 @@ tfw_cfgop_sched(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwScheduler **sched_val,
 	TfwScheduler *sched;
 
 	if (!ce->val_n) {
-		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
+		T_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
 		return -EINVAL;
 	}
 
 	if (!(sched = tfw_sched_lookup(ce->vals[0]))) {
-		TFW_ERR_NL("Unrecognized scheduler: '%s'\n", ce->vals[0]);
+		T_ERR_NL("Unrecognized scheduler: '%s'\n", ce->vals[0]);
 		return -EINVAL;
 	}
 
@@ -2057,7 +2055,7 @@ tfw_cfgop_update_srv(TfwServer *orig_srv, TfwCfgSrvGroup *sg_cfg)
 	if (!(srv = tfw_server_lookup(sg_cfg->parsed_sg, &orig_srv->addr)))
 		return -EINVAL;
 
-	TFW_DBG_ADDR("Update server options", &srv->addr, TFW_WITH_PORT);
+	T_DBG_ADDR("Update server options", &srv->addr, TFW_WITH_PORT);
 
 	orig_srv->weight = srv->weight;
 
@@ -2089,14 +2087,14 @@ __tfw_cfgop_update_sg_srv_list(TfwSrvGroup *sg, TfwServer *srv, void *data)
 	/* Server was not found in new configuration. */
 	if (!(srv->flags & TFW_CFG_M_ACTION)) {
 		if ((r = tfw_sock_srv_grace_shutdown_srv(sg, srv, NULL))) {
-			TFW_ERR_NL("graceful server shutdown failed\n");
+			T_ERR_NL("graceful server shutdown failed\n");
 			return r;
 		}
 		return 0;
 	}
 	else if (srv->flags & TFW_CFG_F_MOD) {
 		if ((r = tfw_cfgop_update_srv(srv, sg_cfg))) {
-			TFW_ERR_NL("server config update failed\n");
+			T_ERR_NL("server config update failed\n");
 			return r;
 		}
 	}
@@ -2114,7 +2112,7 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
 	TfwServer *srv, *tmp;
 	int r = 0;
 
-	TFW_DBG2("Update server list for group '%s'\n", sg_cfg->orig_sg->name);
+	T_DBG2("Update server list for group '%s'\n", sg_cfg->orig_sg->name);
 
 	r = __tfw_sg_for_each_srv(sg_cfg->orig_sg,
 				  __tfw_cfgop_update_sg_srv_list,
@@ -2136,7 +2134,7 @@ tfw_cfgop_update_sg_srv_list(TfwCfgSrvGroup *sg_cfg)
 		tfw_server_put(srv);
 
 		if ((r = tfw_sock_srv_start_srv(NULL, srv, sg_cfg->hm_arg))) {
-			TFW_ERR_NL("cannot establish new server connection\n");
+			T_ERR_NL("cannot establish new server connection\n");
 			return r;
 		}
 		tfw_srv_reset_cfg_actions(srv);
@@ -2156,8 +2154,8 @@ tfw_cfgop_sg_start_sched(TfwCfgSrvGroup *sg_cfg, TfwSrvGroup *sg)
 {
 	if (tfw_sg_start_sched(sg, sg_cfg->parsed_sg->sched,
 			       sg_cfg->sched_arg)) {
-		TFW_ERR_NL("Unable to add srv_group '%s' to scheduler '%s'\n",
-			   sg->name, sg_cfg->parsed_sg->sched->name);
+		T_ERR_NL("Unable to add srv_group '%s' to scheduler '%s'\n",
+			 sg->name, sg_cfg->parsed_sg->sched->name);
 		return -EINVAL;
 	}
 	return 0;
@@ -2181,7 +2179,7 @@ tfw_cfgop_update_sg_cfg(TfwCfgSrvGroup *sg_cfg)
 {
 	int r;
 
-	TFW_DBG2("Update group '%s'\n", sg_cfg->orig_sg->name);
+	T_DBG2("Update group '%s'\n", sg_cfg->orig_sg->name);
 
 	if (!(sg_cfg->reconf_flags &
 	      (TFW_CFG_MDF_SG_SRV | TFW_CFG_MDF_SG_SCHED)))
@@ -2220,8 +2218,7 @@ tfw_cfgop_start_sg_cfg(TfwCfgSrvGroup *sg_cfg)
 	if (sg_cfg->orig_sg)
 		return tfw_cfgop_update_sg_cfg(sg_cfg);
 
-	TFW_DBG2("Setup new group '%s' to use after reconfiguration\n",
-		 sg->name);
+	T_DBG2("Setup new group '%s' to use after reconfiguration\n", sg->name);
 	if ((r = __tfw_sg_for_each_srv(sg, tfw_sock_srv_start_srv,
 				       sg_cfg->hm_arg)))
 		return r;
