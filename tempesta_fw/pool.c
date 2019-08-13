@@ -116,15 +116,21 @@ tfw_pool_free_pages(unsigned long addr, unsigned int order)
 }
 
 void *
-tfw_pool_alloc(TfwPool *p, size_t n)
+__tfw_pool_alloc(TfwPool *p, size_t n, bool align, bool *new_page)
 {
 	void *a;
 
-	n = TFW_POOL_ALIGN_SZ(n);
+	*new_page = false;
+
+	if (align)
+		n = TFW_POOL_ALIGN_SZ(n);
 
 	if (unlikely(p->off + n > TFW_POOL_CHUNK_SZ(p))) {
 		TfwPoolChunk *c, *curr = p->curr;
-		unsigned int off = TFW_POOL_ALIGN_SZ(sizeof(TfwPoolChunk)) + n;
+		unsigned int desc_size = align
+			? TFW_POOL_ALIGN_SZ(sizeof(TfwPoolChunk))
+			: sizeof(TfwPoolChunk);
+		unsigned int off = desc_size + n;
 		unsigned int order = get_order(off);
 
 		c = (TfwPoolChunk *)tfw_pool_alloc_pages(order);
@@ -139,7 +145,11 @@ tfw_pool_alloc(TfwPool *p, size_t n)
 		p->off = off;
 		p->curr = c;
 
-		return (void *)TFW_POOL_ALIGN_SZ((unsigned long)(c + 1));
+		*new_page = true;
+
+		return align
+			? (void *)TFW_POOL_ALIGN_SZ((unsigned long)(c + 1))
+			: (void *)(c + 1);
 	}
 
 	a = (char *)TFW_POOL_CHUNK_END(p);
@@ -147,10 +157,10 @@ tfw_pool_alloc(TfwPool *p, size_t n)
 
 	return a;
 }
-EXPORT_SYMBOL(tfw_pool_alloc);
+EXPORT_SYMBOL(__tfw_pool_alloc);
 
 void *
-tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n)
+__tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n, bool copy)
 {
 	void *a;
 
@@ -167,12 +177,12 @@ tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n)
 	}
 
 	a = tfw_pool_alloc(p, new_n);
-	if (likely(a))
+	if (copy && a)
 		memcpy_fast(a, ptr, old_n);
 
 	return a;
 }
-EXPORT_SYMBOL(tfw_pool_realloc);
+EXPORT_SYMBOL(__tfw_pool_realloc);
 
 /**
  * It's good to call the function against just allocated chunk in stack-manner.
@@ -200,6 +210,28 @@ tfw_pool_free(TfwPool *p, void *ptr, size_t n)
 	}
 }
 EXPORT_SYMBOL(tfw_pool_free);
+
+/**
+ * Delete all chunks between the last (i.e. current in use) and the first one
+ * (which is the holder of @TfwPool itself). This is a garbage collection
+ * procedure, which is applicable only for cases when pool is used for one
+ * dynamically resizable (via @__tfw_pool_realloc()) instance.
+ */
+void
+tfw_pool_clean(TfwPool *p)
+{
+	TfwPoolChunk *c, *next;
+
+	if (!p)
+		return;
+
+	for (c = p->curr->next; c; c = next) {
+		if (!(next = c->next))
+			break;
+		tfw_pool_free_pages(TFW_POOL_CHUNK_BASE(c), c->order);
+	}
+}
+EXPORT_SYMBOL(tfw_pool_clean);
 
 /**
  * Allocate bit more pages than we need.

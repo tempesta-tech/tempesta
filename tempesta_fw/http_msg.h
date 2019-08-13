@@ -120,10 +120,15 @@ int tfw_http_msg_to_chunked(TfwHttpMsg *hm);
 int tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len);
 int tfw_http_msg_add_data(TfwMsgIter *it, TfwHttpMsg *hm, TfwStr *field,
 			  const TfwStr *data);
-
 void tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start);
 int tfw_http_msg_hdr_close(TfwHttpMsg *hm, unsigned int id);
 int tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm);
 void tfw_http_msg_free(TfwHttpMsg *m);
+unsigned long tfw_http_msg_hdr_length(const TfwStr *hdr, unsigned long *name_len,
+				      unsigned long *val_off,
+				      unsigned long *val_len);
+void tfw_http_msg_hdr_write(const TfwStr *hdr, unsigned long nm_len,
+			    unsigned long val_off, unsigned long val_len,
+			    char *out_buf);
 
 #endif /* __TFW_HTTP_MSG_H__ */

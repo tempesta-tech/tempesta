@@ -70,9 +70,39 @@ typedef struct {
  })
 
 TfwPool *__tfw_pool_new(size_t n);
-void *tfw_pool_alloc(TfwPool *p, size_t n);
-void *tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n);
+void *__tfw_pool_alloc(TfwPool *p, size_t n, bool align, bool *new_page);
 void tfw_pool_free(TfwPool *p, void *ptr, size_t n);
+void tfw_pool_clean(TfwPool *p);
 void tfw_pool_destroy(TfwPool *p);
+void *__tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n,
+			 bool copy);
+
+static inline void *
+tfw_pool_alloc(TfwPool *p, size_t n)
+{
+	bool dummy;
+
+	return __tfw_pool_alloc(p, n, true, &dummy);
+}
+
+static inline void *
+tfw_pool_alloc_na(TfwPool *p, size_t n)
+{
+	bool dummy;
+
+	return __tfw_pool_alloc(p, n, false, &dummy);
+}
+
+static inline void *
+tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n)
+{
+	return __tfw_pool_realloc(p, ptr, old_n, new_n, true);
+}
+
+static inline void *
+tfw_pool_realloc_nc(TfwPool *p, void *ptr, size_t old_n, size_t new_n)
+{
+	return __tfw_pool_realloc(p, ptr, old_n, new_n, false);
+}
 
 #endif /* __TFW_POOL_H__ */

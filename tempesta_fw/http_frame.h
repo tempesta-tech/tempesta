@@ -22,6 +22,7 @@
 
 #include "gfsm.h"
 #include "http_stream.h"
+#include "hpack.h"
 
 #define FRAME_HEADER_SIZE		9
 
@@ -141,6 +142,8 @@ typedef struct {
  * @lstream_id		- ID of last stream initiated by client and processed on
  *			  the server side;
  * @loc_wnd		- connection's current flow controlled window;
+ * @hpack		- HPACK context, used in processing of
+ *			  HEADERS/CONTINUATION frames;
  * @__off		- offset to reinitialize processing context;
  * @skb_head		- collected list of processed skbs containing HTTP/2
  *			  frames;
@@ -159,6 +162,11 @@ typedef struct {
  * @padlen		- length of current frame's padding (if exists);
  * @data_off		- offset of app data in HEADERS, CONTINUATION and DATA
  *			  frames (after all service payloads);
+ *
+ * NOTE: we can keep HPACK context in general connection-wide HTTP/2 context
+ * (instead of separate HPACK context for each stream), since frames from other
+ * streams cannot occur between the HEADERS/CONTINUATION frames of particular
+ * stream (RFC 7540, sections 6.2, 6.10, 8.1).
  */
 typedef struct {
 	spinlock_t	lock;
@@ -169,6 +177,7 @@ typedef struct {
 	TfwClosedQueue	hclosed_streams;
 	unsigned int	lstream_id;
 	unsigned int	loc_wnd;
+	TfwHPack	hpack;
 	char		__off[0];
 	struct sk_buff	*skb_head;
 	TfwStream	*cur_stream;
@@ -184,7 +193,7 @@ typedef struct {
 
 int tfw_h2_init(void);
 void tfw_h2_cleanup(void);
-void tfw_h2_context_init(TfwH2Ctx *ctx);
+int tfw_h2_context_init(TfwH2Ctx *ctx);
 void tfw_h2_context_clear(TfwH2Ctx *ctx);
 int tfw_h2_frame_process(void *c, TfwFsmData *data);
 void tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx);

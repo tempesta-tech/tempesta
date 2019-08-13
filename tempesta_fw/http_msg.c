@@ -992,6 +992,10 @@ tfw_http_msg_free(TfwHttpMsg *m)
 
 	if (m->destructor)
 		m->destructor(m);
+
+	if (TFW_MSG_H2(m))
+		tfw_pool_destroy(((TfwHttpReq *)m)->pit.pool);
+
 	tfw_pool_destroy(m->pool);
 }
 EXPORT_SYMBOL(tfw_http_msg_free);
@@ -1043,3 +1047,133 @@ __tfw_http_msg_alloc(int type, bool full)
 	return hm;
 }
 
+unsigned long
+tfw_http_msg_hdr_length(const TfwStr *hdr, unsigned long *name_len,
+			unsigned long *val_off, unsigned long *val_len)
+{
+	const TfwStr *chunk, *end;
+	unsigned long tail, hdr_tail = 0, hdr_len = 0;
+	bool name_found = false, val_found = false;
+
+	TFW_STR_FOR_EACH_CHUNK(chunk, hdr, end) {
+		unsigned long idx = chunk->len - 1;
+
+		BUG_ON(!chunk->len);
+		hdr_len += chunk->len;
+		if (!name_found) {
+			while ((chunk->data[idx] == ' '
+				|| chunk->data[idx] == '\t')
+			       && idx)
+			{
+				--idx;
+			}
+
+			*name_len += idx;
+
+			if (chunk->data[idx] == ':') {
+				*val_off += hdr_len - *name_len;
+				name_found = true;
+			}
+			else {
+				WARN_ON_ONCE(idx != chunk->len - 1);
+				++*name_len;
+			}
+
+			continue;
+		}
+		/*
+		 * Skip OWS before header value during header's real length
+		 * calculation. OWS is always on the same chunk with the header
+		 * name, or on the separate chunk; thus header value always
+		 * begins at new chunk, and we can skip length of the entire
+		 * (OWS) chunk. If this is WS of the header value, accumulate
+		 * length in @tail for end OWS cutting off (if this is not the
+		 * end chunk, @tail will be reset).
+		 */
+		if (!val_found) {
+			if (unlikely(chunk->data[0] == ' '
+				     || chunk->data[0] == '\t'))
+			{
+				*val_off += chunk->len;
+				continue;
+			}
+			val_found = true;
+		}
+
+		tail = 0;
+
+		while (chunk->data[idx] == ' '
+		       || chunk->data[idx] == '\t')
+		{
+			++tail;
+			if (unlikely(!idx))
+				break;
+			--idx;
+		}
+
+		if (unlikely(tail == chunk->len))
+			hdr_tail += tail;
+		else
+			hdr_tail = tail;
+	}
+
+	BUG_ON(!name_found);
+
+	*val_len = hdr_len - *name_len - *val_off - hdr_tail;
+
+	T_DBG("%s: name_len=%lu, val_off=%lu, val_len=%lu, hdr_tail=%lu,"
+	      " hdr_len=%lu\n", __func__, *name_len, *val_off, *val_len,
+	      hdr_tail, hdr_len);
+
+	return *name_len + *val_len;
+}
+
+/**
+ * Copy the real part (i.e. without name colon and OWS) of header into @out_buf
+ * from @hdr; @nm_len is the real length of header name, @val_len - the real
+ * length of header value, and @val_off - the offset between header name and
+ * value (i.e. the part occupied by OWS); OWS in the end of header's value are
+ * also skipped and will not be included into header's copied part. Note that
+ * the size of prepared @out_buf must be not less than sum of @nm_len and
+ * @val_len.
+ */
+void
+tfw_http_msg_hdr_write(const TfwStr *hdr, unsigned long nm_len,
+		       unsigned long val_off, unsigned long val_len,
+		       char *out_buf)
+{
+	const TfwStr *c, *end;
+
+	BUG_ON(!nm_len);
+	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
+		unsigned long len = 0;
+
+		BUG_ON(!c->len);
+		if (nm_len) {
+			len = min(nm_len, c->len);
+			nm_len -= len;
+		}
+
+		if (!nm_len) {
+			if (len || val_off) {
+				val_off -= min(val_off, c->len - len);
+			}
+			else if (val_len) {
+				len = min(val_len, c->len);
+				val_len -= len;
+			}
+			else {
+				break;
+			}
+		}
+
+		if (!len)
+			continue;
+
+		T_DBG3("%s: len=%lu, c->data='%.*s'\n", __func__, len, (int)len,
+		       c->data);
+
+		memcpy_fast(out_buf, c->data, len);
+		out_buf += len;
+	}
+}
