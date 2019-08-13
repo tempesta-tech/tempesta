@@ -402,6 +402,8 @@ typedef struct {
  * @tm_bchunk	- time previous chunk of HTTP body had come at;
  * @hash	- hash value for caching calculated for the request;
  * @retries	- the number of re-send attempts;
+ * @pit		- iterator for tracking transformed data allocation (applicable
+ *		  for HTTP/2 mode only);
  *
  * TfwStr members must be the first for efficient scanning.
  */
@@ -430,6 +432,7 @@ struct tfw_http_req_t {
 	unsigned long		tm_bchunk;
 	unsigned long		hash;
 	unsigned short		retries;
+	TfwMsgParseIter		pit;
 };
 
 #define TFW_HTTP_REQ_STR_START(r)	__MSG_STR_START(r)

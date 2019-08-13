@@ -1918,25 +1918,34 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 	tfw_connection_get(conn);
 	hm->stream = stream;
 
-	if (TFW_CONN_H2(conn))
-		__set_bit(TFW_HTTP_B_H2, hm->flags);
-
 	if (type & Conn_Clnt)
 		tfw_http_init_parser_req((TfwHttpReq *)hm);
 	else
 		tfw_http_init_parser_resp((TfwHttpResp *)hm);
 
+	if (TFW_CONN_H2(conn)) {
+		TfwHttpReq *req = (TfwHttpReq *)hm;
+
+		if(!(req->pit.pool = __tfw_pool_new(0)))
+			goto clean;
+		req->pit.hdr = &req->stream->parser.hdr;
+		__set_bit(TFW_HTTP_B_H2, req->flags);
+	}
+
 	if (type & Conn_Clnt) {
 		TFW_INC_STAT_BH(clnt.rx_messages);
 	} else {
-		if (unlikely(tfw_http_resp_pair(hm))) {
-			tfw_http_conn_msg_free(hm);
-			return NULL;
-		}
+		if (unlikely(tfw_http_resp_pair(hm)))
+			goto clean;
+
 		TFW_INC_STAT_BH(serv.rx_messages);
 	}
 
 	return (TfwMsg *)hm;
+clean:
+	tfw_http_conn_msg_free(hm);
+
+	return NULL;
 }
 
 /*
@@ -2565,7 +2574,7 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 	TfwHttpReq *req = resp->req;
 
 	if (tfw_connection_send(req->conn, (TfwMsg *)resp)) {
-		T_DBG("%s: cannot send data to client via HTTP/2\n");
+		T_DBG("%s: cannot send data to client via HTTP/2\n", __func__);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		tfw_connection_close(req->conn, true);
 	}
@@ -2688,12 +2697,16 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
 	unsigned int stream_id;
+	bool entered = false;
 
-	if (!(stream_id = tfw_h2_stream_id_close(req))) {
+	if (!(stream_id = tfw_h2_stream_id_close(req))
+	    || tfw_hpack_hdrs_tranform(resp, &entered))
+	{
 		tfw_http_resp_pair_free(req);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return;
 	}
+
 	/*
 	 * TODO #309: transforming response into HTTP/2 format and sending
 	 * (HPACK index, replace headers/names with indexes in HTTP/2 format,
@@ -3376,8 +3389,8 @@ next_msg:
 	TFW_ADD_STAT_BH(parsed, clnt.rx_bytes);
 
 	TFW_DBG2("Request parsed: len=%u next=%pK parsed=%d msg_len=%lu"
-		 " ver=%d res=%d\n",
-		 skb->len, skb->next, parsed, req->msg.len, req->version, r);
+		 " ver=%d res=%d\n", skb->len, skb->next, parsed, req->msg.len,
+		 req->version, r);
 
 	/*
 	 * We have to keep @data the same to pass it as is to FSMs
@@ -3420,7 +3433,6 @@ next_msg:
 		 */
 		return TFW_PASS;
 	case TFW_PASS:
-		WARN_ON_ONCE(TFW_MSG_H2(req));
 		/*
 		 * The request is fully parsed,
 		 * fall through and process it.
@@ -4121,8 +4133,8 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream, TfwFsmData *data)
 		}
 		tfw_http_mark_wl_new_msg(conn, (TfwHttpMsg *)stream->msg,
 					 data->skb);
-		TFW_DBG2("Link new msg %p with connection %p\n",
-			 stream->msg, conn);
+		TFW_DBG2("Link new msg %p with stream %p of connection %p\n",
+			 stream->msg, stream, conn);
 	}
 
 	TFW_DBG2("Add skb %p to message %p\n", data->skb, stream->msg);

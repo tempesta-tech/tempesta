@@ -579,7 +579,8 @@ tfw_tls_conn_init(TfwConn *c)
 	if (tfw_conn_hook_call(TFW_FSM_HTTP, c, conn_init))
 		return -EINVAL;
 
-	tfw_h2_context_init(h2);
+	if ((r = tfw_h2_context_init(h2)))
+		return r;
 
 	tfw_gfsm_state_init(&c->state, c, TFW_TLS_FSM_INIT);
 

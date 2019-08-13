@@ -36,6 +36,7 @@
 #include "http_msg.h"
 #include "htype.h"
 #include "http_sess.h"
+#include "hpack.h"
 #include "lib/str.h"
 
 /*
@@ -950,8 +951,6 @@ __FSM_STATE(st_curr) {							\
 /*
  * Parse raw (common) HTTP headers.
  * Note that some of these can be extremely large.
- *
- * TODO Split the headers to header name and header field as special headers.
  */
 #define RGEN_HDR_OTHER()						\
 __FSM_STATE(RGen_HdrOther) {						\
@@ -967,14 +966,17 @@ __FSM_STATE(RGen_HdrOtherN) {						\
 	TFW_PARSER_BLOCK(RGen_HdrOtherN);				\
 }									\
 __FSM_STATE(RGen_HdrOtherV) {						\
+	/* Store header name and value in different chunks. */		\
+	__msg_hdr_chunk_fixup(data, p - data);				\
 	/*								\
 	 * The header content is opaque for us,				\
 	 * so pass ctext and VCHAR.					\
 	 */								\
-	__FSM_MATCH_MOVE(ctext_vchar, RGen_HdrOtherV);			\
+	__FSM_MATCH_MOVE_pos_f(ctext_vchar, RGen_HdrOtherV,		\
+			       &msg->stream->parser.hdr);		\
 	if (!IS_CRLF(*(p + __fsm_sz)))					\
 		TFW_PARSER_BLOCK(RGen_HdrOtherV);			\
-	__msg_hdr_chunk_fixup(data, __data_off(p + __fsm_sz)); 		\
+	__msg_hdr_chunk_fixup(p, __fsm_sz);				\
 	mark_raw_hbh(msg, &parser->hdr);				\
 	mark_trailer_hdr(msg, &parser->hdr);				\
 	__FSM_MOVE_n(RGen_EoL, __fsm_sz);				\
@@ -4024,16 +4026,69 @@ Req_Method_1CharStep: __attribute__((cold))
 STACK_FRAME_NON_STANDARD(tfw_http_parse_req);
 
 int
+tfw_h2_parse_hdr(const char *data, unsigned long len, TfwHttpReq *req)
+{
+	/*
+	 * TODO #309: implementation of separate parsing procedure for message
+	 * headers in HTTP/2 context.
+	 */
+	return T_OK;
+}
+
+static int
+tfw_h2_parse_body(const char *data, unsigned long len, TfwHttpReq *req,
+		  unsigned int *parsed)
+{
+	/*
+	 * TODO #309: implementation of message body parsing (i.e. payload of
+	 * HTTP/2 DATA frame).
+	 */
+	return T_OK;
+}
+
+static inline int
+tfw_h2_parse_fin(TfwHttpReq *req)
+{
+	TfwStr *crlf = &req->crlf;
+	TfwMsgParseIter *it = &req->pit;
+
+	WARN_ON_ONCE(!TFW_STR_EMPTY(crlf));
+	BUFFER_GET(2, it);
+	if (!it->pos)
+		return -ENOMEM;
+
+	crlf->data = it->pos;
+	crlf->len = 2;
+	crlf->flags |= TFW_STR_COMPLETE;
+
+	memcpy_fast(it->pos, "\r\n", 2);
+
+	return T_OK;
+}
+
+int
 tfw_h2_parse_req(void *req_data, unsigned char *data, size_t len,
 		 unsigned int *parsed)
 {
-	int r = TFW_POSTPONE;
+	int r;
 	TfwHttpReq *req = (TfwHttpReq *)req_data;
+	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
+	unsigned char type = ctx->hdr.type;
 
-	/*
-	 * TODO #309: implement parsing of HTTP/2 frame's payload:
-	 * HEADERS/CONTINUATION (through HPACK at first) and DATA.
-	 */
+	WARN_ON_ONCE(!len);
+	BUG_ON(type != HTTP2_HEADERS
+	       && type != HTTP2_CONTINUATION
+	       && type != HTTP2_DATA);
+
+	*parsed = 0;
+
+	if (type != HTTP2_DATA)
+		r = tfw_hpack_decode(&ctx->hpack, data, len, req, parsed);
+	else
+		r = tfw_h2_parse_body(data, len, req, parsed);
+
+	if (r < T_POSTPONE)
+		return r;
 
 	/*
 	 * Parsing of HTTP/2 frames' payload never gives TFW_PASS result since
@@ -4047,10 +4102,10 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, size_t len,
 	 */
 	if (tfw_h2_stream_req_complete(req->stream)) {
 		__set_bit(TFW_HTTP_B_FULLY_PARSED, req->flags);
-		r = TFW_PASS;
+		return tfw_h2_parse_fin(req);
 	}
 
-	return r;
+	return T_POSTPONE;
 }
 
 /*
