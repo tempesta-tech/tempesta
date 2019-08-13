@@ -1187,14 +1187,14 @@ tfw_http_sess_get_srv_conn(TfwMsg *msg)
 				tfw_http_sess_set_expired(sess);
 				goto err;
 			}
-			TFW_ERR("sticky sched: pinned server %s in group '%s'"
-				" is down\n",
-				addr_str, srv->sg->name);
+			T_WARN("sticky sched: pinned server %s in group '%s'"
+			       " is down\n",
+			       addr_str, srv->sg->name);
 			goto err;
 		}
-		TFW_WARN("sticky sched: pinned server %s in group '%s'"
-			 " is down, try find other server\n",
-			 addr_str, srv->sg->name);
+		T_LOG("sticky sched: pinned server %s in group '%s'"
+		      " is down, try find other server\n",
+		      addr_str, srv->sg->name);
 	}
 
 	srv_conn = tfw_vhost_get_srv_conn(msg);
