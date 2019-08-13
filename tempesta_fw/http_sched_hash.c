@@ -451,13 +451,13 @@ static TfwScheduler tfw_sched_hash = {
 int
 tfw_sched_hash_init(void)
 {
-	TFW_DBG("sched_hash: init\n");
+	T_DBG("sched_hash: init\n");
 	return tfw_sched_register(&tfw_sched_hash);
 }
 
 void
 tfw_sched_hash_exit(void)
 {
-	TFW_DBG("sched_hash: exit\n");
+	T_DBG("sched_hash: exit\n");
 	tfw_sched_unregister(&tfw_sched_hash);
 }

@@ -64,7 +64,7 @@ typedef struct {
 			memset(s, 0, sizeof(struct_name));		\
  		s->pool = p;						\
  	} else {							\
- 		TFW_ERR("Can't alloc new " #struct_name);		\
+		T_ERR("Can't alloc new " #struct_name);			\
  	}								\
  	s;								\
  })

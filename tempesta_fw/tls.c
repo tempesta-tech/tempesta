@@ -572,7 +572,7 @@ tfw_tls_conn_init(TfwConn *c)
 	T_DBG2("%s: conn=[%p]\n", __func__, c);
 
 	if ((r = ttls_ctx_init(tls, &tfw_tls.cfg))) {
-		TFW_ERR("TLS (%pK) setup failed (%x)\n", tls, -r);
+		T_ERR("TLS (%pK) setup failed (%x)\n", tls, -r);
 		return -EINVAL;
 	}
 
@@ -606,8 +606,8 @@ tfw_tls_conn_close(TfwConn *c, bool sync)
 	 * skip the alert and just close the socket.
 	 */
 	if (r) {
-		TFW_WARN_ADDR("Close TCP socket w/o sending alert to the peer",
-			      &c->peer->addr, TFW_WITH_PORT);
+		T_WARN_ADDR("Close TCP socket w/o sending alert to the peer",
+			    &c->peer->addr, TFW_WITH_PORT);
 		r = ss_close(c->sk, sync ? SS_F_SYNC : 0);
 	}
 
@@ -770,7 +770,7 @@ tfw_tls_do_init(void)
 	/* Use cute ECDHE-ECDSA-AES128-GCM-SHA256 by default. */
 	r = ttls_config_defaults(&tfw_tls.cfg, TTLS_IS_SERVER);
 	if (r) {
-		TFW_ERR_NL("TLS: can't set config defaults (%x)\n", -r);
+		T_ERR_NL("TLS: can't set config defaults (%x)\n", -r);
 		return -EINVAL;
 	}
 	ttls_conf_sni(&tfw_tls.cfg, tfw_tls_sni, NULL);
@@ -874,20 +874,20 @@ tfw_tls_cfgend(void)
 {
 	if (!(tfw_tls_cgf & TFW_TLS_CFG_F_REQUIRED)) {
 		if (tfw_tls_cgf)
-			TFW_WARN_NL("TLS: no HTTPS listener set, configuration "
-				    "is ignored.\n");
+			T_WARN_NL("TLS: no HTTPS listener set, configuration "
+				  "is ignored.\n");
 		return 0;
 	}
 	else if (!(tfw_tls_cgf & TFW_TLS_CFG_F_CERTS)) {
-		TFW_ERR_NL("TLS: HTTPS listener set but no TLS certificates "
+		T_ERR_NL("TLS: HTTPS listener set but no TLS certificates "
 			    "provided. At least one vhost must have TLS "
 			   "certificates configured.\n");
 		return -EINVAL;
 	}
 
 	if (!(tfw_tls_cgf & TFW_TLS_CFG_F_CERTS_GLOBAL)) {
-		TFW_WARN_NL("TLS: no global TLS certificates provided. "
-			    "Client TLS connections with unknown "
+		T_WARN_NL("TLS: no global TLS certificates provided. "
+			  "Client TLS connections with unknown "
 			    "server name values or with no server name "
 			    "specified will be dropped.\n");
 	}

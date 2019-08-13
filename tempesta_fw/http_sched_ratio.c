@@ -653,7 +653,7 @@ tfw_sched_ratio_calc_tmfn(TfwRatio *ratio,
 	 * is a critical issue in itself.
 	 */
 	if (!(nrtodata = tfw_sched_ratio_rtodata_get(ratio))) {
-		TFW_ERR("Sched ratio: Insufficient memory\n");
+		T_ERR("Sched ratio: Insufficient memory\n");
 		goto rearm;
 	}
 
@@ -1103,7 +1103,7 @@ tfw_sched_ratio_add_grp_common(TfwSrvGroup *sg)
 	TfwRatio *ratio;
 	TfwRatioData *rtodata;
 
-	TFW_DBG2("%s: SG=[%s]\n", __func__, sg->name);
+	T_DBG2("%s: SG=[%s]\n", __func__, sg->name);
 
 	size = sizeof(TfwRatio) + sizeof(TfwRatioSrvDesc) * sg->srv_n;
 	if (!(ratio = kzalloc(size, GFP_KERNEL)))
@@ -1147,7 +1147,7 @@ tfw_sched_ratio_add_grp_dynamic(TfwSrvGroup *sg, void *arg)
 	TfwRatio *ratio;
 	TfwSchrefPredict *schref = arg;
 
-	TFW_DBG2("%s: SG=[%s]\n", __func__, sg->name);
+	T_DBG2("%s: SG=[%s]\n", __func__, sg->name);
 
 	if (!(ratio = tfw_sched_ratio_add_grp_common(sg)))
 		return ratio;
@@ -1305,13 +1305,13 @@ static TfwScheduler tfw_sched_ratio = {
 int
 tfw_sched_ratio_init(void)
 {
-	TFW_DBG("%s: init\n", tfw_sched_ratio.name);
+	T_DBG("%s: init\n", tfw_sched_ratio.name);
 	return tfw_sched_register(&tfw_sched_ratio);
 }
 
 void
 tfw_sched_ratio_exit(void)
 {
-	TFW_DBG("%s: exit\n", tfw_sched_ratio.name);
+	T_DBG("%s: exit\n", tfw_sched_ratio.name);
 	tfw_sched_unregister(&tfw_sched_ratio);
 }

@@ -120,7 +120,7 @@ __alloc_and_copy_literal(const char *src, size_t len, bool keep_bs)
 
 	dst = kmalloc(len + 1, GFP_KERNEL);
 	if (!dst) {
-		TFW_ERR_NL("can't allocate memory\n");
+		T_ERR_NL("can't allocate memory\n");
 		return NULL;
 	}
 
@@ -174,7 +174,7 @@ check_identifier(const char *buf, size_t len)
 	size_t i;
 
 	if (!len) {
-		TFW_ERR_NL("the string is empty\n");
+		T_ERR_NL("the string is empty\n");
 		return false;
 	}
 
@@ -182,15 +182,14 @@ check_identifier(const char *buf, size_t len)
 		return true;
 
 	if (!isalpha(buf[0])) {
-		TFW_ERR_NL("the first character is not a letter: '%c'\n",
-			   buf[0]);
+		T_ERR_NL("the first character is not a letter: '%c'\n", buf[0]);
 		return false;
 	}
 
 	for (i = 0; i < len; ++i) {
 		if (!isalnum(buf[i]) && buf[i] != '_') {
-			TFW_ERR_NL("invalid character: '%c' in '%.*s'\n",
-				   buf[i], (int)len, buf);
+			T_ERR_NL("invalid character: '%c' in '%.*s'\n",
+				 buf[i], (int)len, buf);
 			return false;
 		}
 	}
@@ -250,7 +249,7 @@ entry_set_name(TfwCfgEntry *e)
 		len = sizeof(TFW_CFG_RULE_NAME) - 1;
 	}
 
-	TFW_DBG3("set name: %.*s\n", len, name);
+	T_DBG3("set name: %.*s\n", len, name);
 
 	if (!check_identifier(name, len))
 		return -EINVAL;
@@ -273,7 +272,7 @@ entry_set_first_token(TfwCfgEntry *e, const char *src, int len)
 	BUG_ON(!e);
 	BUG_ON(e->ftoken);
 
-	TFW_DBG3("set first token: %.*s\n", len, src);
+	T_DBG3("set first token: %.*s\n", len, src);
 
 	if (!src || !len)
 		return -EINVAL;
@@ -297,7 +296,7 @@ entry_add_val(TfwCfgEntry *e, const char *val_src, size_t val_len)
 		return -EINVAL;
 
 	if (e->val_n == ARRAY_SIZE(e->vals)) {
-		TFW_ERR_NL("maximum number of values per entry reached\n");
+		T_ERR_NL("maximum number of values per entry reached\n");
 		return -ENOBUFS;
 	}
 
@@ -327,7 +326,7 @@ entry_add_attr(TfwCfgEntry *e, const char *key_src, size_t key_len,
 		return -EINVAL;
 
 	if (e->attr_n == ARRAY_SIZE(e->attrs)) {
-		TFW_ERR_NL("maximum number of attributes per entry reached\n");
+		T_ERR_NL("maximum number of attributes per entry reached\n");
 		return -ENOBUFS;
 	}
 
@@ -442,11 +441,11 @@ typedef struct {
 /* Macros common for both TFSM and PFSM. */
 
 #define FSM_STATE(name) 		\
-	TFW_DBG3("fsm: implicit exit from: %s\n", ps->fsm_ss); \
+	T_DBG3("fsm: implicit exit from: %s\n", ps->fsm_ss); \
 	BUG();				\
 name:					\
 	if (ps->fsm_s != &&name) {	\
-		TFW_DBG3("fsm turn: %s -> %s\n", ps->fsm_ss, #name); \
+		T_DBG3("fsm turn: %s -> %s\n", ps->fsm_ss, #name); \
 		ps->fsm_s = &&name;	\
 		ps->fsm_ss = #name;	\
 	}
@@ -469,7 +468,7 @@ do {					\
 do {					\
 	ps->prev_c = ps->c;		\
 	ps->c = *(++ps->pos);		\
-	TFW_DBG3("tfsm move: '%c' -> '%c'\n", ps->prev_c, ps->c); \
+	T_DBG3("tfsm move: '%c' -> '%c'\n", ps->prev_c, ps->c); \
 	if (ps->prev_c == '\n') {	\
 		++ps->line_no;		\
 		ps->line = ps->pos;	\
@@ -508,7 +507,7 @@ do {					\
 #define PFSM_MOVE(to_state)					\
 do {								\
 	read_next_token(ps);					\
-	TFW_DBG3("pfsm move: %d (\"%.*s\") -> %d (\"%.*s\")", 	\
+	T_DBG3("pfsm move: %d (\"%.*s\") -> %d (\"%.*s\")", 	\
 		ps->prev_t, ps->prev_lit_len, ps->prev_lit,  	\
 		ps->t, ps->lit_len, ps->lit); 			\
 	if(!ps->t) {						\
@@ -524,7 +523,7 @@ do {								\
 #define PFSM_COND_JMP_EXIT_ERROR(cond)				\
 do {								\
 	if (cond) {						\
-		TFW_DBG3("pfsm: rule error, %d -> %d", ps->prev_t, ps->t); \
+		T_DBG3("pfsm: rule error, %d -> %d", ps->prev_t, ps->t); \
 		ps->err = -EINVAL;				\
 		FSM_JMP(PS_EXIT);				\
 	}							\
@@ -550,7 +549,7 @@ read_next_token(TfwCfgParserState *ps)
 	ps->t = TOKEN_NA;
 	ps->c = *ps->pos;
 
-	TFW_DBG3("tfsm start, char: '%c', pos: %.20s\n", ps->c, ps->pos);
+	T_DBG3("tfsm start, char: '%c', pos: %.20s\n", ps->c, ps->pos);
 
 	FSM_JMP(TS_START_NEW_TOKEN);
 
@@ -701,8 +700,8 @@ read_next_token(TfwCfgParserState *ps)
 	}
 
 	FSM_STATE(TS_EXIT) {
-		TFW_DBG3("tfsm exit: t: %d, lit: %.*s\n",
-			 ps->t, ps->lit_len, ps->lit);
+		T_DBG3("tfsm exit: t: %d, lit: %.*s\n",
+		       ps->t, ps->lit_len, ps->lit);
 	}
 }
 STACK_FRAME_NON_STANDARD(read_next_token);
@@ -717,9 +716,9 @@ entry_set_cond(TfwCfgEntry *e, token_t cond_type, const char *src, int len)
 	BUG_ON(!e->ftoken);
 	BUG_ON(e->name);
 
-	TFW_DBG3("set entry rule name '%.*s', 1st operand '%.*s', 2nd operand"
-		 " '%.*s', and condition type '%d'\n", name_len, name,
-		 (int)strlen(e->ftoken), e->ftoken, len, src, cond_type);
+	T_DBG3("set entry rule name '%.*s', 1st operand '%.*s', 2nd operand"
+	       " '%.*s', and condition type '%d'\n", name_len, name,
+	       (int)strlen(e->ftoken), e->ftoken, len, src, cond_type);
 
 	if (!src || !len)
 		return -EINVAL;
@@ -758,7 +757,7 @@ entry_set_cond(TfwCfgEntry *e, token_t cond_type, const char *src, int len)
 static void
 parse_cfg_entry(TfwCfgParserState *ps)
 {
-	TFW_DBG3("pfsm: start\n");
+	T_DBG3("pfsm: start\n");
 	BUG_ON(ps->err);
 
 	/* Start of the input? Read the first token and start a new entry. */
@@ -919,7 +918,7 @@ parse_cfg_entry(TfwCfgParserState *ps)
 		/* name val1 val2;
 		 *           ^
 		 *           We are here (but still need to store val1). */
-		TFW_DBG3("add value: %.*s\n", ps->prev_lit_len, ps->prev_lit);
+		T_DBG3("add value: %.*s\n", ps->prev_lit_len, ps->prev_lit);
 
 		ps->err = entry_add_val(&ps->e, ps->prev_lit, ps->prev_lit_len);
 		FSM_COND_JMP(ps->err, PS_EXIT);
@@ -940,7 +939,7 @@ parse_cfg_entry(TfwCfgParserState *ps)
 		val = ps->lit;
 		val_len = ps->lit_len;
 
-		TFW_DBG3("add attr: %.*s = %.*s\n", key_len, key, val_len, val);
+		T_DBG3("add attr: %.*s = %.*s\n", key_len, key, val_len, val);
 
 		ps->err = entry_add_attr(&ps->e, key, key_len, val, val_len);
 		FSM_COND_JMP(ps->err, PS_EXIT);
@@ -966,7 +965,7 @@ parse_cfg_entry(TfwCfgParserState *ps)
 
 	FSM_STATE(PS_EXIT) {
 		/* Cleanup of entry is done in tfw_cfg_parse_mods() */
-		TFW_DBG3("pfsm: exit\n");
+		T_DBG3("pfsm: exit\n");
 	}
 }
 
@@ -1009,10 +1008,10 @@ __spec_start_handling(TfwCfgSpec *parent, TfwCfgSpec specs[])
 		if (spec->handler == &tfw_cfg_handle_children)
 			BUG_ON(!spec->cleanup);
 		if (parent && !parent->allow_reconfig && spec->allow_reconfig) {
-			TFW_WARN_NL("Directive '%s' doesn't allow "
-				    "reconfiguration required for directive '%s'"
-				    "\n",
-				    parent->name, spec->name);
+			T_WARN_NL("Directive '%s' doesn't allow "
+				  "reconfiguration required for directive '%s'"
+				  "\n",
+				  parent->name, spec->name);
 			return -EINVAL;
 		}
 		spec->__called_now = false;
@@ -1034,8 +1033,8 @@ spec_handle_entry(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry)
 	bool dont_reconfig = tfw_runstate_is_reconfig() && !spec->allow_reconfig;
 
 	if (!spec->allow_repeat && spec->__called_now) {
-		TFW_ERR_NL("duplicate entry: '%s', only one such entry is"
-			   " allowed.\n", parsed_entry->name);
+		T_ERR_NL("duplicate entry: '%s', only one such entry is "
+			 "allowed.\n", parsed_entry->name);
 		return -EINVAL;
 	}
 	spec->__called_now = true;
@@ -1046,19 +1045,19 @@ spec_handle_entry(TfwCfgSpec *spec, TfwCfgEntry *parsed_entry)
 	 * will handle it.
 	 */
 	if (dont_reconfig && (spec->handler != &tfw_cfg_handle_children)) {
-		TFW_DBG2("skip spec '%s': reconfig not allowed\n", spec->name);
+		T_DBG2("skip spec '%s': reconfig not allowed\n", spec->name);
 		return 0;
 	}
-	TFW_DBG2("spec handle: '%s'\n", spec->name);
+	T_DBG2("spec handle: '%s'\n", spec->name);
 	r = spec->handler(spec, parsed_entry);
 	if (dont_reconfig) {
-		TFW_DBG2("spec '%s' skipped: reconfig not allowed\n", spec->name);
+		T_DBG2("spec '%s' skipped: reconfig not allowed\n", spec->name);
 		return r;
 	}
 
 	spec->__called_cfg = true;
 	if (r)
-		TFW_DBG("configuration handler returned error: %d\n", r);
+		T_DBG("configuration handler returned error: %d\n", r);
 
 	return r;
 }
@@ -1081,7 +1080,7 @@ spec_handle_default(TfwCfgSpec *spec)
 		 spec->name, spec->deflt);
 	BUG_ON(len >= sizeof(fake_entry_buf));
 
-	TFW_DBG2("use default entry: '%s'\n", fake_entry_buf);
+	T_DBG2("use default entry: '%s'\n", fake_entry_buf);
 
 	memset(&ps, 0, sizeof(ps));
 	ps.line = ps.in = ps.pos = fake_entry_buf;
@@ -1103,7 +1102,7 @@ spec_handle_default_section(TfwCfgSpec *spec)
 {
 	if (spec->handler != tfw_cfg_handle_children)
 		return 0;
-	TFW_DBG2("use default values for section '%s'\n", spec->name);
+	T_DBG2("use default values for section '%s'\n", spec->name);
 	if (spec->dest == NULL)
 		return 0;
 	return spec_finish_handling(spec->dest);
@@ -1138,7 +1137,7 @@ spec_finish_handling(TfwCfgSpec specs[])
 			if ((r = spec_handle_default(spec)))
 				goto err_dflt_val;
 		} else if (!spec->allow_none) {
-			/* Jump just because TFW_ERR() is ugly here. */
+			/* Jump just because T_ERR() is ugly here. */
 			goto err_no_entry;
 		}
 	}
@@ -1146,11 +1145,11 @@ spec_finish_handling(TfwCfgSpec specs[])
 	return 0;
 
 err_no_entry:
-	TFW_ERR_NL("the required entry is not found: '%s'\n", spec->name);
+	T_ERR_NL("the required entry is not found: '%s'\n", spec->name);
 	return -EINVAL;
 
 err_dflt_val:
-	TFW_ERR_NL("Error handling default value for: '%s'\n", spec->name);
+	T_ERR_NL("Error handling default value for: '%s'\n", spec->name);
 	return r;
 }
 
@@ -1168,7 +1167,7 @@ spec_cleanup(TfwCfgSpec specs[])
 			spec->__called_ever = false;
 		}
 		if (called && spec->cleanup) {
-			TFW_DBG2("%s: '%s'\n", __func__, spec->name);
+			T_DBG2("%s: '%s'\n", __func__, spec->name);
 			spec->cleanup(spec);
 		}
 	}
@@ -1241,8 +1240,8 @@ int
 tfw_cfg_check_range(long value, long min, long max)
 {
 	if (min != max && (value < min || value > max)) {
-		TFW_ERR_NL("the value %ld is out of range: [%ld, %ld]\n",
-			   value, min, max);
+		T_ERR_NL("the value %ld is out of range: [%ld, %ld]\n",
+			 value, min, max);
 		return -EINVAL;
 	}
 	return 0;
@@ -1257,8 +1256,8 @@ int
 tfw_cfg_check_multiple_of(long value, int divisor)
 {
 	if (divisor && (value % divisor)) {
-		TFW_ERR_NL("the value of %ld is not a multiple of %d\n",
-			   value, divisor);
+		T_ERR_NL("the value of %ld is not a multiple of %d\n",
+			 value, divisor);
 		return -EINVAL;
 	}
 	return 0;
@@ -1272,8 +1271,8 @@ int
 tfw_cfg_check_val_n(const TfwCfgEntry *e, int val_n)
 {
 	if (e->val_n != val_n) {
-		TFW_ERR_NL("invalid number of values; expected: %d, got: %zu\n",
-			   val_n, e->val_n);
+		T_ERR_NL("invalid number of values; expected: %d, got: %zu\n",
+			 val_n, e->val_n);
 		return -EINVAL;
 	}
 	return 0;
@@ -1295,13 +1294,13 @@ tfw_cfg_check_single_val(const TfwCfgEntry *e)
 	int r = -EINVAL;
 
 	if (e->val_n == 0)
-		TFW_ERR_NL("no value specified\n");
+		T_ERR_NL("no value specified\n");
 	else if (e->val_n > 1)
-		TFW_ERR_NL("more than one value specified\n");
+		T_ERR_NL("more than one value specified\n");
 	else if (e->attr_n)
-		TFW_ERR_NL("unexpected attributes\n");
+		T_ERR_NL("unexpected attributes\n");
 	else if (e->have_children)
-		TFW_ERR_NL("unexpected children entries\n");
+		T_ERR_NL("unexpected children entries\n");
 	else
 		r = 0;
 
@@ -1431,7 +1430,7 @@ tfw_cfg_parse_intvl(const char *str, unsigned long *i0, unsigned long *i1)
 	while (*s) {
 		if (*s == '-') {
 			if (v == i1) {
-				TFW_ERR_NL("Bad interval delimiter\n");
+				T_ERR_NL("Bad interval delimiter\n");
 				return -EINVAL;
 			}
 			v = i1;
@@ -1444,18 +1443,18 @@ tfw_cfg_parse_intvl(const char *str, unsigned long *i0, unsigned long *i1)
 			return -EINVAL;
 		r = _parse_integer(s, base, v);
 		if (!r || r & KSTRTOX_OVERFLOW) {
-			TFW_ERR_NL("Bad integer\n");
+			T_ERR_NL("Bad integer\n");
 			return -EINVAL;
 		}
 		if (v == i1 && *i0 >= *i1) {
-			TFW_ERR("Interval bound crossing\n");
+			T_ERR("Interval bound crossing\n");
 			return -EINVAL;
 		}
 
 		s += r;
 	}
 	if (v == i1 && !*v) {
-		TFW_ERR_NL("Zero interval left bound in '%s'\n", str);
+		T_ERR_NL("Zero interval left bound in '%s'\n", str);
 		return -EINVAL;
 	}
 
@@ -1507,7 +1506,7 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 	BUG_ON(!cs->cleanup);
 
 	if (!e->have_children) {
-		TFW_ERR_NL("the entry has no nested children entries\n");
+		T_ERR_NL("the entry has no nested children entries\n");
 		return -EINVAL;
 	}
 
@@ -1534,13 +1533,13 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 	while (ps->t && (ps->t != TOKEN_RBRACE)) {
 		parse_cfg_entry(ps);
 		if (ps->err) {
-			TFW_ERR_NL("parser error\n");
+			T_ERR_NL("parser error\n");
 			return ps->err;
 		}
 
 		matching_spec = spec_find(nested_specs, ps->e.name);
 		if (!matching_spec) {
-			TFW_ERR_NL("don't know how to handle: %s\n", ps->e.name);
+			T_ERR_NL("don't know how to handle: %s\n", ps->e.name);
 			return -EINVAL;
 		}
 
@@ -1556,7 +1555,7 @@ tfw_cfg_handle_children(TfwCfgSpec *cs, TfwCfgEntry *e)
 	 * Check that we have a '}' here.
 	 */
 	if (ps->t != TOKEN_RBRACE) {
-		TFW_ERR_NL("%s: Missing closing brace.\n", cs->name);
+		T_ERR_NL("%s: Missing closing brace.\n", cs->name);
 		return -EINVAL;
 	}
 
@@ -1617,7 +1616,7 @@ tfw_cfg_set_bool(TfwCfgSpec *cs, TfwCfgEntry *e)
 
 	BUG_ON(is_true && is_false);
 	if (!is_true && !is_false) {
-		TFW_ERR_NL("invalid boolean value: '%s'\n", in_str);
+		T_ERR_NL("invalid boolean value: '%s'\n", in_str);
 		return -EINVAL;
 	}
 
@@ -1666,7 +1665,7 @@ val_is_parsed:
 	return 0;
 
 err:
-	TFW_ERR_NL("can't parse integer");
+	T_ERR_NL("can't parse integer");
 	return -EINVAL;
 }
 EXPORT_SYMBOL(tfw_cfg_set_int);
@@ -1701,7 +1700,7 @@ tfw_cfg_set_long(TfwCfgSpec *cs, TfwCfgEntry *e)
 	return 0;
 
 err:
-	TFW_ERR_NL("can't parse long integer");
+	T_ERR_NL("can't parse long integer");
 	return -EINVAL;
 }
 EXPORT_SYMBOL(tfw_cfg_set_long);
@@ -1755,15 +1754,15 @@ tfw_cfg_set_str(TfwCfgSpec *cs, TfwCfgEntry *e)
 		min = cse->len_range.min;
 		max = cse->len_range.max;
 		if (min != max && (len < min || len > max)) {
-			TFW_ERR_NL("the string length (%d) is out of valid "
-				   "range (%d, %d): '%s'\n", len, min, max,
-				   str);
+			T_ERR_NL("the string length (%d) is out of valid range "
+				 "(%d, %d): '%s'\n",
+				 len, min, max, str);
 			return -EINVAL;
 		}
 
 		cset = cse->cset;
 		if (cset && !is_matching_to_cset(str, cset)) {
-			TFW_ERR_NL("invalid characters found: '%s'\n", str);
+			T_ERR_NL("invalid characters found: '%s'\n", str);
 			return -EINVAL;
 		}
 	}
@@ -1806,16 +1805,16 @@ print_parse_error(const TfwCfgParserState *ps)
 	 * by @spec_finish_handling() function.
 	 */
 	if (!ps->e.line) {
-		TFW_ERR_NL("configuration parsing error\n");
+		T_ERR_NL("configuration parsing error\n");
 		return;
 	}
 
 	eos = strchrnul(ps->e.line, '\n');
 	len = min(80, (int)(eos - ps->e.line));
-	TFW_ERR_NL("configuration parsing error:\n"
-		   "%4zu: %.*s\n"
-		   "      %.*s\n",
-		   ps->e.line_no + 1, len, ps->e.line, len, ticks);
+	T_ERR_NL("configuration parsing error:\n"
+		 "%4zu: %.*s\n"
+		 "      %.*s\n",
+		 ps->e.line_no + 1, len, ps->e.line, len, ticks);
 }
 
 /*
@@ -1856,7 +1855,7 @@ tfw_cfg_parse_mods(const char *cfg_text, struct list_head *mod_list)
 	do {
 		parse_cfg_entry(&ps);
 		if (ps.err) {
-			TFW_ERR_NL("syntax error\n");
+			T_ERR_NL("syntax error\n");
 			goto err;
 		}
 		if (!ps.e.name)
@@ -1868,7 +1867,7 @@ tfw_cfg_parse_mods(const char *cfg_text, struct list_head *mod_list)
 				break;
 		}
 		if (!matching_spec) {
-			TFW_ERR_NL("don't know how to handle: '%s'\n", ps.e.name);
+			T_ERR_NL("don't know how to handle: '%s'\n", ps.e.name);
 			goto err;
 		}
 
@@ -1902,7 +1901,7 @@ tfw_cfg_cleanup(struct list_head *mod_list)
 {
 	TfwMod *mod;
 
-	TFW_DBG3("Configuration cleanup...\n");
+	T_DBG3("Configuration cleanup...\n");
 	MOD_FOR_EACH_REVERSE(mod, mod_list) {
 		spec_cleanup(mod->specs);
 		if (mod->cfgclean)
@@ -1918,13 +1917,13 @@ tfw_cfg_parse(struct list_head *mod_list)
 	size_t file_size = 0;
 	char *cfg_text_buf;
 
-	TFW_DBG3("reading configuration file...\n");
+	T_DBG3("reading configuration file...\n");
 	if (!(cfg_text_buf = tfw_cfg_read_file(tfw_cfg_path, &file_size)))
 		return -ENOENT;
 
-	TFW_DBG2("parsing configuration and pushing it to modules...\n");
+	T_DBG2("parsing configuration and pushing it to modules...\n");
 	if ((ret = tfw_cfg_parse_mods(cfg_text_buf, mod_list)))
-		TFW_DBG("Error parsing configuration data\n");
+		T_DBG("Error parsing configuration data\n");
 
 	free_pages((unsigned long)cfg_text_buf, get_order(file_size));
 
@@ -1974,47 +1973,47 @@ tfw_cfg_read_file(const char *path, size_t *file_size)
 	mm_segment_t oldfs;
 
 	if (!path || !*path) {
-		TFW_ERR_NL("can't open file with empty name\n");
+		T_ERR_NL("can't open file with empty name\n");
 		return NULL;
 	}
 
-	TFW_DBG2("reading file: %s\n", path);
+	T_DBG2("reading file: %s\n", path);
 
 	oldfs = get_fs();
 	set_fs(get_ds());
 
 	fp = filp_open(path, O_RDONLY, 0);
 	if (IS_ERR_OR_NULL(fp)) {
-		TFW_ERR_NL("can't open file: %s (err: %ld)\n",
-			   path, PTR_ERR(fp));
+		T_ERR_NL("can't open file: %s (err: %ld)\n",
+			 path, PTR_ERR(fp));
 		goto err_open;
 	}
 
 	buf_size = fp->f_inode->i_size;
-	TFW_DBG2("file size: %zu bytes\n", buf_size);
+	T_DBG2("file size: %zu bytes\n", buf_size);
 	buf_size += 1; /* for '\0' */
 	*file_size = buf_size;
 
 	out_buf = (char *)__get_free_pages(GFP_KERNEL, get_order(buf_size));
 	if (!out_buf) {
-		TFW_ERR_NL("can't allocate memory\n");
+		T_ERR_NL("can't allocate memory\n");
 		goto err_alloc;
 	}
 
 	do {
-		TFW_DBG3("read by offset: %d\n", (int)off);
+		T_DBG3("read by offset: %d\n", (int)off);
 		read_size = min((size_t)(buf_size - off), PAGE_SIZE);
 		bytes_read = kernel_read(fp, out_buf + off, read_size, &off);
 		if (bytes_read < 0) {
-			TFW_ERR_NL("can't read file: %s (err: %zu)\n", path,
-				bytes_read);
+			T_ERR_NL("can't read file: %s (err: %zu)\n", path,
+				 bytes_read);
 			goto err_read;
 		}
 	} while (bytes_read);
 
 	/* Exactly one byte (reserved for '\0') should remain. */
 	if (buf_size - off - 1) {
-		TFW_ERR_NL("file size changed during the read: '%s'\n,", path);
+		T_ERR_NL("file size changed during the read: '%s'\n,", path);
 		goto err_read;
 	}
 

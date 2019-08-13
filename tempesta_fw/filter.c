@@ -81,13 +81,13 @@ tfw_filter_block_ip(const TfwAddr *addr)
 	unsigned long key = tfw_ipv6_hash(&addr->sin6_addr);
 	size_t len = sizeof(rule);
 
-	TFW_DBG_ADDR("filter: block", addr, TFW_NO_PORT);
+	T_DBG_ADDR("filter: block", addr, TFW_NO_PORT);
 
 	/* TODO create records on all NUMA nodes. */
 	if (!tdb_entry_create(ip_filter_db, key, &rule, &len)) {
-		TFW_WARN_ADDR("cannot create blocking rule", addr, TFW_NO_PORT);
+		T_WARN_ADDR("cannot create blocking rule", addr, TFW_NO_PORT);
 	} else {
-		TFW_DBG_ADDR("block client", addr, TFW_NO_PORT);
+		T_DBG_ADDR("block client", addr, TFW_NO_PORT);
 	}
 }
 EXPORT_SYMBOL(tfw_filter_block_ip);
@@ -302,7 +302,7 @@ tfw_filter_start(void)
 		return -EINVAL;
 
 	if ((r = register_pernet_subsys(&tfw_net_ops)))	{
-		TFW_ERR_NL("can't register netfilter hooks\n");
+		T_ERR_NL("can't register netfilter hooks\n");
 		tdb_close(ip_filter_db);
 		return r;
 	}

@@ -43,10 +43,10 @@
 #include "sync_socket.h"
 #include "lib/common.h"
 
-#define TFW_WARN_ADDR_STATUS(msg, addr_ptr, print_port, status)		\
+#define T_WARN_ADDR_STATUS(msg, addr_ptr, print_port, status)		\
 	TFW_WITH_ADDR_FMT(addr_ptr, print_port, addr_str,		\
-			  TFW_WARN("%s, status %d: %s\n",		\
-				   msg, status, addr_str))
+			  T_WARN("%s, status %d: %s\n",			\
+				 msg, status, addr_str))
 
 #define RESP_BUF_LEN			128
 static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_buf);
@@ -499,7 +499,7 @@ tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, TfwMsgIter *it,
 	if (end)
 		ret |= tfw_msg_write(it, end);
 
-	TFW_DBG("Send HTTP 304 response\n");
+	T_DBG("Send HTTP 304 response\n");
 
 	return ret ? TFW_BLOCK : TFW_PASS;
 }
@@ -668,8 +668,8 @@ tfw_h1_send_resp(TfwHttpReq *req, resp_code_t code)
 
 	return;
 err_setup:
-	TFW_DBG2("%s: Response message allocation error: conn=[%p]\n",
-		 __func__, req->conn);
+	T_DBG2("%s: Response message allocation error: conn=[%p]\n",
+	       __func__, req->conn);
 	tfw_http_msg_free((TfwHttpMsg *)resp);
 err:
 	tfw_http_resp_build_error(req);
@@ -936,7 +936,7 @@ tfw_http_error_resp_switch(TfwHttpReq *req, int status)
 {
 	resp_code_t code = tfw_http_enum_resp_code(status);
 	if (code == RESP_NUM) {
-		TFW_WARN("Unexpected response error code: [%d]\n", status);
+		T_WARN("Unexpected response error code: [%d]\n", status);
 		code = RESP_500;
 	}
 
@@ -951,8 +951,8 @@ void
 tfw_http_send_resp(TfwHttpReq *req, int status, const char *reason)
 {
 	if (!(tfw_blk_flags & TFW_BLK_ERR_NOLOG)) {
-		TFW_WARN_ADDR_STATUS(reason, &req->conn->peer->addr,
-		                     TFW_WITH_PORT, status);
+		T_WARN_ADDR_STATUS(reason, &req->conn->peer->addr,
+				   TFW_WITH_PORT, status);
 	}
 	tfw_http_error_resp_switch(req, status);
 }
@@ -972,10 +972,10 @@ tfw_http_hm_suspend(TfwHttpResp *resp, TfwServer *srv)
 		old_flags = cmpxchg(&srv->flags, flags,
 				    flags | TFW_SRV_F_SUSPEND);
 		if (likely(old_flags == flags)) {
-			TFW_WARN_ADDR_STATUS("server has been suspended: limit "
-			                     "for bad responses is exceeded",
-			                     &srv->addr, TFW_WITH_PORT,
-			                     resp->status);
+			T_WARN_ADDR_STATUS("server has been suspended: limit "
+					   "for bad responses is exceeded",
+					   &srv->addr, TFW_WITH_PORT,
+					   resp->status);
 			break;
 		}
 		flags = old_flags;
@@ -1045,8 +1045,8 @@ tfw_http_req_zap_error(struct list_head *eq)
 {
 	TfwHttpReq *req, *tmp;
 
-	TFW_DBG2("%s: queue is %sempty\n",
-		 __func__, list_empty(eq) ? "" : "NOT ");
+	T_DBG2("%s: queue is %sempty\n",
+	       __func__, list_empty(eq) ? "" : "NOT ");
 	if (list_empty(eq))
 		return;
 
@@ -1113,8 +1113,8 @@ tfw_http_req_evict_timeout(TfwSrvConn *srv_conn, TfwServer *srv,
 	unsigned long jqage = jiffies - req->jrxtstamp;
 
 	if (unlikely(time_after(jqage, srv->sg->max_jqage))) {
-		TFW_DBG2("%s: Eviction: req=[%p] overdue=[%dms]\n",
-			 __func__, req,
+		T_DBG2("%s: Eviction: req=[%p] overdue=[%dms]\n",
+		       __func__, req,
 			 jiffies_to_msecs(jqage - srv->sg->max_jqage));
 		tfw_http_req_err(srv_conn, req, eq, 504,
 				 "request evicted: timed out");
@@ -1132,8 +1132,8 @@ tfw_http_req_evict_retries(TfwSrvConn *srv_conn, TfwServer *srv,
 			   TfwHttpReq *req, struct list_head *eq)
 {
 	if (unlikely(req->retries++ >= srv->sg->max_refwd)) {
-		TFW_DBG2("%s: Eviction: req=[%p] retries=[%d]\n",
-			 __func__, req, req->retries);
+		T_DBG2("%s: Eviction: req=[%p] retries=[%d]\n",
+		       __func__, req, req->retries);
 		tfw_http_req_err(srv_conn, req, eq, 504,
 				 "request evicted: the number"
 				 " of retries exceeded");
@@ -1178,8 +1178,8 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 	if (!(r = tfw_connection_send((TfwConn *)srv_conn, (TfwMsg *)req)))
 		return 0;
 
-	TFW_DBG2("%s: Forwarding error: conn=[%p] req=[%p] error=[%d]\n",
-		 __func__, srv_conn, req, r);
+	T_DBG2("%s: Forwarding error: conn=[%p] req=[%p] error=[%d]\n",
+	       __func__, srv_conn, req, r);
 
 	if (r == -EBADF || r == -EBUSY)
 		return r;
@@ -1188,9 +1188,8 @@ tfw_http_req_fwd_send(TfwSrvConn *srv_conn, TfwServer *srv, TfwHttpReq *req,
 		tfw_http_req_delist(srv_conn, req);
 		WARN_ON_ONCE(req->pair);
 		tfw_http_msg_free((TfwHttpMsg *)req);
-		TFW_WARN_ADDR("Unable to send health"
-			      " monitoring request to server",
-			      &srv_conn->peer->addr, TFW_WITH_PORT);
+		T_WARN_ADDR("Unable to send health monitoring request to server",
+			    &srv_conn->peer->addr, TFW_WITH_PORT);
 	} else {
 		tfw_http_req_err(srv_conn, req, eq, 500,
 				 "request dropped: forwarding error");
@@ -1232,7 +1231,7 @@ tfw_http_conn_fwd_unsent(TfwSrvConn *srv_conn, struct list_head *eq)
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
 	struct list_head *fwd_queue = &srv_conn->fwd_queue;
 
-	TFW_DBG2("%s: conn=%pK\n", __func__, srv_conn);
+	T_DBG2("%s: conn=%pK\n", __func__, srv_conn);
 	WARN_ON(!spin_is_locked(&srv_conn->fwd_qlock));
 	BUG_ON(tfw_http_conn_drained(srv_conn));
 
@@ -1312,7 +1311,7 @@ tfw_http_req_fwd(TfwSrvConn *srv_conn, TfwHttpReq *req, struct list_head *eq,
 {
 	int ret = 0;
 
-	TFW_DBG2("%s: srv_conn=%pK req=%pK\n", __func__, srv_conn, req);
+	T_DBG2("%s: srv_conn=%pK req=%pK\n", __func__, srv_conn, req);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
 	spin_lock_bh(&srv_conn->fwd_qlock);
@@ -1380,8 +1379,8 @@ tfw_http_conn_resend(TfwSrvConn *srv_conn, bool first, struct list_head *eq)
 	if (!srv_conn->msg_sent)
 		return 0;
 
-	TFW_DBG2("%s: conn=[%p] first=[%s]\n",
-		 __func__, srv_conn, first ? "true" : "false");
+	T_DBG2("%s: conn=[%p] first=[%s]\n",
+	       __func__, srv_conn, first ? "true" : "false");
 	BUG_ON(!srv_conn->msg_sent);
 	BUG_ON(list_empty(&((TfwHttpReq *)srv_conn->msg_sent)->fwd_list));
 
@@ -1472,7 +1471,7 @@ static int
 tfw_http_conn_fwd_repair(TfwSrvConn *srv_conn, struct list_head *eq)
 {
 	int ret = 0;
-	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
+	T_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 	WARN_ON(!spin_is_locked(&srv_conn->fwd_qlock));
 	BUG_ON(!tfw_srv_conn_restricted(srv_conn));
 
@@ -1570,14 +1569,13 @@ tfw_http_req_resched(TfwHttpReq *req, TfwServer *srv, struct list_head *eq)
 		if (!sch_conn) {
 			list_del_init(&req->fwd_list);
 			tfw_http_conn_msg_free((TfwHttpMsg *)req);
-			TFW_WARN_ADDR("Unable to find connection to"
-			              " reschedule health monitoring"
-			              " request on server", &srv->addr,
-			              TFW_WITH_PORT);
+			T_WARN_ADDR("Unable to find connection to reschedule "
+				    "health monitoring request on server",
+				    &srv->addr, TFW_WITH_PORT);
 			return 0;
 		}
 	} else if (!(sch_conn = tfw_http_get_srv_conn((TfwMsg *)req))) {
-		TFW_DBG("Unable to find a backend server\n");
+		T_DBG("Unable to find a backend server\n");
 		tfw_http_send_resp(req, 502, "request dropped: unable to"
 				   " find an available back end server");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
@@ -1635,7 +1633,7 @@ tfw_http_req_fwd_resched(TfwSrvConn *srv_conn, TfwHttpReq *req,
 {
 	LIST_HEAD(reschq);
 
-	TFW_DBG2("%s: srv_conn=[%p], req=[%p]\n", __func__, srv_conn, req);
+	T_DBG2("%s: srv_conn=[%p], req=[%p]\n", __func__, srv_conn, req);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
 	spin_lock_bh(&srv_conn->fwd_qlock);
@@ -1672,7 +1670,7 @@ tfw_http_conn_shrink_fwdq(TfwSrvConn *srv_conn)
 	TfwServer *srv = (TfwServer *)srv_conn->peer;
 	struct list_head *end, *fwdq = &srv_conn->fwd_queue;
 
-	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
+	T_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 
 	spin_lock_bh(&srv_conn->fwd_qlock);
 	if (list_empty(fwdq)) {
@@ -1734,7 +1732,7 @@ tfw_http_conn_shrink_fwdq_resched(TfwSrvConn *srv_conn)
 	LIST_HEAD(eq);
 	LIST_HEAD(schq);
 
-	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
+	T_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 
 	spin_lock_bh(&srv_conn->fwd_qlock);
 	if (list_empty(&srv_conn->fwd_queue)) {
@@ -1776,7 +1774,7 @@ tfw_http_conn_repair(TfwConn *conn)
 	LIST_HEAD(reschq);
 	LIST_HEAD(eq);
 
-	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
+	T_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
 	/* See if requests need to be rescheduled. */
@@ -1895,7 +1893,7 @@ tfw_http_resp_pair(TfwHttpMsg *hmresp)
 	}
 	spin_unlock(&srv_conn->fwd_qlock);
 
-	TFW_WARN("Paired request missing, HTTP Response Splitting attack?\n");
+	T_WARN("Paired request missing, HTTP Response Splitting attack?\n");
 	TFW_INC_STAT_BH(serv.msgs_otherr);
 
 	return -EINVAL;
@@ -1948,7 +1946,7 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 static int
 tfw_http_conn_init(TfwConn *conn)
 {
-	TFW_DBG2("%s: conn=[%p]\n", __func__, conn);
+	T_DBG2("%s: conn=[%p]\n", __func__, conn);
 
 	if (TFW_CONN_TYPE(conn) & Conn_Srv) {
 		TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
@@ -1992,7 +1990,7 @@ tfw_http_conn_release(TfwConn *conn)
 	TfwSrvConn *srv_conn = (TfwSrvConn *)conn;
 	LIST_HEAD(zap_queue);
 
-	TFW_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
+	T_DBG2("%s: conn=[%p]\n", __func__, srv_conn);
 	BUG_ON(!(TFW_CONN_TYPE(srv_conn) & Conn_Srv));
 
 	if (likely(ss_active())) {
@@ -2065,7 +2063,7 @@ tfw_http_conn_cli_drop(TfwCliConn *cli_conn)
 	TfwHttpReq *req, *tmp;
 	struct list_head *seq_queue = &cli_conn->seq_queue;
 
-	TFW_DBG2("%s: conn=[%p]\n", __func__, cli_conn);
+	T_DBG2("%s: conn=[%p]\n", __func__, cli_conn);
 	BUG_ON(!(TFW_CONN_TYPE(cli_conn) & Conn_Clnt));
 
 	if (list_empty_careful(seq_queue))
@@ -2111,7 +2109,7 @@ tfw_http_conn_drop(TfwConn *conn)
 {
 	bool h2_mode = TFW_CONN_H2(conn);
 
-	TFW_DBG2("%s: conn=[%p]\n", __func__, conn);
+	T_DBG2("%s: conn=[%p]\n", __func__, conn);
 
 	if (TFW_CONN_TYPE(conn) & Conn_Clnt) {
 		if (h2_mode)
@@ -2148,8 +2146,8 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff *skb)
 {
 	TfwHttpMsg *shm;
 
-	TFW_DBG2("Create sibling message: conn %p, msg: %p, skb %p\n",
-		 hm->conn, hm, skb);
+	T_DBG2("Create sibling message: conn %p, msg: %p, skb %p\n",
+	       hm->conn, hm, skb);
 
 	/* The sibling message belongs to the same connection. */
 	shm = (TfwHttpMsg *)tfw_http_conn_msg_alloc(hm->conn, hm->stream);
@@ -2186,9 +2184,9 @@ tfw_http_set_hdr_date(TfwHttpMsg *hm)
 				  s_date, SLEN(S_V_DATE),
 				  TFW_HTTP_HDR_RAW, 0);
 	if (r)
-		TFW_ERR("Unable to add Date: header to msg [%p]\n", hm);
+		T_ERR("Unable to add Date: header to msg [%p]\n", hm);
 	else
-		TFW_DBG2("Added Date: header to msg [%p]\n", hm);
+		T_DBG2("Added Date: header to msg [%p]\n", hm);
 	return r;
 }
 
@@ -2250,7 +2248,7 @@ tfw_http_set_hdr_keep_alive(TfwHttpMsg *hm, unsigned long conn_flg)
 		r = TFW_HTTP_MSG_HDR_DEL(hm, "Keep-Alive",
 					 TFW_HTTP_HDR_KEEP_ALIVE);
 		if (unlikely(r && r != -ENOENT)) {
-			TFW_WARN("Cannot delete Keep-Alive header (%d)\n", r);
+			T_WARN("Cannot delete Keep-Alive header (%d)\n", r);
 			return r;
 		}
 		return 0;
@@ -2310,9 +2308,9 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 
 	r = tfw_http_msg_hdr_add(hm, &rh);
 	if (r)
-		TFW_ERR("Unable to add Via: header to msg [%p]\n", hm);
+		T_ERR("Unable to add Via: header to msg [%p]\n", hm);
 	else
-		TFW_DBG2("Added Via: header to msg [%p]\n", hm);
+		T_DBG2("Added Via: header to msg [%p]\n", hm);
 	return r;
 }
 
@@ -2328,11 +2326,11 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 				  sizeof("X-Forwarded-For") - 1, buf, p - buf,
 				  TFW_HTTP_HDR_X_FORWARDED_FOR, true);
 	if (r)
-		TFW_ERR("can't add X-Forwarded-For header for %.*s to msg %p",
-			(int)(p - buf), buf, hm);
+		T_ERR("can't add X-Forwarded-For header for %.*s to msg %p",
+		      (int)(p - buf), buf, hm);
 	else
-		TFW_DBG2("added X-Forwarded-For header for %.*s\n",
-			 (int)(p - buf), buf);
+		T_DBG2("added X-Forwarded-For header for %.*s\n",
+		       (int)(p - buf), buf);
 	return r;
 }
 
@@ -2352,11 +2350,11 @@ tfw_http_set_loc_hdrs(TfwHttpMsg *hm, TfwHttpReq *req)
 		TfwHdrModsDesc *d = &h_mods->hdrs[i];
 		r = tfw_http_msg_hdr_xfrm_str(hm, d->hdr, d->hid, d->append);
 		if (r) {
-			TFW_ERR("can't update location-specific header in msg %p\n",
-				hm);
+			T_ERR("can't update location-specific header in msg %p\n",
+			      hm);
 			return r;
 		}
-		TFW_DBG2("updated location-specific header in msg %p\n", hm);
+		T_DBG2("updated location-specific header in msg %p\n", hm);
 	}
 
 	return 0;
@@ -2591,7 +2589,7 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 	struct list_head *req_retent = NULL;
 	LIST_HEAD(ret_queue);
 
-	TFW_DBG2("%s: req=[%p], resp=[%p]\n", __func__, req, resp);
+	T_DBG2("%s: req=[%p], resp=[%p]\n", __func__, req, resp);
 	WARN_ON_ONCE(req->resp != resp);
 
 	/*
@@ -2608,8 +2606,8 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 	if (unlikely(list_empty(seq_queue))) {
 		BUG_ON(!list_empty(&req->msg.seq_list));
 		spin_unlock_bh(&cli_conn->seq_qlock);
-		TFW_DBG2("%s: The client was disconnected, drop resp and req: "
-			 "conn=[%p]\n",
+		T_DBG2("%s: The client was disconnected, drop resp and req: "
+		       "conn=[%p]\n",
 			 __func__, cli_conn);
 		tfw_connection_close(req->conn, true);
 		tfw_http_resp_pair_free(req);
@@ -2673,8 +2671,8 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 	if (!list_empty(&ret_queue)) {
 		TfwHttpReq *tmp;
 		list_for_each_entry_safe(req, tmp, &ret_queue, msg.seq_list) {
-			TFW_DBG2("%s: Forwarding error: conn=[%p] resp=[%p]\n",
-				 __func__, cli_conn, req->resp);
+			T_DBG2("%s: Forwarding error: conn=[%p] resp=[%p]\n",
+			       __func__, cli_conn, req->resp);
 			BUG_ON(!req->resp);
 			list_del_init(&req->msg.seq_list);
 			tfw_http_resp_pair_free(req);
@@ -2718,8 +2716,8 @@ tfw_h1_resp_adjust_fwd(TfwHttpResp *resp)
 	 * cache it can be dropped.
 	 */
 	if (unlikely(test_bit(TFW_HTTP_B_REQ_DROP, req->flags))) {
-		TFW_DBG2("%s: resp=[%p] dropped: client disconnected\n",
-			 __func__, resp);
+		T_DBG2("%s: resp=[%p] dropped: client disconnected\n",
+		       __func__, resp);
 		tfw_http_resp_pair_free(req);
 		return;
 	}
@@ -2779,7 +2777,7 @@ static void
 tfw_http_conn_error_log(TfwConn *conn, const char *msg)
 {
 	if (!(tfw_blk_flags & TFW_BLK_ERR_NOLOG))
-		TFW_WARN_ADDR(msg, &conn->peer->addr, TFW_WITH_PORT);
+		T_WARN_ADDR(msg, &conn->peer->addr, TFW_WITH_PORT);
 }
 
 static void
@@ -2928,7 +2926,7 @@ tfw_http_cli_error_resp_and_log(TfwHttpReq *req, int status, const char *msg,
 	}
 
 	if (!nolog)
-		TFW_WARN_ADDR(msg, &req->conn->peer->addr, TFW_WITH_PORT);
+		T_WARN_ADDR(msg, &req->conn->peer->addr, TFW_WITH_PORT);
 
 	if (TFW_MSG_H2(req))
 		tfw_h2_error_resp(req, status, reply, attack, on_req_recv_event);
@@ -3019,7 +3017,7 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 	TfwSrvConn *srv_conn = NULL;
 	LIST_HEAD(eq);
 
-	TFW_DBG2("%s: req = %p, resp = %p\n", __func__, req, req->resp);
+	T_DBG2("%s: req = %p, resp = %p\n", __func__, req, req->resp);
 
 	if (req->resp) {
 		tfw_http_req_cache_service(req->resp);
@@ -3038,7 +3036,7 @@ tfw_http_req_cache_cb(TfwHttpMsg *msg)
 	 * to prevail over cache misses, so this is not a frequent path.
 	 */
 	if (!(srv_conn = tfw_http_get_srv_conn((TfwMsg *)req))) {
-		TFW_DBG("Unable to find a backend server\n");
+		T_DBG("Unable to find a backend server\n");
 		goto send_502;
 	}
 
@@ -3108,8 +3106,8 @@ tfw_http_req_mark_nip(TfwHttpReq *req)
 		return;
 
 nip_match:
-	TFW_DBG2("non-idempotent: method=[%d] uri=[%.*s]\n",
-		 req->method, (int)TFW_STR_CHUNK(&req->uri_path, 0)->len,
+	T_DBG2("non-idempotent: method=[%d] uri=[%.*s]\n",
+	       req->method, (int)TFW_STR_CHUNK(&req->uri_path, 0)->len,
 		 TFW_STR_CHUNK(&req->uri_path, 0)->data);
 	__set_bit(TFW_HTTP_B_NON_IDEMP, req->flags);
 	return;
@@ -3354,8 +3352,8 @@ tfw_http_req_process(TfwConn *conn, TfwStream *stream, const TfwFsmData *data)
 	BUG_ON(off >= skb->len);
 	BUG_ON(trail >= skb->len);
 
-	TFW_DBG2("Received %u client data bytes on conn=%p msg=%p\n",
-		 skb->len - off, conn, stream->msg);
+	T_DBG2("Received %u client data bytes on conn=%p msg=%p\n",
+	       skb->len - off, conn, stream->msg);
 
 	/*
 	 * Process pipelined requests in a loop
@@ -3375,8 +3373,8 @@ next_msg:
 	curr_skb_trail = off + parsed + trail < skb->len ? 0 : trail;
 	TFW_ADD_STAT_BH(parsed, clnt.rx_bytes);
 
-	TFW_DBG2("Request parsed: len=%u next=%pK parsed=%d msg_len=%lu"
-		 " ver=%d res=%d\n",
+	T_DBG2("Request parsed: len=%u next=%pK parsed=%d msg_len=%lu"
+	       " ver=%d res=%d\n",
 		 skb->len, skb->next, parsed, req->msg.len, req->version, r);
 
 	/*
@@ -3392,10 +3390,9 @@ next_msg:
 
 	switch (r) {
 	default:
-		TFW_ERR("Unrecognized HTTP request parser return code, %d\n",
-			r);
+		T_ERR("Unrecognized HTTP request parser return code, %d\n", r);
 	case TFW_BLOCK:
-		TFW_DBG2("Block invalid HTTP request\n");
+		T_DBG2("Block invalid HTTP request\n");
 		TFW_INC_STAT_BH(clnt.msgs_parserr);
 		tfw_http_req_parse_drop(req, 400, "failed to parse request");
 		return TFW_BLOCK;
@@ -3404,7 +3401,7 @@ next_msg:
 			return TFW_BLOCK;
 		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK,
 				  &data_up);
-		TFW_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
+		T_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
 		if (r == TFW_BLOCK) {
 			TFW_INC_STAT_BH(clnt.msgs_filtout);
 			tfw_http_req_parse_block(req, 403,
@@ -3551,7 +3548,7 @@ next_msg:
 	}
 
 	r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_MSG, &data_up);
-	TFW_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
+	T_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
 	/* Don't accept any following requests from the peer. */
 	if (r == TFW_BLOCK) {
 		TFW_INC_STAT_BH(clnt.msgs_filtout);
@@ -3641,7 +3638,7 @@ tfw_http_resp_cache_cb(TfwHttpMsg *msg)
 {
 	TfwHttpResp *resp = (TfwHttpResp *)msg;
 
-	TFW_DBG2("%s: req = %p, resp = %p\n", __func__, resp->req, resp);
+	T_DBG2("%s: req = %p, resp = %p\n", __func__, resp->req, resp);
 
 	if (TFW_MSG_H2(resp->req))
 		tfw_h2_resp_adjust_fwd(resp);
@@ -3739,13 +3736,13 @@ tfw_http_resp_gfsm(TfwHttpMsg *hmresp, TfwFsmData *data)
 	BUG_ON(!hmresp->conn);
 
 	r = tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG, data);
-	TFW_DBG3("TFW_HTTP_FSM_RESP_MSG return code %d\n", r);
+	T_DBG3("TFW_HTTP_FSM_RESP_MSG return code %d\n", r);
 	if (r == TFW_BLOCK)
 		goto error;
 
 	r = tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_LOCAL_RESP_FILTER,
 			  data);
-	TFW_DBG3("TFW_HTTP_FSM_LOCAL_RESP_FILTER return code %d\n", r);
+	T_DBG3("TFW_HTTP_FSM_LOCAL_RESP_FILTER return code %d\n", r);
 	if (r == TFW_PASS)
 		return TFW_PASS;
 
@@ -3906,8 +3903,8 @@ tfw_http_resp_process(TfwConn *conn, TfwStream *stream, const TfwFsmData *data)
 	WARN_ON_ONCE(data->trail);
 	BUG_ON(off >= skb->len);
 
-	TFW_DBG2("Received %u server data bytes on conn=%p msg=%p\n",
-		skb->len, conn, stream->msg);
+	T_DBG2("Received %u server data bytes on conn=%p msg=%p\n",
+	       skb->len, conn, stream->msg);
 	/*
 	 * Process pipelined requests in a loop
 	 * until all data in the SKB is processed.
@@ -3924,9 +3921,8 @@ next_msg:
 	hmresp->msg.len += parsed;
 	TFW_ADD_STAT_BH(parsed, serv.rx_bytes);
 
-	TFW_DBG2("Response parsed: len=%u parsed=%d msg_len=%lu"
-		 " ver=%d res=%d\n",
-		 skb->len, parsed, hmresp->msg.len, hmresp->version, r);
+	T_DBG2("Response parsed: len=%u parsed=%d msg_len=%lu ver=%d res=%d\n",
+	       skb->len, parsed, hmresp->msg.len, hmresp->version, r);
 
 	/*
 	 * We have to keep @data the same to pass it as is to FSMs
@@ -3941,8 +3937,7 @@ next_msg:
 
 	switch (r) {
 	default:
-		TFW_ERR("Unrecognized HTTP response parser return code, %d\n",
-			r);
+		T_ERR("Unrecognized HTTP response parser return code, %d\n", r);
 	case TFW_BLOCK:
 		/*
 		 * The response has not been fully parsed. There's no
@@ -3952,13 +3947,13 @@ next_msg:
 		 * out on this connection and are waiting for paired
 		 * response messages.
 		 */
-		TFW_DBG2("Block invalid HTTP response\n");
+		T_DBG2("Block invalid HTTP response\n");
 		TFW_INC_STAT_BH(serv.msgs_parserr);
 		goto bad_msg;
 	case TFW_POSTPONE:
 		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_RESP_CHUNK,
 				  &data_up);
-		TFW_DBG3("TFW_HTTP_FSM_RESP_CHUNK return code %d\n", r);
+		T_DBG3("TFW_HTTP_FSM_RESP_CHUNK return code %d\n", r);
 		if (r == TFW_BLOCK) {
 			TFW_INC_STAT_BH(serv.msgs_filtout);
 			filtout = true;
@@ -4121,11 +4116,11 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream, TfwFsmData *data)
 		}
 		tfw_http_mark_wl_new_msg(conn, (TfwHttpMsg *)stream->msg,
 					 data->skb);
-		TFW_DBG2("Link new msg %p with connection %p\n",
-			 stream->msg, conn);
+		T_DBG2("Link new msg %p with connection %p\n",
+		       stream->msg, conn);
 	}
 
-	TFW_DBG2("Add skb %p to message %p\n", data->skb, stream->msg);
+	T_DBG2("Add skb %p to message %p\n", data->skb, stream->msg);
 	ss_skb_queue_tail(&stream->msg->skb_head, data->skb);
 
 	return (TFW_CONN_TYPE(conn) & Conn_Clnt)
@@ -4212,18 +4207,17 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 	 */
 	req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block);
 	if (unlikely(!req->vhost || block)) {
-		TFW_WARN_ADDR("Unable to assign vhost for health monitoring "
-			      "request of backend server", &srv->addr,
-			      TFW_WITH_PORT);
+		T_WARN_ADDR("Unable to assign vhost for health monitoring "
+			    "request of backend server", &srv->addr,
+			    TFW_WITH_PORT);
 		goto cleanup;
 	}
 	req->location = req->vhost->loc_dflt;
 
 	srv_conn = srv->sg->sched->sched_srv_conn((TfwMsg *)req, srv);
 	if (!srv_conn) {
-		TFW_WARN_ADDR("Unable to find connection for health"
-		              " monitoring of backend server", &srv->addr,
-		              TFW_WITH_PORT);
+		T_WARN_ADDR("Unable to find connection for health monitoring "
+			    "of backend server", &srv->addr, TFW_WITH_PORT);
 		goto cleanup;
 	}
 
@@ -4287,7 +4281,7 @@ tfw_cfgop_define_block_action(const char *action, unsigned short mask,
 	} else if (!strcasecmp(action, "drop")) {
 		*flags &= ~mask;
 	} else {
-		TFW_ERR_NL("Unsupported argument: '%s'\n", action);
+		T_ERR_NL("Unsupported argument: '%s'\n", action);
 		return -EINVAL;
 	}
 	return 0;
@@ -4301,7 +4295,7 @@ tfw_cfgop_define_block_nolog(TfwCfgEntry *ce, unsigned short mask,
 		if (!strcasecmp(ce->vals[2], "nolog"))
 			*flags |= mask;
 		else {
-			TFW_ERR_NL("Unsupported argument: '%s'\n", ce->vals[2]);
+			T_ERR_NL("Unsupported argument: '%s'\n", ce->vals[2]);
 			return -EINVAL;
 		}
 	} else {
@@ -4314,11 +4308,11 @@ static int
 tfw_cfgop_block_action(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	if (ce->val_n < 2 || ce->val_n > 3) {
-		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
+		T_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
 		return -EINVAL;
 	}
 	if (ce->attr_n) {
-		TFW_ERR_NL("Unexpected attributes\n");
+		T_ERR_NL("Unexpected attributes\n");
 		return -EINVAL;
 	}
 
@@ -4339,7 +4333,7 @@ tfw_cfgop_block_action(TfwCfgSpec *cs, TfwCfgEntry *ce)
 						 &tfw_blk_flags))
 			return -EINVAL;
 	} else {
-		TFW_ERR_NL("Unsupported argument: '%s'\n", ce->vals[0]);
+		T_ERR_NL("Unsupported argument: '%s'\n", ce->vals[0]);
 		return -EINVAL;
 	}
 
@@ -4413,7 +4407,7 @@ tfw_http_set_common_body(int status_code, char *new_length, size_t l_size,
 		msg = &http_5xx_resp_body;
 		break;
 	default:
-		TFW_ERR_NL("undefined HTTP status group: [%d]\n", status_code);
+		T_ERR_NL("undefined HTTP status group: [%d]\n", status_code);
 		return -EINVAL;
 	}
 
@@ -4477,7 +4471,7 @@ __tfw_http_msg_body_dup(const char *filename, TfwStr *c_len_hdr, size_t *len,
 	cl_buf->data = buff;
 	cl_buf->len = tfw_ultoa(b_sz, cl_buf->data, TFW_ULTOA_BUF_SIZ);
 	if (unlikely(!cl_buf->len)) {
-		TFW_ERR_NL("Can't copy file %s: too big\n", filename);
+		T_ERR_NL("Can't copy file %s: too big\n", filename);
 		goto err;
 	}
 
@@ -4485,8 +4479,8 @@ __tfw_http_msg_body_dup(const char *filename, TfwStr *c_len_hdr, size_t *len,
 	t_sz = c_len_hdr->len + b_sz;
 	res = (char *)__get_free_pages(GFP_KERNEL, get_order(t_sz));
 	if (!res) {
-		TFW_ERR_NL("Can't allocate memory storing file %s "
-			   "as response body\n", filename);
+		T_ERR_NL("Can't allocate memory storing file %s as response "
+			 "body\n", filename);
 		goto err_2;
 	}
 
@@ -4565,8 +4559,7 @@ tfw_http_config_resp_body(int status_code, const char *filename)
 
 	code = tfw_http_enum_resp_code(status_code);
 	if (code == RESP_NUM) {
-		TFW_ERR_NL("Unexpected status code: [%d]\n",
-			   status_code);
+		T_ERR_NL("Unexpected status code: [%d]\n", status_code);
 		return -EINVAL;
 	}
 
@@ -4615,7 +4608,7 @@ tfw_cfgop_resp_body_restore_clen(TfwStr *hdr, int resp_num)
 		CLEN_STR_INIT(S_504_PART_02);
 		break;
 	default:
-		TFW_WARN("Bug in 'response_body' directive cleanup.\n");
+		T_WARN("Bug in 'response_body' directive cleanup.\n");
 		CLEN_STR_INIT(S_DEF_PART_02);
 		break;
 	}
@@ -4707,14 +4700,13 @@ tfw_cfgop_resp_body(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 
 	if (ce->attr_n) {
-		TFW_ERR_NL("Unexpected attributes\n");
+		T_ERR_NL("Unexpected attributes\n");
 		return -EINVAL;
 	}
 
 	if (tfw_cfgop_parse_http_status(ce->vals[0], &code)) {
-		TFW_ERR_NL("Unable to parse HTTP code value in"
-			   " 'response_body' directive: '%s'\n",
-			   ce->vals[0]);
+		T_ERR_NL("Unable to parse HTTP code value in '%s' directive: "
+			 "'%s'\n", cs->name, ce->vals[0]);
 		return -EINVAL;
 	}
 
@@ -4728,11 +4720,11 @@ tfw_cfgop_whitelist_mark(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	const char *val;
 
 	if (!ce->val_n) {
-		TFW_ERR_NL("%s: At least one argument is required", cs->name);
+		T_ERR_NL("%s: At least one argument is required", cs->name);
 		return -EINVAL;
 	}
 	if (ce->attr_n) {
-		TFW_ERR_NL("Unexpected attributes\n");
+		T_ERR_NL("Unexpected attributes\n");
 		return -EINVAL;
 	}
 
@@ -4743,8 +4735,8 @@ tfw_cfgop_whitelist_mark(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
 		if (tfw_cfg_parse_int(val, &tfw_wl_marks.mrks[i])) {
-			TFW_ERR_NL("Unable to parse whitelist"
-				   " mark value: '%s'\n", val);
+			T_ERR_NL("Unable to parse whitelist mark value: '%s'\n",
+				 val);
 			kfree(tfw_wl_marks.mrks);
 			return -EINVAL;
 		}
@@ -4770,11 +4762,11 @@ __cfgop_brange_hndl(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned char *a)
 	const char *val;
 
 	if (!ce->val_n) {
-		TFW_ERR_NL("%s: At least one argument is required", cs->name);
+		T_ERR_NL("%s: At least one argument is required", cs->name);
 		return -EINVAL;
 	}
 	if (ce->attr_n) {
-		TFW_ERR_NL("Unexpected attributes\n");
+		T_ERR_NL("Unexpected attributes\n");
 		return -EINVAL;
 	}
 
@@ -4782,13 +4774,13 @@ __cfgop_brange_hndl(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned char *a)
 		unsigned long i0 = 0, i1 = 0;
 
 		if (tfw_cfg_parse_intvl(val, &i0, &i1)) {
-			TFW_ERR_NL("Cannot parse %s interval: '%s'\n",
-				   cs->name, val);
+			T_ERR_NL("Cannot parse %s interval: '%s'\n",
+				 cs->name, val);
 			return -EINVAL;
 		}
 		if (i0 > 255 || i1 > 255) {
-			TFW_ERR_NL("Too large interval bounds in %s: '%s'\n",
-				   cs->name, val);
+			T_ERR_NL("Too large interval bounds in %s: '%s'\n",
+				 cs->name, val);
 			return -EINVAL;
 		}
 
