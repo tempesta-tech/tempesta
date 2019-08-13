@@ -126,7 +126,7 @@ tfw_server_lookup(TfwSrvGroup *sg, TfwAddr *addr)
 int
 tfw_server_start_sched(TfwServer *srv)
 {
-	TFW_DBG_ADDR("Start scheduler for server", &srv->addr, TFW_WITH_PORT);
+	T_DBG_ADDR("Start scheduler for server", &srv->addr, TFW_WITH_PORT);
 	if (srv->sg->sched->add_srv)
 		return srv->sg->sched->add_srv(srv);
 
@@ -136,7 +136,7 @@ tfw_server_start_sched(TfwServer *srv)
 void
 tfw_server_stop_sched(TfwServer *srv)
 {
-	TFW_DBG_ADDR("Stop scheduler for server", &srv->addr, TFW_WITH_PORT);
+	T_DBG_ADDR("Stop scheduler for server", &srv->addr, TFW_WITH_PORT);
 	if (srv->sg->sched && srv->sg->sched->del_srv)
 		srv->sg->sched->del_srv(srv);
 }
@@ -205,7 +205,7 @@ tfw_sg_new(const char *name, unsigned int len, gfp_t flags)
 	TfwSrvGroup *sg;
 	size_t name_size = strlen(name) + 1;
 
-	TFW_DBG("Create new server group: '%s'\n", name);
+	T_DBG("Create new server group: '%s'\n", name);
 
 	sg = kzalloc(sizeof(*sg) + name_size, flags);
 	if (!sg)
@@ -233,10 +233,10 @@ tfw_sg_add_reconfig(TfwSrvGroup *sg)
 {
 	unsigned long key;
 
-	TFW_DBG("Add new server group: '%s'\n", sg->name);
+	T_DBG("Add new server group: '%s'\n", sg->name);
 
 	if (tfw_sg_lookup_reconfig(sg->name, sg->nlen)) {
-		TFW_ERR("duplicate server group: '%s'\n", sg->name);
+		T_ERR_NL("duplicate server group: '%s'\n", sg->name);
 		return -EINVAL;
 	}
 
@@ -266,7 +266,7 @@ tfw_sg_apply_reconfig(struct hlist_head *del_sg)
 	struct hlist_node *tmp;
 	TfwSrvGroup *sg;
 
-	TFW_DBG("Apply reconfig groups\n");
+	T_DBG("Apply reconfig groups\n");
 
 	down_write(&sg_sem);
 
@@ -326,7 +326,7 @@ tfw_sg_add_srv(TfwSrvGroup *sg, TfwServer *srv)
 	tfw_sg_get(sg);
 	srv->sg = sg;
 
-	TFW_DBG2("Add new backend server to group '%s'\n", sg->name);
+	T_DBG2("Add new backend server to group '%s'\n", sg->name);
 	down_write(&sg_sem);
 	list_add(&srv->list, &sg->srv_list);
 	++sg->srv_n;
@@ -346,7 +346,7 @@ __tfw_sg_del_srv(TfwSrvGroup *sg, TfwServer *srv, bool lock)
 	 * change it's group on the fly.
 	 */
 
-	TFW_DBG2("Remove backend server from group '%s'\n", sg->name);
+	T_DBG2("Remove backend server from group '%s'\n", sg->name);
 
 	if (lock)
 		down_write(&sg_sem);
@@ -360,8 +360,7 @@ __tfw_sg_del_srv(TfwSrvGroup *sg, TfwServer *srv, bool lock)
 int
 tfw_sg_start_sched(TfwSrvGroup *sg, TfwScheduler *sched, void *arg)
 {
-	TFW_DBG2("Start scheduler '%s' for group '%s'\n",
-		 sched->name, sg->name);
+	T_DBG2("Start scheduler '%s' for group '%s'\n", sched->name, sg->name);
 	sg->sched = sched;
 	if (sched->add_grp)
 		return sched->add_grp(sg, arg);
@@ -372,8 +371,8 @@ tfw_sg_start_sched(TfwSrvGroup *sg, TfwScheduler *sched, void *arg)
 void
 tfw_sg_stop_sched(TfwSrvGroup *sg)
 {
-	TFW_DBG2("Stop scheduler '%s' for group '%s'\n",
-		 (sg->sched ? sg->sched->name : ""), sg->name);
+	T_DBG2("Stop scheduler '%s' for group '%s'\n",
+	       (sg->sched ? sg->sched->name : ""), sg->name);
 	if (sg->sched && sg->sched->del_grp)
 		sg->sched->del_grp(sg);
 }
@@ -462,7 +461,7 @@ end:
 void
 tfw_sg_destroy(TfwSrvGroup *sg)
 {
-	TFW_DBG2("release group: '%s'\n", sg->name);
+	T_DBG2("release group: '%s'\n", sg->name);
 	WARN_ON(!list_empty(&sg->srv_list));
 
 	kfree(sg);

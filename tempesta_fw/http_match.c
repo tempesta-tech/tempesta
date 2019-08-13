@@ -393,9 +393,9 @@ do_eval(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 	match_fn match_fn;
 	tfw_http_match_fld_t field;
 
-	TFW_DBG2("rule: %p, field: %#x, op: %#x, arg:%d:%d'%.*s'\n",
-		 rule, rule->field, rule->op, rule->arg.type, rule->arg.len,
-		 rule->arg.len, rule->arg.str);
+	T_DBG2("rule: %p, field: %#x, op: %#x, arg:%d:%d'%.*s'\n",
+	       rule, rule->field, rule->op, rule->arg.type, rule->arg.len,
+	       rule->arg.len, rule->arg.str);
 
 	BUG_ON(!req || !rule);
 	BUG_ON(rule->field <= 0 || rule->field >= _TFW_HTTP_MATCH_F_COUNT);
@@ -450,7 +450,7 @@ tfw_http_match_req(const TfwHttpReq *req, struct list_head *mlst)
 {
 	TfwHttpMatchRule *rule;
 
-	TFW_DBG2("Matching request: %p, list: %p\n", req, mlst);
+	T_DBG2("Matching request: %p, list: %p\n", req, mlst);
 
 	list_for_each_entry(rule, mlst, list) {
 		if (do_eval(req, rule))
@@ -472,7 +472,7 @@ tfw_http_chain_add(const char *name, TfwHttpTable *table)
 	int size = sizeof(TfwHttpChain) + name_sz;
 
 	if (!(chain = tfw_pool_alloc(table->pool, size))) {
-		TFW_ERR("Can't allocate memory for HTTP chain\n");
+		T_ERR("Can't allocate memory for HTTP chain\n");
 		return NULL;
 	}
 
@@ -520,8 +520,8 @@ tfw_http_rule_new(TfwHttpChain *chain, tfw_http_match_arg_t type,
 
 	BUG_ON(!chain || !chain->pool);
 	if (!(rule = tfw_pool_alloc(chain->pool, size))) {
-		TFW_ERR_NL("Can't allocate a rule for http chain: %p\n",
-			   chain->name);
+		T_ERR_NL("Can't allocate a rule for http chain: %p\n",
+			 chain->name);
 		return NULL;
 	}
 
@@ -545,8 +545,8 @@ tfw_http_rule_arg_init(TfwHttpMatchRule *rule, const char *arg, size_t arg_len)
 
 	if (rule->arg.type == TFW_HTTP_MATCH_A_NUM) {
 		if (tfw_cfg_parse_uint(arg, &rule->arg.num) || !rule->arg.num) {
-			TFW_ERR_NL("http_match: invalid 'mark' condition:"
-				   " '%s'\n", arg);
+			T_ERR_NL("http_match: invalid 'mark' condition: '%s'\n",
+				 arg);
 			return -EINVAL;
 		}
 		rule->op = TFW_HTTP_MATCH_O_EQ;
@@ -555,8 +555,8 @@ tfw_http_rule_arg_init(TfwHttpMatchRule *rule, const char *arg, size_t arg_len)
 
 	if (rule->arg.type == TFW_HTTP_MATCH_A_METHOD) {
 		if (tfw_http_tbl_method(arg, &rule->arg.method)) {
-			TFW_ERR_NL("http_tbl: invalid 'method' condition:"
-				   " '%s'\n", arg);
+			T_ERR_NL("http_tbl: invalid 'method' condition: '%s'\n",
+				 arg);
 			return -EINVAL;
 		}
 		rule->op = TFW_HTTP_MATCH_O_EQ;
@@ -605,8 +605,7 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 	}
 
 	if (!(arg_out = kzalloc(full_name_len + len + 1, GFP_KERNEL))) {
-		TFW_ERR_NL("http_match: unable to allocate rule"
-			   " argument.\n");
+		T_ERR_NL("http_match: unable to allocate rule argument.\n");
 		return ERR_PTR(-ENOMEM);
 	}
 
@@ -631,15 +630,15 @@ tfw_http_arg_adjust(const char *arg, tfw_http_match_fld_t field,
 	 */
 	if (!wc_arg && arg[0] == '*') {
 		if (*op_out == TFW_HTTP_MATCH_O_PREFIX)
-			TFW_WARN_NL("http_match: unable to match"
-				    " double-wildcard patterns '%s', so"
-				    " prefix pattern will be applied\n", arg);
+			T_WARN_NL("http_match: unable to match"
+				  " double-wildcard patterns '%s', so"
+				  " prefix pattern will be applied\n", arg);
 
 		else if (raw_hdr_name)
-			TFW_WARN_NL("http_match: unable to match suffix"
-				    " pattern '%s' in case of raw header"
-				    " specification: '%s', so wildcard pattern"
-				    " will not be applied\n", arg, raw_hdr_name);
+			T_WARN_NL("http_match: unable to match suffix"
+				  " pattern '%s' in case of raw header"
+				  " specification: '%s', so wildcard pattern"
+				  " will not be applied\n", arg, raw_hdr_name);
 
 		else
 			*op_out = TFW_HTTP_MATCH_O_SUFFIX;
@@ -674,11 +673,11 @@ tfw_http_verify_hdr_field(tfw_http_match_fld_t field, const char **hdr_name,
 	const char *h_name = *hdr_name;
 
 	if (field != TFW_HTTP_MATCH_F_HDR && h_name) {
-		TFW_ERR_NL("http_tbl: unnecessary extra field is specified:"
-			   " '%s'\n", h_name);
+		T_ERR_NL("http_tbl: unnecessary extra field is specified: "
+			 "'%s'\n", h_name);
 		return -EINVAL;
 	} else if (field == TFW_HTTP_MATCH_F_HDR && !h_name) {
-		TFW_ERR_NL("http_tbl: header name missed\n");
+		T_ERR_NL("http_tbl: header name missed\n");
 		return -EINVAL;
 	} else if (h_name) {
 		size_t h_len = strlen(h_name);

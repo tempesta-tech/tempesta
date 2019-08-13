@@ -25,16 +25,6 @@
 
 #define BANNER	"fw"
 #include "lib/log.h"
-/* TODO remove the definitions after moving to unified logging. */
-#define TFW_ERR(...)		T_ERR(__VA_ARGS__)
-#define TFW_ERR_NL(...)		T_ERR_NL(__VA_ARGS__)
-#define TFW_WARN(...)		T_WARN(__VA_ARGS__)
-#define TFW_WARN_NL(...)	T_WARN_NL(__VA_ARGS__)
-#define TFW_LOG(...)		T_LOG(__VA_ARGS__)
-#define TFW_LOG_NL(...)		T_LOG_NL(__VA_ARGS__)
-#define TFW_DBG(...)		T_DBG(__VA_ARGS__)
-#define TFW_DBG2(...)		T_DBG2(__VA_ARGS__)
-#define TFW_DBG3(...)		T_DBG3(__VA_ARGS__)
 
 /*
  * Print an IP address into a buffer (allocated on stack) and then evaluate
@@ -52,26 +42,26 @@ do {									\
 } while (0)
 
 /* Log a debug message and append an IP address to it.*/
-#define TFW_DBG_ADDR(msg, addr_ptr, print_port)				\
+#define T_DBG_ADDR(msg, addr_ptr, print_port)				\
 	TFW_WITH_ADDR_FMT(addr_ptr, print_port, addr_str,		\
 	                  T_DBG("%s: %s\n", msg, addr_str))
 
 /* Log an info message and append an IP address to it.*/
-#define TFW_LOG_ADDR(msg, addr_ptr, print_port)				\
+#define T_LOG_ADDR(msg, addr_ptr, print_port)				\
 	TFW_WITH_ADDR_FMT(addr_ptr, print_port, addr_str,		\
 	                  T_LOG("%s: %s\n", msg, addr_str))
 
 /* Log a warning message and append an IP address to it.*/
-#define TFW_WARN_ADDR(msg, addr_ptr, print_port)			\
+#define T_WARN_ADDR(msg, addr_ptr, print_port)				\
 	TFW_WITH_ADDR_FMT(addr_ptr, print_port, addr_str,		\
 	                  T_WARN("%s: %s\n", msg, addr_str))
 
 /* Log an error message and append an IP address to it. */
-#define TFW_ERR_ADDR(msg, addr_ptr, print_port)				\
+#define T_ERR_ADDR(msg, addr_ptr, print_port)				\
 	TFW_WITH_ADDR_FMT(addr_ptr, print_port, addr_str,		\
 	                  T_ERR("%s: %s\n", msg, addr_str))
 
-#define TFW_WARN_MOD_ADDR(mod, check, addr, print_port, fmt, ...)	\
+#define T_WARN_MOD_ADDR(mod, check, addr, print_port, fmt, ...)		\
 do {									\
 	char abuf[TFW_ADDR_STR_BUF_SIZE] = {0};				\
 	tfw_addr_fmt(addr, print_port, abuf);				\

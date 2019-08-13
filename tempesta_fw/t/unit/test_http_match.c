@@ -57,7 +57,7 @@ TfwHttpReq *test_req;
 		  : sizeof(container);					\
 	container *_c = tfw_pool_alloc((chain)->pool, _s);		\
 	if (!_c) {							\
-		TFW_ERR("Can't allocate memory from pool\n");		\
+		T_ERR("Can't allocate memory from pool\n");		\
 	} else { 							\
 		struct list_head *head = (type == TFW_HTTP_MATCH_A_NUM)	\
 				       ? &(chain)->mark_list		\

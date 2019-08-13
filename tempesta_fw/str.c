@@ -111,7 +111,7 @@ tfw_match_ctext_vchar(const char *str, size_t len)
 	else
 		r = __tfw_match_ctext_vchar(str, len);
 
-	TFW_DBG3("%s: str[0]=%#x len=%lu r=%lu\n", __func__, str[0], len, r);
+	T_DBG3("%s: str[0]=%#x len=%lu r=%lu\n", __func__, str[0], len, r);
 
 	return r;
 }
@@ -346,7 +346,7 @@ size_t tfw_match_##a_name(const char *str, size_t len)			\
 	size_t r;							\
 	r = __tfw_match_slow(str, len, custom_##a_name##_enabled	\
 					? custom_##a_name : a_name);	\
-	TFW_DBG3("%s: str[0]=%#x len=%lu r=%lu\n",			\
+	T_DBG3("%s: str[0]=%#x len=%lu r=%lu\n",			\
 		 __func__, str[0], len, r);				\
 	return r;							\
 }									\
@@ -569,7 +569,7 @@ __str_grow_tree(TfwPool *pool, TfwStr *str, unsigned int flag, int n)
 		void *p;
 
 		if (unlikely(str->nchunks >= __TFW_STR_CN_MAX)) {
-			TFW_WARN("Reaching chunks hard limit\n");
+			T_WARN("Reaching chunks hard limit\n");
 			return NULL;
 		}
 
@@ -1234,15 +1234,15 @@ tfw_str_dprint(const TfwStr *str, const char *msg)
 {
 	const TfwStr *dup, *dup_end, *c, *chunk_end;
 
-	TFW_DBG("%s: addr=%p skb=%p len=%lu flags=%x eolen=%u:\n", msg,
-		str, str->skb, str->len, str->flags, str->eolen);
+	T_DBG("%s: addr=%p skb=%p len=%lu flags=%x eolen=%u:\n", msg,
+	      str, str->skb, str->len, str->flags, str->eolen);
 	TFW_STR_FOR_EACH_DUP(dup, str, dup_end) {
-		TFW_DBG("  duplicate %p, len=%lu, flags=%x eolen=%u:\n",
-			dup, dup->len, dup->flags, dup->eolen);
+		T_DBG("  duplicate %p, len=%lu, flags=%x eolen=%u:\n",
+		      dup, dup->len, dup->flags, dup->eolen);
 		TFW_STR_FOR_EACH_CHUNK(c, dup, chunk_end)
-			TFW_DBG("   len=%lu, eolen=%u ptr=%p flags=%x '%.*s'\n",
-				c->len, c->eolen, c->data, c->flags,
-				(int)c->len, c->data);
+			T_DBG("   len=%lu, eolen=%u ptr=%p flags=%x '%.*s'\n",
+			      c->len, c->eolen, c->data, c->flags,
+			      (int)c->len, c->data);
 	}
 }
 

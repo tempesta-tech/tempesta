@@ -76,8 +76,8 @@ tfw_client_put(TfwClient *cli)
 {
 	TfwClientEntry *ent = (TfwClientEntry *)cli;
 
-	TFW_DBG2("put client %p, users=%d\n",
-		 cli, atomic_read(&ent->users));
+	T_DBG2("put client %p, users=%d\n",
+	       cli, atomic_read(&ent->users));
 
 	if (!atomic_dec_and_test(&ent->users))
 		return;
@@ -94,7 +94,7 @@ tfw_client_put(TfwClient *cli)
 
 	spin_unlock(&ent->lock);
 
-	TFW_DBG("put client: cli=%p\n", cli);
+	T_DBG("put client: cli=%p\n", cli);
 	TFW_DEC_STAT_BH(clnt.online);
 }
 
@@ -149,8 +149,8 @@ tfw_client_addr_eq(TdbRec *rec, void (*init)(void *), void *data)
 
 	spin_unlock(&ent->lock);
 
-	TFW_DBG("client was found in tdb\n");
-	TFW_DBG2("client %p, users=%d\n", cli, users);
+	T_DBG("client was found in tdb\n");
+	T_DBG2("client %p, users=%d\n", cli, users);
 
 	return true;
 }
@@ -178,9 +178,9 @@ tfw_client_ent_init(TdbRec *rec, void (*init)(void *), void *data)
 			sizeof(ent->user_agent));
 	ent->user_agent_len = min(ctx->user_agent.len, sizeof(ent->user_agent));
 
-	TFW_DBG("new client: cli=%p\n", cli);
-	TFW_DBG_ADDR("client address", &cli->addr, TFW_NO_PORT);
-	TFW_DBG2("client %p, users=%d\n", cli, 1);
+	T_DBG("new client: cli=%p\n", cli);
+	T_DBG_ADDR("client address", &cli->addr, TFW_NO_PORT);
+	T_DBG2("client %p, users=%d\n", cli, 1);
 }
 
 /**
@@ -228,7 +228,7 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 				&tfw_client_ent_init, init, &ctx, &is_new);
 	BUG_ON(len < sizeof(TfwClientEntry));
 	if (!rec) {
-		TFW_WARN("cannot allocate TDB space for client\n");
+		T_WARN("cannot allocate TDB space for client\n");
 		return NULL;
 	}
 

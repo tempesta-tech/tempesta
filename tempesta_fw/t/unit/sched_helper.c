@@ -44,7 +44,7 @@ test_spec_cleanup(TfwCfgSpec specs[])
 	TFW_CFG_FOR_EACH_SPEC(spec, specs) {
 		bool called = spec->__called_cfg | spec->__called_ever;
 		if (called && spec->cleanup) {
-			TFW_DBG2("%s: '%s'\n", __func__, spec->name);
+			T_DBG2("%s: '%s'\n", __func__, spec->name);
 			spec->cleanup(spec);
 		}
 		spec->__called_cfg = false;

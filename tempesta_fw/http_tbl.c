@@ -134,8 +134,8 @@ tfw_http_tbl_scan(TfwMsg *msg, TfwHttpTable *table, bool *block)
 			rule = tfw_http_match_req((TfwHttpReq *)msg,
 						  &chain->match_list);
 		if (unlikely(!rule)) {
-			TFW_DBG("http_tbl: No rule found in HTTP"
-				" chain '%s'\n", chain->name);
+			T_DBG("http_tbl: No rule found in HTTP chain '%s'\n",
+			      chain->name);
 			return NULL;
 		}
 		chain = (rule->act.type == TFW_HTTP_MATCH_ACT_CHAIN)
@@ -222,8 +222,7 @@ tfw_http_tbl_method(const char *arg, tfw_http_meth_t *method)
 {
 	if (tfw_cfg_map_enum(tfw_http_tbl_cfg_method_enum, arg, method))
 	{
-		TFW_ERR_NL("http_tbl: invalid 'method' condition:"
-			   " '%s'\n", arg);
+		T_ERR_NL("http_tbl: invalid 'method' condition: '%s'\n", arg);
 		return -EINVAL;
 	}
 	return 0;
@@ -266,7 +265,7 @@ tfw_http_tbl_cfgstart(void)
 
 	tfw_table_reconfig = tfw_pool_new(TfwHttpTable, TFW_POOL_ZERO);
 	if (!tfw_table_reconfig) {
-		TFW_ERR_NL("Can't create a memory pool\n");
+		T_ERR_NL("Can't create a memory pool\n");
 		return -ENOMEM;
 	}
 
@@ -288,29 +287,29 @@ tfw_cfgop_http_tbl_chain_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	BUG_ON(!tfw_table_reconfig);
 	BUG_ON(tfw_chain_entry);
 
-	TFW_DBG("http_tbl: begin http_chain\n");
+	T_DBG("http_tbl: begin http_chain\n");
 
 	if (ce->val_n > 1) {
-		TFW_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
+		T_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
 		return -EINVAL;
 	}
 	if (ce->attr_n) {
-		TFW_ERR_NL("Unexpected attributes\n");
+		T_ERR_NL("Unexpected attributes\n");
 		return -EINVAL;
 	}
 
 	chain = list_first_entry_or_null(&tfw_table_reconfig->head,
 					 TfwHttpChain, list);
 	if (chain && !chain->name) {
-		TFW_ERR_NL("Main HTTP chain must be only one and last\n");
+		T_ERR_NL("Main HTTP chain must be only one and last\n");
 		return -EINVAL;
 	}
 	if (ce->val_n) {
 		name = ce->vals[0];
 		list_for_each_entry(chain, &tfw_table_reconfig->head, list) {
 			if (!strcasecmp(chain->name, name)) {
-				TFW_ERR_NL("Duplicate http chain"
-					   " entry: '%s'\n", name);
+				T_ERR_NL("Duplicate http chain entry: '%s'\n",
+					 name);
 				return -EINVAL;
 			}
 		}
@@ -326,7 +325,7 @@ tfw_cfgop_http_tbl_chain_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_cfgop_http_tbl_chain_finish(TfwCfgSpec *cs)
 {
-	TFW_DBG("http_tbl: finish http_chain\n");
+	T_DBG("http_tbl: finish http_chain\n");
 	BUG_ON(!tfw_chain_entry);
 	tfw_chain_entry = NULL;
 	return 0;
@@ -378,7 +377,7 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 	if ((r = tfw_cfg_check_val_n(e, 0)))
 		return r;
 	if (e->attr_n) {
-		TFW_ERR_NL("Attributes count must be zero\n");
+		T_ERR_NL("Attributes count must be zero\n");
 		return -EINVAL;
 	}
 
@@ -393,9 +392,9 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 	BUG_ON(!action);
 
 	if (tfw_http_rule_default_exist(&tfw_chain_entry->match_list)) {
-		TFW_ERR_NL("http_tbl: default HTTP rule must be"
-			   " only one and last; chain '%s'\n",
-			   tfw_chain_entry->name ? : "main" );
+		T_ERR_NL("http_tbl: default HTTP rule must be only one and "
+			 "last; chain '%s'\n",
+			 tfw_chain_entry->name ? : "main" );
 		return -EINVAL;
 	}
 
@@ -405,8 +404,8 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 		r = tfw_cfg_map_enum(tfw_http_tbl_cfg_field_enum,
 				     in_field, &field);
 		if (r) {
-			TFW_ERR_NL("http_tbl: invalid rule field: '%s'\n",
-				   in_field);
+			T_ERR_NL("http_tbl: invalid rule field: '%s'\n",
+				 in_field);
 			return r;
 		}
 		if ((r = tfw_http_verify_hdr_field(field, &hdr, &hid)))
@@ -420,7 +419,7 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 
 	rule = tfw_http_rule_new(tfw_chain_entry, type, arg_size);
 	if (!rule) {
-		TFW_ERR_NL("http_tbl: can't allocate memory for rule\n");
+		T_ERR_NL("http_tbl: can't allocate memory for rule\n");
 		r = -ENOMEM;
 		goto err;
 	} else {
@@ -443,15 +442,15 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 		if (!action_val ||
 		    tfw_cfg_parse_uint(action_val,&rule->act.mark))
 		{
-			TFW_ERR_NL("http_tbl: 'mark' action must have"
-				   " unsigned integer value: '%s'\n",
-				   action_val);
+			T_ERR_NL("http_tbl: 'mark' action must have unsigned "
+				 "integer value: '%s'\n",
+				 action_val);
 			return -EINVAL;
 		}
 		rule->act.type = TFW_HTTP_MATCH_ACT_MARK;
 	} else if (action_val) {
-		TFW_ERR_NL("http_tbl: not 'mark' actions must not have"
-			   " any value: '%s'\n", action_val);
+		T_ERR_NL("http_tbl: not 'mark' actions must not have any value:"
+			 " '%s'\n", action_val);
 		return -EINVAL;
 	} else if (!strcasecmp(action, "block")) {
 		rule->act.type = TFW_HTTP_MATCH_ACT_BLOCK;
@@ -462,14 +461,14 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 		rule->act.type = TFW_HTTP_MATCH_ACT_VHOST;
 		rule->act.vhost = vhost;
 	} else {
-		TFW_ERR_NL("http_tbl: neither http_chain nor vhost with"
-			   " specified name were found: '%s'\n", action);
+		T_ERR_NL("http_tbl: neither http_chain nor vhost with specified"
+			 " name were found: '%s'\n", action);
 		return -EINVAL;
 	}
 
 	if (chain == tfw_chain_entry) {
-		TFW_ERR_NL("http_tbl: cyclic reference of http_chain to"
-			   " itself: '%s'\n", tfw_chain_entry->name);
+		T_ERR_NL("http_tbl: cyclic reference of http_chain to itself:"
+			 " '%s'\n", tfw_chain_entry->name);
 		return -EINVAL;
 	}
 
@@ -556,8 +555,8 @@ tfw_http_tbl_cfgend(void)
 
 	rule = tfw_http_rule_new(chain, TFW_HTTP_MATCH_A_WILDCARD, 0);
 	if (!rule) {
-		TFW_ERR_NL("http_tbl: can't allocate memory for"
-			   " default rule of main HTTP chain\n");
+		T_ERR_NL("http_tbl: can't allocate memory for default rule of "
+			 "main HTTP chain\n");
 		r = -ENOMEM;
 		goto err;
 	}

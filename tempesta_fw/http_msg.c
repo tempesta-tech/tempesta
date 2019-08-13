@@ -326,8 +326,8 @@ tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start)
 
 	BUG_ON(!hdr->skb);
 
-	TFW_DBG3("open header at %p (char=[%c]), skb=%p\n",
-		 hdr_start, *hdr_start, hdr->skb);
+	T_DBG3("open header at %p (char=[%c]), skb=%p\n",
+	       hdr_start, *hdr_start, hdr->skb);
 }
 
 /**
@@ -395,7 +395,7 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm, unsigned int id)
 duplicate:
 	h = tfw_str_add_duplicate(hm->pool, h);
 	if (unlikely(!h)) {
-		TFW_WARN("Cannot close header %p id=%d\n", &parser->hdr, id);
+		T_WARN("Cannot close header %p id=%d\n", &parser->hdr, id);
 		return TFW_BLOCK;
 	}
 
@@ -403,8 +403,8 @@ done:
 	*h = parser->hdr;
 
 	TFW_STR_INIT(&parser->hdr);
-	TFW_DBG3("store header w/ ptr=%p len=%lu eolen=%u flags=%x id=%d\n",
-		 h->data, h->len, h->eolen, h->flags, id);
+	T_DBG3("store header w/ ptr=%p len=%lu eolen=%u flags=%x id=%d\n",
+	       h->data, h->len, h->eolen, h->flags, id);
 
 	/* Move the offset forward if current header is fully read. */
 	if (id == ht->off)
@@ -432,9 +432,9 @@ __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str, void *data,
 {
 	BUG_ON(str->flags & (TFW_STR_DUPLICATE | TFW_STR_COMPLETE));
 
-	TFW_DBG3("store field chunk len=%lu data=%p(%c) field=<%#x,%lu,%p>\n",
-		 len, data, isprint(*(char *)data) ? *(char *)data : '.',
-		 str->flags, str->len, str->data);
+	T_DBG3("store field chunk len=%lu data=%p(%c) field=<%#x,%lu,%p>\n",
+	       len, data, isprint(*(char *)data) ? *(char *)data : '.',
+	       str->flags, str->len, str->data);
 
 	if (TFW_STR_EMPTY(str)) {
 		if (!str->data)
@@ -445,7 +445,7 @@ __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str, void *data,
 	else if (likely(len)) {
 		TfwStr *sn = tfw_str_add_compound(hm->pool, str);
 		if (!sn) {
-			TFW_WARN("Cannot grow HTTP data string\n");
+			T_WARN("Cannot grow HTTP data string\n");
 			return -ENOMEM;
 		}
 		__tfw_http_msg_set_str_data(sn, data, skb);
@@ -471,7 +471,7 @@ tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm)
 		   __HHTBL_SZ(order) * sizeof(TfwStr));
 	hm->h_tbl = ht;
 
-	TFW_DBG3("grow http headers table to %d items\n", ht->size);
+	T_DBG3("grow http headers table to %d items\n", ht->size);
 
 	return 0;
 }
@@ -529,8 +529,8 @@ __hdr_expand(TfwHttpMsg *hm, TfwStr *orig_hdr, const TfwStr *hdr, bool append)
 		return r;
 
 	if (tfw_strcat(hm->pool, orig_hdr, &it)) {
-		TFW_WARN("Cannot concatenate hdr %.*s with %.*s\n",
-			 PR_TFW_STR(orig_hdr), PR_TFW_STR(hdr));
+		T_WARN("Cannot concatenate hdr %.*s with %.*s\n",
+		       PR_TFW_STR(orig_hdr), PR_TFW_STR(hdr));
 		return TFW_BLOCK;
 	}
 
@@ -639,7 +639,7 @@ tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid,
 	const TfwStr *s_val = TFW_STR_CHUNK(hdr, 2);
 
 	if (unlikely(!ht)) {
-		TFW_WARN("Try to adjust lightweight response.");
+		T_WARN("Try to adjust lightweight response.");
 		return -EINVAL;
 	}
 
@@ -664,7 +664,7 @@ tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid,
 	}
 
 	if (unlikely(append && hid < TFW_HTTP_HDR_NONSINGULAR)) {
-		TFW_WARN("Appending to nonsingular header %d\n", hid);
+		T_WARN("Appending to nonsingular header %d\n", hid);
 		return -ENOENT;
 	}
 
@@ -796,8 +796,8 @@ tfw_http_msg_body_xfrm(TfwHttpMsg *hm, TfwStr *data, bool append)
 	r = tfw_str_insert(hm->pool, &hm->body, &it,
 			   append ? hm->body.nchunks : 0);
 	if (r) {
-		TFW_WARN("Can't concatenate body %.*s with %.*s\n",
-			 PR_TFW_STR(&hm->body), PR_TFW_STR(data));
+		T_WARN("Can't concatenate body %.*s with %.*s\n",
+		       PR_TFW_STR(&hm->body), PR_TFW_STR(data));
 		return r;
 	}
 
@@ -883,7 +883,7 @@ tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len)
 
 	if ((r = tfw_msg_iter_setup(it, &hm->msg.skb_head, data_len)))
 		return r;
-	TFW_DBG2("Set up HTTP message %pK with %lu bytes data\n", hm, data_len);
+	T_DBG2("Set up HTTP message %pK with %lu bytes data\n", hm, data_len);
 
 	return 0;
 }
@@ -964,7 +964,7 @@ void
 tfw_http_msg_pair(TfwHttpResp *resp, TfwHttpReq *req)
 {
 	if (unlikely(resp->pair || req->pair))
-		TFW_WARN("Response-Request pairing is broken!\n");
+		T_WARN("Response-Request pairing is broken!\n");
 
 	resp->req = req;
 	req->resp = resp;
@@ -983,7 +983,7 @@ tfw_http_msg_unpair(TfwHttpMsg *msg)
 void
 tfw_http_msg_free(TfwHttpMsg *m)
 {
-	TFW_DBG3("Free msg=%p\n", m);
+	T_DBG3("Free msg=%p\n", m);
 	if (!m)
 		return;
 
@@ -1011,8 +1011,8 @@ __tfw_http_msg_alloc(int type, bool full)
 			 : (TfwHttpMsg *)tfw_pool_new(TfwHttpResp,
 						      TFW_POOL_ZERO);
 	if (!hm) {
-		TFW_WARN("Insufficient memory to create %s message\n",
-			 ((type & Conn_Clnt) ? "request" : "response"));
+		T_WARN("Insufficient memory to create %s message\n",
+		       ((type & Conn_Clnt) ? "request" : "response"));
 		return NULL;
 	}
 
@@ -1020,9 +1020,9 @@ __tfw_http_msg_alloc(int type, bool full)
 		hm->h_tbl = (TfwHttpHdrTbl *)tfw_pool_alloc(hm->pool,
 							    TFW_HHTBL_SZ(1));
 		if (unlikely(!hm->h_tbl)) {
-			TFW_WARN("Insufficient memory to create header table"
-				 " for %s\n",
-				 ((type & Conn_Clnt) ? "request" : "response"));
+			T_WARN("Insufficient memory to create header table"
+			       " for %s\n",
+			       ((type & Conn_Clnt) ? "request" : "response"));
 			tfw_pool_destroy(hm->pool);
 			return NULL;
 		}

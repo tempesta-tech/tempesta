@@ -154,8 +154,8 @@ tfw_gfsm_switch(TfwGState *st, int state, int prio)
 		FSM_STATE(st) = fsm_hooks[fsm_curr][shift].st0;
 	}
 
-	TFW_DBG3("GFSM switch from fsm %d at state %d to fsm %d at state %#x\n",
-		 fsm_curr, state, fsm_next, TFW_GFSM_STATE(st));
+	T_DBG3("GFSM switch from fsm %d at state %d to fsm %d at state %#x\n",
+	       fsm_curr, state, fsm_next, TFW_GFSM_STATE(st));
 
 	return fsm_next;
 }
@@ -182,7 +182,7 @@ __gfsm_fsm_exec(TfwGState *st, int fsm_id, TfwFsmData *data)
 
 	FSM_STATE(st) |= TFW_GFSM_ONSTACK;
 
-	TFW_DBG3("GFSM exec fsm %d, state %#x\n", fsm_id, st->states[slot]);
+	T_DBG3("GFSM exec fsm %d, state %#x\n", fsm_id, st->states[slot]);
 
 	r = fsm_htbl[fsm_id](st->obj, data);
 
@@ -226,8 +226,8 @@ tfw_gfsm_move(TfwGState *st, unsigned short state, TfwFsmData *data)
 	unsigned long mask = 1 << state;
 	unsigned char curr_st = st->curr;
 
-	TFW_DBG3("GFSM move %#x -> %#x: skb=%pK off=%u trail=%u"
-		 " req=%pK resp=%pK\n", FSM_STATE(st), state,
+	T_DBG3("GFSM move %#x -> %#x: skb=%pK off=%u trail=%u"
+	       " req=%pK resp=%pK\n", FSM_STATE(st), state,
 		 data->skb, data->off, data->trail, data->req, data->resp);
 
 	/* Remember current FSM context. */
@@ -282,8 +282,8 @@ EXPORT_SYMBOL(tfw_gfsm_move);
 void
 tfw_gfsm_debug_state(TfwGState *st, const char *msg)
 {
-	TFW_DBG("%s: curr=%d: on_stack=%d fsm_id=%d prio=%d state=%d\n",
-		msg, st->curr, !!(FSM_STATE(st) & TFW_GFSM_ONSTACK), FSM(st),
+	T_DBG("%s: curr=%d: on_stack=%d fsm_id=%d prio=%d state=%d\n",
+	      msg, st->curr, !!(FSM_STATE(st) & TFW_GFSM_ONSTACK), FSM(st),
 		PRIO(st), TFW_GFSM_STATE(st));
 }
 EXPORT_SYMBOL(tfw_gfsm_debug_state);
@@ -320,7 +320,7 @@ tfw_gfsm_register_hook(int fsm_id, int prio, int state,
 			if (!(fsm_hooks_bm[fsm_id][prio] & st_bit))
 				break;
 		if (prio == TFW_GFSM_HOOK_PRIORITY_NUM) {
-			TFW_ERR_NL("All hook slots for FSM %d are acquired\n",
+			T_ERR_NL("All hook slots for FSM %d are acquired\n",
 				   fsm_id);
 			return -EBUSY;
 		}
@@ -330,7 +330,7 @@ tfw_gfsm_register_hook(int fsm_id, int prio, int state,
 	if (fsm_hooks[fsm_id][shift].fsm_id)
 		return -EBUSY;
 	if (!fsm_htbl[fsm_id]) {
-		TFW_ERR_NL("gfsm: fsm %d is not registered\n", fsm_id);
+		T_ERR_NL("gfsm: fsm %d is not registered\n", fsm_id);
 		return -ENOENT;
 	}
 

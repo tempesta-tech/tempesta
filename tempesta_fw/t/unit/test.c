@@ -39,7 +39,7 @@ test_fixture_fn_t test_teardown_fn;
  * message among all logs generated during a test run.
  * That happens because:
  *  - Some tests intentionally make calls with invalid input data.
- *    The code generates TFW_ERR() messages indistinguishable from
+ *    The code generates T_ERR() messages indistinguishable from
  *    real errors.
  *  - Overall, there is a lot of debugging output, and usually you
  *    don't need it unless the test is failed.

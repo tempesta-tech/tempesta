@@ -350,11 +350,11 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	int size, mss = tcp_send_mss(sk, &size, MSG_DONTWAIT);
 	unsigned int mark = (*skb_head)->mark;
 
-	TFW_DBG3("[%d]: %s: sk=%pK queue_empty=%d send_head=%pK"
-	         " sk_state=%d mss=%d size=%d\n",
-	         smp_processor_id(), __func__,
-	         sk, tcp_write_queue_empty(sk), tcp_send_head(sk),
-	         sk->sk_state, mss, size);
+	T_DBG3("[%d]: %s: sk=%pK queue_empty=%d send_head=%pK"
+	       " sk_state=%d mss=%d size=%d\n",
+	       smp_processor_id(), __func__,
+	       sk, tcp_write_queue_empty(sk), tcp_send_head(sk),
+	       sk->sk_state, mss, size);
 
 	/* If the socket is inactive, there's no recourse. Drop the data. */
 	if (unlikely(!ss_sock_active(sk))) {
@@ -369,9 +369,9 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		 * these SKBs.
 		 */
 		if (!skb->len) {
-			TFW_DBG3("[%d]: %s: drop skb=%pK data_len=%u len=%u\n",
-			         smp_processor_id(), __func__,
-			         skb, skb->data_len, skb->len);
+			T_DBG3("[%d]: %s: drop skb=%pK data_len=%u len=%u\n",
+			       smp_processor_id(), __func__,
+			       skb, skb->data_len, skb->len);
 			kfree_skb(skb);
 			continue;
 		}
@@ -382,11 +382,11 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		/* Propagate mark of message head skb.*/
 		skb->mark = mark;
 
-		TFW_DBG3("[%d]: %s: entail sk=%pK skb=%pK data_len=%u len=%u"
-			 " truesize=%u mark=%u tls_type=%x\n",
-			 smp_processor_id(), __func__, sk,
-			 skb, skb->data_len, skb->len, skb->truesize, skb->mark,
-			 tempesta_tls_skb_type(skb));
+		T_DBG3("[%d]: %s: entail sk=%pK skb=%pK data_len=%u len=%u"
+		       " truesize=%u mark=%u tls_type=%x\n",
+		       smp_processor_id(), __func__, sk,
+		       skb, skb->data_len, skb->len, skb->truesize, skb->mark,
+		       tempesta_tls_skb_type(skb));
 
 		skb_entail(sk, skb);
 
@@ -394,9 +394,9 @@ ss_do_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 		TCP_SKB_CB(skb)->end_seq += skb->len;
 	}
 
-	TFW_DBG3("[%d]: %s: sk=%p send_head=%p sk_state=%d flags=%x\n",
-	         smp_processor_id(), __func__,
-	         sk, tcp_send_head(sk), sk->sk_state, flags);
+	T_DBG3("[%d]: %s: sk=%p send_head=%p sk_state=%d flags=%x\n",
+	       smp_processor_id(), __func__,
+	       sk, tcp_send_head(sk), sk->sk_state, flags);
 
 	/*
 	 * If connection close flag is specified, then @ss_do_close is used to
@@ -432,16 +432,16 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 
 	cpu = sk->sk_incoming_cpu;
 
-	TFW_DBG3("[%d]: %s: sk=%p (cpu=%d) state=%s\n",
-	         smp_processor_id(), __func__, sk, cpu,
-		 ss_statename[sk->sk_state]);
+	T_DBG3("[%d]: %s: sk=%p (cpu=%d) state=%s\n",
+	       smp_processor_id(), __func__, sk, cpu,
+	       ss_statename[sk->sk_state]);
 
 	/*
 	 * This isn't reliable check, but rather just an optimization to
 	 * avoid expensive work queue operations.
 	 */
 	if (unlikely(!ss_sock_active(sk))) {
-		TFW_DBG2("Attempt to send on inactive socket %p\n", sk);
+		T_DBG2("Attempt to send on inactive socket %p\n", sk);
 		return -EBADF;
 	}
 
@@ -456,7 +456,7 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 			/* tcp_transmit_skb() will clone the skb. */
 			twin_skb = pskb_copy_for_clone(skb, GFP_ATOMIC);
 			if (!twin_skb) {
-				TFW_WARN("Unable to copy an egress SKB.\n");
+				T_WARN("Unable to copy an egress SKB.\n");
 				r = -ENOMEM;
 				goto err;
 			}
@@ -481,9 +481,9 @@ ss_send(struct sock *sk, struct sk_buff **skb_head, int flags)
 	 */
 	sock_hold(sk);
 	if (ss_wq_push(&sw, cpu)) {
-		TFW_DBG2("Cannot schedule socket %p for transmission"
-			 " (queue size %d)\n", sk,
-			 tfw_wq_size(&per_cpu(si_wq, cpu)));
+		T_DBG2("Cannot schedule socket %p for transmission"
+		       " (queue size %d)\n", sk,
+		       tfw_wq_size(&per_cpu(si_wq, cpu)));
 		sock_put(sk);
 		r = -EBUSY;
 		goto err;
@@ -527,9 +527,9 @@ ss_do_close(struct sock *sk)
 
 	if (unlikely(!sk))
 		return;
-	TFW_DBG2("[%d]: Close socket %p (%s): account=%d refcnt=%u\n",
-	         smp_processor_id(), sk, ss_statename[sk->sk_state],
-		 sk_has_account(sk), refcount_read(&sk->sk_refcnt));
+	T_DBG2("[%d]: Close socket %p (%s): account=%d refcnt=%u\n",
+	       smp_processor_id(), sk, ss_statename[sk->sk_state],
+	       sk_has_account(sk), refcount_read(&sk->sk_refcnt));
 	assert_spin_locked(&sk->sk_lock.slock);
 	TFW_VALIDATE_SK_LOCK_OWNER(sk);
 	WARN_ON_ONCE(sk->sk_state == TCP_LISTEN);
@@ -547,7 +547,7 @@ ss_do_close(struct sock *sk)
 		u32 len = TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq -
 			  tcp_hdr(skb)->fin;
 		data_was_unread += len;
-		TFW_DBG3("[%d]: free rcv skb %p\n", smp_processor_id(), skb);
+		T_DBG3("[%d]: free rcv skb %p\n", smp_processor_id(), skb);
 		__kfree_skb(skb);
 	}
 
@@ -579,7 +579,7 @@ ss_do_close(struct sock *sk)
 			skb = alloc_skb_fclone(MAX_TCP_HEADER,
 					       sk->sk_allocation);
 			if (!skb) {
-				TFW_WARN("can't send FIN due to bad alloc");
+				T_WARN("can't send FIN due to bad alloc");
 			} else {
 				skb_reserve(skb, MAX_TCP_HEADER);
 				tcp_init_nondata_skb(skb, tp->write_seq,
@@ -683,7 +683,7 @@ ss_close(struct sock *sk, int flags)
 	 * so use locked linked list with a turnstile to keep works order.
 	 */
 	if (ss_turnstile_push(ticket, &sw, cpu)) {
-		TFW_WARN("Cannot schedule socket %p for closing\n", sk);
+		T_WARN("Cannot schedule socket %p for closing\n", sk);
 		goto err;
 	}
 
@@ -760,14 +760,14 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		r = SS_CALL(connection_recv, conn, skb, off);
 
 		if (r < 0) {
-			TFW_DBG2("[%d]: Processing error: sk=%pK r=%d\n",
-			         smp_processor_id(), sk, r);
+			T_DBG2("[%d]: Processing error: sk=%pK r=%d\n",
+			       smp_processor_id(), sk, r);
 			goto out; /* connection must be dropped */
 		}
 	}
 	if (tcp_fin) {
-		TFW_DBG2("Received data FIN on sk=%p, cpu=%d\n",
-			 sk, smp_processor_id());
+		T_DBG2("Received data FIN on sk=%p, cpu=%d\n",
+		       sk, smp_processor_id());
 		++tp->copied_seq;
 		r = SS_DROP;
 	}
@@ -798,9 +798,9 @@ ss_tcp_process_data(struct sock *sk)
 
 	skb_queue_walk_safe(&sk->sk_receive_queue, skb, tmp) {
 		if (unlikely(before(tp->copied_seq, TCP_SKB_CB(skb)->seq))) {
-			TFW_WARN("recvmsg bug: TCP sequence gap at seq %X"
-				 " recvnxt %X\n",
-				 tp->copied_seq, TCP_SKB_CB(skb)->seq);
+			T_WARN("recvmsg bug: TCP sequence gap at seq %X"
+			       " recvnxt %X\n",
+			       tp->copied_seq, TCP_SKB_CB(skb)->seq);
 			goto out;
 		}
 
@@ -820,9 +820,9 @@ ss_tcp_process_data(struct sock *sk)
 		if (r < 0)
 			goto out;
 		else if (!count)
-			TFW_WARN("recvmsg bug: overlapping TCP segment at %X"
-				 " seq %X rcvnxt %X len %x\n",
-				 tp->copied_seq, skb_seq, tp->rcv_nxt,
+			T_WARN("recvmsg bug: overlapping TCP segment at %X"
+			       " seq %X rcvnxt %X len %x\n",
+			       tp->copied_seq, skb_seq, tp->rcv_nxt,
 				 skb_len);
 	}
 	droplink = false;
@@ -850,8 +850,8 @@ out:
 static void
 ss_tcp_data_ready(struct sock *sk)
 {
-	TFW_DBG3("[%d]: %s: sk=%p state=%s\n",
-	         smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
+	T_DBG3("[%d]: %s: sk=%p state=%s\n",
+	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 	assert_spin_locked(&sk->sk_lock.slock);
 	TFW_VALIDATE_SK_LOCK_OWNER(sk);
 
@@ -860,7 +860,7 @@ ss_tcp_data_ready(struct sock *sk)
 		 * Error packet received.
 		 * See sock_queue_err_skb() in linux/net/core/skbuff.c.
 		 */
-		TFW_ERR("error data in socket %p\n", sk);
+		T_ERR("error data in socket %p\n", sk);
 	}
 	else if (!skb_queue_empty(&sk->sk_receive_queue)) {
 		if (ss_tcp_process_data(sk) &&
@@ -887,8 +887,8 @@ ss_tcp_data_ready(struct sock *sk)
 		struct tcp_sock *tp = tcp_sk(sk);
 		if (tp->urg_data & TCP_URG_VALID) {
 			tp->urg_data = 0;
-			TFW_DBG3("[%d]: urgent data in socket %p\n",
-			         smp_processor_id(), sk);
+			T_DBG3("[%d]: urgent data in socket %p\n",
+			       smp_processor_id(), sk);
 		}
 	}
 }
@@ -899,8 +899,8 @@ ss_tcp_data_ready(struct sock *sk)
 static void
 ss_tcp_state_change(struct sock *sk)
 {
-	TFW_DBG3("[%d]: %s: sk=%p state=%s\n",
-	         smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
+	T_DBG3("[%d]: %s: sk=%p state=%s\n",
+	       smp_processor_id(), __func__, sk, ss_statename[sk->sk_state]);
 	ss_sk_incoming_cpu_update(sk);
 	assert_spin_locked(&sk->sk_lock.slock);
 	TFW_VALIDATE_SK_LOCK_OWNER(sk);
@@ -952,8 +952,8 @@ ss_tcp_state_change(struct sock *sk)
 		 */
 		r = SS_CALL(connection_new, sk);
 		if (r) {
-			TFW_DBG2("[%d]: New connection hook failed, r=%d\n",
-			         smp_processor_id(), r);
+			T_DBG2("[%d]: New connection hook failed, r=%d\n",
+			       smp_processor_id(), r);
 			ss_linkerror(sk);
 			ss_active_guard_exit(SS_V_ACT_NEWCONN);
 			return;
@@ -989,7 +989,7 @@ ss_tcp_state_change(struct sock *sk)
 		 */
 		if (!skb_queue_empty(&sk->sk_receive_queue))
 			ss_tcp_process_data(sk);
-		TFW_DBG2("[%d]: Peer connection closing\n", smp_processor_id());
+		T_DBG2("[%d]: Peer connection closing\n", smp_processor_id());
 		ss_linkerror(sk);
 	}
 	else if (sk->sk_state == TCP_CLOSE) {
@@ -1155,7 +1155,7 @@ ss_inet_create(struct net *net, int family,
 
 	sk_refcnt_debug_inc(sk);
 	if (sk->sk_prot->init && (err = sk->sk_prot->init(sk))) {
-		TFW_ERR("cannot create socket, %d\n", err);
+		T_ERR("cannot create socket, %d\n", err);
 		sk_common_release(sk);
 		return err;
 	}
@@ -1301,8 +1301,8 @@ ss_getpeername(struct sock *sk, TfwAddr *addr)
 
 	if (unlikely(!inet->inet_dport
 		     || ((1 << sk->sk_state) & (TCPF_CLOSE | TCPF_SYN_SENT))))
-		TFW_WARN("%s: bad socket dport=%x state=%x\n", __func__,
-			 inet->inet_dport, sk->sk_state);
+		T_WARN("%s: bad socket dport=%x state=%x\n", __func__,
+		       inet->inet_dport, sk->sk_state);
 
 	addr->sin6_family = AF_INET6;
 	addr->sin6_port = inet->inet_sport;
@@ -1368,8 +1368,8 @@ ss_tx_action(void)
 			if (!((1 << sk->sk_state)
 			      & (TCPF_ESTABLISHED | TCPF_SYN_SENT)))
 			{
-				TFW_DBG2("[%d]: %s: Socket inactive: sk %p\n",
-				         smp_processor_id(), __func__, sk);
+				T_DBG2("[%d]: %s: Socket inactive: sk %p\n",
+				       smp_processor_id(), __func__, sk);
 				bh_unlock_sock(sk);
 				break;
 			}
@@ -1443,8 +1443,8 @@ ss_wait_newconn(void)
 			break;
 		if (acc == acc_old) {
 			if (t0 + HZ * 5 < jiffies) {
-				TFW_WARN("pending listening sockets for 5s"
-					 " (connections count %#lx)\n", acc);
+				T_WARN("pending listening sockets for 5s"
+				       " (connections count %#lx)\n", acc);
 				return;
 			}
 		} else {
@@ -1486,19 +1486,19 @@ ss_synchronize(void)
 			break;
 		if (acc == acc_old && wq_acc == wq_acc_old) {
 			if (t0 + HZ * 5 < jiffies) {
-				TFW_WARN("pending active connections for 5s"
-					 " (connections count %#lx,"
-					 " queues count %d)\n", acc, wq_acc);
+				T_WARN("pending active connections for 5s"
+				       " (connections count %#lx,"
+				       " queues count %d)\n", acc, wq_acc);
 				for_each_online_cpu(cpu) {
 					TfwRBQueue *wq = &per_cpu(si_wq, cpu);
 					SsCloseBacklog *cb;
 					cb = &per_cpu(close_backlog, cpu);
-					TFW_WARN("  cpu %d(%d), backlog size %lu,"
-						 " work queue size %d\n",
+					T_WARN("  cpu %d(%d), backlog size %lu,"
+					       " work queue size %d\n",
 						 cpu, smp_processor_id(), cb->size,
 						 tfw_wq_size(wq));
 				}
-				TFW_WARN("Memory leakage is possible\n");
+				T_WARN("Memory leakage is possible\n");
 				return;
 			}
 		}
@@ -1567,7 +1567,7 @@ tfw_sync_socket_init(void)
 		TfwRBQueue *wq = &per_cpu(si_wq, cpu);
 
 		if ((r = tfw_wq_init(wq, cpu_to_node(cpu)))) {
-			TFW_ERR_NL("Cannot initialize softirq tx work queue\n");
+			T_ERR_NL("Cannot initialize softirq tx work queue\n");
 			kmem_cache_destroy(ss_cbacklog_cache);
 			return r;
 		}
