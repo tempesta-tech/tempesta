@@ -1047,6 +1047,11 @@ __tfw_http_msg_alloc(int type, bool full)
 	return hm;
 }
 
+/**
+ * Determination length of the header's real part (for details see comment
+ * for @tfw_http_msg_hdr_write() below) to store it in the encoder dynamic
+ * index.
+ */
 unsigned long
 tfw_http_msg_hdr_length(const TfwStr *hdr, unsigned long *name_len,
 			unsigned long *val_off, unsigned long *val_len)
