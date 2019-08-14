@@ -270,7 +270,7 @@ tfw_bmb_msg_send(TfwBmbTask *task, int cn)
 	memset(&hmreq, 0, sizeof(hmreq));
 	hmreq.msg.skb_head = NULL;
 
-	if (!tfw_http_msg_setup(&hmreq, &it, msg.len)) {
+	if (!tfw_http_msg_setup(&hmreq, &it, msg.len, 0)) {
 		T_WARN("Cannot create HTTP request.\n");
 		return;
 	}

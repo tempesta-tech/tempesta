@@ -298,7 +298,7 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data, bool close)
 	T_DBG2("Preparing HTTP/2 message with %lu bytes data\n", data->len);
 
 	msg.len = data->len;
-	if ((r = tfw_msg_iter_setup(&it, &msg.skb_head, msg.len)))
+	if ((r = tfw_msg_iter_setup(&it, &msg.skb_head, msg.len, 0)))
 		goto err;
 
 	if ((r = tfw_msg_write(&it, data)))
