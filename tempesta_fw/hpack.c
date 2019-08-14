@@ -2627,6 +2627,9 @@ chunk_end:
 #undef HDR_PART_COMPARE
 }
 
+/*
+ * Left rotation of red-black tree.
+ */
 static void
 tfw_hpack_rbtree_left_rt(TfwHPackETbl *__restrict tbl,
 			 TfwHPackNode *__restrict old_apex)
@@ -2661,6 +2664,9 @@ tfw_hpack_rbtree_left_rt(TfwHPackETbl *__restrict tbl,
 	old_apex->parent = HPACK_NODE_OFF(tbl, new_apex);
 }
 
+/*
+ * Right rotation of red-black tree.
+ */
 static void
 tfw_hpack_rbtree_right_rt(TfwHPackETbl *__restrict tbl,
 			  TfwHPackNode *__restrict old_apex)
@@ -2695,6 +2701,9 @@ tfw_hpack_rbtree_right_rt(TfwHPackETbl *__restrict tbl,
 	old_apex->parent = HPACK_NODE_OFF(tbl, new_apex);
 }
 
+/*
+ * Procedure for red-black tree rebalancing after the new node insertion.
+ */
 static void
 tfw_hpack_rbtree_ins_rebalance(TfwHPackETbl *__restrict tbl,
 			       TfwHPackNode *__restrict new)
@@ -2752,6 +2761,9 @@ tfw_hpack_rbtree_ins_rebalance(TfwHPackETbl *__restrict tbl,
 	HPACK_RB_SET_BLACK(tbl->root);
 }
 
+/*
+ * Procedure for red-black tree rebalancing after the node deletion.
+ */
 static void
 tfw_hpack_rbtree_del_rebalance(TfwHPackETbl *__restrict tbl,
 			       TfwHPackNode *__restrict nchild,
@@ -2770,6 +2782,14 @@ tfw_hpack_rbtree_del_rebalance(TfwHPackETbl *__restrict tbl,
 				HPACK_RB_SET_BLACK(brother);
 				HPACK_RB_SET_RED(parent);
 				tfw_hpack_rbtree_left_rt(tbl, parent);
+				/*
+				 * In case 1 @brother->left and @brother->right
+				 * also cannot be empty leafs (otherwise the 5th
+				 * property of red-black tree will be broken,
+				 * since the @brother itself is red in case 1),
+				 * so after left rotation we can use new @brother
+				 * as non-empty node.
+				 */
 				brother = HPACK_NODE_COND(tbl, parent->right);
 				BUG_ON(!brother);
 			}
@@ -2854,6 +2874,9 @@ tfw_hpack_rbtree_min(TfwHPackETbl *__restrict tbl,
 	return node;
 }
 
+/*
+ * Procedure for branches replacement in red-black tree.
+ */
 static inline bool
 tfw_hpack_rbtree_replace(TfwHPackETbl *__restrict tbl,
 			 TfwHPackNode *__restrict old,
@@ -2887,6 +2910,11 @@ tfw_hpack_rbtree_replace(TfwHPackETbl *__restrict tbl,
 	return left;
 }
 
+/*
+ * Add @new node into the red-black tree in appropriate place passed from the caller
+ * (and ultimately - from the @tfw_hpack_rbtree_find() unsuccessful call) in @it
+ * argument.
+ */
 static void
 tfw_hpack_rbtree_add(TfwHPackETbl *__restrict tbl, TfwHPackNode *__restrict new,
 		     TfwHPackNodeIter *__restrict it)
@@ -2909,6 +2937,15 @@ tfw_hpack_rbtree_add(TfwHPackETbl *__restrict tbl, TfwHPackNode *__restrict new,
 	tfw_hpack_rbtree_ins_rebalance(tbl, new);
 }
 
+/*
+ * Find node which matches the required header @hdr in the red-black tree and
+ * pass it to the caller in @out_node variable. If only header name is found,
+ * the corresponding node is also passed upstairs, and appropriate  value is
+ * returned to the caller. Note, that in case of unsuccessful search, the last
+ * processed node with appropriate leaf is passed to caller in @out_place
+ * variable and can be used for adding new node in correct place without
+ * additional tree search (see comment for @tfw_hpack_rbtree_add() above).
+ */
 static TfwHPackETblRes
 tfw_hpack_rbtree_find(TfwHPackETbl *__restrict tbl,
 		      const TfwStr *__restrict hdr,
@@ -2951,6 +2988,9 @@ tfw_hpack_rbtree_find(TfwHPackETbl *__restrict tbl,
 	return HPACK_IDX_ST_NOT_FOUND;
 }
 
+/*
+ * Remove specified node from the read-black tree.
+ */
 static void
 tfw_hpack_rbtree_erase(TfwHPackETbl *__restrict tbl,
 		       TfwHPackNode *__restrict node)
@@ -3100,6 +3140,11 @@ tfw_hpack_rbuf_commit(TfwHPackETbl *__restrict tbl,
 	tbl->size = iter->size;
 }
 
+/*
+ * Add new header into the encoder dynamic index. If new size of index table
+ * will be greater than current maximum allowed table size, the excess old
+ * headers will be evicted from the index table.
+ */
 static int
 tfw_hpack_add_node(TfwHPackETbl *__restrict tbl, const TfwStr *__restrict hdr,
 		   TfwHPackNodeIter *__restrict place)
@@ -3190,7 +3235,10 @@ tfw_hpack_add_node(TfwHPackETbl *__restrict tbl, const TfwStr *__restrict hdr,
 }
 
 /*
- * HPACK encoder index determination procedure.
+ * HPACK encoder index determination procedure. Operates with connection-wide
+ * encoder dynamic table with potentially concurrent access from different
+ * threads, so lock is used to protect the find/add/erase operations inside
+ * this procedure.
  *
  * TODO #309: this function must be called from response sending procedures:
  * upstream response headers cycle, upstream response adjusting procedure,
