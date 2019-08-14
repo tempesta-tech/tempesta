@@ -1028,6 +1028,7 @@ static const TfwHPackEntry static_table[] = {
  * ------------------------------------------------------------------------
  */
 
+/* States HPACK decoder message processing. */
 enum {
 	HPACK_STATE_READY		= 0,
 	HPACK_STATE_INDEX,
@@ -1922,6 +1923,13 @@ tfw_hpack_clean(TfwHPack *__restrict hp)
 	WARN_ON_ONCE(act_hp_str_n);
 }
 
+/*
+ * HPACK reinitialization procedure: resetting the non-permanent part
+ * of HPACK context and HTTP/2 message iterator before next HPACK
+ * processing stage. Note, in result of reinitialization, the @state
+ * field of HPACK context will be set to HPACK_STATE_READY (since its
+ * value is zero).
+ */
 static inline void
 tfw_hpack_reinit(TfwHPack *__restrict hp, TfwMsgParseIter *__restrict it)
 {
@@ -1973,6 +1981,9 @@ tfw_hpack_huffman_parse(TfwHPack *__restrict hp, const unsigned char **src,
 	return false;
 }
 
+/*
+ * HPACK decoder FSM for HTTP/2 message processing.
+ */
 int
 tfw_hpack_decode(TfwHPack *__restrict hp, const unsigned char *src,
 		 unsigned long n, TfwHttpReq *__restrict req,
@@ -2451,6 +2462,12 @@ typedef enum {
 #define INT_LE_LC(p)			(INT_LE(p) | 0x20202020)
 #define SH_LE_LC(p)			(SH_LE(p) | 0x2020)
 
+/*
+ * Processing header's OWS during comparison with values stored in encoder
+ * dynamic index. Note that in switch default branch @idx is negative, i.e.
+ * all characters in processed part of @data are the OWS (or ':' in case of
+ * header's name processing).
+ */
 #define HPACK_HDR_OWS_PROCESS(part_len, ret)				\
 ({									\
 	bool found = false;						\

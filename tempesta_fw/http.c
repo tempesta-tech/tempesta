@@ -3389,8 +3389,8 @@ next_msg:
 	TFW_ADD_STAT_BH(parsed, clnt.rx_bytes);
 
 	TFW_DBG2("Request parsed: len=%u next=%pK parsed=%d msg_len=%lu"
-		 " ver=%d res=%d\n", skb->len, skb->next, parsed, req->msg.len,
-		 req->version, r);
+		 " ver=%d res=%d\n",
+		 skb->len, skb->next, parsed, req->msg.len, req->version, r);
 
 	/*
 	 * We have to keep @data the same to pass it as is to FSMs

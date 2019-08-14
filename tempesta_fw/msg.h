@@ -61,6 +61,24 @@ typedef struct {
 	struct sk_buff	*skb_head;
 } TfwMsgIter;
 
+/**
+ * Iterator for HTTP/2 message processing.
+ *
+ * @pool	- allocation pool for target buffer of decoded headers;
+ * @hdr		- pointer to message header which is currently processed;
+ * @start_pos	- pointer to the beginning of decoded headers' buffer; used
+ *		  as start point during exporting buffer pages to message's
+ *		  target skb;
+ * @__off	- offset for iterator reinitializing before next processing
+ *		  stage;
+ * @pos		- pointer to the currently allocated chunk of decoded headers'
+ *		  buffer;
+ * @rspace	- space remained in the allocated chunk;
+ * @next	- pointer to the decoded header part (name/value) to be
+ *		- parsed next;
+ * @nm_len	- length of the decoded header's name;
+ * @hdr_tag	- ID of currently processed decoded header.
+ */
 typedef struct {
 	TfwPool		*pool;
 	TfwStr		*hdr;
