@@ -63,7 +63,7 @@ typedef struct {
 
 int tfw_msg_write(TfwMsgIter *it, const TfwStr *data);
 int tfw_msg_iter_setup(TfwMsgIter *it, struct sk_buff **skb_head,
-		       size_t data_len);
+		       size_t data_len, unsigned int tx_flags);
 int tfw_msg_iter_append_skb(TfwMsgIter *it);
 
 static inline int
