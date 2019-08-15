@@ -169,7 +169,8 @@ ss_skb_alloc(size_t n)
 
 char *ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf);
 
-int ss_skb_alloc_data(struct sk_buff **skb_head, size_t len);
+int ss_skb_alloc_data(struct sk_buff **skb_head, size_t len,
+		      unsigned int tx_flags);
 struct sk_buff *ss_skb_split(struct sk_buff *skb, int len);
 int ss_skb_get_room(struct sk_buff *skb_head, struct sk_buff *skb,
 		    char *pspt, unsigned int len, TfwStr *it);

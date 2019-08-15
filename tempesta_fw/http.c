@@ -433,7 +433,7 @@ tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *rmark,
 	data_len += req->uri_path.len + h_common_2.len + cookie->len;
 	data_len += cookie_crlf->len + r_end->len;
 
-	if (tfw_http_msg_setup(resp, &it, data_len))
+	if (tfw_http_msg_setup(resp, &it, data_len, 0))
 		return TFW_BLOCK;
 
 	tfw_http_prep_date(__TFW_STR_CH(&h_common_1, 1)->data);
@@ -492,7 +492,7 @@ tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, TfwMsgIter *it,
 	if (end)
 		data_len += end->len;
 
-	if (tfw_http_msg_setup(resp, it, data_len))
+	if (tfw_http_msg_setup(resp, it, data_len, 0))
 		return TFW_BLOCK;
 
 	ret = tfw_msg_write(it, &rh);
@@ -651,7 +651,7 @@ tfw_h1_send_resp(TfwHttpReq *req, resp_code_t code)
 
 	if (!(resp = tfw_http_msg_alloc_resp_light(req)))
 		goto err;
-	if (tfw_http_msg_setup((TfwHttpMsg *)resp, &it, msg.len))
+	if (tfw_http_msg_setup((TfwHttpMsg *)resp, &it, msg.len, 0))
 		goto err_setup;
 
 	body = TFW_STR_BODY_CH(&msg);
@@ -4184,7 +4184,7 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 	if (!(req = tfw_http_msg_alloc_req_light()))
 		return;
 	hmreq = (TfwHttpMsg *)req;
-	if (tfw_http_msg_setup(hmreq, &it, msg.len))
+	if (tfw_http_msg_setup(hmreq, &it, msg.len, 0))
 		goto cleanup;
 	if (tfw_msg_write(&it, &msg))
 		goto cleanup;
