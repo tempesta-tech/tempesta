@@ -502,7 +502,7 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt, bool close)
 	      str.len, sgt ? sgt->nents : 0, io->msglen, io->msgtype, conn,
 	      conn->cli_conn.sk->sk_write_xmit, ttls_xfrm_ready(tls));
 
-	if ((r = tfw_msg_iter_setup(&it, &io->skb_list, str.len)))
+	if ((r = tfw_msg_iter_setup(&it, &io->skb_list, str.len, 0)))
 		return r;
 	if ((r = tfw_msg_write(&it, &str)))
 		return r;

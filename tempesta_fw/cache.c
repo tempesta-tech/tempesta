@@ -1544,19 +1544,16 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce)
 	 */
 	if (!(resp = tfw_http_msg_alloc_resp(req)))
 		return NULL;
-	if (tfw_http_msg_setup((TfwHttpMsg *)resp, &it, ce->hdr_len + 2))
-		goto free;
 
 	/*
-	 * Apply SKBTX_SHARED_FRAG flag to all skb's in the message so that
-	 * encryption routines know when it's unsafe to change data in-place.
+	 * Cached responses need SKBTX_SHARED_FRAG flag if they are going to be
+	 * encrypted, since by default encryption happens in-place. As data
+	 * pages are reused, overwriting will damage the date.
 	 */
-	if (TFW_CONN_TLS(req->conn)) {
-		struct sk_buff *skb = it.skb_head;
-		do {
-			skb_shinfo(skb)->tx_flags |= SKBTX_SHARED_FRAG;
-			skb = skb->next;
-		} while (skb != it.skb_head);
+	if (tfw_http_msg_setup((TfwHttpMsg *)resp, &it, ce->hdr_len + 2,
+			       TFW_CONN_TLS(req->conn) ? SKBTX_SHARED_FRAG : 0))
+	{
+		goto free;
 	}
 
 	/*
