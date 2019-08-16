@@ -1245,6 +1245,7 @@ tfw_str_dprint(const TfwStr *str, const char *msg)
 				(int)c->len, c->data);
 	}
 }
+EXPORT_SYMBOL(tfw_str_dprint);
 
 #define D(n)	(unsigned int)v[n]
 

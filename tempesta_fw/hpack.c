@@ -2422,12 +2422,6 @@ do {									\
 		| ((len) & HPACK_RB_HDR_LEN_MASK);			\
 } while (0)
 
-#define HPACK_NODE_SIZE(node)						\
-	(sizeof(TfwHPackNode) + ((TfwHPackNode *)node)->hdr_len)
-
-#define HPACK_NODE_NEXT(node)						\
-	((TfwHPackNode *)((char *)(node) + HPACK_NODE_SIZE(node)))
-
 #define HPACK_NODE_EMPTY(off)		((off) < 0)
 
 #define HPACK_NODE(tbl, off)						\
@@ -2441,6 +2435,14 @@ do {									\
 
 #define HPACK_NODE_COND_OFF(tbl, node)					\
 	((node) ? HPACK_NODE_OFF(tbl, node) : -1)
+
+#define HPACK_NODE_ALIGN(sz)	(((sz) + 7) & ~7UL)
+
+#define HPACK_NODE_SIZE(node)						\
+	HPACK_NODE_ALIGN(sizeof(TfwHPackNode) + ((TfwHPackNode *)node)->hdr_len)
+
+#define HPACK_NODE_NEXT(node)						\
+	((TfwHPackNode *)((char *)(node) + HPACK_NODE_SIZE(node)))
 
 typedef enum {
 	HPACK_HDR_NAME_SEARCH		= 0,
@@ -3183,7 +3185,7 @@ tfw_hpack_add_node(TfwHPackETbl *__restrict tbl, const TfwStr *__restrict hdr,
 		return -E2BIG;
 
 	last_len = HPACK_NODE_SIZE(it.last);
-	node_len = hdr_len + sizeof(TfwHPackNode);
+	node_len = HPACK_NODE_ALIGN(sizeof(TfwHPackNode) + hdr_len);
 
 	if (it.rb_size < it.rb_len + node_len) {
 		WARN_ON_ONCE(it.rb_size == HPACK_ENC_TABLE_MAX_SIZE);
@@ -3191,6 +3193,10 @@ tfw_hpack_add_node(TfwHPackETbl *__restrict tbl, const TfwStr *__restrict hdr,
 	}
 	else if (!it.first) {
 		it.first = it.last = (TfwHPackNode *)tbl->rbuf;
+		T_DBG("%s: reset, rbuf=[%p] rb_len=%hu, rb_size=%hu, size=%hu,"
+		      " node_len=%hu\n",  __func__, tbl->rbuf, it.rb_len,
+		      it.rb_size, it.size, node_len);
+		goto commit;
 	}
 	else if (it.first <= it.last) {
 		unsigned short end_space = HPACK_ENC_TABLE_MAX_SIZE;
@@ -3201,26 +3207,29 @@ tfw_hpack_add_node(TfwHPackETbl *__restrict tbl, const TfwStr *__restrict hdr,
 		WARN_ON_ONCE(it.rb_size != HPACK_ENC_TABLE_MAX_SIZE);
 		end_space -= ((char *)it.last - tbl->rbuf) + last_len;
 		if (end_space < node_len) {
-			T_DBG("%s: rbuf=[%p], first=[%p], last=[%p], rb_len=%hu,"
-			      " rb_size=%hu, size=%hu, window=%hu\n", __func__,
-			      tbl->rbuf, it.first, it.last, it.rb_len, it.rb_size,
-			      it.size, window);
+			T_DBG("%s: wrap, rbuf=[%p], first=[%p], last=[%p],"
+			      " rb_len=%hu, rb_size=%hu, size=%hu,"
+			      " end_space=%hu, node_len=%hu\n", __func__,
+			      tbl->rbuf, it.first, it.last, it.rb_len,
+			      it.rb_size, it.size, end_space, node_len);
 
 			if (it.rb_size - end_space < it.rb_len + node_len)
 				return -E2BIG;
 
 			it.rb_size -= end_space;
 			it.last = (TfwHPackNode *)tbl->rbuf;
+
+			goto commit;
 		}
 	}
-	else {
-		it.last = HPACK_NODE_NEXT(it.last);
-	}
 
-	T_DBG("%s: rbuf=[%p], first=[%p], last=[%p], rb_len=%hu, rb_size=%hu,"
-	      " size=%hu, window=%hu\n", __func__, tbl->rbuf, it.first, it.last,
-	      it.rb_len, it.rb_size, it.size, window);
+	it.last = HPACK_NODE_NEXT(it.last);
 
+	T_DBG("%s: next node, rbuf=[%p], first=[%p], last=[%p], rb_len=%hu,"
+	      " rb_size=%hu, size=%hu, node_len=%hu\n", __func__, tbl->rbuf,
+	      it.first, it.last, it.rb_len, it.rb_size, it.size, node_len);
+
+commit:
 	it.size += node_size;
 	it.rb_len += node_len;
 	HPACK_RB_SET_HDR_LEN(it.last, hdr_len);

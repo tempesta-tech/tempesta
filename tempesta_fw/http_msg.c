@@ -1061,17 +1061,18 @@ tfw_http_msg_hdr_length(const TfwStr *hdr, unsigned long *name_len,
 	bool name_found = false, val_found = false;
 
 	TFW_STR_FOR_EACH_CHUNK(chunk, hdr, end) {
-		unsigned long idx = chunk->len - 1;
+		unsigned long idx;
 
-		BUG_ON(!chunk->len);
+		if (!chunk->len)
+			continue;
+
+		idx = chunk->len - 1;
 		hdr_len += chunk->len;
 		if (!name_found) {
-			while ((chunk->data[idx] == ' '
+			for (; (chunk->data[idx] == ' '
 				|| chunk->data[idx] == '\t')
-			       && idx)
-			{
-				--idx;
-			}
+				     && idx;
+			     --idx);
 
 			*name_len += idx;
 
@@ -1080,7 +1081,9 @@ tfw_http_msg_hdr_length(const TfwStr *hdr, unsigned long *name_len,
 				name_found = true;
 			}
 			else {
-				WARN_ON_ONCE(idx != chunk->len - 1);
+				WARN_ON_ONCE(idx != chunk->len - 1
+					     || chunk->data[idx] == ' '
+					     || chunk->data[idx] == '\t');
 				++*name_len;
 			}
 
@@ -1122,13 +1125,13 @@ tfw_http_msg_hdr_length(const TfwStr *hdr, unsigned long *name_len,
 			hdr_tail = tail;
 	}
 
-	BUG_ON(!name_found);
+	WARN_ON_ONCE(!name_found);
 
 	*val_len = hdr_len - *name_len - *val_off - hdr_tail;
 
-	T_DBG("%s: name_len=%lu, val_off=%lu, val_len=%lu, hdr_tail=%lu,"
-	      " hdr_len=%lu\n", __func__, *name_len, *val_off, *val_len,
-	      hdr_tail, hdr_len);
+	TFW_DBG3("%s: name_len=%lu, val_off=%lu, val_len=%lu, hdr_tail=%lu,"
+		 " hdr_len=%lu\n", __func__, *name_len, *val_off, *val_len,
+		 hdr_tail, hdr_len);
 
 	return *name_len + *val_len;
 }
@@ -1151,9 +1154,12 @@ tfw_http_msg_hdr_write(const TfwStr *hdr, unsigned long nm_len,
 
 	BUG_ON(!nm_len);
 	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
-		unsigned long len = 0;
+		unsigned long len;
 
-		BUG_ON(!c->len);
+		if (!c->len)
+			continue;
+
+		len = 0;
 		if (nm_len) {
 			len = min(nm_len, c->len);
 			nm_len -= len;
@@ -1175,8 +1181,8 @@ tfw_http_msg_hdr_write(const TfwStr *hdr, unsigned long nm_len,
 		if (!len)
 			continue;
 
-		T_DBG3("%s: len=%lu, c->data='%.*s'\n", __func__, len, (int)len,
-		       c->data);
+		TFW_DBG3("%s: len=%lu, c->data='%.*s'\n", __func__, len, (int)len,
+			 c->data);
 
 		memcpy_fast(out_buf, c->data, len);
 		out_buf += len;
