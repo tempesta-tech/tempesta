@@ -285,8 +285,8 @@ TEST(hpack, dec_table_mixed)
 	EXPECT_NOT_NULL(entry);
 	if (entry) {
 		/*
-		 * Check that entries with 66 and 64 indexes use the same dynamic
-		 * @name instance.
+		 * Check that entries with 66 and 64 indexes use the same
+		 * dynamic @name instance.
 		 */
 		EXPECT_EQ(entry_1->name, entry->name);
 		EXPECT_EQ(entry->name->count, 2);
@@ -297,8 +297,8 @@ TEST(hpack, dec_table_mixed)
 	EXPECT_NOT_NULL(entry);
 	if (entry) {
 		/*
-		 * Check that entries with 65 and 63 indexes use the same dynamic
-		 * @name instance.
+		 * Check that entries with 65 and 63 indexes use the same
+		 * dynamic @name instance.
 		 */
 		EXPECT_EQ(entry_2->name, entry->name);
 		EXPECT_EQ(entry->name->count, 2);
@@ -369,8 +369,8 @@ TEST(hpack, dec_table_wrap)
 
 		if (i < end_idx) {
 			/*
-			 * Evict first @shift entries, i.e shrink table to only one
-			 * existing entry.
+			 * Evict first @shift entries, i.e shrink table to only
+			 * one existing entry.
 			 */
 			EXPECT_OK(tfw_hpack_set_length(hp, s->len - 1 + 32));
 			EXPECT_OK(tfw_hpack_set_length(hp,
@@ -386,8 +386,8 @@ TEST(hpack, dec_table_wrap)
 		EXPECT_EQ(hp->dec_tbl.n, 32);
 
 		/*
-		 * Verify that the last added @shift entries are wrapped, i.e placed in
-		 * the beginning of dynamic table.
+		 * Verify that the last added @shift entries are wrapped, i.e
+		 * placed in the beginning of dynamic table.
 		 */
 		entries = hp->dec_tbl.entries;
 		for (i = 0; i < shift; ++i) {
@@ -499,9 +499,11 @@ TEST(hpack, dec_indexed)
 	const TfwHPackEntry *entry;
 	const TfwHPackStr *name, *value;
 
-	const char *test_data1 = "x-forwarded-for: test.com, foo.com, example.com\r\n";
+	const char *test_data1 = "x-forwarded-for: test.com, foo.com,"
+		" example.com\r\n";
 	const char *test_data2 = "accept-encoding:gzip, deflate\r\n";
-	const char *test_data3 = "accept-encoding:deflate, gzip;q=1.0, *;q=0.5\r\n";
+	const char *test_data3 = "accept-encoding:deflate, gzip;q=1.0,"
+		" *;q=0.5\r\n";
 	const char *test_data4 = "x-forwarded-for:127.0.0.1\r\n";
 	const char *test_data5 = "host:localhost\r\n";
 	const char *test_data6 = "transfer-encoding:chunked\r\n";
@@ -652,7 +654,8 @@ TEST(hpack, dec_indexed)
 		value = entry->value;
 		EXPECT_EQ(strlen("x-forwarded-for"), name->len);
 		EXPECT_OK(memcmp_fast(test_data1, name->ptr, name->len));
-		EXPECT_EQ(strlen(" test.com, foo.com, example.com"), value->len);
+		EXPECT_EQ(strlen(" test.com, foo.com, example.com"),
+			  value->len);
 		EXPECT_OK(memcmp_fast(test_data1 + 15 + 1, value->ptr,
 				      value->len));
 	}
@@ -794,6 +797,128 @@ TEST(hpack, dec_huffman)
 	}
 }
 
+TEST(hpack, enc_table_hdr_write)
+{
+	char *buf;
+	unsigned long hdr_len, n_len = 0, v_off = 0, v_len = 0;
+
+#define HDR_NAME_1	"x-forwarded-for"
+#define HDR_VALUE_1	"test.com, foo.com, example.com"
+#define HDR_NAME_2	"custom-header"
+#define HDR_VALUE_2	"custom-value"
+#define HDR_NAME_3	"X-Custom-Hdr"
+#define HDR_VALUE_3	"example header value"
+#define HDR_NAME_4	"custom-name"
+#define HDR_VALUE_4	"custom-test-value"
+#define HDR_NAME_5	"custom-key"
+#define HDR_VALUE_5	"custom-example-value"
+
+	TFW_STR(s1, HDR_NAME_1 ":   ");
+	TFW_STR(s1_value, HDR_VALUE_1 "    ");
+	unsigned long off1 = 4;
+	const char *t_s1 = HDR_NAME_1 HDR_VALUE_1;
+	unsigned long t_s1_len = strlen(t_s1);
+
+	TFW_STR(s2, HDR_NAME_2 ":");
+	TFW_STR(s2_value, HDR_VALUE_2);
+	unsigned long off2 = 1;
+	const char *t_s2 = HDR_NAME_2 HDR_VALUE_2;
+	unsigned long t_s2_len = strlen(t_s2);
+
+	TFW_STR(s3, HDR_NAME_3 ":\t  ");
+	TFW_STR(s3_value, HDR_VALUE_3 "   ");
+	unsigned long off3 = 4;
+	const char *t_s3 = HDR_NAME_3 HDR_VALUE_3;
+	unsigned long t_s3_len = strlen(t_s3);
+
+	TFW_STR(s4, HDR_NAME_4 ":     ");
+	TFW_STR(s4_value, HDR_VALUE_4 "\t\t   \t");
+	unsigned long off4 = 6;
+	const char *t_s4 = HDR_NAME_4 HDR_VALUE_4;
+	unsigned long t_s4_len = strlen(t_s4);
+
+	TFW_STR(s5, HDR_NAME_5 ":\t\t\t");
+	TFW_STR(s5_value, HDR_VALUE_5 "\t\t\t\t");
+	unsigned long off5 = 4;
+	const char *t_s5 = HDR_NAME_5 HDR_VALUE_5;
+	unsigned long t_s5_len = strlen(t_s5);
+
+	collect_compound_str(s1, s1_value);
+	collect_compound_str(s2, s2_value);
+	collect_compound_str(s3, s3_value);
+	collect_compound_str(s4, s4_value);
+	collect_compound_str(s5, s5_value);
+
+	hdr_len = tfw_http_msg_hdr_length(s1, &n_len, &v_off, &v_len);
+	EXPECT_EQ(n_len, strlen(HDR_NAME_1));
+	EXPECT_EQ(v_len, strlen(HDR_VALUE_1));
+	EXPECT_EQ(v_off, off1);
+	EXPECT_EQ(hdr_len, t_s1_len);
+	buf = tfw_pool_alloc(str_pool, hdr_len);
+	BUG_ON(!buf);
+	tfw_http_msg_hdr_write(s1, n_len, v_off, v_len, buf);
+	EXPECT_OK(memcmp_fast(t_s1, buf, hdr_len));
+
+	n_len = v_off = v_len = 0;
+
+	hdr_len = tfw_http_msg_hdr_length(s2, &n_len, &v_off, &v_len);
+	EXPECT_EQ(n_len, strlen(HDR_NAME_2));
+	EXPECT_EQ(v_len, strlen(HDR_VALUE_2));
+	EXPECT_EQ(v_off, off2);
+	EXPECT_EQ(hdr_len, t_s2_len);
+	buf = tfw_pool_alloc(str_pool, hdr_len);
+	BUG_ON(!buf);
+	tfw_http_msg_hdr_write(s2, n_len, v_off, v_len, buf);
+	EXPECT_OK(memcmp_fast(t_s2, buf, hdr_len));
+
+	n_len = v_off = v_len = 0;
+
+	hdr_len = tfw_http_msg_hdr_length(s3, &n_len, &v_off, &v_len);
+	EXPECT_EQ(n_len, strlen(HDR_NAME_3));
+	EXPECT_EQ(v_len, strlen(HDR_VALUE_3));
+	EXPECT_EQ(v_off, off3);
+	EXPECT_EQ(hdr_len, t_s3_len);
+	buf = tfw_pool_alloc(str_pool, hdr_len);
+	BUG_ON(!buf);
+	tfw_http_msg_hdr_write(s3, n_len, v_off, v_len, buf);
+	EXPECT_OK(memcmp_fast(t_s3, buf, hdr_len));
+
+	n_len = v_off = v_len = 0;
+
+	hdr_len = tfw_http_msg_hdr_length(s4, &n_len, &v_off, &v_len);
+	EXPECT_EQ(n_len, strlen(HDR_NAME_4));
+	EXPECT_EQ(v_len, strlen(HDR_VALUE_4));
+	EXPECT_EQ(v_off, off4);
+	EXPECT_EQ(hdr_len, t_s4_len);
+	buf = tfw_pool_alloc(str_pool, hdr_len);
+	BUG_ON(!buf);
+	tfw_http_msg_hdr_write(s4, n_len, v_off, v_len, buf);
+	EXPECT_OK(memcmp_fast(t_s4, buf, hdr_len));
+
+	n_len = v_off = v_len = 0;
+
+	hdr_len = tfw_http_msg_hdr_length(s5, &n_len, &v_off, &v_len);
+	EXPECT_EQ(n_len, strlen(HDR_NAME_5));
+	EXPECT_EQ(v_len, strlen(HDR_VALUE_5));
+	EXPECT_EQ(v_off, off5);
+	EXPECT_EQ(hdr_len, t_s5_len);
+	buf = tfw_pool_alloc(str_pool, hdr_len);
+	BUG_ON(!buf);
+	tfw_http_msg_hdr_write(s5, n_len, v_off, v_len, buf);
+	EXPECT_OK(memcmp_fast(t_s5, buf, hdr_len));
+
+#undef HDR_NAME_1
+#undef HDR_VALUE_1
+#undef HDR_NAME_2
+#undef HDR_VALUE_2
+#undef HDR_NAME_3
+#undef HDR_VALUE_3
+#undef HDR_NAME_4
+#undef HDR_VALUE_4
+#undef HDR_NAME_5
+#undef HDR_VALUE_5
+}
+
 TEST_SUITE(hpack)
 {
 	TEST_SETUP(test_h2_setup);
@@ -806,4 +931,5 @@ TEST_SUITE(hpack)
 	TEST_RUN(hpack, dec_raw);
 	TEST_RUN(hpack, dec_indexed);
 	TEST_RUN(hpack, dec_huffman);
+	TEST_RUN(hpack, enc_table_hdr_write);
 }
