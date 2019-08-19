@@ -195,7 +195,7 @@ do {								\
 
 int tfw_hpack_init(TfwHPack *__restrict hp, unsigned int htbl_sz);
 void tfw_hpack_clean(TfwHPack *__restrict hp);
-int tfw_hpack_hdrs_tranform(TfwHttpResp *__restrict resp, bool *entered);
+int tfw_hpack_hdrs_transform(TfwHttpResp *__restrict resp, bool *entered);
 int tfw_hpack_decode(TfwHPack *__restrict hp, const unsigned char *src,
 		     unsigned long n, TfwHttpReq *__restrict req,
 		     unsigned int *__restrict parsed);

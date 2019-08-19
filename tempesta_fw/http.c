@@ -2700,7 +2700,7 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	bool entered = false;
 
 	if (!(stream_id = tfw_h2_stream_id_close(req))
-	    || tfw_hpack_hdrs_tranform(resp, &entered))
+	    || tfw_hpack_hdrs_transform(resp, &entered))
 	{
 		tfw_http_resp_pair_free(req);
 		TFW_INC_STAT_BH(serv.msgs_otherr);

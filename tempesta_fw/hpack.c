@@ -2399,7 +2399,8 @@ typedef enum {
 #define HPACK_RB_COLOR(node)		((node)->hdr_len & HPACK_RB_COLOR_MASK)
 #define HPACK_RB_IS_BLACK(node)		HPACK_RB_COLOR(node)
 #define HPACK_RB_IS_RED(node)		(!HPACK_RB_IS_BLACK(node))
-#define HPACK_RB_HDR_LEN(node)		((node)->hdr_len & HPACK_RB_HDR_LEN_MASK)
+#define HPACK_RB_HDR_LEN(node)						\
+	(((TfwHPackNode *)node)->hdr_len & HPACK_RB_HDR_LEN_MASK)
 
 #define HPACK_RB_SET_BLACK(node)					\
 do {									\
@@ -2431,7 +2432,7 @@ do {									\
 	(!HPACK_NODE_EMPTY(off) ? HPACK_NODE(tbl, off) : NULL)
 
 #define HPACK_NODE_OFF(tbl, node)					\
-	((tbl)->rbuf - (char *)(node))
+	((char *)(node) - (tbl)->rbuf)
 
 #define HPACK_NODE_COND_OFF(tbl, node)					\
 	((node) ? HPACK_NODE_OFF(tbl, node) : -1)
@@ -2439,7 +2440,7 @@ do {									\
 #define HPACK_NODE_ALIGN(sz)	(((sz) + 7) & ~7UL)
 
 #define HPACK_NODE_SIZE(node)						\
-	HPACK_NODE_ALIGN(sizeof(TfwHPackNode) + ((TfwHPackNode *)node)->hdr_len)
+	HPACK_NODE_ALIGN(sizeof(TfwHPackNode) + HPACK_RB_HDR_LEN(node))
 
 #define HPACK_NODE_NEXT(node)						\
 	((TfwHPackNode *)((char *)(node) + HPACK_NODE_SIZE(node)))
@@ -2466,59 +2467,76 @@ typedef enum {
 
 /*
  * Processing header's OWS during comparison with values stored in encoder
- * dynamic index. Note that in switch default branch @idx is negative, i.e.
- * all characters in processed part of @data are the OWS (or ':' in case of
- * header's name processing).
+ * dynamic index. Note that in switch '-1' branch for @idx - all characters
+ * in processed part of @data are the OWS (or ':' in case of header's name
+ * processing), thus mismatching is dummy and we can continue the comparison
+ * procedure.
  */
 #define HPACK_HDR_OWS_PROCESS(part_len, ret)				\
 ({									\
 	bool found = false;						\
-	unsigned char idx = (part_len) - 1;				\
+	short idx = (part_len) - 1;					\
 									\
 	BUG_ON(len < (part_len));					\
+	if (state != HPACK_HDR_NAME_SEARCH				\
+	    && (state != HPACK_HDR_VALUE_FOUND				\
+		|| chunk != TFW_STR_LAST(hdr)				\
+		|| len != (part_len)))					\
+		return ret;						\
+									\
+	for (; (data[idx] == ' ' || data[idx] == '\t') && idx >= 0;	\
+	     --idx);							\
 	if (state == HPACK_HDR_NAME_SEARCH				\
-	    || (state == HPACK_HDR_VALUE_FOUND				\
-		&& chunk == TFW_STR_LAST(hdr)				\
-		&& len == (part_len)))					\
+	    && idx >= 0							\
+	    && data[idx] == ':')					\
 	{								\
-		for (; (data[idx] == ' ' || data[idx] == '\t') && idx >= 0; \
-		     --idx);						\
-		if (state == HPACK_HDR_NAME_SEARCH			\
-		    && idx >= 0						\
-		    && data[idx] == ':')				\
-		{							\
-			found = true;					\
-			--idx;						\
-		}							\
-		switch (idx) {						\
-		case 1:							\
-			/* Fall through. */				\
-		case 2:							\
-			if (state == HPACK_HDR_NAME_SEARCH) {		\
-				if (SH_LC(pos) != SH_LC(data))		\
-					return ret;			\
-			} else if (HP_SH(pos) != HP_SH(data)) {		\
-					return ret;			\
-			}						\
-			if (idx == 1)					\
-				break;					\
-			/* Fall through. */				\
-		case 0:							\
-			if (state == HPACK_HDR_NAME_SEARCH) {		\
-				if (CHAR_LC(pos + idx) == CHAR_LC(data + idx)) \
-					break;				\
-			}						\
-			else if (HP_CHAR(pos + idx) == HP_CHAR(data + idx)) { \
-				break;					\
-			}						\
-			/* Fall through. */				\
-		case 3:							\
+		found = true;						\
+		--idx;							\
+	}								\
+	if (idx == (part_len) - 1)					\
+		return ret;						\
+	T_DBG3("%s: ows, state=%d, part_len=%d, ret=%d, idx=%u,"	\
+	       " pos='%.*s', data='%.*s'\n", __func__, state, part_len,	\
+	       ret, idx, idx + 1, pos, idx + 1, data);			\
+	switch (idx) {							\
+	case 1:								\
+		/* Fall through. */					\
+	case 2:								\
+		if (state == HPACK_HDR_NAME_SEARCH) {			\
+			if (SH_LC(pos) != SH_LC(data))			\
+				return ret;				\
+		} else if (HP_SH(pos) != HP_SH(data)) {			\
 			return ret;					\
-		default:						\
-			WARN_ON_ONCE(idx + 1 != 0);			\
 		}							\
-		if (found)						\
-			state = HPACK_HDR_NAME_FOUND;			\
+		if (idx == 1)						\
+			break;						\
+		/* Fall through. */					\
+	case 0:								\
+		if (state == HPACK_HDR_NAME_SEARCH) {			\
+			if (CHAR_LC(pos + idx) == CHAR_LC(data + idx))	\
+				break;					\
+		}							\
+		else if (HP_CHAR(pos + idx) == HP_CHAR(data + idx)) {	\
+			break;						\
+		}							\
+		return ret;						\
+	case -1:							\
+		break;							\
+	default:							\
+		BUG();							\
+	}								\
+	if (found)							\
+		state = HPACK_HDR_NAME_FOUND;				\
+	idx;								\
+})
+
+#define HPACK_NODE_GET_INDEX(tbl, node)					\
+({									\
+	unsigned long idx = 0;						\
+	if (node) {							\
+		idx = ~((node)->rindex - (tbl)->idx_acc) + 1;		\
+		WARN_ON_ONCE(idx >= HPACK_ENC_TABLE_MAX_SIZE);		\
+		idx += HPACK_STATIC_ENTRIES + 1;			\
 	}								\
 	idx;								\
 })
@@ -2528,12 +2546,20 @@ tfw_hpack_node_compare(const TfwStr *__restrict hdr,
 		       const TfwHPackNode *__restrict node,
 		       const TfwHPackNode **__restrict nm_node)
 {
-	unsigned char i;
+	short i;
 	const TfwStr *chunk, *end;
 	unsigned long hlen = hdr->len;
 	unsigned short node_hlen = HPACK_RB_HDR_LEN(node);
 	const char *pos = node->hdr;
 	TfwHPackCmpStates state = HPACK_HDR_NAME_SEARCH;
+
+#define HDR_PART_SHIFT(t_part, s_part)					\
+do {									\
+	pos += t_part;							\
+	node_hlen -= t_part;						\
+	data += s_part;							\
+	len -= s_part;							\
+} while (0)
 
 #define HDR_PART_COMPARE(part_len, ret)					\
 do {									\
@@ -2543,23 +2569,25 @@ do {									\
 	       " data='%.*s'\n", __func__, part_len, state, *nm_node,	\
 	       HPACK_RB_HDR_LEN(node), node_hlen, node_hlen, pos, len,	\
 	       len, data);						\
-	pos += i + 1;							\
-	node_hlen -= i + 1;						\
+	HDR_PART_SHIFT(i + 1, part_len);				\
 	if (state == HPACK_HDR_NAME_FOUND) {				\
 		if (!*nm_node)						\
 			*nm_node = node;				\
 		hlen -=	chunk->len - min_len;				\
 		goto chunk_end;						\
 	}								\
-	data += part_len;						\
-	len -= part_len;						\
 } while (0)
+
+#define SHIFT(n)							\
+	HDR_PART_SHIFT(n, n)
 
 	TFW_STR_FOR_EACH_CHUNK(chunk, hdr, end) {
 		unsigned short min_len, len;
 		const char *data = chunk->data;
 
-		BUG_ON(!chunk->len);
+		if (!chunk->len)
+			continue;
+
 		T_DBG("%s: state=%d, hlen=%lu, node_hlen=%hu, pos='%.*s',"
 		       " chunk->len=%lu, chunk->data='%.*s'\n", __func__, state,
 		       hlen, node_hlen, node_hlen, pos, chunk->len,
@@ -2578,55 +2606,87 @@ do {									\
 		while (len >= 4) {
 			if (state == HPACK_HDR_NAME_SEARCH) {
 				if (INT_LE_LC(pos) > INT_LE_LC(data))
-					HDR_PART_COMPARE(4, 1);
-				else if (INT_LE_LC(pos) < INT_LE_LC(data))
 					HDR_PART_COMPARE(4, -1);
+				else if (INT_LE_LC(pos) < INT_LE_LC(data))
+					HDR_PART_COMPARE(4, 1);
+				else
+					SHIFT(4);
 			}
 			else {
 				if (INT_LE(pos) > INT_LE(data))
-					HDR_PART_COMPARE(4, 1);
-				else if (INT_LE(pos) < INT_LE(data))
 					HDR_PART_COMPARE(4, -1);
+				else if (INT_LE(pos) < INT_LE(data))
+					HDR_PART_COMPARE(4, 1);
+				else
+					SHIFT(4);
 			}
 		}
 		while (len >= 2) {
 			if (state == HPACK_HDR_NAME_SEARCH) {
 				if (SH_LE_LC(pos) > SH_LE_LC(data))
-					HDR_PART_COMPARE(2, 1);
-				else if (SH_LE_LC(pos) < SH_LE_LC(data))
 					HDR_PART_COMPARE(2, -1);
+				else if (SH_LE_LC(pos) < SH_LE_LC(data))
+					HDR_PART_COMPARE(2, 1);
+				else
+					SHIFT(2);
 			}
 			else {
 				if (SH_LE(pos) > SH_LE(data))
-					HDR_PART_COMPARE(2, 1);
-				else if (SH_LE(pos) < SH_LE(data))
 					HDR_PART_COMPARE(2, -1);
+				else if (SH_LE(pos) < SH_LE(data))
+					HDR_PART_COMPARE(2, 1);
+				else
+					SHIFT(2);
 			}
 		}
 		if (len) {
 			if (state == HPACK_HDR_NAME_SEARCH) {
 				if (CHAR_LC(pos) > CHAR_LC(data))
-					HDR_PART_COMPARE(1, 1);
-				else if (CHAR_LC(pos) < CHAR_LC(data))
 					HDR_PART_COMPARE(1, -1);
+				else if (CHAR_LC(pos) < CHAR_LC(data))
+					HDR_PART_COMPARE(1, 1);
+				else
+					SHIFT(1);
 			}
 			else {
 				if (HP_CHAR(pos) > HP_CHAR(data))
-					HDR_PART_COMPARE(1, 1);
-				else if (HP_CHAR(pos) < HP_CHAR(data))
 					HDR_PART_COMPARE(1, -1);
+				else if (HP_CHAR(pos) < HP_CHAR(data))
+					HDR_PART_COMPARE(1, 1);
+				else
+					SHIFT(1);
 			}
 		}
 chunk_end:
-		if (!node_hlen)
-			return hlen ? -1 : 0;
+		if (!node_hlen) {
+			unsigned long k = min_len;
+			/*
+			 * If we have matched @node_hlen characters of header,
+			 * and the remained characters are OWS, then the entire
+			 * header should be considered matched.
+			 */
+			WARN_ON_ONCE(state != HPACK_HDR_VALUE_FOUND);
+			for (;;) {
+				for (; k < chunk->len; ++k) {
+					if (data[k] != ' ' && data[k] != '\t')
+						return 1;
+				}
+
+				if (++chunk >= end)
+					return 0;
+
+				data = chunk->data;
+				k = 0;
+			}
+		}
 	}
+	WARN_ON_ONCE(hlen);
 
-	if (node_hlen)
-		return 1;
+	return node_hlen ? -1 : 0;
 
-	return 0;
+#undef HDR_PART_SHIFT
 #undef HDR_PART_COMPARE
+#undef SHIFT
 }
 
 /*
@@ -3085,7 +3145,7 @@ tfw_hpack_rbuf_calc(TfwHPackETbl *__restrict tbl, unsigned short new_size,
 		}
 
 		f_len = HPACK_NODE_SIZE(first);
-		fhdr_len = HPACK_RB_HDR_LEN((TfwHPackNode *)first);
+		fhdr_len = HPACK_RB_HDR_LEN(first);
 
 		T_DBG3("%s: rb_len=%hu, size=%hu, new_size=%hu, rbuf=[%p],"
 		       " first=[%p], last=[%p], f_len=%hu, fhdr_len=%hu,"
@@ -3152,7 +3212,7 @@ tfw_hpack_add_node(TfwHPackETbl *__restrict tbl, const TfwStr *__restrict hdr,
 		   TfwHPackNodeIter *__restrict place)
 {
 	unsigned long node_size, hdr_len;
-	unsigned short new_size, last_len, node_len;
+	unsigned short new_size, node_len;
 	unsigned short cur_size = tbl->size, window = tbl->window;
 	unsigned long nm_len = 0, val_off = 0, val_len = 0;
 	TfwHPackNode *del_list[HPACK_MAX_ENC_EVICTION] = {};
@@ -3184,7 +3244,6 @@ tfw_hpack_add_node(TfwHPackETbl *__restrict tbl, const TfwStr *__restrict hdr,
 	    && tfw_hpack_rbuf_calc(tbl, window - node_size, del_list, &it))
 		return -E2BIG;
 
-	last_len = HPACK_NODE_SIZE(it.last);
 	node_len = HPACK_NODE_ALIGN(sizeof(TfwHPackNode) + hdr_len);
 
 	if (it.rb_size < it.rb_len + node_len) {
@@ -3199,6 +3258,7 @@ tfw_hpack_add_node(TfwHPackETbl *__restrict tbl, const TfwStr *__restrict hdr,
 		goto commit;
 	}
 	else if (it.first <= it.last) {
+		unsigned short last_len = HPACK_NODE_SIZE(it.last);
 		unsigned short end_space = HPACK_ENC_TABLE_MAX_SIZE;
 		/*
 		 * In this case @rb_size must always be reset before
@@ -3269,13 +3329,11 @@ tfw_hpack_encoder_index(TfwHPackETbl *__restrict tbl,
 			const TfwStr *__restrict hdr,
 			bool *entered, unsigned short *__restrict out_index)
 {
-	unsigned long idx;
 	TfwHPackETblRes res;
 	const TfwHPackNode *node = NULL;
 	TfwHPackNodeIter place = {};
 
 	BUILD_BUG_ON(HPACK_IDX_ST_MASK < _HPACK_IDX_ST_NUM - 1);
-	*out_index = 0;
 
 	spin_lock(&tbl->lock);
 
@@ -3285,11 +3343,8 @@ tfw_hpack_encoder_index(TfwHPackETbl *__restrict tbl,
 	res = tfw_hpack_rbtree_find(tbl, hdr, &node, &place);
 
 	WARN_ON_ONCE(res != HPACK_IDX_ST_NOT_FOUND && !node);
-	if (node) {
-		idx = ~(node->rindex - tbl->idx_acc) + 1;
-		WARN_ON_ONCE(idx >= HPACK_ENC_TABLE_MAX_SIZE);
-		*out_index = idx + HPACK_STATIC_ENTRIES + 1;
-	}
+
+	*out_index = HPACK_NODE_GET_INDEX(tbl, node);
 
 	/*
 	 * Encoder dynamic index can be in three states: initial state (@guard
@@ -3342,12 +3397,12 @@ out:
 }
 
 int
-tfw_hpack_hdrs_tranform(TfwHttpResp *__restrict resp, bool *entered)
+tfw_hpack_hdrs_transform(TfwHttpResp *__restrict resp, bool *entered)
 {
 	TfwHPackETblRes r;
-	unsigned short index;
 	const TfwStr *field, *hdrs_end, *hdr, *dup_end;
 	TfwH2Ctx *ctx = tfw_h2_context(resp->req->conn);
+	unsigned short index = 0;
 
 	FOR_EACH_HDR_FIELD(field, hdrs_end, resp) {
 		TFW_STR_FOR_EACH_DUP(hdr, field, dup_end) {
