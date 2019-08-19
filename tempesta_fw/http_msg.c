@@ -1166,8 +1166,10 @@ tfw_http_msg_hdr_write(const TfwStr *hdr, unsigned long nm_len,
 		}
 
 		if (!nm_len) {
-			if (len || val_off) {
-				val_off -= min(val_off, c->len - len);
+			WARN_ON_ONCE(len && !val_off);
+			if (val_off) {
+				WARN_ON_ONCE(val_off < c->len - len);
+				val_off -= c->len - len;
 			}
 			else if (val_len) {
 				len = min(val_len, c->len);
@@ -1181,8 +1183,8 @@ tfw_http_msg_hdr_write(const TfwStr *hdr, unsigned long nm_len,
 		if (!len)
 			continue;
 
-		TFW_DBG3("%s: len=%lu, c->data='%.*s'\n", __func__, len, (int)len,
-			 c->data);
+		TFW_DBG3("%s: len=%lu, c->data='%.*s'\n", __func__, len,
+			 (int)len, c->data);
 
 		memcpy_fast(out_buf, c->data, len);
 		out_buf += len;

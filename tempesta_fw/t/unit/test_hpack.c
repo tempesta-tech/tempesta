@@ -806,7 +806,7 @@ TEST(hpack, enc_table_hdr_write)
 #define HDR_VALUE_1	"test.com, foo.com, example.com"
 #define HDR_NAME_2	"custom-header"
 #define HDR_VALUE_2	"custom-value"
-#define HDR_NAME_3	"X-Custom-Hdr"
+#define HDR_NAME_3	"x-custom-hdr"
 #define HDR_VALUE_3	"example header value"
 #define HDR_NAME_4	"custom-name"
 #define HDR_VALUE_4	"custom-test-value"
@@ -919,6 +919,125 @@ TEST(hpack, enc_table_hdr_write)
 #undef HDR_VALUE_5
 }
 
+TEST(hpack, enc_table)
+{
+	TfwHPackETbl *tbl;
+	TfwHPackETblRes res;
+	TfwHPackNodeIter pl = {};
+	const TfwHPackNode *node = NULL;
+	unsigned short index = 0;
+
+#define HDR_NAME_1	"test-custom-header-name"
+#define HDR_VALUE_1	"foo test example value"
+#define HDR_NAME_2	"x-custom-hdr"
+#define HDR_VALUE_2	"value foo bar"
+#define HDR_NAME_3	"test-example-key"
+#define HDR_VALUE_3	"custom-example-value"
+
+	TFW_STR(s1, HDR_NAME_1 ": \t  ");
+	TFW_STR(s1_value, HDR_VALUE_1 "       ");
+	const char *t_s1 = HDR_NAME_1 HDR_VALUE_1;
+	unsigned long t_s1_len = strlen(t_s1);
+
+	TFW_STR(s2, HDR_NAME_2 ":");
+	TFW_STR(s2_value, HDR_VALUE_2);
+	const char *t_s2 = HDR_NAME_2 HDR_VALUE_2;
+	unsigned long t_s2_len = strlen(t_s2);
+
+	TFW_STR(s3, HDR_NAME_3 ":\t  \t\t\t");
+	TFW_STR(s3_value, HDR_VALUE_3 "\t\t\t\t    ");
+	const char *t_s3 = HDR_NAME_3 HDR_VALUE_3;
+	unsigned long t_s3_len = strlen(t_s3);
+
+	collect_compound_str(s1, s1_value);
+	collect_compound_str(s2, s2_value);
+	collect_compound_str(s3, s3_value);
+
+	tbl = &ctx.hpack.enc_tbl;
+
+	/*
+	 * Prepare encoder dynamic index: add headers into the appropriate
+	 * positions of ring buffer and corresponding red-black tree.
+	 */
+	res = tfw_hpack_rbtree_find(tbl, s1, &node, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
+	EXPECT_NULL(node);
+	EXPECT_OK(tfw_hpack_add_node(tbl, s1, &pl));
+
+	node = NULL;
+	bzero_fast(&pl, sizeof(pl));
+	res = tfw_hpack_rbtree_find(tbl, s2, &node, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
+	EXPECT_NULL(node);
+	EXPECT_NOT_NULL(pl.parent);
+	if (pl.parent)
+		EXPECT_OK(tfw_hpack_add_node(tbl, s2, &pl));
+
+	node = NULL;
+	bzero_fast(&pl, sizeof(pl));
+	res = tfw_hpack_rbtree_find(tbl, s3, &node, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
+	EXPECT_NULL(node);
+	EXPECT_NOT_NULL(pl.parent);
+	if (pl.parent)
+		EXPECT_OK(tfw_hpack_add_node(tbl, s3, &pl));
+
+	/*
+	 * Verify that headers had been correctly added into encoder dynamic
+	 * table and right indexes are assigned to them.
+	 */
+	node = NULL;
+	bzero_fast(&pl, sizeof(pl));
+	res = tfw_hpack_rbtree_find(tbl, s1, &node, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
+	EXPECT_NULL(pl.parent);
+	EXPECT_NOT_NULL(node);
+	index = HPACK_NODE_GET_INDEX(tbl, node);
+	EXPECT_EQ(index, 64);
+	if (node) {
+		EXPECT_EQ(HPACK_RB_HDR_LEN(node), t_s1_len);
+		EXPECT_OK(memcmp_fast(t_s1, node->hdr, t_s1_len));
+	}
+
+	node = NULL;
+	bzero_fast(&pl, sizeof(pl));
+	res = tfw_hpack_rbtree_find(tbl, s2, &node, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
+	EXPECT_NULL(pl.parent);
+	EXPECT_NOT_NULL(node);
+	index = HPACK_NODE_GET_INDEX(tbl, node);
+	EXPECT_EQ(index, 63);
+	if (node) {
+		EXPECT_EQ(HPACK_RB_HDR_LEN(node), t_s2_len);
+		EXPECT_OK(memcmp_fast(t_s2, node->hdr, t_s2_len));
+	}
+
+	node = NULL;
+	bzero_fast(&pl, sizeof(pl));
+	res = tfw_hpack_rbtree_find(tbl, s3, &node, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
+	EXPECT_NULL(pl.parent);
+	EXPECT_NOT_NULL(node);
+	index = HPACK_NODE_GET_INDEX(tbl, node);
+	EXPECT_EQ(index, 62);
+	if (node) {
+		EXPECT_EQ(HPACK_RB_HDR_LEN(node), t_s3_len);
+		EXPECT_OK(memcmp_fast(t_s3, node->hdr, t_s3_len));
+	}
+
+#undef HDR_NAME_1
+#undef HDR_VALUE_1
+#undef HDR_NAME_2
+#undef HDR_VALUE_2
+#undef HDR_NAME_3
+#undef HDR_VALUE_3
+#undef HDR_NAME_4
+#undef HDR_VALUE_4
+#undef HDR_NAME_5
+#undef HDR_VALUE_5
+}
+
+
 TEST_SUITE(hpack)
 {
 	TEST_SETUP(test_h2_setup);
@@ -932,4 +1051,5 @@ TEST_SUITE(hpack)
 	TEST_RUN(hpack, dec_indexed);
 	TEST_RUN(hpack, dec_huffman);
 	TEST_RUN(hpack, enc_table_hdr_write);
+	TEST_RUN(hpack, enc_table);
 }
