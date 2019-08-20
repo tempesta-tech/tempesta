@@ -479,6 +479,16 @@ ttls_pick_cert(TlsCtx *tls, const TlsCiphersuite *ci)
 			continue;
 		}
 
+		if (pk_alg == TTLS_PK_ECDSA) {
+			const ttls_ecp_group_id *gid = tls->peer_conf->curve_list;
+			/* Match our preference list against the offered curves */
+			for ( ; *gid != TTLS_ECP_DP_NONE; gid++)
+					if (ttls_pk_ec(*(cur->key))->grp.id == *gid)
+						goto curve_matching_done;
+			continue;
+		}
+
+curve_matching_done:
 		/* If we get there, we got a winner */
 		break;
 	}
@@ -1073,7 +1083,6 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 	/*
 	 * Server TLS configuration is found, match it with client capabilities.
 	 */
-
 	/* Search for a matching signature hash functions. */
 	r = ttls_match_sig_hashes(tls);
 	if (r)
@@ -1470,24 +1479,31 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 		 *	 ECPoint	  public;
 		 * } ServerECDHParams;
 		 */
-		const ttls_ecp_curve_info **curve = NULL;
-		const ttls_ecp_group_id *gid = tls->peer_conf->curve_list;
+		ttls_ecp_group_id grp_id;
 
-		/* Match our preference list against the offered curves */
-		for ( ; *gid != TTLS_ECP_DP_NONE; gid++)
-			for (curve = tls->hs->curves; *curve; curve++)
-				if ((*curve)->grp_id == *gid)
-					goto curve_matching_done;
+		if (ci->key_exchange == TTLS_KEY_EXCHANGE_ECDHE_ECDSA) {
+			grp_id = ttls_pk_ec(*(tls->hs->key_cert->key))->grp.id;
+		} else {
+			const ttls_ecp_curve_info **curve = NULL;
+			const ttls_ecp_group_id *gid = tls->peer_conf->curve_list;
+
+			/* Match our preference list against the offered curves */
+			for ( ; *gid != TTLS_ECP_DP_NONE; gid++)
+				for (curve = tls->hs->curves; *curve; curve++)
+					if ((*curve)->grp_id == *gid)
+						goto curve_matching_done;
 curve_matching_done:
-		if (!curve || !*curve) {
-			T_WARN("No matching curve for ECDHE key exchange\n");
-			r = -EINVAL;
-			goto err;
-		}
-		T_DBG("ECDHE curve: %s\n", (*curve)->name);
+			if (!curve || !*curve) {
+				T_WARN("No matching curve for ECDHE key exchange\n");
+				r = -EINVAL;
+				goto err;
+			}
+			T_DBG("ECDHE curve: %s\n", (*curve)->name);
 
-		r = ttls_ecp_group_load(&tls->hs->ecdh_ctx.grp,
-		(*curve)->grp_id);
+			grp_id = (*curve)->grp_id;
+		}
+
+		r = ttls_ecp_group_load(&tls->hs->ecdh_ctx.grp, grp_id);
 		if (r) {
 			T_DBG("cannot load ECP group, %d\n", r);
 			goto err;
