@@ -489,6 +489,16 @@ ttls_pick_cert(TlsCtx *tls, const TlsCiphersuite *ci)
 		}
 
 curve_matching_done:
+		{
+			const int *hid = tls->peer_conf->sig_hashes;
+			/* Match our preference list against the offered curves */
+			for ( ; *hid != TTLS_MD_NONE; hid++)
+					if (cur->cert->sig_md == *hid)
+						goto hash_matching_done;
+			continue;
+		}
+
+hash_matching_done:
 		/* If we get there, we got a winner */
 		break;
 	}
