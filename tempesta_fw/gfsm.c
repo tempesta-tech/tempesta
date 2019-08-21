@@ -141,7 +141,7 @@ __gfsm_fsm_lookup(TfwGState *st, int fsm_id, int *free_slot)
 static int
 tfw_gfsm_switch(TfwGState *st, int state, int prio)
 {
-	int shift = prio * TFW_GFSM_PRIO_N + (state & TFW_GFSM_STATE_MASK);
+	int shift = prio * TFW_GFSM_STATE_N + (state & TFW_GFSM_STATE_MASK);
 	int fsm_curr = state >> TFW_GFSM_FSM_SHIFT;
 	int fsm_next = fsm_hooks[fsm_curr][shift].fsm_id;
 	int free_slot;
@@ -325,7 +325,7 @@ tfw_gfsm_register_hook(int fsm_id, int prio, int state,
 			return -EBUSY;
 		}
 	}
-	shift = prio * TFW_GFSM_PRIO_N + st;
+	shift = prio * TFW_GFSM_STATE_N + st;
 
 	if (fsm_hooks[fsm_id][shift].fsm_id)
 		return -EBUSY;
@@ -352,7 +352,7 @@ void
 tfw_gfsm_unregister_hook(int fsm_id, int prio, int state)
 {
 	int st = state & TFW_GFSM_STATE_MASK;
-	int shift = prio * TFW_GFSM_PRIO_N + st;
+	int shift = prio * TFW_GFSM_STATE_N + st;
 
 	memset(&fsm_hooks[fsm_id][shift], 0, sizeof(TfwFsmHook));
 	fsm_hooks_bm[fsm_id][prio] &= ~(1 << st);
