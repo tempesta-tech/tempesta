@@ -2464,7 +2464,7 @@ TEST(http_parser, content_type_line_parser)
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
 				      req->flags));
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
-				 "Content-Type: multipart/form-data");
+				 "Content-Type: multipart/form-data ");
 	}
 
 	FOR_REQ(HEAD "multipart/form-data \t" TAIL) {
@@ -2513,7 +2513,7 @@ TEST(http_parser, content_type_line_parser)
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
 				      req->flags));
 		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
-				 "Content-Type: multihello/world; param=value");
+				 "Content-Type: multipart/form-dat");
 	}
 
 	FOR_REQ(HEAD "multipart/form-other; param=value" TAIL) {
