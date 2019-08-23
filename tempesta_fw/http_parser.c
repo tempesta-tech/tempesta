@@ -1657,10 +1657,9 @@ __req_parse_content_type(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_STATE(I_ContTypeOtherType) {
 		__FSM_I_MATCH_MOVE_fixup(token, I_ContTypeOtherType, 0);
 		if (IS_CRLF(*(p + __fsm_sz))) {
-			p += __fsm_sz;
-			goto finalize;
+			__FSM_I_MOVE_fixup(I_EoL, __fsm_sz, 0);
 		}
-		__FSM_I_MOVE_n(I_ContTypeOtherTypeSlash, __fsm_sz);
+		__FSM_I_MOVE_fixup(I_ContTypeOtherTypeSlash, __fsm_sz, 0);
 	}
 
 	__FSM_STATE(I_ContTypeOtherTypeSlash) {
