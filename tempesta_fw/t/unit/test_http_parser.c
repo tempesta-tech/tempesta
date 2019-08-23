@@ -2446,72 +2446,100 @@ TEST(http_parser, content_type_line_parser)
 		EXPECT_TFWSTR_EQ(&req->multipart_boundary_raw,
 		                 "\"1234\\56\\\"7890\"");
 		EXPECT_TFWSTR_EQ(&req->multipart_boundary, "123456\"7890");
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: multipart/form-data; "
+				 "boundary=\"1234\\56\\\"7890\"");
 	}
 
 	FOR_REQ(HEAD "multipart/form-data" TAIL) {
 		EXPECT_TRUE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
 				      req->flags));
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: multipart/form-data");
 	}
 
 	FOR_REQ(HEAD "multipart/form-data " TAIL) {
 		EXPECT_TRUE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
 				      req->flags));
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: multipart/form-data ");
 	}
 
 	FOR_REQ(HEAD "multipart/form-data \t" TAIL) {
 		EXPECT_TRUE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
 				      req->flags));
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: multipart/form-data \t");
 	}
 
 	FOR_REQ(HEAD "multipart/form-data1" TAIL) {
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
 				      req->flags));
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: multipart/form-data1");
 	}
 
 	FOR_REQ(HEAD "multipart/form-data1; param=value" TAIL) {
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
 				      req->flags));
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: multipart/form-data1; "
+				 "param=value");
 	}
 
 	FOR_REQ(HEAD "multihello/world" TAIL) {
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
 				      req->flags));
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: multihello/world");
 	}
 
 	FOR_REQ(HEAD "multihello/world; param=value" TAIL) {
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
 				      req->flags));
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: multihello/world; param=value");
 	}
 
 	FOR_REQ(HEAD "multipart/form-dat" TAIL) {
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
 				      req->flags));
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: multipart/form-dat");
 	}
 
 	FOR_REQ(HEAD "multipart/form-other; param=value" TAIL) {
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
 				      req->flags));
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: multipart/form-other; "
+				 "param=value");
 	}
 
 	FOR_REQ(HEAD "multipart/form-data; xboundary=1234567890" TAIL) {
 		EXPECT_TRUE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
 				      req->flags));
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: multipart/form-data; "
+				 "xboundary=1234567890");
 	}
 
 	FOR_REQ(HEAD "application/octet-stream" TAIL) {
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags));
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_CT_MULTIPART_HAS_BOUNDARY,
 				      req->flags));
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: application/octet-stream");
 	}
 
 	/* Multipart requests with multiple boundaries are clearly malicious. */
@@ -2533,9 +2561,21 @@ TEST(http_parser, content_type_line_parser)
 	 * Other media types are not restricted in terms of boundary parameter
 	 * quantities.
 	 */
-	FOR_REQ(HEAD "text/plain; boundary=1; boundary=2" TAIL);
-	FOR_REQ(HEAD "text/plain; boundary=1; boundary=2; boundary=3" TAIL);
-	FOR_REQ(HEAD "textqwe/plain; boundary=1; other=3" TAIL);
+	FOR_REQ(HEAD "text/plain; boundary=1; boundary=2" TAIL) {
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: text/plain; boundary=1; "
+				 "boundary=2");
+	}
+	FOR_REQ(HEAD "text/plain; boundary=1; boundary=2; boundary=3" TAIL) {
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: text/plain; boundary=1; "
+				 "boundary=2; boundary=3");
+	}
+	FOR_REQ(HEAD "textqwe/plain; boundary=1; other=3" TAIL) {
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: textqwe/plain; boundary=1; "
+				 "other=3");
+	}
 
 	/* Parameter should be in format name=value. */
 	EXPECT_BLOCK_REQ(HEAD "text/plain; name" TAIL);
@@ -2546,16 +2586,39 @@ TEST(http_parser, content_type_line_parser)
 	EXPECT_BLOCK_REQ(HEAD "text/plain; name=\"unfinished" TAIL);
 
 	/* Other parameter quoted values. */
-	FOR_REQ(HEAD "text/plain; name=\"value\"" TAIL);
-	FOR_REQ(HEAD "text/plain; name=\"value\" " TAIL);
-	FOR_REQ(HEAD "text/plain; name=\"value\";" TAIL);
-	FOR_REQ(HEAD "text/plain; name=\"value\"; " TAIL);
+	FOR_REQ(HEAD "text/plain; name=\"value\"" TAIL){
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: text/plain; name=\"value\"");
+	}
+	FOR_REQ(HEAD "text/plain; name=\"value\" " TAIL){
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: text/plain; name=\"value\" ");
+	}
+	FOR_REQ(HEAD "text/plain; name=\"value\";" TAIL){
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: text/plain; name=\"value\";");
+	}
+	FOR_REQ(HEAD "text/plain; name=\"value\"; " TAIL){
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: text/plain; name=\"value\"; ");
+	}
 
-	FOR_REQ(HEAD "text/plain; name=\"val\\\"ue\"" TAIL);
-	FOR_REQ(HEAD "text/plain; name=\"val\\\"ue\" " TAIL);
+	FOR_REQ(HEAD "text/plain; name=\"val\\\"ue\"" TAIL){
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: text/plain; name=\"val\\\"ue\"");
+	}
+	FOR_REQ(HEAD "text/plain; name=\"val\\\"ue\" " TAIL){
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: text/plain; name=\"val\\\"ue\" ");
+	}
 
 	/* Line ended at '\\'. */
 	EXPECT_BLOCK_REQ(HEAD "text/plain; name=\"val\\" TAIL);
+
+	FOR_REQ(HEAD "multitest" TAIL) {
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: multitest");
+	}
 
 #undef HEAD
 #undef TAIL
