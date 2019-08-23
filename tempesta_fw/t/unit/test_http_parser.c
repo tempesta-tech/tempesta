@@ -2615,6 +2615,11 @@ TEST(http_parser, content_type_line_parser)
 	/* Line ended at '\\'. */
 	EXPECT_BLOCK_REQ(HEAD "text/plain; name=\"val\\" TAIL);
 
+	FOR_REQ(HEAD "multitest" TAIL) {
+		EXPECT_TFWSTR_EQ(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+				 "Content-Type: multitest");
+	}
+
 #undef HEAD
 #undef TAIL
 }
