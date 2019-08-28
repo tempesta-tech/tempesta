@@ -2264,6 +2264,8 @@ ttls_handshake_finished(TlsCtx *tls)
 		if ((r = ttls_write_finished(tls, &sgt, &p)))
 			return r;
 		CHECK_STATE(TLS_HEADER_SIZE + TTLS_HS_FINISHED_BODY_LEN);
+		sg_mark_end(&sgt.sgl[sgt.nents - 1]);
+		r = __ttls_send_record(tls, &sgt, false);
 		/*
 		 * In case of session resuming, invert the client and server
 		 * ChangeCipherSpec messages order.
@@ -2272,7 +2274,7 @@ ttls_handshake_finished(TlsCtx *tls)
 			     ? TTLS_CLIENT_CHANGE_CIPHER_SPEC
 			     : TTLS_HANDSHAKE_WRAPUP;
 		sg_mark_end(&sgt.sgl[sgt.nents - 1]);
-		return __ttls_send_record(tls, &sgt, false);
+		return r;
 	}
 	}
 	T_FSM_FINISH(r, tls->state);
