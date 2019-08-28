@@ -248,6 +248,19 @@ ttls_xfrm_ready(TlsCtx *tls)
 }
 EXPORT_SYMBOL(ttls_xfrm_ready);
 
+/*
+ * There are states in which encryption is not used or performed in advance, as
+ * with TTLS_SERVER_FINISHED
+ */
+bool
+ttls_xfrm_need_encript(TlsCtx *tls)
+{
+	return tls->state >= TTLS_CLIENT_FINISHED
+	       && tls->state != TTLS_SERVER_CHANGE_CIPHER_SPEC
+	       && tls->state != TTLS_SERVER_FINISHED;
+}
+EXPORT_SYMBOL(ttls_xfrm_need_encript);
+
 #if defined(TTLS_CLI_C)
 static int
 ssl_session_copy(TlsSess *dst, const TlsSess *src)
