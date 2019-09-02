@@ -141,6 +141,9 @@ ttls_crypto_req_sglist(TlsCtx *tls, struct crypto_aead *tfm, unsigned int len,
 	unsigned int sz, aead_sz, to_read, off;
 	int n;
 
+	WARN_ON_ONCE(len == 0); /* nothing to decrypt */
+	WARN_ON_ONCE(!buf && !skb);
+
 	sz = aead_sz = sizeof(*req) + crypto_aead_reqsize(tfm);
 	if (buf) {
 		off = 0;
@@ -149,7 +152,6 @@ ttls_crypto_req_sglist(TlsCtx *tls, struct crypto_aead *tfm, unsigned int len,
 		off = io->off;
 		n = *sgn + io->chunks;
 	}
-	BUG_ON(!buf && (!skb || skb->len <= off)); /* nothing to decrypt */
 	sz += n * sizeof(**sg);
 
 	/* Don't use g_req for better spacial locality. */
