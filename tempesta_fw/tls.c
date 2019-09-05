@@ -534,7 +534,7 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt, bool close)
 		flags |= SS_F_CONN_CLOSE;
 		TFW_CONN_TYPE(&conn->cli_conn) |= Conn_Stop;
 	}
-	if (ttls_xfrm_need_encript(tls))
+	if (ttls_xfrm_need_encrypt(tls))
 		flags |= SS_SKB_TYPE2F(io->msgtype) | SS_F_ENCRYPT;
 
 	return ss_send(conn->cli_conn.sk, &io->skb_list, flags);

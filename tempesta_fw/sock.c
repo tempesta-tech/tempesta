@@ -2,7 +2,7 @@
  *		Synchronous Socket API.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -876,9 +876,8 @@ ss_tcp_data_ready(struct sock *sk)
 			 * The callback will free all SKBs linked with
 			 * the message that is currently being processed.
 			 *
-			 * On receiving FIN we have to reply ACK and move to
-			 * TCP_CLOSE WAIT state where we send all required data
-			 * to the peer and only after than send our FIN.
+			 * Closing a socket should go through the queue and
+			 * should be done after all pending data has been sent.
 			 *
 			 * TODO #861. ss_tcp_process_data() returns true/false
 			 * on all kind of problems: e.g. inability to unroll an
@@ -1001,9 +1000,8 @@ ss_tcp_state_change(struct sock *sk)
 			ss_tcp_process_data(sk);
 		T_DBG2("[%d]: Peer connection closing\n", smp_processor_id());
 		/*
-		 * On receiving FIN we have to reply ACK and more to
-		 * TCP_CLOSE WAIT state where we send all required data
-		 * to the peer and only after than send our FIN.
+		 * Closing a socket should go through the queue and should be
+		 * done after all pending data has been sent.
 		 */
 		ss_close(sk, SS_F_SYNC);
 	}
@@ -1384,8 +1382,8 @@ ss_tx_action(void)
 			/*
 			 * We were asked to close the socket. If current state
 			 * is either ESTABLISHED or SYN_SENT, we initiate the
-			 * closure process. If for some reason other side sent
-			 * us FIN, we are at CLOSE_WAIT, so the socket closure
+			 * closing process. If for some reason other side sent
+			 * us FIN, we are at CLOSE_WAIT, so the socket closing
 			 * is in progress, but still need to cleanup on our
 			 * side. If we get here while the socket in any other
 			 * state, resources were either already freed or were
