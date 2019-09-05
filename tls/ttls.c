@@ -253,13 +253,11 @@ EXPORT_SYMBOL(ttls_xfrm_ready);
  * with TTLS_SERVER_FINISHED
  */
 bool
-ttls_xfrm_need_encript(TlsCtx *tls)
+ttls_xfrm_need_encrypt(TlsCtx *tls)
 {
-	return tls->state >= TTLS_CLIENT_FINISHED
-	       && tls->state != TTLS_SERVER_CHANGE_CIPHER_SPEC
-	       && tls->state != TTLS_SERVER_FINISHED;
+	return ttls_xfrm_ready(tls) && tls->state != TTLS_SERVER_FINISHED;
 }
-EXPORT_SYMBOL(ttls_xfrm_need_encript);
+EXPORT_SYMBOL(ttls_xfrm_need_encrypt);
 
 #if defined(TTLS_CLI_C)
 static int
@@ -1305,8 +1303,10 @@ ttls_handshake_wrapup(TlsCtx *tls)
  * Process TLS alerts.
  */
 int
-ttls_handle_alert(TlsIOCtx *io)
+ttls_handle_alert(TlsCtx *tls)
 {
+	TlsIOCtx *io = &tls->io_in;
+
 	T_DBG("got an alert message, type=%d:%d\n", io->alert[0], io->alert[1]);
 
 	/* Ignore non-fatal alerts, except close_notify. */
@@ -1318,6 +1318,7 @@ ttls_handle_alert(TlsIOCtx *io)
 	    && io->alert[1] == TTLS_ALERT_MSG_CLOSE_NOTIFY)
 	{
 		T_DBG2("is a close notify message\n");
+		ttls_close_notify(tls);
 		return T_DROP;
 	}
 
@@ -2229,13 +2230,8 @@ next_record:
 	switch (io->msgtype) {
 	case TTLS_MSG_ALERT:
 		if (unlikely(!ttls_xfrm_ready(tls))) {
-			if (!(r = ttls_handle_alert(io)))
+			if (!(r = ttls_handle_alert(tls)))
 				goto skip_record;
-			if (io->alert[0] == TTLS_ALERT_LEVEL_WARNING
-			    && io->alert[1] == TTLS_ALERT_MSG_CLOSE_NOTIFY)
-			{
-				ttls_close_notify(tls);
-			}
 			return T_DROP;
 		}
 		break;
@@ -2312,13 +2308,8 @@ next_record:
 	}
 
 	if (io->msgtype == TTLS_MSG_ALERT) {
-		if (!(r = ttls_handle_alert(io)))
+		if (!(r = ttls_handle_alert(tls)))
 			goto skip_record;
-		if (io->alert[0] == TTLS_ALERT_LEVEL_WARNING
-		    && io->alert[1] == TTLS_ALERT_MSG_CLOSE_NOTIFY)
-		{
-			ttls_close_notify(tls);
-		}
 		return T_DROP;
 	}
 

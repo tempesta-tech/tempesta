@@ -2273,7 +2273,6 @@ ttls_handshake_finished(TlsCtx *tls)
 		tls->state = tls->hs->resume
 			     ? TTLS_CLIENT_CHANGE_CIPHER_SPEC
 			     : TTLS_HANDSHAKE_WRAPUP;
-		sg_mark_end(&sgt.sgl[sgt.nents - 1]);
 		return r;
 	}
 	}

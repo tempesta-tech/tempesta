@@ -368,9 +368,10 @@ tfw_sock_srv_connect_drop(struct sock *sk)
 
 	if (test_bit(TFW_CONN_B_DEL, &((TfwSrvConn *)conn)->flags)) {
 		/**
-		 * This is executed when we intentionally close a server connection during
-		 * shutdown process. Now @sk is closed (but still alive) and we release all
-		 * associated resources before SS put()'s the socket.
+		 * This is executed when we intentionally close a server
+		 * connection during shutdown process. Now @sk is closed (but
+		 * still alive) and we release all associated resources before
+		 * SS put()'s the socket.
 		 */
 		TFW_INC_STAT_BH(serv.conn_disconnects);
 		tfw_connection_drop(conn);
@@ -381,9 +382,10 @@ tfw_sock_srv_connect_drop(struct sock *sk)
 	/**
 	 * This is executed when there's unrecoverable error in a connection
 	 * (and not executed when an established connection is closed as usual).
-	 * An error may occur in any TCP state including data processing on application
-	 * layer. All Tempesta resources associated with the socket must be released in
-	 * case they were allocated before. Server socket must be recovered.
+	 * An error may occur in any TCP state including data processing on
+	 * application layer. All Tempesta resources associated with the socket
+	 * must be released in case they were allocated before. Server socket
+	 * must be recovered.
 	 */
 	T_DBG_ADDR("connection error", &srv->addr, TFW_WITH_PORT);
 
