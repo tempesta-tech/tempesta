@@ -176,34 +176,9 @@ kclient_connection_close(struct sock *sk)
 	return 0;
 }
 
-static int
-kclient_connection_error(struct sock *sk)
-{
-	int descidx;
-	kclient_desc_t *desc;
-	SsProto *proto = sk->sk_user_data;
-
-	BUG_ON(proto == NULL);
-
-	descidx = proto->type;
-	desc = *(kclient_desc + descidx / KCLIENT_NCONNECTS)
-			      + descidx % KCLIENT_NCONNECTS;
-	BUG_ON(desc->proto.type != descidx);
-	BUG_ON(desc->proto.listener != NULL);
-	BUG_ON(desc->proto.hooks != &kclient_hooks);
-	BUG_ON(desc->sk && (desc->sk != sk));
-
-	desc->sk = NULL;
-	desc->flags |= KCLIENT_CONNECT_ERROR;
-	atomic_inc(&kclient_connect_nerror);
-	wake_up(&kclient_finish_wq);
-	return 0;
-}
-
 static SsHooks kclient_hooks = {
 	.connection_new		= kclient_connect_complete,
 	.connection_drop	= kclient_connection_close,
-	.connection_error	= kclient_connection_error,
 };
 
 static void
