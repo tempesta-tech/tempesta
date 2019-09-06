@@ -567,6 +567,7 @@ typedef struct ttls_context {
 typedef int ttls_send_cb_t(TlsCtx *tls, struct sg_table *sgt, bool close);
 
 bool ttls_xfrm_ready(TlsCtx *tls);
+bool ttls_xfrm_need_encrypt(TlsCtx *tls);
 void ttls_write_hshdr(unsigned char type, unsigned char *buf,
 		      unsigned short len);
 void *ttls_alloc_crypto_req(unsigned int extra_size, unsigned int *rsz);

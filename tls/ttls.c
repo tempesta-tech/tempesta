@@ -248,6 +248,17 @@ ttls_xfrm_ready(TlsCtx *tls)
 }
 EXPORT_SYMBOL(ttls_xfrm_ready);
 
+/*
+ * There are states in which encryption is not used or performed in advance, as
+ * with TTLS_SERVER_FINISHED
+ */
+bool
+ttls_xfrm_need_encrypt(TlsCtx *tls)
+{
+	return ttls_xfrm_ready(tls) && tls->state != TTLS_SERVER_FINISHED;
+}
+EXPORT_SYMBOL(ttls_xfrm_need_encrypt);
+
 #if defined(TTLS_CLI_C)
 static int
 ssl_session_copy(TlsSess *dst, const TlsSess *src)
@@ -1292,8 +1303,10 @@ ttls_handshake_wrapup(TlsCtx *tls)
  * Process TLS alerts.
  */
 int
-ttls_handle_alert(TlsIOCtx *io)
+ttls_handle_alert(TlsCtx *tls)
 {
+	TlsIOCtx *io = &tls->io_in;
+
 	T_DBG("got an alert message, type=%d:%d\n", io->alert[0], io->alert[1]);
 
 	/* Ignore non-fatal alerts, except close_notify. */
@@ -1305,6 +1318,7 @@ ttls_handle_alert(TlsIOCtx *io)
 	    && io->alert[1] == TTLS_ALERT_MSG_CLOSE_NOTIFY)
 	{
 		T_DBG2("is a close notify message\n");
+		ttls_close_notify(tls);
 		return T_DROP;
 	}
 
@@ -1334,7 +1348,7 @@ ttls_send_alert(TlsCtx *tls, unsigned char lvl, unsigned char msg)
 	io->alert[0] = lvl;
 	io->alert[1] = msg;
 
-	if (msg == TTLS_ALERT_MSG_CLOSE_NOTIFY)
+	if (msg == TTLS_ALERT_MSG_CLOSE_NOTIFY || lvl == TTLS_ALERT_LEVEL_FATAL)
 		close = true;
 
 	return ttls_write_record(tls, NULL, close);
@@ -2216,7 +2230,7 @@ next_record:
 	switch (io->msgtype) {
 	case TTLS_MSG_ALERT:
 		if (unlikely(!ttls_xfrm_ready(tls))) {
-			if (!(r = ttls_handle_alert(io)))
+			if (!(r = ttls_handle_alert(tls)))
 				goto skip_record;
 			return T_DROP;
 		}
@@ -2227,7 +2241,7 @@ next_record:
 	case TTLS_MSG_HANDSHAKE:
 		if (unlikely(tls->state == TTLS_HANDSHAKE_OVER)) {
 			T_DBG("refusing renegotiation, sending alert\n");
-			ttls_send_alert(tls, TTLS_ALERT_LEVEL_WARNING,
+			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 					TTLS_ALERT_MSG_NO_RENEGOTIATION);
 			return TTLS_ERR_UNEXPECTED_MESSAGE;
 		}
@@ -2294,7 +2308,7 @@ next_record:
 	}
 
 	if (io->msgtype == TTLS_MSG_ALERT) {
-		if (!(r = ttls_handle_alert(io)))
+		if (!(r = ttls_handle_alert(tls)))
 			goto skip_record;
 		return T_DROP;
 	}

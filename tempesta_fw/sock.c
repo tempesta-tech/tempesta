@@ -2,7 +2,7 @@
  *		Synchronous Socket API.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -636,13 +636,13 @@ adjudge_to_death:
  *
  * This is unintentional connection closing, usually due to some data errors.
  * This is not socket error, but still must lead to connection failovering
- * for server sockets. So connection_error callback is called here.
+ * for server sockets.
  */
 static void
 ss_linkerror(struct sock *sk)
 {
 	ss_do_close(sk);
-	SS_CALL_GUARD_EXIT(connection_error, sk);
+	SS_CALL_GUARD_EXIT(connection_drop, sk);
 	sock_put(sk);	/* paired with ss_do_close() */
 }
 
@@ -866,17 +866,26 @@ ss_tcp_data_ready(struct sock *sk)
 		if (ss_tcp_process_data(sk) &&
 		    !(SS_CONN_TYPE(sk) & Conn_Stop)) {
 			/*
-			 * Drop connection in case of internal errors,
+			 * Close connection in case of internal errors,
 			 * banned packets, or FIN in the received packet,
 			 * and only if it's not on hold until explicitly
 			 * closed.
 			 *
-			 * ss_linkerror() is responsible for calling
+			 * ss_close() is responsible for calling
 			 * application layer connection closing callback.
 			 * The callback will free all SKBs linked with
 			 * the message that is currently being processed.
+			 *
+			 * Closing a socket should go through the queue and
+			 * should be done after all pending data has been sent.
+			 *
+			 * TODO #861. ss_tcp_process_data() returns true/false
+			 * on all kind of problems: e.g. inability to unroll an
+			 * skb and a security event. However, the problems are
+			 * very different - we should send pending data in first
+			 * case (SS_BAD) and send RST in the second (SS_DROP).
 			 */
-			ss_linkerror(sk);
+			ss_close(sk, SS_F_SYNC);
 		}
 	}
 	else {
@@ -990,7 +999,11 @@ ss_tcp_state_change(struct sock *sk)
 		if (!skb_queue_empty(&sk->sk_receive_queue))
 			ss_tcp_process_data(sk);
 		T_DBG2("[%d]: Peer connection closing\n", smp_processor_id());
-		ss_linkerror(sk);
+		/*
+		 * Closing a socket should go through the queue and should be
+		 * done after all pending data has been sent.
+		 */
+		ss_close(sk, SS_F_SYNC);
 	}
 	else if (sk->sk_state == TCP_CLOSE) {
 		/*
@@ -1362,18 +1375,30 @@ ss_tx_action(void)
 				bh_unlock_sock(sk);
 				break;
 			}
-			__sk_close_locked(sk); /* paired with bh_lock_sock() */
+			/* paired with bh_lock_sock() */
+			__sk_close_locked(sk);
 			break;
 		case SS_CLOSE:
+			/*
+			 * We were asked to close the socket. If current state
+			 * is either ESTABLISHED or SYN_SENT, we initiate the
+			 * closing process. If for some reason other side sent
+			 * us FIN, we are at CLOSE_WAIT, so the socket closing
+			 * is in progress, but still need to cleanup on our
+			 * side. If we get here while the socket in any other
+			 * state, resources were either already freed or were
+			 * never allocated.
+			 */
 			if (!((1 << sk->sk_state)
-			      & (TCPF_ESTABLISHED | TCPF_SYN_SENT)))
+			      & (TCPF_ESTABLISHED | TCPF_SYN_SENT | TCPF_CLOSE_WAIT)))
 			{
 				T_DBG2("[%d]: %s: Socket inactive: sk %p\n",
 				       smp_processor_id(), __func__, sk);
 				bh_unlock_sock(sk);
 				break;
 			}
-			__sk_close_locked(sk); /* paired with bh_lock_sock() */
+			/* paired with bh_lock_sock() */
+			__sk_close_locked(sk);
 			break;
 		default:
 			BUG();
