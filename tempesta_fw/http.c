@@ -4156,7 +4156,7 @@ tfw_http_msg_process(void *conn, TfwFsmData *data)
 				? tfw_h2_frame_process(conn, data)
 				: tfw_http_msg_process_generic(conn, stream, data);
 		} else {
-			kfree(data->skb);
+			__kfree_skb(data->skb);
 		}
 	}
 
