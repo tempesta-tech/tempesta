@@ -2205,7 +2205,9 @@ next_record:
 		if (io->msgtype == TTLS_MSG_HANDSHAKE
 		    && ttls_hs_checksumable(tls))
 		{
-			if (likely(*read - parsed >= TTLS_HS_HDR_LEN)) {
+			if (likely(*read - parsed >= TTLS_HS_HDR_LEN &&
+			           len > *read - parsed))
+			{
 				/*
 				 * Compute handshake checksum for the message
 				 * body and handshake header in one shot.
