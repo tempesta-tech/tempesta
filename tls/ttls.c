@@ -892,8 +892,12 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 	memcpy_fast(xfrm->iv_dec + xfrm->fixed_ivlen, io->iv, sizeof(io->iv));
 	req = ttls_crypto_req_sglist(tls, tfm, dec_msglen + taglen, buf,
 				     &sg, &sgn);
-	if (!req || WARN_ON_ONCE(sgn < 2))
+	if (!req)
 		return TTLS_ERR_INTERNAL_ERROR;
+	if (WARN_ON_ONCE(sgn < 2)) {
+		r = TTLS_ERR_INTERNAL_ERROR;
+		goto out;
+	}
 	ttls_make_aad(tls, io, aad_buf);
 	sg_set_buf(sg, aad_buf, TLS_AAD_SPACE_SIZE);
 
@@ -921,6 +925,7 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 	if (unlikely(++io->ctr > (~0UL >> 1)))
 		T_WARN("incoming message counter would wrap\n");
 
+out:
 	kfree(req);
 
 	return r;
