@@ -1655,27 +1655,16 @@ tfw_h2_frame_process(void *c, TfwFsmData *data)
 {
 	int r;
 	bool postponed;
-	unsigned int unused, curr_tail;
+	unsigned int parsed, unused;
 	TfwFsmData data_up = {};
 	TfwH2Ctx *h2 = tfw_h2_context(c);
 	struct sk_buff *nskb = NULL, *skb = data->skb;
-	unsigned int parsed = 0, off = data->off, tail = data->trail;
-
-	BUG_ON(off >= skb->len);
-	BUG_ON(tail >= skb->len);
 
 next_msg:
 	postponed = false;
 	ss_skb_queue_tail(&h2->skb_head, skb);
-	r = ss_skb_process(skb, off, tail, tfw_h2_frame_recv, h2, &unused,
-			   &parsed);
-
-	curr_tail = off + parsed + tail < skb->len ? 0 : tail;
-	if (r >= T_POSTPONE && ss_skb_chop_head_tail(NULL, skb, off, curr_tail))
-	{
-		r = T_DROP;
-		goto out;
-	}
+	parsed = 0;
+	r = ss_skb_process(skb, tfw_h2_frame_recv, h2, &unused, &parsed);
 
 	switch (r) {
 	default:
@@ -1753,8 +1742,13 @@ next_msg:
 		 * skbs until full frame will be received.
 		 */
 		WARN_ON_ONCE(h2->skb_head != h2->skb_head->next);
-		data_up.off = h2->data_off;
 		data_up.skb = h2->skb_head;
+		if (ss_skb_chop_head_tail(NULL, data_up.skb, h2->data_off, 0))
+		{
+			r = T_DROP;
+			kfree_skb(nskb);
+			goto out;
+		}
 		h2->data_off = 0;
 		h2->skb_head = data_up.skb->next = data_up.skb->prev = NULL;
 		r = tfw_http_msg_process_generic(c, h2->cur_stream, &data_up);
@@ -1771,8 +1765,6 @@ next_msg:
 	if (nskb) {
 		skb = nskb;
 		nskb = NULL;
-		off = 0;
-		parsed = 0;
 		goto next_msg;
 	}
 
