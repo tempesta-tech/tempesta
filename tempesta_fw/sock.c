@@ -720,8 +720,6 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 	}
 
 	while ((skb = ss_skb_dequeue(&skb_head))) {
-		int off;
-
 		WARN_ON_ONCE(skb->tail_lock);
 		WARN_ON_ONCE(skb_has_frag_list(skb));
 		WARN_ON_ONCE(skb->sk || skb->destructor);
@@ -739,7 +737,12 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 		count = skb->len - offset;
 		tp->copied_seq += count;
 		*processed += count;
-		off = offset;
+		if (unlikely(offset > 0 &&
+			     ss_skb_chop_head_tail(NULL, skb, offset, 0) != 0))
+		{
+			r = SS_DROP;
+			goto out;
+		}
 		offset = 0;
 
 		conn = sk->sk_user_data;
@@ -757,7 +760,7 @@ ss_tcp_process_skb(struct sock *sk, struct sk_buff *skb, int *processed)
 			continue;
 		}
 
-		r = SS_CALL(connection_recv, conn, skb, off);
+		r = SS_CALL(connection_recv, conn, skb);
 
 		if (r < 0) {
 			T_DBG2("[%d]: Processing error: sk=%pK r=%d\n",

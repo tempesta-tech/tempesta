@@ -1026,32 +1026,25 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *str, int skip,
  * initialize them. @actor sees @chunks including current chunk of data.
  */
 int
-ss_skb_process(struct sk_buff *skb, unsigned int off, unsigned int trail,
-	       ss_skb_actor_t actor, void *objdata, unsigned int *chunks,
-	       unsigned int *processed)
+ss_skb_process(struct sk_buff *skb, ss_skb_actor_t actor, void *objdata,
+	       unsigned int *chunks, unsigned int *processed)
 {
-	int i, n, r = SS_OK;
+	int i, r = SS_OK;
 	int headlen = skb_headlen(skb);
-	int frag_len = skb->len - headlen;
-	unsigned int _processed = 0;
+	unsigned int _processed;
 	struct skb_shared_info *si = skb_shinfo(skb);
 
-	if (WARN_ON_ONCE(skb->len <= trail + off))
+	if (WARN_ON_ONCE(skb->len == 0))
 		return -EIO;
 
 	/* Process linear data. */
-	if (likely(off < headlen)) {
+	if (likely(headlen > 0)) {
 		++*chunks;
-		n = skb_headlen(skb) - off;
-		if (unlikely(trail > frag_len))
-			n -= trail - frag_len;
-		r = actor(objdata, skb->data + off, n, &_processed);
+		_processed = 0;
+		r = actor(objdata, skb->data, headlen, &_processed);
 		*processed += _processed;
-		if (r != SS_POSTPONE || unlikely(trail >= frag_len))
+		if (r != SS_POSTPONE)
 			return r;
-		off = 0;
-	} else {
-		off -= headlen;
 	}
 
 	/*
@@ -1060,24 +1053,14 @@ ss_skb_process(struct sk_buff *skb, unsigned int off, unsigned int trail,
 	 */
 	for (i = 0; i < si->nr_frags; ++i) {
 		const skb_frag_t *frag = &si->frags[i];
-		unsigned int frag_size = skb_frag_size(frag);
-		unsigned char *frag_addr = skb_frag_address(frag);
-		if (likely(off < frag_size)) {
-			++*chunks;
-			BUG_ON(frag_len < frag_size);
-			frag_len -= frag_size;
-			n = frag_size - off;
-			if (trail > frag_len)
-				n -= trail - frag_len;
-			_processed = 0;
-			r = actor(objdata, frag_addr + off, n, &_processed);
-			*processed += _processed;
-			if (r != SS_POSTPONE || trail >= frag_len)
-				return r;
-			off = 0;
-		} else {
-			off -= frag_size;
-		}
+
+		++*chunks;
+		_processed = 0;
+		r = actor(objdata, skb_frag_address(frag), skb_frag_size(frag),
+			  &_processed);
+		*processed += _processed;
+		if (r != SS_POSTPONE)
+			return r;
 	}
 
 	return r;

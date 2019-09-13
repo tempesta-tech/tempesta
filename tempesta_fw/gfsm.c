@@ -226,9 +226,8 @@ tfw_gfsm_move(TfwGState *st, unsigned short state, TfwFsmData *data)
 	unsigned long mask = 1 << state;
 	unsigned char curr_st = st->curr;
 
-	T_DBG3("GFSM move %#x -> %#x: skb=%pK off=%u trail=%u"
-	       " req=%pK resp=%pK\n", FSM_STATE(st), state,
-		 data->skb, data->off, data->trail, data->req, data->resp);
+	T_DBG3("GFSM move %#x -> %#x: skb=%pK req=%pK resp=%pK\n",
+	       FSM_STATE(st), state, data->skb, data->req, data->resp);
 
 	/* Remember current FSM context. */
 	SET_STATE(st, state);
