@@ -111,12 +111,11 @@ tfw_connection_send(TfwConn *conn, TfwMsg *msg)
 }
 
 int
-tfw_connection_recv(void *cdata, struct sk_buff *skb, unsigned int off)
+tfw_connection_recv(void *cdata, struct sk_buff *skb)
 {
 	TfwConn *conn = cdata;
 	TfwFsmData fsm_data = {
 		.skb = skb,
-		.off = off,
 	};
 
 	return tfw_gfsm_dispatch(&conn->state, conn, &fsm_data);

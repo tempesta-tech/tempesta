@@ -49,9 +49,12 @@ static bool allow_any_sni_reconfig;
  * offset to @data for upper layers processing.
  */
 static int
-tfw_tls_chop_skb_rec(TlsCtx *tls, struct sk_buff *skb, TfwFsmData *data)
+tfw_tls_chop_skb_rec(TlsCtx *tls, struct sk_buff *skb,
+		     TfwFsmData *__restrict data)
 {
+	int r;
 	size_t off = ttls_payload_off(&tls->xfrm);
+	size_t tail = ttls_xfrm_taglen(&tls->xfrm);
 
 	while (unlikely(skb->len <= off)) {
 		struct sk_buff *skb_head = ss_skb_dequeue(&skb);
@@ -62,32 +65,31 @@ tfw_tls_chop_skb_rec(TlsCtx *tls, struct sk_buff *skb, TfwFsmData *data)
 	}
 
 	data->skb = skb;
-	data->off = off;
-	data->trail = ttls_xfrm_taglen(&tls->xfrm);
 
-	return 0;
+	skb = data->skb->prev;
+	while (unlikely(skb->len <= tail)) {
+		tail -= skb->len;
+		ss_skb_unlink(&data->skb, skb);
+		if (WARN_ON_ONCE(!data->skb))
+			return -EIO;
+		__kfree_skb(skb);
+		skb = data->skb->prev;
+	}
+
+	if (unlikely(r = ss_skb_chop_head_tail(NULL, data->skb, off, 0)))
+		return r;
+
+	return ss_skb_chop_head_tail(NULL, data->skb->prev, 0, tail);
 }
 
 static int
 tfw_tls_msg_process(void *conn, TfwFsmData *data)
 {
-	int r, parsed = 0;
+	int r, parsed;
 	struct sk_buff *msg_skb, *nskb = NULL, *skb = data->skb;
 	TfwConn *c = conn;
 	TlsCtx *tls = tfw_tls_context(c);
 	TfwFsmData data_up = {};
-
-	/*
-	 * @off is from TCP layer due to possible, but rare (usually malicious),
-	 * sequence numbers overlapping. We have to join the skb into a list
-	 * containing a complete TLS record with offset as TLS header, so now
-	 * we have to chop the header if there is any.
-	 */
-	if (unlikely(data->off)) {
-		BUG_ON(data->off >= skb->len);
-		if (ss_skb_chop_head_tail(NULL, skb, data->off, 0))
-			return TFW_BLOCK;
-	}
 
 	/*
 	 * Perform TLS handshake if necessary and decrypt the TLS message
@@ -104,8 +106,8 @@ next_msg:
 	msg_skb = tls->io_in.skb_list;
 
 	/* Call TLS layer to place skb into a TLS record on top of skb_list. */
-	r = ss_skb_process(skb, 0, 0, ttls_recv, tls, &tls->io_in.chunks,
-			   &parsed);
+	parsed = 0;
+	r = ss_skb_process(skb, ttls_recv, tls, &tls->io_in.chunks, &parsed);
 	switch (r) {
 	default:
 		T_WARN("Unrecognized TLS receive return code %d, drop packet\n",
@@ -176,7 +178,6 @@ next_msg:
 	if (nskb) {
 		skb = nskb;
 		nskb = NULL;
-		parsed = 0;
 		goto next_msg;
 	}
 

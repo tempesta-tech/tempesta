@@ -505,6 +505,6 @@ int tfw_connection_close(TfwConn *conn, bool sync);
 void tfw_connection_drop(TfwConn *conn);
 void tfw_connection_release(TfwConn *conn);
 
-int tfw_connection_recv(void *cdata, struct sk_buff *skb, unsigned int off);
+int tfw_connection_recv(void *cdata, struct sk_buff *skb);
 
 #endif /* __TFW_CONNECTION_H__ */

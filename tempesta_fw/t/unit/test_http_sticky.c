@@ -252,8 +252,8 @@ tfw_connection_send(TfwConn *conn, TfwMsg *msg)
 
 	skb = msg->skb_head;
 	do {
-		ss_skb_process(skb, 0, 0, tfw_http_parse_resp, mock.resp,
-			       &chunks, &parsed);
+		ss_skb_process(skb, tfw_http_parse_resp, mock.resp, &chunks,
+			       &parsed);
 		skb = skb->next;
 	} while (skb != msg->skb_head);
 
@@ -570,7 +570,7 @@ http_parse_helper(TfwHttpMsg *hm, ss_skb_actor_t actor)
 	skb = hm->msg.skb_head;
 	BUG_ON(!skb);
 	while (1) {
-		int r = ss_skb_process(skb, 0, 0, actor, hm, &chunks, &parsed);
+		int r = ss_skb_process(skb, actor, hm, &chunks, &parsed);
 		switch (r) {
 		case TFW_POSTPONE:
 			if (skb->next == hm->msg.skb_head)

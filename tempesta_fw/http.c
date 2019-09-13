@@ -3172,24 +3172,6 @@ tfw_http_hm_drop_resp(TfwHttpResp *resp)
 	tfw_http_msg_free((TfwHttpMsg *)req);
 }
 
-/**
- * In general case the @skb, even if it has TLS record header @off and tag
- * @tail, it can be at any place of resulting HTTP message. Now we have to
- * chop the TLS extra data. It'd be good to preserve the room for the message
- * adjusting (e.g. adding a new header), but typically we need a space only in
- * skbs carrying CRLF and just before the CRLF pointer. So TLS rooms can be
- * reused only if they're just before CRLF (very rarely). Thus we just chop
- * the data.
- *
- * TODO #1103: this should be revised for the new placement strategies.
- */
-static int
-tfw_http_chop_skb(TfwHttpMsg *hm, struct sk_buff *skb,
-		  unsigned int off, unsigned int trail)
-{
-	return ss_skb_chop_head_tail(hm->msg.skb_head, skb, off, trail);
-}
-
 static TfwStr
 tfw_http_get_ip_from_xff(TfwHttpReq *req)
 {
@@ -3339,8 +3321,7 @@ tfw_http_req_process(TfwConn *conn, TfwStream *stream, const TfwFsmData *data)
 {
 	bool block;
 	ss_skb_actor_t *actor;
-	unsigned int parsed, curr_skb_trail;
-	unsigned int off = data->off, trail = data->trail;
+	unsigned int parsed;
 	struct sk_buff *skb = data->skb;
 	TfwHttpReq *req;
 	TfwHttpMsg *hmsib;
@@ -3349,11 +3330,9 @@ tfw_http_req_process(TfwConn *conn, TfwStream *stream, const TfwFsmData *data)
 	int r = TFW_BLOCK;
 
 	BUG_ON(!stream->msg);
-	BUG_ON(off >= skb->len);
-	BUG_ON(trail >= skb->len);
 
 	T_DBG2("Received %u client data bytes on conn=%p msg=%p\n",
-	       skb->len - off, conn, stream->msg);
+	       skb->len, conn, stream->msg);
 
 	/*
 	 * Process pipelined requests in a loop
@@ -3367,10 +3346,8 @@ next_msg:
 	parser = &stream->parser;
 	actor = TFW_MSG_H2(req) ? tfw_h2_parse_req : tfw_http_parse_req;
 
-	r = ss_skb_process(skb, off, trail, actor, req, &req->chunk_cnt,
-			   &parsed);
+	r = ss_skb_process(skb, actor, req, &req->chunk_cnt, &parsed);
 	req->msg.len += parsed;
-	curr_skb_trail = off + parsed + trail < skb->len ? 0 : trail;
 	TFW_ADD_STAT_BH(parsed, clnt.rx_bytes);
 
 	T_DBG2("Request parsed: len=%u next=%pK parsed=%d msg_len=%lu"
@@ -3383,8 +3360,6 @@ next_msg:
 	 * feed the new data version to FSMs registered on our states.
 	 */
 	data_up.skb = skb;
-	data_up.off = off;
-	data_up.trail = curr_skb_trail;
 	data_up.req = (TfwMsg *)req;
 	data_up.resp = NULL;
 
@@ -3397,8 +3372,16 @@ next_msg:
 		tfw_http_req_parse_drop(req, 400, "failed to parse request");
 		return TFW_BLOCK;
 	case TFW_POSTPONE:
-		if (tfw_http_chop_skb((TfwHttpMsg *)req, skb, off, curr_skb_trail))
+		if (WARN_ON_ONCE(parsed != data_up.skb->len)) {
+			/*
+			 * The parser should only return TFW_POSTPONE if it ate
+			 * all available data, but that weren't enough.
+			 */
+			TFW_INC_STAT_BH(clnt.msgs_otherr);
+			tfw_http_req_parse_block(req, 500,
+				"Request parsing inconsistency");
 			return TFW_BLOCK;
+		}
 		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK,
 				  &data_up);
 		T_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
@@ -3427,13 +3410,6 @@ next_msg:
 	}
 
 	/*
-	 * Chop TLS overhead for current skb after ss_skb_process() which
-	 * works with offset and trail on its own and before we split the skb.
-	 */
-	if (tfw_http_chop_skb((TfwHttpMsg *)req, skb, off, curr_skb_trail))
-		return TFW_BLOCK;
-
-	/*
 	 * The message is fully parsed, the rest of the data in the
 	 * stream may represent another request or its part.
 	 * If skb splitting has failed, the request can't be forwarded
@@ -3449,7 +3425,6 @@ next_msg:
 						 "Can't split pipelined requests");
 			return TFW_BLOCK;
 		}
-		off = 0;
 	} else {
 		skb = NULL;
 	}
@@ -3807,7 +3782,6 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	 * cache shouldn't be accounted.
 	 */
 	data.skb = NULL;
-	data.off = data.trail = 0;
 	data.req = (TfwMsg *)req;
 	data.resp = (TfwMsg *)hmresp;
 	tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG_FWD, &data);
@@ -3866,8 +3840,6 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 	 */
 	data.skb = ss_skb_peek_tail(&hm->msg.skb_head);
 	BUG_ON(!data.skb);
-	data.off = data.skb->len;
-	data.trail = 0;
 	data.req = NULL;
 	data.resp = (TfwMsg *)hm;
 
@@ -3885,7 +3857,6 @@ tfw_http_resp_process(TfwConn *conn, TfwStream *stream, const TfwFsmData *data)
 {
 	int r = TFW_BLOCK;
 	unsigned int chunks_unused, parsed;
-	unsigned int off = data->off;
 	struct sk_buff *skb = data->skb;
 	TfwHttpReq *bad_req;
 	TfwHttpMsg *hmresp, *hmsib;
@@ -3900,8 +3871,6 @@ tfw_http_resp_process(TfwConn *conn, TfwStream *stream, const TfwFsmData *data)
 	 * However, TCP overlapping segments still may produce non-zero offset
 	 * in ss_tcp_process_skb().
 	 */
-	WARN_ON_ONCE(data->trail);
-	BUG_ON(off >= skb->len);
 
 	T_DBG2("Received %u server data bytes on conn=%p msg=%p\n",
 	       skb->len, conn, stream->msg);
@@ -3916,8 +3885,8 @@ next_msg:
 	hmresp = (TfwHttpMsg *)stream->msg;
 	parser = &stream->parser;
 
-	r = ss_skb_process(skb, off, 0, tfw_http_parse_resp, hmresp,
-			   &chunks_unused, &parsed);
+	r = ss_skb_process(skb, tfw_http_parse_resp, hmresp, &chunks_unused,
+			   &parsed);
 	hmresp->msg.len += parsed;
 	TFW_ADD_STAT_BH(parsed, serv.rx_bytes);
 
@@ -3930,8 +3899,6 @@ next_msg:
 	 * feed the new data version to FSMs registered on our states.
 	 */
 	data_up.skb = skb;
-	data_up.off = off;
-	data_up.trail = 0;
 	data_up.req = NULL;
 	data_up.resp = (TfwMsg *)hmresp;
 
@@ -3951,6 +3918,14 @@ next_msg:
 		TFW_INC_STAT_BH(serv.msgs_parserr);
 		goto bad_msg;
 	case TFW_POSTPONE:
+		if (WARN_ON_ONCE(parsed != data_up.skb->len)) {
+			/*
+			 * The parser should only return TFW_POSTPONE if it ate
+			 * all available data, but that weren't enough.
+			 */
+			TFW_INC_STAT_BH(serv.msgs_otherr);
+			goto bad_msg;
+		}
 		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_RESP_CHUNK,
 				  &data_up);
 		T_DBG3("TFW_HTTP_FSM_RESP_CHUNK return code %d\n", r);
@@ -3989,8 +3964,8 @@ next_msg:
 	 * clients can be also sent there.
 	 * @skb is replaced with pointer to a new SKB.
 	 */
-	if (off + parsed < skb->len) {
-		skb = ss_skb_split(skb, off + parsed);
+	if (parsed < skb->len) {
+		skb = ss_skb_split(skb, parsed);
 		if (unlikely(!skb)) {
 			TFW_INC_STAT_BH(serv.msgs_otherr);
 			goto bad_msg;
@@ -4066,9 +4041,7 @@ next_resp:
 		 * Switch the connection to the sibling message.
 		 * Data processing will continue with the new SKB.
 		 */
-		off = 0;
 		stream->msg = (TfwMsg *)hmsib;
-		off = 0;
 		goto next_msg;
 	}
 	else if (unlikely(conn_stop)) {
@@ -4141,17 +4114,15 @@ tfw_http_msg_process(void *conn, TfwFsmData *data)
 {
 	int r = T_OK;
 	TfwStream *stream = &((TfwConn *)conn)->stream;
-	unsigned int trail = data->trail;
 	struct sk_buff *next;
 
 	if (data->skb->prev)
 		data->skb->prev->next = NULL;
 	for (next = data->skb->next; data->skb;
-	     data->skb = next, next = next ? next->next : NULL, data->off = 0)
+	     data->skb = next, next = next ? next->next : NULL)
 	{
 		if (likely(r == T_OK || r == T_POSTPONE)) {
 			data->skb->next = data->skb->prev = NULL;
-			data->trail = !next ? trail : 0;
 			r = TFW_CONN_H2(conn)
 				? tfw_h2_frame_process(conn, data)
 				: tfw_http_msg_process_generic(conn, stream, data);
