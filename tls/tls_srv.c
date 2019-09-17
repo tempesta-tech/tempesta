@@ -953,7 +953,7 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		if (n)
 			TTLS_HS_FSM_MOVE(TTLS_CH_HS_EX);
 		else
-			T_FSM_JMP(TTLS_CH_HS_EX);
+			TTLS_HS_FSM_JMP(TTLS_CH_HS_EX);
 	}
 
 	/* Parse an extension. */
