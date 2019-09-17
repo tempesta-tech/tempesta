@@ -391,6 +391,14 @@ do {									\
 	T_FSM_MOVE(st, {});						\
 } while (0)
 
+/* Unconditional jump to state @st w/o additional logic and/or eating data. */
+#define TTLS_HS_FSM_JMP(st)						\
+do {									\
+	io->rlen = 0;							\
+	state_p = p;							\
+	T_FSM_JMP(st);							\
+} while (0)
+
 /*
  * Size of temporary storage in TlsCtx->hs->tmp.
  * The temporary buffer is used to store 2 types of temporary data: utility
