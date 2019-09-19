@@ -1522,9 +1522,10 @@ tfw_vhost_create(const char *name)
 {
 	TfwPool *pool;
 	TfwVhost *vhost;
-	int name_sz = strlen(name) + 1;
+	int name_strlen = strlen(name);
+	int name_mem_sz = ALIGN(name_strlen + 1, sizeof(void *));
 	int size = sizeof(TfwVhost)
-		+ name_sz
+		+ name_mem_sz
 		+ sizeof(TfwLocation) * (TFW_LOCATION_ARRAY_SZ + 1)
 		+ sizeof(FrangGlobCfg)
 		+ tfw_tls_vhost_priv_data_sz();
@@ -1539,8 +1540,8 @@ tfw_vhost_create(const char *name)
 	}
 	INIT_HLIST_NODE(&vhost->hlist);
 	vhost->name.data = (char *)(vhost + 1);
-	vhost->name.len = name_sz - 1;
-	vhost->loc_dflt = (TfwLocation *)(vhost->name.data + name_sz);
+	vhost->name.len = name_strlen;
+	vhost->loc_dflt = (TfwLocation *)(vhost->name.data + name_mem_sz);
 	vhost->loc = (TfwLocation *)(vhost->loc_dflt + 1);
 	vhost->frang_gconf = (FrangGlobCfg *)(vhost->loc + TFW_LOCATION_ARRAY_SZ);
 	vhost->tls_cfg.priv = (vhost->frang_gconf + 1);
@@ -1549,7 +1550,7 @@ tfw_vhost_create(const char *name)
 	BUG_ON((char *)vhost->tls_cfg.priv + tfw_tls_vhost_priv_data_sz() !=
 	       (char *)vhost + size);
 
-	memcpy(vhost->name.data, name, name_sz);
+	memcpy(vhost->name.data, name, name_strlen + 1);
 	vhost->hdrs_pool = pool;
 	atomic64_set(&vhost->refcnt, 1);
 
