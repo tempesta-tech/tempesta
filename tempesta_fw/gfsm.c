@@ -84,10 +84,6 @@
 				 & TFW_GFSM_PRIO_MASK)
 #define PRIO(s)			__GFSM_PRIO(FSM_STATE(s))
 #define GFSM_HOOK_N		(TFW_GFSM_PRIO_N * TFW_GFSM_STATE_N)
-#define SET_STATE(s, x)						\
-do {								\
-	FSM_STATE(s) = (FSM_STATE(s) & ~TFW_GFSM_STATE_MASK) | (x); \
-} while (0)
 
 #define __BAD_STATE_BYTE	0xff
 #define BAD_STATE		((__BAD_STATE_BYTE << 8) | __BAD_STATE_BYTE)
@@ -223,14 +219,15 @@ tfw_gfsm_move(TfwGState *st, unsigned short state, TfwFsmData *data)
 {
 	int r = TFW_PASS, p, fsm;
 	unsigned int *hooks = fsm_hooks_bm[FSM(st)];
-	unsigned long mask = 1 << state;
+	unsigned long mask = 1 << (state & TFW_GFSM_STATE_MASK);
 	unsigned char curr_st = st->curr;
 
 	T_DBG3("GFSM move %#x -> %#x: skb=%pK req=%pK resp=%pK\n",
 	       FSM_STATE(st), state, data->skb, data->req, data->resp);
 
 	/* Remember current FSM context. */
-	SET_STATE(st, state);
+	FSM_STATE(st) = (FSM_STATE(st) & ~TFW_GFSM_STATE_MASK) |
+			(state & TFW_GFSM_STATE_MASK);
 
 	/* Start from highest priority. */
 	for (p = TFW_GFSM_HOOK_PRIORITY_HIGH;
