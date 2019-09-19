@@ -1526,6 +1526,7 @@ tfw_vhost_create(const char *name)
 	int size = sizeof(TfwVhost)
 		+ name_sz
 		+ sizeof(TfwLocation) * (TFW_LOCATION_ARRAY_SZ + 1)
+		+ sizeof(FrangGlobCfg)
 		+ tfw_tls_vhost_priv_data_sz();
 
 	if (!(pool = __tfw_pool_new(0)))
@@ -1543,6 +1544,11 @@ tfw_vhost_create(const char *name)
 	vhost->loc = (TfwLocation *)(vhost->loc_dflt + 1);
 	vhost->frang_gconf = (FrangGlobCfg *)(vhost->loc + TFW_LOCATION_ARRAY_SZ);
 	vhost->tls_cfg.priv = (vhost->frang_gconf + 1);
+
+	/* Must be sure all data fits, to prevent silent data corruption. */
+	BUG_ON((char *)vhost->tls_cfg.priv + tfw_tls_vhost_priv_data_sz() !=
+	       (char *)vhost + size);
+
 	memcpy(vhost->name.data, name, name_sz);
 	vhost->hdrs_pool = pool;
 	atomic64_set(&vhost->refcnt, 1);
