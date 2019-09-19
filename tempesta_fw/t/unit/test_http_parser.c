@@ -836,7 +836,7 @@ TEST(http_parser, casesense)
 TEST(http_parser, hdr_token_confusion)
 {
 	FOR_REQ("GET / HTTP/1.1\r\n"
-		"Accept: */*text/html\r\n"
+		"Accept: textK/html\r\n"
 		"Connection: closekeep-alive\n"
 		"Pragma: no-cacheX, fooo \r\n"
 		"Cache-Control: max-staleno-cache, no-storeno-store\r\n"
@@ -851,7 +851,7 @@ TEST(http_parser, hdr_token_confusion)
 	}
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
-		"Accept: text/htmlK, foo\r\n"
+		"Accept: text/htmlK\r\n"
 		"Connection: keep-aliveA\r\n"
 		"Cache-Control: no-transform\", only-if-cachedd\r\n"
 		"\r\n");
@@ -1485,6 +1485,99 @@ TEST(http_parser, accept)
 	{
 		EXPECT_TRUE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
 	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Accept:  invalid/invalid;  q=0.5;    key=val, */* \r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Accept:  text/html,  invalid/invalid  ;  key=val;   q=0.5 \r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Accept: invalid/invalid; param=\"value value\", text/html\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Accept: *text/html\r\n"
+		"\r\n")
+	{
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Accept: text/*html\r\n"
+		"\r\n")
+	{
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Accept: *text/*html\r\n"
+		"\r\n")
+	{
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Accept: */*text\r\n"
+		"\r\n")
+	{
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
+	}
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+		"Accept: */* text/plain\r\n"
+		"\r\n");
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+		"Accept: text/html; =0.5\r\n"
+		"\r\n");
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+		"Accept: text/html; q = 0.5 \r\n"
+		"\r\n");
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+		"Accept: */invalid\r\n"
+		"\r\n");
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+		"Accept: invalid/invalid; q=foo\r\n"
+		"\r\n");
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+		"Accept: invalid\r\n"
+		"\r\n");
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+		"Accept: /invalid\r\n"
+		"\r\n");
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+		"Accept: invalid/\r\n"
+		"\r\n");
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+		"Accept: text/html; q=0.5; text/css/\r\n"
+		"\r\n");
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+		"Accept: */*,,,\r\n"
+		"\r\n");
+
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+		"Accept: */,,,\r\n"
+		"\r\n");
 }
 
 TEST(http_parser, empty_host)
