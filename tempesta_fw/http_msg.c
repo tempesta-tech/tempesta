@@ -1153,6 +1153,7 @@ tfw_http_msg_hdr_write(const TfwStr *hdr, unsigned long nm_len,
 	const TfwStr *c, *end;
 
 	BUG_ON(!nm_len);
+	BUG_ON(!val_off);
 	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
 		unsigned long len;
 
@@ -1166,7 +1167,6 @@ tfw_http_msg_hdr_write(const TfwStr *hdr, unsigned long nm_len,
 		}
 
 		if (!nm_len) {
-			WARN_ON_ONCE(len && !val_off);
 			if (val_off) {
 				WARN_ON_ONCE(val_off < c->len - len);
 				val_off -= c->len - len;
