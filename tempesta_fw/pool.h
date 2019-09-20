@@ -86,7 +86,7 @@ tfw_pool_alloc(TfwPool *p, size_t n)
 }
 
 static inline void *
-tfw_pool_alloc_na(TfwPool *p, size_t n)
+tfw_pool_alloc_not_align(TfwPool *p, size_t n)
 {
 	bool dummy;
 
@@ -100,7 +100,7 @@ tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n)
 }
 
 static inline void *
-tfw_pool_realloc_nc(TfwPool *p, void *ptr, size_t old_n, size_t new_n)
+tfw_pool_realloc_no_copy(TfwPool *p, void *ptr, size_t old_n, size_t new_n)
 {
 	return __tfw_pool_realloc(p, ptr, old_n, new_n, false);
 }

@@ -4061,7 +4061,7 @@ tfw_h2_parse_fin(TfwHttpReq *req)
 	crlf->len = 2;
 	crlf->flags |= TFW_STR_COMPLETE;
 
-	memcpy_fast(it->pos, "\r\n", 2);
+	*(short *)it->pos = *(short *)"\r\n";
 
 	return T_OK;
 }
@@ -4087,11 +4087,11 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, size_t len,
 	else
 		r = tfw_h2_parse_body(data, len, req, parsed);
 
-	if (r < T_POSTPONE)
+	if (r != T_OK && r != T_POSTPONE)
 		return r;
 
 	/*
-	 * Parsing of HTTP/2 frames' payload never gives TFW_PASS result since
+	 * Parsing of HTTP/2 frames' payload never gives T_OK result since
 	 * request can be assembled from different number of frames; only
 	 * stream's state can indicate the moment when request is completed.
 	 * Note, due to persistent linkage Stream<->Request in HTTP/2 mode

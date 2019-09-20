@@ -187,7 +187,7 @@ do {								\
 	BUG_ON(!(len));						\
 	WARN_ON_ONCE((it)->rspace);				\
 	(it)->rspace = len;					\
-	(it)->pos = tfw_pool_alloc_na((it)->pool, len);		\
+	(it)->pos = tfw_pool_alloc_not_align((it)->pool, len);	\
 	T_DBG3("%s: get buffer, len=%lu, it->pos=[%p],"		\
 	       " it->pos=%lu\n", __func__, (unsigned long)len,	\
 	       (it)->pos, (unsigned long)(it)->pos);		\

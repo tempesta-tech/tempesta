@@ -60,7 +60,7 @@ typedef struct {
 #define HT_EOS_HIGH			0xFF
 
 /* TODO #309: @ht_decode table should be generated on compile stage .*/
-static const HTState ht_decode[] = {
+static const HTState ht_decode[] ____cacheline_aligned = {
 /* --- [TABLE-128: offset = 0] --- */
 	{5, 48},		/* 5: '0' (48) */
 	{5, 48},		/* 5: '0' (48) */
@@ -949,7 +949,7 @@ static const HTState ht_decode[] = {
 		.count = -1					\
 	})
 
-static const TfwHPackEntry static_table[] = {
+static const TfwHPackEntry static_table[] ____cacheline_aligned = {
 	{ HP_STR(":authority"),		NULL,		TFW_HTTP_HDR_RAW },
 	{ HP_STR(":method"),		HP_STR("GET"),	TFW_HTTP_HDR_RAW },
 	{ HP_STR(":method"),		HP_STR("POST"), TFW_HTTP_HDR_RAW },
@@ -1015,12 +1015,14 @@ static const TfwHPackEntry static_table[] = {
 
 #define HPACK_STATIC_ENTRIES (sizeof(static_table) / sizeof(TfwHPackEntry))
 
-#define BIT_JOIN8(x, y)			((x) << 8 | (y))
-#define BIT_SHIFT(x, y, z)		(((x) << (y)) | (z))
-#define BIT_JOIN			BIT_SHIFT
+/* Limit for the HPACK variable-length integer. */
+#define HPACK_LIMIT			(1 << 20)
 
-#define HPACK_LIMIT			(64 / 7) * 7
-#define HPACK_LAST			((1 << (64 % 7)) - 1)
+/*
+ * Estimated overhead associated with an encoder/decoder index entry (see
+ * RFC 7541 section 4.1 for details).
+ */
+#define HPACK_ENTRY_OVERHEAD		32
 
 /*
  * ------------------------------------------------------------------------
@@ -1065,7 +1067,7 @@ do {								\
 
 /*
  * Flexible integer decoding as specified in the HPACK RFC-7541. If the
- * overflow of variable-length integer detected, this is the malformed
+ * variable-length integer greater than defined limit, this is the malformed
  * request and we should drop the parsing process.
  */
 #define GET_FLEXIBLE(x, new_state)				\
@@ -1080,13 +1082,9 @@ do {								\
 		}						\
 		__c = *src++;					\
 		n--;						\
-		if (__m <  HPACK_LIMIT ||			\
-		    (__m == HPACK_LIMIT && __c <= HPACK_LAST))	\
-		{						\
-			x += (__c & 127) << __m;		\
-			__m += 7;				\
-		}						\
-		else if (__c) {					\
+		x += (__c & 127) << __m;			\
+		__m += 7;					\
+		if ((x) > HPACK_LIMIT) {			\
 			r = T_DROP;				\
 			goto out;				\
 		}						\
@@ -1094,8 +1092,8 @@ do {								\
 } while (0)
 
 /* Continue decoding after interruption due to absence of the next fragment.
- * If the overflow of variable-length integer detected, this is the malformed
- * request and we should drop the parsing process.
+ * If the variable-length integer greater than defined limit, this is the
+ * malformed request and we should drop the parsing process.
  */
 #define GET_CONTINUE(x)						\
 do {								\
@@ -1103,13 +1101,9 @@ do {								\
 	unsigned int __c = *src++;				\
 	WARN_ON_ONCE(!x);					\
 	n--;							\
-	if (__m <  HPACK_LIMIT ||				\
-	    (__m == HPACK_LIMIT && __c <= HPACK_LAST))		\
-	{							\
-		x += (__c & 127) << __m;			\
-		__m += 7;					\
-	}							\
-	else if (__c) {						\
+	x += (__c & 127) << __m;				\
+	__m += 7;						\
+	if ((x) > HPACK_LIMIT) {				\
 		r = T_DROP;					\
 		goto out;					\
 	}							\
@@ -1120,13 +1114,9 @@ do {								\
 		}						\
 		__c = *src++;					\
 		n--;						\
-		if (__m <  HPACK_LIMIT ||			\
-		    (__m == HPACK_LIMIT && __c <= HPACK_LAST))	\
-		{						\
-			x = BIT_JOIN(__c & 127, __m, x);	\
-			__m += 7;				\
-		}						\
-		else if (__c) {					\
+		x = (__c & 127) << __m | x;			\
+		__m += 7;					\
+		if ((x) > HPACK_LIMIT) {			\
 			r = T_DROP;				\
 			goto out;				\
 		}						\
@@ -1136,7 +1126,7 @@ do {								\
 #define SET_NEXT()						\
 do {								\
 	hp->curr += 8;						\
-	hp->hctx = BIT_JOIN8(hp->hctx, *src++);			\
+	hp->hctx = hp->hctx << 8 | *src++;			\
 	--hp->length;						\
 	--n;							\
 	T_DBG3("%s: set next, hp->curr=%d, hp->hctx=%hx,"	\
@@ -1193,7 +1183,7 @@ do {								\
 #define	BUFFER_WRITE_COLON()					\
 do {								\
 	WARN_ON_ONCE(it->rspace);				\
-	it->pos = tfw_pool_alloc_na(it->pool, 1);		\
+	it->pos = tfw_pool_alloc_not_align(it->pool, 1);	\
 	T_DBG3("%s: write colon, it->pos=[%p], it->pos=%lu\n",	\
 	       __func__, it->pos, (unsigned long)it->pos);	\
 	if (!it->pos) {						\
@@ -1210,7 +1200,7 @@ do {								\
 #define	BUFFER_WRITE_CRLF()					\
 do {								\
 	WARN_ON_ONCE(it->rspace);				\
-	it->pos = tfw_pool_alloc_na(it->pool, 2);		\
+	it->pos = tfw_pool_alloc_not_align(it->pool, 2);	\
 	T_DBG3("%s: write crlf, it->pos=[%p], it->pos=%lu\n",	\
 	       __func__, it->pos, (unsigned long)it->pos);	\
 	if (!it->pos) {						\
@@ -1306,7 +1296,7 @@ tfw_hpack_huffman_write(char sym, TfwHttpReq *__restrict req)
 	return tfw_hpack_exp_hdr(req->pool, 1, it) ? 0 : -ENOMEM;
 }
 
-static unsigned int
+static int
 huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 		    unsigned int offset)
 {
@@ -1314,50 +1304,51 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 	unsigned int i;
 
 	for (;;) {
-		if (hp->curr != -HT_NBITS) {
-			int shift;
+		int shift;
 
-			i = (hp->hctx << -hp->curr) & HT_NMASK;
-			shift = ht_decode[offset + i].shift;
-			T_DBG3("%s: hp->curr=%d, hp->hctx=%hx, hp->length=%lu,"
-			       " i=%u, shift=%d, offset=%u\n", __func__,
-			       hp->curr, hp->hctx, hp->length, i, shift, offset);
-			if (likely(shift >= 0)) {
-				if (shift <= hp->curr + HT_NBITS) {
-					sym = (char)ht_decode[offset + i].offset;
-					if (tfw_hpack_huffman_write(sym, req))
-						return T_DROP;
-
-					hp->curr -= shift;
-					offset = 0;
-				} else {
-					break;
-				}
-			} else {
-				/*
-				 * Last full prefix processed here, to allow
-				 * EOS padding detection:
-				 */
-				if (likely(offset == 0)) {
-					if ((i ^ (HT_EOS_HIGH >> 1)) <
-					    (1U << -hp->curr)) {
-						return T_OK;
-					}
-				}
-				/*
-				 * Condition here equivalent to the
-				 * "-shift <= hp->curr + HT_NBITS", but
-				 * working faster:
-				 */
-				if (shift >= -HT_NBITS - hp->curr) {
-					if (ht_decode[offset + i].offset == 0)
-						return T_DROP;
-				}
+		if (hp->curr == -HT_NBITS) {
+			if (likely(offset == 0))
+				return T_OK;
+			else
 				return T_DROP;
+		}
+
+		i = (hp->hctx << -hp->curr) & HT_NMASK;
+		shift = ht_decode[offset + i].shift;
+		T_DBG3("%s: hp->curr=%d, hp->hctx=%hx, hp->length=%lu,"
+		       " i=%u, shift=%d, offset=%u\n", __func__,
+		       hp->curr, hp->hctx, hp->length, i, shift, offset);
+		if (likely(shift >= 0)) {
+			if (shift <= hp->curr + HT_NBITS) {
+				sym = (char)ht_decode[offset + i].offset;
+				if (tfw_hpack_huffman_write(sym, req))
+					return T_DROP;
+
+				hp->curr -= shift;
+				offset = 0;
+			} else {
+				break;
 			}
-		} else if (likely(offset == 0)) {
-			return T_OK;
 		} else {
+			/*
+			 * Last full prefix processed here, to allow
+			 * EOS padding detection:
+			 */
+			if (likely(offset == 0)) {
+				if ((i ^ (HT_EOS_HIGH >> 1)) <
+				    (1U << -hp->curr)) {
+					return T_OK;
+				}
+			}
+			/*
+			 * Condition here equivalent to the
+			 * "-shift <= hp->curr + HT_NBITS", but
+			 * working faster:
+			 */
+			if (shift >= -HT_NBITS - hp->curr) {
+				if (ht_decode[offset + i].offset == 0)
+					return T_DROP;
+			}
 			return T_DROP;
 		}
 	}
@@ -1369,41 +1360,44 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 	return T_DROP;
 }
 
-static unsigned int
+static int
 huffman_decode_tail_s(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 		      unsigned int offset)
 {
-	if (hp->curr != -HT_MBITS) {
-		char sym;
-		int shift;
-		const unsigned int i = (hp->hctx << -hp->curr) & HT_MMASK;
+	char sym;
+	int shift;
+	const unsigned int i;
 
-		shift = ht_decode[offset + i].shift;
-		T_DBG3("%s: hp->curr=%d, hp->hctx=%hx, hp->length=%lu, i=%u,"
-		       " shift=%d, offset=%u\n", __func__, hp->curr, hp->hctx,
-		       hp->length, i, shift, offset);
-		if (likely(shift >= 0)) {
-			if (likely(shift <= hp->curr + HT_NBITS)) {
-				sym = (char)ht_decode[offset + i].offset;
-				if (tfw_hpack_huffman_write(sym, req))
-					return T_DROP;
-				hp->curr -= shift;
-				return huffman_decode_tail(hp, req, 0);
-			}
-		} else {
-			/*
-			 * Condition here equivalent to the
-			 * "-shift <= hp->curr + HT_NBITS", but
-			 * working faster.
-			 */
-			if (shift >= -HT_NBITS - hp->curr) {
-				if (ht_decode[offset + i].offset == 0) {
-					return T_DROP;
-				}
+	if (hp->curr == -HT_MBITS)
+		return T_DROP;
+
+	i = (hp->hctx << -hp->curr) & HT_MMASK;
+	shift = ht_decode[offset + i].shift;
+
+	T_DBG3("%s: hp->curr=%d, hp->hctx=%hx, hp->length=%lu, i=%u,"
+	       " shift=%d, offset=%u\n", __func__, hp->curr, hp->hctx,
+	       hp->length, i, shift, offset);
+
+	if (likely(shift >= 0)) {
+		if (likely(shift <= hp->curr + HT_NBITS)) {
+			sym = (char)ht_decode[offset + i].offset;
+			if (tfw_hpack_huffman_write(sym, req))
+				return T_DROP;
+			hp->curr -= shift;
+			return huffman_decode_tail(hp, req, 0);
+		}
+	} else {
+		/*
+		 * Condition here equivalent to the
+		 * "-shift <= hp->curr + HT_NBITS", but
+		 * working faster.
+		 */
+		if (shift >= -HT_NBITS - hp->curr) {
+			if (ht_decode[offset + i].offset == 0) {
+				return T_DROP;
 			}
 		}
 	}
-	return T_DROP;
 }
 
 static int
@@ -1552,8 +1546,8 @@ tfw_hpack_create_entry(const TfwHPackEntry *__restrict existent,
 	BUG_ON(TFW_STR_EMPTY(hdr));
 	WARN_ON_ONCE(!nm_len || !val_len);
 
-	T_DBG("%s: nm_len=%lu, val_len=%lu, entry_out->tag=%ld\n", __func__,
-	      nm_len, val_len, entry_out->tag);
+	T_DBG3("%s: nm_len=%lu, val_len=%lu, entry_out->tag=%ld\n", __func__,
+	       nm_len, val_len, entry_out->tag);
 
 	if (!existent) {
 		if (!(entry_out->name = tfw_hpack_create_str(nm_len)))
@@ -1631,7 +1625,7 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 	name_len = name->len;
 
 	/* Check for integer overflow occurred during @delta calculation. */
-	if ((delta = 32 + name_len) < name_len
+	if ((delta = HPACK_ENTRY_OVERHEAD + name_len) < name_len
 	    || (delta += value->len) < value->len)
 	{
 		T_WARN("HPACK decoder: very big header (name->len = %lu,"
@@ -1646,11 +1640,11 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 	new_size = size + delta;
 	window = tbl->window;
 
-	T_DBG("%s: max table size: %u, current size: %u, new size: %u, delta:"
-	      " %u\n", __func__, window, size, new_size, delta);
+	T_DBG3("%s: max table size: %u, current size: %u, new size: %u, delta:"
+	       " %u\n", __func__, window, size, new_size, delta);
 	/*
 	 * The last condition 'new_size < delta' was added to handle an
-	 * integer overflow, which can occurred during summation of the actual
+	 * integer overflow, which can occur during summation of the actual
 	 * window size with delta.
 	 */
 	if (new_size > window || unlikely(new_size < delta)) {
@@ -1665,16 +1659,16 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 			}
 
 			window -= delta;
-			T_DBG("%s: curr: %u, early entry: %u (%u entries),"
-			      "maximum allowed decreased size: %u\n",  __func__,
-			      curr, early, count, window);
+			T_DBG3("%s: curr: %u, early entry: %u (%u entries),"
+			       "maximum allowed decreased size: %u\n",  __func__,
+			       curr, early, count, window);
 
 			cp = entries + early;
 			do {
 				TfwHPackStr *np = cp->name;
 				TfwHPackStr *vp = cp->value;
 
-				size -= 32 + np->len + vp->len;
+				size -= HPACK_ENTRY_OVERHEAD + np->len + vp->len;
 				T_DBG3("%s: dropped index: %u\n", __func__,
 				       early);
 				tfw_hpack_free_entry(cp);
@@ -1694,7 +1688,7 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 			 * greater than the current window size. Clean of the
 			 * entire table and exit in this case.
 			 */
-			T_DBG("%s: cleaning of the entire table...",  __func__);
+			T_DBG3("%s: cleaning of the entire table...",  __func__);
 			if (count) {
 				TfwHPackEntry *cp;
 
@@ -1727,11 +1721,11 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 		TfwPool *pool = tbl->pool;
 		unsigned long block, wrap;
 
-		T_DBG("%s: reallocation index structures...", __func__);
+		T_DBG3("%s: reallocation index structures...", __func__);
 		if (length) {
 			block = length * sizeof(TfwHPackEntry);
-			entries = tfw_pool_realloc_nc(pool, entries,
-						      block, block << 1);
+			entries = tfw_pool_realloc_no_copy(pool, entries,
+							   block, block << 1);
 			if (unlikely(!entries)) {
 				r = -ENOMEM;
 				goto out;
@@ -1767,8 +1761,8 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 				goto out;
 			}
 		}
-		T_DBG("%s: table extended, length=%u, curr=%u\n", __func__,
-		      length, curr);
+		T_DBG3("%s: table extended, length=%u, curr=%u\n", __func__,
+		       length, curr);
 
 		tbl->length = length;
 		tbl->entries = entries;
@@ -1784,12 +1778,12 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 	tbl->n = count + 1;
 	tbl->size = new_size;
 
-	T_DBG("%s: item added, tbl->curr=%u, tbl->n=%u, tbl->length=%u\n",
-	      __func__, tbl->curr, tbl->n, tbl->length);
+	T_DBG3("%s: item added, tbl->curr=%u, tbl->n=%u, tbl->length=%u\n",
+	       __func__, tbl->curr, tbl->n, tbl->length);
 
 	return 0;
 out:
-	T_DBG("%s: item not added (r=%d)\n", __func__, r);
+	T_DBG3("%s: item not added (r=%d)\n", __func__, r);
 	tfw_hpack_free_entry(&entry);
 
 	return r;
@@ -1847,9 +1841,9 @@ tfw_hpack_set_length(TfwHPack *__restrict hp, unsigned long new_size)
 		} else {
 			early += length - count;
 		}
-		T_DBG("%s: tbl->curr=%u, early=%u, count=%u, length=%u,"
-		      " new_size=%lu\n", __func__, tbl->curr, early, count,
-		      length, new_size);
+		T_DBG3("%s: tbl->curr=%u, early=%u, count=%u, length=%u,"
+		       " new_size=%lu\n", __func__, tbl->curr, early, count,
+		       length, new_size);
 		cp = entries + early;
 		do {
 			TfwHPackStr *np = cp->name;
@@ -1857,7 +1851,7 @@ tfw_hpack_set_length(TfwHPack *__restrict hp, unsigned long new_size)
 
 			WARN_ON_ONCE(!np->len);
 			WARN_ON_ONCE(!vp->len);
-			size -= 32 + np->len + vp->len;
+			size -= HPACK_ENTRY_OVERHEAD + np->len + vp->len;
 
 			T_DBG3("%s: drop index, early=%u, count=%u,"
 			       " length=%u\n", __func__, early, count, length);
@@ -1889,10 +1883,11 @@ tfw_huffman_init(TfwHPack *__restrict hp)
 int
 tfw_hpack_init(TfwHPack *__restrict hp, unsigned int htbl_sz)
 {
+	bool np;
 	TfwHPackETbl *et = &hp->enc_tbl;
 	TfwHPackDTbl *dt = &hp->dec_tbl;
 
-	BUILD_BUG_ON(sizeof(TfwHPackNode) > 32
+	BUILD_BUG_ON(sizeof(TfwHPackNode) > HPACK_ENTRY_OVERHEAD
 		     || HPACK_ENC_TABLE_MAX_SIZE > SHRT_MAX);
 
 	tfw_huffman_init(hp);
@@ -1908,8 +1903,9 @@ tfw_hpack_init(TfwHPack *__restrict hp, unsigned int htbl_sz)
 		tfw_pool_destroy(dt->pool);
 		return -ENOMEM;
 	}
-	et->rbuf = tfw_pool_alloc(et->pool, HPACK_ENC_TABLE_MAX_SIZE);
-	BUG_ON(!et->rbuf);
+	et->rbuf = __tfw_pool_alloc(et->pool, HPACK_ENC_TABLE_MAX_SIZE,
+				    true, &np);
+	BUG_ON(np || !et->rbuf);
 
 	return 0;
 }
@@ -1998,67 +1994,10 @@ tfw_hpack_decode(TfwHPack *__restrict hp, const unsigned char *src,
 	WARN_ON_ONCE(!n);
 	*parsed = n;
 	do {
-		T_DBG("%s: header processing, n=%lu, state=%d\n", __func__,
-		      n, state);
+		T_DBG3("%s: header processing, n=%lu, state=%d\n", __func__,
+		       n, state);
 		switch (state & HPACK_STATE_MASK) {
-		case HPACK_STATE_INDEX:
-			GET_CONTINUE(hp->index);
-			T_DBG3("%s: index finally decoded: %lu\n", __func__,
-			       hp->index);
-			if (state & HPACK_FLAGS_NO_VALUE) {
-				NEXT_STATE(HPACK_STATE_ALL_INDEXED);
-				goto get_all_indexed;
-			}
-
-			NEXT_STATE(HPACK_STATE_INDEXED_NAME_TEXT);
-
-			if (!n)
-				goto out;
-
-			goto get_indexed_name;
-
-		case HPACK_STATE_WINDOW:
-			GET_CONTINUE(hp->index);
-			T_DBG3("%s: new window size finally decoded: %lu\n",
-			       __func__, hp->index);
-set_window:
-			if (tfw_hpack_set_length(hp, hp->index)) {
-				r = T_DROP;
-				goto out;
-			}
-			T_DBG("%s: window size has been changed\n", __func__);
-			break;
-
-		case HPACK_STATE_NAME_LENGTH:
-			GET_CONTINUE(hp->length);
-			T_DBG3("%s: name length finally decoded: %lu\n",
-			       __func__, hp->length);
-
-			NEXT_STATE(HPACK_STATE_NAME_TEXT);
-
-			BUFFER_NAME_OPEN(hp->length);
-
-			if (!n)
-				goto out;
-
-			goto get_name_text;
-
-		case HPACK_STATE_VALUE_LENGTH:
-			GET_CONTINUE(hp->length);
-			T_DBG3("%s: value length finally decoded: %lu\n",
-			       __func__, hp->length);
-
-			NEXT_STATE(HPACK_STATE_VALUE_TEXT);
-
-			BUFFER_VAL_OPEN(hp->length);
-
-			if (!n)
-				goto out;
-
-			goto get_value_text;
-
-		default:
-			/* case HPACK_STATE_READY */
+		case HPACK_STATE_READY:
 		{
 			unsigned char c;
 
@@ -2066,7 +2005,7 @@ set_window:
 			n--;
 
 			if (c & 0x80) {
-				T_DBG("%s: reference by index...\n", __func__);
+				T_DBG3("%s: reference by index...\n", __func__);
 
 				state |= HPACK_FLAGS_NO_VALUE;
 				hp->index = c & 0x7F;
@@ -2087,8 +2026,8 @@ set_window:
 				goto get_all_indexed;
 
 			} else if (c & 0x40) {
-				T_DBG("%s: reference with addition...\n",
-				      __func__);
+				T_DBG3("%s: reference with addition...\n",
+				       __func__);
 				state |= HPACK_FLAGS_ADD;
 				hp->index = c & 0x3F;
 				if (hp->index == 0x3F) {
@@ -2101,7 +2040,7 @@ index:
 				}
 
 			} else if (c & 0x20) {
-				T_DBG("%s: new window size...\n", __func__);
+				T_DBG3("%s: new window size...\n", __func__);
 
 				hp->index = c & 0x1F;
 				if (hp->index == 0x1F)
@@ -2116,19 +2055,19 @@ index:
 				goto set_window;
 
 			} else {
-				T_DBG("%s: reference with value...\n",
-				      __func__);
+				T_DBG3("%s: reference with value...\n",
+				       __func__);
 
 				if (c & 0xE0) {
-					T_DBG("%s: the code of the header's"
-					      " binary representation is not"
-					      " in prefix form\n", __func__);
+					T_DBG3("%s: the code of the header's"
+					       " binary representation is not"
+					       " in prefix form\n", __func__);
 					r = T_DROP;
 					goto out;
 				}
 
 				if (c & 0x10) {
-					T_DBG("%s: transit header...\n",
+					T_DBG3("%s: transit header...\n",
 					      __func__);
 					state |= HPACK_FLAGS_TRANSIT;
 				}
@@ -2159,13 +2098,13 @@ index:
 		{
 			unsigned char c;
 
-			T_DBG("%s: decode header name length...\n", __func__);
+			T_DBG3("%s: decode header name length...\n", __func__);
 			c = *src++;
 			n--;
 			hp->length = c & 0x7F;
 			if (c & 0x80) {
-				T_DBG("%s: Huffman encoding used for name...\n",
-				      __func__);
+				T_DBG3("%s: Huffman encoding used for name...\n",
+				       __func__);
 				state |= HPACK_FLAGS_HUFFMAN_NAME;
 			}
 			if (unlikely(hp->length == 0x7F)) {
@@ -2193,7 +2132,7 @@ index:
 			unsigned long m_len;
 get_name_text:
 			fnd = false;
-			T_DBG("%s: decode header name...\n", __func__);
+			T_DBG3("%s: decode header name...\n", __func__);
 
 			if (state & HPACK_FLAGS_HUFFMAN_NAME)
 				fnd = tfw_hpack_huffman_parse(hp, &src, &n, it);
@@ -2223,8 +2162,8 @@ get_name_text:
 		case HPACK_STATE_INDEXED_NAME_TEXT:
 		{
 get_indexed_name:
-			T_DBG("%s: decode indexed (%lu) header name...\n",
-			      __func__, hp->index);
+			T_DBG3("%s: decode indexed (%lu) header name...\n",
+			       __func__, hp->index);
 			WARN_ON_ONCE(!hp->index);
 			hp->entry = tfw_hpack_find_index(&hp->dec_tbl,
 							 hp->index);
@@ -2257,13 +2196,13 @@ get_indexed_name:
 		{
 			unsigned char c;
 get_value:
-			T_DBG("%s: decode header value length...\n", __func__);
+			T_DBG3("%s: decode header value length...\n", __func__);
 			c = *src++;
 			n--;
 			hp->length = c & 0x7F;
 			if (c & 0x80) {
-				T_DBG("%s: Huffman encoding used for value\n",
-				      __func__);
+				T_DBG3("%s: Huffman encoding used for value\n",
+				       __func__);
 				state |= HPACK_FLAGS_HUFFMAN_VALUE;
 			}
 			if (unlikely(hp->length == 0x7F))
@@ -2287,12 +2226,12 @@ get_value:
 get_value_text:
 			WARN_ON_ONCE(state & HPACK_FLAGS_NO_VALUE);
 			if (!hp->length) {
-				T_DBG("%s: zero-length value\n", __func__);
+				T_DBG3("%s: zero-length value\n", __func__);
 				r = T_DROP;
 				goto out;
 			}
 
-			T_DBG("%s: decode header value...\n", __func__);
+			T_DBG3("%s: decode header value...\n", __func__);
 			m_len = min(n, hp->length);
 			if (state & HPACK_FLAGS_HUFFMAN_VALUE)
 				HPACK_DECODE_STRING(m_len);
@@ -2321,8 +2260,8 @@ get_value_text:
 		{
 			const TfwHPackEntry *entry;
 get_all_indexed:
-			T_DBG("%s: get entire header by index: %lu\n", __func__,
-			      hp->index);
+			T_DBG3("%s: get entire header by index: %lu\n", __func__,
+			       hp->index);
 			WARN_ON_ONCE(!(state & HPACK_FLAGS_NO_VALUE));
 			WARN_ON_ONCE(!hp->index);
 
@@ -2354,11 +2293,71 @@ get_all_indexed:
 			tfw_str_set_eolen(it->hdr, 2);
 			tfw_http_msg_hdr_close((TfwHttpMsg *)req, it->hdr_tag);
 
-			/* Fall through. */
+			break;
 		}
+		case HPACK_STATE_INDEX:
+			GET_CONTINUE(hp->index);
+			T_DBG3("%s: index finally decoded: %lu\n", __func__,
+			       hp->index);
+			if (state & HPACK_FLAGS_NO_VALUE) {
+				NEXT_STATE(HPACK_STATE_ALL_INDEXED);
+				goto get_all_indexed;
+			}
+
+			NEXT_STATE(HPACK_STATE_INDEXED_NAME_TEXT);
+
+			if (!n)
+				goto out;
+
+			goto get_indexed_name;
+
+		case HPACK_STATE_WINDOW:
+			GET_CONTINUE(hp->index);
+			T_DBG3("%s: new window size finally decoded: %lu\n",
+			       __func__, hp->index);
+set_window:
+			if (tfw_hpack_set_length(hp, hp->index)) {
+				r = T_DROP;
+				goto out;
+			}
+			T_DBG3("%s: window size has been changed\n", __func__);
+			break;
+
+		case HPACK_STATE_NAME_LENGTH:
+			GET_CONTINUE(hp->length);
+			T_DBG3("%s: name length finally decoded: %lu\n",
+			       __func__, hp->length);
+
+			NEXT_STATE(HPACK_STATE_NAME_TEXT);
+
+			BUFFER_NAME_OPEN(hp->length);
+
+			if (!n)
+				goto out;
+
+			goto get_name_text;
+
+		case HPACK_STATE_VALUE_LENGTH:
+			GET_CONTINUE(hp->length);
+			T_DBG3("%s: value length finally decoded: %lu\n",
+			       __func__, hp->length);
+
+			NEXT_STATE(HPACK_STATE_VALUE_TEXT);
+
+			BUFFER_VAL_OPEN(hp->length);
+
+			if (!n)
+				goto out;
+
+			goto get_value_text;
+
+		default:
+			WARN_ON_ONCE(1);
+			r = T_DROP;
+			goto out;
 		}
 
-		T_DBG("%s: new header added\n", __func__);
+		T_DBG3("%s: new header added\n", __func__);
 
 		tfw_hpack_reinit(hp, it);
 
@@ -2588,7 +2587,7 @@ do {									\
 		if (!chunk->len)
 			continue;
 
-		T_DBG("%s: state=%d, hlen=%lu, node_hlen=%hu, pos='%.*s',"
+		T_DBG3("%s: state=%d, hlen=%lu, node_hlen=%hu, pos='%.*s',"
 		       " chunk->len=%lu, chunk->data='%.*s'\n", __func__, state,
 		       hlen, node_hlen, node_hlen, pos, chunk->len,
 		       (int)chunk->len, data);
@@ -3042,6 +3041,14 @@ tfw_hpack_rbtree_find(TfwHPackETbl *__restrict tbl,
 	else
 		out_place->poff = &parent->right;
 
+	/*
+	 * If the node for the whole header @hdr is not found, but instead the
+	 * node with header name is found, the pointer to that node must be
+	 * assigned to the @nm_node. In this case the node with header name
+	 * should be returned to the caller with special return value
+	 * HPACK_IDX_ST_NM_FOUND indicating that only the name of header
+	 * has been found, not the entire header.
+	 */
 	if (nm_node) {
 		*out_node = nm_node;
 		return HPACK_IDX_ST_NM_FOUND;
@@ -3139,8 +3146,8 @@ tfw_hpack_rbuf_calc(TfwHPackETbl *__restrict tbl, unsigned short new_size,
 			it->first = it->last = NULL;
 			it->rb_len = it->size = 0;
 			WARN_ON_ONCE(it->rb_size != HPACK_ENC_TABLE_MAX_SIZE);
-			T_DBG("%s: table is empty (rbuf=[%p])\n", __func__,
-			      rbuf);
+			T_DBG3("%s: table is empty (rbuf=[%p])\n", __func__,
+			       rbuf);
 			return 0;
 		}
 
@@ -3165,7 +3172,7 @@ tfw_hpack_rbuf_calc(TfwHPackETbl *__restrict tbl, unsigned short new_size,
 			first = (char *)HPACK_NODE_NEXT(first);
 		}
 
-		size -= 32 + fhdr_len;
+		size -= HPACK_ENTRY_OVERHEAD + fhdr_len;
 		rb_len -= f_len;
 
 	} while (size > new_size);
@@ -3221,10 +3228,10 @@ tfw_hpack_add_node(TfwHPackETbl *__restrict tbl, const TfwStr *__restrict hdr,
 	hdr_len = tfw_http_msg_hdr_length(hdr, &nm_len, &val_off, &val_len);
 
 	WARN_ON_ONCE(cur_size > window || window > HPACK_ENC_TABLE_MAX_SIZE);
-	if ((node_size = hdr_len + 32) > window) {
-		T_DBG("%s: header is too big (node_size = %lu, window = %hu)"
-		      " and cannot be added into index\n", __func__, node_size,
-		      window);
+	if ((node_size = hdr_len + HPACK_ENTRY_OVERHEAD) > window) {
+		T_DBG3("%s: header is too big (node_size = %lu, window = %hu)"
+		       " and cannot be added into index\n", __func__, node_size,
+		       window);
 		return -E2BIG;
 	}
 
@@ -3235,9 +3242,27 @@ tfw_hpack_add_node(TfwHPackETbl *__restrict tbl, const TfwStr *__restrict hdr,
 	 */
 	new_size = cur_size + node_size;
 	WARN_ON_ONCE(new_size < node_size);
-	T_DBG("%s: window=%hu, size=%hu, new_size=%hu, node_size=%lu\n",
-	      __func__, window, cur_size, new_size, node_size);
+	T_DBG3("%s: window=%hu, size=%hu, new_size=%hu, node_size=%lu\n",
+	       __func__, window, cur_size, new_size, node_size);
 
+	/*
+	 * Taking into account the ring buffer structure there may be cases when
+	 * we will have enough space in @window pseudo-size for new entry, but
+	 * not enough space in ring buffer itself. These situations can arise
+	 * when the same entry should be placed in the end and in the beginning
+	 * area of ring buffer (wrapped), but since the entry cannot be splitted,
+	 * it will not fit neither at the end of buffer, nor at the start. Even
+	 * if the entry fits at the beginning of the ring buffer, the size of
+	 * the buffer will be reduced by the size of unused end space, and the
+	 * situation with too large entry can arise in future (until the buffer
+	 * will be wrapped and end space delta will be discarded). Thus, due to
+	 * necessity of keeping the index tables on both sides of HTTP/2
+	 * connection in synchronized state during adding new entry, we need at
+	 * first calculate the changes for ring buffer in @it and then commit
+	 * them; in this way, if new entry will not fit into the buffer, we can
+	 * safely discard all changes keeping tables on server and client sides
+	 * in consistent state.
+	 */
 	tfw_hpack_rbuf_iter(tbl, &it);
 
 	if (new_size > window
@@ -3252,9 +3277,9 @@ tfw_hpack_add_node(TfwHPackETbl *__restrict tbl, const TfwStr *__restrict hdr,
 	}
 	else if (!it.first) {
 		it.first = it.last = (TfwHPackNode *)tbl->rbuf;
-		T_DBG("%s: reset, rbuf=[%p] rb_len=%hu, rb_size=%hu, size=%hu,"
-		      " node_len=%hu\n",  __func__, tbl->rbuf, it.rb_len,
-		      it.rb_size, it.size, node_len);
+		T_DBG3("%s: reset, rbuf=[%p] rb_len=%hu, rb_size=%hu, size=%hu,"
+		       " node_len=%hu\n",  __func__, tbl->rbuf, it.rb_len,
+		       it.rb_size, it.size, node_len);
 		goto commit;
 	}
 	else if (it.first <= it.last) {
@@ -3267,11 +3292,11 @@ tfw_hpack_add_node(TfwHPackETbl *__restrict tbl, const TfwStr *__restrict hdr,
 		WARN_ON_ONCE(it.rb_size != HPACK_ENC_TABLE_MAX_SIZE);
 		end_space -= ((char *)it.last - tbl->rbuf) + last_len;
 		if (end_space < node_len) {
-			T_DBG("%s: wrap, rbuf=[%p], first=[%p], last=[%p],"
-			      " rb_len=%hu, rb_size=%hu, size=%hu,"
-			      " end_space=%hu, node_len=%hu\n", __func__,
-			      tbl->rbuf, it.first, it.last, it.rb_len,
-			      it.rb_size, it.size, end_space, node_len);
+			T_DBG3("%s: wrap, rbuf=[%p], first=[%p], last=[%p],"
+			       " rb_len=%hu, rb_size=%hu, size=%hu,"
+			       " end_space=%hu, node_len=%hu\n", __func__,
+			       tbl->rbuf, it.first, it.last, it.rb_len,
+			       it.rb_size, it.size, end_space, node_len);
 
 			if (it.rb_size - end_space < it.rb_len + node_len)
 				return -E2BIG;
@@ -3285,9 +3310,9 @@ tfw_hpack_add_node(TfwHPackETbl *__restrict tbl, const TfwStr *__restrict hdr,
 
 	it.last = HPACK_NODE_NEXT(it.last);
 
-	T_DBG("%s: next node, rbuf=[%p], first=[%p], last=[%p], rb_len=%hu,"
-	      " rb_size=%hu, size=%hu, node_len=%hu\n", __func__, tbl->rbuf,
-	      it.first, it.last, it.rb_len, it.rb_size, it.size, node_len);
+	T_DBG3("%s: next node, rbuf=[%p], first=[%p], last=[%p], rb_len=%hu,"
+	       " rb_size=%hu, size=%hu, node_len=%hu\n", __func__, tbl->rbuf,
+	       it.first, it.last, it.rb_len, it.rb_size, it.size, node_len);
 
 commit:
 	it.size += node_size;

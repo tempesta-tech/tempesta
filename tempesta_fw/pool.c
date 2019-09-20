@@ -230,6 +230,7 @@ tfw_pool_clean(TfwPool *p)
 			break;
 		tfw_pool_free_pages(TFW_POOL_CHUNK_BASE(c), c->order);
 	}
+	p->curr->next = c;
 }
 EXPORT_SYMBOL(tfw_pool_clean);
 
