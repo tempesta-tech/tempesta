@@ -994,7 +994,7 @@ TEST(hpack, enc_table)
 	index = HPACK_NODE_GET_INDEX(tbl, node);
 	EXPECT_EQ(index, 64);
 	if (node) {
-		EXPECT_EQ(HPACK_RB_HDR_LEN(node), t_s1_len);
+		EXPECT_EQ((unsigned long)node->hdr_len, t_s1_len);
 		EXPECT_OK(memcmp_fast(t_s1, node->hdr, t_s1_len));
 	}
 
@@ -1007,7 +1007,7 @@ TEST(hpack, enc_table)
 	index = HPACK_NODE_GET_INDEX(tbl, node);
 	EXPECT_EQ(index, 63);
 	if (node) {
-		EXPECT_EQ(HPACK_RB_HDR_LEN(node), t_s2_len);
+		EXPECT_EQ((unsigned long)node->hdr_len, t_s2_len);
 		EXPECT_OK(memcmp_fast(t_s2, node->hdr, t_s2_len));
 	}
 
@@ -1020,7 +1020,7 @@ TEST(hpack, enc_table)
 	index = HPACK_NODE_GET_INDEX(tbl, node);
 	EXPECT_EQ(index, 62);
 	if (node) {
-		EXPECT_EQ(HPACK_RB_HDR_LEN(node), t_s3_len);
+		EXPECT_EQ((unsigned long)node->hdr_len, t_s3_len);
 		EXPECT_OK(memcmp_fast(t_s3, node->hdr, t_s3_len));
 	}
 
