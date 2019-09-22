@@ -1812,11 +1812,54 @@ __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	__FSM_START(parser->_i_st);
 
+	__FSM_STATE(Req_I_WSAccept) {
+		if (IS_WS(c))
+			__FSM_I_MOVE(Req_I_WSAccept);
+		/* Fall through. */
+	}
+
 	__FSM_STATE(Req_I_Accept) {
-		TRY_STR("text/html", Req_I_Accept, Req_I_AcceptHtml);
-		TRY_STR("*/*", Req_I_Accept, Req_I_AcceptHtml);
+		TRY_STR("text", Req_I_Accept, Req_I_AfterText);
+		/*
+		 * TRY_STR() compares the string with the substring at the
+		 * beginning of the chunk sequence, but @c is the first
+		 * non-matching character with the string of the previous
+		 * TRY_STR(). If we will use @c to compare with "*", then we will
+		 * catch matches not only with "*", but also with "t*", "te*",
+		 * "tex*".
+		 */
+		TRY_STR("*", Req_I_Accept, Req_I_AfterStar);
 		TRY_STR_INIT();
-		__FSM_I_JMP(Req_I_AcceptOther);
+		if (IS_TOKEN(c))
+			__FSM_I_JMP(Req_I_Type);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_AfterText) {
+		if (c == '/')
+			__FSM_I_MOVE(Req_I_AfterTextSlash);
+
+		__FSM_I_MOVE(Req_I_Type);
+	}
+
+	__FSM_STATE(Req_I_AfterTextSlash) {
+		TRY_STR("html", Req_I_AfterTextSlash, Req_I_AcceptHtml);
+		TRY_STR_INIT();
+		__FSM_I_JMP(Req_I_Subtype);
+	}
+
+	__FSM_STATE(Req_I_AfterStar) {
+		if (c == '/')
+			__FSM_I_MOVE(Req_I_StarSlashStar);
+		if (IS_TOKEN(c))
+			__FSM_I_JMP(Req_I_Type);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_StarSlashStar) {
+		if (c == '*')
+			__FSM_I_MOVE(Req_I_AcceptHtml);
+		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(Req_I_AcceptHtml) {
@@ -1824,29 +1867,80 @@ __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
 			__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
 			__FSM_I_JMP(I_EoT);
 		}
-		__FSM_I_MOVE(Req_I_AcceptOther);
+		__FSM_I_JMP(Req_I_Subtype);
+	}
+
+	__FSM_STATE(Req_I_Type) {
+		__FSM_I_MATCH_MOVE(token, Req_I_Type);
+		c = *(p + __fsm_sz);
+		if (c == '/')
+			__FSM_I_MOVE_n(Req_I_Slash, __fsm_sz + 1);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_Slash) {
+		if (IS_TOKEN(c))
+			__FSM_I_JMP(Req_I_Subtype);
+		if (c == '*')
+			__FSM_I_MOVE(I_EoT);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_Subtype) {
+		__FSM_I_MATCH_MOVE(token, Req_I_Subtype);
+		c = *(p + __fsm_sz);
+		__FSM_I_MOVE_n(I_EoT, __fsm_sz);
+	}
+
+	__FSM_STATE(Req_I_QValue) {
+		if (isdigit(c) || c == '.')
+			__FSM_I_MOVE(Req_I_QValue);
+		__FSM_I_JMP(I_EoT);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_WSAcceptOther) {
+		if (IS_WS(c))
+			__FSM_I_MOVE(Req_I_WSAcceptOther);
+		if (IS_TOKEN(c))
+			__FSM_I_JMP(Req_I_AcceptOther);
+		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(Req_I_AcceptOther) {
-		__FSM_I_MATCH_MOVE(uri, Req_I_AcceptOther);
+		TRY_STR("q=", Req_I_AcceptOther, Req_I_QValue);
+		TRY_STR_INIT();
+		__FSM_I_MATCH_MOVE(token, Req_I_AcceptOther);
 		c = *(p + __fsm_sz);
-		if (IS_WS(c) || c == ',')
-			__FSM_I_MOVE_n(I_EoT, __fsm_sz + 1);
-		if (IS_CRLF(c)) {
-			return __data_off(p + __fsm_sz);
-		}
+		if (c == '=')
+			__FSM_I_MOVE_n(Req_I_ParamValue, __fsm_sz + 1);
 		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_ParamValue) {
+		if (c == '\"')
+			__FSM_I_MOVE(Req_I_QuotedString);
+		__FSM_I_MATCH_MOVE(token, Req_I_ParamValue);
+		c = *(p + __fsm_sz);
+		__FSM_I_MOVE_n(I_EoT, __fsm_sz);
+	}
+
+	__FSM_STATE(Req_I_QuotedString) {
+		__FSM_I_MATCH_MOVE(token, Req_I_QuotedString);
+		if (c != '"')
+			__FSM_I_MOVE(Req_I_QuotedString);
+		__FSM_I_MOVE(I_EoT);
 	}
 
 	/* End of term. */
 	__FSM_STATE(I_EoT) {
-		if (IS_WS(c) || c == ',')
+		if (IS_WS(c))
 			__FSM_I_MOVE(I_EoT);
+		if (c == ',')
+			__FSM_I_MOVE(Req_I_WSAccept);
 		if (c == ';')
 			/* Skip weight parameter. */
-			__FSM_I_MOVE(Req_I_AcceptOther);
-		if (IS_TOKEN(c))
-			__FSM_I_JMP(Req_I_Accept);
+			__FSM_I_MOVE(Req_I_WSAcceptOther);
 		if (IS_CRLF(c))
 			return __data_off(p);
 		return CSTR_NEQ;
