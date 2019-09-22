@@ -30,16 +30,17 @@
 
 /**
  * Red-black tree node representation in the ring buffer.
- * Note, that the most significant bit of @hdr_len is used for RB Tree color
- * attribute; this is possible because the maximum size of encoder dynamic
- * index is 4096 bytes and, consequently, the maximum size of stored header
- * must be not greater than (4096 - 32) bytes which is less then 32768
- * (0x7FFF - the half of unsigned short capacity) - thus, we can additionally
- * use the most significant bit.
+ * Note, the field @hdr_len use only 15 bits and the 16th bit of unsigned
+ * short type is used for RBTree color attribute; this is possible because
+ * the maximum size of encoder dynamic index is 4096 bytes and, consequently,
+ * the maximum size of stored header must be not greater than (4096 - 32)
+ * bytes which is less then 32768 (0x7FFF - the half of unsigned short
+ * capacity) - thus, 15 bits is enough for @hdr_len field.
  *
  * @rindex	- index (in reverse form) of stored header string in the
  *		  encoder dynamic table;
  * @hdr_len	- length of stored header string;
+ * @color	- RBTree color flag;
  * @parent	- parent node offset in the ring buffer (in bytes);
  * @left	- left child offset in the ring buffer (in bytes);
  * @right	- right child offset in the ring buffer (in bytes);
@@ -47,7 +48,8 @@
  */
 typedef struct {
 	unsigned long		rindex;
-	unsigned short		hdr_len;
+	unsigned short		hdr_len	: 15;
+	unsigned short		color	: 1;
 	short			parent;
 	short			left;
 	short			right;

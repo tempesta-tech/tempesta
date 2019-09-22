@@ -1075,13 +1075,12 @@ do {								\
 	unsigned int __m = 0;					\
 	unsigned int __c;					\
 	do {							\
-		if (!n) {					\
+		if (src >= last) {				\
 			hp->shift = __m;			\
 			NEXT_STATE(new_state);			\
 			goto out;				\
 		}						\
 		__c = *src++;					\
-		n--;						\
 		x += (__c & 127) << __m;			\
 		__m += 7;					\
 		if ((x) > HPACK_LIMIT) {			\
@@ -1100,7 +1099,6 @@ do {								\
 	unsigned int __m = hp->shift;				\
 	unsigned int __c = *src++;				\
 	WARN_ON_ONCE(!x);					\
-	n--;							\
 	x += (__c & 127) << __m;				\
 	__m += 7;						\
 	if ((x) > HPACK_LIMIT) {				\
@@ -1108,12 +1106,11 @@ do {								\
 		goto out;					\
 	}							\
 	while (__c > 127) {					\
-		if (!n) {					\
+		if (src >= last) {				\
 			hp->shift = __m;			\
 			goto out;				\
 		}						\
 		__c = *src++;					\
-		n--;						\
 		x = (__c & 127) << __m | x;			\
 		__m += 7;					\
 		if ((x) > HPACK_LIMIT) {			\
@@ -1128,10 +1125,10 @@ do {								\
 	hp->curr += 8;						\
 	hp->hctx = hp->hctx << 8 | *src++;			\
 	--hp->length;						\
-	--n;							\
 	T_DBG3("%s: set next, hp->curr=%d, hp->hctx=%hx,"	\
-	       " hp->length=%lu, n=%lu\n", __func__, hp->curr,	\
-	       hp->hctx, hp->length, n);			\
+	       " hp->length=%lu, n=%lu, to_parse=%lu\n",	\
+	       __func__, hp->curr, hp->hctx, hp->length, n,	\
+	       last - src);					\
 } while (0)
 
 #define	BUFFER_NAME_OPEN(length)				\
@@ -1212,30 +1209,29 @@ do {								\
 
 #define	HPACK_DECODE_STRING(len)				\
 do {								\
-	T_DBG3("%s: decoding, len=%lu, n=%lu\n", __func__,	\
-	       len, n);						\
+	T_DBG3("%s: decoding, len=%lu, n=%lu, to_parse=%lu\n",	\
+	       __func__, len, n, last - src);			\
 	r = tfw_huffman_decode(hp, req, src, len);		\
-	n -= len;						\
+	src += len;						\
 	if (r)							\
 		goto out;					\
-	T_DBG3("%s: decoded, len=%lu, n=%lu\n", __func__,	\
-	       len, n);						\
+	T_DBG3("%s: decoded, to_parse=%lu\n", __func__,		\
+	       last - src);					\
 	WARN_ON_ONCE(hp->length);				\
 	hp->hctx = 0;						\
 	tfw_huffman_init(hp);					\
-	src += len;						\
 } while (0)
 
 #define HPACK_COPY_STRING(len)					\
 do {								\
 	BUFFER_WRITE(src, len, it);				\
-	n -= len;						\
 	hp->length -= len;					\
-	T_DBG3("%s: copy plain, len=%lu, n=%lu, hp->length=%lu\n", \
-	       __func__, len, n, hp->length);			\
+	src += len;						\
+	T_DBG3("%s: copy plain, len=%lu, n=%lu, to_parse=%lu,"	\
+	       " hp->length=%lu\n", __func__, len, n,		\
+	       last - src, hp->length);				\
 	if (hp->length)						\
 		goto  out;					\
-	src += len;						\
 } while (0)
 
 #define STATIC_INDEXED(ent)			((ent)->tag >= 0)
@@ -1331,8 +1327,8 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			}
 		} else {
 			/*
-			 * Last full prefix processed here, to allow
-			 * EOS padding detection:
+			 * Last full prefix processed here, to allow EOS
+			 * padding detection.
 			 */
 			if (likely(offset == 0)) {
 				if ((i ^ (HT_EOS_HIGH >> 1)) <
@@ -1341,14 +1337,18 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 				}
 			}
 			/*
-			 * Condition here equivalent to the
-			 * "-shift <= hp->curr + HT_NBITS", but
-			 * working faster:
+			 * The first condition here equivalent to the
+			 * '-shift <= hp->curr + HT_NBITS', but working
+			 * faster.
 			 */
-			if (shift >= -HT_NBITS - hp->curr) {
-				if (ht_decode[offset + i].offset == 0)
-					return T_DROP;
+			if (shift >= -HT_NBITS - hp->curr
+			    && ht_decode[offset + i].offset == 0)
+			{
+				T_DBG3("%s: unexpected EOS detected\n",
+				       __func__);
+				return T_DROP;
 			}
+
 			return T_DROP;
 		}
 	}
@@ -1366,7 +1366,7 @@ huffman_decode_tail_s(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 {
 	char sym;
 	int shift;
-	const unsigned int i;
+	unsigned int i;
 
 	if (hp->curr == -HT_MBITS)
 		return T_DROP;
@@ -1398,6 +1398,8 @@ huffman_decode_tail_s(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			}
 		}
 	}
+
+	return T_DROP;
 }
 
 static int
@@ -1405,9 +1407,10 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 		   const unsigned char *__restrict src, unsigned long n)
 {
 	unsigned int offset;
+	const unsigned char *last = src + n;
 
 	WARN_ON_ONCE(n > hp->length);
-	if (!n)
+	if (unlikely(!n))
 		return T_OK;
 
 	SET_NEXT();
@@ -1418,7 +1421,7 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			unsigned int i;
 
 			if (hp->curr <= 0) {
-				if (likely(n)) {
+				if (likely(src < last)) {
 					SET_NEXT();
 				} else if (hp->length) {
 					return T_POSTPONE;
@@ -1435,10 +1438,10 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			shift = ht_decode[offset + i].shift;
 			offset = ht_decode[offset + i].offset;
 			T_DBG3("%s: shift, hp->curr=%d, hp->hctx=%hx,"
-			       " hp->length=%lu, n=%lu, i=%u, shift=%d,"
-			       " offset=%u, offset=%c\n", __func__, hp->curr,
-			       hp->hctx, hp->length, n, i, shift, offset,
-			       (char)offset);
+			       " hp->length=%lu, n=%lu, to_parse=%lu, i=%u,"
+			       " shift=%d, offset=%u, offset=%c\n", __func__,
+			       hp->curr, hp->hctx, hp->length, n, last - src,
+			       i, shift, offset, (char)offset);
 			if (shift >= 0) {
 				if (tfw_hpack_huffman_write((char)offset, req))
 					return T_DROP;
@@ -1464,7 +1467,7 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			unsigned int i;
 
 			if (hp->curr < 0) {
-				if (likely(n)) {
+				if (likely(src < last)) {
 					SET_NEXT();
 				} else if (hp->length) {
 					return T_POSTPONE;
@@ -1477,10 +1480,10 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			shift = ht_decode[offset + i].shift;
 			offset = ht_decode[offset + i].offset;
 			T_DBG3("%s: short shift, hp->curr=%d, hp->hctx=%hx,"
-			       " hp->length=%lu, n=%lu, i=%u, shift=%d,"
-			       " offset=%u, offset=%c\n", __func__, hp->curr,
-			       hp->hctx, hp->length, n, i, shift, offset,
-			       (char)offset);
+			       " hp->length=%lu, n=%lu, to_parse=%lu, i=%u,"
+			       " shift=%d, offset=%u, offset=%c\n", __func__,
+			       hp->curr, hp->hctx, hp->length, n, last - src,
+			       i, shift, offset, (char)offset);
 			if (likely(shift >= 0)) {
 				if (tfw_hpack_huffman_write((char)offset, req))
 					return T_DROP;
@@ -1964,19 +1967,6 @@ tfw_hpack_hdr_process(TfwHttpReq *req)
 	return T_OK;
 }
 
-static bool
-tfw_hpack_huffman_parse(TfwHPack *__restrict hp, const unsigned char **src,
-			unsigned long *n, TfwMsgParseIter *__restrict it)
-{
-	/*
-	 * TODO #309: implementation of Huffman parser; inside this procedure
-	 * we also should write to prepared header storage the plain constant
-	 * matched header names, ':' symbol after the name, and set header's ID
-	 * tag.
-	 */
-	return false;
-}
-
 /*
  * HPACK decoder FSM for HTTP/2 message processing.
  */
@@ -1988,21 +1978,19 @@ tfw_hpack_decode(TfwHPack *__restrict hp, const unsigned char *src,
 	int r = T_POSTPONE;
 	unsigned int state = hp->state;
 	TfwMsgParseIter *it = &req->pit;
+	const unsigned char *last = src + n;
 
 	BUILD_BUG_ON(HPACK_STATE_MASK < _HPACK_STATE_NUM - 1);
 	BUG_ON(!it->hdr);
 	WARN_ON_ONCE(!n);
 	*parsed = n;
 	do {
-		T_DBG3("%s: header processing, n=%lu, state=%d\n", __func__,
-		       n, state);
+		T_DBG3("%s: header processing, n=%lu, to_parse=%lu, state=%d\n",
+		       __func__, n, last - src, state);
 		switch (state & HPACK_STATE_MASK) {
 		case HPACK_STATE_READY:
 		{
-			unsigned char c;
-
-			c = *src++;
-			n--;
+			unsigned char c = *src++;
 
 			if (c & 0x80) {
 				T_DBG3("%s: reference by index...\n", __func__);
@@ -2083,7 +2071,7 @@ index:
 				   ? HPACK_STATE_INDEXED_NAME_TEXT
 				   : HPACK_STATE_NAME);
 
-			if (!n)
+			if (src >= last)
 				goto out;
 
 			if (hp->index) {
@@ -2096,11 +2084,9 @@ index:
 		}
 		case HPACK_STATE_NAME:
 		{
-			unsigned char c;
+			unsigned char c = *src++;
 
 			T_DBG3("%s: decode header name length...\n", __func__);
-			c = *src++;
-			n--;
 			hp->length = c & 0x7F;
 			if (c & 0x80) {
 				T_DBG3("%s: Huffman encoding used for name...\n",
@@ -2121,40 +2107,32 @@ index:
 
 			BUFFER_NAME_OPEN(hp->length);
 
-			if (!n)
+			if (unlikely(src >= last))
 				goto out;
 
 			/* Fall through. */
 		}
 		case HPACK_STATE_NAME_TEXT:
 		{
-			bool fnd;
 			unsigned long m_len;
 get_name_text:
-			fnd = false;
 			T_DBG3("%s: decode header name...\n", __func__);
-
+			m_len = min((unsigned long)(last - src), hp->length);
 			if (state & HPACK_FLAGS_HUFFMAN_NAME)
-				fnd = tfw_hpack_huffman_parse(hp, &src, &n, it);
+				HPACK_DECODE_STRING(m_len);
+			else
+				HPACK_COPY_STRING(m_len);
 
-			if (!fnd) {
-				m_len = min(n, hp->length);
-				if (state & HPACK_FLAGS_HUFFMAN_NAME)
-					HPACK_DECODE_STRING(m_len);
-				else
-					HPACK_COPY_STRING(m_len);
-
-				if (tfw_hpack_hdr_process(req)) {
-					r = T_DROP;
-					goto out;
-				}
-
-				BUFFER_WRITE_COLON();
+			if (tfw_hpack_hdr_process(req)) {
+				r = T_DROP;
+				goto out;
 			}
+
+			BUFFER_WRITE_COLON();
 
 			NEXT_STATE(HPACK_STATE_VALUE);
 
-			if (unlikely(!n))
+			if (unlikely(src >= last))
 				goto out;
 
 			goto get_value;
@@ -2198,7 +2176,6 @@ get_indexed_name:
 get_value:
 			T_DBG3("%s: decode header value length...\n", __func__);
 			c = *src++;
-			n--;
 			hp->length = c & 0x7F;
 			if (c & 0x80) {
 				T_DBG3("%s: Huffman encoding used for value\n",
@@ -2215,7 +2192,7 @@ get_value:
 
 			BUFFER_VAL_OPEN(hp->length);
 
-			if (!n)
+			if (unlikely(src >= last))
 				goto out;
 
 			/* Fall through. */
@@ -2232,7 +2209,7 @@ get_value_text:
 			}
 
 			T_DBG3("%s: decode header value...\n", __func__);
-			m_len = min(n, hp->length);
+			m_len = min((unsigned long)(last - src), hp->length);
 			if (state & HPACK_FLAGS_HUFFMAN_VALUE)
 				HPACK_DECODE_STRING(m_len);
 			else
@@ -2306,7 +2283,7 @@ get_all_indexed:
 
 			NEXT_STATE(HPACK_STATE_INDEXED_NAME_TEXT);
 
-			if (!n)
+			if (unlikely(src >= last))
 				goto out;
 
 			goto get_indexed_name;
@@ -2332,7 +2309,7 @@ set_window:
 
 			BUFFER_NAME_OPEN(hp->length);
 
-			if (!n)
+			if (unlikely(src >= last))
 				goto out;
 
 			goto get_name_text;
@@ -2346,7 +2323,7 @@ set_window:
 
 			BUFFER_VAL_OPEN(hp->length);
 
-			if (!n)
+			if (unlikely(src >= last))
 				goto out;
 
 			goto get_value_text;
@@ -2361,12 +2338,13 @@ set_window:
 
 		tfw_hpack_reinit(hp, it);
 
-	} while (n);
+	} while (src < last);
 
 	return T_OK;
 out:
+	WARN_ON_ONCE(src > last);
+	*parsed -= last - src;
 	hp->state = state;
-	*parsed -= n;
 	return r;
 }
 
@@ -2393,33 +2371,22 @@ typedef enum {
 
 #define HPACK_MAX_ENC_EVICTION		5
 
-#define HPACK_RB_HDR_LEN_MASK		((1U << 15) - 1)
-#define HPACK_RB_COLOR_MASK		(~HPACK_RB_HDR_LEN_MASK)
-#define HPACK_RB_COLOR(node)		((node)->hdr_len & HPACK_RB_COLOR_MASK)
-#define HPACK_RB_IS_BLACK(node)		HPACK_RB_COLOR(node)
+#define HPACK_RB_IS_BLACK(node)		((node)->color)
 #define HPACK_RB_IS_RED(node)		(!HPACK_RB_IS_BLACK(node))
-#define HPACK_RB_HDR_LEN(node)						\
-	(((TfwHPackNode *)node)->hdr_len & HPACK_RB_HDR_LEN_MASK)
 
 #define HPACK_RB_SET_BLACK(node)					\
 do {									\
-	(node)->hdr_len |= 1U << 15;					\
+	(node)->color = 1;						\
 } while (0)
 
 #define HPACK_RB_SET_RED(node)						\
 do {									\
-	(node)->hdr_len &= HPACK_RB_HDR_LEN_MASK;			\
+	(node)->color = 0;						\
 } while (0)
 
 #define HPACK_RB_COPY_COLOR(d_node, s_node)				\
 do {									\
-	(d_node)->hdr_len = HPACK_RB_COLOR(s_node) | HPACK_RB_HDR_LEN(d_node); \
-} while (0)
-
-#define HPACK_RB_SET_HDR_LEN(node, len)					\
-do {									\
-	(node)->hdr_len = HPACK_RB_COLOR(node)				\
-		| ((len) & HPACK_RB_HDR_LEN_MASK);			\
+	(d_node)->color = (s_node)->color;				\
 } while (0)
 
 #define HPACK_NODE_EMPTY(off)		((off) < 0)
@@ -2439,7 +2406,7 @@ do {									\
 #define HPACK_NODE_ALIGN(sz)	(((sz) + 7) & ~7UL)
 
 #define HPACK_NODE_SIZE(node)						\
-	HPACK_NODE_ALIGN(sizeof(TfwHPackNode) + HPACK_RB_HDR_LEN(node))
+	HPACK_NODE_ALIGN(sizeof(TfwHPackNode) + ((TfwHPackNode *)node)->hdr_len)
 
 #define HPACK_NODE_NEXT(node)						\
 	((TfwHPackNode *)((char *)(node) + HPACK_NODE_SIZE(node)))
@@ -2548,7 +2515,7 @@ tfw_hpack_node_compare(const TfwStr *__restrict hdr,
 	short i;
 	const TfwStr *chunk, *end;
 	unsigned long hlen = hdr->len;
-	unsigned short node_hlen = HPACK_RB_HDR_LEN(node);
+	unsigned short node_hlen = node->hdr_len;
 	const char *pos = node->hdr;
 	TfwHPackCmpStates state = HPACK_HDR_NAME_SEARCH;
 
@@ -2566,7 +2533,7 @@ do {									\
 	T_DBG3("%s: ows processing, part_len=%u, state=%d, *nm_node=[%p]," \
 	       " node->hdr_len=%hu, node_hlen=%hu, pos='%.*s', len=%hu," \
 	       " data='%.*s'\n", __func__, part_len, state, *nm_node,	\
-	       HPACK_RB_HDR_LEN(node), node_hlen, node_hlen, pos, len,	\
+	       node->hdr_len, node_hlen, node_hlen, pos, len,		\
 	       len, data);						\
 	HDR_PART_SHIFT(i + 1, part_len);				\
 	if (state == HPACK_HDR_NAME_FOUND) {				\
@@ -3152,7 +3119,7 @@ tfw_hpack_rbuf_calc(TfwHPackETbl *__restrict tbl, unsigned short new_size,
 		}
 
 		f_len = HPACK_NODE_SIZE(first);
-		fhdr_len = HPACK_RB_HDR_LEN(first);
+		fhdr_len = ((TfwHPackNode *)first)->hdr_len;
 
 		T_DBG3("%s: rb_len=%hu, size=%hu, new_size=%hu, rbuf=[%p],"
 		       " first=[%p], last=[%p], f_len=%hu, fhdr_len=%hu,"
@@ -3317,7 +3284,7 @@ tfw_hpack_add_node(TfwHPackETbl *__restrict tbl, const TfwStr *__restrict hdr,
 commit:
 	it.size += node_size;
 	it.rb_len += node_len;
-	HPACK_RB_SET_HDR_LEN(it.last, hdr_len);
+	it.last->hdr_len = hdr_len;
 	it.last->rindex = ++tbl->idx_acc;
 
 	tfw_http_msg_hdr_write(hdr, nm_len, val_off, val_len, it.last->hdr);
