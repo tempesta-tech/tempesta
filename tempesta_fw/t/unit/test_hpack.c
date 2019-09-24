@@ -918,7 +918,7 @@ TEST(hpack, enc_table_hdr_write)
 #undef HDR_VALUE_5
 }
 
-TEST(hpack, enc_table)
+TEST(hpack, enc_table_index)
 {
 	TfwHPackETbl *tbl;
 	TfwHPackETblRes res;
@@ -1036,6 +1036,388 @@ TEST(hpack, enc_table)
 #undef HDR_VALUE_5
 }
 
+TEST(hpack, enc_table_rbtree)
+{
+	TfwHPackETbl *tbl;
+	TfwHPackETblRes res;
+	TfwHPackNodeIter pl = {};
+	const TfwHPackNode *node = NULL;
+	const TfwHPackNode *n1 = NULL, *n2 = NULL, *n3 = NULL;
+	const TfwHPackNode *n4 = NULL, *n5 = NULL;
+
+#define HDR_NAME_1	"test-custom-name"
+#define HDR_VALUE_1	"test-custom-value"
+#define HDR_NAME_2	"x-forwarded-for"
+#define HDR_VALUE_2	"example.com"
+#define HDR_NAME_3	"test-key"
+#define HDR_VALUE_3	"test-value"
+#define HDR_NAME_4	"custom-key"
+#define HDR_VALUE_4	"custom-value"
+#define HDR_NAME_5	"test-foo-name"
+#define HDR_VALUE_5	"test-foo-value"
+
+	TFW_STR(s1, HDR_NAME_1 ":");
+	TFW_STR(s1_value, HDR_VALUE_1);
+	TFW_STR(s2, HDR_NAME_2 ":");
+	TFW_STR(s2_value, HDR_VALUE_2);
+	TFW_STR(s3, HDR_NAME_3 ":");
+	TFW_STR(s3_value, HDR_VALUE_3);
+	TFW_STR(s4, HDR_NAME_4 ":");
+	TFW_STR(s4_value, HDR_VALUE_4);
+	TFW_STR(s5, HDR_NAME_5 ":");
+	TFW_STR(s5_value, HDR_VALUE_5);
+
+	collect_compound_str(s1, s1_value);
+	collect_compound_str(s2, s2_value);
+	collect_compound_str(s3, s3_value);
+	collect_compound_str(s4, s4_value);
+	collect_compound_str(s5, s5_value);
+
+	tbl = &ctx.hpack.enc_tbl;
+
+	/*
+	 * Insert nodes with new headers into the table in the order which will
+	 * necessitate tree re-balancing. After the @n3 node will be inserted
+	 * the tree structure should have the following view:
+	 *
+	 *               n1
+	 *             (BLACK)
+	 *                \
+	 *                 n2
+	 *               (RED)
+	 *                /
+	 *               n3
+	 *             (RED)
+	 *
+	 * Thus, the 4th property of red-black tree will be broken after the 3rd
+	 * node insertion, and the re-balancing procedure must be performed
+	 * during the 3rd call of @tfw_hpack_add_node() function.
+	 */
+	res = tfw_hpack_rbtree_find(tbl, s1, &node, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
+	EXPECT_NULL(node);
+	EXPECT_OK(tfw_hpack_add_node(tbl, s1, &pl));
+	bzero_fast(&pl, sizeof(pl));
+	res = tfw_hpack_rbtree_find(tbl, s1, &n1, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
+	EXPECT_NULL(pl.parent);
+	EXPECT_NOT_NULL(n1);
+	if (n1) {
+		/* Check that the 1st node @n1 is the root node. */
+		EXPECT_NULL(HPACK_NODE_COND(tbl, n1->parent));
+	}
+
+	node = NULL;
+	bzero_fast(&pl, sizeof(pl));
+	res = tfw_hpack_rbtree_find(tbl, s2, &node, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
+	EXPECT_NULL(node);
+	EXPECT_NOT_NULL(pl.parent);
+	if (pl.parent) {
+		/*
+		 * Check that the parent node of the 2nd node is the 1st node,
+		 * and the 2nd node is its right child.
+		 */
+		EXPECT_EQ(pl.parent, n1);
+		EXPECT_EQ(pl.poff, &n1->right);
+		EXPECT_OK(tfw_hpack_add_node(tbl, s2, &pl));
+	}
+	bzero_fast(&pl, sizeof(pl));
+	res = tfw_hpack_rbtree_find(tbl, s2, &n2, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
+	EXPECT_NULL(pl.parent);
+	EXPECT_NOT_NULL(n2);
+
+	node = NULL;
+	bzero_fast(&pl, sizeof(pl));
+	res = tfw_hpack_rbtree_find(tbl, s3, &node, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
+	EXPECT_NULL(node);
+	EXPECT_NOT_NULL(pl.parent);
+	if (pl.parent) {
+		/*
+		 * Check that the parent node of the 3rd node is the 2nd node,
+		 * and the 3rd node is its left child.
+		 */
+		EXPECT_EQ(pl.parent, n2);
+		EXPECT_EQ(pl.poff, &n2->left);
+		EXPECT_OK(tfw_hpack_add_node(tbl, s3, &pl));
+	}
+	bzero_fast(&pl, sizeof(pl));
+	res = tfw_hpack_rbtree_find(tbl, s3, &n3, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
+	EXPECT_NULL(pl.parent);
+	EXPECT_NOT_NULL(n3);
+
+	/*
+	 * After re-balancing (which includes one right and one left rotations)
+	 * the tree structure should look like below:
+	 *
+	 *                n3
+	 *             (BLACK)
+	 *               / \
+	 *              n1  n2
+	 *           (RED)  (RED)
+	 *
+	 * As a result the 4th property has been restored, and the other
+	 * properties of red-black tree are not broken.
+	 */
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n3->parent));
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n1->parent), n3);
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n3->left), n1);
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n1->left));
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n1->right));
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n2->parent), n3);
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n3->right), n2);
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n2->left));
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n2->right));
+	EXPECT_TRUE(HPACK_RB_IS_BLACK(n3));
+	EXPECT_TRUE(HPACK_RB_IS_RED(n2));
+	EXPECT_TRUE(HPACK_RB_IS_RED(n1));
+
+	/*
+	 * Insert 4th node with header, which is less than all other headers in
+	 * the tree. After that the tree structure should have the following
+	 * view:
+	 *
+	 *                n3
+	 *             (BLACK)
+	 *               / \
+	 *              n1  n2
+	 *           (RED)  (RED)
+	 *             /
+	 *            n4
+	 *         (RED)
+	 *
+	 * Again, the 4th property is broken, and the re-balancing procedure
+	 * must take place during @tfw_hpack_add_node() function execution.
+	 */
+	node = NULL;
+	bzero_fast(&pl, sizeof(pl));
+	res = tfw_hpack_rbtree_find(tbl, s4, &node, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
+	EXPECT_NULL(node);
+	EXPECT_NOT_NULL(pl.parent);
+	if (pl.parent) {
+		/*
+		 * Check that the parent node of the 4th node is the 1st node,
+		 * and the 4th node is its left child.
+		 */
+		EXPECT_EQ(pl.parent, n1);
+		EXPECT_EQ(pl.poff, &n1->left);
+		EXPECT_OK(tfw_hpack_add_node(tbl, s4, &pl));
+	}
+	bzero_fast(&pl, sizeof(pl));
+	res = tfw_hpack_rbtree_find(tbl, s4, &n4, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
+	EXPECT_NULL(pl.parent);
+	EXPECT_NOT_NULL(n4);
+
+	/*
+	 * After re-balancing (which should not include any rotations, only
+	 * color changes) the tree structure should look like:
+	 *
+	 *                n3
+	 *             (BLACK)
+	 *               / \
+	 *              n1  n2
+	 *         (BLACK)  (BLACK)
+	 *             /
+	 *            n4
+	 *         (RED)
+	 *
+	 * Thus, all properties of red-black tree are not broken. Next, insert
+	 * 5th node:
+	 *
+	 *                n3
+	 *             (BLACK)
+	 *               / \
+	 *              n1  n2
+	 *         (BLACK)  (BLACK)
+	 *             / \
+	 *            n4  n5
+	 *         (RED)  (RED)
+	 *
+	 * In this case, the properties are not broken, and the re-balancing
+	 * procedure is not needed at all.
+	 */
+	node = NULL;
+	bzero_fast(&pl, sizeof(pl));
+	res = tfw_hpack_rbtree_find(tbl, s5, &node, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
+	EXPECT_NULL(node);
+	EXPECT_NOT_NULL(pl.parent);
+	if (pl.parent) {
+		/*
+		 * Check that the parent node of the 5th node is the 1st node,
+		 * and the 5th node is its right child.
+		 */
+		EXPECT_EQ(pl.parent, n1);
+		EXPECT_EQ(pl.poff, &n1->right);
+		EXPECT_OK(tfw_hpack_add_node(tbl, s5, &pl));
+	}
+	bzero_fast(&pl, sizeof(pl));
+	res = tfw_hpack_rbtree_find(tbl, s5, &n5, &pl);
+	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
+	EXPECT_NULL(pl.parent);
+	EXPECT_NOT_NULL(n5);
+
+	/* Check the structure and nodes' color of the entire tree. */
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n3->parent));
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n1->parent), n3);
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n3->left), n1);
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n2->parent), n3);
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n3->right), n2);
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n2->left));
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n2->right));
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n4->parent), n1);
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n1->left), n4);
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n4->left));
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n4->right));
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n5->parent), n1);
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n1->right), n5);
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n5->left));
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n5->right));
+	EXPECT_TRUE(HPACK_RB_IS_BLACK(n3));
+	EXPECT_TRUE(HPACK_RB_IS_BLACK(n2));
+	EXPECT_TRUE(HPACK_RB_IS_BLACK(n1));
+	EXPECT_TRUE(HPACK_RB_IS_RED(n4));
+	EXPECT_TRUE(HPACK_RB_IS_RED(n5));
+
+	/*
+	 * Delete the root @n3 node from the tree. Immediately after the removal
+	 * the tree should have the following view:
+	 *
+	 *                n2
+	 *             (BLACK)
+	 *               /
+	 *              n1
+	 *           (BLACK)
+	 *             / \
+	 *            n4  n5
+	 *         (RED)  (RED)
+	 *
+	 * Thus, the 5th property of red-black tree became broken (accounting
+	 * the empty leaf nodes, which have the BLACK color by definition); so,
+	 * re-balancing procedure (which should include nodes' color changes
+	 * and the right rotation relative to the root node) is needed in
+	 * this case, and after it the tree must have next balanced structure:
+	 *
+	 *                n1
+	 *             (BLACK)
+	 *               / \
+	 *              n4  n2
+	 *         (BLACK)  (BLACK)
+	 *                 /
+	 *                 n5
+	 *                (RED)
+	 *
+	 * All tree-specific removing and re-balancing actions are executed in
+	 * @tfw_hpack_rbtree_erase() procedure.
+	 */
+	tfw_hpack_rbtree_erase(tbl, (TfwHPackNode *)n3);
+
+	/* Check the tree structure and nodes' color after the @n3 removal. */
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n1->parent));
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n4->parent), n1);
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n1->left), n4);
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n4->left));
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n4->right));
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n2->parent), n1);
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n1->right), n2);
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n2->right));
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n5->parent), n2);
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n2->left), n5);
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n5->left));
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n5->right));
+	EXPECT_TRUE(HPACK_RB_IS_BLACK(n1));
+	EXPECT_TRUE(HPACK_RB_IS_BLACK(n2));
+	EXPECT_TRUE(HPACK_RB_IS_BLACK(n4));
+	EXPECT_TRUE(HPACK_RB_IS_RED(n5));
+
+	/*
+	 * Delete the @n4 node from the tree. As a result, the 5th property
+	 * became broken again; so, re-balancing procedure (should include
+	 * nodes' color changes, the right rotation relative to @n2 node and
+	 * the left rotation relative to root node) must be executed. Finally,
+	 * we should get the following balanced tree:
+	 *
+	 *                n5
+	 *             (BLACK)
+	 *               / \
+	 *              n1  n2
+	 *         (BLACK)  (BLACK)
+	 */
+	tfw_hpack_rbtree_erase(tbl, (TfwHPackNode *)n4);
+
+	/* Check the tree structure and nodes' color after the @n4 removal. */
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n5->parent));
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n2->parent), n5);
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n5->right), n2);
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n2->left));
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n2->right));
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n1->parent), n5);
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n5->left), n1);
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n1->left));
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n1->right));
+	EXPECT_TRUE(HPACK_RB_IS_BLACK(n5));
+	EXPECT_TRUE(HPACK_RB_IS_BLACK(n2));
+	EXPECT_TRUE(HPACK_RB_IS_BLACK(n1));
+
+	/*
+	 * Delete the @n2 node from the tree. To restore broken 5th property
+	 * re-balancing procedure should be performed, without any rotations
+	 * in this case: only color change (to RED) for @n1 node should be
+	 * done. The following tree balanced structure should be obtained as
+	 * a result:
+	 *
+	 *                n5
+	 *             (BLACK)
+	 *               /
+	 *              n1
+	 *            (RED)
+	 */
+	tfw_hpack_rbtree_erase(tbl, (TfwHPackNode *)n2);
+
+	/* Check the tree structure and nodes' color after the @n2 removal. */
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n5->parent));
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n5->right));
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n1->parent), n5);
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n5->left), n1);
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n1->left));
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n1->right));
+	EXPECT_TRUE(HPACK_RB_IS_BLACK(n5));
+	EXPECT_TRUE(HPACK_RB_IS_RED(n1));
+
+	/*
+	 * Delete the @n5 node from the tree. No rotations are needed in this
+	 * case too: only the color for the @n1 node (which should become root)
+	 * must be set to BLACK. The resulting balanced structure of the tree:
+	 *
+	 *              n1
+	 *            (BLACK)
+	 */
+	tfw_hpack_rbtree_erase(tbl, (TfwHPackNode *)n5);
+
+	/* Check the tree structure and nodes' color after the @n5 removal. */
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n1->parent));
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n1->left));
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n1->right));
+	EXPECT_TRUE(HPACK_RB_IS_BLACK(n1));
+
+	tfw_hpack_rbtree_erase(tbl, (TfwHPackNode *)n1);
+
+#undef HDR_NAME_1
+#undef HDR_VALUE_1
+#undef HDR_NAME_2
+#undef HDR_VALUE_2
+#undef HDR_NAME_3
+#undef HDR_VALUE_3
+#undef HDR_NAME_4
+#undef HDR_VALUE_4
+#undef HDR_NAME_5
+#undef HDR_VALUE_5
+}
 
 TEST_SUITE(hpack)
 {
@@ -1050,5 +1432,6 @@ TEST_SUITE(hpack)
 	TEST_RUN(hpack, dec_indexed);
 	TEST_RUN(hpack, dec_huffman);
 	TEST_RUN(hpack, enc_table_hdr_write);
-	TEST_RUN(hpack, enc_table);
+	TEST_RUN(hpack, enc_table_index);
+	TEST_RUN(hpack, enc_table_rbtree);
 }

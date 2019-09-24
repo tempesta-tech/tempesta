@@ -4133,8 +4133,8 @@ tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream, TfwFsmData *data)
 		}
 		tfw_http_mark_wl_new_msg(conn, (TfwHttpMsg *)stream->msg,
 					 data->skb);
-		TFW_DBG2("Link new msg %p with stream %p of connection %p\n",
-			 stream->msg, stream, conn);
+		T_DBG2("Link new msg %p with connection %p\n",
+		       stream->msg, conn);
 	}
 
 	TFW_DBG2("Add skb %p to message %p\n", data->skb, stream->msg);

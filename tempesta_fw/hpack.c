@@ -2371,7 +2371,7 @@ typedef enum {
 
 #define HPACK_MAX_ENC_EVICTION		5
 
-#define HPACK_RB_IS_BLACK(node)		((node)->color)
+#define HPACK_RB_IS_BLACK(node)		((int)(node)->color)
 #define HPACK_RB_IS_RED(node)		(!HPACK_RB_IS_BLACK(node))
 
 #define HPACK_RB_SET_BLACK(node)					\
@@ -3074,7 +3074,12 @@ tfw_hpack_rbtree_erase(TfwHPackETbl *__restrict tbl,
 		HPACK_RB_COPY_COLOR(sv, node);
 	}
 
-	if (sv_black)
+	/*
+	 * It makes sense to perform re-balancing only if the relocated/deleted
+	 * node is BLACK and if tree is not empty (i.e. the deleted node is not
+	 * the last).
+	 */
+	if (sv_black && tbl->root)
 		tfw_hpack_rbtree_del_rebalance(tbl, nchild, parent, left_child);
 }
 
