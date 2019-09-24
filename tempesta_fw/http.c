@@ -1,6 +1,42 @@
 /**
  *		Tempesta FW
  *
+ * Core HTTP-layer processing, including HTTP/2 and HTTP/1.1 versions.
+ *
+ * Notes about the design of HTTP/2 implementation.
+ *
+ * It could be efficient to make HTTP/2 => HTTP/1.1 transformation on
+ * HTTP/2 request decoding, but this approach not scales for the case of
+ * HTTP/2 => HTTP/2 proxying, since during request receiving/processing
+ * we do not know what backend (HTTP/2 or HTTP/1.1) the request attended
+ * for. Thus, until the backend determination moment, we need to leave
+ * HTTP/2 representation in the source skb. From the other side we need to
+ * perform our internal HTTP-specific work (HTTP-tables, HTTP-limits,
+ * Sessions module, Scheduling etc.), and the choice here could be an
+ * implementation HTTP/2-specific functionality set with custom flags in
+ * @TfwHttpReq.h_tbl - for this work, but this variant is very hard to apply
+ * for the Tempesta FW design, since we need to rewrite the whole logic of
+ * header analysis (mentioned above HTTP-tables, Scheduling etc.); besides,
+ * having HTTP/1.1 and HTTP/2 clients, we must to keep for all this logic two
+ * versions of strings: in format of HTTP/1.1 (ASCII) and in HTTP/2 format
+ * (Huffman, etc).
+ *
+ * As a result, we cannot avoid decoding of HTTP/2 format. The solution
+ * should be the creation of HTTP/1.1 representation of HTTP/2 headers (via
+ * HPACK-decoding and HTPP/2-parsing) and place that representation into
+ * the special pool @TfwHttpReq.pit.pool; during adjusting stage (before
+ * re-sending request to backend) in @tfw_http_adjust_req() the obtained
+ * HTTP/1.1 representation should be used for new request assembling in case
+ * of HTTP/2 => HTTP/1.1 transformation, and for headers re-indexing in
+ * case of HTTP/2 => HTTP/2 proxying.
+ *
+ * Actually, we don't need to decode all HTTP/2 headers: some of them could
+ * be not encoded (not in Huffman form - in ASCII instead) and some - could be
+ * just indexed (we can keep static and dynamic indexes during internal request
+ * analysis and convert them into ASCII strings in-place - on demand), so, we
+ * can save memory/processor resources and create additional HTTP/1.1
+ * representation only for Huffman encoded headers.
+ *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
