@@ -1024,7 +1024,7 @@ static const TfwHPackEntry static_table[] ____cacheline_aligned = {
  */
 #define HPACK_ENTRY_OVERHEAD		32
 
-/*
+/**
  * ------------------------------------------------------------------------
  *	HPACK Decoder functionality
  * ------------------------------------------------------------------------
@@ -2348,12 +2348,89 @@ out:
 	return r;
 }
 
-/*
+/**
  * ------------------------------------------------------------------------
  *	HPACK Encoder functionality
  * ------------------------------------------------------------------------
+ *
+ * The encoder dynamic index table has two-layer architecture: the ring buffer
+ * as the base layer and the red-black tree on top of it. The entry in the table
+ * is represented by the @TfwHPackNode structure, which contains the fields
+ * necessary for red-black tree logic: @parent, @left, @right, @color, which are
+ * offsets (in bytes in the ring buffer) for parent, left child, and right child
+ * of the current node correspondingly, and the current node's color flag. The
+ * structure also contains the @rindex field - for representation of the node
+ * index in the table, the @hdr_len field which is length of the header stored
+ * in the entry, and the @hdr field which is the pointer to the header
+ * name/value string itself (stored in the ring buffer - right after the entry
+ * structure). The table itself is represented by the @TfwHPackETbl structure
+ * which encapsulates the descriptor logic for both - the ring buffer and the
+ * red-black tree layers. This structure includes @rbuf field which is the
+ * pointer to the ring buffer beginning, @first field - the pointer to the first
+ * (i.e. the oldest) entry in the ring buffer, @last field - the pointer to the
+ * last (i.e. the newest) entry in the ring buffer, and @root field which is the
+ * pointer to the root entry of red-black tree.
+ *
+ * For instance, if the encoder table has 3 headers stored in it - e.g.
+ * 'accept-encoding', 'accept-range' and 'referer', which had been added exactly
+ * in the given order - they should have the following layout in the ring buffer
+ * (representing corresponding red-black tree balanced structure):
+ *
+ * r:15:c:31:-1:-1:accept-encoding|r:12:c:-1:0:59:accept-range|r:7:c:31:-1:-1:referer|_ _
+ * ^                               ^                           ^
+ * |                               |                           |
+ * first                         root                        last
+ * ^
+ * |
+ * rbuf
+ *
+ * In this situation, if we evict the oldest node, that will be the node under
+ * the @first pointer, with 'accept-encoding' header, and the @first pointer
+ * will be shifted to the next node in ring buffer. As a result, we will get the
+ * following picture (after appropriate red-black tree re-balancing):
+ *
+ * _ _(31 bytes)_ _|r:12:c:-1:-1:59:accept-range|r:7:c:31:-1:-1:referer|_ _
+ * ^                ^                            ^
+ * |                |                            |
+ * rbuf           first                        last
+ *                  ^
+ *                  |
+ *                root
+ *
+ * Then, we can add the 'accept' header into the table and the final picture
+ * will have the following view:
+ *
+ * _ _(31 bytes)_ _|r:12:c:-1:82:59:accept-range|r:7:c:31:-1:-1:referer|r:6:c:31:-1:-1:accept|_ _
+ * ^                ^                                                   ^
+ * |                |                                                   |
+ * rbuf           first                                               last
+ *                  ^
+ *                  |
+ *                root
+ *
+ * Since the 'accept' is the last header added into the table, the node with it
+ * has been stored at the end of the used place in ring buffer, and the @last
+ * pointer has been moved to this node. In the same time, since the 'accept'
+ * header is less (as char values) then the 'accept-range' header (which is the
+ * root node), it is placed into left branch of red-black tree, thus, the @left
+ * field of root node has been assigned the 82 value, as offset in bytes of last
+ * added node with 'accept' header.
+ *
+ * Notation used in the above example:
+ * 'r'	- @rindex field (occupy 8 bytes);
+ *	  next is the @hdr_len field (occupy 15 bits), which contains the length
+ *	  of header;
+ * 'c'	- @color field (occupy 1 bit);
+ * next three fields are @parent, @left, @right (each occupy 2 bytes), which
+ *	  contain offsets of corresponding parent/child nodes ('-1' means empty
+ *	  parent/child nodes: leaf nodes and parent for root node);
+ * next is the header itself (each char occupy 1 byte); note that headers should
+ *	  also have values, but for simplicity and clarity, the values in this
+ *	  example are omitted);
+ * ':' and '|' do not occupy any space in ring buffer, and are intended only for
+ *	  the purposes of visual separation of fields and entries respectively;
+ * '_ '	- unused space of ring buffer.
  */
-
 typedef struct {
 	TfwHPackNode *parent;
 	short *poff;
