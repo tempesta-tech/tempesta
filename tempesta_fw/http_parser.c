@@ -2945,7 +2945,7 @@ STACK_FRAME_NON_STANDARD(__parse_keep_alive);
 static int
 __parse_uri_mark(TfwHttpReq *req, unsigned char *data, size_t len)
 {
-	TfwStr *str;
+	const TfwStr *str;
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(req);
 

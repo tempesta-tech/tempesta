@@ -23,8 +23,11 @@
 #include "http_limits.h"
 #include "http_match.h"
 #include "http_msg.h"
+#include "http_sess_conf.h"
 #include "vhost.h"
 #include "str.h"
+#include "http_limits.h"
+#include "http_sess.h"
 #include "client.h"
 #include "tls_conf.h"
 
@@ -1406,19 +1409,6 @@ tfw_cfgop_hdr_via(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
-tfw_cfgop_vhost_check_flags(TfwSrvGroup *main_sg, TfwSrvGroup *backup_sg)
-{
-	int r = ((main_sg->flags & TFW_SRV_STICKY_FLAGS) ^
-		 (backup_sg->flags & TFW_SRV_STICKY_FLAGS));
-	if (r)
-		T_ERR_NL("vhost: srv_groups '%s' and '%s' must "
-			 "have the same sticky sessions settings\n",
-			 main_sg->name, backup_sg->name);
-
-	return r;
-}
-
-static int
 __tfw_cfgop_proxy_pass(const char *main_sg_nm, const char *backup_sg_nm,
 		       TfwLocation *loc)
 {
@@ -1441,14 +1431,13 @@ __tfw_cfgop_proxy_pass(const char *main_sg_nm, const char *backup_sg_nm,
 			goto err;
 		}
 
-		/* Check main/backup group flags for incompatibilities. */
-		if (strcasecmp(main_sg_nm, "default")
-		    && strcasecmp(backup_sg_nm, "default")
-		    && tfw_cfgop_vhost_check_flags(main_sg, backup_sg))
-		{
+		if (main_sg == backup_sg) {
+			T_ERR_NL("proxy_pass: the same group is used as primary"
+				 " and backup\n");
 			r = -EINVAL;
 			goto err;
 		}
+
 	}
 
 	loc->main_sg = main_sg;
@@ -1503,6 +1492,35 @@ tfw_cfgop_in_proxy_pass(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return tfw_cfgop_proxy_pass(cs, ce, tfw_vhost_entry->loc_dflt);
 }
 
+static int
+tfw_cfgop_in_sticky_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	BUG_ON(!tfw_vhost_entry);
+	return tfw_http_sess_cfgop_begin(tfw_vhost_entry, cs, ce);
+}
+
+static int
+tfw_cfgop_out_sticky_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	BUG_ON(tfw_vhost_entry);
+	return tfw_http_sess_cfgop_begin(tfw_vhosts_reconfig->vhost_dflt, cs,
+					 ce);
+}
+
+static int
+tfw_cfgop_in_sticky_finish(TfwCfgSpec *cs)
+{
+	BUG_ON(!tfw_vhost_entry);
+	return tfw_http_sess_cfgop_finish(tfw_vhost_entry, cs);
+}
+
+static int
+tfw_cfgop_out_sticky_finish(TfwCfgSpec *cs)
+{
+	BUG_ON(tfw_vhost_entry);
+	return tfw_http_sess_cfgop_finish(tfw_vhosts_reconfig->vhost_dflt, cs);
+}
+
 void
 tfw_vhost_destroy(TfwVhost *vhost)
 {
@@ -1511,6 +1529,7 @@ tfw_vhost_destroy(TfwVhost *vhost)
 	for (i = 0; i < vhost->loc_sz; ++i)
 		tfw_location_del(&vhost->loc[i]);
 	tfw_location_del(vhost->loc_dflt);
+	tfw_http_sess_cookie_clean(vhost);
 	tfw_vhost_put(vhost->vhost_dflt);
 	tfw_pool_destroy(vhost->hdrs_pool);
 	tfw_tls_cert_clean(vhost);
@@ -1527,7 +1546,7 @@ tfw_vhost_create(const char *name)
 	int size = sizeof(TfwVhost)
 		+ name_mem_sz
 		+ sizeof(TfwLocation) * (TFW_LOCATION_ARRAY_SZ + 1)
-		+ sizeof(FrangGlobCfg)
+		+ sizeof(TfwStickyCookie) + sizeof(FrangGlobCfg)
 		+ tfw_tls_vhost_priv_data_sz();
 
 	if (!(pool = __tfw_pool_new(0)))
@@ -1544,7 +1563,8 @@ tfw_vhost_create(const char *name)
 	vhost->loc_dflt = (TfwLocation *)(vhost->name.data + name_mem_sz);
 	vhost->loc = (TfwLocation *)(vhost->loc_dflt + 1);
 	vhost->frang_gconf = (FrangGlobCfg *)(vhost->loc + TFW_LOCATION_ARRAY_SZ);
-	vhost->tls_cfg.priv = (vhost->frang_gconf + 1);
+	vhost->cookie = (TfwStickyCookie *)(vhost->frang_gconf + 1);
+	vhost->tls_cfg.priv = (vhost->cookie + 1);
 
 	/* Must be sure all data fits, to prevent silent data corruption. */
 	BUG_ON((char *)vhost->tls_cfg.priv + tfw_tls_vhost_priv_data_sz() !=
@@ -2144,6 +2164,8 @@ tfw_vhost_cfgend(void)
 	tfw_vhost_add(vh_dflt);
 	if ((r = tfw_tls_cert_cfg_finish(vh_dflt)))
 		return r;
+	if ((r = tfw_http_sess_cfg_finish(vh_dflt)))
+		return r;
 
 	if (tfw_global.cache_purge && !tfw_global.cache_purge_acl)
 		T_WARN_NL("Directives mismatching: 'cache_purge' directive "
@@ -2210,6 +2232,8 @@ tfw_cfgop_vhost_finish(TfwCfgSpec *cs)
 		return -EINVAL;
 	}
 	if ((r = tfw_tls_cert_cfg_finish(tfw_vhost_entry)))
+		return r;
+	if ((r = tfw_http_sess_cfg_finish(tfw_vhost_entry)))
 		return r;
 	tfw_vhost_entry = NULL;
 	return 0;
@@ -2778,6 +2802,18 @@ static TfwCfgSpec tfw_vhost_internal_specs[] = {
 		.allow_reconfig = true,
 	},
 	{
+		.name = "sticky",
+		.handler = tfw_cfg_handle_children,
+		.cleanup = tfw_cfgop_frang_cleanup,
+		.dest = tfw_http_sess_specs,
+		.spec_ext = &(TfwCfgSpecChild) {
+			.begin_hook = tfw_cfgop_in_sticky_begin,
+			.finish_hook = tfw_cfgop_in_sticky_finish
+		},
+		.allow_reconfig = true,
+		.allow_none = true,
+	},
+	{
 		.name = "location",
 		.deflt = NULL,
 		.handler = tfw_cfg_handle_children,
@@ -2914,6 +2950,18 @@ static TfwCfgSpec tfw_vhost_specs[] = {
 		.handler = tfw_cfgop_out_tls_any_sni,
 		.allow_repeat = true,
 		.allow_reconfig = true,
+	},
+	{
+		.name = "sticky",
+		.handler = tfw_cfg_handle_children,
+		.cleanup = tfw_cfgop_frang_cleanup,
+		.dest = tfw_http_sess_specs,
+		.spec_ext = &(TfwCfgSpecChild) {
+			.begin_hook = tfw_cfgop_out_sticky_begin,
+			.finish_hook = tfw_cfgop_out_sticky_finish
+		},
+		.allow_reconfig = true,
+		.allow_none = true,
 	},
 	{
 		.name = "location",

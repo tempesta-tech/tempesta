@@ -778,11 +778,9 @@ tfw_sock_srv_grace_shutdown_srv(TfwSrvGroup *sg, TfwServer *srv, void *data)
 	if (!tfw_cfg_grace_time) {
 		r = tfw_sock_srv_disconnect_srv(srv);
 	} else {
-		if ((srv->sg->flags & TFW_SRV_STICKY) &&
-		    atomic64_read(&srv->sess_n))
-		{
+		if (atomic64_read(&srv->sess_n))
 			tfw_server_start_sched(srv);
-		}
+
 		setup_timer(&srv->gs_timer, tfw_sock_srv_grace_shutdown_cb,
 			    (unsigned long)srv);
 		tfw_sock_srv_grace_list_add(srv);
@@ -882,7 +880,6 @@ static struct kmem_cache *tfw_sg_cfg_cache;
  * @list		- member pointer in the sg_cfg_list list;
  * @reconf_flags	- TFW_CFG_MDF_SG_* flags;
  * @nip_flags		- non-idempotent req related flags;
- * @sticky_flags	- sticky sessions processing flags;
  * @sched_flags		- scheduler flags;
  * @sched_arg		- scheduler init argument.
  * @hm_name		- name of group's health monitor;
@@ -894,7 +891,6 @@ typedef struct {
 	struct list_head	list;
 	unsigned int		reconf_flags;
 	unsigned int		nip_flags;
-	unsigned int		sticky_flags;
 	unsigned int		sched_flags;
 	void			*sched_arg;
 	char			*hm_name;
@@ -915,9 +911,6 @@ static TfwCfgSrvGroup *tfw_cfg_sg_opts = NULL;
 /* List of parsed server groups (TfwCfgSrvGroup). */
 static LIST_HEAD(sg_cfg_list);
 
-/* Sticky sessions scheduler is used in a new configuration */
-static bool tfw_cfg_use_sticky_sess;
-
 /* Grace shutdown timeout. */
 static unsigned int tfw_cfg_grace_time_reconfig = 0;
 
@@ -927,7 +920,6 @@ static struct {
 	bool max_jqage		: 1;
 	bool max_recns		: 1;
 	bool nip_flags		: 1;
-	bool sticky_flags	: 1;
 	bool sched		: 1;
 } __attribute__((packed)) tfw_cfg_is_set;
 
@@ -1193,47 +1185,6 @@ tfw_cfgop_out_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	tfw_cfg_is_set.nip_flags = 1;
 	return tfw_cfgop_retry_nip(cs, ce, &tfw_cfg_sg_opts->nip_flags);
-}
-
-static inline int
-tfw_cfgop_sticky_sess(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned int *use_sticky)
-{
-	if (ce->attr_n) {
-		T_ERR_NL("Arguments may not have the \'=\' sign\n");
-		return -EINVAL;
-	}
-	if (ce->val_n > 1) {
-		T_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
-		return -EINVAL;
-	}
-	if (tfw_cfg_is_dflt_value(ce)) {
-		*use_sticky = 0;
-	} else if (!ce->val_n) {
-		*use_sticky = TFW_SRV_STICKY;
-	} else if (!strcasecmp(ce->vals[0], "allow_failover")) {
-		*use_sticky = TFW_SRV_STICKY | TFW_SRV_STICKY_FAILOVER;
-	} else {
-		T_ERR_NL("Unsupported argument: %s\n", ce->vals[0]);
-		return  -EINVAL;
-	}
-	if (*use_sticky & TFW_SRV_STICKY_FLAGS)
-		tfw_cfg_use_sticky_sess = true;
-
-	return 0;
-}
-
-static int
-tfw_cfgop_in_sticky_sess(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	TFW_CFGOP_INHERIT_FLAGS(ce, sticky_flags);
-	return tfw_cfgop_sticky_sess(cs, ce, &tfw_cfg_sg->sticky_flags);
-}
-
-static int
-tfw_cfgop_out_sticky_sess(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	tfw_cfg_is_set.sticky_flags = 1;
-	return tfw_cfgop_sticky_sess(cs, ce, &tfw_cfg_sg_opts->sticky_flags);
 }
 
 static bool
@@ -1628,8 +1579,7 @@ tfw_cfgop_setup_srv_group(TfwCfgSrvGroup *sg_cfg)
 		sg_cfg->reconf_flags |= TFW_CFG_MDF_SG_SRV;
 	}
 
-	sg->flags = sg_cfg->nip_flags | sg_cfg->sticky_flags |
-			sg_cfg->sched_flags;
+	sg->flags = sg_cfg->nip_flags | sg_cfg->sched_flags;
 	/*
 	 * Check 'ratio' scheduler configuration for incompatibilities.
 	 * Set weight to default value for each server in the group
@@ -1986,7 +1936,6 @@ tfw_sock_srv_cfgstart(void)
 		return -ENOMEM;
 	}
 	tfw_cfg_sg = tfw_cfg_sg_opts;
-	tfw_cfg_use_sticky_sess = false;
 	memset(&tfw_cfg_is_set, 0, sizeof(tfw_cfg_is_set));
 
 	return 0;
@@ -2034,7 +1983,6 @@ tfw_sock_srv_cfgend(void)
 				    tfw_cfg_sg_opts->sched_arg);
 	tfw_cfg_sg_def->parsed_sg->sched = tfw_cfg_sg_opts->parsed_sg->sched;
 	tfw_cfg_sg_def->nip_flags = tfw_cfg_sg_opts->nip_flags;
-	tfw_cfg_sg_def->sticky_flags = tfw_cfg_sg_opts->sticky_flags;
 	tfw_cfg_sg_def->sched_flags = tfw_cfg_sg_opts->sched_flags;
 
 	if ((r = tfw_cfgop_setup_srv_group(tfw_cfg_sg_def)))
@@ -2247,7 +2195,6 @@ tfw_sock_srv_start(void)
 		tfw_srv_loop_sched_rcu();
 	}
 
-	tfw_http_sess_use_sticky_sess(tfw_cfg_use_sticky_sess);
 	tfw_cfgop_cleanup_srv_cfgs(false);
 
 	return 0;
@@ -2328,14 +2275,6 @@ static TfwCfgSpec tfw_srv_group_specs[] = {
 		.spec_ext = &(TfwCfgSpecInt) {
 			.range = { 0, INT_MAX },
 		},
-		.allow_none = true,
-		.allow_repeat = false,
-		.allow_reconfig = true,
-	},
-	{
-		.name = "sticky_sessions",
-		.deflt = TFW_CFG_DFLT_VAL,
-		.handler = tfw_cfgop_in_sticky_sess,
 		.allow_none = true,
 		.allow_repeat = false,
 		.allow_reconfig = true,
@@ -2423,15 +2362,6 @@ static TfwCfgSpec tfw_sock_srv_specs[] = {
 		.spec_ext = &(TfwCfgSpecInt) {
 			.range = { 0, INT_MAX },
 		},
-		.allow_none = true,
-		.allow_repeat = false,
-		.allow_reconfig = true,
-	},
-	{
-		.name = "sticky_sessions",
-		.deflt = TFW_CFG_DFLT_VAL,
-		.handler = tfw_cfgop_out_sticky_sess,
-		.cleanup = tfw_cfgop_cleanup_srv_groups,
 		.allow_none = true,
 		.allow_repeat = false,
 		.allow_reconfig = true,
