@@ -169,17 +169,17 @@ void
 __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 {
 	static const size_t hdr_lens[] = {
-		[TFW_HTTP_HDR_HOST]	= SLEN("Host:"),
-		[TFW_HTTP_HDR_CONTENT_LENGTH] = SLEN("Content-Length:"),
-		[TFW_HTTP_HDR_CONTENT_TYPE] = SLEN("Content-Type:"),
-		[TFW_HTTP_HDR_CONNECTION] = SLEN("Connection:"),
-		[TFW_HTTP_HDR_X_FORWARDED_FOR] = SLEN("X-Forwarded-For:"),
-		[TFW_HTTP_HDR_KEEP_ALIVE] = SLEN("Keep-Alive:"),
-		[TFW_HTTP_HDR_TRANSFER_ENCODING] = SLEN("Transfer-Encoding:"),
-		[TFW_HTTP_HDR_SERVER]	= SLEN("Server:"),
+		[TFW_HTTP_HDR_HOST]		= SLEN("Host:"),
+		[TFW_HTTP_HDR_CONTENT_LENGTH]	= SLEN("Content-Length:"),
+		[TFW_HTTP_HDR_CONTENT_TYPE]	= SLEN("Content-Type:"),
+		[TFW_HTTP_HDR_CONNECTION]	= SLEN("Connection:"),
+		[TFW_HTTP_HDR_X_FORWARDED_FOR]	= SLEN("X-Forwarded-For:"),
+		[TFW_HTTP_HDR_KEEP_ALIVE]	= SLEN("Keep-Alive:"),
+		[TFW_HTTP_HDR_TRANSFER_ENCODING]= SLEN("Transfer-Encoding:"),
+		[TFW_HTTP_HDR_SERVER]		= SLEN("Server:"),
 		[TFW_HTTP_HDR_SET_COOKIE]	= SLEN("Set-Cookie:"),
-		[TFW_HTTP_HDR_ETAG]	= SLEN("ETag:"),
-		[TFW_HTTP_HDR_REFERER]	= SLEN("Referer:"),
+		[TFW_HTTP_HDR_ETAG]		= SLEN("ETag:"),
+		[TFW_HTTP_HDR_REFERER]		= SLEN("Referer:"),
 	};
 
 	TfwStr *c, *end;

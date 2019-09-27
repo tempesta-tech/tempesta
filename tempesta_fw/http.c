@@ -3676,6 +3676,8 @@ tfw_http_resp_cache_cb(TfwHttpMsg *msg)
 
 	T_DBG2("%s: req = %p, resp = %p\n", __func__, resp->req, resp);
 
+	tfw_http_sess_learn(resp);
+
 	if (TFW_MSG_H2(resp->req))
 		tfw_h2_resp_adjust_fwd(resp);
 	else

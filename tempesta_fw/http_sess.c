@@ -75,7 +75,7 @@ typedef struct {
 typedef struct {
 	unsigned int	att_no;
 	unsigned long	ts;
-	unsigned char	hmac[STICKY_KEY_MAXLEN];
+	unsigned char	hmac[STICKY_KEY_HMAC_LEN];
 } __attribute__((packed)) RedirMarkVal;
 
 /**
@@ -86,12 +86,14 @@ typedef struct {
  */
 typedef struct {
 	unsigned long	ts;
-	unsigned char	hmac[STICKY_KEY_MAXLEN];
+	unsigned char	hmac[STICKY_KEY_HMAC_LEN];
 } __attribute__((packed)) StickyVal;
 
 typedef struct {
 	StickyVal	sv;
+	TfwStr		cookie_val;
 	TfwHttpReq	*req;
+	TfwHttpResp	*resp;
 	int		jsch_rcode;
 } TfwSessEqCtx;
 
@@ -257,10 +259,15 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 	return TFW_HTTP_SESS_REDIRECT_NEED;
 }
 
+/*
+ * Search for cookie defined in @sticky configuration in `Set-Cookie`/`Cookie`
+ * header value @cookie and save the cookie value into @val. @is_resp_hdr flag
+ * identifies the header name: true for `Set-Cookie`, false for `Cookie`.
+ */
 static int
-search_cookie(TfwHttpReq *req, const TfwStr *cookie, TfwStr *val)
+search_cookie(TfwStickyCookie *sticky, const TfwStr *cookie, TfwStr *val,
+	      bool is_resp_hdr)
 {
-	TfwStickyCookie *sticky = req->vhost->cookie;
 	const char *const cstr = sticky->name_eq.data;
 	const unsigned long clen = sticky->name_eq.len;
 	TfwStr *chunk, *end;
@@ -283,6 +290,12 @@ search_cookie(TfwHttpReq *req, const TfwStr *cookie, TfwStr *val)
 		tmp.nchunks = n;
 		if (tfw_str_eq_cstr(&tmp, cstr, clen, TFW_STR_EQ_PREFIX))
 			break;
+		/*
+		 * 'Cookie' header has multiple name-value pairs while the
+		 * 'Set-Cookie' has only one.
+		 */
+		if (unlikely(is_resp_hdr))
+			return 0;
 	}
 	if (chunk == end)
 		return 0;
@@ -304,13 +317,13 @@ search_cookie(TfwHttpReq *req, const TfwStr *cookie, TfwStr *val)
 }
 
 /*
- * Find Tempesta sticky cookie in an HTTP message.
+ * Find Tempesta sticky cookie in an HTTP request.
  *
  * Return 1 if the cookie is found.
  * Return 0 if the cookie is NOT found.
  */
 static int
-tfw_http_sticky_get(TfwHttpReq *req, TfwStr *cookie_val)
+tfw_http_sticky_get_req(TfwHttpReq *req, TfwStr *cookie_val)
 {
 	TfwStr value = { 0 };
 	TfwStr *hdr;
@@ -327,19 +340,19 @@ tfw_http_sticky_get(TfwHttpReq *req, TfwStr *cookie_val)
 		return 0;
 	tfw_http_msg_clnthdr_val(hdr, TFW_HTTP_HDR_COOKIE, &value);
 
-	return search_cookie(req, &value, cookie_val);
+	return search_cookie(req->vhost->cookie, &value, cookie_val, false);
 }
 
 #ifdef DEBUG
 #define T_DBG_PRINT_STICKY_COOKIE(addr, ua, sv)				\
 do {									\
 	char abuf[TFW_ADDR_STR_BUF_SIZE] = {0};				\
-	char hbuf[STICKY_KEY_MAXLEN * 2] = {0};				\
+	char hbuf[STICKY_KEY_HMAC_LEN * 2] = {0};				\
 	tfw_addr_fmt(addr, TFW_NO_PORT, abuf);				\
-	bin2hex(hbuf, sticky->key, STICKY_KEY_MAXLEN);			\
+	bin2hex(hbuf, sticky->key, STICKY_KEY_HMAC_LEN);			\
 	T_DBG("http_sess: calculate sticky cookie for %s,"		\
 	      " ts=%#lx(now=%#lx)...\n", abuf, (sv)->ts, jiffies);	\
-	T_DBG("\t...secret: %.*s\n", (int)STICKY_KEY_MAXLEN * 2, hbuf);	\
+	T_DBG("\t...secret: %.*s\n", (int)STICKY_KEY_HMAC_LEN * 2, hbuf);	\
 	tfw_str_dprint(ua, "\t...User-Agent");				\
 } while (0)
 #else
@@ -563,7 +576,7 @@ end_##f:								\
 			break;						\
 		tr = c->data;						\
 	}								\
-	BUG_ON(i != STICKY_KEY_MAXLEN);					\
+	BUG_ON(i != STICKY_KEY_HMAC_LEN);				\
 end:									\
 	r;								\
 })
@@ -706,6 +719,9 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 		      value->chunks->data,
 	      TFW_STR_PLAIN(value) ? "" : "<truncated>");
 
+	if (req->vhost->cookie->learn)
+		return TFW_HTTP_SESS_SUCCESS;
+
 	if (value->len < sizeof(StickyVal) * 2) {
 		sess_warn("bad sticky cookie length", addr, ": %lu(%lu)\n",
 			  value->len, sizeof(StickyVal) * 2);
@@ -732,16 +748,15 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
  * Process Tempesta sticky cookie in an HTTP request.
  */
 static int
-tfw_http_sticky_req_process(TfwHttpReq *req, StickyVal *sv)
+tfw_http_sticky_req_process(TfwHttpReq *req, StickyVal *sv, TfwStr *cookie_val)
 {
 	int r;
-	TfwStr cookie_val = {};
 
 	/*
 	 * See if the Tempesta sticky cookie is present in the request,
 	 * and act depending on the result.
 	 */
-	r = tfw_http_sticky_get(req, &cookie_val);
+	r = tfw_http_sticky_get_req(req, cookie_val);
 	if (r < 0)
 		return r;
 	if (r == 0)
@@ -755,7 +770,7 @@ tfw_http_sticky_req_process(TfwHttpReq *req, StickyVal *sv)
 		 * cookie tries to 1. While we just send normal 302 redirect to
 		 * keep user experience intact.
 		 */
-		if (tfw_http_sticky_verify(req, &cookie_val, sv))
+		if (tfw_http_sticky_verify(req, cookie_val, sv))
 		{
 			RedirMarkVal mv = {}, *mvp = NULL;
 			if (req->vhost->cookie->max_misses) {
@@ -795,6 +810,7 @@ tfw_http_sess_resp_process(TfwHttpResp *resp)
 	TfwStickyCookie *sticky = req->vhost->cookie;
 
 	if (TFW_STR_EMPTY(&sticky->name)
+	    || sticky->learn
 	    || test_bit(TFW_HTTP_B_WHITELIST, req->flags))
 	{
 		return 0;
@@ -832,7 +848,16 @@ tfw_http_sess_unpin_srv(TfwHttpSess *sess)
 static void
 tfw_http_sess_set_expired(TfwHttpSess *sess)
 {
-	sess->expires = 0;
+	atomic64_set(&sess->expires, 0);
+}
+
+static void
+tfw_http_sess_prolong(TfwHttpSess *sess, TfwStickyCookie *sticky)
+{
+	if (!sticky->learn)
+		return;
+	atomic64_set(&sess->expires,
+		     jiffies + (unsigned long)sticky->sess_lifetime * HZ);
 }
 
 void
@@ -919,17 +944,26 @@ tfw_http_sess_eq(TdbRec *rec, void *data)
 	TfwSessEntry *ent = (TfwSessEntry *)rec->data;
 	TfwHttpSess *sess = &ent->sess;
 	TfwSessEqCtx *ctx = (TfwSessEqCtx *)data;
-
+	TfwStickyCookie *sticky = ctx->req->vhost->cookie;
 	/*
 	 * Expired  or invalid session is not usable, leave it for garbage
 	 * collector.
 	 */
-	if ((sess->expires < jiffies) || !sess->vhost) {
+	if (((unsigned long)atomic64_read(&sess->expires) < jiffies)
+	    || !sess->vhost)
+	{
 		return false;
 	}
 
-	if (memcmp_fast(ctx->sv.hmac, sess->hmac, sizeof(sess->hmac)))
-		return false;
+	if (sticky->learn) {
+		TfwStr sess_id = { .data = sess->cval, .len = sess->key_len };
+		if (tfw_strcmp(&sess_id, &ctx->cookie_val))
+			return false;
+	}
+	else {
+		if (memcmp_fast(ctx->sv.hmac, sess->hmac, sizeof(ctx->sv.hmac)))
+			return false;
+	}
 
 	read_lock(&sess->lock);
 	/*
@@ -971,6 +1005,12 @@ tfw_http_sess_precreate(void *data)
 	TfwSessEqCtx *ctx = (TfwSessEqCtx *)data;
 	TfwHttpReq *req = ctx->req;
 	StickyVal *sv = &ctx->sv;
+	/*
+	 * When the cookie is learned from backend, it's created on processing
+	 * responses, not requests.
+	 */
+	if (req->vhost->cookie->learn)
+		return false;
 
 	if ((ctx->jsch_rcode = tfw_http_sess_check_jsch(sv, req)))
 		return false;
@@ -984,16 +1024,25 @@ tfw_sess_ent_init(TdbRec *rec, void *data)
 	TfwSessEntry *ent = (TfwSessEntry *)rec->data;
 	TfwHttpSess *sess = &ent->sess;
 	TfwSessEqCtx *ctx = (TfwSessEqCtx *)data;
+	TfwStickyCookie *sticky = ctx->req->vhost->cookie;
 
 	bzero_fast(sess, sizeof(TfwHttpSess));
 
-	memcpy_fast(sess->hmac, ctx->sv.hmac, sizeof(ctx->sv.hmac));
+	if (sticky->learn) {
+		tfw_str_to_cstr(&ctx->cookie_val, sess->cval, sizeof(sess->cval));
+		sess->key_len = ctx->cookie_val.len;
+
+		sess->srv_conn = (TfwSrvConn *)ctx->resp->conn;
+		sess->ts = jiffies;
+	}
+	else {
+		memcpy_fast(sess->hmac, ctx->sv.hmac, sizeof(ctx->sv.hmac));
+		sess->ts = ctx->sv.ts;
+	}
 
 	atomic_set(&sess->users, 1);
-	sess->ts = ctx->sv.ts;
-	sess->expires = ctx->sv.ts
-		+ (unsigned long)ctx->req->vhost->cookie->sess_lifetime * HZ;
-	sess->srv_conn = NULL;
+	atomic64_set(&sess->expires,
+		     sess->ts + (unsigned long)sticky->sess_lifetime * HZ);
 	sess->vhost = ctx->req->vhost;
 	tfw_vhost_get(sess->vhost);
 	rwlock_init(&sess->lock);
@@ -1014,6 +1063,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	TfwHttpSess *sess;
 	TfwSessEqCtx ctx = { 0 };
 	StickyVal *sv = &ctx.sv;
+	TfwStr *c_val = &ctx.cookie_val;
 	TdbRec *rec;
 	TdbGetAllocCtx tdb_ctx = { 0 };
 
@@ -1023,10 +1073,6 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	 */
 	if (!req->vhost || test_bit(TFW_HTTP_B_WHITELIST, req->flags))
 		return TFW_HTTP_SESS_SUCCESS;
-
-	if ((r = tfw_http_sticky_req_process(req, sv)))
-		return r;
-
 	/*
 	 * Sticky cookie can be not enforced and we still have to allocate new
 	 * session for requests w/o session cookie. It means that malicious user
@@ -1037,14 +1083,20 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	 * We leave this for administrator decision or more progressive DDoS
 	 * mitigation techniques.
 	 */
+	if ((r = tfw_http_sticky_req_process(req, sv, c_val)))
+		return r;
 
-	if (!sv->ts) {
-		/* No sticky cookie in request and no enforcement. */
-		if (tfw_http_sticky_calc(req, sv))
-			return TFW_HTTP_SESS_FAILURE;
+	if (req->vhost->cookie->learn) {
+		key = tfw_hash_str(c_val);
 	}
+	else /* TempestaFw native cookie */ {
+		if (!sv->ts)
+			/* No sticky cookie in request and no enforcement. */
+			if (tfw_http_sticky_calc(req, sv))
+				return TFW_HTTP_SESS_FAILURE;
 
-	key = hash_calc(sv->hmac, sizeof(sv->hmac));
+		key = hash_calc(sv->hmac, sizeof(sv->hmac));
+	}
 	ctx.req = req;
 	tdb_ctx.cmp_rec = tfw_http_sess_eq;
 	tdb_ctx.precreate_rec = tfw_http_sess_precreate;
@@ -1055,25 +1107,143 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	rec = tdb_rec_get_alloc(sess_db, key, &tdb_ctx);
 	BUG_ON(tdb_ctx.len < sizeof(TfwSessEntry));
 	if (!rec) {
+		if (req->vhost->cookie->learn)
+			return TFW_HTTP_SESS_SUCCESS;
 		if (ctx.jsch_rcode)
 			return ctx.jsch_rcode;
-		T_WARN("cannot allocate TDB space for client\n");
+		T_WARN("cannot allocate TDB space for http session\n");
 		return TFW_HTTP_SESS_FAILURE;
 	}
 	sess = &((TfwSessEntry *)rec->data)->sess;
 
 	atomic_inc(&sess->users);
 	req->sess = sess;
+	tfw_http_sess_prolong(sess, req->vhost->cookie);
 
 	if (!tdb_ctx.is_new)
 		/*
 		 * The record doesn't change its location in TDB, since it is
 		 * more than TDB_HTRIE_MINDREC, and we need to unlock the bucket
-		 * with the client as soon as possible.
+		 * with the session as soon as possible.
 		 */
 		tdb_rec_put(rec);
 
 	return TFW_HTTP_SESS_SUCCESS;
+}
+
+/*
+ * Find Learnable sticky cookie in an HTTP response.
+ *
+ * Return 1 if the cookie is found.
+ * Return 0 if the cookie is NOT found.
+ */
+static int
+tfw_http_sticky_get_resp(TfwHttpResp *resp, TfwStr *cookie_val)
+{
+	TfwStickyCookie *sticky = resp->req->vhost->cookie;
+	TfwStr *hdr, *dup, *dup_end;
+	/*
+	 * Each cookie in set header is placed in its own `Set-Cookie` header,
+	 * need to look through all of them
+	 */
+	hdr = &resp->h_tbl->tbl[TFW_HTTP_HDR_SET_COOKIE];
+	TFW_STR_FOR_EACH_DUP(dup, hdr, dup_end) {
+		TfwStr value = { 0 };
+
+		if (TFW_STR_EMPTY(dup))
+			continue;
+		tfw_http_msg_srvhdr_val(dup, TFW_HTTP_HDR_SET_COOKIE, &value);
+		if (search_cookie(sticky, &value, cookie_val, true))
+			return 1;
+	}
+
+	return 0;
+}
+
+/*
+ * Learn HTTP session created on backend server. Even if the session exists,
+ * backend may want to create a new for the client.
+ */
+void
+tfw_http_sess_learn(TfwHttpResp *resp)
+{
+	TfwStickyCookie *sticky;
+	int r;
+	unsigned long key;
+	TfwSessEqCtx ctx = { 0 };
+	TdbGetAllocCtx tdb_ctx = { 0 };
+	TfwStr *c_val = &ctx.cookie_val;
+	TdbRec *rec;
+	TfwHttpSess *new_sess;
+
+	if (WARN_ON_ONCE(!resp->req || !resp->req->vhost))
+		return;
+	sticky = resp->req->vhost->cookie;
+	if (!sticky->learn || TFW_STR_EMPTY(&sticky->name_eq))
+		return;
+
+	r = tfw_http_sticky_get_resp(resp, c_val);
+	if (!r)
+		return;
+	/*
+	 * TODO: Set session as expired if server tries to remove the cookie.
+	 *
+	 * RFC 6265 3.1
+	 * Finally, to remove a cookie, the server returns a Set-Cookie header
+	 * with an expiration date in the past.  The server will be successful
+	 * in removing the cookie only if the Path and the Domain attribute in
+	 * the Set-Cookie header match the values used when the cookie was
+	 * created.
+	 *
+	 * Max-Age <= 0 can also be used to remove the cookie:
+	 * RFC 6265 4.1.2.2
+	 * If delta-seconds is less than or equal to zero (0), let expiry-time
+	 * be the earliest representable date and time.
+	 *
+	 * Empty string is allowed cookie value, but it can't be used to learn
+	 * and track the sessions. In the same time, empty value is pretty often
+	 * used during cookie removals. So if backend requests the client to
+	 * replace the cookie with something we can't track - expire the session.
+	 * https://thoughtbot.com/blog/lucky-cookies#expiration-and-removal
+	 */
+	if (unlikely(TFW_STR_EMPTY(c_val))) {
+		if (resp->req->sess)
+			tfw_http_sess_set_expired(resp->req->sess);
+		return;
+	}
+	if (unlikely(c_val->len > STICKY_KEY_MAX_LEN)) {
+		T_WARN("http_sess: loo long cookie value: %li (%d).\n",
+		       c_val->len, STICKY_KEY_MAX_LEN);
+		return;
+	}
+
+	key = tfw_hash_str(c_val);
+	ctx.req = resp->req;
+	ctx.resp = resp;
+	tdb_ctx.cmp_rec = tfw_http_sess_eq;
+	/* no tdb_ctx.precreate_rec hook. */
+	tdb_ctx.init_rec = tfw_sess_ent_init;
+	tdb_ctx.ctx = &ctx;
+	tdb_ctx.len = sizeof(TfwSessEntry);
+
+	rec = tdb_rec_get_alloc(sess_db, key, &tdb_ctx);
+	BUG_ON(tdb_ctx.len < sizeof(TfwSessEntry));
+	if (!rec) {
+		T_WARN("cannot allocate TDB space for learned http session\n");
+		return;
+	}
+	new_sess = &((TfwSessEntry *)rec->data)->sess;
+	/*
+	 * The session is not required now, it's requied to have a new
+	 * session in tdb. Leave new_sess->users as is.
+	 */
+	if (!tdb_ctx.is_new)
+		/*
+		 * The record doesn't change its location in TDB, since it is
+		 * more than TDB_HTRIE_MINDREC, and we need to unlock the bucket
+		 * with the session as soon as possible.
+		 */
+		tdb_rec_put(rec);
 }
 
 /**
@@ -1251,6 +1421,7 @@ tfw_http_sess_start(void)
 
 	if (tfw_runstate_is_reconfig())
 		return 0;
+
 
 	BUILD_BUG_ON(sizeof(TfwSessEntry) > TDB_HTRIE_MINDREC);
 	sess_db = tdb_open(sess_db_cfg.db_path, sess_db_cfg.db_size,
