@@ -72,6 +72,7 @@ typedef struct {
  * @filp	- mmap()'ed file;
  * @node	- NUMA node ID;
  * @count	- reference counter;
+ * @ga_lock	- Lock for atomic execution of lookup and create a record TDB;
  * @tbl_name	- table name;
  * @path	- path to the table;
  */
@@ -80,6 +81,7 @@ typedef struct {
 	struct file	*filp;
 	int		node;
 	atomic_t	count;
+	spinlock_t	ga_lock; /* TODO: remove and make lockless. */
 	char		tbl_name[TDB_TBLNAME_LEN + 1];
 	char		path[TDB_PATH_LEN];
 } TDB;
@@ -117,6 +119,29 @@ typedef struct {
 } TdbIter;
 
 #define TDB_ITER_BAD(i)		(!(i).rec)
+
+/**
+ * Hooks for tdb_rec_get_alloc() function.
+ * @cmp_rec		- record match function, used in collision chain;
+ * @precreate_rec	- called if record wasn't found in tdb, if return value
+ *			  value is false, a new record won't be created;
+ * @init_rec		- init record before use;
+ * @len			- requested and resulting record size;
+ * @is_new		- true if entry wasn't found in tdb and a new one was
+ *			  created;
+ *
+ * All function pointers gets @ctx as argument. If @init_rec fail the
+ * record is already created and placed into tdb. Tdb user is responsible to
+ * deal with invalid records.
+ */
+typedef struct {
+	bool		(*cmp_rec)(TdbRec *rec, void *ctx);
+	bool		(*precreate_rec)(void *ctx);
+	void		(*init_rec)(TdbRec *rec, void *ctx);
+	void		*ctx;
+	size_t		len;
+	bool		is_new;
+} TdbGetAllocCtx;
 
 /**
  * We use very small index nodes size of only one cache line.
@@ -173,10 +198,7 @@ TdbIter tdb_rec_get(TDB *db, unsigned long key);
 void tdb_rec_next(TDB *db, TdbIter *iter);
 void tdb_rec_put(void *rec);
 int tdb_info(char *buf, size_t len);
-TdbRec * tdb_rec_get_alloc(TDB *db, unsigned long key, size_t *len,
-			   bool (*predicate)(TdbRec *, void (*)(void *), void *),
-			   void (*init)(TdbRec *, void (*)(void *), void *),
-			   void (*cb)(void *), void *data, bool *is_new);
+TdbRec * tdb_rec_get_alloc(TDB *db, unsigned long key, TdbGetAllocCtx *ctx);
 int tdb_entry_walk(TDB *db, int (*fn)(void *));
 void tdb_rec_get_lock(void *rec);
 
