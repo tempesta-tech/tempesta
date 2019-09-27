@@ -52,6 +52,69 @@
  * removing is required. End user should avoid such configurations.
  */
 
+#define STICKY_NAME_MAXLEN	(32)
+#define STICKY_OPT_MAXLEN	(256)
+
+
+/**
+ * JavaScript challenge.
+ *
+ * To pass JS challenge client must repeat it's request in exact time frame
+ * specified by JS code.
+ *
+ * @body	- body (html with JavaScript code);
+ * @delay_min	- minimal timeout client must wait before repeat the request,
+ *		  in jiffies;
+ * @delay_limit	- maximum time required to deliver request form a client to the
+ *		  Tempesta, in jiffies;
+ * @delay_range	- time interval starting after @delay_min for a client to make
+ *		  a repeated request, in msecs;
+ * @st_code	- status code for response with JS challenge;
+ */
+typedef struct {
+	TfwStr			body;
+	unsigned long		delay_min;
+	unsigned long		delay_limit;
+	unsigned long		delay_range;
+	unsigned short		st_code;
+} TfwCfgJsCh;
+
+/**
+ * Sticky cookie configuration.
+ *
+ * @shash		- Secret server value to generate reliable client
+ *			  identifiers.
+ * @name		- name of sticky cookie;
+ * @name_eq		- @name plus "=" to make some operations faster;
+ * @js_challenge	- JS challenge configuration;
+ * @redirect_code	- redirect status code for set-cookie and js challenge
+ *			  responses;
+ * @sess_lifetime	- session lifetime in seconds;
+ * @max_misses		- maximum count of requests with invalid cookie;
+ * @tmt_sec		- maximum time (in seconds) to wait the request
+ *			  with valid cookie;
+ * @learn		- learn backend cookie instead of adding our own
+ *			  session cookie;
+ * @enforce		- don't forward requests to backend unless session
+ *			  cookie is set;
+ */
+struct tfw_http_cookie_t {
+	struct crypto_shash	*shash;
+	char			key[SHA1_DIGEST_SIZE];
+	char			sticky_name[STICKY_NAME_MAXLEN + 1];
+	char			options_str[STICKY_OPT_MAXLEN];
+	TfwStr			options;
+	TfwStr			name;
+	TfwStr			name_eq;
+	TfwCfgJsCh		*js_challenge;
+	unsigned int		redirect_code;
+	unsigned int		sess_lifetime;
+	unsigned int		max_misses;
+	unsigned int		tmt_sec;
+	unsigned int		learn : 1,
+				enforce : 1;
+};
+
 /**
  * HTTP session descriptor.
  *
@@ -75,6 +138,8 @@ struct tfw_http_sess_t {
 	rwlock_t		lock;
 };
 
+#define STICKY_KEY_MAXLEN	SHA1_DIGEST_SIZE
+
 enum {
 	/* Internal error, may be any number < 0. */
 	TFW_HTTP_SESS_FAILURE = -1,
@@ -94,13 +159,12 @@ int tfw_http_sess_resp_process(TfwHttpResp *resp);
 void tfw_http_sess_put(TfwHttpSess *sess);
 void tfw_http_sess_pin_vhost(TfwHttpSess *sess, TfwVhost *vhost);
 
+void tfw_http_sess_redir_enable(void);
 bool tfw_http_sess_max_misses(void);
 unsigned int tfw_http_sess_mark_size(void);
-TfwStr *tfw_http_sess_mark_name(void);
+const TfwStr *tfw_http_sess_mark_name(void);
 
 /* Sticky sessions scheduling routines. */
 TfwSrvConn *tfw_http_sess_get_srv_conn(TfwMsg *msg);
-
-void tfw_http_sess_use_sticky_sess(bool use);
 
 #endif /* __TFW_HTTP_SESS_H__ */
