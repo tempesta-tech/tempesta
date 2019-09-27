@@ -35,7 +35,6 @@
  */
 #include <crypto/hash.h>
 #include <linux/ctype.h>
-#include <linux/hashtable.h>
 #include <linux/slab.h>
 #include <linux/time.h>
 #include <linux/vmalloc.h>
@@ -50,9 +49,21 @@
 #include "http_sess.h"
 #include "vhost.h"
 #include "filter.h"
+#include "tdb.h"
 
 #define SESS_HASH_BITS		17
 #define SESS_HASH_SZ		(1 << SESS_HASH_BITS)
+
+static struct {
+	unsigned int	db_size;
+	const char	*db_path;
+} sess_db_cfg __read_mostly;
+
+static TDB *sess_db;
+
+typedef struct {
+	TfwHttpSess	sess;
+} TfwSessEntry;
 
 /**
  * Temporal storage for calculated redirection mark value.
@@ -79,17 +90,10 @@ typedef struct {
 } __attribute__((packed)) StickyVal;
 
 typedef struct {
-	struct hlist_head	list;
-	spinlock_t		lock;
-} SessHashBucket;
-
-static SessHashBucket sess_hash[SESS_HASH_SZ] = {
-	[0 ... (SESS_HASH_SZ - 1)] = {
-		HLIST_HEAD_INIT,
-	}
-};
-
-static struct kmem_cache *sess_cache;
+	StickyVal	sv;
+	TfwHttpReq	*req;
+	int		jsch_rcode;
+} TfwSessEqCtx;
 
 /*
  * Redirection mark in the URI. Can't be defined per-vhost, since the mark is
@@ -825,6 +829,12 @@ tfw_http_sess_unpin_srv(TfwHttpSess *sess)
 	tfw_server_unpin_sess(srv);
 }
 
+static void
+tfw_http_sess_set_expired(TfwHttpSess *sess)
+{
+	sess->expires = 0;
+}
+
 void
 tfw_http_sess_put(TfwHttpSess *sess)
 {
@@ -836,7 +846,7 @@ tfw_http_sess_put(TfwHttpSess *sess)
 		tfw_http_sess_unpin_srv(sess);
 		if (sess->vhost)
 			tfw_vhost_put(sess->vhost);
-		kmem_cache_free(sess_cache, sess);
+		tfw_http_sess_set_expired(sess);
 	}
 }
 
@@ -859,13 +869,12 @@ tfw_http_sess_mark_name(void)
 }
 
 /**
- * Remove a session from hash bucket. @sess may become invalid after the
+ * Remove a session from tdb. @sess may become invalid after the
  * function call.
  */
 static void
 tfw_http_sess_remove(TfwHttpSess *sess)
 {
-	hash_del(&sess->hentry);
 	tfw_http_sess_put(sess);
 }
 
@@ -904,6 +913,94 @@ tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 	}
 }
 
+static bool
+tfw_http_sess_eq(TdbRec *rec, void *data)
+{
+	TfwSessEntry *ent = (TfwSessEntry *)rec->data;
+	TfwHttpSess *sess = &ent->sess;
+	TfwSessEqCtx *ctx = (TfwSessEqCtx *)data;
+
+	/*
+	 * Expired  or invalid session is not usable, leave it for garbage
+	 * collector.
+	 */
+	if ((sess->expires < jiffies) || !sess->vhost) {
+		return false;
+	}
+
+	if (memcmp_fast(ctx->sv.hmac, sess->hmac, sizeof(sess->hmac)))
+		return false;
+
+	read_lock(&sess->lock);
+	/*
+	 * Vhost are removed and added at runtime, so can't
+	 * compare pointers here.
+	 */
+	if (tfw_strcmp(&sess->vhost->name, &ctx->req->vhost->name)) {
+		read_unlock(&sess->lock);
+		return false;
+	}
+	/*
+	 * if sess->vhost != req->vhost, then B_REMOVED is set
+	 * for sess->vhost.
+	 */
+	if (unlikely(test_bit(TFW_VHOST_B_REMOVED,
+			      &sess->vhost->flags)
+		     && (sess->vhost != ctx->req->vhost)))
+	{
+		/*
+		 * The session holds the last reference to the
+		 * vhost. It's not a part of the active
+		 * configuration anymore and therefore is not
+		 * useful to us at all. We can only release it
+		 * to free associated resources.
+		 */
+		read_unlock(&sess->lock);
+		tfw_http_sess_pin_vhost(sess, ctx->req->vhost);
+		goto found;
+	}
+	read_unlock(&sess->lock);
+found:
+	T_DBG("http_sess was found in tdb, %pK\n", sess);
+	return true;
+}
+
+static bool
+tfw_http_sess_precreate(void *data)
+{
+	TfwSessEqCtx *ctx = (TfwSessEqCtx *)data;
+	TfwHttpReq *req = ctx->req;
+	StickyVal *sv = &ctx->sv;
+
+	if ((ctx->jsch_rcode = tfw_http_sess_check_jsch(sv, req)))
+		return false;
+
+	return true;
+}
+
+static void
+tfw_sess_ent_init(TdbRec *rec, void *data)
+{
+	TfwSessEntry *ent = (TfwSessEntry *)rec->data;
+	TfwHttpSess *sess = &ent->sess;
+	TfwSessEqCtx *ctx = (TfwSessEqCtx *)data;
+
+	bzero_fast(sess, sizeof(TfwHttpSess));
+
+	memcpy_fast(sess->hmac, ctx->sv.hmac, sizeof(ctx->sv.hmac));
+
+	atomic_set(&sess->users, 1);
+	sess->ts = ctx->sv.ts;
+	sess->expires = ctx->sv.ts
+		+ (unsigned long)ctx->req->vhost->cookie->sess_lifetime * HZ;
+	sess->srv_conn = NULL;
+	sess->vhost = ctx->req->vhost;
+	tfw_vhost_get(sess->vhost);
+	rwlock_init(&sess->lock);
+
+	T_DBG("http_sess was newly created, %pK\n", sess);
+}
+
 /**
  * Obtains appropriate HTTP session for the request based on Sticky cookies.
  * Gets a reference of vhost if it was stored in the session.
@@ -915,9 +1012,10 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	int r;
 	unsigned long key;
 	TfwHttpSess *sess;
-	SessHashBucket *hb;
-	struct hlist_node *tmp;
-	StickyVal sv = { };
+	TfwSessEqCtx ctx = { 0 };
+	StickyVal *sv = &ctx.sv;
+	TdbRec *rec;
+	TdbGetAllocCtx tdb_ctx = { 0 };
 
 	/*
 	 * If vhost is not known, then request is to be dropped. Don't save the
@@ -926,7 +1024,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	if (!req->vhost || test_bit(TFW_HTTP_B_WHITELIST, req->flags))
 		return TFW_HTTP_SESS_SUCCESS;
 
-	if ((r = tfw_http_sticky_req_process(req, &sv)))
+	if ((r = tfw_http_sticky_req_process(req, sv)))
 		return r;
 
 	/*
@@ -940,98 +1038,42 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	 * mitigation techniques.
 	 */
 
-	if (!sv.ts) {
+	if (!sv->ts) {
 		/* No sticky cookie in request and no enforcement. */
-		if (tfw_http_sticky_calc(req, &sv))
+		if (tfw_http_sticky_calc(req, sv))
 			return TFW_HTTP_SESS_FAILURE;
 	}
 
-	key = hash_calc(sv.hmac, sizeof(sv.hmac));
-	hb = &sess_hash[hash_min(key, SESS_HASH_BITS)];
+	key = hash_calc(sv->hmac, sizeof(sv->hmac));
+	ctx.req = req;
+	tdb_ctx.cmp_rec = tfw_http_sess_eq;
+	tdb_ctx.precreate_rec = tfw_http_sess_precreate;
+	tdb_ctx.init_rec = tfw_sess_ent_init;
+	tdb_ctx.ctx = &ctx;
+	tdb_ctx.len = sizeof(TfwSessEntry);
 
-	spin_lock(&hb->lock);
-
-	hlist_for_each_entry_safe(sess, tmp, &hb->list, hentry) {
-		/* Collect garbage first to not to return expired session. */
-		if ((sess->expires < jiffies) || !sess->vhost) {
-			tfw_http_sess_remove(sess);
-			continue;
-		}
-
-		if (!memcmp_fast(sv.hmac, sess->hmac, sizeof(sess->hmac))) {
-			read_lock(&sess->lock);
-			/*
-			 * Vhost are removed and added at runtime, so can't
-			 * compare pointers here.
-			 */
-			if (tfw_strcmp(&sess->vhost->name, &req->vhost->name)) {
-				read_unlock(&sess->lock);
-				continue;
-			}
-			/*
-			 * if sess->vhost != req->vhost, then B_REMOVED is set
-			 * for sess->vhost.
-			 */
-			if (unlikely(test_bit(TFW_VHOST_B_REMOVED,
-					      &sess->vhost->flags)
-				     && (sess->vhost != req->vhost)))
-			{
-				/*
-				 * The session holds the last reference to the
-				 * vhost. It's not a part of the active
-				 * configuration anymore and therefore is not
-				 * useful to us at all. We can only release it
-				 * to free associated resources.
-				 */
-				read_unlock(&sess->lock);
-				tfw_http_sess_pin_vhost(sess, req->vhost);
-				goto found;
-			}
-			read_unlock(&sess->lock);
-			goto found;
-		}
+	rec = tdb_rec_get_alloc(sess_db, key, &tdb_ctx);
+	BUG_ON(tdb_ctx.len < sizeof(TfwSessEntry));
+	if (!rec) {
+		if (ctx.jsch_rcode)
+			return ctx.jsch_rcode;
+		T_WARN("cannot allocate TDB space for client\n");
+		return TFW_HTTP_SESS_FAILURE;
 	}
+	sess = &((TfwSessEntry *)rec->data)->sess;
 
-	if ((r = tfw_http_sess_check_jsch(&sv, req))) {
-		spin_unlock(&hb->lock);
-		return r;
-	}
-
-	if (!(sess = kmem_cache_alloc(sess_cache, GFP_ATOMIC))) {
-		spin_unlock(&hb->lock);
-		return -ENOMEM;
-	}
-
-	memcpy_fast(sess->hmac, sv.hmac, sizeof(sv.hmac));
-	hlist_add_head(&sess->hentry, &hb->list);
-	/*
-	 * Sessions are removed by the garbage collection above, so the hash
-	 * table is initial user of the session plus to the function caller.
-	 */
-	atomic_set(&sess->users, 1);
-	sess->ts = sv.ts;
-	sess->expires =
-		sv.ts + (unsigned long)req->vhost->cookie->sess_lifetime * HZ;
-	sess->srv_conn = NULL;
-	sess->vhost = req->vhost;
-	tfw_vhost_get(sess->vhost);
-	rwlock_init(&sess->lock);
-	T_DBG("new session %p\n", sess);
-
-found:
 	atomic_inc(&sess->users);
-
-	spin_unlock(&hb->lock);
-
 	req->sess = sess;
 
-	return TFW_HTTP_SESS_SUCCESS;
-}
+	if (!tdb_ctx.is_new)
+		/*
+		 * The record doesn't change its location in TDB, since it is
+		 * more than TDB_HTRIE_MINDREC, and we need to unlock the bucket
+		 * with the client as soon as possible.
+		 */
+		tdb_rec_put(rec);
 
-static void
-tfw_http_sess_set_expired(TfwHttpSess *sess)
-{
-	sess->expires = 0;
+	return TFW_HTTP_SESS_SUCCESS;
 }
 
 /**
@@ -1206,25 +1248,59 @@ static int
 tfw_http_sess_start(void)
 {
 	redir_mark_enabled = redir_mark_enabled_reconfig;
+
+	if (tfw_runstate_is_reconfig())
+		return 0;
+
+	BUILD_BUG_ON(sizeof(TfwSessEntry) > TDB_HTRIE_MINDREC);
+	sess_db = tdb_open(sess_db_cfg.db_path, sess_db_cfg.db_size,
+			   sizeof(TfwSessEntry), numa_node_id());
+	if (!sess_db)
+		return -EINVAL;
+
+	return 0;
+}
+
+static int
+tfw_http_sess_release_entry(void *data)
+{
+	TfwHttpSess *sess = &((TfwSessEntry *)data)->sess;
+
+	tfw_http_sess_remove(sess);
+
 	return 0;
 }
 
 static void
 tfw_http_sess_stop(void)
 {
-	int i;
+	if (!sess_db)
+		return;
 
-	for (i = 0; i < SESS_HASH_SZ; ++i) {
-		TfwHttpSess *sess;
-		struct hlist_node *tmp;
-		SessHashBucket *hb = &sess_hash[i];
-
-		hlist_for_each_entry_safe(sess, tmp, &hb->list, hentry)
-			tfw_http_sess_remove(sess);
-	}
+	tdb_entry_walk(sess_db, tfw_http_sess_release_entry);
+	tdb_close(sess_db);
 }
 
-static TfwCfgSpec tfw_http_sess_specs_dummy[] = {
+static TfwCfgSpec tfw_http_sess_specs_table[] = {
+	{
+		.name = "sessions_tbl_size",
+		.deflt = "16777216",
+		.handler = tfw_cfg_set_int,
+		.dest = &sess_db_cfg.db_size,
+		.spec_ext = &(TfwCfgSpecInt) {
+			.multiple_of = PAGE_SIZE,
+			.range = { PAGE_SIZE, (1 << 30) },
+		}
+	},
+	{
+		.name = "sessions_db",
+		.deflt = "/opt/tempesta/db/sessions.tdb",
+		.handler = tfw_cfg_set_str,
+		.dest = &sess_db_cfg.db_path,
+		.spec_ext = &(TfwCfgSpecStr) {
+			.len_range = { 1, PATH_MAX },
+		}
+	},
 	{ 0 }
 };
 
@@ -1233,28 +1309,12 @@ TfwMod tfw_http_sess_mod = {
 	.cfgstart	= tfw_http_sess_cfgstart,
 	.start		= tfw_http_sess_start,
 	.stop		= tfw_http_sess_stop,
-	.specs		= tfw_http_sess_specs_dummy,
+	.specs		= tfw_http_sess_specs_table,
 };
 
 int __init
 tfw_http_sess_init(void)
 {
-	int i;
-
-	sess_cache = kmem_cache_create("tfw_sess_cache", sizeof(TfwHttpSess),
-				       0, 0, NULL);
-	if (!sess_cache) {
-		T_ERR_NL("Can't create session cache\n");
-		return -ENOMEM;
-	}
-
-	/*
-	 * Dynamically initialize hash table spinlocks to avoid lockdep leakage
-	 * (see Troubleshooting in Documentation/locking/lockdep-design.txt).
-	 */
-	for (i = 0; i < SESS_HASH_SZ; ++i)
-		spin_lock_init(&sess_hash[i].lock);
-
 	tfw_mod_register(&tfw_http_sess_mod);
 
 	return 0;
@@ -1264,5 +1324,4 @@ void
 tfw_http_sess_exit(void)
 {
 	tfw_mod_unregister(&tfw_http_sess_mod);
-	kmem_cache_destroy(sess_cache);
 }
