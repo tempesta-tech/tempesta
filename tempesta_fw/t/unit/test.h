@@ -158,7 +158,7 @@ do {							\
 	__EXPECT_CMP("EXPECT_GT", (expr1), (expr2), _val1 > _val2)
 
 #define EXPECT_GE(expr1, expr2) \
-	__EXPECT_CMP("EXPECT_GE", (expr1), (expr2), _val1 >= val2)
+	__EXPECT_CMP("EXPECT_GE", (expr1), (expr2), _val1 >= _val2)
 
 #define EXPECT_TRUE(expr) \
 	__EXPECT_COND("EXPECT_TRUE", (expr), _val)
