@@ -253,13 +253,6 @@ tfw_cfgop_cookie_learn(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
 		if (!strcasecmp(key, "name")) {
 			name_val = val;
-		} else if (!strcasecmp(key, "timeout")) {
-			if (tfw_cfg_parse_uint(val, &sticky->tmt_sec))
-			{
-				T_ERR_NL("%s: invalid value for 'timeout'"
-					 " attribute: '%s'\n", cs->name, val);
-				return -EINVAL;
-			}
 		} else {
 			T_ERR_NL("%s: unsupported argument: '%s=%s'.\n",
 				 cs->name, key, val);
@@ -360,11 +353,11 @@ tfw_cfgop_sticky_secret(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	if (tfw_cfg_check_single_val(ce))
 		return -EINVAL;
-	if (len > STICKY_KEY_MAXLEN)
+	if (len > STICKY_KEY_HMAC_LEN)
 		return -EINVAL;
 
 	if (len) {
-		memset(sticky->key, 0, STICKY_KEY_MAXLEN);
+		memset(sticky->key, 0, STICKY_KEY_HMAC_LEN);
 		memcpy(sticky->key, ce->vals[0], len);
 	}
 	else {
@@ -567,6 +560,9 @@ tfw_http_sess_cfg_finish(TfwVhost *vhost)
 	to->name_eq.len = from->name_eq.len;
 	to->options.data = to->options_str;
 	to->options.len = from->options.len;
+
+	if (!to->sess_lifetime)
+		to->sess_lifetime = UINT_MAX;
 
 	tfw_cfgop_sticky_sess_inherit(vhost);
 
