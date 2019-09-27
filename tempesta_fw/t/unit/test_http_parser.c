@@ -35,7 +35,6 @@ static size_t hm_exp_len = 0;
 static int chunks = 1;
 
 #define SAMPLE_REQ_STR	"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
-#define RMARK_NAME	"__tfw_name"
 
 static int
 split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
@@ -528,6 +527,7 @@ TEST(http_parser, parses_enforce_ext_req_rmark)
  * HMAC (see 'test_http_sticky.c' file for details about
  * calculation process).
  */
+#define RMARK_NAME	"__tfw"
 #define ATT_NO		"00000001"
 #define TIMESTAMP	"535455565758595a"
 #define HMAC		"9cf5585388196965871bf4240ef44a52d0ffb23d"
@@ -2804,7 +2804,7 @@ TEST_SUITE(http_parser)
 	 * Testing for correctness of redirection mark parsing (in
 	 * extended enforced mode of 'http_sessions' module).
 	 */
-	test_helper_sticky_start(RMARK_NAME, 1);
+	test_helper_sticky_start(1);
 
 	TEST_RUN(http_parser, parses_enforce_ext_req);
 	TEST_RUN(http_parser, parses_enforce_ext_req_rmark);
