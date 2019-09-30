@@ -766,7 +766,7 @@ tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
  * to its beginning.
  */
 static int
-tfw_http_msg_body_xfrm(TfwHttpMsg *hm, TfwStr *data, bool append)
+tfw_http_msg_body_xfrm(TfwHttpMsg *hm, const TfwStr *data, bool append)
 {
 	int r;
 	TfwStr it = {};
@@ -813,7 +813,9 @@ int
 tfw_http_msg_to_chunked(TfwHttpMsg *hm)
 {
 	int r;
-	DEFINE_TFW_STR(chunked_body_end, "\r\n0\r\n\r\n");
+	const DEFINE_TFW_STR(chunked_body_end, "\r\n0\r\n\r\n");
+	const DEFINE_TFW_STR(zero_body_end, "0\r\n\r\n");
+	const TfwStr *body_end = &chunked_body_end;
 
 	r = TFW_HTTP_MSG_HDR_XFRM(hm, "Transfer-Encoding", "chunked",
 				  TFW_HTTP_HDR_TRANSFER_ENCODING, 1);
@@ -833,9 +835,14 @@ tfw_http_msg_to_chunked(TfwHttpMsg *hm)
 		if ((r = tfw_http_msg_body_xfrm(hm, &sz, false)))
 			return r;
 	}
+	else {
+		hm->body.data = hm->crlf.data + hm->crlf.len;
+		body_end = &zero_body_end;
+	}
 
-	if ((r = tfw_http_msg_body_xfrm(hm, &chunked_body_end, true)))
+	if ((r = tfw_http_msg_body_xfrm(hm, body_end, true))) {
 		return r;
+	}
 
 	__set_bit(TFW_HTTP_B_CHUNKED, hm->flags);
 
