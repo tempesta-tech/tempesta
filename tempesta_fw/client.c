@@ -272,7 +272,12 @@ tfw_client_start(void)
 {
 	if (tfw_runstate_is_reconfig())
 		return 0;
-
+	/*
+	 * The TfwClientEntry is used as direct pointer to data behind tdb.
+	 * Small entries may me moved between locations as index tree grows,
+	 * while big ones has constant location.
+	 */
+	BUILD_BUG_ON(sizeof(TfwClientEntry) <= TDB_HTRIE_MINDREC);
 	client_db = tdb_open(client_cfg.db_path, client_cfg.db_size,
 			     sizeof(TfwClientEntry), numa_node_id());
 	if (!client_db)

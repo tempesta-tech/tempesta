@@ -1425,9 +1425,12 @@ tfw_http_sess_start(void)
 
 	if (tfw_runstate_is_reconfig())
 		return 0;
-
-
-	BUILD_BUG_ON(sizeof(TfwSessEntry) > TDB_HTRIE_MINDREC);
+	/*
+	 * The TfwSessEntry is used as direct pointer to data behind tdb.
+	 * Small entries may me moved between locations as index tree grows,
+	 * while big ones has constant location.
+	 */
+	BUILD_BUG_ON(sizeof(TfwSessEntry) <= TDB_HTRIE_MINDREC);
 	sess_db = tdb_open(sess_db_cfg.db_path, sess_db_cfg.db_size,
 			   sizeof(TfwSessEntry), numa_node_id());
 	if (!sess_db)

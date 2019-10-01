@@ -115,9 +115,14 @@ struct tfw_http_cookie_t {
 				enforce : 1;
 };
 
-#define STICKY_KEY_MAX_LEN	(78)
+/*
+ * Maximum Cookie value length for learned cookie. RFC 6265 says that a cookie
+ * with all options may acquire up to 4KB, but this field is only about
+ * value. Let fix for this size for now.
+ */
+#define STICKY_KEY_MAX_LEN	(256)
+/* Size of binary representation of HMAC. */
 #define STICKY_KEY_HMAC_LEN	(SHA1_DIGEST_SIZE)
-
 
 /**
  * HTTP session descriptor.
