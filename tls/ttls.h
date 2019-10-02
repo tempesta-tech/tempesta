@@ -482,7 +482,6 @@ typedef struct
  *		  data);
  * @rlen	- read bytes of the message body so far;
  * @skb_list	- list of skbs attached to the current I/O context;
- * @off		- data offset within @skb_list, can be after the 1st skb;
  * @chunks	- number of contiguous memory chunks in all skbs in @skb_list;
  */
 typedef struct {
@@ -503,7 +502,6 @@ typedef struct {
 	unsigned short	hslen;
 	unsigned short	rlen;
 	struct sk_buff	*skb_list;
-	unsigned int	off;
 	unsigned int	chunks;
 } TlsIOCtx;
 
