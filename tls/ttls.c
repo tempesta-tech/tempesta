@@ -149,7 +149,7 @@ ttls_crypto_req_sglist(TlsCtx *tls, struct crypto_aead *tfm, unsigned int len,
 		off = 0;
 		n = *sgn + 1;
 	} else {
-		off = io->off;
+		off = ttls_payload_off(&tls->xfrm);
 		n = *sgn + io->chunks;
 	}
 	sz += n * sizeof(**sg);
@@ -886,8 +886,6 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 	}
 
 	dec_msglen = io->msglen - expiv_len - taglen;
-	/* Build decryption request starting from the offset. */
-	io->off = ttls_payload_off(xfrm);
 
 	memcpy_fast(xfrm->iv_dec + xfrm->fixed_ivlen, io->iv, sizeof(io->iv));
 	req = ttls_crypto_req_sglist(tls, tfm, dec_msglen + taglen, buf,
@@ -2297,14 +2295,6 @@ next_record:
 
 	/* Encrypted data. */
 	if (io->msglen > io->rlen + len) {
-		/*
-		 * Store offset of begin of current message. The most generic
-		 * case is 0-RTT with a data message after some handshake
-		 * messages: we don't know whether there are different messages
-		 * at begin of the skb_list or there is only one incomplete
-		 * data message, io->off resolves the ambiguity.
-		 */
-		io->off = *read;
 		*read += len;
 		io->rlen += len;
 		return T_POSTPONE;
