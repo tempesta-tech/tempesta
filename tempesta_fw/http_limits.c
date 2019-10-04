@@ -472,8 +472,14 @@ frang_http_uri_len(const TfwHttpReq *req, FrangAcc *ra, unsigned int uri_len)
  * exhausting DoS attack on many large header fields, since we don't know
  * which headers were read on each data chunk.
  *
- * TODO Probably it's better to embed a hook to HTTP parser directly to
- * catch the long headers immediately.
+ * TODO #1346: we should recognize inadequately long header fields as early
+ * as possible, to avoid resources wasting on malformed requests processing;
+ * this is especially important in case of Huffman decoding (during processing
+ * of HTTP/2 header fields), since Huffman decoding is an extremely expensive
+ * operation; thus, we need to check @http_field_len HTTP limit before we go
+ * to further parsing/decoding, and it seems that the most simple and effective
+ * way to achieve that - is to embed a hook into HTTP-parsers (or in case of
+ * HTTP/2, into HPACK-decoder) directly to catch the long headers immediately.
  */
 static int
 __frang_http_field_len(const TfwHttpReq *req, FrangAcc *ra,
