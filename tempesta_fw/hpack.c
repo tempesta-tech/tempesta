@@ -1314,7 +1314,7 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 		T_DBG3("%s: hp->curr=%d, hp->hctx=%hx, hp->length=%lu,"
 		       " i=%u, shift=%d, offset=%u\n", __func__,
 		       hp->curr, hp->hctx, hp->length, i, shift, offset);
-		if (likely(shift >= 0)) {
+		if (likely(shift > 0)) {
 			if (shift <= hp->curr + HT_NBITS) {
 				sym = (char)ht_decode[offset + i].offset;
 				if (tfw_hpack_huffman_write(sym, req))
@@ -1325,7 +1325,8 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			} else {
 				break;
 			}
-		} else {
+		}
+		else if (shift < 0) {
 			/*
 			 * Last full prefix processed here, to allow EOS
 			 * padding detection.
@@ -1349,6 +1350,11 @@ huffman_decode_tail(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 				return T_DROP;
 			}
 
+			return T_DROP;
+		}
+		else {
+			/* @shift must not be zero. */
+			WARN_ON_ONCE(1);
 			return T_DROP;
 		}
 	}
@@ -1378,7 +1384,7 @@ huffman_decode_tail_s(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 	       " shift=%d, offset=%u\n", __func__, hp->curr, hp->hctx,
 	       hp->length, i, shift, offset);
 
-	if (likely(shift >= 0)) {
+	if (likely(shift > 0)) {
 		if (likely(shift <= hp->curr + HT_NBITS)) {
 			sym = (char)ht_decode[offset + i].offset;
 			if (tfw_hpack_huffman_write(sym, req))
@@ -1386,17 +1392,13 @@ huffman_decode_tail_s(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			hp->curr -= shift;
 			return huffman_decode_tail(hp, req, 0);
 		}
-	} else {
+	}
+	else {
 		/*
-		 * Condition here equivalent to the
-		 * "-shift <= hp->curr + HT_NBITS", but
-		 * working faster.
+		 * @shift for short tables must be greater
+		 * than zero.
 		 */
-		if (shift >= -HT_NBITS - hp->curr) {
-			if (ht_decode[offset + i].offset == 0) {
-				return T_DROP;
-			}
-		}
+		WARN_ON_ONCE(1);
 	}
 
 	return T_DROP;
@@ -1442,12 +1444,13 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			       " shift=%d, offset=%u, offset=%c\n", __func__,
 			       hp->curr, hp->hctx, hp->length, n, last - src,
 			       i, shift, offset, (char)offset);
-			if (shift >= 0) {
+			if (likely(shift > 0)) {
 				if (tfw_hpack_huffman_write((char)offset, req))
 					return T_DROP;
 				hp->curr -= shift;
 				offset = 0;
-			} else {
+			}
+			else if (shift < 0) {
 				hp->curr += shift;
 				if (offset >= HT_SMALL) {
 					break;
@@ -1455,6 +1458,11 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 				if (unlikely(offset == 0)) {
 					goto end;
 				}
+			}
+			else {
+				/* @shift must not be zero. */
+				WARN_ON_ONCE(1);
+				goto end;
 			}
 		}
 		hp->curr += HT_NBITS - HT_MBITS;
@@ -1484,11 +1492,17 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 			       " shift=%d, offset=%u, offset=%c\n", __func__,
 			       hp->curr, hp->hctx, hp->length, n, last - src,
 			       i, shift, offset, (char)offset);
-			if (likely(shift >= 0)) {
+			if (likely(shift > 0)) {
 				if (tfw_hpack_huffman_write((char)offset, req))
 					return T_DROP;
 				hp->curr -= shift;
-			} else {
+			}
+			else {
+				/*
+				 * @shift for short tables must be greater
+				 * than zero.
+				 */
+				WARN_ON_ONCE(1);
 				break;
 			}
 		}
