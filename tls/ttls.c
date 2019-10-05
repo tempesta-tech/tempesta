@@ -2330,7 +2330,8 @@ skip_record:
 	bzero_fast(io->__initoff, sizeof(*io) - offsetof(TlsIOCtx, __initoff));
 
 	delta = *read - parsed;
-	WARN_ON_ONCE(delta > len);
+	if (WARN_ON_ONCE(delta > len))
+		return T_DROP;
 	len -= delta;
 	if (len) {
 		buf += delta;
