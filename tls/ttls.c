@@ -1171,6 +1171,8 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 		 */
 
 	case TTLS_MSG_APPLICATION_DATA:
+		if (unlikely(!ready))
+			return TTLS_ERR_INVALID_RECORD;
 		ivahs_len = ttls_expiv_len(&tls->xfrm);
 		break;
 
