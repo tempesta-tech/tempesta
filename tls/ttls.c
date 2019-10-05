@@ -2282,11 +2282,7 @@ next_record:
 		return r;
 
 	case TTLS_MSG_APPLICATION_DATA:
-		if (!io->msglen) {
-			/* OpenSSL sends empty messages to randomize the IV. */
-			T_DBG("empty application TLS record - skip\n");
-			goto skip_record;
-		}
+		/* Fall through. */
 	}
 
 	if (len == 0)
