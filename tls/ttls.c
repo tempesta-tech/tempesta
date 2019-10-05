@@ -2226,8 +2226,6 @@ next_record:
 	}
 	WARN_ON_ONCE(!io->msglen);
 	delta = *read - parsed;
-	if (delta == len)
-		return T_POSTPONE;
 	len -= delta;
 	buf += delta;
 	parsed = *read;
@@ -2248,6 +2246,8 @@ next_record:
 	case TTLS_MSG_CHANGE_CIPHER_SPEC:
 		/* Parsed as part of handshake FSM. */
 	case TTLS_MSG_HANDSHAKE:
+		if (len == 0)
+			return T_POSTPONE;
 		if (unlikely(tls->state == TTLS_HANDSHAKE_OVER)) {
 			T_DBG("refusing renegotiation, sending alert\n");
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
@@ -2288,6 +2288,9 @@ next_record:
 			goto skip_record;
 		}
 	}
+
+	if (len == 0)
+		return T_POSTPONE;
 
 	/* After the handshake the crypto context must be ready. */
 	if (unlikely(!ttls_xfrm_ready(tls))) {
