@@ -2282,7 +2282,7 @@ next_record:
 		return r;
 
 	case TTLS_MSG_APPLICATION_DATA:
-		/* Fall through. */
+		break;
 	}
 
 	if (len == 0)
