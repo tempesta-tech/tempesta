@@ -1171,6 +1171,8 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 		 */
 
 	case TTLS_MSG_APPLICATION_DATA:
+		if (unlikely(!ready))
+			return TTLS_ERR_INVALID_RECORD;
 		ivahs_len = ttls_expiv_len(&tls->xfrm);
 		break;
 
@@ -2224,8 +2226,6 @@ next_record:
 	}
 	WARN_ON_ONCE(!io->msglen);
 	delta = *read - parsed;
-	if (delta == len)
-		return T_POSTPONE;
 	len -= delta;
 	buf += delta;
 	parsed = *read;
@@ -2246,6 +2246,8 @@ next_record:
 	case TTLS_MSG_CHANGE_CIPHER_SPEC:
 		/* Parsed as part of handshake FSM. */
 	case TTLS_MSG_HANDSHAKE:
+		if (len == 0)
+			return T_POSTPONE;
 		if (unlikely(tls->state == TTLS_HANDSHAKE_OVER)) {
 			T_DBG("refusing renegotiation, sending alert\n");
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
@@ -2280,12 +2282,11 @@ next_record:
 		return r;
 
 	case TTLS_MSG_APPLICATION_DATA:
-		if (!io->msglen) {
-			/* OpenSSL sends empty messages to randomize the IV. */
-			T_DBG("empty application TLS record - skip\n");
-			goto skip_record;
-		}
+		/* Fall through. */
 	}
+
+	if (len == 0)
+		return T_POSTPONE;
 
 	/* After the handshake the crypto context must be ready. */
 	if (unlikely(!ttls_xfrm_ready(tls))) {
@@ -2325,7 +2326,8 @@ skip_record:
 	bzero_fast(io->__initoff, sizeof(*io) - offsetof(TlsIOCtx, __initoff));
 
 	delta = *read - parsed;
-	WARN_ON_ONCE(delta > len);
+	if (WARN_ON_ONCE(delta > len))
+		return T_DROP;
 	len -= delta;
 	if (len) {
 		buf += delta;
