@@ -1158,8 +1158,9 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 		/* Alerts are unencrypted during handshake only. */
 		if (!ready) {
 			ivahs_len = 2; /* level & description */
-			if (io->msglen < ivahs_len) {
-				T_DBG("alert message too short: %d\n",
+			if (io->msglen != ivahs_len) {
+				/* TODO: multiple alerts in one record? */
+				T_DBG("unexpected alert message length: %d\n",
 				      io->msglen);
 				return TTLS_ERR_INVALID_RECORD;
 			}
@@ -1179,9 +1180,9 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 	case TTLS_MSG_CHANGE_CIPHER_SPEC:
 		/* Read 1 byte equal to 0x1. */
 		ivahs_len = 1;
-		if (io->msglen < ivahs_len) {
-			T_DBG("ChangeCipherSpec message too short: %d\n",
-			      io->msglen);
+		if (io->msglen != ivahs_len) {
+			T_DBG("unexpected ChangeCipherSpec message length: "
+			      "%d\n", io->msglen);
 			return TTLS_ERR_INVALID_RECORD;
 		}
 		break;
