@@ -2764,7 +2764,7 @@ __req_parse_if_msince(TfwHttpMsg *msg, unsigned char *data, size_t len)
 		r = __parse_http_date(msg, data, len);
 	}
 
-	if (r >= 0) {
+	if (r >= 0 && parser->_date != 0) {
 		req->cond.m_date = parser->_date;
 		req->cond.flags |= TFW_HTTP_COND_IF_MSINCE;
 	}
@@ -4459,7 +4459,7 @@ __resp_parse_expires(TfwHttpMsg *msg, unsigned char *data, size_t len)
 		r = __parse_http_date(msg, data, len);
 	}
 
-	if (r >= 0) {
+	if (r >= 0 && parser->_date != 0) {
 		resp->cache_ctl.expires = parser->_date;
 		resp->cache_ctl.flags |= TFW_HTTP_CC_HDR_EXPIRES;
 	}
@@ -4488,7 +4488,7 @@ __resp_parse_date(TfwHttpMsg *msg, unsigned char *data, size_t len)
 		r = __parse_http_date(msg, data, len);
 	}
 
-	if (r >= 0) {
+	if (r >= 0 && parser->_date != 0) {
 		resp->date = parser->_date;
 		__set_bit(TFW_HTTP_B_HDR_DATE, resp->flags);
 	}
@@ -4517,7 +4517,7 @@ __resp_parse_if_modified(TfwHttpMsg *msg, unsigned char *data, size_t len)
 		r = __parse_http_date(msg, data, len);
 	}
 
-	if (r >= 0) {
+	if (r >= 0 && parser->_date != 0) {
 		resp->last_modified = parser->_date;
 		__set_bit(TFW_HTTP_B_HDR_LMODIFIED, resp->flags);
 	}
