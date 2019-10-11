@@ -199,7 +199,7 @@ tfw_h2_cleanup(void)
 	tfw_h2_stream_cache_destroy();
 }
 
-void
+int
 tfw_h2_context_init(TfwH2Ctx *ctx)
 {
 	TfwClosedQueue *hclosed_streams = &ctx->hclosed_streams;
@@ -213,7 +213,7 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 	spin_lock_init(&ctx->lock);
 	INIT_LIST_HEAD(&hclosed_streams->list);
 
-	lset->hdr_tbl_sz = rset->hdr_tbl_sz = 1 << 12;
+	lset->hdr_tbl_sz = rset->hdr_tbl_sz = HPACK_TABLE_DEF_SIZE;
 	lset->push = rset->push = 1;
 	lset->max_streams = rset->max_streams = 0xffffffff;
 	lset->max_frame_sz = rset->max_frame_sz = 1 << 14;
@@ -223,12 +223,15 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 	 * we set it to maximum allowed value.
 	 */
 	lset->wnd_sz = rset->wnd_sz = MAX_WND_SIZE;
+
+	return tfw_hpack_init(&ctx->hpack, HPACK_TABLE_DEF_SIZE);
 }
 
 void
 tfw_h2_context_clear(TfwH2Ctx *ctx)
 {
 	WARN_ON_ONCE(ctx->streams_num);
+	tfw_hpack_clean(&ctx->hpack);
 }
 
 static inline void
@@ -943,8 +946,10 @@ tfw_h2_settings_ack_process(TfwH2Ctx *ctx)
 {
 	T_DBG3("%s: parsed, stream_id=%u, flags=%hhu\n", __func__,
 	       ctx->hdr.stream_id, ctx->hdr.flags);
+
+	ctx->hpack.max_window = ctx->lsettings.hdr_tbl_sz;
 	/*
-	 * TODO: apply settings ACK.
+	 * TODO: apply other local settings on ACK receiving.
 	 */
 }
 

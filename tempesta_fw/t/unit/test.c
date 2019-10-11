@@ -102,6 +102,7 @@ TEST_SUITE(sched_hash);
 TEST_SUITE(http_tbl);
 TEST_SUITE(wq);
 TEST_SUITE(tls);
+TEST_SUITE(hpack);
 
 int
 test_run_all(void)
@@ -132,6 +133,7 @@ test_run_all(void)
 	TEST_SUITE_RUN(sched_ratio);
 	TEST_SUITE_RUN(sched_hash);
 	TEST_SUITE_RUN(http_tbl);
+	TEST_SUITE_RUN(hpack);
 
 	kernel_fpu_end();
 

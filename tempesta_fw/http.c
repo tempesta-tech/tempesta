@@ -1,6 +1,72 @@
 /**
  *		Tempesta FW
  *
+ * Core HTTP-layer processing, including HTTP/2 and HTTP/1.1 versions.
+ *
+ * Notes about the design of HTTP/2 implementation.
+ *
+ * In order to perform internal HTTP-specific analysis (HTTP-tables,
+ * HTTP-limits, Sessions module, Scheduling etc.) - for both HTTP/2 and
+ * HTTP/1.1 processing - we need representation of HTTP-message content.
+ * In case of HTTP/1.1 we have such representation right from the message's
+ * source skb - those are ASCII strings, which don't need to be decrypted
+ * and allow quick processing with SIMD instructions. However, content of
+ * HTTP/2-message (i.e. headers) could be encrypted with special HPACK
+ * methods (static/dynamic indexing and Huffman coding), which doesn't
+ * allow to analyze the message content directly. o solve this issue for
+ * HTTP/2-requests processing, current implementation of HTTP-layer creates
+ * HTTP/1.1-representation of HTTP/2 headers (during HPACK-decoding and
+ * HTTP/2-parsing) and places that representation into the special pool
+ * @TfwHttpReq.pit.pool.
+ *
+ * TODO #309: during adjusting stage (before re-sending request to backend)
+ * in @tfw_h2_adjust_req() the obtained @TfwHttpReq.pit.pool with
+ * HTTP/1.1-representation must be used for request assembling in case of
+ * HTTP/2 => HTTP/1.1 transformation.
+ *
+ * TODO #309: actually, we don't need to create separate HTTP/1.1-representation
+ * for all HTTP/2 headers: some of them could be not encoded (not in Huffman
+ * form - in ASCII instead) and some - could be just indexed (we can keep static
+ * and dynamic indexes during internal request analysis and convert them into
+ * ASCII strings in-place - on demand), so, we can save memory/processor
+ * resources and create additional HTTP/1.1-representation only for Huffman
+ * encoded headers.
+ *
+ * Described above approach was chosen instead of immediate HTTP/2 => HTTP/1.1
+ * transformation on HTTP/2-message decoding, because the latter one is not
+ * scales for the case of HTTP/2 => HTTP/2 proxying, since during request
+ * receiving/processing we do not know what backend (HTTP/2 or HTTP/1.1)
+ * the request attended for. Thus, until the backend determination moment,
+ * we need to leave HTTP/2-representation in the source skb.
+ * Yet another choice (instead of HTTP/1.1-representation creation for HTTP/2
+ * message) could be an implementation HTTP/2-specific functionality set with
+ * custom flags in @TfwHttpReq.h_tbl - to perform HTTP-specific analysis right
+ * over source HTTP/2-representation of the message. However, there are several
+ * problems with HTTP/2-representation analysis:
+ * 1. HTTP/2 still allows ASCII strings, and even the same HTTP message may
+ *    contain the same header in ASCII and in static table index. Thus, even
+ *    with pure HTTP/2 operation we still must care about binary headers
+ *    representation and plain ASCII representation. That means that the whole
+ *    headers analyzing logic (mentioned above Schedulers, HTTPTables etc.) must
+ *    either encode/decode strings on the fly or keep the two representations
+ *    for the headers;
+ * 2. Huffman decoding is extremely slow: it operates on units less than a byte,
+ *    while we use SIMD operations for ASCII processing. The bytes-crossing
+ *    logic doesn't allow to efficiently encode Huffman decoding in SIMD;
+ * 3. Huffman encoding, also due to byte boundary crossing, mangles string
+ *    information representation, so efficient strings matching algorithms
+ *    required for #496 and #732 can not be applied.
+ * Thus, the points specified above (and #732) leave us only one possibility:
+ * since we must process ASCII-headers along with Huffman-encoded, we have to
+ * decode Huffman on HTTP-message reception.
+ *
+ * Regarding of internal HTTP/2-responses (error and cached) generation - dual
+ * logic design is used; i.e. along with existing functionality for
+ * HTTP/1.1-responses creation, separate logic implemented for HTTP/2-responses
+ * generation, in order to get performance benefits of creating a message right
+ * away in HTTP/2-format instead of transforming into HTTP/2 from already
+ * created HTTP/1.1-message.
+ *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
  * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
@@ -1916,25 +1982,34 @@ tfw_http_conn_msg_alloc(TfwConn *conn, TfwStream *stream)
 	tfw_connection_get(conn);
 	hm->stream = stream;
 
-	if (TFW_CONN_H2(conn))
-		__set_bit(TFW_HTTP_B_H2, hm->flags);
-
 	if (type & Conn_Clnt)
 		tfw_http_init_parser_req((TfwHttpReq *)hm);
 	else
 		tfw_http_init_parser_resp((TfwHttpResp *)hm);
 
+	if (TFW_CONN_H2(conn)) {
+		TfwHttpReq *req = (TfwHttpReq *)hm;
+
+		if(!(req->pit.pool = __tfw_pool_new(0)))
+			goto clean;
+		req->pit.hdr = &req->stream->parser.hdr;
+		__set_bit(TFW_HTTP_B_H2, req->flags);
+	}
+
 	if (type & Conn_Clnt) {
 		TFW_INC_STAT_BH(clnt.rx_messages);
 	} else {
-		if (unlikely(tfw_http_resp_pair(hm))) {
-			tfw_http_conn_msg_free(hm);
-			return NULL;
-		}
+		if (unlikely(tfw_http_resp_pair(hm)))
+			goto clean;
+
 		TFW_INC_STAT_BH(serv.rx_messages);
 	}
 
 	return (TfwMsg *)hm;
+clean:
+	tfw_http_conn_msg_free(hm);
+
+	return NULL;
 }
 
 /*
@@ -2686,12 +2761,16 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
 	unsigned int stream_id;
+	bool entered = false;
 
-	if (!(stream_id = tfw_h2_stream_id_close(req))) {
+	if (!(stream_id = tfw_h2_stream_id_close(req))
+	    || tfw_hpack_hdrs_transform(resp, &entered))
+	{
 		tfw_http_resp_pair_free(req);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
 		return;
 	}
+
 	/*
 	 * TODO #309: transforming response into HTTP/2 format and sending
 	 * (HPACK index, replace headers/names with indexes in HTTP/2 format,
@@ -3400,7 +3479,6 @@ next_msg:
 		 */
 		return TFW_PASS;
 	case TFW_PASS:
-		WARN_ON_ONCE(TFW_MSG_H2(req));
 		/*
 		 * The request is fully parsed,
 		 * fall through and process it.

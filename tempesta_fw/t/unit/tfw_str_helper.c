@@ -107,3 +107,35 @@ make_compound_str2(const char *data1, const char *data2)
 
 	return str;
 }
+
+TfwStr *
+collect_compound_str(TfwStr *res_str, const TfwStr *in_str)
+{
+	const TfwStr *c, *end;
+	TfwStr *c_new, *c_start = NULL;
+
+	TFW_STR_FOR_EACH_CHUNK(c, in_str, end) {
+		c_new = tfw_str_add_compound(str_pool, res_str);
+		BUG_ON(!c_new);
+
+		*c_new = *c;
+		res_str->len += c_new->len;
+
+		if (!c_start)
+			c_start = c_new;
+	}
+	return c_start;
+}
+
+TfwStr *
+collect_compound_str2(TfwStr *res_str, char *str, unsigned long len)
+{
+	TfwStr *c_new = tfw_str_add_compound(str_pool, res_str);
+
+	BUG_ON(!c_new);
+	c_new->len = len;
+	c_new->data = str;
+	res_str->len += len;
+
+	return c_new;
+}
