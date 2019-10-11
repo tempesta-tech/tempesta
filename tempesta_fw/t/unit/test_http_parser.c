@@ -1083,7 +1083,7 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 	const char *s_ka = "timeout=600, max=65526";
 	/* Trailing spaces are stored within header strings. */
 	const char *s_age = "Age: 12  ";
-	const char *s_date = "Date: Sun, 9 Sep 2001 01:46:40 GMT\t";
+	const char *s_date = "Date: Sun, 09 Sep 2001 01:46:40 GMT\t";
 
 	FOR_RESP("HTTP/1.1 200 OK\r\n"
 		"Connection: Keep-Alive\r\n"
@@ -1105,7 +1105,7 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 		"Server: Apache/2.4.6 (CentOS) OpenSSL/1.0.1e-fips"
 		        " mod_fcgid/2.3.9\r\n"
 		"Age: 12  \n"
-		"Date: Sun, 9 Sep 2001 01:46:40 GMT\t\n"
+		"Date: Sun, 09 Sep 2001 01:46:40 GMT\t\n"
 		"\r\n"
 		"3\r\n"
 		"012\r\n"
