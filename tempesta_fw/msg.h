@@ -29,8 +29,8 @@
 
 /**
  * @seq_list	- member in the ordered queue of messages;
- * @ss_flags	- message processing flags;
  * @skb_head	- head of the list of sk_buff that belong to the message;
+ * @ss_flags	- message processing flags;
  * @len		- total message length;
  *
  * TODO: Currently seq_list is used only in requests. Responses are not
@@ -60,6 +60,36 @@ typedef struct {
 	struct sk_buff	*skb;
 	struct sk_buff	*skb_head;
 } TfwMsgIter;
+
+/**
+ * Iterator for HTTP/2 message processing.
+ *
+ * @pool	- allocation pool for target buffer of decoded headers;
+ * @hdr		- pointer to message header which is currently processed;
+ * @start_pos	- pointer to the beginning of decoded headers' buffer; used
+ *		  as start point during exporting buffer pages to message's
+ *		  target skb;
+ * @__off	- offset for iterator reinitializing before next processing
+ *		  stage;
+ * @pos		- pointer to the currently allocated chunk of decoded headers'
+ *		  buffer;
+ * @rspace	- space remained in the allocated chunk;
+ * @next	- pointer to the decoded header part (name/value) to be
+ *		- parsed next;
+ * @nm_len	- length of the decoded header's name;
+ * @hdr_tag	- ID of currently processed decoded header.
+ */
+typedef struct {
+	TfwPool		*pool;
+	TfwStr		*hdr;
+	char		*start_pos;
+	char		__off[0];
+	char		*pos;
+	unsigned long	rspace;
+	TfwStr		*next;
+	unsigned long	nm_len;
+	unsigned int	hdr_tag;
+} TfwMsgParseIter;
 
 int tfw_msg_write(TfwMsgIter *it, const TfwStr *data);
 int tfw_msg_iter_setup(TfwMsgIter *it, struct sk_buff **skb_head,

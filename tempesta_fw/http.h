@@ -384,6 +384,8 @@ typedef struct {
  * @peer	- end-to-end peer. The peer is not set if
  *		  hop-by-hop peer (TfwConnection->peer) and end-to-end peer are
  *		  the same;
+ * @pit		- iterator for tracking transformed data allocation (applicable
+ *		  for HTTP/2 mode only);
  * @userinfo	- userinfo in URI, not mandatory;
  * @host	- host in URI, may differ from Host header;
  * @uri_path	- path + query + fragment from URI (RFC3986.3);
@@ -392,16 +394,16 @@ typedef struct {
  * @multipart_boundary - decoded multipart boundary;
  * @fwd_list	- member in the queue of forwarded/backlogged requests;
  * @nip_list	- member in the queue of non-idempotent requests;
- * @method	- HTTP request method, one of GET/PORT/HEAD/etc;
- * @node	- NUMA node where request is serviced;
- * @frang_st	- current state of FRANG classifier;
- * @chunk_cnt	- header or body chunk count for Frang classifier;
  * @jtxtstamp	- time the request is forwarded to a server, in jiffies;
  * @jrxtstamp	- time the request is received from a client, in jiffies;
  * @tm_header	- time HTTP header started coming;
  * @tm_bchunk	- time previous chunk of HTTP body had come at;
  * @hash	- hash value for caching calculated for the request;
+ * @frang_st	- current state of FRANG classifier;
+ * @chunk_cnt	- header or body chunk count for Frang classifier;
+ * @node	- NUMA node where request is serviced;
  * @retries	- the number of re-send attempts;
+ * @method	- HTTP request method, one of GET/PORT/HEAD/etc;
  *
  * TfwStr members must be the first for efficient scanning.
  */
@@ -412,6 +414,7 @@ struct tfw_http_req_t {
 	TfwHttpSess		*sess;
 	TfwClient		*peer;
 	TfwHttpCond		cond;
+	TfwMsgParseIter		pit;
 	TfwStr			userinfo;
 	TfwStr			host;
 	TfwStr			uri_path;
@@ -420,16 +423,16 @@ struct tfw_http_req_t {
 	TfwStr			multipart_boundary;
 	struct list_head	fwd_list;
 	struct list_head	nip_list;
-	unsigned char		method;
-	unsigned short		node;
-	unsigned int		frang_st;
-	unsigned int		chunk_cnt;
 	unsigned long		jtxtstamp;
 	unsigned long		jrxtstamp;
 	unsigned long		tm_header;
 	unsigned long		tm_bchunk;
 	unsigned long		hash;
+	unsigned int		frang_st;
+	unsigned int		chunk_cnt;
+	unsigned short		node;
 	unsigned short		retries;
+	unsigned char		method;
 };
 
 #define TFW_HTTP_REQ_STR_START(r)	__MSG_STR_START(r)
