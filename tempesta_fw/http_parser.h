@@ -85,19 +85,34 @@ typedef struct {
  * @hbh_parser	- list of special and raw headers names to be treated as
  *		  hop-by-hop
  * @_date	- currently parsed http date value;
+ * @st		- template showing in what state the i-th character in the
+ *		  string should be parsed;
+ * @month_int	- accumulator for parsing of month;
  */
 typedef struct {
-	unsigned short	to_go;
-	unsigned short	_cnt;
-	unsigned int	_hdr_tag;
-	void		*state;
-	void		*_i_st;
-	long		to_read;
-	unsigned long	_acc;
-	time_t		_date;
-	TfwStr		_tmp_chunk;
-	TfwStr		hdr;
-	TfwHttpHbhHdrs	hbh_parser;
+	unsigned short			to_go;
+	unsigned short			_cnt;
+	unsigned int			_hdr_tag;
+	void				*state;
+	void				*_i_st;
+	long				to_read;
+	union {
+		unsigned long		_acc;
+		struct {
+			short		year;
+			char		day;
+			char		hour;
+			char		min;
+			char		sec;
+			unsigned char	type;
+			unsigned char	pos;
+		} date;
+	};
+	time_t				_date;
+	TfwStr				_tmp_chunk;
+	TfwStr				hdr;
+	TfwHttpHbhHdrs			hbh_parser;
+	unsigned int			month_int;
 } TfwHttpParser;
 
 void tfw_http_init_parser_req(TfwHttpReq *req);
