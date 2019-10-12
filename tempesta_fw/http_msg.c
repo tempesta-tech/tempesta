@@ -1130,9 +1130,9 @@ tfw_http_msg_hdr_length(const TfwStr *hdr, unsigned long *name_len,
 
 	*val_len = hdr_len - *name_len - *val_off - hdr_tail;
 
-	TFW_DBG3("%s: name_len=%lu, val_off=%lu, val_len=%lu, hdr_tail=%lu,"
-		 " hdr_len=%lu\n", __func__, *name_len, *val_off, *val_len,
-		 hdr_tail, hdr_len);
+	T_DBG3("%s: name_len=%lu, val_off=%lu, val_len=%lu, hdr_tail=%lu,"
+	       " hdr_len=%lu\n", __func__, *name_len, *val_off, *val_len,
+	       hdr_tail, hdr_len);
 
 	return *name_len + *val_len;
 }
@@ -1184,8 +1184,8 @@ tfw_http_msg_hdr_write(const TfwStr *hdr, unsigned long nm_len,
 		if (!len)
 			continue;
 
-		TFW_DBG3("%s: len=%lu, c->data='%.*s'\n", __func__, len,
-			 (int)len, c->data);
+		T_DBG3("%s: len=%lu, c->data='%.*s'\n", __func__, len, (int)len,
+		       c->data);
 
 		memcpy_fast(out_buf, c->data, len);
 		out_buf += len;
