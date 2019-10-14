@@ -223,7 +223,7 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 		TFW_STR_INIT(&ctx.user_agent);
 	}
 
-	tdb_ctx.cmp_rec =  tfw_client_addr_eq;
+	tdb_ctx.eq_rec =  tfw_client_addr_eq;
 	tdb_ctx.init_rec = tfw_client_ent_init;
 	tdb_ctx.len = sizeof(TfwClientEntry);
 	tdb_ctx.ctx = &ctx;
@@ -237,8 +237,8 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 	if (!tdb_ctx.is_new)
 		/*
 		 * The record doesn't change its location in TDB, since it is
-		 * more than TDB_HTRIE_MINDREC, and we need to unlock the bucket
-		 * with the client as soon as possible.
+		 * larger than TDB_HTRIE_MINDREC, and we need to unlock the
+		 * bucket with the client as soon as possible.
 		 */
 		tdb_rec_put(rec);
 
@@ -273,9 +273,9 @@ tfw_client_start(void)
 	if (tfw_runstate_is_reconfig())
 		return 0;
 	/*
-	 * The TfwClientEntry is used as direct pointer to data behind tdb.
-	 * Small entries may me moved between locations as index tree grows,
-	 * while big ones has constant location.
+	 * The TfwClientEntry is used as direct pointer to data  inside a TDB
+	 * entry. Small entries may be moved between locations as index tree
+	 * grows, while big ones has constant location.
 	 */
 	BUILD_BUG_ON(sizeof(TfwClientEntry) <= TDB_HTRIE_MINDREC);
 	client_db = tdb_open(client_cfg.db_path, client_cfg.db_size,

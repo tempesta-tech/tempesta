@@ -590,7 +590,7 @@ tfw_cfgop_nonidempotent(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc)
 		     < _TFW_HTTP_METH_COUNT);
 
 	if (ce->attr_n) {
-		T_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
+		T_ERR_NL("%s: Arguments may not have the '=' sign\n",
 			 cs->name);
 		return -EINVAL;
 	}
@@ -710,7 +710,7 @@ tfw_cfgop_mod_hdr(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc,
 	const char *value = NULL;
 
 	if (ce->attr_n) {
-		T_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
+		T_ERR_NL("%s: Arguments may not have the '=' sign\n",
 			 cs->name);
 		return -EINVAL;
 	}
@@ -887,7 +887,7 @@ tfw_cfgop_capolicy(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwLocation *loc, int cmd)
 	BUG_ON((cmd != TFW_D_CACHE_BYPASS) && (cmd != TFW_D_CACHE_FULFILL));
 
 	if (ce->attr_n) {
-		T_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
+		T_ERR_NL("%s: Arguments may not have the '=' sign\n",
 			 cs->name);
 		return -EINVAL;
 	}
@@ -1129,7 +1129,7 @@ tfw_cfgop_location_begin(TfwCfgSpec *cs, TfwCfgEntry *ce, TfwVhost *vhost)
 	const char *in_op, *arg;
 
 	if (ce->attr_n) {
-		T_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
+		T_ERR_NL("%s: Arguments may not have the '=' sign\n",
 			   cs->name);
 		return -EINVAL;
 	}
@@ -1308,7 +1308,7 @@ tfw_cfgop_cache_purge_acl(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	const char *val;
 
 	if (ce->attr_n) {
-		T_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
+		T_ERR_NL("%s: Arguments may not have the '=' sign\n",
 			cs->name);
 		return -EINVAL;
 	}
@@ -1350,7 +1350,7 @@ tfw_cfgop_cache_purge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	const char *val;
 
 	if (ce->attr_n) {
-		T_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
+		T_ERR_NL("%s: Arguments may not have the '=' sign\n",
 			 cs->name);
 		return -EINVAL;
 	}
@@ -1384,7 +1384,7 @@ tfw_cfgop_hdr_via(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	size_t len;
 
 	if (ce->attr_n) {
-		T_ERR_NL("%s: Arguments may not have the \'=\' sign\n",
+		T_ERR_NL("%s: Arguments may not have the '=' sign\n",
 			 cs->name);
 		return -EINVAL;
 	}
@@ -1749,7 +1749,7 @@ __tfw_cfgop_frang_rsp_code_block(TfwCfgSpec *cs, TfwCfgEntry *ce,
 	int n, i;
 
 	if (ce->attr_n) {
-		T_ERR_NL("%s arguments may not have the \'=\' sign\n",
+		T_ERR_NL("%s arguments may not have the '=' sign\n",
 			 error_msg_begin);
 		return -EINVAL;
 	}
