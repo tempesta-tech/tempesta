@@ -2138,9 +2138,9 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	/*
 	 * Cookie header is parsed according to RFC 6265 4.2.1.
 	 *
-	 * Here we build header value string manually to split it in chunks:
+	 * Here we build a header value string manually to split it in chunks:
 	 * chunk bounds are at least at name start, value start and value end.
-	 * This simplifies cookie search, http_sticky uses it.
+	 * This simplifies the cookie search, http_sticky uses it.
 	 */
 	__FSM_START(parser->_i_st);
 
@@ -2170,7 +2170,7 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 	/*
 	 * Cookie-value can have zero length, but we still have to store it
-	 * in separate TfwStr chunk.
+	 * in a separate TfwStr chunk.
 	 */
 	__FSM_STATE(Req_I_CookieVal) {
 		__FSM_I_MATCH_MOVE_fixup(cookie, Req_I_CookieVal, TFW_STR_VALUE);
@@ -4523,7 +4523,7 @@ done:
 }
 
 static int
-__resp_parse_cookie(TfwHttpResp *resp, unsigned char *data, size_t len)
+__resp_parse_set_cookie(TfwHttpResp *resp, unsigned char *data, size_t len)
 {
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(resp);
@@ -4531,9 +4531,9 @@ __resp_parse_cookie(TfwHttpResp *resp, unsigned char *data, size_t len)
 	/*
 	 * Set-Cookie header is parsed according to RFC 6265 4.1.1.
 	 *
-	 * Here we build header value string manually to split it in chunks:
+	 * Here we build a header value string manually to split it in chunks:
 	 * chunk bounds are at least at name start, value start and value end.
-	 * This simplifies cookie search, http_sticky uses it. Cookie
+	 * This simplifies the cookie search, http_sticky uses it.
 	 */
 	__FSM_START(parser->_i_st);
 
@@ -4563,7 +4563,7 @@ __resp_parse_cookie(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	/*
 	 * Cookie-value can have zero length, but we still have to store it
-	 * in separate TfwStr chunk.
+	 * in a separate TfwStr chunk.
 	 */
 	__FSM_STATE(Resp_I_CookieVal) {
 		__FSM_I_MATCH_MOVE_fixup(cookie, Resp_I_CookieVal, TFW_STR_VALUE);
@@ -4607,7 +4607,7 @@ __resp_parse_cookie(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	/*
 	 * We don't strictly validate the extensions, eat them as is. Hope
-	 * backends doesn't try to trick us.
+	 * a backend doesn't try to trick us.
 	 */
 	__FSM_STATE(Resp_I_CookieExtension) {
 		__FSM_I_MATCH_MOVE_fixup(ctext_vchar, Resp_I_CookieExtension, 0);
@@ -4631,7 +4631,7 @@ __resp_parse_cookie(TfwHttpResp *resp, unsigned char *data, size_t len)
 done:
 	return r;
 }
-STACK_FRAME_NON_STANDARD(__resp_parse_cookie);
+STACK_FRAME_NON_STANDARD(__resp_parse_set_cookie);
 
 /*
  * The server connection is being closed. Terminate the current message.
@@ -5024,7 +5024,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 
 	/* 'Set-Cookie:*OWS' is read, process field-value. */
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrSet_CookieV, resp,
-				     __resp_parse_cookie,
+				     __resp_parse_set_cookie,
 				     TFW_HTTP_HDR_SET_COOKIE, 0);
 
 	RGEN_HDR_OTHER();

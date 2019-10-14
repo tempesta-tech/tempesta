@@ -151,6 +151,10 @@ enum {
  * @loc_dflt	- Default policy.
  * @vhost_dflt	- Pointer to default virtual host with global policies.
  * @hdrs_pool	- Modification headers allocation pool for vhost's policies.
+ * @frang_gconf	- Global frang configuration. Applicable only for 'default'
+ *		  vhost and NULL for others. Provides frang configuration
+ *		  options used before request is parsed and assigned to any
+ *		  vhost.
  * @cookie	- Sticky cookie configuration.
  * @refcnt	- Number of users of the virtual host object.
  * @loc_sz	- Count of elements in @loc array.

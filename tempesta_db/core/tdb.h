@@ -122,21 +122,22 @@ typedef struct {
 
 /**
  * Hooks for tdb_rec_get_alloc() function.
- * @cmp_rec		- record match function, used in collision chain;
- * @precreate_rec	- called if record wasn't found in tdb, if return value
- *			  value is false, a new record won't be created;
+ * @eq_rec		- record match function, used in collision chain;
+ * @precreate_rec	- called before a new record will be created int tdb,
+ *			record creation will be aborted in non zero return code;
  * @init_rec		- init record before use;
+ * @ctx			- arbitrary pointer to pass arguments into callbacks;
  * @len			- requested and resulting record size;
  * @is_new		- true if entry wasn't found in tdb and a new one was
  *			  created;
  *
- * All function pointers gets @ctx as argument. If @init_rec fail the
+ * All function pointers get @ctx as argument. If @init_rec fail the
  * record is already created and placed into tdb. Tdb user is responsible to
  * deal with invalid records.
  */
 typedef struct {
-	bool		(*cmp_rec)(TdbRec *rec, void *ctx);
-	bool		(*precreate_rec)(void *ctx);
+	bool		(*eq_rec)(TdbRec *rec, void *ctx);
+	int		(*precreate_rec)(void *ctx);
 	void		(*init_rec)(TdbRec *rec, void *ctx);
 	void		*ctx;
 	size_t		len;

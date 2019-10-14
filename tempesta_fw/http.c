@@ -3510,24 +3510,24 @@ next_msg:
 	if ((r = tfw_http_req_client_link(conn, req)))
 		return r;
 	/*
-	 * Assign the target virtual host for current request before further
+	 * Assign a target virtual host for the current request before further
 	 * processing.
 	 *
-	 * There are multiple ways to get target vhost:
-	 * - search in HTTP chains (defined in the configuration by admin),
+	 * There are multiple ways to get a target vhost:
+	 * - search in HTTP chains (defined in the configuration by an admin),
 	 * can be slow on big configurations, since chains are tested
 	 * one-by-one;
 	 * - get vhost from the HTTP session information (by Sticky cookie);
 	 * - get Vhost according to TLS SNI header parsing.
 	 *
-	 * There is a possibility, that each method will give the very different
+	 * There is a possibility, that each method will give a very different
 	 * result. It absolutely depends on configuration provided by
-	 * administrator and application behaviour. Some differences are
-	 * expected any way, e.g. if tls client doesn't send SNI identifier
+	 * an administrator and application behaviour. Some differences are
+	 * expected anyway, e.g. if tls client doesn't send an SNI identifier
 	 * it will be matched to 'default' vhost while http_chains can identify
 	 * target vhost. We also can't just skip http_chains and fully rely
-	 * on sticky module, since http_chains also contains non-terminate
-	 * rules, such as `mark` rule. Even if the the http_chains is the
+	 * on sticky module, since http_chains also contains non-terminating
+	 * rules, such as `mark` rule. Even if http_chains is the
 	 * slowest method we have, we can't simply skip it.
 	 */
 	req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block);

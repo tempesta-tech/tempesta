@@ -55,11 +55,19 @@
 #define STICKY_NAME_MAXLEN	(32)
 #define STICKY_OPT_MAXLEN	(256)
 
+/*
+ * Maximum Cookie value length for learned cookie. RFC 6265 says that a cookie
+ * with all options may acquire up to 4KB, but this field is only about
+ * value. Let fix for this size for now.
+ */
+#define STICKY_KEY_MAX_LEN	(256)
+/* Size of binary representation of HMAC. */
+#define STICKY_KEY_HMAC_LEN	(SHA1_DIGEST_SIZE)
 
 /**
  * JavaScript challenge.
  *
- * To pass JS challenge client must repeat it's request in exact time frame
+ * To pass JS challenge client must repeat its request in the exact time frame
  * specified by JS code.
  *
  * @body	- body (html with JavaScript code);
@@ -100,7 +108,7 @@ typedef struct {
  */
 struct tfw_http_cookie_t {
 	struct crypto_shash	*shash;
-	char			key[SHA1_DIGEST_SIZE];
+	char			key[STICKY_KEY_HMAC_LEN];
 	char			sticky_name[STICKY_NAME_MAXLEN + 1];
 	char			options_str[STICKY_OPT_MAXLEN];
 	TfwStr			options;
@@ -114,15 +122,6 @@ struct tfw_http_cookie_t {
 	unsigned int		learn : 1,
 				enforce : 1;
 };
-
-/*
- * Maximum Cookie value length for learned cookie. RFC 6265 says that a cookie
- * with all options may acquire up to 4KB, but this field is only about
- * value. Let fix for this size for now.
- */
-#define STICKY_KEY_MAX_LEN	(256)
-/* Size of binary representation of HMAC. */
-#define STICKY_KEY_HMAC_LEN	(SHA1_DIGEST_SIZE)
 
 /**
  * HTTP session descriptor.

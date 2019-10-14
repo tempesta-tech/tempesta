@@ -253,20 +253,20 @@ tdb_rec_get_alloc(TDB *db, unsigned long key, TdbGetAllocCtx *ctx)
 	ctx->is_new = false;
 	iter = tdb_rec_get(db, key);
 	while (!TDB_ITER_BAD(iter)) {
-		if ((ctx->cmp_rec)(iter.rec,  ctx->ctx)) {
+		if (ctx->eq_rec(iter.rec,  ctx->ctx)) {
 			spin_unlock(&db->ga_lock);
 			return iter.rec;
 		}
 		tdb_rec_next(db, &iter);
 	}
 
-	if (ctx->precreate_rec && !(ctx->precreate_rec)(ctx->ctx)) {
+	if (ctx->precreate_rec && ctx->precreate_rec(ctx->ctx)) {
 		spin_unlock(&db->ga_lock);
 		return NULL;
 	}
 	ctx->is_new = true;
 	r = tdb_entry_alloc(db, key, &ctx->len);
-	(ctx->init_rec)(r, ctx->ctx);
+	ctx->init_rec(r, ctx->ctx);
 
 	spin_unlock(&db->ga_lock);
 

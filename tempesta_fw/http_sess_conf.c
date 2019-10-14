@@ -90,12 +90,12 @@ tfw_http_sess_cfgop_finish(TfwVhost *vhost, TfwCfgSpec *cs)
 
 	if (sticky->js_challenge && TFW_STR_EMPTY(&sticky->name)) {
 		T_ERR_NL("JavaScript challenge requires sticky cookies "
-			 "enabled\r\n");
+			 "enabled\n");
 		return -EINVAL;
 	}
 	if (sticky->js_challenge)  {
 		T_LOG_NL("JavaScript challenge requires enforced sticky cookie "
-			 "mode\r\n");
+			 "mode\n");
 		sticky->enforce = true;
 		sticky->redirect_code = sticky->js_challenge->st_code;
 	} else {
@@ -123,8 +123,11 @@ __tfw_cfgop_cookie_set_name(TfwStickyCookie *sticky, const char *name)
 	size_t len;
 
 	len = strlen(name);
-	if (len == 0 || len > STICKY_NAME_MAXLEN)
+	if (len == 0 || len > STICKY_NAME_MAXLEN) {
+		T_WARN_NL("http_sess: invalid cookie name length: %zu (1..%d)\n",
+			  len, STICKY_NAME_MAXLEN);
 		return -EINVAL;
+	}
 	memcpy(sticky->sticky_name, name, len);
 	sticky->sticky_name[len] = '=';
 	sticky->name.data = sticky->sticky_name;
@@ -139,7 +142,7 @@ int
 tfw_cfgop_cookie_set_options(TfwStickyCookie *sticky, const char *options)
 {
 	size_t len = strlen(options);
-	if (len > STICKY_OPT_MAXLEN + 2) {
+	if (len + 2 > STICKY_OPT_MAXLEN) {
 		T_ERR_NL("http_sess: too long cookie options length.\n");
 		return -EINVAL;
 	}
@@ -165,8 +168,8 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	sticky = cur_vhost->cookie;
 
 	if (!TFW_STR_EMPTY(&sticky->name)) {
-		T_ERR_NL("http_sess: 'cookie' and 'learn' directives  can't be "
-			 "used in the same time\n");
+		T_ERR_NL("http_sess: 'cookie' and 'learn' directives can't be "
+			 "used at the same time\n");
 		return -EINVAL;
 	}
 
@@ -196,7 +199,7 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 				return -EINVAL;
 			}
 		} else {
-			T_ERR_NL("%s: unsupported argument: '%s=%s'.\n",
+			T_ERR_NL("%s: unsupported attribute: '%s=%s'.\n",
 				 cs->name, key, val);
 			return -EINVAL;
 		}
@@ -241,20 +244,20 @@ tfw_cfgop_cookie_learn(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	sticky = cur_vhost->cookie;
 
 	if (!TFW_STR_EMPTY(&sticky->name)) {
-		T_ERR_NL("http_sess: 'cookie' and 'learn' directives  can't be "
-			 "used in the same time\n");
+		T_ERR_NL("http_sess: 'cookie' and 'learn' directives can't be "
+			 "used at the same time\n");
 		return -EINVAL;
 	}
 
 	if (ce->val_n) {
-		T_ERR_NL("No arguments allowed\n");
+		T_ERR_NL("%s: no arguments allowed\n", cs->name);
 		return -EINVAL;
 	}
 	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
 		if (!strcasecmp(key, "name")) {
 			name_val = val;
 		} else {
-			T_ERR_NL("%s: unsupported argument: '%s=%s'.\n",
+			T_ERR_NL("%s: unsupported attribute: '%s=%s'.\n",
 				 cs->name, key, val);
 			return -EINVAL;
 		}
@@ -291,7 +294,7 @@ static inline int
 tfw_cfgop_sticky_sess_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	if (ce->attr_n) {
-		T_ERR_NL("Arguments may not have the \'=\' sign\n");
+		T_ERR_NL("Arguments may not have the '=' sign\n");
 		return -EINVAL;
 	}
 	if (ce->val_n > 1) {
@@ -486,7 +489,7 @@ tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 			if ((r = tfw_cfgop_jsch_parse_resp_code(cs, js_ch, val)))
 				goto err;
 		} else {
-			T_ERR_NL("%s: unsupported argument: '%s=%s'.\n",
+			T_ERR_NL("%s: unsupported attribute: '%s=%s'.\n",
 				 cs->name, key, val);
 			r = -EINVAL;
 			goto err;
@@ -523,7 +526,7 @@ err:
 }
 
 /*
- * Inherit cookie options if the @vhost has no implicit 'sticky' section.
+ * Inherit cookie options if the @vhost has no explicit 'sticky' section.
  */
 int
 tfw_http_sess_cfg_finish(TfwVhost *vhost)

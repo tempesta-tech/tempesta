@@ -121,12 +121,12 @@ tfw_http_msg_resp_spec_hid(const TfwStr *hdr)
 		TfwStrDefV("connection:",	TFW_HTTP_HDR_CONNECTION),
 		TfwStrDefV("content-length:",	TFW_HTTP_HDR_CONTENT_LENGTH),
 		TfwStrDefV("content-type:",	TFW_HTTP_HDR_CONTENT_TYPE),
-		TfwStrDefV("set-cookie:",	TFW_HTTP_HDR_SET_COOKIE),
 		TfwStrDefV("etag:",		TFW_HTTP_HDR_ETAG),
 		TfwStrDefV("host:",		TFW_HTTP_HDR_HOST),
 		TfwStrDefV("keep-alive:",	TFW_HTTP_HDR_KEEP_ALIVE),
 		TfwStrDefV("referer:",		TFW_HTTP_HDR_REFERER),
 		TfwStrDefV("server:",		TFW_HTTP_HDR_SERVER),
+		TfwStrDefV("set-cookie:",	TFW_HTTP_HDR_SET_COOKIE),
 		TfwStrDefV("transfer-encoding:",TFW_HTTP_HDR_TRANSFER_ENCODING),
 		TfwStrDefV("x-forwarded-for:",	TFW_HTTP_HDR_X_FORWARDED_FOR),
 	};

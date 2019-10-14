@@ -1073,7 +1073,7 @@ tfw_cfgop_intval(TfwCfgSpec *cs, TfwCfgEntry *ce, int *intval)
 			return -EINVAL;
 	}
 	if (ce->attr_n) {
-		T_ERR_NL("Arguments may not have the \'=\' sign\n");
+		T_ERR_NL("Arguments may not have the '=' sign\n");
 		return -EINVAL;
 	}
 
@@ -1157,7 +1157,7 @@ tfw_cfgop_retry_nip(TfwCfgSpec *cs, TfwCfgEntry *ce, unsigned int *sg_flags)
 	unsigned int retry_nip;
 
 	if (ce->attr_n) {
-		T_ERR_NL("Arguments may not have the \'=\' sign\n");
+		T_ERR_NL("Arguments may not have the '=' sign\n");
 		return -EINVAL;
 	}
 	if (tfw_cfg_is_dflt_value(ce)) {
@@ -1752,7 +1752,7 @@ static int
 tfw_cfg_handle_ratio_dynamic(TfwCfgEntry *ce, unsigned int *arg_flags)
 {
 	if (ce->attr_n) {
-		T_ERR_NL("Arguments may not have the \'=\' sign\n");
+		T_ERR_NL("Arguments may not have the '=' sign\n");
 		return -EINVAL;
 	}
 

@@ -17,7 +17,7 @@
  * value can be used to cope the non anonymous forward proxy problem and
  * identify real clients.
  *
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -50,9 +50,6 @@
 #include "vhost.h"
 #include "filter.h"
 #include "tdb.h"
-
-#define SESS_HASH_BITS		17
-#define SESS_HASH_SZ		(1 << SESS_HASH_BITS)
 
 static struct {
 	unsigned int	db_size;
@@ -89,6 +86,15 @@ typedef struct {
 	unsigned char	hmac[STICKY_KEY_HMAC_LEN];
 } __attribute__((packed)) StickyVal;
 
+/**
+ * Context for TDB operations over sessions.
+ *
+ * @sv		- sticky value, calculated for a client by Tempesta;
+ * @cookie_val	- sticky cookie value learned from backend server;
+ * @req		- currently processed request;
+ * @resp	- currently processed response;
+ * @jsch_rcode	- JS challenge pass result;
+ */
 typedef struct {
 	StickyVal	sv;
 	TfwStr		cookie_val;
@@ -722,7 +728,7 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 	if (req->vhost->cookie->learn)
 		return TFW_HTTP_SESS_SUCCESS;
 
-	if (value->len < sizeof(StickyVal) * 2) {
+	if (value->len != sizeof(StickyVal) * 2) {
 		sess_warn("bad sticky cookie length", addr, ": %lu(%lu)\n",
 			  value->len, sizeof(StickyVal) * 2);
 		tfw_http_sticky_calc(req, sv);
@@ -770,8 +776,7 @@ tfw_http_sticky_req_process(TfwHttpReq *req, StickyVal *sv, TfwStr *cookie_val)
 		 * cookie tries to 1. While we just send normal 302 redirect to
 		 * keep user experience intact.
 		 */
-		if (tfw_http_sticky_verify(req, cookie_val, sv))
-		{
+		if (tfw_http_sticky_verify(req, cookie_val, sv)) {
 			RedirMarkVal mv = {}, *mvp = NULL;
 			if (req->vhost->cookie->max_misses) {
 				mvp = &mv;
@@ -845,13 +850,13 @@ tfw_http_sess_unpin_srv(TfwHttpSess *sess)
 	tfw_server_unpin_sess(srv);
 }
 
-static void
+static inline void
 tfw_http_sess_set_expired(TfwHttpSess *sess)
 {
 	atomic64_set(&sess->expires, 0);
 }
 
-static void
+static inline void
 tfw_http_sess_prolong(TfwHttpSess *sess, TfwStickyCookie *sticky)
 {
 	if (!sticky->learn)
@@ -945,6 +950,7 @@ tfw_http_sess_eq(TdbRec *rec, void *data)
 	TfwHttpSess *sess = &ent->sess;
 	TfwSessEqCtx *ctx = (TfwSessEqCtx *)data;
 	TfwStickyCookie *sticky = ctx->req->vhost->cookie;
+
 	/*
 	 * Expired  or invalid session is not usable, leave it for garbage
 	 * collector.
@@ -967,10 +973,10 @@ tfw_http_sess_eq(TdbRec *rec, void *data)
 
 	read_lock(&sess->lock);
 	/*
-	 * Vhost are removed and added at runtime, so can't
+	 * Vhosts are removed and added at runtime, so can't
 	 * compare pointers here.
 	 */
-	if (tfw_strcmp(&sess->vhost->name, &ctx->req->vhost->name)) {
+	if (tfw_stricmp(&sess->vhost->name, &ctx->req->vhost->name)) {
 		read_unlock(&sess->lock);
 		return false;
 	}
@@ -984,7 +990,7 @@ tfw_http_sess_eq(TdbRec *rec, void *data)
 	{
 		/*
 		 * The session holds the last reference to the
-		 * vhost. It's not a part of the active
+		 * vhost. The latter is not a part of the active
 		 * configuration anymore and therefore is not
 		 * useful to us at all. We can only release it
 		 * to free associated resources.
@@ -999,7 +1005,7 @@ found:
 	return true;
 }
 
-static bool
+static int
 tfw_http_sess_precreate(void *data)
 {
 	TfwSessEqCtx *ctx = (TfwSessEqCtx *)data;
@@ -1010,12 +1016,12 @@ tfw_http_sess_precreate(void *data)
 	 * responses, not requests.
 	 */
 	if (req->vhost->cookie->learn)
-		return false;
+		return -1;
 
 	if ((ctx->jsch_rcode = tfw_http_sess_check_jsch(sv, req)))
-		return false;
+		return -1;
 
-	return true;
+	return 0;
 }
 
 static void
@@ -1069,7 +1075,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 
 	/*
 	 * If vhost is not known, then request is to be dropped. Don't save the
-	 * session even if the client has passed cookie challenge.
+	 * session even if the client has passed a cookie challenge.
 	 */
 	if (!req->vhost
 	    || TFW_STR_EMPTY(&req->vhost->cookie->name)
@@ -1102,7 +1108,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 		key = hash_calc(sv->hmac, sizeof(sv->hmac));
 	}
 	ctx.req = req;
-	tdb_ctx.cmp_rec = tfw_http_sess_eq;
+	tdb_ctx.eq_rec = tfw_http_sess_eq;
 	tdb_ctx.precreate_rec = tfw_http_sess_precreate;
 	tdb_ctx.init_rec = tfw_sess_ent_init;
 	tdb_ctx.ctx = &ctx;
@@ -1127,8 +1133,8 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	if (!tdb_ctx.is_new)
 		/*
 		 * The record doesn't change its location in TDB, since it is
-		 * more than TDB_HTRIE_MINDREC, and we need to unlock the bucket
-		 * with the session as soon as possible.
+		 * larger than TDB_HTRIE_MINDREC, and we need to unlock the
+		 * bucket with the session as soon as possible.
 		 */
 		tdb_rec_put(rec);
 
@@ -1178,7 +1184,6 @@ tfw_http_sess_learn(TfwHttpResp *resp)
 	TdbGetAllocCtx tdb_ctx = { 0 };
 	TfwStr *c_val = &ctx.cookie_val;
 	TdbRec *rec;
-	TfwHttpSess *new_sess;
 
 	if (WARN_ON_ONCE(!resp->req || !resp->req->vhost))
 		return;
@@ -1205,8 +1210,8 @@ tfw_http_sess_learn(TfwHttpResp *resp)
 	 * be the earliest representable date and time.
 	 *
 	 * Empty string is allowed cookie value, but it can't be used to learn
-	 * and track the sessions. In the same time, empty value is pretty often
-	 * used during cookie removals. So if backend requests the client to
+	 * and track the sessions. At the same time, empty value is pretty often
+	 * used during cookie removals. So if a backend requests the client to
 	 * replace the cookie with something we can't track - expire the session.
 	 * https://thoughtbot.com/blog/lucky-cookies#expiration-and-removal
 	 */
@@ -1216,7 +1221,7 @@ tfw_http_sess_learn(TfwHttpResp *resp)
 		return;
 	}
 	if (unlikely(c_val->len > STICKY_KEY_MAX_LEN)) {
-		T_WARN("http_sess: loo long cookie value: %li (%d).\n",
+		T_WARN("http_sess: too long cookie value: %li (%d).\n",
 		       c_val->len, STICKY_KEY_MAX_LEN);
 		return;
 	}
@@ -1224,7 +1229,7 @@ tfw_http_sess_learn(TfwHttpResp *resp)
 	key = tfw_hash_str(c_val);
 	ctx.req = resp->req;
 	ctx.resp = resp;
-	tdb_ctx.cmp_rec = tfw_http_sess_eq;
+	tdb_ctx.eq_rec = tfw_http_sess_eq;
 	/* no tdb_ctx.precreate_rec hook. */
 	tdb_ctx.init_rec = tfw_sess_ent_init;
 	tdb_ctx.ctx = &ctx;
@@ -1236,16 +1241,15 @@ tfw_http_sess_learn(TfwHttpResp *resp)
 		T_WARN("cannot allocate TDB space for learned http session\n");
 		return;
 	}
-	new_sess = &((TfwSessEntry *)rec->data)->sess;
 	/*
-	 * The session is not required now, it's requied to have a new
+	 * The session is not required now, it's enough to have a new
 	 * session in tdb. Leave new_sess->users as is.
 	 */
 	if (!tdb_ctx.is_new)
 		/*
 		 * The record doesn't change its location in TDB, since it is
-		 * more than TDB_HTRIE_MINDREC, and we need to unlock the bucket
-		 * with the session as soon as possible.
+		 * larger than TDB_HTRIE_MINDREC, and we need to unlock the
+		 * bucket with the session as soon as possible.
 		 */
 		tdb_rec_put(rec);
 }
@@ -1426,9 +1430,9 @@ tfw_http_sess_start(void)
 	if (tfw_runstate_is_reconfig())
 		return 0;
 	/*
-	 * The TfwSessEntry is used as direct pointer to data behind tdb.
-	 * Small entries may me moved between locations as index tree grows,
-	 * while big ones has constant location.
+	 * The TfwSessEntry is used as a direct pointer to data inside a TDB
+	 * entry. Small entries may be moved between locations as index tree
+	 * grows, while big ones has constant location.
 	 */
 	BUILD_BUG_ON(sizeof(TfwSessEntry) <= TDB_HTRIE_MINDREC);
 	sess_db = tdb_open(sess_db_cfg.db_path, sess_db_cfg.db_size,
