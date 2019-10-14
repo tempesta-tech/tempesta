@@ -1503,6 +1503,14 @@ static int
 tfw_cfgop_out_sticky_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	BUG_ON(tfw_vhost_entry);
+
+	if (tfw_vhosts_reconfig->expl_dflt) {
+		T_ERR_NL("http_sticky: directive '%s' can't be defined "
+			 "outside of explicit '%s' vhost.\n",
+			 cs->name, TFW_VH_DFT_NAME);
+		return -EINVAL;
+	}
+
 	return tfw_http_sess_cfgop_begin(tfw_vhosts_reconfig->vhost_dflt, cs,
 					 ce);
 }
@@ -2804,7 +2812,7 @@ static TfwCfgSpec tfw_vhost_internal_specs[] = {
 	{
 		.name = "sticky",
 		.handler = tfw_cfg_handle_children,
-		.cleanup = tfw_cfgop_frang_cleanup,
+		.cleanup = tfw_http_sess_cfgop_cleanup,
 		.dest = tfw_http_sess_specs,
 		.spec_ext = &(TfwCfgSpecChild) {
 			.begin_hook = tfw_cfgop_in_sticky_begin,
@@ -2954,7 +2962,7 @@ static TfwCfgSpec tfw_vhost_specs[] = {
 	{
 		.name = "sticky",
 		.handler = tfw_cfg_handle_children,
-		.cleanup = tfw_cfgop_frang_cleanup,
+		.cleanup = tfw_http_sess_cfgop_cleanup,
 		.dest = tfw_http_sess_specs,
 		.spec_ext = &(TfwCfgSpecChild) {
 			.begin_hook = tfw_cfgop_out_sticky_begin,

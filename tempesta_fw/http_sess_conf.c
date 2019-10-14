@@ -74,9 +74,17 @@ __tfw_http_sess_cfgop_begin(TfwVhost *vhost)
 int
 tfw_http_sess_cfgop_begin(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	int r = __tfw_http_sess_cfgop_begin(vhost);
+	int r;
 
-	if (r)
+	if (tfw_vhost_is_default(vhost) && !TFW_STR_EMPTY(&vhost->cookie->name))
+	{
+		T_ERR_NL("http_sess: directive 'sticky' was stated for both "
+			 "explicit 'default' vhost and at top level. Both used "
+			 "to configure 'sticky' for 'default' vhost.\n");
+		return -EINVAL;
+	}
+
+	if ((r = __tfw_http_sess_cfgop_begin(vhost)))
 		return r;
 	cur_vhost = vhost;
 
@@ -88,12 +96,17 @@ tfw_http_sess_cfgop_finish(TfwVhost *vhost, TfwCfgSpec *cs)
 {
 	TfwStickyCookie *sticky = cur_vhost->cookie;
 
-	if (sticky->js_challenge && TFW_STR_EMPTY(&sticky->name)) {
-		T_ERR_NL("JavaScript challenge requires sticky cookies "
-			 "enabled\n");
-		return -EINVAL;
-	}
-	if (sticky->js_challenge)  {
+	if (sticky->js_challenge) {
+		if (TFW_STR_EMPTY(&sticky->name)) {
+			T_ERR_NL("JavaScript challenge requires sticky cookies "
+				 "enabled\n");
+			return -EINVAL;
+		}
+		if (sticky->learn) {
+			T_ERR_NL("JavaScript challenge incompatible with learned "
+				 "cookies\n");
+			return -EINVAL;
+		}
 		T_LOG_NL("JavaScript challenge requires enforced sticky cookie "
 			 "mode\n");
 		sticky->enforce = true;
@@ -271,6 +284,12 @@ tfw_cfgop_cookie_learn(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if ((r = __tfw_cfgop_cookie_set_name(sticky, name_val)))
 		return r;
 	sticky->learn = 1;
+	/*
+	 * Unlike native TempestaFW cookies, the 'learn' directive has only one
+	 * purpose: LB stickiness. It doesn't challenge the client, session
+	 * failovering algorithm is also meaningless for the 'learn' mode.
+	 * So enable the only usable stickiness mode.
+	 * */
 	__set_bit(TFW_VHOST_B_STICKY_SESS, &cur_vhost->flags);
 
 	return 0;
@@ -302,18 +321,9 @@ tfw_cfgop_sticky_sess_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	}
 	if (tfw_cfg_is_dflt_value(ce)) {
-		/*
-		 * The directive was implicitly generated, follow current
-		 * globals.
-		 */
-		if (tfw_vhost_is_default(cur_vhost)) {
-			__clear_bit(TFW_VHOST_B_STICKY_SESS, &cur_vhost->flags);
-			__clear_bit(TFW_VHOST_B_STICKY_SESS_FAILOVER,
-				    &cur_vhost->flags);
-		}
-		else {
-			tfw_cfgop_sticky_sess_inherit(cur_vhost);
-		}
+		__clear_bit(TFW_VHOST_B_STICKY_SESS, &cur_vhost->flags);
+		__clear_bit(TFW_VHOST_B_STICKY_SESS_FAILOVER,
+			    &cur_vhost->flags);
 	} else if (!ce->val_n) {
 		__set_bit(TFW_VHOST_B_STICKY_SESS, &cur_vhost->flags);
 	} else if (!strcasecmp(ce->vals[0], "allow_failover")) {
@@ -526,48 +536,21 @@ err:
 }
 
 /*
- * Inherit cookie options if the @vhost has no explicit 'sticky' section.
+ * Initialize cookie options if the @vhost has no explicit 'sticky' section.
  */
 int
 tfw_http_sess_cfg_finish(TfwVhost *vhost)
 {
-	TfwVhost *dflt_vhost;
-	int r;
-	TfwStickyCookie *to, *from;
+	TfwStickyCookie *sticky = vhost->cookie;
 
-	BUG_ON(!vhost->cookie);
-	if (tfw_vhost_is_default(vhost) || !TFW_STR_EMPTY(&vhost->cookie->name))
+	BUG_ON(!sticky);
+	if (!TFW_STR_EMPTY(&sticky->name))
 		return 0;
-
-	dflt_vhost = vhost->vhost_dflt;
-	BUG_ON(!dflt_vhost->cookie);
-	if (TFW_STR_EMPTY(&dflt_vhost->cookie->name))
-		return 0;
-
-	T_LOG_NL("http_sess: 'sticky' section for vhost '%*.s' is not "
-		 "defined, inherit configuration from default vhost.",
-		 PR_TFW_STR(&vhost->name));
-	if (dflt_vhost->cookie->js_challenge) {
-		T_ERR_NL("JS challenge code can't be inherited.");
-		return -EINVAL;
-	}
-
-	to = vhost->cookie;
-	from = dflt_vhost->cookie;
-	if ((r = __tfw_http_sess_cfgop_begin(vhost)))
-		return r;
-	memcpy(to, from, sizeof(TfwStickyCookie));
-	to->name.data = to->sticky_name;
-	to->name.len = from->name.len;
-	to->name_eq.data = to->sticky_name;
-	to->name_eq.len = from->name_eq.len;
-	to->options.data = to->options_str;
-	to->options.len = from->options.len;
-
-	if (!to->sess_lifetime)
-		to->sess_lifetime = UINT_MAX;
-
-	tfw_cfgop_sticky_sess_inherit(vhost);
+	/*
+	 * Init TfwStr to have valid data structures, but don't init anything
+	 * here on purpose: the memory for sticky was zeroed previously.
+	 */
+	sticky->name.data = sticky->name_eq.data = sticky->sticky_name;
 
 	return 0;
 }
