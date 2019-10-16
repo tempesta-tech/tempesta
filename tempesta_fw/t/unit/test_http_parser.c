@@ -948,22 +948,29 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 		ht = req->h_tbl;
 
 		/* Special headers: */
-		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_HOST],
+		tfw_http_msg_clnthdr_val(req,
+					 &ht->tbl[TFW_HTTP_HDR_HOST],
 					 TFW_HTTP_HDR_HOST, &h_host);
-		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_CONNECTION],
+		tfw_http_msg_clnthdr_val(req,
+					 &ht->tbl[TFW_HTTP_HDR_CONNECTION],
 					 TFW_HTTP_HDR_CONNECTION,
 					 &h_connection);
-		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+		tfw_http_msg_clnthdr_val(req,
+					 &ht->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
 					 TFW_HTTP_HDR_CONTENT_TYPE,
 					 &h_conttype);
-		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR],
+		tfw_http_msg_clnthdr_val(req,
+					 &ht->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR],
 					 TFW_HTTP_HDR_X_FORWARDED_FOR, &h_xff);
-		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_USER_AGENT],
+		tfw_http_msg_clnthdr_val(req,
+					 &ht->tbl[TFW_HTTP_HDR_USER_AGENT],
 					 TFW_HTTP_HDR_USER_AGENT,
 					 &h_user_agent);
-		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_TRANSFER_ENCODING],
+		tfw_http_msg_clnthdr_val(req,
+					 &ht->tbl[TFW_HTTP_HDR_TRANSFER_ENCODING],
 					 TFW_HTTP_HDR_TRANSFER_ENCODING, &h_te);
-		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_COOKIE],
+		tfw_http_msg_clnthdr_val(req,
+					 &ht->tbl[TFW_HTTP_HDR_COOKIE],
 					 TFW_HTTP_HDR_COOKIE, &h_cookie);
 
 		/* Common (raw) headers: 16 total with 10 dummies. */
@@ -1070,8 +1077,8 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 	{
 		ht = resp->h_tbl;
 
-		EXPECT_TRUE(tfw_str_eq_cstr(&resp->s_line, "HTTP/1.1 200 OK",
-			    strlen("HTTP/1.1 200 OK"), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(&ht->tbl[TFW_HTTP_STATUS_LINE],
+			    "HTTP/1.1 200 OK", strlen("HTTP/1.1 200 OK"), 0));
 
 		/* Special headers: */
 		tfw_http_msg_srvhdr_val(&ht->tbl[TFW_HTTP_HDR_CONNECTION],
@@ -2099,7 +2106,7 @@ TEST(http_parser, referer)
 		"\r\n")
 	{
 		ht = req->h_tbl;
-		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_REFERER],
+		tfw_http_msg_clnthdr_val(req, &ht->tbl[TFW_HTTP_HDR_REFERER],
 					 TFW_HTTP_HDR_REFERER,
 					 &h_referer);
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_referer, s_referer1,
@@ -2111,7 +2118,7 @@ TEST(http_parser, referer)
 		"\r\n")
 	{
 		ht = req->h_tbl;
-		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_REFERER],
+		tfw_http_msg_clnthdr_val(req, &ht->tbl[TFW_HTTP_HDR_REFERER],
 					 TFW_HTTP_HDR_REFERER,
 					 &h_referer);
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_referer, s_referer2,
@@ -2124,7 +2131,7 @@ TEST(http_parser, referer)
 		"\r\n")
 	{
 		ht = req->h_tbl;
-		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_REFERER],
+		tfw_http_msg_clnthdr_val(req, &ht->tbl[TFW_HTTP_HDR_REFERER],
 					 TFW_HTTP_HDR_REFERER,
 					 &h_referer);
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_referer, s_referer3,

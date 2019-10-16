@@ -23,9 +23,10 @@
 
 #include "http.h"
 
-#define S_F_SET_COOKIE		"Set-Cookie: "
 #define S_CRLF			"\r\n"
 #define S_DLM			": "
+#define S_SET_COOKIE		"set-cookie"
+#define S_F_SET_COOKIE		S_SET_COOKIE S_DLM
 
 #define SLEN(s)			(sizeof(s) - 1)
 
@@ -49,12 +50,17 @@ __tfw_http_msg_set_str_data(TfwStr *str, void *data, struct sk_buff *skb)
 	__tfw_http_msg_set_str_data(str, data,				\
 				    ss_skb_peek_tail(&hm->msg.skb_head))
 
+void __h2_msg_hdr_val(TfwStr *hdr, TfwStr *out_val);
 void __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client);
 
 static inline void
-tfw_http_msg_clnthdr_val(TfwStr *hdr, unsigned id, TfwStr *val)
+tfw_http_msg_clnthdr_val(const TfwHttpReq *req, TfwStr *hdr, unsigned id,
+			 TfwStr *val)
 {
-	__http_msg_hdr_val(hdr, id, val, true);
+	if (TFW_MSG_H2(req))
+		__h2_msg_hdr_val(hdr, val);
+	else
+		__http_msg_hdr_val(hdr, id, val, true);
 }
 
 static inline void
@@ -115,6 +121,7 @@ int tfw_http_msg_hdr_xfrm(TfwHttpMsg *hm, char *name, size_t n_len,
 
 int tfw_http_msg_del_str(TfwHttpMsg *hm, TfwStr *str);
 int tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm);
+int tfw_http_msg_del_eol(struct sk_buff *skb_head, TfwStr *hdr);
 int tfw_http_msg_to_chunked(TfwHttpMsg *hm);
 
 int tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len,
@@ -122,14 +129,27 @@ int tfw_http_msg_setup(TfwHttpMsg *hm, TfwMsgIter *it, size_t data_len,
 int tfw_http_msg_add_data(TfwMsgIter *it, TfwHttpMsg *hm, TfwStr *field,
 			  const TfwStr *data);
 void tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start);
-int tfw_http_msg_hdr_close(TfwHttpMsg *hm, unsigned int id);
+int tfw_http_msg_hdr_close(TfwHttpMsg *hm);
 int tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm);
 void tfw_http_msg_free(TfwHttpMsg *m);
-unsigned long tfw_http_msg_hdr_length(const TfwStr *hdr, unsigned long *name_len,
-				      unsigned long *val_off,
-				      unsigned long *val_len);
-void tfw_http_msg_hdr_write(const TfwStr *hdr, unsigned long nm_len,
-			    unsigned long val_off, unsigned long val_len,
-			    char *out_buf);
+int tfw_http_msg_expand_data(TfwMsgIter *it, struct sk_buff **skb_head,
+			     const TfwStr *src);
+int __h2_hdr_lookup(TfwHttpMsg *hm, const TfwStr *h_name);
+unsigned long tfw_h2_msg_hdr_length(const TfwStr *hdr, unsigned long *name_len,
+				    unsigned long *val_off,
+				    unsigned long *val_len);
+void tfw_h2_msg_hdr_write(const TfwStr *hdr, unsigned long nm_len,
+			  unsigned long val_off, unsigned long val_len,
+			  char *out_buf);
+int __hdr_h2_add(TfwHttpResp *resp, TfwStr *hdr);
+int tfw_h2_msg_hdr_sub(TfwHttpMsg *hm, char *name, size_t nlen, char *val,
+		       size_t vlen, unsigned int hid, unsigned short idx);
+int tfw_h2_msg_hdr_del(TfwHttpMsg *hm, char *name, size_t nlen, unsigned int hid);
+
+#define TFW_H2_MSG_HDR_SUB(hm, name, val, hid, idx)			\
+	tfw_h2_msg_hdr_sub(hm, name, sizeof(name) - 1, val,		\
+			   sizeof(val) - 1, hid, idx)
+#define TFW_H2_MSG_HDR_DEL(hm, name, hid)				\
+	tfw_h2_msg_hdr_del(hm, name, sizeof(name) - 1, hid)
 
 #endif /* __TFW_HTTP_MSG_H__ */

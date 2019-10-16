@@ -172,6 +172,8 @@ char *ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf);
 int ss_skb_alloc_data(struct sk_buff **skb_head, size_t len,
 		      unsigned int tx_flags);
 struct sk_buff *ss_skb_split(struct sk_buff *skb, int len);
+int skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
+		 int len, TfwStr *it);
 int ss_skb_get_room(struct sk_buff *skb_head, struct sk_buff *skb,
 		    char *pspt, unsigned int len, TfwStr *it);
 int ss_skb_expand_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
@@ -180,6 +182,7 @@ int ss_skb_chop_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
 			  size_t head, size_t tail);
 int ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *hdr,
 		       int skip, int tail);
+int skb_next_data(struct sk_buff *skb, char *last_ptr, TfwStr *it);
 
 int ss_skb_process(struct sk_buff *skb, ss_skb_actor_t actor, void *objdata,
 		   unsigned int *chunks, unsigned int *processed);
@@ -189,5 +192,7 @@ void ss_skb_init_for_xmit(struct sk_buff *skb);
 void ss_skb_dump(struct sk_buff *skb);
 int ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
                                    struct page ***old_pages);
+int ss_skb_replace_page(struct sk_buff **skb_head, struct page *pg,
+			unsigned long pg_len, unsigned long offset);
 
 #endif /* __TFW_SS_SKB_H__ */

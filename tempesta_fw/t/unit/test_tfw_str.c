@@ -1263,7 +1263,7 @@ TEST(tfw_str_collect_cmp, collect_chunks)
 	 * other fields of the output TfwStr.
 	 */
 	EXPECT_EQ(out.eolen, 0);
-	EXPECT_EQ(out.flags, 0);
+	EXPECT_EQ(out.flags & TFW_STR_FMASK, 0);
 
 	/*
 	 * Try to start at other chunks too.

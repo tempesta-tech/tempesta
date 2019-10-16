@@ -1153,6 +1153,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, size_t tot_len)
 	long n, etag_off = 0;
 	char *p;
 	TdbVRec *trec = &ce->trec, *etag_trec = NULL;
+	TfwStr *s_line = &resp->h_tbl->tbl[TFW_HTTP_STATUS_LINE];
 	TDB *db = node_db();
 	TfwStr *field, *h, *end1, *end2, empty = {};
 	int r, i;
@@ -1176,7 +1177,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, size_t tot_len)
 	ce->method = req->method;
 
 	ce->status = TDB_OFF(db->hdr, p);
-	if ((n = tfw_cache_strcpy_eol(&p, &trec, &resp->s_line, &tot_len, 1)) < 0) {
+	if ((n = tfw_cache_strcpy_eol(&p, &trec, s_line, &tot_len, 1)) < 0) {
 		T_ERR("Cache: cannot copy HTTP status line\n");
 		return -ENOMEM;
 	}
@@ -1185,7 +1186,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, size_t tot_len)
 	ce->hdrs = TDB_OFF(db->hdr, p);
 	ce->hdr_len = 0;
 	ce->hdr_num = resp->h_tbl->off;
-	FOR_EACH_HDR_FIELD(field, end1, resp) {
+	FOR_EACH_HDR_FIELD_FROM(field, end1, resp, TFW_HTTP_HDR_REGULAR) {
 		bool hdr_304 = false;
 
 		/* Skip hop-by-hop headers. */
@@ -1282,7 +1283,7 @@ __cache_entry_size(TfwHttpResp *resp)
 	size += req->h_tbl->tbl[TFW_HTTP_HDR_HOST].len;
 
 	/* Add all the headers size */
-	FOR_EACH_HDR_FIELD(hdr, hdr_end, resp) {
+	FOR_EACH_HDR_FIELD_FROM(hdr, hdr_end, resp, TFW_HTTP_HDR_REGULAR) {
 		/* Skip hop-by-hop headers. */
 		if (!(hdr->flags & TFW_STR_HBH_HDR))
 			h = hdr;
@@ -1304,7 +1305,7 @@ __cache_entry_size(TfwHttpResp *resp)
 	}
 
 	/* Add status line length + CRLF */
-	size += resp->s_line.len + SLEN(S_CRLF);
+	size += resp->h_tbl->tbl[TFW_HTTP_STATUS_LINE].len + SLEN(S_CRLF);
 
 	/* Add body size accounting CRLF after the last chunk */
 	size += resp->body.len;
@@ -1532,6 +1533,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce)
 {
 	int h;
 	char *p;
+	TfwStr *s_line;
 	TfwHttpResp *resp;
 	TdbVRec *trec = &ce->trec;
 	TDB *db = node_db();
@@ -1577,12 +1579,13 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce)
 		goto err;
 	}
 
+	s_line = &resp->h_tbl->tbl[TFW_HTTP_STATUS_LINE];
 	if (tfw_cache_write_field(db, &trec, resp, &it, &p,
-				  ce->status_len, &resp->s_line))
+				  ce->status_len, s_line))
 		goto err;
 
 	resp->h_tbl->off = ce->hdr_num;
-	for (h = 0; h < ce->hdr_num; ++h) {
+	for (h = TFW_HTTP_HDR_REGULAR; h < ce->hdr_num; ++h) {
 		TFW_STR_INIT(resp->h_tbl->tbl + h);
 		if (tfw_cache_build_resp_hdr(db, resp, resp->h_tbl->tbl + h,
 					     &trec, &it, &p))

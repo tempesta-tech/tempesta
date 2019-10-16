@@ -180,7 +180,14 @@ typedef struct {
  * wasting of headers array slots.
  */
 typedef enum {
-	TFW_HTTP_HDR_HOST,
+	TFW_HTTP_STATUS_LINE,
+	TFW_HTTP_HDR_H2_STATUS = TFW_HTTP_STATUS_LINE,
+	TFW_HTTP_HDR_H2_METHOD = TFW_HTTP_HDR_H2_STATUS,
+	TFW_HTTP_HDR_H2_SCHEME,
+	TFW_HTTP_HDR_H2_AUTHORITY,
+	TFW_HTTP_HDR_H2_PATH,
+	TFW_HTTP_HDR_REGULAR,
+	TFW_HTTP_HDR_HOST = TFW_HTTP_HDR_REGULAR,
 	TFW_HTTP_HDR_CONTENT_LENGTH,
 	TFW_HTTP_HDR_CONTENT_TYPE,
 	TFW_HTTP_HDR_USER_AGENT,
@@ -244,6 +251,10 @@ enum {
 	TFW_HTTP_B_FULLY_PARSED,
 	/* Message has HTTP/2 format. */
 	TFW_HTTP_B_H2,
+	/* Message has all mandatory pseudo-headers (applicable for HTTP/2 mode only) */
+	TFW_HTTP_B_H2_HDRS_FULL,
+	/* Message in HTTP/2 transformation (applicable for HTTP/2 mode only). */
+	TFW_HTTP_B_H2_TRANS_ENTERED,
 
 	/* Request flags. */
 	TFW_HTTP_FLAGS_REQ,
@@ -283,6 +294,10 @@ enum {
 
 #define TFW_MSG_H2(hmmsg)						\
 	test_bit(TFW_HTTP_B_H2, ((TfwHttpMsg *)hmmsg)->flags)
+
+#define TFW_RESP_TO_H2(hmmsg)						\
+	((!hmmsg->conn || TFW_CONN_TYPE(hmmsg->conn) & Conn_Srv) &&	\
+	 hmmsg->pair && TFW_MSG_H2(hmmsg->pair))
 
 /**
  * The structure to hold data for an HTTP error response.
@@ -443,14 +458,16 @@ struct tfw_http_req_t {
  * TfwStr members must be the first for efficient scanning.
  *
  * @jrxtstamp	- time the message has been received, in jiffies;
+ * @mit		- iterator for controlling HTTP/1.1 => HTTP/2 message
+ *		  transformation process (applicable for HTTP/2 mode only).
  */
 struct tfw_http_resp_t {
 	TFW_HTTP_MSG_COMMON;
-	TfwStr			s_line;
 	unsigned short		status;
 	time_t			date;
 	time_t			last_modified;
 	unsigned long		jrxtstamp;
+	TfwMsgTransIter		mit;
 };
 
 #define TFW_HTTP_RESP_STR_START(r)	__MSG_STR_START(r)
@@ -526,7 +543,6 @@ int tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
 void tfw_http_req_destruct(void *msg);
 void tfw_http_resp_fwd(TfwHttpResp *resp);
-void tfw_h2_resp_adjust_fwd(TfwHttpResp *resp);
 void tfw_http_resp_build_error(TfwHttpReq *req);
 int tfw_cfgop_parse_http_status(const char *status, int *out);
 void tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len);
