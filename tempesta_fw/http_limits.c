@@ -553,7 +553,8 @@ frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVals *ct_vals)
 		return TFW_BLOCK;
 	}
 
-	tfw_http_msg_clnthdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+	tfw_http_msg_clnthdr_val(req,
+				 &req->h_tbl->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
 				 TFW_HTTP_HDR_CONTENT_TYPE, &field);
 
 	/*
@@ -619,7 +620,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 		return req->version > TFW_HTTP_VER_10 ? TFW_BLOCK : TFW_PASS;
 	}
 
-	tfw_http_msg_clnthdr_val(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
+	tfw_http_msg_clnthdr_val(req, &req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
 				 TFW_HTTP_HDR_HOST, &field);
 	if (!TFW_STR_EMPTY(&field)) {
 		/* Check that host header is not a IP address. */
@@ -874,14 +875,19 @@ frang_http_req_trailer_check(FrangAcc *ra, TfwFsmData *data,
 	if (!tfw_http_parse_is_done((TfwHttpMsg *)req))
 		return TFW_POSTPONE;
 	/*
-	 * Block request if the same header appear in both main and
-	 * trailer headers part. Some intermediates doesn't read trailers, so
-	 * request processing may depend on implementation.
+	 * Block request if the same header appear in both main and trailer
+	 * headers part. Some intermediates doesn't read trailers, so request
+	 * processing may depend on implementation.
+	 *
+	 * NOTE: we check only regular headers (without HTTP/2-specific
+	 * pseudo-header fields), since pseudo-headers must not appear in
+	 * trailers (RFC 7540 section 8.1.2.1), and during parsing stage, in
+	 * @H2_MSG_VERIFY(), we have already verified that.
 	 */
 	if (!f_cfg->http_trailer_split)
 		return TFW_PASS;
 
-	FOR_EACH_HDR_FIELD(field, end, req) {
+	FOR_EACH_HDR_FIELD_FROM(field, end, req, TFW_HTTP_HDR_REGULAR) {
 		int trailers = 0, dups = 0;
 		TFW_STR_FOR_EACH_DUP(dup, field, dup_end) {
 			trailers += !!(dup->flags & TFW_STR_TRAILER);

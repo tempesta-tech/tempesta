@@ -35,8 +35,6 @@
 #define FRAME_SETTINGS_ENTRY_SIZE	6
 #define FRAME_PING_SIZE			8
 #define FRAME_GOAWAY_SIZE		8
-#define FRAME_STREAM_ID_MASK		((1U << 31) - 1)
-#define FRAME_RESERVED_BIT_MASK		(~FRAME_STREAM_ID_MASK)
 
 #define WND_INCREMENT_SIZE		4
 #define SETTINGS_KEY_SIZE		2
@@ -247,22 +245,6 @@ tfw_h2_unpack_frame_header(TfwFrameHdr *hdr, const unsigned char *buf)
 }
 
 static inline void
-tfw_h2_pack_frame_header(unsigned char *p, const TfwFrameHdr *hdr)
-{
-	*(unsigned int *)p = htonl((unsigned int)(hdr->length << 8));
-	p += 3;
-	*p++ = hdr->type;
-	*p++ = hdr->flags;
-	/*
-	 * Stream id must occupy not more than 31 bit and reserved bit
-	 * must be 0.
-	 */
-	WARN_ON_ONCE((unsigned int)(hdr->stream_id & FRAME_RESERVED_BIT_MASK));
-
-	*(unsigned int *)p = htonl(hdr->stream_id);
-}
-
-static inline void
 tfw_h2_unpack_priority(TfwFramePri *pri, const unsigned char *buf)
 {
 	pri->stream_id = ntohl(*(unsigned int *)buf) & FRAME_STREAM_ID_MASK;
@@ -313,10 +295,10 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data, bool close)
 	if ((r = tfw_connection_send((TfwConn *)conn, &msg)))
 		goto err;
 	/*
-	 * For HTTP/2 we do not close client connection automatically in case
-	 * of failed sending (unlike the HTTP/1.1 processing); thus, we should
-	 * set Conn_Stop flag only if sending procedure was successful - to
-	 * avoid hanged unclosed client connection.
+	 * We do not close client connection automatically here in case
+	 * of failed sending, the caller must make such decision instead;
+	 * thus, we should set Conn_Stop flag only if sending procedure
+	 * was successful - to avoid hanged unclosed client connection.
 	 */
 	if (close)
 		TFW_CONN_TYPE((TfwConn *)conn) |= Conn_Stop;
@@ -520,6 +502,7 @@ tfw_h2_recv_priority(TfwH2Ctx *ctx)
 {
 	ctx->to_read = FRAME_PRIORITY_SIZE;
 	ctx->hdr.length -= ctx->to_read;
+	ctx->plen -= ctx->to_read;
 	VERIFY_FRAME_SIZE(ctx);
 	ctx->state = HTTP2_RECV_HEADER_PRI;
 	return T_OK;
@@ -530,6 +513,7 @@ tfw_h2_recv_padded(TfwH2Ctx *ctx)
 {
 	ctx->to_read = 1;
 	ctx->hdr.length -= ctx->to_read;
+	ctx->plen -= ctx->to_read;
 	VERIFY_FRAME_SIZE(ctx);
 	ctx->state = HTTP2_RECV_FRAME_PADDED;
 	return T_OK;
@@ -899,12 +883,15 @@ tfw_h2_rst_stream_process(TfwH2Ctx *ctx)
 }
 
 static int
-tfw_h2_apply_settings_entry(TfwSettings *dest, unsigned short id,
+tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 			    unsigned int val)
 {
+	TfwSettings *dest = &ctx->rsettings;
+
 	switch (id) {
 	case HTTP2_SETTINGS_TABLE_SIZE:
 		dest->hdr_tbl_sz = val;
+		tfw_hpack_set_rbuf_size(&ctx->hpack.enc_tbl, val);
 		break;
 
 	case HTTP2_SETTINGS_ENABLE_PUSH:
@@ -936,7 +923,7 @@ tfw_h2_apply_settings_entry(TfwSettings *dest, unsigned short id,
 	}
 
 	/*
-	 * TODO: apply settings entry.
+	 * TODO #309: apply settings entry.
 	 */
 	return T_OK;
 }
@@ -962,7 +949,7 @@ tfw_h2_settings_process(TfwH2Ctx *ctx)
 
 	T_DBG3("%s: entry parsed, id=%hu, val=%u\n", __func__, id, val);
 
-	if (tfw_h2_apply_settings_entry(&ctx->rsettings, id, val))
+	if (tfw_h2_apply_settings_entry(ctx, id, val))
 		return T_BAD;
 
 	ctx->to_read = hdr->length ? FRAME_SETTINGS_ENTRY_SIZE : 0;
@@ -1201,6 +1188,7 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		STREAM_RECV_PROCESS(ctx, hdr);
 
 		ctx->data_off = FRAME_HEADER_SIZE;
+		ctx->plen = ctx->hdr.length;
 
 		if (hdr->flags & HTTP2_F_PADDED)
 			return tfw_h2_recv_padded(ctx);
@@ -1241,6 +1229,7 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		}
 
 		ctx->data_off = FRAME_HEADER_SIZE;
+		ctx->plen = ctx->hdr.length;
 
 		if (hdr->flags & HTTP2_F_PADDED)
 			return tfw_h2_recv_padded(ctx);
@@ -1413,6 +1402,7 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		STREAM_RECV_PROCESS(ctx, hdr);
 
 		ctx->data_off = FRAME_HEADER_SIZE;
+		ctx->plen = ctx->hdr.length;
 
 		SET_TO_READ_VERIFY(ctx, HTTP2_RECV_CONT);
 		return T_OK;

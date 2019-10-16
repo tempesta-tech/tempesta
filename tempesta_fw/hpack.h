@@ -118,17 +118,51 @@ typedef struct {
 	int			count;
 } TfwHPackStr;
 
+typedef enum {
+	TFW_H2_TRANS_ADD	= 0,
+	TFW_H2_TRANS_EXPAND,
+	TFW_H2_TRANS_SUB,
+	TFW_H2_TRANS_INPLACE
+} TfwH2TransOp;
+
+typedef enum {
+	TFW_TAG_HDR_H2_STATUS,
+	TFW_TAG_HDR_H2_METHOD = TFW_TAG_HDR_H2_STATUS,
+	TFW_TAG_HDR_H2_SCHEME,
+	TFW_TAG_HDR_H2_AUTHORITY,
+	TFW_TAG_HDR_H2_PATH,
+	TFW_TAG_HDR_ACCEPT,
+	TFW_TAG_HDR_AUTHORIZATION,
+	TFW_TAG_HDR_CACHE_CONTROL,
+	TFW_TAG_HDR_CONTENT_LENGTH,
+	TFW_TAG_HDR_CONTENT_TYPE,
+	TFW_TAG_HDR_COOKIE,
+	TFW_TAG_HDR_IF_NONE_MATCH,
+	TFW_TAG_HDR_ETAG = TFW_TAG_HDR_IF_NONE_MATCH,
+	TFW_TAG_HDR_HOST,
+	TFW_TAG_HDR_IF_MODIFIED_SINCE,
+	TFW_TAG_HDR_PRAGMA,
+	TFW_TAG_HDR_REFERER,
+	TFW_TAG_HDR_X_FORWARDED_FOR,
+	TFW_TAG_HDR_USER_AGENT,
+	TFW_TAG_HDR_SERVER = TFW_TAG_HDR_USER_AGENT,
+	TFW_TAG_HDR_TRANSFER_ENCODING,
+	TFW_TAG_HDR_RAW
+} TfwHPackTag;
+
 /**
  * Representation of the entry in HPack decoder index.
  *
- * @name	- name of the indexed header;
- * @value	- value of the indexed header;
- * @tag		- ID of the indexed header.
+ * @name_len	- length of the header's name part;
+ * @name_num	- chunks count of the header's name part;
+ * @tag		- tag of the indexed header;
+ * @hdr		- descriptor of the header data.
  */
 typedef struct {
-	TfwHPackStr		*name;
-	TfwHPackStr		*value;
-	long			tag;
+	unsigned long		name_len;
+	unsigned int		name_num;
+	unsigned int		tag;
+	TfwStr			hdr[0];
 } TfwHPackEntry;
 
 /**
@@ -168,7 +202,6 @@ typedef struct {
  *		  to absence of the next fragment;
  * @index	- saved index value, used when decoding is interrupted due to
  *		  absence of the next fragment;
- * @entry	- index entry found in context of currently parsed header.
  */
 typedef struct {
 	TfwHPackETbl		enc_tbl;
@@ -181,8 +214,20 @@ typedef struct {
 	unsigned int		state;
 	unsigned int		shift;
 	unsigned long		index;
-	const TfwHPackEntry	*entry;
 } TfwHPack;
+
+/**
+ * Maximum length (in bytes) of HPACK variable-length integer representation,
+ * encoded from 64-bit unsigned long integer: one byte for each 7-bit part of
+ * source long integer plus on byte for initial prefix.
+ */
+#define HPACK_MAX_INT							\
+	(DIV_ROUND_UP(sizeof(unsigned long), 7) + 1)
+
+typedef struct {
+	unsigned int sz;
+	unsigned char buf[HPACK_MAX_INT];
+} TfwHPackInt;
 
 #define	BUFFER_GET(len, it)					\
 do {								\
@@ -197,9 +242,13 @@ do {								\
 
 int tfw_hpack_init(TfwHPack *__restrict hp, unsigned int htbl_sz);
 void tfw_hpack_clean(TfwHPack *__restrict hp);
-int tfw_hpack_hdrs_transform(TfwHttpResp *__restrict resp, bool *entered);
-int tfw_hpack_decode(TfwHPack *__restrict hp, const unsigned char *src,
+int tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict tgt,
+		     TfwStr *__restrict hdr, TfwH2TransOp op);
+void tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl,
+			     unsigned short new_size);
+int tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *src,
 		     unsigned long n, TfwHttpReq *__restrict req,
 		     unsigned int *__restrict parsed);
+void tfw_hpack_enc_release(TfwHPack *__restrict hp, unsigned long *flags);
 
 #endif /* __TFW_HPACK_H__ */

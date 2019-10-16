@@ -832,7 +832,7 @@ done:
 	return abs(len);
 }
 
-static inline int
+int
 skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	     int len, TfwStr *it)
 {
@@ -1004,6 +1004,65 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *str, int skip,
 	}
 
 	return 0;
+}
+
+int
+skb_next_data(struct sk_buff *skb, char *last_ptr, TfwStr *it)
+{
+	int i;
+	long off;
+	unsigned int f_size;
+	struct skb_shared_info *si = skb_shinfo(skb);
+
+	if (unlikely(skb_has_frag_list(skb))) {
+		WARN_ON(skb_has_frag_list(skb));
+		return -EINVAL;
+	}
+
+	f_size = skb_headlen(skb);
+	off = last_ptr - (char *)skb->data;
+
+	T_DBG("%s: last_ptr=[%p], skb->data=[%p], si->nr_frags=%u, f_size=%u,"
+	      " off=ld\n", __func__, last_ptr, skb->data, si->nr_frags, f_size,
+	      off);
+
+	if (off >= 0 && off < f_size) {
+		if (f_size - off > 1) {
+			it->data = last_ptr + 1;
+			it->skb = skb;
+			return 0;
+		}
+
+		__it_next_data(skb, 0, it);
+
+		return 0;
+	}
+
+	for (i = 0; i < si->nr_frags; ++i) {
+		const skb_frag_t *frag = &si->frags[i];
+
+		f_size = skb_frag_size(frag);
+		off = last_ptr - (char *)skb_frag_address(frag);
+
+		T_DBG3("%s: frags search, skb_frag_address(frag)=[%p],"
+		       " f_size=%u, off=ld\n", __func__, skb_frag_address(frag),
+		       f_size, off);
+
+		if (off < 0 || off >= f_size)
+			continue;
+
+		if (f_size - off > 1) {
+			it->data = last_ptr + 1;
+			it->skb = skb;
+			return 0;
+		}
+		
+		__it_next_data(skb, i + 1, it);
+
+		return 0;
+	}
+
+	return -ENOENT;
 }
 
 /**
@@ -1443,3 +1502,128 @@ ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
 
 	return out_frags;
 }
+
+/*
+ * Remove @offset amount of data from head side of the skb list, and insert
+ * new page @pg instead.
+ */
+int
+ss_skb_replace_page(struct sk_buff **skb_head, struct page *pg,
+		    unsigned long pg_len, unsigned long offset)
+{
+	struct sk_buff *skb;
+	unsigned int head_len;
+	struct skb_shared_info *si;
+	int m_len, i = 0;
+
+	/* Remove skbs which are fully included in the @offset quantity. */
+	while ((*skb_head)->len < offset) {
+		skb = ss_skb_dequeue(skb_head);
+		offset -= skb->len;
+		__kfree_skb(skb);
+		if (WARN_ON_ONCE(!*skb_head))
+			return -EIO;
+	}
+	skb = *skb_head;
+	T_DBG3("%s: offset=%#lx, skb=[%pK], (head=[%pK], data=[%pK], tail=[%pK]"
+	       " end=[%pK], len=%u, data_len=%u, nr_frags=%u)\n", __func__,
+	       offset, skb, skb->head, skb->data, skb_tail_pointer(skb),
+	       skb_end_pointer(skb), skb->len, skb->data_len,
+	       skb_shinfo(skb)->nr_frags);
+
+	/*
+	 * Erase @offset amount of data from linear part and fragments of
+	 * the first remaining skb.
+	 */
+	si = skb_shinfo(skb);
+	m_len = min_t(int, skb_headlen(skb), offset);
+	if (m_len) {
+		__skb_pull(skb, m_len);
+		offset -= m_len;
+	}
+	while (offset) {
+		skb_frag_t *frag;
+
+		if (WARN_ON_ONCE(i >= si->nr_frags))
+			return -EIO;
+
+		frag = &si->frags[i];
+		m_len = min_t(int, skb_frag_size(frag), offset);
+
+		T_DBG3("%s: skb=[%p], m_len=%d, fragsize=%d\n", __func__, skb,
+		       len, skb_frag_size(frag));
+
+		if (unlikely(m_len == skb_frag_size(frag))) {
+			ss_skb_adjust_data_len(skb, m_len);
+			__skb_frag_unref(frag);
+			++i;
+		}
+		else {
+			frag->page_offset += m_len;
+			skb_frag_size_sub(frag, m_len);
+			skb->len -= m_len;
+			skb->data_len -= m_len;
+		}
+		offset -= m_len;
+	}
+
+	/*
+	 * If one or more fragments have been fully removed, we can just
+	 * insert fragment with new data into the freed slot, without
+	 * extending fragments/skbs.
+	 */
+	if (i > 0) {
+		si->nr_frags -= i;
+
+		/*
+		 * If all data have been removed from the skb or only first
+		 * fragment (from zero slot) have been removed, we don't
+		 * need to shift anything.
+		 */
+		if (skb->len && i > 1) {
+			WARN_ON_ONCE(!si->nr_frags);
+			memmove(&si->frags[1], &si->frags[i],
+				si->nr_frags * sizeof(skb_frag_t));
+		}
+		++si->nr_frags;
+
+		goto done;
+	}
+
+	head_len = skb_headlen(skb);
+
+	/*
+	 * Extend fragments to make room for additional fragments (maximum 2)
+	 * to hold new data page and skb linear part (if it still exists after
+	 * @offset removal).
+	 */
+	if (__extend_pgfrags(*skb_head, skb, 0, 1 + !!head_len))
+			return -ENOMEM;
+
+	if (head_len) {
+		struct page *head_pg = virt_to_head_page(skb->head);
+		char *head_ptr = (char *)page_address(head_pg);
+		unsigned int head_off = (char *)skb->data - head_ptr;
+
+		__skb_fill_page_desc(skb, 1, head_pg, head_off, head_len);
+		get_page(head_pg);
+
+		skb->tail -= head_len;
+		skb->data_len += head_len;
+
+		/*
+		 * Prevent @skb->tail from moving forward, since we have linked
+		 * all the data from the linear part (which is after @skb->tail
+		 * now) with the second fragment.
+		 */
+		skb->tail_lock = 1;
+	}
+
+done:
+	/* Set up new fragment with data page into the zero slot. */
+	__skb_fill_page_desc(skb, 0, pg, 0, pg_len);
+	ss_skb_adjust_data_len(skb, pg_len);
+
+	return 0;
+}
+

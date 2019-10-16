@@ -65,31 +65,52 @@ typedef struct {
  * Iterator for HTTP/2 message processing.
  *
  * @pool	- allocation pool for target buffer of decoded headers;
- * @hdr		- pointer to message header which is currently processed;
+ * @parsed_hdr	- pointer to the message header which is currently processed;
+ * @hb_len	- length of the message HTTP/2 headers block;
+ * @hdrs_len	- accumulated length of message's decoded and parsed headers;
+ * @hdrs_cnt	- count of all headers from message headers block;
  * @start_pos	- pointer to the beginning of decoded headers' buffer; used
  *		  as start point during exporting buffer pages to message's
  *		  target skb;
  * @__off	- offset for iterator reinitializing before next processing
  *		  stage;
+ * @hdr		- descriptor of currently decoded header in target buffer;
  * @pos		- pointer to the currently allocated chunk of decoded headers'
  *		  buffer;
  * @rspace	- space remained in the allocated chunk;
  * @next	- pointer to the decoded header part (name/value) to be
  *		- parsed next;
  * @nm_len	- length of the decoded header's name;
- * @hdr_tag	- ID of currently processed decoded header.
+ * @nm_num	- chunks number of the decoded header's name;
+ * @hdr_tag	- tag of currently processed decoded header.
  */
 typedef struct {
 	TfwPool		*pool;
-	TfwStr		*hdr;
+	TfwStr		*parsed_hdr;
+	unsigned long	hb_len;
+	unsigned long	hdrs_len;
+	unsigned int	hdrs_cnt;
 	char		*start_pos;
 	char		__off[0];
+	TfwStr		hdr;
 	char		*pos;
 	unsigned long	rspace;
 	TfwStr		*next;
 	unsigned long	nm_len;
-	unsigned int	hdr_tag;
+	unsigned int	nm_num;
+	unsigned int	tag;
 } TfwMsgParseIter;
+
+/**
+ * Iterator for message HTTP/2 transformation process.
+ *
+ * @it		- skb creation/writing iterator;
+ * @acc_len	- accumulated length of transformed message;
+ */
+typedef struct {
+	TfwMsgIter	iter;
+	unsigned long	acc_len;
+} TfwMsgTransIter;
 
 int tfw_msg_write(TfwMsgIter *it, const TfwStr *data);
 int tfw_msg_iter_setup(TfwMsgIter *it, struct sk_buff **skb_head,

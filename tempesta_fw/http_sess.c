@@ -344,7 +344,7 @@ tfw_http_sticky_get(TfwHttpReq *req, TfwStr *cookie_val)
 	hdr = &req->h_tbl->tbl[TFW_HTTP_HDR_COOKIE];
 	if (TFW_STR_EMPTY(hdr))
 		return 0;
-	tfw_http_msg_clnthdr_val(hdr, TFW_HTTP_HDR_COOKIE, &value);
+	tfw_http_msg_clnthdr_val(req, hdr, TFW_HTTP_HDR_COOKIE, &value);
 
 	return search_cookie(req->pool, &value, cookie_val);
 }
@@ -386,7 +386,7 @@ __sticky_calc(TfwHttpReq *req, StickyVal *sv)
 	/* User-Agent header field is not mandatory and may be missing. */
 	hdr = &req->h_tbl->tbl[TFW_HTTP_HDR_USER_AGENT];
 	if (!TFW_STR_EMPTY(hdr))
-		tfw_http_msg_clnthdr_val(hdr, TFW_HTTP_HDR_USER_AGENT,
+		tfw_http_msg_clnthdr_val(req, hdr, TFW_HTTP_HDR_USER_AGENT,
 					 &ua_value);
 
 	shash_desc->tfm = tfw_sticky_shash;
@@ -429,19 +429,22 @@ tfw_http_sticky_calc(TfwHttpReq *req, StickyVal *sv)
 static int
 tfw_http_sticky_add(TfwHttpResp *resp)
 {
-	static const unsigned int len = sizeof(StickyVal) * 2;
 	int r;
+	static const unsigned int len = sizeof(StickyVal) * 2;
+	bool to_h2 = TFW_MSG_H2(resp->req);
+	char *name = to_h2 ? S_SET_COOKIE : S_F_SET_COOKIE;
+	unsigned int nm_len = to_h2 ? SLEN(S_SET_COOKIE) : SLEN(S_F_SET_COOKIE);
 	TfwHttpSess *sess = resp->req->sess;
 	unsigned long ts_be64 = cpu_to_be64(sess->ts);
 	char buf[len];
 	TfwStr set_cookie = {
 		.chunks = (TfwStr []) {
-			{ .data = S_F_SET_COOKIE, .len = SLEN(S_F_SET_COOKIE) },
+			{ .data = name, .len = nm_len },
 			{ .data = tfw_cfg_sticky.name_eq.data,
 			  .len = tfw_cfg_sticky.name_eq.len },
 			{ .data = buf, .len = len },
 		},
-		.len = SLEN(S_F_SET_COOKIE) + tfw_cfg_sticky.name_eq.len + len,
+		.len = nm_len + tfw_cfg_sticky.name_eq.len + len,
 		.eolen = 2,
 		.nchunks = 3
 	};
@@ -450,12 +453,19 @@ tfw_http_sticky_add(TfwHttpResp *resp)
 	bin2hex(buf, &ts_be64, sizeof(ts_be64));
 	bin2hex(&buf[sizeof(ts_be64) * 2], sess->hmac, sizeof(sess->hmac));
 
-	T_DBG("%s: \"" S_F_SET_COOKIE "%.*s=%.*s\"\n", __func__,
+	T_DBG("%s: name=%s, val='%.*s=%.*s'\n", __func__, name,
 	      PR_TFW_STR(&tfw_cfg_sticky.name), len, buf);
 
-	r = tfw_http_msg_hdr_add((TfwHttpMsg *)resp, &set_cookie);
-	if (r)
-		T_WARN("Cannot add \"" S_F_SET_COOKIE "%.*s=%.*s\"\n",
+	if (to_h2) {
+		TFW_STR_INDEX_SET(&set_cookie, 55);
+		r = __hdr_h2_add(resp, &set_cookie);
+	}
+	else {
+		r = tfw_http_msg_hdr_add((TfwHttpMsg *)resp, &set_cookie);
+	}
+
+	if (unlikely(r))
+		T_WARN("Cannot add '%s' header: val='%.*s=%.*s'\n", name,
 		       PR_TFW_STR(&tfw_cfg_sticky.name), len, buf);
 	return r;
 }

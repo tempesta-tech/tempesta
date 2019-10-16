@@ -950,67 +950,67 @@ static const HTState ht_decode[] ____cacheline_aligned = {
 	})
 
 static const TfwHPackEntry static_table[] ____cacheline_aligned = {
-	{ HP_STR(":authority"),		NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR(":method"),		HP_STR("GET"),	TFW_HTTP_HDR_RAW },
-	{ HP_STR(":method"),		HP_STR("POST"), TFW_HTTP_HDR_RAW },
-	{ HP_STR(":path"),		HP_STR("/"),	TFW_HTTP_HDR_RAW },
-	{ HP_STR(":path"),	HP_STR("/index.html"),	TFW_HTTP_HDR_RAW },
-	{ HP_STR(":scheme"),		HP_STR("http"),	TFW_HTTP_HDR_RAW },
-	{ HP_STR(":scheme"),		HP_STR("https"), TFW_HTTP_HDR_RAW },
-	{ HP_STR(":status"),		HP_STR("200"),	TFW_HTTP_HDR_RAW },
-	{ HP_STR(":status"),		HP_STR("204"),	TFW_HTTP_HDR_RAW },
-	{ HP_STR(":status"),		HP_STR("206"),	TFW_HTTP_HDR_RAW },
-	{ HP_STR(":status"),		HP_STR("304"),	TFW_HTTP_HDR_RAW },
-	{ HP_STR(":status"),		HP_STR("400"),	TFW_HTTP_HDR_RAW },
-	{ HP_STR(":status"),		HP_STR("404"),	TFW_HTTP_HDR_RAW },
-	{ HP_STR(":status"),		HP_STR("500"),	TFW_HTTP_HDR_RAW },
-	{ HP_STR("accept-charset"),	NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("accept-encoding"), HP_STR("gzip, deflate"), TFW_HTTP_HDR_RAW },
-	{ HP_STR("accept-language"),	NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("accept-ranges"),	NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("accept"),		NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("access-control-allow-origin"), NULL,	TFW_HTTP_HDR_RAW },
-	{ HP_STR("age"),		NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("allow"),		NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("authorization"),	NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("cache-control"),	NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("content-disposition"), NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("content-encoding"),	NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("content-language"),	NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("content-length"),	NULL,	TFW_HTTP_HDR_CONTENT_LENGTH },
-	{ HP_STR("content-location"),	NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("content-range"),	NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("content-type"),	NULL,	TFW_HTTP_HDR_CONTENT_TYPE },
-	{ HP_STR("cookie"),		NULL,		TFW_HTTP_HDR_COOKIE },
-	{ HP_STR("date"),		NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("etag"),		NULL,		TFW_HTTP_HDR_ETAG },
-	{ HP_STR("expect"),		NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("expires"),		NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("from"),		NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("host"),		NULL,		TFW_HTTP_HDR_HOST },
-	{ HP_STR("if-match"),		NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("if-modified-since"),	NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("if-none-match"),	NULL,	TFW_HTTP_HDR_IF_NONE_MATCH },
-	{ HP_STR("if-range"),		NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("if-unmodified-since"), NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("last-modified"),	NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("link"),		NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("location"),		NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("max-forwards"),	NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("proxy-authenticate"),	NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("proxy-authorization"), NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("range"),		NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("referer"),		NULL,		TFW_HTTP_HDR_REFERER },
-	{ HP_STR("refresh"),		NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("retry-after"),	NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("server"),		NULL,		TFW_HTTP_HDR_SERVER },
-	{ HP_STR("set-cookie"),		NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("strict-transport-security"), NULL,	TFW_HTTP_HDR_RAW },
-	{ HP_STR("transfer-encoding"),	NULL,	TFW_HTTP_HDR_TRANSFER_ENCODING },
-	{ HP_STR("user-agent"),		NULL,	TFW_HTTP_HDR_USER_AGENT },
-	{ HP_STR("vary"),		NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("via"),		NULL,		TFW_HTTP_HDR_RAW },
-	{ HP_STR("www-authenticate"),	NULL,		TFW_HTTP_HDR_RAW }
+	{ HP_STR(":authority"),		NULL,	TFW_TAG_HDR_H2_AUTHORITY },
+	{ HP_STR(":method"),		HP_STR("GET"),	TFW_TAG_HDR_H2_METHOD },
+	{ HP_STR(":method"),		HP_STR("POST"), TFW_TAG_HDR_H2_METHOD },
+	{ HP_STR(":path"),		HP_STR("/"),	TFW_TAG_HDR_H2_PATH },
+	{ HP_STR(":path"),	HP_STR("/index.html"),	TFW_TAG_HDR_H2_PATH },
+	{ HP_STR(":scheme"),		HP_STR("http"),	TFW_TAG_HDR_H2_SCHEME },
+	{ HP_STR(":scheme"),		HP_STR("https"),TFW_TAG_HDR_H2_SCHEME },
+	{ HP_STR(":status"),		HP_STR("200"),	TFW_TAG_HDR_H2_STATUS },
+	{ HP_STR(":status"),		HP_STR("204"),	TFW_TAG_HDR_H2_STATUS },
+	{ HP_STR(":status"),		HP_STR("206"),	TFW_TAG_HDR_H2_STATUS },
+	{ HP_STR(":status"),		HP_STR("304"),	TFW_TAG_HDR_H2_STATUS },
+	{ HP_STR(":status"),		HP_STR("400"),	TFW_TAG_HDR_H2_STATUS },
+	{ HP_STR(":status"),		HP_STR("404"),	TFW_TAG_HDR_H2_STATUS },
+	{ HP_STR(":status"),		HP_STR("500"),	TFW_TAG_HDR_H2_STATUS },
+	{ HP_STR("accept-charset"),	NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("accept-encoding"), HP_STR("gzip, deflate"), TFW_TAG_HDR_RAW },
+	{ HP_STR("accept-language"),	NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("accept-ranges"),	NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("accept"),		NULL,		TFW_TAG_HDR_ACCEPT },
+	{ HP_STR("access-control-allow-origin"), NULL,	TFW_TAG_HDR_RAW },
+	{ HP_STR("age"),		NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("allow"),		NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("authorization"),	NULL,	TFW_TAG_HDR_AUTHORIZATION },
+	{ HP_STR("cache-control"),	NULL,	TFW_TAG_HDR_CACHE_CONTROL },
+	{ HP_STR("content-disposition"), NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("content-encoding"),	NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("content-language"),	NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("content-length"),	NULL,	TFW_TAG_HDR_CONTENT_LENGTH },
+	{ HP_STR("content-location"),	NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("content-range"),	NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("content-type"),	NULL,	TFW_TAG_HDR_CONTENT_TYPE },
+	{ HP_STR("cookie"),		NULL,		TFW_TAG_HDR_COOKIE },
+	{ HP_STR("date"),		NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("etag"),		NULL,		TFW_TAG_HDR_ETAG },
+	{ HP_STR("expect"),		NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("expires"),		NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("from"),		NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("host"),		NULL,		TFW_TAG_HDR_HOST },
+	{ HP_STR("if-match"),		NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("if-modified-since"),	NULL,	TFW_TAG_HDR_IF_MODIFIED_SINCE },
+	{ HP_STR("if-none-match"),	NULL,	TFW_TAG_HDR_IF_NONE_MATCH },
+	{ HP_STR("if-range"),		NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("if-unmodified-since"), NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("last-modified"),	NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("link"),		NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("location"),		NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("max-forwards"),	NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("proxy-authenticate"),	NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("proxy-authorization"), NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("range"),		NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("referer"),		NULL,		TFW_TAG_HDR_REFERER },
+	{ HP_STR("refresh"),		NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("retry-after"),	NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("server"),		NULL,		TFW_TAG_HDR_SERVER },
+	{ HP_STR("set-cookie"),		NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("strict-transport-security"), NULL,	TFW_TAG_HDR_RAW },
+	{ HP_STR("transfer-encoding"),	NULL,	TFW_TAG_HDR_TRANSFER_ENCODING },
+	{ HP_STR("user-agent"),		NULL,	TFW_TAG_HDR_USER_AGENT },
+	{ HP_STR("vary"),		NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("via"),		NULL,		TFW_TAG_HDR_RAW },
+	{ HP_STR("www-authenticate"),	NULL,		TFW_TAG_HDR_RAW }
 };
 
 #define HPACK_STATIC_ENTRIES (sizeof(static_table) / sizeof(TfwHPackEntry))
@@ -1131,110 +1131,77 @@ do {								\
 	       last - src);					\
 } while (0)
 
-#define	BUFFER_NAME_OPEN(length)				\
+#define	BUFFER_HDR_INIT(length, it)				\
 do {								\
-	WARN_ON_ONCE(!TFW_STR_EMPTY(it->hdr));			\
-	BUFFER_GET(length, it);					\
-	if (!it->pos) {						\
-		r = T_DROP;					\
-		goto out;					\
-	}							\
-	if (!it->start_pos)					\
-		it->start_pos = it->pos;			\
-	it->hdr->data = it->pos;				\
-	it->hdr->len = length;					\
-	it->next = it->hdr;					\
+	if (!(it)->start_pos)					\
+		(it)->start_pos = (it)->pos;			\
+	(it)->hdr.data = (it)->pos;				\
+	(it)->hdr.len = length;					\
+	(it)->next = &(it)->hdr;				\
 } while (0)
 
-#define	BUFFER_NEXT(len)					\
-({								\
-	TfwStr *new = NULL;					\
-	TfwPool *rpool = req->pool;				\
-	BUFFER_GET(len, it);					\
-	if (it->pos) {						\
-		new = tfw_hpack_exp_hdr(rpool, len, it);	\
-		it->next = new;					\
+#define	BUFFER_NAME_OPEN(length)				\
+do {								\
+	WARN_ON_ONCE(!TFW_STR_EMPTY(&it->hdr));			\
+	if (state & HPACK_FLAGS_HUFFMAN_NAME) {			\
+		BUFFER_GET(length, it);				\
+		if (!it->pos) {					\
+			r = T_DROP;				\
+			goto out;				\
+		}						\
+		BUFFER_HDR_INIT(length, it);			\
 	}							\
-	new;							\
-})
+} while (0)
 
 #define	BUFFER_VAL_OPEN(length)					\
 do {								\
-	WARN_ON_ONCE(TFW_STR_EMPTY(it->hdr));			\
-	it->nm_len = it->hdr->len - 1;				\
-	if (!BUFFER_NEXT(length)) {				\
-		r = T_DROP;					\
-		goto out;					\
+	WARN_ON_ONCE(TFW_STR_EMPTY(it->parsed_hdr));		\
+	it->nm_len = it->parsed_hdr->len;			\
+	it->nm_num = it->parsed_hdr->nchunks;			\
+	if (state & HPACK_FLAGS_HUFFMAN_NAME) {			\
+		BUFFER_GET(length, it);				\
+		if (!it->pos) {					\
+			r = T_DROP;				\
+			goto out;				\
+		}						\
+		if (!TFW_STR_EMPTY(&it->hdr))			\
+			it->next = tfw_hpack_exp_hdr(req->pool,	\
+						     length, it); \
+		else						\
+			BUFFER_HDR_INIT(length, it);		\
 	}							\
 } while (0)
 
-#define	BUFFER_WRITE(data, len, it)				\
+#define	HPACK_DECODE_PROCESS_STRING(field, len)			\
 do {								\
-	BUG_ON(!(len));						\
-	WARN_ON_ONCE((len) > (it)->rspace);			\
-	memcpy_fast((it)->pos, data, len);			\
-	(it)->rspace -= len;					\
-	(it)->pos += len;					\
-} while (0)
-
-#define	BUFFER_WRITE_COLON()					\
-do {								\
-	WARN_ON_ONCE(it->rspace);				\
-	it->pos = tfw_pool_alloc_not_align(it->pool, 1);	\
-	T_DBG3("%s: write colon, it->pos=[%p], it->pos=%lu\n",	\
-	       __func__, it->pos, (unsigned long)it->pos);	\
-	if (!it->pos) {						\
-		r = T_DROP;					\
-		goto out;					\
-	}							\
-	if (!tfw_hpack_exp_hdr(req->pool, 1, it)) {		\
-		r = T_DROP;					\
-		goto out;					\
-	}							\
-	memcpy_fast(it->pos, ":", 1);				\
-} while (0)
-
-#define	BUFFER_WRITE_CRLF()					\
-do {								\
-	WARN_ON_ONCE(it->rspace);				\
-	it->pos = tfw_pool_alloc_not_align(it->pool, 2);	\
-	T_DBG3("%s: write crlf, it->pos=[%p], it->pos=%lu\n",	\
-	       __func__, it->pos, (unsigned long)it->pos);	\
-	if (!it->pos) {						\
-		r = T_DROP;					\
-		goto out;					\
-	}							\
-	memcpy_fast(it->pos, "\r\n", 2);			\
-} while (0)
-
-#define	HPACK_DECODE_STRING(len)				\
-do {								\
-	T_DBG3("%s: decoding, len=%lu, n=%lu, to_parse=%lu\n",	\
+	T_DBG3("%s: decoding, len=%lu, n=%lu, tail=%lu\n",	\
 	       __func__, len, n, last - src);			\
 	r = tfw_huffman_decode(hp, req, src, len);		\
 	src += len;						\
 	if (r)							\
 		goto out;					\
-	T_DBG3("%s: decoded, to_parse=%lu\n", __func__,		\
-	       last - src);					\
 	WARN_ON_ONCE(hp->length);				\
 	hp->hctx = 0;						\
 	tfw_huffman_init(hp);					\
+	if ((r = tfw_hpack_process_hdr_##field(req)))		\
+		goto out;					\
+	T_DBG3("%s: processed decoded, tail=%lu\n", __func__,	\
+	       last - src);					\
 } while (0)
 
-#define HPACK_COPY_STRING(len)					\
+#define HPACK_PROCESS_STRING(len, value_stage)			\
 do {								\
-	BUFFER_WRITE(src, len, it);				\
 	hp->length -= len;					\
+	r = tfw_h2_parse_req_hdr(src, len, req, !hp->length,	\
+				 value_stage);			\
 	src += len;						\
-	T_DBG3("%s: copy plain, len=%lu, n=%lu, to_parse=%lu,"	\
+	T_DBG3("%s: processed plain, len=%lu, n=%lu, tail=%lu,"	\
 	       " hp->length=%lu\n", __func__, len, n,		\
 	       last - src, hp->length);				\
-	if (hp->length)						\
+	if (r)							\
 		goto  out;					\
+	WARN_ON_ONCE(hp->length);				\
 } while (0)
-
-#define STATIC_INDEXED(ent)			((ent)->tag >= 0)
 
 static unsigned long act_hp_str_n;
 
@@ -1243,14 +1210,13 @@ tfw_hpack_exp_hdr(TfwPool *__restrict pool, unsigned long len,
 		  TfwMsgParseIter *__restrict it)
 {
 	TfwStr *new;
-	TfwStr *hdr = it->hdr;
 
-	if (!(new = tfw_str_add_compound(pool, hdr)))
+	if (!(new = tfw_str_add_compound(pool, &it->hdr)))
 		return NULL;
 
 	new->data = it->pos;
 	new->len = len;
-	hdr->len += len;
+	it->hdr.len += len;
 
 	return new;
 }
@@ -1276,7 +1242,7 @@ tfw_hpack_huffman_write(char sym, TfwHttpReq *__restrict req)
 	       it->rspace, sym, np);
 
 	if (!np) {
-		TfwStr *hdr = it->hdr;
+		TfwStr *hdr = &it->hdr;
 		TfwStr *last = TFW_STR_LAST(hdr);
 
 		T_DBG3("%s: add to hdr, hdr->len=%lu, last->len=%lu,"
@@ -1550,65 +1516,50 @@ tfw_hpack_str_put(TfwHPackStr *hp_str)
 	}
 }
 
-static int
-tfw_hpack_create_entry(const TfwHPackEntry *__restrict existent,
-		       TfwMsgParseIter *__restrict it,
-		       TfwHPackEntry *__restrict entry_out)
+static TfwHPackEntry *
+tfw_hpack_create_entry(TfwPool *__restrict pool, TfwMsgParseIter *__restrict it)
 {
-	char *pos = NULL;
-	const TfwStr *c, *end, *hdr = it->hdr;
-	unsigned long nm_len = it->nm_len;
-	unsigned long val_len = hdr->len - nm_len - 1;
+	char *data;
+	TfwHPackEntry *entry;
+	const TfwStr *d, *s, *end, *d_hdr, *s_hdr = it->parsed_hdr;
+	unsigned long size = sizeof(TfwHPackEntry);
 
-	BUG_ON(TFW_STR_EMPTY(hdr));
-	WARN_ON_ONCE(!nm_len || !val_len);
+	if (WARN_ON_ONCE(TFW_STR_EMPTY(s_hdr)))
+		return NULL;
 
-	T_DBG3("%s: nm_len=%lu, val_len=%lu, entry_out->tag=%ld\n", __func__,
-	       nm_len, val_len, entry_out->tag);
+	size += (s_hdr->nchunks + 1) * sizeof(TfwStr) + s_hdr->len;
+	T_DBG3("%s: size=%lu, s_hdr->nchunks=%u, s_hdr->len=%lu\n", __func__,
+	       size, s_hdr->nchunks, s_hdr->len);
+	if (!(entry = tfw_pool_alloc(pool, size)))
+		return NULL;
 
-	if (!existent) {
-		if (!(entry_out->name = tfw_hpack_create_str(nm_len)))
-			return -ENOMEM;
-		entry_out->tag = -1;
-		pos = entry_out->name->ptr;
-	}
-	else {
-		tfw_hpack_str_get(existent->name);
-		entry_out->name = existent->name;
-		entry_out->tag = existent->tag;
-	}
+	d_hdr = entry->hdr;
+	*d_hdr = *s_hdr;
+	d_hdr->chunks = d_hdr + 1;
+	data = (char *)(TFW_STR_LAST(d_hdr) + 1);
 
-	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
-		if (!existent) {
-			memcpy_fast(pos, c->data, c->len);
-			T_DBG3("%s: name cycle, nm_len=%lu, len=%lu, pos='%.*s'"
-			       "\n", __func__, nm_len, c->len, (int)c->len, pos);
-			pos += c->len;
-		}
-		nm_len -= c->len;
-		if (unlikely(!nm_len))
-			break;
+	d = TFW_STR_CHUNK(d_hdr, 0);
+	TFW_STR_FOR_EACH_CHUNK(s, s_hdr, end) {
+		*d = *s;
+		d->data = data;
+		memcpy_fast(data, s->data, s->len);
+		T_DBG3("%s: copy cycle, d->len=%lu, d->data='%.*s',"
+		       " d->flags=%hu\n", __func__, d->len, (int)d->len,
+		       d->data, d->flags);
+		data += s->len;
+		++d;
 	}
 
-	++c;
-	WARN_ON_ONCE(c >= end || *c->data != ':');
+	T_DBG3("%s: entry created, d_hdr->nchunks=%u, d_hdr->len=%lu,"
+	       " d_hdr->flags=%hu, it->nm_len=%lu, it->nm_num=%u, it->tag=%u\n",
+	       __func__, d_hdr->nchunks, d_hdr->len, d_hdr->flags, it->nm_len,
+	       it->nm_num, it->tag);
 
-	if (!(entry_out->value = tfw_hpack_create_str(val_len))) {
-		tfw_hpack_str_put(entry_out->name);
-		return -ENOMEM;
-	}
+	entry->name_len = it->nm_len;
+	entry->name_num = it->nm_num;
+	entry->tag = it->tag;
 
-	pos = entry_out->value->ptr;
-	while (++c < end) {
-		memcpy_fast(pos, c->data, c->len);
-		T_DBG3("%s: value cycle, val_len=%lu, len=%lu, pos='%.*s'"
-		       "\n", __func__, val_len, c->len, (int)c->len, pos);
-		pos += c->len;
-		val_len -= c->len;
-	}
-	WARN_ON_ONCE(val_len);
-
-	return 0;
+	return entry;
 }
 
 static inline void
@@ -1620,12 +1571,11 @@ tfw_hpack_free_entry(TfwHPackEntry *entry)
 
 static int
 tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
-		    const TfwHPackEntry *__restrict existent,
 		    TfwMsgParseIter *__restrict it)
 {
 	unsigned int delta;
 	unsigned long name_len;
-	TfwHPackEntry entry;
+	TfwHPackEntry *entry;
 	const TfwHPackStr *name, *value;
 	unsigned int window, size, new_size;
 	unsigned int count = tbl->n;
@@ -1634,8 +1584,8 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 	TfwHPackEntry *entries = tbl->entries;
 	int r = 0;
 
-	if ((r = tfw_hpack_create_entry(existent, it, &entry)))
-		return r;
+	if (!(entry = tfw_hpack_create_entry(tbl->pool, it)))
+		return -ENOMEM;
 
 	name = entry.name;
 	value = entry.value;
@@ -1806,10 +1756,10 @@ out:
 	return r;
 }
 
-static const TfwHPackEntry *
+static TfwHPackEntry *
 tfw_hpack_find_index(TfwHPackDTbl *__restrict tbl, unsigned long index)
 {
-	const TfwHPackEntry *entry = NULL;
+	TfwHPackEntry *entry = NULL;
 
 	if (index <= HPACK_STATIC_ENTRIES) {
 		entry = static_table + index - 1;
@@ -1946,36 +1896,213 @@ tfw_hpack_clean(TfwHPack *__restrict hp)
 static inline void
 tfw_hpack_reinit(TfwHPack *__restrict hp, TfwMsgParseIter *__restrict it)
 {
+	WARN_ON_ONCE(!TFW_STR_EMPTY(it->parsed_hdr));
+	bzero_fast(it->__off,
+		   sizeof(*it) - offsetof(TfwMsgParseIter, __off));
 	bzero_fast(hp->__off,
 		   sizeof(*hp) - offsetof(TfwHPack, __off));
-	bzero_fast(it->__off,
-		   sizeof(*it) - offsetof(TfwHPack, __off));
-	TFW_STR_INIT(it->hdr);
+}
+
+static inline int
+tfw_hpack_process_hdr_name(TfwHttpReq *req)
+{
+	int ret = T_BAD;
+	TfwMsgParseIter *it = &req->pit;
+	const TfwStr *c, *end, *next = it->next;
+
+	WARN_ON_ONCE(next != &it->hdr);
+	TFW_STR_FOR_EACH_CHUNK(c, next, end) {
+		bool last = c + 1 == end;
+
+		WARN_ON_ONCE(ret == T_OK);
+		ret = tfw_h2_parse_req_hdr(c->data, c->len, req, last, false);
+		if (unlikely(ret < T_POSTPONE))
+			return ret;
+	}
+	return ret ? T_DROP : T_OK;
+}
+
+static inline int
+tfw_hpack_process_hdr_value(TfwHttpReq *req)
+{
+	int ret = T_BAD;
+	TfwMsgParseIter *it = &req->pit;
+	const TfwStr *hdr = &it->hdr;
+	const TfwStr *chunk = it->next;
+	const TfwStr *end = hdr->chunks + hdr->nchunks;
+
+	WARN_ON_ONCE(chunk == hdr);
+	while (chunk < end) {
+		bool last = chunk + 1 == end;
+
+		WARN_ON_ONCE(ret == T_OK);
+		ret = tfw_h2_parse_req_hdr(chunk->data, chunk->len,
+					   req, last, true);
+		if (unlikely(ret < T_POSTPONE))
+			return ret;
+		++chunk;
+	}
+	return ret ? T_DROP : T_OK;
 }
 
 static int
-tfw_hpack_hdr_process(TfwHttpReq *req)
+tfw_hpack_hdr_name_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
+		       TfwHPackEntry *__restrict entry)
 {
-	int r = T_OK;
+	char *data;
+	TfwStr *d;
+	const TfwStr *s, *end;
+	TfwHttpParser *parser = &req->stream->parser;
+	TfwStr *d_hdr = &parser->hdr;
+	TfwStr *s_hdr = entry->hdr;
 	TfwMsgParseIter *it = &req->pit;
-	const TfwStr *chunk, *end, *hdr = it->hdr;
+	unsigned int num = entry->name_num;
+	unsigned long sz = entry->name_len;
 
-	BUG_ON(TFW_STR_DUP(hdr));
-	if (TFW_STR_PLAIN(hdr)) {
-		chunk = hdr;
-		end = hdr + 1;
-		WARN_ON_ONCE(chunk != it->next);
-	} else {
-		chunk = it->next;
-		end = hdr->chunks + hdr->nchunks;
-		WARN_ON_ONCE(hdr == it->next);
+	WARN_ON_ONCE(!TFW_STR_EMPTY(d_hdr));
+
+	if (!(data = tfw_pool_alloc_not_align(it->pool, sz)))
+		return T_BAD;
+
+	d_hdr->len = sz;
+	d_hdr->flags = s_hdr->flags;
+
+	if (TFW_STR_PLAIN(s_hdr)) {
+		d_hdr->data = data;
+		goto done;
 	}
 
-	while (chunk < end) {
-		r = tfw_h2_parse_hdr(chunk->data, chunk->len, req);
-		if (unlikely(r < T_POSTPONE))
-			return r;
-		++chunk;
+	d_hdr->nchunks = num;
+	if (!(d_hdr->chunks = tfw_pool_alloc(req->pool, num * sizeof(TfwStr))))
+		return T_BAD;
+
+	/*
+	 * Since headers in static table cannot be changed, we need to copy only
+	 * descriptors (because they will grow during further processing).
+	 */
+	d = __TFW_STR_CH(d_hdr, 0);
+	if (hp->index <= HPACK_STATIC_ENTRIES) {
+		WARN_ON_ONCE(!s_hdr->nchunks);
+		*d = *s_hdr->chunks;
+		goto done;
+	}
+
+	for (s = s_hdr->chunks, end = s_hdr->chunks + num; s < end; ++s) {
+		*d = *s;
+		d->data = data;
+		memcpy_fast(data, s->data, s->len);
+		data += s->len;
+		++d;
+	}
+
+done:
+	it->tag = entry->tag;
+
+	return T_OK;
+}
+
+static int
+tfw_hpack_hdr_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
+		  TfwHPackEntry *__restrict entry)
+{
+	char *data;
+	TfwStr *d;
+	const TfwStr *s, *end;
+	unsigned long d_size;
+	TfwMsgParseIter *it = &req->pit;
+	TfwHttpParser *parser = &req->stream->parser;
+	TfwStr *d_hdr = &parser->hdr;
+	TfwStr *s_hdr = entry->hdr;
+
+	WARN_ON_ONCE(TFW_STR_PLAIN(s_hdr));
+	WARN_ON_ONCE(!TFW_STR_EMPTY(d_hdr));
+
+	/*
+	 * The header in static table should not be supplanted and full header
+	 * descriptor (with name and value) should not grow during subsequent
+	 * processing. Thus, we can avoid the descriptor deep copying from the
+	 * table and take only its high-level part.
+	 */
+	if (hp->index <= HPACK_STATIC_ENTRIES) {
+		WARN_ON_ONCE(s_hdr->nchunks > 2);
+		if (s_hdr->nchunks != 2)
+			return T_DROP;
+		*d_hdr = *s_hdr;
+		goto done;
+	}
+
+	/*
+	 * We must do a full copy of dynamically indexed headers (in-depth
+	 * descriptor and data), since next header can supplant the processed
+	 * header or change it by adding a new header into dynamic table, and
+	 * any type of reference for header (index or high-level/full
+	 * descriptor) will become invalid. Note, that for static table this
+	 * problem does not exist, since statically indexed headers cannot be
+	 * supplanted or changed - therefore, for subsequent work we keep
+	 * (without full copying) only references for statically indexed
+	 * headers (also, see comment above).
+	 */
+	d_size = s_hdr->nchunks * sizeof(TfwStr);
+	if (!(data = tfw_pool_alloc_not_align(it->pool, s_hdr->len)))
+		return T_BAD;
+
+	if (!(d_hdr->chunks = tfw_pool_alloc(req->pool, d_size)))
+		return T_BAD;
+
+	d_hdr->len = s_hdr->len;
+	d_hdr->flags = s_hdr->flags;
+	d_hdr->nchunks = s_hdr->nchunks;
+
+	d = TFW_STR_CHUNK(d_hdr, 0);
+	TFW_STR_FOR_EACH_CHUNK(s, s_hdr, end) {
+		*d = *s;
+		d->data = data;
+		memcpy_fast(data, s->data, s->len);
+		data += s->len;
+		++d;
+	}
+
+done:
+	switch (entry->tag) {
+	case TFW_TAG_HDR_H2_METHOD:
+		parser->_hdr_tag = TFW_HTTP_HDR_H2_METHOD;
+	case TFW_TAG_HDR_H2_SCHEME:
+		parser->_hdr_tag = TFW_HTTP_HDR_H2_SCHEME;
+	case TFW_TAG_HDR_H2_AUTHORITY:
+		parser->_hdr_tag = TFW_HTTP_HDR_H2_AUTHORITY;
+	case TFW_TAG_HDR_H2_PATH:
+		parser->_hdr_tag = TFW_HTTP_HDR_H2_PATH;
+	case TFW_TAG_HDR_ACCEPT:
+		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
+	case TFW_TAG_HDR_AUTHORIZATION:
+		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
+	case TFW_TAG_HDR_CACHE_CONTROL:
+		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
+	case TFW_TAG_HDR_CONTENT_LENGTH:
+		parser->_hdr_tag = TFW_HTTP_HDR_CONTENT_LENGTH;
+	case TFW_TAG_HDR_CONTENT_TYPE:
+		parser->_hdr_tag = TFW_HTTP_HDR_CONTENT_TYPE;
+	case TFW_TAG_HDR_COOKIE:
+		parser->_hdr_tag = TFW_HTTP_HDR_COOKIE;
+	case TFW_TAG_HDR_HOST:
+		parser->_hdr_tag = TFW_HTTP_HDR_HOST;
+	case TFW_TAG_HDR_IF_MODIFIED_SINCE:
+		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
+	case TFW_TAG_HDR_IF_NONE_MATCH:
+		parser->_hdr_tag = TFW_HTTP_HDR_IF_NONE_MATCH;
+	case TFW_TAG_HDR_PRAGMA:
+		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
+	case TFW_TAG_HDR_REFERER:
+		parser->_hdr_tag = TFW_HTTP_HDR_REFERER;
+	case TFW_TAG_HDR_X_FORWARDED_FOR:
+		parser->_hdr_tag = TFW_HTTP_HDR_X_FORWARDED_FOR;
+	case TFW_TAG_HDR_USER_AGENT:
+		parser->_hdr_tag = TFW_HTTP_HDR_USER_AGENT;
+	case TFW_TAG_HDR_RAW:
+		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
+	default:
+		WARN_ON_ONCE(1);
+		return T_DROP;
 	}
 
 	return T_OK;
@@ -1985,9 +2112,8 @@ tfw_hpack_hdr_process(TfwHttpReq *req)
  * HPACK decoder FSM for HTTP/2 message processing.
  */
 int
-tfw_hpack_decode(TfwHPack *__restrict hp, const unsigned char *src,
-		 unsigned long n, TfwHttpReq *__restrict req,
-		 unsigned int *__restrict parsed)
+tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *src, unsigned long n,
+		 TfwHttpReq *__restrict req, unsigned int *__restrict parsed)
 {
 	int r = T_POSTPONE;
 	unsigned int state = hp->state;
@@ -1995,9 +2121,9 @@ tfw_hpack_decode(TfwHPack *__restrict hp, const unsigned char *src,
 	const unsigned char *last = src + n;
 
 	BUILD_BUG_ON(HPACK_STATE_MASK < _HPACK_STATE_NUM - 1);
-	BUG_ON(!it->hdr);
+	BUG_ON(!it->parsed_hdr);
 	WARN_ON_ONCE(!n);
-	*parsed = n;
+	*parsed += n;
 	do {
 		T_DBG3("%s: header processing, n=%lu, to_parse=%lu, state=%d\n",
 		       __func__, n, last - src, state);
@@ -2101,6 +2227,7 @@ index:
 			unsigned char c = *src++;
 
 			T_DBG3("%s: decode header name length...\n", __func__);
+			WARN_ON_ONCE(hp->length);
 			hp->length = c & 0x7F;
 			if (c & 0x80) {
 				T_DBG3("%s: Huffman encoding used for name...\n",
@@ -2133,16 +2260,9 @@ get_name_text:
 			T_DBG3("%s: decode header name...\n", __func__);
 			m_len = min((unsigned long)(last - src), hp->length);
 			if (state & HPACK_FLAGS_HUFFMAN_NAME)
-				HPACK_DECODE_STRING(m_len);
+				HPACK_DECODE_PROCESS_STRING(name, m_len);
 			else
-				HPACK_COPY_STRING(m_len);
-
-			if (tfw_hpack_hdr_process(req)) {
-				r = T_DROP;
-				goto out;
-			}
-
-			BUFFER_WRITE_COLON();
+				HPACK_PROCESS_STRING(m_len, false);
 
 			NEXT_STATE(HPACK_STATE_VALUE);
 
@@ -2153,32 +2273,16 @@ get_name_text:
 		}
 		case HPACK_STATE_INDEXED_NAME_TEXT:
 		{
+			TfwHPackEntry *entry;
 get_indexed_name:
 			T_DBG3("%s: decode indexed (%lu) header name...\n",
 			       __func__, hp->index);
 			WARN_ON_ONCE(!hp->index);
-			hp->entry = tfw_hpack_find_index(&hp->dec_tbl,
-							 hp->index);
-			if (!hp->entry) {
+			entry = tfw_hpack_find_index(&hp->dec_tbl, hp->index);
+			if (!entry || tfw_hpack_hdr_name_set(hp, req, entry)) {
 				r = T_DROP;
 				goto out;
 			}
-
-			BUFFER_NAME_OPEN(hp->entry->name->len);
-			BUFFER_WRITE(hp->entry->name->ptr,
-				     hp->entry->name->len, it);
-
-			if (!STATIC_INDEXED(hp->entry)) {
-				if (tfw_hpack_hdr_process(req)) {
-					r = T_DROP;
-					goto out;
-				}
-			}
-			else {
-				it->hdr_tag = hp->entry->tag;
-			}
-
-			BUFFER_WRITE_COLON();
 
 			NEXT_STATE(HPACK_STATE_VALUE);
 
@@ -2190,6 +2294,7 @@ get_indexed_name:
 get_value:
 			T_DBG3("%s: decode header value length...\n", __func__);
 			c = *src++;
+			WARN_ON_ONCE(hp->length);
 			hp->length = c & 0x7F;
 			if (c & 0x80) {
 				T_DBG3("%s: Huffman encoding used for value\n",
@@ -2225,22 +2330,27 @@ get_value_text:
 			T_DBG3("%s: decode header value...\n", __func__);
 			m_len = min((unsigned long)(last - src), hp->length);
 			if (state & HPACK_FLAGS_HUFFMAN_VALUE)
-				HPACK_DECODE_STRING(m_len);
+				HPACK_DECODE_PROCESS_STRING(value, m_len);
 			else
-				HPACK_COPY_STRING(m_len);
+				HPACK_PROCESS_STRING(m_len, true);
 
-			BUFFER_WRITE_CRLF();
-
-			if (tfw_hpack_hdr_process(req)) {
+			if (state & HPACK_FLAGS_ADD
+			    && tfw_hpack_add_index(&hp->dec_tbl, it))
+			{
 				r = T_DROP;
 				goto out;
 			}
 
-			tfw_str_set_eolen(it->hdr, 2);
+			it->hdrs_len += it->parsed_hdr->len;
+			++it->hdrs_cnt;
 
-			if (state & HPACK_FLAGS_ADD
-			    && tfw_hpack_add_index(&hp->dec_tbl, hp->entry, it))
-			{
+			/*
+			 * Finish parsed header and reinitialize parsing
+			 * context. Note, @parser->hdr and @parser->_hdr_tag
+			 * must be determined during headers' field processing
+			 * above.
+			 */
+			if (tfw_http_msg_hdr_close((TfwHttpMsg *)req)) {
 				r = T_DROP;
 				goto out;
 			}
@@ -2249,7 +2359,7 @@ get_value_text:
 		}
 		case HPACK_STATE_ALL_INDEXED:
 		{
-			const TfwHPackEntry *entry;
+			TfwHPackEntry *entry;
 get_all_indexed:
 			T_DBG3("%s: get entire header by index: %lu\n", __func__,
 			       hp->index);
@@ -2262,27 +2372,24 @@ get_all_indexed:
 				goto out;
 			}
 
-			BUFFER_NAME_OPEN(entry->name->len);
-			BUFFER_WRITE(entry->name->ptr, entry->name->len, it);
-
-			if (!STATIC_INDEXED(entry)) {
-				if (tfw_hpack_hdr_process(req)) {
-					r = T_DROP;
-					goto out;
-				}
-			}
-			else {
-				it->hdr_tag = entry->tag;
+			if (tfw_hpack_hdr_set(hp, req, entry)) {
+				r = T_DROP;
+				goto out;
 			}
 
-			BUFFER_WRITE_COLON();
+			it->hdrs_len += it->parsed_hdr->len;
+			++it->hdrs_cnt;
 
-			BUFFER_VAL_OPEN(entry->value->len);
-			BUFFER_WRITE(entry->value->ptr, entry->value->len, it);
-			BUFFER_WRITE_CRLF();
-
-			tfw_str_set_eolen(it->hdr, 2);
-			tfw_http_msg_hdr_close((TfwHttpMsg *)req, it->hdr_tag);
+			/*
+			 * Finish parsed header and reinitialize parsing
+			 * context. Note, in case of indexed header @parser->hdr
+			 * and @parser->_hdr_tag must be determined from the
+			 * decoder static/dynamic tables above.
+			 */
+			if (tfw_http_msg_hdr_close((TfwHttpMsg *)req)) {
+				r = T_DROP;
+				goto out;
+			}
 
 			break;
 		}
@@ -2459,6 +2566,9 @@ typedef enum {
 
 #define HPACK_IDX_ST_MASK		0x0F
 #define HPACK_IDX_FLAG_ADD		0x010
+
+#define HPACK_IDX_RES(res)						\
+	((res) & HPACK_IDX_ST_MASK)
 
 #define HPACK_MAX_ENC_EVICTION		5
 
@@ -3284,11 +3394,11 @@ tfw_hpack_add_node(TfwHPackETbl *__restrict tbl, const TfwStr *__restrict hdr,
 	unsigned long node_size, hdr_len;
 	unsigned short new_size, node_len;
 	unsigned short cur_size = tbl->size, window = tbl->window;
-	unsigned long nm_len = 0, val_off = 0, val_len = 0;
+	unsigned long nm_len, val_off, val_len;
 	TfwHPackNode *del_list[HPACK_MAX_ENC_EVICTION] = {};
 	TfwHPackETblIter it = {};
 
-	hdr_len = tfw_http_msg_hdr_length(hdr, &nm_len, &val_off, &val_len);
+	hdr_len = tfw_h2_msg_hdr_length(hdr, &nm_len, &val_off, &val_len);
 
 	WARN_ON_ONCE(cur_size > window || window > HPACK_ENC_TABLE_MAX_SIZE);
 	if ((node_size = hdr_len + HPACK_ENTRY_OVERHEAD) > window) {
@@ -3383,7 +3493,7 @@ commit:
 	it.last->hdr_len = hdr_len;
 	it.last->rindex = ++tbl->idx_acc;
 
-	tfw_http_msg_hdr_write(hdr, nm_len, val_off, val_len, it.last->hdr);
+	tfw_h2_msg_hdr_write(hdr, nm_len, val_off, val_len, it.last->hdr);
 	tfw_hpack_rbuf_commit(tbl, del_list, place, &it);
 
 	WARN_ON_ONCE(tbl->rb_len > tbl->size);
@@ -3396,41 +3506,30 @@ commit:
  * encoder dynamic table with potentially concurrent access from different
  * threads, so lock is used to protect the find/add/erase operations inside
  * this procedure.
- *
- * TODO #309: this function must be called from response sending procedures:
- * upstream response headers cycle, upstream response adjusting procedure,
- * internal response creation; in all these three cases the call to this
- * function must be combined with the sending of fully prepared response,
- * in which the @entered variable must be checked; callers of this procedure
- * must decide (taking into account information from static indexing: the
- * index itself and the special flag indicating whether the entire header
- * is indexed or only its name) - whether to call this function and which
- * index to send - static or dynamic; note, that dynamic index is returned
- * from this function with its own attributes to be taken into account: return
- * header/name values and special addition flag, signaling that the header
- * must be added into decoder index table on the client side; also note,
- * that if only header name has been found (in static or dynamic table), we
- * must save in dynamic table (under new index) the entire header nevertheless.
  */
 static TfwHPackETblRes
 tfw_hpack_encoder_index(TfwHPackETbl *__restrict tbl,
 			const TfwStr *__restrict hdr,
-			bool *entered, unsigned short *__restrict out_index)
+			unsigned short *__restrict out_index,
+			unsigned long *__restrict flags)
 {
-	TfwHPackETblRes res;
-	const TfwHPackNode *node = NULL;
 	TfwHPackNodeIter place = {};
+	const TfwHPackNode *node = NULL;
+	TfwHPackETblRes res = HPACK_IDX_ST_NOT_FOUND;
 
 	BUILD_BUG_ON(HPACK_IDX_ST_MASK < _HPACK_IDX_ST_NUM - 1);
+	if (WARN_ON_ONCE(!hdr))
+		return -EINVAL;
 
 	spin_lock(&tbl->lock);
 
-	if (!*entered && atomic64_read(&tbl->guard) < 0)
+	if (!test_bit(TFW_HTTP_B_H2_TRANS_ENTERED, flags)
+	    && atomic64_read(&tbl->guard) < 0)
 		goto out;
 
 	res = tfw_hpack_rbtree_find(tbl, hdr, &node, &place);
 
-	WARN_ON_ONCE(res != HPACK_IDX_ST_NOT_FOUND && !node);
+	WARN_ON_ONCE(!node && res != HPACK_IDX_ST_NOT_FOUND);
 
 	*out_index = HPACK_NODE_GET_INDEX(tbl, node);
 
@@ -3438,25 +3537,25 @@ tfw_hpack_encoder_index(TfwHPackETbl *__restrict tbl,
 	 * Encoder dynamic index can be in three states: initial state (@guard
 	 * is zero), read state (@guard is 1 or greater), and write state
 	 * (@guard is -1); in read state any thread can search in index, but
-	 * nobody can add or evict entries in index; if index in write state
+	 * nobody can add or evict entries in index; if index in the write state
 	 * only one thread (current writer) can add/evict entries in index and
 	 * nobody can search in index; index can be switched to write state
 	 * only from initial state (in general case) or from read state (if
 	 * current reader is the sole read owner of the index).
 	 */
-	if (!*entered) {
+	if (!test_bit(TFW_HTTP_B_H2_TRANS_ENTERED, flags)) {
 		if(res != HPACK_IDX_ST_FOUND
 		   && !atomic64_read(&tbl->guard)
 		   && !tfw_hpack_add_node(tbl, hdr, &place))
 		{
 			res |= HPACK_IDX_FLAG_ADD;
 			atomic64_set(&tbl->guard, -1);
-			*entered = true;
+			__set_bit(TFW_HTTP_B_H2_TRANS_ENTERED, flags);
 		}
 		else if (res != HPACK_IDX_ST_NOT_FOUND)
 		{
 			atomic64_inc(&tbl->guard);
-			*entered = true;
+			__set_bit(TFW_HTTP_B_H2_TRANS_ENTERED, flags);
 		}
 	}
 	else {
@@ -3464,8 +3563,9 @@ tfw_hpack_encoder_index(TfwHPackETbl *__restrict tbl,
 		 * If value of guard is 1, we are the sole owner of the encoder
 		 * dynamic index with read rights, thus we can write to it.
 		 * Note, that @guard cannot be zero here, since we are already
-		 * owning encoder index with read or write rights (the value of
-		 * @entered is 'true'), thus we have already set the @guard
+		 * owning encoder index with read or write rights (i.e. the flag
+		 * @TFW_HTTP_B_H2_TRANS_ENTERED is set for the corrently
+		 * processed message), thus we have already set the @guard
 		 * equal to 1 (or greater) or to -1 before.
 		 */
 		WARN_ON_ONCE(!atomic64_read(&tbl->guard));
@@ -3484,29 +3584,559 @@ out:
 	return res;
 }
 
-int
-tfw_hpack_hdrs_transform(TfwHttpResp *__restrict resp, bool *entered)
+void
+tfw_hpack_enc_release(TfwHPack *__restrict hp, unsigned long *flags)
 {
-	TfwHPackETblRes r;
-	const TfwStr *field, *hdrs_end, *hdr, *dup_end;
-	TfwH2Ctx *ctx = tfw_h2_context(resp->req->conn);
-	unsigned short index = 0;
+	TfwHPackETbl *tbl = &hp->enc_tbl;
 
-	FOR_EACH_HDR_FIELD(field, hdrs_end, resp) {
-		TFW_STR_FOR_EACH_DUP(hdr, field, dup_end) {
-			r = tfw_hpack_encoder_index(&ctx->hpack.enc_tbl, hdr,
-						    entered, &index);
-			/*
-			 * TODO #309: replace response headers with HTTP/2
-			 * indexes.
-			 */
+	if (!test_bit(TFW_HTTP_B_H2_TRANS_ENTERED, flags))
+		return;
+
+	if (atomic64_read(&tbl->guard) < 0) {
+		atomic64_set(&tbl->guard, 0);
+	}
+	else {
+		WARN_ON_ONCE(!atomic64_read(&tbl->guard));
+		atomic64_dec(&tbl->guard);
+	}
+}
+
+static void
+write_int(unsigned long index, unsigned short max, unsigned short mask,
+	  TfwHPackInt *__restrict res_idx)
+{
+	unsigned int size = 0;
+	unsigned char *dst = res_idx->buf;
+
+	if (likely(index < max)) {
+		index |= mask;
+	}
+	else {
+		index -= max;
+		*dst++ = max | mask;
+		while (index > 0x7F) {
+			++size;
+			*dst++ = (index & 0x7F) | 0x80;
+			index >>= 7;
+		}
+	}
+	++size;
+	*dst = index;
+
+	res_idx->sz = size;
+}
+
+static int
+tfw_hpack_idx_add(TfwHttpResp *__restrict resp, TfwStr *__restrict first,
+		  TfwHPackInt *__restrict idx)
+{
+	int ret;
+	TfwStr it = {};
+	TfwMsgTransIter *mit = &resp->mit;
+	TfwStr idx_str = {
+		.data = idx->buf,
+		.len = idx->sz,
+	};
+
+	ret = ss_skb_get_room(resp->msg.skb_head, first->skb, first->data,
+			      idx_str.len, &it);
+	if (ret)
+		return ret;
+
+	if ((ret = tfw_strcpy(&it, &idx_str)))
+		return ret;
+
+	mit->acc_len += idx_str.len;
+
+	T_DBG3("%s: idx, acc_len=%lu, idx_str.len=%lu, idx_str.data='%.*s'\n",
+	       __func__, mit->acc_len, idx_str.len, (int)idx_str.len,
+	       idx_str.data);
+
+	return 0;
+}
+
+static inline int
+tfw_hpack_idx_expand(TfwHttpResp *__restrict resp, TfwHPackInt *__restrict idx)
+{
+	int ret;
+	TfwMsgTransIter *mit = &resp->mit;
+	TfwStr idx_str = {
+		.data = idx->buf,
+		.len = idx->sz
+	};
+
+	ret = tfw_http_msg_expand_data(&mit->iter, &resp->msg.skb_head,
+				       &idx_str);
+	if (ret)
+		return ret;
+
+	mit->acc_len += idx_str.len;
+
+	T_DBG3("%s: idx, acc_len=%lu, idx_str.len=%lu, idx_str.data='%.*s'\n",
+	       __func__, mit->acc_len, idx_str.len, (int)idx_str.len,
+	       idx_str.data);
+
+	return 0;
+}
+
+/*
+ * Replace @str in the HTTP message by @idx as HPACK representation, with
+ * deletion of EOL at the end of @str.
+ */
+static int
+tfw_hpack_idx_sub(TfwHttpResp *__restrict resp, TfwStr *__restrict str,
+		  TfwHPackInt *__restrict idx)
+{
+	int ret;
+	struct sk_buff *skb_head = resp->msg.skb_head;
+	TfwMsgTransIter *mit = &resp->mit;
+	TfwStr *last, it = {};
+	TfwStr idx_str = {
+		.data = idx->buf,
+		.len = idx->sz,
+	};
+
+	if (WARN_ON_ONCE(!str))
+		return -EINVAL;
+
+	if (str->len == idx_str.len)
+		goto copy;
+
+	if (str->len > idx_str.len) {
+		ret = ss_skb_cutoff_data(skb_head, str, idx_str.len,
+					 tfw_str_eolen(str));
+		if (ret)
+			return ret;
+		goto copy;
+	}
+
+	last = TFW_STR_LAST(str);
+	ret = ss_skb_get_room(skb_head, last->skb, last->data + last->len,
+			      idx_str.len - str->len, &it);
+	if (ret)
+		return ret;
+
+	if ((ret = tfw_strcat(resp->pool, str, &it))) {
+		T_WARN("Cannot concatenate '%.*s' with '%.*s' (err=%d)\n",
+		       PR_TFW_STR(str), PR_TFW_STR(&idx_str), ret);
+		return ret;
+	}
+
+copy:
+	if ((ret = tfw_strcpy(str, &idx_str)))
+		return ret;
+
+	mit->acc_len += idx_str.len;
+
+	T_DBG3("%s: idx, acc_len=%lu, idx_str.len=%lu, idx_str.data='%.*s'\n",
+	       __func__, mit->acc_len, idx_str.len, (int)idx_str.len,
+	       idx_str.data);
+
+	return 0;
+}
+
+//comment is needed
+static int
+tfw_hpack_lit_add(TfwHttpResp *__restrict resp, TfwStr *__restrict first,
+		  TfwStr *__restrict hdr, TfwHPackInt *__restrict idx,
+		  bool name_indexed)
+{
+	int ret;
+	TfwHPackInt vlen;
+	TfwStr *chunk, *end;
+	TfwMsgTransIter *mit = &resp->mit;
+	struct sk_buff *skb_head = resp->msg.skb_head;
+	TfwStr s_val, s_vlen = {};
+	TfwStr it = {};
+	TfwStr res_hdr = {
+		.data = idx->buf,
+		.len = idx->sz,
+	};
+
+	if (WARN_ON_ONCE(!hdr || TFW_STR_EMPTY(hdr)))
+		return -EINVAL;
+
+	if (!name_indexed) {
+		TfwHPackInt nlen;
+		TfwStr *s_n = TFW_STR_CHUNK(hdr, 0);
+		TfwStr s_name = {
+			.chunks = (TfwStr []){ {}, {} },
+			.nchunks = 2
+		};
+
+		write_int(s_n->len, 0x7F, 0, &nlen);
+		__TFW_STR_CH(&s_name, 0)->data = nlen.buf;
+		__TFW_STR_CH(&s_name, 0)->len = nlen.sz;
+		__TFW_STR_CH(&s_name, 1)->data = s_n->data;
+		__TFW_STR_CH(&s_name, 1)->len = s_n->len;
+
+		if ((ret = tfw_strcat(resp->pool, &res_hdr, &s_name)))
+			return ret;
+	}
+
+	/*
+	 * The @hdr must have the HTTP/2-format chunk structure (without the
+	 * colon and OWS), i.e.: { name, value1, value2, ... }.
+	 */
+	chunk = TFW_STR_CHUNK(hdr, 1);
+	end = hdr->chunks + hdr->nchunks;
+	tfw_str_collect_cmp(chunk, end, &s_val, NULL);
+
+	write_int(s_val.len, 0x7F, 0, &vlen);
+	s_vlen.data = vlen.buf;
+	s_vlen.len = vlen.sz;
+
+	if ((ret = tfw_strcat(resp->pool, &res_hdr, &s_vlen)))
+		return ret;
+
+	if ((ret = tfw_strcat(resp->pool, &res_hdr, &s_val)))
+		return ret;
+
+	ret = ss_skb_get_room(skb_head, first->skb, first->data,
+			      res_hdr.len, &it);
+	if (ret)
+		return ret;
+
+	if ((ret = tfw_strcpy(&it, &res_hdr)))
+		return ret;
+
+	mit->acc_len += res_hdr.len;
+
+	T_DBG3("%s: idx, acc_len=%lu, it.len=%lu, it.data='%.*s'\n", __func__,
+	       mit->acc_len, it.len, (int)it.len, it.data);
+
+	return 0;
+}
+
+//comment is needed
+static int
+tfw_hpack_lit_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
+		     TfwHPackInt *__restrict idx, bool name_indexed)
+{
+	int ret;
+	TfwHPackInt nlen, vlen;
+	TfwStr *chunk, *end, *s_name;
+	TfwMsgTransIter *mit = &resp->mit;
+	TfwMsgIter *iter = &mit->iter;
+	struct sk_buff **skb_head = &resp->msg.skb_head;
+	TfwStr s_val, s_nlen = {}, s_vlen = {};
+	TfwStr idx_str = {
+		.data = idx->buf,
+		.len = idx->sz,
+	};
+
+	if (WARN_ON_ONCE(!hdr || TFW_STR_EMPTY(hdr)))
+		return -EINVAL;
+
+	if ((ret = tfw_http_msg_expand_data(iter, skb_head, &idx_str)))
+		return ret;
+
+	mit->acc_len += idx_str.len;
+
+	T_DBG3("%s: idx, acc_len=%lu, idx_str.len=%lu, idx_str.data='%.*s'\n",
+	       __func__, mit->acc_len, idx_str.len, (int)idx_str.len,
+	       idx_str.data);
+
+	if (!name_indexed) {
+		s_name = TFW_STR_CHUNK(hdr, 0);
+		write_int(s_name->len, 0x7F, 0, &nlen);
+		s_nlen.data = nlen.buf;
+		s_nlen.len = nlen.sz;
+
+		if ((ret = tfw_http_msg_expand_data(iter, skb_head, &s_nlen)))
+			return ret;
+
+		mit->acc_len += s_nlen.len;
+
+		T_DBG3("%s: name len, acc_len=%lu, s_nlen.len=%lu, s_nlen.data"
+		       "='%.*s'\n", __func__, mit->acc_len, s_nlen.len,
+		       (int)s_nlen.len, s_nlen.data);
+
+		if ((ret = tfw_http_msg_expand_data(iter, skb_head, s_name)))
+			return ret;
+
+		mit->acc_len += s_name->len;
+
+		T_DBG3("%s: name str, acc_len=%lu, s_name.len=%lu, s_name.data"
+		       "='%.*s'\n", __func__, mit->acc_len, s_name.len,
+		       (int)s_name.len, s_name.data);
+	}
+	/*
+	 * The @hdr must have the HTTP/2-format chunk structure (without the
+	 * colon and OWS), i.e.: { name, value1, value2, ... }.
+	 */
+	chunk = TFW_STR_CHUNK(hdr, 1);
+	end = hdr->chunks + hdr->nchunks;
+	tfw_str_collect_cmp(chunk, end, &s_val, NULL);
+
+	write_int(s_val.len, 0x7F, 0, &vlen);
+	s_vlen.data = vlen.buf;
+	s_vlen.len = vlen.sz;
+
+	if ((ret = tfw_http_msg_expand_data(iter, skb_head, &s_vlen)))
+		return ret;
+
+	mit->acc_len += s_vlen.len;
+
+	T_DBG3("%s: val len, acc_len=%lu, s_vlen.len=%lu, s_vlen.data='%.*s'\n",
+	       __func__, mit->acc_len, s_vlen.len, (int)s_vlen.len, s_vlen.data);
+
+	if ((ret = tfw_http_msg_expand_data(iter, skb_head, &s_val)))
+		return ret;
+
+	mit->acc_len += s_val.len;
+
+	T_DBG3("%s: val str, acc_len=%lu, s_val.len=%lu, s_val.data='%.*s'\n",
+	       __func__, mit->acc_len, s_val.len, (int)s_val.len, s_val.data);
+
+	return 0;
+}
+
+//comment is needed (about @fc too)
+static inline int
+tfw_hpack_lit_sub(TfwHttpResp *__restrict resp, TfwStr *__restrict tgt,
+		  TfwStr *__restrict hdr, TfwHPackInt *__restrict idx,
+		  bool name_indexed)
+{
+	int ret;
+	TfwStr *fc;
+	struct sk_buff *skb_head = resp->msg.skb_head;
+
+	if (WARN_ON_ONCE(!tgt || !hdr))
+		return -EINVAL;
+
+	fc = TFW_STR_CHUNK(tgt, 0);
+
+	if ((ret = tfw_hpack_lit_add(resp, fc, hdr, idx, name_indexed)))
+		return ret;
+
+	if ((ret = ss_skb_cutoff_data(skb_head, tgt, 0, tfw_str_eolen(tgt))))
+			return ret;
+
+	return 0;
+}
+
+static int
+tfw_hpack_lit_inplace(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
+		      TfwHPackInt *__restrict idx, bool name_indexed)
+{
+	int r;
+	TfwHPackInt nlen, vlen;
+	const TfwStr *c, *end, *h;
+	TfwStr it = {};
+	bool val_found = false;
+	TfwMsgTransIter *mit = &resp->mit;
+	unsigned long hdr_len, nm_len, val_off, val_len;
+	struct sk_buff *skb_head = resp->msg.skb_head;
+	TfwStr s_nlen = {}, s_vlen = {};
+	TfwStr s_idx = {
+		.data = idx->buf,
+		.len = idx->sz,
+	};
+
+	if (WARN_ON_ONCE(!hdr))
+		return -EINVAL;
+
+	if ((r = tfw_http_msg_del_eol(skb_head, hdr)))
+		return r;
+
+	h = TFW_STR_CHUNK(hdr, 0);
+	if ((r = ss_skb_get_room(skb_head, h->skb, h->data, s_idx.len, &it)))
+		return r;
+
+	if ((r = tfw_strcpy(&it, &s_idx)))
+		return r;
+
+	mit->acc_len += s_idx.len;
+
+	T_DBG3("%s: idx, acc_len=%lu, it.len=%lu, it.data='%.*s'\n", __func__,
+	       mit->acc_len, it.len, (int)it.len, it.data);
+
+	hdr_len = tfw_h2_msg_hdr_length(hdr, &nm_len, &val_off, &val_len);
+
+	if (!name_indexed) {
+		write_int(nm_len, 0x7F, 0, &nlen);
+		s_nlen.data = nlen.buf;
+		s_nlen.len = nlen.sz;
+		r = ss_skb_get_room(skb_head, h->skb, h->data, s_nlen.len, &it);
+		if (r)
+			return r;
+		if ((r = tfw_strcpy(&it, &s_nlen)))
+			return r;
+
+		mit->acc_len += s_nlen.len + nm_len;
+
+		T_DBG3("%s: name len, acc_len=%lu, it.len=%lu, it.data='%.*s'\n",
+		       __func__, mit->acc_len, it.len, (int)it.len, it.data);
+	}
+
+	write_int(val_len, 0x7F, 0, &vlen);
+	s_vlen.data = vlen.buf;
+	s_vlen.len = vlen.sz;
+
+	mit->acc_len += s_vlen.len + val_len;
+
+	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
+		unsigned long len;
+
+		if (!c->len)
+			continue;
+
+		len = 0;
+		if (nm_len) {
+			WARN_ON_ONCE(nm_len == c->len);
+			len = min(nm_len, c->len);
+			nm_len -= len;
+			if (name_indexed) {
+				r = skb_fragment(skb_head, c->skb, c->data,
+						 -len, &it);
+				if (r < 0)
+					return r;
+			}
+
+			if (len == c->len)
+				continue;
+
+			WARN_ON_ONCE(!val_off);
+		}
+
+		if (val_off) {
+			WARN_ON_ONCE(val_off < c->len - len);
+			val_off -= c->len - len;
+			r = skb_fragment(skb_head, c->skb, c->data + len,
+					 -(c->len - len), &it);
+			if (r < 0)
+				return r;
+
+			continue;
+		}
+
+		if (val_len) {
+			len = min(val_len, c->len);
+			val_len -= len;
+			if (!val_found) {
+				val_found = true;
+				r = ss_skb_get_room(skb_head, c->skb, c->data,
+						    s_vlen.len, &it);
+				if (r)
+					return r;
+				if ((r = tfw_strcpy(&it, &s_vlen)))
+					return r;
+				T_DBG3("%s: value len, acc_len=%lu, it.len=%lu,"
+				       " it.data='%.*s'\n", __func__,
+				       mit->acc_len, it.len,
+				       (int)it.len, it.data);
+			}
+		}
+
+		if (len < c->len) {
+			r = skb_fragment(skb_head, c->skb, c->data + len,
+					 -(c->len - len), &it);
+			if (r < 0)
+				return r;
 		}
 	}
 
 	return 0;
 }
 
-static inline void
+//comment is needed (including the @tgt description)
+int
+tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict tgt,
+		 TfwStr *__restrict hdr, TfwH2TransOp op)
+{
+	TfwHPackInt idx;
+	TfwH2Ctx *ctx = tfw_h2_context(resp->req->conn);
+	TfwHPackETbl *tbl = &ctx->hpack.enc_tbl;
+	TfwStr *h2i = op == TFW_H2_TRANS_INPLACE ? tgt : hdr;
+	TfwStr *fc = TFW_STR_CHUNK(&resp->crlf, 0);
+	unsigned short index = 0, st_index = TFW_STR_INDEX(h2i);
+	bool st_full_index = h2i->flags & TFW_STR_FULL_INDEX;
+	int r = 0;
+
+	BUG_ON(tgt == hdr);
+
+	if (!st_full_index) {
+		r = tfw_hpack_encoder_index(tbl, h2i, &index, resp->flags);
+		if (r < 0)
+			return r;
+	}
+
+	if (st_full_index || HPACK_IDX_RES(r) == HPACK_IDX_ST_FOUND) {
+		/*
+		 * The full index (whether static or dynamic) always takes
+		 * precedence over partial index (when only the header name is
+		 * indexed).
+		 */
+		if (!index)
+			index = st_index;
+
+		WARN_ON_ONCE(!index);
+
+		write_int(index, 0x7F, 0x80, &idx);
+		switch (op) {
+		case TFW_H2_TRANS_ADD:
+			return tfw_hpack_idx_add(resp, fc, &idx);
+		case TFW_H2_TRANS_EXPAND:
+			return tfw_hpack_idx_expand(resp, &idx);
+		case TFW_H2_TRANS_SUB:
+		case TFW_H2_TRANS_INPLACE:
+			return tfw_hpack_idx_sub(resp, tgt, &idx);
+		default:
+			BUG();
+		}
+	}
+
+	if (st_index || HPACK_IDX_RES(r) == HPACK_IDX_ST_NM_FOUND) {
+		/*
+		 * If we have only partial indexes (static and/or dynamic), the
+		 * static index, if it had been found, always takes precedence
+		 * over dynamic one.
+		 */
+		if (st_index)
+			index = st_index;
+
+		WARN_ON_ONCE(!index);
+
+		if (r & HPACK_IDX_FLAG_ADD)
+			write_int(index, 0x3F, 0x40, &idx);
+		else
+			write_int(index, 0xF, 0, &idx);
+
+		switch (op) {
+		case TFW_H2_TRANS_ADD:
+			return tfw_hpack_lit_add(resp, fc, hdr, &idx, true);
+		case TFW_H2_TRANS_EXPAND:
+			return tfw_hpack_lit_expand(resp, hdr, &idx, true);
+		case TFW_H2_TRANS_SUB:
+			return tfw_hpack_lit_sub(resp, tgt, hdr, &idx, true);
+		case TFW_H2_TRANS_INPLACE:
+			return tfw_hpack_lit_inplace(resp, tgt, &idx, true);
+		default:
+			BUG();
+		}
+	}
+
+	WARN_ON_ONCE(index || st_index);
+
+	idx.sz = 1;
+	idx.buf[0] = (r & HPACK_IDX_FLAG_ADD) ? 0x40 : 0;
+
+	switch (op) {
+	case TFW_H2_TRANS_ADD:
+		return tfw_hpack_lit_add(resp, fc, hdr, &idx, false);
+	case TFW_H2_TRANS_EXPAND:
+		return tfw_hpack_lit_expand(resp, hdr, &idx, false);
+	case TFW_H2_TRANS_SUB:
+		return tfw_hpack_lit_sub(resp, tgt, hdr, &idx, false);
+	case TFW_H2_TRANS_INPLACE:
+		return tfw_hpack_lit_inplace(resp, tgt, &idx, false);
+	default:
+		BUG();
+	}
+}
+
+void
 tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl, unsigned short new_size)
 {
 	WARN_ON_ONCE(new_size > HPACK_ENC_TABLE_MAX_SIZE);

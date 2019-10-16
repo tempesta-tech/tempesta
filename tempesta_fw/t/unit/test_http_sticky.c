@@ -614,7 +614,6 @@ http_parse_resp_helper(void)
 	memset(mock.resp->h_tbl->tbl, 0, __HHTBL_SZ(1) * sizeof(TfwStr));
 	TFW_STR_INIT(&mock.resp->crlf);
 	TFW_STR_INIT(&mock.resp->body);
-	TFW_STR_INIT(&mock.resp->s_line);
 
 	return http_parse_helper((TfwHttpMsg *)mock.resp, tfw_http_parse_resp);
 }
