@@ -900,7 +900,8 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 	sg_set_buf(sg, aad_buf, TLS_AAD_SPACE_SIZE);
 
 	T_DBG3_BUF("IV used", xfrm->iv_dec, xfrm->ivlen);
-	T_DBG3_SL("decrypt: AAD|msg|TAG", sg, sgn, 0, dec_msglen + taglen);
+	T_DBG3_SL("decrypt: AAD|msg|TAG", sg, sgn, 0, TLS_AAD_SPACE_SIZE +
+		  dec_msglen + taglen);
 
 	/*
 	 * Decrypt and authenticate.
