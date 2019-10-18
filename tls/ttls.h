@@ -27,6 +27,7 @@
 #include <linux/string.h>
 #include <net/tls.h>
 
+#include "lib/str.h"
 #include "config.h"
 #include "bignum.h"
 #include "ciphersuites.h"
@@ -998,6 +999,12 @@ static inline size_t
 ttls_payload_off(const TlsXfrm *xfrm)
 {
 	return TLS_HEADER_SIZE + ttls_expiv_len(xfrm);
+}
+
+static inline void
+ttls_reset_io_ctx(TlsIOCtx *io)
+{
+	bzero_fast(io->__initoff, sizeof(*io) - offsetof(TlsIOCtx, __initoff));
 }
 
 #endif /* __TTLS_H__ */
