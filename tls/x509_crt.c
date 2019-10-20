@@ -12,6 +12,8 @@
  * http://www.itu.int/ITU-T/studygroups/com17/languages/X.680-0207.pdf
  * http://www.itu.int/ITU-T/studygroups/com17/languages/X.690-0207.pdf
  *
+ * Based on mbed TLS, https://tls.mbed.org.
+ *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
@@ -30,7 +32,6 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#include "config.h"
 #include "x509_crt.h"
 #include "oid.h"
 #include "pem.h"
@@ -41,10 +42,6 @@
  */
 const ttls_x509_crt_profile ttls_x509_crt_profile_default =
 {
-#if defined(TTLS_TLS_DEFAULT_ALLOW_SHA1_IN_CERTIFICATES)
-	/* Allow SHA-1 (weak, but still safe in controlled environments) */
-	TTLS_X509_ID_FLAG(TTLS_MD_SHA1) |
-#endif
 	/* Only SHA-2 hashes */
 	TTLS_X509_ID_FLAG(TTLS_MD_SHA224) |
 	TTLS_X509_ID_FLAG(TTLS_MD_SHA256) |
@@ -72,7 +69,6 @@ const ttls_x509_crt_profile ttls_x509_crt_profile_next =
 	TTLS_X509_ID_FLAG(TTLS_ECP_DP_BP256R1) |
 	TTLS_X509_ID_FLAG(TTLS_ECP_DP_BP384R1) |
 	TTLS_X509_ID_FLAG(TTLS_ECP_DP_BP512R1) |
-	TTLS_X509_ID_FLAG(TTLS_ECP_DP_SECP256K1),
 	2048,
 };
 
@@ -437,7 +433,8 @@ static int x509_get_subject_alt_name(unsigned char **p,
 			if (cur->next != NULL)
 				return(TTLS_ERR_X509_INVALID_EXTENSIONS);
 
-			cur->next = ttls_calloc(1, sizeof(ttls_asn1_sequence));
+			cur->next = kzalloc(sizeof(ttls_asn1_sequence),
+					    GFP_KERNEL);
 
 			if (cur->next == NULL)
 				return(TTLS_ERR_X509_INVALID_EXTENSIONS +
@@ -540,14 +537,12 @@ static int x509_get_crt_ext(unsigned char **p,
 			/* No parser found, skip extension */
 			*p = end_ext_octet;
 
-#if !defined(TTLS_X509_ALLOW_UNSUPPORTED_CRITICAL_EXTENSION)
 			if (is_critical)
 			{
 				/* Data is marked as critical: fail */
 				return(TTLS_ERR_X509_INVALID_EXTENSIONS +
 			TTLS_ERR_ASN1_UNEXPECTED_TAG);
 			}
-#endif
 			continue;
 		}
 
@@ -1260,7 +1255,6 @@ int ttls_x509_crt_verify_info(char *buf, size_t size, const char *prefix,
 	return((int) (size - n));
 }
 
-#if defined(TTLS_X509_CHECK_KEY_USAGE)
 int ttls_x509_crt_check_key_usage(const ttls_x509_crt *crt,
 			  unsigned int usage)
 {
@@ -1283,9 +1277,7 @@ int ttls_x509_crt_check_key_usage(const ttls_x509_crt *crt,
 
 	return 0;
 }
-#endif
 
-#if defined(TTLS_X509_CHECK_EXTENDED_KEY_USAGE)
 int ttls_x509_crt_check_extended_key_usage(const ttls_x509_crt *crt,
 			   const char *usage_oid,
 			   size_t usage_len)
@@ -1315,9 +1307,7 @@ int ttls_x509_crt_check_extended_key_usage(const ttls_x509_crt *crt,
 
 	return(TTLS_ERR_X509_BAD_INPUT_DATA);
 }
-#endif /* TTLS_X509_CHECK_EXTENDED_KEY_USAGE */
 
-#if defined(TTLS_X509_CRL_PARSE_C)
 /*
  * Return 1 if the certificate is revoked, or 0 otherwise.
  */
@@ -1369,13 +1359,11 @@ static int x509_crt_verifycrl(ttls_x509_crt *crt, ttls_x509_crt *ca,
 		/*
 		 * Check if the CA is configured to sign CRLs
 		 */
-#if defined(TTLS_X509_CHECK_KEY_USAGE)
 		if (ttls_x509_crt_check_key_usage(ca, TTLS_X509_KU_CRL_SIGN) != 0)
 		{
 			flags |= TTLS_X509_BADCRL_NOT_TRUSTED;
 			break;
 		}
-#endif
 
 		/*
 		 * Check if CRL is correctly signed by the trusted CA
@@ -1432,7 +1420,6 @@ static int x509_crt_verifycrl(ttls_x509_crt *crt, ttls_x509_crt *ca,
 
 	return(flags);
 }
-#endif /* TTLS_X509_CRL_PARSE_C */
 
 /*
  * Like memcmp, but case-insensitive and always returns -1 if different
@@ -1598,13 +1585,11 @@ static int x509_crt_check_parent(const ttls_x509_crt *child,
 	if (need_ca_bit && ! parent->ca_istrue)
 		return(-1);
 
-#if defined(TTLS_X509_CHECK_KEY_USAGE)
 	if (need_ca_bit &&
 		ttls_x509_crt_check_key_usage(parent, TTLS_X509_KU_KEY_CERT_SIGN) != 0)
 	{
 		return(-1);
 	}
-#endif
 
 	return 0;
 }
@@ -1713,12 +1698,8 @@ x509_crt_verify_top(ttls_x509_crt *child, ttls_x509_crt *trust_ca,
 		  memcmp(child->subject_raw.p, trust_ca->subject_raw.p,
 				child->issuer_raw.len) != 0))
 	{
-#if defined(TTLS_X509_CRL_PARSE_C)
 		/* Check trusted CA's CRL for the chain's top crt */
 		*flags |= x509_crt_verifycrl(child, trust_ca, ca_crl, profile);
-#else
-		((void) ca_crl);
-#endif
 
 		if (ttls_x509_time_is_past(&trust_ca->valid_to))
 			ca_flags |= TTLS_X509_BADCERT_EXPIRED;
@@ -1791,10 +1772,8 @@ x509_crt_verify_child(ttls_x509_crt *child, ttls_x509_crt *parent,
 		}
 	}
 
-#if defined(TTLS_X509_CRL_PARSE_C)
 	/* Check trusted CA's CRL for the given crt */
 	*flags |= x509_crt_verifycrl(child, parent, ca_crl, profile);
-#endif
 
 	/* Look for a grandparent in trusted CAs */
 	for (grandparent = trust_ca;
@@ -2040,14 +2019,14 @@ ttls_x509_crt_free(ttls_x509_crt *crt)
 
 	do {
 		ttls_pk_free(&cert_cur->pk);
-		ttls_free(cert_cur->sig_opts);
+		kfree(cert_cur->sig_opts);
 
 		name_cur = cert_cur->issuer.next;
 		while (name_cur) {
 			name_prv = name_cur;
 			name_cur = name_cur->next;
 			ttls_zeroize(name_prv, sizeof(ttls_x509_name));
-			ttls_free(name_prv);
+			kfree(name_prv);
 		}
 
 		name_cur = cert_cur->subject.next;
@@ -2055,7 +2034,7 @@ ttls_x509_crt_free(ttls_x509_crt *crt)
 			name_prv = name_cur;
 			name_cur = name_cur->next;
 			ttls_zeroize(name_prv, sizeof(ttls_x509_name));
-			ttls_free(name_prv);
+			kfree(name_prv);
 		}
 
 		seq_cur = cert_cur->ext_key_usage.next;
@@ -2063,7 +2042,7 @@ ttls_x509_crt_free(ttls_x509_crt *crt)
 			seq_prv = seq_cur;
 			seq_cur = seq_cur->next;
 			ttls_zeroize(seq_prv, sizeof(ttls_x509_sequence));
-			ttls_free(seq_prv);
+			kfree(seq_prv);
 		}
 
 		seq_cur = cert_cur->subject_alt_names.next;
@@ -2071,7 +2050,7 @@ ttls_x509_crt_free(ttls_x509_crt *crt)
 			seq_prv = seq_cur;
 			seq_cur = seq_cur->next;
 			ttls_zeroize(seq_prv, sizeof(ttls_x509_sequence));
-			ttls_free(seq_prv);
+			kfree(seq_prv);
 		}
 
 		if (cert_cur->raw.p) {
@@ -2092,7 +2071,7 @@ ttls_x509_crt_free(ttls_x509_crt *crt)
 
 		ttls_zeroize(cert_prv, sizeof(ttls_x509_crt));
 		if (cert_prv != crt)
-			ttls_free(cert_prv);
+			kfree(cert_prv);
 	} while (cert_cur);
 }
 EXPORT_SYMBOL(ttls_x509_crt_free);

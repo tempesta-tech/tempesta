@@ -1,5 +1,9 @@
 /*
+ *		Tempesta TLS
+ *
  * TLS client-side functions.
+ *
+ * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
@@ -19,9 +23,7 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#include "config.h"
-
-#if defined(TTLS_CLI_C)
+#if 0 /* TODO #769 Full TLS proxying */
 
 #include "debug.h"
 #include "ttls.h"
@@ -122,7 +124,7 @@ static void ssl_write_signature_algorithms_ext(ttls_context *ssl,
 
 	T_DBG3("client hello, adding signature_algorithms extension\n");
 
-	for (md = ssl->conf->sig_hashes; *md != TTLS_MD_NONE; md++)
+	for (md = ttls_preset_hashes; *md != TTLS_MD_NONE; md++)
 	{
 		sig_alg_len += 2;
 		sig_alg_len += 2;
@@ -139,7 +141,7 @@ static void ssl_write_signature_algorithms_ext(ttls_context *ssl,
 	 */
 	sig_alg_len = 0;
 
-	for (md = ssl->conf->sig_hashes; *md != TTLS_MD_NONE; md++)
+	for (md = ttls_preset_hashes; *md != TTLS_MD_NONE; md++)
 	{
 		sig_alg_list[sig_alg_len++] = ttls_hash_from_md_alg(*md);
 		sig_alg_list[sig_alg_len++] = TTLS_SIG_ECDSA;
@@ -184,14 +186,14 @@ static void ssl_write_supported_elliptic_curves_ext(ttls_context *ssl,
 	const unsigned char *end = ssl->out_msg + TLS_MAX_PAYLOAD_SIZE;
 	unsigned char *elliptic_curve_list = p + 6;
 	size_t elliptic_curve_len = 0;
-	const ttls_ecp_curve_info *info;
+	const TlsEcpCurveInfo *info;
 	const ttls_ecp_group_id *grp_id;
 
 	*olen = 0;
 
 	T_DBG3("client hello, adding supported_elliptic_curves extension\n");
 
-	for (grp_id = ssl->conf->curve_list; *grp_id != TTLS_ECP_DP_NONE; grp_id++)
+	for (grp_id = ttls_preset_curves; *grp_id != TTLS_ECP_DP_NONE; grp_id++)
 	{
 		info = ttls_ecp_curve_info_from_grp_id(*grp_id);
 		if (info == NULL)
@@ -211,7 +213,7 @@ static void ssl_write_supported_elliptic_curves_ext(ttls_context *ssl,
 
 	elliptic_curve_len = 0;
 
-	for (grp_id = ssl->conf->curve_list; *grp_id != TTLS_ECP_DP_NONE; grp_id++)
+	for (grp_id = ttls_preset_curves; *grp_id != TTLS_ECP_DP_NONE; grp_id++)
 	{
 		info = ttls_ecp_curve_info_from_grp_id(*grp_id);
 		elliptic_curve_list[elliptic_curve_len++] = info->tls_id >> 8;
@@ -1158,16 +1160,15 @@ static int ssl_parse_server_dh_params(ttls_context *ssl, unsigned char **p,
 		return(TTLS_ERR_BAD_HS_SERVER_KEY_EXCHANGE);
 	}
 
-	TTLS_DEBUG_MPI("DHM: P ", &ssl->handshake->dhm_ctx.P );
-	TTLS_DEBUG_MPI("DHM: G ", &ssl->handshake->dhm_ctx.G );
-	TTLS_DEBUG_MPI("DHM: GY", &ssl->handshake->dhm_ctx.GY);
+	T_DBG_MPI3("DHM parsed server params", &ssl->handshake->dhm_ctx.P,
+		   &ssl->handshake->dhm_ctx.G, &ssl->handshake->dhm_ctx.GY);
 
 	return ret;
 }
 
 static int ssl_check_server_ecdh_params(const ttls_context *ssl)
 {
-	const ttls_ecp_curve_info *curve_info;
+	const TlsEcpCurveInfo *curve_info;
 
 	curve_info = ttls_ecp_curve_info_from_grp_id(ssl->handshake->ecdh_ctx.grp.id);
 	if (curve_info == NULL)
@@ -1181,7 +1182,7 @@ static int ssl_check_server_ecdh_params(const ttls_context *ssl)
 	if (ttls_check_curve(ssl, ssl->handshake->ecdh_ctx.grp.id) != 0)
 		return(-1);
 
-	TTLS_DEBUG_ECP("ECDH: Qp", &ssl->handshake->ecdh_ctx.Qp);
+	T_DBG_ECP("ECDH serve Qp param", &ssl->handshake->ecdh_ctx.Qp);
 
 	return 0;
 }
@@ -1337,7 +1338,7 @@ static int ssl_parse_signature_algorithm(ttls_context *ssl,
 static int ssl_get_ecdh_params_from_cert(ttls_context *ssl)
 {
 	int ret;
-	const ttls_ecp_keypair *peer_key;
+	const TlsEcpKeypair *peer_key;
 
 	if (ssl->session_negotiate->peer_cert == NULL)
 	{
@@ -1789,9 +1790,6 @@ static int ssl_write_client_key_exchange(ttls_context *ssl)
 		if (ret != 0)
 			return ret;
 
-		TTLS_DEBUG_MPI("DHM: X ", &ssl->handshake->dhm_ctx.X );
-		TTLS_DEBUG_MPI("DHM: GX", &ssl->handshake->dhm_ctx.GX);
-
 		if ((ret = ttls_dhm_calc_secret(&ssl->handshake->dhm_ctx,
 			ssl->handshake->premaster,
 			TTLS_PREMASTER_SIZE,
@@ -1800,7 +1798,8 @@ static int ssl_write_client_key_exchange(ttls_context *ssl)
 			return ret;
 		}
 
-		TTLS_DEBUG_MPI("DHM: K ", &ssl->handshake->dhm_ctx.K );
+		T_DBG_MPI3("DHM write client key exchange", &ssl->hs->dhm_ctx.X,
+			   &ssl->hs->dhm_ctx.GX, &ssl->handshake->dhm_ctx.K);
 	}
 	else
 	if (ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_ECDHE_RSA ||
@@ -1818,7 +1817,8 @@ static int ssl_write_client_key_exchange(ttls_context *ssl)
 		if (ret != 0)
 			return ret;
 
-		TTLS_DEBUG_ECP("ECDH: Q", &ssl->handshake->ecdh_ctx.Q);
+		T_DBG_ECP("ECDH client key exchange Q param",
+			  &ssl->handshake->ecdh_ctx.Q);
 
 		if ((ret = ttls_ecdh_calc_secret(&ssl->handshake->ecdh_ctx,
 					  &ssl->handshake->pmslen,
@@ -1828,7 +1828,8 @@ static int ssl_write_client_key_exchange(ttls_context *ssl)
 			return ret;
 		}
 
-		TTLS_DEBUG_MPI("ECDH: z", &ssl->handshake->ecdh_ctx.z);
+		T_DBG_MPI1("ECDH write client key exchange",
+			   &ssl->hs->ecdh_ctx.z);
 	}
 	else
 	if (ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_RSA)
@@ -1955,11 +1956,11 @@ static int ssl_parse_new_session_ticket(ttls_context *ssl)
 
 	ttls_zeroize(ssl->session_negotiate->ticket,
 		  ssl->session_negotiate->ticket_len);
-	ttls_free(ssl->session_negotiate->ticket);
+	kfree(ssl->session_negotiate->ticket);
 	ssl->session_negotiate->ticket = NULL;
 	ssl->session_negotiate->ticket_len = 0;
 
-	if ((ticket = ttls_calloc(1, ticket_len)) == NULL)
+	if ((ticket = kzalloc(ticket_len, GFP_ATOMIC)) == NULL)
 	{
 		T_DBG("ticket alloc failed\n");
 		ttls_send_alert_msg(ssl, TTLS_ALERT_LEVEL_FATAL,
@@ -2118,4 +2119,4 @@ int ttls_handshake_client_step(ttls_context *ssl)
 
 	return ret;
 }
-#endif /* TTLS_CLI_C */
+#endif /* TODO remove me */

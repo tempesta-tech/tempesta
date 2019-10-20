@@ -3,6 +3,8 @@
  *
  * Object Identifier (OID) database.
  *
+ * Based on mbed TLS, https://tls.mbed.org.
+ *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
@@ -23,7 +25,6 @@
  */
 #ifndef TTLS_OID_H
 #define TTLS_OID_H
-#include "config.h"
 #include "asn1.h"
 #include "pk.h"
 #include "crypto.h"
