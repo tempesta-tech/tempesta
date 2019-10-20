@@ -23,6 +23,8 @@
  *  They take a set of core or CRT related RSA parameters
  *  and check their validity.
  *
+ * Based on mbed TLS, https://tls.mbed.org.
+ *
  * Copyright (C) 2006-2017, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
@@ -44,7 +46,6 @@
 #ifndef TTLS_RSA_INTERNAL_H
 #define TTLS_RSA_INTERNAL_H
 
-#include "config.h"
 #include "bignum.h"
 
 /**
@@ -71,9 +72,9 @@
  *				 use the helper function \c ttls_rsa_validate_params.
  *
  */
-int ttls_rsa_deduce_primes(ttls_mpi const *N, ttls_mpi const *E,
-				   ttls_mpi const *D,
-				   ttls_mpi *P, ttls_mpi *Q);
+int ttls_rsa_deduce_primes(TlsMpi const *N, TlsMpi const *E,
+				   TlsMpi const *D,
+				   TlsMpi *P, TlsMpi *Q);
 
 /**
  * \brief		  Compute RSA private exponent from
@@ -96,10 +97,10 @@ int ttls_rsa_deduce_primes(ttls_mpi const *N, ttls_mpi const *E,
  * \note		   This function does not check whether P and Q are primes.
  *
  */
-int ttls_rsa_deduce_private_exponent(ttls_mpi const *P,
-				 ttls_mpi const *Q,
-				 ttls_mpi const *E,
-				 ttls_mpi *D);
+int ttls_rsa_deduce_private_exponent(TlsMpi const *P,
+				 TlsMpi const *Q,
+				 TlsMpi const *E,
+				 TlsMpi *D);
 
 
 /**
@@ -122,72 +123,8 @@ int ttls_rsa_deduce_private_exponent(ttls_mpi const *P,
  *				 prime and whether D is a valid private exponent.
  *
  */
-int ttls_rsa_deduce_crt(const ttls_mpi *P, const ttls_mpi *Q,
-				const ttls_mpi *D, ttls_mpi *DP,
-				ttls_mpi *DQ, ttls_mpi *QP);
-
-
-/**
- * \brief		  Check validity of core RSA parameters
- *
- * \note		   This is a 'static' helper function not operating on
- *				 an RSA context. Alternative implementations need not
- *				 overwrite it.
- *
- * \param N		RSA modulus N = PQ
- * \param P		First prime factor of N
- * \param Q		Second prime factor of N
- * \param D		RSA private exponent
- * \param E		RSA public exponent
- *
- * \return
- *				 - 0 if the following conditions are satisfied
- *				   if all relevant parameters are provided:
- *		- 1 < N = P * Q
- *		- 1 < D, E < N
- *		- D and E are modular inverses modulo P-1 and Q-1
- *				   (%) This is only done if TTLS_GENPRIME is defined.
- *				 - A non-zero error code otherwise.
- *
- * \note		   The function can be used with a restricted set of arguments
- *				 to perform specific checks only. E.g., calling it with
- *				 (-,P,-,-,-) and a PRNG amounts to a primality check for P.
- */
-int ttls_rsa_validate_params(const ttls_mpi *N, const ttls_mpi *P,
-		 const ttls_mpi *Q, const ttls_mpi *D,
-		 const ttls_mpi *E, bool rnd);
-
-/**
- * \brief		  Check validity of RSA CRT parameters
- *
- * \note		   This is a 'static' helper function not operating on
- *				 an RSA context. Alternative implementations need not
- *				 overwrite it.
- *
- * \param P		First prime factor of RSA modulus
- * \param Q		Second prime factor of RSA modulus
- * \param D		RSA private exponent
- * \param DP	   MPI to check for D modulo P-1
- * \param DQ	   MPI to check for D modulo P-1
- * \param QP	   MPI to check for the modular inverse of Q modulo P.
- *
- * \return
- *				 - 0 if the following conditions are satisfied:
- *		- D = DP mod P-1 if P, D, DP != NULL
- *		- Q = DQ mod P-1 if P, D, DQ != NULL
- *		- QP = Q^-1 mod P if P, Q, QP != NULL
- *				 - \c TTLS_ERR_RSA_KEY_CHECK_FAILED if check failed,
- *				   potentially including \c TTLS_ERR_MPI_XXX if some
- *				   MPI calculations failed.
- *				 - \c TTLS_ERR_RSA_BAD_INPUT_DATA if insufficient
- *				   data was provided to check DP, DQ or QP.
- *
- * \note		   The function can be used with a restricted set of arguments
- *				 to perform specific checks only. E.g., calling it with the
- *				 parameters (P, -, D, DP, -, -) will check DP = D mod P-1.
- */
-int ttls_rsa_validate_crt(const ttls_mpi *P,  const ttls_mpi *Q,
-				  const ttls_mpi *D,  const ttls_mpi *DP,
-				  const ttls_mpi *DQ, const ttls_mpi *QP);
+int ttls_rsa_deduce_crt(const TlsMpi *P, const TlsMpi *Q,
+				const TlsMpi *D, TlsMpi *DP,
+				TlsMpi *DQ, TlsMpi *QP);
 
 #endif /* rsa_internal.h */

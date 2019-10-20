@@ -23,7 +23,6 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#include "config.h"
 #include "oid.h"
 #include "rsa.h"
 #include "x509.h"
@@ -384,14 +383,6 @@ typedef struct {
 static const oid_ecp_grp_t oid_ecp_grp[] =
 {
 	{
-		{ ADD_LEN(TTLS_OID_EC_GRP_SECP192R1), "secp192r1",	"secp192r1" },
-		TTLS_ECP_DP_SECP192R1,
-	},
-	{
-		{ ADD_LEN(TTLS_OID_EC_GRP_SECP224R1), "secp224r1",	"secp224r1" },
-		TTLS_ECP_DP_SECP224R1,
-	},
-	{
 		{ ADD_LEN(TTLS_OID_EC_GRP_SECP256R1), "secp256r1",	"secp256r1" },
 		TTLS_ECP_DP_SECP256R1,
 	},
@@ -402,18 +393,6 @@ static const oid_ecp_grp_t oid_ecp_grp[] =
 	{
 		{ ADD_LEN(TTLS_OID_EC_GRP_SECP521R1), "secp521r1",	"secp521r1" },
 		TTLS_ECP_DP_SECP521R1,
-	},
-	{
-		{ ADD_LEN(TTLS_OID_EC_GRP_SECP192K1), "secp192k1",	"secp192k1" },
-		TTLS_ECP_DP_SECP192K1,
-	},
-	{
-		{ ADD_LEN(TTLS_OID_EC_GRP_SECP224K1), "secp224k1",	"secp224k1" },
-		TTLS_ECP_DP_SECP224K1,
-	},
-	{
-		{ ADD_LEN(TTLS_OID_EC_GRP_SECP256K1), "secp256k1",	"secp256k1" },
-		TTLS_ECP_DP_SECP256K1,
 	},
 	{
 		{ ADD_LEN(TTLS_OID_EC_GRP_BP256R1),   "brainpoolP256r1","brainpool256r1" },

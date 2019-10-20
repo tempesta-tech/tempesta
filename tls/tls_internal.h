@@ -3,6 +3,8 @@
  *
  * Internal functions shared by the TLS modules.
  *
+ * Based on mbed TLS, https://tls.mbed.org.
+ *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
@@ -25,11 +27,6 @@
 #define TTLS_INTERNAL_H
 
 #include <asm/fpu/api.h>
-
-/* Affects only TempestaTLS internal debug symbols. */
-#if DBG_TLS == 0
-#undef DEBUG
-#endif
 
 #include "debug.h"
 #include "lib/fsm.h"
@@ -154,9 +151,7 @@ struct tls_handshake_t {
 			const unsigned char *, size_t, unsigned char *, size_t);
 
 	union {
-#if defined(TTLS_DHM_C)
 		ttls_dhm_context	dhm_ctx;
-#endif
 		ttls_ecdh_context	ecdh_ctx;
 		ttls_sha256_context	tmp_sha256;
 	};
@@ -166,7 +161,7 @@ struct tls_handshake_t {
 		ttls_sha256_context	fin_sha256;
 		ttls_sha512_context	fin_sha512;
 	};
-	const ttls_ecp_curve_info	*curves[TTLS_ECP_DP_MAX];
+	const TlsEcpCurveInfo	*curves[TTLS_ECP_DP_MAX];
 	union {
 		unsigned char		randbytes[64];
 		unsigned char		finished[64];
@@ -193,6 +188,9 @@ struct ttls_key_cert
 	ttls_x509_crl			*ca_crl;
 	ttls_key_cert			*next;
 };
+
+extern int ttls_preset_hashes[];
+extern ttls_ecp_group_id ttls_preset_curves[];
 
 /* Find an entry in a signature-hash set matching a given hash algorithm. */
 ttls_md_type_t ttls_sig_hash_set_find(TlsSigHashSet *set,
@@ -321,27 +319,6 @@ ttls_write_version(const TlsCtx *tls, unsigned char ver[2])
 	ver[1] = (unsigned char)tls->minor;
 }
 
-#if defined(DEBUG) && (DEBUG >= 3)
-/*
- * Make the things repeatable, simple and INSECURE on largest debug level -
- * this helps to debug TLS (thanks to reproducible records payload), but
- * must not be used in any security sensitive installations.
- */
-static inline void
-ttls_rnd(void *buf, size_t len)
-{
-	memset(buf, 0x55, len);
-}
-
-unsigned long ttls_time_debug(void);
-
-#define ttls_time()		ttls_time_debug()
-
-#else
-#define ttls_time()		get_seconds()
-#define ttls_rnd(buf, len)	get_random_bytes_arch(buf, len)
-#endif
-
 /*
  * TLS state machine (common states & definitions for client and server).
  */
@@ -450,4 +427,4 @@ ttls_substate(const TlsCtx *tls)
 	return tls->state & __TTLS_FSM_SUBST_MASK;
 }
 
-#endif /* tls_internal.h */
+#endif

@@ -1,49 +1,48 @@
 /*
- *  Elliptic curves over GF(p): curve-specific data and functions
+ *		Tempesta TLS
  *
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- *  SPDX-License-Identifier: GPL-2.0
+ * Elliptic curves over GF(p): curve-specific data and functions.
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ * Based on mbed TLS, https://tls.mbed.org.
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * SPDX-License-Identifier: GPL-2.0
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- *  This file is part of mbed TLS (https://tls.mbed.org)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#include "config.h"
 #include "ecp.h"
 
-#if !defined(TTLS_ECP_ALT)
-
 /*
- * Conversion macros for embedded constants:
- * build lists of ttls_mpi_uint's from lists of unsigned char's grouped by 8, 4 or 2
+ * Conversion macros for embedded constants: build lists of unsigned long's
+ * from lists of unsigned char's grouped by 8, 4 or 2.
  */
-#define BYTES_TO_T_UINT_8(a, b, c, d, e, f, g, h) \
-	((ttls_mpi_uint) a <<  0) |			  \
-	((ttls_mpi_uint) b <<  8) |			  \
-	((ttls_mpi_uint) c << 16) |			  \
-	((ttls_mpi_uint) d << 24) |			  \
-	((ttls_mpi_uint) e << 32) |			  \
-	((ttls_mpi_uint) f << 40) |			  \
-	((ttls_mpi_uint) g << 48) |			  \
-	((ttls_mpi_uint) h << 56)
+#define BYTES_TO_T_UINT_8(a, b, c, d, e, f, g, h)	\
+	((unsigned long) a <<  0) |			\
+	((unsigned long) b <<  8) |			\
+	((unsigned long) c << 16) |			\
+	((unsigned long) d << 24) |			\
+	((unsigned long) e << 32) |			\
+	((unsigned long) f << 40) |			\
+	((unsigned long) g << 48) |			\
+	((unsigned long) h << 56)
 
-#define BYTES_TO_T_UINT_4(a, b, c, d)			 \
+#define BYTES_TO_T_UINT_4(a, b, c, d)			\
 	BYTES_TO_T_UINT_8(a, b, c, d, 0, 0, 0, 0)
 
-#define BYTES_TO_T_UINT_2(a, b)				   \
+#define BYTES_TO_T_UINT_2(a, b)				\
 	BYTES_TO_T_UINT_8(a, b, 0, 0, 0, 0, 0, 0)
 
 /*
@@ -52,96 +51,33 @@
  */
 
 /*
- * Domain parameters for secp192r1
- */
-static const ttls_mpi_uint secp192r1_p[] = {
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-};
-static const ttls_mpi_uint secp192r1_b[] = {
-	BYTES_TO_T_UINT_8(0xB1, 0xB9, 0x46, 0xC1, 0xEC, 0xDE, 0xB8, 0xFE),
-	BYTES_TO_T_UINT_8(0x49, 0x30, 0x24, 0x72, 0xAB, 0xE9, 0xA7, 0x0F),
-	BYTES_TO_T_UINT_8(0xE7, 0x80, 0x9C, 0xE5, 0x19, 0x05, 0x21, 0x64),
-};
-static const ttls_mpi_uint secp192r1_gx[] = {
-	BYTES_TO_T_UINT_8(0x12, 0x10, 0xFF, 0x82, 0xFD, 0x0A, 0xFF, 0xF4),
-	BYTES_TO_T_UINT_8(0x00, 0x88, 0xA1, 0x43, 0xEB, 0x20, 0xBF, 0x7C),
-	BYTES_TO_T_UINT_8(0xF6, 0x90, 0x30, 0xB0, 0x0E, 0xA8, 0x8D, 0x18),
-};
-static const ttls_mpi_uint secp192r1_gy[] = {
-	BYTES_TO_T_UINT_8(0x11, 0x48, 0x79, 0x1E, 0xA1, 0x77, 0xF9, 0x73),
-	BYTES_TO_T_UINT_8(0xD5, 0xCD, 0x24, 0x6B, 0xED, 0x11, 0x10, 0x63),
-	BYTES_TO_T_UINT_8(0x78, 0xDA, 0xC8, 0xFF, 0x95, 0x2B, 0x19, 0x07),
-};
-static const ttls_mpi_uint secp192r1_n[] = {
-	BYTES_TO_T_UINT_8(0x31, 0x28, 0xD2, 0xB4, 0xB1, 0xC9, 0x6B, 0x14),
-	BYTES_TO_T_UINT_8(0x36, 0xF8, 0xDE, 0x99, 0xFF, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-};
-
-/*
- * Domain parameters for secp224r1
- */
-static const ttls_mpi_uint secp224r1_p[] = {
-	BYTES_TO_T_UINT_8(0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00),
-	BYTES_TO_T_UINT_8(0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00),
-};
-static const ttls_mpi_uint secp224r1_b[] = {
-	BYTES_TO_T_UINT_8(0xB4, 0xFF, 0x55, 0x23, 0x43, 0x39, 0x0B, 0x27),
-	BYTES_TO_T_UINT_8(0xBA, 0xD8, 0xBF, 0xD7, 0xB7, 0xB0, 0x44, 0x50),
-	BYTES_TO_T_UINT_8(0x56, 0x32, 0x41, 0xF5, 0xAB, 0xB3, 0x04, 0x0C),
-	BYTES_TO_T_UINT_4(0x85, 0x0A, 0x05, 0xB4),
-};
-static const ttls_mpi_uint secp224r1_gx[] = {
-	BYTES_TO_T_UINT_8(0x21, 0x1D, 0x5C, 0x11, 0xD6, 0x80, 0x32, 0x34),
-	BYTES_TO_T_UINT_8(0x22, 0x11, 0xC2, 0x56, 0xD3, 0xC1, 0x03, 0x4A),
-	BYTES_TO_T_UINT_8(0xB9, 0x90, 0x13, 0x32, 0x7F, 0xBF, 0xB4, 0x6B),
-	BYTES_TO_T_UINT_4(0xBD, 0x0C, 0x0E, 0xB7),
-};
-static const ttls_mpi_uint secp224r1_gy[] = {
-	BYTES_TO_T_UINT_8(0x34, 0x7E, 0x00, 0x85, 0x99, 0x81, 0xD5, 0x44),
-	BYTES_TO_T_UINT_8(0x64, 0x47, 0x07, 0x5A, 0xA0, 0x75, 0x43, 0xCD),
-	BYTES_TO_T_UINT_8(0xE6, 0xDF, 0x22, 0x4C, 0xFB, 0x23, 0xF7, 0xB5),
-	BYTES_TO_T_UINT_4(0x88, 0x63, 0x37, 0xBD),
-};
-static const ttls_mpi_uint secp224r1_n[] = {
-	BYTES_TO_T_UINT_8(0x3D, 0x2A, 0x5C, 0x5C, 0x45, 0x29, 0xDD, 0x13),
-	BYTES_TO_T_UINT_8(0x3E, 0xF0, 0xB8, 0xE0, 0xA2, 0x16, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_4(0xFF, 0xFF, 0xFF, 0xFF),
-};
-
-/*
  * Domain parameters for secp256r1
  */
-static const ttls_mpi_uint secp256r1_p[] = {
+static const unsigned long secp256r1_p[] = {
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00),
 	BYTES_TO_T_UINT_8(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00),
 	BYTES_TO_T_UINT_8(0x01, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF),
 };
-static const ttls_mpi_uint secp256r1_b[] = {
+static const unsigned long secp256r1_b[] = {
 	BYTES_TO_T_UINT_8(0x4B, 0x60, 0xD2, 0x27, 0x3E, 0x3C, 0xCE, 0x3B),
 	BYTES_TO_T_UINT_8(0xF6, 0xB0, 0x53, 0xCC, 0xB0, 0x06, 0x1D, 0x65),
 	BYTES_TO_T_UINT_8(0xBC, 0x86, 0x98, 0x76, 0x55, 0xBD, 0xEB, 0xB3),
 	BYTES_TO_T_UINT_8(0xE7, 0x93, 0x3A, 0xAA, 0xD8, 0x35, 0xC6, 0x5A),
 };
-static const ttls_mpi_uint secp256r1_gx[] = {
+static const unsigned long secp256r1_gx[] = {
 	BYTES_TO_T_UINT_8(0x96, 0xC2, 0x98, 0xD8, 0x45, 0x39, 0xA1, 0xF4),
 	BYTES_TO_T_UINT_8(0xA0, 0x33, 0xEB, 0x2D, 0x81, 0x7D, 0x03, 0x77),
 	BYTES_TO_T_UINT_8(0xF2, 0x40, 0xA4, 0x63, 0xE5, 0xE6, 0xBC, 0xF8),
 	BYTES_TO_T_UINT_8(0x47, 0x42, 0x2C, 0xE1, 0xF2, 0xD1, 0x17, 0x6B),
 };
-static const ttls_mpi_uint secp256r1_gy[] = {
+static const unsigned long secp256r1_gy[] = {
 	BYTES_TO_T_UINT_8(0xF5, 0x51, 0xBF, 0x37, 0x68, 0x40, 0xB6, 0xCB),
 	BYTES_TO_T_UINT_8(0xCE, 0x5E, 0x31, 0x6B, 0x57, 0x33, 0xCE, 0x2B),
 	BYTES_TO_T_UINT_8(0x16, 0x9E, 0x0F, 0x7C, 0x4A, 0xEB, 0xE7, 0x8E),
 	BYTES_TO_T_UINT_8(0x9B, 0x7F, 0x1A, 0xFE, 0xE2, 0x42, 0xE3, 0x4F),
 };
-static const ttls_mpi_uint secp256r1_n[] = {
+static const unsigned long secp256r1_n[] = {
 	BYTES_TO_T_UINT_8(0x51, 0x25, 0x63, 0xFC, 0xC2, 0xCA, 0xB9, 0xF3),
 	BYTES_TO_T_UINT_8(0x84, 0x9E, 0x17, 0xA7, 0xAD, 0xFA, 0xE6, 0xBC),
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
@@ -151,7 +87,7 @@ static const ttls_mpi_uint secp256r1_n[] = {
 /*
  * Domain parameters for secp384r1
  */
-static const ttls_mpi_uint secp384r1_p[] = {
+static const unsigned long secp384r1_p[] = {
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00),
 	BYTES_TO_T_UINT_8(0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF),
 	BYTES_TO_T_UINT_8(0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
@@ -159,7 +95,7 @@ static const ttls_mpi_uint secp384r1_p[] = {
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
 };
-static const ttls_mpi_uint secp384r1_b[] = {
+static const unsigned long secp384r1_b[] = {
 	BYTES_TO_T_UINT_8(0xEF, 0x2A, 0xEC, 0xD3, 0xED, 0xC8, 0x85, 0x2A),
 	BYTES_TO_T_UINT_8(0x9D, 0xD1, 0x2E, 0x8A, 0x8D, 0x39, 0x56, 0xC6),
 	BYTES_TO_T_UINT_8(0x5A, 0x87, 0x13, 0x50, 0x8F, 0x08, 0x14, 0x03),
@@ -167,7 +103,7 @@ static const ttls_mpi_uint secp384r1_b[] = {
 	BYTES_TO_T_UINT_8(0x19, 0x2D, 0xF8, 0xE3, 0x6B, 0x05, 0x8E, 0x98),
 	BYTES_TO_T_UINT_8(0xE4, 0xE7, 0x3E, 0xE2, 0xA7, 0x2F, 0x31, 0xB3),
 };
-static const ttls_mpi_uint secp384r1_gx[] = {
+static const unsigned long secp384r1_gx[] = {
 	BYTES_TO_T_UINT_8(0xB7, 0x0A, 0x76, 0x72, 0x38, 0x5E, 0x54, 0x3A),
 	BYTES_TO_T_UINT_8(0x6C, 0x29, 0x55, 0xBF, 0x5D, 0xF2, 0x02, 0x55),
 	BYTES_TO_T_UINT_8(0x38, 0x2A, 0x54, 0x82, 0xE0, 0x41, 0xF7, 0x59),
@@ -175,7 +111,7 @@ static const ttls_mpi_uint secp384r1_gx[] = {
 	BYTES_TO_T_UINT_8(0x74, 0xAD, 0x20, 0xF3, 0x1E, 0xC7, 0xB1, 0x8E),
 	BYTES_TO_T_UINT_8(0x37, 0x05, 0x8B, 0xBE, 0x22, 0xCA, 0x87, 0xAA),
 };
-static const ttls_mpi_uint secp384r1_gy[] = {
+static const unsigned long secp384r1_gy[] = {
 	BYTES_TO_T_UINT_8(0x5F, 0x0E, 0xEA, 0x90, 0x7C, 0x1D, 0x43, 0x7A),
 	BYTES_TO_T_UINT_8(0x9D, 0x81, 0x7E, 0x1D, 0xCE, 0xB1, 0x60, 0x0A),
 	BYTES_TO_T_UINT_8(0xC0, 0xB8, 0xF0, 0xB5, 0x13, 0x31, 0xDA, 0xE9),
@@ -183,7 +119,7 @@ static const ttls_mpi_uint secp384r1_gy[] = {
 	BYTES_TO_T_UINT_8(0x29, 0xDC, 0x92, 0x92, 0xBF, 0x98, 0x9E, 0x5D),
 	BYTES_TO_T_UINT_8(0x6F, 0x2C, 0x26, 0x96, 0x4A, 0xDE, 0x17, 0x36),
 };
-static const ttls_mpi_uint secp384r1_n[] = {
+static const unsigned long secp384r1_n[] = {
 	BYTES_TO_T_UINT_8(0x73, 0x29, 0xC5, 0xCC, 0x6A, 0x19, 0xEC, 0xEC),
 	BYTES_TO_T_UINT_8(0x7A, 0xA7, 0xB0, 0x48, 0xB2, 0x0D, 0x1A, 0x58),
 	BYTES_TO_T_UINT_8(0xDF, 0x2D, 0x37, 0xF4, 0x81, 0x4D, 0x63, 0xC7),
@@ -195,7 +131,7 @@ static const ttls_mpi_uint secp384r1_n[] = {
 /*
  * Domain parameters for secp521r1
  */
-static const ttls_mpi_uint secp521r1_p[] = {
+static const unsigned long secp521r1_p[] = {
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
@@ -206,7 +142,7 @@ static const ttls_mpi_uint secp521r1_p[] = {
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
 	BYTES_TO_T_UINT_2(0xFF, 0x01),
 };
-static const ttls_mpi_uint secp521r1_b[] = {
+static const unsigned long secp521r1_b[] = {
 	BYTES_TO_T_UINT_8(0x00, 0x3F, 0x50, 0x6B, 0xD4, 0x1F, 0x45, 0xEF),
 	BYTES_TO_T_UINT_8(0xF1, 0x34, 0x2C, 0x3D, 0x88, 0xDF, 0x73, 0x35),
 	BYTES_TO_T_UINT_8(0x07, 0xBF, 0xB1, 0x3B, 0xBD, 0xC0, 0x52, 0x16),
@@ -217,7 +153,7 @@ static const ttls_mpi_uint secp521r1_b[] = {
 	BYTES_TO_T_UINT_8(0x1F, 0x9A, 0x1C, 0x8E, 0x61, 0xB9, 0x3E, 0x95),
 	BYTES_TO_T_UINT_2(0x51, 0x00),
 };
-static const ttls_mpi_uint secp521r1_gx[] = {
+static const unsigned long secp521r1_gx[] = {
 	BYTES_TO_T_UINT_8(0x66, 0xBD, 0xE5, 0xC2, 0x31, 0x7E, 0x7E, 0xF9),
 	BYTES_TO_T_UINT_8(0x9B, 0x42, 0x6A, 0x85, 0xC1, 0xB3, 0x48, 0x33),
 	BYTES_TO_T_UINT_8(0xDE, 0xA8, 0xFF, 0xA2, 0x27, 0xC1, 0x1D, 0xFE),
@@ -228,7 +164,7 @@ static const ttls_mpi_uint secp521r1_gx[] = {
 	BYTES_TO_T_UINT_8(0xCD, 0xE9, 0x04, 0x04, 0xB7, 0x06, 0x8E, 0x85),
 	BYTES_TO_T_UINT_2(0xC6, 0x00),
 };
-static const ttls_mpi_uint secp521r1_gy[] = {
+static const unsigned long secp521r1_gy[] = {
 	BYTES_TO_T_UINT_8(0x50, 0x66, 0xD1, 0x9F, 0x76, 0x94, 0xBE, 0x88),
 	BYTES_TO_T_UINT_8(0x40, 0xC2, 0x72, 0xA2, 0x86, 0x70, 0x3C, 0x35),
 	BYTES_TO_T_UINT_8(0x61, 0x07, 0xAD, 0x3F, 0x01, 0xB9, 0x50, 0xC5),
@@ -239,7 +175,7 @@ static const ttls_mpi_uint secp521r1_gy[] = {
 	BYTES_TO_T_UINT_8(0x04, 0xC0, 0x3B, 0x9A, 0x78, 0x6A, 0x29, 0x39),
 	BYTES_TO_T_UINT_2(0x18, 0x01),
 };
-static const ttls_mpi_uint secp521r1_n[] = {
+static const unsigned long secp521r1_n[] = {
 	BYTES_TO_T_UINT_8(0x09, 0x64, 0x38, 0x91, 0x1E, 0xB7, 0x6F, 0xBB),
 	BYTES_TO_T_UINT_8(0xAE, 0x47, 0x9C, 0x89, 0xB8, 0xC9, 0xB5, 0x3B),
 	BYTES_TO_T_UINT_8(0xD0, 0xA5, 0x09, 0xF7, 0x48, 0x01, 0xCC, 0x7F),
@@ -251,129 +187,40 @@ static const ttls_mpi_uint secp521r1_n[] = {
 	BYTES_TO_T_UINT_2(0xFF, 0x01),
 };
 
-static const ttls_mpi_uint secp192k1_p[] = {
-	BYTES_TO_T_UINT_8(0x37, 0xEE, 0xFF, 0xFF, 0xFE, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-};
-static const ttls_mpi_uint secp192k1_a[] = {
-	BYTES_TO_T_UINT_2(0x00, 0x00),
-};
-static const ttls_mpi_uint secp192k1_b[] = {
-	BYTES_TO_T_UINT_2(0x03, 0x00),
-};
-static const ttls_mpi_uint secp192k1_gx[] = {
-	BYTES_TO_T_UINT_8(0x7D, 0x6C, 0xE0, 0xEA, 0xB1, 0xD1, 0xA5, 0x1D),
-	BYTES_TO_T_UINT_8(0x34, 0xF4, 0xB7, 0x80, 0x02, 0x7D, 0xB0, 0x26),
-	BYTES_TO_T_UINT_8(0xAE, 0xE9, 0x57, 0xC0, 0x0E, 0xF1, 0x4F, 0xDB),
-};
-static const ttls_mpi_uint secp192k1_gy[] = {
-	BYTES_TO_T_UINT_8(0x9D, 0x2F, 0x5E, 0xD9, 0x88, 0xAA, 0x82, 0x40),
-	BYTES_TO_T_UINT_8(0x34, 0x86, 0xBE, 0x15, 0xD0, 0x63, 0x41, 0x84),
-	BYTES_TO_T_UINT_8(0xA7, 0x28, 0x56, 0x9C, 0x6D, 0x2F, 0x2F, 0x9B),
-};
-static const ttls_mpi_uint secp192k1_n[] = {
-	BYTES_TO_T_UINT_8(0x8D, 0xFD, 0xDE, 0x74, 0x6A, 0x46, 0x69, 0x0F),
-	BYTES_TO_T_UINT_8(0x17, 0xFC, 0xF2, 0x26, 0xFE, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-};
-
-static const ttls_mpi_uint secp224k1_p[] = {
-	BYTES_TO_T_UINT_8(0x6D, 0xE5, 0xFF, 0xFF, 0xFE, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_4(0xFF, 0xFF, 0xFF, 0xFF),
-};
-static const ttls_mpi_uint secp224k1_a[] = {
-	BYTES_TO_T_UINT_2(0x00, 0x00),
-};
-static const ttls_mpi_uint secp224k1_b[] = {
-	BYTES_TO_T_UINT_2(0x05, 0x00),
-};
-static const ttls_mpi_uint secp224k1_gx[] = {
-	BYTES_TO_T_UINT_8(0x5C, 0xA4, 0xB7, 0xB6, 0x0E, 0x65, 0x7E, 0x0F),
-	BYTES_TO_T_UINT_8(0xA9, 0x75, 0x70, 0xE4, 0xE9, 0x67, 0xA4, 0x69),
-	BYTES_TO_T_UINT_8(0xA1, 0x28, 0xFC, 0x30, 0xDF, 0x99, 0xF0, 0x4D),
-	BYTES_TO_T_UINT_4(0x33, 0x5B, 0x45, 0xA1),
-};
-static const ttls_mpi_uint secp224k1_gy[] = {
-	BYTES_TO_T_UINT_8(0xA5, 0x61, 0x6D, 0x55, 0xDB, 0x4B, 0xCA, 0xE2),
-	BYTES_TO_T_UINT_8(0x59, 0xBD, 0xB0, 0xC0, 0xF7, 0x19, 0xE3, 0xF7),
-	BYTES_TO_T_UINT_8(0xD6, 0xFB, 0xCA, 0x82, 0x42, 0x34, 0xBA, 0x7F),
-	BYTES_TO_T_UINT_4(0xED, 0x9F, 0x08, 0x7E),
-};
-static const ttls_mpi_uint secp224k1_n[] = {
-	BYTES_TO_T_UINT_8(0xF7, 0xB1, 0x9F, 0x76, 0x71, 0xA9, 0xF0, 0xCA),
-	BYTES_TO_T_UINT_8(0x84, 0x61, 0xEC, 0xD2, 0xE8, 0xDC, 0x01, 0x00),
-	BYTES_TO_T_UINT_8(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00),
-	BYTES_TO_T_UINT_8(0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00),
-};
-
-static const ttls_mpi_uint secp256k1_p[] = {
-	BYTES_TO_T_UINT_8(0x2F, 0xFC, 0xFF, 0xFF, 0xFE, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-};
-static const ttls_mpi_uint secp256k1_a[] = {
-	BYTES_TO_T_UINT_2(0x00, 0x00),
-};
-static const ttls_mpi_uint secp256k1_b[] = {
-	BYTES_TO_T_UINT_2(0x07, 0x00),
-};
-static const ttls_mpi_uint secp256k1_gx[] = {
-	BYTES_TO_T_UINT_8(0x98, 0x17, 0xF8, 0x16, 0x5B, 0x81, 0xF2, 0x59),
-	BYTES_TO_T_UINT_8(0xD9, 0x28, 0xCE, 0x2D, 0xDB, 0xFC, 0x9B, 0x02),
-	BYTES_TO_T_UINT_8(0x07, 0x0B, 0x87, 0xCE, 0x95, 0x62, 0xA0, 0x55),
-	BYTES_TO_T_UINT_8(0xAC, 0xBB, 0xDC, 0xF9, 0x7E, 0x66, 0xBE, 0x79),
-};
-static const ttls_mpi_uint secp256k1_gy[] = {
-	BYTES_TO_T_UINT_8(0xB8, 0xD4, 0x10, 0xFB, 0x8F, 0xD0, 0x47, 0x9C),
-	BYTES_TO_T_UINT_8(0x19, 0x54, 0x85, 0xA6, 0x48, 0xB4, 0x17, 0xFD),
-	BYTES_TO_T_UINT_8(0xA8, 0x08, 0x11, 0x0E, 0xFC, 0xFB, 0xA4, 0x5D),
-	BYTES_TO_T_UINT_8(0x65, 0xC4, 0xA3, 0x26, 0x77, 0xDA, 0x3A, 0x48),
-};
-static const ttls_mpi_uint secp256k1_n[] = {
-	BYTES_TO_T_UINT_8(0x41, 0x41, 0x36, 0xD0, 0x8C, 0x5E, 0xD2, 0xBF),
-	BYTES_TO_T_UINT_8(0x3B, 0xA0, 0x48, 0xAF, 0xE6, 0xDC, 0xAE, 0xBA),
-	BYTES_TO_T_UINT_8(0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-};
-
 /*
  * Domain parameters for brainpoolP256r1 (RFC 5639 3.4)
  */
-static const ttls_mpi_uint brainpoolP256r1_p[] = {
+static const unsigned long brainpoolP256r1_p[] = {
 	BYTES_TO_T_UINT_8(0x77, 0x53, 0x6E, 0x1F, 0x1D, 0x48, 0x13, 0x20),
 	BYTES_TO_T_UINT_8(0x28, 0x20, 0x26, 0xD5, 0x23, 0xF6, 0x3B, 0x6E),
 	BYTES_TO_T_UINT_8(0x72, 0x8D, 0x83, 0x9D, 0x90, 0x0A, 0x66, 0x3E),
 	BYTES_TO_T_UINT_8(0xBC, 0xA9, 0xEE, 0xA1, 0xDB, 0x57, 0xFB, 0xA9),
 };
-static const ttls_mpi_uint brainpoolP256r1_a[] = {
+static const unsigned long brainpoolP256r1_a[] = {
 	BYTES_TO_T_UINT_8(0xD9, 0xB5, 0x30, 0xF3, 0x44, 0x4B, 0x4A, 0xE9),
 	BYTES_TO_T_UINT_8(0x6C, 0x5C, 0xDC, 0x26, 0xC1, 0x55, 0x80, 0xFB),
 	BYTES_TO_T_UINT_8(0xE7, 0xFF, 0x7A, 0x41, 0x30, 0x75, 0xF6, 0xEE),
 	BYTES_TO_T_UINT_8(0x57, 0x30, 0x2C, 0xFC, 0x75, 0x09, 0x5A, 0x7D),
 };
-static const ttls_mpi_uint brainpoolP256r1_b[] = {
+static const unsigned long brainpoolP256r1_b[] = {
 	BYTES_TO_T_UINT_8(0xB6, 0x07, 0x8C, 0xFF, 0x18, 0xDC, 0xCC, 0x6B),
 	BYTES_TO_T_UINT_8(0xCE, 0xE1, 0xF7, 0x5C, 0x29, 0x16, 0x84, 0x95),
 	BYTES_TO_T_UINT_8(0xBF, 0x7C, 0xD7, 0xBB, 0xD9, 0xB5, 0x30, 0xF3),
 	BYTES_TO_T_UINT_8(0x44, 0x4B, 0x4A, 0xE9, 0x6C, 0x5C, 0xDC, 0x26),
 };
-static const ttls_mpi_uint brainpoolP256r1_gx[] = {
+static const unsigned long brainpoolP256r1_gx[] = {
 	BYTES_TO_T_UINT_8(0x62, 0x32, 0xCE, 0x9A, 0xBD, 0x53, 0x44, 0x3A),
 	BYTES_TO_T_UINT_8(0xC2, 0x23, 0xBD, 0xE3, 0xE1, 0x27, 0xDE, 0xB9),
 	BYTES_TO_T_UINT_8(0xAF, 0xB7, 0x81, 0xFC, 0x2F, 0x48, 0x4B, 0x2C),
 	BYTES_TO_T_UINT_8(0xCB, 0x57, 0x7E, 0xCB, 0xB9, 0xAE, 0xD2, 0x8B),
 };
-static const ttls_mpi_uint brainpoolP256r1_gy[] = {
+static const unsigned long brainpoolP256r1_gy[] = {
 	BYTES_TO_T_UINT_8(0x97, 0x69, 0x04, 0x2F, 0xC7, 0x54, 0x1D, 0x5C),
 	BYTES_TO_T_UINT_8(0x54, 0x8E, 0xED, 0x2D, 0x13, 0x45, 0x77, 0xC2),
 	BYTES_TO_T_UINT_8(0xC9, 0x1D, 0x61, 0x14, 0x1A, 0x46, 0xF8, 0x97),
 	BYTES_TO_T_UINT_8(0xFD, 0xC4, 0xDA, 0xC3, 0x35, 0xF8, 0x7E, 0x54),
 };
-static const ttls_mpi_uint brainpoolP256r1_n[] = {
+static const unsigned long brainpoolP256r1_n[] = {
 	BYTES_TO_T_UINT_8(0xA7, 0x56, 0x48, 0x97, 0x82, 0x0E, 0x1E, 0x90),
 	BYTES_TO_T_UINT_8(0xF7, 0xA6, 0x61, 0xB5, 0xA3, 0x7A, 0x39, 0x8C),
 	BYTES_TO_T_UINT_8(0x71, 0x8D, 0x83, 0x9D, 0x90, 0x0A, 0x66, 0x3E),
@@ -383,7 +230,7 @@ static const ttls_mpi_uint brainpoolP256r1_n[] = {
 /*
  * Domain parameters for brainpoolP384r1 (RFC 5639 3.6)
  */
-static const ttls_mpi_uint brainpoolP384r1_p[] = {
+static const unsigned long brainpoolP384r1_p[] = {
 	BYTES_TO_T_UINT_8(0x53, 0xEC, 0x07, 0x31, 0x13, 0x00, 0x47, 0x87),
 	BYTES_TO_T_UINT_8(0x71, 0x1A, 0x1D, 0x90, 0x29, 0xA7, 0xD3, 0xAC),
 	BYTES_TO_T_UINT_8(0x23, 0x11, 0xB7, 0x7F, 0x19, 0xDA, 0xB1, 0x12),
@@ -391,7 +238,7 @@ static const ttls_mpi_uint brainpoolP384r1_p[] = {
 	BYTES_TO_T_UINT_8(0xDF, 0x41, 0xE6, 0x50, 0x7E, 0x6F, 0x5D, 0x0F),
 	BYTES_TO_T_UINT_8(0x28, 0x6D, 0x38, 0xA3, 0x82, 0x1E, 0xB9, 0x8C),
 };
-static const ttls_mpi_uint brainpoolP384r1_a[] = {
+static const unsigned long brainpoolP384r1_a[] = {
 	BYTES_TO_T_UINT_8(0x26, 0x28, 0xCE, 0x22, 0xDD, 0xC7, 0xA8, 0x04),
 	BYTES_TO_T_UINT_8(0xEB, 0xD4, 0x3A, 0x50, 0x4A, 0x81, 0xA5, 0x8A),
 	BYTES_TO_T_UINT_8(0x0F, 0xF9, 0x91, 0xBA, 0xEF, 0x65, 0x91, 0x13),
@@ -399,7 +246,7 @@ static const ttls_mpi_uint brainpoolP384r1_a[] = {
 	BYTES_TO_T_UINT_8(0xA0, 0xAF, 0x05, 0xCE, 0x0A, 0x08, 0x72, 0x3C),
 	BYTES_TO_T_UINT_8(0x0C, 0x15, 0x8C, 0x3D, 0xC6, 0x82, 0xC3, 0x7B),
 };
-static const ttls_mpi_uint brainpoolP384r1_b[] = {
+static const unsigned long brainpoolP384r1_b[] = {
 	BYTES_TO_T_UINT_8(0x11, 0x4C, 0x50, 0xFA, 0x96, 0x86, 0xB7, 0x3A),
 	BYTES_TO_T_UINT_8(0x94, 0xC9, 0xDB, 0x95, 0x02, 0x39, 0xB4, 0x7C),
 	BYTES_TO_T_UINT_8(0xD5, 0x62, 0xEB, 0x3E, 0xA5, 0x0E, 0x88, 0x2E),
@@ -407,7 +254,7 @@ static const ttls_mpi_uint brainpoolP384r1_b[] = {
 	BYTES_TO_T_UINT_8(0x7C, 0x44, 0xF0, 0x16, 0x54, 0xB5, 0x39, 0x8B),
 	BYTES_TO_T_UINT_8(0x26, 0x28, 0xCE, 0x22, 0xDD, 0xC7, 0xA8, 0x04),
 };
-static const ttls_mpi_uint brainpoolP384r1_gx[] = {
+static const unsigned long brainpoolP384r1_gx[] = {
 	BYTES_TO_T_UINT_8(0x1E, 0xAF, 0xD4, 0x47, 0xE2, 0xB2, 0x87, 0xEF),
 	BYTES_TO_T_UINT_8(0xAA, 0x46, 0xD6, 0x36, 0x34, 0xE0, 0x26, 0xE8),
 	BYTES_TO_T_UINT_8(0xE8, 0x10, 0xBD, 0x0C, 0xFE, 0xCA, 0x7F, 0xDB),
@@ -415,7 +262,7 @@ static const ttls_mpi_uint brainpoolP384r1_gx[] = {
 	BYTES_TO_T_UINT_8(0x6B, 0x3F, 0xC1, 0xB7, 0x81, 0x3A, 0xA6, 0xA2),
 	BYTES_TO_T_UINT_8(0xFF, 0x45, 0xCF, 0x68, 0xF0, 0x64, 0x1C, 0x1D),
 };
-static const ttls_mpi_uint brainpoolP384r1_gy[] = {
+static const unsigned long brainpoolP384r1_gy[] = {
 	BYTES_TO_T_UINT_8(0x15, 0x53, 0x3C, 0x26, 0x41, 0x03, 0x82, 0x42),
 	BYTES_TO_T_UINT_8(0x11, 0x81, 0x91, 0x77, 0x21, 0x46, 0x46, 0x0E),
 	BYTES_TO_T_UINT_8(0x28, 0x29, 0x91, 0xF9, 0x4F, 0x05, 0x9C, 0xE1),
@@ -423,7 +270,7 @@ static const ttls_mpi_uint brainpoolP384r1_gy[] = {
 	BYTES_TO_T_UINT_8(0x52, 0xD5, 0xCF, 0x95, 0x8E, 0xEB, 0xB1, 0x5C),
 	BYTES_TO_T_UINT_8(0xA4, 0xC2, 0xF9, 0x20, 0x75, 0x1D, 0xBE, 0x8A),
 };
-static const ttls_mpi_uint brainpoolP384r1_n[] = {
+static const unsigned long brainpoolP384r1_n[] = {
 	BYTES_TO_T_UINT_8(0x65, 0x65, 0x04, 0xE9, 0x02, 0x32, 0x88, 0x3B),
 	BYTES_TO_T_UINT_8(0x10, 0xC3, 0x7F, 0x6B, 0xAF, 0xB6, 0x3A, 0xCF),
 	BYTES_TO_T_UINT_8(0xA7, 0x25, 0x04, 0xAC, 0x6C, 0x6E, 0x16, 0x1F),
@@ -435,7 +282,7 @@ static const ttls_mpi_uint brainpoolP384r1_n[] = {
 /*
  * Domain parameters for brainpoolP512r1 (RFC 5639 3.7)
  */
-static const ttls_mpi_uint brainpoolP512r1_p[] = {
+static const unsigned long brainpoolP512r1_p[] = {
 	BYTES_TO_T_UINT_8(0xF3, 0x48, 0x3A, 0x58, 0x56, 0x60, 0xAA, 0x28),
 	BYTES_TO_T_UINT_8(0x85, 0xC6, 0x82, 0x2D, 0x2F, 0xFF, 0x81, 0x28),
 	BYTES_TO_T_UINT_8(0xE6, 0x80, 0xA3, 0xE6, 0x2A, 0xA1, 0xCD, 0xAE),
@@ -445,7 +292,7 @@ static const ttls_mpi_uint brainpoolP512r1_p[] = {
 	BYTES_TO_T_UINT_8(0x07, 0xFC, 0xC9, 0x33, 0xAE, 0xE6, 0xD4, 0x3F),
 	BYTES_TO_T_UINT_8(0x8B, 0xC4, 0xE9, 0xDB, 0xB8, 0x9D, 0xDD, 0xAA),
 };
-static const ttls_mpi_uint brainpoolP512r1_a[] = {
+static const unsigned long brainpoolP512r1_a[] = {
 	BYTES_TO_T_UINT_8(0xCA, 0x94, 0xFC, 0x77, 0x4D, 0xAC, 0xC1, 0xE7),
 	BYTES_TO_T_UINT_8(0xB9, 0xC7, 0xF2, 0x2B, 0xA7, 0x17, 0x11, 0x7F),
 	BYTES_TO_T_UINT_8(0xB5, 0xC8, 0x9A, 0x8B, 0xC9, 0xF1, 0x2E, 0x0A),
@@ -455,7 +302,7 @@ static const ttls_mpi_uint brainpoolP512r1_a[] = {
 	BYTES_TO_T_UINT_8(0xC5, 0x4C, 0x23, 0xAC, 0x45, 0x71, 0x32, 0xE2),
 	BYTES_TO_T_UINT_8(0x89, 0x3B, 0x60, 0x8B, 0x31, 0xA3, 0x30, 0x78),
 };
-static const ttls_mpi_uint brainpoolP512r1_b[] = {
+static const unsigned long brainpoolP512r1_b[] = {
 	BYTES_TO_T_UINT_8(0x23, 0xF7, 0x16, 0x80, 0x63, 0xBD, 0x09, 0x28),
 	BYTES_TO_T_UINT_8(0xDD, 0xE5, 0xBA, 0x5E, 0xB7, 0x50, 0x40, 0x98),
 	BYTES_TO_T_UINT_8(0x67, 0x3E, 0x08, 0xDC, 0xCA, 0x94, 0xFC, 0x77),
@@ -465,7 +312,7 @@ static const ttls_mpi_uint brainpoolP512r1_b[] = {
 	BYTES_TO_T_UINT_8(0x5A, 0x5D, 0xED, 0x2D, 0xBC, 0x63, 0x98, 0xEA),
 	BYTES_TO_T_UINT_8(0xCA, 0x41, 0x34, 0xA8, 0x10, 0x16, 0xF9, 0x3D),
 };
-static const ttls_mpi_uint brainpoolP512r1_gx[] = {
+static const unsigned long brainpoolP512r1_gx[] = {
 	BYTES_TO_T_UINT_8(0x22, 0xF8, 0xB9, 0xBC, 0x09, 0x22, 0x35, 0x8B),
 	BYTES_TO_T_UINT_8(0x68, 0x5E, 0x6A, 0x40, 0x47, 0x50, 0x6D, 0x7C),
 	BYTES_TO_T_UINT_8(0x5F, 0x7D, 0xB9, 0x93, 0x7B, 0x68, 0xD1, 0x50),
@@ -475,7 +322,7 @@ static const ttls_mpi_uint brainpoolP512r1_gx[] = {
 	BYTES_TO_T_UINT_8(0x93, 0x6A, 0x4C, 0x9C, 0x2E, 0x32, 0x21, 0x5A),
 	BYTES_TO_T_UINT_8(0x64, 0xD9, 0x2E, 0xD8, 0xBD, 0xE4, 0xAE, 0x81),
 };
-static const ttls_mpi_uint brainpoolP512r1_gy[] = {
+static const unsigned long brainpoolP512r1_gy[] = {
 	BYTES_TO_T_UINT_8(0x92, 0x08, 0xD8, 0x3A, 0x0F, 0x1E, 0xCD, 0x78),
 	BYTES_TO_T_UINT_8(0x06, 0x54, 0xF0, 0xA8, 0x2F, 0x2B, 0xCA, 0xD1),
 	BYTES_TO_T_UINT_8(0xAE, 0x63, 0x27, 0x8A, 0xD8, 0x4B, 0xCA, 0x5B),
@@ -485,7 +332,7 @@ static const ttls_mpi_uint brainpoolP512r1_gy[] = {
 	BYTES_TO_T_UINT_8(0xFD, 0x22, 0x78, 0xCF, 0xA9, 0xBF, 0xEA, 0xC0),
 	BYTES_TO_T_UINT_8(0xEC, 0x32, 0x63, 0x56, 0x5D, 0x38, 0xDE, 0x7D),
 };
-static const ttls_mpi_uint brainpoolP512r1_n[] = {
+static const unsigned long brainpoolP512r1_n[] = {
 	BYTES_TO_T_UINT_8(0x69, 0x00, 0xA9, 0x9C, 0x82, 0x96, 0x87, 0xB5),
 	BYTES_TO_T_UINT_8(0xDD, 0xDA, 0x5D, 0x08, 0x81, 0xD3, 0xB1, 0x1D),
 	BYTES_TO_T_UINT_8(0x47, 0x10, 0xAC, 0x7F, 0x19, 0x61, 0x86, 0x41),
@@ -496,101 +343,77 @@ static const ttls_mpi_uint brainpoolP512r1_n[] = {
 	BYTES_TO_T_UINT_8(0x8B, 0xC4, 0xE9, 0xDB, 0xB8, 0x9D, 0xDD, 0xAA),
 };
 
-/*
+/**
  * Create an MPI from embedded constants
- * (assumes len is an exact multiple of sizeof ttls_mpi_uint)
+ * (assumes len is an exact multiple of sizeof unsigned long).
  */
-static inline void ecp_mpi_load(ttls_mpi *X, const ttls_mpi_uint *p, size_t len)
+static inline void
+ecp_mpi_load(TlsMpi *X, const unsigned long *p, size_t len)
 {
 	X->s = 1;
-	X->n = len / sizeof(ttls_mpi_uint);
-	X->p = (ttls_mpi_uint *) p;
-}
-
-/*
- * Set an MPI to static value 1
- */
-static inline void ecp_mpi_set1(ttls_mpi *X)
-{
-	static ttls_mpi_uint one[] = { 1 };
-	X->s = 1;
-	X->n = 1;
-	X->p = one;
+	X->limbs = X->used = len / sizeof(unsigned long);
+	X->p = (unsigned long *)p;
 }
 
 /*
  * Make group available from embedded constants
  */
-static int ecp_group_load(ttls_ecp_group *grp,
-			   const ttls_mpi_uint *p,  size_t plen,
-			   const ttls_mpi_uint *a,  size_t alen,
-			   const ttls_mpi_uint *b,  size_t blen,
-			   const ttls_mpi_uint *gx, size_t gxlen,
-			   const ttls_mpi_uint *gy, size_t gylen,
-			   const ttls_mpi_uint *n,  size_t nlen)
+static void
+ecp_group_load(TlsEcpGrp *grp, const unsigned long *p,  size_t plen,
+	       const unsigned long *a,  size_t alen,
+	       const unsigned long *b,  size_t blen,
+	       const unsigned long *gx, size_t gxlen,
+	       const unsigned long *gy, size_t gylen,
+	       const unsigned long *n,  size_t nlen)
 {
+	static unsigned long one = 1;
+
 	ecp_mpi_load(&grp->P, p, plen);
-	if (a != NULL)
+	if (a)
 		ecp_mpi_load(&grp->A, a, alen);
 	ecp_mpi_load(&grp->B, b, blen);
-	ecp_mpi_load(&grp->N, n, nlen);
-
 	ecp_mpi_load(&grp->G.X, gx, gxlen);
 	ecp_mpi_load(&grp->G.Y, gy, gylen);
-	ecp_mpi_set1(&grp->G.Z);
+	ecp_mpi_load(&grp->N, n, nlen);
 
-	grp->pbits = ttls_mpi_bitlen(&grp->P);
-	grp->nbits = ttls_mpi_bitlen(&grp->N);
+	grp->G.Z.s = 1;
+	grp->G.Z.limbs = grp->G.Z.used = 1;
+	grp->G.Z.p = &one;
 
 	grp->h = 1;
-
-	return 0;
+	grp->pbits = ttls_mpi_bitlen(&grp->P);
+	grp->nbits = ttls_mpi_bitlen(&grp->N);
 }
 
-#if defined(TTLS_ECP_NIST_OPTIM)
-/* Forward declarations */
-static int ecp_mod_p192(ttls_mpi *);
-static int ecp_mod_p224(ttls_mpi *);
-static int ecp_mod_p256(ttls_mpi *);
-static int ecp_mod_p384(ttls_mpi *);
-static int ecp_mod_p521(ttls_mpi *);
+static int ecp_mod_p256(TlsMpi *);
+static int ecp_mod_p384(TlsMpi *);
+static int ecp_mod_p521(TlsMpi *);
+static int ecp_mod_p255(TlsMpi *);
 
-#define NIST_MODP(P)	  grp->modp = ecp_mod_ ## P;
-#else
-#define NIST_MODP(P)
-#endif /* TTLS_ECP_NIST_OPTIM */
+#define LOAD_GROUP_A(G)	ecp_group_load(grp, G##_p, sizeof(G##_p),	\
+					    G##_a, sizeof(G##_a ),	\
+					    G##_b, sizeof(G##_b ),	\
+					    G##_gx, sizeof(G##_gx),	\
+					    G##_gy, sizeof(G##_gy),	\
+					    G##_n, sizeof(G##_n))
 
-/* Additional forward declarations */
-static int ecp_mod_p255(ttls_mpi *);
-static int ecp_mod_p192k1(ttls_mpi *);
-static int ecp_mod_p224k1(ttls_mpi *);
-static int ecp_mod_p256k1(ttls_mpi *);
-
-#define LOAD_GROUP_A(G)   ecp_group_load(grp,			\
-				G ## _p,  sizeof(G ## _p ),   \
-				G ## _a,  sizeof(G ## _a ),   \
-				G ## _b,  sizeof(G ## _b ),   \
-				G ## _gx, sizeof(G ## _gx),   \
-				G ## _gy, sizeof(G ## _gy),   \
-				G ## _n,  sizeof(G ## _n ))
-
-#define LOAD_GROUP(G)	 ecp_group_load(grp,			\
-				G ## _p,  sizeof(G ## _p ),   \
-				NULL,	 0,		\
-				G ## _b,  sizeof(G ## _b ),   \
-				G ## _gx, sizeof(G ## _gx),   \
-				G ## _gy, sizeof(G ## _gy),   \
-				G ## _n,  sizeof(G ## _n ))
+#define LOAD_GROUP(G)	ecp_group_load(grp, G##_p, sizeof(G##_p),	\
+					    NULL, 0,			\
+					    G##_b, sizeof(G##_b ),	\
+					    G##_gx, sizeof(G##_gx),	\
+					    G##_gy, sizeof(G##_gy),	\
+					    G##_n, sizeof(G##_n))
 
 /*
  * Specialized function for creating the Curve25519 group
  */
-static int ecp_use_curve25519(ttls_ecp_group *grp)
+static int ecp_use_curve25519(TlsEcpGrp *grp)
 {
-	int ret;
+	int ret = -EINVAL;
 
 	/* Actually (A + 2) / 4 */
-	TTLS_MPI_CHK(ttls_mpi_read_string(&grp->A, 16, "01DB42"));
+	if (ttls_mpi_read_binary(&grp->A, "\x01\xDB\x42", 3))
+		goto cleanup;
 
 	/* P = 2^255 - 19 */
 	TTLS_MPI_CHK(ttls_mpi_lset(&grp->P, 1));
@@ -614,69 +437,49 @@ cleanup:
 	return ret;
 }
 
-/*
- * Set a group using well-known domain parameters
+/**
+ * Set a group using well-known domain parameters.
+ *
+ * @id should be a value of RFC 4492's enum NamedCurve, usually in the form of
+ * a TTLS_ECP_DP_XXX macro.
  */
-int ttls_ecp_group_load(ttls_ecp_group *grp, ttls_ecp_group_id id)
+int
+ttls_ecp_group_load(TlsEcpGrp *grp, ttls_ecp_group_id id)
 {
-	ttls_ecp_group_free(grp);
-
 	grp->id = id;
 
-	switch(id)
-	{
-		case TTLS_ECP_DP_SECP192R1:
-			NIST_MODP(p192);
-			return(LOAD_GROUP(secp192r1));
-
-		case TTLS_ECP_DP_SECP224R1:
-			NIST_MODP(p224);
-			return(LOAD_GROUP(secp224r1));
-
-		case TTLS_ECP_DP_SECP256R1:
-			NIST_MODP(p256);
-			return(LOAD_GROUP(secp256r1));
-
-		case TTLS_ECP_DP_SECP384R1:
-			NIST_MODP(p384);
-			return(LOAD_GROUP(secp384r1));
-
-		case TTLS_ECP_DP_SECP521R1:
-			NIST_MODP(p521);
-			return(LOAD_GROUP(secp521r1));
-
-		case TTLS_ECP_DP_SECP192K1:
-			grp->modp = ecp_mod_p192k1;
-			return(LOAD_GROUP_A(secp192k1));
-
-		case TTLS_ECP_DP_SECP224K1:
-			grp->modp = ecp_mod_p224k1;
-			return(LOAD_GROUP_A(secp224k1));
-
-		case TTLS_ECP_DP_SECP256K1:
-			grp->modp = ecp_mod_p256k1;
-			return(LOAD_GROUP_A(secp256k1));
-
-		case TTLS_ECP_DP_BP256R1:
-			return(LOAD_GROUP_A(brainpoolP256r1));
-
-		case TTLS_ECP_DP_BP384R1:
-			return(LOAD_GROUP_A(brainpoolP384r1));
-
-		case TTLS_ECP_DP_BP512R1:
-			return(LOAD_GROUP_A(brainpoolP512r1));
-
-		case TTLS_ECP_DP_CURVE25519:
-			grp->modp = ecp_mod_p255;
-			return(ecp_use_curve25519(grp));
-
-		default:
-			ttls_ecp_group_free(grp);
-			return(TTLS_ERR_ECP_FEATURE_UNAVAILABLE);
+	switch(id) {
+	case TTLS_ECP_DP_SECP256R1:
+		grp->modp = ecp_mod_p256;
+		LOAD_GROUP(secp256r1);
+		return 0;
+	case TTLS_ECP_DP_SECP384R1:
+		grp->modp = ecp_mod_p384;
+		LOAD_GROUP(secp384r1);
+		return 0;
+	case TTLS_ECP_DP_SECP521R1:
+		grp->modp = ecp_mod_p521;
+		LOAD_GROUP(secp521r1);
+		return 0;
+	case TTLS_ECP_DP_BP256R1:
+		LOAD_GROUP_A(brainpoolP256r1);
+		return 0;
+	case TTLS_ECP_DP_BP384R1:
+		LOAD_GROUP_A(brainpoolP384r1);
+		return 0;
+	case TTLS_ECP_DP_BP512R1:
+		LOAD_GROUP_A(brainpoolP512r1);
+		return 0;
+	case TTLS_ECP_DP_CURVE25519:
+		grp->modp = ecp_mod_p255;
+		ecp_use_curve25519(grp);
+		return 0;
+	default:
+		grp->id = 0;
+		return TTLS_ERR_ECP_FEATURE_UNAVAILABLE;
 	}
 }
 
-#if defined(TTLS_ECP_NIST_OPTIM)
 /*
  * Fast reduction modulo the primes used by the NIST curves.
  *
@@ -695,74 +498,29 @@ int ttls_ecp_group_load(ttls_ecp_group *grp, ttls_ecp_group_id id)
  * compared to the more straightforward, line-oriented approach.
  *
  * For this prime we need to handle data in chunks of 64 bits.
- * Since this is always a multiple of our basic ttls_mpi_uint, we can
- * use a ttls_mpi_uint * to designate such a chunk, and small loops to handle it.
+ * Since this is always a multiple of our basic unsigned long, we can
+ * use a unsigned long * to designate such a chunk, and small loops to handle it.
  */
-
-/* Add 64-bit chunks (dst += src) and update carry */
-static inline void add64(ttls_mpi_uint *dst, ttls_mpi_uint *src, ttls_mpi_uint *carry)
-{
-	unsigned char i;
-	ttls_mpi_uint c = 0;
-	for (i = 0; i < 8 / sizeof(ttls_mpi_uint); i++, dst++, src++)
-	{
-		*dst += c;	  c  = (*dst < c);
-		*dst += *src;   c += (*dst < *src);
-	}
-	*carry += c;
-}
-
-/* Add carry to a 64-bit chunk and update carry */
-static inline void carry64(ttls_mpi_uint *dst, ttls_mpi_uint *carry)
-{
-	unsigned char i;
-	for (i = 0; i < 8 / sizeof(ttls_mpi_uint); i++, dst++)
-	{
-		*dst += *carry;
-		*carry  = (*dst < *carry);
-	}
-}
-
-#define WIDTH	   8 / sizeof(ttls_mpi_uint)
-#define A(i)	  N->p + i * WIDTH
-#define ADD(i)	add64(p, A(i), &c)
-#define NEXT		p += WIDTH; carry64(p, &c)
-#define LAST		p += WIDTH; *p = c; while (++p < end) *p = 0
 
 /*
- * Fast quasi-reduction modulo p192 (FIPS 186-3 D.2.1)
+ * Add 64-bit chunks (dst += src) and update carry.
  */
-static int ecp_mod_p192(ttls_mpi *N)
+static inline void
+add64(unsigned long *dst, unsigned long *src, unsigned long *carry)
 {
-	int ret;
-	ttls_mpi_uint c = 0;
-	ttls_mpi_uint *p, *end;
-
-	/* Make sure we have enough blocks so that A(5) is legal */
-	TTLS_MPI_CHK(ttls_mpi_grow(N, 6 * WIDTH));
-
-	p = N->p;
-	end = p + N->n;
-
-	ADD(3); ADD(5);			 NEXT; // A0 += A3 + A5
-	ADD(3); ADD(4); ADD(5);   NEXT; // A1 += A3 + A4 + A5
-	ADD(4); ADD(5);			 LAST; // A2 += A4 + A5
-
-cleanup:
-	return ret;
+	*dst += *src;
+	*carry += *dst < *src;
 }
 
-#undef WIDTH
-#undef A
-#undef ADD
-#undef NEXT
-#undef LAST
-
 /*
- * The reader is advised to first understand ecp_mod_p192() since the same
- * general structure is used here, but with additional complications:
- * (1) chunks of 32 bits, and (2) subtractions.
+ * Add carry to a 64-bit chunk and update carry.
  */
+static inline void
+carry64(unsigned long *dst, unsigned long *carry)
+{
+	*dst += *carry;
+	*carry = *dst < *carry;
+}
 
 /*
  * For these primes, we need to handle data in chunks of 32 bits.
@@ -774,18 +532,18 @@ cleanup:
  *
  * While at it, also define the size of N in terms of 32-bit chunks.
  */
-#define LOAD32	  cur = A(i);
-
-#define MAX32	   N->n * 2
-#define A(j) j % 2 ? (uint32_t)(N->p[j/2] >> 32) : (uint32_t)(N->p[j/2])
-#define STORE32		   \
-	if (i % 2) {		 \
-		N->p[i/2] &= 0x00000000FFFFFFFF;		  \
-		N->p[i/2] |= ((ttls_mpi_uint) cur) << 32;		\
-	} else {			  \
-		N->p[i/2] &= 0xFFFFFFFF00000000;		  \
-		N->p[i/2] |= (ttls_mpi_uint) cur;				\
-	}
+#define MAX32	N->used * 2
+#define A(j)	j % 2 ? (uint32_t)(N->p[j/2] >> 32) : (uint32_t)(N->p[j/2])
+#define STORE32								\
+do {									\
+	if (i % 2) {							\
+		N->p[i/2] &= 0x00000000FFFFFFFF;			\
+		N->p[i/2] |= ((unsigned long) cur) << 32;		\
+	} else {							\
+		N->p[i/2] &= 0xFFFFFFFF00000000;			\
+		N->p[i/2] |= (unsigned long) cur;			\
+	}								\
+} while (0)
 
 /*
  * Helpers for addition and subtraction of chunks, with signed carry.
@@ -805,112 +563,115 @@ static inline void sub32(uint32_t *dst, uint32_t src, signed char *carry)
 #define ADD(j)	add32(&cur, A(j), &c);
 #define SUB(j)	sub32(&cur, A(j), &c);
 
+/* Helpers for the main 'loop'. */
+#define INIT(b)								\
+	const size_t bits = b;						\
+	size_t i = 0;							\
+	int ret;							\
+	uint32_t cur;							\
+	signed char c = 0, cc;						\
+	TTLS_MPI_CHK(__mpi_realloc(N, b * 2 / BIL,			\
+				   MPI_GROW_COPY | MPI_GROW_ZERO));	\
+	cur = A(i);
+
+#define NEXT								\
+	STORE32;							\
+	i++;								\
+	cur = A(i);							\
+	cc = c;								\
+	c = 0;								\
+	if (cc < 0)							\
+		sub32(&cur, -cc, &c);					\
+	else								\
+		add32(&cur, cc, &c);
+
+#define LAST								\
+	STORE32;							\
+	i++;								\
+	cur = c > 0 ? c : 0;						\
+	STORE32;							\
+	cur = 0;							\
+	while (++i < MAX32)						\
+		STORE32;						\
+	mpi_fixup_used(N, N->limbs);					\
+	if (c < 0)							\
+		fix_negative(N, c, bits);
+
+
 /*
- * Helpers for the main 'loop'
- * (see fix_negative for the motivation of C)
+ * If the result is negative, we get it in the form c * 2^(bits + 32) + N,
+ * with c negative and N positive shorter than 'bits'.
  */
-#define INIT(b)				   \
-	int ret;			\
-	signed char c = 0, cc;		  \
-	uint32_t cur;				   \
-	size_t i = 0, bits = b;		 \
-	ttls_mpi C;			  \
-	ttls_mpi_uint Cp[ b / 8 / sizeof(ttls_mpi_uint) + 1 ];			   \
-			\
-	C.s = 1;			\
-	C.n = b / 8 / sizeof(ttls_mpi_uint) + 1;		  \
-	C.p = Cp;		   \
-	memset(Cp, 0, C.n * sizeof(ttls_mpi_uint));				\
-			\
-	TTLS_MPI_CHK(ttls_mpi_grow(N, b * 2 / 8 / sizeof(ttls_mpi_uint))); \
-	LOAD32;
-
-#define NEXT		\
-	STORE32; i++; LOAD32;	   \
-	cc = c; c = 0;			  \
-	if (cc < 0)				\
-		sub32(&cur, -cc, &c); \
-	else			\
-		add32(&cur, cc, &c);  \
-
-#define LAST			\
-	STORE32; i++;				   \
-	cur = c > 0 ? c : 0; STORE32;			   \
-	cur = 0; while (++i < MAX32) { STORE32; }  \
-	if (c < 0) fix_negative(N, c, &C, bits);
-
-/*
- * If the result is negative, we get it in the form
- * c * 2^(bits + 32) + N, with c negative and N positive shorter than 'bits'
- */
-static inline int fix_negative(ttls_mpi *N, signed char c, ttls_mpi *C, size_t bits)
+static inline void
+fix_negative(TlsMpi *N, signed char c, const size_t bits)
 {
-	int ret;
+	unsigned long _p[bits / BIL + 1];
+	TlsMpi C = {
+		.s = 1,
+		.limbs = bits / BIL + 1,
+		.used = bits / BIL + 1,
+		.p = _p
+	};
 
+	memset(_p, 0, (bits / BIL + 1) * CIL);
 	/* C = - c * 2^(bits + 32) */
 	if (bits == 224)
-		C->p[ C->n - 1 ] = ((ttls_mpi_uint) -c) << 32;
+		C.p[C.limbs - 1] = ((unsigned long)-c) << 32;
 	else
-		C->p[ C->n - 1 ] = (ttls_mpi_uint) -c;
+		C.p[C.limbs - 1] = (unsigned long)-c;
 
-	/* N = - (C - N) */
-	TTLS_MPI_CHK(ttls_mpi_sub_abs(N, C, N));
+	/* N = -(C - N) */
+	WARN_ON_ONCE(ttls_mpi_sub_abs(N, &C, N));
 	N->s = -1;
-
-cleanup:
-
-	return ret;
-}
-
-/*
- * Fast quasi-reduction modulo p224 (FIPS 186-3 D.2.2)
- */
-static int ecp_mod_p224(ttls_mpi *N)
-{
-	INIT(224);
-
-	SUB( 7); SUB(11);			   NEXT; // A0 += -A7 - A11
-	SUB( 8); SUB(12);			   NEXT; // A1 += -A8 - A12
-	SUB( 9); SUB(13);			   NEXT; // A2 += -A9 - A13
-	SUB(10); ADD( 7); ADD(11);	NEXT; // A3 += -A10 + A7 + A11
-	SUB(11); ADD( 8); ADD(12);	NEXT; // A4 += -A11 + A8 + A12
-	SUB(12); ADD( 9); ADD(13);	NEXT; // A5 += -A12 + A9 + A13
-	SUB(13); ADD(10);			   LAST; // A6 += -A13 + A10
-
-cleanup:
-	return ret;
 }
 
 /*
  * Fast quasi-reduction modulo p256 (FIPS 186-3 D.2.3)
  */
-static int ecp_mod_p256(ttls_mpi *N)
+static int
+ecp_mod_p256(TlsMpi *N)
 {
 	INIT(256);
 
-	ADD( 8); ADD( 9);
-	SUB(11); SUB(12); SUB(13); SUB(14);			 NEXT; // A0
+	/* A0 */
+	ADD(8); ADD(9);
+	SUB(11); SUB(12); SUB(13); SUB(14);
+	NEXT;
 
-	ADD( 9); ADD(10);
-	SUB(12); SUB(13); SUB(14); SUB(15);			 NEXT; // A1
+	/* A1 */
+	ADD(9); ADD(10);
+	SUB(12); SUB(13); SUB(14); SUB(15);
+	NEXT;
 
+	/* A2 */
 	ADD(10); ADD(11);
-	SUB(13); SUB(14); SUB(15);			NEXT; // A2
+	SUB(13); SUB(14); SUB(15);
+	NEXT;
 
+	/* A3 */
 	ADD(11); ADD(11); ADD(12); ADD(12); ADD(13);
-	SUB(15); SUB( 8); SUB( 9);			NEXT; // A3
+	SUB(15); SUB(8); SUB(9);
+	NEXT;
 
+	/* A4 */
 	ADD(12); ADD(12); ADD(13); ADD(13); ADD(14);
-	SUB( 9); SUB(10);		   NEXT; // A4
+	SUB(9); SUB(10);
+	NEXT;
 
+	/* A5 */
 	ADD(13); ADD(13); ADD(14); ADD(14); ADD(15);
-	SUB(10); SUB(11);		   NEXT; // A5
+	SUB(10); SUB(11);
+	NEXT;
 
+	/* A6 */
 	ADD(14); ADD(14); ADD(15); ADD(15); ADD(14); ADD(13);
-	SUB( 8); SUB( 9);		   NEXT; // A6
+	SUB(8); SUB(9);
+	NEXT;
 
+	/* A7 */
 	ADD(15); ADD(15); ADD(15); ADD(8);
-	SUB(10); SUB(11); SUB(12); SUB(13);			 LAST; // A7
+	SUB(10); SUB(11); SUB(12); SUB(13);
+	LAST;
 
 cleanup:
 	return ret;
@@ -919,7 +680,7 @@ cleanup:
 /*
  * Fast quasi-reduction modulo p384 (FIPS 186-3 D.2.4)
  */
-static int ecp_mod_p384(ttls_mpi *N)
+static int ecp_mod_p384(TlsMpi *N)
 {
 	INIT(384);
 
@@ -964,7 +725,6 @@ cleanup:
 }
 
 #undef A
-#undef LOAD32
 #undef STORE32
 #undef MAX32
 #undef INIT
@@ -976,203 +736,87 @@ cleanup:
  * However, chunks are aligned on a 'weird' boundary (521 bits).
  */
 
-/* Size of p521 in terms of ttls_mpi_uint */
-#define P521_WIDTH	  (521 / 8 / sizeof(ttls_mpi_uint) + 1)
+/* Size of p521 in terms of unsigned long */
+#define P521_WIDTH	  (521 / BIL + 1)
 
-/* Bits to keep in the most significant ttls_mpi_uint */
+/* Bits to keep in the most significant unsigned long */
 #define P521_MASK	   0x01FF
 
 /*
- * Fast quasi-reduction modulo p521 (FIPS 186-3 D.2.5)
- * Write N as A1 + 2^521 A0, return A0 + A1
+ * Fast quasi-reduction modulo p521 (FIPS 186-3 D.2.5).
+ * Write N as A1 + 2^521 A0, return A0 + A1.
  */
-static int ecp_mod_p521(ttls_mpi *N)
+static int
+ecp_mod_p521(TlsMpi *N)
 {
-	int ret;
-	size_t i;
-	ttls_mpi M;
-	ttls_mpi_uint Mp[P521_WIDTH + 1];
-	/* Worst case for the size of M is when ttls_mpi_uint is 16 bits:
-	 * we need to hold bits 513 to 1056, which is 34 limbs, that is
-	 * P521_WIDTH + 1. Otherwise P521_WIDTH is enough. */
+	int r;
+	TlsMpi M;
+	unsigned long Mp[P521_WIDTH + 1];
 
-	if (N->n < P521_WIDTH)
+	if (N->used < P521_WIDTH)
 		return 0;
 
 	/* M = A1 */
 	M.s = 1;
-	M.n = N->n - (P521_WIDTH - 1);
-	if (M.n > P521_WIDTH + 1)
-		M.n = P521_WIDTH + 1;
+	M.limbs = P521_WIDTH + 1;
+	M.used = N->used - (P521_WIDTH - 1);
+	if (M.used > P521_WIDTH + 1)
+		M.used = P521_WIDTH + 1;
 	M.p = Mp;
-	memcpy(Mp, N->p + P521_WIDTH - 1, M.n * sizeof(ttls_mpi_uint));
-	TTLS_MPI_CHK(ttls_mpi_shift_r(&M, 521 % (8 * sizeof(ttls_mpi_uint))));
+
+	memcpy(Mp, N->p + P521_WIDTH - 1, M.used * CIL);
+	if ((r = ttls_mpi_shift_r(&M, 521 % BIL)))
+		return r;
 
 	/* N = A0 */
 	N->p[P521_WIDTH - 1] &= P521_MASK;
-	for (i = P521_WIDTH; i < N->n; i++)
-		N->p[i] = 0;
+	N->used = P521_WIDTH;
 
 	/* N = A0 + A1 */
-	TTLS_MPI_CHK(ttls_mpi_add_abs(N, N, &M));
-
-cleanup:
-	return ret;
+	return ttls_mpi_add_abs(N, N, &M);
 }
 
 #undef P521_WIDTH
 #undef P521_MASK
 
-#endif /* TTLS_ECP_NIST_OPTIM */
+/* Size of p255 in terms of unsigned long */
+#define P255_WIDTH	  (255 / 8 / sizeof(unsigned long) + 1)
 
-/* Size of p255 in terms of ttls_mpi_uint */
-#define P255_WIDTH	  (255 / 8 / sizeof(ttls_mpi_uint) + 1)
-
-/*
- * Fast quasi-reduction modulo p255 = 2^255 - 19
- * Write N as A0 + 2^255 A1, return A0 + 19 * A1
+/**
+ * Fast quasi-reduction modulo p255 = 2^255 - 19.
+ * Write N as A0 + 2^255 A1, return A0 + 19 * A1.
  */
-static int ecp_mod_p255(ttls_mpi *N)
+static int
+ecp_mod_p255(TlsMpi *N)
 {
-	int ret;
-	size_t i;
-	ttls_mpi M;
-	ttls_mpi_uint Mp[P255_WIDTH + 2];
+	int r;
+	size_t n;
+	TlsMpi M;
+	unsigned long Mp[P255_WIDTH + 2];
 
-	if (N->n < P255_WIDTH)
+	if (N->used < P255_WIDTH)
 		return 0;
 
 	/* M = A1 */
 	M.s = 1;
-	M.n = N->n - (P255_WIDTH - 1);
-	if (M.n > P255_WIDTH + 1)
-		M.n = P255_WIDTH + 1;
+	M.limbs = P255_WIDTH + 2;
+	M.used = N->used - (P255_WIDTH - 1);
+	if (M.used > P255_WIDTH + 1)
+		M.used = P255_WIDTH + 1;
 	M.p = Mp;
-	memset(Mp, 0, sizeof Mp);
-	memcpy(Mp, N->p + P255_WIDTH - 1, M.n * sizeof(ttls_mpi_uint));
-	TTLS_MPI_CHK(ttls_mpi_shift_r(&M, 255 % (8 * sizeof(ttls_mpi_uint))));
-	M.n++; /* Make room for multiplication by 19 */
+	n = M.used * CIL;
+	memcpy(Mp, N->p + P255_WIDTH - 1, n);
+	memset(Mp + n, 0, sizeof(Mp) - n);
+	if ((r = ttls_mpi_shift_r(&M, 255 % BIL)))
+		return r;
 
 	/* N = A0 */
-	TTLS_MPI_CHK(ttls_mpi_set_bit(N, 255, 0));
-	for (i = P255_WIDTH; i < N->n; i++)
-		N->p[i] = 0;
+	if ((r = ttls_mpi_set_bit(N, 255, 0)))
+		return r;
+	N->used = P255_WIDTH;
 
 	/* N = A0 + 19 * A1 */
-	TTLS_MPI_CHK(ttls_mpi_mul_int(&M, &M, 19));
-	TTLS_MPI_CHK(ttls_mpi_add_abs(N, N, &M));
-
-cleanup:
-	return ret;
+	if ((r = ttls_mpi_mul_uint(&M, &M, 19)))
+		return r;
+	return ttls_mpi_add_abs(N, N, &M);
 }
-
-/*
- * Fast quasi-reduction modulo P = 2^s - R,
- * with R about 33 bits, used by the Koblitz curves.
- *
- * Write N as A0 + 2^224 A1, return A0 + R * A1.
- * Actually do two passes, since R is big.
- */
-#define P_KOBLITZ_MAX   (256 / 8 / sizeof(ttls_mpi_uint))  // Max limbs in P
-#define P_KOBLITZ_R	 (8 / sizeof(ttls_mpi_uint))		// Limbs in R
-static inline int ecp_mod_koblitz(ttls_mpi *N, ttls_mpi_uint *Rp, size_t p_limbs,
-		   size_t adjust, size_t shift, ttls_mpi_uint mask)
-{
-	int ret;
-	size_t i;
-	ttls_mpi M, R;
-	ttls_mpi_uint Mp[P_KOBLITZ_MAX + P_KOBLITZ_R + 1];
-
-	if (N->n < p_limbs)
-		return 0;
-
-	/* Init R */
-	R.s = 1;
-	R.p = Rp;
-	R.n = P_KOBLITZ_R;
-
-	/* Common setup for M */
-	M.s = 1;
-	M.p = Mp;
-
-	/* M = A1 */
-	M.n = N->n - (p_limbs - adjust);
-	if (M.n > p_limbs + adjust)
-		M.n = p_limbs + adjust;
-	memset(Mp, 0, sizeof Mp);
-	memcpy(Mp, N->p + p_limbs - adjust, M.n * sizeof(ttls_mpi_uint));
-	if (shift != 0)
-		TTLS_MPI_CHK(ttls_mpi_shift_r(&M, shift));
-	M.n += R.n; /* Make room for multiplication by R */
-
-	/* N = A0 */
-	if (mask != 0)
-		N->p[p_limbs - 1] &= mask;
-	for (i = p_limbs; i < N->n; i++)
-		N->p[i] = 0;
-
-	/* N = A0 + R * A1 */
-	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&M, &M, &R));
-	TTLS_MPI_CHK(ttls_mpi_add_abs(N, N, &M));
-
-	/* Second pass */
-
-	/* M = A1 */
-	M.n = N->n - (p_limbs - adjust);
-	if (M.n > p_limbs + adjust)
-		M.n = p_limbs + adjust;
-	memset(Mp, 0, sizeof Mp);
-	memcpy(Mp, N->p + p_limbs - adjust, M.n * sizeof(ttls_mpi_uint));
-	if (shift != 0)
-		TTLS_MPI_CHK(ttls_mpi_shift_r(&M, shift));
-	M.n += R.n; /* Make room for multiplication by R */
-
-	/* N = A0 */
-	if (mask != 0)
-		N->p[p_limbs - 1] &= mask;
-	for (i = p_limbs; i < N->n; i++)
-		N->p[i] = 0;
-
-	/* N = A0 + R * A1 */
-	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&M, &M, &R));
-	TTLS_MPI_CHK(ttls_mpi_add_abs(N, N, &M));
-
-cleanup:
-	return ret;
-}
-
-/*
- * Fast quasi-reduction modulo p192k1 = 2^192 - R,
- * with R = 2^32 + 2^12 + 2^8 + 2^7 + 2^6 + 2^3 + 1 = 0x0100001119
- */
-static int ecp_mod_p192k1(ttls_mpi *N)
-{
-	static ttls_mpi_uint Rp[] = {
-		BYTES_TO_T_UINT_8(0xC9, 0x11, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00) };
-
-	return(ecp_mod_koblitz(N, Rp, 192 / 8 / sizeof(ttls_mpi_uint), 0, 0, 0));
-}
-
-/*
- * Fast quasi-reduction modulo p224k1 = 2^224 - R,
- * with R = 2^32 + 2^12 + 2^11 + 2^9 + 2^7 + 2^4 + 2 + 1 = 0x0100001A93
- */
-static int ecp_mod_p224k1(ttls_mpi *N)
-{
-	static ttls_mpi_uint Rp[] = {
-		BYTES_TO_T_UINT_8(0x93, 0x1A, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00) };
-
-	return(ecp_mod_koblitz(N, Rp, 4, 1, 32, 0xFFFFFFFF));
-}
-
-/*
- * Fast quasi-reduction modulo p256k1 = 2^256 - R,
- * with R = 2^32 + 2^9 + 2^8 + 2^7 + 2^6 + 2^4 + 1 = 0x01000003D1
- */
-static int ecp_mod_p256k1(ttls_mpi *N)
-{
-	static ttls_mpi_uint Rp[] = {
-		BYTES_TO_T_UINT_8(0xD1, 0x03, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00) };
-	return(ecp_mod_koblitz(N, Rp, 256 / 8 / sizeof(ttls_mpi_uint), 0, 0, 0));
-}
-#endif /* !TTLS_ECP_ALT */

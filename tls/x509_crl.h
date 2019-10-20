@@ -27,7 +27,6 @@
 #ifndef TTLS_X509_CRL_H
 #define TTLS_X509_CRL_H
 
-#include "config.h"
 #include "x509.h"
 
 /**
