@@ -1359,12 +1359,22 @@ tfw_http_sess_get_srv_conn(TfwMsg *msg)
 
 	read_lock(&sess->lock);
 
-	/* The session pinning won't be needed, avoid write_lock(). */
+	/*
+	 * If sess->srv_conn != 0 -> Session was pinned to a server in our
+	 * previous configuration. Keep pinning enabled even if it's disabled
+	 * in current configuration. Pin an unpinned session if the new
+	 * configuration require that.
+	 */
 	if (!sess->srv_conn && !tfw_http_sticky_sess_enabled(msg)) {
 		read_unlock(&sess->lock);
 		return tfw_vhost_get_srv_conn(msg);
 	}
-
+	/*
+	 * In unlikely but possible situations the same session will be tried
+	 * on multiple cpus, use locking to guarantee theat the srv_conn
+	 * will point to the same server for all of them, or requests from the
+	 * same session might be forwarded to different servers.
+	 */
 	if ((srv_conn = __try_conn(msg, sess->srv_conn))) {
 		read_unlock(&sess->lock);
 		return srv_conn;
