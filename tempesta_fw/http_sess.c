@@ -714,9 +714,10 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 	unsigned char *tr;
 	TfwAddr *addr = &req->conn->peer->addr;
 	TfwStr *c, *end;
+	TfwStickyCookie *sticky = req->vhost->cookie;
 
 	T_DBG("Sticky cookie found: \"%.*s\" = \"%.*s\"%s\n",
-	      PR_TFW_STR(&req->vhost->cookie->name),
+	      PR_TFW_STR(&sticky->name),
 	      TFW_STR_PLAIN(value) ?
 		      (int)value->len :
 		      (int)value->chunks->len,
@@ -725,7 +726,7 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 		      value->chunks->data,
 	      TFW_STR_PLAIN(value) ? "" : "<truncated>");
 
-	if (req->vhost->cookie->learn)
+	if (sticky->learn)
 		return TFW_HTTP_SESS_SUCCESS;
 
 	if (value->len != sizeof(StickyVal) * 2) {
@@ -743,6 +744,10 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 
 	if ((r = HEX_STR_TO_BIN_HMAC(sv->hmac, sv->ts, addr)))
 		return r;
+
+	/* The cookie is valid but already expired, reject it. */
+	if (jiffies > sv->ts + (unsigned long)sticky->sess_lifetime * HZ)
+		return TFW_HTTP_SESS_VIOLATE;
 
 	/* Sticky cookie is found and verified, now we can set the flag. */
 	__set_bit(TFW_HTTP_B_HAS_STICKY, req->flags);
