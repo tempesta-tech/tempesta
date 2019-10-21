@@ -2138,9 +2138,9 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	/*
 	 * Cookie header is parsed according to RFC 6265 4.2.1.
 	 *
-	 * Here we build header value string manually to split it in chunks:
+	 * Here we build a header value string manually to split it in chunks:
 	 * chunk bounds are at least at name start, value start and value end.
-	 * This simplifies cookie search, http_sticky uses it.
+	 * This simplifies the cookie search, http_sticky uses it.
 	 */
 	__FSM_START(parser->_i_st);
 
@@ -2170,7 +2170,7 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 	/*
 	 * Cookie-value can have zero length, but we still have to store it
-	 * in separate TfwStr chunk.
+	 * in a separate TfwStr chunk.
 	 */
 	__FSM_STATE(Req_I_CookieVal) {
 		__FSM_I_MATCH_MOVE_fixup(cookie, Req_I_CookieVal, TFW_STR_VALUE);
@@ -2945,7 +2945,7 @@ STACK_FRAME_NON_STANDARD(__parse_keep_alive);
 static int
 __parse_uri_mark(TfwHttpReq *req, unsigned char *data, size_t len)
 {
-	TfwStr *str;
+	const TfwStr *str;
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(req);
 
@@ -4522,6 +4522,117 @@ done:
 	return r;
 }
 
+static int
+__resp_parse_set_cookie(TfwHttpResp *resp, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(resp);
+
+	/*
+	 * Set-Cookie header is parsed according to RFC 6265 4.1.1.
+	 *
+	 * Here we build a header value string manually to split it in chunks:
+	 * chunk bounds are at least at name start, value start and value end.
+	 * This simplifies the cookie search, http_sticky uses it.
+	 */
+	__FSM_START(parser->_i_st);
+
+	__FSM_STATE(Resp_I_CookieStart) {
+		__FSM_I_MATCH_MOVE_fixup(token, Resp_I_CookieName, TFW_STR_NAME);
+		/*
+		 * Name should contain at least 1 character.
+		 * Store "=" with cookie parameter name.
+		 */
+		if (likely(__fsm_sz && *(p + __fsm_sz) == '='))
+			__FSM_I_MOVE_fixup(Resp_I_CookieVal, __fsm_sz + 1,
+					   TFW_STR_NAME);
+		return CSTR_NEQ;
+	}
+
+	/*
+	 * At this state we know that we saw at least one character as
+	 * cookie-name and now we can pass zero length token.
+	 */
+	__FSM_STATE(Resp_I_CookieName) {
+		__FSM_I_MATCH_MOVE_fixup(token, Resp_I_CookieName, TFW_STR_NAME);
+		if (*(p + __fsm_sz) != '=')
+			return CSTR_NEQ;
+		/* Store "=" with cookie parameter name. */
+		__FSM_I_MOVE_fixup(Resp_I_CookieVal, __fsm_sz + 1, TFW_STR_NAME);
+	}
+
+	/*
+	 * Cookie-value can have zero length, but we still have to store it
+	 * in a separate TfwStr chunk.
+	 */
+	__FSM_STATE(Resp_I_CookieVal) {
+		__FSM_I_MATCH_MOVE_fixup(cookie, Resp_I_CookieVal, TFW_STR_VALUE);
+		c = *(p + __fsm_sz);
+		if (c == ';') {
+			if (likely(__fsm_sz)) {
+				/* Save cookie-value w/o ';'. */
+				__msg_hdr_chunk_fixup(p, __fsm_sz);
+				__FSM_I_chunk_flags(TFW_STR_VALUE);
+			}
+			__FSM_I_MOVE_n(Resp_I_CookieSemicolon, __fsm_sz);
+		}
+		if (unlikely(IS_CRLFWS(c))) {
+			/* End of cookie header. Do not save OWS. */
+			if (likely(__fsm_sz)) {
+				__msg_hdr_chunk_fixup(p, __fsm_sz);
+				__FSM_I_chunk_flags(TFW_STR_VALUE);
+			}
+			return __data_off(p + __fsm_sz);
+		}
+		return CSTR_NEQ;
+	}
+
+	/* ';' was already matched. */
+	__FSM_STATE(Resp_I_CookieSemicolon) {
+		/*
+		 * Fixup current delimiters chunk and move to next parameter
+		 * if we can eat ';' and SP at once.
+		 */
+		if (likely(__data_available(p, 2))) {
+			if (likely(*(p + 1) == ' '))
+				__FSM_I_MOVE_fixup(Resp_I_CookieExtension, 2, 0);
+			return CSTR_NEQ;
+		}
+		/*
+		 * Only ';' is available now: fixup ';' as independent chunk,
+		 * SP will be fixed up at next enter to the FSM.
+		 */
+		__FSM_I_MOVE_fixup(Resp_I_CookieSP, 1, 0);
+	}
+
+	/*
+	 * We don't strictly validate the extensions, eat them as is. Hope
+	 * a backend doesn't try to trick us.
+	 */
+	__FSM_STATE(Resp_I_CookieExtension) {
+		__FSM_I_MATCH_MOVE_fixup(ctext_vchar, Resp_I_CookieExtension, 0);
+		c = *(p + __fsm_sz);
+		if (unlikely(IS_CRLF(c))) {
+			if (likely(__fsm_sz))
+				__msg_hdr_chunk_fixup(p, __fsm_sz);
+
+			return __data_off(p + __fsm_sz);
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Resp_I_CookieSP) {
+		if (unlikely(c != ' '))
+			return CSTR_NEQ;
+		/* Fixup current delimiters chunk and move to next parameter. */
+		__FSM_I_MOVE_fixup(Resp_I_CookieExtension, 1, 0);
+	}
+
+done:
+	return r;
+}
+STACK_FRAME_NON_STANDARD(__resp_parse_set_cookie);
+
 /*
  * The server connection is being closed. Terminate the current message.
  * Note that eolen is not set on the body string.
@@ -4803,6 +4914,18 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 				parser->_i_st = &&Resp_HdrServerV;
 				__FSM_MOVE_n(RGen_OWS, 7);
 			}
+			if (likely(__data_available(p, 11)
+				   && TFW_LC(*(p + 1)) == 'e'
+				   && TFW_LC(*(p + 2)) == 't'
+				   && *(p + 3) == '-'
+				   && C4_INT_LCM(p + 4, 'c', 'o', 'o', 'k')
+				   && TFW_LC(*(p + 8)) == 'i'
+				   && TFW_LC(*(p + 9)) == 'e'
+				   && *(p + 10) == ':'))
+			{
+				parser->_i_st = &&Resp_HdrSet_CookieV;
+				__FSM_MOVE_n(RGen_OWS, 11);
+			}
 			__FSM_MOVE(Resp_HdrS);
 		case 't':
 			if (likely(__data_available(p, 18)
@@ -4898,6 +5021,11 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrTransfer_EncodingV, msg,
 				   __parse_transfer_encoding,
 				   TFW_HTTP_HDR_TRANSFER_ENCODING);
+
+	/* 'Set-Cookie:*OWS' is read, process field-value. */
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrSet_CookieV, resp,
+				     __resp_parse_set_cookie,
+				     TFW_HTTP_HDR_SET_COOKIE, 0);
 
 	RGEN_HDR_OTHER();
 	RGEN_OWS();
@@ -5067,13 +5195,33 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 	__FSM_TX_AF(Resp_HdrPragm, 'a', Resp_HdrPragma);
 	__FSM_TX_AF_OWS(Resp_HdrPragma, Resp_HdrPragmaV);
 
-	/* Server header processing. */
+
 	__FSM_TX_AF(Resp_HdrS, 'e', Resp_HdrSe);
-	__FSM_TX_AF(Resp_HdrSe, 'r', Resp_HdrSer);
+	__FSM_STATE(Resp_HdrSe) {
+		switch (TFW_LC(c)) {
+		case 't':
+			__FSM_MOVE(Resp_HdrSet);
+		case 'r':
+			__FSM_MOVE(Resp_HdrSer);
+		default:
+			__FSM_JMP(RGen_HdrOther);
+		}
+	}
+	/* Server header processing. */
 	__FSM_TX_AF(Resp_HdrSer, 'v', Resp_HdrServ);
 	__FSM_TX_AF(Resp_HdrServ, 'e', Resp_HdrServe);
 	__FSM_TX_AF(Resp_HdrServe, 'r', Resp_HdrServer);
 	__FSM_TX_AF_OWS(Resp_HdrServer, Resp_HdrServerV);
+
+	/* Set-Cookie header processing. */
+	__FSM_TX_AF(Resp_HdrSet, '-', Resp_HdrSet_);
+	__FSM_TX_AF(Resp_HdrSet_, 'c', Resp_HdrSet_C);
+	__FSM_TX_AF(Resp_HdrSet_C, 'o', Resp_HdrSet_Co);
+	__FSM_TX_AF(Resp_HdrSet_Co, 'o', Resp_HdrSet_Coo);
+	__FSM_TX_AF(Resp_HdrSet_Coo, 'k', Resp_HdrSet_Cook);
+	__FSM_TX_AF(Resp_HdrSet_Cook, 'i', Resp_HdrSet_Cooki);
+	__FSM_TX_AF(Resp_HdrSet_Cooki, 'e', Resp_HdrSet_Cookie);
+	__FSM_TX_AF_OWS(Resp_HdrSet_Cookie, Resp_HdrSet_CookieV);
 
 	/* Transfer-Encoding header processing. */
 	__FSM_TX_AF(Resp_HdrT, 'r', Resp_HdrTr);

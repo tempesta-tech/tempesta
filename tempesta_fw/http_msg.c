@@ -121,12 +121,12 @@ tfw_http_msg_resp_spec_hid(const TfwStr *hdr)
 		TfwStrDefV("connection:",	TFW_HTTP_HDR_CONNECTION),
 		TfwStrDefV("content-length:",	TFW_HTTP_HDR_CONTENT_LENGTH),
 		TfwStrDefV("content-type:",	TFW_HTTP_HDR_CONTENT_TYPE),
-		TfwStrDefV("cookie:",		TFW_HTTP_HDR_COOKIE),
 		TfwStrDefV("etag:",		TFW_HTTP_HDR_ETAG),
 		TfwStrDefV("host:",		TFW_HTTP_HDR_HOST),
 		TfwStrDefV("keep-alive:",	TFW_HTTP_HDR_KEEP_ALIVE),
 		TfwStrDefV("referer:",		TFW_HTTP_HDR_REFERER),
 		TfwStrDefV("server:",		TFW_HTTP_HDR_SERVER),
+		TfwStrDefV("set-cookie:",	TFW_HTTP_HDR_SET_COOKIE),
 		TfwStrDefV("transfer-encoding:",TFW_HTTP_HDR_TRANSFER_ENCODING),
 		TfwStrDefV("x-forwarded-for:",	TFW_HTTP_HDR_X_FORWARDED_FOR),
 	};
@@ -169,17 +169,17 @@ void
 __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 {
 	static const size_t hdr_lens[] = {
-		[TFW_HTTP_HDR_HOST]	= SLEN("Host:"),
-		[TFW_HTTP_HDR_CONTENT_LENGTH] = SLEN("Content-Length:"),
-		[TFW_HTTP_HDR_CONTENT_TYPE] = SLEN("Content-Type:"),
-		[TFW_HTTP_HDR_CONNECTION] = SLEN("Connection:"),
-		[TFW_HTTP_HDR_X_FORWARDED_FOR] = SLEN("X-Forwarded-For:"),
-		[TFW_HTTP_HDR_KEEP_ALIVE] = SLEN("Keep-Alive:"),
-		[TFW_HTTP_HDR_TRANSFER_ENCODING] = SLEN("Transfer-Encoding:"),
-		[TFW_HTTP_HDR_SERVER]	= SLEN("Server:"),
-		[TFW_HTTP_HDR_COOKIE]	= SLEN("Cookie:"),
-		[TFW_HTTP_HDR_ETAG]	= SLEN("ETag:"),
-		[TFW_HTTP_HDR_REFERER]	= SLEN("Referer:"),
+		[TFW_HTTP_HDR_HOST]		= SLEN("Host:"),
+		[TFW_HTTP_HDR_CONTENT_LENGTH]	= SLEN("Content-Length:"),
+		[TFW_HTTP_HDR_CONTENT_TYPE]	= SLEN("Content-Type:"),
+		[TFW_HTTP_HDR_CONNECTION]	= SLEN("Connection:"),
+		[TFW_HTTP_HDR_X_FORWARDED_FOR]	= SLEN("X-Forwarded-For:"),
+		[TFW_HTTP_HDR_KEEP_ALIVE]	= SLEN("Keep-Alive:"),
+		[TFW_HTTP_HDR_TRANSFER_ENCODING]= SLEN("Transfer-Encoding:"),
+		[TFW_HTTP_HDR_SERVER]		= SLEN("Server:"),
+		[TFW_HTTP_HDR_SET_COOKIE]	= SLEN("Set-Cookie:"),
+		[TFW_HTTP_HDR_ETAG]		= SLEN("ETag:"),
+		[TFW_HTTP_HDR_REFERER]		= SLEN("Referer:"),
 	};
 
 	TfwStr *c, *end;
@@ -198,6 +198,8 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 		nlen = SLEN("User-Agent:");
 	else if (unlikely(id == TFW_HTTP_HDR_ETAG && client))
 		nlen = SLEN("If-None-Match:");
+	else if (unlikely(id == TFW_HTTP_HDR_SET_COOKIE && client))
+		nlen = SLEN("Cookie:");
 	else
 		nlen = hdr_lens[id];
 

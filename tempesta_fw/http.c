@@ -3509,6 +3509,47 @@ next_msg:
 
 	if ((r = tfw_http_req_client_link(conn, req)))
 		return r;
+	/*
+	 * Assign a target virtual host for the current request before further
+	 * processing.
+	 *
+	 * There are multiple ways to get a target vhost:
+	 * - search in HTTP chains (defined in the configuration by an admin),
+	 * can be slow on big configurations, since chains are tested
+	 * one-by-one;
+	 * - get vhost from the HTTP session information (by Sticky cookie);
+	 * - get Vhost according to TLS SNI header parsing.
+	 *
+	 * There is a possibility, that each method will give a very different
+	 * result. It absolutely depends on configuration provided by
+	 * an administrator and application behaviour. Some differences are
+	 * expected anyway, e.g. if tls client doesn't send an SNI identifier
+	 * it will be matched to 'default' vhost while http_chains can identify
+	 * target vhost. We also can't just skip http_chains and fully rely
+	 * on sticky module, since http_chains also contains non-terminating
+	 * rules, such as `mark` rule. Even if http_chains is the
+	 * slowest method we have, we can't simply skip it.
+	 */
+	req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block);
+	if (unlikely(block)) {
+		TFW_INC_STAT_BH(clnt.msgs_filtout);
+		tfw_http_req_parse_block(req, 403,
+			"request has been filtered out via http table");
+		return TFW_BLOCK;
+	}
+	if (req->vhost)
+		req->location = tfw_location_match(req->vhost, &req->uri_path);
+	/*
+	 * If vhost is not found the request will be dropped, but it will still
+	 * go through some processing stages since some subsystems need to track
+	 * all incoming requests.
+	 */
+	/*
+	 * The time the request was received is used for age
+	 * calculations in cache, and for eviction purposes.
+	 */
+	req->cache_ctl.timestamp = tfw_current_timestamp();
+	req->jrxtstamp = jiffies;
 
 	/*
 	 * Sticky cookie module must be used before request can reach cache.
@@ -3516,12 +3557,6 @@ next_msg:
 	 * protected service and stress cache subsystem. The module is also
 	 * the quickest way to obtain target VHost and target backend server
 	 * connection since it allows to avoid expensive tables lookups.
-	 *
-	 * TODO: #685 Sticky cookie are to be configured per-vhost. Http_tables
-	 * used to assign target vhost can be extremely long, while the
-	 * client may use just a few cookie variants. Even if different
-	 * sticky cookies are used for each vhost, the sticky module should
-	 * be faster than tfw_http_tbl_vhost().
 	 */
 	switch (tfw_http_sess_obtain(req))
 	{
@@ -3555,51 +3590,6 @@ next_msg:
 		return TFW_BLOCK;
 	}
 
-	/*
-	 * Assign the right virtual host for current request if it
-	 * wasn't assigned by a sticky module. VHost is not assigned
-	 * if client doesn't support cookies or sticky cookies are
-	 * disabled.
-	 *
-	 * In the same time location may differ between requests, so the
-	 * sticky module can't fill it.
-	 *
-	 * TODO:
-	 * There are multiple ways to get target vhost:
-	 * - search in HTTP chains (defined in the configuration by admin),
-	 * very slow on big configurations;
-	 * - get vhost from the HTTP session information (by Sticky cookie);
-	 * - get Vhost according to TLS SNI header parsing.
-	 * But vhost returned from all that functions can be very different
-	 * depending on HTTP chain configuration due to its flexibility and
-	 * client (attacker) behaviour.
-	 * The most secure and slow way: compare all of them and reject if
-	 * at least some do not match. Can be too strict, service quality can
-	 * be degraded.
-	 * The fastest way: compute as minimum as possible: use TLS first
-	 * (anyway we use it to send right certificate), then cookie, then HTTP
-	 * chain. There can be possibility that a request will be forwarded to
-	 * a wrong server. May happen when a single certificate is used to
-	 * speak with multiple vhosts (multi-domain (SAN) certificate as
-	 * globally default TLS certificate in Tempesta config file).
-	 * The most reliable way: use the highest OSI level vhost: by HTTP
-	 * session, if no -> by http chain, if no -> by TLS conn.
-	 *
-	 */
-	if (!req->vhost) {
-		req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block);
-		tfw_http_sess_pin_vhost(req->sess, req->vhost);
-	}
-	if (req->vhost)
-		req->location = tfw_location_match(req->vhost,
-						   &req->uri_path);
-	if (block) {
-		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		tfw_http_req_parse_block(req, 403,
-			"request has been filtered out via http table");
-		return TFW_BLOCK;
-	}
-
 	r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_MSG, &data_up);
 	T_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
 	/* Don't accept any following requests from the peer. */
@@ -3609,13 +3599,6 @@ next_msg:
 			"parsed request has been filtered out");
 		return TFW_BLOCK;
 	}
-
-	/*
-	 * The time the request was received is used for age
-	 * calculations in cache, and for eviction purposes.
-	 */
-	req->cache_ctl.timestamp = tfw_current_timestamp();
-	req->jrxtstamp = jiffies;
 
 	if (!TFW_MSG_H2(req))
 		hmsib = tfw_h1_req_process(stream, skb);
@@ -3634,9 +3617,10 @@ next_msg:
 	 * is no sense for its further processing, so we drop it, send
 	 * error response to client and move on to the next request.
 	 */
-	else if (!req->vhost) {
-		tfw_http_send_resp(req, 404, "request dropped: cannot find"
-					     " appropriate virtual host");
+	else if (unlikely(!req->vhost)) {
+		tfw_http_send_resp(req, 404,
+				   "request dropped: cannot find appropriate "
+				   "virtual host");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
 	else if (tfw_cache_process((TfwHttpMsg *)req, tfw_http_req_cache_cb)) {
@@ -3648,7 +3632,6 @@ next_msg:
 					     " processing error");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
-
 	/*
 	 * According to RFC 7230 6.3.2, connection with a client
 	 * must be dropped after a response is sent to that client,
@@ -3692,6 +3675,8 @@ tfw_http_resp_cache_cb(TfwHttpMsg *msg)
 	TfwHttpResp *resp = (TfwHttpResp *)msg;
 
 	T_DBG2("%s: req = %p, resp = %p\n", __func__, resp->req, resp);
+
+	tfw_http_sess_learn(resp);
 
 	if (TFW_MSG_H2(resp->req))
 		tfw_h2_resp_adjust_fwd(resp);
