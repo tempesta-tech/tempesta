@@ -1071,8 +1071,12 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	 * If vhost is not known, then request is to be dropped. Don't save the
 	 * session even if the client has passed cookie challenge.
 	 */
-	if (!req->vhost || test_bit(TFW_HTTP_B_WHITELIST, req->flags))
+	if (!req->vhost
+	    || TFW_STR_EMPTY(&req->vhost->cookie->name)
+	    || test_bit(TFW_HTTP_B_WHITELIST, req->flags))
+	{
 		return TFW_HTTP_SESS_SUCCESS;
+	}
 	/*
 	 * Sticky cookie can be not enforced and we still have to allocate new
 	 * session for requests w/o session cookie. It means that malicious user
