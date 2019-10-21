@@ -35,7 +35,6 @@ static size_t hm_exp_len = 0;
 static int chunks = 1;
 
 #define SAMPLE_REQ_STR	"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
-#define RMARK_NAME	"__tfw_name"
 
 static int
 split_and_parse_n(unsigned char *str, int type, size_t len, size_t chunks)
@@ -232,6 +231,50 @@ do {								\
 	test_case_parse_prepare(str, 0);			\
 	while (TRY_PARSE_EXPECT_BLOCK(str, FUZZ_RESP));		\
 } while (0)
+
+/*
+ * Test that the parsed string was split to the right amount of chunks and all
+ * the chunks has the same flags.
+ */
+void
+test_string_split(const TfwStr *expected, const TfwStr *parsed)
+{
+	TfwStr *end_p, *end_e, *c_p, *c_e;
+
+	BUG_ON(TFW_STR_PLAIN(parsed) || TFW_STR_PLAIN(expected));
+
+	EXPECT_GE(parsed->nchunks, expected->nchunks);
+	EXPECT_EQ(parsed->len, expected->len);
+	if (parsed->len != expected->len)
+		return;
+
+	c_p = parsed->chunks;
+	end_p = c_p + parsed->nchunks;
+	c_e = expected->chunks;
+	end_e = c_e + expected->nchunks;
+
+	while (c_e < end_e) {
+		unsigned short flags = c_e->flags;
+		TfwStr e_part = { .chunks = c_e }, p_part = { .chunks = c_p };
+
+		while ((c_e < end_e) && (c_e->flags == flags)) {
+			e_part.nchunks++;
+			e_part.len += c_e->len;
+			c_e++;
+		}
+		while ((c_p < end_p) && (c_p->flags == flags)) {
+			p_part.nchunks++;
+			p_part.len += c_p->len;
+			c_p++;
+		}
+		EXPECT_EQ(p_part.len, e_part.len);
+		if (p_part.len != e_part.len)
+			return;
+		EXPECT_OK(tfw_strcmp(&e_part, &p_part));
+	}
+	EXPECT_EQ(c_p, end_p);
+	EXPECT_EQ(c_e, end_e);
+}
 
 TEST(http_parser, leading_eol)
 {
@@ -528,6 +571,7 @@ TEST(http_parser, parses_enforce_ext_req_rmark)
  * HMAC (see 'test_http_sticky.c' file for details about
  * calculation process).
  */
+#define RMARK_NAME	"__tfw"
 #define ATT_NO		"00000001"
 #define TIMESTAMP	"535455565758595a"
 #define HMAC		"9cf5585388196965871bf4240ef44a52d0ffb23d"
@@ -1793,6 +1837,115 @@ TEST(http_parser, cookie)
 		"\r\n");
 }
 
+TEST(http_parser, set_cookie)
+{
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		 "Content-Length: 10\r\n"
+		 "Set-Cookie: sessionid=38afes7a8; HttpOnly; Path=/\r\n"
+		"\r\n"
+		"0123456789")
+	{
+		TfwStr *s_parsed = &resp->h_tbl->tbl[TFW_HTTP_HDR_SET_COOKIE];
+		TfwStr s_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = "Set-Cookie: " , .len = 12 },
+				{ .data = "sessionid=" , .len = 10,
+				  .flags = TFW_STR_NAME },
+				{ .data = "38afes7a8" , .len = 9,
+				  .flags = TFW_STR_VALUE  },
+				{ .data = "; HttpOnly; Path=/" , .len = 18 }
+			},
+			.len = 49,
+			.nchunks = 4
+		};
+		test_string_split(&s_expected, s_parsed);
+	}
+
+	/* Cookie value inside DQUOTE. */
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		 "Content-Length: 10\r\n"
+		 "Set-Cookie: sessionid=\"38afes7a8\"; HttpOnly; Path=/\r\n"
+		"\r\n"
+		"0123456789")
+	{
+		TfwStr *s_parsed = &resp->h_tbl->tbl[TFW_HTTP_HDR_SET_COOKIE];
+		TfwStr s_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = "Set-Cookie: " , .len = 12 },
+				{ .data = "sessionid=" , .len = 10,
+				  .flags = TFW_STR_NAME },
+				{ .data = "\"38afes7a8\"" , .len = 11,
+				  .flags = TFW_STR_VALUE  },
+				{ .data = "; HttpOnly; Path=/" , .len = 18 }
+			},
+			.len = 51,
+			.nchunks = 4
+		};
+		test_string_split(&s_expected, s_parsed);
+	}
+
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		 "Content-Length: 10\r\n"
+		 "Set-Cookie: id=a3fWa; Expires=Wed, 21 Oct 2015 07:28:00 GMT; "
+		 "Secure; HttpOnly\r\n"
+		"\r\n"
+		"0123456789")
+	{
+		TfwStr *s_parsed = &resp->h_tbl->tbl[TFW_HTTP_HDR_SET_COOKIE];
+		TfwStr s_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = "Set-Cookie: " , .len = 12 },
+				{ .data = "id=" , .len = 3,
+				  .flags = TFW_STR_NAME },
+				{ .data = "a3fWa" , .len = 5,
+				  .flags = TFW_STR_VALUE  },
+				{ .data = "; Expires=Wed, 21 Oct 2015 07:28:00 "
+				  "GMT; Secure; HttpOnly",
+				  .len = 57 }
+			},
+			.len = 77,
+			.nchunks = 4
+		};
+		test_string_split(&s_expected, s_parsed);
+	}
+
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		 "Content-Length: 10\r\n"
+		 "Set-Cookie: __Host-id=1; Secure; Path=/; domain=example.com\r\n"
+		"\r\n"
+		"0123456789")
+	{
+		TfwStr *s_parsed = &resp->h_tbl->tbl[TFW_HTTP_HDR_SET_COOKIE];
+		TfwStr s_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = "Set-Cookie: " , .len = 12 },
+				{ .data = "__Host-id=" , .len = 10,
+				  .flags = TFW_STR_NAME },
+				{ .data = "1" , .len = 1,
+				  .flags = TFW_STR_VALUE  },
+				{ .data = "; Secure; Path=/; domain=example.com",
+				  .len = 36 }
+			},
+			.len = 59,
+			.nchunks = 4
+		};
+		test_string_split(&s_expected, s_parsed);
+	}
+
+	/* No space after semicolon */
+	EXPECT_BLOCK_RESP("HTTP/1.1 200 OK\r\n"
+			  "Content-Length: 10\r\n"
+			  "Set-Cookie: sessionid=38afes7a8;HttpOnly; Path=/\r\n"
+			  "\r\n"
+			  "0123456789");
+	/* No semicolon */
+	EXPECT_BLOCK_RESP("HTTP/1.1 200 OK\r\n"
+			  "Content-Length: 10\r\n"
+			  "Set-Cookie: sessionid=38afes7a8 Path=/\r\n"
+			  "\r\n"
+			  "0123456789");
+}
+
 TEST(http_parser, etag)
 {
 #define RESP_ETAG_START							\
@@ -2791,6 +2944,7 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, chunked);
 	TEST_RUN(http_parser, chunk_size);
 	TEST_RUN(http_parser, cookie);
+	TEST_RUN(http_parser, set_cookie);
 	TEST_RUN(http_parser, etag);
 	TEST_RUN(http_parser, if_none_match);
 	TEST_RUN(http_parser, referer);
@@ -2804,7 +2958,7 @@ TEST_SUITE(http_parser)
 	 * Testing for correctness of redirection mark parsing (in
 	 * extended enforced mode of 'http_sessions' module).
 	 */
-	test_helper_sticky_start(RMARK_NAME, 1);
+	test_helper_sticky_start(1);
 
 	TEST_RUN(http_parser, parses_enforce_ext_req);
 	TEST_RUN(http_parser, parses_enforce_ext_req_rmark);

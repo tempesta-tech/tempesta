@@ -99,15 +99,16 @@ tfw_client_put(TfwClient *cli)
 }
 
 typedef struct {
-	TfwAddr addr;
-	TfwAddr xff_addr;
-	TfwStr	user_agent;
+	TfwAddr		addr;
+	TfwAddr		xff_addr;
+	TfwStr		user_agent;
+	void		(*init)(void *);
 } TfwClientEqCtx;
 
 static struct in6_addr any_addr = IN6ADDR_ANY_INIT;
 
 static bool
-tfw_client_addr_eq(TdbRec *rec, void (*init)(void *), void *data)
+tfw_client_addr_eq(TdbRec *rec, void *data)
 {
 	TfwClientEntry *ent = (TfwClientEntry *)rec->data;
 	TfwClient *cli = &ent->cli;
@@ -137,8 +138,8 @@ tfw_client_addr_eq(TdbRec *rec, void (*init)(void *), void *data)
 
 	if (curr_time > ent->expires) {
 		bzero_fast(&cli->class_prvt, sizeof(cli->class_prvt));
-		if (init)
-			init(cli);
+		if (ctx->init)
+			ctx->init(cli);
 	}
 
 	ent->expires = LONG_MAX;
@@ -156,7 +157,7 @@ tfw_client_addr_eq(TdbRec *rec, void (*init)(void *), void *data)
 }
 
 static void
-tfw_client_ent_init(TdbRec *rec, void (*init)(void *), void *data)
+tfw_client_ent_init(TdbRec *rec, void *data)
 {
 	TfwClientEntry *ent = (TfwClientEntry *)rec->data;
 	TfwClient *cli = &ent->cli;
@@ -166,8 +167,8 @@ tfw_client_ent_init(TdbRec *rec, void (*init)(void *), void *data)
 
 	ent->expires = LONG_MAX;
 	bzero_fast(&cli->class_prvt, sizeof(cli->class_prvt));
-	if (init)
-		init(cli);
+	if (ctx->init)
+		ctx->init(cli);
 
 	atomic_set(&ent->users, 1);
 	TFW_INC_STAT_BH(clnt.online);
@@ -198,10 +199,9 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 	TfwClientEntry *ent;
 	TfwClient *cli;
 	unsigned long key;
-	TfwClientEqCtx ctx;
-	size_t len;
+	TfwClientEqCtx ctx = { .init = init };
 	TdbRec *rec;
-	bool is_new;
+	TdbGetAllocCtx tdb_ctx = { 0 };
 
 	ctx.addr = addr;
 
@@ -223,20 +223,22 @@ tfw_client_obtain(TfwAddr addr, TfwAddr *xff_addr, TfwStr *user_agent,
 		TFW_STR_INIT(&ctx.user_agent);
 	}
 
-	len = sizeof(TfwClientEntry);
-	rec = tdb_rec_get_alloc(client_db, key, &len, &tfw_client_addr_eq,
-				&tfw_client_ent_init, init, &ctx, &is_new);
-	BUG_ON(len < sizeof(TfwClientEntry));
+	tdb_ctx.eq_rec =  tfw_client_addr_eq;
+	tdb_ctx.init_rec = tfw_client_ent_init;
+	tdb_ctx.len = sizeof(TfwClientEntry);
+	tdb_ctx.ctx = &ctx;
+	rec = tdb_rec_get_alloc(client_db, key, &tdb_ctx);
+	BUG_ON(tdb_ctx.len < sizeof(TfwClientEntry));
 	if (!rec) {
 		T_WARN("cannot allocate TDB space for client\n");
 		return NULL;
 	}
 
-	if (!is_new)
+	if (!tdb_ctx.is_new)
 		/*
 		 * The record doesn't change its location in TDB, since it is
-		 * more than TDB_HTRIE_MINDREC, and we need to unlock the bucket
-		 * with the client as soon as possible.
+		 * larger than TDB_HTRIE_MINDREC, and we need to unlock the
+		 * bucket with the client as soon as possible.
 		 */
 		tdb_rec_put(rec);
 
@@ -270,7 +272,12 @@ tfw_client_start(void)
 {
 	if (tfw_runstate_is_reconfig())
 		return 0;
-
+	/*
+	 * The TfwClientEntry is used as direct pointer to data  inside a TDB
+	 * entry. Small entries may be moved between locations as index tree
+	 * grows, while big ones has constant location.
+	 */
+	BUILD_BUG_ON(sizeof(TfwClientEntry) <= TDB_HTRIE_MINDREC);
 	client_db = tdb_open(client_cfg.db_path, client_cfg.db_size,
 			     sizeof(TfwClientEntry), numa_node_id());
 	if (!client_db)
