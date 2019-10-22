@@ -28,7 +28,6 @@
 #include <linux/module.h>
 #include <net/tls.h>
 
-#include "lib/str.h"
 #include "config.h"
 #include "debug.h"
 #include "crypto.h"
@@ -2198,23 +2197,27 @@ int
 ttls_recv(void *tls_data, unsigned char *buf, size_t len, unsigned int *read)
 {
 	int r;
-	unsigned int delta = 0, hh_len = 0, parsed = *read;
+	unsigned int hh_len = 0, parsed = *read;
 	TlsCtx *tls = (TlsCtx *)tls_data;
 	TlsIOCtx *io = &tls->io_in;
 
 	BUG_ON(!tls || !tls->conf);
 	T_DBG3("%s: tls=%pK len=%lu read=%u\n", __func__, tls, len, *read);
 
-next_record:
 	if (!(io->st_flags & TTLS_F_ST_HDRIV)) {
+		unsigned int delta;
+
 		if ((r = ttls_parse_record_hdr(tls, buf, len, read)))
 			return r;
+		delta = *read - parsed;
+		len -= delta;
+		buf += delta;
+		parsed = *read;
+
 		if (io->msgtype == TTLS_MSG_HANDSHAKE
 		    && ttls_hs_checksumable(tls))
 		{
-			if (likely(*read - parsed >= TTLS_HS_HDR_LEN &&
-			           len > *read - parsed))
-			{
+			if (likely(delta >= TTLS_HS_HDR_LEN && len > 0)) {
 				/*
 				 * Compute handshake checksum for the message
 				 * body and handshake header in one shot.
@@ -2227,10 +2230,6 @@ next_record:
 		}
 	}
 	WARN_ON_ONCE(!io->msglen);
-	delta = *read - parsed;
-	len -= delta;
-	buf += delta;
-	parsed = *read;
 
 	/*
 	 * Current record is fully read and decrypted if necessary.
@@ -2240,7 +2239,7 @@ next_record:
 	case TTLS_MSG_ALERT:
 		if (unlikely(!ttls_xfrm_ready(tls))) {
 			if (!(r = ttls_handle_alert(tls)))
-				goto skip_record;
+				return T_OK;
 			return T_DROP;
 		}
 		break;
@@ -2270,7 +2269,7 @@ next_record:
 		 */
 		r = ttls_handshake_step(tls, buf, len, hh_len, read);
 		if (!r)
-			goto skip_record;
+			return T_OK;
 		if (r == T_POSTPONE) {
 			/* Add the handshake message chunk to the checksum. */
 			BUG_ON(!tls->hs && tls->state != TTLS_HANDSHAKE_OVER);
@@ -2311,33 +2310,11 @@ next_record:
 
 	if (io->msgtype == TTLS_MSG_ALERT) {
 		if (!(r = ttls_handle_alert(tls)))
-			goto skip_record;
+			return T_OK;
 		return T_DROP;
 	}
-
-	/*
-	 * At this point we have fully prepared data for the upper layer.
-	 * Once we return the data is passed for processing to the upper layer,
-	 * so we reinitialize I/O context for a next message.
-	 */
-	bzero_fast(io->__initoff, sizeof(*io) - offsetof(TlsIOCtx, __initoff));
 
 	return T_OK;
-skip_record:
-	T_DBG3("skip record: read=%u parsed=%u len=%lu\n", *read, parsed, len);
-	bzero_fast(io->__initoff, sizeof(*io) - offsetof(TlsIOCtx, __initoff));
-
-	delta = *read - parsed;
-	if (WARN_ON_ONCE(delta > len))
-		return T_DROP;
-	len -= delta;
-	if (len) {
-		buf += delta;
-		parsed = *read;
-		goto next_record;
-	}
-
-	return T_POSTPONE;
 }
 EXPORT_SYMBOL(ttls_recv);
 
