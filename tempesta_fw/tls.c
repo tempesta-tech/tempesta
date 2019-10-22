@@ -86,7 +86,7 @@ static int
 tfw_tls_msg_process(void *conn, TfwFsmData *data)
 {
 	int r, parsed;
-	struct sk_buff *msg_skb, *nskb = NULL, *skb = data->skb;
+	struct sk_buff *nskb = NULL, *skb = data->skb;
 	TfwConn *c = conn;
 	TlsCtx *tls = tfw_tls_context(c);
 	TfwFsmData data_up = {};
@@ -99,11 +99,6 @@ tfw_tls_msg_process(void *conn, TfwFsmData *data)
 next_msg:
 	spin_lock(&tls->lock);
 	ss_skb_queue_tail(&tls->io_in.skb_list, skb);
-	/*
-	 * Store skb_list since ttls_recv() reinitializes IO context for each
-	 * TLS record.
-	 */
-	msg_skb = tls->io_in.skb_list;
 
 	/* Call TLS layer to place skb into a TLS record on top of skb_list. */
 	parsed = 0;
@@ -112,27 +107,20 @@ next_msg:
 	default:
 		T_WARN("Unrecognized TLS receive return code %d, drop packet\n",
 		       r);
+		/* Fall through. */
 	case T_DROP:
 		spin_unlock(&tls->lock);
 		/* The skb is freed in tfw_tls_conn_dtor(). */
 		return r;
 	case T_POSTPONE:
-		/*
-		 * No data to pass to upper protocols, could be a handshake
-		 * message spread over several skbs and/or incomplete TLS
-		 * record. Typically, handshake messages fit the same skb and
-		 * all the messages are processed in one ss_skb_process() call.
-		 * Collect all skb chunks of data record in skb_list.
-		 */
+		/* No complete TLS record seen yet. */
 		spin_unlock(&tls->lock);
 		return TFW_PASS;
 	case T_OK:
-		/*
-		 * A complete TLS message decrypted and ready for upper
-		 * layer protocols processing - fall through.
-		 */
+		/* A complete TLS record is received. */
 		T_DBG3("%s: parsed=%d skb->len=%u\n", __func__,
 		       parsed, skb->len);
+		break;
 	}
 
 	/*
@@ -163,16 +151,29 @@ next_msg:
 		}
 	}
 
-	/* At this point tls->io_in is initialized for the next record. */
-	if ((r = tfw_tls_chop_skb_rec(tls, msg_skb, &data_up))) {
+	if (tls->io_in.msgtype == TTLS_MSG_APPLICATION_DATA) {
+		/*
+		 * Current record contains an "application data" message.
+		 * ttls_recv() has already decrypted the payload, but TLS
+		 * overhead data are still attached. We need to cut them off.
+		 */
+		r = tfw_tls_chop_skb_rec(tls, tls->io_in.skb_list, &data_up);
+		if (r) {
+			spin_unlock(&tls->lock);
+			return r;
+		}
+
+		ttls_reset_io_ctx(&tls->io_in);
 		spin_unlock(&tls->lock);
-		return r;
-	}
-	spin_unlock(&tls->lock);
-	r = tfw_gfsm_move(&c->state, TFW_TLS_FSM_DATA_READY, &data_up);
-	if (r == TFW_BLOCK) {
-		kfree_skb(nskb);
-		return r;
+
+		r = tfw_gfsm_move(&c->state, TFW_TLS_FSM_DATA_READY, &data_up);
+		if (r == TFW_BLOCK) {
+			kfree_skb(nskb);
+			return r;
+		}
+	} else {
+		ttls_reset_io_ctx(&tls->io_in);
+		spin_unlock(&tls->lock);
 	}
 
 	if (nskb) {
