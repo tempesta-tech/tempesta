@@ -630,7 +630,7 @@ tfw_str_add_duplicate(TfwPool *pool, TfwStr *str)
 int
 tfw_strcpy(TfwStr *dst, const TfwStr *src)
 {
-	int n1, n2, o1 = 0, o2 = 0, chunks = 0;
+	int n1, o1 = 0, o2 = 0, chunks = 0;
 	int mode = (TFW_STR_PLAIN(src) << 1) | TFW_STR_PLAIN(dst);
 	TfwStr *c1, *c2, *end;
 
@@ -665,7 +665,6 @@ tfw_strcpy(TfwStr *dst, const TfwStr *src)
 		break;
 	case 0: /* The both are compound. */
 		n1 = src->nchunks;
-		n2 = dst->nchunks;
 		c1 = src->chunks;
 		c2 = dst->chunks;
 		end = c1 + n1 - 1;

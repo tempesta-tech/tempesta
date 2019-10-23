@@ -121,11 +121,9 @@ tfw_addr_pton_v6(const TfwStr *s, TfwAddr *addr)
 					 */
 					if (k < c->len - 1) {
 						++k;
-						++p;
 					} else {
 						++c;
 						k = 0;
-						p = c->data;
 					}
 					hole = (words[i] != -1) ? ++i : i;
 				} else if (words[i] == -1)
