@@ -134,26 +134,18 @@ setup()
 	sysctl -w net.ipv4.tcp_max_syn_backlog=131072 >/dev/null
 }
 
-# JS challenge file is a template file, update it using values defined in
-# TempestaFW configuration file.
-# Don't break start up process if there are errors in configuration file.
-# Handling all the possible cases is too complicated for this script.
-# Let TempestaFW warn user on issues.
-update_js_challenge_template()
+update_single_js_template()
 {
-	if ! grep -q "^\s*js_challenge\s" $tfw_cfg_path; then
+	js_line=`echo $1 | perl -ne 'print "$1\n" if /js_challenge\s+([^;]*);/'`
+
+	if [[ -z $js_line ]]; then
 		return
 	fi
-	echo "...compile html templates"
-	# Cache directive from start to end to simplify extracting values,
-	# checking for line breaks, reordering of options and so on.
-	js_dtv=`grep -m 1 -E '^\s*js_challenge\s[^;]+;' $tfw_cfg_path`
-	c_dtv=`grep --m 1 -E '^\s*sticky\s[^;]+;' $tfw_cfg_path`
 
-	d_min=`echo $js_dtv | perl -ne 'print "$1\n" if /\sdelay_min=(\d+)/'`
-	d_range=`echo $js_dtv | perl -ne 'print "$1\n" if /\sdelay_range=(\d+)/'`
-	template=`echo $js_dtv | perl -ne 'print "$1\n" if /(\/[^;\s]+)/'`
-	cookie=`echo $c_dtv | perl -ne 'print "$1\n" if /\sname=\"?([\w_]+)\"?/'`
+	template=`echo $js_line | perl -ne 'print "$1\n" if /([^\s]+.html)/'`
+	d_min=`echo $1 | perl -ne 'print "$1\n" if /\sdelay_min=(\d+)/'`
+	d_range=`echo $1 | perl -ne 'print "$1\n" if /\sdelay_range=(\d+)/'`
+	cookie=`echo $1 | perl -ne 'print "$1\n" if /\sname=\"?([\w_]+)\"?/'`
 
 	# Set default values
 	template=${template:-"/etc/tempesta/js_challenge.html"}
@@ -165,6 +157,23 @@ update_js_challenge_template()
 	fi
 	template=${template%%.html}".tpl"
 	$script_path/update_template.pl $template $cookie $d_min $d_range
+}
+
+# JS challenge file is a template file, update it using values defined in
+# TempestaFW configuration file.
+# Don't break start up process if there are errors in configuration file.
+# Handling all the possible cases is too complicated for this script.
+# Let TempestaFW warn user on issues.
+update_js_challenge_templates()
+{
+	echo "...compile html templates for JS challenge"
+	# Just a simple parser: don't care about commented brackets and sections.
+	# More sophisticated parser should work inside configuration processing.
+	# Since the whole configuration subsystem is to be redesigned, this
+	# simple approach is going to be suffitient for now.
+	cat $tfw_cfg_path | tr -d '\n' | grep -oP 'sticky\s+{\K[^}]+' | while read -r line ; do
+		update_single_js_template "$line"
+	done
 }
 
 start()
@@ -188,7 +197,7 @@ start()
 		rm -f /opt/tempesta/db/*.tdb;
 	}
 
-	update_js_challenge_template
+	update_js_challenge_templates
 	echo "...start Tempesta FW"
 	# If 'net.tempesta.state' entry exists but Tempesta start process has
 	# been failed for some reason (e.g. configuration parsing error), then
@@ -219,7 +228,7 @@ stop()
 
 reload()
 {
-	update_js_challenge_template
+	update_js_challenge_templates
 	echo "Running live reconfiguration of Tempesta..."
 	sysctl -w net.tempesta.state=start >/dev/null
 	if [ $? -ne 0 ]; then
