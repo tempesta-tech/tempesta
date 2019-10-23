@@ -3404,7 +3404,6 @@ tfw_http_req_process(TfwConn *conn, TfwStream *stream, const TfwFsmData *data)
 	struct sk_buff *skb = data->skb;
 	TfwHttpReq *req;
 	TfwHttpMsg *hmsib;
-	TfwHttpParser *parser;
 	TfwFsmData data_up;
 	int r = TFW_BLOCK;
 
@@ -3422,7 +3421,6 @@ next_msg:
 	parsed = 0;
 	hmsib = NULL;
 	req = (TfwHttpReq *)stream->msg;
-	parser = &stream->parser;
 	actor = TFW_MSG_H2(req) ? tfw_h2_parse_req : tfw_http_parse_req;
 
 	r = ss_skb_process(skb, actor, req, &req->chunk_cnt, &parsed);
@@ -3927,7 +3925,6 @@ tfw_http_resp_process(TfwConn *conn, TfwStream *stream, const TfwFsmData *data)
 	struct sk_buff *skb = data->skb;
 	TfwHttpReq *bad_req;
 	TfwHttpMsg *hmresp, *hmsib;
-	TfwHttpParser *parser;
 	TfwFsmData data_up;
 	bool conn_stop, filtout = false;
 
@@ -3950,7 +3947,6 @@ next_msg:
 	parsed = 0;
 	hmsib = NULL;
 	hmresp = (TfwHttpMsg *)stream->msg;
-	parser = &stream->parser;
 
 	r = ss_skb_process(skb, tfw_http_parse_resp, hmresp, &chunks_unused,
 			   &parsed);

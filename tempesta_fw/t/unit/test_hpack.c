@@ -224,7 +224,6 @@ TEST(hpack, dec_table_mixed)
 {
 	TfwHPack *hp;
 	TfwMsgParseIter it;
-	TfwHPackStr *name, *value;
 	TfwStr *s1, *s2, *s3, *s4, *s5;
 	const TfwHPackEntry *entry, *entry_1, *entry_2, *entry_3;
 	TFW_STR(s1_name, "custom-header-1");
@@ -255,8 +254,6 @@ TEST(hpack, dec_table_mixed)
 	entry_1 = tfw_hpack_find_index(&hp->dec_tbl, 63);
 	EXPECT_NOT_NULL(entry_1);
 	if (entry_1) {
-		name = entry_1->name;
-		value = entry_1->value;
 		it.hdr = s4;
 		it.nm_len = s1_name->len;
 		EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, entry_1, &it));
@@ -265,8 +262,6 @@ TEST(hpack, dec_table_mixed)
 	entry_2 = tfw_hpack_find_index(&hp->dec_tbl, 63);
 	EXPECT_NOT_NULL(entry_2);
 	if (entry_2) {
-		name = entry_2->name;
-		value = entry_2->value;
 		it.hdr = s5;
 		it.nm_len = s2_name->len;
 		EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, entry_2, &it));
