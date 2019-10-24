@@ -299,8 +299,7 @@ int ttls_mpi_set_bit(ttls_mpi *X, size_t pos, unsigned char val)
 	size_t off = pos / biL;
 	size_t idx = pos % biL;
 
-	if (val != 0 && val != 1)
-		return(TTLS_ERR_MPI_BAD_INPUT_DATA);
+	WARN_ON_ONCE(val != 0 && val != 1);
 
 	if (X->n * biL <= pos)
 	{

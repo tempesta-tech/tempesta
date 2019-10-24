@@ -24,9 +24,7 @@
 #include "config.h"
 #include "bignum.h"
 #include "crypto.h"
-#if defined(TTLS_DHM_C)
 #include "dhm.h"
-#endif
 #include "ecp.h"
 #include "oid.h"
 #include "pem.h"
@@ -56,7 +54,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 	{
 		use_ret = ret & 0xFF80;
 
-#if defined(TTLS_DHM_C)
 		if (use_ret == -(TTLS_ERR_DHM_BAD_INPUT_DATA))
 			snprintf(buf, buflen, "DHM - Bad input parameters");
 		if (use_ret == -(TTLS_ERR_DHM_READ_PARAMS_FAILED))
@@ -79,7 +76,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "DHM - DHM hardware accelerator failed");
 		if (use_ret == -(TTLS_ERR_DHM_SET_GROUP_FAILED))
 			snprintf(buf, buflen, "DHM - Setting the modulus and generator failed");
-#endif /* TTLS_DHM_C */
 
 		if (use_ret == -(TTLS_ERR_ECP_BAD_INPUT_DATA))
 			snprintf(buf, buflen, "ECP - Bad input parameters to function");
@@ -321,8 +317,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 	if (use_ret == -(TTLS_ERR_BASE64_INVALID_CHARACTER))
 		snprintf(buf, buflen, "BASE64 - Invalid character in input");
 
-	if (use_ret == -(TTLS_ERR_MPI_FILE_IO_ERROR))
-		snprintf(buf, buflen, "BIGNUM - An error occurred while reading from or writing to a file");
 	if (use_ret == -(TTLS_ERR_MPI_BAD_INPUT_DATA))
 		snprintf(buf, buflen, "BIGNUM - Bad input parameters to function");
 	if (use_ret == -(TTLS_ERR_MPI_INVALID_CHARACTER))

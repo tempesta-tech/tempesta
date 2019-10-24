@@ -29,8 +29,6 @@
 
 #include <linux/random.h>
 
-/**< An error occurred while reading from or writing to a file. */
-#define TTLS_ERR_MPI_FILE_IO_ERROR		 -0x0002
 /**< Bad input parameters to function. */
 #define TTLS_ERR_MPI_BAD_INPUT_DATA		-0x0004
 /**< There is an invalid character in the digit string. */
@@ -75,28 +73,6 @@
 
 /**< Maximum number of bits for usable MPIs. */
 #define TTLS_MPI_MAX_BITS		  (8 * TTLS_MPI_MAX_SIZE)
-
-/*
- * When reading from files with ttls_mpi_read_file() and writing to files with
- * ttls_mpi_write_file() the buffer should have space
- * for a (short) label, the MPI (in the provided radix), the newline
- * characters and the '\0'.
- *
- * By default we assume at least a 10 char label, a minimum radix of 10
- * (decimal) and a maximum of 4096 bit numbers (1234 decimal chars).
- * Autosized at compile time for at least a 10 char label, a minimum radix
- * of 10 (decimal) for a number of TTLS_MPI_MAX_BITS size.
- *
- * This used to be statically sized to 1250 for a maximum of 4096 bit
- * numbers (1234 decimal chars).
- *
- * Calculate using the formula:
- *  TTLS_MPI_RW_BUFFER_SIZE = ceil(TTLS_MPI_MAX_BITS / ln(10) * ln(2)) +
- *		LabelSize + 6
- */
-#define TTLS_MPI_MAX_BITS_SCALE100		  (100 * TTLS_MPI_MAX_BITS)
-#define TTLS_LN_2_DIV_LN_10_SCALE100				 332
-#define TTLS_MPI_RW_BUFFER_SIZE			 (((TTLS_MPI_MAX_BITS_SCALE100 + TTLS_LN_2_DIV_LN_10_SCALE100 - 1) / TTLS_LN_2_DIV_LN_10_SCALE100) + 10 + 6)
 
 typedef  int64_t ttls_mpi_sint;
 typedef uint64_t ttls_mpi_uint;

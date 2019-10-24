@@ -24,8 +24,6 @@
 #include "config.h"
 #include "ecp.h"
 
-#if !defined(TTLS_ECP_ALT)
-
 /*
  * Conversion macros for embedded constants:
  * build lists of ttls_mpi_uint's from lists of unsigned char's grouped by 8, 4 or 2
@@ -547,7 +545,6 @@ static int ecp_group_load(ttls_ecp_group *grp,
 	return 0;
 }
 
-#if defined(TTLS_ECP_NIST_OPTIM)
 /* Forward declarations */
 static int ecp_mod_p192(ttls_mpi *);
 static int ecp_mod_p224(ttls_mpi *);
@@ -556,10 +553,6 @@ static int ecp_mod_p384(ttls_mpi *);
 static int ecp_mod_p521(ttls_mpi *);
 
 #define NIST_MODP(P)	  grp->modp = ecp_mod_ ## P;
-#else
-#define NIST_MODP(P)
-#endif /* TTLS_ECP_NIST_OPTIM */
-
 /* Additional forward declarations */
 static int ecp_mod_p255(ttls_mpi *);
 static int ecp_mod_p192k1(ttls_mpi *);
@@ -676,7 +669,6 @@ int ttls_ecp_group_load(ttls_ecp_group *grp, ttls_ecp_group_id id)
 	}
 }
 
-#if defined(TTLS_ECP_NIST_OPTIM)
 /*
  * Fast reduction modulo the primes used by the NIST curves.
  *
@@ -1023,7 +1015,6 @@ cleanup:
 #undef P521_WIDTH
 #undef P521_MASK
 
-#endif /* TTLS_ECP_NIST_OPTIM */
 
 /* Size of p255 in terms of ttls_mpi_uint */
 #define P255_WIDTH	  (255 / 8 / sizeof(ttls_mpi_uint) + 1)
@@ -1175,4 +1166,3 @@ static int ecp_mod_p256k1(ttls_mpi *N)
 		BYTES_TO_T_UINT_8(0xD1, 0x03, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00) };
 	return(ecp_mod_koblitz(N, Rp, 256 / 8 / sizeof(ttls_mpi_uint), 0, 0, 0));
 }
-#endif /* !TTLS_ECP_ALT */

@@ -20,8 +20,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include "config.h"
-
-#if defined(TTLS_CLI_C)
+#if 0 /* TODO #769 Full TLS proxying */
 
 #include "debug.h"
 #include "ttls.h"
@@ -2118,4 +2117,4 @@ int ttls_handshake_client_step(ttls_context *ssl)
 
 	return ret;
 }
-#endif /* TTLS_CLI_C */
+#endif /* TODO remove me */

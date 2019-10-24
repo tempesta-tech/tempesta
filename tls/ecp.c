@@ -43,7 +43,6 @@
 #include "config.h"
 #include "tls_internal.h"
 #include "ecp.h"
-#include "ecp_internal.h"
 
 /*
  * Counts of point addition and doubling, and field multiplications.
@@ -721,12 +720,6 @@ static int ecp_normalize_jac_many(const ttls_ecp_group *grp,
 	if (t_len < 2)
 		return(ecp_normalize_jac(grp, *T));
 
-#if defined(TTLS_ECP_NORMALIZE_JAC_MANY_ALT)
-	if (ttls_internal_ecp_grp_capable(grp))
-	{
-		return ttls_internal_ecp_normalize_jac_many(grp, T, t_len);
-	}
-#endif
 
 	if ((c = ttls_calloc(t_len, sizeof(ttls_mpi))) == NULL)
 		return(TTLS_ERR_ECP_ALLOC_FAILED);
@@ -842,12 +835,6 @@ static int ecp_double_jac(const ttls_ecp_group *grp, ttls_ecp_point *R,
 
 	dbl_count++;
 
-#if defined(TTLS_ECP_DOUBLE_JAC_ALT)
-	if (ttls_internal_ecp_grp_capable(grp))
-	{
-		return ttls_internal_ecp_double_jac(grp, R, P);
-	}
-#endif /* TTLS_ECP_DOUBLE_JAC_ALT */
 
 	ttls_mpi_init(&M); ttls_mpi_init(&S); ttls_mpi_init(&T); ttls_mpi_init(&U);
 
@@ -938,12 +925,6 @@ static int ecp_add_mixed(const ttls_ecp_group *grp, ttls_ecp_point *R,
 
 	add_count++;
 
-#if defined(TTLS_ECP_ADD_MIXED_ALT)
-	if (ttls_internal_ecp_grp_capable(grp))
-	{
-		return ttls_internal_ecp_add_mixed(grp, R, P, Q);
-	}
-#endif /* TTLS_ECP_ADD_MIXED_ALT */
 
 	/*
 	 * Trivial cases: P == 0 or Q == 0 (case 1)
@@ -1025,11 +1006,6 @@ ecp_randomize_jac(const ttls_ecp_group *grp, ttls_ecp_point *pt)
 	size_t p_size;
 	int count = 0;
 
-#if defined(TTLS_ECP_RANDOMIZE_JAC_ALT)
-	if (ttls_internal_ecp_grp_capable(grp))
-		return ttls_internal_ecp_randomize_jac(grp, pt);
-#endif
-
 	p_size = (grp->pbits + 7) / 8;
 	ttls_mpi_init(&l);
 	ttls_mpi_init(&ll);
@@ -1066,13 +1042,6 @@ cleanup:
 	ttls_mpi_free(&ll);
 	return ret;
 }
-
-/*
- * Check and define parameters used by the comb method (see below for details)
- */
-#if TTLS_ECP_WINDOW_SIZE < 2 || TTLS_ECP_WINDOW_SIZE > 7
-#error "TTLS_ECP_WINDOW_SIZE out of bounds"
-#endif
 
 /* d = ceil(n / w) */
 #define COMB_MAX_D	  (TTLS_ECP_MAX_BITS + 1) / 2
@@ -1287,14 +1256,10 @@ static int ecp_mul_comb(ttls_ecp_group *grp, ttls_ecp_point *R,
 	 * Just adding one avoids upping the cost of the first mul too much,
 	 * and the memory cost too.
 	 */
-#if TTLS_ECP_FIXED_POINT_OPTIM == 1
 	p_eq_g = (ttls_mpi_cmp_mpi(&P->Y, &grp->G.Y) == 0 &&
 			   ttls_mpi_cmp_mpi(&P->X, &grp->G.X) == 0);
 	if (p_eq_g)
 		w++;
-#else
-	p_eq_g = 0;
-#endif
 
 	/*
 	 * Make sure w is within bounds.
@@ -1661,9 +1626,6 @@ int ttls_ecp_muladd(ttls_ecp_group *grp, ttls_ecp_point *R,
 {
 	int ret;
 	ttls_ecp_point mP;
-#if defined(TTLS_ECP_INTERNAL_ALT)
-	char is_grp_capable = 0;
-#endif
 
 	if (ecp_get_type(grp) != ECP_TYPE_SHORT_WEIERSTRASS)
 		return(TTLS_ERR_ECP_FEATURE_UNAVAILABLE);
@@ -1672,26 +1634,10 @@ int ttls_ecp_muladd(ttls_ecp_group *grp, ttls_ecp_point *R,
 
 	TTLS_MPI_CHK(ttls_ecp_mul_shortcuts(grp, &mP, m, P));
 	TTLS_MPI_CHK(ttls_ecp_mul_shortcuts(grp, R,   n, Q));
-
-#if defined(TTLS_ECP_INTERNAL_ALT)
-	if ( is_grp_capable = ttls_internal_ecp_grp_capable(grp) )
-	{
-		TTLS_MPI_CHK(ttls_internal_ecp_init(grp));
-	}
-
-#endif /* TTLS_ECP_INTERNAL_ALT */
 	TTLS_MPI_CHK(ecp_add_mixed(grp, R, &mP, R));
 	TTLS_MPI_CHK(ecp_normalize_jac(grp, R));
 
 cleanup:
-
-#if defined(TTLS_ECP_INTERNAL_ALT)
-	if (is_grp_capable)
-	{
-		ttls_internal_ecp_free(grp);
-	}
-
-#endif /* TTLS_ECP_INTERNAL_ALT */
 	ttls_ecp_point_free(&mP);
 
 	return ret;

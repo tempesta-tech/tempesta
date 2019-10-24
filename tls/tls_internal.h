@@ -154,9 +154,7 @@ struct tls_handshake_t {
 			const unsigned char *, size_t, unsigned char *, size_t);
 
 	union {
-#if defined(TTLS_DHM_C)
 		ttls_dhm_context	dhm_ctx;
-#endif
 		ttls_ecdh_context	ecdh_ctx;
 		ttls_sha256_context	tmp_sha256;
 	};

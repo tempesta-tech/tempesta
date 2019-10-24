@@ -41,10 +41,6 @@
  */
 const ttls_x509_crt_profile ttls_x509_crt_profile_default =
 {
-#if defined(TTLS_TLS_DEFAULT_ALLOW_SHA1_IN_CERTIFICATES)
-	/* Allow SHA-1 (weak, but still safe in controlled environments) */
-	TTLS_X509_ID_FLAG(TTLS_MD_SHA1) |
-#endif
 	/* Only SHA-2 hashes */
 	TTLS_X509_ID_FLAG(TTLS_MD_SHA224) |
 	TTLS_X509_ID_FLAG(TTLS_MD_SHA256) |
@@ -540,14 +536,12 @@ static int x509_get_crt_ext(unsigned char **p,
 			/* No parser found, skip extension */
 			*p = end_ext_octet;
 
-#if !defined(TTLS_X509_ALLOW_UNSUPPORTED_CRITICAL_EXTENSION)
 			if (is_critical)
 			{
 				/* Data is marked as critical: fail */
 				return(TTLS_ERR_X509_INVALID_EXTENSIONS +
 			TTLS_ERR_ASN1_UNEXPECTED_TAG);
 			}
-#endif
 			continue;
 		}
 
@@ -1260,7 +1254,6 @@ int ttls_x509_crt_verify_info(char *buf, size_t size, const char *prefix,
 	return((int) (size - n));
 }
 
-#if defined(TTLS_X509_CHECK_KEY_USAGE)
 int ttls_x509_crt_check_key_usage(const ttls_x509_crt *crt,
 			  unsigned int usage)
 {
@@ -1283,9 +1276,7 @@ int ttls_x509_crt_check_key_usage(const ttls_x509_crt *crt,
 
 	return 0;
 }
-#endif
 
-#if defined(TTLS_X509_CHECK_EXTENDED_KEY_USAGE)
 int ttls_x509_crt_check_extended_key_usage(const ttls_x509_crt *crt,
 			   const char *usage_oid,
 			   size_t usage_len)
@@ -1315,9 +1306,7 @@ int ttls_x509_crt_check_extended_key_usage(const ttls_x509_crt *crt,
 
 	return(TTLS_ERR_X509_BAD_INPUT_DATA);
 }
-#endif /* TTLS_X509_CHECK_EXTENDED_KEY_USAGE */
 
-#if defined(TTLS_X509_CRL_PARSE_C)
 /*
  * Return 1 if the certificate is revoked, or 0 otherwise.
  */
@@ -1369,13 +1358,11 @@ static int x509_crt_verifycrl(ttls_x509_crt *crt, ttls_x509_crt *ca,
 		/*
 		 * Check if the CA is configured to sign CRLs
 		 */
-#if defined(TTLS_X509_CHECK_KEY_USAGE)
 		if (ttls_x509_crt_check_key_usage(ca, TTLS_X509_KU_CRL_SIGN) != 0)
 		{
 			flags |= TTLS_X509_BADCRL_NOT_TRUSTED;
 			break;
 		}
-#endif
 
 		/*
 		 * Check if CRL is correctly signed by the trusted CA
@@ -1432,7 +1419,6 @@ static int x509_crt_verifycrl(ttls_x509_crt *crt, ttls_x509_crt *ca,
 
 	return(flags);
 }
-#endif /* TTLS_X509_CRL_PARSE_C */
 
 /*
  * Like memcmp, but case-insensitive and always returns -1 if different
@@ -1598,13 +1584,11 @@ static int x509_crt_check_parent(const ttls_x509_crt *child,
 	if (need_ca_bit && ! parent->ca_istrue)
 		return(-1);
 
-#if defined(TTLS_X509_CHECK_KEY_USAGE)
 	if (need_ca_bit &&
 		ttls_x509_crt_check_key_usage(parent, TTLS_X509_KU_KEY_CERT_SIGN) != 0)
 	{
 		return(-1);
 	}
-#endif
 
 	return 0;
 }
@@ -1713,12 +1697,8 @@ x509_crt_verify_top(ttls_x509_crt *child, ttls_x509_crt *trust_ca,
 		  memcmp(child->subject_raw.p, trust_ca->subject_raw.p,
 				child->issuer_raw.len) != 0))
 	{
-#if defined(TTLS_X509_CRL_PARSE_C)
 		/* Check trusted CA's CRL for the chain's top crt */
 		*flags |= x509_crt_verifycrl(child, trust_ca, ca_crl, profile);
-#else
-		((void) ca_crl);
-#endif
 
 		if (ttls_x509_time_is_past(&trust_ca->valid_to))
 			ca_flags |= TTLS_X509_BADCERT_EXPIRED;
@@ -1791,10 +1771,8 @@ x509_crt_verify_child(ttls_x509_crt *child, ttls_x509_crt *parent,
 		}
 	}
 
-#if defined(TTLS_X509_CRL_PARSE_C)
 	/* Check trusted CA's CRL for the given crt */
 	*flags |= x509_crt_verifycrl(child, parent, ca_crl, profile);
-#endif
 
 	/* Look for a grandparent in trusted CAs */
 	for (grandparent = trust_ca;

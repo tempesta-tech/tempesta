@@ -129,12 +129,6 @@ cleanup:
 static int rsa_check_context(ttls_rsa_context const *ctx, int is_priv,
 				  int blinding_needed)
 {
-#if !defined(TTLS_RSA_NO_CRT)
-	/* blinding_needed is only used for NO_CRT to decide whether
-	 * P,Q need to be present or not. */
-	((void) blinding_needed);
-#endif
-
 	if (ctx->len != ttls_mpi_size(&ctx->N) ||
 		ctx->len > TTLS_MPI_MAX_SIZE)
 	{
@@ -153,7 +147,6 @@ static int rsa_check_context(ttls_rsa_context const *ctx, int is_priv,
 		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 	}
 
-#if !defined(TTLS_RSA_NO_CRT)
 	/* Modular exponentiation for P and Q is only
 	 * used for private key operations and if CRT
 	 * is used. */
@@ -165,7 +158,6 @@ static int rsa_check_context(ttls_rsa_context const *ctx, int is_priv,
 	{
 		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 	}
-#endif /* !TTLS_RSA_NO_CRT */
 
 	/*
 	 * 2. Exponents must be positive
@@ -175,41 +167,20 @@ static int rsa_check_context(ttls_rsa_context const *ctx, int is_priv,
 	if (ttls_mpi_cmp_int(&ctx->E, 0) <= 0)
 		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
-#if defined(TTLS_RSA_NO_CRT)
-	/* For private key operations, use D or DP & DQ
-	 * as (unblinded) exponents. */
-	if (is_priv && ttls_mpi_cmp_int(&ctx->D, 0) <= 0)
-		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
-#else
 	if (is_priv &&
 		(ttls_mpi_cmp_int(&ctx->DP, 0) <= 0 ||
 		  ttls_mpi_cmp_int(&ctx->DQ, 0) <= 0 ))
 	{
 		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 	}
-#endif /* TTLS_RSA_NO_CRT */
-
-	/* Blinding shouldn't make exponents negative either,
-	 * so check that P, Q >= 1 if that hasn't yet been
-	 * done as part of 1. */
-#if defined(TTLS_RSA_NO_CRT)
-	if (is_priv && blinding_needed &&
-		(ttls_mpi_cmp_int(&ctx->P, 0) <= 0 ||
-		  ttls_mpi_cmp_int(&ctx->Q, 0) <= 0))
-	{
-		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
-	}
-#endif
 
 	/* It wouldn't lead to an error if it wasn't satisfied,
 	 * but check for QP >= 1 nonetheless. */
-#if !defined(TTLS_RSA_NO_CRT)
 	if (is_priv &&
 		ttls_mpi_cmp_int(&ctx->QP, 0) <= 0)
 	{
 		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 	}
-#endif
 
 	return 0;
 }
@@ -287,8 +258,6 @@ int ttls_rsa_complete(ttls_rsa_context *ctx)
 	 * Step 3: Deduce all additional parameters specific
 	 *		 to our current RSA implementation.
 	 */
-
-#if !defined(TTLS_RSA_NO_CRT)
 	if (is_priv)
 	{
 		ret = ttls_rsa_deduce_crt(&ctx->P,  &ctx->Q,  &ctx->D,
@@ -296,7 +265,6 @@ int ttls_rsa_complete(ttls_rsa_context *ctx)
 		if (ret != 0)
 			return(TTLS_ERR_RSA_BAD_INPUT_DATA + ret);
 	}
-#endif /* TTLS_RSA_NO_CRT */
 
 	/*
 	 * Step 3: Basic sanity checks
@@ -410,7 +378,6 @@ int ttls_rsa_export_crt(const ttls_rsa_context *ctx,
 	if (!is_priv)
 		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
-#if !defined(TTLS_RSA_NO_CRT)
 	/* Export all requested blinding parameters. */
 	if ((DP != NULL && (ret = ttls_mpi_copy(DP, &ctx->DP)) != 0) ||
 		(DQ != NULL && (ret = ttls_mpi_copy(DQ, &ctx->DQ)) != 0) ||
@@ -418,13 +385,6 @@ int ttls_rsa_export_crt(const ttls_rsa_context *ctx,
 	{
 		return(TTLS_ERR_RSA_BAD_INPUT_DATA + ret);
 	}
-#else
-	if ((ret = ttls_rsa_deduce_crt(&ctx->P, &ctx->Q, &ctx->D,
-				DP, DQ, QP)) != 0)
-	{
-		return(TTLS_ERR_RSA_BAD_INPUT_DATA + ret);
-	}
-#endif
 
 	return 0;
 }
@@ -469,94 +429,6 @@ ttls_rsa_get_len(const ttls_rsa_context *ctx)
 	return ctx->len;
 }
 
-
-#if defined(TTLS_GENPRIME)
-
-/*
- * Generate an RSA keypair
- */
-int ttls_rsa_gen_key(ttls_rsa_context *ctx, unsigned int nbits, int exponent)
-{
-	int ret;
-	ttls_mpi H, G;
-
-	if (nbits < 128 || exponent < 3)
-		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
-
-	if (nbits % 2)
-		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
-
-	ttls_mpi_init(&H);
-	ttls_mpi_init(&G);
-
-	/*
-	 * find primes P and Q with Q < P so that:
-	 * GCD(E, (P-1)*(Q-1)) == 1
-	 */
-	TTLS_MPI_CHK(ttls_mpi_lset(&ctx->E, exponent));
-
-	do
-	{
-		TTLS_MPI_CHK(ttls_mpi_gen_prime(&ctx->P, nbits >> 1, 0));
-		TTLS_MPI_CHK(ttls_mpi_gen_prime(&ctx->Q, nbits >> 1, 0));
-
-		if (ttls_mpi_cmp_mpi(&ctx->P, &ctx->Q) == 0)
-			continue;
-
-		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&ctx->N, &ctx->P, &ctx->Q));
-		if (ttls_mpi_bitlen(&ctx->N) != nbits)
-			continue;
-
-		if (ttls_mpi_cmp_mpi(&ctx->P, &ctx->Q) < 0)
-			ttls_mpi_swap(&ctx->P, &ctx->Q);
-
-		/* Temporarily replace P,Q by P-1, Q-1 */
-		TTLS_MPI_CHK(ttls_mpi_sub_int(&ctx->P, &ctx->P, 1));
-		TTLS_MPI_CHK(ttls_mpi_sub_int(&ctx->Q, &ctx->Q, 1));
-		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&H, &ctx->P, &ctx->Q));
-		TTLS_MPI_CHK(ttls_mpi_gcd(&G, &ctx->E, &H ));
-	}
-	while (ttls_mpi_cmp_int(&G, 1) != 0);
-
-	/* Restore P,Q */
-	TTLS_MPI_CHK(ttls_mpi_add_int(&ctx->P,  &ctx->P, 1));
-	TTLS_MPI_CHK(ttls_mpi_add_int(&ctx->Q,  &ctx->Q, 1));
-
-	ctx->len = ttls_mpi_size(&ctx->N);
-
-	/*
-	 * D  = E^-1 mod ((P-1)*(Q-1))
-	 * DP = D mod (P - 1)
-	 * DQ = D mod (Q - 1)
-	 * QP = Q^-1 mod P
-	 */
-
-	TTLS_MPI_CHK(ttls_mpi_inv_mod(&ctx->D, &ctx->E, &H ));
-
-#if !defined(TTLS_RSA_NO_CRT)
-	TTLS_MPI_CHK(ttls_rsa_deduce_crt(&ctx->P, &ctx->Q, &ctx->D,
-		 &ctx->DP, &ctx->DQ, &ctx->QP));
-#endif /* TTLS_RSA_NO_CRT */
-
-	/* Double-check */
-	TTLS_MPI_CHK(ttls_rsa_check_privkey(ctx));
-
-cleanup:
-
-	ttls_mpi_free(&H);
-	ttls_mpi_free(&G);
-
-	if (ret != 0)
-	{
-		ttls_rsa_free(ctx);
-		return(TTLS_ERR_RSA_KEY_GEN_FAILED + ret);
-	}
-
-	return 0;
-}
-
-#endif /* TTLS_GENPRIME */
-
 /*
  * Check a public RSA key
  */
@@ -596,14 +468,11 @@ int ttls_rsa_check_privkey(const ttls_rsa_context *ctx)
 	{
 		return(TTLS_ERR_RSA_KEY_CHECK_FAILED);
 	}
-
-#if !defined(TTLS_RSA_NO_CRT)
 	else if (ttls_rsa_validate_crt(&ctx->P, &ctx->Q, &ctx->D,
 			   &ctx->DP, &ctx->DQ, &ctx->QP) != 0)
 	{
 		return(TTLS_ERR_RSA_KEY_CHECK_FAILED);
 	}
-#endif
 
 	return 0;
 }
@@ -746,7 +615,6 @@ int ttls_rsa_private(ttls_rsa_context *ctx, const unsigned char *input,
 	 * exponent blinding factor, respectively. */
 	ttls_mpi P1, Q1, R;
 
-#if !defined(TTLS_RSA_NO_CRT)
 	/* Temporaries holding the results mod p resp. mod q. */
 	ttls_mpi TP, TQ;
 
@@ -758,14 +626,6 @@ int ttls_rsa_private(ttls_rsa_context *ctx, const unsigned char *input,
 	 * or the blinded ones, depending on the presence of a PRNG. */
 	ttls_mpi *DP = &ctx->DP;
 	ttls_mpi *DQ = &ctx->DQ;
-#else
-	/* Temporary holding the blinded exponent (if used). */
-	ttls_mpi D_blind;
-
-	/* Pointer to actual exponent to be used - either the unblinded
-	 * or the blinded one, depending on the presence of a PRNG. */
-	ttls_mpi *D = &ctx->D;
-#endif /* TTLS_RSA_NO_CRT */
 
 	/* Temporaries holding the initial input and the double
 	 * checked result; should be the same in the end. */
@@ -783,16 +643,10 @@ int ttls_rsa_private(ttls_rsa_context *ctx, const unsigned char *input,
 	ttls_mpi_init(&Q1);
 	ttls_mpi_init(&R);
 
-#if defined(TTLS_RSA_NO_CRT)
-	ttls_mpi_init(&D_blind);
-#else
 	ttls_mpi_init(&DP_blind);
 	ttls_mpi_init(&DQ_blind);
-#endif
 
-#if !defined(TTLS_RSA_NO_CRT)
 	ttls_mpi_init(&TP); ttls_mpi_init(&TQ);
-#endif
 
 	ttls_mpi_init(&I);
 	ttls_mpi_init(&C);
@@ -822,17 +676,6 @@ int ttls_rsa_private(ttls_rsa_context *ctx, const unsigned char *input,
 	TTLS_MPI_CHK(ttls_mpi_sub_int(&P1, &ctx->P, 1));
 	TTLS_MPI_CHK(ttls_mpi_sub_int(&Q1, &ctx->Q, 1));
 
-#if defined(TTLS_RSA_NO_CRT)
-	/*
-	 * D_blind = (P - 1) * (Q - 1) * R + D
-	 */
-	TTLS_MPI_CHK(ttls_mpi_fill_random(&R, RSA_EXPONENT_BLINDING));
-	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&D_blind, &P1, &Q1));
-	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&D_blind, &D_blind, &R));
-	TTLS_MPI_CHK(ttls_mpi_add_mpi(&D_blind, &D_blind, &ctx->D));
-
-	D = &D_blind;
-#else
 	/*
 	 * DP_blind = (P - 1) * R + DP
 	 */
@@ -850,11 +693,7 @@ int ttls_rsa_private(ttls_rsa_context *ctx, const unsigned char *input,
 	TTLS_MPI_CHK(ttls_mpi_add_mpi(&DQ_blind, &DQ_blind, &ctx->DQ));
 
 	DQ = &DQ_blind;
-#endif /* TTLS_RSA_NO_CRT */
 
-#if defined(TTLS_RSA_NO_CRT)
-	TTLS_MPI_CHK(ttls_mpi_exp_mod(&T, &T, D, &ctx->N, &ctx->RN));
-#else
 	/*
 	 * Faster decryption using the CRT
 	 *
@@ -877,7 +716,6 @@ int ttls_rsa_private(ttls_rsa_context *ctx, const unsigned char *input,
 	 */
 	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&TP, &T, &ctx->Q));
 	TTLS_MPI_CHK(ttls_mpi_add_mpi(&T, &TQ, &TP));
-#endif /* TTLS_RSA_NO_CRT */
 
 	/*
 	 * Unblind
@@ -905,18 +743,12 @@ cleanup:
 	ttls_mpi_free(&Q1);
 	ttls_mpi_free(&R);
 
-#if defined(TTLS_RSA_NO_CRT)
-	ttls_mpi_free(&D_blind);
-#else
 	ttls_mpi_free(&DP_blind);
 	ttls_mpi_free(&DQ_blind);
-#endif
 
 	ttls_mpi_free(&T);
 
-#if !defined(TTLS_RSA_NO_CRT)
 	ttls_mpi_free(&TP); ttls_mpi_free(&TQ);
-#endif
 
 	ttls_mpi_free(&C);
 	ttls_mpi_free(&I);
@@ -1982,13 +1814,11 @@ int ttls_rsa_copy(ttls_rsa_context *dst, const ttls_rsa_context *src)
 	TTLS_MPI_CHK(ttls_mpi_copy(&dst->P, &src->P));
 	TTLS_MPI_CHK(ttls_mpi_copy(&dst->Q, &src->Q));
 
-#if !defined(TTLS_RSA_NO_CRT)
 	TTLS_MPI_CHK(ttls_mpi_copy(&dst->DP, &src->DP));
 	TTLS_MPI_CHK(ttls_mpi_copy(&dst->DQ, &src->DQ));
 	TTLS_MPI_CHK(ttls_mpi_copy(&dst->QP, &src->QP));
 	TTLS_MPI_CHK(ttls_mpi_copy(&dst->RP, &src->RP));
 	TTLS_MPI_CHK(ttls_mpi_copy(&dst->RQ, &src->RQ));
-#endif
 
 	TTLS_MPI_CHK(ttls_mpi_copy(&dst->RN, &src->RN));
 
@@ -2015,9 +1845,7 @@ void ttls_rsa_free(ttls_rsa_context *ctx)
 	ttls_mpi_free(&ctx->Q ); ttls_mpi_free(&ctx->P );
 	ttls_mpi_free(&ctx->E ); ttls_mpi_free(&ctx->N );
 
-#if !defined(TTLS_RSA_NO_CRT)
 	ttls_mpi_free(&ctx->RQ); ttls_mpi_free(&ctx->RP);
 	ttls_mpi_free(&ctx->QP); ttls_mpi_free(&ctx->DQ);
 	ttls_mpi_free(&ctx->DP);
-#endif /* TTLS_RSA_NO_CRT */
 }

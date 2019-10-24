@@ -342,18 +342,6 @@ int ttls_rsa_validate_params(const ttls_mpi *N, const ttls_mpi *P,
 	 * Step 1: If PRNG provided, check that P and Q are prime
 	 */
 
-#if defined(TTLS_GENPRIME)
-	if (rnd && P && (ret = ttls_mpi_is_prime(P))) {
-		ret = TTLS_ERR_RSA_KEY_CHECK_FAILED;
-		goto cleanup;
-	}
-
-	if (rnd && Q && (ret = ttls_mpi_is_prime(Q))) {
-		ret = TTLS_ERR_RSA_KEY_CHECK_FAILED;
-		goto cleanup;
-	}
-#endif /* TTLS_GENPRIME */
-
 	/*
 	 * Step 2: Check that 1 < N = P * Q
 	 */

@@ -34,9 +34,7 @@
 #include "ecp.h"
 #include "x509_crt.h"
 #include "x509_crl.h"
-#if defined(TTLS_DHM_C)
 #include "dhm.h"
-#endif
 #include "ecdh.h"
 
 /* The requested feature is not available. */
@@ -136,10 +134,8 @@
 #define TTLS_SESSION_TICKETS_DISABLED		0
 #define TTLS_SESSION_TICKETS_ENABLED		1
 
-#if !defined(TTLS_DEFAULT_TICKET_LIFETIME)
 /* Lifetime of session tickets (if enabled) */
 #define TTLS_DEFAULT_TICKET_LIFETIME		86400
-#endif
 
 /*
  * Signaling ciphersuite values (SCSV)
@@ -312,11 +308,9 @@ typedef struct {
 	unsigned char	id_len;
 	unsigned char	id[32];
 	unsigned char	master[48];
-#if defined(TTLS_CLI_C)
 	unsigned char *ticket;	/*!< RFC 5077 session ticket */
 	size_t ticket_len;	/*!< session ticket length */
 	uint32_t ticket_lifetime; /*!< ticket lifetime hint	*/
-#endif /* TTLS_SESSION_TICKETS && TTLS_CLI_C */
 } TlsSess;
 
 /*
@@ -444,18 +438,14 @@ typedef struct
 	void *p_ticket;
 
 	const ttls_x509_crt_profile	*cert_profile;
-#if defined(TTLS_DHM_C)
 	ttls_mpi			dhm_P;
 	ttls_mpi			dhm_G;
-#endif
 	const ttls_alpn_proto		*alpn_list;
 
 	uint32_t			read_timeout;
 	unsigned char			min_minor_ver;
 	unsigned char			max_minor_ver;
-#if defined(TTLS_DHM_C) && defined(TTLS_CLI_C)
 	unsigned int			dhm_min_bitlen;
-#endif
 	unsigned int			endpoint : 1;
 	unsigned int			authmode : 2;
 	unsigned int			session_tickets : 1;
@@ -673,7 +663,6 @@ void ttls_conf_session_tickets_cb(TlsCfg *conf,
 				  ttls_ticket_parse_t *f_ticket_parse,
 				  void *p_ticket);
 
-#if defined(TTLS_CLI_C)
 /**
  * \brief	Request resumption of session (client-side only)
  *		Session data is copied from presented session structure.
@@ -689,7 +678,6 @@ void ttls_conf_session_tickets_cb(TlsCfg *conf,
  * \sa	ttls_get_session()
  */
 int ttls_set_session(ttls_context *ssl, const TlsSess *session);
-#endif /* TTLS_CLI_C */
 
 /**
  * \brief	Set the list of allowed ciphersuites and the
@@ -757,8 +745,6 @@ int ttls_conf_own_cert(TlsPeerCfg *conf,
 		       ttls_x509_crt *ca_chain,
 		       ttls_x509_crl *ca_crl);
 
-#if defined(TTLS_DHM_C)
-
 /**
  * \brief	Set the Diffie-Hellman public P and G values
  *		from big-endian binary presentations.
@@ -786,9 +772,7 @@ int ttls_conf_dh_param_bin(TlsCfg *conf,
  * \return	0 if successful
  */
 int ttls_conf_dh_param_ctx(TlsCfg *conf, ttls_dhm_context *dhm_ctx);
-#endif /* TTLS_DHM_C */
 
-#if defined(TTLS_DHM_C) && defined(TTLS_CLI_C)
 /**
  * \brief	Set the minimum length for Diffie-Hellman parameters.
  *		(Client-side only.)
@@ -799,7 +783,6 @@ int ttls_conf_dh_param_ctx(TlsCfg *conf, ttls_dhm_context *dhm_ctx);
  */
 void ttls_conf_dhm_min_bitlen(TlsCfg *conf,
 			      unsigned int bitlen);
-#endif /* TTLS_DHM_C && TTLS_CLI_C */
 
 /**
  * \brief	Set the allowed curves in order of preference.
@@ -924,7 +907,6 @@ const char *ttls_get_alpn_protocol(const ttls_context *ssl);
 
 void ttls_conf_version(TlsCfg *conf, int min_minor, int max_minor);
 
-#if defined(TTLS_CLI_C)
 /**
  * \brief	Save session in order to resume it later (client-side only)
  *		Session data is copied to presented session structure.
@@ -942,7 +924,6 @@ void ttls_conf_version(TlsCfg *conf, int min_minor, int max_minor);
  * \sa	ttls_set_session()
  */
 int ttls_get_session(const ttls_context *ssl, TlsSess *session);
-#endif /* TTLS_CLI_C */
 
 int ttls_recv(void *tls_data, unsigned char *buf, size_t len,
 	      unsigned int *read);

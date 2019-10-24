@@ -260,7 +260,6 @@ ttls_xfrm_need_encrypt(TlsCtx *tls)
 }
 EXPORT_SYMBOL(ttls_xfrm_need_encrypt);
 
-#if defined(TTLS_CLI_C)
 static int
 ssl_session_copy(TlsSess *dst, const TlsSess *src)
 {
@@ -285,7 +284,6 @@ ssl_session_copy(TlsSess *dst, const TlsSess *src)
 		}
 	}
 
-#if defined(TTLS_SESSION_TICKETS) && defined(TTLS_CLI_C)
 	if (src->ticket) {
 		dst->ticket = ttls_calloc(1, src->ticket_len);
 		if (!dst->ticket)
@@ -293,11 +291,9 @@ ssl_session_copy(TlsSess *dst, const TlsSess *src)
 
 		memcpy_fast(dst->ticket, src->ticket, src->ticket_len);
 	}
-#endif
 
 	return 0;
 }
-#endif
 
 /*
  * Key material generation.
@@ -1281,11 +1277,8 @@ ttls_handshake_free(TlsHandshake *hs, const TlsCiphersuite *ci)
 		{
 			ttls_ecdh_free(&hs->ecdh_ctx);
 		}
-
-#if defined(TTLS_DHM_C)
 		if (ttls_ciphersuite_uses_dhe(ci))
 			ttls_dhm_free(&hs->dhm_ctx);
-#endif
 	}
 
 	bzero_fast(hs, sizeof(TlsHandshake));
@@ -1372,13 +1365,11 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 	TlsIOCtx *io = &tls->io_out;
 	unsigned char *p = *in_buf;
 
-#if defined(TTLS_CLI_C)
 	if (tls->conf->endpoint == TTLS_IS_CLIENT && !tls->client_auth) {
 		T_DBG2("<= skip write certificate");
 		tls->state++;
 		return 0;
 	}
-#endif
 
 	/* Leave the sg for the record header and certs descriptor. */
 	sg_i = sgt->nents++;
@@ -1883,8 +1874,7 @@ ttls_conf_authmode(TlsCfg *conf, int authmode)
 	conf->authmode = authmode;
 }
 
-#if defined(TTLS_CLI_C)
-int ttls_set_session(ttls_context *tls, const ttls_ssl_session *session)
+int ttls_set_session(ttls_context *tls, const TlsSess *session)
 {
 	int r;
 
@@ -1902,7 +1892,6 @@ int ttls_set_session(ttls_context *tls, const ttls_ssl_session *session)
 
 	return 0;
 }
-#endif /* TTLS_CLI_C */
 
 void
 ttls_conf_ciphersuites_for_version(const int **ciphersuite_list,
@@ -1968,8 +1957,6 @@ ttls_set_hs_authmode(ttls_context *tls, int authmode)
 	tls->hs->sni_authmode = authmode;
 }
 
-#if defined(TTLS_DHM_C)
-
 int ttls_conf_dh_param_bin(TlsCfg *conf,
 			   const unsigned char *dhm_P, size_t P_len,
 			   const unsigned char *dhm_G, size_t G_len)
@@ -2001,9 +1988,7 @@ int ttls_conf_dh_param_ctx(TlsCfg *conf, ttls_dhm_context *dhm_ctx)
 
 	return 0;
 }
-#endif /* TTLS_DHM_C */
 
-#if defined(TTLS_DHM_C) && defined(TTLS_CLI_C)
 /*
  * Set the minimum length for Diffie-Hellman parameters
  */
@@ -2012,7 +1997,6 @@ void ttls_conf_dhm_min_bitlen(TlsCfg *conf,
 {
 	conf->dhm_min_bitlen = bitlen;
 }
-#endif /* TTLS_DHM_C && TTLS_CLI_C */
 
 /*
  * Set allowed/preferred hashes for hs signatures
@@ -2112,8 +2096,7 @@ void ttls_conf_session_tickets_cb(TlsCfg *conf,
 }
 #endif /* TTLS_SESSION_TICKETS */
 
-#if defined(TTLS_CLI_C)
-int ttls_get_session(const ttls_context *tls, ttls_ssl_session *dst)
+int ttls_get_session(const ttls_context *tls, TlsSess *dst)
 {
 	if (tls == NULL ||
 		dst == NULL ||
@@ -2124,7 +2107,6 @@ int ttls_get_session(const ttls_context *tls, ttls_ssl_session *dst)
 
 	return(ssl_session_copy(dst, &tls->sess));
 }
-#endif /* TTLS_CLI_C */
 
 static bool
 ttls_hs_checksumable(TlsCtx *tls)
@@ -2166,7 +2148,8 @@ ttls_handshake_step(TlsCtx *tls, unsigned char *buf, size_t len, size_t hh_len,
 	T_DBG3("handshake message %u on state %x\n",
 	       tls->io_in.msgtype, tls->state);
 
-#if defined(TTLS_CLI_C)
+/* TODO #769 Full TLS proxying */
+#if 0
 	if (tls->conf->endpoint == TTLS_IS_CLIENT)
 		return ttls_handshake_client_step(tls, buf, len, hh_len,
 						  read);
@@ -2437,18 +2420,15 @@ ttls_config_defaults(TlsCfg *conf, int endpoint)
 	conf->endpoint = endpoint;
 
 	/* Things that are common to all presets. */
-#if defined(TTLS_CLI_C)
 	if (endpoint == TTLS_IS_CLIENT) {
 		conf->authmode = TTLS_VERIFY_REQUIRED;
 #if defined(TTLS_SESSION_TICKETS)
 		conf->session_tickets = TTLS_SESSION_TICKETS_ENABLED;
 #endif
 	}
-#endif
 
 	conf->cert_req_ca_list = 0;
 
-#if defined(TTLS_DHM_C)
 	if (endpoint == TTLS_IS_SERVER) {
 		int r;
 		const unsigned char dhm_p[] = TTLS_DHM_RFC3526_MODP_2048_P_BIN;
@@ -2459,7 +2439,6 @@ ttls_config_defaults(TlsCfg *conf, int endpoint)
 		if (r)
 				return r;
 	}
-#endif
 
 	conf->min_minor_ver = TTLS_MINOR_VERSION_3; /* TLS 1.2 */
 	conf->max_minor_ver = TTLS_MAX_MINOR_VERSION;
@@ -2761,15 +2740,10 @@ ttls_check_cert_usage(const ttls_x509_crt *cert,
 		      uint32_t *flags)
 {
 	int r = 0;
-#if defined(TTLS_X509_CHECK_KEY_USAGE)
 	int usage = 0;
-#endif
-#if defined(TTLS_X509_CHECK_EXTENDED_KEY_USAGE)
 	const char *ext_oid;
 	size_t ext_len;
-#endif
 
-#if defined(TTLS_X509_CHECK_KEY_USAGE)
 	if (cert_endpoint == TTLS_IS_SERVER) {
 		/* Server part of the key exchange */
 		switch (ciphersuite->key_exchange) {
@@ -2808,9 +2782,7 @@ ttls_check_cert_usage(const ttls_x509_crt *cert,
 		*flags |= TTLS_X509_BADCERT_KEY_USAGE;
 		r = -1;
 	}
-#endif /* TTLS_X509_CHECK_KEY_USAGE */
 
-#if defined(TTLS_X509_CHECK_EXTENDED_KEY_USAGE)
 	if (cert_endpoint == TTLS_IS_SERVER) {
 		ext_oid = TTLS_OID_SERVER_AUTH;
 		ext_len = TTLS_OID_SIZE(TTLS_OID_SERVER_AUTH);
@@ -2823,7 +2795,6 @@ ttls_check_cert_usage(const ttls_x509_crt *cert,
 		*flags |= TTLS_X509_BADCERT_EXT_KEY_USAGE;
 		r = -1;
 	}
-#endif /* TTLS_X509_CHECK_EXTENDED_KEY_USAGE */
 
 	return r;
 }

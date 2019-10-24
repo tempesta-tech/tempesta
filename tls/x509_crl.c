@@ -31,8 +31,6 @@
  */
 #include "config.h"
 
-#if defined(TTLS_X509_CRL_PARSE_C)
-
 #include "x509_crl.h"
 #include "oid.h"
 #include "pem.h"
@@ -533,7 +531,7 @@ ttls_x509_crl_parse(ttls_x509_crl *chain, unsigned char *buf, size_t buflen)
 						 "-----END X509 CRL-----",
 						 buf, &use_len);
 
-		if (ret > 0) {
+		if (r > 0) {
 			/* Was PEM encoded. */
 			is_pem = 1;
 			dec_len = r;
@@ -706,5 +704,3 @@ void ttls_x509_crl_free(ttls_x509_crl *crl)
 	}
 	while (crl_cur != NULL);
 }
-
-#endif /* TTLS_X509_CRL_PARSE_C */

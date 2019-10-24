@@ -30,7 +30,6 @@
 #include "config.h"
 #include "ecdh.h"
 
-#if !defined(TTLS_ECDH_GEN_PUBLIC_ALT)
 /*
  * Generate public key: simple wrapper around ttls_ecp_gen_keypair
  */
@@ -38,9 +37,7 @@ int ttls_ecdh_gen_public(ttls_ecp_group *grp, ttls_mpi *d, ttls_ecp_point *Q)
 {
 	return ttls_ecp_gen_keypair(grp, d, Q);
 }
-#endif /* TTLS_ECDH_GEN_PUBLIC_ALT */
 
-#if !defined(TTLS_ECDH_COMPUTE_SHARED_ALT)
 /*
  * Compute shared secret (SEC1 3.3.1)
  */
@@ -72,7 +69,6 @@ cleanup:
 
 	return ret;
 }
-#endif /* TTLS_ECDH_COMPUTE_SHARED_ALT */
 
 /*
  * Initialize context

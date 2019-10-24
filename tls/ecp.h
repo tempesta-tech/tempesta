@@ -42,15 +42,6 @@
 #define TTLS_ERR_ECP_SIG_LEN_MISMATCH				  -0x4C00  /**< Signature is valid but shorter than the user-supplied length. */
 #define TTLS_ERR_ECP_HW_ACCEL_FAILED				   -0x4B80  /**< ECP hardware accelerator failed. */
 
-#if !defined(TTLS_ECP_ALT)
-/*
- * default mbed TLS elliptic curve arithmetic implementation
- *
- * (in case TTLS_ECP_ALT is defined then the developer has to provide an
- * alternative implementation for the whole module and it will replace this
- * one.)
- */
-
 /**
  * Domain parameters (curve, subgroup and generator) identifiers.
  *
@@ -184,17 +175,14 @@ ttls_ecp_keypair;
  * \{
  */
 
-#if !defined(TTLS_ECP_MAX_BITS)
 /**
  * Maximum size of the groups (that is, of N and P)
  */
-#define TTLS_ECP_MAX_BITS	 521   /**< Maximum bit size of groups */
-#endif
 
+#define TTLS_ECP_MAX_BITS	 521
 #define TTLS_ECP_MAX_BYTES	((TTLS_ECP_MAX_BITS + 7) / 8)
-#define TTLS_ECP_MAX_PT_LEN   (2 * TTLS_ECP_MAX_BYTES + 1)
+#define TTLS_ECP_MAX_PT_LEN	(2 * TTLS_ECP_MAX_BYTES + 1)
 
-#if !defined(TTLS_ECP_WINDOW_SIZE)
 /*
  * Maximum "window" size used for point multiplication.
  * Default: 6.
@@ -215,23 +203,8 @@ ttls_ecp_keypair;
  *	  224	   475	 475	 453	 398	 342
  *	  192	   640	 640	 633	 587	 476
  */
-#define TTLS_ECP_WINDOW_SIZE	6   /**< Maximum window size used */
-#endif /* TTLS_ECP_WINDOW_SIZE */
+#define TTLS_ECP_WINDOW_SIZE	6
 
-#if !defined(TTLS_ECP_FIXED_POINT_OPTIM)
-/*
- * Trade memory for speed on fixed-point multiplication.
- *
- * This speeds up repeated multiplication of the generator (that is, the
- * multiplication in ECDSA signatures, and half of the multiplications in
- * ECDSA verification and ECDHE) by a factor roughly 3 to 4.
- *
- * The cost is increasing EC peak memory usage by a factor roughly 2.
- *
- * Change this value to 0 to reduce peak memory usage.
- */
-#define TTLS_ECP_FIXED_POINT_OPTIM  1   /**< Enable fixed-point speed-up */
-#endif /* TTLS_ECP_FIXED_POINT_OPTIM */
 
 /* \} name SECTION: Module settings */
 
@@ -635,8 +608,5 @@ int ttls_ecp_gen_key(ttls_ecp_group_id grp_id, ttls_ecp_keypair *key);
  */
 int ttls_ecp_check_pub_priv(const ttls_ecp_keypair *pub, const ttls_ecp_keypair *prv);
 
-#else  /* TTLS_ECP_ALT */
-#include "ecp_alt.h"
-#endif /* TTLS_ECP_ALT */
 
 #endif /* ecp.h */
