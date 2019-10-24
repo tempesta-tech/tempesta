@@ -1040,6 +1040,8 @@ __FSM_STATE(RGen_BodyInit) {						\
 			TFW_PARSER_BLOCK(RGen_BodyInit);		\
 		if (test_bit(TFW_HTTP_B_CHUNKED, msg->flags))		\
 			__FSM_MOVE_nofixup(RGen_BodyStart);		\
+		/* Process the body until the connection is closed. */	\
+		__set_bit(TFW_HTTP_B_UNLIMITED, msg->flags);		\
 		__FSM_MOVE_nofixup(Resp_BodyUnlimStart);		\
 	}								\
 	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH])) {	\
@@ -1719,7 +1721,8 @@ STACK_FRAME_NON_STANDARD(__req_parse_content_type);
  * Parse Transfer-Encoding header value, RFC 2616 14.41 and 3.6.
  */
 static int
-__parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
+__parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len,
+			  bool client)
 {
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(hm);
@@ -1764,19 +1767,34 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		__FSM_I_JMP(I_TransEncodOther);
 	}
 
+
+	/*
+	 * RFC 7230 3.3.1:
+	 * If any transfer coding
+	 * other than chunked is applied to a REQUEST payload body, the sender
+	 * MUST apply chunked as the final transfer coding to ensure that the
+	 * message is properly framed. If any transfer coding other than
+	 * chunked is applied to a RESPONSE payload body, the sender MUST either
+	 * apply chunked as the final transfer coding or terminate the message
+	 * by closing the connection.
+	 *
+	 * TODO: process transfer encodings: gzip, deflate, identity,
+	 * compress;
+	 */
 	__FSM_STATE(I_TransEncodOther) {
-		/*
-		 * TODO: process transfer encodings: gzip, deflate, identity,
-		 * compress;
-		 */
 		__FSM_I_MATCH_MOVE(token, I_TransEncodOther);
 		c = *(p + __fsm_sz);
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE_n(I_EoT, __fsm_sz + 1);
 		if (IS_CRLF(c)) {
-			/* "chunked" must be the last coding. */
 			if (unlikely(test_bit(TFW_HTTP_B_CHUNKED, msg->flags)))
-				return CSTR_NEQ;
+			{
+				if (client)
+					return CSTR_NEQ;
+				__clear_bit(TFW_HTTP_B_CHUNKED, msg->flags);
+				__set_bit(TFW_HTTP_B_CHUNKED_APPLIED,
+					  msg->flags);
+			}
 			return __data_off(p + __fsm_sz);
 		}
 		return CSTR_NEQ;
@@ -1797,6 +1815,18 @@ done:
 	return r;
 }
 STACK_FRAME_NON_STANDARD(__parse_transfer_encoding);
+
+static int
+__req_parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
+{
+	return __parse_transfer_encoding(hm, data, len, true);
+}
+
+static int
+__resp_parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
+{
+	return __parse_transfer_encoding(hm, data, len, false);
+}
 
 /*
  * ------------------------------------------------------------------------
@@ -3561,7 +3591,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 
 	/* 'Transfer-Encoding:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrTransfer_EncodingV, msg,
-				   __parse_transfer_encoding,
+				   __req_parse_transfer_encoding,
 				   TFW_HTTP_HDR_TRANSFER_ENCODING);
 
 	/* 'X-Forwarded-For:*OWS' is read, process field-value. */
@@ -5019,7 +5049,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 
 	/* 'Transfer-Encoding:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrTransfer_EncodingV, msg,
-				   __parse_transfer_encoding,
+				   __resp_parse_transfer_encoding,
 				   TFW_HTTP_HDR_TRANSFER_ENCODING);
 
 	/* 'Set-Cookie:*OWS' is read, process field-value. */

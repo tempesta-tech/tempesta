@@ -3873,16 +3873,20 @@ static void
 tfw_http_resp_terminate(TfwHttpMsg *hm)
 {
 	TfwFsmData data;
-	int r;
+	int r = 0;
 
 	/*
-	 * Add absent message framing information. If there is no body, add
-	 *  Content-length header: it requires less modifications.
+	 * Add absent message framing information. It's possible to add a
+	 * 'Content-Length: 0' header, if the Transfer-Encoding header is not
+	 * set, but keep more generic solution and transform to chunked.
+	 * It's the only possible modification for future proxy mode.
+	 * If the framing information can't be added, then close client
+	 * connection after response is forwarded.
 	 */
-	r = (hm->body.len)
-		? tfw_http_msg_to_chunked(hm)
-		: TFW_HTTP_MSG_HDR_XFRM(hm, "Content-Length", "0",
-					TFW_HTTP_HDR_CONTENT_LENGTH, 0);
+	if (!test_bit(TFW_HTTP_B_CHUNKED_APPLIED, hm->flags))
+		r = tfw_http_msg_to_chunked(hm);
+	else
+		set_bit(TFW_HTTP_B_CONN_CLOSE, hm->req->flags);
 
 	if (r) {
 		TfwHttpReq *req = hm->req;
