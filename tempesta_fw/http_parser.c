@@ -2566,7 +2566,7 @@ typedef enum {
 static int
 __parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
-	static void *st[][23] ____cacheline_aligned = {
+	static const void *st[][23] ____cacheline_aligned = {
 		[RFC_822] = {
 			&&I_Day, &&I_Day, &&I_SP,
 			&&I_MonthBeg, &&I_Month, &&I_Month, &&I_SP,
@@ -2658,8 +2658,8 @@ __parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 #define __NEXT_TEMPL_STATE()						\
 do {									\
-	size_t next_pos = ++parser->date.pos;				\
-	__FSM_I_MOVE_BY_REF(st[parser->date.type][next_pos]);		\
+	++parser->date.pos;						\
+	__FSM_I_MOVE_BY_REF(st[parser->date.type][parser->date.pos]);	\
 } while (0)
 
 	__FSM_STATE(I_SP) {
@@ -2747,6 +2747,7 @@ do {									\
 		}
 		return CSTR_NEQ;
 	}
+#undef __NEXT_TEMPL_STATE
 
 	__FSM_STATE(I_GMT) {
 		TRY_STR_BY_REF("gmt", &&I_GMT,
