@@ -229,8 +229,10 @@ enum {
 	TFW_HTTP_B_CONN_CLOSE	= TFW_HTTP_FLAGS_COMMON,
 	TFW_HTTP_B_CONN_KA,
 	TFW_HTTP_B_CONN_EXTRA,
-	/* Chunked transfer encoding. */
+	/* Chunked is last transfer encoding. */
 	TFW_HTTP_B_CHUNKED,
+	/* Chunked in the middle of applied transfer encodings. */
+	TFW_HTTP_B_CHUNKED_APPLIED,
 	/* Message has chunked trailer headers part. */
 	TFW_HTTP_B_CHUNKED_TRAILER,
 	/* The message body is limited by the connection closing. */
