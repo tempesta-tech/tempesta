@@ -1083,7 +1083,7 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 	const char *s_ka = "timeout=600, max=65526";
 	/* Trailing spaces are stored within header strings. */
 	const char *s_age = "Age: 12  ";
-	const char *s_date = "Date: Sun, 9 Sep 2001 01:46:40 GMT\t";
+	const char *s_date = "Date: Sun, 09 Sep 2001 01:46:40 GMT\t";
 
 	FOR_RESP("HTTP/1.1 200 OK\r\n"
 		"Connection: Keep-Alive\r\n"
@@ -1105,7 +1105,7 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 		"Server: Apache/2.4.6 (CentOS) OpenSSL/1.0.1e-fips"
 		        " mod_fcgid/2.3.9\r\n"
 		"Age: 12  \n"
-		"Date: Sun, 9 Sep 2001 01:46:40 GMT\t\n"
+		"Date: Sun, 09 Sep 2001 01:46:40 GMT\t\n"
 		"\r\n"
 		"3\r\n"
 		"012\r\n"
@@ -2912,6 +2912,248 @@ TEST(http_parser, xff)
 	}
 }
 
+TEST(http_parser, date)
+{
+	/*
+	 * Date is encoded in RFC 822 format, the date must be correctly
+	 * parsed
+	 */
+	FOR_RESP("HTTP/1.1 200 OK\r\n"
+		"Content-Length: 0\r\n"
+		"Last-Modified: Tue, 31 Jan 2012 15:02:53 GMT\r\n"
+		"Date: Tue, 31 Jan 2012 15:02:53 GMT\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(resp->last_modified == 1328022173);
+		EXPECT_TRUE(resp->date == 1328022173);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"If-Modified-Since: Inv, 01 Jan 1970 00:00:01 GMT\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.m_date == 1);
+		EXPECT_TRUE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"If-Modified-Since: Inv, 31 Jan 2012 15:02:53 GMT\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.m_date == 1328022173);
+		EXPECT_TRUE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"If-Modified-Since: Inv, 31 Dec 9999 23:59:59 GMT\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.m_date == 253402300799);
+		EXPECT_TRUE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+	}
+
+	/*
+	 * Date is encoded in RFC 850 format, the date must be correctly
+	 * parsed
+	 */
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"If-Modified-Since: Invalid, 01-Jan-70 00:00:01 GMT\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.m_date == 1);
+		EXPECT_TRUE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+	}
+
+	/* Date is encoded in ISOC format, the date must be correctly parsed */
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"If-Modified-Since: Inv Jan 31 15:02:53 2012\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.m_date == 1328022173);
+		EXPECT_TRUE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"If-Modified-Since: Inv Jan  1 00:00:01 1970\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.m_date == 1);
+		EXPECT_TRUE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+	}
+
+	/*
+	 * Date looks like encoded in RFC 822 format, but encoding contains
+	 * errors, so the date can't be parsed
+	 */
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"If-Modified-Since: Inv, 01 Jan 10000 00:00:00 GMT\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.m_date == 0);
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"If-Modified-Since: invalid\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.m_date == 0);
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"If-Modified-Since: invalid, 31 Jan 2012 15:02:53 GMT\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.m_date == 0);
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"If-Modified-Since: Inv, Jan 2012 15:02:53 GMT\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.m_date == 0);
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"If-Modified-Since: Inv, 0 Jan 2012 15:02:53 GMT\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.m_date == 0);
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"If-Modified-Since: Inv, 123 Jan 2012 15:02:53 GMT\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.m_date == 0);
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"If-Modified-Since: Inv, 31 2012 15:02:53 GMT\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.m_date == 0);
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"If-Modified-Since: Inv, 31 Ta 2012 15:02:53 GMT\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.m_date == 0);
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"If-Modified-Since: Inv, 31 Jan 15:02:53 GMT\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.m_date == 0);
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"If-Modified-Since: Inv, 31 Jan 2012 :02:53 GMT\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.m_date == 0);
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"If-Modified-Since: Inv, 31 Jan 2012 123:02:53 GMT\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.m_date == 0);
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"If-Modified-Since: Inv, 31 Jan 2012 24:02:53 GMT\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.m_date == 0);
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"If-Modified-Since: Inv, 31 Jan 2012 15::53 GMT\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.m_date == 0);
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"If-Modified-Since: Inv, 31 Jan 2012 15:123:53 GMT\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.m_date == 0);
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"If-Modified-Since: Inv, 31 Jan 2012 15:60:53 GMT\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.m_date == 0);
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"If-Modified-Since: Inv, 31 Jan 2012 15:02: GMT\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.m_date == 0);
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"If-Modified-Since: Inv, 31 Jan 2012 15:02:123 GMT\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.m_date == 0);
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\r\n"
+		"Host:\r\n"
+		"If-Modified-Since: Inv, 31 Jan 2012 15:02:60 GMT\r\n"
+		"\r\n")
+	{
+		EXPECT_TRUE(req->cond.m_date == 0);
+		EXPECT_FALSE(req->cond.flags & TFW_HTTP_COND_IF_MSINCE);
+	}
+}
+
 TEST_SUITE(http_parser)
 {
 	int r;
@@ -2953,6 +3195,7 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, fuzzer);
 	TEST_RUN(http_parser, content_type_line_parser);
 	TEST_RUN(http_parser, xff);
+	TEST_RUN(http_parser, date);
 
 	/*
 	 * Testing for correctness of redirection mark parsing (in
