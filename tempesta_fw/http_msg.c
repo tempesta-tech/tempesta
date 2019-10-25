@@ -168,24 +168,37 @@ tfw_http_msg_req_spec_hid(const TfwStr *hdr)
 void
 __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 {
-	static const size_t hdr_lens[] = {
-		[TFW_HTTP_HDR_HOST]		= SLEN("Host:"),
-		[TFW_HTTP_HDR_CONTENT_LENGTH]	= SLEN("Content-Length:"),
-		[TFW_HTTP_HDR_CONTENT_TYPE]	= SLEN("Content-Type:"),
-		[TFW_HTTP_HDR_CONNECTION]	= SLEN("Connection:"),
-		[TFW_HTTP_HDR_X_FORWARDED_FOR]	= SLEN("X-Forwarded-For:"),
-		[TFW_HTTP_HDR_KEEP_ALIVE]	= SLEN("Keep-Alive:"),
-		[TFW_HTTP_HDR_TRANSFER_ENCODING]= SLEN("Transfer-Encoding:"),
-		[TFW_HTTP_HDR_SERVER]		= SLEN("Server:"),
-		[TFW_HTTP_HDR_SET_COOKIE]	= SLEN("Set-Cookie:"),
-		[TFW_HTTP_HDR_ETAG]		= SLEN("ETag:"),
-		[TFW_HTTP_HDR_REFERER]		= SLEN("Referer:"),
+	static const unsigned char hdr_lens[2][TFW_HTTP_HDR_RAW] = {
+		(unsigned char []) {
+			[TFW_HTTP_HDR_HOST]		= SLEN("Host:"),
+			[TFW_HTTP_HDR_CONTENT_LENGTH]	= SLEN("Content-Length:"),
+			[TFW_HTTP_HDR_CONTENT_TYPE]	= SLEN("Content-Type:"),
+			[TFW_HTTP_HDR_CONNECTION]	= SLEN("Connection:"),
+			[TFW_HTTP_HDR_X_FORWARDED_FOR]	= SLEN("X-Forwarded-For:"),
+			[TFW_HTTP_HDR_KEEP_ALIVE]	= SLEN("Keep-Alive:"),
+			[TFW_HTTP_HDR_TRANSFER_ENCODING]= SLEN("Transfer-Encoding:"),
+			[TFW_HTTP_HDR_SERVER]		= SLEN("Server:"),
+			[TFW_HTTP_HDR_SET_COOKIE]	= SLEN("Set-Cookie:"),
+			[TFW_HTTP_HDR_ETAG]		= SLEN("ETag:"),
+			[TFW_HTTP_HDR_REFERER]		= SLEN("Referer:"),
+		},
+		(unsigned char []) {
+			[TFW_HTTP_HDR_HOST]		= SLEN("Host:"),
+			[TFW_HTTP_HDR_CONTENT_LENGTH]	= SLEN("Content-Length:"),
+			[TFW_HTTP_HDR_CONTENT_TYPE]	= SLEN("Content-Type:"),
+			[TFW_HTTP_HDR_CONNECTION]	= SLEN("Connection:"),
+			[TFW_HTTP_HDR_X_FORWARDED_FOR]	= SLEN("X-Forwarded-For:"),
+			[TFW_HTTP_HDR_KEEP_ALIVE]	= SLEN("Keep-Alive:"),
+			[TFW_HTTP_HDR_TRANSFER_ENCODING]= SLEN("Transfer-Encoding:"),
+			[TFW_HTTP_HDR_USER_AGENT]	= SLEN("User-Agent:"),
+			[TFW_HTTP_HDR_COOKIE]		= SLEN("Cookie:"),
+			[TFW_HTTP_HDR_IF_NONE_MATCH]	= SLEN("If-None-Match:"),
+			[TFW_HTTP_HDR_REFERER]		= SLEN("Referer:"),
+		},
 	};
-
 	TfwStr *c, *end;
 	int nlen;
 
-	BUILD_BUG_ON(ARRAY_SIZE(hdr_lens) != TFW_HTTP_HDR_RAW);
 	/* Empty and plain strings don't have header value part. */
 	if (unlikely(TFW_STR_PLAIN(hdr))) {
 		TFW_STR_INIT(val);
@@ -194,15 +207,7 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 	BUG_ON(TFW_STR_DUP(hdr));
 	BUG_ON(id >= TFW_HTTP_HDR_RAW);
 
-	if (unlikely(id == TFW_HTTP_HDR_SERVER && client))
-		nlen = SLEN("User-Agent:");
-	else if (unlikely(id == TFW_HTTP_HDR_ETAG && client))
-		nlen = SLEN("If-None-Match:");
-	else if (unlikely(id == TFW_HTTP_HDR_SET_COOKIE && client))
-		nlen = SLEN("Cookie:");
-	else
-		nlen = hdr_lens[id];
-
+	nlen = hdr_lens[client][id];
 	/*
 	 * Only Host header is allowed to be empty.
 	 * If header string is plain, it is always empty header.
