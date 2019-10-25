@@ -252,6 +252,7 @@ tfw_addr_pton(const TfwStr *str, TfwAddr *addr)
 					goto delim;
 			}
 		}
+		return ret;
 delim:
 		if (*pos == ':') {
 			mode = 6;
