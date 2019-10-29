@@ -380,51 +380,51 @@ TFW_INIT_CUSTOM_A(cookie);
 #endif /* AVX2 */
 
 /**
- * Quickly get number of digits - 1, e.g. returns '0' for '7' and '2' for '333'.
+ * Quickly get number of digits, e.g. returns '1' for '7' and '3' for '333'.
  * It's assumed that small numbers are likely.
  */
 static inline unsigned int
 __dig_num_dec(unsigned long a)
 {
 	if (a < 10)
-		return 0;
-	if (a < 100)
 		return 1;
-	if (a < 1000)
+	if (a < 100)
 		return 2;
-	if (a < 10000)
+	if (a < 1000)
 		return 3;
-	if (a < 100000)
+	if (a < 10000)
 		return 4;
-	if (a < 1000000)
+	if (a < 100000)
 		return 5;
-	if (a < 10000000)
+	if (a < 1000000)
 		return 6;
-	if (a < 100000000)
+	if (a < 10000000)
 		return 7;
-	if (a < 1000000000)
+	if (a < 100000000)
 		return 8;
-	if (a < 10000000000)
+	if (a < 1000000000)
 		return 9;
-	if (a < 100000000000UL)
+	if (a < 10000000000)
 		return 10;
-	if (a < 1000000000000UL)
+	if (a < 100000000000UL)
 		return 11;
-	if (a < 10000000000000UL)
+	if (a < 1000000000000UL)
 		return 12;
-	if (a < 100000000000000UL)
+	if (a < 10000000000000UL)
 		return 13;
-	if (a < 1000000000000000UL)
+	if (a < 100000000000000UL)
 		return 14;
-	if (a < 10000000000000000UL)
+	if (a < 1000000000000000UL)
 		return 15;
-	if (a < 100000000000000000UL)
+	if (a < 10000000000000000UL)
 		return 16;
-	if (a < 1000000000000000000UL)
+	if (a < 100000000000000000UL)
 		return 17;
-	if (a < 10000000000000000000UL)
+	if (a < 1000000000000000000UL)
 		return 18;
-	return 19;
+	if (a < 10000000000000000000UL)
+		return 19;
+	return 20;
 }
 
 /**
@@ -434,8 +434,8 @@ static inline unsigned int
 __dig_num_hex(unsigned long a)
 {
 	if (a == 0)
-		return 0;
-	return __fls(a) / 4;
+		return 1;
+	return __fls(a) / 4 + 1;
 }
 
 /**
@@ -449,16 +449,16 @@ tfw_ultoa(unsigned long ai, char *buf, unsigned int len)
 	size_t n = __dig_num_dec(ai);
 	char *p = buf + n;
 
-	if (unlikely(n + 1 > len))
+	if (unlikely(n > len))
 		return 0;
 
 	do {
 		/* Compiled to only one MUL instruction with -O2. */
-		*p-- = "0123456789"[ai % 10];
+		*--p = "0123456789"[ai % 10];
 		ai /= 10;
 	} while (ai);
 
-	return n + 1;
+	return n;
 }
 EXPORT_SYMBOL(tfw_ultoa);
 
@@ -471,16 +471,16 @@ tfw_ultohex(unsigned long ai, char *buf, unsigned int len)
 	size_t n = __dig_num_hex(ai);
 	char *p = buf + n;
 
-	if (unlikely(n + 1 > len))
+	if (unlikely(n > len))
 		return 0;
 
 	do {
 		/* Compiled to only one MUL instruction with -O2. */
-		*p-- = "0123456789abcdef"[ai % 16];
+		*--p = "0123456789abcdef"[ai % 16];
 		ai /= 16;
 	} while (ai);
 
-	return n + 1;
+	return n;
 }
 EXPORT_SYMBOL(tfw_ultohex);
 
