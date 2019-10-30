@@ -922,9 +922,6 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 		return T_OK;
 	}
 
-	/*
-	 * TODO #309: apply settings entry.
-	 */
 	return T_OK;
 }
 

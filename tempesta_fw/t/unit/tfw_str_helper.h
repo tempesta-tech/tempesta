@@ -27,8 +27,10 @@ void free_all_str(void);
 TfwStr *make_plain_str(const char *data);
 TfwStr *make_compound_str(const char *data);
 TfwStr *make_compound_str2(const char *data1, const char *data2);
-TfwStr *collect_compound_str(TfwStr *res_str, const TfwStr *in_str);
-TfwStr *collect_compound_str2(TfwStr *res_str, char *str, unsigned long len);
+TfwStr *collect_compound_str(TfwStr *res_str, const TfwStr *in_str,
+			     unsigned short flags);
+TfwStr *collect_compound_str2(TfwStr *res_str, char *str, unsigned long len,
+			      unsigned short flags);
 
 #define TFW_STR(name, literal)	TfwStr *name = make_compound_str(literal)
 #define TFW_STR2(name, literal1, literal2) TfwStr *name = make_compound_str2(literal1, literal2)

@@ -105,19 +105,6 @@ typedef struct {
 	TFW_HPACK_ETBL_COMMON;
 } TfwHPackETblIter;
 
-/**
- * HPack strings representation.
- *
- * @ptr		- pointer to the actual string data;
- * @len		- length of the string;
- * @count	- number of users of the string instance.
- */
-typedef struct {
-	char			*ptr;
-	unsigned long		len;
-	int			count;
-} TfwHPackStr;
-
 typedef enum {
 	TFW_H2_TRANS_ADD	= 0,
 	TFW_H2_TRANS_EXPAND,
@@ -153,23 +140,28 @@ typedef enum {
 /**
  * Representation of the entry in HPack decoder index.
  *
+ * @hdr		- pointer to the header data descriptor;
  * @name_len	- length of the header's name part;
  * @name_num	- chunks count of the header's name part;
  * @tag		- tag of the indexed header;
- * @hdr		- descriptor of the header data.
+ * @last	- flag bit indicating that corresponding header is the last on the page.
  */
 typedef struct {
+	TfwStr			*hdr;
 	unsigned long		name_len;
-	unsigned int		name_num;
+	unsigned long		name_num;
 	unsigned int		tag;
-	TfwStr			hdr[0];
+	unsigned char		last : 1;
 } TfwHPackEntry;
 
 /**
  * HPack decoder dynamic index table.
  *
  * @entries	- dynamic table of entries;
- * @pool	- memory pool for dynamic table;
+ * @pool	- memory pool for constantly sized entries (i.e. the entry
+ *		  descriptors);
+ * @h_pool	- memory pool for entries of variable size (headers themselves
+ *		- and @TfwStr descriptors for them);
  * @n		- actual number of entries in the table;
  * @curr	- circular buffer index of recent entry;
  * @length	- current length of the dynamic table (in entries);
@@ -180,6 +172,7 @@ typedef struct {
 typedef struct {
 	TfwHPackEntry		*entries;
 	TfwPool			*pool;
+	TfwPool			*h_pool;
 	unsigned int		n;
 	unsigned int		curr;
 	unsigned int		length;
