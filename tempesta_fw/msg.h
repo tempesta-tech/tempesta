@@ -69,9 +69,6 @@ typedef struct {
  * @hb_len	- length of the message HTTP/2 headers block;
  * @hdrs_len	- accumulated length of message's decoded and parsed headers;
  * @hdrs_cnt	- count of all headers from message headers block;
- * @start_pos	- pointer to the beginning of decoded headers' buffer; used
- *		  as start point during exporting buffer pages to message's
- *		  target skb;
  * @__off	- offset for iterator reinitializing before next processing
  *		  stage;
  * @hdr		- descriptor of currently decoded header in target buffer;
@@ -90,7 +87,6 @@ typedef struct {
 	unsigned long	hb_len;
 	unsigned long	hdrs_len;
 	unsigned int	hdrs_cnt;
-	char		*start_pos;
 	char		__off[0];
 	TfwStr		hdr;
 	char		*pos;

@@ -252,6 +252,35 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 EXPORT_SYMBOL(__http_msg_hdr_val);
 
 void
+__h2_msg_hdr_name(TfwStr *hdr, TfwStr *out_name)
+{
+	TfwStr *c, *end;
+
+	if (unlikely(TFW_STR_EMPTY(hdr))) {
+		TFW_STR_INIT(out_val);
+		return;
+	}
+
+	BUG_ON(TFW_STR_DUP(hdr));
+	BUG_ON(TFW_STR_EMPTY(hdr));
+
+	*out_name = *hdr;
+
+	if (unlikely(TFW_STR_PLAIN(hdr))) {
+		WARN_ON_ONCE(hdr->flags & TFW_STR_HDR_VALUE)
+		return;
+	}
+
+	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
+		if (c->flags & TFW_STR_HDR_VALUE) {
+			out_name->len -= c->len;
+			out_name->nchunks--;
+		}
+	}
+}
+EXPORT_SYMBOL(__h2_msg_hdr_name);
+
+void
 __h2_msg_hdr_val(TfwStr *hdr, TfwStr *out_val)
 {
 	TfwStr *c, *end;
@@ -277,6 +306,7 @@ __h2_msg_hdr_val(TfwStr *hdr, TfwStr *out_val)
 	/* Empty header value part. */
 	TFW_STR_INIT(out_val);
 }
+EXPORT_SYMBOL(__h2_msg_hdr_val);
 
 /**
  * Slow check of generic (raw) header for singularity.
@@ -504,7 +534,15 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 	 * Both the headers, the new one and existing one, can already be
 	 * compound.
 	 */
-	id = __hdr_lookup(hm, &parser->hdr);
+	if (TFW_MSG_H2(hm)) {
+		TfwStr h_name;
+
+		__h2_msg_hdr_name(&parser->hdr, &h_name);
+		id = __h2_hdr_lookup(hm, &h_name);
+	}
+	else {
+		id = __hdr_lookup(hm, &parser->hdr);
+	}
 
 	/* Allocate some more room if not enough to store the header. */
 	if (unlikely(id == ht->size)) {

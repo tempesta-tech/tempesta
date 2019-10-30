@@ -942,75 +942,105 @@ static const HTState ht_decode[] ____cacheline_aligned = {
 	{6, 0},			/* 2: EOS */
 };
 
-#define HP_STR(str)						\
-	(&(TfwHPackStr){					\
-		.ptr = str,					\
-		.len = sizeof(str) - 1,				\
-		.count = -1					\
-	})
+#define HP_HDR_NAME(name, h_tag)					\
+	((TfwHPackEntry){						\
+		.hdr = &(TfwStr){					\
+			.chunks = &(TfwStr){				\
+				.data = name,				\
+				.len = SLEN(name),			\
+			},						\
+			.len = SLEN(name),				\
+			.nchunks = 1					\
+		},							\
+		.name_len = SLEN(name),					\
+		.name_num = 1,						\
+		.tag = h_tag						\
+})
+
+#define HP_HDR_FULL(name, value, h_tag)					\
+	((TfwHPackEntry){						\
+		.hdr = &(TfwStr){					\
+			.chunks = (TfwStr []){				\
+				{					\
+					.data = name,			\
+					.len = SLEN(name)		\
+				},					\
+				{					\
+					.data = value,			\
+					.len = SLEN(value),		\
+					.flags = TFW_STR_HDR_VALUE	\
+				}					\
+			},						\
+			.len = SLEN(name) + SLEN(value),		\
+			.nchunks = 2					\
+		},							\
+		.name_len = SLEN(name),					\
+		.name_num = 1,						\
+		.tag = h_tag						\
+})
 
 static const TfwHPackEntry static_table[] ____cacheline_aligned = {
-	{ HP_STR(":authority"),		NULL,	TFW_TAG_HDR_H2_AUTHORITY },
-	{ HP_STR(":method"),		HP_STR("GET"),	TFW_TAG_HDR_H2_METHOD },
-	{ HP_STR(":method"),		HP_STR("POST"), TFW_TAG_HDR_H2_METHOD },
-	{ HP_STR(":path"),		HP_STR("/"),	TFW_TAG_HDR_H2_PATH },
-	{ HP_STR(":path"),	HP_STR("/index.html"),	TFW_TAG_HDR_H2_PATH },
-	{ HP_STR(":scheme"),		HP_STR("http"),	TFW_TAG_HDR_H2_SCHEME },
-	{ HP_STR(":scheme"),		HP_STR("https"),TFW_TAG_HDR_H2_SCHEME },
-	{ HP_STR(":status"),		HP_STR("200"),	TFW_TAG_HDR_H2_STATUS },
-	{ HP_STR(":status"),		HP_STR("204"),	TFW_TAG_HDR_H2_STATUS },
-	{ HP_STR(":status"),		HP_STR("206"),	TFW_TAG_HDR_H2_STATUS },
-	{ HP_STR(":status"),		HP_STR("304"),	TFW_TAG_HDR_H2_STATUS },
-	{ HP_STR(":status"),		HP_STR("400"),	TFW_TAG_HDR_H2_STATUS },
-	{ HP_STR(":status"),		HP_STR("404"),	TFW_TAG_HDR_H2_STATUS },
-	{ HP_STR(":status"),		HP_STR("500"),	TFW_TAG_HDR_H2_STATUS },
-	{ HP_STR("accept-charset"),	NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("accept-encoding"), HP_STR("gzip, deflate"), TFW_TAG_HDR_RAW },
-	{ HP_STR("accept-language"),	NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("accept-ranges"),	NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("accept"),		NULL,		TFW_TAG_HDR_ACCEPT },
-	{ HP_STR("access-control-allow-origin"), NULL,	TFW_TAG_HDR_RAW },
-	{ HP_STR("age"),		NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("allow"),		NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("authorization"),	NULL,	TFW_TAG_HDR_AUTHORIZATION },
-	{ HP_STR("cache-control"),	NULL,	TFW_TAG_HDR_CACHE_CONTROL },
-	{ HP_STR("content-disposition"), NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("content-encoding"),	NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("content-language"),	NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("content-length"),	NULL,	TFW_TAG_HDR_CONTENT_LENGTH },
-	{ HP_STR("content-location"),	NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("content-range"),	NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("content-type"),	NULL,	TFW_TAG_HDR_CONTENT_TYPE },
-	{ HP_STR("cookie"),		NULL,		TFW_TAG_HDR_COOKIE },
-	{ HP_STR("date"),		NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("etag"),		NULL,		TFW_TAG_HDR_ETAG },
-	{ HP_STR("expect"),		NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("expires"),		NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("from"),		NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("host"),		NULL,		TFW_TAG_HDR_HOST },
-	{ HP_STR("if-match"),		NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("if-modified-since"),	NULL,	TFW_TAG_HDR_IF_MODIFIED_SINCE },
-	{ HP_STR("if-none-match"),	NULL,	TFW_TAG_HDR_IF_NONE_MATCH },
-	{ HP_STR("if-range"),		NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("if-unmodified-since"), NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("last-modified"),	NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("link"),		NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("location"),		NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("max-forwards"),	NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("proxy-authenticate"),	NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("proxy-authorization"), NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("range"),		NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("referer"),		NULL,		TFW_TAG_HDR_REFERER },
-	{ HP_STR("refresh"),		NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("retry-after"),	NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("server"),		NULL,		TFW_TAG_HDR_SERVER },
-	{ HP_STR("set-cookie"),		NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("strict-transport-security"), NULL,	TFW_TAG_HDR_RAW },
-	{ HP_STR("transfer-encoding"),	NULL,	TFW_TAG_HDR_TRANSFER_ENCODING },
-	{ HP_STR("user-agent"),		NULL,	TFW_TAG_HDR_USER_AGENT },
-	{ HP_STR("vary"),		NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("via"),		NULL,		TFW_TAG_HDR_RAW },
-	{ HP_STR("www-authenticate"),	NULL,		TFW_TAG_HDR_RAW }
+	HP_HDR_NAME(":authority",		TFW_TAG_HDR_H2_AUTHORITY),
+	HP_HDR_FULL(":method", "GET",		TFW_TAG_HDR_H2_METHOD),
+	HP_HDR_FULL(":method", "POST",		TFW_TAG_HDR_H2_METHOD),
+	HP_HDR_FULL(":path", "/",		TFW_TAG_HDR_H2_PATH),
+	HP_HDR_FULL(":path", "/index.html",	TFW_TAG_HDR_H2_PATH),
+	HP_HDR_FULL(":scheme", "http",		TFW_TAG_HDR_H2_SCHEME),
+	HP_HDR_FULL(":scheme", "https",		TFW_TAG_HDR_H2_SCHEME),
+	HP_HDR_FULL(":status", "200",		TFW_TAG_HDR_H2_STATUS),
+	HP_HDR_FULL(":status", "204",		TFW_TAG_HDR_H2_STATUS),
+	HP_HDR_FULL(":status", "206",		TFW_TAG_HDR_H2_STATUS),
+	HP_HDR_FULL(":status", "304",		TFW_TAG_HDR_H2_STATUS),
+	HP_HDR_FULL(":status", "400",		TFW_TAG_HDR_H2_STATUS),
+	HP_HDR_FULL(":status", "404",		TFW_TAG_HDR_H2_STATUS),
+	HP_HDR_FULL(":status", "500",		TFW_TAG_HDR_H2_STATUS),
+	HP_HDR_NAME("accept-charset",		TFW_TAG_HDR_RAW),
+	HP_HDR_FULL("accept-encoding", "gzip, deflate",	TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("accept-language",		TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("accept-ranges",		TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("accept",			TFW_TAG_HDR_ACCEPT),
+	HP_HDR_NAME("access-control-allow-origin",	TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("age",			TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("allow",			TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("authorization",		TFW_TAG_HDR_AUTHORIZATION),
+	HP_HDR_NAME("cache-control",		TFW_TAG_HDR_CACHE_CONTROL),
+	HP_HDR_NAME("content-disposition",	TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("content-encoding",		TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("content-language",		TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("content-length",		TFW_TAG_HDR_CONTENT_LENGTH),
+	HP_HDR_NAME("content-location",		TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("content-range",		TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("content-type",		TFW_TAG_HDR_CONTENT_TYPE),
+	HP_HDR_NAME("cookie",			TFW_TAG_HDR_COOKIE),
+	HP_HDR_NAME("date",			TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("etag",			TFW_TAG_HDR_ETAG),
+	HP_HDR_NAME("expect",			TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("expires",			TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("from",			TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("host",			TFW_TAG_HDR_HOST),
+	HP_HDR_NAME("if-match",			TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("if-modified-since",	TFW_TAG_HDR_IF_MODIFIED_SINCE),
+	HP_HDR_NAME("if-none-match",		TFW_TAG_HDR_IF_NONE_MATCH),
+	HP_HDR_NAME("if-range",			TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("if-unmodified-since",	TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("last-modified",		TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("link",			TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("location",			TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("max-forwards",		TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("proxy-authenticate",	TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("proxy-authorization",	TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("range",			TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("referer",			TFW_TAG_HDR_REFERER),
+	HP_HDR_NAME("refresh",			TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("retry-after",		TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("server",			TFW_TAG_HDR_SERVER),
+	HP_HDR_NAME("set-cookie",		TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("strict-transport-security",	TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("transfer-encoding",	TFW_TAG_HDR_TRANSFER_ENCODING),
+	HP_HDR_NAME("user-agent",		TFW_TAG_HDR_USER_AGENT),
+	HP_HDR_NAME("vary",			TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("via",			TFW_TAG_HDR_RAW),
+	HP_HDR_NAME("www-authenticate",		TFW_TAG_HDR_RAW)
 };
 
 #define HPACK_STATIC_ENTRIES (sizeof(static_table) / sizeof(TfwHPackEntry))
@@ -1133,8 +1163,6 @@ do {								\
 
 #define	BUFFER_HDR_INIT(length, it)				\
 do {								\
-	if (!(it)->start_pos)					\
-		(it)->start_pos = (it)->pos;			\
 	(it)->hdr.data = (it)->pos;				\
 	(it)->hdr.len = length;					\
 	(it)->next = &(it)->hdr;				\
@@ -1477,68 +1505,30 @@ end:
 	return T_DROP;
 }
 
-static inline TfwHPackStr *
-tfw_hpack_create_str(unsigned long len)
-{
-	TfwHPackStr *str;
 
-	if (!(str = kmalloc(sizeof(TfwHPackStr) + len, GFP_ATOMIC)))
-		return NULL;
-	str->ptr = (char *)(str + 1);
-	str->len = len;
-	str->count = 1;
-
-	++act_hp_str_n;
-
-	return str;
-}
-
-static inline void
-tfw_hpack_str_get(TfwHPackStr *hp_str)
-{
-	if (hp_str->count == -1)
-		return;
-
-	++hp_str->count;
-}
-
-static inline void
-tfw_hpack_str_put(TfwHPackStr *hp_str)
-{
-	if (hp_str->count == -1)
-		return;
-
-	WARN_ON_ONCE(hp_str->count <= 0);
-
-	if (--hp_str->count == 0) {
-		--act_hp_str_n;
-		kfree(hp_str);
-	}
-}
-
-static TfwHPackEntry *
-tfw_hpack_create_entry(TfwPool *__restrict pool, TfwMsgParseIter *__restrict it)
+static int
+tfw_hpack_set_entry(TfwPool *__restrict h_pool, TfwMsgParseIter *__restrict it,
+		    TfwHPackEntry *__restrict entry, bool *__restrict np)
 {
 	char *data;
 	TfwHPackEntry *entry;
 	const TfwStr *d, *s, *end, *d_hdr, *s_hdr = it->parsed_hdr;
 	unsigned long size = sizeof(TfwHPackEntry);
 
-	if (WARN_ON_ONCE(TFW_STR_EMPTY(s_hdr)))
-		return NULL;
+	if (WARN_ON_ONCE(TFW_STR_PLAIN(s_hdr) || TFW_STR_DUP(s_hdr)))
+		return -EINVAL;
 
 	size += (s_hdr->nchunks + 1) * sizeof(TfwStr) + s_hdr->len;
 	T_DBG3("%s: size=%lu, s_hdr->nchunks=%u, s_hdr->len=%lu\n", __func__,
 	       size, s_hdr->nchunks, s_hdr->len);
-	if (!(entry = tfw_pool_alloc(pool, size)))
-		return NULL;
+	if (!(d_hdr = __tfw_pool_alloc(h_pool, size, true, np)))
+		return -ENOMEM;
 
-	d_hdr = entry->hdr;
 	*d_hdr = *s_hdr;
 	d_hdr->chunks = d_hdr + 1;
 	data = (char *)(TFW_STR_LAST(d_hdr) + 1);
 
-	d = TFW_STR_CHUNK(d_hdr, 0);
+	d = d_hdr->chunks;
 	TFW_STR_FOR_EACH_CHUNK(s, s_hdr, end) {
 		*d = *s;
 		d->data = data;
@@ -1555,52 +1545,34 @@ tfw_hpack_create_entry(TfwPool *__restrict pool, TfwMsgParseIter *__restrict it)
 	       __func__, d_hdr->nchunks, d_hdr->len, d_hdr->flags, it->nm_len,
 	       it->nm_num, it->tag);
 
+	entry->hdr = d_hdr;
 	entry->name_len = it->nm_len;
 	entry->name_num = it->nm_num;
 	entry->tag = it->tag;
+	entry->last = false;
 
 	return entry;
-}
-
-static inline void
-tfw_hpack_free_entry(TfwHPackEntry *entry)
-{
-	tfw_hpack_str_put(entry->name);
-	tfw_hpack_str_put(entry->value);
 }
 
 static int
 tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 		    TfwMsgParseIter *__restrict it)
 {
+	int r;
+	bool new_page;
 	unsigned int delta;
-	unsigned long name_len;
-	TfwHPackEntry *entry;
-	const TfwHPackStr *name, *value;
 	unsigned int window, size, new_size;
+	unsigned long hdr_len = it->parsed_hdr->len;
 	unsigned int count = tbl->n;
 	unsigned int curr = tbl->curr;
 	unsigned int length = tbl->length;
-	TfwHPackEntry *entries = tbl->entries;
-	int r = 0;
-
-	if (!(entry = tfw_hpack_create_entry(tbl->pool, it)))
-		return -ENOMEM;
-
-	name = entry.name;
-	value = entry.value;
-	name_len = name->len;
+	TfwHPackEntry *entry, *prev_entry, *entries = tbl->entries;
 
 	/* Check for integer overflow occurred during @delta calculation. */
-	if ((delta = HPACK_ENTRY_OVERHEAD + name_len) < name_len
-	    || (delta += value->len) < value->len)
-	{
-		T_WARN("HPACK decoder: very big header (name->len = %lu,"
-		       " valueb->len = %lu)."
-		       " The entry cannot be added into dynamic table\n",
-		       name_len, value->len);
-		r = -EINVAL;
-		goto out;
+	if ((delta = HPACK_ENTRY_OVERHEAD + hdr_len) < hdr_len)	{
+		T_WARN("HPACK decoder: very big header (hdr_len = %lu). The"
+		       " entry cannot be added into dynamic table\n", hdr_len);
+		return -EINVAL;
 	}
 
 	size = tbl->size;
@@ -1632,13 +1604,11 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 
 			cp = entries + early;
 			do {
-				TfwHPackStr *np = cp->name;
-				TfwHPackStr *vp = cp->value;
-
-				size -= HPACK_ENTRY_OVERHEAD + np->len + vp->len;
+				size -= HPACK_ENTRY_OVERHEAD + cp->hdr->len;
 				T_DBG3("%s: dropped index: %u\n", __func__,
 				       early);
-				tfw_hpack_free_entry(cp);
+				if (cp->last)
+					tfw_pool_clean(tbl->h_pool, cp->hdr);
 				early++;
 				cp++;
 				count--;
@@ -1669,7 +1639,9 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 				do {
 					T_DBG3("%s: drop index: %u\n", __func__,
 					       curr);
-					tfw_hpack_free_entry(cp);
+					if (cp->last)
+						tfw_pool_clean(tbl->h_pool,
+							       cp->hdr);
 					curr++;
 					cp++;
 					if (unlikely(curr == length)) {
@@ -1681,52 +1653,49 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 				tbl->curr = 0;
 				tbl->size = 0;
 			}
-			goto out;
+			return 0;
 		}
 	} else if (unlikely(count == length)) {
 		TfwHPackEntry *previous = entries;
 		TfwPool *pool = tbl->pool;
-		unsigned long block, wrap;
+		unsigned long block, wrap, tail;
 
 		T_DBG3("%s: reallocation index structures...", __func__);
 		if (length) {
 			block = length * sizeof(TfwHPackEntry);
+			new_block = block << 1;
 			entries = tfw_pool_realloc_no_copy(pool, entries,
-							   block, block << 1);
-			if (unlikely(!entries)) {
-				r = -ENOMEM;
-				goto out;
-			}
+							   block, new_block);
+			if (unlikely(!entries))
+				return -ENOMEM;
 
 			length <<= 1;
 			wrap = curr * sizeof(TfwHPackEntry);
-			block -= wrap;
+			tail = block - wrap;
 			if (!curr && entries == previous) {
 				curr = count;
 			}
 			else if (entries == previous) {
-				memcpy_fast(entries + wrap + block,
-					    previous + wrap, block);
+				memcpy_fast(entries + new_block - tail,
+					    entries + wrap, tail);
 			}
 			else {
-				if (block)
+				if (tail)
 					memcpy_fast(entries, previous + wrap,
-						    block);
+						    tail);
 				if (wrap)
-					memcpy_fast(entries + block, previous,
+					memcpy_fast(entries + tail, previous,
 						    wrap);
 
-				tfw_pool_clean(pool);
+				tfw_pool_clean(pool, NULL);
 				curr = count;
 			}
 		} else {
 			length = 32;
 			block = length * sizeof(TfwHPackEntry);
 			entries = tfw_pool_alloc(pool, block);
-			if (unlikely(!entries)) {
-				r = -ENOMEM;
-				goto out;
-			}
+			if (unlikely(!entries))
+				return -ENOMEM;
 		}
 		T_DBG3("%s: table extended, length=%u, curr=%u\n", __func__,
 		       length, curr);
@@ -1735,8 +1704,18 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 		tbl->entries = entries;
 	}
 
-	entries += curr;
-	*entries = entry;
+	entry = entries + curr;
+	if ((r = tfw_hpack_set_entry(tbl->h_pool, it, entry, &new_page)))
+		return r;
+	/*
+	 * If the new entry is placed into the new page, and previous entry
+	 * exists, then mark it as last entry in previous page (in order to
+	 * free unused pages during entries eviction stage).
+	 */
+	if (count && new_page) {
+		prev_entry = curr ? (entry - 1) : (entries + length - 1);
+		prev_entry->last = true;
+	}
 
 	curr++;
 	if (unlikely(curr == length))
@@ -1749,11 +1728,6 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 	       __func__, tbl->curr, tbl->n, tbl->length);
 
 	return 0;
-out:
-	T_DBG3("%s: item not added (r=%d)\n", __func__, r);
-	tfw_hpack_free_entry(&entry);
-
-	return r;
 }
 
 static TfwHPackEntry *
@@ -1779,8 +1753,10 @@ tfw_hpack_find_index(TfwHPackDTbl *__restrict tbl, unsigned long index)
 		}
 		T_DBG3("%s: tbl->length=%u, tbl->curr=%u, curr=%u, index=%lu\n",
 		      __func__, tbl->length, tbl->curr, curr, index);
+
 		entry = tbl->entries + curr;
-		BUG_ON(!entry->name || !entry->value);
+		WARN_ON_ONCE(!entry->hdr->nchunks || entry->name_num != 1);
+
 		return entry;
 	}
 
@@ -1813,16 +1789,15 @@ tfw_hpack_set_length(TfwHPack *__restrict hp, unsigned long new_size)
 		       length, new_size);
 		cp = entries + early;
 		do {
-			TfwHPackStr *np = cp->name;
-			TfwHPackStr *vp = cp->value;
+			unsigned long hdr_len = cp->hdr->len;
 
-			WARN_ON_ONCE(!np->len);
-			WARN_ON_ONCE(!vp->len);
-			size -= HPACK_ENTRY_OVERHEAD + np->len + vp->len;
+			WARN_ON_ONCE(!hdr_len);
+			size -= HPACK_ENTRY_OVERHEAD + hdr_len;
 
 			T_DBG3("%s: drop index, early=%u, count=%u,"
 			       " length=%u\n", __func__, early, count, length);
-			tfw_hpack_free_entry(cp);
+			if (cp->last)
+				tfw_pool_clean(tbl->h_pool, cp->hdr);
 			early++;
 			cp++;
 			count--;
@@ -1862,26 +1837,33 @@ tfw_hpack_init(TfwHPack *__restrict hp, unsigned int htbl_sz)
 	dt->window = hp->max_window = htbl_sz;
 	if (!(dt->pool = __tfw_pool_new(0)))
 		return -ENOMEM;
+	if (!(dt->h_pool = __tfw_pool_new(0)))
+		goto err_dt;
 
 	et->window = htbl_sz;
 	spin_lock_init(&et->lock);
 	et->rb_size = HPACK_ENC_TABLE_MAX_SIZE;
-	if (!(et->pool = __tfw_pool_new(HPACK_ENC_TABLE_MAX_SIZE))) {
-		tfw_pool_destroy(dt->pool);
-		return -ENOMEM;
-	}
+	if (!(et->pool = __tfw_pool_new(HPACK_ENC_TABLE_MAX_SIZE)))
+		goto err_et;
 	et->rbuf = __tfw_pool_alloc(et->pool, HPACK_ENC_TABLE_MAX_SIZE,
 				    true, &np);
 	BUG_ON(np || !et->rbuf);
 
 	return 0;
+
+err_et:
+	tfw_pool_destroy(dt->h_pool);
+err_dt:
+	tfw_pool_destroy(dt->pool);
+
+	return -ENOMEM;
 }
 
 void
 tfw_hpack_clean(TfwHPack *__restrict hp)
 {
 	tfw_pool_destroy(hp->enc_tbl.pool);
-	tfw_hpack_set_length(hp, 0);
+	tfw_pool_destroy(hp->dec_tbl.h_pool);
 	tfw_pool_destroy(hp->dec_tbl.pool);
 	WARN_ON_ONCE(act_hp_str_n);
 }
@@ -1952,37 +1934,33 @@ tfw_hpack_hdr_name_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 	char *data;
 	TfwStr *d;
 	const TfwStr *s, *end;
-	TfwHttpParser *parser = &req->stream->parser;
-	TfwStr *d_hdr = &parser->hdr;
-	TfwStr *s_hdr = entry->hdr;
 	TfwMsgParseIter *it = &req->pit;
+	TfwStr *d_hdr = it->parsed_hdr;
+	TfwStr *s_hdr = entry->hdr;
+
 	unsigned int num = entry->name_num;
 	unsigned long sz = entry->name_len;
 
 	WARN_ON_ONCE(!TFW_STR_EMPTY(d_hdr));
+	if (WARN_ON_ONCE(!num || num > s_hdr->nchunks))
+		return -EINVAL;
 
 	if (!(data = tfw_pool_alloc_not_align(it->pool, sz)))
 		return T_BAD;
 
 	d_hdr->len = sz;
-	d_hdr->flags = s_hdr->flags;
-
-	if (TFW_STR_PLAIN(s_hdr)) {
-		d_hdr->data = data;
-		goto done;
-	}
-
 	d_hdr->nchunks = num;
+	d_hdr->flags = s_hdr->flags;
 	if (!(d_hdr->chunks = tfw_pool_alloc(req->pool, num * sizeof(TfwStr))))
 		return T_BAD;
 
 	/*
 	 * Since headers in static table cannot be changed, we need to copy only
-	 * descriptors (because they will grow during further processing).
+	 * descriptors (i.e. only high-level and the name descriptors), because
+	 * they will grow during further processing.
 	 */
-	d = __TFW_STR_CH(d_hdr, 0);
+	d = d_hdr->chunks;
 	if (hp->index <= HPACK_STATIC_ENTRIES) {
-		WARN_ON_ONCE(!s_hdr->nchunks);
 		*d = *s_hdr->chunks;
 		goto done;
 	}
@@ -2042,10 +2020,10 @@ tfw_hpack_hdr_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 	 * (without full copying) only references for statically indexed
 	 * headers (also, see comment above).
 	 */
-	d_size = s_hdr->nchunks * sizeof(TfwStr);
 	if (!(data = tfw_pool_alloc_not_align(it->pool, s_hdr->len)))
 		return T_BAD;
 
+	d_size = s_hdr->nchunks * sizeof(TfwStr);
 	if (!(d_hdr->chunks = tfw_pool_alloc(req->pool, d_size)))
 		return T_BAD;
 
@@ -2053,7 +2031,7 @@ tfw_hpack_hdr_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 	d_hdr->flags = s_hdr->flags;
 	d_hdr->nchunks = s_hdr->nchunks;
 
-	d = TFW_STR_CHUNK(d_hdr, 0);
+	d = d_hdr->chunks;
 	TFW_STR_FOR_EACH_CHUNK(s, s_hdr, end) {
 		*d = *s;
 		d->data = data;
@@ -2604,10 +2582,10 @@ do {									\
 #define HPACK_NODE_COND_OFF(tbl, node)					\
 	((node) ? HPACK_NODE_OFF(tbl, node) : -1)
 
-#define HPACK_NODE_ALIGN(sz)	(((sz) + 7) & ~7UL)
+#define HPACK_ALIGN(sz)	(((sz) + 7) & ~7UL)
 
 #define HPACK_NODE_SIZE(node)						\
-	HPACK_NODE_ALIGN(sizeof(TfwHPackNode) + ((TfwHPackNode *)node)->hdr_len)
+	HPACK_ALIGN(sizeof(TfwHPackNode) + ((TfwHPackNode *)node)->hdr_len)
 
 #define HPACK_NODE_NEXT(node)						\
 	((TfwHPackNode *)((char *)(node) + HPACK_NODE_SIZE(node)))
@@ -3442,7 +3420,7 @@ tfw_hpack_add_node(TfwHPackETbl *__restrict tbl, const TfwStr *__restrict hdr,
 	    && tfw_hpack_rbuf_calc(tbl, window - node_size, del_list, &it))
 		return -E2BIG;
 
-	node_len = HPACK_NODE_ALIGN(sizeof(TfwHPackNode) + hdr_len);
+	node_len = HPACK_ALIGN(sizeof(TfwHPackNode) + hdr_len);
 
 	if (it.rb_size < it.rb_len + node_len) {
 		WARN_ON_ONCE(it.rb_size == HPACK_ENC_TABLE_MAX_SIZE);
@@ -3735,7 +3713,7 @@ copy:
 	return 0;
 }
 
-//comment is needed
+//!!! comment is needed
 static int
 tfw_hpack_lit_add(TfwHttpResp *__restrict resp, TfwStr *__restrict first,
 		  TfwStr *__restrict hdr, TfwHPackInt *__restrict idx,
@@ -3808,7 +3786,7 @@ tfw_hpack_lit_add(TfwHttpResp *__restrict resp, TfwStr *__restrict first,
 	return 0;
 }
 
-//comment is needed
+//!!! comment is needed
 static int
 tfw_hpack_lit_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 		     TfwHPackInt *__restrict idx, bool name_indexed)
@@ -3892,7 +3870,7 @@ tfw_hpack_lit_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	return 0;
 }
 
-//comment is needed (about @fc too)
+//!!! comment is needed (about @fc too)
 static inline int
 tfw_hpack_lit_sub(TfwHttpResp *__restrict resp, TfwStr *__restrict tgt,
 		  TfwStr *__restrict hdr, TfwHPackInt *__restrict idx,
@@ -4040,7 +4018,7 @@ tfw_hpack_lit_inplace(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	return 0;
 }
 
-//comment is needed (including the @tgt description)
+//!!! comment is needed (including the @tgt description)
 int
 tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict tgt,
 		 TfwStr *__restrict hdr, TfwH2TransOp op)

@@ -50,6 +50,7 @@ __tfw_http_msg_set_str_data(TfwStr *str, void *data, struct sk_buff *skb)
 	__tfw_http_msg_set_str_data(str, data,				\
 				    ss_skb_peek_tail(&hm->msg.skb_head))
 
+void __h2_msg_hdr_name(TfwStr *hdr, TfwStr *out_name);
 void __h2_msg_hdr_val(TfwStr *hdr, TfwStr *out_val);
 void __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client);
 
