@@ -1934,7 +1934,6 @@ __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	__FSM_STATE(Req_I_Subtype) {
 		__FSM_I_MATCH_MOVE(token, Req_I_Subtype);
-		c = *(p + __fsm_sz);
 		__FSM_I_MOVE_n(I_EoT, __fsm_sz);
 	}
 
@@ -1967,7 +1966,6 @@ __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (c == '\"')
 			__FSM_I_MOVE(Req_I_QuotedString);
 		__FSM_I_MATCH_MOVE(token, Req_I_ParamValue);
-		c = *(p + __fsm_sz);
 		__FSM_I_MOVE_n(I_EoT, __fsm_sz);
 	}
 

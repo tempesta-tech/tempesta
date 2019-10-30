@@ -369,7 +369,7 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 	tfw_http_match_fld_t field = TFW_HTTP_MATCH_F_WILDCARD;
 	tfw_http_match_arg_t type = TFW_HTTP_MATCH_A_WILDCARD;
 	TfwCfgRule *cfg_rule = &e->rule;
-	size_t len = 0, arg_size = 0;
+	size_t arg_size = 0;
 	TfwHttpChain *chain = NULL;
 	TfwVhost *vhost = NULL;
 
@@ -385,8 +385,6 @@ tfw_cfgop_http_rule(TfwCfgSpec *cs, TfwCfgEntry *e)
 	in_field = cfg_rule->fst;
 	hdr = cfg_rule->fst_ext;
 	in_arg = cfg_rule->snd;
-	if (in_arg)
-		len = strlen(in_arg);
 	action = cfg_rule->act;
 	action_val = cfg_rule->val;
 	BUG_ON(!action);
