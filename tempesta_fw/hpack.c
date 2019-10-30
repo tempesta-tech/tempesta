@@ -1554,6 +1554,25 @@ tfw_hpack_set_entry(TfwPool *__restrict h_pool, TfwMsgParseIter *__restrict it,
 	return entry;
 }
 
+/*
+ * The procedure for adding new header into the HPACK decoder table.
+ * Note, that our decoder dynamic table must satisfy several main requirements:
+ *	1. Provide fast direct access to entries by index;
+ *	2. Be able to increase, since the real size of our table is always
+ *	   greater than it's standardized pseudo-size (RFC 7541 section 4.1);
+ * 	3. Store the records with variable size (headers strings and their
+ *	   @TfwStr descriptors).
+ * To meet this specification, the current decoder dynamic table is using two
+ * pools (see @pool and @h_pool members in @TfwHPackDTbl structure description):
+ * the first one is intended for storage of constant length entries (because we
+ * need a quick access by index for the entries of decoder table) and it is
+ * always a single resizable chunk in the memory, relocatable between different
+ * pages in the pool (in case of storage growth); the purpose of the second pool
+ * is to store records with variable size (the headers strings and their @TfwStr
+ * descriptors) - this storage area cannot be relocated during growth due to
+ * internal pointers of @TfwStr, but can be shared between different pages of
+ * the pool; in general scheme the first module refers to the second one.
+ */
 static int
 tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 		    TfwMsgParseIter *__restrict it)
@@ -3713,9 +3732,12 @@ copy:
 	return 0;
 }
 
-//!!! comment is needed
+/*
+ * Add header @hdr in HTTP/2 HPACK format into the response @resp, before
+ * the @first data.
+ */
 static int
-tfw_hpack_lit_add(TfwHttpResp *__restrict resp, TfwStr *__restrict first,
+tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict first,
 		  TfwStr *__restrict hdr, TfwHPackInt *__restrict idx,
 		  bool name_indexed)
 {
@@ -3786,9 +3808,13 @@ tfw_hpack_lit_add(TfwHttpResp *__restrict resp, TfwStr *__restrict first,
 	return 0;
 }
 
-//!!! comment is needed
+
+/*
+ * Expand the response @resp with the new @hdr in HTTP/2 HPACK format, via
+ * extending of skb/frags chain.
+ */
 static int
-tfw_hpack_lit_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
+tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 		     TfwHPackInt *__restrict idx, bool name_indexed)
 {
 	int ret;
@@ -3870,9 +3896,12 @@ tfw_hpack_lit_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	return 0;
 }
 
-//!!! comment is needed (about @fc too)
+/*
+ * Substitute the header @tgt with the new header @hdr in HTTP/2 HPACK format
+ * in the response @resp.
+ */
 static inline int
-tfw_hpack_lit_sub(TfwHttpResp *__restrict resp, TfwStr *__restrict tgt,
+tfw_hpack_hdr_sub(TfwHttpResp *__restrict resp, TfwStr *__restrict tgt,
 		  TfwStr *__restrict hdr, TfwHPackInt *__restrict idx,
 		  bool name_indexed)
 {
@@ -3885,7 +3914,7 @@ tfw_hpack_lit_sub(TfwHttpResp *__restrict resp, TfwStr *__restrict tgt,
 
 	fc = TFW_STR_CHUNK(tgt, 0);
 
-	if ((ret = tfw_hpack_lit_add(resp, fc, hdr, idx, name_indexed)))
+	if ((ret = tfw_hpack_hdr_add(resp, fc, hdr, idx, name_indexed)))
 		return ret;
 
 	if ((ret = ss_skb_cutoff_data(skb_head, tgt, 0, tfw_str_eolen(tgt))))
@@ -3894,8 +3923,12 @@ tfw_hpack_lit_sub(TfwHttpResp *__restrict resp, TfwStr *__restrict tgt,
 	return 0;
 }
 
+/*
+ * Transform the HTTP/1.1 header @hdr in-place into HTTP/2 HPACK format in the
+ * response @resp.
+ */
 static int
-tfw_hpack_lit_inplace(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
+tfw_hpack_hdr_inplace(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 		      TfwHPackInt *__restrict idx, bool name_indexed)
 {
 	int r;
@@ -4018,7 +4051,16 @@ tfw_hpack_lit_inplace(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	return 0;
 }
 
-//!!! comment is needed (including the @tgt description)
+/*
+ * Perform encoding of the header @hdr (or @tgt) into the HTTP/2 HPACK format.
+ * The four operation types can be executed here: addition, expansion,
+ * substitution and in-place transformation. In addition or expansion cases
+ * @tgt must be NULL, since the new header is inserted into the message and
+ * there is no target to replace. In case of substitution the header @tgt
+ * must be replaced by new header @hdr, so the both must be present. In-place
+ * transformation changes the header @tgt directly in the message, thus the
+ * @hdr is not needed and must be NULL.
+ */
 int
 tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict tgt,
 		 TfwStr *__restrict hdr, TfwH2TransOp op)
@@ -4083,13 +4125,13 @@ tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict tgt,
 
 		switch (op) {
 		case TFW_H2_TRANS_ADD:
-			return tfw_hpack_lit_add(resp, fc, hdr, &idx, true);
+			return tfw_hpack_hdr_add(resp, fc, hdr, &idx, true);
 		case TFW_H2_TRANS_EXPAND:
-			return tfw_hpack_lit_expand(resp, hdr, &idx, true);
+			return tfw_hpack_hdr_expand(resp, hdr, &idx, true);
 		case TFW_H2_TRANS_SUB:
-			return tfw_hpack_lit_sub(resp, tgt, hdr, &idx, true);
+			return tfw_hpack_hdr_sub(resp, tgt, hdr, &idx, true);
 		case TFW_H2_TRANS_INPLACE:
-			return tfw_hpack_lit_inplace(resp, tgt, &idx, true);
+			return tfw_hpack_hdr_inplace(resp, tgt, &idx, true);
 		default:
 			BUG();
 		}
@@ -4102,13 +4144,13 @@ tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict tgt,
 
 	switch (op) {
 	case TFW_H2_TRANS_ADD:
-		return tfw_hpack_lit_add(resp, fc, hdr, &idx, false);
+		return tfw_hpack_hdr_add(resp, fc, hdr, &idx, false);
 	case TFW_H2_TRANS_EXPAND:
-		return tfw_hpack_lit_expand(resp, hdr, &idx, false);
+		return tfw_hpack_hdr_expand(resp, hdr, &idx, false);
 	case TFW_H2_TRANS_SUB:
-		return tfw_hpack_lit_sub(resp, tgt, hdr, &idx, false);
+		return tfw_hpack_hdr_sub(resp, tgt, hdr, &idx, false);
 	case TFW_H2_TRANS_INPLACE:
-		return tfw_hpack_lit_inplace(resp, tgt, &idx, false);
+		return tfw_hpack_hdr_inplace(resp, tgt, &idx, false);
 	default:
 		BUG();
 	}
