@@ -2100,8 +2100,6 @@ tfw_cfgop_in_tls_any_sni(TfwCfgSpec *cs, TfwCfgEntry *ce)
 static int
 tfw_cfgop_out_tls_any_sni(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	if (tfw_vhosts_reconfig->expl_dflt && ce->dflt_value)
-		return 0;
 	if (tfw_vhosts_reconfig->expl_dflt) {
 		if (ce->dflt_value) {
 			return 0;
