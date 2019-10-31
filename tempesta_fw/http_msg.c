@@ -254,10 +254,10 @@ EXPORT_SYMBOL(__http_msg_hdr_val);
 void
 __h2_msg_hdr_name(TfwStr *hdr, TfwStr *out_name)
 {
-	TfwStr *c, *end;
+	const TfwStr *c, *end;
 
 	if (unlikely(TFW_STR_EMPTY(hdr))) {
-		TFW_STR_INIT(out_val);
+		TFW_STR_INIT(out_name);
 		return;
 	}
 
@@ -267,7 +267,7 @@ __h2_msg_hdr_name(TfwStr *hdr, TfwStr *out_name)
 	*out_name = *hdr;
 
 	if (unlikely(TFW_STR_PLAIN(hdr))) {
-		WARN_ON_ONCE(hdr->flags & TFW_STR_HDR_VALUE)
+		WARN_ON_ONCE(hdr->flags & TFW_STR_HDR_VALUE);
 		return;
 	}
 

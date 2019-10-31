@@ -239,7 +239,7 @@ int tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict tgt,
 		     TfwStr *__restrict hdr, TfwH2TransOp op);
 void tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl,
 			     unsigned short new_size);
-int tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *src,
+int tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 		     unsigned long n, TfwHttpReq *__restrict req,
 		     unsigned int *__restrict parsed);
 void tfw_hpack_enc_release(TfwHPack *__restrict hp, unsigned long *flags);
