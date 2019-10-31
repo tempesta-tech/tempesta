@@ -140,7 +140,7 @@ TEST(hpack, dec_table_static)
 	if (entry) {
 		hdr = entry->hdr;
 		EXPECT_EQ(hdr->nchunks, 2);
-		EXPECT_EQ(aenc_len, entry->nm_len);
+		EXPECT_EQ(aenc_len, entry->name_len);
 		EXPECT_TRUE(tfw_str_eq_cstr(hdr, s_aenc, aenc_len,
 					    TFW_STR_EQ_PREFIX));
 		__h2_msg_hdr_val(hdr, &h_val);
@@ -163,7 +163,7 @@ TEST(hpack, dec_table_dynamic)
 {
 	TfwHPack *hp;
 	const TfwHPackEntry *entry;
-	TfwStr h_val, *hdr, *s1, *s2, *s3;
+	TfwStr *s1, *s2, *s3;
 	TfwMsgParseIter *it = &test_req->pit;
 	unsigned int new_len = 0;
 	TFW_STR(s1_name, "custom-key");
@@ -370,7 +370,7 @@ TEST(hpack, dec_table_wrap)
 
 			EXPECT_NOT_NULL(l_entry->hdr);
 			if (l_entry->hdr) {
-				EXPECT_EQ(l_entry->hdr, t_entry-hdr);
+				EXPECT_EQ(l_entry->hdr, t_entry->hdr);
 			}
 		}
 
@@ -386,7 +386,6 @@ TEST(hpack, dec_raw)
 	TfwHttpHdrTbl *ht;
 	TfwStr h_name, h_value;
 	unsigned int parsed;
-	unsigned long test_len1, test_len2, test_len3;
 
 #define HDR_NAME_1	"custom-key"
 #define HDR_VALUE_1	"custom-value"
@@ -398,7 +397,7 @@ TEST(hpack, dec_raw)
 	const char *test_name1 = HDR_NAME_1;
 	const char *test_value1 = HDR_VALUE_1;
 	unsigned long hdr_len1 = 25;
-	const char *hdr_data1 =
+	char *hdr_data1 =
 		"\x40"			/* == With indexing ==		*/
 		"\x0A"			/* Literal name (len = 10)	*/
 		"\x63\x75\x73\x74\x6F"	/* custom-key			*/
@@ -411,7 +410,7 @@ TEST(hpack, dec_raw)
 	const char *test_name2 = HDR_NAME_2;
 	const char *test_value2 = HDR_VALUE_2;
 	unsigned long hdr_len2 = 37;
-	const char *hdr_data2 =
+	char *hdr_data2 =
 		"\x00"			/* == Without indexing ==	*/
 		"\x0C"			/* Literal name (len = 12)	*/
 		"\x78\x2D\x63\x75\x73"	/* x-custom-hdr			*/
@@ -427,7 +426,7 @@ TEST(hpack, dec_raw)
 	const char *test_name3 = HDR_NAME_3;
 	const char *test_value3 = HDR_VALUE_3;
 	unsigned long hdr_len3 = 41;
-	const char *hdr_data3 =
+	char *hdr_data3 =
 		"\x10"			/* == Never indexing ==	*/
 		"\x0F"			/* Literal name (len = 15)	*/
 		"\x78\x2D\x66\x6F\x72"	/* x-forwarded-for		*/
@@ -454,7 +453,7 @@ TEST(hpack, dec_raw)
 	EXPECT_EQ(r, T_OK);
 	EXPECT_EQ(parsed, hdr_len3);
 
-	ht = test_req->h_tbl
+	ht = test_req->h_tbl;
 
 	__h2_msg_hdr_name(&ht->tbl[TFW_HTTP_HDR_RAW], &h_name);
 	__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_RAW], &h_value);
@@ -510,7 +509,7 @@ TEST(hpack, dec_indexed)
 	TfwHttpHdrTbl *ht;
 	unsigned int parsed;
 	const TfwHPackEntry *entry;
-	const TfwStr h_name, h_value, *hdr, *dup;
+	TfwStr h_name, h_value, *hdr, *dup;
 
 #define HDR_NAME_1	"x-forwarded-for"
 #define HDR_VALUE_1	" test.com, foo.com, example.com"
@@ -548,7 +547,7 @@ TEST(hpack, dec_indexed)
 	unsigned long test_len_val6 = strlen(test_value6);
 
 	unsigned long hdr_len1 = 49;
-	const char *hdr_data1 =
+	char *hdr_data1 =
 		"\x40"			/* == With indexing ==		*/
 		"\x0F"			/* Literal name (len = 15)	*/
 		"\x78\x2D\x66\x6F\x72"	/* x-forwarded-for		*/
@@ -564,13 +563,13 @@ TEST(hpack, dec_indexed)
 		"\x6D";			/*				*/
 
 	unsigned long hdr_len2 = 1;
-	const char *hdr_data2 = "\xBE";	/* == Indexed (dynamic: 62) ==	*/
+	char *hdr_data2 = "\xBE";	/* == Indexed (dynamic: 62) ==	*/
 
 	unsigned long hdr_len3 = 1;
-	const char *hdr_data3 = "\x90";	/* == Indexed (static: 16) ==	*/
+	char *hdr_data3 = "\x90";	/* == Indexed (static: 16) ==	*/
 
 	unsigned long hdr_len4 = 30;
-	const char *hdr_data4 =
+	char *hdr_data4 =
 		"\x50"			/* == With indexing ==		*/
 					/* (name indexed - static: 16)	*/
 		"\x1C"			/* Literal value (len = 28)	*/
@@ -582,7 +581,7 @@ TEST(hpack, dec_indexed)
 		"\x30\x2E\x35";		/*				*/
 
 	unsigned long hdr_len5 = 12;
-	const char *hdr_data5 =
+	char *hdr_data5 =
 		"\x7F\x00"		/* == With indexing ==		*/
 					/* (name indexed - dynamic: 63)	*/
 					/* (multibyte integer encoding) */
@@ -592,7 +591,7 @@ TEST(hpack, dec_indexed)
 		"\x2E\x30\x2E\x31";	/*				*/
 
 	unsigned long hdr_len6 = 12;
-	const char *hdr_data6 =
+	char *hdr_data6 =
 		"\x0F\x17"		/* == Without indexing ==	*/
 					/* (name indexed - static: 38)	*/
 					/* (multibyte integer encoding) */
@@ -602,7 +601,7 @@ TEST(hpack, dec_indexed)
 		"\x68\x6F\x73\x74";	/*				*/
 
 	unsigned long hdr_len7 = 10;
-	const char *hdr_data7 =
+	char *hdr_data7 =
 		"\x0F\x2A"		/* == Without indexing ==	*/
 					/* (name indexed - static: 57)	*/
 					/* (multibyte integer encoding) */
@@ -784,8 +783,8 @@ TEST(hpack, dec_indexed)
 			EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value1,
 						    test_len_val1, 0));
 		}
-		EXPECT_EQ(entry->nm_len, test_len_nm1);
-		EXPECT_EQ(entry->nm_num, h_name.nchunks);
+		EXPECT_EQ(entry->name_len, test_len_nm1);
+		EXPECT_EQ(entry->name_num, h_name.nchunks);
 		EXPECT_EQ(entry->tag, TFW_TAG_HDR_X_FORWARDED_FOR);
 	}
 
@@ -805,8 +804,8 @@ TEST(hpack, dec_indexed)
 			EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value3,
 						    test_len_val3, 0));
 		}
-		EXPECT_EQ(entry->nm_len, test_len_nm2);
-		EXPECT_EQ(entry->nm_num, h_name.nchunks);
+		EXPECT_EQ(entry->name_len, test_len_nm2);
+		EXPECT_EQ(entry->name_num, h_name.nchunks);
 		EXPECT_EQ(entry->tag, TFW_TAG_HDR_RAW);
 	}
 
@@ -826,8 +825,8 @@ TEST(hpack, dec_indexed)
 			EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value4,
 						    test_len_val4, 0));
 		}
-		EXPECT_EQ(entry->nm_len, test_len_nm1);
-		EXPECT_EQ(entry->nm_num, h_name.nchunks);
+		EXPECT_EQ(entry->name_len, test_len_nm1);
+		EXPECT_EQ(entry->name_num, h_name.nchunks);
 		EXPECT_EQ(entry->tag, TFW_TAG_HDR_RAW);
 	}
 
@@ -852,7 +851,7 @@ TEST(hpack, dec_huffman)
 	TfwHttpHdrTbl *ht;
 	unsigned int parsed;
 	const TfwHPackEntry *entry;
-	const TfwStr h_name, h_value, *hdr;
+	TfwStr h_name, h_value, *hdr;
 
 #define HDR_NAME_1	"custom-key"
 #define HDR_VALUE_1	"custom-value"
@@ -876,7 +875,7 @@ TEST(hpack, dec_huffman)
 	unsigned long test_len_val3 = strlen(test_value3);
 
 	unsigned long hdr_len1 = 20;
-	const char *hdr_data1 =
+	char *hdr_data1 =
 		"\x40"			/* == With indexing ==		*/
 		"\x88"			/* Literal name (len = 8)	*/
 					/* (Huffman encoded)		*/
@@ -889,7 +888,7 @@ TEST(hpack, dec_huffman)
 		"\xB8\xE8\xB4\xBF";	/*				*/
 
 	unsigned long hdr_len2 = 8;
-	const char *hdr_data2 =
+	char *hdr_data2 =
 		"\x58"			/* == With indexing ==		*/
 					/* (name indexed - static: 24)	*/
 					/*				*/
@@ -899,7 +898,7 @@ TEST(hpack, dec_huffman)
 		"\xBF";			/*				*/
 
 	unsigned long hdr_len3 = 14;
-	const char *hdr_data3 =
+	char *hdr_data3 =
 		"\x41"			/* == With indexing ==		*/
 					/* (name indexed - static: 1)	*/
 					/*				*/
@@ -995,8 +994,8 @@ TEST(hpack, dec_huffman)
 			EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value1,
 						    test_len_val1, 0));
 		}
-		EXPECT_EQ(entry->nm_len, test_len_nm1);
-		EXPECT_EQ(entry->nm_num, h_name.nchunks);
+		EXPECT_EQ(entry->name_len, test_len_nm1);
+		EXPECT_EQ(entry->name_num, h_name.nchunks);
 		EXPECT_EQ(entry->tag, TFW_TAG_HDR_RAW);
 	}
 
@@ -1016,8 +1015,8 @@ TEST(hpack, dec_huffman)
 			EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value2,
 						    test_len_val2, 0));
 		}
-		EXPECT_EQ(entry->nm_len, test_len_nm2);
-		EXPECT_EQ(entry->nm_num, h_name.nchunks);
+		EXPECT_EQ(entry->name_len, test_len_nm2);
+		EXPECT_EQ(entry->name_num, h_name.nchunks);
 		EXPECT_EQ(entry->tag, TFW_TAG_HDR_CACHE_CONTROL);
 	}
 
@@ -1037,10 +1036,17 @@ TEST(hpack, dec_huffman)
 			EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value3,
 						    test_len_val3, 0));
 		}
-		EXPECT_EQ(entry->nm_len, test_len_nm3);
-		EXPECT_EQ(entry->nm_num, h_name.nchunks);
+		EXPECT_EQ(entry->name_len, test_len_nm3);
+		EXPECT_EQ(entry->name_num, h_name.nchunks);
 		EXPECT_EQ(entry->tag, TFW_TAG_HDR_H2_AUTHORITY);
 	}
+
+#undef HDR_NAME_1
+#undef HDR_VALUE_1
+#undef HDR_NAME_2
+#undef HDR_VALUE_2
+#undef HDR_NAME_3
+#undef HDR_VALUE_3
 }
 
 TEST(hpack, enc_table_hdr_write)
@@ -1089,11 +1095,11 @@ TEST(hpack, enc_table_hdr_write)
 	const char *t_s5 = HDR_NAME_5 HDR_VALUE_5;
 	unsigned long t_s5_len = strlen(t_s5);
 
-	collect_compound_str(s1, s1_value);
-	collect_compound_str(s2, s2_value);
-	collect_compound_str(s3, s3_value);
-	collect_compound_str(s4, s4_value);
-	collect_compound_str(s5, s5_value);
+	collect_compound_str(s1, s1_value, 0);
+	collect_compound_str(s2, s2_value, 0);
+	collect_compound_str(s3, s3_value, 0);
+	collect_compound_str(s4, s4_value, 0);
+	collect_compound_str(s5, s5_value, 0);
 
 	hdr_len = tfw_h2_msg_hdr_length(s1, &n_len, &v_off, &v_len);
 	EXPECT_EQ(n_len, strlen(HDR_NAME_1));
@@ -1187,9 +1193,9 @@ TEST(hpack, enc_table_index)
 	const char *t_s3 = HDR_NAME_3 HDR_VALUE_3;
 	unsigned long t_s3_len = strlen(t_s3);
 
-	collect_compound_str(s1, s1_value);
-	collect_compound_str(s2, s2_value);
-	collect_compound_str(s3, s3_value);
+	collect_compound_str(s1, s1_value, 0);
+	collect_compound_str(s2, s2_value, 0);
+	collect_compound_str(s3, s3_value, 0);
 
 	tbl = &ctx.hpack.enc_tbl;
 
@@ -1302,11 +1308,11 @@ TEST(hpack, enc_table_rbtree)
 	TFW_STR(s5, HDR_NAME_5 ":");
 	TFW_STR(s5_value, HDR_VALUE_5);
 
-	collect_compound_str(s1, s1_value);
-	collect_compound_str(s2, s2_value);
-	collect_compound_str(s3, s3_value);
-	collect_compound_str(s4, s4_value);
-	collect_compound_str(s5, s5_value);
+	collect_compound_str(s1, s1_value, 0);
+	collect_compound_str(s2, s2_value, 0);
+	collect_compound_str(s3, s3_value, 0);
+	collect_compound_str(s4, s4_value, 0);
+	collect_compound_str(s5, s5_value, 0);
 
 	tbl = &ctx.hpack.enc_tbl;
 

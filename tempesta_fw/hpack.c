@@ -942,105 +942,103 @@ static const HTState ht_decode[] ____cacheline_aligned = {
 	{6, 0},			/* 2: EOS */
 };
 
-#define HP_HDR_NAME(name, h_tag)					\
-	((TfwHPackEntry){						\
-		.hdr = &(TfwStr){					\
-			.chunks = &(TfwStr){				\
-				.data = name,				\
-				.len = SLEN(name),			\
-			},						\
+#define HP_HDR_NAME(name)						\
+	(&(TfwStr){							\
+		.chunks = &(TfwStr){					\
+			.data = name,					\
 			.len = SLEN(name),				\
-			.nchunks = 1					\
 		},							\
+		.len = SLEN(name),					\
+		.nchunks = 1						\
+	})
+
+#define HP_HDR_FULL(name, value)					\
+	(&(TfwStr){							\
+		.chunks = (TfwStr []){					\
+			{ .data = name,	.len = SLEN(name) },		\
+			{ .data = value, .len = SLEN(value),		\
+			  .flags = TFW_STR_HDR_VALUE }			\
+		},							\
+		.len = SLEN(name) + SLEN(value),			\
+		.nchunks = 2						\
+	})
+
+#define HP_ENTRY(name, h_tag, hdr_expr)					\
+	((TfwHPackEntry){						\
+		.hdr = hdr_expr,					\
 		.name_len = SLEN(name),					\
 		.name_num = 1,						\
 		.tag = h_tag						\
 })
 
-#define HP_HDR_FULL(name, value, h_tag)					\
-	((TfwHPackEntry){						\
-		.hdr = &(TfwStr){					\
-			.chunks = (TfwStr []){				\
-				{					\
-					.data = name,			\
-					.len = SLEN(name)		\
-				},					\
-				{					\
-					.data = value,			\
-					.len = SLEN(value),		\
-					.flags = TFW_STR_HDR_VALUE	\
-				}					\
-			},						\
-			.len = SLEN(name) + SLEN(value),		\
-			.nchunks = 2					\
-		},							\
-		.name_len = SLEN(name),					\
-		.name_num = 1,						\
-		.tag = h_tag						\
-})
+#define HP_ENTRY_NAME(name, h_tag)					\
+	HP_ENTRY(name, h_tag, HP_HDR_NAME(name))
+
+#define HP_ENTRY_FULL(name, value, h_tag)				\
+	HP_ENTRY(name, h_tag, HP_HDR_FULL(name, value))
 
 static const TfwHPackEntry static_table[] ____cacheline_aligned = {
-	HP_HDR_NAME(":authority",		TFW_TAG_HDR_H2_AUTHORITY),
-	HP_HDR_FULL(":method", "GET",		TFW_TAG_HDR_H2_METHOD),
-	HP_HDR_FULL(":method", "POST",		TFW_TAG_HDR_H2_METHOD),
-	HP_HDR_FULL(":path", "/",		TFW_TAG_HDR_H2_PATH),
-	HP_HDR_FULL(":path", "/index.html",	TFW_TAG_HDR_H2_PATH),
-	HP_HDR_FULL(":scheme", "http",		TFW_TAG_HDR_H2_SCHEME),
-	HP_HDR_FULL(":scheme", "https",		TFW_TAG_HDR_H2_SCHEME),
-	HP_HDR_FULL(":status", "200",		TFW_TAG_HDR_H2_STATUS),
-	HP_HDR_FULL(":status", "204",		TFW_TAG_HDR_H2_STATUS),
-	HP_HDR_FULL(":status", "206",		TFW_TAG_HDR_H2_STATUS),
-	HP_HDR_FULL(":status", "304",		TFW_TAG_HDR_H2_STATUS),
-	HP_HDR_FULL(":status", "400",		TFW_TAG_HDR_H2_STATUS),
-	HP_HDR_FULL(":status", "404",		TFW_TAG_HDR_H2_STATUS),
-	HP_HDR_FULL(":status", "500",		TFW_TAG_HDR_H2_STATUS),
-	HP_HDR_NAME("accept-charset",		TFW_TAG_HDR_RAW),
-	HP_HDR_FULL("accept-encoding", "gzip, deflate",	TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("accept-language",		TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("accept-ranges",		TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("accept",			TFW_TAG_HDR_ACCEPT),
-	HP_HDR_NAME("access-control-allow-origin",	TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("age",			TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("allow",			TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("authorization",		TFW_TAG_HDR_AUTHORIZATION),
-	HP_HDR_NAME("cache-control",		TFW_TAG_HDR_CACHE_CONTROL),
-	HP_HDR_NAME("content-disposition",	TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("content-encoding",		TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("content-language",		TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("content-length",		TFW_TAG_HDR_CONTENT_LENGTH),
-	HP_HDR_NAME("content-location",		TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("content-range",		TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("content-type",		TFW_TAG_HDR_CONTENT_TYPE),
-	HP_HDR_NAME("cookie",			TFW_TAG_HDR_COOKIE),
-	HP_HDR_NAME("date",			TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("etag",			TFW_TAG_HDR_ETAG),
-	HP_HDR_NAME("expect",			TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("expires",			TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("from",			TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("host",			TFW_TAG_HDR_HOST),
-	HP_HDR_NAME("if-match",			TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("if-modified-since",	TFW_TAG_HDR_IF_MODIFIED_SINCE),
-	HP_HDR_NAME("if-none-match",		TFW_TAG_HDR_IF_NONE_MATCH),
-	HP_HDR_NAME("if-range",			TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("if-unmodified-since",	TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("last-modified",		TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("link",			TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("location",			TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("max-forwards",		TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("proxy-authenticate",	TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("proxy-authorization",	TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("range",			TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("referer",			TFW_TAG_HDR_REFERER),
-	HP_HDR_NAME("refresh",			TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("retry-after",		TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("server",			TFW_TAG_HDR_SERVER),
-	HP_HDR_NAME("set-cookie",		TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("strict-transport-security",	TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("transfer-encoding",	TFW_TAG_HDR_TRANSFER_ENCODING),
-	HP_HDR_NAME("user-agent",		TFW_TAG_HDR_USER_AGENT),
-	HP_HDR_NAME("vary",			TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("via",			TFW_TAG_HDR_RAW),
-	HP_HDR_NAME("www-authenticate",		TFW_TAG_HDR_RAW)
+	HP_ENTRY_NAME(":authority",		TFW_TAG_HDR_H2_AUTHORITY),
+	HP_ENTRY_FULL(":method", "GET",		TFW_TAG_HDR_H2_METHOD),
+	HP_ENTRY_FULL(":method", "POST",	TFW_TAG_HDR_H2_METHOD),
+	HP_ENTRY_FULL(":path", "/",		TFW_TAG_HDR_H2_PATH),
+	HP_ENTRY_FULL(":path", "/index.html",	TFW_TAG_HDR_H2_PATH),
+	HP_ENTRY_FULL(":scheme", "http",	TFW_TAG_HDR_H2_SCHEME),
+	HP_ENTRY_FULL(":scheme", "https",	TFW_TAG_HDR_H2_SCHEME),
+	HP_ENTRY_FULL(":status", "200",		TFW_TAG_HDR_H2_STATUS),
+	HP_ENTRY_FULL(":status", "204",		TFW_TAG_HDR_H2_STATUS),
+	HP_ENTRY_FULL(":status", "206",		TFW_TAG_HDR_H2_STATUS),
+	HP_ENTRY_FULL(":status", "304",		TFW_TAG_HDR_H2_STATUS),
+	HP_ENTRY_FULL(":status", "400",		TFW_TAG_HDR_H2_STATUS),
+	HP_ENTRY_FULL(":status", "404",		TFW_TAG_HDR_H2_STATUS),
+	HP_ENTRY_FULL(":status", "500",		TFW_TAG_HDR_H2_STATUS),
+	HP_ENTRY_NAME("accept-charset",		TFW_TAG_HDR_RAW),
+	HP_ENTRY_FULL("accept-encoding", "gzip, deflate", TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("accept-language",	TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("accept-ranges",		TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("accept",			TFW_TAG_HDR_ACCEPT),
+	HP_ENTRY_NAME("access-control-allow-origin", TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("age",			TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("allow",			TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("authorization",		TFW_TAG_HDR_AUTHORIZATION),
+	HP_ENTRY_NAME("cache-control",		TFW_TAG_HDR_CACHE_CONTROL),
+	HP_ENTRY_NAME("content-disposition",	TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("content-encoding",	TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("content-language",	TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("content-length",		TFW_TAG_HDR_CONTENT_LENGTH),
+	HP_ENTRY_NAME("content-location",	TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("content-range",		TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("content-type",		TFW_TAG_HDR_CONTENT_TYPE),
+	HP_ENTRY_NAME("cookie",			TFW_TAG_HDR_COOKIE),
+	HP_ENTRY_NAME("date",			TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("etag",			TFW_TAG_HDR_ETAG),
+	HP_ENTRY_NAME("expect",			TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("expires",		TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("from",			TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("host",			TFW_TAG_HDR_HOST),
+	HP_ENTRY_NAME("if-match",		TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("if-modified-since",	TFW_TAG_HDR_IF_MODIFIED_SINCE),
+	HP_ENTRY_NAME("if-none-match",		TFW_TAG_HDR_IF_NONE_MATCH),
+	HP_ENTRY_NAME("if-range",		TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("if-unmodified-since",	TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("last-modified",		TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("link",			TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("location",		TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("max-forwards",		TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("proxy-authenticate",	TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("proxy-authorization",	TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("range",			TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("referer",		TFW_TAG_HDR_REFERER),
+	HP_ENTRY_NAME("refresh",		TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("retry-after",		TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("server",			TFW_TAG_HDR_SERVER),
+	HP_ENTRY_NAME("set-cookie",		TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("strict-transport-security", TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("transfer-encoding",	TFW_TAG_HDR_TRANSFER_ENCODING),
+	HP_ENTRY_NAME("user-agent",		TFW_TAG_HDR_USER_AGENT),
+	HP_ENTRY_NAME("vary",			TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("via",			TFW_TAG_HDR_RAW),
+	HP_ENTRY_NAME("www-authenticate",	TFW_TAG_HDR_RAW)
 };
 
 #define HPACK_STATIC_ENTRIES (sizeof(static_table) / sizeof(TfwHPackEntry))
@@ -1511,8 +1509,8 @@ tfw_hpack_set_entry(TfwPool *__restrict h_pool, TfwMsgParseIter *__restrict it,
 		    TfwHPackEntry *__restrict entry, bool *__restrict np)
 {
 	char *data;
-	TfwHPackEntry *entry;
-	const TfwStr *d, *s, *end, *d_hdr, *s_hdr = it->parsed_hdr;
+	TfwStr *d, *d_hdr;
+	const TfwStr *s, *end, *s_hdr = it->parsed_hdr;
 	unsigned long size = sizeof(TfwHPackEntry);
 
 	if (WARN_ON_ONCE(TFW_STR_PLAIN(s_hdr) || TFW_STR_DUP(s_hdr)))
@@ -1551,7 +1549,7 @@ tfw_hpack_set_entry(TfwPool *__restrict h_pool, TfwMsgParseIter *__restrict it,
 	entry->tag = it->tag;
 	entry->last = false;
 
-	return entry;
+	return 0;
 }
 
 /*
@@ -1677,7 +1675,7 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 	} else if (unlikely(count == length)) {
 		TfwHPackEntry *previous = entries;
 		TfwPool *pool = tbl->pool;
-		unsigned long block, wrap, tail;
+		unsigned long block, new_block, wrap, tail;
 
 		T_DBG3("%s: reallocation index structures...", __func__);
 		if (length) {
@@ -1711,8 +1709,8 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 			}
 		} else {
 			length = 32;
-			block = length * sizeof(TfwHPackEntry);
-			entries = tfw_pool_alloc(pool, block);
+			new_block = length * sizeof(TfwHPackEntry);
+			entries = tfw_pool_alloc(pool, new_block);
 			if (unlikely(!entries))
 				return -ENOMEM;
 		}
@@ -1749,14 +1747,14 @@ tfw_hpack_add_index(TfwHPackDTbl *__restrict tbl,
 	return 0;
 }
 
-static TfwHPackEntry *
+static const TfwHPackEntry *
 tfw_hpack_find_index(TfwHPackDTbl *__restrict tbl, unsigned long index)
 {
-	TfwHPackEntry *entry = NULL;
+	const TfwHPackEntry *entry = NULL;
 
 	if (index <= HPACK_STATIC_ENTRIES) {
 		entry = static_table + index - 1;
-		BUG_ON(!entry->name);
+		BUG_ON(!entry->hdr);
 		return entry;
 	}
 
@@ -1948,17 +1946,14 @@ tfw_hpack_process_hdr_value(TfwHttpReq *req)
 
 static int
 tfw_hpack_hdr_name_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
-		       TfwHPackEntry *__restrict entry)
+		       const TfwHPackEntry *__restrict entry)
 {
 	char *data;
-	TfwStr *d;
-	const TfwStr *s, *end;
-	TfwMsgParseIter *it = &req->pit;
-	TfwStr *d_hdr = it->parsed_hdr;
-	TfwStr *s_hdr = entry->hdr;
-
 	unsigned int num = entry->name_num;
 	unsigned long sz = entry->name_len;
+	const TfwStr *s, *end, *s_hdr = entry->hdr;
+	TfwMsgParseIter *it = &req->pit;
+	TfwStr *d, *d_hdr = it->parsed_hdr;
 
 	WARN_ON_ONCE(!TFW_STR_EMPTY(d_hdr));
 	if (WARN_ON_ONCE(!num || num > s_hdr->nchunks))
@@ -2000,16 +1995,14 @@ done:
 
 static int
 tfw_hpack_hdr_set(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
-		  TfwHPackEntry *__restrict entry)
+		  const TfwHPackEntry *__restrict entry)
 {
 	char *data;
-	TfwStr *d;
-	const TfwStr *s, *end;
 	unsigned long d_size;
 	TfwMsgParseIter *it = &req->pit;
+	const TfwStr *s, *end, *s_hdr = entry->hdr;
 	TfwHttpParser *parser = &req->stream->parser;
-	TfwStr *d_hdr = &parser->hdr;
-	TfwStr *s_hdr = entry->hdr;
+	TfwStr *d, *d_hdr = &parser->hdr;
 
 	WARN_ON_ONCE(TFW_STR_PLAIN(s_hdr));
 	WARN_ON_ONCE(!TFW_STR_EMPTY(d_hdr));
@@ -2109,8 +2102,9 @@ done:
  * HPACK decoder FSM for HTTP/2 message processing.
  */
 int
-tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *src, unsigned long n,
-		 TfwHttpReq *__restrict req, unsigned int *__restrict parsed)
+tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
+		 unsigned long n,  TfwHttpReq *__restrict req,
+		 unsigned int *__restrict parsed)
 {
 	int r = T_POSTPONE;
 	unsigned int state = hp->state;
@@ -2270,7 +2264,7 @@ get_name_text:
 		}
 		case HPACK_STATE_INDEXED_NAME_TEXT:
 		{
-			TfwHPackEntry *entry;
+			const TfwHPackEntry *entry;
 get_indexed_name:
 			T_DBG3("%s: decode indexed (%lu) header name...\n",
 			       __func__, hp->index);
@@ -2356,7 +2350,7 @@ get_value_text:
 		}
 		case HPACK_STATE_ALL_INDEXED:
 		{
-			TfwHPackEntry *entry;
+			const TfwHPackEntry *entry;
 get_all_indexed:
 			T_DBG3("%s: get entire header by index: %lu\n", __func__,
 			       hp->index);

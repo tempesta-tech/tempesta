@@ -72,7 +72,7 @@ typedef struct {
 TfwPool *__tfw_pool_new(size_t n);
 void *__tfw_pool_alloc(TfwPool *p, size_t n, bool align, bool *new_page);
 void tfw_pool_free(TfwPool *p, void *ptr, size_t n);
-void tfw_pool_clean(TfwPool *p);
+void tfw_pool_clean(TfwPool *p, void *ptr);
 void tfw_pool_destroy(TfwPool *p);
 void *__tfw_pool_realloc(TfwPool *p, void *ptr, size_t old_n, size_t new_n,
 			 bool copy);
