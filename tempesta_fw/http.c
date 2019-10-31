@@ -13,24 +13,22 @@
  * and allow quick processing with SIMD instructions. However, content of
  * HTTP/2-message (i.e. headers) could be encrypted with special HPACK
  * methods (static/dynamic indexing and Huffman coding), which doesn't
- * allow to analyze the message content directly. o solve this issue for
+ * allow to analyze the message content directly. To solve this issue for
  * HTTP/2-requests processing, current implementation of HTTP-layer creates
  * HTTP/1.1-representation of HTTP/2 headers (during HPACK-decoding and
  * HTTP/2-parsing) and places that representation into the special pool
  * @TfwHttpReq.pit.pool.
  *
- * TODO #309: during adjusting stage (before re-sending request to backend)
- * in @tfw_h2_adjust_req() the obtained @TfwHttpReq.pit.pool with
- * HTTP/1.1-representation must be used for request assembling in case of
- * HTTP/2 => HTTP/1.1 transformation.
- *
- * TODO #309: actually, we don't need to create separate HTTP/1.1-representation
+ * Actually, we don't need to create separate HTTP/1.1-representation
  * for all HTTP/2 headers: some of them could be not encoded (not in Huffman
  * form - in ASCII instead) and some - could be just indexed (we can keep static
  * and dynamic indexes during internal request analysis and convert them into
- * ASCII strings in-place - on demand), so, we can save memory/processor
- * resources and create additional HTTP/1.1-representation only for Huffman
- * encoded headers.
+ * ASCII strings in-place - on demand); thus, in current implementation we save
+ * memory/processor resources and create additional HTTP/1.1-representation only
+ * for Huffman encoded headers. On the final stage of request processing (in
+ * @tfw_h2_adjust_req() procedure, before re-sending request to backend) the
+ * obtained @TfwHttpReq.pit.pool with HTTP/1.1-representation is used for
+ * request assembling in case of HTTP/2 => HTTP/1.1 transformation.
  *
  * Described above approach was chosen instead of immediate HTTP/2 => HTTP/1.1
  * transformation on HTTP/2-message decoding, because the latter one is not
