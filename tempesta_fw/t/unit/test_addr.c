@@ -155,25 +155,25 @@ TEST(tfw_addr_pton, recognizes_v4_and_v6_addrs)
 		.sin6_port = htons(5678)
 	};
 
-        TfwAddr a1, a2, a3, a4, a5;
-        int r1, r2, r3, r4, r5;
+	TfwAddr a1, a2, a3, a4, a5;
+	int r1, r2, r3, r4, r5;
 
-        r1 = tfw_addr_pton(&s1, &a1);
-        r2 = tfw_addr_pton(&s2, &a2);
-        r3 = tfw_addr_pton(&s3, &a3);
-        r4 = tfw_addr_pton(&s4, &a4);
-        r5 = tfw_addr_pton(&s5, &a5);
+	r1 = tfw_addr_pton(&s1, &a1);
+	r2 = tfw_addr_pton(&s2, &a2);
+	r3 = tfw_addr_pton(&s3, &a3);
+	r4 = tfw_addr_pton(&s4, &a4);
+	r5 = tfw_addr_pton(&s5, &a5);
 
-        EXPECT_OK(r1);
-        EXPECT_OK(r2);
-        EXPECT_OK(r3);
-        EXPECT_OK(r4);
-        EXPECT_OK(r5);
-        EXPECT_TRUE(tfw_addr_eq(&a1, &e1));
-        EXPECT_TRUE(tfw_addr_eq(&a2, &e2));
-        EXPECT_TRUE(tfw_addr_eq(&a3, &e3));
-        EXPECT_TRUE(tfw_addr_eq(&a4, &e4));
-        EXPECT_TRUE(tfw_addr_eq(&a5, &e5));
+	EXPECT_OK(r1);
+	EXPECT_OK(r2);
+	EXPECT_OK(r3);
+	EXPECT_OK(r4);
+	EXPECT_OK(r5);
+	EXPECT_TRUE(tfw_addr_eq(&a1, &e1));
+	EXPECT_TRUE(tfw_addr_eq(&a2, &e2));
+	EXPECT_TRUE(tfw_addr_eq(&a3, &e3));
+	EXPECT_TRUE(tfw_addr_eq(&a4, &e4));
+	EXPECT_TRUE(tfw_addr_eq(&a5, &e5));
 }
 
 TEST_SUITE(addr)

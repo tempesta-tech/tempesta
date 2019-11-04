@@ -80,24 +80,46 @@ typedef struct {
  * @_hdr_tag	- stores header id which must be closed on generic EoL handling
  *		  (see RGEN_EOL());
  * @_acc	- integer accumulator for parsing chunked integers;
+ * @year	- currently parsed year;
+ * @day		- currently parsed day of month;
+ * @hour	- currently parsed hour;
+ * @min		- currently parsed minutes;
+ * @sec		- currently parsed seconds;
+ * @type	- type of parsed date;
+ * @pos		- position in date state template;
  * @_tmp_chunk	- currently parsed (sub)string, possibly chunked;
  * @hdr		- currently parsed header.
  * @hbh_parser	- list of special and raw headers names to be treated as
  *		  hop-by-hop
  * @_date	- currently parsed http date value;
+ * @month_int	- accumulator for parsing of month;
  */
 typedef struct {
-	unsigned short	to_go;
-	unsigned short	_cnt;
-	unsigned int	_hdr_tag;
-	void		*state;
-	void		*_i_st;
-	long		to_read;
-	unsigned long	_acc;
-	time_t		_date;
-	TfwStr		_tmp_chunk;
-	TfwStr		hdr;
-	TfwHttpHbhHdrs	hbh_parser;
+	unsigned short			to_go;
+	unsigned short			_cnt;
+	unsigned int			_hdr_tag;
+	const void			*state;
+	const void			*_i_st;
+	long				to_read;
+	union {
+		unsigned long		_acc;
+		struct {
+			short		year;
+			char		day;
+			char		hour;
+			char		min;
+			char		sec;
+			unsigned char	type;
+			unsigned char	pos;
+		} date;
+	};
+	union {
+		time_t			_date;
+		unsigned int		month_int;
+	};
+	TfwStr				_tmp_chunk;
+	TfwStr				hdr;
+	TfwHttpHbhHdrs			hbh_parser;
 } TfwHttpParser;
 
 void tfw_http_init_parser_req(TfwHttpReq *req);
