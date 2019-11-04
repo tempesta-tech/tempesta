@@ -2230,7 +2230,7 @@ ttls_handshake_server_hello(TlsCtx *tls)
 static int
 ttls_handshake_finished(TlsCtx *tls)
 {
-	int r;
+	int r = 0;
 	unsigned char *p, *begin;
 	struct page *pg;
 	struct scatterlist sg[MAX_SKB_FRAGS];

@@ -224,7 +224,6 @@ TEST(hpack, dec_table_mixed)
 {
 	TfwHPack *hp;
 	TfwMsgParseIter it;
-	TfwHPackStr *name, *value;
 	TfwStr *s1, *s2, *s3, *s4, *s5;
 	const TfwHPackEntry *entry, *entry_1, *entry_2, *entry_3;
 	TFW_STR(s1_name, "custom-header-1");
@@ -255,8 +254,6 @@ TEST(hpack, dec_table_mixed)
 	entry_1 = tfw_hpack_find_index(&hp->dec_tbl, 63);
 	EXPECT_NOT_NULL(entry_1);
 	if (entry_1) {
-		name = entry_1->name;
-		value = entry_1->value;
 		it.hdr = s4;
 		it.nm_len = s1_name->len;
 		EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, entry_1, &it));
@@ -265,8 +262,6 @@ TEST(hpack, dec_table_mixed)
 	entry_2 = tfw_hpack_find_index(&hp->dec_tbl, 63);
 	EXPECT_NOT_NULL(entry_2);
 	if (entry_2) {
-		name = entry_2->name;
-		value = entry_2->value;
 		it.hdr = s5;
 		it.nm_len = s2_name->len;
 		EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, entry_2, &it));
@@ -282,7 +277,7 @@ TEST(hpack, dec_table_mixed)
 
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 64);
 	EXPECT_NOT_NULL(entry);
-	if (entry) {
+	if (entry && entry_1) {
 		/*
 		 * Check that entries with 66 and 64 indexes use the same
 		 * dynamic @name instance.
@@ -294,7 +289,7 @@ TEST(hpack, dec_table_mixed)
 
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 63);
 	EXPECT_NOT_NULL(entry);
-	if (entry) {
+	if (entry && entry_2) {
 		/*
 		 * Check that entries with 65 and 63 indexes use the same
 		 * dynamic @name instance.
@@ -306,7 +301,7 @@ TEST(hpack, dec_table_mixed)
 
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 62);
 	EXPECT_NOT_NULL(entry);
-	if (entry) {
+	if (entry && entry_3) {
 		/*
 		 * Check that entries with 62 and 24(static) indexes use the
 		 * same static @name instance.
@@ -349,6 +344,8 @@ TEST(hpack, dec_table_wrap)
 
 			entry = tfw_hpack_find_index(&hp->dec_tbl, i);
 			EXPECT_NOT_NULL(entry);
+			if (!entry)
+				continue;
 
 			if (i >= end_idx - shift)
 				last_entries[i - (end_idx - shift)] = *entry;
@@ -366,7 +363,7 @@ TEST(hpack, dec_table_wrap)
 
 		}
 
-		if (i < end_idx) {
+		if (i < end_idx && s) {
 			/*
 			 * Evict first @shift entries, i.e shrink table to only
 			 * one existing entry.
@@ -1148,6 +1145,8 @@ TEST(hpack, enc_table_rbtree)
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(n3);
+	if (!n3)
+		return;
 
 	/*
 	 * After re-balancing (which includes one right and one left rotations)
@@ -1212,6 +1211,8 @@ TEST(hpack, enc_table_rbtree)
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(n4);
+	if (!n4)
+		return;
 
 	/*
 	 * After re-balancing (which should not include any rotations, only
@@ -1261,6 +1262,8 @@ TEST(hpack, enc_table_rbtree)
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(n5);
+	if (!n5)
+		return;
 
 	/* Check the structure and nodes' color of the entire tree. */
 	EXPECT_NULL(HPACK_NODE_COND(tbl, n3->parent));
