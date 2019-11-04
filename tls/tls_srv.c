@@ -3,6 +3,8 @@
  *
  * TLS server-side finite state machine.
  *
+ * Based on mbed TLS, https://tls.mbed.org.
+ *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
@@ -22,7 +24,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include "lib/str.h"
-#include "config.h"
 #include "debug.h"
 #include "ecp.h"
 #include "tls_internal.h"
@@ -180,7 +181,7 @@ ttls_parse_supported_elliptic_curves(TlsCtx *tls, const unsigned char *buf,
 {
 	size_t i, c, list_size;
 	const unsigned char *p;
-	const ttls_ecp_curve_info *ci;
+	const TlsEcpCurveInfo *ci;
 
 	if (unlikely(len < 2)) {
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
@@ -415,9 +416,9 @@ ttls_parse_renegotiation_info_ext(TlsCtx *tls, const unsigned char *buf,
  * @return 0 if the given key uses one of the acceptable curves, -1 otherwise.
  */
 static int
-ttls_check_key_curve(ttls_pk_context *pk, const ttls_ecp_curve_info **curves)
+ttls_check_key_curve(ttls_pk_context *pk, const TlsEcpCurveInfo **curves)
 {
-	const ttls_ecp_curve_info **crv = curves;
+	const TlsEcpCurveInfo **crv = curves;
 	ttls_ecp_group_id grp_id = ttls_pk_ec(*pk)->grp.id;
 
 	while (*crv) {
@@ -1255,14 +1256,7 @@ ttls_write_server_hello(TlsCtx *tls, struct sg_table *sgt,
 	/*
 	 * Resume is 0  by default.
 	 * It may be already set to 1 by ttls_parse_session_ticket_ext().
-	 * If not, try looking up session ID in our cache.
 	 */
-	if (!tls->hs->resume && tls->sess.id_len && tls->conf->f_get_cache
-	    && !tls->conf->f_get_cache(tls->conf->p_cache, &tls->sess))
-	{
-		T_DBG("session successfully restored from cache\n");
-		tls->hs->resume = 1;
-	}
 	if (!tls->hs->resume) {
 		/*
 		 * New session, create a new session id,
@@ -1416,8 +1410,56 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 	p = hdr + TLS_HEADER_SIZE + TTLS_HS_HDR_LEN;
 	dig_signed = p;
 
+	/* ECDHE key exchanges. */
+	if (ttls_ciphersuite_uses_ecdhe(ci)) {
+		/*
+		 * Ephemeral ECDH parameters:
+		 *
+		 * struct {
+		 *	 ECParameters curve_params;
+		 *	 ECPoint	  public;
+		 * } ServerECDHParams;
+		 */
+		const TlsEcpCurveInfo **curve = NULL;
+		const ttls_ecp_group_id *gid = ttls_preset_curves;
+
+		/* Match our preference list against the offered curves */
+		for ( ; *gid != TTLS_ECP_DP_NONE; gid++)
+			for (curve = tls->hs->curves; *curve; curve++)
+				if ((*curve)->grp_id == *gid)
+					goto curve_matching_done;
+curve_matching_done:
+		if (!curve || !*curve) {
+			T_WARN("No matching curve for ECDHE key exchange\n");
+			r = -EINVAL;
+			goto err;
+		}
+		T_DBG("ECDHE curve: %s\n", (*curve)->name);
+
+		r = ttls_ecp_group_load(&tls->hs->ecdh_ctx.grp,
+					(*curve)->grp_id);
+		if (r) {
+			T_DBG("cannot load ECP group, %d\n", r);
+			goto err;
+		}
+
+		r = ttls_ecdh_make_params(&tls->hs->ecdh_ctx, &len, p,
+					  TLS_MAX_PAYLOAD_SIZE);
+		if (r) {
+			T_DBG("cannot make ECDH params, %d\n", r);
+			goto err;
+		}
+		WARN_ON_ONCE(len > 500);
+		dig_signed = p;
+		dig_signed_len = len;
+		p += len;
+		n += len;
+
+		T_DBG_ECP("ECDH server key exchange EC point",
+			  &tls->hs->ecdh_ctx.Q);
+	}
 	/* DHE key exchanges. */
-	if (ttls_ciphersuite_uses_dhe(ci)) {
+	else if (ttls_ciphersuite_uses_dhe(ci)) {
 		int x_sz;
 
 		if (!tls->conf->dhm_P.p || !tls->conf->dhm_G.p) {
@@ -1455,57 +1497,9 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 		p += len;
 		n += len;
 
-		TTLS_DEBUG_MPI("DHM: X ", &tls->hs->dhm_ctx.X );
-		TTLS_DEBUG_MPI("DHM: P ", &tls->hs->dhm_ctx.P );
-		TTLS_DEBUG_MPI("DHM: G ", &tls->hs->dhm_ctx.G );
-		TTLS_DEBUG_MPI("DHM: GX", &tls->hs->dhm_ctx.GX);
-	}
-	/* ECDHE key exchanges. */
-	else if (ttls_ciphersuite_uses_ecdhe(ci)) {
-		/*
-		 * Ephemeral ECDH parameters:
-		 *
-		 * struct {
-		 *	 ECParameters curve_params;
-		 *	 ECPoint	  public;
-		 * } ServerECDHParams;
-		 */
-		const ttls_ecp_curve_info **curve = NULL;
-		const ttls_ecp_group_id *gid = tls->peer_conf->curve_list;
-
-		/* Match our preference list against the offered curves */
-		for ( ; *gid != TTLS_ECP_DP_NONE; gid++)
-			for (curve = tls->hs->curves; *curve; curve++)
-				if ((*curve)->grp_id == *gid)
-					goto curve_matching_done;
-curve_matching_done:
-		if (!curve || !*curve) {
-			T_WARN("No matching curve for ECDHE key exchange\n");
-			r = -EINVAL;
-			goto err;
-		}
-		T_DBG("ECDHE curve: %s\n", (*curve)->name);
-
-		r = ttls_ecp_group_load(&tls->hs->ecdh_ctx.grp,
-		(*curve)->grp_id);
-		if (r) {
-			T_DBG("cannot load ECP group, %d\n", r);
-			goto err;
-		}
-
-		r = ttls_ecdh_make_params(&tls->hs->ecdh_ctx, &len, p,
-					  TLS_MAX_PAYLOAD_SIZE);
-		if (r) {
-			T_DBG("cannot make ECDH params, %d\n", r);
-			goto err;
-		}
-		WARN_ON_ONCE(len > 500);
-		dig_signed = p;
-		dig_signed_len = len;
-		p += len;
-		n += len;
-
-		TTLS_DEBUG_ECP("ECDH: Q ", &tls->hs->ecdh_ctx.Q);
+		T_DBG_MPI4("DHM key exchange",
+			   &tls->hs->dhm_ctx.X, &tls->hs->dhm_ctx.P,
+			   &tls->hs->dhm_ctx.G, &tls->hs->dhm_ctx.GX);
 	}
 
 	/*
@@ -1686,7 +1680,7 @@ ttls_write_certificate_request(TlsCtx *tls, struct sg_table *sgt,
 	 *  enum { (255) } SignatureAlgorithm;
 	 */
 	/* Supported signature algorithms. */
-	for (cur = tls->peer_conf->sig_hashes; *cur != TTLS_MD_NONE; cur++) {
+	for (cur = ttls_preset_hashes; *cur != TTLS_MD_NONE; cur++) {
 		unsigned char hash = ttls_hash_from_md_alg(*cur);
 
 		if (TTLS_HASH_NONE == hash
@@ -1801,7 +1795,7 @@ ttls_parse_client_dh_public(TlsCtx *tls, unsigned char **p,
 
 	*p += n;
 
-	TTLS_DEBUG_MPI("DHM: GY", &tls->hs->dhm_ctx.GY);
+	T_DBG_MPI1("Client DH pub", &tls->hs->dhm_ctx.GY);
 
 	return r;
 }
@@ -1933,7 +1927,8 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 			T_DBG("cannot read ecdh public, %d\n", r);
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_RP;
 		}
-		TTLS_DEBUG_ECP("ECDH: Qp ", &tls->hs->ecdh_ctx.Qp);
+		T_DBG_ECP("ECDH client key exchange EC point",
+			  &tls->hs->ecdh_ctx.Qp);
 
 		r = ttls_ecdh_calc_secret(&tls->hs->ecdh_ctx, &tls->hs->pmslen,
 					  tls->hs->premaster,
@@ -1942,7 +1937,7 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 			T_DBG("cannot calculate ecdh secret, %d\n", r);
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_CS;
 		}
-		TTLS_DEBUG_MPI("ECDH: z  ", &tls->hs->ecdh_ctx.z);
+		T_DBG_MPI1("ECDH client key exchange", &tls->hs->ecdh_ctx.z);
 	}
 	else if (ci->key_exchange == TTLS_KEY_EXCHANGE_DHE_RSA) {
 		if ((r = ttls_parse_client_dh_public(tls, &p, end))) {
@@ -1960,7 +1955,7 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 			T_DBG("cannot calculate dhm secret, %d\n", r);
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_CS;
 		}
-		TTLS_DEBUG_MPI("DHM: K ", &tls->hs->dhm_ctx.K );
+		T_DBG_MPI1("DHM client key exchange", &tls->hs->dhm_ctx.K);
 	}
 	else if (ci->key_exchange == TTLS_KEY_EXCHANGE_RSA) {
 		if ((r = ttls_parse_encrypted_pms(tls, p, end))) {
@@ -2080,8 +2075,8 @@ ttls_write_new_session_ticket(TlsCtx *tls, struct sg_table *sgt,
 	TlsIOCtx *io = &tls->io_out;
 
 	/*
-	 * TODO estimate size of the message more accurately on configuration
-	 * time.
+	 * TODO #1054 estimate size of the message more accurately on
+	 * configuration time.
 	 */
 
 	/*

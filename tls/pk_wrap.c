@@ -3,6 +3,8 @@
  *
  * Public Key abstraction layer: wrapper functions.
  *
+ * Based on mbed TLS, https://tls.mbed.org.
+ *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
@@ -104,12 +106,6 @@ static int rsa_encrypt_wrap(void *ctx,
 			   ilen, input, output));
 }
 
-static int rsa_check_pair_wrap(const void *pub, const void *prv)
-{
-	return(ttls_rsa_check_pub_priv((const ttls_rsa_context *) pub,
-		(const ttls_rsa_context *) prv));
-}
-
 static void *
 rsa_alloc_wrap(void)
 {
@@ -150,7 +146,6 @@ const ttls_pk_info_t ttls_rsa_info = {
 	rsa_sign_wrap,
 	rsa_decrypt_wrap,
 	rsa_encrypt_wrap,
-	rsa_check_pair_wrap,
 	rsa_alloc_wrap,
 	rsa_free_wrap,
 	rsa_debug,
@@ -168,7 +163,7 @@ static int eckey_can_do(ttls_pk_type_t type)
 
 static size_t eckey_get_bitlen(const void *ctx)
 {
-	return(((ttls_ecp_keypair *) ctx)->grp.pbits);
+	return(((TlsEcpKeypair *) ctx)->grp.pbits);
 }
 
 /* Forward declarations */
@@ -214,16 +209,10 @@ static int eckey_sign_wrap(void *ctx, ttls_md_type_t md_alg,
 	return ret;
 }
 
-static int eckey_check_pair(const void *pub, const void *prv)
-{
-	return(ttls_ecp_check_pub_priv((const ttls_ecp_keypair *) pub,
-		(const ttls_ecp_keypair *) prv));
-}
-
 static void *
 eckey_alloc_wrap(void)
 {
-	void *ctx = kzalloc(sizeof(ttls_ecp_keypair), GFP_ATOMIC);
+	void *ctx = kzalloc(sizeof(TlsEcpKeypair), GFP_ATOMIC);
 	if (!ctx)
 		ttls_ecp_keypair_init(ctx);
 
@@ -232,7 +221,7 @@ eckey_alloc_wrap(void)
 
 static void eckey_free_wrap(void *ctx)
 {
-	ttls_ecp_keypair_free((ttls_ecp_keypair *) ctx);
+	ttls_ecp_keypair_free((TlsEcpKeypair *) ctx);
 	kfree(ctx);
 }
 
@@ -240,7 +229,7 @@ static void eckey_debug(const void *ctx, ttls_pk_debug_item *items)
 {
 	items->type = TTLS_PK_DEBUG_ECP;
 	items->name = "eckey.Q";
-	items->value = &(((ttls_ecp_keypair *) ctx)->Q);
+	items->value = &(((TlsEcpKeypair *) ctx)->Q);
 }
 
 const ttls_pk_info_t ttls_eckey_info = {
@@ -252,7 +241,6 @@ const ttls_pk_info_t ttls_eckey_info = {
 	eckey_sign_wrap,
 	NULL,
 	NULL,
-	eckey_check_pair,
 	eckey_alloc_wrap,
 	eckey_free_wrap,
 	eckey_debug,
@@ -276,7 +264,6 @@ const ttls_pk_info_t ttls_eckeydh_info = {
 	NULL,
 	NULL,
 	NULL,
-	eckey_check_pair,
 	eckey_alloc_wrap,	   /* Same underlying key structure */
 	eckey_free_wrap,		/* Same underlying key structure */
 	eckey_debug,			/* Same underlying key structure */
@@ -340,7 +327,6 @@ const ttls_pk_info_t ttls_ecdsa_info = {
 	ecdsa_sign_wrap,
 	NULL,
 	NULL,
-	eckey_check_pair,	/* Compatible key structures */
 	ecdsa_alloc_wrap,
 	ecdsa_free_wrap,
 	eckey_debug,		/* Compatible key structures */

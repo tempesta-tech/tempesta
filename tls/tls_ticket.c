@@ -3,6 +3,8 @@
  *
  * TLS server tickets implementation (RFC 5077).
  *
+ * Based on mbed TLS, https://tls.mbed.org.
+ *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
@@ -21,9 +23,7 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#include "config.h"
-
-#if defined(TTLS_TICKET_C)
+#if 0
 
 #include "ssl_ticket.h"
 
@@ -207,7 +207,7 @@ static int ssl_load_session(TlsSess *session,
 		if (p + cert_len > end)
 			return(TTLS_ERR_BAD_INPUT_DATA);
 
-		session->peer_cert = ttls_calloc(1, sizeof(ttls_x509_crt));
+		session->peer_cert = kmalloc(sizeof(ttls_x509_crt), GFP_ATOMIC);
 
 		if (session->peer_cert == NULL)
 			return(TTLS_ERR_ALLOC_FAILED);
@@ -218,7 +218,7 @@ static int ssl_load_session(TlsSess *session,
 				p, cert_len)) != 0)
 		{
 			ttls_x509_crt_free(session->peer_cert);
-			ttls_free(session->peer_cert);
+			kfree(session->peer_cert);
 			session->peer_cert = NULL;
 			return ret;
 		}
@@ -297,7 +297,7 @@ int ttls_ticket_write(void *p_ticket,
 
 	/* Encrypt and authenticate */
 	tag = state + clear_len;
-	/* TODO replace with linux/crypto as in ttls.c. */
+	/* TODO #1054 replace with linux/crypto as in ttls.c. */
 	if ((ret = ttls_cipher_auth_encrypt(&key->ctx,
 		iv, 12, key_name, 4 + 12 + 2,
 		state, clear_len, state, &ciph_len, tag, 16)) != 0)
@@ -383,7 +383,7 @@ int ttls_ticket_parse(void *p_ticket,
 	}
 
 	/* Decrypt and authenticate */
-	/* TODO replace with linux/crypto as in ttls.c. */
+	/* TODO #1054 replace with linux/crypto as in ttls.c. */
 	if ((ret = ttls_cipher_auth_decrypt(&key->ctx, iv, 12,
 		key_name, 4 + 12 + 2, ticket, enc_len,
 		ticket, &clear_len, tag, 16)) != 0)
@@ -428,4 +428,4 @@ void ttls_ticket_free(ttls_ticket_context *ctx)
 	bzero_fast(ctx, sizeof(ttls_ticket_context));
 }
 
-#endif /* TTLS_TICKET_C */
+#endif /* TODO #1054 remove me */

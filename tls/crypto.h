@@ -3,6 +3,8 @@
  *
  * Copyright (C) 2019 Tempesta Technologies, Inc.
  *
+ * Based on mbed TLS, https://tls.mbed.org.
+ *
  * This program is free software; you can redistribute it and/or modify it under
  * the terms of the GNU General Public License as published by the Free Software
  * Foundation; either version 2 of the License, or (at your option) any later
@@ -47,15 +49,6 @@ typedef enum {
 	TTLS_MODE_STREAM, /* TLS 1.3: ChaCha20-Poly1305 */
 	TTLS_MODE_CCM,
 } ttls_cipher_mode_t;
-
-/* Supported cipher padding types. */
-typedef enum {
-	TTLS_PADDING_PKCS7 = 0,		/* PKCS7 padding (default) */
-	TTLS_PADDING_ONE_AND_ZEROS,	/* ISO/IEC 7816-4 padding */
-	TTLS_PADDING_ZEROS_AND_LEN,	/* ANSI X.923 padding */
-	TTLS_PADDING_ZEROS,		/* zero padding (not reversible) */
-	TTLS_PADDING_NONE,		/* never pad (full blocks only) */
-} ttls_cipher_padding_t;
 
 /* Supported message digests. */
 typedef enum {
