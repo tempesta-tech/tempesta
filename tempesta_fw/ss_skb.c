@@ -1023,7 +1023,7 @@ skb_next_data(struct sk_buff *skb, char *last_ptr, TfwStr *it)
 	off = last_ptr - (char *)skb->data;
 
 	T_DBG("%s: last_ptr=[%p], skb->data=[%p], si->nr_frags=%u, f_size=%u,"
-	      " off=ld\n", __func__, last_ptr, skb->data, si->nr_frags, f_size,
+	      " off=%ld\n", __func__, last_ptr, skb->data, si->nr_frags, f_size,
 	      off);
 
 	if (off >= 0 && off < f_size) {
@@ -1045,8 +1045,8 @@ skb_next_data(struct sk_buff *skb, char *last_ptr, TfwStr *it)
 		off = last_ptr - (char *)skb_frag_address(frag);
 
 		T_DBG3("%s: frags search, skb_frag_address(frag)=[%p],"
-		       " f_size=%u, off=ld\n", __func__, skb_frag_address(frag),
-		       f_size, off);
+		       " f_size=%u, off=%ld\n", __func__,
+		       skb_frag_address(frag), f_size, off);
 
 		if (off < 0 || off >= f_size)
 			continue;
@@ -1551,7 +1551,7 @@ ss_skb_replace_page(struct sk_buff **skb_head, struct page *pg,
 		m_len = min_t(int, skb_frag_size(frag), offset);
 
 		T_DBG3("%s: skb=[%p], m_len=%d, fragsize=%d\n", __func__, skb,
-		       len, skb_frag_size(frag));
+		       m_len, skb_frag_size(frag));
 
 		if (unlikely(m_len == skb_frag_size(frag))) {
 			ss_skb_adjust_data_len(skb, m_len);
