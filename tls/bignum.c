@@ -89,7 +89,7 @@ ttls_mpi_free(TlsMpi *X)
 /**
  * Reallocate the MPI data area and copy old data if necessary.
  *
- * TODO #1064: use expnential growth or allocate with some step like 2 or 4
+ * TODO #1064: use exponential growth or allocate with some step like 2 or 4
  * limbs? Need to explore common memory allocation pattern -> collect histogram.
  * Probably we can allocate all required MPIs on early handshake phase with the
  * key parameters size knowledge, so we could avoid allocations at all.
@@ -219,7 +219,7 @@ ttls_mpi_safe_cond_assign(TlsMpi *X, const TlsMpi *Y, unsigned char assign)
 /**
  * Conditionally swap X and Y, without leaking information about whether the
  * swap was made or not. Here it is not ok to simply swap the pointers, which
- * whould lead to different memory access patterns when X and Y are used
+ * would lead to different memory access patterns when X and Y are used
  * afterwards.
  */
 int
@@ -805,7 +805,7 @@ ttls_mpi_sub_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 	int r, s = A->s;
 
 	if (A->s * B->s > 0) {
-		if ((r = ttls_mpi_cmp_abs(A, B)) >= 0) {
+		if (ttls_mpi_cmp_abs(A, B) >= 0) {
 			if ((r = ttls_mpi_sub_abs(X, A, B)))
 				return r;
 			X->s = s;

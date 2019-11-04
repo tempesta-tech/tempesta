@@ -145,8 +145,8 @@ struct tls_handshake_t {
 	size_t				pmslen;
 	ttls_key_cert			*key_cert;
 
-	void (*calc_verify)(ttls_context *, unsigned char *);
-	void (*calc_finished)(ttls_context *, unsigned char *, int);
+	void (*calc_verify)(TlsCtx *, unsigned char *);
+	void (*calc_finished)(TlsCtx *, unsigned char *, int);
 	int  (*tls_prf)(const unsigned char *, size_t, const char *, size_t,
 			const unsigned char *, size_t, unsigned char *, size_t);
 
@@ -200,31 +200,31 @@ void ttls_sig_hash_set_add(TlsSigHashSet *set,
 			   ttls_pk_type_t sig_alg,
 			   ttls_md_type_t md_alg);
 
-int ttls_handshake_client_step(ttls_context *tls, unsigned char *buf,
+int ttls_handshake_client_step(TlsCtx *tls, unsigned char *buf,
 			       size_t len, size_t hh_len, unsigned int *read);
-int ttls_handshake_server_step(ttls_context *tls, unsigned char *buf,
+int ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf,
 			       size_t len, size_t hh_len, unsigned int *read);
-void ttls_handshake_wrapup(ttls_context *tls);
+void ttls_handshake_wrapup(TlsCtx *tls);
 
-int ttls_derive_keys(ttls_context *tls);
+int ttls_derive_keys(TlsCtx *tls);
 
 void __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
 		       unsigned char *hdr_buf);
 int __ttls_send_record(TlsCtx *tls, struct sg_table *sgt, bool close);
 int ttls_sendmsg(TlsCtx *tls, const char *buf, size_t len);
 
-int ttls_parse_certificate(ttls_context *tls, unsigned char *buf, size_t len,
+int ttls_parse_certificate(TlsCtx *tls, unsigned char *buf, size_t len,
 			   unsigned int *read);
-int ttls_write_certificate(ttls_context *tls, struct sg_table *sgt,
+int ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 			   unsigned char **in_buf);
 
-int ttls_parse_change_cipher_spec(ttls_context *tls, unsigned char *buf,
+int ttls_parse_change_cipher_spec(TlsCtx *tls, unsigned char *buf,
 				  size_t len, unsigned int *read);
-void ttls_write_change_cipher_spec(ttls_context *tls);
+void ttls_write_change_cipher_spec(TlsCtx *tls);
 
 int ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 			unsigned int *read);
-int ttls_write_finished(ttls_context *tls, struct sg_table *sgt,
+int ttls_write_finished(TlsCtx *tls, struct sg_table *sgt,
 			unsigned char **in_buf);
 
 unsigned char ttls_sig_from_pk_alg(ttls_pk_type_t type);
@@ -232,11 +232,11 @@ ttls_pk_type_t ttls_pk_alg_from_sig(unsigned char sig);
 
 ttls_md_type_t ttls_md_alg_from_hash(unsigned char hash);
 unsigned char ttls_hash_from_md_alg(int md);
-int ttls_set_calc_verify_md(ttls_context *tls, int md);
+int ttls_set_calc_verify_md(TlsCtx *tls, int md);
 
-int ttls_check_curve(const ttls_context *tls, ttls_ecp_group_id grp_id);
+int ttls_check_curve(const TlsCtx *tls, ttls_ecp_group_id grp_id);
 
-int ttls_check_sig_hash(const ttls_context *tls, ttls_md_type_t md);
+int ttls_check_sig_hash(const TlsCtx *tls, ttls_md_type_t md);
 int ttls_match_sig_hashes(const TlsCtx *tls);
 void ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len);
 
@@ -254,7 +254,7 @@ ttls_zeroize(void *v, size_t n)
 }
 
 static inline ttls_pk_context *
-ttls_own_key(ttls_context *tls)
+ttls_own_key(TlsCtx *tls)
 {
 	ttls_key_cert *key_cert;
 
@@ -295,7 +295,7 @@ int ttls_check_cert_usage(const ttls_x509_crt *cert,
 
 void ttls_read_version(TlsCtx *tls, const unsigned char ver[2]);
 
-int ttls_get_key_exchange_md_tls1_2(ttls_context *tls,
+int ttls_get_key_exchange_md_tls1_2(TlsCtx *tls,
 		unsigned char *output,
 		unsigned char *data, size_t data_len,
 		ttls_md_type_t md_alg);

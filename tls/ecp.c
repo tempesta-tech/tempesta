@@ -208,7 +208,7 @@ ttls_ecp_point_init(TlsEcpPoint *pt)
 }
 
 /**
- * Initialize (the components of) a group,
+ * Initialize (the components of) a group.
  */
 void
 ttls_ecp_group_init(TlsEcpGrp *grp)

@@ -472,8 +472,7 @@ ttls_ecp_group_load(TlsEcpGrp *grp, ttls_ecp_group_id id)
 		return 0;
 	case TTLS_ECP_DP_CURVE25519:
 		grp->modp = ecp_mod_p255;
-		ecp_use_curve25519(grp);
-		return 0;
+		return ecp_use_curve25519(grp);
 	default:
 		grp->id = 0;
 		return TTLS_ERR_ECP_FEATURE_UNAVAILABLE;

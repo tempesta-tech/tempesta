@@ -1095,8 +1095,9 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 	if (ttls_ciphersuite_uses_ecdh(tls->xfrm.ciphersuite_info) ||
 	    ttls_ciphersuite_uses_ecdhe(tls->xfrm.ciphersuite_info))
 	{
+		unsigned char pf = tls->hs->ecdh_ctx.point_format;
 		ttls_ecdh_init(&tls->hs->ecdh_ctx);
-		tls->hs->ecdh_ctx.point_format = tls->hs->ecdh_ctx.point_format;
+		tls->hs->ecdh_ctx.point_format = pf;
 
 		/*
 		 * Storage space of ecdh_ctx is used for temporary sha256

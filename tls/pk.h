@@ -138,7 +138,6 @@ int ttls_pk_decrypt(ttls_pk_context *ctx,
 int ttls_pk_encrypt(ttls_pk_context *ctx,
 		    const unsigned char *input, size_t ilen,
 		    unsigned char *output, size_t *olen, size_t osize);
-int ttls_pk_debug(const ttls_pk_context *ctx, ttls_pk_debug_item *items);
 const char * ttls_pk_get_name(const ttls_pk_context *ctx);
 ttls_pk_type_t ttls_pk_get_type(const ttls_pk_context *ctx);
 
