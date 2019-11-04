@@ -23,7 +23,6 @@
 #ifndef TTLS_X509_CRT_H
 #define TTLS_X509_CRT_H
 
-#include "config.h"
 #include "x509.h"
 #include "x509_crl.h"
 
@@ -106,17 +105,13 @@ ttls_x509_crt_profile;
 #define TTLS_X509_RFC5280_MAX_SERIAL_LEN 32
 #define TTLS_X509_RFC5280_UTC_TIME_LEN   15
 
-#if !defined(TTLS_X509_MAX_FILE_PATH_LEN)
-#define TTLS_X509_MAX_FILE_PATH_LEN 512
-#endif
-
 /**
  * Container for writing a certificate (CRT)
  */
 typedef struct ttls_x509write_cert
 {
 	int version;
-	ttls_mpi serial;
+	TlsMpi serial;
 	ttls_pk_context *subject_key;
 	ttls_pk_context *issuer_key;
 	ttls_asn1_named_data *subject;
@@ -272,7 +267,6 @@ int ttls_x509_crt_verify_with_profile(ttls_x509_crt *crt,
 		 const ttls_x509_crt_profile *profile,
 		 const char *cn, uint32_t *flags);
 
-#if defined(TTLS_X509_CHECK_KEY_USAGE)
 /**
  * \brief		  Check usage of certificate against keyUsage extension.
  *
@@ -296,9 +290,7 @@ int ttls_x509_crt_verify_with_profile(ttls_x509_crt *crt,
  */
 int ttls_x509_crt_check_key_usage(const ttls_x509_crt *crt,
 			  unsigned int usage);
-#endif /* TTLS_X509_CHECK_KEY_USAGE) */
 
-#if defined(TTLS_X509_CHECK_EXTENDED_KEY_USAGE)
 /**
  * \brief		   Check usage of certificate against extendedKeyUsage.
  *
@@ -315,9 +307,7 @@ int ttls_x509_crt_check_key_usage(const ttls_x509_crt *crt,
 int ttls_x509_crt_check_extended_key_usage(const ttls_x509_crt *crt,
 		   const char *usage_oid,
 		   size_t usage_len);
-#endif /* TTLS_X509_CHECK_EXTENDED_KEY_USAGE */
 
-#if defined(TTLS_X509_CRL_PARSE_C)
 /**
  * \brief		  Verify the certificate revocation status
  *
@@ -328,7 +318,6 @@ int ttls_x509_crt_check_extended_key_usage(const ttls_x509_crt *crt,
  *
  */
 int ttls_x509_crt_is_revoked(const ttls_x509_crt *crt, const ttls_x509_crl *crl);
-#endif /* TTLS_X509_CRL_PARSE_C */
 
 /**
  * \brief		  Initialize a certificate (chain)

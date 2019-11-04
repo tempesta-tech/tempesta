@@ -21,7 +21,6 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#include "config.h"
 #include "rsa.h"
 #include "bignum.h"
 #include "rsa_internal.h"
@@ -59,9 +58,9 @@
  * of (a) and (b) above to attempt to factor N.
  *
  */
-int ttls_rsa_deduce_primes(ttls_mpi const *N,
-		 ttls_mpi const *E, ttls_mpi const *D,
-		 ttls_mpi *P, ttls_mpi *Q)
+int ttls_rsa_deduce_primes(TlsMpi const *N,
+		 TlsMpi const *E, TlsMpi const *D,
+		 TlsMpi *P, TlsMpi *Q)
 {
 	int ret = 0;
 
@@ -70,8 +69,8 @@ int ttls_rsa_deduce_primes(ttls_mpi const *N,
 
 	uint16_t order;	/* Order of 2 in DE - 1 */
 
-	ttls_mpi T;  /* Holds largest odd divisor of DE - 1	 */
-	ttls_mpi K;  /* Temporary holding the current candidate */
+	TlsMpi T;  /* Holds largest odd divisor of DE - 1	 */
+	TlsMpi K;  /* Temporary holding the current candidate */
 
 	const unsigned char primes[] = { 2,
 		   3,	5,	7,   11,   13,   17,   19,   23,
@@ -86,7 +85,7 @@ int ttls_rsa_deduce_primes(ttls_mpi const *N,
 	const size_t num_primes = sizeof(primes) / sizeof(*primes);
 
 	if (P == NULL || Q == NULL || P->p != NULL || Q->p != NULL)
-		return(TTLS_ERR_MPI_BAD_INPUT_DATA);
+		return -EINVAL;
 
 	if (ttls_mpi_cmp_int(N, 0) <= 0 ||
 		ttls_mpi_cmp_int(D, 1) <= 0 ||
@@ -94,7 +93,7 @@ int ttls_rsa_deduce_primes(ttls_mpi const *N,
 		ttls_mpi_cmp_int(E, 1) <= 0 ||
 		ttls_mpi_cmp_mpi(E, N) >= 0)
 	{
-		return(TTLS_ERR_MPI_BAD_INPUT_DATA);
+		return -EINVAL;
 	}
 
 	/*
@@ -110,7 +109,7 @@ int ttls_rsa_deduce_primes(ttls_mpi const *N,
 
 	if ((order = (uint16_t) ttls_mpi_lsb(&T)) == 0)
 	{
-		ret = TTLS_ERR_MPI_BAD_INPUT_DATA;
+		ret = -EINVAL;
 		goto cleanup;
 	}
 
@@ -135,11 +134,14 @@ int ttls_rsa_deduce_primes(ttls_mpi const *N,
 		if (ttls_mpi_cmp_int(P, 1) != 0)
 			continue;
 
-		/* Go through K^T + 1, K^(2T) + 1, K^(4T) + 1, ...
-		 * and check whether they have nontrivial GCD with N. */
-		TTLS_MPI_CHK(ttls_mpi_exp_mod(&K, &K, &T, N,
-				 Q /* temporarily use Q for storing Montgomery
-		* multiplication helper values */));
+		/*
+		 * Go through K^T + 1, K^(2T) + 1, K^(4T) + 1, ...
+		 * and check whether they have nontrivial GCD with N.
+		 *
+		 * Temporarily use Q for storing Montgomery multiplication
+		 * helper values.
+		 */
+		TTLS_MPI_CHK(ttls_mpi_exp_mod(&K, &K, &T, N, Q));
 
 		for (iter = 1; iter <= order; ++iter)
 		{
@@ -181,7 +183,7 @@ int ttls_rsa_deduce_primes(ttls_mpi const *N,
 		}
 	}
 
-	ret = TTLS_ERR_MPI_BAD_INPUT_DATA;
+	ret = -EINVAL;
 
 cleanup:
 
@@ -194,22 +196,22 @@ cleanup:
  * Given P, Q and the public exponent E, deduce D.
  * This is essentially a modular inversion.
  */
-int ttls_rsa_deduce_private_exponent(ttls_mpi const *P,
-				 ttls_mpi const *Q,
-				 ttls_mpi const *E,
-				 ttls_mpi *D)
+int ttls_rsa_deduce_private_exponent(TlsMpi const *P,
+				 TlsMpi const *Q,
+				 TlsMpi const *E,
+				 TlsMpi *D)
 {
 	int ret = 0;
-	ttls_mpi K, L;
+	TlsMpi K, L;
 
 	if (D == NULL || ttls_mpi_cmp_int(D, 0) != 0)
-		return(TTLS_ERR_MPI_BAD_INPUT_DATA);
+		return -EINVAL;
 
 	if (ttls_mpi_cmp_int(P, 1) <= 0 ||
 		ttls_mpi_cmp_int(Q, 1) <= 0 ||
 		ttls_mpi_cmp_int(E, 0) == 0)
 	{
-		return(TTLS_ERR_MPI_BAD_INPUT_DATA);
+		return -EINVAL;
 	}
 
 	ttls_mpi_init(&K);
@@ -237,210 +239,12 @@ cleanup:
 	return ret;
 }
 
-/*
- * Check that RSA CRT parameters are in accordance with core parameters.
- */
-int ttls_rsa_validate_crt(const ttls_mpi *P,  const ttls_mpi *Q,
-				  const ttls_mpi *D,  const ttls_mpi *DP,
-				  const ttls_mpi *DQ, const ttls_mpi *QP)
+int ttls_rsa_deduce_crt(const TlsMpi *P, const TlsMpi *Q,
+				const TlsMpi *D, TlsMpi *DP,
+				TlsMpi *DQ, TlsMpi *QP)
 {
 	int ret = 0;
-
-	ttls_mpi K, L;
-	ttls_mpi_init(&K);
-	ttls_mpi_init(&L);
-
-	/* Check that DP - D == 0 mod P - 1 */
-	if (DP != NULL)
-	{
-		if (P == NULL)
-		{
-			ret = TTLS_ERR_RSA_BAD_INPUT_DATA;
-			goto cleanup;
-		}
-
-		TTLS_MPI_CHK(ttls_mpi_sub_int(&K, P, 1));
-		TTLS_MPI_CHK(ttls_mpi_sub_mpi(&L, DP, D));
-		TTLS_MPI_CHK(ttls_mpi_mod_mpi(&L, &L, &K));
-
-		if (ttls_mpi_cmp_int(&L, 0) != 0)
-		{
-			ret = TTLS_ERR_RSA_KEY_CHECK_FAILED;
-			goto cleanup;
-		}
-	}
-
-	/* Check that DQ - D == 0 mod Q - 1 */
-	if (DQ != NULL)
-	{
-		if (Q == NULL)
-		{
-			ret = TTLS_ERR_RSA_BAD_INPUT_DATA;
-			goto cleanup;
-		}
-
-		TTLS_MPI_CHK(ttls_mpi_sub_int(&K, Q, 1));
-		TTLS_MPI_CHK(ttls_mpi_sub_mpi(&L, DQ, D));
-		TTLS_MPI_CHK(ttls_mpi_mod_mpi(&L, &L, &K));
-
-		if (ttls_mpi_cmp_int(&L, 0) != 0)
-		{
-			ret = TTLS_ERR_RSA_KEY_CHECK_FAILED;
-			goto cleanup;
-		}
-	}
-
-	/* Check that QP * Q - 1 == 0 mod P */
-	if (QP != NULL)
-	{
-		if (P == NULL || Q == NULL)
-		{
-			ret = TTLS_ERR_RSA_BAD_INPUT_DATA;
-			goto cleanup;
-		}
-
-		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&K, QP, Q));
-		TTLS_MPI_CHK(ttls_mpi_sub_int(&K, &K, 1));
-		TTLS_MPI_CHK(ttls_mpi_mod_mpi(&K, &K, P));
-		if (ttls_mpi_cmp_int(&K, 0) != 0)
-		{
-			ret = TTLS_ERR_RSA_KEY_CHECK_FAILED;
-			goto cleanup;
-		}
-	}
-
-cleanup:
-
-	/* Wrap MPI error codes by RSA check failure error code */
-	if (ret != 0 &&
-		ret != TTLS_ERR_RSA_KEY_CHECK_FAILED &&
-		ret != TTLS_ERR_RSA_BAD_INPUT_DATA)
-	{
-		ret += TTLS_ERR_RSA_KEY_CHECK_FAILED;
-	}
-
-	ttls_mpi_free(&K);
-	ttls_mpi_free(&L);
-
-	return ret;
-}
-
-/*
- * Check that core RSA parameters are sane.
- */
-int ttls_rsa_validate_params(const ttls_mpi *N, const ttls_mpi *P,
-		 const ttls_mpi *Q, const ttls_mpi *D,
-		 const ttls_mpi *E, bool rnd)
-{
-	int ret = 0;
-	ttls_mpi K, L;
-
-	ttls_mpi_init(&K);
-	ttls_mpi_init(&L);
-
-	/*
-	 * Step 1: If PRNG provided, check that P and Q are prime
-	 */
-
-#if defined(TTLS_GENPRIME)
-	if (rnd && P && (ret = ttls_mpi_is_prime(P))) {
-		ret = TTLS_ERR_RSA_KEY_CHECK_FAILED;
-		goto cleanup;
-	}
-
-	if (rnd && Q && (ret = ttls_mpi_is_prime(Q))) {
-		ret = TTLS_ERR_RSA_KEY_CHECK_FAILED;
-		goto cleanup;
-	}
-#endif /* TTLS_GENPRIME */
-
-	/*
-	 * Step 2: Check that 1 < N = P * Q
-	 */
-
-	if (P != NULL && Q != NULL && N != NULL)
-	{
-		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&K, P, Q));
-		if (ttls_mpi_cmp_int(N, 1)  <= 0 ||
-			ttls_mpi_cmp_mpi(&K, N) != 0)
-		{
-			ret = TTLS_ERR_RSA_KEY_CHECK_FAILED;
-			goto cleanup;
-		}
-	}
-
-	/*
-	 * Step 3: Check and 1 < D, E < N if present.
-	 */
-
-	if (N != NULL && D != NULL && E != NULL)
-	{
-		if (ttls_mpi_cmp_int(D, 1) <= 0 ||
-			 ttls_mpi_cmp_int(E, 1) <= 0 ||
-			 ttls_mpi_cmp_mpi(D, N) >= 0 ||
-			 ttls_mpi_cmp_mpi(E, N) >= 0)
-		{
-			ret = TTLS_ERR_RSA_KEY_CHECK_FAILED;
-			goto cleanup;
-		}
-	}
-
-	/*
-	 * Step 4: Check that D, E are inverse modulo P-1 and Q-1
-	 */
-
-	if (P != NULL && Q != NULL && D != NULL && E != NULL)
-	{
-		if (ttls_mpi_cmp_int(P, 1) <= 0 ||
-			ttls_mpi_cmp_int(Q, 1) <= 0)
-		{
-			ret = TTLS_ERR_RSA_KEY_CHECK_FAILED;
-			goto cleanup;
-		}
-
-		/* Compute DE-1 mod P-1 */
-		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&K, D, E));
-		TTLS_MPI_CHK(ttls_mpi_sub_int(&K, &K, 1));
-		TTLS_MPI_CHK(ttls_mpi_sub_int(&L, P, 1));
-		TTLS_MPI_CHK(ttls_mpi_mod_mpi(&K, &K, &L));
-		if (ttls_mpi_cmp_int(&K, 0) != 0)
-		{
-			ret = TTLS_ERR_RSA_KEY_CHECK_FAILED;
-			goto cleanup;
-		}
-
-		/* Compute DE-1 mod Q-1 */
-		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&K, D, E));
-		TTLS_MPI_CHK(ttls_mpi_sub_int(&K, &K, 1));
-		TTLS_MPI_CHK(ttls_mpi_sub_int(&L, Q, 1));
-		TTLS_MPI_CHK(ttls_mpi_mod_mpi(&K, &K, &L));
-		if (ttls_mpi_cmp_int(&K, 0) != 0)
-		{
-			ret = TTLS_ERR_RSA_KEY_CHECK_FAILED;
-			goto cleanup;
-		}
-	}
-
-cleanup:
-
-	ttls_mpi_free(&K);
-	ttls_mpi_free(&L);
-
-	/* Wrap MPI error codes by RSA check failure error code */
-	if (ret != 0 && ret != TTLS_ERR_RSA_KEY_CHECK_FAILED)
-	{
-		ret += TTLS_ERR_RSA_KEY_CHECK_FAILED;
-	}
-
-	return ret;
-}
-
-int ttls_rsa_deduce_crt(const ttls_mpi *P, const ttls_mpi *Q,
-				const ttls_mpi *D, ttls_mpi *DP,
-				ttls_mpi *DQ, ttls_mpi *QP)
-{
-	int ret = 0;
-	ttls_mpi K;
+	TlsMpi K;
 	ttls_mpi_init(&K);
 
 	/* DP = D mod P-1 */
