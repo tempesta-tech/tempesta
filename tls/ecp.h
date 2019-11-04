@@ -548,40 +548,4 @@ int ttls_ecp_check_privkey(const TlsEcpGrp *grp, const TlsMpi *d);
  */
 int ttls_ecp_gen_keypair(TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q);
 
-/**
- * \brief		   Indicate if the Elliptic Curve Point module extension can
- *				  handle the group.
- *
- * \param grp	   The pointer to the elliptic curve group that will be the
- *				  basis of the cryptographic computations.
- *
- * \return		  Non-zero if successful.
- */
-unsigned char ttls_internal_ecp_grp_capable(const TlsEcpGrp *grp);
-
-/**
- * \brief		   Initialise the Elliptic Curve Point module extension.
- *
- *				  If ttls_internal_ecp_grp_capable returns true for a
- *				  group, this function has to be able to initialise the
- *				  module for it.
- *
- *				  This module can be a driver to a crypto hardware
- *				  accelerator, for which this could be an initialise function.
- *
- * \param grp	   The pointer to the group the module needs to be
- *				  initialised for.
- *
- * \return		  0 if successful.
- */
-int ttls_internal_ecp_init(const TlsEcpGrp *grp);
-
-/**
- * \brief		   Frees and deallocates the Elliptic Curve Point module
- *				  extension.
- *
- * \param grp	   The pointer to the group the module was initialised for.
- */
-void ttls_internal_ecp_free(const TlsEcpGrp *grp);
-
 #endif /* ecp.h */

@@ -269,10 +269,11 @@ union ttls_premaster_secret
 
 /* Defined below */
 typedef struct ttls_alpn_proto ttls_alpn_proto;
-typedef struct ttls_context ttls_context;
 
 /* Defined in tls_internal.h */
 typedef struct ttls_key_cert ttls_key_cert;
+
+typedef struct ttls_context TlsCtx;
 
 /*
  * ALPN protocol descriptor.
@@ -382,7 +383,7 @@ typedef struct {
 
 /**
  * Global TLS configuration to be shared between all vhosts and to be used in
- * ttls_context structures.
+ * TlsCtx structures.
  *
  * @f_sni		- Callback for setting cert according to SNI extension;
  * @p_sni		- Context for SNI callback;
@@ -415,7 +416,7 @@ typedef struct {
  */
 typedef struct
 {
-	int (*f_sni)(void *, ttls_context *, const unsigned char *, size_t);
+	int (*f_sni)(void *, TlsCtx *, const unsigned char *, size_t);
 	void *p_sni;
 	int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *);
 	void *p_vrfy;
@@ -564,7 +565,7 @@ void ttls_conf_session_tickets_cb(TlsCfg *conf,
 				  ttls_ticket_write_t *f_ticket_write,
 				  ttls_ticket_parse_t *f_ticket_parse,
 				  void *p_ticket);
-int ttls_set_session(ttls_context *ssl, const TlsSess *session);
+int ttls_set_session(TlsCtx *ssl, const TlsSess *session);
 
 int ttls_conf_own_cert(TlsPeerCfg *conf, ttls_x509_crt *own_cert,
 		       ttls_pk_context *pk_key, ttls_x509_crt *ca_chain,
@@ -577,16 +578,16 @@ int ttls_conf_dh_param_ctx(TlsCfg *conf, ttls_dhm_context *dhm_ctx);
 void ttls_conf_dhm_min_bitlen(TlsCfg *conf,
 			      unsigned int bitlen);
 
-int ttls_set_hostname(ttls_context *ssl, const char *hostname);
-void ttls_set_hs_authmode(ttls_context *ssl, int authmode);
+int ttls_set_hostname(TlsCtx *ssl, const char *hostname);
+void ttls_set_hs_authmode(TlsCtx *ssl, int authmode);
 void ttls_conf_sni(TlsCfg *conf,
-		   int (*f_sni)(void *, ttls_context *, const unsigned char *,
+		   int (*f_sni)(void *, TlsCtx *, const unsigned char *,
 				size_t),
 		   void *p_sni);
-const char *ttls_get_alpn_protocol(const ttls_context *ssl);
+const char *ttls_get_alpn_protocol(const TlsCtx *ssl);
 void ttls_conf_version(TlsCfg *conf, int min_minor, int max_minor);
 
-int ttls_get_session(const ttls_context *ssl, TlsSess *session);
+int ttls_get_session(const TlsCtx *ssl, TlsSess *session);
 
 int ttls_recv(void *tls_data, unsigned char *buf, size_t len,
 	      unsigned int *read);
@@ -595,7 +596,7 @@ int ttls_encrypt(TlsCtx *tls, struct sg_table *sgt, struct sg_table *out_sgt);
 int ttls_send_alert(TlsCtx *tls, unsigned char lvl, unsigned char msg);
 int ttls_close_notify(TlsCtx *tls);
 
-void ttls_ctx_clear(ttls_context *tls);
+void ttls_ctx_clear(TlsCtx *tls);
 void ttls_key_cert_free(ttls_key_cert *key_cert);
 
 void ttls_config_init(TlsCfg *conf);

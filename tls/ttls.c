@@ -264,6 +264,11 @@ ttls_xfrm_need_encrypt(TlsCtx *tls)
 }
 EXPORT_SYMBOL(ttls_xfrm_need_encrypt);
 
+/**
+ * Client-side only.
+ *
+ * TODO #769: the dst->peer_cert is not released on errors.
+ */
 static int
 ttls_session_copy(TlsSess *dst, const TlsSess *src)
 {
@@ -273,7 +278,7 @@ ttls_session_copy(TlsSess *dst, const TlsSess *src)
 		int r;
 
 		dst->peer_cert = kmalloc(sizeof(ttls_x509_crt), GFP_ATOMIC);
-		if (dst->peer_cert)
+		if (!dst->peer_cert)
 			return -ENOMEM;
 
 		ttls_x509_crt_init(dst->peer_cert);
@@ -1692,7 +1697,7 @@ err:
 	return r;
 }
 void
-ttls_write_change_cipher_spec(ttls_context *tls)
+ttls_write_change_cipher_spec(TlsCtx *tls)
 {
 	TlsIOCtx *io = &tls->io_out;
 
@@ -1705,7 +1710,7 @@ ttls_write_change_cipher_spec(ttls_context *tls)
 }
 
 int
-ttls_parse_change_cipher_spec(ttls_context *tls, unsigned char *buf, size_t len,
+ttls_parse_change_cipher_spec(TlsCtx *tls, unsigned char *buf, size_t len,
 			      unsigned int *read)
 {
 	TlsIOCtx *io = &tls->io_in;
@@ -1960,7 +1965,7 @@ EXPORT_SYMBOL(ttls_conf_own_cert);
  * Required if we need to verify client certificate.
  */
 void
-ttls_set_hs_authmode(ttls_context *tls, int authmode)
+ttls_set_hs_authmode(TlsCtx *tls, int authmode)
 {
 	tls->hs->sni_authmode = authmode;
 }
@@ -2021,7 +2026,7 @@ void ttls_conf_dhm_min_bitlen(TlsCfg *conf,
  * (client-side only).
  */
 int
-ttls_set_hostname(ttls_context *tls, const char *hostname)
+ttls_set_hostname(TlsCtx *tls, const char *hostname)
 {
 	/* Initialize to suppress unnecessary compiler warning */
 	size_t hostname_len = 0;
@@ -2046,7 +2051,7 @@ ttls_set_hostname(ttls_context *tls, const char *hostname)
 	}
 
 	/* Passing NULL as hostname shall clear the old one. */
-	if (hostname) {
+	if (!hostname) {
 		tls->hostname = NULL;
 	} else {
 		tls->hostname = kmalloc(hostname_len + 1, GFP_ATOMIC);
@@ -2062,7 +2067,7 @@ ttls_set_hostname(ttls_context *tls, const char *hostname)
 
 void
 ttls_conf_sni(TlsCfg *conf,
-	      int (*f_sni)(void *, ttls_context *, const unsigned char *,
+	      int (*f_sni)(void *, TlsCtx *, const unsigned char *,
 			   size_t),
 	      void *p_sni)
 {
@@ -2103,6 +2108,8 @@ ttls_conf_version(TlsCfg *conf, int min_minor, int max_minor)
  * buffer, eg to use it as a temporary area for the decrypted ticket contents.
  *
  * On server, session tickets are enabled by providing non-NULL callbacks.
+ *
+ * TODO #1054 the function must be deleted as all the callbacks.
  */
 void
 ttls_conf_session_tickets_cb(TlsCfg *conf,
@@ -2124,7 +2131,7 @@ ttls_conf_session_tickets_cb(TlsCfg *conf,
 int
 ttls_get_session(const TlsCtx *tls, TlsSess *dst)
 {
-	if (!tls || dst || tls->conf->endpoint != TTLS_IS_CLIENT)
+	if (!tls || !dst || tls->conf->endpoint != TTLS_IS_CLIENT)
 		return -EINVAL;
 
 	return ttls_session_copy(dst, &tls->sess);
@@ -2654,7 +2661,7 @@ ttls_hash_from_md_alg(int md)
  * Return 0 if we're willing to use it, -1 otherwise.
  */
 int
-ttls_check_curve(const ttls_context *tls, ttls_ecp_group_id grp_id)
+ttls_check_curve(const TlsCtx *tls, ttls_ecp_group_id grp_id)
 {
 	const ttls_ecp_group_id *gid;
 

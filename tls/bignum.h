@@ -136,7 +136,7 @@ void ttls_mpi_modexit(void);
  *
  *	__mpi_do_dump = true;
  *	....
- *	some crypto operatrion to be debugged, e.g. ttls_ecp_mul()
+ *	some crypto operation to be debugged, e.g. ttls_ecp_mul()
  *	...
  *	__mpi_do_dump = false;
  *
@@ -156,7 +156,7 @@ do {									\
 } while (0)
 
 #define MPI_GROW_COPY		0x1
-#define MPI_GROW_ZERO		0x1
+#define MPI_GROW_ZERO		0x2
 
 static inline int
 ttls_mpi_grow(TlsMpi *X, size_t nblimbs)

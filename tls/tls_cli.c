@@ -36,7 +36,7 @@ static void ttls_zeroize(void *v, size_t n) {
 }
 #endif
 
-static void ssl_write_hostname_ext(ttls_context *ssl,
+static void ssl_write_hostname_ext(TlsCtx *ssl,
 		unsigned char *buf,
 		size_t *olen)
 {
@@ -107,7 +107,7 @@ static void ssl_write_hostname_ext(ttls_context *ssl,
 /*
  * Only if we handle at least one key exchange that needs signatures.
  */
-static void ssl_write_signature_algorithms_ext(ttls_context *ssl,
+static void ssl_write_signature_algorithms_ext(TlsCtx *ssl,
 		unsigned char *buf,
 		size_t *olen)
 {
@@ -178,7 +178,7 @@ static void ssl_write_signature_algorithms_ext(ttls_context *ssl,
 	*olen = 6 + sig_alg_len;
 }
 
-static void ssl_write_supported_elliptic_curves_ext(ttls_context *ssl,
+static void ssl_write_supported_elliptic_curves_ext(TlsCtx *ssl,
 		 unsigned char *buf,
 		 size_t *olen)
 {
@@ -235,7 +235,7 @@ static void ssl_write_supported_elliptic_curves_ext(ttls_context *ssl,
 	*olen = 6 + elliptic_curve_len;
 }
 
-static void ssl_write_supported_point_formats_ext(ttls_context *ssl,
+static void ssl_write_supported_point_formats_ext(TlsCtx *ssl,
 		unsigned char *buf,
 		size_t *olen)
 {
@@ -264,7 +264,7 @@ static void ssl_write_supported_point_formats_ext(ttls_context *ssl,
 	*olen = 6;
 }
 
-static void ssl_write_encrypt_then_mac_ext(ttls_context *ssl,
+static void ssl_write_encrypt_then_mac_ext(TlsCtx *ssl,
 		unsigned char *buf, size_t *olen)
 {
 	unsigned char *p = buf;
@@ -290,7 +290,7 @@ static void ssl_write_encrypt_then_mac_ext(ttls_context *ssl,
 	*olen = 4;
 }
 
-static void ssl_write_extended_ms_ext(ttls_context *ssl,
+static void ssl_write_extended_ms_ext(TlsCtx *ssl,
 		unsigned char *buf, size_t *olen)
 {
 	unsigned char *p = buf;
@@ -320,7 +320,7 @@ static void ssl_write_extended_ms_ext(ttls_context *ssl,
 }
 
 #if defined(TTLS_SESSION_TICKETS)
-static void ssl_write_session_ticket_ext(ttls_context *ssl,
+static void ssl_write_session_ticket_ext(TlsCtx *ssl,
 		unsigned char *buf, size_t *olen)
 {
 	unsigned char *p = buf;
@@ -363,7 +363,7 @@ static void ssl_write_session_ticket_ext(ttls_context *ssl,
 }
 #endif /* TTLS_SESSION_TICKETS */
 
-static void ssl_write_alpn_ext(ttls_context *ssl,
+static void ssl_write_alpn_ext(TlsCtx *ssl,
 		unsigned char *buf, size_t *olen)
 {
 	int i;
@@ -423,7 +423,7 @@ static void ssl_write_alpn_ext(ttls_context *ssl,
 /*
  * Generate random bytes for ClientHello
  */
-static int ssl_generate_random(ttls_context *ssl)
+static int ssl_generate_random(TlsCtx *ssl)
 {
 	unsigned char *p = ssl->handshake->randbytes;
 	time_t t;
@@ -441,7 +441,7 @@ static int ssl_generate_random(ttls_context *ssl)
 	return 0;
 }
 
-static int ssl_write_client_hello(ttls_context *ssl)
+static int ssl_write_client_hello(TlsCtx *ssl)
 {
 	int ret;
 	size_t i, n, olen, ext_len = 0;
@@ -649,7 +649,7 @@ static int ssl_write_client_hello(ttls_context *ssl)
 	return 0;
 }
 
-static int ssl_parse_renegotiation_info(ttls_context *ssl,
+static int ssl_parse_renegotiation_info(TlsCtx *ssl,
 		const unsigned char *buf,
 		size_t len)
 {
@@ -664,7 +664,7 @@ static int ssl_parse_renegotiation_info(ttls_context *ssl,
 	return 0;
 }
 
-static int ssl_parse_encrypt_then_mac_ext(ttls_context *ssl,
+static int ssl_parse_encrypt_then_mac_ext(TlsCtx *ssl,
 		const unsigned char *buf,
 		size_t len)
 {
@@ -680,7 +680,7 @@ static int ssl_parse_encrypt_then_mac_ext(ttls_context *ssl,
 	return 0;
 }
 
-static int ssl_parse_extended_ms_ext(ttls_context *ssl,
+static int ssl_parse_extended_ms_ext(TlsCtx *ssl,
 		const unsigned char *buf,
 		size_t len)
 {
@@ -697,7 +697,7 @@ static int ssl_parse_extended_ms_ext(ttls_context *ssl,
 }
 
 #if defined(TTLS_SESSION_TICKETS)
-static int ssl_parse_session_ticket_ext(ttls_context *ssl,
+static int ssl_parse_session_ticket_ext(TlsCtx *ssl,
 		const unsigned char *buf,
 		size_t len)
 {
@@ -718,7 +718,7 @@ static int ssl_parse_session_ticket_ext(ttls_context *ssl,
 }
 #endif /* TTLS_SESSION_TICKETS */
 
-static int ssl_parse_supported_point_formats_ext(ttls_context *ssl,
+static int ssl_parse_supported_point_formats_ext(TlsCtx *ssl,
 		const unsigned char *buf,
 		size_t len)
 {
@@ -755,7 +755,7 @@ static int ssl_parse_supported_point_formats_ext(ttls_context *ssl,
 	return(TTLS_ERR_BAD_HS_SERVER_HELLO);
 }
 
-static int ssl_parse_alpn_ext(ttls_context *ssl,
+static int ssl_parse_alpn_ext(TlsCtx *ssl,
 		const unsigned char *buf, size_t len)
 {
 	int i;
@@ -820,7 +820,7 @@ static int ssl_parse_alpn_ext(ttls_context *ssl,
 	return(TTLS_ERR_BAD_HS_SERVER_HELLO);
 }
 
-static int ssl_parse_server_hello(ttls_context *ssl)
+static int ssl_parse_server_hello(TlsCtx *ssl)
 {
 	int ret, i;
 	size_t n;
@@ -1135,7 +1135,7 @@ static int ssl_parse_server_hello(ttls_context *ssl)
 	return 0;
 }
 
-static int ssl_parse_server_dh_params(ttls_context *ssl, unsigned char **p,
+static int ssl_parse_server_dh_params(TlsCtx *ssl, unsigned char **p,
 		unsigned char *end)
 {
 	int ret = TTLS_ERR_FEATURE_UNAVAILABLE;
@@ -1166,7 +1166,7 @@ static int ssl_parse_server_dh_params(ttls_context *ssl, unsigned char **p,
 	return ret;
 }
 
-static int ssl_check_server_ecdh_params(const ttls_context *ssl)
+static int ssl_check_server_ecdh_params(const TlsCtx *ssl)
 {
 	const TlsEcpCurveInfo *curve_info;
 
@@ -1187,7 +1187,7 @@ static int ssl_check_server_ecdh_params(const ttls_context *ssl)
 	return 0;
 }
 
-static int ssl_parse_server_ecdh_params(ttls_context *ssl,
+static int ssl_parse_server_ecdh_params(TlsCtx *ssl,
 		unsigned char **p,
 		unsigned char *end)
 {
@@ -1219,7 +1219,7 @@ static int ssl_parse_server_ecdh_params(ttls_context *ssl,
 /*
  * Generate a pre-master secret and encrypt it with the server's RSA key
  */
-static int ssl_write_encrypted_pms(ttls_context *ssl,
+static int ssl_write_encrypted_pms(TlsCtx *ssl,
 		size_t offset, size_t *olen,
 		size_t pms_offset)
 {
@@ -1281,7 +1281,7 @@ static int ssl_write_encrypted_pms(ttls_context *ssl,
 	return 0;
 }
 
-static int ssl_parse_signature_algorithm(ttls_context *ssl,
+static int ssl_parse_signature_algorithm(TlsCtx *ssl,
 		  unsigned char **p,
 		  unsigned char *end,
 		  ttls_md_type_t *md_alg,
@@ -1335,7 +1335,7 @@ static int ssl_parse_signature_algorithm(ttls_context *ssl,
 	return 0;
 }
 
-static int ssl_get_ecdh_params_from_cert(ttls_context *ssl)
+static int ssl_get_ecdh_params_from_cert(TlsCtx *ssl)
 {
 	int ret;
 	const TlsEcpKeypair *peer_key;
@@ -1370,7 +1370,7 @@ static int ssl_get_ecdh_params_from_cert(ttls_context *ssl)
 	return ret;
 }
 
-static int ssl_parse_server_key_exchange(ttls_context *ssl)
+static int ssl_parse_server_key_exchange(TlsCtx *ssl)
 {
 	int ret;
 	const TlsCiphersuite *ciphersuite_info =
@@ -1588,7 +1588,7 @@ exit:
 }
 
 #if ! defined(TTLS_KEY_EXCHANGE__CERT_REQ_ALLOWED__ENABLED)
-static int ssl_parse_certificate_request(ttls_context *ssl)
+static int ssl_parse_certificate_request(TlsCtx *ssl)
 {
 	const TlsCiphersuite *ciphersuite_info =
 		ssl->transform_negotiate->ciphersuite_info;
@@ -1606,7 +1606,7 @@ static int ssl_parse_certificate_request(ttls_context *ssl)
 	return(TTLS_ERR_INTERNAL_ERROR);
 }
 #else /* TTLS_KEY_EXCHANGE__CERT_REQ_ALLOWED__ENABLED */
-static int ssl_parse_certificate_request(ttls_context *ssl)
+static int ssl_parse_certificate_request(TlsCtx *ssl)
 {
 	int ret;
 	unsigned char *buf;
@@ -1733,7 +1733,7 @@ exit:
 }
 #endif /* TTLS_KEY_EXCHANGE__CERT_REQ_ALLOWED__ENABLED */
 
-static int ssl_parse_server_hello_done(ttls_context *ssl)
+static int ssl_parse_server_hello_done(TlsCtx *ssl)
 {
 	int ret;
 
@@ -1764,7 +1764,7 @@ static int ssl_parse_server_hello_done(ttls_context *ssl)
 	return 0;
 }
 
-static int ssl_write_client_key_exchange(ttls_context *ssl)
+static int ssl_write_client_key_exchange(TlsCtx *ssl)
 {
 	int ret;
 	size_t i, n;
@@ -1859,7 +1859,7 @@ static int ssl_write_client_key_exchange(ttls_context *ssl)
 	return 0;
 }
 
-static int ssl_write_certificate_verify(ttls_context *ssl)
+static int ssl_write_certificate_verify(TlsCtx *ssl)
 {
 	const TlsCiphersuite *ciphersuite_info =
 		ssl->transform_negotiate->ciphersuite_info;
@@ -1886,7 +1886,7 @@ static int ssl_write_certificate_verify(ttls_context *ssl)
 }
 
 #if defined(TTLS_SESSION_TICKETS)
-static int ssl_parse_new_session_ticket(ttls_context *ssl)
+static int ssl_parse_new_session_ticket(TlsCtx *ssl)
 {
 	int ret;
 	uint32_t lifetime;
@@ -1991,7 +1991,7 @@ static int ssl_parse_new_session_ticket(ttls_context *ssl)
 /*
  * SSL handshake -- client side -- single step
  */
-int ttls_handshake_client_step(ttls_context *ssl)
+int ttls_handshake_client_step(TlsCtx *ssl)
 {
 	int ret = 0;
 
