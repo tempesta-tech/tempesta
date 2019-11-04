@@ -3106,8 +3106,8 @@ do {									\
 	WRITE_LIT(dst, S_CRLF);
 
 	T_DBG3("%s: req adjusted, it->hdrs_len=%lu, it->hdrs_cnt=%u, dst=[%p],"
-	       " p=[%p]\n", __func__, it->hdrs_len, it->hdrs_cnt, dst,
-	       (char *)page_address(p));
+	       " pg=[%p]\n", __func__, it->hdrs_len, it->hdrs_cnt, dst,
+	       (char *)page_address(pg));
 	WARN_ON_ONCE(dst - (char *)page_address(pg) != it->hdrs_len);
 
 	r = ss_skb_replace_page(&req->msg.skb_head, pg, it->hdrs_len,
@@ -3434,7 +3434,7 @@ tfw_h2_add_hdr_via(TfwHttpResp *resp)
 	if (unlikely(r))
 		T_ERR("HTTP/2: unable to add 'via' header (resp=[%p])\n", resp);
 	else
-		T_DBG3("%s: added 'via' header, resp=[%p]\n", resp);
+		T_DBG3("%s: added 'via' header, resp=[%p]\n", __func__, resp);
 	return r;
 #undef NM_VIA
 #undef V_PROTO
@@ -3457,7 +3457,7 @@ tfw_h2_set_hdr_date(TfwHttpResp *resp)
 		T_ERR("HTTP/2: unable to add 'date' header to response"
 			" [%p]\n", resp);
 	else
-		T_DBG3("%s: added 'date' header, resp=[%p]\n", resp);
+		T_DBG3("%s: added 'date' header, resp=[%p]\n", __func__, resp);
 
 	return r;
 }

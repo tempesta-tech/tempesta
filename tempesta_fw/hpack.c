@@ -1183,8 +1183,10 @@ do {								\
 do {								\
 	WARN_ON_ONCE(TFW_STR_EMPTY(it->parsed_hdr));		\
 	it->nm_len = it->parsed_hdr->len;			\
-	it->nm_num = it->parsed_hdr->nchunks;			\
-	if (state & HPACK_FLAGS_HUFFMAN_NAME) {			\
+	it->nm_num = it->parsed_hdr->nchunks			\
+		? it->parsed_hdr->nchunks			\
+		: 1;						\
+	if (state & HPACK_FLAGS_HUFFMAN_VALUE) {		\
 		BUFFER_GET(length, it);				\
 		if (!it->pos) {					\
 			r = T_DROP;				\
@@ -1752,15 +1754,13 @@ tfw_hpack_find_index(TfwHPackDTbl *__restrict tbl, unsigned long index)
 {
 	const TfwHPackEntry *entry = NULL;
 
+	WARN_ON_ONCE(tbl->n > tbl->length);
+
 	if (index <= HPACK_STATIC_ENTRIES) {
 		entry = static_table + index - 1;
-		BUG_ON(!entry->hdr);
-		return entry;
+		WARN_ON_ONCE(entry->name_num != 1);
 	}
-
-	WARN_ON_ONCE(tbl->n > tbl->length);
-	index -= HPACK_STATIC_ENTRIES;
-	if (index <= tbl->n) {
+	else if ((index -= HPACK_STATIC_ENTRIES) <= tbl->n) {
 		unsigned int curr = tbl->curr;
 
 		if (index <= curr) {
@@ -1772,12 +1772,12 @@ tfw_hpack_find_index(TfwHPackDTbl *__restrict tbl, unsigned long index)
 		      __func__, tbl->length, tbl->curr, curr, index);
 
 		entry = tbl->entries + curr;
-		WARN_ON_ONCE(!entry->hdr->nchunks || entry->name_num != 1);
-
-		return entry;
+		WARN_ON_ONCE(!entry->name_num);
 	}
 
-	return NULL;
+	WARN_ON_ONCE(entry && (!entry->hdr || !entry->hdr->nchunks));
+
+	return entry;
 }
 
 static int
@@ -1905,11 +1905,12 @@ tfw_hpack_reinit(TfwHPack *__restrict hp, TfwMsgParseIter *__restrict it)
 static inline int
 tfw_hpack_process_hdr_name(TfwHttpReq *req)
 {
-	int ret = T_BAD;
+	const TfwStr *c, *end;
 	TfwMsgParseIter *it = &req->pit;
-	const TfwStr *c, *end, *next = it->next;
+	const TfwStr *hdr = &it->hdr, *next = it->next;
+	int ret = T_BAD;
 
-	WARN_ON_ONCE(next != &it->hdr);
+	WARN_ON_ONCE(next != hdr);
 	TFW_STR_FOR_EACH_CHUNK(c, next, end) {
 		bool last = c + 1 == end;
 
@@ -1924,13 +1925,28 @@ tfw_hpack_process_hdr_name(TfwHttpReq *req)
 static inline int
 tfw_hpack_process_hdr_value(TfwHttpReq *req)
 {
-	int ret = T_BAD;
+	const TfwStr *chunk, *end;
 	TfwMsgParseIter *it = &req->pit;
-	const TfwStr *hdr = &it->hdr;
-	const TfwStr *chunk = it->next;
-	const TfwStr *end = hdr->chunks + hdr->nchunks;
+	const TfwStr *hdr = &it->hdr, *next = it->next;
+	int ret = T_BAD;
 
-	WARN_ON_ONCE(chunk == hdr);
+	BUG_ON(TFW_STR_DUP(hdr));
+	if (TFW_STR_PLAIN(hdr)) {
+		WARN_ON_ONCE(hdr != next);
+		chunk = hdr;
+		end = hdr + 1;
+	} else {
+		/*
+		 * In case of compound @hdr the @next can point either to the
+		 * @hdr itself (if only header's value has been Huffman-decoded,
+		 * i.e. in case of indexed or raw header's name), or to some
+		 * chunk inside the @hdr (if both, the name and the value, has
+		 * been Huffman-decoded).
+		 */
+		chunk = (hdr != next) ? next : next->chunks;
+		end = hdr->chunks + hdr->nchunks;
+	}
+
 	while (chunk < end) {
 		bool last = chunk + 1 == end;
 
@@ -2056,40 +2072,58 @@ done:
 	switch (entry->tag) {
 	case TFW_TAG_HDR_H2_METHOD:
 		parser->_hdr_tag = TFW_HTTP_HDR_H2_METHOD;
+		break;
 	case TFW_TAG_HDR_H2_SCHEME:
 		parser->_hdr_tag = TFW_HTTP_HDR_H2_SCHEME;
+		break;
 	case TFW_TAG_HDR_H2_AUTHORITY:
 		parser->_hdr_tag = TFW_HTTP_HDR_H2_AUTHORITY;
+		break;
 	case TFW_TAG_HDR_H2_PATH:
 		parser->_hdr_tag = TFW_HTTP_HDR_H2_PATH;
+		break;
 	case TFW_TAG_HDR_ACCEPT:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
+		break;
 	case TFW_TAG_HDR_AUTHORIZATION:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
+		break;
 	case TFW_TAG_HDR_CACHE_CONTROL:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
+		break;
 	case TFW_TAG_HDR_CONTENT_LENGTH:
 		parser->_hdr_tag = TFW_HTTP_HDR_CONTENT_LENGTH;
+		break;
 	case TFW_TAG_HDR_CONTENT_TYPE:
 		parser->_hdr_tag = TFW_HTTP_HDR_CONTENT_TYPE;
+		break;
 	case TFW_TAG_HDR_COOKIE:
 		parser->_hdr_tag = TFW_HTTP_HDR_COOKIE;
+		break;
 	case TFW_TAG_HDR_HOST:
 		parser->_hdr_tag = TFW_HTTP_HDR_HOST;
+		break;
 	case TFW_TAG_HDR_IF_MODIFIED_SINCE:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
+		break;
 	case TFW_TAG_HDR_IF_NONE_MATCH:
 		parser->_hdr_tag = TFW_HTTP_HDR_IF_NONE_MATCH;
+		break;
 	case TFW_TAG_HDR_PRAGMA:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
+		break;
 	case TFW_TAG_HDR_REFERER:
 		parser->_hdr_tag = TFW_HTTP_HDR_REFERER;
+		break;
 	case TFW_TAG_HDR_X_FORWARDED_FOR:
 		parser->_hdr_tag = TFW_HTTP_HDR_X_FORWARDED_FOR;
+		break;
 	case TFW_TAG_HDR_USER_AGENT:
 		parser->_hdr_tag = TFW_HTTP_HDR_USER_AGENT;
+		break;
 	case TFW_TAG_HDR_RAW:
 		parser->_hdr_tag = TFW_HTTP_HDR_RAW;
+		break;
 	default:
 		WARN_ON_ONCE(1);
 		return T_DROP;
@@ -3856,8 +3890,8 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 		mit->acc_len += s_name->len;
 
 		T_DBG3("%s: name str, acc_len=%lu, s_name.len=%lu, s_name.data"
-		       "='%.*s'\n", __func__, mit->acc_len, s_name.len,
-		       (int)s_name.len, s_name.data);
+		       "='%.*s'\n", __func__, mit->acc_len, s_name->len,
+		       (int)s_name->len, s_name->data);
 	}
 	/*
 	 * The @hdr must have the HTTP/2-format chunk structure (without the

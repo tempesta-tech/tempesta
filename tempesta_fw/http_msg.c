@@ -25,6 +25,7 @@
 #if DBG_HTTP_PARSER == 0
 #undef DEBUG
 #endif
+
 #include "lib/str.h"
 #include "gfsm.h"
 #include "http_msg.h"
@@ -104,8 +105,9 @@ static inline unsigned int
 __tfw_http_msg_spec_hid(const TfwStr *hdr, const TfwHdrDef array[])
 {
 	const TfwHdrDef *def;
+	size_t size = TFW_HTTP_HDR_RAW - TFW_HTTP_HDR_REGULAR;
 	/* TODO: return error if @hdr can't be applied to response or client. */
-	def = (TfwHdrDef *)__tfw_http_msg_find_hdr(hdr, array, TFW_HTTP_HDR_RAW,
+	def = (TfwHdrDef *)__tfw_http_msg_find_hdr(hdr, array, size,
 						   sizeof(TfwHdrDef));
 
 	return def ? def->id : TFW_HTTP_HDR_RAW;
@@ -511,7 +513,6 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 		if (TFW_STR_EMPTY(h))
 			/* Just store the special header in empty slot. */
 			goto done;
-
 		/*
 		 * Process duplicate header.
 		 *
@@ -1484,8 +1485,9 @@ this_chunk:
 				++it->frag;
 				skb_fill_page_desc(it->skb, it->frag, page,
 						   0, 0);
-				T_DBG3("message expanded by new frag %d,"
-				       " page=[%p], skb=[%p]\n", i,
+				T_DBG3("message expanded by new frag %u,"
+				       " page=[%p], skb=[%p]\n",
+				       skb_shinfo(it->skb)->nr_frags,
 				       page_address(page), it->skb);
 			}
 

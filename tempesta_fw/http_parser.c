@@ -340,7 +340,7 @@ __FSM_STATE(st, cold) {							\
 	if (likely(TFW_LC(c) == ch))					\
 		__FSM_MOVE(st_next);					\
 	/* It should be checked in st_fallback if `c` is allowed */	\
-	__FSM_JMP(RGen_HdrOther);					\
+	__FSM_JMP(RGen_HdrOtherN);					\
 }
 
 /* As above, but reads OWS through transitional state. */
@@ -351,7 +351,7 @@ __FSM_STATE(st, cold) {							\
 		__FSM_MOVE(RGen_LWS);					\
 	}								\
 	/* It should be checked in st_fallback if `c` is allowed */	\
-	__FSM_JMP(RGen_HdrOther);					\
+	__FSM_JMP(RGen_HdrOtherN);					\
 }
 
 /* As above, but with HPACK static index setting. */
@@ -363,7 +363,7 @@ __FSM_STATE(st, cold) {							\
 		__FSM_MOVE(RGen_LWS);					\
 	}								\
 	/* It should be checked in st_fallback if `c` is allowed */	\
-	__FSM_JMP(RGen_HdrOther);					\
+	__FSM_JMP(RGen_HdrOtherN);					\
 }
 
 /* Used for improbable states only, so use cold label. */
@@ -989,10 +989,6 @@ __FSM_STATE(st_curr) {							\
  * Note that some of these can be extremely large.
  */
 #define RGEN_HDR_OTHER()						\
-__FSM_STATE(RGen_HdrOther) {						\
-	parser->_hdr_tag = TFW_HTTP_HDR_RAW;				\
-	/* Fall through. */						\
-}									\
 __FSM_STATE(RGen_HdrOtherN) {						\
 	__FSM_MATCH_MOVE(token, RGen_HdrOtherN);			\
 	if (likely(*(p + __fsm_sz) == ':')) {				\
@@ -1013,6 +1009,7 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 	__msg_hdr_chunk_fixup(p, __fsm_sz);				\
 	mark_raw_hbh(msg, &parser->hdr);				\
 	mark_trailer_hdr(msg, &parser->hdr);				\
+	parser->_hdr_tag = TFW_HTTP_HDR_RAW;				\
 	__FSM_MOVE_nofixup_n(RGen_EoL, __fsm_sz);			\
 }
 
@@ -1203,6 +1200,7 @@ __FSM_STATE(RGen_LWS, hot) {						\
 	T_DBG3("parse LWS: __fsm_n=%d, __fsm_sz=%lu, len=%lu,"		\
 	       " off=%lu\n", __fsm_n, __fsm_sz, len, __data_off(p));	\
 	if  (__fsm_n == CSTR_POSTPONE) {				\
+		__msg_hdr_chunk_fixup(p, __fsm_sz);			\
 		p += __fsm_sz;						\
 		parser->state = &&RGen_LWS;				\
 		__FSM_EXIT(TFW_POSTPONE);				\
@@ -3399,7 +3397,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 					parser->_i_st = &&Req_HdrCache_ControlV;
 					__FSM_MOVE_n(RGen_LWS, 14);
 				}
-				__FSM_MOVE_n(RGen_HdrOther, 5);
+				__FSM_MOVE_n(RGen_HdrOtherN, 5);
 			case TFW_CHAR4_INT('o', 'n', 'n', 'e'):
 				if (likely(C4_INT_LCM(p + 5, 'c', 't', 'i', 'o')
 					   && TFW_LC(*(p + 9)) == 'n'
@@ -3408,7 +3406,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 					parser->_i_st = &&Req_HdrConnectionV;
 					__FSM_MOVE_n(RGen_LWS, 11);
 				}
-				__FSM_MOVE_n(RGen_HdrOther, 5);
+				__FSM_MOVE_n(RGen_HdrOtherN, 5);
 			case TFW_CHAR4_INT('o', 'n', 't', 'e'):
 				if (likely(TFW_LC(*(p + 5)) == 'n'
 					   && TFW_LC(*(p + 6)) == 't'
@@ -3416,7 +3414,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				{
 					__FSM_MOVE_n(Req_HdrContent_, 8);
 				}
-				__FSM_MOVE_n(RGen_HdrOther, 5);
+				__FSM_MOVE_n(RGen_HdrOtherN, 5);
 			case TFW_CHAR4_INT('o', 'o', 'k', 'i'):
 				if (likely(TFW_LC(*(p + 5)) == 'e'
 					   && *(p + 6) == ':'))
@@ -3424,9 +3422,9 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 					parser->_i_st = &&Req_HdrCookieV;
 					__FSM_MOVE_n(RGen_LWS, 7);
 				}
-				__FSM_MOVE_n(RGen_HdrOther, 5);
+				__FSM_MOVE_n(RGen_HdrOtherN, 5);
 			default:
-				__FSM_MOVE(RGen_HdrOther);
+				__FSM_MOVE(RGen_HdrOtherN);
 			}
 		case 'h':
 			if (likely(__data_available(p, 5)
@@ -3537,7 +3535,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 			}
 			__FSM_MOVE(Req_HdrU);
 		default:
-			__FSM_JMP(RGen_HdrOther);
+			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
 
@@ -3563,7 +3561,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 			}
 			__FSM_MOVE(Req_HdrContent_T);
 		default:
-			__FSM_JMP(RGen_HdrOther);
+			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
 
@@ -3930,7 +3928,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		case 'u':
 			__FSM_MOVE(Req_HdrAu);
 		default:
-			__FSM_JMP(RGen_HdrOther);
+			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
 
@@ -3962,7 +3960,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		case 'o':
 			__FSM_MOVE(Req_HdrCo);
 		default:
-			__FSM_JMP(RGen_HdrOther);
+			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
 
@@ -3987,7 +3985,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		case 'o':
 			__FSM_MOVE(Req_HdrCoo);
 		default:
-			__FSM_JMP(RGen_HdrOther);
+			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
 
@@ -3999,7 +3997,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		case 't':
 			__FSM_MOVE(Req_HdrCont);
 		default:
-			__FSM_JMP(RGen_HdrOther);
+			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
 	__FSM_TX_AF(Req_HdrConn, 'e', Req_HdrConne);
@@ -4040,7 +4038,7 @@ Req_Method_1CharStep: __attribute__((cold))
 			parser->_i_st = &&Req_HdrHostV;
 			__FSM_MOVE(RGen_LWS);
 		}
-		__FSM_JMP(RGen_HdrOther);
+		__FSM_JMP(RGen_HdrOtherN);
 	}
 
 	/* If-* header processing. */
@@ -4053,7 +4051,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		case 'n':
 			__FSM_MOVE(Req_HdrIf_N);
 		default:
-			__FSM_JMP(RGen_HdrOther);
+			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
 
@@ -4251,8 +4249,8 @@ do {									\
 #define __FSM_H2_FIN(to, n, h_tag)					\
 do {									\
 	p += n;								\
-	T_DBG3("%s: name fin, hid=%d, to=" #to "len=%lu, off=%lu\n",	\
-	       __func__, hid, len, __data_off(p));			\
+	T_DBG3("%s: name fin, h_tag=%d, to=" #to " len=%lu, off=%lu\n",	\
+	       __func__, h_tag, len, __data_off(p));			\
 	if (unlikely(__data_off(p) < len))				\
 		goto RGen_HdrOtherN;					\
 	__msg_hdr_chunk_fixup(data, len);				\
@@ -4265,7 +4263,7 @@ do {									\
 #define __FSM_H2_NEXT_n(to, n)						\
 do {									\
 	p += n;								\
-	T_DBG3("%s: name next, to=" #to "len=%lu, off=%lu\n", __func__,	\
+	T_DBG3("%s: name next, to=" #to " len=%lu, off=%lu\n", __func__, \
 	       len, __data_off(p));					\
 	if (likely(__data_off(p) < len))				\
 		goto to;						\
@@ -4287,7 +4285,7 @@ do {									\
 
 #define __FSM_H2_HDR_COMPLETE(st_curr)					\
 do {									\
-	T_DBG("%s: complete header, state=" #st_curr ", _hdr_tag=%u,"	\
+	T_DBG3("%s: complete header, state=" #st_curr ", _hdr_tag=%u,"	\
 	      " c=%#x, p='%.*s', len=%lu, off=%lu\n",			\
 	      __func__, parser->_hdr_tag, (char)c,			\
 	      min(16U, (unsigned int)(data + len - p)),			\
@@ -4303,47 +4301,56 @@ do {									\
 	}								\
 } while (0)
 
-#define __FSM_H2_PSHDR_MOVE_lambda(n, lambda, st_next)			\
+#define __FSM_H2_PSHDR_MOVE_FIN(st_curr, n, st_next)			\
 do {									\
 	p += n;								\
-	__FSM_H2_PSHDR_CHECK_lambda(p, lambda);				\
-	goto st_next;							\
-} while (0)
-
-#define __FSM_H2_PSHDR_MOVE_FIN(st_curr, n, st_next)			\
-	__FSM_H2_PSHDR_MOVE_lambda(n, {					\
+	__FSM_H2_PSHDR_CHECK_lambda(p, {				\
 		__msg_hdr_chunk_fixup(data, len);			\
 		__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);			\
 		if (unlikely(!fin))					\
 			__FSM_H2_POSTPONE(st_next);			\
 		__FSM_H2_HDR_COMPLETE(st_curr);				\
-	}, st_next)
+	});								\
+	goto st_next;							\
+} while (0)
 
 #define __FSM_H2_PSHDR_MOVE_FIN_fixup(st_curr, n, st_next)		\
+do {									\
 	__msg_hdr_chunk_fixup(p, n);					\
 	__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);				\
-	__FSM_H2_PSHDR_MOVE_lambda(n, {					\
+	p += n;								\
+	__FSM_H2_PSHDR_CHECK_lambda(p, {				\
 		if (unlikely(!fin))					\
 			__FSM_H2_POSTPONE(st_next);			\
 		__FSM_H2_HDR_COMPLETE(st_curr);				\
-	}, st_next)
+	});								\
+	goto st_next;							\
+} while (0)
 
 #define __FSM_H2_PSHDR_MOVE_DROP(st_curr, n, st_next)			\
-	__FSM_H2_PSHDR_MOVE_lambda(n, {					\
+do {									\
+	p += n;								\
+	__FSM_H2_PSHDR_CHECK_lambda(p, {				\
 		if (unlikely(!fin)) {					\
 			__msg_hdr_chunk_fixup(data, len);		\
 			__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);		\
 			__FSM_H2_POSTPONE(st_next);			\
 		}							\
 		__FSM_H2_DROP(st_curr);					\
-	}, st_next)
+	});								\
+	goto st_next;							\
+} while (0)
 
 #define __FSM_H2_PSHDR_MOVE_DROP_nofixup(st_curr, n, st_next)		\
-	__FSM_H2_PSHDR_MOVE_lambda(n, {					\
+do {									\
+	p += n;								\
+	__FSM_H2_PSHDR_CHECK_lambda(p, {				\
 		if (unlikely(!fin))					\
 			__FSM_H2_POSTPONE(st_next);			\
 		__FSM_H2_DROP(st_curr);					\
-	}, st_next)
+	});								\
+	goto st_next;							\
+} while (0)
 
 #define __FSM_H2_PSHDR_COMPLETE(st, n)					\
 do {									\
@@ -4359,24 +4366,32 @@ do {									\
 } while (0)
 
 #define __FSM_H2_METHOD_MOVE(st_curr, n, st_next)			\
-	__FSM_H2_PSHDR_MOVE_lambda(n, {					\
+do {									\
+	p += n;								\
+	__FSM_H2_PSHDR_CHECK_lambda(p, {				\
 		__msg_hdr_chunk_fixup(data, len);			\
 		__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);			\
 		if (unlikely(!fin))					\
 			__FSM_H2_POSTPONE(st_next);			\
 		req->method = _TFW_HTTP_METH_UNKNOWN;			\
 		__FSM_H2_HDR_COMPLETE(st_curr);				\
-	}, st_next)
+	});								\
+	goto st_next;							\
+} while (0)
 
 #define __FSM_H2_METHOD_COMPLETE(st_curr, n, mid)			\
-	__FSM_H2_PSHDR_MOVE_lambda(n, {					\
+do {									\
+	p += n;								\
+	__FSM_H2_PSHDR_CHECK_lambda(p, {				\
 		__msg_hdr_chunk_fixup(data, len);			\
 		__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);			\
 		if (unlikely(!fin))					\
 			__FSM_H2_POSTPONE(Req_MethodUnknown);		\
 		req->method = mid;					\
 		__FSM_H2_HDR_COMPLETE(st_curr);				\
-	}, Req_MethodUnknown)
+	});								\
+	goto Req_MethodUnknown;						\
+} while (0)
 
 /*
  * Special set of macros for slow-path parsing of pseudo-headers value
@@ -4419,7 +4434,7 @@ __FSM_STATE(st_curr) {							\
 		TRY_STR_INIT();						\
 	__fsm_n = func(hm, p, len, fin);				\
 	T_DBG3("%s: parse header value, " #func ": ret=%d data_len=%lu"	\
-	       " hid=%u\n", __fsm_n, len, parser->_hdr_tag);		\
+	       " hid=%d\n", __func__, __fsm_n, len, hid);		\
 	switch (__fsm_n) {						\
 	case CSTR_EQ:							\
 		if (saveval) {						\
@@ -6103,15 +6118,15 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	TfwMsgParseIter *it = &req->pit;
 	__FSM_DECLARE_VARS(req);
 
-	T_DBG("%s: len=%lu, data=%.*s%s, req=[%p]\n", len, min(500, (int)len),
-	      data, len > 500 ? "..." : "", req);
+	T_DBG("%s: len=%lu, data=%.*s%s, req=[%p]\n", __func__, len,
+	      min(500, (int)len), data, len > 500 ? "..." : "", req);
 
 	__FSM_START(parser->state);
 
 	/*
 	 * If next state is not defined here, that means the name has not been
-	 * parsed and is statically indexed, thus we should determine the state
-	 * from the header tag.
+	 * parsed and is indexed, thus we should determine the state from the
+	 * header tag.
 	 */
 	__FSM_H2_REQ_NEXT_STATE(value_stage);
 
@@ -6295,7 +6310,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 					     'a', 'r', 'd')
 				   && C4_INT(p + 9, 'e', 'd', '-', 'f')
 				   && *(p + 13) == 'o'
-				   && *(p + 15) == 'r'))
+				   && *(p + 14) == 'r'))
 			{
 				__FSM_H2_FIN(Req_HdrX_Forwarded_ForV, 15,
 					     TFW_TAG_HDR_X_FORWARDED_FOR);
@@ -7159,7 +7174,7 @@ tfw_h2_parse_body(char *data, unsigned long len, TfwHttpReq *req,
 
 		parser->to_read = ctx->plen;
 
-		T_DBG3("%s: init, content_length=%lu, to_read=%ld\n",
+		T_DBG3("%s: init, content_length=%lu, to_read=%ld\n", __func__,
 		       req->content_length, parser->to_read);
 
 		if (!req->body.data)
@@ -7172,14 +7187,14 @@ tfw_h2_parse_body(char *data, unsigned long len, TfwHttpReq *req,
 
 	if (parser->to_read) {
 		T_DBG3("%s: postpone, to_read=%ld, m_len=%lu, len=%lu\n",
-		       parser->to_read, m_len, len);
+		       __func__, parser->to_read, m_len, len);
 		__msg_field_fixup(&req->body, data + len);
 		goto out;
 	}
 
 	WARN_ON_ONCE(m_len != len);
-	T_DBG3("%s: to_read=%ld, m_len=%lu, len=%lu\n", parser->to_read,
-	       m_len, len);
+	T_DBG3("%s: to_read=%ld, m_len=%lu, len=%lu\n", __func__,
+	       parser->to_read, m_len, len);
 
 	if (tfw_http_msg_add_str_data(msg, &req->body, data, m_len))
 		return T_DROP;
@@ -7790,7 +7805,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 					__msg_hdr_set_hpack_index(24);
 					__FSM_MOVE_n(RGen_LWS, 14);
 				}
-				__FSM_MOVE_n(RGen_HdrOther, 5);
+				__FSM_MOVE_n(RGen_HdrOtherN, 5);
 			case TFW_CHAR4_INT('o', 'n', 'n', 'e'):
 				if (likely(C4_INT_LCM(p + 5, 'c', 't', 'i', 'o')
 					   && TFW_LC(*(p + 9)) == 'n'
@@ -7799,7 +7814,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 					parser->_i_st = &&Resp_HdrConnectionV;
 					__FSM_MOVE_n(RGen_LWS, 11);
 				}
-				__FSM_MOVE_n(RGen_HdrOther, 5);
+				__FSM_MOVE_n(RGen_HdrOtherN, 5);
 			case TFW_CHAR4_INT('o', 'n', 't', 'e'):
 				if (likely(TFW_LC(*(p + 5)) == 'n'
 					   && TFW_LC(*(p + 6)) == 't'
@@ -7807,9 +7822,9 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 				{
 					__FSM_MOVE_n(Resp_HdrContent_, 8);
 				}
-				__FSM_MOVE_n(RGen_HdrOther, 5);
+				__FSM_MOVE_n(RGen_HdrOtherN, 5);
 			default:
-				__FSM_MOVE(RGen_HdrOther);
+				__FSM_MOVE(RGen_HdrOtherN);
 			}
 		case 'd':
 			if (likely(__data_available(p, 5)
@@ -7986,7 +8001,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 			}
 			__FSM_MOVE(Resp_HdrW);
 		default:
-			__FSM_JMP(RGen_HdrOther);
+			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
 
@@ -8061,7 +8076,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 			}
 			__FSM_MOVE(Resp_HdrContent_T);
 		default:
-			__FSM_JMP(RGen_HdrOther);
+			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
 
@@ -8159,7 +8174,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 		case 'g':
 			__FSM_MOVE(Resp_HdrAg);
 		default:
-			__FSM_JMP(RGen_HdrOther);
+			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
 	__FSM_TX_AF(Resp_HdrAc, 'c', Resp_HdrAcc);
@@ -8172,7 +8187,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 		case 's':
 			__FSM_MOVE(Resp_HdrAcces);
 		default:
-			__FSM_JMP(RGen_HdrOther);
+			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
 
@@ -8239,7 +8254,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 		case 'o':
 			__FSM_MOVE(Resp_HdrCo);
 		default:
-			__FSM_JMP(RGen_HdrOther);
+			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
 
@@ -8266,7 +8281,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 		case 't':
 			__FSM_MOVE(Resp_HdrCont);
 		default:
-			__FSM_JMP(RGen_HdrOther);
+			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
 	__FSM_TX_AF(Resp_HdrConn, 'e', Resp_HdrConne);
@@ -8315,7 +8330,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 		case 'o':
 			__FSM_MOVE(Resp_HdrContent_Lo);
 		default:
-			__FSM_JMP(RGen_HdrOther);
+			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
 
@@ -8370,7 +8385,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 		case 'x':
 			__FSM_MOVE(Resp_HdrEx);
 		default:
-			__FSM_JMP(RGen_HdrOther);
+			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
 	/* ETag header processing. */
@@ -8407,7 +8422,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 		case 'o':
 			__FSM_MOVE(Resp_HdrLo);
 		default:
-			__FSM_JMP(RGen_HdrOther);
+			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
 
@@ -8447,7 +8462,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 		case 'o':
 			__FSM_MOVE(Resp_HdrPro);
 		default:
-			__FSM_JMP(RGen_HdrOther);
+			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
 
@@ -8495,7 +8510,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 		case 't':
 			__FSM_MOVE(Resp_HdrSt);
 		default:
-			__FSM_JMP(RGen_HdrOther);
+			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
 
@@ -8540,7 +8555,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 		case 't':
 			__FSM_MOVE(Resp_HdrSet);
 		default:
-			__FSM_JMP(RGen_HdrOther);
+			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
 
@@ -8586,7 +8601,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 		case 'i':
 			__FSM_MOVE(Resp_HdrVi);
 		default:
-			__FSM_JMP(RGen_HdrOther);
+			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
 
