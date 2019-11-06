@@ -551,6 +551,7 @@ int
 ttls_mpi_fill_random(TlsMpi *X, size_t size)
 {
 	size_t limbs = CHARS_TO_LIMBS(size);
+	size_t rem = limbs * CIL - size;
 
 	if (WARN_ON_ONCE(size > TTLS_MPI_MAX_SIZE))
 		return -EINVAL;
@@ -559,6 +560,8 @@ ttls_mpi_fill_random(TlsMpi *X, size_t size)
 		return -ENOMEM;
 
 	ttls_rnd(X->p, size);
+	if (rem > 0)
+		memset((char *)X->p + size, 0, rem);
 	X->used = limbs;
 	X->s = 1;
 
