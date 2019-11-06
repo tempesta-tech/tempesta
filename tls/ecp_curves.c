@@ -805,7 +805,7 @@ ecp_mod_p255(TlsMpi *N)
 	M.p = Mp;
 	n = M.used * CIL;
 	memcpy(Mp, N->p + P255_WIDTH - 1, n);
-	memset(Mp + n, 0, sizeof(Mp) - n);
+	memset((char *)Mp + n, 0, sizeof(Mp) - n);
 	if ((r = ttls_mpi_shift_r(&M, 255 % BIL)))
 		return r;
 
