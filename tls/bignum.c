@@ -1081,7 +1081,7 @@ ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 	}
 	if (!ttls_mpi_cmp_int(B, 1)) {
 		if (Q)
-			if (ttls_mpi_lset(Q, 1))
+			if (ttls_mpi_copy(Q, A))
 				return -ENOMEM;
 		if (R)
 			if (ttls_mpi_lset(R, 0))
