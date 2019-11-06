@@ -551,6 +551,7 @@ int
 ttls_mpi_fill_random(TlsMpi *X, size_t size)
 {
 	size_t limbs = CHARS_TO_LIMBS(size);
+	size_t rem = limbs * CIL - size;
 
 	if (WARN_ON_ONCE(size > TTLS_MPI_MAX_SIZE))
 		return -EINVAL;
@@ -559,6 +560,8 @@ ttls_mpi_fill_random(TlsMpi *X, size_t size)
 		return -ENOMEM;
 
 	ttls_rnd(X->p, size);
+	if (rem > 0)
+		memset((char *)X->p + size, 0, rem);
 	X->used = limbs;
 	X->s = 1;
 
@@ -1078,7 +1081,7 @@ ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 	}
 	if (!ttls_mpi_cmp_int(B, 1)) {
 		if (Q)
-			if (ttls_mpi_lset(Q, 1))
+			if (ttls_mpi_copy(Q, A))
 				return -ENOMEM;
 		if (R)
 			if (ttls_mpi_lset(R, 0))
@@ -1377,7 +1380,8 @@ ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E, const TlsMpi *N,
 	/*
 	 * If 1st call, pre-compute R^2 mod N
 	 */
-	if (!RR || !RR->p) {
+	BUG_ON(!RR);
+	if (!RR->p) {
 		if ((r = ttls_mpi_lset(RR, 1))
 		    || (r = ttls_mpi_shift_l(RR, N->used * 2 * BIL))
 		    || (r = ttls_mpi_mod_mpi(RR, RR, N)))
