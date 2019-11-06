@@ -1380,7 +1380,8 @@ ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E, const TlsMpi *N,
 	/*
 	 * If 1st call, pre-compute R^2 mod N
 	 */
-	if (!RR || !RR->p) {
+	BUG_ON(!RR);
+	if (!RR->p) {
 		if ((r = ttls_mpi_lset(RR, 1))
 		    || (r = ttls_mpi_shift_l(RR, N->used * 2 * BIL))
 		    || (r = ttls_mpi_mod_mpi(RR, RR, N)))
