@@ -28,8 +28,7 @@
  *	 <http://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.186-4.pdf>
  *
  * [7] Elliptic Curve Cryptography (ECC) Cipher Suites for Transport Layer 
- *	 Security (TLS), RFC 4492.
- *	 <https://tools.ietf.org/search/rfc4492>
+ *	 Security (TLS) Versions 1.2 and Earlier, RFC 8422.
  *
  * [8] <http://www.hyperelliptic.org/EFD/g1p/auto-shortw-jacobian.html>
  *
@@ -136,8 +135,9 @@ typedef struct {
  * ECP group structure.
  *
  * We consider two types of curves equations:
- * 1. Short Weierstrass y^2 = x^3 + A x + B	mod P   (SEC1 + RFC 4492)
- * 2. Montgomery,	y^2 = x^3 + A x^2 + x	mod P   (Curve25519 + draft)
+ * 1. Short Weierstrass,  y^2 = x^3 + A x + B    mod P  (SEC1)
+ * 2. Montgomery,	  y^2 = x^3 + A x^2 + x  mod P  (Curve25519 + draft)
+ *
  * In both cases, a generator G for a prime-order subgroup is fixed. In the
  * short weierstrass, this subgroup is actually the whole curve, and its
  * cardinal is denoted by N.
@@ -226,15 +226,10 @@ typedef struct {
  */
 #define TTLS_ECP_WINDOW_SIZE	6
 
-/*
- * Point formats, from RFC 4492's enum ECPointFormat
- */
-#define TTLS_ECP_PF_UNCOMPRESSED	0   /**< Uncompressed point format */
-#define TTLS_ECP_PF_COMPRESSED	  1   /**< Compressed point format */
+/* Uncompressed is the only point format supported by RFC 8422. */
+#define TTLS_ECP_PF_UNCOMPRESSED	0
 
-/*
- * The only allowed ECCurveType by RFC 8422 5.4.
- */
+/* The only allowed ECCurveType by RFC 8422 5.4. */
 #define TTLS_ECP_TLS_NAMED_CURVE	3
 
 /**
