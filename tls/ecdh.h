@@ -119,29 +119,8 @@ void ttls_ecdh_init(ttls_ecdh_context *ctx);
  */
 void ttls_ecdh_free(ttls_ecdh_context *ctx);
 
-/**
- * \brief		   This function generates a public key and a TLS
- *				  ServerKeyExchange payload.
- *
- *				  This is the first function used by a TLS server for ECDHE
- *				  ciphersuites.
- *
- * \param ctx	   The ECDH context.
- * \param olen	  The number of characters written.
- * \param buf	   The destination buffer.
- * \param blen	  The length of the destination buffer.
- *
- * \note			This function assumes that the ECP group (grp) of the
- *				  \p ctx context has already been properly set,
- *				  for example, using ttls_ecp_group_load().
- *
- * \return		  \c 0 on success, or an \c TTLS_ERR_ECP_XXX error code
- *				  on failure.
- *
- * \see			 ecp.h
- */
 int ttls_ecdh_make_params(ttls_ecdh_context *ctx, size_t *olen,
-		  unsigned char *buf, size_t blen);
+			  unsigned char *buf, size_t blen);
 
 /**
  * \brief		   This function parses and processes a TLS ServerKeyExhange

@@ -5,22 +5,25 @@
  *
  * References:
  *
- * SEC1 http://www.secg.org/index.php?action=secg,docs_secg
- * GECC = Guide to Elliptic Curve Cryptography - Hankerson, Menezes, Vanstone
- * FIPS 186-3 http://csrc.nist.gov/publications/fips/fips186-3/fips_186-3.pdf
- * RFC 8422 for the related TLS structures and constants
+ * 1. SEC1 http://www.secg.org/index.php?action=secg,docs_secg
  *
- * [Curve25519] http://cr.yp.to/ecdh/curve25519-20060209.pdf
+ * 2. GECC = Guide to Elliptic Curve Cryptography - Hankerson, Menezes, Vanstone
  *
- * [2] CORON, Jean-S'ebastien. Resistance against differential power analysis
- *     for elliptic curve cryptosystems. In : Cryptographic Hardware and
- *     Embedded Systems. Springer Berlin Heidelberg, 1999. p. 292-302.
- *     <http://link.springer.com/chapter/10.1007/3-540-48059-5_25>
+ * 3. FIPS 186-3 http://csrc.nist.gov/publications/fips/fips186-3/fips_186-3.pdf
  *
- * [3] HEDABOU, Mustapha, PINEL, Pierre, et B'EN'ETEAU, Lucien. A comb method to
- *     render ECC resistant against Side Channel Attacks. IACR Cryptology
- *     ePrint Archive, 2004, vol. 2004, p. 342.
- *     <http://eprint.iacr.org/2004/342.pdf>
+ * 4. RFC 8422 for the related TLS structures and constants
+ *
+ * 5. [Curve25519] http://cr.yp.to/ecdh/curve25519-20060209.pdf
+ *
+ * 6. CORON, Jean-S'ebastien. Resistance against differential power analysis
+ *    for elliptic curve cryptosystems. In : Cryptographic Hardware and
+ *    Embedded Systems. Springer Berlin Heidelberg, 1999. p. 292-302.
+ *    <http://link.springer.com/chapter/10.1007/3-540-48059-5_25>
+ *
+ * 7. HEDABOU, Mustapha, PINEL, Pierre, et B'EN'ETEAU, Lucien. A comb method to
+ *    render ECC resistant against Side Channel Attacks. IACR Cryptology
+ *    ePrint Archive, 2004, vol. 2004, p. 342.
+ *    <http://eprint.iacr.org/2004/342.pdf>
  *
  * Based on mbed TLS, https://tls.mbed.org.
  *
@@ -76,7 +79,7 @@ typedef enum {
 /*
  * List of supported curves (RFC 8422):
  *  - internal ID
- *  - TLS NamedCurve ID (RFC 4492 sec. 5.1.1, RFC 7071 sec. 2)
+ *  - TLS NamedCurve ID (RFC 8422 5.1.1, RFC 7071 sec. 2)
  *  - size in bits
  *  - readable name
  *
@@ -337,26 +340,22 @@ int ttls_ecp_point_cmp(const TlsEcpPoint *P,
 }
 
 /*
- * Export a point into unsigned binary data (SEC1 2.3.3)
+ * Export a point into unsigned binary data (SEC1 2.3.3).
  */
-int ttls_ecp_point_write_binary(const TlsEcpGrp *grp, const TlsEcpPoint *P,
-				int format, size_t *olen,
-				unsigned char *buf, size_t buflen)
+int
+ttls_ecp_point_write_binary(const TlsEcpGrp *grp, const TlsEcpPoint *P,
+			    int format, size_t *olen, unsigned char *buf,
+			    size_t buflen)
 {
-	int ret = 0;
 	size_t plen;
 
-	if (format != TTLS_ECP_PF_UNCOMPRESSED &&
-		format != TTLS_ECP_PF_COMPRESSED)
-		return(TTLS_ERR_ECP_BAD_INPUT_DATA);
+	if (WARN_ON_ONCE(format != TTLS_ECP_PF_UNCOMPRESSED))
+		return TTLS_ERR_ECP_BAD_INPUT_DATA;
 
-	/*
-	 * Common case: P == 0
-	 */
-	if (ttls_mpi_cmp_int(&P->Z, 0) == 0)
-	{
+	/* Common case: P == 0 . */
+	if (ttls_mpi_cmp_int(&P->Z, 0) == 0) {
 		if (buflen < 1)
-			return(TTLS_ERR_ECP_BUFFER_TOO_SMALL);
+			return -ENOSPC;
 
 		buf[0] = 0x00;
 		*olen = 1;
@@ -366,30 +365,17 @@ int ttls_ecp_point_write_binary(const TlsEcpGrp *grp, const TlsEcpPoint *P,
 
 	plen = ttls_mpi_size(&grp->P);
 
-	if (format == TTLS_ECP_PF_UNCOMPRESSED)
-	{
-		*olen = 2 * plen + 1;
+	*olen = 2 * plen + 1;
 
-		if (buflen < *olen)
-			return(TTLS_ERR_ECP_BUFFER_TOO_SMALL);
+	if (buflen < *olen)
+		return -ENOSPC;
 
-		buf[0] = 0x04;
-		TTLS_MPI_CHK(ttls_mpi_write_binary(&P->X, buf + 1, plen));
-		TTLS_MPI_CHK(ttls_mpi_write_binary(&P->Y, buf + 1 + plen, plen));
-	}
-	else if (format == TTLS_ECP_PF_COMPRESSED)
-	{
-		*olen = plen + 1;
+	buf[0] = 0x04;
+	if (ttls_mpi_write_binary(&P->X, buf + 1, plen)
+	    || ttls_mpi_write_binary(&P->Y, buf + 1 + plen, plen))
+		return -ENOSPC;
 
-		if (buflen < *olen)
-			return(TTLS_ERR_ECP_BUFFER_TOO_SMALL);
-
-		buf[0] = 0x02 + ttls_mpi_get_bit(&P->Y, 0);
-		TTLS_MPI_CHK(ttls_mpi_write_binary(&P->X, buf + 1, plen));
-	}
-
-cleanup:
-	return ret;
+	return 0;
 }
 
 /**
@@ -428,10 +414,10 @@ cleanup:
 }
 
 /**
- * Import a point from a TLS ECPoint record (RFC 4492)
- *	  struct {
- *		  opaque point <1..2^8-1>;
- *	  } ECPoint;
+ * Import a point from a TLS ECPoint record (RFC 8443 5.4)
+ *	struct {
+ *		opaque point <1..2^8-1>;
+ *	} ECPoint;
  */
 int
 ttls_ecp_tls_read_point(const TlsEcpGrp *grp, TlsEcpPoint *pt,
@@ -458,21 +444,20 @@ ttls_ecp_tls_read_point(const TlsEcpGrp *grp, TlsEcpPoint *pt,
 	return ttls_ecp_point_read_binary(grp, pt, buf_start, data_len);
 }
 
-/*
- * Export a point as a TLS ECPoint record (RFC 4492)
- *	  struct {
- *		  opaque point <1..2^8-1>;
- *	  } ECPoint;
+/**
+ * Export a point as a TLS ECPoint record (RFC 8422 5.4)
+ *	struct {
+ *		opaque point <1..2^8-1>;
+ *	} ECPoint;
  */
-int ttls_ecp_tls_write_point(const TlsEcpGrp *grp, const TlsEcpPoint *pt,
+int
+ttls_ecp_tls_write_point(const TlsEcpGrp *grp, const TlsEcpPoint *pt,
 			 int format, size_t *olen,
 			 unsigned char *buf, size_t blen)
 {
 	int ret;
 
-	/*
-	 * buffer length must be at least one, for our length byte
-	 */
+	/* Buffer length must be at least one, for our length byte. */
 	if (blen < 1)
 		return(TTLS_ERR_ECP_BAD_INPUT_DATA);
 
@@ -480,17 +465,15 @@ int ttls_ecp_tls_write_point(const TlsEcpGrp *grp, const TlsEcpPoint *pt,
 		olen, buf + 1, blen - 1)) != 0)
 		return ret;
 
-	/*
-	 * write length to the first byte and update total length
-	 */
+	/* Write length to the first byte and update total length. */
 	buf[0] = (unsigned char) *olen;
 	++*olen;
 
 	return 0;
 }
 
-/*
- * Set a group from an ECParameters record (RFC 4492)
+/**
+ * Set a group from an ECParameters record (RFC 8422 5.4).
  */
 int
 ttls_ecp_tls_read_group(TlsEcpGrp *grp, const unsigned char **buf, size_t len)
@@ -498,21 +481,15 @@ ttls_ecp_tls_read_group(TlsEcpGrp *grp, const unsigned char **buf, size_t len)
 	uint16_t tls_id;
 	const TlsEcpCurveInfo *curve_info;
 
-	/*
-	 * We expect at least three bytes (see below)
-	 */
+	/* We expect at least three bytes (see below). */
 	if (len < 3)
 		return TTLS_ERR_ECP_BAD_INPUT_DATA;
 
-	/*
-	 * First byte is curve_type; only named_curve is handled
-	 */
+	/* First byte is curve_type; only named_curve is handled. */
 	if (*(*buf)++ != TTLS_ECP_TLS_NAMED_CURVE)
 		return TTLS_ERR_ECP_BAD_INPUT_DATA;
 
-	/*
-	 * Next two bytes are the namedcurve value
-	 */
+	/* Next two bytes are the namedcurve value. */
 	tls_id = *(*buf)++;
 	tls_id <<= 8;
 	tls_id |= *(*buf)++;
@@ -525,32 +502,27 @@ ttls_ecp_tls_read_group(TlsEcpGrp *grp, const unsigned char **buf, size_t len)
 	return ttls_ecp_group_load(grp, curve_info->grp_id);
 }
 
-/*
- * Write the ECParameters record corresponding to a group (RFC 4492)
+/**
+ * Write the ECParameters record corresponding to a group (RFC 8422 5.4).
  */
-int ttls_ecp_tls_write_group(const TlsEcpGrp *grp, size_t *olen,
+int
+ttls_ecp_tls_write_group(const TlsEcpGrp *grp, size_t *olen,
 			 unsigned char *buf, size_t blen)
 {
 	const TlsEcpCurveInfo *curve_info;
 
-	if ((curve_info = ttls_ecp_curve_info_from_grp_id(grp->id)) == NULL)
-		return(TTLS_ERR_ECP_BAD_INPUT_DATA);
+	if (!(curve_info = ttls_ecp_curve_info_from_grp_id(grp->id)))
+		return -EINVAL;
 
-	/*
-	 * We are going to write 3 bytes (see below)
-	 */
+	/* We are going to write 3 bytes (see below). */
 	*olen = 3;
 	if (blen < *olen)
-		return(TTLS_ERR_ECP_BUFFER_TOO_SMALL);
+		return -ENOSPC;
 
-	/*
-	 * First byte is curve_type, always named_curve
-	 */
+	/* First byte is curve_type, always named_curve. */
 	*buf++ = TTLS_ECP_TLS_NAMED_CURVE;
 
-	/*
-	 * Next two bytes are the namedcurve value
-	 */
+	/* Next two bytes are the namedcurve value. */
 	buf[0] = curve_info->tls_id >> 8;
 	buf[1] = curve_info->tls_id & 0xFF;
 
@@ -1740,6 +1712,7 @@ ttls_ecp_check_privkey(const TlsEcpGrp *grp, const TlsMpi *d)
  *
  * TODO #1064 it seems, at least for the random strings, we can pregenerate
  * most of the data to speedup the handshake.
+ * => bn profile
  */
 int
 ttls_ecp_gen_keypair(TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q)

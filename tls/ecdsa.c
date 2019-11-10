@@ -259,7 +259,7 @@ static int ecdsa_signature_to_asn1(const TlsMpi *r, const TlsMpi *s,
 
 /**
  * This function computes the ECDSA signature and writes it to a buffer,
- * serialized as defined in RFC-4492.
+ * serialized as defined in RFC 8422 5.4.
  *
  * The sig buffer must be at least twice as large as the size of the curve used,
  * plus 9. For example, 73 Bytes if a 256-bit curve is used. A buffer length of
