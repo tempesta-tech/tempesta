@@ -162,7 +162,7 @@
 
 /*
  * Client Certificate Types
- * RFC 5246 section 7.4.4 plus RFC 4492 section 5.5
+ * RFC 5246 section 7.4.4 and RFC 8422 5.5: ecdsa_sign(64) is only allowed.
  */
 #define TTLS_CERT_TYPE_RSA_SIGN			1
 #define TTLS_CERT_TYPE_ECDSA_SIGN		64
@@ -262,7 +262,7 @@ union ttls_premaster_secret
 {
 	unsigned char _pms_rsa[48];			/* RFC 5246 8.1.1 */
 	unsigned char _pms_dhm[TTLS_MPI_MAX_SIZE];	/* RFC 5246 8.1.2 */
-	unsigned char _pms_ecdh[TTLS_ECP_MAX_BYTES];	/* RFC 4492 5.10 */
+	unsigned char _pms_ecdh[TTLS_ECP_MAX_BYTES];
 };
 
 #define TTLS_PREMASTER_SIZE	sizeof(union ttls_premaster_secret)

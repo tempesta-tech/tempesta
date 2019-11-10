@@ -3,10 +3,9 @@
  *
  * The Elliptic Curve Digital Signature Algorithm (ECDSA).
  *
- * ECDSA is defined in <em>Standards for Efficient Cryptography Group (SECG):
- * SEC1 Elliptic Curve Cryptography</em>.
- * The use of ECDSA for TLS is defined in <em>RFC-4492: Elliptic Curve
- * Cryptography (ECC) Cipher Suites for Transport Layer Security (TLS)</em>.
+ * ECDSA is defined in Standards for Efficient Cryptography Group (SECG):
+ * SEC1 Elliptic Curve Cryptography.
+ * The use of ECDSA for TLS is defined in RFC 8422.
  *
  * Based on mbed TLS, https://tls.mbed.org.
  *
@@ -35,24 +34,24 @@
 #include "crypto.h"
 
 /*
- * RFC-4492 page 20:
+ * RFC 8422 page 18:
  *
- *	 Ecdsa-Sig-Value ::= SEQUENCE {
- *		 r	   INTEGER,
- *		 s	   INTEGER
+ *	Ecdsa-Sig-Value ::= SEQUENCE {
+ *		r	INTEGER,
+ *		s	INTEGER
  *	 }
  *
- * Size is at most
- *	1 (tag) + 1 (len) + 1 (initial 0) + ECP_MAX_BYTES for each of r and s,
- *	twice that + 1 (tag) + 2 (len) for the sequence
- * (assuming ECP_MAX_BYTES is less than 126 for r and s,
- * and less than 124 (total len <= 255) for the sequence)
+ * Size is at most 1 (tag) + 1 (len) + 1 (initial 0) + ECP_MAX_BYTES for each
+ * of r and s, twice that + 1 (tag) + 2 (len) for the sequence (assuming
+ * ECP_MAX_BYTES is less than 126 for r and s, and less than 124
+ * (total len <= 255) for the sequence).
  */
 #if TTLS_ECP_MAX_BYTES > 124
 #error "TTLS_ECP_MAX_BYTES bigger than expected, please fix TTLS_ECDSA_MAX_LEN"
 #endif
-/** The maximal size of an ECDSA signature in Bytes. */
-#define TTLS_ECDSA_MAX_LEN  (3 + 2 * (3 + TTLS_ECP_MAX_BYTES))
+
+/* The maximal size of an ECDSA signature in bytes. */
+#define TTLS_ECDSA_MAX_LEN	(3 + 2 * (3 + TTLS_ECP_MAX_BYTES))
 
 /**
  * \brief		   The ECDSA context structure.

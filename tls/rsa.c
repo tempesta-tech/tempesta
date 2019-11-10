@@ -397,7 +397,7 @@ int ttls_rsa_export_crt(const ttls_rsa_context *ctx,
 /**
  * Initialize an RSA context.
  *
- * TODO #1064: Set padding to #TTLS_RSA_PKCS_V21 for the RSAES-OAEP encryption
+ * TODO #1335: Set padding to #TTLS_RSA_PKCS_V21 for the RSAES-OAEP encryption
  * scheme and the RSASSA-PSS signature scheme. The choice of padding mode is
  * strictly enforced for private key operations, since there might be security
  * concerns in mixing padding modes. For public key operations it is a default
