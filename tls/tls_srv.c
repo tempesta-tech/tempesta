@@ -240,9 +240,7 @@ ttls_parse_supported_point_formats(TlsCtx *tls, const unsigned char *buf,
 
 	tls->hs->cli_exts = 1;
 	for (list_size = buf[0], p = buf + 1; list_size > 0; --list_size, ++p) {
-		if (p[0] == TTLS_ECP_PF_UNCOMPRESSED
-		    || p[0] == TTLS_ECP_PF_COMPRESSED)
-		{
+		if (p[0] == TTLS_ECP_PF_UNCOMPRESSED) {
 			tls->hs->ecdh_ctx.point_format = p[0];
 			T_DBG("ClientHello: point format selected: %d\n", p[0]);
 			return 0;
@@ -1321,6 +1319,7 @@ ttls_write_server_hello(TlsCtx *tls, struct sg_table *sgt,
 	return 0;
 }
 
+// TODO #1064 it seems this function should be a part of bn profile.
 static int
 ttls_get_ecdh_params_from_cert(TlsCtx *tls)
 {
@@ -1405,6 +1404,8 @@ curve_matching_done:
 		}
 		T_DBG("ECDHE curve: %s\n", (*curve)->name);
 
+		// TODO #1064 second time group load after
+		// ttls_get_ecdh_params_from_cert()?
 		r = ttls_ecp_group_load(&tls->hs->ecdh_ctx.grp,
 					(*curve)->grp_id);
 		if (r) {
@@ -1483,24 +1484,16 @@ curve_matching_done:
 		unsigned char hash[64];
 
 		/*
-		 * 3.1: Choose hash algorithm:
-		 * A: For TLS 1.2, obey signature-hash-algorithm extension 
-		 *	to choose appropriate hash.
-		 * B: For SSL3, TLS1.0, TLS1.1 and ECDHE_ECDSA, use SHA1
-		 *	(RFC 4492, Sec. 5.4)
-		 * C: Otherwise, use MD5 + SHA1 (RFC 4346, Sec. 7.4.3)
+		 * 3.1: Choose hash algorithm: for TLS 1.2 we obey
+		 * signature-hash-algorithm extension to choose appropriate
+		 * hash.
 		 */
 		sig_alg = ttls_get_ciphersuite_sig_pk_alg(ci);
 		md_alg = ttls_sig_hash_set_find(&tls->hs->hash_algs, sig_alg);
-		/*
-		 * A: For TLS 1.2, obey signature-hash-algorithm extension
-		 * (RFC 5246, Sec. 7.4.1.4.1).
-		 */
 		WARN_ON_ONCE(sig_alg == TTLS_PK_NONE || md_alg == TTLS_MD_NONE);
 		T_DBG("pick hash algorithm %d for signing\n", md_alg);
-		/*
-		 * 3.2: Compute the hash to be signed
-		 */
+
+		/* 3.2: Compute the hash to be signed. */
 		if (md_alg != TTLS_MD_NONE) {
 			/* Info from md_alg will be used instead */
 			hashlen = 0;
@@ -1842,7 +1835,7 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 	}
 
 	/*
-	 * TODO avoid copies even for chunked data. This requires deep
+	 * TODO #1064 avoid copies even for chunked data. This requires deep
 	 * MPI modifications, so leave the warning for now.
 	 */
 	if (io->rlen + len < io->hslen) {

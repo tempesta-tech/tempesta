@@ -737,9 +737,7 @@ static int ssl_parse_supported_point_formats_ext(TlsCtx *ssl,
 	p = buf + 1;
 	while (list_size > 0)
 	{
-		if (p[0] == TTLS_ECP_PF_UNCOMPRESSED ||
-			p[0] == TTLS_ECP_PF_COMPRESSED)
-		{
+		if (p[0] == TTLS_ECP_PF_UNCOMPRESSED) {
 			ssl->handshake->ecdh_ctx.point_format = p[0];
 			T_DBG3("point format selected: %d\n", p[0]);
 			return 0;

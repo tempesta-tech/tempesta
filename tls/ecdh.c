@@ -2,9 +2,12 @@
  *		Tempesta TLS
  *
  * Elliptic curve Diffie-Hellman.
+ *
  * References:
- *	SEC1 http://www.secg.org/index.php?action=secg,docs_secg
- *	RFC 4492
+ *
+ * 1. SEC1 http://www.secg.org/index.php?action=secg,docs_secg
+ *
+ * 2. RFC 8422
  *
  * Based on mbed TLS, https://tls.mbed.org.
  *
@@ -62,6 +65,7 @@ ttls_ecdh_compute_shared(TlsEcpGrp *grp, TlsMpi *z,
 		goto cleanup;
 	}
 
+	// TODO #1064 remove the copy - write in-place
 	TTLS_MPI_CHK(ttls_mpi_copy(z, &P.X));
 
 cleanup:
@@ -97,45 +101,50 @@ void ttls_ecdh_free(ttls_ecdh_context *ctx)
 	ttls_mpi_free(&ctx->_d);
 }
 
-/*
- * Setup and write the ServerKeyExhange parameters (RFC 4492)
- *	  struct {
- *		  ECParameters	curve_params;
- *		  ECPoint		 public;
- *	  } ServerECDHParams;
+/**
+ * Setup and write the ServerKeyExhange parameters (RFC 8422 5.4):
+ *	struct {
+ *		ECParameters	curve_params;
+ *		ECPoint	public;
+ *	} ServerECDHParams;
+ *
+ * This function generates a public key and a TLS ServerKeyExchange payload.
+ * This is the first function used by a TLS server for ECDHE ciphersuites.
+ * It's assumed that the ECP group (grp) of the ctx context has already been
+ * properly set.
  */
 int
 ttls_ecdh_make_params(ttls_ecdh_context *ctx, size_t *olen, unsigned char *buf,
 		      size_t blen)
 {
-	int ret;
+	int r;
 	size_t grp_len, pt_len;
 
 	BUG_ON(!ctx || !ctx->grp.pbits);
 
-	if ((ret = ttls_ecdh_gen_public(&ctx->grp, &ctx->d, &ctx->Q)))
-		return ret;
+	if ((r = ttls_ecdh_gen_public(&ctx->grp, &ctx->d, &ctx->Q)))
+		return r;
 
-	if ((ret = ttls_ecp_tls_write_group(&ctx->grp, &grp_len, buf, blen)))
-		return ret;
+	if ((r = ttls_ecp_tls_write_group(&ctx->grp, &grp_len, buf, blen)))
+		return r;
 
 	buf += grp_len;
 	blen -= grp_len;
 
-	if ((ret = ttls_ecp_tls_write_point(&ctx->grp, &ctx->Q, ctx->point_format,
-			 &pt_len, buf, blen)) != 0)
-		return ret;
+	if ((r = ttls_ecp_tls_write_point(&ctx->grp, &ctx->Q, ctx->point_format,
+					  &pt_len, buf, blen)))
+		return r;
 
 	*olen = grp_len + pt_len;
 	return 0;
 }
 
-/*
- * Read the ServerKeyExhange parameters (RFC 4492)
- *	  struct {
- *		  ECParameters	curve_params;
- *		  ECPoint		 public;
- *	  } ServerECDHParams;
+/**
+ * Read the ServerKeyExhange parameters (RFC 8422 5.4)
+ *	struct {
+ *		ECParameters	curve_params;
+ *		ECPoint		public;
+ *	} ServerECDHParams;
  */
 int
 ttls_ecdh_read_params(ttls_ecdh_context *ctx, const unsigned char **buf,

@@ -23,6 +23,7 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
+#include "debug.h"
 #include "ecp.h"
 
 /*
@@ -440,8 +441,7 @@ cleanup:
 /**
  * Set a group using well-known domain parameters.
  *
- * @id should be a value of RFC 4492's enum NamedCurve, usually in the form of
- * a TTLS_ECP_DP_XXX macro.
+ * @id should be a value of RFC 8422's NamedCurve (see ecp_supported_curves).
  */
 int
 ttls_ecp_group_load(TlsEcpGrp *grp, ttls_ecp_group_id id)
@@ -471,6 +471,7 @@ ttls_ecp_group_load(TlsEcpGrp *grp, ttls_ecp_group_id id)
 		LOAD_GROUP_A(brainpoolP512r1);
 		return 0;
 	case TTLS_ECP_DP_CURVE25519:
+		T_WARN("Try to load ECP group for unsupported Curve25519.\n");
 		grp->modp = ecp_mod_p255;
 		return ecp_use_curve25519(grp);
 	default:
