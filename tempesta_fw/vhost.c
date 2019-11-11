@@ -1975,6 +1975,20 @@ tfw_cfgop_frang_trailer_split(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
+tfw_cfgop_frang_method_override(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	int r;
+	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
+
+	if (ce->dflt_value && cfg->http_method_override)
+		return 0;
+	cs->dest = &cfg->http_method_override;
+	r = tfw_cfg_set_bool(cs, ce);
+	cs->dest = NULL;
+	return r;
+}
+
+static int
 tfw_cfgop_frang_http_methods(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	FrangVhostCfg *cfg = tfw_cfgop_frang_get_cfg();
@@ -2470,6 +2484,12 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 		.allow_reconfig = true,
 	},
 	{
+		.name = "http_method_override_allowed",
+		.deflt = "false",
+		.handler = tfw_cfgop_frang_method_override,
+		.allow_reconfig = true,
+	},
+	{
 		.name = "http_methods",
 		.deflt = "",
 		.handler = tfw_cfgop_frang_http_methods,
@@ -2595,6 +2615,12 @@ static TfwCfgSpec tfw_vhost_frang_specs[] = {
 		.name = "http_trailer_split_allowed",
 		.deflt = "false",
 		.handler = tfw_cfgop_frang_trailer_split,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "http_method_override_allowed",
+		.deflt = "false",
+		.handler = tfw_cfgop_frang_method_override,
 		.allow_reconfig = true,
 	},
 	{

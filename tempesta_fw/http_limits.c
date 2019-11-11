@@ -539,6 +539,25 @@ frang_http_methods(const TfwHttpReq *req, FrangAcc *ra, unsigned long m_mask)
 }
 
 static int
+frang_http_methods_override(const TfwHttpReq *req, FrangAcc *ra,
+			    FrangVhostCfg *f_cfg)
+{
+	unsigned long mbit = (1UL << req->method_override);
+
+	if (!req->method_override)
+		return TFW_PASS;
+	if (!f_cfg->http_method_override
+	    || (f_cfg->http_methods_mask && !(f_cfg->http_methods_mask & mbit)))
+	{
+		frang_msg("restricted overridden HTTP method",
+			  &FRANG_ACC2CLI(ra)->addr, ": %u (%#lxu)\n",
+			  req->method_override, mbit);
+		return TFW_BLOCK;
+	}
+	return TFW_PASS;
+}
+
+static int
 frang_http_ct_check(const TfwHttpReq *req, FrangAcc *ra, FrangCtVals *ct_vals)
 {
 	TfwStr field, *s;
@@ -1013,6 +1032,10 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 		{
 			T_FSM_EXIT();
 		}
+		/* Ensure overridden HTTP method suits restrictions. */
+		r = frang_http_methods_override(req, ra, f_cfg);
+		if (r)
+			T_FSM_EXIT();
 		/*
 		* Ensure presence of Content-Type: header field.
 		* Ensure that the value is one of those defined by a user.
