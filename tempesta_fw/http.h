@@ -407,6 +407,7 @@ typedef struct {
  * @node	- NUMA node where request is serviced;
  * @retries	- the number of re-send attempts;
  * @method	- HTTP request method, one of GET/PORT/HEAD/etc;
+ * @method_override - Overridden HTTP request method, passed in request headers.
  *
  * TfwStr members must be the first for efficient scanning.
  */
@@ -436,6 +437,7 @@ struct tfw_http_req_t {
 	unsigned short		node;
 	unsigned short		retries;
 	unsigned char		method;
+	unsigned char		method_override;
 };
 
 #define TFW_HTTP_REQ_STR_START(r)	__MSG_STR_START(r)

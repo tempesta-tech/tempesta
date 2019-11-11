@@ -3154,6 +3154,71 @@ TEST(http_parser, date)
 	}
 }
 
+TEST(http_parser, method_override)
+{
+	FOR_REQ("POST / HTTP/1.1\r\n"
+		"Host: example.com\r\n"
+		"\r\n")
+	{
+		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);
+		EXPECT_EQ(req->method_override, _TFW_HTTP_METH_NONE);
+	}
+
+	FOR_REQ("POST / HTTP/1.1\r\n"
+		"X-Method-Override: PATCH\r\n"
+		"Host: example.com\r\n"
+		"\r\n")
+	{
+		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_PATCH);
+	}
+
+	FOR_REQ("POST / HTTP/1.1\r\n"
+		"X-Method-Override: PUT\r\n"
+		"Host: example.com\r\n"
+		"\r\n")
+	{
+		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_PUT);
+	}
+
+	FOR_REQ("POST / HTTP/1.1\r\n"
+		"X-HTTP-Method-Override: PUT\r\n"
+		"Host: example.com\r\n"
+		"\r\n")
+	{
+		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_PUT);
+	}
+
+	FOR_REQ("POST / HTTP/1.1\r\n"
+		"X-HTTP-Method: PUT\r\n"
+		"Host: example.com\r\n"
+		"\r\n")
+	{
+		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);
+		EXPECT_EQ(req->method_override, TFW_HTTP_METH_PUT);
+	}
+
+	FOR_REQ("POST / HTTP/1.1\r\n"
+		"X-Method-Override: PATCHH\r\n"
+		"Host: example.com\r\n"
+		"\r\n")
+	{
+		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);
+		EXPECT_EQ(req->method_override, _TFW_HTTP_METH_UNKNOWN);
+	}
+
+	FOR_REQ("POST / HTTP/1.1\r\n"
+		"X-Method-Override: PATCH COPY\r\n"
+		"Host: example.com\r\n"
+		"\r\n")
+	{
+		EXPECT_EQ(req->method, TFW_HTTP_METH_POST);
+		EXPECT_EQ(req->method_override, _TFW_HTTP_METH_UNKNOWN);
+	}
+}
+
 TEST_SUITE(http_parser)
 {
 	int r;
@@ -3196,6 +3261,7 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, content_type_line_parser);
 	TEST_RUN(http_parser, xff);
 	TEST_RUN(http_parser, date);
+	TEST_RUN(http_parser, method_override);
 
 	/*
 	 * Testing for correctness of redirection mark parsing (in
