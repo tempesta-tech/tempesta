@@ -376,7 +376,7 @@ __hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
  * Special procedure comparing specified name against the header in HTTP/2
  * or HTTP/1.1 format.
  */
-static int
+int
 __hdr_name_cmp(const TfwStr *hdr, const TfwStr *name)
 {
 	long n;
@@ -496,7 +496,7 @@ tfw_http_msg_hdr_open(TfwHttpMsg *hm, unsigned char *hdr_start)
 int
 tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 {
-	TfwStr *h;
+	TfwStr *hdr, *h;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 	TfwHttpParser *parser = &hm->stream->parser;
 	unsigned int id = parser->_hdr_tag;
@@ -509,8 +509,8 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 
 	/* Quick path for special headers. */
 	if (likely(id < TFW_HTTP_HDR_RAW)) {
-		h = &ht->tbl[id];
-		if (TFW_STR_EMPTY(h))
+		hdr = h = &ht->tbl[id];
+		if (TFW_STR_EMPTY(hdr))
 			/* Just store the special header in empty slot. */
 			goto done;
 		/*
@@ -553,20 +553,23 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 		ht = hm->h_tbl;
 	}
 
-	h = &ht->tbl[id];
+	hdr = h = &ht->tbl[id];
 
-	if (TFW_STR_EMPTY(h))
+	if (TFW_STR_EMPTY(hdr))
 		/* Add the new header. */
 		goto done;
 
 duplicate:
-	h = tfw_str_add_duplicate(hm->pool, h);
+	h = tfw_str_add_duplicate(hm->pool, hdr);
 	if (unlikely(!h)) {
 		T_WARN("Cannot close header %p id=%d\n", &parser->hdr, id);
 		return TFW_BLOCK;
 	}
 
 done:
+	if (TFW_RESP_TO_H2(hm) && tfw_h2_hdr_map((TfwHttpResp *)hm, hdr, id))
+		return TFW_BLOCK;
+
 	*h = parser->hdr;
 
 	TFW_STR_INIT(&parser->hdr);
@@ -676,7 +679,7 @@ __hdr_add(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid)
 int
 __hdr_h2_add(TfwHttpResp *resp, TfwStr *hdr)
 {
-	return tfw_hpack_encode(resp, NULL, hdr, TFW_H2_TRANS_ADD);
+	return tfw_hpack_encode(resp, hdr, TFW_H2_TRANS_ADD);
 }
 
 /**
@@ -785,35 +788,6 @@ cleanup:
 
 	*orig_hdr = *dst;
 	return TFW_PASS;
-}
-
-static int
-__hdr_h2_sub(TfwHttpResp *resp, TfwStr *hdr, unsigned int hid)
-{
-	int ret;
-	TfwHttpHdrTbl *ht = resp->h_tbl;
-	TfwStr *tgt, *dup, *end, *orig_hdr = &ht->tbl[hid];
-
-	tgt = TFW_STR_DUP(orig_hdr) ? __TFW_STR_CH(orig_hdr, 0) : orig_hdr;
-
-	TFW_STR_FOR_EACH_DUP(dup, orig_hdr, end) {
-		if (dup == tgt)
-			continue;
-		if ((ret = ss_skb_cutoff_data(resp->msg.skb_head, dup, 0,
-					      tfw_str_eolen(dup))))
-			return ret;
-	}
-
-	ret = tfw_hpack_encode(resp, tgt, hdr, TFW_H2_TRANS_SUB);
-	if (ret)
-		return ret;
-	/*
-	 * Exclude header from the subsequent transformation
-	 * processing.
-	 */
-	TFW_STR_INIT(orig_hdr);
-
-	return 0;
 }
 
 /**
@@ -1502,57 +1476,99 @@ this_chunk:
 }
 
 int
-tfw_h2_msg_hdr_sub(TfwHttpMsg *hm, char *name, size_t nlen, char *val,
-		   size_t vlen, unsigned int hid, unsigned short idx)
+tfw_h2_msg_rewrite_data(TfwHttpTransIter *mit, const TfwStr *str,
+			const char *stop)
 {
-	TfwHttpHdrTbl *ht = hm->h_tbl;
-	TfwStr *orig_hdr = NULL;
-	TfwStr hdr = {
-		.chunks = (TfwStr []){
-			{ .data = name,		.len = nlen },
-			{ .data = val,		.len = vlen },
-		},
-		.len = nlen + vlen,
-		.nchunks = 2
-	};
+	const TfwStr *c, *end;
+	TfwMsgIter *it = &mit->iter;
+	TfwNextHdrOp *next = &mit->next;
 
-	WARN_ON_ONCE(!ht);
+	BUG_ON(!stop);
+	BUG_ON(TFW_STR_DUP(str));
 
-	if (hid < TFW_HTTP_HDR_RAW) {
-		orig_hdr = &ht->tbl[hid];
+	TFW_STR_FOR_EACH_CHUNK(c, str, end) {
+		const char *addr, *next_ptr;
+		long offset, stop_offset;
+		unsigned int c_off = 0, f_size, c_size, f_room, n_copy;
+this_chunk:
+		c_size = c->len - c_off;
+		if (it->frag >= 0) {
+			skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
+
+			f_size = skb_frag_size(frag);
+			addr = skb_frag_address(frag);
+		} else {
+			f_size = skb_headlen(it->skb);
+			addr = ss_skb_data(it->skb);
+		}
+
+		offset = mit->curr_ptr - addr;
+		if (WARN_ON_ONCE(offset < 0 || offset >= f_size))
+			return -EINVAL;
+
+		f_room = f_size - offset;
+		n_copy = min(c_size, f_room);
+		next_ptr = mit->curr_ptr + n_copy;
+
+		/*
+		 * If the stop mark is met, we should verify that all the data
+		 * will be copied from @str; if not, save offsets for not copied
+		 * data from current @str (for subsequent copying after more
+		 * space allocation) and exit with corresponding error code.
+		 */
+		stop_offset = stop - addr;
+		if (stop_offset >= 0 && stop_offset < f_size
+		    && (next_ptr > stop
+			|| (next_ptr == stop
+			    && (c_size > f_room || c + 1 < end))))
+		{
+			WARN_ON_ONCE(next->chunk || next->off);
+			next->chunk = TFW_STR_PLAIN(str) ? 0 : c - str->chunks;
+			next->off = c_off;
+
+			T_WARN("Unable to transform HTTP/1.1 data into HTTP/2"
+			       " format: free space exhausted (accumulated"
+			       " length: %lu\n", mit->acc_len);
+
+			return -E2BIG;
+		}
+
+		memcpy_fast(mit->curr_ptr, c->data + c_off, n_copy);
+
+		T_DBG3("%s: acc_len=%lu, n_copy=%u, mit->curr_ptr='%.*s'\n",
+		       __func__, mit->acc_len, n_copy, n_copy, mit->curr_ptr);
+
+		mit->curr_ptr += n_copy;
+		mit->acc_len += n_copy;
+
+		/*
+		 * The fragment is exhausted. Move to the next fragment (or skb)
+		 * and reset the @mit->curr_ptr pointer.
+		 */
+		if (c_size >= f_room) {
+			if (skb_shinfo(it->skb)->nr_frags > it->frag + 1) {
+				skb_frag_t *frag;
+
+				++it->frag;
+				frag = &skb_shinfo(it->skb)->frags[it->frag];
+				mit->curr_ptr = skb_frag_address(frag);
+			}
+			else {
+				if (WARN_ON_ONCE(it->skb_head == it->skb->next &&
+						 (c_size != f_room
+						  || c + 1 < end)))
+					return -EINVAL;
+
+				tfw_h2_msg_transform_setup(mit, it->skb->next,
+							   false);
+			}
+
+			if (c_size != f_room) {
+				c_off += n_copy;
+				goto this_chunk;
+			}
+		}
 	}
-	else {
-		hid = __h2_hdr_lookup(hm, TFW_STR_CHUNK(&hdr, 0));
-		if (hid < ht->off)
-			orig_hdr = &ht->tbl[hid];
-	}
 
-	TFW_STR_INDEX_SET(&hdr, idx);
-
-	if (!orig_hdr || TFW_STR_EMPTY(orig_hdr))
-		return __hdr_h2_add((TfwHttpResp *)hm, &hdr);
-
-	return __hdr_h2_sub((TfwHttpResp *)hm, &hdr, hid);
-}
-
-int
-tfw_h2_msg_hdr_del(TfwHttpMsg *hm, char *name, size_t nlen, unsigned int hid)
-{
-	TfwHttpHdrTbl *ht = hm->h_tbl;
-	TfwStr h_name = {
-		.data = name,
-		.len = nlen
-	};
-
-	WARN_ON_ONCE(!ht);
-
-	if (hid < TFW_HTTP_HDR_RAW) {
-		if (TFW_STR_EMPTY(&ht->tbl[hid]))
-			return 0;
-	} else {
-		if ((hid = __h2_hdr_lookup(hm, &h_name)) == ht->off)
-			return 0;
-	}
-
-	return __hdr_del(hm, hid);
+	return 0;
 }

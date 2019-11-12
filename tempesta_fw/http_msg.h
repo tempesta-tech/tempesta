@@ -50,6 +50,7 @@ __tfw_http_msg_set_str_data(TfwStr *str, void *data, struct sk_buff *skb)
 	__tfw_http_msg_set_str_data(str, data,				\
 				    ss_skb_peek_tail(&hm->msg.skb_head))
 
+int __hdr_h2_add(TfwHttpResp *resp, TfwStr *hdr);
 void __h2_msg_hdr_name(TfwStr *hdr, TfwStr *out_name);
 void __h2_msg_hdr_val(TfwStr *hdr, TfwStr *out_val);
 void __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client);
@@ -101,6 +102,45 @@ tfw_http_msg_alloc_resp_light(TfwHttpReq *req)
 	return __tfw_http_msg_alloc_resp(req, false);
 }
 
+static inline void
+tfw_h2_msg_transform_setup(TfwHttpTransIter *mit, struct sk_buff *skb,
+			     bool init)
+{
+	TfwMsgIter *iter = &mit->iter;
+
+	BUILD_BUG_ON(HTTP2_MAX_OFFSET <= FRAME_HEADER_SIZE);
+	BUG_ON(!skb);
+
+	iter->frag = -1;
+	iter->skb = skb;
+	if (!iter->skb_head)
+		iter->skb_head = skb;
+
+	skb_push(skb, HTTP2_MAX_OFFSET);
+	mit->curr_ptr = ss_skb_data(skb);
+
+	if (init)
+		mit->curr_ptr += FRAME_HEADER_SIZE;
+}
+
+static inline int
+tfw_h2_msg_hdr_add(TfwHttpResp *resp, char *name, size_t nlen, char *val,
+		   size_t vlen, unsigned int hid, unsigned short idx)
+{
+	TfwStr hdr = {
+		.chunks = (TfwStr []){
+			{ .data = name,		.len = nlen },
+			{ .data = val,		.len = vlen },
+		},
+		.len = nlen + vlen,
+		.nchunks = 2
+	};
+
+	TFW_STR_INDEX_SET(&hdr, idx);
+
+	return __hdr_h2_add(resp, &hdr);
+}
+
 int __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str, void *data,
 				size_t len, struct sk_buff *skb);
 #define tfw_http_msg_add_str_data(hm, str, data, len)			\
@@ -135,6 +175,7 @@ int tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm);
 void tfw_http_msg_free(TfwHttpMsg *m);
 int tfw_http_msg_expand_data(TfwMsgIter *it, struct sk_buff **skb_head,
 			     const TfwStr *src);
+int __hdr_name_cmp(const TfwStr *hdr, const TfwStr *name);
 int __h2_hdr_lookup(TfwHttpMsg *hm, const TfwStr *h_name);
 unsigned long tfw_h2_msg_hdr_length(const TfwStr *hdr, unsigned long *name_len,
 				    unsigned long *val_off,
@@ -142,15 +183,11 @@ unsigned long tfw_h2_msg_hdr_length(const TfwStr *hdr, unsigned long *name_len,
 void tfw_h2_msg_hdr_write(const TfwStr *hdr, unsigned long nm_len,
 			  unsigned long val_off, unsigned long val_len,
 			  char *out_buf);
-int __hdr_h2_add(TfwHttpResp *resp, TfwStr *hdr);
-int tfw_h2_msg_hdr_sub(TfwHttpMsg *hm, char *name, size_t nlen, char *val,
-		       size_t vlen, unsigned int hid, unsigned short idx);
-int tfw_h2_msg_hdr_del(TfwHttpMsg *hm, char *name, size_t nlen, unsigned int hid);
+int tfw_h2_msg_rewrite_data(TfwHttpTransIter *mit, const TfwStr *str,
+			    const char *stop);
 
-#define TFW_H2_MSG_HDR_SUB(hm, name, val, hid, idx)			\
-	tfw_h2_msg_hdr_sub(hm, name, sizeof(name) - 1, val,		\
+#define TFW_H2_MSG_HDR_ADD(hm, name, val, hid, idx)			\
+	tfw_h2_msg_hdr_add(hm, name, sizeof(name) - 1, val,		\
 			   sizeof(val) - 1, hid, idx)
-#define TFW_H2_MSG_HDR_DEL(hm, name, hid)				\
-	tfw_h2_msg_hdr_del(hm, name, sizeof(name) - 1, hid)
 
 #endif /* __TFW_HTTP_MSG_H__ */

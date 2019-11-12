@@ -1627,3 +1627,97 @@ done:
 	return 0;
 }
 
+/**
+ * Evict extra data between @curr and @stop pointers, beginning from the @skb
+ * and the @frag_num fragment.
+ */
+int
+ss_skb_cut_extra_data(struct sk_buff *skb_head, struct sk_buff *skb,
+		      int frag_num, char *curr, const char *stop)
+{
+	TfwStr it;
+	long offset;
+	int size, ret;
+	const char *addr;
+
+	if (frag_num >= 0) {
+		skb_frag_t *frag = &skb_shinfo(skb)->frags[frag_num];
+
+		size = skb_frag_size(frag);
+		addr = skb_frag_address(frag);
+	} else {
+		size = skb_headlen(skb);
+		addr = ss_skb_data(skb);
+	}
+
+	offset = curr - addr;
+	if (WARN_ON_ONCE(offset < 0 || offset >= size))
+		return -EINVAL;
+
+	for (;;) {
+		int len, tail;
+		long stop_offset = stop - addr;
+
+		len = tail = size - offset;
+
+		/*
+		 * We found the stop pointer; evict the delta between @curr and
+		 * @stop, and exit.
+		 */
+		if (stop_offset >= 0 && stop_offset <= size)
+		{
+			if (WARN_ON_ONCE(curr > stop))
+				return -EINVAL;
+
+			if (curr == stop)
+				return 0;
+
+			len -= size - stop_offset;
+		}
+
+		T_DBG3("%s: frag_num=%d, size=%d, offset=%ld, stop_offset=%ld,"
+		       " len=%d, tail=%d\n", __func__, frag_num, size, offset,
+		       stop_offset, len, tail);
+
+		if (frag_num >= 0)
+			ret = __split_pgfrag_del(skb_head, skb, frag_num,
+						 offset, len, &it);
+		else
+			ret =  __split_linear_data(skb_head, skb, curr, -len,
+						   &it);
+		if (unlikely(ret))
+			return ret;
+
+		if (len != tail)
+			return 0;
+
+		/*
+		 * The extra space is evicted from current fragment (or from skb
+		 * head space), but the stop pointer is not reached yet. Move to
+		 * the next fragment (or skb).
+		 */
+		if (skb_shinfo(skb)->nr_frags > frag_num + 1) {
+			skb_frag_t *frag;
+
+			++frag_num;
+			frag = &skb_shinfo(skb)->frags[frag_num];
+			size = skb_frag_size(frag);
+			addr = curr = skb_frag_address(frag);
+		}
+		else {
+			if (WARN_ON_ONCE(skb_head == skb->next))
+				return -EINVAL;
+
+			frag_num = -1;
+			skb = skb->next;
+			size = skb_headlen(skb);
+			addr = curr = ss_skb_data(skb);
+		}
+
+		offset = 0;
+	}
+
+	return 0;
+}
+
+

@@ -97,17 +97,6 @@ typedef struct {
 	unsigned int	tag;
 } TfwMsgParseIter;
 
-/**
- * Iterator for message HTTP/2 transformation process.
- *
- * @it		- skb creation/writing iterator;
- * @acc_len	- accumulated length of transformed message;
- */
-typedef struct {
-	TfwMsgIter	iter;
-	unsigned long	acc_len;
-} TfwMsgTransIter;
-
 int tfw_msg_write(TfwMsgIter *it, const TfwStr *data);
 int tfw_msg_iter_setup(TfwMsgIter *it, struct sk_buff **skb_head,
 		       size_t data_len, unsigned int tx_flags);
