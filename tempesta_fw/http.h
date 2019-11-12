@@ -453,6 +453,77 @@ struct tfw_http_req_t {
 #define TFW_HTTP_REQ_STR_START(r)	__MSG_STR_START(r)
 #define TFW_HTTP_REQ_STR_END(r)		((&(r)->uri_path) + 1)
 
+#define TFW_IDX_BITS		12
+#define TFW_D_IDX_BITS		4
+
+/**
+ * Representation of operation with the next header (in order of headers in the
+ * message) during HTTP/1.1=>HTTP/2 transformation process.
+ *
+ * @s_hdr	- source header for transformation;
+ * @off		- offset of not copied data from last processed @chunk;
+ * @chunk	- last chunk to be processed from @s_hdr;
+ * @op		- transformation operation which should be executed.
+ */
+typedef struct {
+	TfwStr		s_hdr;
+	unsigned long	off;
+	unsigned int	chunk;
+	TfwH2TransOp	op;
+} TfwNextHdrOp;
+
+/**
+ * The indirection map entry.
+ *
+ * @idx		- header index in @h_tbl;
+ * @d_idx	- header's order in the array of duplicates of particular
+ *		  @h_tbl record.
+ */
+typedef struct {
+	unsigned short	idx	: TFW_IDX_BITS;
+	unsigned short	d_idx	: TFW_D_IDX_BITS;
+} TfwHdrIndex;
+
+/**
+ * Indirection map which links the header's order with its index in @h_tbl.
+ *
+ * @count	- the actual count of headers in the map (equal to the amount
+ *		  of all headers in the message);
+ * @size	- the size of the map (in entries);
+ * @index	- array of the indexes (which are located in the order of
+ *		  corresponding headers' appearance in the message).
+ */
+typedef struct {
+	unsigned int	size;
+	unsigned int	count;
+	TfwHdrIndex	index[0];
+} TfwHttpHdrMap;
+
+/**
+ * Iterator for message HTTP/2 transformation process.
+ *
+ * @map		- indirection map for tracking headers order in skb;
+ * @curr	- current header index in the @map;
+ * @next	- operation (with necessary attributes) which should be executed
+ *		  with next header;
+ * @found	- bit mask of configured headers found in the message.
+ * @curr_ptr	- pointer in the skb to write the current header;
+ * @bnd		- pointer to the boundary data (which should not be
+ *		  overwritten);
+ * @iter	- skb creation/writing iterator;
+ * @acc_len	- accumulated length of transformed message.
+ */
+typedef struct {
+	TfwHttpHdrMap	*map;
+	unsigned int	curr;
+	TfwNextHdrOp	next;
+	DECLARE_BITMAP	(found, TFW_USRHDRS_ARRAY_SZ);
+	char		*curr_ptr;
+	char		*bnd;
+	TfwMsgIter	iter;
+	unsigned long	acc_len;
+} TfwHttpTransIter;
+
 /**
  * HTTP Response.
  * TfwStr members must be the first for efficient scanning.
@@ -467,8 +538,12 @@ struct tfw_http_resp_t {
 	time_t			date;
 	time_t			last_modified;
 	unsigned long		jrxtstamp;
-	TfwMsgTransIter		mit;
+	TfwHttpTransIter	mit;
 };
+
+#define TFW_HDR_MAP_INIT_CNT		32
+#define TFW_HDR_MAP_SZ(cnt)		(sizeof(TfwHttpHdrMap)		\
+					 + sizeof(TfwHdrIndex) * (cnt))
 
 #define TFW_HTTP_RESP_STR_START(r)	__MSG_STR_START(r)
 #define TFW_HTTP_RESP_STR_END(r)	((&(r)->body) + 1)
@@ -546,6 +621,7 @@ void tfw_http_resp_fwd(TfwHttpResp *resp);
 void tfw_http_resp_build_error(TfwHttpReq *req);
 int tfw_cfgop_parse_http_status(const char *status, int *out);
 void tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len);
+int tfw_h2_hdr_map(TfwHttpResp *resp, const TfwStr *hdr, unsigned int id);
 
 /*
  * Functions to send an HTTP error response to a client.
@@ -559,5 +635,6 @@ void tfw_http_send_resp(TfwHttpReq *req, int status, const char *reason);
 
 /* Helper functions */
 char *tfw_http_msg_body_dup(const char *filename, size_t *len);
+int tfw_http_hdr_split(TfwStr *hdr, TfwStr *name_out, TfwStr *val_out);
 
 #endif /* __TFW_HTTP_H__ */

@@ -106,10 +106,10 @@ typedef struct {
 } TfwHPackETblIter;
 
 typedef enum {
-	TFW_H2_TRANS_ADD	= 0,
-	TFW_H2_TRANS_EXPAND,
+	TFW_H2_TRANS_INPLACE	= 0,
 	TFW_H2_TRANS_SUB,
-	TFW_H2_TRANS_INPLACE
+	TFW_H2_TRANS_ADD,
+	TFW_H2_TRANS_EXPAND,
 } TfwH2TransOp;
 
 typedef enum {
@@ -235,8 +235,8 @@ do {								\
 
 int tfw_hpack_init(TfwHPack *__restrict hp, unsigned int htbl_sz);
 void tfw_hpack_clean(TfwHPack *__restrict hp);
-int tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict tgt,
-		     TfwStr *__restrict hdr, TfwH2TransOp op);
+int tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
+		     TfwH2TransOp op);
 void tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl,
 			     unsigned short new_size);
 int tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,

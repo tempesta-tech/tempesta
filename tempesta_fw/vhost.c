@@ -92,9 +92,6 @@ static const TfwCfgEnum tfw_method_enum[] = {
  */
 #define TFW_NIPDEF_ARRAY_SZ	(64)
 
-/* Max number of headers allowed for end user to modify. */
-#define TFW_USRHDRS_ARRAY_SZ	(64)
-
 /*
  * All 'location' directives are put into a fixed size array.
  * Duplicate directives are not allowed.

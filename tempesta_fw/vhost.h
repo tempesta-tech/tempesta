@@ -134,6 +134,9 @@ enum {
 	TFW_VHOST_B_REMOVED = 0,
 };
 
+/* Max number of headers allowed for end user to modify. */
+#define TFW_USRHDRS_ARRAY_SZ	64
+
 /**
  * Virtual host defined by directives and policies.
  *
