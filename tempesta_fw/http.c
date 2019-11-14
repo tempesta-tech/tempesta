@@ -3598,6 +3598,20 @@ next_msg:
 		return TFW_BLOCK;
 	}
 
+	/*
+	 * Method override masks real request properties, non-idempotent methods
+	 * can hide behind idempotent, method is used as a key in cache
+	 * subsystem to store and look up cached responses. Thus hiding real
+	 * method can spoil responses for other clients. Use the real method
+	 * for accurate processing.
+	 *
+	 * We don't rewrite the method string and don't remove override header
+	 * since there can be additional intermediates between TempestaFW and
+	 * backend.
+	 */
+	if (unlikely(req->method_override))
+		req->method = req->method_override;
+
 	if (!TFW_MSG_H2(req))
 		hmsib = tfw_h1_req_process(stream, skb);
 
