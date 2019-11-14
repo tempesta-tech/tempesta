@@ -3072,6 +3072,156 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__parse_uri_mark);
 
+/* Parse method override request headers. */
+static int
+__parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(req);
+
+	__FSM_START(parser->_i_st);
+
+	__FSM_STATE(I_Meth_Start) {
+		switch (TFW_LC(c)) {
+		case 'c':
+			__FSM_I_JMP(I_Meth_C);
+		case 'd':
+			__FSM_I_JMP(I_Meth_D);
+		case 'g':
+			__FSM_I_JMP(I_Meth_G);
+		case 'h':
+			__FSM_I_JMP(I_Meth_H);
+		case 'l':
+			__FSM_I_JMP(I_Meth_L);
+		case 'm':
+			__FSM_I_JMP(I_Meth_M);
+		case 'o':
+			__FSM_I_JMP(I_Meth_O);
+		case 'p':
+			__FSM_I_JMP(I_Meth_P);
+		case 't':
+			__FSM_I_JMP(I_Meth_T);
+		case 'u':
+			__FSM_I_JMP(I_Meth_U);
+		}
+		__FSM_I_MOVE(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_C) {
+		TRY_STR_LAMBDA("copy", {
+			req->method_override = TFW_HTTP_METH_COPY;
+		} , I_Meth_C, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_D) {
+		TRY_STR_LAMBDA("delete", {
+			req->method_override = TFW_HTTP_METH_DELETE;
+		} , I_Meth_D, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_G) {
+		TRY_STR_LAMBDA("get", {
+			req->method_override = TFW_HTTP_METH_GET;
+		} , I_Meth_G, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_H) {
+		TRY_STR_LAMBDA("head", {
+			req->method_override = TFW_HTTP_METH_HEAD;
+		} , I_Meth_H, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_L) {
+		TRY_STR_LAMBDA("lock", {
+			req->method_override = TFW_HTTP_METH_LOCK;
+		} , I_Meth_L, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_M) {
+		TRY_STR_LAMBDA("mkcol", {
+			req->method_override = TFW_HTTP_METH_MKCOL;
+		} , I_Meth_M, I_EoT);
+		TRY_STR_LAMBDA("move", {
+			req->method_override = TFW_HTTP_METH_MOVE;
+		} , I_Meth_M, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_O) {
+		TRY_STR_LAMBDA("options", {
+			req->method_override = TFW_HTTP_METH_OPTIONS;
+		} , I_Meth_O, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_P) {
+		TRY_STR_LAMBDA("patch", {
+			req->method_override = TFW_HTTP_METH_PATCH;
+		} , I_Meth_P, I_EoT);
+		TRY_STR_LAMBDA("post", {
+			req->method_override = TFW_HTTP_METH_POST;
+		} , I_Meth_P, I_EoT);
+		TRY_STR_LAMBDA("propfind", {
+			req->method_override = TFW_HTTP_METH_PROPFIND;
+		} , I_Meth_P, I_EoT);
+		TRY_STR_LAMBDA("proppatch", {
+			req->method_override = TFW_HTTP_METH_PROPPATCH;
+		} , I_Meth_P, I_EoT);
+		TRY_STR_LAMBDA("put", {
+			req->method_override = TFW_HTTP_METH_PUT;
+		} , I_Meth_P, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_T) {
+		TRY_STR_LAMBDA("trace", {
+			req->method_override = TFW_HTTP_METH_TRACE;
+		} , I_Meth_T, I_EoT);
+		TRY_STR_INIT();
+	}
+
+	__FSM_STATE(I_Meth_U) {
+		TRY_STR_LAMBDA("unlock", {
+			req->method_override = TFW_HTTP_METH_UNLOCK;
+		} , I_Meth_U, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_Unknown) {
+		__FSM_I_MATCH_MOVE(token, I_Meth_Unknown);
+		req->method_override = _TFW_HTTP_METH_UNKNOWN;
+		__FSM_I_MOVE_n(I_EoT, __fsm_sz);
+	}
+
+	__FSM_STATE(I_EoT) {
+		if (IS_TOKEN(c))
+			__FSM_I_MOVE(I_Meth_Unknown);
+		if (IS_WS(c))
+			__FSM_I_MOVE(I_EoT);
+		if (IS_CRLF(c))
+			return __data_off(p);
+		return CSTR_NEQ;
+	}
+
+done:
+	return r;
+}
+STACK_FRAME_NON_STANDARD(__parse_m_override);
+
 /**
  * Init parser fields common for both response and request.
  */
@@ -3537,7 +3687,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 			if (likely(__data_available(p, 16)
 				   && *(p + 1) == '-'
 				   && *(p + 11) == '-'
-				   /* Safe match: '-' = 0x2d = 0x2d | 0x20. */
+				   /* Safe match: '-' is checked above. */
 				   && C8_INT_LCM(p, 'x', '-', 'f', 'o',
 						 'r', 'w', 'a', 'r')
 				   && C8_INT7_LCM(p + 8, 'd', 'e', 'd', '-',
@@ -3545,6 +3695,47 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 			{
 				parser->_i_st = &&Req_HdrX_Forwarded_ForV;
 				__FSM_MOVE_n(RGen_OWS, 16);
+			}
+			if (likely(__data_available(p, 14)
+				   && *(p + 1) == '-'
+				   && *(p + 7) == '-'
+				   /* Safe match: '-' is checked above. */
+				   && C8_INT_LCM(p, 'x', '-', 'h', 't',
+						 't', 'p', '-', 'm')
+				   && C4_INT_LCM(p + 8, 'e', 't', 'h', 'o')
+				   && TFW_LC(*(p + 12) == 'd')
+				   && *(p + 10) == ':'))
+			{
+				parser->_i_st = &&Req_HdrX_Method_OverrideV;
+				__FSM_MOVE_n(RGen_OWS, 14);
+			}
+			if (likely(__data_available(p, 23)
+				   && *(p + 1) == '-'
+				   && *(p + 7) == '-'
+				   && *(p + 14) == '-'
+				   /* Safe match: '-' is checked above. */
+				   && C8_INT_LCM(p, 'x', '-', 'h', 't',
+						 't', 'p', '-', 'm')
+				   && C8_INT_LCM(p + 8, 'e', 't', 'h', 'o',
+						 'd', '-', 'o', 'v')
+				   && C8_INT7_LCM(p + 16, 'v', 'e', 'r', 'r',
+						  'i', 'd', 'e', ':')))
+			{
+				parser->_i_st = &&Req_HdrX_Method_OverrideV;
+				__FSM_MOVE_n(RGen_OWS, 23);
+			}
+
+			if (likely(__data_available(p, 18)
+				   && *(p + 1) == '-'
+				   && *(p + 9) == '-'
+				   /* Safe match: '-' is checked above. */
+				   && C8_INT_LCM(p + 2, 'm', 'e', 't', 'h',
+						 'o', 'd', '-', 'o')
+				   && C8_INT7_LCM(p + 10, 'v', 'e', 'r', 'r',
+						 'i', 'd', 'e', ':')))
+			{
+				parser->_i_st = &&Req_HdrX_Method_OverrideV;
+				__FSM_MOVE_n(RGen_OWS, 18);
 			}
 			__FSM_MOVE(Req_HdrX);
 		case 'u':
@@ -3656,6 +3847,13 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 	/* 'Cookie:*OWS' is read, process field-value. */
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrCookieV, msg, __req_parse_cookie,
 				     TFW_HTTP_HDR_COOKIE, 0);
+
+	/*
+	 * 'X-HTTP-Method:*OWS' OR 'X-HTTP-Method-Override:*OWS' OR
+	 * 'X-Method-Override:*OWS' is read, process field-value.
+	*/
+	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrX_Method_OverrideV, req,
+				  __parse_m_override);
 
 	RGEN_HDR_OTHER();
 	RGEN_OWS();
@@ -4156,9 +4354,21 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_TX_AF(Req_HdrTransfer_Encodin, 'g', Req_HdrTransfer_Encoding);
 	__FSM_TX_AF_OWS(Req_HdrTransfer_Encoding, Req_HdrTransfer_EncodingV);
 
-	/* X-Forwarded-For header processing. */
 	__FSM_TX_AF(Req_HdrX, '-', Req_HdrX_);
-	__FSM_TX_AF(Req_HdrX_, 'f', Req_HdrX_F);
+	__FSM_STATE(Req_HdrX_, cold) {
+		switch (TFW_LC(c)) {
+		case 'f':
+			__FSM_MOVE(Req_HdrX_F);
+		case 'h':
+			__FSM_MOVE(Req_HdrX_H);
+		case 'm':
+			__FSM_MOVE(Req_HdrX_M);
+		default:
+			__FSM_JMP(RGen_HdrOther);
+		}
+	}
+
+	/* X-Forwarded-For header processing. */
 	__FSM_TX_AF(Req_HdrX_F, 'o', Req_HdrX_Fo);
 	__FSM_TX_AF(Req_HdrX_Fo, 'r', Req_HdrX_For);
 	__FSM_TX_AF(Req_HdrX_For, 'w', Req_HdrX_Forw);
@@ -4176,6 +4386,57 @@ Req_Method_1CharStep: __attribute__((cold))
 	 * '[' after OWS.
 	 */
 	__FSM_TX_AF_OWS(Req_HdrX_Forwarded_For,  Req_HdrX_Forwarded_ForV);
+
+	/* X-Method-Override header processing. */
+	__FSM_TX_AF(Req_HdrX_M, 'e', Req_HdrX_Me);
+	__FSM_TX_AF(Req_HdrX_Me, 't', Req_HdrX_Met);
+	__FSM_TX_AF(Req_HdrX_Met, 'h', Req_HdrX_Meth);
+	__FSM_TX_AF(Req_HdrX_Meth, 'o', Req_HdrX_Metho);
+	__FSM_TX_AF(Req_HdrX_Metho, 'd', Req_HdrX_Method);
+	__FSM_TX_AF(Req_HdrX_Method, '-', Req_HdrX_Method_);
+	__FSM_TX_AF(Req_HdrX_Method_, 'o', Req_HdrX_Method_O);
+	__FSM_TX_AF(Req_HdrX_Method_O, 'v', Req_HdrX_Method_Ov);
+	__FSM_TX_AF(Req_HdrX_Method_Ov, 'e', Req_HdrX_Method_Ove);
+	__FSM_TX_AF(Req_HdrX_Method_Ove, 'r', Req_HdrX_Method_Over);
+	__FSM_TX_AF(Req_HdrX_Method_Over, 'r', Req_HdrX_Method_Overr);
+	__FSM_TX_AF(Req_HdrX_Method_Overr, 'i', Req_HdrX_Method_Overri);
+	__FSM_TX_AF(Req_HdrX_Method_Overri, 'd', Req_HdrX_Method_Overrid);
+	__FSM_TX_AF(Req_HdrX_Method_Overrid, 'e', Req_HdrX_Method_Override);
+	__FSM_TX_AF_OWS(Req_HdrX_Method_Override, Req_HdrX_Method_OverrideV);
+
+	/* X-HTTP-Method header processing */
+	__FSM_TX_AF(Req_HdrX_H, 't', Req_HdrX_Ht);
+	__FSM_TX_AF(Req_HdrX_Ht, 't', Req_HdrX_Htt);
+	__FSM_TX_AF(Req_HdrX_Htt, 'p', Req_HdrX_Http);
+	__FSM_TX_AF(Req_HdrX_Http, '-', Req_HdrX_Http_);
+	__FSM_TX_AF(Req_HdrX_Http_, 'm', Req_HdrX_Http_M);
+	__FSM_TX_AF(Req_HdrX_Http_M, 'e', Req_HdrX_Http_Me);
+	__FSM_TX_AF(Req_HdrX_Http_Me, 't', Req_HdrX_Http_Met);
+	__FSM_TX_AF(Req_HdrX_Http_Met, 'h', Req_HdrX_Http_Meth);
+	__FSM_TX_AF(Req_HdrX_Http_Meth, 'o', Req_HdrX_Http_Metho);
+	__FSM_TX_AF(Req_HdrX_Http_Metho, 'd', Req_HdrX_Http_Method);
+	__FSM_STATE(Req_HdrX_Http_Method, cold) {
+		switch (c) {
+		case '-':
+			__FSM_MOVE(Req_HdrX_Http_Method_);
+		case ':':
+			parser->_i_st = &&Req_HdrX_Method_OverrideV;
+			__FSM_MOVE(RGen_OWS);
+		default:
+			__FSM_JMP(RGen_HdrOther);
+		}
+	}
+
+	/* X-HTTP-Method-Override processing */
+	__FSM_TX_AF(Req_HdrX_Http_Method_, 'o', Req_HdrX_Http_Method_O);
+	__FSM_TX_AF(Req_HdrX_Http_Method_O, 'v', Req_HdrX_Http_Method_Ov);
+	__FSM_TX_AF(Req_HdrX_Http_Method_Ov, 'e', Req_HdrX_Http_Method_Ove);
+	__FSM_TX_AF(Req_HdrX_Http_Method_Ove, 'r', Req_HdrX_Http_Method_Over);
+	__FSM_TX_AF(Req_HdrX_Http_Method_Over, 'r', Req_HdrX_Http_Method_Overr);
+	__FSM_TX_AF(Req_HdrX_Http_Method_Overr, 'i', Req_HdrX_Http_Method_Overri);
+	__FSM_TX_AF(Req_HdrX_Http_Method_Overri, 'd', Req_HdrX_Http_Method_Overrid);
+	__FSM_TX_AF(Req_HdrX_Http_Method_Overrid, 'e', Req_HdrX_Http_Method_Override);
+	__FSM_TX_AF_OWS(Req_HdrX_Http_Method_Override, Req_HdrX_Method_OverrideV);
 
 	/* User-Agent header processing. */
 	__FSM_TX_AF(Req_HdrU, 's', Req_HdrUs);

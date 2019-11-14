@@ -212,6 +212,7 @@ struct frang_global_cfg_t {
  *			   code before client connection is closed.
  * @http_ct_required	- Header 'Content-Type:' is required;
  * @http_host_required	- Header 'Host:' is required;
+ * @http_method_override - Allow method override in request headers.
  */
 struct frang_vhost_cfg_t {
 	unsigned long		http_methods_mask;
@@ -226,6 +227,7 @@ struct frang_vhost_cfg_t {
 	bool			http_ct_required;
 	bool			http_host_required;
 	bool			http_trailer_split;
+	bool			http_method_override;
 };
 
 #endif /* __HTTP_LIMITS__ */
