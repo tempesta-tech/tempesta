@@ -186,7 +186,7 @@ typedef struct {
  * @enc_tbl	- table for headers compression;
  * @dec_tbl	- table for headers decompression;
  * @length	- remaining length of decoded string;
- * @max_window	- maximum allowed dynamic table size;
+ * @max_window	- maximum allowed size for the decoder dynamic table;
  * @curr	- current shift in Huffman decoding context;
  * @hctx	- current Huffman decoding context;
  * @__off	- offset to reinitialize processing context;
@@ -214,7 +214,7 @@ typedef struct {
  * encoded from 64-bit unsigned long integer: one byte for each 7-bit part of
  * source long integer plus on byte for initial prefix.
  */
-#define HPACK_MAX_INT							\
+#define HPACK_MAX_INT						\
 	(DIV_ROUND_UP(sizeof(unsigned long), 7) + 1)
 
 typedef struct {

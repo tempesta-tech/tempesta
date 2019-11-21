@@ -2140,8 +2140,8 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 		 unsigned long n,  TfwHttpReq *__restrict req,
 		 unsigned int *__restrict parsed)
 {
+	unsigned int state;
 	int r = T_POSTPONE;
-	unsigned int state = hp->state;
 	TfwMsgParseIter *it = &req->pit;
 	const unsigned char *last = src + n;
 
@@ -2150,8 +2150,11 @@ tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 	WARN_ON_ONCE(!n);
 	*parsed += n;
 	do {
+		state = hp->state;
+
 		T_DBG3("%s: header processing, n=%lu, to_parse=%lu, state=%d\n",
 		       __func__, n, last - src, state);
+
 		switch (state & HPACK_STATE_MASK) {
 		case HPACK_STATE_READY:
 		{
@@ -2388,6 +2391,7 @@ get_value_text:
 get_all_indexed:
 			T_DBG3("%s: get entire header by index: %lu\n", __func__,
 			       hp->index);
+
 			WARN_ON_ONCE(!(state & HPACK_FLAGS_NO_VALUE));
 			WARN_ON_ONCE(!hp->index);
 
@@ -3414,7 +3418,7 @@ tfw_hpack_rbuf_commit(TfwHPackETbl *__restrict tbl,
  */
 static int
 tfw_hpack_add_node(TfwHPackETbl *__restrict tbl, const TfwStr *__restrict hdr,
-		   TfwHPackNodeIter *__restrict place)
+		   TfwHPackNodeIter *__restrict place, TfwH2TransOp op)
 {
 	unsigned long node_size, hdr_len;
 	unsigned short new_size, node_len;
@@ -3423,7 +3427,7 @@ tfw_hpack_add_node(TfwHPackETbl *__restrict tbl, const TfwStr *__restrict hdr,
 	TfwHPackNode *del_list[HPACK_MAX_ENC_EVICTION] = {};
 	TfwHPackETblIter it = {};
 
-	hdr_len = tfw_h2_msg_hdr_length(hdr, &nm_len, &val_off, &val_len);
+	hdr_len = tfw_h2_msg_hdr_length(hdr, &nm_len, &val_off, &val_len, op);
 
 	WARN_ON_ONCE(cur_size > window || window > HPACK_ENC_TABLE_MAX_SIZE);
 	if ((node_size = hdr_len + HPACK_ENTRY_OVERHEAD) > window) {
@@ -3536,7 +3540,8 @@ static TfwHPackETblRes
 tfw_hpack_encoder_index(TfwHPackETbl *__restrict tbl,
 			const TfwStr *__restrict hdr,
 			unsigned short *__restrict out_index,
-			unsigned long *__restrict flags)
+			unsigned long *__restrict flags,
+			TfwH2TransOp op)
 {
 	TfwHPackNodeIter place = {};
 	const TfwHPackNode *node = NULL;
@@ -3571,7 +3576,7 @@ tfw_hpack_encoder_index(TfwHPackETbl *__restrict tbl,
 	if (!test_bit(TFW_HTTP_B_H2_TRANS_ENTERED, flags)) {
 		if(res != HPACK_IDX_ST_FOUND
 		   && !atomic64_read(&tbl->guard)
-		   && !tfw_hpack_add_node(tbl, hdr, &place))
+		   && !tfw_hpack_add_node(tbl, hdr, &place, op))
 		{
 			res |= HPACK_IDX_FLAG_ADD;
 			atomic64_set(&tbl->guard, -1);
@@ -3596,7 +3601,7 @@ tfw_hpack_encoder_index(TfwHPackETbl *__restrict tbl,
 		WARN_ON_ONCE(!atomic64_read(&tbl->guard));
 		if (res != HPACK_IDX_ST_FOUND
 		    && atomic64_read(&tbl->guard) <= 1
-		    && !tfw_hpack_add_node(tbl, hdr, &place))
+		    && !tfw_hpack_add_node(tbl, hdr, &place, op))
 		{
 			res |= HPACK_IDX_FLAG_ADD;
 			atomic64_set(&tbl->guard, -1);
@@ -3630,24 +3635,23 @@ static void
 write_int(unsigned long index, unsigned short max, unsigned short mask,
 	  TfwHPackInt *__restrict res_idx)
 {
-	unsigned int size = 0;
+	unsigned int size = 1;
 	unsigned char *dst = res_idx->buf;
 
 	if (likely(index < max)) {
 		index |= mask;
 	}
 	else {
-		index -= max;
+		++size;
 		*dst++ = max | mask;
+		index -= max;
 		while (index > 0x7F) {
 			++size;
 			*dst++ = (index & 0x7F) | 0x80;
 			index >>= 7;
 		}
 	}
-	++size;
 	*dst = index;
-
 	res_idx->sz = size;
 }
 
@@ -3736,7 +3740,6 @@ tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 
 	return 0;
 }
-
 
 /*
  * Expand the response @resp with the new @hdr in HTTP/2 HPACK format, via
@@ -3872,6 +3875,7 @@ tfw_hpack_hdr_inplace(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 		return -EINVAL;
 
 	r = tfw_http_hdr_split(hdr, &s_name, &s_val);
+
 	if (unlikely(r))
 		return r;
 
@@ -3951,8 +3955,11 @@ tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	st_index = TFW_STR_INDEX(hdr);
 	st_full_index = hdr->flags & TFW_STR_FULL_INDEX;
 
+	T_DBG3("%s: op=%d, st_index=%hu, st_full_index=%d\n", __func__, op,
+	       st_index, st_full_index);
+
 	if (!st_full_index) {
-		r = tfw_hpack_encoder_index(tbl, hdr, &index, resp->flags);
+		r = tfw_hpack_encoder_index(tbl, hdr, &index, resp->flags, op);
 		if (r < 0)
 			return r;
 	}
@@ -4035,19 +4042,23 @@ tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 void
 tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl, unsigned short new_size)
 {
-	WARN_ON_ONCE(new_size > HPACK_ENC_TABLE_MAX_SIZE);
+	if (WARN_ON_ONCE(new_size > HPACK_ENC_TABLE_MAX_SIZE))
+		return;
 
 	spin_lock(&tbl->lock);
 
-	T_DBG3("%s: tbl->rb_len=%hu, tbl->size=%hu, new_size=%hu\n", __func__,
-	       tbl->rb_len, tbl->size, new_size);
+	T_DBG3("%s: tbl->rb_len=%hu, tbl->size=%hu, tbl->window=%hu,"
+	       " new_size=%hu\n", __func__, tbl->rb_len, tbl->size,
+	       tbl->window, new_size);
 
-	if (tbl->size > new_size)
-		tfw_hpack_rbuf_calc(tbl, new_size, NULL,
-				    (TfwHPackETblIter *)tbl);
-	WARN_ON_ONCE(tbl->rb_len > tbl->size);
+	if (tbl->window > new_size) {
+		if (tbl->size > new_size)
+			tfw_hpack_rbuf_calc(tbl, new_size, NULL,
+					    (TfwHPackETblIter *)tbl);
+		WARN_ON_ONCE(tbl->rb_len > tbl->size);
 
-	tbl->window = new_size;
+		tbl->window = new_size;
+	}
 
 	spin_unlock(&tbl->lock);
 }

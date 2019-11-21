@@ -520,12 +520,18 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 		 * headers must be blocked as early as possible,
 		 * just when parser reads them.
 		 */
-		BUG_ON(id < TFW_HTTP_HDR_NONSINGULAR);
-		/*
-		 * RFC 7230 3.2.2: duplicate of non-singular special
-		 * header - leave the decision to classification layer.
-		 */
-		__set_bit(TFW_HTTP_B_FIELD_DUPENTRY, hm->flags);
+		if (id < TFW_HTTP_HDR_NONSINGULAR) {
+			if (WARN_ON_ONCE(!TFW_MSG_H2(hm)
+					 || id != TFW_HTTP_HDR_COOKIE))
+				return TFW_BLOCK;
+		} else {
+			/*
+			 * RFC 7230 3.2.2: duplicate of non-singular special
+			 * header - leave the decision to classification layer.
+			 */
+			__set_bit(TFW_HTTP_B_FIELD_DUPENTRY, hm->flags);
+		}
+
 		goto duplicate;
 	}
 
@@ -567,7 +573,15 @@ duplicate:
 	}
 
 done:
-	if (TFW_RESP_TO_H2(hm) && tfw_h2_hdr_map((TfwHttpResp *)hm, hdr, id))
+	/*
+	 * During response HTTP/1.1=>HTTP/2 transformation we need only regular
+	 * headers to be transformed, and status-line must not be present in the
+	 * resulting HTTP/2 response at all; thus, we do not need status-line in
+	 * the indirection map.
+	 */
+	if (TFW_RESP_TO_H2(hm)
+	    && id > TFW_HTTP_STATUS_LINE
+	    && tfw_h2_hdr_map((TfwHttpResp *)hm, hdr, id))
 		return TFW_BLOCK;
 
 	*h = parser->hdr;
@@ -1274,13 +1288,40 @@ __tfw_http_msg_alloc(int type, bool full)
  */
 unsigned long
 tfw_h2_msg_hdr_length(const TfwStr *hdr, unsigned long *name_len,
-		      unsigned long *val_off, unsigned long *val_len)
+		      unsigned long *val_off, unsigned long *val_len,
+		      TfwH2TransOp op)
 {
 	const TfwStr *chunk, *end;
 	unsigned long tail, hdr_tail = 0, hdr_len = 0;
 	bool name_found = false, val_found = false;
 
 	*name_len = *val_off = *val_len = 0;
+
+	if (op != TFW_H2_TRANS_INPLACE)	{
+		/*
+		 * During headers addition (or message expansion) the the source
+		 * @hdr must have the following chunk structure (without the
+		 * OWS):
+		 *
+		 *	{ name [S_DLM] value1 [value2 [value3 ...]] }.
+		 *
+		 */
+		chunk = TFW_STR_CHUNK(hdr, 1);
+		if (WARN_ON_ONCE(!chunk))
+			return 0;
+
+		if (chunk->len == SLEN(S_DLM)
+		    && *(short *)chunk->data == *(short *)S_DLM)
+		{
+			*val_off = SLEN(S_DLM);
+		}
+
+		hdr_len = hdr->len;
+		*name_len = TFW_STR_CHUNK(hdr, 0)->len;
+		*val_len = hdr_len - *name_len - *val_off;
+
+		return hdr_len - *val_off;
+	}
 
 	TFW_STR_FOR_EACH_CHUNK(chunk, hdr, end) {
 		unsigned long idx;
@@ -1366,8 +1407,10 @@ tfw_h2_msg_hdr_write(const TfwStr *hdr, unsigned long nm_len,
 {
 	const TfwStr *c, *end;
 
+	T_DBG3("%s: enter, nm_len=%lu, val_off=%lu, val_len=%lu\n", __func__,
+	       nm_len, val_off, val_len);
+
 	BUG_ON(!nm_len);
-	BUG_ON(!val_off);
 	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
 		unsigned long len;
 
@@ -1385,12 +1428,9 @@ tfw_h2_msg_hdr_write(const TfwStr *hdr, unsigned long nm_len,
 				WARN_ON_ONCE(val_off < c->len - len);
 				val_off -= c->len - len;
 			}
-			else if (val_len) {
+			else if (val_len && !len) {
 				len = min(val_len, c->len);
 				val_len -= len;
-			}
-			else {
-				break;
 			}
 		}
 
@@ -1535,8 +1575,9 @@ this_chunk:
 
 		memcpy_fast(mit->curr_ptr, c->data + c_off, n_copy);
 
-		T_DBG3("%s: acc_len=%lu, n_copy=%u, mit->curr_ptr='%.*s'\n",
-		       __func__, mit->acc_len, n_copy, n_copy, mit->curr_ptr);
+		T_DBG3("%s: acc_len=%lu, n_copy=%u, mit->curr_ptr='%.*s',"
+		       " ptr_diff=%ld\n", __func__, mit->acc_len, n_copy,
+		       n_copy, mit->curr_ptr, stop - mit->curr_ptr);
 
 		mit->curr_ptr += n_copy;
 		mit->acc_len += n_copy;

@@ -104,7 +104,7 @@ tfw_http_msg_alloc_resp_light(TfwHttpReq *req)
 
 static inline void
 tfw_h2_msg_transform_setup(TfwHttpTransIter *mit, struct sk_buff *skb,
-			     bool init)
+			   bool init)
 {
 	TfwMsgIter *iter = &mit->iter;
 
@@ -179,7 +179,8 @@ int __hdr_name_cmp(const TfwStr *hdr, const TfwStr *name);
 int __h2_hdr_lookup(TfwHttpMsg *hm, const TfwStr *h_name);
 unsigned long tfw_h2_msg_hdr_length(const TfwStr *hdr, unsigned long *name_len,
 				    unsigned long *val_off,
-				    unsigned long *val_len);
+				    unsigned long *val_len,
+				    TfwH2TransOp op);
 void tfw_h2_msg_hdr_write(const TfwStr *hdr, unsigned long nm_len,
 			  unsigned long val_off, unsigned long val_len,
 			  char *out_buf);

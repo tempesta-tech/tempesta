@@ -4213,6 +4213,7 @@ do {									\
 	bool ret = true;						\
 	TfwStr *tbl = msg->h_tbl->tbl;					\
 	if (unlikely(hid < TFW_HTTP_HDR_NONSINGULAR			\
+		     && hid != TFW_HTTP_HDR_COOKIE			\
 		     && !TFW_STR_EMPTY(&tbl[hid])))			\
 	{								\
 		ret = false;						\

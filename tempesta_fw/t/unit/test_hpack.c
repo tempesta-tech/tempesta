@@ -1219,7 +1219,8 @@ TEST(hpack, enc_table_hdr_write)
 	collect_compound_str(s5, s5_lws, 0);
 	collect_compound_str(s5, s5_value, 0);
 
-	hdr_len = tfw_h2_msg_hdr_length(s1, &n_len, &v_off, &v_len);
+	hdr_len = tfw_h2_msg_hdr_length(s1, &n_len, &v_off, &v_len,
+					TFW_H2_TRANS_INPLACE);
 	EXPECT_EQ(n_len, strlen(HDR_NAME_1));
 	EXPECT_EQ(v_len, strlen(HDR_VALUE_1));
 	EXPECT_EQ(v_off, off1);
@@ -1229,7 +1230,8 @@ TEST(hpack, enc_table_hdr_write)
 	tfw_h2_msg_hdr_write(s1, n_len, v_off, v_len, buf);
 	EXPECT_OK(memcmp_fast(t_s1, buf, hdr_len));
 
-	hdr_len = tfw_h2_msg_hdr_length(s2, &n_len, &v_off, &v_len);
+	hdr_len = tfw_h2_msg_hdr_length(s2, &n_len, &v_off, &v_len,
+					TFW_H2_TRANS_INPLACE);
 	EXPECT_EQ(n_len, strlen(HDR_NAME_2));
 	EXPECT_EQ(v_len, strlen(HDR_VALUE_2));
 	EXPECT_EQ(v_off, off2);
@@ -1239,7 +1241,8 @@ TEST(hpack, enc_table_hdr_write)
 	tfw_h2_msg_hdr_write(s2, n_len, v_off, v_len, buf);
 	EXPECT_OK(memcmp_fast(t_s2, buf, hdr_len));
 
-	hdr_len = tfw_h2_msg_hdr_length(s3, &n_len, &v_off, &v_len);
+	hdr_len = tfw_h2_msg_hdr_length(s3, &n_len, &v_off, &v_len,
+					TFW_H2_TRANS_INPLACE);
 	EXPECT_EQ(n_len, strlen(HDR_NAME_3));
 	EXPECT_EQ(v_len, strlen(HDR_VALUE_3));
 	EXPECT_EQ(v_off, off3);
@@ -1249,7 +1252,8 @@ TEST(hpack, enc_table_hdr_write)
 	tfw_h2_msg_hdr_write(s3, n_len, v_off, v_len, buf);
 	EXPECT_OK(memcmp_fast(t_s3, buf, hdr_len));
 
-	hdr_len = tfw_h2_msg_hdr_length(s4, &n_len, &v_off, &v_len);
+	hdr_len = tfw_h2_msg_hdr_length(s4, &n_len, &v_off, &v_len,
+					TFW_H2_TRANS_INPLACE);
 	EXPECT_EQ(n_len, strlen(HDR_NAME_4));
 	EXPECT_EQ(v_len, strlen(HDR_VALUE_4));
 	EXPECT_EQ(v_off, off4);
@@ -1259,7 +1263,8 @@ TEST(hpack, enc_table_hdr_write)
 	tfw_h2_msg_hdr_write(s4, n_len, v_off, v_len, buf);
 	EXPECT_OK(memcmp_fast(t_s4, buf, hdr_len));
 
-	hdr_len = tfw_h2_msg_hdr_length(s5, &n_len, &v_off, &v_len);
+	hdr_len = tfw_h2_msg_hdr_length(s5, &n_len, &v_off, &v_len,
+					TFW_H2_TRANS_INPLACE);
 	EXPECT_EQ(n_len, strlen(HDR_NAME_5));
 	EXPECT_EQ(v_len, strlen(HDR_VALUE_5));
 	EXPECT_EQ(v_off, off5);
@@ -1328,7 +1333,7 @@ TEST(hpack, enc_table_index)
 	res = tfw_hpack_rbtree_find(tbl, s1, &node, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 	EXPECT_NULL(node);
-	EXPECT_OK(tfw_hpack_add_node(tbl, s1, &pl));
+	EXPECT_OK(tfw_hpack_add_node(tbl, s1, &pl, TFW_H2_TRANS_INPLACE));
 
 	node = NULL;
 	bzero_fast(&pl, sizeof(pl));
@@ -1337,7 +1342,8 @@ TEST(hpack, enc_table_index)
 	EXPECT_NULL(node);
 	EXPECT_NOT_NULL(pl.parent);
 	if (pl.parent)
-		EXPECT_OK(tfw_hpack_add_node(tbl, s2, &pl));
+		EXPECT_OK(tfw_hpack_add_node(tbl, s2, &pl,
+					     TFW_H2_TRANS_INPLACE));
 
 	node = NULL;
 	bzero_fast(&pl, sizeof(pl));
@@ -1346,7 +1352,8 @@ TEST(hpack, enc_table_index)
 	EXPECT_NULL(node);
 	EXPECT_NOT_NULL(pl.parent);
 	if (pl.parent)
-		EXPECT_OK(tfw_hpack_add_node(tbl, s3, &pl));
+		EXPECT_OK(tfw_hpack_add_node(tbl, s3, &pl,
+					     TFW_H2_TRANS_INPLACE));
 
 	/*
 	 * Verify that headers had been correctly added into encoder dynamic
@@ -1459,7 +1466,7 @@ TEST(hpack, enc_table_rbtree)
 	res = tfw_hpack_rbtree_find(tbl, s1, &node, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 	EXPECT_NULL(node);
-	EXPECT_OK(tfw_hpack_add_node(tbl, s1, &pl));
+	EXPECT_OK(tfw_hpack_add_node(tbl, s1, &pl, TFW_H2_TRANS_INPLACE));
 	bzero_fast(&pl, sizeof(pl));
 	res = tfw_hpack_rbtree_find(tbl, s1, &n1, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
@@ -1483,7 +1490,7 @@ TEST(hpack, enc_table_rbtree)
 		 */
 		EXPECT_EQ(pl.parent, n1);
 		EXPECT_EQ(pl.poff, &n1->right);
-		EXPECT_OK(tfw_hpack_add_node(tbl, s2, &pl));
+		EXPECT_OK(tfw_hpack_add_node(tbl, s2, &pl, TFW_H2_TRANS_INPLACE));
 	}
 	bzero_fast(&pl, sizeof(pl));
 	res = tfw_hpack_rbtree_find(tbl, s2, &n2, &pl);
@@ -1504,7 +1511,7 @@ TEST(hpack, enc_table_rbtree)
 		 */
 		EXPECT_EQ(pl.parent, n2);
 		EXPECT_EQ(pl.poff, &n2->left);
-		EXPECT_OK(tfw_hpack_add_node(tbl, s3, &pl));
+		EXPECT_OK(tfw_hpack_add_node(tbl, s3, &pl, TFW_H2_TRANS_INPLACE));
 	}
 	bzero_fast(&pl, sizeof(pl));
 	res = tfw_hpack_rbtree_find(tbl, s3, &n3, &pl);
@@ -1568,7 +1575,8 @@ TEST(hpack, enc_table_rbtree)
 		 */
 		EXPECT_EQ(pl.parent, n1);
 		EXPECT_EQ(pl.poff, &n1->left);
-		EXPECT_OK(tfw_hpack_add_node(tbl, s4, &pl));
+		EXPECT_OK(tfw_hpack_add_node(tbl, s4, &pl,
+					     TFW_H2_TRANS_INPLACE));
 	}
 	bzero_fast(&pl, sizeof(pl));
 	res = tfw_hpack_rbtree_find(tbl, s4, &n4, &pl);
@@ -1617,7 +1625,8 @@ TEST(hpack, enc_table_rbtree)
 		 */
 		EXPECT_EQ(pl.parent, n1);
 		EXPECT_EQ(pl.poff, &n1->right);
-		EXPECT_OK(tfw_hpack_add_node(tbl, s5, &pl));
+		EXPECT_OK(tfw_hpack_add_node(tbl, s5, &pl,
+					     TFW_H2_TRANS_INPLACE));
 	}
 	bzero_fast(&pl, sizeof(pl));
 	res = tfw_hpack_rbtree_find(tbl, s5, &n5, &pl);

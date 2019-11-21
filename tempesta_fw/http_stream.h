@@ -42,11 +42,8 @@ typedef enum {
 	HTTP2_STREAM_OPENED,
 	HTTP2_STREAM_CONT,
 	HTTP2_STREAM_CONT_CLOSED,
-	HTTP2_STREAM_CONT_HC,
-	HTTP2_STREAM_CONT_HC_CLOSED,
-	HTTP2_STREAM_LOC_HALF_CLOSED,
-	HTTP2_STREAM_REM_HALF_CLOSED,
 	HTTP2_STREAM_LOC_CLOSED,
+	HTTP2_STREAM_REM_HALF_CLOSED,
 	HTTP2_STREAM_REM_CLOSED,
 	HTTP2_STREAM_CLOSED
 } TfwStreamState;
@@ -90,6 +87,7 @@ typedef enum {
  * @hcl_node	- entry in queue of half-closed streams;
  * @id		- stream ID;
  * @state	- stream's current state;
+ * @st_lock	- spinlock to synchronize concurrent access to stream FSM;
  * @loc_wnd	- stream's current flow controlled window;
  * @weight	- stream's priority weight;
  * @msg		- message that is currently being processed;
@@ -100,6 +98,7 @@ typedef struct {
 	struct list_head	hcl_node;
 	unsigned int		id;
 	int			state;
+	spinlock_t		st_lock;
 	unsigned int		loc_wnd;
 	unsigned short		weight;
 	TfwMsg			*msg;
@@ -121,7 +120,8 @@ typedef struct {
 int tfw_h2_stream_cache_create(void);
 void tfw_h2_stream_cache_destroy(void);
 TfwStreamFsmRes tfw_h2_stream_fsm(TfwStream *stream, unsigned char type,
-				  unsigned char flags, TfwH2Err *err);
+				  unsigned char flags, bool send,
+				  TfwH2Err *err);
 TfwStream *tfw_h2_find_stream(TfwStreamSched *sched, unsigned int id);
 TfwStream *tfw_h2_add_stream(TfwStreamSched *sched, unsigned int id,
 			     unsigned short weight, unsigned int wnd);
@@ -145,6 +145,14 @@ static inline bool
 tfw_h2_stream_is_closed(TfwStream *stream)
 {
 	return stream->state == HTTP2_STREAM_CLOSED;
+}
+
+static inline TfwStreamFsmRes
+STREAM_SEND_PROCESS(TfwStream *stream, unsigned char type, unsigned char flags)
+{
+	TfwH2Err err;
+
+	return tfw_h2_stream_fsm(stream, type, flags, true, &err);
 }
 
 #endif /* __HTTP_STREAM__ */
