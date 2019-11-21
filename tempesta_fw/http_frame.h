@@ -42,7 +42,8 @@ typedef enum {
 	HTTP2_PING,
 	HTTP2_GOAWAY,
 	HTTP2_WINDOW_UPDATE,
-	HTTP2_CONTINUATION
+	HTTP2_CONTINUATION,
+	_HTTP2_UNDEFINED
 } TfwFrameType;
 
 /**
@@ -203,7 +204,8 @@ int tfw_h2_context_init(TfwH2Ctx *ctx);
 void tfw_h2_context_clear(TfwH2Ctx *ctx);
 int tfw_h2_frame_process(void *c, TfwFsmData *data);
 void tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx);
-unsigned int tfw_h2_stream_id_close(TfwHttpReq *req);
+unsigned int tfw_h2_stream_id_close(TfwHttpReq *req, unsigned char type,
+				    unsigned char flags);
 void tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close);
 int tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code);
 

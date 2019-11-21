@@ -1651,14 +1651,15 @@ ss_skb_cut_extra_data(struct sk_buff *skb_head, struct sk_buff *skb,
 	}
 
 	offset = curr - addr;
-	if (WARN_ON_ONCE(offset < 0 || offset >= size))
-		return -EINVAL;
 
 	for (;;) {
-		int len, tail;
+		int len, tail = 0;
 		long stop_offset = stop - addr;
 
-		len = tail = size - offset;
+		if (WARN_ON_ONCE(offset < 0 || offset >= size))
+			return -EINVAL;
+
+		len = size - offset;
 
 		/*
 		 * We found the stop pointer; evict the delta between @curr and
@@ -1672,6 +1673,7 @@ ss_skb_cut_extra_data(struct sk_buff *skb_head, struct sk_buff *skb,
 			if (curr == stop)
 				return 0;
 
+			tail = len;
 			len -= size - stop_offset;
 		}
 
@@ -1688,7 +1690,7 @@ ss_skb_cut_extra_data(struct sk_buff *skb_head, struct sk_buff *skb,
 		if (unlikely(ret))
 			return ret;
 
-		if (len != tail)
+		if (tail)
 			return 0;
 
 		/*
