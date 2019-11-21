@@ -732,13 +732,6 @@ ttls_derive_keys(TlsCtx *tls)
 	return 0;
 }
 
-void
-ttls_read_version(TlsCtx *tls, const unsigned char ver[2])
-{
-	tls->major = ver[0];
-	tls->minor = ver[1];
-}
-
 /*
  * Fill in the buffer with additional authentication data for AES-GCM,
  * RFC 5246 6.2.3.3.
@@ -1149,7 +1142,8 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 	}
 
 	io->msgtype = io->hdr[0];
-	ttls_read_version(tls, io->hdr + 1);
+	tls->major = io->hdr[1];
+	tls->minor = io->hdr[2];
 	io->msglen = ((unsigned short)io->hdr[3] << 8) | io->hdr[4];
 
 	T_DBG3("input rec: type=%d ver=%d:%d msglen=%d read=%u xfrm_ready=%d\n",
@@ -1486,11 +1480,11 @@ ttls_parse_certificate(TlsCtx *tls, unsigned char *buf, size_t len,
 		if (!pg)
 			return -ENOMEM;
 		p = (unsigned char *)page_address(pg);
-		*(long *)tls->hs->tmp = (long)p;
+		tls->hs->cert_page_address = p;
 		T_FSM_JMP(TTLS_CC_HS_READ);
 	}
 	T_FSM_STATE(TTLS_CC_HS_READ) {
-		p = (unsigned char *)(*(long *)tls->hs->tmp);
+		p = tls->hs->cert_page_address;
 		n = min_t(size_t, io->hslen - io->rlen, len);
 		memcpy_fast(p + io->rlen, buf, n);
 		*read += n;
@@ -1500,7 +1494,7 @@ ttls_parse_certificate(TlsCtx *tls, unsigned char *buf, size_t len,
 		return T_POSTPONE;
 	}
 	T_FSM_STATE(TTLS_CC_HS_PARSE) {
-		p = (unsigned char *)(*(long *)tls->hs->tmp);
+		p = tls->hs->cert_page_address;
 		goto parse;
 	}
 
