@@ -510,7 +510,7 @@ typedef struct {
  * @curr_ptr	- pointer in the skb to write the current header;
  * @bnd		- pointer to the boundary data (which should not be
  *		  overwritten);
- * @iter	- skb creation/writing iterator;
+ * @iter	- skb expansion iterator;
  * @acc_len	- accumulated length of transformed message.
  */
 typedef struct {
