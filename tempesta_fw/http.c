@@ -649,7 +649,6 @@ tfw_http_conn_req_clean(TfwHttpReq *req)
 	tfw_http_conn_msg_free((TfwHttpMsg *)req);
 }
 
-
 /*
  * Free the request and the paired response.
  */
@@ -684,6 +683,33 @@ tfw_http_resp_build_error(TfwHttpReq *req)
 	tfw_connection_close(req->conn, true);
 	tfw_http_conn_req_clean(req);
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
+}
+
+static inline resp_code_t
+tfw_http_enum_resp_code(int status)
+{
+	switch(status) {
+	case 200:
+		return RESP_200;
+	case 400:
+		return RESP_400;
+	case 403:
+		return RESP_403;
+	case 404:
+		return RESP_404;
+	case 412:
+		return RESP_412;
+	case 500:
+		return RESP_500;
+	case 502:
+		return RESP_502;
+	case 503:
+		return RESP_503;
+	case 504:
+		return RESP_504;
+	default:
+		return RESP_NUM;
+	}
 }
 
 /*
@@ -730,8 +756,12 @@ tfw_h2_pseudo_write(TfwHttpResp *resp, TfwH2TransOp op)
 
 	WARN_ON_ONCE(op != TFW_H2_TRANS_EXPAND && op != TFW_H2_TRANS_SUB);
 
+	/*
+	 * If the status code is not in the static table, set the default
+	 * static index just for the ':status' name.
+	 */
+	TFW_STR_INDEX_SET(&s_hdr, index ? index : 8 );
 	if (index) {
-		TFW_STR_INDEX_SET(&s_hdr, index);
 		s_hdr.flags |= TFW_STR_FULL_INDEX;
 	}
 
@@ -766,21 +796,21 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 }
 
 static void
-tfw_h2_send_resp(TfwHttpReq *req, resp_code_t code, unsigned short status)
+tfw_h2_send_resp(TfwHttpReq *req, int status, unsigned int stream_id)
 {
+	TfwStr *msg;
+	resp_code_t code;
 	TfwHttpResp *resp;
 	struct sk_buff **skb_head;
 	TfwFrameHdr frame_hdr;
-	unsigned int stream_id;
-	TfwStr *start, *date, *clen, *srv, *body;
-	char *pos_dt_nm, *pos_cl_nm, *pos_srv_nm;
-	char *pos_dt_val, *pos_cl_val, *pos_srv_val;
-	unsigned long len_dt_nm, len_cl_nm, len_srv_nm;
-	unsigned long len_dt_val, len_cl_val, len_srv_val;
-	unsigned long len = SLEN(S_H2_STAT) + H2_STAT_VAL_LEN;
+	TfwHttpTransIter *mit;
+	char *date_val, *data_ptr;
+	unsigned int len_be;
+	unsigned long nlen, vlen;
+	unsigned char *dst_len_p, *src_len_p;
 	unsigned char buf[FRAME_HEADER_SIZE];
+	TfwStr *start, *date, *clen, *srv, *body;
 	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
-	TfwStr *msg = &http_predef_resps[code];
 	TfwStr hdr = {
 		.chunks = (TfwStr []){ {}, {} },
 		.nchunks = 2
@@ -790,94 +820,110 @@ tfw_h2_send_resp(TfwHttpReq *req, resp_code_t code, unsigned short status)
 		.len = sizeof(buf)
 	};
 
-	stream_id = tfw_h2_stream_id_close(req, HTTP2_HEADERS,
-					   HTTP2_F_END_STREAM);
-	if (unlikely(!stream_id)) {
-		tfw_http_conn_msg_free((TfwHttpMsg *)req);
-		return;
+	if (!stream_id) {
+		stream_id = tfw_h2_stream_id_close(req, HTTP2_HEADERS,
+						   HTTP2_F_END_STREAM);
+		if (unlikely(!stream_id)) {
+			tfw_http_conn_msg_free((TfwHttpMsg *)req);
+			return;
+		}
 	}
+
+	code = tfw_http_enum_resp_code(status);
+	if (code == RESP_NUM) {
+		T_WARN("Unexpected response error code: [%d]\n", status);
+		code = RESP_500;
+	}
+	msg = &http_predef_resps[code];
 
 	resp = tfw_http_msg_alloc_resp_light(req);
 	if (unlikely(!resp))
 		goto err;
 
+	mit = &resp->mit;
 	skb_head = &resp->msg.skb_head;
-
-	/*
-	 * Form HTTP/2 response headers excluding "\r\n", ':' separators
-	 * and OWS.
-	 */
-	start = TFW_STR_START_CH(msg);
-	date = TFW_STR_DATE_CH(msg);
-	pos_dt_nm = start->data + start->len - SLEN(S_F_DATE);
-	len_dt_nm = SLEN(S_F_DATE) - 2;
-	pos_dt_val = *this_cpu_ptr(&g_buf);
-	len_dt_val = date->len;
-	len += len_dt_nm + len_dt_val;
-
-	clen = TFW_STR_CLEN_CH(msg);
-	pos_cl_nm = clen->data + SLEN(S_CRLF);
-	len_cl_nm = SLEN(S_F_CONTENT_LENGTH) - 2;
-	pos_cl_val = pos_cl_nm + len_cl_nm + 2;
-	len_cl_val = clen->data + clen->len - pos_cl_val - SLEN(S_CRLF);
-	len += len_cl_nm + len_cl_val;
-
-	srv = TFW_STR_SRV_CH(msg);
-	pos_srv_nm = srv->data;
-	len_srv_nm = SLEN(S_F_SERVER) - 2;
-	pos_srv_val = pos_srv_nm + len_srv_nm + 2;
-	len_srv_val = srv->data + srv->len - pos_srv_val - SLEN(S_CRLF);
-	len += len_srv_nm + len_srv_val;
-
 	body = TFW_STR_BODY_CH(msg);
 
-	/* Create frame header for HEADERS. */
+	/* Create frame header for HEADERS. Note, that we leave the length of
+	 * HEADERS frame unset, to be filled later (below) after all headers
+	 * will be processed, indexed (if needed) and written into the target
+	 * skbs. */
 	frame_hdr.stream_id = stream_id;
-	frame_hdr.length = len;
+	frame_hdr.length = 0;
 	frame_hdr.type = HTTP2_HEADERS;
 	frame_hdr.flags = HTTP2_F_END_HEADERS;
 	if (!body->data)
 		frame_hdr.flags |= HTTP2_F_END_STREAM;
 	tfw_h2_pack_frame_header(buf, &frame_hdr);
 
-	/* Set frame header and payload for HEADERS. */
+	/* Set frame header and HTTP/2 ':status' pseudo-header. */
 	if (tfw_http_msg_expand_data(&resp->mit.iter, skb_head, &f_hdr))
 		goto err_setup;
 
-	resp->status = status;
+	resp->status = (unsigned short)status;
 	if (tfw_h2_pseudo_write(resp, TFW_H2_TRANS_EXPAND))
 		goto err_setup;
 
-	__TFW_STR_CH(&hdr, 0)->data = pos_dt_nm;
-	__TFW_STR_CH(&hdr, 0)->len = len_dt_nm;
-	tfw_http_prep_date(pos_dt_val);
-	__TFW_STR_CH(&hdr, 1)->data = pos_dt_val;
-	__TFW_STR_CH(&hdr, 1)->len = len_dt_val;
-	hdr.len = len_dt_nm + len_dt_val;
+	/*
+	 * Form and write HTTP/2 response headers excluding "\r\n", ':'
+	 * separators and OWS.
+	 */
+	start = TFW_STR_START_CH(msg);
+	date = TFW_STR_DATE_CH(msg);
+	__TFW_STR_CH(&hdr, 0)->data = start->data + start->len - SLEN(S_F_DATE);
+	__TFW_STR_CH(&hdr, 0)->len = nlen = SLEN(S_F_DATE) - 2;
+	date_val = *this_cpu_ptr(&g_buf);
+	tfw_http_prep_date(date_val);
+	__TFW_STR_CH(&hdr, 1)->data = date_val;
+	__TFW_STR_CH(&hdr, 1)->len = vlen = date->len;
+	hdr.len = nlen + vlen;
 	TFW_STR_INDEX_SET(&hdr, 33);
 	if (tfw_hpack_encode(resp, &hdr, TFW_H2_TRANS_EXPAND))
 		goto err_setup;
 
-	__TFW_STR_CH(&hdr, 0)->data = pos_cl_nm;
-	__TFW_STR_CH(&hdr, 0)->len = len_cl_nm;
-	__TFW_STR_CH(&hdr, 1)->data = pos_cl_val;
-	__TFW_STR_CH(&hdr, 1)->len = len_cl_val;
-	hdr.len = len_cl_nm + len_cl_val;
+	clen = TFW_STR_CLEN_CH(msg);
+	__TFW_STR_CH(&hdr, 0)->data = data_ptr = clen->data + SLEN(S_CRLF);
+	__TFW_STR_CH(&hdr, 0)->len = nlen = SLEN(S_F_CONTENT_LENGTH) - 2;
+	__TFW_STR_CH(&hdr, 1)->data = data_ptr = data_ptr + nlen + 2;
+	__TFW_STR_CH(&hdr, 1)->len = vlen = clen->data + clen->len
+		- data_ptr - SLEN(S_CRLF);
+	hdr.len = nlen + vlen;
 	TFW_STR_INDEX_SET(&hdr, 28);
 	if (tfw_hpack_encode(resp, &hdr, TFW_H2_TRANS_EXPAND))
 		goto err_setup;
 
-	__TFW_STR_CH(&hdr, 0)->data = pos_srv_nm;
-	__TFW_STR_CH(&hdr, 0)->len = len_srv_nm;
-	__TFW_STR_CH(&hdr, 1)->data = pos_srv_val;
-	__TFW_STR_CH(&hdr, 1)->len = len_srv_val;
-	hdr.len = len_srv_nm + len_srv_val;
+	srv = TFW_STR_SRV_CH(msg);
+	__TFW_STR_CH(&hdr, 0)->data = data_ptr = srv->data;
+	__TFW_STR_CH(&hdr, 0)->len = nlen = SLEN(S_F_SERVER) - 2;
+	__TFW_STR_CH(&hdr, 1)->data = data_ptr = data_ptr + nlen + 2;
+	__TFW_STR_CH(&hdr, 1)->len = vlen = srv->data + srv->len
+		- data_ptr - SLEN(S_CRLF);
+	hdr.len = nlen + vlen;
 	TFW_STR_INDEX_SET(&hdr, 54);
 	if (tfw_hpack_encode(resp, &hdr, TFW_H2_TRANS_EXPAND))
 		goto err_setup;
 
+	if (WARN_ON_ONCE(!mit->acc_len))
+		goto err_setup;
+
+	/*
+	 * Get the pointer to head skb data to write the frame's accumulated
+	 * length. We can do this here, since we always allocate new skb in
+	 * @tfw_http_msg_expand_data() with SKB_MAX_HEADER length for the
+	 * head part of skb (also, see description of frame header format in
+	 * RFC 7540 section 4.1).
+	 */
+	len_be = htonl((unsigned int)mit->acc_len);
+	src_len_p = (unsigned char *)&len_be;
+	dst_len_p = (*skb_head)->data;
+
+	*(unsigned short *)dst_len_p = *(unsigned short *)++src_len_p;
+	src_len_p += 2;
+	dst_len_p += 2;
+	*dst_len_p = *src_len_p;
+
+	/* Create and set frame header and set payload for DATA. */
 	if (body->data) {
-		/* Create and set frame header and set payload for DATA. */
 		frame_hdr.length = body->len;
 		frame_hdr.type = HTTP2_DATA;
 		frame_hdr.flags = HTTP2_F_END_STREAM;
@@ -916,9 +962,10 @@ err:
  * the fourth chunk must be CRLF.
  */
 static void
-tfw_h1_send_resp(TfwHttpReq *req, resp_code_t code)
+tfw_h1_send_resp(TfwHttpReq *req, int status)
 {
 	TfwMsgIter it;
+	resp_code_t code;
 	TfwHttpResp *resp;
 	TfwStr *date, *crlf, *body;
 	TfwStr msg = {
@@ -926,6 +973,12 @@ tfw_h1_send_resp(TfwHttpReq *req, resp_code_t code)
 		.len = 0,
 		.nchunks = 6
 	};
+
+	code = tfw_http_enum_resp_code(status);
+	if (code == RESP_NUM) {
+		T_WARN("Unexpected response error code: [%d]\n", status);
+		code = RESP_500;
+	}
 
 	if (tfw_strcpy_desc(&msg, &http_predef_resps[code]))
 		goto err;
@@ -1200,48 +1253,6 @@ tfw_http_nip_req_resched_err(TfwSrvConn *srv_conn, TfwHttpReq *req,
 			  " re-forwarded or re-scheduled");
 }
 
-static inline resp_code_t
-tfw_http_enum_resp_code(int status)
-{
-	switch(status) {
-	case 200:
-		return RESP_200;
-	case 400:
-		return RESP_400;
-	case 403:
-		return RESP_403;
-	case 404:
-		return RESP_404;
-	case 412:
-		return RESP_412;
-	case 500:
-		return RESP_500;
-	case 502:
-		return RESP_502;
-	case 503:
-		return RESP_503;
-	case 504:
-		return RESP_504;
-	default:
-		return RESP_NUM;
-	}
-}
-
-static inline void
-tfw_http_error_resp_switch(TfwHttpReq *req, int status)
-{
-	resp_code_t code = tfw_http_enum_resp_code(status);
-	if (code == RESP_NUM) {
-		T_WARN("Unexpected response error code: [%d]\n", status);
-		code = RESP_500;
-	}
-
-	if (TFW_MSG_H2(req))
-		tfw_h2_send_resp(req, code, (unsigned short)status);
-	else
-		tfw_h1_send_resp(req, code);
-}
-
 /* Common interface for sending error responses. */
 void
 tfw_http_send_resp(TfwHttpReq *req, int status, const char *reason)
@@ -1250,7 +1261,11 @@ tfw_http_send_resp(TfwHttpReq *req, int status, const char *reason)
 		T_WARN_ADDR_STATUS(reason, &req->conn->peer->addr,
 				   TFW_WITH_PORT, status);
 	}
-	tfw_http_error_resp_switch(req, status);
+
+	if (TFW_MSG_H2(req))
+		tfw_h2_send_resp(req, status, 0);
+	else
+		tfw_h1_send_resp(req, status);
 }
 
 static bool
@@ -3913,7 +3928,7 @@ tfw_h2_error_resp(TfwHttpReq *req, int status, bool reply, bool attack,
 	 * (RFC 7540 section 6.8) after error response.
 	 */
 	if (reply) {
-		tfw_http_error_resp_switch(req, status);
+		tfw_h2_send_resp(req, status, 0);
 		if (attack)
 			tfw_h2_conn_terminate_close(ctx, HTTP2_ECODE_PROTO,
 						    !on_req_recv_event);
@@ -3975,7 +3990,7 @@ tfw_h1_error_resp(TfwHttpReq *req, int status, bool reply, bool attack,
 		 */
 		if (on_req_recv_event || attack)
 			tfw_http_req_set_conn_close(req);
-		tfw_http_error_resp_switch(req, status);
+		tfw_h1_send_resp(req, status);
 	}
 	/*
 	 * Serve all pending requests if not under attack, close immediately
@@ -4194,8 +4209,11 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	return;
 clean:
 	tfw_http_conn_msg_free((TfwHttpMsg *)resp);
-	tfw_http_send_resp(req, 500,
-			   "response dropped: processing error");
+	if (!(tfw_blk_flags & TFW_BLK_ERR_NOLOG))
+		T_WARN_ADDR_STATUS("response dropped: processing error",
+				   &req->conn->peer->addr,
+				   TFW_WITH_PORT, 500);
+	tfw_h2_send_resp(req, 500, stream_id);
 	tfw_hpack_enc_release(&ctx->hpack, resp->flags);
 	TFW_INC_STAT_BH(serv.msgs_otherr);
 
