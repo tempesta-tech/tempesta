@@ -251,8 +251,6 @@ int ttls_x509_crt_verify(ttls_x509_crt *crt, ttls_x509_crt *trust_ca,
  * \param cn	   expected Common Name (can be set to
  *				 NULL if the CN must not be verified)
  * \param flags	result of the verification
- * \param f_vrfy   verification function
- * \param p_vrfy   verification parameter
  *
  * \return		 0 if successful or TTLS_ERR_X509_CERT_VERIFY_FAILED
  *				 in which case *flags will have one or more
