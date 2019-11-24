@@ -54,11 +54,6 @@
 #define TTLS_ECDSA_MAX_LEN	(3 + 2 * (3 + TTLS_ECP_MAX_BYTES))
 
 /**
- * \brief		   The ECDSA context structure.
- */
-typedef TlsEcpKeypair ttls_ecdsa_context;
-
-/**
  * \brief		   This function computes the ECDSA signature of a
  *				  previously-hashed message.
  *
@@ -113,7 +108,7 @@ int ttls_ecdsa_verify(TlsEcpGrp *grp,
 				  const unsigned char *buf, size_t blen,
 				  const TlsEcpPoint *Q, const TlsMpi *r, const TlsMpi *s);
 
-int ttls_ecdsa_write_signature(ttls_ecdsa_context *ctx,
+int ttls_ecdsa_write_signature(TlsEcpKeypair *ctx,
 			       const unsigned char *hash, size_t hlen,
 			       unsigned char *sig, size_t *slen);
 
@@ -141,7 +136,7 @@ int ttls_ecdsa_write_signature(ttls_ecdsa_context *ctx,
  *
  * \see			 ecp.h
  */
-int ttls_ecdsa_read_signature(ttls_ecdsa_context *ctx,
+int ttls_ecdsa_read_signature(TlsEcpKeypair *ctx,
 			  const unsigned char *hash, size_t hlen,
 			  const unsigned char *sig, size_t slen);
 
@@ -156,20 +151,20 @@ int ttls_ecdsa_read_signature(ttls_ecdsa_context *ctx,
  *
  * \see			 ecp.h
  */
-int ttls_ecdsa_from_keypair(ttls_ecdsa_context *ctx, const TlsEcpKeypair *key);
+int ttls_ecdsa_from_keypair(TlsEcpKeypair *ctx, const TlsEcpKeypair *key);
 
 /**
  * \brief		   This function initializes an ECDSA context.
  *
  * \param ctx	   The ECDSA context to initialize.
  */
-void ttls_ecdsa_init(ttls_ecdsa_context *ctx);
+void ttls_ecdsa_init(TlsEcpKeypair *ctx);
 
 /**
  * \brief		   This function frees an ECDSA context.
  *
  * \param ctx	   The ECDSA context to free.
  */
-void ttls_ecdsa_free(ttls_ecdsa_context *ctx);
+void ttls_ecdsa_free(TlsEcpKeypair *ctx);
 
 #endif /* ecdsa.h */

@@ -180,7 +180,7 @@ static int eckey_verify_wrap(void *ctx, ttls_md_type_t md_alg,
 		   const unsigned char *sig, size_t sig_len)
 {
 	int ret;
-	ttls_ecdsa_context ecdsa;
+	TlsEcpKeypair ecdsa;
 
 	ttls_ecdsa_init(&ecdsa);
 
@@ -197,7 +197,7 @@ static int eckey_sign_wrap(void *ctx, ttls_md_type_t md_alg,
 				   unsigned char *sig, size_t *sig_len)
 {
 	int ret;
-	ttls_ecdsa_context ecdsa;
+	TlsEcpKeypair ecdsa;
 
 	ttls_ecdsa_init(&ecdsa);
 
@@ -213,6 +213,7 @@ static void *
 eckey_alloc_wrap(void)
 {
 	void *ctx = kzalloc(sizeof(TlsEcpKeypair), GFP_ATOMIC);
+	WARN_ON_ONCE(1); /* #1064 no dynamic allocations any more. */
 	if (!ctx)
 		ttls_ecp_keypair_init(ctx);
 
@@ -281,7 +282,7 @@ static int ecdsa_verify_wrap(void *ctx, ttls_md_type_t md_alg,
 	int ret;
 	((void) md_alg);
 
-	ret = ttls_ecdsa_read_signature((ttls_ecdsa_context *) ctx,
+	ret = ttls_ecdsa_read_signature((TlsEcpKeypair *) ctx,
 		hash, hash_len, sig, sig_len);
 
 	if (ret == TTLS_ERR_ECP_SIG_LEN_MISMATCH)
@@ -295,15 +296,16 @@ ecdsa_sign_wrap(void *ctx, ttls_md_type_t md_alg,
 		const unsigned char *hash, size_t hash_len,
 		unsigned char *sig, size_t *sig_len)
 {
-	return ttls_ecdsa_write_signature((ttls_ecdsa_context *)ctx,
+	return ttls_ecdsa_write_signature((TlsEcpKeypair *)ctx,
 					  hash, hash_len, sig, sig_len);
 }
 
 static void *
 ecdsa_alloc_wrap(void)
 {
-	ttls_ecdsa_context *ctx;
+	TlsEcpKeypair *ctx;
 
+	WARN_ON_ONCE(1); /* #1064 no dynamic allocations any more. */
 	ctx = kmalloc(sizeof(*ctx), GFP_KERNEL);
 	if (ctx)
 		ttls_ecdsa_init(ctx);
@@ -314,7 +316,7 @@ ecdsa_alloc_wrap(void)
 static void
 ecdsa_free_wrap(void *ctx)
 {
-	ttls_ecdsa_free((ttls_ecdsa_context *)ctx);
+	ttls_ecdsa_free((TlsEcpKeypair *)ctx);
 	kfree(ctx);
 }
 

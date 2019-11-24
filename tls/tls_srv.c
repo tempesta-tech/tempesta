@@ -29,6 +29,8 @@
 #include "tls_internal.h"
 #include "ttls.h"
 
+ttls_sni_cb_t *ttls_sni_cb;
+
 static int
 ttls_check_scsvs(TlsCtx *tls, unsigned short cipher_suite)
 {
@@ -53,7 +55,6 @@ ttls_check_scsvs(TlsCtx *tls, unsigned short cipher_suite)
 static int
 ttls_parse_servername_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 {
-	int r;
 	size_t servername_list_size, hostname_len;
 	const unsigned char *p;
 
@@ -82,12 +83,8 @@ ttls_parse_servername_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 					TTLS_ALERT_MSG_DECODE_ERROR);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
-		if (tls->conf->f_sni
-		    && p[0] == TTLS_TLS_EXT_SERVERNAME_HOSTNAME)
-		{
-			r = tls->conf->f_sni(tls->conf->p_sni, tls, p + 3,
-					     hostname_len);
-			if (!r)
+		if (p[0] == TTLS_TLS_EXT_SERVERNAME_HOSTNAME) {
+			if (!ttls_sni_cb(tls, p + 3, hostname_len))
 				return 0;
 			T_WARN("TLS: server requested by client is not known.\n");
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
@@ -1031,9 +1028,7 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 	 * are available and no working tls configuration, close the connection.
 	 */
 	if (!tls->peer_conf) {
-		if (tls->conf->f_sni)
-			r = tls->conf->f_sni(tls->conf->p_sni, tls, NULL, 0);
-		if (!tls->conf->f_sni || r || !tls->peer_conf) {
+		if (ttls_sni_cb(tls, NULL, 0) || !tls->peer_conf) {
 			T_WARN("TLS: server requested by client is not known.\n");
 			return -TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
