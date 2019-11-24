@@ -386,57 +386,49 @@ typedef struct {
  * Global TLS configuration to be shared between all vhosts and to be used in
  * TlsCtx structures.
  *
- * @f_sni		- Callback for setting cert according to SNI extension;
- * @p_sni		- Context for SNI callback;
  * @f_vrfy		- Callback to customize X.509 certificate chain
  *			  verification;
  * @p_vrfy		- Context for X.509 verify callback;
- *
  * @f_ticket_write	- Callback to create & write a session ticket;
  * @f_ticket_parse	- Callback to parse a session ticket into a session
  *			  structure;
  * @p_ticket		- Context for the ticket callbacks;
  *
- * @dhm_P		- prime modulus for DHM;
- * @dhm_G		- generator for DHM;
- *
  * @alpn_list		- Ordered list of protocols;
  * @read_timeout	- timeout for ttls_recv (ms);
- *
+ * @dhm_min_bitlen	- Minimum bit length of the DHM prime;
+ * @endpoint		- Peer type: 0: client, 1: server;
+ * @authmode		- TTLS_VERIFY_XXX;
+ * @cert_req_ca_list	- Enable sending CA list in Certificate Request messages;
  * @min_minor_ver	- minimum allowed minor version;
  * @max_minor_ver	- always 3 for now, and used for SCSV fallbacks only.
  *			  Preserved for TLS 1.3.
  *
- * @dhm_min_bitlen	- Minimum bit length of the DHM prime;
- *
- * @endpoint		- Peer type: 0: client, 1: server;
- * @authmode		- TTLS_VERIFY_XXX;
- * @cert_req_ca_list	- Enable sending CA list in Certificate Request messages;
+ * @dhm_P		- prime modulus for DHM;
+ * @dhm_G		- generator for DHM;
  *
  * Members are grouped by size (largest first) to minimize padding overhead.
  */
-typedef struct
-{
-	int (*f_sni)(void *, TlsCtx *, const unsigned char *, size_t);
-	void *p_sni;
+typedef struct {
 	int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *);
 	void *p_vrfy;
-	int (*f_ticket_write)(void *, const TlsSess *,
-	unsigned char *, const unsigned char *, size_t *, uint32_t *);
+	int (*f_ticket_write)(void *, const TlsSess *, unsigned char *,
+			      const unsigned char *, size_t *, uint32_t *);
 	int (*f_ticket_parse)(void *, TlsSess *, unsigned char *, size_t);
-	void *p_ticket;
+	void				*p_ticket;
 
-	TlsMpi				dhm_P;
-	TlsMpi				dhm_G;
 	const ttls_alpn_proto		*alpn_list;
 
 	uint32_t			read_timeout;
-	unsigned char			min_minor_ver;
-	unsigned char			max_minor_ver;
 	unsigned int			dhm_min_bitlen;
 	unsigned int			endpoint : 1;
 	unsigned int			authmode : 2;
 	unsigned int			cert_req_ca_list : 1;
+	unsigned char			min_minor_ver;
+	unsigned char			max_minor_ver;
+
+	TlsMpi				dhm_P;
+	TlsMpi				dhm_G;
 } TlsCfg;
 
 /* I/O state flags. */
@@ -509,6 +501,8 @@ typedef struct tls_handshake_t TlsHandshake;
  * @sess	- session data;
  * @xfrm	- transform params;
  * @nb_zero	-  # of 0-length encrypted messages;
+ * @client_auth	- flag for client authentication (client side only);
+ * @hostname	- expected peer CN for verification (and SNI if available);
  */
 typedef struct ttls_context {
 	spinlock_t		lock;
@@ -527,27 +521,19 @@ typedef struct ttls_context {
 	TlsXfrm			xfrm;
 
 	unsigned int		nb_zero;
-
-	/*
-	* PKI layer
-	*/
-	int client_auth;	/*!< flag for client auth. */
-
-	/*
-	* User settings
-	*/
-	char *hostname;	/*!< expected peer CN for verification
-	(and SNI if available)	*/
+	int			client_auth;
+	char			*hostname;
 } TlsCtx;
 
 typedef int ttls_send_cb_t(TlsCtx *tls, struct sg_table *sgt, bool close);
+typedef int ttls_sni_cb_t(TlsCtx *tls, const unsigned char *data, size_t len);
 
 bool ttls_xfrm_ready(TlsCtx *tls);
 bool ttls_xfrm_need_encrypt(TlsCtx *tls);
 void ttls_write_hshdr(unsigned char type, unsigned char *buf,
 		      unsigned short len);
 void *ttls_alloc_crypto_req(unsigned int extra_size, unsigned int *rsz);
-void ttls_register_bio(ttls_send_cb_t *send_cb);
+void ttls_register_callbacks(ttls_send_cb_t *send_cb, ttls_sni_cb_t *sni_cb);
 
 const char *ttls_get_ciphersuite_name(const int ciphersuite_id);
 
@@ -581,10 +567,6 @@ void ttls_conf_dhm_min_bitlen(TlsCfg *conf,
 
 int ttls_set_hostname(TlsCtx *ssl, const char *hostname);
 void ttls_set_hs_authmode(TlsCtx *ssl, int authmode);
-void ttls_conf_sni(TlsCfg *conf,
-		   int (*f_sni)(void *, TlsCtx *, const unsigned char *,
-				size_t),
-		   void *p_sni);
 const char *ttls_get_alpn_protocol(const TlsCtx *ssl);
 void ttls_conf_version(TlsCfg *conf, int min_minor, int max_minor);
 

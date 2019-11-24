@@ -268,14 +268,7 @@ const TlsEcpCurveInfo *ttls_ecp_curve_info_from_tls_id(uint16_t tls_id);
  */
 const TlsEcpCurveInfo *ttls_ecp_curve_info_from_name(const char *name);
 
-/**
- * \brief		   Initialize a point (as zero)
- */
 void ttls_ecp_point_init(TlsEcpPoint *pt);
-
-/**
- * \brief		   Initialize a group (to something meaningless)
- */
 void ttls_ecp_group_init(TlsEcpGrp *grp);
 
 /**
@@ -508,7 +501,7 @@ int ttls_ecp_muladd(TlsEcpGrp *grp, TlsEcpPoint *R,
  *
  * \note			Uses bare components rather than an TlsEcpKeypair structure
  *				  in order to ease use with other structures such as
- *				  ttls_ecdh_context of ttls_ecdsa_context.
+ *				  ttls_ecdh_context of TlsEcpKeypair.
  */
 int ttls_ecp_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt);
 
@@ -523,7 +516,7 @@ int ttls_ecp_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt);
  *
  * \note			Uses bare components rather than an TlsEcpKeypair structure
  *				  in order to ease use with other structures such as
- *				  ttls_ecdh_context of ttls_ecdsa_context.
+ *				  ttls_ecdh_context of TlsEcpKeypair.
  */
 int ttls_ecp_check_privkey(const TlsEcpGrp *grp, const TlsMpi *d);
 
@@ -539,7 +532,7 @@ int ttls_ecp_check_privkey(const TlsEcpGrp *grp, const TlsMpi *d);
  *
  * \note			Uses bare components rather than an TlsEcpKeypair structure
  *				  in order to ease use with other structures such as
- *				  ttls_ecdh_context of ttls_ecdsa_context.
+ *				  ttls_ecdh_context of TlsEcpKeypair.
  */
 int ttls_ecp_gen_keypair(TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q);
 

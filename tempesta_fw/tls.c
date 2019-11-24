@@ -727,7 +727,7 @@ tfw_tls_get_if_configured(TfwVhost *vhost)
  * configuration is required. In the latter case @data is NULL and @len is 0.
  */
 static int
-tfw_tls_sni(void *p_sni, TlsCtx *ctx, const unsigned char *data, size_t len)
+tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 {
 	const TfwStr srv_name = {.data = (unsigned char *)data, .len = len};
 	TfwVhost *vhost = NULL;
@@ -791,7 +791,6 @@ tfw_tls_do_init(void)
 		T_ERR_NL("TLS: can't set config defaults (%x)\n", -r);
 		return -EINVAL;
 	}
-	ttls_conf_sni(&tfw_tls.cfg, tfw_tls_sni, NULL);
 
 	return 0;
 }
@@ -949,7 +948,7 @@ tfw_tls_init(void)
 	if (r)
 		return -EINVAL;
 
-	ttls_register_bio(tfw_tls_send);
+	ttls_register_callbacks(tfw_tls_send, tfw_tls_sni);
 
 	if ((r = tfw_h2_init()))
 		goto err_h2;

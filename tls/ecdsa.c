@@ -271,7 +271,7 @@ static int ecdsa_signature_to_asn1(const TlsMpi *r, const TlsMpi *s,
  * step 5.
  */
 int
-ttls_ecdsa_write_signature(ttls_ecdsa_context *ctx, const unsigned char *hash,
+ttls_ecdsa_write_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
 			   size_t hlen, unsigned char *sig, size_t *slen)
 {
 	int ret;
@@ -293,7 +293,7 @@ cleanup:
 /*
  * Read and check signature
  */
-int ttls_ecdsa_read_signature(ttls_ecdsa_context *ctx,
+int ttls_ecdsa_read_signature(TlsEcpKeypair *ctx,
 			  const unsigned char *hash, size_t hlen,
 			  const unsigned char *sig, size_t slen)
 {
@@ -345,7 +345,7 @@ cleanup:
  * Set context from an TlsEcpKeypair.
  */
 int
-ttls_ecdsa_from_keypair(ttls_ecdsa_context *ctx, const TlsEcpKeypair *key)
+ttls_ecdsa_from_keypair(TlsEcpKeypair *ctx, const TlsEcpKeypair *key)
 {
 	int r;
 
@@ -362,7 +362,7 @@ ttls_ecdsa_from_keypair(ttls_ecdsa_context *ctx, const TlsEcpKeypair *key)
 /*
  * Initialize context
  */
-void ttls_ecdsa_init(ttls_ecdsa_context *ctx)
+void ttls_ecdsa_init(TlsEcpKeypair *ctx)
 {
 	ttls_ecp_keypair_init(ctx);
 }
@@ -370,7 +370,7 @@ void ttls_ecdsa_init(ttls_ecdsa_context *ctx)
 /*
  * Free context
  */
-void ttls_ecdsa_free(ttls_ecdsa_context *ctx)
+void ttls_ecdsa_free(TlsEcpKeypair *ctx)
 {
 	ttls_ecp_keypair_free(ctx);
 }

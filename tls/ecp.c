@@ -268,6 +268,7 @@ ttls_ecp_group_free(TlsEcpGrp *grp)
 	if (grp->T) {
 		for (i = 0; i < grp->T_size; i++)
 			ttls_ecp_point_free(&grp->T[i]);
+		WARN_ON_ONCE(1); /* #1064 no dynamic allocations any more. */
 		kfree(grp->T);
 	}
 
@@ -1267,6 +1268,7 @@ ecp_mul_comb(TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	 * use grp->T if already initialized, or initialize it.
 	 */
 	if (!T) {
+		WARN_ON_ONCE(1); /* #1064 no dynamic allocations any more. */
 		T = kzalloc(pre_len * sizeof(TlsEcpPoint), GFP_ATOMIC);
 		if (WARN_ON_ONCE(!T)) {
 			ret = -ENOMEM;

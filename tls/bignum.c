@@ -80,6 +80,7 @@ ttls_mpi_free(TlsMpi *X)
 
 	if (X->p) {
 		memset(X->p, 0, X->limbs << LSHIFT);
+		WARN_ON_ONCE(1); /* #1064 no dynamic allocations any more. */
 		kfree(X->p);
 	}
 
@@ -105,6 +106,8 @@ __mpi_realloc(TlsMpi *X, size_t nblimbs, unsigned int flags)
 		return -ENOMEM;
 	if (unlikely(X->limbs >= nblimbs))
 		return 0;
+
+	WARN_ON_ONCE(1); /* #1064 no dynamic allocations any more. */
 
 	if (!(p = kmalloc(nblimbs * CIL, GFP_ATOMIC)))
 		return -ENOMEM;
@@ -152,6 +155,8 @@ ttls_mpi_shrink(TlsMpi *X, size_t nblimbs)
 		return 0;
 	if (X->used > nblimbs)
 		nblimbs = X->used;
+
+	WARN_ON_ONCE(1); /* #1064 no dynamic allocations any more. */
 
 	if (!(p = kmalloc(nblimbs * CIL, GFP_ATOMIC)))
 		return -ENOMEM;
@@ -378,6 +383,7 @@ ttls_mpi_shift_l(TlsMpi *X, size_t count)
 	i += count;
 
 	if ((X->limbs << BSHIFT) < i) {
+		WARN_ON_ONCE(1); /* #1064 no dynamic allocations any more. */
 		if (!(p = kmalloc(BITS_TO_LIMBS(i) * CIL, GFP_ATOMIC)))
 			return -ENOMEM;
 	}
@@ -491,6 +497,8 @@ ttls_mpi_read_binary(TlsMpi *X, const unsigned char *buf, size_t buflen)
 
 	if (X->limbs < limbs) {
 		unsigned long *p;
+
+		WARN_ON_ONCE(1); /* #1064 no dynamic allocations any more. */
 
 		if (!(p = kmalloc(limbs * CIL, GFP_ATOMIC)))
 			return -ENOMEM;
@@ -754,6 +762,7 @@ ttls_mpi_sub_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 		return -EINVAL;
 
 	if (X->limbs < A->used) {
+		WARN_ON_ONCE(1); /* #1064 no dynamic allocations any more. */
 		if (!(p = kmalloc(A->used * CIL, GFP_ATOMIC)))
 			return -ENOMEM;
 	}
@@ -1673,6 +1682,7 @@ ttls_mpi_modexit(void)
 
 	for_each_possible_cpu(cpu) {
 		TlsMpi **ptr = per_cpu_ptr(&g_buf, cpu);
+		WARN_ON_ONCE(1); /* #1064 no dynamic allocations any more. */
 		kfree(*ptr);
 	}
 }
@@ -1684,6 +1694,7 @@ ttls_mpi_modinit(void)
 
 	for_each_possible_cpu(cpu) {
 		TlsMpi **ptr = per_cpu_ptr(&g_buf, cpu);
+		WARN_ON_ONCE(1); /* #1064 no dynamic allocations any more. */
 		*ptr = kmalloc(sizeof(TlsMpi) << MPI_W_SZ, GFP_KERNEL);
 		if (!*ptr)
 			goto err_cleanup;
