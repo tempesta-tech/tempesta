@@ -386,9 +386,6 @@ typedef struct {
  * Global TLS configuration to be shared between all vhosts and to be used in
  * TlsCtx structures.
  *
- * @f_vrfy		- Callback to customize X.509 certificate chain
- *			  verification;
- * @p_vrfy		- Context for X.509 verify callback;
  * @f_ticket_write	- Callback to create & write a session ticket;
  * @f_ticket_parse	- Callback to parse a session ticket into a session
  *			  structure;
@@ -410,8 +407,6 @@ typedef struct {
  * Members are grouped by size (largest first) to minimize padding overhead.
  */
 typedef struct {
-	int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *);
-	void *p_vrfy;
 	int (*f_ticket_write)(void *, const TlsSess *, unsigned char *,
 			      const unsigned char *, size_t *, uint32_t *);
 	int (*f_ticket_parse)(void *, TlsSess *, unsigned char *, size_t);

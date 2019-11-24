@@ -1637,9 +1637,9 @@ parse:
 		 * ttls_x509_crt_verify_with_profile() is supposed to report a
 		 * verification failure through TTLS_ERR_X509_CERT_VERIFY_FAILED,
 		 * with details encoded in the verification flags. All other
-		 * kinds of error codes, including those from the user provided
-		 * f_vrfy functions, are treated as fatal and lead to a failure
-		 * of ssl_parse_certificate even if verification was optional.
+		 * kinds of error codes, are treated as fatal and lead to a
+		 * failure of ssl_parse_certificate even if verification was
+		 * optional.
 		 */
 		if (authmode == TTLS_VERIFY_OPTIONAL
 		    && (r == TTLS_ERR_X509_CERT_VERIFY_FAILED
