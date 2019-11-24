@@ -65,20 +65,19 @@ do {									\
  * less significant limb. Each limb is stored in native architecture byte
  * order.
  *
- * TODO #1064: probably it makes sense to use
- * union { unsigned long *p, arr[2]; } to handle short MPIs w/o allocations.
- * Need to explore common memory allocation pattern -> collect histogram.
- *
  * @s		- integer sign;
  * @used	- used limbs;
  * @limbs	- total # of limbs;
- * @p		- pointer to limbs;
+ * @p,@arr	- limbs array at the tail of MPI or a pointer to remote memory;
  */
 typedef struct {
 	int		s;
 	unsigned short	used;
 	unsigned short	limbs;
-	unsigned long	*p;
+	union {
+		unsigned long	*p;
+		unsigned long	arr[1];
+	};
 } __attribute__((packed)) TlsMpi;
 
 void ttls_mpi_init(TlsMpi *X);

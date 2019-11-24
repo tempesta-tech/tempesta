@@ -34,14 +34,6 @@
 #include "ecdh.h"
 
 /*
- * Generate public key: simple wrapper around ttls_ecp_gen_keypair
- */
-int ttls_ecdh_gen_public(TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q)
-{
-	return ttls_ecp_gen_keypair(grp, d, Q);
-}
-
-/*
  * Compute shared secret (SEC1 3.3.1)
  */
 int
@@ -122,7 +114,7 @@ ttls_ecdh_make_params(ttls_ecdh_context *ctx, size_t *olen, unsigned char *buf,
 
 	BUG_ON(!ctx || !ctx->grp.pbits);
 
-	if ((r = ttls_ecdh_gen_public(&ctx->grp, &ctx->d, &ctx->Q)))
+	if ((r = ttls_ecp_gen_keypair(&ctx->grp, &ctx->d, &ctx->Q)))
 		return r;
 
 	if ((r = ttls_ecp_tls_write_group(&ctx->grp, &grp_len, buf, blen)))
@@ -190,23 +182,24 @@ ttls_ecdh_get_params(ttls_ecdh_context *ctx, const TlsEcpKeypair *key,
 	return 0;
 }
 
-/*
- * Setup and export the client public value
+/**
+ * Setup and export the client public value.
+ * Used for ClientKeyExchange generation on client side.
+ * This is the second function used by a TLS client for ECDH(E) ciphersuites.
  */
-int ttls_ecdh_make_public(ttls_ecdh_context *ctx, size_t *olen,
-		  unsigned char *buf, size_t blen)
+int
+ttls_ecdh_make_public(ttls_ecdh_context *ctx, size_t *olen, unsigned char *buf,
+		      size_t blen)
 {
-	int ret;
+	int r;
 
-	if (ctx == NULL || ctx->grp.pbits == 0)
-		return(TTLS_ERR_ECP_BAD_INPUT_DATA);
+	if (WARN_ON_ONCE(!ctx || !ctx->grp.pbits))
+		return -EINVAL;
 
-	if ((ret = ttls_ecdh_gen_public(&ctx->grp, &ctx->d, &ctx->Q))
-				!= 0)
-		return ret;
-
+	if ((r = ttls_ecp_gen_keypair(&ctx->grp, &ctx->d, &ctx->Q)))
+		return r;
 	return ttls_ecp_tls_write_point(&ctx->grp, &ctx->Q, ctx->point_format,
-		olen, buf, blen);
+					olen, buf, blen);
 }
 
 /**
