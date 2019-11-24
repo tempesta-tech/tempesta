@@ -221,9 +221,10 @@ static int pk_get_pk_alg(unsigned char **p,
 /**
  * Parse a SubjectPublicKeyInfo DER structure.
  *
- *  SubjectPublicKeyInfo  ::=  SEQUENCE  {
- *	   algorithm			AlgorithmIdentifier,
- *	   subjectPublicKey	 BIT STRING }
+ * SubjectPublicKeyInfo ::= SEQUENCE {
+ *	algorithm		AlgorithmIdentifier,
+ *	subjectPublicKey	BIT STRING
+ * }
  */
 int
 ttls_pk_parse_subpubkey(unsigned char **p, const unsigned char *end,

@@ -63,30 +63,11 @@ typedef struct
 ttls_ecdh_context;
 
 /**
- * \brief		   This function generates an ECDH keypair on an elliptic
- *				  curve.
- *
- *				  This function performs the first of two core computations
- *				  implemented during the ECDH key exchange. The second core
- *				  computation is performed by ttls_ecdh_compute_shared().
- *
- * \param grp	   The ECP group.
- * \param d		 The destination MPI (private key).
- * \param Q		 The destination point (public key).
- *
- * \return		  \c 0 on success, or an \c TTLS_ERR_ECP_XXX or
- *				  \c TTLS_MPI_XXX error code on failure.
- *
- * \see			 ecp.h
- */
-int ttls_ecdh_gen_public(TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q);
-
-/**
  * \brief		   This function computes the shared secret.
  *
  *				  This function performs the second of two core computations
  *				  implemented during the ECDH key exchange. The first core
- *				  computation is performed by ttls_ecdh_gen_public().
+ *				  computation is performed by ttls_ecp_gen_keypair().
  *
  * \param grp	   The ECP group.
  * \param z		 The destination MPI (shared secret).
@@ -162,25 +143,8 @@ int ttls_ecdh_read_params(ttls_ecdh_context *ctx,
 int ttls_ecdh_get_params(ttls_ecdh_context *ctx, const TlsEcpKeypair *key,
 		 ttls_ecdh_side side);
 
-/**
- * \brief		   This function generates a public key and a TLS
- *				  ClientKeyExchange payload.
- *
- *				  This is the second function used by a TLS client for ECDH(E)
- *				  ciphersuites.
- *
- * \param ctx	   The ECDH context.
- * \param olen	  The number of Bytes written.
- * \param buf	   The destination buffer.
- * \param blen	  The size of the destination buffer.
- *
- * \return		  \c 0 on success, or an \c TTLS_ERR_ECP_XXX error code
- *				  on failure.
- *
- * \see			 ecp.h
- */
 int ttls_ecdh_make_public(ttls_ecdh_context *ctx, size_t *olen,
-		  unsigned char *buf, size_t blen);
+			  unsigned char *buf, size_t blen);
 
 /**
  * \brief	   This function parses and processes a TLS ClientKeyExchange

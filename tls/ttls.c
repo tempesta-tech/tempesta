@@ -47,6 +47,7 @@ static DEFINE_PER_CPU(struct aead_request *, g_req) ____cacheline_aligned;
 
 static struct kmem_cache *ttls_hs_cache = NULL;
 static ttls_send_cb_t *ttls_send_cb;
+extern ttls_sni_cb_t *ttls_sni_cb;
 
 static inline size_t
 ttls_max_ciphertext_len(const TlsXfrm *xfrm)
@@ -230,11 +231,12 @@ ttls_skb_extract_alert(TlsIOCtx *io, TlsXfrm *xfrm)
  * Register I/O callbacks from the underlying network layer.
  */
 void
-ttls_register_bio(ttls_send_cb_t *send_cb)
+ttls_register_callbacks(ttls_send_cb_t *send_cb, ttls_sni_cb_t *sni_cb)
 {
 	ttls_send_cb = send_cb;
+	ttls_sni_cb = sni_cb;
 }
-EXPORT_SYMBOL(ttls_register_bio);
+EXPORT_SYMBOL(ttls_register_callbacks);
 
 /**
  * Whether TLS context transformation is ready for crypto and we should encrypt
@@ -2057,17 +2059,6 @@ ttls_set_hostname(TlsCtx *tls, const char *hostname)
 
 	return 0;
 }
-
-void
-ttls_conf_sni(TlsCfg *conf,
-	      int (*f_sni)(void *, TlsCtx *, const unsigned char *,
-			   size_t),
-	      void *p_sni)
-{
-	conf->f_sni = f_sni;
-	conf->p_sni = p_sni;
-}
-EXPORT_SYMBOL(ttls_conf_sni);
 
 /**
  * Get the name of the negotiated Application Layer Protocol.
