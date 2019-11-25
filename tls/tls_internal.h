@@ -168,7 +168,27 @@ struct tls_handshake_t {
 	};
 	union {
 		unsigned char		premaster[TTLS_PREMASTER_SIZE];
-		unsigned char		tmp[TTLS_HS_RBUF_SZ];
+		struct {
+			union {
+				unsigned short cs_cur_len;
+				struct {
+					unsigned char compr_n;
+					unsigned char compr_has_null;
+				};
+				struct {
+					unsigned short ext_rem_sz;
+					unsigned short ext_type;
+					unsigned short ext_sz;
+				};
+				unsigned char *cert_page_address;
+			};
+			unsigned short cs_total_len;
+			struct {
+				u16 css[(TTLS_HS_RBUF_SZ - 10 - 256)/2];
+				unsigned char ext[256];
+			};
+		};
+		unsigned char key_exchange_tmp[TTLS_HS_RBUF_SZ];
 	};
 };
 
@@ -293,8 +313,6 @@ int ttls_check_cert_usage(const ttls_x509_crt *cert,
 			  int cert_endpoint,
 			  uint32_t *flags);
 
-void ttls_read_version(TlsCtx *tls, const unsigned char ver[2]);
-
 int ttls_get_key_exchange_md_tls1_2(TlsCtx *tls,
 		unsigned char *output,
 		unsigned char *data, size_t data_len,
@@ -375,23 +393,6 @@ do {									\
 	state_p = p;							\
 	T_FSM_JMP(st);							\
 } while (0)
-
-/*
- * Size of temporary storage in TlsCtx->hs->tmp.
- * The temporary buffer is used to store 2 types of temporary data: utility
- * data to store 'state' between chunks of data while the FSM is being in
- * the same state (i.e. stack-based FSM reduces number of states using the
- * stack) and 'memory' used between states, e.g. ciphersuites parsed in
- * one state, but must be processed at the end, when all extensions are also
- * parsed. So we split @tmp buffer to 2 segments and the constant defines size
- * of the FSM stack.
- */
-#define TTLS_HS_TMP_STORE_SZ	8
-/* Minimum size reserved for extension parsing. */
-#define TTLS_HS_EXT_RES_SZ	32
-/* Maximum length of cipher suites buffer. */
-#define TTLS_HS_CS_MAX_SZ	(TTLS_HS_RBUF_SZ - TTLS_HS_EXT_RES_SZ	\
-				 -  TTLS_HS_TMP_STORE_SZ)
 
 /* Server specific TLS handshake states. */
 enum {
