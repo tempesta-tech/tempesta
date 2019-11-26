@@ -28,10 +28,10 @@
 #include "ecp.h"
 #include "ecdsa.h"
 
-static int rsa_can_do(ttls_pk_type_t type)
+static int
+rsa_can_do(ttls_pk_type_t type)
 {
-	return(type == TTLS_PK_RSA ||
-			type == TTLS_PK_RSASSA_PSS);
+	return type == TTLS_PK_RSA || type == TTLS_PK_RSASSA_PSS;
 }
 
 static size_t rsa_get_bitlen(const void *ctx)
@@ -154,11 +154,11 @@ const ttls_pk_info_t ttls_rsa_info = {
 /*
  * Generic EC key
  */
-static int eckey_can_do(ttls_pk_type_t type)
+static int
+eckey_can_do(ttls_pk_type_t type)
 {
-	return(type == TTLS_PK_ECKEY ||
-			type == TTLS_PK_ECKEY_DH ||
-			type == TTLS_PK_ECDSA);
+	return type == TTLS_PK_ECKEY || type == TTLS_PK_ECKEY_DH ||
+	       type == TTLS_PK_ECDSA;
 }
 
 static size_t eckey_get_bitlen(const void *ctx)
@@ -250,10 +250,10 @@ const ttls_pk_info_t ttls_eckey_info = {
 /*
  * EC key restricted to ECDH
  */
-static int eckeydh_can_do(ttls_pk_type_t type)
+static int
+eckeydh_can_do(ttls_pk_type_t type)
 {
-	return(type == TTLS_PK_ECKEY ||
-			type == TTLS_PK_ECKEY_DH);
+	return type == TTLS_PK_ECKEY || type == TTLS_PK_ECKEY_DH;
 }
 
 const ttls_pk_info_t ttls_eckeydh_info = {
@@ -272,7 +272,7 @@ const ttls_pk_info_t ttls_eckeydh_info = {
 
 static int ecdsa_can_do(ttls_pk_type_t type)
 {
-	return(type == TTLS_PK_ECDSA);
+	return type == TTLS_PK_ECDSA;
 }
 
 static int ecdsa_verify_wrap(void *ctx, ttls_md_type_t md_alg,

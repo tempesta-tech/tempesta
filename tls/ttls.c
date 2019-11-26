@@ -1285,6 +1285,8 @@ ttls_handshake_free(TlsHandshake *hs, const TlsCiphersuite *ci)
 			ttls_dhm_free(&hs->dhm_ctx);
 	}
 
+	BUG(); // TODO #1064 free crypt mem profile
+
 	bzero_fast(hs, sizeof(TlsHandshake));
 	kmem_cache_free(ttls_hs_cache, hs);
 }
@@ -1597,7 +1599,7 @@ parse:
 	T_DBG_CRT("peer certificate", sess->peer_cert);
 
 	if (authmode != TTLS_VERIFY_NONE) {
-		const ttls_pk_context *pk = &sess->peer_cert->pk;
+		const TlsPkCtx *pk = &sess->peer_cert->pk;
 		ttls_x509_crt *ca_chain = tls->hs->key_cert->ca_chain;
 		ttls_x509_crl *ca_crl = tls->hs->key_cert->ca_crl;
 
@@ -1901,7 +1903,7 @@ ttls_set_session(TlsCtx *tls, const TlsSess *sess)
  */
 static int
 ttls_append_key_cert(ttls_key_cert **head, ttls_x509_crt *cert,
-		     ttls_pk_context *key, ttls_x509_crt *ca_chain,
+		     TlsPkCtx *key, ttls_x509_crt *ca_chain,
 		     ttls_x509_crl *ca_crl)
 {
 	ttls_key_cert *new;
@@ -1948,7 +1950,7 @@ ttls_append_key_cert(ttls_key_cert **head, ttls_x509_crt *cert,
  */
 int
 ttls_conf_own_cert(TlsPeerCfg *conf, ttls_x509_crt *own_cert,
-		   ttls_pk_context *pk_key, ttls_x509_crt *ca_chain,
+		   TlsPkCtx *pk_key, ttls_x509_crt *ca_chain,
 		   ttls_x509_crl *ca_crl)
 {
 	return ttls_append_key_cert(&conf->key_cert, own_cert, pk_key, ca_chain,
@@ -2875,12 +2877,19 @@ static void
 ttls_exit(void)
 {
 	int cpu;
+	TlsMpiProfile *mp;
 
 	kmem_cache_destroy(ttls_hs_cache);
 
 	for_each_possible_cpu(cpu) {
 		struct aead_request **req = per_cpu_ptr(&g_req, cpu);
 		kfree(*req);
+	}
+
+	for (mp = mpi_profiles; mp; ) {
+		TlsMpiProfile *next = mp->next;
+		free_pages((unsigned long)mp, get_order(mp->size));
+		mp = next;
 	}
 
 	ttls_mpi_modexit();

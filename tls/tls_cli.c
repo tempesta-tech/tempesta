@@ -735,14 +735,13 @@ static int ssl_parse_supported_point_formats_ext(TlsCtx *ssl,
 	}
 
 	p = buf + 1;
-	while (list_size > 0)
-	{
-		if (p[0] == TTLS_ECP_PF_UNCOMPRESSED) {
-			ssl->handshake->ecdh_ctx.point_format = p[0];
-			T_DBG3("point format selected: %d\n", p[0]);
+	while (list_size > 0) {
+		/*
+		 * Uncompressed is the only point format supported by RFC 8422,
+		 * but we need to check that we did receive the point format.
+		 */
+		if (p[0] == TTLS_ECP_PF_UNCOMPRESSED)
 			return 0;
-		}
-
 		list_size--;
 		p++;
 	}

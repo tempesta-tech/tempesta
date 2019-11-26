@@ -71,7 +71,6 @@ typedef enum {
 	TTLS_PK_ECKEY,
 	TTLS_PK_ECKEY_DH,
 	TTLS_PK_ECDSA,
-	TTLS_PK_RSA_ALT,
 	TTLS_PK_RSASSA_PSS,
 } ttls_pk_type_t;
 
@@ -114,36 +113,36 @@ typedef struct ttls_pk_info_t ttls_pk_info_t;
 typedef struct {
 	const ttls_pk_info_t	*pk_info;
 	void			*pk_ctx;
-} ttls_pk_context;
+} TlsPkCtx;
 
 const ttls_pk_info_t *ttls_pk_info_from_type(ttls_pk_type_t pk_type);
-void ttls_pk_init(ttls_pk_context *ctx);
-void ttls_pk_free(ttls_pk_context *ctx);
-int ttls_pk_setup(ttls_pk_context *ctx, const ttls_pk_info_t *info);
-size_t ttls_pk_get_bitlen(const ttls_pk_context *ctx);
-int ttls_pk_can_do(const ttls_pk_context *ctx, ttls_pk_type_t type);
-int ttls_pk_verify(ttls_pk_context *ctx, ttls_md_type_t md_alg,
+void ttls_pk_init(TlsPkCtx *ctx);
+void ttls_pk_free(TlsPkCtx *ctx);
+int ttls_pk_setup(TlsPkCtx *ctx, const ttls_pk_info_t *info);
+size_t ttls_pk_get_bitlen(const TlsPkCtx *ctx);
+int ttls_pk_can_do(const TlsPkCtx *ctx, ttls_pk_type_t type);
+int ttls_pk_verify(TlsPkCtx *ctx, ttls_md_type_t md_alg,
 		   const unsigned char *hash, size_t hash_len,
 		   const unsigned char *sig, size_t sig_len);
 int ttls_pk_verify_ext(ttls_pk_type_t type, const void *options,
-		       ttls_pk_context *ctx, ttls_md_type_t md_alg,
+		       TlsPkCtx *ctx, ttls_md_type_t md_alg,
 		       const unsigned char *hash, size_t hash_len,
 		       const unsigned char *sig, size_t sig_len);
-int ttls_pk_sign(ttls_pk_context *ctx, ttls_md_type_t md_alg,
+int ttls_pk_sign(TlsPkCtx *ctx, ttls_md_type_t md_alg,
 		 const unsigned char *hash, size_t hash_len,
 		 unsigned char *sig, size_t *sig_len);
-int ttls_pk_decrypt(ttls_pk_context *ctx,
+int ttls_pk_decrypt(TlsPkCtx *ctx,
 		    const unsigned char *input, size_t ilen,
 		    unsigned char *output, size_t *olen, size_t osize);
-int ttls_pk_encrypt(ttls_pk_context *ctx,
+int ttls_pk_encrypt(TlsPkCtx *ctx,
 		    const unsigned char *input, size_t ilen,
 		    unsigned char *output, size_t *olen, size_t osize);
-const char * ttls_pk_get_name(const ttls_pk_context *ctx);
-ttls_pk_type_t ttls_pk_get_type(const ttls_pk_context *ctx);
+const char * ttls_pk_get_name(const TlsPkCtx *ctx);
+ttls_pk_type_t ttls_pk_get_type(const TlsPkCtx *ctx);
 
-int ttls_pk_parse_key(ttls_pk_context *ctx, unsigned char *key, size_t keylen);
+int ttls_pk_parse_key(TlsPkCtx *ctx, unsigned char *key, size_t keylen);
 int ttls_pk_parse_subpubkey(unsigned char **p, const unsigned char *end,
-			    ttls_pk_context *pk);
+			    TlsPkCtx *pk);
 
 /**
  * Quick access to an RSA context inside a PK context.
@@ -152,7 +151,7 @@ int ttls_pk_parse_subpubkey(unsigned char **p, const unsigned char *end,
  * before using this function!
  */
 static inline ttls_rsa_context *
-ttls_pk_rsa(const ttls_pk_context pk)
+ttls_pk_rsa(const TlsPkCtx pk)
 {
 	return (ttls_rsa_context *)(pk).pk_ctx;
 }
@@ -164,7 +163,7 @@ ttls_pk_rsa(const ttls_pk_context pk)
  * before using this function!
  */
 static inline TlsEcpKeypair *
-ttls_pk_ec(const ttls_pk_context pk)
+ttls_pk_ec(const TlsPkCtx pk)
 {
 	return (TlsEcpKeypair *)(pk).pk_ctx;
 }
@@ -173,7 +172,7 @@ ttls_pk_ec(const ttls_pk_context pk)
  * Get the length in bytes of the underlying key.
  */
 static inline size_t
-ttls_pk_get_len(const ttls_pk_context *ctx)
+ttls_pk_get_len(const TlsPkCtx *ctx)
 {
 	return (ttls_pk_get_bitlen(ctx) + 7) / 8;
 }
