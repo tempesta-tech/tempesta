@@ -120,15 +120,17 @@ typedef struct
  * @cli_exts	- client extension presence;
  * @pmslen	- premaster length;
  * @key_cert	- chosen key/cert pair (server);
- * @dhm_ctx	- DHM key exchange;
- * @ecdh_ctx	- ECDH key exchange;
  * @fin_sha{256,512} - checksum contexts;
+ * @tmp_sha256	- temporal checksum buffer to handle both the checksum types on
+ *		  early handhsahe steps;
  * @curves	- supported elliptic curves;
  * @randbytes	- random bytes;
  * @finished	- temporal buffer for chunks of Finished message,
  *		  @randbytes were used in previous messages, so we can reuse it
  * @premaster	- premaster secret;
  * @tmp		- buffer to store temporary data between data chunks;
+ * @ecdh_ctx	- ECDH key exchange;
+ * @dhm_ctx	- DHM key exchange;
  */
 struct tls_handshake_t {
 	TlsSigHashSet			hash_algs;
@@ -151,16 +153,12 @@ struct tls_handshake_t {
 			const unsigned char *, size_t, unsigned char *, size_t);
 
 	union {
-		ttls_dhm_context	dhm_ctx;
-		ttls_ecdh_context	ecdh_ctx;
-		ttls_sha256_context	tmp_sha256;
-	};
-
-	union {
 		struct shash_desc	desc; /* common for both the contexts */
 		ttls_sha256_context	fin_sha256;
 		ttls_sha512_context	fin_sha512;
 	};
+	ttls_sha256_context	tmp_sha256;
+
 	const TlsEcpCurveInfo	*curves[TTLS_ECP_DP_MAX];
 	union {
 		unsigned char		randbytes[64];
@@ -190,20 +188,25 @@ struct tls_handshake_t {
 		};
 		unsigned char key_exchange_tmp[TTLS_HS_RBUF_SZ];
 	};
+
+	union {
+		TlsECDHCtx		*ecdh_ctx;
+		ttls_dhm_context	*dhm_ctx;
+	};
 };
 
 /*
  * List of certificate + private key pairs
  *
  * @cert		- Server certificate;
- * @key			- key for the certificate;
+ * @key			- private key for the certificate;
  * @ca_chain		- trusted CA chain for the issues certificate;
  * @ca_crl		- trusted CAs CRLs
  */
 struct ttls_key_cert
 {
 	ttls_x509_crt			*cert;
-	ttls_pk_context			*key;
+	TlsPkCtx			*key;
 	ttls_x509_crt			*ca_chain;
 	ttls_x509_crl			*ca_crl;
 	ttls_key_cert			*next;
@@ -211,6 +214,8 @@ struct ttls_key_cert
 
 extern int ttls_preset_hashes[];
 extern ttls_ecp_group_id ttls_preset_curves[];
+
+int ttls_mpi_profile_alloc(TlsCtx tls);
 
 /* Find an entry in a signature-hash set matching a given hash algorithm. */
 ttls_md_type_t ttls_sig_hash_set_find(TlsSigHashSet *set,
@@ -273,7 +278,7 @@ ttls_zeroize(void *v, size_t n)
 		*p++ = 0;
 }
 
-static inline ttls_pk_context *
+static inline TlsPkCtx *
 ttls_own_key(TlsCtx *tls)
 {
 	ttls_key_cert *key_cert;
@@ -313,10 +318,11 @@ int ttls_check_cert_usage(const ttls_x509_crt *cert,
 			  int cert_endpoint,
 			  uint32_t *flags);
 
-int ttls_get_key_exchange_md_tls1_2(TlsCtx *tls,
-		unsigned char *output,
-		unsigned char *data, size_t data_len,
-		ttls_md_type_t md_alg);
+void ttls_read_version(TlsCtx *tls, const unsigned char ver[2]);
+
+int ttls_get_key_exchange_md_tls1_2(TlsCtx *tls, unsigned char *output,
+				    unsigned char *data, size_t data_len,
+				    ttls_md_type_t md_alg);
 
 /**
  * Use the zeroing function for process context. Softirq context should use

@@ -59,7 +59,7 @@ __log_mpis(size_t n, const char *msg, ...)
 
 static void
 __debug_print_pk(const char *file, int line, const char *msg,
-		 const ttls_pk_context *pk)
+		 const TlsPkCtx *pk)
 {
 	size_t i;
 	ttls_pk_debug_item items[TTLS_PK_DEBUG_MAX_ITEMS];

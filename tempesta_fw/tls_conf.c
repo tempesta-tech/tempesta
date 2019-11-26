@@ -30,7 +30,7 @@
 
 typedef struct {
 	ttls_x509_crt	crt;
-	ttls_pk_context	key;
+	TlsPkCtx	key;
 	unsigned long	crt_pg_addr;
 	unsigned int	crt_pg_order;
 	unsigned int	conf_stage;
@@ -75,12 +75,12 @@ tfw_tls_get_cert_conf(TfwVhost *vhost, unsigned int directive)
 	}
 
 	curr_cert_conf = &conf->certs[conf->certs_num];
-	switch (directive)
-	{
+	switch (directive) {
 	case TFW_TLS_CFG_F_CERT:
 		if (curr_cert_conf->conf_stage & TFW_TLS_CFG_F_CERT) {
-			T_WARN_NL("'tls_certificate_key' directive was expected,"
-				  "but 'tls_certificate' was found first.\n");
+			T_WARN_NL("'tls_certificate_key' directive was"
+				  " expected, but 'tls_certificate' was"
+				  " found first.\n");
 			curr_cert_conf = NULL;
 		}
 		break;
@@ -88,14 +88,15 @@ tfw_tls_get_cert_conf(TfwVhost *vhost, unsigned int directive)
 	case TFW_TLS_CFG_F_CKEY:
 		if (!(curr_cert_conf->conf_stage & TFW_TLS_CFG_F_CERT)) {
 			T_WARN_NL("'tls_certificate_key' directive was found"
-				  "before 'tls_certificate' has encountered.\n");
+				  " before 'tls_certificate' has encountered."
+				  "\n");
 			curr_cert_conf = NULL;
 			break;
 		}
 		if (curr_cert_conf->conf_stage & TFW_TLS_CFG_F_CKEY) {
 			T_WARN_NL("'tls_certificate_key' directive was found"
-				  "twice for the same 'tls_certificate' "
-				  "directive.\n");
+				  " twice for the same 'tls_certificate'"
+				  " directive.\n");
 			curr_cert_conf = NULL;
 			break;
 		}
@@ -148,7 +149,7 @@ tfw_tls_set_cert(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 	conf->crt_pg_addr = (unsigned long)crt_data;
 	conf->crt_pg_order = get_order(crt_size);
 
-	return 0;
+	return ttls_mpi_profile_set(&conf->crt, &vhost->tls_cfg);
 }
 
 int
