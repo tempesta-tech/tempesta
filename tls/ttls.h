@@ -390,6 +390,7 @@ typedef struct {
  * @f_ticket_parse	- Callback to parse a session ticket into a session
  *			  structure;
  * @p_ticket		- Context for the ticket callbacks;
+ * 	TODO #1054 remove the 3 members above.
  *
  * @alpn_list		- Ordered list of protocols;
  * @read_timeout	- timeout for ttls_recv (ms);
@@ -485,6 +486,7 @@ typedef struct tls_handshake_t TlsHandshake;
  *
  * @lock	- protects the TLS context changes;
  * @conf	- global TLS configuration;
+ * @peer_conf	- Vhost specific TLS configuration;
  * @hs		- params required only during the handshake process;
  * @alpn_chosen	- negotiated protocol;
  * @state	- TLS handshake: current TLS FSM state;
@@ -539,10 +541,8 @@ void ttls_conf_authmode(TlsCfg *conf, int authmode);
 typedef int ttls_ticket_write_t(void *p_ticket, const TlsSess *session,
 				unsigned char *start, const unsigned char *end,
 				size_t *tlen, uint32_t *lifetime);
-
 typedef int ttls_ticket_parse_t(void *p_ticket, TlsSess *session,
 				unsigned char *buf, size_t len);
-
 void ttls_conf_session_tickets_cb(TlsCfg *conf,
 				  ttls_ticket_write_t *f_ticket_write,
 				  ttls_ticket_parse_t *f_ticket_parse,
@@ -550,7 +550,7 @@ void ttls_conf_session_tickets_cb(TlsCfg *conf,
 int ttls_set_session(TlsCtx *ssl, const TlsSess *session);
 
 int ttls_conf_own_cert(TlsPeerCfg *conf, ttls_x509_crt *own_cert,
-		       ttls_pk_context *pk_key, ttls_x509_crt *ca_chain,
+		       TlsPkCtx *pk_key, ttls_x509_crt *ca_chain,
 		       ttls_x509_crl *ca_crl);
 
 int ttls_conf_dh_param_bin(TlsCfg *conf,
@@ -582,6 +582,7 @@ int ttls_config_defaults(TlsCfg *conf, int endpoint);
 int ttls_config_peer_defaults(TlsPeerCfg *conf, int endpoint);
 void ttls_config_free(TlsCfg *conf);
 void ttls_config_peer_free(TlsPeerCfg *conf);
+int ttls_mpi_profile_set(ttls_x509_crt *crt, TlsPeerCfg *pcfg);
 
 void ttls_strerror(int errnum, char *buffer, size_t buflen);
 

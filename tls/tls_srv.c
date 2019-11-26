@@ -225,9 +225,6 @@ static int
 ttls_parse_supported_point_formats(TlsCtx *tls, const unsigned char *buf,
 				   size_t len)
 {
-	size_t list_size;
-	const unsigned char *p;
-
 	if (unlikely(!len || buf[0] + 1 != len)) {
 		T_DBG("ClientHello: bad supported point formats extension\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
@@ -236,13 +233,10 @@ ttls_parse_supported_point_formats(TlsCtx *tls, const unsigned char *buf,
 	}
 
 	tls->hs->cli_exts = 1;
-	for (list_size = buf[0], p = buf + 1; list_size > 0; --list_size, ++p) {
-		if (p[0] == TTLS_ECP_PF_UNCOMPRESSED) {
-			tls->hs->ecdh_ctx.point_format = p[0];
-			T_DBG("ClientHello: point format selected: %d\n", p[0]);
-			return 0;
-		}
-	}
+	/*
+	 * Uncompressed is the only point format supported by RFC 8422,
+	 * so just ignore the list.
+	 */
 
 	return 0;
 }
@@ -299,8 +293,8 @@ ttls_parse_session_ticket_ext(TlsCtx *tls, unsigned char *buf, size_t len)
 	 * inform them we're accepting the ticket  (RFC 5077 section 3.4)
 	 */
 	session.id_len = tls->sess.id_len;
-	memcpy(&session.id, tls->sess.id, session.id_len);
-	memcpy(&tls->sess, &session, sizeof(TlsSess));
+	memcpy_fast(&session.id, tls->sess.id, session.id_len);
+	memcpy_fast(&tls->sess, &session, sizeof(TlsSess));
 
 	/* Zeroize instead of free as we copied the content */
 	bzero_fast(&session, sizeof(TlsSess));
@@ -411,7 +405,7 @@ ttls_parse_renegotiation_info_ext(TlsCtx *tls, const unsigned char *buf,
  * @return 0 if the given key uses one of the acceptable curves, -1 otherwise.
  */
 static int
-ttls_check_key_curve(ttls_pk_context *pk, const TlsEcpCurveInfo **curves)
+ttls_check_key_curve(TlsPkCtx *pk, const TlsEcpCurveInfo **curves)
 {
 	const TlsEcpCurveInfo **crv = curves;
 	ttls_ecp_group_id grp_id = ttls_pk_ec(*pk)->grp.id;
@@ -1054,24 +1048,6 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 
 	ttls_update_checksum(tls, buf - hh_len, p - buf + hh_len);
 
-	if (ttls_ciphersuite_uses_ecdh(tls->xfrm.ciphersuite_info) ||
-	    ttls_ciphersuite_uses_ecdhe(tls->xfrm.ciphersuite_info))
-	{
-		unsigned char pf = tls->hs->ecdh_ctx.point_format;
-		ttls_ecdh_init(&tls->hs->ecdh_ctx);
-		tls->hs->ecdh_ctx.point_format = pf;
-
-		/*
-		 * Storage space of ecdh_ctx is used for temporary sha256
-		 * context. Ensure that point_format field is safe from
-		 * accidental overwrite.
-		 */
-		BUILD_BUG_ON(offsetof(ttls_ecdh_context, point_format) <=
-			     sizeof(ttls_sha256_context));
-	} else {
-		ttls_dhm_init(&tls->hs->dhm_ctx);
-	}
-
 	return 0;
 }
 
@@ -1215,10 +1191,7 @@ ttls_write_server_hello(TlsCtx *tls, struct sg_table *sgt,
 	p += 28;
 	memcpy(tls->hs->randbytes + 32, buf + 6, 32);
 	T_DBG3_BUF("server hello, random bytes ", buf + 6, 32);
-	/*
-	 * Resume is 0  by default.
-	 * It may be already set to 1 by ttls_parse_session_ticket_ext().
-	 */
+
 	if (!tls->hs->resume) {
 		/*
 		 * New session, create a new session id,
@@ -1314,26 +1287,12 @@ ttls_write_server_hello(TlsCtx *tls, struct sg_table *sgt,
 	return 0;
 }
 
-// TODO #1064 it seems this function should be a part of bn profile.
-static int
-ttls_get_ecdh_params_from_cert(TlsCtx *tls)
-{
-	int r;
-
-	if (!ttls_pk_can_do(ttls_own_key(tls), TTLS_PK_ECKEY)) {
-		T_DBG("server key not ECDH capable\n");
-		return TTLS_ERR_PK_TYPE_MISMATCH;
-	}
-	if ((r = ttls_ecdh_get_params(&tls->hs->ecdh_ctx,
-				      ttls_pk_ec(*ttls_own_key(tls)),
-				      TTLS_ECDH_OURS)))
-	{
-		T_DBG("cannot get ECDH params from a certificate, %d\n", r);
-	}
-
-	return r;
-}
-
+/**
+ * This is the latest phase of TLS handshake when we must allocate a key
+ * exchange context. We use prepared MPI memory profiles to do only stream
+ * copying instead of per-field initialization and later memory allocations
+ * on crypto MPI operations.
+ */
 static int
 ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 			       unsigned char **in_buf)
@@ -1344,6 +1303,11 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 	TlsIOCtx *io = &tls->io_out;
 	unsigned char *dig_signed, *p, *hdr = *in_buf;
 
+	if (ttls_mpi_profile_alloc(tls)) {
+		T_WARN("Can't allocate a crypto memory profile.\n");
+		return -ENOMEM;
+	}
+
 	/*
 	 * Part 1: Extract static ECDH parameters and abort if
 	 * ServerKeyExchange isn't needed.
@@ -1353,7 +1317,9 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 	 * this point.
 	 */
 	if (ttls_ciphersuite_uses_ecdh(ci))
-		ttls_get_ecdh_params_from_cert(tls);
+		/* TODO #1064 get the MPI memory profile. */
+		;
+
 	/*
 	 * Key exchanges not involving ephemeral keys don't use
 	 * ServerKeyExchange, so end here.
@@ -1366,7 +1332,7 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 	/*
 	 * Part 2: Provide key exchange parameters for chosen ciphersuite.
 	 *
-	 * TODO estimate size of the message more accurately on configuration
+	 * TODO #1064 estimate size of the message more accurately on configuration
 	 * time.
 	 */
 
@@ -1379,8 +1345,8 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 		 * Ephemeral ECDH parameters:
 		 *
 		 * struct {
-		 *	 ECParameters curve_params;
-		 *	 ECPoint	  public;
+		 *	 ECParameters	curve_params;
+		 *	 ECPoint	public;
 		 * } ServerECDHParams;
 		 */
 		const TlsEcpCurveInfo **curve = NULL;
@@ -1399,9 +1365,9 @@ curve_matching_done:
 		}
 		T_DBG("ECDHE curve: %s\n", (*curve)->name);
 
-		// TODO #1064 second time group load after
-		// ttls_get_ecdh_params_from_cert()?
-		r = ttls_ecp_group_load(&tls->hs->ecdh_ctx.grp,
+		/* TODO #1064 get the MPI memory profile. */
+
+		r = ttls_ecp_group_load(&tls->hs->ecdh_ctx->grp,
 					(*curve)->grp_id);
 		if (r) {
 			T_DBG("cannot load ECP group, %d\n", r);
@@ -2117,6 +2083,23 @@ ttls_handshake_server_hello(TlsCtx *tls)
 		if ((r = ttls_write_server_hello(tls, &sgt, &p)))
 			T_FSM_EXIT();
 		CHECK_STATE(128);
+		if (tls->state = TTLS_SERVER_CHANGE_CIPHER_SPEC) {
+			/*
+			 * FIXME it seems we broke the FSM state machine
+			 * on TLS session resumption - now we must send
+			 * ServerHello and next ServerChangeCipherSpec
+			 * (need to check this), so we need to exit the sate
+			 * machine for now.
+			 *
+			 * This goto probably fixes the issue and sends the
+			 * both the server messages separately.
+			 *
+			 * TODO #1054 this should be verified and fixed.
+			 * Need to send all the consequent server records
+			 * in one shot.
+			 */
+			goto send_srv_hello;
+		}
 		T_FSM_NEXT();
 	}
 	T_FSM_STATE(TTLS_SERVER_CERTIFICATE) {
@@ -2162,6 +2145,7 @@ ttls_handshake_server_hello(TlsCtx *tls)
 		} else {
 			tls->state = TTLS_CLIENT_CERTIFICATE;
 		}
+send_srv_hello:
 		/* All the writers got their frags, so put our reference. */
 		put_page(pg);
 		sg_mark_end(&sgt.sgl[sgt.nents - 1]);

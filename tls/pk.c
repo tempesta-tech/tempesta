@@ -32,7 +32,7 @@
 #include "ecdsa.h"
 
 void
-ttls_pk_init(ttls_pk_context *ctx)
+ttls_pk_init(TlsPkCtx *ctx)
 {
 	BUG_ON(!ctx);
 	ctx->pk_info = NULL;
@@ -49,14 +49,14 @@ do {									\
 } while (0)
 
 void
-ttls_pk_free(ttls_pk_context *ctx)
+ttls_pk_free(TlsPkCtx *ctx)
 {
 	if (unlikely(!ctx || !ctx->pk_info))
 		return;
 
 	ctx->pk_info->ctx_free_func(ctx->pk_ctx);
 
-	ttls_bzero_safe(ctx, sizeof(ttls_pk_context));
+	ttls_bzero_safe(ctx, sizeof(TlsPkCtx));
 }
 EXPORT_SYMBOL(ttls_pk_free);
 
@@ -79,7 +79,7 @@ ttls_pk_info_from_type(ttls_pk_type_t pk_type)
 }
 
 int
-ttls_pk_setup(ttls_pk_context *ctx, const ttls_pk_info_t *info)
+ttls_pk_setup(TlsPkCtx *ctx, const ttls_pk_info_t *info)
 {
 	might_sleep();
 	BUG_ON(!ctx || !info || ctx->pk_info);
@@ -96,7 +96,7 @@ ttls_pk_setup(ttls_pk_context *ctx, const ttls_pk_info_t *info)
  * Tell if a PK can do the operations of the given type.
  */
 int
-ttls_pk_can_do(const ttls_pk_context *ctx, ttls_pk_type_t type)
+ttls_pk_can_do(const TlsPkCtx *ctx, ttls_pk_type_t type)
 {
 	/* null or NONE context can't do anything */
 	if (!ctx || !ctx->pk_info)
@@ -124,7 +124,7 @@ pk_hashlen_helper(ttls_md_type_t md_alg, size_t *hash_len)
  * Verify a signature.
  */
 int
-ttls_pk_verify(ttls_pk_context *ctx, ttls_md_type_t md_alg,
+ttls_pk_verify(TlsPkCtx *ctx, ttls_md_type_t md_alg,
 	       const unsigned char *hash, size_t hash_len,
 	       const unsigned char *sig, size_t sig_len)
 {
@@ -141,7 +141,7 @@ ttls_pk_verify(ttls_pk_context *ctx, ttls_md_type_t md_alg,
  */
 int
 ttls_pk_verify_ext(ttls_pk_type_t type, const void *options,
-		   ttls_pk_context *ctx, ttls_md_type_t md_alg,
+		   TlsPkCtx *ctx, ttls_md_type_t md_alg,
 		   const unsigned char *hash, size_t hash_len,
 		   const unsigned char *sig, size_t sig_len)
 {
@@ -189,7 +189,7 @@ ttls_pk_verify_ext(ttls_pk_type_t type, const void *options,
  * Make a signature.
  */
 int
-ttls_pk_sign(ttls_pk_context *ctx, ttls_md_type_t md_alg,
+ttls_pk_sign(TlsPkCtx *ctx, ttls_md_type_t md_alg,
 	     const unsigned char *hash, size_t hash_len,
 	     unsigned char *sig, size_t *sig_len)
 {
@@ -205,7 +205,7 @@ ttls_pk_sign(ttls_pk_context *ctx, ttls_md_type_t md_alg,
  * Decrypt message.
  */
 int
-ttls_pk_decrypt(ttls_pk_context *ctx, const unsigned char *input, size_t ilen,
+ttls_pk_decrypt(TlsPkCtx *ctx, const unsigned char *input, size_t ilen,
 		unsigned char *output, size_t *olen, size_t osize)
 {
 	TTLS_PK_ARGS_SANITY_CHECK(decrypt);
@@ -218,7 +218,7 @@ ttls_pk_decrypt(ttls_pk_context *ctx, const unsigned char *input, size_t ilen,
  * Encrypt message
  */
 int
-ttls_pk_encrypt(ttls_pk_context *ctx, const unsigned char *input, size_t ilen,
+ttls_pk_encrypt(TlsPkCtx *ctx, const unsigned char *input, size_t ilen,
 		unsigned char *output, size_t *olen, size_t osize)
 {
 	TTLS_PK_ARGS_SANITY_CHECK(encrypt);
@@ -231,7 +231,7 @@ ttls_pk_encrypt(ttls_pk_context *ctx, const unsigned char *input, size_t ilen,
  * Get key size in bits.
  */
 size_t
-ttls_pk_get_bitlen(const ttls_pk_context *ctx)
+ttls_pk_get_bitlen(const TlsPkCtx *ctx)
 {
 	if (unlikely(!ctx || !ctx->pk_info))
 		return 0;
@@ -242,7 +242,7 @@ ttls_pk_get_bitlen(const ttls_pk_context *ctx)
  * Access the PK type name.
  */
 const char *
-ttls_pk_get_name(const ttls_pk_context *ctx)
+ttls_pk_get_name(const TlsPkCtx *ctx)
 {
 	if (unlikely(!ctx || !ctx->pk_info))
 		return "invalid PK";
@@ -253,7 +253,7 @@ ttls_pk_get_name(const ttls_pk_context *ctx)
  * Access the PK type.
  */
 ttls_pk_type_t
-ttls_pk_get_type(const ttls_pk_context *ctx)
+ttls_pk_get_type(const TlsPkCtx *ctx)
 {
 	if (unlikely(!ctx || !ctx->pk_info))
 		return TTLS_PK_NONE;
