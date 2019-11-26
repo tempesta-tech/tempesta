@@ -385,23 +385,8 @@ int ttls_ecp_point_read_binary(const TlsEcpGrp *grp, TlsEcpPoint *P,
 int ttls_ecp_tls_read_point(const TlsEcpGrp *grp, TlsEcpPoint *pt,
 			const unsigned char **buf, size_t len);
 
-/**
- * \brief		   Export a point as a TLS ECPoint record
- *
- * \param grp	   ECP group used
- * \param pt		Point to export
- * \param format	Export format
- * \param olen	  length of data written
- * \param buf	   Buffer to write to
- * \param blen	  Buffer length
- *
- * \return		  0 if successful,
- *				  or TTLS_ERR_ECP_BAD_INPUT_DATA
- *				  or TTLS_ERR_ECP_BUFFER_TOO_SMALL
- */
 int ttls_ecp_tls_write_point(const TlsEcpGrp *grp, const TlsEcpPoint *pt,
-			 int format, size_t *olen,
-			 unsigned char *buf, size_t blen);
+			     size_t *olen, unsigned char *buf, size_t blen);
 
 int ttls_ecp_group_load(TlsEcpGrp *grp, ttls_ecp_group_id id);
 

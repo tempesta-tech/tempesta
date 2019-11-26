@@ -56,20 +56,17 @@ static DEFINE_PER_CPU(TlsMpi *, g_buf);
  * Initialize one MPI (make internal references valid).
  * This just makes it ready to be set or freed, but does not define a value
  * for the MPI.
- *
- * Single-limb MPI are quite rare, so we don't try to use TlsMpi->p as an
- * integer value for sigle-limb case.
  */
 void
 ttls_mpi_init(TlsMpi *X)
 {
-	if (unlikely(!X))
+	if (WARN_ON_ONCE(!X))
 		return;
 
 	X->s = 1;
 	X->used = 0;
 	X->limbs = 0;
-	X->p = NULL;
+	X->_off = 0;
 }
 
 void
@@ -77,51 +74,39 @@ ttls_mpi_free(TlsMpi *X)
 {
 	if (unlikely(!X))
 		return;
+	/* MPI memory pools should be used in softirq. */
+	WARN_ON_ONCE(in_serving_softirq());
 
-	if (X->p) {
-		memset(X->p, 0, X->limbs << LSHIFT);
-		WARN_ON_ONCE(1); /* #1064 no dynamic allocations any more. */
-		kfree(X->p);
-	}
-
+	if (X->_off)
+		memset(MPI_P(X), 0, X->limbs << LSHIFT);
 	ttls_mpi_init(X);
 }
 
 /**
  * Reallocate the MPI data area and copy old data if necessary.
- *
- * TODO #1064: use exponential growth or allocate with some step like 2 or 4
- * limbs? Need to explore common memory allocation pattern -> collect histogram.
- * Probably we can allocate all required MPIs on early handshake phase with the
- * key parameters size knowledge, so we could avoid allocations at all.
- * It seems we can not use per-cpu pages to store MPI since we need the MPIs
- * state between handshake messages.
  */
 int
-__mpi_realloc(TlsMpi *X, size_t nblimbs, unsigned int flags)
+__mpi_alloc(TlsMpi *X, size_t nblimbs)
 {
-	unsigned long *p;
+	int new_off;
 
+	WARN_ON_ONCE(X->limbs >= nblimbs);
+	/*
+	 * Reallocation must be called on MPI profiles initialization only
+	 * and only once for an MPI.
+	 */
+	WARN_ON_ONCE(in_serving_softirq());
+	BUG_ON(X->_off);
 	if (unlikely(nblimbs > TTLS_MPI_MAX_LIMBS))
 		return -ENOMEM;
-	if (unlikely(X->limbs >= nblimbs))
-		return 0;
 
-	WARN_ON_ONCE(1); /* #1064 no dynamic allocations any more. */
-
-	if (!(p = kmalloc(nblimbs * CIL, GFP_ATOMIC)))
+	new_off = ttls_mpi_profile_alloc(X, nblimbs * CIL);
+	if (new_off <= 0)
 		return -ENOMEM;
-
-	if (X->p) {
-		if (flags & MPI_GROW_COPY)
-			memcpy(p, X->p, X->used * CIL);
-		kfree(X->p);
-	}
-	if (flags & MPI_GROW_ZERO)
-		memset(p + X->used, 0, (nblimbs - X->used) * CIL);
+	BUG_ON(new_off >= PAGE_SIZE);
 
 	X->limbs = nblimbs;
-	X->p = p;
+	X->_off = new_off;
 
 	return 0;
 }
@@ -138,36 +123,8 @@ mpi_fixup_used(TlsMpi *X, size_t n)
 	 * Leave the least significant limb even if it's zero to represent
 	 * zero valued MPI.
 	 */
-	for (X->used = n; X->used > 1 && !X->p[X->used - 1]; )
+	for (X->used = n; X->used > 1 && !MPI_P(X)[X->used - 1]; )
 		--X->used;
-}
-
-/**
- * Resize down as much as possible, while keeping at least the specified
- * number of limbs.
- */
-int
-ttls_mpi_shrink(TlsMpi *X, size_t nblimbs)
-{
-	unsigned long *p;
-
-	if (WARN_ON_ONCE(!X->p || X->limbs < nblimbs))
-		return 0;
-	if (X->used > nblimbs)
-		nblimbs = X->used;
-
-	WARN_ON_ONCE(1); /* #1064 no dynamic allocations any more. */
-
-	if (!(p = kmalloc(nblimbs * CIL, GFP_ATOMIC)))
-		return -ENOMEM;
-
-	memcpy(p, X->p, X->used * CIL);
-	kfree(X->p);
-
-	X->limbs = nblimbs;
-	X->p = p;
-
-	return 0;
 }
 
 /**
@@ -178,15 +135,15 @@ ttls_mpi_copy(TlsMpi *X, const TlsMpi *Y)
 {
 	if (unlikely(X == Y))
 		return 0;
-	if (unlikely(!Y->p)) {
+	if (unlikely(!Y->_off)) {
 		ttls_mpi_free(X);
 		return 0;
 	}
 
 	if (X->limbs < Y->used)
-		if (__mpi_realloc(X, Y->used, 0))
+		if (__mpi_alloc(X, Y->used))
 			return -ENOMEM;
-	memcpy(X->p, Y->p, Y->used * CIL);
+	memcpy(MPI_P(X), MPI_P(Y), Y->used * CIL);
 	X->s = Y->s;
 	X->used = Y->used;
 
@@ -216,7 +173,7 @@ ttls_mpi_safe_cond_assign(TlsMpi *X, const TlsMpi *Y, unsigned char assign)
 	X->used = X->used * (1 - assign) + Y->used * assign;
 
 	for (i = 0; i < Y->used; i++)
-		X->p[i] = X->p[i] * (1 - assign) + Y->p[i] * assign;
+		MPI_P(X)[i] = MPI_P(X)[i] * (1 - assign) + MPI_P(Y)[i] * assign;
 
 	return 0;
 }
@@ -254,9 +211,9 @@ ttls_mpi_safe_cond_swap(TlsMpi *X, TlsMpi *Y, unsigned char swap)
 
 	used = max_t(unsigned short, X->used, Y->used);
 	for (i = 0; i < used; i++) {
-		unsigned long tmp = X->p[i];
-		X->p[i] = X->p[i] * (1 - swap) + Y->p[i] * swap;
-		Y->p[i] = Y->p[i] * (1 - swap) + tmp * swap;
+		unsigned long tmp = MPI_P(X)[i];
+		MPI_P(X)[i] = MPI_P(X)[i] * (1 - swap) + MPI_P(Y)[i] * swap;
+		MPI_P(Y)[i] = MPI_P(Y)[i] * (1 - swap) + tmp * swap;
 	}
 
 	return 0;
@@ -268,15 +225,15 @@ ttls_mpi_safe_cond_swap(TlsMpi *X, TlsMpi *Y, unsigned char swap)
 int
 ttls_mpi_lset(TlsMpi *X, long z)
 {
-	if (__mpi_realloc(X, 1, 0))
+	if (__mpi_alloc(X, 1, 0))
 		return -ENOMEM;
 
 	X->used = 1;
 	if (z < 0) {
-		X->p[0] = -z;
+		MPI_P(X)[0] = -z;
 		X->s = -1;
 	} else {
-		X->p[0] = z;
+		MPI_P(X)[0] = z;
 		X->s = 1;
 	}
 
@@ -289,7 +246,7 @@ ttls_mpi_get_bit(const TlsMpi *X, size_t pos)
 	if ((X->used << BSHIFT) <= pos)
 		return 0;
 
-	return (X->p[pos >> BSHIFT] >> (pos & BMASK)) & 0x01;
+	return (MPI_P(X)[pos >> BSHIFT] >> (pos & BMASK)) & 0x01;
 }
 
 /**
@@ -312,12 +269,12 @@ ttls_mpi_set_bit(TlsMpi *X, size_t pos, unsigned char val)
 		if (unlikely(X->limbs << BSHIFT <= pos))
 			if (ttls_mpi_grow(X, off + 1))
 				return -ENOMEM;
-		memset(&X->p[X->used], 0, (off - X->used + 1) << LSHIFT);
+		memset(&MPI_P(X)[X->used], 0, (off - X->used + 1) << LSHIFT);
 		X->used = off + 1;
 	}
 
-	X->p[off] &= ~((unsigned long)0x01 << idx);
-	X->p[off] |= (unsigned long)val << idx;
+	MPI_P(X)[off] &= ~((unsigned long)0x01 << idx);
+	MPI_P(X)[off] |= (unsigned long)val << idx;
 
 	return 0;
 }
@@ -335,9 +292,9 @@ ttls_mpi_lsb(const TlsMpi *X)
 	size_t i;
 
 	for (i = 0 ; i < X->used; i++) {
-		if (!X->p[i])
+		if (!MPI_P(X)[i])
 			continue;
-		return (i * BIL) + __ffs(X->p[i]);
+		return (i * BIL) + __ffs(MPI_P(X)[i]);
 	}
 
 	return 0;
@@ -346,13 +303,13 @@ ttls_mpi_lsb(const TlsMpi *X)
 size_t
 ttls_mpi_bitlen(const TlsMpi *X)
 {
-	if (!X->used || !X->p[X->used - 1])
+	if (!X->used || !MPI_P(X)[X->used - 1])
 		return 0;
 
 	/*
 	 * Number of full limbs plus number of less significant non-zero bits.
 	 */
-	return (X->used - 1) * BIL + fls64(X->p[X->used - 1]);
+	return (X->used - 1) * BIL + fls64(MPI_P(X)[X->used - 1]);
 }
 
 /*
@@ -432,7 +389,7 @@ ttls_mpi_shift_r(TlsMpi *X, size_t count)
 	size_t i, v0, v1;
 	unsigned long r0 = 0, r1;
 
-	if (unlikely(!X->used || !X->p[X->used - 1])) {
+	if (unlikely(!X->used || !MPI_P(X)[X->used - 1])) {
 		WARN_ON_ONCE(X->used > 1);
 		return 0;
 	}
@@ -450,18 +407,18 @@ ttls_mpi_shift_r(TlsMpi *X, size_t count)
 	if (v0 > 0) {
 		X->used -= v0;
 		for (i = 0; i < X->used; i++)
-			X->p[i] = X->p[i + v0];
+			MPI_P(X)[i] = MPI_P(X)[i + v0];
 	}
 
 	/* Shift by count % limb_size. */
 	if (v1 > 0) {
 		for (i = X->used; i > 0; i--) {
-			r1 = X->p[i - 1] << (BIL - v1);
-			X->p[i - 1] >>= v1;
-			X->p[i - 1] |= r0;
+			r1 = MPI_P(X)[i - 1] << (BIL - v1);
+			MPI_P(X)[i - 1] >>= v1;
+			MPI_P(X)[i - 1] |= r0;
 			r0 = r1;
 		}
-		if (!X->p[X->used - 1])
+		if (!MPI_P(X)[X->used - 1])
 			--X->used;
 	}
 
@@ -564,10 +521,10 @@ ttls_mpi_fill_random(TlsMpi *X, size_t size)
 	if (WARN_ON_ONCE(size > TTLS_MPI_MAX_SIZE))
 		return -EINVAL;
 
-	if (__mpi_realloc(X, limbs, 0))
+	if (__mpi_alloc(X, limbs))
 		return -ENOMEM;
 
-	ttls_rnd(X->p, size);
+	ttls_rnd(MPI_P(X), size);
 	if (rem > 0)
 		memset((char *)X->p + size, 0, rem);
 	X->used = limbs;
@@ -1685,6 +1642,8 @@ ttls_mpi_modexit(void)
 		WARN_ON_ONCE(1); /* #1064 no dynamic allocations any more. */
 		kfree(*ptr);
 	}
+
+	ttls_mpi_profile_exit();
 }
 
 int __init

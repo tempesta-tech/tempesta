@@ -121,7 +121,7 @@ static int x509_profile_check_pk_alg(const ttls_x509_crt_profile *profile,
  */
 static int x509_profile_check_key(const ttls_x509_crt_profile *profile,
 		   ttls_pk_type_t pk_alg,
-		   const ttls_pk_context *pk)
+		   const TlsPkCtx *pk)
 {
 	if (pk_alg == TTLS_PK_RSA || pk_alg == TTLS_PK_RSASSA_PSS)
 	{

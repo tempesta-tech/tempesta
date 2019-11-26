@@ -453,18 +453,19 @@ ttls_ecp_tls_read_point(const TlsEcpGrp *grp, TlsEcpPoint *pt,
  */
 int
 ttls_ecp_tls_write_point(const TlsEcpGrp *grp, const TlsEcpPoint *pt,
-			 int format, size_t *olen,
-			 unsigned char *buf, size_t blen)
+			 size_t *olen, unsigned char *buf, size_t blen)
 {
-	int ret;
+	int r;
 
 	/* Buffer length must be at least one, for our length byte. */
 	if (blen < 1)
-		return(TTLS_ERR_ECP_BAD_INPUT_DATA);
+		return -EINVAL;
 
-	if ((ret = ttls_ecp_point_write_binary(grp, pt, format,
-		olen, buf + 1, blen - 1)) != 0)
-		return ret;
+	/* Uncompressed is the only point format supported by RFC 8422. */
+	r = ttls_ecp_point_write_binary(grp, pt, TTLS_ECP_PF_UNCOMPRESSED,
+					olen, buf + 1, blen - 1);
+	if (r)
+		return r;
 
 	/* Write length to the first byte and update total length. */
 	buf[0] = (unsigned char) *olen;
@@ -719,6 +720,7 @@ static int ecp_normalize_jac_many(const TlsEcpGrp *grp,
 		 *   number of limbs as P, as otherwise it will too likely be
 		 *   regrown too fast.
 		 */
+		// TODO #1064: mem profile or temoral pool
 		TTLS_MPI_CHK(ttls_mpi_shrink(&T[i]->X, grp->P.used));
 		TTLS_MPI_CHK(ttls_mpi_shrink(&T[i]->Y, grp->P.used));
 		ttls_mpi_free(&T[i]->Z);
@@ -1711,17 +1713,12 @@ ttls_ecp_check_privkey(const TlsEcpGrp *grp, const TlsMpi *d)
 
 /**
  * Generate a keypair with configurable base point.
- *
- * TODO #1064 it seems, at least for the random strings, we can pregenerate
- * most of the data to speedup the handshake.
- * => bn profile
  */
 int
 ttls_ecp_gen_keypair(TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q)
 {
 	int ret;
 	size_t n_size = (grp->nbits + 7) / 8;
-	TlsEcpPoint *G = &grp->G;
 
 	if (ecp_get_type(grp) == ECP_TYPE_MONTGOMERY) {
 		/* [M225] page 5 */
@@ -1785,5 +1782,5 @@ cleanup:
 	if (ret)
 		return ret;
 
-	return ttls_ecp_mul(grp, Q, d, G, true);
+	return ttls_ecp_mul(grp, Q, d, &grp->G, true);
 }

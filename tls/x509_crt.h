@@ -52,7 +52,7 @@ typedef struct ttls_x509_crt
 	ttls_x509_time valid_from;	   /**< Start time of certificate validity. */
 	ttls_x509_time valid_to;		 /**< End time of certificate validity. */
 
-	ttls_pk_context pk;			  /**< Container for the public key context. */
+	TlsPkCtx pk;			  /**< Container for the public key context. */
 
 	ttls_x509_buf issuer_id;		 /**< Optional X.509 v2/v3 issuer unique identifier. */
 	ttls_x509_buf subject_id;		/**< Optional X.509 v2/v3 subject unique identifier. */
@@ -112,8 +112,8 @@ typedef struct ttls_x509write_cert
 {
 	int version;
 	TlsMpi serial;
-	ttls_pk_context *subject_key;
-	ttls_pk_context *issuer_key;
+	TlsPkCtx *subject_key;
+	TlsPkCtx *issuer_key;
 	ttls_asn1_named_data *subject;
 	ttls_asn1_named_data *issuer;
 	ttls_md_type_t md_alg;

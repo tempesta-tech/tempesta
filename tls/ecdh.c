@@ -67,18 +67,9 @@ cleanup:
 }
 
 /*
- * Initialize context
- */
-void
-ttls_ecdh_init(ttls_ecdh_context *ctx)
-{
-	bzero_fast(ctx, sizeof(ttls_ecdh_context));
-}
-
-/*
  * Free context
  */
-void ttls_ecdh_free(ttls_ecdh_context *ctx)
+void ttls_ecdh_free(TlsECDHCtx *ctx)
 {
 	if (ctx == NULL)
 		return;
@@ -106,7 +97,7 @@ void ttls_ecdh_free(ttls_ecdh_context *ctx)
  * properly set.
  */
 int
-ttls_ecdh_make_params(ttls_ecdh_context *ctx, size_t *olen, unsigned char *buf,
+ttls_ecdh_make_params(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
 		      size_t blen)
 {
 	int r;
@@ -123,8 +114,8 @@ ttls_ecdh_make_params(ttls_ecdh_context *ctx, size_t *olen, unsigned char *buf,
 	buf += grp_len;
 	blen -= grp_len;
 
-	if ((r = ttls_ecp_tls_write_point(&ctx->grp, &ctx->Q, ctx->point_format,
-					  &pt_len, buf, blen)))
+	r = ttls_ecp_tls_write_point(&ctx->grp, &ctx->Q, &pt_len, buf, blen);
+	if (r)
 		return r;
 
 	*olen = grp_len + pt_len;
@@ -139,7 +130,7 @@ ttls_ecdh_make_params(ttls_ecdh_context *ctx, size_t *olen, unsigned char *buf,
  *	} ServerECDHParams;
  */
 int
-ttls_ecdh_read_params(ttls_ecdh_context *ctx, const unsigned char **buf,
+ttls_ecdh_read_params(TlsECDHCtx *ctx, const unsigned char **buf,
 		      const unsigned char *end)
 {
 	int r;
@@ -157,12 +148,12 @@ ttls_ecdh_read_params(ttls_ecdh_context *ctx, const unsigned char **buf,
  * Get parameters from a keypair.
  */
 int
-ttls_ecdh_get_params(ttls_ecdh_context *ctx, const TlsEcpKeypair *key,
+ttls_ecdh_get_params(TlsECDHCtx *ctx, const TlsEcpKeypair *key,
 		     ttls_ecdh_side side)
 {
 	int r;
 
-	ttls_ecp_group_free(&ctx->grp);
+	BUG_ON(side != TTLS_ECDH_THEIRS && side != TTLS_ECDH_OURS);
 
 	if ((r = ttls_ecp_group_load(&ctx->grp, key->grp.id)))
 		return r;
@@ -170,10 +161,6 @@ ttls_ecdh_get_params(ttls_ecdh_context *ctx, const TlsEcpKeypair *key,
 	/* If it's not our key, just import the public part as Qp */
 	if (side == TTLS_ECDH_THEIRS)
 		return ttls_ecp_copy(&ctx->Qp, &key->Q);
-
-	/* Our key: import public (as Q) and private parts */
-	if (side != TTLS_ECDH_OURS)
-		return TTLS_ERR_ECP_BAD_INPUT_DATA;
 
 	if ((r = ttls_ecp_copy(&ctx->Q, &key->Q))
 	    || (r = ttls_mpi_copy(&ctx->d, &key->d)))
@@ -188,7 +175,7 @@ ttls_ecdh_get_params(ttls_ecdh_context *ctx, const TlsEcpKeypair *key,
  * This is the second function used by a TLS client for ECDH(E) ciphersuites.
  */
 int
-ttls_ecdh_make_public(ttls_ecdh_context *ctx, size_t *olen, unsigned char *buf,
+ttls_ecdh_make_public(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
 		      size_t blen)
 {
 	int r;
@@ -198,15 +185,14 @@ ttls_ecdh_make_public(ttls_ecdh_context *ctx, size_t *olen, unsigned char *buf,
 
 	if ((r = ttls_ecp_gen_keypair(&ctx->grp, &ctx->d, &ctx->Q)))
 		return r;
-	return ttls_ecp_tls_write_point(&ctx->grp, &ctx->Q, ctx->point_format,
-					olen, buf, blen);
+	return ttls_ecp_tls_write_point(&ctx->grp, &ctx->Q, olen, buf, blen);
 }
 
 /**
  * Parse and import the client's public value.
  */
 int
-ttls_ecdh_read_public(ttls_ecdh_context *ctx, const unsigned char *buf,
+ttls_ecdh_read_public(TlsECDHCtx *ctx, const unsigned char *buf,
 		      size_t blen)
 {
 	int r;
@@ -228,7 +214,7 @@ ttls_ecdh_read_public(ttls_ecdh_context *ctx, const unsigned char *buf,
  * Derive and export the shared secret
  */
 int
-ttls_ecdh_calc_secret(ttls_ecdh_context *ctx, size_t *olen, unsigned char *buf,
+ttls_ecdh_calc_secret(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
 		      size_t blen)
 {
 	int r;

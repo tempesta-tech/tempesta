@@ -228,7 +228,7 @@ static int pk_get_pk_alg(unsigned char **p,
  */
 int
 ttls_pk_parse_subpubkey(unsigned char **p, const unsigned char *end,
-			ttls_pk_context *pk)
+			TlsPkCtx *pk)
 {
 	int ret;
 	size_t len;
@@ -538,7 +538,7 @@ static int pk_parse_key_sec1_der(TlsEcpKeypair *eck,
  * The function is responsible for freeing the provided PK context on failure.
  */
 static int
-pk_parse_key_pkcs8_unencrypted_der(ttls_pk_context *pk,
+pk_parse_key_pkcs8_unencrypted_der(TlsPkCtx *pk,
 				   const unsigned char *key, size_t keylen)
 {
 	int ret, version;
@@ -620,7 +620,7 @@ pk_parse_key_pkcs8_unencrypted_der(ttls_pk_context *pk,
  * result with ttls_pk_can_do().
  */
 int
-ttls_pk_parse_key(ttls_pk_context *pk, unsigned char *key, size_t keylen)
+ttls_pk_parse_key(TlsPkCtx *pk, unsigned char *key, size_t keylen)
 {
 	int r, dec_key_len;
 	const ttls_pk_info_t *pk_info;

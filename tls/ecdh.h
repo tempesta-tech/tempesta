@@ -1,33 +1,34 @@
 /**
- * \file ecdh.h
+ *		Tempesta TLS
  *
- * \brief The Elliptic Curve Diffie-Hellman (ECDH) protocol APIs.
+ * The Elliptic Curve Diffie-Hellman (ECDH) protocol APIs.
  *
  * ECDH is an anonymous key agreement protocol allowing two parties to
  * establish a shared secret over an insecure channel. Each party must have an
  * elliptic-curve public–private key pair.
  *
- * For more information, see <em>NIST SP 800-56A Rev. 2: Recommendation for
- * Pair-Wise Key Establishment Schemes Using Discrete Logarithm
- * Cryptography</em>.
- */
-/*
- *  Copyright (C) 2006-2018, Arm Limited (or its affiliates), All Rights Reserved
- *  SPDX-License-Identifier: GPL-2.0
+ * For more information, see NIST SP 800-56A Rev. 2: Recommendation for
+ * Pair-Wise Key Establishment Schemes Using Discrete Logarithm Cryptography.
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ * Based on mbed TLS, https://tls.mbed.org.
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * Copyright (C) 2006-2018, Arm Limited (or its affiliates), All Rights Reserved
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * SPDX-License-Identifier: GPL-2.0
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #ifndef TTLS_ECDH_H
 #define TTLS_ECDH_H
@@ -46,21 +47,27 @@ typedef enum
 } ttls_ecdh_side;
 
 /**
- * \brief		   The ECDH context structure.
+ * The ECDH context structure.
+ *
+ * @rgp			- elliptic curve used;
+ * @d			- private key;
+ * @Q			- public key;
+ * @Qp			- value of the public key of the peer;
+ * @z			- shared secret;
+ * @Vi			- blinding value;
+ * @Vf			- unblinding value;
+ * @_d			- previous private key;
  */
-typedef struct
-{
-	TlsEcpGrp grp;   /*!< The elliptic curve used. */
-	TlsMpi d;		   /*!< The private key. */
-	TlsEcpPoint Q;	 /*!< The public key. */
-	TlsEcpPoint Qp;	/*!< The value of the public key of the peer. */
-	TlsMpi z;		   /*!< The shared secret. */
-	int point_format;		/*!< The format of point export in TLS messages. */
-	TlsEcpPoint Vi;	/*!< The blinding value. */
-	TlsEcpPoint Vf;	/*!< The unblinding value. */
-	TlsMpi _d;		  /*!< The previous \p d. */
-}
-ttls_ecdh_context;
+typedef struct {
+	TlsEcpGrp	grp;
+	TlsMpi		d;
+	TlsEcpPoint	Q;
+	TlsEcpPoint	Qp;
+	TlsMpi		z;
+	TlsEcpPoint	Vi;
+	TlsEcpPoint	Vf;
+	TlsMpi		_d;
+} TlsECDHCtx;
 
 /**
  * \brief		   This function computes the shared secret.
@@ -85,13 +92,6 @@ ttls_ecdh_context;
  */
 int ttls_ecdh_compute_shared(TlsEcpGrp *grp, TlsMpi *z,
 			 const TlsEcpPoint *Q, const TlsMpi *d);
-
-/**
- * \brief		   This function initializes an ECDH context.
- *
- * \param ctx	   The ECDH context to initialize.
- */
-void ttls_ecdh_init(ttls_ecdh_context *ctx);
 
 /**
  * \brief		   This function frees a context.
