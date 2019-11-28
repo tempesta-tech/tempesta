@@ -45,9 +45,7 @@ ttls_ecdh_compute_shared(TlsEcpGrp *grp, TlsMpi *z,
 
 	ttls_ecp_point_init(&P);
 
-	/*
-	 * Make sure Q is a valid pubkey before using it
-	 */
+	/* Make sure Q is a valid pubkey before using it. */
 	TTLS_MPI_CHK(ttls_ecp_check_pubkey(grp, Q));
 
 	TTLS_MPI_CHK(ttls_ecp_mul(grp, &P, d, Q, true));

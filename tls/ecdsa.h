@@ -141,19 +141,6 @@ int ttls_ecdsa_read_signature(TlsEcpKeypair *ctx,
 			  const unsigned char *sig, size_t slen);
 
 /**
- * \brief		   This function sets an ECDSA context from an EC key pair.
- *
- * \param ctx	   The ECDSA context to set.
- * \param key	   The EC key to use.
- *
- * \return		  \c 0 on success, or an \c TTLS_ERR_ECP_XXX code on
- *				  failure.
- *
- * \see			 ecp.h
- */
-int ttls_ecdsa_from_keypair(TlsEcpKeypair *ctx, const TlsEcpKeypair *key);
-
-/**
  * \brief		   This function initializes an ECDSA context.
  *
  * \param ctx	   The ECDSA context to initialize.
