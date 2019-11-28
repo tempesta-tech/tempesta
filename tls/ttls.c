@@ -2266,6 +2266,10 @@ ttls_recv(void *tls_data, unsigned char *buf, size_t len, unsigned int *read)
 		 * the KeyExchange one.
 		 */
 		r = ttls_handshake_step(tls, buf, len, hh_len, read);
+
+		/* Cleanup security sensitive temproary data. */
+		ttls_mpi_cleanup_ctx();
+
 		if (!r)
 			return T_OK;
 		if (r == T_POSTPONE) {
@@ -2877,19 +2881,12 @@ static void
 ttls_exit(void)
 {
 	int cpu;
-	TlsMpiProfile *mp;
 
 	kmem_cache_destroy(ttls_hs_cache);
 
 	for_each_possible_cpu(cpu) {
 		struct aead_request **req = per_cpu_ptr(&g_req, cpu);
 		kfree(*req);
-	}
-
-	for (mp = mpi_profiles; mp; ) {
-		TlsMpiProfile *next = mp->next;
-		free_pages((unsigned long)mp, get_order(mp->size));
-		mp = next;
 	}
 
 	ttls_mpi_modexit();

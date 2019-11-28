@@ -374,6 +374,10 @@ tfw_http_prep_date_from(char *buf, time_t date)
 		{ " Jan ", " Feb ", " Mar ", " Apr ", " May ", " Jun ",
 		  " Jul ", " Aug ", " Sep ", " Oct ", " Nov ", " Dec " };
 
+	/*
+	 * If you see the function in perf top, then replace the naive
+	 * printer by https://github.com/jeaiii/itoa.git
+	 */
 #define PRINT_2DIGIT(p, n)			\
 	*p++ = (n <= 9) ? '0' : '0' + n / 10;	\
 	*p++ = '0' + n % 10;

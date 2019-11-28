@@ -168,7 +168,7 @@ typedef struct {
  * @B		- 1. B in the equation, or 2. unused;
  * @N		- 1. the order of G, or 2. unused;
  * @G		- generator of the (sub)group used;
- * @T		- pre-computed points for ecp_mul_comb();
+ * @T		- pre-computed points for ecp_mul_comb().
  */
 typedef struct {
 	ttls_ecp_group_id	id;

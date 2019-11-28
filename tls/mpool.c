@@ -21,6 +21,35 @@
  */
 #include "bignum.h"
 
+/**
+ * MPI memory profile.
+ *
+ * TLS handshakes uses public key cryptography calculations executing a lot
+ * of MPI operations, so temporal MPIs are required and many MPIs change their
+ * sizes. To avoid dynamic memory allocations we use the MPI profiles -
+ * statically pregenerated set of initialized MPIs which are just copied in
+ * single shot on a handshake. An MPI profile contains all the memory required
+ * to perform all PK computations for a perticular handshake type (RSA, EC etc).
+ * The PK type is determined at Vhost certificate loading and a new static MPI
+ * profile is created if necessary.
+ *
+ * @curr	- offset of free memory area for MPI allocations;
+ * @size	- size of the profile to allocate and copy for a particular
+ *		  handshake;
+ */
+typedef struct tls_mpi_profile_t {
+	void				*mem_alloc;
+	size_t				size;
+} TlsMpiPool;
+
+/**
+ * MPI memory profile is determined by the certificate key type and size and
+ * choosen ciphersuite.
+ */
+typedef struct {
+	TlsMpiPool		*profile;
+} TlsMpiPDesc;
+
 /* Profile types. */
 typedef enum {
 	TTLS_MPI_PROFILE_ECDH,
@@ -34,39 +63,77 @@ typedef enum {
 	__TTLS_MPI_PROFILES_N
 } ttls_mpi_profile_t;
 
-/**
- * MPI memory profile is determined by the certificate key type and size and
- * choosen ciphersuite.
- */
-typedef struct {
-	TlsMpiProfile		*profile;
-} TlsMpiPDesc;
+#define MPI_POOL_DATA(mp)	((void *)((char *)(mp) + sizeof(TlsMpiPool)))
+#define MPI_POOL_FREE_PTR(mp)	((void *)((char *)(mp) + sizeof(TlsMpiPool) \
+					  + mp->curr))
 
+/*
+ * Static memory profiles for all types of crypto handshakes.
+ * MPIs from the pool live during the whole handshake process.
+ */
 static TlsMpiPDesc mpi_profiles[__TTLS_MPI_PROFILES_N] ____cacheline_aligned;
+/*
+ * Memory pool for temporal (stack allocated) MPIs which are used only during
+ * one call of the TLS handshake state machine.
+ */
+static DEFINE_PER_CPU(TlsMpiPool *, g_tmp_mpool);
 
 void
-ttls_mpi_profile_init_mpi(TlsMpiProfile *mp)
+ttls_mpi_profile_init_mpi(TlsMpiPool *mp)
 {
 	mp->next = NULL;
-	mp->mem_alloc = MPI_PROFILE_DATA(mp);
+	mp->mem_alloc = 0;
 	mp->size = 0;
 }
 
-static int
+/**
+ * Return a pointer to an MPI pool of one of the two types:
+ * 1. current handshake profile;
+ * 2. temporary per-cpu pool for stack allocated MPIs.
+ */
+static TlsMpiPool *
+__mpi_pool(void *addr)
+{
+	unsigned long a = (unsigned long)addr;
+	unsigned long sp = (unsigned long)&a;
+
+	/* Maximum kernel stack size is 2 pages. */
+	if (sp < a && a < sp + 2 * PAGE_SIZE)
+		return *this_cpu_ptr(&g_tmp_mpool);
+	return (TlsMpiPool *)(a & ~PAGE_MASK);
+}
+
+static
 ttls_mpi_profile_alloc_mpi(TlsMpi *x, size_t n)
 {
 	void *ptr;
-	TlsMpiProfile *mp = MPI_PROFILE(x);
+	TlsMpiPool *mp = __mpi_profile(x);
 
 	if (WARN_ON_ONCE(sizeof(*mp) + mp->size + n > PAGE_SIZE))
 		return -ENOMEM;
 
-	ptr = mp->mem_alloc;
+	ptr = MPI_POOL_FREE_PTR(mp);
 	BUG_ON(x >= ptr);
-	mp->mem_alloc = (void *)((unsigned long)ptr + n);
-	mp->size += n;
+	mp->curr += n;
+	mp->size += n; // TODO do we need the size?
 
 	return (unsigned long)ptr - (unsigned long)x;
+}
+
+/**
+ * Cleanup current CPU memory pool for temporary MPIs.
+ */
+void
+ttls_mpi_cleanup_ctx(void)
+{
+	TlsMpiPool *mp = *this_cpu_ptr(&g_tmp_mpool);
+	void *data = MPI_POOL_DATA(mp);
+
+	BUG_ON(mp->mem_alloc < data);
+	BUG_ON(mp->curr > mp->size);
+
+	bzero_fast(data, mp->curr);
+	mp->curr = 0;
 }
 
 static bool
@@ -91,27 +158,26 @@ ttls_mpi_profile_for_cert(int pid, const TlsPkCtx *pkey)
 	return false;
 }
 
-static TlsMpiProfile *
+static TlsMpiPool *
 ttls_mpi_profile_create_ec(const TlsPkCtx *pkey)
 {
-	TlsMpiProfile *mp;
+	int r;
+	TlsMpiPool *mp;
 	TlsECDHCtx *ecdh_ctx;
 
-	mp = (TlsMpiProfile *)__get_free_pages(GFP_KERNEL| __GFP_ZERO, 0);
+	mp = (TlsMpiPool *)__get_free_pages(GFP_KERNEL| __GFP_ZERO, 0);
 	if (!mp)
-		return -ENOMEM;
-
-	TlsECDHCtx *ecdh_ctx = MPI_PROFILE_DATA(mp);
-
-	mp_sz += sizeof(TlsECDHCtx);
-
-	// TODO ECDH + each supported cureve for ECDHE + DHM
+		return NULL;
+	ecdh_ctx = MPI_POOL_DATA(mp);
 
 	r = ttls_ecdh_get_params(ecdh_ctx, ttls_pk_ec(*pkey), TTLS_ECDH_OURS);
-	if (r)
+	if (r) {
 		T_DBG("cannot get ECDH params from a certificate, %d\n", r);
+		return NULL;
+	}
 
-	// TODO in progress: ECDH path in ttls_write_server_key_exchange()
+	// TODO in progress: ECDH path in ttls_parse_client_key_exchange() ->
+	// ttls_ecdh_calc_secret() -> ecp_check_pubkey_sw()
 
 	return mp;
 }
@@ -124,7 +190,7 @@ int
 ttls_mpi_profile_set(ttls_x509_crt *crt)
 {
 	static bool has_empty_profile = true;
-	TlsMpiProfile *mp;
+	TlsMpiPool *mp;
 	const TlsPkCtx *pkey = crt->pk;
 	int i, r, n;
 
@@ -181,7 +247,7 @@ int
 ttls_mpi_profile_alloc(TlsCtx *tls)
 {
 	TlsHandshake *hs = tls->hs;
-	TlsMpiProfile *prof = tls->peer_conf->mpi_prof;
+	TlsMpiPool *prof = tls->peer_conf->mpi_prof;
 	const TlsCiphersuite *ci = tls->xfrm.ciphersuite_info;
 
 	// TODO #1064: copy the 2K data, extend prof if necessary
@@ -198,7 +264,7 @@ ttls_mpi_profile_alloc(TlsCtx *tls)
 }
 
 void
-ttls_mpi_profile_exit(void)
+ttls_mpool_exit(void)
 {
 	int i;
 
@@ -206,4 +272,28 @@ ttls_mpi_profile_exit(void)
 		if (mpi_profiles[i].profile)
 			free_pages(mpi_profiles[i].profile, 0);
 	}
+
+	for_each_possible_cpu(i) {
+		TlsMpiPool **ptr = per_cpu_ptr(&g_tmp_pool, i);
+		memset(MPI_POOL_DATA(*ptr), 0, (*ptr)->curr);
+		free_pages(*ptr, 0);
+	}
+}
+
+int __init
+ttls_mpool_init(void)
+{
+	int cpu;
+
+	for_each_possible_cpu(cpu) {
+		TlsMpiPool **mp = per_cpu_ptr(&g_tmp_pool, cpu);
+		*mp = (TlsMpiPool *)__get_free_pages(GFP_KERNEL| __GFP_ZERO, 0);
+		if (!*mp)
+			goto err_cleanup;
+	}
+
+	return 0;
+err_cleanup:
+	ttls_mpool_exit();
+	return -ENOMEM;
 }

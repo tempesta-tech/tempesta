@@ -180,8 +180,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "TLS - Our own certificate(s) is/are too large to send in an TLS message");
 		if (use_ret == -(TTLS_ERR_CERTIFICATE_REQUIRED))
 			snprintf(buf, buflen, "TLS - The own certificate is not set, but needed by the server");
-		if (use_ret == -(TTLS_ERR_PRIVATE_KEY_REQUIRED))
-			snprintf(buf, buflen, "TLS - The own private key or pre-shared key is not set, but needed");
 		if (use_ret == -(TTLS_ERR_CA_CHAIN_REQUIRED))
 			snprintf(buf, buflen, "TLS - No CA Chain is set, but required to operate");
 		if (use_ret == -(TTLS_ERR_UNEXPECTED_MESSAGE))
