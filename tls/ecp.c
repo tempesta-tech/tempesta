@@ -1215,7 +1215,7 @@ cleanup:
  * Multiplication using the comb method, for curves in short Weierstrass form.
  */
 static int
-ecp_mul_comb(TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
+ecp_mul_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	     const TlsEcpPoint *P, bool rnd)
 {
 	int ret;
@@ -1270,7 +1270,9 @@ ecp_mul_comb(TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	 * use grp->T if already initialized, or initialize it.
 	 */
 	if (!T) {
-		WARN_ON_ONCE(1); /* #1064 no dynamic allocations any more. */
+		/* TODO #1064 precompute T on profile creation time. */
+		BUG();
+
 		T = kzalloc(pre_len * sizeof(TlsEcpPoint), GFP_ATOMIC);
 		if (WARN_ON_ONCE(!T)) {
 			ret = -ENOMEM;
@@ -1447,7 +1449,7 @@ cleanup:
  * for curves in Montgomery form.
  */
 static int
-ecp_mul_mxz(TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
+ecp_mul_mxz(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	    const TlsEcpPoint *P, bool rng)
 {
 	int ret;
@@ -1509,7 +1511,7 @@ cleanup:
  * Multiplication R = m * P
  */
 int
-ttls_ecp_mul(TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
+ttls_ecp_mul(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	     const TlsEcpPoint *P, bool rnd)
 {
 	/* Common sanity checks */
@@ -1715,7 +1717,7 @@ ttls_ecp_check_privkey(const TlsEcpGrp *grp, const TlsMpi *d)
  * Generate a keypair with configurable base point.
  */
 int
-ttls_ecp_gen_keypair(TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q)
+ttls_ecp_gen_keypair(const TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q)
 {
 	int ret;
 	size_t n_size = (grp->nbits + 7) / 8;

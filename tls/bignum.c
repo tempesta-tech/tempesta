@@ -90,17 +90,16 @@ __mpi_alloc(TlsMpi *X, size_t nblimbs)
 {
 	int new_off;
 
-	WARN_ON_ONCE(X->limbs >= nblimbs);
 	/*
 	 * Reallocation must be called on MPI profiles initialization only
 	 * and only once for an MPI.
 	 */
 	WARN_ON_ONCE(in_serving_softirq());
-	BUG_ON(X->_off);
+	BUG_ON(X->limbs && X->limbs < nblimbs);
 	if (unlikely(nblimbs > TTLS_MPI_MAX_LIMBS))
 		return -ENOMEM;
 
-	new_off = ttls_mpi_profile_alloc(X, nblimbs * CIL);
+	new_off = ttls_mpi_profile_alloc_mpi(X, nblimbs * CIL);
 	if (new_off <= 0)
 		return -ENOMEM;
 	BUG_ON(new_off >= PAGE_SIZE);
@@ -1643,7 +1642,7 @@ ttls_mpi_modexit(void)
 		kfree(*ptr);
 	}
 
-	ttls_mpi_profile_exit();
+	ttls_mpool_exit();
 }
 
 int __init
@@ -1658,6 +1657,9 @@ ttls_mpi_modinit(void)
 		if (!*ptr)
 			goto err_cleanup;
 	}
+
+	if (!ttls_mpool_init())
+		goto err_cleanup;
 
 	return 0;
 err_cleanup:

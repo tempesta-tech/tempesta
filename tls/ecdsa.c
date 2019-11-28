@@ -57,7 +57,7 @@ cleanup:
  * Obviously, compared to SEC1 4.1.3, we skip step 4 (hash message)
  */
 int
-ttls_ecdsa_sign(TlsEcpGrp *grp, TlsMpi *r, TlsMpi *s,
+ttls_ecdsa_sign(const TlsEcpGrp *grp, TlsMpi *r, TlsMpi *s,
 		const TlsMpi *d, const unsigned char *buf, size_t blen)
 {
 	int ret, key_tries, sign_tries, blind_tries;
@@ -339,24 +339,6 @@ cleanup:
 	ttls_mpi_free(&s);
 
 	return ret;
-}
-
-/*
- * Set context from an TlsEcpKeypair.
- */
-int
-ttls_ecdsa_from_keypair(TlsEcpKeypair *ctx, const TlsEcpKeypair *key)
-{
-	int r;
-
-	if ((r = ttls_ecp_group_load(&ctx->grp, key->grp.id))
-	    || (r = ttls_mpi_copy(&ctx->d, &key->d))
-	    || (r = ttls_ecp_copy(&ctx->Q, &key->Q)))
-	{
-		ttls_ecdsa_free(ctx);
-	}
-
-	return r;
 }
 
 /*
