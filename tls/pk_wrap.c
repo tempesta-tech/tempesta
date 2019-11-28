@@ -152,102 +152,6 @@ const ttls_pk_info_t ttls_rsa_info = {
 };
 
 /*
- * Generic EC key
- */
-static int
-eckey_can_do(ttls_pk_type_t type)
-{
-	return type == TTLS_PK_ECKEY || type == TTLS_PK_ECKEY_DH ||
-	       type == TTLS_PK_ECDSA;
-}
-
-static size_t eckey_get_bitlen(const void *ctx)
-{
-	return(((TlsEcpKeypair *) ctx)->grp.pbits);
-}
-
-/* Forward declarations */
-static int ecdsa_verify_wrap(void *ctx, ttls_md_type_t md_alg,
-		   const unsigned char *hash, size_t hash_len,
-		   const unsigned char *sig, size_t sig_len);
-
-static int ecdsa_sign_wrap(void *ctx, ttls_md_type_t md_alg,
-				   const unsigned char *hash, size_t hash_len,
-				   unsigned char *sig, size_t *sig_len);
-
-static int eckey_verify_wrap(void *ctx, ttls_md_type_t md_alg,
-		   const unsigned char *hash, size_t hash_len,
-		   const unsigned char *sig, size_t sig_len)
-{
-	int ret;
-	TlsEcpKeypair ecdsa;
-
-	ttls_ecdsa_init(&ecdsa);
-
-	if ((ret = ttls_ecdsa_from_keypair(&ecdsa, ctx)) == 0)
-		ret = ecdsa_verify_wrap(&ecdsa, md_alg, hash, hash_len, sig, sig_len);
-
-	ttls_ecdsa_free(&ecdsa);
-
-	return ret;
-}
-
-static int eckey_sign_wrap(void *ctx, ttls_md_type_t md_alg,
-				   const unsigned char *hash, size_t hash_len,
-				   unsigned char *sig, size_t *sig_len)
-{
-	int ret;
-	TlsEcpKeypair ecdsa;
-
-	ttls_ecdsa_init(&ecdsa);
-
-	if ((ret = ttls_ecdsa_from_keypair(&ecdsa, ctx)) == 0)
-		ret = ecdsa_sign_wrap(&ecdsa, md_alg, hash, hash_len, sig, sig_len);
-
-	ttls_ecdsa_free(&ecdsa);
-
-	return ret;
-}
-
-static void *
-eckey_alloc_wrap(void)
-{
-	void *ctx = kzalloc(sizeof(TlsEcpKeypair), GFP_ATOMIC);
-	WARN_ON_ONCE(1); /* #1064 no dynamic allocations any more. */
-	if (!ctx)
-		ttls_ecp_keypair_init(ctx);
-
-	return ctx;
-}
-
-static void eckey_free_wrap(void *ctx)
-{
-	ttls_ecp_keypair_free((TlsEcpKeypair *) ctx);
-	kfree(ctx);
-}
-
-static void eckey_debug(const void *ctx, ttls_pk_debug_item *items)
-{
-	items->type = TTLS_PK_DEBUG_ECP;
-	items->name = "eckey.Q";
-	items->value = &(((TlsEcpKeypair *) ctx)->Q);
-}
-
-const ttls_pk_info_t ttls_eckey_info = {
-	TTLS_PK_ECKEY,
-	"EC",
-	eckey_get_bitlen,
-	eckey_can_do,
-	eckey_verify_wrap,
-	eckey_sign_wrap,
-	NULL,
-	NULL,
-	eckey_alloc_wrap,
-	eckey_free_wrap,
-	eckey_debug,
-};
-
-/*
  * EC key restricted to ECDH
  */
 static int
@@ -332,4 +236,57 @@ const ttls_pk_info_t ttls_ecdsa_info = {
 	ecdsa_alloc_wrap,
 	ecdsa_free_wrap,
 	eckey_debug,		/* Compatible key structures */
+};
+
+/*
+ * Generic EC key
+ */
+static int
+eckey_can_do(ttls_pk_type_t type)
+{
+	return type == TTLS_PK_ECKEY || type == TTLS_PK_ECKEY_DH ||
+	       type == TTLS_PK_ECDSA;
+}
+
+static size_t eckey_get_bitlen(const void *ctx)
+{
+	return(((TlsEcpKeypair *) ctx)->grp.pbits);
+}
+
+static void *
+eckey_alloc_wrap(void)
+{
+	void *ctx = kzalloc(sizeof(TlsEcpKeypair), GFP_ATOMIC);
+	WARN_ON_ONCE(1); /* #1064 no dynamic allocations any more. */
+	if (!ctx)
+		ttls_ecp_keypair_init(ctx);
+
+	return ctx;
+}
+
+static void eckey_free_wrap(void *ctx)
+{
+	ttls_ecp_keypair_free((TlsEcpKeypair *) ctx);
+	kfree(ctx);
+}
+
+static void eckey_debug(const void *ctx, ttls_pk_debug_item *items)
+{
+	items->type = TTLS_PK_DEBUG_ECP;
+	items->name = "eckey.Q";
+	items->value = &(((TlsEcpKeypair *) ctx)->Q);
+}
+
+const ttls_pk_info_t ttls_eckey_info = {
+	TTLS_PK_ECKEY,
+	"EC",
+	eckey_get_bitlen,
+	eckey_can_do,
+	ecdsa_verify_wrap,
+	ecdsa_sign_wrap,
+	NULL,
+	NULL,
+	eckey_alloc_wrap,
+	eckey_free_wrap,
+	eckey_debug,
 };

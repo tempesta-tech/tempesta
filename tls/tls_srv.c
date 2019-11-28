@@ -1365,7 +1365,10 @@ curve_matching_done:
 		}
 		T_DBG("ECDHE curve: %s\n", (*curve)->name);
 
-		/* TODO #1064 get the MPI memory profile. */
+		/*
+		 * TODO #1064 get the MPI memory profile for ECDH and create
+		 * a new ECDHE specific profile if large MPIs are required.
+		 */
 
 		r = ttls_ecp_group_load(&tls->hs->ecdh_ctx->grp,
 					(*curve)->grp_id);
@@ -1408,6 +1411,7 @@ curve_matching_done:
 		 *	 opaque dh_Ys<1..2^16-1>;
 		 * } ServerDHParams;
 		 */
+		// TODO #1064: generate and copy MPI profile.
 		r = ttls_dhm_set_group(&tls->hs->dhm_ctx, &tls->conf->dhm_P,
 				       &tls->conf->dhm_G);
 		if (r) {
@@ -1442,6 +1446,7 @@ curve_matching_done:
 		ttls_md_type_t md_alg;
 		size_t signature_len = 0;
 		unsigned int hashlen = 0;
+		TlsPkCtx *own_key;
 		unsigned char hash[64];
 
 		/*
@@ -1453,31 +1458,30 @@ curve_matching_done:
 		md_alg = ttls_sig_hash_set_find(&tls->hs->hash_algs, sig_alg);
 		WARN_ON_ONCE(sig_alg == TTLS_PK_NONE || md_alg == TTLS_MD_NONE);
 		T_DBG("pick hash algorithm %d for signing\n", md_alg);
-
-		/* 3.2: Compute the hash to be signed. */
-		if (md_alg != TTLS_MD_NONE) {
-			/* Info from md_alg will be used instead */
-			hashlen = 0;
-			r = ttls_get_key_exchange_md_tls1_2(tls, hash,
-							    dig_signed,
-							    dig_signed_len,
-							    md_alg);
-			if (r)
-				goto err;
-		} else {
+		if (unlikely(md_alg == TTLS_MD_NONE)) {
 			r = TTLS_ERR_INTERNAL_ERROR;
 			goto err;
 		}
+
+		if (!(own_key = ttls_own_key(tls))) {
+			T_WARN("The own private key is not set, but needed.\n");
+			r = -ENOENT;
+			goto err;
+		}
+
+		/*
+		 * 3.2: Compute the hash to be signed.
+		 * Info from md_alg will be used instead.
+		 */
+		r = ttls_get_key_exchange_md_tls1_2(tls, hash, dig_signed,
+						    dig_signed_len, md_alg);
+		if (r)
+			goto err;
 		T_DBG3_BUF("parameters hash", hash,
 			   hashlen
 			   ? : ttls_md_get_size(ttls_md_info_from_type(md_alg)));
 
 		/* 3.3: Compute and add the signature */
-		if (!ttls_own_key(tls)) {
-			T_DBG("got no private key\n");
-			r = TTLS_ERR_PRIVATE_KEY_REQUIRED;
-			goto err;
-		}
 		/*
 		 * For TLS 1.2, we need to specify signature and hash algorithm
 		 * explicitly through a prefix to the signature.
@@ -1496,8 +1500,8 @@ curve_matching_done:
 		*(p++) = ttls_sig_from_pk_alg(sig_alg);
 		n += 2;
 
-		r = ttls_pk_sign(ttls_own_key(tls), md_alg, hash, hashlen,
-				 p + 2, &signature_len);
+		r = ttls_pk_sign(own_key, md_alg, hash, hashlen, p + 2,
+				 &signature_len);
 		if (r) {
 			T_DBG("cannot sign the digest, %d\n", r);
 			goto err;
@@ -1738,8 +1742,8 @@ ttls_parse_encrypted_pms(TlsCtx *tls, const unsigned char *p,
 	BUILD_BUG_ON(sizeof(tls->hs->premaster) < 48);
 
 	if (!ttls_pk_can_do(ttls_own_key(tls), TTLS_PK_RSA)) {
-		T_DBG("got no RSA private key\n");
-		return TTLS_ERR_PRIVATE_KEY_REQUIRED;
+		T_ERR("The own RSA private key is not set, but needed.\n");
+		return -ENOENT;
 	}
 
 	/* Decrypt the premaster using own private RSA key. */

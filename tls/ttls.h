@@ -57,8 +57,6 @@
 #define TTLS_ERR_CERTIFICATE_TOO_LARGE		-0x7500
 /* The own certificate is not set, but needed by the server. */
 #define TTLS_ERR_CERTIFICATE_REQUIRED		-0x7580
-/* The own private key or pre-shared key is not set, but needed. */
-#define TTLS_ERR_PRIVATE_KEY_REQUIRED		-0x7600
 /* No CA Chain is set, but required to operate. */
 #define TTLS_ERR_CA_CHAIN_REQUIRED		-0x7680
 /* An unexpected message was received from our peer. */

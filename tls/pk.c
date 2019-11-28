@@ -99,7 +99,7 @@ int
 ttls_pk_can_do(const TlsPkCtx *ctx, ttls_pk_type_t type)
 {
 	/* null or NONE context can't do anything */
-	if (!ctx || !ctx->pk_info)
+	if (WARN_ON_ONCE(!ctx || !ctx->pk_info))
 		return 0;
 
 	return ctx->pk_info->can_do(type);

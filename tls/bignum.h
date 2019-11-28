@@ -83,32 +83,9 @@ typedef struct {
 
 #define MPI_P(m)	((unsigned long *)((unsigned char *)(m) + (m)->_off))
 
-/**
- * MPI memory profile.
- *
- * TLS handshakes uses public key cryptography calculations executing a lot
- * of MPI operations, so temporal MPIs are required and many MPIs change their
- * sizes. To avoid dynamic memory allocations we use the MPI profiles -
- * statically pregenerated set of initialized MPIs which are just copied in
- * single shot on a handshake. An MPI profile contains all the memory required
- * to perform all PK computations for a perticular handshake type (RSA, EC etc).
- * The PK type is determined at Vhost certificate loading and a new static MPI
- * profile is created if necessary.
- *
- * @mem_alloc	- pointer to free memory area for MPI allocations;
- * @size	- size of the profile to allocate and copy for a particular
- *		  handshake;
- */
-typedef struct tls_mpi_profile_t {
-	void				*mem_alloc;
-	size_t				size;
-} TlsMpiProfile;
-
-#define MPI_PROFILE_DATA(mp)	((void *)((char *)(mp) + sizeof(TlsMpiProfile)))
-#define MPI_PROFILE(x)							\
-	(TlsMpiProfile *)((unsigned long)(x) & ~PAGE_MASK)
-
-void ttls_mpi_profile_init(TlsMpiProfile *mp);
+void ttls_mpi_cleanup_ctx(void);
+void ttls_mpool_init(void);
+void ttls_mpool_exit(void);
 
 void ttls_mpi_init(TlsMpi *X);
 void ttls_mpi_free(TlsMpi *X);
