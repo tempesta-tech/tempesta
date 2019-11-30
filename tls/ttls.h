@@ -297,7 +297,8 @@ struct ttls_alpn_proto {
  * @etm			- flag for Encrypt-then-MAC activation;
  * @verify_result	- verification result;
  * @id			- session identifier;
- * @master		- the master secret;
+ * @master		- the master secret (must be here to restore a session
+ *			  from TLS ticket);
  * @ticket		- RFC 5077 session ticket (client-only);
  * @ticket_len		- session ticket length (client-only);
  * @ticket_lifetime	- ticket lifetime hint (client-only);

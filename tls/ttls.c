@@ -611,7 +611,6 @@ ttls_derive_keys(TlsCtx *tls)
 			T_DBG("prf master secret error, %d\n", r);
 			return r;
 		}
-		bzero_fast(hs->premaster, sizeof(hs->premaster));
 	}
 	else {
 		T_DBG("no premaster (session resumed)\n");
@@ -637,6 +636,10 @@ ttls_derive_keys(TlsCtx *tls)
 	T_DBG3_BUF("random bytes", hs->randbytes, 64);
 	T_DBG3_BUF("key block", keyblk, 256);
 
+	/*
+	 * We'll reused the memory area on ClientFinieshed,
+	 * so clean it up now.
+	 */
 	bzero_fast(hs->randbytes, sizeof(hs->randbytes));
 
 	/* Determine the appropriate key, IV and MAC length. */
@@ -1270,22 +1273,12 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 static void
 ttls_handshake_free(TlsHandshake *hs, const TlsCiphersuite *ci)
 {
-	if (!hs)
+	if (WARN_ON_ONCE(!hs))
 		return;
 
 	crypto_free_shash(hs->desc.tfm);
 
-	if (!IS_ERR_OR_NULL(ci)) {
-		if (ttls_ciphersuite_uses_ecdh(ci) ||
-		    ttls_ciphersuite_uses_ecdhe(ci))
-		{
-			ttls_ecdh_free(&hs->ecdh_ctx);
-		}
-		if (ttls_ciphersuite_uses_dhe(ci))
-			ttls_dhm_free(&hs->dhm_ctx);
-	}
-
-	BUG(); // TODO #1064 free crypt mem profile
+	ttls_mpi_free_mpool(hs->crypto_ctx);
 
 	bzero_fast(hs, sizeof(TlsHandshake));
 	kmem_cache_free(ttls_hs_cache, hs);
