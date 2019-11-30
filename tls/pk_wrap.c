@@ -112,19 +112,21 @@ rsa_alloc_wrap(void)
 	void *ctx;
 
 	might_sleep();
-	if ((ctx = kzalloc(sizeof(ttls_rsa_context), GFP_KERNEL)))
+
+	if ((ctx = ttls_mpi_pool_alloc(sizeof(ttls_rsa_context), GFP_KERNEL)))
 		ttls_rsa_init((ttls_rsa_context *)ctx, 0, 0);
 
 	return ctx;
 }
 
-static void rsa_free_wrap(void *ctx)
+static void
+rsa_free_wrap(void *ctx)
 {
-	ttls_rsa_free((ttls_rsa_context *) ctx);
-	kfree(ctx);
+	ttls_mpi_free_mpool(ctx);
 }
 
-static void rsa_debug(const void *ctx, ttls_pk_debug_item *items)
+static void
+rsa_debug(const void *ctx, ttls_pk_debug_item *items)
 {
 	items->type = TTLS_PK_DEBUG_MPI;
 	items->name = "rsa.N";
@@ -209,8 +211,9 @@ ecdsa_alloc_wrap(void)
 {
 	TlsEcpKeypair *ctx;
 
-	WARN_ON_ONCE(1); /* #1064 no dynamic allocations any more. */
-	ctx = kmalloc(sizeof(*ctx), GFP_KERNEL);
+	might_sleep();
+
+	ctx = ttls_mpi_pool_alloc(sizeof(*ctx), GFP_KERNEL);
 	if (ctx)
 		ttls_ecdsa_init(ctx);
 
@@ -220,8 +223,7 @@ ecdsa_alloc_wrap(void)
 static void
 ecdsa_free_wrap(void *ctx)
 {
-	ttls_ecdsa_free((TlsEcpKeypair *)ctx);
-	kfree(ctx);
+	ttls_mpi_free_mpool(ctx);
 }
 
 const ttls_pk_info_t ttls_ecdsa_info = {
@@ -256,18 +258,21 @@ static size_t eckey_get_bitlen(const void *ctx)
 static void *
 eckey_alloc_wrap(void)
 {
-	void *ctx = kzalloc(sizeof(TlsEcpKeypair), GFP_ATOMIC);
-	WARN_ON_ONCE(1); /* #1064 no dynamic allocations any more. */
+	void *ctx = ttls_mpi_pool_alloc(sizeof(TlsEcpKeypair), GFP_ATOMIC);
+
+	might_sleep();
+
+	ctx = ttls_mpi_pool_alloc(sizeof(TlsEcpKeypair), GFP_ATOMIC);
 	if (!ctx)
 		ttls_ecp_keypair_init(ctx);
 
 	return ctx;
 }
 
-static void eckey_free_wrap(void *ctx)
+static void
+eckey_free_wrap(void *ctx)
 {
-	ttls_ecp_keypair_free((TlsEcpKeypair *) ctx);
-	kfree(ctx);
+	ttls_mpi_free_mpool(ctx);
 }
 
 static void eckey_debug(const void *ctx, ttls_pk_debug_item *items)

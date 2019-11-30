@@ -190,6 +190,7 @@ struct tls_handshake_t {
 	};
 
 	union {
+		void			*crypto_ctx;
 		TlsECDHCtx		*ecdh_ctx;
 		ttls_dhm_context	*dhm_ctx;
 	};

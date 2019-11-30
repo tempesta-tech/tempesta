@@ -33,53 +33,37 @@
 
 #include "ecdh.h"
 
-/*
- * Compute shared secret (SEC1 3.3.1)
+/**
+ * Compute shared secret (SEC1 3.3.1).
+ * This function performs the second of two core computations implemented
+ * during the ECDH key exchange. The first core computation is performed by
+ * ttls_ecp_gen_keypair().
+ *
+ * @grp		- the ECP group;
+ * @_P		- temporary point used in the computation. @_P.X is pointing to
+ *		  to TlsECDHCtx->z - the destination MPI (shared secret);
+ * @Q		- the public key from another party;
+ * @d		- our secret exponent (private key).
  */
-int
-ttls_ecdh_compute_shared(TlsEcpGrp *grp, TlsMpi *z,
-			 const TlsEcpPoint *Q, const TlsMpi *d)
+static int
+ttls_ecdh_compute_shared(TlsEcpGrp *grp, TlsEcpPoint *_P, const TlsEcpPoint *Q,
+			 const TlsMpi *d)
 {
-	int ret;
-	TlsEcpPoint P;
-
-	ttls_ecp_point_init(&P);
+	int r;
 
 	/* Make sure Q is a valid pubkey before using it. */
-	TTLS_MPI_CHK(ttls_ecp_check_pubkey(grp, Q));
+	if ((r = ttls_ecp_check_pubkey(grp, Q)))
+		return r;
 
-	TTLS_MPI_CHK(ttls_ecp_mul(grp, &P, d, Q, true));
+	/*
+	 * Compute the shared secret.
+	 * @_P is used as temproary point such that _P.X (which is also
+	 * TlsECDHCtx->z) after the computation contains the secret.
+	 */
+	if ((r = ttls_ecp_mul(grp, _P, d, Q, true)))
+		return r;
 
-	if (ttls_ecp_is_zero(&P)) {
-		ret = TTLS_ERR_ECP_BAD_INPUT_DATA;
-		goto cleanup;
-	}
-
-	// TODO #1064 remove the copy - write in-place
-	TTLS_MPI_CHK(ttls_mpi_copy(z, &P.X));
-
-cleanup:
-	ttls_ecp_point_free(&P);
-
-	return ret;
-}
-
-/*
- * Free context
- */
-void ttls_ecdh_free(TlsECDHCtx *ctx)
-{
-	if (ctx == NULL)
-		return;
-
-	ttls_ecp_group_free(&ctx->grp);
-	ttls_ecp_point_free(&ctx->Q  );
-	ttls_ecp_point_free(&ctx->Qp );
-	ttls_ecp_point_free(&ctx->Vi );
-	ttls_ecp_point_free(&ctx->Vf );
-	ttls_mpi_free(&ctx->d );
-	ttls_mpi_free(&ctx->z );
-	ttls_mpi_free(&ctx->_d);
+	return ttls_ecp_is_zero(_P) ? -EINVAL : 0;
 }
 
 /**
@@ -217,15 +201,12 @@ ttls_ecdh_calc_secret(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
 {
 	int r;
 
-	if (!ctx)
-		return TTLS_ERR_ECP_BAD_INPUT_DATA;
-
-	r = ttls_ecdh_compute_shared(&ctx->grp, &ctx->z, &ctx->Qp, &ctx->d);
+	r = ttls_ecdh_compute_shared(&ctx->grp, &ctx->_P, &ctx->Qp, &ctx->d);
 	if (r)
 		return r;
 
-	if (ttls_mpi_size(&ctx->z) > blen)
-		return TTLS_ERR_ECP_BAD_INPUT_DATA;
+	if (WARN_ON_ONCE(ttls_mpi_size(&ctx->z) > blen))
+		return -EINVAL;
 
 	*olen = ctx->grp.pbits / 8 + ((ctx->grp.pbits % 8) != 0);
 

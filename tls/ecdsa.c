@@ -348,11 +348,3 @@ void ttls_ecdsa_init(TlsEcpKeypair *ctx)
 {
 	ttls_ecp_keypair_init(ctx);
 }
-
-/*
- * Free context
- */
-void ttls_ecdsa_free(TlsEcpKeypair *ctx)
-{
-	ttls_ecp_keypair_free(ctx);
-}
