@@ -50,77 +50,31 @@ typedef enum
  * The ECDH context structure.
  *
  * @rgp			- elliptic curve used;
- * @d			- private key;
  * @Q			- public key;
  * @Qp			- value of the public key of the peer;
- * @z			- shared secret;
+ * @z			- shared secret which is _P.X
+ *			  (see ttls_ecdh_compute_shared());
  * @Vi			- blinding value;
  * @Vf			- unblinding value;
+ * @d			- private key;
  * @_d			- previous private key;
  */
 typedef struct {
 	TlsEcpGrp	grp;
-	TlsMpi		d;
 	TlsEcpPoint	Q;
 	TlsEcpPoint	Qp;
-	TlsMpi		z;
+	enum {
+		TlsMpi		z;
+		TlsEcpPoint	_P;
+	}
 	TlsEcpPoint	Vi;
 	TlsEcpPoint	Vf;
+	TlsMpi		d;
 	TlsMpi		_d;
 } TlsECDHCtx;
 
-/**
- * \brief		   This function computes the shared secret.
- *
- *				  This function performs the second of two core computations
- *				  implemented during the ECDH key exchange. The first core
- *				  computation is performed by ttls_ecp_gen_keypair().
- *
- * \param grp	   The ECP group.
- * \param z		 The destination MPI (shared secret).
- * \param Q		 The public key from another party.
- * \param d		 Our secret exponent (private key).
- *
- * \return		  \c 0 on success, or an \c TTLS_ERR_ECP_XXX or
- *				  \c TTLS_MPI_XXX error code on failure.
- *
- * \see			 ecp.h
- *
- * \note			If \p f_rng is not NULL, it is used to implement
- *				  countermeasures against potential elaborate timing
- *				  attacks. For more information, see ttls_ecp_mul().
- */
-int ttls_ecdh_compute_shared(TlsEcpGrp *grp, TlsMpi *z,
-			 const TlsEcpPoint *Q, const TlsMpi *d);
-
-/**
- * \brief		   This function frees a context.
- *
- * \param ctx	   The context to free.
- */
-void ttls_ecdh_free(ttls_ecdh_context *ctx);
-
 int ttls_ecdh_make_params(ttls_ecdh_context *ctx, size_t *olen,
 			  unsigned char *buf, size_t blen);
-
-/**
- * \brief		   This function parses and processes a TLS ServerKeyExhange
- *				  payload.
- *
- *				  This is the first function used by a TLS client for ECDHE
- *				  ciphersuites.
- *
- * \param ctx	   The ECDH context.
- * \param buf	   The pointer to the start of the input buffer.
- * \param end	   The address for one Byte past the end of the buffer.
- *
- * \return		  \c 0 on success, or an \c TTLS_ERR_ECP_XXX error code
- *				  on failure.
- *
- * \see			 ecp.h
- */
-int ttls_ecdh_read_params(ttls_ecdh_context *ctx,
-		  const unsigned char **buf, const unsigned char *end);
 
 /**
  * \brief		   This function sets up an ECDH context from an EC key.

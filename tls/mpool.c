@@ -38,8 +38,8 @@
  *		  handshake;
  */
 typedef struct tls_mpi_profile_t {
-	void				*mem_alloc;
-	size_t				size;
+	size_t			curr;
+	size_t			size;
 } TlsMpiPool;
 
 /**
@@ -63,6 +63,7 @@ typedef enum {
 	__TTLS_MPI_PROFILES_N
 } ttls_mpi_profile_t;
 
+#define MCTX_ORDER		0 /* one page */
 #define MPI_POOL_DATA(mp)	((void *)((char *)(mp) + sizeof(TlsMpiPool)))
 #define MPI_POOL_FREE_PTR(mp)	((void *)((char *)(mp) + sizeof(TlsMpiPool) \
 					  + mp->curr))
@@ -79,10 +80,9 @@ static TlsMpiPDesc mpi_profiles[__TTLS_MPI_PROFILES_N] ____cacheline_aligned;
 static DEFINE_PER_CPU(TlsMpiPool *, g_tmp_mpool);
 
 void
-ttls_mpi_profile_init_mpi(TlsMpiPool *mp)
+ttls_mpi_pool_init(TlsMpiPool *mp)
 {
-	mp->next = NULL;
-	mp->mem_alloc = 0;
+	mp->curr = MPI_POOL_DATA(mp);
 	mp->size = 0;
 }
 
@@ -136,6 +136,36 @@ ttls_mpi_cleanup_ctx(void)
 	mp->curr = 0;
 }
 
+/**
+ * Free MPI memory pool storing the crypt context @ctx and return the freed
+ * memory to the buddy allocator.
+ */
+void
+ttls_mpi_free_mpool(void *ctx)
+{
+	unsigned long addr = (unsigned long)ctx & PAGE_MASK;
+
+	bzero_fast((void *)addr, PAGE_SIZE << MCTX_ORDER);
+	free_pages(addr, MCTX_ORDER);
+}
+
+void *
+ttls_mpi_pool_alloc(size_t n, gfp_t gfp_mask)
+{
+	TlsMpiPool *mp;
+
+	BUG_ON(n > (PAGE_SIZE << MCTX_ORDER));
+
+	mp = (TlsMpiPool *)__get_free_pages(gfp_mask | __GFP_ZERO, MCTX_ORDER);
+	if (!mp)
+		return NULL;
+
+	ttls_mpi_pool_init(mp);
+	mp->curr += n;
+
+	return MPI_POOL_DATA(mp);
+}
+
 static bool
 ttls_mpi_profile_for_cert(int pid, const TlsPkCtx *pkey)
 {
@@ -165,7 +195,8 @@ ttls_mpi_profile_create_ec(const TlsPkCtx *pkey)
 	TlsMpiPool *mp;
 	TlsECDHCtx *ecdh_ctx;
 
-	mp = (TlsMpiPool *)__get_free_pages(GFP_KERNEL| __GFP_ZERO, 0);
+	mp = (TlsMpiPool *)__get_free_pages(GFP_KERNEL | __GFP_ZERO,
+					    MCTX_ORDER);
 	if (!mp)
 		return NULL;
 	ecdh_ctx = MPI_POOL_DATA(mp);
@@ -176,8 +207,8 @@ ttls_mpi_profile_create_ec(const TlsPkCtx *pkey)
 		return NULL;
 	}
 
-	// TODO in progress: ECDH path in ttls_parse_client_key_exchange() ->
-	// ttls_ecdh_calc_secret() -> ecp_check_pubkey_sw()
+	/* Init the temporary point to be used in ttls_ecdh_compute_shared(). */
+	ttls_ecp_point_init(&ecdh_ctx->_P);
 
 	return mp;
 }
@@ -270,13 +301,14 @@ ttls_mpool_exit(void)
 
 	for (i = 0; i < __TTLS_MPI_PROFILES_N; ++i) {
 		if (mpi_profiles[i].profile)
-			free_pages(mpi_profiles[i].profile, 0);
+			free_pages((unsigned long)mpi_profiles[i].profile,
+				   MCTX_ORDER);
 	}
 
 	for_each_possible_cpu(i) {
 		TlsMpiPool **ptr = per_cpu_ptr(&g_tmp_pool, i);
 		memset(MPI_POOL_DATA(*ptr), 0, (*ptr)->curr);
-		free_pages(*ptr, 0);
+		free_pages((unsigned long)*ptr, MCTX_ORDER);
 	}
 }
 
@@ -287,7 +319,8 @@ ttls_mpool_init(void)
 
 	for_each_possible_cpu(cpu) {
 		TlsMpiPool **mp = per_cpu_ptr(&g_tmp_pool, cpu);
-		*mp = (TlsMpiPool *)__get_free_pages(GFP_KERNEL| __GFP_ZERO, 0);
+		*mp = (TlsMpiPool *)__get_free_pages(GFP_KERNEL| __GFP_ZERO,
+						     MCTX_ORDER);
 		if (!*mp)
 			goto err_cleanup;
 	}

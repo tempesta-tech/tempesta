@@ -436,8 +436,8 @@ ttls_mpi_dump(const TlsMpi *X, const char *prefix)
 		return;
 
 	pr_info("MPI(%pK, p=%pK) %s DUMP: s=%d used=%u limbs=%u\n",
-		X, X->p, prefix, X->s, X->used, X->limbs);
-	print_hex_dump(KERN_INFO, "    ", DUMP_PREFIX_OFFSET, 16, 1, X->p,
+		X, MPI_P(X), prefix, X->s, X->used, X->limbs);
+	print_hex_dump(KERN_INFO, "    ", DUMP_PREFIX_OFFSET, 16, 1, MPI_P(X),
 		       X->limbs * sizeof(long), true);
 }
 
@@ -451,29 +451,20 @@ ttls_mpi_read_binary(TlsMpi *X, const unsigned char *buf, size_t buflen)
 	size_t i = buflen, l = 0, j;
 	size_t const limbs = CHARS_TO_LIMBS(buflen);
 
-	if (X->limbs < limbs) {
-		unsigned long *p;
-
-		WARN_ON_ONCE(1); /* #1064 no dynamic allocations any more. */
-
-		if (!(p = kmalloc(limbs * CIL, GFP_ATOMIC)))
-			return -ENOMEM;
-		kfree(X->p);
-		X->p = p;
-		X->limbs = limbs;
-	}
+	if (__mpi_alloc(X, limbs))
+		return -ENOMEM;
 
 	X->s = 1;
 	while (i >= CIL) {
 		i -= CIL;
-		X->p[l] = cpu_to_be64(*(long *)(buf + i));
+		MPI_P(X)[l] = cpu_to_be64(*(long *)(buf + i));
 		++l;
 	}
 	if (i) {
 		/* Read last, probably incomplete, limb if any. */
-		X->p[l] = 0;
+		MPI_P(X)[l] = 0;
 		for (j = 0; i > 0; i--, j += 8)
-			X->p[l] |= ((unsigned long)buf[i - 1]) << j;
+			MPI_P(X)[l] |= ((unsigned long)buf[i - 1]) << j;
 	}
 
 	mpi_fixup_used(X, limbs);
@@ -489,17 +480,23 @@ ttls_mpi_read_binary(TlsMpi *X, const unsigned char *buf, size_t buflen)
 int
 ttls_mpi_write_binary(const TlsMpi *X, unsigned char *buf, size_t buflen)
 {
-	size_t i = buflen, j, n;
+	size_t i = buflen, j, l = 0, n;
 
 	n = ttls_mpi_size(X);
-
 	if (buflen < n)
 		return -ENOSPC;
 
-	/* TODO #1064 use cpu_to_be64() for bytes inverted write. */
-	for (j = 0; n > 0; i--, j++, n--)
-		buf[i - 1] = (unsigned char)(X->p[j / CIL] >> ((j % CIL) << 3));
-	memset(buf, 0, i);
+	while (l < X->used && i >= CIL) {
+		i -= CIL;
+		*(unsigned long *)(buf + i) = cpu_to_be64(MPI_P(X)[l]);
+		++l;
+	}
+	if (i) {
+		for (j = 0, n &= LMASK; n > 0; i--, j++, n--)
+			buf[i - 1] = (unsigned char)(MPI_P(X)[j / CIL]
+						     >> ((j % CIL) << 3));
+		memset(buf, 0, i);
+	}
 
 	return 0;
 }

@@ -432,9 +432,6 @@ static int ecp_use_curve25519(TlsEcpGrp *grp)
 	grp->nbits = 254;
 
 cleanup:
-	if (ret != 0)
-		ttls_ecp_group_free(grp);
-
 	return ret;
 }
 

@@ -140,18 +140,6 @@ int ttls_ecdsa_read_signature(TlsEcpKeypair *ctx,
 			  const unsigned char *hash, size_t hlen,
 			  const unsigned char *sig, size_t slen);
 
-/**
- * \brief		   This function initializes an ECDSA context.
- *
- * \param ctx	   The ECDSA context to initialize.
- */
 void ttls_ecdsa_init(TlsEcpKeypair *ctx);
-
-/**
- * \brief		   This function frees an ECDSA context.
- *
- * \param ctx	   The ECDSA context to free.
- */
-void ttls_ecdsa_free(TlsEcpKeypair *ctx);
 
 #endif /* ecdsa.h */

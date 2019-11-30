@@ -210,30 +210,19 @@ ttls_ecp_point_init(TlsEcpPoint *pt)
 	ttls_mpi_init(&pt->Z);
 }
 
-/**
- * Initialize (the components of) a group.
- */
-void
-ttls_ecp_group_init(TlsEcpGrp *grp)
-{
-	if (grp)
-		memset(grp, 0, sizeof(TlsEcpGrp));
-}
-
-/**
- * Initialize (the components of) a key pair
- */
 void
 ttls_ecp_keypair_init(TlsEcpKeypair *key)
 {
 	if (!key)
 		return;
 
-	ttls_ecp_group_init(&key->grp);
+	memset(&key->grp, 0, sizeof(TlsEcpGrp));
 	ttls_mpi_init(&key->d);
 	ttls_ecp_point_init(&key->Q);
 }
 
+
+// TODO !!! remove
 void
 ttls_ecp_point_free(TlsEcpPoint *pt)
 {
@@ -245,45 +234,13 @@ ttls_ecp_point_free(TlsEcpPoint *pt)
 	ttls_mpi_free(&pt->Z);
 }
 
-/**
- * Unallocate (the components of) a group.
- * TODO #1064 fix memset() & kfree() calls.
- */
-void
-ttls_ecp_group_free(TlsEcpGrp *grp)
-{
-	size_t i;
-
-	if (unlikely(!grp))
-		return;
-
-	if (grp->h != 1) {
-		ttls_mpi_free(&grp->P);
-		ttls_mpi_free(&grp->A);
-		ttls_mpi_free(&grp->B);
-		ttls_ecp_point_free(&grp->G);
-		ttls_mpi_free(&grp->N);
-	}
-
-	if (grp->T) {
-		for (i = 0; i < grp->T_size; i++)
-			ttls_ecp_point_free(&grp->T[i]);
-		WARN_ON_ONCE(1); /* #1064 no dynamic allocations any more. */
-		kfree(grp->T);
-	}
-
-	ttls_bzero_safe(grp, sizeof(TlsEcpGrp));
-}
-
 void
 ttls_ecp_keypair_free(TlsEcpKeypair *key)
 {
-	if (unlikely(!key))
+	if (WARN_ON_ONCE(!key))
 		return;
 
-	ttls_ecp_group_free(&key->grp);
-	ttls_mpi_free(&key->d);
-	ttls_ecp_point_free(&key->Q);
+	ttls_mpi_free_mpool(key);
 }
 
 /*
@@ -316,12 +273,10 @@ cleanup:
 	return ret;
 }
 
-/*
- * Tell if a point is zero
- */
-int ttls_ecp_is_zero(TlsEcpPoint *pt)
+int
+ttls_ecp_is_zero(TlsEcpPoint *pt)
 {
-	return(ttls_mpi_cmp_int(&pt->Z, 0) == 0);
+	return !ttls_mpi_cmp_int(&pt->Z, 0);
 }
 
 /*
@@ -498,8 +453,6 @@ ttls_ecp_tls_read_group(TlsEcpGrp *grp, const unsigned char **buf, size_t len)
 
 	if (!(curve_info = ttls_ecp_curve_info_from_tls_id(tls_id)))
 		return TTLS_ERR_ECP_FEATURE_UNAVAILABLE;
-
-	ttls_ecp_group_free(grp);
 
 	return ttls_ecp_group_load(grp, curve_info->grp_id);
 }

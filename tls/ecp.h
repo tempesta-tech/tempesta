@@ -182,7 +182,7 @@ typedef struct {
 	TlsMpi			B;
 	TlsMpi			N;
 	TlsEcpPoint		G;
-	TlsEcpPoint		*T;
+	TlsEcpPoint		*T; // TODO !!!!
 } TlsEcpGrp;
 
 /*
@@ -269,22 +269,12 @@ const TlsEcpCurveInfo *ttls_ecp_curve_info_from_tls_id(uint16_t tls_id);
 const TlsEcpCurveInfo *ttls_ecp_curve_info_from_name(const char *name);
 
 void ttls_ecp_point_init(TlsEcpPoint *pt);
-void ttls_ecp_group_init(TlsEcpGrp *grp);
-
-/**
- * \brief		   Initialize a key pair (as an invalid one)
- */
 void ttls_ecp_keypair_init(TlsEcpKeypair *key);
 
 /**
  * \brief		   Free the components of a point
  */
 void ttls_ecp_point_free(TlsEcpPoint *pt);
-
-/**
- * \brief		   Free the components of an ECP group
- */
-void ttls_ecp_group_free(TlsEcpGrp *grp);
 
 /**
  * \brief		   Free the components of a key pair
