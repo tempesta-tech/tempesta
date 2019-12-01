@@ -207,10 +207,10 @@ int ttls_rsa_complete(ttls_rsa_context *ctx)
 	 *
 	 */
 
-	const int n_missing  =			  have_P &&  have_Q &&  have_D && have_E;
-	const int pq_missing =   have_N && !have_P && !have_Q &&  have_D && have_E;
-	const int d_missing  =			  have_P &&  have_Q && !have_D && have_E;
-	const int is_pub	 =   have_N && !have_P && !have_Q && !have_D && have_E;
+	const int n_missing = have_P &&  have_Q &&  have_D && have_E;
+	const int pq_missing = have_N && !have_P && !have_Q &&  have_D && have_E;
+	const int d_missing = have_P &&  have_Q && !have_D && have_E;
+	const int is_pub = have_N && !have_P && !have_Q && !have_D && have_E;
 
 	/* These three alternatives are mutually exclusive */
 	const int is_priv = n_missing || pq_missing || d_missing;

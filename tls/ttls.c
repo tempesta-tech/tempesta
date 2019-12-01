@@ -2882,7 +2882,7 @@ ttls_exit(void)
 		kfree(*req);
 	}
 
-	ttls_mpi_modexit();
+	ttls_mpool_exit();
 }
 
 static int __init
@@ -2893,7 +2893,7 @@ ttls_init(void)
 	/* Bad configuration - protected record payload too large. */
 	BUILD_BUG_ON(TTLS_PAYLOAD_LEN > 16384 + 2048);
 
-	if ((r = ttls_mpi_modinit()))
+	if ((r = ttls_mpool_init()))
 		return r;
 
 	if ((r = ttls_crypto_modinit())) {

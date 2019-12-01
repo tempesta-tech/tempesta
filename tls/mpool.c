@@ -192,6 +192,7 @@ static TlsMpiPool *
 ttls_mpi_profile_create_ec(const TlsPkCtx *pkey)
 {
 	int r;
+	size_t d;
 	TlsMpiPool *mp;
 	TlsECDHCtx *ecdh_ctx;
 
@@ -209,6 +210,18 @@ ttls_mpi_profile_create_ec(const TlsPkCtx *pkey)
 
 	/* Init the temporary point to be used in ttls_ecdh_compute_shared(). */
 	ttls_ecp_point_init(&ecdh_ctx->_P);
+
+	/*
+	 * Prepare precomputed points to use them in ecp_mul_comb().
+	 * Different curves require different size of T - comput the maximum
+	 * number of items to fit all the curves - that's fine on vhost
+	 * initialization stage.
+	 */
+	d = (ecdh_ctx->grp.nbits + TTLS_ECP_WINDOW_ORDER - 1)
+	    / TTLS_ECP_WINDOW_ORDER;
+	if (ecp_precompute_comb(&ecdh_ctx->grp, &ecdh_ctx->grp.T,
+				&ecdh_ctx->grp.G, TTLS_ECP_WINDOW_ORDER, d))
+		return NULL;
 
 	return mp;
 }
