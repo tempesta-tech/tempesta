@@ -80,34 +80,6 @@
 int ttls_ecdsa_sign(TlsEcpGrp *grp, TlsMpi *r, TlsMpi *s,
 				const TlsMpi *d, const unsigned char *buf, size_t blen);
 
-/**
- * \brief		   This function verifies the ECDSA signature of a
- *				  previously-hashed message.
- *
- * \param grp	   The ECP group.
- * \param buf	   The message hash.
- * \param blen	  The length of \p buf.
- * \param Q		 The public key to use for verification.
- * \param r		 The first integer of the signature.
- * \param s		 The second integer of the signature.
- *
- * \note			If the bitlength of the message hash is larger than the
- *				  bitlength of the group order, then the hash is truncated as
- *				  defined in <em>Standards for Efficient Cryptography Group
- *				  (SECG): SEC1 Elliptic Curve Cryptography</em>, section
- *				  4.1.4, step 3.
- *
- * \return		  \c 0 on success,
- *				  #TTLS_ERR_ECP_BAD_INPUT_DATA if signature is invalid,
- *				  or an \c TTLS_ERR_ECP_XXX or \c TTLS_MPI_XXX
- *				  error code on failure for any other reason.
- *
- * \see			 ecp.h
- */
-int ttls_ecdsa_verify(TlsEcpGrp *grp,
-				  const unsigned char *buf, size_t blen,
-				  const TlsEcpPoint *Q, const TlsMpi *r, const TlsMpi *s);
-
 int ttls_ecdsa_write_signature(TlsEcpKeypair *ctx,
 			       const unsigned char *hash, size_t hlen,
 			       unsigned char *sig, size_t *slen);

@@ -132,9 +132,6 @@ int ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E,
 int ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N);
 int ttls_mpi_gcd(TlsMpi *G, const TlsMpi *A, const TlsMpi *B);
 
-int ttls_mpi_modinit(void);
-void ttls_mpi_modexit(void);
-
 /**
  * There are a lot of MPI operations used around, so Tempesta TLS becomes
  * unusable if all MPIs are dumped, so following pattern should be used:
@@ -159,14 +156,5 @@ do {									\
 	ttls_mpi_dump(X, prefix);					\
 	__mpi_do_dump = false;						\
 } while (0)
-
-#define MPI_GROW_COPY		0x1
-#define MPI_GROW_ZERO		0x2
-
-static inline int
-ttls_mpi_grow(TlsMpi *X, size_t nblimbs)
-{
-	return __mpi_realloc(X, nblimbs, MPI_GROW_COPY);
-}
 
 #endif
