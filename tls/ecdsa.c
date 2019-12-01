@@ -75,7 +75,9 @@ ttls_ecdsa_sign(const TlsEcpGrp *grp, TlsMpi *r, TlsMpi *s,
 	}
 
 	ttls_ecp_point_init(&R);
-	ttls_mpi_init(&k); ttls_mpi_init(&e); ttls_mpi_init(&t);
+	ttls_mpi_init(&k);
+	ttls_mpi_init(&e);
+	ttls_mpi_init(&t);
 
 	sign_tries = 0;
 	do
@@ -141,26 +143,37 @@ ttls_ecdsa_sign(const TlsEcpGrp *grp, TlsMpi *r, TlsMpi *s,
 	while (ttls_mpi_cmp_int(s, 0) == 0);
 
 cleanup:
-	ttls_ecp_point_free(&R);
-	ttls_mpi_free(&k); ttls_mpi_free(&e); ttls_mpi_free(&t);
-
 	return ret;
 }
 
 /*
  * Verify ECDSA signature of hashed message (SEC1 4.1.4)
- * Obviously, compared to SEC1 4.1.3, we skip step 2 (hash message)
+ * Obviously, compared to SEC1 4.1.3, we skip step 2 (hash message).
+ *
+ * @buf		- the message hash;
+ * @blen	- the length of the hash buf;
+ * @Q		- the public key to use for verification;
+ * @r		- the first integer of the signature;
+ * @s		- the second integer of the signature.
+ *
+ * If the bitlength of the message hash is larger than the bitlength of the
+ * group order, then the hash is truncated as defined in Standards for Efficient
+ * Cryptography Group (SECG): SEC1 Elliptic Curve Cryptography, section 4.1.4,
+ * step 3.
  */
-int ttls_ecdsa_verify(TlsEcpGrp *grp,
-				  const unsigned char *buf, size_t blen,
-				  const TlsEcpPoint *Q, const TlsMpi *r, const TlsMpi *s)
+static int
+ttls_ecdsa_verify(TlsEcpGrp *grp, const unsigned char *buf, size_t blen,
+		  const TlsEcpPoint *Q, const TlsMpi *r, const TlsMpi *s)
 {
 	int ret;
 	TlsMpi e, s_inv, u1, u2;
 	TlsEcpPoint R;
 
 	ttls_ecp_point_init(&R);
-	ttls_mpi_init(&e); ttls_mpi_init(&s_inv); ttls_mpi_init(&u1); ttls_mpi_init(&u2);
+	ttls_mpi_init(&e);
+	ttls_mpi_init(&s_inv);
+	ttls_mpi_init(&u1);
+	ttls_mpi_init(&u2);
 
 	/* Fail cleanly on curves such as Curve25519 that can't be used for ECDSA */
 	if (grp->N.p == NULL)
@@ -227,9 +240,6 @@ int ttls_ecdsa_verify(TlsEcpGrp *grp,
 	}
 
 cleanup:
-	ttls_ecp_point_free(&R);
-	ttls_mpi_free(&e); ttls_mpi_free(&s_inv); ttls_mpi_free(&u1); ttls_mpi_free(&u2);
-
 	return ret;
 }
 
