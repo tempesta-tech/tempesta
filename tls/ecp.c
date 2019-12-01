@@ -210,6 +210,12 @@ ttls_ecp_point_init(TlsEcpPoint *pt)
 	ttls_mpi_init(&pt->Z);
 }
 
+bool
+ttls_ecp_point_initialized(TlsEcpPoint2D *pt)
+{
+	return ttls_mpi_initialized(&pt->X) && ttls_mpi_initialized(&pt->Y);
+}
+
 void
 ttls_ecp_keypair_init(TlsEcpKeypair *key)
 {
@@ -221,25 +227,11 @@ ttls_ecp_keypair_init(TlsEcpKeypair *key)
 	ttls_ecp_point_init(&key->Q);
 }
 
-
-// TODO !!! remove
-void
-ttls_ecp_point_free(TlsEcpPoint *pt)
-{
-	if (unlikely(!pt))
-		return;
-
-	ttls_mpi_free(&pt->X);
-	ttls_mpi_free(&pt->Y);
-	ttls_mpi_free(&pt->Z);
-}
-
 void
 ttls_ecp_keypair_free(TlsEcpKeypair *key)
 {
 	if (WARN_ON_ONCE(!key))
 		return;
-
 	ttls_mpi_free_mpool(key);
 }
 
@@ -591,9 +583,6 @@ static int ecp_normalize_jac(const TlsEcpGrp *grp, TlsEcpPoint *pt)
 	TTLS_MPI_CHK(ttls_mpi_lset(&pt->Z, 1));
 
 cleanup:
-
-	ttls_mpi_free(&Zi); ttls_mpi_free(&ZZi);
-
 	return ret;
 }
 
@@ -608,19 +597,15 @@ cleanup:
  *
  * Cost: 1N(t) := 1I + (6t - 3)M + 1S
  */
-static int ecp_normalize_jac_many(const TlsEcpGrp *grp,
-		   TlsEcpPoint *T[], size_t t_len)
+static int
+ecp_normalize_jac_many(const TlsEcpGrp *grp, TlsEcpPoint *T[], size_t t_len)
 {
 	int ret;
 	size_t i;
-	TlsMpi *c, u, Zi, ZZi;
+	TlsMpi u, Zi, ZZi, c[TTLS_ECP_WINDOW_SIZE];
 
 	if (t_len < 2)
 		return(ecp_normalize_jac(grp, *T));
-
-	c = kzalloc(t_len * sizeof(TlsMpi), GFP_ATOMIC);
-	if (WARN_ON_ONCE(!c))
-		return -ENOMEM;
 
 	ttls_mpi_init(&u);
 	ttls_mpi_init(&Zi);
@@ -666,30 +651,11 @@ static int ecp_normalize_jac_many(const TlsEcpGrp *grp,
 		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&T[i]->Y, &T[i]->Y, &Zi ));
 		MOD_MUL(T[i]->Y);
 
-		/*
-		 * Post-precessing: reclaim some memory by shrinking coordinates
-		 * - not storing Z (always 1)
-		 * - shrinking other coordinates, but still keeping the same
-		 *   number of limbs as P, as otherwise it will too likely be
-		 *   regrown too fast.
-		 */
-		// TODO #1064: mem profile or temoral pool
-		TTLS_MPI_CHK(ttls_mpi_shrink(&T[i]->X, grp->P.used));
-		TTLS_MPI_CHK(ttls_mpi_shrink(&T[i]->Y, grp->P.used));
-		ttls_mpi_free(&T[i]->Z);
-
 		if (!i)
 			break;
 	}
 
 cleanup:
-	ttls_mpi_free(&u);
-	ttls_mpi_free(&Zi);
-	ttls_mpi_free(&ZZi);
-	for (i = 0; i < t_len; i++)
-		ttls_mpi_free(&c[i]);
-	kfree(c);
-
 	return ret;
 }
 
@@ -840,8 +806,9 @@ cleanup:
  *
  * Cost: 1A := 8M + 3S
  */
-static int ecp_add_mixed(const TlsEcpGrp *grp, TlsEcpPoint *R,
-			  const TlsEcpPoint *P, const TlsEcpPoint *Q)
+static int
+ecp_add_mixed(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint *P,
+	      const TlsEcpPoint *Q)
 {
 	int ret;
 	TlsMpi T1, T2, T3, T4, X, Y, Z;
@@ -923,14 +890,6 @@ static int ecp_add_mixed(const TlsEcpGrp *grp, TlsEcpPoint *R,
 	TTLS_MPI_CHK(ttls_mpi_copy(&R->Z, &Z));
 
 cleanup:
-	ttls_mpi_free(&T1);
-	ttls_mpi_free(&T2);
-	ttls_mpi_free(&T3);
-	ttls_mpi_free(&T4);
-	ttls_mpi_free(&X);
-	ttls_mpi_free(&Y);
-	ttls_mpi_free(&Z);
-
 	return ret;
 }
 
@@ -989,9 +948,6 @@ cleanup:
 /* d = ceil(n / w) */
 #define COMB_MAX_D	  (TTLS_ECP_MAX_BITS + 1) / 2
 
-/* number of precomputed points */
-#define COMB_MAX_PRE	(1 << (TTLS_ECP_WINDOW_SIZE - 1))
-
 /*
  * Compute the representation of m that will be used with our comb method.
  *
@@ -1008,17 +964,17 @@ cleanup:
  * Calling conventions:
  * - x is an array of size d + 1
  * - w is the size, ie number of teeth, of the comb, and must be between
- *   2 and 7 (in practice, between 2 and TTLS_ECP_WINDOW_SIZE)
+ *   2 and 7 (in practice, between 2 and TTLS_ECP_WINDOW_ORDER)
  * - m is the MPI, expected to be odd and such that bitlength(m) <= w * d
  *   (the result will be incorrect if these assumptions are not satisfied)
  */
-static void ecp_comb_fixed(unsigned char x[], size_t d,
-				unsigned char w, const TlsMpi *m)
+static void
+ecp_comb_fixed(unsigned char x[], size_t d, unsigned char w, const TlsMpi *m)
 {
 	size_t i, j;
 	unsigned char c, cc, adjust;
 
-	memset(x, 0, d+1);
+	bzero_fast(x, d + 1);
 
 	/* First get the classical comb values (except for x_d = 0) */
 	for (i = 0; i < d; i++)
@@ -1052,14 +1008,14 @@ static void ecp_comb_fixed(unsigned char x[], size_t d,
  *
  * Cost: d(w-1) D + (2^{w-1} - 1) A + 1 N(w-1) + 1 N(2^{w-1} - 1)
  */
-static int
-ecp_precompute_comb(const TlsEcpGrp *grp, TlsEcpPoint T[], const TlsEcpPoint *P,
-		    unsigned char w, size_t d)
+int
+ecp_precompute_comb(const TlsEcpGrp *grp, TlsEcpPoint2D T[],
+		    const TlsEcpPoint *P, unsigned char w, size_t d)
 {
 	int ret;
 	unsigned char i, k;
 	size_t j;
-	TlsEcpPoint *cur, *TT[COMB_MAX_PRE - 1];
+	TlsEcpPoint *cur, *TT[TTLS_ECP_WINDOW_SIZE - 1];
 
 	/*
 	 * Set T[0] = P and
@@ -1103,9 +1059,9 @@ cleanup:
 /*
  * Select precomputed point: R = sign(i) * T[ abs(i) / 2 ]
  */
-static int ecp_select_comb(const TlsEcpGrp *grp, TlsEcpPoint *R,
-				const TlsEcpPoint T[], unsigned char t_len,
-				unsigned char i)
+static int
+ecp_select_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint2D T[],
+		unsigned char t_len, unsigned char i)
 {
 	int ret;
 	unsigned char ii, j;
@@ -1133,9 +1089,10 @@ cleanup:
  *
  * Cost: d A + d D + 1 R
  */
-static int ecp_mul_comb_core(const TlsEcpGrp *grp, TlsEcpPoint *R,
-				  const TlsEcpPoint T[], unsigned char t_len,
-				  const unsigned char x[], size_t d, bool rnd)
+static int
+ecp_mul_comb_core(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint2D T[],
+		  unsigned char t_len, const unsigned char x[], size_t d,
+		  bool rnd)
 {
 	int ret;
 	TlsEcpPoint Txi;
@@ -1159,8 +1116,6 @@ static int ecp_mul_comb_core(const TlsEcpGrp *grp, TlsEcpPoint *R,
 
 cleanup:
 
-	ttls_ecp_point_free(&Txi);
-
 	return ret;
 }
 
@@ -1171,12 +1126,13 @@ static int
 ecp_mul_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	     const TlsEcpPoint *P, bool rnd)
 {
-	int ret;
 	unsigned char w, m_is_odd, p_eq_g, pre_len, i;
+	int ret;
 	size_t d;
-	unsigned char k[COMB_MAX_D + 1];
-	TlsEcpPoint *T = NULL;
+	TlsEcpPoint2D *T = NULL;
 	TlsMpi M, mm;
+	unsigned char k[COMB_MAX_D + 1];
+	TlsEcpPoint2D _T[TTLS_ECP_WINDOW_SIZE]; /* 512B in total */
 
 	ttls_mpi_init(&M);
 	ttls_mpi_init(&mm);
@@ -1202,43 +1158,34 @@ ecp_mul_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	if (p_eq_g) {
 		w++;
 		T = grp->T;
+		if (WARN_ON_ONCE(!ttls_ecp_point_initialized(T)))
+			return -EINVAL;
+	} else {
+		T = _T;
 	}
 
 	/*
 	 * Make sure w is within bounds.
 	 * (The last test is useful only for very small curves in the test suite.)
 	 */
-	if (w > TTLS_ECP_WINDOW_SIZE)
-		w = TTLS_ECP_WINDOW_SIZE;
+	if (w > TTLS_ECP_WINDOW_ORDER)
+		w = TTLS_ECP_WINDOW_ORDER;
 	if (w >= grp->nbits)
 		w = 2;
 
 	/* Other sizes that depend on w */
 	pre_len = 1U << (w - 1);
+	if (WARN_ON_ONCE(grp->T_size < pre_len))
+		return -EINVAL;
 	d = (grp->nbits + w - 1) / w;
 	BUG_ON(d > COMB_MAX_D);
 
 	/*
-	 * Prepare precomputed points: if P == G we want to
-	 * use grp->T if already initialized, or initialize it.
+	 * Compute T if it wasn't precomputed for the case.
+	 * ecp_precompute_comb() is good with uninitialized T.
 	 */
-	if (!T) {
-		/* TODO #1064 precompute T on profile creation time. */
-		BUG();
-
-		T = kzalloc(pre_len * sizeof(TlsEcpPoint), GFP_ATOMIC);
-		if (WARN_ON_ONCE(!T)) {
-			ret = -ENOMEM;
-			goto cleanup;
-		}
-
+	if (!p_eq_g)
 		TTLS_MPI_CHK(ecp_precompute_comb(grp, T, P, w, d));
-
-		if (p_eq_g) {
-			grp->T = T;
-			grp->T_size = pre_len;
-		}
-	}
 
 	/*
 	 * Make sure M is odd (M = m or M = N - m, since N is odd)
@@ -1262,19 +1209,8 @@ ecp_mul_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	TTLS_MPI_CHK(ecp_normalize_jac(grp, R));
 
 cleanup:
-
-	if (T != NULL && ! p_eq_g)
-	{
-		for (i = 0; i < pre_len; i++)
-			ttls_ecp_point_free(&T[i]);
-		kfree(T);
-	}
-
-	ttls_mpi_free(&M);
-	ttls_mpi_free(&mm);
-
-	if (WARN_ON_ONCE(ret))
-		ttls_ecp_point_free(R);
+	if (!p_eq_g)
+		bzero_fast(_T, pre_len * sizeof(TlsEcpPoint2D));
 
 	return ret;
 }
@@ -1291,7 +1227,8 @@ cleanup:
  * Normalize Montgomery x/z coordinates: X = X/Z, Z = 1
  * Cost: 1M + 1I
  */
-static int ecp_normalize_mxz(const TlsEcpGrp *grp, TlsEcpPoint *P)
+static int
+ecp_normalize_mxz(const TlsEcpGrp *grp, TlsEcpPoint *P)
 {
 	int ret;
 
@@ -1454,9 +1391,6 @@ ecp_mul_mxz(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	TTLS_MPI_CHK(ecp_normalize_mxz(grp, R));
 
 cleanup:
-	ttls_ecp_point_free(&RP);
-	ttls_mpi_free(&PX);
-
 	return ret;
 }
 
@@ -1571,12 +1505,13 @@ cleanup:
 }
 
 /*
- * Linear combination
- * NOT constant-time
+ * Multiplication and addition of two points by integers: R = m * grp->G + n * Q
+ * In contrast to ttls_ecp_mul(), this function does not guarantee a constant
+ * execution flow and timing.
  */
-int ttls_ecp_muladd(TlsEcpGrp *grp, TlsEcpPoint *R,
-			 const TlsMpi *m, const TlsEcpPoint *P,
-			 const TlsMpi *n, const TlsEcpPoint *Q)
+int
+ttls_ecp_muladd(TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
+		const TlsMpi *n, const TlsEcpPoint *Q)
 {
 	int ret;
 	TlsEcpPoint mP;
@@ -1586,14 +1521,12 @@ int ttls_ecp_muladd(TlsEcpGrp *grp, TlsEcpPoint *R,
 
 	ttls_ecp_point_init(&mP);
 
-	TTLS_MPI_CHK(ttls_ecp_mul_shortcuts(grp, &mP, m, P));
+	TTLS_MPI_CHK(ttls_ecp_mul_shortcuts(grp, &mP, m, &grp->G));
 	TTLS_MPI_CHK(ttls_ecp_mul_shortcuts(grp, R,   n, Q));
 	TTLS_MPI_CHK(ecp_add_mixed(grp, R, &mP, R));
 	TTLS_MPI_CHK(ecp_normalize_jac(grp, R));
 
 cleanup:
-	ttls_ecp_point_free(&mP);
-
 	return ret;
 }
 

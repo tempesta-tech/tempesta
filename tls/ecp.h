@@ -132,6 +132,15 @@ typedef struct {
 } TlsEcpPoint;
 
 /**
+ * The same as TlsEcpPoint for cases when X an Y coordinates only are used.
+ * Ued for large arrays to reduce memory footprint.
+ */
+typedef struct {
+	TlsMpi		X;
+	TlsMpi		Y;
+} TlsEcpPoint2D;
+
+/**
  * ECP group structure.
  *
  * We consider two types of curves equations:
@@ -161,7 +170,6 @@ typedef struct {
  * @h		- internal: 1 if the constants are static;
  * @pbits	- number of bits in P;
  * @nbits	- number of bits in 1. P, or 2. private keys;
- * @T_size	- number for pre-computed points;
  * @modp	- function for fast reduction mod P;
  * @P		- prime modulus of the base field;
  * @A		- 1. A in the equation, or 2. (A + 2) / 4;
@@ -175,14 +183,13 @@ typedef struct {
 	unsigned int		h;
 	unsigned int		pbits;
 	unsigned int		nbits;
-	unsigned int		T_size;
 	int			(*modp)(TlsMpi *);
 	TlsMpi			P;
 	TlsMpi			A;
 	TlsMpi			B;
 	TlsMpi			N;
 	TlsEcpPoint		G;
-	TlsEcpPoint		*T; // TODO !!!!
+	TlsEcpPoint2D		T[TTLS_ECP_WINDOW_ORDER];
 } TlsEcpGrp;
 
 /*
@@ -190,13 +197,13 @@ typedef struct {
  * fixed ECDH, etc.
  *
  * @grp		- Elliptic curve and base point;
- * @d		- our secret value;
  * @Q		- our public value;
+ * @d		- our secret value;
  */
 typedef struct {
 	TlsEcpGrp		grp;
-	TlsMpi			d;
 	TlsEcpPoint		Q;
+	TlsMpi			d;
 } TlsEcpKeypair;
 
 /* Maximum bit size of the groups (that is, of N and P). */
@@ -209,10 +216,10 @@ typedef struct {
  * Default: 6.
  * Minimum value: 2. Maximum value: 7.
  *
- * Result is an array of at most (1 << (TTLS_ECP_WINDOW_SIZE - 1))
- * points used for point multiplication. This value is directly tied to EC
- * peak memory usage, so decreasing it by one should roughly cut memory usage
- * by two (if large curves are in use).
+ * Result is an array of at most TTLS_ECP_WINDOW_SIZE points used for point
+ * multiplication. This value is directly tied to EC peak memory usage, so
+ * decreasing it by one should roughly cut memory usage by two (if large curves
+ * are in use).
  *
  * Reduction in size may reduce speed, but larger curves are impacted first.
  * Sample performances (in ECDHE handshakes/s, with FIXED_POINT_OPTIM = 1):
@@ -224,7 +231,8 @@ typedef struct {
  *	  224	   475	 475	 453	 398	 342
  *	  192	   640	 640	 633	 587	 476
  */
-#define TTLS_ECP_WINDOW_SIZE	6
+#define TTLS_ECP_WINDOW_ORDER	6
+#define TTLS_ECP_WINDOW_SIZE	(1 << (TTLS_ECP_WINDOW_ORDER - 1))
 
 /* Uncompressed is the only point format supported by RFC 8422. */
 #define TTLS_ECP_PF_UNCOMPRESSED	0
@@ -270,11 +278,6 @@ const TlsEcpCurveInfo *ttls_ecp_curve_info_from_name(const char *name);
 
 void ttls_ecp_point_init(TlsEcpPoint *pt);
 void ttls_ecp_keypair_init(TlsEcpKeypair *key);
-
-/**
- * \brief		   Free the components of a point
- */
-void ttls_ecp_point_free(TlsEcpPoint *pt);
 
 /**
  * \brief		   Free the components of a key pair
@@ -434,28 +437,9 @@ int ttls_ecp_tls_write_group(const TlsEcpGrp *grp, size_t *olen,
 int ttls_ecp_mul(TlsEcpGrp *grp, TlsEcpPoint *R,
 			 const TlsMpi *m, const TlsEcpPoint *P, bool rnd);
 
-/**
- * \brief		   Multiplication and addition of two points by integers:
- *				  R = m * P + n * Q
- *				  (Not thread-safe to use same group in multiple threads)
- *
- * \note			In contrast to ttls_ecp_mul(), this function does not guarantee
- *				  a constant execution flow and timing.
- *
- * \param grp	   ECP group
- * \param R		 Destination point
- * \param m		 Integer by which to multiply P
- * \param P		 Point to multiply by m
- * \param n		 Integer by which to multiply Q
- * \param Q		 Point to be multiplied by n
- *
- * \return		  0 if successful,
- *				  TTLS_ERR_ECP_INVALID_KEY if m or n is not a valid privkey
- *				  or P or Q is not a valid pubkey
- */
-int ttls_ecp_muladd(TlsEcpGrp *grp, TlsEcpPoint *R,
-			 const TlsMpi *m, const TlsEcpPoint *P,
-			 const TlsMpi *n, const TlsEcpPoint *Q);
+int ttls_ecp_muladd(TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
+		    const TlsEcpPoint *P, const TlsMpi *n,
+		    const TlsEcpPoint *Q);
 
 /**
  * \brief		   Check that a point is a valid public key on this curve
