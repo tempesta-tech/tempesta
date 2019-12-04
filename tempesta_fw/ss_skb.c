@@ -1665,8 +1665,7 @@ ss_skb_cut_extra_data(struct sk_buff *skb_head, struct sk_buff *skb,
 		 * We found the stop pointer; evict the delta between @curr and
 		 * @stop, and exit.
 		 */
-		if (stop_offset >= 0 && stop_offset <= size)
-		{
+		if (stop_offset >= 0 && stop_offset <= size) {
 			if (WARN_ON_ONCE(curr > stop))
 				return -EINVAL;
 
