@@ -164,11 +164,6 @@ ss_skb_alloc(size_t n)
 
 	return skb;
 }
-static inline char *
-ss_skb_data(struct sk_buff *skb)
-{
-	return skb->data;
-}
 
 #define SS_SKB_MAX_DATA_LEN	(SKB_MAX_HEADER + MAX_SKB_FRAGS * PAGE_SIZE)
 

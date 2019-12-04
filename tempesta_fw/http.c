@@ -3822,7 +3822,7 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 
 	tfw_h2_pack_frame_header(buf, &frame_hdr);
 
-	head_ptr = ss_skb_data(resp->msg.skb_head);
+	head_ptr = resp->msg.skb_head->data;
 	memcpy_fast(head_ptr, buf, sizeof(buf));
 
 	return 0;
