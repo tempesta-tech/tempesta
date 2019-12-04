@@ -74,7 +74,10 @@ obj-m	+= lib/ tempesta_db/core/ tempesta_fw/ tls/
 
 all: build
 
-build:
+generate_headers:
+	tempesta_fw/fill_hpack_hdr.pl tempesta_fw/hpack_tbl.h.tpl
+
+build: generate_headers
 ifdef ERROR
 	$(error $(ERROR))
 endif
