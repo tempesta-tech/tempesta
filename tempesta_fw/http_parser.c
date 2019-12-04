@@ -5567,7 +5567,7 @@ __h2_req_parse_if_nmatch(TfwHttpMsg *hm, unsigned char *data, size_t len,
 done:
 	return r;
 }
-STACK_FRAME_NON_STANDARD(__h2_req_parse_if_none_match);
+STACK_FRAME_NON_STANDARD(__h2_req_parse_if_nmatch);
 
 static int
 __h2_req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len, bool fin)
@@ -7158,6 +7158,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 out:
 	return ret;
 }
+STACK_FRAME_NON_STANDARD(tfw_h2_parse_req_hdr);
 
 static int
 tfw_h2_parse_body(char *data, unsigned long len, TfwHttpReq *req,
