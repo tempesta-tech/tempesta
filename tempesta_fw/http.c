@@ -751,7 +751,8 @@ tfw_h2_pseudo_write(TfwHttpResp *resp, TfwH2TransOp op)
 			{ .data = buf,		.len = H2_STAT_VAL_LEN }
 		},
 		.len = SLEN(S_H2_STAT) + H2_STAT_VAL_LEN,
-		.nchunks = 2
+		.nchunks = 2,
+		.hpack_idx = index ? index : 8
 	};
 
 	WARN_ON_ONCE(op != TFW_H2_TRANS_EXPAND && op != TFW_H2_TRANS_SUB);
@@ -760,7 +761,6 @@ tfw_h2_pseudo_write(TfwHttpResp *resp, TfwH2TransOp op)
 	 * If the status code is not in the static table, set the default
 	 * static index just for the ':status' name.
 	 */
-	TFW_STR_INDEX_SET(&s_hdr, index ? index : 8 );
 	if (index) {
 		s_hdr.flags |= TFW_STR_FULL_INDEX;
 	}
@@ -877,7 +877,7 @@ tfw_h2_send_resp(TfwHttpReq *req, int status, unsigned int stream_id)
 	__TFW_STR_CH(&hdr, 1)->data = date_val;
 	__TFW_STR_CH(&hdr, 1)->len = vlen = date->len;
 	hdr.len = nlen + vlen;
-	TFW_STR_INDEX_SET(&hdr, 33);
+	hdr.hpack_idx = 33;
 	if (tfw_hpack_encode(resp, &hdr, TFW_H2_TRANS_EXPAND))
 		goto err_setup;
 
@@ -888,7 +888,7 @@ tfw_h2_send_resp(TfwHttpReq *req, int status, unsigned int stream_id)
 	__TFW_STR_CH(&hdr, 1)->len = vlen = clen->data + clen->len
 		- data_ptr - SLEN(S_CRLF);
 	hdr.len = nlen + vlen;
-	TFW_STR_INDEX_SET(&hdr, 28);
+	hdr.hpack_idx = 28;
 	if (tfw_hpack_encode(resp, &hdr, TFW_H2_TRANS_EXPAND))
 		goto err_setup;
 
@@ -899,7 +899,7 @@ tfw_h2_send_resp(TfwHttpReq *req, int status, unsigned int stream_id)
 	__TFW_STR_CH(&hdr, 1)->len = vlen = srv->data + srv->len
 		- data_ptr - SLEN(S_CRLF);
 	hdr.len = nlen + vlen;
-	TFW_STR_INDEX_SET(&hdr, 54);
+	hdr.hpack_idx = 54;
 	if (tfw_hpack_encode(resp, &hdr, TFW_H2_TRANS_EXPAND))
 		goto err_setup;
 
@@ -3439,7 +3439,7 @@ tfw_h2_add_hdr_via(TfwHttpResp *resp)
 	memcpy_fast(__TFW_STR_CH(&via, 2)->data, g_vhost->hdr_via,
 		    g_vhost->hdr_via_len);
 
-	TFW_STR_INDEX_SET(&via, 60);
+	via.hpack_idx = 60;
 
 	r = __hdr_h2_add(resp, &via);
 	if (unlikely(r))

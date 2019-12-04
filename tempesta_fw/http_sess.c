@@ -457,7 +457,7 @@ tfw_http_sticky_add(TfwHttpResp *resp)
 	      PR_TFW_STR(&tfw_cfg_sticky.name), len, buf);
 
 	if (to_h2) {
-		TFW_STR_INDEX_SET(&set_cookie, 55);
+		set_cookie.hpack_idx = 55;
 		r = __hdr_h2_add(resp, &set_cookie);
 	}
 	else {

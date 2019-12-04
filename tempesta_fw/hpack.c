@@ -3952,7 +3952,7 @@ tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	if (WARN_ON_ONCE(!hdr || TFW_STR_EMPTY(hdr)))
 		return -EINVAL;
 
-	st_index = TFW_STR_INDEX(hdr);
+	st_index = hdr->hpack_idx;
 	st_full_index = hdr->flags & TFW_STR_FULL_INDEX;
 
 	T_DBG3("%s: op=%d, st_index=%hu, st_full_index=%d\n", __func__, op,
