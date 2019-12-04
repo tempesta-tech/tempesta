@@ -1539,7 +1539,7 @@ this_chunk:
 			addr = skb_frag_address(frag);
 		} else {
 			f_size = skb_headlen(it->skb);
-			addr = ss_skb_data(it->skb);
+			addr = it->skb->data;
 		}
 
 		offset = mit->curr_ptr - addr;

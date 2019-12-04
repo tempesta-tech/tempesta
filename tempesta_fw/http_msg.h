@@ -117,7 +117,7 @@ tfw_h2_msg_transform_setup(TfwHttpTransIter *mit, struct sk_buff *skb,
 		iter->skb_head = skb;
 
 	skb_push(skb, HTTP2_MAX_OFFSET);
-	mit->curr_ptr = ss_skb_data(skb);
+	mit->curr_ptr = skb->data;
 
 	if (init)
 		mit->curr_ptr += FRAME_HEADER_SIZE;
