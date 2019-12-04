@@ -87,7 +87,7 @@ do {									\
 	tfw_http_msg_add_str_data(msg, &msg->stream->parser.hdr, data, len)
 
 #define __msg_hdr_set_hpack_index(idx)					\
-	TFW_STR_INDEX_SET(&parser->hdr, idx);
+	parser->hdr.hpack_idx = idx;
 
 /**
  * GCC 4.8 (CentOS 7) does a poor work on memory reusage of automatic local

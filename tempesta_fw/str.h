@@ -186,8 +186,6 @@ size_t tfw_ultohex(unsigned long ai, char *buf, unsigned int len);
  * casually from sleepable context, e.g. on configuration phase.
  * ------------------------------------------------------------------------
  */
-#define TFW_STR_FBITS		10
-#define TFW_STR_FMASK		((1U << TFW_STR_FBITS) - 1)
 #define __TFW_STR_CN_MAX	UINT_MAX
 /*
  * Str consists from compound or plain strings.
@@ -226,11 +224,10 @@ size_t tfw_ultohex(unsigned long ai, char *buf, unsigned int len);
  *		  it should be 0 if the string has no EOL at all, 1 for LF and
  *		  2 for CRLF);
  * @nchunks  	- number of chunks of compound string;
- * @flags	- double-byte field for flags; the least significant 10 bits are
- *		  used for common flags' bits, and the most significant 6 bits
- *		  are intended for HPACK static index (in cases when the HTTP
+ * @flags	- double-byte field for flags;
+ * @hpack_idx	- HPACK static index (in cases when the HTTP
  *		  header represented in @TfwStr is found in corresponding HPACK
- *                static table).
+ *		  static table).
  */
 typedef struct tfwstr_t {
 	union {
@@ -241,7 +238,8 @@ typedef struct tfwstr_t {
 	unsigned long	len;
 	unsigned int	nchunks;
 	unsigned short	flags;
-	unsigned char	eolen;
+	unsigned short	hpack_idx:14;
+	unsigned short	eolen:2;
 } TfwStr;
 
 #define TFW_STR_STRING(val)		((TfwStr){.data = (val), NULL,	\
@@ -254,11 +252,6 @@ typedef struct tfwstr_t {
 
 /* Use this with "%.*s" in printing calls. */
 #define PR_TFW_STR(s)		(int)min(20UL, (s)->len), (s)->data
-
-/* Get/set HPACK static index from/into @s. */
-#define TFW_STR_INDEX(s)	((s)->flags >> TFW_STR_FBITS)
-#define TFW_STR_INDEX_SET(s, i) ((s)->flags = ((s)->flags & TFW_STR_FMASK) \
-				 | ((i) << TFW_STR_FBITS))
 
 #define TFW_STR_INIT(s)		memset((s), 0, sizeof(TfwStr))
 

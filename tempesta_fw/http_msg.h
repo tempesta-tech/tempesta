@@ -133,10 +133,9 @@ tfw_h2_msg_hdr_add(TfwHttpResp *resp, char *name, size_t nlen, char *val,
 			{ .data = val,		.len = vlen },
 		},
 		.len = nlen + vlen,
-		.nchunks = 2
+		.nchunks = 2,
+		.hpack_idx = idx
 	};
-
-	TFW_STR_INDEX_SET(&hdr, idx);
 
 	return __hdr_h2_add(resp, &hdr);
 }
