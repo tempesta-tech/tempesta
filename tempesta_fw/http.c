@@ -739,6 +739,11 @@ tfw_h2_pseudo_index(unsigned short status)
 	}
 }
 
+/**
+ * Write HTTP/2 Pseudo-header fields. Only ':status' is defined as response
+ * pseudo-header and all HTTP/2 responses must contain that.
+ * https://httpwg.org/specs/rfc7540.html#rfc.section.8.1.2.4
+ */
 static int
 tfw_h2_pseudo_write(TfwHttpResp *resp, TfwH2TransOp op)
 {
@@ -2993,7 +2998,7 @@ do {									\
 				WRITE_LIT(buf, S_DLM);			\
 				val_found = true;			\
 			} else if (*c->data == ':') {			\
-			/* For statically configured adjustments. */	\
+				/* For statically configured adjustments. */\
 				WARN_ON_ONCE(c->len != SLEN(S_DLM));	\
 				WRITE_LIT(buf, S_DLM);			\
 				val_found = true;			\
