@@ -1,23 +1,27 @@
 /*
- *  X.509 Certidicate Revocation List (CRL) parsing
+ *		Tempesta TLS
  *
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- *  SPDX-License-Identifier: GPL-2.0
+ * X.509 Certidicate Revocation List (CRL) parsing
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ * Based on mbed TLS, https://tls.mbed.org.
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * SPDX-License-Identifier: GPL-2.0
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 /*
  *  The ITU-T X.509 standard defines a certificate format for PKI.
@@ -29,10 +33,6 @@
  *  http://www.itu.int/ITU-T/studygroups/com17/languages/X.680-0207.pdf
  *  http://www.itu.int/ITU-T/studygroups/com17/languages/X.690-0207.pdf
  */
-#include "config.h"
-
-#if defined(TTLS_X509_CRL_PARSE_C)
-
 #include "x509_crl.h"
 #include "oid.h"
 #include "pem.h"
@@ -257,7 +257,8 @@ static int x509_get_entries(unsigned char **p,
 
 		if (*p < end)
 		{
-			cur_entry->next = ttls_calloc(1, sizeof(ttls_x509_crl_entry));
+			cur_entry->next = kzalloc(sizeof(ttls_x509_crl_entry),
+						  GFP_KERNEL);
 
 			if (cur_entry->next == NULL)
 				return(TTLS_ERR_X509_ALLOC_FAILED);
@@ -299,7 +300,7 @@ int ttls_x509_crl_parse_der(ttls_x509_crl *chain,
 
 	if (crl->version != 0 && crl->next == NULL)
 	{
-		crl->next = ttls_calloc(1, sizeof(ttls_x509_crl));
+		crl->next = kzalloc(sizeof(ttls_x509_crl), GFP_KERNEL);
 
 		if (crl->next == NULL)
 		{
@@ -317,7 +318,7 @@ int ttls_x509_crl_parse_der(ttls_x509_crl *chain,
 	if (buflen == 0)
 		return(TTLS_ERR_X509_INVALID_FORMAT);
 
-	p = ttls_calloc(1, buflen);
+	p = kmalloc(buflen, GFP_KERNEL);
 	if (p == NULL)
 		return(TTLS_ERR_X509_ALLOC_FAILED);
 
@@ -533,7 +534,7 @@ ttls_x509_crl_parse(ttls_x509_crl *chain, unsigned char *buf, size_t buflen)
 						 "-----END X509 CRL-----",
 						 buf, &use_len);
 
-		if (ret > 0) {
+		if (r > 0) {
 			/* Was PEM encoded. */
 			is_pem = 1;
 			dec_len = r;
@@ -664,7 +665,7 @@ void ttls_x509_crl_free(ttls_x509_crl *crl)
 
 	do
 	{
-		ttls_free(crl_cur->sig_opts);
+		kfree(crl_cur->sig_opts);
 
 		name_cur = crl_cur->issuer.next;
 		while (name_cur != NULL)
@@ -672,7 +673,7 @@ void ttls_x509_crl_free(ttls_x509_crl *crl)
 			name_prv = name_cur;
 			name_cur = name_cur->next;
 			ttls_zeroize(name_prv, sizeof(ttls_x509_name));
-			ttls_free(name_prv);
+			kfree(name_prv);
 		}
 
 		entry_cur = crl_cur->entry.next;
@@ -681,13 +682,13 @@ void ttls_x509_crl_free(ttls_x509_crl *crl)
 			entry_prv = entry_cur;
 			entry_cur = entry_cur->next;
 			ttls_zeroize(entry_prv, sizeof(ttls_x509_crl_entry));
-			ttls_free(entry_prv);
+			kfree(entry_prv);
 		}
 
 		if (crl_cur->raw.p != NULL)
 		{
 			ttls_zeroize(crl_cur->raw.p, crl_cur->raw.len);
-			ttls_free(crl_cur->raw.p);
+			kfree(crl_cur->raw.p);
 		}
 
 		crl_cur = crl_cur->next;
@@ -702,9 +703,7 @@ void ttls_x509_crl_free(ttls_x509_crl *crl)
 
 		ttls_zeroize(crl_prv, sizeof(ttls_x509_crl));
 		if (crl_prv != crl)
-			ttls_free(crl_prv);
+			kfree(crl_prv);
 	}
 	while (crl_cur != NULL);
 }
-
-#endif /* TTLS_X509_CRL_PARSE_C */

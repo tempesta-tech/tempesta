@@ -132,6 +132,13 @@ enum {
 enum {
 	/* Vhost was removed during reconfiguration. */
 	TFW_VHOST_B_REMOVED = 0,
+	/* Sticky sessions are enabled for vhost. */
+	TFW_VHOST_B_STICKY_SESS,
+	/*
+	 * Re-pin existing sticky session to a new server if the old one was
+	 * removed.
+	 */
+	TFW_VHOST_B_STICKY_SESS_FAILOVER,
 };
 
 /* Max number of headers allowed for end user to modify. */
@@ -151,6 +158,7 @@ enum {
  *		  vhost and NULL for others. Provides frang configuration
  *		  options used before request is parsed and assigned to any
  *		  vhost.
+ * @cookie	- Sticky cookie configuration.
  * @refcnt	- Number of users of the virtual host object.
  * @loc_sz	- Count of elements in @loc array.
  * @flags	- flags.
@@ -164,6 +172,7 @@ struct  tfw_vhost_t {
 	TfwVhost		*vhost_dflt;
 	TfwPool			*hdrs_pool;
 	FrangGlobCfg		*frang_gconf;
+	TfwStickyCookie		*cookie;
 	atomic64_t		refcnt;
 	size_t			loc_sz;
 	unsigned long		flags;
@@ -229,6 +238,12 @@ static inline TfwVhost*
 tfw_vhost_from_tls_conf(const TlsPeerCfg *cfg)
 {
 	return  container_of(cfg, TfwVhost, tls_cfg);
+}
+
+static bool inline
+tfw_vhost_is_default(TfwVhost *vhost)
+{
+	return !vhost->vhost_dflt;
 }
 
 #endif /* __TFW_VHOST_H__ */

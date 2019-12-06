@@ -121,9 +121,15 @@ test_chain_add_rule_str(int test_id, tfw_http_match_fld_t field,
 
 	tfw_http_verify_hdr_field(field, &hdr, &hid);
 	arg = tfw_http_arg_adjust(in_arg, field, hdr, &arg_size, &type, &op);
+	EXPECT_NOT_NULL(arg);
+	if (!arg)
+		return;
 
 	e = test_rule_container_new(test_chain, MatchEntry, rule,
 				    type, arg_size);
+	EXPECT_NOT_NULL(e);
+	if (!e)
+		goto err;
 	e->rule.hid = hid;
 	e->rule.field = field;
 	e->rule.op = op;
@@ -132,6 +138,7 @@ test_chain_add_rule_str(int test_id, tfw_http_match_fld_t field,
 	/* Just dummy action type to avoid BUG_ON in 'do_eval()'. */
 	e->rule.act.type = TFW_HTTP_MATCH_ACT_CHAIN;
 	e->test_id = test_id;
+err:
 	kfree(arg);
 }
 
@@ -461,6 +468,9 @@ TEST(http_match, method_eq)
 
 	e1 = test_rule_container_new(test_chain, MatchEntry, rule,
 				     TFW_HTTP_MATCH_A_METHOD, 0);
+	EXPECT_NOT_NULL(e1);
+	if (!e1)
+		return;
 	e1->test_id = 42,
 	e1->rule.field = TFW_HTTP_MATCH_F_METHOD;
 	e1->rule.op = TFW_HTTP_MATCH_O_EQ;
@@ -470,6 +480,9 @@ TEST(http_match, method_eq)
 
 	e2 = test_rule_container_new(test_chain, MatchEntry, rule,
 				     TFW_HTTP_MATCH_A_METHOD, 0);
+	EXPECT_NOT_NULL(e2);
+	if (!e2)
+		return;
 	e2->test_id = 43,
 	e2->rule.field = TFW_HTTP_MATCH_F_METHOD;
 	e2->rule.op = TFW_HTTP_MATCH_O_EQ;

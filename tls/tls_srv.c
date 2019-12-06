@@ -3,6 +3,8 @@
  *
  * TLS server-side finite state machine.
  *
+ * Based on mbed TLS, https://tls.mbed.org.
+ *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
@@ -22,7 +24,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include "lib/str.h"
-#include "config.h"
 #include "debug.h"
 #include "ecp.h"
 #include "tls_internal.h"
@@ -180,7 +181,7 @@ ttls_parse_supported_elliptic_curves(TlsCtx *tls, const unsigned char *buf,
 {
 	size_t i, c, list_size;
 	const unsigned char *p;
-	const ttls_ecp_curve_info *ci;
+	const TlsEcpCurveInfo *ci;
 
 	if (unlikely(len < 2)) {
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
@@ -415,9 +416,9 @@ ttls_parse_renegotiation_info_ext(TlsCtx *tls, const unsigned char *buf,
  * @return 0 if the given key uses one of the acceptable curves, -1 otherwise.
  */
 static int
-ttls_check_key_curve(ttls_pk_context *pk, const ttls_ecp_curve_info **curves)
+ttls_check_key_curve(ttls_pk_context *pk, const TlsEcpCurveInfo **curves)
 {
-	const ttls_ecp_curve_info **crv = curves;
+	const TlsEcpCurveInfo **crv = curves;
 	ttls_ecp_group_id grp_id = ttls_pk_ec(*pk)->grp.id;
 
 	while (*crv) {
@@ -553,17 +554,17 @@ ttls_ciphersuite_match(TlsCtx *tls, int suite_id, const TlsCiphersuite **ci)
 }
 
 static int
-ttls_choose_ciphersuite(TlsCtx *tls, const unsigned char *csp)
+ttls_choose_ciphersuite(TlsCtx *tls)
 {
-	unsigned short ciph_len = ntohs(*(short *)csp);
 	int r, i, got_common_suite = 0;
 	const int *ciphersuites = tls->peer_conf->ciphersuite_list[tls->minor];
 	const TlsCiphersuite *ci = NULL;
-	const unsigned char *cs;
+	const unsigned short *cs;
+	unsigned int cs_cnt = tls->hs->cs_total_len / 2;
 
 	for (i = 0; ciphersuites[i] != 0; i++)
-		for (cs = csp + 2; cs < csp + ciph_len + 2; cs += 2) {
-			if (ntohs(*(short *)cs) != ciphersuites[i])
+		for (cs = tls->hs->css; cs < tls->hs->css + cs_cnt; cs++) {
+			if (*cs != ciphersuites[i])
 				continue;
 			got_common_suite = 1;
 			r = ttls_ciphersuite_match(tls, ciphersuites[i], &ci);
@@ -649,17 +650,14 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 	T_FSM_STATE(TTLS_CH_HS_VER) {
 		BUG_ON(io->rlen >= 2);
 		if (unlikely(io->rlen)) {
-			tls->hs->tmp[1] = *p;
-			p++;
-			ttls_read_version(tls, tls->hs->tmp);
+			tls->minor = *p++;
 		}
 		else if (unlikely(buf + len - p == 1)) {
-			tls->hs->tmp[0] = *p;
-			p++;
+			tls->major = *p++;
 			T_FSM_EXIT();
 		} else {
-			ttls_read_version(tls, p);
-			p += 2;
+			tls->major = *p++;
+			tls->minor = *p++;
 		}
 		io->hslen -= 2;
 		if (tls->major != TTLS_MAJOR_VERSION_3
@@ -729,22 +727,20 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 	T_FSM_STATE(TTLS_CH_HS_CSLEN) {
 		BUG_ON(io->rlen >= 2);
 		if (unlikely(io->rlen)) {
-			tls->hs->tmp[TTLS_HS_TMP_STORE_SZ + 1] = *p;
-			p++;
+			tls->hs->cs_total_len += *p++;
 		}
 		else if (unlikely(buf + len - p == 1)) {
-			tls->hs->tmp[TTLS_HS_TMP_STORE_SZ] = *p;
-			p++;
+			tls->hs->cs_total_len = *p++ << 8;
 			T_FSM_EXIT();
 		}
 		else {
-			memcpy_fast(&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ], p, 2);
+			tls->hs->cs_total_len = (p[0] << 8) + p[1];
 			p += 2;
 		}
-		n = ntohs(*(short *)&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ]);
+		n = tls->hs->cs_total_len;
 		T_DBG3("ClientHello: cipher suites length %u\n", n);
 		/* Initialize number of currently read ciphersuites. */
-		*(unsigned short *)tls->hs->tmp = 0;
+		tls->hs->cs_cur_len = 0;
 		io->hslen -= 2;
 		/* 1 for comp. alg. len */
 		if (n < 2 || n + 1 > io->hslen || (n & 1)) {
@@ -758,13 +754,12 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 
 	/* Read a cipher suite. */
 	T_FSM_STATE(TTLS_CH_HS_CS) {
-		unsigned short cs, *csn = (unsigned short *)tls->hs->tmp;
-		const unsigned int off = TTLS_HS_TMP_STORE_SZ + 2;
+		unsigned short cs;
 		/* Get number of ciphersuite bytes from the client. */
-		n = ntohs(*(short *)&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ]);
+		n = tls->hs->cs_total_len;
 		BUG_ON(io->rlen >= 2);
 
-		if (2 + *csn + 2 > TTLS_HS_CS_MAX_SZ) {
+		if (tls->hs->cs_cur_len >= sizeof(tls->hs->css)) {
 			/*
 			 * Client declares too many cipher suites, we have no
 			 * room to store them all. Skipping them since the last
@@ -774,43 +769,40 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		}
 		/* Read current cipher suite, just after the counter. */
 		if (unlikely(io->rlen)) {
-			tls->hs->tmp[off + *csn + 1] = *p;
-			p++;
+			tls->hs->css[tls->hs->cs_cur_len / 2] += *p++;
 		}
 		else if (unlikely(buf + len - p == 1)) {
-			tls->hs->tmp[off + *csn] = *p;
-			p++;
+			tls->hs->css[tls->hs->cs_cur_len / 2] = *p++ << 8;
 			T_FSM_EXIT();
 		}
 		else {
-			memcpy_fast(&tls->hs->tmp[off + *csn], p, 2);
+			tls->hs->css[tls->hs->cs_cur_len / 2] =
+				(p[0] << 8) + p[1];
 			p += 2;
 		}
-		cs = ntohs(*(short *)&tls->hs->tmp[off + *csn]);
+		cs = tls->hs->css[tls->hs->cs_cur_len / 2];
 		T_DBG3("ClientHello: cipher suite #%u: %#x\n",
-		       *csn / 2, cs);
+		       tls->hs->cs_cur_len / 2, cs);
 		if (ttls_check_scsvs(tls, cs))
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		io->hslen -= 2;
-		*csn += 2;
-		if (*csn == n)
+		tls->hs->cs_cur_len += 2;
+		if (tls->hs->cs_cur_len == n)
 			TTLS_HS_FSM_MOVE(TTLS_CH_HS_COMPN);
 		TTLS_HS_FSM_MOVE(TTLS_CH_HS_CS);
 	}
 
 	T_FSM_STATE(TTLS_CH_HS_CS_SKIP) {
-		unsigned short *csn = (unsigned short *)tls->hs->tmp;
 		unsigned short n, delta;
 
-		n = ntohs(*(short *)&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ]);
-		delta = min_t(int, buf + len - p, n - *csn);
+		n = tls->hs->cs_total_len;
+		delta = min_t(int, buf + len - p, n - tls->hs->cs_cur_len);
 		io->hslen -= delta;
-		*csn += delta;
+		tls->hs->cs_cur_len += delta;
 		p += delta;
-		if (*csn == n) {
+		if (tls->hs->cs_cur_len == n) {
 			/* Clamp the ciphersuite list size to fit the storage */
-			*(unsigned short *)&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ] =
-				htons(TTLS_HS_CS_MAX_SZ - 2);
+			tls->hs->cs_total_len = sizeof(tls->hs->css);
 			TTLS_HS_FSM_MOVE(TTLS_CH_HS_COMPN);
 		}
 		TTLS_HS_FSM_MOVE(TTLS_CH_HS_CS_SKIP);
@@ -830,8 +822,8 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		 * compression algorithms to read and 2nd for a flag
 		 * that we've faced NULL-compression.
 		 */
-		tls->hs->tmp[0] = n;
-		tls->hs->tmp[1] = 0;
+		tls->hs->compr_n = n;
+		tls->hs->compr_has_null = 0;
 		T_DBG3("ClientHello: compression algorithms length %u\n", n);
 		io->hslen--;
 		++p;
@@ -841,12 +833,12 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 	T_FSM_STATE(TTLS_CH_HS_COMP) {
 		if (*p == TTLS_COMPRESS_NULL) {
 			T_DBG3("saw NULL compression\n");
-			tls->hs->tmp[1] = 1;
+			tls->hs->compr_has_null = 1;
 		}
 		io->hslen--;
 		++p;
-		if (!--tls->hs->tmp[0]) {
-			if (!tls->hs->tmp[1]) {
+		if (!--tls->hs->compr_n) {
+			if (!tls->hs->compr_has_null) {
 				T_DBG("ClientHello: no NULL compression\n");
 				ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 						TTLS_ALERT_MSG_DECODE_ERROR);
@@ -862,19 +854,17 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		/* Use the first 2 bytes for total number of extensions. */
 		BUG_ON(io->rlen >= 2);
 		if (unlikely(io->rlen)) {
-			tls->hs->tmp[1] = *p;
-			p++;
+			tls->hs->ext_rem_sz += *p++;
 		}
 		else if (unlikely(buf + len - p == 1)) {
-			tls->hs->tmp[0] = *p;
-			p++;
+			tls->hs->ext_rem_sz = *p++ << 8;
 			T_FSM_EXIT();
 		}
 		else {
-			memcpy_fast(tls->hs->tmp, p, 2);
+			tls->hs->ext_rem_sz = (p[0] << 8) + p[1];
 			p += 2;
 		}
-		n = ntohs(*(short *)tls->hs->tmp);
+		n = tls->hs->ext_rem_sz;
 		io->hslen -= 2;
 		if (io->hslen != n || (n > 0 && n < 4)) {
 			T_DBG("ClientHello: bad extensions length %d"
@@ -887,8 +877,6 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 			r = T_OK;
 			T_FSM_EXIT();
 		}
-		/* Swap bytes to reuse them as a pointer to short later. */
-		*(short *)tls->hs->tmp = (short)n;
 		T_DBG3("ClientHello: extensions length %u\n", n);
 		TTLS_HS_FSM_MOVE(TTLS_CH_HS_EXT);
 	}
@@ -898,58 +886,46 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		/* Use the second 2 bytes for current extension type. */
 		BUG_ON(io->rlen >= 2);
 		if (unlikely(io->rlen)) {
-			tls->hs->tmp[3] = *p;
-			p++;
+			tls->hs->ext_type += *p++;
 		}
 		else if (unlikely(buf + len - p == 1)) {
-			tls->hs->tmp[2] = *p;
-			p++;
+			tls->hs->ext_type = *p++ << 8;
 			T_FSM_EXIT();
 		}
 		else {
-			memcpy_fast(&tls->hs->tmp[2], p, 2);
+			tls->hs->ext_type = (p[0] << 8) + p[1];
 			p += 2;
 		}
-		/* Swap bytes to reuse them as a pointer to short later. */
-		*(short *)&tls->hs->tmp[2] = ntohs(*(short *)&tls->hs->tmp[2]);
 		T_DBG3("ClientHello: read extension %#x...\n",
-		       *(short *)&tls->hs->tmp[2]);
+		       tls->hs->ext_type);
 		io->hslen -= 2;
 		TTLS_HS_FSM_MOVE(TTLS_CH_HS_EXS);
 	}
 
 	/* Read an extension size. */
 	T_FSM_STATE(TTLS_CH_HS_EXS) {
-		/* Use the third 2 bytes for current extension size. */
-		unsigned short lim, ciph_len = 2, ext_len = *(short *)tls->hs->tmp;
-		ciph_len += ntohs(*(short *)&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ]);
-		lim = TTLS_HS_RBUF_SZ - TTLS_HS_TMP_STORE_SZ - ciph_len;
 		BUG_ON(io->rlen >= 2);
-		WARN_ON_ONCE(lim < TTLS_HS_EXT_RES_SZ);
 		if (unlikely(io->rlen)) {
-			tls->hs->tmp[5] = *p;
-			p++;
+			tls->hs->ext_sz += *p++;
 		}
 		else if (unlikely(buf + len - p == 1)) {
-			tls->hs->tmp[4] = *p;
-			p++;
+			tls->hs->ext_sz = *p++ << 8;
 			T_FSM_EXIT();
 		}
 		else {
-			memcpy_fast(&tls->hs->tmp[4], p, 2);
+			tls->hs->ext_sz = (p[0] << 8) + p[1];
 			p += 2;
 		}
 		io->hslen -= 2;
-		n = ntohs(*(short *)&tls->hs->tmp[4]);
-		if (n + 4 > ext_len || n > lim) {
+		n = tls->hs->ext_sz;
+		if (n + 4 > tls->hs->ext_rem_sz || n > sizeof(tls->hs->ext)) {
 			T_DBG("ClientHello: bad extension size %d"
-			      " (ext_len=%u)\n", n, ext_len);
+			      " (tls->hs->ext_rem_sz=%u)\n", n,
+			      tls->hs->ext_rem_sz);
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 					TTLS_ALERT_MSG_DECODE_ERROR);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
-		/* Swap bytes to reuse them as a pointer to short later. */
-		*(short *)&tls->hs->tmp[4] = (short)n;
 		if (n)
 			TTLS_HS_FSM_MOVE(TTLS_CH_HS_EX);
 		else
@@ -958,10 +934,8 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 
 	/* Parse an extension. */
 	T_FSM_STATE(TTLS_CH_HS_EX) {
-		unsigned char *tmp;
-		unsigned short *ext_len = (short *)tls->hs->tmp;
-		unsigned short ext_id = *(short *)&tls->hs->tmp[2];
-		unsigned short ext_sz = *(short *)&tls->hs->tmp[4];
+		unsigned char *tmp = tls->hs->ext;
+		unsigned short ext_sz = tls->hs->ext_sz;
 		/*
 		 * Copy the extension to the temporary buffer for further
 		 * parsing. We have to copy the data since the extension parsers
@@ -971,21 +945,17 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		 * chunked data and it's doubtful how much performance we get if
 		 * we avoid the copies - the extensions are small after all.
 		 */
-		unsigned short off, ciph_len = 2;
-		ciph_len += ntohs(*(short *)&tls->hs->tmp[TTLS_HS_TMP_STORE_SZ]);
-		off = TTLS_HS_TMP_STORE_SZ + ciph_len;
 		BUG_ON(io->rlen > ext_sz);
 		n = min_t(int, ext_sz - io->rlen, buf + len - p);
 		/* Save client random (inc. Unix time). */
-		memcpy_fast(&tls->hs->tmp[off + io->rlen], p, n);
+		memcpy_fast(tmp + io->rlen, p, n);
 		p += n;
 		if (unlikely(io->rlen + n < ext_sz))
 			T_FSM_EXIT();
 		T_DBG3("ClientHello: read %u bytes for ext %u\n",
-		       io->rlen + n, ext_id);
+		       io->rlen + n, tls->hs->ext_type);
 
-		tmp = &tls->hs->tmp[off];
-		switch (ext_id) {
+		switch (tls->hs->ext_type) {
 		case TTLS_TLS_EXT_SERVERNAME:
 			T_DBG("found ServerName extension\n");
 			if (ttls_parse_servername_ext(tls, tmp, ext_sz))
@@ -1031,16 +1001,16 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 			break;
 		default:
 			T_DBG("unknown extension found: %d (ignoring)\n",
-			      ext_id);
+			      tls->hs->ext_type);
 		}
-		*ext_len -= 4 + ext_sz;
-		if (*ext_len > 0 && *ext_len < 4) {
+		tls->hs->ext_rem_sz -= 4 + ext_sz;
+		if (tls->hs->ext_rem_sz > 0 && tls->hs->ext_rem_sz < 4) {
 			T_DBG("ClientHello: bad extensions list\n");
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 					TTLS_ALERT_MSG_DECODE_ERROR);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
-		if (*ext_len)
+		if (tls->hs->ext_rem_sz)
 			TTLS_HS_FSM_MOVE(TTLS_CH_HS_EXT);
 		r = T_OK;
 		T_FSM_EXIT();
@@ -1085,7 +1055,7 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 	 * callback triggered by the SNI extension. The server uses its own
 	 * preferences over the preference of the client.
 	 */
-	r = ttls_choose_ciphersuite(tls, &tls->hs->tmp[TTLS_HS_TMP_STORE_SZ]);
+	r = ttls_choose_ciphersuite(tls);
 	if (r)
 		return r;
 
@@ -1255,14 +1225,7 @@ ttls_write_server_hello(TlsCtx *tls, struct sg_table *sgt,
 	/*
 	 * Resume is 0  by default.
 	 * It may be already set to 1 by ttls_parse_session_ticket_ext().
-	 * If not, try looking up session ID in our cache.
 	 */
-	if (!tls->hs->resume && tls->sess.id_len && tls->conf->f_get_cache
-	    && !tls->conf->f_get_cache(tls->conf->p_cache, &tls->sess))
-	{
-		T_DBG("session successfully restored from cache\n");
-		tls->hs->resume = 1;
-	}
 	if (!tls->hs->resume) {
 		/*
 		 * New session, create a new session id,
@@ -1416,8 +1379,56 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 	p = hdr + TLS_HEADER_SIZE + TTLS_HS_HDR_LEN;
 	dig_signed = p;
 
+	/* ECDHE key exchanges. */
+	if (ttls_ciphersuite_uses_ecdhe(ci)) {
+		/*
+		 * Ephemeral ECDH parameters:
+		 *
+		 * struct {
+		 *	 ECParameters curve_params;
+		 *	 ECPoint	  public;
+		 * } ServerECDHParams;
+		 */
+		const TlsEcpCurveInfo **curve = NULL;
+		const ttls_ecp_group_id *gid = ttls_preset_curves;
+
+		/* Match our preference list against the offered curves */
+		for ( ; *gid != TTLS_ECP_DP_NONE; gid++)
+			for (curve = tls->hs->curves; *curve; curve++)
+				if ((*curve)->grp_id == *gid)
+					goto curve_matching_done;
+curve_matching_done:
+		if (!curve || !*curve) {
+			T_WARN("No matching curve for ECDHE key exchange\n");
+			r = -EINVAL;
+			goto err;
+		}
+		T_DBG("ECDHE curve: %s\n", (*curve)->name);
+
+		r = ttls_ecp_group_load(&tls->hs->ecdh_ctx.grp,
+					(*curve)->grp_id);
+		if (r) {
+			T_DBG("cannot load ECP group, %d\n", r);
+			goto err;
+		}
+
+		r = ttls_ecdh_make_params(&tls->hs->ecdh_ctx, &len, p,
+					  TLS_MAX_PAYLOAD_SIZE);
+		if (r) {
+			T_DBG("cannot make ECDH params, %d\n", r);
+			goto err;
+		}
+		WARN_ON_ONCE(len > 500);
+		dig_signed = p;
+		dig_signed_len = len;
+		p += len;
+		n += len;
+
+		T_DBG_ECP("ECDH server key exchange EC point",
+			  &tls->hs->ecdh_ctx.Q);
+	}
 	/* DHE key exchanges. */
-	if (ttls_ciphersuite_uses_dhe(ci)) {
+	else if (ttls_ciphersuite_uses_dhe(ci)) {
 		int x_sz;
 
 		if (!tls->conf->dhm_P.p || !tls->conf->dhm_G.p) {
@@ -1455,57 +1466,9 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 		p += len;
 		n += len;
 
-		TTLS_DEBUG_MPI("DHM: X ", &tls->hs->dhm_ctx.X );
-		TTLS_DEBUG_MPI("DHM: P ", &tls->hs->dhm_ctx.P );
-		TTLS_DEBUG_MPI("DHM: G ", &tls->hs->dhm_ctx.G );
-		TTLS_DEBUG_MPI("DHM: GX", &tls->hs->dhm_ctx.GX);
-	}
-	/* ECDHE key exchanges. */
-	else if (ttls_ciphersuite_uses_ecdhe(ci)) {
-		/*
-		 * Ephemeral ECDH parameters:
-		 *
-		 * struct {
-		 *	 ECParameters curve_params;
-		 *	 ECPoint	  public;
-		 * } ServerECDHParams;
-		 */
-		const ttls_ecp_curve_info **curve = NULL;
-		const ttls_ecp_group_id *gid = tls->peer_conf->curve_list;
-
-		/* Match our preference list against the offered curves */
-		for ( ; *gid != TTLS_ECP_DP_NONE; gid++)
-			for (curve = tls->hs->curves; *curve; curve++)
-				if ((*curve)->grp_id == *gid)
-					goto curve_matching_done;
-curve_matching_done:
-		if (!curve || !*curve) {
-			T_WARN("No matching curve for ECDHE key exchange\n");
-			r = -EINVAL;
-			goto err;
-		}
-		T_DBG("ECDHE curve: %s\n", (*curve)->name);
-
-		r = ttls_ecp_group_load(&tls->hs->ecdh_ctx.grp,
-		(*curve)->grp_id);
-		if (r) {
-			T_DBG("cannot load ECP group, %d\n", r);
-			goto err;
-		}
-
-		r = ttls_ecdh_make_params(&tls->hs->ecdh_ctx, &len, p,
-					  TLS_MAX_PAYLOAD_SIZE);
-		if (r) {
-			T_DBG("cannot make ECDH params, %d\n", r);
-			goto err;
-		}
-		WARN_ON_ONCE(len > 500);
-		dig_signed = p;
-		dig_signed_len = len;
-		p += len;
-		n += len;
-
-		TTLS_DEBUG_ECP("ECDH: Q ", &tls->hs->ecdh_ctx.Q);
+		T_DBG_MPI4("DHM key exchange",
+			   &tls->hs->dhm_ctx.X, &tls->hs->dhm_ctx.P,
+			   &tls->hs->dhm_ctx.G, &tls->hs->dhm_ctx.GX);
 	}
 
 	/*
@@ -1686,7 +1649,7 @@ ttls_write_certificate_request(TlsCtx *tls, struct sg_table *sgt,
 	 *  enum { (255) } SignatureAlgorithm;
 	 */
 	/* Supported signature algorithms. */
-	for (cur = tls->peer_conf->sig_hashes; *cur != TTLS_MD_NONE; cur++) {
+	for (cur = ttls_preset_hashes; *cur != TTLS_MD_NONE; cur++) {
 		unsigned char hash = ttls_hash_from_md_alg(*cur);
 
 		if (TTLS_HASH_NONE == hash
@@ -1801,7 +1764,7 @@ ttls_parse_client_dh_public(TlsCtx *tls, unsigned char **p,
 
 	*p += n;
 
-	TTLS_DEBUG_MPI("DHM: GY", &tls->hs->dhm_ctx.GY);
+	T_DBG_MPI1("Client DH pub", &tls->hs->dhm_ctx.GY);
 
 	return r;
 }
@@ -1888,17 +1851,17 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 		       io->hslen, len, TTLS_HS_RBUF_SZ);
 		if (io->hslen > TTLS_HS_RBUF_SZ)
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE;
-		memcpy_fast(&tls->hs->tmp[io->rlen], buf, len);
+		memcpy_fast(&tls->hs->key_exchange_tmp[io->rlen], buf, len);
 		*read += len;
 		io->rlen += len;
 		return T_POSTPONE;
 	}
 	else if (io->rlen) {
 		len = io->hslen - io->rlen;
-		memcpy_fast(&tls->hs->tmp[io->rlen], buf, len);
+		memcpy_fast(&tls->hs->key_exchange_tmp[io->rlen], buf, len);
 		*read += len;
 		io->rlen += len;
-		p = tls->hs->tmp;
+		p = tls->hs->key_exchange_tmp;
 		end = p + io->hslen;
 		/*
 		 * Previous chunk checksums were computed in ttls_recv().
@@ -1933,7 +1896,8 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 			T_DBG("cannot read ecdh public, %d\n", r);
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_RP;
 		}
-		TTLS_DEBUG_ECP("ECDH: Qp ", &tls->hs->ecdh_ctx.Qp);
+		T_DBG_ECP("ECDH client key exchange EC point",
+			  &tls->hs->ecdh_ctx.Qp);
 
 		r = ttls_ecdh_calc_secret(&tls->hs->ecdh_ctx, &tls->hs->pmslen,
 					  tls->hs->premaster,
@@ -1942,7 +1906,7 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 			T_DBG("cannot calculate ecdh secret, %d\n", r);
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_CS;
 		}
-		TTLS_DEBUG_MPI("ECDH: z  ", &tls->hs->ecdh_ctx.z);
+		T_DBG_MPI1("ECDH client key exchange", &tls->hs->ecdh_ctx.z);
 	}
 	else if (ci->key_exchange == TTLS_KEY_EXCHANGE_DHE_RSA) {
 		if ((r = ttls_parse_client_dh_public(tls, &p, end))) {
@@ -1960,7 +1924,7 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 			T_DBG("cannot calculate dhm secret, %d\n", r);
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_CS;
 		}
-		TTLS_DEBUG_MPI("DHM: K ", &tls->hs->dhm_ctx.K );
+		T_DBG_MPI1("DHM client key exchange", &tls->hs->dhm_ctx.K);
 	}
 	else if (ci->key_exchange == TTLS_KEY_EXCHANGE_RSA) {
 		if ((r = ttls_parse_encrypted_pms(tls, p, end))) {
@@ -2080,8 +2044,8 @@ ttls_write_new_session_ticket(TlsCtx *tls, struct sg_table *sgt,
 	TlsIOCtx *io = &tls->io_out;
 
 	/*
-	 * TODO estimate size of the message more accurately on configuration
-	 * time.
+	 * TODO #1054 estimate size of the message more accurately on
+	 * configuration time.
 	 */
 
 	/*
@@ -2235,7 +2199,7 @@ ttls_handshake_server_hello(TlsCtx *tls)
 static int
 ttls_handshake_finished(TlsCtx *tls)
 {
-	int r;
+	int r = 0;
 	unsigned char *p, *begin;
 	struct page *pg;
 	struct scatterlist sg[MAX_SKB_FRAGS];

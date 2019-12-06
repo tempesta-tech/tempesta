@@ -50,15 +50,15 @@ typedef enum
  */
 typedef struct
 {
-	ttls_ecp_group grp;   /*!< The elliptic curve used. */
-	ttls_mpi d;		   /*!< The private key. */
-	ttls_ecp_point Q;	 /*!< The public key. */
-	ttls_ecp_point Qp;	/*!< The value of the public key of the peer. */
-	ttls_mpi z;		   /*!< The shared secret. */
+	TlsEcpGrp grp;   /*!< The elliptic curve used. */
+	TlsMpi d;		   /*!< The private key. */
+	TlsEcpPoint Q;	 /*!< The public key. */
+	TlsEcpPoint Qp;	/*!< The value of the public key of the peer. */
+	TlsMpi z;		   /*!< The shared secret. */
 	int point_format;		/*!< The format of point export in TLS messages. */
-	ttls_ecp_point Vi;	/*!< The blinding value. */
-	ttls_ecp_point Vf;	/*!< The unblinding value. */
-	ttls_mpi _d;		  /*!< The previous \p d. */
+	TlsEcpPoint Vi;	/*!< The blinding value. */
+	TlsEcpPoint Vf;	/*!< The unblinding value. */
+	TlsMpi _d;		  /*!< The previous \p d. */
 }
 ttls_ecdh_context;
 
@@ -79,7 +79,7 @@ ttls_ecdh_context;
  *
  * \see			 ecp.h
  */
-int ttls_ecdh_gen_public(ttls_ecp_group *grp, ttls_mpi *d, ttls_ecp_point *Q);
+int ttls_ecdh_gen_public(TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q);
 
 /**
  * \brief		   This function computes the shared secret.
@@ -102,8 +102,8 @@ int ttls_ecdh_gen_public(ttls_ecp_group *grp, ttls_mpi *d, ttls_ecp_point *Q);
  *				  countermeasures against potential elaborate timing
  *				  attacks. For more information, see ttls_ecp_mul().
  */
-int ttls_ecdh_compute_shared(ttls_ecp_group *grp, ttls_mpi *z,
-			 const ttls_ecp_point *Q, const ttls_mpi *d);
+int ttls_ecdh_compute_shared(TlsEcpGrp *grp, TlsMpi *z,
+			 const TlsEcpPoint *Q, const TlsMpi *d);
 
 /**
  * \brief		   This function initializes an ECDH context.
@@ -180,7 +180,7 @@ int ttls_ecdh_read_params(ttls_ecdh_context *ctx,
  *
  * \see			 ecp.h
  */
-int ttls_ecdh_get_params(ttls_ecdh_context *ctx, const ttls_ecp_keypair *key,
+int ttls_ecdh_get_params(ttls_ecdh_context *ctx, const TlsEcpKeypair *key,
 		 ttls_ecdh_side side);
 
 /**

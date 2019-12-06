@@ -8,6 +8,8 @@
  * The use of ECDSA for TLS is defined in <em>RFC-4492: Elliptic Curve
  * Cryptography (ECC) Cipher Suites for Transport Layer Security (TLS)</em>.
  *
+ * Based on mbed TLS, https://tls.mbed.org.
+ *
  * Copyright (C) 2006-2018, Arm Limited (or its affiliates), All Rights Reserved
  * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
@@ -55,7 +57,7 @@
 /**
  * \brief		   The ECDSA context structure.
  */
-typedef ttls_ecp_keypair ttls_ecdsa_context;
+typedef TlsEcpKeypair ttls_ecdsa_context;
 
 /**
  * \brief		   This function computes the ECDSA signature of a
@@ -81,8 +83,8 @@ typedef ttls_ecp_keypair ttls_ecdsa_context;
  *
  * \see			 ecp.h
  */
-int ttls_ecdsa_sign(ttls_ecp_group *grp, ttls_mpi *r, ttls_mpi *s,
-				const ttls_mpi *d, const unsigned char *buf, size_t blen);
+int ttls_ecdsa_sign(TlsEcpGrp *grp, TlsMpi *r, TlsMpi *s,
+				const TlsMpi *d, const unsigned char *buf, size_t blen);
 
 /**
  * \brief		   This function verifies the ECDSA signature of a
@@ -108,9 +110,9 @@ int ttls_ecdsa_sign(ttls_ecp_group *grp, ttls_mpi *r, ttls_mpi *s,
  *
  * \see			 ecp.h
  */
-int ttls_ecdsa_verify(ttls_ecp_group *grp,
+int ttls_ecdsa_verify(TlsEcpGrp *grp,
 				  const unsigned char *buf, size_t blen,
-				  const ttls_ecp_point *Q, const ttls_mpi *r, const ttls_mpi *s);
+				  const TlsEcpPoint *Q, const TlsMpi *r, const TlsMpi *s);
 
 int ttls_ecdsa_write_signature(ttls_ecdsa_context *ctx,
 			       const unsigned char *hash, size_t hlen,
@@ -135,7 +137,7 @@ int ttls_ecdsa_write_signature(ttls_ecdsa_context *ctx,
  *				  #TTLS_ERR_ECP_BAD_INPUT_DATA if signature is invalid,
  *				  #TTLS_ERR_ECP_SIG_LEN_MISMATCH if the signature is
  *				  valid but its actual length is less than \p siglen,
- *				  or an \c TTLS_ERR_ECP_XXX or \c TTLS_ERR_MPI_XXX
+ *				  or an \c TTLS_ERR_ECP_XXX
  *				  error code on failure for any other reason.
  *
  * \see			 ecp.h
@@ -143,20 +145,6 @@ int ttls_ecdsa_write_signature(ttls_ecdsa_context *ctx,
 int ttls_ecdsa_read_signature(ttls_ecdsa_context *ctx,
 			  const unsigned char *hash, size_t hlen,
 			  const unsigned char *sig, size_t slen);
-
-/**
- * \brief		  This function generates an ECDSA keypair on the given curve.
- *
- * \param ctx	  The ECDSA context to store the keypair in.
- * \param gid	  The elliptic curve to use. One of the various
- *				 \c TTLS_ECP_DP_XXX macros depending on configuration.
- *
- * \return		 \c 0 on success, or an \c TTLS_ERR_ECP_XXX code on
- *				 failure.
- *
- * \see			ecp.h
- */
-int ttls_ecdsa_genkey(ttls_ecdsa_context *ctx, ttls_ecp_group_id gid);
 
 /**
  * \brief		   This function sets an ECDSA context from an EC key pair.
@@ -169,7 +157,7 @@ int ttls_ecdsa_genkey(ttls_ecdsa_context *ctx, ttls_ecp_group_id gid);
  *
  * \see			 ecp.h
  */
-int ttls_ecdsa_from_keypair(ttls_ecdsa_context *ctx, const ttls_ecp_keypair *key);
+int ttls_ecdsa_from_keypair(ttls_ecdsa_context *ctx, const TlsEcpKeypair *key);
 
 /**
  * \brief		   This function initializes an ECDSA context.

@@ -7,6 +7,8 @@
  * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
  *
+ * Based on mbed TLS, https://tls.mbed.org.
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -21,12 +23,9 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#include "config.h"
 #include "bignum.h"
 #include "crypto.h"
-#if defined(TTLS_DHM_C)
 #include "dhm.h"
-#endif
 #include "ecp.h"
 #include "oid.h"
 #include "pem.h"
@@ -56,7 +55,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 	{
 		use_ret = ret & 0xFF80;
 
-#if defined(TTLS_DHM_C)
 		if (use_ret == -(TTLS_ERR_DHM_BAD_INPUT_DATA))
 			snprintf(buf, buflen, "DHM - Bad input parameters");
 		if (use_ret == -(TTLS_ERR_DHM_READ_PARAMS_FAILED))
@@ -79,7 +77,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "DHM - DHM hardware accelerator failed");
 		if (use_ret == -(TTLS_ERR_DHM_SET_GROUP_FAILED))
 			snprintf(buf, buflen, "DHM - Setting the modulus and generator failed");
-#endif /* TTLS_DHM_C */
 
 		if (use_ret == -(TTLS_ERR_ECP_BAD_INPUT_DATA))
 			snprintf(buf, buflen, "ECP - Bad input parameters to function");
@@ -89,12 +86,8 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "ECP - Requested curve not available");
 		if (use_ret == -(TTLS_ERR_ECP_VERIFY_FAILED))
 			snprintf(buf, buflen, "ECP - The signature is not valid");
-		if (use_ret == -(TTLS_ERR_ECP_ALLOC_FAILED))
-			snprintf(buf, buflen, "ECP - Memory allocation failed");
 		if (use_ret == -(TTLS_ERR_ECP_RANDOM_FAILED))
 			snprintf(buf, buflen, "ECP - Generation of random value, such as (ephemeral) key, failed");
-		if (use_ret == -(TTLS_ERR_ECP_INVALID_KEY))
-			snprintf(buf, buflen, "ECP - Invalid private or public key");
 		if (use_ret == -(TTLS_ERR_ECP_SIG_LEN_MISMATCH))
 			snprintf(buf, buflen, "ECP - Signature is valid but shorter than the user-supplied length");
 		if (use_ret == -(TTLS_ERR_ECP_HW_ACCEL_FAILED))
@@ -320,23 +313,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 		snprintf(buf, buflen, "BASE64 - Output buffer too small");
 	if (use_ret == -(TTLS_ERR_BASE64_INVALID_CHARACTER))
 		snprintf(buf, buflen, "BASE64 - Invalid character in input");
-
-	if (use_ret == -(TTLS_ERR_MPI_FILE_IO_ERROR))
-		snprintf(buf, buflen, "BIGNUM - An error occurred while reading from or writing to a file");
-	if (use_ret == -(TTLS_ERR_MPI_BAD_INPUT_DATA))
-		snprintf(buf, buflen, "BIGNUM - Bad input parameters to function");
-	if (use_ret == -(TTLS_ERR_MPI_INVALID_CHARACTER))
-		snprintf(buf, buflen, "BIGNUM - There is an invalid character in the digit string");
-	if (use_ret == -(TTLS_ERR_MPI_BUFFER_TOO_SMALL))
-		snprintf(buf, buflen, "BIGNUM - The buffer is too small to write to");
-	if (use_ret == -(TTLS_ERR_MPI_NEGATIVE_VALUE))
-		snprintf(buf, buflen, "BIGNUM - The input arguments are negative or result in illegal output");
-	if (use_ret == -(TTLS_ERR_MPI_DIVISION_BY_ZERO))
-		snprintf(buf, buflen, "BIGNUM - The input argument for division is zero, which is not allowed");
-	if (use_ret == -(TTLS_ERR_MPI_NOT_ACCEPTABLE))
-		snprintf(buf, buflen, "BIGNUM - The input arguments are not acceptable");
-	if (use_ret == -(TTLS_ERR_MPI_ALLOC_FAILED))
-		snprintf(buf, buflen, "BIGNUM - Memory allocation failed");
 
 	if (use_ret == -(TTLS_ERR_OID_NOT_FOUND))
 		snprintf(buf, buflen, "OID - OID is not found");

@@ -3,6 +3,8 @@
  *
  * Public Key abstraction layer
  *
+ * Based on mbed TLS, https://tls.mbed.org.
+ *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
@@ -226,29 +228,6 @@ ttls_pk_encrypt(ttls_pk_context *ctx, const unsigned char *input, size_t ilen,
 }
 
 /**
- * Check public-private key pair.
- */
-int
-ttls_pk_check_pair(const ttls_pk_context *pub, const ttls_pk_context *prv)
-{
-	if (unlikely(!pub || !pub->pk_info || !prv || !prv->pk_info
-		     || !prv->pk_info->check_pair_func))
-	{
-		return TTLS_ERR_PK_BAD_INPUT_DATA;
-	}
-
-	if (prv->pk_info->type == TTLS_PK_RSA_ALT) {
-		if (pub->pk_info->type != TTLS_PK_RSA)
-			return TTLS_ERR_PK_TYPE_MISMATCH;
-	} else {
-		if (pub->pk_info != prv->pk_info)
-			return TTLS_ERR_PK_TYPE_MISMATCH;
-	}
-
-	return prv->pk_info->check_pair_func(pub->pk_ctx, prv->pk_ctx);
-}
-
-/**
  * Get key size in bits.
  */
 size_t
@@ -257,19 +236,6 @@ ttls_pk_get_bitlen(const ttls_pk_context *ctx)
 	if (unlikely(!ctx || !ctx->pk_info))
 		return 0;
 	return ctx->pk_info->get_bitlen(ctx->pk_ctx);
-}
-
-/**
- * Export debug information.
- */
-int
-ttls_pk_debug(const ttls_pk_context *ctx, ttls_pk_debug_item *items)
-{
-	TTLS_PK_ARGS_SANITY_CHECK(debug);
-
-	ctx->pk_info->debug_func(ctx->pk_ctx, items);
-
-	return 0;
 }
 
 /**

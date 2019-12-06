@@ -236,6 +236,7 @@ TEST(hpack, dec_table_dynamic_inc)
 	TfwStr h_name, *s1, *s2, *s3, *s4, *s5;
 	const TfwHPackEntry *entry;
 	TfwMsgParseIter *it = &test_req->pit;
+
 	TFW_STR(s1_name, "custom-header-1");
 	TFW_STR(s1_value, "custom value 1");
 	TFW_STR(s2_name, "custom-header-2");
@@ -321,6 +322,7 @@ TEST(hpack, dec_table_dynamic_inc)
 
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 64);
 	EXPECT_NOT_NULL(entry);
+
 	if (entry)
 		EXPECT_TRUE(tfw_strcmp(entry->hdr, s3) == 0);
 
@@ -366,6 +368,8 @@ TEST(hpack, dec_table_wrap)
 
 			entry = tfw_hpack_find_index(&hp->dec_tbl, i);
 			EXPECT_NOT_NULL(entry);
+			if (!entry)
+				continue;
 
 			if (i >= end_idx - shift)
 				last_entries[i - (end_idx - shift)] = *entry;
@@ -1518,6 +1522,8 @@ TEST(hpack, enc_table_rbtree)
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(n3);
+	if (!n3)
+		return;
 
 	/*
 	 * After re-balancing (which includes one right and one left rotations)
@@ -1583,6 +1589,8 @@ TEST(hpack, enc_table_rbtree)
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(n4);
+	if (!n4)
+		return;
 
 	/*
 	 * After re-balancing (which should not include any rotations, only
@@ -1633,6 +1641,8 @@ TEST(hpack, enc_table_rbtree)
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(n5);
+	if (!n5)
+		return;
 
 	/* Check the structure and nodes' color of the entire tree. */
 	EXPECT_NULL(HPACK_NODE_COND(tbl, n3->parent));

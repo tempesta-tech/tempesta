@@ -1,6 +1,8 @@
 /*
  *		Tempesta TLS
  *
+ * Based on mbed TLS, https://tls.mbed.org.
+ *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
@@ -27,15 +29,13 @@
 #include <linux/string.h>
 #include <net/tls.h>
 
-#include "config.h"
+#include "lib/str.h"
 #include "bignum.h"
 #include "ciphersuites.h"
 #include "ecp.h"
 #include "x509_crt.h"
 #include "x509_crl.h"
-#if defined(TTLS_DHM_C)
 #include "dhm.h"
-#endif
 #include "ecdh.h"
 
 /* The requested feature is not available. */
@@ -135,10 +135,8 @@
 #define TTLS_SESSION_TICKETS_DISABLED		0
 #define TTLS_SESSION_TICKETS_ENABLED		1
 
-#if !defined(TTLS_DEFAULT_TICKET_LIFETIME)
 /* Lifetime of session tickets (if enabled) */
 #define TTLS_DEFAULT_TICKET_LIFETIME		86400
-#endif
 
 /*
  * Signaling ciphersuite values (SCSV)
@@ -272,10 +270,11 @@ union ttls_premaster_secret
 
 /* Defined below */
 typedef struct ttls_alpn_proto ttls_alpn_proto;
-typedef struct ttls_context ttls_context;
 
 /* Defined in tls_internal.h */
 typedef struct ttls_key_cert ttls_key_cert;
+
+typedef struct ttls_context TlsCtx;
 
 /*
  * ALPN protocol descriptor.
@@ -301,6 +300,9 @@ struct ttls_alpn_proto {
  * @verify_result	- verification result;
  * @id			- session identifier;
  * @master		- the master secret;
+ * @ticket		- RFC 5077 session ticket (client-only);
+ * @ticket_len		- session ticket length (client-only);
+ * @ticket_lifetime	- ticket lifetime hint (client-only);
  */
 typedef struct {
 	ttls_x509_crt	*peer_cert;
@@ -311,11 +313,9 @@ typedef struct {
 	unsigned char	id_len;
 	unsigned char	id[32];
 	unsigned char	master[48];
-#if defined(TTLS_CLI_C)
-	unsigned char *ticket;	/*!< RFC 5077 session ticket */
-	size_t ticket_len;	/*!< session ticket length */
-	uint32_t ticket_lifetime; /*!< ticket lifetime hint	*/
-#endif /* TTLS_SESSION_TICKETS && TTLS_CLI_C */
+	unsigned char	*ticket;
+	size_t		ticket_len;
+	uint32_t	ticket_lifetime;
 } TlsSess;
 
 /*
@@ -357,8 +357,6 @@ typedef struct {
  * may have its own settings and limitations.
  *
  * @ciphersuite_list	- Allowed ciphersuites per TLS version;
- * @curve_list		- Allowed curves;
- * @sig_hashes		- Allowed signature hashes;
  * @key_cert		- Own certificate/key list;
  * @priv		- Private section, used for configuration storing;
  * @min_minor_ver	- Minimum supported TLS version;
@@ -366,7 +364,6 @@ typedef struct {
  *
  * @endpoint		- Peer type: 0: client, 1: server;
  * @authmode		- TTLS_VERIFY_XXX;
- * @session_tickets	- Use session tickets if set;
  * @cert_req_ca_list	- Enable sending CA list in Certificate Request messages;
  *
  * The structure is to be populated by more fields from the TlsCfg, arrange
@@ -374,8 +371,6 @@ typedef struct {
  */
 typedef struct {
 	const int			*ciphersuite_list[4];
-	const ttls_ecp_group_id		*curve_list;
-	const int			*sig_hashes;
 	ttls_key_cert			*key_cert;
 	void				*priv;
 
@@ -384,17 +379,12 @@ typedef struct {
 
 	unsigned int			endpoint : 1;
 	unsigned int			authmode : 2;
-	unsigned int			session_tickets : 1;
 	unsigned int			cert_req_ca_list : 1;
 } TlsPeerCfg;
 
 /**
  * Global TLS configuration to be shared between all vhosts and to be used in
- * ttls_context structures.
- *
- * @f_get_cache		- Callback to retrieve a session from the cache;
- * @f_set_cache		- Callback to store a session into the cache;
- * @p_cache		- Context for cache callbacks;
+ * TlsCtx structures.
  *
  * @f_sni		- Callback for setting cert according to SNI extension;
  * @p_sni		- Context for SNI callback;
@@ -406,8 +396,6 @@ typedef struct {
  * @f_ticket_parse	- Callback to parse a session ticket into a session
  *			  structure;
  * @p_ticket		- Context for the ticket callbacks;
- *
- * @cert_profile	- Verification profile;
  *
  * @dhm_P		- prime modulus for DHM;
  * @dhm_G		- generator for DHM;
@@ -423,17 +411,13 @@ typedef struct {
  *
  * @endpoint		- Peer type: 0: client, 1: server;
  * @authmode		- TTLS_VERIFY_XXX;
- * @session_tickets	- Use session tickets if set;
  * @cert_req_ca_list	- Enable sending CA list in Certificate Request messages;
  *
  * Members are grouped by size (largest first) to minimize padding overhead.
  */
 typedef struct
 {
-	int (*f_get_cache)(void *, TlsSess *);
-	int (*f_set_cache)(void *, const TlsSess *);
-	void *p_cache;
-	int (*f_sni)(void *, ttls_context *, const unsigned char *, size_t);
+	int (*f_sni)(void *, TlsCtx *, const unsigned char *, size_t);
 	void *p_sni;
 	int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *);
 	void *p_vrfy;
@@ -442,22 +426,16 @@ typedef struct
 	int (*f_ticket_parse)(void *, TlsSess *, unsigned char *, size_t);
 	void *p_ticket;
 
-	const ttls_x509_crt_profile	*cert_profile;
-#if defined(TTLS_DHM_C)
-	ttls_mpi			dhm_P;
-	ttls_mpi			dhm_G;
-#endif
+	TlsMpi				dhm_P;
+	TlsMpi				dhm_G;
 	const ttls_alpn_proto		*alpn_list;
 
 	uint32_t			read_timeout;
 	unsigned char			min_minor_ver;
 	unsigned char			max_minor_ver;
-#if defined(TTLS_DHM_C) && defined(TTLS_CLI_C)
 	unsigned int			dhm_min_bitlen;
-#endif
 	unsigned int			endpoint : 1;
 	unsigned int			authmode : 2;
-	unsigned int			session_tickets : 1;
 	unsigned int			cert_req_ca_list : 1;
 } TlsCfg;
 
@@ -575,396 +553,51 @@ const char *ttls_get_ciphersuite_name(const int ciphersuite_id);
 
 int ttls_ctx_init(TlsCtx *tls, const TlsCfg *conf);
 
-/**
- * \brief	Set the certificate verification mode
- *		Default: NONE on server, REQUIRED on client
- *
- * \param conf	SSL configuration
- * \param authmode can be:
- *
- * TTLS_VERIFY_NONE:	peer certificate is not checked
- *		(default on server)
- *		(insecure on client)
- *
- * TTLS_VERIFY_OPTIONAL: peer certificate is checked, however the
- *		handshake continues even if verification failed;
- *		ttls_get_verify_result() can be called after the
- *		handshake is complete.
- *
- * TTLS_VERIFY_REQUIRED: peer *must* present a valid certificate,
- *		handshake is aborted if verification failed.
- *		(default on client)
- *
- * \note On client, TTLS_VERIFY_REQUIRED is the recommended mode.
- * With TTLS_VERIFY_OPTIONAL, the user needs to call ttls_get_verify_result() at
- * the right time(s), which may not be obvious, while REQUIRED always perform
- * the verification as soon as possible. For example, REQUIRED was protecting
- * against the "triple handshake" attack even before it was found.
- */
 void ttls_conf_authmode(TlsCfg *conf, int authmode);
 
-/**
- * \brief	Callback type: generate and write session ticket
- *
- * \note	This describes what a callback implementation should do.
- *		This callback should generate an encrypted and
- *		authenticated ticket for the session and write it to the
- *		output buffer. Here, ticket means the opaque ticket part
- *		of the NewSessionTicket structure of RFC 5077.
- *
- * \param p_ticket Context for the callback
- * \param session SSL session to be written in the ticket
- * \param start	Start of the output buffer
- * \param end	End of the output buffer
- * \param tlen	On exit, holds the length written
- * \param lifetime On exit, holds the lifetime of the ticket in seconds
- *
- * \return	0 if successful, or
- *		a specific TTLS_ERR_XXX code.
- */
-typedef int ttls_ticket_write_t(void *p_ticket,
-	const TlsSess *session,
-	unsigned char *start,
-	const unsigned char *end,
-	size_t *tlen,
-	uint32_t *lifetime);
+typedef int ttls_ticket_write_t(void *p_ticket, const TlsSess *session,
+				unsigned char *start, const unsigned char *end,
+				size_t *tlen, uint32_t *lifetime);
 
-/**
- * \brief	Callback type: parse and load session ticket
- *
- * \note	This describes what a callback implementation should do.
- *		This callback should parse a session ticket as generated
- *		by the corresponding ttls_ticket_write_t function,
- *		and, if the ticket is authentic and valid, load the
- *		session.
- *
- * \note	The implementation is allowed to modify the first len
- *		bytes of the input buffer, eg to use it as a temporary
- *		area for the decrypted ticket contents.
- *
- * \param p_ticket Context for the callback
- * \param session SSL session to be loaded
- * \param buf	Start of the buffer containing the ticket
- * \param len	Length of the ticket.
- *
- * \return	0 if successful, or
- *		TTLS_ERR_INVALID_MAC if not authentic, or
- *		TTLS_ERR_SESSION_TICKET_EXPIRED if expired, or
- *		any other non-zero code for other failures.
- */
 typedef int ttls_ticket_parse_t(void *p_ticket, TlsSess *session,
 				unsigned char *buf, size_t len);
 
-/**
- * \brief	Configure SSL session ticket callbacks (server only).
- *		(Default: none.)
- *
- * \note	On server, session tickets are enabled by providing
- *		non-NULL callbacks.
- *
- * \param conf	SSL configuration context
- * \param f_ticket_write	Callback for writing a ticket
- * \param f_ticket_parse	Callback for parsing a ticket
- * \param p_ticket	Context shared by the two callbacks
- */
 void ttls_conf_session_tickets_cb(TlsCfg *conf,
 				  ttls_ticket_write_t *f_ticket_write,
 				  ttls_ticket_parse_t *f_ticket_parse,
 				  void *p_ticket);
+int ttls_set_session(TlsCtx *ssl, const TlsSess *session);
 
-#if defined(TTLS_CLI_C)
-/**
- * \brief	Request resumption of session (client-side only)
- *		Session data is copied from presented session structure.
- *
- * \param ssl	SSL context
- * \param session session context
- *
- * \return	0 if successful,
- *		TTLS_ERR_ALLOC_FAILED if memory allocation failed,
- *		TTLS_ERR_BAD_INPUT_DATA if used server-side or
- *		arguments are otherwise invalid
- *
- * \sa	ttls_get_session()
- */
-int ttls_set_session(ttls_context *ssl, const TlsSess *session);
-#endif /* TTLS_CLI_C */
-
-/**
- * \brief	Set the list of allowed ciphersuites and the
- *		preference order for a specific version of the protocol.
- *		(Only useful on the server side)
- *
- *		The ciphersuites array is not copied, and must remain
- *		valid for the lifetime of the ssl_config.
- *
- * \param ciphersuite_list	ciphersuite list
- * \param ciphersuites 0-terminated list of allowed ciphersuites
- * \param minor	Minor version number (TTLS_MINOR_VERSION_3 and
- *  			TTLS_MINOR_VERSION_2 supported)
- */
-void ttls_conf_ciphersuites_for_version(const int **ciphersuite_list,
-					const int *ciphersuites,
-					int minor);
-
-/**
- * \brief	Set the X.509 security profile used for verification
- *
- * \note	The restrictions are enforced for all certificates in the
- *		chain. However, signatures in the handshake are not covered
- *		by this setting but by \b ttls_conf_sig_hashes().
- *
- * \param conf	SSL configuration
- * \param profile Profile to use
- */
-void ttls_conf_cert_profile(TlsCfg *conf,
-			    const ttls_x509_crt_profile *profile);
-
-/**
- * \brief	Set own certificate chain and private key
- *
- * \note	own_cert should contain in order from the bottom up your
- *		certificate chain. The top certificate (self-signed)
- *		can be omitted.
- *
- * \note	On server, this function can be called multiple times to
- *		provision more than one cert/key pair (eg one ECDSA, one
- *		RSA with SHA-256, one RSA with SHA-1). An adequate
- *		certificate will be selected according to the client's
- *		advertised capabilities. In case multiple certificates are
- *		adequate, preference is given to the one set by the first
- *		call to this function, then second, etc.
- *
- * \note	On client, only the first call has any effect. That is,
- *		only one client certificate can be provisioned. The
- *		server's preferences in its CertficateRequest message will
- *		be ignored and our only cert will be sent regardless of
- *		whether it matches those preferences - the server can then
- *		decide what it wants to do with it.
- *
- * \param conf	SSL configuration
- * \param own_cert own public certificate chain
- * \param pk_key own private key
- * \param ca_chain trusted CA chain (meaning all fully trusted top-level CAs)
- * \param ca_crl trusted CA CRLs
- *
- * \return	0 on success or TTLS_ERR_ALLOC_FAILED
- */
-int ttls_conf_own_cert(TlsPeerCfg *conf,
-		       ttls_x509_crt *own_cert,
-		       ttls_pk_context *pk_key,
-		       ttls_x509_crt *ca_chain,
+int ttls_conf_own_cert(TlsPeerCfg *conf, ttls_x509_crt *own_cert,
+		       ttls_pk_context *pk_key, ttls_x509_crt *ca_chain,
 		       ttls_x509_crl *ca_crl);
 
-#if defined(TTLS_DHM_C)
-
-/**
- * \brief	Set the Diffie-Hellman public P and G values
- *		from big-endian binary presentations.
- *		(Default values: TTLS_DHM_RFC3526_MODP_2048_[PG]_BIN)
- *
- * \param conf	SSL configuration
- * \param dhm_P	Diffie-Hellman-Merkle modulus in big-endian binary form
- * \param P_len	Length of DHM modulus
- * \param dhm_G	Diffie-Hellman-Merkle generator in big-endian binary form
- * \param G_len	Length of DHM generator
- *
- * \return	0 if successful
- */
 int ttls_conf_dh_param_bin(TlsCfg *conf,
 			   const unsigned char *dhm_P, size_t P_len,
 			   const unsigned char *dhm_G, size_t G_len);
-
-/**
- * \brief	Set the Diffie-Hellman public P and G values,
- *		read from existing context (server-side only)
- *
- * \param conf	SSL configuration
- * \param dhm_ctx Diffie-Hellman-Merkle context
- *
- * \return	0 if successful
- */
 int ttls_conf_dh_param_ctx(TlsCfg *conf, ttls_dhm_context *dhm_ctx);
-#endif /* TTLS_DHM_C */
-
-#if defined(TTLS_DHM_C) && defined(TTLS_CLI_C)
-/**
- * \brief	Set the minimum length for Diffie-Hellman parameters.
- *		(Client-side only.)
- *		(Default: 1024 bits.)
- *
- * \param conf	SSL configuration
- * \param bitlen Minimum bit length of the DHM prime
- */
 void ttls_conf_dhm_min_bitlen(TlsCfg *conf,
 			      unsigned int bitlen);
-#endif /* TTLS_DHM_C && TTLS_CLI_C */
 
-/**
- * \brief	Set the allowed curves in order of preference.
- *		(Default: all defined curves.)
- *
- *		On server: this only affects selection of the ECDHE curve;
- *		the curves used for ECDH and ECDSA are determined by the
- *		list of available certificates instead.
- *
- *		On client: this affects the list of curves offered for any
- *		use. The server can override our preference order.
- *
- *		Both sides: limits the set of curves accepted for use in
- *		ECDHE and in the peer's end-entity certificate.
- *
- * \note	This has no influence on which curves are allowed inside the
- *		certificate chains, see \c ttls_conf_cert_profile()
- *		for that. For the end-entity certificate however, the key
- *		will be accepted only if it is allowed both by this list
- *		and by the cert profile.
- *
- * \note	This list should be ordered by decreasing preference
- *		(preferred curve first).
- *
- * \param conf	TLS peer configuration
- * \param curves Ordered list of allowed curves,
- *		terminated by TTLS_ECP_DP_NONE.
- */
-void ttls_conf_curves(TlsPeerCfg *conf,
-		      const ttls_ecp_group_id *curves);
-
-/**
- * \brief	Set the allowed hashes for signatures during the handshake.
- *		(Default: all available hashes except MD5.)
- *
- * \note	This only affects which hashes are offered and can be used
- *		for signatures during the handshake. Hashes for message
- *		authentication and the TLS PRF are controlled by the
- *		ciphersuite, see \c ttls_conf_ciphersuites_for_version(). Hashes
- *		used for certificate signature are controlled by the
- *		verification profile, see \c ttls_conf_cert_profile().
- *
- * \note	This list should be ordered by decreasing preference
- *		(preferred hash first).
- *
- * \param conf	TLS peer configuration
- * \param hashes Ordered list of allowed signature hashes,
- *		terminated by \c TTLS_MD_NONE.
- */
-void ttls_conf_sig_hashes(TlsPeerCfg *conf, const int *hashes);
-
-/**
- * \brief	Set or reset the hostname to check against the received 
- *		server certificate. It sets the ServerName TLS extension, 
- *		too, if that extension is enabled. (client-side only)
- *
- * \param ssl	SSL context
- * \param hostname the server hostname, may be NULL to clear hostname
- 
- * \note	Maximum hostname length TTLS_MAX_HOST_NAME_LEN.
- *
- * \return	0 if successful, TTLS_ERR_ALLOC_FAILED on 
- *		allocation failure, TTLS_ERR_BAD_INPUT_DATA on 
- *		too long input hostname.
- *
- *		Hostname set to the one provided on success (cleared
- *		when NULL). On allocation failure hostname is cleared. 
- *		On too long input failure, old hostname is unchanged.
- */
-int ttls_set_hostname(ttls_context *ssl, const char *hostname);
-
-/**
- * \brief	Set authmode for the current handshake.
- *
- * \note	Same as \c ttls_conf_authmode() but for use within
- *		the SNI callback.
- *
- * \param ssl	SSL context
- * \param authmode TTLS_VERIFY_NONE, TTLS_VERIFY_OPTIONAL or
- *		TTLS_VERIFY_REQUIRED
- */
-void ttls_set_hs_authmode(ttls_context *ssl, int authmode);
-
-/**
- * \brief	Set server side ServerName TLS extension callback
- *		(optional, server-side only).
- *
- *		If set, the ServerName callback is called whenever the
- *		server receives a ServerName TLS extension from the client
- *		during a handshake. The ServerName callback has the
- *		following parameters: (void *parameter, ttls_context *ssl,
- *		const unsigned char *hostname, size_t len). If a suitable
- *		certificate is found, the callback must fill the
- *		peer tls configuration part in the TLS context,
- *		and may optionally adjust authentication mode with
- *		\c ttls_set_hs_authmode(),
- *		then must return 0. If no matching name is found, the
- *		callback must either set a default peer configuration, or
- *		return non-zero to abort the handshake at this point.
- *		The function is also called if there is no ServerName Extension
- *		found and no peer configuration can be assigned.
- *
- * \param conf	TLS configuration
- * \param f_sni	verification function
- * \param p_sni	verification parameter
- */
+int ttls_set_hostname(TlsCtx *ssl, const char *hostname);
+void ttls_set_hs_authmode(TlsCtx *ssl, int authmode);
 void ttls_conf_sni(TlsCfg *conf,
-		   int (*f_sni)(void *, ttls_context *, const unsigned char *,
+		   int (*f_sni)(void *, TlsCtx *, const unsigned char *,
 				size_t),
 		   void *p_sni);
-
-/**
- * \brief	Get the name of the negotiated Application Layer Protocol.
- *		This function should be called after the handshake is
- *		completed.
- *
- * \param ssl	SSL context
- *
- * \return	Protocol name, or NULL if no protocol was negotiated.
- */
-const char *ttls_get_alpn_protocol(const ttls_context *ssl);
-
+const char *ttls_get_alpn_protocol(const TlsCtx *ssl);
 void ttls_conf_version(TlsCfg *conf, int min_minor, int max_minor);
 
-#if defined(TTLS_CLI_C)
-/**
- * \brief	Save session in order to resume it later (client-side only)
- *		Session data is copied to presented session structure.
- *
- * \warning	Currently, peer certificate is lost in the operation.
- *
- * \param ssl	SSL context
- * \param session session context
- *
- * \return	0 if successful,
- *		TTLS_ERR_ALLOC_FAILED if memory allocation failed,
- *		TTLS_ERR_BAD_INPUT_DATA if used server-side or
- *		arguments are otherwise invalid
- *
- * \sa	ttls_set_session()
- */
-int ttls_get_session(const ttls_context *ssl, TlsSess *session);
-#endif /* TTLS_CLI_C */
+int ttls_get_session(const TlsCtx *ssl, TlsSess *session);
 
 int ttls_recv(void *tls_data, unsigned char *buf, size_t len,
 	      unsigned int *read);
 int ttls_encrypt(TlsCtx *tls, struct sg_table *sgt, struct sg_table *out_sgt);
 
 int ttls_send_alert(TlsCtx *tls, unsigned char lvl, unsigned char msg);
-
-/**
- * \brief	Notify the peer that the connection is being closed
- *
- * \param ssl	SSL context
- *
- * \return	0 if successful, or a specific SSL error code.
- *
- * \note	If this function returns something other than 0 or
- *		TTLS_ERR_WANT_READ/WRITE, then the tls context
- *		becomes unusable, and you should either free it or call
- *		\c ttls_session_reset() on it before re-using it for
- *		a new connection; the current connection must be closed.
- */
 int ttls_close_notify(TlsCtx *tls);
 
-void ttls_ctx_clear(ttls_context *tls);
+void ttls_ctx_clear(TlsCtx *tls);
 void ttls_key_cert_free(ttls_key_cert *key_cert);
 
 void ttls_config_init(TlsCfg *conf);
@@ -998,6 +631,12 @@ static inline size_t
 ttls_payload_off(const TlsXfrm *xfrm)
 {
 	return TLS_HEADER_SIZE + ttls_expiv_len(xfrm);
+}
+
+static inline void
+ttls_reset_io_ctx(TlsIOCtx *io)
+{
+	bzero_fast(io->__initoff, sizeof(*io) - offsetof(TlsIOCtx, __initoff));
 }
 
 #endif /* __TTLS_H__ */
