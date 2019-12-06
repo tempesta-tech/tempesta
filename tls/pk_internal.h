@@ -3,6 +3,8 @@
  *
  * Public Key abstraction layer: wrapper functions.
  *
+ * Based on mbed TLS, https://tls.mbed.org.
+ *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
@@ -36,7 +38,6 @@
  * @sign_func		- Make signature;
  * @decrypt_func	- Decrypt message;
  * @encrypt_func	- Encrypt message;
- * @check_pair_func	- Check public-private key pair;
  * @ctx_alloc_func	- Allocate a new context;
  * @ctx_free_func	- Free the given context;
  * @debug_func		- Interface with the debug module;
@@ -57,7 +58,6 @@ struct ttls_pk_info_t {
 			    unsigned char *output, size_t *olen, size_t osize);
 	int (*encrypt_func)(void *ctx, const unsigned char *input, size_t ilen,
 			    unsigned char *output, size_t *olen, size_t osize);
-	int (*check_pair_func)(const void *pub, const void *prv);
 	void *(*ctx_alloc_func)(void);
 	void (*ctx_free_func)(void *ctx);
 	void (*debug_func)(const void *ctx, ttls_pk_debug_item *items);

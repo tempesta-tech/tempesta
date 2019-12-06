@@ -1323,6 +1323,8 @@ TEST(tfw_str_add_compound, plain)
 
 	s = tfw_str_add_compound(str_pool, s1);
 	EXPECT_NOT_NULL(s);
+	if (!s)
+		return;
 	*s = *s2;
 	EXPECT_TRUE(s1->nchunks == 2);
 	EXPECT_TRUE(tfw_str_eq_cstr(s1, "abcdefghijklmnopqrstuvwxyz",
@@ -1341,6 +1343,8 @@ TEST(tfw_str_add_compound, compound)
 
 	s = tfw_str_add_compound(str_pool, s1);
 	EXPECT_NOT_NULL(s);
+	if (!s)
+		return;
 	*s = *s2;
 	EXPECT_TRUE(s1->nchunks == chunks + 1);
 	EXPECT_TRUE(tfw_str_eq_cstr(s1, "abcdefghijklmnopqrstuvwxyz",
@@ -1356,6 +1360,8 @@ TEST(tfw_str_add_duplicate, both_plain)
 
 	s = tfw_str_add_duplicate(str_pool, s1);
 	EXPECT_NOT_NULL(s);
+	if (!s)
+		return;
 	*s = *s2;
 	EXPECT_TRUE(TFW_STR_DUP(s1));
 	EXPECT_TRUE(s1->nchunks == 2);
@@ -1377,6 +1383,8 @@ TEST(tfw_str_add_duplicate, first_plain)
 
 	s = tfw_str_add_duplicate(str_pool, s1);
 	EXPECT_NOT_NULL(s);
+	if (!s)
+		return;
 	*s = *s2;
 	EXPECT_TRUE(TFW_STR_DUP(s1));
 	EXPECT_TRUE(s1->nchunks == 2);
@@ -1398,6 +1406,8 @@ TEST(tfw_str_add_duplicate, second_plain)
 
 	s = tfw_str_add_duplicate(str_pool, s1);
 	EXPECT_NOT_NULL(s);
+	if (!s)
+		return;
 	*s = *s2;
 	EXPECT_TRUE(TFW_STR_DUP(s1));
 	EXPECT_TRUE(s1->nchunks == 2);
@@ -1419,6 +1429,8 @@ TEST(tfw_str_add_duplicate, both_compound)
 
 	s = tfw_str_add_duplicate(str_pool, s1);
 	EXPECT_NOT_NULL(s);
+	if (!s)
+		return;
 	*s = *s2;
 	EXPECT_TRUE(TFW_STR_DUP(s1));
 	EXPECT_TRUE(s1->nchunks == 2);

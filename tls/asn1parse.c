@@ -21,7 +21,8 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#include "config.h"
+#include <linux/slab.h>
+
 #include "asn1.h"
 #include "bignum.h"
 
@@ -151,7 +152,7 @@ int ttls_asn1_get_int(unsigned char **p,
 
 int ttls_asn1_get_mpi(unsigned char **p,
 				  const unsigned char *end,
-				  ttls_mpi *X)
+				  TlsMpi *X)
 {
 	int ret;
 	size_t len;
@@ -249,8 +250,8 @@ int ttls_asn1_get_sequence_of(unsigned char **p,
 		/* Allocate and assign next pointer */
 		if (*p < end)
 		{
-			cur->next = (ttls_asn1_sequence*)ttls_calloc(1,
-		sizeof(ttls_asn1_sequence));
+			cur->next = kmalloc(sizeof(ttls_asn1_sequence),
+					    GFP_KERNEL);
 
 			if (cur->next == NULL)
 				return(TTLS_ERR_ASN1_ALLOC_FAILED);
@@ -335,8 +336,8 @@ void ttls_asn1_free_named_data(ttls_asn1_named_data *cur)
 	if (cur == NULL)
 		return;
 
-	ttls_free(cur->oid.p);
-	ttls_free(cur->val.p);
+	kfree(cur->oid.p);
+	kfree(cur->val.p);
 
 	ttls_zeroize(cur, sizeof(ttls_asn1_named_data));
 }
@@ -349,7 +350,7 @@ void ttls_asn1_free_named_data_list(ttls_asn1_named_data **head)
 	{
 		*head = cur->next;
 		ttls_asn1_free_named_data(cur);
-		ttls_free(cur);
+		kfree(cur);
 	}
 }
 

@@ -1,55 +1,52 @@
 /*
- *  Elliptic curve Diffie-Hellman
+ *		Tempesta TLS
  *
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- *  SPDX-License-Identifier: GPL-2.0
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
- *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- *  This file is part of mbed TLS (https://tls.mbed.org)
- */
-/*
+ * Elliptic curve Diffie-Hellman.
  * References:
+ *	SEC1 http://www.secg.org/index.php?action=secg,docs_secg
+ *	RFC 4492
  *
- * SEC1 http://www.secg.org/index.php?action=secg,docs_secg
- * RFC 4492
+ * Based on mbed TLS, https://tls.mbed.org.
+ *
+ * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * SPDX-License-Identifier: GPL-2.0
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#include "config.h"
+#include "lib/str.h"
+
 #include "ecdh.h"
 
-#if !defined(TTLS_ECDH_GEN_PUBLIC_ALT)
 /*
  * Generate public key: simple wrapper around ttls_ecp_gen_keypair
  */
-int ttls_ecdh_gen_public(ttls_ecp_group *grp, ttls_mpi *d, ttls_ecp_point *Q)
+int ttls_ecdh_gen_public(TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q)
 {
 	return ttls_ecp_gen_keypair(grp, d, Q);
 }
-#endif /* TTLS_ECDH_GEN_PUBLIC_ALT */
 
-#if !defined(TTLS_ECDH_COMPUTE_SHARED_ALT)
 /*
  * Compute shared secret (SEC1 3.3.1)
  */
 int
-ttls_ecdh_compute_shared(ttls_ecp_group *grp, ttls_mpi *z,
-			 const ttls_ecp_point *Q, const ttls_mpi *d)
+ttls_ecdh_compute_shared(TlsEcpGrp *grp, TlsMpi *z,
+			 const TlsEcpPoint *Q, const TlsMpi *d)
 {
 	int ret;
-	ttls_ecp_point P;
+	TlsEcpPoint P;
 
 	ttls_ecp_point_init(&P);
 
@@ -72,14 +69,14 @@ cleanup:
 
 	return ret;
 }
-#endif /* TTLS_ECDH_COMPUTE_SHARED_ALT */
 
 /*
  * Initialize context
  */
-void ttls_ecdh_init(ttls_ecdh_context *ctx)
+void
+ttls_ecdh_init(ttls_ecdh_context *ctx)
 {
-	memset(ctx, 0, sizeof(ttls_ecdh_context));
+	bzero_fast(ctx, sizeof(ttls_ecdh_context));
 }
 
 /*
@@ -107,8 +104,9 @@ void ttls_ecdh_free(ttls_ecdh_context *ctx)
  *		  ECPoint		 public;
  *	  } ServerECDHParams;
  */
-int ttls_ecdh_make_params(ttls_ecdh_context *ctx, size_t *olen,
-		  unsigned char *buf, size_t blen)
+int
+ttls_ecdh_make_params(ttls_ecdh_context *ctx, size_t *olen, unsigned char *buf,
+		      size_t blen)
 {
 	int ret;
 	size_t grp_len, pt_len;
@@ -139,43 +137,46 @@ int ttls_ecdh_make_params(ttls_ecdh_context *ctx, size_t *olen,
  *		  ECPoint		 public;
  *	  } ServerECDHParams;
  */
-int ttls_ecdh_read_params(ttls_ecdh_context *ctx,
-		  const unsigned char **buf, const unsigned char *end)
+int
+ttls_ecdh_read_params(ttls_ecdh_context *ctx, const unsigned char **buf,
+		      const unsigned char *end)
 {
-	int ret;
+	int r;
 
-	if ((ret = ttls_ecp_tls_read_group(&ctx->grp, buf, end - *buf)) != 0)
-		return ret;
+	if ((r = ttls_ecp_tls_read_group(&ctx->grp, buf, end - *buf)))
+		return r;
 
-	if ((ret = ttls_ecp_tls_read_point(&ctx->grp, &ctx->Qp, buf, end - *buf))
-				!= 0)
-		return ret;
+	if ((r = ttls_ecp_tls_read_point(&ctx->grp, &ctx->Qp, buf, end - *buf)))
+		return r;
 
 	return 0;
 }
 
-/*
- * Get parameters from a keypair
+/**
+ * Get parameters from a keypair.
  */
-int ttls_ecdh_get_params(ttls_ecdh_context *ctx, const ttls_ecp_keypair *key,
-		 ttls_ecdh_side side)
+int
+ttls_ecdh_get_params(ttls_ecdh_context *ctx, const TlsEcpKeypair *key,
+		     ttls_ecdh_side side)
 {
-	int ret;
+	int r;
 
-	if ((ret = ttls_ecp_group_copy(&ctx->grp, &key->grp)) != 0)
-		return ret;
+	ttls_ecp_group_free(&ctx->grp);
+
+	if ((r = ttls_ecp_group_load(&ctx->grp, key->grp.id)))
+		return r;
 
 	/* If it's not our key, just import the public part as Qp */
 	if (side == TTLS_ECDH_THEIRS)
-		return(ttls_ecp_copy(&ctx->Qp, &key->Q));
+		return ttls_ecp_copy(&ctx->Qp, &key->Q);
 
 	/* Our key: import public (as Q) and private parts */
 	if (side != TTLS_ECDH_OURS)
-		return(TTLS_ERR_ECP_BAD_INPUT_DATA);
+		return TTLS_ERR_ECP_BAD_INPUT_DATA;
 
-	if ((ret = ttls_ecp_copy(&ctx->Q, &key->Q)) != 0 ||
-		(ret = ttls_mpi_copy(&ctx->d, &key->d)) != 0)
-		return ret;
+	if ((r = ttls_ecp_copy(&ctx->Q, &key->Q))
+	    || (r = ttls_mpi_copy(&ctx->d, &key->d)))
+		return r;
 
 	return 0;
 }
@@ -199,23 +200,24 @@ int ttls_ecdh_make_public(ttls_ecdh_context *ctx, size_t *olen,
 		olen, buf, blen);
 }
 
-/*
- * Parse and import the client's public value
+/**
+ * Parse and import the client's public value.
  */
-int ttls_ecdh_read_public(ttls_ecdh_context *ctx,
-		  const unsigned char *buf, size_t blen)
+int
+ttls_ecdh_read_public(ttls_ecdh_context *ctx, const unsigned char *buf,
+		      size_t blen)
 {
-	int ret;
+	int r;
 	const unsigned char *p = buf;
 
-	if (ctx == NULL)
-		return(TTLS_ERR_ECP_BAD_INPUT_DATA);
+	if (!ctx)
+		return TTLS_ERR_ECP_BAD_INPUT_DATA;
 
-	if ((ret = ttls_ecp_tls_read_point(&ctx->grp, &ctx->Qp, &p, blen)) != 0)
-		return ret;
+	if ((r = ttls_ecp_tls_read_point(&ctx->grp, &ctx->Qp, &p, blen)))
+		return r;
 
 	if ((size_t)(p - buf) != blen)
-		return(TTLS_ERR_ECP_BAD_INPUT_DATA);
+		return TTLS_ERR_ECP_BAD_INPUT_DATA;
 
 	return 0;
 }

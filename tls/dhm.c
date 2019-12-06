@@ -1,39 +1,44 @@
 /*
- *  Diffie-Hellman-Merkle key exchange
+ *		Tempesta TLS
  *
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- *  SPDX-License-Identifier: GPL-2.0
+ * Diffie-Hellman-Merkle key exchange.
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ * The following sources were referenced in the design of this implementation
+ * of the Diffie-Hellman-Merkle algorithm:
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * [1] Handbook of Applied Cryptography - 1997, Chapter 12
+ *     Menezes, van Oorschot and Vanstone
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * Based on mbed TLS, https://tls.mbed.org.
+ *
+ * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * SPDX-License-Identifier: GPL-2.0
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-/*
- *  The following sources were referenced in the design of this implementation
- *  of the Diffie-Hellman-Merkle algorithm:
- *
- *  [1] Handbook of Applied Cryptography - 1997, Chapter 12
- *	  Menezes, van Oorschot and Vanstone
- */
+#include "lib/str.h"
+
 #include "dhm.h"
 #include "pem.h"
 #include "asn1.h"
 
 /*
- * helper to validate the ttls_mpi size and import it
+ * helper to validate the TlsMpi size and import it
  */
-static int dhm_read_bignum(ttls_mpi *X,
+static int dhm_read_bignum(TlsMpi *X,
 				unsigned char **p,
 				const unsigned char *end)
 {
@@ -68,9 +73,9 @@ static int dhm_read_bignum(ttls_mpi *X,
  *  http://www.cl.cam.ac.uk/~rja14/Papers/psandqs.pdf
  *  http://web.nvd.nist.gov/view/vuln/detail?vulnId=CVE-2005-2643
  */
-static int dhm_check_range(const ttls_mpi *param, const ttls_mpi *P)
+static int dhm_check_range(const TlsMpi *param, const TlsMpi *P)
 {
-	ttls_mpi L, U;
+	TlsMpi L, U;
 	int ret = 0;
 
 	ttls_mpi_init(&L); ttls_mpi_init(&U);
@@ -89,9 +94,10 @@ cleanup:
 	return ret;
 }
 
-void ttls_dhm_init(ttls_dhm_context *ctx)
+void
+ttls_dhm_init(ttls_dhm_context *ctx)
 {
-	memset(ctx, 0, sizeof(ttls_dhm_context));
+	bzero_fast(ctx, sizeof(ttls_dhm_context));
 }
 
 void
@@ -206,8 +212,8 @@ cleanup:
  * Set prime modulus and generator
  */
 int ttls_dhm_set_group(ttls_dhm_context *ctx,
-			   const ttls_mpi *P,
-			   const ttls_mpi *G)
+			   const TlsMpi *P,
+			   const TlsMpi *G)
 {
 	int ret;
 
@@ -337,7 +343,7 @@ static int dhm_update_blinding(ttls_dhm_context *ctx)
 			TTLS_MPI_CHK(ttls_mpi_shift_r(&ctx->Vi, 1));
 
 		if (count++ > 10)
-			return(TTLS_ERR_MPI_NOT_ACCEPTABLE);
+			return -EINVAL;
 	}
 	while (ttls_mpi_cmp_int(&ctx->Vi, 1) <= 0);
 
@@ -356,7 +362,7 @@ int ttls_dhm_calc_secret(ttls_dhm_context *ctx,
 		 unsigned char *output, size_t output_size, size_t *olen)
 {
 	int ret;
-	ttls_mpi GYb;
+	TlsMpi GYb;
 
 	if (ctx == NULL || output_size < ctx->len)
 		return(TTLS_ERR_DHM_BAD_INPUT_DATA);

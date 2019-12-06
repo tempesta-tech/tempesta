@@ -1,6 +1,8 @@
 /*
  *		Tempesta TLS
  *
+ * Based on mbed TLS, https://tls.mbed.org.
+ *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
@@ -18,8 +20,6 @@
  * You should have received a copy of the GNU General Public License along
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- * This file is part of mbed TLS (https://tls.mbed.org)
  */
 #ifndef TTLS_X509_H
 #define TTLS_X509_H
