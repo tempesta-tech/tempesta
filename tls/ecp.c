@@ -232,7 +232,7 @@ ttls_ecp_keypair_free(TlsEcpKeypair *key)
 {
 	if (WARN_ON_ONCE(!key))
 		return;
-	ttls_mpi_free_mpool(key);
+	ttls_mpi_pool_free(key);
 }
 
 /*

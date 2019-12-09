@@ -101,9 +101,6 @@ typedef struct {
 	void			*value;
 } ttls_pk_debug_item;
 
-/* Public key information and operations. */
-typedef struct ttls_pk_info_t ttls_pk_info_t;
-
 /**
  * Public key container.
  *
@@ -111,14 +108,14 @@ typedef struct ttls_pk_info_t ttls_pk_info_t;
  * @pk_ctx	- Underlying public key context.
  */
 typedef struct {
-	const ttls_pk_info_t	*pk_info;
+	const TlsPkInfo		*pk_info;
 	void			*pk_ctx;
 } TlsPkCtx;
 
-const ttls_pk_info_t *ttls_pk_info_from_type(ttls_pk_type_t pk_type);
+const TlsPkInfo *ttls_pk_info_from_type(ttls_pk_type_t pk_type);
 void ttls_pk_init(TlsPkCtx *ctx);
 void ttls_pk_free(TlsPkCtx *ctx);
-int ttls_pk_setup(TlsPkCtx *ctx, const ttls_pk_info_t *info);
+int ttls_pk_setup(TlsPkCtx *ctx, const TlsPkInfo *info);
 size_t ttls_pk_get_bitlen(const TlsPkCtx *ctx);
 int ttls_pk_can_do(const TlsPkCtx *ctx, ttls_pk_type_t type);
 int ttls_pk_verify(TlsPkCtx *ctx, ttls_md_type_t md_alg,

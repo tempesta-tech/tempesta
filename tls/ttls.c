@@ -404,8 +404,7 @@ ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len)
 	if (unlikely(IS_ERR_OR_NULL(ci))) {
 		ttls_sha256_context *sha256 = &hs->tmp_sha256;
 		WARN_ON_ONCE(tls->state >= TTLS_SERVER_HELLO);
-		BUILD_BUG_ON(sizeof(ttls_ecdh_context)
-			     < sizeof(ttls_sha256_context));
+		BUILD_BUG_ON(sizeof(TlsECDHCtx) < sizeof(ttls_sha256_context));
 
 		if (!ci) {
 			if (WARN_ON_ONCE(ttls_sha256_init_start(sha256)))
@@ -908,7 +907,7 @@ __ttls_decrypt(TlsCtx *tls, unsigned char *buf)
 	 * Decrypt and authenticate.
 	 * Write decrypted data in-place to the original skb by offset of IV.
 	 *
-	 * TODO it seems actually the kernel unable to decrypt scatterlist
+	 * TODO #1064 it seems actually the kernel unable to decrypt scatterlist
 	 * w/o copies since gcmaes_decrypt() requires input and output segments
 	 * to be marked as ends.
 	 */
@@ -1278,7 +1277,7 @@ ttls_handshake_free(TlsHandshake *hs, const TlsCiphersuite *ci)
 
 	crypto_free_shash(hs->desc.tfm);
 
-	ttls_mpi_free_mpool(hs->crypto_ctx);
+	ttls_mpi_profile_free(hs->crypto_ctx);
 
 	bzero_fast(hs, sizeof(TlsHandshake));
 	kmem_cache_free(ttls_hs_cache, hs);
@@ -1961,56 +1960,6 @@ ttls_set_hs_authmode(TlsCtx *tls, int authmode)
 }
 
 /**
- * Set the Diffie-Hellman public P and G values from big-endian binary
- * presentations. Default values: TTLS_DHM_RFC3526_MODP_2048_[PG]_BIN.
- */
-int
-ttls_conf_dh_param_bin(TlsCfg *conf, const unsigned char *dhm_P, size_t P_len,
-		       const unsigned char *dhm_G, size_t G_len)
-{
-	int r;
-
-	if ((r = ttls_mpi_read_binary(&conf->dhm_P, dhm_P, P_len))
-	    || (r = ttls_mpi_read_binary(&conf->dhm_G, dhm_G, G_len)))
-	{
-		ttls_mpi_free(&conf->dhm_P);
-		ttls_mpi_free(&conf->dhm_G);
-		return r;
-	}
-
-	return 0;
-}
-
-/**
- * Set the Diffie-Hellman public P and G values, read from existing context
- * (server-side only).
- */
-int
-ttls_conf_dh_param_ctx(TlsCfg *conf, ttls_dhm_context *dhm_ctx)
-{
-	int r;
-
-	if ((r = ttls_mpi_copy(&conf->dhm_P, &dhm_ctx->P))
-	    || (r = ttls_mpi_copy(&conf->dhm_G, &dhm_ctx->G)))
-	{
-		ttls_mpi_free(&conf->dhm_P);
-		ttls_mpi_free(&conf->dhm_G);
-		return r;
-	}
-
-	return 0;
-}
-
-/*
- * Set the minimum length for Diffie-Hellman parameters (Client-side only).
- */
-void ttls_conf_dhm_min_bitlen(TlsCfg *conf,
-			      unsigned int bitlen)
-{
-	conf->dhm_min_bitlen = bitlen;
-}
-
-/**
  * Set or reset the hostname to check against the received server certificate.
  * It sets the ServerName TLS extension, too, if that extension is enabled.
  * (client-side only).
@@ -2261,7 +2210,7 @@ ttls_recv(void *tls_data, unsigned char *buf, size_t len, unsigned int *read)
 		r = ttls_handshake_step(tls, buf, len, hh_len, read);
 
 		/* Cleanup security sensitive temproary data. */
-		ttls_mpi_cleanup_ctx();
+		ttls_mpi_pool_cleanup_ctx();
 
 		if (!r)
 			return T_OK;
@@ -2434,18 +2383,6 @@ ttls_config_defaults(TlsCfg *conf, int endpoint)
 		conf->authmode = TTLS_VERIFY_REQUIRED;
 
 	conf->cert_req_ca_list = 0;
-
-	if (endpoint == TTLS_IS_SERVER) {
-		int r;
-		const unsigned char dhm_p[] = TTLS_DHM_RFC3526_MODP_2048_P_BIN;
-		const unsigned char dhm_g[] = TTLS_DHM_RFC3526_MODP_2048_G_BIN;
-
-		r = ttls_conf_dh_param_bin(conf, dhm_p, sizeof(dhm_p), dhm_g,
-					   sizeof(dhm_g));
-		if (r)
-				return r;
-	}
-
 	conf->min_minor_ver = TTLS_MINOR_VERSION_3; /* TLS 1.2 */
 	conf->max_minor_ver = TTLS_MAX_MINOR_VERSION;
 
@@ -2840,7 +2777,7 @@ ttls_get_key_exchange_md_tls1_2(TlsCtx *tls, unsigned char *output,
 
 exit:
 	ttls_md_free(&ctx);
-	if (r != 0)
+	if (r)
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				TTLS_ALERT_MSG_INTERNAL_ERROR);
 	return r;
