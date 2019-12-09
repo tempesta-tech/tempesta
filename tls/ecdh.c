@@ -70,7 +70,7 @@ ttls_ecdh_compute_shared(TlsEcpGrp *grp, TlsEcpPoint *_P, const TlsEcpPoint *Q,
  * Setup and write the ServerKeyExhange parameters (RFC 8422 5.4):
  *	struct {
  *		ECParameters	curve_params;
- *		ECPoint	public;
+ *		ECPoint		public;
  *	} ServerECDHParams;
  *
  * This function generates a public key and a TLS ServerKeyExchange payload.

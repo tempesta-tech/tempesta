@@ -60,7 +60,7 @@ ttls_pk_free(TlsPkCtx *ctx)
 }
 EXPORT_SYMBOL(ttls_pk_free);
 
-const ttls_pk_info_t *
+const TlsPkInfo *
 ttls_pk_info_from_type(ttls_pk_type_t pk_type)
 {
 	switch (pk_type) {
@@ -79,7 +79,7 @@ ttls_pk_info_from_type(ttls_pk_type_t pk_type)
 }
 
 int
-ttls_pk_setup(TlsPkCtx *ctx, const ttls_pk_info_t *info)
+ttls_pk_setup(TlsPkCtx *ctx, const TlsPkInfo *info)
 {
 	might_sleep();
 	BUG_ON(!ctx || !info || ctx->pk_info);

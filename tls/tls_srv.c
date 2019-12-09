@@ -1303,23 +1303,14 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 	TlsIOCtx *io = &tls->io_out;
 	unsigned char *dig_signed, *p, *hdr = *in_buf;
 
-	if (ttls_mpi_profile_alloc(tls)) {
-		T_WARN("Can't allocate a crypto memory profile.\n");
-		return -ENOMEM;
-	}
-
 	/*
 	 * Part 1: Extract static ECDH parameters and abort if
 	 * ServerKeyExchange isn't needed.
 	 */
-	/*
-	 * For suites involving ECDH, extract DH parameters from certificate at
-	 * this point.
-	 */
-	if (ttls_ciphersuite_uses_ecdh(ci))
-		/* TODO #1064 get the MPI memory profile. */
-		;
-
+	if (ttls_mpi_profile_clone(tls)) {
+		T_WARN("Can't allocate a crypto memory profile.\n");
+		return -ENOMEM;
+	}
 	/*
 	 * Key exchanges not involving ephemeral keys don't use
 	 * ServerKeyExchange, so end here.
@@ -1349,35 +1340,7 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 		 *	 ECPoint	public;
 		 * } ServerECDHParams;
 		 */
-		const TlsEcpCurveInfo **curve = NULL;
-		const ttls_ecp_group_id *gid = ttls_preset_curves;
-
-		/* Match our preference list against the offered curves */
-		for ( ; *gid != TTLS_ECP_DP_NONE; gid++)
-			for (curve = tls->hs->curves; *curve; curve++)
-				if ((*curve)->grp_id == *gid)
-					goto curve_matching_done;
-curve_matching_done:
-		if (!curve || !*curve) {
-			T_WARN("No matching curve for ECDHE key exchange\n");
-			r = -EINVAL;
-			goto err;
-		}
-		T_DBG("ECDHE curve: %s\n", (*curve)->name);
-
-		/*
-		 * TODO #1064 get the MPI memory profile for ECDH and create
-		 * a new ECDHE specific profile if large MPIs are required.
-		 */
-
-		r = ttls_ecp_group_load(&tls->hs->ecdh_ctx->grp,
-					(*curve)->grp_id);
-		if (r) {
-			T_DBG("cannot load ECP group, %d\n", r);
-			goto err;
-		}
-
-		r = ttls_ecdh_make_params(&tls->hs->ecdh_ctx, &len, p,
+		r = ttls_ecdh_make_params(tls->hs->ecdh_ctx, &len, p,
 					  TLS_MAX_PAYLOAD_SIZE);
 		if (r) {
 			T_DBG("cannot make ECDH params, %d\n", r);
@@ -1390,39 +1353,22 @@ curve_matching_done:
 		n += len;
 
 		T_DBG_ECP("ECDH server key exchange EC point",
-			  &tls->hs->ecdh_ctx.Q);
+			  &tls->hs->ecdh_ctx->Q);
 	}
 	/* DHE key exchanges. */
 	else if (ttls_ciphersuite_uses_dhe(ci)) {
-		int x_sz;
-
-		if (!tls->conf->dhm_P.p || !tls->conf->dhm_G.p) {
-			T_DBG("no DH parameters set\n");
-			r = TTLS_ERR_BAD_INPUT_DATA;
-			goto err;
-		}
-
 		/*
 		 * Ephemeral DH parameters:
 		 *
 		 * struct {
-		 *	 opaque dh_p<1..2^16-1>;
-		 *	 opaque dh_g<1..2^16-1>;
-		 *	 opaque dh_Ys<1..2^16-1>;
+		 *	opaque dh_p<1..2^16-1>;
+		 *	opaque dh_g<1..2^16-1>;
+		 *	opaque dh_Ys<1..2^16-1>;
 		 * } ServerDHParams;
 		 */
-		// TODO #1064: generate and copy MPI profile.
-		r = ttls_dhm_set_group(&tls->hs->dhm_ctx, &tls->conf->dhm_P,
-				       &tls->conf->dhm_G);
-		if (r) {
-			T_DBG("cannot set DHM group, %d\n", r);
-			goto err;
-		}
-
-		x_sz = (int)ttls_mpi_size(&tls->hs->dhm_ctx.P);
+		int x_sz = (int)ttls_mpi_size(&tls->hs->dhm_ctx->P);
 		WARN_ON_ONCE(x_sz > PAGE_SIZE);
-		r = ttls_dhm_make_params(&tls->hs->dhm_ctx, x_sz, p, &len);
-		if (r) {
+		if ((r = ttls_dhm_make_params(tls->hs->dhm_ctx, x_sz, p, &len)))
 			T_DBG("cannot make DHM params, %d\n", r);
 			goto err;
 		}
@@ -1433,8 +1379,8 @@ curve_matching_done:
 		n += len;
 
 		T_DBG_MPI4("DHM key exchange",
-			   &tls->hs->dhm_ctx.X, &tls->hs->dhm_ctx.P,
-			   &tls->hs->dhm_ctx.G, &tls->hs->dhm_ctx.GX);
+			   &tls->hs->dhm_ctx->X, &tls->hs->dhm_ctx->P,
+			   &tls->hs->dhm_ctx->G, &tls->hs->dhm_ctx->GX);
 	}
 
 	/*
@@ -1481,8 +1427,9 @@ curve_matching_done:
 			   hashlen
 			   ? : ttls_md_get_size(ttls_md_info_from_type(md_alg)));
 
-		/* 3.3: Compute and add the signature */
 		/*
+		 * 3.3: Compute and add the signature.
+		 *
 		 * For TLS 1.2, we need to specify signature and hash algorithm
 		 * explicitly through a prefix to the signature.
 		 *

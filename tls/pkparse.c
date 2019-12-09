@@ -234,7 +234,7 @@ ttls_pk_parse_subpubkey(unsigned char **p, const unsigned char *end,
 	size_t len;
 	ttls_asn1_buf alg_params;
 	ttls_pk_type_t pk_alg = TTLS_PK_NONE;
-	const ttls_pk_info_t *pk_info;
+	const TlsPkInfo *pk_info;
 
 	if ((ret = ttls_asn1_get_tag(p, end, &len,
 		TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE)) != 0)
@@ -547,7 +547,7 @@ pk_parse_key_pkcs8_unencrypted_der(TlsPkCtx *pk,
 	unsigned char *p = (unsigned char *)key;
 	unsigned char *end = p + keylen;
 	ttls_pk_type_t pk_alg = TTLS_PK_NONE;
-	const ttls_pk_info_t *pk_info;
+	const TlsPkInfo *pk_info;
 
 	/*
 	 * This function parses the PrivateKeyInfo object
@@ -623,7 +623,7 @@ int
 ttls_pk_parse_key(TlsPkCtx *pk, unsigned char *key, size_t keylen)
 {
 	int r, dec_key_len;
-	const ttls_pk_info_t *pk_info;
+	const TlsPkInfo *pk_info;
 	size_t len;
 
 	if (!keylen)

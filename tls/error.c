@@ -59,22 +59,12 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "DHM - Bad input parameters");
 		if (use_ret == -(TTLS_ERR_DHM_READ_PARAMS_FAILED))
 			snprintf(buf, buflen, "DHM - Reading of the DHM parameters failed");
-		if (use_ret == -(TTLS_ERR_DHM_MAKE_PARAMS_FAILED))
-			snprintf(buf, buflen, "DHM - Making of the DHM parameters failed");
 		if (use_ret == -(TTLS_ERR_DHM_READ_PUBLIC_FAILED))
 			snprintf(buf, buflen, "DHM - Reading of the public values failed");
 		if (use_ret == -(TTLS_ERR_DHM_MAKE_PUBLIC_FAILED))
 			snprintf(buf, buflen, "DHM - Making of the public value failed");
 		if (use_ret == -(TTLS_ERR_DHM_CALC_SECRET_FAILED))
 			snprintf(buf, buflen, "DHM - Calculation of the DHM secret failed");
-		if (use_ret == -(TTLS_ERR_DHM_INVALID_FORMAT))
-			snprintf(buf, buflen, "DHM - The ASN.1 data is not formatted correctly");
-		if (use_ret == -(TTLS_ERR_DHM_ALLOC_FAILED))
-			snprintf(buf, buflen, "DHM - Allocation of memory failed");
-		if (use_ret == -(TTLS_ERR_DHM_FILE_IO_ERROR))
-			snprintf(buf, buflen, "DHM - Read or write of file failed");
-		if (use_ret == -(TTLS_ERR_DHM_HW_ACCEL_FAILED))
-			snprintf(buf, buflen, "DHM - DHM hardware accelerator failed");
 		if (use_ret == -(TTLS_ERR_DHM_SET_GROUP_FAILED))
 			snprintf(buf, buflen, "DHM - Setting the modulus and generator failed");
 

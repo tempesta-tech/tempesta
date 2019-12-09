@@ -122,7 +122,7 @@ rsa_alloc_wrap(void)
 static void
 rsa_free_wrap(void *ctx)
 {
-	ttls_mpi_free_mpool(ctx);
+	ttls_mpi_pool_free(ctx);
 }
 
 static void
@@ -139,7 +139,7 @@ rsa_debug(const void *ctx, ttls_pk_debug_item *items)
 	items->value = &(((ttls_rsa_context *) ctx)->E);
 }
 
-const ttls_pk_info_t ttls_rsa_info = {
+const TlsPkInfo ttls_rsa_info = {
 	TTLS_PK_RSA,
 	"RSA",
 	rsa_get_bitlen,
@@ -162,7 +162,7 @@ eckeydh_can_do(ttls_pk_type_t type)
 	return type == TTLS_PK_ECKEY || type == TTLS_PK_ECKEY_DH;
 }
 
-const ttls_pk_info_t ttls_eckeydh_info = {
+const TlsPkInfo ttls_eckeydh_info = {
 	TTLS_PK_ECKEY_DH,
 	"EC_DH",
 	eckey_get_bitlen,		 /* Same underlying key structure */
@@ -223,10 +223,10 @@ ecdsa_alloc_wrap(void)
 static void
 ecdsa_free_wrap(void *ctx)
 {
-	ttls_mpi_free_mpool(ctx);
+	ttls_mpi_pool_free(ctx);
 }
 
-const ttls_pk_info_t ttls_ecdsa_info = {
+const TlsPkInfo ttls_ecdsa_info = {
 	TTLS_PK_ECDSA,
 	"ECDSA",
 	eckey_get_bitlen,	/* Compatible key structures */
@@ -272,7 +272,7 @@ eckey_alloc_wrap(void)
 static void
 eckey_free_wrap(void *ctx)
 {
-	ttls_mpi_free_mpool(ctx);
+	ttls_mpi_pool_free(ctx);
 }
 
 static void eckey_debug(const void *ctx, ttls_pk_debug_item *items)
@@ -282,7 +282,7 @@ static void eckey_debug(const void *ctx, ttls_pk_debug_item *items)
 	items->value = &(((TlsEcpKeypair *) ctx)->Q);
 }
 
-const ttls_pk_info_t ttls_eckey_info = {
+const TlsPkInfo ttls_eckey_info = {
 	TTLS_PK_ECKEY,
 	"EC",
 	eckey_get_bitlen,

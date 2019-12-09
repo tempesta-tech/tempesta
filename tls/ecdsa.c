@@ -80,25 +80,21 @@ ttls_ecdsa_sign(const TlsEcpGrp *grp, TlsMpi *r, TlsMpi *s,
 	ttls_mpi_init(&t);
 
 	sign_tries = 0;
-	do
-	{
+	do {
 		/*
 		 * Steps 1-3: generate a suitable ephemeral keypair
 		 * and set r = xR mod n
 		 */
 		key_tries = 0;
-		do
-		{
+		do {
 			TTLS_MPI_CHK(ttls_ecp_gen_keypair(grp, &k, &R));
 			TTLS_MPI_CHK(ttls_mpi_mod_mpi(r, &R.X, &grp->N));
 
-			if (key_tries++ > 10)
-			{
+			if (key_tries++ > 10) {
 				ret = TTLS_ERR_ECP_RANDOM_FAILED;
 				goto cleanup;
 			}
-		}
-		while (ttls_mpi_cmp_int(r, 0) == 0);
+		} while (!ttls_mpi_cmp_int(r, 0));
 
 		/*
 		 * Step 5: derive MPI from hashed message
@@ -243,11 +239,12 @@ cleanup:
 	return ret;
 }
 
-/*
- * Convert a signature (given by context) to ASN.1
+/**
+ * Convert a signature (given by context) to ASN.1.
  */
-static int ecdsa_signature_to_asn1(const TlsMpi *r, const TlsMpi *s,
-			unsigned char *sig, size_t *slen)
+static int
+ecdsa_signature_to_asn1(const TlsMpi *r, const TlsMpi *s, unsigned char *sig,
+			size_t *slen)
 {
 	int ret;
 	unsigned char buf[TTLS_ECDSA_MAX_LEN];
@@ -261,7 +258,7 @@ static int ecdsa_signature_to_asn1(const TlsMpi *r, const TlsMpi *s,
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(&p, buf,
 			   TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE));
 
-	memcpy(sig, p, len);
+	memcpy_fast(sig, p, len);
 	*slen = len;
 
 	return 0;
@@ -290,14 +287,9 @@ ttls_ecdsa_write_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
 	ttls_mpi_init(&r);
 	ttls_mpi_init(&s);
 
-	TTLS_MPI_CHK(ttls_ecdsa_sign(&ctx->grp, &r, &s, &ctx->d, hash, hlen));
-	TTLS_MPI_CHK(ecdsa_signature_to_asn1(&r, &s, sig, slen));
-
-cleanup:
-	ttls_mpi_free(&r);
-	ttls_mpi_free(&s);
-
-	return ret;
+	if ((ret = ttls_ecdsa_sign(&ctx->grp, &r, &s, &ctx->d, hash, hlen)))
+		return ret;
+	return ecdsa_signature_to_asn1(&r, &s, sig, slen);
 }
 
 /*

@@ -83,7 +83,7 @@ typedef struct {
 
 #define MPI_P(m)	((unsigned long *)((unsigned char *)(m) + (m)->_off))
 
-void ttls_mpi_cleanup_ctx(void);
+void ttls_mpi_pool_cleanup_ctx(void);
 void ttls_mpool_init(void);
 void ttls_mpool_exit(void);
 
