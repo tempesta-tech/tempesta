@@ -192,7 +192,7 @@ struct tls_handshake_t {
 	union {
 		void			*crypto_ctx;
 		TlsECDHCtx		*ecdh_ctx;
-		ttls_dhm_context	*dhm_ctx;
+		TlsDHMCtx		*dhm_ctx;
 	};
 };
 
@@ -216,7 +216,7 @@ struct ttls_key_cert
 extern int ttls_preset_hashes[];
 extern ttls_ecp_group_id ttls_preset_curves[];
 
-int ttls_mpi_profile_alloc(TlsCtx tls);
+int ttls_mpi_profile_clone(TlsCtx *tls);
 
 /* Find an entry in a signature-hash set matching a given hash algorithm. */
 ttls_md_type_t ttls_sig_hash_set_find(TlsSigHashSet *set,

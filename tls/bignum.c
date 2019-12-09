@@ -112,10 +112,10 @@ __mpi_alloc(TlsMpi *X, size_t nblimbs)
 	 * and only once for an MPI.
 	 */
 	BUG_ON(X->limbs && X->limbs < nblimbs);
-	if (unlikely(nblimbs > TTLS_MPI_MAX_LIMBS))
+	if (WARN_ON_ONCE(nblimbs > TTLS_MPI_MAX_LIMBS))
 		return -ENOMEM;
 
-	new_off = ttls_mpi_profile_alloc_mpi(X, nblimbs * CIL);
+	new_off = ttls_mpi_pool_alloc_mpi(X, nblimbs * CIL);
 	if (new_off <= 0)
 		return -ENOMEM;
 	BUG_ON(new_off >= PAGE_SIZE);
@@ -181,7 +181,7 @@ ttls_mpi_safe_cond_assign(TlsMpi *X, const TlsMpi *Y, unsigned char assign)
 	/* Make sure assign is 0 or 1 in a time-constant manner. */
 	assign = (assign | (unsigned char)-assign) >> 7;
 
-	if (ttls_mpi_grow(X, Y->used))
+	if (__mpi_alloc(X, Y->used))
 		return -ENOMEM;
 
 	X->s = X->s * (1 - assign) + Y->s * assign;
@@ -211,9 +211,9 @@ ttls_mpi_safe_cond_swap(TlsMpi *X, TlsMpi *Y, unsigned char swap)
 	/* Make sure swap is 0 or 1 in a time-constant manner. */
 	swap = (swap | (unsigned char)-swap) >> 7;
 
-	if (ttls_mpi_grow(X, Y->used))
+	if (__mpi_alloc(X, Y->used))
 		return -ENOMEM;
-	if (ttls_mpi_grow(Y, X->used))
+	if (__mpi_alloc(Y, X->used))
 		return -ENOMEM;
 
 	s = X->s;
@@ -282,7 +282,7 @@ ttls_mpi_set_bit(TlsMpi *X, size_t pos, unsigned char val)
 		if (!val)
 			return 0;
 		if (unlikely(X->limbs << BSHIFT <= pos))
-			if (ttls_mpi_grow(X, off + 1))
+			if (__mpi_alloc(X, off + 1))
 				return -ENOMEM;
 		memset(&MPI_P(X)[X->used], 0, (off - X->used + 1) << LSHIFT);
 		X->used = off + 1;
@@ -1279,7 +1279,7 @@ ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E, const TlsMpi *N,
 		      : 1;
 
 	j = N->used + 1;
-	if (ttls_mpi_grow(X, j)
+	if (__mpi_alloc(X, j)
 	    || __mpi_alloc(&W[1], j)
 	    || __mpi_alloc(&T, j * 2))
 		return -ENOMEM;
@@ -1325,7 +1325,7 @@ ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E, const TlsMpi *N,
 		/* W[1 << (wsize - 1)] = W[1] ^ (wsize - 1) */
 		j =  1 << (wsize - 1);
 
-		if ((r = ttls_mpi_grow(&W[j], N->used + 1))
+		if ((r = __mpi_alloc(&W[j], N->used + 1))
 		    || (r = ttls_mpi_copy(&W[j], &W[1])))
 			return r;
 
@@ -1335,7 +1335,7 @@ ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E, const TlsMpi *N,
 
 		/* W[i] = W[i - 1] * W[1] */
 		for (i = j + 1; i < (1 << wsize); i++) {
-			if ((r = ttls_mpi_grow(&W[i], N->used + 1))
+			if ((r = __mpi_alloc(&W[i], N->used + 1))
 			    || (r = ttls_mpi_copy(&W[i], &W[i - 1]))
 			    || (r = __mpi_montmul(&W[i], &W[1], N, mm, &T)))
 				return r;

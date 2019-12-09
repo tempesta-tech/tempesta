@@ -401,9 +401,6 @@ typedef struct {
  * @max_minor_ver	- always 3 for now, and used for SCSV fallbacks only.
  *			  Preserved for TLS 1.3.
  *
- * @dhm_P		- prime modulus for DHM;
- * @dhm_G		- generator for DHM;
- *
  * Members are grouped by size (largest first) to minimize padding overhead.
  */
 typedef struct {
@@ -421,9 +418,6 @@ typedef struct {
 	unsigned int			cert_req_ca_list : 1;
 	unsigned char			min_minor_ver;
 	unsigned char			max_minor_ver;
-
-	TlsMpi				dhm_P;
-	TlsMpi				dhm_G;
 } TlsCfg;
 
 /* I/O state flags. */
@@ -551,13 +545,6 @@ int ttls_set_session(TlsCtx *ssl, const TlsSess *session);
 int ttls_conf_own_cert(TlsPeerCfg *conf, ttls_x509_crt *own_cert,
 		       TlsPkCtx *pk_key, ttls_x509_crt *ca_chain,
 		       ttls_x509_crl *ca_crl);
-
-int ttls_conf_dh_param_bin(TlsCfg *conf,
-			   const unsigned char *dhm_P, size_t P_len,
-			   const unsigned char *dhm_G, size_t G_len);
-int ttls_conf_dh_param_ctx(TlsCfg *conf, ttls_dhm_context *dhm_ctx);
-void ttls_conf_dhm_min_bitlen(TlsCfg *conf,
-			      unsigned int bitlen);
 
 int ttls_set_hostname(TlsCtx *ssl, const char *hostname);
 void ttls_set_hs_authmode(TlsCtx *ssl, int authmode);

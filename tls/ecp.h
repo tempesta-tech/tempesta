@@ -98,6 +98,29 @@ typedef enum {
  */
 #define TTLS_ECP_DP_MAX	 12
 
+/*
+ * Maximum "window" size used for point multiplication.
+ * Default: 6.
+ * Minimum value: 2. Maximum value: 7.
+ *
+ * Result is an array of at most TTLS_ECP_WINDOW_SIZE points used for point
+ * multiplication. This value is directly tied to EC peak memory usage, so
+ * decreasing it by one should roughly cut memory usage by two (if large curves
+ * are in use).
+ *
+ * Reduction in size may reduce speed, but larger curves are impacted first.
+ * Sample performances (in ECDHE handshakes/s, with FIXED_POINT_OPTIM = 1):
+ *	  w-size:	 6	   5	   4	   3	   2
+ *	  521	   145	 141	 135	 120	  97
+ *	  384	   214	 209	 198	 177	 146
+ *	  256	   320	 320	 303	 262	 226
+
+ *	  224	   475	 475	 453	 398	 342
+ *	  192	   640	 640	 633	 587	 476
+ */
+#define TTLS_ECP_WINDOW_ORDER	6
+#define TTLS_ECP_WINDOW_SIZE	(1 << (TTLS_ECP_WINDOW_ORDER - 1))
+
 /**
  * Curve information for use by other modules.
  *
@@ -189,7 +212,7 @@ typedef struct {
 	TlsMpi			B;
 	TlsMpi			N;
 	TlsEcpPoint		G;
-	TlsEcpPoint2D		T[TTLS_ECP_WINDOW_ORDER];
+	TlsEcpPoint2D		T[TTLS_ECP_WINDOW_SIZE];
 } TlsEcpGrp;
 
 /*
@@ -210,29 +233,6 @@ typedef struct {
 #define TTLS_ECP_MAX_BITS	 521
 #define TTLS_ECP_MAX_BYTES	((TTLS_ECP_MAX_BITS + 7) / 8)
 #define TTLS_ECP_MAX_PT_LEN	(2 * TTLS_ECP_MAX_BYTES + 1)
-
-/*
- * Maximum "window" size used for point multiplication.
- * Default: 6.
- * Minimum value: 2. Maximum value: 7.
- *
- * Result is an array of at most TTLS_ECP_WINDOW_SIZE points used for point
- * multiplication. This value is directly tied to EC peak memory usage, so
- * decreasing it by one should roughly cut memory usage by two (if large curves
- * are in use).
- *
- * Reduction in size may reduce speed, but larger curves are impacted first.
- * Sample performances (in ECDHE handshakes/s, with FIXED_POINT_OPTIM = 1):
- *	  w-size:	 6	   5	   4	   3	   2
- *	  521	   145	 141	 135	 120	  97
- *	  384	   214	 209	 198	 177	 146
- *	  256	   320	 320	 303	 262	 226
-
- *	  224	   475	 475	 453	 398	 342
- *	  192	   640	 640	 633	 587	 476
- */
-#define TTLS_ECP_WINDOW_ORDER	6
-#define TTLS_ECP_WINDOW_SIZE	(1 << (TTLS_ECP_WINDOW_ORDER - 1))
 
 /* Uncompressed is the only point format supported by RFC 8422. */
 #define TTLS_ECP_PF_UNCOMPRESSED	0
@@ -460,7 +460,7 @@ int ttls_ecp_muladd(TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
  *
  * \note			Uses bare components rather than an TlsEcpKeypair structure
  *				  in order to ease use with other structures such as
- *				  ttls_ecdh_context of TlsEcpKeypair.
+ *				  TlsECDHCtx of TlsEcpKeypair.
  */
 int ttls_ecp_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt);
 
@@ -475,7 +475,7 @@ int ttls_ecp_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt);
  *
  * \note			Uses bare components rather than an TlsEcpKeypair structure
  *				  in order to ease use with other structures such as
- *				  ttls_ecdh_context of TlsEcpKeypair.
+ *				  TlsECDHCtx of TlsEcpKeypair.
  */
 int ttls_ecp_check_privkey(const TlsEcpGrp *grp, const TlsMpi *d);
 
@@ -491,7 +491,7 @@ int ttls_ecp_check_privkey(const TlsEcpGrp *grp, const TlsMpi *d);
  *
  * \note			Uses bare components rather than an TlsEcpKeypair structure
  *				  in order to ease use with other structures such as
- *				  ttls_ecdh_context of TlsEcpKeypair.
+ *				  TlsECDHCtx of TlsEcpKeypair.
  */
 int ttls_ecp_gen_keypair(TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q);
 

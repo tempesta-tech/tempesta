@@ -65,21 +65,15 @@
  */
 #define TTLS_ERR_DHM_BAD_INPUT_DATA		-0x3080  /**< Bad input parameters. */
 #define TTLS_ERR_DHM_READ_PARAMS_FAILED				-0x3100  /**< Reading of the DHM parameters failed. */
-#define TTLS_ERR_DHM_MAKE_PARAMS_FAILED				-0x3180  /**< Making of the DHM parameters failed. */
 #define TTLS_ERR_DHM_READ_PUBLIC_FAILED				-0x3200  /**< Reading of the public values failed. */
 #define TTLS_ERR_DHM_MAKE_PUBLIC_FAILED				-0x3280  /**< Making of the public value failed. */
 #define TTLS_ERR_DHM_CALC_SECRET_FAILED				-0x3300  /**< Calculation of the DHM secret failed. */
-#define TTLS_ERR_DHM_INVALID_FORMAT		-0x3380  /**< The ASN.1 data is not formatted correctly. */
-#define TTLS_ERR_DHM_ALLOC_FAILED		  -0x3400  /**< Allocation of memory failed. */
-#define TTLS_ERR_DHM_FILE_IO_ERROR		 -0x3480  /**< Read or write of file failed. */
-#define TTLS_ERR_DHM_HW_ACCEL_FAILED				   -0x3500  /**< DHM hardware accelerator failed. */
 #define TTLS_ERR_DHM_SET_GROUP_FAILED				  -0x3580  /**< Setting the modulus and generator failed. */
 
 /**
- * \brief		  The DHM context structure.
+ * The DHM context structure.
  */
-typedef struct
-{
+typedef struct {
 	size_t len;		 /*!<  The size of \p P in Bytes. */
 	TlsMpi P;	  /*!<  The prime modulus. */
 	TlsMpi G;	  /*!<  The generator. */
@@ -91,22 +85,7 @@ typedef struct
 	TlsMpi Vi;	 /*!<  The blinding value. */
 	TlsMpi Vf;	 /*!<  The unblinding value. */
 	TlsMpi pX;	 /*!<  The previous \c X. */
-}
-ttls_dhm_context;
-
-/**
- * \brief		  This function initializes the DHM context.
- *
- * \param ctx	  The DHM context to initialize.
- */
-void ttls_dhm_init(ttls_dhm_context *ctx);
-
-/**
- * \brief Frees the components of the DHM context.
- *
- * \param ctx DHM context.
- */
-void ttls_dhm_free(ttls_dhm_context *ctx);
+} TlsDHMCtx;
 
 /**
  * \brief		  This function parses the ServerKeyExchange parameters.
@@ -124,53 +103,12 @@ void ttls_dhm_free(ttls_dhm_context *ctx);
  * \return		 \c 0 on success, or an \c TTLS_ERR_DHM_XXX error code
  *				 on failure.
  */
-int ttls_dhm_read_params(ttls_dhm_context *ctx,
+int ttls_dhm_read_params(TlsDHMCtx *ctx,
 		 unsigned char **p,
 		 const unsigned char *end);
 
-/**
- * \brief  This function sets up and writes the ServerKeyExchange
- *		 parameters.
- *
- * \param ctx	  The DHM context.
- * \param x_size   The private value size in Bytes.
- * \param olen	 The number of characters written.
- * \param output   The destination buffer.
- *
- * \note   The destination buffer must be large enough to hold
- *		 the reduced binary presentation of the modulus, the generator
- *		 and the public key, each wrapped with a 2-byte length field.
- *		 It is the responsibility of the caller to ensure that enough
- *		 space is available. Refer to \c ttls_mpi_size to computing
- *		 the byte-size of an MPI.
- *
- * \note  This function assumes that \c ctx->P and \c ctx->G
- *		 have already been properly set. For that, use
- *		 ttls_dhm_set_group() below in conjunction with
- *		 ttls_mpi_read_binary().
- *
- * \return	 \c 0 on success, or an \c TTLS_ERR_DHM_XXX error code
- *			 on failure.
- */
-int ttls_dhm_make_params(ttls_dhm_context *ctx, int x_size,
-			 unsigned char *output, size_t *olen);
-
-/**
- * \brief		  Set prime modulus and generator
- *
- * \param ctx	  The DHM context.
- * \param P		The MPI holding DHM prime modulus.
- * \param G		The MPI holding DHM generator.
- *
- * \note		   This function can be used to set P, G
- *				 in preparation for \c ttls_dhm_make_params.
- *
- * \return		 \c 0 if successful, or an \c TTLS_ERR_DHM_XXX error code
- *				 on failure.
- */
-int ttls_dhm_set_group(ttls_dhm_context *ctx,
-			   const TlsMpi *P,
-			   const TlsMpi *G);
+int ttls_dhm_make_params(TlsDHMCtx *ctx, int x_size, unsigned char *output,
+			 size_t *olen);
 
 /**
  * \brief		  This function imports the public value G^Y of the peer.
@@ -182,7 +120,7 @@ int ttls_dhm_set_group(ttls_dhm_context *ctx,
  * \return		 \c 0 on success, or an \c TTLS_ERR_DHM_XXX error code
  *				 on failure.
  */
-int ttls_dhm_read_public(ttls_dhm_context *ctx,
+int ttls_dhm_read_public(TlsDHMCtx *ctx,
 		 const unsigned char *input, size_t ilen);
 
 /**
@@ -203,7 +141,7 @@ int ttls_dhm_read_public(ttls_dhm_context *ctx,
  * \return		 \c 0 on success, or an \c TTLS_ERR_DHM_XXX error code
  *				 on failure.
  */
-int ttls_dhm_make_public(ttls_dhm_context *ctx, int x_size,
+int ttls_dhm_make_public(TlsDHMCtx *ctx, int x_size,
 		 unsigned char *output, size_t olen);
 
 /**
@@ -225,7 +163,7 @@ int ttls_dhm_make_public(ttls_dhm_context *ctx, int x_size,
  *				 otherwise. Therefore, we recommend always passing a
  *				 non-NULL \p f_rng argument.
  */
-int ttls_dhm_calc_secret(ttls_dhm_context *ctx,
+int ttls_dhm_calc_secret(TlsDHMCtx *ctx,
 		 unsigned char *output, size_t output_size, size_t *olen);
 
 /**

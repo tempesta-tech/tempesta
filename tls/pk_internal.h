@@ -42,7 +42,7 @@
  * @ctx_free_func	- Free the given context;
  * @debug_func		- Interface with the debug module;
  */
-struct ttls_pk_info_t {
+typedef struct {
 	ttls_pk_type_t	type;
 	const char	*name;
 
@@ -61,11 +61,11 @@ struct ttls_pk_info_t {
 	void *(*ctx_alloc_func)(void);
 	void (*ctx_free_func)(void *ctx);
 	void (*debug_func)(const void *ctx, ttls_pk_debug_item *items);
-};
+} TlsPkInfo;
 
-extern const ttls_pk_info_t ttls_rsa_info;
-extern const ttls_pk_info_t ttls_eckey_info;
-extern const ttls_pk_info_t ttls_eckeydh_info;
-extern const ttls_pk_info_t ttls_ecdsa_info;
+extern const TlsPkInfo ttls_rsa_info;
+extern const TlsPkInfo ttls_eckey_info;
+extern const TlsPkInfo ttls_eckeydh_info;
+extern const TlsPkInfo ttls_ecdsa_info;
 
 #endif /* TTLS_PK_WRAP_H */
