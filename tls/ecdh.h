@@ -33,15 +33,13 @@
 #ifndef TTLS_ECDH_H
 #define TTLS_ECDH_H
 
+#include "bignum.h"
 #include "ecp.h"
 
 /**
- * Defines the source of the imported EC key:
- * <ul><li>Our key.</li>
- * <li>The key of the peer.</li></ul>
+ * Defines the source of the imported EC key: our key or the key of the peer.
  */
-typedef enum
-{
+typedef enum {
 	TTLS_ECDH_OURS,
 	TTLS_ECDH_THEIRS,
 } ttls_ecdh_side;
@@ -63,17 +61,17 @@ typedef struct {
 	TlsEcpGrp	grp;
 	TlsEcpPoint	Q;
 	TlsEcpPoint	Qp;
-	enum {
+	union {
 		TlsMpi		z;
 		TlsEcpPoint	_P;
-	}
+	};
 	TlsEcpPoint	Vi;
 	TlsEcpPoint	Vf;
 	TlsMpi		d;
 	TlsMpi		_d;
 } TlsECDHCtx;
 
-int ttls_ecdh_make_params(ttls_ecdh_context *ctx, size_t *olen,
+int ttls_ecdh_make_params(TlsECDHCtx *ctx, size_t *olen,
 			  unsigned char *buf, size_t blen);
 
 /**
@@ -94,10 +92,10 @@ int ttls_ecdh_make_params(ttls_ecdh_context *ctx, size_t *olen,
  *
  * \see			 ecp.h
  */
-int ttls_ecdh_get_params(ttls_ecdh_context *ctx, const TlsEcpKeypair *key,
+int ttls_ecdh_get_params(TlsECDHCtx *ctx, const TlsEcpKeypair *key,
 		 ttls_ecdh_side side);
 
-int ttls_ecdh_make_public(ttls_ecdh_context *ctx, size_t *olen,
+int ttls_ecdh_make_public(TlsECDHCtx *ctx, size_t *olen,
 			  unsigned char *buf, size_t blen);
 
 /**
@@ -116,7 +114,7 @@ int ttls_ecdh_make_public(ttls_ecdh_context *ctx, size_t *olen,
  *
  * \see		 ecp.h
  */
-int ttls_ecdh_read_public(ttls_ecdh_context *ctx,
+int ttls_ecdh_read_public(TlsECDHCtx *ctx,
 		  const unsigned char *buf, size_t blen);
 
 /**
@@ -139,7 +137,7 @@ int ttls_ecdh_read_public(ttls_ecdh_context *ctx,
  *				  countermeasures against potential elaborate timing
  *				  attacks. For more information, see ttls_ecp_mul().
  */
-int ttls_ecdh_calc_secret(ttls_ecdh_context *ctx, size_t *olen,
+int ttls_ecdh_calc_secret(TlsECDHCtx *ctx, size_t *olen,
 		  unsigned char *buf, size_t blen);
 
 #endif /* ecdh.h */

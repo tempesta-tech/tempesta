@@ -94,31 +94,10 @@ cleanup:
 	return ret;
 }
 
-void
-ttls_dhm_init(ttls_dhm_context *ctx)
-{
-	bzero_fast(ctx, sizeof(ttls_dhm_context));
-}
-
-void
-ttls_dhm_free(ttls_dhm_context *ctx)
-{
-	ttls_mpi_free(&ctx->pX);
-	ttls_mpi_free(&ctx->Vf);
-	ttls_mpi_free(&ctx->Vi);
-	ttls_mpi_free(&ctx->RP);
-	ttls_mpi_free(&ctx->K);
-	ttls_mpi_free(&ctx->GY);
-	ttls_mpi_free(&ctx->GX);
-	ttls_mpi_free(&ctx->X);
-	ttls_mpi_free(&ctx->G);
-	ttls_mpi_free(&ctx->P);
-}
-
 /*
  * Parse the ServerKeyExchange parameters
  */
-int ttls_dhm_read_params(ttls_dhm_context *ctx,
+int ttls_dhm_read_params(TlsDHMCtx *ctx,
 		 unsigned char **p,
 		 const unsigned char *end)
 {
@@ -138,102 +117,75 @@ int ttls_dhm_read_params(ttls_dhm_context *ctx,
 }
 
 /*
- * Setup and write the ServerKeyExchange parameters
+ * Setup and write the ServerKeyExchange parameters.
+ *
+ * The destination buffer must be large enough to hold the reduced binary
+ * presentation of the modulus, the generator and the public key, each wrapped
+ * with a 2-byte length field. 
  */
-int ttls_dhm_make_params(ttls_dhm_context *ctx, int x_size,
-			unsigned char *output, size_t *olen)
+int
+ttls_dhm_make_params(TlsDHMCtx *ctx, int x_size, unsigned char *output,
+		     size_t *olen)
 {
-	int ret, count = 0;
+	int r, count = 0;
 	size_t n1, n2, n3;
 	unsigned char *p;
 
-	if (ttls_mpi_cmp_int(&ctx->P, 0) == 0)
-		return(TTLS_ERR_DHM_BAD_INPUT_DATA);
+	if (WARN_ON_ONCE(!ttls_mpi_cmp_int(&ctx->P, 0)))
+		return -EINVAL;
 
-	/*
-	 * Generate X as large as possible (< P)
-	 */
-	do
-	{
-		TTLS_MPI_CHK(ttls_mpi_fill_random(&ctx->X, x_size));
+	/* Generate X as large as possible (< P). */
+	do {
+		if ((r = ttls_mpi_fill_random(&ctx->X, x_size)))
+			goto err;
 
 		while (ttls_mpi_cmp_mpi(&ctx->X, &ctx->P) >= 0)
-			TTLS_MPI_CHK(ttls_mpi_shift_r(&ctx->X, 1));
+			if ((r = ttls_mpi_shift_r(&ctx->X, 1)))
+				goto err;
 
 		if (count++ > 10)
-			return(TTLS_ERR_DHM_MAKE_PARAMS_FAILED);
-	}
-	while (dhm_check_range(&ctx->X, &ctx->P) != 0);
+			goto err;
+	} while (dhm_check_range(&ctx->X, &ctx->P));
 
-	/*
-	 * Calculate GX = G^X mod P
-	 */
-	TTLS_MPI_CHK(ttls_mpi_exp_mod(&ctx->GX, &ctx->G, &ctx->X,
-			  &ctx->P , &ctx->RP));
+	/* Calculate GX = G^X mod P. */
+	r = ttls_mpi_exp_mod(&ctx->GX, &ctx->G, &ctx->X, &ctx->P, &ctx->RP);
+	if (r)
+		goto err;
+	if ((r = dhm_check_range(&ctx->GX, &ctx->P)))
+		goto r;
 
-	if ((ret = dhm_check_range(&ctx->GX, &ctx->P)) != 0)
-		return ret;
+	/* Export P, G, GX. */
+#define DHM_MPI_EXPORT(X, n)						\
+	if ((r = ttls_mpi_write_binary(X, p + 2, n)))			\
+		goto err;						\
+	*p++ = (unsigned char)(n >> 8);					\
+	*p++ = (unsigned char)n;					\
+	p += n;
 
-	/*
-	 * export P, G, GX
-	 */
-#define DHM_MPI_EXPORT(X, n)				  \
-	do {				\
-		TTLS_MPI_CHK(ttls_mpi_write_binary((X),			   \
-			   p + 2,			   \
-			   (n)));		   \
-		*p++ = (unsigned char)((n) >> 8);			   \
-		*p++ = (unsigned char)((n)	 );			   \
-		p += (n);				 \
-	} while (0)
-
-	n1 = ttls_mpi_size(&ctx->P );
-	n2 = ttls_mpi_size(&ctx->G );
+	n1 = ttls_mpi_size(&ctx->P);
+	n2 = ttls_mpi_size(&ctx->G);
 	n3 = ttls_mpi_size(&ctx->GX);
 
 	p = output;
-	DHM_MPI_EXPORT(&ctx->P , n1);
-	DHM_MPI_EXPORT(&ctx->G , n2);
+	DHM_MPI_EXPORT(&ctx->P, n1);
+	DHM_MPI_EXPORT(&ctx->G, n2);
 	DHM_MPI_EXPORT(&ctx->GX, n3);
 
 	*olen = p - output;
 
 	ctx->len = n1;
 
-cleanup:
-
-	if (ret != 0)
-		return(TTLS_ERR_DHM_MAKE_PARAMS_FAILED + ret);
-
-	return 0;
-}
-
-/*
- * Set prime modulus and generator
- */
-int ttls_dhm_set_group(ttls_dhm_context *ctx,
-			   const TlsMpi *P,
-			   const TlsMpi *G)
-{
-	int ret;
-
-	if (ctx == NULL || P == NULL || G == NULL)
-		return(TTLS_ERR_DHM_BAD_INPUT_DATA);
-
-	if ((ret = ttls_mpi_copy(&ctx->P, P)) != 0 ||
-		(ret = ttls_mpi_copy(&ctx->G, G)) != 0)
-	{
-		return(TTLS_ERR_DHM_SET_GROUP_FAILED + ret);
-	}
-
-	ctx->len = ttls_mpi_size(&ctx->P);
-	return 0;
+#undef DHM_MPI_EXPORT
+err:
+	if (r)
+		T_WARN("Making of the DHM parameters failed, %d\n", r);
+	return r;
 }
 
 /*
  * Import the peer's public value G^Y
  */
-int ttls_dhm_read_public(ttls_dhm_context *ctx,
+int ttls_dhm_read_public(TlsDHMCtx *ctx,
 		 const unsigned char *input, size_t ilen)
 {
 	int ret;
@@ -250,7 +202,7 @@ int ttls_dhm_read_public(ttls_dhm_context *ctx,
 /*
  * Create own private value X and export G^X
  */
-int ttls_dhm_make_public(ttls_dhm_context *ctx, int x_size,
+int ttls_dhm_make_public(TlsDHMCtx *ctx, int x_size,
 		 unsigned char *output, size_t olen)
 {
 	int ret, count = 0;
@@ -297,7 +249,7 @@ cleanup:
  *  DSS, and other systems. In : Advances in Cryptology-CRYPTO'96. Springer
  *  Berlin Heidelberg, 1996. p. 104-113.
  */
-static int dhm_update_blinding(ttls_dhm_context *ctx)
+static int dhm_update_blinding(TlsDHMCtx *ctx)
 {
 	int ret, count;
 
@@ -358,7 +310,7 @@ cleanup:
 /*
  * Derive and export the shared secret (G^Y)^X mod P
  */
-int ttls_dhm_calc_secret(ttls_dhm_context *ctx,
+int ttls_dhm_calc_secret(TlsDHMCtx *ctx,
 		 unsigned char *output, size_t output_size, size_t *olen)
 {
 	int ret;
