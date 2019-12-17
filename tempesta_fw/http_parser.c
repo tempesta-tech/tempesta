@@ -339,7 +339,7 @@ __FSM_STATE(st) {							\
 
 /*
  * Automaton transition with alphabet checking and fallback state.
- * Improbble states only, so cold label.
+ * Improbable states only, so cold label.
  */
 #define __FSM_TX_AF(st, ch, st_next)					\
 __FSM_STATE(st, cold) {							\
@@ -8422,10 +8422,11 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 			if (likely(__data_available(p, 11)
 			           && C8_INT_LCM(p + 1, 'e', 't', '-', 'c',
 						 'o', 'o', 'k', 'i')
+				   && *(p + 3) == '-'
 				   && TFW_LC(*(p + 9)) == 'e'
 				   && *(p + 10) == ':'))
 			{
-				parser->_i_st = &&RGen_HdrOtherV;
+				parser->_i_st = &&Resp_HdrSet_CookieV;
 				__msg_hdr_set_hpack_index(55);
 				__FSM_MOVE_n(RGen_LWS, 11);
 			}
@@ -8437,18 +8438,6 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 				parser->_i_st = &&Resp_HdrServerV;
 				__msg_hdr_set_hpack_index(54);
 				__FSM_MOVE_n(RGen_LWS, 7);
-			}
-			if (likely(__data_available(p, 11)
-				   && TFW_LC(*(p + 1)) == 'e'
-				   && TFW_LC(*(p + 2)) == 't'
-				   && *(p + 3) == '-'
-				   && C4_INT_LCM(p + 4, 'c', 'o', 'o', 'k')
-				   && TFW_LC(*(p + 8)) == 'i'
-				   && TFW_LC(*(p + 9)) == 'e'
-				   && *(p + 10) == ':'))
-			{
-				parser->_i_st = &&Resp_HdrSet_CookieV;
-				__FSM_MOVE_n(RGen_LWS, 11);
 			}
 			__FSM_MOVE(Resp_HdrS);
 		case 't':
