@@ -3640,7 +3640,7 @@ tfw_h2_resp_next_hdr(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 		TfwStr *tgt = &ht->tbl[hid];
 		TfwStr *first = TFW_STR_CHUNK(tgt, 0);
 		TfwHdrModsDesc *f_desc = NULL;
-		const TfwStr *val;
+		const TfwStr *val = NULL;
 
 		if (TFW_STR_DUP(tgt))
 			tgt = TFW_STR_CHUNK(tgt, d_num);
@@ -3671,7 +3671,7 @@ tfw_h2_resp_next_hdr(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 		if (!f_desc)
 			goto def;
 
-		*val = TFW_STR_CHUNK(f_desc->hdr, 2);
+		val = TFW_STR_CHUNK(f_desc->hdr, 2);
 		/*
 		 * If this is a duplicate of already processed header,
 		 * leave this duplicate as is (for transformation
