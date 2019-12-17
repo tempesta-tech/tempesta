@@ -3090,10 +3090,9 @@ do {									\
 	 * Create special buffer to write headers block into the target HTTP/1.1
 	 * representation.
 	 */
-	if (!(pg = alloc_pages(GFP_ATOMIC, get_order(it->hdrs_len))))
+	if (!(dst = pg_skb_alloc(it->hdrs_len, GFP_ATOMIC, NUMA_NO_NODE)))
 		return -ENOMEM;
-
-	dst = (char *)page_address(pg);
+	pg = virt_to_page(dst);
 
 	/* Add request-line into the HTTP/1.1 request. */
 	BUG_ON(TFW_STR_EMPTY(&req->uri_path));
@@ -3153,7 +3152,7 @@ do {									\
 	r = ss_skb_replace_page(&req->msg.skb_head, pg, it->hdrs_len,
 				it->hb_len);
 	if (r) {
-		__free_pages(pg, get_order(it->hdrs_len));
+		put_page(pg);
 		return r;
 	}
 
@@ -3641,6 +3640,7 @@ tfw_h2_resp_next_hdr(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 		TfwStr *tgt = &ht->tbl[hid];
 		TfwStr *first = TFW_STR_CHUNK(tgt, 0);
 		TfwHdrModsDesc *f_desc = NULL;
+		const TfwStr *val;
 
 		if (TFW_STR_DUP(tgt))
 			tgt = TFW_STR_CHUNK(tgt, d_num);
@@ -3668,69 +3668,68 @@ tfw_h2_resp_next_hdr(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 				break;
 			}
 		}
+		if (!f_desc)
+			goto def;
 
-		if (f_desc) {
-			const TfwStr *val = TFW_STR_CHUNK(f_desc->hdr, 2);
-			/*
-			 * If this is a duplicate of already processed header,
-			 * leave this duplicate as is (for transformation
-			 * in-place) in case of appending operation, and remove
-			 * it (by skipping) in case of substitution or deletion
-			 * operations.
-			 */
-			if (test_bit(k, mit->found)) {
-				if (!val || !f_desc->append)
-					continue;
-
-				mit->bnd = first->data;
-				next->s_hdr = *tgt;
-				next->op = TFW_H2_TRANS_INPLACE;
-
-				break;
-			}
-
-			__set_bit(k, mit->found);
-
-			/*
-			 * If header configured with empty value, it should be
-			 * removed from the response; so, just skip such header.
-			 */
-			if (!val)
+		*val = TFW_STR_CHUNK(f_desc->hdr, 2);
+		/*
+		 * If this is a duplicate of already processed header,
+		 * leave this duplicate as is (for transformation
+		 * in-place) in case of appending operation, and remove
+		 * it (by skipping) in case of substitution or deletion
+		 * operations.
+		 */
+		if (test_bit(k, mit->found)) {
+			if (!val || !f_desc->append)
 				continue;
 
 			mit->bnd = first->data;
-
-			/*
-			 * If the header configured for value appending,
-			 * concatenate it with the target header in skb for
-			 * subsequent in-place rewriting.
-			 */
-			if (f_desc->append) {
-				TfwStr h_app = {
-					.chunks = (TfwStr []){
-						{ .data = ", ", .len = 2 },
-						{ .data = val->data,
-						  .len = val->len }
-					},
-					.len = val->len + 2,
-					.nchunks = 2
-				};
-
-				r = tfw_strcat(resp->pool, tgt, &h_app);
-				if (unlikely(r))
-					return r;
-
-				next->s_hdr = *tgt;
-				next->op = TFW_H2_TRANS_INPLACE;
-
-				break;
-			}
-
-			next->s_hdr = *f_desc->hdr;
-			next->op = TFW_H2_TRANS_SUB;
+			next->s_hdr = *tgt;
+			next->op = TFW_H2_TRANS_INPLACE;
 
 			break;
 		}
+
+		__set_bit(k, mit->found);
+
+		/*
+		 * If header configured with empty value, it should be
+		 * removed from the response; so, just skip such header.
+		 */
+		if (!val)
+			continue;
+
+		mit->bnd = first->data;
+
+		/*
+		 * If the header configured for value appending,
+		 * concatenate it with the target header in skb for
+		 * subsequent in-place rewriting.
+		 */
+		if (f_desc->append) {
+			TfwStr h_app = {
+				.chunks = (TfwStr []){
+					{ .data = ", ", .len = 2 },
+					{ .data = val->data,
+					  .len = val->len }
+				},
+				.len = val->len + 2,
+				.nchunks = 2
+			};
+
+			r = tfw_strcat(resp->pool, tgt, &h_app);
+			if (unlikely(r))
+				return r;
+
+			next->s_hdr = *tgt;
+			next->op = TFW_H2_TRANS_INPLACE;
+			break;
+		}
+
+		next->s_hdr = *f_desc->hdr;
+		next->op = TFW_H2_TRANS_SUB;
+		break;
+
 def:
 		/*
 		 * Remove 'Connection', 'Keep-Alive' headers and all hop-by-hop
