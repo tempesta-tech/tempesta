@@ -4921,6 +4921,21 @@ do {									\
 	__FSM_EXIT(CSTR_POSTPONE);					\
 } while (0)
 
+#define __FSM_H2_I_MOVE_BY_REF_NEQ_LAMBDA_n(to, n, lambda)		\
+do {									\
+	parser->_i_st = to;						\
+	p += n;								\
+	if (__data_off(p) < len)					\
+		goto *to;						\
+	if (likely(fin)) {						\
+		lambda;							\
+		__FSM_EXIT(CSTR_NEQ);					\
+	}								\
+	__msg_hdr_chunk_fixup(data, len);				\
+	__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);				\
+	__FSM_EXIT(CSTR_POSTPONE);					\
+} while (0)
+
 #define __FSM_H2_I_MOVE_n(to, n)					\
 	__FSM_H2_I_MOVE_LAMBDA_n(to, n, {})
 
@@ -4928,6 +4943,9 @@ do {									\
 
 #define __FSM_H2_I_MOVE_NEQ(to, n)					\
 	__FSM_H2_I_MOVE_NEQ_LAMBDA_n(to, n, {})
+
+#define __FSM_H2_I_MOVE_BY_REF_NEQ(to, n)				\
+	__FSM_H2_I_MOVE_BY_REF_NEQ_LAMBDA_n(to, n, {})
 
 #define __FSM_H2_I_MATCH(alphabet)					\
 do {									\
@@ -5069,6 +5087,32 @@ do {									\
 	H2_TRY_STR_LAMBDA(str, {					\
 		__FSM_EXIT(CSTR_EQ);					\
 	}, curr_st, next_st)
+
+#define H2_TRY_STR_LAMBDA_BY_REF_finish(str, lambda1, lambda2, finish, state)\
+	if (!chunk->data)						\
+		chunk->data = p;					\
+	__fsm_n = __try_str(&parser->hdr, chunk, p, __data_remain(p),	\
+			    str, sizeof(str) - 1);			\
+	if (__fsm_n > 0) {						\
+		if (chunk->len == sizeof(str) - 1) {			\
+			lambda1;					\
+			TRY_STR_INIT();					\
+			__FSM_H2_I_MOVE_BY_REF_NEQ_LAMBDA_n(state, __fsm_n, lambda2);	\
+		}							\
+		if (likely(fin))					\
+			return CSTR_NEQ;				\
+		__msg_hdr_chunk_fixup(data, len);			\
+		__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);			\
+		finish;							\
+		__FSM_EXIT(CSTR_POSTPONE);				\
+	}
+
+#define H2_TRY_STR_BY_REF(str, curr_st, next_st)			\
+	H2_TRY_STR_LAMBDA_BY_REF_finish(str, { }, {			\
+		__FSM_EXIT(CSTR_NEQ);					\
+	}, {								\
+		parser->_i_st = curr_st;				\
+	}, next_st)
 
 /**
  * The same as @H2_TRY_STR_2LAMBDA(), but with explicit chunks control;
@@ -5990,246 +6034,229 @@ STACK_FRAME_NON_STANDARD(__h2_req_parse_referer);
 static int
 __h2_parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 {
-	static const unsigned long colon_a[] ____cacheline_aligned = {
-		/* ':' (0x3a)(58) Colon */
-		0x0400000000000000UL, 0, 0, 0
+	static const void *st[][23] ____cacheline_aligned = {
+		[RFC_822] = {
+			&&I_Day, &&I_Day, &&I_SP,
+			&&I_MonthBeg, &&I_Month, &&I_Month, &&I_SP,
+			&&I_Year, &&I_Year, &&I_Year, &&I_Year, &&I_SP,
+			&&I_Hour, &&I_Hour, &&I_SC,
+			&&I_Min, &&I_Min, &&I_SC,
+			&&I_Sec, &&I_Sec, &&I_SP,
+			&&I_GMT, &&I_Res
+		},
+		[RFC_850] = {
+			&&I_Day, &&I_Day, &&I_Minus,
+			&&I_MonthBeg, &&I_Month, &&I_Month, &&I_Minus,
+			&&I_Year, &&I_Year, &&I_SP,
+			&&I_Hour, &&I_Hour, &&I_SC,
+			&&I_Min, &&I_Min, &&I_SC,
+			&&I_Sec, &&I_Sec, &&I_SP,
+			&&I_GMT, &&I_Res
+		},
+		[ISOC] = {
+			&&I_MonthBeg, &&I_Month, &&I_Month, &&I_SP,
+			&&I_SpaceOrDay, &&I_Day, &&I_SP,
+			&&I_Hour, &&I_Hour, &&I_SC,
+			&&I_Min, &&I_Min, &&I_SC,
+			&&I_Sec, &&I_Sec, &&I_SP,
+			&&I_Year, &&I_Year, &&I_Year, &&I_Year,
+			&&I_Res
+		}
 	};
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(hm);
 
-#define H2_TRY_STR_NEQ_LAMBDA(str, lambda, curr_st, next_st)		\
-	H2_TRY_STR_2LAMBDA(str, lambda, {				\
-		__FSM_EXIT(CSTR_NEQ);					\
-	}, curr_st, next_st)
-
 	__FSM_START_ALT(parser->_i_st);
 
-	__FSM_STATE(I_Date) {
-		/* Skip redundant weekday with comma (e.g. "Sun,"). */
-		__fsm_sz = __data_remain(p);
-		__fsm_n = __skip_weekday(p, __fsm_sz);
-		if (unlikely(__fsm_sz == __fsm_n)) {
-			if (likely(fin))
-				__FSM_EXIT(CSTR_NEQ);
-			parser->_i_st = &&I_Date;
-			__msg_hdr_chunk_fixup(data, len);
-			__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);
-			__FSM_EXIT(CSTR_POSTPONE);
-		}
-		if (unlikely(__fsm_n == CSTR_NEQ))
-			return CSTR_NEQ;
-		p += __fsm_n + 1;
-		__FSM_I_JMP(I_DateDay);
+	/*
+	 * Skip a weekday with comma (e.g. "Sun,") as redundant
+	 * information.
+	 */
+	__FSM_STATE(I_WDate1) {
+		if (likely('A' <= c && c <= 'Z'))
+			__FSM_H2_I_MOVE_NEQ(I_WDate2, 1);
+		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(I_DateDay) {
-		__fsm_sz = __data_remain(p);
-		/* Parse a 2-digit day. */
-		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
-		if (unlikely(__fsm_n == CSTR_POSTPONE)) {
-			if (likely(fin))
-				return CSTR_NEQ;
-			parser->_i_st = &&I_DateDay;
-			__msg_hdr_chunk_fixup(data, len);
-			__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);
-		}
-		if (__fsm_n < 0)
-			return __fsm_n;
-		if (parser->_acc < 1 || parser->_acc > 31)
-			return CSTR_BADLEN;
-		/* Add seconds in full passed days. */
-		parser->_date = (parser->_acc - 1) * SEC24H;
+	__FSM_STATE(I_WDate2) {
+		if (likely('a' <= c && c <= 'z'))
+			__FSM_H2_I_MOVE_NEQ(I_WDate3, 1);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_WDate3) {
+		if (likely('a' <= c && c <= 'z'))
+			__FSM_H2_I_MOVE_NEQ(I_WDate4, 1);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_WDate4) {
 		parser->_acc = 0;
-		p += __fsm_n;
-		__FSM_I_JMP(I_DateMonthSP);
+		parser->month_int = ((size_t)' ') << 24;
+		if (likely(c == ',')) {
+			parser->date.type = RFC_822;
+			__FSM_H2_I_MOVE_NEQ(I_WDaySP, 1);
+		}
+		if ('a' <= c && c <= 'z') {
+			parser->date.type = RFC_850;
+			__FSM_H2_I_MOVE_NEQ(I_WDate5, 1);
+		}
+		if (c == ' ') {
+			parser->date.type = ISOC;
+			__FSM_H2_I_MOVE_BY_REF_NEQ(
+				st[parser->date.type][parser->date.pos], 1);
+		}
+		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(I_DateMonthSP) {
+	__FSM_STATE(I_WDate5) {
+		if ('a' <= c && c <= 'z')
+			__FSM_H2_I_MOVE_NEQ(I_WDate5, 1);
+		if (c == ',')
+			__FSM_H2_I_MOVE_NEQ(I_WDaySP, 1);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_WDaySP) {
 		if (likely(c == ' '))
-			__FSM_H2_I_MOVE_NEQ(I_DateMonth, 1);
+			__FSM_H2_I_MOVE_BY_REF_NEQ(
+				st[parser->date.type][parser->date.pos], 1);
 		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(I_DateMonth) {
-		switch (TFW_LC(c)) {
-		case 'a':
-			__FSM_I_JMP(I_DateMonth_A);
-		case 'j':
-			__FSM_I_JMP(I_DateMonth_J);
-		case 'm':
-			__FSM_I_JMP(I_DateMonth_M);
-		}
-		__FSM_I_JMP(I_DateMonth_Other);
-	}
+#define __NEXT_TEMPL_STATE()						\
+do {									\
+	++parser->date.pos;						\
+	__FSM_H2_I_MOVE_BY_REF_NEQ(st[parser->date.type][parser->date.pos], 1);\
+} while (0)
 
-	__FSM_STATE(I_DateMonth_A) {
-		H2_TRY_STR_NEQ_LAMBDA("apr ", {
-			parser->_date += SB_APR;
-		}, I_DateMonth_A, I_DateYear);
-		H2_TRY_STR_NEQ_LAMBDA("aug ", {
-			parser->_date += SB_AUG;
-		}, I_DateMonth_A, I_DateYear);
-		TRY_STR_INIT();
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(I_DateMonth_J) {
-		H2_TRY_STR_NEQ_LAMBDA("jan ", { }, I_DateMonth_J, I_DateYear);
-		H2_TRY_STR_NEQ_LAMBDA("jun ", {
-			parser->_date += SB_JUN;
-		}, I_DateMonth_J, I_DateYear);
-		H2_TRY_STR_NEQ_LAMBDA("jul ", {
-			parser->_date += SB_JUL;
-		}, I_DateMonth_J, I_DateYear);
-		TRY_STR_INIT();
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(I_DateMonth_M) {
-		H2_TRY_STR_NEQ_LAMBDA("mar ", {
-			/* Add SEC24H for leap year on year parsing. */
-			parser->_date += SB_MAR;
-		}, I_DateMonth_M, I_DateYear);
-		H2_TRY_STR_NEQ_LAMBDA("may ", {
-			parser->_date += SB_MAY;
-		}, I_DateMonth_M, I_DateYear);
-		TRY_STR_INIT();
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(I_DateMonth_Other) {
-		H2_TRY_STR_NEQ_LAMBDA("feb ", {
-			parser->_date += SB_FEB;
-		}, I_DateMonth_Other, I_DateYear);
-		H2_TRY_STR_NEQ_LAMBDA("sep ", {
-			parser->_date += SB_SEP;
-		}, I_DateMonth_Other, I_DateYear);
-		H2_TRY_STR_NEQ_LAMBDA("oct ", {
-			parser->_date += SB_OCT;
-		}, I_DateMonth_Other, I_DateYear);
-		H2_TRY_STR_NEQ_LAMBDA("nov ", {
-			parser->_date += SB_NOV;
-		}, I_DateMonth_Other, I_DateYear);
-		H2_TRY_STR_NEQ_LAMBDA("dec ", {
-			parser->_date += SB_DEC;
-		}, I_DateMonth_Other, I_DateYear);
-		TRY_STR_INIT();
-		return CSTR_NEQ;
-	}
-
-	/* 4-digit year. */
-	__FSM_STATE(I_DateYear) {
-		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
-		if (unlikely(__fsm_n == CSTR_POSTPONE)) {
-			if (likely(fin))
-				return CSTR_NEQ;
-			parser->_i_st = &&I_DateYear;
-			__msg_hdr_chunk_fixup(data, len);
-			__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);
-		}
-		if (__fsm_n < 0)
-			return __fsm_n;
-		parser->_date = __year_day_secs(parser->_acc, parser->_date);
-		if (parser->_date < 0)
-			return CSTR_NEQ;
-		parser->_acc = 0;
-		__FSM_H2_I_MOVE_NEQ(I_DateHourSP, __fsm_n);
-	}
-
-	__FSM_STATE(I_DateHourSP) {
+	__FSM_STATE(I_SP) {
 		if (likely(c == ' '))
-			__FSM_H2_I_MOVE_NEQ(I_DateHour, 1);
+			__NEXT_TEMPL_STATE();
 		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(I_DateHour) {
-		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_acc);
-		if (unlikely(__fsm_n == CSTR_POSTPONE)) {
-			if (likely(fin))
-				return CSTR_NEQ;
-			parser->_i_st = &&I_DateHour;
-			__msg_hdr_chunk_fixup(data, len);
-			__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);
-		}
-		if (__fsm_n < 0)
-			return __fsm_n;
-		parser->_date += parser->_acc * 3600;
-		parser->_acc = 0;
-		__FSM_H2_I_MOVE_NEQ(I_DateMinCln, __fsm_n);
+	__FSM_STATE(I_Minus) {
+		if (likely(c == '-'))
+			__NEXT_TEMPL_STATE();
+		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(I_DateMinCln) {
+	__FSM_STATE(I_SC) {
 		if (likely(c == ':'))
-			__FSM_H2_I_MOVE_NEQ(I_DateMin, 1);
+			__NEXT_TEMPL_STATE();
 		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(I_DateMin) {
-		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_acc);
-		if (unlikely(__fsm_n == CSTR_POSTPONE)) {
-			if (likely(fin))
-				return CSTR_NEQ;
-			parser->_i_st = &&I_DateMin;
-			__msg_hdr_chunk_fixup(data, len);
-			__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);
+	__FSM_STATE(I_SpaceOrDay) {
+		if (c == ' ')
+			__NEXT_TEMPL_STATE();
+		if ('0' <= c && c <= '9') {
+			parser->date.day = parser->date.day * 10 + (c - '0');
+			__NEXT_TEMPL_STATE();
 		}
-		if (__fsm_n < 0)
-			return __fsm_n;
-		parser->_date += parser->_acc * 60;
-		parser->_acc = 0;
-		__FSM_H2_I_MOVE_NEQ(I_DateSecCln, __fsm_n);
-	}
-
-	__FSM_STATE(I_DateSecCln) {
-		if (likely(c == ':'))
-			__FSM_H2_I_MOVE_NEQ(I_DateSec, 1);
 		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(I_DateSec) {
-		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
-		if (unlikely(__fsm_n == CSTR_POSTPONE)) {
-			if (likely(fin))
-				return CSTR_NEQ;
-			parser->_i_st = &&I_DateSec;
-			__msg_hdr_chunk_fixup(data, len);
-			__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);
+	__FSM_STATE(I_Day) {
+		if ('0' <= c && c <= '9') {
+			parser->date.day = parser->date.day * 10 + (c - '0');
+			__NEXT_TEMPL_STATE();
 		}
-		if (__fsm_n < 0)
-			return __fsm_n;
-		parser->_date += parser->_acc;
-		parser->_acc = 0;
-		__FSM_H2_I_MOVE_NEQ(I_DateSecSP, __fsm_n);
-	}
-
-	__FSM_STATE(I_DateSecSP) {
-		if (likely(c == ' '))
-			__FSM_H2_I_MOVE_NEQ(I_DateZone, 1);
 		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(I_DateZone) {
-		H2_TRY_STR("gmt", I_DateZone, I_EoL);
+	__FSM_STATE(I_MonthBeg) {
+		if ('A' <= c && c <= 'Z') {
+			parser->month_int =
+				((size_t)c) << 24 | (parser->month_int >> 8);
+			__NEXT_TEMPL_STATE();
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_Month) {
+		if ('a' <= c && c <= 'z') {
+			parser->month_int =
+				((size_t)c) << 24 | (parser->month_int >> 8);
+			__NEXT_TEMPL_STATE();
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_Year) {
+		if ('0' <= c && c <= '9') {
+			parser->date.year = parser->date.year * 10 + (c - '0');
+			__NEXT_TEMPL_STATE();
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_Hour) {
+		if ('0' <= c && c <= '9') {
+			parser->date.hour = parser->date.hour * 10 + (c - '0');
+			__NEXT_TEMPL_STATE();
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_Min) {
+		if ('0' <= c && c <= '9') {
+			parser->date.min = parser->date.min * 10 + (c - '0');
+			__NEXT_TEMPL_STATE();
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_Sec) {
+		if ('0' <= c && c <= '9') {
+			parser->date.sec = parser->date.sec * 10 + (c - '0');
+			__NEXT_TEMPL_STATE();
+		}
+		return CSTR_NEQ;
+	}
+#undef __NEXT_TEMPL_STATE
+
+	__FSM_STATE(I_GMT) {
+		H2_TRY_STR_BY_REF("gmt",
+			&&I_GMT, st[parser->date.type][parser->date.pos + 1]);
 		TRY_STR_INIT();
 		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_Res) {
+		unsigned int month;
+		time_t date;
+
+		month = __parse_month(parser->month_int);
+		if (month < 0)
+			return CSTR_NEQ;
+
+		if (parser->date.year < 100)
+			parser->date.year += (parser->date.year < 70) ? 2000
+								      : 1900;
+
+		date = __date_secs(parser->date.year, month,
+				   parser->date.day, parser->date.hour,
+				   parser->date.min, parser->date.sec);
+		if (date < 0)
+			return CSTR_NEQ;
+		parser->_date = date;
+		__FSM_JMP(I_EoL);
 	}
 
 	__FSM_STATE(I_EoL) {
+		parser->_acc = 0;
 		/* Skip the rest of the line. */
-		__FSM_H2_I_MATCH_MOVE_LAMBDA(nctl, I_EoL, {
-			T_DBG3("%s: parsed date %lu", __func__, parser->_date);
-		});
-		return CSTR_NEQ;
+		__FSM_H2_I_MATCH_MOVE(nctl, I_EoL);
+		if (!IS_CRLF(*(p + __fsm_sz)))
+			return CSTR_NEQ;
+		T_DBG3("%s: parsed date %lu", __func__, parser->_date);
+		return __data_off(p + __fsm_sz);
 	}
 
 done:
 	return r;
-
-#undef H2_TRY_STR_NEQ_LAMBDA
 }
 STACK_FRAME_NON_STANDARD(__h2_parse_http_date);
 
@@ -6252,7 +6279,7 @@ __h2_req_parse_if_msince(TfwHttpMsg *msg, unsigned char *data, size_t len,
 		r = __h2_parse_http_date(msg, data, len, fin);
 	}
 
-	if (r >= 0) {
+	if (r >= 0 && parser->_date != 0) {
 		req->cond.m_date = parser->_date;
 		req->cond.flags |= TFW_HTTP_COND_IF_MSINCE;
 
