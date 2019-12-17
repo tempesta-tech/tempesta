@@ -3761,7 +3761,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				   && *(p + 10) == ':'))
 			{
 				parser->_i_st = &&Req_HdrX_Method_OverrideV;
-				__FSM_MOVE_n(RGen_OWS, 14);
+				__FSM_MOVE_n(RGen_LWS, 14);
 			}
 			if (likely(__data_available(p, 23)
 				   && *(p + 1) == '-'
@@ -3776,7 +3776,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 						  'i', 'd', 'e', ':')))
 			{
 				parser->_i_st = &&Req_HdrX_Method_OverrideV;
-				__FSM_MOVE_n(RGen_OWS, 23);
+				__FSM_MOVE_n(RGen_LWS, 23);
 			}
 
 			if (likely(__data_available(p, 18)
@@ -3789,7 +3789,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 						 'i', 'd', 'e', ':')))
 			{
 				parser->_i_st = &&Req_HdrX_Method_OverrideV;
-				__FSM_MOVE_n(RGen_OWS, 18);
+				__FSM_MOVE_n(RGen_LWS, 18);
 			}
 			__FSM_MOVE(Req_HdrX);
 		case 'u':
@@ -4418,7 +4418,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		case 'm':
 			__FSM_MOVE(Req_HdrX_M);
 		default:
-			__FSM_JMP(RGen_HdrOther);
+			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
 
@@ -4475,9 +4475,9 @@ Req_Method_1CharStep: __attribute__((cold))
 			__FSM_MOVE(Req_HdrX_Http_Method_);
 		case ':':
 			parser->_i_st = &&Req_HdrX_Method_OverrideV;
-			__FSM_MOVE(RGen_OWS);
+			__FSM_MOVE(RGen_LWS);
 		default:
-			__FSM_JMP(RGen_HdrOther);
+			__FSM_JMP(RGen_HdrOtherN);
 		}
 	}
 
@@ -6381,7 +6381,7 @@ STACK_FRAME_NON_STANDARD(__h2_req_parse_x_forwarded_for);
 static int
 __h2_req_parse_mark(TfwHttpReq *req, unsigned char *data, size_t len, bool fin)
 {
-	TfwStr *str;
+	const TfwStr *str;
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(req);
 
@@ -8421,7 +8421,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 				   && *(p + 10) == ':'))
 			{
 				parser->_i_st = &&Resp_HdrSet_CookieV;
-				__FSM_MOVE_n(RGen_OWS, 11);
+				__FSM_MOVE_n(RGen_LWS, 11);
 			}
 			__FSM_MOVE(Resp_HdrS);
 		case 't':
@@ -9043,17 +9043,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 	__FSM_TX_AF(Resp_HdrSet_Coo, 'k', Resp_HdrSet_Cook);
 	__FSM_TX_AF(Resp_HdrSet_Cook, 'i', Resp_HdrSet_Cooki);
 	__FSM_TX_AF(Resp_HdrSet_Cooki, 'e', Resp_HdrSet_Cookie);
-	__FSM_TX_AF_OWS_HP(Resp_HdrSet_Cookie, RGen_HdrOtherV, 55);
-
-	/* Set-Cookie header processing. */
-	__FSM_TX_AF(Resp_HdrSet, '-', Resp_HdrSet_);
-	__FSM_TX_AF(Resp_HdrSet_, 'c', Resp_HdrSet_C);
-	__FSM_TX_AF(Resp_HdrSet_C, 'o', Resp_HdrSet_Co);
-	__FSM_TX_AF(Resp_HdrSet_Co, 'o', Resp_HdrSet_Coo);
-	__FSM_TX_AF(Resp_HdrSet_Coo, 'k', Resp_HdrSet_Cook);
-	__FSM_TX_AF(Resp_HdrSet_Cook, 'i', Resp_HdrSet_Cooki);
-	__FSM_TX_AF(Resp_HdrSet_Cooki, 'e', Resp_HdrSet_Cookie);
-	__FSM_TX_AF_OWS(Resp_HdrSet_Cookie, Resp_HdrSet_CookieV);
+	__FSM_TX_AF_OWS_HP(Resp_HdrSet_Cookie, Resp_HdrSet_CookieV, 55);
 
 	/* Transfer-Encoding header processing. */
 	__FSM_TX_AF(Resp_HdrT, 'r', Resp_HdrTr);
