@@ -3778,7 +3778,6 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				parser->_i_st = &&Req_HdrX_Method_OverrideV;
 				__FSM_MOVE_n(RGen_LWS, 23);
 			}
-
 			if (likely(__data_available(p, 18)
 				   && *(p + 1) == '-'
 				   && *(p + 9) == '-'
@@ -6405,6 +6404,170 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_x_forwarded_for);
 
+/* Parse method override request headers. */
+static int
+__h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
+			  bool fin)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(req);
+
+	__FSM_START(parser->_i_st);
+
+	__FSM_STATE(I_Meth_Start) {
+		switch (TFW_LC(c)) {
+		case 'c':
+			__FSM_I_JMP(I_Meth_C);
+		case 'd':
+			__FSM_I_JMP(I_Meth_D);
+		case 'g':
+			__FSM_I_JMP(I_Meth_G);
+		case 'h':
+			__FSM_I_JMP(I_Meth_H);
+		case 'l':
+			__FSM_I_JMP(I_Meth_L);
+		case 'm':
+			__FSM_I_JMP(I_Meth_M);
+		case 'o':
+			__FSM_I_JMP(I_Meth_O);
+		case 'p':
+			__FSM_I_JMP(I_Meth_P);
+		case 't':
+			__FSM_I_JMP(I_Meth_T);
+		case 'u':
+			__FSM_I_JMP(I_Meth_U);
+		}
+		__FSM_I_MOVE(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_C) {
+		H2_TRY_STR_LAMBDA("copy", {
+			req->method_override = TFW_HTTP_METH_COPY;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_C, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_D) {
+		H2_TRY_STR_LAMBDA("delete", {
+			req->method_override = TFW_HTTP_METH_DELETE;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_D, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_G) {
+		H2_TRY_STR_LAMBDA("get", {
+			req->method_override = TFW_HTTP_METH_GET;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_G, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_H) {
+		H2_TRY_STR_LAMBDA("head", {
+			req->method_override = TFW_HTTP_METH_HEAD;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_H, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_L) {
+		H2_TRY_STR_LAMBDA("lock", {
+			req->method_override = TFW_HTTP_METH_LOCK;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_L, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_M) {
+		H2_TRY_STR_LAMBDA("mkcol", {
+			req->method_override = TFW_HTTP_METH_MKCOL;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_M, I_EoT);
+		H2_TRY_STR_LAMBDA("move", {
+			req->method_override = TFW_HTTP_METH_MOVE;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_M, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_O) {
+		H2_TRY_STR_LAMBDA("options", {
+			req->method_override = TFW_HTTP_METH_OPTIONS;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_O, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_P) {
+		H2_TRY_STR_LAMBDA("patch", {
+			req->method_override = TFW_HTTP_METH_PATCH;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_P, I_EoT);
+		H2_TRY_STR_LAMBDA("post", {
+			req->method_override = TFW_HTTP_METH_POST;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_P, I_EoT);
+		H2_TRY_STR_LAMBDA("propfind", {
+			req->method_override = TFW_HTTP_METH_PROPFIND;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_P, I_EoT);
+		H2_TRY_STR_LAMBDA("proppatch", {
+			req->method_override = TFW_HTTP_METH_PROPPATCH;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_P, I_EoT);
+		H2_TRY_STR_LAMBDA("put", {
+			req->method_override = TFW_HTTP_METH_PUT;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_P, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_T) {
+		H2_TRY_STR_LAMBDA("trace", {
+			req->method_override = TFW_HTTP_METH_TRACE;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_T, I_EoT);
+		TRY_STR_INIT();
+	}
+
+	__FSM_STATE(I_Meth_U) {
+		H2_TRY_STR_LAMBDA("unlock", {
+			req->method_override = TFW_HTTP_METH_UNLOCK;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_U, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_Unknown) {
+		__FSM_I_MATCH_MOVE(token, I_Meth_Unknown);
+		req->method_override = _TFW_HTTP_METH_UNKNOWN;
+		__FSM_H2_I_MOVE_n(I_EoT, __fsm_sz);
+	}
+
+	__FSM_STATE(I_EoT) {
+		if (IS_TOKEN(c))
+			__FSM_H2_I_MOVE(I_Meth_Unknown);
+		if (IS_WS(c))
+			__FSM_H2_I_MOVE(I_EoT);
+		return CSTR_NEQ;
+	}
+
+done:
+	return r;
+}
+STACK_FRAME_NON_STANDARD(__h2_req_parse_m_override);
+
 static int
 __h2_req_parse_mark(TfwHttpReq *req, unsigned char *data, size_t len, bool fin)
 {
@@ -6672,18 +6835,6 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 				__FSM_H2_DROP(Req_HdrTransfer_Encoding);
 			}
 			__FSM_H2_NEXT(Req_HdrT);
-		case 'x':
-			if (likely(__data_available(p, 15)
-				   && C8_INT(p + 1, '-', 'f', 'o', 'r', 'w',
-					     'a', 'r', 'd')
-				   && C4_INT(p + 9, 'e', 'd', '-', 'f')
-				   && *(p + 13) == 'o'
-				   && *(p + 14) == 'r'))
-			{
-				__FSM_H2_FIN(Req_HdrX_Forwarded_ForV, 15,
-					     TFW_TAG_HDR_X_FORWARDED_FOR);
-			}
-			__FSM_H2_NEXT(Req_HdrX);
 		case 'u':
 			if (likely(__data_available(p, 10)
 				   && C4_INT(p, 'u', 's', 'e', 'r')
@@ -6695,6 +6846,59 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 					     TFW_TAG_HDR_USER_AGENT);
 			}
 			__FSM_H2_NEXT(Req_HdrU);
+		case 'x':
+			if (likely(__data_available(p, 15)
+				   && C8_INT(p + 1, '-', 'f', 'o', 'r', 'w',
+					     'a', 'r', 'd')
+				   && C4_INT(p + 9, 'e', 'd', '-', 'f')
+				   && *(p + 13) == 'o'
+				   && *(p + 14) == 'r'))
+			{
+				__FSM_H2_FIN(Req_HdrX_Forwarded_ForV, 15,
+					     TFW_TAG_HDR_X_FORWARDED_FOR);
+			}
+			if (likely(__data_available(p, 14)
+				   && *(p + 1) == '-'
+				   && *(p + 7) == '-'
+				   /* Safe match: '-' is checked above. */
+				   && C8_INT_LCM(p, 'x', '-', 'h', 't',
+						 't', 'p', '-', 'm')
+				   && C4_INT_LCM(p + 8, 'e', 't', 'h', 'o')
+				   && TFW_LC(*(p + 12) == 'd')
+				   && *(p + 10) == ':'))
+			{
+				__FSM_H2_FIN(Req_HdrX_Method_OverrideV, 14,
+					     TFW_TAG_HDR_RAW);
+			}
+			if (likely(__data_available(p, 23)
+				   && *(p + 1) == '-'
+				   && *(p + 7) == '-'
+				   && *(p + 14) == '-'
+				   /* Safe match: '-' is checked above. */
+				   && C8_INT_LCM(p, 'x', '-', 'h', 't',
+						 't', 'p', '-', 'm')
+				   && C8_INT_LCM(p + 8, 'e', 't', 'h', 'o',
+						 'd', '-', 'o', 'v')
+				   && C8_INT7_LCM(p + 16, 'v', 'e', 'r', 'r',
+						  'i', 'd', 'e', ':')))
+			{
+				__FSM_H2_FIN(Req_HdrX_Method_OverrideV, 23,
+					     TFW_TAG_HDR_RAW);
+			}
+			if (likely(__data_available(p, 18)
+				   && *(p + 1) == '-'
+				   && *(p + 9) == '-'
+				   /* Safe match: '-' is checked above. */
+				   && C8_INT_LCM(p + 2, 'm', 'e', 't', 'h',
+						 'o', 'd', '-', 'o')
+				   && C8_INT7_LCM(p + 10, 'v', 'e', 'r', 'r',
+						 'i', 'd', 'e', ':')))
+			{
+
+				__FSM_H2_FIN(Req_HdrX_Method_OverrideV, 18,
+					     TFW_TAG_HDR_RAW);
+			}
+			__FSM_H2_NEXT(Req_HdrX);
 		default:
 			__FSM_JMP(RGen_HdrOtherN);
 		}
@@ -6946,11 +7150,6 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	TFW_H2_PARSE_HDR_VAL(Req_HdrRefererV, msg, __h2_req_parse_referer,
 			     TFW_HTTP_HDR_REFERER, 1);
 
-	/* 'x-forwarded-for' is read, process field-value. */
-	TFW_H2_PARSE_HDR_VAL(Req_HdrX_Forwarded_ForV, msg,
-			     __h2_req_parse_x_forwarded_for,
-			     TFW_HTTP_HDR_X_FORWARDED_FOR, 0);
-
 	/* 'user-agent' is read, process field-value. */
 	TFW_H2_PARSE_HDR_VAL(Req_HdrUser_AgentV, msg, __h2_req_parse_user_agent,
 			     TFW_HTTP_HDR_USER_AGENT, 1);
@@ -6958,6 +7157,18 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	/* 'cookie' is read, process field-value. */
 	TFW_H2_PARSE_HDR_VAL(Req_HdrCookieV, msg, __h2_req_parse_cookie,
 			     TFW_HTTP_HDR_COOKIE, 0);
+
+	/* 'x-forwarded-for' is read, process field-value. */
+	TFW_H2_PARSE_HDR_VAL(Req_HdrX_Forwarded_ForV, msg,
+			     __h2_req_parse_x_forwarded_for,
+			     TFW_HTTP_HDR_X_FORWARDED_FOR, 0);
+
+	/*
+	 * 'X-HTTP-Method:*OWS' OR 'X-HTTP-Method-Override:*OWS' OR
+	 * 'X-Method-Override:*OWS' is read, process field-value.
+	*/
+	TFW_H2_PARSE_HDR_VAL(Req_HdrX_Method_OverrideV, req,
+			     __h2_req_parse_m_override, TFW_HTTP_HDR_RAW, 1);
 
 	__FSM_STATE(RGen_HdrOtherV) {
 		if (!H2_MSG_VERIFY(TFW_HTTP_HDR_RAW))
@@ -7214,7 +7425,20 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	__FSM_H2_TX_AF_DROP(Req_HdrTransfer_Encodin, 'g');
 
 	__FSM_H2_TX_AF(Req_HdrX, '-', Req_HdrX_);
-	__FSM_H2_TX_AF(Req_HdrX_, 'f', Req_HdrX_F);
+	__FSM_STATE(Req_HdrX_, cold) {
+		switch (c) {
+		case 'f':
+			__FSM_H2_NEXT(Req_HdrX_F);
+		case 'h':
+			__FSM_H2_NEXT(Req_HdrX_H);
+		case 'm':
+			__FSM_H2_NEXT(Req_HdrX_M);
+		default:
+			__FSM_JMP(RGen_HdrOtherN);
+		}
+	}
+
+	/* X-Forwarded-For header processing. */
 	__FSM_H2_TX_AF(Req_HdrX_F, 'o', Req_HdrX_Fo);
 	__FSM_H2_TX_AF(Req_HdrX_Fo, 'r', Req_HdrX_For);
 	__FSM_H2_TX_AF(Req_HdrX_For, 'w', Req_HdrX_Forw);
@@ -7228,6 +7452,65 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	__FSM_H2_TX_AF(Req_HdrX_Forwarded_F, 'o', Req_HdrX_Forwarded_Fo);
 	__FSM_H2_TX_AF_FIN(Req_HdrX_Forwarded_Fo, 'r', Req_HdrX_Forwarded_ForV,
 			   TFW_TAG_HDR_X_FORWARDED_FOR);
+
+	/* X-Method-Override header processing. */
+	__FSM_H2_TX_AF(Req_HdrX_M, 'e', Req_HdrX_Me);
+	__FSM_H2_TX_AF(Req_HdrX_Me, 't', Req_HdrX_Met);
+	__FSM_H2_TX_AF(Req_HdrX_Met, 'h', Req_HdrX_Meth);
+	__FSM_H2_TX_AF(Req_HdrX_Meth, 'o', Req_HdrX_Metho);
+	__FSM_H2_TX_AF(Req_HdrX_Metho, 'd', Req_HdrX_Method);
+	__FSM_H2_TX_AF(Req_HdrX_Method, '-', Req_HdrX_Method_);
+	__FSM_H2_TX_AF(Req_HdrX_Method_, 'o', Req_HdrX_Method_O);
+	__FSM_H2_TX_AF(Req_HdrX_Method_O, 'v', Req_HdrX_Method_Ov);
+	__FSM_H2_TX_AF(Req_HdrX_Method_Ov, 'e', Req_HdrX_Method_Ove);
+	__FSM_H2_TX_AF(Req_HdrX_Method_Ove, 'r', Req_HdrX_Method_Over);
+	__FSM_H2_TX_AF(Req_HdrX_Method_Over, 'r', Req_HdrX_Method_Overr);
+	__FSM_H2_TX_AF(Req_HdrX_Method_Overr, 'i', Req_HdrX_Method_Overri);
+	__FSM_H2_TX_AF(Req_HdrX_Method_Overri, 'd', Req_HdrX_Method_Overrid);
+	__FSM_H2_TX_AF_FIN(Req_HdrX_Method_Overrid, 'e', Req_HdrX_Method_OverrideV,
+			   TFW_TAG_HDR_RAW);
+
+	/* X-HTTP-Method header processing */
+	__FSM_H2_TX_AF(Req_HdrX_H, 't', Req_HdrX_Ht);
+	__FSM_H2_TX_AF(Req_HdrX_Ht, 't', Req_HdrX_Htt);
+	__FSM_H2_TX_AF(Req_HdrX_Htt, 'p', Req_HdrX_Http);
+	__FSM_H2_TX_AF(Req_HdrX_Http, '-', Req_HdrX_Http_);
+	__FSM_H2_TX_AF(Req_HdrX_Http_, 'm', Req_HdrX_Http_M);
+	__FSM_H2_TX_AF(Req_HdrX_Http_M, 'e', Req_HdrX_Http_Me);
+	__FSM_H2_TX_AF(Req_HdrX_Http_Me, 't', Req_HdrX_Http_Met);
+	__FSM_H2_TX_AF(Req_HdrX_Http_Met, 'h', Req_HdrX_Http_Meth);
+	__FSM_H2_TX_AF(Req_HdrX_Http_Meth, 'o', Req_HdrX_Http_Metho);
+	/*
+	 * Same as __FSM_H2_TX_AF_FIN, but jump to X-HTTP-Method-Override
+	 * header if more data is found afer 'd'
+	 */
+	__FSM_STATE(Req_HdrX_Http_Metho, cold) {
+		if (c != 'd')
+			__FSM_JMP(RGen_HdrOtherN);
+		p += 1;
+		T_DBG3("%s: name fin, h_tag=%d, to=Req_HdrX_Http_Metho len=%lu, "
+		       "off=%lu\n",
+		       __func__, TFW_TAG_HDR_RAW, len, __data_off(p));
+		if (unlikely(__data_off(p) < len))
+			goto RGen_HdrOtherN;
+		__msg_hdr_chunk_fixup(data, len);
+		if (unlikely(!fin))
+			__FSM_H2_POSTPONE(Req_HdrX_Http_Method);
+		it->tag = TFW_TAG_HDR_RAW;
+		__FSM_H2_OK(Req_HdrX_Method_OverrideV);
+	}
+
+	/* X-HTTP-Method-Override processing */
+	__FSM_H2_TX_AF(Req_HdrX_Http_Method, '-', Req_HdrX_Http_Method_);
+	__FSM_H2_TX_AF(Req_HdrX_Http_Method_, 'o', Req_HdrX_Http_Method_O);
+	__FSM_H2_TX_AF(Req_HdrX_Http_Method_O, 'v', Req_HdrX_Http_Method_Ov);
+	__FSM_H2_TX_AF(Req_HdrX_Http_Method_Ov, 'e', Req_HdrX_Http_Method_Ove);
+	__FSM_H2_TX_AF(Req_HdrX_Http_Method_Ove, 'r', Req_HdrX_Http_Method_Over);
+	__FSM_H2_TX_AF(Req_HdrX_Http_Method_Over, 'r', Req_HdrX_Http_Method_Overr);
+	__FSM_H2_TX_AF(Req_HdrX_Http_Method_Overr, 'i', Req_HdrX_Http_Method_Overri);
+	__FSM_H2_TX_AF(Req_HdrX_Http_Method_Overri, 'd', Req_HdrX_Http_Method_Overrid);
+	__FSM_H2_TX_AF_FIN(Req_HdrX_Http_Method_Overrid, 'e', Req_HdrX_Method_OverrideV,
+			   TFW_TAG_HDR_RAW);
 
 	__FSM_H2_TX_AF(Req_HdrU, 's', Req_HdrUs);
 	__FSM_H2_TX_AF(Req_HdrUs, 'e', Req_HdrUse);
@@ -7244,6 +7527,8 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	__FSM_H2_TX_AF(Req_HdrCook, 'i', Req_HdrCooki);
 	__FSM_H2_TX_AF_FIN(Req_HdrCooki, 'e', Req_HdrCookieV,
 			   TFW_TAG_HDR_COOKIE);
+
+
 
 	/* Improbable states of method values processing. */
 
