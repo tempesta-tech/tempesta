@@ -288,6 +288,64 @@ do {								\
 	}							\
 } while (0)
 
+static inline int
+__hpack_process_hdr_name(TfwHttpReq *req)
+{
+	const TfwStr *c, *end;
+	TfwMsgParseIter *it = &req->pit;
+	const TfwStr *hdr = &it->hdr, *next = it->next;
+	int ret = T_BAD;
+
+	WARN_ON_ONCE(next != hdr);
+	TFW_STR_FOR_EACH_CHUNK(c, next, end) {
+		bool last = c + 1 == end;
+
+		WARN_ON_ONCE(ret == T_OK);
+		ret = tfw_h2_parse_req_hdr(c->data, c->len, req, last, false);
+		if (unlikely(ret < T_POSTPONE))
+			return ret;
+	}
+	return ret ? T_DROP : T_OK;
+}
+
+static inline int
+__hpack_process_hdr_value(TfwHttpReq *req)
+{
+	const TfwStr *chunk, *end;
+	TfwMsgParseIter *it = &req->pit;
+	const TfwStr *hdr = &it->hdr, *next = it->next;
+	int ret = T_BAD;
+
+	BUG_ON(TFW_STR_DUP(hdr));
+	if (TFW_STR_PLAIN(hdr)) {
+		WARN_ON_ONCE(hdr != next);
+		chunk = hdr;
+		end = hdr + 1;
+	} else {
+		/*
+		 * In case of compound @hdr the @next can point either to the
+		 * @hdr itself (if only header's value has been Huffman-decoded,
+		 * i.e. in case of indexed or raw header's name), or to some
+		 * chunk inside the @hdr (if both, the name and the value, has
+		 * been Huffman-decoded).
+		 */
+		chunk = (hdr != next) ? next : next->chunks;
+		end = hdr->chunks + hdr->nchunks;
+	}
+
+	while (chunk < end) {
+		bool last = chunk + 1 == end;
+
+		WARN_ON_ONCE(ret == T_OK);
+		ret = tfw_h2_parse_req_hdr(chunk->data, chunk->len,
+					   req, last, true);
+		if (unlikely(ret < T_POSTPONE))
+			return ret;
+		++chunk;
+	}
+	return ret ? T_DROP : T_OK;
+}
+
 #define	HPACK_DECODE_PROCESS_STRING(field, len)			\
 do {								\
 	T_DBG3("%s: decoding, len=%lu, n=%lu, tail=%lu\n",	\
@@ -299,7 +357,7 @@ do {								\
 	WARN_ON_ONCE(hp->length);				\
 	hp->hctx = 0;						\
 	tfw_huffman_init(hp);					\
-	if ((r = tfw_hpack_process_hdr_##field(req)))		\
+	if ((r = __hpack_process_hdr_##field(req)))		\
 		goto out;					\
 	T_DBG3("%s: processed decoded, tail=%lu\n", __func__,	\
 	       last - src);					\
@@ -592,7 +650,6 @@ tfw_huffman_decode(TfwHPack *__restrict hp, TfwHttpReq *__restrict req,
 end:
 	return T_DROP;
 }
-
 
 static int
 tfw_hpack_set_entry(TfwPool *__restrict h_pool, TfwMsgParseIter *__restrict it,
@@ -988,64 +1045,6 @@ tfw_hpack_reinit(TfwHPack *__restrict hp, TfwMsgParseIter *__restrict it)
 		   sizeof(*it) - offsetof(TfwMsgParseIter, __off));
 	bzero_fast(hp->__off,
 		   sizeof(*hp) - offsetof(TfwHPack, __off));
-}
-
-static inline int
-tfw_hpack_process_hdr_name(TfwHttpReq *req)
-{
-	const TfwStr *c, *end;
-	TfwMsgParseIter *it = &req->pit;
-	const TfwStr *hdr = &it->hdr, *next = it->next;
-	int ret = T_BAD;
-
-	WARN_ON_ONCE(next != hdr);
-	TFW_STR_FOR_EACH_CHUNK(c, next, end) {
-		bool last = c + 1 == end;
-
-		WARN_ON_ONCE(ret == T_OK);
-		ret = tfw_h2_parse_req_hdr(c->data, c->len, req, last, false);
-		if (unlikely(ret < T_POSTPONE))
-			return ret;
-	}
-	return ret ? T_DROP : T_OK;
-}
-
-static inline int
-tfw_hpack_process_hdr_value(TfwHttpReq *req)
-{
-	const TfwStr *chunk, *end;
-	TfwMsgParseIter *it = &req->pit;
-	const TfwStr *hdr = &it->hdr, *next = it->next;
-	int ret = T_BAD;
-
-	BUG_ON(TFW_STR_DUP(hdr));
-	if (TFW_STR_PLAIN(hdr)) {
-		WARN_ON_ONCE(hdr != next);
-		chunk = hdr;
-		end = hdr + 1;
-	} else {
-		/*
-		 * In case of compound @hdr the @next can point either to the
-		 * @hdr itself (if only header's value has been Huffman-decoded,
-		 * i.e. in case of indexed or raw header's name), or to some
-		 * chunk inside the @hdr (if both, the name and the value, has
-		 * been Huffman-decoded).
-		 */
-		chunk = (hdr != next) ? next : next->chunks;
-		end = hdr->chunks + hdr->nchunks;
-	}
-
-	while (chunk < end) {
-		bool last = chunk + 1 == end;
-
-		WARN_ON_ONCE(ret == T_OK);
-		ret = tfw_h2_parse_req_hdr(chunk->data, chunk->len,
-					   req, last, true);
-		if (unlikely(ret < T_POSTPONE))
-			return ret;
-		++chunk;
-	}
-	return ret ? T_DROP : T_OK;
 }
 
 static int
