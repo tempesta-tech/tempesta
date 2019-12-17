@@ -241,7 +241,10 @@ test_string_split(const TfwStr *expected, const TfwStr *parsed)
 {
 	TfwStr *end_p, *end_e, *c_p, *c_e;
 
-	BUG_ON(TFW_STR_PLAIN(parsed) || TFW_STR_PLAIN(expected));
+	BUG_ON(TFW_STR_PLAIN(expected));
+	EXPECT_FALSE(TFW_STR_PLAIN(parsed));
+	if (TFW_STR_PLAIN(parsed))
+		return;
 
 	EXPECT_GE(parsed->nchunks, expected->nchunks);
 	EXPECT_EQ(parsed->len, expected->len);
