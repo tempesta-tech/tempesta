@@ -1720,5 +1720,3 @@ ss_skb_cut_extra_data(struct sk_buff *skb_head, struct sk_buff *skb,
 
 	return 0;
 }
-
-

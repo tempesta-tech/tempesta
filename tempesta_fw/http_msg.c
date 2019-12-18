@@ -45,12 +45,12 @@ tfw_http_msg_make_hdr(TfwPool *pool, const char *name, const char *val)
 	const TfwStr tmp_hdr = {
 		.chunks = (TfwStr []){
 			{ .data = (void *)name,	.len = n_len },
-			{ .data = S_DLM,	.len = SLEN(S_DLM) },
-			{ .data = (void *)val,	.len = v_len },
+			{ .data = (void *)val,	.len = v_len,
+			  .flags = TFW_STR_HDR_VALUE},
 		},
-		.len = n_len + SLEN(S_DLM) + v_len,
+		.len = n_len + v_len,
 		.eolen = 2,
-		.nchunks = (val ? 3 : 2)
+		.nchunks = (val ? 2 : 1)
 	};
 
 	return tfw_strdup(pool, &tmp_hdr);
