@@ -91,6 +91,22 @@ ss_skb_peek_tail(struct sk_buff **skb_head)
 }
 
 /**
+ * Split single queue into two, where the @skb will be a head of a new queue.
+ */
+static inline void
+ss_skb_queue_split(struct sk_buff *skb_head, struct sk_buff *skb)
+{
+	struct sk_buff *prev = skb->prev;
+	WARN_ON_ONCE(skb_head == skb);
+
+	skb->prev = skb_head->prev;
+	prev->next = skb_head;
+
+	skb->prev->next = skb;
+	skb_head->prev = prev;
+}
+
+/**
  * Almost a copy of standard skb_dequeue() except it works with skb list
  * instead of sk_buff_head. Several crucial data include skb list and we don't
  * want to spend extra memory for unused members of skb_buff_head.
