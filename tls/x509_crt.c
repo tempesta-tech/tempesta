@@ -43,7 +43,6 @@
 const ttls_x509_crt_profile ttls_x509_crt_profile_default =
 {
 	/* Only SHA-2 hashes */
-	TTLS_X509_ID_FLAG(TTLS_MD_SHA224) |
 	TTLS_X509_ID_FLAG(TTLS_MD_SHA256) |
 	TTLS_X509_ID_FLAG(TTLS_MD_SHA384) |
 	TTLS_X509_ID_FLAG(TTLS_MD_SHA512),
@@ -65,10 +64,6 @@ const ttls_x509_crt_profile ttls_x509_crt_profile_next =
 	/* Curves at or above 128-bit security level */
 	TTLS_X509_ID_FLAG(TTLS_ECP_DP_SECP256R1) |
 	TTLS_X509_ID_FLAG(TTLS_ECP_DP_SECP384R1) |
-	TTLS_X509_ID_FLAG(TTLS_ECP_DP_SECP521R1) |
-	TTLS_X509_ID_FLAG(TTLS_ECP_DP_BP256R1) |
-	TTLS_X509_ID_FLAG(TTLS_ECP_DP_BP384R1) |
-	TTLS_X509_ID_FLAG(TTLS_ECP_DP_BP512R1),
 	2048,
 };
 
@@ -821,10 +816,14 @@ ttls_x509_crt_parse_der(ttls_x509_crt *chain, unsigned char *buf, size_t buflen)
 		prev = crt;
 		crt = crt->next;
 	}
+#if defined(DEBUG) && DEBUG == 3
+	print_hex_dump(KERN_INFO, "Binary certificate", DUMP_PREFIX_OFFSET,
+		       16, 1, buf, buflen, true);
+#endif
 
 	/* Add new certificate on the end of the chain if needed. */
 	if (crt->version && !crt->next) {
-		crt->next = kmalloc(sizeof(ttls_x509_crt), GFP_KERNEL);
+		crt->next = kmalloc(sizeof(ttls_x509_crt), GFP_ATOMIC);
 		if (!crt->next)
 			return TTLS_ERR_X509_ALLOC_FAILED;
 
@@ -923,6 +922,9 @@ ttls_x509_crt_parse(ttls_x509_crt *chain, unsigned char *buf, size_t buflen)
 		}
 	}
 
+	/* Does MPI calculations, so pool context must be freed afterwards. */
+	ttls_mpi_pool_cleanup_ctx(false);
+
 	if (success)
 		return total_failed;
 	if (first_error)
@@ -930,273 +932,6 @@ ttls_x509_crt_parse(ttls_x509_crt *chain, unsigned char *buf, size_t buflen)
 	return TTLS_ERR_X509_CERT_UNKNOWN_FORMAT;
 }
 EXPORT_SYMBOL(ttls_x509_crt_parse);
-
-static int x509_info_subject_alt_name(char **buf, size_t *size,
-			   const ttls_x509_sequence *subject_alt_name)
-{
-	size_t i;
-	size_t n = *size;
-	char *p = *buf;
-	const ttls_x509_sequence *cur = subject_alt_name;
-	const char *sep = "";
-	size_t sep_len = 0;
-
-	while (cur != NULL)
-	{
-		if (cur->buf.len + sep_len >= n)
-		{
-			*p = '\0';
-			return(TTLS_ERR_X509_BUFFER_TOO_SMALL);
-		}
-
-		n -= cur->buf.len + sep_len;
-		for (i = 0; i < sep_len; i++)
-			*p++ = sep[i];
-		for (i = 0; i < cur->buf.len; i++)
-			*p++ = cur->buf.p[i];
-
-		sep = ", ";
-		sep_len = 2;
-
-		cur = cur->next;
-	}
-
-	*p = '\0';
-
-	*size = n;
-	*buf = p;
-
-	return 0;
-}
-
-#define PRINT_ITEM(i)							\
-	{								\
-		ret = snprintf(p, n, "%s" i, sep);			\
-		TTLS_X509_SAFE_SNPRINTF;				\
-		sep = ", ";						\
-	}
-
-#define CERT_TYPE(type,name)						\
-	if (ns_cert_type & type)					\
-		PRINT_ITEM(name);
-
-static int x509_info_cert_type(char **buf, size_t *size,
-		unsigned char ns_cert_type)
-{
-	int ret;
-	size_t n = *size;
-	char *p = *buf;
-	const char *sep = "";
-
-	CERT_TYPE(TTLS_X509_NS_CERT_TYPE_CLIENT, "SSL Client");
-	CERT_TYPE(TTLS_X509_NS_CERT_TYPE_SERVER, "SSL Server");
-	CERT_TYPE(TTLS_X509_NS_CERT_TYPE_EMAIL, "Email");
-	CERT_TYPE(TTLS_X509_NS_CERT_TYPE_OBJECT_SIGNING, "Object Signing");
-	CERT_TYPE(TTLS_X509_NS_CERT_TYPE_RESERVED, "Reserved");
-	CERT_TYPE(TTLS_X509_NS_CERT_TYPE_CA, "SSL CA");
-	CERT_TYPE(TTLS_X509_NS_CERT_TYPE_EMAIL_CA, "Email CA");
-	CERT_TYPE(TTLS_X509_NS_CERT_TYPE_OBJECT_SIGNING_CA,
-		  "Object Signing CA");
-
-	*size = n;
-	*buf = p;
-
-	return 0;
-}
-
-#define KEY_USAGE(code,name)						\
-	if (key_usage & code)						\
-		PRINT_ITEM(name);
-
-static int x509_info_key_usage(char **buf, size_t *size,
-		unsigned int key_usage)
-{
-	int ret;
-	size_t n = *size;
-	char *p = *buf;
-	const char *sep = "";
-
-	KEY_USAGE(TTLS_X509_KU_DIGITAL_SIGNATURE,	"Digital Signature");
-	KEY_USAGE(TTLS_X509_KU_NON_REPUDIATION,	  "Non Repudiation");
-	KEY_USAGE(TTLS_X509_KU_KEY_ENCIPHERMENT,	 "Key Encipherment");
-	KEY_USAGE(TTLS_X509_KU_DATA_ENCIPHERMENT,	"Data Encipherment");
-	KEY_USAGE(TTLS_X509_KU_KEY_AGREEMENT,		"Key Agreement");
-	KEY_USAGE(TTLS_X509_KU_KEY_CERT_SIGN,		"Key Cert Sign");
-	KEY_USAGE(TTLS_X509_KU_CRL_SIGN,			 "CRL Sign");
-	KEY_USAGE(TTLS_X509_KU_ENCIPHER_ONLY,		"Encipher Only");
-	KEY_USAGE(TTLS_X509_KU_DECIPHER_ONLY,		"Decipher Only");
-
-	*size = n;
-	*buf = p;
-
-	return 0;
-}
-
-static int x509_info_ext_key_usage(char **buf, size_t *size,
-			const ttls_x509_sequence *extended_key_usage)
-{
-	int ret;
-	const char *desc;
-	size_t n = *size;
-	char *p = *buf;
-	const ttls_x509_sequence *cur = extended_key_usage;
-	const char *sep = "";
-
-	while (cur != NULL)
-	{
-		if (ttls_oid_get_extended_key_usage(&cur->buf, &desc) != 0)
-			desc = "???";
-
-		ret = snprintf(p, n, "%s%s", sep, desc);
-		TTLS_X509_SAFE_SNPRINTF;
-
-		sep = ", ";
-
-		cur = cur->next;
-	}
-
-	*size = n;
-	*buf = p;
-
-	return 0;
-}
-
-/*
- * Return an informational string about the certificate.
- */
-#define BEFORE_COLON	18
-#define BC			  "18"
-int ttls_x509_crt_info(char *buf, size_t size, const char *prefix,
-				   const ttls_x509_crt *crt)
-{
-	int ret;
-	size_t n;
-	char *p;
-	char key_size_str[BEFORE_COLON];
-
-	p = buf;
-	n = size;
-
-	if (NULL == crt)
-	{
-		ret = snprintf(p, n, "\nCertificate is uninitialised!\n");
-		TTLS_X509_SAFE_SNPRINTF;
-
-		return((int) (size - n));
-	}
-
-	ret = snprintf(p, n, "%scert. version	 : %d\n",
-				   prefix, crt->version);
-	TTLS_X509_SAFE_SNPRINTF;
-	ret = snprintf(p, n, "%sserial number	 : ",
-				   prefix);
-	TTLS_X509_SAFE_SNPRINTF;
-
-	ret = ttls_x509_serial_gets(p, n, &crt->serial);
-	TTLS_X509_SAFE_SNPRINTF;
-
-	ret = snprintf(p, n, "\n%sissuer name	   : ", prefix);
-	TTLS_X509_SAFE_SNPRINTF;
-	ret = ttls_x509_dn_gets(p, n, &crt->issuer );
-	TTLS_X509_SAFE_SNPRINTF;
-
-	ret = snprintf(p, n, "\n%ssubject name	  : ", prefix);
-	TTLS_X509_SAFE_SNPRINTF;
-	ret = ttls_x509_dn_gets(p, n, &crt->subject);
-	TTLS_X509_SAFE_SNPRINTF;
-
-	ret = snprintf(p, n, "\n%sissued  on		: " \
-				   "%04d-%02d-%02d %02d:%02d:%02d", prefix,
-				   crt->valid_from.year, crt->valid_from.mon,
-				   crt->valid_from.day,  crt->valid_from.hour,
-				   crt->valid_from.min,  crt->valid_from.sec);
-	TTLS_X509_SAFE_SNPRINTF;
-
-	ret = snprintf(p, n, "\n%sexpires on		: " \
-				   "%04d-%02d-%02d %02d:%02d:%02d", prefix,
-				   crt->valid_to.year, crt->valid_to.mon,
-				   crt->valid_to.day,  crt->valid_to.hour,
-				   crt->valid_to.min,  crt->valid_to.sec);
-	TTLS_X509_SAFE_SNPRINTF;
-
-	ret = snprintf(p, n, "\n%ssigned using	  : ", prefix);
-	TTLS_X509_SAFE_SNPRINTF;
-
-	ret = ttls_x509_sig_alg_gets(p, n, &crt->sig_oid, crt->sig_pk,
-				 crt->sig_md, crt->sig_opts);
-	TTLS_X509_SAFE_SNPRINTF;
-
-	/* Key size */
-	if ((ret = ttls_x509_key_size_helper(key_size_str, BEFORE_COLON,
-			  ttls_pk_get_name(&crt->pk))) != 0)
-	{
-		return ret;
-	}
-
-	ret = snprintf(p, n, "\n%s%-" BC "s: %d bits", prefix, key_size_str,
-			  (int) ttls_pk_get_bitlen(&crt->pk));
-	TTLS_X509_SAFE_SNPRINTF;
-
-	/*
-	 * Optional extensions
-	 */
-
-	if (crt->ext_types & TTLS_X509_EXT_BASIC_CONSTRAINTS)
-	{
-		ret = snprintf(p, n, "\n%sbasic constraints : CA=%s", prefix,
-			crt->ca_istrue ? "true" : "false");
-		TTLS_X509_SAFE_SNPRINTF;
-
-		if (crt->max_pathlen > 0)
-		{
-			ret = snprintf(p, n, ", max_pathlen=%d", crt->max_pathlen - 1);
-			TTLS_X509_SAFE_SNPRINTF;
-		}
-	}
-
-	if (crt->ext_types & TTLS_X509_EXT_SUBJECT_ALT_NAME)
-	{
-		ret = snprintf(p, n, "\n%ssubject alt name  : ", prefix);
-		TTLS_X509_SAFE_SNPRINTF;
-
-		if ((ret = x509_info_subject_alt_name(&p, &n,
-		&crt->subject_alt_names)) != 0)
-			return ret;
-	}
-
-	if (crt->ext_types & TTLS_X509_EXT_NS_CERT_TYPE)
-	{
-		ret = snprintf(p, n, "\n%scert. type		: ", prefix);
-		TTLS_X509_SAFE_SNPRINTF;
-
-		if ((ret = x509_info_cert_type(&p, &n, crt->ns_cert_type)) != 0)
-			return ret;
-	}
-
-	if (crt->ext_types & TTLS_X509_EXT_KEY_USAGE)
-	{
-		ret = snprintf(p, n, "\n%skey usage		 : ", prefix);
-		TTLS_X509_SAFE_SNPRINTF;
-
-		if ((ret = x509_info_key_usage(&p, &n, crt->key_usage)) != 0)
-			return ret;
-	}
-
-	if (crt->ext_types & TTLS_X509_EXT_EXTENDED_KEY_USAGE)
-	{
-		ret = snprintf(p, n, "\n%sext key usage	 : ", prefix);
-		TTLS_X509_SAFE_SNPRINTF;
-
-		if ((ret = x509_info_ext_key_usage(&p, &n,
-		 &crt->ext_key_usage)) != 0)
-			return ret;
-	}
-
-	ret = snprintf(p, n, "\n");
-	TTLS_X509_SAFE_SNPRINTF;
-
-	return((int) (size - n));
-}
 
 struct x509_crt_verify_string {
 	int code;
@@ -1226,34 +961,6 @@ static const struct x509_crt_verify_string x509_crt_verify_strings[] = {
 	{ TTLS_X509_BADCRL_BAD_KEY,		"The CRL is signed with an unacceptable key (eg bad curve, RSA too short)." },
 	{ 0, NULL }
 };
-
-int ttls_x509_crt_verify_info(char *buf, size_t size, const char *prefix,
-			  uint32_t flags)
-{
-	int ret;
-	const struct x509_crt_verify_string *cur;
-	char *p = buf;
-	size_t n = size;
-
-	for (cur = x509_crt_verify_strings; cur->string != NULL ; cur++)
-	{
-		if ((flags & cur->code) == 0)
-			continue;
-
-		ret = snprintf(p, n, "%s%s\n", prefix, cur->string);
-		TTLS_X509_SAFE_SNPRINTF;
-		flags ^= cur->code;
-	}
-
-	if (flags != 0)
-	{
-		ret = snprintf(p, n, "%sUnknown reason "
-			   "(this should not happen)\n", prefix);
-		TTLS_X509_SAFE_SNPRINTF;
-	}
-
-	return((int) (size - n));
-}
 
 int ttls_x509_crt_check_key_usage(const ttls_x509_crt *crt,
 			  unsigned int usage)
@@ -1995,10 +1702,8 @@ exit:
 	return 0;
 }
 
-/*
- * Initialize a certificate chain
- */
-void ttls_x509_crt_init(ttls_x509_crt *crt)
+void
+ttls_x509_crt_init(ttls_x509_crt *crt)
 {
 	memset(crt, 0, sizeof(ttls_x509_crt));
 }
@@ -2025,7 +1730,7 @@ ttls_x509_crt_free(ttls_x509_crt *crt)
 		while (name_cur) {
 			name_prv = name_cur;
 			name_cur = name_cur->next;
-			ttls_zeroize(name_prv, sizeof(ttls_x509_name));
+			ttls_bzero_safe(name_prv, sizeof(ttls_x509_name));
 			kfree(name_prv);
 		}
 
@@ -2033,7 +1738,7 @@ ttls_x509_crt_free(ttls_x509_crt *crt)
 		while (name_cur) {
 			name_prv = name_cur;
 			name_cur = name_cur->next;
-			ttls_zeroize(name_prv, sizeof(ttls_x509_name));
+			ttls_bzero_safe(name_prv, sizeof(ttls_x509_name));
 			kfree(name_prv);
 		}
 
@@ -2041,7 +1746,7 @@ ttls_x509_crt_free(ttls_x509_crt *crt)
 		while (seq_cur) {
 			seq_prv = seq_cur;
 			seq_cur = seq_cur->next;
-			ttls_zeroize(seq_prv, sizeof(ttls_x509_sequence));
+			ttls_bzero_safe(seq_prv, sizeof(ttls_x509_sequence));
 			kfree(seq_prv);
 		}
 
@@ -2049,12 +1754,12 @@ ttls_x509_crt_free(ttls_x509_crt *crt)
 		while (seq_cur) {
 			seq_prv = seq_cur;
 			seq_cur = seq_cur->next;
-			ttls_zeroize(seq_prv, sizeof(ttls_x509_sequence));
+			ttls_bzero_safe(seq_prv, sizeof(ttls_x509_sequence));
 			kfree(seq_prv);
 		}
 
 		if (cert_cur->raw.p) {
-			ttls_zeroize(cert_cur->raw.p, cert_cur->raw.len);
+			ttls_bzero_safe(cert_cur->raw.p, cert_cur->raw.len);
 			/*
 			 * It's a user responsibility to free the certificate
 			 * pages.
@@ -2069,7 +1774,7 @@ ttls_x509_crt_free(ttls_x509_crt *crt)
 		cert_prv = cert_cur;
 		cert_cur = cert_cur->next;
 
-		ttls_zeroize(cert_prv, sizeof(ttls_x509_crt));
+		ttls_bzero_safe(cert_prv, sizeof(ttls_x509_crt));
 		if (cert_prv != crt)
 			kfree(cert_prv);
 	} while (cert_cur);

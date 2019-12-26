@@ -25,16 +25,8 @@
  */
 #if 0 /* TODO #769 Full TLS proxying */
 
-#include "debug.h"
 #include "ttls.h"
 #include "tls_internal.h"
-
-#if defined(TTLS_SESSION_TICKETS)
-/* Implementation that should never be optimized out by the compiler */
-static void ttls_zeroize(void *v, size_t n) {
-	volatile unsigned char *p = v; while (n--) *p++ = 0;
-}
-#endif
 
 static void ssl_write_hostname_ext(TlsCtx *ssl,
 		unsigned char *buf,
@@ -319,7 +311,6 @@ static void ssl_write_extended_ms_ext(TlsCtx *ssl,
 	*olen = 4;
 }
 
-#if defined(TTLS_SESSION_TICKETS)
 static void ssl_write_session_ticket_ext(TlsCtx *ssl,
 		unsigned char *buf, size_t *olen)
 {
@@ -361,7 +352,6 @@ static void ssl_write_session_ticket_ext(TlsCtx *ssl,
 
 	*olen += tlen;
 }
-#endif /* TTLS_SESSION_TICKETS */
 
 static void ssl_write_alpn_ext(TlsCtx *ssl,
 		unsigned char *buf, size_t *olen)
@@ -507,7 +497,6 @@ static int ssl_write_client_hello(TlsCtx *ssl)
 		n = 0;
 	}
 
-#if defined(TTLS_SESSION_TICKETS)
 	/*
 	 * RFC 5077 section 3.4: "When presenting a ticket, the client MAY
 	 * generate and include a Session ID in the TLS ClientHello."
@@ -518,7 +507,6 @@ static int ssl_write_client_hello(TlsCtx *ssl)
 		ttls_rnd(ssl->session_negotiate->id, 32);
 		ssl->session_negotiate->id_len = n = 32;
 	}
-#endif /* TTLS_SESSION_TICKETS */
 
 	*p++ = (unsigned char) n;
 
@@ -618,10 +606,8 @@ static int ssl_write_client_hello(TlsCtx *ssl)
 	ssl_write_alpn_ext(ssl, p + 2 + ext_len, &olen);
 	ext_len += olen;
 
-#if defined(TTLS_SESSION_TICKETS)
 	ssl_write_session_ticket_ext(ssl, p + 2 + ext_len, &olen);
 	ext_len += olen;
-#endif
 
 	/* olen unused if all extensions are disabled */
 	((void) olen);
@@ -696,7 +682,6 @@ static int ssl_parse_extended_ms_ext(TlsCtx *ssl,
 	return 0;
 }
 
-#if defined(TTLS_SESSION_TICKETS)
 static int ssl_parse_session_ticket_ext(TlsCtx *ssl,
 		const unsigned char *buf,
 		size_t len)
@@ -716,7 +701,6 @@ static int ssl_parse_session_ticket_ext(TlsCtx *ssl,
 
 	return 0;
 }
-#endif /* TTLS_SESSION_TICKETS */
 
 static int ssl_parse_supported_point_formats_ext(TlsCtx *ssl,
 		const unsigned char *buf,
@@ -1084,7 +1068,6 @@ static int ssl_parse_server_hello(TlsCtx *ssl)
 
 			break;
 
-#if defined(TTLS_SESSION_TICKETS)
 		case TTLS_TLS_EXT_SESSION_TICKET:
 			T_DBG3("found session_ticket extension\n");
 
@@ -1095,7 +1078,6 @@ static int ssl_parse_server_hello(TlsCtx *ssl)
 			}
 
 			break;
-#endif /* TTLS_SESSION_TICKETS */
 
 		case TTLS_TLS_EXT_ALPN:
 			T_DBG3("found alpn extension\n");
@@ -1213,71 +1195,6 @@ static int ssl_parse_server_ecdh_params(TlsCtx *ssl,
 	return ret;
 }
 
-/*
- * Generate a pre-master secret and encrypt it with the server's RSA key
- */
-static int ssl_write_encrypted_pms(TlsCtx *ssl,
-		size_t offset, size_t *olen,
-		size_t pms_offset)
-{
-	int ret;
-	size_t len_bytes = ssl->minor_ver == TTLS_MINOR_VERSION_0 ? 0 : 2;
-	unsigned char *p = ssl->handshake->premaster + pms_offset;
-
-	if (offset + len_bytes > TLS_MAX_PAYLOAD_SIZE)
-	{
-		T_DBG("buffer too small for encrypted pms\n");
-		return(TTLS_ERR_BUFFER_TOO_SMALL);
-	}
-
-	/*
-	 * Generate (part of) the pre-master as
-	 *  struct {
-	 *	  ProtocolVersion client_version;
-	 *	  opaque random[46];
-	 *  } PreMasterSecret;
-	 */
-	ttls_write_version(ssl->conf->max_major_ver, ssl->conf->max_minor_ver,
-		   ssl->conf->transport, p);
-
-	ttls_rnd(p + 2, 46);
-
-	ssl->handshake->pmslen = 48;
-
-	if (ssl->session_negotiate->peer_cert == NULL)
-	{
-		T_DBG2("certificate required\n");
-		return(TTLS_ERR_UNEXPECTED_MESSAGE);
-	}
-
-	/*
-	 * Now write it out, encrypted
-	 */
-	if (! ttls_pk_can_do(&ssl->session_negotiate->peer_cert->pk,
-				TTLS_PK_RSA))
-	{
-		T_DBG("certificate key type mismatch\n");
-		return(TTLS_ERR_PK_TYPE_MISMATCH);
-	}
-
-	if ((ret = ttls_pk_encrypt(&ssl->session_negotiate->peer_cert->pk,
-			p, ssl->handshake->pmslen,
-			ssl->out_msg + offset + len_bytes, olen,
-			TLS_MAX_PAYLOAD_SIZE - offset - len_bytes)) != 0)
-	{
-		return ret;
-	}
-
-	if (len_bytes == 2)
-	{
-		ssl->out_msg[offset+0] = (unsigned char)(*olen >> 8);
-		ssl->out_msg[offset+1] = (unsigned char)(*olen	 );
-		*olen += 2;
-	}
-
-	return 0;
-}
-
 static int ssl_parse_signature_algorithm(TlsCtx *ssl,
 		  unsigned char **p,
 		  unsigned char *end,
@@ -1376,28 +1293,6 @@ static int ssl_parse_server_key_exchange(TlsCtx *ssl)
 
 	T_DBG2("=> parse server key exchange\n");
 
-	if (ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_RSA)
-	{
-		T_DBG2("<= skip parse server key exchange\n");
-		ssl->state++;
-		return 0;
-	}
-
-	if (ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_ECDH_RSA ||
-		ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_ECDH_ECDSA)
-	{
-		if ((ret = ssl_get_ecdh_params_from_cert(ssl)) != 0)
-		{
-			ttls_send_alert_msg(ssl, TTLS_ALERT_LEVEL_FATAL,
-			TTLS_ALERT_MSG_HANDSHAKE_FAILURE);
-			return ret;
-		}
-
-		T_DBG2("<= skip parse server key exchange\n");
-		ssl->state++;
-		return 0;
-	}
-
 	if ((ret = ttls_read_record(ssl)) != 0)
 		return ret;
 
@@ -1415,15 +1310,6 @@ static int ssl_parse_server_key_exchange(TlsCtx *ssl)
 	 */
 	if (ssl->in_msg[0] != TTLS_HS_SERVER_KEY_EXCHANGE)
 	{
-		if (ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_PSK ||
-			ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_RSA_PSK)
-		{
-			/* Current message is probably either
-			 * CertificateRequest or ServerHelloDone */
-			ssl->keep_current_message = 1;
-			goto exit;
-		}
-
 		T_DBG("server key exchange message must "
 			"not be skipped\n");
 		ttls_send_alert_msg(ssl, TTLS_ALERT_LEVEL_FATAL,
@@ -1436,9 +1322,7 @@ static int ssl_parse_server_key_exchange(TlsCtx *ssl)
 	end = ssl->in_msg + ssl->in_hslen;
 	T_DBG3_BUF("server key exchange", p, end - p);
 
-	if (ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_DHE_RSA ||
-		ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_DHE_PSK)
-	{
+	if (ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_DHE_RSA) {
 		if (ssl_parse_server_dh_params(ssl, &p, end) != 0)
 		{
 			T_DBG("bad server key exchange message\n");
@@ -1449,7 +1333,6 @@ static int ssl_parse_server_key_exchange(TlsCtx *ssl)
 	}
 	else
 	if (ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_ECDHE_RSA ||
-		ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_ECDHE_PSK ||
 		ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_ECDHE_ECDSA)
 	{
 		if (ssl_parse_server_ecdh_params(ssl, &p, end) != 0)
@@ -1466,7 +1349,6 @@ static int ssl_parse_server_key_exchange(TlsCtx *ssl)
 		return(TTLS_ERR_INTERNAL_ERROR);
 	}
 
-	if (ttls_ciphersuite_uses_server_signature(ciphersuite_info))
 	{
 		size_t sig_len, hashlen;
 		unsigned char hash[64];
@@ -1584,25 +1466,6 @@ exit:
 	return 0;
 }
 
-#if ! defined(TTLS_KEY_EXCHANGE__CERT_REQ_ALLOWED__ENABLED)
-static int ssl_parse_certificate_request(TlsCtx *ssl)
-{
-	const TlsCiphersuite *ciphersuite_info =
-		ssl->transform_negotiate->ciphersuite_info;
-
-	T_DBG2("=> parse certificate request\n");
-
-	if (! ttls_ciphersuite_cert_req_allowed(ciphersuite_info))
-	{
-		T_DBG2("<= skip parse certificate request\n");
-		ssl->state++;
-		return 0;
-	}
-
-	T_DBG("should never happen\n");
-	return(TTLS_ERR_INTERNAL_ERROR);
-}
-#else /* TTLS_KEY_EXCHANGE__CERT_REQ_ALLOWED__ENABLED */
 static int ssl_parse_certificate_request(TlsCtx *ssl)
 {
 	int ret;
@@ -1728,7 +1591,6 @@ exit:
 
 	return 0;
 }
-#endif /* TTLS_KEY_EXCHANGE__CERT_REQ_ALLOWED__ENABLED */
 
 static int ssl_parse_server_hello_done(TlsCtx *ssl)
 {
@@ -1800,9 +1662,7 @@ static int ssl_write_client_key_exchange(TlsCtx *ssl)
 	}
 	else
 	if (ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_ECDHE_RSA ||
-		ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_ECDHE_ECDSA ||
-		ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_ECDH_RSA ||
-		ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_ECDH_ECDSA)
+		ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_ECDHE_ECDSA)
 	{
 		/*
 		 * ECDH key exchange -- send client public value
@@ -1827,13 +1687,6 @@ static int ssl_write_client_key_exchange(TlsCtx *ssl)
 
 		T_DBG_MPI1("ECDH write client key exchange",
 			   &ssl->hs->ecdh_ctx.z);
-	}
-	else
-	if (ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_RSA)
-	{
-		i = 4;
-		if ((ret = ssl_write_encrypted_pms(ssl, i, &n, 0)) != 0)
-			return ret;
 	}
 	else
 	{
@@ -1867,22 +1720,10 @@ static int ssl_write_certificate_verify(TlsCtx *ssl)
 	if ((ret = ttls_derive_keys(ssl)) != 0)
 		return ret;
 
-	if (ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_PSK ||
-		ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_RSA_PSK ||
-		ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_ECDHE_PSK ||
-		ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_DHE_PSK ||
-		ciphersuite_info->key_exchange == TTLS_KEY_EXCHANGE_ECJPAKE)
-	{
-		T_DBG2("<= skip write certificate verify\n");
-		ssl->state++;
-		return 0;
-	}
-
 	T_DBG("should never happen\n");
 	return(TTLS_ERR_INTERNAL_ERROR);
 }
 
-#if defined(TTLS_SESSION_TICKETS)
 static int ssl_parse_new_session_ticket(TlsCtx *ssl)
 {
 	int ret;
@@ -1951,7 +1792,7 @@ static int ssl_parse_new_session_ticket(TlsCtx *ssl)
 	if (ticket_len == 0)
 		return 0;
 
-	ttls_zeroize(ssl->session_negotiate->ticket,
+	ttls_bzero_safe(ssl->session_negotiate->ticket,
 		  ssl->session_negotiate->ticket_len);
 	kfree(ssl->session_negotiate->ticket);
 	ssl->session_negotiate->ticket = NULL;
@@ -1983,7 +1824,6 @@ static int ssl_parse_new_session_ticket(TlsCtx *ssl)
 
 	return 0;
 }
-#endif /* TTLS_SESSION_TICKETS */
 
 /*
  * SSL handshake -- client side -- single step
@@ -2001,13 +1841,11 @@ int ttls_handshake_client_step(TlsCtx *ssl)
 
 	/* Change state now, so that it is right in ttls_read_record(), used
 	 * by DTLS for dropping out-of-sequence ChangeCipherSpec records */
-#if defined(TTLS_SESSION_TICKETS)
 	if (ssl->state == TTLS_SERVER_CHANGE_CIPHER_SPEC &&
 		ssl->handshake->new_session_ticket != 0)
 	{
 		ssl->state = TTLS_SERVER_NEW_SESSION_TICKET;
 	}
-#endif
 
 	switch(ssl->state)
 	{
@@ -2086,11 +1924,9 @@ int ttls_handshake_client_step(TlsCtx *ssl)
 		*		ChangeCipherSpec
 		*		Finished
 		*/
-#if defined(TTLS_SESSION_TICKETS)
 	   case TTLS_SERVER_NEW_SESSION_TICKET:
 		   ret = ssl_parse_new_session_ticket(ssl);
 		   break;
-#endif
 
 	   case TTLS_SERVER_CHANGE_CIPHER_SPEC:
 		   ret = ttls_parse_change_cipher_spec(ssl);

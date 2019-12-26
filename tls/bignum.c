@@ -40,22 +40,17 @@
 #include "bignum.h"
 #include "tls_internal.h"
 
-/*
- * Convert between bits/chars and number of limbs
- * Divide first in order to avoid potential overflows
- */
-#define BITS_TO_LIMBS(n)	(((n) + BIL - 1) >> BSHIFT)
-#define CHARS_TO_LIMBS(n)	(((n) + CIL - 1) >> LSHIFT)
-
 #define DECLARE_MPI_AUTO(name, size)					\
 	TlsMpi name = { .limbs = size, .used = size };			\
 	unsigned long __p[size];					\
 	BUG_ON((unsigned long)&name >= (unsigned long)__p);		\
 	name._off = (unsigned long)__p - (unsigned long)&name;
 
-
 /* Maximum sliding window size in bits used for modular exponentiation. */
 #define MPI_W_SZ		6
+
+/* MPI memory pool routines. */
+int ttls_mpi_pool_alloc_mpi(TlsMpi *x, size_t n);
 
 /**
  * Initialize one MPI (make internal references valid).
@@ -65,32 +60,61 @@
 void
 ttls_mpi_init(TlsMpi *X)
 {
-	if (WARN_ON_ONCE(!X))
-		return;
-
 	X->s = 1;
 	X->used = 0;
 	X->limbs = 0;
 	X->_off = 0;
 }
 
+/**
+ * Initialize and allocate an MPI in one shot.
+ *
+ * The most MPI functions allocate required memory if necessary, but they can
+ * do this for initialized MPI, so if the first call after the initalization
+ * allocates less memory than all the following, then we're in trouble and
+ * have to call __mpi_alloc() right after the initialization and before the
+ * first usage. This function makes this simpler.
+ */
+int
+ttls_mpi_alloc_init(TlsMpi *X, size_t nblimbs)
+{
+	int r;
+
+	X->s = 1;
+	X->used = 0;
+
+	r = ttls_mpi_pool_alloc_mpi(X, nblimbs * CIL);
+	if (r <= 0) {
+		X->limbs = 0;
+		X->_off = 0;
+		return r;
+	}
+
+	X->limbs = nblimbs;
+	X->_off = r;
+
+	return 0;
+}
+
 bool
-ttls_mpi_initialized(TlsMpi *X)
+ttls_mpi_initialized(const TlsMpi *X)
 {
 	/* Any initialized MPI has non-zero sign. */
 	return !!X->s;
 }
 
+/**
+ * Technically, the function is equal ttls_mpi_init(), so the MPI becomes
+ * invalid and ttls_mpi_initialized() returns false for it. However, if at some
+ * point we decide to write something here, we won't request a new memory chunk.
+ */
 void
 ttls_mpi_free(TlsMpi *X)
 {
 	if (unlikely(!X))
 		return;
-	/* MPI memory pools should be used in softirq. */
-	WARN_ON_ONCE(in_serving_softirq());
 
 	if (X->_off) {
-		memset(MPI_P(X), 0, X->limbs << LSHIFT);
 		X->used = 0;
 		X->s = 0;
 	}
@@ -99,7 +123,7 @@ ttls_mpi_free(TlsMpi *X)
 /**
  * Reallocate the MPI data area and copy old data if necessary.
  */
-static int
+int
 __mpi_alloc(TlsMpi *X, size_t nblimbs)
 {
 	int new_off;
@@ -118,7 +142,6 @@ __mpi_alloc(TlsMpi *X, size_t nblimbs)
 	new_off = ttls_mpi_pool_alloc_mpi(X, nblimbs * CIL);
 	if (new_off <= 0)
 		return -ENOMEM;
-	BUG_ON(new_off >= PAGE_SIZE);
 
 	X->limbs = nblimbs;
 	X->_off = new_off;
@@ -150,8 +173,14 @@ ttls_mpi_copy(TlsMpi *X, const TlsMpi *Y)
 {
 	if (unlikely(X == Y))
 		return 0;
+
 	if (unlikely(!Y->_off)) {
-		ttls_mpi_free(X);
+		WARN_ON_ONCE(Y->used);
+		WARN_ON_ONCE(Y->s != 1);
+
+		X->used = 0;
+		X->s = 1;
+
 		return 0;
 	}
 
@@ -240,7 +269,7 @@ ttls_mpi_safe_cond_swap(TlsMpi *X, TlsMpi *Y, unsigned char swap)
 int
 ttls_mpi_lset(TlsMpi *X, long z)
 {
-	if (__mpi_alloc(X, 1, 0))
+	if (__mpi_alloc(X, 1))
 		return -ENOMEM;
 
 	X->used = 1;
@@ -344,7 +373,7 @@ ttls_mpi_size(const TlsMpi *X)
 int
 ttls_mpi_shift_l(TlsMpi *X, size_t count)
 {
-	size_t v0, t1, old_used = X->used, i = ttls_mpi_bitlen(X);
+	size_t v0, t1, i = ttls_mpi_bitlen(X);
 	unsigned long r0 = 0, r1, *p = MPI_P(X);
 
 	if (unlikely(!i))
@@ -426,6 +455,7 @@ ttls_mpi_shift_r(TlsMpi *X, size_t count)
 	return 0;
 }
 
+#ifdef DEBUG
 /**
  * Dump MPI content, including unused limbs, for debugging.
  */
@@ -442,6 +472,30 @@ ttls_mpi_dump(const TlsMpi *X, const char *prefix)
 	print_hex_dump(KERN_INFO, "    ", DUMP_PREFIX_OFFSET, 16, 1, MPI_P(X),
 		       X->limbs * sizeof(long), true);
 }
+
+/**
+ * Prints @msg for all debug layers.
+ * Print argeuments on 3rd debug layer as list of @n pairs
+ * <const char *name, const TlsMpi *X>.
+ */
+void
+__log_mpis(size_t n, const char *msg, ...)
+{
+	T_DBG("%s\n", msg);
+#if DEBUG == 3
+	{
+		va_list args;
+
+		va_start(args, msg);
+		while (n--)
+			/* Put the args on the stack in reverse order. */
+			ttls_mpi_dump(va_arg(args, const TlsMpi *),
+				      va_arg(args, const char *));
+		va_end(args);
+	}
+#endif
+}
+#endif /* DEBUG */
 
 /**
  * Import X from unsigned binary data.
@@ -1297,7 +1351,7 @@ ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E, const TlsMpi *N,
 	 * If 1st call, pre-compute R^2 mod N
 	 */
 	BUG_ON(!RR);
-	if (!ttls_mpi_initialized(RR)) {
+	if (unlikely(!ttls_mpi_initialized(RR))) {
 		if ((r = ttls_mpi_lset(RR, 1))
 		    || (r = ttls_mpi_shift_l(RR, N->used * 2 * BIL))
 		    || (r = ttls_mpi_mod_mpi(RR, RR, N)))

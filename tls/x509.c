@@ -181,8 +181,8 @@ int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
 	ttls_x509_buf alg_id, alg_params;
 
 	/* First set everything to defaults */
-	*md_alg = TTLS_MD_SHA1;
-	*mgf_md = TTLS_MD_SHA1;
+	*md_alg = TTLS_MD_SHA256;
+	*mgf_md = TTLS_MD_SHA256;
 	*salt_len = 20;
 
 	/* Make sure params is a SEQUENCE and setup bounds */
@@ -384,7 +384,7 @@ static int x509_get_attr_type_value(unsigned char **p,
  * one element, which is represented as a list of AttributeTypeAndValue.
  * For the general case we still use a flat list, but we mark elements of the
  * same set so that they are "merged" together in the functions that consume
- * this list, eg ttls_x509_dn_gets().
+ * this list.
  */
 int ttls_x509_get_name(unsigned char **p, const unsigned char *end,
 				   ttls_x509_name *cur)
@@ -694,157 +694,6 @@ int ttls_x509_get_ext(unsigned char **p, const unsigned char *end,
 	if (end != *p + len)
 		return(TTLS_ERR_X509_INVALID_EXTENSIONS +
 				TTLS_ERR_ASN1_LENGTH_MISMATCH);
-
-	return 0;
-}
-
-/*
- * Store the name in printable form into buf; no more
- * than size characters will be written
- */
-int ttls_x509_dn_gets(char *buf, size_t size, const ttls_x509_name *dn)
-{
-	int ret;
-	size_t i, n;
-	unsigned char c, merge = 0;
-	const ttls_x509_name *name;
-	const char *short_name = NULL;
-	char s[TTLS_X509_MAX_DN_NAME_SIZE], *p;
-
-	memset(s, 0, sizeof(s));
-
-	name = dn;
-	p = buf;
-	n = size;
-
-	while (name != NULL)
-	{
-		if (!name->oid.p)
-		{
-			name = name->next;
-			continue;
-		}
-
-		if (name != dn)
-		{
-			ret = snprintf(p, n, merge ? " + " : ", ");
-			TTLS_X509_SAFE_SNPRINTF;
-		}
-
-		ret = ttls_oid_get_attr_short_name(&name->oid, &short_name);
-
-		if (ret == 0)
-			ret = snprintf(p, n, "%s=", short_name);
-		else
-			ret = snprintf(p, n, "\?\?=");
-		TTLS_X509_SAFE_SNPRINTF;
-
-		for (i = 0; i < name->val.len; i++)
-		{
-			if (i >= sizeof(s) - 1)
-				break;
-
-			c = name->val.p[i];
-			if (c < 32 || c == 127 || (c > 128 && c < 160))
-				 s[i] = '?';
-			else s[i] = c;
-		}
-		s[i] = '\0';
-		ret = snprintf(p, n, "%s", s);
-		TTLS_X509_SAFE_SNPRINTF;
-
-		merge = name->next_merged;
-		name = name->next;
-	}
-
-	return((int) (size - n));
-}
-
-/*
- * Store the serial in printable form into buf; no more
- * than size characters will be written
- */
-int ttls_x509_serial_gets(char *buf, size_t size, const ttls_x509_buf *serial)
-{
-	int ret;
-	size_t i, n, nr;
-	char *p;
-
-	p = buf;
-	n = size;
-
-	nr = (serial->len <= 32)
-		? serial->len  : 28;
-
-	for (i = 0; i < nr; i++)
-	{
-		if (i == 0 && nr > 1 && serial->p[i] == 0x0)
-			continue;
-
-		ret = snprintf(p, n, "%02X%s",
-				serial->p[i], (i < nr - 1) ? ":" : "");
-		TTLS_X509_SAFE_SNPRINTF;
-	}
-
-	if (nr != serial->len)
-	{
-		ret = snprintf(p, n, "....");
-		TTLS_X509_SAFE_SNPRINTF;
-	}
-
-	return((int) (size - n));
-}
-
-/*
- * Helper for writing signature algorithms
- */
-int ttls_x509_sig_alg_gets(char *buf, size_t size, const ttls_x509_buf *sig_oid,
-		   ttls_pk_type_t pk_alg, ttls_md_type_t md_alg,
-		   const void *sig_opts)
-{
-	int ret;
-	char *p = buf;
-	size_t n = size;
-	const char *desc = NULL;
-
-	ret = ttls_oid_get_sig_alg_desc(sig_oid, &desc);
-	if (ret != 0)
-		ret = snprintf(p, n, "???" );
-	else
-		ret = snprintf(p, n, "%s", desc);
-	TTLS_X509_SAFE_SNPRINTF;
-
-	if (pk_alg == TTLS_PK_RSASSA_PSS)
-	{
-		const ttls_pk_rsassa_pss_options *pss_opts;
-		const TlsMdInfo *md_info, *mgf_md_info;
-
-		pss_opts = (const ttls_pk_rsassa_pss_options *) sig_opts;
-
-		md_info = ttls_md_info_from_type(md_alg);
-		mgf_md_info = ttls_md_info_from_type(pss_opts->mgf1_hash_id);
-
-		ret = snprintf(p, n, " (%s, MGF1-%s, 0x%02X)",
-				  md_info ? ttls_md_get_name(md_info) : "???",
-				  mgf_md_info ? ttls_md_get_name(mgf_md_info) : "???",
-				  pss_opts->expected_salt_len);
-		TTLS_X509_SAFE_SNPRINTF;
-	}
-
-	return((int)(size - n));
-}
-
-/*
- * Helper for writing "RSA key size", "EC key size", etc
- */
-int ttls_x509_key_size_helper(char *buf, size_t buf_size, const char *name)
-{
-	char *p = buf;
-	size_t n = buf_size;
-	int ret;
-
-	ret = snprintf(p, n, "%s key size", name);
-	TTLS_X509_SAFE_SNPRINTF;
 
 	return 0;
 }
