@@ -176,11 +176,6 @@
  * PKCS#1 OIDs
  */
 #define TTLS_OID_PKCS1_RSA		   TTLS_OID_PKCS1 "\x01" /**< rsaEncryption OBJECT IDENTIFIER ::= { pkcs-1 1 } */
-#define TTLS_OID_PKCS1_MD2		   TTLS_OID_PKCS1 "\x02" /**< md2WithRSAEncryption ::= { pkcs-1 2 } */
-#define TTLS_OID_PKCS1_MD4		   TTLS_OID_PKCS1 "\x03" /**< md4WithRSAEncryption ::= { pkcs-1 3 } */
-#define TTLS_OID_PKCS1_MD5		   TTLS_OID_PKCS1 "\x04" /**< md5WithRSAEncryption ::= { pkcs-1 4 } */
-#define TTLS_OID_PKCS1_SHA1		  TTLS_OID_PKCS1 "\x05" /**< sha1WithRSAEncryption ::= { pkcs-1 5 } */
-#define TTLS_OID_PKCS1_SHA224		TTLS_OID_PKCS1 "\x0e" /**< sha224WithRSAEncryption ::= { pkcs-1 14 } */
 #define TTLS_OID_PKCS1_SHA256		TTLS_OID_PKCS1 "\x0b" /**< sha256WithRSAEncryption ::= { pkcs-1 11 } */
 #define TTLS_OID_PKCS1_SHA384		TTLS_OID_PKCS1 "\x0c" /**< sha384WithRSAEncryption ::= { pkcs-1 12 } */
 #define TTLS_OID_PKCS1_SHA512		TTLS_OID_PKCS1 "\x0d" /**< sha512WithRSAEncryption ::= { pkcs-1 13 } */
@@ -248,10 +243,6 @@
  *   iso(1) identified-organization(3) certicom(132) curve(0) 34 } */
 #define TTLS_OID_EC_GRP_SECP384R1		TTLS_OID_CERTICOM "\x00\x22"
 
-/* secp521r1 OBJECT IDENTIFIER ::= {
- *   iso(1) identified-organization(3) certicom(132) curve(0) 35 } */
-#define TTLS_OID_EC_GRP_SECP521R1		TTLS_OID_CERTICOM "\x00\x23"
-
 /* RFC 5639 4.1
  * ecStdCurvesAndGeneration OBJECT IDENTIFIER::= {iso(1)
  * identified-organization(3) teletrust(36) algorithm(3) signature-
@@ -259,15 +250,6 @@
  * ellipticCurve OBJECT IDENTIFIER ::= {ecStdCurvesAndGeneration 1}
  * versionOne OBJECT IDENTIFIER ::= {ellipticCurve 1} */
 #define TTLS_OID_EC_BRAINPOOL_V1		 TTLS_OID_TELETRUST "\x03\x03\x02\x08\x01\x01"
-
-/* brainpoolP256r1 OBJECT IDENTIFIER ::= {versionOne 7} */
-#define TTLS_OID_EC_GRP_BP256R1		  TTLS_OID_EC_BRAINPOOL_V1 "\x07"
-
-/* brainpoolP384r1 OBJECT IDENTIFIER ::= {versionOne 11} */
-#define TTLS_OID_EC_GRP_BP384R1		  TTLS_OID_EC_BRAINPOOL_V1 "\x0B"
-
-/* brainpoolP512r1 OBJECT IDENTIFIER ::= {versionOne 13} */
-#define TTLS_OID_EC_GRP_BP512R1		  TTLS_OID_EC_BRAINPOOL_V1 "\x0D"
 
 /*
  * SEC1 C.1
@@ -450,16 +432,6 @@ int ttls_oid_get_md_alg(const ttls_asn1_buf *oid, ttls_md_type_t *md_alg);
  * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
  */
 int ttls_oid_get_md_hmac(const ttls_asn1_buf *oid, ttls_md_type_t *md_hmac);
-
-/**
- * \brief		  Translate Extended Key Usage OID into description
- *
- * \param oid	  OID to use
- * \param desc	 place to store string pointer
- *
- * \return		 0 if successful, or TTLS_ERR_OID_NOT_FOUND
- */
-int ttls_oid_get_extended_key_usage(const ttls_asn1_buf *oid, const char **desc);
 
 /**
  * \brief		  Translate md_type into hash algorithm OID

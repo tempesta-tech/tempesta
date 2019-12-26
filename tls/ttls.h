@@ -146,10 +146,10 @@
 
 /*
  * Supported Signature and Hash algorithms (For TLS 1.2)
- * RFC 5246 section 7.4.1.4.1
+ * RFC 5246 section 7.4.1.4.1.
+ * SHA 224 isn't here as weak.
  */
 #define TTLS_HASH_NONE				0
-#define TTLS_HASH_SHA224			3
 #define TTLS_HASH_SHA256			4
 #define TTLS_HASH_SHA384			5
 #define TTLS_HASH_SHA512			6
@@ -203,7 +203,6 @@
 #define TTLS_ALERT_MSG_NO_RENEGOTIATION		100 /* 0x64 */
 #define TTLS_ALERT_MSG_UNSUPPORTED_EXT		110 /* 0x6E */
 #define TTLS_ALERT_MSG_UNRECOGNIZED_NAME	112 /* 0x70 */
-#define TTLS_ALERT_MSG_UNKNOWN_PSK_IDENTITY	115 /* 0x73 */
 #define TTLS_ALERT_MSG_NO_APPLICATION_PROTOCOL	120 /* 0x78 */
 
 #define TTLS_HS_HELLO_REQUEST			0
@@ -269,11 +268,6 @@ union ttls_premaster_secret
 /* Defined below */
 typedef struct ttls_alpn_proto ttls_alpn_proto;
 
-/* Defined in tls_internal.h */
-typedef struct ttls_key_cert ttls_key_cert;
-
-typedef struct ttls_context TlsCtx;
-
 /*
  * ALPN protocol descriptor.
  *
@@ -282,9 +276,9 @@ typedef struct ttls_context TlsCtx;
  * @id			- protocol's internal number;
  */
 struct ttls_alpn_proto {
-	const char *name;
-	unsigned int len;
-	int id;
+	const char	*name;
+	unsigned int	len;
+	int		id;
 };
 
 /*
@@ -337,7 +331,7 @@ typedef struct {
  * @iv_dec		- IV for decryption;
  */
 typedef struct {
-	const TlsCiphersuite	*ciphersuite_info;
+	const TlsCiphersuite		*ciphersuite_info;
 	TlsMdCtx			md_ctx_enc;
 	TlsMdCtx			md_ctx_dec;
 	TlsCipherCtx			cipher_ctx_enc;
@@ -350,6 +344,22 @@ typedef struct {
 	unsigned char			iv_enc[16];
 	unsigned char			iv_dec[16];
 } TlsXfrm;
+
+/*
+ * List of certificate + private key pairs
+ *
+ * @cert		- Server certificate;
+ * @key			- private key for the certificate;
+ * @ca_chain		- trusted CA chain for the issues certificate;
+ * @ca_crl		- trusted CAs CRLs;
+ */
+typedef struct ttls_key_cert {
+	ttls_x509_crt			*cert;
+	TlsPkCtx			*key;
+	ttls_x509_crt			*ca_chain;
+	ttls_x509_crl			*ca_crl;
+	struct ttls_key_cert		*next;
+} TlsKeyCert;
 
 /**
  * Peer TLS configuration. Each virtual server (vhost) inside Tempesta
@@ -370,7 +380,7 @@ typedef struct {
  */
 typedef struct {
 	const int			*ciphersuite_list[4];
-	ttls_key_cert			*key_cert;
+	TlsKeyCert			*key_cert;
 	void				*priv;
 
 	unsigned char			min_minor_ver;
@@ -561,16 +571,13 @@ int ttls_send_alert(TlsCtx *tls, unsigned char lvl, unsigned char msg);
 int ttls_close_notify(TlsCtx *tls);
 
 void ttls_ctx_clear(TlsCtx *tls);
-void ttls_key_cert_free(ttls_key_cert *key_cert);
+void ttls_key_cert_free(TlsKeyCert *key_cert);
 
 void ttls_config_init(TlsCfg *conf);
 int ttls_config_defaults(TlsCfg *conf, int endpoint);
 int ttls_config_peer_defaults(TlsPeerCfg *conf, int endpoint);
 void ttls_config_free(TlsCfg *conf);
 void ttls_config_peer_free(TlsPeerCfg *conf);
-int ttls_mpi_profile_set(ttls_x509_crt *crt, TlsPeerCfg *pcfg);
-
-void ttls_strerror(int errnum, char *buffer, size_t buflen);
 
 void ttls_aad2hdriv(TlsXfrm *xfrm, unsigned char *buf);
 

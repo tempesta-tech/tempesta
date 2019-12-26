@@ -36,8 +36,6 @@
 #define TTLS_ERR_PEM_INVALID_DATA			-0x1100
 /* Failed to allocate memory. */
 #define TTLS_ERR_PEM_ALLOC_FAILED			-0x1180
-/* RSA IV is not in hex-format. */
-#define TTLS_ERR_PEM_INVALID_ENC_IV			-0x1200
 /* Unsupported key encryption algorithm. */
 #define TTLS_ERR_PEM_UNKNOWN_ENC_ALG			-0x1280
 /* Private key password can't be empty. */

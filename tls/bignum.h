@@ -1,4 +1,4 @@
-/*
+/**
  *		Tempesta TLS
  *
  * Multi-precision integer library.
@@ -34,6 +34,10 @@ do {									\
 		goto cleanup;						\
 } while (0)
 
+#define MPI_CHK(f)							\
+	if (WARN_ON_ONCE((f)))						\
+		return -EDOM;
+
 /*
  * Maximum size MPIs are allowed to grow to in number of limbs.
  * We operate with 16 bit unsigned values, which can be shifted by 6
@@ -50,13 +54,15 @@ do {									\
  */
 #define TTLS_MPI_MAX_SIZE			1024
 
-#define LSHIFT		3		/* bits shift for limb, sizeof(long) */
-#define BSHIFT		(LSHIFT + 3)	/* bits shift for limb size in bits */
-#define CIL		(1 << LSHIFT)	/* chars in limb  */
-#define LMASK		(CIL - 1)
-#define BIL		(CIL << 3)	/* bits in limb  */
-#define BIH		(CIL << 2)	/* half limb size */
-#define BMASK		(BIL - 1)
+#define LSHIFT			3		/* limb bytes shift */
+#define BSHIFT			(LSHIFT + 3)	/* limb bits shift */
+#define CIL			(1 << LSHIFT)	/* chars in limb */
+#define LMASK			(CIL - 1)
+#define BIL			(CIL << 3)	/* bits in limb */
+#define BIH			(CIL << 2)	/* half limb size */
+#define BMASK			(BIL - 1)
+#define BITS_TO_LIMBS(n)	(((n) + BIL - 1) >> BSHIFT)
+#define CHARS_TO_LIMBS(n)	(((n) + CIL - 1) >> LSHIFT)
 
 /**
  * MPI structure.
@@ -83,13 +89,22 @@ typedef struct {
 
 #define MPI_P(m)	((unsigned long *)((unsigned char *)(m) + (m)->_off))
 
-void ttls_mpi_pool_cleanup_ctx(void);
-void ttls_mpool_init(void);
-void ttls_mpool_exit(void);
+/**
+ * MPI memory pool.
+ *
+ * @order	- page order of the underneath memory area;
+ * @curr	- offset of free memory area for MPI allocations.
+ */
+typedef struct {
+	unsigned int		order;
+	unsigned int		curr;
+} TlsMpiPool;
 
 void ttls_mpi_init(TlsMpi *X);
+int ttls_mpi_alloc_init(TlsMpi *X, size_t nblimbs);
 void ttls_mpi_free(TlsMpi *X);
-int __mpi_realloc(TlsMpi *X, size_t nblimbs, unsigned int flags);
+int __mpi_alloc(TlsMpi *X, size_t nblimbs);
+bool ttls_mpi_initialized(const TlsMpi *X);
 void mpi_fixup_used(TlsMpi *X, size_t n);
 int ttls_mpi_copy(TlsMpi *X, const TlsMpi *Y);
 size_t ttls_mpi_size(const TlsMpi *X);
@@ -132,6 +147,7 @@ int ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E,
 int ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N);
 int ttls_mpi_gcd(TlsMpi *G, const TlsMpi *A, const TlsMpi *B);
 
+#ifdef DEBUG
 /**
  * There are a lot of MPI operations used around, so Tempesta TLS becomes
  * unusable if all MPIs are dumped, so following pattern should be used:
@@ -149,6 +165,7 @@ int ttls_mpi_gcd(TlsMpi *G, const TlsMpi *A, const TlsMpi *B);
 extern bool __mpi_do_dump;
 
 void ttls_mpi_dump(const TlsMpi *X, const char *prefix);
+void __log_mpis(size_t n, const char *msg, ...);
 
 #define TTLS_MPI_DUMP_ONCE(X, prefix)					\
 do {									\
@@ -156,5 +173,20 @@ do {									\
 	ttls_mpi_dump(X, prefix);					\
 	__mpi_do_dump = false;						\
 } while (0)
+
+#define T_DBG_MPI1(msg, x1)		__log_mpis(1, msg, #x1, x1)
+#define T_DBG_MPI2(msg, x1, x2)		__log_mpis(2, msg, #x1, x1, #x2, x2)
+#define T_DBG_MPI3(msg, x1, x2, x3)					\
+	__log_mpis(3, msg, #x1, x1, #x2, x2, #x3, x3)
+#define T_DBG_MPI4(msg, x1, x2, x3, x4)					\
+	__log_mpis(3, msg, #x1, x1, #x2, x2, #x3, x3, #x4, x4)
+
+#else
+#define T_DBG_MPI1(...)
+#define T_DBG_MPI2(...)
+#define T_DBG_MPI3(...)
+#define T_DBG_MPI4(...)
+#define TTLS_MPI_DUMP_ONCE(...)
+#endif /* DEBUG */
 
 #endif

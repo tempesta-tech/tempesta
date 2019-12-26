@@ -152,36 +152,6 @@ int ttls_x509_crt_parse_der(ttls_x509_crt *chain, unsigned char *buf,
 int ttls_x509_crt_parse(ttls_x509_crt *chain, unsigned char *buf, size_t buflen);
 
 /**
- * \brief		  Returns an informational string about the
- *				 certificate.
- *
- * \param buf	  Buffer to write to
- * \param size	 Maximum size of buffer
- * \param prefix   A line prefix
- * \param crt	  The X509 certificate to represent
- *
- * \return		 The length of the string written (not including the
- *				 terminated nul byte), or a negative error code.
- */
-int ttls_x509_crt_info(char *buf, size_t size, const char *prefix,
-				   const ttls_x509_crt *crt);
-
-/**
- * \brief		  Returns an informational string about the
- *				 verification status of a certificate.
- *
- * \param buf	  Buffer to write to
- * \param size	 Maximum size of buffer
- * \param prefix   A line prefix
- * \param flags	Verification flags created by ttls_x509_crt_verify()
- *
- * \return		 The length of the string written (not including the
- *				 terminated nul byte), or a negative error code.
- */
-int ttls_x509_crt_verify_info(char *buf, size_t size, const char *prefix,
-			  uint32_t flags);
-
-/**
  * \brief	  Verify the certificate signature
  *
  *			 The verify callback is a user-supplied callback that
@@ -203,9 +173,6 @@ int ttls_x509_crt_verify_info(char *buf, size_t size, const char *prefix,
  *			 from TTLS_ERR_X509_CERT_VERIFY_FAILED which should not
  *			 be returned at this point), or TTLS_ERR_X509_FATAL_ERROR
  *			 can be used if no better code is available.
- *
- * \note	   In case verification failed, the results can be displayed
- *			 using \c ttls_x509_crt_verify_info()
  *
  * \note	   Same as \c ttls_x509_crt_verify_with_profile() with the
  *			 default security profile.

@@ -32,7 +32,6 @@
 #include <linux/module.h>
 #include <net/tls.h>
 
-#include "debug.h"
 #include "crypto.h"
 #include "oid.h"
 #include "tls_internal.h"
@@ -1270,14 +1269,14 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 }
 
 static void
-ttls_handshake_free(TlsHandshake *hs, const TlsCiphersuite *ci)
+ttls_handshake_free(TlsHandshake *hs)
 {
 	if (WARN_ON_ONCE(!hs))
 		return;
 
 	crypto_free_shash(hs->desc.tfm);
 
-	ttls_mpi_profile_free(hs->crypto_ctx);
+	ttls_mpi_pool_free(hs->crypto_ctx);
 
 	bzero_fast(hs, sizeof(TlsHandshake));
 	kmem_cache_free(ttls_hs_cache, hs);
@@ -1287,7 +1286,7 @@ void
 ttls_handshake_wrapup(TlsCtx *tls)
 {
 	/* Free our hs params. */
-	ttls_handshake_free(tls->hs, tls->xfrm.ciphersuite_info);
+	ttls_handshake_free(tls->hs);
 	tls->hs = NULL;
 }
 
@@ -1497,7 +1496,6 @@ ttls_parse_certificate(TlsCtx *tls, unsigned char *buf, size_t len,
 	}
 	TTLS_HS_FSM_FINISH();
 parse:
-
 	if (tls->conf->endpoint == TTLS_IS_SERVER
 	    && io->hslen == 3
 	    && io->msgtype == TTLS_MSG_HANDSHAKE
@@ -1554,7 +1552,7 @@ parse:
 			goto err;
 		}
 
-		n = ((unsigned int) p[i + 1] << 8) | (unsigned int) p[i + 2];
+		n = ((unsigned int)p[i + 1] << 8) | (unsigned int)p[i + 2];
 		i += 3;
 
 		if (n < 128 || i + n > io->hslen) {
@@ -1588,7 +1586,6 @@ parse:
 			goto err;
 		}
 	}
-	T_DBG_CRT("peer certificate", sess->peer_cert);
 
 	if (authmode != TTLS_VERIFY_NONE) {
 		const TlsPkCtx *pk = &sess->peer_cert->pk;
@@ -1890,39 +1887,6 @@ ttls_set_session(TlsCtx *tls, const TlsSess *sess)
 }
 
 /**
- * Append a new keycert entry to a (possibly empty) list.
- * Called in process context on the startup.
- */
-static int
-ttls_append_key_cert(ttls_key_cert **head, ttls_x509_crt *cert,
-		     TlsPkCtx *key, ttls_x509_crt *ca_chain,
-		     ttls_x509_crl *ca_crl)
-{
-	ttls_key_cert *new;
-
-	if (!(new = kmalloc(sizeof(ttls_key_cert), GFP_KERNEL)))
-		return TTLS_ERR_ALLOC_FAILED;
-
-	new->cert = cert;
-	new->key = key;
-	new->ca_chain = ca_chain;
-	new->ca_crl = ca_crl;
-	new->next = NULL;
-
-	/* Update head is the list was null, else add to the end */
-	if (!*head) {
-		*head = new;
-	} else {
-		ttls_key_cert *cur = *head;
-		while (cur->next)
-			cur = cur->next;
-		cur->next = new;
-	}
-
-	return 0;
-}
-
-/**
  * Set own certificate chain and private key.
  *
  * @own_cert should contain in order from the bottom up your certificate chain.
@@ -1939,14 +1903,35 @@ ttls_append_key_cert(ttls_key_cert **head, ttls_x509_crt *cert,
  * CertficateRequest message will be ignored and our only cert will be sent
  * regardless of whether it matches those preferences - the server can then
  * decide what it wants to do with it.
+ *
+ * Called in process context on the startup.
  */
 int
-ttls_conf_own_cert(TlsPeerCfg *conf, ttls_x509_crt *own_cert,
-		   TlsPkCtx *pk_key, ttls_x509_crt *ca_chain,
-		   ttls_x509_crl *ca_crl)
+ttls_conf_own_cert(TlsPeerCfg *conf, ttls_x509_crt *own_cert, TlsPkCtx *pk_key,
+		   ttls_x509_crt *ca_chain, ttls_x509_crl *ca_crl)
 {
-	return ttls_append_key_cert(&conf->key_cert, own_cert, pk_key, ca_chain,
-				    ca_crl);
+	TlsKeyCert *new;
+
+	if (!(new = kmalloc(sizeof(TlsKeyCert), GFP_KERNEL)))
+		return -ENOMEM;
+
+	new->cert = own_cert;
+	new->key = pk_key;
+	new->ca_chain = ca_chain;
+	new->ca_crl = ca_crl;
+	new->next = NULL;
+
+	/* Update conf->key_cert is the list was NULL, else add to the end. */
+	if (!conf->key_cert) {
+		conf->key_cert = new;
+	} else {
+		TlsKeyCert *cur = conf->key_cert;
+		while (cur->next)
+			cur = cur->next;
+		cur->next = new;
+	}
+
+	return 0;
 }
 EXPORT_SYMBOL(ttls_conf_own_cert);
 
@@ -1963,12 +1948,20 @@ ttls_set_hs_authmode(TlsCtx *tls, int authmode)
  * Set or reset the hostname to check against the received server certificate.
  * It sets the ServerName TLS extension, too, if that extension is enabled.
  * (client-side only).
+ *
+ * TODO #830: we don't need the function before #830, so correspondingly we
+ * don't use TlsCtx->hostname. Probably TlsVhost->name can be used. Anyway
+ * there is no reason to call the dynamic memroy allocator just for the
+ * string name. Consider to use char hostname[TTLS_MAX_HOST_NAME_LEN] in
+ * TlsCtx.
  */
 int
 ttls_set_hostname(TlsCtx *tls, const char *hostname)
 {
 	/* Initialize to suppress unnecessary compiler warning */
 	size_t hostname_len = 0;
+
+	BUG();
 
 	/*
 	 * Check if new hostname is valid before making
@@ -2210,7 +2203,7 @@ ttls_recv(void *tls_data, unsigned char *buf, size_t len, unsigned int *read)
 		r = ttls_handshake_step(tls, buf, len, hh_len, read);
 
 		/* Cleanup security sensitive temproary data. */
-		ttls_mpi_pool_cleanup_ctx();
+		ttls_mpi_pool_cleanup_ctx(true);
 
 		if (!r)
 			return T_OK;
@@ -2279,9 +2272,9 @@ ttls_close_notify(TlsCtx *tls)
 EXPORT_SYMBOL(ttls_close_notify);
 
 void
-ttls_key_cert_free(ttls_key_cert *key_cert)
+ttls_key_cert_free(TlsKeyCert *key_cert)
 {
-	ttls_key_cert *cur = key_cert, *next;
+	TlsKeyCert *cur = key_cert, *next;
 
 	while (cur) {
 		next = cur->next;
@@ -2297,10 +2290,7 @@ ttls_ctx_clear(TlsCtx *tls)
 	if (!tls)
 		return;
 
-	ttls_handshake_free(tls->hs, tls->xfrm.ciphersuite_info);
-
-	if (tls->hostname)
-		kfree(tls->hostname);
+	ttls_handshake_free(tls->hs);
 
 	ttls_cipher_free(&tls->xfrm.cipher_ctx_enc);
 	ttls_cipher_free(&tls->xfrm.cipher_ctx_dec);
@@ -2317,7 +2307,7 @@ EXPORT_SYMBOL(ttls_ctx_clear);
 void
 ttls_config_init(TlsCfg *conf)
 {
-	bzero_fast(conf, sizeof(TlsCfg));
+	ttls_bzero_safe(conf, sizeof(TlsCfg));
 }
 EXPORT_SYMBOL(ttls_config_init);
 
@@ -2340,20 +2330,6 @@ static int ttls_default_ciphersuites[] = {
 	TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8,
 	TTLS_TLS_DHE_RSA_WITH_AES_256_CCM_8,
 
-	/* All AES-256 suites */
-	TTLS_TLS_RSA_WITH_AES_256_GCM_SHA384,
-	TTLS_TLS_RSA_WITH_AES_256_CCM,
-	TTLS_TLS_ECDH_RSA_WITH_AES_256_GCM_SHA384,
-	TTLS_TLS_ECDH_ECDSA_WITH_AES_256_GCM_SHA384,
-	TTLS_TLS_RSA_WITH_AES_256_CCM_8,
-
-	/* All AES-128 suites */
-	TTLS_TLS_RSA_WITH_AES_128_GCM_SHA256,
-	TTLS_TLS_RSA_WITH_AES_128_CCM,
-	TTLS_TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256,
-	TTLS_TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256,
-	TTLS_TLS_RSA_WITH_AES_128_CCM_8,
-
 	0
 };
 
@@ -2361,12 +2337,6 @@ int ttls_preset_hashes[] = {
 	TTLS_MD_SHA256,
 	TTLS_MD_SHA384,
 	TTLS_MD_NONE
-};
-
-ttls_ecp_group_id ttls_preset_curves[] = {
-	TTLS_ECP_DP_SECP256R1,
-	TTLS_ECP_DP_SECP384R1,
-	TTLS_ECP_DP_NONE
 };
 
 /**
@@ -2409,16 +2379,16 @@ EXPORT_SYMBOL(ttls_config_peer_defaults);
 void
 ttls_config_free(TlsCfg *conf)
 {
-	ttls_mpi_free(&conf->dhm_P);
-	ttls_mpi_free(&conf->dhm_G);
-	bzero_fast(conf, sizeof(TlsCfg));
+	/* Called in process context for relatively small memory area. */
+	memset(conf, 0, sizeof(TlsCfg));
 }
 EXPORT_SYMBOL(ttls_config_free);
 
 void
 ttls_config_peer_free(TlsPeerCfg *conf)
 {
-	bzero_fast(conf, sizeof(TlsPeerCfg));
+	/* Called in process context for relatively small memory area. */
+	memset(conf, 0, sizeof(TlsPeerCfg));
 }
 EXPORT_SYMBOL(ttls_config_peer_free);
 
@@ -2523,8 +2493,6 @@ ttls_md_type_t
 ttls_md_alg_from_hash(unsigned char hash)
 {
 	switch (hash) {
-	case TTLS_HASH_SHA224:
-		return TTLS_MD_SHA224;
 	case TTLS_HASH_SHA256:
 		return TTLS_MD_SHA256;
 	case TTLS_HASH_SHA384:
@@ -2543,8 +2511,6 @@ unsigned char
 ttls_hash_from_md_alg(int md)
 {
 	switch (md) {
-	case TTLS_MD_SHA224:
-		return TTLS_HASH_SHA224;
 	case TTLS_MD_SHA256:
 		return TTLS_HASH_SHA256;
 	case TTLS_MD_SHA384:
@@ -2677,27 +2643,13 @@ ttls_check_cert_usage(const ttls_x509_crt *cert,
 	if (cert_endpoint == TTLS_IS_SERVER) {
 		/* Server part of the key exchange */
 		switch (ciphersuite->key_exchange) {
-		case TTLS_KEY_EXCHANGE_RSA:
-		case TTLS_KEY_EXCHANGE_RSA_PSK:
-			usage = TTLS_X509_KU_KEY_ENCIPHERMENT;
-			break;
-
 		case TTLS_KEY_EXCHANGE_DHE_RSA:
 		case TTLS_KEY_EXCHANGE_ECDHE_RSA:
 		case TTLS_KEY_EXCHANGE_ECDHE_ECDSA:
 			usage = TTLS_X509_KU_DIGITAL_SIGNATURE;
 			break;
-
-		case TTLS_KEY_EXCHANGE_ECDH_RSA:
-		case TTLS_KEY_EXCHANGE_ECDH_ECDSA:
-			usage = TTLS_X509_KU_KEY_AGREEMENT;
-			break;
-
 		/* Don't use default: we want warnings when adding new values */
 		case TTLS_KEY_EXCHANGE_NONE:
-		case TTLS_KEY_EXCHANGE_PSK:
-		case TTLS_KEY_EXCHANGE_DHE_PSK:
-		case TTLS_KEY_EXCHANGE_ECDHE_PSK:
 			usage = 0;
 		}
 	} else {
@@ -2833,10 +2785,8 @@ ttls_init(void)
 	if ((r = ttls_mpool_init()))
 		return r;
 
-	if ((r = ttls_crypto_modinit())) {
-		ttls_mpi_modexit();
-		return r;
-	}
+	if ((r = ttls_crypto_modinit()))
+		goto err_free;
 
 	for_each_possible_cpu(cpu) {
 		struct aead_request **req = per_cpu_ptr(&g_req, cpu);

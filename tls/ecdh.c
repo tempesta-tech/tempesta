@@ -40,14 +40,14 @@
  * ttls_ecp_gen_keypair().
  *
  * @grp		- the ECP group;
- * @_P		- temporary point used in the computation. @_P.X is pointing to
+ * @p_tmp	- temporary point used in the computation. @p_tmp.X is pointing
  *		  to TlsECDHCtx->z - the destination MPI (shared secret);
  * @Q		- the public key from another party;
  * @d		- our secret exponent (private key).
  */
 static int
-ttls_ecdh_compute_shared(TlsEcpGrp *grp, TlsEcpPoint *_P, const TlsEcpPoint *Q,
-			 const TlsMpi *d)
+ttls_ecdh_compute_shared(TlsEcpGrp *grp, TlsEcpPoint *p_tmp,
+			 const TlsEcpPoint *Q, const TlsMpi *d)
 {
 	int r;
 
@@ -57,13 +57,13 @@ ttls_ecdh_compute_shared(TlsEcpGrp *grp, TlsEcpPoint *_P, const TlsEcpPoint *Q,
 
 	/*
 	 * Compute the shared secret.
-	 * @_P is used as temproary point such that _P.X (which is also
+	 * @p_tmp is used as temproary point such that p_tmp.X (which is also
 	 * TlsECDHCtx->z) after the computation contains the secret.
 	 */
-	if ((r = ttls_ecp_mul(grp, _P, d, Q, true)))
+	if ((r = ttls_ecp_mul(grp, p_tmp, d, Q, true)))
 		return r;
 
-	return ttls_ecp_is_zero(_P) ? -EINVAL : 0;
+	return ttls_ecp_is_zero(p_tmp) ? -EINVAL : 0;
 }
 
 /**
@@ -128,6 +128,7 @@ ttls_ecdh_read_params(TlsECDHCtx *ctx, const unsigned char **buf,
 
 /**
  * Get parameters from a keypair.
+ * TODO #769 used in client mode only - fix the ECP group destination address.
  */
 int
 ttls_ecdh_get_params(TlsECDHCtx *ctx, const TlsEcpKeypair *key,
@@ -201,7 +202,7 @@ ttls_ecdh_calc_secret(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
 {
 	int r;
 
-	r = ttls_ecdh_compute_shared(&ctx->grp, &ctx->_P, &ctx->Qp, &ctx->d);
+	r = ttls_ecdh_compute_shared(&ctx->grp, &ctx->p_tmp, &ctx->Qp, &ctx->d);
 	if (r)
 		return r;
 

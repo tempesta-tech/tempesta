@@ -17,7 +17,6 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #include "tls_conf.h"
 #include "tls.h"
 #include "vhost.h"
@@ -149,7 +148,7 @@ tfw_tls_set_cert(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 	conf->crt_pg_addr = (unsigned long)crt_data;
 	conf->crt_pg_order = get_order(crt_size);
 
-	return ttls_mpi_profile_set(&conf->crt, &vhost->tls_cfg);
+	return 0;
 }
 
 int
@@ -172,6 +171,13 @@ tfw_tls_cert_cfg_finish_cert(TfwVhost *vhost)
 
 /**
  * Handle 'tls_certificate_key <path>' config entry.
+ *
+ * TODO #67: At the moment `tls_certificate_key` always follow
+ * `tls_certificate`, so at this place we have both the pair of the certificate
+ * and private key initialized and can generate necessary MPI profiles.
+ * The limitation on the directives order may be inconvenient for a user, so
+ * this should be redesigned. Meantime, probably with the new API this won't be
+ * an issue at all, TBD.
  */
 int
 tfw_tls_set_cert_key(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
@@ -205,10 +211,7 @@ tfw_tls_set_cert_key(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	}
 
-	if ((r = tfw_tls_cert_cfg_finish_cert(vhost)))
-		return r;
-
-	return 0;
+	return tfw_tls_cert_cfg_finish_cert(vhost);
 }
 
 int

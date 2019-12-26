@@ -64,17 +64,16 @@
  * ECP error codes
  */
 #define TTLS_ERR_ECP_BAD_INPUT_DATA		-0x4F80  /**< Bad input parameters to function. */
-#define TTLS_ERR_ECP_BUFFER_TOO_SMALL				  -0x4F00  /**< The buffer is too small to write to. */
 #define TTLS_ERR_ECP_FEATURE_UNAVAILABLE			   -0x4E80  /**< Requested curve not available. */
 #define TTLS_ERR_ECP_VERIFY_FAILED		 -0x4E00  /**< The signature is not valid. */
 #define TTLS_ERR_ECP_RANDOM_FAILED		 -0x4D00  /**< Generation of random value, such as (ephemeral) key, failed. */
 #define TTLS_ERR_ECP_SIG_LEN_MISMATCH				  -0x4C00  /**< Signature is valid but shorter than the user-supplied length. */
-#define TTLS_ERR_ECP_HW_ACCEL_FAILED				   -0x4B80  /**< ECP hardware accelerator failed. */
 
 /**
  * Domain parameters (curve, subgroup and generator) identifiers.
  *
- * Only curves over prime fields are supported.
+ * Only curves over prime fields and recommended by IANA are supported.
+ * See https://www.iana.org/assignments/tls-parameters/tls-parameters.xml
  *
  * WARNING This library does not support validation of arbitrary domain
  * parameters. Therefore, only well-known domain parameters from trusted
@@ -82,14 +81,14 @@
  */
 typedef enum {
 	TTLS_ECP_DP_NONE = 0,
-	TTLS_ECP_DP_SECP256R1,	/* 256-bits NIST curve */
-	TTLS_ECP_DP_SECP384R1,	/* 384-bits NIST curve */
-	TTLS_ECP_DP_SECP521R1,	/* 521-bits NIST curve */
-	TTLS_ECP_DP_BP256R1,	/* 256-bits Brainpool curve */
-	TTLS_ECP_DP_BP384R1,	/* 384-bits Brainpool curve */
-	TTLS_ECP_DP_BP512R1,	/* 512-bits Brainpool curve */
-	TTLS_ECP_DP_CURVE25519,	/* Curve25519 */
+	__TTLS_ECP_DP_FIRST,
+	TTLS_ECP_DP_SECP256R1 = __TTLS_ECP_DP_FIRST, /* 256-bits NIST curve */
+	TTLS_ECP_DP_SECP384R1,			     /* 384-bits NIST curve */
+	TTLS_ECP_DP_CURVE25519,			     /* Curve25519 */
+	__TTLS_ECP_DP_N
 } ttls_ecp_group_id;
+
+extern ttls_ecp_group_id ttls_preset_curves[];
 
 /**
  * Number of supported curves (plus one for NONE).
@@ -155,15 +154,6 @@ typedef struct {
 } TlsEcpPoint;
 
 /**
- * The same as TlsEcpPoint for cases when X an Y coordinates only are used.
- * Ued for large arrays to reduce memory footprint.
- */
-typedef struct {
-	TlsMpi		X;
-	TlsMpi		Y;
-} TlsEcpPoint2D;
-
-/**
  * ECP group structure.
  *
  * We consider two types of curves equations:
@@ -199,7 +189,13 @@ typedef struct {
  * @B		- 1. B in the equation, or 2. unused;
  * @N		- 1. the order of G, or 2. unused;
  * @G		- generator of the (sub)group used;
- * @T		- pre-computed points for ecp_mul_comb().
+ * @T		- pre-computed points for ecp_mul_comb(). While X and Y
+ *		  coordinates are the only used, we still have to keep the full
+ *		  3D points as they're need for points doubling in Jacobian
+ *		  coordinates with following normalization, see
+ *		  ecp_precompute_comb().
+ *		  TODO #1064: probably we can double the points w/o 3D
+ *			      normalization immediately in 2D format.
  */
 typedef struct {
 	ttls_ecp_group_id	id;
@@ -212,7 +208,7 @@ typedef struct {
 	TlsMpi			B;
 	TlsMpi			N;
 	TlsEcpPoint		G;
-	TlsEcpPoint2D		T[TTLS_ECP_WINDOW_SIZE];
+	TlsEcpPoint		T[TTLS_ECP_WINDOW_SIZE];
 } TlsEcpGrp;
 
 /*
@@ -241,15 +237,6 @@ typedef struct {
 #define TTLS_ECP_TLS_NAMED_CURVE	3
 
 /**
- * \brief		   Get the list of supported curves in order of preferrence
- *				  (grp_id only)
- *
- * \return		  A statically allocated array,
- *				  terminated with TTLS_ECP_DP_NONE.
- */
-const ttls_ecp_group_id *ttls_ecp_grp_id_list(void);
-
-/**
  * \brief		   Get curve information from an internal group identifier
  *
  * \param grp_id	A TTLS_ECP_DP_XXX value
@@ -267,21 +254,8 @@ const TlsEcpCurveInfo *ttls_ecp_curve_info_from_grp_id(ttls_ecp_group_id grp_id)
  */
 const TlsEcpCurveInfo *ttls_ecp_curve_info_from_tls_id(uint16_t tls_id);
 
-/**
- * \brief		   Get curve information from a human-readable name
- *
- * \param name	  The name
- *
- * \return		  The associated curve information or NULL
- */
-const TlsEcpCurveInfo *ttls_ecp_curve_info_from_name(const char *name);
-
 void ttls_ecp_point_init(TlsEcpPoint *pt);
 void ttls_ecp_keypair_init(TlsEcpKeypair *key);
-
-/**
- * \brief		   Free the components of a key pair
- */
 void ttls_ecp_keypair_free(TlsEcpKeypair *key);
 
 /**
@@ -308,21 +282,6 @@ int ttls_ecp_set_zero(TlsEcpPoint *pt);
  * \return		  1 if point is zero, 0 otherwise
  */
 int ttls_ecp_is_zero(TlsEcpPoint *pt);
-
-/**
- * \brief		   Compare two points
- *
- * \note			This assumes the points are normalized. Otherwise,
- *				  they may compare as "not equal" even if they are.
- *
- * \param P		 First point to compare
- * \param Q		 Second point to compare
- *
- * \return		  0 if the points are equal,
- *				  TTLS_ERR_ECP_BAD_INPUT_DATA otherwise
- */
-int ttls_ecp_point_cmp(const TlsEcpPoint *P,
-			   const TlsEcpPoint *Q);
 
 /**
  * \brief		   Export a point into unsigned binary data
@@ -411,35 +370,13 @@ int ttls_ecp_tls_read_group(TlsEcpGrp *grp, const unsigned char **buf, size_t le
 int ttls_ecp_tls_write_group(const TlsEcpGrp *grp, size_t *olen,
 			 unsigned char *buf, size_t blen);
 
-/**
- * \brief		   Multiplication by an integer: R = m * P
- *				  (Not thread-safe to use same group in multiple threads)
- *
- * \note			In order to prevent timing attacks, this function
- *				  executes the exact same sequence of (base field)
- *				  operations for any valid m. It avoids any if-branch or
- *				  array index depending on the value of m.
- *
- * \note			If f_rng is not NULL, it is used to randomize intermediate
- *				  results in order to prevent potential timing attacks
- *				  targeting these results. It is recommended to always
- *				  provide a non-NULL f_rng (the overhead is negligible).
- *
- * \param grp	   ECP group
- * \param R		 Destination point
- * \param m		 Integer by which to multiply
- * \param P		 Point to multiply
- *
- * \return		  0 if successful,
- *				  TTLS_ERR_ECP_INVALID_KEY if m is not a valid privkey
- *				  or P is not a valid pubkey
- */
-int ttls_ecp_mul(TlsEcpGrp *grp, TlsEcpPoint *R,
-			 const TlsMpi *m, const TlsEcpPoint *P, bool rnd);
+int ecp_precompute_comb(const TlsEcpGrp *grp, TlsEcpPoint T[],
+			const TlsEcpPoint *P,unsigned char w, size_t d);
 
+int ttls_ecp_mul(TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
+		 const TlsEcpPoint *P, bool rnd);
 int ttls_ecp_muladd(TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
-		    const TlsEcpPoint *P, const TlsMpi *n,
-		    const TlsEcpPoint *Q);
+		    const TlsMpi *n, const TlsEcpPoint *Q);
 
 /**
  * \brief		   Check that a point is a valid public key on this curve
@@ -478,21 +415,13 @@ int ttls_ecp_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt);
  *				  TlsECDHCtx of TlsEcpKeypair.
  */
 int ttls_ecp_check_privkey(const TlsEcpGrp *grp, const TlsMpi *d);
-
-/**
- * \brief		   Generate a keypair
- *
- * \param grp	   ECP group
- * \param d		 Destination MPI (secret part)
- * \param Q		 Destination point (public part)
- *
- * \return		  0 if successful,
- *				  or a TTLS_ERR_ECP_XXX or TTLS_MPI_XXX error code
- *
- * \note			Uses bare components rather than an TlsEcpKeypair structure
- *				  in order to ease use with other structures such as
- *				  TlsECDHCtx of TlsEcpKeypair.
- */
 int ttls_ecp_gen_keypair(TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q);
+
+#if defined(DEBUG) && DEBUG == 3
+/* Print data structures containing MPIs on higest debug level only. */
+#define T_DBG_ECP(msg, x)		__log_mpis(2, msg, (x)->X, (x)->Y)
+#else
+#define T_DBG_ECP(msg, x)
+#endif
 
 #endif /* ecp.h */
