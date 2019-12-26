@@ -1,4 +1,4 @@
-/*
+/**
  *		Tempesta TLS
  *
  * Elliptic curve DSA.
@@ -25,9 +25,9 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#include "debug.h"
-#include "ecdsa.h"
 #include "asn1write.h"
+#include "ecdsa.h"
+#include "tls_internal.h"
 
 /*
  * Derive a suitable integer for group grp from a buffer of length len
@@ -57,15 +57,15 @@ cleanup:
  * Obviously, compared to SEC1 4.1.3, we skip step 4 (hash message)
  */
 int
-ttls_ecdsa_sign(const TlsEcpGrp *grp, TlsMpi *r, TlsMpi *s,
-		const TlsMpi *d, const unsigned char *buf, size_t blen)
+ttls_ecdsa_sign(TlsEcpGrp *grp, TlsMpi *r, TlsMpi *s, const TlsMpi *d,
+		const unsigned char *buf, size_t blen)
 {
 	int ret, key_tries, sign_tries, blind_tries;
 	TlsEcpPoint R;
 	TlsMpi k, e, t;
 
 	/* Fail cleanly on curves such as Curve25519 that can't be used for ECDSA */
-	if (grp->N.p == NULL)
+	if (!ttls_mpi_initialized(&grp->N))
 		return(TTLS_ERR_ECP_BAD_INPUT_DATA);
 
 	/* Make sure d is in range 1..n-1 */
@@ -172,8 +172,8 @@ ttls_ecdsa_verify(TlsEcpGrp *grp, const unsigned char *buf, size_t blen,
 	ttls_mpi_init(&u2);
 
 	/* Fail cleanly on curves such as Curve25519 that can't be used for ECDSA */
-	if (grp->N.p == NULL)
-		return(TTLS_ERR_ECP_BAD_INPUT_DATA);
+	if (!ttls_mpi_initialized(&grp->N))
+		return TTLS_ERR_ECP_BAD_INPUT_DATA;
 
 	/*
 	 * Step 1: make sure r and s are in range 1..n-1
@@ -212,7 +212,7 @@ ttls_ecdsa_verify(TlsEcpGrp *grp, const unsigned char *buf, size_t blen,
 	 * Since we're not using any secret data, no need to pass a RNG to
 	 * ttls_ecp_mul() for countermesures.
 	 */
-	TTLS_MPI_CHK(ttls_ecp_muladd(grp, &R, &u1, &grp->G, &u2, Q));
+	TTLS_MPI_CHK(ttls_ecp_muladd(grp, &R, &u1, &u2, Q));
 
 	if (ttls_ecp_is_zero(&R))
 	{
@@ -292,12 +292,17 @@ ttls_ecdsa_write_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
 	return ecdsa_signature_to_asn1(&r, &s, sig, slen);
 }
 
-/*
- * Read and check signature
+/**
+ * Read and check signature.
+ *
+ * If the bitlength of the message hash is larger than the bitlength of the
+ * group order, then the hash is truncated as defined in Standards for
+ * Efficient Cryptography Group (SECG): SEC1 Elliptic Curve Cryptography,
+ * section 4.1.4, step 3.
  */
-int ttls_ecdsa_read_signature(TlsEcpKeypair *ctx,
-			  const unsigned char *hash, size_t hlen,
-			  const unsigned char *sig, size_t slen)
+int
+ttls_ecdsa_read_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
+			  size_t hlen, const unsigned char *sig, size_t slen)
 {
 	int ret;
 	unsigned char *p = (unsigned char *) sig;
@@ -308,45 +313,21 @@ int ttls_ecdsa_read_signature(TlsEcpKeypair *ctx,
 	ttls_mpi_init(&r);
 	ttls_mpi_init(&s);
 
-	if ((ret = ttls_asn1_get_tag(&p, end, &len,
-		TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE)) != 0)
-	{
-		ret += TTLS_ERR_ECP_BAD_INPUT_DATA;
-		goto cleanup;
-	}
+	ret = ttls_asn1_get_tag(&p, end, &len,
+				TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE);
+	if (ret)
+		return ret + TTLS_ERR_ECP_BAD_INPUT_DATA;
 
 	if (p + len != end)
-	{
-		ret = TTLS_ERR_ECP_BAD_INPUT_DATA +
-			  TTLS_ERR_ASN1_LENGTH_MISMATCH;
-		goto cleanup;
-	}
+		return TTLS_ERR_ECP_BAD_INPUT_DATA
+		       + TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
-	if ((ret = ttls_asn1_get_mpi(&p, end, &r)) != 0 ||
-		(ret = ttls_asn1_get_mpi(&p, end, &s)) != 0)
-	{
-		ret += TTLS_ERR_ECP_BAD_INPUT_DATA;
-		goto cleanup;
-	}
+	if ((ret = ttls_asn1_get_mpi(&p, end, &r))
+	    || (ret = ttls_asn1_get_mpi(&p, end, &s)))
+		return ret + TTLS_ERR_ECP_BAD_INPUT_DATA;
 
-	if ((ret = ttls_ecdsa_verify(&ctx->grp, hash, hlen,
-				  &ctx->Q, &r, &s)) != 0)
-		goto cleanup;
+	if ((ret = ttls_ecdsa_verify(&ctx->grp, hash, hlen, &ctx->Q, &r, &s)))
+		return ret;
 
-	if (p != end)
-		ret = TTLS_ERR_ECP_SIG_LEN_MISMATCH;
-
-cleanup:
-	ttls_mpi_free(&r);
-	ttls_mpi_free(&s);
-
-	return ret;
-}
-
-/*
- * Initialize context
- */
-void ttls_ecdsa_init(TlsEcpKeypair *ctx)
-{
-	ttls_ecp_keypair_init(ctx);
+	return p != end ? TTLS_ERR_ECP_SIG_LEN_MISMATCH : 0;
 }

@@ -234,7 +234,7 @@ TfwHdrMods *tfw_vhost_get_hdr_mods(TfwLocation *loc, TfwVhost *vhost,
 static inline TfwVhost*
 tfw_vhost_from_tls_conf(const TlsPeerCfg *cfg)
 {
-	return  container_of(cfg, TfwVhost, tls_cfg);
+	return container_of(cfg, TfwVhost, tls_cfg);
 }
 
 static bool inline
