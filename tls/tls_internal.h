@@ -28,12 +28,22 @@
 
 #include <asm/fpu/api.h>
 
-#include "debug.h"
+/* Affects only TempestaTLS internal debug symbols. */
+#if DBG_TLS == 0
+#undef DEBUG
+#endif
+
+#ifndef BANNER
+#define BANNER	"tls"
+#endif
+
 #include "lib/fsm.h"
+#include "lib/log.h"
 #include "lib/str.h"
 
 #include "crypto.h"
 #include "ttls.h"
+#include "x509_crt.h"
 
 /* Determine minimum supported version */
 #define TTLS_MIN_MAJOR_VERSION		TTLS_MAJOR_VERSION_3
@@ -81,7 +91,6 @@
  */
 #define TTLS_HS_FINISHED_BODY_LEN	40
 
-
 /*
  * Abstraction for a grid of allowed signature-hash-algorithm pairs.
  *
@@ -99,8 +108,7 @@
  * we can implement the sig-hash-set as a map from signatures
  * to hash algorithms
  */
-typedef struct
-{
+typedef struct {
 	unsigned int rsa;
 	unsigned int ecdsa;
 } TlsSigHashSet;
@@ -145,7 +153,7 @@ struct tls_handshake_t {
 					secure_renegotiation	: 1;
 
 	size_t				pmslen;
-	ttls_key_cert			*key_cert;
+	TlsKeyCert			*key_cert;
 
 	void (*calc_verify)(TlsCtx *, unsigned char *);
 	void (*calc_finished)(TlsCtx *, unsigned char *, int);
@@ -196,27 +204,7 @@ struct tls_handshake_t {
 	};
 };
 
-/*
- * List of certificate + private key pairs
- *
- * @cert		- Server certificate;
- * @key			- private key for the certificate;
- * @ca_chain		- trusted CA chain for the issues certificate;
- * @ca_crl		- trusted CAs CRLs
- */
-struct ttls_key_cert
-{
-	ttls_x509_crt			*cert;
-	TlsPkCtx			*key;
-	ttls_x509_crt			*ca_chain;
-	ttls_x509_crl			*ca_crl;
-	ttls_key_cert			*next;
-};
-
 extern int ttls_preset_hashes[];
-extern ttls_ecp_group_id ttls_preset_curves[];
-
-int ttls_mpi_profile_clone(TlsCtx *tls);
 
 /* Find an entry in a signature-hash set matching a given hash algorithm. */
 ttls_md_type_t ttls_sig_hash_set_find(TlsSigHashSet *set,
@@ -266,36 +254,10 @@ int ttls_check_sig_hash(const TlsCtx *tls, ttls_md_type_t md);
 int ttls_match_sig_hashes(const TlsCtx *tls);
 void ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len);
 
-/**
- * Implementation that should never be optimized out by the compiler.
- * Use this only for preemptable contexts and prefer bzero_fast() for softirq.
- */
-static inline void
-ttls_zeroize(void *v, size_t n)
-{
-	volatile unsigned char *p = v;
-
-	while (n--)
-		*p++ = 0;
-}
-
-static inline TlsPkCtx *
-ttls_own_key(TlsCtx *tls)
-{
-	ttls_key_cert *key_cert;
-
-	if (tls->hs && tls->hs->key_cert)
-		key_cert = tls->hs->key_cert;
-	else
-		key_cert = tls->peer_conf ? tls->peer_conf->key_cert : NULL;
-
-	return key_cert ? key_cert->key : NULL;
-}
-
 static inline ttls_x509_crt *
 ttls_own_cert(TlsCtx *tls)
 {
-	ttls_key_cert *key_cert;
+	TlsKeyCert *key_cert;
 
 	if (tls->hs && tls->hs->key_cert)
 		key_cert = tls->hs->key_cert;
@@ -434,5 +396,33 @@ ttls_substate(const TlsCtx *tls)
 {
 	return tls->state & __TTLS_FSM_SUBST_MASK;
 }
+
+void *ttls_mpi_pool_alloc(size_t n, gfp_t gfp_mask);
+void ttls_mpi_pool_free(void *ctx);
+int ttls_mpi_profile_clone(TlsCtx *tls);
+void ttls_mpi_pool_cleanup_ctx(bool zero);
+int ttls_mpool_init(void);
+void ttls_mpool_exit(void);
+
+#if defined(DEBUG) && DEBUG == 3
+/*
+ * Make the things repeatable, simple and INSECURE on largest debug level -
+ * this helps to debug TLS (thanks to reproducible records payload), but
+ * must not be used in any security sensitive installations.
+ */
+static inline void
+ttls_rnd(void *buf, size_t len)
+{
+	memset(buf, 0x55, len);
+}
+
+unsigned long ttls_time_debug(void);
+
+#define ttls_time()		ttls_time_debug()
+
+#else
+#define ttls_time()		get_seconds()
+#define ttls_rnd(buf, len)	get_random_bytes_arch(buf, len)
+#endif
 
 #endif

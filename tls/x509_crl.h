@@ -107,20 +107,6 @@ int ttls_x509_crl_parse_der(ttls_x509_crl *chain,
 int ttls_x509_crl_parse(ttls_x509_crl *chain, unsigned char *buf, size_t buflen);
 
 /**
- * \brief		  Returns an informational string about the CRL.
- *
- * \param buf	  Buffer to write to
- * \param size	 Maximum size of buffer
- * \param prefix   A line prefix
- * \param crl	  The X509 CRL to represent
- *
- * \return		 The length of the string written (not including the
- *				 terminated nul byte), or a negative error code.
- */
-int ttls_x509_crl_info(char *buf, size_t size, const char *prefix,
-				   const ttls_x509_crl *crl);
-
-/**
  * \brief		  Initialize a CRL (chain)
  *
  * \param crl	  CRL chain to initialize

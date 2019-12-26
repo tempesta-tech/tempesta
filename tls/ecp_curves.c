@@ -1,4 +1,4 @@
-/*
+/**
  *		Tempesta TLS
  *
  * Elliptic curves over GF(p): curve-specific data and functions.
@@ -23,37 +23,24 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#include "debug.h"
 #include "ecp.h"
+#include "tls_internal.h"
 
-/*
- * Conversion macros for embedded constants: build lists of unsigned long's
- * from lists of unsigned char's grouped by 8, 4 or 2.
- */
 #define BYTES_TO_T_UINT_8(a, b, c, d, e, f, g, h)	\
-	((unsigned long) a <<  0) |			\
-	((unsigned long) b <<  8) |			\
-	((unsigned long) c << 16) |			\
-	((unsigned long) d << 24) |			\
-	((unsigned long) e << 32) |			\
-	((unsigned long) f << 40) |			\
-	((unsigned long) g << 48) |			\
-	((unsigned long) h << 56)
-
-#define BYTES_TO_T_UINT_4(a, b, c, d)			\
-	BYTES_TO_T_UINT_8(a, b, c, d, 0, 0, 0, 0)
-
-#define BYTES_TO_T_UINT_2(a, b)				\
-	BYTES_TO_T_UINT_8(a, b, 0, 0, 0, 0, 0, 0)
+	((unsigned long)a <<  0) |			\
+	((unsigned long)b <<  8) |			\
+	((unsigned long)c << 16) |			\
+	((unsigned long)d << 24) |			\
+	((unsigned long)e << 32) |			\
+	((unsigned long)f << 40) |			\
+	((unsigned long)g << 48) |			\
+	((unsigned long)h << 56)
 
 /*
- * Note: the constants are in little-endian order
- * to be directly usable in MPIs
+ * The constants are in little-endian order to be directly copied into MPIs.
  */
 
-/*
- * Domain parameters for secp256r1
- */
+/* Domain parameters for secp256r1. */
 static const unsigned long secp256r1_p[] = {
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00),
@@ -85,9 +72,7 @@ static const unsigned long secp256r1_n[] = {
 	BYTES_TO_T_UINT_8(0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF),
 };
 
-/*
- * Domain parameters for secp384r1
- */
+/* Domain parameters for secp384r1. */
 static const unsigned long secp384r1_p[] = {
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00),
 	BYTES_TO_T_UINT_8(0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF),
@@ -130,364 +115,8 @@ static const unsigned long secp384r1_n[] = {
 };
 
 /*
- * Domain parameters for secp521r1
- */
-static const unsigned long secp521r1_p[] = {
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_2(0xFF, 0x01),
-};
-static const unsigned long secp521r1_b[] = {
-	BYTES_TO_T_UINT_8(0x00, 0x3F, 0x50, 0x6B, 0xD4, 0x1F, 0x45, 0xEF),
-	BYTES_TO_T_UINT_8(0xF1, 0x34, 0x2C, 0x3D, 0x88, 0xDF, 0x73, 0x35),
-	BYTES_TO_T_UINT_8(0x07, 0xBF, 0xB1, 0x3B, 0xBD, 0xC0, 0x52, 0x16),
-	BYTES_TO_T_UINT_8(0x7B, 0x93, 0x7E, 0xEC, 0x51, 0x39, 0x19, 0x56),
-	BYTES_TO_T_UINT_8(0xE1, 0x09, 0xF1, 0x8E, 0x91, 0x89, 0xB4, 0xB8),
-	BYTES_TO_T_UINT_8(0xF3, 0x15, 0xB3, 0x99, 0x5B, 0x72, 0xDA, 0xA2),
-	BYTES_TO_T_UINT_8(0xEE, 0x40, 0x85, 0xB6, 0xA0, 0x21, 0x9A, 0x92),
-	BYTES_TO_T_UINT_8(0x1F, 0x9A, 0x1C, 0x8E, 0x61, 0xB9, 0x3E, 0x95),
-	BYTES_TO_T_UINT_2(0x51, 0x00),
-};
-static const unsigned long secp521r1_gx[] = {
-	BYTES_TO_T_UINT_8(0x66, 0xBD, 0xE5, 0xC2, 0x31, 0x7E, 0x7E, 0xF9),
-	BYTES_TO_T_UINT_8(0x9B, 0x42, 0x6A, 0x85, 0xC1, 0xB3, 0x48, 0x33),
-	BYTES_TO_T_UINT_8(0xDE, 0xA8, 0xFF, 0xA2, 0x27, 0xC1, 0x1D, 0xFE),
-	BYTES_TO_T_UINT_8(0x28, 0x59, 0xE7, 0xEF, 0x77, 0x5E, 0x4B, 0xA1),
-	BYTES_TO_T_UINT_8(0xBA, 0x3D, 0x4D, 0x6B, 0x60, 0xAF, 0x28, 0xF8),
-	BYTES_TO_T_UINT_8(0x21, 0xB5, 0x3F, 0x05, 0x39, 0x81, 0x64, 0x9C),
-	BYTES_TO_T_UINT_8(0x42, 0xB4, 0x95, 0x23, 0x66, 0xCB, 0x3E, 0x9E),
-	BYTES_TO_T_UINT_8(0xCD, 0xE9, 0x04, 0x04, 0xB7, 0x06, 0x8E, 0x85),
-	BYTES_TO_T_UINT_2(0xC6, 0x00),
-};
-static const unsigned long secp521r1_gy[] = {
-	BYTES_TO_T_UINT_8(0x50, 0x66, 0xD1, 0x9F, 0x76, 0x94, 0xBE, 0x88),
-	BYTES_TO_T_UINT_8(0x40, 0xC2, 0x72, 0xA2, 0x86, 0x70, 0x3C, 0x35),
-	BYTES_TO_T_UINT_8(0x61, 0x07, 0xAD, 0x3F, 0x01, 0xB9, 0x50, 0xC5),
-	BYTES_TO_T_UINT_8(0x40, 0x26, 0xF4, 0x5E, 0x99, 0x72, 0xEE, 0x97),
-	BYTES_TO_T_UINT_8(0x2C, 0x66, 0x3E, 0x27, 0x17, 0xBD, 0xAF, 0x17),
-	BYTES_TO_T_UINT_8(0x68, 0x44, 0x9B, 0x57, 0x49, 0x44, 0xF5, 0x98),
-	BYTES_TO_T_UINT_8(0xD9, 0x1B, 0x7D, 0x2C, 0xB4, 0x5F, 0x8A, 0x5C),
-	BYTES_TO_T_UINT_8(0x04, 0xC0, 0x3B, 0x9A, 0x78, 0x6A, 0x29, 0x39),
-	BYTES_TO_T_UINT_2(0x18, 0x01),
-};
-static const unsigned long secp521r1_n[] = {
-	BYTES_TO_T_UINT_8(0x09, 0x64, 0x38, 0x91, 0x1E, 0xB7, 0x6F, 0xBB),
-	BYTES_TO_T_UINT_8(0xAE, 0x47, 0x9C, 0x89, 0xB8, 0xC9, 0xB5, 0x3B),
-	BYTES_TO_T_UINT_8(0xD0, 0xA5, 0x09, 0xF7, 0x48, 0x01, 0xCC, 0x7F),
-	BYTES_TO_T_UINT_8(0x6B, 0x96, 0x2F, 0xBF, 0x83, 0x87, 0x86, 0x51),
-	BYTES_TO_T_UINT_8(0xFA, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
-	BYTES_TO_T_UINT_2(0xFF, 0x01),
-};
-
-/*
- * Domain parameters for brainpoolP256r1 (RFC 5639 3.4)
- */
-static const unsigned long brainpoolP256r1_p[] = {
-	BYTES_TO_T_UINT_8(0x77, 0x53, 0x6E, 0x1F, 0x1D, 0x48, 0x13, 0x20),
-	BYTES_TO_T_UINT_8(0x28, 0x20, 0x26, 0xD5, 0x23, 0xF6, 0x3B, 0x6E),
-	BYTES_TO_T_UINT_8(0x72, 0x8D, 0x83, 0x9D, 0x90, 0x0A, 0x66, 0x3E),
-	BYTES_TO_T_UINT_8(0xBC, 0xA9, 0xEE, 0xA1, 0xDB, 0x57, 0xFB, 0xA9),
-};
-static const unsigned long brainpoolP256r1_a[] = {
-	BYTES_TO_T_UINT_8(0xD9, 0xB5, 0x30, 0xF3, 0x44, 0x4B, 0x4A, 0xE9),
-	BYTES_TO_T_UINT_8(0x6C, 0x5C, 0xDC, 0x26, 0xC1, 0x55, 0x80, 0xFB),
-	BYTES_TO_T_UINT_8(0xE7, 0xFF, 0x7A, 0x41, 0x30, 0x75, 0xF6, 0xEE),
-	BYTES_TO_T_UINT_8(0x57, 0x30, 0x2C, 0xFC, 0x75, 0x09, 0x5A, 0x7D),
-};
-static const unsigned long brainpoolP256r1_b[] = {
-	BYTES_TO_T_UINT_8(0xB6, 0x07, 0x8C, 0xFF, 0x18, 0xDC, 0xCC, 0x6B),
-	BYTES_TO_T_UINT_8(0xCE, 0xE1, 0xF7, 0x5C, 0x29, 0x16, 0x84, 0x95),
-	BYTES_TO_T_UINT_8(0xBF, 0x7C, 0xD7, 0xBB, 0xD9, 0xB5, 0x30, 0xF3),
-	BYTES_TO_T_UINT_8(0x44, 0x4B, 0x4A, 0xE9, 0x6C, 0x5C, 0xDC, 0x26),
-};
-static const unsigned long brainpoolP256r1_gx[] = {
-	BYTES_TO_T_UINT_8(0x62, 0x32, 0xCE, 0x9A, 0xBD, 0x53, 0x44, 0x3A),
-	BYTES_TO_T_UINT_8(0xC2, 0x23, 0xBD, 0xE3, 0xE1, 0x27, 0xDE, 0xB9),
-	BYTES_TO_T_UINT_8(0xAF, 0xB7, 0x81, 0xFC, 0x2F, 0x48, 0x4B, 0x2C),
-	BYTES_TO_T_UINT_8(0xCB, 0x57, 0x7E, 0xCB, 0xB9, 0xAE, 0xD2, 0x8B),
-};
-static const unsigned long brainpoolP256r1_gy[] = {
-	BYTES_TO_T_UINT_8(0x97, 0x69, 0x04, 0x2F, 0xC7, 0x54, 0x1D, 0x5C),
-	BYTES_TO_T_UINT_8(0x54, 0x8E, 0xED, 0x2D, 0x13, 0x45, 0x77, 0xC2),
-	BYTES_TO_T_UINT_8(0xC9, 0x1D, 0x61, 0x14, 0x1A, 0x46, 0xF8, 0x97),
-	BYTES_TO_T_UINT_8(0xFD, 0xC4, 0xDA, 0xC3, 0x35, 0xF8, 0x7E, 0x54),
-};
-static const unsigned long brainpoolP256r1_n[] = {
-	BYTES_TO_T_UINT_8(0xA7, 0x56, 0x48, 0x97, 0x82, 0x0E, 0x1E, 0x90),
-	BYTES_TO_T_UINT_8(0xF7, 0xA6, 0x61, 0xB5, 0xA3, 0x7A, 0x39, 0x8C),
-	BYTES_TO_T_UINT_8(0x71, 0x8D, 0x83, 0x9D, 0x90, 0x0A, 0x66, 0x3E),
-	BYTES_TO_T_UINT_8(0xBC, 0xA9, 0xEE, 0xA1, 0xDB, 0x57, 0xFB, 0xA9),
-};
-
-/*
- * Domain parameters for brainpoolP384r1 (RFC 5639 3.6)
- */
-static const unsigned long brainpoolP384r1_p[] = {
-	BYTES_TO_T_UINT_8(0x53, 0xEC, 0x07, 0x31, 0x13, 0x00, 0x47, 0x87),
-	BYTES_TO_T_UINT_8(0x71, 0x1A, 0x1D, 0x90, 0x29, 0xA7, 0xD3, 0xAC),
-	BYTES_TO_T_UINT_8(0x23, 0x11, 0xB7, 0x7F, 0x19, 0xDA, 0xB1, 0x12),
-	BYTES_TO_T_UINT_8(0xB4, 0x56, 0x54, 0xED, 0x09, 0x71, 0x2F, 0x15),
-	BYTES_TO_T_UINT_8(0xDF, 0x41, 0xE6, 0x50, 0x7E, 0x6F, 0x5D, 0x0F),
-	BYTES_TO_T_UINT_8(0x28, 0x6D, 0x38, 0xA3, 0x82, 0x1E, 0xB9, 0x8C),
-};
-static const unsigned long brainpoolP384r1_a[] = {
-	BYTES_TO_T_UINT_8(0x26, 0x28, 0xCE, 0x22, 0xDD, 0xC7, 0xA8, 0x04),
-	BYTES_TO_T_UINT_8(0xEB, 0xD4, 0x3A, 0x50, 0x4A, 0x81, 0xA5, 0x8A),
-	BYTES_TO_T_UINT_8(0x0F, 0xF9, 0x91, 0xBA, 0xEF, 0x65, 0x91, 0x13),
-	BYTES_TO_T_UINT_8(0x87, 0x27, 0xB2, 0x4F, 0x8E, 0xA2, 0xBE, 0xC2),
-	BYTES_TO_T_UINT_8(0xA0, 0xAF, 0x05, 0xCE, 0x0A, 0x08, 0x72, 0x3C),
-	BYTES_TO_T_UINT_8(0x0C, 0x15, 0x8C, 0x3D, 0xC6, 0x82, 0xC3, 0x7B),
-};
-static const unsigned long brainpoolP384r1_b[] = {
-	BYTES_TO_T_UINT_8(0x11, 0x4C, 0x50, 0xFA, 0x96, 0x86, 0xB7, 0x3A),
-	BYTES_TO_T_UINT_8(0x94, 0xC9, 0xDB, 0x95, 0x02, 0x39, 0xB4, 0x7C),
-	BYTES_TO_T_UINT_8(0xD5, 0x62, 0xEB, 0x3E, 0xA5, 0x0E, 0x88, 0x2E),
-	BYTES_TO_T_UINT_8(0xA6, 0xD2, 0xDC, 0x07, 0xE1, 0x7D, 0xB7, 0x2F),
-	BYTES_TO_T_UINT_8(0x7C, 0x44, 0xF0, 0x16, 0x54, 0xB5, 0x39, 0x8B),
-	BYTES_TO_T_UINT_8(0x26, 0x28, 0xCE, 0x22, 0xDD, 0xC7, 0xA8, 0x04),
-};
-static const unsigned long brainpoolP384r1_gx[] = {
-	BYTES_TO_T_UINT_8(0x1E, 0xAF, 0xD4, 0x47, 0xE2, 0xB2, 0x87, 0xEF),
-	BYTES_TO_T_UINT_8(0xAA, 0x46, 0xD6, 0x36, 0x34, 0xE0, 0x26, 0xE8),
-	BYTES_TO_T_UINT_8(0xE8, 0x10, 0xBD, 0x0C, 0xFE, 0xCA, 0x7F, 0xDB),
-	BYTES_TO_T_UINT_8(0xE3, 0x4F, 0xF1, 0x7E, 0xE7, 0xA3, 0x47, 0x88),
-	BYTES_TO_T_UINT_8(0x6B, 0x3F, 0xC1, 0xB7, 0x81, 0x3A, 0xA6, 0xA2),
-	BYTES_TO_T_UINT_8(0xFF, 0x45, 0xCF, 0x68, 0xF0, 0x64, 0x1C, 0x1D),
-};
-static const unsigned long brainpoolP384r1_gy[] = {
-	BYTES_TO_T_UINT_8(0x15, 0x53, 0x3C, 0x26, 0x41, 0x03, 0x82, 0x42),
-	BYTES_TO_T_UINT_8(0x11, 0x81, 0x91, 0x77, 0x21, 0x46, 0x46, 0x0E),
-	BYTES_TO_T_UINT_8(0x28, 0x29, 0x91, 0xF9, 0x4F, 0x05, 0x9C, 0xE1),
-	BYTES_TO_T_UINT_8(0x64, 0x58, 0xEC, 0xFE, 0x29, 0x0B, 0xB7, 0x62),
-	BYTES_TO_T_UINT_8(0x52, 0xD5, 0xCF, 0x95, 0x8E, 0xEB, 0xB1, 0x5C),
-	BYTES_TO_T_UINT_8(0xA4, 0xC2, 0xF9, 0x20, 0x75, 0x1D, 0xBE, 0x8A),
-};
-static const unsigned long brainpoolP384r1_n[] = {
-	BYTES_TO_T_UINT_8(0x65, 0x65, 0x04, 0xE9, 0x02, 0x32, 0x88, 0x3B),
-	BYTES_TO_T_UINT_8(0x10, 0xC3, 0x7F, 0x6B, 0xAF, 0xB6, 0x3A, 0xCF),
-	BYTES_TO_T_UINT_8(0xA7, 0x25, 0x04, 0xAC, 0x6C, 0x6E, 0x16, 0x1F),
-	BYTES_TO_T_UINT_8(0xB3, 0x56, 0x54, 0xED, 0x09, 0x71, 0x2F, 0x15),
-	BYTES_TO_T_UINT_8(0xDF, 0x41, 0xE6, 0x50, 0x7E, 0x6F, 0x5D, 0x0F),
-	BYTES_TO_T_UINT_8(0x28, 0x6D, 0x38, 0xA3, 0x82, 0x1E, 0xB9, 0x8C),
-};
-
-/*
- * Domain parameters for brainpoolP512r1 (RFC 5639 3.7)
- */
-static const unsigned long brainpoolP512r1_p[] = {
-	BYTES_TO_T_UINT_8(0xF3, 0x48, 0x3A, 0x58, 0x56, 0x60, 0xAA, 0x28),
-	BYTES_TO_T_UINT_8(0x85, 0xC6, 0x82, 0x2D, 0x2F, 0xFF, 0x81, 0x28),
-	BYTES_TO_T_UINT_8(0xE6, 0x80, 0xA3, 0xE6, 0x2A, 0xA1, 0xCD, 0xAE),
-	BYTES_TO_T_UINT_8(0x42, 0x68, 0xC6, 0x9B, 0x00, 0x9B, 0x4D, 0x7D),
-	BYTES_TO_T_UINT_8(0x71, 0x08, 0x33, 0x70, 0xCA, 0x9C, 0x63, 0xD6),
-	BYTES_TO_T_UINT_8(0x0E, 0xD2, 0xC9, 0xB3, 0xB3, 0x8D, 0x30, 0xCB),
-	BYTES_TO_T_UINT_8(0x07, 0xFC, 0xC9, 0x33, 0xAE, 0xE6, 0xD4, 0x3F),
-	BYTES_TO_T_UINT_8(0x8B, 0xC4, 0xE9, 0xDB, 0xB8, 0x9D, 0xDD, 0xAA),
-};
-static const unsigned long brainpoolP512r1_a[] = {
-	BYTES_TO_T_UINT_8(0xCA, 0x94, 0xFC, 0x77, 0x4D, 0xAC, 0xC1, 0xE7),
-	BYTES_TO_T_UINT_8(0xB9, 0xC7, 0xF2, 0x2B, 0xA7, 0x17, 0x11, 0x7F),
-	BYTES_TO_T_UINT_8(0xB5, 0xC8, 0x9A, 0x8B, 0xC9, 0xF1, 0x2E, 0x0A),
-	BYTES_TO_T_UINT_8(0xA1, 0x3A, 0x25, 0xA8, 0x5A, 0x5D, 0xED, 0x2D),
-	BYTES_TO_T_UINT_8(0xBC, 0x63, 0x98, 0xEA, 0xCA, 0x41, 0x34, 0xA8),
-	BYTES_TO_T_UINT_8(0x10, 0x16, 0xF9, 0x3D, 0x8D, 0xDD, 0xCB, 0x94),
-	BYTES_TO_T_UINT_8(0xC5, 0x4C, 0x23, 0xAC, 0x45, 0x71, 0x32, 0xE2),
-	BYTES_TO_T_UINT_8(0x89, 0x3B, 0x60, 0x8B, 0x31, 0xA3, 0x30, 0x78),
-};
-static const unsigned long brainpoolP512r1_b[] = {
-	BYTES_TO_T_UINT_8(0x23, 0xF7, 0x16, 0x80, 0x63, 0xBD, 0x09, 0x28),
-	BYTES_TO_T_UINT_8(0xDD, 0xE5, 0xBA, 0x5E, 0xB7, 0x50, 0x40, 0x98),
-	BYTES_TO_T_UINT_8(0x67, 0x3E, 0x08, 0xDC, 0xCA, 0x94, 0xFC, 0x77),
-	BYTES_TO_T_UINT_8(0x4D, 0xAC, 0xC1, 0xE7, 0xB9, 0xC7, 0xF2, 0x2B),
-	BYTES_TO_T_UINT_8(0xA7, 0x17, 0x11, 0x7F, 0xB5, 0xC8, 0x9A, 0x8B),
-	BYTES_TO_T_UINT_8(0xC9, 0xF1, 0x2E, 0x0A, 0xA1, 0x3A, 0x25, 0xA8),
-	BYTES_TO_T_UINT_8(0x5A, 0x5D, 0xED, 0x2D, 0xBC, 0x63, 0x98, 0xEA),
-	BYTES_TO_T_UINT_8(0xCA, 0x41, 0x34, 0xA8, 0x10, 0x16, 0xF9, 0x3D),
-};
-static const unsigned long brainpoolP512r1_gx[] = {
-	BYTES_TO_T_UINT_8(0x22, 0xF8, 0xB9, 0xBC, 0x09, 0x22, 0x35, 0x8B),
-	BYTES_TO_T_UINT_8(0x68, 0x5E, 0x6A, 0x40, 0x47, 0x50, 0x6D, 0x7C),
-	BYTES_TO_T_UINT_8(0x5F, 0x7D, 0xB9, 0x93, 0x7B, 0x68, 0xD1, 0x50),
-	BYTES_TO_T_UINT_8(0x8D, 0xD4, 0xD0, 0xE2, 0x78, 0x1F, 0x3B, 0xFF),
-	BYTES_TO_T_UINT_8(0x8E, 0x09, 0xD0, 0xF4, 0xEE, 0x62, 0x3B, 0xB4),
-	BYTES_TO_T_UINT_8(0xC1, 0x16, 0xD9, 0xB5, 0x70, 0x9F, 0xED, 0x85),
-	BYTES_TO_T_UINT_8(0x93, 0x6A, 0x4C, 0x9C, 0x2E, 0x32, 0x21, 0x5A),
-	BYTES_TO_T_UINT_8(0x64, 0xD9, 0x2E, 0xD8, 0xBD, 0xE4, 0xAE, 0x81),
-};
-static const unsigned long brainpoolP512r1_gy[] = {
-	BYTES_TO_T_UINT_8(0x92, 0x08, 0xD8, 0x3A, 0x0F, 0x1E, 0xCD, 0x78),
-	BYTES_TO_T_UINT_8(0x06, 0x54, 0xF0, 0xA8, 0x2F, 0x2B, 0xCA, 0xD1),
-	BYTES_TO_T_UINT_8(0xAE, 0x63, 0x27, 0x8A, 0xD8, 0x4B, 0xCA, 0x5B),
-	BYTES_TO_T_UINT_8(0x5E, 0x48, 0x5F, 0x4A, 0x49, 0xDE, 0xDC, 0xB2),
-	BYTES_TO_T_UINT_8(0x11, 0x81, 0x1F, 0x88, 0x5B, 0xC5, 0x00, 0xA0),
-	BYTES_TO_T_UINT_8(0x1A, 0x7B, 0xA5, 0x24, 0x00, 0xF7, 0x09, 0xF2),
-	BYTES_TO_T_UINT_8(0xFD, 0x22, 0x78, 0xCF, 0xA9, 0xBF, 0xEA, 0xC0),
-	BYTES_TO_T_UINT_8(0xEC, 0x32, 0x63, 0x56, 0x5D, 0x38, 0xDE, 0x7D),
-};
-static const unsigned long brainpoolP512r1_n[] = {
-	BYTES_TO_T_UINT_8(0x69, 0x00, 0xA9, 0x9C, 0x82, 0x96, 0x87, 0xB5),
-	BYTES_TO_T_UINT_8(0xDD, 0xDA, 0x5D, 0x08, 0x81, 0xD3, 0xB1, 0x1D),
-	BYTES_TO_T_UINT_8(0x47, 0x10, 0xAC, 0x7F, 0x19, 0x61, 0x86, 0x41),
-	BYTES_TO_T_UINT_8(0x19, 0x26, 0xA9, 0x4C, 0x41, 0x5C, 0x3E, 0x55),
-	BYTES_TO_T_UINT_8(0x70, 0x08, 0x33, 0x70, 0xCA, 0x9C, 0x63, 0xD6),
-	BYTES_TO_T_UINT_8(0x0E, 0xD2, 0xC9, 0xB3, 0xB3, 0x8D, 0x30, 0xCB),
-	BYTES_TO_T_UINT_8(0x07, 0xFC, 0xC9, 0x33, 0xAE, 0xE6, 0xD4, 0x3F),
-	BYTES_TO_T_UINT_8(0x8B, 0xC4, 0xE9, 0xDB, 0xB8, 0x9D, 0xDD, 0xAA),
-};
-
-/**
- * Create an MPI from embedded constants
- * (assumes len is an exact multiple of sizeof unsigned long).
- */
-static inline void
-ecp_mpi_load(TlsMpi *X, const unsigned long *p, size_t len)
-{
-	X->s = 1;
-	X->limbs = X->used = len / sizeof(unsigned long);
-	X->p = (unsigned long *)p;
-}
-
-/*
- * Make group available from embedded constants
- */
-static void
-ecp_group_load(TlsEcpGrp *grp, const unsigned long *p,  size_t plen,
-	       const unsigned long *a,  size_t alen,
-	       const unsigned long *b,  size_t blen,
-	       const unsigned long *gx, size_t gxlen,
-	       const unsigned long *gy, size_t gylen,
-	       const unsigned long *n,  size_t nlen)
-{
-	static unsigned long one = 1;
-
-	ecp_mpi_load(&grp->P, p, plen);
-	if (a)
-		ecp_mpi_load(&grp->A, a, alen);
-	ecp_mpi_load(&grp->B, b, blen);
-	ecp_mpi_load(&grp->G.X, gx, gxlen);
-	ecp_mpi_load(&grp->G.Y, gy, gylen);
-	ecp_mpi_load(&grp->N, n, nlen);
-
-	grp->G.Z.s = 1;
-	grp->G.Z.limbs = grp->G.Z.used = 1;
-	grp->G.Z.p = &one;
-
-	grp->h = 1;
-	grp->pbits = ttls_mpi_bitlen(&grp->P);
-	grp->nbits = ttls_mpi_bitlen(&grp->N);
-}
-
-static int ecp_mod_p256(TlsMpi *);
-static int ecp_mod_p384(TlsMpi *);
-static int ecp_mod_p521(TlsMpi *);
-static int ecp_mod_p255(TlsMpi *);
-
-#define LOAD_GROUP_A(G)	ecp_group_load(grp, G##_p, sizeof(G##_p),	\
-					    G##_a, sizeof(G##_a ),	\
-					    G##_b, sizeof(G##_b ),	\
-					    G##_gx, sizeof(G##_gx),	\
-					    G##_gy, sizeof(G##_gy),	\
-					    G##_n, sizeof(G##_n))
-
-#define LOAD_GROUP(G)	ecp_group_load(grp, G##_p, sizeof(G##_p),	\
-					    NULL, 0,			\
-					    G##_b, sizeof(G##_b ),	\
-					    G##_gx, sizeof(G##_gx),	\
-					    G##_gy, sizeof(G##_gy),	\
-					    G##_n, sizeof(G##_n))
-
-/*
- * Specialized function for creating the Curve25519 group
- */
-static int ecp_use_curve25519(TlsEcpGrp *grp)
-{
-	int ret = -EINVAL;
-
-	/* Actually (A + 2) / 4 */
-	if (ttls_mpi_read_binary(&grp->A, "\x01\xDB\x42", 3))
-		goto cleanup;
-
-	/* P = 2^255 - 19 */
-	TTLS_MPI_CHK(ttls_mpi_lset(&grp->P, 1));
-	TTLS_MPI_CHK(ttls_mpi_shift_l(&grp->P, 255));
-	TTLS_MPI_CHK(ttls_mpi_sub_int(&grp->P, &grp->P, 19));
-	grp->pbits = ttls_mpi_bitlen(&grp->P);
-
-	/* Y intentionaly not set, since we use x/z coordinates.
-	 * This is used as a marker to identify Montgomery curves! */
-	TTLS_MPI_CHK(ttls_mpi_lset(&grp->G.X, 9));
-	TTLS_MPI_CHK(ttls_mpi_lset(&grp->G.Z, 1));
-	ttls_mpi_free(&grp->G.Y);
-
-	/* Actually, the required msb for private keys */
-	grp->nbits = 254;
-
-cleanup:
-	return ret;
-}
-
-/**
- * Set a group using well-known domain parameters.
- *
- * @id should be a value of RFC 8422's NamedCurve (see ecp_supported_curves).
- */
-int
-ttls_ecp_group_load(TlsEcpGrp *grp, ttls_ecp_group_id id)
-{
-	grp->id = id;
-
-	switch(id) {
-	case TTLS_ECP_DP_SECP256R1:
-		grp->modp = ecp_mod_p256;
-		LOAD_GROUP(secp256r1);
-		return 0;
-	case TTLS_ECP_DP_SECP384R1:
-		grp->modp = ecp_mod_p384;
-		LOAD_GROUP(secp384r1);
-		return 0;
-	case TTLS_ECP_DP_SECP521R1:
-		grp->modp = ecp_mod_p521;
-		LOAD_GROUP(secp521r1);
-		return 0;
-	case TTLS_ECP_DP_BP256R1:
-		LOAD_GROUP_A(brainpoolP256r1);
-		return 0;
-	case TTLS_ECP_DP_BP384R1:
-		LOAD_GROUP_A(brainpoolP384r1);
-		return 0;
-	case TTLS_ECP_DP_BP512R1:
-		LOAD_GROUP_A(brainpoolP512r1);
-		return 0;
-	case TTLS_ECP_DP_CURVE25519:
-		T_WARN("Try to load ECP group for unsupported Curve25519.\n");
-		grp->modp = ecp_mod_p255;
-		return ecp_use_curve25519(grp);
-	default:
-		grp->id = 0;
-		return TTLS_ERR_ECP_FEATURE_UNAVAILABLE;
-	}
-}
-
-/*
  * Fast reduction modulo the primes used by the NIST curves.
  *
- * These functions are critical for speed, but not needed for correct
- * operations. So, we make the choice to heavily rely on the internals of our
- * bignum library, which creates a tight coupling between these functions and
- * our MPI implementation.  However, the coupling between the ECP module and
- * MPI remains loose, since these functions can be deactivated at will.
- */
-
-/*
  * Compared to the way things are presented in FIPS 186-3 D.2,
  * we proceed in columns, from right (least significant chunk) to left,
  * adding chunks to N in place, and keeping a carry for the next chunk.
@@ -530,15 +159,17 @@ carry64(unsigned long *dst, unsigned long *carry)
  * While at it, also define the size of N in terms of 32-bit chunks.
  */
 #define MAX32	N->used * 2
-#define A(j)	j % 2 ? (uint32_t)(N->p[j/2] >> 32) : (uint32_t)(N->p[j/2])
+#define A(j)	j % 2							\
+		? (uint32_t)(MPI_P(N)[j / 2] >> 32)			\
+		: (uint32_t)(MPI_P(N)[j / 2])
 #define STORE32								\
 do {									\
 	if (i % 2) {							\
-		N->p[i/2] &= 0x00000000FFFFFFFF;			\
-		N->p[i/2] |= ((unsigned long) cur) << 32;		\
+		MPI_P(N)[i/2] &= 0x00000000FFFFFFFF;			\
+		MPI_P(N)[i/2] |= ((unsigned long) cur) << 32;		\
 	} else {							\
-		N->p[i/2] &= 0xFFFFFFFF00000000;			\
-		N->p[i/2] |= (unsigned long) cur;			\
+		MPI_P(N)[i/2] &= 0xFFFFFFFF00000000;			\
+		MPI_P(N)[i/2] |= (unsigned long) cur;			\
 	}								\
 } while (0)
 
@@ -567,8 +198,7 @@ static inline void sub32(uint32_t *dst, uint32_t src, signed char *carry)
 	int ret;							\
 	uint32_t cur;							\
 	signed char c = 0, cc;						\
-	TTLS_MPI_CHK(__mpi_realloc(N, b * 2 / BIL,			\
-				   MPI_GROW_COPY | MPI_GROW_ZERO));	\
+	TTLS_MPI_CHK(__mpi_alloc(N, b * 2 / BIL));			\
 	cur = A(i);
 
 #define NEXT								\
@@ -592,34 +222,32 @@ static inline void sub32(uint32_t *dst, uint32_t src, signed char *carry)
 		STORE32;						\
 	mpi_fixup_used(N, N->limbs);					\
 	if (c < 0)							\
-		fix_negative(N, c, bits);
-
+		TTLS_MPI_CHK(fix_negative(N, c, bits));
 
 /*
  * If the result is negative, we get it in the form c * 2^(bits + 32) + N,
  * with c negative and N positive shorter than 'bits'.
  */
-static inline void
+static inline int
 fix_negative(TlsMpi *N, signed char c, const size_t bits)
 {
-	unsigned long _p[bits / BIL + 1];
-	TlsMpi C = {
-		.s = 1,
-		.limbs = bits / BIL + 1,
-		.used = bits / BIL + 1,
-		.p = _p
-	};
+	TlsMpi C = { .used = bits / BIL + 1 };
 
-	memset(_p, 0, (bits / BIL + 1) * CIL);
+	if (ttls_mpi_alloc_init(&C, C.used))
+		return -ENOMEM;
+
+	memset(MPI_P(&C), 0, C.used * CIL);
 	/* C = - c * 2^(bits + 32) */
 	if (bits == 224)
-		C.p[C.limbs - 1] = ((unsigned long)-c) << 32;
+		MPI_P(&C)[C.limbs - 1] = ((unsigned long)-c) << 32;
 	else
-		C.p[C.limbs - 1] = (unsigned long)-c;
+		MPI_P(&C)[C.limbs - 1] = (unsigned long)-c;
 
 	/* N = -(C - N) */
 	WARN_ON_ONCE(ttls_mpi_sub_abs(N, &C, N));
 	N->s = -1;
+
+	return 0;
 }
 
 /*
@@ -634,37 +262,30 @@ ecp_mod_p256(TlsMpi *N)
 	ADD(8); ADD(9);
 	SUB(11); SUB(12); SUB(13); SUB(14);
 	NEXT;
-
 	/* A1 */
 	ADD(9); ADD(10);
 	SUB(12); SUB(13); SUB(14); SUB(15);
 	NEXT;
-
 	/* A2 */
 	ADD(10); ADD(11);
 	SUB(13); SUB(14); SUB(15);
 	NEXT;
-
 	/* A3 */
 	ADD(11); ADD(11); ADD(12); ADD(12); ADD(13);
 	SUB(15); SUB(8); SUB(9);
 	NEXT;
-
 	/* A4 */
 	ADD(12); ADD(12); ADD(13); ADD(13); ADD(14);
 	SUB(9); SUB(10);
 	NEXT;
-
 	/* A5 */
 	ADD(13); ADD(13); ADD(14); ADD(14); ADD(15);
 	SUB(10); SUB(11);
 	NEXT;
-
 	/* A6 */
 	ADD(14); ADD(14); ADD(15); ADD(15); ADD(14); ADD(13);
 	SUB(8); SUB(9);
 	NEXT;
-
 	/* A7 */
 	ADD(15); ADD(15); ADD(15); ADD(8);
 	SUB(10); SUB(11); SUB(12); SUB(13);
@@ -681,41 +302,54 @@ static int ecp_mod_p384(TlsMpi *N)
 {
 	INIT(384);
 
+	/* A0 */
 	ADD(12); ADD(21); ADD(20);
-	SUB(23);		  NEXT; // A0
-
+	SUB(23);
+	NEXT;
+	/* A2 */
 	ADD(13); ADD(22); ADD(23);
-	SUB(12); SUB(20);		   NEXT; // A2
-
+	SUB(12); SUB(20);
+	NEXT;
+	/* A2 */
 	ADD(14); ADD(23);
-	SUB(13); SUB(21);		   NEXT; // A2
-
+	SUB(13); SUB(21);
+	NEXT;
+	/* A3 */
 	ADD(15); ADD(12); ADD(20); ADD(21);
-	SUB(14); SUB(22); SUB(23);			NEXT; // A3
-
+	SUB(14); SUB(22); SUB(23);
+	NEXT;
+	/* A4 */
 	ADD(21); ADD(21); ADD(16); ADD(13); ADD(12); ADD(20); ADD(22);
-	SUB(15); SUB(23); SUB(23);			NEXT; // A4
-
+	SUB(15); SUB(23); SUB(23);
+	NEXT;
+	/* A5 */
 	ADD(22); ADD(22); ADD(17); ADD(14); ADD(13); ADD(21); ADD(23);
-	SUB(16);		  NEXT; // A5
-
+	SUB(16);
+	NEXT;
+	/* A6 */
 	ADD(23); ADD(23); ADD(18); ADD(15); ADD(14); ADD(22);
-	SUB(17);		  NEXT; // A6
-
+	SUB(17);
+	NEXT;
+	/* A7 */
 	ADD(19); ADD(16); ADD(15); ADD(23);
-	SUB(18);		  NEXT; // A7
-
+	SUB(18);
+	NEXT;
+	/* A8 */
 	ADD(20); ADD(17); ADD(16);
-	SUB(19);		  NEXT; // A8
-
+	SUB(19);
+	NEXT;
+	/* A9 */
 	ADD(21); ADD(18); ADD(17);
-	SUB(20);		  NEXT; // A9
-
+	SUB(20);
+	NEXT;
+	/* A10 */
 	ADD(22); ADD(19); ADD(18);
-	SUB(21);		  NEXT; // A10
-
+	SUB(21);
+	NEXT;
+	/* A11 */
 	ADD(23); ADD(20); ADD(19);
-	SUB(22);		  LAST; // A11
+	SUB(22);
+	LAST;
 
 cleanup:
 	return ret;
@@ -727,54 +361,6 @@ cleanup:
 #undef INIT
 #undef NEXT
 #undef LAST
-
-/*
- * Here we have an actual Mersenne prime, so things are more straightforward.
- * However, chunks are aligned on a 'weird' boundary (521 bits).
- */
-
-/* Size of p521 in terms of unsigned long */
-#define P521_WIDTH	  (521 / BIL + 1)
-
-/* Bits to keep in the most significant unsigned long */
-#define P521_MASK	   0x01FF
-
-/*
- * Fast quasi-reduction modulo p521 (FIPS 186-3 D.2.5).
- * Write N as A1 + 2^521 A0, return A0 + A1.
- */
-static int
-ecp_mod_p521(TlsMpi *N)
-{
-	int r;
-	TlsMpi M;
-	unsigned long Mp[P521_WIDTH + 1];
-
-	if (N->used < P521_WIDTH)
-		return 0;
-
-	/* M = A1 */
-	M.s = 1;
-	M.limbs = P521_WIDTH + 1;
-	M.used = N->used - (P521_WIDTH - 1);
-	if (M.used > P521_WIDTH + 1)
-		M.used = P521_WIDTH + 1;
-	M.p = Mp;
-
-	memcpy(Mp, N->p + P521_WIDTH - 1, M.used * CIL);
-	if ((r = ttls_mpi_shift_r(&M, 521 % BIL)))
-		return r;
-
-	/* N = A0 */
-	N->p[P521_WIDTH - 1] &= P521_MASK;
-	N->used = P521_WIDTH;
-
-	/* N = A0 + A1 */
-	return ttls_mpi_add_abs(N, N, &M);
-}
-
-#undef P521_WIDTH
-#undef P521_MASK
 
 /* Size of p255 in terms of unsigned long */
 #define P255_WIDTH	  (255 / 8 / sizeof(unsigned long) + 1)
@@ -789,21 +375,19 @@ ecp_mod_p255(TlsMpi *N)
 	int r;
 	size_t n;
 	TlsMpi M;
-	unsigned long Mp[P255_WIDTH + 2];
 
 	if (N->used < P255_WIDTH)
 		return 0;
+	if (ttls_mpi_alloc_init(&M, P255_WIDTH + 2))
+		return -ENOMEM;
 
 	/* M = A1 */
-	M.s = 1;
-	M.limbs = P255_WIDTH + 2;
 	M.used = N->used - (P255_WIDTH - 1);
 	if (M.used > P255_WIDTH + 1)
 		M.used = P255_WIDTH + 1;
-	M.p = Mp;
 	n = M.used * CIL;
-	memcpy(Mp, N->p + P255_WIDTH - 1, n);
-	memset((char *)Mp + n, 0, sizeof(Mp) - n);
+	memcpy(MPI_P(&M), MPI_P(N) + P255_WIDTH - 1, n);
+	memset((char *)MPI_P(&M) + n, 0, (P255_WIDTH + 2) * CIL - n);
 	if ((r = ttls_mpi_shift_r(&M, 255 % BIL)))
 		return r;
 
@@ -816,4 +400,111 @@ ecp_mod_p255(TlsMpi *N)
 	if ((r = ttls_mpi_mul_uint(&M, &M, 19)))
 		return r;
 	return ttls_mpi_add_abs(N, N, &M);
+}
+
+/**
+ * Create an MPI from embedded constants
+ * (assumes len is an exact multiple of sizeof unsigned long).
+ */
+static int
+ecp_mpi_load(TlsMpi *X, const unsigned long *p, size_t len)
+{
+	size_t const limbs = len / sizeof(unsigned long);
+
+	if (__mpi_alloc(X, limbs))
+		return -ENOMEM;
+
+	X->s = 1;
+	X->limbs = X->used = limbs;
+	memcpy(MPI_P(X), p, len);
+
+	return 0;
+}
+
+/*
+ * Make group available from embedded constants
+ */
+static int
+ecp_group_load(TlsEcpGrp *grp, const unsigned long *p,  size_t plen,
+	       const unsigned long *b,  size_t blen,
+	       const unsigned long *gx, size_t gxlen,
+	       const unsigned long *gy, size_t gylen,
+	       const unsigned long *n,  size_t nlen)
+{
+	if (ecp_mpi_load(&grp->P, p, plen)
+	    || ecp_mpi_load(&grp->B, b, blen)
+	    || ecp_mpi_load(&grp->G.X, gx, gxlen)
+	    || ecp_mpi_load(&grp->G.Y, gy, gylen)
+	    || ecp_mpi_load(&grp->N, n, nlen)
+	    || ttls_mpi_lset(&grp->G.Z, 1))
+		return -ENOMEM;
+
+	grp->h = 1;
+	grp->pbits = ttls_mpi_bitlen(&grp->P);
+	grp->nbits = ttls_mpi_bitlen(&grp->N);
+
+	return 0;
+}
+
+/*
+ * Specialized function for creating the Curve25519 group
+ */
+static int
+ecp_use_curve25519(TlsEcpGrp *grp)
+{
+	/* Actually (A + 2) / 4 */
+	MPI_CHK(ttls_mpi_read_binary(&grp->A, "\x01\xDB\x42", 3));
+
+	/* P = 2^255 - 19 */
+	MPI_CHK(ttls_mpi_lset(&grp->P, 1));
+	MPI_CHK(ttls_mpi_shift_l(&grp->P, 255));
+	MPI_CHK(ttls_mpi_sub_int(&grp->P, &grp->P, 19));
+	grp->pbits = ttls_mpi_bitlen(&grp->P);
+
+	/*
+	 * Y intentionaly isn't set, since we use x/z coordinates.
+	 * This is used as a marker to identify Montgomery curves -
+	 * see ecp_get_type().
+	 */
+	MPI_CHK(ttls_mpi_lset(&grp->G.X, 9));
+	MPI_CHK(ttls_mpi_lset(&grp->G.Z, 1));
+
+	/* Actually, the required msb for private keys */
+	grp->nbits = 254;
+
+	return 0;
+}
+
+/**
+ * Set a group using well-known domain parameters.
+ *
+ * @id should be a value of RFC 8422's NamedCurve (see ecp_supported_curves).
+ */
+int
+ttls_ecp_group_load(TlsEcpGrp *grp, ttls_ecp_group_id id)
+{
+#define LOAD_GROUP(G)	ecp_group_load(grp, G##_p, sizeof(G##_p),	\
+					    G##_b, sizeof(G##_b),	\
+					    G##_gx, sizeof(G##_gx),	\
+					    G##_gy, sizeof(G##_gy),	\
+					    G##_n, sizeof(G##_n))
+
+	grp->id = id;
+
+	switch(id) {
+	case TTLS_ECP_DP_SECP256R1:
+		grp->modp = ecp_mod_p256;
+		return LOAD_GROUP(secp256r1);
+	case TTLS_ECP_DP_SECP384R1:
+		grp->modp = ecp_mod_p384;
+		return LOAD_GROUP(secp384r1);
+	case TTLS_ECP_DP_CURVE25519:
+		T_WARN("Try to load ECP group for unsupported Curve25519.\n");
+		grp->modp = ecp_mod_p255;
+		return ecp_use_curve25519(grp);
+	default:
+		grp->id = 0;
+		return TTLS_ERR_ECP_FEATURE_UNAVAILABLE;
+	}
+#undef LOAD_GROUP
 }

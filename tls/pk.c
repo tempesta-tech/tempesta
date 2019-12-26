@@ -1,7 +1,7 @@
 /*
  *		Tempesta TLS
  *
- * Public Key abstraction layer
+ * Public Key abstraction layer.
  *
  * Based on mbed TLS, https://tls.mbed.org.
  *
@@ -23,18 +23,210 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#include "debug.h"
 #include "pk.h"
-#include "pk_internal.h"
 #include "rsa.h"
 #include "tls_internal.h"
 #include "ecp.h"
 #include "ecdsa.h"
 
+static int
+rsa_can_do(ttls_pk_type_t type)
+{
+	return type == TTLS_PK_RSA || type == TTLS_PK_RSASSA_PSS;
+}
+
+static size_t
+rsa_get_bitlen(const void *ctx)
+{
+	const TlsRSACtx * rsa = (const TlsRSACtx *)ctx;
+	return 8 * ttls_rsa_get_len(rsa);
+}
+
+static int
+rsa_verify_wrap(void *ctx, ttls_md_type_t md_alg, const unsigned char *hash,
+		size_t hash_len, const unsigned char *sig, size_t sig_len)
+{
+	TlsRSACtx *rsa = (TlsRSACtx *)ctx;
+
+	if (md_alg == TTLS_MD_NONE && UINT_MAX < hash_len)
+		return TTLS_ERR_PK_BAD_INPUT_DATA;
+	if (sig_len != ttls_rsa_get_len(rsa))
+		return TTLS_ERR_PK_SIG_LEN_MISMATCH;
+
+	return ttls_rsa_pkcs1_verify(rsa, md_alg, (unsigned int)hash_len, hash,
+				     sig);
+}
+
+static int
+rsa_sign_wrap(void *ctx, ttls_md_type_t md_alg, const unsigned char *hash,
+	      size_t hash_len, unsigned char *sig, size_t *sig_len)
+{
+	TlsRSACtx * rsa = (TlsRSACtx *)ctx;
+
+	if (WARN_ON_ONCE(md_alg == TTLS_MD_NONE || UINT_MAX < hash_len))
+		return -EINVAL;
+
+	*sig_len = ttls_rsa_get_len(rsa);
+
+	return ttls_rsa_pkcs1_sign(rsa, md_alg, hash, sig);
+}
+
+static void *
+rsa_alloc_wrap(void)
+{
+	TlsRSACtx *ctx;
+
+	might_sleep();
+
+	if ((ctx = ttls_mpi_pool_alloc(sizeof(*ctx), GFP_KERNEL)))
+		ttls_rsa_init(ctx, 0, 0);
+
+	return ctx;
+}
+
+static void
+rsa_free_wrap(void *ctx)
+{
+	ttls_mpi_pool_free(ctx);
+}
+
+/*
+ * EC key restricted to ECDH
+ */
+static int
+eckeydh_can_do(ttls_pk_type_t type)
+{
+	return type == TTLS_PK_ECKEY || type == TTLS_PK_ECKEY_DH;
+}
+
+static int
+ecdsa_can_do(ttls_pk_type_t type)
+{
+	return type == TTLS_PK_ECDSA;
+}
+
+static int
+ecdsa_verify_wrap(void *ctx, ttls_md_type_t md_alg __attribute__((unused)),
+		  const unsigned char *hash, size_t hash_len,
+		  const unsigned char *sig, size_t sig_len)
+{
+	int r = ttls_ecdsa_read_signature((TlsEcpKeypair *)ctx, hash, hash_len,
+					  sig, sig_len);
+	if (r == TTLS_ERR_ECP_SIG_LEN_MISMATCH)
+		return TTLS_ERR_PK_SIG_LEN_MISMATCH;
+	return r;
+}
+
+static int
+ecdsa_sign_wrap(void *ctx,
+		ttls_md_type_t md_alg __attribute__((unused)),
+		const unsigned char *hash, size_t hash_len,
+		unsigned char *sig, size_t *sig_len)
+{
+	return ttls_ecdsa_write_signature((TlsEcpKeypair *)ctx,
+					  hash, hash_len, sig, sig_len);
+}
+
+static void *
+ecdsa_alloc_wrap(void)
+{
+	TlsEcpKeypair *ctx;
+
+	might_sleep();
+
+	if ((ctx = ttls_mpi_pool_alloc(sizeof(*ctx), GFP_KERNEL)))
+		ttls_ecp_keypair_init(ctx);
+
+	return ctx;
+}
+
+static void
+ecdsa_free_wrap(void *ctx)
+{
+	ttls_mpi_pool_free(ctx);
+}
+/*
+ * Generic EC key
+ */
+static int
+eckey_can_do(ttls_pk_type_t type)
+{
+	return type == TTLS_PK_ECKEY || type == TTLS_PK_ECKEY_DH ||
+	       type == TTLS_PK_ECDSA;
+}
+
+static size_t
+eckey_get_bitlen(const void *ctx)
+{
+	return ((TlsEcpKeypair *)ctx)->grp.pbits;
+}
+
+static void *
+eckey_alloc_wrap(void)
+{
+	TlsEcpKeypair *ctx;
+
+	might_sleep();
+
+	if ((ctx = ttls_mpi_pool_alloc(sizeof(*ctx), GFP_ATOMIC)))
+		ttls_ecp_keypair_init(ctx);
+
+	return ctx;
+}
+
+static void
+eckey_free_wrap(void *ctx)
+{
+	ttls_mpi_pool_free(ctx);
+}
+
+const TlsPkInfo ttls_rsa_info = {
+	TTLS_PK_RSA,
+	"RSA",
+	rsa_get_bitlen,
+	rsa_can_do,
+	rsa_verify_wrap,
+	rsa_sign_wrap,
+	rsa_alloc_wrap,
+	rsa_free_wrap,
+};
+
+const TlsPkInfo ttls_eckeydh_info = {
+	TTLS_PK_ECKEY_DH,
+	"EC_DH",
+	eckey_get_bitlen,
+	eckeydh_can_do,
+	NULL,
+	NULL,
+	eckey_alloc_wrap,
+	eckey_free_wrap,
+};
+
+const TlsPkInfo ttls_ecdsa_info = {
+	TTLS_PK_ECDSA,
+	"ECDSA",
+	eckey_get_bitlen,
+	ecdsa_can_do,
+	ecdsa_verify_wrap,
+	ecdsa_sign_wrap,
+	ecdsa_alloc_wrap,
+	ecdsa_free_wrap,
+};
+
+const TlsPkInfo ttls_eckey_info = {
+	TTLS_PK_ECKEY,
+	"EC",
+	eckey_get_bitlen,
+	eckey_can_do,
+	ecdsa_verify_wrap,
+	ecdsa_sign_wrap,
+	eckey_alloc_wrap,
+	eckey_free_wrap,
+};
+
 void
 ttls_pk_init(TlsPkCtx *ctx)
 {
-	BUG_ON(!ctx);
 	ctx->pk_info = NULL;
 	ctx->pk_ctx = NULL;
 }
@@ -53,10 +245,7 @@ ttls_pk_free(TlsPkCtx *ctx)
 {
 	if (unlikely(!ctx || !ctx->pk_info))
 		return;
-
 	ctx->pk_info->ctx_free_func(ctx->pk_ctx);
-
-	ttls_bzero_safe(ctx, sizeof(TlsPkCtx));
 }
 EXPORT_SYMBOL(ttls_pk_free);
 
@@ -72,12 +261,16 @@ ttls_pk_info_from_type(ttls_pk_type_t pk_type)
 		return &ttls_eckeydh_info;
 	case TTLS_PK_ECDSA:
 		return &ttls_ecdsa_info;
-	/* TTLS_PK_RSA_ALT omitted on purpose */
 	default:
 		return NULL;
 	}
 }
 
+/**
+ * Executes the allocation and initialization callback specific for a
+ * particular public key algorithm. The callback allocates the context in a new
+ * MPI memory pool.
+ */
 int
 ttls_pk_setup(TlsPkCtx *ctx, const TlsPkInfo *info)
 {
@@ -165,7 +358,7 @@ ttls_pk_verify_ext(ttls_pk_type_t type, const void *options,
 			return TTLS_ERR_RSA_VERIFY_FAILED;
 
 		r = ttls_rsa_rsassa_pss_verify_ext(ttls_pk_rsa(*ctx),
-						   TTLS_RSA_PUBLIC, md_alg,
+						   md_alg,
 						   (unsigned int)hash_len,
 						   hash,
 						   pss_opts->mgf1_hash_id,
@@ -202,32 +395,6 @@ ttls_pk_sign(TlsPkCtx *ctx, ttls_md_type_t md_alg,
 }
 
 /**
- * Decrypt message.
- */
-int
-ttls_pk_decrypt(TlsPkCtx *ctx, const unsigned char *input, size_t ilen,
-		unsigned char *output, size_t *olen, size_t osize)
-{
-	TTLS_PK_ARGS_SANITY_CHECK(decrypt);
-
-	return ctx->pk_info->decrypt_func(ctx->pk_ctx, input, ilen, output,
-					  olen, osize);
-}
-
-/*
- * Encrypt message
- */
-int
-ttls_pk_encrypt(TlsPkCtx *ctx, const unsigned char *input, size_t ilen,
-		unsigned char *output, size_t *olen, size_t osize)
-{
-	TTLS_PK_ARGS_SANITY_CHECK(encrypt);
-
-	return ctx->pk_info->encrypt_func(ctx->pk_ctx, input, ilen,
-					  output, olen, osize);
-}
-
-/**
  * Get key size in bits.
  */
 size_t
@@ -236,17 +403,6 @@ ttls_pk_get_bitlen(const TlsPkCtx *ctx)
 	if (unlikely(!ctx || !ctx->pk_info))
 		return 0;
 	return ctx->pk_info->get_bitlen(ctx->pk_ctx);
-}
-
-/**
- * Access the PK type name.
- */
-const char *
-ttls_pk_get_name(const TlsPkCtx *ctx)
-{
-	if (unlikely(!ctx || !ctx->pk_info))
-		return "invalid PK";
-	return ctx->pk_info->name;
 }
 
 /**

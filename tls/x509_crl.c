@@ -1,12 +1,20 @@
-/*
+/**
  *		Tempesta TLS
  *
  * X.509 Certidicate Revocation List (CRL) parsing
  *
+ * The ITU-T X.509 standard defines a certificate format for PKI.
+ *
+ * http://www.ietf.org/rfc/rfc5280.txt (Certificates and CRLs)
+ * http://www.ietf.org/rfc/rfc3279.txt (Alg IDs for CRLs)
+ * http://www.ietf.org/rfc/rfc2986.txt (CSRs, aka PKCS#10)
+ * http://www.itu.int/ITU-T/studygroups/com17/languages/X.680-0207.pdf
+ * http://www.itu.int/ITU-T/studygroups/com17/languages/X.690-0207.pdf
+ *
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
@@ -23,24 +31,10 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-/*
- *  The ITU-T X.509 standard defines a certificate format for PKI.
- *
- *  http://www.ietf.org/rfc/rfc5280.txt (Certificates and CRLs)
- *  http://www.ietf.org/rfc/rfc3279.txt (Alg IDs for CRLs)
- *  http://www.ietf.org/rfc/rfc2986.txt (CSRs, aka PKCS#10)
- *
- *  http://www.itu.int/ITU-T/studygroups/com17/languages/X.680-0207.pdf
- *  http://www.itu.int/ITU-T/studygroups/com17/languages/X.690-0207.pdf
- */
 #include "x509_crl.h"
 #include "oid.h"
 #include "pem.h"
-
-/* Implementation that should never be optimized out by the compiler */
-static void ttls_zeroize(void *v, size_t n) {
-	volatile unsigned char *p = v; while (n--) *p++ = 0;
-}
+#include "tls_internal.h"
 
 /*
  *  Version  ::=  INTEGER  {  v1(0), v2(1)  }
@@ -561,86 +555,6 @@ ttls_x509_crl_parse(ttls_x509_crl *chain, unsigned char *buf, size_t buflen)
 }
 
 /*
- * Return an informational string about the certificate.
- */
-#define BEFORE_COLON	14
-#define BC			  "14"
-/*
- * Return an informational string about the CRL.
- */
-int ttls_x509_crl_info(char *buf, size_t size, const char *prefix,
-				   const ttls_x509_crl *crl)
-{
-	int ret;
-	size_t n;
-	char *p;
-	const ttls_x509_crl_entry *entry;
-
-	p = buf;
-	n = size;
-
-	ret = snprintf(p, n, "%sCRL version   : %d",
-				   prefix, crl->version);
-	TTLS_X509_SAFE_SNPRINTF;
-
-	ret = snprintf(p, n, "\n%sissuer name   : ", prefix);
-	TTLS_X509_SAFE_SNPRINTF;
-	ret = ttls_x509_dn_gets(p, n, &crl->issuer);
-	TTLS_X509_SAFE_SNPRINTF;
-
-	ret = snprintf(p, n, "\n%sthis update   : " \
-				   "%04d-%02d-%02d %02d:%02d:%02d", prefix,
-				   crl->this_update.year, crl->this_update.mon,
-				   crl->this_update.day,  crl->this_update.hour,
-				   crl->this_update.min,  crl->this_update.sec);
-	TTLS_X509_SAFE_SNPRINTF;
-
-	ret = snprintf(p, n, "\n%snext update   : " \
-				   "%04d-%02d-%02d %02d:%02d:%02d", prefix,
-				   crl->next_update.year, crl->next_update.mon,
-				   crl->next_update.day,  crl->next_update.hour,
-				   crl->next_update.min,  crl->next_update.sec);
-	TTLS_X509_SAFE_SNPRINTF;
-
-	entry = &crl->entry;
-
-	ret = snprintf(p, n, "\n%sRevoked certificates:",
-				   prefix);
-	TTLS_X509_SAFE_SNPRINTF;
-
-	while (entry != NULL && entry->raw.len != 0)
-	{
-		ret = snprintf(p, n, "\n%sserial number: ",
-				   prefix);
-		TTLS_X509_SAFE_SNPRINTF;
-
-		ret = ttls_x509_serial_gets(p, n, &entry->serial);
-		TTLS_X509_SAFE_SNPRINTF;
-
-		ret = snprintf(p, n, " revocation date: " \
-				   "%04d-%02d-%02d %02d:%02d:%02d",
-				   entry->revocation_date.year, entry->revocation_date.mon,
-				   entry->revocation_date.day,  entry->revocation_date.hour,
-				   entry->revocation_date.min,  entry->revocation_date.sec);
-		TTLS_X509_SAFE_SNPRINTF;
-
-		entry = entry->next;
-	}
-
-	ret = snprintf(p, n, "\n%ssigned using  : ", prefix);
-	TTLS_X509_SAFE_SNPRINTF;
-
-	ret = ttls_x509_sig_alg_gets(p, n, &crl->sig_oid, crl->sig_pk, crl->sig_md,
-				 crl->sig_opts);
-	TTLS_X509_SAFE_SNPRINTF;
-
-	ret = snprintf(p, n, "\n");
-	TTLS_X509_SAFE_SNPRINTF;
-
-	return((int) (size - n));
-}
-
-/*
  * Initialize a CRL chain
  */
 void ttls_x509_crl_init(ttls_x509_crl *crl)
@@ -672,7 +586,7 @@ void ttls_x509_crl_free(ttls_x509_crl *crl)
 		{
 			name_prv = name_cur;
 			name_cur = name_cur->next;
-			ttls_zeroize(name_prv, sizeof(ttls_x509_name));
+			ttls_bzero_safe(name_prv, sizeof(ttls_x509_name));
 			kfree(name_prv);
 		}
 
@@ -681,13 +595,13 @@ void ttls_x509_crl_free(ttls_x509_crl *crl)
 		{
 			entry_prv = entry_cur;
 			entry_cur = entry_cur->next;
-			ttls_zeroize(entry_prv, sizeof(ttls_x509_crl_entry));
+			ttls_bzero_safe(entry_prv, sizeof(ttls_x509_crl_entry));
 			kfree(entry_prv);
 		}
 
 		if (crl_cur->raw.p != NULL)
 		{
-			ttls_zeroize(crl_cur->raw.p, crl_cur->raw.len);
+			ttls_bzero_safe(crl_cur->raw.p, crl_cur->raw.len);
 			kfree(crl_cur->raw.p);
 		}
 
@@ -701,7 +615,7 @@ void ttls_x509_crl_free(ttls_x509_crl *crl)
 		crl_prv = crl_cur;
 		crl_cur = crl_cur->next;
 
-		ttls_zeroize(crl_prv, sizeof(ttls_x509_crl));
+		ttls_bzero_safe(crl_prv, sizeof(ttls_x509_crl));
 		if (crl_prv != crl)
 			kfree(crl_prv);
 	}

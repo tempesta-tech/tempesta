@@ -1,35 +1,33 @@
-/*
- *  Generic ASN.1 parsing
+/**
+ *		Tempesta TLS
  *
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- *  SPDX-License-Identifier: GPL-2.0
+ * Generic ASN.1 parsing
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ * Based on mbed TLS, https://tls.mbed.org.
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * SPDX-License-Identifier: GPL-2.0
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- *  This file is part of mbed TLS (https://tls.mbed.org)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include <linux/slab.h>
 
 #include "asn1.h"
 #include "bignum.h"
-
-/* Implementation that should never be optimized out by the compiler */
-static void ttls_zeroize(void *v, size_t n) {
-	volatile unsigned char *p = (unsigned char*)v; while (n--) *p++ = 0;
-}
+#include "tls_internal.h"
 
 /*
  * ASN.1 DER decoding routines
@@ -294,7 +292,7 @@ int ttls_asn1_get_alg(unsigned char **p,
 
 	if (*p == end)
 	{
-		ttls_zeroize(params, sizeof(ttls_asn1_buf));
+		ttls_bzero_safe(params, sizeof(ttls_asn1_buf));
 		return 0;
 	}
 
@@ -339,7 +337,7 @@ void ttls_asn1_free_named_data(ttls_asn1_named_data *cur)
 	kfree(cur->oid.p);
 	kfree(cur->val.p);
 
-	ttls_zeroize(cur, sizeof(ttls_asn1_named_data));
+	ttls_bzero_safe(cur, sizeof(ttls_asn1_named_data));
 }
 
 void ttls_asn1_free_named_data_list(ttls_asn1_named_data **head)

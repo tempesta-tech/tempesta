@@ -43,8 +43,6 @@
  */
 /* Unavailable feature, e.g. RSA hashing/encryption combination. */
 #define TTLS_ERR_X509_FEATURE_UNAVAILABLE		-0x2080
-/* Requested OID is unknown. */
-#define TTLS_ERR_X509_UNKNOWN_OID			-0x2100
 /* The CRT/CRL/CSR format is invalid, e.g. different type expected. */
 #define TTLS_ERR_X509_INVALID_FORMAT			-0x2180
 /* The CRT/CRL/CSR version element is invalid. */
@@ -75,10 +73,6 @@
 #define TTLS_ERR_X509_BAD_INPUT_DATA			-0x2800
 /* Allocation of memory failed. */
 #define TTLS_ERR_X509_ALLOC_FAILED			-0x2880
-/* Read/write of file failed. */
-#define TTLS_ERR_X509_FILE_IO_ERROR			-0x2900
-/* Destination buffer is too small. */
-#define TTLS_ERR_X509_BUFFER_TOO_SMALL			-0x2980
 /*
  * A fatal error occurred, eg the chain is too long or the vrfy callback
  * failed.
@@ -112,31 +106,15 @@
 
 /*
  * X.509 v3 Key Usage Extension flags
- * Reminder: update x509_info_key_usage() when adding new flags.
  */
 #define TTLS_X509_KU_DIGITAL_SIGNATURE			(0x80)  /* bit 0 */
 #define TTLS_X509_KU_NON_REPUDIATION			  (0x40)  /* bit 1 */
 #define TTLS_X509_KU_KEY_ENCIPHERMENT			 (0x20)  /* bit 2 */
 #define TTLS_X509_KU_DATA_ENCIPHERMENT			(0x10)  /* bit 3 */
-#define TTLS_X509_KU_KEY_AGREEMENT				(0x08)  /* bit 4 */
 #define TTLS_X509_KU_KEY_CERT_SIGN				(0x04)  /* bit 5 */
 #define TTLS_X509_KU_CRL_SIGN		 (0x02)  /* bit 6 */
 #define TTLS_X509_KU_ENCIPHER_ONLY				(0x01)  /* bit 7 */
 #define TTLS_X509_KU_DECIPHER_ONLY			  (0x8000)  /* bit 8 */
-
-/*
- * Netscape certificate types
- * (http://www.mozilla.org/projects/security/pki/nss/tech-notes/tn3.html)
- */
-
-#define TTLS_X509_NS_CERT_TYPE_CLIENT		 (0x80)  /* bit 0 */
-#define TTLS_X509_NS_CERT_TYPE_SERVER		 (0x40)  /* bit 1 */
-#define TTLS_X509_NS_CERT_TYPE_EMAIL			  (0x20)  /* bit 2 */
-#define TTLS_X509_NS_CERT_TYPE_OBJECT_SIGNING	 (0x10)  /* bit 3 */
-#define TTLS_X509_NS_CERT_TYPE_RESERVED		   (0x08)  /* bit 4 */
-#define TTLS_X509_NS_CERT_TYPE_CA			 (0x04)  /* bit 5 */
-#define TTLS_X509_NS_CERT_TYPE_EMAIL_CA		   (0x02)  /* bit 6 */
-#define TTLS_X509_NS_CERT_TYPE_OBJECT_SIGNING_CA  (0x01)  /* bit 7 */
 
 /*
  * X.509 extension types
@@ -172,10 +150,6 @@
 #define TTLS_X509_MAX_DN_NAME_SIZE		 256 /**< Maximum value size of a DN entry */
 
 /**
- * \addtogroup x509_module
- * \{ */
-
-/**
  * \name Structures for parsing X.509 certificates, CRLs and CSRs
  */
 
@@ -207,35 +181,6 @@ typedef struct ttls_x509_time
 	int hour, min, sec;		 /**< Time. */
 }
 ttls_x509_time;
-
-/** \} name Structures for parsing X.509 certificates, CRLs and CSRs */
-/** \} addtogroup x509_module */
-
-/**
- * \brief		  Store the certificate DN in printable form into buf;
- *				 no more than size characters will be written.
- *
- * \param buf	  Buffer to write to
- * \param size	 Maximum size of buffer
- * \param dn	   The X509 name to represent
- *
- * \return		 The length of the string written (not including the
- *				 terminated nul byte), or a negative error code.
- */
-int ttls_x509_dn_gets(char *buf, size_t size, const ttls_x509_name *dn);
-
-/**
- * \brief		  Store the certificate serial in printable form into buf;
- *				 no more than size characters will be written.
- *
- * \param buf	  Buffer to write to
- * \param size	 Maximum size of buffer
- * \param serial   The X509 serial to represent
- *
- * \return		 The length of the string written (not including the
- *				 terminated nul byte), or a negative error code.
- */
-int ttls_x509_serial_gets(char *buf, size_t size, const ttls_x509_buf *serial);
 
 /**
  * \brief		  Check a given ttls_x509_time against the system time
@@ -288,21 +233,8 @@ int ttls_x509_get_serial(unsigned char **p, const unsigned char *end,
 		 ttls_x509_buf *serial);
 int ttls_x509_get_ext(unsigned char **p, const unsigned char *end,
 				  ttls_x509_buf *ext, int tag);
-int ttls_x509_sig_alg_gets(char *buf, size_t size, const ttls_x509_buf *sig_oid,
-		   ttls_pk_type_t pk_alg, ttls_md_type_t md_alg,
-		   const void *sig_opts);
-int ttls_x509_key_size_helper(char *buf, size_t buf_size, const char *name);
 int ttls_x509_write_sig(unsigned char **p, unsigned char *start,
 		const char *oid, size_t oid_len,
 		unsigned char *sig, size_t size);
-
-#define TTLS_X509_SAFE_SNPRINTF			  \
-	do {				\
-		if (ret < 0 || (size_t) ret >= n)				  \
-			return(TTLS_ERR_X509_BUFFER_TOO_SMALL);	\
-			\
-		n -= (size_t) ret;		  \
-		p += (size_t) ret;		  \
-	} while (0)
 
 #endif /* x509.h */
