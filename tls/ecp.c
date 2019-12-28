@@ -148,9 +148,9 @@ ecp_get_type(const TlsEcpGrp *grp)
 void
 ttls_ecp_point_init(TlsEcpPoint *pt)
 {
-	ttls_mpi_init(&pt->X);
-	ttls_mpi_init(&pt->Y);
-	ttls_mpi_init(&pt->Z);
+	ttls_mpi_init_next(&pt->X, 0);
+	ttls_mpi_init_next(&pt->Y, 0);
+	ttls_mpi_init_next(&pt->Z, 0);
 }
 
 bool
@@ -166,7 +166,7 @@ ttls_ecp_point_initialized(TlsEcpPoint *pt)
 void
 ttls_ecp_keypair_init(TlsEcpKeypair *key)
 {
-	ttls_mpi_init(&key->d);
+	ttls_mpi_init_next(&key->d, 0);
 	ttls_ecp_point_init(&key->Q);
 }
 
@@ -733,14 +733,15 @@ ecp_add_mixed(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint *P,
 	if (ttls_mpi_initialized(&Q->Z) && ttls_mpi_cmp_int(&Q->Z, 1))
 		return -EINVAL;
 
-	if (!(T1 = ttls_mpi_alloc_stck_init(0))
-	    || !(T2 = ttls_mpi_alloc_stck_init(0))
-	    || !(T3 = ttls_mpi_alloc_stck_init(0))
-	    || !(T4 = ttls_mpi_alloc_stck_init(0))
-	    || !(X = ttls_mpi_alloc_stck_init(0))
-	    || !(Y = ttls_mpi_alloc_stck_init(0))
-	    || !(Z = ttls_mpi_alloc_stck_init(0)))
+	if (!(T1 = ttls_mpool_alloc_stck(sizeof(TlsMpi) * 7 + P->Z.used * 14)))
 		return -ENOMEM;
+	T2 = ttls_mpi_init_next(T1, P->Z.used * 2);
+	T3 = ttls_mpi_init_next(T2, P->Z.used * 2);
+	T4 = ttls_mpi_init_next(T3, P->Z.used * 2);
+	X = ttls_mpi_init_next(T4, P->Z.used * 2);
+	Y = ttls_mpi_init_next(X, P->Z.used * 2);
+	Z = ttls_mpi_init_next(Y, P->Z.used * 2);
+	ttls_mpi_init_next(Z, P->Z.used * 2);
 
 	MPI_CHK(ttls_mpi_mul_mpi(T1, &P->Z, &P->Z));
 	MOD_MUL(T1);
@@ -777,7 +778,7 @@ ecp_add_mixed(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint *P,
 	MOD_MUL(X);
 	MPI_CHK(ttls_mpi_sub_mpi(X, X, T1));
 	MOD_SUB(X);
-	MPI_CHK(ttls_mpi_sub_mpi(X, X, T4)); 
+	MPI_CHK(ttls_mpi_sub_mpi(X, X, T4));
 	MOD_SUB(X);
 	MPI_CHK(ttls_mpi_sub_mpi(T3, T3, X));
 	MOD_SUB(T3);
@@ -1191,16 +1192,20 @@ ecp_double_add_mxz(const TlsEcpGrp *grp, TlsEcpPoint *R, TlsEcpPoint *S,
 {
 	TlsMpi *A, *AA, *B, *BB, *E, *C, *D, *DA, *CB;
 
-	if (!(A = ttls_mpi_alloc_stck_init(0))
-	    || !(AA = ttls_mpi_alloc_stck_init(0))
-	    || !(B = ttls_mpi_alloc_stck_init(0))
-	    || !(BB = ttls_mpi_alloc_stck_init(0))
-	    || !(E = ttls_mpi_alloc_stck_init(0))
-	    || !(C = ttls_mpi_alloc_stck_init(0))
-	    || !(D = ttls_mpi_alloc_stck_init(0))
-	    || !(DA = ttls_mpi_alloc_stck_init(0))
-	    || !(CB = ttls_mpi_alloc_stck_init(0)))
+	A = ttls_mpool_alloc_stck(sizeof(TlsMpi) * 9
+				  + max(P->X.used + 1, P->Z.used + 1) * 9
+				  + max(Q->X.used + 1, Q->Z.used + 1) * 4);
+	if (!A)
 		return -ENOMEM;
+	AA = ttls_mpi_init_next(A, max(P->X.used, P->Z.used) + 1);
+	B = ttls_mpi_init_next(AA, A->limbs * 2);
+	BB = ttls_mpi_init_next(B, max(P->X.used, P->Z.used));
+	E = ttls_mpi_init_next(BB, B->limbs * 2);
+	C = ttls_mpi_init_next(E, max(P->X.used, P->Z.used) * 2);
+	D = ttls_mpi_init_next(C, max(Q->X.used, Q->Z.used) + 1);
+	DA = ttls_mpi_init_next(D, max(Q->X.used, Q->Z.used));
+	CB = ttls_mpi_init_next(DA, D->limbs + A->limbs);
+	ttls_mpi_init_next(CB, C->limbs + B->limbs);
 
 	MPI_CHK(ttls_mpi_add_mpi(A, &P->X, &P->Z));
 	MOD_ADD(A);
@@ -1256,7 +1261,7 @@ ecp_mul_mxz(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	TlsMpi *PX;
 
 	if (!(PX = ttls_mpi_alloc_stck_init(0))
-	    || !(RP = ttls_mpool_alloc_stck(sizeof(TlsEcpPoint))))
+	    || !(RP = ttls_mpool_alloc_stck(sizeof(*RP))))
 		return -ENOMEM;
 	ttls_ecp_point_init(RP);
 

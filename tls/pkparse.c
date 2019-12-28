@@ -291,11 +291,9 @@ pk_parse_key_pkcs1_der(TlsRSACtx *rsa, const unsigned char *key, size_t keylen)
 	int r, version;
 	size_t len;
 	unsigned char *p, *end;
-	TlsMpi T;
+	TlsMpi *T;
 
 	might_sleep();
-
-	ttls_mpi_init(&T);
 
 	p = (unsigned char *)key;
 	end = p + keylen;
@@ -369,10 +367,16 @@ pk_parse_key_pkcs1_der(TlsRSACtx *rsa, const unsigned char *key, size_t keylen)
 		goto err;
 
 	/* Check optional parameters */
-	if ((r = ttls_asn1_get_mpi(&p, end, &T))
-	    || (r = ttls_asn1_get_mpi(&p, end, &T))
-	    || (r = ttls_asn1_get_mpi(&p, end, &T)))
+	preempt_disable();
+	if (!(T = ttls_mpi_alloc_stck_init((end - p) * CIL))
+	    || (r = ttls_asn1_get_mpi(&p, end, T))
+	    || (r = ttls_asn1_get_mpi(&p, end, T))
+	    || (r = ttls_asn1_get_mpi(&p, end, T)))
+	{
+		preempt_enable();
 		goto err;
+	}
+	preempt_enable();
 
 	if (p != end)
 		r = TTLS_ERR_PK_KEY_INVALID_FORMAT

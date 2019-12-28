@@ -2653,10 +2653,7 @@ ttls_check_cert_usage(const ttls_x509_crt *cert,
 			usage = 0;
 		}
 	} else {
-		/*
-		 * Client auth: we only implement rsa_sign and ttls_ecdsa_sign
-		 * for now.
-		 */
+		/* Client auth: we only implement RSA and ECDSA sign for now. */
 		usage = TTLS_X509_KU_DIGITAL_SIGNATURE;
 	}
 
