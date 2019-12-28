@@ -127,24 +127,6 @@ ecdsa_sign_wrap(void *ctx,
 					  hash, hash_len, sig, sig_len);
 }
 
-static void *
-ecdsa_alloc_wrap(void)
-{
-	TlsEcpKeypair *ctx;
-
-	might_sleep();
-
-	if ((ctx = ttls_mpi_pool_alloc(sizeof(*ctx), GFP_KERNEL)))
-		ttls_ecp_keypair_init(ctx);
-
-	return ctx;
-}
-
-static void
-ecdsa_free_wrap(void *ctx)
-{
-	ttls_mpi_pool_free(ctx);
-}
 /*
  * Generic EC key
  */
@@ -168,7 +150,7 @@ eckey_alloc_wrap(void)
 
 	might_sleep();
 
-	if ((ctx = ttls_mpi_pool_alloc(sizeof(*ctx), GFP_ATOMIC)))
+	if ((ctx = ttls_mpi_pool_alloc(sizeof(*ctx), GFP_KERNEL)))
 		ttls_ecp_keypair_init(ctx);
 
 	return ctx;
@@ -209,8 +191,8 @@ const TlsPkInfo ttls_ecdsa_info = {
 	ecdsa_can_do,
 	ecdsa_verify_wrap,
 	ecdsa_sign_wrap,
-	ecdsa_alloc_wrap,
-	ecdsa_free_wrap,
+	eckey_alloc_wrap,
+	eckey_free_wrap,
 };
 
 const TlsPkInfo ttls_eckey_info = {

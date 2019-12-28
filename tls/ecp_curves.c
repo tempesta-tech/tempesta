@@ -231,20 +231,21 @@ static inline void sub32(uint32_t *dst, uint32_t src, signed char *carry)
 static inline int
 fix_negative(TlsMpi *N, signed char c, const size_t bits)
 {
-	TlsMpi C = { .used = bits / BIL + 1 };
+	TlsMpi *C;
 
-	if (ttls_mpi_alloc_init(&C, C.used))
+	if (!(C = ttls_mpi_alloc_stck_init(bits / BIL + 1)))
 		return -ENOMEM;
+	C->used = bits / BIL + 1;
 
-	memset(MPI_P(&C), 0, C.used * CIL);
+	memset(MPI_P(C), 0, C->used * CIL);
 	/* C = - c * 2^(bits + 32) */
 	if (bits == 224)
-		MPI_P(&C)[C.limbs - 1] = ((unsigned long)-c) << 32;
+		MPI_P(C)[C->limbs - 1] = ((unsigned long)-c) << 32;
 	else
-		MPI_P(&C)[C.limbs - 1] = (unsigned long)-c;
+		MPI_P(C)[C->limbs - 1] = (unsigned long)-c;
 
 	/* N = -(C - N) */
-	WARN_ON_ONCE(ttls_mpi_sub_abs(N, &C, N));
+	WARN_ON_ONCE(ttls_mpi_sub_abs(N, C, N));
 	N->s = -1;
 
 	return 0;
@@ -374,21 +375,21 @@ ecp_mod_p255(TlsMpi *N)
 {
 	int r;
 	size_t n;
-	TlsMpi M;
+	TlsMpi *M;
 
 	if (N->used < P255_WIDTH)
 		return 0;
-	if (ttls_mpi_alloc_init(&M, P255_WIDTH + 2))
+	if (!(M = ttls_mpi_alloc_stck_init(P255_WIDTH + 2)))
 		return -ENOMEM;
 
 	/* M = A1 */
-	M.used = N->used - (P255_WIDTH - 1);
-	if (M.used > P255_WIDTH + 1)
-		M.used = P255_WIDTH + 1;
-	n = M.used * CIL;
-	memcpy(MPI_P(&M), MPI_P(N) + P255_WIDTH - 1, n);
-	memset((char *)MPI_P(&M) + n, 0, (P255_WIDTH + 2) * CIL - n);
-	if ((r = ttls_mpi_shift_r(&M, 255 % BIL)))
+	M->used = N->used - (P255_WIDTH - 1);
+	if (M->used > P255_WIDTH + 1)
+		M->used = P255_WIDTH + 1;
+	n = M->used * CIL;
+	memcpy(MPI_P(M), MPI_P(N) + P255_WIDTH - 1, n);
+	memset((char *)MPI_P(M) + n, 0, (P255_WIDTH + 2) * CIL - n);
+	if ((r = ttls_mpi_shift_r(M, 255 % BIL)))
 		return r;
 
 	/* N = A0 */
@@ -397,9 +398,9 @@ ecp_mod_p255(TlsMpi *N)
 	N->used = P255_WIDTH;
 
 	/* N = A0 + 19 * A1 */
-	if ((r = ttls_mpi_mul_uint(&M, &M, 19)))
+	if ((r = ttls_mpi_mul_uint(M, M, 19)))
 		return r;
-	return ttls_mpi_add_abs(N, N, &M);
+	return ttls_mpi_add_abs(N, N, M);
 }
 
 /**
