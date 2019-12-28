@@ -67,7 +67,8 @@ ttls_mpi_init(TlsMpi *X)
 }
 
 /**
- * Initialize and allocate an MPI in one shot.
+ * Allocate an MPI on the stack and initialize it with the required limbs in
+ * one shot.
  *
  * The most MPI functions allocate required memory if necessary, but they can
  * do this for initialized MPI, so if the first call after the initalization
@@ -75,25 +76,21 @@ ttls_mpi_init(TlsMpi *X)
  * have to call __mpi_alloc() right after the initialization and before the
  * first usage. This function makes this simpler.
  */
-int
-ttls_mpi_alloc_init(TlsMpi *X, size_t nblimbs)
+TlsMpi *
+ttls_mpi_alloc_stck_init(size_t nblimbs)
 {
-	int r;
+	TlsMpi *X;
+
+	X = ttls_mpool_alloc_stck(sizeof(TlsMpi) + nblimbs * CIL);
+	if (unlikely(!X))
+		return NULL;
 
 	X->s = 1;
 	X->used = 0;
-
-	r = ttls_mpi_pool_alloc_mpi(X, nblimbs * CIL);
-	if (r <= 0) {
-		X->limbs = 0;
-		X->_off = 0;
-		return r;
-	}
-
 	X->limbs = nblimbs;
-	X->_off = r;
+	X->_off = nblimbs ? sizeof(TlsMpi) : 0;
 
-	return 0;
+	return X;
 }
 
 bool
@@ -165,15 +162,9 @@ mpi_fixup_used(TlsMpi *X, size_t n)
 		--X->used;
 }
 
-/**
- * Copy @Y to @X.
- */
 int
-ttls_mpi_copy(TlsMpi *X, const TlsMpi *Y)
+ttls_mpi_copy_alloc(TlsMpi *X, const TlsMpi *Y, bool need_alloc)
 {
-	if (unlikely(X == Y))
-		return 0;
-
 	if (unlikely(!Y->_off)) {
 		WARN_ON_ONCE(Y->used);
 		WARN_ON_ONCE(Y->s != 1);
@@ -184,7 +175,7 @@ ttls_mpi_copy(TlsMpi *X, const TlsMpi *Y)
 		return 0;
 	}
 
-	if (X->limbs < Y->used)
+	if (need_alloc)
 		if (__mpi_alloc(X, Y->used))
 			return -ENOMEM;
 	memcpy(MPI_P(X), MPI_P(Y), Y->used * CIL);
@@ -192,6 +183,15 @@ ttls_mpi_copy(TlsMpi *X, const TlsMpi *Y)
 	X->used = Y->used;
 
 	return 0;
+}
+
+int
+ttls_mpi_copy(TlsMpi *X, const TlsMpi *Y)
+{
+	if (unlikely(X == Y))
+		return 0;
+
+	return ttls_mpi_copy_alloc(X, Y, X->limbs < Y->used);
 }
 
 /**
