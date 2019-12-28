@@ -29,6 +29,13 @@
 #include "ecp.h"
 #include "ecdsa.h"
 
+extern int ttls_ecdsa_write_signature(TlsEcpKeypair *ctx,
+				      const unsigned char *hash, size_t hlen,
+				      unsigned char *sig, size_t *slen);
+extern int ttls_ecdsa_read_signature(TlsEcpKeypair *ctx,
+				     const unsigned char *hash, size_t hlen,
+				     const unsigned char *sig, size_t slen);
+
 static int
 rsa_can_do(ttls_pk_type_t type)
 {

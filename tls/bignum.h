@@ -100,8 +100,7 @@ typedef struct {
 	unsigned int		curr;
 } TlsMpiPool;
 
-void ttls_mpi_init(TlsMpi *X);
-TlsMpi *ttls_mpi_alloc_tmp_init(size_t nblimbs);
+TlsMpi *ttls_mpi_alloc_stck_init(size_t nlimbs);
 void ttls_mpi_free(TlsMpi *X);
 int __mpi_alloc(TlsMpi *X, size_t nblimbs);
 bool ttls_mpi_initialized(const TlsMpi *X);
@@ -147,6 +146,30 @@ int ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E,
 		     const TlsMpi *N, TlsMpi *_RR);
 int ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N);
 int ttls_mpi_gcd(TlsMpi *G, const TlsMpi *A, const TlsMpi *B);
+
+/**
+ * Initialize an MPI at memory by pointer @X with preallocated space for @nlimbs
+ * and return a pointer to a next MPI in the same memory region.
+ *
+ * Note that sizeof(TlsMPI) == sizeof(long) (a limb), so we're MPIs are always
+ * properly aligned.
+ *
+ * Used for multiple MPI allocations and initializations when
+ * ttls_mpi_alloc_stck_init() may cost too much.
+ *
+ * Place the function in the header to allow the compiler to optimize out
+ * unused return value if a called doesn't care about it.
+ */
+static inline TlsMpi *
+ttls_mpi_init_next(TlsMpi *X, size_t nlimbs)
+{
+	X->s = 1;
+	X->used = 0;
+	X->limbs = nlimbs;
+	X->_off = nlimbs ? sizeof(TlsMpi) : 0;
+
+	return (TlsMpi *)((char *)X + sizeof(*X) + nlimbs * CIL);
+}
 
 #ifdef DEBUG
 /**
