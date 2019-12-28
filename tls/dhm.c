@@ -169,13 +169,14 @@ static int dhm_read_bignum(TlsMpi *X,
 static int
 dhm_check_range(const TlsMpi *param, const TlsMpi *P)
 {
-	TlsMpi U;
+	TlsMpi *U;
 
-	ttls_mpi_init(&U);
+	if (!(U = ttls_mpi_alloc_stck_init(P->used)))
+		return -ENOMEM;
 
-	MPI_CHK(ttls_mpi_sub_int(&U, P, 2));
+	MPI_CHK(ttls_mpi_sub_int(U, P, 2));
 	if (ttls_mpi_cmp_int(param, 2) < 0
-	    || ttls_mpi_cmp_mpi(param, &U) > 0)
+	    || ttls_mpi_cmp_mpi(param, U) > 0)
 		return -EINVAL;
 
 	return 0;
@@ -394,40 +395,40 @@ cleanup:
 	return ret;
 }
 
-/*
+/**
  * Derive and export the shared secret (G^Y)^X mod P
  */
-int ttls_dhm_calc_secret(TlsDHMCtx *ctx,
-		 unsigned char *output, size_t output_size, size_t *olen)
+int
+ttls_dhm_calc_secret(TlsDHMCtx *ctx, unsigned char *output, size_t output_size,
+		     size_t *olen)
 {
-	int ret;
-	TlsMpi GYb;
+	int r;
+	TlsMpi *GYb;
 
-	if (ctx == NULL || output_size < ctx->len)
-		return(TTLS_ERR_DHM_BAD_INPUT_DATA);
+	if (unlikely(!ctx || output_size < ctx->len))
+		return -EINVAL;
 
-	if ((ret = dhm_check_range(&ctx->GY, &ctx->P)) != 0)
-		return ret;
+	if ((r = dhm_check_range(&ctx->GY, &ctx->P)))
+		return r;
 
-	ttls_mpi_init(&GYb);
+	if (!(GYb = ttls_mpi_alloc_stck_init(ctx->GY.used + ctx->Vi.used)))
+		return -ENOMEM;
 
 	/* Blind peer's value */
-	TTLS_MPI_CHK(dhm_update_blinding(ctx));
-	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&GYb, &ctx->GY, &ctx->Vi));
-	TTLS_MPI_CHK(ttls_mpi_mod_mpi(&GYb, &GYb, &ctx->P));
+	MPI_CHK(dhm_update_blinding(ctx));
+	MPI_CHK(ttls_mpi_mul_mpi(GYb, &ctx->GY, &ctx->Vi));
+	MPI_CHK(ttls_mpi_mod_mpi(GYb, GYb, &ctx->P));
 
 	/* Do modular exponentiation */
-	TTLS_MPI_CHK(ttls_mpi_exp_mod(&ctx->K, &GYb, &ctx->X,
-			  &ctx->P, &ctx->RP));
+	MPI_CHK(ttls_mpi_exp_mod(&ctx->K, GYb, &ctx->X, &ctx->P, &ctx->RP));
 
 	/* Unblind secret value */
-	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&ctx->K, &ctx->K, &ctx->Vf));
-	TTLS_MPI_CHK(ttls_mpi_mod_mpi(&ctx->K, &ctx->K, &ctx->P));
+	MPI_CHK(ttls_mpi_mul_mpi(&ctx->K, &ctx->K, &ctx->Vf));
+	MPI_CHK(ttls_mpi_mod_mpi(&ctx->K, &ctx->K, &ctx->P));
 
 	*olen = ttls_mpi_size(&ctx->K);
 
-	TTLS_MPI_CHK(ttls_mpi_write_binary(&ctx->K, output, *olen));
+	MPI_CHK(ttls_mpi_write_binary(&ctx->K, output, *olen));
 
-cleanup:
-	return ret ? TTLS_ERR_DHM_CALC_SECRET_FAILED + ret : 0;
+	return 0;
 }

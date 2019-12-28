@@ -148,14 +148,13 @@ int ttls_asn1_get_int(unsigned char **p,
 	return 0;
 }
 
-int ttls_asn1_get_mpi(unsigned char **p,
-				  const unsigned char *end,
-				  TlsMpi *X)
+int
+ttls_asn1_get_mpi(unsigned char **p, const unsigned char *end, TlsMpi *X)
 {
 	int ret;
 	size_t len;
 
-	if ((ret = ttls_asn1_get_tag(p, end, &len, TTLS_ASN1_INTEGER)) != 0)
+	if ((ret = ttls_asn1_get_tag(p, end, &len, TTLS_ASN1_INTEGER)))
 		return ret;
 
 	ret = ttls_mpi_read_binary(X, *p, len);

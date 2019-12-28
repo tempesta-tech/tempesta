@@ -153,25 +153,6 @@ int ttls_dhm_read_public(TlsDHMCtx *ctx,
 int ttls_dhm_make_public(TlsDHMCtx *ctx, int x_size,
 		 unsigned char *output, size_t olen);
 
-/**
- * \brief			   This function derives and exports the shared secret
- *		  \c (G^Y)^X mod \c P.
- *
- * \param ctx		   The DHM context.
- * \param output		The destination buffer.
- * \param output_size   The size of the destination buffer. Must be at least
- *		  the size of ctx->len.
- * \param olen		  On exit, holds the actual number of Bytes written.
- *
- * \return		 \c 0 on success, or an \c TTLS_ERR_DHM_XXX error code
- *				 on failure.
- *
- * \note		   If non-NULL, \p f_rng is used to blind the input as
- *				 a countermeasure against timing attacks. Blinding is used
- *				 only if our secret value \p X is re-used and omitted
- *				 otherwise. Therefore, we recommend always passing a
- *				 non-NULL \p f_rng argument.
- */
 int ttls_dhm_calc_secret(TlsDHMCtx *ctx,
 		 unsigned char *output, size_t output_size, size_t *olen);
 
