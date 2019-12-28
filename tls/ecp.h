@@ -165,8 +165,7 @@ typedef struct {
  * cardinal is denoted by N.
  *
  * In the case of Short Weierstrass curves, our code requires that N is an odd
- * prime. (Use odd in ttls_ecp_mul() and prime in ttls_ecdsa_sign() for
- * blinding.)
+ * prime. (Use odd in ttls_ecp_mul() and prime in ECDSA signature for blinding.)
  *
  * In the case of Montgomery curves, we don't store A but (A + 2) / 4 which is
  * the quantity actually used in the formulas. Also, nbits is not the size of N

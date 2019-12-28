@@ -102,25 +102,25 @@ cleanup:
 /*
  * Compute RSA prime factors from public and private exponents
  *
- * @N		- RSA modulus N = PQ, with P, Q to be found;
- * @E		- RSA public exponent;
- * @D		- RSA private exponent;
- * @P		- Pointer to MPI holding first prime factor of N on success;
- * @Q		- Pointer to MPI holding second prime factor of N on success.
+ * @N	- RSA modulus N = PQ, with P, Q to be found;
+ * @E	- RSA public exponent;
+ * @D	- RSA private exponent;
+ * @P	- Pointer to MPI holding first prime factor of N on success;
+ * @Q	- Pointer to MPI holding second prime factor of N on success.
 
  * Summary of algorithm:
  * Setting F := lcm(P-1,Q-1), the idea is as follows:
  *
  * (a) For any 1 <= X < N with gcd(X,N)=1, we have X^F = 1 modulo N, so X^(F/2)
- *	 is a square root of 1 in Z/NZ. Since Z/NZ ~= Z/PZ x Z/QZ by CRT and the
- *	 square roots of 1 in Z/PZ and Z/QZ are +1 and -1, this leaves the four
- *	 possibilities X^(F/2) = (+-1, +-1). If it happens that X^(F/2) = (-1,+1)
- *	 or (+1,-1), then gcd(X^(F/2) + 1, N) will be equal to one of the prime
- *	 factors of N.
+ *     is a square root of 1 in Z/NZ. Since Z/NZ ~= Z/PZ x Z/QZ by CRT and the
+ *     square roots of 1 in Z/PZ and Z/QZ are +1 and -1, this leaves the four
+ *     possibilities X^(F/2) = (+-1, +-1). If it happens that X^(F/2) = (-1,+1)
+ *     or (+1,-1), then gcd(X^(F/2) + 1, N) will be equal to one of the prime
+ *     factors of N.
  *
  * (b) If we don't know F/2 but (F/2) * K for some odd (!) K, then the same
- *	 construction still applies since (-)^K is the identity on the set of
- *	 roots of 1 in Z/NZ.
+ *     construction still applies since (-)^K is the identity on the set of
+ *     roots of 1 in Z/NZ.
  *
  * The public and private key primitives (-)^E and (-)^D are mutually inverse
  * bijections on Z/NZ if and only if (-)^(DE) is the identity on Z/NZ, i.e.
@@ -136,83 +136,60 @@ cleanup:
  * where ord is the order of 2 in (DE - 1).
  * We can therefore iterate through these numbers apply the construction
  * of (a) and (b) above to attempt to factor N.
- *
  */
 int
 ttls_rsa_deduce_primes(TlsMpi const *N, TlsMpi const *E, TlsMpi const *D,
 		       TlsMpi *P, TlsMpi *Q)
 {
-	int ret = 0;
-
 	uint16_t attempt;  /* Number of current attempt  */
 	uint16_t iter;	 /* Number of squares computed in the current attempt */
 
 	uint16_t order;	/* Order of 2 in DE - 1 */
 
-	TlsMpi T;  /* Holds largest odd divisor of DE - 1	 */
-	TlsMpi K;  /* Temporary holding the current candidate */
+	TlsMpi *T;  /* Holds largest odd divisor of DE - 1	 */
+	TlsMpi *K;  /* Temporary holding the current candidate */
 
-	const unsigned char primes[] = { 2,
-		   3,	5,	7,   11,   13,   17,   19,   23,
-		  29,   31,   37,   41,   43,   47,   53,   59,
-		  61,   67,   71,   73,   79,   83,   89,   97,
-		 101,  103,  107,  109,  113,  127,  131,  137,
-		 139,  149,  151,  157,  163,  167,  173,  179,
-		 181,  191,  193,  197,  199,  211,  223,  227,
-		 229,  233,  239,  241,  251
+	static const unsigned char primes[] = {
+		2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59,
+		61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127,
+		131, 137, 139, 149, 151, 157, 163, 167, 173, 179, 181, 191, 193,
+		197, 199, 211, 223, 227, 229, 233, 239, 241, 251
 	};
-
-	const size_t num_primes = sizeof(primes) / sizeof(*primes);
 
 	if (WARN_ON_ONCE(!P || !ttls_mpi_initialized(P))
 	    || WARN_ON_ONCE(!Q || !ttls_mpi_initialized(Q)))
 		return -EINVAL;
 
-	if (ttls_mpi_cmp_int(N, 0) <= 0 ||
-		ttls_mpi_cmp_int(D, 1) <= 0 ||
-		ttls_mpi_cmp_mpi(D, N) >= 0 ||
-		ttls_mpi_cmp_int(E, 1) <= 0 ||
-		ttls_mpi_cmp_mpi(E, N) >= 0)
-	{
+	if (ttls_mpi_cmp_int(N, 0) <= 0 || ttls_mpi_cmp_int(D, 1) <= 0
+	    || ttls_mpi_cmp_mpi(D, N) >= 0 || ttls_mpi_cmp_int(E, 1) <= 0
+	    || ttls_mpi_cmp_mpi(E, N) >= 0)
 		return -EINVAL;
-	}
 
-	/*
-	 * Initializations and temporary changes
-	 */
-
-	ttls_mpi_init(&K);
-	ttls_mpi_init(&T);
+	if (!(T = ttls_mpi_alloc_stck_init(D->used + E->used))
+	    || !(K = ttls_mpi_alloc_stck_init(N->used + 1)))
+		return -ENOMEM;
 
 	/* T := DE - 1 */
-	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&T, D,  E));
-	TTLS_MPI_CHK(ttls_mpi_sub_int(&T, &T, 1));
+	MPI_CHK(ttls_mpi_mul_mpi(T, D,  E));
+	MPI_CHK(ttls_mpi_sub_int(T, T, 1));
 
-	if ((order = (uint16_t) ttls_mpi_lsb(&T)) == 0)
-	{
-		ret = -EINVAL;
-		goto cleanup;
-	}
+	if (!(order = (uint16_t)ttls_mpi_lsb(T)))
+		return -EINVAL;
 
 	/* After this operation, T holds the largest odd divisor of DE - 1. */
-	TTLS_MPI_CHK(ttls_mpi_shift_r(&T, order));
-
-	/*
-	 * Actual work
-	 */
+	MPI_CHK(ttls_mpi_shift_r(T, order));
 
 	/* Skip trying 2 if N == 1 mod 8 */
 	attempt = 0;
 	if (MPI_P(N)[0] % 8 == 1)
 		attempt = 1;
 
-	for (; attempt < num_primes; ++attempt)
-	{
-		ttls_mpi_lset(&K, primes[attempt]);
+	for ( ; attempt < ARRAY_SIZE(primes); ++attempt) {
+		ttls_mpi_lset(K, primes[attempt]);
 
 		/* Check if gcd(K,N) = 1 */
-		TTLS_MPI_CHK(ttls_mpi_gcd(P, &K, N));
-		if (ttls_mpi_cmp_int(P, 1) != 0)
+		MPI_CHK(ttls_mpi_gcd(P, K, N));
+		if (ttls_mpi_cmp_int(P, 1))
 			continue;
 
 		/*
@@ -222,50 +199,48 @@ ttls_rsa_deduce_primes(TlsMpi const *N, TlsMpi const *E, TlsMpi const *D,
 		 * Temporarily use Q for storing Montgomery multiplication
 		 * helper values.
 		 */
-		TTLS_MPI_CHK(ttls_mpi_exp_mod(&K, &K, &T, N, Q));
+		MPI_CHK(ttls_mpi_exp_mod(K, K, T, N, Q));
 
-		for (iter = 1; iter <= order; ++iter)
-		{
-			/* If we reach 1 prematurely, there's no point
-			 * in continuing to square K */
-			if (ttls_mpi_cmp_int(&K, 1) == 0)
+		for (iter = 1; iter <= order; ++iter) {
+			/*
+			 * If we reach 1 prematurely, there's no point
+			 * in continuing to square K.
+			 */
+			if (!ttls_mpi_cmp_int(K, 1))
 				break;
 
-			TTLS_MPI_CHK(ttls_mpi_add_int(&K, &K, 1));
-			TTLS_MPI_CHK(ttls_mpi_gcd(P, &K, N));
+			MPI_CHK(ttls_mpi_add_int(K, K, 1));
+			MPI_CHK(ttls_mpi_gcd(P, K, N));
 
-			if (ttls_mpi_cmp_int(P, 1) ==  1 &&
-				ttls_mpi_cmp_mpi(P, N) == -1)
+			if (ttls_mpi_cmp_int(P, 1) ==  1
+			    && ttls_mpi_cmp_mpi(P, N) == -1)
 			{
 				/*
 				 * Have found a nontrivial divisor P of N.
 				 * Set Q := N / P.
 				 */
-
-				TTLS_MPI_CHK(ttls_mpi_div_mpi(Q, NULL, N, P));
-				goto cleanup;
+				MPI_CHK(ttls_mpi_div_mpi(Q, NULL, N, P));
+				return 0;
 			}
 
-			TTLS_MPI_CHK(ttls_mpi_sub_int(&K, &K, 1));
-			TTLS_MPI_CHK(ttls_mpi_mul_mpi(&K, &K, &K));
-			TTLS_MPI_CHK(ttls_mpi_mod_mpi(&K, &K, N));
+			MPI_CHK(ttls_mpi_sub_int(K, K, 1));
+			MPI_CHK(ttls_mpi_mul_mpi(K, K, K));
+			MPI_CHK(ttls_mpi_mod_mpi(K, K, N));
 		}
 
 		/*
-		 * If we get here, then either we prematurely aborted the loop because
-		 * we reached 1, or K holds primes[attempt]^(DE - 1) mod N, which must
-		 * be 1 if D,E,N were consistent.
-		 * Check if that's the case and abort if not, to avoid very long,
-		 * yet eventually failing, computations if N,D,E were not sane.
+		 * If we get here, then either we prematurely aborted the loop
+		 * because we reached 1, or K holds
+		 * primes[attempt]^(DE - 1) mod N, which must be 1 if D, E, N
+		 * were consistent. Check if that's the case and abort if not,
+		 * to avoid very long, yet eventually failing, computations if
+		 * N, D, E were not sane.
 		 */
-		if (ttls_mpi_cmp_int(&K, 1) != 0)
+		if (ttls_mpi_cmp_int(K, 1))
 			break;
 	}
 
-	ret = -EINVAL;
-
-cleanup:
-	return ret;
+	return -EINVAL;
 }
 
 /**
@@ -274,90 +249,81 @@ cleanup:
  *
  * This is essentially a modular inversion.
  *
- * @P		- First prime factor of RSA modulus;
- * @Q		- Second prime factor of RSA modulus;
- * @E		- RSA public exponent;
- * @D		- Pointer to MPI holding the private exponent on success.
+ * @P	- First prime factor of RSA modulus;
+ * @Q	- Second prime factor of RSA modulus;
+ * @E	- RSA public exponent;
+ * @D	- Pointer to MPI holding the private exponent on success.
  */
-int ttls_rsa_deduce_private_exponent(TlsMpi const *P,
-				 TlsMpi const *Q,
-				 TlsMpi const *E,
-				 TlsMpi *D)
+int
+ttls_rsa_deduce_private_exponent(TlsMpi const *P, TlsMpi const *Q,
+				 TlsMpi const *E, TlsMpi *D)
 {
-	int ret = 0;
-	TlsMpi K, L;
+	TlsMpi *K, *L;
 
-	if (D == NULL || ttls_mpi_cmp_int(D, 0) != 0)
+	if (!D || ttls_mpi_cmp_int(D, 0))
 		return -EINVAL;
 
-	if (ttls_mpi_cmp_int(P, 1) <= 0 ||
-		ttls_mpi_cmp_int(Q, 1) <= 0 ||
-		ttls_mpi_cmp_int(E, 0) == 0)
-	{
+	if (ttls_mpi_cmp_int(P, 1) <= 0 || ttls_mpi_cmp_int(Q, 1) <= 0
+	    || !ttls_mpi_cmp_int(E, 0))
 		return -EINVAL;
-	}
 
-	ttls_mpi_init(&K);
-	ttls_mpi_init(&L);
+	if (!(K = ttls_mpi_alloc_stck_init(P->used + Q->used))
+	    || !(L = ttls_mpi_alloc_stck_init(Q->used)))
+		return -ENOMEM;
 
 	/* Temporarily put K := P-1 and L := Q-1 */
-	TTLS_MPI_CHK(ttls_mpi_sub_int(&K, P, 1));
-	TTLS_MPI_CHK(ttls_mpi_sub_int(&L, Q, 1));
+	MPI_CHK(ttls_mpi_sub_int(K, P, 1));
+	MPI_CHK(ttls_mpi_sub_int(L, Q, 1));
 
 	/* Temporarily put D := gcd(P-1, Q-1) */
-	TTLS_MPI_CHK(ttls_mpi_gcd(D, &K, &L));
+	MPI_CHK(ttls_mpi_gcd(D, K, L));
 
 	/* K := LCM(P-1, Q-1) */
-	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&K, &K, &L));
-	TTLS_MPI_CHK(ttls_mpi_div_mpi(&K, NULL, &K, D));
+	MPI_CHK(ttls_mpi_mul_mpi(K, K, L));
+	MPI_CHK(ttls_mpi_div_mpi(K, NULL, K, D));
 
 	/* Compute modular inverse of E in LCM(P-1, Q-1) */
-	TTLS_MPI_CHK(ttls_mpi_inv_mod(D, E, &K));
+	MPI_CHK(ttls_mpi_inv_mod(D, E, K));
 
-cleanup:
-	return ret;
+	return 0;
 }
 
 /**
  * Generate RSA-CRT parameters.
  *
- * @P		- First prime factor of N;
- * @Q		- Second prime factor of N;
- * @D		- RSA private exponent;
- * @DP		- Output variable for D modulo P-1;
- * @DQ		- Output variable for D modulo Q-1;
- * @QP		- Output variable for the modular inverse of Q modulo P.
+ * @P	- First prime factor of N;
+ * @Q	- Second prime factor of N;
+ * @D	- RSA private exponent;
+ * @DP	- Output variable for D modulo P-1;
+ * @DQ	- Output variable for D modulo Q-1;
+ * @QP	- Output variable for the modular inverse of Q modulo P.
  */
-int ttls_rsa_deduce_crt(const TlsMpi *P, const TlsMpi *Q,
-				const TlsMpi *D, TlsMpi *DP,
-				TlsMpi *DQ, TlsMpi *QP)
+int
+ttls_rsa_deduce_crt(const TlsMpi *P, const TlsMpi *Q, const TlsMpi *D,
+		    TlsMpi *DP, TlsMpi *DQ, TlsMpi *QP)
 {
-	int ret = 0;
-	TlsMpi K;
-	ttls_mpi_init(&K);
+	TlsMpi *K;
+
+	if (!(K = ttls_mpi_alloc_stck_init(max(P->used, Q->used))))
+		return -ENOMEM;
 
 	/* DP = D mod P-1 */
-	if (DP != NULL)
-	{
-		TTLS_MPI_CHK(ttls_mpi_sub_int(&K, P, 1 ));
-		TTLS_MPI_CHK(ttls_mpi_mod_mpi(DP, D, &K));
+	if (DP) {
+		MPI_CHK(ttls_mpi_sub_int(K, P, 1 ));
+		MPI_CHK(ttls_mpi_mod_mpi(DP, D, K));
 	}
 
 	/* DQ = D mod Q-1 */
-	if (DQ != NULL)
-	{
-		TTLS_MPI_CHK(ttls_mpi_sub_int(&K, Q, 1 ));
-		TTLS_MPI_CHK(ttls_mpi_mod_mpi(DQ, D, &K));
+	if (DQ) {
+		MPI_CHK(ttls_mpi_sub_int(K, Q, 1 ));
+		MPI_CHK(ttls_mpi_mod_mpi(DQ, D, K));
 	}
 
 	/* QP = Q^{-1} mod P */
-	if (QP != NULL)
-	{
-		TTLS_MPI_CHK(ttls_mpi_inv_mod(QP, Q, P));
-	}
+	if (QP)
+		MPI_CHK(ttls_mpi_inv_mod(QP, Q, P));
 
-cleanup:
-	return ret;
+	return 0;
 }
 
 /*
@@ -488,72 +454,66 @@ ttls_rsa_private(TlsRSACtx *ctx, const unsigned char *input,
 	size_t olen;
 
 	/* Temporary holding the result */
-	TlsMpi T;
+	TlsMpi *T;
 
 	/* Temporaries holding P-1, Q-1 and the
 	 * exponent blinding factor, respectively. */
-	TlsMpi P1, Q1, R;
+	TlsMpi *P1, *Q1, *R;
 
 	/* Temporaries holding the results mod p resp. mod q. */
-	TlsMpi TP, TQ;
+	TlsMpi *TP, *TQ;
 
 	/* Temporaries holding the blinded exponents for
 	 * the mod p resp. mod q computation (if used). */
-	TlsMpi DP_blind, DQ_blind;
-
-	/* Pointers to actual exponents to be used - either the unblinded
-	 * or the blinded ones, depending on the presence of a PRNG. */
-	TlsMpi *DP, *DQ;
+	TlsMpi *DP_blind, *DQ_blind;
 
 	/* Temporaries holding the initial input and the double
 	 * checked result; should be the same in the end. */
-	TlsMpi I, C;
+	TlsMpi *I, *C;
 
-	/* MPI Initialization */
-	ttls_mpi_init(&T);
-	ttls_mpi_init(&P1);
-	ttls_mpi_init(&Q1);
-	ttls_mpi_init(&R);
-	ttls_mpi_init(&DP_blind);
-	ttls_mpi_init(&DQ_blind);
-	ttls_mpi_init(&TP);
-	ttls_mpi_init(&TQ);
-	ttls_mpi_init(&I);
-	ttls_mpi_init(&C);
+	if (!(T = ttls_mpool_alloc_stck(sizeof(TlsMpi) * 10 + ctx->N.used
+					+ ctx->len / CIL * 2 + ctx->Vi.used
+					+ ctx->P.used * 3 + ctx->Q.used * 3
+					+ RSA_EXPONENT_BLINDING / CIL * 3)))
+		return -ENOMEM;
+	I = ttls_mpi_init_next(T, ctx->len / CIL + ctx->Vi.used);
+	P1 = ttls_mpi_init_next(I, ctx->len / CIL);
+	Q1 = ttls_mpi_init_next(P1, ctx->P.used);
+	R = ttls_mpi_init_next(Q1, ctx->Q.used);
+	DP_blind = ttls_mpi_init_next(R, RSA_EXPONENT_BLINDING / CIL);
+	DQ_blind = ttls_mpi_init_next(DP_blind, R->limbs + ctx->P.used);
+	TP = ttls_mpi_init_next(DQ_blind, R->limbs + ctx->Q.used);
+	TQ = ttls_mpi_init_next(TP, ctx->P.used);
+	C = ttls_mpi_init_next(TQ, ctx->Q.used);
+	ttls_mpi_init_next(C, ctx->N.used);
 
-	/* End of MPI initialization */
-
-	MPI_CHK(ttls_mpi_read_binary(&T, input, ctx->len));
-	if (ttls_mpi_cmp_mpi(&T, &ctx->N) >= 0)
+	MPI_CHK(ttls_mpi_read_binary(T, input, ctx->len));
+	if (ttls_mpi_cmp_mpi(T, &ctx->N) >= 0)
 		return -EINVAL;
 
-	MPI_CHK(ttls_mpi_copy(&I, &T));
+	MPI_CHK(ttls_mpi_copy(I, T));
 
 	/*
 	 * Blinding
 	 * T = T * Vi mod N
 	 */
 	MPI_CHK(rsa_prepare_blinding(ctx));
-	MPI_CHK(ttls_mpi_mul_mpi(&T, &T, &ctx->Vi));
-	MPI_CHK(ttls_mpi_mod_mpi(&T, &T, &ctx->N));
+	MPI_CHK(ttls_mpi_mul_mpi(T, T, &ctx->Vi));
+	MPI_CHK(ttls_mpi_mod_mpi(T, T, &ctx->N));
 
 	/* Exponent blinding. */
-	MPI_CHK(ttls_mpi_sub_int(&P1, &ctx->P, 1));
-	MPI_CHK(ttls_mpi_sub_int(&Q1, &ctx->Q, 1));
+	MPI_CHK(ttls_mpi_sub_int(P1, &ctx->P, 1));
+	MPI_CHK(ttls_mpi_sub_int(Q1, &ctx->Q, 1));
 
 	/* DP_blind = (P - 1) * R + DP */
-	MPI_CHK(ttls_mpi_fill_random(&R, RSA_EXPONENT_BLINDING));
-	MPI_CHK(ttls_mpi_mul_mpi(&DP_blind, &P1, &R));
-	MPI_CHK(ttls_mpi_add_mpi(&DP_blind, &DP_blind, &ctx->DP));
-
-	DP = &DP_blind;
+	MPI_CHK(ttls_mpi_fill_random(R, RSA_EXPONENT_BLINDING));
+	MPI_CHK(ttls_mpi_mul_mpi(DP_blind, P1, R));
+	MPI_CHK(ttls_mpi_add_mpi(DP_blind, DP_blind, &ctx->DP));
 
 	/* DQ_blind = (Q - 1) * R + DQ */
-	MPI_CHK(ttls_mpi_fill_random(&R, RSA_EXPONENT_BLINDING));
-	MPI_CHK(ttls_mpi_mul_mpi(&DQ_blind, &Q1, &R));
-	MPI_CHK(ttls_mpi_add_mpi(&DQ_blind, &DQ_blind, &ctx->DQ));
-
-	DQ = &DQ_blind;
+	MPI_CHK(ttls_mpi_fill_random(R, RSA_EXPONENT_BLINDING));
+	MPI_CHK(ttls_mpi_mul_mpi(DQ_blind, Q1, R));
+	MPI_CHK(ttls_mpi_add_mpi(DQ_blind, DQ_blind, &ctx->DQ));
 
 	/*
 	 * Faster decryption using the CRT
@@ -561,32 +521,32 @@ ttls_rsa_private(TlsRSACtx *ctx, const unsigned char *input,
 	 * TP = input ^ dP mod P
 	 * TQ = input ^ dQ mod Q
 	 */
-	MPI_CHK(ttls_mpi_exp_mod(&TP, &T, DP, &ctx->P, &ctx->RP));
-	MPI_CHK(ttls_mpi_exp_mod(&TQ, &T, DQ, &ctx->Q, &ctx->RQ));
+	MPI_CHK(ttls_mpi_exp_mod(TP, T, DP_blind, &ctx->P, &ctx->RP));
+	MPI_CHK(ttls_mpi_exp_mod(TQ, T, DQ_blind, &ctx->Q, &ctx->RQ));
 
 	/* T = (TP - TQ) * (Q^-1 mod P) mod P */
-	MPI_CHK(ttls_mpi_sub_mpi(&T, &TP, &TQ));
-	MPI_CHK(ttls_mpi_mul_mpi(&TP, &T, &ctx->QP));
-	MPI_CHK(ttls_mpi_mod_mpi(&T, &TP, &ctx->P));
+	MPI_CHK(ttls_mpi_sub_mpi(T, TP, TQ));
+	MPI_CHK(ttls_mpi_mul_mpi(TP, T, &ctx->QP));
+	MPI_CHK(ttls_mpi_mod_mpi(T, TP, &ctx->P));
 
 	/* T = TQ + T * Q */
-	MPI_CHK(ttls_mpi_mul_mpi(&TP, &T, &ctx->Q));
-	MPI_CHK(ttls_mpi_add_mpi(&T, &TQ, &TP));
+	MPI_CHK(ttls_mpi_mul_mpi(TP, T, &ctx->Q));
+	MPI_CHK(ttls_mpi_add_mpi(T, TQ, TP));
 
 	/*
 	 * Unblind
 	 * T = T * Vf mod N
 	 */
-	MPI_CHK(ttls_mpi_mul_mpi(&T, &T, &ctx->Vf));
-	MPI_CHK(ttls_mpi_mod_mpi(&T, &T, &ctx->N));
+	MPI_CHK(ttls_mpi_mul_mpi(T, T, &ctx->Vf));
+	MPI_CHK(ttls_mpi_mod_mpi(T, T, &ctx->N));
 
 	/* Verify the result to prevent glitching attacks. */
-	MPI_CHK(ttls_mpi_exp_mod(&C, &T, &ctx->E, &ctx->N, &ctx->RN));
-	if (ttls_mpi_cmp_mpi(&C, &I))
+	MPI_CHK(ttls_mpi_exp_mod(C, T, &ctx->E, &ctx->N, &ctx->RN));
+	if (ttls_mpi_cmp_mpi(C, I))
 		return TTLS_ERR_RSA_VERIFY_FAILED;
 
 	olen = ctx->len;
-	MPI_CHK(ttls_mpi_write_binary(&T, output, olen));
+	MPI_CHK(ttls_mpi_write_binary(T, output, olen));
 
 	return 0;
 }
@@ -900,25 +860,22 @@ static int
 ttls_rsa_public(TlsRSACtx *ctx, const unsigned char *input,
 		unsigned char *output)
 {
-	int ret;
 	size_t olen;
-	TlsMpi T;
+	TlsMpi *T;
 
-	ttls_mpi_init(&T);
+	if (!(T = ttls_mpi_alloc_stck_init(ctx->len / CIL)))
+		return -ENOMEM;
 
-	TTLS_MPI_CHK(ttls_mpi_read_binary(&T, input, ctx->len));
+	MPI_CHK(ttls_mpi_read_binary(T, input, ctx->len));
 
-	if (ttls_mpi_cmp_mpi(&T, &ctx->N) >= 0) {
-		ret = -EINVAL;
-		goto cleanup;
-	}
+	if (ttls_mpi_cmp_mpi(T, &ctx->N) >= 0)
+		return -EINVAL;
 
 	olen = ctx->len;
-	TTLS_MPI_CHK(ttls_mpi_exp_mod(&T, &T, &ctx->E, &ctx->N, &ctx->RN));
-	TTLS_MPI_CHK(ttls_mpi_write_binary(&T, output, olen));
+	MPI_CHK(ttls_mpi_exp_mod(T, T, &ctx->E, &ctx->N, &ctx->RN));
+	MPI_CHK(ttls_mpi_write_binary(T, output, olen));
 
-cleanup:
-	return ret ? TTLS_ERR_RSA_PUBLIC_FAILED + ret : 0;
+	return 0;
 }
 
 /**
