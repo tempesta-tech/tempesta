@@ -101,11 +101,12 @@ typedef struct {
 } TlsMpiPool;
 
 void ttls_mpi_init(TlsMpi *X);
-int ttls_mpi_alloc_init(TlsMpi *X, size_t nblimbs);
+TlsMpi *ttls_mpi_alloc_tmp_init(size_t nblimbs);
 void ttls_mpi_free(TlsMpi *X);
 int __mpi_alloc(TlsMpi *X, size_t nblimbs);
 bool ttls_mpi_initialized(const TlsMpi *X);
 void mpi_fixup_used(TlsMpi *X, size_t n);
+int ttls_mpi_copy_alloc(TlsMpi *X, const TlsMpi *Y, bool need_alloc);
 int ttls_mpi_copy(TlsMpi *X, const TlsMpi *Y);
 size_t ttls_mpi_size(const TlsMpi *X);
 

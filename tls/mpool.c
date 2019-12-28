@@ -51,20 +51,17 @@
 /*
  * Memory pool for temporal (stack allocated) MPIs which are used only during
  * one call of the TLS handshake state machine.
+ *
+ * Using the pools in process (configuration) context requires to disable
+ * preemption.
  */
 static DEFINE_PER_CPU(TlsMpiPool *, g_tmp_mpool);
-/*
- * Memory pool for configuration MPI processing working in process context.
- * Only one configuration thread is allowed, so one pool is enough.
- */
-static TlsMpiPool *cfg_pool;
 
 /**
  * Return a pointer to an MPI pool of one of the following types:
  * 1. static cipher suite memory profile;
- * 2. dynamically allocated configuration pool (process context, only one);
- * 3. temporary per-cpu pool for stack allocated MPIs (softirq);
- * 4. current handshake profile cloned from (1) (softirq).
+ * 2. temporary per-cpu pool for stack allocated MPIs (softirq);
+ * 3. current handshake profile cloned from (1) (softirq).
  */
 static TlsMpiPool *
 __mpi_pool(void *addr)
@@ -80,13 +77,6 @@ __mpi_pool(void *addr)
 	 */
 	if ((mp = ttls_ciphersuite_addr_mp(addr))) {
 		mp_name = "ciphersuite";
-		goto check;
-	}
-
-	/* Now, only configuration is possible in non-softirq context. */
-	if (unlikely(!in_serving_softirq())) {
-		mp = cfg_pool;
-		mp_name = "configuration";
 		goto check;
 	}
 
@@ -113,20 +103,36 @@ check:
 	return mp;
 }
 
+void *
+__mpool_alloc_data(TlsMpiPool *mp, size_t n)
+{
+	void *ptr = MPI_POOL_FREE_PTR(mp);
+
+	if (WARN_ON_ONCE(mp->curr + n > (PAGE_SIZE << mp->order)))
+		return NULL;
+	mp->curr += n;
+
+	return ptr;
+}
+
 /**
  * Allocate space for a new MPI within a pool.
  */
 int
 ttls_mpi_pool_alloc_mpi(TlsMpi *x, size_t n)
 {
-	TlsMpiPool *mp = __mpi_pool(x);
+	void *ptr = __mpool_alloc_data(__mpi_pool(x), n);
 
-	if (WARN_ON_ONCE(mp->curr + n > (PAGE_SIZE << mp->order)))
+	if (!ptr)
 		return -ENOMEM;
 
-	mp->curr += n;
+	return (int)((unsigned long)ptr - (unsigned long)x);
+}
 
-	return (int)((unsigned long)MPI_POOL_FREE_PTR(mp) - (unsigned long)x);
+void *
+ttls_mpool_alloc_stck(size_t n)
+{
+	return __mpool_alloc_data(*this_cpu_ptr(&g_tmp_mpool), n);
 }
 
 /**
@@ -139,9 +145,7 @@ ttls_mpi_pool_alloc_mpi(TlsMpi *x, size_t n)
 void
 ttls_mpi_pool_cleanup_ctx(bool zero)
 {
-	TlsMpiPool *mp = in_serving_softirq()
-			 ? *this_cpu_ptr(&g_tmp_mpool)
-			 : cfg_pool;
+	TlsMpiPool *mp = *this_cpu_ptr(&g_tmp_mpool);
 
 	BUG_ON(mp->curr > (PAGE_SIZE << mp->order));
 
@@ -272,11 +276,9 @@ ttls_mpi_profile_create_dh(TlsMpiPool *mp)
 static int
 ttls_mpi_profile_set(TlsCiphersuite *cs)
 {
-	int r;
+	int r = 0;
 	ttls_ecp_group_id ec;
 	TlsMpiPool *mp;
-
-	might_sleep();
 
 	/* Static ciphersuite profiles are always here. */
 	BUG_ON(!cs->mpi_profile[0]);
@@ -284,26 +286,30 @@ ttls_mpi_profile_set(TlsCiphersuite *cs)
 	if (cs->mpi_profile[0]->curr > sizeof(TlsMpiPool))
 		return 0;
 
+	preempt_disable();
+
 	switch (cs->key_exchange) {
 	case TTLS_KEY_EXCHANGE_ECDHE_RSA:
 	case TTLS_KEY_EXCHANGE_ECDHE_ECDSA:
 		for (ec = __TTLS_ECP_DP_FIRST; ec < __TTLS_ECP_DP_N; ++ec) {
 			mp = cs->mpi_profile[ec];
 			if ((r = ttls_mpi_profile_create_ec(mp, ec)))
-				return r;
+				goto cleanup;
 		}
 		break;
 	case TTLS_KEY_EXCHANGE_DHE_RSA:
 		mp = cs->mpi_profile[0];
 		if ((r = ttls_mpi_profile_create_dh(mp)))
-			return r;
+			goto cleanup;
 		break;
 	default:
 		T_ERR("Cannot create a memory profile for %s\n", cs->name);
-		return -EINVAL;
+		r = -EINVAL;
 	}
 
-	return 0;
+cleanup:
+	preempt_enable();
+	return r;
 }
 
 static int
@@ -379,25 +385,16 @@ ttls_mpool_exit(void)
 	TlsMpiPool *mp;
 
 	for_each_possible_cpu(i) {
-		/*
-		 * No need to zeroize the pool memory - the last softirq context
-		 * using it already cleared it.
-		 */
 		mp = *per_cpu_ptr(&g_tmp_mpool, i);
+		ttls_bzero_safe(MPI_POOL_DATA(mp), mp->curr - sizeof(*mp));
 		free_pages((unsigned long)mp, MCTX_ORDER);
 	}
-
-	ttls_mpi_pool_cleanup_ctx(true);
-	free_pages((unsigned long)cfg_pool, cfg_pool->order);
 }
 
 int __init
 ttls_mpool_init(void)
 {
 	int cpu;
-
-	if (!(cfg_pool = __mpi_pool_alloc(0, GFP_KERNEL)))
-		return -ENOMEM;
 
 	for_each_possible_cpu(cpu) {
 		TlsMpiPool **mp = per_cpu_ptr(&g_tmp_mpool, cpu);
