@@ -2742,6 +2742,253 @@ write_int(unsigned long index, unsigned short max, unsigned short mask,
 	res_idx->sz = size;
 }
 
+static unsigned long
+tfw_huffman_encode_string_len(TfwStr *str)
+{
+	TfwStr *c, *end;
+	unsigned long n = 0;
+
+	BUG_ON(TFW_STR_DUP(str));
+
+	TFW_STR_FOR_EACH_CHUNK(c, str, end) {
+		unsigned long i;
+
+		for (i = 0; i < c->len; i++) {
+			n += ht_length[(unsigned char)c->data[i]];
+		}
+	}
+
+	return (n + 7) >> 3;
+}
+
+static int
+tfw_huffman_encode_copy(TfwStr *__restrict src, TfwStr *__restrict dst_str)
+{
+	TfwStr *c, *end;
+	int off = 0;
+	u64 last_word = 0;
+	u64 *dst = (u64 *)dst_str->data;
+	const char *dst_end = dst_str->data + dst_str->len;
+
+#define JOIN_BITS(a, len, b) (((a) << (len)) | (b))
+#define write_bytes(n)							\
+do {									\
+	unsigned int __n = n;						\
+	do {								\
+		if (unlikely(dst_end - (char *)dst == 0))		\
+			return -EINVAL;					\
+		*(char *)dst++ = (char)last_word;			\
+		last_word >>= 8;					\
+	} while (--__n);						\
+} while (0)
+
+	BUG_ON(!TFW_STR_PLAIN(dst_str));
+
+	TFW_STR_FOR_EACH_CHUNK(c, src, end) {
+		unsigned long i;
+
+		for (i = 0; i < c->len; i++) {
+			const unsigned int s = c->data[i];
+			const unsigned int d = 64 - off;
+			const unsigned int e = ht_encode[s];
+			const unsigned int l = ht_length[s];
+
+			off += l;
+			if (l <= d) {
+				last_word = JOIN_BITS(last_word, l, e);
+			} else {
+				off -= 64;
+				last_word = JOIN_BITS(last_word, d, e >> off);
+				if (dst_end - (char *)dst >= sizeof(u64)) {
+					last_word = cpu_to_be64(last_word);
+					*dst = last_word;
+					dst++;
+				} else {
+					write_bytes(sizeof(u64));
+				}
+				last_word = e;
+			}
+		}
+	}
+
+	if (off) {
+		unsigned int tail = off & 7;
+
+		if (tail) {
+			unsigned int d = 8 - tail;
+
+			last_word = JOIN_BITS(last_word, d, HT_EOS_HIGH >> tail);
+			off += d;
+		}
+		last_word <<= 64 - off;
+		last_word = cpu_to_be64(last_word);
+		if (off == 64) {
+			if (dst_end - (char *)dst >= sizeof(u64)) {
+				*dst = last_word;
+				dst++;
+			} else {
+				write_bytes(sizeof(u64));
+			}
+			goto done;
+		}
+		if (off > 31) {
+			if (dst_end - (char *)dst >= sizeof(u32)) {
+				*(u32 *)dst = (u32)last_word;
+				dst = (u64 *)((u32 *)dst + 1);
+			} else {
+				write_bytes(sizeof(u32));
+			}
+			last_word >>= 32;
+			off -= 32;
+		}
+		if (off > 15) {
+			if (dst_end - (char *)dst >= sizeof(u16)) {
+				*(u16 *)dst = (u16)last_word;
+				dst = (u64 *)((u16 *)dst + 1);
+			} else {
+				write_bytes(sizeof(u16));
+			}
+			last_word >>= 16;
+			off -= 16;
+		}
+		if (off) {
+			if (unlikely(dst_end - (char *)dst == 0))
+				return -EINVAL;
+			*(u8 *)dst = (u8)last_word;
+		}
+	}
+
+#undef JOIN_BITS
+#undef write_bytes
+
+done:
+	return 0;
+}
+
+static TfwStr *
+tfw_huffman_encode_string(TfwStr *str, TfwPool *pool)
+{
+	unsigned long enc_len = tfw_huffman_encode_string_len(str);
+	TfwStr *encoded;
+	int r;
+
+	if (!enc_len)
+		return ERR_PTR(-EINVAL);
+	encoded = tfw_pool_alloc(pool, sizeof(TfwStr) + enc_len);
+	if (!encoded)
+		return ERR_PTR(-ENOMEM);
+
+	TFW_STR_INIT(encoded);
+	encoded->data = (char *)(encoded + 1);
+	encoded->len = enc_len;
+
+	r = tfw_huffman_encode_copy(str, encoded);
+
+	return r ? ERR_PTR(r) : encoded;
+}
+
+static int
+tfw_hpack_str_add_raw(TfwHttpTransIter *mit, TfwStr *str, bool in_huffman)
+{
+	int r = 0;
+	TfwHPackInt len;
+	TfwStr len_str = { 0 };
+	unsigned short mask = in_huffman ? 0x80 : 0x0;
+
+	write_int(str->len, 0x7F, mask, &len);
+	len_str.data = len.buf;
+	len_str.len = len.sz;
+
+	r = tfw_h2_msg_rewrite_data(mit, &len_str, mit->bnd);
+	if (unlikely(r))
+		return r;
+
+	return tfw_h2_msg_rewrite_data(mit, str, mit->bnd);
+}
+
+static int
+tfw_hpack_str_expand_raw(TfwHttpTransIter *mit, TfwMsgIter *it,
+			 struct sk_buff **skb_head, TfwStr *str,
+			 bool in_huffman)
+{
+	int r;
+	TfwHPackInt len;
+	TfwStr len_str = { 0 };
+	unsigned short mask = in_huffman ? 0x80 : 0x0;
+
+	write_int(str->len, 0x7F, mask, &len);
+	len_str.data = len.buf;
+	len_str.len = len.sz;
+
+	r = tfw_http_msg_expand_data(it, skb_head, &len_str);
+	if (unlikely(r))
+		return r;
+	mit->acc_len += len_str.len;
+
+	r = tfw_http_msg_expand_data(it, skb_head, str);
+	if (unlikely(r))
+		return r;
+	mit->acc_len += str->len;
+
+	return 0;
+}
+
+/*
+ * Family of functions to add new or append of h2 response. Huffman encoding
+ * is never used due to performance considerations:
+ * - We must write first the size of the string, it has variable size, and
+ *   string encoded with Huffman codes may be shorter or longer than original
+ *   string. The size will be known only after the string is completely encoded.
+ * - We can't encode @str in-place in @str: due to variable-sized coding, we
+ *   can't overwrite symbol-by symbol in place. But this is also not possible
+ *   due to @str origin, some strings are predefined strings from const memory
+ *   region, others are shared for all messages to the same vhost.
+ * - For skb management we need to have exact data size before using API.
+ *
+ * Since these reasons we can't encode @str on the fly or encode it while
+ * writing to skb, so allocate a new string and copy @str encoded value there.
+ * It heavily affect performance, since we have two allocations and two copy
+ * operations here. We decided to keep the code, but our core use cases shows
+ * no performance improvement opportunities.
+ *
+ * TODO: We are free to choose encoding when we're adding a new header, but
+ * we have to (?) preserve original encoding when modifying already existent
+ * headers.
+ */
+static inline int
+tfw_hpack_str_add(TfwHttpTransIter *mit, TfwStr *str, TfwPool *pool)
+{
+	bool in_huffman = false;
+
+	if (0) {
+		str = tfw_huffman_encode_string(str, pool);
+
+		if (IS_ERR(str))
+			return PTR_ERR(str);
+		in_huffman = true;
+	}
+
+	return tfw_hpack_str_add_raw(mit, str, in_huffman);
+}
+
+static inline int
+tfw_hpack_str_expand(TfwHttpTransIter *mit, TfwMsgIter *it,
+		     struct sk_buff **skb_head, TfwStr *str,
+		     TfwPool *pool)
+{
+	bool in_huffman = false;
+
+	if (0) {
+		str = tfw_huffman_encode_string(str, pool);
+
+		if (IS_ERR(str))
+			return PTR_ERR(str);
+		in_huffman = true;
+	}
+
+	return tfw_hpack_str_expand_raw(mit, it, skb_head, str, in_huffman);
+}
+
 /*
  * Add header @hdr in HTTP/2 HPACK format with metadata @idx into the
  * response @resp.
@@ -2751,10 +2998,9 @@ tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 		  TfwHPackInt *__restrict idx, bool name_indexed)
 {
 	int r;
-	TfwHPackInt vlen;
 	TfwStr *c, *end;
 	TfwHttpTransIter *mit = &resp->mit;
-	TfwStr s_val, s_vlen = {};
+	TfwStr s_val;
 	const TfwStr s_idx = {
 		.data = idx->buf,
 		.len = idx->sz,
@@ -2774,21 +3020,7 @@ tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 		return -EINVAL;
 
 	if (unlikely(!name_indexed)) {
-		TfwHPackInt nlen;
-		TfwStr *s_n = TFW_STR_CHUNK(hdr, 0);
-		TfwStr s_name = {
-			.chunks = (TfwStr []){ {}, {} },
-			.nchunks = 2
-		};
-
-		write_int(s_n->len, 0x7F, 0, &nlen);
-		__TFW_STR_CH(&s_name, 0)->data = nlen.buf;
-		__TFW_STR_CH(&s_name, 0)->len = nlen.sz;
-		__TFW_STR_CH(&s_name, 1)->data = s_n->data;
-		__TFW_STR_CH(&s_name, 1)->len = s_n->len;
-		s_name.len = nlen.sz + s_n->len;
-
-		r = tfw_h2_msg_rewrite_data(mit, &s_name, mit->bnd);
+		r = tfw_hpack_str_add(mit, TFW_STR_CHUNK(hdr, 0), resp->pool);
 		if (unlikely(r))
 			return r;
 	}
@@ -2813,19 +3045,7 @@ tfw_hpack_hdr_add(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	end = hdr->chunks + hdr->nchunks;
 	tfw_str_collect_cmp(c, end, &s_val, NULL);
 
-	write_int(s_val.len, 0x7F, 0, &vlen);
-	s_vlen.data = vlen.buf;
-	s_vlen.len = vlen.sz;
-
-	r = tfw_h2_msg_rewrite_data(mit, &s_vlen, mit->bnd);
-	if (unlikely(r))
-		return r;
-
-	r = tfw_h2_msg_rewrite_data(mit, &s_val, mit->bnd);
-	if (unlikely(r))
-		return r;
-
-	return 0;
+	return tfw_hpack_str_add(mit,&s_val, resp->pool);
 }
 
 /*
@@ -2837,12 +3057,11 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 		     TfwHPackInt *__restrict idx, bool name_indexed)
 {
 	int ret;
-	TfwHPackInt nlen, vlen;
-	TfwStr *c, *end, *s_name;
+	TfwStr *c, *end;
 	TfwHttpTransIter *mit = &resp->mit;
 	TfwMsgIter *iter = &mit->iter;
 	struct sk_buff **skb_head = &resp->msg.skb_head;
-	TfwStr s_val, s_nlen = {}, s_vlen = {};
+	TfwStr s_val;
 	TfwStr idx_str = {
 		.data = idx->buf,
 		.len = idx->sz,
@@ -2865,30 +3084,10 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 		return -EINVAL;
 
 	if (unlikely(!name_indexed)) {
-		s_name = TFW_STR_CHUNK(hdr, 0);
-		write_int(s_name->len, 0x7F, 0, &nlen);
-		s_nlen.data = nlen.buf;
-		s_nlen.len = nlen.sz;
-
-		ret = tfw_http_msg_expand_data(iter, skb_head, &s_nlen);
+		ret = tfw_hpack_str_expand(mit, iter, skb_head,
+					   TFW_STR_CHUNK(hdr, 0), NULL);
 		if (unlikely(ret))
 			return ret;
-
-		mit->acc_len += s_nlen.len;
-
-		T_DBG3("%s: name len, acc_len=%lu, s_nlen.len=%lu, s_nlen.data"
-		       "='%.*s'\n", __func__, mit->acc_len, s_nlen.len,
-		       (int)s_nlen.len, s_nlen.data);
-
-		ret = tfw_http_msg_expand_data(iter, skb_head, s_name);
-		if (unlikely(ret))
-			return ret;
-
-		mit->acc_len += s_name->len;
-
-		T_DBG3("%s: name str, acc_len=%lu, s_name.len=%lu, s_name.data"
-		       "='%.*s'\n", __func__, mit->acc_len, s_name->len,
-		       (int)s_name->len, s_name->data);
 	}
 
 	/*
@@ -2911,29 +3110,7 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	end = hdr->chunks + hdr->nchunks;
 	tfw_str_collect_cmp(c, end, &s_val, NULL);
 
-	write_int(s_val.len, 0x7F, 0, &vlen);
-	s_vlen.data = vlen.buf;
-	s_vlen.len = vlen.sz;
-
-	ret = tfw_http_msg_expand_data(iter, skb_head, &s_vlen);
-	if (unlikely(ret))
-		return ret;
-
-	mit->acc_len += s_vlen.len;
-
-	T_DBG3("%s: val len, acc_len=%lu, s_vlen.len=%lu, s_vlen.data='%.*s'\n",
-	       __func__, mit->acc_len, s_vlen.len, (int)s_vlen.len, s_vlen.data);
-
-	ret = tfw_http_msg_expand_data(iter, skb_head, &s_val);
-	if (unlikely(ret))
-		return ret;
-
-	mit->acc_len += s_val.len;
-
-	T_DBG3("%s: val str, acc_len=%lu, s_val.len=%lu, s_val.data='%.*s'\n",
-	       __func__, mit->acc_len, s_val.len, (int)s_val.len, s_val.data);
-
-	return 0;
+	return tfw_hpack_str_expand(mit, iter, skb_head, &s_val, NULL);
 }
 
 /*
