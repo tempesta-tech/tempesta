@@ -5330,7 +5330,8 @@ bad_msg:
 int
 tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream, TfwFsmData *data)
 {
-	BUG_ON(!stream);
+	if (WARN_ON_ONCE(!stream))
+		return -EINVAL;
 	if (unlikely(!stream->msg)) {
 		stream->msg = tfw_http_conn_msg_alloc(conn, stream);
 		if (!stream->msg) {
