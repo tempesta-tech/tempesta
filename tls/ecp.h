@@ -84,7 +84,7 @@ typedef enum {
 	__TTLS_ECP_DP_FIRST,
 	TTLS_ECP_DP_SECP256R1 = __TTLS_ECP_DP_FIRST, /* 256-bits NIST curve */
 	TTLS_ECP_DP_SECP384R1,			     /* 384-bits NIST curve */
-	TTLS_ECP_DP_CURVE25519,			     /* Curve25519 */
+	TTLS_ECP_DP_CURVE25519,			     /* Curve25519, 128 bit */
 	__TTLS_ECP_DP_N
 } ttls_ecp_group_id;
 
@@ -225,9 +225,8 @@ typedef struct {
 } TlsEcpKeypair;
 
 /* Maximum bit size of the groups (that is, of N and P). */
-#define TTLS_ECP_MAX_BITS	 521
+#define TTLS_ECP_MAX_BITS	384
 #define TTLS_ECP_MAX_BYTES	((TTLS_ECP_MAX_BITS + 7) / 8)
-#define TTLS_ECP_MAX_PT_LEN	(2 * TTLS_ECP_MAX_BYTES + 1)
 
 /* Uncompressed is the only point format supported by RFC 8422. */
 #define TTLS_ECP_PF_UNCOMPRESSED	0

@@ -923,7 +923,7 @@ ttls_x509_crt_parse(ttls_x509_crt *chain, unsigned char *buf, size_t buflen)
 	}
 
 	/* Does MPI calculations, so pool context must be freed afterwards. */
-	ttls_mpi_pool_cleanup_ctx(false);
+	ttls_mpi_pool_cleanup_ctx(0, false);
 
 	if (success)
 		return total_failed;

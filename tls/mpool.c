@@ -43,7 +43,6 @@
 #include "ecp.h"
 #include "tls_internal.h"
 
-#define MCTX_ORDER		0 /* one page for temporary MPIs */
 #define MPI_POOL_DATA(mp)	((void *)((char *)(mp) + sizeof(TlsMpiPool)))
 #define MPI_POOL_FREE_PTR(mp)	((void *)((char *)(mp) + mp->curr))
 #define MPI_PROFILE_SZ(mp)	(mp)->curr
@@ -81,14 +80,16 @@ __mpi_pool(void *addr)
 	}
 
 	/* Maximum kernel stack size is 2 pages. */
-	if (sp < a && a < sp + 2 * PAGE_SIZE) {
-		mp = *this_cpu_ptr(&g_tmp_mpool);
-		mp_name = "temporary";
+	if (WARN_ON_ONCE(sp < a && a < sp + 2 * PAGE_SIZE))
+		return NULL;
+
+	mp = *this_cpu_ptr(&g_tmp_mpool);
+	mp_name = "temporary";
+	if ((unsigned long)mp < a && a < (unsigned long)mp + 2 * PAGE_SIZE)
 		goto check;
-	}
 
 	/* FIXME need a safer determination of the pool address. */
-	mp = (TlsMpiPool *)(a & ~((PAGE_SIZE << MCTX_ORDER) - 1));
+	mp = (TlsMpiPool *)(a & ~((PAGE_SIZE << TTLS_MPOOL_ORDER) - 1));
 	mp_name = "handshake";
 
 check:
@@ -108,8 +109,12 @@ __mpool_alloc_data(TlsMpiPool *mp, size_t n)
 {
 	void *ptr = MPI_POOL_FREE_PTR(mp);
 
-	if (WARN_ON_ONCE(mp->curr + n > (PAGE_SIZE << mp->order)))
+	if (WARN(mp->curr + n > (PAGE_SIZE << mp->order),
+		 "Not enough space in pool %pK (order=%u curr=%u)"
+		 " to grow for %lu bytes",
+		 mp, mp->order, mp->curr, n))
 		return NULL;
+
 	mp->curr += n;
 
 	return ptr;
@@ -121,9 +126,13 @@ __mpool_alloc_data(TlsMpiPool *mp, size_t n)
 int
 ttls_mpi_pool_alloc_mpi(TlsMpi *x, size_t n)
 {
-	void *ptr = __mpool_alloc_data(__mpi_pool(x), n);
+	void *ptr;
+	TlsMpiPool *mp = __mpi_pool(x);
 
-	if (!ptr)
+	if (!mp)
+		return -ENOMEM;
+
+	if (!(ptr = __mpool_alloc_data(__mpi_pool(x), n)))
 		return -ENOMEM;
 
 	return (int)((unsigned long)ptr - (unsigned long)x);
@@ -136,22 +145,32 @@ ttls_mpool_alloc_stck(size_t n)
 }
 
 /**
- * Cleanup current CPU memory pool for temporary MPIs.
+ * Cleanup current CPU memory pool for temporary MPIs: partilly, up to @addr,
+ * if it's non zero, or fully otherwise.
  *
- * We do not zeroize configuration pool after each vhost reconfiguration -
- * the data is stored in memory anyway. We zeroize the memory only on the system
- * stop, when the memory is returned to the buddy allocator.
+ * The function call is semantically similar to moving RSP register, but the
+ * funcation call (1) i more expensive and (2) provides memory zeroing.
+ * __mpool_alloc_data() with this function should be used for large MPI
+ * allocations, when the small kernel stack can be overrun.
  */
 void
-ttls_mpi_pool_cleanup_ctx(bool zero)
+ttls_mpi_pool_cleanup_ctx(unsigned long addr, bool zero)
 {
 	TlsMpiPool *mp = *this_cpu_ptr(&g_tmp_mpool);
+	unsigned long clean_off, m = (unsigned long)mp;
 
-	BUG_ON(mp->curr > (PAGE_SIZE << mp->order));
+	if (WARN(mp->curr > (PAGE_SIZE << mp->order),
+		 "MPI pool %pK overran before cleanup, curr=%u order=%u\n",
+		 mp, mp->curr, mp->order)
+	    || WARN(addr && (addr < m || addr > m + (PAGE_SIZE << mp->order)),
+		    "Try to cleanup bad address %lx on MPI pool %pK\n",
+		    addr, mp))
+		return;
 
+	clean_off = addr ? addr - m : sizeof(TlsMpiPool);
 	if (zero)
-		ttls_bzero_safe(MPI_POOL_DATA(mp), mp->curr - sizeof(*mp));
-	mp->curr = sizeof(TlsMpiPool);
+		ttls_bzero_safe((char *)mp + clean_off, mp->curr - clean_off);
+	mp->curr = clean_off;
 }
 
 /**
@@ -180,7 +199,7 @@ void *
 __mpi_pool_alloc(size_t n, gfp_t gfp_mask)
 {
 	TlsMpiPool *mp;
-	unsigned int order = n ? get_order(n + sizeof(*mp)) : MCTX_ORDER;
+	unsigned int order = n ? get_order(n + sizeof(*mp)) : TTLS_MPOOL_ORDER;
 
 	mp = (TlsMpiPool *)__get_free_pages(gfp_mask | __GFP_ZERO, order);
 	if (!mp)
@@ -286,13 +305,14 @@ ttls_mpi_profile_set(TlsCiphersuite *cs)
 	if (cs->mpi_profile[0]->curr > sizeof(TlsMpiPool))
 		return 0;
 
-	preempt_disable();
+	kernel_fpu_begin();
 
 	switch (cs->key_exchange) {
 	case TTLS_KEY_EXCHANGE_ECDHE_RSA:
 	case TTLS_KEY_EXCHANGE_ECDHE_ECDSA:
 		for (ec = __TTLS_ECP_DP_FIRST; ec < __TTLS_ECP_DP_N; ++ec) {
 			mp = cs->mpi_profile[ec];
+			BUG_ON(!mp);
 			if ((r = ttls_mpi_profile_create_ec(mp, ec)))
 				goto cleanup;
 		}
@@ -308,7 +328,7 @@ ttls_mpi_profile_set(TlsCiphersuite *cs)
 	}
 
 cleanup:
-	preempt_enable();
+	kernel_fpu_end();
 	return r;
 }
 
@@ -387,7 +407,7 @@ ttls_mpool_exit(void)
 	for_each_possible_cpu(i) {
 		mp = *per_cpu_ptr(&g_tmp_mpool, i);
 		ttls_bzero_safe(MPI_POOL_DATA(mp), mp->curr - sizeof(*mp));
-		free_pages((unsigned long)mp, MCTX_ORDER);
+		free_pages((unsigned long)mp, TTLS_MPOOL_ORDER);
 	}
 }
 

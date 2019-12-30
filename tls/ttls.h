@@ -30,7 +30,6 @@
 #include <net/tls.h>
 
 #include "lib/str.h"
-#include "bignum.h"
 #include "ciphersuites.h"
 #include "ecp.h"
 #include "x509_crt.h"
@@ -254,15 +253,13 @@ typedef enum {
 	TTLS_ALPN_ID_HTTP2
 } ttls_alpn_proto_id;
 
-/* Dummy type used only for its size */
-union ttls_premaster_secret
-{
-	unsigned char _pms_rsa[48];			/* RFC 5246 8.1.1 */
-	unsigned char _pms_dhm[TTLS_MPI_MAX_SIZE];	/* RFC 5246 8.1.2 */
-	unsigned char _pms_ecdh[TTLS_ECP_MAX_BYTES];
-};
-
-#define TTLS_PREMASTER_SIZE	sizeof(union ttls_premaster_secret)
+/*
+ * Defined as the maximum of:
+ * 1. RSA pre-master secret RFC 5246 8.1.1 (48 bytes);
+ * 2. Maximum ECP size (48 bytes for 384-bit curve).
+ * 3. Maximum MPI size for DHM by RFC 5246 8.1.2.
+ */
+#define TTLS_PREMASTER_SIZE	512
 #define TTLS_HS_RBUF_SZ		TTLS_PREMASTER_SIZE
 
 /* Defined below */
