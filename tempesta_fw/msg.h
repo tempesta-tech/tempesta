@@ -66,7 +66,6 @@ typedef struct {
  *
  * @pool	- allocation pool for target buffer of decoded headers;
  * @parsed_hdr	- pointer to the message header which is currently processed;
- * @hb_len	- length of the message HTTP/2 headers block;
  * @hdrs_len	- accumulated length of message's decoded and parsed headers;
  * @hdrs_cnt	- count of all headers from message headers block;
  * @__off	- offset for iterator reinitializing before next processing
@@ -84,7 +83,6 @@ typedef struct {
 typedef struct {
 	TfwPool		*pool;
 	TfwStr		*parsed_hdr;
-	unsigned long	hb_len;
 	unsigned long	hdrs_len;
 	unsigned int	hdrs_cnt;
 	char		__off[0];

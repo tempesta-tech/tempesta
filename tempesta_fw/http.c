@@ -2967,12 +2967,12 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 {
 	int r;
 	TfwMsgParseIter *pit = &req->pit;
-	ssize_t h1_hdrs_sz = 0;
+	ssize_t h1_hdrs_sz;
 	TfwHttpHdrTbl *ht = req->h_tbl;
 	bool auth = !TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY]);
 	bool host = !TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_HOST]);
 	size_t pseudo_num = auth ? 4 : 3;
-	TfwStr meth = {}, *field, *end;
+	TfwStr meth = {}, host_val = {}, *field, *end;
 	struct sk_buff *new_head = NULL, *old_head = NULL;
 	TfwMsgIter it;
 	const DEFINE_TFW_STR(sp, " ");
@@ -3014,20 +3014,22 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 		.len = SLEN(S_F_CONTENT_TYPE S_V_MULTIPART)
 			+ req->multipart_boundary_raw.len + SLEN(S_CRLF)
 	};
-	unsigned int xff_hid;
 	int h_ct_replace = 0;
 
 	T_DBG3("%s: req [%p] to be converted to http1.1\n", __func__, req);
 
 	/* H2 client may use either authority or host header but at least one
-	 * is sufficient for correct conversion.
+	 * is required for correct conversion.
 	 */
-	if (WARN_ON_ONCE(!auth && !host))
+	if (!auth && !host) {
+		T_WARN("Cant convert h2 request to http/1.1: no authority "
+		       "found\n");
 		return -EINVAL;
+	}
 
 	/*
 	 * First apply message modifications defined by admin in configuration
-	 * file. Ideally we should do it al last stage, when h2 headers are
+	 * file. Ideally we should do it at last stage, when h2 headers are
 	 * copied into h1 buffer and apply modifications during copying. But
 	 * this doesn't allow us to predict h1 headers size before memory
 	 * allocation. Header modifications manual on wiki is already has a
@@ -3067,21 +3069,25 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 		 * header field.
 		 */
 		if (host) {
-			h1_hdrs_sz -= ht->tbl[TFW_HTTP_HDR_HOST].len;
+			h1_hdrs_sz -= ht->tbl[TFW_HTTP_HDR_HOST].len
+					+ SLEN(S_DLM) + SLEN(S_CRLF);
 			h1_hdrs_sz -= SLEN(S_H2_AUTH);
-			h1_hdrs_sz += SLEN(S_F_HOST);
+			/* S_F_HOST already contains S_DLM */
+			h1_hdrs_sz += SLEN(S_F_HOST) - SLEN(S_DLM);
 		}
 		else {
 			h1_hdrs_sz -= SLEN(S_H2_AUTH);
-			h1_hdrs_sz += SLEN(S_F_HOST) + SLEN(S_CRLF);
+			/* S_F_HOST already contains S_DLM */
+			h1_hdrs_sz += SLEN(S_F_HOST) - SLEN(S_DLM);
 		}
 	}
 
 	/* 'x-forwarded-for' header must be updated. */
-	xff_hid = __h2_hdr_lookup((TfwHttpMsg *)req, TFW_STR_CHUNK(&h_xff, 0));
-	if (xff_hid < ht->off) {
+	if (!TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR])) {
+		TfwStr *xff_hdr = &ht->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR];
 		TfwStr *dup, *dup_end;
-		TFW_STR_FOR_EACH_DUP(dup, &ht->tbl[xff_hid], dup_end) {
+
+		TFW_STR_FOR_EACH_DUP(dup, xff_hdr, dup_end) {
 			h1_hdrs_sz -= dup->len + SLEN(S_DLM) + SLEN(S_CRLF);
 		}
 	}
@@ -3118,27 +3124,32 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	r |= tfw_msg_write(&it, &sp);
 	r |= tfw_msg_write(&it, &req->uri_path);
 	r |= tfw_msg_write(&it, &fl_end); /* start of Host: header */
-	if (auth) {
-		r |= tfw_msg_write(&it, &req->host);
-	} else if (host) {
-		TfwStr hostval = {};
-
-		__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_HOST], &hostval);
-		r |= tfw_msg_write(&it, &hostval);
-	}
+	if (auth)
+		__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY], &host_val);
+	else if (host)
+		__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_HOST], &host_val);
+	r |= tfw_msg_write(&it, &host_val);
 	r |= tfw_msg_write(&it, &crlf);
 
 	/* Skip host header: it's already written. */
 	FOR_EACH_HDR_FIELD_FROM(field, end, req, TFW_HTTP_HDR_REGULAR) {
 		TfwStr *dup, *dup_end;
-		unsigned int hid = field - ht->tbl;
 
-		/* Skip already written headers and headers to be modified. */
-		if (hid == TFW_HTTP_HDR_HOST || hid == xff_hid)
+		switch (field - ht->tbl)
+		{
+		case TFW_HTTP_HDR_HOST:
+			continue; /* Already written. */
+		case TFW_HTTP_HDR_X_FORWARDED_FOR:
+			r |= tfw_msg_write(&it, &h_xff);
 			continue;
-		if ((hid == TFW_HTTP_HDR_CONTENT_TYPE) && h_ct_replace) {
-			r |= tfw_msg_write(&it, &h_ct);
-			continue;
+		case TFW_HTTP_HDR_CONTENT_TYPE:
+			if (h_ct_replace) {
+				r |= tfw_msg_write(&it, &h_ct);
+				continue;
+			}
+			break;
+		default:
+			break;
 		}
 
 		if (TFW_STR_EMPTY(field))
@@ -3171,7 +3182,6 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 			goto err;
 	}
 
-	r |= tfw_msg_write(&it, &h_xff);
 	r |= tfw_msg_write(&it, &h_via);
 	/* Finally close headers. */
 	r |= tfw_msg_write(&it, &crlf);
