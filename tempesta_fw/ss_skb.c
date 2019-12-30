@@ -1647,7 +1647,7 @@ ss_skb_cut_extra_data(struct sk_buff *skb_head, struct sk_buff *skb,
 		addr = skb_frag_address(frag);
 	} else {
 		size = skb_headlen(skb);
-		addr = ss_skb_data(skb);
+		addr = skb->data;
 	}
 
 	offset = curr - addr;
@@ -1665,8 +1665,7 @@ ss_skb_cut_extra_data(struct sk_buff *skb_head, struct sk_buff *skb,
 		 * We found the stop pointer; evict the delta between @curr and
 		 * @stop, and exit.
 		 */
-		if (stop_offset >= 0 && stop_offset <= size)
-		{
+		if (stop_offset >= 0 && stop_offset <= size) {
 			if (WARN_ON_ONCE(curr > stop))
 				return -EINVAL;
 
@@ -1713,7 +1712,7 @@ ss_skb_cut_extra_data(struct sk_buff *skb_head, struct sk_buff *skb,
 			frag_num = -1;
 			skb = skb->next;
 			size = skb_headlen(skb);
-			addr = curr = ss_skb_data(skb);
+			addr = curr = skb->data;
 		}
 
 		offset = 0;

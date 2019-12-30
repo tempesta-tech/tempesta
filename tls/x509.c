@@ -12,6 +12,8 @@
  * http://www.itu.int/ITU-T/studygroups/com17/languages/X.680-0207.pdf
  * http://www.itu.int/ITU-T/studygroups/com17/languages/X.690-0207.pdf
  *
+ * Based on mbed TLS, https://tls.mbed.org.
+ *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
@@ -414,7 +416,7 @@ int ttls_x509_get_name(unsigned char **p, const unsigned char *end,
 			/* Mark this item as being no the only one in a set */
 			cur->next_merged = 1;
 
-			cur->next = ttls_calloc(1, sizeof(ttls_x509_name));
+			cur->next = kzalloc(sizeof(ttls_x509_name), GFP_KERNEL);
 
 			if (cur->next == NULL)
 				return(TTLS_ERR_X509_ALLOC_FAILED);
@@ -428,7 +430,7 @@ int ttls_x509_get_name(unsigned char **p, const unsigned char *end,
 		if (*p == end)
 			return 0;
 
-		cur->next = ttls_calloc(1, sizeof(ttls_x509_name));
+		cur->next = kzalloc(sizeof(ttls_x509_name), GFP_KERNEL);
 
 		if (cur->next == NULL)
 			return(TTLS_ERR_X509_ALLOC_FAILED);
@@ -628,7 +630,7 @@ int ttls_x509_get_sig_alg(const ttls_x509_buf *sig_oid, const ttls_x509_buf *sig
 	{
 		ttls_pk_rsassa_pss_options *pss_opts;
 
-		pss_opts = ttls_calloc(1, sizeof(ttls_pk_rsassa_pss_options));
+		pss_opts = kzalloc(sizeof(ttls_pk_rsassa_pss_options), GFP_KERNEL);
 		if (pss_opts == NULL)
 			return(TTLS_ERR_X509_ALLOC_FAILED);
 
@@ -638,7 +640,7 @@ int ttls_x509_get_sig_alg(const ttls_x509_buf *sig_oid, const ttls_x509_buf *sig
 				  &pss_opts->expected_salt_len);
 		if (ret != 0)
 		{
-			ttls_free(pss_opts);
+			kfree(pss_opts);
 			return ret;
 		}
 

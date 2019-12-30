@@ -35,9 +35,6 @@ MODULE_DESCRIPTION("Tempesta DB");
 MODULE_VERSION(TDB_VERSION);
 MODULE_LICENSE("GPL");
 
-/* Lock for atomic execution of lookup and create a record TDB */
-static DEFINE_SPINLOCK(get_alloc_lock);
-
 /**
  * Create TDB entry and copy @len contiguous bytes from @data to the entry.
  */
@@ -246,31 +243,32 @@ tdb_get_db(const char *path, int node)
  * address.
  */
 TdbRec *
-tdb_rec_get_alloc(TDB *db, unsigned long key, size_t *len,
-		  bool (*predicate)(TdbRec *, void (*)(void *), void *),
-		  void (*init)(TdbRec *, void (*)(void *), void *),
-		  void (*cb)(void *), void *data, bool *is_new)
+tdb_rec_get_alloc(TDB *db, unsigned long key, TdbGetAllocCtx *ctx)
 {
 	TdbIter iter;
 	TdbRec *r;
 
-	spin_lock(&get_alloc_lock);
+	spin_lock(&db->ga_lock);
 
-	*is_new = false;
+	ctx->is_new = false;
 	iter = tdb_rec_get(db, key);
 	while (!TDB_ITER_BAD(iter)) {
-		if ((*predicate)(iter.rec, cb, data)) {
-			spin_unlock(&get_alloc_lock);
+		if (ctx->eq_rec(iter.rec,  ctx->ctx)) {
+			spin_unlock(&db->ga_lock);
 			return iter.rec;
 		}
 		tdb_rec_next(db, &iter);
 	}
 
-	*is_new = true;
-	r = tdb_entry_alloc(db, key, len);
-	init(r, cb, data);
+	if (ctx->precreate_rec && ctx->precreate_rec(ctx->ctx)) {
+		spin_unlock(&db->ga_lock);
+		return NULL;
+	}
+	ctx->is_new = true;
+	r = tdb_entry_alloc(db, key, &ctx->len);
+	ctx->init_rec(r, ctx->ctx);
 
-	spin_unlock(&get_alloc_lock);
+	spin_unlock(&db->ga_lock);
 
 	return r;
 }
@@ -317,6 +315,7 @@ tdb_open(const char *path, size_t fsize, unsigned int rec_size, int node)
 	}
 
 	tdb_tbl_enumerate(db);
+	spin_lock_init(&db->ga_lock);
 
 	TDB_LOG("Opened table %s: size=%lu rec_size=%u base=%p\n",
 		path, fsize, rec_size, db->hdr);

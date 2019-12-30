@@ -87,7 +87,7 @@ do {									\
 	tfw_http_msg_add_str_data(msg, &msg->stream->parser.hdr, data, len)
 
 #define __msg_hdr_set_hpack_index(idx)					\
-	TFW_STR_INDEX_SET(&parser->hdr, idx);
+	parser->hdr.hpack_idx = idx;
 
 /**
  * GCC 4.8 (CentOS 7) does a poor work on memory reusage of automatic local
@@ -234,17 +234,23 @@ do {									\
 #define __FSM_I_chunk_flags(flag)					\
 	__FSM_I_field_chunk_flags(&msg->stream->parser.hdr, flag)
 
-#define __FSM_I_MOVE_n(to, n)						\
+#define __FSM_I_MOVE_BY_REF_n(to, n)					\
 do {									\
-	parser->_i_st = &&to;						\
+	parser->_i_st = to;						\
 	p += n;								\
 	if (unlikely(__data_off(p) >= len)) {				\
 		/* Close currently parsed field chunk. */		\
 		__msg_hdr_chunk_fixup(data, len);			\
 		__FSM_EXIT(TFW_POSTPONE);				\
 	}								\
-	goto to;							\
+	goto *to;							\
 } while (0)
+
+#define __FSM_I_MOVE_n(to, n)						\
+	__FSM_I_MOVE_BY_REF_n(&&to, n)
+
+#define __FSM_I_MOVE_BY_REF(to)						\
+	__FSM_I_MOVE_BY_REF_n(to, 1)
 
 #define __FSM_I_MOVE(to)		__FSM_I_MOVE_n(to, 1)
 /* The same as __FSM_I_MOVE_n(), but exactly for jumps w/o data moving. */
@@ -333,7 +339,7 @@ __FSM_STATE(st) {							\
 
 /*
  * Automaton transition with alphabet checking and fallback state.
- * Improbble states only, so cold label.
+ * Improbable states only, so cold label.
  */
 #define __FSM_TX_AF(st, ch, st_next)					\
 __FSM_STATE(st, cold) {							\
@@ -765,7 +771,7 @@ mark_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr)
  * Parsing helpers.
  * @str in TRY_STR_LAMBDA must be in lower case.
  */
-#define TRY_STR_LAMBDA_finish(str, lambda, finish, state)		\
+#define TRY_STR_LAMBDA_BY_REF_finish(str, lambda, finish, state)	\
 	if (!chunk->data)						\
 		chunk->data = p;					\
 	__fsm_n = __try_str(&parser->hdr, chunk, p, __data_remain(p),	\
@@ -774,12 +780,15 @@ mark_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr)
 		if (chunk->len == sizeof(str) - 1) {			\
 			lambda;						\
 			TRY_STR_INIT();					\
-			__FSM_I_MOVE_n(state, __fsm_n);			\
+			__FSM_I_MOVE_BY_REF_n(state, __fsm_n);		\
 		}							\
 		__msg_hdr_chunk_fixup(data, len);			\
 		finish;							\
 		return CSTR_POSTPONE;					\
 	}
+
+#define TRY_STR_LAMBDA_finish(str, lambda, finish, state)		\
+	TRY_STR_LAMBDA_BY_REF_finish(str, lambda, finish, &&state)
 
 /*
  * Store current state if we're going to exit in waiting for new data
@@ -794,6 +803,11 @@ mark_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr)
 #define TRY_STR(str, curr_st, next_st)					\
 	TRY_STR_LAMBDA_finish(str, { }, {				\
 			parser->_i_st = &&curr_st;			\
+		}, next_st)
+
+#define TRY_STR_BY_REF(str, curr_st, next_st)				\
+	TRY_STR_LAMBDA_BY_REF_finish(str, { }, {			\
+			parser->_i_st = curr_st;			\
 		}, next_st)
 
 /**
@@ -1071,6 +1085,8 @@ __FSM_STATE(RGen_BodyInit) {						\
 			TFW_PARSER_BLOCK(RGen_BodyInit);		\
 		if (test_bit(TFW_HTTP_B_CHUNKED, msg->flags))		\
 			__FSM_MOVE_nofixup(RGen_BodyStart);		\
+		/* Process the body until the connection is closed. */	\
+		__set_bit(TFW_HTTP_B_UNLIMITED, msg->flags);		\
 		__FSM_MOVE_nofixup(Resp_BodyUnlimStart);		\
 	}								\
 	if (!TFW_STR_EMPTY(&tbl[TFW_HTTP_HDR_CONTENT_LENGTH])) {	\
@@ -1773,7 +1789,8 @@ STACK_FRAME_NON_STANDARD(__req_parse_content_type);
  * Parse Transfer-Encoding header value, RFC 2616 14.41 and 3.6.
  */
 static int
-__parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
+__parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len,
+			  bool client)
 {
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(hm);
@@ -1818,19 +1835,34 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		__FSM_I_JMP(I_TransEncodOther);
 	}
 
+
+	/*
+	 * RFC 7230 3.3.1:
+	 * If any transfer coding
+	 * other than chunked is applied to a REQUEST payload body, the sender
+	 * MUST apply chunked as the final transfer coding to ensure that the
+	 * message is properly framed. If any transfer coding other than
+	 * chunked is applied to a RESPONSE payload body, the sender MUST either
+	 * apply chunked as the final transfer coding or terminate the message
+	 * by closing the connection.
+	 *
+	 * TODO: process transfer encodings: gzip, deflate, identity,
+	 * compress;
+	 */
 	__FSM_STATE(I_TransEncodOther) {
-		/*
-		 * TODO: process transfer encodings: gzip, deflate, identity,
-		 * compress;
-		 */
 		__FSM_I_MATCH_MOVE(token, I_TransEncodOther);
 		c = *(p + __fsm_sz);
 		if (IS_WS(c) || c == ',')
 			__FSM_I_MOVE_n(I_EoT, __fsm_sz + 1);
 		if (IS_CRLF(c)) {
-			/* "chunked" must be the last coding. */
 			if (unlikely(test_bit(TFW_HTTP_B_CHUNKED, msg->flags)))
-				return CSTR_NEQ;
+			{
+				if (client)
+					return CSTR_NEQ;
+				__clear_bit(TFW_HTTP_B_CHUNKED, msg->flags);
+				__set_bit(TFW_HTTP_B_CHUNKED_APPLIED,
+					  msg->flags);
+			}
 			return __data_off(p + __fsm_sz);
 		}
 		return CSTR_NEQ;
@@ -1851,6 +1883,18 @@ done:
 	return r;
 }
 STACK_FRAME_NON_STANDARD(__parse_transfer_encoding);
+
+static int
+__req_parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
+{
+	return __parse_transfer_encoding(hm, data, len, true);
+}
+
+static int
+__resp_parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len)
+{
+	return __parse_transfer_encoding(hm, data, len, false);
+}
 
 /*
  * ------------------------------------------------------------------------
@@ -1944,7 +1988,6 @@ __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	__FSM_STATE(Req_I_Subtype) {
 		__FSM_I_MATCH_MOVE(token, Req_I_Subtype);
-		c = *(p + __fsm_sz);
 		__FSM_I_MOVE_n(I_EoT, __fsm_sz);
 	}
 
@@ -1977,7 +2020,6 @@ __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (c == '\"')
 			__FSM_I_MOVE(Req_I_QuotedString);
 		__FSM_I_MATCH_MOVE(token, Req_I_ParamValue);
-		c = *(p + __fsm_sz);
 		__FSM_I_MOVE_n(I_EoT, __fsm_sz);
 	}
 
@@ -2192,9 +2234,9 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	/*
 	 * Cookie header is parsed according to RFC 6265 4.2.1.
 	 *
-	 * Here we build header value string manually to split it in chunks:
+	 * Here we build a header value string manually to split it in chunks:
 	 * chunk bounds are at least at name start, value start and value end.
-	 * This simplifies cookie search, http_sticky uses it.
+	 * This simplifies the cookie search, http_sticky uses it.
 	 */
 	__FSM_START(parser->_i_st);
 
@@ -2224,7 +2266,7 @@ __req_parse_cookie(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 	/*
 	 * Cookie-value can have zero length, but we still have to store it
-	 * in separate TfwStr chunk.
+	 * in a separate TfwStr chunk.
 	 */
 	__FSM_STATE(Req_I_CookieVal) {
 		__FSM_I_MATCH_MOVE_fixup(cookie, Req_I_CookieVal, TFW_STR_VALUE);
@@ -2484,274 +2526,311 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__req_parse_referer);
 
-/**
- * Parse response Expires, RFC 2616 14.21.
+static int
+__check_date(unsigned int year, unsigned int month, unsigned int day,
+             unsigned int hour, unsigned int min, unsigned int sec)
+{
+	static const unsigned mday[] = { 31, 28, 31, 30, 31, 30,
+	                                 31, 31, 30, 31, 30, 31 };
+
+	if (hour > 23 || min > 59 || sec > 59)
+		return CSTR_NEQ;
+
+	if (day == 29 && month == 2) {
+		if ((year & 3) || ((year % 100 == 0) && (year % 400) != 0))
+			return CSTR_NEQ;
+	} else if (day > mday[month - 1]) {
+		return CSTR_NEQ;
+	}
+
+	return 0;
+}
+
+#define SEC24H		(24 * 3600)
+/* Number of days between March 1, 1 BC and March 1, 1970 */
+#define EPOCH_DAYS	(1970 * 365 + 1970 / 4 - 1970 / 100 + 1970 / 400)
+
+/*
+ * Returns number of seconds since 1970-01-01.
  *
- * We support only RFC 1123 date as it's most usable by modern software.
- * However RFC 2616 requires that all server and client software MUST support
- * all 3 formats specified in 3.3.1 chapter. We leave this for TODO.
+ * These algorithms internally assume that March 1 is the first day of the year.
  *
  * @return number of seconds since epoch in GMT.
  */
-#define SEC24H		(24 * 3600)
-/* Seconds Before a month in a non leap year. */
-#define SB_FEB		(31 * SEC24H)
-#define SB_MAR		(SB_FEB + 28 * SEC24H)
-#define SB_APR		(SB_MAR + 31 * SEC24H)
-#define SB_MAY		(SB_APR + 30 * SEC24H)
-#define SB_JUN		(SB_MAY + 31 * SEC24H)
-#define SB_JUL		(SB_JUN + 30 * SEC24H)
-#define SB_AUG		(SB_JUL + 31 * SEC24H)
-#define SB_SEP		(SB_AUG + 31 * SEC24H)
-#define SB_OCT		(SB_SEP + 30 * SEC24H)
-#define SB_NOV		(SB_OCT + 31 * SEC24H)
-#define SB_DEC		(SB_NOV + 30 * SEC24H)
-/* Number of days before epoch including leap years. */
-#define EPOCH_DAYS	(1970 * 365 + 1970 / 4 - 1970 / 100 + 1970 / 400)
-
-static int
-__year_day_secs(unsigned int year, unsigned int day_sec)
+static time_t
+__date_secs(unsigned int year, unsigned int month, unsigned int day,
+            unsigned int hour, unsigned int min, unsigned int sec)
 {
-	unsigned int days = year * 365 + year / 4 - year / 100 + year / 400;
+	time_t days;
 
-	/* Add SEC24H if the year is leap and we left Feb behind. */
-	if (year % 4 == 0 && !(year % 100 == 0 && year % 400 != 0))
-		day_sec += SEC24H;
+	if (__check_date(year, month, day, hour, min, sec) < 0)
+		return CSTR_NEQ;
 
-	if (days < EPOCH_DAYS)
-		return -1;
-
-	return (days - EPOCH_DAYS) * SEC24H + day_sec;
+	year -= month <= 2;
+	/* Days in the current year since March 1 */
+	days = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+	/* Days from March 1, 1 BC till March 1 of the current year */
+	days += year * 365 + year / 4 - year / 100 + year / 400;
+	/* 31 and 28 days were in January and February 1970 */
+	return (days - EPOCH_DAYS + 31 + 28) * SEC24H +
+	       hour * 3600 + min * 60 + sec;
 }
 
-static size_t
-__skip_weekday(unsigned char *p, size_t len)
+static time_t
+__parse_month(unsigned int month_int)
 {
-	unsigned char lc, *c, *end = p + len;
-
-	for (c = p; c < end; ++c) {
-		lc = TFW_LC(*c);
-		if ((unsigned)(lc - 'a') > (unsigned)('z' - 'a') && lc != ',')
-			return (*c != ' ') ? CSTR_NEQ : c - p;
+	switch (month_int) {
+	case TFW_CHAR4_INT(' ', 'J', 'a', 'n'):
+		return 1;
+	case TFW_CHAR4_INT(' ', 'F', 'e', 'b'):
+		return 2;
+	case TFW_CHAR4_INT(' ', 'M', 'a', 'r'):
+		return 3;
+	case TFW_CHAR4_INT(' ', 'A', 'p', 'r'):
+		return 4;
+	case TFW_CHAR4_INT(' ', 'M', 'a', 'y'):
+		return 5;
+	case TFW_CHAR4_INT(' ', 'J', 'u', 'n'):
+		return 6;
+	case TFW_CHAR4_INT(' ', 'J', 'u', 'l'):
+		return 7;
+	case TFW_CHAR4_INT(' ', 'A', 'u', 'g'):
+		return 8;
+	case TFW_CHAR4_INT(' ', 'S', 'e', 'p'):
+		return 9;
+	case TFW_CHAR4_INT(' ', 'O', 'c', 't'):
+		return 10;
+	case TFW_CHAR4_INT(' ', 'N', 'o', 'v'):
+		return 11;
+	case TFW_CHAR4_INT(' ', 'D', 'e', 'c'):
+		return 12;
+	default:
+		return CSTR_NEQ;
 	}
-	return len;
 }
+
+typedef enum {
+	RFC_822,
+	RFC_850,
+	ISOC,
+} date_type_t;
 
 static int
 __parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len)
 {
-	static const unsigned long colon_a[] ____cacheline_aligned = {
-		/* ':' (0x3a)(58) Colon */
-		0x0400000000000000UL, 0, 0, 0
+	static const void *st[][23] ____cacheline_aligned = {
+		[RFC_822] = {
+			&&I_Day, &&I_Day, &&I_SP,
+			&&I_MonthBeg, &&I_Month, &&I_Month, &&I_SP,
+			&&I_Year, &&I_Year, &&I_Year, &&I_Year, &&I_SP,
+			&&I_Hour, &&I_Hour, &&I_SC,
+			&&I_Min, &&I_Min, &&I_SC,
+			&&I_Sec, &&I_Sec, &&I_SP,
+			&&I_GMT, &&I_Res
+		},
+		[RFC_850] = {
+			&&I_Day, &&I_Day, &&I_Minus,
+			&&I_MonthBeg, &&I_Month, &&I_Month, &&I_Minus,
+			&&I_Year, &&I_Year, &&I_SP,
+			&&I_Hour, &&I_Hour, &&I_SC,
+			&&I_Min, &&I_Min, &&I_SC,
+			&&I_Sec, &&I_Sec, &&I_SP,
+			&&I_GMT, &&I_Res
+		},
+		[ISOC] = {
+			&&I_MonthBeg, &&I_Month, &&I_Month, &&I_SP,
+			&&I_SpaceOrDay, &&I_Day, &&I_SP,
+			&&I_Hour, &&I_Hour, &&I_SC,
+			&&I_Min, &&I_Min, &&I_SC,
+			&&I_Sec, &&I_Sec, &&I_SP,
+			&&I_Year, &&I_Year, &&I_Year, &&I_Year,
+			&&I_Res
+		}
 	};
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(hm);
 
 	__FSM_START_ALT(parser->_i_st);
 
-	__FSM_STATE(I_Date) {
-		/*
-		 * Skip a weekday with comma (e.g. "Sun,") as redundant
-		 * information.
-		 */
-		__fsm_sz = __data_remain(p);
-		__fsm_n = __skip_weekday(p, __fsm_sz);
-		if (__fsm_sz == __fsm_n)
-			__FSM_I_MOVE_n(I_Date, __fsm_sz);
-		if (unlikely(__fsm_n == CSTR_NEQ))
-			return CSTR_NEQ;
-		__FSM_I_MOVE_n(I_DateDay, __fsm_n + 1);
-	}
-
-	__FSM_STATE(I_DateDay) {
-		__fsm_sz = __data_remain(p);
-		/* Parse a 2-digit day. */
-		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
-		if (__fsm_n == CSTR_POSTPONE) {
-			parser->_i_st = &&I_DateDay;
-			__msg_hdr_chunk_fixup(data, len);
-		}
-		if (__fsm_n < 0)
-			return __fsm_n;
-		if (parser->_acc < 1 || parser->_acc > 31)
-			return CSTR_BADLEN;
-		/* Add seconds in full passed days. */
-		parser->_date = (parser->_acc - 1) * SEC24H;
-		parser->_acc = 0;
-		__FSM_I_MOVE_n(I_DateMonthSP, __fsm_n);
-	}
-
-	__FSM_STATE(I_DateMonthSP) {
-		if (likely(c == ' '))
-			__FSM_I_MOVE(I_DateMonth);
-		return CSTR_NEQ;
-	}
-
 	/*
-	 * RFC 7231 7.1.1.1: month and day fields are case sensitive.
-	 * However, it's not clear whether there are RFC incompliant, but
-	 * innocent, implementations (e.g. the application side may generate
-	 * the header) sending date in wrong case. Also to require case
-	 * insensitiveness of the field we need to introduce one more
-	 * TRY_STR_LAMBDA() version.
+	 * Skip a weekday with comma (e.g. "Sun,") as redundant
+	 * information.
 	 */
-	__FSM_STATE(I_DateMonth) {
-		switch (TFW_LC(c)) {
-		case 'a':
-			__FSM_I_JMP(I_DateMonth_A);
-		case 'j':
-			__FSM_I_JMP(I_DateMonth_J);
-		case 'm':
-			__FSM_I_JMP(I_DateMonth_M);
+	__FSM_STATE(I_WDate1) {
+		if (likely('A' <= c && c <= 'Z'))
+			__FSM_I_MOVE(I_WDate2);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_WDate2) {
+		if (likely('a' <= c && c <= 'z'))
+			__FSM_I_MOVE(I_WDate3);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_WDate3) {
+		if (likely('a' <= c && c <= 'z'))
+			__FSM_I_MOVE(I_WDate4);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_WDate4) {
+		parser->_acc = 0;
+		parser->month_int = ((size_t)' ') << 24;
+		if (likely(c == ',')) {
+			parser->date.type = RFC_822;
+			__FSM_I_MOVE(I_WDaySP);
 		}
-		__FSM_I_JMP(I_DateMonth_Other);
-	}
-
-	__FSM_STATE(I_DateMonth_A) {
-		TRY_STR_LAMBDA("apr ", {
-			parser->_date += SB_APR;
-		}, I_DateMonth_A, I_DateYear);
-		TRY_STR_LAMBDA("aug ", {
-			parser->_date += SB_AUG;
-		}, I_DateMonth_A, I_DateYear);
-		TRY_STR_INIT();
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(I_DateMonth_J) {
-		TRY_STR("jan ", I_DateMonth_J, I_DateYear);
-		TRY_STR_LAMBDA("jun ", {
-			parser->_date += SB_JUN;
-		}, I_DateMonth_J, I_DateYear);
-		TRY_STR_LAMBDA("jul ", {
-			parser->_date += SB_JUL;
-		}, I_DateMonth_J, I_DateYear);
-		TRY_STR_INIT();
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(I_DateMonth_M) {
-		TRY_STR_LAMBDA("mar ", {
-			/* Add SEC24H for leap year on year parsing. */
-			parser->_date += SB_MAR;
-		}, I_DateMonth_M, I_DateYear);
-		TRY_STR_LAMBDA("may ", {
-			parser->_date += SB_MAY;
-		}, I_DateMonth_M,I_DateYear);
-		TRY_STR_INIT();
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(I_DateMonth_Other) {
-		TRY_STR_LAMBDA("feb ", {
-			parser->_date += SB_FEB;
-		}, I_DateMonth_Other, I_DateYear);
-		TRY_STR_LAMBDA("sep ", {
-			parser->_date += SB_SEP;
-		}, I_DateMonth_Other, I_DateYear);
-		TRY_STR_LAMBDA("oct ", {
-			parser->_date += SB_OCT;
-		}, I_DateMonth_Other, I_DateYear);
-		TRY_STR_LAMBDA("nov ", {
-			parser->_date += SB_NOV;
-		}, I_DateMonth_Other, I_DateYear);
-		TRY_STR_LAMBDA("dec ", {
-			parser->_date += SB_DEC;
-		}, I_DateMonth_Other, I_DateYear);
-		TRY_STR_INIT();
-		return CSTR_NEQ;
-	}
-
-	/* 4-digit year. */
-	__FSM_STATE(I_DateYear) {
-		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
-		if (__fsm_n == CSTR_POSTPONE) {
-			parser->_i_st = &&I_DateYear;
-			__msg_hdr_chunk_fixup(data, len);
+		if ('a' <= c && c <= 'z') {
+			parser->date.type = RFC_850;
+			__FSM_I_MOVE(I_WDate5);
 		}
-		if (__fsm_n < 0)
-			return __fsm_n;
-		parser->_date = __year_day_secs(parser->_acc, parser->_date);
-		if (parser->_date < 0)
+		if (c == ' ') {
+			parser->date.type = ISOC;
+			__FSM_I_MOVE_BY_REF(
+				st[parser->date.type][parser->date.pos]);
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_WDate5) {
+		if ('a' <= c && c <= 'z')
+			__FSM_I_MOVE(I_WDate5);
+		if (c == ',')
+			__FSM_I_MOVE(I_WDaySP);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_WDaySP) {
+		if (likely(c == ' '))
+			__FSM_I_MOVE_BY_REF(
+				st[parser->date.type][parser->date.pos]);
+		return CSTR_NEQ;
+	}
+
+#define __NEXT_TEMPL_STATE()						\
+do {									\
+	++parser->date.pos;						\
+	__FSM_I_MOVE_BY_REF(st[parser->date.type][parser->date.pos]);	\
+} while (0)
+
+	__FSM_STATE(I_SP) {
+		if (likely(c == ' '))
+			__NEXT_TEMPL_STATE();
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_Minus) {
+		if (likely(c == '-'))
+			__NEXT_TEMPL_STATE();
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_SC) {
+		if (likely(c == ':'))
+			__NEXT_TEMPL_STATE();
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_SpaceOrDay) {
+		if (c == ' ')
+			__NEXT_TEMPL_STATE();
+		if ('0' <= c && c <= '9') {
+			parser->date.day = parser->date.day * 10 + (c - '0');
+			__NEXT_TEMPL_STATE();
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_Day) {
+		if ('0' <= c && c <= '9') {
+			parser->date.day = parser->date.day * 10 + (c - '0');
+			__NEXT_TEMPL_STATE();
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_MonthBeg) {
+		if ('A' <= c && c <= 'Z') {
+			parser->month_int =
+				((size_t)c) << 24 | (parser->month_int >> 8);
+			__NEXT_TEMPL_STATE();
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_Month) {
+		if ('a' <= c && c <= 'z') {
+			parser->month_int =
+				((size_t)c) << 24 | (parser->month_int >> 8);
+			__NEXT_TEMPL_STATE();
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_Year) {
+		if ('0' <= c && c <= '9') {
+			parser->date.year = parser->date.year * 10 + (c - '0');
+			__NEXT_TEMPL_STATE();
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_Hour) {
+		if ('0' <= c && c <= '9') {
+			parser->date.hour = parser->date.hour * 10 + (c - '0');
+			__NEXT_TEMPL_STATE();
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_Min) {
+		if ('0' <= c && c <= '9') {
+			parser->date.min = parser->date.min * 10 + (c - '0');
+			__NEXT_TEMPL_STATE();
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_Sec) {
+		if ('0' <= c && c <= '9') {
+			parser->date.sec = parser->date.sec * 10 + (c - '0');
+			__NEXT_TEMPL_STATE();
+		}
+		return CSTR_NEQ;
+	}
+#undef __NEXT_TEMPL_STATE
+
+	__FSM_STATE(I_GMT) {
+		TRY_STR_BY_REF("gmt", &&I_GMT,
+		               st[parser->date.type][parser->date.pos + 1]);
+		TRY_STR_INIT();
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_Res) {
+		unsigned int month;
+		time_t date;
+
+		month = __parse_month(parser->month_int);
+		if (month < 0)
 			return CSTR_NEQ;
-		parser->_acc = 0;
-		__FSM_I_MOVE_n(I_DateHourSP, __fsm_n);
-	}
 
-	__FSM_STATE(I_DateHourSP) {
-		if (likely(c == ' '))
-			__FSM_I_MOVE(I_DateHour);
-		return CSTR_NEQ;
-	}
+		if (parser->date.year < 100)
+			parser->date.year += (parser->date.year < 70) ? 2000
+			                                              : 1900;
 
-	__FSM_STATE(I_DateHour) {
-		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_acc);
-		if (__fsm_n == CSTR_POSTPONE) {
-			parser->_i_st = &&I_DateHour;
-			__msg_hdr_chunk_fixup(data, len);
-		}
-		if (__fsm_n < 0)
-			return __fsm_n;
-		parser->_date += parser->_acc * 3600;
-		parser->_acc = 0;
-		__FSM_I_MOVE_n(I_DateMinCln, __fsm_n);
-	}
-
-	__FSM_STATE(I_DateMinCln) {
-		if (likely(c == ':'))
-			__FSM_I_MOVE(I_DateMin);
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(I_DateMin) {
-		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_acc);
-		if (__fsm_n == CSTR_POSTPONE) {
-			parser->_i_st = &&I_DateMin;
-			__msg_hdr_chunk_fixup(data, len);
-		}
-		if (__fsm_n < 0)
-			return __fsm_n;
-		parser->_date += parser->_acc * 60;
-		parser->_acc = 0;
-		__FSM_I_MOVE_n(I_DateSecCln, __fsm_n);
-	}
-
-	__FSM_STATE(I_DateSecCln) {
-		if (likely(c == ':'))
-			__FSM_I_MOVE(I_DateSec);
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(I_DateSec) {
-		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
-		if (__fsm_n == CSTR_POSTPONE) {
-			parser->_i_st = &&I_DateSec;
-			__msg_hdr_chunk_fixup(data, len);
-		}
-		if (__fsm_n < 0)
-			return __fsm_n;
-		parser->_date += parser->_acc;
-		parser->_acc = 0;
-		__FSM_I_MOVE_n(I_DateSecSP, __fsm_n);
-	}
-
-	__FSM_STATE(I_DateSecSP) {
-		if (likely(c == ' '))
-			__FSM_I_MOVE(I_DateZone);
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(I_DateZone) {
-		TRY_STR("gmt", I_DateZone, I_EoL);
-		TRY_STR_INIT();
-		return CSTR_NEQ;
+		date = __date_secs(parser->date.year, month,
+		                   parser->date.day, parser->date.hour,
+		                   parser->date.min, parser->date.sec);
+		if (date < 0)
+			return CSTR_NEQ;
+		parser->_date = date;
+		__FSM_JMP(I_EoL);
 	}
 
 	__FSM_STATE(I_EoL) {
+		parser->_acc = 0;
 		/* Skip the rest of the line. */
 		__FSM_I_MATCH_MOVE(nctl, I_EoL);
 		if (!IS_CRLF(*(p + __fsm_sz)))
@@ -2788,7 +2867,7 @@ __req_parse_if_msince(TfwHttpMsg *msg, unsigned char *data, size_t len)
 		r = __parse_http_date(msg, data, len);
 	}
 
-	if (r >= 0) {
+	if (r >= 0 && parser->_date != 0) {
 		req->cond.m_date = parser->_date;
 		req->cond.flags |= TFW_HTTP_COND_IF_MSINCE;
 	}
@@ -2999,7 +3078,7 @@ STACK_FRAME_NON_STANDARD(__parse_keep_alive);
 static int
 __parse_uri_mark(TfwHttpReq *req, unsigned char *data, size_t len)
 {
-	TfwStr *str;
+	const TfwStr *str;
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(req);
 
@@ -3046,6 +3125,156 @@ done:
 	return r;
 }
 STACK_FRAME_NON_STANDARD(__parse_uri_mark);
+
+/* Parse method override request headers. */
+static int
+__parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(req);
+
+	__FSM_START(parser->_i_st);
+
+	__FSM_STATE(I_Meth_Start) {
+		switch (TFW_LC(c)) {
+		case 'c':
+			__FSM_I_JMP(I_Meth_C);
+		case 'd':
+			__FSM_I_JMP(I_Meth_D);
+		case 'g':
+			__FSM_I_JMP(I_Meth_G);
+		case 'h':
+			__FSM_I_JMP(I_Meth_H);
+		case 'l':
+			__FSM_I_JMP(I_Meth_L);
+		case 'm':
+			__FSM_I_JMP(I_Meth_M);
+		case 'o':
+			__FSM_I_JMP(I_Meth_O);
+		case 'p':
+			__FSM_I_JMP(I_Meth_P);
+		case 't':
+			__FSM_I_JMP(I_Meth_T);
+		case 'u':
+			__FSM_I_JMP(I_Meth_U);
+		}
+		__FSM_I_MOVE(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_C) {
+		TRY_STR_LAMBDA("copy", {
+			req->method_override = TFW_HTTP_METH_COPY;
+		} , I_Meth_C, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_D) {
+		TRY_STR_LAMBDA("delete", {
+			req->method_override = TFW_HTTP_METH_DELETE;
+		} , I_Meth_D, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_G) {
+		TRY_STR_LAMBDA("get", {
+			req->method_override = TFW_HTTP_METH_GET;
+		} , I_Meth_G, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_H) {
+		TRY_STR_LAMBDA("head", {
+			req->method_override = TFW_HTTP_METH_HEAD;
+		} , I_Meth_H, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_L) {
+		TRY_STR_LAMBDA("lock", {
+			req->method_override = TFW_HTTP_METH_LOCK;
+		} , I_Meth_L, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_M) {
+		TRY_STR_LAMBDA("mkcol", {
+			req->method_override = TFW_HTTP_METH_MKCOL;
+		} , I_Meth_M, I_EoT);
+		TRY_STR_LAMBDA("move", {
+			req->method_override = TFW_HTTP_METH_MOVE;
+		} , I_Meth_M, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_O) {
+		TRY_STR_LAMBDA("options", {
+			req->method_override = TFW_HTTP_METH_OPTIONS;
+		} , I_Meth_O, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_P) {
+		TRY_STR_LAMBDA("patch", {
+			req->method_override = TFW_HTTP_METH_PATCH;
+		} , I_Meth_P, I_EoT);
+		TRY_STR_LAMBDA("post", {
+			req->method_override = TFW_HTTP_METH_POST;
+		} , I_Meth_P, I_EoT);
+		TRY_STR_LAMBDA("propfind", {
+			req->method_override = TFW_HTTP_METH_PROPFIND;
+		} , I_Meth_P, I_EoT);
+		TRY_STR_LAMBDA("proppatch", {
+			req->method_override = TFW_HTTP_METH_PROPPATCH;
+		} , I_Meth_P, I_EoT);
+		TRY_STR_LAMBDA("put", {
+			req->method_override = TFW_HTTP_METH_PUT;
+		} , I_Meth_P, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_T) {
+		TRY_STR_LAMBDA("trace", {
+			req->method_override = TFW_HTTP_METH_TRACE;
+		} , I_Meth_T, I_EoT);
+		TRY_STR_INIT();
+	}
+
+	__FSM_STATE(I_Meth_U) {
+		TRY_STR_LAMBDA("unlock", {
+			req->method_override = TFW_HTTP_METH_UNLOCK;
+		} , I_Meth_U, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_Unknown) {
+		__FSM_I_MATCH_MOVE(token, I_Meth_Unknown);
+		req->method_override = _TFW_HTTP_METH_UNKNOWN;
+		__FSM_I_MOVE_n(I_EoT, __fsm_sz);
+	}
+
+	__FSM_STATE(I_EoT) {
+		if (IS_TOKEN(c))
+			__FSM_I_MOVE(I_Meth_Unknown);
+		if (IS_WS(c))
+			__FSM_I_MOVE(I_EoT);
+		if (IS_CRLF(c))
+			return __data_off(p);
+		return CSTR_NEQ;
+	}
+
+done:
+	return r;
+}
+STACK_FRAME_NON_STANDARD(__parse_m_override);
 
 /**
  * Init parser fields common for both response and request.
@@ -3512,7 +3741,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 			if (likely(__data_available(p, 16)
 				   && *(p + 1) == '-'
 				   && *(p + 11) == '-'
-				   /* Safe match: '-' = 0x2d = 0x2d | 0x20. */
+				   /* Safe match: '-' is checked above. */
 				   && C8_INT_LCM(p, 'x', '-', 'f', 'o',
 						 'r', 'w', 'a', 'r')
 				   && C8_INT7_LCM(p + 8, 'd', 'e', 'd', '-',
@@ -3520,6 +3749,46 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 			{
 				parser->_i_st = &&Req_HdrX_Forwarded_ForV;
 				__FSM_MOVE_n(RGen_LWS, 16);
+			}
+			if (likely(__data_available(p, 14)
+				   && *(p + 1) == '-'
+				   && *(p + 7) == '-'
+				   /* Safe match: '-' is checked above. */
+				   && C8_INT_LCM(p, 'x', '-', 'h', 't',
+						 't', 'p', '-', 'm')
+				   && C4_INT_LCM(p + 8, 'e', 't', 'h', 'o')
+				   && TFW_LC(*(p + 12) == 'd')
+				   && *(p + 10) == ':'))
+			{
+				parser->_i_st = &&Req_HdrX_Method_OverrideV;
+				__FSM_MOVE_n(RGen_LWS, 14);
+			}
+			if (likely(__data_available(p, 23)
+				   && *(p + 1) == '-'
+				   && *(p + 7) == '-'
+				   && *(p + 14) == '-'
+				   /* Safe match: '-' is checked above. */
+				   && C8_INT_LCM(p, 'x', '-', 'h', 't',
+						 't', 'p', '-', 'm')
+				   && C8_INT_LCM(p + 8, 'e', 't', 'h', 'o',
+						 'd', '-', 'o', 'v')
+				   && C8_INT7_LCM(p + 16, 'v', 'e', 'r', 'r',
+						  'i', 'd', 'e', ':')))
+			{
+				parser->_i_st = &&Req_HdrX_Method_OverrideV;
+				__FSM_MOVE_n(RGen_LWS, 23);
+			}
+			if (likely(__data_available(p, 18)
+				   && *(p + 1) == '-'
+				   && *(p + 9) == '-'
+				   /* Safe match: '-' is checked above. */
+				   && C8_INT_LCM(p + 2, 'm', 'e', 't', 'h',
+						 'o', 'd', '-', 'o')
+				   && C8_INT7_LCM(p + 10, 'v', 'e', 'r', 'r',
+						 'i', 'd', 'e', ':')))
+			{
+				parser->_i_st = &&Req_HdrX_Method_OverrideV;
+				__FSM_MOVE_n(RGen_LWS, 18);
 			}
 			__FSM_MOVE(Req_HdrX);
 		case 'u':
@@ -3615,7 +3884,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 
 	/* 'Transfer-Encoding:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrTransfer_EncodingV, msg,
-				   __parse_transfer_encoding,
+				   __req_parse_transfer_encoding,
 				   TFW_HTTP_HDR_TRANSFER_ENCODING);
 
 	/* 'X-Forwarded-For:*OWS' is read, process field-value. */
@@ -3631,6 +3900,13 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 	/* 'Cookie:*OWS' is read, process field-value. */
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrCookieV, msg, __req_parse_cookie,
 				     TFW_HTTP_HDR_COOKIE, 0);
+
+	/*
+	 * 'X-HTTP-Method:*OWS' OR 'X-HTTP-Method-Override:*OWS' OR
+	 * 'X-Method-Override:*OWS' is read, process field-value.
+	*/
+	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrX_Method_OverrideV, req,
+				  __parse_m_override);
 
 	RGEN_HDR_OTHER();
 	RGEN_OWS();
@@ -4131,9 +4407,21 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_TX_AF(Req_HdrTransfer_Encodin, 'g', Req_HdrTransfer_Encoding);
 	__FSM_TX_AF_OWS(Req_HdrTransfer_Encoding, Req_HdrTransfer_EncodingV);
 
-	/* X-Forwarded-For header processing. */
 	__FSM_TX_AF(Req_HdrX, '-', Req_HdrX_);
-	__FSM_TX_AF(Req_HdrX_, 'f', Req_HdrX_F);
+	__FSM_STATE(Req_HdrX_, cold) {
+		switch (TFW_LC(c)) {
+		case 'f':
+			__FSM_MOVE(Req_HdrX_F);
+		case 'h':
+			__FSM_MOVE(Req_HdrX_H);
+		case 'm':
+			__FSM_MOVE(Req_HdrX_M);
+		default:
+			__FSM_JMP(RGen_HdrOtherN);
+		}
+	}
+
+	/* X-Forwarded-For header processing. */
 	__FSM_TX_AF(Req_HdrX_F, 'o', Req_HdrX_Fo);
 	__FSM_TX_AF(Req_HdrX_Fo, 'r', Req_HdrX_For);
 	__FSM_TX_AF(Req_HdrX_For, 'w', Req_HdrX_Forw);
@@ -4151,6 +4439,57 @@ Req_Method_1CharStep: __attribute__((cold))
 	 * '[' after OWS.
 	 */
 	__FSM_TX_AF_OWS(Req_HdrX_Forwarded_For,  Req_HdrX_Forwarded_ForV);
+
+	/* X-Method-Override header processing. */
+	__FSM_TX_AF(Req_HdrX_M, 'e', Req_HdrX_Me);
+	__FSM_TX_AF(Req_HdrX_Me, 't', Req_HdrX_Met);
+	__FSM_TX_AF(Req_HdrX_Met, 'h', Req_HdrX_Meth);
+	__FSM_TX_AF(Req_HdrX_Meth, 'o', Req_HdrX_Metho);
+	__FSM_TX_AF(Req_HdrX_Metho, 'd', Req_HdrX_Method);
+	__FSM_TX_AF(Req_HdrX_Method, '-', Req_HdrX_Method_);
+	__FSM_TX_AF(Req_HdrX_Method_, 'o', Req_HdrX_Method_O);
+	__FSM_TX_AF(Req_HdrX_Method_O, 'v', Req_HdrX_Method_Ov);
+	__FSM_TX_AF(Req_HdrX_Method_Ov, 'e', Req_HdrX_Method_Ove);
+	__FSM_TX_AF(Req_HdrX_Method_Ove, 'r', Req_HdrX_Method_Over);
+	__FSM_TX_AF(Req_HdrX_Method_Over, 'r', Req_HdrX_Method_Overr);
+	__FSM_TX_AF(Req_HdrX_Method_Overr, 'i', Req_HdrX_Method_Overri);
+	__FSM_TX_AF(Req_HdrX_Method_Overri, 'd', Req_HdrX_Method_Overrid);
+	__FSM_TX_AF(Req_HdrX_Method_Overrid, 'e', Req_HdrX_Method_Override);
+	__FSM_TX_AF_OWS(Req_HdrX_Method_Override, Req_HdrX_Method_OverrideV);
+
+	/* X-HTTP-Method header processing. */
+	__FSM_TX_AF(Req_HdrX_H, 't', Req_HdrX_Ht);
+	__FSM_TX_AF(Req_HdrX_Ht, 't', Req_HdrX_Htt);
+	__FSM_TX_AF(Req_HdrX_Htt, 'p', Req_HdrX_Http);
+	__FSM_TX_AF(Req_HdrX_Http, '-', Req_HdrX_Http_);
+	__FSM_TX_AF(Req_HdrX_Http_, 'm', Req_HdrX_Http_M);
+	__FSM_TX_AF(Req_HdrX_Http_M, 'e', Req_HdrX_Http_Me);
+	__FSM_TX_AF(Req_HdrX_Http_Me, 't', Req_HdrX_Http_Met);
+	__FSM_TX_AF(Req_HdrX_Http_Met, 'h', Req_HdrX_Http_Meth);
+	__FSM_TX_AF(Req_HdrX_Http_Meth, 'o', Req_HdrX_Http_Metho);
+	__FSM_TX_AF(Req_HdrX_Http_Metho, 'd', Req_HdrX_Http_Method);
+	__FSM_STATE(Req_HdrX_Http_Method, cold) {
+		switch (c) {
+		case '-':
+			__FSM_MOVE(Req_HdrX_Http_Method_);
+		case ':':
+			parser->_i_st = &&Req_HdrX_Method_OverrideV;
+			__FSM_MOVE(RGen_LWS);
+		default:
+			__FSM_JMP(RGen_HdrOtherN);
+		}
+	}
+
+	/* X-HTTP-Method-Override processing. */
+	__FSM_TX_AF(Req_HdrX_Http_Method_, 'o', Req_HdrX_Http_Method_O);
+	__FSM_TX_AF(Req_HdrX_Http_Method_O, 'v', Req_HdrX_Http_Method_Ov);
+	__FSM_TX_AF(Req_HdrX_Http_Method_Ov, 'e', Req_HdrX_Http_Method_Ove);
+	__FSM_TX_AF(Req_HdrX_Http_Method_Ove, 'r', Req_HdrX_Http_Method_Over);
+	__FSM_TX_AF(Req_HdrX_Http_Method_Over, 'r', Req_HdrX_Http_Method_Overr);
+	__FSM_TX_AF(Req_HdrX_Http_Method_Overr, 'i', Req_HdrX_Http_Method_Overri);
+	__FSM_TX_AF(Req_HdrX_Http_Method_Overri, 'd', Req_HdrX_Http_Method_Overrid);
+	__FSM_TX_AF(Req_HdrX_Http_Method_Overrid, 'e', Req_HdrX_Http_Method_Override);
+	__FSM_TX_AF_OWS(Req_HdrX_Http_Method_Override, Req_HdrX_Method_OverrideV);
 
 	/* User-Agent header processing. */
 	__FSM_TX_AF(Req_HdrU, 's', Req_HdrUs);
@@ -4581,6 +4920,21 @@ do {									\
 	__FSM_EXIT(CSTR_POSTPONE);					\
 } while (0)
 
+#define __FSM_H2_I_MOVE_BY_REF_NEQ_LAMBDA_n(to, n, lambda)		\
+do {									\
+	parser->_i_st = to;						\
+	p += n;								\
+	if (__data_off(p) < len)					\
+		goto *to;						\
+	if (likely(fin)) {						\
+		lambda;							\
+		__FSM_EXIT(CSTR_NEQ);					\
+	}								\
+	__msg_hdr_chunk_fixup(data, len);				\
+	__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);				\
+	__FSM_EXIT(CSTR_POSTPONE);					\
+} while (0)
+
 #define __FSM_H2_I_MOVE_n(to, n)					\
 	__FSM_H2_I_MOVE_LAMBDA_n(to, n, {})
 
@@ -4588,6 +4942,9 @@ do {									\
 
 #define __FSM_H2_I_MOVE_NEQ(to, n)					\
 	__FSM_H2_I_MOVE_NEQ_LAMBDA_n(to, n, {})
+
+#define __FSM_H2_I_MOVE_BY_REF_NEQ(to, n)				\
+	__FSM_H2_I_MOVE_BY_REF_NEQ_LAMBDA_n(to, n, {})
 
 #define __FSM_H2_I_MATCH(alphabet)					\
 do {									\
@@ -4730,6 +5087,32 @@ do {									\
 		__FSM_EXIT(CSTR_EQ);					\
 	}, curr_st, next_st)
 
+#define H2_TRY_STR_LAMBDA_BY_REF_finish(str, lambda1, lambda2, finish, state)\
+	if (!chunk->data)						\
+		chunk->data = p;					\
+	__fsm_n = __try_str(&parser->hdr, chunk, p, __data_remain(p),	\
+			    str, sizeof(str) - 1);			\
+	if (__fsm_n > 0) {						\
+		if (chunk->len == sizeof(str) - 1) {			\
+			lambda1;					\
+			TRY_STR_INIT();					\
+			__FSM_H2_I_MOVE_BY_REF_NEQ_LAMBDA_n(state, __fsm_n, lambda2);	\
+		}							\
+		if (likely(fin))					\
+			return CSTR_NEQ;				\
+		__msg_hdr_chunk_fixup(data, len);			\
+		__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);			\
+		finish;							\
+		__FSM_EXIT(CSTR_POSTPONE);				\
+	}
+
+#define H2_TRY_STR_BY_REF(str, curr_st, next_st)			\
+	H2_TRY_STR_LAMBDA_BY_REF_finish(str, { }, {			\
+		__FSM_EXIT(CSTR_NEQ);					\
+	}, {								\
+		parser->_i_st = curr_st;				\
+	}, next_st)
+
 /**
  * The same as @H2_TRY_STR_2LAMBDA(), but with explicit chunks control;
  * besides, @str must be of plain @TfwStr{} type and variable @fld is
@@ -4781,17 +5164,63 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_START(parser->_i_st);
 
+	__FSM_STATE(Req_I_WSAccept) {
+		if (IS_WS(c))
+			__FSM_H2_I_MOVE(Req_I_WSAccept);
+		/* Fall through. */
+	}
+
 	__FSM_STATE(Req_I_Accept) {
-		H2_TRY_STR_LAMBDA("text/html", {
-			__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
-			__FSM_EXIT(CSTR_EQ);
-		}, Req_I_Accept, Req_I_AcceptHtml);
-		H2_TRY_STR_LAMBDA("*/*", {
-			__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
-			__FSM_EXIT(CSTR_EQ);
-		}, Req_I_Accept, Req_I_AcceptHtml);
+		H2_TRY_STR_LAMBDA("text", {
+			__FSM_EXIT(CSTR_NEQ);
+		}, Req_I_Accept, Req_I_AfterText);
+		/*
+		 * TRY_STR() compares the string with the substring at the
+		 * beginning of the chunk sequence, but @c is the first
+		 * non-matching character with the string of the previous
+		 * TRY_STR(). If we will use @c to compare with "*", then we will
+		 * catch matches not only with "*", but also with "t*", "te*",
+		 * "tex*".
+		 */
+		H2_TRY_STR_LAMBDA("*", {
+			__FSM_EXIT(CSTR_NEQ);
+		}, Req_I_Accept, Req_I_AfterStar);
 		TRY_STR_INIT();
-		__FSM_I_JMP(Req_I_AcceptOther);
+		if (IS_TOKEN(c))
+			__FSM_I_JMP(Req_I_Type);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_AfterText) {
+		if (c == '/')
+			__FSM_H2_I_MOVE(Req_I_AfterTextSlash);
+
+		__FSM_H2_I_MOVE(Req_I_Type);
+	}
+
+	__FSM_STATE(Req_I_AfterTextSlash) {
+		H2_TRY_STR_LAMBDA("html", {
+			__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
+			__FSM_EXIT(CSTR_EQ);
+		},  Req_I_AfterTextSlash, Req_I_AcceptHtml);
+		TRY_STR_INIT();
+		__FSM_I_JMP(Req_I_Subtype);
+	}
+
+	__FSM_STATE(Req_I_AfterStar) {
+		if (c == '/')
+			__FSM_H2_I_MOVE(Req_I_StarSlashStar);
+		if (IS_TOKEN(c))
+			__FSM_I_JMP(Req_I_Type);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_StarSlashStar) {
+		if (c == '*')
+			__FSM_H2_I_MOVE_LAMBDA_n(Req_I_AcceptHtml, 1, {
+				__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
+			});
+		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(Req_I_AcceptHtml) {
@@ -4799,26 +5228,84 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 			__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
 			__FSM_I_JMP(I_EoT);
 		}
-		/* Fall through. */
+		__FSM_I_JMP(Req_I_Subtype);
+	}
+
+	__FSM_STATE(Req_I_Type) {
+		__FSM_H2_I_MATCH_MOVE_LAMBDA(token, Req_I_Type, {
+			__FSM_EXIT(CSTR_NEQ);
+		});
+		c = *(p + __fsm_sz);
+		if (c == '/')
+			__FSM_H2_I_MOVE_n(Req_I_Slash, __fsm_sz + 1);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_Slash) {
+		if (IS_TOKEN(c))
+			__FSM_I_JMP(Req_I_Subtype);
+		if (c == '*')
+			__FSM_H2_I_MOVE(I_EoT);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_Subtype) {
+		__FSM_H2_I_MATCH_MOVE(token, Req_I_Subtype);
+		__FSM_H2_I_MOVE_n(I_EoT, __fsm_sz);
+	}
+
+	__FSM_STATE(Req_I_QValue) {
+		if (isdigit(c) || c == '.')
+			__FSM_H2_I_MOVE(Req_I_QValue);
+		__FSM_I_JMP(I_EoT);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_WSAcceptOther) {
+		if (IS_WS(c))
+			__FSM_H2_I_MOVE(Req_I_WSAcceptOther);
+		if (IS_TOKEN(c))
+			__FSM_I_JMP(Req_I_AcceptOther);
+		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(Req_I_AcceptOther) {
-		__FSM_H2_I_MATCH_MOVE(uri, Req_I_AcceptOther);
+		H2_TRY_STR_LAMBDA("q=", {
+			__FSM_EXIT(CSTR_NEQ);
+		}, Req_I_AcceptOther, Req_I_QValue);
+		TRY_STR_INIT();
+		__FSM_H2_I_MATCH_MOVE(token, Req_I_AcceptOther);
 		c = *(p + __fsm_sz);
-		if (IS_WS(c) || c == ',')
-			__FSM_H2_I_MOVE_n(I_EoT, __fsm_sz + 1);
+		if (c == '=')
+			__FSM_H2_I_MOVE_n(Req_I_ParamValue, __fsm_sz + 1);
 		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Req_I_ParamValue) {
+		if (c == '\"')
+			__FSM_H2_I_MOVE_NEQ(Req_I_QuotedString, 1);
+		__FSM_H2_I_MATCH_MOVE(token, Req_I_ParamValue);
+		__FSM_H2_I_MOVE_n(I_EoT, __fsm_sz);
+	}
+
+	__FSM_STATE(Req_I_QuotedString) {
+		__FSM_H2_I_MATCH_MOVE_LAMBDA(token, Req_I_QuotedString, {
+			__FSM_EXIT(CSTR_NEQ);
+		});
+		if (c != '"')
+			__FSM_H2_I_MOVE_NEQ(Req_I_QuotedString, 1);
+		__FSM_H2_I_MOVE(I_EoT);
 	}
 
 	/* End of term. */
 	__FSM_STATE(I_EoT) {
-		if (IS_WS(c) || c == ',')
+		if (IS_WS(c))
 			__FSM_H2_I_MOVE(I_EoT);
+		if (c == ',')
+			__FSM_H2_I_MOVE(Req_I_WSAccept);
 		if (c == ';')
 			/* Skip weight parameter. */
-			__FSM_H2_I_MOVE(Req_I_AcceptOther);
-		if (IS_TOKEN(c))
-			__FSM_I_JMP(Req_I_Accept);
+			__FSM_H2_I_MOVE(Req_I_WSAcceptOther);
 		return CSTR_NEQ;
 	}
 
@@ -5567,7 +6054,7 @@ __h2_req_parse_if_nmatch(TfwHttpMsg *hm, unsigned char *data, size_t len,
 done:
 	return r;
 }
-STACK_FRAME_NON_STANDARD(__h2_req_parse_if_none_match);
+STACK_FRAME_NON_STANDARD(__h2_req_parse_if_nmatch);
 
 static int
 __h2_req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len, bool fin)
@@ -5650,246 +6137,229 @@ STACK_FRAME_NON_STANDARD(__h2_req_parse_referer);
 static int
 __h2_parse_http_date(TfwHttpMsg *hm, unsigned char *data, size_t len, bool fin)
 {
-	static const unsigned long colon_a[] ____cacheline_aligned = {
-		/* ':' (0x3a)(58) Colon */
-		0x0400000000000000UL, 0, 0, 0
+	static const void *st[][23] ____cacheline_aligned = {
+		[RFC_822] = {
+			&&I_Day, &&I_Day, &&I_SP,
+			&&I_MonthBeg, &&I_Month, &&I_Month, &&I_SP,
+			&&I_Year, &&I_Year, &&I_Year, &&I_Year, &&I_SP,
+			&&I_Hour, &&I_Hour, &&I_SC,
+			&&I_Min, &&I_Min, &&I_SC,
+			&&I_Sec, &&I_Sec, &&I_SP,
+			&&I_GMT, &&I_Res
+		},
+		[RFC_850] = {
+			&&I_Day, &&I_Day, &&I_Minus,
+			&&I_MonthBeg, &&I_Month, &&I_Month, &&I_Minus,
+			&&I_Year, &&I_Year, &&I_SP,
+			&&I_Hour, &&I_Hour, &&I_SC,
+			&&I_Min, &&I_Min, &&I_SC,
+			&&I_Sec, &&I_Sec, &&I_SP,
+			&&I_GMT, &&I_Res
+		},
+		[ISOC] = {
+			&&I_MonthBeg, &&I_Month, &&I_Month, &&I_SP,
+			&&I_SpaceOrDay, &&I_Day, &&I_SP,
+			&&I_Hour, &&I_Hour, &&I_SC,
+			&&I_Min, &&I_Min, &&I_SC,
+			&&I_Sec, &&I_Sec, &&I_SP,
+			&&I_Year, &&I_Year, &&I_Year, &&I_Year,
+			&&I_Res
+		}
 	};
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(hm);
 
-#define H2_TRY_STR_NEQ_LAMBDA(str, lambda, curr_st, next_st)		\
-	H2_TRY_STR_2LAMBDA(str, lambda, {				\
-		__FSM_EXIT(CSTR_NEQ);					\
-	}, curr_st, next_st)
-
 	__FSM_START_ALT(parser->_i_st);
 
-	__FSM_STATE(I_Date) {
-		/* Skip redundant weekday with comma (e.g. "Sun,"). */
-		__fsm_sz = __data_remain(p);
-		__fsm_n = __skip_weekday(p, __fsm_sz);
-		if (unlikely(__fsm_sz == __fsm_n)) {
-			if (likely(fin))
-				__FSM_EXIT(CSTR_NEQ);
-			parser->_i_st = &&I_Date;
-			__msg_hdr_chunk_fixup(data, len);
-			__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);
-			__FSM_EXIT(CSTR_POSTPONE);
-		}
-		if (unlikely(__fsm_n == CSTR_NEQ))
-			return CSTR_NEQ;
-		p += __fsm_n + 1;
-		__FSM_I_JMP(I_DateDay);
+	/*
+	 * Skip a weekday with comma (e.g. "Sun,") as redundant
+	 * information.
+	 */
+	__FSM_STATE(I_WDate1) {
+		if (likely('A' <= c && c <= 'Z'))
+			__FSM_H2_I_MOVE_NEQ(I_WDate2, 1);
+		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(I_DateDay) {
-		__fsm_sz = __data_remain(p);
-		/* Parse a 2-digit day. */
-		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
-		if (unlikely(__fsm_n == CSTR_POSTPONE)) {
-			if (likely(fin))
-				return CSTR_NEQ;
-			parser->_i_st = &&I_DateDay;
-			__msg_hdr_chunk_fixup(data, len);
-			__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);
-		}
-		if (__fsm_n < 0)
-			return __fsm_n;
-		if (parser->_acc < 1 || parser->_acc > 31)
-			return CSTR_BADLEN;
-		/* Add seconds in full passed days. */
-		parser->_date = (parser->_acc - 1) * SEC24H;
+	__FSM_STATE(I_WDate2) {
+		if (likely('a' <= c && c <= 'z'))
+			__FSM_H2_I_MOVE_NEQ(I_WDate3, 1);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_WDate3) {
+		if (likely('a' <= c && c <= 'z'))
+			__FSM_H2_I_MOVE_NEQ(I_WDate4, 1);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_WDate4) {
 		parser->_acc = 0;
-		p += __fsm_n;
-		__FSM_I_JMP(I_DateMonthSP);
+		parser->month_int = ((size_t)' ') << 24;
+		if (likely(c == ',')) {
+			parser->date.type = RFC_822;
+			__FSM_H2_I_MOVE_NEQ(I_WDaySP, 1);
+		}
+		if ('a' <= c && c <= 'z') {
+			parser->date.type = RFC_850;
+			__FSM_H2_I_MOVE_NEQ(I_WDate5, 1);
+		}
+		if (c == ' ') {
+			parser->date.type = ISOC;
+			__FSM_H2_I_MOVE_BY_REF_NEQ(
+				st[parser->date.type][parser->date.pos], 1);
+		}
+		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(I_DateMonthSP) {
+	__FSM_STATE(I_WDate5) {
+		if ('a' <= c && c <= 'z')
+			__FSM_H2_I_MOVE_NEQ(I_WDate5, 1);
+		if (c == ',')
+			__FSM_H2_I_MOVE_NEQ(I_WDaySP, 1);
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_WDaySP) {
 		if (likely(c == ' '))
-			__FSM_H2_I_MOVE_NEQ(I_DateMonth, 1);
+			__FSM_H2_I_MOVE_BY_REF_NEQ(
+				st[parser->date.type][parser->date.pos], 1);
 		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(I_DateMonth) {
-		switch (TFW_LC(c)) {
-		case 'a':
-			__FSM_I_JMP(I_DateMonth_A);
-		case 'j':
-			__FSM_I_JMP(I_DateMonth_J);
-		case 'm':
-			__FSM_I_JMP(I_DateMonth_M);
-		}
-		__FSM_I_JMP(I_DateMonth_Other);
-	}
+#define __NEXT_TEMPL_STATE()						\
+do {									\
+	++parser->date.pos;						\
+	__FSM_H2_I_MOVE_BY_REF_NEQ(st[parser->date.type][parser->date.pos], 1);\
+} while (0)
 
-	__FSM_STATE(I_DateMonth_A) {
-		H2_TRY_STR_NEQ_LAMBDA("apr ", {
-			parser->_date += SB_APR;
-		}, I_DateMonth_A, I_DateYear);
-		H2_TRY_STR_NEQ_LAMBDA("aug ", {
-			parser->_date += SB_AUG;
-		}, I_DateMonth_A, I_DateYear);
-		TRY_STR_INIT();
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(I_DateMonth_J) {
-		H2_TRY_STR_NEQ_LAMBDA("jan ", { }, I_DateMonth_J, I_DateYear);
-		H2_TRY_STR_NEQ_LAMBDA("jun ", {
-			parser->_date += SB_JUN;
-		}, I_DateMonth_J, I_DateYear);
-		H2_TRY_STR_NEQ_LAMBDA("jul ", {
-			parser->_date += SB_JUL;
-		}, I_DateMonth_J, I_DateYear);
-		TRY_STR_INIT();
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(I_DateMonth_M) {
-		H2_TRY_STR_NEQ_LAMBDA("mar ", {
-			/* Add SEC24H for leap year on year parsing. */
-			parser->_date += SB_MAR;
-		}, I_DateMonth_M, I_DateYear);
-		H2_TRY_STR_NEQ_LAMBDA("may ", {
-			parser->_date += SB_MAY;
-		}, I_DateMonth_M, I_DateYear);
-		TRY_STR_INIT();
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(I_DateMonth_Other) {
-		H2_TRY_STR_NEQ_LAMBDA("feb ", {
-			parser->_date += SB_FEB;
-		}, I_DateMonth_Other, I_DateYear);
-		H2_TRY_STR_NEQ_LAMBDA("sep ", {
-			parser->_date += SB_SEP;
-		}, I_DateMonth_Other, I_DateYear);
-		H2_TRY_STR_NEQ_LAMBDA("oct ", {
-			parser->_date += SB_OCT;
-		}, I_DateMonth_Other, I_DateYear);
-		H2_TRY_STR_NEQ_LAMBDA("nov ", {
-			parser->_date += SB_NOV;
-		}, I_DateMonth_Other, I_DateYear);
-		H2_TRY_STR_NEQ_LAMBDA("dec ", {
-			parser->_date += SB_DEC;
-		}, I_DateMonth_Other, I_DateYear);
-		TRY_STR_INIT();
-		return CSTR_NEQ;
-	}
-
-	/* 4-digit year. */
-	__FSM_STATE(I_DateYear) {
-		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
-		if (unlikely(__fsm_n == CSTR_POSTPONE)) {
-			if (likely(fin))
-				return CSTR_NEQ;
-			parser->_i_st = &&I_DateYear;
-			__msg_hdr_chunk_fixup(data, len);
-			__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);
-		}
-		if (__fsm_n < 0)
-			return __fsm_n;
-		parser->_date = __year_day_secs(parser->_acc, parser->_date);
-		if (parser->_date < 0)
-			return CSTR_NEQ;
-		parser->_acc = 0;
-		__FSM_H2_I_MOVE_NEQ(I_DateHourSP, __fsm_n);
-	}
-
-	__FSM_STATE(I_DateHourSP) {
+	__FSM_STATE(I_SP) {
 		if (likely(c == ' '))
-			__FSM_H2_I_MOVE_NEQ(I_DateHour, 1);
+			__NEXT_TEMPL_STATE();
 		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(I_DateHour) {
-		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_acc);
-		if (unlikely(__fsm_n == CSTR_POSTPONE)) {
-			if (likely(fin))
-				return CSTR_NEQ;
-			parser->_i_st = &&I_DateHour;
-			__msg_hdr_chunk_fixup(data, len);
-			__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);
-		}
-		if (__fsm_n < 0)
-			return __fsm_n;
-		parser->_date += parser->_acc * 3600;
-		parser->_acc = 0;
-		__FSM_H2_I_MOVE_NEQ(I_DateMinCln, __fsm_n);
+	__FSM_STATE(I_Minus) {
+		if (likely(c == '-'))
+			__NEXT_TEMPL_STATE();
+		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(I_DateMinCln) {
+	__FSM_STATE(I_SC) {
 		if (likely(c == ':'))
-			__FSM_H2_I_MOVE_NEQ(I_DateMin, 1);
+			__NEXT_TEMPL_STATE();
 		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(I_DateMin) {
-		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_a(p, __fsm_sz, colon_a, &parser->_acc);
-		if (unlikely(__fsm_n == CSTR_POSTPONE)) {
-			if (likely(fin))
-				return CSTR_NEQ;
-			parser->_i_st = &&I_DateMin;
-			__msg_hdr_chunk_fixup(data, len);
-			__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);
+	__FSM_STATE(I_SpaceOrDay) {
+		if (c == ' ')
+			__NEXT_TEMPL_STATE();
+		if ('0' <= c && c <= '9') {
+			parser->date.day = parser->date.day * 10 + (c - '0');
+			__NEXT_TEMPL_STATE();
 		}
-		if (__fsm_n < 0)
-			return __fsm_n;
-		parser->_date += parser->_acc * 60;
-		parser->_acc = 0;
-		__FSM_H2_I_MOVE_NEQ(I_DateSecCln, __fsm_n);
-	}
-
-	__FSM_STATE(I_DateSecCln) {
-		if (likely(c == ':'))
-			__FSM_H2_I_MOVE_NEQ(I_DateSec, 1);
 		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(I_DateSec) {
-		__fsm_sz = __data_remain(p);
-		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
-		if (unlikely(__fsm_n == CSTR_POSTPONE)) {
-			if (likely(fin))
-				return CSTR_NEQ;
-			parser->_i_st = &&I_DateSec;
-			__msg_hdr_chunk_fixup(data, len);
-			__FSM_I_chunk_flags(TFW_STR_HDR_VALUE);
+	__FSM_STATE(I_Day) {
+		if ('0' <= c && c <= '9') {
+			parser->date.day = parser->date.day * 10 + (c - '0');
+			__NEXT_TEMPL_STATE();
 		}
-		if (__fsm_n < 0)
-			return __fsm_n;
-		parser->_date += parser->_acc;
-		parser->_acc = 0;
-		__FSM_H2_I_MOVE_NEQ(I_DateSecSP, __fsm_n);
-	}
-
-	__FSM_STATE(I_DateSecSP) {
-		if (likely(c == ' '))
-			__FSM_H2_I_MOVE_NEQ(I_DateZone, 1);
 		return CSTR_NEQ;
 	}
 
-	__FSM_STATE(I_DateZone) {
-		H2_TRY_STR("gmt", I_DateZone, I_EoL);
+	__FSM_STATE(I_MonthBeg) {
+		if ('A' <= c && c <= 'Z') {
+			parser->month_int =
+				((size_t)c) << 24 | (parser->month_int >> 8);
+			__NEXT_TEMPL_STATE();
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_Month) {
+		if ('a' <= c && c <= 'z') {
+			parser->month_int =
+				((size_t)c) << 24 | (parser->month_int >> 8);
+			__NEXT_TEMPL_STATE();
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_Year) {
+		if ('0' <= c && c <= '9') {
+			parser->date.year = parser->date.year * 10 + (c - '0');
+			__NEXT_TEMPL_STATE();
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_Hour) {
+		if ('0' <= c && c <= '9') {
+			parser->date.hour = parser->date.hour * 10 + (c - '0');
+			__NEXT_TEMPL_STATE();
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_Min) {
+		if ('0' <= c && c <= '9') {
+			parser->date.min = parser->date.min * 10 + (c - '0');
+			__NEXT_TEMPL_STATE();
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_Sec) {
+		if ('0' <= c && c <= '9') {
+			parser->date.sec = parser->date.sec * 10 + (c - '0');
+			__NEXT_TEMPL_STATE();
+		}
+		return CSTR_NEQ;
+	}
+#undef __NEXT_TEMPL_STATE
+
+	__FSM_STATE(I_GMT) {
+		H2_TRY_STR_BY_REF("gmt",
+			&&I_GMT, st[parser->date.type][parser->date.pos + 1]);
 		TRY_STR_INIT();
 		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(I_Res) {
+		unsigned int month;
+		time_t date;
+
+		month = __parse_month(parser->month_int);
+		if (month < 0)
+			return CSTR_NEQ;
+
+		if (parser->date.year < 100)
+			parser->date.year += (parser->date.year < 70) ? 2000
+								      : 1900;
+
+		date = __date_secs(parser->date.year, month,
+				   parser->date.day, parser->date.hour,
+				   parser->date.min, parser->date.sec);
+		if (date < 0)
+			return CSTR_NEQ;
+		parser->_date = date;
+		__FSM_JMP(I_EoL);
 	}
 
 	__FSM_STATE(I_EoL) {
+		parser->_acc = 0;
 		/* Skip the rest of the line. */
-		__FSM_H2_I_MATCH_MOVE_LAMBDA(nctl, I_EoL, {
-			T_DBG3("%s: parsed date %lu", __func__, parser->_date);
-		});
-		return CSTR_NEQ;
+		__FSM_H2_I_MATCH_MOVE(nctl, I_EoL);
+		if (!IS_CRLF(*(p + __fsm_sz)))
+			return CSTR_NEQ;
+		T_DBG3("%s: parsed date %lu", __func__, parser->_date);
+		return __data_off(p + __fsm_sz);
 	}
 
 done:
 	return r;
-
-#undef H2_TRY_STR_NEQ_LAMBDA
 }
 STACK_FRAME_NON_STANDARD(__h2_parse_http_date);
 
@@ -5912,7 +6382,7 @@ __h2_req_parse_if_msince(TfwHttpMsg *msg, unsigned char *data, size_t len,
 		r = __h2_parse_http_date(msg, data, len, fin);
 	}
 
-	if (r >= 0) {
+	if (r >= 0 && parser->_date != 0) {
 		req->cond.m_date = parser->_date;
 		req->cond.flags |= TFW_HTTP_COND_IF_MSINCE;
 
@@ -6038,10 +6508,174 @@ done:
 }
 STACK_FRAME_NON_STANDARD(__h2_req_parse_x_forwarded_for);
 
+/* Parse method override request headers. */
+static int
+__h2_req_parse_m_override(TfwHttpReq *req, unsigned char *data, size_t len,
+			  bool fin)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(req);
+
+	__FSM_START(parser->_i_st);
+
+	__FSM_STATE(I_Meth_Start) {
+		switch (TFW_LC(c)) {
+		case 'c':
+			__FSM_I_JMP(I_Meth_C);
+		case 'd':
+			__FSM_I_JMP(I_Meth_D);
+		case 'g':
+			__FSM_I_JMP(I_Meth_G);
+		case 'h':
+			__FSM_I_JMP(I_Meth_H);
+		case 'l':
+			__FSM_I_JMP(I_Meth_L);
+		case 'm':
+			__FSM_I_JMP(I_Meth_M);
+		case 'o':
+			__FSM_I_JMP(I_Meth_O);
+		case 'p':
+			__FSM_I_JMP(I_Meth_P);
+		case 't':
+			__FSM_I_JMP(I_Meth_T);
+		case 'u':
+			__FSM_I_JMP(I_Meth_U);
+		}
+		__FSM_I_MOVE(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_C) {
+		H2_TRY_STR_LAMBDA("copy", {
+			req->method_override = TFW_HTTP_METH_COPY;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_C, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_D) {
+		H2_TRY_STR_LAMBDA("delete", {
+			req->method_override = TFW_HTTP_METH_DELETE;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_D, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_G) {
+		H2_TRY_STR_LAMBDA("get", {
+			req->method_override = TFW_HTTP_METH_GET;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_G, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_H) {
+		H2_TRY_STR_LAMBDA("head", {
+			req->method_override = TFW_HTTP_METH_HEAD;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_H, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_L) {
+		H2_TRY_STR_LAMBDA("lock", {
+			req->method_override = TFW_HTTP_METH_LOCK;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_L, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_M) {
+		H2_TRY_STR_LAMBDA("mkcol", {
+			req->method_override = TFW_HTTP_METH_MKCOL;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_M, I_EoT);
+		H2_TRY_STR_LAMBDA("move", {
+			req->method_override = TFW_HTTP_METH_MOVE;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_M, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_O) {
+		H2_TRY_STR_LAMBDA("options", {
+			req->method_override = TFW_HTTP_METH_OPTIONS;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_O, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_P) {
+		H2_TRY_STR_LAMBDA("patch", {
+			req->method_override = TFW_HTTP_METH_PATCH;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_P, I_EoT);
+		H2_TRY_STR_LAMBDA("post", {
+			req->method_override = TFW_HTTP_METH_POST;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_P, I_EoT);
+		H2_TRY_STR_LAMBDA("propfind", {
+			req->method_override = TFW_HTTP_METH_PROPFIND;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_P, I_EoT);
+		H2_TRY_STR_LAMBDA("proppatch", {
+			req->method_override = TFW_HTTP_METH_PROPPATCH;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_P, I_EoT);
+		H2_TRY_STR_LAMBDA("put", {
+			req->method_override = TFW_HTTP_METH_PUT;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_P, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_T) {
+		H2_TRY_STR_LAMBDA("trace", {
+			req->method_override = TFW_HTTP_METH_TRACE;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_T, I_EoT);
+		TRY_STR_INIT();
+	}
+
+	__FSM_STATE(I_Meth_U) {
+		H2_TRY_STR_LAMBDA("unlock", {
+			req->method_override = TFW_HTTP_METH_UNLOCK;
+			__FSM_EXIT(CSTR_EQ);
+		} , I_Meth_U, I_EoT);
+		TRY_STR_INIT();
+		__FSM_I_JMP(I_Meth_Unknown);
+	}
+
+	__FSM_STATE(I_Meth_Unknown) {
+		__FSM_I_MATCH_MOVE(token, I_Meth_Unknown);
+		req->method_override = _TFW_HTTP_METH_UNKNOWN;
+		__FSM_H2_I_MOVE_n(I_EoT, __fsm_sz);
+	}
+
+	__FSM_STATE(I_EoT) {
+		if (IS_TOKEN(c))
+			__FSM_H2_I_MOVE(I_Meth_Unknown);
+		if (IS_WS(c))
+			__FSM_H2_I_MOVE(I_EoT);
+		return CSTR_NEQ;
+	}
+
+done:
+	return r;
+}
+STACK_FRAME_NON_STANDARD(__h2_req_parse_m_override);
+
 static int
 __h2_req_parse_mark(TfwHttpReq *req, unsigned char *data, size_t len, bool fin)
 {
-	TfwStr *str;
+	const TfwStr *str;
 	int r = CSTR_NEQ;
 	__FSM_DECLARE_VARS(req);
 
@@ -6305,18 +6939,6 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 				__FSM_H2_DROP(Req_HdrTransfer_Encoding);
 			}
 			__FSM_H2_NEXT(Req_HdrT);
-		case 'x':
-			if (likely(__data_available(p, 15)
-				   && C8_INT(p + 1, '-', 'f', 'o', 'r', 'w',
-					     'a', 'r', 'd')
-				   && C4_INT(p + 9, 'e', 'd', '-', 'f')
-				   && *(p + 13) == 'o'
-				   && *(p + 14) == 'r'))
-			{
-				__FSM_H2_FIN(Req_HdrX_Forwarded_ForV, 15,
-					     TFW_TAG_HDR_X_FORWARDED_FOR);
-			}
-			__FSM_H2_NEXT(Req_HdrX);
 		case 'u':
 			if (likely(__data_available(p, 10)
 				   && C4_INT(p, 'u', 's', 'e', 'r')
@@ -6328,6 +6950,59 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 					     TFW_TAG_HDR_USER_AGENT);
 			}
 			__FSM_H2_NEXT(Req_HdrU);
+		case 'x':
+			if (likely(__data_available(p, 15)
+				   && C8_INT(p + 1, '-', 'f', 'o', 'r', 'w',
+					     'a', 'r', 'd')
+				   && C4_INT(p + 9, 'e', 'd', '-', 'f')
+				   && *(p + 13) == 'o'
+				   && *(p + 14) == 'r'))
+			{
+				__FSM_H2_FIN(Req_HdrX_Forwarded_ForV, 15,
+					     TFW_TAG_HDR_X_FORWARDED_FOR);
+			}
+			if (likely(__data_available(p, 14)
+				   && *(p + 1) == '-'
+				   && *(p + 7) == '-'
+				   /* Safe match: '-' is checked above. */
+				   && C8_INT_LCM(p, 'x', '-', 'h', 't',
+						 't', 'p', '-', 'm')
+				   && C4_INT_LCM(p + 8, 'e', 't', 'h', 'o')
+				   && TFW_LC(*(p + 12) == 'd')
+				   && *(p + 10) == ':'))
+			{
+				__FSM_H2_FIN(Req_HdrX_Method_OverrideV, 14,
+					     TFW_TAG_HDR_RAW);
+			}
+			if (likely(__data_available(p, 23)
+				   && *(p + 1) == '-'
+				   && *(p + 7) == '-'
+				   && *(p + 14) == '-'
+				   /* Safe match: '-' is checked above. */
+				   && C8_INT_LCM(p, 'x', '-', 'h', 't',
+						 't', 'p', '-', 'm')
+				   && C8_INT_LCM(p + 8, 'e', 't', 'h', 'o',
+						 'd', '-', 'o', 'v')
+				   && C8_INT7_LCM(p + 16, 'v', 'e', 'r', 'r',
+						  'i', 'd', 'e', ':')))
+			{
+				__FSM_H2_FIN(Req_HdrX_Method_OverrideV, 23,
+					     TFW_TAG_HDR_RAW);
+			}
+			if (likely(__data_available(p, 18)
+				   && *(p + 1) == '-'
+				   && *(p + 9) == '-'
+				   /* Safe match: '-' is checked above. */
+				   && C8_INT_LCM(p + 2, 'm', 'e', 't', 'h',
+						 'o', 'd', '-', 'o')
+				   && C8_INT7_LCM(p + 10, 'v', 'e', 'r', 'r',
+						 'i', 'd', 'e', ':')))
+			{
+
+				__FSM_H2_FIN(Req_HdrX_Method_OverrideV, 18,
+					     TFW_TAG_HDR_RAW);
+			}
+			__FSM_H2_NEXT(Req_HdrX);
 		default:
 			__FSM_JMP(RGen_HdrOtherN);
 		}
@@ -6579,11 +7254,6 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	TFW_H2_PARSE_HDR_VAL(Req_HdrRefererV, msg, __h2_req_parse_referer,
 			     TFW_HTTP_HDR_REFERER, 1);
 
-	/* 'x-forwarded-for' is read, process field-value. */
-	TFW_H2_PARSE_HDR_VAL(Req_HdrX_Forwarded_ForV, msg,
-			     __h2_req_parse_x_forwarded_for,
-			     TFW_HTTP_HDR_X_FORWARDED_FOR, 0);
-
 	/* 'user-agent' is read, process field-value. */
 	TFW_H2_PARSE_HDR_VAL(Req_HdrUser_AgentV, msg, __h2_req_parse_user_agent,
 			     TFW_HTTP_HDR_USER_AGENT, 1);
@@ -6591,6 +7261,18 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	/* 'cookie' is read, process field-value. */
 	TFW_H2_PARSE_HDR_VAL(Req_HdrCookieV, msg, __h2_req_parse_cookie,
 			     TFW_HTTP_HDR_COOKIE, 0);
+
+	/* 'x-forwarded-for' is read, process field-value. */
+	TFW_H2_PARSE_HDR_VAL(Req_HdrX_Forwarded_ForV, msg,
+			     __h2_req_parse_x_forwarded_for,
+			     TFW_HTTP_HDR_X_FORWARDED_FOR, 0);
+
+	/*
+	 * 'X-HTTP-Method:*OWS' OR 'X-HTTP-Method-Override:*OWS' OR
+	 * 'X-Method-Override:*OWS' is read, process field-value.
+	*/
+	TFW_H2_PARSE_HDR_VAL(Req_HdrX_Method_OverrideV, req,
+			     __h2_req_parse_m_override, TFW_HTTP_HDR_RAW, 1);
 
 	__FSM_STATE(RGen_HdrOtherV) {
 		if (!H2_MSG_VERIFY(TFW_HTTP_HDR_RAW))
@@ -6847,7 +7529,20 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	__FSM_H2_TX_AF_DROP(Req_HdrTransfer_Encodin, 'g');
 
 	__FSM_H2_TX_AF(Req_HdrX, '-', Req_HdrX_);
-	__FSM_H2_TX_AF(Req_HdrX_, 'f', Req_HdrX_F);
+	__FSM_STATE(Req_HdrX_, cold) {
+		switch (c) {
+		case 'f':
+			__FSM_H2_NEXT(Req_HdrX_F);
+		case 'h':
+			__FSM_H2_NEXT(Req_HdrX_H);
+		case 'm':
+			__FSM_H2_NEXT(Req_HdrX_M);
+		default:
+			__FSM_JMP(RGen_HdrOtherN);
+		}
+	}
+
+	/* X-Forwarded-For header processing. */
 	__FSM_H2_TX_AF(Req_HdrX_F, 'o', Req_HdrX_Fo);
 	__FSM_H2_TX_AF(Req_HdrX_Fo, 'r', Req_HdrX_For);
 	__FSM_H2_TX_AF(Req_HdrX_For, 'w', Req_HdrX_Forw);
@@ -6861,6 +7556,65 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	__FSM_H2_TX_AF(Req_HdrX_Forwarded_F, 'o', Req_HdrX_Forwarded_Fo);
 	__FSM_H2_TX_AF_FIN(Req_HdrX_Forwarded_Fo, 'r', Req_HdrX_Forwarded_ForV,
 			   TFW_TAG_HDR_X_FORWARDED_FOR);
+
+	/* X-Method-Override header processing. */
+	__FSM_H2_TX_AF(Req_HdrX_M, 'e', Req_HdrX_Me);
+	__FSM_H2_TX_AF(Req_HdrX_Me, 't', Req_HdrX_Met);
+	__FSM_H2_TX_AF(Req_HdrX_Met, 'h', Req_HdrX_Meth);
+	__FSM_H2_TX_AF(Req_HdrX_Meth, 'o', Req_HdrX_Metho);
+	__FSM_H2_TX_AF(Req_HdrX_Metho, 'd', Req_HdrX_Method);
+	__FSM_H2_TX_AF(Req_HdrX_Method, '-', Req_HdrX_Method_);
+	__FSM_H2_TX_AF(Req_HdrX_Method_, 'o', Req_HdrX_Method_O);
+	__FSM_H2_TX_AF(Req_HdrX_Method_O, 'v', Req_HdrX_Method_Ov);
+	__FSM_H2_TX_AF(Req_HdrX_Method_Ov, 'e', Req_HdrX_Method_Ove);
+	__FSM_H2_TX_AF(Req_HdrX_Method_Ove, 'r', Req_HdrX_Method_Over);
+	__FSM_H2_TX_AF(Req_HdrX_Method_Over, 'r', Req_HdrX_Method_Overr);
+	__FSM_H2_TX_AF(Req_HdrX_Method_Overr, 'i', Req_HdrX_Method_Overri);
+	__FSM_H2_TX_AF(Req_HdrX_Method_Overri, 'd', Req_HdrX_Method_Overrid);
+	__FSM_H2_TX_AF_FIN(Req_HdrX_Method_Overrid, 'e', Req_HdrX_Method_OverrideV,
+			   TFW_TAG_HDR_RAW);
+
+	/* X-HTTP-Method header processing */
+	__FSM_H2_TX_AF(Req_HdrX_H, 't', Req_HdrX_Ht);
+	__FSM_H2_TX_AF(Req_HdrX_Ht, 't', Req_HdrX_Htt);
+	__FSM_H2_TX_AF(Req_HdrX_Htt, 'p', Req_HdrX_Http);
+	__FSM_H2_TX_AF(Req_HdrX_Http, '-', Req_HdrX_Http_);
+	__FSM_H2_TX_AF(Req_HdrX_Http_, 'm', Req_HdrX_Http_M);
+	__FSM_H2_TX_AF(Req_HdrX_Http_M, 'e', Req_HdrX_Http_Me);
+	__FSM_H2_TX_AF(Req_HdrX_Http_Me, 't', Req_HdrX_Http_Met);
+	__FSM_H2_TX_AF(Req_HdrX_Http_Met, 'h', Req_HdrX_Http_Meth);
+	__FSM_H2_TX_AF(Req_HdrX_Http_Meth, 'o', Req_HdrX_Http_Metho);
+	/*
+	 * Same as __FSM_H2_TX_AF_FIN, but jump to X-HTTP-Method-Override
+	 * header if more data is found afer 'd'
+	 */
+	__FSM_STATE(Req_HdrX_Http_Metho, cold) {
+		if (c != 'd')
+			__FSM_JMP(RGen_HdrOtherN);
+		p += 1;
+		T_DBG3("%s: name fin, h_tag=%d, to=Req_HdrX_Http_Metho len=%lu, "
+		       "off=%lu\n",
+		       __func__, TFW_TAG_HDR_RAW, len, __data_off(p));
+		if (unlikely(__data_off(p) < len))
+			goto RGen_HdrOtherN;
+		__msg_hdr_chunk_fixup(data, len);
+		if (unlikely(!fin))
+			__FSM_H2_POSTPONE(Req_HdrX_Http_Method);
+		it->tag = TFW_TAG_HDR_RAW;
+		__FSM_H2_OK(Req_HdrX_Method_OverrideV);
+	}
+
+	/* X-HTTP-Method-Override processing */
+	__FSM_H2_TX_AF(Req_HdrX_Http_Method, '-', Req_HdrX_Http_Method_);
+	__FSM_H2_TX_AF(Req_HdrX_Http_Method_, 'o', Req_HdrX_Http_Method_O);
+	__FSM_H2_TX_AF(Req_HdrX_Http_Method_O, 'v', Req_HdrX_Http_Method_Ov);
+	__FSM_H2_TX_AF(Req_HdrX_Http_Method_Ov, 'e', Req_HdrX_Http_Method_Ove);
+	__FSM_H2_TX_AF(Req_HdrX_Http_Method_Ove, 'r', Req_HdrX_Http_Method_Over);
+	__FSM_H2_TX_AF(Req_HdrX_Http_Method_Over, 'r', Req_HdrX_Http_Method_Overr);
+	__FSM_H2_TX_AF(Req_HdrX_Http_Method_Overr, 'i', Req_HdrX_Http_Method_Overri);
+	__FSM_H2_TX_AF(Req_HdrX_Http_Method_Overri, 'd', Req_HdrX_Http_Method_Overrid);
+	__FSM_H2_TX_AF_FIN(Req_HdrX_Http_Method_Overrid, 'e', Req_HdrX_Method_OverrideV,
+			   TFW_TAG_HDR_RAW);
 
 	__FSM_H2_TX_AF(Req_HdrU, 's', Req_HdrUs);
 	__FSM_H2_TX_AF(Req_HdrUs, 'e', Req_HdrUse);
@@ -7158,6 +7912,7 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 out:
 	return ret;
 }
+STACK_FRAME_NON_STANDARD(tfw_h2_parse_req_hdr);
 
 static int
 tfw_h2_parse_body(char *data, unsigned long len, TfwHttpReq *req,
@@ -7491,7 +8246,7 @@ __resp_parse_expires(TfwHttpMsg *msg, unsigned char *data, size_t len)
 		r = __parse_http_date(msg, data, len);
 	}
 
-	if (r >= 0) {
+	if (r >= 0 && parser->_date != 0) {
 		resp->cache_ctl.expires = parser->_date;
 		resp->cache_ctl.flags |= TFW_HTTP_CC_HDR_EXPIRES;
 	}
@@ -7520,7 +8275,7 @@ __resp_parse_date(TfwHttpMsg *msg, unsigned char *data, size_t len)
 		r = __parse_http_date(msg, data, len);
 	}
 
-	if (r >= 0) {
+	if (r >= 0 && parser->_date != 0) {
 		resp->date = parser->_date;
 		__set_bit(TFW_HTTP_B_HDR_DATE, resp->flags);
 	}
@@ -7549,7 +8304,7 @@ __resp_parse_if_modified(TfwHttpMsg *msg, unsigned char *data, size_t len)
 		r = __parse_http_date(msg, data, len);
 	}
 
-	if (r >= 0) {
+	if (r >= 0 && parser->_date != 0) {
 		resp->last_modified = parser->_date;
 		__set_bit(TFW_HTTP_B_HDR_LMODIFIED, resp->flags);
 	}
@@ -7583,6 +8338,117 @@ __resp_parse_server(TfwHttpResp *resp, unsigned char *data, size_t len)
 done:
 	return r;
 }
+
+static int
+__resp_parse_set_cookie(TfwHttpResp *resp, unsigned char *data, size_t len)
+{
+	int r = CSTR_NEQ;
+	__FSM_DECLARE_VARS(resp);
+
+	/*
+	 * Set-Cookie header is parsed according to RFC 6265 4.1.1.
+	 *
+	 * Here we build a header value string manually to split it in chunks:
+	 * chunk bounds are at least at name start, value start and value end.
+	 * This simplifies the cookie search, http_sticky uses it.
+	 */
+	__FSM_START(parser->_i_st);
+
+	__FSM_STATE(Resp_I_CookieStart) {
+		__FSM_I_MATCH_MOVE_fixup(token, Resp_I_CookieName, TFW_STR_NAME);
+		/*
+		 * Name should contain at least 1 character.
+		 * Store "=" with cookie parameter name.
+		 */
+		if (likely(__fsm_sz && *(p + __fsm_sz) == '='))
+			__FSM_I_MOVE_fixup(Resp_I_CookieVal, __fsm_sz + 1,
+					   TFW_STR_NAME);
+		return CSTR_NEQ;
+	}
+
+	/*
+	 * At this state we know that we saw at least one character as
+	 * cookie-name and now we can pass zero length token.
+	 */
+	__FSM_STATE(Resp_I_CookieName) {
+		__FSM_I_MATCH_MOVE_fixup(token, Resp_I_CookieName, TFW_STR_NAME);
+		if (*(p + __fsm_sz) != '=')
+			return CSTR_NEQ;
+		/* Store "=" with cookie parameter name. */
+		__FSM_I_MOVE_fixup(Resp_I_CookieVal, __fsm_sz + 1, TFW_STR_NAME);
+	}
+
+	/*
+	 * Cookie-value can have zero length, but we still have to store it
+	 * in a separate TfwStr chunk.
+	 */
+	__FSM_STATE(Resp_I_CookieVal) {
+		__FSM_I_MATCH_MOVE_fixup(cookie, Resp_I_CookieVal, TFW_STR_VALUE);
+		c = *(p + __fsm_sz);
+		if (c == ';') {
+			if (likely(__fsm_sz)) {
+				/* Save cookie-value w/o ';'. */
+				__msg_hdr_chunk_fixup(p, __fsm_sz);
+				__FSM_I_chunk_flags(TFW_STR_VALUE);
+			}
+			__FSM_I_MOVE_n(Resp_I_CookieSemicolon, __fsm_sz);
+		}
+		if (unlikely(IS_CRLFWS(c))) {
+			/* End of cookie header. Do not save OWS. */
+			if (likely(__fsm_sz)) {
+				__msg_hdr_chunk_fixup(p, __fsm_sz);
+				__FSM_I_chunk_flags(TFW_STR_VALUE);
+			}
+			return __data_off(p + __fsm_sz);
+		}
+		return CSTR_NEQ;
+	}
+
+	/* ';' was already matched. */
+	__FSM_STATE(Resp_I_CookieSemicolon) {
+		/*
+		 * Fixup current delimiters chunk and move to next parameter
+		 * if we can eat ';' and SP at once.
+		 */
+		if (likely(__data_available(p, 2))) {
+			if (likely(*(p + 1) == ' '))
+				__FSM_I_MOVE_fixup(Resp_I_CookieExtension, 2, 0);
+			return CSTR_NEQ;
+		}
+		/*
+		 * Only ';' is available now: fixup ';' as independent chunk,
+		 * SP will be fixed up at next enter to the FSM.
+		 */
+		__FSM_I_MOVE_fixup(Resp_I_CookieSP, 1, 0);
+	}
+
+	/*
+	 * We don't strictly validate the extensions, eat them as is. Hope
+	 * a backend doesn't try to trick us.
+	 */
+	__FSM_STATE(Resp_I_CookieExtension) {
+		__FSM_I_MATCH_MOVE_fixup(ctext_vchar, Resp_I_CookieExtension, 0);
+		c = *(p + __fsm_sz);
+		if (unlikely(IS_CRLF(c))) {
+			if (likely(__fsm_sz))
+				__msg_hdr_chunk_fixup(p, __fsm_sz);
+
+			return __data_off(p + __fsm_sz);
+		}
+		return CSTR_NEQ;
+	}
+
+	__FSM_STATE(Resp_I_CookieSP) {
+		if (unlikely(c != ' '))
+			return CSTR_NEQ;
+		/* Fixup current delimiters chunk and move to next parameter. */
+		__FSM_I_MOVE_fixup(Resp_I_CookieExtension, 1, 0);
+	}
+
+done:
+	return r;
+}
+STACK_FRAME_NON_STANDARD(__resp_parse_set_cookie);
 
 /*
  * The server connection is being closed. Terminate the current message.
@@ -7943,10 +8809,11 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 			if (likely(__data_available(p, 11)
 			           && C8_INT_LCM(p + 1, 'e', 't', '-', 'c',
 						 'o', 'o', 'k', 'i')
+				   && *(p + 3) == '-'
 				   && TFW_LC(*(p + 9)) == 'e'
 				   && *(p + 10) == ':'))
 			{
-				parser->_i_st = &&RGen_HdrOtherV;
+				parser->_i_st = &&Resp_HdrSet_CookieV;
 				__msg_hdr_set_hpack_index(55);
 				__FSM_MOVE_n(RGen_LWS, 11);
 			}
@@ -8129,8 +8996,13 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 
 	/* 'Transfer-Encoding:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrTransfer_EncodingV, msg,
-				   __parse_transfer_encoding,
+				   __resp_parse_transfer_encoding,
 				   TFW_HTTP_HDR_TRANSFER_ENCODING);
+
+	/* 'Set-Cookie:*OWS' is read, process field-value. */
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrSet_CookieV, resp,
+				     __resp_parse_set_cookie,
+				     TFW_HTTP_HDR_SET_COOKIE, 0);
 
 	RGEN_HDR_OTHER();
 	RGEN_OWS();
@@ -8574,7 +9446,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 	__FSM_TX_AF(Resp_HdrSet_Coo, 'k', Resp_HdrSet_Cook);
 	__FSM_TX_AF(Resp_HdrSet_Cook, 'i', Resp_HdrSet_Cooki);
 	__FSM_TX_AF(Resp_HdrSet_Cooki, 'e', Resp_HdrSet_Cookie);
-	__FSM_TX_AF_OWS_HP(Resp_HdrSet_Cookie, RGen_HdrOtherV, 55);
+	__FSM_TX_AF_OWS_HP(Resp_HdrSet_Cookie, Resp_HdrSet_CookieV, 55);
 
 	/* Transfer-Encoding header processing. */
 	__FSM_TX_AF(Resp_HdrT, 'r', Resp_HdrTr);

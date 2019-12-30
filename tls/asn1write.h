@@ -81,7 +81,7 @@ int ttls_asn1_write_raw_buffer(unsigned char **p, unsigned char *start,
  *
  * \return		  the length written or a negative error code
  */
-int ttls_asn1_write_mpi(unsigned char **p, unsigned char *start, const ttls_mpi *X);
+int ttls_asn1_write_mpi(unsigned char **p, unsigned char *start, const TlsMpi *X);
 
 /**
  * \brief		   Write a NULL tag (TTLS_ASN1_NULL) with zero data in ASN.1 format

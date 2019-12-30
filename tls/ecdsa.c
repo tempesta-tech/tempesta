@@ -1,30 +1,31 @@
 /*
- *  Elliptic curve DSA
+ *		Tempesta TLS
  *
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- *  SPDX-License-Identifier: GPL-2.0
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
- *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
-/*
+ * Elliptic curve DSA.
  * References:
+ *	SEC1 http://www.secg.org/index.php?action=secg,docs_secg
  *
- * SEC1 http://www.secg.org/index.php?action=secg,docs_secg
+ * Based on mbed TLS, https://tls.mbed.org.
+ *
+ * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * SPDX-License-Identifier: GPL-2.0
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#include "config.h"
+#include "debug.h"
 #include "ecdsa.h"
 #include "asn1write.h"
 
@@ -32,7 +33,7 @@
  * Derive a suitable integer for group grp from a buffer of length len
  * SEC1 4.1.3 step 5 aka SEC1 4.1.4 step 3
  */
-static int derive_mpi(const ttls_ecp_group *grp, ttls_mpi *x,
+static int derive_mpi(const TlsEcpGrp *grp, TlsMpi *x,
 		   const unsigned char *buf, size_t blen)
 {
 	int ret;
@@ -51,26 +52,27 @@ cleanup:
 	return ret;
 }
 
-#if !defined(TTLS_ECDSA_SIGN_ALT)
 /*
  * Compute ECDSA signature of a hashed message (SEC1 4.1.3)
  * Obviously, compared to SEC1 4.1.3, we skip step 4 (hash message)
  */
 int
-ttls_ecdsa_sign(ttls_ecp_group *grp, ttls_mpi *r, ttls_mpi *s,
-		const ttls_mpi *d, const unsigned char *buf, size_t blen)
+ttls_ecdsa_sign(TlsEcpGrp *grp, TlsMpi *r, TlsMpi *s,
+		const TlsMpi *d, const unsigned char *buf, size_t blen)
 {
 	int ret, key_tries, sign_tries, blind_tries;
-	ttls_ecp_point R;
-	ttls_mpi k, e, t;
+	TlsEcpPoint R;
+	TlsMpi k, e, t;
 
 	/* Fail cleanly on curves such as Curve25519 that can't be used for ECDSA */
 	if (grp->N.p == NULL)
 		return(TTLS_ERR_ECP_BAD_INPUT_DATA);
 
 	/* Make sure d is in range 1..n-1 */
-	if (ttls_mpi_cmp_int(d, 1) < 0 || ttls_mpi_cmp_mpi(d, &grp->N) >= 0)
-		return(TTLS_ERR_ECP_INVALID_KEY);
+	if (ttls_mpi_cmp_int(d, 1) < 0 || ttls_mpi_cmp_mpi(d, &grp->N) >= 0) {
+		T_DBG_MPI2("ECDSA invalid sign key", d, &grp->N);
+		return -EINVAL;
+	}
 
 	ttls_ecp_point_init(&R);
 	ttls_mpi_init(&k); ttls_mpi_init(&e); ttls_mpi_init(&t);
@@ -144,20 +146,18 @@ cleanup:
 
 	return ret;
 }
-#endif /* TTLS_ECDSA_SIGN_ALT */
 
-#if !defined(TTLS_ECDSA_VERIFY_ALT)
 /*
  * Verify ECDSA signature of hashed message (SEC1 4.1.4)
  * Obviously, compared to SEC1 4.1.3, we skip step 2 (hash message)
  */
-int ttls_ecdsa_verify(ttls_ecp_group *grp,
+int ttls_ecdsa_verify(TlsEcpGrp *grp,
 				  const unsigned char *buf, size_t blen,
-				  const ttls_ecp_point *Q, const ttls_mpi *r, const ttls_mpi *s)
+				  const TlsEcpPoint *Q, const TlsMpi *r, const TlsMpi *s)
 {
 	int ret;
-	ttls_mpi e, s_inv, u1, u2;
-	ttls_ecp_point R;
+	TlsMpi e, s_inv, u1, u2;
+	TlsEcpPoint R;
 
 	ttls_ecp_point_init(&R);
 	ttls_mpi_init(&e); ttls_mpi_init(&s_inv); ttls_mpi_init(&u1); ttls_mpi_init(&u2);
@@ -232,12 +232,11 @@ cleanup:
 
 	return ret;
 }
-#endif /* TTLS_ECDSA_VERIFY_ALT */
 
 /*
  * Convert a signature (given by context) to ASN.1
  */
-static int ecdsa_signature_to_asn1(const ttls_mpi *r, const ttls_mpi *s,
+static int ecdsa_signature_to_asn1(const TlsMpi *r, const TlsMpi *s,
 			unsigned char *sig, size_t *slen)
 {
 	int ret;
@@ -276,7 +275,7 @@ ttls_ecdsa_write_signature(ttls_ecdsa_context *ctx, const unsigned char *hash,
 			   size_t hlen, unsigned char *sig, size_t *slen)
 {
 	int ret;
-	ttls_mpi r, s;
+	TlsMpi r, s;
 
 	ttls_mpi_init(&r);
 	ttls_mpi_init(&s);
@@ -302,7 +301,7 @@ int ttls_ecdsa_read_signature(ttls_ecdsa_context *ctx,
 	unsigned char *p = (unsigned char *) sig;
 	const unsigned char *end = sig + slen;
 	size_t len;
-	ttls_mpi r, s;
+	TlsMpi r, s;
 
 	ttls_mpi_init(&r);
 	ttls_mpi_init(&s);
@@ -343,29 +342,21 @@ cleanup:
 }
 
 /*
- * Generate key pair
+ * Set context from an TlsEcpKeypair.
  */
-int ttls_ecdsa_genkey(ttls_ecdsa_context *ctx, ttls_ecp_group_id gid)
+int
+ttls_ecdsa_from_keypair(ttls_ecdsa_context *ctx, const TlsEcpKeypair *key)
 {
-	return ttls_ecp_group_load(&ctx->grp, gid)
-		|| ttls_ecp_gen_keypair(&ctx->grp, &ctx->d, &ctx->Q);
-}
+	int r;
 
-/*
- * Set context from an ttls_ecp_keypair
- */
-int ttls_ecdsa_from_keypair(ttls_ecdsa_context *ctx, const ttls_ecp_keypair *key)
-{
-	int ret;
-
-	if ((ret = ttls_ecp_group_copy(&ctx->grp, &key->grp)) != 0 ||
-		(ret = ttls_mpi_copy(&ctx->d, &key->d)) != 0 ||
-		(ret = ttls_ecp_copy(&ctx->Q, &key->Q)) != 0)
+	if ((r = ttls_ecp_group_load(&ctx->grp, key->grp.id))
+	    || (r = ttls_mpi_copy(&ctx->d, &key->d))
+	    || (r = ttls_ecp_copy(&ctx->Q, &key->Q)))
 	{
 		ttls_ecdsa_free(ctx);
 	}
 
-	return ret;
+	return r;
 }
 
 /*

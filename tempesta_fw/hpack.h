@@ -144,7 +144,8 @@ typedef enum {
  * @name_len	- length of the header's name part;
  * @name_num	- chunks count of the header's name part;
  * @tag		- tag of the indexed header;
- * @last	- flag bit indicating that corresponding header is the last on the page.
+ * @last	- flag bit indicating that corresponding header is the last on
+ *		  the page.
  */
 typedef struct {
 	TfwStr			*hdr;

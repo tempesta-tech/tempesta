@@ -4,7 +4,7 @@
  * HTTP message manipulation helpers for the protocol processing.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -123,12 +123,12 @@ tfw_http_msg_resp_spec_hid(const TfwStr *hdr)
 		TfwStrDefV("connection:",	TFW_HTTP_HDR_CONNECTION),
 		TfwStrDefV("content-length:",	TFW_HTTP_HDR_CONTENT_LENGTH),
 		TfwStrDefV("content-type:",	TFW_HTTP_HDR_CONTENT_TYPE),
-		TfwStrDefV("cookie:",		TFW_HTTP_HDR_COOKIE),
 		TfwStrDefV("etag:",		TFW_HTTP_HDR_ETAG),
 		TfwStrDefV("host:",		TFW_HTTP_HDR_HOST),
 		TfwStrDefV("keep-alive:",	TFW_HTTP_HDR_KEEP_ALIVE),
 		TfwStrDefV("referer:",		TFW_HTTP_HDR_REFERER),
 		TfwStrDefV("server:",		TFW_HTTP_HDR_SERVER),
+		TfwStrDefV("set-cookie:",	TFW_HTTP_HDR_SET_COOKIE),
 		TfwStrDefV("transfer-encoding:",TFW_HTTP_HDR_TRANSFER_ENCODING),
 		TfwStrDefV("x-forwarded-for:",	TFW_HTTP_HDR_X_FORWARDED_FOR),
 	};
@@ -172,24 +172,37 @@ tfw_http_msg_req_spec_hid(const TfwStr *hdr)
 void
 __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 {
-	static const size_t hdr_lens[] = {
-		[TFW_HTTP_HDR_HOST]	= SLEN("Host:"),
-		[TFW_HTTP_HDR_CONTENT_LENGTH] = SLEN("Content-Length:"),
-		[TFW_HTTP_HDR_CONTENT_TYPE] = SLEN("Content-Type:"),
-		[TFW_HTTP_HDR_CONNECTION] = SLEN("Connection:"),
-		[TFW_HTTP_HDR_X_FORWARDED_FOR] = SLEN("X-Forwarded-For:"),
-		[TFW_HTTP_HDR_KEEP_ALIVE] = SLEN("Keep-Alive:"),
-		[TFW_HTTP_HDR_TRANSFER_ENCODING] = SLEN("Transfer-Encoding:"),
-		[TFW_HTTP_HDR_SERVER]	= SLEN("Server:"),
-		[TFW_HTTP_HDR_COOKIE]	= SLEN("Cookie:"),
-		[TFW_HTTP_HDR_ETAG]	= SLEN("ETag:"),
-		[TFW_HTTP_HDR_REFERER]	= SLEN("Referer:"),
+	static const unsigned char hdr_lens[2][TFW_HTTP_HDR_RAW] = {
+		(unsigned char []) {
+			[TFW_HTTP_HDR_HOST]		= SLEN("Host:"),
+			[TFW_HTTP_HDR_CONTENT_LENGTH]	= SLEN("Content-Length:"),
+			[TFW_HTTP_HDR_CONTENT_TYPE]	= SLEN("Content-Type:"),
+			[TFW_HTTP_HDR_CONNECTION]	= SLEN("Connection:"),
+			[TFW_HTTP_HDR_X_FORWARDED_FOR]	= SLEN("X-Forwarded-For:"),
+			[TFW_HTTP_HDR_KEEP_ALIVE]	= SLEN("Keep-Alive:"),
+			[TFW_HTTP_HDR_TRANSFER_ENCODING]= SLEN("Transfer-Encoding:"),
+			[TFW_HTTP_HDR_SERVER]		= SLEN("Server:"),
+			[TFW_HTTP_HDR_SET_COOKIE]	= SLEN("Set-Cookie:"),
+			[TFW_HTTP_HDR_ETAG]		= SLEN("ETag:"),
+			[TFW_HTTP_HDR_REFERER]		= SLEN("Referer:"),
+		},
+		(unsigned char []) {
+			[TFW_HTTP_HDR_HOST]		= SLEN("Host:"),
+			[TFW_HTTP_HDR_CONTENT_LENGTH]	= SLEN("Content-Length:"),
+			[TFW_HTTP_HDR_CONTENT_TYPE]	= SLEN("Content-Type:"),
+			[TFW_HTTP_HDR_CONNECTION]	= SLEN("Connection:"),
+			[TFW_HTTP_HDR_X_FORWARDED_FOR]	= SLEN("X-Forwarded-For:"),
+			[TFW_HTTP_HDR_KEEP_ALIVE]	= SLEN("Keep-Alive:"),
+			[TFW_HTTP_HDR_TRANSFER_ENCODING]= SLEN("Transfer-Encoding:"),
+			[TFW_HTTP_HDR_USER_AGENT]	= SLEN("User-Agent:"),
+			[TFW_HTTP_HDR_COOKIE]		= SLEN("Cookie:"),
+			[TFW_HTTP_HDR_IF_NONE_MATCH]	= SLEN("If-None-Match:"),
+			[TFW_HTTP_HDR_REFERER]		= SLEN("Referer:"),
+		},
 	};
-
 	TfwStr *c, *end;
 	int nlen;
 
-	BUILD_BUG_ON(ARRAY_SIZE(hdr_lens) != TFW_HTTP_HDR_RAW);
 	/* Empty and plain strings don't have header value part. */
 	if (unlikely(TFW_STR_PLAIN(hdr))) {
 		TFW_STR_INIT(val);
@@ -198,13 +211,7 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 	BUG_ON(TFW_STR_DUP(hdr));
 	BUG_ON(id >= TFW_HTTP_HDR_RAW);
 
-	if (unlikely(id == TFW_HTTP_HDR_SERVER && client))
-		nlen = SLEN("User-Agent:");
-	else if (unlikely(id == TFW_HTTP_HDR_ETAG && client))
-		nlen = SLEN("If-None-Match:");
-	else
-		nlen = hdr_lens[id];
-
+	nlen = hdr_lens[client][id];
 	/*
 	 * Only Host header is allowed to be empty.
 	 * If header string is plain, it is always empty header.
@@ -993,7 +1000,7 @@ tfw_http_msg_del_eol(struct sk_buff *skb_head, TfwStr *hdr)
  * to its beginning.
  */
 static int
-tfw_http_msg_body_xfrm(TfwHttpMsg *hm, TfwStr *data, bool append)
+tfw_http_msg_body_xfrm(TfwHttpMsg *hm, const TfwStr *data, bool append)
 {
 	int r;
 	TfwStr it = {};
@@ -1040,7 +1047,9 @@ int
 tfw_http_msg_to_chunked(TfwHttpMsg *hm)
 {
 	int r;
-	DEFINE_TFW_STR(chunked_body_end, "\r\n0\r\n\r\n");
+	const DEFINE_TFW_STR(chunked_body_end, "\r\n0\r\n\r\n");
+	const DEFINE_TFW_STR(zero_body_end, "0\r\n\r\n");
+	const TfwStr *body_end = &chunked_body_end;
 
 	r = TFW_HTTP_MSG_HDR_XFRM(hm, "Transfer-Encoding", "chunked",
 				  TFW_HTTP_HDR_TRANSFER_ENCODING, 1);
@@ -1060,9 +1069,14 @@ tfw_http_msg_to_chunked(TfwHttpMsg *hm)
 		if ((r = tfw_http_msg_body_xfrm(hm, &sz, false)))
 			return r;
 	}
+	else {
+		hm->body.data = hm->crlf.data + hm->crlf.len;
+		body_end = &zero_body_end;
+	}
 
-	if ((r = tfw_http_msg_body_xfrm(hm, &chunked_body_end, true)))
+	if ((r = tfw_http_msg_body_xfrm(hm, body_end, true))) {
 		return r;
+	}
 
 	__set_bit(TFW_HTTP_B_CHUNKED, hm->flags);
 
@@ -1539,7 +1553,7 @@ this_chunk:
 			addr = skb_frag_address(frag);
 		} else {
 			f_size = skb_headlen(it->skb);
-			addr = ss_skb_data(it->skb);
+			addr = it->skb->data;
 		}
 
 		offset = mit->curr_ptr - addr;

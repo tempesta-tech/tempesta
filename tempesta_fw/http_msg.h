@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -117,7 +117,7 @@ tfw_h2_msg_transform_setup(TfwHttpTransIter *mit, struct sk_buff *skb,
 		iter->skb_head = skb;
 
 	skb_push(skb, HTTP2_MAX_OFFSET);
-	mit->curr_ptr = ss_skb_data(skb);
+	mit->curr_ptr = skb->data;
 
 	if (init)
 		mit->curr_ptr += FRAME_HEADER_SIZE;
@@ -133,10 +133,9 @@ tfw_h2_msg_hdr_add(TfwHttpResp *resp, char *name, size_t nlen, char *val,
 			{ .data = val,		.len = vlen },
 		},
 		.len = nlen + vlen,
-		.nchunks = 2
+		.nchunks = 2,
+		.hpack_idx = idx
 	};
-
-	TFW_STR_INDEX_SET(&hdr, idx);
 
 	return __hdr_h2_add(resp, &hdr);
 }

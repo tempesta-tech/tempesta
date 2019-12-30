@@ -3,7 +3,7 @@
  *
  * Synchronous Sockets API for Linux socket buffers manipulation.
  *
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -163,11 +163,6 @@ ss_skb_alloc(size_t n)
 	skb_reserve(skb, MAX_TCP_HEADER);
 
 	return skb;
-}
-static inline char *
-ss_skb_data(struct sk_buff *skb)
-{
-	return skb->data;
 }
 
 #define SS_SKB_MAX_DATA_LEN	(SKB_MAX_HEADER + MAX_SKB_FRAGS * PAGE_SIZE)

@@ -1,7 +1,11 @@
 /*
+ *		Tempesta TLS
+ *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
+ *
+ * Based on mbed TLS, https://tls.mbed.org.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,39 +27,64 @@
 #include "ttls.h"
 #include "ecp.h"
 
+/* Affects only TempestaTLS internal debug symbols. */
+#if DBG_TLS == 0
+#undef DEBUG
+#endif
+
 #ifndef BANNER
 #define BANNER	"tls"
 #endif
 #include "lib/log.h"
 
-#if defined(DEBUG) && (DEBUG == 3)
+#ifdef DEBUG
 
-#define TTLS_DEBUG_MPI(text, X)						\
-	ttls_debug_print_mpi(tls, __FILE__, __LINE__, text, X)
+void __log_mpis(size_t n, const char *msg, ...);
+void ttls_debug_print_crt(const char *file, int line, const char *msg,
+			  const ttls_x509_crt *crt);
 
-#define TTLS_DEBUG_ECP(text, X)						\
-	ttls_debug_print_ecp(tls, __FILE__, __LINE__, text, X)
+#define T_DBG_MPI1(msg, x1)		__log_mpis(1, msg, #x1, x1)
+#define T_DBG_MPI2(msg, x1, x2)		__log_mpis(2, msg, #x1, x1, #x2, x2)
+#define T_DBG_MPI3(msg, x1, x2, x3)					\
+	__log_mpis(3, msg, #x1, x1, #x2, x2, #x3, x3)
+#define T_DBG_MPI4(msg, x1, x2, x3, x4)					\
+	__log_mpis(3, msg, #x1, x1, #x2, x2, #x3, x3, #x4, x4)
 
-#define TTLS_DEBUG_CRT(text, crt)					\
-	ttls_debug_print_crt(tls, __FILE__, __LINE__, text, crt)
+/* Print MPIs and data structures containing MPIs on higest debug level only. */
+#if DEBUG == 3
 
-void ttls_debug_print_mpi(const ttls_context *tls, const char *file, int line,
-			  const char *text, const ttls_mpi *X);
-void ttls_debug_print_ecp(const ttls_context *tls, const char *file, int line,
-			  const char *text, const ttls_ecp_point *X);
-void ttls_debug_print_crt(const ttls_context *tls, const char *file, int line,
-			  const char *text, const ttls_x509_crt *crt);
-void ttls_dbg_print_scatterlist(const char *str, struct scatterlist *sg,
-				unsigned int sgn, unsigned int off,
-				unsigned int len);
+#define T_DBG_ECP(msg, x)		__log_mpis(2, msg, (x)->X, (x)->Y)
 
-#else
+#define T_DBG_CRT(text, crt)						\
+	ttls_debug_print_crt(__FILE__, __LINE__, text, crt)
 
-#define TTLS_DEBUG_MPI(text, X)
-#define TTLS_DEBUG_ECP(text, X)
-#define TTLS_DEBUG_CRT(text, crt)
+/*
+ * Make the things repeatable, simple and INSECURE on largest debug level -
+ * this helps to debug TLS (thanks to reproducible records payload), but
+ * must not be used in any security sensitive installations.
+ */
+static inline void
+ttls_rnd(void *buf, size_t len)
+{
+	memset(buf, 0x55, len);
+}
 
+unsigned long ttls_time_debug(void);
+
+#define ttls_time()		ttls_time_debug()
+
+#endif /* highest debug level */
+#else /* no debugging at all */
+
+#define T_DBG_MPI1(...)
+#define T_DBG_MPI2(...)
+#define T_DBG_MPI3(...)
+#define T_DBG_MPI4(...)
+#define T_DBG_ECP(msg, x)
+#define T_DBG_CRT(text, crt)
+
+#define ttls_time()		get_seconds()
+#define ttls_rnd(buf, len)	get_random_bytes_arch(buf, len)
 #endif
 
-#endif /* debug.h */
-
+#endif /* TTLS_DEBUG_H */
