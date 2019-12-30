@@ -30,7 +30,7 @@
 #include "tls_internal.h"
 #include "ttls.h"
 
-#define CS_MP_SZ	PAGE_SIZE
+#define CS_MP_SZ	(PAGE_SIZE << TTLS_MPOOL_ORDER)
 
 /*
  * TLS memory profiles for all supported key exchanges.
@@ -38,9 +38,22 @@
 static union {
 	TlsMpiPool	mp;
 	unsigned char	_[CS_MP_SZ];
-} cs_mp_ecdhe_secp256 __page_aligned_bss,
-  cs_mp_ecdhe_secp384 __page_aligned_bss,
-  cs_mp_dhe __page_aligned_bss;
+} cs_mp_ecdhe_secp256 __page_aligned_data = {
+	.mp = {
+		.order = TTLS_MPOOL_ORDER,
+		.curr = sizeof(TlsMpiPool)
+	}
+}, cs_mp_ecdhe_secp384 __page_aligned_data = {
+	.mp = {
+		.order = TTLS_MPOOL_ORDER,
+		.curr = sizeof(TlsMpiPool)
+	}
+}, cs_mp_dhe __page_aligned_data = {
+	.mp = {
+		.order = TTLS_MPOOL_ORDER,
+		.curr = sizeof(TlsMpiPool)
+	}
+};
 
 static TlsCiphersuite ciphersuite_definitions[] = {
 	{ TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
@@ -147,7 +160,7 @@ static TlsCiphersuite ciphersuite_definitions[] = {
 	  0, 0, 0, 0, 0, { NULL, NULL } }
 };
 
-#define __CS_ADDR_MP(mp_name, addr)					\
+#define __CS_ADDR_MP(mp_name, x)					\
 do {									\
 	if (x > (unsigned long)&cs_mp_##mp_name				\
 	    && x < (unsigned long)&cs_mp_##mp_name + CS_MP_SZ)		\

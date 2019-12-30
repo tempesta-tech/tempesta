@@ -400,7 +400,7 @@ ttls_substate(const TlsCtx *tls)
 void *ttls_mpi_pool_alloc(size_t n, gfp_t gfp_mask);
 void ttls_mpi_pool_free(void *ctx);
 int ttls_mpi_profile_clone(TlsCtx *tls);
-void ttls_mpi_pool_cleanup_ctx(bool zero);
+void ttls_mpi_pool_cleanup_ctx(unsigned long addr, bool zero);
 
 void *ttls_mpool_alloc_stck(size_t n);
 int ttls_mpool_init(void);

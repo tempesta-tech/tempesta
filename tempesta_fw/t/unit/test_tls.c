@@ -146,7 +146,7 @@ TEST(mpi, alloc_init)
 	EXPECT_TRUE(A->_off == save_off);
 	EXPECT_FALSE(ttls_mpi_initialized(A));
 
-	ttls_mpi_pool_cleanup_ctx(0);
+	ttls_mpi_pool_cleanup_ctx(0, false);
 }
 
 TEST(mpi, read_write)
@@ -222,7 +222,7 @@ TEST(mpi, read_write)
 	for (i = 0; i < 118; ++i)
 		EXPECT_ZERO(buf[i]);
 
-	ttls_mpi_pool_cleanup_ctx(0);
+	ttls_mpi_pool_cleanup_ctx(0, true);
 }
 
 TEST(mpi, copy)
@@ -271,7 +271,7 @@ TEST(mpi, copy)
 	EXPECT_TRUE(B->s == 1);
 	EXPECT_EQ(ttls_mpi_bitlen(B), bits);
 
-	ttls_mpi_pool_cleanup_ctx(0);
+	ttls_mpi_pool_cleanup_ctx(0, false);
 }
 
 TEST(mpi, safe_cond)
@@ -340,7 +340,7 @@ TEST(mpi, safe_cond)
 	EXPECT_TRUE(MPI_P(A)[0] == 0x1122334455667788L);
 	EXPECT_TRUE(MPI_P(B)[0] == 0x1122334455667788L);
 
-	ttls_mpi_pool_cleanup_ctx(0);
+	ttls_mpi_pool_cleanup_ctx(0, true);
 }
 
 TEST(mpi, bitop)
@@ -427,7 +427,7 @@ TEST(mpi, bitop)
 	EXPECT_EQ(ttls_mpi_bitlen(A), 601 - 71 + 59 + 65);
 	EXPECT_EQ(ttls_mpi_lsb(A), 59 + 65);
 
-	ttls_mpi_pool_cleanup_ctx(0);
+	ttls_mpi_pool_cleanup_ctx(0, false);
 }
 
 TEST(mpi, elementary)
@@ -524,7 +524,7 @@ TEST(mpi, elementary)
 	EXPECT_ZERO(ttls_mpi_sub_mpi(A, A, B));
 	EXPECT_TRUE(ttls_mpi_cmp_abs(A, B) == 0);
 
-	ttls_mpi_pool_cleanup_ctx(0);
+	ttls_mpi_pool_cleanup_ctx((unsigned long)A, true);
 }
 
 /*
@@ -579,7 +579,7 @@ TEST(mpi, consts)
 					    32));
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(A, B) == 0);
 
-	ttls_mpi_pool_cleanup_ctx(0);
+	ttls_mpi_pool_cleanup_ctx((unsigned long)A, false);
 }
 
 TEST(mpi, mul_div_simple)
@@ -611,7 +611,7 @@ TEST(mpi, mul_div_simple)
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(A, B) == 0);
 	EXPECT_TRUE(ttls_mpi_cmp_int(R, 0) == 0);
 
-	ttls_mpi_pool_cleanup_ctx(0);
+	ttls_mpi_pool_cleanup_ctx((unsigned long)A, true);
 }
 
 TEST(mpi, big)
@@ -724,7 +724,8 @@ TEST(mpi, big)
 		EXPECT_TRUE(ttls_mpi_cmp_int(A, gcd_pairs[i][2]) == 0);
 	}
 
-	ttls_mpi_pool_cleanup_ctx(0);
+	ttls_mpi_pool_cleanup_ctx((unsigned long)X, false);
+	ttls_mpi_pool_cleanup_ctx((unsigned long)A, true);
 #undef GCD_PAIR_COUNT
 }
 
@@ -855,7 +856,7 @@ TEST(tls, ecp)
 		EXPECT_ZERO(ttls_ecp_mul(grp, R, m, P, false));
 	}
 
-	ttls_mpi_pool_cleanup_ctx(0);
+	ttls_mpi_pool_cleanup_ctx((unsigned long)R, true);
 }
 
 /*
@@ -932,7 +933,7 @@ TEST(tls, rsa)
 
 	kernel_fpu_end();
 
-	ttls_mpi_pool_cleanup_ctx(0);
+	ttls_mpi_pool_cleanup_ctx((unsigned long)rsa, false);
 }
 
 TEST_SUITE(tls)
