@@ -432,17 +432,36 @@ ecp_group_load(TlsEcpGrp *grp, const unsigned long *p,  size_t plen,
 	       const unsigned long *gy, size_t gylen,
 	       const unsigned long *n,  size_t nlen)
 {
+	int i;
+
 	if (ecp_mpi_load(&grp->P, p, plen)
 	    || ecp_mpi_load(&grp->B, b, blen)
 	    || ecp_mpi_load(&grp->G.X, gx, gxlen)
 	    || ecp_mpi_load(&grp->G.Y, gy, gylen)
-	    || ecp_mpi_load(&grp->N, n, nlen)
-	    || ttls_mpi_lset(&grp->G.Z, 1))
+	    || ecp_mpi_load(&grp->N, n, nlen))
 		return -ENOMEM;
 
 	grp->h = 1;
 	grp->pbits = ttls_mpi_bitlen(&grp->P);
 	grp->nbits = ttls_mpi_bitlen(&grp->N);
+
+	/*
+	 * Most of the time the point is normalized, so Z stores 1, but
+	 * is some calculations the size can grow up to the curve size.
+	 */
+	if (__mpi_alloc(&grp->G.Z, grp->nbits / BIL)
+	    || ttls_mpi_lset(&grp->G.Z, 1))
+		return -ENOMEM;
+
+	/*
+	 * Need to initialize the first item only - the rest will be propagated
+	 * from the first one by ecp_precompute_comb().
+	 */
+	for (i = 0; i < TTLS_ECP_WINDOW_SIZE; i++)
+		if (__mpi_alloc(&grp->T[i].X, grp->G.X.limbs)
+		    || __mpi_alloc(&grp->T[i].Y, grp->G.Y.limbs)
+		    || __mpi_alloc(&grp->T[i].Z, grp->G.Z.limbs))
+			return -ENOMEM;
 
 	return 0;
 }

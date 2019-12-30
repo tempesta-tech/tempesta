@@ -2203,7 +2203,7 @@ ttls_recv(void *tls_data, unsigned char *buf, size_t len, unsigned int *read)
 		r = ttls_handshake_step(tls, buf, len, hh_len, read);
 
 		/* Cleanup security sensitive temproary data. */
-		ttls_mpi_pool_cleanup_ctx(true);
+		ttls_mpi_pool_cleanup_ctx(0, true);
 
 		if (!r)
 			return T_OK;

@@ -611,89 +611,88 @@ ecp_safe_invert_jac(const TlsEcpGrp *grp, TlsEcpPoint *Q, unsigned char inv)
 static int
 ecp_double_jac(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint *P)
 {
-	TlsMpi *M, *S, *T, *U;
+	TlsMpi M, S, T, U;
 
-	if (!(M = ttls_mpi_alloc_stck_init(0))
-	    || !(S = ttls_mpi_alloc_stck_init(grp->nbits * 2 / BIL))
-	    || !(T = ttls_mpi_alloc_stck_init(0))
-	    || !(U = ttls_mpi_alloc_stck_init(0)))
-		return -ENOMEM;
+	ttls_mpi_alloca_init(&M, grp->nbits * 2 / BIL);
+	ttls_mpi_alloca_init(&S, grp->nbits * 2 / BIL);
+	ttls_mpi_alloca_init(&T, grp->nbits * 2 / BIL);
+	ttls_mpi_alloca_init(&U, grp->nbits * 2 / BIL);
 
 	/* Special case for A = -3 */
 	if (!ttls_mpi_initialized(&grp->A)) {
 		/* M = 3(X + Z^2)(X - Z^2) */
-		MPI_CHK(ttls_mpi_mul_mpi(S, &P->Z, &P->Z));
-		MOD_MUL(S);
-		MPI_CHK(ttls_mpi_add_mpi(T, &P->X, S));
-		MOD_ADD(T);
-		MPI_CHK(ttls_mpi_sub_mpi(U, &P->X, S));
-		MOD_SUB(U);
-		MPI_CHK(ttls_mpi_mul_mpi(S, T, U));
-		MOD_MUL(S);
-		MPI_CHK(ttls_mpi_mul_uint(M, S, 3));
-		MOD_ADD(M);
+		MPI_CHK(ttls_mpi_mul_mpi(&S, &P->Z, &P->Z));
+		MOD_MUL(&S);
+		MPI_CHK(ttls_mpi_add_mpi(&T, &P->X, &S));
+		MOD_ADD(&T);
+		MPI_CHK(ttls_mpi_sub_mpi(&U, &P->X, &S));
+		MOD_SUB(&U);
+		MPI_CHK(ttls_mpi_mul_mpi(&S, &T, &U));
+		MOD_MUL(&S);
+		MPI_CHK(ttls_mpi_mul_uint(&M, &S, 3));
+		MOD_ADD(&M);
 	} else {
 		/* M = 3.X^2 */
-		MPI_CHK(ttls_mpi_mul_mpi(S, &P->X, &P->X));
-		MOD_MUL(S);
-		MPI_CHK(ttls_mpi_mul_uint(M, S, 3));
-		MOD_ADD(M);
+		MPI_CHK(ttls_mpi_mul_mpi(&S, &P->X, &P->X));
+		MOD_MUL(&S);
+		MPI_CHK(ttls_mpi_mul_uint(&M, &S, 3));
+		MOD_ADD(&M);
 
 		/* Optimize away for "koblitz" curves with A = 0 */
 		if (ttls_mpi_cmp_int(&grp->A, 0)) {
 			/* M += A.Z^4 */
-			MPI_CHK(ttls_mpi_mul_mpi(S, &P->Z, &P->Z));
-			MOD_MUL(S);
-			MPI_CHK(ttls_mpi_mul_mpi(T, S, S));
-			MOD_MUL(T);
-			MPI_CHK(ttls_mpi_mul_mpi(S, T, &grp->A));
-			MOD_MUL(S);
-			MPI_CHK(ttls_mpi_add_mpi(M, M, S));
-			MOD_ADD(M);
+			MPI_CHK(ttls_mpi_mul_mpi(&S, &P->Z, &P->Z));
+			MOD_MUL(&S);
+			MPI_CHK(ttls_mpi_mul_mpi(&T, &S, &S));
+			MOD_MUL(&T);
+			MPI_CHK(ttls_mpi_mul_mpi(&S, &T, &grp->A));
+			MOD_MUL(&S);
+			MPI_CHK(ttls_mpi_add_mpi(&M, &M, &S));
+			MOD_ADD(&M);
 		}
 	}
 
 	/* S = 4.X.Y^2 */
-	MPI_CHK(ttls_mpi_mul_mpi(T, &P->Y, &P->Y));
-	MOD_MUL(T);
-	MPI_CHK(ttls_mpi_shift_l(T, 1));
-	MOD_ADD(T);
-	MPI_CHK(ttls_mpi_mul_mpi(S, &P->X, T));
-	MOD_MUL(S);
-	MPI_CHK(ttls_mpi_shift_l(S, 1));
-	MOD_ADD(S);
+	MPI_CHK(ttls_mpi_mul_mpi(&T, &P->Y, &P->Y));
+	MOD_MUL(&T);
+	MPI_CHK(ttls_mpi_shift_l(&T, 1));
+	MOD_ADD(&T);
+	MPI_CHK(ttls_mpi_mul_mpi(&S, &P->X, &T));
+	MOD_MUL(&S);
+	MPI_CHK(ttls_mpi_shift_l(&S, 1));
+	MOD_ADD(&S);
 
 	/* U = 8.Y^4 */
-	MPI_CHK(ttls_mpi_mul_mpi(U, T, T));
-	MOD_MUL(U);
-	MPI_CHK(ttls_mpi_shift_l(U, 1));
-	MOD_ADD(U);
+	MPI_CHK(ttls_mpi_mul_mpi(&U, &T, &T));
+	MOD_MUL(&U);
+	MPI_CHK(ttls_mpi_shift_l(&U, 1));
+	MOD_ADD(&U);
 
 	/* T = M^2 - 2.S */
-	MPI_CHK(ttls_mpi_mul_mpi(T, M, M));
-	MOD_MUL(T);
-	MPI_CHK(ttls_mpi_sub_mpi(T, T, S));
-	MOD_SUB(T);
-	MPI_CHK(ttls_mpi_sub_mpi(T, T, S));
-	MOD_SUB(T);
+	MPI_CHK(ttls_mpi_mul_mpi(&T, &M, &M));
+	MOD_MUL(&T);
+	MPI_CHK(ttls_mpi_sub_mpi(&T, &T, &S));
+	MOD_SUB(&T);
+	MPI_CHK(ttls_mpi_sub_mpi(&T, &T, &S));
+	MOD_SUB(&T);
 
 	/* S = M(S - T) - U */
-	MPI_CHK(ttls_mpi_sub_mpi(S, S, T));
-	MOD_SUB(S);
-	MPI_CHK(ttls_mpi_mul_mpi(S, S, M));
-	MOD_MUL(S);
-	MPI_CHK(ttls_mpi_sub_mpi(S, S, U));
-	MOD_SUB(S);
+	MPI_CHK(ttls_mpi_sub_mpi(&S, &S, &T));
+	MOD_SUB(&S);
+	MPI_CHK(ttls_mpi_mul_mpi(&S, &S, &M));
+	MOD_MUL(&S);
+	MPI_CHK(ttls_mpi_sub_mpi(&S, &S, &U));
+	MOD_SUB(&S);
 
 	/* U = 2.Y.Z */
-	MPI_CHK(ttls_mpi_mul_mpi(U, &P->Y, &P->Z));
-	MOD_MUL(U);
-	MPI_CHK(ttls_mpi_shift_l(U, 1));
-	MOD_ADD(U);
+	MPI_CHK(ttls_mpi_mul_mpi(&U, &P->Y, &P->Z));
+	MOD_MUL(&U);
+	MPI_CHK(ttls_mpi_shift_l(&U, 1));
+	MOD_ADD(&U);
 
-	MPI_CHK(ttls_mpi_copy(&R->X, T));
-	MPI_CHK(ttls_mpi_copy(&R->Y, S));
-	MPI_CHK(ttls_mpi_copy(&R->Z, U));
+	MPI_CHK(ttls_mpi_copy(&R->X, &T));
+	MPI_CHK(ttls_mpi_copy(&R->Y, &S));
+	MPI_CHK(ttls_mpi_copy(&R->Z, &U));
 
 	return 0;
 }

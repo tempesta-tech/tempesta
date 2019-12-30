@@ -367,16 +367,16 @@ pk_parse_key_pkcs1_der(TlsRSACtx *rsa, const unsigned char *key, size_t keylen)
 		goto err;
 
 	/* Check optional parameters */
-	preempt_disable();
+	kernel_fpu_begin();
 	if (!(T = ttls_mpi_alloc_stck_init((end - p) * CIL))
 	    || (r = ttls_asn1_get_mpi(&p, end, T))
 	    || (r = ttls_asn1_get_mpi(&p, end, T))
 	    || (r = ttls_asn1_get_mpi(&p, end, T)))
 	{
-		preempt_enable();
+		kernel_fpu_end();
 		goto err;
 	}
-	preempt_enable();
+	kernel_fpu_end();
 
 	if (p != end)
 		r = TTLS_ERR_PK_KEY_INVALID_FORMAT
@@ -701,7 +701,7 @@ no_pem:
 
 cleanup:
 	/* Does MPI calculations, so pool context must be freed afterwards. */
-	ttls_mpi_pool_cleanup_ctx(false);
+	ttls_mpi_pool_cleanup_ctx(0, false);
 
 	return r;
 }
