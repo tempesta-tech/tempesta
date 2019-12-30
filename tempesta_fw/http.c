@@ -740,7 +740,7 @@ tfw_h2_pseudo_index(unsigned short status)
 }
 
 /**
- * Write HTTP/2 Pseudo-header fields. Only ':status' is defined as response
+ * Write HTTP/2 pseudo-header fields. Only ':status' is defined as response
  * pseudo-header and all HTTP/2 responses must contain that.
  * https://httpwg.org/specs/rfc7540.html#rfc.section.8.1.2.4
  */
@@ -3640,7 +3640,7 @@ tfw_h2_resp_next_hdr(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 		TfwStr *tgt = &ht->tbl[hid];
 		TfwStr *first = TFW_STR_CHUNK(tgt, 0);
 		TfwHdrModsDesc *f_desc = NULL;
-		const TfwStr *val = NULL;
+		const TfwStr *val;
 
 		if (TFW_STR_DUP(tgt))
 			tgt = TFW_STR_CHUNK(tgt, d_num);
