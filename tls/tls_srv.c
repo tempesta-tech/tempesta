@@ -1689,8 +1689,8 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 	 * MPI modifications, so leave the warning for now.
 	 */
 	if (io->rlen + len < io->hslen) {
-		T_WARN("chunked key - fall back to copy (total length"
-		       " %u, chunk length %lu, max copy %lu)\n",
+		T_WARN("chunked key - fall back to copy"
+		       " (total length %u, chunk length %lu, max copy %d)\n",
 		       io->hslen, len, TTLS_HS_RBUF_SZ);
 		if (io->hslen > TTLS_HS_RBUF_SZ)
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE;
