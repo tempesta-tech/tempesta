@@ -7980,12 +7980,10 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, size_t len,
 
 	*parsed = 0;
 
-	if (likely(type != HTTP2_DATA)) {
+	if (likely(type != HTTP2_DATA))
 		r = tfw_hpack_decode(&ctx->hpack, data, len, req, parsed);
-		req->pit.hb_len += *parsed;
-	} else {
+	else
 		r = tfw_h2_parse_body(data, len, req, parsed);
-	}
 
 	if (r != T_OK && r != T_POSTPONE)
 		return r;
