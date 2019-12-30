@@ -1163,6 +1163,41 @@ TEST(hpack, dec_huffman)
 #undef HDR_VALUE_3
 }
 
+TEST(hpack, enc_huffman)
+{
+	/*
+	 * The test dec_huffman checks that the following values was
+	 * correctly parsed from the Huffman encoded strings, check that we
+	 * can create exactly the same encoded strings.
+	 */
+	DEFINE_TFW_STR(custom_key_raw, "custom-key");
+	DEFINE_TFW_STR(custom_key_exp, "\x25\xA8\x49\xE9\x5B\xA9\x7D\x7F");
+	DEFINE_TFW_STR(custom_val_raw, "custom-value");
+	DEFINE_TFW_STR(custom_val_exp, "\x25\xA8\x49\xE9\x5B\xB8\xE8\xB4\xBF");
+	DEFINE_TFW_STR(no_cache_raw, "no-cache");
+	DEFINE_TFW_STR(no_cache_exp, "\xA8\xEB\x10\x64\x9C\xBF");
+	DEFINE_TFW_STR(www_raw, "www.example.com");
+	DEFINE_TFW_STR(www_exp,
+		       "\xF1\xE3\xC2\xE5\xF2\x3A\x6B\xA0\xAB\x90\xF4\xFF");
+	TfwStr *custom_key_enc, *custom_val_enc, *no_cache_enc, *www_enc;
+
+	custom_key_enc = tfw_huffman_encode_string(&custom_key_raw, str_pool);
+	EXPECT_TRUE(!IS_ERR_OR_NULL(custom_key_enc));
+	EXPECT_OK(tfw_strcmp(custom_key_enc, &custom_key_exp));
+
+	custom_val_enc = tfw_huffman_encode_string(&custom_val_raw, str_pool);
+	EXPECT_TRUE(!IS_ERR_OR_NULL(custom_val_enc));
+	EXPECT_OK(tfw_strcmp(custom_val_enc, &custom_val_exp));
+
+	no_cache_enc = tfw_huffman_encode_string(&no_cache_raw, str_pool);
+	EXPECT_TRUE(!IS_ERR_OR_NULL(no_cache_enc));
+	EXPECT_OK(tfw_strcmp(no_cache_enc, &no_cache_exp));
+
+	www_enc = tfw_huffman_encode_string(&www_raw, str_pool);
+	EXPECT_TRUE(!IS_ERR_OR_NULL(www_enc));
+	EXPECT_OK(tfw_strcmp(www_enc, &www_exp));
+}
+
 TEST(hpack, enc_table_hdr_write)
 {
 	char *buf;
@@ -1813,6 +1848,7 @@ TEST_SUITE(hpack)
 	TEST_RUN(hpack, dec_raw);
 	TEST_RUN(hpack, dec_indexed);
 	TEST_RUN(hpack, dec_huffman);
+	TEST_RUN(hpack, enc_huffman);
 	TEST_RUN(hpack, enc_table_hdr_write);
 	TEST_RUN(hpack, enc_table_index);
 	TEST_RUN(hpack, enc_table_rbtree);
