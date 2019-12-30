@@ -4457,7 +4457,7 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_TX_AF(Req_HdrX_Method_Overrid, 'e', Req_HdrX_Method_Override);
 	__FSM_TX_AF_OWS(Req_HdrX_Method_Override, Req_HdrX_Method_OverrideV);
 
-	/* X-HTTP-Method header processing */
+	/* X-HTTP-Method header processing. */
 	__FSM_TX_AF(Req_HdrX_H, 't', Req_HdrX_Ht);
 	__FSM_TX_AF(Req_HdrX_Ht, 't', Req_HdrX_Htt);
 	__FSM_TX_AF(Req_HdrX_Htt, 'p', Req_HdrX_Http);
@@ -4480,7 +4480,7 @@ Req_Method_1CharStep: __attribute__((cold))
 		}
 	}
 
-	/* X-HTTP-Method-Override processing */
+	/* X-HTTP-Method-Override processing. */
 	__FSM_TX_AF(Req_HdrX_Http_Method_, 'o', Req_HdrX_Http_Method_O);
 	__FSM_TX_AF(Req_HdrX_Http_Method_O, 'v', Req_HdrX_Http_Method_Ov);
 	__FSM_TX_AF(Req_HdrX_Http_Method_Ov, 'e', Req_HdrX_Http_Method_Ove);
@@ -7631,8 +7631,6 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	__FSM_H2_TX_AF(Req_HdrCook, 'i', Req_HdrCooki);
 	__FSM_H2_TX_AF_FIN(Req_HdrCooki, 'e', Req_HdrCookieV,
 			   TFW_TAG_HDR_COOKIE);
-
-
 
 	/* Improbable states of method values processing. */
 

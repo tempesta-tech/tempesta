@@ -2949,11 +2949,10 @@ tfw_hpack_str_expand_raw(TfwHttpTransIter *mit, TfwMsgIter *it,
  * writing to skb, so allocate a new string and copy @str encoded value there.
  * It heavily affect performance, since we have two allocations and two copy
  * operations here. We decided to keep the code, but our core use cases shows
- * no performance improvement opportunities.
- *
- * TODO: We are free to choose encoding when we're adding a new header, but
- * we have to (?) preserve original encoding when modifying already existent
- * headers.
+ * no performance improvement opportunities. According to RFC we are free to
+ * choose encoding (static/dynamic/Huffman) when modifying already existent
+ * headers (e.g. in cases of HTTP/1.1=>HTTP/2 or HTTP/2=>HTTP/2 response proxy),
+ * thus avoiding Huffman encodings is completely RFC-compliant behaviour.
  */
 static inline int
 tfw_hpack_str_add(TfwHttpTransIter *mit, TfwStr *str, TfwPool *pool)
