@@ -58,7 +58,6 @@
 #ifndef TTLS_DHM_H
 #define TTLS_DHM_H
 
-#include "config.h"
 #include "bignum.h"
 
 /*
@@ -82,16 +81,16 @@
 typedef struct
 {
 	size_t len;		 /*!<  The size of \p P in Bytes. */
-	ttls_mpi P;	  /*!<  The prime modulus. */
-	ttls_mpi G;	  /*!<  The generator. */
-	ttls_mpi X;	  /*!<  Our secret value. */
-	ttls_mpi GX;	 /*!<  Our public key = \c G^X mod \c P. */
-	ttls_mpi GY;	 /*!<  The public key of the peer = \c G^Y mod \c P. */
-	ttls_mpi K;	  /*!<  The shared secret = \c G^(XY) mod \c P. */
-	ttls_mpi RP;	 /*!<  The cached value = \c R^2 mod \c P. */
-	ttls_mpi Vi;	 /*!<  The blinding value. */
-	ttls_mpi Vf;	 /*!<  The unblinding value. */
-	ttls_mpi pX;	 /*!<  The previous \c X. */
+	TlsMpi P;	  /*!<  The prime modulus. */
+	TlsMpi G;	  /*!<  The generator. */
+	TlsMpi X;	  /*!<  Our secret value. */
+	TlsMpi GX;	 /*!<  Our public key = \c G^X mod \c P. */
+	TlsMpi GY;	 /*!<  The public key of the peer = \c G^Y mod \c P. */
+	TlsMpi K;	  /*!<  The shared secret = \c G^(XY) mod \c P. */
+	TlsMpi RP;	 /*!<  The cached value = \c R^2 mod \c P. */
+	TlsMpi Vi;	 /*!<  The blinding value. */
+	TlsMpi Vf;	 /*!<  The unblinding value. */
+	TlsMpi pX;	 /*!<  The previous \c X. */
 }
 ttls_dhm_context;
 
@@ -148,7 +147,7 @@ int ttls_dhm_read_params(ttls_dhm_context *ctx,
  * \note  This function assumes that \c ctx->P and \c ctx->G
  *		 have already been properly set. For that, use
  *		 ttls_dhm_set_group() below in conjunction with
- *		 ttls_mpi_read_binary() and ttls_mpi_read_string().
+ *		 ttls_mpi_read_binary().
  *
  * \return	 \c 0 on success, or an \c TTLS_ERR_DHM_XXX error code
  *			 on failure.
@@ -170,8 +169,8 @@ int ttls_dhm_make_params(ttls_dhm_context *ctx, int x_size,
  *				 on failure.
  */
 int ttls_dhm_set_group(ttls_dhm_context *ctx,
-			   const ttls_mpi *P,
-			   const ttls_mpi *G);
+			   const TlsMpi *P,
+			   const TlsMpi *G);
 
 /**
  * \brief		  This function imports the public value G^Y of the peer.

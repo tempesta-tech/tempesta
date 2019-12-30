@@ -3,6 +3,8 @@
  *
  * TLS ciphersuites.
  *
+ * Based on mbed TLS, https://tls.mbed.org.
+ *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0

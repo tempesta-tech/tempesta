@@ -236,6 +236,7 @@ TEST(hpack, dec_table_dynamic_inc)
 	TfwStr h_name, *s1, *s2, *s3, *s4, *s5;
 	const TfwHPackEntry *entry;
 	TfwMsgParseIter *it = &test_req->pit;
+
 	TFW_STR(s1_name, "custom-header-1");
 	TFW_STR(s1_value, "custom value 1");
 	TFW_STR(s2_name, "custom-header-2");
@@ -321,6 +322,7 @@ TEST(hpack, dec_table_dynamic_inc)
 
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 64);
 	EXPECT_NOT_NULL(entry);
+
 	if (entry)
 		EXPECT_TRUE(tfw_strcmp(entry->hdr, s3) == 0);
 
@@ -366,6 +368,8 @@ TEST(hpack, dec_table_wrap)
 
 			entry = tfw_hpack_find_index(&hp->dec_tbl, i);
 			EXPECT_NOT_NULL(entry);
+			if (!entry)
+				continue;
 
 			if (i >= end_idx - shift)
 				last_entries[i - (end_idx - shift)] = *entry;
@@ -1159,6 +1163,46 @@ TEST(hpack, dec_huffman)
 #undef HDR_VALUE_3
 }
 
+TEST(hpack, enc_huffman)
+{
+	/*
+	 * The test dec_huffman checks that the following values was
+	 * correctly parsed from the Huffman encoded strings, check that we
+	 * can create exactly the same encoded strings.
+	 */
+	DEFINE_TFW_STR(custom_key_raw, "custom-key");
+	DEFINE_TFW_STR(custom_key_exp, "\x25\xA8\x49\xE9\x5B\xA9\x7D\x7F");
+	DEFINE_TFW_STR(custom_val_raw, "custom-value");
+	DEFINE_TFW_STR(custom_val_exp, "\x25\xA8\x49\xE9\x5B\xB8\xE8\xB4\xBF");
+	DEFINE_TFW_STR(no_cache_raw, "no-cache");
+	DEFINE_TFW_STR(no_cache_exp, "\xA8\xEB\x10\x64\x9C\xBF");
+	TfwStr *www_raw = make_compound_str("www.example.com");
+	DEFINE_TFW_STR(www_exp,
+		       "\xF1\xE3\xC2\xE5\xF2\x3A\x6B\xA0\xAB\x90\xF4\xFF");
+	TfwStr *custom_key_enc, *custom_val_enc, *no_cache_enc, *www_enc;
+
+	custom_key_enc = tfw_huffman_encode_string(&custom_key_raw, str_pool);
+	EXPECT_TRUE(!IS_ERR_OR_NULL(custom_key_enc));
+	EXPECT_OK(tfw_strcmp(custom_key_enc, &custom_key_exp));
+
+	custom_val_enc = tfw_huffman_encode_string(&custom_val_raw, str_pool);
+	EXPECT_TRUE(!IS_ERR_OR_NULL(custom_val_enc));
+	EXPECT_OK(tfw_strcmp(custom_val_enc, &custom_val_exp));
+
+	no_cache_enc = tfw_huffman_encode_string(&no_cache_raw, str_pool);
+	EXPECT_TRUE(!IS_ERR_OR_NULL(no_cache_enc));
+	EXPECT_OK(tfw_strcmp(no_cache_enc, &no_cache_exp));
+
+	www_enc = tfw_huffman_encode_string(www_raw, str_pool);
+	EXPECT_TRUE(!IS_ERR_OR_NULL(www_enc));
+	EXPECT_OK(tfw_strcmp(www_enc, &www_exp));
+
+	/*
+	 * TODO: add more test cases: encode<->decode the same text using
+	 * Tempesta functions.
+	 */
+}
+
 TEST(hpack, enc_table_hdr_write)
 {
 	char *buf;
@@ -1518,6 +1562,8 @@ TEST(hpack, enc_table_rbtree)
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(n3);
+	if (!n3)
+		return;
 
 	/*
 	 * After re-balancing (which includes one right and one left rotations)
@@ -1583,6 +1629,8 @@ TEST(hpack, enc_table_rbtree)
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(n4);
+	if (!n4)
+		return;
 
 	/*
 	 * After re-balancing (which should not include any rotations, only
@@ -1633,6 +1681,8 @@ TEST(hpack, enc_table_rbtree)
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
 	EXPECT_NULL(pl.parent);
 	EXPECT_NOT_NULL(n5);
+	if (!n5)
+		return;
 
 	/* Check the structure and nodes' color of the entire tree. */
 	EXPECT_NULL(HPACK_NODE_COND(tbl, n3->parent));
@@ -1803,6 +1853,7 @@ TEST_SUITE(hpack)
 	TEST_RUN(hpack, dec_raw);
 	TEST_RUN(hpack, dec_indexed);
 	TEST_RUN(hpack, dec_huffman);
+	TEST_RUN(hpack, enc_huffman);
 	TEST_RUN(hpack, enc_table_hdr_write);
 	TEST_RUN(hpack, enc_table_index);
 	TEST_RUN(hpack, enc_table_rbtree);

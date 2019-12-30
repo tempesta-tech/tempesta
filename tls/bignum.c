@@ -1,1009 +1,868 @@
 /*
- *  Multi-precision integer library
+ *		Tempesta TLS
  *
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2019 Tempesta Technologies, Inc.
- *  SPDX-License-Identifier: GPL-2.0
+ * Multi-precision integer library.
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ * The following sources were referenced in the design of this Multi-precision
+ * Integer library:
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * [1] Handbook of Applied Cryptography - 1997
+ *     Menezes, van Oorschot and Vanstone
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * [2] Multi-Precision Math, Tom St Denis
  *
- *  This file is part of mbed TLS (https://tls.mbed.org)
+ * [3] GNU Multi-Precision Arithmetic Library
+ *     https://gmplib.org/manual/index.html
+ *
+ * Based on mbed TLS, https://tls.mbed.org.
+ *
+ * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * SPDX-License-Identifier: GPL-2.0
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
+#include <linux/bitops.h>
 
-/*
- *  The following sources were referenced in the design of this Multi-precision
- *  Integer library:
- *
- *  [1] Handbook of Applied Cryptography - 1997
- *	  Menezes, van Oorschot and Vanstone
- *
- *  [2] Multi-Precision Math
- *	  Tom St Denis
- *	  https://github.com/libtom/libtommath/blob/develop/tommath.pdf
- *
- *  [3] GNU Multi-Precision Arithmetic Library
- *	  https://gmplib.org/manual/index.html
- *
- */
 #include "lib/str.h"
-#include "config.h"
 #include "bignum.h"
 #include "tls_internal.h"
-
-#define ciL	(sizeof(ttls_mpi_uint))		 /* chars in limb  */
-#define biL	(ciL << 3)			   /* bits  in limb  */
-#define biH	(ciL << 2)			   /* half limb size */
-
-#define MPI_SIZE_T_MAX  ((size_t) -1) /* SIZE_T_MAX is not standard */
 
 /*
  * Convert between bits/chars and number of limbs
  * Divide first in order to avoid potential overflows
  */
-#define BITS_TO_LIMBS(i)  ((i) / biL + ((i) % biL != 0))
-#define CHARS_TO_LIMBS(i) ((i) / ciL + ((i) % ciL != 0))
+#define BITS_TO_LIMBS(n)	(((n) + BIL - 1) >> BSHIFT)
+#define CHARS_TO_LIMBS(n)	(((n) + CIL - 1) >> LSHIFT)
 
-#define MPI_W_SZ	(2 << TTLS_MPI_WINDOW_SIZE)
-static DEFINE_PER_CPU(ttls_mpi *, g_buf);
+/* Maximum sliding window size in bits used for modular exponentiation. */
+#define MPI_W_SZ		6
 
+static DEFINE_PER_CPU(TlsMpi *, g_buf);
+
+/**
+ * Initialize one MPI (make internal references valid).
+ * This just makes it ready to be set or freed, but does not define a value
+ * for the MPI.
+ *
+ * Single-limb MPI are quite rare, so we don't try to use TlsMpi->p as an
+ * integer value for sigle-limb case.
+ */
 void
-ttls_mpi_init(ttls_mpi *X)
+ttls_mpi_init(TlsMpi *X)
 {
 	if (unlikely(!X))
 		return;
 
 	X->s = 1;
-	X->n = 0;
+	X->used = 0;
+	X->limbs = 0;
 	X->p = NULL;
 }
 
 void
-ttls_mpi_free(ttls_mpi *X)
+ttls_mpi_free(TlsMpi *X)
 {
 	if (unlikely(!X))
 		return;
 
 	if (X->p) {
-		memset(X->p, 0, X->n);
+		memset(X->p, 0, X->limbs << LSHIFT);
 		kfree(X->p);
 	}
 
-	X->s = 1;
-	X->n = 0;
-	X->p = NULL;
+	ttls_mpi_init(X);
 }
 
-/*
- * Enlarge to the specified number of limbs
+/**
+ * Reallocate the MPI data area and copy old data if necessary.
+ *
+ * TODO #1064: use exponential growth or allocate with some step like 2 or 4
+ * limbs? Need to explore common memory allocation pattern -> collect histogram.
+ * Probably we can allocate all required MPIs on early handshake phase with the
+ * key parameters size knowledge, so we could avoid allocations at all.
+ * It seems we can not use per-cpu pages to store MPI since we need the MPIs
+ * state between handshake messages.
  */
-int ttls_mpi_grow(ttls_mpi *X, size_t nblimbs)
+int
+__mpi_realloc(TlsMpi *X, size_t nblimbs, unsigned int flags)
 {
-	ttls_mpi_uint *p;
+	unsigned long *p;
 
-	if (nblimbs > TTLS_MPI_MAX_LIMBS)
-		return(TTLS_ERR_MPI_ALLOC_FAILED);
+	if (unlikely(nblimbs > TTLS_MPI_MAX_LIMBS))
+		return -ENOMEM;
+	if (unlikely(X->limbs >= nblimbs))
+		return 0;
 
-	if (X->n < nblimbs)
-	{
-		if ((p = (ttls_mpi_uint*)ttls_calloc(nblimbs, ciL)) == NULL)
-			return(TTLS_ERR_MPI_ALLOC_FAILED);
+	if (!(p = kmalloc(nblimbs * CIL, GFP_ATOMIC)))
+		return -ENOMEM;
 
-		if (X->p != NULL)
-		{
-			memcpy(p, X->p, X->n * ciL);
-			memset(X->p, 0, X->n);
-			ttls_free(X->p);
-		}
-
-		X->n = nblimbs;
-		X->p = p;
+	if (X->p) {
+		if (flags & MPI_GROW_COPY)
+			memcpy(p, X->p, X->used * CIL);
+		kfree(X->p);
 	}
+	if (flags & MPI_GROW_ZERO)
+		memset(p + X->used, 0, (nblimbs - X->used) * CIL);
 
-	return 0;
-}
-
-/*
- * Resize down as much as possible,
- * while keeping at least the specified number of limbs
- */
-int ttls_mpi_shrink(ttls_mpi *X, size_t nblimbs)
-{
-	ttls_mpi_uint *p;
-	size_t i;
-
-	/* Actually resize up in this case */
-	if (X->n <= nblimbs)
-		return(ttls_mpi_grow(X, nblimbs));
-
-	for (i = X->n - 1; i > 0; i--)
-		if (X->p[i] != 0)
-			break;
-	i++;
-
-	if (i < nblimbs)
-		i = nblimbs;
-
-	if ((p = (ttls_mpi_uint*)ttls_calloc(i, ciL)) == NULL)
-		return(TTLS_ERR_MPI_ALLOC_FAILED);
-
-	if (X->p != NULL)
-	{
-		memcpy(p, X->p, i * ciL);
-		memset(X->p, 0, X->n);
-		ttls_free(X->p);
-	}
-
-	X->n = i;
+	X->limbs = nblimbs;
 	X->p = p;
 
 	return 0;
 }
 
-/*
- * Copy the contents of Y into X
+/**
+ * Set proper @X->used. Move from @n towards @X->p[0] and throw out all zeros.
  */
-int ttls_mpi_copy(ttls_mpi *X, const ttls_mpi *Y)
+void
+mpi_fixup_used(TlsMpi *X, size_t n)
 {
-	int ret;
-	size_t i;
+	if (unlikely(n > X->limbs))
+		n = X->limbs;
+	/*
+	 * Leave the least significant limb even if it's zero to represent
+	 * zero valued MPI.
+	 */
+	for (X->used = n; X->used > 1 && !X->p[X->used - 1]; )
+		--X->used;
+}
 
-	if (X == Y)
+/**
+ * Resize down as much as possible, while keeping at least the specified
+ * number of limbs.
+ */
+int
+ttls_mpi_shrink(TlsMpi *X, size_t nblimbs)
+{
+	unsigned long *p;
+
+	if (WARN_ON_ONCE(!X->p || X->limbs < nblimbs))
 		return 0;
+	if (X->used > nblimbs)
+		nblimbs = X->used;
 
-	if (Y->p == NULL)
-	{
-		ttls_mpi_free(X);
-		return 0;
-	}
+	if (!(p = kmalloc(nblimbs * CIL, GFP_ATOMIC)))
+		return -ENOMEM;
 
-	for (i = Y->n - 1; i > 0; i--)
-		if (Y->p[i] != 0)
-			break;
-	i++;
+	memcpy(p, X->p, X->used * CIL);
+	kfree(X->p);
 
-	X->s = Y->s;
-
-	TTLS_MPI_CHK(ttls_mpi_grow(X, i));
-
-	memset(X->p, 0, X->n * ciL);
-	memcpy(X->p, Y->p, i * ciL);
-
-cleanup:
-
-	return ret;
-}
-
-/*
- * Swap the contents of X and Y
- */
-void ttls_mpi_swap(ttls_mpi *X, ttls_mpi *Y)
-{
-	ttls_mpi T;
-
-	memcpy(&T,  X, sizeof(ttls_mpi));
-	memcpy( X,  Y, sizeof(ttls_mpi));
-	memcpy( Y, &T, sizeof(ttls_mpi));
-}
-
-/*
- * Conditionally assign X = Y, without leaking information
- * about whether the assignment was made or not.
- * (Leaking information about the respective sizes of X and Y is ok however.)
- */
-int ttls_mpi_safe_cond_assign(ttls_mpi *X, const ttls_mpi *Y, unsigned char assign)
-{
-	int ret = 0;
-	size_t i;
-
-	/* make sure assign is 0 or 1 in a time-constant manner */
-	assign = (assign | (unsigned char)-assign) >> 7;
-
-	TTLS_MPI_CHK(ttls_mpi_grow(X, Y->n));
-
-	X->s = X->s * (1 - assign) + Y->s * assign;
-
-	for (i = 0; i < Y->n; i++)
-		X->p[i] = X->p[i] * (1 - assign) + Y->p[i] * assign;
-
-	for (; i < X->n; i++)
-		X->p[i] *= (1 - assign);
-
-cleanup:
-	return ret;
-}
-
-/*
- * Conditionally swap X and Y, without leaking information
- * about whether the swap was made or not.
- * Here it is not ok to simply swap the pointers, which whould lead to
- * different memory access patterns when X and Y are used afterwards.
- */
-int ttls_mpi_safe_cond_swap(ttls_mpi *X, ttls_mpi *Y, unsigned char swap)
-{
-	int ret, s;
-	size_t i;
-	ttls_mpi_uint tmp;
-
-	if (X == Y)
-		return 0;
-
-	/* make sure swap is 0 or 1 in a time-constant manner */
-	swap = (swap | (unsigned char)-swap) >> 7;
-
-	TTLS_MPI_CHK(ttls_mpi_grow(X, Y->n));
-	TTLS_MPI_CHK(ttls_mpi_grow(Y, X->n));
-
-	s = X->s;
-	X->s = X->s * (1 - swap) + Y->s * swap;
-	Y->s = Y->s * (1 - swap) +	s * swap;
-
-
-	for (i = 0; i < X->n; i++)
-	{
-		tmp = X->p[i];
-		X->p[i] = X->p[i] * (1 - swap) + Y->p[i] * swap;
-		Y->p[i] = Y->p[i] * (1 - swap) +	 tmp * swap;
-	}
-
-cleanup:
-	return ret;
-}
-
-/*
- * Set value from integer
- */
-int ttls_mpi_lset(ttls_mpi *X, ttls_mpi_sint z)
-{
-	int ret;
-
-	TTLS_MPI_CHK(ttls_mpi_grow(X, 1));
-	memset(X->p, 0, X->n * ciL);
-
-	X->p[0] = (z < 0) ? -z : z;
-	X->s	= (z < 0) ? -1 : 1;
-
-cleanup:
-
-	return ret;
-}
-
-/*
- * Get a specific bit
- */
-int ttls_mpi_get_bit(const ttls_mpi *X, size_t pos)
-{
-	if (X->n * biL <= pos)
-		return 0;
-
-	return((X->p[pos / biL] >> (pos % biL)) & 0x01);
-}
-
-/*
- * Set a bit to a specific value of 0 or 1
- */
-int ttls_mpi_set_bit(ttls_mpi *X, size_t pos, unsigned char val)
-{
-	int ret = 0;
-	size_t off = pos / biL;
-	size_t idx = pos % biL;
-
-	if (val != 0 && val != 1)
-		return(TTLS_ERR_MPI_BAD_INPUT_DATA);
-
-	if (X->n * biL <= pos)
-	{
-		if (val == 0)
-			return 0;
-
-		TTLS_MPI_CHK(ttls_mpi_grow(X, off + 1));
-	}
-
-	X->p[off] &= ~((ttls_mpi_uint) 0x01 << idx);
-	X->p[off] |= (ttls_mpi_uint) val << idx;
-
-cleanup:
-
-	return ret;
-}
-
-/*
- * Return the number of less significant zero-bits
- */
-size_t ttls_mpi_lsb(const ttls_mpi *X)
-{
-	size_t i, j, count = 0;
-
-	for (i = 0; i < X->n; i++)
-		for (j = 0; j < biL; j++, count++)
-			if (((X->p[i] >> j) & 1) != 0)
-				return(count);
+	X->limbs = nblimbs;
+	X->p = p;
 
 	return 0;
 }
 
-/*
- * Count leading zero bits in a given integer
+/**
+ * Copy @Y to @X.
  */
-static size_t ttls_clz(const ttls_mpi_uint x)
+int
+ttls_mpi_copy(TlsMpi *X, const TlsMpi *Y)
 {
-	size_t j;
-	ttls_mpi_uint mask = (ttls_mpi_uint) 1 << (biL - 1);
-
-	for (j = 0; j < biL; j++)
-	{
-		if (x & mask) break;
-
-		mask >>= 1;
+	if (unlikely(X == Y))
+		return 0;
+	if (unlikely(!Y->p)) {
+		ttls_mpi_free(X);
+		return 0;
 	}
 
-	return j;
+	if (X->limbs < Y->used)
+		if (__mpi_realloc(X, Y->used, 0))
+			return -ENOMEM;
+	memcpy(X->p, Y->p, Y->used * CIL);
+	X->s = Y->s;
+	X->used = Y->used;
+
+	return 0;
 }
 
-/*
- * Return the number of bits
+/**
+ * Safe conditional assignment X = Y if @assign is 1.
+ *
+ * This function avoids leaking any information about whether the assignment was
+ * done or not (the above code may leak information through branch prediction
+ * and/or memory access patterns analysis). Leaking information about the
+ * respective sizes of X and Y is ok however.
  */
-size_t ttls_mpi_bitlen(const ttls_mpi *X)
+int
+ttls_mpi_safe_cond_assign(TlsMpi *X, const TlsMpi *Y, unsigned char assign)
 {
-	size_t i, j;
+	int i;
 
-	if (X->n == 0)
+	/* Make sure assign is 0 or 1 in a time-constant manner. */
+	assign = (assign | (unsigned char)-assign) >> 7;
+
+	if (ttls_mpi_grow(X, Y->used))
+		return -ENOMEM;
+
+	X->s = X->s * (1 - assign) + Y->s * assign;
+	X->used = X->used * (1 - assign) + Y->used * assign;
+
+	for (i = 0; i < Y->used; i++)
+		X->p[i] = X->p[i] * (1 - assign) + Y->p[i] * assign;
+
+	return 0;
+}
+
+/**
+ * Conditionally swap X and Y, without leaking information about whether the
+ * swap was made or not. Here it is not ok to simply swap the pointers, which
+ * would lead to different memory access patterns when X and Y are used
+ * afterwards.
+ */
+int
+ttls_mpi_safe_cond_swap(TlsMpi *X, TlsMpi *Y, unsigned char swap)
+{
+	unsigned short used;
+	int s, i;
+
+	if (X == Y)
 		return 0;
 
-	for (i = X->n - 1; i > 0; i--)
-		if (X->p[i] != 0)
-			break;
+	/* Make sure swap is 0 or 1 in a time-constant manner. */
+	swap = (swap | (unsigned char)-swap) >> 7;
 
-	j = biL - ttls_clz(X->p[i]);
+	if (ttls_mpi_grow(X, Y->used))
+		return -ENOMEM;
+	if (ttls_mpi_grow(Y, X->used))
+		return -ENOMEM;
 
-	return((i * biL) + j);
+	s = X->s;
+	X->s = X->s * (1 - swap) + Y->s * swap;
+	Y->s = Y->s * (1 - swap) + s * swap;
+
+	used = X->used;
+	X->used = X->used * (1 - swap) + Y->used * swap;
+	Y->used = Y->used * (1 - swap) + used * swap;
+
+	used = max_t(unsigned short, X->used, Y->used);
+	for (i = 0; i < used; i++) {
+		unsigned long tmp = X->p[i];
+		X->p[i] = X->p[i] * (1 - swap) + Y->p[i] * swap;
+		Y->p[i] = Y->p[i] * (1 - swap) + tmp * swap;
+	}
+
+	return 0;
+}
+
+/**
+ * Set value from integer.
+ */
+int
+ttls_mpi_lset(TlsMpi *X, long z)
+{
+	if (__mpi_realloc(X, 1, 0))
+		return -ENOMEM;
+
+	X->used = 1;
+	if (z < 0) {
+		X->p[0] = -z;
+		X->s = -1;
+	} else {
+		X->p[0] = z;
+		X->s = 1;
+	}
+
+	return 0;
+}
+
+int
+ttls_mpi_get_bit(const TlsMpi *X, size_t pos)
+{
+	if ((X->used << BSHIFT) <= pos)
+		return 0;
+
+	return (X->p[pos >> BSHIFT] >> (pos & BMASK)) & 0x01;
+}
+
+/**
+ * Set a bit to a specific value of 0 or 1.
+ *
+ * Will grow X if necessary to set a bit to 1 in a not yet existing limb.
+ * Will not grow if bit should be set to 0.
+ */
+int
+ttls_mpi_set_bit(TlsMpi *X, size_t pos, unsigned char val)
+{
+	size_t off = pos >> BSHIFT;
+	size_t idx = pos & BMASK;
+
+	WARN_ON_ONCE(val != 0 && val != 1);
+
+	if (X->used << BSHIFT <= pos) {
+		if (!val)
+			return 0;
+		if (unlikely(X->limbs << BSHIFT <= pos))
+			if (ttls_mpi_grow(X, off + 1))
+				return -ENOMEM;
+		memset(&X->p[X->used], 0, (off - X->used + 1) << LSHIFT);
+		X->used = off + 1;
+	}
+
+	X->p[off] &= ~((unsigned long)0x01 << idx);
+	X->p[off] |= (unsigned long)val << idx;
+
+	return 0;
+}
+
+/**
+ * Return the number of less significant zero-bits, which is equal to the
+ * position of the first less significant bit.
+ *
+ * WARNING: this doesn't work with ttls_mpi_set_bit() called with @pos out of
+ * X->used and value 0.
+ */
+size_t
+ttls_mpi_lsb(const TlsMpi *X)
+{
+	size_t i;
+
+	for (i = 0 ; i < X->used; i++) {
+		if (!X->p[i])
+			continue;
+		return (i * BIL) + __ffs(X->p[i]);
+	}
+
+	return 0;
+}
+
+size_t
+ttls_mpi_bitlen(const TlsMpi *X)
+{
+	if (!X->used || !X->p[X->used - 1])
+		return 0;
+
+	/*
+	 * Number of full limbs plus number of less significant non-zero bits.
+	 */
+	return (X->used - 1) * BIL + fls64(X->p[X->used - 1]);
 }
 
 /*
  * Return the total size in bytes
  */
 size_t
-ttls_mpi_size(const ttls_mpi *X)
+ttls_mpi_size(const TlsMpi *X)
 {
 	return (ttls_mpi_bitlen(X) + 7) >> 3;
 }
 
-/*
- * Convert an ASCII character to digit value
+/**
+ * Left-shift: X <<= count.
+ *
+ * TODO #1064 stupid 2*n algorithm, do this in one shot.
  */
-static int mpi_get_digit(ttls_mpi_uint *d, int radix, char c)
+int
+ttls_mpi_shift_l(TlsMpi *X, size_t count)
 {
-	*d = 255;
+	size_t v0, t1, old_used = X->used, i = ttls_mpi_bitlen(X);
+	unsigned long r0 = 0, r1, *p = X->p;
 
-	if (c >= 0x30 && c <= 0x39) *d = c - 0x30;
-	if (c >= 0x41 && c <= 0x46) *d = c - 0x37;
-	if (c >= 0x61 && c <= 0x66) *d = c - 0x57;
+	if (unlikely(!i))
+		return 0;
 
-	if (*d >= (ttls_mpi_uint) radix)
-		return(TTLS_ERR_MPI_INVALID_CHARACTER);
+	v0 = count >> BSHIFT;
+	t1 = count & BMASK;
+	i += count;
 
-	return 0;
-}
-
-/*
- * Import from an ASCII string
- */
-int ttls_mpi_read_string(ttls_mpi *X, int radix, const char *s)
-{
-	int ret;
-	size_t i, j, slen, n;
-	ttls_mpi_uint d;
-	ttls_mpi T;
-
-	if (radix < 2 || radix > 16)
-		return(TTLS_ERR_MPI_BAD_INPUT_DATA);
-
-	ttls_mpi_init(&T);
-
-	slen = strlen(s);
-
-	if (radix == 16)
-	{
-		if (slen > MPI_SIZE_T_MAX >> 2)
-			return(TTLS_ERR_MPI_BAD_INPUT_DATA);
-
-		n = BITS_TO_LIMBS(slen << 2);
-
-		TTLS_MPI_CHK(ttls_mpi_grow(X, n));
-		TTLS_MPI_CHK(ttls_mpi_lset(X, 0));
-
-		for (i = slen, j = 0; i > 0; i--, j++)
-		{
-			if (i == 1 && s[i - 1] == '-')
-			{
-				X->s = -1;
-				break;
-			}
-
-			TTLS_MPI_CHK(mpi_get_digit(&d, radix, s[i - 1]));
-			X->p[j / (2 * ciL)] |= d << ((j % (2 * ciL)) << 2);
-		}
+	if ((X->limbs << BSHIFT) < i) {
+		if (!(p = kmalloc(BITS_TO_LIMBS(i) * CIL, GFP_ATOMIC)))
+			return -ENOMEM;
 	}
-	else
-	{
-		TTLS_MPI_CHK(ttls_mpi_lset(X, 0));
+	X->used = BITS_TO_LIMBS(i);
 
-		for (i = 0; i < slen; i++)
-		{
-			if (i == 0 && s[i] == '-')
-			{
-				X->s = -1;
-				continue;
-			}
-
-			TTLS_MPI_CHK(mpi_get_digit(&d, radix, s[i]));
-			TTLS_MPI_CHK(ttls_mpi_mul_int(&T, X, radix));
-
-			if (X->s == 1)
-			{
-				TTLS_MPI_CHK(ttls_mpi_add_int(X, &T, d));
-			}
-			else
-			{
-				TTLS_MPI_CHK(ttls_mpi_sub_int(X, &T, d));
-			}
-		}
+	/* Shift by count / limb_size. */
+	if (v0 > 0) {
+		for (i = X->used; i > v0; i--)
+			p[i - 1] = X->p[i - v0 - 1];
+		for ( ; i > 0; i--)
+			p[i - 1] = 0;
+	}
+	else if (X->p != p) {
+		memcpy(p, X->p, old_used * CIL);
+		/* Not more than 1 limb. */
+		memset(&p[old_used], 0, CIL);
 	}
 
-cleanup:
-
-	ttls_mpi_free(&T);
-
-	return ret;
-}
-
-/*
- * Helper to write the digits high-order first
- */
-static int mpi_write_hlp(ttls_mpi *X, int radix, char **p)
-{
-	int ret;
-	ttls_mpi_uint r;
-
-	if (radix < 2 || radix > 16)
-		return(TTLS_ERR_MPI_BAD_INPUT_DATA);
-
-	TTLS_MPI_CHK(ttls_mpi_mod_int(&r, X, radix));
-	TTLS_MPI_CHK(ttls_mpi_div_int(X, NULL, X, radix));
-
-	if (ttls_mpi_cmp_int(X, 0) != 0)
-		TTLS_MPI_CHK(mpi_write_hlp(X, radix, p));
-
-	if (r < 10)
-		*(*p)++ = (char)(r + 0x30);
-	else
-		*(*p)++ = (char)(r + 0x37);
-
-cleanup:
-
-	return ret;
-}
-
-/*
- * Export into an ASCII string
- */
-int ttls_mpi_write_string(const ttls_mpi *X, int radix,
-				  char *buf, size_t buflen, size_t *olen)
-{
-	int ret = 0;
-	size_t n;
-	char *p;
-	ttls_mpi T;
-
-	if (radix < 2 || radix > 16)
-		return(TTLS_ERR_MPI_BAD_INPUT_DATA);
-
-	n = ttls_mpi_bitlen(X);
-	if (radix >=  4) n >>= 1;
-	if (radix >= 16) n >>= 1;
-	/*
-	 * Round up the buffer length to an even value to ensure that there is
-	 * enough room for hexadecimal values that can be represented in an odd
-	 * number of digits.
-	 */
-	n += 3 + ((n + 1) & 1);
-
-	if (buflen < n)
-	{
-		*olen = n;
-		return(TTLS_ERR_MPI_BUFFER_TOO_SMALL);
-	}
-
-	p = buf;
-	ttls_mpi_init(&T);
-
-	if (X->s == -1)
-		*p++ = '-';
-
-	if (radix == 16)
-	{
-		int c;
-		size_t i, j, k;
-
-		for (i = X->n, k = 0; i > 0; i--)
-		{
-			for (j = ciL; j > 0; j--)
-			{
-				c = (X->p[i - 1] >> ((j - 1) << 3)) & 0xFF;
-
-				if (c == 0 && k == 0 && (i + j) != 2)
-		continue;
-
-				*(p++) = "0123456789ABCDEF" [c / 16];
-				*(p++) = "0123456789ABCDEF" [c % 16];
-				k = 1;
-			}
-		}
-	}
-	else
-	{
-		TTLS_MPI_CHK(ttls_mpi_copy(&T, X));
-
-		if (T.s == -1)
-			T.s = 1;
-
-		TTLS_MPI_CHK(mpi_write_hlp(&T, radix, &p));
-	}
-
-	*p++ = '\0';
-	*olen = p - buf;
-
-cleanup:
-
-	ttls_mpi_free(&T);
-
-	return ret;
-}
-
-/*
- * Import X from unsigned binary data, big endian
- */
-int ttls_mpi_read_binary(ttls_mpi *X, const unsigned char *buf, size_t buflen)
-{
-	int ret;
-	size_t i, j;
-	size_t const limbs = CHARS_TO_LIMBS(buflen);
-
-	/* Ensure that target MPI has exactly the necessary number of limbs */
-	if (X->n != limbs)
-	{
-		ttls_mpi_free(X);
-		ttls_mpi_init(X);
-		TTLS_MPI_CHK(ttls_mpi_grow(X, limbs));
-	}
-
-	TTLS_MPI_CHK(ttls_mpi_lset(X, 0));
-
-	for (i = buflen, j = 0; i > 0; i--, j++)
-		X->p[j / ciL] |= ((ttls_mpi_uint) buf[i - 1]) << ((j % ciL) << 3);
-
-cleanup:
-
-	return ret;
-}
-
-/*
- * Export X into unsigned binary data, big endian
- */
-int ttls_mpi_write_binary(const ttls_mpi *X, unsigned char *buf, size_t buflen)
-{
-	size_t i, j, n;
-
-	n = ttls_mpi_size(X);
-
-	if (buflen < n)
-		return(TTLS_ERR_MPI_BUFFER_TOO_SMALL);
-
-	memset(buf, 0, buflen);
-
-	for (i = buflen - 1, j = 0; n > 0; i--, j++, n--)
-		buf[i] = (unsigned char)(X->p[j / ciL] >> ((j % ciL) << 3));
-
-	return 0;
-}
-
-/*
- * Left-shift: X <<= count
- */
-int ttls_mpi_shift_l(ttls_mpi *X, size_t count)
-{
-	int ret;
-	size_t i, v0, t1;
-	ttls_mpi_uint r0 = 0, r1;
-
-	v0 = count / (biL	);
-	t1 = count & (biL - 1);
-
-	i = ttls_mpi_bitlen(X) + count;
-
-	if (X->n * biL < i)
-		TTLS_MPI_CHK(ttls_mpi_grow(X, BITS_TO_LIMBS(i)));
-
-	ret = 0;
-
-	/*
-	 * shift by count / limb_size
-	 */
-	if (v0 > 0)
-	{
-		for (i = X->n; i > v0; i--)
-			X->p[i - 1] = X->p[i - v0 - 1];
-
-		for (; i > 0; i--)
-			X->p[i - 1] = 0;
-	}
-
-	/*
-	 * shift by count % limb_size
-	 */
-	if (t1 > 0)
-	{
-		for (i = v0; i < X->n; i++)
-		{
-			r1 = X->p[i] >> (biL - t1);
-			X->p[i] <<= t1;
-			X->p[i] |= r0;
+	/* shift by count % limb_size. */
+	if (t1 > 0) {
+		for (i = v0; i < X->used; i++) {
+			r1 = p[i] >> (BIL - t1);
+			p[i] <<= t1;
+			p[i] |= r0;
 			r0 = r1;
 		}
 	}
 
-cleanup:
+	if (X->p != p) {
+		kfree(X->p);
+		X->p = p;
+		X->limbs = X->used;
+	}
 
-	return ret;
+	return 0;
 }
 
-/*
- * Right-shift: X >>= count
+/**
+ * Right-shift: X >>= count.
+ *
+ * TODO #1064 stupid 2*n algorithm, do this in one shot.
  */
-int ttls_mpi_shift_r(ttls_mpi *X, size_t count)
+int
+ttls_mpi_shift_r(TlsMpi *X, size_t count)
 {
 	size_t i, v0, v1;
-	ttls_mpi_uint r0 = 0, r1;
+	unsigned long r0 = 0, r1;
 
-	v0 = count /  biL;
-	v1 = count & (biL - 1);
+	if (unlikely(!X->used || !X->p[X->used - 1])) {
+		WARN_ON_ONCE(X->used > 1);
+		return 0;
+	}
 
-	if (v0 > X->n || (v0 == X->n && v1 > 0))
+	v0 = count >> BSHIFT;
+	v1 = count & BMASK;
+
+	if (v0 > X->used || (v0 == X->used && v1 > 0))
 		return ttls_mpi_lset(X, 0);
 
 	/*
-	 * shift by count / limb_size
+	 * Shift by count / limb_size - remove least significant limbs.
+	 * There could be garbage after last used limb, so be careful.
 	 */
-	if (v0 > 0)
-	{
-		for (i = 0; i < X->n - v0; i++)
+	if (v0 > 0) {
+		X->used -= v0;
+		for (i = 0; i < X->used; i++)
 			X->p[i] = X->p[i + v0];
-
-		for (; i < X->n; i++)
-			X->p[i] = 0;
 	}
 
-	/*
-	 * shift by count % limb_size
-	 */
-	if (v1 > 0)
-	{
-		for (i = X->n; i > 0; i--)
-		{
-			r1 = X->p[i - 1] << (biL - v1);
+	/* Shift by count % limb_size. */
+	if (v1 > 0) {
+		for (i = X->used; i > 0; i--) {
+			r1 = X->p[i - 1] << (BIL - v1);
 			X->p[i - 1] >>= v1;
 			X->p[i - 1] |= r0;
 			r0 = r1;
 		}
+		if (!X->p[X->used - 1])
+			--X->used;
 	}
 
 	return 0;
 }
 
-/*
- * Compare unsigned values
+/**
+ * Dump MPI content, including unused limbs, for debugging.
  */
-int ttls_mpi_cmp_abs(const ttls_mpi *X, const ttls_mpi *Y)
+bool __mpi_do_dump = false;
+
+void
+ttls_mpi_dump(const TlsMpi *X, const char *prefix)
 {
-	size_t i, j;
+	if (!__mpi_do_dump)
+		return;
 
-	for (i = X->n; i > 0; i--)
-		if (X->p[i - 1] != 0)
-			break;
+	pr_info("MPI(%pK, p=%pK) %s DUMP: s=%d used=%u limbs=%u\n",
+		X, X->p, prefix, X->s, X->used, X->limbs);
+	print_hex_dump(KERN_INFO, "    ", DUMP_PREFIX_OFFSET, 16, 1, X->p,
+		       X->limbs * sizeof(long), true);
+}
 
-	for (j = Y->n; j > 0; j--)
-		if (Y->p[j - 1] != 0)
-			break;
+/**
+ * Import X from unsigned binary data.
+ * The bytes are read in reverse order and stored as big endian.
+ */
+int
+ttls_mpi_read_binary(TlsMpi *X, const unsigned char *buf, size_t buflen)
+{
+	size_t i = buflen, l = 0, j;
+	size_t const limbs = CHARS_TO_LIMBS(buflen);
 
-	if (i == 0 && j == 0)
-		return 0;
+	if (X->limbs < limbs) {
+		unsigned long *p;
 
-	if (i > j) return( 1);
-	if (j > i) return(-1);
-
-	for (; i > 0; i--)
-	{
-		if (X->p[i - 1] > Y->p[i - 1]) return( 1);
-		if (X->p[i - 1] < Y->p[i - 1]) return(-1);
+		if (!(p = kmalloc(limbs * CIL, GFP_ATOMIC)))
+			return -ENOMEM;
+		kfree(X->p);
+		X->p = p;
+		X->limbs = limbs;
 	}
+
+	X->s = 1;
+	while (i >= CIL) {
+		i -= CIL;
+		X->p[l] = cpu_to_be64(*(long *)(buf + i));
+		++l;
+	}
+	if (i) {
+		/* Read last, probably incomplete, limb if any. */
+		X->p[l] = 0;
+		for (j = 0; i > 0; i--, j += 8)
+			X->p[l] |= ((unsigned long)buf[i - 1]) << j;
+	}
+
+	mpi_fixup_used(X, limbs);
 
 	return 0;
 }
 
-/*
- * Compare signed values
+/**
+ * Export X into unsigned binary data, big endian.
+ * Always fills the whole buffer, which will start with zeros if the number
+ * is smaller.
  */
-int ttls_mpi_cmp_mpi(const ttls_mpi *X, const ttls_mpi *Y)
+int
+ttls_mpi_write_binary(const TlsMpi *X, unsigned char *buf, size_t buflen)
 {
-	size_t i, j;
+	size_t i = buflen, j, n;
 
-	for (i = X->n; i > 0; i--)
-		if (X->p[i - 1] != 0)
-			break;
+	n = ttls_mpi_size(X);
 
-	for (j = Y->n; j > 0; j--)
-		if (Y->p[j - 1] != 0)
-			break;
+	if (buflen < n)
+		return -ENOSPC;
 
-	if (i == 0 && j == 0)
-		return 0;
-
-	if (i > j) return( X->s);
-	if (j > i) return(-Y->s);
-
-	if (X->s > 0 && Y->s < 0) return( 1);
-	if (Y->s > 0 && X->s < 0) return(-1);
-
-	for (; i > 0; i--)
-	{
-		if (X->p[i - 1] > Y->p[i - 1]) return( X->s);
-		if (X->p[i - 1] < Y->p[i - 1]) return(-X->s);
-	}
+	/* TODO #1064 use cpu_to_be64() for bytes inverted write. */
+	for (j = 0; n > 0; i--, j++, n--)
+		buf[i - 1] = (unsigned char)(X->p[j / CIL] >> ((j % CIL) << 3));
+	memset(buf, 0, i);
 
 	return 0;
 }
 
-/*
- * Compare signed values
+/**
+ * Fill X with @size bytes of random.
+ *
+ * Use a temporary bytes representation to make sure the result is the same
+ * regardless of the platform endianness (useful when f_rng is actually
+ * deterministic, eg for tests).
  */
-int ttls_mpi_cmp_int(const ttls_mpi *X, ttls_mpi_sint z)
+int
+ttls_mpi_fill_random(TlsMpi *X, size_t size)
 {
-	ttls_mpi Y;
-	ttls_mpi_uint p[1];
+	size_t limbs = CHARS_TO_LIMBS(size);
+	size_t rem = limbs * CIL - size;
 
-	*p  = (z < 0) ? -z : z;
-	Y.s = (z < 0) ? -1 : 1;
-	Y.n = 1;
-	Y.p = p;
+	if (WARN_ON_ONCE(size > TTLS_MPI_MAX_SIZE))
+		return -EINVAL;
 
-	return(ttls_mpi_cmp_mpi(X, &Y));
-}
+	if (__mpi_realloc(X, limbs, 0))
+		return -ENOMEM;
 
-/*
- * Unsigned addition: X = |A| + |B|  (HAC 14.7)
- */
-int ttls_mpi_add_abs(ttls_mpi *X, const ttls_mpi *A, const ttls_mpi *B)
-{
-	int ret;
-	size_t i, j;
-	ttls_mpi_uint *o, *p, c, tmp;
-
-	if (X == B)
-	{
-		const ttls_mpi *T = A; A = X; B = T;
-	}
-
-	if (X != A)
-		TTLS_MPI_CHK(ttls_mpi_copy(X, A));
-
-	/*
-	 * X should always be positive as a result of unsigned additions.
-	 */
+	ttls_rnd(X->p, size);
+	if (rem > 0)
+		memset((char *)X->p + size, 0, rem);
+	X->used = limbs;
 	X->s = 1;
 
-	for (j = B->n; j > 0; j--)
-		if (B->p[j - 1] != 0)
-			break;
+	return 0;
+}
 
-	TTLS_MPI_CHK(ttls_mpi_grow(X, j));
+/**
+ * Compare unsigned values.
+ */
+int
+ttls_mpi_cmp_abs(const TlsMpi *X, const TlsMpi *Y)
+{
+	int i;
 
-	o = B->p; p = X->p; c = 0;
+	if (!X->used && !Y->used)
+		return 0;
 
-	/*
-	 * tmp is used because it might happen that p == o
-	 */
-	for (i = 0; i < j; i++, o++, p++)
-	{
-		tmp= *o;
-		*p +=  c; c  = (*p <  c);
-		*p += tmp; c += (*p < tmp);
+	if (X->used > Y->used)
+		return 1;
+	if (Y->used > X->used)
+		return -1;
+
+	for (i = X->used - 1; i >= 0; i--) {
+		if (X->p[i] == Y->p[i])
+			continue;
+		return X->p[i] > Y->p[i] ? 1 : -1;
 	}
 
-	while (c != 0)
+	return 0;
+}
+
+/*
+ * Compare signed values.
+ */
+int
+ttls_mpi_cmp_mpi(const TlsMpi *X, const TlsMpi *Y)
+{
+	int i;
+
+	if (!X->used && !Y->used)
+		return 0;
+
+	if (X->used > Y->used)
+		return X->s;
+	if (Y->used > X->used)
+		return -Y->s;
+
+	if (X->s > 0 && Y->s < 0)
+		return 1;
+	if (Y->s > 0 && X->s < 0)
+		return -1;
+
+	for (i = X->used - 1; i >= 0; i--) {
+		if (X->p[i] == Y->p[i])
+			continue;
+		return X->p[i] > Y->p[i] ? X->s : -X->s;
+	}
+
+	return 0;
+}
+
+/**
+ * Compare MPI with a signed value.
+ */
+int
+ttls_mpi_cmp_int(const TlsMpi *X, long z)
+{
+	if (X->used > 1)
+		return X->s;
+	if (!X->used)
+		return z == 0 ? 0 : z < 0 ? 1 : -1;
+
+	if (z < 0) {
+		if (X->s > 0)
+			return 1;
+		z = -z;
+	} else {
+		if (X->s < 0)
+			return -1;
+	}
+
+	/* Modular comparison. */
+	return z == X->p[0] ? 0 : X->p[0] > z ? X->s : -X->s;
+}
+
+/**
+ * Unsigned addition: X = |A| + |B|
+ *
+ * @A and @B must be different, but either of them can accept the result @X.
+ */
+int
+ttls_mpi_add_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
+{
+	size_t i, n;
+	unsigned long *a, *b, *x, c = 0;
+
+	BUG_ON(A == B);
+	if (X == B) {
+		const TlsMpi *T = A;
+		A = X;
+		B = T;
+	}
+
+	/* X should always be positive as a result of unsigned additions. */
+	X->s = 1;
+
+	n = max_t(unsigned short, A->used, B->used);
+	if ((A->used > B->used && (A->p[n - 1] & (1UL << 63)))
+	    || (B->used > A->used && (B->p[n - 1] & (1UL << 63)))
+	    || (A->used == B->used && (A->p[n - 1] | B->p[n - 1])
+				      & (1UL << 63)))
 	{
-		if (i >= X->n)
-		{
-			TTLS_MPI_CHK(ttls_mpi_grow(X, i + 1));
-			p = X->p + i;
+		++n;
+	}
+	if (__mpi_realloc(X, n, X == A ? MPI_GROW_COPY : 0))
+		return -ENOMEM;
+	X->used = A->used;
+
+	a = A->p;
+	b = B->p;
+	x = X->p;
+	/* TODO #1064 move out condition from under the loop. */
+	for (i = 0; i < B->used; i++, a++, b++, x++) {
+		if (i == X->used) {
+			++X->used;
+			*x = c;
+		} else {
+			*x = *a + c;
 		}
-
-		*p += c; c = (*p < c); i++; p++;
+		c = *x < c;
+		*x += *b;
+		c += *x < *b;
 	}
+	for ( ; c; i++, a++, x++) {
+		BUG_ON(i >= X->limbs);
+		if (i == X->used) {
+			++X->used;
+			*x = c;
+		} else {
+			*x = *a + c;
+		}
+		c = *x < c;
+	}
+	if (X != A && X->used > i)
+		memcpy(x, a, (X->used - i) * CIL);
 
-cleanup:
-
-	return ret;
+	return 0;
 }
 
-/*
- * Helper for ttls_mpi subtraction
+/**
+ * Subtract @b from @a and write result to @r, @a_len > @b_len.
+ * Either @a or @b can be referenced by @r.
  */
-static void mpi_sub_hlp(size_t n, ttls_mpi_uint *s, ttls_mpi_uint *d)
+static void
+__mpi_sub(unsigned long *a, size_t a_len, unsigned long *b, size_t b_len,
+	  unsigned long *r)
 {
-	size_t i;
-	ttls_mpi_uint c, z;
+	unsigned long c = 0, z, b_tmp, *b_end = b + b_len, *a_end = a + a_len;
 
-	for (i = c = 0; i < n; i++, s++, d++)
-	{
-		z = (*d <  c);	 *d -=  c;
-		c = (*d < *s) + z; *d -= *s;
-	}
+	BUG_ON(a_len < b_len);
 
-	while (c != 0)
-	{
-		z = (*d < c); *d -= c;
-		c = z; i++; d++;
+	for ( ; b < b_end; a++, b++, r++) {
+		z = *a < c;
+		b_tmp = *b;
+		*r = *a - c;
+		c = (*r < b_tmp) + z;
+		*r -= b_tmp;
 	}
+	while (c) {
+		z = *a < c;
+		*r = *a - c;
+		c = z;
+		a++;
+		r++;
+	}
+	BUG_ON(a > a_end);
+	memcpy(r, a, (a_end - a) * CIL);
 }
 
-/*
- * Unsigned subtraction: X = |A| - |B|  (HAC 14.9)
+/**
+ * Unsigned subtraction: X = |A| - |B| (HAC 14.9).
+ * @X may reference either @A or @B.
  */
-int ttls_mpi_sub_abs(ttls_mpi *X, const ttls_mpi *A, const ttls_mpi *B)
+int
+ttls_mpi_sub_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 {
-	ttls_mpi TB;
-	int ret;
-	size_t n;
+	unsigned long *p = X->p;
 
 	if (ttls_mpi_cmp_abs(A, B) < 0)
-		return(TTLS_ERR_MPI_NEGATIVE_VALUE);
+		return -EINVAL;
 
-	ttls_mpi_init(&TB);
-
-	if (X == B)
-	{
-		TTLS_MPI_CHK(ttls_mpi_copy(&TB, B));
-		B = &TB;
+	if (X->limbs < A->used) {
+		if (!(p = kmalloc(A->used * CIL, GFP_ATOMIC)))
+			return -ENOMEM;
 	}
 
-	if (X != A)
-		TTLS_MPI_CHK(ttls_mpi_copy(X, A));
+	__mpi_sub(A->p, A->used, B->p, B->used, p);
 
-	/*
-	 * X should always be positive as a result of unsigned subtractions.
-	 */
+	/* X should always be positive as a result of unsigned subtractions. */
 	X->s = 1;
+	if (p != X->p) {
+		kfree(X->p);
+		X->p = p;
+		X->limbs = A->used;
+	}
+	mpi_fixup_used(X, A->used);
 
-	ret = 0;
-
-	for (n = B->n; n > 0; n--)
-		if (B->p[n - 1] != 0)
-			break;
-
-	mpi_sub_hlp(n, B->p, X->p);
-
-cleanup:
-
-	ttls_mpi_free(&TB);
-
-	return ret;
+	return 0;
 }
 
-/*
+/**
  * Signed addition: X = A + B
  */
-int ttls_mpi_add_mpi(ttls_mpi *X, const ttls_mpi *A, const ttls_mpi *B)
+int
+ttls_mpi_add_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 {
-	int ret, s = A->s;
+	int r, s = A->s;
 
-	if (A->s * B->s < 0)
-	{
-		if (ttls_mpi_cmp_abs(A, B) >= 0)
-		{
-			TTLS_MPI_CHK(ttls_mpi_sub_abs(X, A, B));
-			X->s =  s;
-		}
-		else
-		{
-			TTLS_MPI_CHK(ttls_mpi_sub_abs(X, B, A));
+	if (A->s * B->s < 0) {
+		if (ttls_mpi_cmp_abs(A, B) >= 0) {
+			if ((r = ttls_mpi_sub_abs(X, A, B)))
+				return r;
+			X->s = s;
+		} else {
+			if ((r = ttls_mpi_sub_abs(X, B, A)))
+				return r;
 			X->s = -s;
 		}
-	}
-	else
-	{
-		TTLS_MPI_CHK(ttls_mpi_add_abs(X, A, B));
+	} else {
+		if ((r = ttls_mpi_add_abs(X, A, B)))
+			return r;
 		X->s = s;
 	}
 
-cleanup:
-
-	return ret;
+	return 0;
 }
 
-/*
+/**
  * Signed subtraction: X = A - B
  */
-int ttls_mpi_sub_mpi(ttls_mpi *X, const ttls_mpi *A, const ttls_mpi *B)
+int
+ttls_mpi_sub_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 {
-	int ret, s = A->s;
+	int r, s = A->s;
 
-	if (A->s * B->s > 0)
-	{
-		if (ttls_mpi_cmp_abs(A, B) >= 0)
-		{
-			TTLS_MPI_CHK(ttls_mpi_sub_abs(X, A, B));
-			X->s =  s;
-		}
-		else
-		{
-			TTLS_MPI_CHK(ttls_mpi_sub_abs(X, B, A));
+	if (A->s * B->s > 0) {
+		if (ttls_mpi_cmp_abs(A, B) >= 0) {
+			if ((r = ttls_mpi_sub_abs(X, A, B)))
+				return r;
+			X->s = s;
+		} else {
+			if ((r = ttls_mpi_sub_abs(X, B, A)))
+				return r;
 			X->s = -s;
 		}
-	}
-	else
-	{
-		TTLS_MPI_CHK(ttls_mpi_add_abs(X, A, B));
+	} else {
+		if ((r = ttls_mpi_add_abs(X, A, B)))
+			return r;
 		X->s = s;
 	}
 
-cleanup:
-
-	return ret;
+	return 0;
 }
 
-/*
+/**
  * Signed addition: X = A + b
  */
-int ttls_mpi_add_int(ttls_mpi *X, const ttls_mpi *A, ttls_mpi_sint b)
+int
+ttls_mpi_add_int(TlsMpi *X, const TlsMpi *A, long b)
 {
-	ttls_mpi _B;
-	ttls_mpi_uint p[1];
+	TlsMpi _B;
+	unsigned long p[1];
 
 	p[0] = (b < 0) ? -b : b;
 	_B.s = (b < 0) ? -1 : 1;
-	_B.n = 1;
+	_B.limbs = _B.used = 1;
 	_B.p = p;
 
-	return(ttls_mpi_add_mpi(X, A, &_B));
+	return ttls_mpi_add_mpi(X, A, &_B);
+}
+
+/**
+ * Signed subtraction: X = A - b
+ */
+int
+ttls_mpi_sub_int(TlsMpi *X, const TlsMpi *A, long b)
+{
+	TlsMpi _B;
+	unsigned long p[1];
+
+	p[0] = (b < 0) ? -b : b;
+	_B.s = (b < 0) ? -1 : 1;
+	_B.limbs = _B.used = 1;
+	_B.p = p;
+
+	return ttls_mpi_sub_mpi(X, A, &_B);
 }
 
 /*
- * Signed subtraction: X = A - b
+ * TODO #1064 see MULADDC_HUIT optimization in original mbedTLS; use AVX2.
  */
-int ttls_mpi_sub_int(ttls_mpi *X, const ttls_mpi *A, ttls_mpi_sint b)
-{
-	ttls_mpi _B;
-	ttls_mpi_uint p[1];
-
-	p[0] = (b < 0) ? -b : b;
-	_B.s = (b < 0) ? -1 : 1;
-	_B.n = 1;
-	_B.p = p;
-
-	return(ttls_mpi_sub_mpi(X, A, &_B));
-}
-
 #define MULADDC_INIT							\
 	asm(	"xorq	%%r8, %%r8	\n\t"
 
@@ -1025,521 +884,495 @@ int ttls_mpi_sub_int(ttls_mpi *X, const ttls_mpi *A, ttls_mpi_sint b)
 		: "rax", "rdx", "r8"					\
 	);
 
-
-/*
- * Helper for ttls_mpi multiplication
+/**
+ * Multiplies vector @s of size @n by scalar @b and stores result in vector @d.
  */
-static
-void mpi_mul_hlp(size_t i, ttls_mpi_uint *s, ttls_mpi_uint *d, ttls_mpi_uint b)
+static void
+__mpi_mul(size_t n, const unsigned long *s, unsigned long *d, unsigned long b)
 {
-	ttls_mpi_uint c = 0, t = 0;
+	unsigned long c = 0;
 
-	for (; i >= 16; i -= 16)
-	{
+	for ( ; n >= 16; n -= 16) {
 		MULADDC_INIT
-		MULADDC_CORE   MULADDC_CORE
-		MULADDC_CORE   MULADDC_CORE
-		MULADDC_CORE   MULADDC_CORE
-		MULADDC_CORE   MULADDC_CORE
+		MULADDC_CORE MULADDC_CORE
+		MULADDC_CORE MULADDC_CORE
+		MULADDC_CORE MULADDC_CORE
+		MULADDC_CORE MULADDC_CORE
 
-		MULADDC_CORE   MULADDC_CORE
-		MULADDC_CORE   MULADDC_CORE
-		MULADDC_CORE   MULADDC_CORE
-		MULADDC_CORE   MULADDC_CORE
+		MULADDC_CORE MULADDC_CORE
+		MULADDC_CORE MULADDC_CORE
+		MULADDC_CORE MULADDC_CORE
+		MULADDC_CORE MULADDC_CORE
 		MULADDC_STOP
 	}
-
-	for (; i >= 8; i -= 8)
-	{
+	for ( ; n >= 8; n -= 8) {
 		MULADDC_INIT
-		MULADDC_CORE   MULADDC_CORE
-		MULADDC_CORE   MULADDC_CORE
+		MULADDC_CORE MULADDC_CORE
+		MULADDC_CORE MULADDC_CORE
 
-		MULADDC_CORE   MULADDC_CORE
-		MULADDC_CORE   MULADDC_CORE
+		MULADDC_CORE MULADDC_CORE
+		MULADDC_CORE MULADDC_CORE
 		MULADDC_STOP
 	}
-
-	for (; i > 0; i--)
-	{
+	for ( ; n > 0; n--) {
 		MULADDC_INIT
 		MULADDC_CORE
 		MULADDC_STOP
 	}
 
-	t++;
-
 	do {
-		*d += c; c = (*d < c); d++;
-	}
-	while (c != 0);
+		*d += c;
+		c = *d < c;
+		d++;
+	} while (c);
 }
 
-/*
- * Baseline multiplication: X = A * B  (HAC 14.12)
+/**
+ * Baseline multiplication: X = A * B  (HAC 14.12).
+ *
+ * All the arguments may reference the same MPI.
  */
-int ttls_mpi_mul_mpi(ttls_mpi *X, const ttls_mpi *A, const ttls_mpi *B)
+int
+ttls_mpi_mul_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 {
-	int ret;
-	size_t i, j;
-	ttls_mpi TA, TB;
+	int r = 0;
+	size_t i = A->used, j = B->used;
+	TlsMpi T;
 
-	ttls_mpi_init(&TA); ttls_mpi_init(&TB);
+	if (X == A) {
+		ttls_mpi_init(&T);
+		if (ttls_mpi_copy(&T, A))
+			return -ENOMEM;
+		if (A == B)
+			B = &T;
+		A = &T;
+	}
+	else if (X == B) {
+		ttls_mpi_init(&T);
+		if (ttls_mpi_copy(&T, B))
+			return -ENOMEM;
+		B = &T;
+	}
 
-	if (X == A) { TTLS_MPI_CHK(ttls_mpi_copy(&TA, A)); A = &TA; }
-	if (X == B) { TTLS_MPI_CHK(ttls_mpi_copy(&TB, B)); B = &TB; }
+	if ((r = __mpi_realloc(X, i + j, 0)))
+		goto cleanup;
+	memset(X->p, 0, CIL * (i + j));
+	X->used = i + j;
 
-	for (i = A->n; i > 0; i--)
-		if (A->p[i - 1] != 0)
-			break;
+	for ( ; j > 0; j--)
+		__mpi_mul(i, A->p, X->p + j - 1, B->p[j - 1]);
 
-	for (j = B->n; j > 0; j--)
-		if (B->p[j - 1] != 0)
-			break;
-
-	TTLS_MPI_CHK(ttls_mpi_grow(X, i + j));
-	TTLS_MPI_CHK(ttls_mpi_lset(X, 0));
-
-	for (i++; j > 0; j--)
-		mpi_mul_hlp(i - 1, A->p, X->p + j - 1, B->p[j - 1]);
+	mpi_fixup_used(X, X->used);
 
 	X->s = A->s * B->s;
 
 cleanup:
+	if (A == &T || B == &T)
+		ttls_mpi_free(&T);
 
-	ttls_mpi_free(&TB); ttls_mpi_free(&TA);
-
-	return ret;
+	return r;
 }
 
 /*
  * Baseline multiplication: X = A * b
  */
-int ttls_mpi_mul_int(ttls_mpi *X, const ttls_mpi *A, ttls_mpi_uint b)
+int
+ttls_mpi_mul_uint(TlsMpi *X, const TlsMpi *A, unsigned long b)
 {
-	ttls_mpi _B;
-	ttls_mpi_uint p[1];
+	TlsMpi _B;
+	unsigned long p[1];
 
 	_B.s = 1;
-	_B.n = 1;
+	_B.limbs = _B.used = 1;
 	_B.p = p;
 	p[0] = b;
 
-	return(ttls_mpi_mul_mpi(X, A, &_B));
+	return ttls_mpi_mul_mpi(X, A, &_B);
 }
 
-/*
- * Unsigned integer divide - double ttls_mpi_uint dividend, u1/u0, and
- * ttls_mpi_uint divisor, d
+/**
+ * Unsigned integer divide - double unsigned long dividend, @u1/@u0,
+ * and unsigned long divisor, @d.
  */
-static ttls_mpi_uint ttls_int_div_int(ttls_mpi_uint u1,
-			ttls_mpi_uint u0, ttls_mpi_uint d, ttls_mpi_uint *r)
+static unsigned long
+ttls_int_div_int(unsigned long u1, unsigned long u0, unsigned long d,
+		 unsigned long *r)
 {
-	const ttls_mpi_uint radix = (ttls_mpi_uint) 1 << biH;
-	const ttls_mpi_uint uint_halfword_mask = ((ttls_mpi_uint) 1 << biH) - 1;
-	ttls_mpi_uint d0, d1, q0, q1, rAX, r0, quotient;
-	ttls_mpi_uint u0_msw, u0_lsw;
+	const unsigned long radix = 1UL << BIH;
+	const unsigned long uint_halfword_mask = (1UL << BIH) - 1;
+	unsigned long d0, d1, q0, q1, rAX, r0;
+	unsigned long u0_msw, u0_lsw;
 	size_t s;
 
-	/*
-	 * Check for overflow
-	 */
-	if (0 == d || u1 >= d)
-	{
-		if (r != NULL) *r = ~0;
-
-		return (~0);
+	/* Check for overflow. */
+	if (!d || u1 >= d) {
+		if (r)
+			*r = ~0UL;
+		return ~0UL;
 	}
 
 	/*
 	 * Algorithm D, Section 4.3.1 - The Art of Computer Programming
-	 *   Vol. 2 - Seminumerical Algorithms, Knuth
+	 *   Vol. 2 - Seminumerical Algorithms, Knuth.
 	 */
 
-	/*
-	 * Normalize the divisor, d, and dividend, u0, u1
-	 */
-	s = ttls_clz(d);
+	/* Normalize the divisor, d, and dividend, u0, u1. */
+	s = BIL - fls64(d);
 	d = d << s;
 
 	u1 = u1 << s;
-	u1 |= (u0 >> (biL - s)) & (-(ttls_mpi_sint)s >> (biL - 1));
+	u1 |= (u0 >> (BIL - s)) & (-(long)s >> (BIL - 1));
 	u0 =  u0 << s;
 
-	d1 = d >> biH;
+	d1 = d >> BIH;
 	d0 = d & uint_halfword_mask;
 
-	u0_msw = u0 >> biH;
+	u0_msw = u0 >> BIH;
 	u0_lsw = u0 & uint_halfword_mask;
 
-	/*
-	 * Find the first quotient and remainder
-	 */
+	/* Find the first quotient and remainder. */
 	q1 = u1 / d1;
 	r0 = u1 - d1 * q1;
 
-	while (q1 >= radix || (q1 * d0 > radix * r0 + u0_msw))
-	{
-		q1 -= 1;
+	while (q1 >= radix || (q1 * d0 > radix * r0 + u0_msw)) {
+		--q1;
 		r0 += d1;
-
-		if (r0 >= radix) break;
+		if (r0 >= radix)
+			break;
 	}
 
 	rAX = (u1 * radix) + (u0_msw - q1 * d);
 	q0 = rAX / d1;
 	r0 = rAX - q0 * d1;
 
-	while (q0 >= radix || (q0 * d0 > radix * r0 + u0_lsw))
-	{
-		q0 -= 1;
+	while (q0 >= radix || (q0 * d0 > radix * r0 + u0_lsw)) {
+		--q0;
 		r0 += d1;
-
-		if (r0 >= radix) break;
+		if (r0 >= radix)
+			break;
 	}
 
-	if (r != NULL)
+	if (r)
 		*r = (rAX * radix + u0_lsw - q0 * d) >> s;
 
-	quotient = q1 * radix + q0;
-
-	return quotient;
+	return q1 * radix + q0;
 }
 
-/*
- * Division by ttls_mpi: A = Q * B + R  (HAC 14.20)
+/**
+ * Division by TlsMpi: A = Q * B + R  (HAC 14.20).
+ *
+ * @Q - destination MPI for the quotient.
+ * @R - destination MPI for the rest value.
+ * @A - left-hand MPI.
+ * @B - right-hand MPI.
  */
-int ttls_mpi_div_mpi(ttls_mpi *Q, ttls_mpi *R, const ttls_mpi *A, const ttls_mpi *B)
+int
+ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 {
-	int ret;
+	int r = -ENOMEM;
 	size_t i, n, t, k;
-	ttls_mpi X, Y, Z, T1, T2;
+	TlsMpi X, Y, Z, T1, T2;
+	unsigned long __tp2[3];
 
-	if (ttls_mpi_cmp_int(B, 0) == 0)
-		return(TTLS_ERR_MPI_DIVISION_BY_ZERO);
-
-	ttls_mpi_init(&X); ttls_mpi_init(&Y); ttls_mpi_init(&Z);
-	ttls_mpi_init(&T1); ttls_mpi_init(&T2);
-
-	if (ttls_mpi_cmp_abs(A, B) < 0)
-	{
-		if (Q != NULL) TTLS_MPI_CHK(ttls_mpi_lset(Q, 0));
-		if (R != NULL) TTLS_MPI_CHK(ttls_mpi_copy(R, A));
+	if (!ttls_mpi_cmp_int(B, 0)) {
+		T_DBG_MPI1("Division by zero", B);
+		TTLS_MPI_DUMP_ONCE(B, "B/zero");
+		return -EINVAL;
+	}
+	if (!ttls_mpi_cmp_int(B, 1)) {
+		if (Q)
+			if (ttls_mpi_copy(Q, A))
+				return -ENOMEM;
+		if (R)
+			if (ttls_mpi_lset(R, 0))
+				return -ENOMEM;
+		return 0;
+	}
+	if (ttls_mpi_cmp_abs(A, B) < 0) {
+		if (Q)
+			if (ttls_mpi_lset(Q, 0))
+				return -ENOMEM;
+		if (R)
+			if (ttls_mpi_copy(R, A))
+				return -ENOMEM;
 		return 0;
 	}
 
-	TTLS_MPI_CHK(ttls_mpi_copy(&X, A));
-	TTLS_MPI_CHK(ttls_mpi_copy(&Y, B));
+	if (!Q) {
+		ttls_mpi_init(&Z);
+		Q = &Z;
+	}
+
+	ttls_mpi_init(&X);
+	ttls_mpi_init(&Y);
+	ttls_mpi_init(&T1);
+	/* Avoid dynamic memory allocations for T2. */
+	T2.p = __tp2;
+	T2.limbs = 3;
+
+	if (ttls_mpi_copy(&X, A) || ttls_mpi_copy(&Y, B)
+	    || __mpi_realloc(&T1, 2, 0))
+		goto cleanup;
 	X.s = Y.s = 1;
 
-	TTLS_MPI_CHK(ttls_mpi_grow(&Z, A->n + 2));
-	TTLS_MPI_CHK(ttls_mpi_lset(&Z,  0));
-	TTLS_MPI_CHK(ttls_mpi_grow(&T1, 2));
-	TTLS_MPI_CHK(ttls_mpi_grow(&T2, 3));
+	/* Initialize Q after copying A to X in case of Q == A. */
+	if (__mpi_realloc(Q, A->used, 0))
+		goto cleanup;
+	Q->used = A->used;
+	memset(Q->p, 0, Q->used * CIL);
 
-	k = ttls_mpi_bitlen(&Y) % biL;
-	if (k < biL - 1)
-	{
-		k = biL - 1 - k;
-		TTLS_MPI_CHK(ttls_mpi_shift_l(&X, k));
-		TTLS_MPI_CHK(ttls_mpi_shift_l(&Y, k));
+	k = ttls_mpi_bitlen(&Y) & BMASK;
+	if (k < BIL - 1) {
+		k = BIL - 1 - k;
+		if (ttls_mpi_shift_l(&X, k) || ttls_mpi_shift_l(&Y, k))
+			goto cleanup;
 	}
-	else k = 0;
-
-	n = X.n - 1;
-	t = Y.n - 1;
-	TTLS_MPI_CHK(ttls_mpi_shift_l(&Y, biL * (n - t)));
-
-	while (ttls_mpi_cmp_mpi(&X, &Y) >= 0)
-	{
-		Z.p[n - t]++;
-		TTLS_MPI_CHK(ttls_mpi_sub_mpi(&X, &X, &Y));
+	else {
+		k = 0;
 	}
-	TTLS_MPI_CHK(ttls_mpi_shift_r(&Y, biL * (n - t)));
 
-	for (i = n; i > t ; i--)
-	{
-		if (X.p[i] >= Y.p[t])
-			Z.p[i - t - 1] = ~0;
-		else
-		{
-			Z.p[i - t - 1] = ttls_int_div_int(X.p[i], X.p[i - 1],
-			Y.p[t], NULL);
-		}
+	n = X.used - 1;
+	t = Y.used - 1;
 
-		Z.p[i - t - 1]++;
-		do
-		{
-			Z.p[i - t - 1]--;
+	if (ttls_mpi_shift_l(&Y, BIL * (n - t)))
+		goto cleanup;
+	while (ttls_mpi_cmp_mpi(&X, &Y) >= 0) {
+		Q->p[n - t]++;
+		if (ttls_mpi_sub_mpi(&X, &X, &Y))
+			goto cleanup;
+	}
+	if (ttls_mpi_shift_r(&Y, BIL * (n - t)))
+		goto cleanup;
 
-			TTLS_MPI_CHK(ttls_mpi_lset(&T1, 0));
+	for (i = n; i > t; i--) {
+		Q->p[i - t - 1] = X.p[i] >= Y.p[t]
+				  ? 0
+				  : ttls_int_div_int(X.p[i], X.p[i - 1],
+						     Y.p[t], NULL) + 1;
+
+		T2.s = 1;
+		T2.p[0] = (i < 2) ? 0 : X.p[i - 2];
+		T2.p[1] = (i < 1) ? 0 : X.p[i - 1];
+		T2.p[2] = X.p[i];
+		mpi_fixup_used(&T2, 3);
+
+		/*
+		 * TODO #1064 inadequately many iterations - use binary search
+		 * for Q->p[i - t - 1] value.
+		 */
+		do {
+			Q->p[i - t - 1]--;
+
+			T1.s = 1;
+			T1.used = 2; /* overwrite previous multiplication */
 			T1.p[0] = (t < 1) ? 0 : Y.p[t - 1];
 			T1.p[1] = Y.p[t];
-			TTLS_MPI_CHK(ttls_mpi_mul_int(&T1, &T1, Z.p[i - t - 1]));
+			mpi_fixup_used(&T1, 2);
+			if (ttls_mpi_mul_uint(&T1, &T1, Q->p[i - t - 1]))
+				goto cleanup;
+		} while (ttls_mpi_cmp_mpi(&T1, &T2) > 0);
 
-			TTLS_MPI_CHK(ttls_mpi_lset(&T2, 0));
-			T2.p[0] = (i < 2) ? 0 : X.p[i - 2];
-			T2.p[1] = (i < 1) ? 0 : X.p[i - 1];
-			T2.p[2] = X.p[i];
-		}
-		while (ttls_mpi_cmp_mpi(&T1, &T2) > 0);
+		if (ttls_mpi_mul_uint(&T1, &Y, Q->p[i - t - 1])
+		    || ttls_mpi_shift_l(&T1,  BIL * (i - t - 1))
+		    || ttls_mpi_sub_mpi(&X, &X, &T1))
+			goto cleanup;
 
-		TTLS_MPI_CHK(ttls_mpi_mul_int(&T1, &Y, Z.p[i - t - 1]));
-		TTLS_MPI_CHK(ttls_mpi_shift_l(&T1,  biL * (i - t - 1)));
-		TTLS_MPI_CHK(ttls_mpi_sub_mpi(&X, &X, &T1));
-
-		if (ttls_mpi_cmp_int(&X, 0) < 0)
-		{
-			TTLS_MPI_CHK(ttls_mpi_copy(&T1, &Y));
-			TTLS_MPI_CHK(ttls_mpi_shift_l(&T1, biL * (i - t - 1)));
-			TTLS_MPI_CHK(ttls_mpi_add_mpi(&X, &X, &T1));
-			Z.p[i - t - 1]--;
+		if (ttls_mpi_cmp_int(&X, 0) < 0) {
+			if (ttls_mpi_copy(&T1, &Y)
+			    || ttls_mpi_shift_l(&T1, BIL * (i - t - 1))
+			    || ttls_mpi_add_mpi(&X, &X, &T1))
+				goto cleanup;
+			Q->p[i - t - 1]--;
 		}
 	}
 
-	if (Q != NULL)
-	{
-		TTLS_MPI_CHK(ttls_mpi_copy(Q, &Z));
+	if (Q != &Z) {
 		Q->s = A->s * B->s;
+		mpi_fixup_used(Q, Q->used);
 	}
-
-	if (R != NULL)
-	{
-		TTLS_MPI_CHK(ttls_mpi_shift_r(&X, k));
+	if (R) {
+		if (ttls_mpi_shift_r(&X, k))
+			goto cleanup;
+		mpi_fixup_used(&X, X.used);
 		X.s = A->s;
-		TTLS_MPI_CHK(ttls_mpi_copy(R, &X));
-
+		if (ttls_mpi_copy(R, &X))
+			goto cleanup;
 		if (ttls_mpi_cmp_int(R, 0) == 0)
 			R->s = 1;
 	}
 
+	r = 0;
 cleanup:
+	ttls_mpi_free(&X);
+	ttls_mpi_free(&Y);
+	ttls_mpi_free(&T1);
+	if (Q == &Z)
+		ttls_mpi_free(&Z); /* caller don't need the quotient */
 
-	ttls_mpi_free(&X); ttls_mpi_free(&Y); ttls_mpi_free(&Z);
-	ttls_mpi_free(&T1); ttls_mpi_free(&T2);
-
-	return ret;
+	return r;
 }
 
-/*
- * Division by int: A = Q * b + R
+/**
+ * Modulo: R = A mod B.
+ *
+ * @R - destination MPI for the rest value.
+ * @A - left-hand MPI.
+ * @B - right-hand MPI.
  */
-int ttls_mpi_div_int(ttls_mpi *Q, ttls_mpi *R, const ttls_mpi *A, ttls_mpi_sint b)
+int
+ttls_mpi_mod_mpi(TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 {
-	ttls_mpi _B;
-	ttls_mpi_uint p[1];
+	int r;
 
-	p[0] = (b < 0) ? -b : b;
-	_B.s = (b < 0) ? -1 : 1;
-	_B.n = 1;
-	_B.p = p;
+	if (ttls_mpi_cmp_int(B, 0) < 0) {
+		T_DBG_MPI1("Negative modulo", B);
+		return -EINVAL;
+	}
 
-	return(ttls_mpi_div_mpi(Q, R, A, &_B));
-}
-
-/*
- * Modulo: R = A mod B
- */
-int ttls_mpi_mod_mpi(ttls_mpi *R, const ttls_mpi *A, const ttls_mpi *B)
-{
-	int ret;
-
-	if (ttls_mpi_cmp_int(B, 0) < 0)
-		return(TTLS_ERR_MPI_NEGATIVE_VALUE);
-
-	TTLS_MPI_CHK(ttls_mpi_div_mpi(NULL, R, A, B));
+	if ((r = ttls_mpi_div_mpi(NULL, R, A, B)))
+		return r;
 
 	while (ttls_mpi_cmp_int(R, 0) < 0)
-	  TTLS_MPI_CHK(ttls_mpi_add_mpi(R, R, B));
+		if ((r = ttls_mpi_add_mpi(R, R, B)))
+			return r;
 
 	while (ttls_mpi_cmp_mpi(R, B) >= 0)
-	  TTLS_MPI_CHK(ttls_mpi_sub_mpi(R, R, B));
-
-cleanup:
-
-	return ret;
-}
-
-/*
- * Modulo: r = A mod b
- */
-int ttls_mpi_mod_int(ttls_mpi_uint *r, const ttls_mpi *A, ttls_mpi_sint b)
-{
-	size_t i;
-	ttls_mpi_uint x, y, z;
-
-	if (b == 0)
-		return(TTLS_ERR_MPI_DIVISION_BY_ZERO);
-
-	if (b < 0)
-		return(TTLS_ERR_MPI_NEGATIVE_VALUE);
-
-	/*
-	 * handle trivial cases
-	 */
-	if (b == 1)
-	{
-		*r = 0;
-		return 0;
-	}
-
-	if (b == 2)
-	{
-		*r = A->p[0] & 1;
-		return 0;
-	}
-
-	/*
-	 * general case
-	 */
-	for (i = A->n, y = 0; i > 0; i--)
-	{
-		x  = A->p[i - 1];
-		y  = (y << biH) | (x >> biH);
-		z  = y / b;
-		y -= z * b;
-
-		x <<= biH;
-		y  = (y << biH) | (x >> biH);
-		z  = y / b;
-		y -= z * b;
-	}
-
-	/*
-	 * If A is negative, then the current y represents a negative value.
-	 * Flipping it to the positive side.
-	 */
-	if (A->s < 0 && y != 0)
-		y = b - y;
-
-	*r = y;
+		if ((r = ttls_mpi_sub_mpi(R, R, B)))
+			return r;
 
 	return 0;
 }
 
-/*
- * Fast Montgomery initialization (thanks to Tom St Denis)
+/**
+ * Fast Montgomery initialization (thanks to Tom St Denis).
  */
-static void mpi_montg_init(ttls_mpi_uint *mm, const ttls_mpi *N)
+static void
+__mpi_montg_init(unsigned long *mm, const TlsMpi *N)
 {
-	ttls_mpi_uint x, m0 = N->p[0];
+	unsigned long x, m0 = N->p[0];
 	unsigned int i;
 
-	x  = m0;
+	x = m0;
 	x += ((m0 + 2) & 4) << 1;
 
-	for (i = biL; i >= 8; i /= 2)
-		x *= (2 - (m0 * x));
+	for (i = BIL; i >= 8; i /= 2)
+		x *= 2 - (m0 * x);
 
 	*mm = ~x + 1;
 }
 
-/*
- * Montgomery multiplication: A = A * B * R^-1 mod N  (HAC 14.36)
+/**
+ * Montgomery multiplication: A = A * B * R^-1 mod N  (HAC 14.36).
  */
-static int mpi_montmul(ttls_mpi *A, const ttls_mpi *B, const ttls_mpi *N, ttls_mpi_uint mm,
-			 const ttls_mpi *T)
+static int
+__mpi_montmul(TlsMpi *A, const TlsMpi *B, const TlsMpi *N, unsigned long mm,
+	      TlsMpi *T)
 {
 	size_t i, n, m;
-	ttls_mpi_uint u0, u1, *d;
+	unsigned long u0, u1, *d;
 
-	if (T->n < N->n + 1 || T->p == NULL)
-		return(TTLS_ERR_MPI_BAD_INPUT_DATA);
-
-	memset(T->p, 0, T->n * ciL);
+	BUG_ON(T->limbs < N->used + 1 || !T->p);
+	memset(T->p, 0, T->limbs * CIL);
 
 	d = T->p;
-	n = N->n;
-	m = (B->n < n) ? B->n : n;
+	n = N->used;
+	m = (B->used < n) ? B->used : n;
 
-	for (i = 0; i < n; i++)
-	{
-		/*
-		 * T = (T + u0*B + u1*N) / 2^biL
-		 */
+	for (i = 0; i < n; i++) {
+		/* T = (T + u0*B + u1*N) / 2^BIL */
 		u0 = A->p[i];
 		u1 = (d[0] + u0 * B->p[0]) * mm;
 
-		mpi_mul_hlp(m, B->p, d, u0);
-		mpi_mul_hlp(n, N->p, d, u1);
+		__mpi_mul(m, B->p, d, u0);
+		__mpi_mul(n, N->p, d, u1);
 
-		*d++ = u0; d[n + 1] = 0;
+		*d++ = u0;
+		d[n + 1] = 0;
 	}
+	mpi_fixup_used(T, T->limbs);
 
-	memcpy(A->p, d, (n + 1) * ciL);
+	memcpy(A->p, d, (n + 1) * CIL);
+	mpi_fixup_used(A, n + 1);
 
-	if (ttls_mpi_cmp_abs(A, N) >= 0)
-		mpi_sub_hlp(n, N->p, A->p);
-	else
-		/* prevent timing attacks */
-		mpi_sub_hlp(n, A->p, T->p);
+	if (ttls_mpi_cmp_abs(A, N) >= 0) {
+		__mpi_sub(A->p, A->used, N->p, N->used, A->p);
+		mpi_fixup_used(A, A->used);
+	} else {
+		/* Prevent timing attacks. */
+		__mpi_sub(T->p, T->used, A->p, A->used, T->p);
+		mpi_fixup_used(T, T->used);
+	}
 
 	return 0;
 }
 
-/*
+/**
  * Montgomery reduction: A = A * R^-1 mod N
  */
-static int mpi_montred(ttls_mpi *A, const ttls_mpi *N, ttls_mpi_uint mm, const ttls_mpi *T)
+static int
+__mpi_montred(TlsMpi *A, const TlsMpi *N, unsigned long mm, TlsMpi *T)
 {
-	ttls_mpi_uint z = 1;
-	ttls_mpi U;
+	unsigned long z = 1;
+	TlsMpi U;
 
-	U.n = U.s = (int) z;
+	U.s = 1;
+	U.limbs = U.used = 1;
 	U.p = &z;
 
-	return(mpi_montmul(A, &U, N, mm, T));
+	return __mpi_montmul(A, &U, N, mm, T);
 }
 
-/*
- * Sliding-window exponentiation: X = A^E mod N  (HAC 14.85)
+/**
+ * Sliding-window exponentiation: X = A^E mod N  (HAC 14.85).
+ *
+ * @X	- destination MPI;
+ * @A	- left-hand MPI
+ * @E	- exponent MPI;
+ * @N	- modular MPI
+ * @RR	- speed-up MPI used for recalculations.
+ *
+ * @RR is used to avoid re-computing R * R mod N across multiple calls,
+ * which speeds up things a bit.
  */
 int
-ttls_mpi_exp_mod(ttls_mpi *X, const ttls_mpi *A, const ttls_mpi *E,
-			const ttls_mpi *N, ttls_mpi *_RR)
+ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E, const TlsMpi *N,
+		 TlsMpi *RR)
 {
-	int ret;
-	size_t wbits, wsize, one = 1;
-	size_t i, j, nblimbs;
-	size_t bufsize, nbits;
-	ttls_mpi_uint ei, mm, state;
-	ttls_mpi RR, T, Apos, *W = *this_cpu_ptr(&g_buf);
-	int neg;
+	int r = -ENOMEM, neg;
+	size_t i, j, nblimbs, bufsize = 0, nbits = 0, wbits = 0, wsize, one = 1;
+	unsigned long ei, mm, state = 0;
+	TlsMpi T, Apos, *W = *this_cpu_ptr(&g_buf);
 
-	if (ttls_mpi_cmp_int(N, 0) <= 0 || (N->p[0] & 1) == 0)
-		return(TTLS_ERR_MPI_BAD_INPUT_DATA);
-
+	BUILD_BUG_ON(MPI_W_SZ < 6);
+	if (ttls_mpi_cmp_int(N, 0) <= 0 || !(N->p[0] & 1))
+		return -EINVAL;
 	if (ttls_mpi_cmp_int(E, 0) < 0)
-		return(TTLS_ERR_MPI_BAD_INPUT_DATA);
+		return -EINVAL;
 
-	/*
-	 * Init temps and window size
-	 */
-	mpi_montg_init(&mm, N);
-	ttls_mpi_init(&RR); ttls_mpi_init(&T);
+	/* Init temps and window size. */
+	__mpi_montg_init(&mm, N);
+	ttls_mpi_init(&T);
 	ttls_mpi_init(&Apos);
-	memset(W, 0, sizeof(ttls_mpi) * MPI_W_SZ);
+	memset(W, 0, sizeof(TlsMpi) << MPI_W_SZ);
 
 	i = ttls_mpi_bitlen(E);
+	wsize = (i > 671) ? 6
+		: (i > 239) ? 5
+		  : (i >  79) ? 4
+		    : (i >  23) ? 3
+		      : 1;
 
-	wsize = (i > 671) ? 6 : (i > 239) ? 5 :
-			(i >  79) ? 4 : (i >  23) ? 3 : 1;
+	j = N->used + 1;
+	if (ttls_mpi_grow(X, j)
+	    || __mpi_realloc(&W[1], j, 0)
+	    || __mpi_realloc(&T, j * 2, 0))
+		goto cleanup;
 
-	if (wsize > TTLS_MPI_WINDOW_SIZE)
-		wsize = TTLS_MPI_WINDOW_SIZE;
-
-	j = N->n + 1;
-	TTLS_MPI_CHK(ttls_mpi_grow(X, j));
-	TTLS_MPI_CHK(ttls_mpi_grow(&W[1],  j));
-	TTLS_MPI_CHK(ttls_mpi_grow(&T, j * 2));
-
-	/*
-	 * Compensate for negative A (and correct at the end)
-	 */
+	/* Compensate for negative A (and correct at the end). */
 	neg = (A->s == -1);
-	if (neg)
-	{
-		TTLS_MPI_CHK(ttls_mpi_copy(&Apos, A));
+	if (neg) {
+		if ((r = ttls_mpi_copy(&Apos, A)))
+			goto cleanup;
 		Apos.s = 1;
 		A = &Apos;
 	}
@@ -1547,116 +1380,91 @@ ttls_mpi_exp_mod(ttls_mpi *X, const ttls_mpi *A, const ttls_mpi *E,
 	/*
 	 * If 1st call, pre-compute R^2 mod N
 	 */
-	if (_RR == NULL || _RR->p == NULL)
-	{
-		TTLS_MPI_CHK(ttls_mpi_lset(&RR, 1));
-		TTLS_MPI_CHK(ttls_mpi_shift_l(&RR, N->n * 2 * biL));
-		TTLS_MPI_CHK(ttls_mpi_mod_mpi(&RR, &RR, N));
-
-		if (_RR != NULL)
-			memcpy(_RR, &RR, sizeof(ttls_mpi));
+	BUG_ON(!RR);
+	if (!RR->p) {
+		if ((r = ttls_mpi_lset(RR, 1))
+		    || (r = ttls_mpi_shift_l(RR, N->used * 2 * BIL))
+		    || (r = ttls_mpi_mod_mpi(RR, RR, N)))
+			goto cleanup;
 	}
-	else
-		memcpy(&RR, _RR, sizeof(ttls_mpi));
 
-	/*
-	 * W[1] = A * R^2 * R^-1 mod N = A * R mod N
-	 */
-	if (ttls_mpi_cmp_mpi(A, N) >= 0)
-		TTLS_MPI_CHK(ttls_mpi_mod_mpi(&W[1], A, N));
-	else
-		TTLS_MPI_CHK(ttls_mpi_copy(&W[1], A));
+	/* W[1] = A * R^2 * R^-1 mod N = A * R mod N */
+	if (ttls_mpi_cmp_mpi(A, N) >= 0) {
+		if ((r = ttls_mpi_mod_mpi(&W[1], A, N)))
+			goto cleanup;
+	} else {
+		if ((r = ttls_mpi_copy(&W[1], A)))
+			goto cleanup;
+	}
 
-	TTLS_MPI_CHK(mpi_montmul(&W[1], &RR, N, mm, &T));
+	if ((r = __mpi_montmul(&W[1], RR, N, mm, &T)))
+		goto cleanup;
 
-	/*
-	 * X = R^2 * R^-1 mod N = R mod N
-	 */
-	TTLS_MPI_CHK(ttls_mpi_copy(X, &RR));
-	TTLS_MPI_CHK(mpi_montred(X, N, mm, &T));
+	/* X = R^2 * R^-1 mod N = R mod N */
+	if ((r = ttls_mpi_copy(X, RR))
+	    || (r = __mpi_montred(X, N, mm, &T)))
+		goto cleanup;
 
-	if (wsize > 1)
-	{
-		/*
-		 * W[1 << (wsize - 1)] = W[1] ^ (wsize - 1)
-		 */
+	if (wsize > 1) {
+		/* W[1 << (wsize - 1)] = W[1] ^ (wsize - 1) */
 		j =  one << (wsize - 1);
 
-		TTLS_MPI_CHK(ttls_mpi_grow(&W[j], N->n + 1));
-		TTLS_MPI_CHK(ttls_mpi_copy(&W[j], &W[1]	));
+		if ((r = ttls_mpi_grow(&W[j], N->used + 1))
+		    || (r = ttls_mpi_copy(&W[j], &W[1])))
+			goto cleanup;
 
 		for (i = 0; i < wsize - 1; i++)
-			TTLS_MPI_CHK(mpi_montmul(&W[j], &W[j], N, mm, &T));
+			if ((r = __mpi_montmul(&W[j], &W[j], N, mm, &T)))
+				goto cleanup;
 
-		/*
-		 * W[i] = W[i - 1] * W[1]
-		 */
-		for (i = j + 1; i < (one << wsize); i++)
-		{
-			TTLS_MPI_CHK(ttls_mpi_grow(&W[i], N->n + 1));
-			TTLS_MPI_CHK(ttls_mpi_copy(&W[i], &W[i - 1]));
-
-			TTLS_MPI_CHK(mpi_montmul(&W[i], &W[1], N, mm, &T));
+		/* W[i] = W[i - 1] * W[1] */
+		for (i = j + 1; i < (one << wsize); i++) {
+			if ((r = ttls_mpi_grow(&W[i], N->used + 1))
+			    || (r = ttls_mpi_copy(&W[i], &W[i - 1]))
+			    || (r = __mpi_montmul(&W[i], &W[1], N, mm, &T)))
+				goto cleanup;
 		}
 	}
 
-	nblimbs = E->n;
-	bufsize = 0;
-	nbits   = 0;
-	wbits   = 0;
-	state   = 0;
-
-	while (1)
-	{
-		if (bufsize == 0)
-		{
-			if (nblimbs == 0)
+	nblimbs = E->used;
+	while (1) {
+		if (!bufsize) {
+			if (!nblimbs)
 				break;
-
 			nblimbs--;
-
-			bufsize = sizeof(ttls_mpi_uint) << 3;
+			bufsize = sizeof(unsigned long) << 3;
 		}
 
 		bufsize--;
 
 		ei = (E->p[nblimbs] >> bufsize) & 1;
 
-		/*
-		 * skip leading 0s
-		 */
-		if (ei == 0 && state == 0)
+		/* Skip leading 0s. */
+		if (!ei && !state)
 			continue;
 
-		if (ei == 0 && state == 1)
-		{
-			/*
-			 * out of window, square X
-			 */
-			TTLS_MPI_CHK(mpi_montmul(X, X, N, mm, &T));
+		if (!ei && state == 1) {
+			/* Out of window, square X. */
+			if ((r = __mpi_montmul(X, X, N, mm, &T)))
+				goto cleanup;
 			continue;
 		}
 
-		/*
-		 * add ei to current window
-		 */
+		/* Add ei to current window. */
 		state = 2;
 
 		nbits++;
 		wbits |= (ei << (wsize - nbits));
 
-		if (nbits == wsize)
-		{
-			/*
-			 * X = X^wsize R^-1 mod N
-			 */
+		if (nbits == wsize) {
+			/* X = X^wsize R^-1 mod N . */
 			for (i = 0; i < wsize; i++)
-				TTLS_MPI_CHK(mpi_montmul(X, X, N, mm, &T));
+				if ((r = __mpi_montmul(X, X, N, mm, &T)))
+					goto cleanup;
 
-			/*
-			 * X = X * W[wbits] R^-1 mod N
-			 */
-			TTLS_MPI_CHK(mpi_montmul(X, &W[wbits], N, mm, &T));
+			/* X = X * W[wbits] R^-1 mod N. */
+			if ((r = __mpi_montmul(X, &W[wbits], N, mm, &T)))
+				goto cleanup;
 
 			state--;
 			nbits = 0;
@@ -1664,499 +1472,199 @@ ttls_mpi_exp_mod(ttls_mpi *X, const ttls_mpi *A, const ttls_mpi *E,
 		}
 	}
 
-	/*
-	 * process the remaining bits
-	 */
-	for (i = 0; i < nbits; i++)
-	{
-		TTLS_MPI_CHK(mpi_montmul(X, X, N, mm, &T));
+	/* Process the remaining bits. */
+	for (i = 0; i < nbits; i++) {
+		if ((r = __mpi_montmul(X, X, N, mm, &T)))
+			goto cleanup;
 
 		wbits <<= 1;
-
-		if ((wbits & (one << wsize)) != 0)
-			TTLS_MPI_CHK(mpi_montmul(X, &W[1], N, mm, &T));
+		if (wbits & (one << wsize))
+			if ((r = __mpi_montmul(X, &W[1], N, mm, &T)))
+				goto cleanup;
 	}
 
-	/*
-	 * X = A^E * R * R^-1 mod N = A^E mod N
-	 */
-	TTLS_MPI_CHK(mpi_montred(X, N, mm, &T));
+	/* X = A^E * R * R^-1 mod N = A^E mod N. */
+	if ((r = __mpi_montred(X, N, mm, &T)))
+		goto cleanup;
 
-	if (neg && E->n != 0 && (E->p[0] & 1) != 0)
-	{
+	if (neg && E->used && (E->p[0] & 1)) {
 		X->s = -1;
-		TTLS_MPI_CHK(ttls_mpi_add_mpi(X, N, X));
+		if ((r = ttls_mpi_add_mpi(X, N, X)))
+			goto cleanup;
 	}
 
 cleanup:
-
 	for (i = (one << (wsize - 1)); i < (one << wsize); i++)
 		ttls_mpi_free(&W[i]);
-
 	ttls_mpi_free(&W[1]);
 	ttls_mpi_free(&T);
 	ttls_mpi_free(&Apos);
 
-	if (_RR == NULL || _RR->p == NULL)
-		ttls_mpi_free(&RR);
-
-	return ret;
+	return r;
 }
 
-/*
+/**
  * Greatest common divisor: G = gcd(A, B)  (HAC 14.54)
  */
-int ttls_mpi_gcd(ttls_mpi *G, const ttls_mpi *A, const ttls_mpi *B)
+int
+ttls_mpi_gcd(TlsMpi *G, const TlsMpi *A, const TlsMpi *B)
 {
-	int ret;
+	int r;
 	size_t lz, lzt;
-	ttls_mpi TG, TA, TB;
+	TlsMpi TA, TB;
 
-	ttls_mpi_init(&TG); ttls_mpi_init(&TA); ttls_mpi_init(&TB);
+	ttls_mpi_init(&TA);
+	ttls_mpi_init(&TB);
+	if (ttls_mpi_copy(&TA, A)
+	    || ttls_mpi_copy(&TB, B))
+		return -ENOMEM;
 
-	TTLS_MPI_CHK(ttls_mpi_copy(&TA, A));
-	TTLS_MPI_CHK(ttls_mpi_copy(&TB, B));
-
-	lz = ttls_mpi_lsb(&TA);
-	lzt = ttls_mpi_lsb(&TB);
-
+	lz = ttls_mpi_lsb(A);
+	lzt = ttls_mpi_lsb(B);
 	if (lzt < lz)
 		lz = lzt;
 
-	TTLS_MPI_CHK(ttls_mpi_shift_r(&TA, lz));
-	TTLS_MPI_CHK(ttls_mpi_shift_r(&TB, lz));
+	if ((r = ttls_mpi_shift_r(&TA, lz))
+	    || (r = ttls_mpi_shift_r(&TB, lz)))
+		goto cleanup;
 
 	TA.s = TB.s = 1;
 
-	while (ttls_mpi_cmp_int(&TA, 0) != 0)
-	{
-		TTLS_MPI_CHK(ttls_mpi_shift_r(&TA, ttls_mpi_lsb(&TA)));
-		TTLS_MPI_CHK(ttls_mpi_shift_r(&TB, ttls_mpi_lsb(&TB)));
+	while (ttls_mpi_cmp_int(&TA, 0)) {
+		if ((r = ttls_mpi_shift_r(&TA, ttls_mpi_lsb(&TA)))
+		    || (r = ttls_mpi_shift_r(&TB, ttls_mpi_lsb(&TB))))
+			goto cleanup;
 
-		if (ttls_mpi_cmp_mpi(&TA, &TB) >= 0)
-		{
-			TTLS_MPI_CHK(ttls_mpi_sub_abs(&TA, &TA, &TB));
-			TTLS_MPI_CHK(ttls_mpi_shift_r(&TA, 1));
-		}
-		else
-		{
-			TTLS_MPI_CHK(ttls_mpi_sub_abs(&TB, &TB, &TA));
-			TTLS_MPI_CHK(ttls_mpi_shift_r(&TB, 1));
+		if (ttls_mpi_cmp_mpi(&TA, &TB) >= 0) {
+			if ((r = ttls_mpi_sub_abs(&TA, &TA, &TB))
+			    || (r = ttls_mpi_shift_r(&TA, 1)))
+				goto cleanup;
+		} else {
+			if ((r = ttls_mpi_sub_abs(&TB, &TB, &TA))
+			    || (r = ttls_mpi_shift_r(&TB, 1)))
+				goto cleanup;
 		}
 	}
 
-	TTLS_MPI_CHK(ttls_mpi_shift_l(&TB, lz));
-	TTLS_MPI_CHK(ttls_mpi_copy(G, &TB));
+	if ((r = ttls_mpi_shift_l(&TB, lz)))
+		goto cleanup;
+	r = ttls_mpi_copy(G, &TB);
 
 cleanup:
+	ttls_mpi_free(&TA);
+	ttls_mpi_free(&TB);
 
-	ttls_mpi_free(&TG); ttls_mpi_free(&TA); ttls_mpi_free(&TB);
-
-	return ret;
+	return r;
 }
 
-/*
- * Fill X with size bytes of random.
- *
- * Use a temporary bytes representation to make sure the result is the same
- * regardless of the platform endianness (useful when f_rng is actually
- * deterministic, eg for tests).
- */
-int
-ttls_mpi_fill_random(ttls_mpi *X, size_t size)
-{
-	int ret;
-	unsigned char buf[TTLS_MPI_MAX_SIZE] ____cacheline_aligned;
-
-	if (size > TTLS_MPI_MAX_SIZE)
-		return TTLS_ERR_MPI_BAD_INPUT_DATA;
-
-	ttls_rnd(buf, size);
-	TTLS_MPI_CHK(ttls_mpi_read_binary(X, buf, size));
-
-cleanup:
-	bzero_fast(buf, sizeof(buf));
-	return ret;
-}
-
-/*
+/**
  * Modular inverse: X = A^-1 mod N  (HAC 14.61 / 14.64)
  */
-int ttls_mpi_inv_mod(ttls_mpi *X, const ttls_mpi *A, const ttls_mpi *N)
+int
+ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N)
 {
-	int ret;
-	ttls_mpi G, TA, TU, U1, U2, TB, TV, V1, V2;
+	int r;
+	TlsMpi G, TA, TU, U1, U2, TB, TV, V1, V2;
 
 	if (ttls_mpi_cmp_int(N, 1) <= 0)
-		return(TTLS_ERR_MPI_BAD_INPUT_DATA);
+		return -EINVAL;
 
-	ttls_mpi_init(&TA); ttls_mpi_init(&TU); ttls_mpi_init(&U1); ttls_mpi_init(&U2);
-	ttls_mpi_init(&G); ttls_mpi_init(&TB); ttls_mpi_init(&TV);
-	ttls_mpi_init(&V1); ttls_mpi_init(&V2);
+	ttls_mpi_init(&TA);
+	ttls_mpi_init(&TU);
+	ttls_mpi_init(&U1);
+	ttls_mpi_init(&U2);
+	ttls_mpi_init(&G);
+	ttls_mpi_init(&TB);
+	ttls_mpi_init(&TV);
+	ttls_mpi_init(&V1);
+	ttls_mpi_init(&V2);
 
-	TTLS_MPI_CHK(ttls_mpi_gcd(&G, A, N));
+	if ((r = ttls_mpi_gcd(&G, A, N)))
+		goto cleanup;
 
-	if (ttls_mpi_cmp_int(&G, 1) != 0)
-	{
-		ret = TTLS_ERR_MPI_NOT_ACCEPTABLE;
+	if (ttls_mpi_cmp_int(&G, 1)) {
+		r = -EINVAL;
 		goto cleanup;
 	}
 
-	TTLS_MPI_CHK(ttls_mpi_mod_mpi(&TA, A, N));
-	TTLS_MPI_CHK(ttls_mpi_copy(&TU, &TA));
-	TTLS_MPI_CHK(ttls_mpi_copy(&TB, N));
-	TTLS_MPI_CHK(ttls_mpi_copy(&TV, N));
+	if ((r = ttls_mpi_mod_mpi(&TA, A, N))
+	    || (r = ttls_mpi_copy(&TU, &TA))
+	    || (r = ttls_mpi_copy(&TB, N))
+	    || (r = ttls_mpi_copy(&TV, N)))
+		goto cleanup;
 
-	TTLS_MPI_CHK(ttls_mpi_lset(&U1, 1));
-	TTLS_MPI_CHK(ttls_mpi_lset(&U2, 0));
-	TTLS_MPI_CHK(ttls_mpi_lset(&V1, 0));
-	TTLS_MPI_CHK(ttls_mpi_lset(&V2, 1));
+	if ((r = ttls_mpi_lset(&U1, 1))
+	    || (r = ttls_mpi_lset(&U2, 0))
+	    || (r = ttls_mpi_lset(&V1, 0))
+	    || (r = ttls_mpi_lset(&V2, 1)))
+		goto cleanup;
 
-	do
-	{
-		while ((TU.p[0] & 1) == 0)
-		{
-			TTLS_MPI_CHK(ttls_mpi_shift_r(&TU, 1));
+	do {
+		while (!(TU.p[0] & 1)) {
+			if ((r = ttls_mpi_shift_r(&TU, 1)))
+				goto cleanup;
 
-			if ((U1.p[0] & 1) != 0 || (U2.p[0] & 1) != 0)
-			{
-				TTLS_MPI_CHK(ttls_mpi_add_mpi(&U1, &U1, &TB));
-				TTLS_MPI_CHK(ttls_mpi_sub_mpi(&U2, &U2, &TA));
+			if ((U1.p[0] & 1) || (U2.p[0] & 1)) {
+				if ((r = ttls_mpi_add_mpi(&U1, &U1, &TB))
+				    || (r = ttls_mpi_sub_mpi(&U2, &U2, &TA)))
+					goto cleanup;
+			}
+			if ((r = ttls_mpi_shift_r(&U1, 1))
+			    || (r = ttls_mpi_shift_r(&U2, 1)))
+				goto cleanup;
+		}
+
+		while (!(TV.p[0] & 1)) {
+			if ((r = ttls_mpi_shift_r(&TV, 1)))
+				goto cleanup;
+
+			if ((V1.p[0] & 1) || (V2.p[0] & 1)) {
+				if ((r = ttls_mpi_add_mpi(&V1, &V1, &TB))
+				    || (r = ttls_mpi_sub_mpi(&V2, &V2, &TA)))
+					goto cleanup;
 			}
 
-			TTLS_MPI_CHK(ttls_mpi_shift_r(&U1, 1));
-			TTLS_MPI_CHK(ttls_mpi_shift_r(&U2, 1));
+			if ((r = ttls_mpi_shift_r(&V1, 1))
+			    || (r = ttls_mpi_shift_r(&V2, 1)))
+				goto cleanup;
 		}
 
-		while ((TV.p[0] & 1) == 0)
-		{
-			TTLS_MPI_CHK(ttls_mpi_shift_r(&TV, 1));
-
-			if ((V1.p[0] & 1) != 0 || (V2.p[0] & 1) != 0)
-			{
-				TTLS_MPI_CHK(ttls_mpi_add_mpi(&V1, &V1, &TB));
-				TTLS_MPI_CHK(ttls_mpi_sub_mpi(&V2, &V2, &TA));
-			}
-
-			TTLS_MPI_CHK(ttls_mpi_shift_r(&V1, 1));
-			TTLS_MPI_CHK(ttls_mpi_shift_r(&V2, 1));
+		if (ttls_mpi_cmp_mpi(&TU, &TV) >= 0) {
+			if ((r = ttls_mpi_sub_mpi(&TU, &TU, &TV))
+			    || (r = ttls_mpi_sub_mpi(&U1, &U1, &V1))
+			    || (r = ttls_mpi_sub_mpi(&U2, &U2, &V2)))
+				goto cleanup;
+		} else {
+			if ((r = ttls_mpi_sub_mpi(&TV, &TV, &TU))
+			    || (r = ttls_mpi_sub_mpi(&V1, &V1, &U1))
+			    || (r = ttls_mpi_sub_mpi(&V2, &V2, &U2)))
+				goto cleanup;
 		}
-
-		if (ttls_mpi_cmp_mpi(&TU, &TV) >= 0)
-		{
-			TTLS_MPI_CHK(ttls_mpi_sub_mpi(&TU, &TU, &TV));
-			TTLS_MPI_CHK(ttls_mpi_sub_mpi(&U1, &U1, &V1));
-			TTLS_MPI_CHK(ttls_mpi_sub_mpi(&U2, &U2, &V2));
-		}
-		else
-		{
-			TTLS_MPI_CHK(ttls_mpi_sub_mpi(&TV, &TV, &TU));
-			TTLS_MPI_CHK(ttls_mpi_sub_mpi(&V1, &V1, &U1));
-			TTLS_MPI_CHK(ttls_mpi_sub_mpi(&V2, &V2, &U2));
-		}
-	}
-	while (ttls_mpi_cmp_int(&TU, 0) != 0);
+	} while (ttls_mpi_cmp_int(&TU, 0));
 
 	while (ttls_mpi_cmp_int(&V1, 0) < 0)
-		TTLS_MPI_CHK(ttls_mpi_add_mpi(&V1, &V1, N));
+		if ((r = ttls_mpi_add_mpi(&V1, &V1, N)))
+			goto cleanup;
 
 	while (ttls_mpi_cmp_mpi(&V1, N) >= 0)
-		TTLS_MPI_CHK(ttls_mpi_sub_mpi(&V1, &V1, N));
+		if ((r = ttls_mpi_sub_mpi(&V1, &V1, N)))
+			goto cleanup;
 
-	TTLS_MPI_CHK(ttls_mpi_copy(X, &V1));
-
-cleanup:
-
-	ttls_mpi_free(&TA); ttls_mpi_free(&TU); ttls_mpi_free(&U1); ttls_mpi_free(&U2);
-	ttls_mpi_free(&G); ttls_mpi_free(&TB); ttls_mpi_free(&TV);
-	ttls_mpi_free(&V1); ttls_mpi_free(&V2);
-
-	return ret;
-}
-
-#if defined(TTLS_GENPRIME)
-
-static const int small_prime[] =
-{
-		3,	5,	7,   11,   13,   17,   19,   23,
-	   29,   31,   37,   41,   43,   47,   53,   59,
-	   61,   67,   71,   73,   79,   83,   89,   97,
-	  101,  103,  107,  109,  113,  127,  131,  137,
-	  139,  149,  151,  157,  163,  167,  173,  179,
-	  181,  191,  193,  197,  199,  211,  223,  227,
-	  229,  233,  239,  241,  251,  257,  263,  269,
-	  271,  277,  281,  283,  293,  307,  311,  313,
-	  317,  331,  337,  347,  349,  353,  359,  367,
-	  373,  379,  383,  389,  397,  401,  409,  419,
-	  421,  431,  433,  439,  443,  449,  457,  461,
-	  463,  467,  479,  487,  491,  499,  503,  509,
-	  521,  523,  541,  547,  557,  563,  569,  571,
-	  577,  587,  593,  599,  601,  607,  613,  617,
-	  619,  631,  641,  643,  647,  653,  659,  661,
-	  673,  677,  683,  691,  701,  709,  719,  727,
-	  733,  739,  743,  751,  757,  761,  769,  773,
-	  787,  797,  809,  811,  821,  823,  827,  829,
-	  839,  853,  857,  859,  863,  877,  881,  883,
-	  887,  907,  911,  919,  929,  937,  941,  947,
-	  953,  967,  971,  977,  983,  991,  997, -103
-};
-
-/*
- * Small divisors test (X must be positive)
- *
- * Return values:
- * 0: no small factor (possible prime, more tests needed)
- * 1: certain prime
- * TTLS_ERR_MPI_NOT_ACCEPTABLE: certain non-prime
- * other negative: error
- */
-static int mpi_check_small_factors(const ttls_mpi *X)
-{
-	int ret = 0;
-	size_t i;
-	ttls_mpi_uint r;
-
-	if ((X->p[0] & 1) == 0)
-		return(TTLS_ERR_MPI_NOT_ACCEPTABLE);
-
-	for (i = 0; small_prime[i] > 0; i++)
-	{
-		if (ttls_mpi_cmp_int(X, small_prime[i]) <= 0)
-			return(1);
-
-		TTLS_MPI_CHK(ttls_mpi_mod_int(&r, X, small_prime[i]));
-
-		if (r == 0)
-			return(TTLS_ERR_MPI_NOT_ACCEPTABLE);
-	}
+	r = ttls_mpi_copy(X, &V1);
 
 cleanup:
-	return ret;
+	ttls_mpi_free(&TA);
+	ttls_mpi_free(&TU);
+	ttls_mpi_free(&U1);
+	ttls_mpi_free(&U2);
+	ttls_mpi_free(&G);
+	ttls_mpi_free(&TB);
+	ttls_mpi_free(&TV);
+	ttls_mpi_free(&V1);
+	ttls_mpi_free(&V2);
+
+	return r;
 }
-
-/*
- * Miller-Rabin pseudo-primality test  (HAC 4.24)
- */
-static int mpi_miller_rabin(const ttls_mpi *X)
-{
-	int ret, count;
-	size_t i, j, k, n, s;
-	ttls_mpi W, R, T, A, RR;
-
-	ttls_mpi_init(&W); ttls_mpi_init(&R); ttls_mpi_init(&T); ttls_mpi_init(&A);
-	ttls_mpi_init(&RR);
-
-	/*
-	 * W = |X| - 1
-	 * R = W >> lsb(W)
-	 */
-	TTLS_MPI_CHK(ttls_mpi_sub_int(&W, X, 1));
-	s = ttls_mpi_lsb(&W);
-	TTLS_MPI_CHK(ttls_mpi_copy(&R, &W));
-	TTLS_MPI_CHK(ttls_mpi_shift_r(&R, s));
-
-	i = ttls_mpi_bitlen(X);
-	/*
-	 * HAC, table 4.4
-	 */
-	n = ((i >= 1300) ?  2 : (i >=  850) ?  3 :
-		  (i >=  650) ?  4 : (i >=  350) ?  8 :
-		  (i >=  250) ? 12 : (i >=  150) ? 18 : 27);
-
-	for (i = 0; i < n; i++)
-	{
-		/*
-		 * pick a random A, 1 < A < |X| - 1
-		 */
-		TTLS_MPI_CHK(ttls_mpi_fill_random(&A, X->n * ciL));
-
-		if (ttls_mpi_cmp_mpi(&A, &W) >= 0)
-		{
-			j = ttls_mpi_bitlen(&A) - ttls_mpi_bitlen(&W);
-			TTLS_MPI_CHK(ttls_mpi_shift_r(&A, j + 1));
-		}
-		A.p[0] |= 3;
-
-		count = 0;
-		do {
-			TTLS_MPI_CHK(ttls_mpi_fill_random(&A, X->n * ciL));
-
-			j = ttls_mpi_bitlen(&A);
-			k = ttls_mpi_bitlen(&W);
-			if (j > k) {
-				TTLS_MPI_CHK(ttls_mpi_shift_r(&A, j - k));
-			}
-
-			if (count++ > 30) {
-				return TTLS_ERR_MPI_NOT_ACCEPTABLE;
-			}
-
-		} while (ttls_mpi_cmp_mpi(&A, &W) >= 0 ||
-				  ttls_mpi_cmp_int(&A, 1)  <= 0	);
-
-		/*
-		 * A = A^R mod |X|
-		 */
-		TTLS_MPI_CHK(ttls_mpi_exp_mod(&A, &A, &R, X, &RR));
-
-		if (ttls_mpi_cmp_mpi(&A, &W) == 0 ||
-			ttls_mpi_cmp_int(&A,  1) == 0)
-			continue;
-
-		j = 1;
-		while (j < s && ttls_mpi_cmp_mpi(&A, &W) != 0)
-		{
-			/*
-			 * A = A * A mod |X|
-			 */
-			TTLS_MPI_CHK(ttls_mpi_mul_mpi(&T, &A, &A));
-			TTLS_MPI_CHK(ttls_mpi_mod_mpi(&A, &T, X ));
-
-			if (ttls_mpi_cmp_int(&A, 1) == 0)
-				break;
-
-			j++;
-		}
-
-		/*
-		 * not prime if A != |X| - 1 or A == 1
-		 */
-		if (ttls_mpi_cmp_mpi(&A, &W) != 0 ||
-			ttls_mpi_cmp_int(&A,  1) == 0)
-		{
-			ret = TTLS_ERR_MPI_NOT_ACCEPTABLE;
-			break;
-		}
-	}
-
-cleanup:
-	ttls_mpi_free(&W); ttls_mpi_free(&R); ttls_mpi_free(&T); ttls_mpi_free(&A);
-	ttls_mpi_free(&RR);
-
-	return ret;
-}
-
-/*
- * Pseudo-primality test: small factors, then Miller-Rabin
- */
-int ttls_mpi_is_prime(const ttls_mpi *X)
-{
-	int ret;
-	ttls_mpi XX;
-
-	XX.s = 1;
-	XX.n = X->n;
-	XX.p = X->p;
-
-	if (ttls_mpi_cmp_int(&XX, 0) == 0 ||
-		ttls_mpi_cmp_int(&XX, 1) == 0)
-		return(TTLS_ERR_MPI_NOT_ACCEPTABLE);
-
-	if (ttls_mpi_cmp_int(&XX, 2) == 0)
-		return 0;
-
-	if ((ret = mpi_check_small_factors(&XX)) != 0)
-	{
-		if (ret == 1)
-			return 0;
-
-		return ret;
-	}
-
-	return(mpi_miller_rabin(&XX));
-}
-
-/*
- * Prime number generation
- */
-int ttls_mpi_gen_prime(ttls_mpi *X, size_t nbits, int dh_flag)
-{
-	int ret;
-	size_t k, n;
-	ttls_mpi_uint r;
-	ttls_mpi Y;
-
-	if (nbits < 3 || nbits > TTLS_MPI_MAX_BITS)
-		return(TTLS_ERR_MPI_BAD_INPUT_DATA);
-
-	ttls_mpi_init(&Y);
-
-	n = BITS_TO_LIMBS(nbits);
-
-	TTLS_MPI_CHK(ttls_mpi_fill_random(X, n * ciL));
-
-	k = ttls_mpi_bitlen(X);
-	if (k > nbits) TTLS_MPI_CHK(ttls_mpi_shift_r(X, k - nbits + 1));
-
-	ttls_mpi_set_bit(X, nbits-1, 1);
-
-	X->p[0] |= 1;
-
-	if (dh_flag == 0)
-	{
-		while ((ret = ttls_mpi_is_prime(X)) != 0)
-		{
-			if (ret != TTLS_ERR_MPI_NOT_ACCEPTABLE)
-				goto cleanup;
-
-			TTLS_MPI_CHK(ttls_mpi_add_int(X, X, 2));
-		}
-	}
-	else
-	{
-		/*
-		 * An necessary condition for Y and X = 2Y + 1 to be prime
-		 * is X = 2 mod 3 (which is equivalent to Y = 2 mod 3).
-		 * Make sure it is satisfied, while keeping X = 3 mod 4
-		 */
-
-		X->p[0] |= 2;
-
-		TTLS_MPI_CHK(ttls_mpi_mod_int(&r, X, 3));
-		if (r == 0)
-			TTLS_MPI_CHK(ttls_mpi_add_int(X, X, 8));
-		else if (r == 1)
-			TTLS_MPI_CHK(ttls_mpi_add_int(X, X, 4));
-
-		/* Set Y = (X-1) / 2, which is X / 2 because X is odd */
-		TTLS_MPI_CHK(ttls_mpi_copy(&Y, X));
-		TTLS_MPI_CHK(ttls_mpi_shift_r(&Y, 1));
-
-		while (1)
-		{
-			/*
-			 * First, check small factors for X and Y
-			 * before doing Miller-Rabin on any of them
-			 */
-			if ((ret = mpi_check_small_factors( X		)) == 0 &&
-				(ret = mpi_check_small_factors(&Y		)) == 0 &&
-				(ret = mpi_miller_rabin( X)) == 0 &&
-				(ret = mpi_miller_rabin(&Y)) == 0)
-			{
-				break;
-			}
-
-			if (ret != TTLS_ERR_MPI_NOT_ACCEPTABLE)
-				goto cleanup;
-
-			/*
-			 * Next candidates. We want to preserve Y = (X-1) / 2 and
-			 * Y = 1 mod 2 and Y = 2 mod 3 (eq X = 3 mod 4 and X = 2 mod 3)
-			 * so up Y by 6 and X by 12.
-			 */
-			TTLS_MPI_CHK(ttls_mpi_add_int( X,  X, 12));
-			TTLS_MPI_CHK(ttls_mpi_add_int(&Y, &Y, 6 ));
-		}
-	}
-
-cleanup:
-
-	ttls_mpi_free(&Y);
-
-	return ret;
-}
-
-#endif /* TTLS_GENPRIME */
 
 void
 ttls_mpi_modexit(void)
@@ -2164,7 +1672,7 @@ ttls_mpi_modexit(void)
 	int cpu;
 
 	for_each_possible_cpu(cpu) {
-		ttls_mpi **ptr = per_cpu_ptr(&g_buf, cpu);
+		TlsMpi **ptr = per_cpu_ptr(&g_buf, cpu);
 		kfree(*ptr);
 	}
 }
@@ -2175,8 +1683,8 @@ ttls_mpi_modinit(void)
 	int cpu;
 
 	for_each_possible_cpu(cpu) {
-		ttls_mpi **ptr = per_cpu_ptr(&g_buf, cpu);
-		*ptr = kmalloc(sizeof(ttls_mpi) * MPI_W_SZ, GFP_KERNEL);
+		TlsMpi **ptr = per_cpu_ptr(&g_buf, cpu);
+		*ptr = kmalloc(sizeof(TlsMpi) << MPI_W_SZ, GFP_KERNEL);
 		if (!*ptr)
 			goto err_cleanup;
 	}

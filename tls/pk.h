@@ -3,6 +3,8 @@
  *
  * Public Key abstraction layer.
  *
+ * Based on mbed TLS, https://tls.mbed.org.
+ *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
@@ -136,8 +138,6 @@ int ttls_pk_decrypt(ttls_pk_context *ctx,
 int ttls_pk_encrypt(ttls_pk_context *ctx,
 		    const unsigned char *input, size_t ilen,
 		    unsigned char *output, size_t *olen, size_t osize);
-int ttls_pk_check_pair(const ttls_pk_context *pub, const ttls_pk_context *prv);
-int ttls_pk_debug(const ttls_pk_context *ctx, ttls_pk_debug_item *items);
 const char * ttls_pk_get_name(const ttls_pk_context *ctx);
 ttls_pk_type_t ttls_pk_get_type(const ttls_pk_context *ctx);
 
@@ -163,10 +163,10 @@ ttls_pk_rsa(const ttls_pk_context pk)
  * WARNING: You must make sure the PK context actually holds an EC context
  * before using this function!
  */
-static inline ttls_ecp_keypair *
+static inline TlsEcpKeypair *
 ttls_pk_ec(const ttls_pk_context pk)
 {
-	return (ttls_ecp_keypair *)(pk).pk_ctx;
+	return (TlsEcpKeypair *)(pk).pk_ctx;
 }
 
 /**

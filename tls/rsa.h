@@ -7,6 +7,8 @@
  * #1 v1.5: RSA Encryption</em> and <em>Public-Key Cryptography Standards
  * (PKCS) #1 v2.1: RSA Cryptography Specifications</em>.
  *
+ * Based on mbed TLS, https://tls.mbed.org.
+ *
  * Copyright (C) 2006-2018, Arm Limited (or its affiliates), All Rights Reserved
  * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
@@ -73,27 +75,26 @@
  */
 typedef struct
 {
-	int ver;		/*!<  Always 0.*/
 	size_t len;				 /*!<  The size of \p N in Bytes. */
 
-	ttls_mpi N;		  /*!<  The public modulus. */
-	ttls_mpi E;		  /*!<  The public exponent. */
+	TlsMpi N;		  /*!<  The public modulus. */
+	TlsMpi E;		  /*!<  The public exponent. */
 
-	ttls_mpi D;		  /*!<  The private exponent. */
-	ttls_mpi P;		  /*!<  The first prime factor. */
-	ttls_mpi Q;		  /*!<  The second prime factor. */
+	TlsMpi D;		  /*!<  The private exponent. */
+	TlsMpi P;		  /*!<  The first prime factor. */
+	TlsMpi Q;		  /*!<  The second prime factor. */
 
-	ttls_mpi DP;		 /*!<  \p D % (P - 1)	   */
-	ttls_mpi DQ;		 /*!<  \p D % (Q - 1)	   */
-	ttls_mpi QP;		 /*!<  1 / (Q % P)	   */
+	TlsMpi DP;		 /*!<  \p D % (P - 1)	   */
+	TlsMpi DQ;		 /*!<  \p D % (Q - 1)	   */
+	TlsMpi QP;		 /*!<  1 / (Q % P)	   */
 
-	ttls_mpi RN;		 /*!<  cached R^2 mod \p N  */
+	TlsMpi RN;		 /*!<  cached R^2 mod \p N  */
 
-	ttls_mpi RP;		 /*!<  cached R^2 mod \p P  */
-	ttls_mpi RQ;		 /*!<  cached R^2 mod \p Q  */
+	TlsMpi RP;		 /*!<  cached R^2 mod \p P  */
+	TlsMpi RQ;		 /*!<  cached R^2 mod \p Q  */
 
-	ttls_mpi Vi;		 /*!<  The cached blinding value. */
-	ttls_mpi Vf;		 /*!<  The cached un-blinding value. */
+	TlsMpi Vi;		 /*!<  The cached blinding value. */
+	TlsMpi Vf;		 /*!<  The cached un-blinding value. */
 
 	int padding;				/*!< Selects padding mode:
 			 #TTLS_RSA_PKCS_V15 for 1.5 padding and
@@ -137,9 +138,9 @@ void ttls_rsa_init(ttls_rsa_context *ctx, int padding, int hash_id);
  * \return		 \c 0 on success, or a non-zero error code on failure.
  */
 int ttls_rsa_import(ttls_rsa_context *ctx,
-			const ttls_mpi *N,
-			const ttls_mpi *P, const ttls_mpi *Q,
-			const ttls_mpi *D, const ttls_mpi *E);
+			const TlsMpi *N,
+			const TlsMpi *P, const TlsMpi *Q,
+			const TlsMpi *D, const TlsMpi *E);
 
 /**
  * \brief		  This function imports core RSA parameters, in raw big-endian
@@ -250,8 +251,8 @@ int ttls_rsa_complete(ttls_rsa_context *ctx);
  *
  */
 int ttls_rsa_export(const ttls_rsa_context *ctx,
-			ttls_mpi *N, ttls_mpi *P, ttls_mpi *Q,
-			ttls_mpi *D, ttls_mpi *E);
+			TlsMpi *N, TlsMpi *P, TlsMpi *Q,
+			TlsMpi *D, TlsMpi *E);
 
 /**
  * \brief		  This function exports core parameters of an RSA key
@@ -320,7 +321,7 @@ int ttls_rsa_export_raw(const ttls_rsa_context *ctx,
  *
  */
 int ttls_rsa_export_crt(const ttls_rsa_context *ctx,
-				ttls_mpi *DP, ttls_mpi *DQ, ttls_mpi *QP);
+				TlsMpi *DP, TlsMpi *DQ, TlsMpi *QP);
 
 /**
  * \brief		  This function retrieves the length of RSA modulus in Bytes.
@@ -365,109 +366,6 @@ int ttls_rsa_gen_key(ttls_rsa_context *ctx,
 int ttls_rsa_check_pubkey(const ttls_rsa_context *ctx);
 
 /**
- * \brief	  This function checks if a context contains an RSA private key
- *			 and perform basic consistency checks.
- *
- * \param ctx  The RSA context to check.
- *
- * \return	 \c 0 on success, or an \c TTLS_ERR_RSA_XXX error code on
- *			 failure.
- *
- * \note	   The consistency checks performed by this function not only
- *			 ensure that ttls_rsa_private() can be called successfully
- *			 on the given context, but that the various parameters are
- *			 mutually consistent with high probability, in the sense that
- *			 ttls_rsa_public() and ttls_rsa_private() are inverses.
- *
- * \warning	This function should catch accidental misconfigurations
- *			 like swapping of parameters, but it cannot establish full
- *			 trust in neither the quality nor the consistency of the key
- *			 material that was used to setup the given RSA context:
- *			 <ul><li>Consistency: Imported parameters that are irrelevant
- *			 for the implementation might be silently dropped. If dropped,
- *			 the current function does not have access to them,
- *			 and therefore cannot check them. See ttls_rsa_complete().
- *			 If you want to check the consistency of the entire
- *			 content of an PKCS1-encoded RSA private key, for example, you
- *			 should use ttls_rsa_validate_params() before setting
- *			 up the RSA context.
- *			 Additionally, if the implementation performs empirical checks,
- *			 these checks substantiate but do not guarantee consistency.</li>
- *			 <li>Quality: This function is not expected to perform
- *			 extended quality assessments like checking that the prime
- *			 factors are safe. Additionally, it is the responsibility of the
- *			 user to ensure the trustworthiness of the source of his RSA
- *			 parameters, which goes beyond what is effectively checkable
- *			 by the library.</li></ul>
- */
-int ttls_rsa_check_privkey(const ttls_rsa_context *ctx);
-
-/**
- * \brief		  This function checks a public-private RSA key pair.
- *
- *				 It checks each of the contexts, and makes sure they match.
- *
- * \param pub	  The RSA context holding the public key.
- * \param prv	  The RSA context holding the private key.
- *
- * \return		 \c 0 on success, or an \c TTLS_ERR_RSA_XXX error code
- *				 on failure.
- */
-int ttls_rsa_check_pub_priv(const ttls_rsa_context *pub,
-		const ttls_rsa_context *prv);
-
-/**
- * \brief		  This function performs an RSA public key operation.
- *
- * \param ctx	  The RSA context.
- * \param input	The input buffer.
- * \param output   The output buffer.
- *
- * \return		 \c 0 on success, or an \c TTLS_ERR_RSA_XXX error code
- *				 on failure.
- *
- * \note		   This function does not handle message padding.
- *
- * \note		   Make sure to set \p input[0] = 0 or ensure that
- *				 input is smaller than \p N.
- *
- * \note		   The input and output buffers must be large
- *				 enough. For example, 128 Bytes if RSA-1024 is used.
- */
-int ttls_rsa_public(ttls_rsa_context *ctx,
-				const unsigned char *input,
-				unsigned char *output);
-
-/**
- * \brief		  This function performs an RSA private key operation.
- *
- * \param ctx	  The RSA context.
- * \param input	The input buffer.
- * \param output   The output buffer.
- *
- * \return		 \c 0 on success, or an \c TTLS_ERR_RSA_XXX error code
- *				 on failure.
- *
- * \note		   The input and output buffers must be large
- *				 enough. For example, 128 Bytes if RSA-1024 is used.
- *
- * \note		   Blinding is used if and only if a PRNG is provided.
- *
- * \note		   If blinding is used, both the base of exponentation
- *				 and the exponent are blinded, providing protection
- *				 against some side-channel attacks.
- *
- * \warning		It is deprecated and a security risk to not provide
- *				 a PRNG here and thereby prevent the use of blinding.
- *				 Future versions of the library may enforce the presence
- *				 of a PRNG.
- *
- */
-int ttls_rsa_private(ttls_rsa_context *ctx,
-				 const unsigned char *input,
-				 unsigned char *output);
-
-/**
  * \brief		  This function adds the message padding, then performs an RSA
  *				 operation.
  *
@@ -500,70 +398,6 @@ int ttls_rsa_pkcs1_encrypt(ttls_rsa_context *ctx,
 		   int mode, size_t ilen,
 		   const unsigned char *input,
 		   unsigned char *output);
-
-/**
- * \brief		  This function performs a PKCS#1 v1.5 encryption operation
- *				 (RSAES-PKCS1-v1_5-ENCRYPT).
- *
- * \param ctx	  The RSA context.
- * \param mode	 #TTLS_RSA_PUBLIC or #TTLS_RSA_PRIVATE.
- * \param ilen	 The length of the plaintext.
- * \param input	The buffer holding the data to encrypt.
- * \param output   The buffer used to hold the ciphertext.
- *
- * \deprecated	 It is deprecated and discouraged to call this function
- *				 in #TTLS_RSA_PRIVATE mode. Future versions of the library
- *				 are likely to remove the \p mode argument and have it
- *				 implicitly set to #TTLS_RSA_PUBLIC.
- *
- * \note		   Alternative implementations of RSA need not support
- *				 mode being set to #TTLS_RSA_PRIVATE and might instead
- *				 return #TTLS_ERR_RSA_UNSUPPORTED_OPERATION.
- *
- * \return		 \c 0 on success, or an \c TTLS_ERR_RSA_XXX error code
- *				 on failure.
- *
- * \note		   The output buffer must be as large as the size
- *				 of \p ctx->N. For example, 128 Bytes if RSA-1024 is used.
- */
-int ttls_rsa_rsaes_pkcs1_v15_encrypt(ttls_rsa_context *ctx,
-		 int mode, size_t ilen,
-		 const unsigned char *input,
-		 unsigned char *output);
-
-/**
- * \brief			This function performs a PKCS#1 v2.1 OAEP encryption
- *				   operation (RSAES-OAEP-ENCRYPT).
- *
- * \param ctx		The RSA context.
- * \param mode	   #TTLS_RSA_PUBLIC or #TTLS_RSA_PRIVATE.
- * \param label	  The buffer holding the custom label to use.
- * \param label_len  The length of the label.
- * \param ilen	   The length of the plaintext.
- * \param input	  The buffer holding the data to encrypt.
- * \param output	 The buffer used to hold the ciphertext.
- *
- * \deprecated	 It is deprecated and discouraged to call this function
- *				 in #TTLS_RSA_PRIVATE mode. Future versions of the library
- *				 are likely to remove the \p mode argument and have it
- *				 implicitly set to #TTLS_RSA_PUBLIC.
- *
- * \note		   Alternative implementations of RSA need not support
- *				 mode being set to #TTLS_RSA_PRIVATE and might instead
- *				 return #TTLS_ERR_RSA_UNSUPPORTED_OPERATION.
- *
- * \return		 \c 0 on success, or an \c TTLS_ERR_RSA_XXX error code
- *				 on failure.
- *
- * \note		   The output buffer must be as large as the size
- *				 of ctx->N. For example, 128 Bytes if RSA-1024 is used.
- */
-int ttls_rsa_rsaes_oaep_encrypt(ttls_rsa_context *ctx,
-				int mode,
-				const unsigned char *label, size_t label_len,
-				size_t ilen,
-				const unsigned char *input,
-				unsigned char *output);
 
 /**
  * \brief		  This function performs an RSA operation, then removes the
@@ -972,9 +806,6 @@ int ttls_rsa_rsassa_pss_verify_ext(ttls_rsa_context *ctx,
  *
  * \param dst	  The destination context.
  * \param src	  The source context.
- *
- * \return		 \c 0 on success,
- *				 #TTLS_ERR_MPI_ALLOC_FAILED on memory allocation failure.
  */
 int ttls_rsa_copy(ttls_rsa_context *dst, const ttls_rsa_context *src);
 

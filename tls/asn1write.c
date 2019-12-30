@@ -21,7 +21,8 @@
  *
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
-#include "config.h"
+#include <linux/slab.h>
+
 #include "asn1write.h"
 
 int ttls_asn1_write_len(unsigned char **p, unsigned char *start, size_t len)
@@ -109,7 +110,7 @@ int ttls_asn1_write_raw_buffer(unsigned char **p, unsigned char *start,
 	return((int) len);
 }
 
-int ttls_asn1_write_mpi(unsigned char **p, unsigned char *start, const ttls_mpi *X)
+int ttls_asn1_write_mpi(unsigned char **p, unsigned char *start, const TlsMpi *X)
 {
 	int ret;
 	size_t len = 0;
@@ -322,27 +323,27 @@ ttls_asn1_named_data *ttls_asn1_store_named_data(ttls_asn1_named_data **head,
 	{
 		// Add new entry if not present yet based on OID
 		//
-		cur = (ttls_asn1_named_data*)ttls_calloc(1,
-		sizeof(ttls_asn1_named_data));
+		cur = (ttls_asn1_named_data*)kmalloc(sizeof(ttls_asn1_named_data),
+						     GFP_KERNEL);
 		if (cur == NULL)
 			return(NULL);
 
 		cur->oid.len = oid_len;
-		cur->oid.p = ttls_calloc(1, oid_len);
+		cur->oid.p = kmalloc(oid_len, GFP_KERNEL);
 		if (cur->oid.p == NULL)
 		{
-			ttls_free(cur);
+			kfree(cur);
 			return(NULL);
 		}
 
 		memcpy(cur->oid.p, oid, oid_len);
 
 		cur->val.len = val_len;
-		cur->val.p = ttls_calloc(1, val_len);
+		cur->val.p = kmalloc(val_len, GFP_KERNEL);
 		if (cur->val.p == NULL)
 		{
-			ttls_free(cur->oid.p);
-			ttls_free(cur);
+			kfree(cur->oid.p);
+			kfree(cur);
 			return(NULL);
 		}
 
@@ -356,11 +357,11 @@ ttls_asn1_named_data *ttls_asn1_store_named_data(ttls_asn1_named_data **head,
 		 * Preserve old data until the allocation succeeded, to leave list in
 		 * a consistent state in case allocation fails.
 		 */
-		void *p = ttls_calloc(1, val_len);
+		void *p = kmalloc(val_len, GFP_KERNEL);
 		if (p == NULL)
 			return(NULL);
 
-		ttls_free(cur->val.p);
+		kfree(cur->val.p);
 		cur->val.p = p;
 		cur->val.len = val_len;
 	}

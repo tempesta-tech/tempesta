@@ -3,6 +3,8 @@
  *
  * Internal functions shared by the TLS modules.
  *
+ * Based on mbed TLS, https://tls.mbed.org.
+ *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
@@ -25,11 +27,6 @@
 #define TTLS_INTERNAL_H
 
 #include <asm/fpu/api.h>
-
-/* Affects only TempestaTLS internal debug symbols. */
-#if DBG_TLS == 0
-#undef DEBUG
-#endif
 
 #include "debug.h"
 #include "lib/fsm.h"
@@ -148,15 +145,13 @@ struct tls_handshake_t {
 	size_t				pmslen;
 	ttls_key_cert			*key_cert;
 
-	void (*calc_verify)(ttls_context *, unsigned char *);
-	void (*calc_finished)(ttls_context *, unsigned char *, int);
+	void (*calc_verify)(TlsCtx *, unsigned char *);
+	void (*calc_finished)(TlsCtx *, unsigned char *, int);
 	int  (*tls_prf)(const unsigned char *, size_t, const char *, size_t,
 			const unsigned char *, size_t, unsigned char *, size_t);
 
 	union {
-#if defined(TTLS_DHM_C)
 		ttls_dhm_context	dhm_ctx;
-#endif
 		ttls_ecdh_context	ecdh_ctx;
 		ttls_sha256_context	tmp_sha256;
 	};
@@ -166,14 +161,34 @@ struct tls_handshake_t {
 		ttls_sha256_context	fin_sha256;
 		ttls_sha512_context	fin_sha512;
 	};
-	const ttls_ecp_curve_info	*curves[TTLS_ECP_DP_MAX];
+	const TlsEcpCurveInfo	*curves[TTLS_ECP_DP_MAX];
 	union {
 		unsigned char		randbytes[64];
 		unsigned char		finished[64];
 	};
 	union {
 		unsigned char		premaster[TTLS_PREMASTER_SIZE];
-		unsigned char		tmp[TTLS_HS_RBUF_SZ];
+		struct {
+			union {
+				unsigned short cs_cur_len;
+				struct {
+					unsigned char compr_n;
+					unsigned char compr_has_null;
+				};
+				struct {
+					unsigned short ext_rem_sz;
+					unsigned short ext_type;
+					unsigned short ext_sz;
+				};
+				unsigned char *cert_page_address;
+			};
+			unsigned short cs_total_len;
+			struct {
+				u16 css[(TTLS_HS_RBUF_SZ - 10 - 256)/2];
+				unsigned char ext[256];
+			};
+		};
+		unsigned char key_exchange_tmp[TTLS_HS_RBUF_SZ];
 	};
 };
 
@@ -194,6 +209,9 @@ struct ttls_key_cert
 	ttls_key_cert			*next;
 };
 
+extern int ttls_preset_hashes[];
+extern ttls_ecp_group_id ttls_preset_curves[];
+
 /* Find an entry in a signature-hash set matching a given hash algorithm. */
 ttls_md_type_t ttls_sig_hash_set_find(TlsSigHashSet *set,
 				      ttls_pk_type_t sig_alg);
@@ -202,31 +220,31 @@ void ttls_sig_hash_set_add(TlsSigHashSet *set,
 			   ttls_pk_type_t sig_alg,
 			   ttls_md_type_t md_alg);
 
-int ttls_handshake_client_step(ttls_context *tls, unsigned char *buf,
+int ttls_handshake_client_step(TlsCtx *tls, unsigned char *buf,
 			       size_t len, size_t hh_len, unsigned int *read);
-int ttls_handshake_server_step(ttls_context *tls, unsigned char *buf,
+int ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf,
 			       size_t len, size_t hh_len, unsigned int *read);
-void ttls_handshake_wrapup(ttls_context *tls);
+void ttls_handshake_wrapup(TlsCtx *tls);
 
-int ttls_derive_keys(ttls_context *tls);
+int ttls_derive_keys(TlsCtx *tls);
 
 void __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
 		       unsigned char *hdr_buf);
 int __ttls_send_record(TlsCtx *tls, struct sg_table *sgt, bool close);
 int ttls_sendmsg(TlsCtx *tls, const char *buf, size_t len);
 
-int ttls_parse_certificate(ttls_context *tls, unsigned char *buf, size_t len,
+int ttls_parse_certificate(TlsCtx *tls, unsigned char *buf, size_t len,
 			   unsigned int *read);
-int ttls_write_certificate(ttls_context *tls, struct sg_table *sgt,
+int ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 			   unsigned char **in_buf);
 
-int ttls_parse_change_cipher_spec(ttls_context *tls, unsigned char *buf,
+int ttls_parse_change_cipher_spec(TlsCtx *tls, unsigned char *buf,
 				  size_t len, unsigned int *read);
-void ttls_write_change_cipher_spec(ttls_context *tls);
+void ttls_write_change_cipher_spec(TlsCtx *tls);
 
 int ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 			unsigned int *read);
-int ttls_write_finished(ttls_context *tls, struct sg_table *sgt,
+int ttls_write_finished(TlsCtx *tls, struct sg_table *sgt,
 			unsigned char **in_buf);
 
 unsigned char ttls_sig_from_pk_alg(ttls_pk_type_t type);
@@ -234,11 +252,11 @@ ttls_pk_type_t ttls_pk_alg_from_sig(unsigned char sig);
 
 ttls_md_type_t ttls_md_alg_from_hash(unsigned char hash);
 unsigned char ttls_hash_from_md_alg(int md);
-int ttls_set_calc_verify_md(ttls_context *tls, int md);
+int ttls_set_calc_verify_md(TlsCtx *tls, int md);
 
-int ttls_check_curve(const ttls_context *tls, ttls_ecp_group_id grp_id);
+int ttls_check_curve(const TlsCtx *tls, ttls_ecp_group_id grp_id);
 
-int ttls_check_sig_hash(const ttls_context *tls, ttls_md_type_t md);
+int ttls_check_sig_hash(const TlsCtx *tls, ttls_md_type_t md);
 int ttls_match_sig_hashes(const TlsCtx *tls);
 void ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len);
 
@@ -256,7 +274,7 @@ ttls_zeroize(void *v, size_t n)
 }
 
 static inline ttls_pk_context *
-ttls_own_key(ttls_context *tls)
+ttls_own_key(TlsCtx *tls)
 {
 	ttls_key_cert *key_cert;
 
@@ -295,9 +313,7 @@ int ttls_check_cert_usage(const ttls_x509_crt *cert,
 			  int cert_endpoint,
 			  uint32_t *flags);
 
-void ttls_read_version(TlsCtx *tls, const unsigned char ver[2]);
-
-int ttls_get_key_exchange_md_tls1_2(ttls_context *tls,
+int ttls_get_key_exchange_md_tls1_2(TlsCtx *tls,
 		unsigned char *output,
 		unsigned char *data, size_t data_len,
 		ttls_md_type_t md_alg);
@@ -320,27 +336,6 @@ ttls_write_version(const TlsCtx *tls, unsigned char ver[2])
 	ver[0] = (unsigned char)tls->major;
 	ver[1] = (unsigned char)tls->minor;
 }
-
-#if defined(DEBUG) && (DEBUG >= 3)
-/*
- * Make the things repeatable, simple and INSECURE on largest debug level -
- * this helps to debug TLS (thanks to reproducible records payload), but
- * must not be used in any security sensitive installations.
- */
-static inline void
-ttls_rnd(void *buf, size_t len)
-{
-	memset(buf, 0x55, len);
-}
-
-unsigned long ttls_time_debug(void);
-
-#define ttls_time()		ttls_time_debug()
-
-#else
-#define ttls_time()		get_seconds()
-#define ttls_rnd(buf, len)	get_random_bytes_arch(buf, len)
-#endif
 
 /*
  * TLS state machine (common states & definitions for client and server).
@@ -399,23 +394,6 @@ do {									\
 	T_FSM_JMP(st);							\
 } while (0)
 
-/*
- * Size of temporary storage in TlsCtx->hs->tmp.
- * The temporary buffer is used to store 2 types of temporary data: utility
- * data to store 'state' between chunks of data while the FSM is being in
- * the same state (i.e. stack-based FSM reduces number of states using the
- * stack) and 'memory' used between states, e.g. ciphersuites parsed in
- * one state, but must be processed at the end, when all extensions are also
- * parsed. So we split @tmp buffer to 2 segments and the constant defines size
- * of the FSM stack.
- */
-#define TTLS_HS_TMP_STORE_SZ	8
-/* Minimum size reserved for extension parsing. */
-#define TTLS_HS_EXT_RES_SZ	32
-/* Maximum length of cipher suites buffer. */
-#define TTLS_HS_CS_MAX_SZ	(TTLS_HS_RBUF_SZ - TTLS_HS_EXT_RES_SZ	\
-				 -  TTLS_HS_TMP_STORE_SZ)
-
 /* Server specific TLS handshake states. */
 enum {
 	/* ClientHello intermediary states. */
@@ -450,4 +428,4 @@ ttls_substate(const TlsCtx *tls)
 	return tls->state & __TTLS_FSM_SUBST_MASK;
 }
 
-#endif /* tls_internal.h */
+#endif

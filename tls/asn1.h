@@ -27,13 +27,7 @@
 #ifndef TTLS_ASN1_H
 #define TTLS_ASN1_H
 
-#include "config.h"
 #include "bignum.h"
-
-/**
- * \addtogroup asn1_module
- * \{
- */
 
 /**
  * \name ASN1 Error codes
@@ -277,7 +271,7 @@ int ttls_asn1_get_sequence_of(unsigned char **p,
  */
 int ttls_asn1_get_mpi(unsigned char **p,
 				  const unsigned char *end,
-				  ttls_mpi *X);
+				  TlsMpi *X);
 
 /**
  * \brief	   Retrieve an AlgorithmIdentifier ASN.1 sequence.

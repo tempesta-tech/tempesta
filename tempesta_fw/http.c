@@ -739,6 +739,11 @@ tfw_h2_pseudo_index(unsigned short status)
 	}
 }
 
+/**
+ * Write HTTP/2 pseudo-header fields. Only ':status' is defined as response
+ * pseudo-header and all HTTP/2 responses must contain that.
+ * https://httpwg.org/specs/rfc7540.html#rfc.section.8.1.2.4
+ */
 static int
 tfw_h2_pseudo_write(TfwHttpResp *resp, TfwH2TransOp op)
 {
@@ -751,7 +756,8 @@ tfw_h2_pseudo_write(TfwHttpResp *resp, TfwH2TransOp op)
 			{ .data = buf,		.len = H2_STAT_VAL_LEN }
 		},
 		.len = SLEN(S_H2_STAT) + H2_STAT_VAL_LEN,
-		.nchunks = 2
+		.nchunks = 2,
+		.hpack_idx = index ? index : 8
 	};
 
 	WARN_ON_ONCE(op != TFW_H2_TRANS_EXPAND && op != TFW_H2_TRANS_SUB);
@@ -760,7 +766,6 @@ tfw_h2_pseudo_write(TfwHttpResp *resp, TfwH2TransOp op)
 	 * If the status code is not in the static table, set the default
 	 * static index just for the ':status' name.
 	 */
-	TFW_STR_INDEX_SET(&s_hdr, index ? index : 8 );
 	if (index) {
 		s_hdr.flags |= TFW_STR_FULL_INDEX;
 	}
@@ -877,7 +882,7 @@ tfw_h2_send_resp(TfwHttpReq *req, int status, unsigned int stream_id)
 	__TFW_STR_CH(&hdr, 1)->data = date_val;
 	__TFW_STR_CH(&hdr, 1)->len = vlen = date->len;
 	hdr.len = nlen + vlen;
-	TFW_STR_INDEX_SET(&hdr, 33);
+	hdr.hpack_idx = 33;
 	if (tfw_hpack_encode(resp, &hdr, TFW_H2_TRANS_EXPAND))
 		goto err_setup;
 
@@ -888,7 +893,7 @@ tfw_h2_send_resp(TfwHttpReq *req, int status, unsigned int stream_id)
 	__TFW_STR_CH(&hdr, 1)->len = vlen = clen->data + clen->len
 		- data_ptr - SLEN(S_CRLF);
 	hdr.len = nlen + vlen;
-	TFW_STR_INDEX_SET(&hdr, 28);
+	hdr.hpack_idx = 28;
 	if (tfw_hpack_encode(resp, &hdr, TFW_H2_TRANS_EXPAND))
 		goto err_setup;
 
@@ -899,7 +904,7 @@ tfw_h2_send_resp(TfwHttpReq *req, int status, unsigned int stream_id)
 	__TFW_STR_CH(&hdr, 1)->len = vlen = srv->data + srv->len
 		- data_ptr - SLEN(S_CRLF);
 	hdr.len = nlen + vlen;
-	TFW_STR_INDEX_SET(&hdr, 54);
+	hdr.hpack_idx = 54;
 	if (tfw_hpack_encode(resp, &hdr, TFW_H2_TRANS_EXPAND))
 		goto err_setup;
 
@@ -2993,7 +2998,7 @@ do {									\
 				WRITE_LIT(buf, S_DLM);			\
 				val_found = true;			\
 			} else if (*c->data == ':') {			\
-			/* For statically configured adjustments. */	\
+				/* For statically configured adjustments. */\
 				WARN_ON_ONCE(c->len != SLEN(S_DLM));	\
 				WRITE_LIT(buf, S_DLM);			\
 				val_found = true;			\
@@ -3085,10 +3090,9 @@ do {									\
 	 * Create special buffer to write headers block into the target HTTP/1.1
 	 * representation.
 	 */
-	if (!(pg = alloc_pages(GFP_ATOMIC, get_order(it->hdrs_len))))
+	if (!(dst = pg_skb_alloc(it->hdrs_len, GFP_ATOMIC, NUMA_NO_NODE)))
 		return -ENOMEM;
-
-	dst = (char *)page_address(pg);
+	pg = virt_to_page(dst);
 
 	/* Add request-line into the HTTP/1.1 request. */
 	BUG_ON(TFW_STR_EMPTY(&req->uri_path));
@@ -3148,7 +3152,7 @@ do {									\
 	r = ss_skb_replace_page(&req->msg.skb_head, pg, it->hdrs_len,
 				it->hb_len);
 	if (r) {
-		__free_pages(pg, get_order(it->hdrs_len));
+		put_page(pg);
 		return r;
 	}
 
@@ -3439,7 +3443,7 @@ tfw_h2_add_hdr_via(TfwHttpResp *resp)
 	memcpy_fast(__TFW_STR_CH(&via, 2)->data, g_vhost->hdr_via,
 		    g_vhost->hdr_via_len);
 
-	TFW_STR_INDEX_SET(&via, 60);
+	via.hpack_idx = 60;
 
 	r = __hdr_h2_add(resp, &via);
 	if (unlikely(r))
@@ -3636,6 +3640,7 @@ tfw_h2_resp_next_hdr(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 		TfwStr *tgt = &ht->tbl[hid];
 		TfwStr *first = TFW_STR_CHUNK(tgt, 0);
 		TfwHdrModsDesc *f_desc = NULL;
+		const TfwStr *val;
 
 		if (TFW_STR_DUP(tgt))
 			tgt = TFW_STR_CHUNK(tgt, d_num);
@@ -3663,69 +3668,68 @@ tfw_h2_resp_next_hdr(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 				break;
 			}
 		}
+		if (!f_desc)
+			goto def;
 
-		if (f_desc) {
-			const TfwStr *val = TFW_STR_CHUNK(f_desc->hdr, 2);
-			/*
-			 * If this is a duplicate of already processed header,
-			 * leave this duplicate as is (for transformation
-			 * in-place) in case of appending operation, and remove
-			 * it (by skipping) in case of substitution or deletion
-			 * operations.
-			 */
-			if (test_bit(k, mit->found)) {
-				if (!val || !f_desc->append)
-					continue;
-
-				mit->bnd = first->data;
-				next->s_hdr = *tgt;
-				next->op = TFW_H2_TRANS_INPLACE;
-
-				break;
-			}
-
-			__set_bit(k, mit->found);
-
-			/*
-			 * If header configured with empty value, it should be
-			 * removed from the response; so, just skip such header.
-			 */
-			if (!val)
+		val = TFW_STR_CHUNK(f_desc->hdr, 2);
+		/*
+		 * If this is a duplicate of already processed header,
+		 * leave this duplicate as is (for transformation
+		 * in-place) in case of appending operation, and remove
+		 * it (by skipping) in case of substitution or deletion
+		 * operations.
+		 */
+		if (test_bit(k, mit->found)) {
+			if (!val || !f_desc->append)
 				continue;
 
 			mit->bnd = first->data;
-
-			/*
-			 * If the header configured for value appending,
-			 * concatenate it with the target header in skb for
-			 * subsequent in-place rewriting.
-			 */
-			if (f_desc->append) {
-				TfwStr h_app = {
-					.chunks = (TfwStr []){
-						{ .data = ", ", .len = 2 },
-						{ .data = val->data,
-						  .len = val->len }
-					},
-					.len = val->len + 2,
-					.nchunks = 2
-				};
-
-				r = tfw_strcat(resp->pool, tgt, &h_app);
-				if (unlikely(r))
-					return r;
-
-				next->s_hdr = *tgt;
-				next->op = TFW_H2_TRANS_INPLACE;
-
-				break;
-			}
-
-			next->s_hdr = *f_desc->hdr;
-			next->op = TFW_H2_TRANS_SUB;
+			next->s_hdr = *tgt;
+			next->op = TFW_H2_TRANS_INPLACE;
 
 			break;
 		}
+
+		__set_bit(k, mit->found);
+
+		/*
+		 * If header configured with empty value, it should be
+		 * removed from the response; so, just skip such header.
+		 */
+		if (!val)
+			continue;
+
+		mit->bnd = first->data;
+
+		/*
+		 * If the header configured for value appending,
+		 * concatenate it with the target header in skb for
+		 * subsequent in-place rewriting.
+		 */
+		if (f_desc->append) {
+			TfwStr h_app = {
+				.chunks = (TfwStr []){
+					{ .data = ", ", .len = 2 },
+					{ .data = val->data,
+					  .len = val->len }
+				},
+				.len = val->len + 2,
+				.nchunks = 2
+			};
+
+			r = tfw_strcat(resp->pool, tgt, &h_app);
+			if (unlikely(r))
+				return r;
+
+			next->s_hdr = *tgt;
+			next->op = TFW_H2_TRANS_INPLACE;
+			break;
+		}
+
+		next->s_hdr = *f_desc->hdr;
+		next->op = TFW_H2_TRANS_SUB;
+		break;
+
 def:
 		/*
 		 * Remove 'Connection', 'Keep-Alive' headers and all hop-by-hop
@@ -3817,7 +3821,7 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 
 	tfw_h2_pack_frame_header(buf, &frame_hdr);
 
-	head_ptr = ss_skb_data(resp->msg.skb_head);
+	head_ptr = resp->msg.skb_head->data;
 	memcpy_fast(head_ptr, buf, sizeof(buf));
 
 	return 0;
@@ -4573,7 +4577,6 @@ tfw_http_req_process(TfwConn *conn, TfwStream *stream, const TfwFsmData *data)
 	struct sk_buff *skb = data->skb;
 	TfwHttpReq *req;
 	TfwHttpMsg *hmsib;
-	TfwHttpParser *parser;
 	TfwFsmData data_up;
 	int r = TFW_BLOCK;
 
@@ -4591,7 +4594,6 @@ next_msg:
 	parsed = 0;
 	hmsib = NULL;
 	req = (TfwHttpReq *)stream->msg;
-	parser = &stream->parser;
 	actor = TFW_MSG_H2(req) ? tfw_h2_parse_req : tfw_http_parse_req;
 
 	r = ss_skb_process(skb, actor, req, &req->chunk_cnt, &parsed);
@@ -4678,6 +4680,47 @@ next_msg:
 
 	if ((r = tfw_http_req_client_link(conn, req)))
 		return r;
+	/*
+	 * Assign a target virtual host for the current request before further
+	 * processing.
+	 *
+	 * There are multiple ways to get a target vhost:
+	 * - search in HTTP chains (defined in the configuration by an admin),
+	 * can be slow on big configurations, since chains are tested
+	 * one-by-one;
+	 * - get vhost from the HTTP session information (by Sticky cookie);
+	 * - get Vhost according to TLS SNI header parsing.
+	 *
+	 * There is a possibility, that each method will give a very different
+	 * result. It absolutely depends on configuration provided by
+	 * an administrator and application behaviour. Some differences are
+	 * expected anyway, e.g. if tls client doesn't send an SNI identifier
+	 * it will be matched to 'default' vhost while http_chains can identify
+	 * target vhost. We also can't just skip http_chains and fully rely
+	 * on sticky module, since http_chains also contains non-terminating
+	 * rules, such as `mark` rule. Even if http_chains is the
+	 * slowest method we have, we can't simply skip it.
+	 */
+	req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block);
+	if (unlikely(block)) {
+		TFW_INC_STAT_BH(clnt.msgs_filtout);
+		tfw_http_req_parse_block(req, 403,
+			"request has been filtered out via http table");
+		return TFW_BLOCK;
+	}
+	if (req->vhost)
+		req->location = tfw_location_match(req->vhost, &req->uri_path);
+	/*
+	 * If vhost is not found the request will be dropped, but it will still
+	 * go through some processing stages since some subsystems need to track
+	 * all incoming requests.
+	 */
+	/*
+	 * The time the request was received is used for age
+	 * calculations in cache, and for eviction purposes.
+	 */
+	req->cache_ctl.timestamp = tfw_current_timestamp();
+	req->jrxtstamp = jiffies;
 
 	/*
 	 * Sticky cookie module must be used before request can reach cache.
@@ -4685,12 +4728,6 @@ next_msg:
 	 * protected service and stress cache subsystem. The module is also
 	 * the quickest way to obtain target VHost and target backend server
 	 * connection since it allows to avoid expensive tables lookups.
-	 *
-	 * TODO: #685 Sticky cookie are to be configured per-vhost. Http_tables
-	 * used to assign target vhost can be extremely long, while the
-	 * client may use just a few cookie variants. Even if different
-	 * sticky cookies are used for each vhost, the sticky module should
-	 * be faster than tfw_http_tbl_vhost().
 	 */
 	switch (tfw_http_sess_obtain(req))
 	{
@@ -4724,51 +4761,6 @@ next_msg:
 		return TFW_BLOCK;
 	}
 
-	/*
-	 * Assign the right virtual host for current request if it
-	 * wasn't assigned by a sticky module. VHost is not assigned
-	 * if client doesn't support cookies or sticky cookies are
-	 * disabled.
-	 *
-	 * In the same time location may differ between requests, so the
-	 * sticky module can't fill it.
-	 *
-	 * TODO:
-	 * There are multiple ways to get target vhost:
-	 * - search in HTTP chains (defined in the configuration by admin),
-	 * very slow on big configurations;
-	 * - get vhost from the HTTP session information (by Sticky cookie);
-	 * - get Vhost according to TLS SNI header parsing.
-	 * But vhost returned from all that functions can be very different
-	 * depending on HTTP chain configuration due to its flexibility and
-	 * client (attacker) behaviour.
-	 * The most secure and slow way: compare all of them and reject if
-	 * at least some do not match. Can be too strict, service quality can
-	 * be degraded.
-	 * The fastest way: compute as minimum as possible: use TLS first
-	 * (anyway we use it to send right certificate), then cookie, then HTTP
-	 * chain. There can be possibility that a request will be forwarded to
-	 * a wrong server. May happen when a single certificate is used to
-	 * speak with multiple vhosts (multi-domain (SAN) certificate as
-	 * globally default TLS certificate in Tempesta config file).
-	 * The most reliable way: use the highest OSI level vhost: by HTTP
-	 * session, if no -> by http chain, if no -> by TLS conn.
-	 *
-	 */
-	if (!req->vhost) {
-		req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block);
-		tfw_http_sess_pin_vhost(req->sess, req->vhost);
-	}
-	if (req->vhost)
-		req->location = tfw_location_match(req->vhost,
-						   &req->uri_path);
-	if (block) {
-		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		tfw_http_req_parse_block(req, 403,
-			"request has been filtered out via http table");
-		return TFW_BLOCK;
-	}
-
 	r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_MSG, &data_up);
 	T_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
 	/* Don't accept any following requests from the peer. */
@@ -4780,11 +4772,18 @@ next_msg:
 	}
 
 	/*
-	 * The time the request was received is used for age
-	 * calculations in cache, and for eviction purposes.
+	 * Method override masks real request properties, non-idempotent methods
+	 * can hide behind idempotent, method is used as a key in cache
+	 * subsystem to store and look up cached responses. Thus hiding real
+	 * method can spoil responses for other clients. Use the real method
+	 * for accurate processing.
+	 *
+	 * We don't rewrite the method string and don't remove override header
+	 * since there can be additional intermediates between TempestaFW and
+	 * backend.
 	 */
-	req->cache_ctl.timestamp = tfw_current_timestamp();
-	req->jrxtstamp = jiffies;
+	if (unlikely(req->method_override))
+		req->method = req->method_override;
 
 	if (!TFW_MSG_H2(req))
 		hmsib = tfw_h1_req_process(stream, skb);
@@ -4803,9 +4802,10 @@ next_msg:
 	 * is no sense for its further processing, so we drop it, send
 	 * error response to client and move on to the next request.
 	 */
-	else if (!req->vhost) {
-		tfw_http_send_resp(req, 404, "request dropped: cannot find"
-					     " appropriate virtual host");
+	else if (unlikely(!req->vhost)) {
+		tfw_http_send_resp(req, 404,
+				   "request dropped: cannot find appropriate "
+				   "virtual host");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
 	else if (tfw_cache_process((TfwHttpMsg *)req, tfw_http_req_cache_cb)) {
@@ -4817,7 +4817,6 @@ next_msg:
 					     " processing error");
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 	}
-
 	/*
 	 * According to RFC 7230 6.3.2, connection with a client
 	 * must be dropped after a response is sent to that client,
@@ -4861,6 +4860,8 @@ tfw_http_resp_cache_cb(TfwHttpMsg *msg)
 	TfwHttpResp *resp = (TfwHttpResp *)msg;
 
 	T_DBG2("%s: req = %p, resp = %p\n", __func__, resp->req, resp);
+
+	tfw_http_sess_learn(resp);
 
 	if (TFW_MSG_H2(resp->req))
 		tfw_h2_resp_adjust_fwd(resp);
@@ -5057,16 +5058,20 @@ static void
 tfw_http_resp_terminate(TfwHttpMsg *hm)
 {
 	TfwFsmData data;
-	int r;
+	int r = 0;
 
 	/*
-	 * Add absent message framing information. If there is no body, add
-	 *  Content-length header: it requires less modifications.
+	 * Add absent message framing information. It's possible to add a
+	 * 'Content-Length: 0' header, if the Transfer-Encoding header is not
+	 * set, but keep more generic solution and transform to chunked.
+	 * It's the only possible modification for future proxy mode.
+	 * If the framing information can't be added, then close client
+	 * connection after response is forwarded.
 	 */
-	r = (hm->body.len)
-		? tfw_http_msg_to_chunked(hm)
-		: TFW_HTTP_MSG_HDR_XFRM(hm, "Content-Length", "0",
-					TFW_HTTP_HDR_CONTENT_LENGTH, 0);
+	if (!test_bit(TFW_HTTP_B_CHUNKED_APPLIED, hm->flags))
+		r = tfw_http_msg_to_chunked(hm);
+	else
+		set_bit(TFW_HTTP_B_CONN_CLOSE, hm->req->flags);
 
 	if (r) {
 		TfwHttpReq *req = hm->req;
@@ -5107,7 +5112,6 @@ tfw_http_resp_process(TfwConn *conn, TfwStream *stream, const TfwFsmData *data)
 	struct sk_buff *skb = data->skb;
 	TfwHttpReq *bad_req;
 	TfwHttpMsg *hmresp, *hmsib;
-	TfwHttpParser *parser;
 	TfwFsmData data_up;
 	bool conn_stop, filtout = false;
 
@@ -5130,7 +5134,6 @@ next_msg:
 	parsed = 0;
 	hmsib = NULL;
 	hmresp = (TfwHttpMsg *)stream->msg;
-	parser = &stream->parser;
 
 	r = ss_skb_process(skb, tfw_http_parse_resp, hmresp, &chunks_unused,
 			   &parsed);
@@ -5327,7 +5330,8 @@ bad_msg:
 int
 tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream, TfwFsmData *data)
 {
-	BUG_ON(!stream);
+	if (WARN_ON_ONCE(!stream))
+		return -EINVAL;
 	if (unlikely(!stream->msg)) {
 		stream->msg = tfw_http_conn_msg_alloc(conn, stream);
 		if (!stream->msg) {

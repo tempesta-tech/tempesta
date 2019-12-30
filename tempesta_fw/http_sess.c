@@ -1,4 +1,4 @@
-/*
+/**
  *		Tempesta FW
  *
  * HTTP session management.
@@ -17,7 +17,7 @@
  * value can be used to cope the non anonymous forward proxy problem and
  * identify real clients.
  *
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -35,7 +35,6 @@
  */
 #include <crypto/hash.h>
 #include <linux/ctype.h>
-#include <linux/hashtable.h>
 #include <linux/slab.h>
 #include <linux/time.h>
 #include <linux/vmalloc.h>
@@ -45,35 +44,23 @@
 #include "addr.h"
 #include "cfg.h"
 #include "client.h"
+#include "hash.h"
 #include "http_msg.h"
 #include "http_sess.h"
+#include "vhost.h"
 #include "filter.h"
+#include "tdb.h"
 
-#define STICKY_NAME_MAXLEN	(32)
-#define STICKY_NAME_DEFAULT	"__tfw"
-#define STICKY_KEY_MAXLEN	FIELD_SIZEOF(TfwHttpSess, hmac)
+static struct {
+	unsigned int	db_size;
+	const char	*db_path;
+} sess_db_cfg __read_mostly;
 
-#define SESS_HASH_BITS		17
-#define SESS_HASH_SZ		(1 << SESS_HASH_BITS)
+static TDB *sess_db;
 
-/**
- * @name		- name of sticky cookie;
- * @name_eq		- @name plus "=" to make some operations faster;
- * @sess_lifetime	- session lifetime in seconds;
- * @max_misses		- maximum count of requests with invalid cookie;
- * @tmt_sec		- maximum time (in seconds) to wait the request
- *			  with valid cookie;
- */
 typedef struct {
-	TfwStr		name;
-	TfwStr		name_eq;
-	unsigned int	sess_lifetime;
-	unsigned int	max_misses;
-	unsigned int	tmt_sec;
-	u_int		enabled : 1,
-			enforce : 1;
-} TfwCfgSticky;
-
+	TfwHttpSess	sess;
+} TfwSessEntry;
 
 /**
  * Temporal storage for calculated redirection mark value.
@@ -85,7 +72,7 @@ typedef struct {
 typedef struct {
 	unsigned int	att_no;
 	unsigned long	ts;
-	unsigned char	hmac[STICKY_KEY_MAXLEN];
+	unsigned char	hmac[STICKY_KEY_HMAC_LEN];
 } __attribute__((packed)) RedirMarkVal;
 
 /**
@@ -96,57 +83,44 @@ typedef struct {
  */
 typedef struct {
 	unsigned long	ts;
-	unsigned char	hmac[STICKY_KEY_MAXLEN];
+	unsigned char	hmac[STICKY_KEY_HMAC_LEN];
 } __attribute__((packed)) StickyVal;
 
-typedef struct {
-	struct hlist_head	list;
-	spinlock_t		lock;
-} SessHashBucket;
-
-static TfwCfgSticky tfw_cfg_sticky;
-/* Secret server value to generate reliable client identifiers. */
-static struct crypto_shash *tfw_sticky_shash;
-static char tfw_sticky_key[STICKY_KEY_MAXLEN];
-static bool tfw_cfg_sticky_sess = false;
-
-static SessHashBucket sess_hash[SESS_HASH_SZ] = {
-	[0 ... (SESS_HASH_SZ - 1)] = {
-		HLIST_HEAD_INIT,
-	}
-};
-
-static struct kmem_cache *sess_cache;
-
 /**
- * JavaScript challenge.
+ * Context for TDB operations over sessions.
  *
- * To pass JS challenge client must repeat it's request in exact time frame
- * specified by JS code.
- *
- * @body	- body (html with JavaScript code);
- * @delay_min	- minimal timeout client must wait before repeat the request,
- *		  in jiffies;
- * @delay_limit	- maximum time required to deliver request form a client to the
- *		  Tempesta, in jiffies;
- * @delay_range	- time interval starting after @delay_min for a client to make
- *		  a repeated request, in msecs;
- * @st_code	- status code for response with JS challenge;
+ * @sv		- sticky value, calculated for a client by Tempesta;
+ * @cookie_val	- sticky cookie value learned from backend server;
+ * @req		- currently processed request;
+ * @resp	- currently processed response;
+ * @jsch_rcode	- JS challenge pass result;
  */
 typedef struct {
-	TfwStr		body;
-	unsigned long	delay_min;
-	unsigned long	delay_limit;
-	unsigned long	delay_range;
-	unsigned short	st_code;
-} TfwCfgJsCh;
+	StickyVal	sv;
+	TfwStr		cookie_val;
+	TfwHttpReq	*req;
+	TfwHttpResp	*resp;
+	int		jsch_rcode;
+} TfwSessEqCtx;
 
-static TfwCfgJsCh *tfw_cfg_js_ch = NULL;
-static const unsigned int tfw_cfg_jsch_code_dflt = 503;
-#define TFW_CFG_JS_PATH "/etc/tempesta/js_challenge.html"
+/*
+ * Redirection mark in the URI. Can't be defined per-vhost, since the mark is
+ * parsed at very first request symbols - URI, when it's not possible to
+ * determine target vhost.
+ */
+static const DEFINE_TFW_STR(redir_mark_eq, "__tfw=");
+static bool redir_mark_enabled, redir_mark_enabled_reconfig;
 
-static unsigned short tfw_cfg_redirect_st_code;
-static const unsigned short tfw_cfg_redirect_st_code_dflt = 302;
+void tfw_http_sess_redir_enable(void)
+{
+	redir_mark_enabled_reconfig = true;
+}
+
+static inline bool
+tfw_http_sess_cookie_enabled(TfwHttpReq *req)
+{
+	return req->vhost ? !TFW_STR_EMPTY(&req->vhost->cookie->name) : false;
+}
 
 /**
  * Normal browser must be able to execute the challenge: not all requests
@@ -157,7 +131,7 @@ static const unsigned short tfw_cfg_redirect_st_code_dflt = 302;
 static bool
 tfw_http_sticky_redirect_applied(TfwHttpReq *req)
 {
-	if (!tfw_cfg_js_ch)
+	if (!req->vhost->cookie->js_challenge)
 		return true;
 
 	return (req->method == TFW_HTTP_METH_GET)
@@ -175,7 +149,8 @@ tfw_http_sticky_redirect_applied(TfwHttpReq *req)
  */
 static void
 tfw_http_redir_mark_prepare(RedirMarkVal *mv, char *buf, unsigned int buf_len,
-			    TfwStr *chunks, unsigned int ch_len, TfwStr *rmark)
+			    TfwStr *chunks, unsigned int ch_len, TfwStr *rmark,
+			    TfwStr *cookie_name)
 {
 	unsigned int att_be32 = cpu_to_be32(mv->att_no);
 	unsigned long ts_be64 = cpu_to_be64(mv->ts);
@@ -189,7 +164,7 @@ tfw_http_redir_mark_prepare(RedirMarkVal *mv, char *buf, unsigned int buf_len,
 
 	bzero_fast(chunks, ch_len);
 	chunks[0] = s_sl;
-	chunks[1] = tfw_cfg_sticky.name;
+	chunks[1] = *cookie_name;
 	chunks[2] = s_eq;
 	chunks[3].data = buf;
 	chunks[3].len = buf_len;
@@ -206,15 +181,22 @@ static int
 tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 {
 	unsigned long ts_be64 = cpu_to_be64(sv->ts);
-	TfwStr c_chunks[3], m_chunks[4], cookie = { 0 }, rmark = { 0 };
+	TfwStr c_chunks[4], m_chunks[4], cookie = { 0 }, rmark = { 0 };
 	DEFINE_TFW_STR(s_eq, "=");
 	TfwHttpResp *resp;
 	char c_buf[sizeof(*sv) * 2], m_buf[sizeof(*mv) * 2];
-	TfwStr *body = tfw_cfg_js_ch ? &tfw_cfg_js_ch->body : NULL;
+	TfwStr *body = NULL;
+	TfwStickyCookie *sticky;
 	int r;
 
 	WARN_ON_ONCE(!list_empty(&req->fwd_list));
 	WARN_ON_ONCE(!list_empty(&req->nip_list));
+	if (WARN_ON_ONCE(!req->vhost))
+		return TFW_HTTP_SESS_FAILURE;
+
+	sticky = req->vhost->cookie;
+	if (sticky->js_challenge)
+		body = &sticky->js_challenge->body;
 
 	/*
 	 * TODO: #598 rate limit requests with invalid cookie value.
@@ -234,11 +216,12 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 	}
 
 	if (!(resp = tfw_http_msg_alloc_resp_light(req)))
-		return -ENOMEM;
+		return TFW_HTTP_SESS_FAILURE;
 
 	if (mv)
 		tfw_http_redir_mark_prepare(mv, m_buf, sizeof(m_buf), m_chunks,
-					    sizeof(m_chunks), &rmark);
+					    sizeof(m_chunks), &rmark,
+					    &sticky->name);
 	/*
 	 * Form the cookie as:
 	 *
@@ -253,16 +236,21 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 	bin2hex(&c_buf[sizeof(ts_be64) * 2], sv->hmac, sizeof(sv->hmac));
 
 	bzero_fast(c_chunks, sizeof(c_chunks));
-	c_chunks[0] = tfw_cfg_sticky.name;
+	c_chunks[0] = sticky->name;
 	c_chunks[1] = s_eq;
 	c_chunks[2].data = c_buf;
 	c_chunks[2].len = sizeof(*sv) * 2;
+	c_chunks[3] = sticky->options;
 
 	cookie.chunks = c_chunks;
 	cookie.len = c_chunks[0].len + c_chunks[1].len + c_chunks[2].len;
 	cookie.nchunks = 3;
+	if (!TFW_STR_EMPTY(&sticky->options)) {
+		cookie.len += sticky->options.len;
+		cookie.nchunks++;
+	}
 
-	r = tfw_http_prep_redirect((TfwHttpMsg *)resp, tfw_cfg_redirect_st_code,
+	r = tfw_http_prep_redirect((TfwHttpMsg *)resp, sticky->redirect_code,
 				   &rmark, &cookie, body);
 	if (r) {
 		tfw_http_msg_free((TfwHttpMsg *)resp);
@@ -277,16 +265,22 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 	return TFW_HTTP_SESS_REDIRECT_NEED;
 }
 
+/*
+ * Search for cookie defined in @sticky configuration in `Set-Cookie`/`Cookie`
+ * header value @cookie and save the cookie value into @val. @is_resp_hdr flag
+ * identifies the header name: true for `Set-Cookie`, false for `Cookie`.
+ */
 static int
-search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
+search_cookie(TfwStickyCookie *sticky, const TfwStr *cookie, TfwStr *val,
+	      bool is_resp_hdr)
 {
-	const char *const cstr = tfw_cfg_sticky.name_eq.data;
-	const unsigned long clen = tfw_cfg_sticky.name_eq.len;
+	const char *const cstr = sticky->name_eq.data;
+	const unsigned long clen = sticky->name_eq.len;
 	TfwStr *chunk, *end;
 	TfwStr tmp = { .flags = 0, };
 	unsigned int n = cookie->nchunks;
 
-	BUG_ON(!TFW_STR_PLAIN(&tfw_cfg_sticky.name_eq));
+	BUG_ON(!TFW_STR_PLAIN(&sticky->name_eq));
 
 	/* Search cookie name. */
 	end = cookie->chunks + cookie->nchunks;
@@ -302,6 +296,12 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 		tmp.nchunks = n;
 		if (tfw_str_eq_cstr(&tmp, cstr, clen, TFW_STR_EQ_PREFIX))
 			break;
+		/*
+		 * 'Cookie' header has multiple name-value pairs while the
+		 * 'Set-Cookie' has only one.
+		 */
+		if (unlikely(is_resp_hdr))
+			return 0;
 	}
 	if (chunk == end)
 		return 0;
@@ -323,13 +323,13 @@ search_cookie(TfwPool *pool, const TfwStr *cookie, TfwStr *val)
 }
 
 /*
- * Find Tempesta sticky cookie in an HTTP message.
+ * Find Tempesta sticky cookie in an HTTP request.
  *
  * Return 1 if the cookie is found.
  * Return 0 if the cookie is NOT found.
  */
 static int
-tfw_http_sticky_get(TfwHttpReq *req, TfwStr *cookie_val)
+tfw_http_sticky_get_req(TfwHttpReq *req, TfwStr *cookie_val)
 {
 	TfwStr value = { 0 };
 	TfwStr *hdr;
@@ -346,19 +346,19 @@ tfw_http_sticky_get(TfwHttpReq *req, TfwStr *cookie_val)
 		return 0;
 	tfw_http_msg_clnthdr_val(req, hdr, TFW_HTTP_HDR_COOKIE, &value);
 
-	return search_cookie(req->pool, &value, cookie_val);
+	return search_cookie(req->vhost->cookie, &value, cookie_val, false);
 }
 
 #ifdef DEBUG
 #define T_DBG_PRINT_STICKY_COOKIE(addr, ua, sv)				\
 do {									\
 	char abuf[TFW_ADDR_STR_BUF_SIZE] = {0};				\
-	char hbuf[STICKY_KEY_MAXLEN * 2] = {0};				\
+	char hbuf[STICKY_KEY_HMAC_LEN * 2] = {0};				\
 	tfw_addr_fmt(addr, TFW_NO_PORT, abuf);				\
-	bin2hex(hbuf, tfw_sticky_key, STICKY_KEY_MAXLEN);		\
+	bin2hex(hbuf, sticky->key, STICKY_KEY_HMAC_LEN);			\
 	T_DBG("http_sess: calculate sticky cookie for %s,"		\
 	      " ts=%#lx(now=%#lx)...\n", abuf, (sv)->ts, jiffies);	\
-	T_DBG("\t...secret: %.*s\n", (int)STICKY_KEY_MAXLEN * 2, hbuf);	\
+	T_DBG("\t...secret: %.*s\n", (int)STICKY_KEY_HMAC_LEN * 2, hbuf);	\
 	tfw_str_dprint(ua, "\t...User-Agent");				\
 } while (0)
 #else
@@ -381,7 +381,8 @@ __sticky_calc(TfwHttpReq *req, StickyVal *sv)
 	TfwStr ua_value = { 0 };
 	TfwAddr *addr = &req->conn->peer->addr;
 	TfwStr *hdr, *c, *end;
-	SHASH_DESC_ON_STACK(shash_desc, tfw_sticky_shash);
+	TfwStickyCookie *sticky = req->vhost->cookie;
+	SHASH_DESC_ON_STACK(shash_desc, sticky->shash);
 
 	/* User-Agent header field is not mandatory and may be missing. */
 	hdr = &req->h_tbl->tbl[TFW_HTTP_HDR_USER_AGENT];
@@ -389,7 +390,7 @@ __sticky_calc(TfwHttpReq *req, StickyVal *sv)
 		tfw_http_msg_clnthdr_val(req, hdr, TFW_HTTP_HDR_USER_AGENT,
 					 &ua_value);
 
-	shash_desc->tfm = tfw_sticky_shash;
+	shash_desc->tfm = sticky->shash;
 	shash_desc->flags = 0;
 
 	T_DBG_PRINT_STICKY_COOKIE(addr, &ua_value, sv);
@@ -437,14 +438,16 @@ tfw_http_sticky_add(TfwHttpResp *resp)
 	TfwHttpSess *sess = resp->req->sess;
 	unsigned long ts_be64 = cpu_to_be64(sess->ts);
 	char buf[len];
+	TfwStickyCookie *sticky = resp->req->vhost->cookie;
+	size_t cookie_len = sticky->name_eq.len;
 	TfwStr set_cookie = {
 		.chunks = (TfwStr []) {
 			{ .data = name, .len = nm_len },
-			{ .data = tfw_cfg_sticky.name_eq.data,
-			  .len = tfw_cfg_sticky.name_eq.len },
+			{ .data = sticky->name_eq.data,
+			  .len = cookie_len },
 			{ .data = buf, .len = len },
 		},
-		.len = nm_len + tfw_cfg_sticky.name_eq.len + len,
+		.len = nm_len + cookie_len + len,
 		.eolen = 2,
 		.nchunks = 3
 	};
@@ -454,10 +457,10 @@ tfw_http_sticky_add(TfwHttpResp *resp)
 	bin2hex(&buf[sizeof(ts_be64) * 2], sess->hmac, sizeof(sess->hmac));
 
 	T_DBG("%s: name=%s, val='%.*s=%.*s'\n", __func__, name,
-	      PR_TFW_STR(&tfw_cfg_sticky.name), len, buf);
+	      PR_TFW_STR(&sticky->name), len, buf);
 
 	if (to_h2) {
-		TFW_STR_INDEX_SET(&set_cookie, 55);
+		set_cookie.hpack_idx = 55;
 		r = __hdr_h2_add(resp, &set_cookie);
 	}
 	else {
@@ -466,7 +469,8 @@ tfw_http_sticky_add(TfwHttpResp *resp)
 
 	if (unlikely(r))
 		T_WARN("Cannot add '%s' header: val='%.*s=%.*s'\n", name,
-		       PR_TFW_STR(&tfw_cfg_sticky.name), len, buf);
+		       PR_TFW_STR(&sticky->name), len, buf);
+
 	return r;
 }
 
@@ -479,12 +483,13 @@ tfw_http_sticky_add(TfwHttpResp *resp)
  * - Secret key.
  */
 static int
-__redir_hmac_calc(RedirMarkVal *mv)
+__redir_hmac_calc(TfwHttpReq *req, RedirMarkVal *mv)
 {
 	int r;
-	SHASH_DESC_ON_STACK(shash_desc, tfw_sticky_shash);
+	TfwStickyCookie *sticky = req->vhost->cookie;
+	SHASH_DESC_ON_STACK(shash_desc, sticky->shash);
 
-	shash_desc->tfm = tfw_sticky_shash;
+	shash_desc->tfm = sticky->shash;
 	shash_desc->flags = 0;
 
 	T_DBG("http_sess: calculate redirection mark: ts=%#lx(now=%#lx),"
@@ -588,7 +593,7 @@ end_##f:								\
 			break;						\
 		tr = c->data;						\
 	}								\
-	BUG_ON(i != STICKY_KEY_MAXLEN);					\
+	BUG_ON(i != STICKY_KEY_HMAC_LEN);				\
 end:									\
 	r;								\
 })
@@ -623,7 +628,7 @@ tfw_http_redir_mark_verify(TfwHttpReq *req, TfwStr *mark_val, RedirMarkVal *mv)
 	HEX_STR_TO_BIN_GET(mv, att_no);
 	HEX_STR_TO_BIN_GET(mv, ts);
 
-	if (__redir_hmac_calc(mv))
+	if (__redir_hmac_calc(req, mv))
 		return TFW_HTTP_SESS_VIOLATE;
 
 	return HEX_STR_TO_BIN_HMAC(mv->hmac, mv->ts, addr);
@@ -639,13 +644,13 @@ static int
 tfw_http_sess_check_redir_mark(TfwHttpReq *req, RedirMarkVal *mv)
 {
 	TfwStr mark_val = {};
+	unsigned int max_misses = req->vhost->cookie->max_misses;
+	unsigned long tmt = HZ * (unsigned long)req->vhost->cookie->tmt_sec;
 
 	if (tfw_http_redir_mark_get(req, &mark_val)) {
 		if (tfw_http_redir_mark_verify(req, &mark_val, mv)
-		    || ++mv->att_no > tfw_cfg_sticky.max_misses
-		    || (tfw_cfg_sticky.tmt_sec
-		        && mv->ts + HZ * (unsigned long)tfw_cfg_sticky.tmt_sec
-		           < jiffies))
+		    || ++mv->att_no > max_misses
+		    || (tmt && mv->ts + tmt < jiffies))
 		{
 			tfw_filter_block_ip(&req->conn->peer->addr);
 			return TFW_HTTP_SESS_VIOLATE;
@@ -656,7 +661,7 @@ tfw_http_sess_check_redir_mark(TfwHttpReq *req, RedirMarkVal *mv)
 		mv->att_no = 1;
 	}
 
-	if (__redir_hmac_calc(mv))
+	if (__redir_hmac_calc(req, mv))
 		return TFW_HTTP_SESS_FAILURE;
 
 	return TFW_HTTP_SESS_SUCCESS;
@@ -680,6 +685,7 @@ tfw_http_sticky_notfound(TfwHttpReq *req)
 	int r;
 	StickyVal sv = {};
 	RedirMarkVal mv = {}, *mvp = NULL;
+	TfwStickyCookie *sticky = req->vhost->cookie;
 
 	/*
 	 * In enforced mode, ensure that backend server receives
@@ -689,14 +695,14 @@ tfw_http_sticky_notfound(TfwHttpReq *req)
 	 * and includes 'Set-Cookie' header. If enforced mode
 	 * is disabled, forward request to a backend server.
 	 */
-	if (!tfw_cfg_sticky.enforce)
+	if (!sticky->enforce)
 		return TFW_HTTP_SESS_SUCCESS;
 
 	/*
 	 * If configured, ensure that limit for requests without
 	 * cookie and timeout for redirections are not exhausted.
 	 */
-	if (tfw_cfg_sticky.max_misses) {
+	if (sticky->max_misses) {
 		mvp = &mv;
 		if ((r = tfw_http_sess_check_redir_mark(req, mvp)))
 			return r;
@@ -719,15 +725,20 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 	unsigned char *tr;
 	TfwAddr *addr = &req->conn->peer->addr;
 	TfwStr *c, *end;
+	TfwStickyCookie *sticky = req->vhost->cookie;
 
-	T_DBG("Sticky cookie found%s: \"%.*s\"\n",
-	      TFW_STR_PLAIN(value) ? "" : ", starts with",
+	T_DBG("Sticky cookie found: \"%.*s\" = \"%.*s\"%s\n",
+	      PR_TFW_STR(&sticky->name),
 	      TFW_STR_PLAIN(value) ?
 		      (int)value->len :
 		      (int)value->chunks->len,
 	      TFW_STR_PLAIN(value) ?
 		      value->data :
-		      value->chunks->data);
+		      value->chunks->data,
+	      TFW_STR_PLAIN(value) ? "" : "<truncated>");
+
+	if (sticky->learn)
+		return TFW_HTTP_SESS_SUCCESS;
 
 	if (value->len != sizeof(StickyVal) * 2) {
 		sess_warn("bad sticky cookie length", addr, ": %lu(%lu)\n",
@@ -745,6 +756,10 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
 	if ((r = HEX_STR_TO_BIN_HMAC(sv->hmac, sv->ts, addr)))
 		return r;
 
+	/* The cookie is valid but already expired, reject it. */
+	if (jiffies > sv->ts + (unsigned long)sticky->sess_lifetime * HZ)
+		return TFW_HTTP_SESS_VIOLATE;
+
 	/* Sticky cookie is found and verified, now we can set the flag. */
 	__set_bit(TFW_HTTP_B_HAS_STICKY, req->flags);
 
@@ -755,16 +770,15 @@ tfw_http_sticky_verify(TfwHttpReq *req, TfwStr *value, StickyVal *sv)
  * Process Tempesta sticky cookie in an HTTP request.
  */
 static int
-tfw_http_sticky_req_process(TfwHttpReq *req, StickyVal *sv)
+tfw_http_sticky_req_process(TfwHttpReq *req, StickyVal *sv, TfwStr *cookie_val)
 {
 	int r;
-	TfwStr cookie_val = {};
 
 	/*
 	 * See if the Tempesta sticky cookie is present in the request,
 	 * and act depending on the result.
 	 */
-	r = tfw_http_sticky_get(req, &cookie_val);
+	r = tfw_http_sticky_get_req(req, cookie_val);
 	if (r < 0)
 		return r;
 	if (r == 0)
@@ -778,9 +792,9 @@ tfw_http_sticky_req_process(TfwHttpReq *req, StickyVal *sv)
 		 * cookie tries to 1. While we just send normal 302 redirect to
 		 * keep user experience intact.
 		 */
-		if (tfw_http_sticky_verify(req, &cookie_val, sv)) {
+		if (tfw_http_sticky_verify(req, cookie_val, sv)) {
 			RedirMarkVal mv = {}, *mvp = NULL;
-			if (tfw_cfg_sticky.max_misses) {
+			if (req->vhost->cookie->max_misses) {
 				mvp = &mv;
 				if ((r = tfw_http_sess_check_redir_mark(req, mvp)))
 					return r;
@@ -800,7 +814,9 @@ tfw_http_sticky_req_process(TfwHttpReq *req, StickyVal *sv)
 int
 tfw_http_sess_req_process(TfwHttpReq *req)
 {
-	if (!tfw_cfg_sticky.max_misses || TFW_STR_EMPTY(&req->mark))
+	TfwStickyCookie *sticky = req->vhost->cookie;
+
+	if (!sticky->max_misses || TFW_STR_EMPTY(&req->mark))
 		return 0;
 	return tfw_http_msg_del_str((TfwHttpMsg *)req, &req->mark);
 }
@@ -812,8 +828,10 @@ int
 tfw_http_sess_resp_process(TfwHttpResp *resp)
 {
 	TfwHttpReq *req = resp->req;
+	TfwStickyCookie *sticky = req->vhost->cookie;
 
-	if (!tfw_cfg_sticky.enabled
+	if (TFW_STR_EMPTY(&sticky->name)
+	    || sticky->learn
 	    || test_bit(TFW_HTTP_B_WHITELIST, req->flags))
 	{
 		return 0;
@@ -848,6 +866,21 @@ tfw_http_sess_unpin_srv(TfwHttpSess *sess)
 	tfw_server_unpin_sess(srv);
 }
 
+static inline void
+tfw_http_sess_set_expired(TfwHttpSess *sess)
+{
+	atomic64_set(&sess->expires, 0);
+}
+
+static inline void
+tfw_http_sess_prolong(TfwHttpSess *sess, TfwStickyCookie *sticky)
+{
+	if (!sticky->learn)
+		return;
+	atomic64_set(&sess->expires,
+		     jiffies + (unsigned long)sticky->sess_lifetime * HZ);
+}
+
 void
 tfw_http_sess_put(TfwHttpSess *sess)
 {
@@ -859,36 +892,35 @@ tfw_http_sess_put(TfwHttpSess *sess)
 		tfw_http_sess_unpin_srv(sess);
 		if (sess->vhost)
 			tfw_vhost_put(sess->vhost);
-		kmem_cache_free(sess_cache, sess);
+		tfw_http_sess_set_expired(sess);
 	}
 }
 
 bool
 tfw_http_sess_max_misses(void)
 {
-	return tfw_cfg_sticky.max_misses > 0;
+	return redir_mark_enabled;
 }
 
 unsigned int
 tfw_http_sess_mark_size(void)
 {
-	return sizeof(RedirMarkVal) * 2;
+	return redir_mark_enabled ? (sizeof(RedirMarkVal) * 2) : 0;
 }
 
-TfwStr *
+const TfwStr *
 tfw_http_sess_mark_name(void)
 {
-	return &tfw_cfg_sticky.name_eq;
+	return redir_mark_enabled ? &redir_mark_eq : NULL;
 }
 
 /**
- * Remove a session from hash bucket. @sess may become invalid after the
+ * Remove a session from tdb. @sess may become invalid after the
  * function call.
  */
 static void
 tfw_http_sess_remove(TfwHttpSess *sess)
 {
-	hash_del(&sess->hentry);
 	tfw_http_sess_put(sess);
 }
 
@@ -899,8 +931,9 @@ static int
 tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 {
 	unsigned long min_time, max_time;
+	TfwCfgJsCh *js_ch = req->vhost->cookie->js_challenge;
 
-	if (!tfw_cfg_js_ch)
+	if (!js_ch)
 		return 0;
 
 	/*
@@ -908,9 +941,9 @@ tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 	 * encoded as msecs, we have to use the same, to have exactly the same
 	 * calculation results. See etc/js_challenge.js.tpl .
 	 */
-	min_time = sv->ts + tfw_cfg_js_ch->delay_min
-			+ msecs_to_jiffies(sv->ts % tfw_cfg_js_ch->delay_range);
-	max_time = min_time + tfw_cfg_js_ch->delay_limit;
+	min_time = sv->ts + js_ch->delay_min
+			+ msecs_to_jiffies(sv->ts % js_ch->delay_range);
+	max_time = min_time + js_ch->delay_limit;
 	if (time_in_range(req->jrxtstamp, min_time, max_time))
 		return 0;
 
@@ -926,6 +959,119 @@ tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 	}
 }
 
+static bool
+tfw_http_sess_eq(TdbRec *rec, void *data)
+{
+	TfwSessEntry *ent = (TfwSessEntry *)rec->data;
+	TfwHttpSess *sess = &ent->sess;
+	TfwSessEqCtx *ctx = (TfwSessEqCtx *)data;
+	TfwStickyCookie *sticky = ctx->req->vhost->cookie;
+
+	/*
+	 * Expired  or invalid session is not usable, leave it for garbage
+	 * collector.
+	 */
+	if (((unsigned long)atomic64_read(&sess->expires) < jiffies)
+	    || !sess->vhost)
+	{
+		return false;
+	}
+
+	if (sticky->learn) {
+		TfwStr sess_id = { .data = sess->cval, .len = sess->key_len };
+		if (tfw_strcmp(&sess_id, &ctx->cookie_val))
+			return false;
+	}
+	else {
+		if (memcmp_fast(ctx->sv.hmac, sess->hmac, sizeof(ctx->sv.hmac)))
+			return false;
+	}
+
+	read_lock(&sess->lock);
+	/*
+	 * Vhosts are removed and added at runtime, so can't
+	 * compare pointers here.
+	 */
+	if (tfw_stricmp(&sess->vhost->name, &ctx->req->vhost->name)) {
+		read_unlock(&sess->lock);
+		return false;
+	}
+	/*
+	 * if sess->vhost != req->vhost, then B_REMOVED is set
+	 * for sess->vhost.
+	 */
+	if (unlikely(test_bit(TFW_VHOST_B_REMOVED,
+			      &sess->vhost->flags)
+		     && (sess->vhost != ctx->req->vhost)))
+	{
+		/*
+		 * The session holds the last reference to the
+		 * vhost. The latter is not a part of the active
+		 * configuration anymore and therefore is not
+		 * useful to us at all. We can only release it
+		 * to free associated resources.
+		 */
+		read_unlock(&sess->lock);
+		tfw_http_sess_pin_vhost(sess, ctx->req->vhost);
+		goto found;
+	}
+	read_unlock(&sess->lock);
+found:
+	T_DBG("http_sess was found in tdb, %pK\n", sess);
+	return true;
+}
+
+static int
+tfw_http_sess_precreate(void *data)
+{
+	TfwSessEqCtx *ctx = (TfwSessEqCtx *)data;
+	TfwHttpReq *req = ctx->req;
+	StickyVal *sv = &ctx->sv;
+	/*
+	 * When the cookie is learned from backend, it's created on processing
+	 * responses, not requests.
+	 */
+	if (req->vhost->cookie->learn)
+		return -1;
+
+	if ((ctx->jsch_rcode = tfw_http_sess_check_jsch(sv, req)))
+		return -1;
+
+	return 0;
+}
+
+static void
+tfw_sess_ent_init(TdbRec *rec, void *data)
+{
+	TfwSessEntry *ent = (TfwSessEntry *)rec->data;
+	TfwHttpSess *sess = &ent->sess;
+	TfwSessEqCtx *ctx = (TfwSessEqCtx *)data;
+	TfwStickyCookie *sticky = ctx->req->vhost->cookie;
+
+	bzero_fast(sess, sizeof(TfwHttpSess));
+
+	if (sticky->learn) {
+		tfw_str_to_cstr(&ctx->cookie_val, sess->cval, sizeof(sess->cval));
+		sess->key_len = ctx->cookie_val.len;
+
+		sess->srv_conn = (TfwSrvConn *)ctx->resp->conn;
+		sess->ts = jiffies;
+	}
+	else {
+		memcpy_fast(sess->hmac, ctx->sv.hmac, sizeof(ctx->sv.hmac));
+		sess->ts = ctx->sv.ts;
+	}
+
+	atomic_set(&sess->users, 1);
+	atomic64_set(&sess->expires,
+		     sess->ts + (unsigned long)sticky->sess_lifetime * HZ);
+	sess->vhost = ctx->req->vhost;
+	tfw_vhost_get(sess->vhost);
+	rwlock_init(&sess->lock);
+
+	T_DBG("http_sess was newly created, %pK\n", sess);
+}
+
 /**
  * Obtains appropriate HTTP session for the request based on Sticky cookies.
  * Gets a reference of vhost if it was stored in the session.
@@ -937,19 +1083,22 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	int r;
 	unsigned long key;
 	TfwHttpSess *sess;
-	SessHashBucket *hb;
-	struct hlist_node *tmp;
-	StickyVal sv = { };
+	TfwSessEqCtx ctx = { 0 };
+	StickyVal *sv = &ctx.sv;
+	TfwStr *c_val = &ctx.cookie_val;
+	TdbRec *rec;
+	TdbGetAllocCtx tdb_ctx = { 0 };
 
-	if (!tfw_cfg_sticky.enabled
+	/*
+	 * If vhost is not known, then request is to be dropped. Don't save the
+	 * session even if the client has passed a cookie challenge.
+	 */
+	if (!req->vhost
+	    || TFW_STR_EMPTY(&req->vhost->cookie->name)
 	    || test_bit(TFW_HTTP_B_WHITELIST, req->flags))
 	{
 		return TFW_HTTP_SESS_SUCCESS;
 	}
-
-	if ((r = tfw_http_sticky_req_process(req, &sv)))
-		return r;
-
 	/*
 	 * Sticky cookie can be not enforced and we still have to allocate new
 	 * session for requests w/o session cookie. It means that malicious user
@@ -960,111 +1109,165 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	 * We leave this for administrator decision or more progressive DDoS
 	 * mitigation techniques.
 	 */
-
-	if (!sv.ts) {
-		/* No sticky cookie in request and no enforcement. */
-		if (tfw_http_sticky_calc(req, &sv))
-			return TFW_HTTP_SESS_FAILURE;
-	}
-
-	key = hash_calc(sv.hmac, sizeof(sv.hmac));
-	hb = &sess_hash[hash_min(key, SESS_HASH_BITS)];
-
-	spin_lock(&hb->lock);
-
-	hlist_for_each_entry_safe(sess, tmp, &hb->list, hentry) {
-		/* Collect garbage first to not to return expired session. */
-		if (sess->expires < jiffies) {
-			tfw_http_sess_remove(sess);
-			continue;
-		}
-
-		if (!memcmp_fast(sv.hmac, sess->hmac, sizeof(sess->hmac))) {
-			read_lock(&sess->lock);
-			if (!sess->vhost) {
-				read_unlock(&sess->lock);
-				goto found;
-			}
-
-			if (unlikely(test_bit(TFW_VHOST_B_REMOVED,
-					      &sess->vhost->flags)))
-			{
-				/*
-				 * The session holds the last reference to the
-				 * vhost. It's not a part of the active
-				 * configuration anymore and therefore is not
-				 * useful to us at all. We can only release it
-				 * to free associated resources.
-				 */
-				read_unlock(&sess->lock);
-				write_lock(&sess->lock);
-				if (sess->vhost) {
-					tfw_vhost_put(sess->vhost);
-					sess->vhost = NULL;
-				}
-				write_unlock(&sess->lock);
-				goto found;
-			}
-
-			tfw_vhost_get(sess->vhost);
-			req->vhost = sess->vhost;
-			read_unlock(&sess->lock);
-			goto found;
-		}
-	}
-
-	if ((r = tfw_http_sess_check_jsch(&sv, req))) {
-		spin_unlock(&hb->lock);
+	if ((r = tfw_http_sticky_req_process(req, sv, c_val)))
 		return r;
+
+	if (req->vhost->cookie->learn) {
+		key = tfw_hash_str(c_val);
 	}
+	else /* TempestaFw native cookie */ {
+		if (!sv->ts)
+			/* No sticky cookie in request and no enforcement. */
+			if (tfw_http_sticky_calc(req, sv))
+				return TFW_HTTP_SESS_FAILURE;
 
-	if (!(sess = kmem_cache_alloc(sess_cache, GFP_ATOMIC))) {
-		spin_unlock(&hb->lock);
-		return -ENOMEM;
+		key = hash_calc(sv->hmac, sizeof(sv->hmac));
 	}
+	ctx.req = req;
+	tdb_ctx.eq_rec = tfw_http_sess_eq;
+	tdb_ctx.precreate_rec = tfw_http_sess_precreate;
+	tdb_ctx.init_rec = tfw_sess_ent_init;
+	tdb_ctx.ctx = &ctx;
+	tdb_ctx.len = sizeof(TfwSessEntry);
 
-	memcpy_fast(sess->hmac, sv.hmac, sizeof(sv.hmac));
-	hlist_add_head(&sess->hentry, &hb->list);
-	/*
-	 * Sessions are removed by the garbage collection above, so the hash
-	 * table is initial user of the session plus to the function caller.
-	 */
-	atomic_set(&sess->users, 1);
-	sess->ts = sv.ts;
-	sess->expires =
-		sv.ts + (unsigned long)tfw_cfg_sticky.sess_lifetime * HZ;
-	sess->srv_conn = NULL;
-	sess->vhost = NULL;
-	rwlock_init(&sess->lock);
+	rec = tdb_rec_get_alloc(sess_db, key, &tdb_ctx);
+	BUG_ON(tdb_ctx.len < sizeof(TfwSessEntry));
+	if (!rec) {
+		if (req->vhost->cookie->learn)
+			return TFW_HTTP_SESS_SUCCESS;
+		if (ctx.jsch_rcode)
+			return ctx.jsch_rcode;
+		T_WARN("cannot allocate TDB space for http session\n");
+		return TFW_HTTP_SESS_FAILURE;
+	}
+	sess = &((TfwSessEntry *)rec->data)->sess;
 
-	T_DBG("new session %p\n", sess);
-
-found:
 	atomic_inc(&sess->users);
-
-	spin_unlock(&hb->lock);
-
 	req->sess = sess;
+	tfw_http_sess_prolong(sess, req->vhost->cookie);
+
+	if (!tdb_ctx.is_new)
+		/*
+		 * The record doesn't change its location in TDB, since it is
+		 * larger than TDB_HTRIE_MINDREC, and we need to unlock the
+		 * bucket with the session as soon as possible.
+		 */
+		tdb_rec_put(rec);
 
 	return TFW_HTTP_SESS_SUCCESS;
 }
 
-static void
-tfw_http_sess_set_expired(TfwHttpSess *sess)
+/*
+ * Find Learnable sticky cookie in an HTTP response.
+ *
+ * Return 1 if the cookie is found.
+ * Return 0 if the cookie is NOT found.
+ */
+static int
+tfw_http_sticky_get_resp(TfwHttpResp *resp, TfwStr *cookie_val)
 {
-	sess->expires = 0;
+	TfwStickyCookie *sticky = resp->req->vhost->cookie;
+	TfwStr *hdr, *dup, *dup_end;
+	/*
+	 * Each cookie in set header is placed in its own `Set-Cookie` header,
+	 * need to look through all of them
+	 */
+	hdr = &resp->h_tbl->tbl[TFW_HTTP_HDR_SET_COOKIE];
+	TFW_STR_FOR_EACH_DUP(dup, hdr, dup_end) {
+		TfwStr value = { 0 };
+
+		if (TFW_STR_EMPTY(dup))
+			continue;
+		tfw_http_msg_srvhdr_val(dup, TFW_HTTP_HDR_SET_COOKIE, &value);
+		if (search_cookie(sticky, &value, cookie_val, true))
+			return 1;
+	}
+
+	return 0;
 }
 
+/*
+ * Learn HTTP session created on backend server. Even if the session exists,
+ * backend may want to create a new for the client.
+ */
 void
-tfw_http_sess_use_sticky_sess(bool use)
+tfw_http_sess_learn(TfwHttpResp *resp)
 {
-	WRITE_ONCE(tfw_cfg_sticky_sess, use);
-}
+	TfwStickyCookie *sticky;
+	int r;
+	unsigned long key;
+	TfwSessEqCtx ctx = { 0 };
+	TdbGetAllocCtx tdb_ctx = { 0 };
+	TfwStr *c_val = &ctx.cookie_val;
+	TdbRec *rec;
 
-static bool
-tfw_http_sess_has_sticky_sess(void)
-{
-	return READ_ONCE(tfw_cfg_sticky_sess);
+	if (WARN_ON_ONCE(!resp->req || !resp->req->vhost))
+		return;
+	sticky = resp->req->vhost->cookie;
+	if (!sticky->learn || TFW_STR_EMPTY(&sticky->name_eq))
+		return;
+
+	r = tfw_http_sticky_get_resp(resp, c_val);
+	if (!r)
+		return;
+	/*
+	 * TODO: Set session as expired if server tries to remove the cookie.
+	 *
+	 * RFC 6265 3.1
+	 * Finally, to remove a cookie, the server returns a Set-Cookie header
+	 * with an expiration date in the past.  The server will be successful
+	 * in removing the cookie only if the Path and the Domain attribute in
+	 * the Set-Cookie header match the values used when the cookie was
+	 * created.
+	 *
+	 * Max-Age <= 0 can also be used to remove the cookie:
+	 * RFC 6265 4.1.2.2
+	 * If delta-seconds is less than or equal to zero (0), let expiry-time
+	 * be the earliest representable date and time.
+	 *
+	 * Empty string is allowed cookie value, but it can't be used to learn
+	 * and track the sessions. At the same time, empty value is pretty often
+	 * used during cookie removals. So if a backend requests the client to
+	 * replace the cookie with something we can't track - expire the session.
+	 * https://thoughtbot.com/blog/lucky-cookies#expiration-and-removal
+	 */
+	if (unlikely(TFW_STR_EMPTY(c_val))) {
+		if (resp->req->sess)
+			tfw_http_sess_set_expired(resp->req->sess);
+		return;
+	}
+	if (unlikely(c_val->len > STICKY_KEY_MAX_LEN)) {
+		T_WARN("http_sess: too long cookie value: %li (%d).\n",
+		       c_val->len, STICKY_KEY_MAX_LEN);
+		return;
+	}
+
+	key = tfw_hash_str(c_val);
+	ctx.req = resp->req;
+	ctx.resp = resp;
+	tdb_ctx.eq_rec = tfw_http_sess_eq;
+	/* no tdb_ctx.precreate_rec hook. */
+	tdb_ctx.init_rec = tfw_sess_ent_init;
+	tdb_ctx.ctx = &ctx;
+	tdb_ctx.len = sizeof(TfwSessEntry);
+
+	rec = tdb_rec_get_alloc(sess_db, key, &tdb_ctx);
+	BUG_ON(tdb_ctx.len < sizeof(TfwSessEntry));
+	if (!rec) {
+		T_WARN("cannot allocate TDB space for learned http session\n");
+		return;
+	}
+	/*
+	 * The session is not required now, it's enough to have a new
+	 * session in tdb. Leave new_sess->users as is.
+	 */
+	if (!tdb_ctx.is_new)
+		/*
+		 * The record doesn't change its location in TDB, since it is
+		 * larger than TDB_HTRIE_MINDREC, and we need to unlock the
+		 * bucket with the session as soon as possible.
+		 */
+		tdb_rec_put(rec);
 }
 
 /**
@@ -1112,10 +1315,8 @@ tfw_http_sess_pin_srv(TfwHttpSess *sess, TfwSrvConn *srv_conn)
 		return;
 
 	srv = (TfwServer *)srv_conn->peer;
-	if (srv->sg->flags & TFW_SRV_STICKY) {
-		tfw_server_pin_sess(srv);
-		sess->srv_conn = srv_conn;
-	}
+	tfw_server_pin_sess(srv);
+	sess->srv_conn = srv_conn;
 }
 
 /**
@@ -1136,6 +1337,22 @@ tfw_http_sess_pin_vhost(TfwHttpSess *sess, TfwVhost *vhost)
 	write_unlock(&sess->lock);
 }
 
+static inline bool
+tfw_http_sticky_sess_enabled(TfwMsg *msg)
+{
+	TfwHttpReq *req = (TfwHttpReq *)msg;
+
+	return test_bit(TFW_VHOST_B_STICKY_SESS, &req->vhost->flags);
+}
+
+static inline bool
+tfw_http_sticky_sess_failover_enabled(TfwMsg *msg)
+{
+	TfwHttpReq *req = (TfwHttpReq *)msg;
+
+	return test_bit(TFW_VHOST_B_STICKY_SESS_FAILOVER, &req->vhost->flags);
+}
+
 /**
  * Find an outgoing connection for client with Tempesta sticky cookie.
  * @sess is not null when calling the function.
@@ -1153,12 +1370,22 @@ tfw_http_sess_get_srv_conn(TfwMsg *msg)
 
 	read_lock(&sess->lock);
 
-	/* The session pinning won't be needed, avoid write_lock(). */
-	if (!sess->srv_conn && !tfw_http_sess_has_sticky_sess()) {
+	/*
+	 * If sess->srv_conn != 0 -> Session was pinned to a server in our
+	 * previous configuration. Keep pinning enabled even if it's disabled
+	 * in current configuration. Pin an unpinned session if the new
+	 * configuration require that.
+	 */
+	if (!sess->srv_conn && !tfw_http_sticky_sess_enabled(msg)) {
 		read_unlock(&sess->lock);
 		return tfw_vhost_get_srv_conn(msg);
 	}
-
+	/*
+	 * In unlikely but possible situations the same session will be tried
+	 * on multiple cpus, use locking to guarantee theat the srv_conn
+	 * will point to the same server for all of them, or requests from the
+	 * same session might be forwarded to different servers.
+	 */
 	if ((srv_conn = __try_conn(msg, sess->srv_conn))) {
 		read_unlock(&sess->lock);
 		return srv_conn;
@@ -1182,8 +1409,7 @@ tfw_http_sess_get_srv_conn(TfwMsg *msg)
 
 		tfw_addr_ntop(&srv->addr, addr_str, sizeof(addr_str));
 
-		if (!(srv->sg->flags & TFW_SRV_STICKY_FAILOVER))
-		{
+		if (!tfw_http_sticky_sess_failover_enabled(msg)) {
 			/*
 			 * Server is removed and disconnected, it will never
 			 * go up again, expire session to force releasing of
@@ -1216,305 +1442,39 @@ err:
 }
 
 static int
-tfw_cfgop_sticky(TfwCfgSpec *cs, TfwCfgEntry *ce)
+tfw_http_sess_cfgstart(void)
 {
-	size_t i, len;
-	const char *key, *val, *name_val = STICKY_NAME_DEFAULT;
-
-	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
-		if (!strcasecmp(key, "name")) {
-			name_val = val;
-		} else if (!strcasecmp(key, "max_misses")) {
-			if (tfw_cfg_parse_uint(val, &tfw_cfg_sticky.max_misses))
-			{
-				T_ERR_NL("%s: invalid value for 'max_misses'"
-					 " attribute: '%s'\n", cs->name, val);
-				return -EINVAL;
-			}
-		} else if (!strcasecmp(key, "timeout")) {
-			if (tfw_cfg_parse_uint(val, &tfw_cfg_sticky.tmt_sec))
-			{
-				T_ERR_NL("%s: invalid value for 'timeout'"
-					 " attribute: '%s'\n", cs->name, val);
-				return -EINVAL;
-			}
-		} else {
-			T_ERR_NL("%s: unsupported argument: '%s=%s'.\n",
-				 cs->name, key, val);
-			return -EINVAL;
-		}
-	}
-
-	len = strlen(name_val);
-	if (len == 0 || len > STICKY_NAME_MAXLEN)
-		return -EINVAL;
-	memcpy(tfw_cfg_sticky.name.data, name_val, len);
-	tfw_cfg_sticky.name.len = len;
-	tfw_cfg_sticky.name_eq.data[len] = '=';
-	tfw_cfg_sticky.name_eq.len = len + 1;
-
-	TFW_CFG_ENTRY_FOR_EACH_VAL(ce, i, val) {
-		if (!strcasecmp(val, "enforce")) {
-			tfw_cfg_sticky.enforce = 1;
-		} else {
-			T_ERR_NL("%s: unsupported argument: '%s'\n",
-				 cs->name, val);
-			return -EINVAL;
-		}
-	}
-
-	if (tfw_cfg_sticky.max_misses && !tfw_cfg_sticky.enforce) {
-		T_ERR_NL("%s: 'max_misses' can be enabled only in 'enforce' "
-			 "mode\n", cs->name);
-		return -EINVAL;
-	}
-	if (tfw_cfg_sticky.tmt_sec && !tfw_cfg_sticky.max_misses) {
-		T_ERR_NL("%s: 'timeout' can be specified only with"
-			 " 'max_misses' attribute\n", cs->name);
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
-static void
-tfw_cfgop_cleanup_sticky(TfwCfgSpec *cs)
-{
-	int i;
-
-	for (i = 0; i < SESS_HASH_SZ; ++i) {
-		TfwHttpSess *sess;
-		struct hlist_node *tmp;
-		SessHashBucket *hb = &sess_hash[i];
-
-		hlist_for_each_entry_safe(sess, tmp, &hb->list, hentry)
-			tfw_http_sess_remove(sess);
-	}
-	memset(tfw_cfg_sticky.name.data, 0, STICKY_NAME_MAXLEN + 1);
-	tfw_cfg_sticky.name.len = tfw_cfg_sticky.name_eq.len = 0;
-	tfw_cfg_sticky.enforce = 0;
-	tfw_cfg_sticky.max_misses = 0;
-	tfw_cfg_sticky.tmt_sec = 0;
-}
-
-static int
-tfw_cfgop_sticky_secret(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int r;
-	unsigned int len = (unsigned int)strlen(ce->vals[0]);
-
-	if (tfw_cfg_check_single_val(ce))
-		return -EINVAL;
-	if (len > STICKY_KEY_MAXLEN)
-		return -EINVAL;
-
-	if (len) {
-		memset(tfw_sticky_key, 0, STICKY_KEY_MAXLEN);
-		memcpy(tfw_sticky_key, ce->vals[0], len);
-	}
-	else {
-		get_random_bytes(tfw_sticky_key, sizeof(tfw_sticky_key));
-		len = sizeof(tfw_sticky_key);
-	}
-
-	r = crypto_shash_setkey(tfw_sticky_shash, (u8 *)tfw_sticky_key, len);
-	if (r)
-		return r;
-
-	return 0;
-}
-
-static int
-tfw_cfgop_sess_lifetime(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	int r;
-
-	r = tfw_cfg_set_int(cs, ce);
-	/*
-	 * "sess_lifetime 0;" means unlimited session lifetime,
-	 * set tfw_cfg_sticky.sess_lifetime to maximum value.
-	*/
-	if (!r && !tfw_cfg_sticky.sess_lifetime)
-		tfw_cfg_sticky.sess_lifetime = UINT_MAX;
-
-	return r;
-}
-
-static inline int
-tfw_cfgop_jsch_parse(TfwCfgSpec *cs, const char *key, const char *val,
-		     unsigned int *uint_val)
-{
-	int r;
-
-	if ((r = tfw_cfg_parse_uint(val, uint_val))) {
-		T_ERR_NL("%s: can't parse key '%s'\n", cs->name, key);
-		return r;
-	}
-
-	return 0;
-}
-
-static int
-tfw_cfg_op_jsch_parse_resp_code(TfwCfgSpec *cs, const char *val)
-{
-	int r, int_val;
-
-	if ((r = tfw_cfg_parse_int(val, &int_val))) {
-		T_ERR_NL("%s: can't parse key 'resp_code'\n", cs->name);
-		return r;
-	}
-	if ((r = tfw_cfg_check_range(int_val, 100, 599)))
-		return r;
-	tfw_cfg_js_ch->st_code = int_val;
-
-	return 0;
-}
-
-static void
-tfw_cfgop_jsch_set_delay_limit(TfwCfgSpec *cs)
-{
-	const unsigned long min_limit	= msecs_to_jiffies(100);
-	const unsigned long max_hc_p	= 10;
-	const unsigned long max_limit	=
-		msecs_to_jiffies(tfw_cfg_js_ch->delay_range) * max_hc_p / 100;
-	unsigned long hc_prob;
-
-	if (!tfw_cfg_js_ch->delay_limit) {
-		tfw_cfg_js_ch->delay_limit = max_limit;
-	}
-	if (tfw_cfg_js_ch->delay_limit < min_limit) {
-		T_WARN_NL("%s: 'delay_limit' is too low, many slow/distant "
-			  "clients will be blocked. "
-			    "Minimum recommended value is %u, "
-			    "but %u is provided\n",
-			    cs->name,
-			    jiffies_to_msecs(min_limit),
-			    jiffies_to_msecs(tfw_cfg_js_ch->delay_limit));
-	}
-	hc_prob = tfw_cfg_js_ch->delay_limit * 100
-			/ msecs_to_jiffies(tfw_cfg_js_ch->delay_range);
-	if (hc_prob > max_hc_p) {
-		T_WARN_NL("%s: 'delay_limit' is too big, attacker may "
-			  "hardcode bots and breach the JavaScript challenge "
-			  "with %lu%% success probability\n",
-			  cs->name, hc_prob);
-	}
-}
-
-static int
-tfw_cfgop_jsch_set_body(TfwCfgSpec *cs, const char *script)
-{
-	char *body_data;
-	size_t sz;
-
-	body_data = tfw_http_msg_body_dup(script, &sz);
-	if (!body_data) {
-		kfree(tfw_cfg_js_ch);
-		tfw_cfg_js_ch = NULL;
-		return -ENOMEM;
-	}
-	tfw_cfg_js_ch->body.len = sz;
-	tfw_cfg_js_ch->body.data = body_data;
-
-	return 0;
-}
-
-static int
-tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
-{
-	unsigned int uint_val;
-	int i, r;
-	const char *key, *val;
-
-	tfw_cfg_js_ch = kzalloc(sizeof(TfwCfgJsCh), GFP_KERNEL);
-	if (!tfw_cfg_js_ch) {
-		T_ERR_NL("%s: can't alloc memory\n", cs->name);
-		return -ENOMEM;
-	}
-
-	if (ce->val_n > 1) {
-		T_ERR_NL("invalid number of values; 1 possible, got: %zu\n",
-			 ce->val_n);
-		return -EINVAL;
-	}
-	TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
-		if (!strcasecmp(key, "delay_min")) {
-			if ((r = tfw_cfgop_jsch_parse(cs, key, val, &uint_val)))
-				return r;
-			tfw_cfg_js_ch->delay_min = msecs_to_jiffies(uint_val);
-		} else if (!strcasecmp(key, "delay_range")) {
-			if ((r = tfw_cfgop_jsch_parse(cs, key, val, &uint_val)))
-				return r;
-			tfw_cfg_js_ch->delay_range = uint_val;
-		} else if (!strcasecmp(key, "delay_limit")) {
-			if ((r = tfw_cfgop_jsch_parse(cs, key, val, &uint_val)))
-				return r;
-			tfw_cfg_js_ch->delay_limit = msecs_to_jiffies(uint_val);
-		} else if (!strcasecmp(key, "resp_code")) {
-			if ((r = tfw_cfg_op_jsch_parse_resp_code(cs, val)))
-				return r;
-		} else {
-			T_ERR_NL("%s: unsupported argument: '%s=%s'.\n",
-				 cs->name, key, val);
-			return -EINVAL;
-		}
-	}
-	if (!tfw_cfg_js_ch->delay_min) {
-		T_ERR_NL("%s: required argument 'delay_min' not set.\n",
-			 cs->name);
-		return -EINVAL;
-	}
-	if (!tfw_cfg_js_ch->delay_range) {
-		T_ERR_NL("%s: required argument 'delay_range' not set.\n",
-			 cs->name);
-		return -EINVAL;
-	}
-	if (!tfw_cfg_js_ch->st_code)
-		tfw_cfg_js_ch->st_code = tfw_cfg_jsch_code_dflt;
-
-	tfw_cfgop_jsch_set_delay_limit(cs);
-
-	return tfw_cfgop_jsch_set_body(cs,
-				       ce->val_n ? ce->vals[0] : TFW_CFG_JS_PATH);
-}
-
-static void
-tfw_cfgop_cleanup_js_challenge(TfwCfgSpec *cs)
-{
-	if (!tfw_cfg_js_ch)
-		return;
-
-	if (tfw_cfg_js_ch->body.data)
-		free_pages((unsigned long)tfw_cfg_js_ch->body.data,
-			   get_order(tfw_cfg_js_ch->body.len));
-	kfree(tfw_cfg_js_ch);
-	tfw_cfg_js_ch = NULL;
-}
-
-static int
-tfw_http_sess_cfgend(void)
-{
-	if (tfw_cfg_js_ch && TFW_STR_EMPTY(&tfw_cfg_sticky.name)) {
-		T_ERR_NL("JavaScript challenge requires sticky cookies "
-			 "enabled\r\n");
-		return -EINVAL;
-	}
-	if (tfw_cfg_js_ch) {
-		tfw_cfg_sticky.enforce = true;
-		tfw_cfg_redirect_st_code = tfw_cfg_js_ch->st_code;
-	} else {
-		tfw_cfg_redirect_st_code = tfw_cfg_redirect_st_code_dflt;
-	}
-
+	redir_mark_enabled_reconfig = false;
 	return 0;
 }
 
 static int
 tfw_http_sess_start(void)
 {
+	redir_mark_enabled = redir_mark_enabled_reconfig;
+
 	if (tfw_runstate_is_reconfig())
 		return 0;
-	tfw_cfg_sticky.enabled = !TFW_STR_EMPTY(&tfw_cfg_sticky.name);
+	/*
+	 * The TfwSessEntry is used as a direct pointer to data inside a TDB
+	 * entry. Small entries may be moved between locations as index tree
+	 * grows, while big ones has constant location.
+	 */
+	BUILD_BUG_ON(sizeof(TfwSessEntry) <= TDB_HTRIE_MINDREC);
+	sess_db = tdb_open(sess_db_cfg.db_path, sess_db_cfg.db_size,
+			   sizeof(TfwSessEntry), numa_node_id());
+	if (!sess_db)
+		return -EINVAL;
+
+	return 0;
+}
+
+static int
+tfw_http_sess_release_entry(void *data)
+{
+	TfwHttpSess *sess = &((TfwSessEntry *)data)->sess;
+
+	tfw_http_sess_remove(sess);
 
 	return 0;
 }
@@ -1522,100 +1482,54 @@ tfw_http_sess_start(void)
 static void
 tfw_http_sess_stop(void)
 {
-	if (tfw_runstate_is_reconfig())
+	if (!sess_db)
 		return;
-	tfw_cfg_sticky.enabled = 0;
+
+	tdb_entry_walk(sess_db, tfw_http_sess_release_entry);
+	tdb_close(sess_db);
 }
 
-static TfwCfgSpec tfw_http_sess_specs[] = {
+static TfwCfgSpec tfw_http_sess_specs_table[] = {
 	{
-		.name = "sticky",
-		.handler = tfw_cfgop_sticky,
-		.cleanup = tfw_cfgop_cleanup_sticky,
-		.allow_none = true,
-	},
-	{
-		.name = "sticky_secret",
-		.deflt = "\"\"",
-		.handler = tfw_cfgop_sticky_secret,
-		.allow_none = true,
-	},
-	{
-		/* Value is parsed as int, set max to INT_MAX*/
-		.name = "sess_lifetime",
-		.deflt = "0",
-		.handler = tfw_cfgop_sess_lifetime,
-		.dest = &tfw_cfg_sticky.sess_lifetime,
+		.name = "sessions_tbl_size",
+		.deflt = "16777216",
+		.handler = tfw_cfg_set_int,
+		.dest = &sess_db_cfg.db_size,
 		.spec_ext = &(TfwCfgSpecInt) {
-			.range = { 0, INT_MAX },
-		},
-		.allow_none = true,
+			.multiple_of = PAGE_SIZE,
+			.range = { PAGE_SIZE, (1 << 30) },
+		}
 	},
 	{
-		.name = "js_challenge",
-		.handler = tfw_cfgop_js_challenge,
-		.cleanup = tfw_cfgop_cleanup_js_challenge,
-		.allow_none = true,
+		.name = "sessions_db",
+		.deflt = "/opt/tempesta/db/sessions.tdb",
+		.handler = tfw_cfg_set_str,
+		.dest = &sess_db_cfg.db_path,
+		.spec_ext = &(TfwCfgSpecStr) {
+			.len_range = { 1, PATH_MAX },
+		}
 	},
 	{ 0 }
 };
 
 TfwMod tfw_http_sess_mod = {
-	.name	= "http_sess",
-	.cfgend = tfw_http_sess_cfgend,
-	.start	= tfw_http_sess_start,
-	.stop	= tfw_http_sess_stop,
-	.specs	= tfw_http_sess_specs,
+	.name		= "http_sess",
+	.cfgstart	= tfw_http_sess_cfgstart,
+	.start		= tfw_http_sess_start,
+	.stop		= tfw_http_sess_stop,
+	.specs		= tfw_http_sess_specs_table,
 };
 
 int __init
 tfw_http_sess_init(void)
 {
-	int i, ret = -ENOMEM;
-	u_char *ptr;
-
-	if ((ptr = kzalloc(STICKY_NAME_MAXLEN + 1, GFP_KERNEL)) == NULL)
-		return -ENOMEM;
-
-	tfw_cfg_sticky.name.data = tfw_cfg_sticky.name_eq.data = ptr;
-	tfw_cfg_sticky.name.len = tfw_cfg_sticky.name_eq.len = 0;
-
-	tfw_sticky_shash = crypto_alloc_shash("hmac(sha1)", 0, 0);
-	if (IS_ERR(tfw_sticky_shash)) {
-		pr_err("shash allocation failed\n");
-		ret = (int)PTR_ERR(tfw_sticky_shash);
-		goto err;
-	}
-
-	sess_cache = kmem_cache_create("tfw_sess_cache", sizeof(TfwHttpSess),
-				       0, 0, NULL);
-	if (!sess_cache)
-		goto err_shash;
-
-	/*
-	 * Dynamically initialize hash table spinlocks to avoid lockdep leakage
-	 * (see Troubleshooting in Documentation/locking/lockdep-design.txt).
-	 */
-	for (i = 0; i < SESS_HASH_SZ; ++i)
-		spin_lock_init(&sess_hash[i].lock);
-
 	tfw_mod_register(&tfw_http_sess_mod);
 
 	return 0;
-
-err_shash:
-	crypto_free_shash(tfw_sticky_shash);
-err:
-	kfree(tfw_cfg_sticky.name.data);
-	return ret;
 }
 
 void
 tfw_http_sess_exit(void)
 {
 	tfw_mod_unregister(&tfw_http_sess_mod);
-	kmem_cache_destroy(sess_cache);
-	kfree(tfw_cfg_sticky.name.data);
-	memset(&tfw_cfg_sticky, 0, sizeof(tfw_cfg_sticky));
-	crypto_free_shash(tfw_sticky_shash);
 }

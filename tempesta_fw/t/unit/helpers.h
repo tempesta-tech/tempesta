@@ -29,7 +29,7 @@ void test_resp_free(TfwHttpResp *req);
 
 /* Helpers to start/stop minimum 'http_sticky' functionality, necessary
  * for some tests (e.g. in 'test_http_parser'). */
-int test_helper_sticky_start(const char *name, unsigned int misses);
+int test_helper_sticky_start(unsigned int misses);
 void test_helper_sticky_stop(void);
 
 #endif /* __TFW_TEST_HELPER_H__ */
