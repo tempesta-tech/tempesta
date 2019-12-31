@@ -25,6 +25,7 @@
  */
 #include "pk.h"
 #include "asn1.h"
+#include "mpool.h"
 #include "oid.h"
 #include "rsa.h"
 #include "ecp.h"

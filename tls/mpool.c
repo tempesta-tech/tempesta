@@ -41,7 +41,7 @@
 #include "ciphersuites.h"
 #include "dhm.h"
 #include "ecp.h"
-#include "tls_internal.h"
+#include "mpool.h"
 
 #define MPI_POOL_DATA(mp)	((void *)((char *)(mp) + sizeof(TlsMpiPool)))
 #define MPI_POOL_FREE_PTR(mp)	((void *)((char *)(mp) + mp->curr))
