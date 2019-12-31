@@ -25,6 +25,7 @@
  */
 #include "lib/str.h"
 #include "ecp.h"
+#include "mpool.h"
 #include "tls_internal.h"
 #include "ttls.h"
 
@@ -1962,7 +1963,7 @@ ttls_handshake_server_hello(TlsCtx *tls)
 		if ((r = ttls_write_server_hello(tls, &sgt, &p)))
 			T_FSM_EXIT();
 		CHECK_STATE(128);
-		if ((tls->state = TTLS_SERVER_CHANGE_CIPHER_SPEC)) {
+		if (tls->state == TTLS_SERVER_CHANGE_CIPHER_SPEC) {
 			/*
 			 * FIXME it seems we broke the FSM state machine
 			 * on TLS session resumption - now we must send

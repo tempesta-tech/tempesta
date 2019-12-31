@@ -27,7 +27,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include "ciphersuites.h"
-#include "tls_internal.h"
+#include "mpool.h"
 #include "ttls.h"
 
 #define CS_MP_SZ	(PAGE_SIZE << TTLS_MPOOL_ORDER)

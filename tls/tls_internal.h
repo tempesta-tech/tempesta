@@ -26,6 +26,7 @@
 #ifndef TTLS_INTERNAL_H
 #define TTLS_INTERNAL_H
 
+#include <linux/types.h>
 #include <asm/fpu/api.h>
 
 /* Affects only TempestaTLS internal debug symbols. */
@@ -396,15 +397,6 @@ ttls_substate(const TlsCtx *tls)
 {
 	return tls->state & __TTLS_FSM_SUBST_MASK;
 }
-
-void *ttls_mpi_pool_alloc(size_t n, gfp_t gfp_mask);
-void ttls_mpi_pool_free(void *ctx);
-int ttls_mpi_profile_clone(TlsCtx *tls);
-void ttls_mpi_pool_cleanup_ctx(unsigned long addr, bool zero);
-
-void *ttls_mpool_alloc_stck(size_t n);
-int ttls_mpool_init(void);
-void ttls_mpool_exit(void);
 
 #if defined(DEBUG) && DEBUG == 3
 /*
