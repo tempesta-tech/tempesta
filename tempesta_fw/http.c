@@ -2866,9 +2866,11 @@ __h2_req_hdrs(TfwHttpReq *req, const TfwStr *hdr, unsigned int hid, bool append)
 			 * to delete.
 			 */
 			return 0;
-		if (unlikely(hid == ht->size))
+		if (unlikely(hid == ht->size)) {
 			if (tfw_http_msg_grow_hdr_tbl(hm))
 				return -ENOMEM;
+			ht = hm->h_tbl;
+		}
 		if (hid == ht->off) {
 			/*
 			 * The raw header not found, but we have the new
@@ -2971,7 +2973,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	TfwHttpHdrTbl *ht = req->h_tbl;
 	bool auth = !TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY]);
 	bool host = !TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_HOST]);
-	size_t pseudo_num = auth ? 4 : 3;
+	size_t pseudo_num;
 	TfwStr meth = {}, host_val = {}, *field, *end;
 	struct sk_buff *new_head = NULL, *old_head = NULL;
 	TfwMsgIter it;
@@ -3038,7 +3040,14 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	 */
 	if ((r = tfw_h2_req_set_loc_hdrs(req)))
 		return r;
-
+	/*
+	 * tfw_h2_req_set_loc_hdrs() may realloc header table and user may
+	 * defined headers modifications, even headers we rely on, recheck them.
+	 */
+	ht = req->h_tbl;
+	auth = !TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY]);
+	host = !TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_HOST]);
+	pseudo_num = auth ? 4 : 3;
 	/*
 	 * Calculate http1.1 headers size. H2 request contains pseudo headers
 	 * that are represented in different way in the http1.1 requests.
