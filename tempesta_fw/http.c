@@ -2685,15 +2685,17 @@ tfw_http_set_loc_hdrs(TfwHttpMsg *hm, TfwHttpReq *req)
 				{},
 				{ .data = S_DLM, .len = SLEN(S_DLM) },
 				{},
+				{ .data = S_CRLF, .len = SLEN(S_CRLF) },
 			},
-			.len = SLEN(S_DLM),
+			.len = SLEN(S_DLM) + SLEN(S_CRLF),
+			.nchunks = 2
 		};
 		int r;
 
 		h_mdf.chunks[0] = d->hdr->chunks[0];
 		h_mdf.chunks[2] = d->hdr->chunks[1];
 		h_mdf.len += d->hdr->len;
-		h_mdf.nchunks = d->hdr->nchunks + 1;
+		h_mdf.nchunks += d->hdr->nchunks;
 		r = tfw_http_msg_hdr_xfrm_str(hm, &h_mdf, d->hid, d->append);
 		if (r) {
 			T_ERR("can't update location-specific header in msg %p\n",
@@ -3168,7 +3170,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 
 			if (unlikely(TFW_STR_PLAIN(dup))) {
 				r = -EINVAL;
-				break;
+				goto err;
 			}
 
 			hval.chunks = dup->chunks;
@@ -3689,29 +3691,12 @@ tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 
 	for (i = 0; i < h_mods->sz; ++i) {
 		const TfwHdrModsDesc *desc = &h_mods->hdrs[i];
-		/*
-		 * Header is stored optimized for HTTP2 request processing:
-		 * without delimiter between header and value.
-		 */
-		TfwStr h_mdf = {
-			.chunks = (TfwStr []){
-				{},
-				{ .data = S_DLM, .len = SLEN(S_DLM) },
-				{},
-			},
-			.len = SLEN(S_DLM),
-		};
 		int r;
 
-		h_mdf.chunks[0] = desc->hdr->chunks[0];
-		h_mdf.chunks[2] = desc->hdr->chunks[1];
-		h_mdf.len += desc->hdr->len;
-		h_mdf.nchunks = desc->hdr->nchunks + 1;
-
-		if (test_bit(i, mit->found) || !TFW_STR_CHUNK(&h_mdf, 2))
+		if (test_bit(i, mit->found) || !TFW_STR_CHUNK(desc->hdr, 1))
 			continue;
 
-		r = __hdr_h2_add(resp, &h_mdf);
+		r = __hdr_h2_add(resp, desc->hdr);
 		if (unlikely(r))
 			return r;
 	}
