@@ -46,9 +46,10 @@
 
 #include "lib/str.h"
 #include "crypto.h"
+#include "mpool.h"
+#include "oid.h"
 #include "rsa.h"
 #include "tls_internal.h"
-#include "oid.h"
 
 /* constant-time buffer comparison */
 static inline int ttls_safer_memcmp(const void *a, const void *b, size_t n)

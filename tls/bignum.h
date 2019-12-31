@@ -60,8 +60,6 @@ do {									\
 #define BITS_TO_LIMBS(n)	(((n) + BIL - 1) >> BSHIFT)
 #define CHARS_TO_LIMBS(n)	(((n) + CIL - 1) >> LSHIFT)
 
-#define TTLS_MPOOL_ORDER	1 /* 2 pages for temporary MPIs */
-
 /**
  * MPI structure.
  *
