@@ -862,9 +862,11 @@ tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid,
 		if (hid == ht->off && !s_val)
 			/* Not found, nothing to delete. */
 			return 0;
-		if (hid == ht->size)
+		if (hid == ht->size) {
 			if (tfw_http_msg_grow_hdr_tbl(hm))
 				return -ENOMEM;
+			ht = hm->h_tbl;
+		}
 		if (hid == ht->off)
 			++ht->off;
 		else
@@ -1097,9 +1099,11 @@ tfw_http_msg_hdr_add(TfwHttpMsg *hm, const TfwStr *hdr)
 
 	ht = hm->h_tbl;
 	hid = ht->off;
-	if (hid == ht->size)
+	if (hid == ht->size) {
 		if (tfw_http_msg_grow_hdr_tbl(hm))
 			return -ENOMEM;
+		ht = hm->h_tbl;
+	}
 	++ht->off;
 
 	return __hdr_add(hm, hdr, hid);
