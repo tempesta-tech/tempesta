@@ -33,6 +33,7 @@
 #include <net/tls.h>
 
 #include "crypto.h"
+#include "mpool.h"
 #include "oid.h"
 #include "tls_internal.h"
 #include "ttls.h"

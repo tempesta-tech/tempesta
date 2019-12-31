@@ -27,7 +27,7 @@
  */
 #include "asn1write.h"
 #include "ecp.h"
-#include "tls_internal.h"
+#include "mpool.h"
 
 /*
  * RFC 8422 page 18:

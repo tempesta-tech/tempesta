@@ -38,6 +38,7 @@
 
 #include "lib/str.h"
 #include "bignum.h"
+#include "mpool.h"
 #include "tls_internal.h"
 
 /* Can be used for constant MPIs only! */
@@ -49,9 +50,6 @@
 
 /* Maximum sliding window size in bits used for modular exponentiation. */
 #define MPI_W_SZ		6
-
-/* MPI memory pool routines. */
-int ttls_mpi_pool_alloc_mpi(TlsMpi *x, size_t n);
 
 /**
  * Allocate an MPI on the stack and initialize it with the required limbs in

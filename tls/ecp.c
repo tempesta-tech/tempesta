@@ -49,6 +49,7 @@
 
 #include "tls_internal.h"
 #include "ecp.h"
+#include "mpool.h"
 
 /*
  * TODO #1064 do we need
