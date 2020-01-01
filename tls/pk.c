@@ -25,11 +25,11 @@
  */
 #include "tls_internal.h"
 #include "ecp.h"
-#include "ecdsa.h"
 #include "mpool.h"
 #include "pk.h"
 #include "rsa.h"
 
+/* Defined in ecdsa.c */
 extern int ttls_ecdsa_write_signature(TlsEcpKeypair *ctx,
 				      const unsigned char *hash, size_t hlen,
 				      unsigned char *sig, size_t *slen);

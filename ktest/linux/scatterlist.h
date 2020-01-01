@@ -1,7 +1,7 @@
 /**
  *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -17,39 +17,22 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __SYNC_BITOPS_H__
-#define __SYNC_BITOPS_H__
+#ifndef __SCATTERLIST_H__
+#define __SCATTERLIST_H__
 
-#define ADDR				(*(volatile long *)addr)
+typedef unsigned long dma_addr_t;
 
-static inline int
-sync_test_and_set_bit(int nr, volatile unsigned long *addr)
-{
-	int oldbit;
+struct scatterlist {
+	unsigned long	page_link;
+	unsigned int	offset;
+	unsigned int	length;
+	dma_addr_t	dma_address;
+};
 
-	asm volatile("lock; btsl %2,%1\n\tsbbl %0,%0"
-		     : "=r" (oldbit), "+m" (ADDR)
-		     : "Ir" (nr) : "memory");
-	return oldbit;
-}
+struct sg_table {
+	struct scatterlist *sgl;	/* the list */
+	unsigned int nents;		/* number of mapped entries */
+	unsigned int orig_nents;	/* original size of list */
+};
 
-static inline unsigned long
-__ffs(unsigned long word)
-{
-	asm("rep; bsf %1,%0"
-		: "=r" (word)
-		: "rm" (word));
-	return word;
-}
-
-static inline int
-fls64(__u64 x)
-{
-	int bitpos = -1;
-	asm("bsrq %1,%q0"
-	    : "+r" (bitpos)
-	    : "rm" (x));
-	return bitpos + 1;
-}
-
-#endif /* __SYNC_BITOPS_H__ */
+#endif /* __SCATTERLIST_H__ */

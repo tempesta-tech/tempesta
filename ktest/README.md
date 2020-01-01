@@ -1,8 +1,18 @@
-## Tempesta Kernel Emulation Unit Testing Framework
+# Tempesta Kernel Emulation Framework for Unit Testing
 
-This is just a set of C headers with the same names and directory hierarchies
-as in Linux kernel plus some additional helpers. This headers provide only most
-usable stubs for real kernel headers, so small and kernel modules can be
-compiled and tested in user space.
+Ligh-weigh Linux kernel mocking headers-only library for unit testing.
+Read description and comparison with other testing framework at the
+[Wiki](https://github.com/tempesta-tech/tempesta/wiki/Testing).
 
-See usage example in tmepesta\_db/t/tdb\_htrie.c.
+See usage examples in tmepesta\_db/t/tdb\_htrie.c and tls/t/test\_tls.c.
+
+
+# Multi-processing
+
+The framework emulates 32 CPUs by default using pthreads and and arrays for
+per-cpu variables. To use it for single-threaded test, refefile `NR_CPUS`
+before the file include:
+```C
+#define NR_CPUS 1
+#include "ktest.h"
+```
