@@ -61,7 +61,7 @@ struct crypto_alg {
 	int (*cra_init)(struct crypto_tfm *tfm);
 	void (*cra_exit)(struct crypto_tfm *tfm);
 	void (*cra_destroy)(struct crypto_alg *alg);
-	
+
 	struct module *cra_module;
 } CRYPTO_MINALIGN_ATTR;
 

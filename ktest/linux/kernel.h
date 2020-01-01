@@ -1,7 +1,7 @@
 /**
  *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -34,8 +34,14 @@
 
 #define ARRAY_SIZE(x)   	(sizeof(x) / sizeof(*(x)))
 
+#define KERN_INFO		""
+#define KERN_WARNING		""
+#define KERN_ERR		""
+
+#define printk			printf
 #define pr_err(fmt, ...)	fprintf(stderr, fmt, ##__VA_ARGS__)
 #define pr_warn(fmt, ...)	fprintf(stderr, fmt, ##__VA_ARGS__)
+#define pr_info(fmt, ...)	fprintf(stderr, fmt, ##__VA_ARGS__)
 #define pr_debug(fmt, ...)	fprintf(stdout, fmt, ##__VA_ARGS__)
 #define net_warn_ratelimited(fmt, ...) fprintf(stdout, fmt, ##__VA_ARGS__)
 #define net_err_ratelimited(fmt, ...) fprintf(stdout, fmt, ##__VA_ARGS__)
@@ -97,10 +103,28 @@ struct list_head {
  * Constants instead of the real random bytes make the debugging simpler.
  * Don't use zero as cryptography may check for non-zero values.
  */
-void
+static inline void
 get_random_bytes_arch(void *buf, int nbytes)
 {
 	memset(buf, 0xAA, nbytes);
+}
+
+#define DUMP_PREFIX_OFFSET	0
+
+static inline void
+print_hex_dump(const char *level, const char *prefix_str, int prefix_type,
+	       int rowsize, int groupsize, const void *buf, size_t len,
+	       bool ascii)
+{
+	int i;
+	const unsigned char *c = (unsigned char *)buf;
+
+	printf(prefix_str);
+	for (i = 0; i < len; ++i) {
+		printf("%.2x ", c[i]);
+		if (i % 16 == 0)
+			printf("\n%s", prefix_str);
+	}
 }
 
 #endif /* __KERNEL_H__ */

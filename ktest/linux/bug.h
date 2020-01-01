@@ -1,7 +1,7 @@
 /**
  *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -27,6 +27,9 @@
 #define BUG_ON(c)	assert(!(c))
 #define BUILD_BUG_ON(c)	assert(!(c))
 #define BUG()		abort()
+
+#define __WARN()							\
+	fprintf(stderr, "Warning at %s:%d\n", __FILE__, __LINE__);
 
 #define WARN(condition, format...) ({					\
 	int __ret_warn_on = !!(condition);				\
