@@ -167,7 +167,7 @@ __ttls_mpi_init_next(TlsMpi *X, size_t nlimbs, const char *file, int line)
 #define ttls_mpi_alloca_init(X, ln)					\
 do {									\
 	unsigned long p, x = (unsigned long)(X);			\
-	WARN(!ln, "alloca() for zero, MPI %pK\n", X);			\
+	WARN((ln) == 0, "alloca() for zero, MPI %pK\n", X);		\
 	p = (unsigned long)__builtin_alloca((ln) * CIL);		\
 	if (WARN(p + (ln) > x || p + PAGE_SIZE < x,			\
 		 "alloca fails: %lx (stack %lx)\n", p, x))		\
@@ -175,7 +175,7 @@ do {									\
 	(X)->_off = (short)(p - x);					\
 	(X)->s = 1;							\
 	(X)->used = 0;							\
-	(X)->limbs = ln;						\
+	(X)->limbs = (ln);						\
 	(X)->file = __FILE__;						\
 	(X)->line = __LINE__;						\
 	memset((void *)p, 0, (ln) * CIL);				\
