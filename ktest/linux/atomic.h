@@ -1,7 +1,7 @@
 /**
  *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -25,6 +25,10 @@
 typedef struct {
 	int counter;
 } atomic_t;
+
+typedef struct refcount_struct {
+	atomic_t refs;
+} refcount_t;
 
 #define atomic_set(v, i)	((v)->counter = (i))
 #define atomic_read(v)		(*(volatile int *)&(v)->counter)

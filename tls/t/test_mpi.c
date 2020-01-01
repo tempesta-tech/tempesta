@@ -1,7 +1,7 @@
 /**
- *		Tempesta FW
+ *		Tempesta TLS multi-precission integer arithmetic unit test
  *
- * Copyright (C) 2018-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2018-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -17,84 +17,17 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include <linux/types.h>
-#include <asm/fpu/api.h>
-#include <linux/bug.h>
-#include <linux/kernel.h>
+#include "ttls_mocks.h"
+/* mpool.c requires ECP and DHM routines. */
+#include "../bignum.c"
+#include "../ciphersuites.c"
+#include "../dhm.c"
+#include "../ecp.c"
+#include "../ecp_curves.c"
+#include "../mpool.c"
 
-#include "test.h"
-#include "ttls.h"
-
-/*
- * ------------------------------------------------------------------------
- *	Testing mocks
- * ------------------------------------------------------------------------
- */
-void
-ttls_md_init(TlsMdCtx *ctx)
-{
-}
-
-void
-ttls_md_free(TlsMdCtx *ctx)
-{
-}
-
-int
-ttls_md_finish(TlsMdCtx *ctx, unsigned char *output)
-{
-	return 0;
-}
-
-int
-ttls_md(const TlsMdInfo *md_info, const unsigned char *input,
-		   size_t ilen, unsigned char *output)
-{
-	return 0;
-}
-
-int
-ttls_md_setup(TlsMdCtx *ctx, const TlsMdInfo *md_info, int hmac)
-{
-	return 0;
-}
-
-const TlsMdInfo *
-ttls_md_info_from_type(ttls_md_type_t md_type)
-{
-	return NULL;
-}
-
-int
-ttls_md_update(TlsMdCtx *ctx, const unsigned char *input, size_t ilen)
-{
-	return 0;
-}
-
-/*
- * ------------------------------------------------------------------------
- *	Tests for Tempesta TLS low-level basic math/crypto operations.
- *
- * Note that some of the routines are designed to be called in process
- * context during Tempesta FW initialization and some of them are for
- * run-time softirq context, so the testing routines must enable/disable
- * FPU for them on its own.
- * ------------------------------------------------------------------------
- */
-#ifdef __init
-#undef __init
-#define __init
-#endif
-
-#include "../../../tls/bignum.c"
-#include "../../../tls/ciphersuites.c"
-#include "../../../tls/dhm.c"
-#include "../../../tls/ecp_curves.c"
-#include "../../../tls/ecp.c"
-#include "../../../tls/mpool.c"
-#include "../../../tls/rsa.c"
-
-TEST(mpi, alloc_init)
+static void
+mpi_alloc_init(void)
 {
 	TlsMpi *A;
 	unsigned long p[7] = { 0x1, 0x2, 0x3, 0x4, 0x5, 0, 0 };
@@ -149,7 +82,8 @@ TEST(mpi, alloc_init)
 	ttls_mpi_pool_cleanup_ctx(0, false);
 }
 
-TEST(mpi, read_write)
+static void
+mpi_read_write(void)
 {
 	int i;
 	unsigned short save_off;
@@ -225,7 +159,8 @@ TEST(mpi, read_write)
 	ttls_mpi_pool_cleanup_ctx(0, true);
 }
 
-TEST(mpi, copy)
+static void
+mpi_copy(void)
 {
 	size_t bits;
 	unsigned short save_off;
@@ -274,7 +209,8 @@ TEST(mpi, copy)
 	ttls_mpi_pool_cleanup_ctx(0, false);
 }
 
-TEST(mpi, safe_cond)
+static void
+mpi_safe_cond(void)
 {
 	TlsMpi *A, *B;
 	unsigned short save_offA, save_offB;
@@ -343,7 +279,8 @@ TEST(mpi, safe_cond)
 	ttls_mpi_pool_cleanup_ctx(0, true);
 }
 
-TEST(mpi, bitop)
+static void
+mpi_bitop(void)
 {
 	TlsMpi *A;
 	unsigned long *save_ptr;
@@ -430,7 +367,8 @@ TEST(mpi, bitop)
 	ttls_mpi_pool_cleanup_ctx(0, false);
 }
 
-TEST(mpi, elementary)
+static void
+mpi_elementary(void)
 {
 	TlsMpi *A, *B;
 	unsigned long *save_ptr;
@@ -533,7 +471,8 @@ TEST(mpi, elementary)
  * ttls_mpi_dump() - note that the function prints limbs and bytes in then in
  * reverse order
  */
-TEST(mpi, consts)
+static void
+mpi_consts(void)
 {
 	TlsMpi *A, *B;
 
@@ -582,7 +521,8 @@ TEST(mpi, consts)
 	ttls_mpi_pool_cleanup_ctx((unsigned long)A, false);
 }
 
-TEST(mpi, mul_div_simple)
+static void
+mpi_mul_div_simple(void)
 {
 	TlsMpi *A, *B, *D, *R;
 
@@ -614,7 +554,8 @@ TEST(mpi, mul_div_simple)
 	ttls_mpi_pool_cleanup_ctx((unsigned long)A, true);
 }
 
-TEST(mpi, big)
+static void
+mpi_big(void)
 {
 #define GCD_PAIR_COUNT	3
 	int i;
@@ -729,214 +670,8 @@ TEST(mpi, big)
 #undef GCD_PAIR_COUNT
 }
 
-TEST(tls, ecp)
-{
-	int i;
-	TlsEcpGrp *grp;
-	TlsEcpPoint *R, *P;
-	TlsMpi *m;
-	/* Exponents especially adapted for secp256r1, 32 bytes in size. */
-	const char *exponents[] = {
-		/* one */
-		"\x00\x00\x00\x00\x00\x00\x00\x00"
-		"\x00\x00\x00\x00\x00\x00\x00\x00"
-		"\x00\x00\x00\x00\x00\x00\x00\x00"
-		"\x00\x00\x00\x00\x00\x00\x00\x01",
-
-		/* N - 1 */
-		"\xFF\xFF\xFF\xFF\x00\x00\x00\x00"
-		"\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF"
-		"\xBC\xE6\xFA\xAD\xA7\x17\x9E\x84"
-		"\xF3\xB9\xCA\xC2\xFC\x63\x25\x50"
-
-		/* random */
-		"\x5E\xA6\xF3\x89\xA3\x8B\x8B\xC8"
-		"\x1E\x76\x77\x53\xB1\x5A\xA5\x56"
-		"\x9E\x17\x82\xE3\x0A\xBE\x7D\x25"
-		"\x31\x28\xD2\xB4\xB1\xC9\x6B\x14",
-
-		/* one and zeros */
-		"\x40\x00\x00\x00\x00\x00\x00\x00"
-		"\x00\x00\x00\x00\x00\x00\x00\x00"
-		"\x00\x00\x00\x00\x00\x00\x00\x00"
-		"\x00\x00\x00\x00\x00\x00\x00\x00",
-
-		/* all ones */
-		"\x7F\xFF\xFF\xFF\xFF\xFF\xFF\xFF"
-		"\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF"
-		"\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF"
-		"\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF",
-
-		/* 101010... */
-		"\x55\x55\x55\x55\x55\x55\x55\x55"
-		"\x55\x55\x55\x55\x55\x55\x55\x55"
-		"\x55\x55\x55\x55\x55\x55\x55\x55"
-		"\x55\x55\x55\x55\x55\x55\x55\x55",
-	};
-
-	EXPECT_FALSE(!(R = ttls_mpool_alloc_stck(sizeof(TlsEcpPoint))));
-	ttls_ecp_point_init(R);
-	EXPECT_FALSE(!(P = ttls_mpool_alloc_stck(sizeof(TlsEcpPoint))));
-	ttls_ecp_point_init(P);
-	EXPECT_FALSE(!(m = ttls_mpi_alloc_stck_init(4)));
-	EXPECT_FALSE(!(grp = ttls_mpool_alloc_stck(sizeof(TlsEcpGrp))));
-
-	EXPECT_ZERO(ttls_ecp_group_load(grp, TTLS_ECP_DP_SECP256R1));
-	EXPECT_EQ(grp->id, TTLS_ECP_DP_SECP256R1);
-	EXPECT_EQ(grp->nbits, 256);
-	EXPECT_EQ(grp->pbits, 256);
-	EXPECT_EQ(grp->h, 1);
-	EXPECT_EQ(grp->P.used, 4);
-	EXPECT_EQ(grp->P.limbs, 4);
-	EXPECT_EQ(grp->P.s, 1);
-	EXPECT_EQ(MPI_P(&grp->P)[0], 0xffffffffffffffff);
-	EXPECT_EQ(MPI_P(&grp->P)[1], 0xffffffff);
-	EXPECT_EQ(MPI_P(&grp->P)[2], 0);
-	EXPECT_EQ(MPI_P(&grp->P)[3], 0xffffffff00000001);
-	EXPECT_EQ(grp->A.used, 0);
-	EXPECT_EQ(grp->A.limbs, 0);
-	EXPECT_EQ(grp->A.s, 0);
-	EXPECT_EQ(grp->B.used, 4);
-	EXPECT_EQ(grp->B.limbs, 4);
-	EXPECT_EQ(grp->B.s, 1);
-	EXPECT_EQ(MPI_P(&grp->B)[0], 0x3bce3c3e27d2604b);
-	EXPECT_EQ(MPI_P(&grp->B)[1], 0x651d06b0cc53b0f6);
-	EXPECT_EQ(MPI_P(&grp->B)[2], 0xb3ebbd55769886bc);
-	EXPECT_EQ(MPI_P(&grp->B)[3], 0x5ac635d8aa3a93e7);
-	EXPECT_EQ(grp->N.used, 4);
-	EXPECT_EQ(grp->N.limbs, 4);
-	EXPECT_EQ(grp->N.s, 1);
-	EXPECT_EQ(MPI_P(&grp->N)[0], 0xf3b9cac2fc632551);
-	EXPECT_EQ(MPI_P(&grp->N)[1], 0xbce6faada7179e84);
-	EXPECT_EQ(MPI_P(&grp->N)[2], 0xffffffffffffffff);
-	EXPECT_EQ(MPI_P(&grp->N)[3], 0xffffffff00000000);
-	EXPECT_EQ(grp->G.X.used, 4);
-	EXPECT_EQ(grp->G.X.limbs, 4);
-	EXPECT_EQ(grp->G.X.s, 1);
-	EXPECT_EQ(MPI_P(&grp->G.X)[0], 0xf4a13945d898c296);
-	EXPECT_EQ(MPI_P(&grp->G.X)[1], 0x77037d812deb33a0);
-	EXPECT_EQ(MPI_P(&grp->G.X)[2], 0xf8bce6e563a440f2);
-	EXPECT_EQ(MPI_P(&grp->G.X)[3], 0x6b17d1f2e12c4247);
-	EXPECT_EQ(grp->G.Y.used, 4);
-	EXPECT_EQ(grp->G.Y.limbs, 4);
-	EXPECT_EQ(grp->G.Y.s, 1);
-	EXPECT_EQ(MPI_P(&grp->G.Y)[0], 0xcbb6406837bf51f5);
-	EXPECT_EQ(MPI_P(&grp->G.Y)[1], 0x2bce33576b315ece);
-	EXPECT_EQ(MPI_P(&grp->G.Y)[2], 0x8ee7eb4a7c0f9e16);
-	EXPECT_EQ(MPI_P(&grp->G.Y)[3], 0x4fe342e2fe1a7f9b);
-	EXPECT_EQ(grp->G.Z.used, 1);
-	EXPECT_EQ(grp->G.Z.limbs, 1);
-	EXPECT_EQ(grp->G.Z.s, 1);
-	EXPECT_EQ(MPI_P(&grp->G.Z)[0], 1);
-
-	/*
-	 * ECP test #1 (constant op_count, base point G).
-	 */
-	/* Do a dummy multiplication first to trigger precomputation */
-	EXPECT_ZERO(ttls_mpi_lset(m, 2));
-	EXPECT_ZERO(ttls_ecp_mul(grp, P, m, &grp->G, false));
-
-	EXPECT_ZERO(ttls_mpi_read_binary(m, exponents[0], 32));
-	EXPECT_ZERO(ttls_ecp_mul(grp, R, m, &grp->G, false));
-
-	for (i = 1; i < sizeof(exponents) / sizeof(exponents[0]); i++) {
-		EXPECT_ZERO(ttls_mpi_read_binary(m, exponents[i], 32));
-		EXPECT_ZERO(ttls_ecp_mul(grp, R, m, &grp->G, false));
-	}
-
-	/*
-	 * ECP test #2 (constant op_count, other point).
-	 * We computed P = 2G last time, use it.
-	 */
-	EXPECT_ZERO(ttls_mpi_read_binary(m, exponents[0], 32));
-	EXPECT_ZERO(ttls_ecp_mul(grp, R, m, P, false));
-
-	for (i = 1; i < sizeof(exponents) / sizeof(exponents[0]); i++) {
-		EXPECT_ZERO(ttls_mpi_read_binary(m, exponents[i], 32));
-		EXPECT_ZERO(ttls_ecp_mul(grp, R, m, P, false));
-	}
-
-	ttls_mpi_pool_cleanup_ctx((unsigned long)R, true);
-}
-
-/*
- * Example RSA-1024 keypair, for test purposes
- */
-#define KEY_LEN	128
-#define PT_LEN  (256 / 8) /* SHA256 size, 32 bytes */
-
-#define RSA_N								   \
-	"\x92\x92\x75\x84\x53\x06\x3D\x80\x3D\xD6\x03\xD5\xE7\x77\xD7\x88" \
-	"\x8E\xD1\xD5\xBF\x35\x78\x61\x90\xFA\x2F\x23\xEB\xC0\x84\x8A\xEA" \
-	"\xDD\xA9\x2C\xA6\xC3\xD8\x0B\x32\xC4\xD1\x09\xBE\x0F\x36\xD6\xAE" \
-	"\x71\x30\xB9\xCE\xD7\xAC\xDF\x54\xCF\xC7\x55\x5A\xC1\x4E\xEB\xAB" \
-	"\x93\xA8\x98\x13\xFB\xF3\xC4\xF8\x06\x6D\x2D\x80\x0F\x7C\x38\xA8" \
-	"\x1A\xE3\x19\x42\x91\x74\x03\xFF\x49\x46\xB0\xA8\x3D\x3D\x3E\x05" \
-	"\xEE\x57\xC6\xF5\xF5\x60\x6F\xB5\xD4\xBC\x6C\xD3\x4E\xE0\x80\x1A" \
-	"\x5E\x94\xBB\x77\xB0\x75\x07\x23\x3A\x0B\xC7\xBA\xC8\xF9\x0F\x79"
-
-#define RSA_E	"\x01\x00\x01"
-
-#define RSA_D								   \
-	"\x24\xBF\x61\x85\x46\x87\x86\xFD\xD3\x03\x08\x3D\x25\xE6\x4E\xFC" \
-	"\x66\xCA\x47\x2B\xC4\x4D\x25\x31\x02\xF8\xB4\xA9\xD3\xBF\xA7\x50" \
-	"\x91\x38\x6C\x00\x77\x93\x7F\xE3\x3F\xA3\x25\x2D\x28\x85\x58\x37" \
-	"\xAE\x1B\x48\x4A\x8A\x9A\x45\xF7\xEE\x8C\x0C\x63\x4F\x99\xE8\xCD" \
-	"\xDF\x79\xC5\xCE\x07\xEE\x72\xC7\xF1\x23\x14\x21\x98\x16\x42\x34" \
-	"\xCA\xBB\x72\x4C\xF7\x8B\x81\x73\xB9\xF8\x80\xFC\x86\x32\x24\x07" \
-	"\xAF\x1F\xED\xFD\xDE\x2B\xEB\x67\x4C\xA1\x5F\x3E\x81\xA1\x52\x1E" \
-	"\x07\x15\x13\xA1\xE8\x5B\x5D\xFA\x03\x1F\x21\xEC\xAE\x91\xA3\x4D"
-
-#define RSA_P								   \
-	"\xC3\x6D\x0E\xB7\xFC\xD2\x85\x22\x3C\xFB\x5A\xAB\xA5\xBD\xA3\xD8" \
-	"\x2C\x01\xCA\xD1\x9E\xA4\x84\xA8\x7E\xA4\x37\x76\x37\xE7\x55\x00" \
-	"\xFC\xB2\x00\x5C\x5C\x7D\xD6\xEC\x4A\xC0\x23\xCD\xA2\x85\xD7\x96" \
-	"\xC3\xD9\xE7\x5E\x1E\xFC\x42\x48\x8B\xB4\xF1\xD1\x3A\xC3\x0A\x57"
-
-#define RSA_Q								   \
-	"\xC0\x00\xDF\x51\xA7\xC7\x7A\xE8\xD7\xC7\x37\x0C\x1F\xF5\x5B\x69" \
-	"\xE2\x11\xC2\xB9\xE5\xDB\x1E\xD0\xBF\x61\xD0\xD9\x89\x96\x20\xF4" \
-	"\x91\x0E\x41\x68\x38\x7E\x3C\x30\xAA\x1E\x00\xC3\x39\xA7\x95\x08" \
-	"\x84\x52\xDD\x96\xA9\xA5\xEA\x5D\x9D\xCA\x68\xDA\x63\x60\x32\xAF"
-
-#define RSA_PT								   \
-	"\xAA\xBB\xCC\x03\x02\x01\x00\xFF\xFF\xFF\xFF\xFF\x11\x22\x33\x0A" \
-	"\x0B\x0C\xCC\xDD\xDD\xDD\xDD\xDD\x84\xF7\x55\xF0\x40\x88\x3C\x96"
-
-TEST(tls, rsa)
-{
-	TlsRSACtx *rsa;
-	unsigned char hash[PT_LEN], sig[KEY_LEN];
-
-	EXPECT_FALSE(!(rsa = ttls_mpool_alloc_stck(sizeof(TlsRSACtx))));
-	memset(rsa, 0, sizeof(TlsRSACtx));
-	ttls_rsa_init(rsa, TTLS_RSA_PKCS_V15, 0);
-
-	EXPECT_ZERO(ttls_mpi_read_binary(&rsa->N, RSA_N, 128));
-	rsa->len = ttls_mpi_size(&rsa->N);
-	EXPECT_ZERO(ttls_mpi_read_binary(&rsa->P, RSA_P, 64));
-	EXPECT_ZERO(ttls_mpi_read_binary(&rsa->Q, RSA_Q, 64));
-	EXPECT_ZERO(ttls_mpi_read_binary(&rsa->D, RSA_D, 128));
-	EXPECT_ZERO(ttls_mpi_read_binary(&rsa->E, RSA_E, 3));
-
-	EXPECT_ZERO(ttls_rsa_complete(rsa));
-
-	EXPECT_ZERO(ttls_rsa_check_pubkey(rsa));
-
-	/* Run-time (softirq) logic. */
-	kernel_fpu_begin();
-
-	memcpy(hash, RSA_PT, PT_LEN);
-	EXPECT_ZERO(ttls_rsa_pkcs1_sign(rsa, TTLS_MD_SHA256, hash, sig));
-	EXPECT_ZERO(ttls_rsa_pkcs1_verify(rsa, TTLS_MD_SHA256, PT_LEN, hash,
-					  sig));
-
-	kernel_fpu_end();
-
-	ttls_mpi_pool_cleanup_ctx((unsigned long)rsa, false);
-}
-
-TEST_SUITE(tls)
+int
+main(int argc, char *argv[])
 {
 	/*
 	 * The test works in process context, so cfg_pool is used
@@ -944,17 +679,17 @@ TEST_SUITE(tls)
 	 */
 	ttls_mpool_init();
 
-	TEST_RUN(mpi, alloc_init);
-	TEST_RUN(mpi, read_write);
-	TEST_RUN(mpi, copy);
-	TEST_RUN(mpi, safe_cond);
-	TEST_RUN(mpi, bitop);
-	TEST_RUN(mpi, elementary);
-	TEST_RUN(mpi, consts);
-	TEST_RUN(mpi, mul_div_simple);
-	TEST_RUN(mpi, big);
-	TEST_RUN(tls, ecp);
-	TEST_RUN(tls, rsa);
+	mpi_alloc_init();
+	mpi_read_write();
+	mpi_copy();
+	mpi_safe_cond();
+	mpi_bitop();
+	mpi_elementary();
+	mpi_consts();
+	mpi_mul_div_simple();
+	mpi_big();
 
 	ttls_mpool_exit();
+
+	return 0;
 }

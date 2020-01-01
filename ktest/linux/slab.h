@@ -1,7 +1,7 @@
 /**
  *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2015-2017 Tempesta Technologies.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -21,6 +21,7 @@
 #define __SLAB_H__
 
 #include <stdlib.h>
+#include <string.h>
 
 #include "atomic.h"
 #include "compiler.h"
@@ -29,9 +30,43 @@
 #include "spinlock.h"
 #include "threads.h"
 
+#define NUMA_NO_NODE	0
+
 /* asm/page.h */
 #define PAGE_SIZE	4096UL
 
-#define kfree(p)	free(p)
+typedef enum {
+	GFP_KERNEL = 0,
+	GFP_ATOMIC = 0,
+	__GFP_ZERO = 1,
+} gfp_t;
+
+/* Tempesta FW specific API. */
+#ifndef pg_skb_alloc
+#define pg_skb_alloc(size, ...)		malloc(size)
+#endif
+
+static inline void *
+kmalloc(size_t size, gfp_t gf_flags)
+{
+	void *p = malloc(size);
+	if (p && (gf_flags & __GFP_ZERO))
+		memset(p, 0, size);
+	return p;
+}
+
+#define kzalloc(size, ...)		calloc(1, size)
+#define __get_free_pages(mask, order)	kmalloc(PAGE_SIZE << order, mask)
+
+#define kfree(p)			free(p)
+#define free_pages(p, order)		free((void *)p)
+
+#define get_order(n)	( ((n) < 4096) ? 0				\
+			  : ((n) < 8192) ? 1				\
+			    : ((n) < 16384) ? 2				\
+			      : ((n) < 32768) ? 3			\
+			        : ((n) < 65536) ? 4			\
+				  : ((n) < 131072) ? 5			\
+				    : ((n) < 262144) ? 6 : (abort(), 7) )
 
 #endif /* __SLAB_H__ */

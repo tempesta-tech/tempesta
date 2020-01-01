@@ -29,7 +29,6 @@
 #include "oid.h"
 #include "rsa.h"
 #include "ecp.h"
-#include "ecdsa.h"
 #include "pem.h"
 #include "tls_internal.h"
 
