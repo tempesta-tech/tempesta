@@ -1,7 +1,7 @@
 /**
  *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -17,49 +17,36 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __THREADS_H__
-#define __THREADS_H__
+#ifndef __BUG_H__
+#define __BUG_H__
 
+#include <assert.h>
 #include <stdlib.h>
+#include <stdio.h>
 
-#include "kernel.h"
+#define BUG_ON(c)	assert(!(c))
+#define BUILD_BUG_ON(c)	assert(!(c))
+#define BUG()		abort()
 
-static size_t __thr_max = 0;
-static size_t __thread __thr_id;
+#define WARN(condition, format...) ({					\
+	int __ret_warn_on = !!(condition);				\
+	if (__ret_warn_on)						\
+		fprintf(stderr, format);				\
+	__ret_warn_on;							\
+})
 
-typedef struct {
-	void *data;
-	void *(*f_ptr)(void *);
-} __ThrData;
+#define WARN_ONCE(condition, format...) ({				\
+	int __ret_warn_on = !!(condition);				\
+	if (__ret_warn_on)						\
+		fprintf(stderr, format);				\
+	__ret_warn_on;							\
+})
 
-static void *
-__thr_func_wrapper(void *data)
-{
-	__ThrData *d = data;
-	void *ret = NULL;
+#define WARN_ON_ONCE(condition) ({					\
+	int __ret_warn_on = !!(condition);				\
+	if (__ret_warn_on)						\
+		fprintf(stderr, "Warning at %s:%d\n", __FILE__, __LINE__);\
+	__ret_warn_on;							\
+})
 
-	__thr_id = __atomic_fetch_add(&__thr_max, 1, __ATOMIC_SEQ_CST);
-	BUG_ON(__thr_max >= NR_CPUS);
-
-	if (d->f_ptr)
-		ret = d->f_ptr(d->data);
-
-	free(d);
-
-	return ret;
-}
-
-static inline int
-spawn_thread(pthread_t *thr_id, void *(func)(void *), void *arg)
-{
-	__ThrData *d = malloc(sizeof(__ThrData));
-	if (!d)
-		return -ENOMEM;
-
-	d->data = arg;
-	d->f_ptr = func;
-
-	return pthread_create(thr_id, NULL, __thr_func_wrapper, d);
-}
-
-#endif /* __THREADS_H__ */
+#endif /* __BUG_H__ */

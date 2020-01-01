@@ -29,7 +29,6 @@
 #include "crypto.h"
 #include "rsa.h"
 #include "ecp.h"
-#include "ecdsa.h"
 
 /* Memory allocation failed. */
 #define TTLS_ERR_PK_ALLOC_FAILED	-0x3F80
