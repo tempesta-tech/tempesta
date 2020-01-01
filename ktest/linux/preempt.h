@@ -1,7 +1,7 @@
 /**
  *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -17,39 +17,17 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __SYNC_BITOPS_H__
-#define __SYNC_BITOPS_H__
+#ifndef __PREEMPT_H__
+#define __PREEMPT_H__
 
-#define ADDR				(*(volatile long *)addr)
+/*
+ * In user space all threads have different identifiers,
+ * so there is no problems with preemption.
+ */
+#define local_bh_disable()
+#define local_bh_enable()
 
-static inline int
-sync_test_and_set_bit(int nr, volatile unsigned long *addr)
-{
-	int oldbit;
+#define preempt_disable()
+#define preempt_enable()
 
-	asm volatile("lock; btsl %2,%1\n\tsbbl %0,%0"
-		     : "=r" (oldbit), "+m" (ADDR)
-		     : "Ir" (nr) : "memory");
-	return oldbit;
-}
-
-static inline unsigned long
-__ffs(unsigned long word)
-{
-	asm("rep; bsf %1,%0"
-		: "=r" (word)
-		: "rm" (word));
-	return word;
-}
-
-static inline int
-fls64(__u64 x)
-{
-	int bitpos = -1;
-	asm("bsrq %1,%q0"
-	    : "+r" (bitpos)
-	    : "rm" (x));
-	return bitpos + 1;
-}
-
-#endif /* __SYNC_BITOPS_H__ */
+#endif /* __PREEMPT_H__ */
