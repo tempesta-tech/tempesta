@@ -3049,7 +3049,7 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	ht = req->h_tbl;
 	auth = !TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY]);
 	host = !TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_HOST]);
-	pseudo_num = auth ? 4 : 3;
+	pseudo_num = 3; /* Count authority as usual header for now. */
 	/*
 	 * Calculate http1.1 headers size. H2 request contains pseudo headers
 	 * that are represented in different way in the http1.1 requests.
