@@ -80,7 +80,7 @@ typedef struct {
 	int				max_major_ver;
 	int				max_minor_ver;
 	unsigned char			flags;
-	TlsMpiPool			*mpi_profile[__TTLS_ECP_DP_N];
+	TlsMpiPool			*mpi_profile[__TTLS_ECP_DP_N - 1];
 } TlsCiphersuite;
 
 TlsMpiPool *ttls_ciphersuite_addr_mp(void *addr);

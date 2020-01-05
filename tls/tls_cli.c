@@ -1269,11 +1269,8 @@ static int ssl_get_ecdh_params_from_cert(TlsCtx *ssl)
 
 	peer_key = ttls_pk_ec(ssl->session_negotiate->peer_cert->pk);
 
-	if ((ret = ttls_ecdh_get_params(&ssl->handshake->ecdh_ctx, peer_key,
-		 TTLS_ECDH_THEIRS)) != 0)
-	{
+	if ((ret = ttls_ecdh_get_params(&ssl->handshake->ecdh_ctx, peer_key)))
 		return ret;
-	}
 
 	if (ssl_check_server_ecdh_params(ssl) != 0)
 	{

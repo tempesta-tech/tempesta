@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
@@ -82,20 +82,18 @@ rsa_sign_wrap(void *ctx, ttls_md_type_t md_alg, const unsigned char *hash,
 static void *
 rsa_alloc_wrap(void)
 {
+	TlsMpiPool *mp;
 	TlsRSACtx *ctx;
 
 	might_sleep();
 
-	if ((ctx = ttls_mpi_pool_alloc(sizeof(*ctx), GFP_KERNEL)))
+	if (!(mp = ttls_mpi_pool_alloc(TTLS_MPOOL_ORDER, GFP_KERNEL)))
+		return NULL;
+
+	if ((ctx = ttls_mpool_alloc_data(mp, sizeof(*ctx))))
 		ttls_rsa_init(ctx, 0, 0);
 
 	return ctx;
-}
-
-static void
-rsa_free_wrap(void *ctx)
-{
-	ttls_mpi_pool_free(ctx);
 }
 
 /*
@@ -154,20 +152,18 @@ eckey_get_bitlen(const void *ctx)
 static void *
 eckey_alloc_wrap(void)
 {
+	TlsMpiPool *mp;
 	TlsEcpKeypair *ctx;
 
 	might_sleep();
 
-	if ((ctx = ttls_mpi_pool_alloc(sizeof(*ctx), GFP_KERNEL)))
+	if (!(mp = ttls_mpi_pool_alloc(TTLS_MPOOL_ORDER, GFP_KERNEL)))
+		return NULL;
+
+	if ((ctx = ttls_mpool_alloc_data(mp, sizeof(*ctx))))
 		ttls_ecp_keypair_init(ctx);
 
 	return ctx;
-}
-
-static void
-eckey_free_wrap(void *ctx)
-{
-	ttls_mpi_pool_free(ctx);
 }
 
 const TlsPkInfo ttls_rsa_info = {
@@ -178,7 +174,6 @@ const TlsPkInfo ttls_rsa_info = {
 	rsa_verify_wrap,
 	rsa_sign_wrap,
 	rsa_alloc_wrap,
-	rsa_free_wrap,
 };
 
 const TlsPkInfo ttls_eckeydh_info = {
@@ -189,7 +184,6 @@ const TlsPkInfo ttls_eckeydh_info = {
 	NULL,
 	NULL,
 	eckey_alloc_wrap,
-	eckey_free_wrap,
 };
 
 const TlsPkInfo ttls_ecdsa_info = {
@@ -200,7 +194,6 @@ const TlsPkInfo ttls_ecdsa_info = {
 	ecdsa_verify_wrap,
 	ecdsa_sign_wrap,
 	eckey_alloc_wrap,
-	eckey_free_wrap,
 };
 
 const TlsPkInfo ttls_eckey_info = {
@@ -211,7 +204,6 @@ const TlsPkInfo ttls_eckey_info = {
 	ecdsa_verify_wrap,
 	ecdsa_sign_wrap,
 	eckey_alloc_wrap,
-	eckey_free_wrap,
 };
 
 void
@@ -235,7 +227,7 @@ ttls_pk_free(TlsPkCtx *ctx)
 {
 	if (unlikely(!ctx || !ctx->pk_info))
 		return;
-	ctx->pk_info->ctx_free_func(ctx->pk_ctx);
+	ttls_mpi_pool_free(ctx->pk_ctx);
 }
 EXPORT_SYMBOL(ttls_pk_free);
 
@@ -395,9 +387,6 @@ ttls_pk_get_bitlen(const TlsPkCtx *ctx)
 	return ctx->pk_info->get_bitlen(ctx->pk_ctx);
 }
 
-/**
- * Access the PK type.
- */
 ttls_pk_type_t
 ttls_pk_get_type(const TlsPkCtx *ctx)
 {

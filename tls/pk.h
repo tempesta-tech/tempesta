@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
@@ -104,7 +104,6 @@ typedef struct {
 			 const unsigned char *hash, size_t hash_len,
 			 unsigned char *sig, size_t *sig_len);
 	void *(*ctx_alloc_func)(void);
-	void (*ctx_free_func)(void *ctx);
 } TlsPkInfo;
 
 /**
