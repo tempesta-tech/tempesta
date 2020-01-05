@@ -1207,8 +1207,6 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		if (tfw_h2_flow_control(ctx))
 			return T_DROP;
 
-		STREAM_RECV_PROCESS(ctx, hdr);
-
 		ctx->data_off = FRAME_HEADER_SIZE;
 		ctx->plen = ctx->hdr.length;
 

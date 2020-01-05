@@ -105,18 +105,28 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 		 * (remote)' state.
 		 */
 		if (type == HTTP2_HEADERS) {
-			if (flags & (HTTP2_F_END_STREAM | HTTP2_F_END_HEADERS)) {
+			switch (flags
+				& (HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM))
+			{
+			case HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM:
 				stream->state = HTTP2_STREAM_REM_HALF_CLOSED;
-			}
+				break;
+			case HTTP2_F_END_HEADERS:
+				/*
+				 * Headers is ended, next frame in the stream
+				 * should be DATA frame.
+				 */
+				break;
 			/*
 			 * If END_HEADERS flag is not received, move stream into
 			 * the states of waiting CONTINUATION frame.
 			 */
-			else if (flags & HTTP2_F_END_STREAM) {
+			case HTTP2_F_END_STREAM:
 				stream->state = HTTP2_STREAM_CONT_CLOSED;
-			}
-			else if (!(flags & HTTP2_F_END_HEADERS)) {
+				break;
+			default:
 				stream->state = HTTP2_STREAM_CONT;
+				break;
 			}
 		}
 		else if (type == HTTP2_DATA && (flags & HTTP2_F_END_STREAM)) {

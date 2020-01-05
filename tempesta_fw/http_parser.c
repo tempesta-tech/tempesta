@@ -7985,8 +7985,6 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, size_t len,
 	else
 		r = tfw_h2_parse_body(data, len, req, parsed);
 
-	if (r != T_OK && r != T_POSTPONE)
-		return r;
 	/*
 	 * Parsing of HTTP/2 frames' payload never gives T_OK result since
 	 * request can be assembled from different number of frames; only
@@ -7997,23 +7995,35 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, size_t len,
 	 * procedures yet, it must be deleted during corresponding stream
 	 * removal.
 	 */
-	if (tfw_h2_stream_req_complete(req->stream)) {
-		TfwHttpHdrTbl *ht = req->h_tbl;
+	return (r == T_OK) ? T_POSTPONE : r;
+}
 
-		if (req->content_length
-		    && req->content_length != req->body.len)
-			return T_DROP;
+/**
+ * Finish parsing h2 request. The request may consist of multiple skbs and
+ * multiple h2 frames. Last frame is marked with End Stream flag, it's the
+ * only way to indicate message end.
+ */
+int
+tfw_h2_parse_req_finish(TfwHttpReq *req)
+{
+	TfwHttpHdrTbl *ht = req->h_tbl;
 
-		__set_bit(TFW_HTTP_B_FULLY_PARSED, req->flags);
+	if (WARN_ON_ONCE(!tfw_h2_stream_req_complete(req->stream)))
+		return T_DROP;
 
-		__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY],
-				 &req->host);
-		__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_PATH],
-				 &req->uri_path);
-		return T_OK;
+	if (req->content_length
+	    && req->content_length != req->body.len)
+	{
+		return T_DROP;
 	}
+	__set_bit(TFW_HTTP_B_FULLY_PARSED, req->flags);
 
-	return T_POSTPONE;
+	__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY],
+			 &req->host);
+	__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_PATH],
+			 &req->uri_path);
+
+	return T_OK;
 }
 
 /*
