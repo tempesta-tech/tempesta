@@ -19,7 +19,7 @@
  * implicitly for MPI math. Dynamically allocated pages are used instead of
  * static per-cpu ones.
  *
- * Copyright (C) 2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -46,6 +46,8 @@
 #define MPI_POOL_DATA(mp)	((void *)((char *)(mp) + sizeof(TlsMpiPool)))
 #define MPI_POOL_FREE_PTR(mp)	((void *)((char *)(mp) + mp->curr))
 #define MPI_PROFILE_SZ(mp)	(mp)->curr
+/* PK is memory greedy, so standard 2 pages stack isn't enough. */
+#define __MPOOL_STACK_ORDER	2
 
 /*
  * Memory pool for temporal (stack allocated) MPIs which are used only during
@@ -79,16 +81,22 @@ __mpi_pool(void *addr)
 		goto check;
 	}
 
-	/* Maximum kernel stack size is 2 pages. */
+	/*
+	 * If @addr (some MPI) was allocated on stack, then prohibit any
+	 * pool operations - TlsMpi->_off is unable to handle too far pointers.
+	 *
+	 * Maximum kernel stack size is 2 pages.
+	 */
 	if (WARN_ON_ONCE(sp < a && a < sp + 2 * PAGE_SIZE))
 		return NULL;
 
 	mp = *this_cpu_ptr(&g_tmp_mpool);
 	mp_name = "temporary";
-	if ((unsigned long)mp < a && a < (unsigned long)mp + 2 * PAGE_SIZE)
+	if ((unsigned long)mp < a
+	    && a < (unsigned long)mp + (PAGE_SIZE << mp->order))
 		goto check;
 
-	/* FIXME need a safer determination of the pool address. */
+	/* See ttls_mpi_pool_alloc() for alignment guarantees. */
 	mp = (TlsMpiPool *)(a & ~((PAGE_SIZE << TTLS_MPOOL_ORDER) - 1));
 	mp_name = "handshake";
 
@@ -105,7 +113,7 @@ check:
 }
 
 void *
-__mpool_alloc_data(TlsMpiPool *mp, size_t n)
+ttls_mpool_alloc_data(TlsMpiPool *mp, size_t n)
 {
 	void *ptr = MPI_POOL_FREE_PTR(mp);
 
@@ -121,7 +129,7 @@ __mpool_alloc_data(TlsMpiPool *mp, size_t n)
 }
 
 /**
- * Allocate space for a new MPI within a pool.
+ * Allocate limbs space for the MPI within a pool, where the MPI was allocated.
  */
 int
 ttls_mpi_pool_alloc_mpi(TlsMpi *x, size_t n)
@@ -132,7 +140,7 @@ ttls_mpi_pool_alloc_mpi(TlsMpi *x, size_t n)
 	if (!mp)
 		return -ENOMEM;
 
-	if (!(ptr = __mpool_alloc_data(__mpi_pool(x), n)))
+	if (!(ptr = ttls_mpool_alloc_data(mp, n)))
 		return -ENOMEM;
 
 	return (int)((unsigned long)ptr - (unsigned long)x);
@@ -141,7 +149,7 @@ ttls_mpi_pool_alloc_mpi(TlsMpi *x, size_t n)
 void *
 ttls_mpool_alloc_stck(size_t n)
 {
-	return __mpool_alloc_data(*this_cpu_ptr(&g_tmp_mpool), n);
+	return ttls_mpool_alloc_data(*this_cpu_ptr(&g_tmp_mpool), n);
 }
 
 /**
@@ -150,7 +158,7 @@ ttls_mpool_alloc_stck(size_t n)
  *
  * The function call is semantically similar to moving RSP register, but the
  * funcation call (1) i more expensive and (2) provides memory zeroing.
- * __mpool_alloc_data() with this function should be used for large MPI
+ * ttls_mpool_alloc_data() with this function should be used for large MPI
  * allocations, when the small kernel stack can be overrun.
  */
 void
@@ -193,70 +201,114 @@ ttls_mpi_pool_free(void *ctx)
 /**
  * Allocate and initialize a new MPI pool.
  *
+ * Memory pools are allocated directly from the buddy allocator, i.e. buddies
+ * with order higher than 1 are allocated with addresses aligned to
+ * (PAGE_SIZE << order).
+ *
  * If @n == 0, then only one page (the minimum allocation) is allocated.
  */
-void *
-__mpi_pool_alloc(size_t n, gfp_t gfp_mask)
+TlsMpiPool *
+ttls_mpi_pool_alloc(size_t order, gfp_t gfp_mask)
 {
 	TlsMpiPool *mp;
-	unsigned int order = n ? get_order(n + sizeof(*mp)) : TTLS_MPOOL_ORDER;
+	unsigned long addr;
 
-	mp = (TlsMpiPool *)__get_free_pages(gfp_mask | __GFP_ZERO, order);
-	if (!mp)
+	if (!(addr = __get_free_pages(gfp_mask | __GFP_ZERO, order)))
 		return NULL;
+	WARN_ON_ONCE(addr & ((PAGE_SIZE << order) - 1));
 
+	mp = (TlsMpiPool *)addr;
 	mp->order = order;
 	mp->curr = sizeof(TlsMpiPool);
 
 	return mp;
 }
 
-void *
-ttls_mpi_pool_alloc(size_t n, gfp_t gfp_mask)
+static void
+__mpool_ecp_shrink_tz(TlsMpiPool *mp, TlsEcpGrp *grp)
 {
-	TlsMpiPool *mp = __mpi_pool_alloc(n, gfp_mask);
-	if (!mp)
-		return NULL;
-	return MPI_POOL_DATA(mp);
+	TlsMpi *T = &grp->T[ARRAY_SIZE(grp->T) - 1].Z;
+	unsigned long *a = MPI_P(&grp->T[0].Z);
+	unsigned long *b = MPI_P(T) + T->limbs;
+	size_t n = (size_t)MPI_POOL_FREE_PTR(mp) - (size_t)b;
+	int i;
+
+	BUG_ON((unsigned long *)MPI_POOL_DATA(mp) > a);
+	BUG_ON((unsigned long *)MPI_POOL_FREE_PTR(mp) < b);
+	BUG_ON(b - a != grp->G.Z.limbs * ARRAY_SIZE(grp->T));
+
+	for (i = 0; i < ARRAY_SIZE(grp->T); i++) {
+		TlsMpi *T = &grp->T[i].Z;
+
+		BUG_ON(MPI_P(T) < a || MPI_P(T) + T->limbs > b);
+
+		T->limbs = 0;
+		T->_off = 0;
+	}
+
+	memmove(a, b, n);
+	bzero_fast((char *)a + n, n);
+	mp->curr -= n;
+}
+
+static int
+__mpi_profile_load_ec(TlsMpiPool *mp, TlsECDHCtx *ctx, unsigned char w,
+		      ttls_ecp_group_id ec)
+{
+	int r;
+	size_t n_sz;
+	TlsEcpGrp *grp = &ctx->grp;
+
+	if ((r = ttls_ecp_group_load(&ctx->grp, ec))) {
+		T_DBG("cannot load Secp256r1 ECP group, %d\n",
+		      ec == TTLS_ECP_DP_SECP256R1 ? "Secp256r1" :
+		      ec == TTLS_ECP_DP_SECP384R1 ? "Secp384r1" : "unknown",
+		      r);
+		return r;
+	}
+
+	/*
+	 * Allocate memory for the MPIs set in ttls_ecp_gen_keypair()
+	 * called from ttls_ecdh_make_params().
+	 */
+	n_sz = CHARS_TO_LIMBS((grp->nbits + 7) / 8);
+	if (__mpi_alloc(&ctx->d, n_sz)
+	    || __mpi_alloc(&ctx->Q.X, n_sz)
+	    || __mpi_alloc(&ctx->Q.Y, n_sz)
+	    || __mpi_alloc(&ctx->Q.X, 1))
+		return -ENOMEM;
+
+	/* Prepare precomputed points to use them in ecp_mul_comb(). */
+	n_sz = (ctx->grp.nbits + w - 1) / w;
+	if (ecp_precompute_comb(&ctx->grp, ctx->grp.T, &ctx->grp.G, w, n_sz))
+		return -EDOM;
+
+	__mpool_ecp_shrink_tz(mp, &ctx->grp);
+
+	return 0;
 }
 
 static int
 ttls_mpi_profile_create_ec(TlsMpiPool *mp, ttls_ecp_group_id ec)
 {
 	int r;
-	size_t n_sz;
 	TlsECDHCtx *ecdh_ctx;
-	TlsEcpGrp *grp;
 
-	mp->curr += sizeof(*ecdh_ctx);
-	ecdh_ctx = MPI_POOL_DATA(mp);
-	grp = &ecdh_ctx->grp;
+	if (!(ecdh_ctx = ttls_mpool_alloc_data(mp, sizeof(*ecdh_ctx))))
+		return -ENOMEM;
 
 	switch (ec) {
 	case TTLS_ECP_DP_SECP256R1:
-		if ((r = ttls_ecp_group_load(&ecdh_ctx->grp, ec))) {
-			T_DBG("cannot load Secp256r1 ECP group, %d\n", r);
+		if ((r = __mpi_profile_load_ec(mp, ecdh_ctx, 5, ec)))
 			return r;
-		}
-		/*
-		 * Allocate memory for the MPIs set in ttls_ecp_gen_keypair()
-		 * called from ttls_ecdh_make_params().
-		 *
-		 * TODO #1064 set Q MPIs to proper size.
-		 */
-		n_sz = CHARS_TO_LIMBS((grp->nbits + 7) / 8);
-		if (__mpi_alloc(&ecdh_ctx->d, n_sz))
-			return -ENOMEM;
 		break;
 	case TTLS_ECP_DP_SECP384R1:
-		if ((r = ttls_ecp_group_load(&ecdh_ctx->grp, ec))) {
-			T_DBG("cannot load Secp384r1 ECP group, %d\n", r);
+		if ((r = __mpi_profile_load_ec(mp, ecdh_ctx, 6, ec)))
 			return r;
-		}
-		n_sz = CHARS_TO_LIMBS((grp->nbits + 7) / 8);
-		if (__mpi_alloc(&ecdh_ctx->d, n_sz))
-			return -ENOMEM;
 		break;
+	case TTLS_ECP_DP_CURVE25519:
+		/* TODO #1031 nothing to do yet. */
+		return 0;
 	default:
 		WARN_ONCE(1, "There is no EC profile for %d\n", ec);
 		return -EINVAL;
@@ -265,27 +317,18 @@ ttls_mpi_profile_create_ec(TlsMpiPool *mp, ttls_ecp_group_id ec)
 	/* Init the temporary point to be used in ttls_ecdh_compute_shared(). */
 	ttls_ecp_point_init(&ecdh_ctx->p_tmp);
 
-	/*
-	 * Prepare precomputed points to use them in ecp_mul_comb().
-	 * Different curves require different size of T - comput the maximum
-	 * number of items to fit all the curves - that's fine on vhost
-	 * initialization stage.
-	 */
-	n_sz = (ecdh_ctx->grp.nbits + TTLS_ECP_WINDOW_ORDER - 1)
-		/ TTLS_ECP_WINDOW_ORDER;
-	if (ecp_precompute_comb(&ecdh_ctx->grp, ecdh_ctx->grp.T,
-				&ecdh_ctx->grp.G, TTLS_ECP_WINDOW_ORDER, n_sz))
-		return -EDOM;
-
 	return 0;
 }
 
 static int
 ttls_mpi_profile_create_dh(TlsMpiPool *mp)
 {
-	mp->curr += sizeof(TlsDHMCtx);
+	TlsDHMCtx *dhm;
 
-	return ttls_dhm_load(MPI_POOL_DATA(mp));
+	if (!(dhm = ttls_mpool_alloc_data(mp, sizeof(*dhm))))
+		return -ENOMEM;
+
+	return ttls_dhm_load(dhm);
 }
 
 /**
@@ -295,8 +338,7 @@ ttls_mpi_profile_create_dh(TlsMpiPool *mp)
 static int
 ttls_mpi_profile_set(TlsCiphersuite *cs)
 {
-	int r = 0;
-	ttls_ecp_group_id ec;
+	int r = 0, e;
 	TlsMpiPool *mp;
 
 	/* Static ciphersuite profiles are always here. */
@@ -307,13 +349,17 @@ ttls_mpi_profile_set(TlsCiphersuite *cs)
 
 	kernel_fpu_begin();
 
+	/*
+	 * The ciphersuite memory profiles are from static memory, so
+	 * all the areas are zeroized.
+	 */
 	switch (cs->key_exchange) {
 	case TTLS_KEY_EXCHANGE_ECDHE_RSA:
 	case TTLS_KEY_EXCHANGE_ECDHE_ECDSA:
-		for (ec = __TTLS_ECP_DP_FIRST; ec < __TTLS_ECP_DP_N; ++ec) {
-			mp = cs->mpi_profile[ec];
-			BUG_ON(!mp);
-			if ((r = ttls_mpi_profile_create_ec(mp, ec)))
+		/* 0'th curve is NONE, so count from -1. */
+		for (e = 0; e < __TTLS_ECP_DP_N - 1; ++e) {
+			mp = cs->mpi_profile[e];
+			if ((r = ttls_mpi_profile_create_ec(mp, e + 1)))
 				goto cleanup;
 		}
 		break;
@@ -333,13 +379,15 @@ cleanup:
 }
 
 static int
-__mpi_profile_clone(TlsCtx *tls, ttls_ecp_group_id ec)
+__mpi_profile_clone(TlsCtx *tls, int ec)
 {
 	char *ptr;
-	size_t p_sz;
+	size_t order;
 	TlsMpiPool *mp;
 	const TlsCiphersuite *ci = tls->xfrm.ciphersuite_info;
 	TlsHandshake *hs = tls->hs;
+
+	BUG_ON(ec < 0 || ec >= __TTLS_ECP_DP_N);
 
 	mp = ci->mpi_profile[ec];
 	if (WARN_ON_ONCE(!mp)) {
@@ -348,14 +396,20 @@ __mpi_profile_clone(TlsCtx *tls, ttls_ecp_group_id ec)
 		return -ENOENT;
 	}
 
-	p_sz = MPI_PROFILE_SZ(mp);
-	/* TODO #1064 doesn't it make sense to use full pages? */
-	ptr = pg_skb_alloc(p_sz, GFP_ATOMIC, NUMA_NO_NODE);
+	order = get_order(MPI_PROFILE_SZ(mp));
+	ptr = (char *)__get_free_pages(GFP_ATOMIC, order);
 	if (WARN_ON_ONCE(!ptr))
 		return -ENOMEM;
 
-	memcpy_fast(ptr, mp, p_sz);
+	memcpy_fast(ptr, mp, MPI_PROFILE_SZ(mp));
 	hs->crypto_ctx = MPI_POOL_DATA(ptr);
+
+	/*
+	 * Adjust the cloned memory pool order, which can be smaller than
+	 * the original.
+	 */
+	mp = (TlsMpiPool *)ptr;
+	mp->order = order;
 
 	return 0;
 }
@@ -386,7 +440,7 @@ curve_found:
 		}
 		T_DBG("ECDHE curve: %s\n", (*curve)->name);
 
-		return __mpi_profile_clone(tls, (*curve)->grp_id);
+		return __mpi_profile_clone(tls, (*curve)->grp_id - 1);
 
 	case TTLS_KEY_EXCHANGE_DHE_RSA:
 		return __mpi_profile_clone(tls, 0);
@@ -418,7 +472,8 @@ ttls_mpool_init(void)
 
 	for_each_possible_cpu(cpu) {
 		TlsMpiPool **mp = per_cpu_ptr(&g_tmp_mpool, cpu);
-		if (!(*mp = __mpi_pool_alloc(0, GFP_KERNEL)))
+		if (!(*mp = ttls_mpi_pool_alloc(__MPOOL_STACK_ORDER,
+						GFP_KERNEL)))
 			goto err_cleanup;
 	}
 

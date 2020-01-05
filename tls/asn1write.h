@@ -29,8 +29,13 @@
 
 #include "asn1.h"
 
-#define TTLS_ASN1_CHK_ADD(g, f) do { if ((ret = f) < 0) return ret; else   \
-		g += ret; } while (0)
+#define TTLS_ASN1_CHK_ADD(g, f)						\
+do {									\
+	if ((ret = f) < 0)						\
+		return ret;						\
+	else								\
+		g += ret;						\
+} while (0)
 
 /**
  * \brief		   Write a length field in ASN.1 format

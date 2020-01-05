@@ -12,7 +12,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
@@ -127,29 +127,22 @@ ttls_ecdh_read_params(TlsECDHCtx *ctx, const unsigned char **buf,
 }
 
 /**
- * Get parameters from a keypair.
+ * Get parameters from a keypair: set up an ECDH context from an EC key.
+ * It is used by clients and servers in place of the ServerKeyExchange for
+ * static ECDH, and imports ECDH parameters from the EC key information of a
+ * certificate.
+ *
  * TODO #769 used in client mode only - fix the ECP group destination address.
  */
 int
-ttls_ecdh_get_params(TlsECDHCtx *ctx, const TlsEcpKeypair *key,
-		     ttls_ecdh_side side)
+ttls_ecdh_get_params(TlsECDHCtx *ctx, const TlsEcpKeypair *key)
 {
 	int r;
-
-	BUG_ON(side != TTLS_ECDH_THEIRS && side != TTLS_ECDH_OURS);
 
 	if ((r = ttls_ecp_group_load(&ctx->grp, key->grp.id)))
 		return r;
 
-	/* If it's not our key, just import the public part as Qp */
-	if (side == TTLS_ECDH_THEIRS)
-		return ttls_ecp_copy(&ctx->Qp, &key->Q);
-
-	if ((r = ttls_ecp_copy(&ctx->Q, &key->Q))
-	    || (r = ttls_mpi_copy(&ctx->d, &key->d)))
-		return r;
-
-	return 0;
+	return ttls_ecp_copy(&ctx->Qp, &key->Q);
 }
 
 /**

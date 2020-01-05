@@ -31,7 +31,7 @@ ifdef DEBUG
 	CFLAGS += -DDEBUG=$(DEBUG) -DDBG_TLS=1
 endif
 
-TARGETS		= test_mpi test_ecp test_rsa
+TARGETS		= test_mpi test_ecp test_rsa test_ecdsa
 
 all : $(TARGETS)
 

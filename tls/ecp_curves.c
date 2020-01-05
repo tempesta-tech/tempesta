@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
@@ -126,29 +126,7 @@ static const unsigned long secp384r1_n[] = {
  * For this prime we need to handle data in chunks of 64 bits.
  * Since this is always a multiple of our basic unsigned long, we can
  * use a unsigned long * to designate such a chunk, and small loops to handle it.
- */
-
-/*
- * Add 64-bit chunks (dst += src) and update carry.
- */
-static inline void
-add64(unsigned long *dst, unsigned long *src, unsigned long *carry)
-{
-	*dst += *src;
-	*carry += *dst < *src;
-}
-
-/*
- * Add carry to a 64-bit chunk and update carry.
- */
-static inline void
-carry64(unsigned long *dst, unsigned long *carry)
-{
-	*dst += *carry;
-	*carry = *dst < *carry;
-}
-
-/*
+ *
  * For these primes, we need to handle data in chunks of 32 bits.
  * This makes it more complicated if we use 64 bits limbs in MPI,
  * which prevents us from using a uniform access method as for p192.
@@ -165,24 +143,26 @@ carry64(unsigned long *dst, unsigned long *carry)
 #define STORE32								\
 do {									\
 	if (i % 2) {							\
-		MPI_P(N)[i/2] &= 0x00000000FFFFFFFF;			\
-		MPI_P(N)[i/2] |= ((unsigned long) cur) << 32;		\
+		MPI_P(N)[i / 2] &= 0x00000000FFFFFFFF;			\
+		MPI_P(N)[i / 2] |= (unsigned long)cur << 32;		\
 	} else {							\
-		MPI_P(N)[i/2] &= 0xFFFFFFFF00000000;			\
-		MPI_P(N)[i/2] |= (unsigned long) cur;			\
+		MPI_P(N)[i / 2] &= 0xFFFFFFFF00000000;			\
+		MPI_P(N)[i / 2] |= (unsigned long)cur;			\
 	}								\
 } while (0)
 
 /*
  * Helpers for addition and subtraction of chunks, with signed carry.
  */
-static inline void add32(uint32_t *dst, uint32_t src, signed char *carry)
+static inline void
+add32(uint32_t *dst, uint32_t src, signed char *carry)
 {
 	*dst += src;
 	*carry += (*dst < src);
 }
 
-static inline void sub32(uint32_t *dst, uint32_t src, signed char *carry)
+static inline void
+sub32(uint32_t *dst, uint32_t src, signed char *carry)
 {
 	*carry -= (*dst < src);
 	*dst -= src;
@@ -192,13 +172,12 @@ static inline void sub32(uint32_t *dst, uint32_t src, signed char *carry)
 #define SUB(j)	sub32(&cur, A(j), &c);
 
 /* Helpers for the main 'loop'. */
-#define INIT(b)								\
-	const size_t bits = b;						\
+#define INIT()								\
 	size_t i = 0;							\
-	int ret;							\
 	uint32_t cur;							\
 	signed char c = 0, cc;						\
-	TTLS_MPI_CHK(__mpi_alloc(N, b * 2 / BIL));			\
+	if (N->used < N->limbs)						\
+		bzero_fast(MPI_P(N) + N->used, (N->limbs - N->used) * CIL);\
 	cur = A(i);
 
 #define NEXT								\
@@ -212,7 +191,7 @@ static inline void sub32(uint32_t *dst, uint32_t src, signed char *carry)
 	else								\
 		add32(&cur, cc, &c);
 
-#define LAST								\
+#define LAST(bits)							\
 	STORE32;							\
 	i++;								\
 	cur = c > 0 ? c : 0;						\
@@ -222,7 +201,7 @@ static inline void sub32(uint32_t *dst, uint32_t src, signed char *carry)
 		STORE32;						\
 	mpi_fixup_used(N, N->limbs);					\
 	if (c < 0)							\
-		TTLS_MPI_CHK(fix_negative(N, c, bits));
+		MPI_CHK(fix_negative(N, c, bits));
 
 /*
  * If the result is negative, we get it in the form c * 2^(bits + 32) + N,
@@ -231,33 +210,30 @@ static inline void sub32(uint32_t *dst, uint32_t src, signed char *carry)
 static inline int
 fix_negative(TlsMpi *N, signed char c, const size_t bits)
 {
-	TlsMpi *C;
+	TlsMpi C;
 
-	if (!(C = ttls_mpi_alloc_stck_init(bits / BIL + 1)))
-		return -ENOMEM;
-	C->used = bits / BIL + 1;
+	ttls_mpi_alloca_init(&C, bits / BIL + 1);
+	C.used = bits / BIL + 1;
+	bzero_fast(MPI_P(&C), C.used * CIL);
 
-	memset(MPI_P(C), 0, C->used * CIL);
 	/* C = - c * 2^(bits + 32) */
-	if (bits == 224)
-		MPI_P(C)[C->limbs - 1] = ((unsigned long)-c) << 32;
-	else
-		MPI_P(C)[C->limbs - 1] = (unsigned long)-c;
+	MPI_P(&C)[C.limbs - 1] = (unsigned long)-c;
 
 	/* N = -(C - N) */
-	WARN_ON_ONCE(ttls_mpi_sub_abs(N, C, N));
+	MPI_CHK(ttls_mpi_sub_abs(N, &C, N));
 	N->s = -1;
 
 	return 0;
 }
 
 /*
- * Fast quasi-reduction modulo p256 (FIPS 186-3 D.2.3)
+ * Fast quasi-reduction modulo p256 (FIPS 186-3 D.2.3).
+ * TODO #1064 the most mathematic hot spot - called enourmously many times.
  */
 static int
 ecp_mod_p256(TlsMpi *N)
 {
-	INIT(256);
+	INIT();
 
 	/* A0 */
 	ADD(8); ADD(9);
@@ -290,10 +266,10 @@ ecp_mod_p256(TlsMpi *N)
 	/* A7 */
 	ADD(15); ADD(15); ADD(15); ADD(8);
 	SUB(10); SUB(11); SUB(12); SUB(13);
-	LAST;
 
-cleanup:
-	return ret;
+	LAST(256);
+
+	return 0;
 }
 
 /*
@@ -301,7 +277,7 @@ cleanup:
  */
 static int ecp_mod_p384(TlsMpi *N)
 {
-	INIT(384);
+	INIT();
 
 	/* A0 */
 	ADD(12); ADD(21); ADD(20);
@@ -350,10 +326,10 @@ static int ecp_mod_p384(TlsMpi *N)
 	/* A11 */
 	ADD(23); ADD(20); ADD(19);
 	SUB(22);
-	LAST;
 
-cleanup:
-	return ret;
+	LAST(384);
+
+	return 0;
 }
 
 #undef A
@@ -410,7 +386,7 @@ ecp_mod_p255(TlsMpi *N)
 static int
 ecp_mpi_load(TlsMpi *X, const unsigned long *p, size_t len)
 {
-	size_t const limbs = len / sizeof(unsigned long);
+	size_t const limbs = len / CIL;
 
 	if (__mpi_alloc(X, limbs))
 		return -ENOMEM;
@@ -454,13 +430,19 @@ ecp_group_load(TlsEcpGrp *grp, const unsigned long *p,  size_t plen,
 		return -ENOMEM;
 
 	/*
-	 * Need to initialize the first item only - the rest will be propagated
-	 * from the first one by ecp_precompute_comb().
+	 * ecp_normalize_jac_many() performs multiplication on X and Y
+	 * coordinates, so we need double sizes.
 	 */
-	for (i = 0; i < TTLS_ECP_WINDOW_SIZE; i++)
-		if (__mpi_alloc(&grp->T[i].X, grp->G.X.limbs)
-		    || __mpi_alloc(&grp->T[i].Y, grp->G.Y.limbs)
-		    || __mpi_alloc(&grp->T[i].Z, grp->G.Z.limbs))
+	for (i = 0; i < ARRAY_SIZE(grp->T); i++)
+		if (__mpi_alloc(&grp->T[i].X, grp->G.X.limbs * 2)
+		    || __mpi_alloc(&grp->T[i].Y, grp->G.Y.limbs * 2))
+			return -ENOMEM;
+	/*
+	 * Allocate Z coordinates separately to shrink them later,
+	 * see __mpool_ecp_shrink_tz().
+	 */
+	for (i = 0; i < ARRAY_SIZE(grp->T); i++)
+		if (__mpi_alloc(&grp->T[i].Z, grp->G.Z.limbs))
 			return -ENOMEM;
 
 	return 0;

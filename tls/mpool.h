@@ -1,7 +1,7 @@
 /*
  *		Tempesta TLS
  *
- * Copyright (C) 2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,8 +24,9 @@
 
 #define TTLS_MPOOL_ORDER	1 /* 2 pages for temporary MPIs */
 
+void *ttls_mpool_alloc_data(TlsMpiPool *mp, size_t n);
 int ttls_mpi_pool_alloc_mpi(TlsMpi *x, size_t n);
-void *ttls_mpi_pool_alloc(size_t n, gfp_t gfp_mask);
+TlsMpiPool *ttls_mpi_pool_alloc(size_t order, gfp_t gfp_mask);
 void ttls_mpi_pool_free(void *ctx);
 int ttls_mpi_profile_clone(TlsCtx *tls);
 void ttls_mpi_pool_cleanup_ctx(unsigned long addr, bool zero);
