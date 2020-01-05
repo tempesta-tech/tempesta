@@ -33,6 +33,7 @@ ecp_mul(void)
 	TlsEcpGrp *grp;
 	TlsEcpPoint *R, *P;
 	TlsMpi *m;
+	TlsMpiPool *mp;
 	/* Exponents especially adapted for secp256r1, 32 bytes in size. */
 	const char *exponents[] = {
 		/* one */
@@ -72,14 +73,24 @@ ecp_mul(void)
 		"\x55\x55\x55\x55\x55\x55\x55\x55",
 	};
 
-	EXPECT_FALSE(!(R = ttls_mpool_alloc_stck(sizeof(TlsEcpPoint))));
-	ttls_ecp_point_init(R);
-	EXPECT_FALSE(!(P = ttls_mpool_alloc_stck(sizeof(TlsEcpPoint))));
-	ttls_ecp_point_init(P);
-	EXPECT_FALSE(!(m = ttls_mpi_alloc_stck_init(4)));
-	EXPECT_FALSE(!(grp = ttls_mpool_alloc_stck(sizeof(TlsEcpGrp))));
+	/* __mpi_pool() treats the pool as "handshake" pool. */
+	EXPECT_FALSE(!(mp = ttls_mpi_pool_alloc(TTLS_MPOOL_ORDER, GFP_KERNEL)));
 
-	EXPECT_ZERO(ttls_ecp_group_load(grp, TTLS_ECP_DP_SECP256R1));
+	EXPECT_FALSE(!(R = ttls_mpool_alloc_data(mp, sizeof(*R))));
+	ttls_ecp_point_init(R);
+
+	EXPECT_FALSE(!(P = ttls_mpool_alloc_data(mp, sizeof(*P))));
+	ttls_ecp_point_init(P);
+
+	EXPECT_FALSE(!(m = ttls_mpool_alloc_data(mp, sizeof(*m) + 4 * CIL)));
+	ttls_mpi_init_next(m, 4);
+
+	/* Copy group from the MPI profile for Secp256r1 PK operations. */
+	grp = ttls_mpool_alloc_data(mp, cs_mp_ecdhe_secp256.mp.curr
+					- sizeof(*mp));
+	EXPECT_FALSE(!grp);
+	memcpy_fast(grp, MPI_POOL_DATA(&cs_mp_ecdhe_secp256.mp),
+		    cs_mp_ecdhe_secp256.mp.curr - sizeof(*mp));
 	EXPECT_EQ(grp->id, TTLS_ECP_DP_SECP256R1);
 	EXPECT_EQ(grp->nbits, 256);
 	EXPECT_EQ(grp->pbits, 256);
@@ -123,7 +134,7 @@ ecp_mul(void)
 	EXPECT_EQ(MPI_P(&grp->G.Y)[2], 0x8ee7eb4a7c0f9e16);
 	EXPECT_EQ(MPI_P(&grp->G.Y)[3], 0x4fe342e2fe1a7f9b);
 	EXPECT_EQ(grp->G.Z.used, 1);
-	EXPECT_EQ(grp->G.Z.limbs, 1);
+	EXPECT_EQ(grp->G.Z.limbs, grp->nbits / BIL);
 	EXPECT_EQ(grp->G.Z.s, 1);
 	EXPECT_EQ(MPI_P(&grp->G.Z)[0], 1);
 
@@ -133,28 +144,21 @@ ecp_mul(void)
 	/* Do a dummy multiplication first to trigger precomputation */
 	EXPECT_ZERO(ttls_mpi_lset(m, 2));
 	EXPECT_ZERO(ttls_ecp_mul(grp, P, m, &grp->G, false));
+	ttls_mpi_pool_cleanup_ctx(0, true);
 
-	EXPECT_ZERO(ttls_mpi_read_binary(m, exponents[0], 32));
-	EXPECT_ZERO(ttls_ecp_mul(grp, R, m, &grp->G, false));
-
-	for (i = 1; i < sizeof(exponents) / sizeof(exponents[0]); i++) {
+	for (i = 0; i < ARRAY_SIZE(exponents); i++) {
 		EXPECT_ZERO(ttls_mpi_read_binary(m, exponents[i], 32));
 		EXPECT_ZERO(ttls_ecp_mul(grp, R, m, &grp->G, false));
-	}
-
-	/*
-	 * ECP test #2 (constant op_count, other point).
-	 * We computed P = 2G last time, use it.
-	 */
-	EXPECT_ZERO(ttls_mpi_read_binary(m, exponents[0], 32));
-	EXPECT_ZERO(ttls_ecp_mul(grp, R, m, P, false));
-
-	for (i = 1; i < sizeof(exponents) / sizeof(exponents[0]); i++) {
-		EXPECT_ZERO(ttls_mpi_read_binary(m, exponents[i], 32));
+		/*
+		 * ECP test #2 (constant op_count, other point).
+		 * We computed P = 2G last time, use it.
+		 */
 		EXPECT_ZERO(ttls_ecp_mul(grp, R, m, P, false));
+
+		ttls_mpi_pool_cleanup_ctx(0, false);
 	}
 
-	ttls_mpi_pool_cleanup_ctx((unsigned long)R, true);
+	ttls_mpi_pool_free(R);
 }
 
 int
@@ -164,11 +168,13 @@ main(int argc, char *argv[])
 	 * The test works in process context, so cfg_pool is used
 	 * for all the MPI computations.
 	 */
-	ttls_mpool_init();
+	BUG_ON(ttls_mpool_init());
 
 	ecp_mul();
 
 	ttls_mpool_exit();
+
+	printf("success\n");
 
 	return 0;
 }

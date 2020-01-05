@@ -3,7 +3,7 @@
  *
  * The RSA public-key cryptosystem.
  *
- * TODO #1064: The Linux crypt API already has RSA implementation, so probably
+ * TODO #1335: The Linux crypt API already has RSA implementation, so probably
  * the stuff below should be just thrown out. Fallback to GPU is necessary
  * however, so maybe not... A careful rethinking is required.
  *
@@ -25,7 +25,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
@@ -157,8 +157,8 @@ ttls_rsa_deduce_primes(TlsMpi const *N, TlsMpi const *E, TlsMpi const *D,
 		197, 199, 211, 223, 227, 229, 233, 239, 241, 251
 	};
 
-	if (WARN_ON_ONCE(!P || !ttls_mpi_initialized(P))
-	    || WARN_ON_ONCE(!Q || !ttls_mpi_initialized(Q)))
+	if (WARN_ON_ONCE(!P || ttls_mpi_empty(P))
+	    || WARN_ON_ONCE(!Q || ttls_mpi_empty(Q)))
 		return -EINVAL;
 
 	if (ttls_mpi_cmp_int(N, 0) <= 0 || ttls_mpi_cmp_int(D, 1) <= 0
@@ -403,7 +403,7 @@ rsa_prepare_blinding(TlsRSACtx *ctx)
 {
 	int ret = 0;
 
-	if (WARN_ON_ONCE(!ttls_mpi_initialized(&ctx->Vf)))
+	if (WARN_ON_ONCE(ttls_mpi_empty(&ctx->Vf)))
 		return -EINVAL;
 
 	/* TODO #1335 make Vf and Vi per-cpu and remove the lock. */
@@ -452,7 +452,8 @@ static int
 ttls_rsa_private(TlsRSACtx *ctx, const unsigned char *input,
 		 unsigned char *output)
 {
-	size_t olen;
+	size_t olen, n;
+	const size_t eb_n = (RSA_EXPONENT_BLINDING + CIL - 1) / CIL;
 
 	/* Temporary holding the result */
 	TlsMpi *T;
@@ -472,21 +473,21 @@ ttls_rsa_private(TlsRSACtx *ctx, const unsigned char *input,
 	 * checked result; should be the same in the end. */
 	TlsMpi *I, *C;
 
-	if (!(T = ttls_mpool_alloc_stck(sizeof(TlsMpi) * 10 + ctx->N.used
-					+ ctx->len / CIL * 2 + ctx->Vi.used
-					+ ctx->P.used * 3 + ctx->Q.used * 3
-					+ RSA_EXPONENT_BLINDING / CIL * 3)))
+	n = sizeof(TlsMpi) * 10
+	    + CIL * (ctx->N.used * 3 + ctx->len / CIL * 2 + ctx->Vi.used
+		     + ctx->P.used * 2 + ctx->Q.used * 2 + eb_n * 3 + 3);
+	if (!(T = ttls_mpool_alloc_stck(n)))
 		return -ENOMEM;
 	I = ttls_mpi_init_next(T, ctx->len / CIL + ctx->Vi.used);
 	P1 = ttls_mpi_init_next(I, ctx->len / CIL);
 	Q1 = ttls_mpi_init_next(P1, ctx->P.used);
 	R = ttls_mpi_init_next(Q1, ctx->Q.used);
-	DP_blind = ttls_mpi_init_next(R, RSA_EXPONENT_BLINDING / CIL);
-	DQ_blind = ttls_mpi_init_next(DP_blind, R->limbs + ctx->P.used);
-	TP = ttls_mpi_init_next(DQ_blind, R->limbs + ctx->Q.used);
-	TQ = ttls_mpi_init_next(TP, ctx->P.used);
-	C = ttls_mpi_init_next(TQ, ctx->Q.used);
-	ttls_mpi_init_next(C, ctx->N.used);
+	DP_blind = ttls_mpi_init_next(R, eb_n);
+	DQ_blind = ttls_mpi_init_next(DP_blind, eb_n + ctx->P.used);
+	TP = ttls_mpi_init_next(DQ_blind, eb_n + ctx->Q.used);
+	TQ = ttls_mpi_init_next(TP, ctx->N.used + 1);
+	C = ttls_mpi_init_next(TQ, ctx->N.used + 1);
+	ttls_mpi_init_next(C, ctx->N.used + 1);
 
 	MPI_CHK(ttls_mpi_read_binary(T, input, ctx->len));
 	if (ttls_mpi_cmp_mpi(T, &ctx->N) >= 0)
@@ -494,10 +495,7 @@ ttls_rsa_private(TlsRSACtx *ctx, const unsigned char *input,
 
 	MPI_CHK(ttls_mpi_copy(I, T));
 
-	/*
-	 * Blinding
-	 * T = T * Vi mod N
-	 */
+	/* Blinding: T = T * Vi mod N */
 	MPI_CHK(rsa_prepare_blinding(ctx));
 	MPI_CHK(ttls_mpi_mul_mpi(T, T, &ctx->Vi));
 	MPI_CHK(ttls_mpi_mod_mpi(T, T, &ctx->N));
@@ -543,6 +541,7 @@ ttls_rsa_private(TlsRSACtx *ctx, const unsigned char *input,
 
 	/* Verify the result to prevent glitching attacks. */
 	MPI_CHK(ttls_mpi_exp_mod(C, T, &ctx->E, &ctx->N, &ctx->RN));
+	/* FIXME #1064 C != I which is zero on ttls_rsa_complete(). */
 	if (ttls_mpi_cmp_mpi(C, I))
 		return TTLS_ERR_RSA_VERIFY_FAILED;
 
@@ -638,7 +637,11 @@ ttls_rsa_complete(TlsRSACtx *ctx)
 	if (is_priv) {
 		int count = 0;
 		/* RSA 8192 bite requires 1024 bytes. */
-		unsigned char buf[1024];
+		unsigned char buf[1024] = {0};
+
+		if (__mpi_alloc(&ctx->Vi, ctx->len / CIL * 2)
+		    || __mpi_alloc(&ctx->Vf, ctx->len / CIL * 2))
+			return -ENOMEM;
 
 		/*
 		 * Generate blinging value.

@@ -30,7 +30,8 @@
 #include "mpool.h"
 #include "ttls.h"
 
-#define CS_MP_SZ	(PAGE_SIZE << TTLS_MPOOL_ORDER)
+/* Bit large than other pools to be able to store temporary data. */
+#define CS_MP_SZ	(PAGE_SIZE << (TTLS_MPOOL_ORDER + 1))
 
 /*
  * TLS memory profiles for all supported key exchanges.
@@ -40,17 +41,22 @@ static union {
 	unsigned char	_[CS_MP_SZ];
 } cs_mp_ecdhe_secp256 __page_aligned_data = {
 	.mp = {
-		.order = TTLS_MPOOL_ORDER,
+		.order = TTLS_MPOOL_ORDER + 1,
 		.curr = sizeof(TlsMpiPool)
 	}
 }, cs_mp_ecdhe_secp384 __page_aligned_data = {
 	.mp = {
-		.order = TTLS_MPOOL_ORDER,
+		.order = TTLS_MPOOL_ORDER + 1,
+		.curr = sizeof(TlsMpiPool)
+	}
+}, cs_mp_ecdhe_curve25519 __page_aligned_data = {
+	.mp = {
+		.order = TTLS_MPOOL_ORDER + 1,
 		.curr = sizeof(TlsMpiPool)
 	}
 }, cs_mp_dhe __page_aligned_data = {
 	.mp = {
-		.order = TTLS_MPOOL_ORDER,
+		.order = TTLS_MPOOL_ORDER + 1,
 		.curr = sizeof(TlsMpiPool)
 	}
 };
@@ -62,21 +68,24 @@ static TlsCiphersuite ciphersuite_definitions[] = {
 	  TTLS_KEY_EXCHANGE_ECDHE_ECDSA,
 	  TTLS_MAJOR_VERSION_3, TTLS_MINOR_VERSION_3,
 	  TTLS_MAJOR_VERSION_3, TTLS_MINOR_VERSION_3,
-	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp } },
+	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp,
+	       &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 	  "TLS-ECDHE-ECDSA-WITH-AES-256-GCM-SHA384",
 	  TTLS_CIPHER_AES_256_GCM, TTLS_MD_SHA384,
 	  TTLS_KEY_EXCHANGE_ECDHE_ECDSA,
 	  TTLS_MAJOR_VERSION_3, TTLS_MINOR_VERSION_3,
 	  TTLS_MAJOR_VERSION_3, TTLS_MINOR_VERSION_3,
-	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp } },
+	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp,
+	       &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CCM,
 	  "TLS-ECDHE-ECDSA-WITH-AES-256-CCM",
 	  TTLS_CIPHER_AES_256_CCM, TTLS_MD_SHA256,
 	  TTLS_KEY_EXCHANGE_ECDHE_ECDSA,
 	  TTLS_MAJOR_VERSION_3, TTLS_MINOR_VERSION_3,
 	  TTLS_MAJOR_VERSION_3, TTLS_MINOR_VERSION_3,
-	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp } },
+	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp,
+	       &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8,
 	  "TLS-ECDHE-ECDSA-WITH-AES-256-CCM-8",
 	  TTLS_CIPHER_AES_256_CCM, TTLS_MD_SHA256,
@@ -84,14 +93,16 @@ static TlsCiphersuite ciphersuite_definitions[] = {
 	  TTLS_MAJOR_VERSION_3, TTLS_MINOR_VERSION_3,
 	  TTLS_MAJOR_VERSION_3, TTLS_MINOR_VERSION_3,
 	  TTLS_CIPHERSUITE_SHORT_TAG,
-	  { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp } },
+	  { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp,
+	    &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CCM,
 	  "TLS-ECDHE-ECDSA-WITH-AES-128-CCM",
 	  TTLS_CIPHER_AES_128_CCM, TTLS_MD_SHA256,
 	  TTLS_KEY_EXCHANGE_ECDHE_ECDSA,
 	  TTLS_MAJOR_VERSION_3, TTLS_MINOR_VERSION_3,
 	  TTLS_MAJOR_VERSION_3, TTLS_MINOR_VERSION_3,
-	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp } },
+	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp,
+	       &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8,
 	  "TLS-ECDHE-ECDSA-WITH-AES-128-CCM-8",
 	  TTLS_CIPHER_AES_128_CCM, TTLS_MD_SHA256,
@@ -99,21 +110,24 @@ static TlsCiphersuite ciphersuite_definitions[] = {
 	  TTLS_MAJOR_VERSION_3, TTLS_MINOR_VERSION_3,
 	  TTLS_MAJOR_VERSION_3, TTLS_MINOR_VERSION_3,
 	  TTLS_CIPHERSUITE_SHORT_TAG,
-	  { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp } },
+	  { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp,
+	    &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 	  "TLS-ECDHE-RSA-WITH-AES-128-GCM-SHA256",
 	  TTLS_CIPHER_AES_128_GCM, TTLS_MD_SHA256,
 	  TTLS_KEY_EXCHANGE_ECDHE_RSA,
 	  TTLS_MAJOR_VERSION_3, TTLS_MINOR_VERSION_3,
 	  TTLS_MAJOR_VERSION_3, TTLS_MINOR_VERSION_3,
-	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp } },
+	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp,
+	       &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 	  "TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384",
 	  TTLS_CIPHER_AES_256_GCM, TTLS_MD_SHA384,
 	  TTLS_KEY_EXCHANGE_ECDHE_RSA,
 	  TTLS_MAJOR_VERSION_3, TTLS_MINOR_VERSION_3,
 	  TTLS_MAJOR_VERSION_3, TTLS_MINOR_VERSION_3,
-	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp } },
+	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp,
+	       &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_DHE_RSA_WITH_AES_256_GCM_SHA384,
 	  "TLS-DHE-RSA-WITH-AES-256-GCM-SHA384",
 	  TTLS_CIPHER_AES_256_GCM, TTLS_MD_SHA384,

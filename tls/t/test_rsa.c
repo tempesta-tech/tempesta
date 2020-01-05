@@ -28,7 +28,8 @@
 #include "../rsa.c"
 
 /*
- * Example RSA-1024 keypair, for test purposes
+ * Example RSA-1024 keypair, for test purposes.
+ * TODO #1064 test RSA-4096 to cause the mpool stress.
  */
 #define KEY_LEN	128
 #define PT_LEN  (256 / 8) /* SHA256 size, 32 bytes */
@@ -88,6 +89,7 @@ rsa_sign(void)
 	EXPECT_ZERO(ttls_mpi_read_binary(&rsa->D, RSA_D, 128));
 	EXPECT_ZERO(ttls_mpi_read_binary(&rsa->E, RSA_E, 3));
 
+	/* FIXME #1064 crashes here. */
 	EXPECT_ZERO(ttls_rsa_complete(rsa));
 
 	EXPECT_ZERO(ttls_rsa_check_pubkey(rsa));
@@ -112,11 +114,13 @@ main(int argc, char *argv[])
 	 * The test works in process context, so cfg_pool is used
 	 * for all the MPI computations.
 	 */
-	ttls_mpool_init();
+	BUG_ON(ttls_mpool_init());
 
 	rsa_sign();
 
 	ttls_mpool_exit();
+
+	printf("success\n");
 
 	return 0;
 }

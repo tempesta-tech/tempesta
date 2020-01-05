@@ -30,7 +30,7 @@
 
 #define TTLS_MPI_CHK(f)							\
 do {									\
-	if (WARN_ON_ONCE((ret = f)))					\
+	if (WARN_ON_ONCE((ret = (f))))					\
 		goto cleanup;						\
 } while (0)
 
@@ -103,7 +103,6 @@ typedef struct {
 
 void ttls_mpi_free(TlsMpi *X);
 int __mpi_alloc(TlsMpi *X, size_t nblimbs);
-bool ttls_mpi_initialized(const TlsMpi *X);
 void mpi_fixup_used(TlsMpi *X, size_t n);
 int ttls_mpi_copy_alloc(TlsMpi *X, const TlsMpi *Y, bool need_alloc);
 int ttls_mpi_copy(TlsMpi *X, const TlsMpi *Y);
@@ -146,6 +145,12 @@ int ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E,
 		     const TlsMpi *N, TlsMpi *_RR);
 int ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N);
 int ttls_mpi_gcd(TlsMpi *G, const TlsMpi *A, const TlsMpi *B);
+
+static inline bool
+ttls_mpi_empty(const TlsMpi *X)
+{
+	return !X->used;
+}
 
 #ifdef DEBUG
 
@@ -250,7 +255,7 @@ ttls_mpi_init_next(TlsMpi *X, size_t nlimbs)
 	X->limbs = nlimbs;
 	X->_off = nlimbs ? sizeof(TlsMpi) : 0;
 
-	return (TlsMpi *)((char *)X + sizeof(*X) + nlimbs * CIL);
+	return (TlsMpi *)((char *)X + sizeof(TlsMpi) + nlimbs * CIL);
 }
 
 /*
@@ -263,8 +268,7 @@ ttls_mpi_init_next(TlsMpi *X, size_t nlimbs)
 do {									\
 	unsigned long p, x = (unsigned long)(X);			\
 	p = (unsigned long)__builtin_alloca((ln) * CIL);		\
-	if (WARN_ON_ONCE(p + (ln) > x || p + PAGE_SIZE < x))		\
-		return -ENOMEM;						\
+	WARN_ON_ONCE(p + (ln) > x || p + PAGE_SIZE < x);		\
 	(X)->_off = (short)(p - x);					\
 	(X)->s = 1;							\
 	(X)->used = 0;							\

@@ -110,28 +110,25 @@ int ttls_asn1_write_raw_buffer(unsigned char **p, unsigned char *start,
 	return((int) len);
 }
 
-int ttls_asn1_write_mpi(unsigned char **p, unsigned char *start, const TlsMpi *X)
+int
+ttls_asn1_write_mpi(unsigned char **p, unsigned char *start, const TlsMpi *X)
 {
 	int ret;
-	size_t len = 0;
-
-	// Write the MPI
-	//
-	len = ttls_mpi_size(X);
+	size_t len = ttls_mpi_size(X);
 
 	if (*p < start || (size_t)(*p - start) < len)
-		return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
+		return TTLS_ERR_ASN1_BUF_TOO_SMALL;
 
 	(*p) -= len;
 	TTLS_MPI_CHK(ttls_mpi_write_binary(X, *p, len));
 
-	// DER format assumes 2s complement for numbers, so the leftmost bit
-	// should be 0 for positive numbers and 1 for negative numbers.
-	//
-	if (X->s ==1 && **p & 0x80)
-	{
+	/*
+	 * DER format assumes 2s complement for numbers, so the leftmost bit
+	 * should be 0 for positive numbers and 1 for negative numbers.
+	 */
+	if (X->s ==1 && **p & 0x80) {
 		if (*p - start < 1)
-			return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
+			return TTLS_ERR_ASN1_BUF_TOO_SMALL;
 
 		*--(*p) = 0x00;
 		len += 1;
@@ -140,7 +137,7 @@ int ttls_asn1_write_mpi(unsigned char **p, unsigned char *start, const TlsMpi *X
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, len));
 	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_INTEGER));
 
-	ret = (int) len;
+	ret = (int)len;
 
 cleanup:
 	return ret;
