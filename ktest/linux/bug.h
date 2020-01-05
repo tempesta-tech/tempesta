@@ -28,27 +28,42 @@
 #define BUILD_BUG_ON(c)	assert(!(c))
 #define BUG()		abort()
 
+/*
+ * Make all the warning is the tests fatal: there is no point for backward
+ * recovery in tests and early crashes with backtraces make debugging more
+ * productive.
+ */
+
 #define __WARN()							\
-	fprintf(stderr, "Warning at %s:%d\n", __FILE__, __LINE__);
+do {									\
+	fprintf(stderr, "Warning at %s:%d\n", __FILE__, __LINE__);	\
+	abort();							\
+} while (0)
 
 #define WARN(condition, format...) ({					\
 	int __ret_warn_on = !!(condition);				\
-	if (__ret_warn_on)						\
+	if (__ret_warn_on) {						\
 		fprintf(stderr, format);				\
+		abort();						\
+	}								\
 	__ret_warn_on;							\
 })
 
 #define WARN_ONCE(condition, format...) ({				\
 	int __ret_warn_on = !!(condition);				\
-	if (__ret_warn_on)						\
+	if (__ret_warn_on) {						\
 		fprintf(stderr, format);				\
+		abort();						\
+	}								\
 	__ret_warn_on;							\
 })
 
 #define WARN_ON_ONCE(condition) ({					\
 	int __ret_warn_on = !!(condition);				\
-	if (__ret_warn_on)						\
+	if (__ret_warn_on) {						\
 		fprintf(stderr, "Warning at %s:%d\n", __FILE__, __LINE__);\
+		abort();						\
+	}								\
 	__ret_warn_on;							\
 })
 

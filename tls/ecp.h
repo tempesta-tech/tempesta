@@ -99,8 +99,7 @@ extern ttls_ecp_group_id ttls_preset_curves[];
 
 /*
  * Maximum "window" size used for point multiplication.
- * Default: 6.
- * Minimum value: 2. Maximum value: 7.
+ * Default: 6. Minimum value: 2. Maximum value: 7.
  *
  * Result is an array of at most TTLS_ECP_WINDOW_SIZE points used for point
  * multiplication. This value is directly tied to EC peak memory usage, so
@@ -108,14 +107,6 @@ extern ttls_ecp_group_id ttls_preset_curves[];
  * are in use).
  *
  * Reduction in size may reduce speed, but larger curves are impacted first.
- * Sample performances (in ECDHE handshakes/s, with FIXED_POINT_OPTIM = 1):
- *	  w-size:	 6	   5	   4	   3	   2
- *	  521	   145	 141	 135	 120	  97
- *	  384	   214	 209	 198	 177	 146
- *	  256	   320	 320	 303	 262	 226
-
- *	  224	   475	 475	 453	 398	 342
- *	  192	   640	 640	 633	 587	 476
  */
 #define TTLS_ECP_WINDOW_ORDER	6
 #define TTLS_ECP_WINDOW_SIZE	(1 << (TTLS_ECP_WINDOW_ORDER - 1))

@@ -1,7 +1,7 @@
 /**
  *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -55,8 +55,25 @@ kmalloc(size_t size, gfp_t gf_flags)
 	return p;
 }
 
+/**
+ * Emulates buddy system allocating higher order page buddies by aligned
+ * addresses.
+ */
+static inline unsigned long
+__get_free_pages(gfp_t gfp_mask, unsigned int order)
+{
+	void *ptr;
+	size_t n = PAGE_SIZE << order;
+
+	if (posix_memalign(&ptr, n, n))
+		return 0;
+	if (gfp_mask & __GFP_ZERO)
+		memset(ptr, 0, n);
+
+	return (unsigned long)ptr;
+}
+
 #define kzalloc(size, ...)		calloc(1, size)
-#define __get_free_pages(mask, order)	kmalloc(PAGE_SIZE << order, mask)
 
 #define kfree(p)			free(p)
 #define free_pages(p, order)		free((void *)p)

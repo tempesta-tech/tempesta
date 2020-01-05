@@ -13,7 +13,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2018, Arm Limited (or its affiliates), All Rights Reserved
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
@@ -55,7 +55,6 @@ typedef enum {
  * @Vi			- blinding value;
  * @Vf			- unblinding value;
  * @d			- private key;
- * @_d			- previous private key;
  */
 typedef struct {
 	TlsEcpGrp	grp;
@@ -68,76 +67,18 @@ typedef struct {
 	TlsEcpPoint	Vi;
 	TlsEcpPoint	Vf;
 	TlsMpi		d;
-	TlsMpi		_d;
 } TlsECDHCtx;
 
 int ttls_ecdh_make_params(TlsECDHCtx *ctx, size_t *olen,
 			  unsigned char *buf, size_t blen);
+int ttls_ecdh_get_params(TlsECDHCtx *ctx, const TlsEcpKeypair *key);
 
-/**
- * \brief		   This function sets up an ECDH context from an EC key.
- *
- *				  It is used by clients and servers in place of the
- *				  ServerKeyExchange for static ECDH, and imports ECDH
- *				  parameters from the EC key information of a certificate.
- *
- * \param ctx	   The ECDH context to set up.
- * \param key	   The EC key to use.
- * \param side	  Defines the source of the key:
- *				  <ul><li>1: Our key.</li>
-		<li>0: The key of the peer.</li></ul>
- *
- * \return		  \c 0 on success, or an \c TTLS_ERR_ECP_XXX error code
- *				  on failure.
- *
- * \see			 ecp.h
- */
-int ttls_ecdh_get_params(TlsECDHCtx *ctx, const TlsEcpKeypair *key,
-		 ttls_ecdh_side side);
+int ttls_ecdh_make_public(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
+			  size_t blen);
+int ttls_ecdh_read_public(TlsECDHCtx *ctx, const unsigned char *buf,
+			  size_t blen);
 
-int ttls_ecdh_make_public(TlsECDHCtx *ctx, size_t *olen,
-			  unsigned char *buf, size_t blen);
-
-/**
- * \brief	   This function parses and processes a TLS ClientKeyExchange
- *			  payload.
- *
- *			  This is the second function used by a TLS server for ECDH(E)
- *			  ciphersuites.
- *
- * \param ctx   The ECDH context.
- * \param buf   The start of the input buffer.
- * \param blen  The length of the input buffer.
- *
- * \return	  \c 0 on success, or an \c TTLS_ERR_ECP_XXX error code
- *			  on failure.
- *
- * \see		 ecp.h
- */
-int ttls_ecdh_read_public(TlsECDHCtx *ctx,
-		  const unsigned char *buf, size_t blen);
-
-/**
- * \brief		   This function derives and exports the shared secret.
- *
- *				  This is the last function used by both TLS client
- *				  and servers.
- *
- * \param ctx	   The ECDH context.
- * \param olen	  The number of Bytes written.
- * \param buf	   The destination buffer.
- * \param blen	  The length of the destination buffer.
- *
- * \return		  \c 0 on success, or an \c TTLS_ERR_ECP_XXX error code
- *				  on failure.
- *
- * \see			 ecp.h
- *
- * \note			If \p f_rng is not NULL, it is used to implement
- *				  countermeasures against potential elaborate timing
- *				  attacks. For more information, see ttls_ecp_mul().
- */
-int ttls_ecdh_calc_secret(TlsECDHCtx *ctx, size_t *olen,
-		  unsigned char *buf, size_t blen);
+int ttls_ecdh_calc_secret(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
+			  size_t blen);
 
 #endif /* ecdh.h */

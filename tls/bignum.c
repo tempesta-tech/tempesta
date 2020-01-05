@@ -17,7 +17,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
@@ -45,8 +45,7 @@
 #define DECLARE_MPI_AUTO(name, size)					\
 	TlsMpi name = { .limbs = size, .used = size };			\
 	unsigned long __p[size];					\
-	BUG_ON((unsigned long)&name >= (unsigned long)__p);		\
-	name._off = (unsigned long)__p - (unsigned long)&name;
+	name._off = (short)((unsigned long)__p - (unsigned long)&name);
 
 /* Maximum sliding window size in bits used for modular exponentiation. */
 #define MPI_W_SZ		6
@@ -92,16 +91,9 @@ __ttls_mpi_alloc_stck_init(size_t nlimbs, const char *file, int line)
 }
 #endif
 
-bool
-ttls_mpi_initialized(const TlsMpi *X)
-{
-	/* Any initialized MPI has non-zero sign. */
-	return !!X->s;
-}
-
 /**
  * Technically, the function is equal ttls_mpi_init_next(), so the MPI becomes
- * invalid and ttls_mpi_initialized() returns false for it. However, if at some
+ * invalid and ttls_mpi_empty() returns true for it. However, if at some
  * point we decide to write something here, we won't request a new memory chunk.
  */
 void
@@ -411,7 +403,7 @@ ttls_mpi_size(const TlsMpi *X)
 int
 ttls_mpi_shift_l(TlsMpi *X, size_t count)
 {
-	size_t v0, t1, i = ttls_mpi_bitlen(X);
+	size_t v0, t1, old_used = X->used, i = ttls_mpi_bitlen(X);
 	unsigned long r0 = 0, r1, *p = MPI_P(X);
 
 	if (unlikely(!i))
@@ -423,7 +415,10 @@ ttls_mpi_shift_l(TlsMpi *X, size_t count)
 
 	if (WARN_ON_ONCE((X->limbs << BSHIFT) < i))
 		return -ENOSPC;
+
 	X->used = BITS_TO_LIMBS(i);
+	if (old_used < X->used)
+		bzero_fast(p + old_used, (X->used - old_used) * CIL);
 
 	/* Shift by count / limb_size. */
 	if (v0 > 0) {
@@ -545,6 +540,8 @@ ttls_mpi_read_binary(TlsMpi *X, const unsigned char *buf, size_t buflen)
 	size_t i = buflen, l = 0, j;
 	size_t const limbs = CHARS_TO_LIMBS(buflen);
 
+	if (unlikely(!buflen))
+		return 0;
 	if (__mpi_alloc(X, limbs))
 		return -ENOMEM;
 
@@ -574,23 +571,23 @@ ttls_mpi_read_binary(TlsMpi *X, const unsigned char *buf, size_t buflen)
 int
 ttls_mpi_write_binary(const TlsMpi *X, unsigned char *buf, size_t buflen)
 {
-	size_t i = buflen, j, l = 0, n;
+	size_t i, l, b, n = ttls_mpi_size(X);
 
-	n = ttls_mpi_size(X);
 	if (buflen < n)
 		return -ENOSPC;
 
-	while (l < X->used && i >= CIL) {
+	for (i = buflen, l = 0; l < X->used && i >= CIL; ++l) {
 		i -= CIL;
 		*(unsigned long *)(buf + i) = cpu_to_be64(MPI_P(X)[l]);
-		++l;
 	}
-	if (i) {
-		for (j = 0, n &= LMASK; n > 0; i--, j++, n--)
-			buf[i - 1] = (unsigned char)(MPI_P(X)[j / CIL]
-						     >> ((j % CIL) << 3));
+
+	WARN_ON_ONCE(l == X->used - 1 && i < n % CIL);
+
+	if (i && l == X->used - 1)
+		for (b = 0, n %= CIL; n > 0; i--, n--, b += 8)
+			buf[i - 1] = (unsigned char)(MPI_P(X)[l] >> b);
+	if (i)
 		memset(buf, 0, i);
-	}
 
 	return 0;
 }
@@ -723,8 +720,8 @@ ttls_mpi_add_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 	/* X should always be positive as a result of unsigned additions. */
 	X->s = 1;
 
-	if (__mpi_alloc(X, max_t(unsigned short, A->used, B->used) + 1))
-		return -ENOMEM;
+	if (WARN_ON_ONCE(X->limbs < max_t(unsigned short, A->used, B->used)))
+		return -ENOSPC;
 	X->used = A->used;
 
 	a = MPI_P(A);
@@ -1124,9 +1121,9 @@ ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 		Q = &Z;
 	}
 
-	ttls_mpi_alloca_init(&X, A->used);
-	ttls_mpi_alloca_init(&Y, B->used);
-	ttls_mpi_alloca_init(&T1, 2);
+	ttls_mpi_alloca_init(&X, A->used + 1);
+	ttls_mpi_alloca_init(&Y, A->used + 1);
+	ttls_mpi_alloca_init(&T1, 3 + A->used);
 	ttls_mpi_alloca_init(&T2, 3);
 	if (ttls_mpi_copy_alloc(&X, A, false)
 	    || ttls_mpi_copy_alloc(&Y, B, false))
@@ -1144,8 +1141,7 @@ ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 		k = BIL - 1 - k;
 		if (ttls_mpi_shift_l(&X, k) || ttls_mpi_shift_l(&Y, k))
 			return -ENOMEM;
-	}
-	else {
+	} else {
 		k = 0;
 	}
 
@@ -1283,8 +1279,8 @@ __mpi_montmul(TlsMpi *A, const TlsMpi *B, const TlsMpi *N, unsigned long mm,
 	size_t i, n, m;
 	unsigned long u0, u1, *d;
 
-	BUG_ON(T->limbs < N->used + 1 || !ttls_mpi_initialized(T));
-	memset(MPI_P(T), 0, T->limbs * CIL);
+	BUG_ON(T->limbs < N->used + 1);
+	bzero_fast(MPI_P(T), T->limbs * CIL);
 
 	d = MPI_P(T);
 	n = N->used;
@@ -1360,12 +1356,14 @@ ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E, const TlsMpi *N,
 
 	/* Init temps and window size. */
 	j = N->used + 1;
+	if (WARN_ON_ONCE(X->limbs < j))
+		return -ENOMEM;
 	__mpi_montg_init(&mm, N);
 	ttls_mpi_alloca_init(&T, j * 2);
 	if (!(W = ttls_mpool_alloc_stck(sizeof(TlsMpi) * (1 << MPI_W_SZ))))
 		return -ENOMEM;
 	bzero_fast(W, sizeof(TlsMpi) * (1 << MPI_W_SZ));
-	if (__mpi_alloc(X, j) || __mpi_alloc(&W[1], j))
+	if (__mpi_alloc(&W[1], j))
 		goto cleanup;
 
 	i = ttls_mpi_bitlen(E);
@@ -1388,7 +1386,8 @@ ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E, const TlsMpi *N,
 	 * If 1st call, pre-compute R^2 mod N
 	 */
 	BUG_ON(!RR);
-	if (unlikely(!ttls_mpi_initialized(RR))) {
+	if (unlikely(ttls_mpi_empty(RR))) {
+		TTLS_MPI_CHK(__mpi_alloc(RR, N->used * 2 + 1));
 		TTLS_MPI_CHK(ttls_mpi_lset(RR, 1));
 		TTLS_MPI_CHK(ttls_mpi_shift_l(RR, N->used * 2 * BIL));
 		TTLS_MPI_CHK(ttls_mpi_mod_mpi(RR, RR, N));
@@ -1545,7 +1544,8 @@ ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N)
 	if (ttls_mpi_cmp_int(N, 1) <= 0)
 		return -EINVAL;
 
-	if (!(G = ttls_mpool_alloc_stck(sizeof(TlsMpi) * 9 + N->used * 8 + 2)))
+	G = ttls_mpool_alloc_stck(sizeof(TlsMpi) * 9 + (N->used * 8 + 4) * CIL);
+	if (!G)
 		return -ENOMEM;
 	TA = ttls_mpi_init_next(G, 0);
 
@@ -1557,9 +1557,9 @@ ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N)
 	TV = ttls_mpi_init_next(TU, N->used);
 	U1 = ttls_mpi_init_next(TV, N->used);
 	U2 = ttls_mpi_init_next(U1, N->used + 1);
-	V1 = ttls_mpi_init_next(U2, N->used);
+	V1 = ttls_mpi_init_next(U2, N->used + 1);
 	V2 = ttls_mpi_init_next(V1, N->used + 1);
-	ttls_mpi_init_next(V2, N->used);
+	ttls_mpi_init_next(V2, N->used + 1);
 
 	TTLS_MPI_CHK(ttls_mpi_mod_mpi(TA, A, N));
 	TTLS_MPI_CHK(ttls_mpi_copy(TU, TA));

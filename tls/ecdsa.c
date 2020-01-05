@@ -105,7 +105,7 @@ ttls_ecdsa_verify(TlsEcpGrp *grp, const unsigned char *buf, size_t blen,
 	 * Fail cleanly on curves such as Curve25519 that can't be used for
 	 * ECDSA.
 	 */
-	if (!ttls_mpi_initialized(&grp->N))
+	if (ttls_mpi_empty(&grp->N))
 		return -EINVAL;
 
 	/* Step 1: make sure r and s are in range 1..n-1 */
@@ -148,6 +148,8 @@ ttls_ecdsa_verify(TlsEcpGrp *grp, const unsigned char *buf, size_t blen,
 
 /**
  * Convert a signature (given by context) to ASN.1.
+ *
+ * TODO #1064 remove the copying.
  */
 static int
 ecdsa_signature_to_asn1(const TlsMpi *r, const TlsMpi *s, unsigned char *sig,
@@ -184,12 +186,15 @@ ecdsa_signature_to_asn1(const TlsMpi *r, const TlsMpi *s, unsigned char *sig,
  * group order, then the hash is truncated as defined in Standards for Efficient
  * Cryptography Group (SECG): SEC1 Elliptic Curve Cryptography, section 4.1.3,
  * step 5.
+ *
+ * This is the late phase of ServerKeyExchange, so no need to clear the mpool
+ * stack at the end of the function.
  */
 int
 ttls_ecdsa_write_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
 			   size_t hlen, unsigned char *sig, size_t *slen)
 {
-	int key_tries, sign_tries, blind_tries;
+	int key_tries, sign_tries, blind_tries, n;
 	TlsMpi *k, *e, *t, *r, *s, *d = &ctx->d;
 	TlsEcpGrp *grp = &ctx->grp;
 	TlsEcpPoint *R;
@@ -198,7 +203,7 @@ ttls_ecdsa_write_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
 	 * Fail cleanly on curves such as Curve25519 that can't be used for
 	 * ECDSA.
 	 */
-	if (!ttls_mpi_initialized(&grp->N))
+	if (ttls_mpi_empty(&grp->N))
 		return -EINVAL;
 
 	/* Make sure d is in range 1..n-1 */
@@ -207,15 +212,17 @@ ttls_ecdsa_write_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
 		return -EINVAL;
 	}
 
-	if (!(k = ttls_mpi_alloc_stck_init((grp->nbits + 7) / 8 / CIL))
-	    || !(e = ttls_mpi_alloc_stck_init(hlen / CIL))
-	    || !(t = ttls_mpi_alloc_stck_init((grp->nbits + 7) / 8 / CIL))
+	n = max(grp->N.used + d->used, (int)(hlen / CIL));
+	if (!(k = ttls_mpi_alloc_stck_init((grp->nbits + 7) / BIL * 2))
+	    || !(e = ttls_mpi_alloc_stck_init(n * 2))
+	    || !(t = ttls_mpi_alloc_stck_init((grp->nbits + 7) / BIL))
 	    || !(r = ttls_mpi_alloc_stck_init(grp->N.used))
-	    || !(s = ttls_mpi_alloc_stck_init(max(grp->N.used + d->used,
-					      (int)(hlen / CIL))))
+	    || !(s = ttls_mpi_alloc_stck_init(n * 2))
 	    || !(R = ttls_mpool_alloc_stck(sizeof(*R))))
 		return -ENOMEM;
 	ttls_ecp_point_init(R);
+	if (__mpi_alloc(&R->Z, (grp->nbits + 7) / BIL * 2))
+		return -ENOMEM;
 
 	sign_tries = 0;
 	do {
