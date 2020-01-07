@@ -1044,19 +1044,8 @@ ecp_mul_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 		T = (TlsEcpPoint *)grp->T; /* we won't change it */
 		MPI_CHK(ttls_mpi_empty(&T->X) | ttls_mpi_empty(&T->Y));
 	} else {
-		int n = 1 << (w - 1);
-		if (!(T = ttls_mpool_alloc_stck(sizeof(TlsEcpPoint) * n)))
+		if (!(T = ttls_mpool_ecp_create_tmp_T(1 << (w - 1), P)))
 			return -ENOMEM;
-		bzero_fast(T, sizeof(TlsEcpPoint) * n);
-		for (--n ; n >= 0; --n)
-			if (ttls_mpi_alloc(&T[n].X, P->X.limbs * 2)
-			    || ttls_mpi_alloc(&T[n].Y, P->Y.limbs * 2)
-			    /*
-			     * ecp_double_jac() may require more limbs
-			     * for Z coordinate.
-			     */
-			    || ttls_mpi_alloc_tmp(&T[n].Z, P->X.limbs))
-				return -ENOMEM;
 	}
 	WARN_ON_ONCE(w > TTLS_ECP_WINDOW_ORDER);
 

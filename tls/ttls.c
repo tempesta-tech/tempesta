@@ -1215,8 +1215,8 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 	/* Read [IV | alert | handshake header] (probably fragmented). */
 	len -= n;
 	if (unlikely(io->hdr_cpsz + len < TLS_HEADER_SIZE + ivahs_len)) {
-		memcpy(io->__msg + io->hdr_cpsz - TLS_HEADER_SIZE,
-		       buf + n, len);
+		memcpy_fast(io->__msg + io->hdr_cpsz - TLS_HEADER_SIZE,
+			    buf + n, len);
 		*read += len;
 		io->hdr_cpsz += len;
 		return T_POSTPONE;
@@ -1228,7 +1228,8 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 		io->rlen = ivahs_len;
 	}
 	ivahs_len -= io->hdr_cpsz - TLS_HEADER_SIZE;
-	memcpy(io->__msg + io->hdr_cpsz - TLS_HEADER_SIZE, buf + n, ivahs_len);
+	memcpy_fast(io->__msg + io->hdr_cpsz - TLS_HEADER_SIZE, buf + n,
+		    ivahs_len);
 	*read += ivahs_len;
 	io->hdr_cpsz = 0;
 	io->st_flags |= TTLS_F_ST_HDRIV;
