@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
@@ -408,7 +408,7 @@ static int
 ttls_check_key_curve(TlsPkCtx *pk, const TlsEcpCurveInfo **curves)
 {
 	const TlsEcpCurveInfo **crv = curves;
-	ttls_ecp_group_id grp_id = ttls_pk_ec(*pk)->grp.id;
+	ttls_ecp_group_id grp_id = ttls_pk_ec(*pk)->grp->id;
 
 	while (*crv) {
 		if ((*crv)->grp_id == grp_id)

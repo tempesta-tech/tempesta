@@ -8,7 +8,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
@@ -1272,12 +1272,13 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 static void
 ttls_handshake_free(TlsHandshake *hs)
 {
-	if (WARN_ON_ONCE(!hs))
+	if (unlikely(!hs))
 		return;
 
 	crypto_free_shash(hs->desc.tfm);
 
-	ttls_mpi_pool_free(hs->crypto_ctx);
+	if (hs->crypto_ctx)
+		ttls_mpi_pool_free(hs->crypto_ctx);
 
 	bzero_fast(hs, sizeof(TlsHandshake));
 	kmem_cache_free(ttls_hs_cache, hs);
@@ -1607,7 +1608,7 @@ parse:
 		 * 0. If certificate uses an EC key, make sure the curve is OK.
 		 */
 		if (ttls_pk_can_do(pk, TTLS_PK_ECKEY)
-		    && ttls_check_curve(tls, ttls_pk_ec(*pk)->grp.id))
+		    && ttls_check_curve(tls, ttls_pk_ec(*pk)->grp->id))
 		{
 			sess->verify_result |= TTLS_X509_BADCERT_BAD_KEY;
 			T_DBG("bad certificate (EC key curve)\n");

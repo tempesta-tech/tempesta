@@ -203,16 +203,19 @@ ttls_ecp_is_zero(TlsEcpPoint *pt)
 
 /*
  * Export a point into unsigned binary data (SEC1 2.3.3).
+ * Uncompressed is the only point format supported by RFC 8422.
+ *
+ * @grp		- Group to which the point should belong;
+ * @p		- Point to export;
+ * @olen	- Length of the actual output;
+ * @buf		- Output buffer;
+ * @buflen	- Length of the output buffer.
  */
-int
+static int
 ttls_ecp_point_write_binary(const TlsEcpGrp *grp, const TlsEcpPoint *P,
-			    int format, size_t *olen, unsigned char *buf,
-			    size_t buflen)
+			    size_t *olen, unsigned char *buf, size_t buflen)
 {
 	size_t plen;
-
-	if (WARN_ON_ONCE(format != TTLS_ECP_PF_UNCOMPRESSED))
-		return TTLS_ERR_ECP_BAD_INPUT_DATA;
 
 	/* Common case: P == 0 . */
 	if (!ttls_mpi_cmp_int(&P->Z, 0)) {
@@ -320,9 +323,7 @@ ttls_ecp_tls_write_point(const TlsEcpGrp *grp, const TlsEcpPoint *pt,
 	if (blen < 1)
 		return -EINVAL;
 
-	/* Uncompressed is the only point format supported by RFC 8422. */
-	r = ttls_ecp_point_write_binary(grp, pt, TTLS_ECP_PF_UNCOMPRESSED,
-					olen, buf + 1, blen - 1);
+	r = ttls_ecp_point_write_binary(grp, pt, olen, buf + 1, blen - 1);
 	if (r)
 		return r;
 
@@ -978,9 +979,9 @@ ecp_mul_comb_core(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint T[],
 	if (!(Txi = ttls_mpool_alloc_stck(sizeof(TlsEcpPoint))))
 		return -ENOMEM;
 	ttls_ecp_point_init(Txi);
-	if (__mpi_alloc(&R->X, grp->nbits * 2 / BIL)
-	    || __mpi_alloc(&R->Y, grp->nbits * 2 / BIL)
-	    || __mpi_alloc(&R->Z, grp->nbits / BIL))
+	if (ttls_mpi_alloc(&R->X, grp->nbits * 2 / BIL)
+	    || ttls_mpi_alloc(&R->Y, grp->nbits * 2 / BIL)
+	    || ttls_mpi_alloc(&R->Z, grp->nbits / BIL + 1))
 		return -ENOMEM;
 
 	/* Start with a non-zero point and randomize its coordinates */
@@ -1009,6 +1010,7 @@ static int
 ecp_mul_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	     const TlsEcpPoint *P, bool rnd)
 {
+	int ret = -EINVAL;
 	unsigned char w, m_is_odd, p_eq_g, pre_len;
 	size_t d = max(m->used, grp->N.used);
 	TlsEcpPoint *T;
@@ -1047,13 +1049,13 @@ ecp_mul_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 			return -ENOMEM;
 		bzero_fast(T, sizeof(TlsEcpPoint) * n);
 		for (--n ; n >= 0; --n)
-			if (__mpi_alloc(&T[n].X, P->X.limbs * 2)
-			    || __mpi_alloc(&T[n].Y, P->Y.limbs * 2)
+			if (ttls_mpi_alloc(&T[n].X, P->X.limbs * 2)
+			    || ttls_mpi_alloc(&T[n].Y, P->Y.limbs * 2)
 			    /*
 			     * ecp_double_jac() may require more limbs
 			     * for Z coordinate.
 			     */
-			    || __mpi_alloc(&T[n].Z, P->X.limbs))
+			    || ttls_mpi_alloc_tmp(&T[n].Z, P->X.limbs))
 				return -ENOMEM;
 	}
 	WARN_ON_ONCE(w > TTLS_ECP_WINDOW_ORDER);
@@ -1061,7 +1063,7 @@ ecp_mul_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	/* Other sizes that depend on w */
 	pre_len = 1U << (w - 1);
 	if (WARN_ON_ONCE(pre_len > TTLS_ECP_WINDOW_SIZE))
-		return -EINVAL;
+		goto cleanup;
 	d = (grp->nbits + w - 1) / w;
 	BUG_ON(d > COMB_MAX_D);
 
@@ -1070,26 +1072,30 @@ ecp_mul_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	 * ecp_precompute_comb() is good with uninitialized T.
 	 */
 	if (!p_eq_g)
-		MPI_CHK(ecp_precompute_comb(grp, T, P, w, d));
+		TTLS_MPI_CHK(ecp_precompute_comb(grp, T, P, w, d));
 
 	/*
 	 * Make sure M is odd (M = m or M = N - m, since N is odd)
 	 * using the fact that m * P = - (N - m) * P
 	 */
 	m_is_odd = (ttls_mpi_get_bit(m, 0) == 1);
-	MPI_CHK(ttls_mpi_copy(M, m));
-	MPI_CHK(ttls_mpi_sub_mpi(mm, &grp->N, m));
-	MPI_CHK(ttls_mpi_safe_cond_assign(M, mm, !m_is_odd));
+	TTLS_MPI_CHK(ttls_mpi_copy(M, m));
+	TTLS_MPI_CHK(ttls_mpi_sub_mpi(mm, &grp->N, m));
+	TTLS_MPI_CHK(ttls_mpi_safe_cond_assign(M, mm, !m_is_odd));
 
 	/* Go for comb multiplication, R = M * P */
 	ecp_comb_fixed(k, d, w, M);
-	MPI_CHK(ecp_mul_comb_core(grp, R, T, pre_len, k, d, rnd));
+	TTLS_MPI_CHK(ecp_mul_comb_core(grp, R, T, pre_len, k, d, rnd));
 
 	/* Now get m * P from M * P and normalize it. */
-	MPI_CHK(ecp_safe_invert_jac(grp, R, !m_is_odd));
-	MPI_CHK(ecp_normalize_jac(grp, R));
+	TTLS_MPI_CHK(ecp_safe_invert_jac(grp, R, !m_is_odd));
+	TTLS_MPI_CHK(ecp_normalize_jac(grp, R));
 
-	return 0;
+cleanup:
+	if (!p_eq_g)
+		ttls_mpool_shrink_tailtmp(ttls_mpool(T), false);
+
+	return ret;
 }
 
 /*
@@ -1431,8 +1437,17 @@ ecp_check_pubkey_mx(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
 	return 0;
 }
 
-/*
+/**
  * Check that a point is valid as a public key.
+ *
+ * This function only checks the point is non-zero, has valid coordinates and
+ * lies on the curve, but not that it is indeed a multiple of G. This is
+ * additional check is more expensive, isn't required by standards, and
+ * shouldn't be necessary if the group used has a small cofactor. In particular,
+ * it is useless for the NIST groups which all have a cofactor of 1.
+ *
+ * Uses bare components rather than an TlsEcpKeypair structure in order to ease
+ * use with other structures such as TlsECDHCtx of TlsEcpKeypair.
  */
 int
 ttls_ecp_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
@@ -1450,8 +1465,11 @@ ttls_ecp_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
 	BUG();
 }
 
-/*
+/**
  * Check that an TlsMpi is valid as a private key.
+ *
+ * Uses bare components rather than an TlsEcpKeypair structure in order to ease
+ * use with other structures such as TlsECDHCtx of TlsEcpKeypair.
  */
 int
 ttls_ecp_check_privkey(const TlsEcpGrp *grp, const TlsMpi *d)

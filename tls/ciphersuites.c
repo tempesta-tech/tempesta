@@ -41,23 +41,27 @@ static union {
 	unsigned char	_[CS_MP_SZ];
 } cs_mp_ecdhe_secp256 __page_aligned_data = {
 	.mp = {
-		.order = TTLS_MPOOL_ORDER + 1,
-		.curr = sizeof(TlsMpiPool)
+		.order		= TTLS_MPOOL_ORDER + 1,
+		.curr		= sizeof(TlsMpiPool),
+		.curr_tail	= PAGE_SIZE << (TTLS_MPOOL_ORDER + 1)
 	}
 }, cs_mp_ecdhe_secp384 __page_aligned_data = {
 	.mp = {
-		.order = TTLS_MPOOL_ORDER + 1,
-		.curr = sizeof(TlsMpiPool)
+		.order		= TTLS_MPOOL_ORDER + 1,
+		.curr		= sizeof(TlsMpiPool),
+		.curr_tail	= PAGE_SIZE << (TTLS_MPOOL_ORDER + 1)
 	}
 }, cs_mp_ecdhe_curve25519 __page_aligned_data = {
 	.mp = {
-		.order = TTLS_MPOOL_ORDER + 1,
-		.curr = sizeof(TlsMpiPool)
+		.order		= TTLS_MPOOL_ORDER + 1,
+		.curr		= sizeof(TlsMpiPool),
+		.curr_tail	= PAGE_SIZE << (TTLS_MPOOL_ORDER + 1)
 	}
 }, cs_mp_dhe __page_aligned_data = {
 	.mp = {
 		.order = TTLS_MPOOL_ORDER + 1,
-		.curr = sizeof(TlsMpiPool)
+		.curr = sizeof(TlsMpiPool),
+		.curr_tail	= PAGE_SIZE << (TTLS_MPOOL_ORDER + 1)
 	}
 };
 

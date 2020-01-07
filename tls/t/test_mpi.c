@@ -36,7 +36,7 @@ mpi_alloc_init(void)
 	EXPECT_FALSE(!(A = ttls_mpi_alloc_stck_init(0)));
 
 	/* Grow empty MPI by zero - must remain the same. */
-	EXPECT_ZERO(__mpi_alloc(A, 0));
+	EXPECT_ZERO(ttls_mpi_alloc(A, 0));
 	EXPECT_ZERO(A->used);
 	EXPECT_ZERO(A->limbs);
 	EXPECT_ZERO(A->_off);
