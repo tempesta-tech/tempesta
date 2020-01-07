@@ -114,8 +114,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "PK - The pubkey tag or value is invalid (only RSA and EC are supported)");
 		if (use_ret == -(TTLS_ERR_PK_INVALID_ALG))
 			snprintf(buf, buflen, "PK - The algorithm tag or value is invalid");
-		if (use_ret == -(TTLS_ERR_PK_UNKNOWN_NAMED_CURVE))
-			snprintf(buf, buflen, "PK - Elliptic curve is unsupported (only NIST curves are supported)");
 		if (use_ret == -(TTLS_ERR_PK_SIG_LEN_MISMATCH))
 			snprintf(buf, buflen, "PK - The signature is valid but its length is less than expected");
 		if (use_ret == -(TTLS_ERR_PK_HW_ACCEL_FAILED))

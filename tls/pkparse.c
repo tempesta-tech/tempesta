@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
@@ -72,37 +72,37 @@ static int pk_get_ecparams(unsigned char **p, const unsigned char *end,
 	return 0;
 }
 
-/*
- * Use EC parameters to initialise an EC group
+/**
+ * Use EC parameters to find an EC group from initialized MPI profiles.
  *
  * ECParameters ::= CHOICE {
- *   namedCurve		 OBJECT IDENTIFIER
- *   specifiedCurve	 SpecifiedECDomain -- = SEQUENCE { ... }
- *   -- implicitCurve   NULL
+ *	namedCurve		OBJECT IDENTIFIER
+ *	specifiedCurve		SpecifiedECDomain -- = SEQUENCE { ... }
+ *	-- implicitCurve	NULL
  */
-static int pk_use_ecparams(const ttls_asn1_buf *params, TlsEcpGrp *grp)
+static int
+pk_use_ecparams(const ttls_asn1_buf *params, TlsEcpGrp **grp)
 {
-	int ret;
 	ttls_ecp_group_id grp_id;
 
-	if (params->tag == TTLS_ASN1_OID)
-	{
-		if (ttls_oid_get_ec_grp(params, &grp_id) != 0)
-			return(TTLS_ERR_PK_UNKNOWN_NAMED_CURVE);
+	if (params->tag != TTLS_ASN1_OID) {
+		T_ERR("Bad ASN1 OID tag %d, elliptic curve ID is expected\n",
+		      params->tag);
+		return -EINVAL;
 	}
-	else
-	{
-		return(TTLS_ERR_PK_KEY_INVALID_FORMAT);
+	if (ttls_oid_get_ec_grp(params, &grp_id)) {
+		T_ERR("Unsupported elliptic curve\n");
+		return -EINVAL;
 	}
 
-	/*
-	 * grp may already be initilialized; if so, make sure IDs match
-	 */
-	if (grp->id != TTLS_ECP_DP_NONE && grp->id != grp_id)
-		return(TTLS_ERR_PK_KEY_INVALID_FORMAT);
+	if (*grp) {
+		if (WARN_ON_ONCE((*grp)->id != grp_id))
+			return -EEXIST;
+		return 0;
+	}
 
-	if ((ret = ttls_ecp_group_load(grp, grp_id)) != 0)
-		return ret;
+	if (!(*grp = ttls_ecp_group_lookup(grp_id)))
+		return -ENOENT;
 
 	return 0;
 }
@@ -114,23 +114,22 @@ static int pk_use_ecparams(const ttls_asn1_buf *params, TlsEcpGrp *grp)
  * desired. Take care to pass along the possible ECP_FEATURE_UNAVAILABLE
  * return code of ttls_ecp_point_read_binary() and leave p in a usable state.
  */
-static int pk_get_ecpubkey(unsigned char **p, const unsigned char *end,
-				TlsEcpKeypair *key)
+static int
+pk_get_ecpubkey(unsigned char **p, const unsigned char *end, TlsEcpKeypair *key)
 {
-	int ret;
+	int r;
 
-	if ((ret = ttls_ecp_point_read_binary(&key->grp, &key->Q,
-		(const unsigned char *) *p, end - *p)) == 0)
+	if (!(r = ttls_ecp_point_read_binary(key->grp, &key->Q,
+					     (const unsigned char *)*p,
+					     end - *p)))
 	{
-		ret = ttls_ecp_check_pubkey(&key->grp, &key->Q);
+		r = ttls_ecp_check_pubkey(key->grp, &key->Q);
 	}
 
-	/*
-	 * We know ttls_ecp_point_read_binary consumed all bytes or failed
-	 */
+	/* We know ttls_ecp_point_read_binary consumed all bytes or failed. */
 	*p = (unsigned char *) end;
 
-	return ret;
+	return r;
 }
 
 /*
@@ -504,16 +503,15 @@ static int pk_parse_key_sec1_der(TlsEcpKeypair *eck,
 		}
 	}
 
-	if (! pubkey_done &&
-		(ret = ttls_ecp_mul(&eck->grp, &eck->Q, &eck->d, &eck->grp.G,
-				  false)) != 0)
+	if (!pubkey_done
+	    && (ret = ttls_ecp_mul(eck->grp, &eck->Q, &eck->d, &eck->grp->G,
+				   false)))
 	{
 		ttls_ecp_keypair_free(eck);
-		return(TTLS_ERR_PK_KEY_INVALID_FORMAT + ret);
+		return TTLS_ERR_PK_KEY_INVALID_FORMAT + ret;
 	}
 
-	if ((ret = ttls_ecp_check_privkey(&eck->grp, &eck->d)) != 0)
-	{
+	if ((ret = ttls_ecp_check_privkey(eck->grp, &eck->d))) {
 		ttls_ecp_keypair_free(eck);
 		return ret;
 	}

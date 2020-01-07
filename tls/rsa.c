@@ -639,8 +639,8 @@ ttls_rsa_complete(TlsRSACtx *ctx)
 		/* RSA 8192 bite requires 1024 bytes. */
 		unsigned char buf[1024] = {0};
 
-		if (__mpi_alloc(&ctx->Vi, ctx->len / CIL * 2)
-		    || __mpi_alloc(&ctx->Vf, ctx->len / CIL * 2))
+		if (ttls_mpi_alloc(&ctx->Vi, ctx->len / CIL * 2)
+		    || ttls_mpi_alloc(&ctx->Vf, ctx->len / CIL * 2))
 			return -ENOMEM;
 
 		/*

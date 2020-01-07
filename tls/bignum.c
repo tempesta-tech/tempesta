@@ -60,7 +60,6 @@
  * have to call __mpi_alloc() right after the initialization and before the
  * first usage. This function makes this simpler.
  */
-#ifndef DEBUG
 TlsMpi *
 ttls_mpi_alloc_stck_init(size_t nlimbs)
 {
@@ -74,22 +73,6 @@ ttls_mpi_alloc_stck_init(size_t nlimbs)
 
 	return X;
 }
-
-#else
-TlsMpi *
-__ttls_mpi_alloc_stck_init(size_t nlimbs, const char *file, int line)
-{
-	TlsMpi *X;
-
-	X = ttls_mpool_alloc_stck(sizeof(TlsMpi) + nlimbs * CIL);
-	if (unlikely(!X))
-		return NULL;
-
-	__ttls_mpi_init_next(X, nlimbs, file, line);
-
-	return X;
-}
-#endif
 
 /**
  * Technically, the function is equal ttls_mpi_init_next(), so the MPI becomes
@@ -108,12 +91,8 @@ ttls_mpi_free(TlsMpi *X)
 	}
 }
 
-/**
- * Reallocate the MPI data area and copy old data if necessary.
- */
-#ifndef DEBUG
-int
-__mpi_alloc(TlsMpi *X, size_t nlimbs)
+static int
+__mpi_alloc(TlsMpi *X, size_t nlimbs, bool tail)
 {
 	int new_off;
 
@@ -130,7 +109,7 @@ __mpi_alloc(TlsMpi *X, size_t nlimbs)
 	if (WARN_ON_ONCE(nlimbs > TTLS_MPI_MAX_LIMBS))
 		return -ENOMEM;
 
-	new_off = ttls_mpi_pool_alloc_mpi(X, nlimbs * CIL);
+	new_off = ttls_mpi_pool_alloc_mpi(X, nlimbs * CIL, tail);
 	if (new_off <= 0)
 		return -ENOMEM;
 
@@ -140,44 +119,17 @@ __mpi_alloc(TlsMpi *X, size_t nlimbs)
 	return 0;
 }
 
-#else
 int
-__mpi_alloc(TlsMpi *X, size_t nlimbs)
+ttls_mpi_alloc(TlsMpi *X, size_t nlimbs)
 {
-	int new_off;
-
-	if (likely(X->limbs >= nlimbs))
-		return 0;
-	if (WARN_ON_ONCE(nlimbs > TTLS_MPI_MAX_LIMBS))
-		return -ENOMEM;
-
-	new_off = ttls_mpi_pool_alloc_mpi(X, nlimbs * CIL);
-	if (new_off <= 0)
-		return -ENOMEM;
-
-	/*
-	 * In debug mode print warning about reallocation and do the slow right
-	 * things: allocate new memory area and copy the limbs.
-	 */
-	if (WARN(X->limbs,
-		 "Try to grow MPI %s:%d of size %u to %lu\n",
-		 X->file, X->line, X->limbs, nlimbs))
-	{
-		memcpy((char *)(X) + new_off, MPI_P(X), X->used * CIL);
-		/*
-		 * Poison the new limbs as we don't guarantee zeroes in normal
-		 * work flow.
-		 */
-		memset((char *)(X) + new_off + X->used * CIL, 0xAA,
-		       (nlimbs - X->used) * CIL);
-	}
-
-	X->limbs = nlimbs;
-	X->_off = new_off;
-
-	return 0;
+	return __mpi_alloc(X, nlimbs, false);
 }
-#endif
+
+int
+ttls_mpi_alloc_tmp(TlsMpi *X, size_t nlimbs)
+{
+	return __mpi_alloc(X, nlimbs, true);
+}
 
 /**
  * Set proper @X->used. Move from @n towards first limb and throw out all zeros.
@@ -209,7 +161,7 @@ ttls_mpi_copy_alloc(TlsMpi *X, const TlsMpi *Y, bool need_alloc)
 	}
 
 	if (need_alloc)
-		if (__mpi_alloc(X, Y->used))
+		if (ttls_mpi_alloc(X, Y->used))
 			return -ENOMEM;
 	memcpy_fast(MPI_P(X), MPI_P(Y), Y->used * CIL);
 	X->s = Y->s;
@@ -243,7 +195,7 @@ ttls_mpi_safe_cond_assign(TlsMpi *X, const TlsMpi *Y, unsigned char assign)
 	/* Make sure assign is 0 or 1 in a time-constant manner. */
 	assign = (assign | (unsigned char)-assign) >> 7;
 
-	if (__mpi_alloc(X, Y->used))
+	if (ttls_mpi_alloc(X, Y->used))
 		return -ENOMEM;
 
 	X->s = X->s * (1 - assign) + Y->s * assign;
@@ -300,7 +252,7 @@ ttls_mpi_safe_cond_swap(TlsMpi *X, TlsMpi *Y, unsigned char swap)
 int
 ttls_mpi_lset(TlsMpi *X, long z)
 {
-	if (__mpi_alloc(X, 1))
+	if (ttls_mpi_alloc(X, 1))
 		return -ENOMEM;
 
 	X->used = 1;
@@ -542,7 +494,7 @@ ttls_mpi_read_binary(TlsMpi *X, const unsigned char *buf, size_t buflen)
 
 	if (unlikely(!buflen))
 		return 0;
-	if (__mpi_alloc(X, limbs))
+	if (ttls_mpi_alloc(X, limbs))
 		return -ENOMEM;
 
 	X->s = 1;
@@ -608,7 +560,7 @@ ttls_mpi_fill_random(TlsMpi *X, size_t size)
 	if (WARN_ON_ONCE(size > TTLS_MPI_MAX_SIZE))
 		return -EINVAL;
 
-	if (__mpi_alloc(X, limbs))
+	if (ttls_mpi_alloc(X, limbs))
 		return -ENOMEM;
 
 	ttls_rnd(MPI_P(X), size);
@@ -795,7 +747,7 @@ ttls_mpi_sub_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 	if (ttls_mpi_cmp_abs(A, B) < 0)
 		return -EINVAL;
 
-	if (__mpi_alloc(X, A->used))
+	if (ttls_mpi_alloc(X, A->used))
 		return -ENOMEM;
 
 	__mpi_sub(MPI_P(A), A->used, MPI_P(B), B->used, MPI_P(X));
@@ -981,7 +933,7 @@ ttls_mpi_mul_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 		B = &T;
 	}
 
-	if (__mpi_alloc(X, i + j))
+	if (ttls_mpi_alloc(X, i + j))
 		return -ENOMEM;
 	bzero_fast(MPI_P(X), CIL * (i + j));
 	X->used = i + j;
@@ -1131,7 +1083,7 @@ ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 	X.s = Y.s = 1;
 
 	/* Initialize Q after copying A to X in case of Q == A. */
-	if (Q != &Z && __mpi_alloc(Q, A->used))
+	if (Q != &Z && ttls_mpi_alloc(Q, A->used))
 		return -ENOMEM;
 	Q->used = A->used;
 	bzero_fast(MPI_P(Q), Q->used * CIL);
@@ -1363,7 +1315,7 @@ ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E, const TlsMpi *N,
 	if (!(W = ttls_mpool_alloc_stck(sizeof(TlsMpi) * (1 << MPI_W_SZ))))
 		return -ENOMEM;
 	bzero_fast(W, sizeof(TlsMpi) * (1 << MPI_W_SZ));
-	if (__mpi_alloc(&W[1], j))
+	if (ttls_mpi_alloc(&W[1], j))
 		goto cleanup;
 
 	i = ttls_mpi_bitlen(E);
@@ -1387,7 +1339,7 @@ ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E, const TlsMpi *N,
 	 */
 	BUG_ON(!RR);
 	if (unlikely(ttls_mpi_empty(RR))) {
-		TTLS_MPI_CHK(__mpi_alloc(RR, N->used * 2 + 1));
+		TTLS_MPI_CHK(ttls_mpi_alloc(RR, N->used * 2 + 1));
 		TTLS_MPI_CHK(ttls_mpi_lset(RR, 1));
 		TTLS_MPI_CHK(ttls_mpi_shift_l(RR, N->used * 2 * BIL));
 		TTLS_MPI_CHK(ttls_mpi_mod_mpi(RR, RR, N));
@@ -1409,7 +1361,7 @@ ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E, const TlsMpi *N,
 		/* W[1 << (wsize - 1)] = W[1] ^ (wsize - 1) */
 		j =  1 << (wsize - 1);
 
-		TTLS_MPI_CHK(__mpi_alloc(&W[j], N->used + 1));
+		TTLS_MPI_CHK(ttls_mpi_alloc(&W[j], N->used + 1));
 		TTLS_MPI_CHK(ttls_mpi_copy(&W[j], &W[1]));
 
 		for (i = 0; i < wsize - 1; i++)
@@ -1417,7 +1369,7 @@ ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E, const TlsMpi *N,
 
 		/* W[i] = W[i - 1] * W[1] */
 		for (i = j + 1; i < (1 << wsize); i++) {
-			TTLS_MPI_CHK(__mpi_alloc(&W[i], N->used + 1));
+			TTLS_MPI_CHK(ttls_mpi_alloc(&W[i], N->used + 1));
 			TTLS_MPI_CHK(ttls_mpi_copy(&W[i], &W[i - 1]));
 			TTLS_MPI_CHK(__mpi_montmul(&W[i], &W[1], N, mm, &T));
 		}
