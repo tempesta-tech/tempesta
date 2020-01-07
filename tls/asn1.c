@@ -1,12 +1,12 @@
 /**
  *		Tempesta TLS
  *
- * Generic ASN.1 parsing
+ * Generic ASN.1 processing.
  *
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
@@ -211,8 +211,6 @@ int ttls_asn1_get_bitstring_null(unsigned char **p, const unsigned char *end,
 	return 0;
 }
 
-
-
 /*
  *  Parses and splits an ASN.1 "SEQUENCE OF <tag>"
  */
@@ -328,42 +326,131 @@ int ttls_asn1_get_alg_null(unsigned char **p,
 	return 0;
 }
 
-void ttls_asn1_free_named_data(ttls_asn1_named_data *cur)
+/**
+ * Write a length field in ASN.1 format.
+ * Note: function works backwards in data buffer.
+ *
+ * @p		- reference to current position pointer;
+ * @start	- start of the buffer (for bounds-checking);
+ * @len		- the length to write.
+ *
+ * @return the length written or a negative error code.
+ */
+int
+ttls_asn1_write_len(unsigned char **p, unsigned char *start, size_t len)
 {
-	if (cur == NULL)
-		return;
-
-	kfree(cur->oid.p);
-	kfree(cur->val.p);
-
-	ttls_bzero_safe(cur, sizeof(ttls_asn1_named_data));
-}
-
-void ttls_asn1_free_named_data_list(ttls_asn1_named_data **head)
-{
-	ttls_asn1_named_data *cur;
-
-	while ((cur = *head) != NULL)
-	{
-		*head = cur->next;
-		ttls_asn1_free_named_data(cur);
-		kfree(cur);
-	}
-}
-
-ttls_asn1_named_data *ttls_asn1_find_named_data(ttls_asn1_named_data *list,
-			   const char *oid, size_t len)
-{
-	while (list != NULL)
-	{
-		if (list->oid.len == len &&
-			memcmp(list->oid.p, oid, len) == 0)
-		{
-			break;
-		}
-
-		list = list->next;
+	if (len < 0x80) {
+		if (*p - start < 1)
+			return -ENOSPC;
+		*--(*p) = (unsigned char) len;
+		return 1;
 	}
 
-	return(list);
+	if (len <= 0xFF) {
+		if (*p - start < 2)
+			return -ENOSPC;
+
+		*--(*p) = (unsigned char) len;
+		*--(*p) = 0x81;
+		return 2;
+	}
+
+	if (len <= 0xFFFF) {
+		if (*p - start < 3)
+			return -ENOSPC;
+
+		*--(*p) = len & 0xFF;
+		*--(*p) = (len >> 8) & 0xFF;
+		*--(*p) = 0x82;
+		return 3;
+	}
+
+	if (len <= 0xFFFFFF) {
+		if (*p - start < 4)
+			return -ENOSPC;
+
+		*--(*p) = len & 0xFF;
+		*--(*p) = (len >> 8) & 0xFF;
+		*--(*p) = (len >> 16) & 0xFF;
+		*--(*p) = 0x83;
+		return 4;
+	}
+
+	if (len <= 0xFFFFFFFF) {
+		if (*p - start < 5)
+			return -ENOSPC;
+
+		*--(*p) = len & 0xFF;
+		*--(*p) = (len >>  8) & 0xFF;
+		*--(*p) = (len >> 16) & 0xFF;
+		*--(*p) = (len >> 24) & 0xFF;
+		*--(*p) = 0x84;
+		return 5;
+	}
+
+	return -EINVAL;
+}
+
+/**
+ * Write a ASN.1 tag in ASN.1 format.
+ * Note: function works backwards in data buffer
+ *
+ * @p		- reference to current position pointer;
+ * @start	- start of the buffer (for bounds-checking);
+ * @tag		- the tag to write.
+ *
+ * @return the length written or a negative error code.
+ */
+int
+ttls_asn1_write_tag(unsigned char **p, unsigned char *start, unsigned char tag)
+{
+	if (*p - start < 1)
+		return -ENOSPC;
+
+	*--(*p) = tag;
+
+	return 1;
+}
+
+/**
+ * Write a big number (TTLS_ASN1_INTEGER) in ASN.1 format.
+ * Note: function works backwards in data buffer
+ *
+ * @p		- reference to current position pointer;
+ * @start	- start of the buffer (for bounds-checking);
+ * @X		- the MPI to write.
+ *
+ * @return the length written or a negative error code.
+ */
+int
+ttls_asn1_write_mpi(unsigned char **p, unsigned char *start, const TlsMpi *X)
+{
+	int ret;
+	size_t len = ttls_mpi_size(X);
+
+	if (*p < start || (size_t)(*p - start) < len)
+		return -ENOSPC;
+
+	(*p) -= len;
+	TTLS_MPI_CHK(ttls_mpi_write_binary(X, *p, len));
+
+	/*
+	 * DER format assumes 2s complement for numbers, so the leftmost bit
+	 * should be 0 for positive numbers and 1 for negative numbers.
+	 */
+	if (X->s ==1 && **p & 0x80) {
+		if (*p - start < 1)
+			return -ENOSPC;
+
+		*--(*p) = 0x00;
+		len += 1;
+	}
+
+	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, len));
+	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_INTEGER));
+
+	ret = (int)len;
+
+cleanup:
+	return ret;
 }

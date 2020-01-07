@@ -74,7 +74,7 @@ ecp_mul(void)
 	};
 
 	/* ttls_mpool() treats the pool as "handshake" pool. */
-	EXPECT_FALSE(!(mp = ttls_mpi_pool_alloc(TTLS_MPOOL_ORDER, GFP_KERNEL)));
+	EXPECT_FALSE(!(mp = ttls_mpi_pool_create(TTLS_MPOOL_ORDER, GFP_KERNEL)));
 
 	EXPECT_FALSE(!(R = ttls_mpool_alloc_data(mp, sizeof(*R))));
 	ttls_ecp_point_init(R);

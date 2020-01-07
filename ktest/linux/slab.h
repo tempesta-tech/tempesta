@@ -34,6 +34,8 @@
 
 /* asm/page.h */
 #define PAGE_SIZE	4096UL
+/* arch/x86/include/asm/page_64_types.h */
+#define THREAD_SIZE	(PAGE_SIZE << 2)
 
 typedef enum {
 	GFP_KERNEL = 0,

@@ -635,10 +635,7 @@ ttls_derive_keys(TlsCtx *tls)
 	T_DBG3_BUF("random bytes", hs->randbytes, 64);
 	T_DBG3_BUF("key block", keyblk, 256);
 
-	/*
-	 * We'll reused the memory area on ClientFinieshed,
-	 * so clean it up now.
-	 */
+	/* We'll reuse the memory area on ClientFinished, so clean it up now. */
 	bzero_fast(hs->randbytes, sizeof(hs->randbytes));
 
 	/* Determine the appropriate key, IV and MAC length. */
@@ -2205,7 +2202,7 @@ ttls_recv(void *tls_data, unsigned char *buf, size_t len, unsigned int *read)
 		 */
 		r = ttls_handshake_step(tls, buf, len, hh_len, read);
 
-		/* Cleanup security sensitive temproary data. */
+		/* Cleanup security sensitive temporary data. */
 		ttls_mpi_pool_cleanup_ctx(0, true);
 
 		if (!r)
