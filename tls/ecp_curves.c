@@ -114,6 +114,8 @@ static const unsigned long secp384r1_n[] = {
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
 };
 
+static TlsEcpGrp *ec_groups[__TTLS_ECP_DP_N];
+
 /*
  * Fast reduction modulo the primes used by the NIST curves.
  *
@@ -388,7 +390,7 @@ ecp_mpi_load(TlsMpi *X, const unsigned long *p, size_t len)
 {
 	size_t const limbs = len / CIL;
 
-	if (__mpi_alloc(X, limbs))
+	if (ttls_mpi_alloc(X, limbs))
 		return -ENOMEM;
 
 	X->s = 1;
@@ -425,7 +427,7 @@ ecp_group_load(TlsEcpGrp *grp, const unsigned long *p,  size_t plen,
 	 * Most of the time the point is normalized, so Z stores 1, but
 	 * is some calculations the size can grow up to the curve size.
 	 */
-	if (__mpi_alloc(&grp->G.Z, grp->nbits / BIL)
+	if (ttls_mpi_alloc(&grp->G.Z, grp->nbits / BIL)
 	    || ttls_mpi_lset(&grp->G.Z, 1))
 		return -ENOMEM;
 
@@ -434,15 +436,15 @@ ecp_group_load(TlsEcpGrp *grp, const unsigned long *p,  size_t plen,
 	 * coordinates, so we need double sizes.
 	 */
 	for (i = 0; i < ARRAY_SIZE(grp->T); i++)
-		if (__mpi_alloc(&grp->T[i].X, grp->G.X.limbs * 2)
-		    || __mpi_alloc(&grp->T[i].Y, grp->G.Y.limbs * 2))
+		if (ttls_mpi_alloc(&grp->T[i].X, grp->G.X.limbs * 2)
+		    || ttls_mpi_alloc(&grp->T[i].Y, grp->G.Y.limbs * 2))
 			return -ENOMEM;
 	/*
 	 * Allocate Z coordinates separately to shrink them later,
-	 * see __mpool_ecp_shrink_tz().
+	 * see ttls_mpool_shrink_tailtmp().
 	 */
 	for (i = 0; i < ARRAY_SIZE(grp->T); i++)
-		if (__mpi_alloc(&grp->T[i].Z, grp->G.Z.limbs))
+		if (ttls_mpi_alloc_tmp(&grp->T[i].Z, grp->G.Z.limbs))
 			return -ENOMEM;
 
 	return 0;
@@ -477,6 +479,12 @@ ecp_use_curve25519(TlsEcpGrp *grp)
 	return 0;
 }
 
+TlsEcpGrp *
+ttls_ecp_group_lookup(ttls_ecp_group_id id)
+{
+	return ec_groups[id];
+}
+
 /**
  * Set a group using well-known domain parameters.
  *
@@ -490,23 +498,34 @@ ttls_ecp_group_load(TlsEcpGrp *grp, ttls_ecp_group_id id)
 					    G##_gx, sizeof(G##_gx),	\
 					    G##_gy, sizeof(G##_gy),	\
 					    G##_n, sizeof(G##_n))
+	int r;
 
-	grp->id = id;
+	if (ec_groups[id])
+		T_WARN("Try to load already initialized EC group %d, shouldn't"
+		       " have used ttls_ecp_group_lookup() instead?\n", id);
 
 	switch(id) {
 	case TTLS_ECP_DP_SECP256R1:
 		grp->modp = ecp_mod_p256;
-		return LOAD_GROUP(secp256r1);
+		r = LOAD_GROUP(secp256r1);
+		break;
 	case TTLS_ECP_DP_SECP384R1:
 		grp->modp = ecp_mod_p384;
-		return LOAD_GROUP(secp384r1);
+		r = LOAD_GROUP(secp384r1);
+		break;
 	case TTLS_ECP_DP_CURVE25519:
 		T_WARN("Try to load ECP group for unsupported Curve25519.\n");
 		grp->modp = ecp_mod_p255;
-		return ecp_use_curve25519(grp);
+		r = ecp_use_curve25519(grp);
+		break;
 	default:
-		grp->id = 0;
-		return TTLS_ERR_ECP_FEATURE_UNAVAILABLE;
+		T_WARN("Trying to load unsupported curve %d\n", id);
+		return -EINVAL;
 	}
+
+	grp->id = id;
+	ec_groups[id] = grp;
+
+	return 0;
 #undef LOAD_GROUP
 }

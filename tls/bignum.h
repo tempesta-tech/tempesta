@@ -82,10 +82,6 @@ typedef struct {
 	unsigned short	used;
 	unsigned short	limbs;
 	short		_off;
-#ifdef DEBUG
-	const char	*file;
-	int		line;
-#endif
 } __attribute__((packed)) TlsMpi;
 
 #define MPI_P(m)	((unsigned long *)((unsigned char *)(m) + (m)->_off))
@@ -94,15 +90,61 @@ typedef struct {
  * MPI memory pool.
  *
  * @order	- page order of the underneath memory area;
- * @curr	- offset of free memory area for MPI allocations.
+ * @curr	- offset of free memory area for MPI allocations;
+ * @tmp_tail	- offset of reclaimable memory area for allocations.
  */
 typedef struct {
 	unsigned int		order;
-	unsigned int		curr;
+	unsigned short		curr;
+	unsigned short		curr_tail;
 } TlsMpiPool;
 
+/**
+ * Initialize an MPI at memory by pointer @X with preallocated space for @nlimbs
+ * and return a pointer to a next MPI in the same memory region.
+ *
+ * Note that sizeof(TlsMPI) == sizeof(long) (a limb), so we're MPIs are always
+ * properly aligned.
+ *
+ * Used for multiple MPI allocations and initializations when
+ * ttls_mpi_alloc_stck_init() may cost too much.
+ *
+ * Place the function in the header to allow the compiler to optimize out
+ * unused return value if a called doesn't care about it.
+ */
+static inline TlsMpi *
+ttls_mpi_init_next(TlsMpi *X, size_t nlimbs)
+{
+	X->s = 1;
+	X->used = 0;
+	X->limbs = nlimbs;
+	X->_off = nlimbs ? sizeof(TlsMpi) : 0;
+
+	return (TlsMpi *)((char *)X + sizeof(TlsMpi) + nlimbs * CIL);
+}
+
+/*
+ * While the kernel stack can be up to 2 pages in size, we limit the whole
+ * statck allocations by one page to avoid stack overflow (we may need it for
+ * other calls). Use paged per-cpu MPI pool if more memory for temporary MPIs
+ * is required.
+ */
+#define ttls_mpi_alloca_init(X, ln)					\
+do {									\
+	unsigned long p, x = (unsigned long)(X);			\
+	p = (unsigned long)__builtin_alloca((ln) * CIL);		\
+	WARN_ON_ONCE(p + (ln) > x || p + PAGE_SIZE < x);		\
+	(X)->_off = (short)(p - x);					\
+	(X)->s = 1;							\
+	(X)->used = 0;							\
+	(X)->limbs = ln;						\
+} while (0)
+
+TlsMpi *ttls_mpi_alloc_stck_init(size_t nlimbs);
+int ttls_mpi_alloc(TlsMpi *X, size_t nblimbs);
+int ttls_mpi_alloc_tmp(TlsMpi *X, size_t nblimbs);
 void ttls_mpi_free(TlsMpi *X);
-int __mpi_alloc(TlsMpi *X, size_t nblimbs);
+
 void mpi_fixup_used(TlsMpi *X, size_t n);
 int ttls_mpi_copy_alloc(TlsMpi *X, const TlsMpi *Y, bool need_alloc);
 int ttls_mpi_copy(TlsMpi *X, const TlsMpi *Y);
@@ -153,44 +195,6 @@ ttls_mpi_empty(const TlsMpi *X)
 }
 
 #ifdef DEBUG
-
-TlsMpi *__ttls_mpi_alloc_stck_init(size_t nlimbs, const char *file, int line);
-
-static inline TlsMpi *
-__ttls_mpi_init_next(TlsMpi *X, size_t nlimbs, const char *file, int line)
-{
-	X->s = 1;
-	X->used = 0;
-	X->limbs = nlimbs;
-	X->_off = nlimbs ? sizeof(TlsMpi) : 0;
-	X->file = file;
-	X->line = line;
-
-	return (TlsMpi *)((char *)X + sizeof(*X) + nlimbs * CIL);
-}
-
-#define ttls_mpi_alloca_init(X, ln)					\
-do {									\
-	unsigned long p, x = (unsigned long)(X);			\
-	WARN((ln) == 0, "alloca() for zero, MPI %pK\n", X);		\
-	p = (unsigned long)__builtin_alloca((ln) * CIL);		\
-	if (WARN(p + (ln) > x || p + PAGE_SIZE < x,			\
-		 "alloca fails: %lx (stack %lx)\n", p, x))		\
-		return -ENOMEM;						\
-	(X)->_off = (short)(p - x);					\
-	(X)->s = 1;							\
-	(X)->used = 0;							\
-	(X)->limbs = (ln);						\
-	(X)->file = __FILE__;						\
-	(X)->line = __LINE__;						\
-	memset((void *)p, 0, (ln) * CIL);				\
-} while (0)
-
-#define ttls_mpi_init_next(X, l)					\
-	__ttls_mpi_init_next(X, l, __FILE__, __LINE__)
-#define ttls_mpi_alloc_stck_init(l)					\
-	__ttls_mpi_alloc_stck_init(l, __FILE__, __LINE__)
-
 /**
  * There are a lot of MPI operations used around, so Tempesta TLS becomes
  * unusable if all MPIs are dumped, so following pattern should be used:
@@ -231,49 +235,6 @@ do {									\
 #define T_DBG_MPI3(...)
 #define T_DBG_MPI4(...)
 #define TTLS_MPI_DUMP_ONCE(...)
-
-TlsMpi *ttls_mpi_alloc_stck_init(size_t nlimbs);
-
-/**
- * Initialize an MPI at memory by pointer @X with preallocated space for @nlimbs
- * and return a pointer to a next MPI in the same memory region.
- *
- * Note that sizeof(TlsMPI) == sizeof(long) (a limb), so we're MPIs are always
- * properly aligned.
- *
- * Used for multiple MPI allocations and initializations when
- * ttls_mpi_alloc_stck_init() may cost too much.
- *
- * Place the function in the header to allow the compiler to optimize out
- * unused return value if a called doesn't care about it.
- */
-static inline TlsMpi *
-ttls_mpi_init_next(TlsMpi *X, size_t nlimbs)
-{
-	X->s = 1;
-	X->used = 0;
-	X->limbs = nlimbs;
-	X->_off = nlimbs ? sizeof(TlsMpi) : 0;
-
-	return (TlsMpi *)((char *)X + sizeof(TlsMpi) + nlimbs * CIL);
-}
-
-/*
- * While the kernel stack can be up to 2 pages in size, we limit the whole
- * statck allocations by one page to avoid stack overflow (we may need it for
- * other calls). Use paged per-cpu MPI pool if more memory for temporary MPIs
- * is required.
- */
-#define ttls_mpi_alloca_init(X, ln)					\
-do {									\
-	unsigned long p, x = (unsigned long)(X);			\
-	p = (unsigned long)__builtin_alloca((ln) * CIL);		\
-	WARN_ON_ONCE(p + (ln) > x || p + PAGE_SIZE < x);		\
-	(X)->_off = (short)(p - x);					\
-	(X)->s = 1;							\
-	(X)->used = 0;							\
-	(X)->limbs = ln;						\
-} while (0)
 
 #endif /* DEBUG */
 

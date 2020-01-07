@@ -38,7 +38,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
@@ -210,7 +210,7 @@ typedef struct {
  * @d		- our secret value;
  */
 typedef struct {
-	TlsEcpGrp		grp;
+	TlsEcpGrp		*grp;
 	TlsEcpPoint		Q;
 	TlsMpi			d;
 } TlsEcpKeypair;
@@ -225,139 +225,30 @@ typedef struct {
 /* The only allowed ECCurveType by RFC 8422 5.4. */
 #define TTLS_ECP_TLS_NAMED_CURVE	3
 
-/**
- * \brief		   Get curve information from an internal group identifier
- *
- * \param grp_id	A TTLS_ECP_DP_XXX value
- *
- * \return		  The associated curve information or NULL
- */
 const TlsEcpCurveInfo *ttls_ecp_curve_info_from_grp_id(ttls_ecp_group_id grp_id);
-
-/**
- * \brief		   Get curve information from a TLS NamedCurve value
- *
- * \param tls_id	A TTLS_ECP_DP_XXX value
- *
- * \return		  The associated curve information or NULL
- */
 const TlsEcpCurveInfo *ttls_ecp_curve_info_from_tls_id(uint16_t tls_id);
 
 void ttls_ecp_point_init(TlsEcpPoint *pt);
 void ttls_ecp_keypair_init(TlsEcpKeypair *key);
 void ttls_ecp_keypair_free(TlsEcpKeypair *key);
 
-/**
- * \brief		   Copy the contents of point Q into P
- *
- * \param P		 Destination point
- * \param Q		 Source point
- *
- */
 int ttls_ecp_copy(TlsEcpPoint *P, const TlsEcpPoint *Q);
-
-/**
- * \brief		   Set a point to zero
- *
- * \param pt		Destination point
- */
 int ttls_ecp_set_zero(TlsEcpPoint *pt);
-
-/**
- * \brief		   Tell if a point is zero
- *
- * \param pt		Point to test
- *
- * \return		  1 if point is zero, 0 otherwise
- */
 int ttls_ecp_is_zero(TlsEcpPoint *pt);
 
-/**
- * \brief		   Export a point into unsigned binary data
- *
- * \param grp	   Group to which the point should belong
- * \param P		 Point to export
- * \param format	Point format, should be a TTLS_ECP_PF_XXX macro
- * \param olen	  Length of the actual output
- * \param buf	   Output buffer
- * \param buflen	Length of the output buffer
- *
- * \return		  0 if successful,
- *				  or TTLS_ERR_ECP_BAD_INPUT_DATA
- *				  or TTLS_ERR_ECP_BUFFER_TOO_SMALL
- */
-int ttls_ecp_point_write_binary(const TlsEcpGrp *grp, const TlsEcpPoint *P,
-				int format, size_t *olen,
-				unsigned char *buf, size_t buflen);
-
-/**
- * \brief		   Import a point from unsigned binary data
- *
- * \param grp	   Group to which the point should belong
- * \param P		 Point to import
- * \param buf	   Input buffer
- * \param ilen	  Actual length of input
- *
- * \return		  0 if successful,
- *				  TTLS_ERR_ECP_BAD_INPUT_DATA if input is invalid,
- *				  TTLS_ERR_ECP_FEATURE_UNAVAILABLE if the point format
- *				  is not implemented.
- *
- * \note			This function does NOT check that the point actually
- *				  belongs to the given group, see ttls_ecp_check_pubkey() for
- *				  that.
- */
 int ttls_ecp_point_read_binary(const TlsEcpGrp *grp, TlsEcpPoint *P,
-			   const unsigned char *buf, size_t ilen);
-
-/**
- * \brief		   Import a point from a TLS ECPoint record
- *
- * \param grp	   ECP group used
- * \param pt		Destination point
- * \param buf	   $(Start of input buffer)
- * \param len	   Buffer length
- *
- * \note			buf is updated to point right after the ECPoint on exit
- *
- * \return		  0 if successful,
- *				  TTLS_ERR_ECP_BAD_INPUT_DATA if input is invalid
- */
+			       const unsigned char *buf, size_t ilen);
 int ttls_ecp_tls_read_point(const TlsEcpGrp *grp, TlsEcpPoint *pt,
-			const unsigned char **buf, size_t len);
-
+			    const unsigned char **buf, size_t len);
 int ttls_ecp_tls_write_point(const TlsEcpGrp *grp, const TlsEcpPoint *pt,
 			     size_t *olen, unsigned char *buf, size_t blen);
-
-int ttls_ecp_group_load(TlsEcpGrp *grp, ttls_ecp_group_id id);
-
-/**
- * \brief		   Set a group from a TLS ECParameters record
- *
- * \param grp	   Destination group
- * \param buf	   &(Start of input buffer)
- * \param len	   Buffer length
- *
- * \note			buf is updated to point right after ECParameters on exit
- *
- * \return		  0 if successful,
- *				  TTLS_ERR_ECP_BAD_INPUT_DATA if input is invalid
- */
-int ttls_ecp_tls_read_group(TlsEcpGrp *grp, const unsigned char **buf, size_t len);
-
-/**
- * \brief		   Write the TLS ECParameters record for a group
- *
- * \param grp	   ECP group used
- * \param olen	  Number of bytes actually written
- * \param buf	   Buffer to write to
- * \param blen	  Buffer length
- *
- * \return		  0 if successful,
- *				  or TTLS_ERR_ECP_BUFFER_TOO_SMALL
- */
+int ttls_ecp_tls_read_group(TlsEcpGrp *grp, const unsigned char **buf,
+			    size_t len);
 int ttls_ecp_tls_write_group(const TlsEcpGrp *grp, size_t *olen,
-			 unsigned char *buf, size_t blen);
+			     unsigned char *buf, size_t blen);
+
+TlsEcpGrp * ttls_ecp_group_lookup(ttls_ecp_group_id id);
+int ttls_ecp_group_load(TlsEcpGrp *grp, ttls_ecp_group_id id);
 
 int ecp_precompute_comb(const TlsEcpGrp *grp, TlsEcpPoint T[],
 			const TlsEcpPoint *P,unsigned char w, size_t d);
@@ -367,42 +258,7 @@ int ttls_ecp_mul(TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 int ttls_ecp_muladd(TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 		    const TlsMpi *n, const TlsEcpPoint *Q);
 
-/**
- * \brief		   Check that a point is a valid public key on this curve
- *
- * \param grp	   Curve/group the point should belong to
- * \param pt		Point to check
- *
- * \return		  0 if point is a valid public key,
- *				  TTLS_ERR_ECP_INVALID_KEY otherwise.
- *
- * \note			This function only checks the point is non-zero, has valid
- *				  coordinates and lies on the curve, but not that it is
- *				  indeed a multiple of G. This is additional check is more
- *				  expensive, isn't required by standards, and shouldn't be
- *				  necessary if the group used has a small cofactor. In
- *				  particular, it is useless for the NIST groups which all
- *				  have a cofactor of 1.
- *
- * \note			Uses bare components rather than an TlsEcpKeypair structure
- *				  in order to ease use with other structures such as
- *				  TlsECDHCtx of TlsEcpKeypair.
- */
 int ttls_ecp_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt);
-
-/**
- * \brief		   Check that an TlsMpi is a valid private key for this curve
- *
- * \param grp	   Group used
- * \param d		 Integer to check
- *
- * \return		  0 if point is a valid private key,
- *				  TTLS_ERR_ECP_INVALID_KEY otherwise.
- *
- * \note			Uses bare components rather than an TlsEcpKeypair structure
- *				  in order to ease use with other structures such as
- *				  TlsECDHCtx of TlsEcpKeypair.
- */
 int ttls_ecp_check_privkey(const TlsEcpGrp *grp, const TlsMpi *d);
 int ttls_ecp_gen_keypair(TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q);
 

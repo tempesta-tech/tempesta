@@ -52,8 +52,6 @@
 #define TTLS_ERR_PK_INVALID_PUBKEY	-0x3B00
 /* The algorithm tag or value is invalid. */
 #define TTLS_ERR_PK_INVALID_ALG		-0x3A80
-/* Elliptic curve is unsupported (only NIST curves are supported). */
-#define TTLS_ERR_PK_UNKNOWN_NAMED_CURVE	-0x3A00
 /* The signature is valid but its length is less than expected. */
 #define TTLS_ERR_PK_SIG_LEN_MISMATCH	-0x3900
 /* PK hardware accelerator failed. */
