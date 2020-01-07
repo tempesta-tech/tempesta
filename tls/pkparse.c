@@ -127,7 +127,7 @@ pk_get_ecpubkey(unsigned char **p, const unsigned char *end, TlsEcpKeypair *key)
 	}
 
 	/* We know ttls_ecp_point_read_binary consumed all bytes or failed. */
-	*p = (unsigned char *) end;
+	*p = (unsigned char *)end;
 
 	return r;
 }
@@ -367,7 +367,7 @@ pk_parse_key_pkcs1_der(TlsRSACtx *rsa, const unsigned char *key, size_t keylen)
 
 	/* Check optional parameters */
 	kernel_fpu_begin();
-	if (!(T = ttls_mpi_alloc_stck_init((end - p) * CIL))
+	if (!(T = ttls_mpi_alloc_stack_init((end - p) * CIL))
 	    || (r = ttls_asn1_get_mpi(&p, end, T))
 	    || (r = ttls_asn1_get_mpi(&p, end, T))
 	    || (r = ttls_asn1_get_mpi(&p, end, T)))

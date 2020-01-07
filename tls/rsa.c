@@ -166,8 +166,8 @@ ttls_rsa_deduce_primes(TlsMpi const *N, TlsMpi const *E, TlsMpi const *D,
 	    || ttls_mpi_cmp_mpi(E, N) >= 0)
 		return -EINVAL;
 
-	if (!(T = ttls_mpi_alloc_stck_init(D->used + E->used))
-	    || !(K = ttls_mpi_alloc_stck_init(N->used + 1)))
+	if (!(T = ttls_mpi_alloc_stack_init(D->used + E->used))
+	    || !(K = ttls_mpi_alloc_stack_init(N->used + 1)))
 		return -ENOMEM;
 
 	/* T := DE - 1 */
@@ -268,8 +268,8 @@ ttls_rsa_deduce_private_exponent(TlsMpi const *P, TlsMpi const *Q,
 	    || !ttls_mpi_cmp_int(E, 0))
 		return -EINVAL;
 
-	if (!(K = ttls_mpi_alloc_stck_init(P->used + Q->used))
-	    || !(L = ttls_mpi_alloc_stck_init(Q->used)))
+	if (!(K = ttls_mpi_alloc_stack_init(P->used + Q->used))
+	    || !(L = ttls_mpi_alloc_stack_init(Q->used)))
 		return -ENOMEM;
 
 	/* Temporarily put K := P-1 and L := Q-1 */
@@ -305,7 +305,7 @@ ttls_rsa_deduce_crt(const TlsMpi *P, const TlsMpi *Q, const TlsMpi *D,
 {
 	TlsMpi *K;
 
-	if (!(K = ttls_mpi_alloc_stck_init(max(P->used, Q->used))))
+	if (!(K = ttls_mpi_alloc_stack_init(max(P->used, Q->used))))
 		return -ENOMEM;
 
 	/* DP = D mod P-1 */
@@ -867,7 +867,7 @@ ttls_rsa_public(TlsRSACtx *ctx, const unsigned char *input,
 	size_t olen;
 	TlsMpi *T;
 
-	if (!(T = ttls_mpi_alloc_stck_init(ctx->len / CIL)))
+	if (!(T = ttls_mpi_alloc_stack_init(ctx->len / CIL)))
 		return -ENOMEM;
 
 	MPI_CHK(ttls_mpi_read_binary(T, input, ctx->len));

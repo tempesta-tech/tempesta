@@ -33,7 +33,7 @@ mpi_alloc_init(void)
 	unsigned long p[7] = { 0x1, 0x2, 0x3, 0x4, 0x5, 0, 0 };
 	unsigned short save_off;
 
-	EXPECT_FALSE(!(A = ttls_mpi_alloc_stck_init(0)));
+	EXPECT_FALSE(!(A = ttls_mpi_alloc_stack_init(0)));
 
 	/* Grow empty MPI by zero - must remain the same. */
 	EXPECT_ZERO(ttls_mpi_alloc(A, 0));
@@ -168,8 +168,8 @@ mpi_copy(void)
 	short save_off;
 	TlsMpi *A, *B;
 
-	EXPECT_FALSE(!(A = ttls_mpi_alloc_stck_init(TTLS_MPI_MAX_SIZE / CIL)));
-	EXPECT_FALSE(!(B = ttls_mpi_alloc_stck_init(TTLS_MPI_MAX_SIZE / CIL)));
+	EXPECT_FALSE(!(A = ttls_mpi_alloc_stack_init(TTLS_MPI_MAX_SIZE / CIL)));
+	EXPECT_FALSE(!(B = ttls_mpi_alloc_stack_init(TTLS_MPI_MAX_SIZE / CIL)));
 
 	EXPECT_ZERO(ttls_mpi_lset(A, -5));
 	EXPECT_TRUE(A->used == 1);
@@ -218,8 +218,8 @@ mpi_safe_cond(void)
 	short save_offA, save_offB;
 	unsigned long valB0;
 
-	EXPECT_FALSE(!(A = ttls_mpi_alloc_stck_init(25)));
-	EXPECT_FALSE(!(B = ttls_mpi_alloc_stck_init(0)));
+	EXPECT_FALSE(!(A = ttls_mpi_alloc_stack_init(25)));
+	EXPECT_FALSE(!(B = ttls_mpi_alloc_stack_init(0)));
 
 	EXPECT_ZERO(ttls_mpi_lset(A, -0x1122334455667788L));
 	EXPECT_ZERO(ttls_mpi_fill_random(B, 200)); /* 25 limbs */
@@ -373,8 +373,8 @@ mpi_elementary(void)
 	TlsMpi *A, *B;
 	unsigned long *save_ptr;
 
-	EXPECT_FALSE(!(A = ttls_mpi_alloc_stck_init(2)));
-	EXPECT_FALSE(!(B = ttls_mpi_alloc_stck_init(2)));
+	EXPECT_FALSE(!(A = ttls_mpi_alloc_stack_init(2)));
+	EXPECT_FALSE(!(B = ttls_mpi_alloc_stack_init(2)));
 
 	EXPECT_ZERO(ttls_mpi_lset(A, -1));
 	EXPECT_ZERO(ttls_mpi_lset(B, 1));
@@ -476,8 +476,8 @@ mpi_consts(void)
 {
 	TlsMpi *A, *B;
 
-	EXPECT_FALSE(!(A = ttls_mpi_alloc_stck_init(5)));
-	EXPECT_FALSE(!(B = ttls_mpi_alloc_stck_init(5)));
+	EXPECT_FALSE(!(A = ttls_mpi_alloc_stack_init(5)));
+	EXPECT_FALSE(!(B = ttls_mpi_alloc_stack_init(5)));
 
 	EXPECT_ZERO(ttls_mpi_read_binary(A, "\x01\x77\x63\x34\xb6\xde\x8c\x09"
 					    "\x0b\x92\x92\xe4\xbd\xd3\x70\xcc"
@@ -526,10 +526,10 @@ mpi_mul_div_simple(void)
 {
 	TlsMpi *A, *B, *D, *R;
 
-	EXPECT_FALSE(!(A = ttls_mpi_alloc_stck_init(7)));
-	EXPECT_FALSE(!(B = ttls_mpi_alloc_stck_init(7)));
-	EXPECT_FALSE(!(R = ttls_mpi_alloc_stck_init(1))); /* enough for % 8 */
-	EXPECT_FALSE(!(D = ttls_mpi_alloc_stck_init(0)));
+	EXPECT_FALSE(!(A = ttls_mpi_alloc_stack_init(7)));
+	EXPECT_FALSE(!(B = ttls_mpi_alloc_stack_init(7)));
+	EXPECT_FALSE(!(R = ttls_mpi_alloc_stack_init(1))); /* enough for % 8 */
+	EXPECT_FALSE(!(D = ttls_mpi_alloc_stack_init(0)));
 
 	EXPECT_ZERO(ttls_mpi_read_binary(A, "\x66\x13\xF2\x61\x62\x22\x3D\xF4"
 					    "\x88\xE9\xCD\x48\xCC\x13\x2C\x7A"
@@ -566,13 +566,13 @@ mpi_big(void)
 	};
 	TlsMpi *A, *E, *N, *X, *Y, *U, *V;
 
-	EXPECT_FALSE(!(A = ttls_mpi_alloc_stck_init(8)));
-	EXPECT_FALSE(!(N = ttls_mpi_alloc_stck_init(6)));
-	EXPECT_FALSE(!(E = ttls_mpi_alloc_stck_init(8)));
-	EXPECT_FALSE(!(X = ttls_mpi_alloc_stck_init(8 + 6)));
-	EXPECT_FALSE(!(Y = ttls_mpi_alloc_stck_init(6)));
-	EXPECT_FALSE(!(U = ttls_mpi_alloc_stck_init(14)));
-	EXPECT_FALSE(!(V = ttls_mpi_alloc_stck_init(6 + N->limbs * 2)));
+	EXPECT_FALSE(!(A = ttls_mpi_alloc_stack_init(8)));
+	EXPECT_FALSE(!(N = ttls_mpi_alloc_stack_init(6)));
+	EXPECT_FALSE(!(E = ttls_mpi_alloc_stack_init(8)));
+	EXPECT_FALSE(!(X = ttls_mpi_alloc_stack_init(8 + 6)));
+	EXPECT_FALSE(!(Y = ttls_mpi_alloc_stack_init(6)));
+	EXPECT_FALSE(!(U = ttls_mpi_alloc_stack_init(14)));
+	EXPECT_FALSE(!(V = ttls_mpi_alloc_stack_init(6 + N->limbs * 2)));
 
 	EXPECT_ZERO(ttls_mpi_read_binary(A, "\xEF\xE0\x21\xC2\x64\x5F\xD1\xDC"
 					    "\x58\x6E\x69\x18\x4A\xF4\xA3\x1E"
