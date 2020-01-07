@@ -171,7 +171,7 @@ dhm_check_range(const TlsMpi *param, const TlsMpi *P)
 {
 	TlsMpi *U;
 
-	if (!(U = ttls_mpi_alloc_stck_init(P->used)))
+	if (!(U = ttls_mpi_alloc_stack_init(P->used)))
 		return -ENOMEM;
 
 	MPI_CHK(ttls_mpi_sub_int(U, P, 2));
@@ -411,7 +411,7 @@ ttls_dhm_calc_secret(TlsDHMCtx *ctx, unsigned char *output, size_t output_size,
 	if ((r = dhm_check_range(&ctx->GY, &ctx->P)))
 		return r;
 
-	if (!(GYb = ttls_mpi_alloc_stck_init(ctx->GY.used + ctx->Vi.used)))
+	if (!(GYb = ttls_mpi_alloc_stack_init(ctx->GY.used + ctx->Vi.used)))
 		return -ENOMEM;
 
 	/* Blind peer's value */

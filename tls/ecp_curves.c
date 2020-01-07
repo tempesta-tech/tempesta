@@ -357,7 +357,7 @@ ecp_mod_p255(TlsMpi *N)
 
 	if (N->used < P255_WIDTH)
 		return 0;
-	if (!(M = ttls_mpi_alloc_stck_init(P255_WIDTH + 2)))
+	if (!(M = ttls_mpi_alloc_stack_init(P255_WIDTH + 2)))
 		return -ENOMEM;
 
 	/* M = A1 */
