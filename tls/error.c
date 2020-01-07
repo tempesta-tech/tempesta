@@ -266,8 +266,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 		snprintf(buf, buflen, "ASN1 - Data is invalid. (not used)");
 	if (use_ret == -(TTLS_ERR_ASN1_ALLOC_FAILED))
 		snprintf(buf, buflen, "ASN1 - Memory allocation failed");
-	if (use_ret == -(TTLS_ERR_ASN1_BUF_TOO_SMALL))
-		snprintf(buf, buflen, "ASN1 - Buffer too small when writing ASN.1 data structure");
 
 	if (use_ret == -(TTLS_ERR_BASE64_BUFFER_TOO_SMALL))
 		snprintf(buf, buflen, "BASE64 - Output buffer too small");

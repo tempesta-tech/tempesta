@@ -365,8 +365,8 @@ ecp_mod_p255(TlsMpi *N)
 	if (M->used > P255_WIDTH + 1)
 		M->used = P255_WIDTH + 1;
 	n = M->used * CIL;
-	memcpy(MPI_P(M), MPI_P(N) + P255_WIDTH - 1, n);
-	memset((char *)MPI_P(M) + n, 0, (P255_WIDTH + 2) * CIL - n);
+	memcpy_fast(MPI_P(M), MPI_P(N) + P255_WIDTH - 1, n);
+	bzero_fast((char *)MPI_P(M) + n, (P255_WIDTH + 2) * CIL - n);
 	if ((r = ttls_mpi_shift_r(M, 255 % BIL)))
 		return r;
 

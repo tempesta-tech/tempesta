@@ -34,6 +34,8 @@ int ttls_mpi_profile_clone(TlsCtx *tls);
 void ttls_mpi_pool_cleanup_ctx(unsigned long addr, bool zero);
 void ttls_mpool_shrink_tailtmp(TlsMpiPool *mp, bool fix_refs);
 
+TlsEcpPoint *ttls_mpool_ecp_create_tmp_T(int n, const TlsEcpPoint *P);
+
 int ttls_mpool_init(void);
 void ttls_mpool_exit(void);
 
