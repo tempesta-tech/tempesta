@@ -35,8 +35,10 @@ do {									\
 } while (0)
 
 #define MPI_CHK(f)							\
+do {									\
 	if (WARN_ON_ONCE((f)))						\
-		return -EDOM;
+		return -EDOM;						\
+} while (0)
 
 /*
  * Maximum size of MPIs allowed in bits and bytes for user-MPIs.
@@ -107,7 +109,7 @@ typedef struct {
  * properly aligned.
  *
  * Used for multiple MPI allocations and initializations when
- * ttls_mpi_alloc_stck_init() may cost too much.
+ * ttls_mpi_alloc_stack_init() may cost too much.
  *
  * Place the function in the header to allow the compiler to optimize out
  * unused return value if a called doesn't care about it.
@@ -140,7 +142,7 @@ do {									\
 	(X)->limbs = ln;						\
 } while (0)
 
-TlsMpi *ttls_mpi_alloc_stck_init(size_t nlimbs);
+TlsMpi *ttls_mpi_alloc_stack_init(size_t nlimbs);
 int ttls_mpi_alloc(TlsMpi *X, size_t nblimbs);
 int ttls_mpi_alloc_tmp(TlsMpi *X, size_t nblimbs);
 void ttls_mpi_free(TlsMpi *X);

@@ -160,7 +160,7 @@ ttls_ecdh_make_public(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
 }
 
 /**
- * Parse and import the client's public value.
+ * Parse and import the client's public value TlsECDHCtx->Qp.
  */
 int
 ttls_ecdh_read_public(TlsECDHCtx *ctx, const unsigned char *buf,

@@ -93,10 +93,10 @@ ttls_ecdsa_verify(TlsEcpGrp *grp, const unsigned char *buf, size_t blen,
 	TlsMpi *e, *s_inv, *u1, *u2;
 	TlsEcpPoint *R;
 
-	if (!(e = ttls_mpi_alloc_stck_init((grp->nbits + 7) / 8 / CIL))
-	    || !(s_inv = ttls_mpi_alloc_stck_init(grp->N.used))
-	    || !(u1 = ttls_mpi_alloc_stck_init(e->limbs + s_inv->limbs))
-	    || !(u2 = ttls_mpi_alloc_stck_init(r->limbs + s_inv->limbs))
+	if (!(e = ttls_mpi_alloc_stack_init((grp->nbits + 7) / 8 / CIL))
+	    || !(s_inv = ttls_mpi_alloc_stack_init(grp->N.used))
+	    || !(u1 = ttls_mpi_alloc_stack_init(e->limbs + s_inv->limbs))
+	    || !(u2 = ttls_mpi_alloc_stack_init(r->limbs + s_inv->limbs))
 	    || !(R = ttls_mpool_alloc_stack(sizeof(*R))))
 		return -ENOMEM;
 	ttls_ecp_point_init(R);
@@ -213,11 +213,11 @@ ttls_ecdsa_write_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
 	}
 
 	n = max(grp->N.used + d->used, (int)(hlen / CIL));
-	if (!(k = ttls_mpi_alloc_stck_init((grp->nbits + 7) / BIL * 2))
-	    || !(e = ttls_mpi_alloc_stck_init(n * 2))
-	    || !(t = ttls_mpi_alloc_stck_init((grp->nbits + 7) / BIL))
-	    || !(r = ttls_mpi_alloc_stck_init(grp->N.used))
-	    || !(s = ttls_mpi_alloc_stck_init(n * 2))
+	if (!(k = ttls_mpi_alloc_stack_init((grp->nbits + 7) / BIL * 2))
+	    || !(e = ttls_mpi_alloc_stack_init(n * 2))
+	    || !(t = ttls_mpi_alloc_stack_init((grp->nbits + 7) / BIL))
+	    || !(r = ttls_mpi_alloc_stack_init(grp->N.used))
+	    || !(s = ttls_mpi_alloc_stack_init(n * 2))
 	    || !(R = ttls_mpool_alloc_stack(sizeof(*R))))
 		return -ENOMEM;
 	ttls_ecp_point_init(R);
@@ -294,8 +294,8 @@ ttls_ecdsa_read_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
 	size_t len;
 	TlsMpi *r, *s;
 
-	if (!(r = ttls_mpi_alloc_stck_init(0))
-	    || !(s = ttls_mpi_alloc_stck_init(0)))
+	if (!(r = ttls_mpi_alloc_stack_init(0))
+	    || !(s = ttls_mpi_alloc_stack_init(0)))
 		return -ENOMEM;
 
 	ret = ttls_asn1_get_tag(&p, end, &len,

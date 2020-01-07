@@ -468,8 +468,8 @@ ecp_normalize_jac(const TlsEcpGrp *grp, TlsEcpPoint *pt)
 	if (!ttls_mpi_cmp_int(&pt->Z, 0))
 		return 0;
 
-	if (!(Zi = ttls_mpi_alloc_stck_init(0))
-	    || !(ZZi = ttls_mpi_alloc_stck_init(0)))
+	if (!(Zi = ttls_mpi_alloc_stack_init(0))
+	    || !(ZZi = ttls_mpi_alloc_stack_init(0)))
 		return -ENOMEM;
 
 	/* X = X / Z^2  mod p */
@@ -512,9 +512,9 @@ ecp_normalize_jac_many(const TlsEcpGrp *grp, TlsEcpPoint *T[], size_t t_len)
 	BUG_ON(t_len > TTLS_ECP_WINDOW_SIZE);
 
 	if (!(c = ttls_mpool_alloc_stack(sizeof(TlsMpi) * t_len))
-	    || !(u = ttls_mpi_alloc_stck_init(grp->nbits * 2 / BIL))
-	    || !(Zi = ttls_mpi_alloc_stck_init(0))
-	    || !(ZZi = ttls_mpi_alloc_stck_init(0)))
+	    || !(u = ttls_mpi_alloc_stack_init(grp->nbits * 2 / BIL))
+	    || !(Zi = ttls_mpi_alloc_stack_init(0))
+	    || !(ZZi = ttls_mpi_alloc_stack_init(0)))
 		return -ENOMEM;
 	bzero_fast(c, sizeof(TlsMpi) * t_len);
 
@@ -576,7 +576,7 @@ ecp_safe_invert_jac(const TlsEcpGrp *grp, TlsEcpPoint *Q, unsigned char inv)
 	unsigned char nonzero;
 	TlsMpi *mQY;
 
-	if (!(mQY = ttls_mpi_alloc_stck_init(0)))
+	if (!(mQY = ttls_mpi_alloc_stack_init(0)))
 		return -ENOMEM;
 
 	/* Use the fact that -Q.Y mod P = P - Q.Y unless Q.Y == 0 */
@@ -1022,8 +1022,8 @@ ecp_mul_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	if (WARN_ON_ONCE(ttls_mpi_get_bit(&grp->N, 0) != 1))
 		return -EINVAL;
 
-	if (!(M = ttls_mpi_alloc_stck_init(d))
-	    || !(mm = ttls_mpi_alloc_stck_init(d)))
+	if (!(M = ttls_mpi_alloc_stack_init(d))
+	    || !(mm = ttls_mpi_alloc_stack_init(d)))
 		return -ENOMEM;
 
 	/*
@@ -1126,7 +1126,7 @@ ecp_randomize_mxz(const TlsEcpGrp *grp, TlsEcpPoint *P)
 	int count = 0;
 
 	p_size = (grp->pbits + 7) / 8;
-	if (!(l = ttls_mpi_alloc_stck_init(0)))
+	if (!(l = ttls_mpi_alloc_stack_init(0)))
 		return -ENOMEM;
 
 	/* Generate l such that 1 < l < p */
@@ -1237,7 +1237,7 @@ ecp_mul_mxz(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	TlsEcpPoint *RP;
 	TlsMpi *PX;
 
-	if (!(PX = ttls_mpi_alloc_stck_init(0))
+	if (!(PX = ttls_mpi_alloc_stack_init(0))
 	    || !(RP = ttls_mpool_alloc_stack(sizeof(*RP))))
 		return -ENOMEM;
 	ttls_ecp_point_init(RP);
@@ -1282,7 +1282,7 @@ ecp_mul_mxz(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	return ecp_normalize_mxz(grp, R);
 }
 
-/*
+/**
  * Multiplication R = m * P.
  *
  * In order to prevent timing attacks, this function executes the exact same
@@ -1296,10 +1296,6 @@ int
 ttls_ecp_mul(TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	     const TlsEcpPoint *P, bool rnd)
 {
-	/* Common sanity checks */
-	if (ttls_ecp_check_privkey(grp, m) || ttls_ecp_check_pubkey(grp, P))
-		return -EINVAL;
-
 	switch (ecp_get_type(grp)) {
 	case ECP_TYPE_MONTGOMERY:
 		return ecp_mul_mxz(grp, R, m, P, rnd);
@@ -1329,8 +1325,8 @@ ecp_check_pubkey_sw(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
 		return -EINVAL;
 	}
 
-	if (!(YY = ttls_mpi_alloc_stck_init(0))
-	    || !(RHS = ttls_mpi_alloc_stck_init(0)))
+	if (!(YY = ttls_mpi_alloc_stack_init(0))
+	    || !(RHS = ttls_mpi_alloc_stack_init(0)))
 		return -ENOMEM;
 
 	/*
@@ -1496,7 +1492,6 @@ ttls_ecp_check_privkey(const TlsEcpGrp *grp, const TlsMpi *d)
 int
 ttls_ecp_gen_keypair(TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q)
 {
-	int ret;
 	size_t n_size = (grp->nbits + 7) / 8;
 
 	if (ecp_get_type(grp) == ECP_TYPE_MONTGOMERY) {
@@ -1504,20 +1499,20 @@ ttls_ecp_gen_keypair(TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q)
 		size_t b;
 
 		do {
-			TTLS_MPI_CHK(ttls_mpi_fill_random(d, n_size));
+			MPI_CHK(ttls_mpi_fill_random(d, n_size));
 		} while (!ttls_mpi_bitlen(d));
 
 		/* Make sure the most significant bit is nbits */
 		b = ttls_mpi_bitlen(d) - 1; /* ttls_mpi_bitlen is one-based */
 		if (b > grp->nbits)
-			TTLS_MPI_CHK(ttls_mpi_shift_r(d, b - grp->nbits));
+			MPI_CHK(ttls_mpi_shift_r(d, b - grp->nbits));
 		else
-			TTLS_MPI_CHK(ttls_mpi_set_bit(d, grp->nbits, 1));
+			MPI_CHK(ttls_mpi_set_bit(d, grp->nbits, 1));
 
 		/* Make sure the last three bits are unset */
-		TTLS_MPI_CHK(ttls_mpi_set_bit(d, 0, 0));
-		TTLS_MPI_CHK(ttls_mpi_set_bit(d, 1, 0));
-		TTLS_MPI_CHK(ttls_mpi_set_bit(d, 2, 0));
+		MPI_CHK(ttls_mpi_set_bit(d, 0, 0));
+		MPI_CHK(ttls_mpi_set_bit(d, 1, 0));
+		MPI_CHK(ttls_mpi_set_bit(d, 2, 0));
 	} else {
 		/* SEC1 3.2.1: Generate d such that 1 <= n < N */
 		int count = 0;
@@ -1531,7 +1526,7 @@ ttls_ecp_gen_keypair(TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q)
 		 * for ECDSA.
 		 */
 		do {
-			TTLS_MPI_CHK(ttls_mpi_fill_random(d, n_size));
+			MPI_CHK(ttls_mpi_fill_random(d, n_size));
 			if (ttls_mpi_shift_r(d, 8 * n_size - grp->nbits))
 				return -ENOMEM;
 
@@ -1554,9 +1549,9 @@ ttls_ecp_gen_keypair(TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q)
 			;
 	}
 
-cleanup:
-	if (ret)
-		return ret;
+	MPI_CHK(ttls_ecp_check_privkey(grp, d));
 
-	return ttls_ecp_mul(grp, Q, d, &grp->G, true);
+	MPI_CHK(ttls_ecp_mul(grp, Q, d, &grp->G, true));
+
+	return ttls_ecp_check_pubkey(grp, Q);
 }

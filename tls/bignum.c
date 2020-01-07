@@ -61,7 +61,7 @@
  * first usage. This function makes this simpler.
  */
 TlsMpi *
-ttls_mpi_alloc_stck_init(size_t nlimbs)
+ttls_mpi_alloc_stack_init(size_t nlimbs)
 {
 	TlsMpi *X;
 
