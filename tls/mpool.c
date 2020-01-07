@@ -70,7 +70,7 @@ ttls_mpool(void *addr)
 {
 	TlsMpiPool *mp;
 	const char *mp_name;
-	unsigned long a = (unsigned long)addr;
+	const unsigned long a = (unsigned long)addr;
 	unsigned long sp = (unsigned long)&a;
 
 	/*
@@ -102,12 +102,16 @@ ttls_mpool(void *addr)
 	mp_name = "handshake";
 
 check:
-	if (unlikely((unsigned long)MPI_POOL_FREE_PTR(mp) <= (unsigned long)addr
+	if (unlikely(((unsigned long)MPI_POOL_FREE_PTR(mp) <= a
+		      && (unsigned long)MPI_POOL_TAIL_PTR(mp) > a)
 		     || (unsigned long)mp + sizeof(*mp) > a
-		     || mp->curr > (PAGE_SIZE << mp->order)))
+		     || (unsigned long)mp + (PAGE_SIZE << mp->order) <= a
+		     || mp->curr > (PAGE_SIZE << mp->order)
+		     || mp->curr_tail > (PAGE_SIZE << mp->order)))
 	{
-		T_ERR("Bad MPI address %p in pool %p (%s, order=%u curr=%u)\n",
-		      addr, mp, mp_name, mp->order, mp->curr);
+		T_ERR("Bad MPI address %pK in pool %pK (%s, order=%u curr=%u"
+		      " curr_tail=%u)\n",
+		      addr, mp, mp_name, mp->order, mp->curr, mp->curr_tail);
 		BUG();
 	}
 	return mp;
@@ -247,6 +251,60 @@ ttls_mpi_pool_alloc(size_t order, gfp_t gfp_mask)
 	mp->curr_tail = PAGE_SIZE << order;
 
 	return mp;
+}
+
+/**
+ * Alloc the ECP vector at once and initialize it by hands - this is quite
+ * hot place. The memory will be immediately reclaimed without MPI fixups, so
+ * don't bother with MPI limbs descriptors as ttls_mpi_pool_alloc_mpi() does
+ * this.
+ *
+ * ecp_double_jac() may require more than 1 limb for Z coordinate, so we have
+ * to provide enough space.
+ */
+TlsEcpPoint *
+ttls_mpool_ecp_create_tmp_T(int n, const TlsEcpPoint *P)
+{
+	int i, off;
+	TlsEcpPoint *T;
+	TlsMpiPool *mp = *this_cpu_ptr(&g_tmp_mpool);
+	size_t x_sz = P->X.used * 2, y_sz = P->Y.used * 2, z_sz = P->X.used;
+	size_t x_off = x_sz * CIL - sizeof(TlsMpi);
+	size_t y_off = y_sz * CIL - sizeof(TlsMpi);
+	size_t z_off = z_sz * CIL - sizeof(TlsMpi);
+	size_t tot_sz = (sizeof(TlsEcpPoint) + (x_sz + y_sz + z_sz) * CIL) * n;
+
+	if (WARN(mp->curr + tot_sz > mp->curr_tail,
+		 "Not enough tail space in pool %pK (order=%u curr=%u"
+		 " curr_tail=%u) to grow for %lu bytes",
+		 mp, mp->order, mp->curr, mp->curr_tail, tot_sz))
+		return NULL;
+
+	mp->curr_tail -= tot_sz;
+	T = MPI_POOL_TAIL_PTR(mp);
+
+	for (off = sizeof(TlsEcpPoint) * n, i = 0; i < n; ++i) {
+		T[i].X.s = 0;
+		T[i].X.used = 0;
+		T[i].X.limbs = x_sz;
+		T[i].X._off = off;
+		off += x_off;
+
+		T[i].Y.s = 0;
+		T[i].Y.used = 0;
+		T[i].Y.limbs = y_sz;
+		T[i].Y._off = off;
+		off += y_off;
+
+		T[i].Z.s = 0;
+		T[i].Z.used = 0;
+		T[i].Z.limbs = z_sz;
+		T[i].Z._off = off;
+		off += z_off;
+	}
+	WARN_ON_ONCE(off + (n * 3) * sizeof(TlsMpi) != tot_sz);
+
+	return T;
 }
 
 /**
@@ -455,6 +513,7 @@ __mpi_profile_clone(TlsCtx *tls, int ec)
 	 */
 	mp = (TlsMpiPool *)ptr;
 	mp->order = order;
+	mp->curr_tail = PAGE_SIZE << order;
 
 	return 0;
 }
