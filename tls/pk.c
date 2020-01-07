@@ -87,7 +87,7 @@ rsa_alloc_wrap(void)
 
 	might_sleep();
 
-	if (!(mp = ttls_mpi_pool_alloc(TTLS_MPOOL_ORDER, GFP_KERNEL)))
+	if (!(mp = ttls_mpi_pool_create(TTLS_MPOOL_ORDER, GFP_KERNEL)))
 		return NULL;
 
 	if ((ctx = ttls_mpool_alloc_data(mp, sizeof(*ctx))))
@@ -157,7 +157,7 @@ eckey_alloc_wrap(void)
 
 	might_sleep();
 
-	if (!(mp = ttls_mpi_pool_alloc(TTLS_MPOOL_ORDER, GFP_KERNEL)))
+	if (!(mp = ttls_mpi_pool_create(TTLS_MPOOL_ORDER, GFP_KERNEL)))
 		return NULL;
 
 	if ((ctx = ttls_mpool_alloc_data(mp, sizeof(*ctx))))

@@ -45,7 +45,7 @@ ecdhe_srv(void)
 				  "\x8F\x67";
 
 	/* ttls_mpool() treats the pool as "handshake" pool. */
-	EXPECT_FALSE(!(mp = ttls_mpi_pool_alloc(TTLS_MPOOL_ORDER, GFP_KERNEL)));
+	EXPECT_FALSE(!(mp = ttls_mpi_pool_create(TTLS_MPOOL_ORDER, GFP_KERNEL)));
 
 	/*
 	 * Copy (clone) ECDH context from the MPI profile for Secp256r1 PK
