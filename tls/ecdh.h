@@ -50,7 +50,7 @@ typedef enum {
  * @rgp			- elliptic curve used;
  * @Q			- public key;
  * @Qp			- value of the public key of the peer;
- * @z			- shared secret which is p_tmp.X
+ * @z			- shared secret, X point is only used
  *			  (see ttls_ecdh_compute_shared());
  * @Vi			- blinding value;
  * @Vf			- unblinding value;
@@ -60,10 +60,7 @@ typedef struct {
 	TlsEcpGrp	grp;
 	TlsEcpPoint	Q;
 	TlsEcpPoint	Qp;
-	union {
-		TlsMpi		z;
-		TlsEcpPoint	p_tmp;
-	};
+	TlsEcpPoint	z;
 	TlsEcpPoint	Vi;
 	TlsEcpPoint	Vf;
 	TlsMpi		d;

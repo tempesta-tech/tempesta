@@ -155,7 +155,7 @@ ttls_ecp_point_init(TlsEcpPoint *pt)
 }
 
 /**
- * Called after ttls_mpi_pool_alloc() using __GFP_ZERO, so all the @key
+ * Called after ttls_mpi_pool_create() using __GFP_ZERO, so all the @key
  * members are zero here.
  */
 void
@@ -509,8 +509,9 @@ ecp_normalize_jac_many(const TlsEcpGrp *grp, TlsEcpPoint *T[], size_t t_len)
 	TlsMpi *u, *Zi, *ZZi, *c;
 
 	WARN_ON_ONCE(t_len < 2);
+	BUG_ON(t_len > TTLS_ECP_WINDOW_SIZE);
 
-	if (!(c = ttls_mpool_alloc_stck(sizeof(TlsMpi) * t_len))
+	if (!(c = ttls_mpool_alloc_stack(sizeof(TlsMpi) * t_len))
 	    || !(u = ttls_mpi_alloc_stck_init(grp->nbits * 2 / BIL))
 	    || !(Zi = ttls_mpi_alloc_stck_init(0))
 	    || !(ZZi = ttls_mpi_alloc_stck_init(0)))
@@ -976,7 +977,7 @@ ecp_mul_comb_core(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint T[],
 	TlsEcpPoint *Txi;
 	size_t i;
 
-	if (!(Txi = ttls_mpool_alloc_stck(sizeof(TlsEcpPoint))))
+	if (!(Txi = ttls_mpool_alloc_stack(sizeof(TlsEcpPoint))))
 		return -ENOMEM;
 	ttls_ecp_point_init(Txi);
 	if (ttls_mpi_alloc(&R->X, grp->nbits * 2 / BIL)
@@ -1171,7 +1172,7 @@ ecp_double_add_mxz(const TlsEcpGrp *grp, TlsEcpPoint *R, TlsEcpPoint *S,
 
 	n = sizeof(TlsMpi) * 9 + CIL * ((max(P->X.used, P->Z.used) + 1) * 9
 					+ (max(Q->X.used, Q->Z.used) + 1) * 4);
-	if (!(A = ttls_mpool_alloc_stck(n)))
+	if (!(A = ttls_mpool_alloc_stack(n)))
 		return -ENOMEM;
 	AA = ttls_mpi_init_next(A, max(P->X.used, P->Z.used) + 1);
 	B = ttls_mpi_init_next(AA, A->limbs * 2);
@@ -1237,7 +1238,7 @@ ecp_mul_mxz(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	TlsMpi *PX;
 
 	if (!(PX = ttls_mpi_alloc_stck_init(0))
-	    || !(RP = ttls_mpool_alloc_stck(sizeof(*RP))))
+	    || !(RP = ttls_mpool_alloc_stack(sizeof(*RP))))
 		return -ENOMEM;
 	ttls_ecp_point_init(RP);
 
@@ -1400,7 +1401,7 @@ ttls_ecp_muladd(TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	if (WARN_ON_ONCE(ecp_get_type(grp) != ECP_TYPE_SHORT_WEIERSTRASS))
 		return -EINVAL;
 
-	if (!(mP = ttls_mpool_alloc_stck(sizeof(TlsEcpPoint))))
+	if (!(mP = ttls_mpool_alloc_stack(sizeof(TlsEcpPoint))))
 		return -ENOMEM;
 	ttls_ecp_point_init(mP);
 

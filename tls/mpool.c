@@ -85,10 +85,8 @@ ttls_mpool(void *addr)
 	/*
 	 * If @addr (some MPI) was allocated on stack, then prohibit any
 	 * pool operations - TlsMpi->_off is unable to handle too far pointers.
-	 *
-	 * Maximum kernel stack size is 2 pages.
 	 */
-	if (WARN_ON_ONCE(sp < a && a < sp + 2 * PAGE_SIZE))
+	if (WARN_ON_ONCE(sp < a && a < sp + THREAD_SIZE))
 		return NULL;
 
 	mp = *this_cpu_ptr(&g_tmp_mpool);
@@ -97,7 +95,7 @@ ttls_mpool(void *addr)
 	    && a < (unsigned long)mp + (PAGE_SIZE << mp->order))
 		goto check;
 
-	/* See ttls_mpi_pool_alloc() for alignment guarantees. */
+	/* See ttls_mpi_pool_create() for alignment guarantees. */
 	mp = (TlsMpiPool *)(a & ~((PAGE_SIZE << TTLS_MPOOL_ORDER) - 1));
 	mp_name = "handshake";
 
@@ -171,7 +169,7 @@ ttls_mpi_pool_alloc_mpi(TlsMpi *x, size_t n, bool tail)
 }
 
 void *
-ttls_mpool_alloc_stck(size_t n)
+ttls_mpool_alloc_stack(size_t n)
 {
 	return ttls_mpool_alloc_data(*this_cpu_ptr(&g_tmp_mpool), n);
 }
@@ -236,7 +234,7 @@ ttls_mpi_pool_free(void *ctx)
  * If @n == 0, then only one page (the minimum allocation) is allocated.
  */
 TlsMpiPool *
-ttls_mpi_pool_alloc(size_t order, gfp_t gfp_mask)
+ttls_mpi_pool_create(size_t order, gfp_t gfp_mask)
 {
 	TlsMpiPool *mp;
 	unsigned long addr;
@@ -370,7 +368,7 @@ __mpi_profile_load_ec(TlsMpiPool *mp, TlsECDHCtx *ctx, unsigned char w,
 	}
 
 	/* Init the temporary point to be used in ttls_ecdh_compute_shared(). */
-	ttls_ecp_point_init(&ctx->p_tmp);
+	ttls_ecp_point_init(&ctx->z);
 
 	/*
 	 * Allocate memory for the MPIs set in ttls_ecp_gen_keypair()
@@ -381,7 +379,7 @@ __mpi_profile_load_ec(TlsMpiPool *mp, TlsECDHCtx *ctx, unsigned char w,
 	    || ttls_mpi_alloc(&ctx->Q.X, n_sz * 2)
 	    || ttls_mpi_alloc(&ctx->Q.Y, n_sz * 2)
 	    || ttls_mpi_alloc(&ctx->Q.Z, n_sz * 2)
-	    || ttls_mpi_alloc(&ctx->p_tmp.Z, n_sz * 2))
+	    || ttls_mpi_alloc(&ctx->z.Z, n_sz * 2))
 		return -ENOMEM;
 
 	/* Prepare precomputed points to use them in ecp_mul_comb(). */
@@ -576,8 +574,8 @@ ttls_mpool_init(void)
 
 	for_each_possible_cpu(cpu) {
 		TlsMpiPool **mp = per_cpu_ptr(&g_tmp_mpool, cpu);
-		if (!(*mp = ttls_mpi_pool_alloc(__MPOOL_STACK_ORDER,
-						GFP_KERNEL)))
+		if (!(*mp = ttls_mpi_pool_create(__MPOOL_STACK_ORDER,
+						 GFP_KERNEL)))
 			goto err_cleanup;
 	}
 

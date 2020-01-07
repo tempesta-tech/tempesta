@@ -25,7 +25,7 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#include "asn1write.h"
+#include "asn1.h"
 #include "ecp.h"
 #include "mpool.h"
 
@@ -97,7 +97,7 @@ ttls_ecdsa_verify(TlsEcpGrp *grp, const unsigned char *buf, size_t blen,
 	    || !(s_inv = ttls_mpi_alloc_stck_init(grp->N.used))
 	    || !(u1 = ttls_mpi_alloc_stck_init(e->limbs + s_inv->limbs))
 	    || !(u2 = ttls_mpi_alloc_stck_init(r->limbs + s_inv->limbs))
-	    || !(R = ttls_mpool_alloc_stck(sizeof(*R))))
+	    || !(R = ttls_mpool_alloc_stack(sizeof(*R))))
 		return -ENOMEM;
 	ttls_ecp_point_init(R);
 
@@ -218,7 +218,7 @@ ttls_ecdsa_write_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
 	    || !(t = ttls_mpi_alloc_stck_init((grp->nbits + 7) / BIL))
 	    || !(r = ttls_mpi_alloc_stck_init(grp->N.used))
 	    || !(s = ttls_mpi_alloc_stck_init(n * 2))
-	    || !(R = ttls_mpool_alloc_stck(sizeof(*R))))
+	    || !(R = ttls_mpool_alloc_stack(sizeof(*R))))
 		return -ENOMEM;
 	ttls_ecp_point_init(R);
 	if (ttls_mpi_alloc(&R->Z, (grp->nbits + 7) / BIL * 2))

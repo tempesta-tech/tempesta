@@ -476,7 +476,7 @@ ttls_rsa_private(TlsRSACtx *ctx, const unsigned char *input,
 	n = sizeof(TlsMpi) * 10
 	    + CIL * (ctx->N.used * 3 + ctx->len / CIL * 2 + ctx->Vi.used
 		     + ctx->P.used * 2 + ctx->Q.used * 2 + eb_n * 3 + 3);
-	if (!(T = ttls_mpool_alloc_stck(n)))
+	if (!(T = ttls_mpool_alloc_stack(n)))
 		return -ENOMEM;
 	I = ttls_mpi_init_next(T, ctx->len / CIL + ctx->Vi.used);
 	P1 = ttls_mpi_init_next(I, ctx->len / CIL);
