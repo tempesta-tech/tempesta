@@ -53,10 +53,7 @@ ecdsa_sign(void)
 
 	EXPECT_FALSE(!(ctx = ttls_mpool_alloc_data(mp, sizeof(*ctx))));
 
-	EXPECT_ZERO(ttls_ecp_group_load(&ctx->grp, TTLS_ECP_DP_SECP256R1));
-	/* See __mpi_profile_load_ec() for Secp256r1. */
-	EXPECT_ZERO(ecp_precompute_comb(&ctx->grp, ctx->grp.T, &ctx->grp.G,
-					5, (ctx->grp.nbits + 4) / 5));
+	EXPECT_FALSE(!(ctx->grp = ttls_ecp_group_lookup(TTLS_ECP_DP_SECP256R1)));
 
 	EXPECT_ZERO(ttls_mpi_read_binary(&ctx->Q.X, EC_Qx, 32));
 	EXPECT_ZERO(ttls_mpi_read_binary(&ctx->Q.Y, EC_Qy, 32));
@@ -77,10 +74,6 @@ ecdsa_sign(void)
 int
 main(int argc, char *argv[])
 {
-	/*
-	 * The test works in process context, so cfg_pool is used
-	 * for all the MPI computations.
-	 */
 	BUG_ON(ttls_mpool_init());
 
 	ecdsa_sign();

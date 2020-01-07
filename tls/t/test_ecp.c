@@ -73,7 +73,7 @@ ecp_mul(void)
 		"\x55\x55\x55\x55\x55\x55\x55\x55",
 	};
 
-	/* __mpi_pool() treats the pool as "handshake" pool. */
+	/* ttls_mpool() treats the pool as "handshake" pool. */
 	EXPECT_FALSE(!(mp = ttls_mpi_pool_alloc(TTLS_MPOOL_ORDER, GFP_KERNEL)));
 
 	EXPECT_FALSE(!(R = ttls_mpool_alloc_data(mp, sizeof(*R))));
@@ -164,10 +164,6 @@ ecp_mul(void)
 int
 main(int argc, char *argv[])
 {
-	/*
-	 * The test works in process context, so cfg_pool is used
-	 * for all the MPI computations.
-	 */
 	BUG_ON(ttls_mpool_init());
 
 	ecp_mul();

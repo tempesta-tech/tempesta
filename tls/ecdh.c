@@ -139,7 +139,7 @@ ttls_ecdh_get_params(TlsECDHCtx *ctx, const TlsEcpKeypair *key)
 {
 	int r;
 
-	if ((r = ttls_ecp_group_load(&ctx->grp, key->grp.id)))
+	if ((r = ttls_ecp_group_load(&ctx->grp, key->grp->id)))
 		return r;
 
 	return ttls_ecp_copy(&ctx->Qp, &key->Q);

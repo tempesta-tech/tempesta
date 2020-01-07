@@ -8,7 +8,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
@@ -196,7 +196,7 @@ ttls_ecdsa_write_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
 {
 	int key_tries, sign_tries, blind_tries, n;
 	TlsMpi *k, *e, *t, *r, *s, *d = &ctx->d;
-	TlsEcpGrp *grp = &ctx->grp;
+	TlsEcpGrp *grp = ctx->grp;
 	TlsEcpPoint *R;
 
 	/*
@@ -221,7 +221,7 @@ ttls_ecdsa_write_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
 	    || !(R = ttls_mpool_alloc_stck(sizeof(*R))))
 		return -ENOMEM;
 	ttls_ecp_point_init(R);
-	if (__mpi_alloc(&R->Z, (grp->nbits + 7) / BIL * 2))
+	if (ttls_mpi_alloc(&R->Z, (grp->nbits + 7) / BIL * 2))
 		return -ENOMEM;
 
 	sign_tries = 0;
@@ -311,7 +311,7 @@ ttls_ecdsa_read_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
 	    || (ret = ttls_asn1_get_mpi(&p, end, s)))
 		return ret + TTLS_ERR_ECP_BAD_INPUT_DATA;
 
-	if ((ret = ttls_ecdsa_verify(&ctx->grp, hash, hlen, &ctx->Q, r, s)))
+	if ((ret = ttls_ecdsa_verify(ctx->grp, hash, hlen, &ctx->Q, r, s)))
 		return ret;
 
 	return p != end ? TTLS_ERR_ECP_SIG_LEN_MISMATCH : 0;

@@ -15,7 +15,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
@@ -131,7 +131,7 @@ static int x509_profile_check_key(const ttls_x509_crt_profile *profile,
 		pk_alg == TTLS_PK_ECKEY ||
 		pk_alg == TTLS_PK_ECKEY_DH)
 	{
-		ttls_ecp_group_id gid = ttls_pk_ec(*pk)->grp.id;
+		ttls_ecp_group_id gid = ttls_pk_ec(*pk)->grp->id;
 
 		if ((profile->allowed_curves & TTLS_X509_ID_FLAG(gid)) != 0)
 			return 0;
