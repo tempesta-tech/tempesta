@@ -65,7 +65,7 @@ ttls_mpi_alloc_stck_init(size_t nlimbs)
 {
 	TlsMpi *X;
 
-	X = ttls_mpool_alloc_stck(sizeof(TlsMpi) + nlimbs * CIL);
+	X = ttls_mpool_alloc_stack(sizeof(TlsMpi) + nlimbs * CIL);
 	if (unlikely(!X))
 		return NULL;
 
@@ -1312,7 +1312,7 @@ ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E, const TlsMpi *N,
 		return -ENOMEM;
 	__mpi_montg_init(&mm, N);
 	ttls_mpi_alloca_init(&T, j * 2);
-	if (!(W = ttls_mpool_alloc_stck(sizeof(TlsMpi) * (1 << MPI_W_SZ))))
+	if (!(W = ttls_mpool_alloc_stack(sizeof(TlsMpi) * (1 << MPI_W_SZ))))
 		return -ENOMEM;
 	bzero_fast(W, sizeof(TlsMpi) * (1 << MPI_W_SZ));
 	if (ttls_mpi_alloc(&W[1], j))
@@ -1496,7 +1496,8 @@ ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N)
 	if (ttls_mpi_cmp_int(N, 1) <= 0)
 		return -EINVAL;
 
-	G = ttls_mpool_alloc_stck(sizeof(TlsMpi) * 9 + (N->used * 8 + 4) * CIL);
+	G = ttls_mpool_alloc_stack(sizeof(TlsMpi) * 9
+				   + (N->used * 8 + 4) * CIL);
 	if (!G)
 		return -ENOMEM;
 	TA = ttls_mpi_init_next(G, 0);

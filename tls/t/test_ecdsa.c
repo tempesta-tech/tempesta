@@ -19,8 +19,7 @@
  */
 #include "ttls_mocks.h"
 /* mpool.c requires ECP and DHM routines. */
-#include "../asn1parse.c"
-#include "../asn1write.c"
+#include "../asn1.c"
 #include "../bignum.c"
 #include "../ciphersuites.c"
 #include "../dhm.c"
@@ -49,7 +48,7 @@ ecdsa_sign(void)
 	size_t slen;
 	char hash[32] = {1}, sig[80] = {0};
 
-	EXPECT_FALSE(!(mp = ttls_mpi_pool_alloc(TTLS_MPOOL_ORDER, GFP_KERNEL)));
+	EXPECT_FALSE(!(mp = ttls_mpi_pool_create(TTLS_MPOOL_ORDER, GFP_KERNEL)));
 
 	EXPECT_FALSE(!(ctx = ttls_mpool_alloc_data(mp, sizeof(*ctx))));
 

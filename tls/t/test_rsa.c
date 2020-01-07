@@ -78,7 +78,7 @@ rsa_sign(void)
 	TlsRSACtx *rsa;
 	unsigned char hash[PT_LEN], sig[KEY_LEN];
 
-	EXPECT_FALSE(!(rsa = ttls_mpool_alloc_stck(sizeof(TlsRSACtx))));
+	EXPECT_FALSE(!(rsa = ttls_mpool_alloc_stack(sizeof(TlsRSACtx))));
 	memset(rsa, 0, sizeof(TlsRSACtx));
 	ttls_rsa_init(rsa, TTLS_RSA_PKCS_V15, 0);
 

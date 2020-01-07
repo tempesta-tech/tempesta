@@ -1,28 +1,27 @@
 /**
- * \file asn1.h
+ *		Tempesta TLS
  *
- * \brief Generic ASN.1 parsing
- */
-/*
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- *  SPDX-License-Identifier: GPL-2.0
+ * ASN.1 buffer functionality.
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ * Based on mbed TLS, https://tls.mbed.org.
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * SPDX-License-Identifier: GPL-2.0
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- *  This file is part of mbed TLS (https://tls.mbed.org)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #ifndef TTLS_ASN1_H
 #define TTLS_ASN1_H
@@ -104,10 +103,18 @@
 		((TTLS_OID_SIZE(oid_str) != (oid_buf)->len) ||				\
 		  memcmp((oid_str), (oid_buf)->p, (oid_buf)->len) != 0)
 
-/**
- * \name Functions to parse ASN.1 data structures
- * \{
- */
+#define TTLS_ASN1_CHK_ADD(g, f)						\
+do {									\
+	if ((ret = f) < 0)						\
+		return ret;						\
+	else								\
+		g += ret;						\
+} while (0)
+
+int ttls_asn1_write_len(unsigned char **p, unsigned char *start, size_t len);
+int ttls_asn1_write_tag(unsigned char **p, unsigned char *start,
+			unsigned char tag);
+int ttls_asn1_write_mpi(unsigned char **p, unsigned char *start, const TlsMpi *X);
 
 /**
  * Type-length-value structure that allows for ASN1 using DER.
@@ -301,33 +308,5 @@ int ttls_asn1_get_alg(unsigned char **p,
 int ttls_asn1_get_alg_null(unsigned char **p,
 		   const unsigned char *end,
 		   ttls_asn1_buf *alg);
-
-/**
- * \brief	   Find a specific named_data entry in a sequence or list based on
- *			  the OID.
- *
- * \param list  The list to seek through
- * \param oid   The OID to look for
- * \param len   Size of the OID
- *
- * \return	  NULL if not found, or a pointer to the existing entry.
- */
-ttls_asn1_named_data *ttls_asn1_find_named_data(ttls_asn1_named_data *list,
-			   const char *oid, size_t len);
-
-/**
- * \brief	   Free a ttls_asn1_named_data entry
- *
- * \param entry The named data entry to free
- */
-void ttls_asn1_free_named_data(ttls_asn1_named_data *entry);
-
-/**
- * \brief	   Free all entries in a ttls_asn1_named_data list
- *			  Head will be set to NULL
- *
- * \param head  Pointer to the head of the list of named data entries to free
- */
-void ttls_asn1_free_named_data_list(ttls_asn1_named_data **head);
 
 #endif /* asn1.h */

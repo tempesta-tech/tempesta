@@ -40,14 +40,13 @@
  * ttls_ecp_gen_keypair().
  *
  * @grp		- the ECP group;
- * @p_tmp	- temporary point used in the computation. @p_tmp.X is pointing
- *		  to TlsECDHCtx->z - the destination MPI (shared secret);
+ * @z		- a point, which X coordinage is a shared secret;
  * @Q		- the public key from another party;
  * @d		- our secret exponent (private key).
  */
 static int
-ttls_ecdh_compute_shared(TlsEcpGrp *grp, TlsEcpPoint *p_tmp,
-			 const TlsEcpPoint *Q, const TlsMpi *d)
+ttls_ecdh_compute_shared(TlsEcpGrp *grp, TlsEcpPoint *z, const TlsEcpPoint *Q,
+			 const TlsMpi *d)
 {
 	int r;
 
@@ -55,15 +54,11 @@ ttls_ecdh_compute_shared(TlsEcpGrp *grp, TlsEcpPoint *p_tmp,
 	if ((r = ttls_ecp_check_pubkey(grp, Q)))
 		return r;
 
-	/*
-	 * Compute the shared secret.
-	 * @p_tmp is used as temproary point such that p_tmp.X (which is also
-	 * TlsECDHCtx->z) after the computation contains the secret.
-	 */
-	if ((r = ttls_ecp_mul(grp, p_tmp, d, Q, true)))
+	/* Compute the shared secret. */
+	if ((r = ttls_ecp_mul(grp, z, d, Q, true)))
 		return r;
 
-	return ttls_ecp_is_zero(p_tmp) ? -EINVAL : 0;
+	return ttls_ecp_is_zero(z) ? -EINVAL : 0;
 }
 
 /**
@@ -195,14 +190,14 @@ ttls_ecdh_calc_secret(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
 {
 	int r;
 
-	r = ttls_ecdh_compute_shared(&ctx->grp, &ctx->p_tmp, &ctx->Qp, &ctx->d);
+	r = ttls_ecdh_compute_shared(&ctx->grp, &ctx->z, &ctx->Qp, &ctx->d);
 	if (r)
 		return r;
 
-	if (WARN_ON_ONCE(ttls_mpi_size(&ctx->z) > blen))
+	if (WARN_ON_ONCE(ttls_mpi_size(&ctx->z.X) > blen))
 		return -EINVAL;
 
 	*olen = ctx->grp.pbits / 8 + ((ctx->grp.pbits % 8) != 0);
 
-	return ttls_mpi_write_binary(&ctx->z, buf, *olen);
+	return ttls_mpi_write_binary(&ctx->z.X, buf, *olen);
 }
