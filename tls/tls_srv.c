@@ -1189,7 +1189,7 @@ ttls_write_server_hello(TlsCtx *tls, struct sg_table *sgt,
 	p += 4;
 	ttls_rnd(p, 28);
 	p += 28;
-	memcpy(tls->hs->randbytes + 32, buf + 6, 32);
+	memcpy_fast(tls->hs->randbytes + 32, buf + 6, 32);
 	T_DBG3_BUF("server hello, random bytes ", buf + 6, 32);
 
 	if (!tls->hs->resume) {

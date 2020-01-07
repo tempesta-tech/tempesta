@@ -1,115 +1,128 @@
-/*
+/**
+ *		Tempesta TLS
+ *
  * ASN.1 buffer writing functionality
  *
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- *  SPDX-License-Identifier: GPL-2.0
+ * Based on mbed TLS, https://tls.mbed.org.
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ * SPDX-License-Identifier: GPL-2.0
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
- *  This file is part of mbed TLS (https://tls.mbed.org)
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include <linux/slab.h>
 
 #include "asn1write.h"
 
-int ttls_asn1_write_len(unsigned char **p, unsigned char *start, size_t len)
+/**
+ * Write a length field in ASN.1 format.
+ * Note: function works backwards in data buffer.
+ *
+ * @p		- reference to current position pointer;
+ * @start	- start of the buffer (for bounds-checking);
+ * @len		- the length to write.
+ *
+ * @return the length written or a negative error code.
+ */
+int
+ttls_asn1_write_len(unsigned char **p, unsigned char *start, size_t len)
 {
-	if (len < 0x80)
-	{
+	if (len < 0x80) {
 		if (*p - start < 1)
-			return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
-
+			return -ENOSPC;
 		*--(*p) = (unsigned char) len;
-		return(1);
+		return 1;
 	}
 
-	if (len <= 0xFF)
-	{
+	if (len <= 0xFF) {
 		if (*p - start < 2)
-			return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
+			return -ENOSPC;
 
 		*--(*p) = (unsigned char) len;
 		*--(*p) = 0x81;
-		return(2);
+		return 2;
 	}
 
-	if (len <= 0xFFFF)
-	{
+	if (len <= 0xFFFF) {
 		if (*p - start < 3)
-			return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
+			return -ENOSPC;
 
-		*--(*p) = (len	  ) & 0xFF;
-		*--(*p) = (len >>  8) & 0xFF;
+		*--(*p) = len & 0xFF;
+		*--(*p) = (len >> 8) & 0xFF;
 		*--(*p) = 0x82;
-		return(3);
+		return 3;
 	}
 
-	if (len <= 0xFFFFFF)
-	{
+	if (len <= 0xFFFFFF) {
 		if (*p - start < 4)
-			return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
+			return -ENOSPC;
 
-		*--(*p) = (len	  ) & 0xFF;
-		*--(*p) = (len >>  8) & 0xFF;
+		*--(*p) = len & 0xFF;
+		*--(*p) = (len >> 8) & 0xFF;
 		*--(*p) = (len >> 16) & 0xFF;
 		*--(*p) = 0x83;
-		return(4);
+		return 4;
 	}
 
-	if (len <= 0xFFFFFFFF)
-	{
+	if (len <= 0xFFFFFFFF) {
 		if (*p - start < 5)
-			return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
+			return -ENOSPC;
 
-		*--(*p) = (len	  ) & 0xFF;
+		*--(*p) = len & 0xFF;
 		*--(*p) = (len >>  8) & 0xFF;
 		*--(*p) = (len >> 16) & 0xFF;
 		*--(*p) = (len >> 24) & 0xFF;
 		*--(*p) = 0x84;
-		return(5);
+		return 5;
 	}
 
-	return(TTLS_ERR_ASN1_INVALID_LENGTH);
+	return -EINVAL;
 }
 
-int ttls_asn1_write_tag(unsigned char **p, unsigned char *start, unsigned char tag)
+/**
+ * Write a ASN.1 tag in ASN.1 format.
+ * Note: function works backwards in data buffer
+ *
+ * @p		- reference to current position pointer;
+ * @start	- start of the buffer (for bounds-checking);
+ * @tag		- the tag to write.
+ *
+ * @return the length written or a negative error code.
+ */
+int
+ttls_asn1_write_tag(unsigned char **p, unsigned char *start, unsigned char tag)
 {
 	if (*p - start < 1)
-		return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
+		return -ENOSPC;
 
 	*--(*p) = tag;
 
-	return(1);
+	return 1;
 }
 
-int ttls_asn1_write_raw_buffer(unsigned char **p, unsigned char *start,
-			   const unsigned char *buf, size_t size)
-{
-	size_t len = 0;
-
-	if (*p < start || (size_t)(*p - start) < size)
-		return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
-
-	len = size;
-	(*p) -= len;
-	memcpy(*p, buf, len);
-
-	return((int) len);
-}
-
+/**
+ * Write a big number (TTLS_ASN1_INTEGER) in ASN.1 format.
+ * Note: function works backwards in data buffer
+ *
+ * @p		- reference to current position pointer;
+ * @start	- start of the buffer (for bounds-checking);
+ * @X		- the MPI to write.
+ *
+ * @return the length written or a negative error code.
+ */
 int
 ttls_asn1_write_mpi(unsigned char **p, unsigned char *start, const TlsMpi *X)
 {
@@ -117,7 +130,7 @@ ttls_asn1_write_mpi(unsigned char **p, unsigned char *start, const TlsMpi *X)
 	size_t len = ttls_mpi_size(X);
 
 	if (*p < start || (size_t)(*p - start) < len)
-		return TTLS_ERR_ASN1_BUF_TOO_SMALL;
+		return -ENOSPC;
 
 	(*p) -= len;
 	TTLS_MPI_CHK(ttls_mpi_write_binary(X, *p, len));
@@ -128,7 +141,7 @@ ttls_asn1_write_mpi(unsigned char **p, unsigned char *start, const TlsMpi *X)
 	 */
 	if (X->s ==1 && **p & 0x80) {
 		if (*p - start < 1)
-			return TTLS_ERR_ASN1_BUF_TOO_SMALL;
+			return -ENOSPC;
 
 		*--(*p) = 0x00;
 		len += 1;
@@ -141,230 +154,4 @@ ttls_asn1_write_mpi(unsigned char **p, unsigned char *start, const TlsMpi *X)
 
 cleanup:
 	return ret;
-}
-
-int ttls_asn1_write_null(unsigned char **p, unsigned char *start)
-{
-	int ret;
-	size_t len = 0;
-
-	// Write NULL
-	//
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, 0));
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_NULL));
-
-	return((int) len);
-}
-
-int ttls_asn1_write_oid(unsigned char **p, unsigned char *start,
-		const char *oid, size_t oid_len)
-{
-	int ret;
-	size_t len = 0;
-
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_raw_buffer(p, start,
-		  (const unsigned char *) oid, oid_len));
-	TTLS_ASN1_CHK_ADD(len , ttls_asn1_write_len(p, start, len));
-	TTLS_ASN1_CHK_ADD(len , ttls_asn1_write_tag(p, start, TTLS_ASN1_OID));
-
-	return((int) len);
-}
-
-int ttls_asn1_write_algorithm_identifier(unsigned char **p, unsigned char *start,
-			 const char *oid, size_t oid_len,
-			 size_t par_len)
-{
-	int ret;
-	size_t len = 0;
-
-	if (par_len == 0)
-		TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_null(p, start));
-	else
-		len += par_len;
-
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_oid(p, start, oid, oid_len));
-
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, len));
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start,
-			   TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE));
-
-	return((int) len);
-}
-
-int ttls_asn1_write_bool(unsigned char **p, unsigned char *start, int boolean)
-{
-	int ret;
-	size_t len = 0;
-
-	if (*p - start < 1)
-		return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
-
-	*--(*p) = (boolean) ? 255 : 0;
-	len++;
-
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, len));
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_BOOLEAN));
-
-	return((int) len);
-}
-
-int ttls_asn1_write_int(unsigned char **p, unsigned char *start, int val)
-{
-	int ret;
-	size_t len = 0;
-
-	// TODO negative values and values larger than 128
-	// DER format assumes 2s complement for numbers, so the leftmost bit
-	// should be 0 for positive numbers and 1 for negative numbers.
-	//
-	if (*p - start < 1)
-		return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
-
-	len += 1;
-	*--(*p) = val;
-
-	if (val > 0 && **p & 0x80)
-	{
-		if (*p - start < 1)
-			return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
-
-		*--(*p) = 0x00;
-		len += 1;
-	}
-
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, len));
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_INTEGER));
-
-	return((int) len);
-}
-
-int ttls_asn1_write_printable_string(unsigned char **p, unsigned char *start,
-		 const char *text, size_t text_len)
-{
-	int ret;
-	size_t len = 0;
-
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_raw_buffer(p, start,
-				  (const unsigned char *) text, text_len));
-
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, len));
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_PRINTABLE_STRING));
-
-	return((int) len);
-}
-
-int ttls_asn1_write_ia5_string(unsigned char **p, unsigned char *start,
-			   const char *text, size_t text_len)
-{
-	int ret;
-	size_t len = 0;
-
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_raw_buffer(p, start,
-				  (const unsigned char *) text, text_len));
-
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, len));
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_IA5_STRING));
-
-	return((int) len);
-}
-
-int ttls_asn1_write_bitstring(unsigned char **p, unsigned char *start,
-			  const unsigned char *buf, size_t bits)
-{
-	int ret;
-	size_t len = 0, size;
-
-	size = (bits / 8) + ((bits % 8) ? 1 : 0);
-
-	// Calculate byte length
-	//
-	if (*p < start || (size_t)(*p - start) < size + 1)
-		return(TTLS_ERR_ASN1_BUF_TOO_SMALL);
-
-	len = size + 1;
-	(*p) -= size;
-	memcpy(*p, buf, size);
-
-	// Write unused bits
-	//
-	*--(*p) = (unsigned char) (size * 8 - bits);
-
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, len));
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_BIT_STRING));
-
-	return((int) len);
-}
-
-int ttls_asn1_write_octet_string(unsigned char **p, unsigned char *start,
-				 const unsigned char *buf, size_t size)
-{
-	int ret;
-	size_t len = 0;
-
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_raw_buffer(p, start, buf, size));
-
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, len));
-	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_OCTET_STRING));
-
-	return((int) len);
-}
-
-ttls_asn1_named_data *ttls_asn1_store_named_data(ttls_asn1_named_data **head,
-				const char *oid, size_t oid_len,
-				const unsigned char *val,
-				size_t val_len)
-{
-	ttls_asn1_named_data *cur;
-
-	if ((cur = ttls_asn1_find_named_data(*head, oid, oid_len)) == NULL)
-	{
-		// Add new entry if not present yet based on OID
-		//
-		cur = (ttls_asn1_named_data*)kmalloc(sizeof(ttls_asn1_named_data),
-						     GFP_KERNEL);
-		if (cur == NULL)
-			return(NULL);
-
-		cur->oid.len = oid_len;
-		cur->oid.p = kmalloc(oid_len, GFP_KERNEL);
-		if (cur->oid.p == NULL)
-		{
-			kfree(cur);
-			return(NULL);
-		}
-
-		memcpy(cur->oid.p, oid, oid_len);
-
-		cur->val.len = val_len;
-		cur->val.p = kmalloc(val_len, GFP_KERNEL);
-		if (cur->val.p == NULL)
-		{
-			kfree(cur->oid.p);
-			kfree(cur);
-			return(NULL);
-		}
-
-		cur->next = *head;
-		*head = cur;
-	}
-	else if (cur->val.len < val_len)
-	{
-		/*
-		 * Enlarge existing value buffer if needed
-		 * Preserve old data until the allocation succeeded, to leave list in
-		 * a consistent state in case allocation fails.
-		 */
-		void *p = kmalloc(val_len, GFP_KERNEL);
-		if (p == NULL)
-			return(NULL);
-
-		kfree(cur->val.p);
-		cur->val.p = p;
-		cur->val.len = val_len;
-	}
-
-	if (val != NULL)
-		memcpy(cur->val.p, val, val_len);
-
-	return(cur);
 }

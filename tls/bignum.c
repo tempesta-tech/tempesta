@@ -702,7 +702,7 @@ ttls_mpi_add_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 		c = *x < c;
 	}
 	if (X != A && X->used > i)
-		memcpy(x, a, (X->used - i) * CIL);
+		memcpy_fast(x, a, (X->used - i) * CIL);
 
 	return 0;
 }
@@ -734,7 +734,7 @@ __mpi_sub(unsigned long *a, size_t a_len, unsigned long *b, size_t b_len,
 		r++;
 	}
 	BUG_ON(a > a_end);
-	memcpy(r, a, (a_end - a) * CIL);
+	memcpy_fast(r, a, (a_end - a) * CIL);
 }
 
 /**
@@ -1251,7 +1251,7 @@ __mpi_montmul(TlsMpi *A, const TlsMpi *B, const TlsMpi *N, unsigned long mm,
 	}
 	mpi_fixup_used(T, T->limbs);
 
-	memcpy(MPI_P(A), d, (n + 1) * CIL);
+	memcpy_fast(MPI_P(A), d, (n + 1) * CIL);
 	mpi_fixup_used(A, n + 1);
 
 	if (ttls_mpi_cmp_abs(A, N) >= 0) {
