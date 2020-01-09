@@ -18,7 +18,6 @@
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
- * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -80,7 +79,7 @@ ttls_mpi_alloc_stack_init(size_t nlimbs)
  * point we decide to write something here, we won't request a new memory chunk.
  */
 void
-ttls_mpi_free(TlsMpi *X)
+ttls_mpi_reset(TlsMpi *X)
 {
 	if (unlikely(!X))
 		return;
@@ -160,9 +159,12 @@ ttls_mpi_copy_alloc(TlsMpi *X, const TlsMpi *Y, bool need_alloc)
 		return 0;
 	}
 
-	if (need_alloc)
+	if (need_alloc) {
 		if (ttls_mpi_alloc(X, Y->used))
 			return -ENOMEM;
+	} else {
+		BUG_ON(X->limbs < Y->used);
+	}
 	memcpy_fast(MPI_P(X), MPI_P(Y), Y->used * CIL);
 	X->s = Y->s;
 	X->used = Y->used;

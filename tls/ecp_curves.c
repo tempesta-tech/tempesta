@@ -7,7 +7,6 @@
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
- * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -40,7 +39,7 @@
  * The constants are in little-endian order to be directly copied into MPIs.
  */
 
-/* Domain parameters for secp256r1. */
+/* Domain parameters for secp256r1 - Generalized Mersenne primes. */
 static const unsigned long secp256r1_p[] = {
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00),
@@ -285,7 +284,7 @@ static int ecp_mod_p384(TlsMpi *N)
 	ADD(12); ADD(21); ADD(20);
 	SUB(23);
 	NEXT;
-	/* A2 */
+	/* A1 */
 	ADD(13); ADD(22); ADD(23);
 	SUB(12); SUB(20);
 	NEXT;

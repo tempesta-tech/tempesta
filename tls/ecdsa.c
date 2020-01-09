@@ -9,7 +9,6 @@
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
- * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -226,10 +225,7 @@ ttls_ecdsa_write_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
 
 	sign_tries = 0;
 	do {
-		/*
-		 * Steps 1-3: generate a suitable ephemeral keypair
-		 * and set r = xR mod n
-		 */
+		/* Generate a suitable ephemeral keypair and set r = xR mod n */
 		key_tries = 0;
 		do {
 			MPI_CHK(ttls_ecp_gen_keypair(grp, k, R));
@@ -239,7 +235,7 @@ ttls_ecdsa_write_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
 				return TTLS_ERR_ECP_RANDOM_FAILED;
 		} while (!ttls_mpi_cmp_int(r, 0));
 
-		/* Step 5: derive MPI from hashed message. */
+		/* Derive MPI from hashed message. */
 		MPI_CHK(derive_mpi(grp, e, hash, hlen));
 
 		/*
@@ -258,9 +254,7 @@ ttls_ecdsa_write_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
 		} while (ttls_mpi_cmp_int(t, 1) < 0
 			 || ttls_mpi_cmp_mpi(t, &grp->N) >= 0);
 
-		/*
-		 * Step 6: compute s = (e + r * d) / k = t (e + rd) / (kt) mod n
-		 */
+		/* Compute s = (e + r * d) / k = t (e + rd) / (kt) mod n */
 		MPI_CHK(ttls_mpi_mul_mpi(s, r, d));
 		MPI_CHK(ttls_mpi_add_mpi(e, e, s));
 		MPI_CHK(ttls_mpi_mul_mpi(e, e, t));

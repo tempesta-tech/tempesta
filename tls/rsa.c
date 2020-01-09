@@ -26,7 +26,6 @@
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
- * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -430,7 +429,7 @@ cleanup:
  * observations on avarage.
  *
  * For example with 28 byte blinding to achieve 2 collisions the adversary has
- * to make 2^112 observations on avarage.
+ * to make 2^112 observations on average.
  *
  * (With the currently (as of 2017 April) known best algorithms breaking 2048
  * bit RSA requires approximately as much time as trying out 2^112 random keys.
