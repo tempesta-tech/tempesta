@@ -3234,11 +3234,11 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 			len += trailer->len;
 			trailer = trailer->next;
 
-		} while ((trailer != b_skbs) || (len != req->body.len));
-		ss_skb_queue_tail(&req->msg.skb_head, b_skbs);
+		} while ((trailer != b_skbs) && (len != req->body.len));
+		ss_skb_queue_append(&req->msg.skb_head, b_skbs);
 		if (trailer != b_skbs) {
 			ss_skb_queue_split(req->msg.skb_head, trailer);
-			ss_skb_queue_tail(&old_head, trailer);
+			ss_skb_queue_append(&old_head, trailer);
 		}
 	}
 	ss_skb_queue_purge(&old_head);

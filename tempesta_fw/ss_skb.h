@@ -50,7 +50,7 @@ typedef int ss_skb_actor_t(void *conn, unsigned char *data, size_t len,
 			   unsigned int *read);
 
 /**
- * Add new @skb to the queue in FIFO order.
+ * Add new _single_ @skb to the queue in FIFO order.
  */
 static inline void
 ss_skb_queue_tail(struct sk_buff **skb_head, struct sk_buff *skb)
@@ -65,6 +65,26 @@ ss_skb_queue_tail(struct sk_buff **skb_head, struct sk_buff *skb)
 	skb->next = *skb_head;
 	skb->prev = (*skb_head)->prev;
 	skb->next->prev = skb->prev->next = skb;
+}
+
+/**
+ * Append list of @skb to the queue in FIFO order.
+ */
+static inline void
+ss_skb_queue_append(struct sk_buff **skb_head, struct sk_buff *skb)
+{
+	struct sk_buff *tail;
+
+	if (WARN_ON_ONCE(!*skb_head)) {
+		*skb_head = skb;
+		return;
+	}
+
+	skb->prev->next = *skb_head;
+	(*skb_head)->prev = skb->prev;
+	tail = (*skb_head)->prev;
+	skb->prev = tail;
+	tail->next = skb;
 }
 
 static inline void
