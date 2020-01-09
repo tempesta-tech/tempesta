@@ -28,6 +28,7 @@
 #define FRAME_STREAM_ID_MASK		((1U << 31) - 1)
 #define FRAME_RESERVED_BIT_MASK		(~FRAME_STREAM_ID_MASK)
 #define FRAME_MAX_LENGTH		((1U << 24) - 1)
+#define FRAME_DEF_LENGTH		(16384)
 
 /**
  * HTTP/2 frame types (RFC 7540 section 6).
