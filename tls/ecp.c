@@ -25,11 +25,16 @@
  *    ePrint Archive, 2004, vol. 2004, p. 342.
  *    <http://eprint.iacr.org/2004/342.pdf>
  *
+ * 8. Jacobian coordinates for short Weierstrass curves,
+ *    http://www.hyperelliptic.org/EFD/g1p/auto-shortw-jacobian.html
+ *
+ * 9. S.Gueron, V.KRasnov, "Fast prime field elliptic-curve cryptography with
+ *    256-bit primes", 2014.
+ *
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
- * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -50,23 +55,6 @@
 #include "tls_internal.h"
 #include "ecp.h"
 #include "mpool.h"
-
-/*
- * TODO #1064 do we need
- * 1. Randomization of Jacobian coordinates (X, Y, Z) -> (l^2 X, l^3 Y, l Z)
- *    for random l?
- * 2. Addition: R = P + Q, mixed affine-Jacobian coordinates (subrutine of
- *    ecp_mul_comb())?
- * 3. Point doubling R = 2 P, Jacobian coordinates [8];
- * 4. Normalization of jacobian coordinates of an array of (pointers to) points.
- *    Using Montgomery's trick to perform only one inversion mod P the cost is:
- *    1N(t) := 1I + (6t - 3)M + 1S (See for example Algorithm 10.3.4. in [9])?
- * 5. Normalize jacobian coordinates so that Z == 0 || Z == 1. Cost in field
- *    operations if done by [5] 3.2.1: 1N := 1I + 3M + 1S ?
- * 6. Randomization of projective x/z coordinates: (X, Z) -> (l X, l Z) for
- *    random l?
- * 7. Normalization of Montgomery x/z coordinates: X = X/Z, Z = 1 ?
- */
 
 typedef enum {
 	ECP_TYPE_SHORT_WEIERSTRASS,	/* y^2 = x^3 + a x + b */
@@ -391,7 +379,7 @@ ttls_ecp_tls_write_group(const TlsEcpGrp *grp, size_t *olen,
 }
 
 /**
- * Wrapper around fast quasi-modp functions, with fall-back to ttls_mpi_mod_mpi.
+ * Wrapper around fast quasi-modp functions.
  */
 static int
 ecp_modp(TlsMpi *N, const TlsEcpGrp *grp)
@@ -555,7 +543,7 @@ ecp_normalize_jac_many(const TlsEcpGrp *grp, TlsEcpPoint *T[], size_t t_len)
 		 * At the moment Z coordinate stores a garbage, so free it now
 		 * and treat as 1 on subsequent processing.
 		 */
-		ttls_mpi_free(&T[i]->Z);
+		ttls_mpi_reset(&T[i]->Z);
 
 		if (!i)
 			break;
@@ -587,9 +575,7 @@ ecp_safe_invert_jac(const TlsEcpGrp *grp, TlsEcpPoint *Q, unsigned char inv)
 }
 
 /**
- * Point doubling R = 2 P, Jacobian coordinates.
- *
- * Based on http://www.hyperelliptic.org/EFD/g1p/auto-shortw-jacobian.html#doubling-dbl-1998-cmo-2 .
+ * Point doubling R = 2 P, Jacobian coordinates [8, "dbl-1998-cmo-2"].
  *
  * We follow the variable naming fairly closely. The formula variations that
  * trade a MUL for a SQR (plus a few ADDs) aren't useful as our bignum
@@ -692,6 +678,9 @@ ecp_double_jac(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint *P)
 
 /*
  * Addition: R = P + Q, mixed affine-Jacobian coordinates (GECC 3.22)
+ *
+ * #TODO #1064: the implementation uses formula [8, "madd-2008-g"] and I'm not
+ * sure if it's the most efficient one - [9] refernces another formula.
  *
  * The coordinates of Q must be normalized (= affine),
  * but those of P don't need to. R is not normalized.
@@ -1249,7 +1238,7 @@ ecp_mul_mxz(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	/* Set R to zero in modified x/z coordinates */
 	MPI_CHK(ttls_mpi_lset(&R->X, 1));
 	MPI_CHK(ttls_mpi_lset(&R->Z, 0));
-	ttls_mpi_free(&R->Y);
+	ttls_mpi_reset(&R->Y);
 
 	/* RP.X might be sligtly larger than P, so reduce it */
 	MOD_ADD(&RP->X);
@@ -1293,7 +1282,7 @@ ecp_mul_mxz(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
  * prevent potential timing attacks targeting these results.
  */
 int
-ttls_ecp_mul(TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
+ttls_ecp_mul(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	     const TlsEcpPoint *P, bool rnd)
 {
 	switch (ecp_get_type(grp)) {
@@ -1365,7 +1354,7 @@ ecp_check_pubkey_sw(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
  * NOT constant-time - ONLY for short Weierstrass!
  */
 static int
-ttls_ecp_mul_shortcuts(TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
+ttls_ecp_mul_shortcuts(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 		       const TlsEcpPoint *P)
 {
 	if (!ttls_mpi_cmp_int(m, 1)) {
@@ -1389,7 +1378,7 @@ ttls_ecp_mul_shortcuts(TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
  * execution flow and timing.
  */
 int
-ttls_ecp_muladd(TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
+ttls_ecp_muladd(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 		const TlsMpi *n, const TlsEcpPoint *Q)
 {
 	TlsEcpPoint *mP;
@@ -1490,7 +1479,7 @@ ttls_ecp_check_privkey(const TlsEcpGrp *grp, const TlsMpi *d)
  * Generate a keypair with configurable base point.
  */
 int
-ttls_ecp_gen_keypair(TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q)
+ttls_ecp_gen_keypair(const TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q)
 {
 	size_t n_size = (grp->nbits + 7) / 8;
 
