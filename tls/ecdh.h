@@ -14,7 +14,6 @@
  *
  * Copyright (C) 2006-2018, Arm Limited (or its affiliates), All Rights Reserved
  * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
- * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -57,13 +56,13 @@ typedef enum {
  * @d			- private key;
  */
 typedef struct {
-	TlsEcpGrp	grp;
 	TlsEcpPoint	Q;
 	TlsEcpPoint	Qp;
 	TlsEcpPoint	z;
 	TlsEcpPoint	Vi;
 	TlsEcpPoint	Vf;
 	TlsMpi		d;
+	TlsEcpGrp	*grp;
 } TlsECDHCtx;
 
 int ttls_ecdh_make_params(TlsECDHCtx *ctx, size_t *olen,

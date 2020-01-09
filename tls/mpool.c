@@ -44,11 +44,14 @@
 #include "mpool.h"
 
 #define MPI_POOL_DATA(mp)	((void *)((char *)(mp) + sizeof(TlsMpiPool)))
-#define MPI_POOL_FREE_PTR(mp)	((void *)((char *)(mp) + mp->curr))
-#define MPI_POOL_TAIL_PTR(mp)	((void *)((char *)(mp) + mp->curr_tail))
+#define MPI_POOL_FREE_PTR(mp)	((void *)((char *)(mp) + (mp)->curr))
+#define MPI_POOL_TAIL_PTR(mp)	((void *)((char *)(mp) + (mp)->curr_tail))
+#define MPI_POOL_SZ_ALIGN(n)	(((n) + CIL - 1) & ~LMASK)
 #define MPI_PROFILE_SZ(mp)	(mp)->curr
 /* PK is memory greedy, so standard 2 pages stack isn't enough. */
 #define __MPOOL_STACK_ORDER	2
+/* Do our best to keep per-handshake MPI pools as tiny as possible. */
+#define __MPOOL_HS_ORDER	0
 
 /*
  * Memory pool for temporal (stack allocated) MPIs which are used only during
@@ -96,7 +99,7 @@ ttls_mpool(void *addr)
 		goto check;
 
 	/* See ttls_mpi_pool_create() for alignment guarantees. */
-	mp = (TlsMpiPool *)(a & ~((PAGE_SIZE << TTLS_MPOOL_ORDER) - 1));
+	mp = (TlsMpiPool *)(a & ~((PAGE_SIZE << __MPOOL_HS_ORDER) - 1));
 	mp_name = "handshake";
 
 check:
@@ -126,7 +129,7 @@ ttls_mpool_alloc_data(TlsMpiPool *mp, size_t n)
 		 mp, mp->order, mp->curr, mp->curr_tail, n))
 		return NULL;
 
-	mp->curr += n;
+	mp->curr += MPI_POOL_SZ_ALIGN(n);
 
 	return ptr;
 }
@@ -320,7 +323,7 @@ ttls_mpool_ecp_create_tmp_T(int n, const TlsEcpPoint *P)
 void
 ttls_mpool_shrink_tailtmp(TlsMpiPool *mp, bool fix_refs)
 {
-	size_t mp_sz = PAGE_SIZE << mp->order;
+	const size_t mp_sz = PAGE_SIZE << mp->order;
 
 	if (unlikely(fix_refs)) {
 		struct mpi_desc_t {
@@ -357,19 +360,38 @@ __mpi_profile_load_ec(TlsMpiPool *mp, TlsECDHCtx *ctx, unsigned char w,
 {
 	int r;
 	size_t n_sz;
-	TlsEcpGrp *grp = &ctx->grp;
+	TlsEcpGrp *grp;
 
-	if ((r = ttls_ecp_group_load(&ctx->grp, ec))) {
+	if (!(grp = ttls_mpool_alloc_data(mp, sizeof(*grp))))
+		return -ENOMEM;
+	if ((r = ttls_ecp_group_load(grp, ec))) {
 		T_DBG("cannot load Secp256r1 ECP group, %d\n",
 		      ec == TTLS_ECP_DP_SECP256R1 ? "Secp256r1" :
 		      ec == TTLS_ECP_DP_SECP384R1 ? "Secp384r1" : "unknown",
 		      r);
 		return r;
 	}
+	/* Prepare precomputed points to use them in ecp_mul_comb(). */
+	n_sz = (grp->nbits + w - 1) / w;
+	if (ecp_precompute_comb(grp, grp->T, &grp->G, w, n_sz))
+		return -EDOM;
+	ttls_mpool_shrink_tailtmp(mp, true);
+	/*
+	 * Move the group to the tail part: the tail part will be referenced by
+	 * all the cloned profiles while the header part is directly copied.
+	 */
+	n_sz = mp->curr - ((unsigned long)grp - (unsigned long)mp);
+	mp->curr_tail -= n_sz;
+	memcpy_fast(MPI_POOL_TAIL_PTR(mp), grp, n_sz);
+	mp->curr -= n_sz;
+	/*
+	 * Initialize the context group pointer - it will be copied as is by
+	 * all the cloned MPI profiles, so they will use this group.
+	 */
+	ctx->grp = grp;
 
 	/* Init the temporary point to be used in ttls_ecdh_compute_shared(). */
 	ttls_ecp_point_init(&ctx->z);
-
 	/*
 	 * Allocate memory for the MPIs set in ttls_ecp_gen_keypair()
 	 * called from ttls_ecdh_make_params().
@@ -381,13 +403,6 @@ __mpi_profile_load_ec(TlsMpiPool *mp, TlsECDHCtx *ctx, unsigned char w,
 	    || ttls_mpi_alloc(&ctx->Q.Z, n_sz * 2)
 	    || ttls_mpi_alloc(&ctx->z.Z, n_sz * 2))
 		return -ENOMEM;
-
-	/* Prepare precomputed points to use them in ecp_mul_comb(). */
-	n_sz = (ctx->grp.nbits + w - 1) / w;
-	if (ecp_precompute_comb(&ctx->grp, ctx->grp.T, &ctx->grp.G, w, n_sz))
-		return -EDOM;
-
-	ttls_mpool_shrink_tailtmp(mp, true);
 
 	return 0;
 }
@@ -425,6 +440,11 @@ static int
 ttls_mpi_profile_create_dh(TlsMpiPool *mp)
 {
 	TlsDHMCtx *dhm;
+
+	/*
+	 * TODO #1064: use a reference to the profile constant data as it's
+	 * done for EC in __mpi_profile_load_ec().
+	 */
 
 	if (!(dhm = ttls_mpool_alloc_data(mp, sizeof(*dhm))))
 		return -ENOMEM;
@@ -479,11 +499,13 @@ cleanup:
 	return r;
 }
 
+/**
+ * Creat a new per-handshake MPI pool and clone an MPI profile into it.
+ */
 static int
 __mpi_profile_clone(TlsCtx *tls, int ec)
 {
 	char *ptr;
-	size_t order;
 	TlsMpiPool *mp;
 	const TlsCiphersuite *ci = tls->xfrm.ciphersuite_info;
 	TlsHandshake *hs = tls->hs;
@@ -491,14 +513,17 @@ __mpi_profile_clone(TlsCtx *tls, int ec)
 	BUG_ON(ec < 0 || ec >= __TTLS_ECP_DP_N);
 
 	mp = ci->mpi_profile[ec];
-	if (WARN_ON_ONCE(!mp)) {
+	if (!mp) {
 		T_WARN("Try to do %s handshake w/o an MPI profile\n",
 		       ci->name);
 		return -ENOENT;
 	}
+	if (WARN_ON_ONCE(MPI_PROFILE_SZ(mp) > (PAGE_SIZE << __MPOOL_HS_ORDER))) {
+		T_WARN("Too large TLS handshake crypto profile\n");
+		return -ENOMEM;
+	}
 
-	order = get_order(MPI_PROFILE_SZ(mp));
-	ptr = (char *)__get_free_pages(GFP_ATOMIC, order);
+	ptr = (char *)__get_free_pages(GFP_ATOMIC, __MPOOL_HS_ORDER);
 	if (WARN_ON_ONCE(!ptr))
 		return -ENOMEM;
 
@@ -510,8 +535,8 @@ __mpi_profile_clone(TlsCtx *tls, int ec)
 	 * the original.
 	 */
 	mp = (TlsMpiPool *)ptr;
-	mp->order = order;
-	mp->curr_tail = PAGE_SIZE << order;
+	mp->order = __MPOOL_HS_ORDER;
+	mp->curr_tail = PAGE_SIZE << __MPOOL_HS_ORDER;
 
 	return 0;
 }
@@ -563,7 +588,7 @@ ttls_mpool_exit(void)
 	for_each_possible_cpu(i) {
 		mp = *per_cpu_ptr(&g_tmp_mpool, i);
 		ttls_bzero_safe(MPI_POOL_DATA(mp), mp->curr - sizeof(*mp));
-		free_pages((unsigned long)mp, TTLS_MPOOL_ORDER);
+		free_pages((unsigned long)mp, __MPOOL_STACK_ORDER);
 	}
 }
 

@@ -7,7 +7,6 @@
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
- * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -112,7 +111,7 @@ typedef struct {
  * ttls_mpi_alloc_stack_init() may cost too much.
  *
  * Place the function in the header to allow the compiler to optimize out
- * unused return value if a called doesn't care about it.
+ * unused return value if a caller doesn't care about it.
  */
 static inline TlsMpi *
 ttls_mpi_init_next(TlsMpi *X, size_t nlimbs)
@@ -145,7 +144,7 @@ do {									\
 TlsMpi *ttls_mpi_alloc_stack_init(size_t nlimbs);
 int ttls_mpi_alloc(TlsMpi *X, size_t nblimbs);
 int ttls_mpi_alloc_tmp(TlsMpi *X, size_t nblimbs);
-void ttls_mpi_free(TlsMpi *X);
+void ttls_mpi_reset(TlsMpi *X);
 
 void mpi_fixup_used(TlsMpi *X, size_t n);
 int ttls_mpi_copy_alloc(TlsMpi *X, const TlsMpi *Y, bool need_alloc);

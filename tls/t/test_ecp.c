@@ -85,12 +85,9 @@ ecp_mul(void)
 	EXPECT_FALSE(!(m = ttls_mpool_alloc_data(mp, sizeof(*m) + 4 * CIL)));
 	ttls_mpi_init_next(m, 4);
 
-	/* Copy group from the MPI profile for Secp256r1 PK operations. */
-	grp = ttls_mpool_alloc_data(mp, cs_mp_ecdhe_secp256.mp.curr
-					- sizeof(*mp));
+	/* Use group from the MPI profile for Secp256r1 PK operations. */
+	grp = MPI_POOL_TAIL_PTR(&cs_mp_ecdhe_secp256.mp);
 	EXPECT_FALSE(!grp);
-	memcpy_fast(grp, MPI_POOL_DATA(&cs_mp_ecdhe_secp256.mp),
-		    cs_mp_ecdhe_secp256.mp.curr - sizeof(*mp));
 	EXPECT_EQ(grp->id, TTLS_ECP_DP_SECP256R1);
 	EXPECT_EQ(grp->nbits, 256);
 	EXPECT_EQ(grp->pbits, 256);
