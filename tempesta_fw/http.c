@@ -4219,7 +4219,13 @@ tfw_http_req_block(TfwHttpReq *req, int status, const char *msg)
 	tfw_http_cli_error_resp_and_log(req, status, msg, true, false);
 }
 
-
+/*
+ * TODO: http1 headers usually use mixed case, while h2 uses only lower case
+ * header names. It seems that usual browsers are OK with mixed case in h2
+ * responses, but this behaviour is not defined by RFC and implementation
+ * dependent. Curl is not happy with the mixed case and return parser errors.
+ * The headers should be converted to lower case before transmission.
+ */
 static void
 tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 {
