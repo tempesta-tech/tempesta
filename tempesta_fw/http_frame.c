@@ -214,7 +214,7 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 	lset->hdr_tbl_sz = rset->hdr_tbl_sz = HPACK_TABLE_DEF_SIZE;
 	lset->push = rset->push = 1;
 	lset->max_streams = rset->max_streams = 0xffffffff;
-	lset->max_frame_sz = rset->max_frame_sz = 1 << 14;
+	lset->max_frame_sz = rset->max_frame_sz = FRAME_DEF_LENGTH;
 	lset->max_lhdr_sz = rset->max_lhdr_sz = UINT_MAX;
 	/*
 	 * We ignore client's window size until #498, so currently

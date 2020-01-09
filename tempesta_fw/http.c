@@ -849,6 +849,15 @@ tfw_h2_send_resp(TfwHttpReq *req, int status, unsigned int stream_id)
 	mit = &resp->mit;
 	skb_head = &resp->msg.skb_head;
 	body = TFW_STR_BODY_CH(msg);
+	if (WARN_ON_ONCE(body->len > ctx->rsettings.max_frame_sz)) {
+		/*
+		 * TODO: split body to frames it it's too long.
+		 * Since full-featured response is not constructed construct
+		 * here, it's possible to avoid framing body for each h2 client
+		 * individually. Every client must support 16384-byte frames.
+		 */
+		goto err_setup;
+	}
 
 	/* Create frame header for HEADERS. Note, that we leave the length of
 	 * HEADERS frame unset, to be filled later (below) after all headers
@@ -919,6 +928,17 @@ tfw_h2_send_resp(TfwHttpReq *req, int status, unsigned int stream_id)
 	 * head part of skb (also, see description of frame header format in
 	 * RFC 7540 section 4.1).
 	 */
+	if (WARN_ON_ONCE(mit->acc_len > ctx->rsettings.max_frame_sz)) {
+		/*
+		 * TODO: multiple frames might be required here.
+		 *
+		 * Too long frames will be rejected by remote peer and
+		 * the connection will be closed by remote side. There is no
+		 * point to send such response, let's fail fast and close the
+		 * connection on our own.
+		 */
+		goto err_setup;
+	}
 	len_be = htonl((unsigned int)mit->acc_len);
 	src_len_p = (unsigned char *)&len_be;
 	dst_len_p = (*skb_head)->data;
@@ -3868,17 +3888,28 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 	unsigned char buf[FRAME_HEADER_SIZE];
 	TfwHttpTransIter *mit = &resp->mit;
 	unsigned long b_len = resp->body.len;
+	TfwH2Ctx *ctx = tfw_h2_context(resp->req->conn);
 
 	frame_hdr.stream_id = stream_id;
 
+	/*
+	 * TODO: create multiple frames. Remote peer will reject the frame if
+	 * it's bigger than was allowed by remote.
+	 */
+	if (h_len > ctx->rsettings.max_frame_sz) {
+		/* TODO: split headers by frames. */
+		T_WARN("Unable to make HTTP/2 HEADERS frame: too big header"
+		       " block fragment (%lu)\n", h_len);
+		return -E2BIG;
+	}
+	if (b_len > ctx->rsettings.max_frame_sz) {
+		T_WARN("Unable to make HTTP/2 DATA frame: too big"
+		       " message body (%lu)\n", b_len);
+		return -E2BIG;
+	}
+
 	if (b_len) {
 		TfwStr s_hdr = {};
-
-		if (b_len > FRAME_MAX_LENGTH) {
-			T_WARN("Unable to make HTTP/2 DATA frame: too big"
-			       " message body (%lu)\n", b_len);
-			return -E2BIG;
-		}
 
 		/*
 		 * Set frame header for DATA, if body part of HTTP/1.1
@@ -3896,12 +3927,6 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 		r = tfw_h2_msg_rewrite_data(mit, &s_hdr, mit->bnd);
 		if (unlikely(r))
 			return r;
-	}
-
-	if (h_len > FRAME_MAX_LENGTH) {
-		T_WARN("Unable to make HTTP/2 HEADERS frame: too big header"
-		       " block fragment (%lu)\n", h_len);
-		return -E2BIG;
 	}
 
 	/* Set frame header for HEADERS. */
@@ -4724,23 +4749,32 @@ next_msg:
 				"Request parsing inconsistency");
 			return TFW_BLOCK;
 		}
-		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK,
-				  &data_up);
-		T_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
-		if (r == TFW_BLOCK) {
-			TFW_INC_STAT_BH(clnt.msgs_filtout);
-			tfw_http_req_parse_block(req, 403,
-						 "postponed request has been"
-						 " filtered out");
-			return TFW_BLOCK;
+		if (TFW_MSG_H2(req) && tfw_h2_stream_req_complete(req->stream)) {
+			if (tfw_h2_parse_req_finish(req)) {
+				TFW_INC_STAT_BH(clnt.msgs_otherr);
+				tfw_http_req_parse_block(req, 500,
+					"Request parsing inconsistency");
+				return TFW_BLOCK;
+			}
 		}
-		/*
-		 * TFW_POSTPONE status means that parsing succeeded
-		 * but more data is needed to complete it. Lower layers
-		 * just supply data for parsing. They only want to know
-		 * if processing of a message should continue or not.
-		 */
-		return TFW_PASS;
+		else {
+			r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK,
+					  &data_up);
+			T_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
+			if (r == TFW_BLOCK) {
+				TFW_INC_STAT_BH(clnt.msgs_filtout);
+				tfw_http_req_parse_block(req, 403,
+					"postponed request has been filtered out");
+				return TFW_BLOCK;
+			}
+			/*
+			 * TFW_POSTPONE status means that parsing succeeded
+			 * but more data is needed to complete it. Lower layers
+			 * just supply data for parsing. They only want to know
+			 * if processing of a message should continue or not.
+			 */
+			return TFW_PASS;
+		}
 	case TFW_PASS:
 		/*
 		 * The request is fully parsed,
