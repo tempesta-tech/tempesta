@@ -3742,7 +3742,8 @@ tfw_h2_resp_next_hdr(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 			return -EINVAL;
 
 		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u, h_mods->sz=%lu\n",
-		       __func__, hid, d_num, ht->tbl[hid].nchunks, h_mods->sz);
+		       __func__, hid, d_num, ht->tbl[hid].nchunks,
+		       h_mods ? h_mods->sz : 0);
 
 		if (!h_mods)
 			goto def;
