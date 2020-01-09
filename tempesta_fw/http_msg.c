@@ -621,7 +621,8 @@ int
 __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str, void *data,
 			    size_t len, struct sk_buff *skb)
 {
-	BUG_ON(str->flags & (TFW_STR_DUPLICATE | TFW_STR_COMPLETE));
+	if (WARN_ON_ONCE(str->flags & (TFW_STR_DUPLICATE | TFW_STR_COMPLETE)))
+		return -EINVAL;
 
 	T_DBG3("store field chunk len=%lu data=%p(%c) field=<%#x,%lu,%p>\n",
 	       len, data, isprint(*(char *)data) ? *(char *)data : '.',

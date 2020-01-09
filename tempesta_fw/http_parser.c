@@ -7956,7 +7956,6 @@ tfw_h2_parse_body(char *data, unsigned long len, TfwHttpReq *req,
 		return T_DROP;
 
 	parser->to_read = -1;
-	req->body.flags |= TFW_STR_COMPLETE;
 	ret = T_OK;
 
 out:
@@ -8016,6 +8015,7 @@ tfw_h2_parse_req_finish(TfwHttpReq *req)
 	{
 		return T_DROP;
 	}
+	req->body.flags |= TFW_STR_COMPLETE;
 	__set_bit(TFW_HTTP_B_FULLY_PARSED, req->flags);
 
 	__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY],
