@@ -1,4 +1,4 @@
-/*
+/**
  *		Tempesta TLS
  *
  * Main TLS shared functions for the server and client.
@@ -9,7 +9,6 @@
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
- * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1951,7 +1950,7 @@ ttls_set_hs_authmode(TlsCtx *tls, int authmode)
  *
  * TODO #830: we don't need the function before #830, so correspondingly we
  * don't use TlsCtx->hostname. Probably TlsVhost->name can be used. Anyway
- * there is no reason to call the dynamic memroy allocator just for the
+ * there is no reason to call the dynamic memory allocator just for the
  * string name. Consider to use char hostname[TTLS_MAX_HOST_NAME_LEN] in
  * TlsCtx.
  */

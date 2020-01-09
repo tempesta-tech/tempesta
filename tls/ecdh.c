@@ -13,7 +13,6 @@
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
- * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -80,18 +79,18 @@ ttls_ecdh_make_params(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
 	int r;
 	size_t grp_len, pt_len;
 
-	BUG_ON(!ctx || !ctx->grp.pbits);
+	BUG_ON(!ctx || !ctx->grp->pbits);
 
-	if ((r = ttls_ecp_gen_keypair(&ctx->grp, &ctx->d, &ctx->Q)))
+	if ((r = ttls_ecp_gen_keypair(ctx->grp, &ctx->d, &ctx->Q)))
 		return r;
 
-	if ((r = ttls_ecp_tls_write_group(&ctx->grp, &grp_len, buf, blen)))
+	if ((r = ttls_ecp_tls_write_group(ctx->grp, &grp_len, buf, blen)))
 		return r;
 
 	buf += grp_len;
 	blen -= grp_len;
 
-	r = ttls_ecp_tls_write_point(&ctx->grp, &ctx->Q, &pt_len, buf, blen);
+	r = ttls_ecp_tls_write_point(ctx->grp, &ctx->Q, &pt_len, buf, blen);
 	if (r)
 		return r;
 
@@ -112,10 +111,10 @@ ttls_ecdh_read_params(TlsECDHCtx *ctx, const unsigned char **buf,
 {
 	int r;
 
-	if ((r = ttls_ecp_tls_read_group(&ctx->grp, buf, end - *buf)))
+	if ((r = ttls_ecp_tls_read_group(ctx->grp, buf, end - *buf)))
 		return r;
 
-	if ((r = ttls_ecp_tls_read_point(&ctx->grp, &ctx->Qp, buf, end - *buf)))
+	if ((r = ttls_ecp_tls_read_point(ctx->grp, &ctx->Qp, buf, end - *buf)))
 		return r;
 
 	return 0;
@@ -134,7 +133,7 @@ ttls_ecdh_get_params(TlsECDHCtx *ctx, const TlsEcpKeypair *key)
 {
 	int r;
 
-	if ((r = ttls_ecp_group_load(&ctx->grp, key->grp->id)))
+	if ((r = ttls_ecp_group_load(ctx->grp, key->grp->id)))
 		return r;
 
 	return ttls_ecp_copy(&ctx->Qp, &key->Q);
@@ -151,12 +150,12 @@ ttls_ecdh_make_public(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
 {
 	int r;
 
-	if (WARN_ON_ONCE(!ctx || !ctx->grp.pbits))
+	if (WARN_ON_ONCE(!ctx || !ctx->grp->pbits))
 		return -EINVAL;
 
-	if ((r = ttls_ecp_gen_keypair(&ctx->grp, &ctx->d, &ctx->Q)))
+	if ((r = ttls_ecp_gen_keypair(ctx->grp, &ctx->d, &ctx->Q)))
 		return r;
-	return ttls_ecp_tls_write_point(&ctx->grp, &ctx->Q, olen, buf, blen);
+	return ttls_ecp_tls_write_point(ctx->grp, &ctx->Q, olen, buf, blen);
 }
 
 /**
@@ -172,7 +171,7 @@ ttls_ecdh_read_public(TlsECDHCtx *ctx, const unsigned char *buf,
 	if (!ctx)
 		return TTLS_ERR_ECP_BAD_INPUT_DATA;
 
-	if ((r = ttls_ecp_tls_read_point(&ctx->grp, &ctx->Qp, &p, blen)))
+	if ((r = ttls_ecp_tls_read_point(ctx->grp, &ctx->Qp, &p, blen)))
 		return r;
 
 	if ((size_t)(p - buf) != blen)
@@ -190,14 +189,14 @@ ttls_ecdh_calc_secret(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
 {
 	int r;
 
-	r = ttls_ecdh_compute_shared(&ctx->grp, &ctx->z, &ctx->Qp, &ctx->d);
+	r = ttls_ecdh_compute_shared(ctx->grp, &ctx->z, &ctx->Qp, &ctx->d);
 	if (r)
 		return r;
 
 	if (WARN_ON_ONCE(ttls_mpi_size(&ctx->z.X) > blen))
 		return -EINVAL;
 
-	*olen = ctx->grp.pbits / 8 + ((ctx->grp.pbits % 8) != 0);
+	*olen = ctx->grp->pbits / 8 + ((ctx->grp->pbits % 8) != 0);
 
 	return ttls_mpi_write_binary(&ctx->z.X, buf, *olen);
 }

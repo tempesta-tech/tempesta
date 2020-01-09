@@ -39,7 +39,6 @@
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
- * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -179,13 +178,7 @@ typedef struct {
  * @B		- 1. B in the equation, or 2. unused;
  * @N		- 1. the order of G, or 2. unused;
  * @G		- generator of the (sub)group used;
- * @T		- pre-computed points for ecp_mul_comb(). While X and Y
- *		  coordinates are the only used, we still have to keep the full
- *		  3D points as they're need for points doubling in Jacobian
- *		  coordinates with following normalization, see
- *		  ecp_precompute_comb().
- *		  TODO #1064: probably we can double the points w/o 3D
- *			      normalization immediately in 2D format.
+ * @T		- pre-computed points for ecp_mul_comb().
  */
 typedef struct {
 	ttls_ecp_group_id	id;
@@ -253,14 +246,14 @@ int ttls_ecp_group_load(TlsEcpGrp *grp, ttls_ecp_group_id id);
 int ecp_precompute_comb(const TlsEcpGrp *grp, TlsEcpPoint T[],
 			const TlsEcpPoint *P,unsigned char w, size_t d);
 
-int ttls_ecp_mul(TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
+int ttls_ecp_mul(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 		 const TlsEcpPoint *P, bool rnd);
-int ttls_ecp_muladd(TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
+int ttls_ecp_muladd(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 		    const TlsMpi *n, const TlsEcpPoint *Q);
 
 int ttls_ecp_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt);
 int ttls_ecp_check_privkey(const TlsEcpGrp *grp, const TlsMpi *d);
-int ttls_ecp_gen_keypair(TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q);
+int ttls_ecp_gen_keypair(const TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q);
 
 #if defined(DEBUG) && DEBUG == 3
 /* Print data structures containing MPIs on higest debug level only. */

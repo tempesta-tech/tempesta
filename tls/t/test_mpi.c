@@ -43,10 +43,10 @@ mpi_alloc_init(void)
 	EXPECT_TRUE(A->s == 1);
 
 	/* Nothing bad happens on freeing empty MPI. */
-	ttls_mpi_free(A);
+	ttls_mpi_reset(A);
 	ttls_mpi_init_next(A, 7);
-	ttls_mpi_free(A);
-	ttls_mpi_free(A);
+	ttls_mpi_reset(A);
+	ttls_mpi_reset(A);
 	save_off = A->_off;
 	EXPECT_TRUE(A->s == 0);
 	EXPECT_TRUE(A->used == 0);
@@ -70,7 +70,7 @@ mpi_alloc_init(void)
 
 	/* Finally free the MPI. */
 	EXPECT_FALSE(ttls_mpi_empty(A));
-	ttls_mpi_free(A);
+	ttls_mpi_reset(A);
 	EXPECT_ZERO(A->used);
 	EXPECT_ZERO(A->s);
 	EXPECT_TRUE(A->limbs == 7);
@@ -135,7 +135,7 @@ mpi_read_write(void)
 	for (i = 0; i < 118; ++i)
 		EXPECT_ZERO(buf[i]);
 
-	ttls_mpi_free(&A);
+	ttls_mpi_reset(&A);
 
 	/* Read 1 byte. */
 	save_off = A._off;
@@ -147,7 +147,7 @@ mpi_read_write(void)
 	EXPECT_TRUE(A.s == 1);
 
 	/* No reading at all. */
-	ttls_mpi_free(&A);
+	ttls_mpi_reset(&A);
 	EXPECT_ZERO(ttls_mpi_read_binary(&A, mpi_data, 0));
 	EXPECT_ZERO(A.used);
 	EXPECT_ZERO(A.s);
