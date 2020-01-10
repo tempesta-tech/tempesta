@@ -8015,6 +8015,15 @@ tfw_h2_parse_req_finish(TfwHttpReq *req)
 	{
 		return T_DROP;
 	}
+	/*
+	 * RFC 7540 8.1.2.6: A request or response that includes a payload
+	 * body can include a content-length header field.
+	 *
+	 * Since the h2 provides explicit message framing, the content-length
+	 * header is not required at all. But our code may rely on
+	 * req->content_length field value, fill it.
+	 */
+	req->content_length = req->body.len;
 	req->body.flags |= TFW_STR_COMPLETE;
 	__set_bit(TFW_HTTP_B_FULLY_PARSED, req->flags);
 

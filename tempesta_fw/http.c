@@ -4786,8 +4786,12 @@ next_msg:
 		 * The request is fully parsed,
 		 * fall through and process it.
 		 */
-		BUG_ON(!test_bit(TFW_HTTP_B_CHUNKED, req->flags)
-		       && (req->content_length != req->body.len));
+
+		if (WARN_ON_ONCE(!test_bit(TFW_HTTP_B_CHUNKED, req->flags)
+				 && (req->content_length != req->body.len)))
+		{
+			return TFW_BLOCK;
+		}
 	}
 
 	/*
