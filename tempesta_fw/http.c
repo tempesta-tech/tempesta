@@ -2704,18 +2704,21 @@ tfw_http_set_loc_hdrs(TfwHttpMsg *hm, TfwHttpReq *req)
 			.chunks = (TfwStr []){
 				{},
 				{ .data = S_DLM, .len = SLEN(S_DLM) },
-				{},
-				{ .data = S_CRLF, .len = SLEN(S_CRLF) },
+				{}
 			},
-			.len = SLEN(S_DLM) + SLEN(S_CRLF),
-			.nchunks = 2
+			.len = SLEN(S_DLM),
+			.nchunks = 2 /* header name + delimeter. */
 		};
 		int r;
 
 		h_mdf.chunks[0] = d->hdr->chunks[0];
-		h_mdf.chunks[2] = d->hdr->chunks[1];
+		if (d->hdr->nchunks == 2) {
+			h_mdf.chunks[2] = d->hdr->chunks[1];
+			h_mdf.nchunks += 1;
+		}
 		h_mdf.len += d->hdr->len;
-		h_mdf.nchunks += d->hdr->nchunks;
+		h_mdf.flags = d->hdr->flags;
+		h_mdf.eolen += d->hdr->eolen;
 		r = tfw_http_msg_hdr_xfrm_str(hm, &h_mdf, d->hid, d->append);
 		if (r) {
 			T_ERR("can't update location-specific header in msg %p\n",
