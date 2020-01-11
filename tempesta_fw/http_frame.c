@@ -915,6 +915,8 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 		break;
 
 	case HTTP2_SETTINGS_ENABLE_PUSH:
+		if (val > 1)
+			return T_BAD;
 		dest->push = val;
 		break;
 
@@ -923,10 +925,14 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 		break;
 
 	case HTTP2_SETTINGS_INIT_WND_SIZE:
+		if (val > MAX_WND_SIZE)
+			return T_BAD;
 		dest->wnd_sz = val;
 		break;
 
 	case HTTP2_SETTINGS_MAX_FRAME_SIZE:
+		if (val < FRAME_DEF_LENGTH || val > FRAME_MAX_LENGTH)
+			return T_BAD;
 		dest->max_frame_sz = val;
 		break;
 
