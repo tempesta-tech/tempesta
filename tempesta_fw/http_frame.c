@@ -1177,6 +1177,9 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 	T_DBG3("%s: hdr->type=%hhu, ctx->state=%d\n", __func__, hdr->type,
 	       ctx->state);
 
+	if (unlikely(ctx->hdr.length > ctx->lsettings.max_frame_sz))
+		goto conn_term;
+
 	switch (hdr->type) {
 	case HTTP2_DATA:
 		if (!hdr->stream_id) {
