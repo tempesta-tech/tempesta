@@ -851,7 +851,7 @@ tfw_h2_send_resp(TfwHttpReq *req, int status, unsigned int stream_id)
 	body = TFW_STR_BODY_CH(msg);
 	if (WARN_ON_ONCE(body->len > ctx->rsettings.max_frame_sz)) {
 		/*
-		 * TODO: split body to frames it it's too long.
+		 * TODO #1378: split body to frames it it's too long.
 		 * Since full-featured response is not constructed construct
 		 * here, it's possible to avoid framing body for each h2 client
 		 * individually. Every client must support 16384-byte frames.
@@ -930,7 +930,7 @@ tfw_h2_send_resp(TfwHttpReq *req, int status, unsigned int stream_id)
 	 */
 	if (WARN_ON_ONCE(mit->acc_len > ctx->rsettings.max_frame_sz)) {
 		/*
-		 * TODO: multiple frames might be required here.
+		 * TODO #1378: multiple frames might be required here.
 		 *
 		 * Too long frames will be rejected by remote peer and
 		 * the connection will be closed by remote side. There is no
@@ -3896,8 +3896,8 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 	frame_hdr.stream_id = stream_id;
 
 	/*
-	 * TODO: create multiple frames. Remote peer will reject the frame if
-	 * it's bigger than was allowed by remote.
+	 * TODO #1378: create multiple frames. Remote peer will reject the frame
+	 * if it's bigger than was allowed by remote.
 	 */
 	if (h_len > ctx->rsettings.max_frame_sz) {
 		/* TODO: split headers by frames. */
