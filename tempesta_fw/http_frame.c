@@ -1432,8 +1432,6 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 			goto conn_term;
 		}
 
-		STREAM_RECV_PROCESS(ctx, hdr);
-
 		ctx->data_off = FRAME_HEADER_SIZE;
 		ctx->plen = ctx->hdr.length;
 
