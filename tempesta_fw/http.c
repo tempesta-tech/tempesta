@@ -3055,6 +3055,12 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	}
 
 	/*
+	 * TODO: remove from header table all hop-by-hop headers, including
+	 * 'Connection:' header (hdrs with flag TFW_STR_HBH_HDR). If do this
+	 * before tfw_h2_req_set_loc_hdrs(), we may free some space in the table
+	 * and avoid the table reallocation.
+	 */
+	/*
 	 * First apply message modifications defined by admin in configuration
 	 * file. Ideally we should do it at last stage, when h2 headers are
 	 * copied into h1 buffer and apply modifications during copying. But
@@ -3734,6 +3740,8 @@ tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods)
  * each iteration function produces the boundary pointer @mit->bnd for current
  * iteration and the operation instance @mit->next - for the next iteration
  * (including source header @mit->next.s_hdr).
+ *
+ * TODO #1103: This function should be treated as a foundation for #1103 issue.
  */
 static int
 tfw_h2_resp_next_hdr(TfwHttpResp *resp, const TfwHdrMods *h_mods)
@@ -3878,7 +3886,6 @@ def:
 	mit->curr = i + 1;
 
 	return 0;
-
 }
 
 static int

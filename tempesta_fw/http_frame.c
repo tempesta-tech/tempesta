@@ -1186,6 +1186,14 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 	if (unlikely(ctx->hdr.length > ctx->lsettings.max_frame_sz))
 		goto conn_term;
 
+	/*
+	 * TODO: RFC 7540 Section 6.2:
+	 * A HEADERS frame without the END_HEADERS flag set MUST be followed
+	 * by a CONTINUATION frame for the same stream. A receiver MUST treat
+	 * the receipt of any other type of frame or a frame on a different
+	 * stream as a connection error (Section 5.4.1) of type PROTOCOL_ERROR.
+	 */
+
 	switch (hdr->type) {
 	case HTTP2_DATA:
 		if (!hdr->stream_id) {
