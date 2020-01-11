@@ -8010,6 +8010,17 @@ tfw_h2_parse_req_finish(TfwHttpReq *req)
 	if (WARN_ON_ONCE(!tfw_h2_stream_req_complete(req->stream)))
 		return T_DROP;
 
+	/*
+	 * TFW_HTTP_B_H2_HDRS_FULL flag is set on first TFW_HTTP_HDR_REGULAR
+	 * header, if no present, need to check mandatory pseudo headers.
+	 */
+	if (unlikely(!test_bit(TFW_HTTP_B_H2_HDRS_FULL, req->flags)
+		     && (TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_METHOD])
+			 || TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_SCHEME])
+			 || TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_PATH]))))
+	{
+		return T_DROP;
+	}
 	if (req->content_length
 	    && req->content_length != req->body.len)
 	{
