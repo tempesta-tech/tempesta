@@ -24,6 +24,7 @@
 #include "http_stream.h"
 #include "hpack.h"
 
+/* RFC 7540 Section 4.1 frame header constants. */
 #define FRAME_HEADER_SIZE		9
 #define FRAME_STREAM_ID_MASK		((1U << 31) - 1)
 #define FRAME_RESERVED_BIT_MASK		(~FRAME_STREAM_ID_MASK)
