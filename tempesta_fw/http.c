@@ -851,9 +851,9 @@ tfw_h2_send_resp(TfwHttpReq *req, int status, unsigned int stream_id)
 	body = TFW_STR_BODY_CH(msg);
 	if (WARN_ON_ONCE(body->len > ctx->rsettings.max_frame_sz)) {
 		/*
-		 * TODO #1378: split body to frames it it's too long.
-		 * Since full-featured response is not constructed construct
-		 * here, it's possible to avoid framing body for each h2 client
+		 * TODO #1378: split body to frames if it's too long.
+		 * Since full-featured response is not constructed here, it's
+		 * possible to avoid framing body for each h2 client
 		 * individually. Every client must support 16384-byte frames.
 		 */
 		goto err_setup;
@@ -3055,12 +3055,6 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	}
 
 	/*
-	 * TODO: remove from header table all hop-by-hop headers, including
-	 * 'Connection:' header (hdrs with flag TFW_STR_HBH_HDR). If do this
-	 * before tfw_h2_req_set_loc_hdrs(), we may free some space in the table
-	 * and avoid the table reallocation.
-	 */
-	/*
 	 * First apply message modifications defined by admin in configuration
 	 * file. Ideally we should do it at last stage, when h2 headers are
 	 * copied into h1 buffer and apply modifications during copying. But
@@ -4230,11 +4224,13 @@ tfw_http_req_block(TfwHttpReq *req, int status, const char *msg)
 }
 
 /*
- * TODO: http1 headers usually use mixed case, while h2 uses only lower case
- * header names. It seems that usual browsers are OK with mixed case in h2
- * responses, but this behaviour is not defined by RFC and implementation
- * dependent. Curl is not happy with the mixed case and return parser errors.
- * The headers should be converted to lower case before transmission.
+ * TODO: RFC 7540 8.1.2
+ *    However, header field names MUST be converted to lowercase prior to
+ *    their encoding in HTTP/2. A request or response containing uppercase
+ *    header field names MUST be treated as malformed (Section 8.1.2.6).
+ *
+ * Major browsers and curl ignore that RFC requirement an work well. But
+ * that is definitely an RFC violation and implementation specific behaviour.
  */
 static void
 tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)

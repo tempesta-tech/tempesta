@@ -80,9 +80,9 @@ ss_skb_queue_append(struct sk_buff **skb_head, struct sk_buff *skb)
 		return;
 	}
 
+	tail = (*skb_head)->prev;
 	skb->prev->next = *skb_head;
 	(*skb_head)->prev = skb->prev;
-	tail = (*skb_head)->prev;
 	skb->prev = tail;
 	tail->next = skb;
 }
