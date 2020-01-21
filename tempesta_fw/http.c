@@ -150,12 +150,12 @@ static struct {
 #define S_503			"HTTP/1.1 503 Service Unavailable"
 #define S_504			"HTTP/1.1 504 Gateway Timeout"
 
-#define S_CONT_TYPE		"content-type"
 #define S_XFF			"x-forwarded-for"
 
 #define S_F_HOST		"host: "
 #define S_F_DATE		"date: "
 #define S_F_CONTENT_LENGTH	"content-length: "
+#define S_F_CONTENT_TYPE	"content-type: "
 #define S_F_LOCATION		"location: "
 #define S_F_CONNECTION		"connection: "
 #define S_F_ETAG		"etag: "
@@ -168,6 +168,7 @@ static struct {
 #define S_V_CONN_CLOSE		"close"
 #define S_V_CONN_KA		"keep-alive"
 #define S_V_RETRY_AFTER		"10"
+#define S_V_MULTIPART		"multipart/form-data; boundary="
 
 #define S_H_CONN_KA		S_F_CONNECTION S_V_CONN_KA S_CRLFCRLF
 #define S_H_CONN_CLOSE		S_F_CONNECTION S_V_CONN_CLOSE S_CRLFCRLF
@@ -848,6 +849,15 @@ tfw_h2_send_resp(TfwHttpReq *req, int status, unsigned int stream_id)
 	mit = &resp->mit;
 	skb_head = &resp->msg.skb_head;
 	body = TFW_STR_BODY_CH(msg);
+	if (WARN_ON_ONCE(body->len > ctx->rsettings.max_frame_sz)) {
+		/*
+		 * TODO #1378: split body to frames if it's too long.
+		 * Since full-featured response is not constructed here, it's
+		 * possible to avoid framing body for each h2 client
+		 * individually. Every client must support 16384-byte frames.
+		 */
+		goto err_setup;
+	}
 
 	/* Create frame header for HEADERS. Note, that we leave the length of
 	 * HEADERS frame unset, to be filled later (below) after all headers
@@ -918,6 +928,17 @@ tfw_h2_send_resp(TfwHttpReq *req, int status, unsigned int stream_id)
 	 * head part of skb (also, see description of frame header format in
 	 * RFC 7540 section 4.1).
 	 */
+	if (WARN_ON_ONCE(mit->acc_len > ctx->rsettings.max_frame_sz)) {
+		/*
+		 * TODO #1378: multiple frames might be required here.
+		 *
+		 * Too long frames will be rejected by remote peer and
+		 * the connection will be closed by remote side. There is no
+		 * point to send such response, let's fail fast and close the
+		 * connection on our own.
+		 */
+		goto err_setup;
+	}
 	len_be = htonl((unsigned int)mit->acc_len);
 	src_len_p = (unsigned char *)&len_be;
 	dst_len_p = (*skb_head)->data;
@@ -2664,7 +2685,6 @@ tfw_http_add_x_forwarded_for(TfwHttpMsg *hm)
 static int
 tfw_http_set_loc_hdrs(TfwHttpMsg *hm, TfwHttpReq *req)
 {
-	int r;
 	size_t i;
 	int mod_type = (hm == (TfwHttpMsg *)req) ? TFW_VHOST_HDRMOD_REQ
 						 : TFW_VHOST_HDRMOD_RESP;
@@ -2675,7 +2695,31 @@ tfw_http_set_loc_hdrs(TfwHttpMsg *hm, TfwHttpReq *req)
 
 	for (i = 0; i < h_mods->sz; ++i) {
 		TfwHdrModsDesc *d = &h_mods->hdrs[i];
-		r = tfw_http_msg_hdr_xfrm_str(hm, d->hdr, d->hid, d->append);
+		/*
+		 * Header is stored optimized for HTTP2: without delimiter
+		 * between header and value. Add it as separate chunk as
+		 * required for tfw_http_msg_hdr_xfrm_str.
+		 */
+		TfwStr h_mdf = {
+			.chunks = (TfwStr []){
+				{},
+				{ .data = S_DLM, .len = SLEN(S_DLM) },
+				{}
+			},
+			.len = SLEN(S_DLM),
+			.nchunks = 2 /* header name + delimeter. */
+		};
+		int r;
+
+		h_mdf.chunks[0] = d->hdr->chunks[0];
+		if (d->hdr->nchunks == 2) {
+			h_mdf.chunks[2] = d->hdr->chunks[1];
+			h_mdf.nchunks += 1;
+		}
+		h_mdf.len += d->hdr->len;
+		h_mdf.flags = d->hdr->flags;
+		h_mdf.eolen += d->hdr->eolen;
+		r = tfw_http_msg_hdr_xfrm_str(hm, &h_mdf, d->hid, d->append);
 		if (r) {
 			T_ERR("can't update location-specific header in msg %p\n",
 			      hm);
@@ -2792,6 +2836,21 @@ __h2_hdrs_dup_decrease(TfwHttpReq *req, const TfwStr *hdr)
 	}
 }
 
+/**
+ * Apply header modification. @hdr contains exactly two chunks: header name and
+ * value.
+ *
+ * The @hdr descriptor (top level TfwStr is copied directly into header table.
+ * It looks dangerous but it's safe and we avoid extra copy operations.
+ * @req holds a reference to vhost, and @hdr value is stored inside that
+ * vhost/location description. On reconfiguration a new vhost instance is
+ * created instead of alternating its settings in place. So @hdr will valid
+ * until request itself is alive.
+ *
+ * Since h2 requests are always converted to http1 and all headers are
+ * recreated from cratch, there is no need to fragment underlying skbs and copy
+ * data there, it's enough to put safe pointers inside header table.
+ */
 static int
 __h2_req_hdrs(TfwHttpReq *req, const TfwStr *hdr, unsigned int hid, bool append)
 {
@@ -2799,9 +2858,8 @@ __h2_req_hdrs(TfwHttpReq *req, const TfwStr *hdr, unsigned int hid, bool append)
 	TfwHttpMsg *hm = (TfwHttpMsg *)req;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
 	TfwMsgParseIter *it = &req->pit;
-	const TfwStr *s_val = TFW_STR_CHUNK(hdr, 2);
+	const TfwStr *s_val = TFW_STR_CHUNK(hdr, 1);
 
-	BUG_ON(TFW_STR_CHUNK(hdr, 1)->len != SLEN(S_DLM));
 	if (WARN_ON_ONCE(!ht))
 		return -EINVAL;
 
@@ -2813,14 +2871,14 @@ __h2_req_hdrs(TfwHttpReq *req, const TfwStr *hdr, unsigned int hid, bool append)
 	if (hid < TFW_HTTP_HDR_RAW) {
 		orig_hdr = &ht->tbl[hid];
 		/*
-		 * Insert special header if empty and exit we have nothing
+		 * Insert special header if empty and exit if we have nothing
 		 * to insert.
 		 */
 		if (TFW_STR_EMPTY(orig_hdr)) {
 			if (unlikely(!s_val))
 				return 0;
 			++it->hdrs_cnt;
-			it->hdrs_len += hdr->len - SLEN(S_DLM);
+			it->hdrs_len += hdr->len;
 			*orig_hdr = *hdr;
 			return 0;
 		}
@@ -2833,9 +2891,11 @@ __h2_req_hdrs(TfwHttpReq *req, const TfwStr *hdr, unsigned int hid, bool append)
 			 * to delete.
 			 */
 			return 0;
-		if (unlikely(hid == ht->size))
+		if (unlikely(hid == ht->size)) {
 			if (tfw_http_msg_grow_hdr_tbl(hm))
 				return -ENOMEM;
+			ht = hm->h_tbl;
+		}
 		if (hid == ht->off) {
 			/*
 			 * The raw header not found, but we have the new
@@ -2843,7 +2903,7 @@ __h2_req_hdrs(TfwHttpReq *req, const TfwStr *hdr, unsigned int hid, bool append)
 			 */
 			++ht->off;
 			++it->hdrs_cnt;
-			it->hdrs_len += hdr->len - SLEN(S_DLM);
+			it->hdrs_len += hdr->len;
 			ht->tbl[hid] = *hdr;
 			return 0;
 		}
@@ -2886,7 +2946,7 @@ __h2_req_hdrs(TfwHttpReq *req, const TfwStr *hdr, unsigned int hid, bool append)
 	 */
 	__h2_hdrs_dup_decrease(req, orig_hdr);
 	++it->hdrs_cnt;
-	it->hdrs_len += hdr->len - SLEN(S_DLM);
+	it->hdrs_len += hdr->len;
 	*orig_hdr = *hdr;
 
 	return 0;
@@ -2916,124 +2976,157 @@ tfw_h2_req_set_loc_hdrs(TfwHttpReq *req)
 }
 
 /**
- * Generation and adjusting HTTP/1.1 request (applicable in
- * HTTP/2=>HTTP/1.1 transformation).
+ * Transform h2 request to http1.1 request before forward it to backend server.
+ * Usually we prefer in-place header modifications avoid copying, but here
+ * we have to insert a lot of information into header, like delimiters between
+ * header name and value, and between headers. To avoid creating extreme number
+ * of skb fragments we cut off skbs with h2 headers from the beginning of the
+ * request and replace them with http1.1 headers.
+ *
+ * Note, that we keep original headers in h_tbl untouched, since the response
+ * may want to access the request headers: the cache subsystem reads `Host`
+ * header and `uri` part, also if 'Vary' header controls response
+ * representation, any header listed inside 'Vary' one may be also read on
+ * response processing (not implemented yet).
  */
 static int
 tfw_h2_adjust_req(TfwHttpReq *req)
 {
 	int r;
-	char *dst;
-	struct page *pg;
-	unsigned int hid;
-	TfwStr method;
-	const TfwStr *fld, *fld_end, *hdr, *dup_end, *chunk, *end;
-	TfwHttpMsg *hm = (TfwHttpMsg *)req;
+	TfwMsgParseIter *pit = &req->pit;
+	ssize_t h1_hdrs_sz;
 	TfwHttpHdrTbl *ht = req->h_tbl;
-	TfwMsgParseIter *it = &req->pit;
 	bool auth = !TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY]);
 	bool host = !TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_HOST]);
-	TfwGlobal *g_vhost = tfw_vhost_get_global();
+	size_t pseudo_num;
+	TfwStr meth = {}, host_val = {}, *field, *end;
+	struct sk_buff *new_head = NULL, *old_head = NULL;
+	TfwMsgIter it;
+	const DEFINE_TFW_STR(sp, " ");
+	const DEFINE_TFW_STR(dlm, S_DLM);
+	const DEFINE_TFW_STR(crlf, S_CRLF);
+	const DEFINE_TFW_STR(fl_end, " " S_VERSION11 S_CRLF S_F_HOST);
 	char *buf = *this_cpu_ptr(&g_buf);
-	char *xff_ptr = ss_skb_fmt_src_addr(req->msg.skb_head, buf);
-	TfwStr h_xff = {
+	char *xff_end = ss_skb_fmt_src_addr(req->msg.skb_head, buf);
+	const TfwStr h_xff = {
 		.chunks = (TfwStr []){
 			{ .data = S_XFF, .len = SLEN(S_XFF) },
-			{ .data = buf, .len = xff_ptr - buf,
-			  .flags = TFW_STR_HDR_VALUE }
+			{ .data = S_DLM, .len = SLEN(S_DLM) },
+			{ .data = buf, .len = xff_end - buf },
+			{ .data = S_CRLF, .len = SLEN(S_CRLF) },
 		},
-		.len = SLEN(S_XFF) + xff_ptr - buf,
-		.nchunks = 2
+		.len = SLEN(S_XFF) + SLEN(S_DLM) + xff_end - buf + SLEN(S_CRLF),
+		.nchunks = 4
 	};
-	TfwStr h_ct_new = {
-		.chunks = (TfwStr []) {
-			{ .data = S_CONT_TYPE, .len = SLEN(S_CONT_TYPE) },
-			TFW_STR_F_STRING("multipart/form-data; boundary=",
-					 TFW_STR_HDR_VALUE),
-			req->multipart_boundary_raw
-		},
-		.nchunks = 3
-	};
+	TfwGlobal *g_vhost = tfw_vhost_get_global();
 	const TfwStr h_via = {
 		.chunks = (TfwStr []) {
 			{ .data = S_F_VIA, .len = SLEN(S_F_VIA) },
 			{ .data = "1.1 ", .len = 4 },
-			{ .data = buf, .len = g_vhost->hdr_via_len },
+			{ .data = (char *)g_vhost->hdr_via,
+			  .len = g_vhost->hdr_via_len },
 			{ .data = S_CRLF, .len = SLEN(S_CRLF) }
 		},
 		.len = SLEN(S_F_VIA) + 4 + g_vhost->hdr_via_len + SLEN(S_CRLF),
 		.nchunks = 4
 	};
-	TfwStr h_conn = {
-		.chunks = (TfwStr []){
-			{ .data = S_F_CONNECTION, .len = SLEN(S_F_CONNECTION) },
-			{ .data = S_V_CONN_KA, .len = SLEN(S_V_CONN_KA) },
+	const TfwStr h_ct = {
+		.chunks = (TfwStr []) {
+			{ .data = S_F_CONTENT_TYPE S_V_MULTIPART,
+			  .len = SLEN(S_F_CONTENT_TYPE S_V_MULTIPART) },
+			req->multipart_boundary_raw,
 			{ .data = S_CRLF, .len = SLEN(S_CRLF) }
 		},
-		.len = SLEN(S_F_CONNECTION) + SLEN(S_V_CONN_KA) + SLEN(S_CRLF),
-		.nchunks = 3
+		.nchunks = 3,
+		.len = SLEN(S_F_CONTENT_TYPE S_V_MULTIPART)
+			+ req->multipart_boundary_raw.len + SLEN(S_CRLF)
 	};
+	int h_ct_replace = 0;
 
-#define WRITE_LIT(buf, lit)						\
-do {									\
-	memcpy_fast(buf, lit, SLEN(lit));				\
-	buf += SLEN(lit);						\
-} while (0)
+	T_DBG3("%s: req [%p] to be converted to http1.1\n", __func__, req);
 
-#define WRITE_STR(buf, str)						\
-do {									\
-	TFW_STR_FOR_EACH_CHUNK(chunk, str, end) {			\
-		memcpy_fast(buf, chunk->data, chunk->len);		\
-		buf += chunk->len;					\
-	}								\
-} while (0)
-
-#define WRITE_HDR(buf, hdr)						\
-({									\
-	const TfwStr *c, *end;						\
-	bool val_found = false;						\
-	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {				\
-		if (!val_found) {					\
-			if (c->flags & TFW_STR_HDR_VALUE) {		\
-				WRITE_LIT(buf, S_DLM);			\
-				val_found = true;			\
-			} else if (*c->data == ':') {			\
-				/* For statically configured adjustments. */\
-				WARN_ON_ONCE(c->len != SLEN(S_DLM));	\
-				WRITE_LIT(buf, S_DLM);			\
-				val_found = true;			\
-				continue;				\
-			}						\
-		}							\
-		memcpy_fast(buf, c->data, c->len);			\
-		buf += c->len;						\
-	}								\
-	WRITE_LIT(buf, S_CRLF);						\
-})
-
-	T_DBG3("%s: it->hdrs_len=%lu, it->hdrs_cnt=%u\n", __func__,
-	       it->hdrs_len, it->hdrs_cnt);
-
-	/* Substitution/addition of 'x-forwarded-for' header. */
-	hid = __h2_hdr_lookup(hm, TFW_STR_CHUNK(&h_xff, 0));
-	if (unlikely(hid == ht->size))
-		if (tfw_http_msg_grow_hdr_tbl(hm))
-			return -ENOMEM;
-	if (hid < ht->off)
-		__h2_hdrs_dup_decrease(req, &ht->tbl[hid]);
-	else
-		++ht->off;
-
-	++it->hdrs_cnt;
-	it->hdrs_len += h_xff.len;
-	ht->tbl[hid] = h_xff;
+	/* H2 client may use either authority or host header but at least one
+	 * is required for correct conversion.
+	 */
+	if (!auth && !host) {
+		T_WARN("Cant convert h2 request to http/1.1: no authority "
+		       "found\n");
+		return -EINVAL;
+	}
 
 	/*
-	 * Conditional substitution/addition/deletion or appending of statically
-	 * configured headers.
+	 * First apply message modifications defined by admin in configuration
+	 * file. Ideally we should do it at last stage, when h2 headers are
+	 * copied into h1 buffer and apply modifications during copying. But
+	 * this doesn't allow us to predict h1 headers size before memory
+	 * allocation. Header modifications manual on wiki is already has a
+	 * warning about performance impact, so just live it as is, a more
+	 * robust algorithm will be used here if really required.
 	 */
 	if ((r = tfw_h2_req_set_loc_hdrs(req)))
 		return r;
+	/*
+	 * tfw_h2_req_set_loc_hdrs() may realloc header table and user may
+	 * defined headers modifications, even headers we rely on, recheck them.
+	 */
+	ht = req->h_tbl;
+	auth = !TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY]);
+	host = !TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_HOST]);
+	pseudo_num = 3; /* Count authority as usual header for now. */
+	/*
+	 * Calculate http1.1 headers size. H2 request contains pseudo headers
+	 * that are represented in different way in the http1.1 requests.
+	 * pit->hdrs_cnt is aware of header duplicates. Redirection mark is
+	 * ignored and not copied.
+	 */
+	h1_hdrs_sz = pit->hdrs_len
+		+ (pit->hdrs_cnt - pseudo_num) * (SLEN(S_DLM) + SLEN(S_CRLF))
+		- req->mark.len;
+	/* First request line: remove pseudo headers names, all values are on
+	 * the same line.
+	 */
+	h1_hdrs_sz += (long int)2 + SLEN(S_VERSION11) + SLEN(S_CRLF)
+			- ht->tbl[TFW_HTTP_HDR_H2_SCHEME].len
+			- SLEN(S_H2_METHOD)
+			- SLEN(S_H2_PATH)
+			+ SLEN(S_CRLF) /* After headers */;
+	/* :authority pseudo header */
+	if (auth) {
+		/* RFC 7540:
+		 * An intermediary that converts an HTTP/2 request to HTTP/1.1
+		 * MUST create a Host header field if one is not present in a
+		 * request by copying the value of the :authority pseudo-header
+		 * field.
+		 * AND
+		 * Clients that generate HTTP/2 requests directly SHOULD use
+		 * the :authority pseudo-header field instead of the Host
+		 * header field.
+		 */
+		if (host) {
+			h1_hdrs_sz -= ht->tbl[TFW_HTTP_HDR_HOST].len
+					+ SLEN(S_DLM) + SLEN(S_CRLF);
+			h1_hdrs_sz -= SLEN(S_H2_AUTH);
+			/* S_F_HOST already contains S_DLM */
+			h1_hdrs_sz += SLEN(S_F_HOST) - SLEN(S_DLM);
+		}
+		else {
+			h1_hdrs_sz -= SLEN(S_H2_AUTH);
+			/* S_F_HOST already contains S_DLM */
+			h1_hdrs_sz += SLEN(S_F_HOST) - SLEN(S_DLM);
+		}
+	}
+
+	/* 'x-forwarded-for' header must be updated. */
+	if (!TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR])) {
+		TfwStr *xff_hdr = &ht->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR];
+		TfwStr *dup, *dup_end;
+
+		TFW_STR_FOR_EACH_DUP(dup, xff_hdr, dup_end) {
+			h1_hdrs_sz -= dup->len + SLEN(S_DLM) + SLEN(S_CRLF);
+		}
+	}
+	h1_hdrs_sz += h_xff.len;
+	h1_hdrs_sz += h_via.len;
 
 	/*
 	 * Conditional substitution/additions of 'content-type' header. This is
@@ -3043,124 +3136,142 @@ do {									\
 	    test_bit(TFW_HTTP_B_CT_MULTIPART, req->flags) &&
 	    tfw_http_should_validate_post_req(req))
 	{
-		TfwStr *h_ct = &ht->tbl[TFW_HTTP_HDR_CONTENT_TYPE];
-		unsigned long ct_len = TFW_STR_EMPTY(h_ct) ? 0 : h_ct->len;
-		TfwStr *c = h_ct_new.chunks;
+		TfwStr *h_ct_old = &ht->tbl[TFW_HTTP_HDR_CONTENT_TYPE];
 
-		BUG_ON(!TFW_STR_PLAIN(&req->multipart_boundary_raw));
-		h_ct_new.len = c[0].len + c[1].len + c[2].len;
+		if (WARN_ON_ONCE(!TFW_STR_PLAIN(&req->multipart_boundary_raw)
+				 || TFW_STR_EMPTY(h_ct_old)))
+			return -EINVAL;
 
-		if (TFW_STR_EMPTY(h_ct))
-			++it->hdrs_cnt;
-
-		it->hdrs_len += h_ct_new.len - ct_len;
-		*h_ct = h_ct_new;
+		h1_hdrs_sz -= h_ct_old->len + SLEN(S_DLM) + SLEN(S_CRLF);
+		h1_hdrs_sz += h_ct.len;
+		h_ct_replace = 1;
 	}
 
-	/*
-	 * Calculation of the entire buffer size needed for headers. Request-line
-	 * should be written at first and separately, thus, the total headers
-	 * count and length is correcting by three (or four) pseudo-headers
-	 * count and length.
-	 */
-	it->hdrs_cnt -= 4;
-	it->hdrs_len += 2 + SLEN(S_VERSION11) + SLEN(S_CRLF)
-		- ht->tbl[TFW_HTTP_HDR_H2_SCHEME].len
-		- SLEN(S_H2_METHOD)
-		- SLEN(S_H2_PATH);
+	if (WARN_ON_ONCE(h1_hdrs_sz < 0))
+		return -EINVAL;
+	if ((r = tfw_msg_iter_setup(&it, &new_head, h1_hdrs_sz, 0)))
+		return r;
 
-	if (auth) {
-		BUG_ON(TFW_STR_EMPTY(&req->host));
-		it->hdrs_len += SLEN(S_HTTP)
-			- SLEN(S_H2_AUTH)
-			+ SLEN(S_F_HOST)
-			+ req->host.len
-			+ SLEN(S_CRLF);
-		if (host) {
-			--it->hdrs_cnt;
-			it->hdrs_len -= ht->tbl[TFW_HTTP_HDR_HOST].len;
+	/* First line. */
+	__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_METHOD], &meth);
+	r = tfw_msg_write(&it, &meth);
+	r |= tfw_msg_write(&it, &sp);
+	r |= tfw_msg_write(&it, &req->uri_path);
+	r |= tfw_msg_write(&it, &fl_end); /* start of Host: header */
+	if (auth)
+		__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY], &host_val);
+	else if (host)
+		__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_HOST], &host_val);
+	r |= tfw_msg_write(&it, &host_val);
+	r |= tfw_msg_write(&it, &crlf);
+
+	/* Skip host header: it's already written. */
+	FOR_EACH_HDR_FIELD_FROM(field, end, req, TFW_HTTP_HDR_REGULAR) {
+		TfwStr *dup, *dup_end;
+
+		switch (field - ht->tbl)
+		{
+		case TFW_HTTP_HDR_HOST:
+			continue; /* Already written. */
+		case TFW_HTTP_HDR_X_FORWARDED_FOR:
+			r |= tfw_msg_write(&it, &h_xff);
+			continue;
+		case TFW_HTTP_HDR_CONTENT_TYPE:
+			if (h_ct_replace) {
+				r |= tfw_msg_write(&it, &h_ct);
+				continue;
+			}
+			break;
+		default:
+			break;
+		}
+
+		if (TFW_STR_EMPTY(field))
+			continue;
+		TFW_STR_FOR_EACH_DUP(dup, field, dup_end) {
+			TfwStr *chunk, *chunk_end, hval = {};
+
+			if (unlikely(TFW_STR_PLAIN(dup))) {
+				r = -EINVAL;
+				goto err;
+			}
+
+			hval.chunks = dup->chunks;
+			TFW_STR_FOR_EACH_CHUNK(chunk, dup, chunk_end) {
+				if (chunk->flags & TFW_STR_HDR_VALUE)
+					break;
+				hval.nchunks++;
+				hval.len += chunk->len;
+			}
+			r |= tfw_msg_write(&it, &hval);
+			r |= tfw_msg_write(&it, &dlm);
+			hval.chunks += hval.nchunks;
+			hval.nchunks = dup->nchunks - hval.nchunks;
+			hval.len = dup->len - hval.len;
+			r |= tfw_msg_write(&it, &hval);
+
+			r |= tfw_msg_write(&it, &crlf);
+		}
+		if (unlikely(r))
+			goto err;
+	}
+
+	r |= tfw_msg_write(&it, &h_via);
+	/* Finally close headers. */
+	r |= tfw_msg_write(&it, &crlf);
+
+	if (unlikely(r))
+		goto err;
+
+	T_DBG3("%s: req [%p] converted to http1.1\n", __func__, req);
+
+	old_head = req->msg.skb_head;
+	req->msg.skb_head = new_head;
+
+	/* Http chains might add a mark for the message, keep it. */
+	new_head->mark = old_head->mark;
+
+	if (!TFW_STR_EMPTY(&req->body)) {
+		/*
+		 * Request has a body. we have to detach it from the old
+		 * skb_head and append to a new one. There might be trailing
+		 * headers after the body, but we're already copied them before
+		 * body. This is not a problem, but we have to drop the trailer
+		 * part after the body to avoid sending the same headers twice.
+		 *
+		 * Body travels in a separate DATA frame thus it's always in
+		 * it's own skb.
+		 */
+		struct sk_buff *b_skbs = old_head, *trailer;
+		size_t len = 0;
+
+		do {
+			b_skbs = b_skbs->next;
+			if (WARN_ON_ONCE((b_skbs == old_head)))
+				goto err;
+		} while (b_skbs != req->body.skb);
+
+		ss_skb_queue_split(old_head, b_skbs);
+		trailer = b_skbs;
+		do {
+			len += trailer->len;
+			trailer = trailer->next;
+
+		} while ((trailer != b_skbs) && (len != req->body.len));
+		ss_skb_queue_append(&req->msg.skb_head, b_skbs);
+		if (trailer != b_skbs) {
+			ss_skb_queue_split(req->msg.skb_head, trailer);
+			ss_skb_queue_append(&old_head, trailer);
 		}
 	}
-
-	it->hdrs_len += it->hdrs_cnt * (SLEN(S_DLM) + SLEN(S_CRLF));
-	it->hdrs_len += h_conn.len + h_via.len;
-	it->hdrs_len += SLEN(S_CRLF);
-
-	/*
-	 * Create special buffer to write headers block into the target HTTP/1.1
-	 * representation.
-	 */
-	if (!(dst = pg_skb_alloc(it->hdrs_len, GFP_ATOMIC, NUMA_NO_NODE)))
-		return -ENOMEM;
-	pg = virt_to_page(dst);
-
-	/* Add request-line into the HTTP/1.1 request. */
-	BUG_ON(TFW_STR_EMPTY(&req->uri_path));
-	__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_METHOD], &method);
-
-	WRITE_STR(dst, &method);
-	WRITE_LIT(dst, " ");
-	if (auth) {
-		WRITE_LIT(dst, S_HTTP);
-		WRITE_STR(dst, &req->host);
-	}
-	WRITE_STR(dst, &req->uri_path);
-	WRITE_LIT(dst, " ");
-	WRITE_LIT(dst, S_VERSION11);
-	WRITE_LIT(dst, S_CRLF);
-
-	/* Add 'host' as the first header in request (RFC 7230 section 5.4). */
-	WRITE_LIT(dst, S_F_HOST);
-	if (auth) {
-		WRITE_STR(dst, &req->host);
-	} else if (host) {
-		BUG_ON(!TFW_STR_EMPTY(&req->host));
-		__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_HOST], &req->host);
-		WRITE_HDR(dst, &req->host);
-	}
-	WRITE_LIT(dst, S_CRLF);
-
-	/*
-	 * We have already added 'host' header, thus, it won't be needed in
-	 * the writing cycle for all headers below.
-	 */
-	TFW_STR_INIT(&ht->tbl[TFW_HTTP_HDR_HOST]);
-
-	FOR_EACH_HDR_FIELD_FROM(fld, fld_end, req, TFW_HTTP_HDR_REGULAR) {
-		if (TFW_STR_EMPTY(fld))
-			continue;
-		TFW_STR_FOR_EACH_DUP(hdr, fld, dup_end)
-			WRITE_HDR(dst, hdr);
-	}
-
-	/*
-	 * Headers, which should be added unconditionally, inserted in
-	 * the end.
-	 */
-	memcpy_fast(__TFW_STR_CH(&h_via, 2)->data, g_vhost->hdr_via,
-		    g_vhost->hdr_via_len);
-	WRITE_STR(dst, &h_via);
-	WRITE_STR(dst, &h_conn);
-	WRITE_LIT(dst, S_CRLF);
-
-	T_DBG3("%s: req adjusted, it->hb_len=%lu, it->hdrs_len=%lu,"
-	       " it->hdrs_cnt=%u, dst=[%p], pg=[%p]\n", __func__, it->hb_len,
-	       it->hdrs_len, it->hdrs_cnt, dst, (char *)page_address(pg));
-
-	WARN_ON_ONCE(dst - (char *)page_address(pg) != it->hdrs_len);
-
-	r = ss_skb_replace_page(&req->msg.skb_head, pg, it->hdrs_len,
-				it->hb_len);
-	if (r) {
-		put_page(pg);
-		return r;
-	}
+	ss_skb_queue_purge(&old_head);
 
 	return 0;
-
-#undef WRITE_HDR
-#undef WRITE_STR
-#undef WRITE_LIT
+err:
+	ss_skb_queue_purge(&new_head);
+	T_DBG3("%s: req [%p] convertation to http1.1 has failed\n",
+	       __func__, req);
+	return r;
 }
 
 /**
@@ -3595,14 +3706,17 @@ tfw_http_hdr_split(TfwStr *hdr, TfwStr *name_out, TfwStr *val_out)
 static int
 tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 {
-	int r;
 	unsigned int i;
 	TfwHttpTransIter *mit = &resp->mit;
 
+	if (!h_mods)
+		return 0;
+
 	for (i = 0; i < h_mods->sz; ++i) {
 		const TfwHdrModsDesc *desc = &h_mods->hdrs[i];
+		int r;
 
-		if (test_bit(i, mit->found) || !TFW_STR_CHUNK(desc->hdr, 2))
+		if (test_bit(i, mit->found) || !TFW_STR_CHUNK(desc->hdr, 1))
 			continue;
 
 		r = __hdr_h2_add(resp, desc->hdr);
@@ -3620,6 +3734,8 @@ tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods)
  * each iteration function produces the boundary pointer @mit->bnd for current
  * iteration and the operation instance @mit->next - for the next iteration
  * (including source header @mit->next.s_hdr).
+ *
+ * TODO #1103: This function should be treated as a foundation for #1103 issue.
  */
 static int
 tfw_h2_resp_next_hdr(TfwHttpResp *resp, const TfwHdrMods *h_mods)
@@ -3651,7 +3767,8 @@ tfw_h2_resp_next_hdr(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 			return -EINVAL;
 
 		T_DBG3("%s: hid=%hu, d_num=%hu, nchunks=%u, h_mods->sz=%lu\n",
-		       __func__, hid, d_num, ht->tbl[hid].nchunks, h_mods->sz);
+		       __func__, hid, d_num, ht->tbl[hid].nchunks,
+		       h_mods ? h_mods->sz : 0);
 
 		if (!h_mods)
 			goto def;
@@ -3763,7 +3880,6 @@ def:
 	mit->curr = i + 1;
 
 	return 0;
-
 }
 
 static int
@@ -3776,17 +3892,28 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 	unsigned char buf[FRAME_HEADER_SIZE];
 	TfwHttpTransIter *mit = &resp->mit;
 	unsigned long b_len = resp->body.len;
+	TfwH2Ctx *ctx = tfw_h2_context(resp->req->conn);
 
 	frame_hdr.stream_id = stream_id;
 
+	/*
+	 * TODO #1378: create multiple frames. Remote peer will reject the frame
+	 * if it's bigger than was allowed by remote.
+	 */
+	if (h_len > ctx->rsettings.max_frame_sz) {
+		/* TODO: split headers by frames. */
+		T_WARN("Unable to make HTTP/2 HEADERS frame: too big header"
+		       " block fragment (%lu)\n", h_len);
+		return -E2BIG;
+	}
+	if (b_len > ctx->rsettings.max_frame_sz) {
+		T_WARN("Unable to make HTTP/2 DATA frame: too big"
+		       " message body (%lu)\n", b_len);
+		return -E2BIG;
+	}
+
 	if (b_len) {
 		TfwStr s_hdr = {};
-
-		if (b_len > FRAME_MAX_LENGTH) {
-			T_WARN("Unable to make HTTP/2 DATA frame: too big"
-			       " message body (%lu)\n", b_len);
-			return -E2BIG;
-		}
 
 		/*
 		 * Set frame header for DATA, if body part of HTTP/1.1
@@ -3804,12 +3931,6 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 		r = tfw_h2_msg_rewrite_data(mit, &s_hdr, mit->bnd);
 		if (unlikely(r))
 			return r;
-	}
-
-	if (h_len > FRAME_MAX_LENGTH) {
-		T_WARN("Unable to make HTTP/2 HEADERS frame: too big header"
-		       " block fragment (%lu)\n", h_len);
-		return -E2BIG;
 	}
 
 	/* Set frame header for HEADERS. */
@@ -4102,7 +4223,15 @@ tfw_http_req_block(TfwHttpReq *req, int status, const char *msg)
 	tfw_http_cli_error_resp_and_log(req, status, msg, true, false);
 }
 
-
+/*
+ * TODO: RFC 7540 8.1.2
+ *    However, header field names MUST be converted to lowercase prior to
+ *    their encoding in HTTP/2. A request or response containing uppercase
+ *    header field names MUST be treated as malformed (Section 8.1.2.6).
+ *
+ * Major browsers and curl ignore that RFC requirement an work well. But
+ * that is definitely an RFC violation and implementation specific behaviour.
+ */
 static void
 tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 {
@@ -4632,30 +4761,43 @@ next_msg:
 				"Request parsing inconsistency");
 			return TFW_BLOCK;
 		}
-		r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK,
-				  &data_up);
-		T_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
-		if (r == TFW_BLOCK) {
-			TFW_INC_STAT_BH(clnt.msgs_filtout);
-			tfw_http_req_parse_block(req, 403,
-						 "postponed request has been"
-						 " filtered out");
-			return TFW_BLOCK;
+		if (TFW_MSG_H2(req) && tfw_h2_stream_req_complete(req->stream)) {
+			if (tfw_h2_parse_req_finish(req)) {
+				TFW_INC_STAT_BH(clnt.msgs_otherr);
+				tfw_http_req_parse_block(req, 500,
+					"Request parsing inconsistency");
+				return TFW_BLOCK;
+			}
 		}
-		/*
-		 * TFW_POSTPONE status means that parsing succeeded
-		 * but more data is needed to complete it. Lower layers
-		 * just supply data for parsing. They only want to know
-		 * if processing of a message should continue or not.
-		 */
-		return TFW_PASS;
+		else {
+			r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_CHUNK,
+					  &data_up);
+			T_DBG3("TFW_HTTP_FSM_REQ_CHUNK return code %d\n", r);
+			if (r == TFW_BLOCK) {
+				TFW_INC_STAT_BH(clnt.msgs_filtout);
+				tfw_http_req_parse_block(req, 403,
+					"postponed request has been filtered out");
+				return TFW_BLOCK;
+			}
+			/*
+			 * TFW_POSTPONE status means that parsing succeeded
+			 * but more data is needed to complete it. Lower layers
+			 * just supply data for parsing. They only want to know
+			 * if processing of a message should continue or not.
+			 */
+			return TFW_PASS;
+		}
 	case TFW_PASS:
 		/*
 		 * The request is fully parsed,
 		 * fall through and process it.
 		 */
-		BUG_ON(!test_bit(TFW_HTTP_B_CHUNKED, req->flags)
-		       && (req->content_length != req->body.len));
+
+		if (WARN_ON_ONCE(!test_bit(TFW_HTTP_B_CHUNKED, req->flags)
+				 && (req->content_length != req->body.len)))
+		{
+			return TFW_BLOCK;
+		}
 	}
 
 	/*

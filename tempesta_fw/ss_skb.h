@@ -50,7 +50,7 @@ typedef int ss_skb_actor_t(void *conn, unsigned char *data, size_t len,
 			   unsigned int *read);
 
 /**
- * Add new @skb to the queue in FIFO order.
+ * Add new _single_ @skb to the queue in FIFO order.
  */
 static inline void
 ss_skb_queue_tail(struct sk_buff **skb_head, struct sk_buff *skb)
@@ -65,6 +65,26 @@ ss_skb_queue_tail(struct sk_buff **skb_head, struct sk_buff *skb)
 	skb->next = *skb_head;
 	skb->prev = (*skb_head)->prev;
 	skb->next->prev = skb->prev->next = skb;
+}
+
+/**
+ * Append list of @skb to the queue in FIFO order.
+ */
+static inline void
+ss_skb_queue_append(struct sk_buff **skb_head, struct sk_buff *skb)
+{
+	struct sk_buff *tail;
+
+	if (WARN_ON_ONCE(!*skb_head)) {
+		*skb_head = skb;
+		return;
+	}
+
+	tail = (*skb_head)->prev;
+	skb->prev->next = *skb_head;
+	(*skb_head)->prev = skb->prev;
+	skb->prev = tail;
+	tail->next = skb;
 }
 
 static inline void
@@ -88,6 +108,22 @@ static inline struct sk_buff *
 ss_skb_peek_tail(struct sk_buff **skb_head)
 {
 	return *skb_head ? (*skb_head)->prev : NULL;
+}
+
+/**
+ * Split single queue into two, where the @skb will be a head of a new queue.
+ */
+static inline void
+ss_skb_queue_split(struct sk_buff *skb_head, struct sk_buff *skb)
+{
+	struct sk_buff *prev = skb->prev;
+	WARN_ON_ONCE(skb_head == skb);
+
+	skb->prev = skb_head->prev;
+	prev->next = skb_head;
+
+	skb->prev->next = skb;
+	skb_head->prev = prev;
 }
 
 /**
@@ -192,8 +228,6 @@ void ss_skb_init_for_xmit(struct sk_buff *skb);
 void ss_skb_dump(struct sk_buff *skb);
 int ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
                                    struct page ***old_pages);
-int ss_skb_replace_page(struct sk_buff **skb_head, struct page *pg,
-			unsigned long pg_len, unsigned long offset);
 int ss_skb_cut_extra_data(struct sk_buff *skb_head, struct sk_buff *skb,
 			  int frag_num, char *curr, const char *stop);
 

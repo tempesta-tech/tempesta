@@ -214,7 +214,7 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 	lset->hdr_tbl_sz = rset->hdr_tbl_sz = HPACK_TABLE_DEF_SIZE;
 	lset->push = rset->push = 1;
 	lset->max_streams = rset->max_streams = 0xffffffff;
-	lset->max_frame_sz = rset->max_frame_sz = 1 << 14;
+	lset->max_frame_sz = rset->max_frame_sz = FRAME_DEF_LENGTH;
 	lset->max_lhdr_sz = rset->max_lhdr_sz = UINT_MAX;
 	/*
 	 * We ignore client's window size until #498, so currently
@@ -915,6 +915,8 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 		break;
 
 	case HTTP2_SETTINGS_ENABLE_PUSH:
+		if (val > 1)
+			return T_BAD;
 		dest->push = val;
 		break;
 
@@ -923,10 +925,14 @@ tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 		break;
 
 	case HTTP2_SETTINGS_INIT_WND_SIZE:
+		if (val > MAX_WND_SIZE)
+			return T_BAD;
 		dest->wnd_sz = val;
 		break;
 
 	case HTTP2_SETTINGS_MAX_FRAME_SIZE:
+		if (val < FRAME_DEF_LENGTH || val > FRAME_MAX_LENGTH)
+			return T_BAD;
 		dest->max_frame_sz = val;
 		break;
 
@@ -1177,6 +1183,17 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 	T_DBG3("%s: hdr->type=%hhu, ctx->state=%d\n", __func__, hdr->type,
 	       ctx->state);
 
+	if (unlikely(ctx->hdr.length > ctx->lsettings.max_frame_sz))
+		goto conn_term;
+
+	/*
+	 * TODO: RFC 7540 Section 6.2:
+	 * A HEADERS frame without the END_HEADERS flag set MUST be followed
+	 * by a CONTINUATION frame for the same stream. A receiver MUST treat
+	 * the receipt of any other type of frame or a frame on a different
+	 * stream as a connection error (Section 5.4.1) of type PROTOCOL_ERROR.
+	 */
+
 	switch (hdr->type) {
 	case HTTP2_DATA:
 		if (!hdr->stream_id) {
@@ -1206,8 +1223,6 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 
 		if (tfw_h2_flow_control(ctx))
 			return T_DROP;
-
-		STREAM_RECV_PROCESS(ctx, hdr);
 
 		ctx->data_off = FRAME_HEADER_SIZE;
 		ctx->plen = ctx->hdr.length;
@@ -1416,8 +1431,6 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 			err_code = HTTP2_ECODE_CLOSED;
 			goto conn_term;
 		}
-
-		STREAM_RECV_PROCESS(ctx, hdr);
 
 		ctx->data_off = FRAME_HEADER_SIZE;
 		ctx->plen = ctx->hdr.length;

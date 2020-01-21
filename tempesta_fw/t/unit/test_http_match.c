@@ -165,16 +165,13 @@ set_tfw_str(TfwStr *str, const char *cstr)
 static void
 set_raw_hdr(const char *cstr)
 {
-	unsigned int hid;
-	TfwHttpHdrTbl *h_tbl = test_req->h_tbl;
+	unsigned int hid = test_req->h_tbl->off;
 
-	hid = h_tbl->off;
-
-	if (hid == h_tbl->size &&
+	if (hid == test_req->h_tbl->size &&
 	    tfw_http_msg_grow_hdr_tbl((TfwHttpMsg *)test_req))
 		return;
 
-	++h_tbl->off;
+	++test_req->h_tbl->off;
 
 	set_tfw_str(&test_req->h_tbl->tbl[hid], cstr);
 }
