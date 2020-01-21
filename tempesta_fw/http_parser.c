@@ -7963,6 +7963,15 @@ out:
 	return ret;
 }
 
+/**
+ * Parse h2 request.
+ *
+ * Parsing of HTTP/2 frames' payload never gives T_OK result since request
+ * can be assembled from different number of frames; only stream's state can
+ * indicate the moment when request is completed. After all parts of request are
+ * fully received and parsed, call the @tfw_h2_parse_req_finish() to check the
+ * parser state.
+ */
 int
 tfw_h2_parse_req(void *req_data, unsigned char *data, size_t len,
 		 unsigned int *parsed)
@@ -7984,16 +7993,6 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, size_t len,
 	else
 		r = tfw_h2_parse_body(data, len, req, parsed);
 
-	/*
-	 * Parsing of HTTP/2 frames' payload never gives T_OK result since
-	 * request can be assembled from different number of frames; only
-	 * stream's state can indicate the moment when request is completed.
-	 * Note, due to persistent linkage Stream<->Request in HTTP/2 mode
-	 * special flag is necessary for tracking the request completeness; if
-	 * the request is not fully assembled and is not passed to forwarding
-	 * procedures yet, it must be deleted during corresponding stream
-	 * removal.
-	 */
 	return (r == T_OK) ? T_POSTPONE : r;
 }
 
