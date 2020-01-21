@@ -45,12 +45,12 @@ tfw_http_msg_make_hdr(TfwPool *pool, const char *name, const char *val)
 	const TfwStr tmp_hdr = {
 		.chunks = (TfwStr []){
 			{ .data = (void *)name,	.len = n_len },
-			{ .data = S_DLM,	.len = SLEN(S_DLM) },
-			{ .data = (void *)val,	.len = v_len },
+			{ .data = (void *)val,	.len = v_len,
+			  .flags = TFW_STR_HDR_VALUE},
 		},
-		.len = n_len + SLEN(S_DLM) + v_len,
+		.len = n_len + v_len,
 		.eolen = 2,
-		.nchunks = (val ? 3 : 2)
+		.nchunks = (val ? 2 : 1)
 	};
 
 	return tfw_strdup(pool, &tmp_hdr);
@@ -621,7 +621,8 @@ int
 __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str, void *data,
 			    size_t len, struct sk_buff *skb)
 {
-	BUG_ON(str->flags & (TFW_STR_DUPLICATE | TFW_STR_COMPLETE));
+	if (WARN_ON_ONCE(str->flags & (TFW_STR_DUPLICATE | TFW_STR_COMPLETE)))
+		return -EINVAL;
 
 	T_DBG3("store field chunk len=%lu data=%p(%c) field=<%#x,%lu,%p>\n",
 	       len, data, isprint(*(char *)data) ? *(char *)data : '.',
@@ -862,9 +863,11 @@ tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid,
 		if (hid == ht->off && !s_val)
 			/* Not found, nothing to delete. */
 			return 0;
-		if (hid == ht->size)
+		if (hid == ht->size) {
 			if (tfw_http_msg_grow_hdr_tbl(hm))
 				return -ENOMEM;
+			ht = hm->h_tbl;
+		}
 		if (hid == ht->off)
 			++ht->off;
 		else
@@ -1097,9 +1100,11 @@ tfw_http_msg_hdr_add(TfwHttpMsg *hm, const TfwStr *hdr)
 
 	ht = hm->h_tbl;
 	hid = ht->off;
-	if (hid == ht->size)
+	if (hid == ht->size) {
 		if (tfw_http_msg_grow_hdr_tbl(hm))
 			return -ENOMEM;
+		ht = hm->h_tbl;
+	}
 	++ht->off;
 
 	return __hdr_add(hm, hdr, hid);

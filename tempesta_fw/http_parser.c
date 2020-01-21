@@ -7956,7 +7956,6 @@ tfw_h2_parse_body(char *data, unsigned long len, TfwHttpReq *req,
 		return T_DROP;
 
 	parser->to_read = -1;
-	req->body.flags |= TFW_STR_COMPLETE;
 	ret = T_OK;
 
 out:
@@ -7964,6 +7963,15 @@ out:
 	return ret;
 }
 
+/**
+ * Parse h2 request.
+ *
+ * Parsing of HTTP/2 frames' payload never gives T_OK result since request
+ * can be assembled from different number of frames; only stream's state can
+ * indicate the moment when request is completed. After all parts of request are
+ * fully received and parsed, call the @tfw_h2_parse_req_finish() to check the
+ * parser state.
+ */
 int
 tfw_h2_parse_req(void *req_data, unsigned char *data, size_t len,
 		 unsigned int *parsed)
@@ -7980,42 +7988,61 @@ tfw_h2_parse_req(void *req_data, unsigned char *data, size_t len,
 
 	*parsed = 0;
 
-	if (likely(type != HTTP2_DATA)) {
+	if (likely(type != HTTP2_DATA))
 		r = tfw_hpack_decode(&ctx->hpack, data, len, req, parsed);
-		req->pit.hb_len += *parsed;
-	} else {
+	else
 		r = tfw_h2_parse_body(data, len, req, parsed);
-	}
 
-	if (r != T_OK && r != T_POSTPONE)
-		return r;
+	return (r == T_OK) ? T_POSTPONE : r;
+}
+
+/**
+ * Finish parsing h2 request. The request may consist of multiple skbs and
+ * multiple h2 frames. Last frame is marked with End Stream flag, it's the
+ * only way to indicate message end.
+ */
+int
+tfw_h2_parse_req_finish(TfwHttpReq *req)
+{
+	TfwHttpHdrTbl *ht = req->h_tbl;
+
+	if (WARN_ON_ONCE(!tfw_h2_stream_req_complete(req->stream)))
+		return T_DROP;
+
 	/*
-	 * Parsing of HTTP/2 frames' payload never gives T_OK result since
-	 * request can be assembled from different number of frames; only
-	 * stream's state can indicate the moment when request is completed.
-	 * Note, due to persistent linkage Stream<->Request in HTTP/2 mode
-	 * special flag is necessary for tracking the request completeness; if
-	 * the request is not fully assembled and is not passed to forwarding
-	 * procedures yet, it must be deleted during corresponding stream
-	 * removal.
+	 * TFW_HTTP_B_H2_HDRS_FULL flag is set on first TFW_HTTP_HDR_REGULAR
+	 * header, if no present, need to check mandatory pseudo headers.
 	 */
-	if (tfw_h2_stream_req_complete(req->stream)) {
-		TfwHttpHdrTbl *ht = req->h_tbl;
-
-		if (req->content_length
-		    && req->content_length != req->body.len)
-			return T_DROP;
-
-		__set_bit(TFW_HTTP_B_FULLY_PARSED, req->flags);
-
-		__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY],
-				 &req->host);
-		__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_PATH],
-				 &req->uri_path);
-		return T_OK;
+	if (unlikely(!test_bit(TFW_HTTP_B_H2_HDRS_FULL, req->flags)
+		     && (TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_METHOD])
+			 || TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_SCHEME])
+			 || TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_H2_PATH]))))
+	{
+		return T_DROP;
 	}
+	if (req->content_length
+	    && req->content_length != req->body.len)
+	{
+		return T_DROP;
+	}
+	/*
+	 * RFC 7540 8.1.2.6: A request or response that includes a payload
+	 * body can include a content-length header field.
+	 *
+	 * Since the h2 provides explicit message framing, the content-length
+	 * header is not required at all. But our code may rely on
+	 * req->content_length field value, fill it.
+	 */
+	req->content_length = req->body.len;
+	req->body.flags |= TFW_STR_COMPLETE;
+	__set_bit(TFW_HTTP_B_FULLY_PARSED, req->flags);
 
-	return T_POSTPONE;
+	__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY],
+			 &req->host);
+	__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_H2_PATH],
+			 &req->uri_path);
+
+	return T_OK;
 }
 
 /*
