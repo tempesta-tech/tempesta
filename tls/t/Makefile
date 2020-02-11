@@ -14,6 +14,14 @@
 # this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
+PROC = $(shell cat /proc/cpuinfo)
+ifneq (, $(findstring bmi2, $(PROC)))
+	OPT_ASM_FLAGS += -DBMI2=1
+endif
+ifneq (, $(findstring adx, $(PROC)))
+	OPT_ASM_FLAGS += -DADX=1
+endif
+
 ifndef CC
 	CC	= gcc
 endif
@@ -31,15 +39,28 @@ ifdef DEBUG
 	CFLAGS += -DDEBUG=$(DEBUG) -DDBG_TLS=1
 endif
 
-TARGETS		= test_mpi test_ecp test_rsa test_ecdsa test_ecdh
+TARGETS		= $(subst .c,, $(wildcard *.c))
+ASM-OBJ		= bignum_x86-64.o
 
-all : $(TARGETS)
+all : $(TARGETS) test_mpi_asm_opt
+.PHONY: test_mpi_asm_opt
 
-% : %.o
+$(TARGETS): % : $(ASM-OBJ) %.o
 	$(CC) $(CFLAGS) -o $@ $^
 
-%.o : %.cc
+$(ASM-OBJ): ../$(subst .o,.S,$(ASM-OBJ))
+	$(CC) $(CFLAGS) -c $^ -o $@
+
+%.o : %.c
 	$(CC) $(CFLAGS) -c $< -o $@
+
+test_mpi_asm_opt: test_mpi_asm.o
+ifneq ($(OPT_ASM_FLAGS), -DBMI2=1 -DADX=1)
+	$(warning "No BMI2 and/or ADX, so can't build optimized MPI test")
+else
+	$(CC) $(CFLAGS) $(OPT_ASM_FLAGS) -c ../bignum_x86-64.S -o bignum_x86-64_opt.o
+	$(CC) $(CFLAGS) -o test_mpi_asm_opt $< bignum_x86-64_opt.o
+endif
 
 clean : FORCE
 	rm -f *.o *~ *.orig $(TARGETS)
