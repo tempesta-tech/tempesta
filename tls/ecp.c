@@ -1020,7 +1020,8 @@ ecp_mul_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	 * 10 * d * w + 18 * 2^(w-1) + 11 * d + 7 * w, with d = ceil(nbits / w)
 	 * (see costs of the various parts, with 1S = 1M)
 	 */
-	w = grp->nbits >= 384 ? 5 : 4;
+	BUG_ON(grp->nbits > 384);
+	w = grp->nbits == 384 ? 5 : 4;
 
 	/*
 	 * If P == G, pre-compute a bit more, since this may be re-used later.
