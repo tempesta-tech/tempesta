@@ -48,8 +48,8 @@ do {									\
  * Note: Calculations can temporarily result in larger MPIs. So the number
  * of limbs required (TTLS_MPI_MAX_LIMBS) gives x4 larger limit.
  */
-#define TTLS_MPI_MAX_SIZE			512
-#define TTLS_MPI_MAX_LIMBS			256
+#define TTLS_MPI_MAX_SIZE	512
+#define TTLS_MPI_MAX_LIMBS	256
 
 #define LSHIFT			3		/* limb bytes shift */
 #define BSHIFT			(LSHIFT + 3)	/* limb bits shift */

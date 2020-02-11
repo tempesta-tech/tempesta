@@ -37,6 +37,7 @@
 
 #include "lib/str.h"
 #include "bignum.h"
+#include "bignum_asm.h"
 #include "mpool.h"
 #include "tls_internal.h"
 
@@ -661,50 +662,26 @@ ttls_mpi_cmp_int(const TlsMpi *X, long z)
 int
 ttls_mpi_add_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 {
-	size_t i;
-	unsigned long *a, *b, *x, c = 0;
+	int r;
 
 	BUG_ON(A == B);
-	if (X == B) {
+	if (WARN_ON_ONCE(X->limbs < max_t(unsigned short, A->used, B->used)))
+		return -ENOSPC;
+
+	if (B->used > A->used) {
 		const TlsMpi *T = A;
-		A = X;
+		A = B;
 		B = T;
 	}
 
+	r = mpi_add_x86_64(MPI_P(X), X->limbs, MPI_P(B), B->used,
+			   MPI_P(A), A->used);
+	if (WARN_ON_ONCE(r <= 0))
+		return -ENOSPC;
+
+	X->used = r;
 	/* X should always be positive as a result of unsigned additions. */
 	X->s = 1;
-
-	if (WARN_ON_ONCE(X->limbs < max_t(unsigned short, A->used, B->used)))
-		return -ENOSPC;
-	X->used = A->used;
-
-	a = MPI_P(A);
-	b = MPI_P(B);
-	x = MPI_P(X);
-	/* TODO #1064 move out condition from under the loop. */
-	for (i = 0; i < B->used; i++, a++, b++, x++) {
-		if (i == X->used) {
-			++X->used;
-			*x = c;
-		} else {
-			*x = *a + c;
-		}
-		c = *x < c;
-		*x += *b;
-		c += *x < *b;
-	}
-	for ( ; c; i++, a++, x++) {
-		BUG_ON(i >= X->limbs);
-		if (i == X->used) {
-			++X->used;
-			*x = c;
-		} else {
-			*x = *a + c;
-		}
-		c = *x < c;
-	}
-	if (X != A && X->used > i)
-		memcpy_fast(x, a, (X->used - i) * CIL);
 
 	return 0;
 }
@@ -842,9 +819,6 @@ ttls_mpi_sub_int(TlsMpi *X, const TlsMpi *A, long b)
 	return ttls_mpi_sub_mpi(X, A, &_B);
 }
 
-/*
- * TODO #1064 see MULADDC_HUIT optimization in original mbedTLS; use AVX2.
- */
 #define MULADDC_INIT							\
 	asm(	"xorq	%%r8, %%r8	\n\t"
 
@@ -866,9 +840,6 @@ ttls_mpi_sub_int(TlsMpi *X, const TlsMpi *A, long b)
 		: "rax", "rdx", "r8"					\
 	);
 
-/**
- * Multiplies vector @s of size @n by scalar @b and stores result in vector @d.
- */
 static void
 __mpi_mul(size_t n, const unsigned long *s, unsigned long *d, unsigned long b)
 {
@@ -962,6 +933,32 @@ ttls_mpi_mul_uint(TlsMpi *X, const TlsMpi *A, unsigned long b)
 
 	return ttls_mpi_mul_mpi(X, A, &_B);
 }
+
+// TODO #1064
+#if 0
+/**
+ * Multiply two number mod the order of P256 curve. (r = a * b mod order)
+ *
+ * r  Result of the multiplication.
+ * a  First operand of the multiplication.
+ * b  Second operand of the multiplication.
+ */
+static void
+sp_256_mont_mul_order_avx2_4(unsigned long *r, const unsigned long *a,
+			     const unsigned long *b)
+{
+	/* The order of the curve P256. */
+	static const unsigned long p256_order[4] = {
+		0xf3b9cac2fc632551UL, 0xbce6faada7179e84UL, 0xffffffffffffffffUL,
+		0xffffffff00000000UL
+	};
+	/* The Montogmery multiplier for order of the curve P256. */
+	static const unsigned long p256_mp_order = 0xccd1c8aaee00bc4fUL;
+
+	sp_256_mul_avx2_4(r, a, b);
+	sp_256_mont_reduce_order_avx2_4(r, p256_order, p256_mp_order);
+}
+#endif
 
 /**
  * Unsigned integer divide - double unsigned long dividend, @u1/@u0,

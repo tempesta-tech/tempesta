@@ -1,7 +1,7 @@
 #		Tempesta FW
 #
 # Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+# Copyright (C) 2015-2020 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -56,9 +56,17 @@ endif
 ifeq (, $(findstring sse4_2, $(PROC)))
 	ERROR = "SSE 4.2 support is required"
 endif
-ifneq (, $(findstring avx2, $(PROC)))
+ifeq (, $(findstring avx2, $(PROC)))
 	AVX2 = "y"
 	TFW_CFLAGS += -DAVX2=1
+endif
+ifeq (, $(findstring bmi2, $(PROC)))
+	BMI2 = "y"
+	TFW_CFLAGS += -DBMI2=1
+endif
+ifeq (, $(findstring adx, $(PROC)))
+	ADX = "y"
+	TFW_CFLAGS += -DADX=1
 endif
 ifeq (, $(findstring pse, $(PROC)))
 	ERROR = "1MB huge pages support is required"
@@ -68,7 +76,7 @@ TFW_CFLAGS += -mmmx -msse4.2
 
 KERNEL = /lib/modules/$(shell uname -r)/build
 
-export KERNEL TFW_CFLAGS AVX2 TFW_GCOV
+export KERNEL TFW_CFLAGS AVX2 BMI2 ADX TFW_GCOV
 
 obj-m	+= lib/ tempesta_db/core/ tempesta_fw/ tls/
 

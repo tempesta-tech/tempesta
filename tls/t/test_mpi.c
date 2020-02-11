@@ -26,6 +26,23 @@
 #include "../ecp_curves.c"
 #include "../mpool.c"
 
+#if 0
+/* FIXME Useful for debugging - remove this. */
+#define ttls_mpi_alloc_stck_init(ln)					\
+({									\
+	TlsMpi *X;							\
+	X = __builtin_alloca(sizeof(*X) + (ln) * CIL);			\
+	X->_off = (ln) ? sizeof(*X) : 0;				\
+	X->s = 1;							\
+	X->used = 0;							\
+	X->limbs = ln;							\
+	X;								\
+})
+#define ttls_mpi_alloc_stack_init	ttls_mpi_alloc_stck_init
+#define ttls_mpool_alloc_stck(n)	__builtin_alloca(n)
+#define ttls_mpi_pool_cleanup_ctx(A, X)
+#endif
+
 static void
 mpi_alloc_init(void)
 {
@@ -465,6 +482,108 @@ mpi_elementary(void)
 	ttls_mpi_pool_cleanup_ctx((unsigned long)A, true);
 }
 
+static void
+mpi_add(void)
+{
+	TlsMpi *A, *B;
+
+	EXPECT_FALSE(!(A = ttls_mpi_alloc_stack_init(16)));
+	EXPECT_FALSE(!(B = ttls_mpi_alloc_stack_init(16)));
+
+	/* ttls_mpi_lset() works with signed values, so initialize raw memory. */
+	EXPECT_ZERO(ttls_mpi_lset(A, 0));
+	EXPECT_ZERO(ttls_mpi_lset(B, 0));
+	MPI_P(A)[0] = ULONG_MAX;
+	MPI_P(B)[0] = ULONG_MAX;
+	EXPECT_ZERO(ttls_mpi_add_abs(A, B, A));
+	EXPECT_TRUE(A->used == 2);
+	EXPECT_TRUE(B->used == 1);
+	EXPECT_TRUE(MPI_P(A)[0] == 0xfffffffffffffffe);
+	EXPECT_TRUE(MPI_P(A)[1] == 1);
+
+	EXPECT_ZERO(ttls_mpi_add_int(A, A, 1));
+	EXPECT_TRUE(A->used == 2);
+	EXPECT_TRUE(MPI_P(A)[0] == 0xffffffffffffffff);
+	EXPECT_TRUE(MPI_P(A)[1] == 1);
+
+	EXPECT_ZERO(ttls_mpi_add_int(A, A, 1));
+	EXPECT_TRUE(A->used == 2);
+	EXPECT_TRUE(MPI_P(A)[0] == 0);
+	EXPECT_TRUE(MPI_P(A)[1] == 2);
+
+	B->used = 4;
+	MPI_P(B)[0] = ULONG_MAX;
+	MPI_P(B)[1] = ULONG_MAX;
+	MPI_P(B)[2] = ULONG_MAX;
+	MPI_P(B)[3] = ULONG_MAX;
+	EXPECT_ZERO(ttls_mpi_add_abs(A, B, A));
+	EXPECT_TRUE(A->used == 5);
+	EXPECT_TRUE(MPI_P(A)[0] == 0xffffffffffffffff);
+	EXPECT_TRUE(MPI_P(A)[1] == 1);
+	EXPECT_TRUE(MPI_P(A)[2] == 0);
+	EXPECT_TRUE(MPI_P(A)[3] == 0);
+	EXPECT_TRUE(MPI_P(A)[4] == 1);
+
+	B->used = 8;
+	MPI_P(B)[4] = ULONG_MAX;
+	MPI_P(B)[5] = ULONG_MAX;
+	MPI_P(B)[6] = ULONG_MAX;
+	MPI_P(B)[7] = ULONG_MAX;
+	EXPECT_ZERO(ttls_mpi_add_abs(A, A, B));
+	EXPECT_TRUE(A->used == 9);
+	EXPECT_TRUE(MPI_P(A)[0] == 0xfffffffffffffffe);
+	EXPECT_TRUE(MPI_P(A)[1] == 1);
+	EXPECT_TRUE(MPI_P(A)[2] == 0);
+	EXPECT_TRUE(MPI_P(A)[3] == 0);
+	EXPECT_TRUE(MPI_P(A)[4] == 1);
+	EXPECT_TRUE(MPI_P(A)[5] == 0);
+	EXPECT_TRUE(MPI_P(A)[6] == 0);
+	EXPECT_TRUE(MPI_P(A)[7] == 0);
+	EXPECT_TRUE(MPI_P(A)[8] == 1);
+
+	EXPECT_ZERO(ttls_mpi_add_int(A, A, 3));
+	EXPECT_TRUE(A->used == 9);
+	EXPECT_TRUE(MPI_P(A)[0] == 1);
+	EXPECT_TRUE(MPI_P(A)[1] == 2);
+	EXPECT_TRUE(MPI_P(A)[2] == 0);
+	EXPECT_TRUE(MPI_P(A)[3] == 0);
+	EXPECT_TRUE(MPI_P(A)[4] == 1);
+	EXPECT_TRUE(MPI_P(A)[5] == 0);
+	EXPECT_TRUE(MPI_P(A)[6] == 0);
+	EXPECT_TRUE(MPI_P(A)[7] == 0);
+	EXPECT_TRUE(MPI_P(A)[8] == 1);
+
+	B->used = 15;
+	MPI_P(B)[8] = ULONG_MAX;
+	MPI_P(B)[9] = ULONG_MAX;
+	MPI_P(B)[10] = ULONG_MAX;
+	MPI_P(B)[11] = ULONG_MAX;
+	MPI_P(B)[12] = ULONG_MAX;
+	MPI_P(B)[13] = ULONG_MAX;
+	MPI_P(B)[14] = ULONG_MAX;
+	MPI_P(B)[15] = ULONG_MAX;
+	EXPECT_ZERO(ttls_mpi_add_abs(A, B, A));
+	EXPECT_TRUE(A->used == 16);
+	EXPECT_TRUE(MPI_P(A)[0] == 0);
+	EXPECT_TRUE(MPI_P(A)[1] == 2);
+	EXPECT_TRUE(MPI_P(A)[2] == 0);
+	EXPECT_TRUE(MPI_P(A)[3] == 0);
+	EXPECT_TRUE(MPI_P(A)[4] == 1);
+	EXPECT_TRUE(MPI_P(A)[5] == 0);
+	EXPECT_TRUE(MPI_P(A)[6] == 0);
+	EXPECT_TRUE(MPI_P(A)[7] == 0);
+	EXPECT_TRUE(MPI_P(A)[8] == 1);
+	EXPECT_TRUE(MPI_P(A)[9] == 0);
+	EXPECT_TRUE(MPI_P(A)[10] == 0);
+	EXPECT_TRUE(MPI_P(A)[11] == 0);
+	EXPECT_TRUE(MPI_P(A)[12] == 0);
+	EXPECT_TRUE(MPI_P(A)[13] == 0);
+	EXPECT_TRUE(MPI_P(A)[14] == 0);
+	EXPECT_TRUE(MPI_P(A)[15] == 1);
+
+	ttls_mpi_pool_cleanup_ctx((unsigned long)A, true);
+}
+
 /*
  * Test specific constants and operations uncovered by other tests and where
  * bugs were discovered. The numbers are taken from debug messags produced by
@@ -685,6 +804,7 @@ main(int argc, char *argv[])
 	mpi_safe_cond();
 	mpi_bitop();
 	mpi_elementary();
+	mpi_add();
 	mpi_consts();
 	mpi_mul_div_simple();
 	mpi_big();
