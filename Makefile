@@ -56,20 +56,20 @@ endif
 ifeq (, $(findstring sse4_2, $(PROC)))
 	ERROR = "SSE 4.2 support is required"
 endif
-ifeq (, $(findstring avx2, $(PROC)))
+ifeq (, $(findstring pse, $(PROC)))
+	ERROR = "1MB huge pages support is required"
+endif
+ifneq (, $(findstring avx2, $(PROC)))
 	AVX2 = "y"
 	TFW_CFLAGS += -DAVX2=1
 endif
-ifeq (, $(findstring bmi2, $(PROC)))
+ifneq (, $(findstring bmi2, $(PROC)))
 	BMI2 = "y"
 	TFW_CFLAGS += -DBMI2=1
 endif
-ifeq (, $(findstring adx, $(PROC)))
+ifneq (, $(findstring adx, $(PROC)))
 	ADX = "y"
 	TFW_CFLAGS += -DADX=1
-endif
-ifeq (, $(findstring pse, $(PROC)))
-	ERROR = "1MB huge pages support is required"
 endif
 
 TFW_CFLAGS += -mmmx -msse4.2
