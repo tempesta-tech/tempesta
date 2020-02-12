@@ -687,36 +687,6 @@ ttls_mpi_add_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 }
 
 /**
- * Subtract @b from @a and write result to @r, @a_len > @b_len.
- * Either @a or @b can be referenced by @r.
- */
-static void
-__mpi_sub(unsigned long *a, size_t a_len, unsigned long *b, size_t b_len,
-	  unsigned long *r)
-{
-	unsigned long c = 0, z, b_tmp, *b_end = b + b_len, *a_end = a + a_len;
-
-	BUG_ON(a_len < b_len);
-
-	for ( ; b < b_end; a++, b++, r++) {
-		z = *a < c;
-		b_tmp = *b;
-		*r = *a - c;
-		c = (*r < b_tmp) + z;
-		*r -= b_tmp;
-	}
-	while (c) {
-		z = *a < c;
-		*r = *a - c;
-		c = z;
-		a++;
-		r++;
-	}
-	BUG_ON(a > a_end);
-	memcpy_fast(r, a, (a_end - a) * CIL);
-}
-
-/**
  * Unsigned subtraction: X = |A| - |B| (HAC 14.9).
  * @X may reference either @A or @B.
  */
@@ -729,7 +699,7 @@ ttls_mpi_sub_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 	if (ttls_mpi_alloc(X, A->used))
 		return -ENOMEM;
 
-	__mpi_sub(MPI_P(A), A->used, MPI_P(B), B->used, MPI_P(X));
+	mpi_sub_x86_64(MPI_P(X), MPI_P(B), MPI_P(A), B->used, A->used);
 
 	/* X should always be positive as a result of unsigned subtractions. */
 	X->s = 1;
@@ -1254,11 +1224,11 @@ __mpi_montmul(TlsMpi *A, const TlsMpi *B, const TlsMpi *N, unsigned long mm,
 	mpi_fixup_used(A, n + 1);
 
 	if (ttls_mpi_cmp_abs(A, N) >= 0) {
-		__mpi_sub(MPI_P(A), A->used, MPI_P(N), N->used, MPI_P(A));
+		mpi_sub_x86_64(MPI_P(A), MPI_P(N), MPI_P(A), N->used, A->used);
 		mpi_fixup_used(A, A->used);
 	} else {
 		/* Prevent timing attacks. */
-		__mpi_sub(MPI_P(T), T->used, MPI_P(A), A->used, MPI_P(T));
+		mpi_sub_x86_64(MPI_P(T), MPI_P(A), MPI_P(T), A->used, T->used);
 		mpi_fixup_used(T, T->used);
 	}
 
