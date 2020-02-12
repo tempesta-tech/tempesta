@@ -23,13 +23,16 @@
 #include <asm/nospec-branch.h>
 
 /**
- * Multiply X = A * B, where A->used >= B->used.
+ * Add X = A + B, where A->used >= B->used.
  *
  * %RDI and %RSI - pointer to X and X->limbs correspondingly;
  * %RDX and %RCX - pointer to B and B->used correspondingly;
- * %RDI and %RSI - pointer to A and A->used correspondingly.
+ * %R8 and %R9 - pointer to A and A->used correspondingly.
  */
 ENTRY(mpi_add_x86_64)
+	subq	%rcx, %r9
+	addq	$1, %r9
+
 	/*
 	 * Initialize return value for X->used (RAX).
 	 * Also clear (initialize) CF from.
@@ -45,24 +48,17 @@ ENTRY(mpi_add_x86_64)
 	loop	.add_smaller
 
 	/* Add loop over the bigger MPI. */
-	movq	$0, %r10
-	jnc	.no_carry
-	movq	$1, %r10
-.no_carry:
-	subq	%rax, %r9
 	movq	%r9, %rcx
-	addq	$1, %rcx
 	jmp	.add_bigger
 .add_bigger_loop:
+	movq	$0, %r10
 	adcq	(%r8, %rax, 8), %r10
 	movq	%r10, (%rdi, %rax, 8)
-	movq	$0, %r10
 	incq	%rax
 .add_bigger:
 	loop	.add_bigger_loop
 
-	/* Propagate carry to the next X limb if necessary. */
-	adc	$-1, %r10
+	/* Propagate carry to a new X limb if necessary. */
 	jnc	.done
 	cmpq	%rax, %rsi
 	jl	.enospc
@@ -75,6 +71,56 @@ ENTRY(mpi_add_x86_64)
 	movq	$-1, %rax
 	ret
 ENDPROC(mpi_add_x86_64)
+
+/**
+ * Subtract X = A - B, where A->used >= B->used.
+ *
+ * %RDI	- pointer to X;
+ * %RSI	- pointer to B;
+ * %RDX	- pointer to A;
+ * %RCX	- B->used (used directly for looping);
+ * %R8	- A->used.
+ */
+ENTRY(mpi_sub_x86_64)
+	subq	%rcx, %r8
+	addq	$1, %r8
+
+	xorq	%rax, %rax
+
+	/* Subtraction loop over the smaller MPI. */
+.sub_b:
+	movq	(%rdx, %rax, 8), %r10
+	sbbq	(%rsi, %rax, 8), %r10
+	movq	%r10, (%rdi, %rax, 8)
+	incq	%rax
+	loop	.sub_b
+
+	/*
+	 * Borrow required digets from the more significant limbs in @A.
+	 * There is either CF = 0 or we have more limbs in @A.
+	 */
+	movq	%r8, %rcx
+	jnc	.copy_msb
+	jmp	.propagate_borrow
+.propagate_borrow_loop:
+	movq	(%rdx, %rax, 8), %r10
+	sbbq	$0, %r10
+	movq	%r10, (%rdi, %rax, 8)
+	jnc	.copy_msb
+	incq	%rax
+.propagate_borrow:
+	loop	.propagate_borrow_loop
+	ud2
+
+	/* Copy the rest of A to X if no need to borrow. */
+.copy_msb_loop:
+	movq	(%rdx, %rcx, 8), %r10
+	movq	%r10, (%rdi, %rcx, 8)
+.copy_msb:
+	loop	.copy_msb_loop
+
+	ret
+ENDPROC(mpi_sub_x86_64)
 
 #if defined(BMI2) && defined(ADX)
 /*

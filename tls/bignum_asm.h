@@ -26,5 +26,8 @@ int mpi_add_x86_64(unsigned long *x, size_t x_len,
 		   unsigned long *b, size_t b_len,
 		   unsigned long *a, size_t a_len);
 
+void mpi_sub_x86_64(unsigned long *x, unsigned long *b, unsigned long *a,
+		    size_t b_len, size_t a_len);
+
 #endif /* __BIGNUM_ASM_H__ */
 
