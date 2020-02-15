@@ -186,6 +186,67 @@ ENTRY(mpi_sub_x86_64)
 	ret
 ENDPROC(mpi_sub_x86_64)
 
+/*
+ * Operands size specialized implementations of the function above.
+ */
+ENTRY(mpi_sub_x86_64_5_4)
+	movq	(%rdx), %r8
+	movq	8(%rdx), %r9
+	movq	16(%rdx), %r10
+	movq	24(%rdx), %r11
+	subq	(%rsi), %r8
+	sbbq	8(%rsi), %r9
+	sbbq	16(%rsi), %r10
+	sbbq	24(%rsi), %r11
+	movq	%r8, (%rdi)
+	movq	%r9, 8(%rdi)
+	movq	%r10, 16(%rdi)
+	movq	%r11, 24(%rdi)
+	movq	32(%rdx), %r8
+	sbbq	$0, %r8
+	movq	%r8, 32(%rdi)
+	ret
+ENDPROC(mpi_sub_x86_64_5_4)
+
+ENTRY(mpi_sub_x86_64_4_4)
+	movq	(%rdx), %r8
+	movq	8(%rdx), %r9
+	movq	16(%rdx), %r10
+	movq	24(%rdx), %r11
+	subq	(%rsi), %r8
+	sbbq	8(%rsi), %r9
+	sbbq	16(%rsi), %r10
+	sbbq	24(%rsi), %r11
+	movq	%r8, (%rdi)
+	movq	%r9, 8(%rdi)
+	movq	%r10, 16(%rdi)
+	movq	%r11, 24(%rdi)
+	ret
+ENDPROC(mpi_sub_x86_64_4_4)
+
+ENTRY(mpi_sub_x86_64_3_3)
+	movq	(%rdx), %r8
+	movq	8(%rdx), %r9
+	movq	16(%rdx), %r10
+	subq	(%rsi), %r8
+	sbbq	8(%rsi), %r9
+	sbbq	16(%rsi), %r10
+	movq	%r8, (%rdi)
+	movq	%r9, 8(%rdi)
+	movq	%r10, 16(%rdi)
+	ret
+ENDPROC(mpi_sub_x86_64_3_3)
+
+ENTRY(mpi_sub_x86_64_2_2)
+	movq	(%rdx), %r8
+	movq	8(%rdx), %r9
+	subq	(%rsi), %r8
+	sbbq	8(%rsi), %r9
+	movq	%r8, (%rdi)
+	movq	%r9, 8(%rdi)
+	ret
+ENDPROC(mpi_sub_x86_64_2_2)
+
 
 /*
  * Use CF to carry multiplication overflow to higher digit and OF to carry
