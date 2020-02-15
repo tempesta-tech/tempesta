@@ -39,6 +39,14 @@ ifdef DEBUG
 	CFLAGS += -DDEBUG=$(DEBUG) -DDBG_TLS=1
 endif
 
+PROC = $(shell cat /proc/cpuinfo)
+ifneq (, $(findstring bmi2, $(PROC)))
+	CFLAGS += -DBMI2=1
+endif
+ifneq (, $(findstring adx, $(PROC)))
+	CFLAGS += -DADX=1
+endif
+
 TARGETS		= $(subst .c,, $(wildcard *.c))
 ASM-OBJ		= bignum_x86-64.o
 

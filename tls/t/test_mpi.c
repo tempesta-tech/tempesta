@@ -56,7 +56,7 @@ mpi_alloc_init(void)
 	/* Calculate correct @A->used from invalid size assumption. */
 	ttls_mpi_init_next(A, 7);
 	memcpy(MPI_P(A), p, CIL * 7);
-	mpi_fixup_used(A, 8);
+	mpi_fixup_used(A, 7);
 	EXPECT_TRUE(A->used == 5);
 	EXPECT_TRUE(A->limbs == 7);
 	EXPECT_TRUE(A->_off == save_off);
@@ -390,7 +390,7 @@ mpi_consts(void)
 					    "\xff\xff\xff\xff\xff\xff\xff\xfe"
 					    "\xff\xff\xff\xff\xff\xff\xff\xff",
 					    24));
-	EXPECT_ZERO(ttls_mpi_sub_abs(A, A, B));
+	ttls_mpi_sub_abs(A, A, B);
 	EXPECT_TRUE(A->s == 1);
 	EXPECT_TRUE(A->used == 3);
 	EXPECT_ZERO(ttls_mpi_read_binary(B, "\x77\x63\x34\xb6\xde\x8c\x09\x0b"
@@ -410,7 +410,7 @@ mpi_consts(void)
 					    "\x00\x00\x00\x00\x00\x00\x00\x00"
 					    "\x00\x00\x00\x00\x00\x00\x00\x00",
 					    40));
-	EXPECT_ZERO(ttls_mpi_sub_abs(A, B, A));
+	ttls_mpi_sub_abs(A, B, A);
 	EXPECT_TRUE(A->s == 1);
 	EXPECT_TRUE(A->used == 4);
 	EXPECT_ZERO(ttls_mpi_read_binary(B, "\x67\x09\x47\xb1\xd6\x41\x0d\x4e"
