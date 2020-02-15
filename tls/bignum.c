@@ -137,12 +137,15 @@ ttls_mpi_alloc_tmp(TlsMpi *X, size_t nlimbs)
 void
 mpi_fixup_used(TlsMpi *X, size_t n)
 {
+	unsigned long *x = MPI_P(X);
+
 	/*
 	 * Leave the least significant limb even if it's zero to represent
 	 * zero valued MPI.
 	 */
-	for (X->used = n; X->used > 1 && !MPI_P(X)[X->used - 1]; )
-		--X->used;
+	while (n > 1 && !x[n - 1])
+		--n;
+	X->used = n;
 }
 
 int
@@ -693,13 +696,38 @@ ttls_mpi_add_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 void
 ttls_mpi_sub_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 {
+	register unsigned int o_sz, a_sz = A->used, b_sz = B->used;
+	register unsigned long *x = MPI_P(X), *a = MPI_P(A), *b = MPI_P(B);
+
 	BUG_ON(X->limbs < A->used);
 
-	mpi_sub_x86_64(MPI_P(X), MPI_P(B), MPI_P(A), B->used, A->used);
+	/*
+	 * Call special implementations for the most frequent cases in EC
+	 * arithmetics.
+	 */
+	o_sz = (a_sz << 16) + b_sz;
+	if (likely(o_sz == 0x00040004)) {
+		mpi_sub_x86_64_4_4(x, b, a);
+	}
+	else if (likely(o_sz == 0x00050004)) {
+		mpi_sub_x86_64_5_4(x, b, a);
+	}
+	else if (o_sz == 0x00030003) {
+		mpi_sub_x86_64_3_3(x, b, a);
+	}
+	else if (o_sz == 0x00020002) {
+		mpi_sub_x86_64_2_2(x, b, a);
+	}
+	else if (o_sz == 0x00010001) {
+		*x = *a - *b;
+	}
+	else {
+		mpi_sub_x86_64(x, b, a, b_sz, a_sz);
+	}
 
 	/* X should always be positive as a result of unsigned subtractions. */
 	X->s = 1;
-	mpi_fixup_used(X, A->used);
+	mpi_fixup_used(X, a_sz);
 }
 
 /**
