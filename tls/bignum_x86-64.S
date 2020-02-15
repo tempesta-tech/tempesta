@@ -22,6 +22,11 @@
 #include <asm/export.h>
 #include <asm/nospec-branch.h>
 
+// TODO
+//#if !defined(BMI2) || !defined(ADX)
+//#error "BMI2 and ADX CPU extensions are required"
+//#endif
+
 /**
  * Add X = A + B, where A->used >= B->used.
  *
@@ -72,6 +77,7 @@ ENTRY(mpi_add_x86_64)
 	ret
 ENDPROC(mpi_add_x86_64)
 
+
 /**
  * Subtract X = A - B, where A->used >= B->used.
  *
@@ -85,15 +91,68 @@ ENTRY(mpi_sub_x86_64)
 	subq	%rcx, %r8
 	addq	$1, %r8
 
-	xorq	%rax, %rax
+	/* Get code address by size of tail. */
+.section .rodata
+.align 8
+.sub_tail_jmp_tbl:
+	.quad	.sub_tail0
+	.quad	.sub_tail1
+	.quad	.sub_tail2
+	.quad	.sub_tail3
+.text
+	pushq	%rbx
+	movq	%rcx, %rbx
+	andq	$3, %rbx
+	movq	.sub_tail_jmp_tbl(, %rbx, 8), %rbx
 
-	/* Subtraction loop over the smaller MPI. */
-.sub_b:
+	xorq	%rax, %rax
+	shrq	$2, %rcx
+	jz	.small_b
+	pushq	%r12
+	clc
+.sub_by_4:
+	movq	(%rdx, %rax, 8), %r9
+	movq	8(%rdx, %rax, 8), %r10
+	movq	16(%rdx, %rax, 8), %r11
+	movq	24(%rdx, %rax, 8), %r12
+	sbbq	(%rsi, %rax, 8), %r9
+	sbbq	8(%rsi, %rax, 8), %r10
+	sbbq	16(%rsi, %rax, 8), %r11
+	sbbq	24(%rsi, %rax, 8), %r12
+	movq	%r9, (%rdi, %rax, 8)
+	incq	%rax
+	movq	%r10, (%rdi, %rax, 8)
+	incq	%rax
+	movq	%r11, (%rdi, %rax, 8)
+	incq	%rax
+	movq	%r12, (%rdi, %rax, 8)
+	incq	%rax
+	loop	.sub_by_4
+	popq	%r12
+	ANNOTATE_RETPOLINE_SAFE
+	jmpq	*%rbx
+.small_b:
+	clc
+	ANNOTATE_RETPOLINE_SAFE
+	jmpq	*%rbx
+
+.sub_tail3:
+	movq	(%rdx, %rax, 8), %r9
+	sbbq	(%rsi, %rax, 8), %r9
+	movq	%r9, (%rdi, %rax, 8)
+	incq	%rax
+.sub_tail2:
 	movq	(%rdx, %rax, 8), %r10
 	sbbq	(%rsi, %rax, 8), %r10
 	movq	%r10, (%rdi, %rax, 8)
 	incq	%rax
-	loop	.sub_b
+.sub_tail1:
+	movq	(%rdx, %rax, 8), %r11
+	sbbq	(%rsi, %rax, 8), %r11
+	movq	%r11, (%rdi, %rax, 8)
+	incq	%rax
+.sub_tail0:
+	popq	%rbx
 
 	/*
 	 * Borrow required digets from the more significant limbs in @A.
@@ -106,23 +165,28 @@ ENTRY(mpi_sub_x86_64)
 	movq	(%rdx, %rax, 8), %r10
 	sbbq	$0, %r10
 	movq	%r10, (%rdi, %rax, 8)
-	jnc	.copy_msb
 	incq	%rax
+	jnc	.need_copy
 .propagate_borrow:
 	loop	.propagate_borrow_loop
 	ud2
 
 	/* Copy the rest of A to X if no need to borrow. */
 .copy_msb_loop:
-	movq	(%rdx, %rcx, 8), %r10
-	movq	%r10, (%rdi, %rcx, 8)
+	movq	(%rdx, %rax, 8), %r10
+	movq	%r10, (%rdi, %rax, 8)
+	incq	%rax
 .copy_msb:
 	loop	.copy_msb_loop
+	ret
 
+.need_copy:
+	cmpq	%rdx, %rdi
+	jne	.copy_msb
 	ret
 ENDPROC(mpi_sub_x86_64)
 
-#if defined(BMI2) && defined(ADX)
+
 /*
  * Use CF to carry multiplication overflow to higher digit and OF to carry
  * addition of results of current and previous multiplications.
@@ -235,125 +299,3 @@ ENTRY(mpi_mul_x86_64)
 .empty_vec2:
 	ret
 ENDPROC(mpi_mul_x86_64)
-
-#else
-.macro MULADDC_ROUND CNT_R:req
-	movq	(%rsi), %rax
-	mulq	%r11
-	addq	$8, %rsi
-	addq	\CNT_R, %rax
-	movq	%r9, \CNT_R
-	adcq	$0, %rdx
-	nop
-	addq	%rax, (%r10)
-	adcq	%rdx, \CNT_R
-	addq	$8, %r10
-.endm
-
-/**
- * Multiply vector pointed by %RDX of size %RDI by vector pointed by %RCX of
- * size %RSI and stores the result by address %R8.
- * The outer loop iterates the second vector and the inner loop iterates the
- * first vector with unrolling for 16, 8, and 1 8-byte operations.
- *
- * Legacy implementation.
- */
-ENTRY(mpi_mul_x86_64)
-	testq	%rsi, %rsi
-	js	.empty_vec2
-	pushq	%r13
-	pushq	%r12
-	pushq	%rbp
-	movq	%rcx, %rbp
-	leaq	0(,%rsi,8), %rcx
-	pushq	%rbx
-	movq	%rdx, %rbx
-.vec1_16unrolling_prolog:
-	movq	0(%rbp,%rcx), %r11
-	leaq	(%r8,%rcx), %r10
-	movq	%rbx, %rsi
-	cmpq	$15, %rdi
-	jbe	.end_16unrolling
-	movq	%rdi, %r13
-	xorl	%eax, %eax
-.vec1_16unrolling:
-	subq	$16, %r13
-	movq	%rax, %r12
-
-	xorq	%r9, %r9
-	MULADDC_ROUND %r12
-	MULADDC_ROUND %r12
-	MULADDC_ROUND %r12
-	MULADDC_ROUND %r12
-	MULADDC_ROUND %r12
-	MULADDC_ROUND %r12
-	MULADDC_ROUND %r12
-	MULADDC_ROUND %r12
-	MULADDC_ROUND %r12
-	MULADDC_ROUND %r12
-	MULADDC_ROUND %r12
-	MULADDC_ROUND %r12
-	MULADDC_ROUND %r12
-	MULADDC_ROUND %r12
-	MULADDC_ROUND %r12
-	MULADDC_ROUND %r12
-
-	movq	%r12, %rax
-	cmpq	$15, %r13
-	ja	.vec1_16unrolling
-	movq	%rdi, %r12
-	andl	$15, %r12d
-.vec1_8unrolling:
-	cmpq	$7, %r12
-	jbe	.end_8unrolling
-	movq	%rax, %r13
-	subq	$8, %r12
-
-	xorq	%r9, %r9
-	MULADDC_ROUND %r13
-	MULADDC_ROUND %r13
-	MULADDC_ROUND %r13
-	MULADDC_ROUND %r13
-	MULADDC_ROUND %r13
-	MULADDC_ROUND %r13
-	MULADDC_ROUND %r13
-	MULADDC_ROUND %r13
-
-	movq	%r13, %rax
-.end_8unrolling:
-	testq	%r12, %r12
-	je	.propagate_carry
-.vec1_single_step:
-	movq	%rax, %r13
-
-	xorq	%r9, %r9
-	MULADDC_ROUND %r13
-
-	movq	%r13, %rax
-	subq	$1, %r12
-	jne	.vec1_single_step
-.propagate_carry:
-	xorl	%edx, %edx
-	addq	(%r10), %rax
-	setc	%dl
-	movq	%rax, (%r10)
-	addq	$8, %r10
-	movl	$1, %eax
-	testq	%rdx, %rdx
-	jne	.propagate_carry
-	subq	$8, %rcx
-	cmpq	$-8, %rcx
-	jne	.vec1_16unrolling_prolog
-	popq	%rbx
-	popq	%rbp
-	popq	%r12
-	popq	%r13
-	ret
-.end_16unrolling:
-	movq	%rdi, %r12
-	xorl	%eax, %eax
-	jmp	.vec1_8unrolling
-.empty_vec2:
-	ret
-ENDPROC(mpi_mul_x86_64)
-#endif

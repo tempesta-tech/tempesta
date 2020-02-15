@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -171,13 +171,13 @@ int ttls_mpi_cmp_abs(const TlsMpi *X, const TlsMpi *Y);
 int ttls_mpi_cmp_mpi(const TlsMpi *X, const TlsMpi *Y);
 int ttls_mpi_cmp_int(const TlsMpi *X, long z);
 
-int ttls_mpi_add_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B);
-int ttls_mpi_add_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B);
-int ttls_mpi_add_int(TlsMpi *X, const TlsMpi *A, long b);
+void ttls_mpi_add_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B);
+void ttls_mpi_add_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B);
+void ttls_mpi_add_int(TlsMpi *X, const TlsMpi *A, long b);
 
-int ttls_mpi_sub_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B);
-int ttls_mpi_sub_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B);
-int ttls_mpi_sub_int(TlsMpi *X, const TlsMpi *A, long b);
+void ttls_mpi_sub_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B);
+void ttls_mpi_sub_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B);
+void ttls_mpi_sub_int(TlsMpi *X, const TlsMpi *A, long b);
 
 int ttls_mpi_mul_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B);
 int ttls_mpi_mul_uint(TlsMpi *X, const TlsMpi *A, unsigned long b);
