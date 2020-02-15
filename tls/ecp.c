@@ -142,6 +142,24 @@ ttls_ecp_point_init(TlsEcpPoint *pt)
 	ttls_mpi_init_next(&pt->Z, 0);
 }
 
+#define ttls_ecp_point_tmp_alloc_init(pt, xn, yn, zn)			\
+do {									\
+	pt = __builtin_alloca(sizeof(TlsEcpPoint) + CIL * (xn + yn + zn)); \
+	BUG_ON(!pt);							\
+	pt->X.s = 1;							\
+	pt->X.used = 0;							\
+	pt->X.limbs = xn;						\
+	pt->X._off = xn ? sizeof(*pt) : 0;				\
+	pt->Y.s = 1;							\
+	pt->Y.used = 0;							\
+	pt->Y.limbs = yn;						\
+	pt->Y._off = yn ? sizeof(*pt) - sizeof(pt->X) + xn * CIL : 0;	\
+	pt->Z.s = 1;							\
+	pt->Z.used = 0;							\
+	pt->Z.limbs = zn;						\
+	pt->Z._off = zn ? sizeof(pt->Z) + (xn + yn) * CIL : 0;		\
+} while (0)
+
 /**
  * Called after ttls_mpi_pool_create() using __GFP_ZERO, so all the @key
  * members are zero here.
@@ -571,7 +589,9 @@ ecp_safe_invert_jac(const TlsEcpGrp *grp, TlsEcpPoint *Q, unsigned char inv)
 	ttls_mpi_sub_mpi(mQY, &grp->P, &Q->Y);
 	nonzero = !!ttls_mpi_cmp_int(&Q->Y, 0);
 
-	return ttls_mpi_safe_cond_assign(&Q->Y, mQY, inv & nonzero);
+	ttls_mpi_safe_cond_assign(&Q->Y, mQY, inv & nonzero);
+
+	return 0;
 }
 
 /**
@@ -942,8 +962,8 @@ ecp_select_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint T[],
 
 	/* Read the whole table to thwart cache-based timing attacks */
 	for (j = 0; j < t_len; j++) {
-		MPI_CHK(ttls_mpi_safe_cond_assign(&R->X, &T[j].X, j == ii));
-		MPI_CHK(ttls_mpi_safe_cond_assign(&R->Y, &T[j].Y, j == ii));
+		ttls_mpi_safe_cond_assign(&R->X, &T[j].X, j == ii);
+		ttls_mpi_safe_cond_assign(&R->Y, &T[j].Y, j == ii);
 	}
 
 	/* Safely invert result if i is "negative" */
@@ -966,9 +986,7 @@ ecp_mul_comb_core(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint T[],
 	TlsEcpPoint *Txi;
 	size_t i;
 
-	if (!(Txi = ttls_mpool_alloc_stack(sizeof(TlsEcpPoint))))
-		return -ENOMEM;
-	ttls_ecp_point_init(Txi);
+	ttls_ecp_point_tmp_alloc_init(Txi, T->X.used, T->Y.used, 0);
 	if (ttls_mpi_alloc(&R->X, grp->nbits * 2 / BIL)
 	    || ttls_mpi_alloc(&R->Y, grp->nbits * 2 / BIL)
 	    || ttls_mpi_alloc(&R->Z, grp->nbits / BIL + 1))
@@ -1061,7 +1079,7 @@ ecp_mul_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	m_is_odd = (ttls_mpi_get_bit(m, 0) == 1);
 	TTLS_MPI_CHK(ttls_mpi_copy(M, m));
 	ttls_mpi_sub_mpi(mm, &grp->N, m);
-	TTLS_MPI_CHK(ttls_mpi_safe_cond_assign(M, mm, !m_is_odd));
+	ttls_mpi_safe_cond_assign(M, mm, !m_is_odd);
 
 	/* Go for comb multiplication, R = M * P */
 	ecp_comb_fixed(k, d, w, M);
