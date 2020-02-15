@@ -171,7 +171,7 @@ ttls_rsa_deduce_primes(TlsMpi const *N, TlsMpi const *E, TlsMpi const *D,
 
 	/* T := DE - 1 */
 	MPI_CHK(ttls_mpi_mul_mpi(T, D,  E));
-	MPI_CHK(ttls_mpi_sub_int(T, T, 1));
+	ttls_mpi_sub_int(T, T, 1);
 
 	if (!(order = (uint16_t)ttls_mpi_lsb(T)))
 		return -EINVAL;
@@ -209,11 +209,11 @@ ttls_rsa_deduce_primes(TlsMpi const *N, TlsMpi const *E, TlsMpi const *D,
 			if (!ttls_mpi_cmp_int(K, 1))
 				break;
 
-			MPI_CHK(ttls_mpi_add_int(K, K, 1));
+			ttls_mpi_add_int(K, K, 1);
 			MPI_CHK(ttls_mpi_gcd(P, K, N));
 
-			if (ttls_mpi_cmp_int(P, 1) ==  1
-			    && ttls_mpi_cmp_mpi(P, N) == -1)
+			if (ttls_mpi_cmp_int(P, 1) > 0
+			    && ttls_mpi_cmp_mpi(P, N) < 0)
 			{
 				/*
 				 * Have found a nontrivial divisor P of N.
@@ -223,7 +223,7 @@ ttls_rsa_deduce_primes(TlsMpi const *N, TlsMpi const *E, TlsMpi const *D,
 				return 0;
 			}
 
-			MPI_CHK(ttls_mpi_sub_int(K, K, 1));
+			ttls_mpi_sub_int(K, K, 1);
 			MPI_CHK(ttls_mpi_mul_mpi(K, K, K));
 			MPI_CHK(ttls_mpi_mod_mpi(K, K, N));
 		}
@@ -272,8 +272,8 @@ ttls_rsa_deduce_private_exponent(TlsMpi const *P, TlsMpi const *Q,
 		return -ENOMEM;
 
 	/* Temporarily put K := P-1 and L := Q-1 */
-	MPI_CHK(ttls_mpi_sub_int(K, P, 1));
-	MPI_CHK(ttls_mpi_sub_int(L, Q, 1));
+	ttls_mpi_sub_int(K, P, 1);
+	ttls_mpi_sub_int(L, Q, 1);
 
 	/* Temporarily put D := gcd(P-1, Q-1) */
 	MPI_CHK(ttls_mpi_gcd(D, K, L));
@@ -309,13 +309,13 @@ ttls_rsa_deduce_crt(const TlsMpi *P, const TlsMpi *Q, const TlsMpi *D,
 
 	/* DP = D mod P-1 */
 	if (DP) {
-		MPI_CHK(ttls_mpi_sub_int(K, P, 1 ));
+		ttls_mpi_sub_int(K, P, 1 );
 		MPI_CHK(ttls_mpi_mod_mpi(DP, D, K));
 	}
 
 	/* DQ = D mod Q-1 */
 	if (DQ) {
-		MPI_CHK(ttls_mpi_sub_int(K, Q, 1 ));
+		ttls_mpi_sub_int(K, Q, 1 );
 		MPI_CHK(ttls_mpi_mod_mpi(DQ, D, K));
 	}
 
@@ -500,18 +500,18 @@ ttls_rsa_private(TlsRSACtx *ctx, const unsigned char *input,
 	MPI_CHK(ttls_mpi_mod_mpi(T, T, &ctx->N));
 
 	/* Exponent blinding. */
-	MPI_CHK(ttls_mpi_sub_int(P1, &ctx->P, 1));
-	MPI_CHK(ttls_mpi_sub_int(Q1, &ctx->Q, 1));
+	ttls_mpi_sub_int(P1, &ctx->P, 1);
+	ttls_mpi_sub_int(Q1, &ctx->Q, 1);
 
 	/* DP_blind = (P - 1) * R + DP */
 	MPI_CHK(ttls_mpi_fill_random(R, RSA_EXPONENT_BLINDING));
 	MPI_CHK(ttls_mpi_mul_mpi(DP_blind, P1, R));
-	MPI_CHK(ttls_mpi_add_mpi(DP_blind, DP_blind, &ctx->DP));
+	ttls_mpi_add_mpi(DP_blind, DP_blind, &ctx->DP);
 
 	/* DQ_blind = (Q - 1) * R + DQ */
 	MPI_CHK(ttls_mpi_fill_random(R, RSA_EXPONENT_BLINDING));
 	MPI_CHK(ttls_mpi_mul_mpi(DQ_blind, Q1, R));
-	MPI_CHK(ttls_mpi_add_mpi(DQ_blind, DQ_blind, &ctx->DQ));
+	ttls_mpi_add_mpi(DQ_blind, DQ_blind, &ctx->DQ);
 
 	/*
 	 * Faster decryption using the CRT
@@ -523,13 +523,13 @@ ttls_rsa_private(TlsRSACtx *ctx, const unsigned char *input,
 	MPI_CHK(ttls_mpi_exp_mod(TQ, T, DQ_blind, &ctx->Q, &ctx->RQ));
 
 	/* T = (TP - TQ) * (Q^-1 mod P) mod P */
-	MPI_CHK(ttls_mpi_sub_mpi(T, TP, TQ));
+	ttls_mpi_sub_mpi(T, TP, TQ);
 	MPI_CHK(ttls_mpi_mul_mpi(TP, T, &ctx->QP));
 	MPI_CHK(ttls_mpi_mod_mpi(T, TP, &ctx->P));
 
 	/* T = TQ + T * Q */
 	MPI_CHK(ttls_mpi_mul_mpi(TP, T, &ctx->Q));
-	MPI_CHK(ttls_mpi_add_mpi(T, TQ, TP));
+	ttls_mpi_add_mpi(T, TQ, TP);
 
 	/*
 	 * Unblind

@@ -221,7 +221,7 @@ fix_negative(TlsMpi *N, signed char c, const size_t bits)
 	MPI_P(&C)[C.limbs - 1] = (unsigned long)-c;
 
 	/* N = -(C - N) */
-	MPI_CHK(ttls_mpi_sub_abs(N, &C, N));
+	ttls_mpi_sub_abs(N, &C, N);
 	N->s = -1;
 
 	return 0;
@@ -377,7 +377,9 @@ ecp_mod_p255(TlsMpi *N)
 	/* N = A0 + 19 * A1 */
 	if ((r = ttls_mpi_mul_uint(M, M, 19)))
 		return r;
-	return ttls_mpi_add_abs(N, N, M);
+	ttls_mpi_add_abs(N, N, M);
+
+	return 0;
 }
 
 /**
@@ -461,7 +463,7 @@ ecp_use_curve25519(TlsEcpGrp *grp)
 	/* P = 2^255 - 19 */
 	MPI_CHK(ttls_mpi_lset(&grp->P, 1));
 	MPI_CHK(ttls_mpi_shift_l(&grp->P, 255));
-	MPI_CHK(ttls_mpi_sub_int(&grp->P, &grp->P, 19));
+	ttls_mpi_sub_int(&grp->P, &grp->P, 19);
 	grp->pbits = ttls_mpi_bitlen(&grp->P);
 
 	/*

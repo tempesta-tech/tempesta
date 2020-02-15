@@ -137,8 +137,6 @@ ttls_mpi_alloc_tmp(TlsMpi *X, size_t nlimbs)
 void
 mpi_fixup_used(TlsMpi *X, size_t n)
 {
-	if (unlikely(n > X->limbs))
-		n = X->limbs;
 	/*
 	 * Leave the least significant limb even if it's zero to represent
 	 * zero valued MPI.
@@ -575,21 +573,13 @@ ttls_mpi_fill_random(TlsMpi *X, size_t size)
 	return 0;
 }
 
-/**
- * Compare unsigned values.
- */
 int
 ttls_mpi_cmp_abs(const TlsMpi *X, const TlsMpi *Y)
 {
 	int i;
 
-	if (!X->used && !Y->used)
-		return 0;
-
-	if (X->used > Y->used)
-		return 1;
-	if (Y->used > X->used)
-		return -1;
+	if (X->used != Y->used)
+		return (int)X->used - (int)Y->used;
 
 	for (i = X->used - 1; i >= 0; i--) {
 		if (MPI_P(X)[i] == MPI_P(Y)[i])
@@ -600,9 +590,6 @@ ttls_mpi_cmp_abs(const TlsMpi *X, const TlsMpi *Y)
 	return 0;
 }
 
-/*
- * Compare signed values.
- */
 int
 ttls_mpi_cmp_mpi(const TlsMpi *X, const TlsMpi *Y)
 {
@@ -639,7 +626,7 @@ ttls_mpi_cmp_int(const TlsMpi *X, long z)
 	if (X->used > 1)
 		return X->s;
 	if (!X->used)
-		return z == 0 ? 0 : z < 0 ? 1 : -1;
+		return -z;
 
 	if (z < 0) {
 		if (X->s > 0)
@@ -659,14 +646,11 @@ ttls_mpi_cmp_int(const TlsMpi *X, long z)
  *
  * @A and @B must be different, but either of them can accept the result @X.
  */
-int
+void
 ttls_mpi_add_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 {
-	int r;
-
 	BUG_ON(A == B);
-	if (WARN_ON_ONCE(X->limbs < max_t(unsigned short, A->used, B->used)))
-		return -ENOSPC;
+	BUG_ON(X->limbs < max_t(unsigned short, A->used, B->used));
 
 	if (B->used > A->used) {
 		const TlsMpi *T = A;
@@ -674,111 +658,91 @@ ttls_mpi_add_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 		B = T;
 	}
 
-	r = mpi_add_x86_64(MPI_P(X), X->limbs, MPI_P(B), B->used,
-			   MPI_P(A), A->used);
-	if (WARN_ON_ONCE(r <= 0))
-		return -ENOSPC;
+	X->used = mpi_add_x86_64(MPI_P(X), X->limbs, MPI_P(B), B->used,
+				 MPI_P(A), A->used);
+	BUG_ON(X->used <= 0);
 
-	X->used = r;
 	/* X should always be positive as a result of unsigned additions. */
 	X->s = 1;
-
-	return 0;
 }
 
 /**
  * Unsigned subtraction: X = |A| - |B| (HAC 14.9).
  * @X may reference either @A or @B.
  */
-int
+void
 ttls_mpi_sub_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 {
-	if (ttls_mpi_cmp_abs(A, B) < 0)
-		return -EINVAL;
-
-	if (ttls_mpi_alloc(X, A->used))
-		return -ENOMEM;
+	BUG_ON(X->limbs < A->used);
 
 	mpi_sub_x86_64(MPI_P(X), MPI_P(B), MPI_P(A), B->used, A->used);
 
 	/* X should always be positive as a result of unsigned subtractions. */
 	X->s = 1;
 	mpi_fixup_used(X, A->used);
-
-	return 0;
 }
 
 /**
  * Signed addition: X = A + B
  */
-int
+void
 ttls_mpi_add_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 {
-	int r, s = A->s;
+	int s = A->s;
 
-	if (A->s * B->s < 0) {
+	if (s != B->s) {
 		if (ttls_mpi_cmp_abs(A, B) >= 0) {
-			if ((r = ttls_mpi_sub_abs(X, A, B)))
-				return r;
+			ttls_mpi_sub_abs(X, A, B);
 			X->s = s;
 		} else {
-			if ((r = ttls_mpi_sub_abs(X, B, A)))
-				return r;
+			ttls_mpi_sub_abs(X, B, A);
 			X->s = -s;
 		}
 	} else {
-		if ((r = ttls_mpi_add_abs(X, A, B)))
-			return r;
+		ttls_mpi_add_abs(X, A, B);
 		X->s = s;
 	}
-
-	return 0;
 }
 
 /**
  * Signed subtraction: X = A - B
  */
-int
+void
 ttls_mpi_sub_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 {
-	int r, s = A->s;
+	int s = A->s;
 
-	if (A->s * B->s > 0) {
+	if (s == B->s) {
 		if (ttls_mpi_cmp_abs(A, B) >= 0) {
-			if ((r = ttls_mpi_sub_abs(X, A, B)))
-				return r;
+			ttls_mpi_sub_abs(X, A, B);
 			X->s = s;
 		} else {
-			if ((r = ttls_mpi_sub_abs(X, B, A)))
-				return r;
+			ttls_mpi_sub_abs(X, B, A);
 			X->s = -s;
 		}
 	} else {
-		if ((r = ttls_mpi_add_abs(X, A, B)))
-			return r;
+		ttls_mpi_add_abs(X, A, B);
 		X->s = s;
 	}
-
-	return 0;
 }
 
 /**
  * Signed addition: X = A + b
  */
-int
+void
 ttls_mpi_add_int(TlsMpi *X, const TlsMpi *A, long b)
 {
 	DECLARE_MPI_AUTO(_B, 1);
 	MPI_P(&_B)[0] = (b < 0) ? -b : b;
 	_B.s = (b < 0) ? -1 : 1;
 
-	return ttls_mpi_add_mpi(X, A, &_B);
+	ttls_mpi_add_mpi(X, A, &_B);
 }
 
 /**
  * Signed subtraction: X = A - b
  */
-int
+void
 ttls_mpi_sub_int(TlsMpi *X, const TlsMpi *A, long b)
 {
 	DECLARE_MPI_AUTO(_B, 1);
@@ -786,7 +750,7 @@ ttls_mpi_sub_int(TlsMpi *X, const TlsMpi *A, long b)
 	_B.s = (b < 0) ? -1 : 1;
 	_B.limbs = _B.used = 1;
 
-	return ttls_mpi_sub_mpi(X, A, &_B);
+	ttls_mpi_sub_mpi(X, A, &_B);
 }
 
 #define MULADDC_INIT							\
@@ -1073,8 +1037,7 @@ ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 		return -ENOMEM;
 	while (ttls_mpi_cmp_mpi(&X, &Y) >= 0) {
 		MPI_P(Q)[n - t]++;
-		if ((r = ttls_mpi_sub_mpi(&X, &X, &Y)))
-			return r;
+		ttls_mpi_sub_mpi(&X, &X, &Y);
 	}
 	if (ttls_mpi_shift_r(&Y, BIL * (n - t)))
 		return -ENOMEM;
@@ -1110,15 +1073,15 @@ ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 		} while (ttls_mpi_cmp_mpi(&T1, &T2) > 0);
 
 		if ((r = ttls_mpi_mul_uint(&T1, &Y, MPI_P(Q)[i - t - 1]))
-		    || (r = ttls_mpi_shift_l(&T1,  BIL * (i - t - 1)))
-		    || (r = ttls_mpi_sub_mpi(&X, &X, &T1)))
+		    || (r = ttls_mpi_shift_l(&T1,  BIL * (i - t - 1))))
 			return r;
+		ttls_mpi_sub_mpi(&X, &X, &T1);
 
 		if (ttls_mpi_cmp_int(&X, 0) < 0) {
 			if (ttls_mpi_copy(&T1, &Y)
-			    || ttls_mpi_shift_l(&T1, BIL * (i - t - 1))
-			    || ttls_mpi_add_mpi(&X, &X, &T1))
+			    || ttls_mpi_shift_l(&T1, BIL * (i - t - 1)))
 				return -ENOMEM;
+			ttls_mpi_add_mpi(&X, &X, &T1);
 			MPI_P(Q)[i - t - 1]--;
 		}
 	}
@@ -1162,12 +1125,10 @@ ttls_mpi_mod_mpi(TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 		return r;
 
 	while (ttls_mpi_cmp_int(R, 0) < 0)
-		if ((r = ttls_mpi_add_mpi(R, R, B)))
-			return r;
+		ttls_mpi_add_mpi(R, R, B);
 
 	while (ttls_mpi_cmp_mpi(R, B) >= 0)
-		if ((r = ttls_mpi_sub_mpi(R, R, B)))
-			return r;
+		ttls_mpi_sub_mpi(R, R, B);
 
 	return 0;
 }
@@ -1401,7 +1362,7 @@ ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E, const TlsMpi *N,
 
 	if (neg && E->used && (MPI_P(E)[0] & 1)) {
 		X->s = -1;
-		TTLS_MPI_CHK(ttls_mpi_add_mpi(X, N, X));
+		ttls_mpi_add_mpi(X, N, X);
 	}
 
 cleanup:
@@ -1438,10 +1399,10 @@ ttls_mpi_gcd(TlsMpi *G, const TlsMpi *A, const TlsMpi *B)
 		MPI_CHK(ttls_mpi_shift_r(&TB, ttls_mpi_lsb(&TB)));
 
 		if (ttls_mpi_cmp_mpi(&TA, &TB) >= 0) {
-			MPI_CHK(ttls_mpi_sub_abs(&TA, &TA, &TB));
+			ttls_mpi_sub_abs(&TA, &TA, &TB);
 			MPI_CHK(ttls_mpi_shift_r(&TA, 1));
 		} else {
-			MPI_CHK(ttls_mpi_sub_abs(&TB, &TB, &TA));
+			ttls_mpi_sub_abs(&TB, &TB, &TA);
 			MPI_CHK(ttls_mpi_shift_r(&TB, 1));
 		}
 	}
@@ -1497,8 +1458,8 @@ ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N)
 		while (!(MPI_P(TU)[0] & 1)) {
 			TTLS_MPI_CHK(ttls_mpi_shift_r(TU, 1));
 			if ((MPI_P(U1)[0] & 1) || (MPI_P(U2)[0] & 1)) {
-				TTLS_MPI_CHK(ttls_mpi_add_mpi(U1, U1, TB));
-				TTLS_MPI_CHK(ttls_mpi_sub_mpi(U2, U2, TA));
+				ttls_mpi_add_mpi(U1, U1, TB);
+				ttls_mpi_sub_mpi(U2, U2, TA);
 			}
 			TTLS_MPI_CHK(ttls_mpi_shift_r(U1, 1));
 			TTLS_MPI_CHK(ttls_mpi_shift_r(U2, 1));
@@ -1507,29 +1468,29 @@ ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N)
 		while (!(MPI_P(TV)[0] & 1)) {
 			TTLS_MPI_CHK(ttls_mpi_shift_r(TV, 1));
 			if ((MPI_P(V1)[0] & 1) || (MPI_P(V2)[0] & 1)) {
-				TTLS_MPI_CHK(ttls_mpi_add_mpi(V1, V1, TB));
-				TTLS_MPI_CHK(ttls_mpi_sub_mpi(V2, V2, TA));
+				ttls_mpi_add_mpi(V1, V1, TB);
+				ttls_mpi_sub_mpi(V2, V2, TA);
 			}
 			TTLS_MPI_CHK(ttls_mpi_shift_r(V1, 1));
 			TTLS_MPI_CHK(ttls_mpi_shift_r(V2, 1));
 		}
 
 		if (ttls_mpi_cmp_mpi(TU, TV) >= 0) {
-			TTLS_MPI_CHK(ttls_mpi_sub_mpi(TU, TU, TV));
-			TTLS_MPI_CHK(ttls_mpi_sub_mpi(U1, U1, V1));
-			TTLS_MPI_CHK(ttls_mpi_sub_mpi(U2, U2, V2));
+			ttls_mpi_sub_mpi(TU, TU, TV);
+			ttls_mpi_sub_mpi(U1, U1, V1);
+			ttls_mpi_sub_mpi(U2, U2, V2);
 		} else {
-			TTLS_MPI_CHK(ttls_mpi_sub_mpi(TV, TV, TU));
-			TTLS_MPI_CHK(ttls_mpi_sub_mpi(V1, V1, U1));
-			TTLS_MPI_CHK(ttls_mpi_sub_mpi(V2, V2, U2));
+			ttls_mpi_sub_mpi(TV, TV, TU);
+			ttls_mpi_sub_mpi(V1, V1, U1);
+			ttls_mpi_sub_mpi(V2, V2, U2);
 		}
 	} while (ttls_mpi_cmp_int(TU, 0));
 
 	while (ttls_mpi_cmp_int(V1, 0) < 0)
-		TTLS_MPI_CHK(ttls_mpi_add_mpi(V1, V1, N));
+		ttls_mpi_add_mpi(V1, V1, N);
 
 	while (ttls_mpi_cmp_mpi(V1, N) >= 0)
-		TTLS_MPI_CHK(ttls_mpi_sub_mpi(V1, V1, N));
+		ttls_mpi_sub_mpi(V1, V1, N);
 
 	ret = ttls_mpi_copy(X, V1);
 

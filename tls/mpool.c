@@ -365,7 +365,7 @@ __mpi_profile_load_ec(TlsMpiPool *mp, TlsECDHCtx *ctx, unsigned char w,
 	if (!(grp = ttls_mpool_alloc_data(mp, sizeof(*grp))))
 		return -ENOMEM;
 	if ((r = ttls_ecp_group_load(grp, ec))) {
-		T_DBG("cannot load Secp256r1 ECP group, %d\n",
+		T_DBG("cannot load Secp256r1 ECP group, %s (%d)\n",
 		      ec == TTLS_ECP_DP_SECP256R1 ? "Secp256r1" :
 		      ec == TTLS_ECP_DP_SECP384R1 ? "Secp384r1" : "unknown",
 		      r);

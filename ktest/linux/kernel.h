@@ -119,12 +119,17 @@ print_hex_dump(const char *level, const char *prefix_str, int prefix_type,
 	int i;
 	const unsigned char *c = (unsigned char *)buf;
 
+	fflush(NULL);
 	printf(prefix_str);
+
 	for (i = 0; i < len; ++i) {
-		printf("%.2x ", c[i]);
-		if (i % 16 == 0)
+		if (i && !(i % 16))
 			printf("\n%s", prefix_str);
+		printf("%.2x ", c[i]);
 	}
+	printf("\n");
+
+	fflush(NULL);
 }
 
 #endif /* __KERNEL_H__ */
