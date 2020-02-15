@@ -188,24 +188,44 @@ ttls_mpi_copy(TlsMpi *X, const TlsMpi *Y)
  * and/or memory access patterns analysis). Leaking information about the
  * respective sizes of X and Y is ok however.
  */
-int
+void
 ttls_mpi_safe_cond_assign(TlsMpi *X, const TlsMpi *Y, unsigned char assign)
 {
-	int i;
+	static const unsigned short s_masks[2] = {0, 0xffff};
+	static const unsigned long l_masks[2] = {0, 0xffffffffffffffffUL};
 
-	/* Make sure assign is 0 or 1 in a time-constant manner. */
-	assign = (assign | (unsigned char)-assign) >> 7;
+	int i = 0;
+	unsigned long *x = MPI_P(X), *y = MPI_P(Y);
+	unsigned short ys_mask, ns_mask;
+	unsigned long yl_mask, nl_mask;
 
-	if (ttls_mpi_alloc(X, Y->used))
-		return -ENOMEM;
+	BUG_ON(X->limbs < Y->used);
+	BUG_ON(assign > 1);
 
-	X->s = X->s * (1 - assign) + Y->s * assign;
-	X->used = X->used * (1 - assign) + Y->used * assign;
+	ys_mask = s_masks[assign];
+	ns_mask = s_masks[!assign];
+	yl_mask = l_masks[assign];
+	nl_mask = l_masks[!assign];
 
-	for (i = 0; i < Y->used; i++)
-		MPI_P(X)[i] = MPI_P(X)[i] * (1 - assign) + MPI_P(Y)[i] * assign;
+	X->s = (X->s & ns_mask) | (Y->s & ys_mask);
+	X->used = (X->used & ns_mask) | (Y->used & ys_mask);
 
-	return 0;
+	for ( ; i + 4 <= Y->used; i += 4) {
+		x[i] = (x[i] & nl_mask) | (y[i] & yl_mask);
+		x[i + 1] = (x[i + 1] & nl_mask) | (y[i + 1] & yl_mask);
+		x[i + 2] = (x[i + 2] & nl_mask) | (y[i + 2] & yl_mask);
+		x[i + 3] = (x[i + 3] & nl_mask) | (y[i + 3] & yl_mask);
+	}
+	switch (Y->used - i) {
+	case 3:
+		x[i] = (x[i] & nl_mask) | (y[i] & yl_mask);
+		i++;
+	case 2:
+		x[i] = (x[i] & nl_mask) | (y[i] & yl_mask);
+		i++;
+	case 1:
+		x[i] = (x[i] & nl_mask) | (y[i] & yl_mask);
+	}
 }
 
 /**

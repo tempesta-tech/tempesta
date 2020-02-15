@@ -32,7 +32,7 @@ CFLAGS		= -O0 -ggdb -std=gnu89 -DL1_CACHE_BYTES=$(CACHELINE) \
 		  -Wall -Werror -Wno-sign-compare -Wno-pointer-sign \
 		  -Werror=strict-prototypes -Werror=incompatible-pointer-types \
 		  -Wno-unused-but-set-variable -Wno-unused-const-variable \
-		  -Wno-unused-function \
+		  -Wno-unused-function -Warray-bounds=0 \
 		  -fno-strict-aliasing \
 		  -I../../ktest -I../.. -I..
 ifdef DEBUG
