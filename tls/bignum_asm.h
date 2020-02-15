@@ -26,6 +26,10 @@ int mpi_add_x86_64(unsigned long *x, size_t x_len,
 		   unsigned long *b, size_t b_len,
 		   unsigned long *a, size_t a_len);
 
+void mpi_sub_x86_64_5_4(unsigned long *x, unsigned long *b, unsigned long *a);
+void mpi_sub_x86_64_4_4(unsigned long *x, unsigned long *b, unsigned long *a);
+void mpi_sub_x86_64_3_3(unsigned long *x, unsigned long *b, unsigned long *a);
+void mpi_sub_x86_64_2_2(unsigned long *x, unsigned long *b, unsigned long *a);
 void mpi_sub_x86_64(unsigned long *x, unsigned long *b, unsigned long *a,
 		    size_t b_len, size_t a_len);
 
