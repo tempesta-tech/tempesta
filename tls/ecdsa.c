@@ -64,7 +64,7 @@ static int derive_mpi(const TlsEcpGrp *grp, TlsMpi *x,
 
 	/* While at it, reduce modulo N */
 	if (ttls_mpi_cmp_mpi(x, &grp->N) >= 0)
-		TTLS_MPI_CHK(ttls_mpi_sub_mpi(x, x, &grp->N));
+		ttls_mpi_sub_mpi(x, x, &grp->N);
 
 cleanup:
 	return ret;
@@ -256,7 +256,7 @@ ttls_ecdsa_write_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
 
 		/* Compute s = (e + r * d) / k = t (e + rd) / (kt) mod n */
 		MPI_CHK(ttls_mpi_mul_mpi(s, r, d));
-		MPI_CHK(ttls_mpi_add_mpi(e, e, s));
+		ttls_mpi_add_mpi(e, e, s);
 		MPI_CHK(ttls_mpi_mul_mpi(e, e, t));
 		MPI_CHK(ttls_mpi_mul_mpi(k, k, t));
 		MPI_CHK(ttls_mpi_inv_mod(s, k, &grp->N));
