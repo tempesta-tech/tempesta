@@ -11,8 +11,7 @@
  *
  * [2] Multi-Precision Math, Tom St Denis
  *
- * [3] GNU Multi-Precision Arithmetic Library
- *     https://gmplib.org/manual/index.html
+ * [3] WolfSSL library, https://github.com/wolfSSL/wolfssl/
  *
  * Based on mbed TLS, https://tls.mbed.org.
  *
@@ -273,11 +272,10 @@ ttls_mpi_safe_cond_swap(TlsMpi *X, TlsMpi *Y, unsigned char swap)
 /**
  * Set value from integer.
  */
-int
+void
 ttls_mpi_lset(TlsMpi *X, long z)
 {
-	if (ttls_mpi_alloc(X, 1))
-		return -ENOMEM;
+	BUG_ON(ttls_mpi_alloc(X, 1));
 
 	X->used = 1;
 	if (z < 0) {
@@ -287,8 +285,6 @@ ttls_mpi_lset(TlsMpi *X, long z)
 		MPI_P(X)[0] = z;
 		X->s = 1;
 	}
-
-	return 0;
 }
 
 int
@@ -374,94 +370,102 @@ ttls_mpi_size(const TlsMpi *X)
 /**
  * Left-shift: X <<= count.
  *
- * TODO #1064 stupid 2*n algorithm, do this in one shot.
+ * The most frequent shift is for 1 bit.
+ * All the shifts for more than 64 bits are for integer number of limbs,
+ * so the straightforward 2n algorithm is fine to make the each case simpler.
  */
-int
+void
 ttls_mpi_shift_l(TlsMpi *X, size_t count)
 {
-	size_t v0, t1, old_used = X->used, i = ttls_mpi_bitlen(X);
-	unsigned long r0 = 0, r1, *p = MPI_P(X);
+	size_t limbs, bits, old_used = X->used;
+	unsigned long *x = MPI_P(X);
 
-	if (unlikely(!i))
-		return 0;
+	if (!count || !X->used || !x[old_used - 1])
+		return;
 
-	v0 = count >> BSHIFT;
-	t1 = count & BMASK;
-	i += count;
+	limbs = count >> BSHIFT;
+	bits = count & BMASK;
 
-	if (WARN_ON_ONCE((X->limbs << BSHIFT) < i))
-		return -ENOSPC;
+	/*
+	 * By the call of the function we don't know how many bits are set
+	 * in the MPI, so any left shift can increase number of required limbs.
+	 * While here we calculate the resulting number of bits to properly
+	 * set X->used, the extra limb allows up to use the same assembly
+	 * routine and do not care about zeroing the most significant limb.
+	 */
+	BUG_ON(X->limbs < old_used + limbs + 1);
 
-	X->used = BITS_TO_LIMBS(i);
-	if (old_used < X->used)
-		bzero_fast(p + old_used, (X->used - old_used) * CIL);
+	X->used = BITS_TO_LIMBS(ttls_mpi_bitlen(X) + count);
 
 	/* Shift by count / limb_size. */
-	if (v0 > 0) {
-		for (i = X->used; i > v0; i--)
-			p[i - 1] = p[i - v0 - 1];
-		for ( ; i > 0; i--)
-			p[i - 1] = 0;
+	if (unlikely(limbs > 0)) {
+		memmove(x + limbs, x, old_used * CIL);
+		bzero_fast(x, limbs * CIL);
 	}
 
-	/* shift by count % limb_size. */
-	if (t1 > 0) {
-		for (i = v0; i < X->used; i++) {
-			r1 = p[i] >> (BIL - t1);
-			p[i] <<= t1;
-			p[i] |= r0;
-			r0 = r1;
-		}
+	/* Shift by count % limb_size. */
+	if (likely(bits > 0)) {
+		if (likely(old_used == 4))
+			mpi_shift_l_x86_64_4(x + limbs, bits);
+		else
+			mpi_shift_l_x86_64(x + limbs, old_used, bits);
 	}
-
-	return 0;
 }
 
 /**
  * Right-shift: X >>= count.
  *
- * TODO #1064 stupid 2*n algorithm, do this in one shot.
+ * The most frequent shift is 1 bit for 4-limbs MPI.
+ * All the shifts for more than 64 bits are for integer number of limbs,
+ * so the straightforward 2n algorithm is fine to make the each case simpler.
  */
-int
+void
 ttls_mpi_shift_r(TlsMpi *X, size_t count)
 {
-	size_t i, v0, v1;
-	unsigned long r0 = 0, r1;
+	size_t limbs, bits;
+	unsigned long *x = MPI_P(X);
 
-	if (unlikely(!X->used || !MPI_P(X)[X->used - 1])) {
-		WARN_ON_ONCE(X->used > 1);
-		return 0;
+	if (!count)
+		return;
+
+	/*
+	 * The most frequent case for SECP 256 - default and recommended
+	 * elliptic curve.
+	 */
+	if (likely(count < 64 && X->used == 4)) {
+		mpi_shift_r_x86_64_4(x, count);
+		X->used -= !x[X->used - 1];
+		return;
 	}
 
-	v0 = count >> BSHIFT;
-	v1 = count & BMASK;
+	if (!X->used || !x[X->used - 1])
+		return;
 
-	if (v0 > X->used || (v0 == X->used && v1 > 0))
-		return ttls_mpi_lset(X, 0);
+	limbs = count >> BSHIFT;
+	bits = count & BMASK;
 
 	/*
 	 * Shift by count / limb_size - remove least significant limbs.
 	 * There could be garbage after last used limb, so be careful.
 	 */
-	if (v0 > 0) {
-		X->used -= v0;
-		for (i = 0; i < X->used; i++)
-			MPI_P(X)[i] = MPI_P(X)[i + v0];
+	if (unlikely(limbs > 0)) {
+		if (limbs >= X->used) {
+			ttls_mpi_lset(X, 0);
+			return;
+		} else {
+			X->used -= limbs;
+			memmove(x, x + limbs, X->used * CIL);
+		}
 	}
 
 	/* Shift by count % limb_size. */
-	if (v1 > 0) {
-		for (i = X->used; i > 0; i--) {
-			r1 = MPI_P(X)[i - 1] << (BIL - v1);
-			MPI_P(X)[i - 1] >>= v1;
-			MPI_P(X)[i - 1] |= r0;
-			r0 = r1;
-		}
-		if (!MPI_P(X)[X->used - 1])
-			--X->used;
+	if (likely(bits > 0)) {
+		if (X->used == 4)
+			mpi_shift_r_x86_64_4(x, bits);
+		else
+			mpi_shift_r_x86_64(x, X->used, bits);
+		X->used -= !x[X->used - 1];
 	}
-
-	return 0;
 }
 
 #ifdef DEBUG
@@ -1035,14 +1039,12 @@ ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 			if (ttls_mpi_copy(Q, A))
 				return -ENOMEM;
 		if (R)
-			if (ttls_mpi_lset(R, 0))
-				return -ENOMEM;
+			ttls_mpi_lset(R, 0);
 		return 0;
 	}
 	if (ttls_mpi_cmp_abs(A, B) < 0) {
 		if (Q)
-			if (ttls_mpi_lset(Q, 0))
-				return -ENOMEM;
+			ttls_mpi_lset(Q, 0);
 		if (R)
 			if (ttls_mpi_copy(R, A))
 				return -ENOMEM;
@@ -1055,7 +1057,7 @@ ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 	}
 
 	ttls_mpi_alloca_init(&X, A->used + 1);
-	ttls_mpi_alloca_init(&Y, A->used + 1);
+	ttls_mpi_alloca_init(&Y, A->used + 2);
 	ttls_mpi_alloca_init(&T1, 3 + A->used);
 	ttls_mpi_alloca_init(&T2, 3);
 	if (ttls_mpi_copy_alloc(&X, A, false)
@@ -1072,8 +1074,8 @@ ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 	k = ttls_mpi_bitlen(&Y) & BMASK;
 	if (k < BIL - 1) {
 		k = BIL - 1 - k;
-		if (ttls_mpi_shift_l(&X, k) || ttls_mpi_shift_l(&Y, k))
-			return -ENOMEM;
+		ttls_mpi_shift_l(&X, k);
+		ttls_mpi_shift_l(&Y, k);
 	} else {
 		k = 0;
 	}
@@ -1081,14 +1083,12 @@ ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 	n = X.used - 1;
 	t = Y.used - 1;
 
-	if (ttls_mpi_shift_l(&Y, BIL * (n - t)))
-		return -ENOMEM;
+	ttls_mpi_shift_l(&Y, BIL * (n - t));
 	while (ttls_mpi_cmp_mpi(&X, &Y) >= 0) {
 		MPI_P(Q)[n - t]++;
 		ttls_mpi_sub_mpi(&X, &X, &Y);
 	}
-	if (ttls_mpi_shift_r(&Y, BIL * (n - t)))
-		return -ENOMEM;
+	ttls_mpi_shift_r(&Y, BIL * (n - t));
 
 	for (i = n; i > t; i--) {
 		MPI_P(Q)[i - t - 1] = MPI_P(&X)[i] >= MPI_P(&Y)[t]
@@ -1120,15 +1120,15 @@ ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 				return -ENOMEM;
 		} while (ttls_mpi_cmp_mpi(&T1, &T2) > 0);
 
-		if ((r = ttls_mpi_mul_uint(&T1, &Y, MPI_P(Q)[i - t - 1]))
-		    || (r = ttls_mpi_shift_l(&T1,  BIL * (i - t - 1))))
+		if ((r = ttls_mpi_mul_uint(&T1, &Y, MPI_P(Q)[i - t - 1])))
 			return r;
+		ttls_mpi_shift_l(&T1,  BIL * (i - t - 1));
 		ttls_mpi_sub_mpi(&X, &X, &T1);
 
 		if (ttls_mpi_cmp_int(&X, 0) < 0) {
-			if (ttls_mpi_copy(&T1, &Y)
-			    || ttls_mpi_shift_l(&T1, BIL * (i - t - 1)))
+			if (ttls_mpi_copy(&T1, &Y))
 				return -ENOMEM;
+			ttls_mpi_shift_l(&T1, BIL * (i - t - 1));
 			ttls_mpi_add_mpi(&X, &X, &T1);
 			MPI_P(Q)[i - t - 1]--;
 		}
@@ -1139,8 +1139,7 @@ ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 		mpi_fixup_used(Q, Q->used);
 	}
 	if (R) {
-		if (ttls_mpi_shift_r(&X, k))
-			return -ENOMEM;
+		ttls_mpi_shift_r(&X, k);
 		mpi_fixup_used(&X, X.used);
 		X.s = A->s;
 		if (ttls_mpi_copy(R, &X))
@@ -1317,9 +1316,9 @@ ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E, const TlsMpi *N,
 	 */
 	BUG_ON(!RR);
 	if (unlikely(ttls_mpi_empty(RR))) {
-		TTLS_MPI_CHK(ttls_mpi_alloc(RR, N->used * 2 + 1));
-		TTLS_MPI_CHK(ttls_mpi_lset(RR, 1));
-		TTLS_MPI_CHK(ttls_mpi_shift_l(RR, N->used * 2 * BIL));
+		TTLS_MPI_CHK(ttls_mpi_alloc(RR, N->used * 2 + 2));
+		ttls_mpi_lset(RR, 1);
+		ttls_mpi_shift_l(RR, N->used * 2 * BIL);
 		TTLS_MPI_CHK(ttls_mpi_mod_mpi(RR, RR, N));
 	}
 
@@ -1428,7 +1427,7 @@ ttls_mpi_gcd(TlsMpi *G, const TlsMpi *A, const TlsMpi *B)
 	TlsMpi TA, TB;
 
 	ttls_mpi_alloca_init(&TA, A->used);
-	ttls_mpi_alloca_init(&TB, B->used);
+	ttls_mpi_alloca_init(&TB, B->used + 1);
 	MPI_CHK(ttls_mpi_copy_alloc(&TA, A, false));
 	MPI_CHK(ttls_mpi_copy_alloc(&TB, B, false));
 
@@ -1437,25 +1436,25 @@ ttls_mpi_gcd(TlsMpi *G, const TlsMpi *A, const TlsMpi *B)
 	if (lzt < lz)
 		lz = lzt;
 
-	MPI_CHK(ttls_mpi_shift_r(&TA, lz));
-	MPI_CHK(ttls_mpi_shift_r(&TB, lz));
+	ttls_mpi_shift_r(&TA, lz);
+	ttls_mpi_shift_r(&TB, lz);
 
 	TA.s = TB.s = 1;
 
 	while (ttls_mpi_cmp_int(&TA, 0)) {
-		MPI_CHK(ttls_mpi_shift_r(&TA, ttls_mpi_lsb(&TA)));
-		MPI_CHK(ttls_mpi_shift_r(&TB, ttls_mpi_lsb(&TB)));
+		ttls_mpi_shift_r(&TA, ttls_mpi_lsb(&TA));
+		ttls_mpi_shift_r(&TB, ttls_mpi_lsb(&TB));
 
 		if (ttls_mpi_cmp_mpi(&TA, &TB) >= 0) {
 			ttls_mpi_sub_abs(&TA, &TA, &TB);
-			MPI_CHK(ttls_mpi_shift_r(&TA, 1));
+			ttls_mpi_shift_r(&TA, 1);
 		} else {
 			ttls_mpi_sub_abs(&TB, &TB, &TA);
-			MPI_CHK(ttls_mpi_shift_r(&TB, 1));
+			ttls_mpi_shift_r(&TB, 1);
 		}
 	}
 
-	MPI_CHK(ttls_mpi_shift_l(&TB, lz));
+	ttls_mpi_shift_l(&TB, lz);
 
 	return ttls_mpi_copy(G, &TB);
 }
@@ -1497,30 +1496,30 @@ ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N)
 	TTLS_MPI_CHK(ttls_mpi_copy(TB, N));
 	TTLS_MPI_CHK(ttls_mpi_copy(TV, N));
 
-	TTLS_MPI_CHK(ttls_mpi_lset(U1, 1));
-	TTLS_MPI_CHK(ttls_mpi_lset(U2, 0));
-	TTLS_MPI_CHK(ttls_mpi_lset(V1, 0));
-	TTLS_MPI_CHK(ttls_mpi_lset(V2, 1));
+	ttls_mpi_lset(U1, 1);
+	ttls_mpi_lset(U2, 0);
+	ttls_mpi_lset(V1, 0);
+	ttls_mpi_lset(V2, 1);
 
 	do {
 		while (!(MPI_P(TU)[0] & 1)) {
-			TTLS_MPI_CHK(ttls_mpi_shift_r(TU, 1));
+			ttls_mpi_shift_r(TU, 1);
 			if ((MPI_P(U1)[0] & 1) || (MPI_P(U2)[0] & 1)) {
 				ttls_mpi_add_mpi(U1, U1, TB);
 				ttls_mpi_sub_mpi(U2, U2, TA);
 			}
-			TTLS_MPI_CHK(ttls_mpi_shift_r(U1, 1));
-			TTLS_MPI_CHK(ttls_mpi_shift_r(U2, 1));
+			ttls_mpi_shift_r(U1, 1);
+			ttls_mpi_shift_r(U2, 1);
 		}
 
 		while (!(MPI_P(TV)[0] & 1)) {
-			TTLS_MPI_CHK(ttls_mpi_shift_r(TV, 1));
+			ttls_mpi_shift_r(TV, 1);
 			if ((MPI_P(V1)[0] & 1) || (MPI_P(V2)[0] & 1)) {
 				ttls_mpi_add_mpi(V1, V1, TB);
 				ttls_mpi_sub_mpi(V2, V2, TA);
 			}
-			TTLS_MPI_CHK(ttls_mpi_shift_r(V1, 1));
-			TTLS_MPI_CHK(ttls_mpi_shift_r(V2, 1));
+			ttls_mpi_shift_r(V1, 1);
+			ttls_mpi_shift_r(V2, 1);
 		}
 
 		if (ttls_mpi_cmp_mpi(TU, TV) >= 0) {

@@ -60,7 +60,7 @@ static int derive_mpi(const TlsEcpGrp *grp, TlsMpi *x,
 
 	TTLS_MPI_CHK(ttls_mpi_read_binary(x, buf, use_size));
 	if (use_size * 8 > grp->nbits)
-		TTLS_MPI_CHK(ttls_mpi_shift_r(x, use_size * 8 - grp->nbits));
+		ttls_mpi_shift_r(x, use_size * 8 - grp->nbits);
 
 	/* While at it, reduce modulo N */
 	if (ttls_mpi_cmp_mpi(x, &grp->N) >= 0)
@@ -246,7 +246,7 @@ ttls_ecdsa_write_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
 		do {
 			size_t n_size = (grp->nbits + 7) / 8;
 			MPI_CHK(ttls_mpi_fill_random(t, n_size));
-			MPI_CHK(ttls_mpi_shift_r(t, 8 * n_size - grp->nbits));
+			ttls_mpi_shift_r(t, 8 * n_size - grp->nbits);
 
 			/* See ttls_ecp_gen_keypair() */
 			if (++blind_tries > 30)
