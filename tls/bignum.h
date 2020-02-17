@@ -158,10 +158,10 @@ int ttls_mpi_fill_random(TlsMpi *X, size_t size);
 void ttls_mpi_safe_cond_assign(TlsMpi *X, const TlsMpi *Y, unsigned char assign);
 int ttls_mpi_safe_cond_swap(TlsMpi *X, TlsMpi *Y, unsigned char swap);
 
-int ttls_mpi_lset(TlsMpi *X, long z);
+void ttls_mpi_lset(TlsMpi *X, long z);
 
-int ttls_mpi_shift_l(TlsMpi *X, size_t count);
-int ttls_mpi_shift_r(TlsMpi *X, size_t count);
+void ttls_mpi_shift_l(TlsMpi *X, size_t count);
+void ttls_mpi_shift_r(TlsMpi *X, size_t count);
 int ttls_mpi_get_bit(const TlsMpi *X, size_t pos);
 int ttls_mpi_set_bit(TlsMpi *X, size_t pos, unsigned char val);
 size_t ttls_mpi_lsb(const TlsMpi *X);

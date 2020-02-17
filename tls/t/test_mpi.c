@@ -171,7 +171,7 @@ mpi_copy(void)
 	EXPECT_FALSE(!(A = ttls_mpi_alloc_stack_init(TTLS_MPI_MAX_SIZE / CIL)));
 	EXPECT_FALSE(!(B = ttls_mpi_alloc_stack_init(TTLS_MPI_MAX_SIZE / CIL)));
 
-	EXPECT_ZERO(ttls_mpi_lset(A, -5));
+	ttls_mpi_lset(A, -5);
 	EXPECT_TRUE(A->used == 1);
 	EXPECT_TRUE(A->limbs == TTLS_MPI_MAX_SIZE / CIL);
 	EXPECT_FALSE(A->_off == 0);
@@ -185,7 +185,7 @@ mpi_copy(void)
 	EXPECT_TRUE(A->_off == save_off);
 	EXPECT_TRUE(A->s == 1);
 
-	EXPECT_ZERO(ttls_mpi_lset(A, -1L));
+	ttls_mpi_lset(A, -1L);
 	EXPECT_ZERO(ttls_mpi_copy(B, A));
 	EXPECT_TRUE(B->used == 1);
 	EXPECT_TRUE(B->limbs == TTLS_MPI_MAX_SIZE / CIL);
@@ -221,7 +221,7 @@ mpi_safe_cond(void)
 	EXPECT_FALSE(!(A = ttls_mpi_alloc_stack_init(25)));
 	EXPECT_FALSE(!(B = ttls_mpi_alloc_stack_init(0)));
 
-	EXPECT_ZERO(ttls_mpi_lset(A, -0x1122334455667788L));
+	ttls_mpi_lset(A, -0x1122334455667788L);
 	EXPECT_ZERO(ttls_mpi_fill_random(B, 200)); /* 25 limbs */
 	save_offA = A->_off;
 	save_offB = B->_off;
@@ -287,7 +287,7 @@ mpi_bitop(void)
 	TlsMpi A;
 	unsigned long *save_ptr;
 
-	ttls_mpi_alloca_init(&A, 11);
+	ttls_mpi_alloca_init(&A, 12);
 
 	EXPECT_ZERO(ttls_mpi_read_binary(&A, "\xEF\xE0\x21\xC2\x64\x5F\xD1\xDC"
 					     "\x58\x6E\x69\x18\x4A\xF4\xA3\x1E"
@@ -317,7 +317,7 @@ mpi_bitop(void)
 	EXPECT_ZERO(ttls_mpi_set_bit(&A, 600, 1));
 	EXPECT_TRUE(ttls_mpi_get_bit(&A, 600) == 1);
 	EXPECT_TRUE(A.used == 10);
-	EXPECT_TRUE(A.limbs == 11);
+	EXPECT_TRUE(A.limbs == 12);
 	EXPECT_TRUE(MPI_P(&A) == save_ptr);
 	EXPECT_TRUE(A.s == 1);
 	EXPECT_TRUE(MPI_P(&A)[0] == 0xb34eb38a2f40d5e6UL);
@@ -327,9 +327,9 @@ mpi_bitop(void)
 	EXPECT_EQ(ttls_mpi_bitlen(&A), 601);
 	EXPECT_EQ(ttls_mpi_lsb(&A), 1);
 
-	EXPECT_ZERO(ttls_mpi_shift_r(&A, 71));
+	ttls_mpi_shift_r(&A, 71);
 	EXPECT_TRUE(A.used == 9);
-	EXPECT_TRUE(A.limbs == 11);
+	EXPECT_TRUE(A.limbs == 12);
 	EXPECT_TRUE(MPI_P(&A) == save_ptr);
 	EXPECT_TRUE(A.s == 1);
 	/* (0x7780cb0db80e61aa << (128-71)) | (0xe7c8ddc6c5c6aade >> (71-64)) */
@@ -340,9 +340,9 @@ mpi_bitop(void)
 	EXPECT_EQ(ttls_mpi_lsb(&A), 0);
 
 	/* No allocation - shift in-place. */
-	EXPECT_ZERO(ttls_mpi_shift_l(&A, 59));
+	ttls_mpi_shift_l(&A, 59);
 	EXPECT_TRUE(A.used == 10);
-	EXPECT_TRUE(A.limbs == 11);
+	EXPECT_TRUE(A.limbs == 12);
 	EXPECT_TRUE(MPI_P(&A) == save_ptr);
 	EXPECT_TRUE(A.s == 1);
 	EXPECT_TRUE(MPI_P(&A)[0] == 0xa800000000000000UL);
@@ -353,9 +353,9 @@ mpi_bitop(void)
 	EXPECT_EQ(ttls_mpi_lsb(&A), 59);
 
 	/* Allocated a new limb - data copying. */
-	EXPECT_ZERO(ttls_mpi_shift_l(&A, 65));
+	ttls_mpi_shift_l(&A, 65);
 	EXPECT_TRUE(A.used == 11);
-	EXPECT_TRUE(A.limbs == 11);
+	EXPECT_TRUE(A.limbs == 12);
 	EXPECT_TRUE(MPI_P(&A) == save_ptr);
 	EXPECT_TRUE(A.s == 1);
 	EXPECT_TRUE(MPI_P(&A)[0] == 0);
@@ -442,13 +442,13 @@ mpi_mul_div_simple(void)
 					    47));
 	EXPECT_ZERO(ttls_mpi_copy(B, A));
 
-	EXPECT_ZERO(ttls_mpi_shift_l(A, 11));
+	ttls_mpi_shift_l(A, 11);
 	EXPECT_ZERO(ttls_mpi_mul_uint(B, B, 2048));
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(A, B) == 0);
 	EXPECT_TRUE(A->used == 7);
 
-	EXPECT_ZERO(ttls_mpi_lset(D, 8));
-	EXPECT_ZERO(ttls_mpi_shift_r(B, 3));
+	ttls_mpi_lset(D, 8);
+	ttls_mpi_shift_r(B, 3);
 	EXPECT_ZERO(ttls_mpi_div_mpi(A, R, A, D));
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(A, B) == 0);
 	EXPECT_TRUE(ttls_mpi_cmp_int(R, 0) == 0);
@@ -542,8 +542,8 @@ mpi_big(void)
 					    "\xF1\x0A\x09\xFA\x08\xAB\x87",
 					    47));
 	/* Pre-compute RR as R^2 mod N, use V as it's not needed any more. */
-	EXPECT_ZERO(ttls_mpi_lset(V, 1));
-	EXPECT_ZERO(ttls_mpi_shift_l(V, N->used * 2 * BIL));
+	ttls_mpi_lset(V, 1);
+	ttls_mpi_shift_l(V, N->used * 2 * BIL);
 	EXPECT_ZERO(ttls_mpi_mod_mpi(V, V, N));
 	EXPECT_ZERO(ttls_mpi_exp_mod(X, A, E, N, V));
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(X, U) == 0);
@@ -559,8 +559,8 @@ mpi_big(void)
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(X, U) == 0);
 
 	for (i = 0; i < GCD_PAIR_COUNT; i++) {
-		EXPECT_ZERO(ttls_mpi_lset(X, gcd_pairs[i][0]));
-		EXPECT_ZERO(ttls_mpi_lset(Y, gcd_pairs[i][1]));
+		ttls_mpi_lset(X, gcd_pairs[i][0]);
+		ttls_mpi_lset(Y, gcd_pairs[i][1]);
 
 		EXPECT_ZERO(ttls_mpi_gcd(A, X, Y));
 

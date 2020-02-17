@@ -248,6 +248,108 @@ ENTRY(mpi_sub_x86_64_2_2)
 ENDPROC(mpi_sub_x86_64_2_2)
 
 
+/**
+ * Shift X left for N < 64 bits.
+ *
+ * %RDI	- pointer to X;
+ * %RSI	- size of X (value of X->used for after the shift);
+ * %RDX	- N.
+ */
+ENTRY(mpi_shift_l_x86_64)
+	movq	%rdx, %rcx
+
+	/*
+	 * Frst iteration with zeroed most significant limb propagating its
+	 * bits to the extra limb.
+	 */
+	xorq	%r11, %r11
+	movq	-8(%rdi, %rsi, 8), %r8
+	shldq	%cl, %r8, %r11
+	movq	%r11, (%rdi, %rsi, 8)
+	decq	%rsi
+	jz	.shl_last
+
+	/* The main loop with carying bits from less significant limbs. */
+.shl_loop:
+	movq	-8(%rdi, %rsi, 8), %r11
+	shldq	%cl, %r11, (%rdi, %rsi, 8)
+	decq	%rsi
+	jnz	.shl_loop
+
+	/* Shift the less significant limb right in-place. */
+.shl_last:
+	shlq	%cl, (%rdi)
+	ret
+ENDPROC(mpi_shift_l_x86_64)
+
+/**
+ * A specialization of the above for 4 limbs MPI with and extra 5th limb.
+ *
+ * %RDI	- pointer to X;
+ * %RSI	- N bits to shift.
+ */
+ENTRY(mpi_shift_l_x86_64_4)
+	movq	%rsi, %rcx
+	movq	(%rdi), %r8
+	movq	8(%rdi), %r9
+	movq	16(%rdi), %r10
+	xorq	%rdx, %rdx
+	movq	24(%rdi), %r11
+	shldq	%cl, %r11, %rdx
+	shldq	%cl, %r10, 24(%rdi)
+	shldq	%cl, %r9, 16(%rdi)
+	shldq	%cl, %r8, 8(%rdi)
+	movq	%rdx, 32(%rdi)
+	shlq	%cl, (%rdi)
+	ret
+ENDPROC(mpi_shift_l_x86_64_4)
+
+
+/**
+ * Shift X right for N < 64 bits.
+ *
+ * %RDI	- pointer to X;
+ * %RSI	- size of X (current X->used);
+ * %RDX	- N.
+ */
+ENTRY(mpi_shift_r_x86_64)
+	movq	%rdx, %rcx
+	xorq	%rax, %rax
+
+	decq	%rsi
+	jz	.shr_last
+
+.shr_loop:
+	movq	8(%rdi, %rax, 8), %r8
+	shrdq	%cl, %r8, (%rdi, %rax, 8)
+	incq	%rax
+	cmpq	%rax, %rsi
+	jg	.shr_loop
+
+.shr_last:
+	shrq	%cl, (%rdi, %rax, 8)
+	ret
+ENDPROC(mpi_shift_r_x86_64)
+
+/**
+ * A specialization of the above for 4 limbs MPI.
+ *
+ * %RDI	- pointer to X;
+ * %RSI	- N bits to shift.
+ */
+ENTRY(mpi_shift_r_x86_64_4)
+	movq	%rsi, %rcx
+	movq	8(%rdi), %r8
+	movq	16(%rdi), %r9
+	movq	24(%rdi), %r10
+	shrdq	%cl, %r8, (%rdi)
+	shrdq	%cl, %r9, 8(%rdi)
+	shrdq	%cl, %r10, 16(%rdi)
+	shrq	%cl, 24(%rdi)
+	ret
+ENDPROC(mpi_shift_r_x86_64_4)
+
+
 /*
  * Use CF to carry multiplication overflow to higher digit and OF to carry
  * addition of results of current and previous multiplications.

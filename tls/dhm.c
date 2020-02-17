@@ -227,8 +227,7 @@ ttls_dhm_make_params(TlsDHMCtx *ctx, int x_size, unsigned char *output,
 			goto err;
 
 		while (ttls_mpi_cmp_mpi(&ctx->X, &ctx->P) >= 0)
-			if ((r = ttls_mpi_shift_r(&ctx->X, 1)))
-				goto err;
+			ttls_mpi_shift_r(&ctx->X, 1);
 
 		if (count++ > 10)
 			goto err;
@@ -307,7 +306,7 @@ int ttls_dhm_make_public(TlsDHMCtx *ctx, int x_size,
 		TTLS_MPI_CHK(ttls_mpi_fill_random(&ctx->X, x_size));
 
 		while (ttls_mpi_cmp_mpi(&ctx->X, &ctx->P) >= 0)
-			TTLS_MPI_CHK(ttls_mpi_shift_r(&ctx->X, 1));
+			ttls_mpi_shift_r(&ctx->X, 1);
 
 		if (count++ > 10)
 			return(TTLS_ERR_DHM_MAKE_PUBLIC_FAILED);
@@ -347,8 +346,8 @@ static int dhm_update_blinding(TlsDHMCtx *ctx)
 	if (ttls_mpi_cmp_mpi(&ctx->X, &ctx->pX) != 0)
 	{
 		TTLS_MPI_CHK(ttls_mpi_copy(&ctx->pX, &ctx->X));
-		TTLS_MPI_CHK(ttls_mpi_lset(&ctx->Vi, 1));
-		TTLS_MPI_CHK(ttls_mpi_lset(&ctx->Vf, 1));
+		ttls_mpi_lset(&ctx->Vi, 1);
+		ttls_mpi_lset(&ctx->Vf, 1);
 
 		return 0;
 	}
@@ -379,7 +378,7 @@ static int dhm_update_blinding(TlsDHMCtx *ctx)
 						  ttls_mpi_size(&ctx->P)));
 
 		while (ttls_mpi_cmp_mpi(&ctx->Vi, &ctx->P) >= 0)
-			TTLS_MPI_CHK(ttls_mpi_shift_r(&ctx->Vi, 1));
+			ttls_mpi_shift_r(&ctx->Vi, 1);
 
 		if (count++ > 10)
 			return -EINVAL;
