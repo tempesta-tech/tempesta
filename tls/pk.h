@@ -86,7 +86,6 @@ typedef struct {
  * @verify_func		- Verify signature;
  * @sign_func		- Make signature;
  * @ctx_alloc_func	- Allocate a new context;
- * @ctx_free_func	- Free the given context;
  */
 typedef struct {
 	ttls_pk_type_t	type;

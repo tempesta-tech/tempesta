@@ -177,7 +177,7 @@ ttls_rsa_deduce_primes(TlsMpi const *N, TlsMpi const *E, TlsMpi const *D,
 		return -EINVAL;
 
 	/* After this operation, T holds the largest odd divisor of DE - 1. */
-	MPI_CHK(ttls_mpi_shift_r(T, order));
+	ttls_mpi_shift_r(T, order);
 
 	/* Skip trying 2 if N == 1 mod 8 */
 	attempt = 0;

@@ -366,8 +366,7 @@ ecp_mod_p255(TlsMpi *N)
 	n = M->used * CIL;
 	memcpy_fast(MPI_P(M), MPI_P(N) + P255_WIDTH - 1, n);
 	bzero_fast((char *)MPI_P(M) + n, (P255_WIDTH + 2) * CIL - n);
-	if ((r = ttls_mpi_shift_r(M, 255 % BIL)))
-		return r;
+	ttls_mpi_shift_r(M, 255 % BIL);
 
 	/* N = A0 */
 	if ((r = ttls_mpi_set_bit(N, 255, 0)))
@@ -428,9 +427,9 @@ ecp_group_load(TlsEcpGrp *grp, const unsigned long *p,  size_t plen,
 	 * Most of the time the point is normalized, so Z stores 1, but
 	 * is some calculations the size can grow up to the curve size.
 	 */
-	if (ttls_mpi_alloc(&grp->G.Z, grp->nbits / BIL)
-	    || ttls_mpi_lset(&grp->G.Z, 1))
+	if (ttls_mpi_alloc(&grp->G.Z, grp->nbits / BIL))
 		return -ENOMEM;
+	ttls_mpi_lset(&grp->G.Z, 1);
 
 	/*
 	 * ecp_normalize_jac_many() performs multiplication on X and Y
@@ -461,8 +460,8 @@ ecp_use_curve25519(TlsEcpGrp *grp)
 	MPI_CHK(ttls_mpi_read_binary(&grp->A, "\x01\xDB\x42", 3));
 
 	/* P = 2^255 - 19 */
-	MPI_CHK(ttls_mpi_lset(&grp->P, 1));
-	MPI_CHK(ttls_mpi_shift_l(&grp->P, 255));
+	ttls_mpi_lset(&grp->P, 1);
+	ttls_mpi_shift_l(&grp->P, 255);
 	ttls_mpi_sub_int(&grp->P, &grp->P, 19);
 	grp->pbits = ttls_mpi_bitlen(&grp->P);
 
@@ -471,8 +470,8 @@ ecp_use_curve25519(TlsEcpGrp *grp)
 	 * This is used as a marker to identify Montgomery curves -
 	 * see ecp_get_type().
 	 */
-	MPI_CHK(ttls_mpi_lset(&grp->G.X, 9));
-	MPI_CHK(ttls_mpi_lset(&grp->G.Z, 1));
+	ttls_mpi_lset(&grp->G.X, 9);
+	ttls_mpi_lset(&grp->G.Z, 1);
 
 	/* Actually, the required msb for private keys */
 	grp->nbits = 254;

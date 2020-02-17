@@ -226,7 +226,6 @@ void ttls_ecp_keypair_init(TlsEcpKeypair *key);
 void ttls_ecp_keypair_free(TlsEcpKeypair *key);
 
 int ttls_ecp_copy(TlsEcpPoint *P, const TlsEcpPoint *Q);
-int ttls_ecp_set_zero(TlsEcpPoint *pt);
 int ttls_ecp_is_zero(TlsEcpPoint *pt);
 
 int ttls_ecp_point_read_binary(const TlsEcpGrp *grp, TlsEcpPoint *P,
