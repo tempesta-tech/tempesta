@@ -139,7 +139,7 @@ ecp_mul(void)
 	 * ECP test #1 (constant op_count, base point G).
 	 */
 	/* Do a dummy multiplication first to trigger precomputation */
-	EXPECT_ZERO(ttls_mpi_lset(m, 2));
+	ttls_mpi_lset(m, 2);
 	EXPECT_ZERO(ttls_ecp_mul(grp, P, m, &grp->G, false));
 	ttls_mpi_pool_cleanup_ctx(0, true);
 

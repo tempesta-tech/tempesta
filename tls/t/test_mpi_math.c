@@ -57,41 +57,41 @@ mpi_cmp(void)
 	EXPECT_FALSE(!(A = ttls_mpi_alloc_stack_init(8)));
 	EXPECT_FALSE(!(B = ttls_mpi_alloc_stack_init(8)));
 
-	EXPECT_ZERO(ttls_mpi_lset(A, -5));
-	EXPECT_ZERO(ttls_mpi_lset(B, -3));
+	ttls_mpi_lset(A, -5);
+	ttls_mpi_lset(B, -3);
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(A, B) < 0);
 	EXPECT_TRUE(ttls_mpi_cmp_abs(A, B) > 0);
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(B, A) > 0);
 	EXPECT_TRUE(ttls_mpi_cmp_abs(B, A) < 0);
 
-	EXPECT_ZERO(ttls_mpi_lset(B, -5));
+	ttls_mpi_lset(B, -5);
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(A, B) == 0);
 	EXPECT_TRUE(ttls_mpi_cmp_abs(A, B) == 0);
 
-	EXPECT_ZERO(ttls_mpi_lset(B, 0));
+	ttls_mpi_lset(B, 0);
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(A, B) < 0);
 	EXPECT_TRUE(ttls_mpi_cmp_abs(A, B) > 0);
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(B, A) > 0);
 	EXPECT_TRUE(ttls_mpi_cmp_abs(B, A) < 0);
 
-	EXPECT_ZERO(ttls_mpi_lset(B, 3));
+	ttls_mpi_lset(B, 3);
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(A, B) < 0);
 	EXPECT_TRUE(ttls_mpi_cmp_abs(A, B) > 0);
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(B, A) > 0);
 	EXPECT_TRUE(ttls_mpi_cmp_abs(B, A) < 0);
 
-	EXPECT_ZERO(ttls_mpi_lset(A, 0));
+	ttls_mpi_lset(A, 0);
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(A, B) < 0);
 	EXPECT_TRUE(ttls_mpi_cmp_abs(A, B) < 0);
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(B, A) > 0);
 	EXPECT_TRUE(ttls_mpi_cmp_abs(B, A) > 0);
 
-	EXPECT_ZERO(ttls_mpi_lset(A, 3));
+	ttls_mpi_lset(A, 3);
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(A, B) == 0);
 	EXPECT_TRUE(ttls_mpi_cmp_abs(A, B) == 0);
 
-	EXPECT_ZERO(ttls_mpi_lset(A, 0));
-	EXPECT_ZERO(ttls_mpi_lset(B, 0));
+	ttls_mpi_lset(A, 0);
+	ttls_mpi_lset(B, 0);
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(A, B) == 0);
 	EXPECT_TRUE(ttls_mpi_cmp_abs(A, B) == 0);
 
@@ -99,7 +99,7 @@ mpi_cmp(void)
 	A->used = 2;
 	MPI_P(A)[0] = 0;
 	MPI_P(A)[1] = 5;
-	EXPECT_ZERO(ttls_mpi_lset(B, -3));
+	ttls_mpi_lset(B, -3);
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(A, B) < 0);
 	EXPECT_TRUE(ttls_mpi_cmp_abs(A, B) > 0);
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(B, A) > 0);
@@ -112,13 +112,13 @@ mpi_cmp(void)
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(A, B) == 0);
 	EXPECT_TRUE(ttls_mpi_cmp_abs(A, B) == 0);
 
-	EXPECT_ZERO(ttls_mpi_lset(B, 0));
+	ttls_mpi_lset(B, 0);
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(A, B) < 0);
 	EXPECT_TRUE(ttls_mpi_cmp_abs(A, B) > 0);
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(B, A) > 0);
 	EXPECT_TRUE(ttls_mpi_cmp_abs(B, A) < 0);
 
-	EXPECT_ZERO(ttls_mpi_lset(B, 3));
+	ttls_mpi_lset(B, 3);
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(A, B) < 0);
 	EXPECT_TRUE(ttls_mpi_cmp_abs(A, B) > 0);
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(B, A) > 0);
@@ -161,8 +161,8 @@ mpi_add(void)
 	EXPECT_FALSE(!(B = ttls_mpi_alloc_stack_init(16)));
 
 	/* ttls_mpi_lset() works with signed values, so initialize raw memory. */
-	EXPECT_ZERO(ttls_mpi_lset(A, 0));
-	EXPECT_ZERO(ttls_mpi_lset(B, 0));
+	ttls_mpi_lset(A, 0);
+	ttls_mpi_lset(B, 0);
 	MPI_P(A)[0] = ULONG_MAX;
 	MPI_P(B)[0] = ULONG_MAX;
 	ttls_mpi_add_abs(A, B, A);
@@ -264,8 +264,8 @@ mpi_sub(void)
 	EXPECT_FALSE(!(B = ttls_mpi_alloc_stack_init(8)));
 	EXPECT_FALSE(!(X = ttls_mpi_alloc_stack_init(8)));
 
-	EXPECT_ZERO(ttls_mpi_lset(A, 7));
-	EXPECT_ZERO(ttls_mpi_lset(B, 1));
+	ttls_mpi_lset(A, 7);
+	ttls_mpi_lset(B, 1);
 	ttls_mpi_sub_abs(A, A, B);
 	EXPECT_TRUE(A->used == 1);
 	EXPECT_TRUE(B->used == 1);
@@ -441,12 +441,123 @@ mpi_sub(void)
 	free(X);
 }
 
-/**
- * Just a bunch of some simple operations on the same MPIs to check that
- * there are no side effects.
- *
- * Make sure that all the operations above are in the test as well.
- */
+static void
+mpi_shift(void)
+{
+	TlsMpi *X;
+
+	EXPECT_FALSE(!(X = ttls_mpi_alloc_stack_init(9)));
+
+	ttls_mpi_lset(X, 1);
+	ttls_mpi_shift_l(X, 17);
+	EXPECT_TRUE(X->used == 1);
+	EXPECT_TRUE(MPI_P(X)[0] == 0x20000);
+
+	ttls_mpi_shift_r(X, 15);
+	EXPECT_TRUE(X->used == 1);
+	EXPECT_TRUE(MPI_P(X)[0] == 0x4);
+
+	ttls_mpi_shift_l(X, 61);
+	EXPECT_TRUE(X->used == 1);
+	EXPECT_TRUE(MPI_P(X)[0] == 0x8000000000000000);
+
+	ttls_mpi_shift_r(X, 63);
+	EXPECT_TRUE(X->used == 1);
+	EXPECT_TRUE(MPI_P(X)[0] == 1);
+
+	ttls_mpi_shift_l(X, 64);
+	EXPECT_TRUE(X->used == 2);
+	EXPECT_TRUE(MPI_P(X)[0] == 0);
+	EXPECT_TRUE(MPI_P(X)[1] == 1);
+
+	ttls_mpi_shift_r(X, 64);
+	EXPECT_TRUE(X->used == 1);
+	EXPECT_TRUE(MPI_P(X)[0] == 1);
+
+	MPI_P(X)[0] = 0xffffffffffffffffUL;
+	ttls_mpi_shift_l(X, 60);
+	EXPECT_TRUE(X->used == 2);
+	EXPECT_TRUE(MPI_P(X)[0] == 0xf000000000000000UL);
+	EXPECT_TRUE(MPI_P(X)[1] == 0x0fffffffffffffffUL);
+
+	X->used = 3;
+	MPI_P(X)[2] = 0x8;
+	ttls_mpi_shift_r(X, 4);
+	EXPECT_TRUE(X->used == 2);
+	EXPECT_TRUE(MPI_P(X)[0] == 0xff00000000000000UL);
+	EXPECT_TRUE(MPI_P(X)[1] == 0x80ffffffffffffffUL);
+
+	ttls_mpi_shift_l(X, 320);
+	EXPECT_TRUE(X->used == 7);
+	EXPECT_TRUE(MPI_P(X)[0] == 0);
+	EXPECT_TRUE(MPI_P(X)[1] == 0);
+	EXPECT_TRUE(MPI_P(X)[2] == 0);
+	EXPECT_TRUE(MPI_P(X)[3] == 0);
+	EXPECT_TRUE(MPI_P(X)[4] == 0);
+	EXPECT_TRUE(MPI_P(X)[5] == 0xff00000000000000UL);
+	EXPECT_TRUE(MPI_P(X)[6] == 0x80ffffffffffffffUL);
+
+	ttls_mpi_shift_r(X, 256);
+	EXPECT_TRUE(X->used == 3);
+	EXPECT_TRUE(MPI_P(X)[0] == 0);
+	EXPECT_TRUE(MPI_P(X)[1] == 0xff00000000000000UL);
+	EXPECT_TRUE(MPI_P(X)[2] == 0x80ffffffffffffffUL);
+
+	ttls_mpi_shift_r(X, 1);
+	EXPECT_TRUE(X->used == 3);
+	EXPECT_TRUE(MPI_P(X)[0] == 0);
+	EXPECT_TRUE(MPI_P(X)[1] == 0xff80000000000000UL);
+	EXPECT_TRUE(MPI_P(X)[2] == 0x407fffffffffffffUL);
+
+	ttls_mpi_shift_l(X, 1);
+	EXPECT_TRUE(X->used == 3);
+	EXPECT_TRUE(MPI_P(X)[0] == 0);
+	EXPECT_TRUE(MPI_P(X)[1] == 0xff00000000000000UL);
+	EXPECT_TRUE(MPI_P(X)[2] == 0x80ffffffffffffffUL);
+
+	ttls_mpi_shift_l(X, 257);
+	EXPECT_TRUE(X->used == 8);
+	EXPECT_TRUE(MPI_P(X)[0] == 0);
+	EXPECT_TRUE(MPI_P(X)[1] == 0);
+	EXPECT_TRUE(MPI_P(X)[2] == 0);
+	EXPECT_TRUE(MPI_P(X)[3] == 0);
+	EXPECT_TRUE(MPI_P(X)[4] == 0);
+	EXPECT_TRUE(MPI_P(X)[5] == 0xfe00000000000000UL);
+	EXPECT_TRUE(MPI_P(X)[6] == 0x01ffffffffffffffUL);
+	EXPECT_TRUE(MPI_P(X)[7] == 1);
+
+	ttls_mpi_shift_r(X, 251);
+	EXPECT_TRUE(X->used == 4);
+	EXPECT_TRUE(MPI_P(X)[0] == 0);
+	EXPECT_TRUE(MPI_P(X)[1] == 0xc000000000000000UL);
+	EXPECT_TRUE(MPI_P(X)[2] == 0x3fffffffffffffffUL);
+	EXPECT_TRUE(MPI_P(X)[3] == 0x20);
+
+	ttls_mpi_shift_l(X, 4);
+	EXPECT_TRUE(X->used == 4);
+	EXPECT_TRUE(MPI_P(X)[0] == 0);
+	EXPECT_TRUE(MPI_P(X)[1] == 0);
+	EXPECT_TRUE(MPI_P(X)[2] == 0xfffffffffffffffcUL);
+	EXPECT_TRUE(MPI_P(X)[3] == 0x203);
+
+	ttls_mpi_shift_l(X, 60);
+	EXPECT_TRUE(X->used == 5);
+	EXPECT_TRUE(MPI_P(X)[0] == 0);
+	EXPECT_TRUE(MPI_P(X)[1] == 0);
+	EXPECT_TRUE(MPI_P(X)[2] == 0xc000000000000000UL);
+	EXPECT_TRUE(MPI_P(X)[3] == 0x3fffffffffffffffUL);
+	EXPECT_TRUE(MPI_P(X)[4] == 0x20);
+
+	ttls_mpi_shift_r(X, 6);
+	EXPECT_TRUE(X->used == 4);
+	EXPECT_TRUE(MPI_P(X)[0] == 0);
+	EXPECT_TRUE(MPI_P(X)[1] == 0);
+	EXPECT_TRUE(MPI_P(X)[2] == 0xff00000000000000UL);
+	EXPECT_TRUE(MPI_P(X)[3] == 0x80ffffffffffffffUL);
+
+	free(X);
+}
+
 static void
 mpi_elementary(void)
 {
@@ -456,8 +567,8 @@ mpi_elementary(void)
 	EXPECT_FALSE(!(A = ttls_mpi_alloc_stack_init(2)));
 	EXPECT_FALSE(!(B = ttls_mpi_alloc_stack_init(2)));
 
-	EXPECT_ZERO(ttls_mpi_lset(A, -1));
-	EXPECT_ZERO(ttls_mpi_lset(B, 1));
+	ttls_mpi_lset(A, -1);
+	ttls_mpi_lset(B, 1);
 	EXPECT_TRUE(ttls_mpi_cmp_int(A, -1) == 0);
 	EXPECT_TRUE(ttls_mpi_cmp_int(A, -10) > 0);
 	EXPECT_TRUE(ttls_mpi_cmp_int(A, 0) < 0);
@@ -538,7 +649,7 @@ mpi_elementary(void)
 	EXPECT_TRUE(ttls_mpi_cmp_abs(A, B) > 0);
 	EXPECT_TRUE(B->s == 1);
 
-	EXPECT_ZERO(ttls_mpi_lset(A, 0));
+	ttls_mpi_lset(A, 0);
 	ttls_mpi_sub_mpi(A, A, B);
 	EXPECT_TRUE(ttls_mpi_cmp_abs(A, B) == 0);
 
@@ -552,6 +663,7 @@ main(int argc, char *argv[])
 	mpi_cmp();
 	mpi_add();
 	mpi_sub();
+	mpi_shift();
 	mpi_elementary();
 
 	printf("success\n");
