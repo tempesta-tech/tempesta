@@ -168,6 +168,13 @@ tfw_http_msg_req_spec_hid(const TfwStr *hdr)
 /**
  * Fills @val with second part of special HTTP header containing the header
  * value.
+ *
+ * TODO: this function should be brought to a uniform look with other similar
+ * procedures( @tfw_http_hdr_split() and @tfw_h2_msg_hdr_length()), more
+ * likely - aggregated into one general-purpose procedure, after HTTP/1.1-parser
+ * extending (see also TODO-comment for @tfw_http_hdr_split_cp() procedure); for
+ * now this procedure leaves RWS in the resulting @val and this is not correct
+ * in context of HTTP/2<=>HTTP/1.1 comparisons, transformations etc.
  */
 void
 __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
@@ -696,12 +703,6 @@ __hdr_add(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid)
 	hm->h_tbl->tbl[hid] = it;
 
 	return 0;
-}
-
-int
-__hdr_h2_add(TfwHttpResp *resp, TfwStr *hdr)
-{
-	return tfw_hpack_encode(resp, hdr, TFW_H2_TRANS_ADD);
 }
 
 /**
@@ -1316,9 +1317,12 @@ tfw_h2_msg_hdr_length(const TfwStr *hdr, unsigned long *name_len,
 
 	*name_len = *val_off = *val_len = 0;
 
+	if (TFW_STR_EMPTY(hdr))
+		return 0;
+
 	if (op != TFW_H2_TRANS_INPLACE)	{
 		/*
-		 * During headers addition (or message expansion) the the source
+		 * During headers addition (or message expansion) the source
 		 * @hdr must have the following chunk structure (without the
 		 * OWS):
 		 *
@@ -1466,7 +1470,7 @@ tfw_h2_msg_hdr_write(const TfwStr *hdr, unsigned long nm_len,
 
 int
 tfw_http_msg_expand_data(TfwMsgIter *it, struct sk_buff **skb_head,
-			 const TfwStr *src)
+			 const TfwStr *src, unsigned int *start_off)
 {
 	const TfwStr *c, *end;
 
@@ -1477,10 +1481,21 @@ this_chunk:
 		if (!it->skb) {
 			if (!(it->skb = ss_skb_alloc(SKB_MAX_HEADER)))
 				return -ENOMEM;
+			/*
+			 * Expanding skb is always used for TLS client
+			 * connections.
+			 */
+			skb_shinfo(it->skb)->tx_flags |= SKBTX_SHARED_FRAG;
 			ss_skb_queue_tail(skb_head, it->skb);
 			it->frag = -1;
-			if (!it->skb_head)
+			if (!it->skb_head) {
 				it->skb_head = *skb_head;
+
+				if (start_off && *start_off) {
+					skb_put(it->skb_head, *start_off);
+					*start_off = 0;
+				}
+			}
 			T_DBG3("message expanded by new skb [%p]\n", it->skb);
 		}
 
