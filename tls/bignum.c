@@ -797,12 +797,21 @@ ttls_mpi_add_int(TlsMpi *X, const TlsMpi *A, long b)
 void
 ttls_mpi_sub_int(TlsMpi *X, const TlsMpi *A, long b)
 {
-	DECLARE_MPI_AUTO(_B, 1);
-	MPI_P(&_B)[0] = (b < 0) ? -b : b;
-	_B.s = (b < 0) ? -1 : 1;
-	_B.limbs = _B.used = 1;
+	unsigned long *a = MPI_P(A);
 
-	ttls_mpi_sub_mpi(X, A, &_B);
+	BUG_ON(b < 0 || X->s != 1);
+
+	if (likely(A->used > 1)) {
+		mpi_sub_x86_64(MPI_P(X), &b, a, 1, A->used);
+		mpi_fixup_used(X, A->used);
+	}
+	else if (likely(*a >= (unsigned long)b)) {
+		ttls_mpi_lset(X, *a - b);
+	}
+	else {
+		ttls_mpi_lset(X, b - *a);
+		X->s = -1;
+	}
 }
 
 #define MULADDC_INIT							\
