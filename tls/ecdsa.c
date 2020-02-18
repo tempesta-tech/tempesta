@@ -147,8 +147,6 @@ ttls_ecdsa_verify(TlsEcpGrp *grp, const unsigned char *buf, size_t blen,
 
 /**
  * Convert a signature (given by context) to ASN.1.
- *
- * TODO #1064 remove the copying.
  */
 static int
 ecdsa_signature_to_asn1(const TlsMpi *r, const TlsMpi *s, unsigned char *sig,
