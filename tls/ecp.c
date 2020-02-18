@@ -1324,9 +1324,7 @@ ecp_check_pubkey_sw(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
 	TlsMpi *YY, *RHS;
 
 	/* pt coordinates must be normalized for our checks */
-	if (unlikely(ttls_mpi_cmp_int(&pt->X, 0) < 0
-		     || ttls_mpi_cmp_int(&pt->Y, 0) < 0
-		     || ttls_mpi_cmp_mpi(&pt->X, &grp->P) >= 0
+	if (unlikely(ttls_mpi_cmp_mpi(&pt->X, &grp->P) >= 0
 		     || ttls_mpi_cmp_mpi(&pt->Y, &grp->P) >= 0))
 	{
 		T_DBG_MPI3("ECP invalid weierstrass public key",
