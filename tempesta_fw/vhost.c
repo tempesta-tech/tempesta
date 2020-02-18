@@ -333,7 +333,7 @@ tfw_vhost_get_hdr_mods(TfwLocation *loc, TfwVhost *vhost, int mod_type)
 		loc = vhost->loc_dflt;
 	if (!loc || !loc->mod_hdrs[mod_type].sz)
 		loc = vh_dflt ? vh_dflt->loc_dflt : NULL;
-	if (!loc)
+	if (!loc || !loc->mod_hdrs[mod_type].sz)
 		return NULL;
 
 	return &loc->mod_hdrs[mod_type];

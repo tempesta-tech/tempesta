@@ -27,6 +27,13 @@
 #define S_DLM			": "
 #define S_SET_COOKIE		"set-cookie"
 #define S_F_SET_COOKIE		S_SET_COOKIE S_DLM
+#define S_LOCATION		"location"
+#define S_F_LOCATION		S_LOCATION S_DLM
+#define S_VIA			"via"
+#define S_F_VIA			S_VIA S_DLM
+#define S_VIA_H2_PROTO		"2.0 "
+#define S_VERSION11		"HTTP/1.1"
+#define S_0			S_VERSION11 " "
 
 #define SLEN(s)			(sizeof(s) - 1)
 
@@ -50,7 +57,6 @@ __tfw_http_msg_set_str_data(TfwStr *str, void *data, struct sk_buff *skb)
 	__tfw_http_msg_set_str_data(str, data,				\
 				    ss_skb_peek_tail(&hm->msg.skb_head))
 
-int __hdr_h2_add(TfwHttpResp *resp, TfwStr *hdr);
 void __h2_msg_hdr_name(TfwStr *hdr, TfwStr *out_name);
 void __h2_msg_hdr_val(TfwStr *hdr, TfwStr *out_val);
 void __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client);
@@ -125,7 +131,7 @@ tfw_h2_msg_transform_setup(TfwHttpTransIter *mit, struct sk_buff *skb,
 
 static inline int
 tfw_h2_msg_hdr_add(TfwHttpResp *resp, char *name, size_t nlen, char *val,
-		   size_t vlen, unsigned int hid, unsigned short idx)
+		   size_t vlen, unsigned short idx)
 {
 	TfwStr hdr = {
 		.chunks = (TfwStr []){
@@ -137,7 +143,7 @@ tfw_h2_msg_hdr_add(TfwHttpResp *resp, char *name, size_t nlen, char *val,
 		.hpack_idx = idx
 	};
 
-	return __hdr_h2_add(resp, &hdr);
+	return tfw_hpack_encode(resp, &hdr, TFW_H2_TRANS_ADD, true);
 }
 
 int __tfw_http_msg_add_str_data(TfwHttpMsg *hm, TfwStr *str, void *data,
@@ -173,7 +179,7 @@ int tfw_http_msg_hdr_close(TfwHttpMsg *hm);
 int tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm);
 void tfw_http_msg_free(TfwHttpMsg *m);
 int tfw_http_msg_expand_data(TfwMsgIter *it, struct sk_buff **skb_head,
-			     const TfwStr *src);
+			     const TfwStr *src, unsigned int *start_off);
 int __hdr_name_cmp(const TfwStr *hdr, const TfwStr *name);
 int __h2_hdr_lookup(TfwHttpMsg *hm, const TfwStr *h_name);
 unsigned long tfw_h2_msg_hdr_length(const TfwStr *hdr, unsigned long *name_len,
@@ -186,8 +192,8 @@ void tfw_h2_msg_hdr_write(const TfwStr *hdr, unsigned long nm_len,
 int tfw_h2_msg_rewrite_data(TfwHttpTransIter *mit, const TfwStr *str,
 			    const char *stop);
 
-#define TFW_H2_MSG_HDR_ADD(hm, name, val, hid, idx)			\
+#define TFW_H2_MSG_HDR_ADD(hm, name, val, idx)				\
 	tfw_h2_msg_hdr_add(hm, name, sizeof(name) - 1, val,		\
-			   sizeof(val) - 1, hid, idx)
+			   sizeof(val) - 1, idx)
 
 #endif /* __TFW_HTTP_MSG_H__ */

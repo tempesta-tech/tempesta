@@ -83,6 +83,15 @@ do {									\
 	(field)->flags |= TFW_STR_COMPLETE;				\
 } while (0)
 
+#define __msg_field_chunk_flags(field, flag)				\
+do {									\
+	T_DBG3("parser: add chunk flags: %u\n", flag);			\
+	TFW_STR_CURR(field)->flags |= flag;				\
+} while (0)
+
+#define __msg_chunk_flags(flag)						\
+	__msg_field_chunk_flags(&msg->stream->parser.hdr, flag)
+
 #define __msg_hdr_chunk_fixup(data, len)				\
 	tfw_http_msg_add_str_data(msg, &msg->stream->parser.hdr, data, len)
 
@@ -183,7 +192,7 @@ do {									\
 /* The same as __FSM_MOVE_n(), but exactly for jumps w/o data moving. */
 #define __FSM_JMP(to)			do { goto to; } while (0)
 
-#define __FSM_MATCH_MOVE_fixup_pos(alphabet, to, field, fixup_pos)	\
+#define __FSM_MATCH_MOVE_fixup_pos(alphabet, to, field, flag, fixup_pos) \
 do {									\
 	__fsm_n = __data_remain(p);					\
 	__fsm_sz = tfw_match_##alphabet(p, __fsm_n);			\
@@ -194,20 +203,21 @@ do {									\
 			__msg_field_fixup_pos(field, p, __fsm_sz);	\
 		else							\
 			__msg_field_fixup(field, data + len);		\
+		__msg_field_chunk_flags(field, flag);			\
 		parser->state = &&to;					\
 		p += __fsm_sz;						\
 		__FSM_EXIT(TFW_POSTPONE);				\
 	}								\
 } while (0)
 
-#define __FSM_MATCH_MOVE_f(alphabet, to, field)				\
-	__FSM_MATCH_MOVE_fixup_pos(alphabet, to, field, false)
+#define __FSM_MATCH_MOVE_f(alphabet, to, field, flag)			\
+	__FSM_MATCH_MOVE_fixup_pos(alphabet, to, field, flag, false)
 
-#define __FSM_MATCH_MOVE_pos_f(alphabet, to, field)			\
-	__FSM_MATCH_MOVE_fixup_pos(alphabet, to, field, true)
+#define __FSM_MATCH_MOVE_pos_f(alphabet, to, field, flag)		\
+	__FSM_MATCH_MOVE_fixup_pos(alphabet, to, field, flag, true)
 
-#define __FSM_MATCH_MOVE(alphabet, to)					\
-	__FSM_MATCH_MOVE_f(alphabet, to, &msg->stream->parser.hdr)
+#define __FSM_MATCH_MOVE(alphabet, to, flag)				\
+	__FSM_MATCH_MOVE_f(alphabet, to, &msg->stream->parser.hdr, flag)
 
 #define __FSM_MATCH_MOVE_nofixup(alphabet, to)				\
 do {									\
@@ -226,13 +236,10 @@ do {									\
  * FSMs, and so _I_ in the name means "interior" FSM.
  */
 #define __FSM_I_field_chunk_flags(field, flag)				\
-do {									\
-	T_DBG3("parser: add chunk flags: %u\n", flag);			\
-	TFW_STR_CURR(field)->flags |= flag;				\
-} while (0)
+	__msg_field_chunk_flags(field, flag)
 
 #define __FSM_I_chunk_flags(flag)					\
-	__FSM_I_field_chunk_flags(&msg->stream->parser.hdr, flag)
+	__msg_chunk_flags(flag)
 
 #define __FSM_I_MOVE_BY_REF_n(to, n)					\
 do {									\
@@ -1004,7 +1011,7 @@ __FSM_STATE(st_curr) {							\
  */
 #define RGEN_HDR_OTHER()						\
 __FSM_STATE(RGen_HdrOtherN) {						\
-	__FSM_MATCH_MOVE(token, RGen_HdrOtherN);			\
+	__FSM_MATCH_MOVE(token, RGen_HdrOtherN, 0);			\
 	if (likely(*(p + __fsm_sz) == ':')) {				\
 		parser->_i_st = &&RGen_HdrOtherV;			\
 		__FSM_MOVE_n(RGen_LWS, __fsm_sz + 1);			\
@@ -1017,7 +1024,7 @@ __FSM_STATE(RGen_HdrOtherV) {						\
 	 * so pass ctext and VCHAR.					\
 	 */								\
 	__FSM_MATCH_MOVE_pos_f(ctext_vchar, RGen_HdrOtherV,		\
-			       &msg->stream->parser.hdr);		\
+			       &msg->stream->parser.hdr, 0);		\
 	if (!IS_CRLF(*(p + __fsm_sz)))					\
 		TFW_PARSER_BLOCK(RGen_HdrOtherV);			\
 	__msg_hdr_chunk_fixup(p, __fsm_sz);				\
@@ -3551,7 +3558,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 			__msg_field_finish_pos(&req->uri_path, p, 0);
 			__FSM_MOVE_nofixup(Req_HttpVer);
 		}
-		__FSM_MATCH_MOVE_pos_f(uri, Req_UriAbsPath, &req->uri_path);
+		__FSM_MATCH_MOVE_pos_f(uri, Req_UriAbsPath, &req->uri_path, 0);
 		if (unlikely(*(p + __fsm_sz) != ' '))
 			TFW_PARSER_BLOCK(Req_UriAbsPath);
 		__msg_field_finish_pos(&req->uri_path, p, __fsm_sz);
@@ -8620,11 +8627,15 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 	 *	reason-phrase  = *( HTAB / SP / VCHAR / obs-text )
 	 */
 	__FSM_STATE(Resp_ReasonPhrase) {
-		__FSM_MATCH_MOVE(ctext_vchar, Resp_ReasonPhrase);
-		p += __fsm_sz;
-		if (IS_CRLF(*p)) {
+		/* Store reason-phrase in separate chunk(s). */
+		__msg_hdr_chunk_fixup(data, p - data);
+		__FSM_MATCH_MOVE_pos_f(ctext_vchar, Resp_ReasonPhrase,
+				       &parser->hdr, TFW_STR_VALUE);
+		if (IS_CRLF(*(p + __fsm_sz))) {
 			parser->_hdr_tag = TFW_HTTP_STATUS_LINE;
-			__msg_hdr_chunk_fixup(data, __data_off(p));
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
+			__msg_chunk_flags(TFW_STR_VALUE);
+			p += __fsm_sz;
 			__FSM_JMP(RGen_EoL);
 		}
 		TFW_PARSER_BLOCK(Resp_ReasonPhrase);

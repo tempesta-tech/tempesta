@@ -771,6 +771,32 @@ tfw_strcpy_desc(TfwStr *dst, TfwStr *src)
 }
 EXPORT_SYMBOL(tfw_strcpy_desc);
 
+/**
+ * Same as @tfw_strcpy_desc(), but allocate chunk descriptors for result string.
+ */
+TfwStr *
+tfw_strdup_desc(TfwPool *pool, const TfwStr *src)
+{
+	size_t sz;
+	TfwStr *dst, *d;
+	const TfwStr *s, *end;
+
+	sz = (src->nchunks + 1) * sizeof(TfwStr);
+	if (!(dst = (TfwStr *)tfw_pool_alloc(pool, sz)))
+		return NULL;
+
+	*dst = *src;
+	dst->chunks = dst + 1;
+
+	d = TFW_STR_CHUNK(dst, 0);
+	TFW_STR_FOR_EACH_CHUNK(s, src, end) {
+		*d = *s;
+		++d;
+	}
+
+	return dst;
+}
+
 static inline int
 __tfw_str_insert(TfwPool *pool, TfwStr *dst, TfwStr *src, unsigned int chunk)
 {

@@ -206,6 +206,7 @@ int tfw_h2_context_init(TfwH2Ctx *ctx);
 void tfw_h2_context_clear(TfwH2Ctx *ctx);
 int tfw_h2_frame_process(void *c, TfwFsmData *data);
 void tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx);
+unsigned int tfw_h2_stream_id(TfwHttpReq *req);
 unsigned int tfw_h2_stream_id_close(TfwHttpReq *req, unsigned char type,
 				    unsigned char flags);
 void tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close);
