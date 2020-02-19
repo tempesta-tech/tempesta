@@ -419,7 +419,6 @@ ecp_group_load(TlsEcpGrp *grp, const unsigned long *p,  size_t plen,
 	    || ecp_mpi_load(&grp->N, n, nlen))
 		return -ENOMEM;
 
-	grp->h = 1;
 	grp->pbits = ttls_mpi_bitlen(&grp->P);
 	grp->nbits = ttls_mpi_bitlen(&grp->N);
 
