@@ -1330,9 +1330,7 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 	case TTLS_KEY_EXCHANGE_ECDHE_ECDSA:
 	case TTLS_KEY_EXCHANGE_ECDHE_RSA:
 		/*
-		 * ECDHE key exchanges.
-		 *
-		 * Ephemeral ECDH parameters:
+		 * Parameters for Ephemeral ECDH key exchanges.
 		 *
 		 * struct {
 		 *	 ECParameters	curve_params;
