@@ -169,7 +169,6 @@ typedef struct {
  * non-zero on failure.
  *
  * @id		- internal group identifier;
- * @h		- internal: 1 if the constants are static;
  * @pbits	- number of bits in P;
  * @nbits	- number of bits in 1. P, or 2. private keys;
  * @modp	- function for fast reduction mod P;
@@ -182,7 +181,6 @@ typedef struct {
  */
 typedef struct {
 	ttls_ecp_group_id	id;
-	unsigned int		h;
 	unsigned int		pbits;
 	unsigned int		nbits;
 	int			(*modp)(TlsMpi *);
