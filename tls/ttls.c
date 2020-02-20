@@ -2482,6 +2482,8 @@ EXPORT_SYMBOL(ttls_config_peer_defaults);
 void
 ttls_config_free(TlsCfg *conf)
 {
+	ttls_mpi_free(&conf->dhm_P);
+	ttls_mpi_free(&conf->dhm_G);
 	bzero_fast(conf, sizeof(TlsCfg));
 }
 EXPORT_SYMBOL(ttls_config_free);
