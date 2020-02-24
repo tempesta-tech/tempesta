@@ -111,42 +111,34 @@ static const unsigned char ttls_dhm_rfc3526_modp_2048_g[] = { 0x02 };
 /*
  * Set DHM prime modulus and generator defined in NSA Suite B (257 bytes).
  */
-int
+void
 ttls_dhm_load(TlsDHMCtx *ctx)
 {
-	int r;
-
-	if ((r = ttls_mpi_read_binary(&ctx->P, ttls_dhm_rfc3526_modp_2048_p,
-				      sizeof(ttls_dhm_rfc3526_modp_2048_p))))
-		return r;
-	if ((r = ttls_mpi_read_binary(&ctx->G, ttls_dhm_rfc3526_modp_2048_g,
-				      sizeof(ttls_dhm_rfc3526_modp_2048_g))))
-		return r;
+	ttls_mpi_read_binary(&ctx->P, ttls_dhm_rfc3526_modp_2048_p,
+			     sizeof(ttls_dhm_rfc3526_modp_2048_p));
+	ttls_mpi_read_binary(&ctx->G, ttls_dhm_rfc3526_modp_2048_g,
+			     sizeof(ttls_dhm_rfc3526_modp_2048_g));
 	ctx->len = ttls_mpi_size(&ctx->P);
-
-	return 0;
 }
 
 /*
  * helper to validate the TlsMpi size and import it
  */
-static int dhm_read_bignum(TlsMpi *X,
-				unsigned char **p,
-				const unsigned char *end)
+static int
+dhm_read_bignum(TlsMpi *X, unsigned char **p, const unsigned char *end)
 {
-	int ret, n;
+	int n;
 
 	if (end - *p < 2)
-		return(TTLS_ERR_DHM_BAD_INPUT_DATA);
+		return TTLS_ERR_DHM_BAD_INPUT_DATA;
 
 	n = ((*p)[0] << 8) | (*p)[1];
 	(*p) += 2;
 
 	if ((int)(end - *p) < n)
-		return(TTLS_ERR_DHM_BAD_INPUT_DATA);
+		return TTLS_ERR_DHM_BAD_INPUT_DATA;
 
-	if ((ret = ttls_mpi_read_binary(X, *p, n)) != 0)
-		return(TTLS_ERR_DHM_READ_PARAMS_FAILED + ret);
+	ttls_mpi_read_binary(X, *p, n);
 
 	(*p) += n;
 
@@ -168,10 +160,7 @@ static int dhm_read_bignum(TlsMpi *X,
 static int
 dhm_check_range(const TlsMpi *param, const TlsMpi *P)
 {
-	TlsMpi *U;
-
-	if (!(U = ttls_mpi_alloc_stack_init(P->used)))
-		return -ENOMEM;
+	TlsMpi *U = ttls_mpi_alloc_stack_init(P->used);
 
 	ttls_mpi_sub_int(U, P, 2);
 	if (ttls_mpi_cmp_int(param, 2) < 0
@@ -271,16 +260,13 @@ err:
 /*
  * Import the peer's public value G^Y
  */
-int ttls_dhm_read_public(TlsDHMCtx *ctx,
-		 const unsigned char *input, size_t ilen)
+int
+ttls_dhm_read_public(TlsDHMCtx *ctx, const unsigned char *input, size_t ilen)
 {
-	int ret;
+	if (!ctx || ilen < 1 || ilen > ctx->len)
+		return -EINVAL;
 
-	if (ctx == NULL || ilen < 1 || ilen > ctx->len)
-		return(TTLS_ERR_DHM_BAD_INPUT_DATA);
-
-	if ((ret = ttls_mpi_read_binary(&ctx->GY, input, ilen)) != 0)
-		return(TTLS_ERR_DHM_READ_PUBLIC_FAILED + ret);
+	ttls_mpi_read_binary(&ctx->GY, input, ilen);
 
 	return 0;
 }
@@ -343,12 +329,10 @@ static int dhm_update_blinding(TlsDHMCtx *ctx)
 	 * Don't use any blinding the first time a particular X is used,
 	 * but remember it to use blinding next time.
 	 */
-	if (ttls_mpi_cmp_mpi(&ctx->X, &ctx->pX) != 0)
-	{
-		TTLS_MPI_CHK(ttls_mpi_copy(&ctx->pX, &ctx->X));
+	if (ttls_mpi_cmp_mpi(&ctx->X, &ctx->pX)) {
+		ttls_mpi_copy(&ctx->pX, &ctx->X);
 		ttls_mpi_lset(&ctx->Vi, 1);
 		ttls_mpi_lset(&ctx->Vf, 1);
-
 		return 0;
 	}
 
@@ -356,13 +340,12 @@ static int dhm_update_blinding(TlsDHMCtx *ctx)
 	 * Ok, we need blinding. Can we re-use existing values?
 	 * If yes, just update them by squaring them.
 	 */
-	if (ttls_mpi_cmp_int(&ctx->Vi, 1) != 0)
-	{
-		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&ctx->Vi, &ctx->Vi, &ctx->Vi));
-		TTLS_MPI_CHK(ttls_mpi_mod_mpi(&ctx->Vi, &ctx->Vi, &ctx->P));
+	if (ttls_mpi_cmp_int(&ctx->Vi, 1)) {
+		ttls_mpi_mul_mpi(&ctx->Vi, &ctx->Vi, &ctx->Vi);
+		ttls_mpi_mod_mpi(&ctx->Vi, &ctx->Vi, &ctx->P);
 
-		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&ctx->Vf, &ctx->Vf, &ctx->Vf));
-		TTLS_MPI_CHK(ttls_mpi_mod_mpi(&ctx->Vf, &ctx->Vf, &ctx->P));
+		ttls_mpi_mul_mpi(&ctx->Vf, &ctx->Vf, &ctx->Vf);
+		ttls_mpi_mod_mpi(&ctx->Vf, &ctx->Vf, &ctx->P);
 
 		return 0;
 	}
@@ -409,20 +392,19 @@ ttls_dhm_calc_secret(TlsDHMCtx *ctx, unsigned char *output, size_t output_size,
 	if ((r = dhm_check_range(&ctx->GY, &ctx->P)))
 		return r;
 
-	if (!(GYb = ttls_mpi_alloc_stack_init(ctx->GY.used + ctx->Vi.used)))
-		return -ENOMEM;
+	GYb = ttls_mpi_alloc_stack_init(ctx->GY.used + ctx->Vi.used);
 
 	/* Blind peer's value */
 	MPI_CHK(dhm_update_blinding(ctx));
-	MPI_CHK(ttls_mpi_mul_mpi(GYb, &ctx->GY, &ctx->Vi));
-	MPI_CHK(ttls_mpi_mod_mpi(GYb, GYb, &ctx->P));
+	ttls_mpi_mul_mpi(GYb, &ctx->GY, &ctx->Vi);
+	ttls_mpi_mod_mpi(GYb, GYb, &ctx->P);
 
 	/* Do modular exponentiation */
 	MPI_CHK(ttls_mpi_exp_mod(&ctx->K, GYb, &ctx->X, &ctx->P, &ctx->RP));
 
 	/* Unblind secret value */
-	MPI_CHK(ttls_mpi_mul_mpi(&ctx->K, &ctx->K, &ctx->Vf));
-	MPI_CHK(ttls_mpi_mod_mpi(&ctx->K, &ctx->K, &ctx->P));
+	ttls_mpi_mul_mpi(&ctx->K, &ctx->K, &ctx->Vf);
+	ttls_mpi_mod_mpi(&ctx->K, &ctx->K, &ctx->P);
 
 	*olen = ttls_mpi_size(&ctx->K);
 

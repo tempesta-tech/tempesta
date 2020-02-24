@@ -137,12 +137,12 @@ void ttls_rsa_init(TlsRSACtx *ctx, int padding, int hash_id);
  *
  * \return		 \c 0 on success, or a non-zero error code on failure.
  */
-int ttls_rsa_import_raw(TlsRSACtx *ctx,
-				unsigned char const *N, size_t N_len,
-				unsigned char const *P, size_t P_len,
-				unsigned char const *Q, size_t Q_len,
-				unsigned char const *D, size_t D_len,
-				unsigned char const *E, size_t E_len);
+void ttls_rsa_import_raw(TlsRSACtx *ctx,
+			 unsigned char const *N, size_t N_len,
+			 unsigned char const *P, size_t P_len,
+			 unsigned char const *Q, size_t Q_len,
+			 unsigned char const *D, size_t D_len,
+			 unsigned char const *E, size_t E_len);
 
 int ttls_rsa_complete(TlsRSACtx *ctx);
 

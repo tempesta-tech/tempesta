@@ -54,10 +54,10 @@ ecdsa_sign(void)
 
 	EXPECT_FALSE(!(ctx->grp = ttls_ecp_group_lookup(TTLS_ECP_DP_SECP256R1)));
 
-	EXPECT_ZERO(ttls_mpi_read_binary(&ctx->Q.X, EC_Qx, 32));
-	EXPECT_ZERO(ttls_mpi_read_binary(&ctx->Q.Y, EC_Qy, 32));
+	ttls_mpi_read_binary(&ctx->Q.X, EC_Qx, 32);
+	ttls_mpi_read_binary(&ctx->Q.Y, EC_Qy, 32);
 	ttls_mpi_lset(&ctx->Q.Z, 1);
-	EXPECT_ZERO(ttls_mpi_read_binary(&ctx->d, EC_d, 32));
+	ttls_mpi_read_binary(&ctx->d, EC_d, 32);
 
 	EXPECT_ZERO(ttls_ecdsa_write_signature(ctx, hash, 32, sig, &slen));
 	EXPECT_EQ(slen, 71);

@@ -142,16 +142,15 @@ do {									\
 } while (0)
 
 TlsMpi *ttls_mpi_alloc_stack_init(size_t nlimbs);
-int ttls_mpi_alloc(TlsMpi *X, size_t nblimbs);
-int ttls_mpi_alloc_tmp(TlsMpi *X, size_t nblimbs);
+void ttls_mpi_alloc(TlsMpi *X, size_t nblimbs);
+void ttls_mpi_alloc_tmp(TlsMpi *X, size_t nblimbs);
 void ttls_mpi_reset(TlsMpi *X);
 
 void mpi_fixup_used(TlsMpi *X, size_t n);
-int ttls_mpi_copy_alloc(TlsMpi *X, const TlsMpi *Y, bool need_alloc);
-int ttls_mpi_copy(TlsMpi *X, const TlsMpi *Y);
+void ttls_mpi_copy_alloc(TlsMpi *X, const TlsMpi *Y, bool need_alloc);
 size_t ttls_mpi_size(const TlsMpi *X);
 
-int ttls_mpi_read_binary(TlsMpi *X, const unsigned char *buf, size_t buflen);
+void ttls_mpi_read_binary(TlsMpi *X, const unsigned char *buf, size_t buflen);
 int ttls_mpi_write_binary(const TlsMpi *X, unsigned char *buf, size_t buflen);
 int ttls_mpi_fill_random(TlsMpi *X, size_t size);
 
@@ -163,7 +162,7 @@ void ttls_mpi_lset(TlsMpi *X, long z);
 void ttls_mpi_shift_l(TlsMpi *X, size_t count);
 void ttls_mpi_shift_r(TlsMpi *X, size_t count);
 int ttls_mpi_get_bit(const TlsMpi *X, size_t pos);
-int ttls_mpi_set_bit(TlsMpi *X, size_t pos, unsigned char val);
+void ttls_mpi_set_bit(TlsMpi *X, size_t pos, unsigned char val);
 size_t ttls_mpi_lsb(const TlsMpi *X);
 size_t ttls_mpi_bitlen(const TlsMpi *X);
 
@@ -179,20 +178,27 @@ void ttls_mpi_sub_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B);
 void ttls_mpi_sub_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B);
 void ttls_mpi_sub_int(TlsMpi *X, const TlsMpi *A, long b);
 
-int ttls_mpi_mul_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B);
-int ttls_mpi_mul_uint(TlsMpi *X, const TlsMpi *A, unsigned long b);
-int ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B);
-int ttls_mpi_mod_mpi(TlsMpi *R, const TlsMpi *A, const TlsMpi *B);
+void ttls_mpi_mul_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B);
+void ttls_mpi_mul_uint(TlsMpi *X, const TlsMpi *A, unsigned long b);
+void ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B);
+void ttls_mpi_mod_mpi(TlsMpi *R, const TlsMpi *A, const TlsMpi *B);
 
 int ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E,
 		     const TlsMpi *N, TlsMpi *_RR);
 int ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N);
-int ttls_mpi_gcd(TlsMpi *G, const TlsMpi *A, const TlsMpi *B);
+void ttls_mpi_gcd(TlsMpi *G, const TlsMpi *A, const TlsMpi *B);
 
 static inline bool
 ttls_mpi_empty(const TlsMpi *X)
 {
 	return !X->used;
+}
+
+static inline void
+ttls_mpi_copy(TlsMpi *X, const TlsMpi *Y)
+{
+	BUG_ON(X == Y);
+	ttls_mpi_copy_alloc(X, Y, X->limbs < Y->used);
 }
 
 #ifdef DEBUG
