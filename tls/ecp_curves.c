@@ -124,10 +124,6 @@ static TlsEcpGrp *ec_groups[__TTLS_ECP_DP_N];
  * This avoids moving things around in memory, and uselessly adding zeros,
  * compared to the more straightforward, line-oriented approach.
  *
- * For this prime we need to handle data in chunks of 64 bits.
- * Since this is always a multiple of our basic unsigned long, we can
- * use a unsigned long * to designate such a chunk, and small loops to handle it.
- *
  * For these primes, we need to handle data in chunks of 32 bits.
  * This makes it more complicated if we use 64 bits limbs in MPI,
  * which prevents us from using a uniform access method as for p192.
@@ -152,15 +148,13 @@ do {									\
 	}								\
 } while (0)
 
-/*
- * Helpers for addition and subtraction of chunks, with signed carry.
- */
 static inline void
 add32(uint32_t *dst, uint32_t src, signed char *carry)
 {
 	*dst += src;
 	*carry += (*dst < src);
 }
+#define ADD(j)	add32(&cur, A(j), &c);
 
 static inline void
 sub32(uint32_t *dst, uint32_t src, signed char *carry)
@@ -169,13 +163,10 @@ sub32(uint32_t *dst, uint32_t src, signed char *carry)
 	*dst -= src;
 }
 
-#define ADD(j)	add32(&cur, A(j), &c);
 #define SUB(j)	sub32(&cur, A(j), &c);
 
-/* Helpers for the main 'loop'. */
 #define INIT()								\
-	size_t i = 0;							\
-	uint32_t cur;							\
+	uint32_t i = 0, cur;						\
 	signed char c = 0, cc;						\
 	if (N->used < N->limbs)						\
 		bzero_fast(MPI_P(N) + N->used, (N->limbs - N->used) * CIL);\
@@ -202,13 +193,13 @@ sub32(uint32_t *dst, uint32_t src, signed char *carry)
 		STORE32;						\
 	mpi_fixup_used(N, N->limbs);					\
 	if (c < 0)							\
-		MPI_CHK(fix_negative(N, c, bits));
+		fix_negative(N, c, bits);
 
 /*
  * If the result is negative, we get it in the form c * 2^(bits + 32) + N,
  * with c negative and N positive shorter than 'bits'.
  */
-static inline int
+static inline void
 fix_negative(TlsMpi *N, signed char c, const size_t bits)
 {
 	TlsMpi C;
@@ -223,15 +214,13 @@ fix_negative(TlsMpi *N, signed char c, const size_t bits)
 	/* N = -(C - N) */
 	ttls_mpi_sub_abs(N, &C, N);
 	N->s = -1;
-
-	return 0;
 }
 
 /*
  * Fast quasi-reduction modulo p256 (FIPS 186-3 D.2.3).
  * TODO #1064 the most mathematic hot spot - called enourmously many times.
  */
-static int
+static void
 ecp_mod_p256(TlsMpi *N)
 {
 	INIT();
@@ -269,14 +258,13 @@ ecp_mod_p256(TlsMpi *N)
 	SUB(10); SUB(11); SUB(12); SUB(13);
 
 	LAST(256);
-
-	return 0;
 }
 
 /*
  * Fast quasi-reduction modulo p384 (FIPS 186-3 D.2.4)
  */
-static int ecp_mod_p384(TlsMpi *N)
+static void
+ecp_mod_p384(TlsMpi *N)
 {
 	INIT();
 
@@ -329,8 +317,6 @@ static int ecp_mod_p384(TlsMpi *N)
 	SUB(22);
 
 	LAST(384);
-
-	return 0;
 }
 
 #undef A
@@ -347,17 +333,15 @@ static int ecp_mod_p384(TlsMpi *N)
  * Fast quasi-reduction modulo p255 = 2^255 - 19.
  * Write N as A0 + 2^255 A1, return A0 + 19 * A1.
  */
-static int
+static void
 ecp_mod_p255(TlsMpi *N)
 {
-	int r;
 	size_t n;
 	TlsMpi *M;
 
-	if (N->used < P255_WIDTH)
-		return 0;
-	if (!(M = ttls_mpi_alloc_stack_init(P255_WIDTH + 2)))
-		return -ENOMEM;
+	BUG_ON(N->used < P255_WIDTH);
+
+	M = ttls_mpi_alloc_stack_init(P255_WIDTH + 2);
 
 	/* M = A1 */
 	M->used = N->used - (P255_WIDTH - 1);
@@ -369,41 +353,34 @@ ecp_mod_p255(TlsMpi *N)
 	ttls_mpi_shift_r(M, 255 % BIL);
 
 	/* N = A0 */
-	if ((r = ttls_mpi_set_bit(N, 255, 0)))
-		return r;
+	ttls_mpi_set_bit(N, 255, 0);
 	N->used = P255_WIDTH;
 
 	/* N = A0 + 19 * A1 */
-	if ((r = ttls_mpi_mul_uint(M, M, 19)))
-		return r;
+	ttls_mpi_mul_uint(M, M, 19);
 	ttls_mpi_add_abs(N, N, M);
-
-	return 0;
 }
 
 /**
  * Create an MPI from embedded constants
  * (assumes len is an exact multiple of sizeof unsigned long).
  */
-static int
+static void
 ecp_mpi_load(TlsMpi *X, const unsigned long *p, size_t len)
 {
 	size_t const limbs = len / CIL;
 
-	if (ttls_mpi_alloc(X, limbs))
-		return -ENOMEM;
+	ttls_mpi_alloc(X, limbs);
 
 	X->s = 1;
 	X->limbs = X->used = limbs;
 	memcpy(MPI_P(X), p, len);
-
-	return 0;
 }
 
 /*
  * Make group available from embedded constants
  */
-static int
+static void
 ecp_group_load(TlsEcpGrp *grp, const unsigned long *p,  size_t plen,
 	       const unsigned long *b,  size_t blen,
 	       const unsigned long *gx, size_t gxlen,
@@ -412,12 +389,11 @@ ecp_group_load(TlsEcpGrp *grp, const unsigned long *p,  size_t plen,
 {
 	int i;
 
-	if (ecp_mpi_load(&grp->P, p, plen)
-	    || ecp_mpi_load(&grp->B, b, blen)
-	    || ecp_mpi_load(&grp->G.X, gx, gxlen)
-	    || ecp_mpi_load(&grp->G.Y, gy, gylen)
-	    || ecp_mpi_load(&grp->N, n, nlen))
-		return -ENOMEM;
+	ecp_mpi_load(&grp->P, p, plen);
+	ecp_mpi_load(&grp->B, b, blen);
+	ecp_mpi_load(&grp->G.X, gx, gxlen);
+	ecp_mpi_load(&grp->G.Y, gy, gylen);
+	ecp_mpi_load(&grp->N, n, nlen);
 
 	grp->pbits = ttls_mpi_bitlen(&grp->P);
 	grp->nbits = ttls_mpi_bitlen(&grp->N);
@@ -426,37 +402,33 @@ ecp_group_load(TlsEcpGrp *grp, const unsigned long *p,  size_t plen,
 	 * Most of the time the point is normalized, so Z stores 1, but
 	 * is some calculations the size can grow up to the curve size.
 	 */
-	if (ttls_mpi_alloc(&grp->G.Z, grp->nbits / BIL))
-		return -ENOMEM;
+	ttls_mpi_alloc(&grp->G.Z, grp->nbits / BIL);
 	ttls_mpi_lset(&grp->G.Z, 1);
 
 	/*
 	 * ecp_normalize_jac_many() performs multiplication on X and Y
 	 * coordinates, so we need double sizes.
 	 */
-	for (i = 0; i < ARRAY_SIZE(grp->T); i++)
-		if (ttls_mpi_alloc(&grp->T[i].X, grp->G.X.limbs * 2)
-		    || ttls_mpi_alloc(&grp->T[i].Y, grp->G.Y.limbs * 2))
-			return -ENOMEM;
+	for (i = 0; i < ARRAY_SIZE(grp->T); i++) {
+		ttls_mpi_alloc(&grp->T[i].X, grp->G.X.limbs * 2);
+		ttls_mpi_alloc(&grp->T[i].Y, grp->G.Y.limbs * 2);
+	}
 	/*
 	 * Allocate Z coordinates separately to shrink them later,
 	 * see ttls_mpool_shrink_tailtmp().
 	 */
 	for (i = 0; i < ARRAY_SIZE(grp->T); i++)
-		if (ttls_mpi_alloc_tmp(&grp->T[i].Z, grp->G.Z.limbs))
-			return -ENOMEM;
-
-	return 0;
+		ttls_mpi_alloc_tmp(&grp->T[i].Z, grp->G.Z.limbs);
 }
 
 /*
  * Specialized function for creating the Curve25519 group
  */
-static int
+static void
 ecp_use_curve25519(TlsEcpGrp *grp)
 {
 	/* Actually (A + 2) / 4 */
-	MPI_CHK(ttls_mpi_read_binary(&grp->A, "\x01\xDB\x42", 3));
+	ttls_mpi_read_binary(&grp->A, "\x01\xDB\x42", 3);
 
 	/* P = 2^255 - 19 */
 	ttls_mpi_lset(&grp->P, 1);
@@ -474,8 +446,6 @@ ecp_use_curve25519(TlsEcpGrp *grp)
 
 	/* Actually, the required msb for private keys */
 	grp->nbits = 254;
-
-	return 0;
 }
 
 TlsEcpGrp *
@@ -497,8 +467,6 @@ ttls_ecp_group_load(TlsEcpGrp *grp, ttls_ecp_group_id id)
 					    G##_gx, sizeof(G##_gx),	\
 					    G##_gy, sizeof(G##_gy),	\
 					    G##_n, sizeof(G##_n))
-	int r;
-
 	if (ec_groups[id])
 		T_WARN("Try to load already initialized EC group %d, shouldn't"
 		       " have used ttls_ecp_group_lookup() instead?\n", id);
@@ -506,16 +474,16 @@ ttls_ecp_group_load(TlsEcpGrp *grp, ttls_ecp_group_id id)
 	switch(id) {
 	case TTLS_ECP_DP_SECP256R1:
 		grp->modp = ecp_mod_p256;
-		r = LOAD_GROUP(secp256r1);
+		LOAD_GROUP(secp256r1);
 		break;
 	case TTLS_ECP_DP_SECP384R1:
 		grp->modp = ecp_mod_p384;
-		r = LOAD_GROUP(secp384r1);
+		LOAD_GROUP(secp384r1);
 		break;
 	case TTLS_ECP_DP_CURVE25519:
 		T_WARN("Try to load ECP group for unsupported Curve25519.\n");
 		grp->modp = ecp_mod_p255;
-		r = ecp_use_curve25519(grp);
+		ecp_use_curve25519(grp);
 		break;
 	default:
 		T_WARN("Trying to load unsupported curve %d\n", id);

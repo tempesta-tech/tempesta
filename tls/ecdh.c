@@ -131,12 +131,11 @@ ttls_ecdh_read_params(TlsECDHCtx *ctx, const unsigned char **buf,
 int
 ttls_ecdh_get_params(TlsECDHCtx *ctx, const TlsEcpKeypair *key)
 {
-	int r;
+	if (ttls_ecp_group_load(ctx->grp, key->grp->id))
+		return -EINVAL;
+	ttls_ecp_copy(&ctx->Qp, &key->Q);
 
-	if ((r = ttls_ecp_group_load(ctx->grp, key->grp->id)))
-		return r;
-
-	return ttls_ecp_copy(&ctx->Qp, &key->Q);
+	return 0;
 }
 
 /**

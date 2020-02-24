@@ -64,39 +64,25 @@ static inline int ttls_safer_memcmp(const void *a, const void *b, size_t n)
 	return(diff);
 }
 
-int
+void
 ttls_rsa_import_raw(TlsRSACtx *ctx, unsigned char const *N, size_t N_len,
 		    unsigned char const *P, size_t P_len,
 		    unsigned char const *Q, size_t Q_len,
 		    unsigned char const *D, size_t D_len,
 		    unsigned char const *E, size_t E_len)
 {
-	int ret = 0;
-
-	if (N != NULL)
-	{
-		TTLS_MPI_CHK(ttls_mpi_read_binary(&ctx->N, N, N_len));
+	if (N) {
+		ttls_mpi_read_binary(&ctx->N, N, N_len);
 		ctx->len = ttls_mpi_size(&ctx->N);
 	}
-
-	if (P != NULL)
-		TTLS_MPI_CHK(ttls_mpi_read_binary(&ctx->P, P, P_len));
-
-	if (Q != NULL)
-		TTLS_MPI_CHK(ttls_mpi_read_binary(&ctx->Q, Q, Q_len));
-
-	if (D != NULL)
-		TTLS_MPI_CHK(ttls_mpi_read_binary(&ctx->D, D, D_len));
-
-	if (E != NULL)
-		TTLS_MPI_CHK(ttls_mpi_read_binary(&ctx->E, E, E_len));
-
-cleanup:
-
-	if (ret != 0)
-		return(TTLS_ERR_RSA_BAD_INPUT_DATA + ret);
-
-	return 0;
+	if (P)
+		ttls_mpi_read_binary(&ctx->P, P, P_len);
+	if (Q)
+		ttls_mpi_read_binary(&ctx->Q, Q, Q_len);
+	if (D)
+		ttls_mpi_read_binary(&ctx->D, D, D_len);
+	if (E)
+		ttls_mpi_read_binary(&ctx->E, E, E_len);
 }
 
 /*
@@ -165,12 +151,11 @@ ttls_rsa_deduce_primes(TlsMpi const *N, TlsMpi const *E, TlsMpi const *D,
 	    || ttls_mpi_cmp_mpi(E, N) >= 0)
 		return -EINVAL;
 
-	if (!(T = ttls_mpi_alloc_stack_init(D->used + E->used))
-	    || !(K = ttls_mpi_alloc_stack_init(N->used + 1)))
-		return -ENOMEM;
+	T = ttls_mpi_alloc_stack_init(D->used + E->used);
+	K = ttls_mpi_alloc_stack_init(N->used + 1);
 
 	/* T := DE - 1 */
-	MPI_CHK(ttls_mpi_mul_mpi(T, D,  E));
+	ttls_mpi_mul_mpi(T, D,  E);
 	ttls_mpi_sub_int(T, T, 1);
 
 	if (!(order = (uint16_t)ttls_mpi_lsb(T)))
@@ -188,7 +173,7 @@ ttls_rsa_deduce_primes(TlsMpi const *N, TlsMpi const *E, TlsMpi const *D,
 		ttls_mpi_lset(K, primes[attempt]);
 
 		/* Check if gcd(K,N) = 1 */
-		MPI_CHK(ttls_mpi_gcd(P, K, N));
+		ttls_mpi_gcd(P, K, N);
 		if (ttls_mpi_cmp_int(P, 1))
 			continue;
 
@@ -210,7 +195,7 @@ ttls_rsa_deduce_primes(TlsMpi const *N, TlsMpi const *E, TlsMpi const *D,
 				break;
 
 			ttls_mpi_add_int(K, K, 1);
-			MPI_CHK(ttls_mpi_gcd(P, K, N));
+			ttls_mpi_gcd(P, K, N);
 
 			if (ttls_mpi_cmp_int(P, 1) > 0
 			    && ttls_mpi_cmp_mpi(P, N) < 0)
@@ -219,13 +204,13 @@ ttls_rsa_deduce_primes(TlsMpi const *N, TlsMpi const *E, TlsMpi const *D,
 				 * Have found a nontrivial divisor P of N.
 				 * Set Q := N / P.
 				 */
-				MPI_CHK(ttls_mpi_div_mpi(Q, NULL, N, P));
+				ttls_mpi_div_mpi(Q, NULL, N, P);
 				return 0;
 			}
 
 			ttls_mpi_sub_int(K, K, 1);
-			MPI_CHK(ttls_mpi_mul_mpi(K, K, K));
-			MPI_CHK(ttls_mpi_mod_mpi(K, K, N));
+			ttls_mpi_mul_mpi(K, K, K);
+			ttls_mpi_mod_mpi(K, K, N);
 		}
 
 		/*
@@ -267,20 +252,19 @@ ttls_rsa_deduce_private_exponent(TlsMpi const *P, TlsMpi const *Q,
 	    || !ttls_mpi_cmp_int(E, 0))
 		return -EINVAL;
 
-	if (!(K = ttls_mpi_alloc_stack_init(P->used + Q->used))
-	    || !(L = ttls_mpi_alloc_stack_init(Q->used)))
-		return -ENOMEM;
+	K = ttls_mpi_alloc_stack_init(P->used + Q->used);
+	L = ttls_mpi_alloc_stack_init(Q->used);
 
 	/* Temporarily put K := P-1 and L := Q-1 */
 	ttls_mpi_sub_int(K, P, 1);
 	ttls_mpi_sub_int(L, Q, 1);
 
 	/* Temporarily put D := gcd(P-1, Q-1) */
-	MPI_CHK(ttls_mpi_gcd(D, K, L));
+	ttls_mpi_gcd(D, K, L);
 
 	/* K := LCM(P-1, Q-1) */
-	MPI_CHK(ttls_mpi_mul_mpi(K, K, L));
-	MPI_CHK(ttls_mpi_div_mpi(K, NULL, K, D));
+	ttls_mpi_mul_mpi(K, K, L);
+	ttls_mpi_div_mpi(K, NULL, K, D);
 
 	/* Compute modular inverse of E in LCM(P-1, Q-1) */
 	MPI_CHK(ttls_mpi_inv_mod(D, E, K));
@@ -302,21 +286,18 @@ int
 ttls_rsa_deduce_crt(const TlsMpi *P, const TlsMpi *Q, const TlsMpi *D,
 		    TlsMpi *DP, TlsMpi *DQ, TlsMpi *QP)
 {
-	TlsMpi *K;
-
-	if (!(K = ttls_mpi_alloc_stack_init(max(P->used, Q->used))))
-		return -ENOMEM;
+	TlsMpi *K = ttls_mpi_alloc_stack_init(max(P->used, Q->used));
 
 	/* DP = D mod P-1 */
 	if (DP) {
 		ttls_mpi_sub_int(K, P, 1 );
-		MPI_CHK(ttls_mpi_mod_mpi(DP, D, K));
+		ttls_mpi_mod_mpi(DP, D, K);
 	}
 
 	/* DQ = D mod Q-1 */
 	if (DQ) {
 		ttls_mpi_sub_int(K, Q, 1 );
-		MPI_CHK(ttls_mpi_mod_mpi(DQ, D, K));
+		ttls_mpi_mod_mpi(DQ, D, K);
 	}
 
 	/* QP = Q^{-1} mod P */
@@ -400,8 +381,6 @@ rsa_check_context(const TlsRSACtx *ctx, int is_priv)
 static int
 rsa_prepare_blinding(TlsRSACtx *ctx)
 {
-	int ret = 0;
-
 	if (WARN_ON_ONCE(ttls_mpi_empty(&ctx->Vf)))
 		return -EINVAL;
 
@@ -409,15 +388,14 @@ rsa_prepare_blinding(TlsRSACtx *ctx)
 	spin_lock(&ctx->mutex);
 
 	/* We already have blinding values, just update them by squaring. */
-	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&ctx->Vi, &ctx->Vi, &ctx->Vi));
-	TTLS_MPI_CHK(ttls_mpi_mod_mpi(&ctx->Vi, &ctx->Vi, &ctx->N));
-	TTLS_MPI_CHK(ttls_mpi_mul_mpi(&ctx->Vf, &ctx->Vf, &ctx->Vf));
-	TTLS_MPI_CHK(ttls_mpi_mod_mpi(&ctx->Vf, &ctx->Vf, &ctx->N));
+	ttls_mpi_mul_mpi(&ctx->Vi, &ctx->Vi, &ctx->Vi);
+	ttls_mpi_mod_mpi(&ctx->Vi, &ctx->Vi, &ctx->N);
+	ttls_mpi_mul_mpi(&ctx->Vf, &ctx->Vf, &ctx->Vf);
+	ttls_mpi_mod_mpi(&ctx->Vf, &ctx->Vf, &ctx->N);
 
-cleanup:
 	spin_unlock(&ctx->mutex);
 
-	return ret;
+	return 0;
 }
 
 /*
@@ -475,8 +453,7 @@ ttls_rsa_private(TlsRSACtx *ctx, const unsigned char *input,
 	n = sizeof(TlsMpi) * 10
 	    + CIL * (ctx->N.used * 3 + ctx->len / CIL * 2 + ctx->Vi.used
 		     + ctx->P.used * 2 + ctx->Q.used * 2 + eb_n * 3 + 3);
-	if (!(T = ttls_mpool_alloc_stack(n)))
-		return -ENOMEM;
+	T = ttls_mpool_alloc_stack(n);
 	I = ttls_mpi_init_next(T, ctx->len / CIL + ctx->Vi.used);
 	P1 = ttls_mpi_init_next(I, ctx->len / CIL);
 	Q1 = ttls_mpi_init_next(P1, ctx->P.used);
@@ -488,16 +465,16 @@ ttls_rsa_private(TlsRSACtx *ctx, const unsigned char *input,
 	C = ttls_mpi_init_next(TQ, ctx->N.used + 1);
 	ttls_mpi_init_next(C, ctx->N.used + 1);
 
-	MPI_CHK(ttls_mpi_read_binary(T, input, ctx->len));
+	ttls_mpi_read_binary(T, input, ctx->len);
 	if (ttls_mpi_cmp_mpi(T, &ctx->N) >= 0)
 		return -EINVAL;
 
-	MPI_CHK(ttls_mpi_copy(I, T));
+	ttls_mpi_copy(I, T);
 
 	/* Blinding: T = T * Vi mod N */
 	MPI_CHK(rsa_prepare_blinding(ctx));
-	MPI_CHK(ttls_mpi_mul_mpi(T, T, &ctx->Vi));
-	MPI_CHK(ttls_mpi_mod_mpi(T, T, &ctx->N));
+	ttls_mpi_mul_mpi(T, T, &ctx->Vi);
+	ttls_mpi_mod_mpi(T, T, &ctx->N);
 
 	/* Exponent blinding. */
 	ttls_mpi_sub_int(P1, &ctx->P, 1);
@@ -505,12 +482,12 @@ ttls_rsa_private(TlsRSACtx *ctx, const unsigned char *input,
 
 	/* DP_blind = (P - 1) * R + DP */
 	MPI_CHK(ttls_mpi_fill_random(R, RSA_EXPONENT_BLINDING));
-	MPI_CHK(ttls_mpi_mul_mpi(DP_blind, P1, R));
+	ttls_mpi_mul_mpi(DP_blind, P1, R);
 	ttls_mpi_add_mpi(DP_blind, DP_blind, &ctx->DP);
 
 	/* DQ_blind = (Q - 1) * R + DQ */
 	MPI_CHK(ttls_mpi_fill_random(R, RSA_EXPONENT_BLINDING));
-	MPI_CHK(ttls_mpi_mul_mpi(DQ_blind, Q1, R));
+	ttls_mpi_mul_mpi(DQ_blind, Q1, R);
 	ttls_mpi_add_mpi(DQ_blind, DQ_blind, &ctx->DQ);
 
 	/*
@@ -524,19 +501,19 @@ ttls_rsa_private(TlsRSACtx *ctx, const unsigned char *input,
 
 	/* T = (TP - TQ) * (Q^-1 mod P) mod P */
 	ttls_mpi_sub_mpi(T, TP, TQ);
-	MPI_CHK(ttls_mpi_mul_mpi(TP, T, &ctx->QP));
-	MPI_CHK(ttls_mpi_mod_mpi(T, TP, &ctx->P));
+	ttls_mpi_mul_mpi(TP, T, &ctx->QP);
+	ttls_mpi_mod_mpi(T, TP, &ctx->P);
 
 	/* T = TQ + T * Q */
-	MPI_CHK(ttls_mpi_mul_mpi(TP, T, &ctx->Q));
+	ttls_mpi_mul_mpi(TP, T, &ctx->Q);
 	ttls_mpi_add_mpi(T, TQ, TP);
 
 	/*
 	 * Unblind
 	 * T = T * Vf mod N
 	 */
-	MPI_CHK(ttls_mpi_mul_mpi(T, T, &ctx->Vf));
-	MPI_CHK(ttls_mpi_mod_mpi(T, T, &ctx->N));
+	ttls_mpi_mul_mpi(T, T, &ctx->Vf);
+	ttls_mpi_mod_mpi(T, T, &ctx->N);
 
 	/* Verify the result to prevent glitching attacks. */
 	MPI_CHK(ttls_mpi_exp_mod(C, T, &ctx->E, &ctx->N, &ctx->RN));
@@ -595,8 +572,7 @@ ttls_rsa_complete(TlsRSACtx *ctx)
 	/* Step 1: Deduce N if P, Q are provided. */
 
 	if (!have_N && have_P && have_Q) {
-		if ((r = ttls_mpi_mul_mpi(&ctx->N, &ctx->P, &ctx->Q)))
-			return TTLS_ERR_RSA_BAD_INPUT_DATA + r;
+		ttls_mpi_mul_mpi(&ctx->N, &ctx->P, &ctx->Q);
 		ctx->len = ttls_mpi_size(&ctx->N);
 	}
 
@@ -638,9 +614,8 @@ ttls_rsa_complete(TlsRSACtx *ctx)
 		/* RSA 8192 bite requires 1024 bytes. */
 		unsigned char buf[1024] = {0};
 
-		if (ttls_mpi_alloc(&ctx->Vi, ctx->len / CIL * 2)
-		    || ttls_mpi_alloc(&ctx->Vf, ctx->len / CIL * 2))
-			return -ENOMEM;
+		ttls_mpi_alloc(&ctx->Vi, ctx->len / CIL * 2);
+		ttls_mpi_alloc(&ctx->Vf, ctx->len / CIL * 2);
 
 		/*
 		 * Generate blinging value.
@@ -651,7 +626,7 @@ ttls_rsa_complete(TlsRSACtx *ctx)
 			if (count++ > 10)
 				return TTLS_ERR_RSA_RNG_FAILED;
 			MPI_CHK(ttls_mpi_fill_random(&ctx->Vf, ctx->len - 1));
-			MPI_CHK(ttls_mpi_gcd(&ctx->Vi, &ctx->Vf, &ctx->N));
+			ttls_mpi_gcd(&ctx->Vi, &ctx->Vf, &ctx->N);
 		} while (ttls_mpi_cmp_int(&ctx->Vi, 1));
 		/* Blinding value: Vi =  Vf^(-e) mod N */
 		MPI_CHK(ttls_mpi_inv_mod(&ctx->Vi, &ctx->Vf, &ctx->N));
@@ -714,8 +689,6 @@ int ttls_rsa_export(const TlsRSACtx *ctx,
 			TlsMpi *N, TlsMpi *P, TlsMpi *Q,
 			TlsMpi *D, TlsMpi *E)
 {
-	int ret;
-
 	/* Check if key is private or public */
 	int is_priv =
 		ttls_mpi_cmp_int(&ctx->N, 0) != 0 &&
@@ -734,15 +707,16 @@ int ttls_rsa_export(const TlsRSACtx *ctx,
 	}
 
 	/* Export all requested core parameters. */
-
-	if ((N != NULL && (ret = ttls_mpi_copy(N, &ctx->N)) != 0) ||
-		(P != NULL && (ret = ttls_mpi_copy(P, &ctx->P)) != 0) ||
-		(Q != NULL && (ret = ttls_mpi_copy(Q, &ctx->Q)) != 0) ||
-		(D != NULL && (ret = ttls_mpi_copy(D, &ctx->D)) != 0) ||
-		(E != NULL && (ret = ttls_mpi_copy(E, &ctx->E)) != 0))
-	{
-		return ret;
-	}
+	if (N)
+		ttls_mpi_copy(N, &ctx->N);
+	if (P)
+		ttls_mpi_copy(P, &ctx->P);
+	if (Q)
+		ttls_mpi_copy(Q, &ctx->Q);
+	if (D)
+		ttls_mpi_copy(D, &ctx->D);
+	if (E)
+		ttls_mpi_copy(E, &ctx->E);
 
 	return 0;
 }
@@ -759,8 +733,6 @@ int ttls_rsa_export(const TlsRSACtx *ctx,
 int ttls_rsa_export_crt(const TlsRSACtx *ctx,
 				TlsMpi *DP, TlsMpi *DQ, TlsMpi *QP)
 {
-	int ret;
-
 	/* Check if key is private or public */
 	int is_priv =
 		ttls_mpi_cmp_int(&ctx->N, 0) != 0 &&
@@ -770,15 +742,15 @@ int ttls_rsa_export_crt(const TlsRSACtx *ctx,
 		ttls_mpi_cmp_int(&ctx->E, 0) != 0;
 
 	if (!is_priv)
-		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
+		return TTLS_ERR_RSA_BAD_INPUT_DATA;
 
 	/* Export all requested blinding parameters. */
-	if ((DP != NULL && (ret = ttls_mpi_copy(DP, &ctx->DP)) != 0) ||
-		(DQ != NULL && (ret = ttls_mpi_copy(DQ, &ctx->DQ)) != 0) ||
-		(QP != NULL && (ret = ttls_mpi_copy(QP, &ctx->QP)) != 0))
-	{
-		return(TTLS_ERR_RSA_BAD_INPUT_DATA + ret);
-	}
+	if (DP)
+		ttls_mpi_copy(DP, &ctx->DP);
+	if (DQ)
+		ttls_mpi_copy(DQ, &ctx->DQ);
+	if (QP)
+		ttls_mpi_copy(QP, &ctx->QP);
 
 	return 0;
 }
@@ -864,12 +836,9 @@ ttls_rsa_public(TlsRSACtx *ctx, const unsigned char *input,
 		unsigned char *output)
 {
 	size_t olen;
-	TlsMpi *T;
+	TlsMpi *T = ttls_mpi_alloc_stack_init(ctx->len / CIL);
 
-	if (!(T = ttls_mpi_alloc_stack_init(ctx->len / CIL)))
-		return -ENOMEM;
-
-	MPI_CHK(ttls_mpi_read_binary(T, input, ctx->len));
+	ttls_mpi_read_binary(T, input, ctx->len);
 
 	if (ttls_mpi_cmp_mpi(T, &ctx->N) >= 0)
 		return -EINVAL;
