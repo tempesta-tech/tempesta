@@ -606,7 +606,7 @@ mpi_elementary(void)
 	EXPECT_TRUE(MPI_P(B)[0] == 0);
 	EXPECT_TRUE(MPI_P(B)[1] == 1);
 
-	EXPECT_ZERO(ttls_mpi_copy(A, B));
+	ttls_mpi_copy(A, B);
 	EXPECT_ZERO(ttls_mpi_cmp_mpi(A, B));
 	EXPECT_ZERO(ttls_mpi_cmp_mpi(A, A));
 

@@ -89,8 +89,7 @@ ttls_mpool(void *addr)
 	 * If @addr (some MPI) was allocated on stack, then prohibit any
 	 * pool operations - TlsMpi->_off is unable to handle too far pointers.
 	 */
-	if (WARN_ON_ONCE(sp < a && a < sp + THREAD_SIZE))
-		return NULL;
+	BUG_ON(sp < a && a < sp + THREAD_SIZE);
 
 	mp = *this_cpu_ptr(&g_tmp_mpool);
 	mp_name = "temporary";
@@ -110,7 +109,7 @@ check:
 		     || mp->curr > (PAGE_SIZE << mp->order)
 		     || mp->curr_tail > (PAGE_SIZE << mp->order)))
 	{
-		T_ERR("Bad MPI address %pK in pool %pK (%s, order=%u curr=%u"
+		T_DBG("Bad MPI address %pK in pool %pK (%s, order=%u curr=%u"
 		      " curr_tail=%u)\n",
 		      addr, mp, mp_name, mp->order, mp->curr, mp->curr_tail);
 		BUG();
@@ -123,11 +122,12 @@ ttls_mpool_alloc_data(TlsMpiPool *mp, size_t n)
 {
 	void *ptr = MPI_POOL_FREE_PTR(mp);
 
-	if (WARN(mp->curr + n > mp->curr_tail,
-		 "Not enough space in pool %pK (order=%u curr=%u curr_tail=%u)"
-		 " to grow for %lu bytes",
-		 mp, mp->order, mp->curr, mp->curr_tail, n))
-		return NULL;
+	if (unlikely(mp->curr + n > mp->curr_tail)) {
+		T_DBG("Not enough space in pool %pK (order=%u curr=%u"
+		      " curr_tail=%u) to grow for %lu bytes",
+		      mp, mp->order, mp->curr, mp->curr_tail, n);
+		BUG();
+	}
 
 	mp->curr += MPI_POOL_SZ_ALIGN(n);
 
@@ -143,12 +143,8 @@ ttls_mpi_pool_alloc_mpi(TlsMpi *x, size_t n, bool tail)
 	unsigned short *ptr;
 	TlsMpiPool *mp = ttls_mpool(x);
 
-	if (!mp)
-		return -ENOMEM;
-
 	if (!tail) {
-		if (!(ptr = ttls_mpool_alloc_data(mp, n)))
-			return -ENOMEM;
+		ptr = ttls_mpool_alloc_data(mp, n);
 		return (int)((unsigned long)ptr - (unsigned long)x);
 	}
 
@@ -157,16 +153,19 @@ ttls_mpi_pool_alloc_mpi(TlsMpi *x, size_t n, bool tail)
 	 * remember the MPI address and the allocation size to be able to fix
 	 * _off on ttls_mpool_shrink_tailtmp().
 	 */
-	if (WARN(mp->curr + n > mp->curr_tail,
-		 "Not enough tail space in pool %pK (order=%u curr=%u"
-		 " curr_tail=%u) to grow for %lu bytes",
-		 mp, mp->order, mp->curr, mp->curr_tail, n))
-		return -ENOSPC;
+	if (unlikely(mp->curr + n > mp->curr_tail)) {
+		T_DBG("Not enough tail space in pool %pK (order=%u curr=%u"
+		      " curr_tail=%u) to grow for %lu bytes",
+		      mp, mp->order, mp->curr, mp->curr_tail, n);
+		BUG();
+	}
 
 	mp->curr_tail -= n + sizeof(short) * 2;
 	ptr = MPI_POOL_TAIL_PTR(mp);
 	*ptr++ = (unsigned short)((unsigned long)x - (unsigned long)mp);
 	*ptr++ = (unsigned short)n;
+
+	BUG_ON((unsigned long)ptr - (unsigned long)x <= 0);
 
 	return (unsigned long)ptr - (unsigned long)x;
 }
@@ -397,12 +396,11 @@ __mpi_profile_load_ec(TlsMpiPool *mp, TlsECDHCtx *ctx, unsigned char w,
 	 * called from ttls_ecdh_make_params().
 	 */
 	n_sz = CHARS_TO_LIMBS((grp->nbits + 7) / 8);
-	if (ttls_mpi_alloc(&ctx->d, n_sz)
-	    || ttls_mpi_alloc(&ctx->Q.X, n_sz * 2)
-	    || ttls_mpi_alloc(&ctx->Q.Y, n_sz * 2)
-	    || ttls_mpi_alloc(&ctx->Q.Z, n_sz * 2)
-	    || ttls_mpi_alloc(&ctx->z.Z, n_sz * 2))
-		return -ENOMEM;
+	ttls_mpi_alloc(&ctx->d, n_sz);
+	ttls_mpi_alloc(&ctx->Q.X, n_sz * 2);
+	ttls_mpi_alloc(&ctx->Q.Y, n_sz * 2);
+	ttls_mpi_alloc(&ctx->Q.Z, n_sz * 2);
+	ttls_mpi_alloc(&ctx->z.Z, n_sz * 2);
 
 	return 0;
 }
@@ -436,20 +434,17 @@ ttls_mpi_profile_create_ec(TlsMpiPool *mp, ttls_ecp_group_id ec)
 	return 0;
 }
 
-static int
+static void
 ttls_mpi_profile_create_dh(TlsMpiPool *mp)
 {
-	TlsDHMCtx *dhm;
+	TlsDHMCtx *dhm = ttls_mpool_alloc_data(mp, sizeof(*dhm));
 
 	/*
 	 * TODO #1064: use a reference to the profile constant data as it's
 	 * done for EC in __mpi_profile_load_ec().
 	 */
 
-	if (!(dhm = ttls_mpool_alloc_data(mp, sizeof(*dhm))))
-		return -ENOMEM;
-
-	return ttls_dhm_load(dhm);
+	ttls_dhm_load(dhm);
 }
 
 /**
@@ -486,8 +481,7 @@ ttls_mpi_profile_set(TlsCiphersuite *cs)
 		break;
 	case TTLS_KEY_EXCHANGE_DHE_RSA:
 		mp = cs->mpi_profile[0];
-		if ((r = ttls_mpi_profile_create_dh(mp)))
-			goto cleanup;
+		ttls_mpi_profile_create_dh(mp);
 		break;
 	default:
 		T_ERR("Cannot create a memory profile for %s\n", cs->name);

@@ -91,7 +91,6 @@ ecp_mul(void)
 	EXPECT_EQ(grp->id, TTLS_ECP_DP_SECP256R1);
 	EXPECT_EQ(grp->nbits, 256);
 	EXPECT_EQ(grp->pbits, 256);
-	EXPECT_EQ(grp->h, 1);
 	EXPECT_EQ(grp->P.used, 4);
 	EXPECT_EQ(grp->P.limbs, 4);
 	EXPECT_EQ(grp->P.s, 1);
@@ -144,7 +143,7 @@ ecp_mul(void)
 	ttls_mpi_pool_cleanup_ctx(0, true);
 
 	for (i = 0; i < ARRAY_SIZE(exponents); i++) {
-		EXPECT_ZERO(ttls_mpi_read_binary(m, exponents[i], 32));
+		ttls_mpi_read_binary(m, exponents[i], 32);
 		EXPECT_ZERO(ttls_ecp_mul(grp, R, m, &grp->G, false));
 		/*
 		 * ECP test #2 (constant op_count, other point).

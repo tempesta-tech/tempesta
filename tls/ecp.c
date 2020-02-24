@@ -31,6 +31,8 @@
  * 9. S.Gueron, V.KRasnov, "Fast prime field elliptic-curve cryptography with
  *    256-bit primes", 2014.
  *
+ * 10. NIST: Mathematical routines for the NIST prime elliptic curves, 2010.
+ *
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
@@ -179,15 +181,12 @@ ttls_ecp_keypair_free(TlsEcpKeypair *key)
 	ttls_mpi_pool_free(key);
 }
 
-int
+void
 ttls_ecp_copy(TlsEcpPoint *P, const TlsEcpPoint *Q)
 {
-	if (ttls_mpi_copy(&P->X, &Q->X)
-	    || ttls_mpi_copy(&P->Y, &Q->Y)
-	    || ttls_mpi_copy(&P->Z, &Q->Z))
-		return -ENOMEM;
-
-	return 0;
+	ttls_mpi_copy(&P->X, &Q->X);
+	ttls_mpi_copy(&P->Y, &Q->Y);
+	ttls_mpi_copy(&P->Z, &Q->Z);
 }
 
 static void
@@ -274,8 +273,8 @@ ttls_ecp_point_read_binary(const TlsEcpGrp *grp, TlsEcpPoint *pt,
 	if (ilen != 2 * plen + 1)
 		return TTLS_ERR_ECP_BAD_INPUT_DATA;
 
-	MPI_CHK(ttls_mpi_read_binary(&pt->X, buf + 1, plen));
-	MPI_CHK(ttls_mpi_read_binary(&pt->Y, buf + 1 + plen, plen));
+	ttls_mpi_read_binary(&pt->X, buf + 1, plen);
+	ttls_mpi_read_binary(&pt->Y, buf + 1 + plen, plen);
 	ttls_mpi_lset(&pt->Z, 1);
 
 	return 0;
@@ -398,17 +397,13 @@ ttls_ecp_tls_write_group(const TlsEcpGrp *grp, size_t *olen,
 /**
  * Wrapper around fast quasi-modp functions.
  */
-static int
+static void
 ecp_modp(TlsMpi *N, const TlsEcpGrp *grp)
 {
-	if (WARN_ON_ONCE(N->limbs < grp->nbits * 2 / BIL))
-		return -ENOSPC;
-	/* N->s < 0 is a much faster test, which fails only if N is 0. */
-	if ((N->s < 0 && ttls_mpi_cmp_int(N, 0))
-	    || ttls_mpi_bitlen(N) > 2 * grp->pbits)
-		return -EINVAL;
+	BUG_ON(N->limbs < grp->nbits * 2 / BIL);
+	BUG_ON(N->s < 0);
 
-	MPI_CHK(grp->modp(N));
+	grp->modp(N);
 
 	while (N->s < 0 && ttls_mpi_cmp_int(N, 0))
 		ttls_mpi_add_mpi(N, N, &grp->P);
@@ -416,8 +411,6 @@ ecp_modp(TlsMpi *N, const TlsEcpGrp *grp)
 	while (ttls_mpi_cmp_mpi(N, &grp->P) >= 0)
 		/* We known P, N and the result are positive. */
 		ttls_mpi_sub_abs(N, N, &grp->P);
-
-	return 0;
 }
 
 /*
@@ -433,7 +426,7 @@ ecp_modp(TlsMpi *N, const TlsEcpGrp *grp)
 /*
  * Reduce a TlsMpi mod p in-place, general case, to use after ttls_mpi_mul_mpi
  */
-#define MOD_MUL(N)	MPI_CHK(ecp_modp(N, grp))
+#define MOD_MUL(N)	ecp_modp(N, grp)
 
 /*
  * Reduce a TlsMpi mod p in-place, to use after ttls_mpi_sub_mpi
@@ -444,8 +437,7 @@ ecp_modp(TlsMpi *N, const TlsEcpGrp *grp)
 		ttls_mpi_add_mpi(N, N, &grp->P)
 
 /*
- * Reduce a TlsMpi mod p in-place, to use after ttls_mpi_add_mpi() and
- * ttls_mpi_mul_uint().
+ * Reduce a TlsMpi mod p in-place, to use after ttls_mpi_add_mpi().
  * We known P, N and the result are positive, so sub_abs is correct, and
  * a bit faster.
  */
@@ -473,21 +465,20 @@ ecp_normalize_jac(const TlsEcpGrp *grp, TlsEcpPoint *pt)
 	if (!ttls_mpi_cmp_int(&pt->Z, 0))
 		return 0;
 
-	if (!(Zi = ttls_mpi_alloc_stack_init(0))
-	    || !(ZZi = ttls_mpi_alloc_stack_init(0)))
-		return -ENOMEM;
+	Zi = ttls_mpi_alloc_stack_init(grp->nbits / BIL);
+	ZZi = ttls_mpi_alloc_stack_init(grp->nbits * 2 / BIL);
 
 	/* X = X / Z^2  mod p */
 	MPI_CHK(ttls_mpi_inv_mod(Zi, &pt->Z, &grp->P));
-	MPI_CHK(ttls_mpi_mul_mpi(ZZi, Zi, Zi));
+	ttls_mpi_mul_mpi(ZZi, Zi, Zi);
 	MOD_MUL(ZZi);
-	MPI_CHK(ttls_mpi_mul_mpi(&pt->X, &pt->X, ZZi));
+	ttls_mpi_mul_mpi(&pt->X, &pt->X, ZZi);
 	MOD_MUL(&pt->X);
 
 	/* Y = Y / Z^3  mod p */
-	MPI_CHK(ttls_mpi_mul_mpi(&pt->Y, &pt->Y, ZZi));
+	ttls_mpi_mul_mpi(&pt->Y, &pt->Y, ZZi);
 	MOD_MUL(&pt->Y);
-	MPI_CHK(ttls_mpi_mul_mpi(&pt->Y, &pt->Y, Zi));
+	ttls_mpi_mul_mpi(&pt->Y, &pt->Y, Zi);
 	MOD_MUL(&pt->Y);
 
 	/* Z = 1 */
@@ -510,23 +501,35 @@ ecp_normalize_jac(const TlsEcpGrp *grp, TlsEcpPoint *pt)
 static int
 ecp_normalize_jac_many(const TlsEcpGrp *grp, TlsEcpPoint *T[], size_t t_len)
 {
+#define __INIT_C(i)							\
+do {									\
+	c[i].s = 1;							\
+	c[i].used = 0;							\
+	c[i].limbs = n_limbs;						\
+	c[i]._off = (unsigned long)p_limbs - (unsigned long)(c + i);	\
+	p_limbs += n_limbs;						\
+} while (0)
+
 	int i, ret = 0;
+	unsigned long *p_limbs, n_limbs = grp->nbits * 2 / BIL;
 	TlsMpi *u, *Zi, *ZZi, *c;
 
 	WARN_ON_ONCE(t_len < 2);
 	BUG_ON(t_len > TTLS_ECP_WINDOW_SIZE);
 
-	if (!(c = ttls_mpool_alloc_stack(sizeof(TlsMpi) * t_len))
-	    || !(u = ttls_mpi_alloc_stack_init(grp->nbits * 2 / BIL))
-	    || !(Zi = ttls_mpi_alloc_stack_init(0))
-	    || !(ZZi = ttls_mpi_alloc_stack_init(0)))
-		return -ENOMEM;
+	c = ttls_mpool_alloc_stack((sizeof(TlsMpi) + n_limbs * CIL) * t_len);
+	u = ttls_mpi_alloc_stack_init(n_limbs);
+	Zi = ttls_mpi_alloc_stack_init(n_limbs);
+	ZZi = ttls_mpi_alloc_stack_init(n_limbs);
 	bzero_fast(c, sizeof(TlsMpi) * t_len);
+	p_limbs = (unsigned long *)&c[t_len];
 
 	/* c[i] = Z_0 * ... * Z_i */
-	TTLS_MPI_CHK(ttls_mpi_copy_alloc(&c[0], &T[0]->Z, true));
+	__INIT_C(0);
+	ttls_mpi_copy_alloc(&c[0], &T[0]->Z, false);
 	for (i = 1; i < t_len; i++) {
-		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&c[i], &c[i - 1], &T[i]->Z));
+		__INIT_C(i);
+		ttls_mpi_mul_mpi(&c[i], &c[i - 1], &T[i]->Z);
 		MOD_MUL(&c[i]);
 	}
 
@@ -539,22 +542,22 @@ ecp_normalize_jac_many(const TlsEcpGrp *grp, TlsEcpPoint *T[], size_t t_len)
 		 * u = 1 / (Z_0 * ... * Z_i) mod P
 		 */
 		if (!i) {
-			TTLS_MPI_CHK(ttls_mpi_copy(Zi, u));
+			ttls_mpi_copy(Zi, u);
 		} else {
-			TTLS_MPI_CHK(ttls_mpi_mul_mpi(Zi, u, &c[i - 1]));
+			ttls_mpi_mul_mpi(Zi, u, &c[i - 1]);
 			MOD_MUL(Zi);
-			TTLS_MPI_CHK(ttls_mpi_mul_mpi(u, u, &T[i]->Z));
+			ttls_mpi_mul_mpi(u, u, &T[i]->Z);
 			MOD_MUL(u);
 		}
 
 		/* proceed as in normalize(). */
-		TTLS_MPI_CHK(ttls_mpi_mul_mpi(ZZi, Zi, Zi));
+		ttls_mpi_mul_mpi(ZZi, Zi, Zi);
 		MOD_MUL(ZZi);
-		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&T[i]->X, &T[i]->X, ZZi));
+		ttls_mpi_mul_mpi(&T[i]->X, &T[i]->X, ZZi);
 		MOD_MUL(&T[i]->X);
-		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&T[i]->Y, &T[i]->Y, ZZi));
+		ttls_mpi_mul_mpi(&T[i]->Y, &T[i]->Y, ZZi);
 		MOD_MUL(&T[i]->Y);
-		TTLS_MPI_CHK(ttls_mpi_mul_mpi(&T[i]->Y, &T[i]->Y, Zi));
+		ttls_mpi_mul_mpi(&T[i]->Y, &T[i]->Y, Zi);
 		MOD_MUL(&T[i]->Y);
 		/*
 		 * At the moment Z coordinate stores a garbage, so free it now
@@ -569,28 +572,24 @@ ecp_normalize_jac_many(const TlsEcpGrp *grp, TlsEcpPoint *T[], size_t t_len)
 cleanup:
 	ttls_mpi_pool_cleanup_ctx((unsigned long)c, false);
 	return ret;
+#undef __INIT_C
 }
 
 /**
  * Conditional point inversion: Q -> -Q = (Q.X, -Q.Y, Q.Z) without leak.
  * "inv" must be 0 (don't invert) or 1 (invert) or the result will be invalid.
  */
-static int
+static void
 ecp_safe_invert_jac(const TlsEcpGrp *grp, TlsEcpPoint *Q, unsigned char inv)
 {
 	unsigned char nonzero;
-	TlsMpi *mQY;
-
-	if (!(mQY = ttls_mpi_alloc_stack_init(grp->P.used)))
-		return -ENOMEM;
+	TlsMpi *mQY = ttls_mpi_alloc_stack_init(grp->P.used);
 
 	/* Use the fact that -Q.Y mod P = P - Q.Y unless Q.Y == 0 */
 	ttls_mpi_sub_mpi(mQY, &grp->P, &Q->Y);
 	nonzero = !!ttls_mpi_cmp_int(&Q->Y, 0);
 
 	ttls_mpi_safe_cond_assign(&Q->Y, mQY, inv & nonzero);
-
-	return 0;
 }
 
 /**
@@ -616,58 +615,49 @@ ecp_double_jac(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint *P)
 	ttls_mpi_alloca_init(&T, grp->nbits * 2 / BIL);
 	ttls_mpi_alloca_init(&U, grp->nbits * 2 / BIL);
 
-	/* Special case for A = -3 */
+	/* NIST curves case: A = -3 */
 	if (ttls_mpi_empty(&grp->A)) {
 		/* M = 3(X + Z^2)(X - Z^2) */
-		MPI_CHK(ttls_mpi_mul_mpi(&S, &P->Z, &P->Z));
+		ttls_mpi_mul_mpi(&S, &P->Z, &P->Z);
 		MOD_MUL(&S);
 		ttls_mpi_add_mpi(&T, &P->X, &S);
 		MOD_ADD(&T);
 		ttls_mpi_sub_mpi(&U, &P->X, &S);
 		MOD_SUB(&U);
-		MPI_CHK(ttls_mpi_mul_mpi(&S, &T, &U));
+		ttls_mpi_mul_mpi(&S, &T, &U);
 		MOD_MUL(&S);
-		MPI_CHK(ttls_mpi_mul_uint(&M, &S, 3));
+		ttls_mpi_copy_alloc(&M, &S, false);
+		ttls_mpi_shift_l(&M, 1);
+		ttls_mpi_add_mpi(&M, &M, &S);
 		MOD_ADD(&M);
 	} else {
-		/* M = 3.X^2 */
-		MPI_CHK(ttls_mpi_mul_mpi(&S, &P->X, &P->X));
+		/* M = 3 * X^2 */
+		ttls_mpi_mul_mpi(&S, &P->X, &P->X);
 		MOD_MUL(&S);
-		MPI_CHK(ttls_mpi_mul_uint(&M, &S, 3));
+		ttls_mpi_copy_alloc(&M, &S, false);
+		ttls_mpi_shift_l(&M, 1);
+		ttls_mpi_add_mpi(&M, &M, &S);
 		MOD_ADD(&M);
-
-		/* Optimize away for "koblitz" curves with A = 0 */
-		if (ttls_mpi_cmp_int(&grp->A, 0)) {
-			/* M += A.Z^4 */
-			MPI_CHK(ttls_mpi_mul_mpi(&S, &P->Z, &P->Z));
-			MOD_MUL(&S);
-			MPI_CHK(ttls_mpi_mul_mpi(&T, &S, &S));
-			MOD_MUL(&T);
-			MPI_CHK(ttls_mpi_mul_mpi(&S, &T, &grp->A));
-			MOD_MUL(&S);
-			ttls_mpi_add_mpi(&M, &M, &S);
-			MOD_ADD(&M);
-		}
 	}
 
-	/* S = 4.X.Y^2 */
-	MPI_CHK(ttls_mpi_mul_mpi(&T, &P->Y, &P->Y));
+	/* S = 4 * X * Y^2 */
+	ttls_mpi_mul_mpi(&T, &P->Y, &P->Y);
 	MOD_MUL(&T);
 	ttls_mpi_shift_l(&T, 1);
 	MOD_ADD(&T);
-	MPI_CHK(ttls_mpi_mul_mpi(&S, &P->X, &T));
+	ttls_mpi_mul_mpi(&S, &P->X, &T);
 	MOD_MUL(&S);
 	ttls_mpi_shift_l(&S, 1);
 	MOD_ADD(&S);
 
 	/* U = 8.Y^4 */
-	MPI_CHK(ttls_mpi_mul_mpi(&U, &T, &T));
+	ttls_mpi_mul_mpi(&U, &T, &T);
 	MOD_MUL(&U);
 	ttls_mpi_shift_l(&U, 1);
 	MOD_ADD(&U);
 
-	/* T = M^2 - 2.S */
-	MPI_CHK(ttls_mpi_mul_mpi(&T, &M, &M));
+	/* T = M^2 - 2 * S */
+	ttls_mpi_mul_mpi(&T, &M, &M);
 	MOD_MUL(&T);
 	ttls_mpi_sub_mpi(&T, &T, &S);
 	MOD_SUB(&T);
@@ -677,20 +667,20 @@ ecp_double_jac(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint *P)
 	/* S = M(S - T) - U */
 	ttls_mpi_sub_mpi(&S, &S, &T);
 	MOD_SUB(&S);
-	MPI_CHK(ttls_mpi_mul_mpi(&S, &S, &M));
+	ttls_mpi_mul_mpi(&S, &S, &M);
 	MOD_MUL(&S);
 	ttls_mpi_sub_mpi(&S, &S, &U);
 	MOD_SUB(&S);
 
-	/* U = 2.Y.Z */
-	MPI_CHK(ttls_mpi_mul_mpi(&U, &P->Y, &P->Z));
+	/* U = 2 * Y * Z */
+	ttls_mpi_mul_mpi(&U, &P->Y, &P->Z);
 	MOD_MUL(&U);
 	ttls_mpi_shift_l(&U, 1);
 	MOD_ADD(&U);
 
-	MPI_CHK(ttls_mpi_copy(&R->X, &T));
-	MPI_CHK(ttls_mpi_copy(&R->Y, &S));
-	MPI_CHK(ttls_mpi_copy(&R->Z, &U));
+	ttls_mpi_copy(&R->X, &T);
+	ttls_mpi_copy(&R->Y, &S);
+	ttls_mpi_copy(&R->Z, &U);
 
 	return 0;
 }
@@ -723,12 +713,16 @@ ecp_add_mixed(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint *P,
 	TlsMpi T1, T2, T3, T4, X, Y, Z;
 
 	/* Trivial cases: P == 0 or Q == 0 (case 1). */
-	if (!ttls_mpi_cmp_int(&P->Z, 0))
-		return ttls_ecp_copy(R, Q);
+	if (!ttls_mpi_cmp_int(&P->Z, 0)) {
+		ttls_ecp_copy(R, Q);
+		return 0;
+	}
 
 	if (!ttls_mpi_empty(&Q->Z)) {
-		if (!ttls_mpi_cmp_int(&Q->Z, 0))
-			return ttls_ecp_copy(R, P);
+		if (!ttls_mpi_cmp_int(&Q->Z, 0)) {
+			ttls_ecp_copy(R, P);
+			return 0;
+		}
 		/* Make sure Q coordinates are normalized. */
 		if (ttls_mpi_cmp_int(&Q->Z, 1))
 			return -EINVAL;
@@ -742,13 +736,13 @@ ecp_add_mixed(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint *P,
 	ttls_mpi_alloca_init(&Y, grp->nbits * 2 / BIL);
 	ttls_mpi_alloca_init(&Z, grp->nbits * 2 / BIL);
 
-	MPI_CHK(ttls_mpi_mul_mpi(&T1, &P->Z, &P->Z));
+	ttls_mpi_mul_mpi(&T1, &P->Z, &P->Z);
 	MOD_MUL(&T1);
-	MPI_CHK(ttls_mpi_mul_mpi(&T2, &T1, &P->Z));
+	ttls_mpi_mul_mpi(&T2, &T1, &P->Z);
 	MOD_MUL(&T2);
-	MPI_CHK(ttls_mpi_mul_mpi(&T1, &T1, &Q->X));
+	ttls_mpi_mul_mpi(&T1, &T1, &Q->X);
 	MOD_MUL(&T1);
-	MPI_CHK(ttls_mpi_mul_mpi(&T2, &T2, &Q->Y));
+	ttls_mpi_mul_mpi(&T2, &T2, &Q->Y);
 	MOD_MUL(&T2);
 	ttls_mpi_sub_mpi(&T1, &T1, &P->X);
 	MOD_SUB(&T1);
@@ -765,17 +759,18 @@ ecp_add_mixed(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint *P,
 		}
 	}
 
-	MPI_CHK(ttls_mpi_mul_mpi(&Z, &P->Z, &T1));
+	ttls_mpi_mul_mpi(&Z, &P->Z, &T1);
 	MOD_MUL(&Z);
-	MPI_CHK(ttls_mpi_mul_mpi(&T3, &T1, &T1));
+	ttls_mpi_mul_mpi(&T3, &T1, &T1);
 	MOD_MUL(&T3);
-	MPI_CHK(ttls_mpi_mul_mpi(&T4, &T3, &T1));
+	ttls_mpi_mul_mpi(&T4, &T3, &T1);
 	MOD_MUL(&T4);
-	MPI_CHK(ttls_mpi_mul_mpi(&T3, &T3, &P->X));
+	ttls_mpi_mul_mpi(&T3, &T3, &P->X);
 	MOD_MUL(&T3);
-	MPI_CHK(ttls_mpi_mul_uint(&T1, &T3, 2));
+	ttls_mpi_copy_alloc(&T1, &T3, false);
+	ttls_mpi_shift_l(&T1, 1);
 	MOD_ADD(&T1);
-	MPI_CHK(ttls_mpi_mul_mpi(&X, &T2, &T2));
+	ttls_mpi_mul_mpi(&X, &T2, &T2);
 	MOD_MUL(&X);
 	ttls_mpi_sub_mpi(&X, &X, &T1);
 	MOD_SUB(&X);
@@ -783,16 +778,16 @@ ecp_add_mixed(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint *P,
 	MOD_SUB(&X);
 	ttls_mpi_sub_mpi(&T3, &T3, &X);
 	MOD_SUB(&T3);
-	MPI_CHK(ttls_mpi_mul_mpi(&T3, &T3, &T2));
+	ttls_mpi_mul_mpi(&T3, &T3, &T2);
 	MOD_MUL(&T3);
-	MPI_CHK(ttls_mpi_mul_mpi(&T4, &T4, &P->Y));
+	ttls_mpi_mul_mpi(&T4, &T4, &P->Y);
 	MOD_MUL(&T4);
 	ttls_mpi_sub_mpi(&Y, &T3, &T4);
 	MOD_SUB(&Y);
 
-	MPI_CHK(ttls_mpi_copy(&R->X, &X));
-	MPI_CHK(ttls_mpi_copy(&R->Y, &Y));
-	MPI_CHK(ttls_mpi_copy(&R->Z, &Z));
+	ttls_mpi_copy(&R->X, &X);
+	ttls_mpi_copy(&R->Y, &Y);
+	ttls_mpi_copy(&R->Z, &Z);
 
 	return 0;
 }
@@ -826,19 +821,19 @@ ecp_randomize_jac(const TlsEcpGrp *grp, TlsEcpPoint *pt)
 	} while (ttls_mpi_cmp_int(&l, 1) <= 0);
 
 	/* Z = l * Z */
-	MPI_CHK(ttls_mpi_mul_mpi(&pt->Z, &pt->Z, &l));
+	ttls_mpi_mul_mpi(&pt->Z, &pt->Z, &l);
 	MOD_MUL(&pt->Z);
 
 	/* X = l^2 * X */
-	MPI_CHK(ttls_mpi_mul_mpi(&ll, &l, &l));
+	ttls_mpi_mul_mpi(&ll, &l, &l);
 	MOD_MUL(&ll);
-	MPI_CHK(ttls_mpi_mul_mpi(&pt->X, &pt->X, &ll));
+	ttls_mpi_mul_mpi(&pt->X, &pt->X, &ll);
 	MOD_MUL(&pt->X);
 
 	/* Y = l^3 * Y */
-	MPI_CHK(ttls_mpi_mul_mpi(&ll, &ll, &l));
+	ttls_mpi_mul_mpi(&ll, &ll, &l);
 	MOD_MUL(&ll);
-	MPI_CHK(ttls_mpi_mul_mpi(&pt->Y, &pt->Y, &ll));
+	ttls_mpi_mul_mpi(&pt->Y, &pt->Y, &ll);
 	MOD_MUL(&pt->Y);
 
 	return 0;
@@ -916,12 +911,12 @@ ecp_precompute_comb(const TlsEcpGrp *grp, TlsEcpPoint T[], const TlsEcpPoint *P,
 	 * Set T[0] = P and T[2^{i-1}] = 2^{di} P for i = 1 .. w-1
 	 * (this is not the final value).
 	 */
-	MPI_CHK(ttls_ecp_copy(&T[0], P));
+	ttls_ecp_copy(&T[0], P);
 
 	k = 0;
 	for (i = 1; i < (1U << (w - 1)); i <<= 1) {
 		cur = T + i;
-		MPI_CHK(ttls_ecp_copy(cur, T + (i >> 1)));
+		ttls_ecp_copy(cur, T + (i >> 1));
 		for (j = 0; j < d; j++)
 			MPI_CHK(ecp_double_jac(grp, cur, cur));
 
@@ -952,7 +947,7 @@ ecp_precompute_comb(const TlsEcpGrp *grp, TlsEcpPoint T[], const TlsEcpPoint *P,
 /*
  * Select precomputed point: R = sign(i) * T[ abs(i) / 2 ]
  */
-static int
+static void
 ecp_select_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint T[],
 		unsigned char t_len, unsigned char i)
 {
@@ -963,14 +958,13 @@ ecp_select_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint T[],
 
 	/* Read the whole table to thwart cache-based timing attacks */
 	for (j = 0; j < t_len; j++) {
+		/* TODO #1064 do specialization to avoid conditions. */
 		ttls_mpi_safe_cond_assign(&R->X, &T[j].X, j == ii);
 		ttls_mpi_safe_cond_assign(&R->Y, &T[j].Y, j == ii);
 	}
 
 	/* Safely invert result if i is "negative" */
-	MPI_CHK(ecp_safe_invert_jac(grp, R, i >> 7));
-
-	return 0;
+	ecp_safe_invert_jac(grp, R, i >> 7);
 }
 
 /*
@@ -988,21 +982,20 @@ ecp_mul_comb_core(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint T[],
 	size_t i;
 
 	ttls_ecp_point_tmp_alloc_init(Txi, T->X.used, T->Y.used, 0);
-	if (ttls_mpi_alloc(&R->X, grp->nbits * 2 / BIL)
-	    || ttls_mpi_alloc(&R->Y, grp->nbits * 2 / BIL)
-	    || ttls_mpi_alloc(&R->Z, grp->nbits / BIL + 1))
-		return -ENOMEM;
+	ttls_mpi_alloc(&R->X, grp->nbits * 2 / BIL);
+	ttls_mpi_alloc(&R->Y, grp->nbits * 2 / BIL);
+	ttls_mpi_alloc(&R->Z, grp->nbits / BIL + 1);
 
 	/* Start with a non-zero point and randomize its coordinates */
 	i = d;
-	MPI_CHK(ecp_select_comb(grp, R, T, t_len, x[i]));
+	ecp_select_comb(grp, R, T, t_len, x[i]);
 	ttls_mpi_lset(&R->Z, 1);
 	if (rnd)
 		MPI_CHK(ecp_randomize_jac(grp, R));
 
 	while (i-- != 0) {
 		MPI_CHK(ecp_double_jac(grp, R, R));
-		MPI_CHK(ecp_select_comb(grp, Txi, T, t_len, x[i]));
+		ecp_select_comb(grp, Txi, T, t_len, x[i]);
 		MPI_CHK(ecp_add_mixed(grp, R, R, Txi));
 	}
 
@@ -1030,9 +1023,8 @@ ecp_mul_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	if (WARN_ON_ONCE(ttls_mpi_get_bit(&grp->N, 0) != 1))
 		return -EINVAL;
 
-	if (!(M = ttls_mpi_alloc_stack_init(d))
-	    || !(mm = ttls_mpi_alloc_stack_init(d)))
-		return -ENOMEM;
+	M = ttls_mpi_alloc_stack_init(d);
+	mm = ttls_mpi_alloc_stack_init(d);
 
 	/*
 	 * Minimize the number of multiplications, that is minimize
@@ -1078,7 +1070,7 @@ ecp_mul_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	 * using the fact that m * P = - (N - m) * P
 	 */
 	m_is_odd = (ttls_mpi_get_bit(m, 0) == 1);
-	TTLS_MPI_CHK(ttls_mpi_copy(M, m));
+	ttls_mpi_copy(M, m);
 	ttls_mpi_sub_mpi(mm, &grp->N, m);
 	ttls_mpi_safe_cond_assign(M, mm, !m_is_odd);
 
@@ -1087,7 +1079,7 @@ ecp_mul_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	TTLS_MPI_CHK(ecp_mul_comb_core(grp, R, T, pre_len, k, d, rnd));
 
 	/* Now get m * P from M * P and normalize it. */
-	TTLS_MPI_CHK(ecp_safe_invert_jac(grp, R, !m_is_odd));
+	ecp_safe_invert_jac(grp, R, !m_is_odd);
 	TTLS_MPI_CHK(ecp_normalize_jac(grp, R));
 
 cleanup:
@@ -1113,7 +1105,7 @@ static int
 ecp_normalize_mxz(const TlsEcpGrp *grp, TlsEcpPoint *P)
 {
 	MPI_CHK(ttls_mpi_inv_mod(&P->Z, &P->Z, &grp->P));
-	MPI_CHK(ttls_mpi_mul_mpi(&P->X, &P->X, &P->Z));
+	ttls_mpi_mul_mpi(&P->X, &P->X, &P->Z);
 	MOD_MUL(&P->X);
 	ttls_mpi_lset(&P->Z, 1);
 
@@ -1130,13 +1122,11 @@ ecp_normalize_mxz(const TlsEcpGrp *grp, TlsEcpPoint *P)
 static int
 ecp_randomize_mxz(const TlsEcpGrp *grp, TlsEcpPoint *P)
 {
-	TlsMpi *l;
+	TlsMpi *l = ttls_mpi_alloc_stack_init(0);
 	size_t p_size;
 	int count = 0;
 
 	p_size = (grp->pbits + 7) / 8;
-	if (!(l = ttls_mpi_alloc_stack_init(0)))
-		return -ENOMEM;
 
 	/* Generate l such that 1 < l < p */
 	do {
@@ -1149,9 +1139,9 @@ ecp_randomize_mxz(const TlsEcpGrp *grp, TlsEcpPoint *P)
 			return TTLS_ERR_ECP_RANDOM_FAILED;
 	} while (ttls_mpi_cmp_int(l, 1) <= 0);
 
-	MPI_CHK(ttls_mpi_mul_mpi(&P->X, &P->X, l));
+	ttls_mpi_mul_mpi(&P->X, &P->X, l);
 	MOD_MUL(&P->X);
-	MPI_CHK(ttls_mpi_mul_mpi(&P->Z, &P->Z, l));
+	ttls_mpi_mul_mpi(&P->Z, &P->Z, l);
 	MOD_MUL(&P->Z);
 
 	return 0;
@@ -1181,8 +1171,7 @@ ecp_double_add_mxz(const TlsEcpGrp *grp, TlsEcpPoint *R, TlsEcpPoint *S,
 
 	n = sizeof(TlsMpi) * 9 + CIL * ((max(P->X.used, P->Z.used) + 1) * 9
 					+ (max(Q->X.used, Q->Z.used) + 1) * 4);
-	if (!(A = ttls_mpool_alloc_stack(n)))
-		return -ENOMEM;
+	A = ttls_mpool_alloc_stack(n);
 	AA = ttls_mpi_init_next(A, max(P->X.used, P->Z.used) + 1);
 	B = ttls_mpi_init_next(AA, A->limbs * 2);
 	BB = ttls_mpi_init_next(B, max(P->X.used, P->Z.used));
@@ -1195,11 +1184,11 @@ ecp_double_add_mxz(const TlsEcpGrp *grp, TlsEcpPoint *R, TlsEcpPoint *S,
 
 	ttls_mpi_add_mpi(A, &P->X, &P->Z);
 	MOD_ADD(A);
-	MPI_CHK(ttls_mpi_mul_mpi(AA, A, A));
+	ttls_mpi_mul_mpi(AA, A, A);
 	MOD_MUL(AA);
 	ttls_mpi_sub_mpi(B, &P->X, &P->Z);
 	MOD_SUB(B);
-	MPI_CHK(ttls_mpi_mul_mpi(BB, B, B));
+	ttls_mpi_mul_mpi(BB, B, B);
 	MOD_MUL(BB);
 	ttls_mpi_sub_mpi(E, AA, BB);
 	MOD_SUB(E);
@@ -1207,27 +1196,27 @@ ecp_double_add_mxz(const TlsEcpGrp *grp, TlsEcpPoint *R, TlsEcpPoint *S,
 	MOD_ADD(C);
 	ttls_mpi_sub_mpi(D, &Q->X, &Q->Z);
 	MOD_SUB(D);
-	MPI_CHK(ttls_mpi_mul_mpi(DA, D, A));
+	ttls_mpi_mul_mpi(DA, D, A);
 	MOD_MUL(DA);
-	MPI_CHK(ttls_mpi_mul_mpi(CB, C, B));
+	ttls_mpi_mul_mpi(CB, C, B);
 	MOD_MUL(CB);
 	ttls_mpi_add_mpi(&S->X, DA, CB);
 	MOD_MUL(&S->X);
-	MPI_CHK(ttls_mpi_mul_mpi(&S->X, &S->X, &S->X));
+	ttls_mpi_mul_mpi(&S->X, &S->X, &S->X);
 	MOD_MUL(&S->X);
 	ttls_mpi_sub_mpi(&S->Z, DA, CB);
 	MOD_SUB(&S->Z);
-	MPI_CHK(ttls_mpi_mul_mpi(&S->Z, &S->Z, &S->Z));
+	ttls_mpi_mul_mpi(&S->Z, &S->Z, &S->Z);
 	MOD_MUL(&S->Z);
-	MPI_CHK(ttls_mpi_mul_mpi(&S->Z, d, &S->Z));
+	ttls_mpi_mul_mpi(&S->Z, d, &S->Z);
 	MOD_MUL(&S->Z);
-	MPI_CHK(ttls_mpi_mul_mpi(&R->X, AA, BB));
+	ttls_mpi_mul_mpi(&R->X, AA, BB);
 	MOD_MUL(&R->X);
-	MPI_CHK(ttls_mpi_mul_mpi(&R->Z, &grp->A, E));
+	ttls_mpi_mul_mpi(&R->Z, &grp->A, E);
 	MOD_MUL(&R->Z);
 	ttls_mpi_add_mpi(&R->Z, BB, &R->Z);
 	MOD_ADD(&R->Z);
-	MPI_CHK(ttls_mpi_mul_mpi(&R->Z, E, &R->Z));
+	ttls_mpi_mul_mpi(&R->Z, E, &R->Z);
 	MOD_MUL(&R->Z);
 
 	return 0;
@@ -1246,14 +1235,13 @@ ecp_mul_mxz(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	TlsEcpPoint *RP;
 	TlsMpi *PX;
 
-	if (!(PX = ttls_mpi_alloc_stack_init(0))
-	    || !(RP = ttls_mpool_alloc_stack(sizeof(*RP))))
-		return -ENOMEM;
+	PX = ttls_mpi_alloc_stack_init(0);
+	RP = ttls_mpool_alloc_stack(sizeof(*RP));
 	ttls_ecp_point_init(RP);
 
 	/* Save PX and read from P before writing to R, in case P == R */
-	MPI_CHK(ttls_mpi_copy(PX, &P->X));
-	MPI_CHK(ttls_ecp_copy(RP, P));
+	ttls_mpi_copy(PX, &P->X);
+	ttls_ecp_copy(RP, P);
 
 	/* Set R to zero in modified x/z coordinates */
 	ttls_mpi_lset(&R->X, 1);
@@ -1314,57 +1302,13 @@ ttls_ecp_mul(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	BUG();
 }
 
-/*
- * Check that an affine point is valid as a public key,
- * short weierstrass curves (SEC1 3.2.3.1).
+/**
+ * TODO #1064: Specialization for R = m * G.
  */
-static int
-ecp_check_pubkey_sw(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
+int
+ttls_ecp_mul_g(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,				     bool rnd)
 {
-	TlsMpi *YY, *RHS;
-
-	/* pt coordinates must be normalized for our checks */
-	if (unlikely(ttls_mpi_cmp_mpi(&pt->X, &grp->P) >= 0
-		     || ttls_mpi_cmp_mpi(&pt->Y, &grp->P) >= 0))
-	{
-		T_DBG_MPI3("ECP invalid weierstrass public key",
-			   &pt->X, &pt->Y, &grp->P);
-		return -EINVAL;
-	}
-
-	if (!(YY = ttls_mpi_alloc_stack_init(grp->nbits * 2 / BIL))
-	    || !(RHS = ttls_mpi_alloc_stack_init(grp->nbits * 2 / BIL)))
-		return -ENOMEM;
-
-	/*
-	 * YY = Y^2
-	 * RHS = X (X^2 + A) + B = X^3 + A X + B
-	 */
-	MPI_CHK(ttls_mpi_mul_mpi(YY, &pt->Y, &pt->Y ));
-	MOD_MUL(YY);
-	MPI_CHK(ttls_mpi_mul_mpi(RHS, &pt->X, &pt->X ));
-	MOD_MUL(RHS);
-
-	/* Special case for A = -3 */
-	if (ttls_mpi_empty(&grp->A)) {
-		ttls_mpi_sub_int(RHS, RHS, 3);
-		MOD_SUB(RHS);
-	} else {
-		ttls_mpi_add_mpi(RHS, RHS, &grp->A);
-		MOD_ADD(RHS);
-	}
-
-	MPI_CHK(ttls_mpi_mul_mpi(RHS, RHS, &pt->X));
-	MOD_MUL(RHS);
-	ttls_mpi_add_mpi(RHS, RHS, &grp->B);
-	MOD_ADD(RHS);
-
-	if (ttls_mpi_cmp_mpi(YY, RHS)) {
-		T_DBG_MPI2("ECP invalid weierstrass public key", YY, RHS);
-		return -EINVAL;
-	}
-
-	return 0;
+	return ttls_ecp_mul(grp, R, m, &grp->G, rnd);
 }
 
 /**
@@ -1376,10 +1320,10 @@ ttls_ecp_mul_shortcuts(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 		       const TlsEcpPoint *P)
 {
 	if (!ttls_mpi_cmp_int(m, 1)) {
-		MPI_CHK(ttls_ecp_copy(R, P));
+		ttls_ecp_copy(R, P);
 	}
 	else if (!ttls_mpi_cmp_int(m, -1)) {
-		MPI_CHK(ttls_ecp_copy(R, P));
+		ttls_ecp_copy(R, P);
 		if (ttls_mpi_cmp_int(&R->Y, 0))
 			ttls_mpi_sub_mpi(&R->Y, &grp->P, &R->Y);
 	}
@@ -1404,28 +1348,13 @@ ttls_ecp_muladd(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	if (WARN_ON_ONCE(ecp_get_type(grp) != ECP_TYPE_SHORT_WEIERSTRASS))
 		return -EINVAL;
 
-	if (!(mP = ttls_mpool_alloc_stack(sizeof(TlsEcpPoint))))
-		return -ENOMEM;
+	mP = ttls_mpool_alloc_stack(sizeof(TlsEcpPoint));
 	ttls_ecp_point_init(mP);
 
 	MPI_CHK(ttls_ecp_mul_shortcuts(grp, mP, m, &grp->G));
 	MPI_CHK(ttls_ecp_mul_shortcuts(grp, R, n, Q));
 	MPI_CHK(ecp_add_mixed(grp, R, mP, R));
 	MPI_CHK(ecp_normalize_jac(grp, R));
-
-	return 0;
-}
-
-
-/*
- * Check validity of a public key for Montgomery curves with x-only schemes.
- * [Curve25519 p. 5] Just check X is the correct number of bytes.
- */
-static int
-ecp_check_pubkey_mx(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
-{
-	if (WARN_ON_ONCE(ttls_mpi_size(&pt->X) > (grp->nbits + 7) / 8))
-		return -EINVAL;
 
 	return 0;
 }
@@ -1445,17 +1374,70 @@ ecp_check_pubkey_mx(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
 int
 ttls_ecp_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
 {
+#ifdef DEBUG
+	TlsMpi *YY, *RHS;
+
 	/* Must use affine coordinates */
 	if (WARN_ON_ONCE(ttls_mpi_cmp_int(&pt->Z, 1)))
 		return -EINVAL;
 
-	switch (ecp_get_type(grp)) {
-	case ECP_TYPE_MONTGOMERY:
-		return ecp_check_pubkey_mx(grp, pt);
-	case ECP_TYPE_SHORT_WEIERSTRASS:
-		return ecp_check_pubkey_sw(grp, pt);
+	if (ecp_get_type(grp) == ECP_TYPE_MONTGOMERY) {
+		/*
+		 * Check validity of a public key for Montgomery curves with
+		 * x-only schemes. [Curve25519 p. 5] Just check X is the correct
+		 * number of bytes.
+		 */
+		if (WARN_ON_ONCE(ttls_mpi_size(&pt->X) > (grp->nbits + 7) / 8))
+			return -EINVAL;
+		return 0;
 	}
-	BUG();
+
+	/*
+	 * Check that an affine point is valid as a public key,
+	 * short Weierstrass curves (SEC1 3.2.3.1).
+	 *
+	 * pt coordinates must be normalized for our checks.
+	 */
+	if (ttls_mpi_cmp_mpi(&pt->X, &grp->P) >= 0
+	    || ttls_mpi_cmp_mpi(&pt->Y, &grp->P) >= 0)
+	{
+		T_DBG_MPI3("ECP invalid weierstrass public key",
+			   &pt->X, &pt->Y, &grp->P);
+		return -EINVAL;
+	}
+
+	YY = ttls_mpi_alloc_stack_init(grp->nbits * 2 / BIL);
+	RHS = ttls_mpi_alloc_stack_init(grp->nbits * 2 / BIL);
+
+	/*
+	 * YY = Y^2
+	 * RHS = X (X^2 + A) + B = X^3 + A X + B
+	 */
+	ttls_mpi_mul_mpi(YY, &pt->Y, &pt->Y);
+	MOD_MUL(YY);
+	ttls_mpi_mul_mpi(RHS, &pt->X, &pt->X);
+	MOD_MUL(RHS);
+
+	/* Special case for A = -3 */
+	if (ttls_mpi_empty(&grp->A)) {
+		ttls_mpi_sub_int(RHS, RHS, 3);
+		MOD_SUB(RHS);
+	} else {
+		ttls_mpi_add_mpi(RHS, RHS, &grp->A);
+		MOD_ADD(RHS);
+	}
+
+	ttls_mpi_mul_mpi(RHS, RHS, &pt->X);
+	MOD_MUL(RHS);
+	ttls_mpi_add_mpi(RHS, RHS, &grp->B);
+	MOD_ADD(RHS);
+
+	if (ttls_mpi_cmp_mpi(YY, RHS)) {
+		T_DBG_MPI2("ECP invalid weierstrass public key", YY, RHS);
+		return -EINVAL;
+	}
+#endif
+	return 0;
 }
 
 /**
@@ -1514,12 +1496,12 @@ ttls_ecp_gen_keypair(const TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q)
 		if (b > grp->nbits)
 			ttls_mpi_shift_r(d, b - grp->nbits);
 		else
-			MPI_CHK(ttls_mpi_set_bit(d, grp->nbits, 1));
+			ttls_mpi_set_bit(d, grp->nbits, 1);
 
 		/* Make sure the last three bits are unset */
-		MPI_CHK(ttls_mpi_set_bit(d, 0, 0));
-		MPI_CHK(ttls_mpi_set_bit(d, 1, 0));
-		MPI_CHK(ttls_mpi_set_bit(d, 2, 0));
+		ttls_mpi_set_bit(d, 0, 0);
+		ttls_mpi_set_bit(d, 1, 0);
+		ttls_mpi_set_bit(d, 2, 0);
 	} else {
 		/* SEC1 3.2.1: Generate d such that 1 <= n < N */
 		int count = 0;
@@ -1547,17 +1529,15 @@ ttls_ecp_gen_keypair(const TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q)
 			 * binary, but some curves such as secp224k1 are
 			 * actually very close to the worst case.
 			 */
-			if (WARN_ON_ONCE(++count > 30))
+			if (WARN_ON_ONCE(++count > 10))
 				return TTLS_ERR_ECP_RANDOM_FAILED;
 		}
-		while (ttls_mpi_cmp_int(d, 1) < 0
+		while (!ttls_mpi_cmp_int(d, 0)
 		       || ttls_mpi_cmp_mpi(d, &grp->N) >= 0)
 			;
 	}
 
-	MPI_CHK(ttls_ecp_check_privkey(grp, d));
-
-	MPI_CHK(ttls_ecp_mul(grp, Q, d, &grp->G, true));
+	MPI_CHK(ttls_ecp_mul_g(grp, Q, d, true));
 
 	return ttls_ecp_check_pubkey(grp, Q);
 }

@@ -161,8 +161,7 @@ typedef struct {
  * the quantity actually used in the formulas. Also, nbits is not the size of N
  * but the required size for private keys.
  *
- * If modp is NULL, reduction modulo P is done using a generic algorithm.
- * Otherwise, it must point to a function that takes an TlsMpi in the range
+ * modp must point to a function that takes an TlsMpi in the range
  * 0..2^(2*pbits)-1 and transforms it in-place in an integer of little more
  * than pbits, so that the integer may be efficiently brought in the 0..P-1
  * range by a few additions or substractions. It must return 0 on success and
@@ -183,7 +182,7 @@ typedef struct {
 	ttls_ecp_group_id	id;
 	unsigned int		pbits;
 	unsigned int		nbits;
-	int			(*modp)(TlsMpi *);
+	void			(*modp)(TlsMpi *);
 	TlsMpi			P;
 	TlsMpi			A;
 	TlsMpi			B;
@@ -223,7 +222,7 @@ void ttls_ecp_point_init(TlsEcpPoint *pt);
 void ttls_ecp_keypair_init(TlsEcpKeypair *key);
 void ttls_ecp_keypair_free(TlsEcpKeypair *key);
 
-int ttls_ecp_copy(TlsEcpPoint *P, const TlsEcpPoint *Q);
+void ttls_ecp_copy(TlsEcpPoint *P, const TlsEcpPoint *Q);
 int ttls_ecp_is_zero(TlsEcpPoint *pt);
 
 int ttls_ecp_point_read_binary(const TlsEcpGrp *grp, TlsEcpPoint *P,
@@ -245,6 +244,8 @@ int ecp_precompute_comb(const TlsEcpGrp *grp, TlsEcpPoint T[],
 
 int ttls_ecp_mul(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 		 const TlsEcpPoint *P, bool rnd);
+int ttls_ecp_mul_g(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
+		   bool rnd);
 int ttls_ecp_muladd(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 		    const TlsMpi *n, const TlsEcpPoint *Q);
 

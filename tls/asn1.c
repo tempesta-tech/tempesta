@@ -156,11 +156,11 @@ ttls_asn1_get_mpi(unsigned char **p, const unsigned char *end, TlsMpi *X)
 	if ((ret = ttls_asn1_get_tag(p, end, &len, TTLS_ASN1_INTEGER)))
 		return ret;
 
-	ret = ttls_mpi_read_binary(X, *p, len);
+	ttls_mpi_read_binary(X, *p, len);
 
 	*p += len;
 
-	return ret;
+	return 0;
 }
 
 int ttls_asn1_get_bitstring(unsigned char **p, const unsigned char *end,
