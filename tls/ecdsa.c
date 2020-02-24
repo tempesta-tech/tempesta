@@ -51,23 +51,20 @@
  * Derive a suitable integer for group grp from a buffer of length len
  * SEC1 4.1.3 step 5 aka SEC1 4.1.4 step 3
  */
-static int derive_mpi(const TlsEcpGrp *grp, TlsMpi *x,
-		   const unsigned char *buf, size_t blen)
+static void
+derive_mpi(const TlsEcpGrp *grp, TlsMpi *x, const unsigned char *buf,
+	   size_t blen)
 {
-	int ret;
 	size_t n_size = (grp->nbits + 7) / 8;
 	size_t use_size = blen > n_size ? n_size : blen;
 
-	TTLS_MPI_CHK(ttls_mpi_read_binary(x, buf, use_size));
+	ttls_mpi_read_binary(x, buf, use_size);
 	if (use_size * 8 > grp->nbits)
 		ttls_mpi_shift_r(x, use_size * 8 - grp->nbits);
 
 	/* While at it, reduce modulo N */
 	if (ttls_mpi_cmp_mpi(x, &grp->N) >= 0)
 		ttls_mpi_sub_mpi(x, x, &grp->N);
-
-cleanup:
-	return ret;
 }
 
 /*
@@ -92,12 +89,11 @@ ttls_ecdsa_verify(TlsEcpGrp *grp, const unsigned char *buf, size_t blen,
 	TlsMpi *e, *s_inv, *u1, *u2;
 	TlsEcpPoint *R;
 
-	if (!(e = ttls_mpi_alloc_stack_init((grp->nbits + 7) / 8 / CIL))
-	    || !(s_inv = ttls_mpi_alloc_stack_init(grp->N.used))
-	    || !(u1 = ttls_mpi_alloc_stack_init(e->limbs + s_inv->limbs))
-	    || !(u2 = ttls_mpi_alloc_stack_init(r->limbs + s_inv->limbs))
-	    || !(R = ttls_mpool_alloc_stack(sizeof(*R))))
-		return -ENOMEM;
+	e = ttls_mpi_alloc_stack_init((grp->nbits + 7) / 8 / CIL);
+	s_inv = ttls_mpi_alloc_stack_init(grp->N.used);
+	u1 = ttls_mpi_alloc_stack_init(e->limbs + s_inv->limbs);
+	u2 = ttls_mpi_alloc_stack_init(r->limbs + s_inv->limbs);
+	R = ttls_mpool_alloc_stack(sizeof(*R));
 	ttls_ecp_point_init(R);
 
 	/*
@@ -116,14 +112,14 @@ ttls_ecdsa_verify(TlsEcpGrp *grp, const unsigned char *buf, size_t blen,
 	MPI_CHK(ttls_ecp_check_pubkey(grp, Q));
 
 	/* Step 3: derive MPI from hashed message. */
-	MPI_CHK(derive_mpi(grp, e, buf, blen));
+	derive_mpi(grp, e, buf, blen);
 
 	/* Step 4: u1 = e / s mod n, u2 = r / s mod n */
 	MPI_CHK(ttls_mpi_inv_mod(s_inv, s, &grp->N));
-	MPI_CHK(ttls_mpi_mul_mpi(u1, e, s_inv));
-	MPI_CHK(ttls_mpi_mod_mpi(u1, u1, &grp->N));
-	MPI_CHK(ttls_mpi_mul_mpi(u2, r, s_inv));
-	MPI_CHK(ttls_mpi_mod_mpi(u2, u2, &grp->N));
+	ttls_mpi_mul_mpi(u1, e, s_inv);
+	ttls_mpi_mod_mpi(u1, u1, &grp->N);
+	ttls_mpi_mul_mpi(u2, r, s_inv);
+	ttls_mpi_mod_mpi(u2, u2, &grp->N);
 
 	/*
 	 * Step 5: R = u1 G + u2 Q
@@ -139,7 +135,7 @@ ttls_ecdsa_verify(TlsEcpGrp *grp, const unsigned char *buf, size_t blen,
 	 * Step 6: convert xR to an integer (no-op)
 	 * Step 7: reduce xR mod n (gives v)
 	 */
-	MPI_CHK(ttls_mpi_mod_mpi(&R->X, &R->X, &grp->N));
+	ttls_mpi_mod_mpi(&R->X, &R->X, &grp->N);
 
 	/* Step 8: check if v (that is, R.X) is equal to r. */
 	return ttls_mpi_cmp_mpi(&R->X, r);
@@ -210,16 +206,14 @@ ttls_ecdsa_write_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
 	}
 
 	n = max(grp->N.used + d->used, (int)(hlen / CIL));
-	if (!(k = ttls_mpi_alloc_stack_init((grp->nbits + 7) / BIL * 2))
-	    || !(e = ttls_mpi_alloc_stack_init(n * 2))
-	    || !(t = ttls_mpi_alloc_stack_init((grp->nbits + 7) / BIL))
-	    || !(r = ttls_mpi_alloc_stack_init(grp->N.used))
-	    || !(s = ttls_mpi_alloc_stack_init(n * 2))
-	    || !(R = ttls_mpool_alloc_stack(sizeof(*R))))
-		return -ENOMEM;
+	k = ttls_mpi_alloc_stack_init((grp->nbits + 7) / BIL * 2);
+	e = ttls_mpi_alloc_stack_init(n * 2);
+	t = ttls_mpi_alloc_stack_init((grp->nbits + 7) / BIL);
+	r = ttls_mpi_alloc_stack_init(grp->N.used);
+	s = ttls_mpi_alloc_stack_init(n * 2);
+	R = ttls_mpool_alloc_stack(sizeof(*R));
 	ttls_ecp_point_init(R);
-	if (ttls_mpi_alloc(&R->Z, (grp->nbits + 7) / BIL * 2))
-		return -ENOMEM;
+	ttls_mpi_alloc(&R->Z, (grp->nbits + 7) / BIL * 2);
 
 	sign_tries = 0;
 	do {
@@ -227,14 +221,14 @@ ttls_ecdsa_write_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
 		key_tries = 0;
 		do {
 			MPI_CHK(ttls_ecp_gen_keypair(grp, k, R));
-			MPI_CHK(ttls_mpi_mod_mpi(r, &R->X, &grp->N));
+			ttls_mpi_mod_mpi(r, &R->X, &grp->N);
 
 			if (key_tries++ > 10)
 				return TTLS_ERR_ECP_RANDOM_FAILED;
 		} while (!ttls_mpi_cmp_int(r, 0));
 
 		/* Derive MPI from hashed message. */
-		MPI_CHK(derive_mpi(grp, e, hash, hlen));
+		derive_mpi(grp, e, hash, hlen);
 
 		/*
 		 * Generate a random value to blind inv_mod in next step,
@@ -253,13 +247,13 @@ ttls_ecdsa_write_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
 			 || ttls_mpi_cmp_mpi(t, &grp->N) >= 0);
 
 		/* Compute s = (e + r * d) / k = t (e + rd) / (kt) mod n */
-		MPI_CHK(ttls_mpi_mul_mpi(s, r, d));
+		ttls_mpi_mul_mpi(s, r, d);
 		ttls_mpi_add_mpi(e, e, s);
-		MPI_CHK(ttls_mpi_mul_mpi(e, e, t));
-		MPI_CHK(ttls_mpi_mul_mpi(k, k, t));
-		MPI_CHK(ttls_mpi_inv_mod(s, k, &grp->N));
-		MPI_CHK(ttls_mpi_mul_mpi(s, s, e));
-		MPI_CHK(ttls_mpi_mod_mpi(s, s, &grp->N));
+		ttls_mpi_mul_mpi(e, e, t);
+		ttls_mpi_mul_mpi(k, k, t);
+		ttls_mpi_inv_mod(s, k, &grp->N);
+		ttls_mpi_mul_mpi(s, s, e);
+		ttls_mpi_mod_mpi(s, s, &grp->N);
 
 		if (sign_tries++ > 10)
 			return TTLS_ERR_ECP_RANDOM_FAILED;
@@ -286,9 +280,8 @@ ttls_ecdsa_read_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
 	size_t len;
 	TlsMpi *r, *s;
 
-	if (!(r = ttls_mpi_alloc_stack_init(0))
-	    || !(s = ttls_mpi_alloc_stack_init(0)))
-		return -ENOMEM;
+	r = ttls_mpi_alloc_stack_init(0);
+	s = ttls_mpi_alloc_stack_init(0);
 
 	ret = ttls_asn1_get_tag(&p, end, &len,
 				TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE);

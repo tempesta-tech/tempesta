@@ -82,12 +82,12 @@ rsa_sign(void)
 	memset(rsa, 0, sizeof(TlsRSACtx));
 	ttls_rsa_init(rsa, TTLS_RSA_PKCS_V15, 0);
 
-	EXPECT_ZERO(ttls_mpi_read_binary(&rsa->N, RSA_N, 128));
+	ttls_mpi_read_binary(&rsa->N, RSA_N, 128);
 	rsa->len = ttls_mpi_size(&rsa->N);
-	EXPECT_ZERO(ttls_mpi_read_binary(&rsa->P, RSA_P, 64));
-	EXPECT_ZERO(ttls_mpi_read_binary(&rsa->Q, RSA_Q, 64));
-	EXPECT_ZERO(ttls_mpi_read_binary(&rsa->D, RSA_D, 128));
-	EXPECT_ZERO(ttls_mpi_read_binary(&rsa->E, RSA_E, 3));
+	ttls_mpi_read_binary(&rsa->P, RSA_P, 64);
+	ttls_mpi_read_binary(&rsa->Q, RSA_Q, 64);
+	ttls_mpi_read_binary(&rsa->D, RSA_D, 128);
+	ttls_mpi_read_binary(&rsa->E, RSA_E, 3);
 
 	/* FIXME #1064 crashes here. */
 	EXPECT_ZERO(ttls_rsa_complete(rsa));

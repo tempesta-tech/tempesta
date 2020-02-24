@@ -36,7 +36,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2018, Arm Limited (or its affiliates), All Rights Reserved
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -155,6 +155,6 @@ int ttls_dhm_make_public(TlsDHMCtx *ctx, int x_size,
 int ttls_dhm_calc_secret(TlsDHMCtx *ctx,
 		 unsigned char *output, size_t output_size, size_t *olen);
 
-int ttls_dhm_load(TlsDHMCtx *ctx);
+void ttls_dhm_load(TlsDHMCtx *ctx);
 
 #endif /* dhm.h */

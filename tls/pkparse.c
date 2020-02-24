@@ -156,20 +156,14 @@ static int pk_get_rsapubkey(unsigned char **p,
 	if ((ret = ttls_asn1_get_tag(p, end, &len, TTLS_ASN1_INTEGER)) != 0)
 		return(TTLS_ERR_PK_INVALID_PUBKEY + ret);
 
-	if ((ret = ttls_rsa_import_raw(rsa, *p, len, NULL, 0, NULL, 0,
-				NULL, 0, NULL, 0)) != 0)
-		return(TTLS_ERR_PK_INVALID_PUBKEY);
-
+	ttls_rsa_import_raw(rsa, *p, len, NULL, 0, NULL, 0, NULL, 0, NULL, 0);
 	*p += len;
 
 	/* Import E */
 	if ((ret = ttls_asn1_get_tag(p, end, &len, TTLS_ASN1_INTEGER)) != 0)
 		return(TTLS_ERR_PK_INVALID_PUBKEY + ret);
 
-	if ((ret = ttls_rsa_import_raw(rsa, NULL, 0, NULL, 0, NULL, 0,
-				NULL, 0, *p, len)) != 0)
-		return(TTLS_ERR_PK_INVALID_PUBKEY);
-
+	ttls_rsa_import_raw(rsa, NULL, 0, NULL, 0, NULL, 0, NULL, 0, *p, len);
 	*p += len;
 
 	if (ttls_rsa_check_pubkey(rsa))
@@ -326,38 +320,33 @@ pk_parse_key_pkcs1_der(TlsRSACtx *rsa, const unsigned char *key, size_t keylen)
 		return TTLS_ERR_PK_KEY_INVALID_VERSION;
 
 	/* Import N */
-	if ((r = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_INTEGER))
-	    || (r = ttls_rsa_import_raw(rsa, p, len, NULL, 0, NULL, 0, NULL, 0,
-					NULL, 0)))
+	if ((r = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_INTEGER)))
 		goto err;
+	ttls_rsa_import_raw(rsa, p, len, NULL, 0, NULL, 0, NULL, 0, NULL, 0);
 	p += len;
 
 	/* Import E */
-	if ((r = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_INTEGER))
-	    || (r = ttls_rsa_import_raw(rsa, NULL, 0, NULL, 0, NULL, 0, NULL, 0,
-					p, len)))
+	if ((r = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_INTEGER)))
 		goto err;
+	ttls_rsa_import_raw(rsa, NULL, 0, NULL, 0, NULL, 0, NULL, 0, p, len);
 	p += len;
 
 	/* Import D */
-	if ((r = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_INTEGER))
-	    || (r = ttls_rsa_import_raw(rsa, NULL, 0, NULL, 0, NULL, 0, p, len,
-					NULL, 0)))
+	if ((r = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_INTEGER)))
 		goto err;
+	ttls_rsa_import_raw(rsa, NULL, 0, NULL, 0, NULL, 0, p, len, NULL, 0);
 	p += len;
 
 	/* Import P */
-	if ((r = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_INTEGER))
-	    || (r = ttls_rsa_import_raw(rsa, NULL, 0, p, len, NULL, 0, NULL, 0,
-					NULL, 0)))
+	if ((r = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_INTEGER)))
 		goto err;
+	ttls_rsa_import_raw(rsa, NULL, 0, p, len, NULL, 0, NULL, 0, NULL, 0);
 	p += len;
 
 	/* Import Q */
-	if ((r = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_INTEGER))
-	    || (r = ttls_rsa_import_raw(rsa, NULL, 0, NULL, 0, p, len, NULL, 0,
-					NULL, 0)))
+	if ((r = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_INTEGER)))
 		goto err;
+	ttls_rsa_import_raw(rsa, NULL, 0, NULL, 0, p, len, NULL, 0, NULL, 0);
 	p += len;
 
 	/* Complete the RSA private key */
@@ -366,8 +355,8 @@ pk_parse_key_pkcs1_der(TlsRSACtx *rsa, const unsigned char *key, size_t keylen)
 
 	/* Check optional parameters */
 	kernel_fpu_begin();
-	if (!(T = ttls_mpi_alloc_stack_init((end - p) * CIL))
-	    || (r = ttls_asn1_get_mpi(&p, end, T))
+	T = ttls_mpi_alloc_stack_init((end - p) * CIL);
+	if ((r = ttls_asn1_get_mpi(&p, end, T))
 	    || (r = ttls_asn1_get_mpi(&p, end, T))
 	    || (r = ttls_asn1_get_mpi(&p, end, T)))
 	{
@@ -395,12 +384,12 @@ err:
 	return r;
 }
 
-/*
+/**
  * Parse a SEC1 encoded private EC key
  */
-static int pk_parse_key_sec1_der(TlsEcpKeypair *eck,
-		  const unsigned char *key,
-		  size_t keylen)
+static int
+pk_parse_key_sec1_der(TlsEcpKeypair *eck, const unsigned char *key,
+		      size_t keylen)
 {
 	int ret;
 	int version, pubkey_done;
@@ -437,11 +426,7 @@ static int pk_parse_key_sec1_der(TlsEcpKeypair *eck,
 	if ((ret = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_OCTET_STRING)) != 0)
 		return(TTLS_ERR_PK_KEY_INVALID_FORMAT + ret);
 
-	if ((ret = ttls_mpi_read_binary(&eck->d, p, len)) != 0)
-	{
-		ttls_ecp_keypair_free(eck);
-		return(TTLS_ERR_PK_KEY_INVALID_FORMAT + ret);
-	}
+	ttls_mpi_read_binary(&eck->d, p, len);
 
 	p += len;
 
