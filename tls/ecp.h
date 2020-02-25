@@ -158,18 +158,17 @@ typedef struct {
  * prime. (Use odd in ttls_ecp_mul() and prime in ECDSA signature for blinding.)
  *
  * In the case of Montgomery curves, we don't store A but (A + 2) / 4 which is
- * the quantity actually used in the formulas. Also, nbits is not the size of N
+ * the quantity actually used in the formulas. Also, bits is not the size of N
  * but the required size for private keys.
  *
  * modp must point to a function that takes an TlsMpi in the range
- * 0..2^(2*pbits)-1 and transforms it in-place in an integer of little more
- * than pbits, so that the integer may be efficiently brought in the 0..P-1
+ * 0..2^(2*bits)-1 and transforms it in-place in an integer of little more
+ * than bits, so that the integer may be efficiently brought in the 0..P-1
  * range by a few additions or substractions. It must return 0 on success and
  * non-zero on failure.
  *
  * @id		- internal group identifier;
- * @pbits	- number of bits in P;
- * @nbits	- number of bits in 1. P, or 2. private keys;
+ * @bits	- number of bits in P (the group order);
  * @modp	- function for fast reduction mod P;
  * @P		- prime modulus of the base field;
  * @A		- 1. A in the equation, or 2. (A + 2) / 4;
@@ -180,8 +179,7 @@ typedef struct {
  */
 typedef struct {
 	ttls_ecp_group_id	id;
-	unsigned int		pbits;
-	unsigned int		nbits;
+	unsigned int		bits;
 	void			(*modp)(TlsMpi *);
 	TlsMpi			P;
 	TlsMpi			A;
