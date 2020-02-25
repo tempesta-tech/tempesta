@@ -145,7 +145,7 @@ eckey_can_do(ttls_pk_type_t type)
 static size_t
 eckey_get_bitlen(const void *ctx)
 {
-	return ((TlsEcpKeypair *)ctx)->grp->pbits;
+	return ((TlsEcpKeypair *)ctx)->grp->bits;
 }
 
 static void *

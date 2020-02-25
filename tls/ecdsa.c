@@ -55,12 +55,12 @@ static void
 derive_mpi(const TlsEcpGrp *grp, TlsMpi *x, const unsigned char *buf,
 	   size_t blen)
 {
-	size_t n_size = (grp->nbits + 7) / 8;
+	size_t n_size = (grp->bits + 7) / 8;
 	size_t use_size = blen > n_size ? n_size : blen;
 
 	ttls_mpi_read_binary(x, buf, use_size);
-	if (use_size * 8 > grp->nbits)
-		ttls_mpi_shift_r(x, use_size * 8 - grp->nbits);
+	if (use_size * 8 > grp->bits)
+		ttls_mpi_shift_r(x, use_size * 8 - grp->bits);
 
 	/* While at it, reduce modulo N */
 	if (ttls_mpi_cmp_mpi(x, &grp->N) >= 0)
@@ -89,7 +89,7 @@ ttls_ecdsa_verify(TlsEcpGrp *grp, const unsigned char *buf, size_t blen,
 	TlsMpi *e, *s_inv, *u1, *u2;
 	TlsEcpPoint *R;
 
-	e = ttls_mpi_alloc_stack_init((grp->nbits + 7) / 8 / CIL);
+	e = ttls_mpi_alloc_stack_init((grp->bits + 7) / 8 / CIL);
 	s_inv = ttls_mpi_alloc_stack_init(grp->N.used);
 	u1 = ttls_mpi_alloc_stack_init(e->limbs + s_inv->limbs);
 	u2 = ttls_mpi_alloc_stack_init(r->limbs + s_inv->limbs);
@@ -206,14 +206,14 @@ ttls_ecdsa_write_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
 	}
 
 	n = max(grp->N.used + d->used, (int)(hlen / CIL));
-	k = ttls_mpi_alloc_stack_init((grp->nbits + 7) / BIL * 2);
+	k = ttls_mpi_alloc_stack_init((grp->bits + 7) / BIL * 2);
 	e = ttls_mpi_alloc_stack_init(n * 2);
-	t = ttls_mpi_alloc_stack_init((grp->nbits + 7) / BIL);
+	t = ttls_mpi_alloc_stack_init((grp->bits + 7) / BIL);
 	r = ttls_mpi_alloc_stack_init(grp->N.used);
 	s = ttls_mpi_alloc_stack_init(n * 2);
 	R = ttls_mpool_alloc_stack(sizeof(*R));
 	ttls_ecp_point_init(R);
-	ttls_mpi_alloc(&R->Z, (grp->nbits + 7) / BIL * 2);
+	ttls_mpi_alloc(&R->Z, (grp->bits + 7) / BIL * 2);
 
 	sign_tries = 0;
 	do {
@@ -236,12 +236,12 @@ ttls_ecdsa_write_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
 		 */
 		blind_tries = 0;
 		do {
-			size_t n_size = (grp->nbits + 7) / 8;
+			size_t n_size = (grp->bits + 7) / 8;
 			MPI_CHK(ttls_mpi_fill_random(t, n_size));
-			ttls_mpi_shift_r(t, 8 * n_size - grp->nbits);
+			ttls_mpi_shift_r(t, 8 * n_size - grp->bits);
 
 			/* See ttls_ecp_gen_keypair() */
-			if (++blind_tries > 30)
+			if (++blind_tries > 10)
 				return TTLS_ERR_ECP_RANDOM_FAILED;
 		} while (ttls_mpi_cmp_int(t, 1) < 0
 			 || ttls_mpi_cmp_mpi(t, &grp->N) >= 0);
