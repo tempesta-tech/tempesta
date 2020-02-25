@@ -39,5 +39,8 @@ void mpi_shift_l_x86_64(unsigned long *x, size_t x_len, unsigned long bits);
 void mpi_shift_r_x86_64_4(unsigned long *x, unsigned long bits);
 void mpi_shift_r_x86_64(unsigned long *x, size_t x_len, unsigned long bits);
 
+void mpi_mul_x86_64_4(unsigned long *x, unsigned long *a, unsigned long *b);
+void mpi_sqr_x86_64_4(unsigned long *x, unsigned long *a);
+
 #endif /* __BIGNUM_ASM_H__ */
 

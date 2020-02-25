@@ -89,8 +89,7 @@ ecp_mul(void)
 	grp = MPI_POOL_TAIL_PTR(&cs_mp_ecdhe_secp256.mp);
 	EXPECT_FALSE(!grp);
 	EXPECT_EQ(grp->id, TTLS_ECP_DP_SECP256R1);
-	EXPECT_EQ(grp->nbits, 256);
-	EXPECT_EQ(grp->pbits, 256);
+	EXPECT_EQ(grp->bits, 256);
 	EXPECT_EQ(grp->P.used, 4);
 	EXPECT_EQ(grp->P.limbs, 4);
 	EXPECT_EQ(grp->P.s, 1);
@@ -130,7 +129,7 @@ ecp_mul(void)
 	EXPECT_EQ(MPI_P(&grp->G.Y)[2], 0x8ee7eb4a7c0f9e16);
 	EXPECT_EQ(MPI_P(&grp->G.Y)[3], 0x4fe342e2fe1a7f9b);
 	EXPECT_EQ(grp->G.Z.used, 1);
-	EXPECT_EQ(grp->G.Z.limbs, grp->nbits / BIL);
+	EXPECT_EQ(grp->G.Z.limbs, grp->bits / BIL);
 	EXPECT_EQ(grp->G.Z.s, 1);
 	EXPECT_EQ(MPI_P(&grp->G.Z)[0], 1);
 

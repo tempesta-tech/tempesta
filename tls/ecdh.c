@@ -79,8 +79,6 @@ ttls_ecdh_make_params(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
 	int r;
 	size_t grp_len, pt_len;
 
-	BUG_ON(!ctx || !ctx->grp->pbits);
-
 	if ((r = ttls_ecp_gen_keypair(ctx->grp, &ctx->d, &ctx->Q)))
 		return r;
 
@@ -149,9 +147,6 @@ ttls_ecdh_make_public(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
 {
 	int r;
 
-	if (WARN_ON_ONCE(!ctx || !ctx->grp->pbits))
-		return -EINVAL;
-
 	if ((r = ttls_ecp_gen_keypair(ctx->grp, &ctx->d, &ctx->Q)))
 		return r;
 	return ttls_ecp_tls_write_point(ctx->grp, &ctx->Q, olen, buf, blen);
@@ -195,7 +190,7 @@ ttls_ecdh_calc_secret(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
 	if (WARN_ON_ONCE(ttls_mpi_size(&ctx->z.X) > blen))
 		return -EINVAL;
 
-	*olen = ctx->grp->pbits / 8 + ((ctx->grp->pbits % 8) != 0);
+	*olen = (ctx->grp->bits + 7) / 8;
 
 	return ttls_mpi_write_binary(&ctx->z.X, buf, *olen);
 }
