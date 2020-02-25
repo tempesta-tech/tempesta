@@ -395,14 +395,13 @@ ecp_group_load(TlsEcpGrp *grp, const unsigned long *p,  size_t plen,
 	ecp_mpi_load(&grp->G.Y, gy, gylen);
 	ecp_mpi_load(&grp->N, n, nlen);
 
-	grp->pbits = ttls_mpi_bitlen(&grp->P);
-	grp->nbits = ttls_mpi_bitlen(&grp->N);
+	grp->bits = plen / CIL * BIL;
 
 	/*
 	 * Most of the time the point is normalized, so Z stores 1, but
 	 * is some calculations the size can grow up to the curve size.
 	 */
-	ttls_mpi_alloc(&grp->G.Z, grp->nbits / BIL);
+	ttls_mpi_alloc(&grp->G.Z, grp->bits / BIL);
 	ttls_mpi_lset(&grp->G.Z, 1);
 
 	/*
@@ -434,7 +433,6 @@ ecp_use_curve25519(TlsEcpGrp *grp)
 	ttls_mpi_lset(&grp->P, 1);
 	ttls_mpi_shift_l(&grp->P, 255);
 	ttls_mpi_sub_int(&grp->P, &grp->P, 19);
-	grp->pbits = ttls_mpi_bitlen(&grp->P);
 
 	/*
 	 * Y intentionaly isn't set, since we use x/z coordinates.
@@ -445,7 +443,7 @@ ecp_use_curve25519(TlsEcpGrp *grp)
 	ttls_mpi_lset(&grp->G.Z, 1);
 
 	/* Actually, the required msb for private keys */
-	grp->nbits = 254;
+	grp->bits = 254;
 }
 
 TlsEcpGrp *

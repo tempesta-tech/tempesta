@@ -351,6 +351,204 @@ ENDPROC(mpi_shift_r_x86_64_4)
 
 
 /**
+ * Multiply two 4-limbs MPIs (pointed by %RSI and %RDX correspondingly) and
+ * store up to 8 limbs by pointer to result %RDI.
+ *
+ * The function code is borrowed from WolfSSL library
+ * (https://github.com/wolfSSL/wolfssl/), sp_256_mul_avx2_4(),
+ * wolfssl/wolfcrypt/src/sp_x86_64_asm.S .
+ */
+ENTRY(mpi_mul_x86_64_4)
+	push	%r12
+	push	%r13
+	push	%r14
+	push	%r15
+	push	%rbx
+	movq	%rdx, %rax /* we need RDX as implicit argument for MULX */
+
+	/* A[0] * B[0] */
+	movq	(%rax), %rdx
+	mulxq	(%rsi), %r9, %r10
+	/* A[2] * B[0] */
+	mulxq	16(%rsi), %r11, %r12
+	/* A[1] * B[0] */
+	mulxq	8(%rsi), %rcx, %r8
+	xorq	%rbx, %rbx
+	adcxq	%rcx, %r10
+	/* A[1] * B[3] */
+	movq	24(%rax), %rdx
+	mulxq	8(%rsi), %r13, %r14
+	adcxq	%r8, %r11
+	/* A[0] * B[1] */
+	movq	8(%rax), %rdx
+	mulxq	(%rsi), %rcx, %r8
+	adoxq	%rcx, %r10
+	/* A[2] * B[1] */
+	mulxq	16(%rsi), %rcx, %r15
+	adoxq	%r8, %r11
+	adcxq	%rcx, %r12
+	/* A[1] * B[2] */
+	movq	16(%rax), %rdx
+	mulxq	8(%rsi), %rcx, %r8
+	adcxq	%r15, %r13
+	adoxq	%rcx, %r12
+	adcxq	%rbx, %r14
+	adoxq	%r8, %r13
+	/* A[0] * B[2] */
+	mulxq	(%rsi), %rcx, %r8
+	adoxq	%rbx, %r14
+	xorq	%r15, %r15
+	adcxq	%rcx, %r11
+	/* A[1] * B[1] */
+	movq	8(%rax), %rdx
+	mulxq	8(%rsi), %rdx, %rcx
+	adcxq	%r8, %r12
+	adoxq	%rdx, %r11
+	/* A[3] * B[1] */
+	movq	8(%rax), %rdx
+	adoxq	%rcx, %r12
+	mulxq	24(%rsi), %rcx, %r8
+	adcxq	%rcx, %r13
+	/* A[2] * B[2] */
+	movq	16(%rax), %rdx
+	mulxq	16(%rsi), %rdx, %rcx
+	adcxq	%r8, %r14
+	adoxq	%rdx, %r13
+	/* A[3] * B[3] */
+	movq	24(%rax), %rdx
+	adoxq	%rcx, %r14
+	mulxq	24(%rsi), %rcx, %r8
+	adoxq	%rbx, %r15
+	adcxq	%rcx, %r15
+	/* A[0] * B[3] */
+	mulxq	(%rsi), %rdx, %rcx
+	adcxq	%r8, %rbx
+	xorq	%r8, %r8
+	adcxq	%rdx, %r12
+	/* A[3] * B[0] */
+	movq	(%rax), %rdx
+	adcxq	%rcx, %r13
+	mulxq	24(%rsi), %rdx, %rcx
+	adoxq	%rdx, %r12
+	adoxq	%rcx, %r13
+	/* A[2] * B[3] */
+	movq	24(%rax), %rdx
+	mulxq	16(%rsi), %rdx, %rcx
+	adcxq	%rdx, %r14
+	/* A[3] * B[2] */
+	movq	16(%rax), %rdx
+	adcxq	%rcx, %r15
+	mulxq	24(%rsi), %rcx, %rdx
+	adcxq	%r8, %rbx
+	adoxq	%rcx, %r14
+	adoxq	%rdx, %r15
+	adoxq	%r8, %rbx
+	movq	%r9, (%rdi)
+	movq	%r10, 8(%rdi)
+	movq	%r11, 16(%rdi)
+	movq	%r12, 24(%rdi)
+	movq	%r13, 32(%rdi)
+	movq	%r14, 40(%rdi)
+	movq	%r15, 48(%rdi)
+	movq	%rbx, 56(%rdi)
+
+	pop	%rbx
+	pop	%r15
+	pop	%r14
+	pop	%r13
+	pop	%r12
+	ret
+ENDPROC(mpi_mul_x86_64_4)
+
+
+/**
+ * Square a 4-limbs MPIs pointed by %RSI and store up to 8 limbs by pointer
+ * to result %RDI.
+ *
+ * The function code is borrowed from WolfSSL library
+ * (https://github.com/wolfSSL/wolfssl/), sp_256_sqr_avx2_4(),
+ * wolfssl/wolfcrypt/src/sp_x86_64_asm.S .
+ */
+ENTRY(mpi_sqr_x86_64_4)
+	push	%rbx
+	push	%r12
+	push	%r13
+	push	%r14
+	push	%r15
+
+	/* A[0] * A[1] */
+	movq	(%rsi), %rdx
+	mulxq	8(%rsi), %r9, %r10
+	/* A[0] * A[3] */
+	mulxq	24(%rsi), %r11, %r12
+	/* A[2] * A[1] */
+	movq	16(%rsi), %rdx
+	mulxq	8(%rsi), %rcx, %rbx
+	xorq	%r15, %r15
+	adoxq	%rcx, %r11
+	/* A[2] * A[3] */
+	mulxq	24(%rsi), %r13, %r14
+	adoxq	%rbx, %r12
+	/* A[2] * A[0] */
+	mulxq	(%rsi), %rcx, %rbx
+	adoxq	%r15, %r13
+	adcxq	%rcx, %r10
+	adoxq	%r15, %r14
+	/* A[1] * A[3] */
+	movq	8(%rsi), %rdx
+	mulxq	24(%rsi), %rax, %r8
+	adcxq	%rbx, %r11
+	adcxq	%rax, %r12
+	adcxq	%r8, %r13
+	adcxq	%r15, %r14
+
+	/* Double with Carry Flag. */
+	xorq	%r15, %r15
+	/* A[0] * A[0] */
+	movq	(%rsi), %rdx
+	mulxq	%rdx, %r8, %rax
+	adcxq	%r9, %r9
+	/* A[1] * A[1] */
+	movq	8(%rsi), %rdx
+	mulxq	%rdx, %rcx, %rbx
+	adcxq	%r10, %r10
+	adoxq	%rax, %r9
+	adcxq	%r11, %r11
+	adoxq	%rcx, %r10
+	/* A[2] * A[2] */
+	movq	16(%rsi), %rdx
+	mulxq	%rdx, %rax, %rcx
+	adcxq	%r12, %r12
+	adoxq	%rbx, %r11
+	adcxq	%r13, %r13
+	adoxq	%rax, %r12
+	/* A[3] * A[3] */
+	movq	24(%rsi), %rdx
+	mulxq	%rdx, %rax, %rbx
+	adcxq	%r14, %r14
+	adoxq	%rcx, %r13
+	adcxq	%r15, %r15
+	adoxq	%rax, %r14
+	adoxq	%rbx, %r15
+	movq	%r8, (%rdi)
+	movq	%r9, 8(%rdi)
+	movq	%r10, 16(%rdi)
+	movq	%r11, 24(%rdi)
+	movq	%r12, 32(%rdi)
+	movq	%r13, 40(%rdi)
+	movq	%r14, 48(%rdi)
+	movq	%r15, 56(%rdi)
+
+	pop	%r15
+	pop	%r14
+	pop	%r13
+	pop	%r12
+	pop	%rbx
+	ret
+ENDPROC(mpi_sqr_x86_64_4)
+
+
+/**
  * Fast reduction modulo 256 by FIPS 186-3 D.2:
  *
  *	s1 = (c7,  c6,  c5,  c4,  c3,  c2,  c1,  c0 )

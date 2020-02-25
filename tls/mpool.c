@@ -371,7 +371,7 @@ __mpi_profile_load_ec(TlsMpiPool *mp, TlsECDHCtx *ctx, unsigned char w,
 		return r;
 	}
 	/* Prepare precomputed points to use them in ecp_mul_comb(). */
-	n_sz = (grp->nbits + w - 1) / w;
+	n_sz = (grp->bits + w - 1) / w;
 	if (ecp_precompute_comb(grp, grp->T, &grp->G, w, n_sz))
 		return -EDOM;
 	ttls_mpool_shrink_tailtmp(mp, true);
@@ -395,7 +395,7 @@ __mpi_profile_load_ec(TlsMpiPool *mp, TlsECDHCtx *ctx, unsigned char w,
 	 * Allocate memory for the MPIs set in ttls_ecp_gen_keypair()
 	 * called from ttls_ecdh_make_params().
 	 */
-	n_sz = CHARS_TO_LIMBS((grp->nbits + 7) / 8);
+	n_sz = CHARS_TO_LIMBS((grp->bits + 7) / 8);
 	ttls_mpi_alloc(&ctx->d, n_sz);
 	ttls_mpi_alloc(&ctx->Q.X, n_sz * 2);
 	ttls_mpi_alloc(&ctx->Q.Y, n_sz * 2);
