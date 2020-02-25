@@ -636,6 +636,7 @@ ttls_payload_off(const TlsXfrm *xfrm)
 static inline void
 ttls_reset_io_ctx(TlsIOCtx *io)
 {
+	/* Note: it's up to the caller if io->skb_list must be cleared or not.*/
 	bzero_fast(io->__initoff, sizeof(*io) - offsetof(TlsIOCtx, __initoff));
 }
 
