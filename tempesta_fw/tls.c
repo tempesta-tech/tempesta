@@ -82,6 +82,16 @@ tfw_tls_chop_skb_rec(TlsCtx *tls, struct sk_buff *skb,
 	return ss_skb_chop_head_tail(NULL, data->skb->prev, 0, tail);
 }
 
+static inline void
+ttls_purge_io_ctx(TlsIOCtx *io)
+{
+	struct sk_buff *skb;
+
+	while ((skb = ss_skb_dequeue(&io->skb_list)))
+		kfree_skb(skb);
+	ttls_reset_io_ctx(io);
+}
+
 static int
 tfw_tls_msg_process(void *conn, TfwFsmData *data)
 {
@@ -172,7 +182,11 @@ next_msg:
 			return r;
 		}
 	} else {
-		ttls_reset_io_ctx(&tls->io_in);
+		/*
+		 * The decrypted payload is not required for upper levels.
+		 * Lifetime of skbs in input contexts ends here.
+		 */
+		ttls_purge_io_ctx(&tls->io_in);
 		spin_unlock(&tls->lock);
 	}
 
