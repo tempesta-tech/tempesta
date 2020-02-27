@@ -3819,39 +3819,74 @@ tfw_h2_set_stale_warn(TfwHttpResp *resp)
 }
 
 /*
- * Split header in two parts: name and value, evicting ':' and OWS.
+ * Split header in two parts: name and value, evicting ':' and OWS. Return
+ * the resulting length of both parts.
  *
- * NOTE: use this function with caution since it changes the underlying
- * @TfwStr descriptors of @hdr; thus, this procedure should be used
- * only in cases when the headers descriptors will not be needed any more
- * (e.g. during message final transformation/adjusting, just before
- * forwarding), or when the descriptors has been copied previously (e.g.
- * via @tfw_strcpy_desc() function).
+ * NOTE: this function is intended for response processing only (during
+ * HTTP/1.1=>HTTP/2 transformation), since the response HTTP parser
+ * supports splitting the header name, colon, LWS, value and RWS into
+ * different chunks.
  */
-void
-tfw_http_hdr_split(TfwStr *hdr, TfwStr *name_out, TfwStr *val_out)
+unsigned long
+tfw_http_hdr_split(TfwStr *hdr, TfwStr *name_out, TfwStr *val_out, bool inplace)
 {
-	bool name_found = false, val_found = false;
-	unsigned long tail, last_tail = 0, hdr_tail = 0;
+	unsigned long hdr_tail = 0;
 	TfwStr *chunk, *end, *last_chunk = NULL;
+	bool name_found = false, val_found = false;
 
 	BUG_ON(!TFW_STR_EMPTY(name_out) || !TFW_STR_EMPTY(val_out));
+
+	if (WARN_ON_ONCE(TFW_STR_PLAIN(hdr)))
+		return 0;
+
+	if (TFW_STR_EMPTY(hdr))
+		return 0;
+
+	if (!inplace) {
+		unsigned long off = 0;
+		/*
+		 * During headers addition (or message expansion) the source
+		 * @hdr must have the following chunk structure (without the
+		 * OWS):
+		 *
+		 *	{ name [S_DLM] value1 [value2 [value3 ...]] }.
+		 *
+		 */
+		*name_out = *hdr->chunks;
+
+		chunk = TFW_STR_CHUNK(hdr, 1);
+		if (WARN_ON_ONCE(!chunk))
+			return 0;
+
+		if (chunk->len == SLEN(S_DLM)
+		    && *(short *)chunk->data == *(short *)S_DLM)
+		{
+			off = SLEN(S_DLM);
+			chunk = TFW_STR_CHUNK(hdr, 2);
+			if (WARN_ON_ONCE(!chunk))
+				return 0;
+		}
+
+		val_out->chunks = chunk;
+		val_out->nchunks = hdr->chunks + hdr->nchunks - chunk;
+		val_out->len = hdr->len - name_out->len - off;
+
+		return hdr->len - off;
+	}
 
 	name_out->chunks = hdr->chunks;
 
 	TFW_STR_FOR_EACH_CHUNK(chunk, hdr, end) {
-		unsigned long idx;
-
 		if (!chunk->len)
 			continue;
 
 		if (!name_found) {
-			++name_out->nchunks;
-			name_out->len += chunk->len;
-			if (chunk->data[chunk->len - 1] == ':') {
-				--name_out->len;
-				TFW_STR_LAST(name_out)->len -= 1;
+			if (chunk->data[0] == ':') {
+				WARN_ON_ONCE(chunk->len != 1);
 				name_found = true;
+			} else {
+				++name_out->nchunks;
+				name_out->len += chunk->len;
 			}
 			continue;
 		}
@@ -3861,8 +3896,7 @@ tfw_http_hdr_split(TfwStr *hdr, TfwStr *name_out, TfwStr *val_out)
 		 * value; thus, we can skip length of the entire (LWS) chunks.
 		 */
 		if (!val_found) {
-			if (unlikely(chunk->data[0] == ' '
-				     || chunk->data[0] == '\t'))
+			if (unlikely(chunk->flags & TFW_STR_OWS))
 				continue;
 
 			val_out->chunks = chunk;
@@ -3871,71 +3905,33 @@ tfw_http_hdr_split(TfwStr *hdr, TfwStr *name_out, TfwStr *val_out)
 
 		val_out->len += chunk->len;
 
-		/*
-		 * Skip OWS after the header value (RWS); accumulate the length
-		 * in @tail for RWS cutting off (if this is not the end chunk,
-		 * @tail will be reset).
+		/* 
+		 * Skip OWS after the header value (RWS) - they must be in
+		 * separate chunks too.
 		 */
-		tail = 0;
-		idx = chunk->len - 1;
-		while (chunk->data[idx] == ' '
-		       || chunk->data[idx] == '\t')
-		{
-			++tail;
-			if (unlikely(!idx))
-				break;
-			--idx;
-		}
-
-		if (unlikely(tail == chunk->len)) {
-			hdr_tail += tail;
+		if (unlikely(chunk->flags & TFW_STR_OWS)) {
+			hdr_tail += chunk->len;
 		} else {
 			last_chunk = chunk;
-			last_tail = hdr_tail = tail;
+			hdr_tail = 0;
 		}
 	}
 
 	/* The header value is empty. */
 	if (unlikely(!val_found))
-		return;
+		return name_out->len;
 
 	if (WARN_ON_ONCE(!last_chunk))
-		return;
+		return 0;
 
-	T_DBG3("%s: hdr_tail=%lu, val_out->len=%lu, last_tail=%lu,"
-	       " last_chunk->len=%lu, last_chunk->data='%.*s'\n", __func__,
-	       hdr_tail, val_out->len, last_tail, last_chunk->len,
-	       (int)last_chunk->len, last_chunk->data);
+	T_DBG3("%s: hdr_tail=%lu, val_out->len=%lu, last_chunk->len=%lu,"
+	       " last_chunk->data='%.*s'\n", __func__, hdr_tail, val_out->len,
+	       last_chunk->len, (int)last_chunk->len, last_chunk->data);
 
-	val_out->nchunks = chunk - val_out->chunks;
+	val_out->nchunks = last_chunk - val_out->chunks + 1;
 	val_out->len -= hdr_tail;
-	last_chunk->len -= last_tail;
-}
 
-/*
- * Split header in two parts: name and value, with descriptors copying (see
- * description of @tfw_http_hdr_split() for details).
- *
- * TODO: this procedure should be evicted after HTTP/1.1-parser extending
- * (and @tfw_http_hdr_split()/@tfw_h2_msg_hdr_length procedures upgrading) in
- * order to split headers into separate chunks for name, ':', LWS, value, and
- * RWS - during the HTTP-message parsing stage.
- */
-int
-tfw_http_hdr_split_cp(TfwPool *pool, TfwStr *hdr, TfwStr *name_out,
-		      TfwStr *val_out)
-{
-	TfwStr *h;
-
-	BUG_ON(TFW_STR_DUP(hdr));
-
-	h = tfw_strdup_desc(pool, hdr);
-	if (unlikely(!h))
-		return -ENOMEM;
-
-	tfw_http_hdr_split(h, name_out, val_out);
-
-	return 0;
+	return name_out->len + val_out->len;
 }
 
 unsigned long

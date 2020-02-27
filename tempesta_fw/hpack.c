@@ -2414,6 +2414,36 @@ chunk_end:
 }
 
 /*
+ * Copy the header part (i.e. name/value) into @out_buf from @h_field.
+ * Return pointer on the next position of @out_buf, after the copied data.
+ * Note that the size of prepared @out_buf must be not less than the
+ * length of the @h_field.
+ */
+static char *
+tfw_hpack_write(const TfwStr *h_field, char *out_buf)
+{
+	const TfwStr *c, *end;
+
+	T_DBG3("%s: enter, h_field->len=%lu,\n", __func__, h_field->len);
+
+	if (WARN_ON_ONCE(TFW_STR_EMPTY(h_field)))
+		return out_buf;
+
+	TFW_STR_FOR_EACH_CHUNK(c, h_field, end) {
+		if (!c->len)
+			continue;
+
+		T_DBG3("%s: c->len=%lu, c->data='%.*s'\n", __func__, c->len,
+		       (int)c->len, c->data);
+
+		memcpy_fast(out_buf, c->data, c->len);
+		out_buf += c->len;
+	}
+
+	return out_buf;
+}
+
+/*
  * Left rotation of red-black tree.
  */
 static void
@@ -2945,17 +2975,19 @@ tfw_hpack_rbuf_commit(TfwHPackETbl *__restrict tbl,
  * headers will be evicted from the index table.
  */
 static int
-tfw_hpack_add_node(TfwHPackETbl *__restrict tbl, const TfwStr *__restrict hdr,
+tfw_hpack_add_node(TfwHPackETbl *__restrict tbl, TfwStr *__restrict hdr,
 		   TfwHPackNodeIter *__restrict place, TfwH2TransOp op)
 {
+	char *ptr;
 	unsigned long node_size, hdr_len;
 	unsigned short new_size, node_len;
 	unsigned short cur_size = tbl->size, window = tbl->window;
-	unsigned long nm_len, val_off, val_len;
 	TfwHPackNode *del_list[HPACK_MAX_ENC_EVICTION] = {};
+	TfwStr s_nm = {}, s_val = {};
 	TfwHPackETblIter it = {};
 
-	hdr_len = tfw_h2_msg_hdr_length(hdr, &nm_len, &val_off, &val_len, op);
+	hdr_len = tfw_http_hdr_split(hdr, &s_nm, &s_val,
+				     op == TFW_H2_TRANS_INPLACE);
 
 	WARN_ON_ONCE(cur_size > window || window > HPACK_ENC_TABLE_MAX_SIZE);
 	if ((node_size = hdr_len + HPACK_ENTRY_OVERHEAD) > window) {
@@ -3050,7 +3082,9 @@ commit:
 	it.last->hdr_len = hdr_len;
 	it.last->rindex = ++tbl->idx_acc;
 
-	tfw_h2_msg_hdr_write(hdr, nm_len, val_off, val_len, it.last->hdr);
+	ptr = tfw_hpack_write(&s_nm, it.last->hdr);
+	tfw_hpack_write(&s_val, ptr);
+
 	tfw_hpack_rbuf_commit(tbl, del_list, place, &it);
 
 	WARN_ON_ONCE(tbl->rb_len > tbl->size);
@@ -3066,7 +3100,7 @@ commit:
  */
 static TfwHPackETblRes
 tfw_hpack_encoder_index(TfwHPackETbl *__restrict tbl,
-			const TfwStr *__restrict hdr,
+			TfwStr *__restrict hdr,
 			unsigned short *__restrict out_index,
 			unsigned long *__restrict flags,
 			TfwH2TransOp op)
@@ -3560,7 +3594,7 @@ tfw_hpack_hdr_inplace(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	if (!hdr || WARN_ON_ONCE(TFW_STR_PLAIN(hdr) || TFW_STR_DUP(hdr)))
 		return -EINVAL;
 
-	tfw_http_hdr_split(hdr, &s_name, &s_val);
+	tfw_http_hdr_split(hdr, &s_name, &s_val, true);
 
 	if (unlikely(!name_indexed)) {
 		TfwHPackInt nlen;

@@ -1123,8 +1123,8 @@ tfw_cache_h2_copy_int(unsigned int *acc_len, unsigned long src,
  * @return number of copied bytes on success and negative value otherwise.
  */
 static long
-tfw_cache_h2_copy_hdr(TfwPool *pool, TfwCacheEntry *ce, char **p,
-		      TdbVRec **trec, TfwStr *hdr, size_t *tot_len)
+tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, char **p, TdbVRec **trec, TfwStr *hdr,
+		      size_t *tot_len)
 {
 	TfwCStr *cs;
 	long n = sizeof(TfwCStr);
@@ -1141,16 +1141,7 @@ tfw_cache_h2_copy_hdr(TfwPool *pool, TfwCacheEntry *ce, char **p,
 
 		TFW_STR_INIT(&s_nm);
 		TFW_STR_INIT(&s_val);
-
-		/*
-		 * We cannot use just @tfw_http_hdr_split() here, since the
-		 * response must be forwarded to the client and its headers
-		 * will be processed further, so we must not invalidate headers
-		 * descriptors (see also description of @tfw_http_hdr_split_cp()
-		 * and @tfw_http_hdr_split() for additional details).
-		 */
-		if (tfw_http_hdr_split_cp(pool, hdr, &s_nm, &s_val))
-			return -ENOMEM;
+		tfw_http_hdr_split(hdr, &s_nm, &s_val, true);
 
 		st_index = hdr->hpack_idx;
 		h_len = tfw_h2_hdr_size(s_nm.len, s_val.len, st_index);
@@ -1179,9 +1170,7 @@ tfw_cache_h2_copy_hdr(TfwPool *pool, TfwCacheEntry *ce, char **p,
 		if (dupl) {
 			TFW_STR_INIT(&s_nm);
 			TFW_STR_INIT(&s_val);
-			if (tfw_http_hdr_split_cp(pool, dup, &s_nm, &s_val))
-				return -ENOMEM;
-
+			tfw_http_hdr_split(dup, &s_nm, &s_val, true);
 			st_index = dup->hpack_idx;
 			CSTR_MOVE_HDR();
 		}
@@ -1279,11 +1268,11 @@ __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
 {
 	char *e_p;
 	size_t c_size;
-	unsigned long n_len, v_off, v_len;
 	TDB *db = node_db();
 	size_t len = 0;
 	unsigned short flags = 0;
 	TfwStr h_val, *c, *end, *h = &resp->h_tbl->tbl[TFW_HTTP_HDR_ETAG];
+	TfwStr s_dummy = {}, s_val = {};
 
 #define CHECK_REC_SPACE()						\
 	while (c_size) {						\
@@ -1319,8 +1308,8 @@ __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
 	 * occupy 2 bytes (RFC 7541 section 6.2.2).
 	 */
 	e_p += TFW_CSTR_HDRLEN;
-	tfw_h2_msg_hdr_length(h, &n_len, &v_off, &v_len, TFW_H2_TRANS_INPLACE);
-	c_size = 2 + tfw_hpack_int_size(v_len, 0x7F);
+	tfw_http_hdr_split(h, &s_dummy, &s_val, true);
+	c_size = 2 + tfw_hpack_int_size(s_val.len, 0x7F);
 	CHECK_REC_SPACE();
 	TFW_STR_FOR_EACH_CHUNK(c, &h_val, end) {
 		if (c->flags & TFW_STR_VALUE) {
@@ -1538,8 +1527,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 
 		__save_hdr_304_off(ce, resp, field, TDB_OFF(db->hdr, p));
 
-		n = tfw_cache_h2_copy_hdr(resp->pool, ce, &p, &trec, field,
-					  &tot_len);
+		n = tfw_cache_h2_copy_hdr(ce, &p, &trec, field, &tot_len);
 		if (unlikely(n < 0))
 			return n;
 	}
@@ -1619,7 +1607,6 @@ static long
 __cache_entry_size(TfwHttpResp *resp)
 {
 	TfwStr host_val, *hdr, *hdr_end;
-	unsigned long n_len, v_off, v_len;
 	TfwHttpReq *req = resp->req;
 	long size, res_size = CE_BODY_SIZE;
 	TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
@@ -1656,15 +1643,18 @@ __cache_entry_size(TfwHttpResp *resp)
 		size = sizeof(TfwCStr);
 
 		if (!TFW_STR_DUP(hdr)) {
-			tfw_h2_msg_hdr_length(hdr, &n_len, &v_off, &v_len,
-					      TFW_H2_TRANS_INPLACE);
-			size += tfw_h2_hdr_size(n_len, v_len, hdr->hpack_idx);
+			TfwStr s_nm = {}, s_val = {};
+
+			tfw_http_hdr_split(hdr, &s_nm, &s_val, true);
+			size += tfw_h2_hdr_size(s_nm.len, s_val.len,
+						hdr->hpack_idx);
 		} else {
 			TFW_STR_FOR_EACH_DUP(d, hdr, d_end) {
+				TfwStr s_nm = {}, s_val = {};
+
 				size += sizeof(TfwCStr);
-				tfw_h2_msg_hdr_length(d, &n_len, &v_off, &v_len,
-						      TFW_H2_TRANS_INPLACE);
-				size += tfw_h2_hdr_size(n_len, v_len,
+				tfw_http_hdr_split(d, &s_nm, &s_val, true);
+				size += tfw_h2_hdr_size(s_nm.len, s_val.len,
 							d->hpack_idx);
 			}
 		}

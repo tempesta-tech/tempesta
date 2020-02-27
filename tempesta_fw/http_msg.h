@@ -182,13 +182,6 @@ int tfw_http_msg_expand_data(TfwMsgIter *it, struct sk_buff **skb_head,
 			     const TfwStr *src, unsigned int *start_off);
 int __hdr_name_cmp(const TfwStr *hdr, const TfwStr *name);
 int __h2_hdr_lookup(TfwHttpMsg *hm, const TfwStr *h_name);
-unsigned long tfw_h2_msg_hdr_length(const TfwStr *hdr, unsigned long *name_len,
-				    unsigned long *val_off,
-				    unsigned long *val_len,
-				    TfwH2TransOp op);
-void tfw_h2_msg_hdr_write(const TfwStr *hdr, unsigned long nm_len,
-			  unsigned long val_off, unsigned long val_len,
-			  char *out_buf);
 int tfw_h2_msg_rewrite_data(TfwHttpTransIter *mit, const TfwStr *str,
 			    const char *stop);
 

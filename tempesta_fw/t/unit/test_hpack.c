@@ -1205,8 +1205,9 @@ TEST(hpack, enc_huffman)
 
 TEST(hpack, enc_table_hdr_write)
 {
-	char *buf;
-	unsigned long hdr_len, n_len, v_off, v_len;
+	char *buf, *ptr;
+	unsigned long hdr_len;
+	TfwStr s_nm = {}, s_val = {};
 
 #define HDR_NAME_1	"x-forwarded-for"
 #define HDR_VALUE_1	"test.com, foo.com, example.com"
@@ -1219,103 +1220,116 @@ TEST(hpack, enc_table_hdr_write)
 #define HDR_NAME_5	"custom-key"
 #define HDR_VALUE_5	"custom-example-value"
 
-	TFW_STR(s1, HDR_NAME_1 ":");
-	TFW_STR(s1_lws, "   ");
-	TFW_STR(s1_value, HDR_VALUE_1 "    ");
+	TFW_STR(col, ":");
+
+	TFW_STR(s1, HDR_NAME_1);
+	TFW_STR(s1_lws, "      ");
+	TFW_STR(s1_value, HDR_VALUE_1);
+	TFW_STR(s1_rws, "    ");
 	const char *t_s1 = HDR_NAME_1 HDR_VALUE_1;
-	unsigned long off1 = s1_lws->len + 1;
 	unsigned long t_s1_len = strlen(t_s1);
 
-	TFW_STR(s2, HDR_NAME_2 ":");
+	TFW_STR(s2, HDR_NAME_2);
 	TFW_STR(s2_value, HDR_VALUE_2);
 	const char *t_s2 = HDR_NAME_2 HDR_VALUE_2;
-	unsigned long off2 = 1;
 	unsigned long t_s2_len = strlen(t_s2);
 
-	TFW_STR(s3, HDR_NAME_3 ":");
+	TFW_STR(s3, HDR_NAME_3);
 	TFW_STR(s3_lws, "\t  ");
-	TFW_STR(s3_value, HDR_VALUE_3 "   ");
+	TFW_STR(s3_value, HDR_VALUE_3);
+	TFW_STR(s3_rws, "   ");
 	const char *t_s3 = HDR_NAME_3 HDR_VALUE_3;
-	unsigned long off3 = s3_lws->len + 1;
 	unsigned long t_s3_len = strlen(t_s3);
 
-	TFW_STR(s4, HDR_NAME_4 ":");
+	TFW_STR(s4, HDR_NAME_4);
 	TFW_STR(s4_lws, "     ");
-	TFW_STR(s4_value, HDR_VALUE_4 "\t\t   \t");
+	TFW_STR(s4_value, HDR_VALUE_4);
+	TFW_STR(s4_rws, "\t\t   \t");
 	const char *t_s4 = HDR_NAME_4 HDR_VALUE_4;
-	unsigned long off4 = s4_lws->len + 1;
 	unsigned long t_s4_len = strlen(t_s4);
 
-	TFW_STR(s5, HDR_NAME_5 ":");
+	TFW_STR(s5, HDR_NAME_5);
 	TFW_STR(s5_lws, "\t\t\t");
-	TFW_STR(s5_value, HDR_VALUE_5 "\t\t\t\t");
+	TFW_STR(s5_value, HDR_VALUE_5);
+	TFW_STR(s5_rws, "\t\t\t\t");
 	const char *t_s5 = HDR_NAME_5 HDR_VALUE_5;
-	unsigned long off5 = s5_lws->len + 1;
 	unsigned long t_s5_len = strlen(t_s5);
 
-	collect_compound_str(s1, s1_lws, 0);
+	collect_compound_str(s1, col, 0);
+	collect_compound_str(s1, s1_lws, TFW_STR_OWS);
 	collect_compound_str(s1, s1_value, 0);
+	collect_compound_str(s1, s1_rws, TFW_STR_OWS);
+	collect_compound_str(s2, col, 0);
 	collect_compound_str(s2, s2_value, 0);
-	collect_compound_str(s3, s3_lws, 0);
+	collect_compound_str(s3, col, 0);
+	collect_compound_str(s3, s3_lws, TFW_STR_OWS);
 	collect_compound_str(s3, s3_value, 0);
-	collect_compound_str(s4, s4_lws, 0);
+	collect_compound_str(s3, s3_rws, TFW_STR_OWS);
+	collect_compound_str(s4, col, 0);
+	collect_compound_str(s4, s4_lws, TFW_STR_OWS);
 	collect_compound_str(s4, s4_value, 0);
-	collect_compound_str(s5, s5_lws, 0);
+	collect_compound_str(s4, s4_rws, TFW_STR_OWS);
+	collect_compound_str(s5, col, 0);
+	collect_compound_str(s5, s5_lws, TFW_STR_OWS);
 	collect_compound_str(s5, s5_value, 0);
+	collect_compound_str(s5, s5_rws, TFW_STR_OWS);
 
-	hdr_len = tfw_h2_msg_hdr_length(s1, &n_len, &v_off, &v_len,
-					TFW_H2_TRANS_INPLACE);
-	EXPECT_EQ(n_len, strlen(HDR_NAME_1));
-	EXPECT_EQ(v_len, strlen(HDR_VALUE_1));
-	EXPECT_EQ(v_off, off1);
+	hdr_len = tfw_http_hdr_split(s1, &s_nm, &s_val, true);
+	EXPECT_EQ(s_nm.len, strlen(HDR_NAME_1));
+	EXPECT_EQ(s_val.len, strlen(HDR_VALUE_1));
 	EXPECT_EQ(hdr_len, t_s1_len);
 	buf = tfw_pool_alloc(str_pool, hdr_len);
 	BUG_ON(!buf);
-	tfw_h2_msg_hdr_write(s1, n_len, v_off, v_len, buf);
+	ptr = tfw_hpack_write(&s_nm, buf);
+	tfw_hpack_write(&s_val, ptr);
 	EXPECT_OK(memcmp_fast(t_s1, buf, hdr_len));
 
-	hdr_len = tfw_h2_msg_hdr_length(s2, &n_len, &v_off, &v_len,
-					TFW_H2_TRANS_INPLACE);
-	EXPECT_EQ(n_len, strlen(HDR_NAME_2));
-	EXPECT_EQ(v_len, strlen(HDR_VALUE_2));
-	EXPECT_EQ(v_off, off2);
+	TFW_STR_INIT(&s_nm);
+	TFW_STR_INIT(&s_val);
+	hdr_len = tfw_http_hdr_split(s2, &s_nm, &s_val, true);
+	EXPECT_EQ(s_nm.len, strlen(HDR_NAME_2));
+	EXPECT_EQ(s_val.len, strlen(HDR_VALUE_2));
 	EXPECT_EQ(hdr_len, t_s2_len);
 	buf = tfw_pool_alloc(str_pool, hdr_len);
 	BUG_ON(!buf);
-	tfw_h2_msg_hdr_write(s2, n_len, v_off, v_len, buf);
+	ptr = tfw_hpack_write(&s_nm, buf);
+	tfw_hpack_write(&s_val, ptr);
 	EXPECT_OK(memcmp_fast(t_s2, buf, hdr_len));
 
-	hdr_len = tfw_h2_msg_hdr_length(s3, &n_len, &v_off, &v_len,
-					TFW_H2_TRANS_INPLACE);
-	EXPECT_EQ(n_len, strlen(HDR_NAME_3));
-	EXPECT_EQ(v_len, strlen(HDR_VALUE_3));
-	EXPECT_EQ(v_off, off3);
+	TFW_STR_INIT(&s_nm);
+	TFW_STR_INIT(&s_val);
+	hdr_len = tfw_http_hdr_split(s3, &s_nm, &s_val, true);
+	EXPECT_EQ(s_nm.len, strlen(HDR_NAME_3));
+	EXPECT_EQ(s_val.len, strlen(HDR_VALUE_3));
 	EXPECT_EQ(hdr_len, t_s3_len);
 	buf = tfw_pool_alloc(str_pool, hdr_len);
 	BUG_ON(!buf);
-	tfw_h2_msg_hdr_write(s3, n_len, v_off, v_len, buf);
+	ptr = tfw_hpack_write(&s_nm, buf);
+	tfw_hpack_write(&s_val, ptr);
 	EXPECT_OK(memcmp_fast(t_s3, buf, hdr_len));
 
-	hdr_len = tfw_h2_msg_hdr_length(s4, &n_len, &v_off, &v_len,
-					TFW_H2_TRANS_INPLACE);
-	EXPECT_EQ(n_len, strlen(HDR_NAME_4));
-	EXPECT_EQ(v_len, strlen(HDR_VALUE_4));
-	EXPECT_EQ(v_off, off4);
+	TFW_STR_INIT(&s_nm);
+	TFW_STR_INIT(&s_val);
+	hdr_len = tfw_http_hdr_split(s4, &s_nm, &s_val, true);
+	EXPECT_EQ(s_nm.len, strlen(HDR_NAME_4));
+	EXPECT_EQ(s_val.len, strlen(HDR_VALUE_4));
 	EXPECT_EQ(hdr_len, t_s4_len);
 	buf = tfw_pool_alloc(str_pool, hdr_len);
 	BUG_ON(!buf);
-	tfw_h2_msg_hdr_write(s4, n_len, v_off, v_len, buf);
+	ptr = tfw_hpack_write(&s_nm, buf);
+	tfw_hpack_write(&s_val, ptr);
 	EXPECT_OK(memcmp_fast(t_s4, buf, hdr_len));
 
-	hdr_len = tfw_h2_msg_hdr_length(s5, &n_len, &v_off, &v_len,
-					TFW_H2_TRANS_INPLACE);
-	EXPECT_EQ(n_len, strlen(HDR_NAME_5));
-	EXPECT_EQ(v_len, strlen(HDR_VALUE_5));
-	EXPECT_EQ(v_off, off5);
+	TFW_STR_INIT(&s_nm);
+	TFW_STR_INIT(&s_val);
+	hdr_len = tfw_http_hdr_split(s5, &s_nm, &s_val, true);
+	EXPECT_EQ(s_nm.len, strlen(HDR_NAME_5));
+	EXPECT_EQ(s_val.len, strlen(HDR_VALUE_5));
 	EXPECT_EQ(hdr_len, t_s5_len);
 	buf = tfw_pool_alloc(str_pool, hdr_len);
 	BUG_ON(!buf);
-	tfw_h2_msg_hdr_write(s5, n_len, v_off, v_len, buf);
+	ptr = tfw_hpack_write(&s_nm, buf);
+	tfw_hpack_write(&s_val, ptr);
 	EXPECT_OK(memcmp_fast(t_s5, buf, hdr_len));
 
 #undef HDR_NAME_1
@@ -1345,28 +1359,37 @@ TEST(hpack, enc_table_index)
 #define HDR_NAME_3	"test-example-key"
 #define HDR_VALUE_3	"custom-example-value"
 
-	TFW_STR(s1, HDR_NAME_1 ":");
+	TFW_STR(col, ":");
+
+	TFW_STR(s1, HDR_NAME_1);
 	TFW_STR(s1_lws, " \t  ");
-	TFW_STR(s1_value, HDR_VALUE_1 "       ");
+	TFW_STR(s1_value, HDR_VALUE_1);
+	TFW_STR(s1_rws, "       ");
 	const char *t_s1 = HDR_NAME_1 HDR_VALUE_1;
 	unsigned long t_s1_len = strlen(t_s1);
 
-	TFW_STR(s2, HDR_NAME_2 ":");
+	TFW_STR(s2, HDR_NAME_2);
 	TFW_STR(s2_value, HDR_VALUE_2);
 	const char *t_s2 = HDR_NAME_2 HDR_VALUE_2;
 	unsigned long t_s2_len = strlen(t_s2);
 
-	TFW_STR(s3, HDR_NAME_3 ":");
+	TFW_STR(s3, HDR_NAME_3);
 	TFW_STR(s3_lws, "\t  \t\t\t");
-	TFW_STR(s3_value, HDR_VALUE_3 "\t\t\t\t    ");
+	TFW_STR(s3_value, HDR_VALUE_3);
+	TFW_STR(s3_rws, "\t\t\t\t    ");
 	const char *t_s3 = HDR_NAME_3 HDR_VALUE_3;
 	unsigned long t_s3_len = strlen(t_s3);
 
-	collect_compound_str(s1, s1_lws, 0);
+	collect_compound_str(s1, col, 0);
+	collect_compound_str(s1, s1_lws, TFW_STR_OWS);
 	collect_compound_str(s1, s1_value, 0);
+	collect_compound_str(s1, s1_rws, TFW_STR_OWS);
+	collect_compound_str(s2, col, 0);
 	collect_compound_str(s2, s2_value, 0);
-	collect_compound_str(s3, s3_lws, 0);
+	collect_compound_str(s3, col, 0);
+	collect_compound_str(s3, s3_lws, TFW_STR_OWS);
 	collect_compound_str(s3, s3_value, 0);
+	collect_compound_str(s3, s3_rws, TFW_STR_OWS);
 
 	tbl = &ctx.hpack.enc_tbl;
 
@@ -1470,21 +1493,27 @@ TEST(hpack, enc_table_rbtree)
 #define HDR_NAME_5	"test-foo-name"
 #define HDR_VALUE_5	"test-foo-value"
 
-	TFW_STR(s1, HDR_NAME_1 ":");
+	TFW_STR(col, ":");
+	TFW_STR(s1, HDR_NAME_1);
 	TFW_STR(s1_value, HDR_VALUE_1);
-	TFW_STR(s2, HDR_NAME_2 ":");
+	TFW_STR(s2, HDR_NAME_2);
 	TFW_STR(s2_value, HDR_VALUE_2);
-	TFW_STR(s3, HDR_NAME_3 ":");
+	TFW_STR(s3, HDR_NAME_3);
 	TFW_STR(s3_value, HDR_VALUE_3);
-	TFW_STR(s4, HDR_NAME_4 ":");
+	TFW_STR(s4, HDR_NAME_4);
 	TFW_STR(s4_value, HDR_VALUE_4);
-	TFW_STR(s5, HDR_NAME_5 ":");
+	TFW_STR(s5, HDR_NAME_5);
 	TFW_STR(s5_value, HDR_VALUE_5);
 
+	collect_compound_str(s1, col, 0);
 	collect_compound_str(s1, s1_value, 0);
+	collect_compound_str(s2, col, 0);
 	collect_compound_str(s2, s2_value, 0);
+	collect_compound_str(s3, col, 0);
 	collect_compound_str(s3, s3_value, 0);
+	collect_compound_str(s4, col, 0);
 	collect_compound_str(s4, s4_value, 0);
+	collect_compound_str(s5, col, 0);
 	collect_compound_str(s5, s5_value, 0);
 
 	tbl = &ctx.hpack.enc_tbl;
