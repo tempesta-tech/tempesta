@@ -230,6 +230,17 @@ do {									\
 	}								\
 } while (0)
 
+#define __FSM_MOVE_hdr_fixup(to, n)					\
+do {									\
+	__msg_hdr_chunk_fixup(p, n);					\
+	p += n;								\
+	if (unlikely(__data_off(p) >= len)) {				\
+		parser->state = &&to;					\
+		__FSM_EXIT(TFW_POSTPONE);				\
+	}								\
+	goto to;							\
+} while (0)
+
 /*
  * __FSM_I_* macros are intended to help with parsing of message
  * header values. That is done with separate, nested, or interior
@@ -356,12 +367,16 @@ __FSM_STATE(st, cold) {							\
 	__FSM_JMP(RGen_HdrOtherN);					\
 }
 
-/* As above, but reads OWS through transitional state. */
+/*
+ * As above, but reads OWS through transitional state. Note, that header
+ * name, colon, LWS and value are stored in different chunks.
+ */
 #define __FSM_TX_AF_OWS(st, st_next)					\
 __FSM_STATE(st, cold) {							\
 	if (likely(c == ':')) {						\
+		__msg_hdr_chunk_fixup(data, __data_off(p));		\
 		parser->_i_st = &&st_next;				\
-		__FSM_MOVE(RGen_LWS);					\
+		__FSM_MOVE_hdr_fixup(RGen_LWS, 1);			\
 	}								\
 	/* It should be checked in st_fallback if `c` is allowed */	\
 	__FSM_JMP(RGen_HdrOtherN);					\
@@ -371,9 +386,10 @@ __FSM_STATE(st, cold) {							\
 #define __FSM_TX_AF_OWS_HP(st, st_next, hp_idx)				\
 __FSM_STATE(st, cold) {							\
 	if (likely(c == ':')) {						\
+		__msg_hdr_chunk_fixup(data, __data_off(p));		\
 		parser->_i_st = &&st_next;				\
 		__msg_hdr_set_hpack_index(hp_idx);			\
-		__FSM_MOVE(RGen_LWS);					\
+		__FSM_MOVE_hdr_fixup(RGen_LWS, 1);			\
 	}								\
 	/* It should be checked in st_fallback if `c` is allowed */	\
 	__FSM_JMP(RGen_HdrOtherN);					\
@@ -839,6 +855,9 @@ mark_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr)
 		return CSTR_POSTPONE;					\
 	}
 
+#define TRY_STR_fixup(str, curr_st, next_st)				\
+	TRY_STR_LAMBDA_fixup(str, &parser->hdr, { }, curr_st, next_st)
+
 /*
  * Headers EOL processing. Allow only LF and CRLF as a newline delimiters.
  *
@@ -1013,8 +1032,10 @@ __FSM_STATE(st_curr) {							\
 __FSM_STATE(RGen_HdrOtherN) {						\
 	__FSM_MATCH_MOVE(token, RGen_HdrOtherN, 0);			\
 	if (likely(*(p + __fsm_sz) == ':')) {				\
+		__msg_hdr_chunk_fixup(data, __data_off(p + __fsm_sz));	\
 		parser->_i_st = &&RGen_HdrOtherV;			\
-		__FSM_MOVE_n(RGen_LWS, __fsm_sz + 1);			\
+		p += __fsm_sz;						\
+		__FSM_MOVE_hdr_fixup(RGen_LWS, 1);			\
 	}								\
 	TFW_PARSER_BLOCK(RGen_HdrOtherN);				\
 }									\
@@ -1216,21 +1237,22 @@ __FSM_STATE(RGen_BodyCR, __VA_ARGS__) {					\
  */
 #define RGEN_OWS()							\
 __FSM_STATE(RGen_LWS, hot) {						\
-	/* Store header name, LWS and value in different chunks. */	\
-	__msg_hdr_chunk_fixup(data, p - data);				\
 	__fsm_sz = __data_remain(p);					\
 	__fsm_n = parse_ows(p, __fsm_sz);				\
 	T_DBG3("parse LWS: __fsm_n=%d, __fsm_sz=%lu, len=%lu,"		\
 	       " off=%lu\n", __fsm_n, __fsm_sz, len, __data_off(p));	\
 	if  (__fsm_n == CSTR_POSTPONE) {				\
 		__msg_hdr_chunk_fixup(p, __fsm_sz);			\
+		__msg_chunk_flags(TFW_STR_OWS);				\
 		p += __fsm_sz;						\
 		parser->state = &&RGen_LWS;				\
 		__FSM_EXIT(TFW_POSTPONE);				\
 	}								\
 	BUG_ON(__fsm_n < 0);						\
-	if (__fsm_n)							\
+	if (__fsm_n) {							\
 		__msg_hdr_chunk_fixup(p, __fsm_n);			\
+		__msg_chunk_flags(TFW_STR_OWS);				\
+	}								\
 	parser->state = parser->_i_st;					\
 	parser->_i_st = NULL;						\
 	p += __fsm_n;							\
@@ -1827,7 +1849,8 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		 * to a message body (i.e., chunking an already
 		 * chunked message is not allowed). RFC 7230 3.3.1.
 		 */
-		TRY_STR("chunked", I_TransEncodTok, I_TransEncodChunked);
+		TRY_STR_fixup(&TFW_STR_STRING("chunked"), I_TransEncodTok,
+			      I_TransEncodChunked);
 		TRY_STR_INIT();
 		__FSM_I_JMP(I_TransEncodOther);
 	}
@@ -1841,7 +1864,6 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len,
 		}
 		__FSM_I_JMP(I_TransEncodOther);
 	}
-
 
 	/*
 	 * RFC 7230 3.3.1:
@@ -1857,10 +1879,13 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len,
 	 * compress;
 	 */
 	__FSM_STATE(I_TransEncodOther) {
-		__FSM_I_MATCH_MOVE(token, I_TransEncodOther);
+		__FSM_I_MATCH_MOVE_fixup(token, I_TransEncodOther, 0);
 		c = *(p + __fsm_sz);
-		if (IS_WS(c) || c == ',')
-			__FSM_I_MOVE_n(I_EoT, __fsm_sz + 1);
+		if (IS_WS(c) || c == ',') {
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
+			p += __fsm_sz;
+			__FSM_I_JMP(I_EoT);
+		}
 		if (IS_CRLF(c)) {
 			if (unlikely(test_bit(TFW_HTTP_B_CHUNKED, msg->flags)))
 			{
@@ -1870,6 +1895,7 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len,
 				__set_bit(TFW_HTTP_B_CHUNKED_APPLIED,
 					  msg->flags);
 			}
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
 			return __data_off(p + __fsm_sz);
 		}
 		return CSTR_NEQ;
@@ -1877,8 +1903,10 @@ __parse_transfer_encoding(TfwHttpMsg *hm, unsigned char *data, size_t len,
 
 	/* End of term. */
 	__FSM_STATE(I_EoT) {
-		if (IS_WS(c) || c == ',')
-			__FSM_I_MOVE(I_EoT);
+		if (c == ',')
+			__FSM_I_MOVE_fixup(I_EoT, 1, 0);
+		if (IS_WS(c))
+			__FSM_I_MOVE_fixup(I_EoT, 1, TFW_STR_OWS);
 		if (IS_TOKEN(c))
 			__FSM_I_JMP(I_TransEncodTok);
 		if (IS_CRLF(c))
@@ -2417,7 +2445,7 @@ __parse_etag(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	/* End of token */
 	__FSM_STATE(I_EoT) {
 		if (IS_WS(c))
-			__FSM_I_MOVE_fixup(I_EoT, 1, 0);
+			__FSM_I_MOVE_fixup(I_EoT, 1, TFW_STR_OWS);
 		if (IS_CRLF(c))
 			return __data_off(p);
 		if ((TFW_CONN_TYPE(hm->conn) & Conn_Clnt) && c == ',')
@@ -2427,7 +2455,7 @@ __parse_etag(TfwHttpMsg *hm, unsigned char *data, size_t len)
 
 	__FSM_STATE(I_EoL) {
 		if (IS_WS(c))
-			__FSM_I_MOVE_fixup(I_EoL, 1, 0);
+			__FSM_I_MOVE_fixup(I_EoL, 1, TFW_STR_OWS);
 		if (IS_CRLF(c))
 			return __data_off(p);
 		return CSTR_NEQ;
@@ -2897,7 +2925,8 @@ __parse_pragma(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_START(parser->_i_st);
 
 	__FSM_STATE(I_Pragma) {
-		TRY_STR("no-cache", I_Pragma, I_Pragma_NoCache);
+		TRY_STR_fixup(&TFW_STR_STRING("no-cache"), I_Pragma,
+			      I_Pragma_NoCache);
 		TRY_STR_INIT();
 		__FSM_I_JMP(I_Pragma_Ext);
 	}
@@ -2905,24 +2934,32 @@ __parse_pragma(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_STATE(I_Pragma_NoCache) {
 		if (IS_WS(c) || c == ',' || IS_CRLF(c))
 			msg->cache_ctl.flags |= TFW_HTTP_CC_PRAGMA_NO_CACHE;
-		__FSM_I_JMP(I_Pragma_Ext);
+		/* Fall through. */
 	}
 
 	__FSM_STATE(I_Pragma_Ext) {
 		/* Verify and just skip the extensions. */
-		__FSM_I_MATCH_MOVE(qetoken, I_Pragma_Ext);
+		__FSM_I_MATCH_MOVE_fixup(qetoken, I_Pragma_Ext, 0);
 		c = *(p + __fsm_sz);
-		if (IS_WS(c) || c == ',')
-			__FSM_I_MOVE_n(I_EoT, __fsm_sz + 1);
-		if (IS_CRLF(c))
+		if (IS_WS(c) || c == ',') {
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
+			p += __fsm_sz;
+			__FSM_I_JMP(I_EoT);
+		}
+		if (IS_CRLF(c)) {
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
 			return __data_off(p + __fsm_sz);
+		}
+
 		return CSTR_NEQ;
 	}
 
 	/* End of term. */
 	__FSM_STATE(I_EoT) {
-		if (IS_WS(c) || c == ',')
-			__FSM_I_MOVE(I_EoT);
+		if (IS_WS(c))
+			__FSM_I_MOVE_fixup(I_EoT, 1, TFW_STR_OWS);
+		if (c == ',')
+			__FSM_I_MOVE_fixup(I_EoT, 1, 0);
 		if (IS_CRLF(c))
 			return __data_off(p);
 		__FSM_I_JMP(I_Pragma_Ext);
@@ -3033,7 +3070,8 @@ __parse_keep_alive(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	__FSM_START(parser->_i_st);
 
 	__FSM_STATE(I_KeepAlive) {
-		TRY_STR("timeout=", I_KeepAlive, I_KeepAliveTO);
+		TRY_STR_fixup(&TFW_STR_STRING("timeout="), I_KeepAlive,
+			      I_KeepAliveTO);
 		TRY_STR_INIT();
 		__FSM_I_JMP(I_KeepAliveExt);
 	}
@@ -3042,12 +3080,14 @@ __parse_keep_alive(TfwHttpMsg *hm, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			__msg_hdr_chunk_fixup(data, len);
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		hm->keep_alive = parser->_acc;
 		parser->_acc = 0;
-		__FSM_I_MOVE_n(I_EoT, __fsm_n);
+		__msg_hdr_chunk_fixup(p, __fsm_n);
+		p += __fsm_n;
+		__FSM_I_JMP(I_EoT);
 	}
 
 	/*
@@ -3055,21 +3095,28 @@ __parse_keep_alive(TfwHttpMsg *hm, unsigned char *data, size_t len)
 	 *	max=N
 	 */
 	__FSM_STATE(I_KeepAliveExt) {
-		__FSM_I_MATCH_MOVE(qetoken, I_KeepAliveExt);
+		__FSM_I_MATCH_MOVE_fixup(qetoken, I_KeepAliveExt, 0);
 		c = *(p + __fsm_sz);
-		if (IS_WS(c) || c == ',')
-			__FSM_I_MOVE_n(I_EoT, __fsm_sz + 1);
-		if (IS_CRLF(c))
+		if (IS_WS(c) || c == ',') {
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
+			p += __fsm_sz;
+			__FSM_I_JMP(I_EoT);
+		}
+		if (IS_CRLF(c)) {
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
 			return __data_off(p + __fsm_sz);
+		}
 		return CSTR_NEQ;
 	}
 
 	/* End of term. */
 	__FSM_STATE(I_EoT) {
-		if (IS_WS(c) || c == ',')
-			__FSM_I_MOVE(I_EoT);
+		if (c == ',')
+			__FSM_I_MOVE_fixup(I_EoT, 1, 0);
+		if (IS_WS(c))
+			__FSM_I_MOVE_fixup(I_EoT, 1, TFW_STR_OWS);
 		if (c == '=')
-			__FSM_I_MOVE(I_KeepAliveExt);
+			__FSM_I_MOVE_fixup(I_KeepAliveExt, 1, 0);
 		if (IS_TOKEN(c))
 			__FSM_I_JMP(I_KeepAlive);
 		if (IS_CRLF(c))
@@ -3605,8 +3652,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				   && TFW_LC(*(p + 6)) == 't'
 				   && *(p + 13) == ':'))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 6));
 				parser->_i_st = &&Req_HdrAcceptV;
-				__FSM_MOVE_n(RGen_LWS, 7);
+				p += 6;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			if (likely(__data_available(p, 14)
 				   && C8_INT_LCM(p + 1, 'u', 't', 'h', 'o',
@@ -3614,8 +3663,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				   && C4_INT_LCM(p + 9, 't', 'i', 'o', 'n')
 				   && *(p + 13) == ':'))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 13));
 				parser->_i_st = &&Req_HdrAuthorizationV;
-				__FSM_MOVE_n(RGen_LWS, 14);
+				p += 13;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Req_HdrA);
 		case 'c':
@@ -3630,8 +3681,11 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 							  't', 'r', 'o', 'l',
 							  ':')))
 				{
+					__msg_hdr_chunk_fixup(data,
+							      __data_off(p + 13));
 					parser->_i_st = &&Req_HdrCache_ControlV;
-					__FSM_MOVE_n(RGen_LWS, 14);
+					p += 13;
+					__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 				}
 				__FSM_MOVE_n(RGen_HdrOtherN, 5);
 			case TFW_CHAR4_INT('o', 'n', 'n', 'e'):
@@ -3639,8 +3693,11 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 					   && TFW_LC(*(p + 9)) == 'n'
 					   && *(p + 10) == ':'))
 				{
+					__msg_hdr_chunk_fixup(data,
+							      __data_off(p + 10));
 					parser->_i_st = &&Req_HdrConnectionV;
-					__FSM_MOVE_n(RGen_LWS, 11);
+					p += 10;
+					__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 				}
 				__FSM_MOVE_n(RGen_HdrOtherN, 5);
 			case TFW_CHAR4_INT('o', 'n', 't', 'e'):
@@ -3655,8 +3712,11 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				if (likely(TFW_LC(*(p + 5)) == 'e'
 					   && *(p + 6) == ':'))
 				{
+					__msg_hdr_chunk_fixup(data,
+							      __data_off(p + 6));
 					parser->_i_st = &&Req_HdrCookieV;
-					__FSM_MOVE_n(RGen_LWS, 7);
+					p += 6;
+					__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 				}
 				__FSM_MOVE_n(RGen_HdrOtherN, 5);
 			default:
@@ -3666,9 +3726,11 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 			if (likely(__data_available(p, 5)
 				   && C4_INT3_LCM(p + 1, 'o', 's', 't', ':')))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 4));
 				parser->_i_st = &&Req_HdrHostV;
 				parser->_hdr_tag = TFW_HTTP_HDR_HOST;
-				__FSM_MOVE_n(RGen_LWS, 5);
+				p += 4;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Req_HdrH);
 		case 'i':
@@ -3682,8 +3744,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				   && TFW_LC(*(p + 16)) == 'e'
 				   && *(p + 17) == ':'))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 17));
 				parser->_i_st = &&Req_HdrIf_Modified_SinceV;
-				__FSM_MOVE_n(RGen_LWS, 18);
+				p += 17;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			if (likely(__data_available(p, 14)
 				   && TFW_LC(*(p + 1)) == 'f'
@@ -3694,8 +3758,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				   && TFW_LC(*(p + 12)) == 'h'
 				   && *(p + 13) == ':'))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 13));
 				parser->_i_st = &&Req_HdrIf_None_MatchV;
-				__FSM_MOVE_n(RGen_LWS, 14);
+				p += 13;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Req_HdrI);
 		case 'k':
@@ -3706,8 +3772,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				   && TFW_LC(*(p + 9)) == 'e'
 				   && *(p + 10) == ':'))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 10));
 				parser->_i_st = &&Req_HdrKeep_AliveV;
-				__FSM_MOVE_n(RGen_LWS, 11);
+				p += 10;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Req_HdrK);
 		case 'p':
@@ -3716,8 +3784,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				   && TFW_LC(*(p + 5)) == 'a'
 				   && *(p + 6) == ':'))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 6));
 				parser->_i_st = &&Req_HdrPragmaV;
-				__FSM_MOVE_n(RGen_LWS, 7);
+				p += 6;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Req_HdrP);
 		case 'r':
@@ -3727,8 +3797,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				   && TFW_LC(*(p + 6)) == 'r'
 				   && *(p + 7) == ':'))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 7));
 				parser->_i_st = &&Req_HdrRefererV;
-				__FSM_MOVE_n(RGen_LWS, 8);
+				p += 7;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Req_HdrR);
 		case 't':
@@ -3740,8 +3812,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 							'd', 'i', 'n', 'g')
 				   && *(p + 17) == ':'))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 17));
 				parser->_i_st = &&Req_HdrTransfer_EncodingV;
-				__FSM_MOVE_n(RGen_LWS, 18);
+				p += 17;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Req_HdrT);
 		case 'x':
@@ -3754,8 +3828,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				   && C8_INT7_LCM(p + 8, 'd', 'e', 'd', '-',
 						  'f', 'o', 'r', ':')))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 15));
 				parser->_i_st = &&Req_HdrX_Forwarded_ForV;
-				__FSM_MOVE_n(RGen_LWS, 16);
+				p += 15;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			if (likely(__data_available(p, 14)
 				   && *(p + 1) == '-'
@@ -3767,8 +3843,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				   && TFW_LC(*(p + 12) == 'd')
 				   && *(p + 10) == ':'))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 13));
 				parser->_i_st = &&Req_HdrX_Method_OverrideV;
-				__FSM_MOVE_n(RGen_LWS, 14);
+				p += 13;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			if (likely(__data_available(p, 23)
 				   && *(p + 1) == '-'
@@ -3782,8 +3860,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				   && C8_INT7_LCM(p + 16, 'v', 'e', 'r', 'r',
 						  'i', 'd', 'e', ':')))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 22));
 				parser->_i_st = &&Req_HdrX_Method_OverrideV;
-				__FSM_MOVE_n(RGen_LWS, 23);
+				p += 22;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			if (likely(__data_available(p, 18)
 				   && *(p + 1) == '-'
@@ -3794,8 +3874,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				   && C8_INT7_LCM(p + 10, 'v', 'e', 'r', 'r',
 						 'i', 'd', 'e', ':')))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 17));
 				parser->_i_st = &&Req_HdrX_Method_OverrideV;
-				__FSM_MOVE_n(RGen_LWS, 18);
+				p += 17;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Req_HdrX);
 		case 'u':
@@ -3806,8 +3888,10 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				   && TFW_LC(*(p + 9)) == 't'
 				   && *(p + 10) == ':'))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 10));
 				parser->_i_st = &&Req_HdrUser_AgentV;
-				__FSM_MOVE_n(RGen_LWS, 11);
+				p += 10;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Req_HdrU);
 		default:
@@ -3824,16 +3908,20 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				   && TFW_LC(*(p + 5)) == 'h'
 				   && *(p + 6) == ':'))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 6));
 				parser->_i_st = &&Req_HdrContent_LengthV;
-				__FSM_MOVE_n(RGen_LWS, 7);
+				p += 6;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Req_HdrContent_L);
 		case 't':
 			if (likely(__data_available(p, 5)
 				   && C4_INT3_LCM(p + 1, 'y', 'p', 'e', ':')))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 4));
 				parser->_i_st = &&Req_HdrContent_TypeV;
-				__FSM_MOVE_n(RGen_LWS, 5);
+				p += 4;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Req_HdrContent_T);
 		default:
@@ -3879,20 +3967,20 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				  __req_parse_if_msince);
 
 	/* 'Keep-Alive:*OWS' is read, process field-value. */
-	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrKeep_AliveV, msg, __parse_keep_alive,
-				   TFW_HTTP_HDR_KEEP_ALIVE);
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrKeep_AliveV, msg, __parse_keep_alive,
+				     TFW_HTTP_HDR_KEEP_ALIVE, 0);
 
 	/* 'Pragma:*OWS' is read, process field-value. */
-	TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrPragmaV, msg, __parse_pragma);
+	__TFW_HTTP_PARSE_RAWHDR_VAL(Req_HdrPragmaV, msg, __parse_pragma, 0);
 
 	/* 'Referer:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrRefererV, msg, __req_parse_referer,
 				   TFW_HTTP_HDR_REFERER);
 
 	/* 'Transfer-Encoding:*OWS' is read, process field-value. */
-	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrTransfer_EncodingV, msg,
-				   __req_parse_transfer_encoding,
-				   TFW_HTTP_HDR_TRANSFER_ENCODING);
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrTransfer_EncodingV, msg,
+				     __req_parse_transfer_encoding,
+				     TFW_HTTP_HDR_TRANSFER_ENCODING, 0);
 
 	/* 'X-Forwarded-For:*OWS' is read, process field-value. */
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrX_Forwarded_ForV, msg,
@@ -8069,17 +8157,19 @@ __resp_parse_age(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_ws(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			__msg_hdr_chunk_fixup(data, len);
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
 		if (__fsm_n < 0)
 			return __fsm_n;
 		resp->cache_ctl.age = parser->_acc;
 		parser->_acc = 0;
-		__FSM_I_MOVE_n(Resp_I_EoL, __fsm_n);
+		__msg_hdr_chunk_fixup(p, __fsm_n);
+		p += __fsm_n;
+		/* Fall through. */
 	}
 
 	__FSM_STATE(Resp_I_EoL) {
 		if (IS_WS(c))
-			__FSM_I_MOVE(Resp_I_EoL);
+			__FSM_I_MOVE_fixup(Resp_I_EoL, 1, TFW_STR_OWS);
 		if (IS_CRLF(c)) {
 			resp->cache_ctl.flags |= TFW_HTTP_CC_HDR_AGE;
 			return __data_off(p);
@@ -8119,8 +8209,10 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_CC_m) {
-		TRY_STR("max-age=", Resp_I_CC_m, Resp_I_CC_MaxAgeV);
-		TRY_STR_LAMBDA("must-revalidate", {
+		TRY_STR_fixup(&TFW_STR_STRING("max-age="), Resp_I_CC_m,
+			      Resp_I_CC_MaxAgeV);
+		TRY_STR_LAMBDA_fixup(&TFW_STR_STRING("must-revalidate"),
+			&parser->hdr, {
 			parser->_acc = TFW_HTTP_CC_MUST_REVAL;
 		}, Resp_I_CC_m, Resp_I_Flag);
 		TRY_STR_INIT();
@@ -8128,13 +8220,16 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_CC_n) {
-		TRY_STR_LAMBDA("no-cache", {
+		TRY_STR_LAMBDA_fixup(&TFW_STR_STRING("no-cache"),
+			&parser->hdr, {
 			parser->_acc = TFW_HTTP_CC_NO_CACHE;
 		}, Resp_I_CC_n, Resp_I_Flag);
-		TRY_STR_LAMBDA("no-store", {
+		TRY_STR_LAMBDA_fixup(&TFW_STR_STRING("no-store"),
+			&parser->hdr, {
 			parser->_acc = TFW_HTTP_CC_NO_STORE;
 		}, Resp_I_CC_n, Resp_I_Flag);
-		TRY_STR_LAMBDA("no-transform", {
+		TRY_STR_LAMBDA_fixup(&TFW_STR_STRING("no-transform"),
+			&parser->hdr, {
 			parser->_acc = TFW_HTTP_CC_NO_TRANSFORM;
 		}, Resp_I_CC_n, Resp_I_Flag);
 		TRY_STR_INIT();
@@ -8142,13 +8237,14 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_CC_p) {
-		TRY_STR_LAMBDA("public", {
+		TRY_STR_LAMBDA_fixup(&TFW_STR_STRING("public"), &parser->hdr, {
 			parser->_acc = TFW_HTTP_CC_PUBLIC;
 		}, Resp_I_CC_p, Resp_I_Flag);
-		TRY_STR_LAMBDA("private", {
+		TRY_STR_LAMBDA_fixup(&TFW_STR_STRING("private"), &parser->hdr, {
 			parser->_acc = TFW_HTTP_CC_PRIVATE;
 		}, Resp_I_CC_p, Resp_I_Flag);
-		TRY_STR_LAMBDA("proxy-revalidate", {
+		TRY_STR_LAMBDA_fixup(&TFW_STR_STRING("proxy-revalidate"),
+			&parser->hdr, {
 			parser->_acc = TFW_HTTP_CC_PROXY_REVAL;
 		}, Resp_I_CC_p, Resp_I_Flag);
 		TRY_STR_INIT();
@@ -8166,7 +8262,8 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Resp_I_CC_s) {
-		TRY_STR("s-maxage=", Resp_I_CC_s, Resp_I_CC_SMaxAgeV);
+		TRY_STR_fixup(&TFW_STR_STRING("s-maxage="), Resp_I_CC_s,
+			      Resp_I_CC_SMaxAgeV);
 		TRY_STR_INIT();
 		__FSM_I_JMP(Resp_I_Ext);
 	}
@@ -8179,7 +8276,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			__msg_hdr_chunk_fixup(data, len);
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
 		if (__fsm_n < 0) {
 			if (__fsm_n != CSTR_BADLEN)
 				return __fsm_n;
@@ -8187,7 +8284,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		}
 		resp->cache_ctl.max_age = parser->_acc;
 		resp->cache_ctl.flags |= TFW_HTTP_CC_MAX_AGE;
-		__FSM_I_MOVE_n(Resp_I_EoT, __fsm_n);
+		__FSM_I_MOVE_fixup(Resp_I_EoT, __fsm_n, 0);
 	}
 
 	__FSM_STATE(Resp_I_CC_SMaxAgeV) {
@@ -8198,7 +8295,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		__fsm_sz = __data_remain(p);
 		__fsm_n = parse_int_list(p, __fsm_sz, &parser->_acc);
 		if (__fsm_n == CSTR_POSTPONE)
-			__msg_hdr_chunk_fixup(data, len);
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
 		if (__fsm_n < 0) {
 			if (__fsm_n != CSTR_BADLEN)
 				return __fsm_n;
@@ -8206,17 +8303,21 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		}
 		resp->cache_ctl.s_maxage = parser->_acc;
 		resp->cache_ctl.flags |= TFW_HTTP_CC_S_MAXAGE;
-		__FSM_I_MOVE_n(Resp_I_EoT, __fsm_n);
+		__FSM_I_MOVE_fixup(Resp_I_EoT, __fsm_n, 0);
 	}
 
 	__FSM_STATE(Resp_I_Ext) {
 		/* TODO: process cache extensions. */
-		__FSM_I_MATCH_MOVE(qetoken, Resp_I_Ext);
+		__FSM_I_MATCH_MOVE_fixup(qetoken, Resp_I_Ext, 0);
 		c = *(p + __fsm_sz);
-		if (IS_WS(c) || c == ',')
-			__FSM_I_MOVE_n(Resp_I_EoT, __fsm_sz + 1);
+		if (IS_WS(c) || c == ',') {
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
+			p += __fsm_sz;
+			__FSM_I_JMP(Resp_I_EoT);
+		}
 		if (IS_CRLF(c)) {
 			parser->_acc = 0;
+			__msg_hdr_chunk_fixup(p, __fsm_sz);
 			return __data_off(p + __fsm_sz);
 		}
 		return CSTR_NEQ;
@@ -8224,8 +8325,11 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 
 	/* End of term. */
 	__FSM_STATE(Resp_I_EoT) {
-		if (IS_WS(c) || c == ',')
-			__FSM_I_MOVE(Resp_I_EoT);
+		if (c == ',')
+			__FSM_I_MOVE_fixup(Resp_I_EoT, 1, 0);
+
+		if (IS_WS(c))
+			__FSM_I_MOVE_fixup(Resp_I_EoT, 1, TFW_STR_OWS);
 
 		parser->_acc = 0; /* reinit for next token */
 
@@ -8235,7 +8339,7 @@ __resp_parse_cache_control(TfwHttpResp *resp, unsigned char *data, size_t len)
 		 *   no-cache and private fields, so just skip '=[token]*'.
 		 */
 		if (c == '=')
-			__FSM_I_MOVE(Resp_I_Ext);
+			__FSM_I_MOVE_fixup(Resp_I_Ext, 1, 0);
 		if (IS_TOKEN(c))
 			__FSM_I_JMP(Resp_I_CC);
 		if (IS_CRLF(c))
@@ -8664,9 +8768,11 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 						 '-', 'o', 'r', 'i')
 				   && C4_INT3_LCM(p + 24, 'g', 'i', 'n', ':')))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 27));
 				parser->_i_st = &&RGen_HdrOtherV;
 				__msg_hdr_set_hpack_index(20);
-				__FSM_MOVE_n(RGen_LWS, 28);
+				p += 27;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			if (likely(__data_available(p, 14)
 				   && C8_INT_LCM(p + 1, 'c', 'c', 'e', 'p',
@@ -8674,24 +8780,30 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 				   && C4_INT_LCM(p + 9, 'n', 'g', 'e', 's')
 				   && *(p + 13) == ':'))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 13));
 				parser->_i_st = &&RGen_HdrOtherV;
 				__msg_hdr_set_hpack_index(18);
-				__FSM_MOVE_n(RGen_LWS, 14);
+				p += 13;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			if (likely(__data_available(p, 6)
 				   && C4_INT_LCM(p + 1, 'l', 'l', 'o', 'w')
 				   && *(p + 5) == ':'))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 5));
 				parser->_i_st = &&RGen_HdrOtherV;
 				__msg_hdr_set_hpack_index(22);
-				__FSM_MOVE_n(RGen_LWS, 6);
+				p += 5;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			if (likely(__data_available(p, 4)
 				   && C4_INT3_LCM(p, 'a', 'g', 'e', ':')))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 3));
 				parser->_i_st = &&Resp_HdrAgeV;
 				__msg_hdr_set_hpack_index(21);
-				__FSM_MOVE_n(RGen_LWS, 4);
+				p += 3;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Resp_HdrA);
 		case 'c':
@@ -8706,9 +8818,12 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 							  't', 'r', 'o', 'l',
 							  ':')))
 				{
+					__msg_hdr_chunk_fixup(data,
+							      __data_off(p + 13));
 					parser->_i_st = &&Resp_HdrCache_CtrlV;
 					__msg_hdr_set_hpack_index(24);
-					__FSM_MOVE_n(RGen_LWS, 14);
+					p += 13;
+					__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 				}
 				__FSM_MOVE_n(RGen_HdrOtherN, 5);
 			case TFW_CHAR4_INT('o', 'n', 'n', 'e'):
@@ -8716,8 +8831,11 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 					   && TFW_LC(*(p + 9)) == 'n'
 					   && *(p + 10) == ':'))
 				{
+					__msg_hdr_chunk_fixup(data,
+							      __data_off(p + 10));
 					parser->_i_st = &&Resp_HdrConnectionV;
-					__FSM_MOVE_n(RGen_LWS, 11);
+					p += 10;
+					__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 				}
 				__FSM_MOVE_n(RGen_HdrOtherN, 5);
 			case TFW_CHAR4_INT('o', 'n', 't', 'e'):
@@ -8735,26 +8853,32 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 			if (likely(__data_available(p, 5)
 				   && C4_INT3_LCM(p + 1, 'a', 't', 'e', ':')))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 4));
 				parser->_i_st = &&Resp_HdrDateV;
 				__msg_hdr_set_hpack_index(33);
-				__FSM_MOVE_n(RGen_LWS, 5);
+				p += 4;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Resp_HdrD);
 		case 'e':
 			if (likely(__data_available(p, 5)
 				   && C4_INT3_LCM(p + 1, 't', 'a', 'g', ':')))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 4));
 				parser->_i_st = &&Resp_HdrEtagV;
 				__msg_hdr_set_hpack_index(34);
-				__FSM_MOVE_n(RGen_LWS, 5);
+				p += 4;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			if (likely(__data_available(p, 8)
 				   && C8_INT7_LCM(p, 'e', 'x', 'p', 'i',
 						  'r', 'e', 's', ':')))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 7));
 				parser->_i_st = &&Resp_HdrExpiresV;
 				__msg_hdr_set_hpack_index(36);
-				__FSM_MOVE_n(RGen_LWS, 8);
+				p += 7;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Resp_HdrE);
 		case 'k':
@@ -8765,8 +8889,10 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 				   && TFW_LC(*(p + 9)) == 'e'
 				   && *(p + 10) == ':'))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 10));
 				parser->_i_st = &&Resp_HdrKeep_AliveV;
-				__FSM_MOVE_n(RGen_LWS, 11);
+				p += 10;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Resp_HdrK);
 		case 'l':
@@ -8777,24 +8903,30 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 							'f', 'i', 'e', 'd')
 				   && *(p + 13) == ':'))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 13));
 				parser->_i_st = &&Resp_HdrLast_ModifiedV;
 				__msg_hdr_set_hpack_index(44);
-				__FSM_MOVE_n(RGen_LWS, 14);
+				p += 13;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			if (likely(__data_available(p, 9)
 			           && C8_INT7_LCM(p + 1, 'o', 'c', 'a', 't',
 						  'i', 'o', 'n', ':')))
 			{
+				__msg_hdr_chunk_fixup(data,__data_off(p + 8));
 				parser->_i_st = &&RGen_HdrOtherV;
 				__msg_hdr_set_hpack_index(46);
-				__FSM_MOVE_n(RGen_LWS, 9);
+				p += 8;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			if (likely(__data_available(p, 5)
 			           && C4_INT3_LCM(p + 1, 'i', 'n', 'k', ':')))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 4));
 				parser->_i_st = &&RGen_HdrOtherV;
 				__msg_hdr_set_hpack_index(45);
-				__FSM_MOVE_n(RGen_LWS, 5);
+				p += 4;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Resp_HdrL);
 		case 'p':
@@ -8806,17 +8938,21 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 				   && TFW_LC(*(p + 17)) == 'e'
 				   && *(p + 18) == ':'))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 18));
 				parser->_i_st = &&RGen_HdrOtherV;
 				__msg_hdr_set_hpack_index(48);
-				__FSM_MOVE_n(RGen_LWS, 19);
+				p += 18;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			if (likely(__data_available(p, 7))
 			           && C4_INT_LCM(p + 1, 'r', 'a', 'g', 'm')
 			           && TFW_LC(*(p + 5)) == 'a'
 			           && *(p + 6) == ':')
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 6));
 				parser->_i_st = &&Resp_HdrPragmaV;
-				__FSM_MOVE_n(RGen_LWS, 7);
+				p += 6;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Resp_HdrP);
 		case 'r':
@@ -8825,9 +8961,11 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 						 'y', '-', 'a', 'f')
 				   && C4_INT3_LCM(p + 8, 't', 'e', 'r', ':')))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 11));
 				parser->_i_st = &&RGen_HdrOtherV;
 				__msg_hdr_set_hpack_index(53);
-				__FSM_MOVE_n(RGen_LWS, 12);
+				p += 11;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Resp_HdrR);
 		case 's':
@@ -8840,9 +8978,11 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 						 'r', 'i', 't', 'y')
 				   && *(p + 25) == ':'))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 25));
 				parser->_i_st = &&RGen_HdrOtherV;
 				__msg_hdr_set_hpack_index(56);
-				__FSM_MOVE_n(RGen_LWS, 26);
+				p += 25;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			if (likely(__data_available(p, 11)
 			           && C8_INT_LCM(p + 1, 'e', 't', '-', 'c',
@@ -8851,18 +8991,22 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 				   && TFW_LC(*(p + 9)) == 'e'
 				   && *(p + 10) == ':'))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 10));
 				parser->_i_st = &&Resp_HdrSet_CookieV;
 				__msg_hdr_set_hpack_index(55);
-				__FSM_MOVE_n(RGen_LWS, 11);
+				p += 10;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			if (likely(__data_available(p, 7)
 				   && C4_INT_LCM(p + 1, 'e', 'r', 'v', 'e')
 				   && TFW_LC(*(p + 5)) == 'r'
 				   && *(p + 6) == ':'))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 6));
 				parser->_i_st = &&Resp_HdrServerV;
 				__msg_hdr_set_hpack_index(54);
-				__FSM_MOVE_n(RGen_LWS, 7);
+				p += 6;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Resp_HdrS);
 		case 't':
@@ -8874,24 +9018,30 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 							'd', 'i', 'n', 'g')
 				   && *(p + 17) == ':'))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 17));
 				parser->_i_st = &&Resp_HdrTransfer_EncodingV;
-				__FSM_MOVE_n(RGen_LWS, 18);
+				p += 17;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Resp_HdrT);
 		case 'v':
 			if (likely(__data_available(p, 5)
 			           && C4_INT3_LCM(p + 1, 'a', 'r', 'y', ':')))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 4));
 				parser->_i_st = &&RGen_HdrOtherV;
 				__msg_hdr_set_hpack_index(59);
-				__FSM_MOVE_n(RGen_LWS, 5);
+				p += 4;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			if (likely(__data_available(p, 4)
 			           && C4_INT3_LCM(p, 'v', 'i', 'a', ':')))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 3));
 				parser->_i_st = &&RGen_HdrOtherV;
 				__msg_hdr_set_hpack_index(60);
-				__FSM_MOVE_n(RGen_LWS, 4);
+				p += 3;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Resp_HdrV);
 		case 'w':
@@ -8901,9 +9051,11 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 				   && C8_INT7_LCM(p + 9, 'n', 't', 'i', 'c',
 						  'a', 't', 'e', ':')))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 16));
 				parser->_i_st = &&RGen_HdrOtherV;
 				__msg_hdr_set_hpack_index(61);
-				__FSM_MOVE_n(RGen_LWS, 17);
+				p += 16;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Resp_HdrW);
 		default:
@@ -8920,9 +9072,11 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 						 'o', 's', 'i', 't')
 				   && C4_INT3_LCM(p + 8, 'i', 'o', 'n', ':')))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 11));
 				parser->_i_st = &&RGen_HdrOtherV;
 				__msg_hdr_set_hpack_index(25);
-				__FSM_MOVE_n(RGen_LWS, 12);
+				p += 11;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Resp_HdrContent_D);
 		case 'e':
@@ -8930,9 +9084,11 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 				   && C8_INT7_LCM(p + 1, 'n', 'c', 'o', 'd',
 						  'i', 'n', 'g', ':')))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 8));
 				parser->_i_st = &&RGen_HdrOtherV;
 				__msg_hdr_set_hpack_index(26);
-				__FSM_MOVE_n(RGen_LWS, 9);
+				p += 8;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Resp_HdrContent_E);
 		case 'l':
@@ -8940,16 +9096,22 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 				if (C8_INT7_LCM(p + 1, 'a', 'n', 'g', 'u',
 						'a', 'g', 'e', ':'))
 				{
+					__msg_hdr_chunk_fixup(data,
+							      __data_off(p + 8));
 					parser->_i_st = &&RGen_HdrOtherV;
 					__msg_hdr_set_hpack_index(27);
-					__FSM_MOVE_n(RGen_LWS, 9);
+					p += 8;
+					__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 				}
 				if (C8_INT7_LCM(p + 1, 'o', 'c', 'a', 't',
 						'i', 'o', 'n', ':'))
 				{
+					__msg_hdr_chunk_fixup(data,
+							      __data_off(p + 8));
 					parser->_i_st = &&RGen_HdrOtherV;
 					__msg_hdr_set_hpack_index(29);
-					__FSM_MOVE_n(RGen_LWS, 9);
+					p += 8;
+					__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 				}
 			}
 			if (likely(__data_available(p, 7)
@@ -8957,9 +9119,11 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 				   && TFW_LC(*(p + 5)) == 'h'
 				   && *(p + 6) == ':'))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 6));
 				parser->_i_st = &&Resp_HdrContent_LengthV;
 				__msg_hdr_set_hpack_index(28);
-				__FSM_MOVE_n(RGen_LWS, 7);
+				p += 6;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Resp_HdrContent_L);
 		case 'r':
@@ -8967,18 +9131,22 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 				   && C4_INT_LCM(p + 1, 'a', 'n', 'g', 'e')
 				   && *(p + 5) == ':'))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 5));
 				parser->_i_st = &&RGen_HdrOtherV;
 				__msg_hdr_set_hpack_index(30);
-				__FSM_MOVE_n(RGen_LWS, 6);
+				p += 5;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Resp_HdrContent_R);
 		case 't':
 			if (likely(__data_available(p, 5)
 				   && C4_INT3_LCM(p + 1, 'y', 'p', 'e', ':')))
 			{
+				__msg_hdr_chunk_fixup(data, __data_off(p + 4));
 				parser->_i_st = &&Resp_HdrContent_TypeV;
 				__msg_hdr_set_hpack_index(31);
-				__FSM_MOVE_n(RGen_LWS, 5);
+				p += 4;
+				__FSM_MOVE_hdr_fixup(RGen_LWS, 1);
 			}
 			__FSM_MOVE(Resp_HdrContent_T);
 		default:
@@ -8987,11 +9155,11 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 	}
 
 	/* 'Age:*OWS' is read, process field-value. */
-	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrAgeV, resp, __resp_parse_age);
+	__TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrAgeV, resp, __resp_parse_age, 0);
 
 	/* 'Cache-Control:*OWS' is read, process field-value. */
-	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrCache_CtrlV, resp,
-				  __resp_parse_cache_control);
+	__TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrCache_CtrlV, resp,
+				    __resp_parse_cache_control, 0);
 
 	/* 'Connection:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrConnectionV, msg, __parse_connection,
@@ -9018,24 +9186,24 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrExpiresV, msg, __resp_parse_expires);
 
 	/* 'Keep-Alive:*OWS' is read, process field-value. */
-	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrKeep_AliveV, msg, __parse_keep_alive,
-				   TFW_HTTP_HDR_KEEP_ALIVE);
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrKeep_AliveV, msg, __parse_keep_alive,
+				     TFW_HTTP_HDR_KEEP_ALIVE, 0);
 
 	/* 'Last-Modified:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrLast_ModifiedV, msg,
 				  __resp_parse_if_modified);
 
 	/* 'Pragma:*OWS' is read, process field-value. */
-	TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrPragmaV, msg, __parse_pragma);
+	__TFW_HTTP_PARSE_RAWHDR_VAL(Resp_HdrPragmaV, msg, __parse_pragma, 0);
 
 	/* 'Server:*OWS' is read, process field-value. */
 	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrServerV, resp, __resp_parse_server,
 				   TFW_HTTP_HDR_SERVER);
 
 	/* 'Transfer-Encoding:*OWS' is read, process field-value. */
-	TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrTransfer_EncodingV, msg,
-				   __resp_parse_transfer_encoding,
-				   TFW_HTTP_HDR_TRANSFER_ENCODING);
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrTransfer_EncodingV, msg,
+				     __resp_parse_transfer_encoding,
+				     TFW_HTTP_HDR_TRANSFER_ENCODING, 0);
 
 	/* 'Set-Cookie:*OWS' is read, process field-value. */
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Resp_HdrSet_CookieV, resp,

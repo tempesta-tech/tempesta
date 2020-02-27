@@ -215,6 +215,9 @@ size_t tfw_ultohex(unsigned long ai, char *buf, unsigned int len);
  */
 #define TFW_STR_HDR_VALUE	0x80
 
+/* The chunk contains only WS characters. */
+#define TFW_STR_OWS		0x100
+
 /*
  * @ptr		- pointer to string data or array of nested strings;
  * @skb		- socket buffer containing the string data;

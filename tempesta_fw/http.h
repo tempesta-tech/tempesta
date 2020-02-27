@@ -683,9 +683,8 @@ void tfw_http_send_resp(TfwHttpReq *req, int status, const char *reason);
 
 /* Helper functions */
 char *tfw_http_msg_body_dup(const char *filename, size_t *len);
-void tfw_http_hdr_split(TfwStr *hdr, TfwStr *name_out, TfwStr *val_out);
-int tfw_http_hdr_split_cp(TfwPool *pool, TfwStr *hdr, TfwStr *name_out,
-			  TfwStr *val_out);
+unsigned long tfw_http_hdr_split(TfwStr *hdr, TfwStr *name_out, TfwStr *val_out,
+				 bool inplace);
 unsigned long tfw_h2_hdr_size(unsigned long n_len, unsigned long v_len,
 			      unsigned short st_index);
 TfwHdrModsDesc *tfw_http_find_desc(const TfwStr *hdr, const TfwHdrMods *h_mods);
