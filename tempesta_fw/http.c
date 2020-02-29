@@ -4006,15 +4006,17 @@ tfw_h2_resp_next_hdr(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 
 	for (i = mit->curr; i < map->count; ++i) {
 		int k;
+		TfwStr *first;
 		unsigned short hid = map->index[i].idx;
 		unsigned short d_num = map->index[i].d_idx;
 		TfwStr *tgt = &ht->tbl[hid];
-		TfwStr *first = TFW_STR_CHUNK(tgt, 0);
 		TfwHdrModsDesc *f_desc = NULL;
 		const TfwStr *val;
 
 		if (TFW_STR_DUP(tgt))
 			tgt = TFW_STR_CHUNK(tgt, d_num);
+
+		first = TFW_STR_CHUNK(tgt, 0);
 
 		if (WARN_ON_ONCE(!tgt
 				 || TFW_STR_EMPTY(tgt)
