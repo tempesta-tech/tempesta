@@ -41,7 +41,7 @@ enum {
 void tfw_tls_cfg_require(void);
 void tfw_tls_cfg_configured(bool global);
 void tfw_tls_match_any_sni_to_dflt(bool match);
-int tfw_tls_cfg_alpn_protos(const char *cfg_str);
+int tfw_tls_cfg_alpn_protos(const char *cfg_str, bool *deprecated);
 void tfw_tls_free_alpn_protos(void);
 int tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit);
 
