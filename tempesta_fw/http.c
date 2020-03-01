@@ -3104,7 +3104,7 @@ __h2_req_hdrs(TfwHttpReq *req, const TfwStr *hdr, unsigned int hid, bool append)
 		}
 	}
 	else {
-		hid = __h2_hdr_lookup(hm, TFW_STR_CHUNK(hdr, 0));
+		hid = __h2_hdr_lookup(hm, hdr);
 		if (hid == ht->off && !s_val)
 			/*
 			 * The raw header not found, and there is nothing
@@ -4035,8 +4035,7 @@ tfw_h2_resp_next_hdr(TfwHttpResp *resp, const TfwHdrMods *h_mods)
 
 			if ((hid < TFW_HTTP_HDR_RAW && hid == desc->hid)
 			    || (hid >= TFW_HTTP_HDR_RAW
-				&& !__hdr_name_cmp(tgt,
-						   TFW_STR_CHUNK(desc->hdr, 0))))
+				&& !__hdr_name_cmp(tgt, desc->hdr)))
 			{
 				f_desc = desc;
 				break;
@@ -5869,21 +5868,6 @@ tfw_http_req_key_calc(TfwHttpReq *req)
 	return req->hash;
 }
 EXPORT_SYMBOL(tfw_http_req_key_calc);
-
-TfwHdrModsDesc *
-tfw_http_find_desc(const TfwStr *hdr, const TfwHdrMods *h_mods)
-{
-	int i;
-
-	for (i = 0; i < h_mods->sz; ++i) {
-		TfwHdrModsDesc *desc = &h_mods->hdrs[i];
-
-		if (!__hdr_name_cmp(hdr, TFW_STR_CHUNK(desc->hdr, 0)))
-			return desc;
-	}
-
-	return NULL;
-}
 
 static TfwConnHooks http_conn_hooks = {
 	.conn_init	= tfw_http_conn_init,
