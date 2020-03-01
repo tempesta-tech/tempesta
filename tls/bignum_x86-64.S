@@ -188,6 +188,7 @@ ENDPROC(mpi_sub_x86_64)
 
 /*
  * Operands size specialized implementations of the function above.
+ * TODO Probably there is no case for the function with the new modp.
  */
 ENTRY(mpi_sub_x86_64_5_4)
 	movq	(%rdx), %r8
@@ -462,12 +463,17 @@ ENDPROC(mpi_mul_x86_64_4)
 
 
 /**
- * Square a 4-limbs MPIs pointed by %RSI and store up to 8 limbs by pointer
+ * Square a 4-limbs MPI pointed by %RSI and store up to 8 limbs by pointer
  * to result %RDI.
  *
  * The function code is borrowed from WolfSSL library
  * (https://github.com/wolfSSL/wolfssl/), sp_256_sqr_avx2_4(),
  * wolfssl/wolfcrypt/src/sp_x86_64_asm.S .
+ *
+ * This is the classic HAC 14.2.4 squaring algorithm with (i,j) doubling by
+ * double addition and this can be improved with left shift (Algorithm 2) as
+ * described in "Speeding up Big-Numbers Squaring" by S.Gueron and V.Krasnov,
+ * 2012.
  */
 ENTRY(mpi_sqr_x86_64_4)
 	push	%rbx
@@ -551,31 +557,229 @@ ENDPROC(mpi_sqr_x86_64_4)
 /**
  * Fast reduction modulo 256 by FIPS 186-3 D.2:
  *
- *	s1 = (c7,  c6,  c5,  c4,  c3,  c2,  c1,  c0 )
- *	s2 = (c15, c14, c13, c12, c11, 0,   0,   0  )
- *	s3 = (0,   c15, c14, c13, c12, 0,   0,   0  )
- *	s4 = (c15, c14, 0,   0,   0,   c10, c9,  c8 )
- *	s5 = (c8,  c13, c15, c14, c13, c11, c10, c9 )
- *	s6 = (c10, c8,  0,   0,   0,   c13, c12, c11)
- *	s7 = (c11, c9,  0,   0,   c15, c14, c13, c12)
- *	s8 = (c12, 0,   c10, c9,  c8,  c15, c14, c13)
- *	s9 = (c13, 0,   c11, c10, c9,  0,   c15, c14)
+ *	s1 = (c7,  C6,    c5,  C4,    c3,  C2,    c1,  C0 )
+ *	s2 = (c15, c14,   c13, c12,   c11, 0,     0,   0  )
+ *	s3 = (0,   c15,   c14, c13,   c12, 0,     0,   0  )
+ *	s4 = (c15, c14,   0,   0,     0,   c10,   c9,  c8 )
+ *	s5 = (c8,  c13,   c15, c14,   c13, c11,   c10, c9 )
+ *	s6 = (c10, c8,    0,   0,     0,   c13,   c12, c11)
+ *	s7 = (c11, c9,    0,   0,     c15, c14,   c13, c12)
+ *	s8 = (c12, 0,     c10, c9,    c8,  c15,   c14, c13)
+ *	s9 = (c13, 0,     c11, c10,   c9,  0,     c15, c14)
  *
  *	x = s1 + 2*s2 + 2*s3 + s4 + s5 − s6 − s7 − s8 − s9
  *
  * , where c i'th is a 32-bit word.
  *
- * As the original mbed TLS implementation we process the formula by columns
- * for 4 bytes at a time. However, we use 64-bit arithmetics to automatically
- * process the carry. The explicit formula coding allows us to not to add or
+ * In opposite to mbed TLS we process the formula by rows, fully exploiting
+ * 64-bit arithmetics and avoid manual carry manipulations. We can not use
+ * SIMD as the rows use non-trivial permutations, so SIMD becomes too
+ * expensive. The explicit formula coding allows us to not to add or
  * subtract zeroes, avoid conditions, simplify loading and storing, and read
  * the more significant half of the big integer int registers win less
  * steps.
  *
- * %RDI	- pointer to 8 limbs big integer to be reduced.
+ * The FIPS is an alternative to Montgomery multiplication with reduction.
+ * Camparing this funcion with the reduction step of WolfSSL's
+ * sp_256_mont_mul_avx2_4() we do about 12 more ADC/SBB instructions plus
+ * the the tail additions/subtractions with the conditional jumps.
  *
- * TODO 46 add/sub vs WolfSSL 33 add/sub including zeroes
- * ..... or 27 add/sub if do this by rows of 64 bit ops
+ * The esitmation for tail processing:
+ * 1. no need to add/sub - 2 not taken branches (~1/2 of taken branch cost)
+ *			   + 1 jmp + 8 adc/sbb + 2 add/sub;
+ * 2. N additions	 - (N + 1) taken branches + 1 add + 4 adc;
+ * 3. N subtractions	 - 2 not taken branchs + (N + 1) taken branch
+ *			   + (N + 1) sub + (N * 1) * 4 sbb + 1 add + 3 abc
+ *			   + 1 jmp
+ *
+ * In average we need only one addition or subtraction, i.e. N = 1, so a typical
+ * subtraction (the most expensive path) costs about 3 jumps and 11 ADC/SBB.
+ *
+ * TBD: in total, this is about 65% slower than the Montgomery P-reduction after
+ * multiplication, but we don't pay for Montgomery transformations.
+ *
+ * %RDI	- pointer to 8 limbs big integer to be reduced.
+ * %RSI	- size if the MPI.
  */
 ENTRY(ecp_mod_p256_x86_64)
+	pushq	%rbx
+	pushq	%r10
+	pushq	%r11
+	pushq	%r12
+	pushq	%r13
+	pushq	%r14
+	pushq	%r15
+
+	xorq	%rcx, %rcx /* carry register for 5th limb */
+
+	/* Load the base line. */
+	movq	(%rdi), %rbx
+	movq	2*4(%rdi), %rdx
+	movq	4*4(%rdi), %r8
+	movq	6*4(%rdi), %r9
+
+	/* It's faster for small MPIs just to subtract P. */
+	cmpq	$4, %rsi
+	jle	.mod256_fast_sub
+
+	/*
+	 * Load and add the s2 line.
+	 * SH{L,R}D have latency ~3 and throughtput 2, whcih is much worse
+	 * than ADC (1 and 1 correspondingly), so use double ADD instead of
+	 * shifting s2 and s3.
+	 * There is also data dependency on first addition with CF and OF,
+	 * so we can't use ADCX and ADOX.
+	 */
+	movq	11*4(%rdi), %r11
+	movq	12*4(%rdi), %r12 /* used in s7 */
+	movq	14*4(%rdi), %r10 /* used in s4, s5, s7, s9 */
+	shlq	$32, %r11	/* c11, 0 - half used in s5*/
+	addq	%r11, %rdx
+	adcq	%r12, %r8
+	adcq	%r10, %r9
+	adcq	$0, %rcx
+	addq	%r11, %rdx
+	adcq	%r12, %r8
+	adcq	%r10, %r9
+	adcq	$0, %rcx
+
+	/* The s3 line, no need to carry on shift. */
+	movl	15*4(%rdi), %eax
+	movq	12*4(%rdi), %r13
+	movq	13*4(%rdi), %rsi
+	shlq	$32, %r13
+	addq	%r13, %rdx
+	adcq	%rsi, %r8
+	adcq	%rax, %r9
+	adcq	$0, %rcx
+	addq	%r13, %rdx
+	adcq	%rsi, %r8
+	adcq	%rax, %r9
+	adcq	$0, %rcx
+
+	/* Load and add s4. */
+	movq	8*4(%rdi), %r14 /* half used in s7 */
+	movl	10*4(%rdi), %eax /* 0,c10 */
+	addq	%r14, %rbx
+	adcq	%rax, %rdx
+	adcq	$0, %r8
+	adcq	%r10, %r9
+	adcq	$0, %rcx
+
+	/* Load and add s5. */
+	shrq	$32, %r11
+	shlq	$32, %rsi	/* c13,0 */
+	movq	9*4(%rdi), %r15	/* used in s8 */
+	orq	%rsi, %r11	/* c13,c11 in R11 */
+	movl	8*4(%rdi), %eax
+	shrq	$32, %rsi	/* 0,c13 - used in s6 */
+	shlq	$32, %rax
+	orq	%rsi, %rax	/* c8,c13 in RAX */
+	addq	%r15, %rbx
+	adcq	%r11, %rdx
+	adcq	%r10, %r8
+	adcq	%rax, %r9
+	adcq	$0, %rcx
+
+	/* Load and subtract s6. */
+	movq	10*4(%rdi), %r13
+	shrq	$32, %rax
+	shlq	$32, %r13
+	movq	11*4(%rdi), %r11 /* half used in s7 */
+	orq	%rax, %r13	/* c10,c8 - half used in s8 */
+	subq	%r11, %rbx
+	sbbq	%rsi, %rdx
+	sbbq	$0, %r8
+	sbbq	%r13, %r9
+	sbbq	$0, %rcx
+
+	/* Load and subtract s7. */
+	movl	9*4(%rdi), %eax	/* 0,c9 in RAX */
+	shlq	$32, %r11
+	orq	%rax, %r11
+	subq	%r12, %rbx
+	sbbq	%r10, %rdx
+	sbbq	$0, %r8
+	sbbq	%r11, %r9
+	sbbq	$0, %rcx
+
+	/*
+	 * Load and subtract s8.
+	 * It's also the time to start to load P256.
+	 */
+	movq	13*4(%rdi), %r11
+	shldq	$32, %r10, %r13	/* c8,c15 */
+	shlq	$32, %r12	/* c12,0 */
+	xorq	%rsi, %rsi	/* P256[1] */
+	subq	%r11, %rbx
+	movq	$0xffffffff00000001, %rax /* P256[0] */
+	sbbq	%r13, %rdx
+	sbbq	%r15, %r8
+	sbbq	%r12, %r9
+	sbbq	$0, %rcx
+
+	/* Load and subtract s9. */
+	movq	10*4(%rdi), %r14
+	shlq	$32, %r11
+	shlq	$32, %r15
+	subq	%r10, %rbx
+	movq	$-1, %r13	/* P256[3] */
+	sbbq	%r15, %rdx
+	sbbq	%r14, %r8
+	movq	$0x00000000ffffffff, %r12 /* P256[2] */
+	sbbq	%r11, %r9
+	sbbq	$0, %rcx
+
+	/*
+	 * Quasi-reduction is done, add/subtract to get final modulo.
+	 * In average only one addition or subtraction is required, but it's
+	 * required to compare the whole MPI (4 limbs and for each of them we
+	 * can jump on less or greater values) against P to know which operation
+	 * we need to do. It's cheaper to subtract P unconditionally on positive
+	 * value and add it back if we get SF in RCX.
+	 */
+	js	.mod256_add_loop
+.mod256_sub_loop:
+	subq	%r13, %rbx
+	sbbq	%r12, %rdx
+	sbbq	%rsi, %r8
+	sbbq	%rax, %r9
+	sbbq	$0, %rcx
+	jns	.mod256_sub_loop
+	/* We had RCX >= 0, and now we're under 0: add back and return. */
+	addq	%r13, %rbx
+	adcq	%r12, %rdx
+	adcq	%rsi, %r8
+	adcq	%rax, %r9
+	jmp	.mod256_done
+
+.mod256_add_loop:
+	/* Negative RCX value w/ overflow, need at least one addition. */
+	addq	%r13, %rbx
+	adcq	%r12, %rdx
+	adcq	%rsi, %r8
+	adcq	%rax, %r9
+	adcq	$0, %rcx
+	jnz	.mod256_add_loop
+
+.mod256_done:
+	movq	%rbx, (%rdi)
+	movq	%rdx, 2*4(%rdi)
+	movq	%r8, 4*4(%rdi)
+	movq	%r9, 6*4(%rdi)
+	popq	%r15
+	popq	%r14
+	popq	%r13
+	popq	%r12
+	popq	%r11
+	popq	%r10
+	popq	%rbx
+	ret
+
+.mod256_fast_sub:
+	movq	$0xffffffff00000001, %rax /* P256[0] */
+	xorq	%rsi, %rsi	/* P256[1] */
+	movq	$0x00000000ffffffff, %r12 /* P256[2] */
+	movq	$-1, %r13	/* P256[3] */
+	jmp .mod256_sub_loop
 ENDPROC(ecp_mod_p256_x86_64)

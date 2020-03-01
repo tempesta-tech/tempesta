@@ -42,5 +42,7 @@ void mpi_shift_r_x86_64(unsigned long *x, size_t x_len, unsigned long bits);
 void mpi_mul_x86_64_4(unsigned long *x, unsigned long *a, unsigned long *b);
 void mpi_sqr_x86_64_4(unsigned long *x, unsigned long *a);
 
+void ecp_mod_p256_x86_64(unsigned long *x, size_t x_len);
+
 #endif /* __BIGNUM_ASM_H__ */
 

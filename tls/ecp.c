@@ -453,6 +453,19 @@ ecp_modp(TlsMpi *N, const TlsEcpGrp *grp)
 	while (ttls_mpi_cmp_mpi(N, &grp->P) >= 0)			\
 		ttls_mpi_sub_abs(N, N, &grp->P)
 
+/**
+ * Wrapper around fast quasi-mod for SECP 256.
+ */
+static void
+ecp_mod_p256(TlsMpi *N)
+{
+	BUG_ON(N->limbs < 4);
+	BUG_ON(N->s < 0);
+
+	ecp_mod_p256_x86_64(MPI_P(N), N->used);
+	mpi_fixup_used(N, 4);
+}
+
 static void
 ecp_mul_mod(const TlsEcpGrp *grp, TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 {
@@ -465,7 +478,7 @@ ecp_mul_mod(const TlsEcpGrp *grp, TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 		mpi_fixup_used(X, 8);
 		X->s = A->s * B->s;
 
-		ecp_modp(X, grp);
+		ecp_mod_p256(X);
 	} else {
 		/* TODO #1064: also optimize for Secp384. */
 		ttls_mpi_mul_mpi(X, A, B);
@@ -485,7 +498,7 @@ ecp_sqr_mod(const TlsEcpGrp *grp, TlsMpi *X, const TlsMpi *A)
 		mpi_fixup_used(X, 8);
 		X->s = 1;
 
-		ecp_modp(X, grp);
+		ecp_mod_p256(X);
 	} else {
 		/* TODO #1064: also optimize for Secp384 and call mpi sqr. */
 		ttls_mpi_mul_mpi(X, A, A);
