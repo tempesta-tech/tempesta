@@ -473,10 +473,11 @@ tfw_sock_check_lst(TfwServer *srv)
 static int
 tfw_cfgop_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	int r;
+	int r, type = TFW_FSM_HTTP;
 	int port;
 	TfwAddr addr;
 	const char *in_str = NULL;
+	bool deprecated = true;
 
 	if (tfw_cfg_check_val_n(ce, 1) || ce->attr_n > 1)
 		goto parse_err;
@@ -507,25 +508,36 @@ tfw_cfgop_listen(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		goto parse_err;
 
 	if (!ce->attr_n)
-		return tfw_listen_sock_add(&addr, TFW_FSM_HTTP);
+		goto done;
 
 	in_str = tfw_cfg_get_attr(ce, "proto", NULL);
 	if (!in_str)
 		goto parse_err;
 
-	if (!strcasecmp(in_str, "http")) {
-		return tfw_listen_sock_add(&addr, TFW_FSM_HTTP);
-	}
+	if (!strcasecmp(in_str, "http"))
+		goto done;
 
-	if (!tfw_tls_cfg_alpn_protos(in_str)) {
-		tfw_tls_cfg_require();
-		return tfw_listen_sock_add(&addr, TFW_FSM_HTTPS);
-	}
+	type = TFW_FSM_HTTPS;
+	if (!tfw_tls_cfg_alpn_protos(in_str, &deprecated))
+		goto done;
 
 parse_err:
 	T_ERR_NL("Unable to parse 'listen' value: '%s'\n",
 		 in_str ? in_str : "Invalid directive format");
 	return -EINVAL;
+
+done:
+	if (deprecated) {
+		static int warn = 1;
+		if (warn)
+			T_WARN_NL("Listening for HTTP/1.1 protocol is "
+				  "compatibility mode and may lack of "
+				  "performance.\n");
+		warn = 0;
+	}
+	if (type == TFW_FSM_HTTPS)
+		tfw_tls_cfg_require();
+	return tfw_listen_sock_add(&addr, type);
 }
 
 static int
