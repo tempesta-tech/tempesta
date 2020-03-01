@@ -1822,8 +1822,7 @@ check_name_text:
 			for (; i < h_mods->sz; ++i) {
 				TfwHdrModsDesc *d = &h_mods->hdrs[i];
 
-				if (!__hdr_name_cmp(&dc_iter->hdr_data,
-						    TFW_STR_CHUNK(d->hdr, 0)))
+				if (!__hdr_name_cmp(&dc_iter->hdr_data, d->hdr))
 				{
 					dc_iter->desc = d;
 					break;

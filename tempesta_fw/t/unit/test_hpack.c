@@ -92,6 +92,34 @@ test_h2_teardown(void)
 	free_all_str();
 }
 
+static void
+test_h2_hdr_name(TfwStr *hdr, TfwStr *out_name)
+{
+	const TfwStr *c, *end;
+
+	if (unlikely(TFW_STR_EMPTY(hdr))) {
+		TFW_STR_INIT(out_name);
+		return;
+	}
+
+	BUG_ON(TFW_STR_DUP(hdr));
+	BUG_ON(TFW_STR_EMPTY(hdr));
+
+	*out_name = *hdr;
+
+	if (unlikely(TFW_STR_PLAIN(hdr))) {
+		WARN_ON_ONCE(hdr->flags & TFW_STR_HDR_VALUE);
+		return;
+	}
+
+	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
+		if (c->flags & TFW_STR_HDR_VALUE) {
+			out_name->len -= c->len;
+			out_name->nchunks--;
+		}
+	}
+}
+
 TEST(hpack, dec_table_static)
 {
 	TfwHPack *hp;
@@ -186,21 +214,21 @@ TEST(hpack, dec_table_dynamic)
 
 	hp = &ctx.hpack;
 
-	__h2_msg_hdr_name(s1, &h_name);
+	test_h2_hdr_name(s1, &h_name);
 	it->nm_num = h_name.nchunks;
 	it->nm_len = h_name.len;
 	it->tag = TFW_TAG_HDR_RAW;
 	*it->parsed_hdr = *s1;
 	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it));
 
-	__h2_msg_hdr_name(s2, &h_name);
+	test_h2_hdr_name(s2, &h_name);
 	it->nm_num = h_name.nchunks;
 	it->nm_len = h_name.len;
 	it->tag = TFW_TAG_HDR_X_FORWARDED_FOR;
 	*it->parsed_hdr = *s2;
 	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it));
 
-	__h2_msg_hdr_name(s3, &h_name);
+	test_h2_hdr_name(s3, &h_name);
 	it->nm_num = h_name.nchunks;
 	it->nm_len = h_name.len;
 	it->tag = TFW_TAG_HDR_RAW;
@@ -254,14 +282,14 @@ TEST(hpack, dec_table_dynamic_inc)
 
 	hp = &ctx.hpack;
 
-	__h2_msg_hdr_name(s1, &h_name);
+	test_h2_hdr_name(s1, &h_name);
 	it->nm_num = h_name.nchunks;
 	it->nm_len = h_name.len;
 	it->tag = TFW_TAG_HDR_RAW;
 	*it->parsed_hdr = *s1;
 	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it));
 
-	__h2_msg_hdr_name(s2, &h_name);
+	test_h2_hdr_name(s2, &h_name);
 	it->nm_num = h_name.nchunks;
 	it->nm_len = h_name.len;
 	it->tag = TFW_TAG_HDR_RAW;
@@ -278,14 +306,14 @@ TEST(hpack, dec_table_dynamic_inc)
 	if (entry)
 		EXPECT_TRUE(tfw_strcmp(entry->hdr, s1) == 0);
 
-	__h2_msg_hdr_name(s3, &h_name);
+	test_h2_hdr_name(s3, &h_name);
 	it->nm_num = h_name.nchunks;
 	it->nm_len = h_name.len;
 	it->tag = TFW_TAG_HDR_CACHE_CONTROL;
 	*it->parsed_hdr = *s3;
 	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it));
 
-	__h2_msg_hdr_name(s4, &h_name);
+	test_h2_hdr_name(s4, &h_name);
 	it->nm_num = h_name.nchunks;
 	it->nm_len = h_name.len;
 	it->tag = TFW_TAG_HDR_RAW;
@@ -302,7 +330,7 @@ TEST(hpack, dec_table_dynamic_inc)
 	if (entry)
 		EXPECT_TRUE(tfw_strcmp(entry->hdr, s3) == 0);
 
-	__h2_msg_hdr_name(s5, &h_name);
+	test_h2_hdr_name(s5, &h_name);
 	it->nm_num = h_name.nchunks;
 	it->nm_len = h_name.len;
 	it->tag = TFW_TAG_HDR_RAW;
@@ -415,7 +443,7 @@ TEST(hpack, dec_table_wrap)
 			EXPECT_NOT_NULL(l_entry->hdr);
 			EXPECT_NOT_NULL(t_entry->hdr);
 			if (l_entry->hdr) {
-				__h2_msg_hdr_name(t_entry->hdr, &h_name);
+				test_h2_hdr_name(t_entry->hdr, &h_name);
 				EXPECT_TRUE(tfw_strcmp(&h_name, l_entry->hdr) == 0);
 			}
 		}
@@ -524,7 +552,7 @@ TEST(hpack, dec_raw)
 	EXPECT_NE(ht, test_req->h_tbl);
 	ht = test_req->h_tbl;
 
-	__h2_msg_hdr_name(&ht->tbl[TFW_HTTP_HDR_RAW], &h_name);
+	test_h2_hdr_name(&ht->tbl[TFW_HTTP_HDR_RAW], &h_name);
 	__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_RAW], &h_value);
 	EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
 	EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
@@ -537,7 +565,7 @@ TEST(hpack, dec_raw)
 					    strlen(test_value1), 0));
 	}
 
-	__h2_msg_hdr_name(&ht->tbl[TFW_HTTP_HDR_RAW + 1], &h_name);
+	test_h2_hdr_name(&ht->tbl[TFW_HTTP_HDR_RAW + 1], &h_name);
 	__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_RAW + 1], &h_value);
 	EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
 	EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
@@ -550,7 +578,7 @@ TEST(hpack, dec_raw)
 					    strlen(test_value2), 0));
 	}
 
-	__h2_msg_hdr_name(&ht->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR], &h_name);
+	test_h2_hdr_name(&ht->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR], &h_name);
 	__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR], &h_value);
 	EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
 	EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
@@ -747,7 +775,7 @@ TEST(hpack, dec_indexed)
 	EXPECT_EQ(hdr->nchunks, 3);
 	if (hdr->nchunks == 3) {
 		dup = hdr->chunks;
-		__h2_msg_hdr_name(dup, &h_name);
+		test_h2_hdr_name(dup, &h_name);
 		__h2_msg_hdr_val(dup, &h_value);
 		EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
 		EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
@@ -760,7 +788,7 @@ TEST(hpack, dec_indexed)
 						    test_len_val1, 0));
 		}
 		dup = hdr->chunks + 1;
-		__h2_msg_hdr_name(dup, &h_name);
+		test_h2_hdr_name(dup, &h_name);
 		__h2_msg_hdr_val(dup, &h_value);
 		EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
 		EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
@@ -773,7 +801,7 @@ TEST(hpack, dec_indexed)
 						    test_len_val1, 0));
 		}
 		dup = hdr->chunks + 2;
-		__h2_msg_hdr_name(dup, &h_name);
+		test_h2_hdr_name(dup, &h_name);
 		__h2_msg_hdr_val(dup, &h_value);
 		EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
 		EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
@@ -792,7 +820,7 @@ TEST(hpack, dec_indexed)
 	EXPECT_EQ(hdr->nchunks, 2);
 	if (hdr->nchunks == 2) {
 		dup = hdr->chunks;
-		__h2_msg_hdr_name(dup, &h_name);
+		test_h2_hdr_name(dup, &h_name);
 		__h2_msg_hdr_val(dup, &h_value);
 		EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
 		EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
@@ -805,7 +833,7 @@ TEST(hpack, dec_indexed)
 						    test_len_val2, 0));
 		}
 		dup = hdr->chunks + 1;
-		__h2_msg_hdr_name(dup, &h_name);
+		test_h2_hdr_name(dup, &h_name);
 		__h2_msg_hdr_val(dup, &h_value);
 		EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
 		EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
@@ -820,7 +848,7 @@ TEST(hpack, dec_indexed)
 	}
 
 	hdr = &ht->tbl[TFW_HTTP_HDR_HOST];
-	__h2_msg_hdr_name(hdr, &h_name);
+	test_h2_hdr_name(hdr, &h_name);
 	__h2_msg_hdr_val(hdr, &h_value);
 	EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
 	EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
@@ -834,7 +862,7 @@ TEST(hpack, dec_indexed)
 	}
 
 	hdr = &ht->tbl[TFW_HTTP_HDR_REFERER];
-	__h2_msg_hdr_name(hdr, &h_name);
+	test_h2_hdr_name(hdr, &h_name);
 	__h2_msg_hdr_val(hdr, &h_value);
 	EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
 	EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
@@ -863,7 +891,7 @@ TEST(hpack, dec_indexed)
 	EXPECT_NOT_NULL(entry);
 	if (entry) {
 		hdr = entry->hdr;
-		__h2_msg_hdr_name(hdr, &h_name);
+		test_h2_hdr_name(hdr, &h_name);
 		__h2_msg_hdr_val(hdr, &h_value);
 		EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
 		EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
@@ -884,7 +912,7 @@ TEST(hpack, dec_indexed)
 	EXPECT_NOT_NULL(entry);
 	if (entry) {
 		hdr = entry->hdr;
-		__h2_msg_hdr_name(hdr, &h_name);
+		test_h2_hdr_name(hdr, &h_name);
 		__h2_msg_hdr_val(hdr, &h_value);
 		EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
 		EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
@@ -905,7 +933,7 @@ TEST(hpack, dec_indexed)
 	EXPECT_NOT_NULL(entry);
 	if (entry) {
 		hdr = entry->hdr;
-		__h2_msg_hdr_name(hdr, &h_name);
+		test_h2_hdr_name(hdr, &h_name);
 		__h2_msg_hdr_val(hdr, &h_value);
 		EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
 		EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
@@ -1047,7 +1075,7 @@ TEST(hpack, dec_huffman)
 	 * into the headers table.
 	 */
 	hdr = &ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY];
-	__h2_msg_hdr_name(hdr, &h_name);
+	test_h2_hdr_name(hdr, &h_name);
 	__h2_msg_hdr_val(hdr, &h_value);
 	EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
 	EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
@@ -1061,7 +1089,7 @@ TEST(hpack, dec_huffman)
 	}
 
 	hdr = &ht->tbl[TFW_HTTP_HDR_RAW];
-	__h2_msg_hdr_name(hdr, &h_name);
+	test_h2_hdr_name(hdr, &h_name);
 	__h2_msg_hdr_val(hdr, &h_value);
 	EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
 	EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
@@ -1075,7 +1103,7 @@ TEST(hpack, dec_huffman)
 	}
 
 	hdr = &ht->tbl[TFW_HTTP_HDR_RAW + 1];
-	__h2_msg_hdr_name(hdr, &h_name);
+	test_h2_hdr_name(hdr, &h_name);
 	__h2_msg_hdr_val(hdr, &h_value);
 	EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
 	EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
@@ -1096,7 +1124,7 @@ TEST(hpack, dec_huffman)
 	EXPECT_NOT_NULL(entry);
 	if (entry) {
 		hdr = entry->hdr;
-		__h2_msg_hdr_name(hdr, &h_name);
+		test_h2_hdr_name(hdr, &h_name);
 		__h2_msg_hdr_val(hdr, &h_value);
 		EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
 		EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
@@ -1117,7 +1145,7 @@ TEST(hpack, dec_huffman)
 	EXPECT_NOT_NULL(entry);
 	if (entry) {
 		hdr = entry->hdr;
-		__h2_msg_hdr_name(hdr, &h_name);
+		test_h2_hdr_name(hdr, &h_name);
 		__h2_msg_hdr_val(hdr, &h_value);
 		EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
 		EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
@@ -1138,7 +1166,7 @@ TEST(hpack, dec_huffman)
 	EXPECT_NOT_NULL(entry);
 	if (entry) {
 		hdr = entry->hdr;
-		__h2_msg_hdr_name(hdr, &h_name);
+		test_h2_hdr_name(hdr, &h_name);
 		__h2_msg_hdr_val(hdr, &h_value);
 		EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
 		EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));

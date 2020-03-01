@@ -687,6 +687,5 @@ unsigned long tfw_http_hdr_split(TfwStr *hdr, TfwStr *name_out, TfwStr *val_out,
 				 bool inplace);
 unsigned long tfw_h2_hdr_size(unsigned long n_len, unsigned long v_len,
 			      unsigned short st_index);
-TfwHdrModsDesc *tfw_http_find_desc(const TfwStr *hdr, const TfwHdrMods *h_mods);
 
 #endif /* __TFW_HTTP_H__ */

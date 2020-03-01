@@ -57,7 +57,6 @@ __tfw_http_msg_set_str_data(TfwStr *str, void *data, struct sk_buff *skb)
 	__tfw_http_msg_set_str_data(str, data,				\
 				    ss_skb_peek_tail(&hm->msg.skb_head))
 
-void __h2_msg_hdr_name(TfwStr *hdr, TfwStr *out_name);
 void __h2_msg_hdr_val(TfwStr *hdr, TfwStr *out_val);
 void __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client);
 
@@ -180,8 +179,8 @@ int tfw_http_msg_grow_hdr_tbl(TfwHttpMsg *hm);
 void tfw_http_msg_free(TfwHttpMsg *m);
 int tfw_http_msg_expand_data(TfwMsgIter *it, struct sk_buff **skb_head,
 			     const TfwStr *src, unsigned int *start_off);
-int __hdr_name_cmp(const TfwStr *hdr, const TfwStr *name);
-int __h2_hdr_lookup(TfwHttpMsg *hm, const TfwStr *h_name);
+int __hdr_name_cmp(const TfwStr *hdr, const TfwStr *cmp_hdr);
+int __h2_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr);
 int tfw_h2_msg_rewrite_data(TfwHttpTransIter *mit, const TfwStr *str,
 			    const char *stop);
 
