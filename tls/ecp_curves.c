@@ -217,50 +217,6 @@ fix_negative(TlsMpi *N, signed char c, const size_t bits)
 }
 
 /*
- * Fast quasi-reduction modulo p256 (FIPS 186-3 D.2.3).
- * TODO #1064 the most mathematic hot spot - called enourmously many times.
- */
-static void
-ecp_mod_p256(TlsMpi *N)
-{
-	INIT();
-
-	/* A0 */
-	ADD(8); ADD(9);
-	SUB(11); SUB(12); SUB(13); SUB(14);
-	NEXT;
-	/* A1 */
-	ADD(9); ADD(10);
-	SUB(12); SUB(13); SUB(14); SUB(15);
-	NEXT;
-	/* A2 */
-	ADD(10); ADD(11);
-	SUB(13); SUB(14); SUB(15);
-	NEXT;
-	/* A3 */
-	ADD(11); ADD(11); ADD(12); ADD(12); ADD(13);
-	SUB(15); SUB(8); SUB(9);
-	NEXT;
-	/* A4 */
-	ADD(12); ADD(12); ADD(13); ADD(13); ADD(14);
-	SUB(9); SUB(10);
-	NEXT;
-	/* A5 */
-	ADD(13); ADD(13); ADD(14); ADD(14); ADD(15);
-	SUB(10); SUB(11);
-	NEXT;
-	/* A6 */
-	ADD(14); ADD(14); ADD(15); ADD(15); ADD(14); ADD(13);
-	SUB(8); SUB(9);
-	NEXT;
-	/* A7 */
-	ADD(15); ADD(15); ADD(15); ADD(8);
-	SUB(10); SUB(11); SUB(12); SUB(13);
-
-	LAST(256);
-}
-
-/*
  * Fast quasi-reduction modulo p384 (FIPS 186-3 D.2.4)
  */
 static void
@@ -471,7 +427,6 @@ ttls_ecp_group_load(TlsEcpGrp *grp, ttls_ecp_group_id id)
 
 	switch(id) {
 	case TTLS_ECP_DP_SECP256R1:
-		grp->modp = ecp_mod_p256;
 		LOAD_GROUP(secp256r1);
 		break;
 	case TTLS_ECP_DP_SECP384R1:

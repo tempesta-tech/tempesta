@@ -35,19 +35,47 @@
 void
 ttls_mpi_pool_cleanup_ctx(unsigned long addr, bool zero)
 {
-	WARN(1, "Should not be called in the test."
-		" Maybe move the test to test_mpi.c?\n");
+	BUG();
 }
 
 int
 ttls_mpi_pool_alloc_mpi(TlsMpi *x, size_t n, bool tail)
 {
-	WARN(1, "Should not be called in the test."
-		" Maybe move the test to test_mpi.c?\n");
-	return -1;
+	BUG();
+}
+
+void
+ttls_mpi_pool_free(void *ctx)
+{
+	BUG();
+}
+
+int
+ttls_ecp_group_load(TlsEcpGrp *grp, ttls_ecp_group_id id)
+{
+	BUG();
+}
+
+TlsEcpPoint *
+ttls_mpool_ecp_create_tmp_T(int n, const TlsEcpPoint *P)
+{
+	BUG();
+}
+
+TlsMpiPool *
+ttls_mpool(void *addr)
+{
+	BUG();
+}
+
+void
+ttls_mpool_shrink_tailtmp(TlsMpiPool *mp, bool fix_refs)
+{
+	BUG();
 }
 
 #include "../bignum.c"
+#include "../ecp.c"
 
 static void
 mpi_cmp(void)
@@ -657,6 +685,144 @@ mpi_elementary(void)
 	free(B);
 }
 
+static void
+ecp_mod256(void)
+{
+	TlsMpi *X = ttls_mpi_alloc_stack_init(8);
+
+	ttls_mpi_lset(X, 0);
+
+	X->used = 8;
+	MPI_P(X)[0] = 1;
+	MPI_P(X)[1] = 0;
+	MPI_P(X)[2] = 0;
+	MPI_P(X)[3] = 0;
+	MPI_P(X)[4] = 0;
+	MPI_P(X)[5] = 0;
+	MPI_P(X)[6] = 0;
+	MPI_P(X)[7] = 0;
+	ecp_mod_p256(X);
+	EXPECT_EQ(X->used, 1);
+	EXPECT_TRUE(MPI_P(X)[0] == 1);
+	EXPECT_TRUE(MPI_P(X)[1] == 0);
+	EXPECT_TRUE(MPI_P(X)[2] == 0);
+	EXPECT_TRUE(MPI_P(X)[4] == 0);
+
+	X->used = 5;
+	MPI_P(X)[0] = 1;
+	MPI_P(X)[1] = 0;
+	MPI_P(X)[2] = 0;
+	MPI_P(X)[3] = 0;
+	MPI_P(X)[4] = 1;
+	MPI_P(X)[5] = 0;
+	MPI_P(X)[6] = 0;
+	MPI_P(X)[7] = 0;
+	ecp_mod_p256(X);
+	EXPECT_EQ(X->used, 4);
+	EXPECT_TRUE(MPI_P(X)[0] == 2);
+	EXPECT_TRUE(MPI_P(X)[1] == 0xffffffff00000000);
+	EXPECT_TRUE(MPI_P(X)[2] == 0xffffffffffffffff);
+	EXPECT_TRUE(MPI_P(X)[3] == 0xfffffffe);
+
+	X->used = 8;
+	MPI_P(X)[0] = 0x0000000100000002;
+	MPI_P(X)[1] = 0x0000000300000004;
+	MPI_P(X)[2] = 0x0000000500000006;
+	MPI_P(X)[3] = 0x0000000700000008;
+	MPI_P(X)[4] = 0x000000090000000a;
+	MPI_P(X)[5] = 0x0000000b0000000c;
+	MPI_P(X)[6] = 0x0000000d0000000e;
+	MPI_P(X)[7] = 0x0000000f00000011;
+	ecp_mod_p256(X);
+	EXPECT_EQ(X->used, 4);
+	EXPECT_TRUE(MPI_P(X)[0] == 0xffffffdaffffffde);
+	EXPECT_TRUE(MPI_P(X)[1] == 0x1fffffffed);
+	EXPECT_TRUE(MPI_P(X)[2] == 0x3900000038);
+	EXPECT_TRUE(MPI_P(X)[3] == 0x0c00000053);
+
+	X->used = 8;
+	MPI_P(X)[0] = 0x81049834a729f046;
+	MPI_P(X)[1] = 0x8e8ccd3064d562a6;
+	MPI_P(X)[2] = 0x9571db50f3374ad4;
+	MPI_P(X)[3] = 0x9ce41a936065fb64;
+	MPI_P(X)[4] = 0xc123e496517641f8;
+	MPI_P(X)[5] = 0x77fc879a14c43d96;
+	MPI_P(X)[6] = 0xa10f6b7f64496e90;
+	MPI_P(X)[7] = 0x106c3d3c1c31371c;
+	ecp_mod_p256(X);
+	EXPECT_EQ(X->used, 4);
+	EXPECT_TRUE(MPI_P(X)[0] == 0x24f66bf9203d7e0e);
+	EXPECT_TRUE(MPI_P(X)[1] == 0xc521c13a23e947ff);
+	EXPECT_TRUE(MPI_P(X)[2] == 0x939e9894443213e3);
+	EXPECT_TRUE(MPI_P(X)[3] == 0x8d8574ff64476023);
+
+	X->used = 8;
+	MPI_P(X)[0] = 0xffffffffffffffff;
+	MPI_P(X)[1] = 0xffffffffffffffff;
+	MPI_P(X)[2] = 0xffffffffffffffff;
+	MPI_P(X)[3] = 0xffffffffffffffff;
+	MPI_P(X)[4] = 0xffffffff;
+	MPI_P(X)[5] = 0;
+	MPI_P(X)[6] = 0;
+	MPI_P(X)[7] = 0xffffffffffffffff;
+	ecp_mod_p256(X);
+	EXPECT_EQ(X->used, 4);
+	EXPECT_TRUE(MPI_P(X)[0] == 0x200000004);
+	EXPECT_TRUE(MPI_P(X)[1] == 0xfffffffb00000000);
+	EXPECT_TRUE(MPI_P(X)[2] == 0xfffffffdfffffffc);
+	EXPECT_TRUE(MPI_P(X)[3] == 0x4fffffff9);
+
+	X->used = 4;
+	MPI_P(X)[0] = 0xaaaaaaaaaaaaaaaa;
+	MPI_P(X)[1] = 0x5555555555555555;
+	MPI_P(X)[2] = 0x7777777777777777;
+	MPI_P(X)[3] = 0xffffffffffffffff;
+	MPI_P(X)[4] = 0;
+	MPI_P(X)[5] = 0;
+	MPI_P(X)[6] = 0;
+	MPI_P(X)[7] = 0;
+	ecp_mod_p256(X);
+	EXPECT_EQ(X->used, 4);
+	EXPECT_TRUE(MPI_P(X)[0] == 0xaaaaaaaaaaaaaaab);
+	EXPECT_TRUE(MPI_P(X)[1] == 0x5555555455555555);
+	EXPECT_TRUE(MPI_P(X)[2] == 0x7777777777777777);
+	EXPECT_TRUE(MPI_P(X)[3] == 0xfffffffe);
+
+	X->used = 4;
+	MPI_P(X)[0] = 0xffffffff00000001;
+	MPI_P(X)[1] = 0;
+	MPI_P(X)[2] = 0xffffffff;
+	MPI_P(X)[3] = 0xffffffffffffffff;
+	MPI_P(X)[4] = 0;
+	MPI_P(X)[5] = 0;
+	MPI_P(X)[6] = 0;
+	MPI_P(X)[7] = 0;
+	ecp_mod_p256(X);
+	EXPECT_EQ(X->used, 4);
+	EXPECT_TRUE(MPI_P(X)[0] == 0xffffffff00000002);
+	EXPECT_TRUE(MPI_P(X)[1] == 0xffffffff00000000);
+	EXPECT_TRUE(MPI_P(X)[2] == 0xfffffffe);
+	EXPECT_TRUE(MPI_P(X)[3] == 0xfffffffe);
+
+	X->used = 8;
+	MPI_P(X)[0] = 0;
+	MPI_P(X)[1] = 0;
+	MPI_P(X)[2] = 0;
+	MPI_P(X)[3] = 0;
+	MPI_P(X)[4] = 0xffffffffffffffff;
+	MPI_P(X)[5] = 0xffffffffffffffff;
+	MPI_P(X)[6] = 0xffffffffffffffff;
+	MPI_P(X)[7] = 0xffffffffffffffff;
+	ecp_mod_p256(X);
+	EXPECT_EQ(X->used, 4);
+	EXPECT_TRUE(MPI_P(X)[0] == 0x2);
+	EXPECT_TRUE(MPI_P(X)[1] == 0xfffffffcffffffff);
+	EXPECT_TRUE(MPI_P(X)[2] == 0xfffffffffffffffe);
+	EXPECT_TRUE(MPI_P(X)[3] == 0x3fffffffe);
+
+	free(X);
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -665,6 +831,7 @@ main(int argc, char *argv[])
 	mpi_sub();
 	mpi_shift();
 	mpi_elementary();
+	ecp_mod256();
 
 	printf("success\n");
 
