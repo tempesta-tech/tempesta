@@ -355,7 +355,7 @@ __hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
  * be in HTTP/2 or HTTP/1.1 format) against the header @hdr which also can be
  * in HTTP/2 or HTTP/1.1 format.
  */
-bool
+int
 __hdr_name_cmp(const TfwStr *hdr, const TfwStr *cmp_hdr)
 {
 	long n;
