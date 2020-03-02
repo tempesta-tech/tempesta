@@ -37,6 +37,12 @@
 
 #define SLEN(s)			(sizeof(s) - 1)
 
+/*
+ * The size of the buffer to store the value for ':status' pseudo-header
+ * of HTTP/2-response.
+ */
+#define H2_STAT_VAL_LEN		3
+
 TfwStr *tfw_http_msg_make_hdr(TfwPool *pool, const char *name, const char *val);
 unsigned int tfw_http_msg_resp_spec_hid(const TfwStr *hdr);
 unsigned int tfw_http_msg_req_spec_hid(const TfwStr *hdr);

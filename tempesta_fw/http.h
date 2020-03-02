@@ -300,9 +300,6 @@ enum {
 	((!hmmsg->conn || TFW_CONN_TYPE(hmmsg->conn) & Conn_Srv) &&	\
 	 hmmsg->pair && TFW_MSG_H2(hmmsg->pair))
 
-#define H2_STAT_VAL_LEN			3
-#define RESP_BUF_LEN			128
-
 /**
  * The structure to hold data for an HTTP error response.
  * An error response is sent later in an unlocked queue context.

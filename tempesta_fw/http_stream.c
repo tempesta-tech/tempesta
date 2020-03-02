@@ -134,7 +134,7 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 		}
 		/*
 		 * Received RST_STREAM frame immediately moves stream into the
-		 * final 'closed' state, while the the sent RST_STREAM moves stream
+		 * final 'closed' state, while the sent RST_STREAM moves stream
 		 * into the intermediate 'locally closed' state.
 		 */
 		else if (type == HTTP2_RST_STREAM) {

@@ -118,6 +118,8 @@
 			  T_WARN("%s, status %d: %s\n",			\
 				 msg, status, addr_str))
 
+#define RESP_BUF_LEN		128
+
 static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_buf);
 int ghprio; /* GFSM hook priority. */
 
@@ -3960,9 +3962,6 @@ tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods,
 	unsigned int i;
 	TfwHttpTransIter *mit = &resp->mit;
 	TfwH2TransOp op = cache ? TFW_H2_TRANS_EXPAND : TFW_H2_TRANS_ADD;
-
-	if (!h_mods)
-		return 0;
 
 	if (!h_mods)
 		return 0;

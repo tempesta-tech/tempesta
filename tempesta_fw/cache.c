@@ -183,6 +183,8 @@ static struct task_struct *cache_mgr_thr;
 #endif
 static DEFINE_PER_CPU(TfwWorkTasklet, cache_wq);
 
+#define RESP_BUF_LEN		128
+
 static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_c_buf);
 
 static TfwStr g_crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
@@ -619,9 +621,9 @@ tfw_cache_h2_decode_write(TDB *db, TdbVRec **trec, TfwHttpResp *resp,
 	return r;
 }
 
-static inline int
-tfw_cache_h2_set_status(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp,
-			TdbVRec **trec,	char **p, unsigned long *acc_len)
+static int
+tfw_cache_set_status(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp,
+		     TdbVRec **trec, char **p, unsigned long *acc_len)
 {
 	int r;
 	TfwMsgIter *it = &resp->mit.iter;
@@ -685,8 +687,8 @@ tfw_cache_h2_set_status(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp,
  * Write HTTP header to skb data.
  */
 static int
-tfw_cache_h2_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwHdrMods *hmods,
-			    TdbVRec **trec, char **p, unsigned long *acc_len)
+tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwHdrMods *hmods,
+			 TdbVRec **trec, char **p, unsigned long *acc_len)
 {
 	tfw_cache_write_actor_t *write_actor;
 	TfwCStr *s = (TfwCStr *)*p;
@@ -707,7 +709,7 @@ tfw_cache_h2_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwHdrMods *hmods,
 		r = write_actor(db, trec, resp, p, s->len, &dc_iter);
 		if (likely(!r))
 			*acc_len += dc_iter.acc_len;
-		goto out;
+		return r;
 	}
 
 	/* Process duplicated headers. */
@@ -722,7 +724,6 @@ tfw_cache_h2_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwHdrMods *hmods,
 		*acc_len += dc_iter.acc_len;;
 	}
 
-out:
 	return r;
 }
 
@@ -786,8 +787,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 			trec = tdb_next_rec_chunk(db, trec);
 		BUG_ON(!trec);
 
-		if (tfw_cache_h2_build_resp_hdr(db, resp, NULL, &trec, &p,
-						&h_len))
+		if (tfw_cache_build_resp_hdr(db, resp, NULL, &trec, &p, &h_len))
 			goto err_setup;
 	}
 
@@ -1845,7 +1845,7 @@ tfw_cache_purge_method(TfwHttpReq *req)
  * See do_tcp_sendpages() as reference.
  */
 static int
-tfw_cache_h2_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p)
+tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p)
 {
 	int r;
 
@@ -1968,8 +1968,8 @@ err:
  * TODO use iterator and passed skbs to be called from net_tx_action.
  */
 static TfwHttpResp *
-tfw_cache_h2_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, time_t lifetime,
-			unsigned int stream_id)
+tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, time_t lifetime,
+		     unsigned int stream_id)
 {
 	int h;
 	TfwMsgIter *it;
@@ -2007,12 +2007,12 @@ tfw_cache_h2_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, time_t lifetime,
 		goto free;
 	}
 
-	if (tfw_cache_h2_set_status(db, ce, resp, &trec, &p, &h_len))
+	if (tfw_cache_set_status(db, ce, resp, &trec, &p, &h_len))
 		goto free;
 
 	for (h = TFW_HTTP_HDR_REGULAR; h < ce->hdr_num; ++h) {
-		if (tfw_cache_h2_build_resp_hdr(db, resp, h_mods, &trec, &p,
-						&h_len))
+		if (tfw_cache_build_resp_hdr(db, resp, h_mods, &trec, &p,
+					     &h_len))
 			goto free;
 	}
 
@@ -2101,7 +2101,7 @@ write_body:
 	/* Fill skb with body from cache for HTTP/2 or HTTP/1.1 response. */
 	BUG_ON(p != TDB_PTR(db->hdr, ce->body));
 	if (ce->body_len) {
-		if (tfw_cache_h2_build_resp_body(db, trec, it, p))
+		if (tfw_cache_build_resp_body(db, trec, it, p))
 			goto free;
 		if (!TFW_MSG_H2(req)
 		    && test_bit(TFW_HTTP_B_CHUNKED, resp->flags)
@@ -2159,7 +2159,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 		}
 	}
 
-	resp = tfw_cache_h2_build_resp(req, ce, lifetime, id);
+	resp = tfw_cache_build_resp(req, ce, lifetime, id);
 	/*
 	 * The stream of HTTP/2-request should be closed here since we have
 	 * successfully created the resulting response from cache and will
