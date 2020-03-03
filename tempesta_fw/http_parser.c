@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -6771,264 +6771,218 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 
 		tfw_http_msg_hdr_open(msg, p);
 
-		switch (c) {
-		case ':':
-			if (likely(__data_available(p, 7)
-				   && C4_INT(p + 1, 'm', 'e', 't', 'h')
-				   && *(p + 5) == 'o'
-				   && *(p + 6) == 'd'))
-			{
-				__FSM_H2_FIN(Req_HdrPsMethodV, 7,
-					     TFW_TAG_HDR_H2_METHOD);
-			}
-			if (likely(__data_available(p, 7)
-				   && C4_INT(p + 1, 's', 'c', 'h', 'e')
-				   && *(p + 5) == 'm'
-				   && *(p + 6) == 'e'))
-			{
-				__FSM_H2_FIN(Req_HdrPsSchemeV, 7,
-					     TFW_TAG_HDR_H2_SCHEME);
-			}
-			if (likely(__data_available(p, 10)
-				   && C8_INT(p + 1, 'a', 'u', 't', 'h',
-					     'o', 'r', 'i', 't')
-				   && *(p + 9) == 'y'))
-			{
+		/* Ensure we have enough data for largest match. */
+		if (unlikely(!__data_available(p, 4)))
+			__FSM_JMP(Req_Hdr);
+		/*
+		 * Some successful matches cause drop action instead of move:
+		 * - All allowed pseudo headers are listed here, no need to
+		 *   fallback to slow path on partial matches.
+		 * - RFC 7540 Section 8.1.2.2: Messages with connection-specific
+		 *   headers must be treated as malformed.
+		 */
+
+		switch (PI(p)) {
+
+		/* :authority */
+		case TFW_CHAR4_INT(':', 'a', 'u', 't'):
+			if (unlikely(!__data_available(p, 10)))
+				__FSM_H2_NEXT_n(Req_HdrPsAut, 4);
+			if (C8_INT(p + 2, 'u', 't', 'h', 'o', 'r', 'i', 't', 'y'))
 				__FSM_H2_FIN(Req_HdrPsAuthorityV, 10,
 					     TFW_TAG_HDR_H2_AUTHORITY);
-			}
-			if (likely(__data_available(p, 5)
-				   && C4_INT(p + 1, 'p', 'a', 't', 'h')))
-			{
+			__FSM_H2_DROP(RGen_Hdr);
+		/* :method */
+		case TFW_CHAR4_INT(':', 'm', 'e', 't'):
+			if (unlikely(!__data_available(p, 7)))
+				__FSM_H2_NEXT_n(Req_HdrPsMet, 4);
+			if (C4_INT(p + 3, 't', 'h', 'o', 'd'))
+				__FSM_H2_FIN(Req_HdrPsMethodV, 7,
+					     TFW_TAG_HDR_H2_METHOD);
+			__FSM_H2_DROP(RGen_Hdr);
+		/* :scheme */
+		case TFW_CHAR4_INT(':', 's', 'c', 'h'):
+			if (unlikely(!__data_available(p, 7)))
+				__FSM_H2_NEXT_n(Req_HdrPsSch, 4);
+			if (C4_INT(p + 3, 'h', 'e', 'm', 'e'))
+				__FSM_H2_FIN(Req_HdrPsSchemeV, 7,
+					     TFW_TAG_HDR_H2_SCHEME);
+			__FSM_H2_DROP(RGen_Hdr);
+		/* :path */
+		case TFW_CHAR4_INT(':', 'p', 'a', 't'):
+			if (unlikely(!__data_available(p, 5)))
+				__FSM_H2_NEXT_n(Req_HdrPsPat, 4);
+			if (*(p + 4) == 'h')
 				__FSM_H2_FIN(Req_HdrPsPathV, 5,
 					     TFW_TAG_HDR_H2_PATH);
-			}
-			__FSM_H2_NEXT(Req_HdrPseudo);
-		case 'a':
-			if (likely(__data_available(p, 6)
-				   && C4_INT(p + 1, 'c', 'c', 'e', 'p')
-				   && *(p + 5) == 't'))
-			{
+			__FSM_H2_DROP(RGen_Hdr);
+		/* accept */
+		case TFW_CHAR4_INT('a', 'c', 'c', 'e'):
+			if (unlikely(!__data_available(p, 6)))
+				__FSM_H2_NEXT_n(Req_HdrAcce, 4);
+			if (C4_INT(p + 2, 'c', 'e', 'p', 't'))
 				__FSM_H2_FIN(Req_HdrAcceptV, 6,
 					     TFW_TAG_HDR_ACCEPT);
-			}
-			if (likely(__data_available(p, 13)
-				   && C8_INT(p + 1, 'u', 't', 'h', 'o',
-					     'r', 'i', 'z', 'a')
-				   && C4_INT(p + 9, 't', 'i', 'o', 'n')))
+			__FSM_H2_OTHER_n(4);
+		/* authorization */
+		case TFW_CHAR4_INT('a', 'u', 't', 'h'):
+			if (unlikely(!__data_available(p, 13)))
+				__FSM_H2_NEXT_n(Req_HdrAuth, 4);
+			if(C8_INT(p + 4, 'o', 'r', 'i', 'z', 'a', 't', 'i', 'o')
+			   && *(p + 12) == 'n')
 			{
 				__FSM_H2_FIN(Req_HdrAuthorizationV, 13,
 					     TFW_TAG_HDR_AUTHORIZATION);
 			}
-			__FSM_H2_NEXT(Req_HdrA);
-		case 'c':
+			__FSM_H2_OTHER_n(4);
+		/* cache-control */
+		case TFW_CHAR4_INT('c', 'a', 'c', 'h'):
 			if (unlikely(!__data_available(p, 13)))
-				__FSM_H2_NEXT(Req_HdrC);
-			switch (PI(p + 1)) {
-			case TFW_CHAR4_INT('a', 'c', 'h', 'e'):
-				if (likely(C8_INT(p + 5, '-', 'c', 'o', 'n',
-						  't', 'r', 'o', 'l')))
-				{
-					__FSM_H2_FIN(Req_HdrCache_ControlV, 13,
-						     TFW_TAG_HDR_CACHE_CONTROL);
-				}
-				__FSM_H2_OTHER_n(5);
-			case TFW_CHAR4_INT('o', 'n', 'n', 'e'):
-				if (likely(C4_INT(p + 5, 'c', 't', 'i', 'o')
-					   && *(p + 9) == 'n'))
-				{
-					/*
-					 * Messages with connection-specific
-					 * headers must be treated as malformed
-					 * in HTTP/2 (see RFC 7540 section
-					 * 8.1.2.2 for details).
-					 */
-					__FSM_H2_DROP(Req_HdrConnection);
-				}
-				__FSM_H2_OTHER_n(5);
-			case TFW_CHAR4_INT('o', 'n', 't', 'e'):
-				if (likely(*(p + 5) == 'n'
-					   && *(p + 6) == 't'
-					   && *(p + 7) == '-'))
-				{
-					__FSM_H2_NEXT_n(Req_HdrContent_, 8);
-				}
-				__FSM_H2_OTHER_n(5);
-			case TFW_CHAR4_INT('o', 'o', 'k', 'i'):
-				if (likely(*(p + 5) == 'e'))
-				{
-					__FSM_H2_FIN(Req_HdrCookieV, 6,
-						     TFW_TAG_HDR_COOKIE);
-				}
-				__FSM_H2_OTHER_n(5);
-			default:
-				__FSM_H2_OTHER();
-			}
-		case 'h':
-			if (likely(__data_available(p, 4)
-				   && *(p + 1) == 'o'
-				   && *(p + 2) == 's'
-				   && *(p + 3) == 't'))
+				__FSM_H2_NEXT_n(Req_HdrCach, 4);
+			if (C8_INT(p + 4, 'e', '-', 'c', 'o', 'n', 't', 'r', 'o')
+			    &&  *(p + 12) == 'l')
 			{
-				__FSM_H2_FIN(Req_HdrHostV, 4,
-					     TFW_TAG_HDR_HOST);
+				__FSM_H2_FIN(Req_HdrCache_ControlV, 13,
+					     TFW_TAG_HDR_CACHE_CONTROL);
 			}
-			__FSM_H2_NEXT(Req_HdrH);
-		case 'i':
-			if (likely(__data_available(p, 17)
-				   && *(p + 1) == 'f'
-				   && *(p + 2) == '-'
-				   && C8_INT(p + 3, 'm', 'o', 'd', 'i',
-					     'f', 'i', 'e', 'd')
-				   && *(p + 11) == '-'
-				   && C4_INT(p + 12, 's', 'i', 'n', 'c')
-				   && *(p + 16) == 'e'))
+			__FSM_H2_OTHER_n(4);
+		/* connection */
+		case TFW_CHAR4_INT('c', 'o', 'n', 'n'):
+			if (unlikely(!__data_available(p, 9)))
+				__FSM_H2_NEXT_n(Req_HdrConn, 4);
+			if (C8_INT(p + 1,  'o', 'n', 'n', 'e', 'c', 't', 'i', 'n'))
+				__FSM_H2_DROP(Req_HdrConnection);
+			__FSM_H2_OTHER_n(4);
+		/* content-* */
+		case TFW_CHAR4_INT('c', 'o', 'n', 't'):
+			if (unlikely(!__data_available(p, 14)))
+				__FSM_H2_NEXT_n(Req_HdrCont, 4);
+			if (C8_INT(p + 4, 'e', 'n', 't', '-', 't', 'y', 'p', 'e'))
+				__FSM_H2_FIN(Req_HdrContent_TypeV, 12,
+					     TFW_TAG_HDR_CONTENT_TYPE);
+			if (C8_INT(p + 4, 'e', 'n', 't', '-', 'l', 'e', 'n', 'g')
+			    && C4_INT(p + 10,  'n', 'g', 't', 'h'))
+				__FSM_H2_FIN(Req_HdrContent_LengthV, 14,
+					     TFW_TAG_HDR_CONTENT_LENGTH);
+			__FSM_H2_OTHER_n(4);
+		/* cookie */
+		case TFW_CHAR4_INT('c', 'o', 'o', 'k'):
+			if (unlikely(!__data_available(p, 6)))
+				__FSM_H2_NEXT_n(Req_HdrCook, 4);
+			if (C4_INT(p + 2, 'o', 'k', 'i', 'e'))
+				__FSM_H2_FIN(Req_HdrCookieV, 6,
+					     TFW_TAG_HDR_COOKIE);
+			__FSM_H2_OTHER_n(4);
+		/* host */
+		case TFW_CHAR4_INT('h', 'o', 's', 't'):
+			__FSM_H2_FIN(Req_HdrHostV, 4, TFW_TAG_HDR_HOST);
+		/* if-modified-since */
+		case TFW_CHAR4_INT('i', 'f', '-', 'm'):
+			if (unlikely(!__data_available(p, 17)))
+				__FSM_H2_NEXT_n(Req_HdrIf_M, 4);
+			if (C8_INT(p + 4, 'o', 'd', 'i', 'f', 'i', 'e', 'd', '-')
+			    && C8_INT(p + 9, 'e', 'd', '-', 's', 'i', 'n', 'c',
+				      'e'))
 			{
 				__FSM_H2_FIN(Req_HdrIf_Modified_SinceV, 17,
 					     TFW_TAG_HDR_IF_MODIFIED_SINCE);
 			}
-			if (likely(__data_available(p, 13)
-				   && *(p + 1) == 'f'
-				   && *(p + 2) == '-'
-				   && C4_INT(p + 3, 'n', 'o', 'n', 'e')
-				   && *(p + 7) == '-'
-				   && C4_INT(p + 8, 'm', 'a', 't', 'c')
-				   && *(p + 12) == 'h'))
+			__FSM_H2_OTHER_n(4);
+		/* if-none-match */
+		case TFW_CHAR4_INT('i', 'f', '-', 'n'):
+			if (unlikely(!__data_available(p, 13)))
+				__FSM_H2_NEXT_n(Req_HdrIf_N, 4);
+			if (C8_INT(p + 4, 'o', 'n', 'e', '-', 'm', 'a', 't', 'c')
+			    && *(p + 12) == 'h')
 			{
 				__FSM_H2_FIN(Req_HdrIf_None_MatchV, 13,
 					     TFW_TAG_HDR_IF_NONE_MATCH);
 			}
-			__FSM_H2_NEXT(Req_HdrI);
-		case 'k':
-			if (likely(__data_available(p, 10)
-				   && C4_INT(p, 'k', 'e', 'e', 'p')
-				   && *(p + 4) == '-'
-				   && C4_INT(p + 5, 'a', 'l', 'i', 'v')
-				   && *(p + 9) == 'e'))
-			{
+			__FSM_H2_OTHER_n(4);
+		/* keep-alive */
+		case TFW_CHAR4_INT('k', 'e', 'e', 'p'):
+			if (unlikely(!__data_available(p, 10)))
+				__FSM_H2_NEXT_n(Req_HdrKeep, 4);
+			if (C8_INT(p + 2, 'e', 'p', '-', 'a', 'l', 'i', 'v', 'e'))
 				__FSM_H2_DROP(Req_HdrKeep_Alive);
-			}
-			__FSM_H2_NEXT(Req_HdrK);
-		case 'p':
-			if (likely(__data_available(p, 6)
-				   && C4_INT(p + 1, 'r', 'a', 'g', 'm')
-				   && *(p + 5) == 'a'))
-			{
+			__FSM_H2_OTHER_n(4);
+		/* pragma */
+		case TFW_CHAR4_INT('p', 'r', 'a', 'g'):
+			if (unlikely(!__data_available(p, 6)))
+				__FSM_H2_NEXT_n(Req_HdrPrag, 4);
+			if (C4_INT(p + 2, 'a', 'g', 'm', 'a'))
 				__FSM_H2_FIN(Req_HdrPragmaV, 6,
 					     TFW_TAG_HDR_PRAGMA);
-			}
-			__FSM_H2_NEXT(Req_HdrP);
-		case 'r':
-			if (likely(__data_available(p, 7)
-				   && C4_INT(p + 1, 'e', 'f', 'e', 'r')
-				   && *(p + 5) == 'e'
-				   && *(p + 6) == 'r'))
-			{
-				__FSM_H2_FIN(Req_HdrRefererV, 7,
-					     TFW_TAG_HDR_REFERER);
-			}
-			__FSM_H2_NEXT(Req_HdrR);
-		case 't':
-			if (likely(__data_available(p, 17)
-				   && C8_INT(p, 't', 'r', 'a', 'n',
-					     's', 'f', 'e', 'r')
-				   && *(p + 8) == '-'
-				   && C8_INT(p + 9, 'e', 'n', 'c', 'o',
-					     'd', 'i', 'n', 'g')))
+			__FSM_H2_OTHER_n(4);
+		/* transfer-encoding */
+		case TFW_CHAR4_INT('t', 'r', 'a', 'n'):
+			if (unlikely(!__data_available(p, 17)))
+				__FSM_H2_NEXT_n(Req_HdrTran, 4);
+			if (C8_INT(p + 1,  'r', 'a', 'n', 's', 'f', 'e', 'r', '-')
+			    &&  C8_INT(p + 9, 'e', 'n', 'c', 'o', 'd', 'i', 'n',
+				       'g'))
 			{
 				__FSM_H2_DROP(Req_HdrTransfer_Encoding);
 			}
-			__FSM_H2_NEXT(Req_HdrT);
-		case 'u':
-			if (likely(__data_available(p, 10)
-				   && C4_INT(p, 'u', 's', 'e', 'r')
-				   && *(p + 4) == '-'
-				   && C4_INT(p + 5, 'a', 'g', 'e', 'n')
-				   && *(p + 9) == 't'))
-			{
+			__FSM_H2_OTHER_n(4);
+		/* referer */
+		case TFW_CHAR4_INT('r', 'e', 'f', 'e'):
+			if (unlikely(!__data_available(p, 7)))
+				__FSM_H2_NEXT_n(Req_HdrRefe, 4);
+			if (C4_INT(p + 3, 'e', 'r', 'e', 'r'))
+				__FSM_H2_FIN(Req_HdrRefererV, 7,
+					     TFW_TAG_HDR_REFERER);
+			__FSM_H2_OTHER_n(4);
+		/* user-agent */
+		case TFW_CHAR4_INT('u', 's', 'e', 'r'):
+			if (unlikely(!__data_available(p, 10)))
+				__FSM_H2_NEXT_n(Req_HdrUser, 4);
+			if (C8_INT(p + 2, 'e', 'r', '-', 'a', 'g', 'e', 'n', 't'))
 				__FSM_H2_FIN(Req_HdrUser_AgentV, 10,
 					     TFW_TAG_HDR_USER_AGENT);
-			}
-			__FSM_H2_NEXT(Req_HdrU);
-		case 'x':
-			if (likely(__data_available(p, 15)
-				   && C8_INT(p + 1, '-', 'f', 'o', 'r', 'w',
-					     'a', 'r', 'd')
-				   && C4_INT(p + 9, 'e', 'd', '-', 'f')
-				   && *(p + 13) == 'o'
-				   && *(p + 14) == 'r'))
+			__FSM_H2_OTHER_n(4);
+		/* x-forwarded-for */
+		case TFW_CHAR4_INT('x', '-', 'f', 'o'):
+			if (unlikely(!__data_available(p, 15)))
+				__FSM_H2_NEXT_n(Req_HdrX_Fo, 4);
+			if (C8_INT(p + 4, 'r', 'w', 'a', 'r', 'd', 'e', 'd', '-')
+			    && C4_INT(p + 11,  '-', 'f', 'o', 'r'))
 			{
 				__FSM_H2_FIN(Req_HdrX_Forwarded_ForV, 15,
 					     TFW_TAG_HDR_X_FORWARDED_FOR);
 			}
-			if (likely(__data_available(p, 14)
-				   && *(p + 1) == '-'
-				   && *(p + 7) == '-'
-				   /* Safe match: '-' is checked above. */
-				   && C8_INT_LCM(p, 'x', '-', 'h', 't',
-						 't', 'p', '-', 'm')
-				   && C4_INT_LCM(p + 8, 'e', 't', 'h', 'o')
-				   && TFW_LC(*(p + 12) == 'd')
-				   && *(p + 10) == ':'))
+			__FSM_H2_OTHER_n(4);
+		/* x-method-override family. */
+		case TFW_CHAR4_INT('x', '-', 'h', 't'):
+			if (unlikely(!__data_available(p, 22)))
+				__FSM_H2_NEXT_n(Req_HdrX_Ht, 4);
+			if (C8_INT(p + 4, 't', 'p', '-', 'm', 'e', 't', 'h', 'o')
+			    && C8_INT(p + 12, 'd', '-', 'o', 'v','e', 'r', 'r',
+				      'i')
+			    && C4_INT(p + 18, 'r', 'i', 'd', 'e'))
 			{
-				__FSM_H2_FIN(Req_HdrX_Method_OverrideV, 14,
+				__FSM_H2_FIN(Req_HdrX_Method_OverrideV, 22,
 					     TFW_TAG_HDR_RAW);
 			}
-			if (likely(__data_available(p, 23)
-				   && *(p + 1) == '-'
-				   && *(p + 7) == '-'
-				   && *(p + 14) == '-'
-				   /* Safe match: '-' is checked above. */
-				   && C8_INT_LCM(p, 'x', '-', 'h', 't',
-						 't', 'p', '-', 'm')
-				   && C8_INT_LCM(p + 8, 'e', 't', 'h', 'o',
-						 'd', '-', 'o', 'v')
-				   && C8_INT7_LCM(p + 16, 'v', 'e', 'r', 'r',
-						  'i', 'd', 'e', ':')))
+			if (C8_INT(p + 4, 't', 'p', '-', 'm', 'e', 't', 'h', 'o')
+			    && *(p + 12) == 'd')
 			{
-				__FSM_H2_FIN(Req_HdrX_Method_OverrideV, 23,
+				__FSM_H2_FIN(Req_HdrX_Method_OverrideV, 13,
 					     TFW_TAG_HDR_RAW);
 			}
-			if (likely(__data_available(p, 18)
-				   && *(p + 1) == '-'
-				   && *(p + 9) == '-'
-				   /* Safe match: '-' is checked above. */
-				   && C8_INT_LCM(p + 2, 'm', 'e', 't', 'h',
-						 'o', 'd', '-', 'o')
-				   && C8_INT7_LCM(p + 10, 'v', 'e', 'r', 'r',
-						 'i', 'd', 'e', ':')))
+			__FSM_H2_OTHER_n(4);
+		case TFW_CHAR4_INT('x', '-', 'm', 'e'):
+			if (unlikely(!__data_available(p, 17)))
+				__FSM_H2_NEXT_n(Req_HdrX_Me, 4);
+			if (C8_INT(p + 4, 't', 'h', 'o', 'd', '-', 'o', 'v', 'e')
+			    &&  C8_INT(p + 9, 'o', 'v', 'e', 'r', 'r', 'i', 'd',
+				       'e'))
 			{
+				__FSM_H2_FIN(Req_HdrX_Method_OverrideV, 17,
+					     TFW_TAG_HDR_RAW);
+			}
+			__FSM_H2_OTHER_n(4);
 
-				__FSM_H2_FIN(Req_HdrX_Method_OverrideV, 18,
-					     TFW_TAG_HDR_RAW);
-			}
-			__FSM_H2_NEXT(Req_HdrX);
-		default:
-			__FSM_JMP(RGen_HdrOtherN);
-		}
-	}
-
-	__FSM_STATE(Req_HdrContent_) {
-		switch (c) {
-		case 'l':
-			if (likely(__data_available(p, 6)
-				   && C4_INT(p + 1, 'e', 'n', 'g', 't')
-				   && *(p + 5) == 'h'))
-			{
-				__FSM_H2_FIN(Req_HdrContent_LengthV, 6,
-					     TFW_TAG_HDR_CONTENT_LENGTH);
-			}
-			__FSM_H2_NEXT(Req_HdrContent_L);
-		case 't':
-			if (likely(__data_available(p, 4)
-				   && *(p + 1) == 'y'
-				   && *(p + 2) == 'p'
-				   && *(p + 3) == 'e'))
-			{
-				__FSM_H2_FIN(Req_HdrContent_TypeV, 4,
-					     TFW_TAG_HDR_CONTENT_TYPE);
-			}
-			__FSM_H2_NEXT(Req_HdrContent_T);
 		default:
 			__FSM_JMP(RGen_HdrOtherN);
 		}
@@ -7036,6 +6990,12 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 
 	__FSM_STATE(RGen_HdrOtherN) {
 		__fsm_n = __data_remain(p);
+		/*
+		 * TODO: RFC 7540, Section 8.1.2:
+		 * A request or response containing uppercase header field
+		 * names MUST be treated as malformed.
+		 * We should use here lower-case matching function.
+		 */
 		__fsm_sz = tfw_match_token(p, __fsm_n);
 		if (unlikely(__fsm_sz != __fsm_n))
 			__FSM_H2_DROP(RGen_HdrOtherN);
@@ -7299,6 +7259,35 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 
 	/* Improbable states of (pseudo-)header names processing. */
 
+	__FSM_STATE(Req_Hdr, cold) {
+		switch (c) {
+		case ':':
+			__FSM_H2_NEXT(Req_HdrPseudo);
+		case 'a':
+			__FSM_H2_NEXT(Req_HdrA);
+		case 'c':
+			__FSM_H2_NEXT(Req_HdrC);
+		case 'h':
+			__FSM_H2_NEXT(Req_HdrH);
+		case 'i':
+			__FSM_H2_NEXT(Req_HdrI);
+		case 'k':
+			__FSM_H2_NEXT(Req_HdrK);
+		case 'p':
+			__FSM_H2_NEXT(Req_HdrP);
+		case 'r':
+			__FSM_H2_NEXT(Req_HdrR);
+		case 't':
+			__FSM_H2_NEXT(Req_HdrT);
+		case 'u':
+			__FSM_H2_NEXT(Req_HdrU);
+		case 'x':
+			__FSM_H2_NEXT(Req_HdrX);
+		default:
+			__FSM_H2_DROP(Req_HdrPseudo);
+		}
+	}
+
 	__FSM_STATE(Req_HdrPseudo, cold) {
 		switch (c) {
 		case 'a':
@@ -7429,6 +7418,17 @@ tfw_h2_parse_req_hdr(unsigned char *data, unsigned long len, TfwHttpReq *req,
 	__FSM_H2_TX_AF(Req_HdrConte, 'n', Req_HdrConten);
 	__FSM_H2_TX_AF(Req_HdrConten, 't', Req_HdrContent);
 	__FSM_H2_TX_AF(Req_HdrContent, '-', Req_HdrContent_);
+
+	__FSM_STATE(Req_HdrContent_, cold) {
+		switch (c) {
+		case 'l':
+			__FSM_H2_NEXT(Req_HdrContent_L);
+		case 't':
+			__FSM_H2_NEXT(Req_HdrContent_T);
+		default:
+			__FSM_JMP(RGen_HdrOtherN);
+		}
+	}
 
 	__FSM_H2_TX_AF(Req_HdrContent_L, 'e', Req_HdrContent_Le);
 	__FSM_H2_TX_AF(Req_HdrContent_Le, 'n', Req_HdrContent_Len);
