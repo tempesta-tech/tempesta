@@ -1763,7 +1763,8 @@ TEST(http_parser, cookie)
 			unsigned int flags;
 			const char *str;
 		} kv[] = {
-			{ 0, "Cookie: " },
+			{ 0, "Cookie:" },
+			{ TFW_STR_OWS, " " },
 			{ TFW_STR_NAME, "session=" },
 			{ TFW_STR_VALUE, "42" },
 			{ 0, "; " },
@@ -1858,7 +1859,9 @@ TEST(http_parser, set_cookie)
 		TfwStr *s_parsed = &resp->h_tbl->tbl[TFW_HTTP_HDR_SET_COOKIE];
 		TfwStr s_expected = {
 			.chunks = (TfwStr []) {
-				{ .data = "Set-Cookie: " , .len = 12 },
+				{ .data = "Set-Cookie:" , .len = 11 },
+				{ .data = " " , .len = 1,
+				  .flags = TFW_STR_OWS },
 				{ .data = "sessionid=" , .len = 10,
 				  .flags = TFW_STR_NAME },
 				{ .data = "38afes7a8" , .len = 9,
@@ -1866,7 +1869,7 @@ TEST(http_parser, set_cookie)
 				{ .data = "; HttpOnly; Path=/" , .len = 18 }
 			},
 			.len = 49,
-			.nchunks = 4
+			.nchunks = 5
 		};
 		test_string_split(&s_expected, s_parsed);
 	}
@@ -1881,7 +1884,9 @@ TEST(http_parser, set_cookie)
 		TfwStr *s_parsed = &resp->h_tbl->tbl[TFW_HTTP_HDR_SET_COOKIE];
 		TfwStr s_expected = {
 			.chunks = (TfwStr []) {
-				{ .data = "Set-Cookie: " , .len = 12 },
+				{ .data = "Set-Cookie:" , .len = 11 },
+				{ .data = " " , .len = 1,
+				  .flags = TFW_STR_OWS },
 				{ .data = "sessionid=" , .len = 10,
 				  .flags = TFW_STR_NAME },
 				{ .data = "\"38afes7a8\"" , .len = 11,
@@ -1889,7 +1894,7 @@ TEST(http_parser, set_cookie)
 				{ .data = "; HttpOnly; Path=/" , .len = 18 }
 			},
 			.len = 51,
-			.nchunks = 4
+			.nchunks = 5
 		};
 		test_string_split(&s_expected, s_parsed);
 	}
@@ -1904,7 +1909,9 @@ TEST(http_parser, set_cookie)
 		TfwStr *s_parsed = &resp->h_tbl->tbl[TFW_HTTP_HDR_SET_COOKIE];
 		TfwStr s_expected = {
 			.chunks = (TfwStr []) {
-				{ .data = "Set-Cookie: " , .len = 12 },
+				{ .data = "Set-Cookie:" , .len = 11 },
+				{ .data = " " , .len = 1,
+				  .flags = TFW_STR_OWS },
 				{ .data = "id=" , .len = 3,
 				  .flags = TFW_STR_NAME },
 				{ .data = "a3fWa" , .len = 5,
@@ -1914,7 +1921,7 @@ TEST(http_parser, set_cookie)
 				  .len = 57 }
 			},
 			.len = 77,
-			.nchunks = 4
+			.nchunks = 5
 		};
 		test_string_split(&s_expected, s_parsed);
 	}
@@ -1928,7 +1935,9 @@ TEST(http_parser, set_cookie)
 		TfwStr *s_parsed = &resp->h_tbl->tbl[TFW_HTTP_HDR_SET_COOKIE];
 		TfwStr s_expected = {
 			.chunks = (TfwStr []) {
-				{ .data = "Set-Cookie: " , .len = 12 },
+				{ .data = "Set-Cookie:" , .len = 11 },
+				{ .data = " " , .len = 1,
+				  .flags = TFW_STR_OWS },
 				{ .data = "__Host-id=" , .len = 10,
 				  .flags = TFW_STR_NAME },
 				{ .data = "1" , .len = 1,
@@ -1937,7 +1946,7 @@ TEST(http_parser, set_cookie)
 				  .len = 36 }
 			},
 			.len = 59,
-			.nchunks = 4
+			.nchunks = 5
 		};
 		test_string_split(&s_expected, s_parsed);
 	}

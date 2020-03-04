@@ -284,8 +284,6 @@ enum {
 	TFW_HTTP_B_HDR_DATE,
 	/* Response has header 'Last-Modified:'. */
 	TFW_HTTP_B_HDR_LMODIFIED,
-	/* Response is stale, but pass with a warning. */
-	TFW_HTTP_B_RESP_STALE,
 	/* Response is fully processed and ready to be forwarded to the client. */
 	TFW_HTTP_B_RESP_READY,
 
@@ -508,6 +506,8 @@ typedef struct {
  * Iterator for message HTTP/2 transformation process.
  *
  * @map		- indirection map for tracking headers order in skb;
+ * @start_off	- initial offset during copying response data into
+ *		  skb (for subsequent insertion of HTTP/2 frame header);
  * @curr	- current header index in the @map;
  * @next	- operation (with necessary attributes) which should be executed
  *		  with next header;
@@ -520,6 +520,7 @@ typedef struct {
  */
 typedef struct {
 	TfwHttpHdrMap	*map;
+	unsigned int	start_off;
 	unsigned int	curr;
 	TfwNextHdrOp	next;
 	DECLARE_BITMAP	(found, TFW_USRHDRS_ARRAY_SZ);
@@ -614,6 +615,33 @@ tfw_http_resp_code_range(const int n)
 	return n <= HTTP_CODE_MAX && n >= HTTP_CODE_MIN;
 }
 
+/*
+ * Static index determination for response ':status' pseudo-header (see RFC
+ * 7541 Appendix A for details).
+ */
+static inline unsigned short
+tfw_h2_pseudo_index(unsigned short status)
+{
+	switch (status) {
+	case 200:
+		return 8;
+	case 204:
+		return 9;
+	case 206:
+		return 10;
+	case 304:
+		return 11;
+	case 400:
+		return 12;
+	case 404:
+		return 13;
+	case 500:
+		return 14;
+	default:
+		return 0;
+	}
+}
+
 typedef void (*tfw_http_cache_cb_t)(TfwHttpMsg *);
 
 /* External HTTP functions. */
@@ -626,20 +654,35 @@ void tfw_http_resp_fwd(TfwHttpResp *resp);
 void tfw_http_resp_build_error(TfwHttpReq *req);
 int tfw_cfgop_parse_http_status(const char *status, int *out);
 void tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len);
+int tfw_http_set_loc_hdrs(TfwHttpMsg *hm, TfwHttpReq *req, bool cache);
+int tfw_http_expand_stale_warn(TfwHttpResp *resp);
+int tfw_http_expand_hdr_date(TfwHttpResp *resp);
+int tfw_http_expand_hbh(TfwHttpResp *resp, unsigned short status);
+void tfw_h2_resp_fwd(TfwHttpResp *resp);
 int tfw_h2_hdr_map(TfwHttpResp *resp, const TfwStr *hdr, unsigned int id);
-
+int tfw_h2_add_hdr_date(TfwHttpResp *resp, TfwH2TransOp op, bool cache);
+int tfw_h2_set_stale_warn(TfwHttpResp *resp);
+int tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods,
+			     bool cache);
+int tfw_h2_resp_status_write(TfwHttpResp *resp, unsigned short status,
+			     TfwH2TransOp op, bool cache);
 /*
  * Functions to send an HTTP error response to a client.
  */
-int tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status,
-			   TfwStr *rmark, TfwStr *cookie, TfwStr *body);
-int tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, TfwMsgIter *msg_it,
-		      size_t hdrs_size);
+int tfw_h2_prep_redirect(TfwHttpResp *resp, unsigned short status,
+			 TfwStr *rmark, TfwStr *cookie, TfwStr *body);
+int tfw_h1_prep_redirect(TfwHttpResp *resp, unsigned short status,
+			 TfwStr *rmark, TfwStr *cookie, TfwStr *body);
+int tfw_http_prep_304(TfwHttpReq *req, struct sk_buff **skb_head,
+		      TfwMsgIter *it);
 void tfw_http_conn_msg_free(TfwHttpMsg *hm);
 void tfw_http_send_resp(TfwHttpReq *req, int status, const char *reason);
 
 /* Helper functions */
 char *tfw_http_msg_body_dup(const char *filename, size_t *len);
-int tfw_http_hdr_split(TfwStr *hdr, TfwStr *name_out, TfwStr *val_out);
+unsigned long tfw_http_hdr_split(TfwStr *hdr, TfwStr *name_out, TfwStr *val_out,
+				 bool inplace);
+unsigned long tfw_h2_hdr_size(unsigned long n_len, unsigned long v_len,
+			      unsigned short st_index);
 
 #endif /* __TFW_HTTP_H__ */

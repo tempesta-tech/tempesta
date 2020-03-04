@@ -166,8 +166,12 @@ tfw_http_msg_req_spec_hid(const TfwStr *hdr)
 }
 
 /**
- * Fills @val with second part of special HTTP header containing the header
- * value.
+ * Fills @val with second part of special HTTP/1.1 header containing the
+ * header value.
+ *
+ * TODO: with the current HTTP-parser implementation (parsing header name,
+ * colon, LWS and value into different chunks) this procedure can be
+ * simplified to avoid the usage of predefined header arrays.
  */
 void
 __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
@@ -261,35 +265,6 @@ __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
 EXPORT_SYMBOL(__http_msg_hdr_val);
 
 void
-__h2_msg_hdr_name(TfwStr *hdr, TfwStr *out_name)
-{
-	const TfwStr *c, *end;
-
-	if (unlikely(TFW_STR_EMPTY(hdr))) {
-		TFW_STR_INIT(out_name);
-		return;
-	}
-
-	BUG_ON(TFW_STR_DUP(hdr));
-	BUG_ON(TFW_STR_EMPTY(hdr));
-
-	*out_name = *hdr;
-
-	if (unlikely(TFW_STR_PLAIN(hdr))) {
-		WARN_ON_ONCE(hdr->flags & TFW_STR_HDR_VALUE);
-		return;
-	}
-
-	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
-		if (c->flags & TFW_STR_HDR_VALUE) {
-			out_name->len -= c->len;
-			out_name->nchunks--;
-		}
-	}
-}
-EXPORT_SYMBOL(__h2_msg_hdr_name);
-
-void
 __h2_msg_hdr_val(TfwStr *hdr, TfwStr *out_val)
 {
 	TfwStr *c, *end;
@@ -367,9 +342,19 @@ tfw_http_msg_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
  * Certain header fields are strictly singular and may not be repeated in
  * an HTTP message. Duplicate of a singular header fields is a bug worth
  * blocking the whole HTTP message.
+ *
+ * TODO: with the current HTTP-parser implementation (parsing header name,
+ * colon, LWS and value into different chunks) we can avoid slow string
+ * matcher, which is used in @tfw_http_msg_hdr_lookup(), and can compare
+ * strings just by chunks (including searching the stop character) for both
+ * HTTP/2 and HTTP/1.1 formatted headers (see @__hdr_name_cmp() below).
+ * Thus, @__h1_hdr_lookup() and @tfw_http_msg_hdr_lookup() procedures should
+ * be unified to @__hdr_name_cmp() and @__http_hdr_lookup() in order to
+ * substitute current mess of multiple partially duplicated procedures with
+ * one simple interface.
  */
 static inline unsigned int
-__hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
+__h1_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
 {
 	unsigned int id = tfw_http_msg_hdr_lookup(hm, hdr);
 
@@ -380,33 +365,36 @@ __hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
 }
 
 /**
- * Special procedure comparing specified name against the header in HTTP/2
- * or HTTP/1.1 format.
+ * Special procedure comparing the name or HPACK static index of @cmp_hdr (can
+ * be in HTTP/2 or HTTP/1.1 format) against the header @hdr which also can be
+ * in HTTP/2 or HTTP/1.1 format.
  */
 int
-__hdr_name_cmp(const TfwStr *hdr, const TfwStr *name)
+__hdr_name_cmp(const TfwStr *hdr, const TfwStr *cmp_hdr)
 {
 	long n;
 	int i1, i2, off1, off2;
 	const TfwStr *c1, *c2;
 
 	BUG_ON(hdr->flags & TFW_STR_DUPLICATE);
-	BUG_ON(!name->len);
+	BUG_ON(!cmp_hdr->len);
+
+	if (cmp_hdr->hpack_idx && cmp_hdr->hpack_idx == hdr->hpack_idx)
+		return 0;
 
 	if (unlikely(!hdr->len))
-		return -name->len;
+		return 1;
 
 	i1 = i2 = 0;
 	off1 = off2 = 0;
-	n = min(hdr->len, name->len);
+	n = min(hdr->len, cmp_hdr->len);
 	c1 = TFW_STR_CHUNK(hdr, 0);
-	c2 = TFW_STR_CHUNK(name, 0);
+	c2 = TFW_STR_CHUNK(cmp_hdr, 0);
 	while (n) {
 		int cn = min(c1->len - off1, c2->len - off2);
-		int r = tfw_cstricmp(c1->data + off1,
-				     c2->data + off2, cn);
-		if (r)
-			return r;
+
+		if (tfw_cstricmp(c1->data + off1, c2->data + off2, cn))
+			return 1;
 
 		n -= cn;
 		if (cn == c1->len - off1) {
@@ -419,36 +407,44 @@ __hdr_name_cmp(const TfwStr *hdr, const TfwStr *name)
 		if (cn == c2->len - off2) {
 			off2 = 0;
 			++i2;
-			c2 = TFW_STR_CHUNK(name, i2);
+			c2 = TFW_STR_CHUNK(cmp_hdr, i2);
 		} else {
 			off2 += cn;
 		}
+
 		BUG_ON(n && (!c1 || !c2));
+
+		/*
+		 * Regardless of the header format (HTTP/2 or HTTP/1.1), the end
+		 * of the name must match the end of the chunk, and the following
+		 * chunk must contain value with appropriate flag (or it must
+		 * contain just a single colon in case of HTTP/1.1-header).
+		 */
+		if (!off2) {
+			const TfwStr *prev_c1;
+			/*
+			 * If @c2 or @c1 is NULL, then only name is contained in
+			 * the @cmp_hdr or @hdr respectively.
+			 */
+			if (c2
+			    && !(c2->flags & TFW_STR_HDR_VALUE)
+			    && *c2->data != ':')
+				continue;
+
+			prev_c1 = TFW_STR_CHUNK(hdr, i1 - 1);
+
+			if (!off1
+			    && !(prev_c1->flags & TFW_STR_HDR_VALUE)
+			    && (!c1
+				|| c1->flags & TFW_STR_HDR_VALUE
+				|| *c1->data == ':'))
+				return 0;
+
+			return 1;
+		}
 	}
 
-	/* Only name is contained in the header. */
-	if (hdr->len == name->len)
-		return 0;
-
-	if (hdr->len > name->len) {
-		/*
-		 * If the header is of HTTP/2 format, the end of name must match
-		 * the end of the chunk, and the following value must have
-		 * appropriate flag.
-		 */
-		if (!off1
-		    && (c1->flags & TFW_STR_HDR_VALUE)
-		    && !(TFW_STR_CHUNK(hdr, i1 - 1)->flags & TFW_STR_HDR_VALUE))
-			return 0;
-		/*
-		 * If this is the HTTP/1.1-format header, the value must begin
-		 * after the colon.
-		 */
-		if (*(c1->data + off1) == ':')
-			return 0;
-	}
-
-	return (long)hdr->len - (long)name->len;
+	return 1;
 }
 
 /**
@@ -457,7 +453,7 @@ __hdr_name_cmp(const TfwStr *hdr, const TfwStr *name)
  * headers in HTTP/2 or HTTP/1.1 format.
  */
 int
-__h2_hdr_lookup(TfwHttpMsg *hm, const TfwStr *h_name)
+__http_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
 {
 	unsigned int id;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
@@ -470,7 +466,7 @@ __h2_hdr_lookup(TfwHttpMsg *hm, const TfwStr *h_name)
 		 */
 		if (h->flags & TFW_STR_DUPLICATE)
 			h = TFW_STR_CHUNK(h, 0);
-		if (!__hdr_name_cmp(h, h_name))
+		if (!__hdr_name_cmp(h, hdr))
 			break;
 	}
 
@@ -548,15 +544,7 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 	 * Both the headers, the new one and existing one, can already be
 	 * compound.
 	 */
-	if (TFW_MSG_H2(hm)) {
-		TfwStr h_name;
-
-		__h2_msg_hdr_name(&parser->hdr, &h_name);
-		id = __h2_hdr_lookup(hm, &h_name);
-	}
-	else {
-		id = __hdr_lookup(hm, &parser->hdr);
-	}
+	id = __http_hdr_lookup(hm, &parser->hdr);
 
 	/* Allocate some more room if not enough to store the header. */
 	if (unlikely(id == ht->size)) {
@@ -696,12 +684,6 @@ __hdr_add(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid)
 	hm->h_tbl->tbl[hid] = it;
 
 	return 0;
-}
-
-int
-__hdr_h2_add(TfwHttpResp *resp, TfwStr *hdr)
-{
-	return tfw_hpack_encode(resp, hdr, TFW_H2_TRANS_ADD);
 }
 
 /**
@@ -859,7 +841,7 @@ tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid,
 			/* Not found, nothing to delete. */
 			return 0;
 	} else {
-		hid = __hdr_lookup(hm, hdr);
+		hid = __h1_hdr_lookup(hm, hdr);
 		if (hid == ht->off && !s_val)
 			/* Not found, nothing to delete. */
 			return 0;
@@ -1300,173 +1282,9 @@ __tfw_http_msg_alloc(int type, bool full)
 	return hm;
 }
 
-/**
- * Determination length of the header's real part (for details see comment
- * for @tfw_h2_msg_hdr_write() below) to store it in the encoder dynamic
- * index.
- */
-unsigned long
-tfw_h2_msg_hdr_length(const TfwStr *hdr, unsigned long *name_len,
-		      unsigned long *val_off, unsigned long *val_len,
-		      TfwH2TransOp op)
-{
-	const TfwStr *chunk, *end;
-	unsigned long tail, hdr_tail = 0, hdr_len = 0;
-	bool name_found = false, val_found = false;
-
-	*name_len = *val_off = *val_len = 0;
-
-	if (op != TFW_H2_TRANS_INPLACE)	{
-		/*
-		 * During headers addition (or message expansion) the the source
-		 * @hdr must have the following chunk structure (without the
-		 * OWS):
-		 *
-		 *	{ name [S_DLM] value1 [value2 [value3 ...]] }.
-		 *
-		 */
-		chunk = TFW_STR_CHUNK(hdr, 1);
-		if (WARN_ON_ONCE(!chunk))
-			return 0;
-
-		if (chunk->len == SLEN(S_DLM)
-		    && *(short *)chunk->data == *(short *)S_DLM)
-		{
-			*val_off = SLEN(S_DLM);
-		}
-
-		hdr_len = hdr->len;
-		*name_len = TFW_STR_CHUNK(hdr, 0)->len;
-		*val_len = hdr_len - *name_len - *val_off;
-
-		return hdr_len - *val_off;
-	}
-
-	TFW_STR_FOR_EACH_CHUNK(chunk, hdr, end) {
-		unsigned long idx;
-
-		if (!chunk->len)
-			continue;
-
-		hdr_len += chunk->len;
-		if (!name_found) {
-			*name_len += chunk->len;
-			if (chunk->data[chunk->len - 1] == ':') {
-				--*name_len;
-				name_found = true;
-			}
-			continue;
-		}
-		/*
-		 * Skip OWS before the header value (LWS) during HTTP/2 header's
-		 * real length calculation. LWS is always in the separate chunks
-		 * between the name and value; thus, we can skip length of the
-		 * entire (LWS) chunks.
-		 */
-		if (!val_found) {
-			if (unlikely(chunk->data[0] == ' '
-				     || chunk->data[0] == '\t'))
-			{
-				*val_off += chunk->len;
-				continue;
-			}
-			/*
-			 * The colon must not be included into HTTP/2 header,
-			 * thus, it should be counted in the value offset.
-			 */
-			++*val_off;
-			val_found = true;
-		}
-		/*
-		 * Skip OWS after the header value (RWS); accumulate the length
-		 * in @tail for RWS cutting off (if this is not the end chunk,
-		 * @tail will be reset).
-		 */
-		tail = 0;
-		idx = chunk->len - 1;
-		while (chunk->data[idx] == ' '
-		       || chunk->data[idx] == '\t')
-		{
-			++tail;
-			if (unlikely(!idx))
-				break;
-			--idx;
-		}
-
-		if (unlikely(tail == chunk->len))
-			hdr_tail += tail;
-		else
-			hdr_tail = tail;
-	}
-
-	WARN_ON_ONCE(!name_found);
-
-	*val_len = hdr_len - *name_len - *val_off - hdr_tail;
-
-	T_DBG3("%s: name_len=%lu, val_off=%lu, val_len=%lu, hdr_tail=%lu,"
-	       " hdr_len=%lu\n", __func__, *name_len, *val_off, *val_len,
-	       hdr_tail, hdr_len);
-
-	return *name_len + *val_len;
-}
-
-/**
- * Copy the real part of header (i.e. the header in HTTP/2 form - without name
- * colon and OWS) into @out_buf from @hdr; @nm_len is the real length of header
- * name, @val_len - the real length of header value, and @val_off - the offset
- * between header name and value (i.e. the part occupied by colon and OWS); OWS
- * in the end of header's value are also skipped and will not be included into
- * header's copied part. Note that the size of prepared @out_buf must be not
- * less than sum of @nm_len and @val_len.
- */
-void
-tfw_h2_msg_hdr_write(const TfwStr *hdr, unsigned long nm_len,
-		     unsigned long val_off, unsigned long val_len,
-		     char *out_buf)
-{
-	const TfwStr *c, *end;
-
-	T_DBG3("%s: enter, nm_len=%lu, val_off=%lu, val_len=%lu\n", __func__,
-	       nm_len, val_off, val_len);
-
-	BUG_ON(!nm_len);
-	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
-		unsigned long len;
-
-		if (!c->len)
-			continue;
-
-		len = 0;
-		if (nm_len) {
-			len = min(nm_len, c->len);
-			nm_len -= len;
-		}
-
-		if (!nm_len) {
-			if (val_off) {
-				WARN_ON_ONCE(val_off < c->len - len);
-				val_off -= c->len - len;
-			}
-			else if (val_len && !len) {
-				len = min(val_len, c->len);
-				val_len -= len;
-			}
-		}
-
-		if (!len)
-			continue;
-
-		T_DBG3("%s: len=%lu, c->data='%.*s'\n", __func__, len, (int)len,
-		       c->data);
-
-		memcpy_fast(out_buf, c->data, len);
-		out_buf += len;
-	}
-}
-
 int
 tfw_http_msg_expand_data(TfwMsgIter *it, struct sk_buff **skb_head,
-			 const TfwStr *src)
+			 const TfwStr *src, unsigned int *start_off)
 {
 	const TfwStr *c, *end;
 
@@ -1477,10 +1295,21 @@ this_chunk:
 		if (!it->skb) {
 			if (!(it->skb = ss_skb_alloc(SKB_MAX_HEADER)))
 				return -ENOMEM;
+			/*
+			 * Expanding skb is always used for TLS client
+			 * connections.
+			 */
+			skb_shinfo(it->skb)->tx_flags |= SKBTX_SHARED_FRAG;
 			ss_skb_queue_tail(skb_head, it->skb);
 			it->frag = -1;
-			if (!it->skb_head)
+			if (!it->skb_head) {
 				it->skb_head = *skb_head;
+
+				if (start_off && *start_off) {
+					skb_put(it->skb_head, *start_off);
+					*start_off = 0;
+				}
+			}
 			T_DBG3("message expanded by new skb [%p]\n", it->skb);
 		}
 
