@@ -186,7 +186,7 @@ void tfw_http_msg_free(TfwHttpMsg *m);
 int tfw_http_msg_expand_data(TfwMsgIter *it, struct sk_buff **skb_head,
 			     const TfwStr *src, unsigned int *start_off);
 int __hdr_name_cmp(const TfwStr *hdr, const TfwStr *cmp_hdr);
-int __h2_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr);
+int __http_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr);
 int tfw_h2_msg_rewrite_data(TfwHttpTransIter *mit, const TfwStr *str,
 			    const char *stop);
 

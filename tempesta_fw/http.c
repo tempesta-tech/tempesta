@@ -3106,7 +3106,7 @@ __h2_req_hdrs(TfwHttpReq *req, const TfwStr *hdr, unsigned int hid, bool append)
 		}
 	}
 	else {
-		hid = __h2_hdr_lookup(hm, hdr);
+		hid = __http_hdr_lookup(hm, hdr);
 		if (hid == ht->off && !s_val)
 			/*
 			 * The raw header not found, and there is nothing
