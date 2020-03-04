@@ -646,11 +646,10 @@ tfw_cache_set_status(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp,
 		TfwStr s_line = {
 			.chunks = (TfwStr []){
 				{ .data = S_0, .len = SLEN(S_0) },
-				{ .data = buf, .len =  H2_STAT_VAL_LEN},
-				{ .data = " ", .len = 1 }
+				{ .data = buf, .len =  H2_STAT_VAL_LEN}
 			},
-			.len = SLEN(S_0) + H2_STAT_VAL_LEN + 1,
-			.nchunks = 3
+			.len = SLEN(S_0) + H2_STAT_VAL_LEN,
+			.nchunks = 2
 		};
 
 		if (!tfw_ultoa(ce->resp_status, __TFW_STR_CH(&s_line, 1)->data,
