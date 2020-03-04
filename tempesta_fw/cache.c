@@ -1145,7 +1145,7 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, char **p, TdbVRec **trec, TfwStr *hdr,
 		st_index = hdr->hpack_idx;
 		h_len = tfw_h2_hdr_size(s_nm.len, s_val.len, st_index);
 
-		/* Don't split short stprings. */
+		/* Don't split short strings. */
 		if (sizeof(TfwCStr) + h_len <= L1_CACHE_BYTES)
 			n += h_len;
 	}

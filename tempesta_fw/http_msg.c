@@ -166,8 +166,12 @@ tfw_http_msg_req_spec_hid(const TfwStr *hdr)
 }
 
 /**
- * Fills @val with second part of special HTTP header containing the header
- * value.
+ * Fills @val with second part of special HTTP/1.1 header containing the
+ * header value.
+ *
+ * TODO: with the current HTTP-parser implementation (parsing header name,
+ * colon, LWS and value into different chunks) this procedure can be
+ * simplified to avoid the usage of predefined header arrays.
  */
 void
 __http_msg_hdr_val(TfwStr *hdr, unsigned id, TfwStr *val, bool client)
@@ -338,9 +342,19 @@ tfw_http_msg_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
  * Certain header fields are strictly singular and may not be repeated in
  * an HTTP message. Duplicate of a singular header fields is a bug worth
  * blocking the whole HTTP message.
+ *
+ * TODO: with the current HTTP-parser implementation (parsing header name,
+ * colon, LWS and value into different chunks) we can avoid slow string
+ * matcher, which is used in @tfw_http_msg_hdr_lookup(), and can compare
+ * strings just by chunks (including searching the stop character) for both
+ * HTTP/2 and HTTP/1.1 formatted headers (see @__hdr_name_cmp() below).
+ * Thus, @__h1_hdr_lookup() and @tfw_http_msg_hdr_lookup() procedures should
+ * be unified to @__hdr_name_cmp() and @__http_hdr_lookup() in order to
+ * substitute current mess of multiple partially duplicated procedures with
+ * one simple interface.
  */
 static inline unsigned int
-__hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
+__h1_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
 {
 	unsigned int id = tfw_http_msg_hdr_lookup(hm, hdr);
 
@@ -439,7 +453,7 @@ __hdr_name_cmp(const TfwStr *hdr, const TfwStr *cmp_hdr)
  * headers in HTTP/2 or HTTP/1.1 format.
  */
 int
-__h2_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
+__http_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr)
 {
 	unsigned int id;
 	TfwHttpHdrTbl *ht = hm->h_tbl;
@@ -530,7 +544,7 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 	 * Both the headers, the new one and existing one, can already be
 	 * compound.
 	 */
-	id = __h2_hdr_lookup(hm, &parser->hdr);
+	id = __http_hdr_lookup(hm, &parser->hdr);
 
 	/* Allocate some more room if not enough to store the header. */
 	if (unlikely(id == ht->size)) {
@@ -827,7 +841,7 @@ tfw_http_msg_hdr_xfrm_str(TfwHttpMsg *hm, const TfwStr *hdr, unsigned int hid,
 			/* Not found, nothing to delete. */
 			return 0;
 	} else {
-		hid = __hdr_lookup(hm, hdr);
+		hid = __h1_hdr_lookup(hm, hdr);
 		if (hid == ht->off && !s_val)
 			/* Not found, nothing to delete. */
 			return 0;
