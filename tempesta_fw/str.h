@@ -215,6 +215,9 @@ size_t tfw_ultohex(unsigned long ai, char *buf, unsigned int len);
  */
 #define TFW_STR_HDR_VALUE	0x80
 
+/* The chunk contains only WS characters. */
+#define TFW_STR_OWS		0x100
+
 /*
  * @ptr		- pointer to string data or array of nested strings;
  * @skb		- socket buffer containing the string data;
@@ -390,6 +393,7 @@ typedef enum {
 int tfw_strcpy(TfwStr *dst, const TfwStr *src);
 TfwStr *tfw_strdup(TfwPool *pool, const TfwStr *src);
 int tfw_strcpy_desc(TfwStr *dst, TfwStr *src);
+TfwStr *tfw_strdup_desc(TfwPool *pool, const TfwStr *src);
 int tfw_strcat(TfwPool *pool, TfwStr *dst, TfwStr *src);
 int tfw_str_insert(TfwPool *pool, TfwStr *dst, TfwStr *src, unsigned int chunk);
 

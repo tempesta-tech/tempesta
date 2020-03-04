@@ -20,6 +20,8 @@
 #ifndef __TFW_HPACK_H__
 #define __TFW_HPACK_H__
 
+#include "http_types.h"
+
 /**
  * Default allowed size for dynamic tables (in bytes). Note, that for encoder's
  * dynamic table - this is also the maximum allowed size and the maximum storage
@@ -219,9 +221,34 @@ typedef struct {
 	(DIV_ROUND_UP(sizeof(unsigned long), 7) + 1)
 
 typedef struct {
-	unsigned int sz;
-	unsigned char buf[HPACK_MAX_INT];
+	unsigned int		sz;
+	unsigned char		buf[HPACK_MAX_INT];
 } TfwHPackInt;
+
+
+/**
+ * Iterator for the message headers decoding from HTTP/2-cache.
+ *
+ * @h_mods	- pointer to the headers configured to be changed;
+ * @skip	- flag to skip particular cached data in order to switch
+ *		  between HTTP/2 and HTTP/1.1 resulting representation during
+ *		  decoding from HTTP/2-cache;
+ * @__off	- offset to reinitialize the iterator non-persistent part;
+ * @desc	- pointer to the found header configured to be changed;
+ * @acc_len	- accumulated length of the resulting headers part of the
+ *		  response;
+ * @hdr_data	- header's data currently received from cache;
+ * @h2_data	- HTTP/2-specific data currently received from cache.
+ */
+typedef struct {
+	TfwHdrMods		*h_mods;
+	bool			skip;
+	char			__off[0];
+	TfwHdrModsDesc		*desc;
+	unsigned long		acc_len;
+	TfwStr			hdr_data;
+	TfwStr			h2_data;
+} TfwDecodeCacheIter;
 
 #define	BUFFER_GET(len, it)					\
 do {								\
@@ -234,15 +261,39 @@ do {								\
 	       (it)->pos, (unsigned long)(it)->pos);		\
 } while (0)
 
+void write_int(unsigned long index, unsigned short max, unsigned short mask,
+	       TfwHPackInt *__restrict res_idx);
 int tfw_hpack_init(TfwHPack *__restrict hp, unsigned int htbl_sz);
 void tfw_hpack_clean(TfwHPack *__restrict hp);
 int tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
-		     TfwH2TransOp op);
+		     TfwH2TransOp op, bool dyn_indexing);
 void tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl,
 			     unsigned short new_size);
 int tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 		     unsigned long n, TfwHttpReq *__restrict req,
 		     unsigned int *__restrict parsed);
+int tfw_hpack_cache_decode_expand(TfwHPack *__restrict hp,
+				  TfwHttpResp *__restrict resp,
+				  unsigned char *__restrict src, unsigned long n,
+				  TfwDecodeCacheIter *__restrict cd_iter);
 void tfw_hpack_enc_release(TfwHPack *__restrict hp, unsigned long *flags);
+
+static inline unsigned int
+tfw_hpack_int_size(unsigned long index, unsigned short max)
+{
+	unsigned int size = 1;
+
+	if (likely(index < max))
+		return size;
+
+	++size;
+	index -= max;
+	while (index > 0x7F) {
+		++size;
+		index >>= 7;
+	}
+
+	return size;
+}
 
 #endif /* __TFW_HPACK_H__ */

@@ -694,11 +694,30 @@ tfw_h2_stream_close(TfwH2Ctx *ctx, unsigned int id, TfwStream **stream,
 }
 
 /*
- * Get stream ID for upper layer to prepare and send frame (of type specified
- * in @type and with flags set in @flags) with response to client. This
- * procedure also unlinks request from corresponding stream (if linked) and
- * moves the stream to the queue of closed streams (if it is not contained
- * there yet).
+ * Get stream ID for upper layer to create frames info.
+ */
+unsigned int
+tfw_h2_stream_id(TfwHttpReq *req)
+{
+	unsigned int id = 0;
+	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
+
+	spin_lock(&ctx->lock);
+
+	if (req->stream)
+		id = req->stream->id;
+
+	spin_unlock(&ctx->lock);
+
+	return id;
+}
+
+/*
+ * Get stream ID for upper layer to prepare and send frame with response to
+ * client, and process stream FSM for the frame (of type specified in @type
+ * and with flags set in @flags). This procedure also unlinks request from
+ * corresponding stream (if linked) and moves the stream to the queue of
+ * closed streams (if it is not contained there yet).
  */
 unsigned int
 tfw_h2_stream_id_close(TfwHttpReq *req, unsigned char type,
@@ -722,6 +741,7 @@ tfw_h2_stream_id_close(TfwHttpReq *req, unsigned char type,
 		id = stream->id;
 	}
 
+	req->stream = NULL;
 	stream->msg = NULL;
 
 	__tfw_h2_stream_add_closed(&ctx->hclosed_streams, stream);
