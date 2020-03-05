@@ -25,7 +25,7 @@
  *    be immediately freed to keep stack-like memory management.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -212,25 +212,36 @@ tfw_pool_free(TfwPool *p, void *ptr, size_t n)
 EXPORT_SYMBOL(tfw_pool_free);
 
 /**
- * Delete all chunks between the last (i.e. current in use) and the first one
+ * Delete all chunks between the first (i.e. current in use) and the last one
  * (which is the holder of @TfwPool itself). This is a garbage collection
  * procedure, which is applicable only for cases when pool is used for one
- * dynamically resizable (via @__tfw_pool_realloc()) instance.
+ * dynamically resizable (via @__tfw_pool_realloc()) instance. Also, this
+ * function can be used when caller definitely know, that all data behind the
+ * @ptr can be evicted (including the page which contains the @ptr).
  */
 void
-tfw_pool_clean(TfwPool *p)
+tfw_pool_clean(TfwPool *pool, void *ptr)
 {
 	TfwPoolChunk *c, *next;
 
-	if (!p)
+	if (!pool)
 		return;
 
-	for (c = p->curr->next; c; c = next) {
+	for (c = pool->curr->next; c; c = next) {
 		if (!(next = c->next))
 			break;
+		if (ptr) {
+			if ((char *)ptr < (char *)TFW_POOL_CHUNK_BASE(c)
+			    || (char *)ptr >= (char *)TFW_POOL_CHUNK_BASE(c)
+			    + c->off)
+			{
+				continue;
+			}
+			ptr = NULL;
+		}
 		tfw_pool_free_pages(TFW_POOL_CHUNK_BASE(c), c->order);
 	}
-	p->curr->next = c;
+	pool->curr->next = c;
 }
 EXPORT_SYMBOL(tfw_pool_clean);
 

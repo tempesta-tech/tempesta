@@ -24,7 +24,12 @@
 #include "http_stream.h"
 #include "hpack.h"
 
+/* RFC 7540 Section 4.1 frame header constants. */
 #define FRAME_HEADER_SIZE		9
+#define FRAME_STREAM_ID_MASK		((1U << 31) - 1)
+#define FRAME_RESERVED_BIT_MASK		(~FRAME_STREAM_ID_MASK)
+#define FRAME_MAX_LENGTH		((1U << 24) - 1)
+#define FRAME_DEF_LENGTH		(16384)
 
 /**
  * HTTP/2 frame types (RFC 7540 section 6).
@@ -39,7 +44,8 @@ typedef enum {
 	HTTP2_PING,
 	HTTP2_GOAWAY,
 	HTTP2_WINDOW_UPDATE,
-	HTTP2_CONTINUATION
+	HTTP2_CONTINUATION,
+	_HTTP2_UNDEFINED
 } TfwFrameType;
 
 /**
@@ -152,6 +158,8 @@ typedef struct {
  *			  processed HEADERS or PRIORITY frames;
  * @hdr			- unpacked data from header of currently processed
  *			  frame;
+ * @plen		- payload length of currently processed frame
+ *			  (HEADERS/CONTINUATION/DATA frames);
  * @state		- current FSM state of HTTP/2 processing context;
  * @to_read		- indicates how much data of HTTP/2 frame should
  *			  be read on next FSM @state;
@@ -183,6 +191,7 @@ typedef struct {
 	TfwStream	*cur_stream;
 	TfwFramePri	priority;
 	TfwFrameHdr	hdr;
+	unsigned int	plen;
 	int		state;
 	int		to_read;
 	int		rlen;
@@ -197,8 +206,27 @@ int tfw_h2_context_init(TfwH2Ctx *ctx);
 void tfw_h2_context_clear(TfwH2Ctx *ctx);
 int tfw_h2_frame_process(void *c, TfwFsmData *data);
 void tfw_h2_conn_streams_cleanup(TfwH2Ctx *ctx);
-unsigned int tfw_h2_stream_id_close(TfwHttpReq *req);
+unsigned int tfw_h2_stream_id(TfwHttpReq *req);
+unsigned int tfw_h2_stream_id_close(TfwHttpReq *req, unsigned char type,
+				    unsigned char flags);
 void tfw_h2_conn_terminate_close(TfwH2Ctx *ctx, TfwH2Err err_code, bool close);
 int tfw_h2_send_rst_stream(TfwH2Ctx *ctx, unsigned int id, TfwH2Err err_code);
+
+static inline void
+tfw_h2_pack_frame_header(unsigned char *p, const TfwFrameHdr *hdr)
+{
+	*(unsigned int *)p = htonl((unsigned int)(hdr->length << 8));
+	p += 3;
+	*p++ = hdr->type;
+	*p++ = hdr->flags;
+	/*
+	 * Stream id must occupy not more than 31 bit and reserved bit
+	 * must be 0.
+	 */
+	WARN_ON_ONCE((unsigned int)(hdr->stream_id & FRAME_RESERVED_BIT_MASK));
+
+	*(unsigned int *)p = htonl(hdr->stream_id);
+}
+
 
 #endif /* __HTTP_FRAME__ */

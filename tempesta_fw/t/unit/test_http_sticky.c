@@ -132,7 +132,6 @@ test_helper_sticky_stop(void)
 	redir_mark_enabled = false;
 }
 
-
 TEST_SUITE(http_sticky)
 {
 

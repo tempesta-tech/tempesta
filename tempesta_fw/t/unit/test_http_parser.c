@@ -241,7 +241,10 @@ test_string_split(const TfwStr *expected, const TfwStr *parsed)
 {
 	TfwStr *end_p, *end_e, *c_p, *c_e;
 
-	BUG_ON(TFW_STR_PLAIN(parsed) || TFW_STR_PLAIN(expected));
+	BUG_ON(TFW_STR_PLAIN(expected));
+	EXPECT_FALSE(TFW_STR_PLAIN(parsed));
+	if (TFW_STR_PLAIN(parsed))
+		return;
 
 	EXPECT_GE(parsed->nchunks, expected->nchunks);
 	EXPECT_EQ(parsed->len, expected->len);
@@ -992,22 +995,29 @@ TEST(http_parser, fills_hdr_tbl_for_req)
 		ht = req->h_tbl;
 
 		/* Special headers: */
-		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_HOST],
+		tfw_http_msg_clnthdr_val(req,
+					 &ht->tbl[TFW_HTTP_HDR_HOST],
 					 TFW_HTTP_HDR_HOST, &h_host);
-		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_CONNECTION],
+		tfw_http_msg_clnthdr_val(req,
+					 &ht->tbl[TFW_HTTP_HDR_CONNECTION],
 					 TFW_HTTP_HDR_CONNECTION,
 					 &h_connection);
-		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
+		tfw_http_msg_clnthdr_val(req,
+					 &ht->tbl[TFW_HTTP_HDR_CONTENT_TYPE],
 					 TFW_HTTP_HDR_CONTENT_TYPE,
 					 &h_conttype);
-		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR],
+		tfw_http_msg_clnthdr_val(req,
+					 &ht->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR],
 					 TFW_HTTP_HDR_X_FORWARDED_FOR, &h_xff);
-		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_USER_AGENT],
+		tfw_http_msg_clnthdr_val(req,
+					 &ht->tbl[TFW_HTTP_HDR_USER_AGENT],
 					 TFW_HTTP_HDR_USER_AGENT,
 					 &h_user_agent);
-		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_TRANSFER_ENCODING],
+		tfw_http_msg_clnthdr_val(req,
+					 &ht->tbl[TFW_HTTP_HDR_TRANSFER_ENCODING],
 					 TFW_HTTP_HDR_TRANSFER_ENCODING, &h_te);
-		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_COOKIE],
+		tfw_http_msg_clnthdr_val(req,
+					 &ht->tbl[TFW_HTTP_HDR_COOKIE],
 					 TFW_HTTP_HDR_COOKIE, &h_cookie);
 
 		/* Common (raw) headers: 16 total with 10 dummies. */
@@ -1114,8 +1124,8 @@ TEST(http_parser, fills_hdr_tbl_for_resp)
 	{
 		ht = resp->h_tbl;
 
-		EXPECT_TRUE(tfw_str_eq_cstr(&resp->s_line, "HTTP/1.1 200 OK",
-			    strlen("HTTP/1.1 200 OK"), 0));
+		EXPECT_TRUE(tfw_str_eq_cstr(&ht->tbl[TFW_HTTP_STATUS_LINE],
+			    "HTTP/1.1 200 OK", strlen("HTTP/1.1 200 OK"), 0));
 
 		/* Special headers: */
 		tfw_http_msg_srvhdr_val(&ht->tbl[TFW_HTTP_HDR_CONNECTION],
@@ -1753,7 +1763,8 @@ TEST(http_parser, cookie)
 			unsigned int flags;
 			const char *str;
 		} kv[] = {
-			{ 0, "Cookie: " },
+			{ 0, "Cookie:" },
+			{ TFW_STR_OWS, " " },
 			{ TFW_STR_NAME, "session=" },
 			{ TFW_STR_VALUE, "42" },
 			{ 0, "; " },
@@ -1848,7 +1859,9 @@ TEST(http_parser, set_cookie)
 		TfwStr *s_parsed = &resp->h_tbl->tbl[TFW_HTTP_HDR_SET_COOKIE];
 		TfwStr s_expected = {
 			.chunks = (TfwStr []) {
-				{ .data = "Set-Cookie: " , .len = 12 },
+				{ .data = "Set-Cookie:" , .len = 11 },
+				{ .data = " " , .len = 1,
+				  .flags = TFW_STR_OWS },
 				{ .data = "sessionid=" , .len = 10,
 				  .flags = TFW_STR_NAME },
 				{ .data = "38afes7a8" , .len = 9,
@@ -1856,7 +1869,7 @@ TEST(http_parser, set_cookie)
 				{ .data = "; HttpOnly; Path=/" , .len = 18 }
 			},
 			.len = 49,
-			.nchunks = 4
+			.nchunks = 5
 		};
 		test_string_split(&s_expected, s_parsed);
 	}
@@ -1871,7 +1884,9 @@ TEST(http_parser, set_cookie)
 		TfwStr *s_parsed = &resp->h_tbl->tbl[TFW_HTTP_HDR_SET_COOKIE];
 		TfwStr s_expected = {
 			.chunks = (TfwStr []) {
-				{ .data = "Set-Cookie: " , .len = 12 },
+				{ .data = "Set-Cookie:" , .len = 11 },
+				{ .data = " " , .len = 1,
+				  .flags = TFW_STR_OWS },
 				{ .data = "sessionid=" , .len = 10,
 				  .flags = TFW_STR_NAME },
 				{ .data = "\"38afes7a8\"" , .len = 11,
@@ -1879,7 +1894,7 @@ TEST(http_parser, set_cookie)
 				{ .data = "; HttpOnly; Path=/" , .len = 18 }
 			},
 			.len = 51,
-			.nchunks = 4
+			.nchunks = 5
 		};
 		test_string_split(&s_expected, s_parsed);
 	}
@@ -1894,7 +1909,9 @@ TEST(http_parser, set_cookie)
 		TfwStr *s_parsed = &resp->h_tbl->tbl[TFW_HTTP_HDR_SET_COOKIE];
 		TfwStr s_expected = {
 			.chunks = (TfwStr []) {
-				{ .data = "Set-Cookie: " , .len = 12 },
+				{ .data = "Set-Cookie:" , .len = 11 },
+				{ .data = " " , .len = 1,
+				  .flags = TFW_STR_OWS },
 				{ .data = "id=" , .len = 3,
 				  .flags = TFW_STR_NAME },
 				{ .data = "a3fWa" , .len = 5,
@@ -1904,7 +1921,7 @@ TEST(http_parser, set_cookie)
 				  .len = 57 }
 			},
 			.len = 77,
-			.nchunks = 4
+			.nchunks = 5
 		};
 		test_string_split(&s_expected, s_parsed);
 	}
@@ -1918,7 +1935,9 @@ TEST(http_parser, set_cookie)
 		TfwStr *s_parsed = &resp->h_tbl->tbl[TFW_HTTP_HDR_SET_COOKIE];
 		TfwStr s_expected = {
 			.chunks = (TfwStr []) {
-				{ .data = "Set-Cookie: " , .len = 12 },
+				{ .data = "Set-Cookie:" , .len = 11 },
+				{ .data = " " , .len = 1,
+				  .flags = TFW_STR_OWS },
 				{ .data = "__Host-id=" , .len = 10,
 				  .flags = TFW_STR_NAME },
 				{ .data = "1" , .len = 1,
@@ -1927,7 +1946,7 @@ TEST(http_parser, set_cookie)
 				  .len = 36 }
 			},
 			.len = 59,
-			.nchunks = 4
+			.nchunks = 5
 		};
 		test_string_split(&s_expected, s_parsed);
 	}
@@ -2252,7 +2271,7 @@ TEST(http_parser, referer)
 		"\r\n")
 	{
 		ht = req->h_tbl;
-		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_REFERER],
+		tfw_http_msg_clnthdr_val(req, &ht->tbl[TFW_HTTP_HDR_REFERER],
 					 TFW_HTTP_HDR_REFERER,
 					 &h_referer);
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_referer, s_referer1,
@@ -2264,7 +2283,7 @@ TEST(http_parser, referer)
 		"\r\n")
 	{
 		ht = req->h_tbl;
-		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_REFERER],
+		tfw_http_msg_clnthdr_val(req, &ht->tbl[TFW_HTTP_HDR_REFERER],
 					 TFW_HTTP_HDR_REFERER,
 					 &h_referer);
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_referer, s_referer2,
@@ -2277,7 +2296,7 @@ TEST(http_parser, referer)
 		"\r\n")
 	{
 		ht = req->h_tbl;
-		tfw_http_msg_clnthdr_val(&ht->tbl[TFW_HTTP_HDR_REFERER],
+		tfw_http_msg_clnthdr_val(req, &ht->tbl[TFW_HTTP_HDR_REFERER],
 					 TFW_HTTP_HDR_REFERER,
 					 &h_referer);
 		EXPECT_TRUE(tfw_str_eq_cstr(&h_referer, s_referer3,

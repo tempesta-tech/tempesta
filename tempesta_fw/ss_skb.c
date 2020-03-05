@@ -832,7 +832,7 @@ done:
 	return abs(len);
 }
 
-static inline int
+int
 skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	     int len, TfwStr *it)
 {
@@ -1004,6 +1004,65 @@ ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *str, int skip,
 	}
 
 	return 0;
+}
+
+int
+skb_next_data(struct sk_buff *skb, char *last_ptr, TfwStr *it)
+{
+	int i;
+	long off;
+	unsigned int f_size;
+	struct skb_shared_info *si = skb_shinfo(skb);
+
+	if (unlikely(skb_has_frag_list(skb))) {
+		WARN_ON(skb_has_frag_list(skb));
+		return -EINVAL;
+	}
+
+	f_size = skb_headlen(skb);
+	off = last_ptr - (char *)skb->data;
+
+	T_DBG("%s: last_ptr=[%p], skb->data=[%p], si->nr_frags=%u, f_size=%u,"
+	      " off=%ld\n", __func__, last_ptr, skb->data, si->nr_frags, f_size,
+	      off);
+
+	if (off >= 0 && off < f_size) {
+		if (f_size - off > 1) {
+			it->data = last_ptr + 1;
+			it->skb = skb;
+			return 0;
+		}
+
+		__it_next_data(skb, 0, it);
+
+		return 0;
+	}
+
+	for (i = 0; i < si->nr_frags; ++i) {
+		const skb_frag_t *frag = &si->frags[i];
+
+		f_size = skb_frag_size(frag);
+		off = last_ptr - (char *)skb_frag_address(frag);
+
+		T_DBG3("%s: frags search, skb_frag_address(frag)=[%p],"
+		       " f_size=%u, off=%ld\n", __func__,
+		       skb_frag_address(frag), f_size, off);
+
+		if (off < 0 || off >= f_size)
+			continue;
+
+		if (f_size - off > 1) {
+			it->data = last_ptr + 1;
+			it->skb = skb;
+			return 0;
+		}
+		
+		__it_next_data(skb, i + 1, it);
+
+		return 0;
+	}
+
+	return -ENOENT;
 }
 
 /**
@@ -1442,4 +1501,98 @@ ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
 	}
 
 	return out_frags;
+}
+
+/**
+ * Evict extra data between @curr and @stop pointers, beginning from the @skb
+ * and the @frag_num fragment.
+ */
+int
+ss_skb_cut_extra_data(struct sk_buff *skb_head, struct sk_buff *skb,
+		      int frag_num, char *curr, const char *stop)
+{
+	TfwStr it;
+	long offset;
+	int size, ret;
+	const char *addr;
+
+	if (frag_num >= 0) {
+		skb_frag_t *frag = &skb_shinfo(skb)->frags[frag_num];
+
+		size = skb_frag_size(frag);
+		addr = skb_frag_address(frag);
+	} else {
+		size = skb_headlen(skb);
+		addr = skb->data;
+	}
+
+	offset = curr - addr;
+
+	for (;;) {
+		int len, tail = 0;
+		long stop_offset = stop - addr;
+
+		if (WARN_ON_ONCE(offset < 0 || offset >= size))
+			return -EINVAL;
+
+		len = size - offset;
+
+		/*
+		 * We found the stop pointer; evict the delta between @curr and
+		 * @stop, and exit.
+		 */
+		if (stop_offset >= 0 && stop_offset <= size) {
+			if (WARN_ON_ONCE(curr > stop))
+				return -EINVAL;
+
+			if (curr == stop)
+				return 0;
+
+			tail = len;
+			len -= size - stop_offset;
+		}
+
+		T_DBG3("%s: frag_num=%d, size=%d, offset=%ld, stop_offset=%ld,"
+		       " len=%d, tail=%d\n", __func__, frag_num, size, offset,
+		       stop_offset, len, tail);
+
+		if (frag_num >= 0)
+			ret = __split_pgfrag_del(skb_head, skb, frag_num,
+						 offset, len, &it);
+		else
+			ret =  __split_linear_data(skb_head, skb, curr, -len,
+						   &it);
+		if (unlikely(ret))
+			return ret;
+
+		if (tail)
+			return 0;
+
+		/*
+		 * The extra space is evicted from current fragment (or from skb
+		 * head space), but the stop pointer is not reached yet. Move to
+		 * the next fragment (or skb).
+		 */
+		if (skb_shinfo(skb)->nr_frags > frag_num + 1) {
+			skb_frag_t *frag;
+
+			++frag_num;
+			frag = &skb_shinfo(skb)->frags[frag_num];
+			size = skb_frag_size(frag);
+			addr = curr = skb_frag_address(frag);
+		}
+		else {
+			if (WARN_ON_ONCE(skb_head == skb->next))
+				return -EINVAL;
+
+			frag_num = -1;
+			skb = skb->next;
+			size = skb_headlen(skb);
+			addr = curr = skb->data;
+		}
+
+		offset = 0;
+	}
+
+	return 0;
 }

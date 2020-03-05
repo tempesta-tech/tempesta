@@ -836,7 +836,7 @@ tfw_tls_match_any_sni_to_dflt(bool match)
 }
 
 int
-tfw_tls_cfg_alpn_protos(const char *cfg_str)
+tfw_tls_cfg_alpn_protos(const char *cfg_str, bool *deprecated)
 {
 	ttls_alpn_proto *protos;
 
@@ -855,11 +855,13 @@ do {								\
 
 	if (!strcasecmp(cfg_str, "https")) {
 		PROTO_INIT(0, HTTP1);
+		*deprecated = true;
 		return 0;
 	}
 
 	if (!strcasecmp(cfg_str, "h2")) {
 		PROTO_INIT(0, HTTP2);
+		*deprecated = false;
 		return 0;
 	}
 

@@ -24,6 +24,13 @@
 #include "helpers.h"
 #include "tfw_str_helper.h"
 
+#define HDR_METHOD_NM	":method"
+#define HDR_METHOD_VAL	"GET"
+#define HDR_SCHEME_NM	":scheme"
+#define HDR_SCHEME_VAL	"https"
+#define HDR_PATH_NM	":path"
+#define HDR_PATH_VAL	"/"
+
 #define HDR_COMPOUND_STR(hdr_res, nm, val)			\
 ({								\
 	TfwStr *c;						\
@@ -36,10 +43,9 @@
 			.len = (nm)->len - (hdr_res)->len,	\
 			.nchunks = (nm)->nchunks - 1		\
 		};						\
-		collect_compound_str(hdr_res, &nm_fin);		\
+		collect_compound_str(hdr_res, &nm_fin, 0);	\
 	}							\
-	collect_compound_str2(hdr_res, ":", 1);			\
-	collect_compound_str(hdr_res, val);			\
+	collect_compound_str(hdr_res, val, TFW_STR_HDR_VALUE);	\
 })
 
 #define HDR_COMPOUND_STR_LIT(hdr_res, nm_lit, val_lit)		\
@@ -47,7 +53,7 @@ do {								\
 	TFW_STR(name, nm_lit);					\
 	TFW_STR(value, val_lit);				\
 	BUG_ON(!name || !value);				\
-	HP_HDR_COMPOUND_STR(hdr_res, name, value);		\
+	HDR_COMPOUND_STR(hdr_res, name, value);			\
 } while (0)
 
 static TfwH2Ctx ctx;
@@ -61,7 +67,7 @@ test_hpack_req_alloc(void)
 	BUG_ON(!req);
 	req->pit.pool = __tfw_pool_new(0);
 	BUG_ON(!req->pit.pool);
-	req->pit.hdr = &req->stream->parser.hdr;
+	req->pit.parsed_hdr = &req->stream->parser.hdr;
 	__set_bit(TFW_HTTP_B_H2, req->flags);
 
 	return req;
@@ -86,82 +92,120 @@ test_h2_teardown(void)
 	free_all_str();
 }
 
+static void
+test_h2_hdr_name(TfwStr *hdr, TfwStr *out_name)
+{
+	const TfwStr *c, *end;
+
+	if (unlikely(TFW_STR_EMPTY(hdr))) {
+		TFW_STR_INIT(out_name);
+		return;
+	}
+
+	BUG_ON(TFW_STR_DUP(hdr));
+	BUG_ON(TFW_STR_EMPTY(hdr));
+
+	*out_name = *hdr;
+
+	if (unlikely(TFW_STR_PLAIN(hdr))) {
+		WARN_ON_ONCE(hdr->flags & TFW_STR_HDR_VALUE);
+		return;
+	}
+
+	TFW_STR_FOR_EACH_CHUNK(c, hdr, end) {
+		if (c->flags & TFW_STR_HDR_VALUE) {
+			out_name->len -= c->len;
+			out_name->nchunks--;
+		}
+	}
+}
+
 TEST(hpack, dec_table_static)
 {
 	TfwHPack *hp;
+	TfwStr *hdr, h_val;
 	const TfwHPackEntry *entry;
-	TfwHPackStr *name, *value;
+	const char *s_ius = "if-unmodified-since";
+	const int ius_len = strlen(s_ius);
+	const char *s_wa = "www-authenticate";
+	const int wa_len = strlen(s_wa);
+	const char *s_auth = ":authority";
+	const int auth_len = strlen(s_auth);
+	const char *s_aenc = "accept-encoding";
+	const int aenc_len = strlen(s_aenc);
+	const char *s_aenc_v = "gzip, deflate";
+	const int aenc_v_len = strlen(s_aenc_v);
+	const char *s_tenc = "transfer-encoding";
+	const int tenc_len = strlen(s_tenc);
 
 	hp = &ctx.hpack;
 
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 43);
 	EXPECT_NOT_NULL(entry);
 	if (entry) {
-		name = entry->name;
-		EXPECT_EQ(strlen("if-unmodified-since"), name->len);
-		EXPECT_OK(memcmp_fast("if-unmodified-since", name->ptr,
-				      name->len));
-		EXPECT_NULL(entry->value);
-		EXPECT_EQ(entry->tag, TFW_HTTP_HDR_RAW);
+		hdr = entry->hdr;
+		EXPECT_EQ(hdr->nchunks, 1);
+		EXPECT_EQ(ius_len, hdr->len);
+		EXPECT_TRUE(tfw_str_eq_cstr(hdr, s_ius, ius_len, 0));
+		EXPECT_EQ(entry->tag, TFW_TAG_HDR_RAW);
 	}
 
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 61);
 	EXPECT_NOT_NULL(entry);
 	if (entry) {
-		name = entry->name;
-		EXPECT_EQ(strlen("www-authenticate"), name->len);
-		EXPECT_OK(memcmp_fast("www-authenticate", name->ptr,
-				      name->len));
-		EXPECT_NULL(entry->value);
-		EXPECT_EQ(entry->tag, TFW_HTTP_HDR_RAW);
+		hdr = entry->hdr;
+		EXPECT_EQ(hdr->nchunks, 1);
+		EXPECT_EQ(wa_len, hdr->len);
+		EXPECT_TRUE(tfw_str_eq_cstr(hdr, s_wa, wa_len, 0));
+		EXPECT_EQ(entry->tag, TFW_TAG_HDR_RAW);
 	}
 
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 1);
 	EXPECT_NOT_NULL(entry);
 	if (entry) {
-		name = entry->name;
-		EXPECT_EQ(strlen(":authority"), name->len);
-		EXPECT_OK(memcmp_fast(":authority", name->ptr, name->len));
-		EXPECT_NULL(entry->value);
-		EXPECT_EQ(entry->tag, TFW_HTTP_HDR_RAW);
+		hdr = entry->hdr;
+		EXPECT_EQ(hdr->nchunks, 1);
+		EXPECT_EQ(auth_len, hdr->len);
+		EXPECT_TRUE(tfw_str_eq_cstr(hdr, s_auth, auth_len, 0));
+		EXPECT_EQ(entry->tag, TFW_TAG_HDR_H2_AUTHORITY);
 	}
 
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 16);
 	EXPECT_NOT_NULL(entry);
 	if (entry) {
-		name = entry->name;
-		value = entry->value;
-		EXPECT_EQ(strlen("accept-encoding"), name->len);
-		EXPECT_OK(memcmp_fast("accept-encoding", name->ptr, name->len));
-		EXPECT_OK(memcmp_fast("gzip, deflate", value->ptr, value->len));
-		EXPECT_EQ(entry->tag, TFW_HTTP_HDR_RAW);
+		hdr = entry->hdr;
+		EXPECT_EQ(hdr->nchunks, 2);
+		EXPECT_EQ(aenc_len, entry->name_len);
+		EXPECT_TRUE(tfw_str_eq_cstr(hdr, s_aenc, aenc_len,
+					    TFW_STR_EQ_PREFIX));
+		__h2_msg_hdr_val(hdr, &h_val);
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_val, s_aenc_v, aenc_v_len, 0));
+		EXPECT_EQ(entry->tag, TFW_TAG_HDR_RAW);
 	}
 
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 57);
 	EXPECT_NOT_NULL(entry);
 	if (entry) {
-		name = entry->name;
-		EXPECT_EQ(strlen("transfer-encoding"), name->len);
-		EXPECT_OK(memcmp_fast("transfer-encoding", name->ptr,
-				      name->len));
-		EXPECT_NULL(entry->value);
-		EXPECT_EQ(entry->tag, TFW_HTTP_HDR_TRANSFER_ENCODING);
+		hdr = entry->hdr;
+		EXPECT_EQ(hdr->nchunks, 1);
+		EXPECT_EQ(tenc_len, hdr->len);
+		EXPECT_TRUE(tfw_str_eq_cstr(hdr, s_tenc, tenc_len, 0));
+		EXPECT_EQ(entry->tag, TFW_TAG_HDR_TRANSFER_ENCODING);
 	}
 }
 
 TEST(hpack, dec_table_dynamic)
 {
 	TfwHPack *hp;
-	TfwMsgParseIter it;
 	const TfwHPackEntry *entry;
-	TfwStr *s1, *s2, *s3;
-	TfwHPackStr *name, *value;
+	TfwStr h_name, *s1, *s2, *s3;
+	TfwMsgParseIter *it = &test_req->pit;
 	unsigned int new_len = 0;
 	TFW_STR(s1_name, "custom-key");
 	TFW_STR(s1_value, "custom-value");
-	TFW_STR(s2_name, "X-Forwarded-For");
+	TFW_STR(s2_name, "x-forwarded-for");
 	TFW_STR(s2_value, "example.com");
-	TFW_STR(s3_name, "X-Custom-Hdr");
+	TFW_STR(s3_name, "x-custom-hdr");
 	TFW_STR(s3_value, "custom header values");
 
 	HDR_COMPOUND_STR(s1, s1_name, s1_value);
@@ -170,48 +214,42 @@ TEST(hpack, dec_table_dynamic)
 
 	hp = &ctx.hpack;
 
-	it.hdr = s1;
-	it.nm_len = 10;
-	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, NULL, &it));
+	test_h2_hdr_name(s1, &h_name);
+	it->nm_num = h_name.nchunks;
+	it->nm_len = h_name.len;
+	it->tag = TFW_TAG_HDR_RAW;
+	*it->parsed_hdr = *s1;
+	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it));
 
-	it.hdr = s2;
-	it.nm_len = 15;
-	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, NULL, &it));
+	test_h2_hdr_name(s2, &h_name);
+	it->nm_num = h_name.nchunks;
+	it->nm_len = h_name.len;
+	it->tag = TFW_TAG_HDR_X_FORWARDED_FOR;
+	*it->parsed_hdr = *s2;
+	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it));
 
-	it.hdr = s3;
-	it.nm_len = 12;
-	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, NULL, &it));
+	test_h2_hdr_name(s3, &h_name);
+	it->nm_num = h_name.nchunks;
+	it->nm_len = h_name.len;
+	it->tag = TFW_TAG_HDR_RAW;
+	*it->parsed_hdr = *s3;
+	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it));
 
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 64);
 	EXPECT_NOT_NULL(entry);
-	if (entry) {
-		name = entry->name;
-		value = entry->value;
-		EXPECT_TRUE(tfw_str_eq_cstr(s1_name, name->ptr, name->len, 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(s1_value, value->ptr,
-					    value->len, 0));
-	}
+	if (entry)
+		EXPECT_TRUE(tfw_strcmp(entry->hdr, s1) == 0);
 
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 63);
 	EXPECT_NOT_NULL(entry);
-	if (entry) {
-		name = entry->name;
-		value = entry->value;
-		EXPECT_TRUE(tfw_str_eq_cstr(s2_name, name->ptr, name->len, 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(s2_value, value->ptr,
-					    value->len, 0));
-	}
+	if (entry)
+		EXPECT_TRUE(tfw_strcmp(entry->hdr, s2) == 0);
 
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 62);
 	EXPECT_NOT_NULL(entry);
-	if (entry) {
-		name = entry->name;
-		value = entry->value;
-		new_len += name->len + value->len + 32;
-		EXPECT_TRUE(tfw_str_eq_cstr(s3_name, name->ptr, name->len, 0));
-		EXPECT_TRUE(tfw_str_eq_cstr(s3_value, value->ptr,
-					    value->len, 0));
-	}
+	if (entry)
+		new_len += entry->hdr->len + 32;
+		EXPECT_TRUE(tfw_strcmp(entry->hdr, s3) == 0);
 
 	EXPECT_OK(tfw_hpack_set_length(hp, new_len));
 
@@ -220,12 +258,13 @@ TEST(hpack, dec_table_dynamic)
 	EXPECT_NOT_NULL(tfw_hpack_find_index(&hp->dec_tbl, 62));
 }
 
-TEST(hpack, dec_table_mixed)
+TEST(hpack, dec_table_dynamic_inc)
 {
 	TfwHPack *hp;
-	TfwMsgParseIter it;
-	TfwStr *s1, *s2, *s3, *s4, *s5;
-	const TfwHPackEntry *entry, *entry_1, *entry_2, *entry_3;
+	TfwStr h_name, *s1, *s2, *s3, *s4, *s5;
+	const TfwHPackEntry *entry;
+	TfwMsgParseIter *it = &test_req->pit;
+
 	TFW_STR(s1_name, "custom-header-1");
 	TFW_STR(s1_value, "custom value 1");
 	TFW_STR(s2_name, "custom-header-2");
@@ -243,83 +282,97 @@ TEST(hpack, dec_table_mixed)
 
 	hp = &ctx.hpack;
 
-	it.hdr = s1;
-	it.nm_len = s1_name->len;
-	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, NULL, &it));
+	test_h2_hdr_name(s1, &h_name);
+	it->nm_num = h_name.nchunks;
+	it->nm_len = h_name.len;
+	it->tag = TFW_TAG_HDR_RAW;
+	*it->parsed_hdr = *s1;
+	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it));
 
-	it.hdr = s2;
-	it.nm_len = s2_name->len;
-	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, NULL, &it));
-
-	entry_1 = tfw_hpack_find_index(&hp->dec_tbl, 63);
-	EXPECT_NOT_NULL(entry_1);
-	if (entry_1) {
-		it.hdr = s4;
-		it.nm_len = s1_name->len;
-		EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, entry_1, &it));
-	}
-
-	entry_2 = tfw_hpack_find_index(&hp->dec_tbl, 63);
-	EXPECT_NOT_NULL(entry_2);
-	if (entry_2) {
-		it.hdr = s5;
-		it.nm_len = s2_name->len;
-		EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, entry_2, &it));
-	}
-
-	entry_3 = tfw_hpack_find_index(&hp->dec_tbl, 24);
-	EXPECT_NOT_NULL(entry_3);
-	if (entry_3) {
-		it.hdr = s3;
-		it.nm_len = s3_name->len;
-		EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, entry_3, &it));
-	}
-
-	entry = tfw_hpack_find_index(&hp->dec_tbl, 64);
-	EXPECT_NOT_NULL(entry);
-	if (entry && entry_1) {
-		/*
-		 * Check that entries with 66 and 64 indexes use the same
-		 * dynamic @name instance.
-		 */
-		EXPECT_EQ(entry_1->name, entry->name);
-		EXPECT_EQ(entry->name->count, 2);
-		EXPECT_EQ(entry->value->count, 1);
-	}
-
-	entry = tfw_hpack_find_index(&hp->dec_tbl, 63);
-	EXPECT_NOT_NULL(entry);
-	if (entry && entry_2) {
-		/*
-		 * Check that entries with 65 and 63 indexes use the same
-		 * dynamic @name instance.
-		 */
-		EXPECT_EQ(entry_2->name, entry->name);
-		EXPECT_EQ(entry->name->count, 2);
-		EXPECT_EQ(entry->value->count, 1);
-	}
+	test_h2_hdr_name(s2, &h_name);
+	it->nm_num = h_name.nchunks;
+	it->nm_len = h_name.len;
+	it->tag = TFW_TAG_HDR_RAW;
+	*it->parsed_hdr = *s2;
+	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it));
 
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 62);
 	EXPECT_NOT_NULL(entry);
-	if (entry && entry_3) {
-		/*
-		 * Check that entries with 62 and 24(static) indexes use the
-		 * same static @name instance.
-		 */
-		EXPECT_EQ(entry_3->name, entry->name);
-		EXPECT_EQ(entry->name->count, -1);
-		EXPECT_EQ(entry->value->count, 1);
-	}
+	if (entry)
+		EXPECT_TRUE(tfw_strcmp(entry->hdr, s2) == 0);
+
+	entry = tfw_hpack_find_index(&hp->dec_tbl, 63);
+	EXPECT_NOT_NULL(entry);
+	if (entry)
+		EXPECT_TRUE(tfw_strcmp(entry->hdr, s1) == 0);
+
+	test_h2_hdr_name(s3, &h_name);
+	it->nm_num = h_name.nchunks;
+	it->nm_len = h_name.len;
+	it->tag = TFW_TAG_HDR_CACHE_CONTROL;
+	*it->parsed_hdr = *s3;
+	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it));
+
+	test_h2_hdr_name(s4, &h_name);
+	it->nm_num = h_name.nchunks;
+	it->nm_len = h_name.len;
+	it->tag = TFW_TAG_HDR_RAW;
+	*it->parsed_hdr = *s4;
+	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it));
+
+	entry = tfw_hpack_find_index(&hp->dec_tbl, 62);
+	EXPECT_NOT_NULL(entry);
+	if (entry)
+		EXPECT_TRUE(tfw_strcmp(entry->hdr, s4) == 0);
+
+	entry = tfw_hpack_find_index(&hp->dec_tbl, 63);
+	EXPECT_NOT_NULL(entry);
+	if (entry)
+		EXPECT_TRUE(tfw_strcmp(entry->hdr, s3) == 0);
+
+	test_h2_hdr_name(s5, &h_name);
+	it->nm_num = h_name.nchunks;
+	it->nm_len = h_name.len;
+	it->tag = TFW_TAG_HDR_RAW;
+	*it->parsed_hdr = *s5;
+	EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it));
+
+	/* Verify the correctness of the indexes order. */
+	entry = tfw_hpack_find_index(&hp->dec_tbl, 66);
+	EXPECT_NOT_NULL(entry);
+	if (entry)
+		EXPECT_TRUE(tfw_strcmp(entry->hdr, s1) == 0);
+
+	entry = tfw_hpack_find_index(&hp->dec_tbl, 65);
+	EXPECT_NOT_NULL(entry);
+	if (entry)
+		EXPECT_TRUE(tfw_strcmp(entry->hdr, s2) == 0);
+
+	entry = tfw_hpack_find_index(&hp->dec_tbl, 64);
+	EXPECT_NOT_NULL(entry);
+
+	if (entry)
+		EXPECT_TRUE(tfw_strcmp(entry->hdr, s3) == 0);
+
+	entry = tfw_hpack_find_index(&hp->dec_tbl, 63);
+	EXPECT_NOT_NULL(entry);
+	if (entry)
+		EXPECT_TRUE(tfw_strcmp(entry->hdr, s4) == 0);
+
+	entry = tfw_hpack_find_index(&hp->dec_tbl, 62);
+	EXPECT_NOT_NULL(entry);
+	if (entry)
+		EXPECT_TRUE(tfw_strcmp(entry->hdr, s5) == 0);
 }
 
 TEST(hpack, dec_table_wrap)
 {
 	int shift;
 	TfwHPack *hp = &ctx.hpack;
+	TfwMsgParseIter *it = &test_req->pit;
 	TFW_STR(s_value, "custom value");
 
 	for (shift = 0; shift < 14; ++shift) {
-		TfwMsgParseIter it;
 		TfwHPackEntry *last_entries;
 		const TfwHPackEntry *entries, *entry;
 		int i, start_idx = 17, stop_idx = start_idx + shift + 1;
@@ -339,8 +392,7 @@ TEST(hpack, dec_table_wrap)
 		 * table.
 		 */
 		for (i = start_idx; i < stop_idx; ++i) {
-			TfwStr s_name = {};
-			TfwHPackStr *name;
+			TfwStr *hdr;
 
 			entry = tfw_hpack_find_index(&hp->dec_tbl, i);
 			EXPECT_NOT_NULL(entry);
@@ -350,25 +402,22 @@ TEST(hpack, dec_table_wrap)
 			if (i >= end_idx - shift)
 				last_entries[i - (end_idx - shift)] = *entry;
 
-			EXPECT_NULL(entry->value);
-			name = entry->name;
-			s_name.len = name->len;
-			s_name.data = name->ptr;
-			HDR_COMPOUND_STR(s, &s_name, s_value);
+			hdr = entry->hdr;
+			EXPECT_EQ(hdr->nchunks, 1);
+			HDR_COMPOUND_STR(s, hdr, s_value);
 
-			it.hdr = s;
-			it.nm_len = s_name.len;
-
-			EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, NULL, &it));
+			*it->parsed_hdr = *s;
+			EXPECT_OK(tfw_hpack_add_index(&hp->dec_tbl, it));
 
 		}
 
-		if (i < end_idx && s) {
+		if (i < end_idx) {
+			unsigned long shrink_sz = s->len + HPACK_ENTRY_OVERHEAD;
 			/*
 			 * Evict first @shift entries, i.e shrink table to only
 			 * one existing entry.
 			 */
-			EXPECT_OK(tfw_hpack_set_length(hp, s->len - 1 + 32));
+			EXPECT_OK(tfw_hpack_set_length(hp, shrink_sz));
 			EXPECT_OK(tfw_hpack_set_length(hp,
 						       HPACK_TABLE_DEF_SIZE));
 
@@ -387,16 +436,15 @@ TEST(hpack, dec_table_wrap)
 		 */
 		entries = hp->dec_tbl.entries;
 		for (i = 0; i < shift; ++i) {
+			TfwStr h_name;
 			const TfwHPackEntry *l_entry = &last_entries[i];
 			const TfwHPackEntry *t_entry = &entries[i];
 
-			EXPECT_NOT_NULL(l_entry->name);
-			if (l_entry->name) {
-				EXPECT_EQ(l_entry->name->len,
-					  t_entry->name->len);
-				EXPECT_OK(memcmp_fast(l_entry->name->ptr,
-						      t_entry->name->ptr,
-						      t_entry->name->len));
+			EXPECT_NOT_NULL(l_entry->hdr);
+			EXPECT_NOT_NULL(t_entry->hdr);
+			if (l_entry->hdr) {
+				test_h2_hdr_name(t_entry->hdr, &h_name);
+				EXPECT_TRUE(tfw_strcmp(&h_name, l_entry->hdr) == 0);
 			}
 		}
 
@@ -409,26 +457,35 @@ TEST(hpack, dec_raw)
 {
 	int r;
 	TfwHPack *hp;
-	const char *pos;
-	TfwMsgParseIter *it;
+	TfwHttpHdrTbl *ht;
+	TfwStr h_name, h_value;
 	unsigned int parsed;
-	unsigned long test_len1, test_len2, test_len3;
 
-	const char *test_data1 = "custom-key:custom-value\r\n";
+#define HDR_NAME_1	"custom-key"
+#define HDR_VALUE_1	"custom-value"
+#define HDR_NAME_2	"x-custom-hdr"
+#define HDR_VALUE_2	"test foo example value"
+#define HDR_NAME_3	"x-forwarded-for"
+#define HDR_VALUE_3	" 127.0.0.1, example.com"
+
+	const char *test_name1 = HDR_NAME_1;
+	const char *test_value1 = HDR_VALUE_1;
 	unsigned long hdr_len1 = 25;
-	const char *hdr_data1 =
+	static char *hdr_data1 =
 		"\x40"			/* == With indexing ==		*/
 		"\x0A"			/* Literal name (len = 10)	*/
 		"\x63\x75\x73\x74\x6F"	/* custom-key			*/
 		"\x6D\x2D\x6B\x65\x79"	/*				*/
 		"\x0C"			/* Literal value (len = 12)	*/
-		"\x63\x75\x73\x74\x6F"	/* custom-value	*/
+		"\x63\x75\x73\x74\x6F"	/* custom-value			*/
 		"\x6D\x2D\x76\x61\x6C"	/*				*/
 		"\x75\x65";		/*				*/
 
-	const char *test_data2 = "x-custom-hdr:test foo example value\r\n";
+
+	const char *test_name2 = HDR_NAME_2;
+	const char *test_value2 = HDR_VALUE_2;
 	unsigned long hdr_len2 = 37;
-	const char *hdr_data2 =
+	static char *hdr_data2 =
 		"\x00"			/* == Without indexing ==	*/
 		"\x0C"			/* Literal name (len = 12)	*/
 		"\x78\x2D\x63\x75\x73"	/* x-custom-hdr			*/
@@ -441,10 +498,12 @@ TEST(hpack, dec_raw)
 		"\x65\x20\x76\x61\x6C"	/*				*/
 		"\x75\x65";		/*				*/
 
-	const char *test_data3 = "x-forwarded-for: 127.0.0.1, example.com\r\n";
+
+	const char *test_name3 = HDR_NAME_3;
+	const char *test_value3 = HDR_VALUE_3;
 	unsigned long hdr_len3 = 41;
-	const char *hdr_data3 =
-		"\x10"			/* == Never indexing ==	*/
+	static char *hdr_data3 =
+		"\x10"			/* == Never indexing ==		*/
 		"\x0F"			/* Literal name (len = 15)	*/
 		"\x78\x2D\x66\x6F\x72"	/* x-forwarded-for		*/
 		"\x77\x61\x72\x64\x65"	/*				*/
@@ -456,62 +515,134 @@ TEST(hpack, dec_raw)
 		"\x6D\x70\x6C\x65\x2E"	/*				*/
 		"\x63\x6F\x6D";		/*				*/
 
+
 	hp = &ctx.hpack;
-	it = &test_req->pit;
+	ht = test_req->h_tbl;
 
-	test_len1 = strlen(test_data1);
-	test_len2 = strlen(test_data2);
-	test_len3 = strlen(test_data3);
+	/* Set mandatory pseudo-headers to pass checks in @H2_MSG_VERIFY(). */
+	ht->tbl[TFW_HTTP_HDR_H2_METHOD] = TFW_STR_STRING(HDR_METHOD_NM);
+	collect_compound_str2(&ht->tbl[TFW_HTTP_HDR_H2_METHOD], HDR_METHOD_VAL,
+			      SLEN(HDR_METHOD_VAL), TFW_STR_HDR_VALUE);
+	ht->tbl[TFW_HTTP_HDR_H2_SCHEME] = TFW_STR_STRING(HDR_SCHEME_NM);
+	collect_compound_str2(&ht->tbl[TFW_HTTP_HDR_H2_SCHEME], HDR_SCHEME_VAL,
+			      SLEN(HDR_SCHEME_VAL), TFW_STR_HDR_VALUE);
+	ht->tbl[TFW_HTTP_HDR_H2_PATH] = TFW_STR_STRING(HDR_PATH_NM);
+	collect_compound_str2(&ht->tbl[TFW_HTTP_HDR_H2_PATH], HDR_PATH_VAL,
+			      SLEN(HDR_PATH_VAL), TFW_STR_HDR_VALUE);
 
+	parsed = 0;
 	r = tfw_hpack_decode(hp, hdr_data1, hdr_len1, test_req, &parsed);
 	EXPECT_EQ(r, T_OK);
 	EXPECT_EQ(parsed, hdr_len1);
 
+	parsed = 0;
 	r = tfw_hpack_decode(hp, hdr_data2, hdr_len2, test_req, &parsed);
 	EXPECT_EQ(r, T_OK);
 	EXPECT_EQ(parsed, hdr_len2);
 
+	parsed = 0;
 	r = tfw_hpack_decode(hp, hdr_data3, hdr_len3, test_req, &parsed);
 	EXPECT_EQ(r, T_OK);
 	EXPECT_EQ(parsed, hdr_len3);
 
-	pos = it->start_pos;
-	EXPECT_OK(memcmp_fast(pos, test_data1, test_len1));
+	/*
+	 * Update pointer to headers table, since it had been enlarged and,
+	 * as a result, relocated during decoding/parsing procedures.
+	 */
+	EXPECT_NE(ht, test_req->h_tbl);
+	ht = test_req->h_tbl;
 
-	pos += test_len1;
-	EXPECT_OK(memcmp_fast(pos, test_data2, test_len2));
+	test_h2_hdr_name(&ht->tbl[TFW_HTTP_HDR_RAW], &h_name);
+	__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_RAW], &h_value);
+	EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
+	EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
+	if (!TFW_STR_EMPTY(&h_name) && !TFW_STR_EMPTY(&h_value)) {
+		EXPECT_EQ(strlen(test_name1), h_name.len);
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_name, test_name1,
+					    strlen(test_name1), 0));
+		EXPECT_EQ(strlen(test_value1), h_value.len);
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value1,
+					    strlen(test_value1), 0));
+	}
 
-	pos += test_len2;
-	EXPECT_OK(memcmp_fast(pos, test_data3, test_len3));
+	test_h2_hdr_name(&ht->tbl[TFW_HTTP_HDR_RAW + 1], &h_name);
+	__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_RAW + 1], &h_value);
+	EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
+	EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
+	if (!TFW_STR_EMPTY(&h_name) && !TFW_STR_EMPTY(&h_value)) {
+		EXPECT_EQ(strlen(test_name2), h_name.len);
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_name, test_name2,
+					    strlen(test_name2), 0));
+		EXPECT_EQ(strlen(test_value2), h_value.len);
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value2,
+					    strlen(test_value2), 0));
+	}
+
+	test_h2_hdr_name(&ht->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR], &h_name);
+	__h2_msg_hdr_val(&ht->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR], &h_value);
+	EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
+	EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
+	if (!TFW_STR_EMPTY(&h_name) && !TFW_STR_EMPTY(&h_value)) {
+		EXPECT_EQ(strlen(test_name3), h_name.len);
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_name, test_name3,
+					    strlen(test_name3), 0));
+		EXPECT_EQ(strlen(test_value3), h_value.len);
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value3,
+					    strlen(test_value3), 0));
+	}
+
+#undef HDR_NAME_1
+#undef HDR_VALUE_1
+#undef HDR_NAME_2
+#undef HDR_VALUE_2
+#undef HDR_NAME_3
+#undef HDR_VALUE_3
 }
 
 TEST(hpack, dec_indexed)
 {
 	int r;
 	TfwHPack *hp;
-	const char *pos;
-	TfwMsgParseIter *it;
+	TfwHttpHdrTbl *ht;
 	unsigned int parsed;
 	const TfwHPackEntry *entry;
-	const TfwHPackStr *name, *value;
+	TfwStr h_name, h_value, *hdr, *dup;
 
-	const char *test_data1 = "x-forwarded-for: test.com, foo.com,"
-		" example.com\r\n";
-	const char *test_data2 = "accept-encoding:gzip, deflate\r\n";
-	const char *test_data3 = "accept-encoding:deflate, gzip;q=1.0,"
-		" *;q=0.5\r\n";
-	const char *test_data4 = "x-forwarded-for:127.0.0.1\r\n";
-	const char *test_data5 = "host:localhost\r\n";
-	const char *test_data6 = "transfer-encoding:chunked\r\n";
-	unsigned long test_len1 = strlen(test_data1);
-	unsigned long test_len2 = strlen(test_data2);
-	unsigned long test_len3 = strlen(test_data3);
-	unsigned long test_len4 = strlen(test_data4);
-	unsigned long test_len5 = strlen(test_data5);
-	unsigned long test_len6 = strlen(test_data6);
+#define HDR_NAME_1	"x-forwarded-for"
+#define HDR_VALUE_1	" test.com, foo.com, example.com"
+#define HDR_NAME_2	"accept-encoding"
+#define HDR_VALUE_2	"gzip, deflate"
+#define HDR_VALUE_3	"deflate, gzip;q=1.0, *;q=0.5"
+#define HDR_VALUE_4	"127.0.0.1"
+#define HDR_NAME_5	"host"
+#define HDR_VALUE_5	"localhost"
+#define HDR_NAME_6	"referer"
+#define HDR_VALUE_6	"http://www.example.org/overview.html"
+
+	const char *test_name1 = HDR_NAME_1;
+	const char *test_value1 = HDR_VALUE_1;
+	const char *test_name2 = HDR_NAME_2;
+	const char *test_value2 = HDR_VALUE_2;
+	const char *test_value3 = HDR_VALUE_3;
+	const char *test_value4 = HDR_VALUE_4;
+	const char *test_name5 = HDR_NAME_5;
+	const char *test_value5 = HDR_VALUE_5;
+	const char *test_name6 = HDR_NAME_6;
+	const char *test_value6 = HDR_VALUE_6;
+
+	unsigned long test_len_nm1 = strlen(test_name1);
+	unsigned long test_len_val1 = strlen(test_value1);
+	unsigned long test_len_nm2 = strlen(test_name2);
+	unsigned long test_len_val2 = strlen(test_value2);
+	unsigned long test_len_val3 = strlen(test_value3);
+	unsigned long test_len_val4 = strlen(test_value4);
+	unsigned long test_len_nm5 = strlen(test_name5);
+	unsigned long test_len_val5 = strlen(test_value5);
+	unsigned long test_len_nm6 = strlen(test_name6);
+	unsigned long test_len_val6 = strlen(test_value6);
 
 	unsigned long hdr_len1 = 49;
-	const char *hdr_data1 =
+	char *hdr_data1 =
 		"\x40"			/* == With indexing ==		*/
 		"\x0F"			/* Literal name (len = 15)	*/
 		"\x78\x2D\x66\x6F\x72"	/* x-forwarded-for		*/
@@ -527,13 +658,13 @@ TEST(hpack, dec_indexed)
 		"\x6D";			/*				*/
 
 	unsigned long hdr_len2 = 1;
-	const char *hdr_data2 = "\xBE";	/* == Indexed (dynamic: 62) ==	*/
+	char *hdr_data2 = "\xBE";	/* == Indexed (dynamic: 62) ==	*/
 
 	unsigned long hdr_len3 = 1;
-	const char *hdr_data3 = "\x90";	/* == Indexed (static: 16) ==	*/
+	char *hdr_data3 = "\x90";	/* == Indexed (static: 16) ==	*/
 
 	unsigned long hdr_len4 = 30;
-	const char *hdr_data4 =
+	char *hdr_data4 =
 		"\x50"			/* == With indexing ==		*/
 					/* (name indexed - static: 16)	*/
 		"\x1C"			/* Literal value (len = 28)	*/
@@ -545,7 +676,7 @@ TEST(hpack, dec_indexed)
 		"\x30\x2E\x35";		/*				*/
 
 	unsigned long hdr_len5 = 12;
-	const char *hdr_data5 =
+	char *hdr_data5 =
 		"\x7F\x00"		/* == With indexing ==		*/
 					/* (name indexed - dynamic: 63)	*/
 					/* (multibyte integer encoding) */
@@ -555,7 +686,7 @@ TEST(hpack, dec_indexed)
 		"\x2E\x30\x2E\x31";	/*				*/
 
 	unsigned long hdr_len6 = 12;
-	const char *hdr_data6 =
+	char *hdr_data6 =
 		"\x0F\x17"		/* == Without indexing ==	*/
 					/* (name indexed - static: 38)	*/
 					/* (multibyte integer encoding) */
@@ -564,75 +695,185 @@ TEST(hpack, dec_indexed)
 		"\x6C\x6F\x63\x61\x6C"	/* localhost			*/
 		"\x68\x6F\x73\x74";	/*				*/
 
-	unsigned long hdr_len7 = 10;
-	const char *hdr_data7 =
-		"\x0F\x2A"		/* == Without indexing ==	*/
-					/* (name indexed - static: 57)	*/
+	unsigned long hdr_len7 = 39;
+	char *hdr_data7 =
+		"\x0F\x24"		/* == Without indexing ==	*/
+					/* (name indexed - static: 51)	*/
 					/* (multibyte integer encoding) */
 					/*				*/
-		"\x07"			/* Literal value (len = 7)	*/
-		"\x63\x68\x75\x6E\x6B"	/* chunked			*/
-		"\x65\x64";		/*				*/
+		"\x24"			/* Literal value (len = 36)	*/
+		"\x68\x74\x74\x70\x3A"	/* http://www.example.org/...	*/
+		"\x2F\x2F\x77\x77\x77"	/* ...overview.html		*/
+		"\x2E\x65\x78\x61\x6D"	/*				*/
+		"\x70\x6C\x65\x2E\x6F"	/*				*/
+		"\x72\x67\x2F\x6F\x76"	/*				*/
+		"\x65\x72\x76\x69\x65"	/*				*/
+		"\x77\x2E\x68\x74\x6D"	/*				*/
+		"\x6C";			/*				*/
 
 	hp = &ctx.hpack;
-	it = &test_req->pit;
+	ht = test_req->h_tbl;
+
+	/* Set mandatory pseudo-headers to pass checks in @H2_MSG_VERIFY(). */
+	ht->tbl[TFW_HTTP_HDR_H2_METHOD] = TFW_STR_STRING(HDR_METHOD_NM);
+	collect_compound_str2(&ht->tbl[TFW_HTTP_HDR_H2_METHOD], HDR_METHOD_VAL,
+			      SLEN(HDR_METHOD_VAL), TFW_STR_HDR_VALUE);
+	ht->tbl[TFW_HTTP_HDR_H2_SCHEME] = TFW_STR_STRING(HDR_SCHEME_NM);
+	collect_compound_str2(&ht->tbl[TFW_HTTP_HDR_H2_SCHEME], HDR_SCHEME_VAL,
+			      SLEN(HDR_SCHEME_VAL), TFW_STR_HDR_VALUE);
+	ht->tbl[TFW_HTTP_HDR_H2_PATH] = TFW_STR_STRING(HDR_PATH_NM);
+	collect_compound_str2(&ht->tbl[TFW_HTTP_HDR_H2_PATH], HDR_PATH_VAL,
+			      SLEN(HDR_PATH_VAL), TFW_STR_HDR_VALUE);
 
 	/*
 	 * Processing prepared HTTP/2 headers in HPACK decoding
 	 * procedure.
 	 */
+	parsed = 0;
 	r = tfw_hpack_decode(hp, hdr_data1, hdr_len1, test_req, &parsed);
 	EXPECT_EQ(r, T_OK);
 	EXPECT_EQ(parsed, hdr_len1);
 
+	parsed = 0;
 	r = tfw_hpack_decode(hp, hdr_data2, hdr_len2, test_req, &parsed);
 	EXPECT_EQ(r, T_OK);
 	EXPECT_EQ(parsed, hdr_len2);
 
+	parsed = 0;
 	r = tfw_hpack_decode(hp, hdr_data3, hdr_len3, test_req, &parsed);
 	EXPECT_EQ(r, T_OK);
 	EXPECT_EQ(parsed, hdr_len3);
 
+	parsed = 0;
 	r = tfw_hpack_decode(hp, hdr_data4, hdr_len4, test_req, &parsed);
 	EXPECT_EQ(r, T_OK);
 	EXPECT_EQ(parsed, hdr_len4);
 
+	parsed = 0;
 	r = tfw_hpack_decode(hp, hdr_data5, hdr_len5, test_req, &parsed);
 	EXPECT_EQ(r, T_OK);
 	EXPECT_EQ(parsed, hdr_len5);
 
+	parsed = 0;
 	r = tfw_hpack_decode(hp, hdr_data6, hdr_len6, test_req, &parsed);
 	EXPECT_EQ(r, T_OK);
 	EXPECT_EQ(parsed, hdr_len6);
 
+	parsed = 0;
 	r = tfw_hpack_decode(hp, hdr_data7, hdr_len7, test_req, &parsed);
 	EXPECT_EQ(r, T_OK);
 	EXPECT_EQ(parsed, hdr_len7);
 
+	EXPECT_EQ(ht, test_req->h_tbl);
+
 	/*
 	 * Verify that decoded headers had been correctly written into
-	 * the special target buffer.
+	 * the headers table.
 	 */
-	pos = it->start_pos;
-	EXPECT_OK(memcmp_fast(pos, test_data1, test_len1));
+	hdr = &ht->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR];
+	EXPECT_TRUE(TFW_STR_DUP(hdr));
+	EXPECT_EQ(hdr->nchunks, 3);
+	if (hdr->nchunks == 3) {
+		dup = hdr->chunks;
+		test_h2_hdr_name(dup, &h_name);
+		__h2_msg_hdr_val(dup, &h_value);
+		EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
+		EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
+		if (!TFW_STR_EMPTY(&h_name) && !TFW_STR_EMPTY(&h_value)) {
+			EXPECT_EQ(test_len_nm1, h_name.len);
+			EXPECT_TRUE(tfw_str_eq_cstr(&h_name, test_name1,
+						    test_len_nm1, 0));
+			EXPECT_EQ(test_len_val1, h_value.len);
+			EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value1,
+						    test_len_val1, 0));
+		}
+		dup = hdr->chunks + 1;
+		test_h2_hdr_name(dup, &h_name);
+		__h2_msg_hdr_val(dup, &h_value);
+		EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
+		EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
+		if (!TFW_STR_EMPTY(&h_name) && !TFW_STR_EMPTY(&h_value)) {
+			EXPECT_EQ(test_len_nm1, h_name.len);
+			EXPECT_TRUE(tfw_str_eq_cstr(&h_name, test_name1,
+						    test_len_nm1, 0));
+			EXPECT_EQ(test_len_val1, h_value.len);
+			EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value1,
+						    test_len_val1, 0));
+		}
+		dup = hdr->chunks + 2;
+		test_h2_hdr_name(dup, &h_name);
+		__h2_msg_hdr_val(dup, &h_value);
+		EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
+		EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
+		if (!TFW_STR_EMPTY(&h_name) && !TFW_STR_EMPTY(&h_value)) {
+			EXPECT_EQ(test_len_nm1, h_name.len);
+			EXPECT_TRUE(tfw_str_eq_cstr(&h_name, test_name1,
+						    test_len_nm1, 0));
+			EXPECT_EQ(test_len_val4, h_value.len);
+			EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value4,
+						    test_len_val4, 0));
+		}
+	}
 
-	pos += test_len1;
-	EXPECT_OK(memcmp_fast(pos, test_data1, test_len1));
+	hdr = &ht->tbl[TFW_HTTP_HDR_RAW];
+	EXPECT_TRUE(TFW_STR_DUP(hdr));
+	EXPECT_EQ(hdr->nchunks, 2);
+	if (hdr->nchunks == 2) {
+		dup = hdr->chunks;
+		test_h2_hdr_name(dup, &h_name);
+		__h2_msg_hdr_val(dup, &h_value);
+		EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
+		EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
+		if (!TFW_STR_EMPTY(&h_name) && !TFW_STR_EMPTY(&h_value)) {
+			EXPECT_EQ(test_len_nm2, h_name.len);
+			EXPECT_TRUE(tfw_str_eq_cstr(&h_name, test_name2,
+						    test_len_nm2, 0));
+			EXPECT_EQ(test_len_val2, h_value.len);
+			EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value2,
+						    test_len_val2, 0));
+		}
+		dup = hdr->chunks + 1;
+		test_h2_hdr_name(dup, &h_name);
+		__h2_msg_hdr_val(dup, &h_value);
+		EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
+		EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
+		if (!TFW_STR_EMPTY(&h_name) && !TFW_STR_EMPTY(&h_value)) {
+			EXPECT_EQ(test_len_nm2, h_name.len);
+			EXPECT_TRUE(tfw_str_eq_cstr(&h_name, test_name2,
+						    test_len_nm2, 0));
+			EXPECT_EQ(test_len_val3, h_value.len);
+			EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value3,
+						    test_len_val3, 0));
+		}
+	}
 
-	pos += test_len1;
-	EXPECT_OK(memcmp_fast(pos, test_data2, test_len2));
+	hdr = &ht->tbl[TFW_HTTP_HDR_HOST];
+	test_h2_hdr_name(hdr, &h_name);
+	__h2_msg_hdr_val(hdr, &h_value);
+	EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
+	EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
+	if (!TFW_STR_EMPTY(&h_name) && !TFW_STR_EMPTY(&h_value)) {
+		EXPECT_EQ(test_len_nm5, h_name.len);
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_name, test_name5,
+					    test_len_nm5, 0));
+		EXPECT_EQ(test_len_val5, h_value.len);
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value5,
+					    test_len_val5, 0));
+	}
 
-	pos += test_len2;
-	EXPECT_OK(memcmp_fast(pos, test_data3, test_len3));
-
-	pos += test_len3;
-	EXPECT_OK(memcmp_fast(pos, test_data4, test_len4));
-
-	pos += test_len4;
-	EXPECT_OK(memcmp_fast(pos, test_data5, test_len5));
-
-	pos += test_len5;
-	EXPECT_OK(memcmp_fast(pos, test_data6, test_len6));
+	hdr = &ht->tbl[TFW_HTTP_HDR_REFERER];
+	test_h2_hdr_name(hdr, &h_name);
+	__h2_msg_hdr_val(hdr, &h_value);
+	EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
+	EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
+	if (!TFW_STR_EMPTY(&h_name) && !TFW_STR_EMPTY(&h_value)) {
+		EXPECT_EQ(test_len_nm6, h_name.len);
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_name, test_name6,
+					    test_len_nm6, 0));
+		EXPECT_EQ(test_len_val6, h_value.len);
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value6,
+					    test_len_val6, 0));
+	}
 
 	/*
 	 * Verify that decoded headers had been placed into decoder index
@@ -643,63 +884,116 @@ TEST(hpack, dec_indexed)
 	 * have 'without indexing' code in the head part, which means they
 	 * hadn't been indexed too.
 	 */
+	entry = tfw_hpack_find_index(&hp->dec_tbl, 65);
+	EXPECT_NULL(entry);
+
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 64);
 	EXPECT_NOT_NULL(entry);
 	if (entry) {
-		name = entry->name;
-		value = entry->value;
-		EXPECT_EQ(strlen("x-forwarded-for"), name->len);
-		EXPECT_OK(memcmp_fast(test_data1, name->ptr, name->len));
-		EXPECT_EQ(strlen(" test.com, foo.com, example.com"),
-			  value->len);
-		EXPECT_OK(memcmp_fast(test_data1 + 15 + 1, value->ptr,
-				      value->len));
+		hdr = entry->hdr;
+		test_h2_hdr_name(hdr, &h_name);
+		__h2_msg_hdr_val(hdr, &h_value);
+		EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
+		EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
+		if (!TFW_STR_EMPTY(&h_name) && !TFW_STR_EMPTY(&h_value)) {
+			EXPECT_EQ(test_len_nm1, h_name.len);
+			EXPECT_TRUE(tfw_str_eq_cstr(&h_name, test_name1,
+						    test_len_nm1, 0));
+			EXPECT_EQ(test_len_val1, h_value.len);
+			EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value1,
+						    test_len_val1, 0));
+		}
+		EXPECT_EQ(entry->name_len, test_len_nm1);
+		EXPECT_EQ(entry->name_num, h_name.nchunks);
+		EXPECT_EQ(entry->tag, TFW_TAG_HDR_X_FORWARDED_FOR);
 	}
 
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 63);
 	EXPECT_NOT_NULL(entry);
 	if (entry) {
-		name = entry->name;
-		value = entry->value;
-		EXPECT_EQ(strlen("accept-encoding"), name->len);
-		EXPECT_OK(memcmp_fast(test_data3, name->ptr, name->len));
-		EXPECT_EQ(strlen("deflate, gzip;q=1.0, *;q=0.5"), value->len);
-		EXPECT_OK(memcmp_fast(test_data3 + 15 + 1, value->ptr,
-				      value->len));
+		hdr = entry->hdr;
+		test_h2_hdr_name(hdr, &h_name);
+		__h2_msg_hdr_val(hdr, &h_value);
+		EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
+		EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
+		if (!TFW_STR_EMPTY(&h_name) && !TFW_STR_EMPTY(&h_value)) {
+			EXPECT_EQ(test_len_nm2, h_name.len);
+			EXPECT_TRUE(tfw_str_eq_cstr(&h_name, test_name2,
+						    test_len_nm2, 0));
+			EXPECT_EQ(test_len_val3, h_value.len);
+			EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value3,
+						    test_len_val3, 0));
+		}
+		EXPECT_EQ(entry->name_len, test_len_nm2);
+		EXPECT_EQ(entry->name_num, h_name.nchunks);
+		EXPECT_EQ(entry->tag, TFW_TAG_HDR_RAW);
 	}
 
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 62);
 	EXPECT_NOT_NULL(entry);
 	if (entry) {
-		name = entry->name;
-		value = entry->value;
-		EXPECT_EQ(strlen("x-forwarded-for"), name->len);
-		EXPECT_OK(memcmp_fast(test_data4, name->ptr, name->len));
-		EXPECT_EQ(strlen("127.0.0.1"), value->len);
-		EXPECT_OK(memcmp_fast(test_data4 + 15 + 1, value->ptr,
-				      value->len));
+		hdr = entry->hdr;
+		test_h2_hdr_name(hdr, &h_name);
+		__h2_msg_hdr_val(hdr, &h_value);
+		EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
+		EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
+		if (!TFW_STR_EMPTY(&h_name) && !TFW_STR_EMPTY(&h_value)) {
+			EXPECT_EQ(test_len_nm1, h_name.len);
+			EXPECT_TRUE(tfw_str_eq_cstr(&h_name, test_name1,
+						    test_len_nm1, 0));
+			EXPECT_EQ(test_len_val4, h_value.len);
+			EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value4,
+						    test_len_val4, 0));
+		}
+		EXPECT_EQ(entry->name_len, test_len_nm1);
+		EXPECT_EQ(entry->name_num, h_name.nchunks);
+		EXPECT_EQ(entry->tag, TFW_TAG_HDR_X_FORWARDED_FOR);
 	}
+
+#undef HDR_NAME_1
+#undef HDR_VALUE_1
+#undef HDR_NAME_2
+#undef HDR_VALUE_2
+#undef HDR_VALUE_3
+#undef HDR_VALUE_4
+#undef HDR_NAME_5
+#undef HDR_VALUE_5
+#undef HDR_NAME_6
+#undef HDR_VALUE_6
 }
 
 TEST(hpack, dec_huffman)
 {
 	int r;
 	TfwHPack *hp;
-	const char *pos;
-	TfwMsgParseIter *it;
+	TfwHttpHdrTbl *ht;
 	unsigned int parsed;
 	const TfwHPackEntry *entry;
-	const TfwHPackStr *name, *value;
+	TfwStr h_name, h_value, *hdr;
 
-	const char *test_data1 = "custom-key:custom-value\r\n";
-	unsigned long test_len1 = strlen(test_data1);
-	const char *test_data2 = "cache-control:no-cache\r\n";
-	unsigned long test_len2 = strlen(test_data2);
-	const char *test_data3 = ":authority:www.example.com\r\n";
-	unsigned long test_len3 = strlen(test_data3);
+#define HDR_NAME_1	"custom-key"
+#define HDR_VALUE_1	"custom-value"
+#define HDR_NAME_2	"cache-control"
+#define HDR_VALUE_2	"no-cache"
+#define HDR_NAME_3	":authority"
+#define HDR_VALUE_3	"www.example.com"
+
+	const char *test_name1 = HDR_NAME_1;
+	const char *test_value1 = HDR_VALUE_1;
+	const char *test_name2 = HDR_NAME_2;
+	const char *test_value2 = HDR_VALUE_2;
+	const char *test_name3 = HDR_NAME_3;
+	const char *test_value3 = HDR_VALUE_3;
+
+	unsigned long test_len_nm1 = strlen(test_name1);
+	unsigned long test_len_val1 = strlen(test_value1);
+	unsigned long test_len_nm2 = strlen(test_name2);
+	unsigned long test_len_val2 = strlen(test_value2);
+	unsigned long test_len_nm3 = strlen(test_name3);
+	unsigned long test_len_val3 = strlen(test_value3);
 
 	unsigned long hdr_len1 = 20;
-	const char *hdr_data1 =
+	char *hdr_data1 =
 		"\x40"			/* == With indexing ==		*/
 		"\x88"			/* Literal name (len = 8)	*/
 					/* (Huffman encoded)		*/
@@ -712,7 +1006,7 @@ TEST(hpack, dec_huffman)
 		"\xB8\xE8\xB4\xBF";	/*				*/
 
 	unsigned long hdr_len2 = 8;
-	const char *hdr_data2 =
+	char *hdr_data2 =
 		"\x58"			/* == With indexing ==		*/
 					/* (name indexed - static: 24)	*/
 					/*				*/
@@ -722,7 +1016,7 @@ TEST(hpack, dec_huffman)
 		"\xBF";			/*				*/
 
 	unsigned long hdr_len3 = 14;
-	const char *hdr_data3 =
+	char *hdr_data3 =
 		"\x41"			/* == With indexing ==		*/
 					/* (name indexed - static: 1)	*/
 					/*				*/
@@ -733,70 +1027,215 @@ TEST(hpack, dec_huffman)
 		"\xF4\xFF";		/*				*/
 
 	hp = &ctx.hpack;
-	it = &test_req->pit;
+	ht = test_req->h_tbl;
 
-	r = tfw_hpack_decode(hp, hdr_data1, hdr_len1, test_req, &parsed);
-	EXPECT_EQ(r, T_OK);
-	EXPECT_EQ(parsed, hdr_len1);
+	/* Set mandatory pseudo-headers to pass checks in @H2_MSG_VERIFY(). */
+	ht->tbl[TFW_HTTP_HDR_H2_METHOD] = TFW_STR_STRING(HDR_METHOD_NM);
+	collect_compound_str2(&ht->tbl[TFW_HTTP_HDR_H2_METHOD], HDR_METHOD_VAL,
+			      SLEN(HDR_METHOD_VAL), TFW_STR_HDR_VALUE);
+	ht->tbl[TFW_HTTP_HDR_H2_SCHEME] = TFW_STR_STRING(HDR_SCHEME_NM);
+	collect_compound_str2(&ht->tbl[TFW_HTTP_HDR_H2_SCHEME], HDR_SCHEME_VAL,
+			      SLEN(HDR_SCHEME_VAL), TFW_STR_HDR_VALUE);
+	ht->tbl[TFW_HTTP_HDR_H2_PATH] = TFW_STR_STRING(HDR_PATH_NM);
+	collect_compound_str2(&ht->tbl[TFW_HTTP_HDR_H2_PATH], HDR_PATH_VAL,
+			      SLEN(HDR_PATH_VAL), TFW_STR_HDR_VALUE);
 
-	r = tfw_hpack_decode(hp, hdr_data2, hdr_len2, test_req, &parsed);
-	EXPECT_EQ(r, T_OK);
-	EXPECT_EQ(parsed, hdr_len2);
-
+	/*
+	 * Processing prepared Huffman-encoded HTTP/2 headers in HPACK
+	 * decoding procedure.
+	 *
+	 * NOTE: the ':authority' pseudo-header should be processed first
+	 * (with mandatory pseudo-headers) to pass the verification in
+	 * @H2_MSG_VERIFY(), according to RFC.
+	 */
+	parsed = 0;
 	r = tfw_hpack_decode(hp, hdr_data3, hdr_len3, test_req, &parsed);
 	EXPECT_EQ(r, T_OK);
 	EXPECT_EQ(parsed, hdr_len3);
 
-	pos = it->start_pos;
-	EXPECT_OK(memcmp_fast(pos, test_data1, test_len1));
+	parsed = 0;
+	r = tfw_hpack_decode(hp, hdr_data1, hdr_len1, test_req, &parsed);
+	EXPECT_EQ(r, T_OK);
+	EXPECT_EQ(parsed, hdr_len1);
 
-	pos += test_len1;
-	EXPECT_OK(memcmp_fast(pos, test_data2, test_len2));
+	parsed = 0;
+	r = tfw_hpack_decode(hp, hdr_data2, hdr_len2, test_req, &parsed);
+	EXPECT_EQ(r, T_OK);
+	EXPECT_EQ(parsed, hdr_len2);
 
-	pos += test_len2;
-	EXPECT_OK(memcmp_fast(pos, test_data3, test_len3));
+	/*
+	 * Update pointer to headers table, since it had been enlarged and,
+	 * as a result, relocated during decoding/parsing procedures.
+	 */
+	EXPECT_NE(ht, test_req->h_tbl);
+	ht = test_req->h_tbl;
 
+	/*
+	 * Verify that Huffman-decoded headers had been correctly written
+	 * into the headers table.
+	 */
+	hdr = &ht->tbl[TFW_HTTP_HDR_H2_AUTHORITY];
+	test_h2_hdr_name(hdr, &h_name);
+	__h2_msg_hdr_val(hdr, &h_value);
+	EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
+	EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
+	if (!TFW_STR_EMPTY(&h_name) && !TFW_STR_EMPTY(&h_value)) {
+		EXPECT_EQ(test_len_nm3, h_name.len);
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_name, test_name3,
+					    test_len_nm3, 0));
+		EXPECT_EQ(test_len_val3, h_value.len);
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value3,
+					    test_len_val3, 0));
+	}
+
+	hdr = &ht->tbl[TFW_HTTP_HDR_RAW];
+	test_h2_hdr_name(hdr, &h_name);
+	__h2_msg_hdr_val(hdr, &h_value);
+	EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
+	EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
+	if (!TFW_STR_EMPTY(&h_name) && !TFW_STR_EMPTY(&h_value)) {
+		EXPECT_EQ(test_len_nm1, h_name.len);
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_name, test_name1,
+					    test_len_nm1, 0));
+		EXPECT_EQ(test_len_val1, h_value.len);
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value1,
+					    test_len_val1, 0));
+	}
+
+	hdr = &ht->tbl[TFW_HTTP_HDR_RAW + 1];
+	test_h2_hdr_name(hdr, &h_name);
+	__h2_msg_hdr_val(hdr, &h_value);
+	EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
+	EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
+	if (!TFW_STR_EMPTY(&h_name) && !TFW_STR_EMPTY(&h_value)) {
+		EXPECT_EQ(test_len_nm2, h_name.len);
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_name, test_name2,
+					    test_len_nm2, 0));
+		EXPECT_EQ(test_len_val2, h_value.len);
+		EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value2,
+					    test_len_val2, 0));
+	}
+
+	/*
+	 * Verify that Huffman-decoded headers had been correctly placed into
+	 * decoder index table with appropriate indexes.
+	 */
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 64);
 	EXPECT_NOT_NULL(entry);
 	if (entry) {
-		name = entry->name;
-		value = entry->value;
-		EXPECT_EQ(strlen("custom-key"), name->len);
-		EXPECT_OK(memcmp_fast(test_data1, name->ptr, name->len));
-		EXPECT_EQ(strlen("custom-value"), value->len);
-		EXPECT_OK(memcmp_fast(test_data1 + 10 + 1, value->ptr,
-				      value->len));
+		hdr = entry->hdr;
+		test_h2_hdr_name(hdr, &h_name);
+		__h2_msg_hdr_val(hdr, &h_value);
+		EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
+		EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
+		if (!TFW_STR_EMPTY(&h_name) && !TFW_STR_EMPTY(&h_value)) {
+			EXPECT_EQ(test_len_nm3, h_name.len);
+			EXPECT_TRUE(tfw_str_eq_cstr(&h_name, test_name3,
+						    test_len_nm3, 0));
+			EXPECT_EQ(test_len_val3, h_value.len);
+			EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value3,
+						    test_len_val3, 0));
+		}
+		EXPECT_EQ(entry->name_len, test_len_nm3);
+		EXPECT_EQ(entry->name_num, h_name.nchunks);
+		EXPECT_EQ(entry->tag, TFW_TAG_HDR_H2_AUTHORITY);
 	}
 
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 63);
 	EXPECT_NOT_NULL(entry);
 	if (entry) {
-		name = entry->name;
-		value = entry->value;
-		EXPECT_EQ(strlen("cache-control"), name->len);
-		EXPECT_OK(memcmp_fast(test_data2, name->ptr, name->len));
-		EXPECT_EQ(strlen("no-cache"), value->len);
-		EXPECT_OK(memcmp_fast(test_data2 + 13 + 1, value->ptr,
-				      value->len));
+		hdr = entry->hdr;
+		test_h2_hdr_name(hdr, &h_name);
+		__h2_msg_hdr_val(hdr, &h_value);
+		EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
+		EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
+		if (!TFW_STR_EMPTY(&h_name) && !TFW_STR_EMPTY(&h_value)) {
+			EXPECT_EQ(test_len_nm1, h_name.len);
+			EXPECT_TRUE(tfw_str_eq_cstr(&h_name, test_name1,
+						    test_len_nm1, 0));
+			EXPECT_EQ(test_len_val1, h_value.len);
+			EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value1,
+						    test_len_val1, 0));
+		}
+		EXPECT_EQ(entry->name_len, test_len_nm1);
+		EXPECT_EQ(entry->name_num, h_name.nchunks);
+		EXPECT_EQ(entry->tag, TFW_TAG_HDR_RAW);
 	}
 
 	entry = tfw_hpack_find_index(&hp->dec_tbl, 62);
 	EXPECT_NOT_NULL(entry);
 	if (entry) {
-		name = entry->name;
-		value = entry->value;
-		EXPECT_EQ(strlen(":authority"), name->len);
-		EXPECT_OK(memcmp_fast(test_data3, name->ptr, name->len));
-		EXPECT_EQ(strlen("www.example.com"), value->len);
-		EXPECT_OK(memcmp_fast(test_data3 + 10 + 1, value->ptr,
-				      value->len));
+		hdr = entry->hdr;
+		test_h2_hdr_name(hdr, &h_name);
+		__h2_msg_hdr_val(hdr, &h_value);
+		EXPECT_TRUE(!TFW_STR_EMPTY(&h_name));
+		EXPECT_TRUE(!TFW_STR_EMPTY(&h_value));
+		if (!TFW_STR_EMPTY(&h_name) && !TFW_STR_EMPTY(&h_value)) {
+			EXPECT_EQ(test_len_nm2, h_name.len);
+			EXPECT_TRUE(tfw_str_eq_cstr(&h_name, test_name2,
+						    test_len_nm2, 0));
+			EXPECT_EQ(test_len_val2, h_value.len);
+			EXPECT_TRUE(tfw_str_eq_cstr(&h_value, test_value2,
+						    test_len_val2, 0));
+		}
+		EXPECT_EQ(entry->name_len, test_len_nm2);
+		EXPECT_EQ(entry->name_num, h_name.nchunks);
+		EXPECT_EQ(entry->tag, TFW_TAG_HDR_CACHE_CONTROL);
 	}
+
+#undef HDR_NAME_1
+#undef HDR_VALUE_1
+#undef HDR_NAME_2
+#undef HDR_VALUE_2
+#undef HDR_NAME_3
+#undef HDR_VALUE_3
+}
+
+TEST(hpack, enc_huffman)
+{
+	/*
+	 * The test dec_huffman checks that the following values was
+	 * correctly parsed from the Huffman encoded strings, check that we
+	 * can create exactly the same encoded strings.
+	 */
+	DEFINE_TFW_STR(custom_key_raw, "custom-key");
+	DEFINE_TFW_STR(custom_key_exp, "\x25\xA8\x49\xE9\x5B\xA9\x7D\x7F");
+	DEFINE_TFW_STR(custom_val_raw, "custom-value");
+	DEFINE_TFW_STR(custom_val_exp, "\x25\xA8\x49\xE9\x5B\xB8\xE8\xB4\xBF");
+	DEFINE_TFW_STR(no_cache_raw, "no-cache");
+	DEFINE_TFW_STR(no_cache_exp, "\xA8\xEB\x10\x64\x9C\xBF");
+	TfwStr *www_raw = make_compound_str("www.example.com");
+	DEFINE_TFW_STR(www_exp,
+		       "\xF1\xE3\xC2\xE5\xF2\x3A\x6B\xA0\xAB\x90\xF4\xFF");
+	TfwStr *custom_key_enc, *custom_val_enc, *no_cache_enc, *www_enc;
+
+	custom_key_enc = tfw_huffman_encode_string(&custom_key_raw, str_pool);
+	EXPECT_TRUE(!IS_ERR_OR_NULL(custom_key_enc));
+	EXPECT_OK(tfw_strcmp(custom_key_enc, &custom_key_exp));
+
+	custom_val_enc = tfw_huffman_encode_string(&custom_val_raw, str_pool);
+	EXPECT_TRUE(!IS_ERR_OR_NULL(custom_val_enc));
+	EXPECT_OK(tfw_strcmp(custom_val_enc, &custom_val_exp));
+
+	no_cache_enc = tfw_huffman_encode_string(&no_cache_raw, str_pool);
+	EXPECT_TRUE(!IS_ERR_OR_NULL(no_cache_enc));
+	EXPECT_OK(tfw_strcmp(no_cache_enc, &no_cache_exp));
+
+	www_enc = tfw_huffman_encode_string(www_raw, str_pool);
+	EXPECT_TRUE(!IS_ERR_OR_NULL(www_enc));
+	EXPECT_OK(tfw_strcmp(www_enc, &www_exp));
+
+	/*
+	 * TODO: add more test cases: encode<->decode the same text using
+	 * Tempesta functions.
+	 */
 }
 
 TEST(hpack, enc_table_hdr_write)
 {
-	char *buf;
-	unsigned long hdr_len, n_len = 0, v_off = 0, v_len = 0;
+	char *buf, *ptr;
+	unsigned long hdr_len;
+	TfwStr s_nm = {}, s_val = {};
 
 #define HDR_NAME_1	"x-forwarded-for"
 #define HDR_VALUE_1	"test.com, foo.com, example.com"
@@ -809,98 +1248,116 @@ TEST(hpack, enc_table_hdr_write)
 #define HDR_NAME_5	"custom-key"
 #define HDR_VALUE_5	"custom-example-value"
 
-	TFW_STR(s1, HDR_NAME_1 ":   ");
-	TFW_STR(s1_value, HDR_VALUE_1 "    ");
-	unsigned long off1 = 4;
+	TFW_STR(col, ":");
+
+	TFW_STR(s1, HDR_NAME_1);
+	TFW_STR(s1_lws, "      ");
+	TFW_STR(s1_value, HDR_VALUE_1);
+	TFW_STR(s1_rws, "    ");
 	const char *t_s1 = HDR_NAME_1 HDR_VALUE_1;
 	unsigned long t_s1_len = strlen(t_s1);
 
-	TFW_STR(s2, HDR_NAME_2 ":");
+	TFW_STR(s2, HDR_NAME_2);
 	TFW_STR(s2_value, HDR_VALUE_2);
-	unsigned long off2 = 1;
 	const char *t_s2 = HDR_NAME_2 HDR_VALUE_2;
 	unsigned long t_s2_len = strlen(t_s2);
 
-	TFW_STR(s3, HDR_NAME_3 ":\t  ");
-	TFW_STR(s3_value, HDR_VALUE_3 "   ");
-	unsigned long off3 = 4;
+	TFW_STR(s3, HDR_NAME_3);
+	TFW_STR(s3_lws, "\t  ");
+	TFW_STR(s3_value, HDR_VALUE_3);
+	TFW_STR(s3_rws, "   ");
 	const char *t_s3 = HDR_NAME_3 HDR_VALUE_3;
 	unsigned long t_s3_len = strlen(t_s3);
 
-	TFW_STR(s4, HDR_NAME_4 ":     ");
-	TFW_STR(s4_value, HDR_VALUE_4 "\t\t   \t");
-	unsigned long off4 = 6;
+	TFW_STR(s4, HDR_NAME_4);
+	TFW_STR(s4_lws, "     ");
+	TFW_STR(s4_value, HDR_VALUE_4);
+	TFW_STR(s4_rws, "\t\t   \t");
 	const char *t_s4 = HDR_NAME_4 HDR_VALUE_4;
 	unsigned long t_s4_len = strlen(t_s4);
 
-	TFW_STR(s5, HDR_NAME_5 ":\t\t\t");
-	TFW_STR(s5_value, HDR_VALUE_5 "\t\t\t\t");
-	unsigned long off5 = 4;
+	TFW_STR(s5, HDR_NAME_5);
+	TFW_STR(s5_lws, "\t\t\t");
+	TFW_STR(s5_value, HDR_VALUE_5);
+	TFW_STR(s5_rws, "\t\t\t\t");
 	const char *t_s5 = HDR_NAME_5 HDR_VALUE_5;
 	unsigned long t_s5_len = strlen(t_s5);
 
-	collect_compound_str(s1, s1_value);
-	collect_compound_str(s2, s2_value);
-	collect_compound_str(s3, s3_value);
-	collect_compound_str(s4, s4_value);
-	collect_compound_str(s5, s5_value);
+	collect_compound_str(s1, col, 0);
+	collect_compound_str(s1, s1_lws, TFW_STR_OWS);
+	collect_compound_str(s1, s1_value, 0);
+	collect_compound_str(s1, s1_rws, TFW_STR_OWS);
+	collect_compound_str(s2, col, 0);
+	collect_compound_str(s2, s2_value, 0);
+	collect_compound_str(s3, col, 0);
+	collect_compound_str(s3, s3_lws, TFW_STR_OWS);
+	collect_compound_str(s3, s3_value, 0);
+	collect_compound_str(s3, s3_rws, TFW_STR_OWS);
+	collect_compound_str(s4, col, 0);
+	collect_compound_str(s4, s4_lws, TFW_STR_OWS);
+	collect_compound_str(s4, s4_value, 0);
+	collect_compound_str(s4, s4_rws, TFW_STR_OWS);
+	collect_compound_str(s5, col, 0);
+	collect_compound_str(s5, s5_lws, TFW_STR_OWS);
+	collect_compound_str(s5, s5_value, 0);
+	collect_compound_str(s5, s5_rws, TFW_STR_OWS);
 
-	hdr_len = tfw_http_msg_hdr_length(s1, &n_len, &v_off, &v_len);
-	EXPECT_EQ(n_len, strlen(HDR_NAME_1));
-	EXPECT_EQ(v_len, strlen(HDR_VALUE_1));
-	EXPECT_EQ(v_off, off1);
+	hdr_len = tfw_http_hdr_split(s1, &s_nm, &s_val, true);
+	EXPECT_EQ(s_nm.len, strlen(HDR_NAME_1));
+	EXPECT_EQ(s_val.len, strlen(HDR_VALUE_1));
 	EXPECT_EQ(hdr_len, t_s1_len);
 	buf = tfw_pool_alloc(str_pool, hdr_len);
 	BUG_ON(!buf);
-	tfw_http_msg_hdr_write(s1, n_len, v_off, v_len, buf);
+	ptr = tfw_hpack_write(&s_nm, buf);
+	tfw_hpack_write(&s_val, ptr);
 	EXPECT_OK(memcmp_fast(t_s1, buf, hdr_len));
 
-	n_len = v_off = v_len = 0;
-
-	hdr_len = tfw_http_msg_hdr_length(s2, &n_len, &v_off, &v_len);
-	EXPECT_EQ(n_len, strlen(HDR_NAME_2));
-	EXPECT_EQ(v_len, strlen(HDR_VALUE_2));
-	EXPECT_EQ(v_off, off2);
+	TFW_STR_INIT(&s_nm);
+	TFW_STR_INIT(&s_val);
+	hdr_len = tfw_http_hdr_split(s2, &s_nm, &s_val, true);
+	EXPECT_EQ(s_nm.len, strlen(HDR_NAME_2));
+	EXPECT_EQ(s_val.len, strlen(HDR_VALUE_2));
 	EXPECT_EQ(hdr_len, t_s2_len);
 	buf = tfw_pool_alloc(str_pool, hdr_len);
 	BUG_ON(!buf);
-	tfw_http_msg_hdr_write(s2, n_len, v_off, v_len, buf);
+	ptr = tfw_hpack_write(&s_nm, buf);
+	tfw_hpack_write(&s_val, ptr);
 	EXPECT_OK(memcmp_fast(t_s2, buf, hdr_len));
 
-	n_len = v_off = v_len = 0;
-
-	hdr_len = tfw_http_msg_hdr_length(s3, &n_len, &v_off, &v_len);
-	EXPECT_EQ(n_len, strlen(HDR_NAME_3));
-	EXPECT_EQ(v_len, strlen(HDR_VALUE_3));
-	EXPECT_EQ(v_off, off3);
+	TFW_STR_INIT(&s_nm);
+	TFW_STR_INIT(&s_val);
+	hdr_len = tfw_http_hdr_split(s3, &s_nm, &s_val, true);
+	EXPECT_EQ(s_nm.len, strlen(HDR_NAME_3));
+	EXPECT_EQ(s_val.len, strlen(HDR_VALUE_3));
 	EXPECT_EQ(hdr_len, t_s3_len);
 	buf = tfw_pool_alloc(str_pool, hdr_len);
 	BUG_ON(!buf);
-	tfw_http_msg_hdr_write(s3, n_len, v_off, v_len, buf);
+	ptr = tfw_hpack_write(&s_nm, buf);
+	tfw_hpack_write(&s_val, ptr);
 	EXPECT_OK(memcmp_fast(t_s3, buf, hdr_len));
 
-	n_len = v_off = v_len = 0;
-
-	hdr_len = tfw_http_msg_hdr_length(s4, &n_len, &v_off, &v_len);
-	EXPECT_EQ(n_len, strlen(HDR_NAME_4));
-	EXPECT_EQ(v_len, strlen(HDR_VALUE_4));
-	EXPECT_EQ(v_off, off4);
+	TFW_STR_INIT(&s_nm);
+	TFW_STR_INIT(&s_val);
+	hdr_len = tfw_http_hdr_split(s4, &s_nm, &s_val, true);
+	EXPECT_EQ(s_nm.len, strlen(HDR_NAME_4));
+	EXPECT_EQ(s_val.len, strlen(HDR_VALUE_4));
 	EXPECT_EQ(hdr_len, t_s4_len);
 	buf = tfw_pool_alloc(str_pool, hdr_len);
 	BUG_ON(!buf);
-	tfw_http_msg_hdr_write(s4, n_len, v_off, v_len, buf);
+	ptr = tfw_hpack_write(&s_nm, buf);
+	tfw_hpack_write(&s_val, ptr);
 	EXPECT_OK(memcmp_fast(t_s4, buf, hdr_len));
 
-	n_len = v_off = v_len = 0;
-
-	hdr_len = tfw_http_msg_hdr_length(s5, &n_len, &v_off, &v_len);
-	EXPECT_EQ(n_len, strlen(HDR_NAME_5));
-	EXPECT_EQ(v_len, strlen(HDR_VALUE_5));
-	EXPECT_EQ(v_off, off5);
+	TFW_STR_INIT(&s_nm);
+	TFW_STR_INIT(&s_val);
+	hdr_len = tfw_http_hdr_split(s5, &s_nm, &s_val, true);
+	EXPECT_EQ(s_nm.len, strlen(HDR_NAME_5));
+	EXPECT_EQ(s_val.len, strlen(HDR_VALUE_5));
 	EXPECT_EQ(hdr_len, t_s5_len);
 	buf = tfw_pool_alloc(str_pool, hdr_len);
 	BUG_ON(!buf);
-	tfw_http_msg_hdr_write(s5, n_len, v_off, v_len, buf);
+	ptr = tfw_hpack_write(&s_nm, buf);
+	tfw_hpack_write(&s_val, ptr);
 	EXPECT_OK(memcmp_fast(t_s5, buf, hdr_len));
 
 #undef HDR_NAME_1
@@ -930,24 +1387,37 @@ TEST(hpack, enc_table_index)
 #define HDR_NAME_3	"test-example-key"
 #define HDR_VALUE_3	"custom-example-value"
 
-	TFW_STR(s1, HDR_NAME_1 ": \t  ");
-	TFW_STR(s1_value, HDR_VALUE_1 "       ");
+	TFW_STR(col, ":");
+
+	TFW_STR(s1, HDR_NAME_1);
+	TFW_STR(s1_lws, " \t  ");
+	TFW_STR(s1_value, HDR_VALUE_1);
+	TFW_STR(s1_rws, "       ");
 	const char *t_s1 = HDR_NAME_1 HDR_VALUE_1;
 	unsigned long t_s1_len = strlen(t_s1);
 
-	TFW_STR(s2, HDR_NAME_2 ":");
+	TFW_STR(s2, HDR_NAME_2);
 	TFW_STR(s2_value, HDR_VALUE_2);
 	const char *t_s2 = HDR_NAME_2 HDR_VALUE_2;
 	unsigned long t_s2_len = strlen(t_s2);
 
-	TFW_STR(s3, HDR_NAME_3 ":\t  \t\t\t");
-	TFW_STR(s3_value, HDR_VALUE_3 "\t\t\t\t    ");
+	TFW_STR(s3, HDR_NAME_3);
+	TFW_STR(s3_lws, "\t  \t\t\t");
+	TFW_STR(s3_value, HDR_VALUE_3);
+	TFW_STR(s3_rws, "\t\t\t\t    ");
 	const char *t_s3 = HDR_NAME_3 HDR_VALUE_3;
 	unsigned long t_s3_len = strlen(t_s3);
 
-	collect_compound_str(s1, s1_value);
-	collect_compound_str(s2, s2_value);
-	collect_compound_str(s3, s3_value);
+	collect_compound_str(s1, col, 0);
+	collect_compound_str(s1, s1_lws, TFW_STR_OWS);
+	collect_compound_str(s1, s1_value, 0);
+	collect_compound_str(s1, s1_rws, TFW_STR_OWS);
+	collect_compound_str(s2, col, 0);
+	collect_compound_str(s2, s2_value, 0);
+	collect_compound_str(s3, col, 0);
+	collect_compound_str(s3, s3_lws, TFW_STR_OWS);
+	collect_compound_str(s3, s3_value, 0);
+	collect_compound_str(s3, s3_rws, TFW_STR_OWS);
 
 	tbl = &ctx.hpack.enc_tbl;
 
@@ -958,7 +1428,7 @@ TEST(hpack, enc_table_index)
 	res = tfw_hpack_rbtree_find(tbl, s1, &node, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 	EXPECT_NULL(node);
-	EXPECT_OK(tfw_hpack_add_node(tbl, s1, &pl));
+	EXPECT_OK(tfw_hpack_add_node(tbl, s1, &pl, TFW_H2_TRANS_INPLACE));
 
 	node = NULL;
 	bzero_fast(&pl, sizeof(pl));
@@ -967,7 +1437,8 @@ TEST(hpack, enc_table_index)
 	EXPECT_NULL(node);
 	EXPECT_NOT_NULL(pl.parent);
 	if (pl.parent)
-		EXPECT_OK(tfw_hpack_add_node(tbl, s2, &pl));
+		EXPECT_OK(tfw_hpack_add_node(tbl, s2, &pl,
+					     TFW_H2_TRANS_INPLACE));
 
 	node = NULL;
 	bzero_fast(&pl, sizeof(pl));
@@ -976,7 +1447,8 @@ TEST(hpack, enc_table_index)
 	EXPECT_NULL(node);
 	EXPECT_NOT_NULL(pl.parent);
 	if (pl.parent)
-		EXPECT_OK(tfw_hpack_add_node(tbl, s3, &pl));
+		EXPECT_OK(tfw_hpack_add_node(tbl, s3, &pl,
+					     TFW_H2_TRANS_INPLACE));
 
 	/*
 	 * Verify that headers had been correctly added into encoder dynamic
@@ -1027,10 +1499,6 @@ TEST(hpack, enc_table_index)
 #undef HDR_VALUE_2
 #undef HDR_NAME_3
 #undef HDR_VALUE_3
-#undef HDR_NAME_4
-#undef HDR_VALUE_4
-#undef HDR_NAME_5
-#undef HDR_VALUE_5
 }
 
 TEST(hpack, enc_table_rbtree)
@@ -1053,22 +1521,28 @@ TEST(hpack, enc_table_rbtree)
 #define HDR_NAME_5	"test-foo-name"
 #define HDR_VALUE_5	"test-foo-value"
 
-	TFW_STR(s1, HDR_NAME_1 ":");
+	TFW_STR(col, ":");
+	TFW_STR(s1, HDR_NAME_1);
 	TFW_STR(s1_value, HDR_VALUE_1);
-	TFW_STR(s2, HDR_NAME_2 ":");
+	TFW_STR(s2, HDR_NAME_2);
 	TFW_STR(s2_value, HDR_VALUE_2);
-	TFW_STR(s3, HDR_NAME_3 ":");
+	TFW_STR(s3, HDR_NAME_3);
 	TFW_STR(s3_value, HDR_VALUE_3);
-	TFW_STR(s4, HDR_NAME_4 ":");
+	TFW_STR(s4, HDR_NAME_4);
 	TFW_STR(s4_value, HDR_VALUE_4);
-	TFW_STR(s5, HDR_NAME_5 ":");
+	TFW_STR(s5, HDR_NAME_5);
 	TFW_STR(s5_value, HDR_VALUE_5);
 
-	collect_compound_str(s1, s1_value);
-	collect_compound_str(s2, s2_value);
-	collect_compound_str(s3, s3_value);
-	collect_compound_str(s4, s4_value);
-	collect_compound_str(s5, s5_value);
+	collect_compound_str(s1, col, 0);
+	collect_compound_str(s1, s1_value, 0);
+	collect_compound_str(s2, col, 0);
+	collect_compound_str(s2, s2_value, 0);
+	collect_compound_str(s3, col, 0);
+	collect_compound_str(s3, s3_value, 0);
+	collect_compound_str(s4, col, 0);
+	collect_compound_str(s4, s4_value, 0);
+	collect_compound_str(s5, col, 0);
+	collect_compound_str(s5, s5_value, 0);
 
 	tbl = &ctx.hpack.enc_tbl;
 
@@ -1093,7 +1567,7 @@ TEST(hpack, enc_table_rbtree)
 	res = tfw_hpack_rbtree_find(tbl, s1, &node, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);
 	EXPECT_NULL(node);
-	EXPECT_OK(tfw_hpack_add_node(tbl, s1, &pl));
+	EXPECT_OK(tfw_hpack_add_node(tbl, s1, &pl, TFW_H2_TRANS_INPLACE));
 	bzero_fast(&pl, sizeof(pl));
 	res = tfw_hpack_rbtree_find(tbl, s1, &n1, &pl);
 	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);
@@ -1117,7 +1591,7 @@ TEST(hpack, enc_table_rbtree)
 		 */
 		EXPECT_EQ(pl.parent, n1);
 		EXPECT_EQ(pl.poff, &n1->right);
-		EXPECT_OK(tfw_hpack_add_node(tbl, s2, &pl));
+		EXPECT_OK(tfw_hpack_add_node(tbl, s2, &pl, TFW_H2_TRANS_INPLACE));
 	}
 	bzero_fast(&pl, sizeof(pl));
 	res = tfw_hpack_rbtree_find(tbl, s2, &n2, &pl);
@@ -1138,7 +1612,7 @@ TEST(hpack, enc_table_rbtree)
 		 */
 		EXPECT_EQ(pl.parent, n2);
 		EXPECT_EQ(pl.poff, &n2->left);
-		EXPECT_OK(tfw_hpack_add_node(tbl, s3, &pl));
+		EXPECT_OK(tfw_hpack_add_node(tbl, s3, &pl, TFW_H2_TRANS_INPLACE));
 	}
 	bzero_fast(&pl, sizeof(pl));
 	res = tfw_hpack_rbtree_find(tbl, s3, &n3, &pl);
@@ -1204,7 +1678,8 @@ TEST(hpack, enc_table_rbtree)
 		 */
 		EXPECT_EQ(pl.parent, n1);
 		EXPECT_EQ(pl.poff, &n1->left);
-		EXPECT_OK(tfw_hpack_add_node(tbl, s4, &pl));
+		EXPECT_OK(tfw_hpack_add_node(tbl, s4, &pl,
+					     TFW_H2_TRANS_INPLACE));
 	}
 	bzero_fast(&pl, sizeof(pl));
 	res = tfw_hpack_rbtree_find(tbl, s4, &n4, &pl);
@@ -1255,7 +1730,8 @@ TEST(hpack, enc_table_rbtree)
 		 */
 		EXPECT_EQ(pl.parent, n1);
 		EXPECT_EQ(pl.poff, &n1->right);
-		EXPECT_OK(tfw_hpack_add_node(tbl, s5, &pl));
+		EXPECT_OK(tfw_hpack_add_node(tbl, s5, &pl,
+					     TFW_H2_TRANS_INPLACE));
 	}
 	bzero_fast(&pl, sizeof(pl));
 	res = tfw_hpack_rbtree_find(tbl, s5, &n5, &pl);
@@ -1429,11 +1905,12 @@ TEST_SUITE(hpack)
 
 	TEST_RUN(hpack, dec_table_static);
 	TEST_RUN(hpack, dec_table_dynamic);
-	TEST_RUN(hpack, dec_table_mixed);
+	TEST_RUN(hpack, dec_table_dynamic_inc);
 	TEST_RUN(hpack, dec_table_wrap);
 	TEST_RUN(hpack, dec_raw);
 	TEST_RUN(hpack, dec_indexed);
 	TEST_RUN(hpack, dec_huffman);
+	TEST_RUN(hpack, enc_huffman);
 	TEST_RUN(hpack, enc_table_hdr_write);
 	TEST_RUN(hpack, enc_table_index);
 	TEST_RUN(hpack, enc_table_rbtree);

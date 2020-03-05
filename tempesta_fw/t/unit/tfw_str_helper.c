@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -109,7 +109,8 @@ make_compound_str2(const char *data1, const char *data2)
 }
 
 TfwStr *
-collect_compound_str(TfwStr *res_str, const TfwStr *in_str)
+collect_compound_str(TfwStr *res_str, const TfwStr *in_str,
+			     unsigned short flags)
 {
 	const TfwStr *c, *end;
 	TfwStr *c_new, *c_start = NULL;
@@ -119,6 +120,7 @@ collect_compound_str(TfwStr *res_str, const TfwStr *in_str)
 		BUG_ON(!c_new);
 
 		*c_new = *c;
+		c_new->flags |= flags;
 		res_str->len += c_new->len;
 
 		if (!c_start)
@@ -128,13 +130,15 @@ collect_compound_str(TfwStr *res_str, const TfwStr *in_str)
 }
 
 TfwStr *
-collect_compound_str2(TfwStr *res_str, char *str, unsigned long len)
+collect_compound_str2(TfwStr *res_str, char *str, unsigned long len,
+		      unsigned short flags)
 {
 	TfwStr *c_new = tfw_str_add_compound(str_pool, res_str);
 
 	BUG_ON(!c_new);
 	c_new->len = len;
 	c_new->data = str;
+	c_new->flags = flags;
 	res_str->len += len;
 
 	return c_new;

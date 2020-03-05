@@ -515,10 +515,10 @@ index caeb159a..274c6cc0 100644
  struct kvec;
  
 diff --git a/include/linux/netdevice.h b/include/linux/netdevice.h
-index 46bf7cc7..b698c645 100644
+index 46bf7cc7..cc55a4f5 100644
 --- a/include/linux/netdevice.h
 +++ b/include/linux/netdevice.h
-@@ -148,11 +148,22 @@ static inline bool dev_xmit_complete(int rc)
+@@ -148,11 +148,32 @@ static inline bool dev_xmit_complete(int rc)
  # define LL_MAX_HEADER 32
  #endif
  
@@ -529,17 +529,27 @@ index 46bf7cc7..b698c645 100644
 + * movement on tcp_write_xmit(). Not all skbs have TLS headers - not a big deal
 + * to allocate 16 more bytes (5 - TLS header, 8 - IV, 3 - alignment).
 + */
-+#define TLS_MAX_HDR	16
++#define TLS_MAX_HDR		16
++/*
++ * For fast transformation of HTTP/1.1 responses into HTTP/2 format, Tempesta
++ * uses zero-copy in-place rewriting of the response data, right in original
++ * skb. HTTP/2 data is almost always smaller of its source HTTP/1.1 data, but
++ * for the sake of robustness we use 32-byte initial offset in front of skb
++ * data. Thus, in order to guarantee the stack headers to fit, we should
++ * increase the total space for them.
++ */
++#define HTTP2_MAX_OFFSET	32
 +#else
-+#define TLS_MAX_HDR	0
++#define TLS_MAX_HDR		0
++#define HTTP2_MAX_OFFSET	0
 +#endif
  #if !IS_ENABLED(CONFIG_NET_IPIP) && !IS_ENABLED(CONFIG_NET_IPGRE) && \
      !IS_ENABLED(CONFIG_IPV6_SIT) && !IS_ENABLED(CONFIG_IPV6_TUNNEL)
 -#define MAX_HEADER LL_MAX_HEADER
-+#define MAX_HEADER (LL_MAX_HEADER + TLS_MAX_HDR)
++#define MAX_HEADER (LL_MAX_HEADER + TLS_MAX_HDR + HTTP2_MAX_OFFSET)
  #else
 -#define MAX_HEADER (LL_MAX_HEADER + 48)
-+#define MAX_HEADER (LL_MAX_HEADER + 48 + TLS_MAX_HDR)
++#define MAX_HEADER (LL_MAX_HEADER + 48 + TLS_MAX_HDR + HTTP2_MAX_OFFSET)
  #endif
  
  /*
@@ -892,7 +902,7 @@ index e89c3b0c..7715cad7 100644
  restart:
  	/* Reset the pending bitmask before enabling irqs */
  	set_softirq_pending(0);
-@@ -305,6 +310,9 @@ restart:
+@@ -305,6 +310,9 @@ asmlinkage __visible void __softirq_entry __do_softirq(void)
  		wakeup_softirqd();
  	}
  
@@ -1300,7 +1310,7 @@ index 564beb7e..92e9a635 100644
  /*
   * kmalloc_reserve is a wrapper around kmalloc_node_track_caller that tells
   * the caller if emergency pfmemalloc reserves are being used. If it is and
-@@ -150,6 +153,219 @@ out:
+@@ -150,6 +153,219 @@ static void *__kmalloc_reserve(size_t size, gfp_t flags, int node,
  
  	return obj;
  }
@@ -1520,7 +1530,7 @@ index 564beb7e..92e9a635 100644
  
  /* 	Allocate a new skbuff. We do this ourselves so we can fill in a few
   *	'private' fields and also do memory statistics to find all the
-@@ -174,11 +390,11 @@ out:
+@@ -174,11 +390,11 @@ static void *__kmalloc_reserve(size_t size, gfp_t flags, int node,
   *	Buffers may only be allocated from interrupts using a @gfp_mask of
   *	%GFP_ATOMIC.
   */
@@ -1573,7 +1583,7 @@ index 564beb7e..92e9a635 100644
  out:
  	return skb;
  nodata:
-@@ -251,6 +436,42 @@ nodata:
+@@ -251,6 +436,42 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
  	skb = NULL;
  	goto out;
  }
@@ -1950,7 +1960,7 @@ diff --git a/net/ipv4/inet_hashtables.c b/net/ipv4/inet_hashtables.c
 index e7d15fb0..09a21845 100644
 --- a/net/ipv4/inet_hashtables.c
 +++ b/net/ipv4/inet_hashtables.c
-@@ -616,7 +616,8 @@ other_parity_scan:
+@@ -616,7 +616,8 @@ int __inet_hash_connect(struct inet_timewait_death_row *death_row,
  		goto ok;
  next_port:
  		spin_unlock_bh(&head->lock);
@@ -2089,7 +2099,7 @@ diff --git a/net/ipv4/tcp_input.c b/net/ipv4/tcp_input.c
 index 14474ace..73325b48 100644
 --- a/net/ipv4/tcp_input.c
 +++ b/net/ipv4/tcp_input.c
-@@ -654,6 +654,7 @@ new_measure:
+@@ -654,6 +654,7 @@ void tcp_rcv_space_adjust(struct sock *sk)
  	tp->rcvq_space.seq = tp->copied_seq;
  	tp->rcvq_space.time = tp->tcp_mstamp;
  }

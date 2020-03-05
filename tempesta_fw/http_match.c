@@ -51,7 +51,7 @@
  *   - Case-sensitive matching for headers when required by RFC.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -125,7 +125,7 @@ hdr_val_eq(const TfwHttpReq *req, const TfwHttpMatchRule *rule,
 	if (op == TFW_HTTP_MATCH_O_WILDCARD)
 		return true;
 
-	tfw_http_msg_clnthdr_val(hdr, id, &hdr_val);
+	tfw_http_msg_clnthdr_val(req, hdr, id, &hdr_val);
 
 	flags = map_op_to_str_eq_flags(rule->op);
 	/*
@@ -221,9 +221,11 @@ static bool
 match_hdr_raw(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 {
 	int i;
+	bool h2_mode = TFW_MSG_H2(req);
 	tfw_str_eq_flags_t flags = map_op_to_str_eq_flags(rule->op);
 
 	for (i = TFW_HTTP_HDR_RAW; i < req->h_tbl->off; ++i) {
+		bool col_found;
 		const TfwStr *hdr, *dup, *end, *chunk;
 		const char *c, *cend, *p, *pend;
 		char prev;
@@ -236,6 +238,7 @@ match_hdr_raw(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 
 		TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
 			/* Initialize  the state - get the first chunk. */
+			col_found = false;
 			p = rule->arg.str;
 			pend = rule->arg.str + rule->arg.len;
 			cnum = 0;
@@ -259,13 +262,47 @@ match_hdr_raw(const TfwHttpReq *req, const TfwHttpMatchRule *rule)
 		}					\
 	}
 
+#define __H2_VERIFY()					\
+	if (h2_mode && !col_found			\
+	    && chunk->flags & TFW_STR_HDR_VALUE		\
+	    && c != chunk->data)			\
+		break;
+
+#define __H2_VERIFY_NON_MATCH()				\
+	if (h2_mode) {					\
+		if (!col_found && *p == ':'		\
+		    && chunk->flags & TFW_STR_HDR_VALUE) \
+		{					\
+			p++;				\
+			col_found = true;		\
+			goto state_rule_sp;		\
+		}					\
+		break;					\
+	}
+
 			prev = *p;
 state_common:
 			while (p != pend && c != cend) {
+
+				/* If we reached the value chunk of HTTP/2
+				 * header, but colon is not found in the rule
+				 * yet, the header does not fit the rule.
+				 */
+				__H2_VERIFY();
+
 				/* The rule convert to lower case on the step of
 				 * handling the configuration.
 				 */
 				if (*p != tolower(*c)) {
+
+					/* If the characters from the rule and
+					 * HTTP/2 header does not match, this
+					 * could be due to colon and subsequent
+					 * OWS in the rule, so, we should skip
+					 * them and check the next character.
+					 */
+					__H2_VERIFY_NON_MATCH();
+
 					/* If the same position of the header
 					 * field and rule have a different
 					 * number of whitespace characters,

@@ -20,6 +20,8 @@
 #ifndef __TFW_HPACK_H__
 #define __TFW_HPACK_H__
 
+#include "http_types.h"
+
 /**
  * Default allowed size for dynamic tables (in bytes). Note, that for encoder's
  * dynamic table - this is also the maximum allowed size and the maximum storage
@@ -105,37 +107,64 @@ typedef struct {
 	TFW_HPACK_ETBL_COMMON;
 } TfwHPackETblIter;
 
-/**
- * HPack strings representation.
- *
- * @ptr		- pointer to the actual string data;
- * @len		- length of the string;
- * @count	- number of users of the string instance.
- */
-typedef struct {
-	char			*ptr;
-	unsigned long		len;
-	int			count;
-} TfwHPackStr;
+typedef enum {
+	TFW_H2_TRANS_INPLACE	= 0,
+	TFW_H2_TRANS_SUB,
+	TFW_H2_TRANS_ADD,
+	TFW_H2_TRANS_EXPAND,
+} TfwH2TransOp;
+
+typedef enum {
+	TFW_TAG_HDR_H2_STATUS,
+	TFW_TAG_HDR_H2_METHOD = TFW_TAG_HDR_H2_STATUS,
+	TFW_TAG_HDR_H2_SCHEME,
+	TFW_TAG_HDR_H2_AUTHORITY,
+	TFW_TAG_HDR_H2_PATH,
+	TFW_TAG_HDR_ACCEPT,
+	TFW_TAG_HDR_AUTHORIZATION,
+	TFW_TAG_HDR_CACHE_CONTROL,
+	TFW_TAG_HDR_CONTENT_LENGTH,
+	TFW_TAG_HDR_CONTENT_TYPE,
+	TFW_TAG_HDR_COOKIE,
+	TFW_TAG_HDR_IF_NONE_MATCH,
+	TFW_TAG_HDR_ETAG = TFW_TAG_HDR_IF_NONE_MATCH,
+	TFW_TAG_HDR_HOST,
+	TFW_TAG_HDR_IF_MODIFIED_SINCE,
+	TFW_TAG_HDR_PRAGMA,
+	TFW_TAG_HDR_REFERER,
+	TFW_TAG_HDR_X_FORWARDED_FOR,
+	TFW_TAG_HDR_USER_AGENT,
+	TFW_TAG_HDR_SERVER = TFW_TAG_HDR_USER_AGENT,
+	TFW_TAG_HDR_TRANSFER_ENCODING,
+	TFW_TAG_HDR_RAW
+} TfwHPackTag;
 
 /**
  * Representation of the entry in HPack decoder index.
  *
- * @name	- name of the indexed header;
- * @value	- value of the indexed header;
- * @tag		- ID of the indexed header.
+ * @hdr		- pointer to the header data descriptor;
+ * @name_len	- length of the header's name part;
+ * @name_num	- chunks count of the header's name part;
+ * @tag		- tag of the indexed header;
+ * @last	- flag bit indicating that corresponding header is the last on
+ *		  the page.
  */
 typedef struct {
-	TfwHPackStr		*name;
-	TfwHPackStr		*value;
-	long			tag;
+	TfwStr			*hdr;
+	unsigned long		name_len;
+	unsigned long		name_num;
+	unsigned int		tag;
+	unsigned char		last : 1;
 } TfwHPackEntry;
 
 /**
  * HPack decoder dynamic index table.
  *
  * @entries	- dynamic table of entries;
- * @pool	- memory pool for dynamic table;
+ * @pool	- memory pool for constantly sized entries (i.e. the entry
+ *		  descriptors);
+ * @h_pool	- memory pool for entries of variable size (headers themselves
+ *		- and @TfwStr descriptors for them);
  * @n		- actual number of entries in the table;
  * @curr	- circular buffer index of recent entry;
  * @length	- current length of the dynamic table (in entries);
@@ -146,6 +175,7 @@ typedef struct {
 typedef struct {
 	TfwHPackEntry		*entries;
 	TfwPool			*pool;
+	TfwPool			*h_pool;
 	unsigned int		n;
 	unsigned int		curr;
 	unsigned int		length;
@@ -159,7 +189,7 @@ typedef struct {
  * @enc_tbl	- table for headers compression;
  * @dec_tbl	- table for headers decompression;
  * @length	- remaining length of decoded string;
- * @max_window	- maximum allowed dynamic table size;
+ * @max_window	- maximum allowed size for the decoder dynamic table;
  * @curr	- current shift in Huffman decoding context;
  * @hctx	- current Huffman decoding context;
  * @__off	- offset to reinitialize processing context;
@@ -168,7 +198,6 @@ typedef struct {
  *		  to absence of the next fragment;
  * @index	- saved index value, used when decoding is interrupted due to
  *		  absence of the next fragment;
- * @entry	- index entry found in context of currently parsed header.
  */
 typedef struct {
 	TfwHPackETbl		enc_tbl;
@@ -181,8 +210,45 @@ typedef struct {
 	unsigned int		state;
 	unsigned int		shift;
 	unsigned long		index;
-	const TfwHPackEntry	*entry;
 } TfwHPack;
+
+/**
+ * Maximum length (in bytes) of HPACK variable-length integer representation,
+ * encoded from 64-bit unsigned long integer: one byte for each 7-bit part of
+ * source long integer plus on byte for initial prefix.
+ */
+#define HPACK_MAX_INT						\
+	(DIV_ROUND_UP(sizeof(unsigned long), 7) + 1)
+
+typedef struct {
+	unsigned int		sz;
+	unsigned char		buf[HPACK_MAX_INT];
+} TfwHPackInt;
+
+
+/**
+ * Iterator for the message headers decoding from HTTP/2-cache.
+ *
+ * @h_mods	- pointer to the headers configured to be changed;
+ * @skip	- flag to skip particular cached data in order to switch
+ *		  between HTTP/2 and HTTP/1.1 resulting representation during
+ *		  decoding from HTTP/2-cache;
+ * @__off	- offset to reinitialize the iterator non-persistent part;
+ * @desc	- pointer to the found header configured to be changed;
+ * @acc_len	- accumulated length of the resulting headers part of the
+ *		  response;
+ * @hdr_data	- header's data currently received from cache;
+ * @h2_data	- HTTP/2-specific data currently received from cache.
+ */
+typedef struct {
+	TfwHdrMods		*h_mods;
+	bool			skip;
+	char			__off[0];
+	TfwHdrModsDesc		*desc;
+	unsigned long		acc_len;
+	TfwStr			hdr_data;
+	TfwStr			h2_data;
+} TfwDecodeCacheIter;
 
 #define	BUFFER_GET(len, it)					\
 do {								\
@@ -195,11 +261,39 @@ do {								\
 	       (it)->pos, (unsigned long)(it)->pos);		\
 } while (0)
 
+void write_int(unsigned long index, unsigned short max, unsigned short mask,
+	       TfwHPackInt *__restrict res_idx);
 int tfw_hpack_init(TfwHPack *__restrict hp, unsigned int htbl_sz);
 void tfw_hpack_clean(TfwHPack *__restrict hp);
-int tfw_hpack_hdrs_transform(TfwHttpResp *__restrict resp, bool *entered);
-int tfw_hpack_decode(TfwHPack *__restrict hp, const unsigned char *src,
+int tfw_hpack_encode(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
+		     TfwH2TransOp op, bool dyn_indexing);
+void tfw_hpack_set_rbuf_size(TfwHPackETbl *__restrict tbl,
+			     unsigned short new_size);
+int tfw_hpack_decode(TfwHPack *__restrict hp, unsigned char *__restrict src,
 		     unsigned long n, TfwHttpReq *__restrict req,
 		     unsigned int *__restrict parsed);
+int tfw_hpack_cache_decode_expand(TfwHPack *__restrict hp,
+				  TfwHttpResp *__restrict resp,
+				  unsigned char *__restrict src, unsigned long n,
+				  TfwDecodeCacheIter *__restrict cd_iter);
+void tfw_hpack_enc_release(TfwHPack *__restrict hp, unsigned long *flags);
+
+static inline unsigned int
+tfw_hpack_int_size(unsigned long index, unsigned short max)
+{
+	unsigned int size = 1;
+
+	if (likely(index < max))
+		return size;
+
+	++size;
+	index -= max;
+	while (index > 0x7F) {
+		++size;
+		index >>= 7;
+	}
+
+	return size;
+}
 
 #endif /* __TFW_HPACK_H__ */
