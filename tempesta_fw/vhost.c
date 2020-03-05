@@ -95,9 +95,6 @@ static const TfwCfgEnum tfw_method_enum[] = {
  */
 #define TFW_NIPDEF_ARRAY_SZ	(64)
 
-/* Max number of headers allowed for end user to modify. */
-#define TFW_USRHDRS_ARRAY_SZ	(64)
-
 /*
  * All 'location' directives are put into a fixed size array.
  * Duplicate directives are not allowed.
@@ -336,7 +333,7 @@ tfw_vhost_get_hdr_mods(TfwLocation *loc, TfwVhost *vhost, int mod_type)
 		loc = vhost->loc_dflt;
 	if (!loc || !loc->mod_hdrs[mod_type].sz)
 		loc = vh_dflt ? vh_dflt->loc_dflt : NULL;
-	if (!loc)
+	if (!loc || !loc->mod_hdrs[mod_type].sz)
 		return NULL;
 
 	return &loc->mod_hdrs[mod_type];

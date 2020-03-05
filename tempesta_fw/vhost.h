@@ -68,11 +68,11 @@ typedef struct {
  * @hdr		- Header string, see @tfw_http_msg_hdr_xfrm_str();
  * @add_hdrs	- Headers to modify;
  */
-typedef struct {
+struct tfw_hdr_mods_desc_t {
 	TfwStr		*hdr;
 	unsigned int	hid;
 	bool		append;
-} TfwHdrModsDesc;
+};
 
 /**
  * Headers modification before forwarding HTTP message.
@@ -80,10 +80,10 @@ typedef struct {
  * @sz		- Number of headers to modify;
  * @hdrs	- Headers to modify;
  */
-typedef struct {
+struct tfw_hdr_mods_t {
 	size_t		sz;
 	TfwHdrModsDesc	*hdrs;
-} TfwHdrMods;
+};
 
 enum {
 	TFW_VHOST_HDRMOD_REQ,
@@ -140,6 +140,9 @@ enum {
 	 */
 	TFW_VHOST_B_STICKY_SESS_FAILOVER,
 };
+
+/* Max number of headers allowed for end user to modify. */
+#define TFW_USRHDRS_ARRAY_SZ	64
 
 /**
  * Virtual host defined by directives and policies.

@@ -180,7 +180,14 @@ typedef struct {
  * wasting of headers array slots.
  */
 typedef enum {
-	TFW_HTTP_HDR_HOST,
+	TFW_HTTP_STATUS_LINE,
+	TFW_HTTP_HDR_H2_STATUS = TFW_HTTP_STATUS_LINE,
+	TFW_HTTP_HDR_H2_METHOD = TFW_HTTP_HDR_H2_STATUS,
+	TFW_HTTP_HDR_H2_SCHEME,
+	TFW_HTTP_HDR_H2_AUTHORITY,
+	TFW_HTTP_HDR_H2_PATH,
+	TFW_HTTP_HDR_REGULAR,
+	TFW_HTTP_HDR_HOST = TFW_HTTP_HDR_REGULAR,
 	TFW_HTTP_HDR_CONTENT_LENGTH,
 	TFW_HTTP_HDR_CONTENT_TYPE,
 	TFW_HTTP_HDR_USER_AGENT,
@@ -247,6 +254,10 @@ enum {
 	TFW_HTTP_B_FULLY_PARSED,
 	/* Message has HTTP/2 format. */
 	TFW_HTTP_B_H2,
+	/* Message has all mandatory pseudo-headers (applicable for HTTP/2 mode only) */
+	TFW_HTTP_B_H2_HDRS_FULL,
+	/* Message in HTTP/2 transformation (applicable for HTTP/2 mode only). */
+	TFW_HTTP_B_H2_TRANS_ENTERED,
 
 	/* Request flags. */
 	TFW_HTTP_FLAGS_REQ,
@@ -273,8 +284,6 @@ enum {
 	TFW_HTTP_B_HDR_DATE,
 	/* Response has header 'Last-Modified:'. */
 	TFW_HTTP_B_HDR_LMODIFIED,
-	/* Response is stale, but pass with a warning. */
-	TFW_HTTP_B_RESP_STALE,
 	/* Response is fully processed and ready to be forwarded to the client. */
 	TFW_HTTP_B_RESP_READY,
 
@@ -286,6 +295,10 @@ enum {
 
 #define TFW_MSG_H2(hmmsg)						\
 	test_bit(TFW_HTTP_B_H2, ((TfwHttpMsg *)hmmsg)->flags)
+
+#define TFW_RESP_TO_H2(hmmsg)						\
+	((!hmmsg->conn || TFW_CONN_TYPE(hmmsg->conn) & Conn_Srv) &&	\
+	 hmmsg->pair && TFW_MSG_H2(hmmsg->pair))
 
 /**
  * The structure to hold data for an HTTP error response.
@@ -443,20 +456,100 @@ struct tfw_http_req_t {
 #define TFW_HTTP_REQ_STR_START(r)	__MSG_STR_START(r)
 #define TFW_HTTP_REQ_STR_END(r)		((&(r)->uri_path) + 1)
 
+#define TFW_IDX_BITS		12
+#define TFW_D_IDX_BITS		4
+
+/**
+ * Representation of operation with the next header (in order of headers in the
+ * message) during HTTP/1.1=>HTTP/2 transformation process.
+ *
+ * @s_hdr	- source header for transformation;
+ * @off		- offset of not copied data from last processed @chunk;
+ * @chunk	- last chunk to be processed from @s_hdr;
+ * @op		- transformation operation which should be executed.
+ */
+typedef struct {
+	TfwStr		s_hdr;
+	unsigned long	off;
+	unsigned int	chunk;
+	TfwH2TransOp	op;
+} TfwNextHdrOp;
+
+/**
+ * The indirection map entry.
+ *
+ * @idx		- header index in @h_tbl;
+ * @d_idx	- header's order in the array of duplicates of particular
+ *		  @h_tbl record.
+ */
+typedef struct {
+	unsigned short	idx	: TFW_IDX_BITS;
+	unsigned short	d_idx	: TFW_D_IDX_BITS;
+} TfwHdrIndex;
+
+/**
+ * Indirection map which links the header's order with its index in @h_tbl.
+ *
+ * @count	- the actual count of headers in the map (equal to the amount
+ *		  of all headers in the message);
+ * @size	- the size of the map (in entries);
+ * @index	- array of the indexes (which are located in the order of
+ *		  corresponding headers' appearance in the message).
+ */
+typedef struct {
+	unsigned int	size;
+	unsigned int	count;
+	TfwHdrIndex	index[0];
+} TfwHttpHdrMap;
+
+/**
+ * Iterator for message HTTP/2 transformation process.
+ *
+ * @map		- indirection map for tracking headers order in skb;
+ * @start_off	- initial offset during copying response data into
+ *		  skb (for subsequent insertion of HTTP/2 frame header);
+ * @curr	- current header index in the @map;
+ * @next	- operation (with necessary attributes) which should be executed
+ *		  with next header;
+ * @found	- bit mask of configured headers found in the message.
+ * @curr_ptr	- pointer in the skb to write the current header;
+ * @bnd		- pointer to the boundary data (which should not be
+ *		  overwritten);
+ * @iter	- skb expansion iterator;
+ * @acc_len	- accumulated length of transformed message.
+ */
+typedef struct {
+	TfwHttpHdrMap	*map;
+	unsigned int	start_off;
+	unsigned int	curr;
+	TfwNextHdrOp	next;
+	DECLARE_BITMAP	(found, TFW_USRHDRS_ARRAY_SZ);
+	char		*curr_ptr;
+	char		*bnd;
+	TfwMsgIter	iter;
+	unsigned long	acc_len;
+} TfwHttpTransIter;
+
 /**
  * HTTP Response.
  * TfwStr members must be the first for efficient scanning.
  *
  * @jrxtstamp	- time the message has been received, in jiffies;
+ * @mit		- iterator for controlling HTTP/1.1 => HTTP/2 message
+ *		  transformation process (applicable for HTTP/2 mode only).
  */
 struct tfw_http_resp_t {
 	TFW_HTTP_MSG_COMMON;
-	TfwStr			s_line;
 	unsigned short		status;
 	time_t			date;
 	time_t			last_modified;
 	unsigned long		jrxtstamp;
+	TfwHttpTransIter	mit;
 };
+
+#define TFW_HDR_MAP_INIT_CNT		32
+#define TFW_HDR_MAP_SZ(cnt)		(sizeof(TfwHttpHdrMap)		\
+					 + sizeof(TfwHdrIndex) * (cnt))
 
 #define TFW_HTTP_RESP_STR_START(r)	__MSG_STR_START(r)
 #define TFW_HTTP_RESP_STR_END(r)	((&(r)->body) + 1)
@@ -522,6 +615,33 @@ tfw_http_resp_code_range(const int n)
 	return n <= HTTP_CODE_MAX && n >= HTTP_CODE_MIN;
 }
 
+/*
+ * Static index determination for response ':status' pseudo-header (see RFC
+ * 7541 Appendix A for details).
+ */
+static inline unsigned short
+tfw_h2_pseudo_index(unsigned short status)
+{
+	switch (status) {
+	case 200:
+		return 8;
+	case 204:
+		return 9;
+	case 206:
+		return 10;
+	case 304:
+		return 11;
+	case 400:
+		return 12;
+	case 404:
+		return 13;
+	case 500:
+		return 14;
+	default:
+		return 0;
+	}
+}
+
 typedef void (*tfw_http_cache_cb_t)(TfwHttpMsg *);
 
 /* External HTTP functions. */
@@ -531,22 +651,38 @@ int tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream,
 unsigned long tfw_http_req_key_calc(TfwHttpReq *req);
 void tfw_http_req_destruct(void *msg);
 void tfw_http_resp_fwd(TfwHttpResp *resp);
-void tfw_h2_resp_adjust_fwd(TfwHttpResp *resp);
 void tfw_http_resp_build_error(TfwHttpReq *req);
 int tfw_cfgop_parse_http_status(const char *status, int *out);
 void tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len);
-
+int tfw_http_set_loc_hdrs(TfwHttpMsg *hm, TfwHttpReq *req, bool cache);
+int tfw_http_expand_stale_warn(TfwHttpResp *resp);
+int tfw_http_expand_hdr_date(TfwHttpResp *resp);
+int tfw_http_expand_hbh(TfwHttpResp *resp, unsigned short status);
+void tfw_h2_resp_fwd(TfwHttpResp *resp);
+int tfw_h2_hdr_map(TfwHttpResp *resp, const TfwStr *hdr, unsigned int id);
+int tfw_h2_add_hdr_date(TfwHttpResp *resp, TfwH2TransOp op, bool cache);
+int tfw_h2_set_stale_warn(TfwHttpResp *resp);
+int tfw_h2_resp_add_loc_hdrs(TfwHttpResp *resp, const TfwHdrMods *h_mods,
+			     bool cache);
+int tfw_h2_resp_status_write(TfwHttpResp *resp, unsigned short status,
+			     TfwH2TransOp op, bool cache);
 /*
  * Functions to send an HTTP error response to a client.
  */
-int tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status,
-			   TfwStr *rmark, TfwStr *cookie, TfwStr *body);
-int tfw_http_prep_304(TfwHttpMsg *resp, TfwHttpReq *req, TfwMsgIter *msg_it,
-		      size_t hdrs_size);
+int tfw_h2_prep_redirect(TfwHttpResp *resp, unsigned short status,
+			 TfwStr *rmark, TfwStr *cookie, TfwStr *body);
+int tfw_h1_prep_redirect(TfwHttpResp *resp, unsigned short status,
+			 TfwStr *rmark, TfwStr *cookie, TfwStr *body);
+int tfw_http_prep_304(TfwHttpReq *req, struct sk_buff **skb_head,
+		      TfwMsgIter *it);
 void tfw_http_conn_msg_free(TfwHttpMsg *hm);
 void tfw_http_send_resp(TfwHttpReq *req, int status, const char *reason);
 
 /* Helper functions */
 char *tfw_http_msg_body_dup(const char *filename, size_t *len);
+unsigned long tfw_http_hdr_split(TfwStr *hdr, TfwStr *name_out, TfwStr *val_out,
+				 bool inplace);
+unsigned long tfw_h2_hdr_size(unsigned long n_len, unsigned long v_len,
+			      unsigned short st_index);
 
 #endif /* __TFW_HTTP_H__ */

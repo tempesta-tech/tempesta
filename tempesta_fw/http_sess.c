@@ -1,4 +1,4 @@
-/*
+/**
  *		Tempesta FW
  *
  * HTTP session management.
@@ -206,15 +206,6 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 	if (!tfw_http_sticky_redirect_applied(req))
 		return TFW_HTTP_SESS_JS_NOT_SUPPORTED;
 
-	if (TFW_MSG_H2(req)) {
-		/*
-		 * TODO #309: add separate flow for HTTP/2 response preparing
-		 * and sending (HPACK index, encode in HTTP/2 format, add frame
-		 * headers and send via @tfw_h2_resp_fwd()).
-		 */
-		return TFW_HTTP_SESS_REDIRECT_NEED;
-	}
-
 	if (!(resp = tfw_http_msg_alloc_resp_light(req)))
 		return TFW_HTTP_SESS_FAILURE;
 
@@ -250,8 +241,11 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 		cookie.nchunks++;
 	}
 
-	r = tfw_http_prep_redirect((TfwHttpMsg *)resp, sticky->redirect_code,
-				   &rmark, &cookie, body);
+	r = TFW_MSG_H2(req)
+		? tfw_h2_prep_redirect(resp, sticky->redirect_code, &rmark,
+				       &cookie, body)
+		: tfw_h1_prep_redirect(resp, sticky->redirect_code, &rmark,
+				       &cookie, body);
 	if (r) {
 		tfw_http_msg_free((TfwHttpMsg *)resp);
 		return TFW_HTTP_SESS_FAILURE;
@@ -344,7 +338,7 @@ tfw_http_sticky_get_req(TfwHttpReq *req, TfwStr *cookie_val)
 	hdr = &req->h_tbl->tbl[TFW_HTTP_HDR_COOKIE];
 	if (TFW_STR_EMPTY(hdr))
 		return 0;
-	tfw_http_msg_clnthdr_val(hdr, TFW_HTTP_HDR_COOKIE, &value);
+	tfw_http_msg_clnthdr_val(req, hdr, TFW_HTTP_HDR_COOKIE, &value);
 
 	return search_cookie(req->vhost->cookie, &value, cookie_val, false);
 }
@@ -387,7 +381,7 @@ __sticky_calc(TfwHttpReq *req, StickyVal *sv)
 	/* User-Agent header field is not mandatory and may be missing. */
 	hdr = &req->h_tbl->tbl[TFW_HTTP_HDR_USER_AGENT];
 	if (!TFW_STR_EMPTY(hdr))
-		tfw_http_msg_clnthdr_val(hdr, TFW_HTTP_HDR_USER_AGENT,
+		tfw_http_msg_clnthdr_val(req, hdr, TFW_HTTP_HDR_USER_AGENT,
 					 &ua_value);
 
 	shash_desc->tfm = sticky->shash;
@@ -424,14 +418,17 @@ tfw_http_sticky_calc(TfwHttpReq *req, StickyVal *sv)
 /*
  * Add Tempesta sticky cookie to an HTTP response.
  *
- * Create a complete 'Set-Cookie:' header field, and add it
+ * Create a complete 'set-cookie' header field, and add it
  * to the HTTP response' header block.
  */
 static int
-tfw_http_sticky_add(TfwHttpResp *resp)
+tfw_http_sticky_add(TfwHttpResp *resp, bool cache)
 {
-	static const unsigned int len = sizeof(StickyVal) * 2;
 	int r;
+	static const unsigned int len = sizeof(StickyVal) * 2;
+	bool to_h2 = TFW_MSG_H2(resp->req);
+	char *name = to_h2 ? S_SET_COOKIE : S_F_SET_COOKIE;
+	unsigned int nm_len = to_h2 ? SLEN(S_SET_COOKIE) : SLEN(S_F_SET_COOKIE);
 	TfwHttpSess *sess = resp->req->sess;
 	unsigned long ts_be64 = cpu_to_be64(sess->ts);
 	char buf[len];
@@ -439,12 +436,12 @@ tfw_http_sticky_add(TfwHttpResp *resp)
 	size_t cookie_len = sticky->name_eq.len;
 	TfwStr set_cookie = {
 		.chunks = (TfwStr []) {
-			{ .data = S_F_SET_COOKIE, .len = SLEN(S_F_SET_COOKIE) },
+			{ .data = name, .len = nm_len },
 			{ .data = sticky->name_eq.data,
-			  .len =  cookie_len },
+			  .len = cookie_len },
 			{ .data = buf, .len = len },
 		},
-		.len = SLEN(S_F_SET_COOKIE) + cookie_len + len,
+		.len = nm_len + cookie_len + len,
 		.eolen = 2,
 		.nchunks = 3
 	};
@@ -453,13 +450,34 @@ tfw_http_sticky_add(TfwHttpResp *resp)
 	bin2hex(buf, &ts_be64, sizeof(ts_be64));
 	bin2hex(&buf[sizeof(ts_be64) * 2], sess->hmac, sizeof(sess->hmac));
 
-	T_DBG("%s: \"" S_F_SET_COOKIE "%.*s=%.*s\"\n", __func__,
+	T_DBG("%s: name=%s, val='%.*s=%.*s'\n", __func__, name,
 	      PR_TFW_STR(&sticky->name), len, buf);
 
-	r = tfw_http_msg_hdr_add((TfwHttpMsg *)resp, &set_cookie);
-	if (r)
-		T_WARN("Cannot add \"" S_F_SET_COOKIE "%.*s=%.*s\"\n",
+	if (to_h2) {
+		TfwH2TransOp op = cache ? TFW_H2_TRANS_EXPAND : TFW_H2_TRANS_ADD;
+
+		set_cookie.hpack_idx = 55;
+		r = tfw_hpack_encode(resp, &set_cookie, op, !cache);
+	}
+	else if (cache) {
+		TfwHttpTransIter *mit = &resp->mit;
+		struct sk_buff **skb_head = &resp->msg.skb_head;
+		TfwStr crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
+
+		r = tfw_http_msg_expand_data(&mit->iter, skb_head,
+					     &set_cookie, NULL);
+		if (!r)
+			r = tfw_http_msg_expand_data(&mit->iter, skb_head,
+						     &crlf, NULL);
+	}
+	else {
+		r = tfw_http_msg_hdr_add((TfwHttpMsg *)resp, &set_cookie);
+	}
+
+	if (unlikely(r))
+		T_WARN("Cannot add '%s' header: val='%.*s=%.*s'\n", name,
 		       PR_TFW_STR(&sticky->name), len, buf);
+
 	return r;
 }
 
@@ -814,7 +832,7 @@ tfw_http_sess_req_process(TfwHttpReq *req)
  * Add Tempesta sticky cookie to an HTTP response if needed.
  */
 int
-tfw_http_sess_resp_process(TfwHttpResp *resp)
+tfw_http_sess_resp_process(TfwHttpResp *resp, bool cache)
 {
 	TfwHttpReq *req = resp->req;
 	TfwStickyCookie *sticky = req->vhost->cookie;
@@ -835,7 +853,7 @@ tfw_http_sess_resp_process(TfwHttpResp *resp)
 	 */
 	if (test_bit(TFW_HTTP_B_HAS_STICKY, req->flags))
 		return 0;
-	return tfw_http_sticky_add(resp);
+	return tfw_http_sticky_add(resp, cache);
 }
 
 /**

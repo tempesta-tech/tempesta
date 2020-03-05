@@ -204,6 +204,19 @@ size_t tfw_ultohex(unsigned long ai, char *buf, unsigned int len);
 #define TFW_STR_ETAG_WEAK	0x20
 /* Trailer  header. */
 #define TFW_STR_TRAILER		0x40
+/*
+ * The string/chunk is a header fully indexed in HPACK static
+ * table (used only for HTTP/1.1=>HTTP/2 message transformation).
+ */
+#define TFW_STR_FULL_INDEX	0x80
+/*
+ * The string/chunk is a part of header value (used only for
+ * HTTP/2=>HTTP/1.1 and HTTP/2=>HTTP/2 message transformations).
+ */
+#define TFW_STR_HDR_VALUE	0x80
+
+/* The chunk contains only WS characters. */
+#define TFW_STR_OWS		0x100
 
 /*
  * @ptr		- pointer to string data or array of nested strings;
@@ -214,7 +227,10 @@ size_t tfw_ultohex(unsigned long ai, char *buf, unsigned int len);
  *		  it should be 0 if the string has no EOL at all, 1 for LF and
  *		  2 for CRLF);
  * @nchunks  	- number of chunks of compound string;
- * @flags	- flags;
+ * @flags	- double-byte field for flags;
+ * @hpack_idx	- HPACK static index (in cases when the HTTP
+ *		  header represented in @TfwStr is found in corresponding HPACK
+ *		  static table).
  */
 typedef struct tfwstr_t {
 	union {
@@ -225,11 +241,14 @@ typedef struct tfwstr_t {
 	unsigned long	len;
 	unsigned int	nchunks;
 	unsigned short	flags;
-	unsigned char	eolen;
+	unsigned short	hpack_idx:14;
+	unsigned short	eolen:2;
 } TfwStr;
 
 #define TFW_STR_STRING(val)		((TfwStr){.data = (val), NULL,	\
 						  sizeof(val) - 1, 0, 0, 0})
+#define TFW_STR_F_STRING(val, flags)	((TfwStr){.data = (val), NULL,	\
+						sizeof(val) - 1, 0, flags, 0})
 #define DEFINE_TFW_STR(name, val)	TfwStr name = TFW_STR_STRING(val)
 #define TFW_STR_FROM_CSTR(s)		((TfwStr){.data = (char*)(s),	\
 						  NULL, strlen(s), 0, 0, 0})
@@ -374,6 +393,7 @@ typedef enum {
 int tfw_strcpy(TfwStr *dst, const TfwStr *src);
 TfwStr *tfw_strdup(TfwPool *pool, const TfwStr *src);
 int tfw_strcpy_desc(TfwStr *dst, TfwStr *src);
+TfwStr *tfw_strdup_desc(TfwPool *pool, const TfwStr *src);
 int tfw_strcat(TfwPool *pool, TfwStr *dst, TfwStr *src);
 int tfw_str_insert(TfwPool *pool, TfwStr *dst, TfwStr *src, unsigned int chunk);
 

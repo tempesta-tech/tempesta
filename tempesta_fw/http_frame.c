@@ -35,8 +35,6 @@
 #define FRAME_SETTINGS_ENTRY_SIZE	6
 #define FRAME_PING_SIZE			8
 #define FRAME_GOAWAY_SIZE		8
-#define FRAME_STREAM_ID_MASK		((1U << 31) - 1)
-#define FRAME_RESERVED_BIT_MASK		(~FRAME_STREAM_ID_MASK)
 
 #define WND_INCREMENT_SIZE		4
 #define SETTINGS_KEY_SIZE		2
@@ -168,7 +166,7 @@ do {									\
 	TfwH2Err err = HTTP2_ECODE_NO_ERROR;				\
 	BUG_ON(!(ctx)->cur_stream);					\
 	if ((res = tfw_h2_stream_fsm((ctx)->cur_stream, (hdr)->type,	\
-					(hdr)->flags, &err)))		\
+				     (hdr)->flags, false, &err)))	\
 	{								\
 		T_DBG3("stream recv processed: result=%d, state=%d, id=%u," \
 		       " err=%d\n", res, (ctx)->cur_stream->state,	\
@@ -216,7 +214,7 @@ tfw_h2_context_init(TfwH2Ctx *ctx)
 	lset->hdr_tbl_sz = rset->hdr_tbl_sz = HPACK_TABLE_DEF_SIZE;
 	lset->push = rset->push = 1;
 	lset->max_streams = rset->max_streams = 0xffffffff;
-	lset->max_frame_sz = rset->max_frame_sz = 1 << 14;
+	lset->max_frame_sz = rset->max_frame_sz = FRAME_DEF_LENGTH;
 	lset->max_lhdr_sz = rset->max_lhdr_sz = UINT_MAX;
 	/*
 	 * We ignore client's window size until #498, so currently
@@ -244,22 +242,6 @@ tfw_h2_unpack_frame_header(TfwFrameHdr *hdr, const unsigned char *buf)
 
 	T_DBG3("%s: parsed, length=%d, stream_id=%u, type=%hhu, flags=0x%hhx\n",
 	       __func__, hdr->length, hdr->stream_id, hdr->type, hdr->flags);
-}
-
-static inline void
-tfw_h2_pack_frame_header(unsigned char *p, const TfwFrameHdr *hdr)
-{
-	*(unsigned int *)p = htonl((unsigned int)(hdr->length << 8));
-	p += 3;
-	*p++ = hdr->type;
-	*p++ = hdr->flags;
-	/*
-	 * Stream id must occupy not more than 31 bit and reserved bit
-	 * must be 0.
-	 */
-	WARN_ON_ONCE((unsigned int)(hdr->stream_id & FRAME_RESERVED_BIT_MASK));
-
-	*(unsigned int *)p = htonl(hdr->stream_id);
 }
 
 static inline void
@@ -313,10 +295,10 @@ __tfw_h2_send_frame(TfwH2Ctx *ctx, TfwFrameHdr *hdr, TfwStr *data, bool close)
 	if ((r = tfw_connection_send((TfwConn *)conn, &msg)))
 		goto err;
 	/*
-	 * For HTTP/2 we do not close client connection automatically in case
-	 * of failed sending (unlike the HTTP/1.1 processing); thus, we should
-	 * set Conn_Stop flag only if sending procedure was successful - to
-	 * avoid hanged unclosed client connection.
+	 * We do not close client connection automatically here in case
+	 * of failed sending, the caller must make such decision instead;
+	 * thus, we should set Conn_Stop flag only if sending procedure
+	 * was successful - to avoid hanged unclosed client connection.
 	 */
 	if (close)
 		TFW_CONN_TYPE((TfwConn *)conn) |= Conn_Stop;
@@ -520,6 +502,7 @@ tfw_h2_recv_priority(TfwH2Ctx *ctx)
 {
 	ctx->to_read = FRAME_PRIORITY_SIZE;
 	ctx->hdr.length -= ctx->to_read;
+	ctx->plen -= ctx->to_read;
 	VERIFY_FRAME_SIZE(ctx);
 	ctx->state = HTTP2_RECV_HEADER_PRI;
 	return T_OK;
@@ -530,6 +513,7 @@ tfw_h2_recv_padded(TfwH2Ctx *ctx)
 {
 	ctx->to_read = 1;
 	ctx->hdr.length -= ctx->to_read;
+	ctx->plen -= ctx->to_read;
 	VERIFY_FRAME_SIZE(ctx);
 	ctx->state = HTTP2_RECV_FRAME_PADDED;
 	return T_OK;
@@ -710,14 +694,37 @@ tfw_h2_stream_close(TfwH2Ctx *ctx, unsigned int id, TfwStream **stream,
 }
 
 /*
- * Unlink request from corresponding stream (if linked) and move the stream
- * to the queue of closed streams (if it is not contained there yet).
+ * Get stream ID for upper layer to create frames info.
  */
 unsigned int
-tfw_h2_stream_id_close(TfwHttpReq *req)
+tfw_h2_stream_id(TfwHttpReq *req)
+{
+	unsigned int id = 0;
+	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
+
+	spin_lock(&ctx->lock);
+
+	if (req->stream)
+		id = req->stream->id;
+
+	spin_unlock(&ctx->lock);
+
+	return id;
+}
+
+/*
+ * Get stream ID for upper layer to prepare and send frame with response to
+ * client, and process stream FSM for the frame (of type specified in @type
+ * and with flags set in @flags). This procedure also unlinks request from
+ * corresponding stream (if linked) and moves the stream to the queue of
+ * closed streams (if it is not contained there yet).
+ */
+unsigned int
+tfw_h2_stream_id_close(TfwHttpReq *req, unsigned char type,
+		       unsigned char flags)
 {
 	TfwStream *stream;
-	unsigned int id;
+	unsigned int id = 0;
 	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 
 	spin_lock(&ctx->lock);
@@ -728,7 +735,13 @@ tfw_h2_stream_id_close(TfwHttpReq *req)
 		return 0;
 	}
 
-	id = stream->id;
+	if (type < _HTTP2_UNDEFINED &&
+	    !STREAM_SEND_PROCESS(stream, type, flags))
+	{
+		id = stream->id;
+	}
+
+	req->stream = NULL;
 	stream->msg = NULL;
 
 	__tfw_h2_stream_add_closed(&ctx->hclosed_streams, stream);
@@ -814,9 +827,11 @@ tfw_h2_headers_process(TfwH2Ctx *ctx)
 
 		ctx->state = HTTP2_IGNORE_FRAME_DATA;
 
-		return tfw_h2_stream_close(ctx, hdr->stream_id,
-					   &ctx->cur_stream,
-					   HTTP2_ECODE_PROTO);
+		if (!STREAM_SEND_PROCESS(ctx->cur_stream, HTTP2_RST_STREAM, 0))
+			return tfw_h2_stream_close(ctx, hdr->stream_id,
+						   &ctx->cur_stream,
+						   HTTP2_ECODE_PROTO);
+		return T_OK;
 	}
 
 	if (!ctx->cur_stream) {
@@ -842,19 +857,24 @@ tfw_h2_wnd_update_process(TfwH2Ctx *ctx)
 	TfwFrameHdr *hdr = &ctx->hdr;
 
 	wnd_incr = ntohl(*(unsigned int *)ctx->rbuf) & ((1U << 31) - 1);
-	if (!wnd_incr) {
-		if (ctx->cur_stream)
-			return tfw_h2_stream_close(ctx, hdr->stream_id,
-						   &ctx->cur_stream,
-						   HTTP2_ECODE_PROTO);
+	if (wnd_incr) {
+		/*
+		 * TODO #498: apply new window size for entire connection or
+		 * particular stream.
+		 */
+		return T_OK;
+	}
+
+	if (!ctx->cur_stream) {
 		tfw_h2_conn_terminate(ctx, HTTP2_ECODE_PROTO);
 		return T_DROP;
 	}
-	/*
-	 * TODO: apply new window size for entire connection or
-	 * particular stream; ignore until #498.
-	 */
-	return T_OK;
+
+	if (STREAM_SEND_PROCESS(ctx->cur_stream, HTTP2_RST_STREAM, 0))
+		return T_OK;
+
+	return tfw_h2_stream_close(ctx, hdr->stream_id, &ctx->cur_stream,
+				   HTTP2_ECODE_PROTO);
 }
 
 static inline int
@@ -865,26 +885,29 @@ tfw_h2_priority_process(TfwH2Ctx *ctx)
 
 	tfw_h2_unpack_priority(pri, ctx->rbuf);
 
+	if (pri->stream_id != hdr->stream_id) {
+		T_DBG3("%s: parsed, stream_id=%u, dep_stream_id=%u, weight=%hu,"
+		       " excl=%hhu\n", __func__, hdr->stream_id, pri->stream_id,
+		       pri->weight, pri->exclusive);
+
+		tfw_h2_change_stream_dep(&ctx->sched, hdr->stream_id,
+					 pri->stream_id, pri->weight,
+					 pri->exclusive);
+		return T_OK;
+	}
+
 	/*
 	 * Stream cannot depend on itself (see RFC 7540 section 5.1.2 for
 	 * details).
 	 */
-	if (pri->stream_id == hdr->stream_id) {
-		T_DBG("Invalid dependency: new stream with %u depends on"
+	T_DBG("Invalid dependency: new stream with %u depends on"
 		      " itself\n", hdr->stream_id);
 
-		return tfw_h2_stream_close(ctx, hdr->stream_id,
-					   &ctx->cur_stream,
-					   HTTP2_ECODE_PROTO);
-	}
+	if (STREAM_SEND_PROCESS(ctx->cur_stream, HTTP2_RST_STREAM, 0))
+		return T_OK;
 
-	T_DBG3("%s: parsed, stream_id=%u, dep_stream_id=%u, weight=%hu,"
-	       " excl=%hhu\n", __func__, hdr->stream_id, pri->stream_id,
-	       pri->weight, pri->exclusive);
-
-	tfw_h2_change_stream_dep(&ctx->sched, hdr->stream_id, pri->stream_id,
-				    pri->weight, pri->exclusive);
-	return T_OK;
+	return tfw_h2_stream_close(ctx, hdr->stream_id, &ctx->cur_stream,
+				   HTTP2_ECODE_PROTO);
 }
 
 static inline void
@@ -899,15 +922,21 @@ tfw_h2_rst_stream_process(TfwH2Ctx *ctx)
 }
 
 static int
-tfw_h2_apply_settings_entry(TfwSettings *dest, unsigned short id,
+tfw_h2_apply_settings_entry(TfwH2Ctx *ctx, unsigned short id,
 			    unsigned int val)
 {
+	TfwSettings *dest = &ctx->rsettings;
+
 	switch (id) {
 	case HTTP2_SETTINGS_TABLE_SIZE:
-		dest->hdr_tbl_sz = val;
+		dest->hdr_tbl_sz = min_t(unsigned int,
+					 val, HPACK_ENC_TABLE_MAX_SIZE);
+		tfw_hpack_set_rbuf_size(&ctx->hpack.enc_tbl, dest->hdr_tbl_sz);
 		break;
 
 	case HTTP2_SETTINGS_ENABLE_PUSH:
+		if (val > 1)
+			return T_BAD;
 		dest->push = val;
 		break;
 
@@ -916,10 +945,14 @@ tfw_h2_apply_settings_entry(TfwSettings *dest, unsigned short id,
 		break;
 
 	case HTTP2_SETTINGS_INIT_WND_SIZE:
+		if (val > MAX_WND_SIZE)
+			return T_BAD;
 		dest->wnd_sz = val;
 		break;
 
 	case HTTP2_SETTINGS_MAX_FRAME_SIZE:
+		if (val < FRAME_DEF_LENGTH || val > FRAME_MAX_LENGTH)
+			return T_BAD;
 		dest->max_frame_sz = val;
 		break;
 
@@ -935,9 +968,6 @@ tfw_h2_apply_settings_entry(TfwSettings *dest, unsigned short id,
 		return T_OK;
 	}
 
-	/*
-	 * TODO: apply settings entry.
-	 */
 	return T_OK;
 }
 
@@ -962,7 +992,7 @@ tfw_h2_settings_process(TfwH2Ctx *ctx)
 
 	T_DBG3("%s: entry parsed, id=%hu, val=%u\n", __func__, id, val);
 
-	if (tfw_h2_apply_settings_entry(&ctx->rsettings, id, val))
+	if (tfw_h2_apply_settings_entry(ctx, id, val))
 		return T_BAD;
 
 	ctx->to_read = hdr->length ? FRAME_SETTINGS_ENTRY_SIZE : 0;
@@ -1095,17 +1125,22 @@ tfw_h2_flow_control(TfwH2Ctx *ctx)
 	stream->loc_wnd -= hdr->length;
 	ctx->loc_wnd -= hdr->length;
 
-	if (stream->loc_wnd <= lset->wnd_sz / 2
-	    && tfw_h2_send_wnd_update(ctx, stream->id,
-					 lset->wnd_sz - stream->loc_wnd))
-	{
-		return T_DROP;
+	if (stream->loc_wnd <= lset->wnd_sz / 2) {
+		if( tfw_h2_send_wnd_update(ctx, stream->id,
+					   lset->wnd_sz - stream->loc_wnd))
+		{
+			return T_DROP;
+		}
+		stream->loc_wnd = lset->wnd_sz;
 	}
 
-	if (ctx->loc_wnd <= MAX_WND_SIZE / 2
-	    && tfw_h2_send_wnd_update(ctx, 0, MAX_WND_SIZE - ctx->loc_wnd))
-	{
-		return T_DROP;
+
+	if (ctx->loc_wnd <= MAX_WND_SIZE / 2) {
+		if (tfw_h2_send_wnd_update(ctx, 0, MAX_WND_SIZE - ctx->loc_wnd))
+		{
+			return T_DROP;
+		}
+		ctx->loc_wnd = MAX_WND_SIZE;
 	}
 
 	return T_OK;
@@ -1168,6 +1203,17 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 	T_DBG3("%s: hdr->type=%hhu, ctx->state=%d\n", __func__, hdr->type,
 	       ctx->state);
 
+	if (unlikely(ctx->hdr.length > ctx->lsettings.max_frame_sz))
+		goto conn_term;
+
+	/*
+	 * TODO: RFC 7540 Section 6.2:
+	 * A HEADERS frame without the END_HEADERS flag set MUST be followed
+	 * by a CONTINUATION frame for the same stream. A receiver MUST treat
+	 * the receipt of any other type of frame or a frame on a different
+	 * stream as a connection error (Section 5.4.1) of type PROTOCOL_ERROR.
+	 */
+
 	switch (hdr->type) {
 	case HTTP2_DATA:
 		if (!hdr->stream_id) {
@@ -1198,9 +1244,8 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		if (tfw_h2_flow_control(ctx))
 			return T_DROP;
 
-		STREAM_RECV_PROCESS(ctx, hdr);
-
 		ctx->data_off = FRAME_HEADER_SIZE;
+		ctx->plen = ctx->hdr.length;
 
 		if (hdr->flags & HTTP2_F_PADDED)
 			return tfw_h2_recv_padded(ctx);
@@ -1241,6 +1286,7 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 		}
 
 		ctx->data_off = FRAME_HEADER_SIZE;
+		ctx->plen = ctx->hdr.length;
 
 		if (hdr->flags & HTTP2_F_PADDED)
 			return tfw_h2_recv_padded(ctx);
@@ -1259,12 +1305,8 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 
 		ctx->cur_stream = tfw_h2_find_stream(&ctx->sched,
 							hdr->stream_id);
-		if (hdr->length != FRAME_PRIORITY_SIZE) {
-			SET_TO_READ(ctx);
-			return tfw_h2_stream_close(ctx, hdr->stream_id,
-						   &ctx->cur_stream,
-						   HTTP2_ECODE_SIZE);
-		}
+		if (hdr->length != FRAME_PRIORITY_SIZE)
+			goto conn_term;
 
 		if (ctx->cur_stream)
 			STREAM_RECV_PROCESS(ctx, hdr);
@@ -1410,9 +1452,8 @@ tfw_h2_frame_type_process(TfwH2Ctx *ctx)
 			goto conn_term;
 		}
 
-		STREAM_RECV_PROCESS(ctx, hdr);
-
 		ctx->data_off = FRAME_HEADER_SIZE;
+		ctx->plen = ctx->hdr.length;
 
 		SET_TO_READ_VERIFY(ctx, HTTP2_RECV_CONT);
 		return T_OK;

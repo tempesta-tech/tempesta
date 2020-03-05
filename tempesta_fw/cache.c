@@ -4,7 +4,7 @@
  * HTTP cache (RFC 7234).
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -34,6 +34,7 @@
 #include "vhost.h"
 #include "cache.h"
 #include "http_msg.h"
+#include "http_sess.h"
 #include "procfs.h"
 #include "sync_socket.h"
 #include "work_queue.h"
@@ -67,10 +68,11 @@ static const TfwStr tfw_cache_raw_headers_304[] = {
 /*
  * @trec	- Database record descriptor;
  * @key_len	- length of key (URI + Host header);
- * @status_len	- length of response status line;
+ * @status_len	- length of response status code;
+ * @rph_len	- length of response reason phrase;
  * @hdr_num	- number of headers;
  * @hdr_len	- length of whole headers data;
- * @hdr_len_304	- length of headers data used to build 304 response;
+ * @body_len	- length of the response body;
  * @method	- request method, part of the key;
  * @flags	- various cache entry flags;
  * @age		- the value of response Age: header field;
@@ -80,9 +82,9 @@ static const TfwStr tfw_cache_raw_headers_304[] = {
  * @lifetime	- the cache entry's current lifetime;
  * @last_modified - the value of response Last-Modified: header field;
  * @key		- the cache entry key (URI + Host header);
- * @status	- pointer to status line  (with trailing CRLFs);
- * @hdrs	- pointer to list of HTTP headers (with trailing CRLFs);
- * @body	- pointer to response body (with a prepending CRLF);
+ * @status	- pointer to status line;
+ * @hdrs	- pointer to list of HTTP headers;
+ * @body	- pointer to response body;
  * @hdrs_304	- pointers to headers used to build 304 response;
  * @version	- HTTP version of the response;
  * @resp_status - Http status of the cached response.
@@ -94,9 +96,10 @@ typedef struct {
 #define ce_body		key_len
 	unsigned int	key_len;
 	unsigned int	status_len;
+	unsigned int	rph_len;
 	unsigned int	hdr_num;
 	unsigned int	hdr_len;
-	unsigned int	hdr_len_304;
+	unsigned int	body_len;
 	unsigned int	method: 4;
 	unsigned int	flags: 28;
 	time_t		age;
@@ -169,6 +172,8 @@ typedef struct {
 
 static CaNode c_nodes[MAX_NUMNODES];
 
+typedef int tfw_cache_write_actor_t(TDB *, TdbVRec **, TfwHttpResp *, char **,
+				    size_t, TfwDecodeCacheIter *);
 /*
  * TODO the thread doesn't do anything for now, however, kthread_stop() crashes
  * on restarts, so comment to logic out.
@@ -178,25 +183,27 @@ static struct task_struct *cache_mgr_thr;
 #endif
 static DEFINE_PER_CPU(TfwWorkTasklet, cache_wq);
 
+#define RESP_BUF_LEN		128
+
+static DEFINE_PER_CPU(char[RESP_BUF_LEN], g_c_buf);
+
 static TfwStr g_crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
 
 /* Iterate over request URI and Host header to process request key. */
-#define TFW_CACHE_REQ_KEYITER(c, req, u_end, h_start, h_end)		\
-	if (TFW_STR_PLAIN(&req->uri_path)) {				\
-		c = &req->uri_path;					\
-		u_end = &req->uri_path + 1;				\
+#define TFW_CACHE_REQ_KEYITER(c, uri_path, host, u_end, h_start, h_end)	\
+	if (TFW_STR_PLAIN(uri_path)) {					\
+		c = uri_path;						\
+		u_end = (uri_path) + 1;					\
 	} else {							\
-		c = req->uri_path.chunks;				\
-		u_end = req->uri_path.chunks				\
-			+ req->uri_path.nchunks;			\
+		c = (uri_path)->chunks;					\
+		u_end = (uri_path)->chunks + (uri_path)->nchunks;	\
 	}								\
-	if (TFW_STR_PLAIN(&req->h_tbl->tbl[TFW_HTTP_HDR_HOST])) {	\
-		h_start = req->h_tbl->tbl + TFW_HTTP_HDR_HOST;		\
-		h_end = req->h_tbl->tbl + TFW_HTTP_HDR_HOST + 1;	\
+	if (!TFW_STR_EMPTY(host)) {					\
+		BUG_ON(TFW_STR_PLAIN(host));				\
+		h_start = (host)->chunks;				\
+		h_end = (host)->chunks + (host)->nchunks;		\
 	} else {							\
-		h_start = req->h_tbl->tbl[TFW_HTTP_HDR_HOST].chunks;	\
-		h_end = req->h_tbl->tbl[TFW_HTTP_HDR_HOST].chunks	\
-			+ req->h_tbl->tbl[TFW_HTTP_HDR_HOST].nchunks;	\
+		h_start = h_end = u_end;				\
 	}								\
 	for ( ; c != h_end; ++c, c = (c == u_end) ? h_start : c)
 
@@ -531,29 +538,38 @@ tfw_cache_cond_none_match(TfwHttpReq *req, TfwCacheEntry *ce)
 }
 
 /**
- * Add a new data chunk size of @len starting from @data to HTTP response @resp.
- * Properly set up @hdr if not NULL.
+ * Add a new header with size of @len starting from @data to HTTP response @resp,
+ * expanding the @resp with new skb/frags if needed.
  */
 static int
-tfw_cache_write_field(TDB *db, TdbVRec **trec, TfwHttpResp *resp,
-		      TfwMsgIter *it, char **data, size_t len, TfwStr *hdr)
+tfw_cache_h2_write(TDB *db, TdbVRec **trec, TfwHttpResp *resp, char **data,
+		   size_t len, TfwDecodeCacheIter *dc_iter)
 {
-	int r, copied = 0;
-	TdbVRec *tr = *trec;
 	TfwStr c = { 0 };
+	TdbVRec *tr = *trec;
+	TfwHttpTransIter *mit = &resp->mit;
+	TfwMsgIter *it = &mit->iter;
+	int r = 0, copied = 0;
 
 	while (1)  {
 		c.data = *data;
-		c.len = min(tr->data + tr->len - *data,
-			    (long)(len - copied));
-		r = hdr
-		    ? tfw_http_msg_add_data(it, (TfwHttpMsg *)resp, hdr, &c)
-		    : tfw_msg_write(it, &c);
-		if (r)
-			return r;
+		c.len = min(tr->data + tr->len - *data, (long)(len - copied));
+		if (!dc_iter->skip) {
+			r = tfw_http_msg_expand_data(it, &resp->msg.skb_head,
+						     &c, &mit->start_off);
+			if (unlikely(r))
+				break;
+
+			dc_iter->acc_len += c.len;
+		}
 
 		copied += c.len;
 		*data += c.len;
+
+		T_DBG3("%s: len='%zu', copied='%d', dc_iter->acc_len='%lu',"
+		       " dc_iter->skip='%d'\n", __func__, len, copied,
+		       dc_iter->acc_len, dc_iter->skip);
+
 		if (copied == len)
 			break;
 
@@ -562,56 +578,152 @@ tfw_cache_write_field(TDB *db, TdbVRec **trec, TfwHttpResp *resp,
 		*data = tr->data;
 	}
 
-	/* Every non-empty header contains CRLF at the end. We need to translate
-	 * it to { str, eolen } presentation. */
-	if (hdr && hdr->len)
-		tfw_str_fixup_eol(hdr, SLEN(S_CRLF));
+	return r;
+}
+
+/**
+ * Same as @tfw_cache_h2_write(), but also decode the header from HTTP/2 format
+ * before writing it into the response (used e.g. for HTTP/1.1-response creation
+ * from cache).
+ */
+static int
+tfw_cache_h2_decode_write(TDB *db, TdbVRec **trec, TfwHttpResp *resp,
+			  char **data, size_t len, TfwDecodeCacheIter *dc_iter)
+{
+	unsigned long m_len;
+	TdbVRec *tr = *trec;
+	int r = 0, acc = 0;
+	TfwHPack hp = {};
+
+	while (1)  {
+		m_len = min(tr->data + tr->len - *data, (long)(len - acc));
+		if (!dc_iter->skip) {
+			r = tfw_hpack_cache_decode_expand(&hp, resp, *data,
+							  m_len, dc_iter);
+			if (unlikely(r))
+				break;
+		}
+
+		acc += m_len;
+		*data += m_len;
+		if (acc == len) {
+			bzero_fast(dc_iter->__off,
+				   sizeof(*dc_iter)
+				   - offsetof(TfwDecodeCacheIter, __off));
+			break;
+		}
+
+		tr = *trec = tdb_next_rec_chunk(db, tr);
+		BUG_ON(!tr);
+		*data = tr->data;
+	}
+
+	return r;
+}
+
+static int
+tfw_cache_set_status(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp,
+		     TdbVRec **trec, char **p, unsigned long *acc_len)
+{
+	int r;
+	TfwMsgIter *it = &resp->mit.iter;
+	struct sk_buff **skb_head = &resp->msg.skb_head;
+	bool h2_mode = TFW_MSG_H2(resp->req);
+	TfwDecodeCacheIter dc_iter = {};
+
+	if (h2_mode)
+		resp->mit.start_off = FRAME_HEADER_SIZE;
+	else
+		dc_iter.skip = true;
+
+
+	r = tfw_cache_h2_write(db, trec, resp, p, ce->status_len, &dc_iter);
+	if (unlikely(r))
+		return r;
+
+	if (!h2_mode) {
+		char buf[H2_STAT_VAL_LEN];
+		TfwStr s_line = {
+			.chunks = (TfwStr []){
+				{ .data = S_0, .len = SLEN(S_0) },
+				{ .data = buf, .len =  H2_STAT_VAL_LEN}
+			},
+			.len = SLEN(S_0) + H2_STAT_VAL_LEN,
+			.nchunks = 2
+		};
+
+		if (!tfw_ultoa(ce->resp_status, __TFW_STR_CH(&s_line, 1)->data,
+			       H2_STAT_VAL_LEN))
+			return -E2BIG;
+
+		r = tfw_http_msg_expand_data(it, skb_head, &s_line, NULL);
+		if (unlikely(r))
+			return r;
+
+		*acc_len += s_line.len;
+	}
+
+	dc_iter.skip = h2_mode ? true : false;
+
+	r = tfw_cache_h2_write(db, trec, resp, p, ce->rph_len, &dc_iter);
+	if (unlikely(r))
+		return r;
+
+	*acc_len += dc_iter.acc_len;
+
+	if (!h2_mode) {
+		r = tfw_http_msg_expand_data(it, skb_head, &g_crlf, NULL);
+		if (unlikely(r))
+			return r;
+
+		*acc_len += g_crlf.len;
+	}
 
 	return 0;
 }
 
 /**
  * Write HTTP header to skb data.
- * The headers are likely to be adjusted, so copy them.
  */
 static int
-tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwStr *hdr,
-			 TdbVRec **trec, TfwMsgIter *it, char **p)
+tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwHdrMods *hmods,
+			 TdbVRec **trec, char **p, unsigned long *acc_len)
 {
-	int r, d, dn;
-	TfwStr *dups;
+	tfw_cache_write_actor_t *write_actor;
 	TfwCStr *s = (TfwCStr *)*p;
+	TfwHttpReq *req = resp->req;
+	TfwDecodeCacheIter dc_iter = { .h_mods = hmods };
+	int d, dn, r = 0;
+
+	BUG_ON(!req);
+
+	write_actor = !TFW_MSG_H2(req) || dc_iter.h_mods
+		? tfw_cache_h2_decode_write
+		: tfw_cache_h2_write;
 
 	*p += TFW_CSTR_HDRLEN;
 	BUG_ON(*p > (*trec)->data + (*trec)->len);
 
-	if (likely(!(s->flags & TFW_STR_DUPLICATE)))
-		return tfw_cache_write_field(db, trec, resp, it, p, s->len,
-					     hdr);
+	if (likely(!(s->flags & TFW_STR_DUPLICATE))) {
+		r = write_actor(db, trec, resp, p, s->len, &dc_iter);
+		if (likely(!r))
+			*acc_len += dc_iter.acc_len;
+		return r;
+	}
 
 	/* Process duplicated headers. */
 	dn = s->len;
-	dups = tfw_pool_alloc(resp->pool, dn * sizeof(TfwStr));
-	if (!dups)
-		return -ENOMEM;
-
 	for (d = 0; d < dn; ++d) {
 		s = (TfwCStr *)*p;
 		BUG_ON(s->flags);
-		TFW_STR_INIT(&dups[d]);
 		*p += TFW_CSTR_HDRLEN;
-		if ((r = tfw_cache_write_field(db, trec, resp, it, p, s->len,
-					       &dups[d])))
-			return r;
+		r = write_actor(db, trec, resp, p, s->len, &dc_iter);
+		if (unlikely(r))
+			break;
+		*acc_len += dc_iter.acc_len;;
 	}
 
-	if (hdr) {
-		hdr->chunks = dups;
-		hdr->nchunks = dn;
-		hdr->flags |= TFW_STR_DUPLICATE;
-	}
-
-	return 0;
+	return r;
 }
 
 /**
@@ -620,37 +732,49 @@ tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwStr *hdr,
  * Last-Modified might be used if the response does not have an ETag field.
  *
  * The 304 response should be as short as possible, we don't need to add
- * extra headers with tfw_http_adjust_resp(). Use quicker tfw_msg_write()
- * instead of tfw_http_msg_add_data() used to build full response.
+ * extra headers.
  */
 static void
 tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 {
-	TfwHttpResp *resp;
-	TfwMsgIter it;
-	int i;
 	char *p;
+	int r, i;
+	TfwMsgIter *it;
+	TfwHttpResp *resp;
+	TfwFrameHdr frame_hdr;
+	struct sk_buff **skb_head;
+	unsigned char buf[FRAME_HEADER_SIZE];
+	unsigned int stream_id = 0;
+	unsigned long h_len = 0;
 	TdbVRec *trec = &ce->trec;
 	TDB *db = node_db();
 
 	WARN_ON_ONCE(!list_empty(&req->fwd_list));
 	WARN_ON_ONCE(!list_empty(&req->nip_list));
 
-	if (TFW_MSG_H2(req)) {
-		/*
-		 * TODO #309: add separate flow for HTTP/2 response preparing
-		 * and sending (HPACK index, encode in HTTP/2 format, add frame
-		 * headers and send via @tfw_h2_resp_fwd()).
-		 */
-		return;
-	}
-
 	if (!(resp = tfw_http_msg_alloc_resp_light(req)))
 		goto err_create;
 
-	if (tfw_http_prep_304((TfwHttpMsg *)resp, req, &it,
-			      ce->hdr_len_304))
-		goto err_setup;
+	it = &resp->mit.iter;
+	skb_head = &resp->msg.skb_head;
+
+	if (!TFW_MSG_H2(req)) {
+		r = tfw_http_prep_304(req, skb_head, it);
+		if (unlikely(r))
+			goto err_setup;
+	} else {
+		stream_id = tfw_h2_stream_id_close(req, HTTP2_HEADERS,
+						   HTTP2_F_END_STREAM);
+		if (unlikely(!stream_id))
+			goto err_setup;
+
+		resp->mit.start_off = FRAME_HEADER_SIZE;
+
+		r = tfw_h2_resp_status_write(resp, 304, TFW_H2_TRANS_EXPAND,
+					     true);
+		if (unlikely(r))
+			goto err_setup;
+	}
 
 	/* Put 304 headers */
 	for (i = 0; i < ARRAY_SIZE(ce->hdrs_304); ++i) {
@@ -662,14 +786,31 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 			trec = tdb_next_rec_chunk(db, trec);
 		BUG_ON(!trec);
 
-		if (tfw_cache_build_resp_hdr(db, resp, NULL, &trec, &it, &p))
+		if (tfw_cache_build_resp_hdr(db, resp, NULL, &trec, &p, &h_len))
 			goto err_setup;
 	}
 
-	if (tfw_msg_write(&it, &g_crlf))
+	if (!TFW_MSG_H2(req)) {
+		if (tfw_http_msg_expand_data(it, skb_head, &g_crlf, NULL))
+			goto err_setup;
+
+		tfw_http_resp_fwd(resp);
+
+		return;
+	}
+
+	if (h_len > FRAME_MAX_LENGTH)
 		goto err_setup;
 
-	tfw_http_resp_fwd(resp);
+	frame_hdr.stream_id = stream_id;
+	frame_hdr.length = h_len;
+	frame_hdr.type = HTTP2_HEADERS;
+	frame_hdr.flags = HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM;
+
+	tfw_h2_pack_frame_header(buf, &frame_hdr);
+	memcpy_fast((*skb_head)->data, buf, sizeof(buf));
+
+	tfw_h2_resp_fwd(resp);
 
 	return;
 err_setup:
@@ -749,15 +890,24 @@ tfw_cache_entry_key_eq(TDB *db, TfwHttpReq *req, TfwCacheEntry *ce)
 	int n, c_off = 0, t_off;
 	TdbVRec *trec = &ce->trec;
 	TfwStr *c, *h_start, *u_end, *h_end;
+	TfwStr host_val, *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
 
 	if ((req->method != TFW_HTTP_METH_PURGE) && (ce->method != req->method))
 		return false;
-	if (req->uri_path.len
-	    + req->h_tbl->tbl[TFW_HTTP_HDR_HOST].len != ce->key_len)
+
+	/*
+	 * Get 'host' header value (from HTTP/2 or HTTP/1.1 request) for
+	 * strict comparison.
+	 */
+	tfw_http_msg_clnthdr_val(req, host, TFW_HTTP_HDR_HOST, &host_val);
+
+	if (req->uri_path.len + host_val.len != ce->key_len)
 		return false;
 
 	t_off = CE_BODY_SIZE;
-	TFW_CACHE_REQ_KEYITER(c, req, u_end, h_start, h_end) {
+	TFW_CACHE_REQ_KEYITER(c, &req->uri_path, &host_val, u_end, h_start,
+			      h_end)
+	{
 		if (!trec)
 			return false;
 this_chunk:
@@ -836,20 +986,6 @@ tfw_cache_dbce_put(TfwCacheEntry *ce)
 		tdb_rec_put(ce);
 }
 
-static void
-tfw_cache_str_write_hdr(const TfwStr *str, char *p)
-{
-	TfwCStr *s = (TfwCStr *)p;
-
-	if (TFW_STR_DUP(str)) {
-		s->flags = TFW_STR_DUPLICATE;
-		s->len = str->nchunks;
-	} else {
-		s->flags = 0;
-		s->len = str->len ? str->len + SLEN(S_CRLF) : 0;
-	}
-}
-
 /**
  * Copies plain TfwStr @src to TdbRec @trec.
  * @return number of copied bytes (@src length).
@@ -915,18 +1051,31 @@ tfw_cache_strcpy_lc(char **p, TdbVRec **trec, TfwStr *src, size_t tot_len)
 	return __tfw_cache_strcpy(p, trec, src, tot_len, tfw_cstrtolower);
 }
 
+#define CSTR_MOVE_HDR()				\
+do {						\
+	cs = (TfwCStr *)*p;			\
+	*p += TFW_CSTR_HDRLEN;			\
+	*tot_len -= TFW_CSTR_HDRLEN;		\
+	ce->hdr_len += TFW_CSTR_HDRLEN;		\
+} while (0)
+
+#define CSTR_WRITE_HDR(f, l)			\
+do {						\
+	cs->flags = f;				\
+	cs->len = l;				\
+} while (0)
+
 /**
- * Copies plain or compound (chunked) TfwStr @src to TdbRec @trec may be
- * appending EOL marker at the end.
+ * Copies plain or compound (chunked) TfwStr @src to TdbRec @trec.
  *
- * @src is copied (possibly with EOL appended)
+ * @src is copied
  * @return number of copied bytes on success and negative value otherwise.
  */
-static long
-tfw_cache_strcpy_eol(char **p, TdbVRec **trec,
-		   TfwStr *src, size_t *tot_len, bool eol)
+static int
+tfw_cache_h2_copy_str(unsigned int *acc_len, char **p, TdbVRec **trec,
+		      TfwStr *src, size_t *tot_len)
 {
-	long n, copied = 0;
+	long n;
 	TfwStr *c, *end;
 
 	BUG_ON(TFW_STR_DUP(src));
@@ -936,73 +1085,170 @@ tfw_cache_strcpy_eol(char **p, TdbVRec **trec,
 
 	TFW_STR_FOR_EACH_CHUNK(c, src, end) {
 		if ((n = tfw_cache_strcpy(p, trec, c, *tot_len)) < 0) {
-			T_ERR("Cache: cannot copy chunk of string\n");
+			T_ERR("Cache: cannot copy chunk of HTTP/2 string\n");
 			return -ENOMEM;
 		}
+
 		*tot_len -= n;
-		copied += n;
+		*acc_len += n;
 	}
 
-	if (eol) {
-		if ((n = tfw_cache_strcpy(p, trec, &g_crlf, *tot_len)) < 0)
-			return -ENOMEM;
-		BUG_ON(n != SLEN(S_CRLF));
-		*tot_len -= n;
-		copied += n;
-	}
+	return 0;
+}
 
-	return copied;
+static inline int
+tfw_cache_h2_copy_int(unsigned int *acc_len, unsigned long src,
+		      unsigned short max, char **p, TdbVRec **trec,
+		      size_t *tot_len)
+{
+	int r;
+	TfwHPackInt hp_int;
+	TfwStr str = {};
+
+	write_int(src, max, 0, &hp_int);
+
+	str.data = hp_int.buf;
+	str.len = hp_int.sz;
+
+	if ((r = tfw_cache_h2_copy_str(acc_len, p, trec, &str, tot_len)))
+		return r;
+
+	return 0;
 }
 
 /**
  * Deep HTTP header copy to TdbRec.
- * @src is copied in depth first fashion to speed up upcoming scans.
+ * @hdr is copied in depth first fashion to speed up upcoming scans.
  * @return number of copied bytes on success and negative value otherwise.
  */
 static long
-tfw_cache_copy_hdr(char **p, TdbVRec **trec, TfwStr *src, size_t *tot_len)
+tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, char **p, TdbVRec **trec, TfwStr *hdr,
+		      size_t *tot_len)
 {
-	long n = sizeof(TfwCStr), copied;
-	TfwStr *dup, *dup_end;
+	TfwCStr *cs;
+	long n = sizeof(TfwCStr);
+	unsigned short st_index = 0;
+	bool dupl = TFW_STR_DUP(hdr);
+	unsigned int init_len = ce->hdr_len;
+	TfwStr s_nm, s_val, *dup, *dup_end;
 
-	if (unlikely(src->len >= TFW_CSTR_MAXLEN)) {
-		T_WARN("Cache: trying to store too big string %lx\n",
-		       src->len);
-		return -E2BIG;
+	T_DBG3("%s: ce=[%p] p=[%p], trec=[%p], tot_len='%zu'\n", __func__, ce,
+	       *p, *trec, *tot_len);
+
+	if (likely(!dupl)) {
+		unsigned long h_len;
+
+		TFW_STR_INIT(&s_nm);
+		TFW_STR_INIT(&s_val);
+		tfw_http_hdr_split(hdr, &s_nm, &s_val, true);
+
+		st_index = hdr->hpack_idx;
+		h_len = tfw_h2_hdr_size(s_nm.len, s_val.len, st_index);
+
+		/* Don't split short strings. */
+		if (sizeof(TfwCStr) + h_len <= L1_CACHE_BYTES)
+			n += h_len;
 	}
-	/* Don't split short strings. */
-	if (likely(!TFW_STR_DUP(src))
-	    && sizeof(TfwCStr) + src->len <= L1_CACHE_BYTES)
-		n += src->len;
-
-#define CSTR_WRITE_HDR(str)			\
-	tfw_cache_str_write_hdr(str, *p);	\
-	*p += TFW_CSTR_HDRLEN;			\
-	*tot_len -= TFW_CSTR_HDRLEN;		\
-	copied = TFW_CSTR_HDRLEN;
 
 	*p = tdb_entry_get_room(node_db(), trec, *p, n, *tot_len);
-	if (!*p) {
+	if (unlikely(!*p)) {
 		T_WARN("Cache: cannot allocate TDB space\n");
 		return -ENOMEM;
 	}
 
-	CSTR_WRITE_HDR(src);
+	CSTR_MOVE_HDR();
 
-	if (!TFW_STR_DUP(src)) {
-		if ((n = tfw_cache_strcpy_eol(p, trec, src, tot_len, 1)) < 0)
-			return n;
-		return copied + n;
+	if (TFW_STR_DUP(hdr)) {
+		CSTR_WRITE_HDR(TFW_STR_DUPLICATE, hdr->nchunks);
+		CSTR_MOVE_HDR();
 	}
 
-	TFW_STR_FOR_EACH_DUP(dup, src, dup_end) {
-		CSTR_WRITE_HDR(dup);
-		if ((n = tfw_cache_strcpy_eol(p, trec, dup, tot_len, 1)) < 0)
-			return n;
-		copied += n;
+	TFW_STR_FOR_EACH_DUP(dup, hdr, dup_end) {
+		unsigned int prev_len = ce->hdr_len;
+
+		if (dupl) {
+			TFW_STR_INIT(&s_nm);
+			TFW_STR_INIT(&s_val);
+			tfw_http_hdr_split(dup, &s_nm, &s_val, true);
+			st_index = dup->hpack_idx;
+			CSTR_MOVE_HDR();
+		}
+
+		if (st_index) {
+			if (tfw_cache_h2_copy_int(&ce->hdr_len, st_index, 0xF,
+						  p, trec, tot_len))
+				return -ENOMEM;
+		}
+		else {
+			if (tfw_cache_h2_copy_int(&ce->hdr_len, 0, 0xF, p, trec,
+						  tot_len)
+			    || tfw_cache_h2_copy_int(&ce->hdr_len, s_nm.len,
+						     0x7f, p, trec, tot_len)
+			    || tfw_cache_h2_copy_str(&ce->hdr_len, p, trec,
+						     &s_nm, tot_len))
+				return -ENOMEM;
+		}
+
+		if (tfw_cache_h2_copy_int(&ce->hdr_len, s_val.len, 0x7f, p,
+					  trec, tot_len)
+		    || tfw_cache_h2_copy_str(&ce->hdr_len, p, trec, &s_val,
+					     tot_len))
+			return -ENOMEM;
+
+		CSTR_WRITE_HDR(0, ce->hdr_len - prev_len);
 	}
 
-	return copied;
+	T_DBG3("%s: p=[%p], trec=[%p], ce->hdr_len='%u', tot_len='%zu'\n",
+	       __func__, *p, *trec, ce->hdr_len, *tot_len);
+
+	return ce->hdr_len - init_len;
+}
+
+static long
+tfw_cache_h2_add_hdr(TfwCacheEntry *ce, char **p, TdbVRec **trec,
+		     unsigned short st_idx, TfwStr *val, size_t *tot_len)
+{
+	TfwCStr *cs;
+	unsigned long len;
+	unsigned int prev_len = ce->hdr_len;
+	long n = TFW_CSTR_HDRLEN;
+
+	BUG_ON(!st_idx || TFW_STR_EMPTY(val));
+
+	len = tfw_hpack_int_size(st_idx, 0xF)
+		+ tfw_hpack_int_size(val->len, 0x7F)
+		+ val->len;
+
+	if (unlikely(len >= TFW_CSTR_MAXLEN)) {
+		T_WARN("Cache: trying to store too big string %lx\n", len);
+		return -E2BIG;
+	}
+
+	/* Don't split short strings. */
+	if (TFW_CSTR_HDRLEN + len <= L1_CACHE_BYTES)
+		n += len;
+
+	*p = tdb_entry_get_room(node_db(), trec, *p, n, *tot_len);
+	if (unlikely(!*p)) {
+		T_WARN("jCache: cannot allocate TDB space\n");
+		return -ENOMEM;
+	}
+
+	CSTR_MOVE_HDR();
+
+	if (tfw_cache_h2_copy_int(&ce->hdr_len, st_idx, 0xF, p, trec, tot_len))
+		return -ENOMEM;
+
+	if (tfw_cache_h2_copy_int(&ce->hdr_len, val->len, 0x7f, p, trec,
+				  tot_len))
+		return -ENOMEM;
+
+	if (tfw_cache_h2_copy_str(&ce->hdr_len, p, trec, val, tot_len))
+		return -ENOMEM;
+
+	CSTR_WRITE_HDR(0, ce->hdr_len - prev_len - TFW_CSTR_HDRLEN);
+
+	return ce->hdr_len - prev_len;
 }
 
 /**
@@ -1020,13 +1266,30 @@ __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
 	   char *curr_p, TdbVRec **curr_trec)
 {
 	char *e_p;
-	size_t len = 0;
-	TfwStr etag_val, *c, *end, *h = &resp->h_tbl->tbl[TFW_HTTP_HDR_ETAG];
+	size_t c_size;
 	TDB *db = node_db();
+	size_t len = 0;
+	unsigned short flags = 0;
+	TfwStr h_val, *c, *end, *h = &resp->h_tbl->tbl[TFW_HTTP_HDR_ETAG];
+	TfwStr s_dummy = {}, s_val = {};
+
+#define CHECK_REC_SPACE()						\
+	while (c_size) {						\
+		size_t tail = h_trec->len - (e_p - h_trec->data);	\
+		if (c_size > tail) {					\
+			c_size -= tail;					\
+			h_trec = tdb_next_rec_chunk(db, h_trec);	\
+			e_p = h_trec->data;				\
+		} else {						\
+			e_p += c_size;					\
+			c_size = 0;					\
+		}							\
+	}
 
 	if (TFW_STR_EMPTY(h))
 		return 0;
-	etag_val = tfw_str_next_str_val(h); /* not empty after http parser. */
+
+	tfw_http_msg_srvhdr_val(h, TFW_HTTP_HDR_ETAG, &h_val);
 
 	/* Update supposed Etag offset to real value. */
 	/* FIXME: #803 */
@@ -1035,32 +1298,32 @@ __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
 		h_trec = tdb_next_rec_chunk(db, h_trec);
 		e_p = h_trec->data;
 	}
-	/* Skip anything that is not a etag value. */
+	/*
+	 * Skip anything that is not etag value. Note, since headers are
+	 * stored in cache in HTTP/2 representation (and the name of 'etag'
+	 * header is always statically indexed), we should also skip index
+	 * and value length fields; the 'etag' header has the 34 index in
+	 * HPACK static table, thus we definitely now here, that it will
+	 * occupy 2 bytes (RFC 7541 section 6.2.2).
+	 */
 	e_p += TFW_CSTR_HDRLEN;
-	TFW_STR_FOR_EACH_CHUNK(c, h, end) {
-		size_t c_size = c->len;
-
-		if (c->flags & TFW_STR_VALUE)
+	tfw_http_hdr_split(h, &s_dummy, &s_val, true);
+	c_size = 2 + tfw_hpack_int_size(s_val.len, 0x7F);
+	CHECK_REC_SPACE();
+	TFW_STR_FOR_EACH_CHUNK(c, &h_val, end) {
+		if (c->flags & TFW_STR_VALUE) {
+			flags = c->flags;
 			break;
-		while (c_size) {
-			size_t tail = h_trec->len - (e_p - h_trec->data);
-			if (c_size > tail) {
-				c_size -= tail;
-				h_trec = tdb_next_rec_chunk(db, h_trec);
-				e_p = h_trec->data;
-			}
-			else {
-				e_p += c_size;
-				c_size = 0;
-			}
 		}
+		c_size = c->len;
+		CHECK_REC_SPACE();
 	}
 	for ( ; (c < end) && (c->flags & TFW_STR_VALUE); ++c)
 		len += c->len;
 
 	/* Create TfWStr that contains only entity-tag value. */
 	ce->etag.data = e_p;
-	ce->etag.flags = TFW_STR_CHUNK(&etag_val, 0)->flags;
+	ce->etag.flags = flags;
 	ce->etag.len = min(len, (size_t)(h_trec->len -
 					 (e_p - h_trec->data)));
 	len -= ce->etag.len;
@@ -1090,6 +1353,8 @@ __set_etag(TfwCacheEntry *ce, TfwHttpResp *resp, long h_off, TdbVRec *h_trec,
 	}
 
 	return 0;
+
+#undef CHECK_REC_SPACE
 }
 
 /**
@@ -1137,25 +1402,36 @@ __save_hdr_304_off(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *hdr, long off)
 
 /**
  * Copy response skbs to database mapped area.
- * @tot_len - total length of actual data to write w/o TfwCStr's etc.
+ * @tot_len	- total length of actual data to write w/o TfwCStr's etc;
+ * @rph		- response reason-phrase to be saved in the cache.
  *
  * It's nasty to copy data on CPU, but we can't use DMA for mmaped file
  * as well as for unaligned memory areas.
- *
- * TODO Store the cache entries as a templates with placeholders for
- * changeable headers. That we can faster build the final answers instead
- * of adjusting skb's.
  */
 static int
-tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, size_t tot_len)
+tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
+		    size_t tot_len)
 {
-	TfwHttpReq *req = resp->req;
-	long n, etag_off = 0;
-	char *p;
-	TdbVRec *trec = &ce->trec, *etag_trec = NULL;
-	TDB *db = node_db();
-	TfwStr *field, *h, *end1, *end2, empty = {};
 	int r, i;
+	char *p;
+	unsigned short status_idx;
+	TfwStr *field, *h, *end1, *end2;
+	TDB *db = node_db();
+	TdbVRec *trec = &ce->trec, *etag_trec = NULL;
+	long n, etag_off = 0;
+	TfwHttpReq *req = resp->req;
+	TfwGlobal *g_vhost = tfw_vhost_get_global();
+	TfwStr h_val, *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
+	TfwStr val_srv = TFW_STR_STRING(TFW_SERVER);
+	TfwStr val_via = {
+		.chunks = (TfwStr []) {
+			{ .data = S_VIA_H2_PROTO, .len = SLEN(S_VIA_H2_PROTO) },
+			{ .data = *this_cpu_ptr(&g_c_buf),
+			  .len = g_vhost->hdr_via_len },
+		},
+		.len = SLEN(S_VIA_H2_PROTO) + g_vhost->hdr_via_len,
+		.nchunks = 2
+	};
 
 	p = (char *)(ce + 1);
 	tot_len -= CE_BODY_SIZE;
@@ -1163,7 +1439,13 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, size_t tot_len)
 	/* Write record key (URI + Host header). */
 	ce->key = TDB_OFF(db->hdr, p);
 	ce->key_len = 0;
-	TFW_CACHE_REQ_KEYITER(field, req, end1, h, end2) {
+
+	/*
+	 * Get 'host' header value (from HTTP/2 or HTTP/1.1 request) for
+	 * strict comparison.
+	 */
+	tfw_http_msg_clnthdr_val(req, host, TFW_HTTP_HDR_HOST, &h_val);
+	TFW_CACHE_REQ_KEYITER(field, &req->uri_path, &h_val, end1, h, end2) {
 		if ((n = tfw_cache_strcpy_lc(&p, &trec, field, tot_len)) < 0) {
 			T_ERR("Cache: cannot copy request key\n");
 			return -ENOMEM;
@@ -1172,58 +1454,108 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, size_t tot_len)
 		tot_len -= n;
 		ce->key_len += n;
 	}
+
 	/* Request method is a part of the cache record key. */
 	ce->method = req->method;
 
+	/* Write ':status' pseudo-header. */
 	ce->status = TDB_OFF(db->hdr, p);
-	if ((n = tfw_cache_strcpy_eol(&p, &trec, &resp->s_line, &tot_len, 1)) < 0) {
-		T_ERR("Cache: cannot copy HTTP status line\n");
-		return -ENOMEM;
+	status_idx = tfw_h2_pseudo_index(resp->status);
+	if (status_idx) {
+		TfwHPackInt hp_idx;
+		TfwStr str = {};
+
+		write_int(status_idx, 0x7F, 0x80, &hp_idx);
+		str.data = hp_idx.buf;
+		str.len = hp_idx.sz;
+
+		if (tfw_cache_h2_copy_str(&ce->status_len, &p, &trec, &str,
+					  &tot_len))
+			return -ENOMEM;
+	} else {
+		char buf[H2_STAT_VAL_LEN];
+		TfwStr str = {
+			.data = buf,
+			.len = H2_STAT_VAL_LEN
+		};
+
+		/*
+		 * If the ':status' pseudo-header is not fully indexed, set
+		 * the default static index (8) just for the name.
+		 */
+		if (tfw_cache_h2_copy_int(&ce->status_len, 8, 0xF, &p, &trec,
+					  &tot_len)
+		    || tfw_cache_h2_copy_int(&ce->status_len, H2_STAT_VAL_LEN,
+					     0x7f, &p, &trec, &tot_len))
+			return -ENOMEM;
+
+		if (!tfw_ultoa(resp->status, str.data, H2_STAT_VAL_LEN))
+			return -E2BIG;
+
+		if (tfw_cache_h2_copy_str(&ce->status_len, &p, &trec, &str,
+					  &tot_len))
+			return -ENOMEM;
 	}
-	ce->status_len += n;
+
+	if (tfw_cache_h2_copy_str(&ce->rph_len, &p, &trec, rph, &tot_len))
+		return -ENOMEM;
 
 	ce->hdrs = TDB_OFF(db->hdr, p);
 	ce->hdr_len = 0;
 	ce->hdr_num = resp->h_tbl->off;
-	FOR_EACH_HDR_FIELD(field, end1, resp) {
-		bool hdr_304 = false;
-
-		/* Skip hop-by-hop headers. */
-		if (!(field->flags & TFW_STR_HBH_HDR)) {
-			h = field;
-		} else if (field - resp->h_tbl->tbl < TFW_HTTP_HDR_RAW) {
-			h = &empty;
-		} else {
+	FOR_EACH_HDR_FIELD_FROM(field, end1, resp, TFW_HTTP_HDR_REGULAR) {
+		int hid = field - resp->h_tbl->tbl;
+		/*
+		 * Skip hop-by-hop headers. Also skip 'Server' header (with
+		 * possible duplicates), since we will substitute it with our
+		 * version of this header.
+		 */
+		if ((field->flags & TFW_STR_HBH_HDR)
+		    || hid == TFW_HTTP_HDR_SERVER
+		    || TFW_STR_EMPTY(field))
+		{
 			--ce->hdr_num;
 			continue;
 		}
-		if (field - resp->h_tbl->tbl == TFW_HTTP_HDR_ETAG) {
-			/* Must be updated after tfw_cache_copy_hdr(). */
+
+		if (hid == TFW_HTTP_HDR_ETAG) {
+			/* Must be updated after tfw_cache_h2_copy_hdr(). */
 			etag_off = TDB_OFF(db->hdr, p);
 			etag_trec = trec;
 		}
-		hdr_304 = __save_hdr_304_off(ce, resp, field,
-					     TDB_OFF(db->hdr, p));
 
-		n = tfw_cache_copy_hdr(&p, &trec, h, &tot_len);
-		if (n < 0) {
-			T_ERR("Cache: cannot copy HTTP header\n");
-			return -ENOMEM;
-		} else if (hdr_304) {
-			ce->hdr_len_304 += n;
-		}
-		ce->hdr_len += n;
+		__save_hdr_304_off(ce, resp, field, TDB_OFF(db->hdr, p));
+
+		n = tfw_cache_h2_copy_hdr(ce, &p, &trec, field, &tot_len);
+		if (unlikely(n < 0))
+			return n;
 	}
+
+	/* Add 'server' header. */
+	n = tfw_cache_h2_add_hdr(ce, &p, &trec, 54, &val_srv, &tot_len);
+	if (unlikely(n < 0))
+		return n;
+
+	/* Add 'via' header. */
+	memcpy_fast(__TFW_STR_CH(&val_via, 1)->data, g_vhost->hdr_via,
+		    g_vhost->hdr_via_len);
+	n = tfw_cache_h2_add_hdr(ce, &p, &trec, 60, &val_via, &tot_len);
+	if (unlikely(n < 0))
+		return n;
+
+	ce->hdr_num += 2;
 
 	/* Write HTTP response body. */
 	ce->body = TDB_OFF(db->hdr, p);
-	n = tfw_cache_strcpy_eol(&p, &trec, &resp->body, &tot_len,
-				 test_bit(TFW_HTTP_B_CHUNKED, resp->flags));
-	if (n < 0) {
+	r = tfw_cache_h2_copy_str(&ce->body_len, &p, &trec, &resp->body,
+				  &tot_len);
+	if (unlikely(r)) {
 		T_ERR("Cache: cannot copy HTTP body\n");
 		return -ENOMEM;
 	}
-	BUG_ON(tot_len != 0);
+
+	if (WARN_ON_ONCE(tot_len != 0))
+		return -EINVAL;
 
 	ce->version = resp->version;
 	tfw_http_copy_flags(ce->hmflags, resp->flags);
@@ -1270,56 +1602,121 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, size_t tot_len)
 	return 0;
 }
 
-static size_t
+static long
 __cache_entry_size(TfwHttpResp *resp)
 {
+	TfwStr host_val, *hdr, *hdr_end;
 	TfwHttpReq *req = resp->req;
-	size_t size = CE_BODY_SIZE;
-	TfwStr *h, *hdr, *hdr_end, *dup, *dup_end, empty = {};
+	long size, res_size = CE_BODY_SIZE;
+	TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
+	unsigned long via_sz = SLEN(S_VIA_H2_PROTO)
+		+ tfw_vhost_get_global()->hdr_via_len;
 
 	/* Add compound key size */
-	size += req->uri_path.len;
-	size += req->h_tbl->tbl[TFW_HTTP_HDR_HOST].len;
+	res_size += req->uri_path.len;
+	tfw_http_msg_clnthdr_val(req, host, TFW_HTTP_HDR_HOST, &host_val);
+	res_size += host_val.len;
+
+	/*
+	 * Add the length of ':status' pseudo-header: one byte if fully indexed,
+	 * or five bytes (one byte for name index, one for status code length
+	 * and three for status code itself) if only name is indexed.
+	 */
+	++res_size;
+	res_size += (1 + H2_STAT_VAL_LEN) * !tfw_h2_pseudo_index(resp->status);
 
 	/* Add all the headers size */
-	FOR_EACH_HDR_FIELD(hdr, hdr_end, resp) {
-		/* Skip hop-by-hop headers. */
-		if (!(hdr->flags & TFW_STR_HBH_HDR))
-			h = hdr;
-		else if (hdr - resp->h_tbl->tbl < TFW_HTTP_HDR_RAW)
-			h = &empty;
-		else
+	FOR_EACH_HDR_FIELD_FROM(hdr, hdr_end, resp, TFW_HTTP_HDR_REGULAR) {
+		TfwStr *d, *d_end;
+		int hid = hdr - resp->h_tbl->tbl;
+		/*
+		 * Skip hop-by-hop headers. Also skip 'Server' header (with
+		 * possible duplicates), since we will substitute it with our
+		 * version of this header.
+		 */
+		if ((hdr->flags & TFW_STR_HBH_HDR)
+		    || hid == TFW_HTTP_HDR_SERVER
+		    || TFW_STR_EMPTY(hdr))
 			continue;
 
-		if (!TFW_STR_DUP(h)) {
-			size += sizeof(TfwCStr);
-			size += h->len ? (h->len + SLEN(S_CRLF)) : 0;
+		size = sizeof(TfwCStr);
+
+		if (!TFW_STR_DUP(hdr)) {
+			TfwStr s_nm = {}, s_val = {};
+
+			tfw_http_hdr_split(hdr, &s_nm, &s_val, true);
+			size += tfw_h2_hdr_size(s_nm.len, s_val.len,
+						hdr->hpack_idx);
 		} else {
-			size += sizeof(TfwCStr);
-			TFW_STR_FOR_EACH_DUP(dup, h, dup_end) {
+			TFW_STR_FOR_EACH_DUP(d, hdr, d_end) {
+				TfwStr s_nm = {}, s_val = {};
+
 				size += sizeof(TfwCStr);
-				size += dup->len + SLEN(S_CRLF);
+				tfw_http_hdr_split(d, &s_nm, &s_val, true);
+				size += tfw_h2_hdr_size(s_nm.len, s_val.len,
+							d->hpack_idx);
 			}
 		}
+
+		if (unlikely(size >= TFW_CSTR_MAXLEN))
+			goto err;
+		res_size += size;
 	}
 
-	/* Add status line length + CRLF */
-	size += resp->s_line.len + SLEN(S_CRLF);
+	/*
+	 * Add the length of our version of 'Server' header and 'Via' header.
+	 * Note, that we need two bytes for static index, since in the first
+	 * byte we have only four available bits for the index (we do not use
+	 * dynamic indexing during headers storing into the cache, thus `without
+	 * indexing` code must be set in the first index byte, see RFC 7541
+	 * section 6.2.2 for details), and the 'Server' (as well as 'Via')
+	 * static index doesn't fit to that space.
+	 */
+	res_size += sizeof(TfwCStr);
+	res_size += 2;
+	res_size += tfw_hpack_int_size(SLEN(TFW_SERVER), 0x7F);
+	res_size += SLEN(TFW_SERVER);
 
-	/* Add body size accounting CRLF after the last chunk */
-	size += resp->body.len;
-	if (test_bit(TFW_HTTP_B_CHUNKED, resp->flags))
-		size += SLEN(S_CRLF);
+	res_size += sizeof(TfwCStr);
+	res_size += 2;
+	res_size += tfw_hpack_int_size(via_sz, 0x7F);
+	res_size += via_sz;
 
-	return size;
+	/* Add body size. */
+	res_size += resp->body.len;
+
+	return res_size;
+err:
+	T_WARN("Cache: trying to store too big string %ld\n", size);
+	return -E2BIG;
 }
 
 static void
 __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 {
+	size_t len;
 	TfwCacheEntry *ce;
-	size_t data_len = __cache_entry_size(resp);
-	size_t len = data_len;
+	TfwStr rph, *s_line;
+	long data_len = __cache_entry_size(resp);
+
+	if (unlikely(data_len < 0))
+		return;
+
+	/*
+	 * We need to save the reason-phrase for the case of HTTP/1.1-response
+	 * creation from cache. Note, that reason-phrase is always the last part
+	 * of status-line with the TFW_STR_VALUE flag set.
+	 */
+	s_line = &resp->h_tbl->tbl[TFW_HTTP_STATUS_LINE];
+	rph = tfw_str_next_str_val(s_line);
+	if (WARN_ON_ONCE(TFW_STR_EMPTY(&rph)))
+		return;
+
+	data_len += rph.len;
+	len = data_len;
+
+	T_DBG3("%s: db=[%p] resp=[%p], req=[%p], key='%lu', data_len='%ld'\n",
+	       __func__, db, resp, resp->req, key, data_len);
 
 	/* TODO #788: revalidate existing entries before inserting a new one. */
 
@@ -1333,13 +1730,11 @@ __cache_add_node(TDB *db, TfwHttpResp *resp, unsigned long key)
 	if (!ce)
 		return;
 
-	T_DBG3("cache db=%p resp=%p/req=%p/ce=%p: alloc_len=%lu\n",
-	       db, resp, resp->req, ce, len);
+	T_DBG3("%s: ce=[%p], alloc_len='%lu'\n", __func__, ce, len);
 
-	if (tfw_cache_copy_resp(ce, resp, data_len)) {
+	if (tfw_cache_copy_resp(ce, resp, &rph, data_len)) {
 		/* TODO delete the probably partially built TDB entry. */
 	}
-
 }
 
 static void
@@ -1449,38 +1844,30 @@ tfw_cache_purge_method(TfwHttpReq *req)
  * See do_tcp_sendpages() as reference.
  */
 static int
-tfw_cache_build_resp_body(TDB *db, TfwHttpResp *resp, TdbVRec *trec,
-			  TfwMsgIter *it, char *p)
+tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p)
 {
-	int off, f_size, r;
+	int r;
 
-	if (WARN_ON_ONCE(!it->skb))
+	if (WARN_ON_ONCE(!it->skb_head))
 		return -EINVAL;
 	/*
-	 * If headers perfectly fit allocated skbs, then
-	 * it->skb == it->skb_head, see tfw_msg_iter_next_data_frag().
-	 * Normally all the headers fit single skb, but these two situations
-	 * can't be distinguished. Start after last fragment of last skb in list.
+	 * If all skbs/frags are used up (see @tfw_http_msg_expand_data()),
+	 * create new skb with empty frags to reference the cached body;
+	 * otherwise, use next empty frag in current skb.
 	 */
-	if ((it->skb == it->skb_head) || (it->frag == -1)) {
-		it->skb = ss_skb_peek_tail(&it->skb_head);
-		it->frag = skb_shinfo(it->skb)->nr_frags;
-	}
-	else {
-		skb_frag_t *frag = &skb_shinfo(it->skb)->frags[it->frag];
-		if (skb_frag_size(frag))
-			++it->frag;
+	if (!it->skb) {
+		if  ((r = tfw_msg_iter_append_skb(it)))
+			return r;
+	} else {
+		++it->frag;
+		if (it->frag >= MAX_SKB_FRAGS
+		    && (r = tfw_msg_iter_append_skb(it)))
+			return r;
 	}
 	BUG_ON(it->frag < 0);
 
-	if (it->frag >= MAX_SKB_FRAGS - 1
-	    && (r = tfw_msg_iter_append_skb(it)))
-		return r;
-
 	while (1) {
-		if (it->frag == MAX_SKB_FRAGS
-		    && (r = tfw_msg_iter_append_skb(it)))
-			return r;
+		int off, f_size;
 
 		/* TDB keeps data by pages and we can reuse the pages. */
 		off = (unsigned long)p & ~PAGE_MASK;
@@ -1490,20 +1877,72 @@ tfw_cache_build_resp_body(TDB *db, TfwHttpResp *resp, TdbVRec *trec,
 					   off, f_size);
 			skb_frag_ref(it->skb, it->frag);
 			ss_skb_adjust_data_len(it->skb, f_size);
-
-			if (__tfw_http_msg_add_str_data((TfwHttpMsg *)resp,
-							&resp->body, p, f_size,
-							it->skb))
-				return - ENOMEM;
 			++it->frag;
 		}
 		if (!(trec = tdb_next_rec_chunk(db, trec)))
 			break;
 		BUG_ON(trec && !f_size);
 		p = trec->data;
+
+		if (it->frag == MAX_SKB_FRAGS
+		    && (r = tfw_msg_iter_append_skb(it)))
+			return r;
 	}
 
 	return 0;
+}
+
+static int
+tfw_cache_set_hdr_age(TfwHttpResp *resp, TfwCacheEntry *ce)
+{
+	int r;
+	size_t digs;
+	bool to_h2 = TFW_MSG_H2(resp->req);
+	TfwHttpTransIter *mit = &resp->mit;
+	struct sk_buff **skb_head = &resp->msg.skb_head;
+	time_t age = tfw_cache_entry_age(ce);
+	char cstr_age[TFW_ULTOA_BUF_SIZ] = {0};
+	char *name = to_h2 ? "age" : "age" S_DLM;
+	unsigned int nlen = to_h2 ? SLEN("age") : SLEN("age" S_DLM);
+	TfwStr h_age = {
+		.chunks = (TfwStr []){
+			{ .data = name, .len = nlen },
+			{}
+		},
+		.len = nlen,
+		.nchunks = 2
+	};
+
+	if (!(digs = tfw_ultoa(age, cstr_age, TFW_ULTOA_BUF_SIZ))) {
+		r = -E2BIG;
+		goto err;
+	}
+
+	__TFW_STR_CH(&h_age, 1)->data = cstr_age;
+	__TFW_STR_CH(&h_age, 1)->len = digs;
+	h_age.len += digs;
+
+	if (to_h2) {
+		h_age.hpack_idx = 21;
+		if ((r = tfw_hpack_encode(resp, &h_age, TFW_H2_TRANS_EXPAND,
+					  false)))
+			goto err;
+	} else {
+		if ((r = tfw_http_msg_expand_data(&mit->iter, skb_head,
+						  &h_age, NULL)))
+			goto err;
+
+		if ((r = tfw_http_msg_expand_data(&mit->iter, skb_head,
+						  &g_crlf, NULL)))
+			goto err;
+	}
+
+	return 0;
+
+err:
+	T_WARN("Unable to add Age: header, cached response [%p] dropped"
+	       " (err: %d)\n", resp, r);
+	return r;
 }
 
 /**
@@ -1528,43 +1967,33 @@ tfw_cache_build_resp_body(TDB *db, TfwHttpResp *resp, TdbVRec *trec,
  * TODO use iterator and passed skbs to be called from net_tx_action.
  */
 static TfwHttpResp *
-tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce)
+tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, time_t lifetime,
+		     unsigned int stream_id)
 {
 	int h;
-	char *p;
+	TfwMsgIter *it;
 	TfwHttpResp *resp;
-	TdbVRec *trec = &ce->trec;
+	char *p, *head_ptr;
+	TfwHttpTransIter *mit;
+	TfwFrameHdr frame_hdr;
 	TDB *db = node_db();
-	TfwMsgIter it;
-
+	unsigned long h_len = 0;
+	struct sk_buff **skb_head;
+	TdbVRec *trec = &ce->trec;
+	unsigned char buf[FRAME_HEADER_SIZE];
+	TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location, req->vhost,
+						    TFW_VHOST_HDRMOD_RESP);
 	/*
 	 * The allocated response won't be checked by any filters and
 	 * is used for sending response data only, so don't initialize
 	 * connection and GFSM fields.
 	 */
 	if (!(resp = tfw_http_msg_alloc_resp(req)))
-		return NULL;
+		goto out;
 
-	/*
-	 * Cached responses need SKBTX_SHARED_FRAG flag if they are going to be
-	 * encrypted, since by default encryption happens in-place. As data
-	 * pages are reused, overwriting will damage the date.
-	 */
-	if (tfw_http_msg_setup((TfwHttpMsg *)resp, &it, ce->hdr_len + 2,
-			       TFW_CONN_TLS(req->conn) ? SKBTX_SHARED_FRAG : 0))
-	{
-		goto free;
-	}
-
-	/*
-	 * Allocate HTTP headers table of proper size.
-	 * There were no other allocations since the table is allocated,
-	 * so realloc() just grows the table and returns the same pointer.
-	 */
-	h = (ce->hdr_num + 2 * TFW_HTTP_HDR_NUM - 1) & ~(TFW_HTTP_HDR_NUM - 1);
-	p = tfw_pool_realloc(resp->pool, resp->h_tbl, TFW_HHTBL_SZ(1),
-			     TFW_HHTBL_EXACTSZ(h));
-	BUG_ON(p != (char *)resp->h_tbl);
+	/* Copy version information and flags */
+	resp->version = ce->version;
+	tfw_http_copy_flags(resp->flags, ce->hmflags);
 
 	/* Skip record key until status line. */
 	for (p = TDB_PTR(db->hdr, ce->status);
@@ -1574,52 +2003,119 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce)
 	if (unlikely(!trec)) {
 		T_WARN("Huh, partially stored cache entry (key=%lx)?\n",
 		       ce->key);
-		goto err;
+		goto free;
 	}
 
-	if (tfw_cache_write_field(db, &trec, resp, &it, &p,
-				  ce->status_len, &resp->s_line))
-		goto err;
+	if (tfw_cache_set_status(db, ce, resp, &trec, &p, &h_len))
+		goto free;
 
-	resp->h_tbl->off = ce->hdr_num;
-	for (h = 0; h < ce->hdr_num; ++h) {
-		TFW_STR_INIT(resp->h_tbl->tbl + h);
-		if (tfw_cache_build_resp_hdr(db, resp, resp->h_tbl->tbl + h,
-					     &trec, &it, &p))
-			goto err;
+	for (h = TFW_HTTP_HDR_REGULAR; h < ce->hdr_num; ++h) {
+		if (tfw_cache_build_resp_hdr(db, resp, h_mods, &trec, &p,
+					     &h_len))
+			goto free;
 	}
 
-	if (tfw_http_msg_add_data(&it, (TfwHttpMsg *)resp, &resp->crlf,
-				  &g_crlf))
-		goto err;
+	mit = &resp->mit;
+	skb_head = &resp->msg.skb_head;
+	WARN_ON_ONCE(mit->acc_len);
+	it = &mit->iter;
 
+	/*
+	 * Set 'set-cookie' header if needed, for HTTP/2 or HTTP/1.1
+	 * response.
+	 */
+	if (tfw_http_sess_resp_process(resp, true))
+		goto free;
+	/*
+	 * RFC 7234 p.4 Constructing Responses from Caches:
+	 * When a stored response is used to satisfy a request without
+	 * validation, a cache MUST generate an Age header field.
+	 */
+	if (tfw_cache_set_hdr_age(resp, ce))
+		goto free;
+
+	if (!TFW_MSG_H2(req)) {
+		/*
+		 * Set additional headers and final CRLF for HTTP/1.1
+		 * response.
+		 */
+		if (tfw_http_expand_hbh(resp, ce->resp_status)
+		    || tfw_http_set_loc_hdrs((TfwHttpMsg *)resp, req, true)
+		    || (lifetime > ce->lifetime
+			&& tfw_http_expand_stale_warn(resp))
+		    || (!test_bit(TFW_HTTP_B_HDR_DATE, resp->flags)
+			&& tfw_http_expand_hdr_date(resp))
+		    || tfw_http_msg_expand_data(it, skb_head, &g_crlf, NULL))
+			goto free;
+
+		goto write_body;
+	}
+
+	/* Set additional headers for HTTP/2 response. */
+	if (tfw_h2_resp_add_loc_hdrs(resp, h_mods, true)
+	    || (lifetime > ce->lifetime
+		&& tfw_h2_set_stale_warn(resp))
+	    || (!test_bit(TFW_HTTP_B_HDR_DATE, resp->flags)
+		&& tfw_h2_add_hdr_date(resp, TFW_H2_TRANS_EXPAND, true)))
+		goto free;
+
+	h_len += mit->acc_len;
+
+	if (h_len > FRAME_MAX_LENGTH || ce->body_len > FRAME_MAX_LENGTH)
+		goto free;
+
+	frame_hdr.stream_id = stream_id;
+	/*
+	 * Set header for HTTP/2 DATA frame, if body part of response
+	 * exists.
+	 */
+	if (ce->body_len) {
+		TfwStr h_body = {
+			.data = buf,
+			.len = sizeof(buf)
+		};
+
+		frame_hdr.length = ce->body_len;
+		frame_hdr.type = HTTP2_DATA;
+		frame_hdr.flags = HTTP2_F_END_STREAM;
+		tfw_h2_pack_frame_header(buf, &frame_hdr);
+
+		if (tfw_http_msg_expand_data(it, skb_head, &h_body, NULL))
+			goto free;
+	}
+
+	/* Set header for HTTP/2 HEADERS frame. */
+	frame_hdr.length = h_len;
+	frame_hdr.type = HTTP2_HEADERS;
+	frame_hdr.flags = HTTP2_F_END_HEADERS;
+
+	if (!ce->body_len)
+		frame_hdr.flags |= HTTP2_F_END_STREAM;
+
+	head_ptr = (*skb_head)->data;
+	tfw_h2_pack_frame_header(buf, &frame_hdr);
+	memcpy_fast(head_ptr, buf, sizeof(buf));
+
+write_body:
+	/* Fill skb with body from cache for HTTP/2 or HTTP/1.1 response. */
 	BUG_ON(p != TDB_PTR(db->hdr, ce->body));
-	if (tfw_cache_build_resp_body(db, resp, trec, &it, p))
-		goto err;
-
-	resp->version = ce->version;
-	tfw_http_copy_flags(resp->flags, ce->hmflags);
+	if (ce->body_len) {
+		if (tfw_cache_build_resp_body(db, trec, it, p))
+			goto free;
+		if (!TFW_MSG_H2(req)
+		    && test_bit(TFW_HTTP_B_CHUNKED, resp->flags)
+		    && tfw_http_msg_expand_data(it, skb_head, &g_crlf, NULL))
+			goto free;
+	}
 
 	return resp;
-err:
-	T_WARN("Cannot use cached response, key=%lx\n", ce->key);
 free:
 	tfw_http_msg_free((TfwHttpMsg *)resp);
+out:
+	T_WARN("Cannot use cached response, key=%lx\n", ce->key);
+	TFW_INC_STAT_BH(clnt.msgs_otherr);
+
 	return NULL;
-}
-
-static inline int
-tfw_cache_set_hdr_age(TfwHttpMsg *hmresp, TfwCacheEntry *ce)
-{
-	size_t digs;
-	char cstr_age[TFW_ULTOA_BUF_SIZ] = {0};
-	time_t age = tfw_cache_entry_age(ce);
-
-	if (!(digs = tfw_ultoa(age, cstr_age, TFW_ULTOA_BUF_SIZ)))
-		return -E2BIG;
-
-	return tfw_http_msg_hdr_xfrm(hmresp, "Age", sizeof("Age") - 1,
-				     cstr_age, digs, TFW_HTTP_HDR_RAW, 0);
 }
 
 static void
@@ -1627,6 +2123,7 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 {
 	TfwCacheEntry *ce = NULL;
 	TfwHttpResp *resp = NULL;
+	unsigned int id = 0;
 	TDB *db = node_db();
 	TdbIter iter;
 	time_t lifetime;
@@ -1648,23 +2145,35 @@ cache_req_process_node(TfwHttpReq *req, tfw_http_cache_cb_t action)
 	if (!tfw_handle_validation_req(req, ce))
 		goto put;
 
-	if (!(resp = tfw_cache_build_resp(req, ce)))
-		goto out;
 	/*
-	 * RFC 7234 p.4 Constructing Responses from Caches:
-	 * When a stored response is used to satisfy a request without
-	 * validation, a cache MUST generate an Age header field.
+	 * If the stream for HTTP/2-request is already closed (due to some
+	 * error or just reset from the client side), there is no sense to
+	 * forward request to the server.
 	 */
-	if (tfw_cache_set_hdr_age((TfwHttpMsg *)resp, ce)) {
-		T_WARN("Unable to add Age: header, cached response [%p] "
-		       "dropped\n", resp);
-		TFW_INC_STAT_BH(clnt.msgs_otherr);
-		tfw_http_msg_free((TfwHttpMsg *)resp);
-		resp = NULL;
-		goto out;
+	if (TFW_MSG_H2(req)) {
+		id = tfw_h2_stream_id(req);
+		if (unlikely(!id)) {
+			tfw_http_conn_msg_free((TfwHttpMsg *)req);
+			goto put;
+		}
 	}
-	if (lifetime > ce->lifetime)
-		__set_bit(TFW_HTTP_B_RESP_STALE, resp->flags);
+
+	resp = tfw_cache_build_resp(req, ce, lifetime, id);
+	/*
+	 * The stream of HTTP/2-request should be closed here since we have
+	 * successfully created the resulting response from cache and will
+	 * send this response to the client (without forwarding request to
+	 * the backend), thus the stream will be finished.
+	 */
+	if (resp && TFW_MSG_H2(req)) {
+		id = tfw_h2_stream_id_close(req, HTTP2_HEADERS,
+					    HTTP2_F_END_STREAM);
+		if (unlikely(!id)) {
+			tfw_http_msg_free((TfwHttpMsg *)resp);
+			tfw_http_conn_msg_free((TfwHttpMsg *)req);
+			goto put;
+		}
+	}
 out:
 	if (!resp && (req->cache_ctl.flags & TFW_HTTP_CC_OIFCACHED))
 		tfw_http_send_resp(req, 504, "resource not cached");

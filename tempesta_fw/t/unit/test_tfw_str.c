@@ -1252,7 +1252,7 @@ TEST(tfw_str_collect_cmp, collect_chunks)
 
 	TfwStr *chunks = in.chunks;
 	TfwStr out = { .data = (void *)123, .skb = (void *)456, .len = 789,
-	               .eolen = 10, .flags = 111, .nchunks = 123};
+		       .eolen = 3, .flags = 111, .nchunks = 123};
 
 	tfw_str_collect_cmp(chunks, chunks + 5, &out, NULL);
 	EXPECT_TRUE(tfw_str_eq_cstr(&out, "abcdefghijklmnopqrstuvwxyz", 26, 0));
@@ -1262,7 +1262,7 @@ TEST(tfw_str_collect_cmp, collect_chunks)
 	 * tfw_str_collect_cmp() is expected to clear previous values from all
 	 * other fields of the output TfwStr.
 	 */
-	EXPECT_EQ(out.eolen, 0);
+	EXPECT_TRUE(out.eolen == 0);
 	EXPECT_EQ(out.flags, 0);
 
 	/*

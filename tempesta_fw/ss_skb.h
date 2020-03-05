@@ -3,7 +3,7 @@
  *
  * Synchronous Sockets API for Linux socket buffers manipulation.
  *
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -50,7 +50,7 @@ typedef int ss_skb_actor_t(void *conn, unsigned char *data, size_t len,
 			   unsigned int *read);
 
 /**
- * Add new @skb to the queue in FIFO order.
+ * Add new _single_ @skb to the queue in FIFO order.
  */
 static inline void
 ss_skb_queue_tail(struct sk_buff **skb_head, struct sk_buff *skb)
@@ -65,6 +65,26 @@ ss_skb_queue_tail(struct sk_buff **skb_head, struct sk_buff *skb)
 	skb->next = *skb_head;
 	skb->prev = (*skb_head)->prev;
 	skb->next->prev = skb->prev->next = skb;
+}
+
+/**
+ * Append list of @skb to the queue in FIFO order.
+ */
+static inline void
+ss_skb_queue_append(struct sk_buff **skb_head, struct sk_buff *skb)
+{
+	struct sk_buff *tail;
+
+	if (WARN_ON_ONCE(!*skb_head)) {
+		*skb_head = skb;
+		return;
+	}
+
+	tail = (*skb_head)->prev;
+	skb->prev->next = *skb_head;
+	(*skb_head)->prev = skb->prev;
+	skb->prev = tail;
+	tail->next = skb;
 }
 
 static inline void
@@ -88,6 +108,22 @@ static inline struct sk_buff *
 ss_skb_peek_tail(struct sk_buff **skb_head)
 {
 	return *skb_head ? (*skb_head)->prev : NULL;
+}
+
+/**
+ * Split single queue into two, where the @skb will be a head of a new queue.
+ */
+static inline void
+ss_skb_queue_split(struct sk_buff *skb_head, struct sk_buff *skb)
+{
+	struct sk_buff *prev = skb->prev;
+	WARN_ON_ONCE(skb_head == skb);
+
+	skb->prev = skb_head->prev;
+	prev->next = skb_head;
+
+	skb->prev->next = skb;
+	skb_head->prev = prev;
 }
 
 /**
@@ -172,6 +208,8 @@ char *ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf);
 int ss_skb_alloc_data(struct sk_buff **skb_head, size_t len,
 		      unsigned int tx_flags);
 struct sk_buff *ss_skb_split(struct sk_buff *skb, int len);
+int skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
+		 int len, TfwStr *it);
 int ss_skb_get_room(struct sk_buff *skb_head, struct sk_buff *skb,
 		    char *pspt, unsigned int len, TfwStr *it);
 int ss_skb_expand_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
@@ -180,6 +218,7 @@ int ss_skb_chop_head_tail(struct sk_buff *skb_head, struct sk_buff *skb,
 			  size_t head, size_t tail);
 int ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *hdr,
 		       int skip, int tail);
+int skb_next_data(struct sk_buff *skb, char *last_ptr, TfwStr *it);
 
 int ss_skb_process(struct sk_buff *skb, ss_skb_actor_t actor, void *objdata,
 		   unsigned int *chunks, unsigned int *processed);
@@ -189,5 +228,7 @@ void ss_skb_init_for_xmit(struct sk_buff *skb);
 void ss_skb_dump(struct sk_buff *skb);
 int ss_skb_to_sgvec_with_new_pages(struct sk_buff *skb, struct scatterlist *sgl,
                                    struct page ***old_pages);
+int ss_skb_cut_extra_data(struct sk_buff *skb_head, struct sk_buff *skb,
+			  int frag_num, char *curr, const char *stop);
 
 #endif /* __TFW_SS_SKB_H__ */

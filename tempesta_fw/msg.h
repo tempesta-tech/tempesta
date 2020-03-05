@@ -4,7 +4,7 @@
  * Generic protocol message.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -65,30 +65,34 @@ typedef struct {
  * Iterator for HTTP/2 message processing.
  *
  * @pool	- allocation pool for target buffer of decoded headers;
- * @hdr		- pointer to message header which is currently processed;
- * @start_pos	- pointer to the beginning of decoded headers' buffer; used
- *		  as start point during exporting buffer pages to message's
- *		  target skb;
+ * @parsed_hdr	- pointer to the message header which is currently processed;
+ * @hdrs_len	- accumulated length of message's decoded and parsed headers;
+ * @hdrs_cnt	- count of all headers from message headers block;
  * @__off	- offset for iterator reinitializing before next processing
  *		  stage;
+ * @hdr		- descriptor of currently decoded header in target buffer;
  * @pos		- pointer to the currently allocated chunk of decoded headers'
  *		  buffer;
  * @rspace	- space remained in the allocated chunk;
  * @next	- pointer to the decoded header part (name/value) to be
  *		- parsed next;
  * @nm_len	- length of the decoded header's name;
- * @hdr_tag	- ID of currently processed decoded header.
+ * @nm_num	- chunks number of the decoded header's name;
+ * @hdr_tag	- tag of currently processed decoded header.
  */
 typedef struct {
 	TfwPool		*pool;
-	TfwStr		*hdr;
-	char		*start_pos;
+	TfwStr		*parsed_hdr;
+	unsigned long	hdrs_len;
+	unsigned int	hdrs_cnt;
 	char		__off[0];
+	TfwStr		hdr;
 	char		*pos;
 	unsigned long	rspace;
 	TfwStr		*next;
 	unsigned long	nm_len;
-	unsigned int	hdr_tag;
+	unsigned int	nm_num;
+	unsigned int	tag;
 } TfwMsgParseIter;
 
 int tfw_msg_write(TfwMsgIter *it, const TfwStr *data);

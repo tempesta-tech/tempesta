@@ -26,6 +26,8 @@ typedef struct tfw_http_msg_t		TfwHttpMsg;
 typedef struct tfw_http_req_t		TfwHttpReq;
 typedef struct tfw_http_resp_t		TfwHttpResp;
 typedef struct tfw_vhost_t		TfwVhost;
+typedef struct tfw_hdr_mods_desc_t	TfwHdrModsDesc;
+typedef struct tfw_hdr_mods_t		TfwHdrMods;
 typedef struct frang_global_cfg_t	FrangGlobCfg;
 typedef struct frang_vhost_cfg_t	FrangVhostCfg;
 typedef struct tfw_http_cookie_t	TfwStickyCookie;

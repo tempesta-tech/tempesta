@@ -52,11 +52,38 @@ tfw_h2_stream_cache_destroy(void)
  */
 TfwStreamFsmRes
 tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
-		  TfwH2Err *err)
+		  bool send, TfwH2Err *err)
 {
+	TfwStreamFsmRes res = STREAM_FSM_RES_OK;
+
+	if (unlikely(!stream))
+		return STREAM_FSM_RES_IGNORE;
+
+	spin_lock(&stream->st_lock);
+
 	T_DBG3("enter %s: stream->state=%d, stream->id=%u, type=%hhu,"
 	       " flags=0x%hhx\n", __func__, stream->state, stream->id,
 	       type, flags);
+
+	if (send) {
+		/*
+		 * In the sending flow this FSM procedure intended only for
+		 * HEADERS, DATA and RST_STREAM frames processing.
+		 */
+		BUG_ON(!(flags & HTTP2_F_END_STREAM)
+		       && type != HTTP2_RST_STREAM);
+		/*
+		 * We can send HEADERS or DATA frames to the client only
+		 * when HTTP2_STREAM_REM_HALF_CLOSED state is passed (RFC
+		 * 7540 section 5.1).
+		 */
+		if (WARN_ON_ONCE(stream->state < HTTP2_STREAM_REM_HALF_CLOSED
+				 && flags & HTTP2_F_END_STREAM))
+		{
+			res = STREAM_FSM_RES_IGNORE;
+			goto done;
+		}
+	}
 
 	switch (stream->state) {
 	case HTTP2_STREAM_LOC_RESERVED:
@@ -78,18 +105,28 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 		 * (remote)' state.
 		 */
 		if (type == HTTP2_HEADERS) {
-			if (flags & (HTTP2_F_END_STREAM | HTTP2_F_END_HEADERS)) {
+			switch (flags
+				& (HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM))
+			{
+			case HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM:
 				stream->state = HTTP2_STREAM_REM_HALF_CLOSED;
-			}
+				break;
+			case HTTP2_F_END_HEADERS:
+				/*
+				 * Headers is ended, next frame in the stream
+				 * should be DATA frame.
+				 */
+				break;
 			/*
 			 * If END_HEADERS flag is not received, move stream into
 			 * the states of waiting CONTINUATION frame.
 			 */
-			else if (flags & HTTP2_F_END_STREAM) {
+			case HTTP2_F_END_STREAM:
 				stream->state = HTTP2_STREAM_CONT_CLOSED;
-			}
-			else if (!(flags & HTTP2_F_END_HEADERS)) {
+				break;
+			default:
 				stream->state = HTTP2_STREAM_CONT;
+				break;
 			}
 		}
 		else if (type == HTTP2_DATA && (flags & HTTP2_F_END_STREAM)) {
@@ -97,10 +134,13 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 		}
 		/*
 		 * Received RST_STREAM frame immediately moves stream into the
-		 * final 'closed' state.
+		 * final 'closed' state, while the sent RST_STREAM moves stream
+		 * into the intermediate 'locally closed' state.
 		 */
 		else if (type == HTTP2_RST_STREAM) {
-			stream->state = HTTP2_STREAM_CLOSED;
+			stream->state = send
+				? HTTP2_STREAM_LOC_CLOSED
+				: HTTP2_STREAM_CLOSED;
 		}
 		else if (type == HTTP2_CONTINUATION) {
 			/*
@@ -109,11 +149,16 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 			 * (RFC 7540 section 6.10).
 			 */
 			*err = HTTP2_ECODE_PROTO;
-			return STREAM_FSM_RES_TERM_CONN;
+			res = STREAM_FSM_RES_TERM_CONN;
 		}
+
 		break;
 
 	case HTTP2_STREAM_CONT:
+		if (send && type == HTTP2_RST_STREAM) {
+			stream->state = HTTP2_STREAM_LOC_CLOSED;
+			break;
+		}
 		/*
 		 * Only CONTINUATION frames are allowed (after HEADERS or
 		 * CONTINUATION frames) until frame with END_HEADERS flag will
@@ -121,7 +166,8 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 		 */
 		if (type != HTTP2_CONTINUATION) {
 			*err = HTTP2_ECODE_PROTO;
-			return STREAM_FSM_RES_TERM_CONN;
+			res = STREAM_FSM_RES_TERM_CONN;
+			break;
 		}
 		/*
 		 * Once END_HEADERS flag is received, move stream into standard
@@ -129,12 +175,18 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 		 */
 		if (flags & HTTP2_F_END_HEADERS)
 			stream->state = HTTP2_STREAM_OPENED;
+
 		break;
 
 	case HTTP2_STREAM_CONT_CLOSED:
+		if (send && type == HTTP2_RST_STREAM) {
+			stream->state = HTTP2_STREAM_LOC_CLOSED;
+			break;
+		}
 		if (type != HTTP2_CONTINUATION) {
 			*err = HTTP2_ECODE_PROTO;
-			return STREAM_FSM_RES_TERM_CONN;
+			res = STREAM_FSM_RES_TERM_CONN;
+			break;
 		}
 		/*
 		 * If END_HEADERS flag arrived in this state, this means that
@@ -144,23 +196,30 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 		 */
 		if (flags & HTTP2_F_END_HEADERS)
 			stream->state = HTTP2_STREAM_REM_HALF_CLOSED;
+
 		break;
 
-	case HTTP2_STREAM_REM_CLOSED:
-		/*
-		 * RST_STREAM and WINDOW_UPDATE frames must be ignored in this
-		 * state.
-		 */
-		if (type == HTTP2_WINDOW_UPDATE
-		    || type == HTTP2_RST_STREAM)
-		{
-			return STREAM_FSM_RES_IGNORE;
+	case HTTP2_STREAM_LOC_CLOSED:
+		/* All types of frames are allowed in this state. */
+		if (type == HTTP2_RST_STREAM) {
+			if (send) {
+				res = STREAM_FSM_RES_IGNORE;
+				break;
+			}
+			stream->state = HTTP2_STREAM_CLOSED;
 		}
-		/* Fall through. */
+
+		break;
 
 	case HTTP2_STREAM_REM_HALF_CLOSED:
+		if (send && (type == HTTP2_RST_STREAM
+			     || flags & HTTP2_F_END_STREAM))
+		{
+			stream->state = HTTP2_STREAM_REM_CLOSED;
+			break;
+		}
 		/*
-		 * The only allowed stream-related frames in 'half-closed
+		 * The only allowed received stream-related frames in 'half-closed
 		 * (remote)' state are PRIORITY, RST_STREAM and WINDOW_UPDATE.
 		 * If RST_STREAM frame is received in this state, the stream
 		 * will be removed from stream's storage (i.e. moved into final
@@ -168,92 +227,80 @@ tfw_h2_stream_fsm(TfwStream *stream, unsigned char type, unsigned char flags,
 		 */
 		if (type == HTTP2_CONTINUATION) {
 			*err = HTTP2_ECODE_PROTO;
-			return STREAM_FSM_RES_TERM_CONN;
+			res = STREAM_FSM_RES_TERM_CONN;
+			break;
 		}
 
 		if (type == HTTP2_RST_STREAM)
 		{
 			stream->state = HTTP2_STREAM_CLOSED;
 		}
-		else if (type != HTTP2_PRIORITY || type != HTTP2_WINDOW_UPDATE)
+		else if (type != HTTP2_PRIORITY && type != HTTP2_WINDOW_UPDATE)
 		{
+			/*
+			 * We always send RST_STREAM to the peer in this case;
+			 * thus, the stream should be switched to the
+			 * 'closed (remote)' state.
+			 */
+			stream->state = HTTP2_STREAM_REM_CLOSED;
 			*err = HTTP2_ECODE_CLOSED;
-			return STREAM_FSM_RES_TERM_STREAM;
+			res = STREAM_FSM_RES_TERM_STREAM;
 		}
 
 		break;
 
-	case HTTP2_STREAM_CONT_HC:
-		if (type != HTTP2_CONTINUATION) {
-			*err = HTTP2_ECODE_PROTO;
-			return STREAM_FSM_RES_TERM_CONN;
-		}
+	case HTTP2_STREAM_REM_CLOSED:
 		/*
-		 * If END_HEADERS flag is received in this state, move stream
-		 * into 'half-closed (local)' state (see RFC 7540 section 5.1
-		 * and section 6.2 for details).
+		 * Sending of HEADERS/DATA and RST_STREAM frames must be ignored
+		 * in this state, since the state is in 'closed (remote)' state,
+		 * i.e. either it had already been reset from our side, or the
+		 * HEADERS/DATA with END_STREAM flag had already been sent from
+		 * us. Receiving of RST_STREAM and WINDOW_UPDATE frames should
+		 * also be ignored according to RFC 7540, section 5.1 ('closed'
+		 * paragraph). Receiving of all other frames should be ignored
+		 * as well (except PRIORITY frames which should be processed
+		 * even for closed streams), since there is no sense to respond
+		 * into already closed stream. Receiving of CONTINUATION frames
+		 * is forbidden (RFC 7540 section 6.10 stated that connection
+		 * must be closed in such case).
 		 */
-		if (flags & HTTP2_F_END_HEADERS)
-			stream->state = HTTP2_STREAM_LOC_HALF_CLOSED;
-		break;
+		if (type == HTTP2_PRIORITY)
+			break;
 
-	case HTTP2_STREAM_CONT_HC_CLOSED:
-		if (type != HTTP2_CONTINUATION) {
+		if (type == HTTP2_CONTINUATION) {
 			*err = HTTP2_ECODE_PROTO;
-			return STREAM_FSM_RES_TERM_CONN;
+			res = STREAM_FSM_RES_TERM_CONN;
+			break;
 		}
-		/*
-		 * If END_HEADERS flag arrived in this state, this means that
-		 * END_STREAM flag had been already received earlier - in
-		 * half-closed (local) state, and now we must close the stream,
-		 * i.e. move it to final 'closed' state.
-		 */
-		if (flags & HTTP2_F_END_HEADERS)
-			stream->state = HTTP2_STREAM_CLOSED;
-		break;
 
-	case HTTP2_STREAM_LOC_HALF_CLOSED:
-		/*
-		 * According to section 5.1 of RFC 7540 any frame type can be
-		 * received and will be valid in 'half-closed (local)' state.
-		 */
-		if (type == HTTP2_HEADERS)
-		{
-			if (flags & (HTTP2_F_END_STREAM | HTTP2_F_END_HEADERS)) {
-				stream->state = HTTP2_STREAM_CLOSED;
-			}
-			else if (flags & HTTP2_F_END_STREAM) {
-				stream->state = HTTP2_STREAM_CONT_HC_CLOSED;
-			}
-			else if (!(flags & HTTP2_F_END_HEADERS)) {
-				stream->state = HTTP2_STREAM_CONT_HC;
-			}
-		}
-		else if ((type == HTTP2_DATA && (flags & HTTP2_F_END_STREAM))
-			 || type == HTTP2_RST_STREAM)
-		{
-			stream->state = HTTP2_STREAM_CLOSED;
-		}
-		else if (type == HTTP2_CONTINUATION)
-		{
-			*err = HTTP2_ECODE_PROTO;
-			return STREAM_FSM_RES_TERM_CONN;
-		}
+		res = STREAM_FSM_RES_IGNORE;
+
 		break;
 
 	case HTTP2_STREAM_CLOSED:
+		T_DBG3("%s, stream fully closed: stream->id=%u, type=%hhu,"
+		       " flags=0x%hhx\n", __func__, stream->id, type, flags);
+		if (send) {
+			res = STREAM_FSM_RES_IGNORE;
+			break;
+		}
 		/*
 		 * In moment when the final 'closed' state is achieved, stream
 		 * actually must be removed from stream's storage (and from
-		 * memory), thus the execution flow must not reach this point.
+		 * memory), thus the receive execution flow must not reach this
+		 * point.
 		 */
 	default:
 		BUG();
 	}
 
-	T_DBG3("exit %s: stream->state=%d\n", __func__, stream->state);
+done:
+	T_DBG3("exit %s: stream->state=%d, res=%d\n", __func__,
+	       stream->state, res);
 
-	return STREAM_FSM_RES_OK;
+	spin_unlock(&stream->st_lock);
+
+	return res;
 }
 
 static inline void
@@ -262,6 +309,7 @@ tfw_h2_init_stream(TfwStream *stream, unsigned int id, unsigned short weight,
 {
 	RB_CLEAR_NODE(&stream->node);
 	INIT_LIST_HEAD(&stream->hcl_node);
+	spin_lock_init(&stream->st_lock);
 	stream->id = id;
 	stream->state = HTTP2_STREAM_OPENED;
 	stream->loc_wnd = wnd;
