@@ -2709,6 +2709,7 @@ tfw_http_expand_hbh(TfwHttpResp *resp, unsigned short status)
 		.len = SLEN(S_F_CONNECTION) + SLEN(S_CRLF),
 		.nchunks = 3
 	};
+	bool add_h_conn = true;
 
 	if (unlikely(test_bit(TFW_HTTP_B_CONN_CLOSE, req->flags)
 		     || proxy_close))
@@ -2723,11 +2724,18 @@ tfw_http_expand_hbh(TfwHttpResp *resp, unsigned short status)
 		__TFW_STR_CH(&h_conn, 1)->len = SLEN(S_V_CONN_KA);
 		h_conn.len += SLEN(S_V_CONN_KA);
 	}
+	else
+	{
+		/* Empty connection: header. */
+		add_h_conn = false;
+	}
 
 	if (unlikely(proxy_close))
 		tfw_http_req_set_conn_close(req);
 
-	return tfw_http_msg_expand_data(&mit->iter, skb_head, &h_conn, NULL);
+	return add_h_conn
+		? tfw_http_msg_expand_data(&mit->iter, skb_head, &h_conn, NULL)
+		: 0;
 }
 
 /**
