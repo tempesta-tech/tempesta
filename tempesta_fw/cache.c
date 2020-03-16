@@ -72,6 +72,7 @@ static const TfwStr tfw_cache_raw_headers_304[] = {
  * @rph_len	- length of response reason phrase;
  * @hdr_num	- number of headers;
  * @hdr_len	- length of whole headers data;
+ * @hdr_h2_off	- start of http/2-only headers in the headers list;
  * @body_len	- length of the response body;
  * @method	- request method, part of the key;
  * @flags	- various cache entry flags;
@@ -98,6 +99,7 @@ typedef struct {
 	unsigned int	status_len;
 	unsigned int	rph_len;
 	unsigned int	hdr_num;
+	unsigned int	hdr_h2_off;
 	unsigned int	hdr_len;
 	unsigned int	body_len;
 	unsigned int	method: 4;
@@ -687,12 +689,13 @@ tfw_cache_set_status(TDB *db, TfwCacheEntry *ce, TfwHttpResp *resp,
  */
 static int
 tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwHdrMods *hmods,
-			 TdbVRec **trec, char **p, unsigned long *acc_len)
+			 TdbVRec **trec, char **p, unsigned long *acc_len,
+			 bool skip)
 {
 	tfw_cache_write_actor_t *write_actor;
 	TfwCStr *s = (TfwCStr *)*p;
 	TfwHttpReq *req = resp->req;
-	TfwDecodeCacheIter dc_iter = { .h_mods = hmods };
+	TfwDecodeCacheIter dc_iter = { .h_mods = hmods, .skip = skip};
 	int d, dn, r = 0;
 
 	BUG_ON(!req);
@@ -786,8 +789,11 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 			trec = tdb_next_rec_chunk(db, trec);
 		BUG_ON(!trec);
 
-		if (tfw_cache_build_resp_hdr(db, resp, NULL, &trec, &p, &h_len))
+		if (tfw_cache_build_resp_hdr(db, resp, NULL, &trec, &p, &h_len,
+					     false))
+		{
 			goto err_setup;
+		}
 	}
 
 	if (!TFW_MSG_H2(req)) {
@@ -1536,6 +1542,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	if (unlikely(n < 0))
 		return n;
 
+	/* Headers added only for h2 responses. */
 	/* Add 'via' header. */
 	memcpy_fast(__TFW_STR_CH(&val_via, 1)->data, g_vhost->hdr_via,
 		    g_vhost->hdr_via_len);
@@ -1543,6 +1550,7 @@ tfw_cache_copy_resp(TfwCacheEntry *ce, TfwHttpResp *resp, TfwStr *rph,
 	if (unlikely(n < 0))
 		return n;
 
+	ce->hdr_h2_off = ce->hdr_num + 1;
 	ce->hdr_num += 2;
 
 	/* Write HTTP response body. */
@@ -2010,8 +2018,10 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, time_t lifetime,
 		goto free;
 
 	for (h = TFW_HTTP_HDR_REGULAR; h < ce->hdr_num; ++h) {
+		bool skip = !TFW_MSG_H2(req) && (h >= ce->hdr_h2_off);
+
 		if (tfw_cache_build_resp_hdr(db, resp, h_mods, &trec, &p,
-					     &h_len))
+					     &h_len, skip))
 			goto free;
 	}
 
@@ -2040,13 +2050,16 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, time_t lifetime,
 		 * response.
 		 */
 		if (tfw_http_expand_hbh(resp, ce->resp_status)
+		    || tfw_http_expand_hdr_via(resp)
 		    || tfw_http_set_loc_hdrs((TfwHttpMsg *)resp, req, true)
 		    || (lifetime > ce->lifetime
 			&& tfw_http_expand_stale_warn(resp))
 		    || (!test_bit(TFW_HTTP_B_HDR_DATE, resp->flags)
 			&& tfw_http_expand_hdr_date(resp))
 		    || tfw_http_msg_expand_data(it, skb_head, &g_crlf, NULL))
+		{
 			goto free;
+		}
 
 		goto write_body;
 	}

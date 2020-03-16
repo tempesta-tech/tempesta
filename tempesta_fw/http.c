@@ -2835,10 +2835,10 @@ tfw_http_expand_stale_warn(TfwHttpResp *resp)
 	return tfw_http_msg_expand_data(&mit->iter, skb_head, &wh, NULL);
 }
 
-static int
-tfw_http_add_hdr_via(TfwHttpMsg *hm)
+static inline int
+__tfw_http_add_hdr_via(TfwHttpMsg *hm, int http_version, bool from_cache)
 {
-	int r;
+	int r = 0;
 	static const char * const s_http_version[] = {
 		[0 ... _TFW_HTTP_VER_COUNT] = NULL,
 		[TFW_HTTP_VER_09] = "0.9 ",
@@ -2850,7 +2850,7 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 	const TfwStr rh = {
 		.chunks = (TfwStr []) {
 			{ .data = S_F_VIA, .len = SLEN(S_F_VIA) },
-			{ .data = (void *)s_http_version[hm->version],
+			{ .data = (void *)s_http_version[http_version],
 			  .len = 4 },
 			{ .data = *this_cpu_ptr(&g_buf),
 			  .len = g_vhost->hdr_via_len },
@@ -2863,12 +2863,36 @@ tfw_http_add_hdr_via(TfwHttpMsg *hm)
 	memcpy_fast(__TFW_STR_CH(&rh, 2)->data, g_vhost->hdr_via,
 		    g_vhost->hdr_via_len);
 
-	r = tfw_http_msg_hdr_add(hm, &rh);
+	if (!from_cache) {
+		r = tfw_http_msg_hdr_add(hm, &rh);
+	}
+	else {
+		struct sk_buff **skb_head = &hm->msg.skb_head;
+		TfwHttpTransIter *mit = &((TfwHttpResp *)hm)->mit;
+		TfwStr crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
+
+		r = tfw_http_msg_expand_data(&mit->iter, skb_head, &rh, NULL);
+		r |= tfw_http_msg_expand_data(&mit->iter, skb_head,
+					     &crlf, NULL);
+	}
 	if (r)
 		T_ERR("Unable to add via: header to msg [%p]\n", hm);
 	else
 		T_DBG2("Added via: header to msg [%p]\n", hm);
+
 	return r;
+}
+
+int tfw_http_expand_hdr_via(TfwHttpResp *resp)
+{
+	return __tfw_http_add_hdr_via((TfwHttpMsg *)resp, resp->req->version,
+				      true);
+}
+
+static int
+tfw_http_add_hdr_via(TfwHttpMsg *hm)
+{
+	return __tfw_http_add_hdr_via(hm, hm->version, false);
 }
 
 static int
