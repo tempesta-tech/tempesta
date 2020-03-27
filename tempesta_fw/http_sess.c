@@ -942,6 +942,16 @@ tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 
 	if (!js_ch)
 		return 0;
+	/*
+	 * Requests that can't be challenged but came just in time mustn't
+	 * pass the challenge, wait for original request retry.
+	 * Browsers always load favicon as the second request.
+	 */
+	if (!tfw_http_sticky_redirect_applied(req)) {
+		T_DBG("sess: jsch drop: non-challegeable resource was "
+		      "requested outside allowed time range.\n");
+		return TFW_HTTP_SESS_JS_NOT_SUPPORTED;
+	}
 
 	/*
 	 * When a client calculates it's own random delay, it uses range value
@@ -954,16 +964,9 @@ tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 	if (time_in_range(req->jrxtstamp, min_time, max_time))
 		return 0;
 
-	if (tfw_http_sticky_redirect_applied(req)) {
-		T_DBG("sess: jsch block: request received outside allowed "
-		      "time range.\n");
-		return TFW_HTTP_SESS_VIOLATE;
-	}
-	else {
-		T_DBG("sess: jsch drop: non-challegeable resource was "
-		      "requested outside allowed time range.\n");
-		return TFW_HTTP_SESS_JS_NOT_SUPPORTED;
-	}
+	T_DBG("sess: jsch block: request received outside allowed time range."
+	      "\n");
+	return TFW_HTTP_SESS_VIOLATE;
 }
 
 static bool

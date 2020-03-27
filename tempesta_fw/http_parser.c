@@ -1993,7 +1993,7 @@ __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	__FSM_STATE(Req_I_StarSlashStar) {
 		if (c == '*')
-			__FSM_I_MOVE(Req_I_AcceptHtml);
+			__FSM_I_MOVE(I_EoT);
 		return CSTR_NEQ;
 	}
 
@@ -5312,9 +5312,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 
 	__FSM_STATE(Req_I_StarSlashStar) {
 		if (c == '*')
-			__FSM_H2_I_MOVE_LAMBDA_n(Req_I_AcceptHtml, 1, {
-				__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
-			});
+			__FSM_H2_I_MOVE_n(I_EoT, 1);
 		return CSTR_NEQ;
 	}
 

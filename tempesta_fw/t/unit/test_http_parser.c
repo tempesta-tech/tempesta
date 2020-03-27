@@ -1537,14 +1537,14 @@ TEST(http_parser, accept)
 		"Accept:  */*  \r\n"
 		"\r\n")
 	{
-		EXPECT_TRUE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
 	}
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Accept:  invalid/invalid;  q=0.5;    key=val, */* \r\n"
 		"\r\n")
 	{
-		EXPECT_TRUE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
+		EXPECT_FALSE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
 	}
 
 	FOR_REQ("GET / HTTP/1.1\r\n"
@@ -1582,12 +1582,9 @@ TEST(http_parser, accept)
 		EXPECT_FALSE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
 	}
 
-	FOR_REQ("GET / HTTP/1.1\r\n"
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 		"Accept: */*text\r\n"
-		"\r\n")
-	{
-		EXPECT_FALSE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
-	}
+		"\r\n");
 
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 		"Accept: */* text/plain\r\n"
