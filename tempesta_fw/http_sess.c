@@ -674,6 +674,29 @@ tfw_http_sess_check_redir_mark(TfwHttpReq *req, RedirMarkVal *mv)
 	return TFW_HTTP_SESS_SUCCESS;
 }
 
+static inline int
+tfw_http_sticky_challenge_start(TfwHttpReq *req, TfwStickyCookie *sticky,
+				StickyVal *sv)
+{
+	int r;
+	RedirMarkVal mv = {};
+
+	/*
+	 * If configured, ensure that limit for requests without
+	 * cookie and timeout for redirections are not exhausted.
+	 */
+	if (sticky->max_misses) {
+		if ((r = tfw_http_sess_check_redir_mark(req, &mv)))
+			return r;
+	}
+	if (!sv->ts) {
+		if (tfw_http_sticky_calc(req, sv) != 0)
+			return TFW_HTTP_SESS_FAILURE;
+	}
+
+	return tfw_http_sticky_build_redirect(req, sv, &mv);
+}
+
 /*
  * No Tempesta sticky cookie found.
  *
@@ -689,9 +712,7 @@ tfw_http_sess_check_redir_mark(TfwHttpReq *req, RedirMarkVal *mv)
 static int
 tfw_http_sticky_notfound(TfwHttpReq *req)
 {
-	int r;
 	StickyVal sv = {};
-	RedirMarkVal mv = {}, *mvp = NULL;
 	TfwStickyCookie *sticky = req->vhost->cookie;
 
 	/*
@@ -705,21 +726,22 @@ tfw_http_sticky_notfound(TfwHttpReq *req)
 	if (!sticky->enforce)
 		return TFW_HTTP_SESS_SUCCESS;
 
-	/*
-	 * If configured, ensure that limit for requests without
-	 * cookie and timeout for redirections are not exhausted.
-	 */
-	if (sticky->max_misses) {
-		mvp = &mv;
-		if ((r = tfw_http_sess_check_redir_mark(req, mvp)))
-			return r;
-	}
+	return tfw_http_sticky_challenge_start(req, sticky, &sv);
+}
 
-	/* Create Tempesta sticky cookie and store it */
-	if (tfw_http_sticky_calc(req, &sv) != 0)
-		return TFW_HTTP_SESS_FAILURE;
+/*
+ * Client already passed a cookie challenge, but the cookie is stored from the
+ * previous session, client has it in his cache, but we don't. Timestamp in the
+ * cookie value is too old to be used in JS challenge, need to create a new
+ * cookie value and send a redirect with it.
+ */
+static int
+tfw_http_sticky_jsch_resart(TfwHttpReq *req)
+{
+	StickyVal sv = {};
+	TfwStickyCookie *sticky = req->vhost->cookie;
 
-	return tfw_http_sticky_build_redirect(req, &sv, mvp);
+	return tfw_http_sticky_challenge_start(req, sticky, &sv);
 }
 
 /**
@@ -799,15 +821,9 @@ tfw_http_sticky_req_process(TfwHttpReq *req, StickyVal *sv, TfwStr *cookie_val)
 		 * cookie tries to 1. While we just send normal 302 redirect to
 		 * keep user experience intact.
 		 */
-		if (tfw_http_sticky_verify(req, cookie_val, sv)) {
-			RedirMarkVal mv = {}, *mvp = NULL;
-			if (req->vhost->cookie->max_misses) {
-				mvp = &mv;
-				if ((r = tfw_http_sess_check_redir_mark(req, mvp)))
-					return r;
-			}
-			return tfw_http_sticky_build_redirect(req, sv, mvp);
-		}
+		if (tfw_http_sticky_verify(req, cookie_val, sv))
+			return tfw_http_sticky_challenge_start(
+						req, req->vhost->cookie, sv);
 		return TFW_HTTP_SESS_SUCCESS;
 	}
 	T_WARN("Multiple Tempesta sticky cookies found: %d\n", r);
@@ -937,7 +953,7 @@ tfw_http_sess_remove(TfwHttpSess *sess)
 static int
 tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 {
-	unsigned long min_time, max_time;
+	unsigned long min_time, max_time, restart_time;
 	TfwCfgJsCh *js_ch = req->vhost->cookie->js_challenge;
 
 	if (!js_ch)
@@ -964,6 +980,12 @@ tfw_http_sess_check_jsch(StickyVal *sv, TfwHttpReq* req)
 	if (time_in_range(req->jrxtstamp, min_time, max_time))
 		return 0;
 
+	restart_time = sv->ts + js_ch->delay_min
+			+ msecs_to_jiffies(js_ch->delay_range);
+	if (time_after(req->jrxtstamp, restart_time)) {
+		T_DBG("sess: jsch block: Too old cookie, restart challenge.\n");
+		return TFW_HTTP_SESS_JS_RESTART;
+	}
 	T_DBG("sess: jsch block: request received outside allowed time range."
 	      "\n");
 	return TFW_HTTP_SESS_VIOLATE;
@@ -1146,7 +1168,9 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 		if (req->vhost->cookie->learn)
 			return TFW_HTTP_SESS_SUCCESS;
 		if (ctx.jsch_rcode)
-			return ctx.jsch_rcode;
+			return (ctx.jsch_rcode != TFW_HTTP_SESS_JS_RESTART)
+				? ctx.jsch_rcode
+				: tfw_http_sticky_jsch_resart(req);
 		T_WARN("cannot allocate TDB space for http session\n");
 		return TFW_HTTP_SESS_FAILURE;
 	}
