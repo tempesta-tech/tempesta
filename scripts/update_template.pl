@@ -34,6 +34,10 @@ if (!$template || $template !~ '.tpl$' || !$sticky_name
 sub assemble
 {
 	my ($src) = @_;
+	unless (-e $src) {
+		die "JavaScript Challenge template '$src' not found, generation aborted!";
+	}
+
 	my $dir = dirname($src);
 	$src = basename($src);
 	(my $dest = $src) =~ s/.tpl$/.html/;
@@ -42,7 +46,7 @@ sub assemble
 		OUTPUT_PATH	=> "$dir",
 	});
 
-	say "assemble template $src -> $dest";
+	say "Assemble JavaScript Challenge template '$src' -> '$dest'";
 
 	my $html;
 	my $t_vals = {
