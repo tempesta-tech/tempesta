@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -21,6 +21,11 @@
 #include <linux/types.h>
 #include <asm/fpu/api.h>
 
+/* Rename original tfw_connection_send(), a custom version will be used here. */
+#define tfw_connection_send divert_tfw_connection_send
+#include "connection.c"
+#undef tfw_connection_send
+
 #undef tfw_sock_srv_init
 #define tfw_sock_srv_init test_sock_srv_conn_init
 #undef tfw_sock_srv_exit
@@ -35,6 +40,13 @@
 #include "server.h"
 #include "sched_helper.h"
 #include "test.h"
+
+/* prevent exporting symbols */
+#include <linux/module.h>
+#undef EXPORT_SYMBOL
+#define EXPORT_SYMBOL(...)
+#include "server.c"
+#include "sched.c"
 
 void
 test_spec_cleanup(TfwCfgSpec specs[])
@@ -103,8 +115,6 @@ test_sg_release_all_reconfig(void)
 	struct hlist_node *tmp;
 	struct rw_semaphore *sg_sem = get_sym_ptr("sg_sem");
 	struct hlist_head *sg_hash_reconfig = get_sym_ptr("sg_hash_reconfig");
-	/* XXX check that TFW_SG_HBITS from server.c is exactly 10. */
-	size_t TFW_SG_HBITS = 10;
 
 	if (!sg_sem || !sg_hash_reconfig) {
 		pr_warn("%s: cannot resolve necessary symbols:"
