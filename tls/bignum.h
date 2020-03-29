@@ -104,7 +104,7 @@ typedef struct {
  * Initialize an MPI at memory by pointer @X with preallocated space for @nlimbs
  * and return a pointer to a next MPI in the same memory region.
  *
- * Note that sizeof(TlsMPI) == sizeof(long) (a limb), so we're MPIs are always
+ * Note that sizeof(TlsMPI) == sizeof(long) (a limb), so MPIs are always
  * properly aligned.
  *
  * Used for multiple MPI allocations and initializations when
@@ -125,8 +125,8 @@ ttls_mpi_init_next(TlsMpi *X, size_t nlimbs)
 }
 
 /*
- * While the kernel stack can be up to 2 pages in size, we limit the whole
- * statck allocations by one page to avoid stack overflow (we may need it for
+ * While the kernel stack can be up to 4 pages in size, we limit the whole
+ * stack allocations by one page to avoid stack overflow (we may need it for
  * other calls). Use paged per-cpu MPI pool if more memory for temporary MPIs
  * is required.
  */

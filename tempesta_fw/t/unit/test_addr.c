@@ -22,6 +22,7 @@
 #include "addr.h"
 #include "test.h"
 
+#include "addr.c"
 
 TEST(tfw_addr_ntop, formats_ipv4_addrs)
 {

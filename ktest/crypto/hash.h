@@ -1,7 +1,7 @@
 /**
  *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -25,14 +25,14 @@
 
 #define CRYPTO_MAX_ALG_NAME	128
 
-struct crypto_shash { /* dummy strut */ };
-struct shash_desc { /* dummy strut */ };
-struct crypto_tfm { /* dummy strut */ };
-struct crypto_type { /* dummy strut */ };
-struct ablkcipher_alg { /* dummy strut */ };
-struct blkcipher_alg { /* dummy strut */ };
-struct cipher_alg { /* dummy strut */ };
-struct compress_alg { /* dummy strut */ };
+struct crypto_shash { /* dummy struct */ };
+struct shash_desc { /* dummy struct */ };
+struct crypto_tfm { /* dummy struct */ };
+struct crypto_type { /* dummy struct */ };
+struct ablkcipher_alg { /* dummy struct */ };
+struct blkcipher_alg { /* dummy struct */ };
+struct cipher_alg { /* dummy struct */ };
+struct compress_alg { /* dummy struct */ };
 
 struct crypto_alg {
 	struct list_head cra_list;

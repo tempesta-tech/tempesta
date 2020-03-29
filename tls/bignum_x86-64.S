@@ -22,11 +22,6 @@
 #include <asm/export.h>
 #include <asm/nospec-branch.h>
 
-// TODO
-//#if !defined(BMI2) || !defined(ADX)
-//#error "BMI2 and ADX CPU extensions are required"
-//#endif
-
 /**
  * Add X = A + B, where A->used >= B->used.
  *

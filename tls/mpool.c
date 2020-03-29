@@ -62,6 +62,27 @@
  */
 static DEFINE_PER_CPU(TlsMpiPool *, g_tmp_mpool);
 
+/*
+ * Check current task stack for the case of Tempesta load phase and
+ * IRQ stack for softirq run time (given that interrups on x86-64 exit
+ * on the same stack, CONFIG_HAVE_IRQ_EXIT_ON_IRQ_STACK).
+ */
+static inline bool
+__check_stack_addr(unsigned long a)
+{
+	unsigned long begin, end;
+
+	begin = (unsigned long)task_stack_page(current);
+	end = (unsigned long)task_stack_page(current) + THREAD_SIZE;
+	if (begin <= a && a < end)
+		return true;
+
+	end = (unsigned long)this_cpu_read(irq_stack_ptr);
+	begin = end - (IRQ_STACK_SIZE / sizeof(long));
+
+	return begin <= a && a < end;
+}
+
 /**
  * Return a pointer to an MPI pool of one of the following types:
  * 1. static cipher suite memory profile;
@@ -74,7 +95,6 @@ ttls_mpool(void *addr)
 	TlsMpiPool *mp;
 	const char *mp_name;
 	const unsigned long a = (unsigned long)addr;
-	unsigned long sp = (unsigned long)&a;
 
 	/*
 	 * On configuration phase (process context) we fill cipher suite
@@ -89,7 +109,7 @@ ttls_mpool(void *addr)
 	 * If @addr (some MPI) was allocated on stack, then prohibit any
 	 * pool operations - TlsMpi->_off is unable to handle too far pointers.
 	 */
-	BUG_ON(sp < a && a < sp + THREAD_SIZE);
+	BUG_ON(__check_stack_addr(a));
 
 	mp = *this_cpu_ptr(&g_tmp_mpool);
 	mp_name = "temporary";
@@ -181,7 +201,7 @@ ttls_mpool_alloc_stack(size_t n)
  * if it's non zero, or fully otherwise.
  *
  * The function call is semantically similar to moving RSP register, but the
- * funcation call (1) i more expensive and (2) provides memory zeroing.
+ * function call (1) is more expensive and (2) provides memory zeroing.
  * ttls_mpool_alloc_data() with this function should be used for large MPI
  * allocations, when the small kernel stack can be overrun.
  */
@@ -338,9 +358,7 @@ ttls_mpool_shrink_tailtmp(TlsMpiPool *mp, bool fix_refs)
 
 			BUG_ON(md->off > mp->curr_tail
 			       || md->off < sizeof(*mp));
-			BUG_ON(md->len > mp_sz
-			       || md->len + mp->curr_tail > mp_sz);
-			BUG_ON(md->len % CIL);
+			BUG_ON(md->len & LMASK);
 
 			x->s = 0;
 			x->limbs = 0;
