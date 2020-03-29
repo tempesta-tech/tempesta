@@ -20,17 +20,10 @@
 #ifndef __KERNEL_H__
 #define __KERNEL_H__
 
+#include <linux/errno.h>
 #include <stdio.h>
 
 #include "compiler.h"
-
-#ifndef ENOMEM /* if one is undefinded, then we're good */
-#define ENOENT			2
-#define ENOMEM			12
-#define EINVAL			22
-#define ENOSPC			28
-#define EDOM			33
-#endif
 
 #define ARRAY_SIZE(x)   	(sizeof(x) / sizeof(*(x)))
 

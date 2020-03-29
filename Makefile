@@ -66,10 +66,14 @@ endif
 ifneq (, $(findstring bmi2, $(PROC)))
 	BMI2 = "y"
 	TFW_CFLAGS += -DBMI2=1
+else
+	ERROR = "BMI2 CPU extension is required for Tempesta TLS"
 endif
 ifneq (, $(findstring adx, $(PROC)))
 	ADX = "y"
 	TFW_CFLAGS += -DADX=1
+else
+	ERROR = "ADX CPU extension is required for Tempesta TLS"
 endif
 
 TFW_CFLAGS += -mmmx -msse4.2
@@ -87,7 +91,11 @@ ifdef ERROR
 	$(error $(ERROR))
 endif
 ifndef AVX2
-	$(warning WARNING: NO AVX2 SUPPORT, YOU WILL BE SLOW)
+	$(warning !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!)
+	$(warning WARNING: YOUR PLATFORM IS TOO OLD AND IS NOT UNSUPPORTED)
+	$(warning WARNING: THIS AFFECT PERFORMANCE AND MIGHT AFFECT SECURITY)
+	$(warning WARNING: PLEASE DO NOT USE THE BUILD IN PRODUCTION)
+	$(warning !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!)
 endif
 	$(MAKE) -C tempesta_db
 	$(MAKE) -C $(KERNEL) M=$(shell pwd) modules

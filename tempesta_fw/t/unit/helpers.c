@@ -15,7 +15,7 @@
  * and generic testing functions/macros are located in test.c/test.h
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -100,4 +100,124 @@ test_resp_free(TfwHttpResp *resp)
 {
 	BUG_ON(!resp);
 	tfw_http_msg_free((TfwHttpMsg *)resp);
+}
+
+/*
+ * Testing mocks to start/stop minimum functionality, necessary for the parser
+ * environment.
+ */
+struct {} *tfw_perfstat;
+
+void
+tfw_client_set_expires_time(unsigned int expires_time)
+{
+}
+
+int
+tfw_gfsm_dispatch(TfwGState *st, void *obj, TfwFsmData *data)
+{
+	return 0;
+}
+
+TfwCfgSpec tfw_http_sess_specs[0];
+
+int
+tfw_http_sess_cfgop_finish(TfwVhost *vhost, TfwCfgSpec *cs)
+{
+	return 0;
+}
+
+int
+tfw_http_sess_cfgop_begin(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return 0;
+}
+
+void
+tfw_http_sess_cfgop_cleanup(TfwCfgSpec *cs)
+{
+}
+
+void
+tfw_http_sess_cookie_clean(TfwVhost *vhost)
+{
+}
+
+int
+tfw_http_sess_cfg_finish(TfwVhost *vhost)
+{
+	return 0;
+}
+
+typedef struct {} TfwRBQueue;
+
+int
+tfw_wq_pop_ticket(TfwRBQueue *q, void *buf, long *ticket)
+{
+	return 0;
+}
+
+void
+tfw_wq_destroy(TfwRBQueue *q)
+{
+}
+
+int
+tfw_wq_init(TfwRBQueue *q, int node)
+{
+	return 0;
+}
+
+long
+__tfw_wq_push(TfwRBQueue *q, void *ptr)
+{
+	return 0;
+}
+
+void
+tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
+{
+}
+
+int
+tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *rmark,
+		       TfwStr *cookie, TfwStr *body)
+{
+	return 0;
+}
+
+int
+tfw_cfgop_parse_http_status(const char *status, int *out)
+{
+	return 0;
+}
+
+void
+tfw_tls_cfg_configured(bool global)
+{
+}
+
+void
+tfw_tls_match_any_sni_to_dflt(bool match)
+{
+}
+
+/*
+ * The unit tests don't allocate vhost, sessions, and peer, so there are no
+ * memory leak.
+ */
+void
+tfw_http_req_destruct(void *msg)
+{
+}
+
+void
+tfw_http_conn_msg_free(TfwHttpMsg *hm)
+{
+}
+
+int
+tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream, TfwFsmData *data)
+{
+	return 0;
 }
