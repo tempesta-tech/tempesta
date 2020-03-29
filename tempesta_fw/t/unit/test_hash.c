@@ -25,6 +25,8 @@
 #include "hash.h"
 #include "test.h"
 
+#include "hash.c"
+
 /* NOTE: hashing is a probabilistic thing. Some tests may give false results. */
 
 TEST(tfw_hash_str, calcs_diff_hash_for_diff_str)

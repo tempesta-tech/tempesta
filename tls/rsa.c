@@ -611,9 +611,10 @@ ttls_rsa_complete(TlsRSACtx *ctx)
 	 */
 	if (is_priv) {
 		int count = 0;
-		/* RSA 8192 bite requires 1024 bytes. */
-		unsigned char buf[1024] = {0};
+		/* 8192-bit RSA requires 1024 bytes. */
+		unsigned char buf[1024];
 
+		bzero_fast(buf, sizeof(buf));
 		ttls_mpi_alloc(&ctx->Vi, ctx->len / CIL * 2);
 		ttls_mpi_alloc(&ctx->Vf, ctx->len / CIL * 2);
 
