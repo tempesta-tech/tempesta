@@ -221,15 +221,14 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 	bin2hex(&c_buf[sizeof(ts_be64) * 2], sv->hmac, sizeof(sv->hmac));
 
 	bzero_fast(c_chunks, sizeof(c_chunks));
-	c_chunks[0] = sticky->name;
-	c_chunks[1] = s_eq;
-	c_chunks[2].data = c_buf;
-	c_chunks[2].len = sizeof(*sv) * 2;
-	c_chunks[3] = sticky->options;
+	c_chunks[0] = sticky->name_eq;
+	c_chunks[1].data = c_buf;
+	c_chunks[1].len = sizeof(*sv) * 2;
+	c_chunks[2] = sticky->options;
 
 	cookie.chunks = c_chunks;
-	cookie.len = c_chunks[0].len + c_chunks[1].len + c_chunks[2].len;
-	cookie.nchunks = 3;
+	cookie.len = c_chunks[0].len + c_chunks[1].len;
+	cookie.nchunks = 2;
 	if (!TFW_STR_EMPTY(&sticky->options)) {
 		cookie.len += sticky->options.len;
 		cookie.nchunks++;
