@@ -1978,7 +1978,13 @@ __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Req_I_AfterTextSlash) {
-		TRY_STR("html", Req_I_AfterTextSlash, Req_I_AcceptHtml);
+		if (c == '*')
+			__FSM_I_MOVE(I_EoT);
+		__FSM_I_JMP(Req_I_AfterTextSlashToken);
+	}
+
+	__FSM_STATE(Req_I_AfterTextSlashToken) {
+		TRY_STR("html", Req_I_AfterTextSlashToken, Req_I_AcceptHtml);
 		TRY_STR_INIT();
 		__FSM_I_JMP(Req_I_Subtype);
 	}
@@ -1986,8 +1992,6 @@ __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_AfterStar) {
 		if (c == '/')
 			__FSM_I_MOVE(Req_I_StarSlashStar);
-		if (IS_TOKEN(c))
-			__FSM_I_JMP(Req_I_Type);
 		return CSTR_NEQ;
 	}
 
@@ -2014,10 +2018,10 @@ __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
 	}
 
 	__FSM_STATE(Req_I_Slash) {
-		if (IS_TOKEN(c))
-			__FSM_I_JMP(Req_I_Subtype);
 		if (c == '*')
 			__FSM_I_MOVE(I_EoT);
+		if (IS_TOKEN(c))
+			__FSM_I_JMP(Req_I_Subtype);
 		return CSTR_NEQ;
 	}
 
@@ -5294,10 +5298,16 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 	}
 
 	__FSM_STATE(Req_I_AfterTextSlash) {
+		if (c == '*')
+			__FSM_H2_I_MOVE(I_EoT);
+		__FSM_I_JMP(Req_I_AfterTextSlashToken);
+	}
+
+	__FSM_STATE(Req_I_AfterTextSlashToken) {
 		H2_TRY_STR_LAMBDA("html", {
 			__set_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags);
 			__FSM_EXIT(CSTR_EQ);
-		},  Req_I_AfterTextSlash, Req_I_AcceptHtml);
+		},  Req_I_AfterTextSlashToken, Req_I_AcceptHtml);
 		TRY_STR_INIT();
 		__FSM_I_JMP(Req_I_Subtype);
 	}
@@ -5305,14 +5315,12 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 	__FSM_STATE(Req_I_AfterStar) {
 		if (c == '/')
 			__FSM_H2_I_MOVE(Req_I_StarSlashStar);
-		if (IS_TOKEN(c))
-			__FSM_I_JMP(Req_I_Type);
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(Req_I_StarSlashStar) {
 		if (c == '*')
-			__FSM_H2_I_MOVE_n(I_EoT, 1);
+			__FSM_H2_I_MOVE(I_EoT);
 		return CSTR_NEQ;
 	}
 
@@ -5335,10 +5343,10 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 	}
 
 	__FSM_STATE(Req_I_Slash) {
-		if (IS_TOKEN(c))
-			__FSM_I_JMP(Req_I_Subtype);
 		if (c == '*')
 			__FSM_H2_I_MOVE(I_EoT);
+		if (IS_TOKEN(c))
+			__FSM_I_JMP(Req_I_Subtype);
 		return CSTR_NEQ;
 	}
 

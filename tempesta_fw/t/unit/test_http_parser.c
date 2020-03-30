@@ -1561,67 +1561,59 @@ TEST(http_parser, accept)
 		EXPECT_TRUE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
 	}
 
-	FOR_REQ("GET / HTTP/1.1\r\n"
-		"Accept: *text/html\r\n"
-		"\r\n")
-	{
-		EXPECT_FALSE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
-	}
-
-	FOR_REQ("GET / HTTP/1.1\r\n"
+	/*
+	 * '*' is part of the token alphabet, but for Accept header '*' symbol
+	 * has special meaning and doesn't included into mime types.
+	 */
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 		"Accept: text/*html\r\n"
-		"\r\n")
-	{
-		EXPECT_FALSE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
-	}
-
-	FOR_REQ("GET / HTTP/1.1\r\n"
+		"\r\n");
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+		"Accept: *text/html\r\n"
+		"\r\n");
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 		"Accept: *text/*html\r\n"
-		"\r\n")
-	{
-		EXPECT_FALSE(test_bit(TFW_HTTP_B_ACCEPT_HTML, req->flags));
-	}
-
+		"\r\n");
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 		"Accept: */*text\r\n"
 		"\r\n");
 
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-		"Accept: */* text/plain\r\n"
-		"\r\n");
-
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-		"Accept: text/html; =0.5\r\n"
-		"\r\n");
-
-	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
-		"Accept: text/html; q = 0.5 \r\n"
-		"\r\n");
-
+	/* Can't use group operator for type and use specific subtype. */
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 		"Accept: */invalid\r\n"
 		"\r\n");
 
+	/* Invalid delimiters between parts. */
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+		"Accept: */* text/plain\r\n"
+		"\r\n");
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+		"Accept: text/html; =0.5\r\n"
+		"\r\n");
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+		"Accept: text/html; q = 0.5 \r\n"
+		"\r\n");
+
+	/* Weight parameter can't have arbitrary value. */
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 		"Accept: invalid/invalid; q=foo\r\n"
 		"\r\n");
 
+	/* Mime type must have two parts and  '/' character between them. */
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 		"Accept: invalid\r\n"
 		"\r\n");
-
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 		"Accept: /invalid\r\n"
 		"\r\n");
-
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 		"Accept: invalid/\r\n"
 		"\r\n");
-
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 		"Accept: text/html; q=0.5; text/css/\r\n"
 		"\r\n");
 
+	/* Empty types are not allowed. */
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 		"Accept: */*,,,\r\n"
 		"\r\n");
