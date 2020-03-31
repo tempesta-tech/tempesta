@@ -1,7 +1,7 @@
 /*
  *		Tempesta FW
  *
- * Copyright (C) 2017-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2017-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -162,7 +162,9 @@ enum {
 	/* Sticky cookie violated, client must be blocked. */
 	TFW_HTTP_SESS_VIOLATE,
 	/* JS challenge enabled, but request is not challengable. */
-	TFW_HTTP_SESS_JS_NOT_SUPPORTED
+	TFW_HTTP_SESS_JS_NOT_SUPPORTED,
+	/* JS challenge restart required. Internal for http_sess module. */
+	TFW_HTTP_SESS_JS_RESTART
 };
 
 int tfw_http_sess_obtain(TfwHttpReq *req);

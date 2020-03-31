@@ -1,4 +1,5 @@
 <html>
+<link rel="icon" href="data:;base64,iVBORw0KGgo=">
     <body>
         <p></p>&nbsp;<p></p>
         <h2 align='center'>
