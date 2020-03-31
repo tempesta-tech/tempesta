@@ -1980,7 +1980,7 @@ __req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_AfterTextSlash) {
 		if (c == '*')
 			__FSM_I_MOVE(I_EoT);
-		__FSM_I_JMP(Req_I_AfterTextSlashToken);
+		/* Fall through. */
 	}
 
 	__FSM_STATE(Req_I_AfterTextSlashToken) {
@@ -5300,7 +5300,7 @@ __h2_req_parse_accept(TfwHttpReq *req, unsigned char *data, size_t len,
 	__FSM_STATE(Req_I_AfterTextSlash) {
 		if (c == '*')
 			__FSM_H2_I_MOVE(I_EoT);
-		__FSM_I_JMP(Req_I_AfterTextSlashToken);
+		/* Fall through. */
 	}
 
 	__FSM_STATE(Req_I_AfterTextSlashToken) {
