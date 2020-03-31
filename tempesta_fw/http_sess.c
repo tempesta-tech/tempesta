@@ -149,13 +149,11 @@ tfw_http_sticky_redirect_applied(TfwHttpReq *req)
  */
 static void
 tfw_http_redir_mark_prepare(RedirMarkVal *mv, char *buf, unsigned int buf_len,
-			    TfwStr *chunks, unsigned int ch_len, TfwStr *rmark,
-			    TfwStr *cookie_name)
+			    TfwStr *chunks, unsigned int ch_len, TfwStr *rmark)
 {
 	unsigned int att_be32 = cpu_to_be32(mv->att_no);
 	unsigned long ts_be64 = cpu_to_be64(mv->ts);
 	DEFINE_TFW_STR(s_sl, "/");
-	DEFINE_TFW_STR(s_eq, "=");
 
 	bin2hex(buf, &att_be32, sizeof(att_be32));
 	bin2hex(&buf[sizeof(att_be32) * 2], &ts_be64, sizeof(ts_be64));
@@ -164,25 +162,22 @@ tfw_http_redir_mark_prepare(RedirMarkVal *mv, char *buf, unsigned int buf_len,
 
 	bzero_fast(chunks, ch_len);
 	chunks[0] = s_sl;
-	chunks[1] = *cookie_name;
-	chunks[2] = s_eq;
-	chunks[3].data = buf;
-	chunks[3].len = buf_len;
+	chunks[1] = redir_mark_eq;
+	chunks[2].data = buf;
+	chunks[2].len = buf_len;
 
 	rmark->chunks = chunks;
 	rmark->len = chunks[0].len;
 	rmark->len += chunks[1].len;
 	rmark->len += chunks[2].len;
-	rmark->len += chunks[3].len;
-	rmark->nchunks = 4;
+	rmark->nchunks = 3;
 }
 
 static int
 tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 {
 	unsigned long ts_be64 = cpu_to_be64(sv->ts);
-	TfwStr c_chunks[4], m_chunks[4], cookie = { 0 }, rmark = { 0 };
-	DEFINE_TFW_STR(s_eq, "=");
+	TfwStr c_chunks[3], m_chunks[3], cookie = { 0 }, rmark = { 0 };
 	TfwHttpResp *resp;
 	char c_buf[sizeof(*sv) * 2], m_buf[sizeof(*mv) * 2];
 	TfwStr *body = NULL;
@@ -211,8 +206,7 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 
 	if (mv)
 		tfw_http_redir_mark_prepare(mv, m_buf, sizeof(m_buf), m_chunks,
-					    sizeof(m_chunks), &rmark,
-					    &sticky->name);
+					    sizeof(m_chunks), &rmark);
 	/*
 	 * Form the cookie as:
 	 *
@@ -227,15 +221,14 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 	bin2hex(&c_buf[sizeof(ts_be64) * 2], sv->hmac, sizeof(sv->hmac));
 
 	bzero_fast(c_chunks, sizeof(c_chunks));
-	c_chunks[0] = sticky->name;
-	c_chunks[1] = s_eq;
-	c_chunks[2].data = c_buf;
-	c_chunks[2].len = sizeof(*sv) * 2;
-	c_chunks[3] = sticky->options;
+	c_chunks[0] = sticky->name_eq;
+	c_chunks[1].data = c_buf;
+	c_chunks[1].len = sizeof(*sv) * 2;
+	c_chunks[2] = sticky->options;
 
 	cookie.chunks = c_chunks;
-	cookie.len = c_chunks[0].len + c_chunks[1].len + c_chunks[2].len;
-	cookie.nchunks = 3;
+	cookie.len = c_chunks[0].len + c_chunks[1].len;
+	cookie.nchunks = 2;
 	if (!TFW_STR_EMPTY(&sticky->options)) {
 		cookie.len += sticky->options.len;
 		cookie.nchunks++;
