@@ -79,3 +79,103 @@ tfw_msg_iter_append_skb(TfwMsgIter *it)
 
 	return 0;
 }
+
+/**
+ * Find origin fragment of data @off and set it as active message iterator
+ * fragment.
+ */
+int tfw_http_iter_set_at(TfwMsgIter *it, char *off)
+{
+	char *begin, *end;
+	unsigned char i;
+
+	do {
+		if (skb_headlen(it->skb)) {
+			begin = it->skb->data;
+			end = begin + skb_headlen(it->skb);
+
+			if ((begin <= off) && (end >= off)) {
+				it->frag = -1;
+				return 0;
+			}
+		}
+		for (i = 0; i < skb_shinfo(it->skb)->nr_frags; i++) {
+			skb_frag_t *f = &skb_shinfo(it->skb)->frags[i];
+
+			begin = skb_frag_address(f);
+			end = begin + skb_frag_size(f);
+
+			if ((begin <= off) && (end >= off)) {
+				it->frag = i;
+				return 0;
+			}
+		}
+		it->skb = it->skb->next;
+
+	} while (it->skb != it->skb_head);
+
+	return -E2BIG;
+}
+
+/**
+ * Move message iterator from @data pointer by @sz symbols right.
+ * @sz must be less than remaining message size, otherwise an error will be
+ * returned.
+ */
+int
+tfw_msg_iter_move(TfwMsgIter *it, unsigned char **data, unsigned long sz)
+{
+	unsigned char *addr = *data;
+
+	while (true) {
+		unsigned long f_sz_rem, len;
+
+		/* Linear skb part. */
+		if (it->frag < 0) {
+			f_sz_rem = skb_headlen(it->skb) + it->skb->data - addr;
+		}
+		else {
+			skb_frag_t *f = &skb_shinfo(it->skb)->frags[it->frag];
+			f_sz_rem = skb_frag_size(f) +
+				(unsigned char *)skb_frag_address(f) - addr;
+		}
+
+		len = min(sz, f_sz_rem);
+		addr += len;
+		sz -= len;
+
+		if (len < f_sz_rem) {
+			*data = addr;
+			return 0;
+		}
+		if (skb_shinfo(it->skb)->nr_frags > it->frag + 1) {
+			skb_frag_t *frag;
+
+			++it->frag;
+			frag = &skb_shinfo(it->skb)->frags[it->frag];
+			addr = skb_frag_address(frag);
+		}
+		else {
+			if (WARN_ON_ONCE(it->skb_head == it->skb->next))
+				return -EINVAL;
+
+			it->skb = it->skb->next;
+			it->frag = -1;
+			addr = it->skb->data;
+		}
+
+		/*
+		 * Message iterator is set to point a new fragment or linear
+		 * skb part. Stop here if we have no more data to skip: the
+		 * function is called at message modification context and
+		 * new insertions into message usually take place at that empty
+		 * fragments. Don't skip and stop on the next fragment.
+		 */
+		if (!sz) {
+			*data = addr;
+			return 0;
+		}
+	}
+
+	return 0;
+}
