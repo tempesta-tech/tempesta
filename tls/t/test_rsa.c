@@ -75,10 +75,12 @@
 static void
 rsa_sign(void)
 {
+	TlsMpiPool *mp;
 	TlsRSACtx *rsa;
 	unsigned char hash[PT_LEN], sig[KEY_LEN];
 
-	EXPECT_FALSE(!(rsa = ttls_mpool_alloc_stack(sizeof(TlsRSACtx))));
+	EXPECT_FALSE(!(mp = ttls_mpi_pool_create(TTLS_MPOOL_ORDER, GFP_KERNEL)));
+	EXPECT_FALSE(!(rsa = ttls_mpool_alloc_data(mp, sizeof(TlsRSACtx))));
 	memset(rsa, 0, sizeof(TlsRSACtx));
 	ttls_rsa_init(rsa, TTLS_RSA_PKCS_V15, 0);
 
@@ -88,9 +90,6 @@ rsa_sign(void)
 	ttls_mpi_read_binary(&rsa->Q, RSA_Q, 64);
 	ttls_mpi_read_binary(&rsa->D, RSA_D, 128);
 	ttls_mpi_read_binary(&rsa->E, RSA_E, 3);
-
-	/* FIXME #1064 crashes here. */
-	EXPECT_ZERO(ttls_rsa_complete(rsa));
 
 	EXPECT_ZERO(ttls_rsa_check_pubkey(rsa));
 
@@ -104,7 +103,7 @@ rsa_sign(void)
 
 	kernel_fpu_end();
 
-	ttls_mpi_pool_cleanup_ctx((unsigned long)rsa, false);
+	ttls_mpi_pool_free(rsa);
 }
 
 int

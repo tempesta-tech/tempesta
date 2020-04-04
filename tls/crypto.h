@@ -205,9 +205,12 @@ ttls_md_hmac_finish(TlsMdCtx *ctx, unsigned char *output)
 static inline unsigned char
 ttls_md_get_size(const TlsMdInfo *md_info)
 {
-	struct crypto_alg *alg = md_info->alg_hash ? : md_info->alg_hmac;
+	struct crypto_alg *alg;
 
-	BUG_ON(!md_info || !alg);
+	BUG_ON(!md_info);
+
+	alg = md_info->alg_hash ? : md_info->alg_hmac;
+	BUG_ON(!alg);
 
 	return __crypto_shash_alg(alg)->digestsize;
 }
