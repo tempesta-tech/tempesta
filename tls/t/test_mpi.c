@@ -194,7 +194,7 @@ mpi_copy(void)
 	EXPECT_TRUE(B->s == -1);
 	save_off = B->_off;
 
-	EXPECT_ZERO(ttls_mpi_fill_random(A, TTLS_MPI_MAX_SIZE));
+	ttls_mpi_fill_random(A, TTLS_MPI_MAX_SIZE);
 	EXPECT_TRUE(A->used == TTLS_MPI_MAX_SIZE / CIL);
 	EXPECT_TRUE(A->limbs == TTLS_MPI_MAX_SIZE / CIL);
 	EXPECT_TRUE(A->_off == save_off);
@@ -222,7 +222,7 @@ mpi_safe_cond(void)
 	B = ttls_mpi_alloc_stack_init(0);
 
 	ttls_mpi_lset(A, -0x1122334455667788L);
-	EXPECT_ZERO(ttls_mpi_fill_random(B, 200)); /* 25 limbs */
+	ttls_mpi_fill_random(B, 200); /* 25 limbs */
 	save_offA = A->_off;
 	save_offB = B->_off;
 	valB0 = MPI_P(B)[0];

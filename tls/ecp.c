@@ -858,7 +858,7 @@ ecp_randomize_jac(const TlsEcpGrp *grp, TlsEcpPoint *pt)
 
 	/* Generate l such that 1 < l < p */
 	do {
-		MPI_CHK(ttls_mpi_fill_random(&l, p_size));
+		ttls_mpi_fill_random(&l, p_size);
 
 		while (ttls_mpi_cmp_mpi(&l, &grp->P) >= 0)
 			ttls_mpi_shift_r(&l, 1);
@@ -1174,7 +1174,7 @@ ecp_randomize_mxz(const TlsEcpGrp *grp, TlsEcpPoint *P)
 
 	/* Generate l such that 1 < l < p */
 	do {
-		MPI_CHK(ttls_mpi_fill_random(l, p_size));
+		ttls_mpi_fill_random(l, p_size);
 
 		while (ttls_mpi_cmp_mpi(l, &grp->P) >= 0)
 			ttls_mpi_shift_r(l, 1);
@@ -1517,7 +1517,7 @@ ttls_ecp_gen_keypair(const TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q)
 		size_t b;
 
 		do {
-			MPI_CHK(ttls_mpi_fill_random(d, n_size));
+			ttls_mpi_fill_random(d, n_size);
 		} while (!ttls_mpi_bitlen(d));
 
 		/* Make sure the most significant bit is bits */
@@ -1544,7 +1544,7 @@ ttls_ecp_gen_keypair(const TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q)
 		 * for ECDSA.
 		 */
 		do {
-			MPI_CHK(ttls_mpi_fill_random(d, n_size));
+			ttls_mpi_fill_random(d, n_size);
 			ttls_mpi_shift_r(d, 8 * n_size - grp->bits);
 
 			/*

@@ -593,6 +593,8 @@ ENDPROC(mpi_sqr_x86_64_4)
  * TBD: in total, this is about 65% slower than the Montgomery P-reduction after
  * multiplication, but we don't pay for Montgomery transformations.
  *
+ * TODO align the MPI on a cache line.
+ *
  * %RDI	- pointer to 8 limbs big integer to be reduced.
  * %RSI	- size if the MPI.
  */

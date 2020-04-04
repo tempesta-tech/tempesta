@@ -551,14 +551,13 @@ ttls_mpi_write_binary(const TlsMpi *X, unsigned char *buf, size_t buflen)
  * regardless of the platform endianness (useful when f_rng is actually
  * deterministic, eg for tests).
  */
-int
+void
 ttls_mpi_fill_random(TlsMpi *X, size_t size)
 {
 	size_t limbs = CHARS_TO_LIMBS(size);
 	size_t rem = limbs * CIL - size;
 
-	if (WARN_ON_ONCE(size > TTLS_MPI_MAX_SIZE))
-		return -EINVAL;
+	BUG_ON(size > TTLS_MPI_MAX_SIZE);
 
 	ttls_mpi_alloc(X, limbs);
 
@@ -567,8 +566,6 @@ ttls_mpi_fill_random(TlsMpi *X, size_t size)
 		memset((char *)MPI_P(X) + size, 0, rem);
 	X->used = limbs;
 	X->s = 1;
-
-	return 0;
 }
 
 int

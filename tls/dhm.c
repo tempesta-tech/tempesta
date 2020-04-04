@@ -212,8 +212,7 @@ ttls_dhm_make_params(TlsDHMCtx *ctx, int x_size, unsigned char *output,
 
 	/* Generate X as large as possible (< P). */
 	do {
-		if ((r = ttls_mpi_fill_random(&ctx->X, x_size)))
-			goto err;
+		ttls_mpi_fill_random(&ctx->X, x_size);
 
 		while (ttls_mpi_cmp_mpi(&ctx->X, &ctx->P) >= 0)
 			ttls_mpi_shift_r(&ctx->X, 1);
@@ -289,7 +288,7 @@ int ttls_dhm_make_public(TlsDHMCtx *ctx, int x_size,
 	 * generate X and calculate GX = G^X mod P
 	 */
 	do {
-		TTLS_MPI_CHK(ttls_mpi_fill_random(&ctx->X, x_size));
+		ttls_mpi_fill_random(&ctx->X, x_size);
 
 		while (ttls_mpi_cmp_mpi(&ctx->X, &ctx->P) >= 0)
 			ttls_mpi_shift_r(&ctx->X, 1);
@@ -357,8 +356,7 @@ static int dhm_update_blinding(TlsDHMCtx *ctx)
 	/* Vi = random(2, P-1) */
 	count = 0;
 	do {
-		TTLS_MPI_CHK(ttls_mpi_fill_random(&ctx->Vi,
-						  ttls_mpi_size(&ctx->P)));
+		ttls_mpi_fill_random(&ctx->Vi, ttls_mpi_size(&ctx->P));
 
 		while (ttls_mpi_cmp_mpi(&ctx->Vi, &ctx->P) >= 0)
 			ttls_mpi_shift_r(&ctx->Vi, 1);

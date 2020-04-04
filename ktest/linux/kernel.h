@@ -86,6 +86,8 @@
 
 struct module { /* dummy strut */ };
 
+#define request_module(...)
+
 #define __init
 
 struct list_head {
@@ -124,5 +126,20 @@ print_hex_dump(const char *level, const char *prefix_str, int prefix_type,
 
 	fflush(NULL);
 }
+
+#define IRQ_STACK_SIZE		(PAGE_SIZE << 2)
+
+static inline unsigned long
+task_stack_page(void)
+{
+	unsigned long r;
+
+	asm inline("movq %%rsp, %0\n": "=r"(r) ::);
+
+	return r;
+}
+
+#define current
+#define irq_stack_ptr		task_stack_page()
 
 #endif /* __KERNEL_H__ */
