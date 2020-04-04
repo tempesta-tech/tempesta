@@ -43,6 +43,19 @@ ttls_md_free(TlsMdCtx *ctx)
 int
 ttls_md_finish(TlsMdCtx *ctx, unsigned char *output)
 {
+	switch (ctx->md_info->type) {
+	case TTLS_MODE_NONE:
+		BUG();
+	case TTLS_MD_SHA256:
+		memset(output, 0, 32);
+		return 0;
+	case TTLS_MD_SHA384:
+		memset(output, 0, 48);
+		return 0;
+	case TTLS_MD_SHA512:
+		memset(output, 0, 64);
+		return 0;
+	}
 	return 0;
 }
 
@@ -62,7 +75,14 @@ ttls_md_setup(TlsMdCtx *ctx, const TlsMdInfo *md_info, int hmac)
 const TlsMdInfo *
 ttls_md_info_from_type(ttls_md_type_t md_type)
 {
-	return NULL;
+	static struct shash_alg shash = {
+		.digestsize = 32,
+	};
+	static const TlsMdInfo md_info = {
+		.type = TTLS_MD_SHA256,
+		.alg_hash = &shash.base,
+	};
+	return &md_info;
 }
 
 int

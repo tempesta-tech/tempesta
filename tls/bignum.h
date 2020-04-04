@@ -152,7 +152,7 @@ size_t ttls_mpi_size(const TlsMpi *X);
 
 void ttls_mpi_read_binary(TlsMpi *X, const unsigned char *buf, size_t buflen);
 int ttls_mpi_write_binary(const TlsMpi *X, unsigned char *buf, size_t buflen);
-int ttls_mpi_fill_random(TlsMpi *X, size_t size);
+void ttls_mpi_fill_random(TlsMpi *X, size_t size);
 
 void ttls_mpi_safe_cond_assign(TlsMpi *X, const TlsMpi *Y, unsigned char assign);
 int ttls_mpi_safe_cond_swap(TlsMpi *X, TlsMpi *Y, unsigned char swap);
