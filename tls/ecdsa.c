@@ -237,7 +237,7 @@ ttls_ecdsa_write_signature(TlsEcpKeypair *ctx, const unsigned char *hash,
 		blind_tries = 0;
 		do {
 			size_t n_size = (grp->bits + 7) / 8;
-			MPI_CHK(ttls_mpi_fill_random(t, n_size));
+			ttls_mpi_fill_random(t, n_size);
 			ttls_mpi_shift_r(t, 8 * n_size - grp->bits);
 
 			/* See ttls_ecp_gen_keypair() */

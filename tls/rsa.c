@@ -381,21 +381,39 @@ rsa_check_context(const TlsRSACtx *ctx, int is_priv)
 static int
 rsa_prepare_blinding(TlsRSACtx *ctx)
 {
-	if (WARN_ON_ONCE(ttls_mpi_empty(&ctx->Vf)))
-		return -EINVAL;
+	int count = 0, r = TTLS_ERR_RSA_RNG_FAILED;
 
 	/* TODO #1335 make Vf and Vi per-cpu and remove the lock. */
 	spin_lock(&ctx->mutex);
 
-	/* We already have blinding values, just update them by squaring. */
-	ttls_mpi_mul_mpi(&ctx->Vi, &ctx->Vi, &ctx->Vi);
-	ttls_mpi_mod_mpi(&ctx->Vi, &ctx->Vi, &ctx->N);
-	ttls_mpi_mul_mpi(&ctx->Vf, &ctx->Vf, &ctx->Vf);
-	ttls_mpi_mod_mpi(&ctx->Vf, &ctx->Vf, &ctx->N);
+	if (unlikely(ttls_mpi_empty(&ctx->Vf))) {
+		/* Unblinding value: Vf = random number, invertible mod N. */
+		ttls_mpi_alloc(&ctx->Vi, ctx->len * 2 / CIL);
+		do {
+			if (WARN_ON_ONCE(count++ > 10))
+				goto unlock;
+			ttls_mpi_fill_random(&ctx->Vf, ctx->len - 1);
+			ttls_mpi_gcd(&ctx->Vi, &ctx->Vf, &ctx->N);
+		} while (ttls_mpi_cmp_int(&ctx->Vi, 1));
+		/* Blinding value: Vi =  Vf^(-e) mod N */
+		ttls_mpi_inv_mod(&ctx->Vi, &ctx->Vf, &ctx->N);
+		ttls_mpi_exp_mod(&ctx->Vi, &ctx->Vi, &ctx->E, &ctx->N, &ctx->RN);
+	} else {
+		/*
+		 * We already have blinding values,
+		 * just update them by squaring.
+		 */
+		ttls_mpi_mul_mpi(&ctx->Vi, &ctx->Vi, &ctx->Vi);
+		ttls_mpi_mod_mpi(&ctx->Vi, &ctx->Vi, &ctx->N);
+		ttls_mpi_mul_mpi(&ctx->Vf, &ctx->Vf, &ctx->Vf);
+		ttls_mpi_mod_mpi(&ctx->Vf, &ctx->Vf, &ctx->N);
+	}
 
+	r = 0;
+unlock:
 	spin_unlock(&ctx->mutex);
 
-	return 0;
+	return r;
 }
 
 /*
@@ -454,7 +472,7 @@ ttls_rsa_private(TlsRSACtx *ctx, const unsigned char *input,
 	    + CIL * (ctx->N.used * 3 + ctx->len / CIL * 2 + ctx->Vi.used
 		     + ctx->P.used * 2 + ctx->Q.used * 2 + eb_n * 3 + 3);
 	T = ttls_mpool_alloc_stack(n);
-	I = ttls_mpi_init_next(T, ctx->len / CIL + ctx->Vi.used);
+	I = ttls_mpi_init_next(T, ctx->len * 2 / CIL);
 	P1 = ttls_mpi_init_next(I, ctx->len / CIL);
 	Q1 = ttls_mpi_init_next(P1, ctx->P.used);
 	R = ttls_mpi_init_next(Q1, ctx->Q.used);
@@ -481,12 +499,12 @@ ttls_rsa_private(TlsRSACtx *ctx, const unsigned char *input,
 	ttls_mpi_sub_int(Q1, &ctx->Q, 1);
 
 	/* DP_blind = (P - 1) * R + DP */
-	MPI_CHK(ttls_mpi_fill_random(R, RSA_EXPONENT_BLINDING));
+	ttls_mpi_fill_random(R, RSA_EXPONENT_BLINDING);
 	ttls_mpi_mul_mpi(DP_blind, P1, R);
 	ttls_mpi_add_mpi(DP_blind, DP_blind, &ctx->DP);
 
 	/* DQ_blind = (Q - 1) * R + DQ */
-	MPI_CHK(ttls_mpi_fill_random(R, RSA_EXPONENT_BLINDING));
+	ttls_mpi_fill_random(R, RSA_EXPONENT_BLINDING);
 	ttls_mpi_mul_mpi(DQ_blind, Q1, R);
 	ttls_mpi_add_mpi(DQ_blind, DQ_blind, &ctx->DQ);
 
@@ -602,42 +620,7 @@ ttls_rsa_complete(TlsRSACtx *ctx)
 	}
 
 	/* Step 3: Basic sanity checks. */
-	if ((r = rsa_check_context(ctx, is_priv)))
-		return r;
-
-	/*
-	 * For private key pregenerate blinding values and cache RN, RP, and RQ.
-	 * These are done by simple run of ttls_rsa_private().
-	 */
-	if (is_priv) {
-		int count = 0;
-		/* 8192-bit RSA requires 1024 bytes. */
-		unsigned char buf[1024];
-
-		bzero_fast(buf, sizeof(buf));
-		ttls_mpi_alloc(&ctx->Vi, ctx->len / CIL * 2);
-		ttls_mpi_alloc(&ctx->Vf, ctx->len / CIL * 2);
-
-		/*
-		 * Generate blinging value.
-		 * TODO #1335: this should be per-cpu.
-		 * Unblinding value: Vf = random number, invertible mod N.
-		 */
-		do {
-			if (count++ > 10)
-				return TTLS_ERR_RSA_RNG_FAILED;
-			MPI_CHK(ttls_mpi_fill_random(&ctx->Vf, ctx->len - 1));
-			ttls_mpi_gcd(&ctx->Vi, &ctx->Vf, &ctx->N);
-		} while (ttls_mpi_cmp_int(&ctx->Vi, 1));
-		/* Blinding value: Vi =  Vf^(-e) mod N */
-		MPI_CHK(ttls_mpi_inv_mod(&ctx->Vi, &ctx->Vf, &ctx->N));
-		MPI_CHK(ttls_mpi_exp_mod(&ctx->Vi, &ctx->Vi, &ctx->E, &ctx->N,
-					 &ctx->RN));
-
-		return ttls_rsa_private(ctx, buf, buf);
-	}
-
-	return 0;
+	return rsa_check_context(ctx, is_priv);
 }
 
 int ttls_rsa_export_raw(const TlsRSACtx *ctx,
@@ -800,16 +783,12 @@ ttls_rsa_get_len(const TlsRSACtx *ctx)
  * Check a public RSA key: if a context contains at least an RSA public key.
  * If the function runs successfully, it is guaranteed that enough information
  * is present to perform an RSA public key operation using ttls_rsa_public().
+ *
+ * @ctx may contain the public key as well as the private one.
  */
 int
 ttls_rsa_check_pubkey(TlsRSACtx *ctx)
 {
-	/* Check if public to go in the right path in ttls_rsa_complete(). */
-	if (!ttls_mpi_cmp_int(&ctx->N, 0) || !ttls_mpi_cmp_int(&ctx->E, 0)
-	    || ttls_mpi_cmp_int(&ctx->P, 0) || ttls_mpi_cmp_int(&ctx->Q, 0)
-	    || ttls_mpi_cmp_int(&ctx->D, 0))
-		return TTLS_ERR_RSA_KEY_CHECK_FAILED;
-
 	if (ttls_rsa_complete(ctx))
 		return TTLS_ERR_RSA_KEY_CHECK_FAILED;
 
@@ -837,7 +816,7 @@ ttls_rsa_public(TlsRSACtx *ctx, const unsigned char *input,
 		unsigned char *output)
 {
 	size_t olen;
-	TlsMpi *T = ttls_mpi_alloc_stack_init(ctx->len / CIL);
+	TlsMpi *T = ttls_mpi_alloc_stack_init(ctx->len / CIL + 1);
 
 	ttls_mpi_read_binary(T, input, ctx->len);
 
