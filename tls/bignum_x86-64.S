@@ -102,7 +102,7 @@ ENTRY(mpi_sub_x86_64)
 
 	xorq	%rax, %rax
 	shrq	$2, %rcx
-	jz	.small_b
+	jz	.sub_small_b
 	pushq	%r12
 	clc
 .sub_by_4:
@@ -126,7 +126,7 @@ ENTRY(mpi_sub_x86_64)
 	popq	%r12
 	ANNOTATE_RETPOLINE_SAFE
 	jmpq	*%rbx
-.small_b:
+.sub_small_b:
 	clc
 	ANNOTATE_RETPOLINE_SAFE
 	jmpq	*%rbx

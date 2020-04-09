@@ -48,8 +48,8 @@
 #define MPI_POOL_TAIL_PTR(mp)	((void *)((char *)(mp) + (mp)->curr_tail))
 #define MPI_POOL_SZ_ALIGN(n)	(((n) + CIL - 1) & ~LMASK)
 #define MPI_PROFILE_SZ(mp)	(mp)->curr
-/* PK is memory greedy, so standard 2 pages stack isn't enough. */
-#define __MPOOL_STACK_ORDER	2
+/* PK and RSA 4096 are memory greedy, so standard 4 pages stack isn't enough. */
+#define __MPOOL_STACK_ORDER	3
 /* Do our best to keep per-handshake MPI pools as tiny as possible. */
 #define __MPOOL_HS_ORDER	0
 
@@ -70,17 +70,11 @@ static DEFINE_PER_CPU(TlsMpiPool *, g_tmp_mpool);
 static inline bool
 __check_stack_addr(unsigned long a)
 {
-	unsigned long begin, end;
+	unsigned long rsp;
 
-	begin = (unsigned long)task_stack_page(current);
-	end = (unsigned long)task_stack_page(current) + THREAD_SIZE;
-	if (begin <= a && a < end)
-		return true;
+	__asm__ __volatile__("movq %%rsp, %0\n": "=r"(rsp) ::);
 
-	end = (unsigned long)this_cpu_read(irq_stack_ptr);
-	begin = end - (IRQ_STACK_SIZE / sizeof(long));
-
-	return begin <= a && a < end;
+	return rsp - THREAD_SIZE <= a && a < rsp;
 }
 
 /**
@@ -129,7 +123,7 @@ check:
 		     || mp->curr > (PAGE_SIZE << mp->order)
 		     || mp->curr_tail > (PAGE_SIZE << mp->order)))
 	{
-		T_DBG("Bad MPI address %pK in pool %pK (%s, order=%u curr=%u"
+		T_ERR("Bad MPI address %pK in pool %pK (%s, order=%u curr=%u"
 		      " curr_tail=%u)\n",
 		      addr, mp, mp_name, mp->order, mp->curr, mp->curr_tail);
 		BUG();
@@ -143,7 +137,7 @@ ttls_mpool_alloc_data(TlsMpiPool *mp, size_t n)
 	void *ptr = MPI_POOL_FREE_PTR(mp);
 
 	if (unlikely(mp->curr + n > mp->curr_tail)) {
-		T_DBG("Not enough space in pool %pK (order=%u curr=%u"
+		T_ERR("Not enough space in pool %pK (order=%u curr=%u"
 		      " curr_tail=%u) to grow for %lu bytes",
 		      mp, mp->order, mp->curr, mp->curr_tail, n);
 		BUG();
@@ -211,7 +205,7 @@ ttls_mpi_pool_cleanup_ctx(unsigned long addr, bool zero)
 	TlsMpiPool *mp = *this_cpu_ptr(&g_tmp_mpool);
 	unsigned long clean_off, m = (unsigned long)mp;
 
-	if (WARN(mp->curr > (mp->curr_tail),
+	if (WARN(mp->curr > mp->curr_tail,
 		 "MPI pool %pK overran before cleanup, curr=%u curr_tail=%u"
 		 " order=%u\n", mp, mp->curr, mp->curr_tail, mp->order))
 		return;
@@ -243,6 +237,7 @@ ttls_mpi_pool_free(void *ctx)
 		       mp->curr + (PAGE_SIZE << mp->order) - mp->curr_tail);
 
 	bzero_fast(MPI_POOL_DATA(mp), mp->curr - sizeof(*mp));
+	WARN_ON_ONCE((unsigned long)mp & ((PAGE_SIZE << mp->order) - 1));
 	free_pages((unsigned long)mp, mp->order);
 }
 
@@ -267,7 +262,7 @@ ttls_mpi_pool_create(size_t order, gfp_t gfp_mask)
 
 	mp = (TlsMpiPool *)addr;
 	mp->order = order;
-	mp->curr = sizeof(TlsMpiPool);
+	mp->curr = sizeof(*mp);
 	mp->curr_tail = PAGE_SIZE << order;
 
 	return mp;
@@ -600,7 +595,7 @@ ttls_mpool_exit(void)
 	for_each_possible_cpu(i) {
 		mp = *per_cpu_ptr(&g_tmp_mpool, i);
 		ttls_bzero_safe(MPI_POOL_DATA(mp), mp->curr - sizeof(*mp));
-		free_pages((unsigned long)mp, __MPOOL_STACK_ORDER);
+		free_pages((unsigned long)mp, mp->order);
 	}
 }
 

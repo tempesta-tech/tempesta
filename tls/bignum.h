@@ -134,7 +134,7 @@ ttls_mpi_init_next(TlsMpi *X, size_t nlimbs)
 do {									\
 	unsigned long p, x = (unsigned long)(X);			\
 	p = (unsigned long)__builtin_alloca((ln) * CIL);		\
-	WARN_ON_ONCE(p + (ln) > x || p + PAGE_SIZE < x);		\
+	WARN_ON_ONCE(p + (ln) * CIL > x || p + PAGE_SIZE < x);		\
 	(X)->_off = (short)(p - x);					\
 	(X)->s = 1;							\
 	(X)->used = 0;							\
