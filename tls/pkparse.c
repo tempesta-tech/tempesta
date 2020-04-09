@@ -252,6 +252,11 @@ ttls_pk_parse_subpubkey(unsigned char **p, const unsigned char *end,
 	if ((ret = ttls_pk_setup(pk, pk_info)) != 0)
 		return ret;
 
+	/*
+	 * The caller is responsible for calling ttls_pk_free(pk) on the
+	 * function failure, ttls_x509_crt_free() in particular.
+	 */
+
 	if (pk_alg == TTLS_PK_RSA)
 	{
 		ret = pk_get_rsapubkey(p, end, ttls_pk_rsa(*pk));
@@ -267,9 +272,6 @@ ttls_pk_parse_subpubkey(unsigned char **p, const unsigned char *end,
 	if (ret == 0 && *p != end)
 		ret = TTLS_ERR_PK_INVALID_PUBKEY
 			  TTLS_ERR_ASN1_LENGTH_MISMATCH;
-
-	if (ret != 0)
-		ttls_pk_free(pk);
 
 	return ret;
 }
@@ -355,14 +357,16 @@ pk_parse_key_pkcs1_der(TlsRSACtx *rsa, const unsigned char *key, size_t keylen)
 
 	/* Check optional parameters */
 	kernel_fpu_begin();
-	T = ttls_mpi_alloc_stack_init((end - p) * CIL);
+	T = ttls_mpi_alloc_stack_init(((end - p) + CIL - 1 ) / CIL);
 	if ((r = ttls_asn1_get_mpi(&p, end, T))
 	    || (r = ttls_asn1_get_mpi(&p, end, T))
 	    || (r = ttls_asn1_get_mpi(&p, end, T)))
 	{
 		kernel_fpu_end();
+		ttls_mpi_pool_cleanup_ctx((unsigned long)T, false);
 		goto err;
 	}
+	ttls_mpi_pool_cleanup_ctx((unsigned long)T, false);
 	kernel_fpu_end();
 
 	if (p != end)

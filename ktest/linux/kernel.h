@@ -134,7 +134,7 @@ task_stack_page(void)
 {
 	unsigned long r;
 
-	asm inline("movq %%rsp, %0\n": "=r"(r) ::);
+	asm volatile("movq %%rsp, %0\n": "=r"(r) ::);
 
 	return r;
 }
