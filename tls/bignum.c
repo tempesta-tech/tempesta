@@ -967,6 +967,7 @@ ttls_int_div_int(unsigned long u1, unsigned long u0, unsigned long d,
 
 /**
  * Division by TlsMpi: A = Q * B + R  (HAC 14.20).
+ * Used in RSA, so pretty big MPIs are possible.
  *
  * @Q - destination MPI for the quotient.
  * @R - destination MPI for the rest value.
@@ -977,7 +978,7 @@ void
 ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 {
 	size_t i, n, t, k;
-	TlsMpi X, Y, Z, T1, T2;
+	TlsMpi *X, *Y, *Z = NULL, *T1, *T2;
 
 	if (WARN_ON_ONCE(!ttls_mpi_cmp_int(B, 0)))
 		return;
@@ -997,58 +998,58 @@ ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 		return;
 	}
 
+	X = ttls_mpi_alloc_stack_init(A->used + 1);
+	Y = ttls_mpi_alloc_stack_init(A->used + 2);
+	T1 = ttls_mpi_alloc_stack_init(3 + A->used);
+	T2 = ttls_mpi_alloc_stack_init(3);
 	if (!Q) {
-		ttls_mpi_alloca_init(&Z, A->used);
-		Q = &Z;
+		Z = ttls_mpi_alloc_stack_init(A->used);
+		Q = Z;
 	}
 
-	ttls_mpi_alloca_init(&X, A->used + 1);
-	ttls_mpi_alloca_init(&Y, A->used + 2);
-	ttls_mpi_alloca_init(&T1, 3 + A->used);
-	ttls_mpi_alloca_init(&T2, 3);
-	ttls_mpi_copy_alloc(&X, A, false);
-	ttls_mpi_copy_alloc(&Y, B, false);
-	X.s = Y.s = 1;
+	ttls_mpi_copy_alloc(X, A, false);
+	ttls_mpi_copy_alloc(Y, B, false);
+	X->s = Y->s = 1;
 
 	/* Initialize Q after copying A to X in case of Q == A. */
-	if (Q != &Z)
+	if (Q != Z)
 		ttls_mpi_alloc(Q, A->used);
 	Q->used = A->used;
 	bzero_fast(MPI_P(Q), Q->used * CIL);
 
-	k = ttls_mpi_bitlen(&Y) & BMASK;
+	k = ttls_mpi_bitlen(Y) & BMASK;
 	if (k < BIL - 1) {
 		k = BIL - 1 - k;
-		ttls_mpi_shift_l(&X, k);
-		ttls_mpi_shift_l(&Y, k);
+		ttls_mpi_shift_l(X, k);
+		ttls_mpi_shift_l(Y, k);
 	} else {
 		k = 0;
 	}
 
-	n = X.used - 1;
-	t = Y.used - 1;
+	n = X->used - 1;
+	t = Y->used - 1;
 
-	ttls_mpi_shift_l(&Y, BIL * (n - t));
-	while (ttls_mpi_cmp_mpi(&X, &Y) >= 0) {
+	ttls_mpi_shift_l(Y, BIL * (n - t));
+	while (ttls_mpi_cmp_mpi(X, Y) >= 0) {
 		MPI_P(Q)[n - t]++;
-		ttls_mpi_sub_mpi(&X, &X, &Y);
+		ttls_mpi_sub_mpi(X, X, Y);
 	}
 	/* TODO #1064: use temp var and drop it instead of shift_r. */
-	ttls_mpi_shift_r(&Y, BIL * (n - t));
+	ttls_mpi_shift_r(Y, BIL * (n - t));
 
 	for (i = n; i > t; i--) {
-		MPI_P(Q)[i - t - 1] = MPI_P(&X)[i] >= MPI_P(&Y)[t]
+		MPI_P(Q)[i - t - 1] = MPI_P(X)[i] >= MPI_P(Y)[t]
 				      ? 0
-				      : ttls_int_div_int(MPI_P(&X)[i],
-							 MPI_P(&X)[i - 1],
-							 MPI_P(&Y)[t], NULL)
+				      : ttls_int_div_int(MPI_P(X)[i],
+							 MPI_P(X)[i - 1],
+							 MPI_P(Y)[t], NULL)
 					+ 1;
 
-		T2.s = 1;
-		MPI_P(&T2)[0] = (i < 2) ? 0 : MPI_P(&X)[i - 2];
-		MPI_P(&T2)[1] = (i < 1) ? 0 : MPI_P(&X)[i - 1];
-		MPI_P(&T2)[2] = MPI_P(&X)[i];
-		mpi_fixup_used(&T2, 3);
+		T2->s = 1;
+		MPI_P(T2)[0] = (i < 2) ? 0 : MPI_P(X)[i - 2];
+		MPI_P(T2)[1] = (i < 1) ? 0 : MPI_P(X)[i - 1];
+		MPI_P(T2)[2] = MPI_P(X)[i];
+		mpi_fixup_used(T2, 3);
 
 		/*
 		 * TODO #1064 inadequately many iterations - use binary search
@@ -1057,38 +1058,40 @@ ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 		do {
 			MPI_P(Q)[i - t - 1]--;
 
-			T1.s = 1;
-			T1.used = 2; /* overwrite previous multiplication */
-			MPI_P(&T1)[0] = (t < 1) ? 0 : MPI_P(&Y)[t - 1];
-			MPI_P(&T1)[1] = MPI_P(&Y)[t];
-			mpi_fixup_used(&T1, 2);
-			ttls_mpi_mul_uint(&T1, &T1, MPI_P(Q)[i - t - 1]);
-		} while (ttls_mpi_cmp_mpi(&T1, &T2) > 0);
+			T1->s = 1;
+			T1->used = 2; /* overwrite previous multiplication */
+			MPI_P(T1)[0] = (t < 1) ? 0 : MPI_P(Y)[t - 1];
+			MPI_P(T1)[1] = MPI_P(Y)[t];
+			mpi_fixup_used(T1, 2);
+			ttls_mpi_mul_uint(T1, T1, MPI_P(Q)[i - t - 1]);
+		} while (ttls_mpi_cmp_mpi(T1, T2) > 0);
 
-		ttls_mpi_mul_uint(&T1, &Y, MPI_P(Q)[i - t - 1]);
-		ttls_mpi_shift_l(&T1,  BIL * (i - t - 1));
-		ttls_mpi_sub_mpi(&X, &X, &T1);
+		ttls_mpi_mul_uint(T1, Y, MPI_P(Q)[i - t - 1]);
+		ttls_mpi_shift_l(T1,  BIL * (i - t - 1));
+		ttls_mpi_sub_mpi(X, X, T1);
 
-		if (ttls_mpi_cmp_int(&X, 0) < 0) {
-			ttls_mpi_copy(&T1, &Y);
-			ttls_mpi_shift_l(&T1, BIL * (i - t - 1));
-			ttls_mpi_add_mpi(&X, &X, &T1);
+		if (ttls_mpi_cmp_int(X, 0) < 0) {
+			ttls_mpi_copy(T1, Y);
+			ttls_mpi_shift_l(T1, BIL * (i - t - 1));
+			ttls_mpi_add_mpi(X, X, T1);
 			MPI_P(Q)[i - t - 1]--;
 		}
 	}
 
-	if (Q != &Z) {
+	if (Q != Z) {
 		Q->s = A->s * B->s;
 		mpi_fixup_used(Q, Q->used);
 	}
 	if (R) {
-		ttls_mpi_shift_r(&X, k);
-		mpi_fixup_used(&X, X.used);
-		X.s = A->s;
-		ttls_mpi_copy(R, &X);
+		ttls_mpi_shift_r(X, k);
+		mpi_fixup_used(X, X->used);
+		X->s = A->s;
+		ttls_mpi_copy(R, X);
 		if (ttls_mpi_cmp_int(R, 0) == 0)
 			R->s = 1;
 	}
+
+	ttls_mpi_pool_cleanup_ctx((unsigned long)X, false);
 }
 
 /**

@@ -269,6 +269,7 @@ delim:
 
 	return ret;
 }
+EXPORT_SYMBOL(tfw_addr_pton);
 
 /*
  * Parse an IP address. Try to parse it as an IPv4 address first.

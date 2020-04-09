@@ -447,6 +447,7 @@ static int
 ttls_rsa_private(TlsRSACtx *ctx, const unsigned char *input,
 		 unsigned char *output)
 {
+	int r = 0;
 	size_t olen, n;
 	const size_t eb_n = (RSA_EXPONENT_BLINDING + CIL - 1) / CIL;
 
@@ -484,8 +485,10 @@ ttls_rsa_private(TlsRSACtx *ctx, const unsigned char *input,
 	ttls_mpi_init_next(C, ctx->N.used + 1);
 
 	ttls_mpi_read_binary(T, input, ctx->len);
-	if (ttls_mpi_cmp_mpi(T, &ctx->N) >= 0)
-		return -EINVAL;
+	if (ttls_mpi_cmp_mpi(T, &ctx->N) >= 0) {
+		r = -EINVAL;
+		goto cleanup;
+	}
 
 	ttls_mpi_copy(I, T);
 
@@ -536,13 +539,18 @@ ttls_rsa_private(TlsRSACtx *ctx, const unsigned char *input,
 	/* Verify the result to prevent glitching attacks. */
 	MPI_CHK(ttls_mpi_exp_mod(C, T, &ctx->E, &ctx->N, &ctx->RN));
 	/* FIXME #1064 C != I which is zero on ttls_rsa_complete(). */
-	if (ttls_mpi_cmp_mpi(C, I))
-		return TTLS_ERR_RSA_VERIFY_FAILED;
+	if (ttls_mpi_cmp_mpi(C, I)) {
+		r = TTLS_ERR_RSA_VERIFY_FAILED;
+		goto cleanup;
+	}
 
 	olen = ctx->len;
 	MPI_CHK(ttls_mpi_write_binary(T, output, olen));
 
-	return 0;
+cleanup:
+	ttls_mpi_pool_cleanup_ctx((unsigned long)T, false);
+
+	return r;
 }
 
 /**

@@ -42,9 +42,10 @@
 #include "test.h"
 
 /* prevent exporting symbols */
-#include <linux/module.h>
 #undef EXPORT_SYMBOL
 #define EXPORT_SYMBOL(...)
+#undef __init
+#define __init
 #include "server.c"
 #include "sched.c"
 
