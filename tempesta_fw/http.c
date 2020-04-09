@@ -423,10 +423,8 @@ tfw_h2_prep_redirect(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
 {
 	int r;
 	TfwHPackInt vlen;
-	TfwFrameHdr frame_hdr;
 	unsigned int stream_id;
 	unsigned long hdrs_len, loc_val_len;
-	unsigned char buf[FRAME_HEADER_SIZE];
 	TfwHttpReq *req = resp->req;
 	TfwHttpTransIter *mit = &resp->mit;
 	TfwMsgIter *iter = &mit->iter;
@@ -440,8 +438,6 @@ tfw_h2_prep_redirect(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
 					   HTTP2_F_END_STREAM);
 	if (unlikely(!stream_id))
 		return -ENOENT;
-
-	frame_hdr.stream_id = stream_id;
 
 	/* Set HTTP/2 ':status' pseudo-header. */
 	mit->start_off = FRAME_HEADER_SIZE;
@@ -524,46 +520,16 @@ tfw_h2_prep_redirect(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
 	 * 'content-length' header also must be added into HEADERS frame.
 	 */
 	if (body) {
-		TfwStr f_hdr = {
-			.data = buf,
-			.len = sizeof(buf)
-		};
-
-		if (WARN_ON_ONCE(!body->len))
-			return -EINVAL;
-
-		if (body->len > FRAME_MAX_LENGTH)
-			return -E2BIG;
-
-		frame_hdr.length = body->len;
-		frame_hdr.type = HTTP2_DATA;
-		frame_hdr.flags = HTTP2_F_END_STREAM;
-		tfw_h2_pack_frame_header(buf, &frame_hdr);
-
-		r = tfw_http_msg_expand_data(iter, skb_head, &f_hdr, NULL);
-		if (unlikely(r))
-			return r;
-
 		r = tfw_http_msg_expand_data(iter, skb_head, body, NULL);
 		if (unlikely(r))
 			return r;
 	}
 
 	hdrs_len += mit->acc_len;
-	if (hdrs_len > FRAME_MAX_LENGTH)
-		return -E2BIG;
 
-	/* Set frame header for HEADERS. */
-	frame_hdr.length = hdrs_len;
-	frame_hdr.type = HTTP2_HEADERS;
-	frame_hdr.flags = HTTP2_F_END_HEADERS;
-	if (!body)
-		frame_hdr.flags |= HTTP2_F_END_STREAM;
+	r = tfw_h2_make_frames(resp, stream_id, hdrs_len, true, false);
 
-	tfw_h2_pack_frame_header(buf, &frame_hdr);
-	memcpy_fast((*skb_head)->data, buf, sizeof(buf));
-
-	return 0;
+	return r;
 }
 
 #define S_REDIR_302	S_302 S_CRLF
@@ -930,20 +896,14 @@ tfw_h2_send_resp(TfwHttpReq *req, int status, unsigned int stream_id)
 	resp_code_t code;
 	TfwHttpResp *resp;
 	struct sk_buff **skb_head;
-	TfwFrameHdr frame_hdr;
 	TfwHttpTransIter *mit;
 	char *date_val, *data_ptr;
 	unsigned long nlen, vlen;
-	unsigned char buf[FRAME_HEADER_SIZE];
 	TfwStr *start, *date, *clen, *srv, *body;
 	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 	TfwStr hdr = {
 		.chunks = (TfwStr []){ {}, {} },
 		.nchunks = 2
-	};
-	TfwStr f_hdr = {
-		.data = buf,
-		.len = sizeof(buf)
 	};
 
 	if (!stream_id) {
@@ -954,8 +914,6 @@ tfw_h2_send_resp(TfwHttpReq *req, int status, unsigned int stream_id)
 			return;
 		}
 	}
-
-	frame_hdr.stream_id = stream_id;
 
 	code = tfw_http_enum_resp_code(status);
 	if (code == RESP_NUM) {
@@ -1042,30 +1000,13 @@ tfw_h2_send_resp(TfwHttpReq *req, int status, unsigned int stream_id)
 
 	/* Create and set frame header and set payload for DATA. */
 	if (body->data) {
-		frame_hdr.length = body->len;
-		frame_hdr.type = HTTP2_DATA;
-		frame_hdr.flags = HTTP2_F_END_STREAM;
-		tfw_h2_pack_frame_header(buf, &frame_hdr);
-
-		if (tfw_http_msg_expand_data(&resp->mit.iter, skb_head, &f_hdr,
-					     NULL)
-		    || tfw_http_msg_expand_data(&resp->mit.iter, skb_head, body,
-						NULL))
+		if (tfw_http_msg_expand_data(&resp->mit.iter, skb_head, body,
+					     NULL))
 			goto err_setup;
 	}
 
-	/*
-	 * Set the frame header for HEADERS. Note, that we leave the place for
-	 * it at the beginning of the response - due to @mit->start_off setting
-	 * above (before the first data is written into the target skb).
-	 */
-	frame_hdr.length = mit->acc_len;
-	frame_hdr.type = HTTP2_HEADERS;
-	frame_hdr.flags = HTTP2_F_END_HEADERS;
-	if (!body->data)
-		frame_hdr.flags |= HTTP2_F_END_STREAM;
-	tfw_h2_pack_frame_header(buf, &frame_hdr);
-	memcpy_fast((*skb_head)->data, buf, sizeof(buf));
+	if (tfw_h2_make_frames(resp, stream_id, mit->acc_len, true, false))
+		goto err_setup;
 
 	/* Send resulting HTTP/2 response and release HPACK encoder index. */
 	tfw_h2_resp_fwd(resp);
