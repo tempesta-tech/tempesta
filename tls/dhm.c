@@ -203,7 +203,7 @@ int
 ttls_dhm_make_params(TlsDHMCtx *ctx, int x_size, unsigned char *output,
 		     size_t *olen)
 {
-	int r, count = 0;
+	int r = -EINVAL, count = 0;
 	size_t n1, n2, n3;
 	unsigned char *p;
 
@@ -217,8 +217,10 @@ ttls_dhm_make_params(TlsDHMCtx *ctx, int x_size, unsigned char *output,
 		while (ttls_mpi_cmp_mpi(&ctx->X, &ctx->P) >= 0)
 			ttls_mpi_shift_r(&ctx->X, 1);
 
-		if (count++ > 10)
+		if (count++ > 10) {
+			T_WARN("DHM random failed\n");
 			goto err;
+		}
 	} while (dhm_check_range(&ctx->X, &ctx->P));
 
 	/* Calculate GX = G^X mod P. */
