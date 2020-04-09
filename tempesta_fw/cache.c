@@ -744,9 +744,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 	int r, i;
 	TfwMsgIter *it;
 	TfwHttpResp *resp;
-	TfwFrameHdr frame_hdr;
 	struct sk_buff **skb_head;
-	unsigned char buf[FRAME_HEADER_SIZE];
 	unsigned int stream_id = 0;
 	unsigned long h_len = 0;
 	TdbVRec *trec = &ce->trec;
@@ -805,16 +803,8 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 		return;
 	}
 
-	if (h_len > FRAME_MAX_LENGTH)
+	if (tfw_h2_make_frames(resp, stream_id, h_len, true, false))
 		goto err_setup;
-
-	frame_hdr.stream_id = stream_id;
-	frame_hdr.length = h_len;
-	frame_hdr.type = HTTP2_HEADERS;
-	frame_hdr.flags = HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM;
-
-	tfw_h2_pack_frame_header(buf, &frame_hdr);
-	memcpy_fast((*skb_head)->data, buf, sizeof(buf));
 
 	tfw_h2_resp_fwd(resp);
 
