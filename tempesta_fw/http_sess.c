@@ -683,14 +683,15 @@ tfw_http_sticky_challenge_start(TfwHttpReq *req, TfwStickyCookie *sticky,
 				StickyVal *sv)
 {
 	int r;
-	RedirMarkVal mv = {};
+	RedirMarkVal mv = {}, *mvp = NULL;
 
 	/*
 	 * If configured, ensure that limit for requests without
 	 * cookie and timeout for redirections are not exhausted.
 	 */
 	if (sticky->max_misses) {
-		if ((r = tfw_http_sess_check_redir_mark(req, &mv)))
+		mvp = &mv;
+		if ((r = tfw_http_sess_check_redir_mark(req, mvp)))
 			return r;
 	}
 	if (!sv->ts) {
@@ -698,7 +699,7 @@ tfw_http_sticky_challenge_start(TfwHttpReq *req, TfwStickyCookie *sticky,
 			return TFW_HTTP_SESS_FAILURE;
 	}
 
-	return tfw_http_sticky_build_redirect(req, sv, &mv);
+	return tfw_http_sticky_build_redirect(req, sv, mvp);
 }
 
 /*
