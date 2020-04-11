@@ -113,10 +113,26 @@ tfw_client_set_expires_time(unsigned int expires_time)
 {
 }
 
+void
+tfw_client_put(TfwClient *cli)
+{
+}
+
+int
+tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
+{
+	return 0;
+}
+
 int
 tfw_gfsm_dispatch(TfwGState *st, void *obj, TfwFsmData *data)
 {
 	return 0;
+}
+
+void
+tfw_gfsm_state_init(TfwGState *st, void *obj, int st0)
+{
 }
 
 TfwCfgSpec tfw_http_sess_specs[0];
@@ -149,45 +165,8 @@ tfw_http_sess_cfg_finish(TfwVhost *vhost)
 	return 0;
 }
 
-typedef struct {} TfwRBQueue;
-
 int
-tfw_wq_pop_ticket(TfwRBQueue *q, void *buf, long *ticket)
-{
-	return 0;
-}
-
-void
-tfw_wq_destroy(TfwRBQueue *q)
-{
-}
-
-int
-tfw_wq_init(TfwRBQueue *q, int node)
-{
-	return 0;
-}
-
-long
-__tfw_wq_push(TfwRBQueue *q, void *ptr)
-{
-	return 0;
-}
-
-void
-tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
-{
-}
-
-int
-tfw_http_prep_redirect(TfwHttpMsg *resp, unsigned short status, TfwStr *rmark,
-		       TfwStr *cookie, TfwStr *body)
-{
-	return 0;
-}
-
-int
-tfw_cfgop_parse_http_status(const char *status, int *out)
+tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 {
 	return 0;
 }
@@ -200,24 +179,4 @@ tfw_tls_cfg_configured(bool global)
 void
 tfw_tls_match_any_sni_to_dflt(bool match)
 {
-}
-
-/*
- * The unit tests don't allocate vhost, sessions, and peer, so there are no
- * memory leak.
- */
-void
-tfw_http_req_destruct(void *msg)
-{
-}
-
-void
-tfw_http_conn_msg_free(TfwHttpMsg *hm)
-{
-}
-
-int
-tfw_http_msg_process_generic(TfwConn *conn, TfwStream *stream, TfwFsmData *data)
-{
-	return 0;
 }
