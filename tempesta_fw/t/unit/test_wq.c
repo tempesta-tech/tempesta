@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2017-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2017-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -27,6 +27,8 @@
 
 #include "test.h"
 #include "work_queue.h"
+
+#include "work_queue.c"
 
 #define QSZ	2048		/* From work_queue.c */
 #define N	QSZ * 100

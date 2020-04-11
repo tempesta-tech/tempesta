@@ -3825,7 +3825,7 @@ tfw_h2_set_stale_warn(TfwHttpResp *resp)
 }
 
 /*
- * Split header in two parts: name and value, evicting ':' and OWS. Return
+ * Split header into two parts: name and value, evicting ':' and OWS. Return
  * the resulting length of both parts.
  *
  * NOTE: this function is intended for response processing only (during
@@ -5870,7 +5870,6 @@ tfw_http_req_key_calc(TfwHttpReq *req)
 
 	return req->hash;
 }
-EXPORT_SYMBOL(tfw_http_req_key_calc);
 
 static TfwConnHooks http_conn_hooks = {
 	.conn_init	= tfw_http_conn_init,
