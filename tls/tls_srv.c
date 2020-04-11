@@ -209,8 +209,8 @@ ttls_parse_supported_elliptic_curves(TlsCtx *tls, const unsigned char *buf,
 		list_size = TTLS_ECP_DP_MAX - 1;
 
 	for (c = i = 0, p = buf + 2; i < list_size; ++i) {
-		ci = ttls_ecp_curve_info_from_tls_id((p[0] << 8) | p[1]);
-		if (ci) {
+		uint16_t cid = (p[0] << 8) | p[1];
+		if (cid && (ci = ttls_ecp_curve_info_from_tls_id(cid))) {
 			T_DBG3("set curve %s\n", ci->name);
 			tls->hs->curves[c++] = ci;
 		}
@@ -439,7 +439,7 @@ ttls_pick_cert(TlsCtx *tls, const TlsCiphersuite *ci)
 		return -1;
 	}
 
-	for (cur = list; cur != NULL; cur = cur->next) {
+	for (cur = list; cur; cur = cur->next) {
 		if (!ttls_pk_can_do(cur->key, pk_alg)) {
 			T_DBG("certificate mismatch for alg %d\n", pk_alg);
 			continue;
