@@ -137,41 +137,45 @@ pk_get_ecpubkey(unsigned char **p, const unsigned char *end, TlsEcpKeypair *key)
  *	  publicExponent	INTEGER   -- e
  *  }
  */
-static int pk_get_rsapubkey(unsigned char **p,
-				 const unsigned char *end,
-				 TlsRSACtx *rsa)
+static int
+pk_get_rsapubkey(unsigned char **p, const unsigned char *end, TlsRSACtx *rsa)
 {
-	int ret;
+	int r;
 	size_t len;
 
-	if ((ret = ttls_asn1_get_tag(p, end, &len,
-			TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE)) != 0)
-		return(TTLS_ERR_PK_INVALID_PUBKEY + ret);
+	r = ttls_asn1_get_tag(p, end, &len,
+			      TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE);
+	if (r)
+		return TTLS_ERR_PK_INVALID_PUBKEY + r;
 
 	if (*p + len != end)
-		return(TTLS_ERR_PK_INVALID_PUBKEY +
-				TTLS_ERR_ASN1_LENGTH_MISMATCH);
+		return TTLS_ERR_PK_INVALID_PUBKEY
+			+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
 	/* Import N */
-	if ((ret = ttls_asn1_get_tag(p, end, &len, TTLS_ASN1_INTEGER)) != 0)
-		return(TTLS_ERR_PK_INVALID_PUBKEY + ret);
+	if ((r = ttls_asn1_get_tag(p, end, &len, TTLS_ASN1_INTEGER)))
+		return TTLS_ERR_PK_INVALID_PUBKEY + r;
 
-	ttls_rsa_import_raw(rsa, *p, len, NULL, 0, NULL, 0, NULL, 0, NULL, 0);
+	if (ttls_rsa_import_raw(rsa, *p, len, NULL, 0, NULL, 0, NULL, 0,
+				NULL, 0))
+		return -ENOMEM;
 	*p += len;
 
 	/* Import E */
-	if ((ret = ttls_asn1_get_tag(p, end, &len, TTLS_ASN1_INTEGER)) != 0)
-		return(TTLS_ERR_PK_INVALID_PUBKEY + ret);
+	if ((r = ttls_asn1_get_tag(p, end, &len, TTLS_ASN1_INTEGER)))
+		return TTLS_ERR_PK_INVALID_PUBKEY + r;
 
-	ttls_rsa_import_raw(rsa, NULL, 0, NULL, 0, NULL, 0, NULL, 0, *p, len);
+	if (ttls_rsa_import_raw(rsa, NULL, 0, NULL, 0, NULL, 0, NULL, 0,
+				*p, len))
+		return -ENOMEM;
 	*p += len;
 
 	if (ttls_rsa_check_pubkey(rsa))
 		return TTLS_ERR_PK_INVALID_PUBKEY;
 
 	if (*p != end)
-		return(TTLS_ERR_PK_INVALID_PUBKEY +
-				TTLS_ERR_ASN1_LENGTH_MISMATCH);
+		return TTLS_ERR_PK_INVALID_PUBKEY
+			+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
 	return 0;
 }
@@ -280,14 +284,12 @@ ttls_pk_parse_subpubkey(unsigned char **p, const unsigned char *end,
  * Parse a PKCS#1 encoded private RSA key.
  */
 static int
-pk_parse_key_pkcs1_der(TlsRSACtx *rsa, const unsigned char *key, size_t keylen)
+__parse_key_pkcs1_der(TlsRSACtx *rsa, const unsigned char *key, size_t keylen)
 {
 	int r, version;
 	size_t len;
 	unsigned char *p, *end;
 	TlsMpi *T;
-
-	might_sleep();
 
 	p = (unsigned char *)key;
 	end = p + keylen;
@@ -324,31 +326,41 @@ pk_parse_key_pkcs1_der(TlsRSACtx *rsa, const unsigned char *key, size_t keylen)
 	/* Import N */
 	if ((r = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_INTEGER)))
 		goto err;
-	ttls_rsa_import_raw(rsa, p, len, NULL, 0, NULL, 0, NULL, 0, NULL, 0);
+	if ((r = ttls_rsa_import_raw(rsa, p, len, NULL, 0, NULL, 0, NULL, 0,
+				     NULL, 0)))
+		goto err;
 	p += len;
 
 	/* Import E */
 	if ((r = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_INTEGER)))
 		goto err;
-	ttls_rsa_import_raw(rsa, NULL, 0, NULL, 0, NULL, 0, NULL, 0, p, len);
+	if ((r = ttls_rsa_import_raw(rsa, NULL, 0, NULL, 0, NULL, 0, NULL, 0,
+				     p, len)))
+		goto err;
 	p += len;
 
 	/* Import D */
 	if ((r = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_INTEGER)))
 		goto err;
-	ttls_rsa_import_raw(rsa, NULL, 0, NULL, 0, NULL, 0, p, len, NULL, 0);
+	if ((r = ttls_rsa_import_raw(rsa, NULL, 0, NULL, 0, NULL, 0, p, len,
+				     NULL, 0)))
+		goto err;
 	p += len;
 
 	/* Import P */
 	if ((r = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_INTEGER)))
 		goto err;
-	ttls_rsa_import_raw(rsa, NULL, 0, p, len, NULL, 0, NULL, 0, NULL, 0);
+	if ((r = ttls_rsa_import_raw(rsa, NULL, 0, p, len, NULL, 0, NULL, 0,
+				     NULL, 0)))
+		goto err;
 	p += len;
 
 	/* Import Q */
 	if ((r = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_INTEGER)))
 		goto err;
-	ttls_rsa_import_raw(rsa, NULL, 0, NULL, 0, p, len, NULL, 0, NULL, 0);
+	if ((r = ttls_rsa_import_raw(rsa, NULL, 0, NULL, 0, p, len, NULL, 0,
+				     NULL, 0)))
+		goto err;
 	p += len;
 
 	/* Complete the RSA private key */
@@ -356,18 +368,15 @@ pk_parse_key_pkcs1_der(TlsRSACtx *rsa, const unsigned char *key, size_t keylen)
 		goto err;
 
 	/* Check optional parameters */
-	kernel_fpu_begin();
 	T = ttls_mpi_alloc_stack_init(((end - p) + CIL - 1 ) / CIL);
 	if ((r = ttls_asn1_get_mpi(&p, end, T))
 	    || (r = ttls_asn1_get_mpi(&p, end, T))
 	    || (r = ttls_asn1_get_mpi(&p, end, T)))
 	{
-		kernel_fpu_end();
 		ttls_mpi_pool_cleanup_ctx((unsigned long)T, false);
 		goto err;
 	}
 	ttls_mpi_pool_cleanup_ctx((unsigned long)T, false);
-	kernel_fpu_end();
 
 	if (p != end)
 		r = TTLS_ERR_PK_KEY_INVALID_FORMAT
@@ -384,7 +393,22 @@ err:
 			r = TTLS_ERR_PK_KEY_INVALID_FORMAT + r;
 		else
 			r = TTLS_ERR_PK_KEY_INVALID_FORMAT;
+		ttls_rsa_free(rsa);
 	}
+	return r;
+}
+
+static int
+pk_parse_key_pkcs1_der(TlsRSACtx *rsa, const unsigned char *key, size_t keylen)
+{
+	int r;
+
+	kernel_fpu_begin();
+
+	r = __parse_key_pkcs1_der(rsa, key, keylen);
+
+	kernel_fpu_end();
+
 	return r;
 }
 

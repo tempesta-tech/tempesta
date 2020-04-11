@@ -11,7 +11,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2018, Arm Limited (or its affiliates), All Rights Reserved
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -79,8 +79,6 @@
  * @hash_id	- Hash identifier of ttls_md_type_t type, as specified in
  *		  crypto.h for use in the MGF mask generating function used in
  *		  the EME-OAEP and EMSA-PSS encodings;
- * @mutex	- Thread-safety mutex. TODO #1335: used only for updating the
- *		  blinding values - make the values per-cpu and remove it.
  */
 typedef struct {
 	size_t		len;
@@ -95,54 +93,19 @@ typedef struct {
 	TlsMpi		RN;
 	TlsMpi		RP;
 	TlsMpi		RQ;
-	TlsMpi		Vi;
-	TlsMpi		Vf;
+	TlsMpi __percpu	*Vi;
+	TlsMpi __percpu	*Vf;
 	int		padding;
 	int		hash_id;
-	spinlock_t	mutex;
 } TlsRSACtx;
 
 void ttls_rsa_init(TlsRSACtx *ctx, int padding, int hash_id);
-
-/**
- * \brief		  This function imports core RSA parameters, in raw big-endian
- *				 binary format, into an RSA context.
- *
- * \param ctx	  The initialized RSA context to store the parameters in.
- * \param N		The RSA modulus, or NULL.
- * \param N_len	The Byte length of \p N, ignored if \p N == NULL.
- * \param P		The first prime factor of \p N, or NULL.
- * \param P_len	The Byte length of \p P, ignored if \p P == NULL.
- * \param Q		The second prime factor of \p N, or NULL.
- * \param Q_len	The Byte length of \p Q, ignored if \p Q == NULL.
- * \param D		The private exponent, or NULL.
- * \param D_len	The Byte length of \p D, ignored if \p D == NULL.
- * \param E		The public exponent, or NULL.
- * \param E_len	The Byte length of \p E, ignored if \p E == NULL.
- *
- * \note		   This function can be called multiple times for successive
- *				 imports, if the parameters are not simultaneously present.
- *
- *				 Any sequence of calls to this function should be followed
- *				 by a call to ttls_rsa_complete(), which checks and
- *				 completes the provided information to a ready-for-use
- *				 public or private RSA key.
- *
- * \note		   See ttls_rsa_complete() for more information on which
- *				 parameters are necessary to set up a private or public
- *				 RSA key.
- *
- * \note		   The imported parameters are copied and need not be preserved
- *				 for the lifetime of the RSA context being set up.
- *
- * \return		 \c 0 on success, or a non-zero error code on failure.
- */
-void ttls_rsa_import_raw(TlsRSACtx *ctx,
-			 unsigned char const *N, size_t N_len,
-			 unsigned char const *P, size_t P_len,
-			 unsigned char const *Q, size_t Q_len,
-			 unsigned char const *D, size_t D_len,
-			 unsigned char const *E, size_t E_len);
+void ttls_rsa_free(TlsRSACtx *ctx);
+int ttls_rsa_import_raw(TlsRSACtx *ctx, unsigned char const *N, size_t N_len,
+			unsigned char const *P, size_t P_len,
+			unsigned char const *Q, size_t Q_len,
+			unsigned char const *D, size_t D_len,
+			unsigned char const *E, size_t E_len);
 
 int ttls_rsa_complete(TlsRSACtx *ctx);
 

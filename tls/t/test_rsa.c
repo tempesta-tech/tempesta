@@ -29,7 +29,6 @@
 
 /*
  * Example RSA-1024 keypair, for test purposes.
- * TODO #1064 test RSA-4096 to cause the mpool stress.
  */
 #define KEY_LEN	128
 #define PT_LEN  (256 / 8) /* SHA256 size, 32 bytes */
@@ -84,12 +83,8 @@ rsa_sign(void)
 	memset(rsa, 0, sizeof(TlsRSACtx));
 	ttls_rsa_init(rsa, TTLS_RSA_PKCS_V15, 0);
 
-	ttls_mpi_read_binary(&rsa->N, RSA_N, 128);
-	rsa->len = ttls_mpi_size(&rsa->N);
-	ttls_mpi_read_binary(&rsa->P, RSA_P, 64);
-	ttls_mpi_read_binary(&rsa->Q, RSA_Q, 64);
-	ttls_mpi_read_binary(&rsa->D, RSA_D, 128);
-	ttls_mpi_read_binary(&rsa->E, RSA_E, 3);
+	EXPECT_ZERO(ttls_rsa_import_raw(rsa, RSA_N, 128, RSA_P, 64, RSA_Q, 64,
+					RSA_D, 128, RSA_E, 3));
 
 	EXPECT_ZERO(ttls_rsa_check_pubkey(rsa));
 
@@ -103,6 +98,7 @@ rsa_sign(void)
 
 	kernel_fpu_end();
 
+	ttls_rsa_free(rsa);
 	ttls_mpi_pool_free(rsa);
 }
 

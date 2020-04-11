@@ -100,6 +100,7 @@ typedef struct {
 			 const unsigned char *hash, size_t hash_len,
 			 unsigned char *sig, size_t *sig_len);
 	void *(*ctx_alloc_func)(void);
+	void (*ctx_free_func)(void *);
 } TlsPkInfo;
 
 /**
