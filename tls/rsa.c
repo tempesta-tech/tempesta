@@ -64,17 +64,132 @@ static inline int ttls_safer_memcmp(const void *a, const void *b, size_t n)
 	return(diff);
 }
 
+/**
+ * Initialize an RSA context.
+ *
+ * TODO #1335: Set padding to #TTLS_RSA_PKCS_V21 for the RSAES-OAEP encryption
+ * scheme and the RSASSA-PSS signature scheme. The choice of padding mode is
+ * strictly enforced for private key operations, since there might be security
+ * concerns in mixing padding modes. For public key operations it is a default
+ * value, which can be overridden by calling specific rsa_rsaes_xxx or
+ * rsa_rsassa_xxx functions.
+ *
+ * The hash selected in hash_id is always used for OEAP encryption. For PSS
+ * signatures, it is always used for making signatures, but can be overridden
+ * for verifying them. If set to TTLS_MD_NONE, it is always overridden.
+ */
 void
+ttls_rsa_init(TlsRSACtx *ctx, int padding, int hash_id)
+{
+	/*
+	 * TODO Select padding mode: TTLS_RSA_PKCS_V15 or TTLS_RSA_PKCS_V21.
+	 */
+	ctx->padding = padding;
+	/*
+	 * TODO The hash identifier of ttls_md_type_t type, if padding is
+	 * TTLS_RSA_PKCS_V21. The hash_id parameter is ignored when using
+	 * TTLS_RSA_PKCS_V15 padding.
+	 */
+	ctx->hash_id = hash_id;
+}
+
+/**
+ * Setup the RSA context when we know the size of the N prime.
+ * This is another half for ttls_rsa_init().
+ */
+static int
+__rsa_setup_ctx(TlsRSACtx *ctx)
+{
+	int cpu, count = 0;
+
+	/*
+	 * Do nothing if the context is already setup or N or E aren't loaded
+	 * yet (public and private context always load both the MPIs).
+	 */
+	if (ctx->len || ttls_mpi_empty(&ctx->N) || ttls_mpi_empty(&ctx->E))
+		return 0;
+
+	ctx->len = ttls_mpi_size(&ctx->N);
+
+	ctx->Vi = __alloc_percpu(sizeof(TlsMpi) + ctx->len * 2,
+				 __alignof__(TlsMpi));
+	if (!ctx->Vi)
+		return -ENOMEM;
+
+	ctx->Vf = __alloc_percpu(sizeof(TlsMpi) + ctx->len * 2,
+				 __alignof__(TlsMpi));
+	if (!ctx->Vf) {
+		free_percpu(ctx->Vi);
+		return -ENOMEM;
+	}
+
+	/*
+	 * Generate blinding values.
+	 * Unblinding value: Vf = random number, invertible mod N.
+	 */
+	for_each_possible_cpu(cpu) {
+		TlsMpi *vi = per_cpu_ptr(ctx->Vi, cpu);
+		TlsMpi *vf = per_cpu_ptr(ctx->Vf, cpu);
+
+		ttls_mpi_init_next(vi, ctx->len * 2 / CIL);
+		ttls_mpi_init_next(vf, ctx->len * 2 / CIL);
+
+		do {
+			if (WARN_ON_ONCE(count++ > 10))
+				return TTLS_ERR_RSA_RNG_FAILED;
+			ttls_mpi_fill_random(vf, ctx->len - 1);
+			ttls_mpi_gcd(vi, vf, &ctx->N);
+		} while (ttls_mpi_cmp_int(vi, 1));
+		/* Blinding value: Vi =  Vf^(-e) mod N */
+		ttls_mpi_inv_mod(vi, vf, &ctx->N);
+		ttls_mpi_exp_mod(vi, vi, &ctx->E, &ctx->N, &ctx->RN);
+	}
+
+	return 0;
+}
+
+void
+ttls_rsa_free(TlsRSACtx *ctx)
+{
+	free_percpu(ctx->Vi);
+	free_percpu(ctx->Vf);
+}
+
+/**
+ * Get length in bytes of RSA modulus.
+ */
+size_t
+ttls_rsa_get_len(const TlsRSACtx *ctx)
+{
+	return ctx->len;
+}
+
+/**
+ * Import core RSA parameters, in raw big-endian binary format,
+ * into an RSA context.
+ *
+ * This function can be called multiple times for successive imports, if the
+ * parameters are not simultaneously present.
+ *
+ * Any sequence of calls to this function should be followed by a call to
+ * ttls_rsa_complete(), which checks and completes the provided information to
+ * a ready-for-use public or private RSA key.
+ *
+ * See ttls_rsa_complete() for more information on which parameters are
+ * necessary to set up a private or public RSA key.
+ *
+ * The imported parameters are copied and need not be preserved for the lifetime
+ * of the RSA context being set up.
+ */
+int
 ttls_rsa_import_raw(TlsRSACtx *ctx, unsigned char const *N, size_t N_len,
 		    unsigned char const *P, size_t P_len,
 		    unsigned char const *Q, size_t Q_len,
 		    unsigned char const *D, size_t D_len,
 		    unsigned char const *E, size_t E_len)
 {
-	if (N) {
+	if (N)
 		ttls_mpi_read_binary(&ctx->N, N, N_len);
-		ctx->len = ttls_mpi_size(&ctx->N);
-	}
 	if (P)
 		ttls_mpi_read_binary(&ctx->P, P, P_len);
 	if (Q)
@@ -83,6 +198,8 @@ ttls_rsa_import_raw(TlsRSACtx *ctx, unsigned char const *N, size_t N_len,
 		ttls_mpi_read_binary(&ctx->D, D, D_len);
 	if (E)
 		ttls_mpi_read_binary(&ctx->E, E, E_len);
+
+	return __rsa_setup_ctx(ctx);
 }
 
 /*
@@ -372,48 +489,23 @@ rsa_check_context(const TlsRSACtx *ctx, int is_priv)
 	return 0;
 }
 
-/*
- * Generate or update blinding values, see section 10 of:
+/**
+ * Update blinding values, see section 10 of:
  *  KOCHER, Paul C. Timing attacks on implementations of Diffie-Hellman, RSA,
  *  DSS, and other systems. In : Advances in Cryptology-CRYPTO'96. Springer
  *  Berlin Heidelberg, 1996. p. 104-113.
  */
-static int
+static void
 rsa_prepare_blinding(TlsRSACtx *ctx)
 {
-	int count = 0, r = TTLS_ERR_RSA_RNG_FAILED;
+	TlsMpi *vi = this_cpu_ptr(ctx->Vi);
+	TlsMpi *vf = this_cpu_ptr(ctx->Vf);
 
-	/* TODO #1335 make Vf and Vi per-cpu and remove the lock. */
-	spin_lock(&ctx->mutex);
-
-	if (unlikely(ttls_mpi_empty(&ctx->Vf))) {
-		/* Unblinding value: Vf = random number, invertible mod N. */
-		ttls_mpi_alloc(&ctx->Vi, ctx->len * 2 / CIL);
-		do {
-			if (WARN_ON_ONCE(count++ > 10))
-				goto unlock;
-			ttls_mpi_fill_random(&ctx->Vf, ctx->len - 1);
-			ttls_mpi_gcd(&ctx->Vi, &ctx->Vf, &ctx->N);
-		} while (ttls_mpi_cmp_int(&ctx->Vi, 1));
-		/* Blinding value: Vi =  Vf^(-e) mod N */
-		ttls_mpi_inv_mod(&ctx->Vi, &ctx->Vf, &ctx->N);
-		ttls_mpi_exp_mod(&ctx->Vi, &ctx->Vi, &ctx->E, &ctx->N, &ctx->RN);
-	} else {
-		/*
-		 * We already have blinding values,
-		 * just update them by squaring.
-		 */
-		ttls_mpi_mul_mpi(&ctx->Vi, &ctx->Vi, &ctx->Vi);
-		ttls_mpi_mod_mpi(&ctx->Vi, &ctx->Vi, &ctx->N);
-		ttls_mpi_mul_mpi(&ctx->Vf, &ctx->Vf, &ctx->Vf);
-		ttls_mpi_mod_mpi(&ctx->Vf, &ctx->Vf, &ctx->N);
-	}
-
-	r = 0;
-unlock:
-	spin_unlock(&ctx->mutex);
-
-	return r;
+	/* We already have blinding values, just update them by squaring. */
+	ttls_mpi_mul_mpi(vi, vi, vi);
+	ttls_mpi_mod_mpi(vi, vi, &ctx->N);
+	ttls_mpi_mul_mpi(vf, vf, vf);
+	ttls_mpi_mod_mpi(vf, vf, &ctx->N);
 }
 
 /*
@@ -450,6 +542,8 @@ ttls_rsa_private(TlsRSACtx *ctx, const unsigned char *input,
 	int r = 0;
 	size_t olen, n;
 	const size_t eb_n = (RSA_EXPONENT_BLINDING + CIL - 1) / CIL;
+	TlsMpi *vi = this_cpu_ptr(ctx->Vi);
+	TlsMpi *vf = this_cpu_ptr(ctx->Vf);
 
 	/* Temporary holding the result */
 	TlsMpi *T;
@@ -470,7 +564,7 @@ ttls_rsa_private(TlsRSACtx *ctx, const unsigned char *input,
 	TlsMpi *I, *C;
 
 	n = sizeof(TlsMpi) * 10
-	    + CIL * (ctx->N.used * 3 + ctx->len / CIL * 2 + ctx->Vi.used
+	    + CIL * (ctx->N.used * 3 + ctx->len / CIL * 2 + vi->used
 		     + ctx->P.used * 2 + ctx->Q.used * 2 + eb_n * 3 + 3);
 	T = ttls_mpool_alloc_stack(n);
 	I = ttls_mpi_init_next(T, ctx->len * 2 / CIL);
@@ -493,8 +587,8 @@ ttls_rsa_private(TlsRSACtx *ctx, const unsigned char *input,
 	ttls_mpi_copy(I, T);
 
 	/* Blinding: T = T * Vi mod N */
-	MPI_CHK(rsa_prepare_blinding(ctx));
-	ttls_mpi_mul_mpi(T, T, &ctx->Vi);
+	rsa_prepare_blinding(ctx);
+	ttls_mpi_mul_mpi(T, T, vi);
 	ttls_mpi_mod_mpi(T, T, &ctx->N);
 
 	/* Exponent blinding. */
@@ -529,16 +623,13 @@ ttls_rsa_private(TlsRSACtx *ctx, const unsigned char *input,
 	ttls_mpi_mul_mpi(TP, T, &ctx->Q);
 	ttls_mpi_add_mpi(T, TQ, TP);
 
-	/*
-	 * Unblind
-	 * T = T * Vf mod N
-	 */
-	ttls_mpi_mul_mpi(T, T, &ctx->Vf);
+	/* Unblind: T = T * Vf mod N */
+	ttls_mpi_mul_mpi(T, T, vf);
 	ttls_mpi_mod_mpi(T, T, &ctx->N);
 
 	/* Verify the result to prevent glitching attacks. */
 	MPI_CHK(ttls_mpi_exp_mod(C, T, &ctx->E, &ctx->N, &ctx->RN));
-	/* FIXME #1064 C != I which is zero on ttls_rsa_complete(). */
+	/* FIXME #1064 the check sometimes fails on multiple browser reloads. */
 	if (ttls_mpi_cmp_mpi(C, I)) {
 		r = TTLS_ERR_RSA_VERIFY_FAILED;
 		goto cleanup;
@@ -745,46 +836,6 @@ int ttls_rsa_export_crt(const TlsRSACtx *ctx,
 		ttls_mpi_copy(QP, &ctx->QP);
 
 	return 0;
-}
-
-/**
- * Initialize an RSA context.
- *
- * TODO #1335: Set padding to #TTLS_RSA_PKCS_V21 for the RSAES-OAEP encryption
- * scheme and the RSASSA-PSS signature scheme. The choice of padding mode is
- * strictly enforced for private key operations, since there might be security
- * concerns in mixing padding modes. For public key operations it is a default
- * value, which can be overridden by calling specific rsa_rsaes_xxx or
- * rsa_rsassa_xxx functions.
- *
- * The hash selected in hash_id is always used for OEAP encryption. For PSS
- * signatures, it is always used for making signatures, but can be overridden
- * for verifying them. If set to TTLS_MD_NONE, it is always overridden.
- */
-void
-ttls_rsa_init(TlsRSACtx *ctx, int padding, int hash_id)
-{
-	/*
-	 * TODO Select padding mode: TTLS_RSA_PKCS_V15 or TTLS_RSA_PKCS_V21.
-	 */
-	ctx->padding = padding;
-	/*
-	 * TODO The hash identifier of ttls_md_type_t type, if padding is
-	 * TTLS_RSA_PKCS_V21. The hash_id parameter is ignored when using
-	 * TTLS_RSA_PKCS_V15 padding.
-	 */
-	ctx->hash_id = hash_id;
-
-	spin_lock_init(&ctx->mutex);
-}
-
-/**
- * Get length in bytes of RSA modulus.
- */
-size_t
-ttls_rsa_get_len(const TlsRSACtx *ctx)
-{
-	return ctx->len;
 }
 
 /**

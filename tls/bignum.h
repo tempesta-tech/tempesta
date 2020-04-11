@@ -29,7 +29,7 @@
 
 #define TTLS_MPI_CHK(f)							\
 do {									\
-	if (WARN_ON_ONCE((ret = (f))))					\
+	if (WARN((ret = (f)), #f " returns %d", ret))			\
 		goto cleanup;						\
 } while (0)
 

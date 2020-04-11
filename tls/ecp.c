@@ -119,6 +119,7 @@ ttls_ecp_curve_info_from_tls_id(uint16_t tls_id)
 {
 	const TlsEcpCurveInfo *curve_info;
 
+	T_DBG3("try curve id %#x from the client\n", tls_id);
 	for (curve_info = ecp_supported_curves;
 	     curve_info->grp_id != TTLS_ECP_DP_NONE;
 	     curve_info++)

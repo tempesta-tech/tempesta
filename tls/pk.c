@@ -95,6 +95,12 @@ rsa_alloc_wrap(void)
 	return ctx;
 }
 
+static void
+rsa_free_wrap(void *ctx)
+{
+	ttls_rsa_free(ctx);
+}
+
 /*
  * EC key restricted to ECDH
  */
@@ -173,6 +179,7 @@ const TlsPkInfo ttls_rsa_info = {
 	rsa_verify_wrap,
 	rsa_sign_wrap,
 	rsa_alloc_wrap,
+	rsa_free_wrap,
 };
 
 const TlsPkInfo ttls_eckeydh_info = {
@@ -183,6 +190,7 @@ const TlsPkInfo ttls_eckeydh_info = {
 	NULL,
 	NULL,
 	eckey_alloc_wrap,
+	NULL
 };
 
 const TlsPkInfo ttls_ecdsa_info = {
@@ -193,6 +201,7 @@ const TlsPkInfo ttls_ecdsa_info = {
 	ecdsa_verify_wrap,
 	ecdsa_sign_wrap,
 	eckey_alloc_wrap,
+	NULL
 };
 
 const TlsPkInfo ttls_eckey_info = {
@@ -203,6 +212,7 @@ const TlsPkInfo ttls_eckey_info = {
 	ecdsa_verify_wrap,
 	ecdsa_sign_wrap,
 	eckey_alloc_wrap,
+	NULL
 };
 
 void
@@ -226,6 +236,10 @@ ttls_pk_free(TlsPkCtx *ctx)
 {
 	if (unlikely(!ctx || !ctx->pk_info))
 		return;
+
+	if (ctx->pk_info->ctx_free_func)
+		ctx->pk_info->ctx_free_func(ctx->pk_ctx);
+
 	ttls_mpi_pool_free(ctx->pk_ctx);
 }
 EXPORT_SYMBOL(ttls_pk_free);
