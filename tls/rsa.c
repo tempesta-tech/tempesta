@@ -629,7 +629,6 @@ ttls_rsa_private(TlsRSACtx *ctx, const unsigned char *input,
 
 	/* Verify the result to prevent glitching attacks. */
 	MPI_CHK(ttls_mpi_exp_mod(C, T, &ctx->E, &ctx->N, &ctx->RN));
-	/* FIXME #1064 the check sometimes fails on multiple browser reloads. */
 	if (ttls_mpi_cmp_mpi(C, I)) {
 		r = TTLS_ERR_RSA_VERIFY_FAILED;
 		goto cleanup;

@@ -39,7 +39,9 @@
  * The constants are in little-endian order to be directly copied into MPIs.
  */
 
-/* Domain parameters for secp256r1 - Generalized Mersenne primes. */
+/*
+ * Domain parameters for secp256r1 (prime256v1) - Generalized Mersenne primes.
+ */
 static const unsigned long secp256r1_p[] = {
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF),
 	BYTES_TO_T_UINT_8(0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00),
