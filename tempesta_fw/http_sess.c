@@ -318,22 +318,33 @@ search_cookie(TfwStickyCookie *sticky, const TfwStr *cookie, TfwStr *val,
 static int
 tfw_http_sticky_get_req(TfwHttpReq *req, TfwStr *cookie_val)
 {
-	TfwStr value = { 0 };
-	TfwStr *hdr;
+	TfwStr *hdr, *end, *dup;
 
 	/*
 	 * Find a 'Cookie:' header field in the request. Then search for
-	 * Tempesta sticky cookie within the field. Note that there can
-	 * be only one "Cookie:" header field. See RFC 6265 section 5.4.
+	 * Tempesta sticky cookie within the field. In HTTP/1.x requests
+	 * all cookies are stored in the only "Cookie:" header (RFC 6265
+	 * section 5.4), HTTP/2 requests may use either a single header
+	 * or multiple headers (RFC 7540 Section 8.1.2.5).
+	 * Don't need to worry about multiple headers over HTTP/1.x connections
+	 * here, parser blocks such requests.
 	 * NOTE: Irrelevant here, but there can be multiple 'Set-Cookie"
 	 * header fields as an exception. See RFC 7230 section 3.2.2.
 	 */
 	hdr = &req->h_tbl->tbl[TFW_HTTP_HDR_COOKIE];
 	if (TFW_STR_EMPTY(hdr))
 		return 0;
-	tfw_http_msg_clnthdr_val(req, hdr, TFW_HTTP_HDR_COOKIE, &value);
+	TFW_STR_FOR_EACH_DUP(dup, hdr, end) {
+		TfwStr value = { 0 };
+		int r;
 
-	return search_cookie(req->vhost->cookie, &value, cookie_val, false);
+		tfw_http_msg_clnthdr_val(req, dup, TFW_HTTP_HDR_COOKIE, &value);
+		r = search_cookie(req->vhost->cookie, &value, cookie_val, false);
+		if (r)
+			return r;
+	}
+
+	return 0;
 }
 
 #ifdef DEBUG
@@ -672,14 +683,15 @@ tfw_http_sticky_challenge_start(TfwHttpReq *req, TfwStickyCookie *sticky,
 				StickyVal *sv)
 {
 	int r;
-	RedirMarkVal mv = {};
+	RedirMarkVal mv = {}, *mvp = NULL;
 
 	/*
 	 * If configured, ensure that limit for requests without
 	 * cookie and timeout for redirections are not exhausted.
 	 */
 	if (sticky->max_misses) {
-		if ((r = tfw_http_sess_check_redir_mark(req, &mv)))
+		mvp = &mv;
+		if ((r = tfw_http_sess_check_redir_mark(req, mvp)))
 			return r;
 	}
 	if (!sv->ts) {
@@ -687,7 +699,7 @@ tfw_http_sticky_challenge_start(TfwHttpReq *req, TfwStickyCookie *sticky,
 			return TFW_HTTP_SESS_FAILURE;
 	}
 
-	return tfw_http_sticky_build_redirect(req, sv, &mv);
+	return tfw_http_sticky_build_redirect(req, sv, mvp);
 }
 
 /*
