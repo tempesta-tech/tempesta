@@ -2004,7 +2004,7 @@ ttls_handshake_server_hello(TlsCtx *tls)
 	}
 	T_FSM_STATE(TTLS_SERVER_HELLO_DONE) {
 		if ((r = ttls_write_server_hello_done(tls, &sgt, &p)))
-			return r;
+			T_FSM_EXIT();
 		CHECK_STATE(9);
 		if ((tls->hs->sni_authmode == TTLS_VERIFY_UNSET
 		     && tls->conf->authmode == TTLS_VERIFY_NONE)
@@ -2028,8 +2028,8 @@ send_srv_hello:
 
 	/* If we exit here, then something went wrong. */
 	BUG_ON(!r);
-	while (--sgt.nents > (unsigned int)-1)
-		put_page(sg_page(&sg[sgt.nents]));
+	while (sgt.nents)
+		put_page(sg_page(&sg[--sgt.nents]));
 	put_page(pg);
 
 	return r;
@@ -2069,8 +2069,10 @@ ttls_handshake_finished(TlsCtx *tls)
 	}
 	T_FSM_STATE(TTLS_SERVER_FINISHED) {
 		if ((r = ttls_write_finished(tls, &sgt, &p)))
-			return r;
+			T_FSM_EXIT();
 		CHECK_STATE(TLS_HEADER_SIZE + TTLS_HS_FINISHED_BODY_LEN);
+		/* All the writers got their frags, so put our reference. */
+		put_page(pg);
 		sg_mark_end(&sgt.sgl[sgt.nents - 1]);
 		r = __ttls_send_record(tls, &sgt, false);
 		/*
@@ -2087,8 +2089,8 @@ ttls_handshake_finished(TlsCtx *tls)
 
 	/* If we exit here, then something went wrong. */
 	BUG_ON(!r);
-	while (--sgt.nents > (unsigned int)-1)
-		put_page(sg_page(&sg[sgt.nents]));
+	while (sgt.nents)
+		put_page(sg_page(&sg[--sgt.nents]));
 	put_page(pg);
 
 	return r;
