@@ -1678,7 +1678,7 @@ parse:
 		}
 	}
 err:
-	__free_pages(virt_to_page(p), 2);
+	__free_pages(pg, 2);
 	return r;
 }
 void
@@ -1830,14 +1830,6 @@ ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 	return 0;
 }
 
-static void
-ttls_handshake_params_init(TlsHandshake *hs)
-{
-	bzero_fast(hs, sizeof(*hs));
-
-	hs->sni_authmode = TTLS_VERIFY_UNSET;
-}
-
 int
 ttls_ctx_init(TlsCtx *tls, const TlsCfg *conf)
 {
@@ -1849,7 +1841,9 @@ ttls_ctx_init(TlsCtx *tls, const TlsCfg *conf)
 	tls->hs = kmem_cache_alloc(ttls_hs_cache, GFP_ATOMIC);
 	if (!tls->hs)
 		return -ENOMEM;
-	ttls_handshake_params_init(tls->hs);
+	bzero_fast(tls->hs, sizeof(*tls->hs));
+
+	tls->hs->sni_authmode = TTLS_VERIFY_UNSET;
 
 	return 0;
 }
@@ -2286,15 +2280,13 @@ EXPORT_SYMBOL(ttls_key_cert_free);
 void
 ttls_ctx_clear(TlsCtx *tls)
 {
-	if (!tls)
-		return;
-
 	ttls_handshake_free(tls->hs);
 
 	ttls_cipher_free(&tls->xfrm.cipher_ctx_enc);
 	ttls_cipher_free(&tls->xfrm.cipher_ctx_dec);
 
 	if (tls->sess.peer_cert) {
+		/* #830 check that all the data is freed correctly. */
 		ttls_x509_crt_free(tls->sess.peer_cert);
 		kfree(tls->sess.peer_cert);
 	}
