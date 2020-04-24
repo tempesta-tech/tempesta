@@ -644,6 +644,8 @@ ttls_mpi_cmp_int(const TlsMpi *X, long z)
 void
 ttls_mpi_add_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 {
+	int r;
+
 	BUG_ON(A == B);
 	BUG_ON(X->limbs < max_t(unsigned short, A->used, B->used));
 
@@ -653,9 +655,10 @@ ttls_mpi_add_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 		B = T;
 	}
 
-	X->used = mpi_add_x86_64(MPI_P(X), X->limbs, MPI_P(B), B->used,
-				 MPI_P(A), A->used);
-	BUG_ON(X->used <= 0);
+	r = mpi_add_x86_64(MPI_P(X), X->limbs, MPI_P(B), B->used,
+			   MPI_P(A), A->used);
+	BUG_ON(r <= 0);
+	X->used = r;
 
 	/* X should always be positive as a result of unsigned additions. */
 	X->s = 1;

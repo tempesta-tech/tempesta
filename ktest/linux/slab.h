@@ -34,6 +34,7 @@
 
 /* asm/page.h */
 #define PAGE_SIZE	4096UL
+#define PAGE_MASK	(~(PAGE_SIZE-1))
 /* arch/x86/include/asm/page_64_types.h */
 #define THREAD_SIZE	(PAGE_SIZE << 2)
 

@@ -8,10 +8,10 @@
  * sizes. To avoid dynamic memory allocations we use the MPI profiles -
  * pregenerated set of initialized MPIs which are just copied in single shot on
  * a handshake. An MPI profile contains all the memory required to perform all
- * PK computations for a perticular handshake type (RSA, EC etc).
+ * PK computations for a particular handshake type (RSA, EC etc).
  *
  * Tempesta TLS handshake happens in softirq non-preemptable context, so we can
- * keep per-cpu memory pool for all temporary MPIs required for a particilar
+ * keep per-cpu memory pool for all temporary MPIs required for a particular
  * handshake step taken on a CPU. The memory pool is cleaned and freed after
  * each handshake step.
  *
@@ -158,7 +158,7 @@ ttls_mpi_pool_alloc_mpi(TlsMpi *x, size_t n, bool tail)
 	*ptr++ = (unsigned short)((unsigned long)x - (unsigned long)mp);
 	*ptr++ = (unsigned short)n;
 
-	BUG_ON((unsigned long)ptr - (unsigned long)x <= 0);
+	BUG_ON((unsigned long)ptr <= (unsigned long)x);
 
 	return (unsigned long)ptr - (unsigned long)x;
 }
@@ -170,7 +170,7 @@ ttls_mpool_alloc_stack(size_t n)
 }
 
 /**
- * Cleanup current CPU memory pool for temporary MPIs: partilly, up to @addr,
+ * Cleanup current CPU memory pool for temporary MPIs: partially, up to @addr,
  * if it's non zero, or fully otherwise.
  *
  * The function call is semantically similar to moving RSP register, but the
@@ -307,10 +307,10 @@ ttls_mpool_ecp_create_tmp_T(int n, const TlsEcpPoint *P)
  *    pools;
  * 2. mixed stack allocations in runtime, when long-living objects are allocated
  *    on the stack after large short-living objects (e.g. R in ecp_mul_comb() is
- *    allocated after T[]->Z) and this isn't trivial to reclaim memory occuped
+ *    allocated after T[]->Z) and this isn't trivial to reclaim memory occupied
  *    by the long living objects.
  * The first case is supposed to be handled with accurate shrinking with fixing
- * reclaimed MPIs. In the secind case we know precisely that the short-livin
+ * reclaimed MPIs. In the secind case we know precisely that the short-living
  * objects aren't required and we reclaim this by just moving the tail pointer.
  */
 void
