@@ -62,21 +62,6 @@
  */
 static DEFINE_PER_CPU(TlsMpiPool *, g_tmp_mpool);
 
-/*
- * Check current task stack for the case of Tempesta load phase and
- * IRQ stack for softirq run time (given that interrups on x86-64 exit
- * on the same stack, CONFIG_HAVE_IRQ_EXIT_ON_IRQ_STACK).
- */
-static inline bool
-__check_stack_addr(unsigned long a)
-{
-	unsigned long rsp;
-
-	__asm__ __volatile__("movq %%rsp, %0\n": "=r"(rsp) ::);
-
-	return rsp - THREAD_SIZE <= a && a < rsp;
-}
-
 /**
  * Return a pointer to an MPI pool of one of the following types:
  * 1. static cipher suite memory profile;
@@ -98,12 +83,6 @@ ttls_mpool(void *addr)
 		mp_name = "ciphersuite";
 		goto check;
 	}
-
-	/*
-	 * If @addr (some MPI) was allocated on stack, then prohibit any
-	 * pool operations - TlsMpi->_off is unable to handle too far pointers.
-	 */
-	BUG_ON(__check_stack_addr(a));
 
 	mp = *this_cpu_ptr(&g_tmp_mpool);
 	mp_name = "temporary";
