@@ -6077,7 +6077,7 @@ __tfw_http_msg_body_dup(const char *filename, TfwStr *c_len_hdr, size_t *len,
 	char buff[TFW_ULTOA_BUF_SIZ] = {0};
 	TfwStr *cl_buf = __TFW_STR_CH(c_len_hdr, 1);
 
-	body = tfw_cfg_read_file(filename, &b_sz);
+	body = tfw_cfg_read_file(filename, &b_sz, 0);
 	if (!body) {
 		*len = *body_offset = 0;
 		return NULL;

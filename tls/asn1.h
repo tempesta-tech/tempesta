@@ -117,14 +117,16 @@ int ttls_asn1_write_mpi(unsigned char **p, unsigned char *start, const TlsMpi *X
 
 /**
  * Type-length-value structure that allows for ASN1 using DER.
+ *
+ * @tag		- ASN1 type, e.g. TTLS_ASN1_UTF8_STRING;
+ * @len		- ASN1 length, in octets;
+ * @p		- ASN1 data, e.g. in ASCII.
  */
-typedef struct ttls_asn1_buf
-{
-	int tag;				/**< ASN1 type, e.g. TTLS_ASN1_UTF8_STRING. */
-	size_t len;			 /**< ASN1 length, in octets. */
-	unsigned char *p;	   /**< ASN1 data, e.g. in ASCII. */
-}
-ttls_asn1_buf;
+typedef struct {
+	int		tag;
+	size_t		len;
+	unsigned char	*p;
+} ttls_asn1_buf;
 
 /**
  * Container for ASN1 bit strings.

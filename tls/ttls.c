@@ -1349,7 +1349,7 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 		       unsigned char **in_buf)
 {
 	unsigned int sg_i;
-	size_t i, n, cn, tot_len, cn_max = MAX_SKB_FRAGS / 2 - 1;
+	size_t n, tot_len = 0;
 	const ttls_x509_crt *crt;
 	TlsIOCtx *io = &tls->io_out;
 	unsigned char *p = *in_buf;
@@ -1360,8 +1360,15 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 		return 0;
 	}
 
-	/* Leave the sg for the record header and certs descriptor. */
+	/*
+	 * Remember the sg index for record checksum update.
+	 * Set the fragment now, but write the certificate record later, when
+	 * we have the final record legth - if we fail somwhere at the middle,
+	 * let the called to cleanup all the frags.
+	 */
 	sg_i = sgt->nents++;
+	sg_set_buf(&sgt->sgl[sg_i], p, TLS_HEADER_SIZE + 7);
+	get_page(virt_to_page(p));
 
 	if (tls->conf->endpoint == TTLS_IS_SERVER && !ttls_own_cert(tls)) {
 		T_DBG("got no certificate to send\n");
@@ -1374,61 +1381,44 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 	 *   n . n+2	length of cert. 2
 	 * n+3 . ...	upper level cert, etc.
 	 */
-	tot_len = 7;
-	i = tot_len + TLS_HEADER_SIZE;
-	for (cn = 0, crt = ttls_own_cert(tls); crt; ) {
-		n = crt->raw.len;
-		if (n > TLS_MAX_PAYLOAD_SIZE - 3 - i) {
+	for (crt = ttls_own_cert(tls); crt; crt = crt->next) {
+		if (unlikely(sgt->nents >= MAX_SKB_FRAGS)) {
+			T_WARN("Too many certfificates\n");
+			return -ENOSPC;
+		}
+
+		n = crt->raw.len + TTLS_CERT_LEN_LEN;
+		if (n + tot_len > TLS_MAX_PAYLOAD_SIZE - 7) {
 			T_WARN("certificate too large, %lu > %lu\n",
-			       i + 3 + n, TLS_MAX_PAYLOAD_SIZE);
+			       tot_len + n + 7, TLS_MAX_PAYLOAD_SIZE);
 			return TTLS_ERR_CERTIFICATE_TOO_LARGE;
 		}
 
-		p[i++] = (unsigned char)(n >> 16);
-		p[i++] = (unsigned char)(n >> 8);
-		p[i++] = (unsigned char)n;
-
-		tot_len += 3 + n;
-		get_page(virt_to_page(crt->raw.p));
-		sg_set_buf(&sgt->sgl[sgt->nents++], crt->raw.p, n);
-		WARN_ON_ONCE((unsigned long)crt->raw.p & ~PAGE_MASK);
-		WARN_ON_ONCE(sgt->nents >= MAX_SKB_FRAGS);
-		T_DBG3("add cert page %pK,len=%lu,off=%lu seg=%u\n",
-		       crt->raw.p, n, (unsigned long)crt->raw.p & ~PAGE_MASK,
-		       sgt->nents - 1);
-		crt = crt->next;
-		/*
-		 * Use part of first sg as separate fragment with next cert
-		 * length.
-		 */
-		if (crt && ++cn < cn_max) {
-			get_page(virt_to_page(p));
-			sg_set_buf(&sgt->sgl[sgt->nents++], p, 3);
-			WARN_ON_ONCE(sgt->nents >= MAX_SKB_FRAGS);
-		}
+		tot_len += n;
+		get_page(virt_to_page(ttls_x509_crt_page(crt)));
+		sg_set_buf(&sgt->sgl[sgt->nents++], ttls_x509_crt_page(crt), n);
+		T_DBG3("add cert page %pK,len=%lu seg=%u\n",
+		       crt->raw.p, n, sgt->nents - 1);
 	}
 	if (crt)
 		T_WARN("Can not write full certificates chain\n");
 
 	/*
-	 * Write thr handshake headers on our own.
+	 * Write thr handshake headers on our own (TLS_HEADER_SIZE + 7 bytes).
 	 *
 	 *  0 . 4	record header (to be written in __ttls_add_record()
-	 *  5 . 5	handshake type
+	 *  5 . 5	handshake type (certificate)
 	 *  6 . 8	handshake length
 	 *  9 . 11	length of all certs
 	 */
-	io->msglen = tot_len;
-	ttls_write_hshdr(TTLS_HS_CERTIFICATE, p + TLS_HEADER_SIZE, tot_len);
-	p[9] = (unsigned char)((tot_len - 7) >> 16);
-	p[10] = (unsigned char)((tot_len - 7) >> 8);
-	p[11] = (unsigned char)(tot_len - 7);
-	T_DBG3("cert desc %pK,len=%lu segs=%u\n", p, i, sgt->nents);
-
-	*in_buf = p + i;
-	sg_set_buf(&sgt->sgl[sg_i], p, i);
-	get_page(virt_to_page(p));
+	io->msglen = tot_len + 7;
+	ttls_write_hshdr(TTLS_HS_CERTIFICATE, p + TLS_HEADER_SIZE, tot_len + 7);
+	p[9] = (unsigned char)(tot_len >> 16);
+	p[10] = (unsigned char)(tot_len >> 8);
+	p[11] = (unsigned char)tot_len;
 	__ttls_add_record(tls, sgt, sg_i, p);
+
+	*in_buf = p + TLS_HEADER_SIZE + 7;
 
 	return 0;
 }
@@ -1441,7 +1431,7 @@ ttls_parse_certificate(TlsCtx *tls, unsigned char *buf, size_t len,
 	int r = 0, i = 0, n, authmode;
 	TlsIOCtx *io = &tls->io_in;
 	TlsSess *sess = &tls->sess;
-	struct page *pg;
+	struct page *pg = NULL;
 	unsigned char *p = buf;
 	unsigned char *state_p = buf;
 	T_FSM_INIT(ttls_substate(tls), "TLS ClientCertificate");
@@ -1530,7 +1520,7 @@ parse:
 		ttls_x509_crt_free(sess->peer_cert);
 		kfree(sess->peer_cert);
 	}
-	sess->peer_cert = kmalloc(sizeof(ttls_x509_crt), GFP_KERNEL);
+	sess->peer_cert = kmalloc(sizeof(ttls_x509_crt), GFP_ATOMIC);
 	if (!sess->peer_cert) {
 		T_DBG("can not allocate a certificate (%lu bytes)\n",
 		      sizeof(ttls_x509_crt));
@@ -1678,7 +1668,8 @@ parse:
 		}
 	}
 err:
-	__free_pages(pg, 2);
+	if (pg)
+		__free_pages(pg, 2);
 	return r;
 }
 void

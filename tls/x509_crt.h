@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,10 +28,7 @@
 #include "x509.h"
 #include "x509_crl.h"
 
-/**
- * \name Structures and functions for parsing and writing X.509 certificates
- * \{
- */
+#define TTLS_CERT_LEN_LEN			3
 
 /**
  * Container for an X.509 certificate. The certificate may be chained.
@@ -286,18 +283,30 @@ int ttls_x509_crt_check_extended_key_usage(const ttls_x509_crt *crt,
  */
 int ttls_x509_crt_is_revoked(const ttls_x509_crt *crt, const ttls_x509_crl *crl);
 
-/**
- * \brief		  Initialize a certificate (chain)
- *
- * \param crt	  Certificate chain to initialize
- */
 void ttls_x509_crt_init(ttls_x509_crt *crt);
-
-/**
- * \brief		  Unallocate all certificate data
- *
- * \param crt	  Certificate chain to free
- */
 void ttls_x509_crt_free(ttls_x509_crt *crt);
 
-#endif /* ttls_x509_crt.h */
+/**
+ * Writes certificate length in exactly TTLS_CERT_LEN_LEN bytes of @buf.
+ */
+static inline void
+ttls_x509_write_cert_len(const ttls_x509_crt *crt, unsigned char *buf)
+{
+	size_t n = crt->raw.len;
+
+	buf[0] = (unsigned char)(n >> 16);
+	buf[1] = (unsigned char)(n >> 8);
+	buf[2] = (unsigned char)n;
+}
+
+static inline void *
+ttls_x509_crt_page(const ttls_x509_crt *crt)
+{
+	unsigned long addr = (unsigned long)crt->raw.p - TTLS_CERT_LEN_LEN;
+
+	BUG_ON(addr & ~PAGE_MASK);
+
+	return (void *)addr;
+}
+
+#endif /* TTLS_X509_CRT_H */

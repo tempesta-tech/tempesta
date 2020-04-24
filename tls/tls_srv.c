@@ -1341,7 +1341,7 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 					  TLS_MAX_PAYLOAD_SIZE);
 		if (r) {
 			T_DBG("cannot make ECDH params, %d\n", r);
-			goto err;
+			return r;
 		}
 		WARN_ON_ONCE(len > 500);
 		dig_signed = p;
@@ -1368,7 +1368,7 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 		WARN_ON_ONCE(x_sz > PAGE_SIZE);
 		if ((r = ttls_dhm_make_params(hs->dhm_ctx, x_sz, p, &len))) {
 			T_DBG("cannot make DHM params, %d\n", r);
-			goto err;
+			return r;
 		}
 		WARN_ON_ONCE(len > 500);
 		dig_signed = p;
@@ -1395,18 +1395,15 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 	md_alg = ttls_sig_hash_set_find(&hs->hash_algs, sig_alg);
 	T_DBG("pick sign:hash algorithms %d:%d for signing\n",
 	      sig_alg, md_alg);
-	if (WARN_ON_ONCE(sig_alg == TTLS_PK_NONE || md_alg == TTLS_MD_NONE)) {
-		r = -ENOENT;
-		goto err;
-	}
+	if (WARN_ON_ONCE(sig_alg == TTLS_PK_NONE || md_alg == TTLS_MD_NONE))
+		return -ENOENT;
 	/*
 	 * tls->hs->key_cert must be set on ClientHello by
 	 * ttls_pick_cert().
 	 */
 	if (!hs->key_cert || !hs->key_cert->key) {
 		T_WARN("The own private key is not set, but needed.\n");
-		r = -ENOENT;
-		goto err;
+		return -ENOENT;
 	}
 
 	/*
@@ -1416,7 +1413,7 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 	r = ttls_get_key_exchange_md_tls1_2(tls, hash, dig_signed, sig_len,
 					    md_alg);
 	if (r)
-		goto err;
+		return r;
 	T_DBG3_BUF("parameters hash", hash,
 		   hashlen
 		   ? : ttls_md_get_size(ttls_md_info_from_type(md_alg)));
@@ -1445,7 +1442,7 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 			 p + 2, &sig_len);
 	if (r) {
 		T_DBG("cannot sign the digest, %d\n", r);
-		goto err;
+		return r;
 	}
 	*(p++) = (unsigned char)(sig_len >> 8);
 	*(p++) = (unsigned char)(sig_len);
@@ -1468,9 +1465,6 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 	__ttls_add_record(tls, sgt, sgt->nents - 1, hdr);
 
 	return 0;
-err:
-	put_page(virt_to_page(hdr));
-	return r;
 }
 
 static int
@@ -2061,11 +2055,10 @@ ttls_handshake_finished(TlsCtx *tls)
 			if ((r = ttls_write_new_session_ticket(tls, &sgt, &p)))
 				T_FSM_EXIT();
 			CHECK_STATE(512);
-		} else {
-			ttls_write_change_cipher_spec(tls);
-			tls->state = TTLS_SERVER_FINISHED;
 		}
-		T_FSM_NEXT();
+		ttls_write_change_cipher_spec(tls);
+		tls->state = TTLS_SERVER_FINISHED;
+		T_FSM_JMP(TTLS_SERVER_FINISHED);
 	}
 	T_FSM_STATE(TTLS_SERVER_FINISHED) {
 		if ((r = ttls_write_finished(tls, &sgt, &p)))
