@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -117,7 +117,7 @@ int
 tfw_tls_set_cert(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
-	void *crt_data;
+	unsigned char *crt_data;
 	size_t crt_size;
 	TlsCertConf *conf;
 
@@ -131,20 +131,24 @@ tfw_tls_set_cert(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 
 	ttls_x509_crt_init(&conf->crt);
-	crt_data = tfw_cfg_read_file(ce->vals[0], &crt_size);
+	/* Preserve 3 bytes for the certificate length. */
+	crt_data = tfw_cfg_read_file(ce->vals[0], &crt_size, TTLS_CERT_LEN_LEN);
 	if (!crt_data) {
 		T_ERR_NL("%s: Can't read certificate file '%s'\n",
 			 ce->name, ce->vals[0]);
 		return -EINVAL;
 	}
 
-	r = ttls_x509_crt_parse(&conf->crt, crt_data, crt_size);
+	r = ttls_x509_crt_parse(&conf->crt, crt_data + TTLS_CERT_LEN_LEN,
+				crt_size);
 	if (r) {
 		T_ERR_NL("%s: Invalid certificate specified (%x)\n",
 			 cs->name, -r);
 		free_pages((unsigned long)crt_data, get_order(crt_size));
 		return -EINVAL;
 	}
+	ttls_x509_write_cert_len(&conf->crt, crt_data);
+
 	conf->crt_pg_addr = (unsigned long)crt_data;
 	conf->crt_pg_order = get_order(crt_size);
 
@@ -195,7 +199,7 @@ tfw_tls_set_cert_key(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	ttls_pk_init(&conf->key);
 
-	key_data = tfw_cfg_read_file(ce->vals[0], &key_size);
+	key_data = tfw_cfg_read_file(ce->vals[0], &key_size, 0);
 	if (!key_data) {
 		T_ERR_NL("%s: Can't read certificate file '%s'\n",
 			 ce->name, ce->vals[0]);

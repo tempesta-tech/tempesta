@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -427,7 +427,7 @@ const char *tfw_cfg_get_attr(const TfwCfgEntry *e, const char *attr_key,
 TfwCfgSpec *tfw_cfg_spec_find(TfwCfgSpec specs[], const char *name);
 int tfw_cfg_parse_mods(const char *cfg_text, struct list_head *mod_list);
 
-void *tfw_cfg_read_file(const char *path, size_t *file_size);
+void *tfw_cfg_read_file(const char *path, size_t *file_size, size_t off);
 
 int tfw_cfg_parse(struct list_head *mod_list);
 void tfw_cfg_cleanup(struct list_head *mod_list);
