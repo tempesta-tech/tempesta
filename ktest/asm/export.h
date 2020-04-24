@@ -17,7 +17,7 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __ALTERNATIVE_ASM_H__
-#define __ALTERNATIVE_ASM_H__
+#ifndef __EXPORT_H__
+#define __EXPORT_H__
 
-#endif /* __ALTERNATIVE_ASM_H__ */
+#endif /* __EXPORT_H__ */

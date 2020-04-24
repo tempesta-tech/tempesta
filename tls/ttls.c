@@ -1905,7 +1905,7 @@ ttls_conf_own_cert(TlsPeerCfg *conf, ttls_x509_crt *own_cert, TlsPkCtx *pk_key,
 	new->ca_crl = ca_crl;
 	new->next = NULL;
 
-	/* Update conf->key_cert is the list was NULL, else add to the end. */
+	/* Update conf->key_cert if the list was NULL, else add to the end. */
 	if (!conf->key_cert) {
 		conf->key_cert = new;
 	} else {
