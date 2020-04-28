@@ -1,7 +1,7 @@
 /**
  *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2015-2017 Tempesta Technologies.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -23,13 +23,6 @@
 #include <stdlib.h>
 
 #include "kernel.h"
-
-/*
- * In user space all threads have different identifiers,
- * so there is no problems with preemption.
- */
-#define local_bh_disable()
-#define local_bh_enable()
 
 static size_t __thr_max = 0;
 static size_t __thread __thr_id;

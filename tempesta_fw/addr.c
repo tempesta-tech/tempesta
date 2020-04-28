@@ -116,8 +116,8 @@ tfw_addr_pton_v6(const TfwStr *s, TfwAddr *addr)
 						'\0';
 				if (next == ':') {
 					/*
-					 * Leave current (if empty) or next (otherwise)
-					 * word as a hole.
+					 * Leave current (if empty) or next
+					 * (otherwise) word as a hole.
 					 */
 					if (k < c->len - 1) {
 						++k;
@@ -141,8 +141,8 @@ tfw_addr_pton_v6(const TfwStr *s, TfwAddr *addr)
 					return -EINVAL;
 				/*
 				 * IPv4 mapped address.
-				 * Recalculate the first 2 hexadecimal octets from to
-				 * 1 decimal octet.
+				 * Recalculate the first 2 hexadecimal octets
+				 * from to 1 decimal octet.
 				 */
 				addr->sin6_family = AF_INET6;
 				words[0] = ((words[2] & 0xF000) >> 12) * 1000
@@ -365,7 +365,6 @@ tfw_addr_eq(const TfwAddr *a, const TfwAddr *b)
 	return a->sin6_port == b->sin6_port &&
 	       memcmp(&a->sin6_addr, &b->sin6_addr, sizeof(a->sin6_addr)) == 0;
 }
-EXPORT_SYMBOL(tfw_addr_eq);
 
 /*
  * Check, if listener addr matches server addr
@@ -409,7 +408,6 @@ tfw_addr_ifmatch(const TfwAddr *server, const TfwAddr *listener)
 
 	return tfw_addr_eq(server, listener);
 }
-EXPORT_SYMBOL(tfw_addr_ifmatch);
 
 /*
  * ------------------------------------------------------------------------
@@ -611,7 +609,6 @@ tfw_addr_fmt(const TfwAddr *addr, bool print_port, char *buf)
 
 	return pos;
 }
-EXPORT_SYMBOL(tfw_addr_fmt);
 
 /**
  * Convert IPv4/IPv6 address and a port value to string,

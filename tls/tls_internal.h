@@ -1,4 +1,4 @@
-/*
+/**
  *		Tempesta TLS
  *
  * Internal functions shared by the TLS modules.
@@ -7,7 +7,6 @@
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
- * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,14 +25,25 @@
 #ifndef TTLS_INTERNAL_H
 #define TTLS_INTERNAL_H
 
+#include <linux/types.h>
 #include <asm/fpu/api.h>
 
-#include "debug.h"
+/* Affects only TempestaTLS internal debug symbols. */
+#if DBG_TLS == 0
+#undef DEBUG
+#endif
+
+#ifndef BANNER
+#define BANNER	"tls"
+#endif
+
 #include "lib/fsm.h"
+#include "lib/log.h"
 #include "lib/str.h"
 
 #include "crypto.h"
 #include "ttls.h"
+#include "x509_crt.h"
 
 /* Determine minimum supported version */
 #define TTLS_MIN_MAJOR_VERSION		TTLS_MAJOR_VERSION_3
@@ -81,7 +91,6 @@
  */
 #define TTLS_HS_FINISHED_BODY_LEN	40
 
-
 /*
  * Abstraction for a grid of allowed signature-hash-algorithm pairs.
  *
@@ -99,8 +108,7 @@
  * we can implement the sig-hash-set as a map from signatures
  * to hash algorithms
  */
-typedef struct
-{
+typedef struct {
 	unsigned int rsa;
 	unsigned int ecdsa;
 } TlsSigHashSet;
@@ -120,15 +128,17 @@ typedef struct
  * @cli_exts	- client extension presence;
  * @pmslen	- premaster length;
  * @key_cert	- chosen key/cert pair (server);
- * @dhm_ctx	- DHM key exchange;
- * @ecdh_ctx	- ECDH key exchange;
  * @fin_sha{256,512} - checksum contexts;
+ * @tmp_sha256	- temporal checksum buffer to handle both the checksum types on
+ *		  early handhsahe steps;
  * @curves	- supported elliptic curves;
  * @randbytes	- random bytes;
  * @finished	- temporal buffer for chunks of Finished message,
  *		  @randbytes were used in previous messages, so we can reuse it
  * @premaster	- premaster secret;
  * @tmp		- buffer to store temporary data between data chunks;
+ * @ecdh_ctx	- ECDH key exchange;
+ * @dhm_ctx	- DHM key exchange;
  */
 struct tls_handshake_t {
 	TlsSigHashSet			hash_algs;
@@ -143,7 +153,7 @@ struct tls_handshake_t {
 					secure_renegotiation	: 1;
 
 	size_t				pmslen;
-	ttls_key_cert			*key_cert;
+	TlsKeyCert			*key_cert;
 
 	void (*calc_verify)(TlsCtx *, unsigned char *);
 	void (*calc_finished)(TlsCtx *, unsigned char *, int);
@@ -151,16 +161,12 @@ struct tls_handshake_t {
 			const unsigned char *, size_t, unsigned char *, size_t);
 
 	union {
-		ttls_dhm_context	dhm_ctx;
-		ttls_ecdh_context	ecdh_ctx;
-		ttls_sha256_context	tmp_sha256;
-	};
-
-	union {
 		struct shash_desc	desc; /* common for both the contexts */
 		ttls_sha256_context	fin_sha256;
 		ttls_sha512_context	fin_sha512;
 	};
+	ttls_sha256_context	tmp_sha256;
+
 	const TlsEcpCurveInfo	*curves[TTLS_ECP_DP_MAX];
 	union {
 		unsigned char		randbytes[64];
@@ -190,27 +196,15 @@ struct tls_handshake_t {
 		};
 		unsigned char key_exchange_tmp[TTLS_HS_RBUF_SZ];
 	};
-};
 
-/*
- * List of certificate + private key pairs
- *
- * @cert		- Server certificate;
- * @key			- key for the certificate;
- * @ca_chain		- trusted CA chain for the issues certificate;
- * @ca_crl		- trusted CAs CRLs
- */
-struct ttls_key_cert
-{
-	ttls_x509_crt			*cert;
-	ttls_pk_context			*key;
-	ttls_x509_crt			*ca_chain;
-	ttls_x509_crl			*ca_crl;
-	ttls_key_cert			*next;
+	union {
+		void			*crypto_ctx;
+		TlsECDHCtx		*ecdh_ctx;
+		TlsDHMCtx		*dhm_ctx;
+	};
 };
 
 extern int ttls_preset_hashes[];
-extern ttls_ecp_group_id ttls_preset_curves[];
 
 /* Find an entry in a signature-hash set matching a given hash algorithm. */
 ttls_md_type_t ttls_sig_hash_set_find(TlsSigHashSet *set,
@@ -260,36 +254,10 @@ int ttls_check_sig_hash(const TlsCtx *tls, ttls_md_type_t md);
 int ttls_match_sig_hashes(const TlsCtx *tls);
 void ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len);
 
-/**
- * Implementation that should never be optimized out by the compiler.
- * Use this only for preemptable contexts and prefer bzero_fast() for softirq.
- */
-static inline void
-ttls_zeroize(void *v, size_t n)
-{
-	volatile unsigned char *p = v;
-
-	while (n--)
-		*p++ = 0;
-}
-
-static inline ttls_pk_context *
-ttls_own_key(TlsCtx *tls)
-{
-	ttls_key_cert *key_cert;
-
-	if (tls->hs && tls->hs->key_cert)
-		key_cert = tls->hs->key_cert;
-	else
-		key_cert = tls->peer_conf ? tls->peer_conf->key_cert : NULL;
-
-	return key_cert ? key_cert->key : NULL;
-}
-
 static inline ttls_x509_crt *
 ttls_own_cert(TlsCtx *tls)
 {
-	ttls_key_cert *key_cert;
+	TlsKeyCert *key_cert;
 
 	if (tls->hs && tls->hs->key_cert)
 		key_cert = tls->hs->key_cert;
@@ -313,10 +281,11 @@ int ttls_check_cert_usage(const ttls_x509_crt *cert,
 			  int cert_endpoint,
 			  uint32_t *flags);
 
-int ttls_get_key_exchange_md_tls1_2(TlsCtx *tls,
-		unsigned char *output,
-		unsigned char *data, size_t data_len,
-		ttls_md_type_t md_alg);
+void ttls_read_version(TlsCtx *tls, const unsigned char ver[2]);
+
+int ttls_get_key_exchange_md_tls1_2(TlsCtx *tls, unsigned char *output,
+				    unsigned char *data, size_t data_len,
+				    ttls_md_type_t md_alg);
 
 /**
  * Use the zeroing function for process context. Softirq context should use
@@ -427,5 +396,26 @@ ttls_substate(const TlsCtx *tls)
 {
 	return tls->state & __TTLS_FSM_SUBST_MASK;
 }
+
+#if defined(DEBUG) && DEBUG == 3
+/*
+ * Make the things repeatable, simple and INSECURE on largest debug level -
+ * this helps to debug TLS (thanks to reproducible records payload), but
+ * must not be used in any security sensitive installations.
+ */
+static inline void
+ttls_rnd(void *buf, size_t len)
+{
+	memset(buf, 0x55, len);
+}
+
+unsigned long ttls_time_debug(void);
+
+#define ttls_time()		ttls_time_debug()
+
+#else
+#define ttls_time()		get_seconds()
+#define ttls_rnd(buf, len)	get_random_bytes_arch(buf, len)
+#endif
 
 #endif

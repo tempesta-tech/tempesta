@@ -1,35 +1,32 @@
-/*
- *  Generic ASN.1 parsing
+/**
+ *		Tempesta TLS
  *
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- *  SPDX-License-Identifier: GPL-2.0
+ * Generic ASN.1 processing.
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ * Based on mbed TLS, https://tls.mbed.org.
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- *  This file is part of mbed TLS (https://tls.mbed.org)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include <linux/slab.h>
 
 #include "asn1.h"
 #include "bignum.h"
-
-/* Implementation that should never be optimized out by the compiler */
-static void ttls_zeroize(void *v, size_t n) {
-	volatile unsigned char *p = (unsigned char*)v; while (n--) *p++ = 0;
-}
+#include "tls_internal.h"
 
 /*
  * ASN.1 DER decoding routines
@@ -150,21 +147,20 @@ int ttls_asn1_get_int(unsigned char **p,
 	return 0;
 }
 
-int ttls_asn1_get_mpi(unsigned char **p,
-				  const unsigned char *end,
-				  TlsMpi *X)
+int
+ttls_asn1_get_mpi(unsigned char **p, const unsigned char *end, TlsMpi *X)
 {
 	int ret;
 	size_t len;
 
-	if ((ret = ttls_asn1_get_tag(p, end, &len, TTLS_ASN1_INTEGER)) != 0)
+	if ((ret = ttls_asn1_get_tag(p, end, &len, TTLS_ASN1_INTEGER)))
 		return ret;
 
-	ret = ttls_mpi_read_binary(X, *p, len);
+	ttls_mpi_read_binary(X, *p, len);
 
 	*p += len;
 
-	return ret;
+	return 0;
 }
 
 int ttls_asn1_get_bitstring(unsigned char **p, const unsigned char *end,
@@ -213,8 +209,6 @@ int ttls_asn1_get_bitstring_null(unsigned char **p, const unsigned char *end,
 
 	return 0;
 }
-
-
 
 /*
  *  Parses and splits an ASN.1 "SEQUENCE OF <tag>"
@@ -294,7 +288,7 @@ int ttls_asn1_get_alg(unsigned char **p,
 
 	if (*p == end)
 	{
-		ttls_zeroize(params, sizeof(ttls_asn1_buf));
+		ttls_bzero_safe(params, sizeof(ttls_asn1_buf));
 		return 0;
 	}
 
@@ -331,42 +325,131 @@ int ttls_asn1_get_alg_null(unsigned char **p,
 	return 0;
 }
 
-void ttls_asn1_free_named_data(ttls_asn1_named_data *cur)
+/**
+ * Write a length field in ASN.1 format.
+ * Note: function works backwards in data buffer.
+ *
+ * @p		- reference to current position pointer;
+ * @start	- start of the buffer (for bounds-checking);
+ * @len		- the length to write.
+ *
+ * @return the length written or a negative error code.
+ */
+int
+ttls_asn1_write_len(unsigned char **p, unsigned char *start, size_t len)
 {
-	if (cur == NULL)
-		return;
-
-	kfree(cur->oid.p);
-	kfree(cur->val.p);
-
-	ttls_zeroize(cur, sizeof(ttls_asn1_named_data));
-}
-
-void ttls_asn1_free_named_data_list(ttls_asn1_named_data **head)
-{
-	ttls_asn1_named_data *cur;
-
-	while ((cur = *head) != NULL)
-	{
-		*head = cur->next;
-		ttls_asn1_free_named_data(cur);
-		kfree(cur);
-	}
-}
-
-ttls_asn1_named_data *ttls_asn1_find_named_data(ttls_asn1_named_data *list,
-			   const char *oid, size_t len)
-{
-	while (list != NULL)
-	{
-		if (list->oid.len == len &&
-			memcmp(list->oid.p, oid, len) == 0)
-		{
-			break;
-		}
-
-		list = list->next;
+	if (len < 0x80) {
+		if (*p - start < 1)
+			return -ENOSPC;
+		*--(*p) = (unsigned char) len;
+		return 1;
 	}
 
-	return(list);
+	if (len <= 0xFF) {
+		if (*p - start < 2)
+			return -ENOSPC;
+
+		*--(*p) = (unsigned char) len;
+		*--(*p) = 0x81;
+		return 2;
+	}
+
+	if (len <= 0xFFFF) {
+		if (*p - start < 3)
+			return -ENOSPC;
+
+		*--(*p) = len & 0xFF;
+		*--(*p) = (len >> 8) & 0xFF;
+		*--(*p) = 0x82;
+		return 3;
+	}
+
+	if (len <= 0xFFFFFF) {
+		if (*p - start < 4)
+			return -ENOSPC;
+
+		*--(*p) = len & 0xFF;
+		*--(*p) = (len >> 8) & 0xFF;
+		*--(*p) = (len >> 16) & 0xFF;
+		*--(*p) = 0x83;
+		return 4;
+	}
+
+	if (len <= 0xFFFFFFFF) {
+		if (*p - start < 5)
+			return -ENOSPC;
+
+		*--(*p) = len & 0xFF;
+		*--(*p) = (len >>  8) & 0xFF;
+		*--(*p) = (len >> 16) & 0xFF;
+		*--(*p) = (len >> 24) & 0xFF;
+		*--(*p) = 0x84;
+		return 5;
+	}
+
+	return -EINVAL;
+}
+
+/**
+ * Write a ASN.1 tag in ASN.1 format.
+ * Note: function works backwards in data buffer
+ *
+ * @p		- reference to current position pointer;
+ * @start	- start of the buffer (for bounds-checking);
+ * @tag		- the tag to write.
+ *
+ * @return the length written or a negative error code.
+ */
+int
+ttls_asn1_write_tag(unsigned char **p, unsigned char *start, unsigned char tag)
+{
+	if (*p - start < 1)
+		return -ENOSPC;
+
+	*--(*p) = tag;
+
+	return 1;
+}
+
+/**
+ * Write a big number (TTLS_ASN1_INTEGER) in ASN.1 format.
+ * Note: function works backwards in data buffer
+ *
+ * @p		- reference to current position pointer;
+ * @start	- start of the buffer (for bounds-checking);
+ * @X		- the MPI to write.
+ *
+ * @return the length written or a negative error code.
+ */
+int
+ttls_asn1_write_mpi(unsigned char **p, unsigned char *start, const TlsMpi *X)
+{
+	int ret;
+	size_t len = ttls_mpi_size(X);
+
+	if (*p < start || (size_t)(*p - start) < len)
+		return -ENOSPC;
+
+	(*p) -= len;
+	TTLS_MPI_CHK(ttls_mpi_write_binary(X, *p, len));
+
+	/*
+	 * DER format assumes 2s complement for numbers, so the leftmost bit
+	 * should be 0 for positive numbers and 1 for negative numbers.
+	 */
+	if (X->s ==1 && **p & 0x80) {
+		if (*p - start < 1)
+			return -ENOSPC;
+
+		*--(*p) = 0x00;
+		len += 1;
+	}
+
+	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_len(p, start, len));
+	TTLS_ASN1_CHK_ADD(len, ttls_asn1_write_tag(p, start, TTLS_ASN1_INTEGER));
+
+	ret = (int)len;
+
+cleanup:
+	return ret;
 }

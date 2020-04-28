@@ -5,7 +5,6 @@
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
- * SPDX-License-Identifier: GPL-2.0
  *
  * Based on mbed TLS, https://tls.mbed.org.
  *
@@ -59,29 +58,15 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "DHM - Bad input parameters");
 		if (use_ret == -(TTLS_ERR_DHM_READ_PARAMS_FAILED))
 			snprintf(buf, buflen, "DHM - Reading of the DHM parameters failed");
-		if (use_ret == -(TTLS_ERR_DHM_MAKE_PARAMS_FAILED))
-			snprintf(buf, buflen, "DHM - Making of the DHM parameters failed");
 		if (use_ret == -(TTLS_ERR_DHM_READ_PUBLIC_FAILED))
 			snprintf(buf, buflen, "DHM - Reading of the public values failed");
 		if (use_ret == -(TTLS_ERR_DHM_MAKE_PUBLIC_FAILED))
 			snprintf(buf, buflen, "DHM - Making of the public value failed");
 		if (use_ret == -(TTLS_ERR_DHM_CALC_SECRET_FAILED))
 			snprintf(buf, buflen, "DHM - Calculation of the DHM secret failed");
-		if (use_ret == -(TTLS_ERR_DHM_INVALID_FORMAT))
-			snprintf(buf, buflen, "DHM - The ASN.1 data is not formatted correctly");
-		if (use_ret == -(TTLS_ERR_DHM_ALLOC_FAILED))
-			snprintf(buf, buflen, "DHM - Allocation of memory failed");
-		if (use_ret == -(TTLS_ERR_DHM_FILE_IO_ERROR))
-			snprintf(buf, buflen, "DHM - Read or write of file failed");
-		if (use_ret == -(TTLS_ERR_DHM_HW_ACCEL_FAILED))
-			snprintf(buf, buflen, "DHM - DHM hardware accelerator failed");
-		if (use_ret == -(TTLS_ERR_DHM_SET_GROUP_FAILED))
-			snprintf(buf, buflen, "DHM - Setting the modulus and generator failed");
 
 		if (use_ret == -(TTLS_ERR_ECP_BAD_INPUT_DATA))
 			snprintf(buf, buflen, "ECP - Bad input parameters to function");
-		if (use_ret == -(TTLS_ERR_ECP_BUFFER_TOO_SMALL))
-			snprintf(buf, buflen, "ECP - The buffer is too small to write to");
 		if (use_ret == -(TTLS_ERR_ECP_FEATURE_UNAVAILABLE))
 			snprintf(buf, buflen, "ECP - Requested curve not available");
 		if (use_ret == -(TTLS_ERR_ECP_VERIFY_FAILED))
@@ -90,8 +75,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "ECP - Generation of random value, such as (ephemeral) key, failed");
 		if (use_ret == -(TTLS_ERR_ECP_SIG_LEN_MISMATCH))
 			snprintf(buf, buflen, "ECP - Signature is valid but shorter than the user-supplied length");
-		if (use_ret == -(TTLS_ERR_ECP_HW_ACCEL_FAILED))
-			snprintf(buf, buflen, "ECP - ECP hardware accelerator failed");
 
 		if (use_ret == -(TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT))
 			snprintf(buf, buflen, "PEM - No PEM header or footer found");
@@ -99,8 +82,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "PEM - PEM string is not as expected");
 		if (use_ret == -(TTLS_ERR_PEM_ALLOC_FAILED))
 			snprintf(buf, buflen, "PEM - Failed to allocate memory");
-		if (use_ret == -(TTLS_ERR_PEM_INVALID_ENC_IV))
-			snprintf(buf, buflen, "PEM - RSA IV is not in hex-format");
 		if (use_ret == -(TTLS_ERR_PEM_UNKNOWN_ENC_ALG))
 			snprintf(buf, buflen, "PEM - Unsupported key encryption algorithm");
 		if (use_ret == -(TTLS_ERR_PEM_PASSWORD_REQUIRED))
@@ -132,10 +113,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "PK - The pubkey tag or value is invalid (only RSA and EC are supported)");
 		if (use_ret == -(TTLS_ERR_PK_INVALID_ALG))
 			snprintf(buf, buflen, "PK - The algorithm tag or value is invalid");
-		if (use_ret == -(TTLS_ERR_PK_UNKNOWN_NAMED_CURVE))
-			snprintf(buf, buflen, "PK - Elliptic curve is unsupported (only NIST curves are supported)");
-		if (use_ret == -(TTLS_ERR_PK_FEATURE_UNAVAILABLE))
-			snprintf(buf, buflen, "PK - Unavailable feature, e.g. RSA disabled for RSA key");
 		if (use_ret == -(TTLS_ERR_PK_SIG_LEN_MISMATCH))
 			snprintf(buf, buflen, "PK - The signature is valid but its length is less than expected");
 		if (use_ret == -(TTLS_ERR_PK_HW_ACCEL_FAILED))
@@ -145,8 +122,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "RSA - Bad input parameters to function");
 		if (use_ret == -(TTLS_ERR_RSA_INVALID_PADDING))
 			snprintf(buf, buflen, "RSA - Input data contains invalid padding and is rejected");
-		if (use_ret == -(TTLS_ERR_RSA_KEY_GEN_FAILED))
-			snprintf(buf, buflen, "RSA - Something failed during generation of a key");
 		if (use_ret == -(TTLS_ERR_RSA_KEY_CHECK_FAILED))
 			snprintf(buf, buflen, "RSA - Key failed to pass the validity check of the library");
 		if (use_ret == -(TTLS_ERR_RSA_PUBLIC_FAILED))
@@ -155,15 +130,8 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "RSA - The private key operation failed");
 		if (use_ret == -(TTLS_ERR_RSA_VERIFY_FAILED))
 			snprintf(buf, buflen, "RSA - The PKCS#1 verification failed");
-		if (use_ret == -(TTLS_ERR_RSA_OUTPUT_TOO_LARGE))
-			snprintf(buf, buflen, "RSA - The output buffer for decryption is not large enough");
 		if (use_ret == -(TTLS_ERR_RSA_RNG_FAILED))
 			snprintf(buf, buflen, "RSA - The random generator failed to generate non-zeros");
-		if (use_ret == -(TTLS_ERR_RSA_UNSUPPORTED_OPERATION))
-			snprintf(buf, buflen, "RSA - The implementation does not offer the requested operation, for example, because of security violations or lack of functionality");
-		if (use_ret == -(TTLS_ERR_RSA_HW_ACCEL_FAILED))
-			snprintf(buf, buflen, "RSA - RSA hardware accelerator failed");
-
 		if (use_ret == -(TTLS_ERR_FEATURE_UNAVAILABLE))
 			snprintf(buf, buflen, "TLS - The requested feature is not available");
 		if (use_ret == -(TTLS_ERR_BAD_INPUT_DATA))
@@ -180,8 +148,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "TLS - Our own certificate(s) is/are too large to send in an TLS message");
 		if (use_ret == -(TTLS_ERR_CERTIFICATE_REQUIRED))
 			snprintf(buf, buflen, "TLS - The own certificate is not set, but needed by the server");
-		if (use_ret == -(TTLS_ERR_PRIVATE_KEY_REQUIRED))
-			snprintf(buf, buflen, "TLS - The own private key or pre-shared key is not set, but needed");
 		if (use_ret == -(TTLS_ERR_CA_CHAIN_REQUIRED))
 			snprintf(buf, buflen, "TLS - No CA Chain is set, but required to operate");
 		if (use_ret == -(TTLS_ERR_UNEXPECTED_MESSAGE))
@@ -229,8 +195,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 
 		if (use_ret == -(TTLS_ERR_X509_FEATURE_UNAVAILABLE))
 			snprintf(buf, buflen, "X509 - Unavailable feature, e.g. RSA hashing/encryption combination");
-		if (use_ret == -(TTLS_ERR_X509_UNKNOWN_OID))
-			snprintf(buf, buflen, "X509 - Requested OID is unknown");
 		if (use_ret == -(TTLS_ERR_X509_INVALID_FORMAT))
 			snprintf(buf, buflen, "X509 - The CRT/CRL/CSR format is invalid, e.g. different type expected");
 		if (use_ret == -(TTLS_ERR_X509_INVALID_VERSION))
@@ -261,13 +225,8 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 			snprintf(buf, buflen, "X509 - Input invalid");
 		if (use_ret == -(TTLS_ERR_X509_ALLOC_FAILED))
 			snprintf(buf, buflen, "X509 - Allocation of memory failed");
-		if (use_ret == -(TTLS_ERR_X509_FILE_IO_ERROR))
-			snprintf(buf, buflen, "X509 - Read/write of file failed");
-		if (use_ret == -(TTLS_ERR_X509_BUFFER_TOO_SMALL))
-			snprintf(buf, buflen, "X509 - Destination buffer is too small");
 		if (use_ret == -(TTLS_ERR_X509_FATAL_ERROR))
 			snprintf(buf, buflen, "X509 - A fatal error occurred, eg the chain is too long or the vrfy callback failed");
-		// END generated code
 
 		if (strlen(buf) == 0)
 			snprintf(buf, buflen, "UNKNOWN ERROR CODE (%04X)", use_ret);
@@ -306,8 +265,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 		snprintf(buf, buflen, "ASN1 - Data is invalid. (not used)");
 	if (use_ret == -(TTLS_ERR_ASN1_ALLOC_FAILED))
 		snprintf(buf, buflen, "ASN1 - Memory allocation failed");
-	if (use_ret == -(TTLS_ERR_ASN1_BUF_TOO_SMALL))
-		snprintf(buf, buflen, "ASN1 - Buffer too small when writing ASN.1 data structure");
 
 	if (use_ret == -(TTLS_ERR_BASE64_BUFFER_TOO_SMALL))
 		snprintf(buf, buflen, "BASE64 - Output buffer too small");

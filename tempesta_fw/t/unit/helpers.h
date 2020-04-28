@@ -2,6 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -20,16 +21,15 @@
 #ifndef __TFW_TEST_HELPER_H__
 #define __TFW_TEST_HELPER_H__
 
-/* These functions help to create fake HTTP messages for testing without
- * involving complicated stuff like sk_buff manipulations. */
+#include "http.h"
+
+/*
+ * These functions help to create fake HTTP messages for testing without
+ * involving complicated stuff like sk_buff manipulations.
+ */
 TfwHttpReq *test_req_alloc(size_t data_len);
 void test_req_free(TfwHttpReq *req);
 TfwHttpResp *test_resp_alloc(size_t data_len);
 void test_resp_free(TfwHttpResp *req);
-
-/* Helpers to start/stop minimum 'http_sticky' functionality, necessary
- * for some tests (e.g. in 'test_http_parser'). */
-int test_helper_sticky_start(unsigned int misses);
-void test_helper_sticky_stop(void);
 
 #endif /* __TFW_TEST_HELPER_H__ */

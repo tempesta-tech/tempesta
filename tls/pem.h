@@ -1,11 +1,10 @@
-/*
+/**
  *		Tempesta TLS
  *
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
  * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- * SPDX-License-Identifier: GPL-2.0
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,8 +35,6 @@
 #define TTLS_ERR_PEM_INVALID_DATA			-0x1100
 /* Failed to allocate memory. */
 #define TTLS_ERR_PEM_ALLOC_FAILED			-0x1180
-/* RSA IV is not in hex-format. */
-#define TTLS_ERR_PEM_INVALID_ENC_IV			-0x1200
 /* Unsupported key encryption algorithm. */
 #define TTLS_ERR_PEM_UNKNOWN_ENC_ALG			-0x1280
 /* Private key password can't be empty. */

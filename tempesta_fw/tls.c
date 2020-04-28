@@ -83,7 +83,7 @@ tfw_tls_chop_skb_rec(TlsCtx *tls, struct sk_buff *skb,
 }
 
 static inline void
-ttls_purge_io_ctx(TlsIOCtx *io)
+tfw_tls_purge_io_ctx(TlsIOCtx *io)
 {
 	struct sk_buff *skb;
 
@@ -166,6 +166,9 @@ next_msg:
 		 * Current record contains an "application data" message.
 		 * ttls_recv() has already decrypted the payload, but TLS
 		 * overhead data are still attached. We need to cut them off.
+		 *
+		 * Pass tls->io_in.skb_list to data_up ownership for the upper
+		 * layer processing.
 		 */
 		r = tfw_tls_chop_skb_rec(tls, tls->io_in.skb_list, &data_up);
 		if (r) {
@@ -186,7 +189,7 @@ next_msg:
 		 * The decrypted payload is not required for upper levels.
 		 * Lifetime of skbs in input contexts ends here.
 		 */
-		ttls_purge_io_ctx(&tls->io_in);
+		tfw_tls_purge_io_ctx(&tls->io_in);
 		spin_unlock(&tls->lock);
 	}
 
@@ -553,7 +556,10 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt, bool close)
 	if (ttls_xfrm_need_encrypt(tls))
 		flags |= SS_SKB_TYPE2F(io->msgtype) | SS_F_ENCRYPT;
 
-	return ss_send(conn->cli_conn.sk, &io->skb_list, flags);
+	r = ss_send(conn->cli_conn.sk, &io->skb_list, flags);
+	WARN_ON_ONCE(io->skb_list);
+
+	return r;
 }
 
 static void
@@ -561,21 +567,20 @@ tfw_tls_conn_dtor(void *c)
 {
 	struct sk_buff *skb;
 	TlsCtx *tls = tfw_tls_context(c);
-	TfwH2Ctx *h2 = tfw_h2_context(c);
+
+	tfw_h2_context_clear(tfw_h2_context(c));
 
 	if (tls) {
 		while ((skb = ss_skb_dequeue(&tls->io_in.skb_list)))
 			kfree_skb(skb);
 		while ((skb = ss_skb_dequeue(&tls->io_out.skb_list)))
 			kfree_skb(skb);
-	}
 
-	tfw_h2_context_clear(h2);
-	if (tls && tls->peer_conf) {
-		tfw_vhost_put(tfw_vhost_from_tls_conf(tls->peer_conf));
-		tls->peer_conf = NULL;
+		if (tls->peer_conf)
+			tfw_vhost_put(tfw_vhost_from_tls_conf(tls->peer_conf));
+
+		ttls_ctx_clear(tls);
 	}
-	ttls_ctx_clear(tls);
 	tfw_cli_conn_release((TfwCliConn *)c);
 }
 
@@ -727,7 +732,7 @@ tfw_tls_get_if_configured(TfwVhost *vhost)
  * configuration is required. In the latter case @data is NULL and @len is 0.
  */
 static int
-tfw_tls_sni(void *p_sni, TlsCtx *ctx, const unsigned char *data, size_t len)
+tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 {
 	const TfwStr srv_name = {.data = (unsigned char *)data, .len = len};
 	TfwVhost *vhost = NULL;
@@ -791,7 +796,6 @@ tfw_tls_do_init(void)
 		T_ERR_NL("TLS: can't set config defaults (%x)\n", -r);
 		return -EINVAL;
 	}
-	ttls_conf_sni(&tfw_tls.cfg, tfw_tls_sni, NULL);
 
 	return 0;
 }
@@ -949,7 +953,7 @@ tfw_tls_init(void)
 	if (r)
 		return -EINVAL;
 
-	ttls_register_bio(tfw_tls_send);
+	ttls_register_callbacks(tfw_tls_send, tfw_tls_sni);
 
 	if ((r = tfw_h2_init()))
 		goto err_h2;

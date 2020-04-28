@@ -1,28 +1,26 @@
 /**
- * \file x509_crl.h
+ *		Tempesta TLS
  *
- * \brief X.509 certificate revocation list parsing
- */
-/*
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- *  SPDX-License-Identifier: GPL-2.0
+ * X.509 certificate revocation list parsing
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ * Based on mbed TLS, https://tls.mbed.org.
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- *  This file is part of mbed TLS (https://tls.mbed.org)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #ifndef TTLS_X509_CRL_H
 #define TTLS_X509_CRL_H
@@ -105,20 +103,6 @@ int ttls_x509_crl_parse_der(ttls_x509_crl *chain,
  * \return		 0 if successful, or a specific X509 or PEM error code
  */
 int ttls_x509_crl_parse(ttls_x509_crl *chain, unsigned char *buf, size_t buflen);
-
-/**
- * \brief		  Returns an informational string about the CRL.
- *
- * \param buf	  Buffer to write to
- * \param size	 Maximum size of buffer
- * \param prefix   A line prefix
- * \param crl	  The X509 CRL to represent
- *
- * \return		 The length of the string written (not including the
- *				 terminated nul byte), or a negative error code.
- */
-int ttls_x509_crl_info(char *buf, size_t size, const char *prefix,
-				   const ttls_x509_crl *crl);
 
 /**
  * \brief		  Initialize a CRL (chain)

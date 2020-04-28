@@ -23,8 +23,8 @@
 #include <net/tls.h>
 
 #include "lib/str.h"
-#include "debug.h"
 #include "crypto.h"
+#include "tls_internal.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -158,13 +158,6 @@ typedef struct {
 	TlsMdInfo		*info;
 } TlsHashDef;
 
-static TlsMdInfo ttls_sha224_info = {
-	.type		= TTLS_MD_SHA224,
-	.name		= "SHA224",
-	.alg_name	= "sha224",
-	.hmac_name	= "hmac(sha224)",
-};
-
 static TlsMdInfo ttls_sha256_info = {
 	.type		= TTLS_MD_SHA256,
 	.name		= "SHA256",
@@ -193,7 +186,6 @@ static TlsHashDef ttls_hashes[] = {
 	{ TTLS_MD_SHA512,	&ttls_sha512_info },
 	{ TTLS_MD_SHA384,	&ttls_sha384_info },
 	{ TTLS_MD_SHA256,	&ttls_sha256_info },
-	{ TTLS_MD_SHA224,	&ttls_sha224_info },
 	{ TTLS_MD_NONE,		NULL }
 };
 
@@ -355,8 +347,6 @@ const TlsMdInfo *
 ttls_md_info_from_type(ttls_md_type_t md_type)
 {
 	switch (md_type) {
-	case TTLS_MD_SHA224:
-		return &ttls_sha224_info;
 	case TTLS_MD_SHA256:
 		return &ttls_sha256_info;
 	case TTLS_MD_SHA384:
