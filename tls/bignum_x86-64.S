@@ -593,6 +593,10 @@ ENDPROC(mpi_sqr_x86_64_4)
  * TBD: in total, this is about 65% slower than the Montgomery P-reduction after
  * multiplication, but we don't pay for Montgomery transformations.
  *
+ * M.Brown, D.Hankerson, J.Lopez, A.Menezes. "Software implementation of the
+ * NIST elliptic curves over prime fields" estimates that this fast reduction
+ * is about x3 faster for p256 than the Barret reduction.
+ *
  * TODO align the MPI on a cache line.
  *
  * %RDI	- pointer to 8 limbs big integer to be reduced.

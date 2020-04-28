@@ -1,15 +1,22 @@
 # Tempesta TLS
 
-This is Linux kernel fork from the
-[mbed TLS 2.8.0](https://tls.mbed.org/download/start/mbedtls-2.8.0-gpl.tgz)
-distributed under GPLv2.
+Oroginally **Tempesta TLS** was forked from GPLv2 version of
+[mbed TLS 2.8.0](https://tls.mbed.org/download/start/mbedtls-2.8.0-gpl.tgz).
+However, it was significantly reworked to make the code fast, so at the moment
+only interface code PKI is left from mbed TLS.
+The main changes are:
+* Zero-copy I/O;
+* Awareness about current TCP congestion and receive windows;
+* Using Linux native crypto API with optimized algorithm implementations.
 
-TLS handshakes are susceptible to
+**Tempesta TLS** implements fast TLS handshakes and uses the native Linux
+crypto API for the symmetric cryptography algorithms. TLS handshakes are
+susceptible to
 [DDoS attacks](https://vincent.bernat.im/en/blog/2011-ssl-dos-mitigation) which
 are very effective at depleting resources. Meantime, modern TLS libraries don't
 address handshakes performance at all implementing handshakes code in
-inefficient way. Tempesta TLS emphasizes TLS handshakes performance to mitigate
-DDoS attacks.
+inefficient way. **Tempesta TLS** emphasizes TLS handshakes performance to
+mitigate DDoS attacks.
 
 The library was significantly reduced in size and is one of the smallest (yet
 featureful) TLS implementations. The small size of the cryptography library

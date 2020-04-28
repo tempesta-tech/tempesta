@@ -39,7 +39,7 @@
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
 MODULE_DESCRIPTION("Tempesta TLS");
-MODULE_VERSION("0.3.0");
+MODULE_VERSION("0.3.1");
 MODULE_LICENSE("GPL");
 
 static DEFINE_PER_CPU(struct aead_request *, g_req) ____cacheline_aligned;
@@ -394,16 +394,10 @@ ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len)
 	/*
 	 * Initialize the hash context on first call to avoid double
 	 * hash calculation.
-	 *
-	 * We may find empty ciphersuite_info here only if we process a part of
-	 * ClientHello message, when we hadn't read the extension yet. If so,
-	 * then do a trick: compute both the checksums for the chunk and use
-	 * hs->ecdh_ctx to store SHA256 checksum data.
 	 */
 	if (unlikely(IS_ERR_OR_NULL(ci))) {
 		ttls_sha256_context *sha256 = &hs->tmp_sha256;
 		WARN_ON_ONCE(tls->state >= TTLS_SERVER_HELLO);
-		BUILD_BUG_ON(sizeof(TlsECDHCtx) < sizeof(ttls_sha256_context));
 
 		if (!ci) {
 			if (WARN_ON_ONCE(ttls_sha256_init_start(sha256)))
