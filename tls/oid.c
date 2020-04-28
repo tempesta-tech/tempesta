@@ -1,27 +1,26 @@
 /**
- * \file oid.c
+ *		Tempesta TLS
  *
- * \brief Object Identifier (OID) database
+ * Object Identifier (OID) database
  *
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- *  SPDX-License-Identifier: GPL-2.0
+ * Based on mbed TLS, https://tls.mbed.org.
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
- *  This file is part of mbed TLS (https://tls.mbed.org)
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include "oid.h"
 #include "rsa.h"
@@ -279,9 +278,6 @@ static const ttls_oid_descriptor_t oid_ext_key_usage[] =
 	{ NULL, 0, NULL, NULL },
 };
 
-FN_OID_TYPED_FROM_ASN1(ttls_oid_descriptor_t, ext_key_usage, oid_ext_key_usage)
-FN_OID_GET_ATTR1(ttls_oid_get_extended_key_usage, ttls_oid_descriptor_t, ext_key_usage, const char *, description)
-
 /*
  * For SignatureAlgorithmIdentifier
  */
@@ -294,10 +290,6 @@ typedef struct {
 static const oid_sig_alg_t oid_sig_alg[] =
 {
 	{
-		{ ADD_LEN(TTLS_OID_PKCS1_SHA224),	 "sha224WithRSAEncryption",  "RSA with SHA-224" },
-		TTLS_MD_SHA224,   TTLS_PK_RSA,
-	},
-	{
 		{ ADD_LEN(TTLS_OID_PKCS1_SHA256),	 "sha256WithRSAEncryption",  "RSA with SHA-256" },
 		TTLS_MD_SHA256,   TTLS_PK_RSA,
 	},
@@ -308,10 +300,6 @@ static const oid_sig_alg_t oid_sig_alg[] =
 	{
 		{ ADD_LEN(TTLS_OID_PKCS1_SHA512),	 "sha512WithRSAEncryption",  "RSA with SHA-512" },
 		TTLS_MD_SHA512,   TTLS_PK_RSA,
-	},
-	{
-		{ ADD_LEN(TTLS_OID_ECDSA_SHA224),	 "ecdsa-with-SHA224",	"ECDSA with SHA224" },
-		TTLS_MD_SHA224,   TTLS_PK_ECDSA,
 	},
 	{
 		{ ADD_LEN(TTLS_OID_ECDSA_SHA256),	 "ecdsa-with-SHA256",	"ECDSA with SHA256" },
@@ -391,22 +379,6 @@ static const oid_ecp_grp_t oid_ecp_grp[] =
 		TTLS_ECP_DP_SECP384R1,
 	},
 	{
-		{ ADD_LEN(TTLS_OID_EC_GRP_SECP521R1), "secp521r1",	"secp521r1" },
-		TTLS_ECP_DP_SECP521R1,
-	},
-	{
-		{ ADD_LEN(TTLS_OID_EC_GRP_BP256R1),   "brainpoolP256r1","brainpool256r1" },
-		TTLS_ECP_DP_BP256R1,
-	},
-	{
-		{ ADD_LEN(TTLS_OID_EC_GRP_BP384R1),   "brainpoolP384r1","brainpool384r1" },
-		TTLS_ECP_DP_BP384R1,
-	},
-	{
-		{ ADD_LEN(TTLS_OID_EC_GRP_BP512R1),   "brainpoolP512r1","brainpool512r1" },
-		TTLS_ECP_DP_BP512R1,
-	},
-	{
 		{ NULL, 0, NULL, NULL },
 		TTLS_ECP_DP_NONE,
 	},
@@ -445,10 +417,6 @@ typedef struct {
 static const oid_md_alg_t oid_md_alg[] =
 {
 	{
-		{ ADD_LEN(TTLS_OID_DIGEST_ALG_SHA224),	"id-sha224",	"SHA-224" },
-		TTLS_MD_SHA224,
-	},
-	{
 		{ ADD_LEN(TTLS_OID_DIGEST_ALG_SHA256),	"id-sha256",	"SHA-256" },
 		TTLS_MD_SHA256,
 	},
@@ -480,10 +448,6 @@ typedef struct {
 
 static const oid_md_hmac_t oid_md_hmac[] =
 {
-	{
-		{ ADD_LEN(TTLS_OID_HMAC_SHA224),	"hmacSHA224",	"HMAC-SHA-224" },
-		TTLS_MD_SHA224,
-	},
 	{
 		{ ADD_LEN(TTLS_OID_HMAC_SHA256),	"hmacSHA256",	"HMAC-SHA-256" },
 		TTLS_MD_SHA256,

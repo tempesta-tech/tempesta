@@ -50,14 +50,18 @@ typedef enum {
 	TTLS_MODE_CCM,
 } ttls_cipher_mode_t;
 
-/* Supported message digests. */
+/*
+ * Supported message digests.
+ *
+ * TODO #1031: At the moment only SHA256 and SHA384 are supported in the
+ * ciphersuites, but SHA512 is ready.
+ */
 typedef enum {
 	TTLS_MD_NONE = 0,
-	TTLS_MD_SHA1,
-	TTLS_MD_SHA224,
 	TTLS_MD_SHA256,
 	TTLS_MD_SHA384,
 	TTLS_MD_SHA512,
+	__TTLS_MD_N = TTLS_MD_SHA512
 } ttls_md_type_t;
 
 /** Maximum length of any IV, in Bytes. */
@@ -201,9 +205,12 @@ ttls_md_hmac_finish(TlsMdCtx *ctx, unsigned char *output)
 static inline unsigned char
 ttls_md_get_size(const TlsMdInfo *md_info)
 {
-	struct crypto_alg *alg = md_info->alg_hash ? : md_info->alg_hmac;
+	struct crypto_alg *alg;
 
-	BUG_ON(!md_info || !alg);
+	BUG_ON(!md_info);
+
+	alg = md_info->alg_hash ? : md_info->alg_hmac;
+	BUG_ON(!alg);
 
 	return __crypto_shash_alg(alg)->digestsize;
 }

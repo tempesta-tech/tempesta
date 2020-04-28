@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -18,10 +18,12 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #include "addr.h"
 #include "test.h"
 
+#undef EXPORT_SYMBOL
+#define EXPORT_SYMBOL(...)
+#include "addr.c"
 
 TEST(tfw_addr_ntop, formats_ipv4_addrs)
 {

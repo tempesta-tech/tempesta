@@ -2,15 +2,17 @@
  *		Tempesta TLS
  *
  * Elliptic curve Diffie-Hellman.
+ *
  * References:
- *	SEC1 http://www.secg.org/index.php?action=secg,docs_secg
- *	RFC 4492
+ *
+ * 1. SEC1 http://www.secg.org/index.php?action=secg,docs_secg
+ *
+ * 2. RFC 8422
  *
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
- * SPDX-License-Identifier: GPL-2.0
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,181 +32,131 @@
 
 #include "ecdh.h"
 
-/*
- * Generate public key: simple wrapper around ttls_ecp_gen_keypair
+/**
+ * Compute shared secret (SEC1 3.3.1).
+ * This function performs the second of two core computations implemented
+ * during the ECDH key exchange. The first core computation is performed by
+ * ttls_ecp_gen_keypair().
+ *
+ * @grp		- the ECP group;
+ * @z		- a point, which X coordinage is a shared secret;
+ * @Q		- the public key from another party;
+ * @d		- our secret exponent (private key).
  */
-int ttls_ecdh_gen_public(TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q)
+static int
+ttls_ecdh_compute_shared(TlsEcpGrp *grp, TlsEcpPoint *z, const TlsEcpPoint *Q,
+			 const TlsMpi *d)
 {
-	return ttls_ecp_gen_keypair(grp, d, Q);
+	int r;
+
+	/* Make sure Q is a valid pubkey before using it. */
+	if ((r = ttls_ecp_check_pubkey(grp, Q)))
+		return r;
+
+	/* Compute the shared secret. */
+	if ((r = ttls_ecp_mul(grp, z, d, Q, true)))
+		return r;
+
+	return ttls_ecp_is_zero(z) ? -EINVAL : 0;
 }
 
-/*
- * Compute shared secret (SEC1 3.3.1)
+/**
+ * Setup and write the ServerKeyExhange parameters (RFC 8422 5.4):
+ *	struct {
+ *		ECParameters	curve_params;
+ *		ECPoint		public;
+ *	} ServerECDHParams;
+ *
+ * This function generates a public key and a TLS ServerKeyExchange payload.
+ * This is the first function used by a TLS server for ECDHE ciphersuites.
+ * It's assumed that the ECP group (grp) of the ctx context has already been
+ * properly set.
  */
 int
-ttls_ecdh_compute_shared(TlsEcpGrp *grp, TlsMpi *z,
-			 const TlsEcpPoint *Q, const TlsMpi *d)
-{
-	int ret;
-	TlsEcpPoint P;
-
-	ttls_ecp_point_init(&P);
-
-	/*
-	 * Make sure Q is a valid pubkey before using it
-	 */
-	TTLS_MPI_CHK(ttls_ecp_check_pubkey(grp, Q));
-
-	TTLS_MPI_CHK(ttls_ecp_mul(grp, &P, d, Q, true));
-
-	if (ttls_ecp_is_zero(&P)) {
-		ret = TTLS_ERR_ECP_BAD_INPUT_DATA;
-		goto cleanup;
-	}
-
-	TTLS_MPI_CHK(ttls_mpi_copy(z, &P.X));
-
-cleanup:
-	ttls_ecp_point_free(&P);
-
-	return ret;
-}
-
-/*
- * Initialize context
- */
-void
-ttls_ecdh_init(ttls_ecdh_context *ctx)
-{
-	bzero_fast(ctx, sizeof(ttls_ecdh_context));
-}
-
-/*
- * Free context
- */
-void ttls_ecdh_free(ttls_ecdh_context *ctx)
-{
-	if (ctx == NULL)
-		return;
-
-	ttls_ecp_group_free(&ctx->grp);
-	ttls_ecp_point_free(&ctx->Q  );
-	ttls_ecp_point_free(&ctx->Qp );
-	ttls_ecp_point_free(&ctx->Vi );
-	ttls_ecp_point_free(&ctx->Vf );
-	ttls_mpi_free(&ctx->d );
-	ttls_mpi_free(&ctx->z );
-	ttls_mpi_free(&ctx->_d);
-}
-
-/*
- * Setup and write the ServerKeyExhange parameters (RFC 4492)
- *	  struct {
- *		  ECParameters	curve_params;
- *		  ECPoint		 public;
- *	  } ServerECDHParams;
- */
-int
-ttls_ecdh_make_params(ttls_ecdh_context *ctx, size_t *olen, unsigned char *buf,
+ttls_ecdh_make_params(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
 		      size_t blen)
 {
-	int ret;
+	int r;
 	size_t grp_len, pt_len;
 
-	BUG_ON(!ctx || !ctx->grp.pbits);
+	if ((r = ttls_ecp_gen_keypair(ctx->grp, &ctx->d, &ctx->Q)))
+		return r;
 
-	if ((ret = ttls_ecdh_gen_public(&ctx->grp, &ctx->d, &ctx->Q)))
-		return ret;
-
-	if ((ret = ttls_ecp_tls_write_group(&ctx->grp, &grp_len, buf, blen)))
-		return ret;
+	if ((r = ttls_ecp_tls_write_group(ctx->grp, &grp_len, buf, blen)))
+		return r;
 
 	buf += grp_len;
 	blen -= grp_len;
 
-	if ((ret = ttls_ecp_tls_write_point(&ctx->grp, &ctx->Q, ctx->point_format,
-			 &pt_len, buf, blen)) != 0)
-		return ret;
+	r = ttls_ecp_tls_write_point(ctx->grp, &ctx->Q, &pt_len, buf, blen);
+	if (r)
+		return r;
 
 	*olen = grp_len + pt_len;
 	return 0;
 }
 
-/*
- * Read the ServerKeyExhange parameters (RFC 4492)
- *	  struct {
- *		  ECParameters	curve_params;
- *		  ECPoint		 public;
- *	  } ServerECDHParams;
+/**
+ * Read the ServerKeyExhange parameters (RFC 8422 5.4)
+ *	struct {
+ *		ECParameters	curve_params;
+ *		ECPoint		public;
+ *	} ServerECDHParams;
  */
 int
-ttls_ecdh_read_params(ttls_ecdh_context *ctx, const unsigned char **buf,
+ttls_ecdh_read_params(TlsECDHCtx *ctx, const unsigned char **buf,
 		      const unsigned char *end)
 {
 	int r;
 
-	if ((r = ttls_ecp_tls_read_group(&ctx->grp, buf, end - *buf)))
+	if ((r = ttls_ecp_tls_read_group(ctx->grp, buf, end - *buf)))
 		return r;
 
-	if ((r = ttls_ecp_tls_read_point(&ctx->grp, &ctx->Qp, buf, end - *buf)))
+	if ((r = ttls_ecp_tls_read_point(ctx->grp, &ctx->Qp, buf, end - *buf)))
 		return r;
 
 	return 0;
 }
 
 /**
- * Get parameters from a keypair.
+ * Get parameters from a keypair: set up an ECDH context from an EC key.
+ * It is used by clients and servers in place of the ServerKeyExchange for
+ * static ECDH, and imports ECDH parameters from the EC key information of a
+ * certificate.
+ *
+ * TODO #769 used in client mode only - fix the ECP group destination address.
  */
 int
-ttls_ecdh_get_params(ttls_ecdh_context *ctx, const TlsEcpKeypair *key,
-		     ttls_ecdh_side side)
+ttls_ecdh_get_params(TlsECDHCtx *ctx, const TlsEcpKeypair *key)
+{
+	if (ttls_ecp_group_load(ctx->grp, key->grp->id))
+		return -EINVAL;
+	ttls_ecp_copy(&ctx->Qp, &key->Q);
+
+	return 0;
+}
+
+/**
+ * Setup and export the client public value.
+ * Used for ClientKeyExchange generation on client side.
+ * This is the second function used by a TLS client for ECDH(E) ciphersuites.
+ */
+int
+ttls_ecdh_make_public(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
+		      size_t blen)
 {
 	int r;
 
-	ttls_ecp_group_free(&ctx->grp);
-
-	if ((r = ttls_ecp_group_load(&ctx->grp, key->grp.id)))
+	if ((r = ttls_ecp_gen_keypair(ctx->grp, &ctx->d, &ctx->Q)))
 		return r;
-
-	/* If it's not our key, just import the public part as Qp */
-	if (side == TTLS_ECDH_THEIRS)
-		return ttls_ecp_copy(&ctx->Qp, &key->Q);
-
-	/* Our key: import public (as Q) and private parts */
-	if (side != TTLS_ECDH_OURS)
-		return TTLS_ERR_ECP_BAD_INPUT_DATA;
-
-	if ((r = ttls_ecp_copy(&ctx->Q, &key->Q))
-	    || (r = ttls_mpi_copy(&ctx->d, &key->d)))
-		return r;
-
-	return 0;
-}
-
-/*
- * Setup and export the client public value
- */
-int ttls_ecdh_make_public(ttls_ecdh_context *ctx, size_t *olen,
-		  unsigned char *buf, size_t blen)
-{
-	int ret;
-
-	if (ctx == NULL || ctx->grp.pbits == 0)
-		return(TTLS_ERR_ECP_BAD_INPUT_DATA);
-
-	if ((ret = ttls_ecdh_gen_public(&ctx->grp, &ctx->d, &ctx->Q))
-				!= 0)
-		return ret;
-
-	return ttls_ecp_tls_write_point(&ctx->grp, &ctx->Q, ctx->point_format,
-		olen, buf, blen);
+	return ttls_ecp_tls_write_point(ctx->grp, &ctx->Q, olen, buf, blen);
 }
 
 /**
- * Parse and import the client's public value.
+ * Parse and import the client's public value TlsECDHCtx->Qp.
  */
 int
-ttls_ecdh_read_public(ttls_ecdh_context *ctx, const unsigned char *buf,
+ttls_ecdh_read_public(TlsECDHCtx *ctx, const unsigned char *buf,
 		      size_t blen)
 {
 	int r;
@@ -213,7 +165,7 @@ ttls_ecdh_read_public(ttls_ecdh_context *ctx, const unsigned char *buf,
 	if (!ctx)
 		return TTLS_ERR_ECP_BAD_INPUT_DATA;
 
-	if ((r = ttls_ecp_tls_read_point(&ctx->grp, &ctx->Qp, &p, blen)))
+	if ((r = ttls_ecp_tls_read_point(ctx->grp, &ctx->Qp, &p, blen)))
 		return r;
 
 	if ((size_t)(p - buf) != blen)
@@ -226,22 +178,19 @@ ttls_ecdh_read_public(ttls_ecdh_context *ctx, const unsigned char *buf,
  * Derive and export the shared secret
  */
 int
-ttls_ecdh_calc_secret(ttls_ecdh_context *ctx, size_t *olen, unsigned char *buf,
+ttls_ecdh_calc_secret(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
 		      size_t blen)
 {
 	int r;
 
-	if (!ctx)
-		return TTLS_ERR_ECP_BAD_INPUT_DATA;
-
-	r = ttls_ecdh_compute_shared(&ctx->grp, &ctx->z, &ctx->Qp, &ctx->d);
+	r = ttls_ecdh_compute_shared(ctx->grp, &ctx->z, &ctx->Qp, &ctx->d);
 	if (r)
 		return r;
 
-	if (ttls_mpi_size(&ctx->z) > blen)
-		return TTLS_ERR_ECP_BAD_INPUT_DATA;
+	if (WARN_ON_ONCE(ttls_mpi_size(&ctx->z.X) > blen))
+		return -EINVAL;
 
-	*olen = ctx->grp.pbits / 8 + ((ctx->grp.pbits % 8) != 0);
+	*olen = (ctx->grp->bits + 7) / 8;
 
-	return ttls_mpi_write_binary(&ctx->z, buf, *olen);
+	return ttls_mpi_write_binary(&ctx->z.X, buf, *olen);
 }

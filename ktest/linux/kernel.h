@@ -1,7 +1,7 @@
 /**
  *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2015-2017 Tempesta Technologies.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -20,23 +20,24 @@
 #ifndef __KERNEL_H__
 #define __KERNEL_H__
 
+#include <linux/errno.h>
 #include <stdio.h>
 
 #include "compiler.h"
 
-#ifndef NDEBUG
-#define DEBUG 1
-#endif
+#define ARRAY_SIZE(x)   	(sizeof(x) / sizeof(*(x)))
 
-#ifndef ENOMEM
-#define ENOMEM		1
-#endif
+#define KERN_INFO		""
+#define KERN_WARNING		""
+#define KERN_ERR		""
 
-#define ARRAY_SIZE(x)   (sizeof(x) / sizeof(*(x)))
-
+#define printk			printf
 #define pr_err(fmt, ...)	fprintf(stderr, fmt, ##__VA_ARGS__)
 #define pr_warn(fmt, ...)	fprintf(stderr, fmt, ##__VA_ARGS__)
+#define pr_info(fmt, ...)	fprintf(stderr, fmt, ##__VA_ARGS__)
 #define pr_debug(fmt, ...)	fprintf(stdout, fmt, ##__VA_ARGS__)
+#define net_warn_ratelimited(fmt, ...) fprintf(stdout, fmt, ##__VA_ARGS__)
+#define net_err_ratelimited(fmt, ...) fprintf(stdout, fmt, ##__VA_ARGS__)
 
 /* asm/cache.h */
 #ifndef L1_CACHE_BYTES
@@ -46,5 +47,99 @@
 #define SMP_CACHE_BYTES L1_CACHE_BYTES
 #define ____cacheline_aligned __attribute__((__aligned__(SMP_CACHE_BYTES)))
 #define ____cacheline_aligned_in_smp ____cacheline_aligned
+#define __aligned(a)	__attribute__((__aligned__(a)))
+#define __page_aligned_data	__attribute__((__aligned__(4096)))
+#define CRYPTO_MINALIGN_ATTR __attribute__ ((__aligned__(L1_CACHE_BYTES)))
+
+#define offsetof(TYPE, MEMBER)	((size_t)&((TYPE *)0)->MEMBER)
+
+#define container_of(ptr, type, member) ({				\
+	void *__mptr = (void *)(ptr);					\
+	((type *)(__mptr - offsetof(type, member))); })
+
+#define __min(t1, t2, min1, min2, x, y) ({		\
+	t1 min1 = (x);					\
+	t2 min2 = (y);					\
+	(void) (&min1 == &min2);			\
+	min1 < min2 ? min1 : min2; })
+
+#define min(x, y)					\
+	__min(typeof(x), typeof(y),			\
+	      __UNIQUE_ID(min1_), __UNIQUE_ID(min2_),	\
+	      x, y)
+
+#define __max(t1, t2, max1, max2, x, y) ({		\
+	t1 max1 = (x);					\
+	t2 max2 = (y);					\
+	(void) (&max1 == &max2);			\
+	max1 > max2 ? max1 : max2; })
+
+#define max(x, y)							\
+	__max(typeof(x), typeof(y), (max1_), (max2_), x, y)
+
+#define min_t(type, x, y)						\
+	__min(type, type, (min1_), (min2_), x, y)
+
+#define max_t(type, x, y)						\
+	__max(type, type, (min1_), (min2_), x, y)
+
+
+struct module { /* dummy strut */ };
+
+#define request_module(...)
+
+#define __init
+
+struct list_head {
+	struct list_head *next, *prev;
+};
+
+/**
+ * Constants instead of the real random bytes make the debugging simpler.
+ * Don't use zero as cryptography may check for non-zero values.
+ */
+static inline void
+get_random_bytes_arch(void *buf, int nbytes)
+{
+	memset(buf, 0xAA, nbytes);
+}
+
+#define DUMP_PREFIX_OFFSET	0
+
+static inline void
+print_hex_dump(const char *level, const char *prefix_str, int prefix_type,
+	       int rowsize, int groupsize, const void *buf, size_t len,
+	       bool ascii)
+{
+	int i;
+	const unsigned char *c = (unsigned char *)buf;
+
+	fflush(NULL);
+	printf(prefix_str);
+
+	for (i = 0; i < len; ++i) {
+		if (i && !(i % 16))
+			printf("\n%s", prefix_str);
+		printf("%.2x ", c[i]);
+	}
+	printf("\n");
+
+	fflush(NULL);
+}
+
+#define IRQ_STACK_SIZE		(PAGE_SIZE << 2)
+
+static inline unsigned long
+task_stack_page(void)
+{
+	unsigned long r;
+
+	asm volatile("movq %%rsp, %0\n": "=r"(r) ::);
+
+	return r;
+}
+
+#define current
+#define irq_stack_ptr		task_stack_page()
 
 #endif /* __KERNEL_H__ */

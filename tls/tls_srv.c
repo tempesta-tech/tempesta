@@ -6,8 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
- * SPDX-License-Identifier: GPL-2.0
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,10 +23,12 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include "lib/str.h"
-#include "debug.h"
 #include "ecp.h"
+#include "mpool.h"
 #include "tls_internal.h"
 #include "ttls.h"
+
+ttls_sni_cb_t *ttls_sni_cb;
 
 static int
 ttls_check_scsvs(TlsCtx *tls, unsigned short cipher_suite)
@@ -53,7 +54,6 @@ ttls_check_scsvs(TlsCtx *tls, unsigned short cipher_suite)
 static int
 ttls_parse_servername_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 {
-	int r;
 	size_t servername_list_size, hostname_len;
 	const unsigned char *p;
 
@@ -82,12 +82,8 @@ ttls_parse_servername_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 					TTLS_ALERT_MSG_DECODE_ERROR);
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
-		if (tls->conf->f_sni
-		    && p[0] == TTLS_TLS_EXT_SERVERNAME_HOSTNAME)
-		{
-			r = tls->conf->f_sni(tls->conf->p_sni, tls, p + 3,
-					     hostname_len);
-			if (!r)
+		if (p[0] == TTLS_TLS_EXT_SERVERNAME_HOSTNAME) {
+			if (!ttls_sni_cb(tls, p + 3, hostname_len))
 				return 0;
 			T_WARN("TLS: server requested by client is not known.\n");
 			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
@@ -213,8 +209,8 @@ ttls_parse_supported_elliptic_curves(TlsCtx *tls, const unsigned char *buf,
 		list_size = TTLS_ECP_DP_MAX - 1;
 
 	for (c = i = 0, p = buf + 2; i < list_size; ++i) {
-		ci = ttls_ecp_curve_info_from_tls_id((p[0] << 8) | p[1]);
-		if (ci) {
+		uint16_t cid = (p[0] << 8) | p[1];
+		if (cid && (ci = ttls_ecp_curve_info_from_tls_id(cid))) {
 			T_DBG3("set curve %s\n", ci->name);
 			tls->hs->curves[c++] = ci;
 		}
@@ -228,9 +224,6 @@ static int
 ttls_parse_supported_point_formats(TlsCtx *tls, const unsigned char *buf,
 				   size_t len)
 {
-	size_t list_size;
-	const unsigned char *p;
-
 	if (unlikely(!len || buf[0] + 1 != len)) {
 		T_DBG("ClientHello: bad supported point formats extension\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
@@ -239,15 +232,10 @@ ttls_parse_supported_point_formats(TlsCtx *tls, const unsigned char *buf,
 	}
 
 	tls->hs->cli_exts = 1;
-	for (list_size = buf[0], p = buf + 1; list_size > 0; --list_size, ++p) {
-		if (p[0] == TTLS_ECP_PF_UNCOMPRESSED
-		    || p[0] == TTLS_ECP_PF_COMPRESSED)
-		{
-			tls->hs->ecdh_ctx.point_format = p[0];
-			T_DBG("ClientHello: point format selected: %d\n", p[0]);
-			return 0;
-		}
-	}
+	/*
+	 * Uncompressed is the only point format supported by RFC 8422,
+	 * so just ignore the list.
+	 */
 
 	return 0;
 }
@@ -304,8 +292,8 @@ ttls_parse_session_ticket_ext(TlsCtx *tls, unsigned char *buf, size_t len)
 	 * inform them we're accepting the ticket  (RFC 5077 section 3.4)
 	 */
 	session.id_len = tls->sess.id_len;
-	memcpy(&session.id, tls->sess.id, session.id_len);
-	memcpy(&tls->sess, &session, sizeof(TlsSess));
+	memcpy_fast(&session.id, tls->sess.id, session.id_len);
+	memcpy_fast(&tls->sess, &session, sizeof(TlsSess));
 
 	/* Zeroize instead of free as we copied the content */
 	bzero_fast(&session, sizeof(TlsSess));
@@ -416,10 +404,10 @@ ttls_parse_renegotiation_info_ext(TlsCtx *tls, const unsigned char *buf,
  * @return 0 if the given key uses one of the acceptable curves, -1 otherwise.
  */
 static int
-ttls_check_key_curve(ttls_pk_context *pk, const TlsEcpCurveInfo **curves)
+ttls_check_key_curve(TlsPkCtx *pk, const TlsEcpCurveInfo **curves)
 {
 	const TlsEcpCurveInfo **crv = curves;
-	ttls_ecp_group_id grp_id = ttls_pk_ec(*pk)->grp.id;
+	ttls_ecp_group_id grp_id = ttls_pk_ec(*pk)->grp->id;
 
 	while (*crv) {
 		if ((*crv)->grp_id == grp_id)
@@ -437,7 +425,7 @@ ttls_check_key_curve(ttls_pk_context *pk, const TlsEcpCurveInfo **curves)
 static int
 ttls_pick_cert(TlsCtx *tls, const TlsCiphersuite *ci)
 {
-	ttls_key_cert *cur, *list = tls->peer_conf->key_cert;
+	TlsKeyCert *cur, *list = tls->peer_conf->key_cert;
 	ttls_pk_type_t pk_alg = ttls_get_ciphersuite_sig_pk_alg(ci);
 	uint32_t flags;
 
@@ -451,7 +439,7 @@ ttls_pick_cert(TlsCtx *tls, const TlsCiphersuite *ci)
 		return -1;
 	}
 
-	for (cur = list; cur != NULL; cur = cur->next) {
+	for (cur = list; cur; cur = cur->next) {
 		if (!ttls_pk_can_do(cur->key, pk_alg)) {
 			T_DBG("certificate mismatch for alg %d\n", pk_alg);
 			continue;
@@ -1033,9 +1021,7 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 	 * are available and no working tls configuration, close the connection.
 	 */
 	if (!tls->peer_conf) {
-		if (tls->conf->f_sni)
-			r = tls->conf->f_sni(tls->conf->p_sni, tls, NULL, 0);
-		if (!tls->conf->f_sni || r || !tls->peer_conf) {
+		if (ttls_sni_cb(tls, NULL, 0) || !tls->peer_conf) {
 			T_WARN("TLS: server requested by client is not known.\n");
 			return -TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
@@ -1060,24 +1046,6 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		return r;
 
 	ttls_update_checksum(tls, buf - hh_len, p - buf + hh_len);
-
-	if (ttls_ciphersuite_uses_ecdh(tls->xfrm.ciphersuite_info) ||
-	    ttls_ciphersuite_uses_ecdhe(tls->xfrm.ciphersuite_info))
-	{
-		unsigned char pf = tls->hs->ecdh_ctx.point_format;
-		ttls_ecdh_init(&tls->hs->ecdh_ctx);
-		tls->hs->ecdh_ctx.point_format = pf;
-
-		/*
-		 * Storage space of ecdh_ctx is used for temporary sha256
-		 * context. Ensure that point_format field is safe from
-		 * accidental overwrite.
-		 */
-		BUILD_BUG_ON(offsetof(ttls_ecdh_context, point_format) <=
-			     sizeof(ttls_sha256_context));
-	} else {
-		ttls_dhm_init(&tls->hs->dhm_ctx);
-	}
 
 	return 0;
 }
@@ -1220,12 +1188,9 @@ ttls_write_server_hello(TlsCtx *tls, struct sg_table *sgt,
 	p += 4;
 	ttls_rnd(p, 28);
 	p += 28;
-	memcpy(tls->hs->randbytes + 32, buf + 6, 32);
+	memcpy_fast(tls->hs->randbytes + 32, buf + 6, 32);
 	T_DBG3_BUF("server hello, random bytes ", buf + 6, 32);
-	/*
-	 * Resume is 0  by default.
-	 * It may be already set to 1 by ttls_parse_session_ticket_ext().
-	 */
+
 	if (!tls->hs->resume) {
 		/*
 		 * New session, create a new session id,
@@ -1321,241 +1286,171 @@ ttls_write_server_hello(TlsCtx *tls, struct sg_table *sgt,
 	return 0;
 }
 
-static int
-ttls_get_ecdh_params_from_cert(TlsCtx *tls)
-{
-	int r;
-
-	if (!ttls_pk_can_do(ttls_own_key(tls), TTLS_PK_ECKEY)) {
-		T_DBG("server key not ECDH capable\n");
-		return TTLS_ERR_PK_TYPE_MISMATCH;
-	}
-	if ((r = ttls_ecdh_get_params(&tls->hs->ecdh_ctx,
-				      ttls_pk_ec(*ttls_own_key(tls)),
-				      TTLS_ECDH_OURS)))
-	{
-		T_DBG("cannot get ECDH params from a certificate, %d\n", r);
-	}
-
-	return r;
-}
-
+/**
+ * This is the latest phase of TLS handshake when we must allocate a key
+ * exchange context. We use prepared MPI memory profiles to do only stream
+ * copying instead of per-field initialization and later memory allocations
+ * on crypto MPI operations.
+ */
 static int
 ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 			       unsigned char **in_buf)
 {
-	int r;
-	size_t len, n = 0, dig_signed_len = 0;
+	int r, x_sz;
+	unsigned int hashlen = 0;
+	size_t len, n = 0, sig_len = 0;
+	ttls_pk_type_t sig_alg;
+	ttls_md_type_t md_alg;
 	const TlsCiphersuite *ci = tls->xfrm.ciphersuite_info;
 	TlsIOCtx *io = &tls->io_out;
+	TlsHandshake *hs = tls->hs;
 	unsigned char *dig_signed, *p, *hdr = *in_buf;
+	unsigned char hash[64];
 
 	/*
 	 * Part 1: Extract static ECDH parameters and abort if
 	 * ServerKeyExchange isn't needed.
 	 */
-	/*
-	 * For suites involving ECDH, extract DH parameters from certificate at
-	 * this point.
-	 */
-	if (ttls_ciphersuite_uses_ecdh(ci))
-		ttls_get_ecdh_params_from_cert(tls);
-	/*
-	 * Key exchanges not involving ephemeral keys don't use
-	 * ServerKeyExchange, so end here.
-	 */
-	if (ttls_ciphersuite_no_pfs(ci)) {
-		T_DBG("the key exchanges isn't involving ephemeral keys\n");
-		return 0;
+	if (ttls_mpi_profile_clone(tls)) {
+		T_WARN("Can't allocate a crypto memory profile.\n");
+		return -ENOMEM;
 	}
 
 	/*
 	 * Part 2: Provide key exchange parameters for chosen ciphersuite.
 	 *
-	 * TODO estimate size of the message more accurately on configuration
+	 * TODO #1064 estimate size of the message more accurately on configuration
 	 * time.
 	 */
 
 	p = hdr + TLS_HEADER_SIZE + TTLS_HS_HDR_LEN;
 	dig_signed = p;
 
-	/* ECDHE key exchanges. */
-	if (ttls_ciphersuite_uses_ecdhe(ci)) {
+	switch (ci->key_exchange) {
+	case TTLS_KEY_EXCHANGE_ECDHE_ECDSA:
+	case TTLS_KEY_EXCHANGE_ECDHE_RSA:
 		/*
-		 * Ephemeral ECDH parameters:
+		 * Parameters for Ephemeral ECDH key exchanges.
 		 *
 		 * struct {
-		 *	 ECParameters curve_params;
-		 *	 ECPoint	  public;
+		 *	 ECParameters	curve_params;
+		 *	 ECPoint	public;
 		 * } ServerECDHParams;
 		 */
-		const TlsEcpCurveInfo **curve = NULL;
-		const ttls_ecp_group_id *gid = ttls_preset_curves;
-
-		/* Match our preference list against the offered curves */
-		for ( ; *gid != TTLS_ECP_DP_NONE; gid++)
-			for (curve = tls->hs->curves; *curve; curve++)
-				if ((*curve)->grp_id == *gid)
-					goto curve_matching_done;
-curve_matching_done:
-		if (!curve || !*curve) {
-			T_WARN("No matching curve for ECDHE key exchange\n");
-			r = -EINVAL;
-			goto err;
-		}
-		T_DBG("ECDHE curve: %s\n", (*curve)->name);
-
-		r = ttls_ecp_group_load(&tls->hs->ecdh_ctx.grp,
-					(*curve)->grp_id);
-		if (r) {
-			T_DBG("cannot load ECP group, %d\n", r);
-			goto err;
-		}
-
-		r = ttls_ecdh_make_params(&tls->hs->ecdh_ctx, &len, p,
+		r = ttls_ecdh_make_params(hs->ecdh_ctx, &len, p,
 					  TLS_MAX_PAYLOAD_SIZE);
 		if (r) {
 			T_DBG("cannot make ECDH params, %d\n", r);
-			goto err;
+			return r;
 		}
 		WARN_ON_ONCE(len > 500);
 		dig_signed = p;
-		dig_signed_len = len;
+		sig_len = len;
 		p += len;
 		n += len;
 
 		T_DBG_ECP("ECDH server key exchange EC point",
-			  &tls->hs->ecdh_ctx.Q);
-	}
-	/* DHE key exchanges. */
-	else if (ttls_ciphersuite_uses_dhe(ci)) {
-		int x_sz;
-
-		if (!tls->conf->dhm_P.p || !tls->conf->dhm_G.p) {
-			T_DBG("no DH parameters set\n");
-			r = TTLS_ERR_BAD_INPUT_DATA;
-			goto err;
-		}
-
+			  &hs->ecdh_ctx->Q);
+		break;
+	case TTLS_KEY_EXCHANGE_DHE_RSA:
 		/*
+		 * DHE key exchanges.
+		 *
 		 * Ephemeral DH parameters:
 		 *
 		 * struct {
-		 *	 opaque dh_p<1..2^16-1>;
-		 *	 opaque dh_g<1..2^16-1>;
-		 *	 opaque dh_Ys<1..2^16-1>;
+		 *	opaque dh_p<1..2^16-1>;
+		 *	opaque dh_g<1..2^16-1>;
+		 *	opaque dh_Ys<1..2^16-1>;
 		 * } ServerDHParams;
 		 */
-		r = ttls_dhm_set_group(&tls->hs->dhm_ctx, &tls->conf->dhm_P,
-				       &tls->conf->dhm_G);
-		if (r) {
-			T_DBG("cannot set DHM group, %d\n", r);
-			goto err;
-		}
-
-		x_sz = (int)ttls_mpi_size(&tls->hs->dhm_ctx.P);
+		x_sz = (int)ttls_mpi_size(&hs->dhm_ctx->P);
 		WARN_ON_ONCE(x_sz > PAGE_SIZE);
-		r = ttls_dhm_make_params(&tls->hs->dhm_ctx, x_sz, p, &len);
-		if (r) {
+		if ((r = ttls_dhm_make_params(hs->dhm_ctx, x_sz, p, &len))) {
 			T_DBG("cannot make DHM params, %d\n", r);
-			goto err;
+			return r;
 		}
 		WARN_ON_ONCE(len > 500);
 		dig_signed = p;
-		dig_signed_len = len;
+		sig_len = len;
 		p += len;
 		n += len;
 
-		T_DBG_MPI4("DHM key exchange",
-			   &tls->hs->dhm_ctx.X, &tls->hs->dhm_ctx.P,
-			   &tls->hs->dhm_ctx.G, &tls->hs->dhm_ctx.GX);
+		T_DBG_MPI4("DHM key exchange", &hs->dhm_ctx->X, &hs->dhm_ctx->P,
+			   &hs->dhm_ctx->G, &hs->dhm_ctx->GX);
+		break;
+	default:
+		BUG();
 	}
 
 	/*
-	 * Part 3: For key exchanges involving the server signing the
-	 * exchange parameters, compute and add the signature here.
+	 * Part 3: Only key exchanges involving the server signing the
+	 * exchange parameters are supported to provide PFS.
+	 * Compute and add the signature here.
+	 *
+	 * 3.1: Choose hash algorithm: for TLS 1.2 we obey
+	 * signature-hash-algorithm extension to choose appropriate hash.
 	 */
-	if (ttls_ciphersuite_uses_server_signature(ci)) {
-		ttls_pk_type_t sig_alg;
-		ttls_md_type_t md_alg;
-		size_t signature_len = 0;
-		unsigned int hashlen = 0;
-		unsigned char hash[64];
-
-		/*
-		 * 3.1: Choose hash algorithm:
-		 * A: For TLS 1.2, obey signature-hash-algorithm extension 
-		 *	to choose appropriate hash.
-		 * B: For SSL3, TLS1.0, TLS1.1 and ECDHE_ECDSA, use SHA1
-		 *	(RFC 4492, Sec. 5.4)
-		 * C: Otherwise, use MD5 + SHA1 (RFC 4346, Sec. 7.4.3)
-		 */
-		sig_alg = ttls_get_ciphersuite_sig_pk_alg(ci);
-		md_alg = ttls_sig_hash_set_find(&tls->hs->hash_algs, sig_alg);
-		/*
-		 * A: For TLS 1.2, obey signature-hash-algorithm extension
-		 * (RFC 5246, Sec. 7.4.1.4.1).
-		 */
-		WARN_ON_ONCE(sig_alg == TTLS_PK_NONE || md_alg == TTLS_MD_NONE);
-		T_DBG("pick hash algorithm %d for signing\n", md_alg);
-		/*
-		 * 3.2: Compute the hash to be signed
-		 */
-		if (md_alg != TTLS_MD_NONE) {
-			/* Info from md_alg will be used instead */
-			hashlen = 0;
-			r = ttls_get_key_exchange_md_tls1_2(tls, hash,
-							    dig_signed,
-							    dig_signed_len,
-							    md_alg);
-			if (r)
-				goto err;
-		} else {
-			r = TTLS_ERR_INTERNAL_ERROR;
-			goto err;
-		}
-		T_DBG3_BUF("parameters hash", hash,
-			   hashlen
-			   ? : ttls_md_get_size(ttls_md_info_from_type(md_alg)));
-
-		/* 3.3: Compute and add the signature */
-		if (!ttls_own_key(tls)) {
-			T_DBG("got no private key\n");
-			r = TTLS_ERR_PRIVATE_KEY_REQUIRED;
-			goto err;
-		}
-		/*
-		 * For TLS 1.2, we need to specify signature and hash algorithm
-		 * explicitly through a prefix to the signature.
-		 *
-		 * struct {
-		 *	HashAlgorithm hash;
-		 *	SignatureAlgorithm signature;
-		 * } SignatureAndHashAlgorithm;
-		 *
-		 * struct {
-		 *	SignatureAndHashAlgorithm algorithm;
-		 *	opaque signature<0..2^16-1>;
-		 * } DigitallySigned;
-		 */
-		*(p++) = ttls_hash_from_md_alg(md_alg);
-		*(p++) = ttls_sig_from_pk_alg(sig_alg);
-		n += 2;
-
-		r = ttls_pk_sign(ttls_own_key(tls), md_alg, hash, hashlen,
-				 p + 2, &signature_len);
-		if (r) {
-			T_DBG("cannot sign the digest, %d\n", r);
-			goto err;
-		}
-		*(p++) = (unsigned char)(signature_len >> 8);
-		*(p++) = (unsigned char)(signature_len);
-		n += 2;
-
-		T_DBG3_BUF("my signature", p, signature_len);
-		n += signature_len;
-		WARN_ON_ONCE(signature_len > 512);
+	sig_alg = ttls_get_ciphersuite_sig_pk_alg(ci);
+	md_alg = ttls_sig_hash_set_find(&hs->hash_algs, sig_alg);
+	T_DBG("pick sign:hash algorithms %d:%d for signing\n",
+	      sig_alg, md_alg);
+	if (WARN_ON_ONCE(sig_alg == TTLS_PK_NONE || md_alg == TTLS_MD_NONE))
+		return -ENOENT;
+	/*
+	 * tls->hs->key_cert must be set on ClientHello by
+	 * ttls_pick_cert().
+	 */
+	if (!hs->key_cert || !hs->key_cert->key) {
+		T_WARN("The own private key is not set, but needed.\n");
+		return -ENOENT;
 	}
+
+	/*
+	 * 3.2: Compute the hash to be signed.
+	 * Info from md_alg will be used instead.
+	 */
+	r = ttls_get_key_exchange_md_tls1_2(tls, hash, dig_signed, sig_len,
+					    md_alg);
+	if (r)
+		return r;
+	T_DBG3_BUF("parameters hash", hash,
+		   hashlen
+		   ? : ttls_md_get_size(ttls_md_info_from_type(md_alg)));
+
+	/*
+	 * 3.3: Compute and add the signature.
+	 *
+	 * For TLS 1.2, we need to specify signature and hash algorithm
+	 * explicitly through a prefix to the signature.
+	 *
+	 * struct {
+	 *	HashAlgorithm hash;
+	 *	SignatureAlgorithm signature;
+	 * } SignatureAndHashAlgorithm;
+	 *
+	 * struct {
+	 *	SignatureAndHashAlgorithm algorithm;
+	 *	opaque signature<0..2^16-1>;
+	 * } DigitallySigned;
+	 */
+	*(p++) = ttls_hash_from_md_alg(md_alg);
+	*(p++) = ttls_sig_from_pk_alg(sig_alg);
+	n += 2;
+
+	r = ttls_pk_sign(hs->key_cert->key, md_alg, hash, hashlen,
+			 p + 2, &sig_len);
+	if (r) {
+		T_DBG("cannot sign the digest, %d\n", r);
+		return r;
+	}
+	*(p++) = (unsigned char)(sig_len >> 8);
+	*(p++) = (unsigned char)(sig_len);
+	n += 2;
+
+	T_DBG3_BUF("my signature", p, sig_len);
+	n += sig_len;
+	WARN_ON_ONCE(sig_len > 512);
 
 	/* Done with actual work; add handshake header and add the record. */
 	WARN_ON_ONCE(n > 1015);
@@ -1570,9 +1465,6 @@ curve_matching_done:
 	__ttls_add_record(tls, sgt, sgt->nents - 1, hdr);
 
 	return 0;
-err:
-	put_page(virt_to_page(hdr));
-	return r;
 }
 
 static int
@@ -1757,73 +1649,16 @@ ttls_parse_client_dh_public(TlsCtx *tls, unsigned char **p,
 		return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE;
 	}
 
-	if ((r = ttls_dhm_read_public(&tls->hs->dhm_ctx, *p, n))) {
+	if ((r = ttls_dhm_read_public(tls->hs->dhm_ctx, *p, n))) {
 		T_DBG("cannot read dhm public, %d\n", r);
 		return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_RP;
 	}
 
 	*p += n;
 
-	T_DBG_MPI1("Client DH pub", &tls->hs->dhm_ctx.GY);
+	T_DBG_MPI1("Client DH pub", tls->hs->dhm_ctx->GY);
 
 	return r;
-}
-
-static int
-ttls_parse_encrypted_pms(TlsCtx *tls, const unsigned char *p,
-			 const unsigned char *end)
-{
-	unsigned char mask;
-	int r;
-	unsigned int diff;
-	size_t len = ttls_pk_get_len(ttls_own_key(tls));
-	size_t i, peer_pmslen;
-	unsigned char *pms = tls->hs->premaster;
-	unsigned char ver[2], fake_pms[48], peer_pms[48];
-
-	BUILD_BUG_ON(sizeof(tls->hs->premaster) < 48);
-
-	if (!ttls_pk_can_do(ttls_own_key(tls), TTLS_PK_RSA)) {
-		T_DBG("got no RSA private key\n");
-		return TTLS_ERR_PRIVATE_KEY_REQUIRED;
-	}
-
-	/* Decrypt the premaster using own private RSA key. */
-	if (*p++ != ((len >> 8) & 0xFF) || *p++ != (len & 0xFF)
-	    || p + len != end)
-	{
-		T_DBG("bad client key exchange message\n");
-		return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE;
-	}
-
-	ver[0] = TTLS_MAX_MAJOR_VERSION;
-	ver[1] = tls->conf->max_minor_ver;
-
-	/*
-	 * Protection against Bleichenbacher's attack: invalid PKCS#1 v1.5
-	 * padding must not cause the connection to end immediately; instead,
-	 * send a bad_record_mac later in the handshake.
-	 * Also, avoid data-dependant branches here to protect against
-	 * timing-based variants.
-	 */
-	ttls_rnd(fake_pms, sizeof(fake_pms));
-
-	r = ttls_pk_decrypt(ttls_own_key(tls), p, len, peer_pms, &peer_pmslen,
-			    sizeof(peer_pms));
-
-	diff  = (unsigned int)r;
-	diff |= peer_pmslen ^ 48;
-	diff |= peer_pms[0] ^ ver[0];
-	diff |= peer_pms[1] ^ ver[1];
-	T_DBG("client key exchange message diff=%x\n", diff);
-
-	tls->hs->pmslen = 48;
-	/* mask = diff ? 0xff : 0x00 using bit operations to avoid branches */
-	mask = -((diff | -diff) >> (sizeof(unsigned int) * 8 - 1));
-	for (i = 0; i < tls->hs->pmslen; i++)
-		pms[i] = (mask & fake_pms[i]) | ((~mask) & peer_pms[i]);
-
-	return 0;
 }
 
 static int
@@ -1842,12 +1677,12 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 	}
 
 	/*
-	 * TODO avoid copies even for chunked data. This requires deep
+	 * TODO #1064 avoid copies even for chunked data. This requires deep
 	 * MPI modifications, so leave the warning for now.
 	 */
 	if (io->rlen + len < io->hslen) {
-		T_WARN("chunked key - fall back to copy (total length"
-		       " %u, chunk length %lu, max copy %lu)\n",
+		T_WARN("chunked key - fall back to copy"
+		       " (total length %u, chunk length %lu, max copy %d)\n",
 		       io->hslen, len, TTLS_HS_RBUF_SZ);
 		if (io->hslen > TTLS_HS_RBUF_SZ)
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE;
@@ -1867,7 +1702,7 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 		 * Previous chunk checksums were computed in ttls_recv().
 		 * Compute the last current chunk checksum here.
 		 *
-		 * TODO After getting rid of the copy, we can move the
+		 * TODO #1064 After getting rid of the copy, we can move the
 		 * checksum computation to the end of the function as we
 		 * do this in other places.
 		 *
@@ -1887,26 +1722,24 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 	}
 
 	if (ci->key_exchange == TTLS_KEY_EXCHANGE_ECDHE_ECDSA
-	    || ci->key_exchange == TTLS_KEY_EXCHANGE_ECDHE_RSA
-	    || ci->key_exchange == TTLS_KEY_EXCHANGE_ECDH_RSA
-	    || ci->key_exchange == TTLS_KEY_EXCHANGE_ECDH_ECDSA)
+	    || ci->key_exchange == TTLS_KEY_EXCHANGE_ECDHE_RSA)
 	{
-		r = ttls_ecdh_read_public(&tls->hs->ecdh_ctx, p, end - p);
+		r = ttls_ecdh_read_public(tls->hs->ecdh_ctx, p, end - p);
 		if (r) {
 			T_DBG("cannot read ecdh public, %d\n", r);
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_RP;
 		}
 		T_DBG_ECP("ECDH client key exchange EC point",
-			  &tls->hs->ecdh_ctx.Qp);
+			  &tls->hs->ecdh_ctx->Qp);
 
-		r = ttls_ecdh_calc_secret(&tls->hs->ecdh_ctx, &tls->hs->pmslen,
+		r = ttls_ecdh_calc_secret(tls->hs->ecdh_ctx, &tls->hs->pmslen,
 					  tls->hs->premaster,
 					  TTLS_MPI_MAX_SIZE);
 		if (r) {
 			T_DBG("cannot calculate ecdh secret, %d\n", r);
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_CS;
 		}
-		T_DBG_MPI1("ECDH client key exchange", &tls->hs->ecdh_ctx.z);
+		T_DBG_MPI1("ECDH client key exchange", &tls->hs->ecdh_ctx->z.X);
 	}
 	else if (ci->key_exchange == TTLS_KEY_EXCHANGE_DHE_RSA) {
 		if ((r = ttls_parse_client_dh_public(tls, &p, end))) {
@@ -1918,19 +1751,13 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE;
 		}
 
-		r = ttls_dhm_calc_secret(&tls->hs->dhm_ctx, tls->hs->premaster,
+		r = ttls_dhm_calc_secret(tls->hs->dhm_ctx, tls->hs->premaster,
 					 TTLS_PREMASTER_SIZE, &tls->hs->pmslen);
 		if (r) {
 			T_DBG("cannot calculate dhm secret, %d\n", r);
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_CS;
 		}
-		T_DBG_MPI1("DHM client key exchange", &tls->hs->dhm_ctx.K);
-	}
-	else if (ci->key_exchange == TTLS_KEY_EXCHANGE_RSA) {
-		if ((r = ttls_parse_encrypted_pms(tls, p, end))) {
-			T_DBG("cannot parse pms, %d\n", r);
-			return r;
-		}
+		T_DBG_MPI1("DHM client key exchange", &tls->hs->dhm_ctx->K);
 	}
 	else {
 		T_WARN("bad key exchange %d\n", ci->key_exchange);
@@ -1988,8 +1815,6 @@ ttls_parse_certificate_verify(TlsCtx *tls, unsigned char *buf, size_t len,
 		      " message\n");
 		return TTLS_ERR_BAD_HS_CERTIFICATE_VERIFY;
 	}
-	if (TTLS_MD_SHA1 == md_alg)
-		hash_start += 16;
 	/* Info from md_alg will be used instead */
 	hashlen = 0;
 	i++;
@@ -2129,6 +1954,23 @@ ttls_handshake_server_hello(TlsCtx *tls)
 		if ((r = ttls_write_server_hello(tls, &sgt, &p)))
 			T_FSM_EXIT();
 		CHECK_STATE(128);
+		if (tls->state == TTLS_SERVER_CHANGE_CIPHER_SPEC) {
+			/*
+			 * FIXME it seems we broke the FSM state machine
+			 * on TLS session resumption - now we must send
+			 * ServerHello and next ServerChangeCipherSpec
+			 * (need to check this), so we need to exit the sate
+			 * machine for now.
+			 *
+			 * This goto probably fixes the issue and sends the
+			 * both the server messages separately.
+			 *
+			 * TODO #1054 this should be verified and fixed.
+			 * Need to send all the consequent server records
+			 * in one shot.
+			 */
+			goto send_srv_hello;
+		}
 		T_FSM_NEXT();
 	}
 	T_FSM_STATE(TTLS_SERVER_CERTIFICATE) {
@@ -2155,17 +1997,11 @@ ttls_handshake_server_hello(TlsCtx *tls)
 		T_FSM_JMP(TTLS_SERVER_HELLO_DONE);
 	}
 	T_FSM_STATE(TTLS_SERVER_HELLO_DONE) {
-		const TlsCiphersuite *ci = tls->xfrm.ciphersuite_info;
-
 		if ((r = ttls_write_server_hello_done(tls, &sgt, &p)))
-			return r;
+			T_FSM_EXIT();
 		CHECK_STATE(9);
-		if (ci->key_exchange == TTLS_KEY_EXCHANGE_PSK
-		    || ci->key_exchange == TTLS_KEY_EXCHANGE_DHE_PSK
-		    || ci->key_exchange == TTLS_KEY_EXCHANGE_ECDHE_PSK
-		    || ci->key_exchange == TTLS_KEY_EXCHANGE_RSA_PSK
-		    || (tls->hs->sni_authmode == TTLS_VERIFY_UNSET
-			&& tls->conf->authmode == TTLS_VERIFY_NONE)
+		if ((tls->hs->sni_authmode == TTLS_VERIFY_UNSET
+		     && tls->conf->authmode == TTLS_VERIFY_NONE)
 		    || tls->hs->sni_authmode == TTLS_VERIFY_NONE)
 		{
 			/* Default and the only option at least before #830. */
@@ -2174,6 +2010,7 @@ ttls_handshake_server_hello(TlsCtx *tls)
 		} else {
 			tls->state = TTLS_CLIENT_CERTIFICATE;
 		}
+send_srv_hello:
 		/* All the writers got their frags, so put our reference. */
 		put_page(pg);
 		sg_mark_end(&sgt.sgl[sgt.nents - 1]);
@@ -2185,8 +2022,8 @@ ttls_handshake_server_hello(TlsCtx *tls)
 
 	/* If we exit here, then something went wrong. */
 	BUG_ON(!r);
-	while (--sgt.nents > (unsigned int)-1)
-		put_page(sg_page(&sg[sgt.nents]));
+	while (sgt.nents)
+		put_page(sg_page(&sg[--sgt.nents]));
 	put_page(pg);
 
 	return r;
@@ -2218,16 +2055,17 @@ ttls_handshake_finished(TlsCtx *tls)
 			if ((r = ttls_write_new_session_ticket(tls, &sgt, &p)))
 				T_FSM_EXIT();
 			CHECK_STATE(512);
-		} else {
-			ttls_write_change_cipher_spec(tls);
-			tls->state = TTLS_SERVER_FINISHED;
 		}
-		T_FSM_NEXT();
+		ttls_write_change_cipher_spec(tls);
+		tls->state = TTLS_SERVER_FINISHED;
+		T_FSM_JMP(TTLS_SERVER_FINISHED);
 	}
 	T_FSM_STATE(TTLS_SERVER_FINISHED) {
 		if ((r = ttls_write_finished(tls, &sgt, &p)))
-			return r;
+			T_FSM_EXIT();
 		CHECK_STATE(TLS_HEADER_SIZE + TTLS_HS_FINISHED_BODY_LEN);
+		/* All the writers got their frags, so put our reference. */
+		put_page(pg);
 		sg_mark_end(&sgt.sgl[sgt.nents - 1]);
 		r = __ttls_send_record(tls, &sgt, false);
 		/*
@@ -2244,8 +2082,8 @@ ttls_handshake_finished(TlsCtx *tls)
 
 	/* If we exit here, then something went wrong. */
 	BUG_ON(!r);
-	while (--sgt.nents > (unsigned int)-1)
-		put_page(sg_page(&sg[sgt.nents]));
+	while (sgt.nents)
+		put_page(sg_page(&sg[--sgt.nents]));
 	put_page(pg);
 
 	return r;
@@ -2306,17 +2144,10 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 		return T_OK;
 	}
 	T_FSM_STATE(TTLS_CLIENT_KEY_EXCHANGE) {
-		const TlsCiphersuite *ci = tls->xfrm.ciphersuite_info;
-
 		r = ttls_parse_client_key_exchange(tls, buf, len, hh_len, read);
 		if (r)
 			return r;
-		if (!tls->sess.peer_cert
-		    || ci->key_exchange == TTLS_KEY_EXCHANGE_PSK
-		    || ci->key_exchange == TTLS_KEY_EXCHANGE_RSA_PSK
-		    || ci->key_exchange == TTLS_KEY_EXCHANGE_ECDHE_PSK
-		    || ci->key_exchange == TTLS_KEY_EXCHANGE_DHE_PSK)
-		{
+		if (!tls->sess.peer_cert) {
 			T_DBG("skip parse certificate verify\n");
 			tls->state = TTLS_CLIENT_CHANGE_CIPHER_SPEC;
 		} else {

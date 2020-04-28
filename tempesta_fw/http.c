@@ -384,6 +384,10 @@ tfw_http_prep_date_from(char *buf, time_t date)
 		{ " Jan ", " Feb ", " Mar ", " Apr ", " May ", " Jun ",
 		  " Jul ", " Aug ", " Sep ", " Oct ", " Nov ", " Dec " };
 
+	/*
+	 * If you see the function in perf top, then replace the naive
+	 * printer by https://github.com/jeaiii/itoa.git
+	 */
 #define PRINT_2DIGIT(p, n)			\
 	*p++ = (n <= 9) ? '0' : '0' + n / 10;	\
 	*p++ = '0' + n % 10;
@@ -3853,7 +3857,7 @@ tfw_h2_set_stale_warn(TfwHttpResp *resp)
 }
 
 /*
- * Split header in two parts: name and value, evicting ':' and OWS. Return
+ * Split header into two parts: name and value, evicting ':' and OWS. Return
  * the resulting length of both parts.
  *
  * NOTE: this function is intended for response processing only (during
@@ -5898,7 +5902,6 @@ tfw_http_req_key_calc(TfwHttpReq *req)
 
 	return req->hash;
 }
-EXPORT_SYMBOL(tfw_http_req_key_calc);
 
 static TfwConnHooks http_conn_hooks = {
 	.conn_init	= tfw_http_conn_init,
@@ -6106,7 +6109,7 @@ __tfw_http_msg_body_dup(const char *filename, TfwStr *c_len_hdr, size_t *len,
 	char buff[TFW_ULTOA_BUF_SIZ] = {0};
 	TfwStr *cl_buf = __TFW_STR_CH(c_len_hdr, 1);
 
-	body = tfw_cfg_read_file(filename, &b_sz);
+	body = tfw_cfg_read_file(filename, &b_sz, 0);
 	if (!body) {
 		*len = *body_offset = 0;
 		return NULL;

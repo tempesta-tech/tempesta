@@ -1,33 +1,35 @@
-/*
- *  Public Key layer for parsing key files and structures
+/**
+ *		Tempesta TLS
  *
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- *  SPDX-License-Identifier: GPL-2.0
+ * Public Key layer for parsing key files and structures
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ * Based on mbed TLS, https://tls.mbed.org.
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  *
- *  This file is part of mbed TLS (https://tls.mbed.org)
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #include "pk.h"
 #include "asn1.h"
+#include "mpool.h"
 #include "oid.h"
 #include "rsa.h"
 #include "ecp.h"
-#include "ecdsa.h"
 #include "pem.h"
+#include "tls_internal.h"
 
 /* Minimally parse an ECParameters buffer to and ttls_asn1_buf
  *
@@ -69,37 +71,37 @@ static int pk_get_ecparams(unsigned char **p, const unsigned char *end,
 	return 0;
 }
 
-/*
- * Use EC parameters to initialise an EC group
+/**
+ * Use EC parameters to find an EC group from initialized MPI profiles.
  *
  * ECParameters ::= CHOICE {
- *   namedCurve		 OBJECT IDENTIFIER
- *   specifiedCurve	 SpecifiedECDomain -- = SEQUENCE { ... }
- *   -- implicitCurve   NULL
+ *	namedCurve		OBJECT IDENTIFIER
+ *	specifiedCurve		SpecifiedECDomain -- = SEQUENCE { ... }
+ *	-- implicitCurve	NULL
  */
-static int pk_use_ecparams(const ttls_asn1_buf *params, TlsEcpGrp *grp)
+static int
+pk_use_ecparams(const ttls_asn1_buf *params, TlsEcpGrp **grp)
 {
-	int ret;
 	ttls_ecp_group_id grp_id;
 
-	if (params->tag == TTLS_ASN1_OID)
-	{
-		if (ttls_oid_get_ec_grp(params, &grp_id) != 0)
-			return(TTLS_ERR_PK_UNKNOWN_NAMED_CURVE);
+	if (params->tag != TTLS_ASN1_OID) {
+		T_ERR("Bad ASN1 OID tag %d, elliptic curve ID is expected\n",
+		      params->tag);
+		return -EINVAL;
 	}
-	else
-	{
-		return(TTLS_ERR_PK_KEY_INVALID_FORMAT);
+	if (ttls_oid_get_ec_grp(params, &grp_id)) {
+		T_ERR("Unsupported elliptic curve\n");
+		return -EINVAL;
 	}
 
-	/*
-	 * grp may already be initilialized; if so, make sure IDs match
-	 */
-	if (grp->id != TTLS_ECP_DP_NONE && grp->id != grp_id)
-		return(TTLS_ERR_PK_KEY_INVALID_FORMAT);
+	if (*grp) {
+		if (WARN_ON_ONCE((*grp)->id != grp_id))
+			return -EEXIST;
+		return 0;
+	}
 
-	if ((ret = ttls_ecp_group_load(grp, grp_id)) != 0)
-		return ret;
+	if (!(*grp = ttls_ecp_group_lookup(grp_id)))
+		return -ENOENT;
 
 	return 0;
 }
@@ -111,23 +113,22 @@ static int pk_use_ecparams(const ttls_asn1_buf *params, TlsEcpGrp *grp)
  * desired. Take care to pass along the possible ECP_FEATURE_UNAVAILABLE
  * return code of ttls_ecp_point_read_binary() and leave p in a usable state.
  */
-static int pk_get_ecpubkey(unsigned char **p, const unsigned char *end,
-				TlsEcpKeypair *key)
+static int
+pk_get_ecpubkey(unsigned char **p, const unsigned char *end, TlsEcpKeypair *key)
 {
-	int ret;
+	int r;
 
-	if ((ret = ttls_ecp_point_read_binary(&key->grp, &key->Q,
-		(const unsigned char *) *p, end - *p)) == 0)
+	if (!(r = ttls_ecp_point_read_binary(key->grp, &key->Q,
+					     (const unsigned char *)*p,
+					     end - *p)))
 	{
-		ret = ttls_ecp_check_pubkey(&key->grp, &key->Q);
+		r = ttls_ecp_check_pubkey(key->grp, &key->Q);
 	}
 
-	/*
-	 * We know ttls_ecp_point_read_binary consumed all bytes or failed
-	 */
-	*p = (unsigned char *) end;
+	/* We know ttls_ecp_point_read_binary consumed all bytes or failed. */
+	*p = (unsigned char *)end;
 
-	return ret;
+	return r;
 }
 
 /*
@@ -136,50 +137,45 @@ static int pk_get_ecpubkey(unsigned char **p, const unsigned char *end,
  *	  publicExponent	INTEGER   -- e
  *  }
  */
-static int pk_get_rsapubkey(unsigned char **p,
-				 const unsigned char *end,
-				 ttls_rsa_context *rsa)
+static int
+pk_get_rsapubkey(unsigned char **p, const unsigned char *end, TlsRSACtx *rsa)
 {
-	int ret;
+	int r;
 	size_t len;
 
-	if ((ret = ttls_asn1_get_tag(p, end, &len,
-			TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE)) != 0)
-		return(TTLS_ERR_PK_INVALID_PUBKEY + ret);
+	r = ttls_asn1_get_tag(p, end, &len,
+			      TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE);
+	if (r)
+		return TTLS_ERR_PK_INVALID_PUBKEY + r;
 
 	if (*p + len != end)
-		return(TTLS_ERR_PK_INVALID_PUBKEY +
-				TTLS_ERR_ASN1_LENGTH_MISMATCH);
+		return TTLS_ERR_PK_INVALID_PUBKEY
+			+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
 	/* Import N */
-	if ((ret = ttls_asn1_get_tag(p, end, &len, TTLS_ASN1_INTEGER)) != 0)
-		return(TTLS_ERR_PK_INVALID_PUBKEY + ret);
+	if ((r = ttls_asn1_get_tag(p, end, &len, TTLS_ASN1_INTEGER)))
+		return TTLS_ERR_PK_INVALID_PUBKEY + r;
 
-	if ((ret = ttls_rsa_import_raw(rsa, *p, len, NULL, 0, NULL, 0,
-				NULL, 0, NULL, 0)) != 0)
-		return(TTLS_ERR_PK_INVALID_PUBKEY);
-
+	if (ttls_rsa_import_raw(rsa, *p, len, NULL, 0, NULL, 0, NULL, 0,
+				NULL, 0))
+		return -ENOMEM;
 	*p += len;
 
 	/* Import E */
-	if ((ret = ttls_asn1_get_tag(p, end, &len, TTLS_ASN1_INTEGER)) != 0)
-		return(TTLS_ERR_PK_INVALID_PUBKEY + ret);
+	if ((r = ttls_asn1_get_tag(p, end, &len, TTLS_ASN1_INTEGER)))
+		return TTLS_ERR_PK_INVALID_PUBKEY + r;
 
-	if ((ret = ttls_rsa_import_raw(rsa, NULL, 0, NULL, 0, NULL, 0,
-				NULL, 0, *p, len)) != 0)
-		return(TTLS_ERR_PK_INVALID_PUBKEY);
-
+	if (ttls_rsa_import_raw(rsa, NULL, 0, NULL, 0, NULL, 0, NULL, 0,
+				*p, len))
+		return -ENOMEM;
 	*p += len;
 
-	if (ttls_rsa_complete(rsa) != 0 ||
-		ttls_rsa_check_pubkey(rsa) != 0)
-	{
-		return(TTLS_ERR_PK_INVALID_PUBKEY);
-	}
+	if (ttls_rsa_check_pubkey(rsa))
+		return TTLS_ERR_PK_INVALID_PUBKEY;
 
 	if (*p != end)
-		return(TTLS_ERR_PK_INVALID_PUBKEY +
-				TTLS_ERR_ASN1_LENGTH_MISMATCH);
+		return TTLS_ERR_PK_INVALID_PUBKEY
+			+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
 	return 0;
 }
@@ -221,19 +217,20 @@ static int pk_get_pk_alg(unsigned char **p,
 /**
  * Parse a SubjectPublicKeyInfo DER structure.
  *
- *  SubjectPublicKeyInfo  ::=  SEQUENCE  {
- *	   algorithm			AlgorithmIdentifier,
- *	   subjectPublicKey	 BIT STRING }
+ * SubjectPublicKeyInfo ::= SEQUENCE {
+ *	algorithm		AlgorithmIdentifier,
+ *	subjectPublicKey	BIT STRING
+ * }
  */
 int
 ttls_pk_parse_subpubkey(unsigned char **p, const unsigned char *end,
-			ttls_pk_context *pk)
+			TlsPkCtx *pk)
 {
 	int ret;
 	size_t len;
 	ttls_asn1_buf alg_params;
 	ttls_pk_type_t pk_alg = TTLS_PK_NONE;
-	const ttls_pk_info_t *pk_info;
+	const TlsPkInfo *pk_info;
 
 	if ((ret = ttls_asn1_get_tag(p, end, &len,
 		TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE)) != 0)
@@ -259,6 +256,11 @@ ttls_pk_parse_subpubkey(unsigned char **p, const unsigned char *end,
 	if ((ret = ttls_pk_setup(pk, pk_info)) != 0)
 		return ret;
 
+	/*
+	 * The caller is responsible for calling ttls_pk_free(pk) on the
+	 * function failure, ttls_x509_crt_free() in particular.
+	 */
+
 	if (pk_alg == TTLS_PK_RSA)
 	{
 		ret = pk_get_rsapubkey(p, end, ttls_pk_rsa(*pk));
@@ -275,143 +277,147 @@ ttls_pk_parse_subpubkey(unsigned char **p, const unsigned char *end,
 		ret = TTLS_ERR_PK_INVALID_PUBKEY
 			  TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
-	if (ret != 0)
-		ttls_pk_free(pk);
-
 	return ret;
 }
 
-/*
- * Parse a PKCS#1 encoded private RSA key
+/**
+ * Parse a PKCS#1 encoded private RSA key.
  */
-static int pk_parse_key_pkcs1_der(ttls_rsa_context *rsa,
-		   const unsigned char *key,
-		   size_t keylen)
+static int
+__parse_key_pkcs1_der(TlsRSACtx *rsa, const unsigned char *key, size_t keylen)
 {
-	int ret, version;
+	int r, version;
 	size_t len;
 	unsigned char *p, *end;
+	TlsMpi *T;
 
-	TlsMpi T;
-	ttls_mpi_init(&T);
-
-	p = (unsigned char *) key;
+	p = (unsigned char *)key;
 	end = p + keylen;
 
 	/*
 	 * This function parses the RSAPrivateKey (PKCS#1)
 	 *
 	 *  RSAPrivateKey ::= SEQUENCE {
-	 *	  version		   Version,
-	 *	  modulus		   INTEGER,  -- n
-	 *	  publicExponent	INTEGER,  -- e
-	 *	  privateExponent   INTEGER,  -- d
-	 *	  prime1			INTEGER,  -- p
-	 *	  prime2			INTEGER,  -- q
-	 *	  exponent1		 INTEGER,  -- d mod (p-1)
-	 *	  exponent2		 INTEGER,  -- d mod (q-1)
-	 *	  coefficient	   INTEGER,  -- (inverse of q) mod p
-	 *	  otherPrimeInfos   OtherPrimeInfos OPTIONAL
+	 *	version		Version,
+	 *	modulus		INTEGER, -- n
+	 *	publicExponent	INTEGER, -- e
+	 *	privateExponent	INTEGER, -- d
+	 *	prime1		INTEGER, -- p
+	 *	prime2		INTEGER, -- q
+	 *	exponent1	INTEGER, -- d mod (p-1)
+	 *	exponent2	INTEGER, -- d mod (q-1)
+	 *	coefficient	INTEGER, -- (inverse of q) mod p
+	 *	otherPrimeInfos	OtherPrimeInfos OPTIONAL
 	 *  }
 	 */
-	if ((ret = ttls_asn1_get_tag(&p, end, &len,
-			TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE)) != 0)
-	{
-		return(TTLS_ERR_PK_KEY_INVALID_FORMAT + ret);
-	}
+	r = ttls_asn1_get_tag(&p, end, &len,
+			      TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE);
+	if (r)
+		return TTLS_ERR_PK_KEY_INVALID_FORMAT + r;
 
 	end = p + len;
 
-	if ((ret = ttls_asn1_get_int(&p, end, &version)) != 0)
-	{
-		return(TTLS_ERR_PK_KEY_INVALID_FORMAT + ret);
-	}
+	if ((r = ttls_asn1_get_int(&p, end, &version)))
+		return TTLS_ERR_PK_KEY_INVALID_FORMAT + r;
 
-	if (version != 0)
-	{
-		return(TTLS_ERR_PK_KEY_INVALID_VERSION);
-	}
+	if (version)
+		return TTLS_ERR_PK_KEY_INVALID_VERSION;
 
 	/* Import N */
-	if ((ret = ttls_asn1_get_tag(&p, end, &len,
-			  TTLS_ASN1_INTEGER)) != 0 ||
-		(ret = ttls_rsa_import_raw(rsa, p, len, NULL, 0, NULL, 0,
-				NULL, 0, NULL, 0)) != 0)
-		goto cleanup;
+	if ((r = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_INTEGER)))
+		goto err;
+	if ((r = ttls_rsa_import_raw(rsa, p, len, NULL, 0, NULL, 0, NULL, 0,
+				     NULL, 0)))
+		goto err;
 	p += len;
 
 	/* Import E */
-	if ((ret = ttls_asn1_get_tag(&p, end, &len,
-			  TTLS_ASN1_INTEGER)) != 0 ||
-		(ret = ttls_rsa_import_raw(rsa, NULL, 0, NULL, 0, NULL, 0,
-				NULL, 0, p, len)) != 0)
-		goto cleanup;
+	if ((r = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_INTEGER)))
+		goto err;
+	if ((r = ttls_rsa_import_raw(rsa, NULL, 0, NULL, 0, NULL, 0, NULL, 0,
+				     p, len)))
+		goto err;
 	p += len;
 
 	/* Import D */
-	if ((ret = ttls_asn1_get_tag(&p, end, &len,
-			  TTLS_ASN1_INTEGER)) != 0 ||
-		(ret = ttls_rsa_import_raw(rsa, NULL, 0, NULL, 0, NULL, 0,
-				p, len, NULL, 0)) != 0)
-		goto cleanup;
+	if ((r = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_INTEGER)))
+		goto err;
+	if ((r = ttls_rsa_import_raw(rsa, NULL, 0, NULL, 0, NULL, 0, p, len,
+				     NULL, 0)))
+		goto err;
 	p += len;
 
 	/* Import P */
-	if ((ret = ttls_asn1_get_tag(&p, end, &len,
-			  TTLS_ASN1_INTEGER)) != 0 ||
-		(ret = ttls_rsa_import_raw(rsa, NULL, 0, p, len, NULL, 0,
-				NULL, 0, NULL, 0)) != 0)
-		goto cleanup;
+	if ((r = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_INTEGER)))
+		goto err;
+	if ((r = ttls_rsa_import_raw(rsa, NULL, 0, p, len, NULL, 0, NULL, 0,
+				     NULL, 0)))
+		goto err;
 	p += len;
 
 	/* Import Q */
-	if ((ret = ttls_asn1_get_tag(&p, end, &len,
-			  TTLS_ASN1_INTEGER)) != 0 ||
-		(ret = ttls_rsa_import_raw(rsa, NULL, 0, NULL, 0, p, len,
-				NULL, 0, NULL, 0)) != 0)
-		goto cleanup;
+	if ((r = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_INTEGER)))
+		goto err;
+	if ((r = ttls_rsa_import_raw(rsa, NULL, 0, NULL, 0, p, len, NULL, 0,
+				     NULL, 0)))
+		goto err;
 	p += len;
 
 	/* Complete the RSA private key */
-	if ((ret = ttls_rsa_complete(rsa)) != 0)
-		goto cleanup;
+	if ((r = ttls_rsa_complete(rsa)))
+		goto err;
 
 	/* Check optional parameters */
-	if ((ret = ttls_asn1_get_mpi(&p, end, &T)) != 0 ||
-		(ret = ttls_asn1_get_mpi(&p, end, &T)) != 0 ||
-		(ret = ttls_asn1_get_mpi(&p, end, &T)) != 0)
-		goto cleanup;
+	T = ttls_mpi_alloc_stack_init(((end - p) + CIL - 1 ) / CIL);
+	if ((r = ttls_asn1_get_mpi(&p, end, T))
+	    || (r = ttls_asn1_get_mpi(&p, end, T))
+	    || (r = ttls_asn1_get_mpi(&p, end, T)))
+	{
+		ttls_mpi_pool_cleanup_ctx((unsigned long)T, false);
+		goto err;
+	}
+	ttls_mpi_pool_cleanup_ctx((unsigned long)T, false);
 
 	if (p != end)
-	{
-		ret = TTLS_ERR_PK_KEY_INVALID_FORMAT +
-			  TTLS_ERR_ASN1_LENGTH_MISMATCH ;
-	}
+		r = TTLS_ERR_PK_KEY_INVALID_FORMAT
+		    + TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
-cleanup:
-
-	ttls_mpi_free(&T);
-
-	if (ret != 0)
-	{
-		/* Wrap error code if it's coming from a lower level */
-		if ((ret & 0xff80) == 0)
-			ret = TTLS_ERR_PK_KEY_INVALID_FORMAT + ret;
+err:
+	if (r) {
+		/*
+		 * Wrap error code if it's coming from a lower level.
+		 * Don't free the RSA context - the caller takes care about this
+		 * through a unified ttls_pk_free() call.
+		 */
+		if (!(r & 0xff80))
+			r = TTLS_ERR_PK_KEY_INVALID_FORMAT + r;
 		else
-			ret = TTLS_ERR_PK_KEY_INVALID_FORMAT;
-
+			r = TTLS_ERR_PK_KEY_INVALID_FORMAT;
 		ttls_rsa_free(rsa);
 	}
-
-	return ret;
+	return r;
 }
 
-/*
+static int
+pk_parse_key_pkcs1_der(TlsRSACtx *rsa, const unsigned char *key, size_t keylen)
+{
+	int r;
+
+	kernel_fpu_begin();
+
+	r = __parse_key_pkcs1_der(rsa, key, keylen);
+
+	kernel_fpu_end();
+
+	return r;
+}
+
+/**
  * Parse a SEC1 encoded private EC key
  */
-static int pk_parse_key_sec1_der(TlsEcpKeypair *eck,
-		  const unsigned char *key,
-		  size_t keylen)
+static int
+pk_parse_key_sec1_der(TlsEcpKeypair *eck, const unsigned char *key,
+		      size_t keylen)
 {
 	int ret;
 	int version, pubkey_done;
@@ -448,11 +454,7 @@ static int pk_parse_key_sec1_der(TlsEcpKeypair *eck,
 	if ((ret = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_OCTET_STRING)) != 0)
 		return(TTLS_ERR_PK_KEY_INVALID_FORMAT + ret);
 
-	if ((ret = ttls_mpi_read_binary(&eck->d, p, len)) != 0)
-	{
-		ttls_ecp_keypair_free(eck);
-		return(TTLS_ERR_PK_KEY_INVALID_FORMAT + ret);
-	}
+	ttls_mpi_read_binary(&eck->d, p, len);
 
 	p += len;
 
@@ -513,16 +515,15 @@ static int pk_parse_key_sec1_der(TlsEcpKeypair *eck,
 		}
 	}
 
-	if (! pubkey_done &&
-		(ret = ttls_ecp_mul(&eck->grp, &eck->Q, &eck->d, &eck->grp.G,
-				  false)) != 0)
+	if (!pubkey_done
+	    && (ret = ttls_ecp_mul(eck->grp, &eck->Q, &eck->d, &eck->grp->G,
+				   false)))
 	{
 		ttls_ecp_keypair_free(eck);
-		return(TTLS_ERR_PK_KEY_INVALID_FORMAT + ret);
+		return TTLS_ERR_PK_KEY_INVALID_FORMAT + ret;
 	}
 
-	if ((ret = ttls_ecp_check_privkey(&eck->grp, &eck->d)) != 0)
-	{
+	if ((ret = ttls_ecp_check_privkey(eck->grp, &eck->d))) {
 		ttls_ecp_keypair_free(eck);
 		return ret;
 	}
@@ -537,7 +538,7 @@ static int pk_parse_key_sec1_der(TlsEcpKeypair *eck,
  * The function is responsible for freeing the provided PK context on failure.
  */
 static int
-pk_parse_key_pkcs8_unencrypted_der(ttls_pk_context *pk,
+pk_parse_key_pkcs8_unencrypted_der(TlsPkCtx *pk,
 				   const unsigned char *key, size_t keylen)
 {
 	int ret, version;
@@ -546,7 +547,7 @@ pk_parse_key_pkcs8_unencrypted_der(ttls_pk_context *pk,
 	unsigned char *p = (unsigned char *)key;
 	unsigned char *end = p + keylen;
 	ttls_pk_type_t pk_alg = TTLS_PK_NONE;
-	const ttls_pk_info_t *pk_info;
+	const TlsPkInfo *pk_info;
 
 	/*
 	 * This function parses the PrivateKeyInfo object
@@ -619,10 +620,10 @@ pk_parse_key_pkcs8_unencrypted_der(ttls_pk_context *pk,
  * result with ttls_pk_can_do().
  */
 int
-ttls_pk_parse_key(ttls_pk_context *pk, unsigned char *key, size_t keylen)
+ttls_pk_parse_key(TlsPkCtx *pk, unsigned char *key, size_t keylen)
 {
 	int r, dec_key_len;
-	const ttls_pk_info_t *pk_info;
+	const TlsPkInfo *pk_info;
 	size_t len;
 
 	if (!keylen)
@@ -643,13 +644,13 @@ ttls_pk_parse_key(ttls_pk_context *pk, unsigned char *key, size_t keylen)
 		{
 			ttls_pk_free(pk);
 		}
-		return r;
+		goto cleanup;
 	}
 	if (r == TTLS_ERR_PEM_PASSWORD_MISMATCH
 	    || r == TTLS_ERR_PEM_PASSWORD_REQUIRED
 	    || r != TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT)
 	{
-		return r;
+		goto cleanup;
 	}
 
 	/* Try to read EC key. */
@@ -665,13 +666,13 @@ ttls_pk_parse_key(ttls_pk_context *pk, unsigned char *key, size_t keylen)
 		{
 			ttls_pk_free(pk);
 		}
-		return r;
+		goto cleanup;
 	}
 	if (r == TTLS_ERR_PEM_PASSWORD_MISMATCH
 	    || r == TTLS_ERR_PEM_PASSWORD_REQUIRED
 	    || r != TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT)
 	{
-		return r;
+		goto cleanup;
 	}
 
 	/* Try to read another key. */
@@ -681,14 +682,14 @@ ttls_pk_parse_key(ttls_pk_context *pk, unsigned char *key, size_t keylen)
 	if (r > 0) {
 		if ((r = pk_parse_key_pkcs8_unencrypted_der(pk, key, r)))
 			ttls_pk_free(pk);
-		return r;
+		goto cleanup;
 	}
 	if (r != TTLS_ERR_PEM_NO_HEADER_FOOTER_PRESENT)
-		return r;
+		goto cleanup;
 
 no_pem:
 	if (!(r = pk_parse_key_pkcs8_unencrypted_der(pk, key, keylen)))
-		return 0;
+		goto cleanup;
 
 	ttls_pk_free(pk);
 
@@ -698,7 +699,7 @@ no_pem:
 	{
 		ttls_pk_free(pk);
 	} else {
-		return 0;
+		goto cleanup;
 	}
 
 	pk_info = ttls_pk_info_from_type(TTLS_PK_ECKEY);
@@ -706,10 +707,12 @@ no_pem:
 	    || (r = pk_parse_key_sec1_der(ttls_pk_ec(*pk), key, keylen)))
 	{
 		ttls_pk_free(pk);
-	} else {
-		return 0;
 	}
 
-	return TTLS_ERR_PK_KEY_INVALID_FORMAT;
+cleanup:
+	/* Does MPI calculations, so pool context must be freed afterwards. */
+	ttls_mpi_pool_cleanup_ctx(0, false);
+
+	return r;
 }
 EXPORT_SYMBOL(ttls_pk_parse_key);

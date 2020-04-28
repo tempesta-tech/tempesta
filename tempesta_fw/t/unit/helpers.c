@@ -15,7 +15,7 @@
  * and generic testing functions/macros are located in test.c/test.h
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -100,4 +100,83 @@ test_resp_free(TfwHttpResp *resp)
 {
 	BUG_ON(!resp);
 	tfw_http_msg_free((TfwHttpMsg *)resp);
+}
+
+/*
+ * Testing mocks to start/stop minimum functionality, necessary for the parser
+ * environment.
+ */
+struct {} *tfw_perfstat;
+
+void
+tfw_client_set_expires_time(unsigned int expires_time)
+{
+}
+
+void
+tfw_client_put(TfwClient *cli)
+{
+}
+
+int
+tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
+{
+	return 0;
+}
+
+int
+tfw_gfsm_dispatch(TfwGState *st, void *obj, TfwFsmData *data)
+{
+	return 0;
+}
+
+void
+tfw_gfsm_state_init(TfwGState *st, void *obj, int st0)
+{
+}
+
+TfwCfgSpec tfw_http_sess_specs[0];
+
+int
+tfw_http_sess_cfgop_finish(TfwVhost *vhost, TfwCfgSpec *cs)
+{
+	return 0;
+}
+
+int
+tfw_http_sess_cfgop_begin(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return 0;
+}
+
+void
+tfw_http_sess_cfgop_cleanup(TfwCfgSpec *cs)
+{
+}
+
+void
+tfw_http_sess_cookie_clean(TfwVhost *vhost)
+{
+}
+
+int
+tfw_http_sess_cfg_finish(TfwVhost *vhost)
+{
+	return 0;
+}
+
+int
+tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
+{
+	return 0;
+}
+
+void
+tfw_tls_cfg_configured(bool global)
+{
+}
+
+void
+tfw_tls_match_any_sni_to_dflt(bool match)
+{
 }

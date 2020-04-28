@@ -4,7 +4,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,7 +30,6 @@
 #include <net/tls.h>
 
 #include "lib/str.h"
-#include "bignum.h"
 #include "ciphersuites.h"
 #include "ecp.h"
 #include "x509_crt.h"
@@ -57,8 +56,6 @@
 #define TTLS_ERR_CERTIFICATE_TOO_LARGE		-0x7500
 /* The own certificate is not set, but needed by the server. */
 #define TTLS_ERR_CERTIFICATE_REQUIRED		-0x7580
-/* The own private key or pre-shared key is not set, but needed. */
-#define TTLS_ERR_PRIVATE_KEY_REQUIRED		-0x7600
 /* No CA Chain is set, but required to operate. */
 #define TTLS_ERR_CA_CHAIN_REQUIRED		-0x7680
 /* An unexpected message was received from our peer. */
@@ -148,10 +145,10 @@
 
 /*
  * Supported Signature and Hash algorithms (For TLS 1.2)
- * RFC 5246 section 7.4.1.4.1
+ * RFC 5246 section 7.4.1.4.1.
+ * SHA 224 isn't here as weak.
  */
 #define TTLS_HASH_NONE				0
-#define TTLS_HASH_SHA224			3
 #define TTLS_HASH_SHA256			4
 #define TTLS_HASH_SHA384			5
 #define TTLS_HASH_SHA512			6
@@ -162,7 +159,7 @@
 
 /*
  * Client Certificate Types
- * RFC 5246 section 7.4.4 plus RFC 4492 section 5.5
+ * RFC 5246 section 7.4.4 and RFC 8422 5.5: ecdsa_sign(64) is only allowed.
  */
 #define TTLS_CERT_TYPE_RSA_SIGN			1
 #define TTLS_CERT_TYPE_ECDSA_SIGN		64
@@ -205,7 +202,6 @@
 #define TTLS_ALERT_MSG_NO_RENEGOTIATION		100 /* 0x64 */
 #define TTLS_ALERT_MSG_UNSUPPORTED_EXT		110 /* 0x6E */
 #define TTLS_ALERT_MSG_UNRECOGNIZED_NAME	112 /* 0x70 */
-#define TTLS_ALERT_MSG_UNKNOWN_PSK_IDENTITY	115 /* 0x73 */
 #define TTLS_ALERT_MSG_NO_APPLICATION_PROTOCOL	120 /* 0x78 */
 
 #define TTLS_HS_HELLO_REQUEST			0
@@ -257,24 +253,17 @@ typedef enum {
 	TTLS_ALPN_ID_HTTP2
 } ttls_alpn_proto_id;
 
-/* Dummy type used only for its size */
-union ttls_premaster_secret
-{
-	unsigned char _pms_rsa[48];			/* RFC 5246 8.1.1 */
-	unsigned char _pms_dhm[TTLS_MPI_MAX_SIZE];	/* RFC 5246 8.1.2 */
-	unsigned char _pms_ecdh[TTLS_ECP_MAX_BYTES];	/* RFC 4492 5.10 */
-};
-
-#define TTLS_PREMASTER_SIZE	sizeof(union ttls_premaster_secret)
+/*
+ * Defined as the maximum of:
+ * 1. RSA pre-master secret RFC 5246 8.1.1 (48 bytes);
+ * 2. Maximum ECP size (48 bytes for 384-bit curve).
+ * 3. Maximum MPI size for DHM by RFC 5246 8.1.2.
+ */
+#define TTLS_PREMASTER_SIZE	512
 #define TTLS_HS_RBUF_SZ		TTLS_PREMASTER_SIZE
 
 /* Defined below */
 typedef struct ttls_alpn_proto ttls_alpn_proto;
-
-/* Defined in tls_internal.h */
-typedef struct ttls_key_cert ttls_key_cert;
-
-typedef struct ttls_context TlsCtx;
 
 /*
  * ALPN protocol descriptor.
@@ -284,9 +273,9 @@ typedef struct ttls_context TlsCtx;
  * @id			- protocol's internal number;
  */
 struct ttls_alpn_proto {
-	const char *name;
-	unsigned int len;
-	int id;
+	const char	*name;
+	unsigned int	len;
+	int		id;
 };
 
 /*
@@ -299,7 +288,8 @@ struct ttls_alpn_proto {
  * @etm			- flag for Encrypt-then-MAC activation;
  * @verify_result	- verification result;
  * @id			- session identifier;
- * @master		- the master secret;
+ * @master		- the master secret (must be here to restore a session
+ *			  from TLS ticket);
  * @ticket		- RFC 5077 session ticket (client-only);
  * @ticket_len		- session ticket length (client-only);
  * @ticket_lifetime	- ticket lifetime hint (client-only);
@@ -338,7 +328,7 @@ typedef struct {
  * @iv_dec		- IV for decryption;
  */
 typedef struct {
-	const TlsCiphersuite	*ciphersuite_info;
+	const TlsCiphersuite		*ciphersuite_info;
 	TlsMdCtx			md_ctx_enc;
 	TlsMdCtx			md_ctx_dec;
 	TlsCipherCtx			cipher_ctx_enc;
@@ -351,6 +341,22 @@ typedef struct {
 	unsigned char			iv_enc[16];
 	unsigned char			iv_dec[16];
 } TlsXfrm;
+
+/*
+ * List of certificate + private key pairs
+ *
+ * @cert		- Server certificate;
+ * @key			- private key for the certificate;
+ * @ca_chain		- trusted CA chain for the issues certificate;
+ * @ca_crl		- trusted CAs CRLs;
+ */
+typedef struct ttls_key_cert {
+	ttls_x509_crt			*cert;
+	TlsPkCtx			*key;
+	ttls_x509_crt			*ca_chain;
+	ttls_x509_crl			*ca_crl;
+	struct ttls_key_cert		*next;
+} TlsKeyCert;
 
 /**
  * Peer TLS configuration. Each virtual server (vhost) inside Tempesta
@@ -371,7 +377,7 @@ typedef struct {
  */
 typedef struct {
 	const int			*ciphersuite_list[4];
-	ttls_key_cert			*key_cert;
+	TlsKeyCert			*key_cert;
 	void				*priv;
 
 	unsigned char			min_minor_ver;
@@ -386,57 +392,39 @@ typedef struct {
  * Global TLS configuration to be shared between all vhosts and to be used in
  * TlsCtx structures.
  *
- * @f_sni		- Callback for setting cert according to SNI extension;
- * @p_sni		- Context for SNI callback;
- * @f_vrfy		- Callback to customize X.509 certificate chain
- *			  verification;
- * @p_vrfy		- Context for X.509 verify callback;
- *
  * @f_ticket_write	- Callback to create & write a session ticket;
  * @f_ticket_parse	- Callback to parse a session ticket into a session
  *			  structure;
  * @p_ticket		- Context for the ticket callbacks;
- *
- * @dhm_P		- prime modulus for DHM;
- * @dhm_G		- generator for DHM;
+ * 	TODO #1054 remove the 3 members above.
  *
  * @alpn_list		- Ordered list of protocols;
  * @read_timeout	- timeout for ttls_recv (ms);
- *
+ * @dhm_min_bitlen	- Minimum bit length of the DHM prime;
+ * @endpoint		- Peer type: 0: client, 1: server;
+ * @authmode		- TTLS_VERIFY_XXX;
+ * @cert_req_ca_list	- Enable sending CA list in Certificate Request messages;
  * @min_minor_ver	- minimum allowed minor version;
  * @max_minor_ver	- always 3 for now, and used for SCSV fallbacks only.
  *			  Preserved for TLS 1.3.
  *
- * @dhm_min_bitlen	- Minimum bit length of the DHM prime;
- *
- * @endpoint		- Peer type: 0: client, 1: server;
- * @authmode		- TTLS_VERIFY_XXX;
- * @cert_req_ca_list	- Enable sending CA list in Certificate Request messages;
- *
  * Members are grouped by size (largest first) to minimize padding overhead.
  */
-typedef struct
-{
-	int (*f_sni)(void *, TlsCtx *, const unsigned char *, size_t);
-	void *p_sni;
-	int (*f_vrfy)(void *, ttls_x509_crt *, int, uint32_t *);
-	void *p_vrfy;
-	int (*f_ticket_write)(void *, const TlsSess *,
-	unsigned char *, const unsigned char *, size_t *, uint32_t *);
+typedef struct {
+	int (*f_ticket_write)(void *, const TlsSess *, unsigned char *,
+			      const unsigned char *, size_t *, uint32_t *);
 	int (*f_ticket_parse)(void *, TlsSess *, unsigned char *, size_t);
-	void *p_ticket;
+	void				*p_ticket;
 
-	TlsMpi				dhm_P;
-	TlsMpi				dhm_G;
 	const ttls_alpn_proto		*alpn_list;
 
 	uint32_t			read_timeout;
-	unsigned char			min_minor_ver;
-	unsigned char			max_minor_ver;
 	unsigned int			dhm_min_bitlen;
 	unsigned int			endpoint : 1;
 	unsigned int			authmode : 2;
 	unsigned int			cert_req_ca_list : 1;
+	unsigned char			min_minor_ver;
+	unsigned char			max_minor_ver;
 } TlsCfg;
 
 /* I/O state flags. */
@@ -498,6 +486,7 @@ typedef struct tls_handshake_t TlsHandshake;
  *
  * @lock	- protects the TLS context changes;
  * @conf	- global TLS configuration;
+ * @peer_conf	- Vhost specific TLS configuration;
  * @hs		- params required only during the handshake process;
  * @alpn_chosen	- negotiated protocol;
  * @state	- TLS handshake: current TLS FSM state;
@@ -509,6 +498,8 @@ typedef struct tls_handshake_t TlsHandshake;
  * @sess	- session data;
  * @xfrm	- transform params;
  * @nb_zero	-  # of 0-length encrypted messages;
+ * @client_auth	- flag for client authentication (client side only);
+ * @hostname	- expected peer CN for verification (and SNI if available);
  */
 typedef struct ttls_context {
 	spinlock_t		lock;
@@ -527,27 +518,19 @@ typedef struct ttls_context {
 	TlsXfrm			xfrm;
 
 	unsigned int		nb_zero;
-
-	/*
-	* PKI layer
-	*/
-	int client_auth;	/*!< flag for client auth. */
-
-	/*
-	* User settings
-	*/
-	char *hostname;	/*!< expected peer CN for verification
-	(and SNI if available)	*/
+	int			client_auth;
+	char			*hostname;
 } TlsCtx;
 
 typedef int ttls_send_cb_t(TlsCtx *tls, struct sg_table *sgt, bool close);
+typedef int ttls_sni_cb_t(TlsCtx *tls, const unsigned char *data, size_t len);
 
 bool ttls_xfrm_ready(TlsCtx *tls);
 bool ttls_xfrm_need_encrypt(TlsCtx *tls);
 void ttls_write_hshdr(unsigned char type, unsigned char *buf,
 		      unsigned short len);
 void *ttls_alloc_crypto_req(unsigned int extra_size, unsigned int *rsz);
-void ttls_register_bio(ttls_send_cb_t *send_cb);
+void ttls_register_callbacks(ttls_send_cb_t *send_cb, ttls_sni_cb_t *sni_cb);
 
 const char *ttls_get_ciphersuite_name(const int ciphersuite_id);
 
@@ -558,10 +541,8 @@ void ttls_conf_authmode(TlsCfg *conf, int authmode);
 typedef int ttls_ticket_write_t(void *p_ticket, const TlsSess *session,
 				unsigned char *start, const unsigned char *end,
 				size_t *tlen, uint32_t *lifetime);
-
 typedef int ttls_ticket_parse_t(void *p_ticket, TlsSess *session,
 				unsigned char *buf, size_t len);
-
 void ttls_conf_session_tickets_cb(TlsCfg *conf,
 				  ttls_ticket_write_t *f_ticket_write,
 				  ttls_ticket_parse_t *f_ticket_parse,
@@ -569,22 +550,11 @@ void ttls_conf_session_tickets_cb(TlsCfg *conf,
 int ttls_set_session(TlsCtx *ssl, const TlsSess *session);
 
 int ttls_conf_own_cert(TlsPeerCfg *conf, ttls_x509_crt *own_cert,
-		       ttls_pk_context *pk_key, ttls_x509_crt *ca_chain,
+		       TlsPkCtx *pk_key, ttls_x509_crt *ca_chain,
 		       ttls_x509_crl *ca_crl);
-
-int ttls_conf_dh_param_bin(TlsCfg *conf,
-			   const unsigned char *dhm_P, size_t P_len,
-			   const unsigned char *dhm_G, size_t G_len);
-int ttls_conf_dh_param_ctx(TlsCfg *conf, ttls_dhm_context *dhm_ctx);
-void ttls_conf_dhm_min_bitlen(TlsCfg *conf,
-			      unsigned int bitlen);
 
 int ttls_set_hostname(TlsCtx *ssl, const char *hostname);
 void ttls_set_hs_authmode(TlsCtx *ssl, int authmode);
-void ttls_conf_sni(TlsCfg *conf,
-		   int (*f_sni)(void *, TlsCtx *, const unsigned char *,
-				size_t),
-		   void *p_sni);
 const char *ttls_get_alpn_protocol(const TlsCtx *ssl);
 void ttls_conf_version(TlsCfg *conf, int min_minor, int max_minor);
 
@@ -598,15 +568,13 @@ int ttls_send_alert(TlsCtx *tls, unsigned char lvl, unsigned char msg);
 int ttls_close_notify(TlsCtx *tls);
 
 void ttls_ctx_clear(TlsCtx *tls);
-void ttls_key_cert_free(ttls_key_cert *key_cert);
+void ttls_key_cert_free(TlsKeyCert *key_cert);
 
 void ttls_config_init(TlsCfg *conf);
 int ttls_config_defaults(TlsCfg *conf, int endpoint);
 int ttls_config_peer_defaults(TlsPeerCfg *conf, int endpoint);
 void ttls_config_free(TlsCfg *conf);
 void ttls_config_peer_free(TlsPeerCfg *conf);
-
-void ttls_strerror(int errnum, char *buffer, size_t buflen);
 
 void ttls_aad2hdriv(TlsXfrm *xfrm, unsigned char *buf);
 

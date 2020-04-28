@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,7 +17,6 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
 #include "tls_conf.h"
 #include "tls.h"
 #include "vhost.h"
@@ -30,7 +29,7 @@
 
 typedef struct {
 	ttls_x509_crt	crt;
-	ttls_pk_context	key;
+	TlsPkCtx	key;
 	unsigned long	crt_pg_addr;
 	unsigned int	crt_pg_order;
 	unsigned int	conf_stage;
@@ -75,12 +74,12 @@ tfw_tls_get_cert_conf(TfwVhost *vhost, unsigned int directive)
 	}
 
 	curr_cert_conf = &conf->certs[conf->certs_num];
-	switch (directive)
-	{
+	switch (directive) {
 	case TFW_TLS_CFG_F_CERT:
 		if (curr_cert_conf->conf_stage & TFW_TLS_CFG_F_CERT) {
-			T_WARN_NL("'tls_certificate_key' directive was expected,"
-				  "but 'tls_certificate' was found first.\n");
+			T_WARN_NL("'tls_certificate_key' directive was"
+				  " expected, but 'tls_certificate' was"
+				  " found first.\n");
 			curr_cert_conf = NULL;
 		}
 		break;
@@ -88,14 +87,15 @@ tfw_tls_get_cert_conf(TfwVhost *vhost, unsigned int directive)
 	case TFW_TLS_CFG_F_CKEY:
 		if (!(curr_cert_conf->conf_stage & TFW_TLS_CFG_F_CERT)) {
 			T_WARN_NL("'tls_certificate_key' directive was found"
-				  "before 'tls_certificate' has encountered.\n");
+				  " before 'tls_certificate' has encountered."
+				  "\n");
 			curr_cert_conf = NULL;
 			break;
 		}
 		if (curr_cert_conf->conf_stage & TFW_TLS_CFG_F_CKEY) {
 			T_WARN_NL("'tls_certificate_key' directive was found"
-				  "twice for the same 'tls_certificate' "
-				  "directive.\n");
+				  " twice for the same 'tls_certificate'"
+				  " directive.\n");
 			curr_cert_conf = NULL;
 			break;
 		}
@@ -117,7 +117,7 @@ int
 tfw_tls_set_cert(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
-	void *crt_data;
+	unsigned char *crt_data;
 	size_t crt_size;
 	TlsCertConf *conf;
 
@@ -131,20 +131,24 @@ tfw_tls_set_cert(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 
 	ttls_x509_crt_init(&conf->crt);
-	crt_data = tfw_cfg_read_file(ce->vals[0], &crt_size);
+	/* Preserve 3 bytes for the certificate length. */
+	crt_data = tfw_cfg_read_file(ce->vals[0], &crt_size, TTLS_CERT_LEN_LEN);
 	if (!crt_data) {
 		T_ERR_NL("%s: Can't read certificate file '%s'\n",
 			 ce->name, ce->vals[0]);
 		return -EINVAL;
 	}
 
-	r = ttls_x509_crt_parse(&conf->crt, crt_data, crt_size);
+	r = ttls_x509_crt_parse(&conf->crt, crt_data + TTLS_CERT_LEN_LEN,
+				crt_size);
 	if (r) {
 		T_ERR_NL("%s: Invalid certificate specified (%x)\n",
 			 cs->name, -r);
 		free_pages((unsigned long)crt_data, get_order(crt_size));
 		return -EINVAL;
 	}
+	ttls_x509_write_cert_len(&conf->crt, crt_data);
+
 	conf->crt_pg_addr = (unsigned long)crt_data;
 	conf->crt_pg_order = get_order(crt_size);
 
@@ -171,6 +175,13 @@ tfw_tls_cert_cfg_finish_cert(TfwVhost *vhost)
 
 /**
  * Handle 'tls_certificate_key <path>' config entry.
+ *
+ * TODO #67: At the moment `tls_certificate_key` always follow
+ * `tls_certificate`, so at this place we have both the pair of the certificate
+ * and private key initialized and can generate necessary MPI profiles.
+ * The limitation on the directives order may be inconvenient for a user, so
+ * this should be redesigned. Meantime, probably with the new API this won't be
+ * an issue at all, TBD.
  */
 int
 tfw_tls_set_cert_key(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
@@ -188,7 +199,7 @@ tfw_tls_set_cert_key(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	ttls_pk_init(&conf->key);
 
-	key_data = tfw_cfg_read_file(ce->vals[0], &key_size);
+	key_data = tfw_cfg_read_file(ce->vals[0], &key_size, 0);
 	if (!key_data) {
 		T_ERR_NL("%s: Can't read certificate file '%s'\n",
 			 ce->name, ce->vals[0]);
@@ -204,10 +215,7 @@ tfw_tls_set_cert_key(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 		return -EINVAL;
 	}
 
-	if ((r = tfw_tls_cert_cfg_finish_cert(vhost)))
-		return r;
-
-	return 0;
+	return tfw_tls_cert_cfg_finish_cert(vhost);
 }
 
 int

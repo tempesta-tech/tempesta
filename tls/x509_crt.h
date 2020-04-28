@@ -1,24 +1,26 @@
 /**
- * \brief X.509 certificate parsing and writing
- */
-/*
- *  Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- *  Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- *  SPDX-License-Identifier: GPL-2.0
+ *		Tempesta TLS
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ * X.509 certificate parsing and writing
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * Based on mbed TLS, https://tls.mbed.org.
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #ifndef TTLS_X509_CRT_H
 #define TTLS_X509_CRT_H
@@ -26,10 +28,7 @@
 #include "x509.h"
 #include "x509_crl.h"
 
-/**
- * \name Structures and functions for parsing and writing X.509 certificates
- * \{
- */
+#define TTLS_CERT_LEN_LEN			3
 
 /**
  * Container for an X.509 certificate. The certificate may be chained.
@@ -52,7 +51,7 @@ typedef struct ttls_x509_crt
 	ttls_x509_time valid_from;	   /**< Start time of certificate validity. */
 	ttls_x509_time valid_to;		 /**< End time of certificate validity. */
 
-	ttls_pk_context pk;			  /**< Container for the public key context. */
+	TlsPkCtx pk;			  /**< Container for the public key context. */
 
 	ttls_x509_buf issuer_id;		 /**< Optional X.509 v2/v3 issuer unique identifier. */
 	ttls_x509_buf subject_id;		/**< Optional X.509 v2/v3 subject unique identifier. */
@@ -112,8 +111,8 @@ typedef struct ttls_x509write_cert
 {
 	int version;
 	TlsMpi serial;
-	ttls_pk_context *subject_key;
-	ttls_pk_context *issuer_key;
+	TlsPkCtx *subject_key;
+	TlsPkCtx *issuer_key;
 	ttls_asn1_named_data *subject;
 	ttls_asn1_named_data *issuer;
 	ttls_md_type_t md_alg;
@@ -152,36 +151,6 @@ int ttls_x509_crt_parse_der(ttls_x509_crt *chain, unsigned char *buf,
 int ttls_x509_crt_parse(ttls_x509_crt *chain, unsigned char *buf, size_t buflen);
 
 /**
- * \brief		  Returns an informational string about the
- *				 certificate.
- *
- * \param buf	  Buffer to write to
- * \param size	 Maximum size of buffer
- * \param prefix   A line prefix
- * \param crt	  The X509 certificate to represent
- *
- * \return		 The length of the string written (not including the
- *				 terminated nul byte), or a negative error code.
- */
-int ttls_x509_crt_info(char *buf, size_t size, const char *prefix,
-				   const ttls_x509_crt *crt);
-
-/**
- * \brief		  Returns an informational string about the
- *				 verification status of a certificate.
- *
- * \param buf	  Buffer to write to
- * \param size	 Maximum size of buffer
- * \param prefix   A line prefix
- * \param flags	Verification flags created by ttls_x509_crt_verify()
- *
- * \return		 The length of the string written (not including the
- *				 terminated nul byte), or a negative error code.
- */
-int ttls_x509_crt_verify_info(char *buf, size_t size, const char *prefix,
-			  uint32_t flags);
-
-/**
  * \brief	  Verify the certificate signature
  *
  *			 The verify callback is a user-supplied callback that
@@ -203,9 +172,6 @@ int ttls_x509_crt_verify_info(char *buf, size_t size, const char *prefix,
  *			 from TTLS_ERR_X509_CERT_VERIFY_FAILED which should not
  *			 be returned at this point), or TTLS_ERR_X509_FATAL_ERROR
  *			 can be used if no better code is available.
- *
- * \note	   In case verification failed, the results can be displayed
- *			 using \c ttls_x509_crt_verify_info()
  *
  * \note	   Same as \c ttls_x509_crt_verify_with_profile() with the
  *			 default security profile.
@@ -251,8 +217,6 @@ int ttls_x509_crt_verify(ttls_x509_crt *crt, ttls_x509_crt *trust_ca,
  * \param cn	   expected Common Name (can be set to
  *				 NULL if the CN must not be verified)
  * \param flags	result of the verification
- * \param f_vrfy   verification function
- * \param p_vrfy   verification parameter
  *
  * \return		 0 if successful or TTLS_ERR_X509_CERT_VERIFY_FAILED
  *				 in which case *flags will have one or more
@@ -319,18 +283,30 @@ int ttls_x509_crt_check_extended_key_usage(const ttls_x509_crt *crt,
  */
 int ttls_x509_crt_is_revoked(const ttls_x509_crt *crt, const ttls_x509_crl *crl);
 
-/**
- * \brief		  Initialize a certificate (chain)
- *
- * \param crt	  Certificate chain to initialize
- */
 void ttls_x509_crt_init(ttls_x509_crt *crt);
-
-/**
- * \brief		  Unallocate all certificate data
- *
- * \param crt	  Certificate chain to free
- */
 void ttls_x509_crt_free(ttls_x509_crt *crt);
 
-#endif /* ttls_x509_crt.h */
+/**
+ * Writes certificate length in exactly TTLS_CERT_LEN_LEN bytes of @buf.
+ */
+static inline void
+ttls_x509_write_cert_len(const ttls_x509_crt *crt, unsigned char *buf)
+{
+	size_t n = crt->raw.len;
+
+	buf[0] = (unsigned char)(n >> 16);
+	buf[1] = (unsigned char)(n >> 8);
+	buf[2] = (unsigned char)n;
+}
+
+static inline void *
+ttls_x509_crt_page(const ttls_x509_crt *crt)
+{
+	unsigned long addr = (unsigned long)crt->raw.p - TTLS_CERT_LEN_LEN;
+
+	BUG_ON(addr & ~PAGE_MASK);
+
+	return (void *)addr;
+}
+
+#endif /* TTLS_X509_CRT_H */

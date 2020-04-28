@@ -22,12 +22,20 @@
 #include <asm/fpu/api.h>
 #include <linux/vmalloc.h>
 
-#include "http_msg.h"
-#include "http_parser.c"
-
 #include "test.h"
 #include "helpers.h"
 #include "fuzzer.h"
+
+#include "http_parser.c"
+#include "http_sess.c"
+/* prevent exporting symbols */
+#include <linux/module.h>
+#undef EXPORT_SYMBOL
+#define EXPORT_SYMBOL(...)
+#include "str.c"
+#include "ss_skb.c"
+#include "msg.c"
+#include "http_msg.c"
 
 static TfwHttpReq *req, *sample_req;
 static TfwHttpResp *resp;
@@ -3275,10 +3283,10 @@ TEST_SUITE(http_parser)
 	 * Testing for correctness of redirection mark parsing (in
 	 * extended enforced mode of 'http_sessions' module).
 	 */
-	test_helper_sticky_start(1);
+	redir_mark_enabled = true;
 
 	TEST_RUN(http_parser, parses_enforce_ext_req);
 	TEST_RUN(http_parser, parses_enforce_ext_req_rmark);
 
-	test_helper_sticky_stop();
+	redir_mark_enabled = false;
 }

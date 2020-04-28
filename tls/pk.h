@@ -6,8 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
- * SPDX-License-Identifier: GPL-2.0
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,7 +28,6 @@
 #include "crypto.h"
 #include "rsa.h"
 #include "ecp.h"
-#include "ecdsa.h"
 
 /* Memory allocation failed. */
 #define TTLS_ERR_PK_ALLOC_FAILED	-0x3F80
@@ -53,10 +51,6 @@
 #define TTLS_ERR_PK_INVALID_PUBKEY	-0x3B00
 /* The algorithm tag or value is invalid. */
 #define TTLS_ERR_PK_INVALID_ALG		-0x3A80
-/* Elliptic curve is unsupported (only NIST curves are supported). */
-#define TTLS_ERR_PK_UNKNOWN_NAMED_CURVE	-0x3A00
-/* Unavailable feature, e.g. RSA disabled for RSA key. */
-#define TTLS_ERR_PK_FEATURE_UNAVAILABLE	-0x3980
 /* The signature is valid but its length is less than expected. */
 #define TTLS_ERR_PK_SIG_LEN_MISMATCH	-0x3900
 /* PK hardware accelerator failed. */
@@ -71,7 +65,6 @@ typedef enum {
 	TTLS_PK_ECKEY,
 	TTLS_PK_ECKEY_DH,
 	TTLS_PK_ECDSA,
-	TTLS_PK_RSA_ALT,
 	TTLS_PK_RSASSA_PSS,
 } ttls_pk_type_t;
 
@@ -84,26 +77,31 @@ typedef struct {
 	int		expected_salt_len;
 } ttls_pk_rsassa_pss_options;
 
-/**
- * Types for interfacing with the debug module.
- */
-typedef enum {
-	TTLS_PK_DEBUG_NONE = 0,
-	TTLS_PK_DEBUG_MPI,
-	TTLS_PK_DEBUG_ECP,
-} ttls_pk_debug_type;
-
-/**
- * Item to send to the debug module.
+/*
+ * @type		- Public key type;
+ * @name		- Type name;
+ * @get_bitlen		- Get key size in bits;
+ * @can_do		- Tell if the context implements this type
+ *			  (e.g. ECKEY can do ECDSA);
+ * @verify_func		- Verify signature;
+ * @sign_func		- Make signature;
+ * @ctx_alloc_func	- Allocate a new context;
  */
 typedef struct {
-	ttls_pk_debug_type	type;
-	const char		*name;
-	void			*value;
-} ttls_pk_debug_item;
+	ttls_pk_type_t	type;
+	const char	*name;
 
-/* Public key information and operations. */
-typedef struct ttls_pk_info_t ttls_pk_info_t;
+	size_t (*get_bitlen)(const void *);
+	int (*can_do)(ttls_pk_type_t type);
+	int (*verify_func)(void *ctx, ttls_md_type_t md_alg,
+			   const unsigned char *hash, size_t hash_len,
+			   const unsigned char *sig, size_t sig_len);
+	int (*sign_func)(void *ctx, ttls_md_type_t md_alg,
+			 const unsigned char *hash, size_t hash_len,
+			 unsigned char *sig, size_t *sig_len);
+	void *(*ctx_alloc_func)(void);
+	void (*ctx_free_func)(void *);
+} TlsPkInfo;
 
 /**
  * Public key container.
@@ -112,38 +110,31 @@ typedef struct ttls_pk_info_t ttls_pk_info_t;
  * @pk_ctx	- Underlying public key context.
  */
 typedef struct {
-	const ttls_pk_info_t	*pk_info;
+	const TlsPkInfo		*pk_info;
 	void			*pk_ctx;
-} ttls_pk_context;
+} TlsPkCtx;
 
-const ttls_pk_info_t *ttls_pk_info_from_type(ttls_pk_type_t pk_type);
-void ttls_pk_init(ttls_pk_context *ctx);
-void ttls_pk_free(ttls_pk_context *ctx);
-int ttls_pk_setup(ttls_pk_context *ctx, const ttls_pk_info_t *info);
-size_t ttls_pk_get_bitlen(const ttls_pk_context *ctx);
-int ttls_pk_can_do(const ttls_pk_context *ctx, ttls_pk_type_t type);
-int ttls_pk_verify(ttls_pk_context *ctx, ttls_md_type_t md_alg,
+const TlsPkInfo *ttls_pk_info_from_type(ttls_pk_type_t pk_type);
+void ttls_pk_init(TlsPkCtx *ctx);
+void ttls_pk_free(TlsPkCtx *ctx);
+int ttls_pk_setup(TlsPkCtx *ctx, const TlsPkInfo *info);
+size_t ttls_pk_get_bitlen(const TlsPkCtx *ctx);
+int ttls_pk_can_do(const TlsPkCtx *ctx, ttls_pk_type_t type);
+int ttls_pk_verify(TlsPkCtx *ctx, ttls_md_type_t md_alg,
 		   const unsigned char *hash, size_t hash_len,
 		   const unsigned char *sig, size_t sig_len);
 int ttls_pk_verify_ext(ttls_pk_type_t type, const void *options,
-		       ttls_pk_context *ctx, ttls_md_type_t md_alg,
+		       TlsPkCtx *ctx, ttls_md_type_t md_alg,
 		       const unsigned char *hash, size_t hash_len,
 		       const unsigned char *sig, size_t sig_len);
-int ttls_pk_sign(ttls_pk_context *ctx, ttls_md_type_t md_alg,
+int ttls_pk_sign(TlsPkCtx *ctx, ttls_md_type_t md_alg,
 		 const unsigned char *hash, size_t hash_len,
 		 unsigned char *sig, size_t *sig_len);
-int ttls_pk_decrypt(ttls_pk_context *ctx,
-		    const unsigned char *input, size_t ilen,
-		    unsigned char *output, size_t *olen, size_t osize);
-int ttls_pk_encrypt(ttls_pk_context *ctx,
-		    const unsigned char *input, size_t ilen,
-		    unsigned char *output, size_t *olen, size_t osize);
-const char * ttls_pk_get_name(const ttls_pk_context *ctx);
-ttls_pk_type_t ttls_pk_get_type(const ttls_pk_context *ctx);
+ttls_pk_type_t ttls_pk_get_type(const TlsPkCtx *ctx);
 
-int ttls_pk_parse_key(ttls_pk_context *ctx, unsigned char *key, size_t keylen);
+int ttls_pk_parse_key(TlsPkCtx *ctx, unsigned char *key, size_t keylen);
 int ttls_pk_parse_subpubkey(unsigned char **p, const unsigned char *end,
-			    ttls_pk_context *pk);
+			    TlsPkCtx *pk);
 
 /**
  * Quick access to an RSA context inside a PK context.
@@ -151,10 +142,10 @@ int ttls_pk_parse_subpubkey(unsigned char **p, const unsigned char *end,
  * WARNING: You must make sure the PK context actually holds an RSA context
  * before using this function!
  */
-static inline ttls_rsa_context *
-ttls_pk_rsa(const ttls_pk_context pk)
+static inline TlsRSACtx *
+ttls_pk_rsa(const TlsPkCtx pk)
 {
-	return (ttls_rsa_context *)(pk).pk_ctx;
+	return (TlsRSACtx *)(pk).pk_ctx;
 }
 
 /**
@@ -164,7 +155,7 @@ ttls_pk_rsa(const ttls_pk_context pk)
  * before using this function!
  */
 static inline TlsEcpKeypair *
-ttls_pk_ec(const ttls_pk_context pk)
+ttls_pk_ec(const TlsPkCtx pk)
 {
 	return (TlsEcpKeypair *)(pk).pk_ctx;
 }
@@ -173,7 +164,7 @@ ttls_pk_ec(const ttls_pk_context pk)
  * Get the length in bytes of the underlying key.
  */
 static inline size_t
-ttls_pk_get_len(const ttls_pk_context *ctx)
+ttls_pk_get_len(const TlsPkCtx *ctx)
 {
 	return (ttls_pk_get_bitlen(ctx) + 7) / 8;
 }

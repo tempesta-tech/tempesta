@@ -1,7 +1,7 @@
 /**
  *	Tempesta kernel emulation unit testing framework.
  *
- * Copyright (C) 2015 Tempesta Technologies.
+ * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -31,6 +31,25 @@ sync_test_and_set_bit(int nr, volatile unsigned long *addr)
 		     : "=r" (oldbit), "+m" (ADDR)
 		     : "Ir" (nr) : "memory");
 	return oldbit;
+}
+
+static inline unsigned long
+__ffs(unsigned long word)
+{
+	asm("rep; bsf %1,%0"
+		: "=r" (word)
+		: "rm" (word));
+	return word;
+}
+
+static inline int
+fls64(__u64 x)
+{
+	int bitpos = -1;
+	asm("bsrq %1,%q0"
+	    : "+r" (bitpos)
+	    : "rm" (x));
+	return bitpos + 1;
 }
 
 #endif /* __SYNC_BITOPS_H__ */
