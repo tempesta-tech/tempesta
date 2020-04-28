@@ -362,7 +362,21 @@ __mpi_profile_load_ec(TlsMpiPool *mp, TlsECDHCtx *ctx, unsigned char w,
 		      r);
 		return r;
 	}
-	/* Prepare precomputed points to use them in ecp_mul_comb(). */
+	/*
+	 * Prepare precomputed points to use them in ecp_mul_comb().
+	 *
+	 * TODO #1064 replace the precomputation with static table to improve
+	 * spacial locality.
+	 * Can we precompute more data to save cycles on ecp_mul_comb_core()?
+	 * Probably wNAF should be used here.
+	 * It seems we can use fixed-base comb method with two tables instead
+	 * of the generic comb precomputation...
+	 * see M.Brown, D.Hankerson, J.Lopez, A.Menezes,
+	 * "Software implementation of the NIST elliptic curves over prime fields".
+	 * Fixed-base comb with w=6 requres about 41*A + 21*D time which seems
+	 * much larger than OpenSSL's 36*A.
+	 * w=4 gives even worse 59*A + 31*D time.
+	 */
 	n_sz = (grp->bits + w - 1) / w;
 	if (ecp_precompute_comb(grp, grp->T, &grp->G, w, n_sz))
 		return -EDOM;
@@ -486,7 +500,7 @@ cleanup:
 }
 
 /**
- * Creat a new per-handshake MPI pool and clone an MPI profile into it.
+ * Create a new per-handshake MPI pool and clone an MPI profile into it.
  */
 static int
 __mpi_profile_clone(TlsCtx *tls, int ec)

@@ -481,7 +481,7 @@ ecp_mul_mod(const TlsEcpGrp *grp, TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 
 		ecp_mod_p256(X);
 	} else {
-		/* TODO #1064: also optimize for Secp384. */
+		/* TODO #1335: also optimize for Secp384. */
 		ttls_mpi_mul_mpi(X, A, B);
 		ecp_modp(X, grp);
 	}
@@ -764,7 +764,6 @@ ecp_add_mixed(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint *P,
 		ttls_ecp_copy(R, Q);
 		return 0;
 	}
-
 	if (!ttls_mpi_empty(&Q->Z)) {
 		if (!ttls_mpi_cmp_int(&Q->Z, 0)) {
 			ttls_ecp_copy(R, P);
@@ -845,7 +844,9 @@ ecp_add_mixed(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint *P,
  * (X, Y, Z) -> (l^2 X, l^3 Y, l Z) for random l
  * This is sort of the reverse operation of ecp_normalize_jac().
  *
- * This countermeasure was first suggested in [2].
+ * This countermeasure was first suggested in [2]. See also the recommendation
+ * for SPA and DPA attacks prevention in J.Coron, "Resistance against
+ * Differential Power Analysis for Elliptic Curve Cryptosystems".
  */
 static int
 ecp_randomize_jac(const TlsEcpGrp *grp, TlsEcpPoint *pt)
@@ -964,6 +965,7 @@ ecp_precompute_comb(const TlsEcpGrp *grp, TlsEcpPoint T[], const TlsEcpPoint *P,
 		cur = T + i;
 		ttls_ecp_copy(cur, T + (i >> 1));
 		for (j = 0; j < d; j++)
+			/* TODO #1064 use repeated doubling optimization. */
 			MPI_CHK(ecp_double_jac(grp, cur, cur));
 
 		TT[k++] = cur;
@@ -1040,6 +1042,7 @@ ecp_mul_comb_core(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint T[],
 		MPI_CHK(ecp_randomize_jac(grp, R));
 
 	while (i-- != 0) {
+		/* TODO #1064 use repeated doubling optimization. */
 		MPI_CHK(ecp_double_jac(grp, R, R));
 		ecp_select_comb(grp, Txi, T, t_len, x[i]);
 		MPI_CHK(ecp_add_mixed(grp, R, R, Txi));
@@ -1053,6 +1056,8 @@ ecp_mul_comb_core(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint T[],
  *
  * May allocate @R point on the stack, so while the function uses plenty of
  * memory we can't call ttls_mpi_pool_cleanup_ctx() here.
+ *
+ * TODO #1064: why wNAF isn't used?
  */
 static int
 ecp_mul_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
@@ -1075,7 +1080,8 @@ ecp_mul_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	/*
 	 * Minimize the number of multiplications, that is minimize
 	 * 10 * d * w + 18 * 2^(w-1) + 11 * d + 7 * w, with d = ceil(bits / w)
-	 * (see costs of the various parts, with 1S = 1M)
+	 * (see costs of the various parts, with 1S = 1M).
+	 * TODO #1064 make sure that w size is the best one.
 	 */
 	BUG_ON(grp->bits > 384);
 	w = grp->bits == 384 ? 5 : 4;

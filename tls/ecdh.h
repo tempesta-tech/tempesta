@@ -51,16 +51,12 @@ typedef enum {
  * @Qp			- value of the public key of the peer;
  * @z			- shared secret, X point is only used
  *			  (see ttls_ecdh_compute_shared());
- * @Vi			- blinding value;
- * @Vf			- unblinding value;
  * @d			- private key;
  */
 typedef struct {
 	TlsEcpPoint	Q;
 	TlsEcpPoint	Qp;
 	TlsEcpPoint	z;
-	TlsEcpPoint	Vi;
-	TlsEcpPoint	Vf;
 	TlsMpi		d;
 	TlsEcpGrp	*grp;
 } TlsECDHCtx;
