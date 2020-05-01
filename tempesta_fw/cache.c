@@ -1838,43 +1838,57 @@ tfw_cache_purge_method(TfwHttpReq *req)
 }
 
 /**
- * Append h2 frame header to message.
- * @it		- message iterator;
- * @h_str	- encoded h2 frame header.
+ * Add page from cache into response. Different strategies are used to
+ * avoid extra data copying depending on client connection type:
+ * - for http connections - pages are reused in skbs and SKBTX_SHARED_FRAG is
+ * set to avoid any data copies.
+ * - for https connections - pages are reused in skbs and SKBTX_SHARED_FRAG is
+ * set, but in-place crypto operations are not allowed, so data copy happens
+ * right before data is pushed into network.
+ * - for h2 connections - copying happens on constructing responses from
+ * cache, and SKBTX_SHARED_FRAG is left unset allowing in-place crypto
+ * operations.
  *
- * Response body is stored in cache as list of pages and we reuse that skbs
- * inside responses to reduce copy operations. These pages are shared and
- * mustn't be modified, but normally they has no free space (except last
- * fragment). Thus we weed to add a free page to the message to store all
- * the h2 headers fragments.
+ * Since we can't encrypt shared data in-place we always copy it, so we need
+ * reserve some space in cached pages to avoid extra skb fragmentation. Since
+ * body fragments are stored in cache by pages with at least cache record
+ * header preceding, which is bigger than h2 frame header, it's always possible
+ * to fit body fragment and h2 header into a single page. So there is no need
+ * to actually reserve any space for h2 frame header.
  */
 static int
-__append_h2_frame_header(TfwMsgIter *it, const TfwStr *h_str)
+tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, TfwFrameHdr *frame_hdr,
+			bool h2, bool last_frag)
 {
-	int r = 0;
-	struct skb_shared_info *si = skb_shinfo(it->skb);
-	skb_frag_t *f;
+	int off;
+	struct page *page;
 
-	if (!si->nr_frags) {
-		struct page *page = alloc_page(GFP_ATOMIC);
-
-		if (!page)
+	/*
+	 * @sz is guarantied to be bigger than FRAME_HEADER_SIZE if frame header
+	 * is stored in cache before data. True for first fragment.
+	 */
+	if (h2) {
+		char *new_p;
+		if (!(page = alloc_page(GFP_ATOMIC))) {
 			return -ENOMEM;
-		skb_fill_page_desc(it->skb, it->frag, page, 0, h_str->len);
-		ss_skb_adjust_data_len(it->skb, h_str->len);
+		}
+		new_p = page_address(page);
+		off = 0;
+		frame_hdr->flags = last_frag ? HTTP2_F_END_STREAM : 0;
+		frame_hdr->length = sz;
+		memcpy_fast(new_p + FRAME_HEADER_SIZE, p, sz);
+		sz += FRAME_HEADER_SIZE;
+		tfw_h2_pack_frame_header(new_p, frame_hdr);
 	}
 	else {
-		r = ss_skb_expand_head_tail(it->skb_head, it->skb, 0, h_str->len);
-		if (r != 1)
-			return -EINVAL;
+		off = ((unsigned long)p & ~PAGE_MASK);
+		page = virt_to_page(p);
 	}
 
-	f = &skb_shinfo(it->skb)->frags[it->frag];
-	memcpy(skb_frag_address(f), h_str->data, h_str->len);
-	it->frag++;
-
-	if (WARN_ON_ONCE(it->frag == MAX_SKB_FRAGS))
-		return -EINVAL;
+	skb_fill_page_desc(it->skb, it->frag, page, off, sz);
+	skb_frag_ref(it->skb, it->frag);
+	ss_skb_adjust_data_len(it->skb, sz);
+	++it->frag;
 
 	return 0;
 }
@@ -1888,64 +1902,59 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 			  unsigned long body_sz, bool h2, unsigned int stream_id)
 {
 	int r;
-	unsigned char buf[FRAME_HEADER_SIZE];
-	TfwFrameHdr frame_hdr = {.stream_id = stream_id};
-	const TfwStr frame_hdr_str = { .data = buf, .len = sizeof(buf)};
+	TfwFrameHdr frame_hdr = {.stream_id = stream_id, .type = HTTP2_DATA};
 
 	if (WARN_ON_ONCE(!it->skb_head))
 		return -EINVAL;
 	/*
 	 * If all skbs/frags are used up (see @tfw_http_msg_expand_data()),
 	 * create new skb with empty frags to reference the cached body;
-	 * otherwise, use next empty frag in current skb.
+	 * otherwise, use next empty frag in current skb. Constructing h2
+	 * responses from cache always imply data copies, for SKBTX_SHARED_FRAG
+	 * skbs, copy will happen twice. If body is relatively small keep
+	 * using existing skb and allow double copy, otherwise allocate a new
+	 * skb even if previous is not fully populated.
 	 */
-	if (!it->skb) {
+	if (!it->skb || (++it->frag >= MAX_SKB_FRAGS)
+	    || (h2 && (skb_shinfo(it->skb)->tx_flags & SKBTX_SHARED_FRAG)
+		&& body_sz > PAGE_SIZE))
+	{
 		if  ((r = tfw_msg_iter_append_skb(it)))
 			return r;
-	} else {
-		++it->frag;
-		if (it->frag >= MAX_SKB_FRAGS
-		    && (r = tfw_msg_iter_append_skb(it)))
-			return r;
+		if (h2)
+			skb_shinfo(it->skb)->tx_flags &= ~SKBTX_SHARED_FRAG;
 	}
-	BUG_ON(it->frag < 0);
-
-	frame_hdr.type = HTTP2_DATA;
+	if (WARN_ON_ONCE(it->frag < 0))
+		return -EINVAL;
 
 	while (1) {
 		int off, f_size;
 
-		/* TDB keeps data by pages and we can reuse the pages. */
 		off = (unsigned long)p & ~PAGE_MASK;
 		f_size = trec->data + trec->len - p;
+		/*
+		 * The body is stored in native h2 format, with reserved space
+		 * for h2 headers. Skip page fragment if it's too short to store
+		 * header.
+		 */
 		if (f_size) {
-			if (h2) {
-				frame_hdr.length = f_size;
-				body_sz -= f_size;
-				frame_hdr.flags = body_sz ? 0
-							  : HTTP2_F_END_STREAM;
-				tfw_h2_pack_frame_header(buf, &frame_hdr);
-
-				r = __append_h2_frame_header(it, &frame_hdr_str);
-				if (r)
-					return r;
-			}
-
-			skb_fill_page_desc(it->skb, it->frag, virt_to_page(p),
-					   off, f_size);
-			skb_frag_ref(it->skb, it->frag);
-			ss_skb_adjust_data_len(it->skb, f_size);
-			++it->frag;
+			body_sz -= f_size;
+			r = tfw_cache_add_body_page(it, p, f_size, &frame_hdr,
+						    h2, !body_sz);
+			if (r)
+				return r;
 		}
 		if (!(trec = tdb_next_rec_chunk(db, trec)))
 			break;
-		BUG_ON(trec && !f_size);
+		if (WARN_ON_ONCE(!f_size))
+			return -EINVAL;
 		p = trec->data;
 
-		/* Need a free page as first fragment. */
-		if (it->frag == MAX_SKB_FRAGS - 1
+		if (it->frag == MAX_SKB_FRAGS
 		    && (r = tfw_msg_iter_append_skb(it)))
+		{
 			return r;
+		}
 	}
 
 	return 0;
