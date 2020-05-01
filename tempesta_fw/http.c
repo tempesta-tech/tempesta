@@ -527,9 +527,7 @@ tfw_h2_prep_redirect(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
 
 	hdrs_len += mit->acc_len;
 
-	r = tfw_h2_make_frames(resp, stream_id, hdrs_len, true, false);
-
-	return r;
+	return tfw_h2_make_frames(resp, stream_id, hdrs_len, true, false);
 }
 
 #define S_REDIR_302	S_302 S_CRLF
@@ -929,15 +927,6 @@ tfw_h2_send_resp(TfwHttpReq *req, int status, unsigned int stream_id)
 	mit = &resp->mit;
 	skb_head = &resp->msg.skb_head;
 	body = TFW_STR_BODY_CH(msg);
-	if (WARN_ON_ONCE(body->len > ctx->rsettings.max_frame_sz)) {
-		/*
-		 * TODO #1378: split body to frames if it's too long.
-		 * Since full-featured response is not constructed here, it's
-		 * possible to avoid framing body for each h2 client
-		 * individually. Every client must support 16384-byte frames.
-		 */
-		goto err_setup;
-	}
 
 	/* Set HTTP/2 ':status' pseudo-header. */
 	mit->start_off = FRAME_HEADER_SIZE;
@@ -986,19 +975,6 @@ tfw_h2_send_resp(TfwHttpReq *req, int status, unsigned int stream_id)
 	if (WARN_ON_ONCE(!mit->acc_len))
 		goto err_setup;
 
-	if (WARN_ON_ONCE(mit->acc_len > ctx->rsettings.max_frame_sz)) {
-		/*
-		 * TODO #1378: multiple frames might be required here.
-		 *
-		 * Too long frames will be rejected by remote peer and
-		 * the connection will be closed by remote side. There is no
-		 * point to send such response, let's fail fast and close the
-		 * connection on our own.
-		 */
-		goto err_setup;
-	}
-
-	/* Create and set frame header and set payload for DATA. */
 	if (body->data) {
 		if (tfw_http_msg_expand_data(&resp->mit.iter, skb_head, body,
 					     NULL))
@@ -4193,9 +4169,10 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 	}
 
 	/*
-	 * Responses built locally add data part by part when needed, while
-	 * forwarded responses may have extra data since h2 messages are
-	 * generally smaller than h1 ones.
+	 * In responses built locally headers fragments are added one by one
+	 * when needed, while forwarded responses may have extra space after
+	 * h1-> h2 transformation, since h2 messages are generally smaller
+	 * than h1 ones.
 	 */
 	if (!local_response) {
 		r = ss_skb_cut_extra_data(iter->skb_head, iter->skb, iter->frag,
