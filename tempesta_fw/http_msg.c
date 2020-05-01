@@ -1463,7 +1463,7 @@ this_chunk:
 }
 
 /**
- * Insert data from string @data to message @hm at offset defined by message
+ * Insert data from string @data to message at offset defined by message
  * iterator @it and @off. This function doesn't maintain message structure.
  * After insertion message iterator will point at the end of fragment right
  * before the inserted data.

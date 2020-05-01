@@ -4153,7 +4153,7 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 	data = resp->msg.skb_head->data;
 	memcpy_fast(data, buf, sizeof(buf));
 
-	/* First frame header for DATA block. message iterator is already
+	/* First frame header for DATA block. Message iterator is already
 	 * prepared to insert a frame header here.
 	 */
 	if (b_len && !skip_body) {
