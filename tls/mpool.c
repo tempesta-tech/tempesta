@@ -376,6 +376,8 @@ __mpi_profile_load_ec(TlsMpiPool *mp, TlsECDHCtx *ctx, unsigned char w,
 	 * Fixed-base comb with w=6 requres about 41*A + 21*D time which seems
 	 * much larger than OpenSSL's 36*A.
 	 * w=4 gives even worse 59*A + 31*D time.
+	 *
+	 * => ?? 5. AVX2 - 4 points in parallel in OpenSSL - learn more
 	 */
 	n_sz = (grp->bits + w - 1) / w;
 	if (ecp_precompute_comb(grp, grp->T, &grp->G, w, n_sz))

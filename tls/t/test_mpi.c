@@ -17,7 +17,7 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include "ttls_mocks.h"
+#include "util.h"
 /* mpool.c requires ECP and DHM routines. */
 #include "../bignum.c"
 #include "../ciphersuites.c"
@@ -187,10 +187,9 @@ mpi_copy(void)
 
 	ttls_mpi_lset(A, -1L);
 	ttls_mpi_copy(B, A);
-	EXPECT_TRUE(B->used == 1);
 	EXPECT_TRUE(B->limbs == TTLS_MPI_MAX_SIZE / CIL);
 	EXPECT_TRUE(B->_off != 0);
-	EXPECT_TRUE(MPI_P(B)[0] == 1L);
+	EXPECT_MPI(B, 1, 1L);
 	EXPECT_TRUE(B->s == -1);
 	save_off = B->_off;
 

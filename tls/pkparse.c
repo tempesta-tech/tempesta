@@ -516,8 +516,7 @@ pk_parse_key_sec1_der(TlsEcpKeypair *eck, const unsigned char *key,
 	}
 
 	if (!pubkey_done
-	    && (ret = ttls_ecp_mul(eck->grp, &eck->Q, &eck->d, &eck->grp->G,
-				   false)))
+	    && (ret = ttls_ecp_mul_g(eck->grp, &eck->Q, &eck->d, false)))
 	{
 		ttls_ecp_keypair_free(eck);
 		return TTLS_ERR_PK_KEY_INVALID_FORMAT + ret;
