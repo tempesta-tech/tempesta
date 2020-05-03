@@ -965,7 +965,11 @@ ecp_precompute_comb(const TlsEcpGrp *grp, TlsEcpPoint T[], const TlsEcpPoint *P,
 		cur = T + i;
 		ttls_ecp_copy(cur, T + (i >> 1));
 		for (j = 0; j < d; j++)
-			/* TODO #1064 use repeated doubling optimization. */
+			/*
+			 * TODO #1064 use repeated doubling optimization.
+			 * E.g. see sp_256_proj_point_dbl_n_store_avx2_4() and
+			 * sp_256_proj_point_dbl_n_avx2_4() from WolfSSL.
+			 */
 			MPI_CHK(ecp_double_jac(grp, cur, cur));
 
 		TT[k++] = cur;
@@ -1042,7 +1046,11 @@ ecp_mul_comb_core(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint T[],
 		MPI_CHK(ecp_randomize_jac(grp, R));
 
 	while (i-- != 0) {
-		/* TODO #1064 use repeated doubling optimization. */
+		/*
+		 * TODO #1064 use repeated doubling optimization.
+		 * E.g. see sp_256_proj_point_dbl_n_store_avx2_4() and
+		 * sp_256_proj_point_dbl_n_avx2_4() from WolfSSL.
+		 */
 		MPI_CHK(ecp_double_jac(grp, R, R));
 		ecp_select_comb(grp, Txi, T, t_len, x[i]);
 		MPI_CHK(ecp_add_mixed(grp, R, R, Txi));
@@ -1054,10 +1062,18 @@ ecp_mul_comb_core(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint T[],
 /*
  * Multiplication using the comb method, for curves in short Weierstrass form.
  *
+ * TODO #1064: This function is used for unknown points only, i.e. the public
+ * key Q from the peer in ECDHE exchange, so we see @P only once and there is
+ * sense to cache computation results for the scalar (our secret) only.
+ *
  * May allocate @R point on the stack, so while the function uses plenty of
  * memory we can't call ttls_mpi_pool_cleanup_ctx() here.
  *
- * TODO #1064: why wNAF isn't used?
+ * TODO #1064: why wNAF isn't used? Is comb the most efficient method?
+ * It seems WolfSSL's sp_256_ecc_mulmod_win_add_sub_avx2_4() also uses comb,
+ * but with d=43 (w=6).
+ * OpenSSL's ecp_nistz256_windowed_mul() use Booth windowed method.
+ * It seems the both OpenSSL and WolfSSL don't use coordinates randomization.
  */
 static int
 ecp_mul_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
@@ -1113,6 +1129,8 @@ ecp_mul_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	/*
 	 * Compute T if it wasn't precomputed for the case.
 	 * ecp_precompute_comb() is good with uninitialized T.
+	 *
+	 * TODO #1064: remove this branch after ttls_ecp_mul_g().
 	 */
 	if (!p_eq_g)
 		TTLS_MPI_CHK(ecp_precompute_comb(grp, T, P, w, d));
@@ -1343,6 +1361,7 @@ ttls_ecp_mul(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 
 /**
  * TODO #1064: Specialization for R = m * G.
+ * TODO #1064: Do we need coordinates randomization?
  */
 int
 ttls_ecp_mul_g(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,				     bool rnd)
@@ -1377,6 +1396,10 @@ ttls_ecp_mul_shortcuts(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
  * Multiplication and addition of two points by integers: R = m * grp->G + n * Q
  * In contrast to ttls_ecp_mul(), this function does not guarantee a constant
  * execution flow and timing.
+ *
+ * TODO #769: The algorithm is naive. The Shamir's trick and/or
+ * multi-exponentiation (Bodo Möller, "Algorithms for multi-exponentiation")
+ * should be used. See OpenSSL's ec_wNAF_mul() as the reference.
  */
 int
 ttls_ecp_muladd(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
