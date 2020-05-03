@@ -30,6 +30,10 @@
 #define EXPECT_ZERO(c)		BUG_ON((c) != 0)
 #define EXPECT_EQ(c, v)		BUG_ON((c) != (v))
 
+/*
+ * md_* mocks are required for RSA tests.
+ */
+
 void
 ttls_md_init(TlsMdCtx *ctx)
 {
