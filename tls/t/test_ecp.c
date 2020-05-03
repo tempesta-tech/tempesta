@@ -38,7 +38,7 @@ __mpi_dump(const TlsMpi *m, const char *prefix)
 
 	printf("  %s:", prefix);
 	for (i = 0; i < m->used; ++i)
-		printf(" %#lx", MPI_P(m)[i]);
+		printf(" %#lxUL,", MPI_P(m)[i]);
 	printf("\n");
 }
 
@@ -61,42 +61,97 @@ ecp_mul(void)
 	TlsMpi *m;
 	TlsMpiPool *mp;
 	/* Exponents especially adapted for secp256r1, 32 bytes in size. */
-	const char *exponents[] = {
-		/* one */
-		"\x00\x00\x00\x00\x00\x00\x00\x00"
-		"\x00\x00\x00\x00\x00\x00\x00\x00"
-		"\x00\x00\x00\x00\x00\x00\x00\x00"
-		"\x00\x00\x00\x00\x00\x00\x00\x01",
-
-		/* N - 1 */
-		"\xFF\xFF\xFF\xFF\x00\x00\x00\x00"
-		"\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF"
-		"\xBC\xE6\xFA\xAD\xA7\x17\x9E\x84"
-		"\xF3\xB9\xCA\xC2\xFC\x63\x25\x50"
-
-		/* random */
-		"\x5E\xA6\xF3\x89\xA3\x8B\x8B\xC8"
-		"\x1E\x76\x77\x53\xB1\x5A\xA5\x56"
-		"\x9E\x17\x82\xE3\x0A\xBE\x7D\x25"
-		"\x31\x28\xD2\xB4\xB1\xC9\x6B\x14",
-
-		/* one and zeros */
-		"\x40\x00\x00\x00\x00\x00\x00\x00"
-		"\x00\x00\x00\x00\x00\x00\x00\x00"
-		"\x00\x00\x00\x00\x00\x00\x00\x00"
-		"\x00\x00\x00\x00\x00\x00\x00\x00",
-
-		/* all ones */
-		"\x7F\xFF\xFF\xFF\xFF\xFF\xFF\xFF"
-		"\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF"
-		"\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF"
-		"\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF",
-
-		/* 101010... */
-		"\x55\x55\x55\x55\x55\x55\x55\x55"
-		"\x55\x55\x55\x55\x55\x55\x55\x55"
-		"\x55\x55\x55\x55\x55\x55\x55\x55"
-		"\x55\x55\x55\x55\x55\x55\x55\x55",
+	struct {
+		const char	*m;
+		unsigned long	Xg[4];
+		unsigned long	Yg[4];
+		unsigned long	Xp[4];
+		unsigned long	Yp[4];
+	} mc[] = {
+		{ /* one */
+			"\x00\x00\x00\x00\x00\x00\x00\x00"
+			"\x00\x00\x00\x00\x00\x00\x00\x00"
+			"\x00\x00\x00\x00\x00\x00\x00\x00"
+			"\x00\x00\x00\x00\x00\x00\x00\x01",
+			{ 0xf4a13945d898c296UL, 0x77037d812deb33a0UL,
+			  0xf8bce6e563a440f2UL, 0x6b17d1f2e12c4247UL },
+			{ 0xcbb6406837bf51f5UL, 0x2bce33576b315eceUL,
+			  0x8ee7eb4a7c0f9e16UL, 0x4fe342e2fe1a7f9bUL },
+			{ 0xa60b48fc47669978UL, 0xc08969e277f21b35UL,
+			  0x8a52380304b51ac3UL, 0x7cf27b188d034f7eUL },
+			{ 0x9e04b79d227873d1UL, 0xba7dade63ce98229UL,
+			  0x293d9ac69f7430dbUL, 0x7775510db8ed040UL }
+		},
+		{ /* N - 1 */
+			"\xFF\xFF\xFF\xFF\x00\x00\x00\x00"
+			"\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF"
+			"\xBC\xE6\xFA\xAD\xA7\x17\x9E\x84"
+			"\xF3\xB9\xCA\xC2\xFC\x63\x25\x50",
+			{ 0xf4a13945d898c296UL, 0x77037d812deb33a0UL,
+			  0xf8bce6e563a440f2UL, 0x6b17d1f2e12c4247UL },
+			{ 0x3449bf97c840ae0aUL, 0xd431cca994cea131UL,
+			  0x711814b583f061e9UL, 0xb01cbd1c01e58065UL },
+			{ 0xa60b48fc47669978UL, 0xc08969e277f21b35UL,
+			  0x8a52380304b51ac3UL, 0x7cf27b188d034f7eUL },
+			{ 0x61fb4862dd878c2eUL, 0x4582521ac3167dd6UL,
+			  0xd6c26539608bcf24UL, 0xf888aaee24712fc0UL }
+		},
+		{ /* random */
+			"\x5E\xA6\xF3\x89\xA3\x8B\x8B\xC8"
+			"\x1E\x76\x77\x53\xB1\x5A\xA5\x56"
+			"\x9E\x17\x82\xE3\x0A\xBE\x7D\x25"
+			"\x31\x28\xD2\xB4\xB1\xC9\x6B\x14",
+			{ 0x9c7f30f30319e045UL, 0x92ab9c5645d8586cUL,
+			  0xfd36a1cfd4888860UL, 0x43f16b56ef44340UL },
+			{ 0x2f359cffb23dcee8UL, 0xb6f6cdc219e18f1UL,
+			  0x9b77e16b67d8b77aUL, 0xa06bbcc42fdf583bUL },
+			{ 0xb58dc5314d2bce6dUL, 0x2184c1245ba4a26fUL,
+			  0x9a974f76c97508c2UL, 0xa84080d38a36f131UL },
+			{ 0x994cb221c43c8388UL, 0x662818239061933UL,
+			  0xedad077efcc307daUL, 0x8273d22c4f8eff78UL }
+		},
+		{ /* one and zeros */
+			"\x40\x00\x00\x00\x00\x00\x00\x00"
+			"\x00\x00\x00\x00\x00\x00\x00\x00"
+			"\x00\x00\x00\x00\x00\x00\x00\x00"
+			"\x00\x00\x00\x00\x00\x00\x00\x00",
+			{ 0x8d93ca698eb99805UL, 0xad086d4ce99a11e3UL,
+			  0xb0c2bf930bf33a68UL, 0x1ee7fc202708cfeUL },
+			{ 0x9fd5f4e10eeccafUL, 0x811836ea35be799bUL,
+			  0x124be02ef3455711UL, 0x9655cef01b024882UL },
+			{ 0xb52dec8f375f2b54UL, 0x4efe3560e3e92350UL,
+			  0x5066e911891524bcUL, 0x77b20a912e6b2313UL },
+			{ 0xcaa801fcd6cc67ffUL, 0xdf623da1e850e0f1UL,
+			  0xf7b10bfcdd038a72UL, 0xa3dc291825cea3f7UL }
+		},
+		{ /* all ones */
+			"\x7F\xFF\xFF\xFF\xFF\xFF\xFF\xFF"
+			"\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF"
+			"\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF"
+			"\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF",
+			{ 0xad946b700aa2613aUL, 0xada3f05e4cf412f2UL,
+			  0xcbe299ec2cc9cc2dUL, 0xc1d17269e46e387aUL },
+			{ 0x5f5fb84162909dbbUL, 0x9d111f69129c24dbUL,
+			  0xf49957d54ff79811UL, 0xedb7744f370c13a4UL },
+			{ 0x11f665299feb7b34UL, 0x36ee523e0b590bf5UL,
+			  0xf48246ce0a1422aaUL, 0x19f3f57b530c7fdcUL },
+			{ 0xd83a044fc38674c4UL, 0x3c0142705daadbbbUL,
+			  0xd2b0d93bd5053e99UL, 0x2b6adb6b9b89332fUL }
+		},
+		{ /* 101010... */
+			"\x55\x55\x55\x55\x55\x55\x55\x55"
+			"\x55\x55\x55\x55\x55\x55\x55\x55"
+			"\x55\x55\x55\x55\x55\x55\x55\x55"
+			"\x55\x55\x55\x55\x55\x55\x55\x55",
+			{ 0xa447b7d3d762ab34UL, 0x9caf56d458682fcUL,
+			  0xfe7acf2842ed9870UL, 0x57e977f6db7e33c3UL },
+			{ 0x68e5f59cc471c2ecUL, 0x346dfa84dec4db4dUL,
+			  0xf5414065640ffb5bUL, 0xc5ab3770ba573bdfUL },
+			{ 0x91ae8f5db486b7dbUL, 0x795dda3b90bb5b07UL,
+			  0x12426320ee53a94cUL, 0x38014c603c89da97UL },
+			{ 0x738cbc8294706c96UL, 0xac834bcd61541b90UL,
+			  0x6566f66590f89ea2UL, 0x25e3aa368ede37b9UL }
+		}
 	};
 
 	/* ttls_mpool() treats the pool as "handshake" pool. */
@@ -153,16 +208,40 @@ ecp_mul(void)
 	/* Do a dummy multiplication first to trigger precomputation */
 	ttls_mpi_lset(m, 2);
 	EXPECT_ZERO(ttls_ecp_mul(grp, P, m, &grp->G, false));
+	EXPECT_MPI(&P->X, 4, 0xa60b48fc47669978UL, 0xc08969e277f21b35UL,
+			     0x8a52380304b51ac3UL, 0x7cf27b188d034f7eUL);
+	EXPECT_MPI(&P->Y, 4, 0x9e04b79d227873d1UL, 0xba7dade63ce98229UL,
+			     0x293d9ac69f7430dbUL, 0x7775510db8ed040UL);
+	EXPECT_MPI(&P->Z, 1, 1);
 	ttls_mpi_pool_cleanup_ctx(0, true);
 
-	for (i = 0; i < ARRAY_SIZE(exponents); i++) {
-		ttls_mpi_read_binary(m, exponents[i], 32);
+	for (i = 0; i < ARRAY_SIZE(mc); i++) {
+		ttls_mpi_read_binary(m, mc[i].m, 32);
+
 		EXPECT_ZERO(ttls_ecp_mul(grp, R, m, &grp->G, false));
+		EXPECT_MPI(&R->X, 4, mc[i].Xg[0], mc[i].Xg[1],
+				     mc[i].Xg[2], mc[i].Xg[3]);
+		EXPECT_MPI(&R->Y, 4, mc[i].Yg[0], mc[i].Yg[1],
+				     mc[i].Yg[2], mc[i].Yg[3]);
+		EXPECT_MPI(&R->Z, 1, 1);
+
+		EXPECT_ZERO(ttls_ecp_mul_g(grp, R, m, false));
+		EXPECT_MPI(&R->X, 4, mc[i].Xg[0], mc[i].Xg[1],
+				     mc[i].Xg[2], mc[i].Xg[3]);
+		EXPECT_MPI(&R->Y, 4, mc[i].Yg[0], mc[i].Yg[1],
+				     mc[i].Yg[2], mc[i].Yg[3]);
+		EXPECT_MPI(&R->Z, 1, 1);
+
 		/*
 		 * ECP test #2 (constant op_count, other point).
 		 * We computed P = 2G last time, use it.
 		 */
 		EXPECT_ZERO(ttls_ecp_mul(grp, R, m, P, false));
+		EXPECT_MPI(&R->X, 4, mc[i].Xp[0], mc[i].Xp[1],
+				     mc[i].Xp[2], mc[i].Xp[3]);
+		EXPECT_MPI(&R->Y, 4, mc[i].Yp[0], mc[i].Yp[1],
+				     mc[i].Yp[2], mc[i].Yp[3]);
+		EXPECT_MPI(&R->Z, 1, 1);
 
 		ttls_mpi_pool_cleanup_ctx(0, false);
 	}
