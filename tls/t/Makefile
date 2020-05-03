@@ -20,14 +20,16 @@ endif
 
 CACHELINE := $(shell getconf LEVEL1_DCACHE_LINESIZE)
 
-CFLAGS		= -O0 -ggdb -std=gnu89 \
-		  -DL1_CACHE_BYTES=$(CACHELINE) -DNR_CPUS=1 \
-		  -Wall -Werror -Wno-sign-compare -Wno-pointer-sign \
-		  -Werror=strict-prototypes -Werror=incompatible-pointer-types \
-		  -Wno-unused-but-set-variable -Wno-unused-const-variable \
-		  -Wno-unused-function -Warray-bounds=0 \
-		  -fno-strict-aliasing \
+CFLAGS		= -std=gnu89 -DL1_CACHE_BYTES=$(CACHELINE) -DNR_CPUS=1 \
+		  -Wall -Werror -Wno-sign-compare -Wno-unused-but-set-variable \
+		  -Wno-pointer-sign -Werror=strict-prototypes \
+		  -Werror=incompatible-pointer-types -Wno-unused-const-variable \
+		  -Wno-unused-function -Warray-bounds=0 -fno-strict-aliasing \
 		  -I../../ktest -I../.. -I..
+
+TEST_CFLAGS	= -O0 -ggdb3
+SPEED_CFLAGS	= -O2 -march=native -mtune=native
+
 ifdef DEBUG
 	CFLAGS += -DDEBUG=$(DEBUG) -DDBG_TLS=1
 endif
@@ -40,11 +42,10 @@ ifneq (, $(findstring adx, $(PROC)))
 	CFLAGS += -DADX=1
 endif
 
-TARGETS		= $(subst .c,, $(wildcard *.c))
+TARGETS		= $(subst .c,, $(wildcard *.c)) benchmark
 ASM-OBJ		= bignum_x86-64.o
 
-all : $(TARGETS) test_mpi_asm_opt
-.PHONY: test_mpi_asm_opt
+all : $(TARGETS)
 
 $(TARGETS): % : $(ASM-OBJ) %.o
 	$(CC) $(CFLAGS) -o $@ $^
@@ -53,7 +54,10 @@ $(ASM-OBJ): ../$(subst .o,.S,$(ASM-OBJ))
 	$(CC) $(CFLAGS) -c $^ -o $@
 
 %.o : %.c
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(TEST_CFLAGS) $(CFLAGS) -c $< -o $@
+
+benchmark.o : benchmark.c
+	$(CC) $(SPEED_CFLAGS) $(CFLAGS) -c $< -o $@
 
 clean : FORCE
 	rm -f *.o *~ *.orig $(TARGETS)
