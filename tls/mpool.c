@@ -373,8 +373,8 @@ __mpi_profile_load_ec(TlsMpiPool *mp, TlsECDHCtx *ctx, unsigned char w,
 	 * of the generic comb precomputation...
 	 * see M.Brown, D.Hankerson, J.Lopez, A.Menezes,
 	 * "Software implementation of the NIST elliptic curves over prime fields".
-	 * Fixed-base comb with w=6 requres about 41*A + 21*D time which seems
-	 * much larger than OpenSSL's 36*A.
+	 * Fixed-base comb (GECC 3.44) with w=6 requres about 41*A + 21*D time
+	 * which is much larger than OpenSSL's 36*A (like GECC 3.42).
 	 * w=4 gives even worse 59*A + 31*D time.
 	 *
 	 * => ?? 5. AVX2 - 4 points in parallel in OpenSSL - learn more

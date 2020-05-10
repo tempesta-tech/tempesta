@@ -23,8 +23,10 @@
 #include "../bignum.c"
 #include "../ciphersuites.c"
 #include "../dhm.c"
+#include "../ec_p256.c"
+#include "../ec_p384.c"
+#include "../ec_25519.c"
 #include "../ecp.c"
-#include "../ecp_curves.c"
 #include "../ecdsa.c"
 #include "../mpool.c"
 
