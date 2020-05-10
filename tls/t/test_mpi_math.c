@@ -50,12 +50,6 @@ ttls_mpi_pool_free(void *ctx)
 	BUG();
 }
 
-int
-ttls_ecp_group_load(TlsEcpGrp *grp, ttls_ecp_group_id id)
-{
-	BUG();
-}
-
 TlsEcpPoint *
 ttls_mpool_ecp_create_tmp_T(int n, const TlsEcpPoint *P)
 {
@@ -75,6 +69,9 @@ ttls_mpool_shrink_tailtmp(TlsMpiPool *mp, bool fix_refs)
 }
 
 #include "../bignum.c"
+#include "../ec_p256.c"
+#include "../ec_p384.c"
+#include "../ec_25519.c"
 #include "../ecp.c"
 
 static void

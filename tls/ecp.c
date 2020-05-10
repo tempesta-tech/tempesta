@@ -28,7 +28,7 @@
  * 8. Jacobian coordinates for short Weierstrass curves,
  *    http://www.hyperelliptic.org/EFD/g1p/auto-shortw-jacobian.html
  *
- * 9. S.Gueron, V.KRasnov, "Fast prime field elliptic-curve cryptography with
+ * 9. S.Gueron, V.Krasnov, "Fast prime field elliptic-curve cryptography with
  *    256-bit primes", 2014.
  *
  * 10. NIST: Mathematical routines for the NIST prime elliptic curves, 2010.
@@ -338,35 +338,6 @@ ttls_ecp_tls_write_point(const TlsEcpGrp *grp, const TlsEcpPoint *pt,
 	++*olen;
 
 	return 0;
-}
-
-/**
- * Set a group from an ECParameters record (RFC 8422 5.4).
- * TODO #769 used in client mode only - fix the ECP group destination address.
- */
-int
-ttls_ecp_tls_read_group(TlsEcpGrp *grp, const unsigned char **buf, size_t len)
-{
-	uint16_t tls_id;
-	const TlsEcpCurveInfo *curve_info;
-
-	/* We expect at least three bytes (see below). */
-	if (len < 3)
-		return TTLS_ERR_ECP_BAD_INPUT_DATA;
-
-	/* First byte is curve_type; only named_curve is handled. */
-	if (*(*buf)++ != TTLS_ECP_TLS_NAMED_CURVE)
-		return TTLS_ERR_ECP_BAD_INPUT_DATA;
-
-	/* Next two bytes are the namedcurve value. */
-	tls_id = *(*buf)++;
-	tls_id <<= 8;
-	tls_id |= *(*buf)++;
-
-	if (!(curve_info = ttls_ecp_curve_info_from_tls_id(tls_id)))
-		return TTLS_ERR_ECP_FEATURE_UNAVAILABLE;
-
-	return ttls_ecp_group_load(grp, curve_info->grp_id);
 }
 
 /**
@@ -751,7 +722,7 @@ ecp_double_jac(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint *P)
  *
  * We accept Q->Z being unset (saving memory in tables) as meaning 1.
  *
- * Cost: 1A := 8M + 3S
+ * Cost: 1A := 8M + 3S (same as Chudnovsky-Affine time, GECC 3.2.2).
  */
 static int
 ecp_add_mixed(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint *P,
@@ -1050,6 +1021,8 @@ ecp_mul_comb_core(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint T[],
 		 * TODO #1064 use repeated doubling optimization.
 		 * E.g. see sp_256_proj_point_dbl_n_store_avx2_4() and
 		 * sp_256_proj_point_dbl_n_avx2_4() from WolfSSL.
+		 *
+		 * TODO #1064: prefetch all items from the table in one shot.
 		 */
 		MPI_CHK(ecp_double_jac(grp, R, R));
 		ecp_select_comb(grp, Txi, T, t_len, x[i]);
@@ -1395,7 +1368,8 @@ ttls_ecp_mul_shortcuts(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 /*
  * Multiplication and addition of two points by integers: R = m * grp->G + n * Q
  * In contrast to ttls_ecp_mul(), this function does not guarantee a constant
- * execution flow and timing.
+ * execution flow and timing - ther is no secret data, so we don't need to care
+ * about SCAs.
  *
  * TODO #769: The algorithm is naive. The Shamir's trick and/or
  * multi-exponentiation (Bodo Möller, "Algorithms for multi-exponentiation")
@@ -1599,4 +1573,152 @@ ttls_ecp_gen_keypair(const TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q)
 	MPI_CHK(ttls_ecp_mul_g(grp, Q, d, true));
 
 	return ttls_ecp_check_pubkey(grp, Q);
+}
+
+static TlsEcpGrp *ec_groups[__TTLS_ECP_DP_N];
+
+/**
+ * Create an MPI from embedded constants
+ * (assumes len is an exact multiple of sizeof unsigned long).
+ */
+static void
+ecp_mpi_load(TlsMpi *X, const unsigned long *p, size_t len)
+{
+	size_t const limbs = len / CIL;
+
+	ttls_mpi_alloc(X, limbs);
+
+	X->s = 1;
+	X->limbs = X->used = limbs;
+	memcpy(MPI_P(X), p, len);
+}
+
+/*
+ * Make group available from embedded constants
+ */
+static void
+ecp_group_load(TlsEcpGrp *grp, size_t sz, const unsigned long *p,
+	       const unsigned long *b, const unsigned long *gx,
+	       const unsigned long *gy, const unsigned long *n)
+{
+	int i;
+
+	ecp_mpi_load(&grp->P, p, sz);
+	ecp_mpi_load(&grp->B, b, sz);
+	ecp_mpi_load(&grp->G.X, gx, sz);
+	ecp_mpi_load(&grp->G.Y, gy, sz);
+	ecp_mpi_load(&grp->N, n, sz);
+
+	grp->bits = sz / CIL * BIL;
+
+	/*
+	 * Most of the time the point is normalized, so Z stores 1, but
+	 * is some calculations the size can grow up to the curve size.
+	 */
+	ttls_mpi_alloc(&grp->G.Z, grp->bits / BIL);
+	ttls_mpi_lset(&grp->G.Z, 1);
+
+	/*
+	 * ecp_normalize_jac_many() performs multiplication on X and Y
+	 * coordinates, so we need double sizes.
+	 */
+	for (i = 0; i < ARRAY_SIZE(grp->T); i++) {
+		ttls_mpi_alloc(&grp->T[i].X, grp->G.X.limbs * 2);
+		ttls_mpi_alloc(&grp->T[i].Y, grp->G.Y.limbs * 2);
+	}
+	/*
+	 * Allocate Z coordinates separately to shrink them later,
+	 * see ttls_mpool_shrink_tailtmp().
+	 */
+	for (i = 0; i < ARRAY_SIZE(grp->T); i++)
+		ttls_mpi_alloc_tmp(&grp->T[i].Z, grp->G.Z.limbs);
+}
+
+#define LOAD_GROUP(grp, G, sz)					\
+	ecp_group_load(grp, sz, G##_p, G##_b, G##_gx, G##_gy, G##_n)
+
+TlsEcpGrp *
+ttls_ecp_group_lookup(ttls_ecp_group_id id)
+{
+	return ec_groups[id];
+}
+
+#define DECLARE_GROUP(G)						\
+	extern const unsigned long G##_p[];				\
+	extern const unsigned long G##_b[];				\
+	extern const unsigned long G##_gx[];				\
+	extern const unsigned long G##_gy[];				\
+	extern const unsigned long G##_n[];
+
+DECLARE_GROUP(secp256r1);
+DECLARE_GROUP(secp384r1);
+
+/* TODO #1335 probably these declarations should go away. */
+void ecp_mod_p384(TlsMpi *N);
+void ecp_mod_p255(TlsMpi *N);
+void ecp_use_curve25519(TlsEcpGrp *grp);
+
+/**
+ * Set a group using well-known domain parameters.
+ *
+ * @id should be a value of RFC 8422's NamedCurve (see ecp_supported_curves).
+ */
+int
+ttls_ecp_group_load(TlsEcpGrp *grp, ttls_ecp_group_id id)
+{
+	if (ec_groups[id])
+		T_WARN("Try to load already initialized EC group %d, shouldn't"
+		       " have used ttls_ecp_group_lookup() instead?\n", id);
+
+	switch(id) {
+	case TTLS_ECP_DP_SECP256R1:
+		LOAD_GROUP(grp, secp256r1, 32);
+		break;
+	case TTLS_ECP_DP_SECP384R1:
+		grp->modp = ecp_mod_p384;
+		LOAD_GROUP(grp, secp384r1, 48);
+		break;
+	case TTLS_ECP_DP_CURVE25519:
+		T_WARN("Try to load ECP group for unsupported Curve25519.\n");
+		grp->modp = ecp_mod_p255;
+		ecp_use_curve25519(grp);
+		break;
+	default:
+		T_WARN("Trying to load unsupported curve %d\n", id);
+		return -EINVAL;
+	}
+
+	grp->id = id;
+	ec_groups[id] = grp;
+
+	return 0;
+}
+
+/**
+ * Set a group from an ECParameters record (RFC 8422 5.4).
+ * TODO #769 used in client mode only - fix the ECP group destination address.
+ */
+int
+ttls_ecp_tls_read_group(TlsEcpGrp *grp, const unsigned char **buf, size_t len)
+{
+	uint16_t tls_id;
+	const TlsEcpCurveInfo *curve_info;
+
+	/* We expect at least three bytes (see below). */
+	if (len < 3)
+		return TTLS_ERR_ECP_BAD_INPUT_DATA;
+
+	/* First byte is curve_type; only named_curve is handled. */
+	if (*(*buf)++ != TTLS_ECP_TLS_NAMED_CURVE)
+		return TTLS_ERR_ECP_BAD_INPUT_DATA;
+
+	/* Next two bytes are the namedcurve value. */
+	tls_id = *(*buf)++;
+	tls_id <<= 8;
+	tls_id |= *(*buf)++;
+
+	if (!(curve_info = ttls_ecp_curve_info_from_tls_id(tls_id)))
+		return TTLS_ERR_ECP_FEATURE_UNAVAILABLE;
+
+	return ttls_ecp_group_load(grp, curve_info->grp_id);
 }
