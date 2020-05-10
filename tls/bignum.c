@@ -271,7 +271,7 @@ ttls_mpi_get_bit(const TlsMpi *X, size_t pos)
 	if ((X->used << BSHIFT) <= pos)
 		return 0;
 
-	return (MPI_P(X)[pos >> BSHIFT] >> (pos & BMASK)) & 0x01;
+	return (MPI_P(X)[pos >> BSHIFT] >> (pos & BMASK)) & 1;
 }
 
 /**

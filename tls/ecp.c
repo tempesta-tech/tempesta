@@ -883,15 +883,20 @@ ecp_randomize_jac(const TlsEcpGrp *grp, TlsEcpPoint *pt)
 static void
 ecp_comb_fixed(unsigned char x[], size_t d, unsigned char w, const TlsMpi *m)
 {
-	size_t i, j;
+	size_t i, j, b, bits = m->used * BIL;
+	unsigned long *p = MPI_P(m);
 	unsigned char c, cc, adjust;
 
 	bzero_fast(x, d + 1);
 
 	/* First get the classical comb values (except for x_d = 0) */
 	for (i = 0; i < d; i++)
-		for (j = 0; j < w; j++)
-			x[i] |= ttls_mpi_get_bit(m, i + d * j) << j;
+		for (j = 0; j < w; j++) {
+			b = i + d * j;
+			if (unlikely(b >= bits))
+				break;
+			x[i] |= ((p[b >> BSHIFT] >> (b & BMASK)) & 1) << j;
+		}
 
 	/* Now make sure x_1 .. x_d are odd */
 	for (c = 0, i = 1; i <= d; i++) {
@@ -901,10 +906,10 @@ ecp_comb_fixed(unsigned char x[], size_t d, unsigned char w, const TlsMpi *m)
 		c = cc;
 
 		/* Adjust if needed, avoiding branches */
-		adjust = 1 - (x[i] & 0x01);
-		c |= x[i] & (x[i-1] * adjust);
-		x[i] = x[i] ^ (x[i-1] * adjust);
-		x[i-1] |= adjust << 7;
+		adjust = 1 - (x[i] & 1);
+		c |= x[i] & (x[i - 1] * adjust);
+		x[i] = x[i] ^ (x[i - 1] * adjust);
+		x[i - 1] |= adjust << 7;
 	}
 }
 
@@ -1009,23 +1014,37 @@ ecp_mul_comb_core(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsEcpPoint T[],
 	ttls_mpi_alloc(&R->Y, grp->bits * 2 / BIL);
 	ttls_mpi_alloc(&R->Z, grp->bits / BIL + 1);
 
-	/* Start with a non-zero point and randomize its coordinates */
+	/*
+	 * We operate with precimputed table which is significantly smaller
+	 * than L1d cache - for secp384 and w=6:
+	 *
+	 *	(sizeof(ECP)=(3 * 8) + 3 * 48) * (1 << (w - 1)) = 5376
+	 *
+	 * Also there is no preemption and point doubling and addition
+	 * aren't memory hungry, so once read T resides in L1d cache and
+	 * we can address T directly without sacrificing safety against SCAs.
+	 *
+	 * Start with a non-zero point and randomize its coordinates */
 	i = d;
 	ecp_select_comb(grp, R, T, t_len, x[i]);
 	ttls_mpi_lset(&R->Z, 1);
 	if (rnd)
 		MPI_CHK(ecp_randomize_jac(grp, R));
 
-	while (i-- != 0) {
+	while (i--) {
+		unsigned char ii = (x[i] & 0x7Fu) >> 1;
+
 		/*
 		 * TODO #1064 use repeated doubling optimization.
 		 * E.g. see sp_256_proj_point_dbl_n_store_avx2_4() and
 		 * sp_256_proj_point_dbl_n_avx2_4() from WolfSSL.
-		 *
-		 * TODO #1064: prefetch all items from the table in one shot.
 		 */
 		MPI_CHK(ecp_double_jac(grp, R, R));
-		ecp_select_comb(grp, Txi, T, t_len, x[i]);
+
+		ttls_mpi_copy(&Txi->X, &T[ii].X);
+		ttls_mpi_copy(&Txi->Y, &T[ii].Y);
+		ecp_safe_invert_jac(grp, Txi, x[i] >> 7);
+
 		MPI_CHK(ecp_add_mixed(grp, R, R, Txi));
 	}
 

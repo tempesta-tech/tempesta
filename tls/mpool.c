@@ -275,6 +275,8 @@ ttls_mpool_ecp_create_tmp_T(int n, const TlsEcpPoint *P)
 		return NULL;
 
 	mp->curr_tail -= tot_sz;
+	/* mp is always page-aligned. */
+	mp->curr_tail &= ~((unsigned short)L1_CACHE_BYTES - 1);
 	T = MPI_POOL_TAIL_PTR(mp);
 
 	for (off = sizeof(TlsEcpPoint) * n, i = 0; i < n; ++i) {
