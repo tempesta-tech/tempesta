@@ -3300,6 +3300,31 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 			+ req->multipart_boundary_raw.len + SLEN(S_CRLF)
 	};
 	int h_ct_replace = 0;
+	TfwStr h_cl = {0};
+	char cl_data[TFW_ULTOA_BUF_SIZ] = {0};
+	size_t cl_len = 0;
+	/*
+	 * The Transfer-Encoding header field cannot be in the h2 request, because
+	 * requests with Transfer-Encoding are blocked.
+	 */
+	bool need_cl = req->body.len &&
+	               TFW_STR_EMPTY(&ht->tbl[TFW_HTTP_HDR_CONTENT_LENGTH]);
+
+	if (need_cl) {
+		cl_len = tfw_ultoa(req->body.len, cl_data, TFW_ULTOA_BUF_SIZ);
+		if (!cl_len)
+			return -EINVAL;
+		h_cl = (TfwStr) {
+			.chunks = (TfwStr []) {
+				{ .data = "Content-Length", .len = 14 },
+				{ .data = S_DLM, .len = SLEN(S_DLM) },
+				{ .data = cl_data, .len = cl_len },
+				{ .data = S_CRLF, .len = SLEN(S_CRLF) }
+			},
+			.len = 14 + SLEN(S_DLM) + cl_len + SLEN(S_CRLF),
+			.nchunks = 4
+		};
+	}
 
 	T_DBG3("%s: req [%p] to be converted to http1.1\n", __func__, req);
 
@@ -3385,6 +3410,8 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	}
 	h1_hdrs_sz += h_xff.len;
 	h1_hdrs_sz += h_via.len;
+	if (need_cl)
+		h1_hdrs_sz += h_cl.len;
 
 	/*
 	 * Conditional substitution/additions of 'content-type' header. This is
@@ -3475,6 +3502,8 @@ tfw_h2_adjust_req(TfwHttpReq *req)
 	}
 
 	r |= tfw_msg_write(&it, &h_via);
+	if (need_cl)
+		r |= tfw_msg_write(&it, &h_cl);
 	/* Finally close headers. */
 	r |= tfw_msg_write(&it, &crlf);
 
