@@ -29,6 +29,7 @@
 #include "../ecp.c"
 #include "../ecdsa.c"
 #include "../mpool.c"
+#include "util.h"
 
 #define EC_Qx								   \
 	"\xB8\x81\xE6\x91\x1E\xAD\xA2\x23\x61\xC5\x48\x7D\x77\xC6\xD2\x49" \
@@ -67,6 +68,8 @@ ecdsa_sign(void)
 	EXPECT_ZERO(memcmp(sig + 24, "\x90\xBB\x5B\x07\x91\xAE\x8F\x5D", 8));
 	EXPECT_ZERO(memcmp(sig + 64, "\x09\xA2\x46\xFC\xF7\x14\x2D\x00", 8));
 	EXPECT_ZERO(memcmp(sig + 72, "\x00\x00\x00\x00\x00\x00\x00\x00", 8));
+
+	EXPECT_ZERO(ecp256_check_pubkey(ctx->grp, &ctx->Q));
 	EXPECT_ZERO(ttls_ecdsa_read_signature(ctx, hash, 32, sig, slen));
 
 	ttls_mpi_pool_free(ctx);

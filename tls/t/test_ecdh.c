@@ -28,6 +28,7 @@
 #include "../ecp.c"
 #include "../ecdh.c"
 #include "../mpool.c"
+#include "util.h"
 
 static void
 ecdhe_srv(void)
@@ -74,6 +75,7 @@ ecdhe_srv(void)
 	EXPECT_ZERO(memcmp(buf + 64, "\x82\x94\x70\x6C\x96\x00\x00\x00", 8));
 
 	EXPECT_ZERO(ttls_ecdh_read_public(ctx, clnt_buf, 66));
+	EXPECT_ZERO(ecp256_check_pubkey(ctx->grp, &ctx->Qp));
 	EXPECT_ZERO(ttls_ecdh_calc_secret(ctx, &n, pms, TTLS_MPI_MAX_SIZE));
 	EXPECT_TRUE(n == 32);
 	EXPECT_ZERO(memcmp(pms, "\x27\x53\xE1\x88\x57\x89\xB4\xB0", 8));

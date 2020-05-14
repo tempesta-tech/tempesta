@@ -17,7 +17,7 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include "util.h"
+#include "ttls_mocks.h"
 /* mpool.c requires ECP and DHM routines. */
 #include "../bignum.c"
 #include "../ciphersuites.c"
@@ -27,6 +27,7 @@
 #include "../ec_25519.c"
 #include "../ecp.c"
 #include "../mpool.c"
+#include "util.h"
 
 static void
 mpi_alloc_init(void)

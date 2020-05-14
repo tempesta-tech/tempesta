@@ -118,15 +118,11 @@ pk_get_ecpubkey(unsigned char **p, const unsigned char *end, TlsEcpKeypair *key)
 {
 	int r;
 
-	if (!(r = ttls_ecp_point_read_binary(key->grp, &key->Q,
-					     (const unsigned char *)*p,
-					     end - *p)))
-	{
-		r = ttls_ecp_check_pubkey(key->grp, &key->Q);
-	}
-
+	r = ttls_ecp_point_read_binary(key->grp, &key->Q,
+				       (const unsigned char *)*p, end - *p);
 	/* We know ttls_ecp_point_read_binary consumed all bytes or failed. */
-	*p = (unsigned char *)end;
+	if (!r)
+		*p = (unsigned char *)end;
 
 	return r;
 }
