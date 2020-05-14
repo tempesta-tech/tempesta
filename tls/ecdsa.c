@@ -108,9 +108,6 @@ ttls_ecdsa_verify(TlsEcpGrp *grp, const unsigned char *buf, size_t blen,
 	    || ttls_mpi_cmp_int(s, 1) < 0 || ttls_mpi_cmp_mpi(s, &grp->N) >= 0)
 		return TTLS_ERR_ECP_VERIFY_FAILED;
 
-	/* Additional precaution: make sure Q is valid. */
-	MPI_CHK(ttls_ecp_check_pubkey(grp, Q));
-
 	/* Step 3: derive MPI from hashed message. */
 	derive_mpi(grp, e, buf, blen);
 

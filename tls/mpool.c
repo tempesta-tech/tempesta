@@ -388,8 +388,18 @@ __mpi_profile_load_ec(TlsMpiPool *mp, TlsECDHCtx *ctx, unsigned char w,
 	 * => ?? 5. AVX2 - 4 points in parallel in OpenSSL - learn more
 	 */
 	n_sz = (grp->bits + w - 1) / w;
-	if (ecp_precompute_comb(grp, grp->T, &grp->G, w, n_sz))
-		return -EDOM;
+	switch (ec) {
+	case TTLS_ECP_DP_SECP256R1:
+		if (ecp256_precompute_comb(grp, grp->T, &grp->G, w, n_sz))
+			return -EDOM;
+		break;
+	case TTLS_ECP_DP_SECP384R1:
+		if (ecp384_precompute_comb(grp, grp->T, &grp->G, w, n_sz))
+			return -EDOM;
+		break;
+	default:
+		BUG();
+	}
 	ttls_mpool_shrink_tailtmp(mp, true);
 	/*
 	 * Move the group to the tail part: the tail part will be referenced by

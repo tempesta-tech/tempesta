@@ -20,7 +20,7 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#include "util.h"
+#include "ttls_mocks.h"
 
 /*
  * Big integers are the core of any cryptographic calls, so we can't call
@@ -73,6 +73,7 @@ ttls_mpool_shrink_tailtmp(TlsMpiPool *mp, bool fix_refs)
 #include "../ec_p384.c"
 #include "../ec_25519.c"
 #include "../ecp.c"
+#include "util.h"
 
 static void
 mpi_cmp(void)
@@ -531,6 +532,16 @@ mpi_elementary(void)
 
 	free(A);
 	free(B);
+}
+
+static void
+ecp_mod_p256(TlsMpi *N)
+{
+	BUG_ON(N->limbs < 4);
+	BUG_ON(N->s < 0);
+
+	ecp_mod_p256_x86_64(MPI_P(N), N->used);
+	mpi_fixup_used(N, 4);
 }
 
 static void

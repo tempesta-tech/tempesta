@@ -169,18 +169,31 @@ typedef struct {
  *
  * @id		- internal group identifier;
  * @bits	- number of bits in P (the group order);
- * @modp	- function for fast reduction mod P;
+ * @mul		- multiplication of a scalary by a point (m * P);
+ * @mul_g	- multiplication of a scalary by the group generator G (m * G);
+ * @muladd	- m * grp->G + n * Q;
  * @P		- prime modulus of the base field;
  * @A		- 1. A in the equation, or 2. (A + 2) / 4;
  * @B		- 1. B in the equation, or 2. unused;
  * @N		- 1. the order of G, or 2. unused;
  * @G		- generator of the (sub)group used;
  * @T		- pre-computed points for ecp_mul_comb().
+ *
+ * If @rng is true, then the multiplication methods randomize intermediate
+ * results in order to prevent potential timing attacks targeting these results.
  */
-typedef struct {
+typedef struct ecp_grp_t {
 	ttls_ecp_group_id	id;
 	unsigned int		bits;
-	void			(*modp)(TlsMpi *);
+
+	int (*mul)(const struct ecp_grp_t *grp, TlsEcpPoint *R, const TlsMpi *m,
+		   const TlsEcpPoint *P, bool rnd);
+	int (*mul_g)(const struct ecp_grp_t *grp, TlsEcpPoint *R,
+		     const TlsMpi *m, bool rnd);
+	int (*muladd)(const struct ecp_grp_t *grp, TlsEcpPoint *R,
+		      const TlsMpi *m, const TlsEcpPoint *Q, const TlsMpi *n);
+
+
 	TlsMpi			P;
 	TlsMpi			A;
 	TlsMpi			B;
@@ -221,7 +234,6 @@ void ttls_ecp_keypair_init(TlsEcpKeypair *key);
 void ttls_ecp_keypair_free(TlsEcpKeypair *key);
 
 void ttls_ecp_copy(TlsEcpPoint *P, const TlsEcpPoint *Q);
-int ttls_ecp_is_zero(TlsEcpPoint *pt);
 
 int ttls_ecp_point_read_binary(const TlsEcpGrp *grp, TlsEcpPoint *P,
 			       const unsigned char *buf, size_t ilen);
@@ -240,16 +252,25 @@ int ttls_ecp_group_load(TlsEcpGrp *grp, ttls_ecp_group_id id);
 int ecp_precompute_comb(const TlsEcpGrp *grp, TlsEcpPoint T[],
 			const TlsEcpPoint *P,unsigned char w, size_t d);
 
-int ttls_ecp_mul(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
-		 const TlsEcpPoint *P, bool rnd);
-int ttls_ecp_mul_g(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
-		   bool rnd);
 int ttls_ecp_muladd(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 		    const TlsMpi *n, const TlsEcpPoint *Q);
 
-int ttls_ecp_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt);
 int ttls_ecp_check_privkey(const TlsEcpGrp *grp, const TlsMpi *d);
 int ttls_ecp_gen_keypair(const TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q);
+
+void __ecp_group_load(TlsEcpGrp *grp, size_t sz, const unsigned long *p,
+		      const unsigned long *b, const unsigned long *gx,
+		      const unsigned long *gy, const unsigned long *n);
+#define LOAD_GROUP(grp, G, sz)					\
+	__ecp_group_load(grp, sz, G##_p, G##_b, G##_gx, G##_gy, G##_n)
+
+/*
+ * Curve-specific routines.
+ */
+
+void ec_grp_init_curve25519(TlsEcpGrp *grp);
+void ec_grp_init_p384(TlsEcpGrp *grp);
+void ec_grp_init_p256(TlsEcpGrp *grp);
 
 #if defined(DEBUG) && DEBUG == 3
 /* Print data structures containing MPIs on higest debug level only. */
@@ -257,5 +278,37 @@ int ttls_ecp_gen_keypair(const TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q);
 #else
 #define T_DBG_ECP(msg, x)
 #endif
+
+static inline void
+ttls_ecp_set_zero(TlsEcpPoint *pt)
+{
+	ttls_mpi_lset(&pt->X , 1);
+	ttls_mpi_lset(&pt->Y , 1);
+	ttls_mpi_lset(&pt->Z , 0);
+}
+
+static inline int
+ttls_ecp_is_zero(TlsEcpPoint *pt)
+{
+	return !ttls_mpi_cmp_int(&pt->Z, 0);
+}
+
+#define ttls_ecp_point_tmp_alloc_init(pt, xn, yn, zn)			\
+do {									\
+	pt = __builtin_alloca(sizeof(TlsEcpPoint) + CIL * (xn + yn + zn)); \
+	BUG_ON(!pt);							\
+	pt->X.s = 1;							\
+	pt->X.used = 0;							\
+	pt->X.limbs = xn;						\
+	pt->X._off = xn ? sizeof(*pt) : 0;				\
+	pt->Y.s = 1;							\
+	pt->Y.used = 0;							\
+	pt->Y.limbs = yn;						\
+	pt->Y._off = yn ? sizeof(*pt) - sizeof(pt->X) + xn * CIL : 0;	\
+	pt->Z.s = 1;							\
+	pt->Z.used = 0;							\
+	pt->Z.limbs = zn;						\
+	pt->Z._off = zn ? sizeof(pt->Z) + (xn + yn) * CIL : 0;		\
+} while (0)
 
 #endif /* ecp.h */

@@ -49,12 +49,8 @@ ttls_ecdh_compute_shared(TlsEcpGrp *grp, TlsEcpPoint *z, const TlsEcpPoint *Q,
 {
 	int r;
 
-	/* Make sure Q is a valid pubkey before using it. */
-	if ((r = ttls_ecp_check_pubkey(grp, Q)))
-		return r;
-
 	/* Compute the shared secret. */
-	if ((r = ttls_ecp_mul(grp, z, d, Q, true)))
+	if ((r = grp->mul(grp, z, d, Q, true)))
 		return r;
 
 	return ttls_ecp_is_zero(z) ? -EINVAL : 0;
