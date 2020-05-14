@@ -255,6 +255,12 @@ ttls_mpi_pool_create(size_t order, gfp_t gfp_mask)
  *
  * ecp_double_jac() may require more than 1 limb for Z coordinate, so we have
  * to provide enough space.
+ *
+ * TODO #1064: actally we need only X and Y coordinates of each point, so
+ * we can reduce size of the array improving spacial locality.
+ * Keep in mind L1d cache size against ecp_mul_comb_core() to not to open
+ * a vector for SCAs.
+ * Shrinking the array items allow to reduce TTLS_CSPOOL_ORDER.
  */
 TlsEcpPoint *
 ttls_mpool_ecp_create_tmp_T(int n, const TlsEcpPoint *P)
@@ -391,6 +397,7 @@ __mpi_profile_load_ec(TlsMpiPool *mp, TlsECDHCtx *ctx, unsigned char w,
 	 */
 	n_sz = mp->curr - ((unsigned long)grp - (unsigned long)mp);
 	mp->curr_tail -= n_sz;
+	mp->curr_tail &= ~((unsigned short)L1_CACHE_BYTES - 1);
 	memcpy_fast(MPI_POOL_TAIL_PTR(mp), grp, n_sz);
 	mp->curr -= n_sz;
 	/*
@@ -426,11 +433,11 @@ ttls_mpi_profile_create_ec(TlsMpiPool *mp, ttls_ecp_group_id ec)
 
 	switch (ec) {
 	case TTLS_ECP_DP_SECP256R1:
-		if ((r = __mpi_profile_load_ec(mp, ecdh_ctx, 5, ec)))
+		if ((r = __mpi_profile_load_ec(mp, ecdh_ctx, 7, ec)))
 			return r;
 		break;
 	case TTLS_ECP_DP_SECP384R1:
-		if ((r = __mpi_profile_load_ec(mp, ecdh_ctx, 6, ec)))
+		if ((r = __mpi_profile_load_ec(mp, ecdh_ctx, 7, ec)))
 			return r;
 		break;
 	case TTLS_ECP_DP_CURVE25519:

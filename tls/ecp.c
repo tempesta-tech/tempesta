@@ -1092,7 +1092,7 @@ ecp_mul_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	 * TODO #1064 make sure that w size is the best one.
 	 */
 	BUG_ON(grp->bits > 384);
-	w = grp->bits == 384 ? 5 : 4;
+	w = 4; /* TODO #1064: grp->bits == 384 ? 5 : 4; */
 
 	/*
 	 * If P == G, pre-compute a bit more, since this may be re-used later.
@@ -1102,7 +1102,7 @@ ecp_mul_comb(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 	p_eq_g = !ttls_mpi_cmp_mpi(&P->Y, &grp->G.Y)
 		 && !ttls_mpi_cmp_mpi(&P->X, &grp->G.X);
 	if (p_eq_g) {
-		w++;
+		w += 3;
 		T = (TlsEcpPoint *)grp->T; /* we won't change it */
 		MPI_CHK(ttls_mpi_empty(&T->X) | ttls_mpi_empty(&T->Y));
 	} else {
