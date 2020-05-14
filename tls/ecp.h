@@ -107,7 +107,7 @@ extern ttls_ecp_group_id ttls_preset_curves[];
  *
  * Reduction in size may reduce speed, but larger curves are impacted first.
  */
-#define TTLS_ECP_WINDOW_ORDER	6
+#define TTLS_ECP_WINDOW_ORDER	7
 #define TTLS_ECP_WINDOW_SIZE	(1 << (TTLS_ECP_WINDOW_ORDER - 1))
 
 /**

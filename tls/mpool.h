@@ -23,6 +23,8 @@
 #include "tls_internal.h"
 
 #define TTLS_MPOOL_ORDER	1 /* 2 pages for temporary MPIs */
+/* TODO #1064: shrink sizeof T[] items and shrink the pool size. */
+#define TTLS_CSPOOL_ORDER	(TTLS_MPOOL_ORDER + 2)
 
 TlsMpiPool *ttls_mpool(void *addr);
 void *ttls_mpool_alloc_stack(size_t n);

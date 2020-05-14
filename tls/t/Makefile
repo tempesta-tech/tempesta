@@ -28,7 +28,7 @@ CFLAGS		= -std=gnu89 -DL1_CACHE_BYTES=$(CACHELINE) -DNR_CPUS=1 \
 		  -I../../ktest -I../.. -I..
 
 TEST_CFLAGS	= -O0 -ggdb3
-SPEED_CFLAGS	= -O2 -march=native -mtune=native
+SPEED_CFLAGS	= -O2 -march=native -mtune=native -DNDEBUG
 
 ifdef DEBUG
 	CFLAGS += -DDEBUG=$(DEBUG) -DDBG_TLS=1

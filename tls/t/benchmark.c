@@ -101,14 +101,18 @@ bm_ecdsa_sign_p256(void)
 	"\xC7\x1C\xBC\x8A\xCA\x38\xF7\xC9\x97\xF9\x3A\x6C\xBD\xFD\xCF\x7F" \
 	"\x4C\x9D\x32\xAA\x35\x1F\x49\xDB\xF4\x7D\x72\xD6\x64\x2F\x06\xDC"
 
+	int r;
 	TlsMpiPool *mp;
 	TlsEcpKeypair *ctx;
 	size_t slen;
 	char hash[32], sig[80];
 
-	BUG_ON(!(mp = ttls_mpi_pool_create(TTLS_MPOOL_ORDER, GFP_KERNEL)));
-	BUG_ON(!(ctx = ttls_mpool_alloc_data(mp, sizeof(*ctx))));
-	BUG_ON(!(ctx->grp = ttls_ecp_group_lookup(TTLS_ECP_DP_SECP256R1)));
+	mp = ttls_mpi_pool_create(TTLS_MPOOL_ORDER, GFP_KERNEL);
+	BUG_ON(!mp);
+	ctx = ttls_mpool_alloc_data(mp, sizeof(*ctx));
+	BUG_ON(!ctx);
+	ctx->grp = ttls_ecp_group_lookup(TTLS_ECP_DP_SECP256R1);
+	BUG_ON(!ctx->grp);
 
 	ttls_mpi_read_binary(&ctx->Q.X, EC_Qx, 32);
 	ttls_mpi_read_binary(&ctx->Q.Y, EC_Qy, 32);
@@ -122,7 +126,8 @@ bm_ecdsa_sign_p256(void)
 	 * - OpenSSL speed does the same.
 	 */
 	BENCHMARK("ECDSA sign (nistp256)",
-		BUG_ON(ttls_ecdsa_write_signature(ctx, hash, 32, sig, &slen));
+		r = ttls_ecdsa_write_signature(ctx, hash, 32, sig, &slen);
+		BUG_ON(r);
 		ttls_mpi_pool_cleanup_ctx(0, false);
 	);
 #undef EC_d
@@ -133,6 +138,7 @@ bm_ecdsa_sign_p256(void)
 void
 bm_ecdhe_srv_p256(void)
 {
+	int r;
 	size_t n;
 	TlsECDHCtx *ctx;
 	TlsMpiPool *mp;
@@ -147,7 +153,8 @@ bm_ecdhe_srv_p256(void)
 				  "\xE9\x84\x9D\x52\x79\x7C\x9C\x74"
 				  "\x8F\x67";
 
-	BUG_ON(!(mp = ttls_mpi_pool_create(TTLS_MPOOL_ORDER, GFP_KERNEL)));
+	mp = ttls_mpi_pool_create(TTLS_MPOOL_ORDER, GFP_KERNEL);
+	BUG_ON(!mp);
 
 	/*
 	 * Copy (clone) ECDH context from the MPI profile for Secp256r1 PK
@@ -162,9 +169,12 @@ bm_ecdhe_srv_p256(void)
 		    mp->curr - sizeof(*mp));
 
 	BENCHMARK("ECDHE srv (nistp256)",
-		BUG_ON(ttls_ecdh_make_params(ctx, &n, buf, 128));
-		BUG_ON(ttls_ecdh_read_public(ctx, clnt_buf, 66));
-		BUG_ON(ttls_ecdh_calc_secret(ctx, &n, pms, TTLS_MPI_MAX_SIZE));
+		r = ttls_ecdh_make_params(ctx, &n, buf, 128);
+		BUG_ON(r);
+		ttls_ecdh_read_public(ctx, clnt_buf, 66);
+		BUG_ON(r);
+		ttls_ecdh_calc_secret(ctx, &n, pms, TTLS_MPI_MAX_SIZE);
+		BUG_ON(r);
 		ttls_mpi_pool_cleanup_ctx(0, false);
 	);
 }
@@ -172,7 +182,10 @@ bm_ecdhe_srv_p256(void)
 int
 main(int argc, char *argv[])
 {
-	BUG_ON(ttls_mpool_init());
+	if (ttls_mpool_init()) {
+		fprintf(stderr, "Cannot initialize crypto memoty pool\n");
+		return 1;
+	}
 
 	bm_ecdsa_sign_p256();
 	bm_ecdhe_srv_p256();
