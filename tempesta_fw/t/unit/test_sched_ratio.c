@@ -55,12 +55,13 @@ sched_ratio_get_arg(size_t conn_type)
 {
 	static char *str = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
 	TfwHttpReq *req = NULL;
+	unsigned char *eptr = NULL;
 	unsigned int parsed;
 
 	BUG_ON(conn_type >= sched_helper_ratio.conn_types);
 
 	req = test_req_alloc(strlen(str));
-	tfw_http_parse_req(req, str, strlen(str), &parsed);
+	tfw_http_parse_req(req, str, strlen(str), &parsed, &eptr);
 
 	return (TfwMsg *)req;
 }

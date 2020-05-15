@@ -1481,7 +1481,7 @@ conn_term:
  */
 static int
 tfw_h2_frame_recv(void *data, unsigned char *buf, size_t len,
-		  unsigned int *read)
+		  unsigned int *read, unsigned char **unused)
 {
 	int n, r = T_POSTPONE;
 	unsigned char *p = buf;
@@ -1701,7 +1701,8 @@ tfw_h2_frame_process(void *c, TfwFsmData *data)
 {
 	int r;
 	bool postponed;
-	unsigned int parsed, unused;
+	size_t unused_len;
+	unsigned int parsed, unused_ch;
 	TfwFsmData data_up = {};
 	TfwH2Ctx *h2 = tfw_h2_context(c);
 	struct sk_buff *nskb = NULL, *skb = data->skb;
@@ -1710,7 +1711,8 @@ next_msg:
 	postponed = false;
 	ss_skb_queue_tail(&h2->skb_head, skb);
 	parsed = 0;
-	r = ss_skb_process(skb, tfw_h2_frame_recv, h2, &unused, &parsed);
+	r = ss_skb_process(NULL, &skb, tfw_h2_frame_recv, h2, &unused_ch,
+			   &parsed, &unused_len);
 
 	switch (r) {
 	default:
@@ -1750,7 +1752,7 @@ next_msg:
 	 * processed.
 	 */
 	if (parsed < skb->len) {
-		nskb = ss_skb_split(skb, parsed);
+		nskb = ss_skb_split(NULL, skb, parsed);
 		if (unlikely(!nskb)) {
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
 			r = T_DROP;

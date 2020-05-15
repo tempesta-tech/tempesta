@@ -1479,3 +1479,26 @@ tfw_http_msg_insert(TfwMsgIter *it, char *off, const TfwStr *data)
 
 	return tfw_strcpy(&dst, data);
 }
+
+int
+tfw_http_msg_evict_data(TfwHttpMsg *hm, TfwStr *it)
+{
+	int rlen = it->len;
+	struct sk_buff *skb_head = hm->msg.skb_head;
+
+	while (rlen) {
+		int evicted;
+		char *ptr = it->data;
+		struct sk_buff *skb = it->skb;
+
+		bzero_fast(it, sizeof(TfwStr));
+		evicted = skb_fragment(skb_head, skb, ptr, -rlen, it);
+
+		if (WARN_ON_ONCE(!evicted || evicted > rlen))
+			return -EINVAL;
+
+		rlen -= evicted;
+	}
+
+	return 0;
+}

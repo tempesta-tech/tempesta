@@ -105,10 +105,12 @@ test_req(char *req_str, TfwSrvConn *expect_conn)
 	if (req_str) {
 		static char req_str_copy[PAGE_SIZE];
 		const size_t req_str_len = strlen(req_str);
+		unsigned char *eptr = NULL;
 
 		BUG_ON(req_str_len + 1 > sizeof(req_str_copy));
 		strcpy(req_str_copy, req_str);
-		tfw_http_parse_req(req, req_str_copy, req_str_len, &parsed);
+		tfw_http_parse_req(req, req_str_copy, req_str_len,
+				   &parsed, &eptr);
 	}
 
 	req->vhost = tfw_http_tbl_vhost((TfwMsg *)req, &block);

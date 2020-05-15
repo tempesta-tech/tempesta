@@ -96,6 +96,7 @@ static int
 tfw_tls_msg_process(void *conn, TfwFsmData *data)
 {
 	int r, parsed;
+	size_t unused;
 	struct sk_buff *nskb = NULL, *skb = data->skb;
 	TfwConn *c = conn;
 	TlsCtx *tls = tfw_tls_context(c);
@@ -112,7 +113,8 @@ next_msg:
 
 	/* Call TLS layer to place skb into a TLS record on top of skb_list. */
 	parsed = 0;
-	r = ss_skb_process(skb, ttls_recv, tls, &tls->io_in.chunks, &parsed);
+	r = ss_skb_process(NULL, &skb, ttls_recv, tls, &tls->io_in.chunks,
+			   &parsed, &unused);
 	switch (r) {
 	default:
 		T_WARN("Unrecognized TLS receive return code %d, drop packet\n",
@@ -153,7 +155,7 @@ next_msg:
 	 * to read after end of the message.
 	 */
 	if (parsed < skb->len) {
-		nskb = ss_skb_split(skb, parsed);
+		nskb = ss_skb_split(NULL, skb, parsed);
 		if (unlikely(!nskb)) {
 			spin_unlock(&tls->lock);
 			TFW_INC_STAT_BH(clnt.msgs_otherr);

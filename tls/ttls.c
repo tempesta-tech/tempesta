@@ -2105,7 +2105,8 @@ ttls_handshake_step(TlsCtx *tls, unsigned char *buf, size_t len, size_t hh_len,
  * The function adds the number of bytes parsed in @buf to @read.
  */
 int
-ttls_recv(void *tls_data, unsigned char *buf, size_t len, unsigned int *read)
+ttls_recv(void *tls_data, unsigned char *buf, size_t len, unsigned int *read,
+	  unsigned char **evict_ptr)
 {
 	int r;
 	unsigned int hh_len = 0, parsed = *read;

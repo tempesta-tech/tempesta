@@ -47,7 +47,7 @@ enum {
 };
 
 typedef int ss_skb_actor_t(void *conn, unsigned char *data, size_t len,
-			   unsigned int *read);
+			   unsigned int *read, unsigned char **evict_ptr);
 
 /**
  * Add new _single_ @skb to the queue in FIFO order.
@@ -207,7 +207,8 @@ char *ss_skb_fmt_src_addr(const struct sk_buff *skb, char *out_buf);
 
 int ss_skb_alloc_data(struct sk_buff **skb_head, size_t len,
 		      unsigned int tx_flags);
-struct sk_buff *ss_skb_split(struct sk_buff *skb, int len);
+struct sk_buff *ss_skb_split(struct sk_buff *skb_head, struct sk_buff *skb,
+			     int len);
 int skb_fragment(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 		 int len, TfwStr *it);
 int ss_skb_get_room(struct sk_buff *skb_head, struct sk_buff *skb,
@@ -220,8 +221,9 @@ int ss_skb_cutoff_data(struct sk_buff *skb_head, const TfwStr *hdr,
 		       int skip, int tail);
 int skb_next_data(struct sk_buff *skb, char *last_ptr, TfwStr *it);
 
-int ss_skb_process(struct sk_buff *skb, ss_skb_actor_t actor, void *objdata,
-		   unsigned int *chunks, unsigned int *processed);
+int ss_skb_process(struct sk_buff *skb_head, struct sk_buff **skb,
+		   ss_skb_actor_t actor, void *objdata, unsigned int *chunks,
+		   unsigned int *acc_last, size_t *acc);
 
 int ss_skb_unroll(struct sk_buff **skb_head, struct sk_buff *skb);
 void ss_skb_init_for_xmit(struct sk_buff *skb);

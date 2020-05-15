@@ -160,7 +160,7 @@ tfw_bmb_conn_drop(struct sock *sk)
 
 static int
 tfw_bmb_print_msg(void *msg_data, unsigned char *data, size_t len,
-		  unsigned int *read)
+		  unsigned int *read, unsigned char **evict_ptr)
 {
 	printk(KERN_INFO "%.*s\n", (int)len, data);
 	*read = len;
@@ -172,11 +172,13 @@ static int
 tfw_bmb_conn_recv(void *cdata, struct sk_buff *skb)
 {
 	if (verbose) {
+		size_t acc = 0;
 		unsigned int parsed = 0, chunks = 0;
 
 		T_LOG("Server response:\n------------------------------\n");
 
-		ss_skb_process(skb, tfw_bmb_print_msg, NULL, &chunks, &parsed);
+		ss_skb_process(NULL, &skb, tfw_bmb_print_msg, NULL, &chunks,
+			       &parsed, &acc);
 
 		printk(KERN_INFO "\n------------------------------\n");
 	}

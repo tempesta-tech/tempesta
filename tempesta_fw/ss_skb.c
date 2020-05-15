@@ -1065,13 +1065,31 @@ skb_next_data(struct sk_buff *skb, char *last_ptr, TfwStr *it)
 	return -ENOENT;
 }
 
+static inline bool
+__inside_frag(struct sk_buff *skb, char *data, int i)
+{
+	long off;
+	const skb_frag_t *frag;
+	struct skb_shared_info *si = skb_shinfo(skb);
+
+	if (i >= si->nr_frags)
+		return false;
+
+	frag = &si->frags[i];
+	off = data - (char *)skb_frag_address(frag);
+
+	if (off < 0 || off > skb_frag_size(frag))
+		return false;
+
+	return true;
+}
+
 /**
  * Process a socket buffer like standard skb_seq_read(), but return when the
  * @actor finishes processing, so a caller gets control w/o looping when an
  * application level message is fully read. The function is reentrant: @actor
  * called from the function can call it again with another @actor for upper
- * layer protocol (e.g. TLS handler calls HTTP parser), so @len defines how
- * much data is available for now.
+ * layer protocol (e.g. TLS handler calls HTTP parser).
  *
  * The function is unaware of an application layer, but it still splits
  * @skb into messages. If @actor returns POSTPONE and there is more data
@@ -1080,28 +1098,36 @@ skb_next_data(struct sk_buff *skb, char *last_ptr, TfwStr *it)
  * or an error code.
  *
  * @return SS_OK, SS_DROP, SS_POSTPONE, or a negative value of error code.
- * @processed and @chunks are incremented by number of effectively processed
- * bytes and contiguous data chunks correspondingly. A caller must properly
- * initialize them. @actor sees @chunks including current chunk of data.
+ * @acc and @chunks are incremented by number of effectively processed bytes
+ * and contiguous data chunks correspondingly. A caller must properly
+ * initialize them. @acc_last is like @acc, but it counts bytes processed
+ * only in the last skb - to allow the caller to split the last skb correctly,
+ * if necessary.
  */
 int
-ss_skb_process(struct sk_buff *skb, ss_skb_actor_t actor, void *objdata,
-	       unsigned int *chunks, unsigned int *processed)
+ss_skb_process(struct sk_buff *skb_head, struct sk_buff **skb,
+	       ss_skb_actor_t actor, void *objdata, unsigned int *chunks,
+	       unsigned int *acc_last, size_t *acc)
 {
+	int headlen;
+	struct skb_shared_info *si;
+	unsigned char *eptr = NULL;
 	int i, r = SS_OK;
-	int headlen = skb_headlen(skb);
-	unsigned int _processed;
-	struct skb_shared_info *si = skb_shinfo(skb);
 
-	if (WARN_ON_ONCE(skb->len == 0))
+next_skb:
+	i = 0;
+	*acc_last = 0;
+	headlen = skb_headlen(*skb);
+	si = skb_shinfo(*skb);
+
+	if (WARN_ON_ONCE((*skb)->len == 0))
 		return -EIO;
 
 	/* Process linear data. */
 	if (likely(headlen > 0)) {
 		++*chunks;
-		_processed = 0;
-		r = actor(objdata, skb->data, headlen, &_processed);
-		*processed += _processed;
+		r = actor(objdata, (*skb)->data, headlen, acc_last, &eptr);
+		*acc += *acc_last;
 		if (r != SS_POSTPONE)
 			return r;
 	}
@@ -1110,16 +1136,57 @@ ss_skb_process(struct sk_buff *skb, ss_skb_actor_t actor, void *objdata,
 	 * Process paged fragments. This is where GROed data is placed.
 	 * See ixgbe_fetch_rx_buffer() and tcp_gro_receive().
 	 */
-	for (i = 0; i < si->nr_frags; ++i) {
+	while (i < si->nr_frags) {
+		unsigned int _processed = 0;
 		const skb_frag_t *frag = &si->frags[i];
 
 		++*chunks;
-		_processed = 0;
+		eptr = NULL;
 		r = actor(objdata, skb_frag_address(frag), skb_frag_size(frag),
-			  &_processed);
-		*processed += _processed;
+			  &_processed, &eptr);
+		*acc_last += _processed;
+		*acc += _processed;
 		if (r != SS_POSTPONE)
 			return r;
+		/*
+		 * If @eptr is set, this means that some data in the @skb had
+		 * been evicted in the @actor, and frags could be displaced.
+		 * As a result, the beginning of the next data to be processed
+		 * can be at the start either of the current frag, or of the
+		 * next frag, or of the frag beyond the current skb (see
+		 * comment below). So, in the first case we need to process
+		 * current frag again.
+		 *
+		 * NOTE: in case of skb linear part processing (above) we do
+		 * not need to search the beginning of the data, since it
+		 * always will be in the first frag in this case.
+		 */
+		if (eptr && __inside_frag(*skb, eptr, i))
+			continue;
+		++i;
+	}
+
+	/*
+	 * During data eviction the frags could be forced out from the current
+	 * skb, and this results in creation on new skb, which will be added
+	 * into the message skb list - right after the current skb. In this case
+	 * two scenarios are possible:
+	 * 1. SS_POSTPONE is returned from the @actor, so the more data is
+	 *    needed for the current message and new skb should be processed
+	 *    here and now;
+	 * 2. SS_OK is returned from the @actor, which means that current
+	 *    message is completed, and the new skb will be processed here too,
+	 *    but later - during assembling of next message, on the next call
+	 *    of this procedure.
+	 *
+	 * NOTE: the behavior with data eviction in @actor is allowed only for
+	 * L7 processing, i.e. only for @tfw_http_req_process() and
+	 * @tfw_http_resp_process() callers; other callers of this procedure do
+	 * not support the data eviction in @actor.
+	 */
+	if (skb_head && skb_head != (*skb)->next) {
+		*skb = (*skb)->next;
+		goto next_skb;
 	}
 
 	return r;
@@ -1161,11 +1228,11 @@ __copy_ip_header(struct sk_buff *to, const struct sk_buff *from)
  * not been out to the write queue yet.
  */
 struct sk_buff *
-ss_skb_split(struct sk_buff *skb, int len)
+ss_skb_split(struct sk_buff *skb_head, struct sk_buff *skb, int len)
 {
-	struct sk_buff *buff;
+	struct sk_buff *buff, *next;
 	int n = 0;
-
+	
 	/* Assert that the SKB is orphaned. */
 	WARN_ON_ONCE(skb->destructor);
 
@@ -1196,6 +1263,19 @@ ss_skb_split(struct sk_buff *skb, int len)
 	 */
 	skb_split(skb, buff, len);
 	__copy_ip_header(buff, skb);
+
+	/*
+	 * If we have the other skb(s) attached to the skb being splitted,
+	 * we must reattach them to the new skb after splitting.
+	 */
+	if (skb_head) {
+		buff->next = buff->prev = buff;
+		if (skb_head != skb->next) {
+			next = skb->next;
+			ss_skb_queue_split(skb_head, next);
+			ss_skb_queue_append(&buff, next);
+		}
+	}
 
 	return buff;
 }

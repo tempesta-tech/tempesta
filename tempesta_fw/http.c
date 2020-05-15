@@ -2539,7 +2539,7 @@ tfw_http_msg_create_sibling(TfwHttpMsg *hm, struct sk_buff *skb)
 		skb->mark = hm->msg.skb_head->mark;
 	}
 
-	ss_skb_queue_tail(&shm->msg.skb_head, skb);
+	shm->msg.skb_head = skb;
 
 	return shm;
 }
@@ -4898,10 +4898,8 @@ tfw_h1_req_process(TfwStream *stream, struct sk_buff *skb)
 	 */
 	if (test_bit(TFW_HTTP_B_CONN_CLOSE, req->flags)) {
 		TFW_CONN_TYPE(req->conn) |= Conn_Stop;
-		if (unlikely(skb)) {
-			__kfree_skb(skb);
-			skb = NULL;
-		}
+		if (unlikely(skb))
+			ss_skb_queue_purge(&skb);
 	}
 
 	/*
@@ -4918,7 +4916,7 @@ tfw_h1_req_process(TfwStream *stream, struct sk_buff *skb)
 			TFW_CONN_TYPE(req->conn) |= Conn_Stop;
 			tfw_http_conn_error_log(req->conn, "Can't create"
 						" pipelined request");
-			__kfree_skb(skb);
+			ss_skb_queue_purge(&skb);
 		}
 	}
 
@@ -4974,8 +4972,8 @@ next_msg:
 	req = (TfwHttpReq *)stream->msg;
 	actor = TFW_MSG_H2(req) ? tfw_h2_parse_req : tfw_http_parse_req;
 
-	r = ss_skb_process(skb, actor, req, &req->chunk_cnt, &parsed);
-	req->msg.len += parsed;
+	r = ss_skb_process(req->msg.skb_head, &skb, actor, req, &req->chunk_cnt,
+			   &parsed, &req->msg.len);
 	TFW_ADD_STAT_BH(parsed, clnt.rx_bytes);
 
 	T_DBG2("Request parsed: len=%u next=%pK parsed=%d msg_len=%lu"
@@ -5058,7 +5056,7 @@ next_msg:
 	 */
 	if (parsed < skb->len) {
 		WARN_ON_ONCE(TFW_MSG_H2(req));
-		skb = ss_skb_split(skb, parsed);
+		skb = ss_skb_split(req->msg.skb_head, skb, parsed);
 		if (unlikely(!skb)) {
 			TFW_INC_STAT_BH(clnt.msgs_otherr);
 			tfw_http_req_parse_block(req, 500,
@@ -5526,9 +5524,8 @@ next_msg:
 	hmsib = NULL;
 	hmresp = (TfwHttpMsg *)stream->msg;
 
-	r = ss_skb_process(skb, tfw_http_parse_resp, hmresp, &chunks_unused,
-			   &parsed);
-	hmresp->msg.len += parsed;
+	r = ss_skb_process(hmresp->msg.skb_head, &skb, tfw_http_parse_resp,
+			   hmresp, &chunks_unused, &parsed, &hmresp->msg.len);
 	TFW_ADD_STAT_BH(parsed, serv.rx_bytes);
 
 	T_DBG2("Response parsed: len=%u parsed=%d msg_len=%lu ver=%d res=%d\n",
@@ -5606,7 +5603,7 @@ next_msg:
 	 * @skb is replaced with pointer to a new SKB.
 	 */
 	if (parsed < skb->len) {
-		skb = ss_skb_split(skb, parsed);
+		skb = ss_skb_split(hmresp->msg.skb_head, skb, parsed);
 		if (unlikely(!skb)) {
 			TFW_INC_STAT_BH(serv.msgs_otherr);
 			goto bad_msg;
@@ -5654,8 +5651,7 @@ next_msg:
 			TFW_INC_STAT_BH(serv.msgs_otherr);
 			tfw_http_conn_error_log(conn, "Can't create pipelined"
 						      " response");
-			__kfree_skb(skb);
-			skb = NULL;
+			ss_skb_queue_purge(&skb);
 			conn_stop = true;
 		}
 	}

@@ -66,13 +66,14 @@ static TfwMsg *
 sched_hash_get_arg(size_t conn_type)
 {
 	TfwHttpReq *req = NULL;
+	unsigned char *eptr = NULL;
 	unsigned int parsed;
 
 	BUG_ON(conn_type >= sched_helper_hash.conn_types);
 
 	req = test_req_alloc(strlen(req_strs[conn_type]));
 	tfw_http_parse_req(req, (unsigned char *)req_strs[conn_type],
-			   strlen(req_strs[conn_type]), &parsed);
+			   strlen(req_strs[conn_type]), &parsed, &eptr);
 
 	return (TfwMsg *) req;
 }

@@ -230,15 +230,52 @@ do {									\
 	}								\
 } while (0)
 
-#define __FSM_MOVE_hdr_fixup(to, n)					\
+#define __FSM_MOVE_fixup(to, n, field)					\
 do {									\
-	__msg_hdr_chunk_fixup(p, n);					\
+	WARN_ON_ONCE(!(field)->data);					\
+	__msg_field_fixup_pos(field, p, n);				\
 	p += n;								\
 	if (unlikely(__data_off(p) >= len)) {				\
 		parser->state = &&to;					\
 		__FSM_EXIT(TFW_POSTPONE);				\
 	}								\
 	goto to;							\
+} while (0)
+
+#define __FSM_MOVE_hdr_fixup(to, n)					\
+	__FSM_MOVE_fixup(to, n, &parser->hdr)
+
+#define __FSM_MOVE_fixup_alt(to, n, field, fixup)			\
+do {									\
+	if (fixup)							\
+		__FSM_MOVE_fixup(to, n, field);				\
+	else								\
+		__FSM_MOVE_nf(to, n, field);				\
+									\
+} while (0)
+
+/*
+ * Macros intended for deletion of separate message parts during the
+ * parsing stage.
+ */
+#define __FSM_CUT_n(to, n)						\
+do {									\
+	TfwStr it = {							\
+		.data = p,						\
+		.skb = ss_skb_peek_tail(&msg->msg.skb_head),		\
+		.len = n						\
+	};								\
+	tfw_http_msg_evict_data(msg, &it);				\
+	parser->state = &&to;						\
+	*evict_ptr = it.data;						\
+	__FSM_EXIT(TFW_POSTPONE);					\
+} while (0)
+
+#define __FSM_CUT_MOVE_nf(to, n, field, cut)				\
+do {									\
+	if (cut)							\
+		__FSM_CUT_n(to, n);					\
+	__FSM_MOVE_nf(to, n, field);					\
 } while (0)
 
 /*
@@ -1150,10 +1187,10 @@ __FSM_STATE(Resp_BodyUnlimRead) {					\
 	__FSM_MOVE_nf(Resp_BodyUnlimRead, __data_remain(p), &msg->body); \
 }
 
-#define TFW_HTTP_PARSE_BODY(...)					\
+#define TFW_HTTP_PARSE_BODY(resp_stage, ...)				\
 /* Read request|response body. */					\
 __FSM_STATE(RGen_BodyStart, __VA_ARGS__) {				\
-	tfw_http_msg_set_str_data(msg, &msg->body, p);			\
+		tfw_http_msg_set_str_data(msg, &msg->body, p);		\
 	/* Fall through. */						\
 }									\
 __FSM_STATE(RGen_BodyChunk, __VA_ARGS__) {				\
@@ -1170,12 +1207,17 @@ __FSM_STATE(RGen_BodyReadChunk, __VA_ARGS__) {				\
 	BUG_ON(parser->to_read < 0);					\
 	__fsm_sz = min_t(long, parser->to_read, __data_remain(p));	\
 	parser->to_read -= __fsm_sz;					\
+	if (test_bit(TFW_HTTP_B_CHUNKED, msg->flags)) {			\
+		if (parser->to_read)					\
+			__FSM_MOVE_fixup_alt(RGen_BodyReadChunk,	\
+					     __fsm_sz, &msg->body,	\
+					     resp_stage);		\
+		parser->to_read = -1;					\
+		__FSM_MOVE_fixup_alt(RGen_BodyEoL, __fsm_sz,		\
+				     &msg->body, resp_stage);		\
+	}								\
 	if (parser->to_read)						\
 		__FSM_MOVE_nf(RGen_BodyReadChunk, __fsm_sz, &msg->body); \
-	if (test_bit(TFW_HTTP_B_CHUNKED, msg->flags)) {			\
-		parser->to_read = -1;					\
-		__FSM_MOVE_nf(RGen_BodyEoL, __fsm_sz, &msg->body);	\
-	}								\
 	/* We've fully read Content-Length bytes. */			\
 	if (tfw_http_msg_add_str_data(msg, &msg->body, p, __fsm_sz))	\
 		TFW_PARSER_BLOCK(RGen_BodyReadChunk);			\
@@ -1192,7 +1234,8 @@ __FSM_STATE(RGen_BodyChunkLen, __VA_ARGS__) {				\
 	       __fsm_sz, __fsm_n, parser->_acc);			\
 	switch (__fsm_n) {						\
 	case CSTR_POSTPONE:						\
-		__FSM_MOVE_nf(RGen_BodyChunkLen, __fsm_sz, &msg->body);	\
+		__FSM_CUT_MOVE_nf(RGen_BodyChunkLen, __fsm_sz,		\
+				  &msg->body, resp_stage);		\
 	case CSTR_BADLEN:						\
 	case CSTR_NEQ:							\
 		TFW_PARSER_BLOCK(RGen_BodyChunkLen);			\
@@ -1200,28 +1243,38 @@ __FSM_STATE(RGen_BodyChunkLen, __VA_ARGS__) {				\
 		parser->to_read = parser->_acc;				\
 		parser->_acc = 0;					\
 		parser->_cnt = 0;					\
-		__FSM_MOVE_nf(RGen_BodyChunkExt, __fsm_n, &msg->body);	\
+		__FSM_CUT_MOVE_nf(RGen_BodyChunkExt, __fsm_n,		\
+				  &msg->body, resp_stage);		\
 	}								\
 }									\
 __FSM_STATE(RGen_BodyChunkExt, __VA_ARGS__) {				\
 	if (unlikely(c == ';' || c == '=' || IS_TOKEN(c)))		\
-		__FSM_MOVE_f(RGen_BodyChunkExt, &msg->body);		\
+		__FSM_CUT_MOVE_nf(RGen_BodyChunkExt, 1, &msg->body,	\
+				  resp_stage);				\
+	/*!!! should be optimized via temporary local @p_prev pointer	\
+	  to avoid of chunking every symbol into TfwStr*/		\
 	/* Fall through. */						\
 }									\
 __FSM_STATE(RGen_BodyEoL, __VA_ARGS__) {				\
 	if (likely(c == '\r'))						\
-		__FSM_MOVE_f(RGen_BodyCR, &msg->body);			\
+		__FSM_CUT_MOVE_nf(RGen_BodyCR, 1, &msg->body,		\
+				  resp_stage);				\
 	/* Fall through. */						\
 }									\
 __FSM_STATE(RGen_BodyCR, __VA_ARGS__) {					\
 	if (unlikely(c != '\n'))					\
 		TFW_PARSER_BLOCK(RGen_BodyCR);				\
 	if (parser->to_read)						\
-		__FSM_MOVE_f(RGen_BodyChunk, &msg->body);		\
+		__FSM_CUT_MOVE_nf(RGen_BodyChunk, 1, &msg->body,	\
+				  resp_stage);				\
 	/*								\
 	 * We've fully read the chunked body.				\
 	 * Add everything and the current character.			\
 	 */								\
+	if (resp_stage) {						\
+		msg->body.flags |= TFW_STR_COMPLETE;			\
+		__FSM_CUT_n(RGen_Hdr, 1);				\
+	}								\
 	if (tfw_http_msg_add_str_data(msg, &msg->body, data,		\
 				      __data_off(p) + 1))		\
 		TFW_PARSER_BLOCK(RGen_BodyCR);				\
@@ -3364,7 +3417,7 @@ tfw_http_init_parser_req(TfwHttpReq *req)
 
 int
 tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
-		   unsigned int *parsed)
+		   unsigned int *parsed, unsigned char **evict_ptr)
 {
 	int r = TFW_BLOCK;
 	TfwHttpReq *req = (TfwHttpReq *)req_data;
@@ -4022,7 +4075,7 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 	 * Most requests do not have body, so move body parser after the end.
 	 */
 	TFW_HTTP_INIT_REQ_BODY_PARSING();
-	TFW_HTTP_PARSE_BODY(cold);
+	TFW_HTTP_PARSE_BODY(false, cold);
 
 	/*
 	 * ----------------    Slow path    ----------------
@@ -8075,7 +8128,7 @@ out:
  */
 int
 tfw_h2_parse_req(void *req_data, unsigned char *data, size_t len,
-		 unsigned int *parsed)
+		 unsigned int *parsed, unsigned char **evict_ptr)
 {
 	int r;
 	TfwHttpReq *req = (TfwHttpReq *)req_data;
@@ -8651,7 +8704,7 @@ tfw_http_adj_parser_resp(TfwHttpResp *resp)
 
 int
 tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
-		    unsigned int *parsed)
+		    unsigned int *parsed, unsigned char **evict_ptr)
 {
 	int r = TFW_BLOCK;
 	TfwHttpResp *resp = (TfwHttpResp *)resp_data;
@@ -9224,7 +9277,7 @@ tfw_http_parse_resp(void *resp_data, unsigned char *data, size_t len,
 	/* ----------------    Response body    ---------------- */
 
 	TFW_HTTP_INIT_RESP_BODY_PARSING();
-	TFW_HTTP_PARSE_BODY();
+	TFW_HTTP_PARSE_BODY(true);
 	TFW_HTTP_PARSE_BODY_UNLIM();
 
 	/* ----------------    Improbable states    ---------------- */
