@@ -62,21 +62,22 @@
 /*
  * ECP error codes
  */
-#define TTLS_ERR_ECP_BAD_INPUT_DATA		-0x4F80  /**< Bad input parameters to function. */
-#define TTLS_ERR_ECP_FEATURE_UNAVAILABLE			   -0x4E80  /**< Requested curve not available. */
-#define TTLS_ERR_ECP_VERIFY_FAILED		 -0x4E00  /**< The signature is not valid. */
-#define TTLS_ERR_ECP_RANDOM_FAILED		 -0x4D00  /**< Generation of random value, such as (ephemeral) key, failed. */
-#define TTLS_ERR_ECP_SIG_LEN_MISMATCH				  -0x4C00  /**< Signature is valid but shorter than the user-supplied length. */
+/* Bad input parameters to function. */
+#define TTLS_ERR_ECP_BAD_INPUT_DATA		-0x4F80
+/* Requested curve not available. */
+#define TTLS_ERR_ECP_FEATURE_UNAVAILABLE	-0x4E80
+/* The signature is not valid. */
+#define TTLS_ERR_ECP_VERIFY_FAILED		-0x4E00
+/* Generation of random value, such as (ephemeral) key, failed. */
+#define TTLS_ERR_ECP_RANDOM_FAILED		-0x4D00
+/* Signature is valid but shorter than the user-supplied length. */
+#define TTLS_ERR_ECP_SIG_LEN_MISMATCH		-0x4C00
 
 /**
  * Domain parameters (curve, subgroup and generator) identifiers.
  *
  * Only curves over prime fields and recommended by IANA are supported.
  * See https://www.iana.org/assignments/tls-parameters/tls-parameters.xml
- *
- * WARNING This library does not support validation of arbitrary domain
- * parameters. Therefore, only well-known domain parameters from trusted
- * sources should be used. See ttls_ecp_group_load().
  */
 typedef enum {
 	TTLS_ECP_DP_NONE = 0,
@@ -169,37 +170,29 @@ typedef struct {
  *
  * @id		- internal group identifier;
  * @bits	- number of bits in P (the group order);
+ * @ecdsa	- whether the group can be used for ECDSA;
  * @mul		- multiplication of a scalary by a point (m * P);
- * @mul_g	- multiplication of a scalary by the group generator G (m * G);
  * @muladd	- m * grp->G + n * Q;
- * @P		- prime modulus of the base field;
- * @A		- 1. A in the equation, or 2. (A + 2) / 4;
- * @B		- 1. B in the equation, or 2. unused;
- * @N		- 1. the order of G, or 2. unused;
- * @G		- generator of the (sub)group used;
- * @T		- pre-computed points for ecp_mul_comb().
+ * @gen_keypair	- generate a keypair with configurable base point;
+ * @__params	- array or raw group parameters.
  *
  * If @rng is true, then the multiplication methods randomize intermediate
  * results in order to prevent potential timing attacks targeting these results.
  */
-typedef struct ecp_grp_t {
+typedef struct {
 	ttls_ecp_group_id	id;
-	unsigned int		bits;
+	unsigned short		bits;
 
-	int (*mul)(const struct ecp_grp_t *grp, TlsEcpPoint *R, const TlsMpi *m,
-		   const TlsEcpPoint *P, bool rnd);
-	int (*mul_g)(const struct ecp_grp_t *grp, TlsEcpPoint *R,
-		     const TlsMpi *m, bool rnd);
-	int (*muladd)(const struct ecp_grp_t *grp, TlsEcpPoint *R,
-		      const TlsMpi *m, const TlsEcpPoint *Q, const TlsMpi *n);
-
-
-	TlsMpi			P;
-	TlsMpi			A;
-	TlsMpi			B;
-	TlsMpi			N;
-	TlsEcpPoint		G;
-	TlsEcpPoint		T[TTLS_ECP_WINDOW_SIZE];
+	int (*mul)(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P,
+		   bool rnd);
+	int (*muladd)(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *Q,
+		      const TlsMpi *n);
+	int (*gen_keypair)(TlsMpi *d, TlsEcpPoint *Q);
+	int (*ecdsa_sign)(const TlsMpi *d, const unsigned char *hash,
+			  size_t hlen, unsigned char *sig, size_t *slen);
+	int (*ecdsa_verify)(const unsigned char *buf, size_t blen,
+			    const TlsEcpPoint *Q, const TlsMpi *r,
+			    const TlsMpi *s);
 } TlsEcpGrp;
 
 /*
@@ -211,7 +204,7 @@ typedef struct ecp_grp_t {
  * @d		- our secret value;
  */
 typedef struct {
-	TlsEcpGrp		*grp;
+	const TlsEcpGrp		*grp;
 	TlsEcpPoint		Q;
 	TlsMpi			d;
 } TlsEcpKeypair;
@@ -241,36 +234,11 @@ int ttls_ecp_tls_read_point(const TlsEcpGrp *grp, TlsEcpPoint *pt,
 			    const unsigned char **buf, size_t len);
 int ttls_ecp_tls_write_point(const TlsEcpGrp *grp, const TlsEcpPoint *pt,
 			     size_t *olen, unsigned char *buf, size_t blen);
-int ttls_ecp_tls_read_group(TlsEcpGrp *grp, const unsigned char **buf,
-			    size_t len);
-int ttls_ecp_tls_write_group(const TlsEcpGrp *grp, size_t *olen,
+const TlsEcpGrp *ttls_ecp_tls_read_group(const unsigned char **buf, size_t len);
+int ttls_ecp_tls_write_group(ttls_ecp_group_id gid, size_t *olen,
 			     unsigned char *buf, size_t blen);
 
-TlsEcpGrp * ttls_ecp_group_lookup(ttls_ecp_group_id id);
-int ttls_ecp_group_load(TlsEcpGrp *grp, ttls_ecp_group_id id);
-
-int ecp_precompute_comb(const TlsEcpGrp *grp, TlsEcpPoint T[],
-			const TlsEcpPoint *P,unsigned char w, size_t d);
-
-int ttls_ecp_muladd(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
-		    const TlsMpi *n, const TlsEcpPoint *Q);
-
-int ttls_ecp_check_privkey(const TlsEcpGrp *grp, const TlsMpi *d);
-int ttls_ecp_gen_keypair(const TlsEcpGrp *grp, TlsMpi *d, TlsEcpPoint *Q);
-
-void __ecp_group_load(TlsEcpGrp *grp, size_t sz, const unsigned long *p,
-		      const unsigned long *b, const unsigned long *gx,
-		      const unsigned long *gy, const unsigned long *n);
-#define LOAD_GROUP(grp, G, sz)					\
-	__ecp_group_load(grp, sz, G##_p, G##_b, G##_gx, G##_gy, G##_n)
-
-/*
- * Curve-specific routines.
- */
-
-void ec_grp_init_curve25519(TlsEcpGrp *grp);
-void ec_grp_init_p384(TlsEcpGrp *grp);
-void ec_grp_init_p256(TlsEcpGrp *grp);
+const TlsEcpGrp *ttls_ecp_group_lookup(ttls_ecp_group_id id);
 
 #if defined(DEBUG) && DEBUG == 3
 /* Print data structures containing MPIs on higest debug level only. */
@@ -282,9 +250,9 @@ void ec_grp_init_p256(TlsEcpGrp *grp);
 static inline void
 ttls_ecp_set_zero(TlsEcpPoint *pt)
 {
-	ttls_mpi_lset(&pt->X , 1);
-	ttls_mpi_lset(&pt->Y , 1);
-	ttls_mpi_lset(&pt->Z , 0);
+	ttls_mpi_lset(&pt->X, 1);
+	ttls_mpi_lset(&pt->Y, 1);
+	ttls_mpi_lset(&pt->Z, 0);
 }
 
 static inline int

@@ -58,7 +58,7 @@ typedef struct {
 	TlsEcpPoint	Qp;
 	TlsEcpPoint	z;
 	TlsMpi		d;
-	TlsEcpGrp	*grp;
+	const TlsEcpGrp	*grp;
 } TlsECDHCtx;
 
 int ttls_ecdh_make_params(TlsECDHCtx *ctx, size_t *olen,

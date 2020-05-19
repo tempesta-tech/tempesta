@@ -1,5 +1,5 @@
 /**
- *		Tempesta TLS ECDSA signature unit test
+ *		Tempesta TLS ECDSA/secp256r1 signature unit test
  *
  * Copyright (C) 2020 Tempesta Technologies, Inc.
  *
@@ -19,17 +19,19 @@
  */
 #include "ttls_mocks.h"
 /* mpool.c requires ECP and DHM routines. */
-#include "../asn1.c"
 #include "../bignum.c"
 #include "../ciphersuites.c"
 #include "../dhm.c"
+#include "../asn1.c"
 #include "../ec_p256.c"
-#include "../ec_p384.c"
-#include "../ec_25519.c"
 #include "../ecp.c"
-#include "../ecdsa.c"
+#include "../rsa.c"
+#include "../pk.c"
 #include "../mpool.c"
-#include "util.h"
+
+/* Mock irrelevant groups. */
+const TlsEcpGrp SECP384_G = {};
+const TlsEcpGrp CURVE25519_G = {};
 
 #define EC_Qx								   \
 	"\xB8\x81\xE6\x91\x1E\xAD\xA2\x23\x61\xC5\x48\x7D\x77\xC6\xD2\x49" \
@@ -42,6 +44,78 @@
 #define EC_d								   \
 	"\xC7\x1C\xBC\x8A\xCA\x38\xF7\xC9\x97\xF9\x3A\x6C\xBD\xFD\xCF\x7F" \
 	"\x4C\x9D\x32\xAA\x35\x1F\x49\xDB\xF4\x7D\x72\xD6\x64\x2F\x06\xDC"
+
+/**
+ * Check that a point is valid as a public key.
+ *
+ * This function only checks the point is non-zero, has valid coordinates and
+ * lies on the curve, but not that it is indeed a multiple of G. This is
+ * additional check is more expensive, isn't required by standards, and
+ * shouldn't be necessary if the group used has a small cofactor. In particular,
+ * it is useless for the NIST groups which all have a cofactor of 1.
+ *
+ * Uses bare components rather than an TlsEcpKeypair structure in order to ease
+ * use with other structures such as TlsECDHCtx of TlsEcpKeypair.
+ */
+static int
+ecp256_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
+{
+	TlsMpi *YY, *RHS;
+
+	/* Must use affine coordinates */
+	if (WARN_ON_ONCE(ttls_mpi_cmp_int(&pt->Z, 1)))
+		return -EINVAL;
+
+	if (grp->id == TTLS_ECP_DP_CURVE25519) {
+		/*
+		 * Check validity of a public key for Montgomery curves with
+		 * x-only schemes. [Curve25519 p. 5] Just check X is the correct
+		 * number of bytes.
+		 */
+		if (WARN_ON_ONCE(ttls_mpi_size(&pt->X) > (grp->bits + 7) / 8))
+			return -EINVAL;
+		return 0;
+	}
+
+	/*
+	 * Check that an affine point is valid as a public key,
+	 * short Weierstrass curves (SEC1 3.2.3.1).
+	 *
+	 * pt coordinates must be normalized for our checks.
+	 */
+	if (ttls_mpi_cmp_mpi(&pt->X, &G_P) >= 0
+	    || ttls_mpi_cmp_mpi(&pt->Y, &G_P) >= 0)
+	{
+		T_DBG_MPI3("ECP invalid weierstrass public key",
+			   &pt->X, &pt->Y, &G_P);
+		return -EINVAL;
+	}
+
+	YY = ttls_mpi_alloc_stack_init(grp->bits * 2 / BIL);
+	RHS = ttls_mpi_alloc_stack_init(grp->bits * 2 / BIL);
+
+	/*
+	 * YY = Y^2
+	 * RHS = X (X^2 + A) + B = X^3 + A X + B
+	 */
+	ecp256_sqr_mod(YY, &pt->Y);
+	ecp256_sqr_mod(RHS, &pt->X);
+
+	/* Special case for A = -3 */
+	ttls_mpi_sub_int(RHS, RHS, 3);
+	MOD_SUB(RHS);
+
+	ecp256_mul_mod(RHS, RHS, &pt->X);
+	ttls_mpi_add_mpi(RHS, RHS, &G_B);
+	MOD_ADD(RHS);
+
+	if (ttls_mpi_cmp_mpi(YY, RHS)) {
+		T_DBG_MPI2("ECP invalid weierstrass public key", YY, RHS);
+		return -EINVAL;
+	}
+
+	return 0;
+}
 
 static void
 ecdsa_sign(void)
@@ -62,7 +136,7 @@ ecdsa_sign(void)
 	ttls_mpi_lset(&ctx->Q.Z, 1);
 	ttls_mpi_read_binary(&ctx->d, EC_d, 32);
 
-	EXPECT_ZERO(ttls_ecdsa_write_signature(ctx, hash, 32, sig, &slen));
+	EXPECT_ZERO(ctx->grp->ecdsa_sign(&ctx->d, hash, 32, sig, &slen));
 	EXPECT_EQ(slen, 71);
 	EXPECT_ZERO(memcmp(sig, "\x30\x45\x02\x20\x38\x01\x4C\x60", 8));
 	EXPECT_ZERO(memcmp(sig + 24, "\x90\xBB\x5B\x07\x91\xAE\x8F\x5D", 8));
@@ -70,7 +144,7 @@ ecdsa_sign(void)
 	EXPECT_ZERO(memcmp(sig + 72, "\x00\x00\x00\x00\x00\x00\x00\x00", 8));
 
 	EXPECT_ZERO(ecp256_check_pubkey(ctx->grp, &ctx->Q));
-	EXPECT_ZERO(ttls_ecdsa_read_signature(ctx, hash, 32, sig, slen));
+	EXPECT_ZERO(ecdsa_verify_wrap(ctx, TTLS_MD_SHA256, hash, 32, sig, slen));
 
 	ttls_mpi_pool_free(ctx);
 }

@@ -22,12 +22,14 @@
 #include "../bignum.c"
 #include "../ciphersuites.c"
 #include "../dhm.c"
-#include "../ec_p256.c"
-#include "../ec_p384.c"
-#include "../ec_25519.c"
 #include "../ecp.c"
 #include "../mpool.c"
 #include "../rsa.c"
+
+/* Mock irrelevant groups. */
+const TlsEcpGrp SECP256_G = {};
+const TlsEcpGrp SECP384_G = {};
+const TlsEcpGrp CURVE25519_G = {};
 
 /*
  * Example RSA-1024 keypair, for test purposes.
@@ -94,7 +96,7 @@ rsa_sign(void)
 	kernel_fpu_begin();
 
 	memcpy(hash, RSA_PT, PT_LEN);
-	EXPECT_ZERO(ttls_rsa_pkcs1_sign(rsa, TTLS_MD_SHA256, hash, sig));
+	EXPECT_ZERO(ttls_rsa_pkcs1_sign(rsa, TTLS_MD_SHA256, hash, PT_LEN, sig));
 	EXPECT_ZERO(ttls_rsa_pkcs1_verify(rsa, TTLS_MD_SHA256, PT_LEN, hash,
 					  sig));
 

@@ -18,16 +18,19 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include "ttls_mocks.h"
-/* mpool.c requires ECP and DHM routines. */
+/* mpool.c DHM routines, util.h requires ECP. */
 #include "../bignum.c"
 #include "../ciphersuites.c"
 #include "../dhm.c"
+#include "../asn1.c"
 #include "../ec_p256.c"
-#include "../ec_p384.c"
-#include "../ec_25519.c"
 #include "../ecp.c"
 #include "../mpool.c"
 #include "util.h"
+
+/* Mock irrelevant groups. */
+const TlsEcpGrp SECP384_G = {};
+const TlsEcpGrp CURVE25519_G = {};
 
 static void
 mpi_alloc_init(void)
@@ -162,6 +165,10 @@ mpi_read_write(void)
 	EXPECT_ZERO(ttls_mpi_write_binary(&A, buf, 0));
 	for (i = 0; i < 118; ++i)
 		EXPECT_ZERO(buf[i]);
+
+	/* Curve 25519 parameter A. */
+	ttls_mpi_read_binary(&A, "\x01\xDB\x42", 3);
+	EXPECT_MPI(&A, 1, 0x1db42UL);
 }
 
 static void

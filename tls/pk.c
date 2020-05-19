@@ -3,6 +3,10 @@
  *
  * Public Key abstraction layer.
  *
+ * References:
+ *
+ * 1. ECDSA (SEC1): http://www.secg.org/index.php?action=secg,docs_secg
+ *
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
@@ -27,14 +31,6 @@
 #include "mpool.h"
 #include "pk.h"
 #include "rsa.h"
-
-/* Defined in ecdsa.c */
-extern int ttls_ecdsa_write_signature(TlsEcpKeypair *ctx,
-				      const unsigned char *hash, size_t hlen,
-				      unsigned char *sig, size_t *slen);
-extern int ttls_ecdsa_read_signature(TlsEcpKeypair *ctx,
-				     const unsigned char *hash, size_t hlen,
-				     const unsigned char *sig, size_t slen);
 
 static int
 rsa_can_do(ttls_pk_type_t type)
@@ -70,12 +66,12 @@ rsa_sign_wrap(void *ctx, ttls_md_type_t md_alg, const unsigned char *hash,
 {
 	TlsRSACtx * rsa = (TlsRSACtx *)ctx;
 
-	if (WARN_ON_ONCE(md_alg == TTLS_MD_NONE || UINT_MAX < hash_len))
+	if (WARN_ON_ONCE(md_alg == TTLS_MD_NONE))
 		return -EINVAL;
 
 	*sig_len = ttls_rsa_get_len(rsa);
 
-	return ttls_rsa_pkcs1_sign(rsa, md_alg, hash, sig);
+	return ttls_rsa_pkcs1_sign(rsa, md_alg, hash, hash_len, sig);
 }
 
 static void *
@@ -116,26 +112,57 @@ ecdsa_can_do(ttls_pk_type_t type)
 	return type == TTLS_PK_ECDSA;
 }
 
+/**
+ * Read and check signature.
+ *
+ * If the bitlength of the message hash is larger than the bitlength of the
+ * group order, then the hash is truncated as defined in Standards for
+ * Efficient Cryptography Group (SECG): SEC1 Elliptic Curve Cryptography,
+ * section 4.1.4, step 3.
+ */
 static int
 ecdsa_verify_wrap(void *ctx, ttls_md_type_t md_alg __attribute__((unused)),
 		  const unsigned char *hash, size_t hash_len,
 		  const unsigned char *sig, size_t sig_len)
 {
-	int r = ttls_ecdsa_read_signature((TlsEcpKeypair *)ctx, hash, hash_len,
-					  sig, sig_len);
-	if (r == TTLS_ERR_ECP_SIG_LEN_MISMATCH)
-		return TTLS_ERR_PK_SIG_LEN_MISMATCH;
-	return r;
+	TlsEcpKeypair *eck = ctx;
+	unsigned char *p = (unsigned char *)sig;
+	const unsigned char *end = sig + sig_len;
+	size_t len;
+	TlsMpi *r, *s;
+
+	if (WARN_ON_ONCE(!eck->grp->ecdsa_verify))
+		return -EINVAL;
+
+	r = ttls_mpi_alloc_stack_init(0);
+	s = ttls_mpi_alloc_stack_init(0);
+
+	if (ttls_asn1_get_tag(&p, end, &len,
+			      TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE))
+		return -EIO;
+	if (p + len != end)
+		return -EIO;
+
+	if (ttls_asn1_get_mpi(&p, end, r)
+	    || ttls_asn1_get_mpi(&p, end, s))
+		return -EIO;
+	if (unlikely(p != end))
+		return TTLS_ERR_ECP_SIG_LEN_MISMATCH;
+
+	return eck->grp->ecdsa_verify(hash, hash_len, &eck->Q, r, s);
 }
 
 static int
-ecdsa_sign_wrap(void *ctx,
-		ttls_md_type_t md_alg __attribute__((unused)),
-		const unsigned char *hash, size_t hash_len,
-		unsigned char *sig, size_t *sig_len)
+ecdsa_sign_wrap(void *ctx, ttls_md_type_t md_alg __attribute__((unused)),
+		const unsigned char *hash, size_t hash_len, unsigned char *sig,
+		size_t *sig_len)
 {
-	return ttls_ecdsa_write_signature((TlsEcpKeypair *)ctx,
-					  hash, hash_len, sig, sig_len);
+	TlsEcpKeypair *eck = ctx;
+
+	if (WARN_ON_ONCE(!eck->grp->ecdsa_sign))
+		return -EINVAL;
+
+	return eck->grp->ecdsa_sign(&eck->d, hash, hash_len, sig, sig_len);
 }
 
 /*
@@ -223,14 +250,6 @@ ttls_pk_init(TlsPkCtx *ctx)
 }
 EXPORT_SYMBOL(ttls_pk_init);
 
-#define TTLS_PK_ARGS_SANITY_CHECK(fname)				\
-do {									\
-	if (unlikely(!ctx || !ctx->pk_info))				\
-		return TTLS_ERR_PK_BAD_INPUT_DATA;			\
-	if (unlikely(!ctx->pk_info->fname##_func ))			\
-		return TTLS_ERR_PK_TYPE_MISMATCH;			\
-} while (0)
-
 void
 ttls_pk_free(TlsPkCtx *ctx)
 {
@@ -293,32 +312,16 @@ ttls_pk_can_do(const TlsPkCtx *ctx, ttls_pk_type_t type)
 	return ctx->pk_info->can_do(type);
 }
 
-static inline int
-pk_hashlen_helper(ttls_md_type_t md_alg, size_t *hash_len)
-{
-	const TlsMdInfo *md_info;
-
-	if (*hash_len)
-		return 0;
-
-	if (!(md_info = ttls_md_info_from_type(md_alg)))
-		return -1;
-	*hash_len = ttls_md_get_size(md_info);
-
-	return 0;
-}
-
 /**
  * Verify a signature.
  */
 int
-ttls_pk_verify(TlsPkCtx *ctx, ttls_md_type_t md_alg,
-	       const unsigned char *hash, size_t hash_len,
+ttls_pk_verify(TlsPkCtx *ctx, ttls_md_type_t md_alg, const unsigned char *hash,
 	       const unsigned char *sig, size_t sig_len)
 {
-	TTLS_PK_ARGS_SANITY_CHECK(verify);
-	if (unlikely(pk_hashlen_helper(md_alg, &hash_len)))
-		return TTLS_ERR_PK_BAD_INPUT_DATA;
+	size_t hash_len = ttls_md_get_size(ttls_md_info_from_type(md_alg));
+
+	BUG_ON(!ctx || !ctx->pk_info || !ctx->pk_info->verify_func);
 
 	return ctx->pk_info->verify_func(ctx->pk_ctx, md_alg, hash, hash_len,
 					 sig, sig_len);
@@ -370,20 +373,19 @@ ttls_pk_verify_ext(ttls_pk_type_t type, const void *options,
 	if (options)
 		return TTLS_ERR_PK_BAD_INPUT_DATA;
 
-	return ttls_pk_verify(ctx, md_alg, hash, hash_len, sig, sig_len);
+	return ttls_pk_verify(ctx, md_alg, hash, sig, sig_len);
 }
 
 /**
  * Make a signature.
  */
 int
-ttls_pk_sign(TlsPkCtx *ctx, ttls_md_type_t md_alg,
-	     const unsigned char *hash, size_t hash_len,
+ttls_pk_sign(TlsPkCtx *ctx, ttls_md_type_t md_alg, const unsigned char *hash,
 	     unsigned char *sig, size_t *sig_len)
 {
-	TTLS_PK_ARGS_SANITY_CHECK(sign);
-	if (unlikely(pk_hashlen_helper(md_alg, &hash_len)))
-		return TTLS_ERR_PK_BAD_INPUT_DATA;
+	size_t hash_len = ttls_md_get_size(ttls_md_info_from_type(md_alg));
+
+	BUG_ON(!ctx || !ctx->pk_info || !ctx->pk_info->sign_func);
 
 	return ctx->pk_info->sign_func(ctx->pk_ctx, md_alg, hash, hash_len,
 				       sig, sig_len);

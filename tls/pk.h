@@ -121,14 +121,14 @@ int ttls_pk_setup(TlsPkCtx *ctx, const TlsPkInfo *info);
 size_t ttls_pk_get_bitlen(const TlsPkCtx *ctx);
 int ttls_pk_can_do(const TlsPkCtx *ctx, ttls_pk_type_t type);
 int ttls_pk_verify(TlsPkCtx *ctx, ttls_md_type_t md_alg,
-		   const unsigned char *hash, size_t hash_len,
+		   const unsigned char *hash,
 		   const unsigned char *sig, size_t sig_len);
 int ttls_pk_verify_ext(ttls_pk_type_t type, const void *options,
 		       TlsPkCtx *ctx, ttls_md_type_t md_alg,
 		       const unsigned char *hash, size_t hash_len,
 		       const unsigned char *sig, size_t sig_len);
 int ttls_pk_sign(TlsPkCtx *ctx, ttls_md_type_t md_alg,
-		 const unsigned char *hash, size_t hash_len,
+		 const unsigned char *hash,
 		 unsigned char *sig, size_t *sig_len);
 ttls_pk_type_t ttls_pk_get_type(const TlsPkCtx *ctx);
 

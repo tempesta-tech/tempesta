@@ -39,7 +39,7 @@ ttls_mpi_pool_cleanup_ctx(unsigned long addr, bool zero)
 }
 
 int
-ttls_mpi_pool_alloc_mpi(TlsMpi *x, size_t n, bool tail)
+ttls_mpi_pool_alloc_mpi(TlsMpi *x, size_t n)
 {
 	BUG();
 }
@@ -50,30 +50,19 @@ ttls_mpi_pool_free(void *ctx)
 	BUG();
 }
 
-TlsEcpPoint *
-ttls_mpool_ecp_create_tmp_T(int n, const TlsEcpPoint *P)
-{
-	BUG();
-}
-
 TlsMpiPool *
 ttls_mpool(void *addr)
 {
 	BUG();
 }
 
-void
-ttls_mpool_shrink_tailtmp(TlsMpiPool *mp, bool fix_refs)
-{
-	BUG();
-}
-
 #include "../bignum.c"
-#include "../ec_p256.c"
-#include "../ec_p384.c"
-#include "../ec_25519.c"
-#include "../ecp.c"
 #include "util.h"
+
+/* Mock irrelevant groups. */
+const TlsEcpGrp SECP256_G = {};
+const TlsEcpGrp SECP384_G = {};
+const TlsEcpGrp CURVE25519_G = {};
 
 static void
 mpi_cmp(void)
