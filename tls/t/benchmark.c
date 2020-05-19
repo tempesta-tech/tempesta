@@ -32,12 +32,15 @@
 #include "../ciphersuites.c"
 #include "../dhm.c"
 #include "../ec_p256.c"
-#include "../ec_p384.c"
-#include "../ec_25519.c"
 #include "../ecp.c"
 #include "../ecdh.c"
-#include "../ecdsa.c"
+#include "../rsa.c"
+#include "../pk.c"
 #include "../mpool.c"
+
+/* Mock irrelevant groups. */
+const TlsEcpGrp SECP384_G = {};
+const TlsEcpGrp CURVE25519_G = {};
 
 #define BM_TIME		10
 static bool		run_bm;
@@ -126,7 +129,7 @@ bm_ecdsa_sign_p256(void)
 	 * - OpenSSL speed does the same.
 	 */
 	BENCHMARK("ECDSA sign (nistp256)",
-		r = ttls_ecdsa_write_signature(ctx, hash, 32, sig, &slen);
+		r = ctx->grp->ecdsa_sign(&ctx->d, hash, 32, sig, &slen);
 		BUG_ON(r);
 		ttls_mpi_pool_cleanup_ctx(0, false);
 	);

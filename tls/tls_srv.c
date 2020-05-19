@@ -1297,7 +1297,6 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 			       unsigned char **in_buf)
 {
 	int r, x_sz;
-	unsigned int hashlen = 0;
 	size_t len, n = 0, sig_len = 0;
 	ttls_pk_type_t sig_alg;
 	ttls_md_type_t md_alg;
@@ -1415,8 +1414,7 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 	if (r)
 		return r;
 	T_DBG3_BUF("parameters hash", hash,
-		   hashlen
-		   ? : ttls_md_get_size(ttls_md_info_from_type(md_alg)));
+		   ttls_md_get_size(ttls_md_info_from_type(md_alg)));
 
 	/*
 	 * 3.3: Compute and add the signature.
@@ -1438,8 +1436,7 @@ ttls_write_server_key_exchange(TlsCtx *tls, struct sg_table *sgt,
 	*(p++) = ttls_sig_from_pk_alg(sig_alg);
 	n += 2;
 
-	r = ttls_pk_sign(hs->key_cert->key, md_alg, hash, hashlen,
-			 p + 2, &sig_len);
+	r = ttls_pk_sign(hs->key_cert->key, md_alg, hash, p + 2, &sig_len);
 	if (r) {
 		T_DBG("cannot sign the digest, %d\n", r);
 		return r;
@@ -1775,7 +1772,7 @@ ttls_parse_certificate_verify(TlsCtx *tls, unsigned char *buf, size_t len,
 			      unsigned int *read)
 {
 	int r = TTLS_ERR_FEATURE_UNAVAILABLE;
-	size_t i = 0, sig_len, hashlen;
+	size_t i = 0, sig_len;
 	unsigned char hash[48], *hash_start = hash;
 	ttls_pk_type_t pk_alg;
 	ttls_md_type_t md_alg;
@@ -1816,7 +1813,6 @@ ttls_parse_certificate_verify(TlsCtx *tls, unsigned char *buf, size_t len,
 		return TTLS_ERR_BAD_HS_CERTIFICATE_VERIFY;
 	}
 	/* Info from md_alg will be used instead */
-	hashlen = 0;
 	i++;
 
 	/* Signature. */
@@ -1849,7 +1845,7 @@ ttls_parse_certificate_verify(TlsCtx *tls, unsigned char *buf, size_t len,
 	tls->hs->calc_verify(tls, hash);
 
 	r = ttls_pk_verify(&tls->sess.peer_cert->pk, md_alg,
-			   hash_start, hashlen, buf + i, sig_len);
+			   hash_start, buf + i, sig_len);
 	if (r)
 		T_DBG("cannot verify pk, %d\n", r);
 

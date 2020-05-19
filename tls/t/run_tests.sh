@@ -32,7 +32,7 @@ echo -e "\n @@@ RUNNING UNIT TESTS..."
 # 2. MPI test runs after MPI math, but before any crypto algorithms;
 # 3. elliptic curves test is the base for ECDH and ECDSA, so run it now;
 # 4. after that we can run all the tests for crypto lagorithms.
-TESTS=( mpi_math mpi ecp ecdsa ecdh rsa)
+TESTS=( mpi_math mpi ec_p256 ec_p384 ec_25519 ecdsa_p256 ecdh_p256 rsa)
 
 for t in "${TESTS[@]}"; do
 	echo -e "\nrun [$t] test: "

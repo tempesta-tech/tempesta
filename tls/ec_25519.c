@@ -3,7 +3,7 @@
  *
  * Elliptic curve 25519 (Montgomery).
  *
- * TODO #1335: the slow implementation is still based on mbed TLS.
+ * TODO #1335: the slow and incomplete implementation is still based on mbed TLS.
  *
  * For Montgomery curves, we do all the internal arithmetic in projective
  * coordinates. Import/export of points uses only the x coordinates, which is
@@ -27,9 +27,91 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
+#include "ecp.h"
 
-/* Size of p255 in terms of unsigned long */
-#define P255_WIDTH	  (255 / 8 / sizeof(unsigned long) + 1)
+#define G_BITS		254
+#define G_LIMBS		((G_BITS + 7) / BIL)
+
+/* P = 2^255 - 19 */
+static const unsigned long c25519_p[] = {
+	0xffffffffffffffedUL, 0xffffffffffffffffUL,
+	0xffffffffffffffffUL, 0x7fffffffffffffffUL
+};
+static const unsigned long c25519_a[] = {
+	0x1db42UL, 0, 0, 0
+};
+static const unsigned long c25519_gx[] = {
+	0x9UL, 0, 0, 0
+};
+static const unsigned long c25519_gz[] = {
+	0x1UL, 0, 0, 0
+};
+
+static const TlsMpi G_P = {
+	.s	= 1,
+	.used	= G_LIMBS,
+	.limbs	= G_LIMBS,
+	._off	= -4 * (short)(G_LIMBS * CIL)
+};
+static const TlsMpi G_A = {
+	.s	= 1,
+	.used	= 1,
+	.limbs	= G_LIMBS,
+	._off	= -3 * (short)(G_LIMBS * CIL) - 1 * (short)sizeof(TlsMpi)
+};
+static const TlsMpi __ALIGN_PLACEHOLDER[2] = {}; // TODO #1335 remove me
+static const TlsEcpPoint G_G = {
+	/*
+	 * Y intentionaly isn't set, since we use x/z coordinates.
+	 * This is used as a marker to identify Montgomery curves -
+	 * see ecp_get_type().
+	 */
+	.X = {
+		.s	= 1,
+		.used	= G_LIMBS,
+		.limbs	= G_LIMBS,
+		._off	= -2 * (short)(G_LIMBS * CIL) - 4 * (short)sizeof(TlsMpi)
+	},
+	.Z = {
+		.s	= 1,
+		.used	= 1,
+		.limbs	= G_LIMBS,
+		._off	= -1 * (short)(G_LIMBS * CIL) - 5 * (short)sizeof(TlsMpi)
+	}
+};
+
+/*
+ * Fast mod-p functions expect their argument to be in the 0..p^2 range.
+ *
+ * In order to guarantee that, we need to ensure that operands of
+ * multiplication are in the 0..p range. So, after each operation we will
+ * bring the result back to this range.
+ *
+ * The following macros are shortcuts for doing that.
+ */
+
+/*
+ * Reduce a TlsMpi mod p in-place, to use after ttls_mpi_sub_mpi
+ * N->s < 0 is a very fast test, which fails only if N is 0
+ */
+static inline void
+MOD_SUB(TlsMpi *N)
+{
+	while ((N)->s < 0 && ttls_mpi_cmp_int(N, 0))
+		ttls_mpi_add_mpi(N, N, &G_P);
+}
+
+/*
+ * Reduce a TlsMpi mod p in-place, to use after ttls_mpi_add_mpi().
+ * We known P, N and the result are positive, so sub_abs is correct, and
+ * a bit faster.
+ */
+static inline void
+MOD_ADD(TlsMpi *N)
+{
+	while (ttls_mpi_cmp_mpi(N, &G_P) >= 0)
+		ttls_mpi_sub_abs(N, N, &G_P);
+}
 
 /**
  * Fast quasi-reduction modulo p255 = 2^255 - 19.
@@ -41,22 +123,22 @@ ecp_mod_p255(TlsMpi *N)
 	size_t n;
 	TlsMpi *M;
 
-	BUG_ON(N->used < P255_WIDTH);
+	BUG_ON(N->used < G_LIMBS);
 
-	M = ttls_mpi_alloc_stack_init(P255_WIDTH + 2);
+	M = ttls_mpi_alloc_stack_init(G_LIMBS + 2);
 
 	/* M = A1 */
-	M->used = N->used - (P255_WIDTH - 1);
-	if (M->used > P255_WIDTH + 1)
-		M->used = P255_WIDTH + 1;
+	M->used = N->used - (G_LIMBS - 1);
+	if (M->used > G_LIMBS + 1)
+		M->used = G_LIMBS + 1;
 	n = M->used * CIL;
-	memcpy_fast(MPI_P(M), MPI_P(N) + P255_WIDTH - 1, n);
-	bzero_fast((char *)MPI_P(M) + n, (P255_WIDTH + 2) * CIL - n);
+	memcpy_fast(MPI_P(M), MPI_P(N) + G_LIMBS - 1, n);
+	bzero_fast((char *)MPI_P(M) + n, (G_LIMBS + 2) * CIL - n);
 	ttls_mpi_shift_r(M, 255 % BIL);
 
 	/* N = A0 */
 	ttls_mpi_set_bit(N, 255, 0);
-	N->used = P255_WIDTH;
+	N->used = G_LIMBS;
 
 	/* N = A0 + 19 * A1 */
 	ttls_mpi_mul_uint(M, M, 19);
@@ -64,14 +146,14 @@ ecp_mod_p255(TlsMpi *N)
 }
 
 static void
-c25519_mul_mod(const TlsEcpGrp *grp, TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
+c25519_mul_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 {
 	ttls_mpi_mul_mpi(X, A, B);
 
-	BUG_ON(X->limbs < grp->bits * 2 / BIL);
+	BUG_ON(X->limbs < G_LIMBS * 2);
 	BUG_ON(X->s < 0);
 
-	if (X->used > grp->bits / BIL)
+	if (X->used > G_LIMBS)
 		/*
 		 * P modulo is very close to the maximum value of 4-limbs MPI,
 		 * so only one addition or subtraction will be enough to
@@ -81,22 +163,24 @@ c25519_mul_mod(const TlsEcpGrp *grp, TlsMpi *X, const TlsMpi *A, const TlsMpi *B
 		ecp_mod_p255(X);
 
 	while (X->s < 0 && ttls_mpi_cmp_int(X, 0))
-		ttls_mpi_add_mpi(X, X, &grp->P);
+		ttls_mpi_add_mpi(X, X, &G_P);
 
-	while (ttls_mpi_cmp_mpi(X, &grp->P) >= 0)
+	while (ttls_mpi_cmp_mpi(X, &G_P) >= 0)
 		/* We known P, N and the result are positive. */
-		ttls_mpi_sub_abs(X, X, &grp->P);
+		ttls_mpi_sub_abs(X, X, &G_P);
 }
+
+#define ecp_sqr_mod(X, A)	c25519_mul_mod(X, A, A)
 
 /*
  * Normalize Montgomery x/z coordinates: X = X/Z, Z = 1
  * Cost: 1M + 1I
  */
 static int
-ecp_normalize_mxz(const TlsEcpGrp *grp, TlsEcpPoint *P)
+ecp_normalize_mxz(TlsEcpPoint *P)
 {
-	MPI_CHK(ttls_mpi_inv_mod(&P->Z, &P->Z, &grp->P));
-	c25519_mul_mod(grp, &P->X, &P->X, &P->Z);
+	MPI_CHK(ttls_mpi_inv_mod(&P->Z, &P->Z, &G_P));
+	c25519_mul_mod(&P->X, &P->X, &P->Z);
 	ttls_mpi_lset(&P->Z, 1);
 
 	return 0;
@@ -110,27 +194,27 @@ ecp_normalize_mxz(const TlsEcpGrp *grp, TlsEcpPoint *P)
  * Cost: 2M
  */
 static int
-ecp_randomize_mxz(const TlsEcpGrp *grp, TlsEcpPoint *P)
+ecp_randomize_mxz(TlsEcpPoint *P)
 {
 	TlsMpi *l = ttls_mpi_alloc_stack_init(0);
 	size_t p_size;
 	int count = 0;
 
-	p_size = (grp->bits + 7) / 8;
+	p_size = (G_BITS + 7) / 8;
 
 	/* Generate l such that 1 < l < p */
 	do {
 		ttls_mpi_fill_random(l, p_size);
 
-		while (ttls_mpi_cmp_mpi(l, &grp->P) >= 0)
+		while (ttls_mpi_cmp_mpi(l, &G_P) >= 0)
 			ttls_mpi_shift_r(l, 1);
 
 		if (count++ > 10)
 			return TTLS_ERR_ECP_RANDOM_FAILED;
 	} while (ttls_mpi_cmp_int(l, 1) <= 0);
 
-	c25519_mul_mod(grp, &P->X, &P->X, l);
-	c25519_mul_mod(grp, &P->Z, &P->Z, l);
+	c25519_mul_mod(&P->X, &P->X, l);
+	c25519_mul_mod(&P->Z, &P->Z, l);
 
 	return 0;
 }
@@ -151,8 +235,8 @@ ecp_randomize_mxz(const TlsEcpGrp *grp, TlsEcpPoint *P)
  * Cost: 5M + 4S
  */
 static int
-ecp_double_add_mxz(const TlsEcpGrp *grp, TlsEcpPoint *R, TlsEcpPoint *S,
-		   const TlsEcpPoint *P, const TlsEcpPoint *Q, const TlsMpi *d)
+ecp_double_add_mxz(TlsEcpPoint *R, TlsEcpPoint *S, const TlsEcpPoint *P,
+		   const TlsEcpPoint *Q, const TlsMpi *d)
 {
 	TlsMpi *A, *AA, *B, *BB, *E, *C, *D, *DA, *CB;
 	size_t n;
@@ -172,30 +256,30 @@ ecp_double_add_mxz(const TlsEcpGrp *grp, TlsEcpPoint *R, TlsEcpPoint *S,
 
 	ttls_mpi_add_mpi(A, &P->X, &P->Z);
 	MOD_ADD(A);
-	ecp_sqr_mod(grp, AA, A);
+	ecp_sqr_mod(AA, A);
 	ttls_mpi_sub_mpi(B, &P->X, &P->Z);
 	MOD_SUB(B);
-	ecp_sqr_mod(grp, BB, B);
+	ecp_sqr_mod(BB, B);
 	ttls_mpi_sub_mpi(E, AA, BB);
 	MOD_SUB(E);
 	ttls_mpi_add_mpi(C, &Q->X, &Q->Z);
 	MOD_ADD(C);
 	ttls_mpi_sub_mpi(D, &Q->X, &Q->Z);
 	MOD_SUB(D);
-	c25519_mul_mod(grp, DA, D, A);
-	c25519_mul_mod(grp, CB, C, B);
+	c25519_mul_mod(DA, D, A);
+	c25519_mul_mod(CB, C, B);
 	ttls_mpi_add_mpi(&S->X, DA, CB);
 	MOD_ADD(&S->X);
-	ecp_sqr_mod(grp, &S->X, &S->X);
+	ecp_sqr_mod(&S->X, &S->X);
 	ttls_mpi_sub_mpi(&S->Z, DA, CB);
 	MOD_SUB(&S->Z);
-	ecp_sqr_mod(grp, &S->Z, &S->Z);
-	c25519_mul_mod(grp, &S->Z, &S->Z, d);
-	c25519_mul_mod(grp, &R->X, AA, BB);
-	c25519_mul_mod(grp, &R->Z, &grp->A, E);
+	ecp_sqr_mod(&S->Z, &S->Z);
+	c25519_mul_mod(&S->Z, &S->Z, d);
+	c25519_mul_mod(&R->X, AA, BB);
+	c25519_mul_mod(&R->Z, &G_A, E);
 	ttls_mpi_add_mpi(&R->Z, BB, &R->Z);
 	MOD_ADD(&R->Z);
-	c25519_mul_mod(grp, &R->Z, &R->Z, E);
+	c25519_mul_mod(&R->Z, &R->Z, E);
 
 	return 0;
 }
@@ -205,8 +289,7 @@ ecp_double_add_mxz(const TlsEcpGrp *grp, TlsEcpPoint *R, TlsEcpPoint *S,
  * for curves in Montgomery form.
  */
 static int
-ecp_mul_mxz(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
-	    const TlsEcpPoint *P, bool rng)
+ecp_mul_mxz(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P, bool rng)
 {
 	size_t i;
 	unsigned char b;
@@ -231,7 +314,7 @@ ecp_mul_mxz(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 
 	/* Randomize coordinates of the starting point */
 	if (rng)
-		MPI_CHK(ecp_randomize_mxz(grp, RP));
+		MPI_CHK(ecp_randomize_mxz(RP));
 
 	/*
 	 * Loop invariant: R = result so far, RP = R + P.
@@ -249,48 +332,53 @@ ecp_mul_mxz(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
 		 */
 		MPI_CHK(ttls_mpi_safe_cond_swap(&R->X, &RP->X, b));
 		MPI_CHK(ttls_mpi_safe_cond_swap(&R->Z, &RP->Z, b));
-		MPI_CHK(ecp_double_add_mxz(grp, R, RP, R, RP, PX));
+		MPI_CHK(ecp_double_add_mxz(R, RP, R, RP, PX));
 		MPI_CHK(ttls_mpi_safe_cond_swap(&R->X, &RP->X, b));
 		MPI_CHK(ttls_mpi_safe_cond_swap(&R->Z, &RP->Z, b));
 	}
 
-	return ecp_normalize_mxz(grp, R);
+	return ecp_normalize_mxz(R);
 }
 
 /* TODO #1335 specialize the routine. */
 static int
-ecp_mul_mxz_g(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m, bool rnd)
+ecp_mul_mxz_g(TlsEcpPoint *R, const TlsMpi *m, bool rnd)
 {
-	return ecp_mul_mxz(grp, R, m, &grp->G, rnd);
+	return ecp_mul_mxz(R, m, &G_G, rnd);
 }
 
-/*
- * Specialized function for creating the Curve25519 group
+/**
+ * Generate a keypair with configurable base point: [M225] page 5.
  */
-void
-ec_grp_init_curve25519(TlsEcpGrp *grp)
+static int
+ec25519_gen_keypair(TlsMpi *d, TlsEcpPoint *Q)
 {
-	T_WARN("Try to load ECP group for unsupported Curve25519.\n");
+	size_t n_size = (G_BITS + 7) / 8;
+	size_t b;
 
-	/* Actually (A + 2) / 4 */
-	ttls_mpi_read_binary(&grp->A, "\x01\xDB\x42", 3);
+	do {
+		ttls_mpi_fill_random(d, n_size);
+	} while (!ttls_mpi_bitlen(d));
 
-	/* P = 2^255 - 19 */
-	ttls_mpi_lset(&grp->P, 1);
-	ttls_mpi_shift_l(&grp->P, 255);
-	ttls_mpi_sub_int(&grp->P, &grp->P, 19);
+	/* Make sure the most significant bit is bits */
+	b = ttls_mpi_bitlen(d) - 1; /* ttls_mpi_bitlen is one-based */
+	if (b > G_BITS)
+		ttls_mpi_shift_r(d, b - G_BITS);
+	else
+		ttls_mpi_set_bit(d, G_BITS, 1);
 
-	/*
-	 * Y intentionaly isn't set, since we use x/z coordinates.
-	 * This is used as a marker to identify Montgomery curves -
-	 * see ecp_get_type().
-	 */
-	ttls_mpi_lset(&grp->G.X, 9);
-	ttls_mpi_lset(&grp->G.Z, 1);
+	/* Make sure the last three bits are unset */
+	ttls_mpi_set_bit(d, 0, 0);
+	ttls_mpi_set_bit(d, 1, 0);
+	ttls_mpi_set_bit(d, 2, 0);
 
-	/* Actually, the required msb for private keys */
-	grp->bits = 254;
-
-	grp->mul = ecp_mul_mxz;
-	grp->mul_g = ecp_mul_mxz_g;
+	return ecp_mul_mxz_g(Q, d, true);
 }
+
+const TlsEcpGrp CURVE25519_G ____cacheline_aligned = {
+	.id		= TTLS_ECP_DP_CURVE25519,
+	.bits		= G_BITS,
+
+	.mul		= ecp_mul_mxz,
+	.gen_keypair	= ec25519_gen_keypair,
+};

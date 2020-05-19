@@ -45,7 +45,8 @@
 
 #define MPI_POOL_DATA(mp)	((void *)((char *)(mp) + sizeof(TlsMpiPool)))
 #define MPI_POOL_FREE_PTR(mp)	((void *)((char *)(mp) + (mp)->curr))
-#define MPI_POOL_TAIL_PTR(mp)	((void *)((char *)(mp) + (mp)->curr_tail))
+#define MPI_POOL_SZ(mp)		(PAGE_SIZE << (mp)->order)
+#define MPI_POOL_END(mp)	((void *)((char *)(mp) + MPI_POOL_SZ(mp)))
 #define MPI_POOL_SZ_ALIGN(n)	(((n) + CIL - 1) & ~LMASK)
 #define MPI_PROFILE_SZ(mp)	(mp)->curr
 /* PK and RSA 4096 are memory greedy, so standard 4 pages stack isn't enough. */
@@ -95,16 +96,13 @@ ttls_mpool(void *addr)
 	mp_name = "handshake";
 
 check:
-	if (unlikely(((unsigned long)MPI_POOL_FREE_PTR(mp) <= a
-		      && (unsigned long)MPI_POOL_TAIL_PTR(mp) > a)
+	if (unlikely((unsigned long)MPI_POOL_FREE_PTR(mp) <= a
 		     || (unsigned long)mp + sizeof(*mp) > a
-		     || (unsigned long)mp + (PAGE_SIZE << mp->order) <= a
-		     || mp->curr > (PAGE_SIZE << mp->order)
-		     || mp->curr_tail > (PAGE_SIZE << mp->order)))
+		     || (unsigned long)MPI_POOL_END(mp) <= a
+		     || mp->curr > MPI_POOL_SZ(mp)))
 	{
-		T_ERR("Bad MPI address %pK in pool %pK (%s, order=%u curr=%u"
-		      " curr_tail=%u)\n",
-		      addr, mp, mp_name, mp->order, mp->curr, mp->curr_tail);
+		T_ERR("Bad MPI address %pK in pool %pK (%s, order=%u curr=%u)\n",
+		      addr, mp, mp_name, mp->order, mp->curr);
 		BUG();
 	}
 	return mp;
@@ -115,10 +113,9 @@ ttls_mpool_alloc_data(TlsMpiPool *mp, size_t n)
 {
 	void *ptr = MPI_POOL_FREE_PTR(mp);
 
-	if (unlikely(mp->curr + n > mp->curr_tail)) {
-		T_ERR("Not enough space in pool %pK (order=%u curr=%u"
-		      " curr_tail=%u) to grow for %lu bytes",
-		      mp, mp->order, mp->curr, mp->curr_tail, n);
+	if (unlikely(mp->curr + n > MPI_POOL_SZ(mp))) {
+		T_ERR("Not enough space in pool %pK (order=%u curr=%u)"
+		      " to grow for %lu bytes", mp, mp->order, mp->curr, n);
 		BUG();
 	}
 
@@ -131,36 +128,14 @@ ttls_mpool_alloc_data(TlsMpiPool *mp, size_t n)
  * Allocate limbs space for the MPI within a pool, where the MPI was allocated.
  */
 int
-ttls_mpi_pool_alloc_mpi(TlsMpi *x, size_t n, bool tail)
+ttls_mpi_pool_alloc_mpi(TlsMpi *x, size_t n)
 {
 	unsigned short *ptr;
 	TlsMpiPool *mp = ttls_mpool(x);
 
-	if (!tail) {
-		ptr = ttls_mpool_alloc_data(mp, n);
-		return (int)((unsigned long)ptr - (unsigned long)x);
-	}
+	ptr = ttls_mpool_alloc_data(mp, n);
 
-	/*
-	 * For the tail allocation (shrinkable memory area) we need to
-	 * remember the MPI address and the allocation size to be able to fix
-	 * _off on ttls_mpool_shrink_tailtmp().
-	 */
-	if (unlikely(mp->curr + n > mp->curr_tail)) {
-		T_DBG("Not enough tail space in pool %pK (order=%u curr=%u"
-		      " curr_tail=%u) to grow for %lu bytes",
-		      mp, mp->order, mp->curr, mp->curr_tail, n);
-		BUG();
-	}
-
-	mp->curr_tail -= n + sizeof(short) * 2;
-	ptr = MPI_POOL_TAIL_PTR(mp);
-	*ptr++ = (unsigned short)((unsigned long)x - (unsigned long)mp);
-	*ptr++ = (unsigned short)n;
-
-	BUG_ON((unsigned long)ptr <= (unsigned long)x);
-
-	return (unsigned long)ptr - (unsigned long)x;
+	return (int)((unsigned long)ptr - (unsigned long)x);
 }
 
 void *
@@ -184,13 +159,8 @@ ttls_mpi_pool_cleanup_ctx(unsigned long addr, bool zero)
 	TlsMpiPool *mp = *this_cpu_ptr(&g_tmp_mpool);
 	unsigned long clean_off, m = (unsigned long)mp;
 
-	if (WARN(mp->curr > mp->curr_tail,
-		 "MPI pool %pK overran before cleanup, curr=%u curr_tail=%u"
-		 " order=%u\n", mp, mp->curr, mp->curr_tail, mp->order))
-		return;
-
 	/* The tail part must be cleaned up with ttls_mpool_shrink_tailtmp(). */
-	if (WARN(addr && (addr < m || addr > m + mp->curr_tail),
+	if (WARN(addr && (addr < m || addr >= (unsigned long)MPI_POOL_END(mp)),
 		 "Try to cleanup bad address %lx on MPI pool %pK\n",
 		 addr, mp))
 		return;
@@ -210,10 +180,9 @@ ttls_mpi_pool_free(void *ctx)
 {
 	TlsMpiPool *mp = (TlsMpiPool *)ctx - 1;
 
-	if (mp->order && (PAGE_SIZE << mp->order) / 2 > mp->curr)
-		T_WARN("Too large MPI pool was allocated (order=%u used=%ld)\n",
-		       mp->order,
-		       mp->curr + (PAGE_SIZE << mp->order) - mp->curr_tail);
+	if (mp->order && MPI_POOL_SZ(mp) / 2 > mp->curr)
+		T_WARN("Too large MPI pool was allocated (order=%u used=%u)\n",
+		       mp->order, mp->curr);
 
 	bzero_fast(MPI_POOL_DATA(mp), mp->curr - sizeof(*mp));
 	WARN_ON_ONCE((unsigned long)mp & ((PAGE_SIZE << mp->order) - 1));
@@ -242,179 +211,26 @@ ttls_mpi_pool_create(size_t order, gfp_t gfp_mask)
 	mp = (TlsMpiPool *)addr;
 	mp->order = order;
 	mp->curr = sizeof(*mp);
-	mp->curr_tail = PAGE_SIZE << order;
 
 	return mp;
 }
 
-/**
- * Alloc the ECP vector at once and initialize it by hands - this is quite
- * hot place. The memory will be immediately reclaimed without MPI fixups, so
- * don't bother with MPI limbs descriptors as ttls_mpi_pool_alloc_mpi() does
- * this.
- *
- * ecp_double_jac() may require more than 1 limb for Z coordinate, so we have
- * to provide enough space.
- *
- * TODO #1064: actally we need only X and Y coordinates of each point, so
- * we can reduce size of the array improving spacial locality.
- * Keep in mind L1d cache size against ecp_mul_comb_core() to not to open
- * a vector for SCAs.
- * Shrinking the array items allow to reduce TTLS_CSPOOL_ORDER.
- */
-TlsEcpPoint *
-ttls_mpool_ecp_create_tmp_T(int n, const TlsEcpPoint *P)
-{
-	int i, off;
-	TlsEcpPoint *T;
-	TlsMpiPool *mp = *this_cpu_ptr(&g_tmp_mpool);
-	size_t x_sz = P->X.used * 2, y_sz = P->Y.used * 2, z_sz = P->X.used;
-	size_t x_off = x_sz * CIL - sizeof(TlsMpi);
-	size_t y_off = y_sz * CIL - sizeof(TlsMpi);
-	size_t z_off = z_sz * CIL - sizeof(TlsMpi);
-	size_t tot_sz = (sizeof(TlsEcpPoint) + (x_sz + y_sz + z_sz) * CIL) * n;
-
-	if (WARN(mp->curr + tot_sz > mp->curr_tail,
-		 "Not enough tail space in pool %pK (order=%u curr=%u"
-		 " curr_tail=%u) to grow for %lu bytes",
-		 mp, mp->order, mp->curr, mp->curr_tail, tot_sz))
-		return NULL;
-
-	mp->curr_tail -= tot_sz;
-	/* mp is always page-aligned. */
-	mp->curr_tail &= ~((unsigned short)L1_CACHE_BYTES - 1);
-	T = MPI_POOL_TAIL_PTR(mp);
-
-	for (off = sizeof(TlsEcpPoint) * n, i = 0; i < n; ++i) {
-		T[i].X.s = 0;
-		T[i].X.used = 0;
-		T[i].X.limbs = x_sz;
-		T[i].X._off = off;
-		off += x_off;
-
-		T[i].Y.s = 0;
-		T[i].Y.used = 0;
-		T[i].Y.limbs = y_sz;
-		T[i].Y._off = off;
-		off += y_off;
-
-		T[i].Z.s = 0;
-		T[i].Z.used = 0;
-		T[i].Z.limbs = z_sz;
-		T[i].Z._off = off;
-		off += z_off;
-	}
-	WARN_ON_ONCE(off + (n * 3) * sizeof(TlsMpi) != tot_sz);
-
-	return T;
-}
-
-/**
- * The memory pool shrinking is required in two cases:
- * 1. for the pool to be used as a memory profile to minimize size of clonned
- *    pools;
- * 2. mixed stack allocations in runtime, when long-living objects are allocated
- *    on the stack after large short-living objects (e.g. R in ecp_mul_comb() is
- *    allocated after T[]->Z) and this isn't trivial to reclaim memory occupied
- *    by the long living objects.
- * The first case is supposed to be handled with accurate shrinking with fixing
- * reclaimed MPIs. In the secind case we know precisely that the short-living
- * objects aren't required and we reclaim this by just moving the tail pointer.
- */
-void
-ttls_mpool_shrink_tailtmp(TlsMpiPool *mp, bool fix_refs)
-{
-	const size_t mp_sz = PAGE_SIZE << mp->order;
-
-	if (unlikely(fix_refs)) {
-		struct mpi_desc_t {
-			unsigned short	off;
-			unsigned short	len;
-		} *md;
-
-		for (md = MPI_POOL_TAIL_PTR(mp);
-		     (unsigned long)md < (unsigned long)mp + mp_sz;
-		     md = (struct mpi_desc_t *)((char *)(md + 1) + md->len))
-		{
-			TlsMpi *x = (TlsMpi *)((char *)mp + md->off);
-
-			BUG_ON(md->off > mp->curr_tail
-			       || md->off < sizeof(*mp));
-			BUG_ON(md->len & LMASK);
-
-			x->s = 0;
-			x->limbs = 0;
-			x->used = 0;
-			x->_off = 0;
-		}
-		bzero_fast(MPI_POOL_TAIL_PTR(mp), mp_sz - mp->curr_tail);
-	}
-
-	mp->curr_tail = mp_sz;
-}
-
 static int
-__mpi_profile_load_ec(TlsMpiPool *mp, TlsECDHCtx *ctx, unsigned char w,
-		      ttls_ecp_group_id ec)
+ttls_mpi_profile_create_ec(TlsMpiPool *mp, ttls_ecp_group_id ec)
 {
-	int r;
 	size_t n_sz;
-	TlsEcpGrp *grp;
+	TlsECDHCtx *ctx;
 
-	if (!(grp = ttls_mpool_alloc_data(mp, sizeof(*grp))))
+	if (!(ctx = ttls_mpool_alloc_data(mp, sizeof(*ctx))))
 		return -ENOMEM;
-	if ((r = ttls_ecp_group_load(grp, ec))) {
-		T_DBG("cannot load Secp256r1 ECP group, %s (%d)\n",
-		      ec == TTLS_ECP_DP_SECP256R1 ? "Secp256r1" :
-		      ec == TTLS_ECP_DP_SECP384R1 ? "Secp384r1" : "unknown",
-		      r);
-		return r;
-	}
-	/*
-	 * Prepare precomputed points to use them in ecp_mul_comb().
-	 *
-	 * TODO #1064 replace the precomputation with static table to improve
-	 * spacial locality.
-	 * Can we precompute more data to save cycles on ecp_mul_comb_core()?
-	 * Probably wNAF should be used here.
-	 * It seems we can use fixed-base comb method with two tables instead
-	 * of the generic comb precomputation...
-	 * see M.Brown, D.Hankerson, J.Lopez, A.Menezes,
-	 * "Software implementation of the NIST elliptic curves over prime fields".
-	 * Fixed-base comb (GECC 3.44) with w=6 requres about 41*A + 21*D time
-	 * which is much larger than OpenSSL's 36*A (like GECC 3.42).
-	 * w=4 gives even worse 59*A + 31*D time.
-	 *
-	 * => ?? 5. AVX2 - 4 points in parallel in OpenSSL - learn more
-	 */
-	n_sz = (grp->bits + w - 1) / w;
-	switch (ec) {
-	case TTLS_ECP_DP_SECP256R1:
-		if (ecp256_precompute_comb(grp, grp->T, &grp->G, w, n_sz))
-			return -EDOM;
-		break;
-	case TTLS_ECP_DP_SECP384R1:
-		if (ecp384_precompute_comb(grp, grp->T, &grp->G, w, n_sz))
-			return -EDOM;
-		break;
-	default:
-		BUG();
-	}
-	ttls_mpool_shrink_tailtmp(mp, true);
-	/*
-	 * Move the group to the tail part: the tail part will be referenced by
-	 * all the cloned profiles while the header part is directly copied.
-	 */
-	n_sz = mp->curr - ((unsigned long)grp - (unsigned long)mp);
-	mp->curr_tail -= n_sz;
-	mp->curr_tail &= ~((unsigned short)L1_CACHE_BYTES - 1);
-	memcpy_fast(MPI_POOL_TAIL_PTR(mp), grp, n_sz);
-	mp->curr -= n_sz;
+
 	/*
 	 * Initialize the context group pointer - it will be copied as is by
 	 * all the cloned MPI profiles, so they will use this group.
 	 */
-	ctx->grp = grp;
+	ctx->grp = ttls_ecp_group_lookup(ec);
+	if (unlikely(!ctx->grp))
+		return -EINVAL;
 
 	/* Init the temporary point to be used in ttls_ecdh_compute_shared(). */
 	ttls_ecp_point_init(&ctx->z);
@@ -422,41 +238,12 @@ __mpi_profile_load_ec(TlsMpiPool *mp, TlsECDHCtx *ctx, unsigned char w,
 	 * Allocate memory for the MPIs set in ttls_ecp_gen_keypair()
 	 * called from ttls_ecdh_make_params().
 	 */
-	n_sz = CHARS_TO_LIMBS((grp->bits + 7) / 8);
+	n_sz = CHARS_TO_LIMBS((ctx->grp->bits + 7) / 8);
 	ttls_mpi_alloc(&ctx->d, n_sz);
 	ttls_mpi_alloc(&ctx->Q.X, n_sz * 2);
 	ttls_mpi_alloc(&ctx->Q.Y, n_sz * 2);
 	ttls_mpi_alloc(&ctx->Q.Z, n_sz * 2);
 	ttls_mpi_alloc(&ctx->z.Z, n_sz * 2);
-
-	return 0;
-}
-
-static int
-ttls_mpi_profile_create_ec(TlsMpiPool *mp, ttls_ecp_group_id ec)
-{
-	int r;
-	TlsECDHCtx *ecdh_ctx;
-
-	if (!(ecdh_ctx = ttls_mpool_alloc_data(mp, sizeof(*ecdh_ctx))))
-		return -ENOMEM;
-
-	switch (ec) {
-	case TTLS_ECP_DP_SECP256R1:
-		if ((r = __mpi_profile_load_ec(mp, ecdh_ctx, 7, ec)))
-			return r;
-		break;
-	case TTLS_ECP_DP_SECP384R1:
-		if ((r = __mpi_profile_load_ec(mp, ecdh_ctx, 7, ec)))
-			return r;
-		break;
-	case TTLS_ECP_DP_CURVE25519:
-		/* TODO #1031 nothing to do yet. */
-		return 0;
-	default:
-		WARN_ONCE(1, "There is no EC profile for %d\n", ec);
-		return -EINVAL;
-	}
 
 	return 0;
 }
@@ -467,7 +254,7 @@ ttls_mpi_profile_create_dh(TlsMpiPool *mp)
 	TlsDHMCtx *dhm = ttls_mpool_alloc_data(mp, sizeof(*dhm));
 
 	/*
-	 * TODO #1064: use a reference to the profile constant data as it's
+	 * TODO #1335: use a reference to the profile constant data as it's
 	 * done for EC in __mpi_profile_load_ec().
 	 */
 
@@ -557,7 +344,6 @@ __mpi_profile_clone(TlsCtx *tls, int ec)
 	 */
 	mp = (TlsMpiPool *)ptr;
 	mp->order = __MPOOL_HS_ORDER;
-	mp->curr_tail = PAGE_SIZE << __MPOOL_HS_ORDER;
 
 	return 0;
 }

@@ -89,8 +89,8 @@ ttls_mpi_reset(TlsMpi *X)
 	}
 }
 
-static void
-__mpi_alloc(TlsMpi *X, size_t nlimbs, bool tail)
+void
+ttls_mpi_alloc(TlsMpi *X, size_t nlimbs)
 {
 	if (likely(X->limbs >= nlimbs))
 		return;
@@ -103,19 +103,7 @@ __mpi_alloc(TlsMpi *X, size_t nlimbs, bool tail)
 	BUG_ON(nlimbs > TTLS_MPI_MAX_LIMBS);
 
 	X->limbs = nlimbs;
-	X->_off = ttls_mpi_pool_alloc_mpi(X, nlimbs * CIL, tail);
-}
-
-void
-ttls_mpi_alloc(TlsMpi *X, size_t nlimbs)
-{
-	__mpi_alloc(X, nlimbs, false);
-}
-
-void
-ttls_mpi_alloc_tmp(TlsMpi *X, size_t nlimbs)
-{
-	__mpi_alloc(X, nlimbs, true);
+	X->_off = ttls_mpi_pool_alloc_mpi(X, nlimbs * CIL);
 }
 
 /**

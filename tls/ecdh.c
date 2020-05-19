@@ -44,13 +44,13 @@
  * @d		- our secret exponent (private key).
  */
 static int
-ttls_ecdh_compute_shared(TlsEcpGrp *grp, TlsEcpPoint *z, const TlsEcpPoint *Q,
-			 const TlsMpi *d)
+ttls_ecdh_compute_shared(const TlsEcpGrp *grp, TlsEcpPoint *z,
+			 const TlsEcpPoint *Q, const TlsMpi *d)
 {
 	int r;
 
 	/* Compute the shared secret. */
-	if ((r = grp->mul(grp, z, d, Q, true)))
+	if ((r = grp->mul(z, d, Q, true)))
 		return r;
 
 	return ttls_ecp_is_zero(z) ? -EINVAL : 0;
@@ -75,10 +75,10 @@ ttls_ecdh_make_params(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
 	int r;
 	size_t grp_len, pt_len;
 
-	if ((r = ttls_ecp_gen_keypair(ctx->grp, &ctx->d, &ctx->Q)))
+	if ((r = ctx->grp->gen_keypair(&ctx->d, &ctx->Q)))
 		return r;
 
-	if ((r = ttls_ecp_tls_write_group(ctx->grp, &grp_len, buf, blen)))
+	if ((r = ttls_ecp_tls_write_group(ctx->grp->id, &grp_len, buf, blen)))
 		return r;
 
 	buf += grp_len;
@@ -105,8 +105,8 @@ ttls_ecdh_read_params(TlsECDHCtx *ctx, const unsigned char **buf,
 {
 	int r;
 
-	if ((r = ttls_ecp_tls_read_group(ctx->grp, buf, end - *buf)))
-		return r;
+	if (!(ctx->grp = ttls_ecp_tls_read_group(buf, end - *buf)))
+		return -EINVAL;
 
 	if ((r = ttls_ecp_tls_read_point(ctx->grp, &ctx->Qp, buf, end - *buf)))
 		return r;
@@ -125,7 +125,7 @@ ttls_ecdh_read_params(TlsECDHCtx *ctx, const unsigned char **buf,
 int
 ttls_ecdh_get_params(TlsECDHCtx *ctx, const TlsEcpKeypair *key)
 {
-	if (ttls_ecp_group_load(ctx->grp, key->grp->id))
+	if (!(ctx->grp = ttls_ecp_group_lookup(key->grp->id)))
 		return -EINVAL;
 	ttls_ecp_copy(&ctx->Qp, &key->Q);
 
@@ -143,7 +143,7 @@ ttls_ecdh_make_public(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
 {
 	int r;
 
-	if ((r = ttls_ecp_gen_keypair(ctx->grp, &ctx->d, &ctx->Q)))
+	if ((r = ctx->grp->gen_keypair(&ctx->d, &ctx->Q)))
 		return r;
 	return ttls_ecp_tls_write_point(ctx->grp, &ctx->Q, olen, buf, blen);
 }

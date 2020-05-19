@@ -22,12 +22,23 @@
 #include <asm/export.h>
 #include <asm/nospec-branch.h>
 
+/*
+ * Use 32-byte alignment instead of common 4-byte to improve micro-op caching
+ * for the functions with many LCPs and/or branches.
+ */
+#define ENTRY_32(name)							\
+	.globl name ASM_NL						\
+	.align 32, 0x90 ASM_NL						\
+	name:
+
 /**
  * Add X = A + B, where A->used >= B->used.
  *
  * %RDI and %RSI - pointer to X and X->limbs correspondingly;
  * %RDX and %RCX - pointer to B and B->used correspondingly;
  * %R8 and %R9 - pointer to A and A->used correspondingly.
+ *
+ * TODO #1335 it seems we can throw out the generic-length functions.
  */
 ENTRY(mpi_add_x86_64)
 	subq	%rcx, %r9
@@ -81,6 +92,8 @@ ENDPROC(mpi_add_x86_64)
  * %RDX	- pointer to A;
  * %RCX	- B->used (used directly for looping);
  * %R8	- A->used.
+ *
+ * TODO #1335 it seems we can throw out the generic-length functions.
  */
 ENTRY(mpi_sub_x86_64)
 	subq	%rcx, %r8
@@ -183,7 +196,8 @@ ENDPROC(mpi_sub_x86_64)
 
 /*
  * Operands size specialized implementations of the function above.
- * TODO Probably there is no case for the function with the new modp.
+ *
+ * TODO #1064 Probably there is no case for the function with the new modp.
  */
 ENTRY(mpi_sub_x86_64_5_4)
 	movq	(%rdx), %r8
@@ -250,6 +264,8 @@ ENDPROC(mpi_sub_x86_64_2_2)
  * %RDI	- pointer to X;
  * %RSI	- size of X (value of X->used for after the shift);
  * %RDX	- N.
+ *
+ * TODO #1335 it seems we can throw out the generic-length functions.
  */
 ENTRY(mpi_shift_l_x86_64)
 	movq	%rdx, %rcx
@@ -307,6 +323,8 @@ ENDPROC(mpi_shift_l_x86_64_4)
  * %RDI	- pointer to X;
  * %RSI	- size of X (current X->used);
  * %RDX	- N.
+ *
+ * TODO #1335 it seems we can throw out the generic-length functions.
  */
 ENTRY(mpi_shift_r_x86_64)
 	movq	%rdx, %rcx
@@ -353,8 +371,12 @@ ENDPROC(mpi_shift_r_x86_64_4)
  * The function code is borrowed from WolfSSL library
  * (https://github.com/wolfSSL/wolfssl/), sp_256_mul_avx2_4(),
  * wolfssl/wolfcrypt/src/sp_x86_64_asm.S .
+ *
+ * TODO The ADCX instructions are 6-byte instructions with 0x66 length-changing
+ * prefix, so we loose several cycles on decoding. Look for better versions of
+ * the instruction.
  */
-ENTRY(mpi_mul_x86_64_4)
+ENTRY_32(mpi_mul_x86_64_4)
 	push	%r12
 	push	%r13
 	push	%r14
@@ -469,8 +491,10 @@ ENDPROC(mpi_mul_x86_64_4)
  * double addition and this can be improved with left shift (Algorithm 2) as
  * described in "Speeding up Big-Numbers Squaring" by S.Gueron and V.Krasnov,
  * 2012.
+ *
+ * Use 32-byte alignment instead of common 4-byte to improve micro-op caching.
  */
-ENTRY(mpi_sqr_x86_64_4)
+ENTRY_32(mpi_sqr_x86_64_4)
 	push	%rbx
 	push	%r12
 	push	%r13
@@ -602,7 +626,7 @@ ENDPROC(mpi_sqr_x86_64_4)
  * %RDI	- pointer to 8 limbs big integer to be reduced.
  * %RSI	- size if the MPI.
  */
-ENTRY(ecp_mod_p256_x86_64)
+ENTRY_32(ecp_mod_p256_x86_64)
 	pushq	%rbx
 	pushq	%r10
 	pushq	%r11

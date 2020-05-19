@@ -409,14 +409,13 @@ pk_parse_key_pkcs1_der(TlsRSACtx *rsa, const unsigned char *key, size_t keylen)
 }
 
 /**
- * Parse a SEC1 encoded private EC key
+ * Parse a SEC1 encoded private EC key.
  */
 static int
 pk_parse_key_sec1_der(TlsEcpKeypair *eck, const unsigned char *key,
 		      size_t keylen)
 {
-	int ret;
-	int version, pubkey_done;
+	int r, version, pubkey_done;
 	size_t len;
 	ttls_asn1_buf params;
 	unsigned char *p = (unsigned char *) key;
@@ -427,100 +426,90 @@ pk_parse_key_sec1_der(TlsEcpKeypair *eck, const unsigned char *key,
 	 * RFC 5915, or SEC1 Appendix C.4
 	 *
 	 * ECPrivateKey ::= SEQUENCE {
-	 *	  version		INTEGER { ecPrivkeyVer1(1) } (ecPrivkeyVer1),
-	 *	  privateKey	 OCTET STRING,
-	 *	  parameters [0] ECParameters {{ NamedCurve }} OPTIONAL,
-	 *	  publicKey  [1] BIT STRING OPTIONAL
+	 *	  version	INTEGER { ecPrivkeyVer1(1) } (ecPrivkeyVer1),
+	 *	  privateKey	OCTET STRING,
+	 *	  parameters[0] ECParameters {{ NamedCurve }} OPTIONAL,
+	 *	  publicKey [1]	BIT STRING OPTIONAL
 	 *	}
 	 */
-	if ((ret = ttls_asn1_get_tag(&p, end, &len,
-			TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE)) != 0)
-	{
-		return(TTLS_ERR_PK_KEY_INVALID_FORMAT + ret);
-	}
+	r = ttls_asn1_get_tag(&p, end, &len,
+			      TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE);
+	if (r)
+		return TTLS_ERR_PK_KEY_INVALID_FORMAT + r;
 
 	end = p + len;
 
-	if ((ret = ttls_asn1_get_int(&p, end, &version)) != 0)
-		return(TTLS_ERR_PK_KEY_INVALID_FORMAT + ret);
+	if ((r = ttls_asn1_get_int(&p, end, &version)))
+		return TTLS_ERR_PK_KEY_INVALID_FORMAT + r;
 
 	if (version != 1)
-		return(TTLS_ERR_PK_KEY_INVALID_VERSION);
+		return TTLS_ERR_PK_KEY_INVALID_VERSION;
 
-	if ((ret = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_OCTET_STRING)) != 0)
-		return(TTLS_ERR_PK_KEY_INVALID_FORMAT + ret);
+	if ((r = ttls_asn1_get_tag(&p, end, &len, TTLS_ASN1_OCTET_STRING)))
+		return TTLS_ERR_PK_KEY_INVALID_FORMAT + r;
 
 	ttls_mpi_read_binary(&eck->d, p, len);
 
 	p += len;
 
 	pubkey_done = 0;
-	if (p != end)
-	{
-		/*
-		 * Is 'parameters' present?
-		 */
-		if ((ret = ttls_asn1_get_tag(&p, end, &len,
-			TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED | 0)) == 0)
-		{
-			if ((ret = pk_get_ecparams(&p, p + len, &params)) != 0 ||
-				(ret = pk_use_ecparams(&params, &eck->grp) ) != 0)
+	if (p != end) {
+		/* Is 'parameters' present? */
+		r = ttls_asn1_get_tag(&p, end, &len,
+				      TTLS_ASN1_CONTEXT_SPECIFIC
+				      | TTLS_ASN1_CONSTRUCTED);
+		if (!r) {
+			if ((r = pk_get_ecparams(&p, p + len, &params))
+			    || (r = pk_use_ecparams(&params, &eck->grp)))
 			{
 				ttls_ecp_keypair_free(eck);
-				return ret;
+				return r;
 			}
 		}
-		else if (ret != TTLS_ERR_ASN1_UNEXPECTED_TAG)
-		{
+		else if (r != TTLS_ERR_ASN1_UNEXPECTED_TAG) {
 			ttls_ecp_keypair_free(eck);
-			return(TTLS_ERR_PK_KEY_INVALID_FORMAT + ret);
+			return TTLS_ERR_PK_KEY_INVALID_FORMAT + r;
 		}
 
 		/*
-		 * Is 'publickey' present? If not, or if we can't read it (eg because it
-		 * is compressed), create it from the private key.
+		 * Is 'publickey' present? If not, or if we can't read it (e.g.
+		 * because it is compressed), create it from the private key.
 		 */
-		if ((ret = ttls_asn1_get_tag(&p, end, &len,
-			TTLS_ASN1_CONTEXT_SPECIFIC | TTLS_ASN1_CONSTRUCTED | 1)) == 0)
-		{
+		r = ttls_asn1_get_tag(&p, end, &len,
+				      TTLS_ASN1_CONTEXT_SPECIFIC
+				      | TTLS_ASN1_CONSTRUCTED | 1);
+		if (!r) {
 			end2 = p + len;
 
-			if ((ret = ttls_asn1_get_bitstring_null(&p, end2, &len)) != 0)
-				return(TTLS_ERR_PK_KEY_INVALID_FORMAT + ret);
+			if ((r = ttls_asn1_get_bitstring_null(&p, end2, &len)))
+				return TTLS_ERR_PK_KEY_INVALID_FORMAT + r;
 
 			if (p + len != end2)
-				return(TTLS_ERR_PK_KEY_INVALID_FORMAT +
-			TTLS_ERR_ASN1_LENGTH_MISMATCH);
+				return TTLS_ERR_PK_KEY_INVALID_FORMAT
+					+ TTLS_ERR_ASN1_LENGTH_MISMATCH;
 
-			if ((ret = pk_get_ecpubkey(&p, end2, eck)) == 0)
+			if (!(r = pk_get_ecpubkey(&p, end2, eck))) {
 				pubkey_done = 1;
-			else
-			{
+			} else {
 				/*
-				 * The only acceptable failure mode of pk_get_ecpubkey() above
-				 * is if the point format is not recognized.
+				 * The only acceptable failure mode of
+				 * pk_get_ecpubkey() above is if the point
+				 * format is not recognized.
 				 */
-				if (ret != TTLS_ERR_ECP_FEATURE_UNAVAILABLE)
-		return(TTLS_ERR_PK_KEY_INVALID_FORMAT);
+				if (r != TTLS_ERR_ECP_FEATURE_UNAVAILABLE)
+					return TTLS_ERR_PK_KEY_INVALID_FORMAT;
 			}
 		}
-		else if (ret != TTLS_ERR_ASN1_UNEXPECTED_TAG)
-		{
+		else if (r != TTLS_ERR_ASN1_UNEXPECTED_TAG) {
 			ttls_ecp_keypair_free(eck);
-			return(TTLS_ERR_PK_KEY_INVALID_FORMAT + ret);
+			return TTLS_ERR_PK_KEY_INVALID_FORMAT + r;
 		}
 	}
 
-	if (!pubkey_done
-	    && (ret = ttls_ecp_mul_g(eck->grp, &eck->Q, &eck->d, false)))
-	{
+	/* Finally check the keys. */
+	if (!pubkey_done && (r = eck->grp->mul_g(&eck->Q, &eck->d, false))) {
 		ttls_ecp_keypair_free(eck);
-		return TTLS_ERR_PK_KEY_INVALID_FORMAT + ret;
-	}
-
-	if ((ret = ttls_ecp_check_privkey(eck->grp, &eck->d))) {
-		ttls_ecp_keypair_free(eck);
-		return ret;
+		return TTLS_ERR_PK_KEY_INVALID_FORMAT + r;
 	}
 
 	return 0;

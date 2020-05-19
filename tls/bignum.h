@@ -92,12 +92,10 @@ typedef struct {
  *
  * @order	- page order of the underneath memory area;
  * @curr	- offset of free memory area for MPI allocations;
- * @tmp_tail	- offset of reclaimable memory area for allocations.
  */
 typedef struct {
 	unsigned int		order;
-	unsigned short		curr;
-	unsigned short		curr_tail;
+	unsigned int		curr;
 } TlsMpiPool;
 
 /**
@@ -143,7 +141,6 @@ do {									\
 
 TlsMpi *ttls_mpi_alloc_stack_init(size_t nlimbs);
 void ttls_mpi_alloc(TlsMpi *X, size_t nblimbs);
-void ttls_mpi_alloc_tmp(TlsMpi *X, size_t nblimbs);
 void ttls_mpi_reset(TlsMpi *X);
 
 void mpi_fixup_used(TlsMpi *X, size_t n);

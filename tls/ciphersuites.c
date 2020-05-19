@@ -42,25 +42,21 @@ static union {
 	.mp = {
 		.order		= TTLS_CSPOOL_ORDER,
 		.curr		= sizeof(TlsMpiPool),
-		.curr_tail	= PAGE_SIZE << TTLS_CSPOOL_ORDER
 	}
 }, cs_mp_ecdhe_secp384 __page_aligned_data = {
 	.mp = {
 		.order		= TTLS_CSPOOL_ORDER,
 		.curr		= sizeof(TlsMpiPool),
-		.curr_tail	= PAGE_SIZE << TTLS_CSPOOL_ORDER
 	}
 }, cs_mp_ecdhe_curve25519 __page_aligned_data = {
 	.mp = {
 		.order		= TTLS_CSPOOL_ORDER,
 		.curr		= sizeof(TlsMpiPool),
-		.curr_tail	= PAGE_SIZE << TTLS_CSPOOL_ORDER
 	}
 }, cs_mp_dhe __page_aligned_data = {
 	.mp = {
 		.order		= TTLS_CSPOOL_ORDER,
 		.curr		= sizeof(TlsMpiPool),
-		.curr_tail	= PAGE_SIZE << TTLS_MPOOL_ORDER
 	}
 };
 

@@ -20,7 +20,7 @@ endif
 
 CACHELINE := $(shell getconf LEVEL1_DCACHE_LINESIZE)
 
-CFLAGS		= -std=gnu89 -DL1_CACHE_BYTES=$(CACHELINE) -DNR_CPUS=1 \
+CFLAGS		= -std=gnu89 -DL1_CACHE_BYTES=$(CACHELINE) -mrdrnd -DNR_CPUS=1 \
 		  -Wall -Werror -Wno-sign-compare -Wno-unused-but-set-variable \
 		  -Wno-pointer-sign -Werror=strict-prototypes \
 		  -Werror=incompatible-pointer-types -Wno-unused-const-variable \
