@@ -514,20 +514,9 @@ tfw_h2_prep_redirect(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
 		return r;
 
 	hdrs_len += s_vlen.len + cookie->len;
-
-	/*
-	 * Set message body (if exists) into DATA frame header. In this case
-	 * 'content-length' header also must be added into HEADERS frame.
-	 */
-	if (body) {
-		r = tfw_http_msg_expand_data(iter, skb_head, body, NULL);
-		if (unlikely(r))
-			return r;
-	}
-
 	hdrs_len += mit->acc_len;
 
-	return tfw_h2_make_frames(resp, stream_id, hdrs_len, true, false);
+	return tfw_h2_frame_local_resp(resp, stream_id, hdrs_len, body);
 }
 
 #define S_REDIR_302	S_302 S_CRLF
@@ -986,13 +975,7 @@ tfw_h2_send_resp(TfwHttpReq *req, int status, unsigned int stream_id)
 	if (WARN_ON_ONCE(!mit->acc_len))
 		goto err_setup;
 
-	if (body->data) {
-		if (tfw_http_msg_expand_data(&resp->mit.iter, skb_head, body,
-					     NULL))
-			goto err_setup;
-	}
-
-	if (tfw_h2_make_frames(resp, stream_id, mit->acc_len, true, false))
+	if (tfw_h2_frame_local_resp(resp, stream_id, mit->acc_len, body))
 		goto err_setup;
 
 	/* Send resulting HTTP/2 response and release HPACK encoder index. */
@@ -4125,17 +4108,92 @@ do {									\
 } while ((len));
 
 /**
+ * Split response body stored locally. Allocate a new skb and put body there
+ * by fragments. Every skb fragment is has size of single page and has frame
+ * header at the beginning. Just like body constructed in
+ * @tfw_cache_build_resp_body().
+ *
+ * The function is designed for @body preallocated during configuration
+ * processing thus no chunked body allowed, only plain TfwStr is accepted there.
+ */
+static int
+tfw_h2_append_predefined_body(TfwHttpResp *resp, unsigned int stream_id,
+			      const TfwStr *body)
+{
+	TfwHttpTransIter *mit = &resp->mit;
+	TfwMsgIter *it = &mit->iter;
+	size_t len, max_copy = PAGE_SIZE - FRAME_HEADER_SIZE;
+	TfwFrameHdr frame_hdr = {.stream_id = stream_id, .type = HTTP2_DATA};
+	char *data;
+	int r;
+
+	if (!body || !body->data)
+		return 0;
+	if (!TFW_STR_PLAIN(body))
+		return -EINVAL;
+	len = body->len;
+
+	it->skb = ss_skb_peek_tail(&it->skb_head);
+	it->frag = skb_shinfo(it->skb)->nr_frags - 1;
+	if (!it->skb)
+		return -EINVAL;
+
+	if ((++it->frag >= MAX_SKB_FRAGS)
+	    || (skb_shinfo(it->skb)->tx_flags & SKBTX_SHARED_FRAG))
+	{
+		if  ((r = tfw_msg_iter_append_skb(it)))
+			return r;
+		skb_shinfo(it->skb)->tx_flags &= ~SKBTX_SHARED_FRAG;
+	}
+
+	data = body->data;
+	while (len) {
+		struct page *page;
+		char *p;
+		size_t copy = min(len, max_copy);
+
+		len -= copy;
+		frame_hdr.flags = len ? 0 : HTTP2_F_END_STREAM;
+		frame_hdr.length = copy;
+
+		if (!(page = alloc_page(GFP_ATOMIC))) {
+			return -ENOMEM;
+		}
+		p = page_address(page);
+		tfw_h2_pack_frame_header(p, &frame_hdr);
+		memcpy_fast(p + FRAME_HEADER_SIZE, data, copy);
+		data += copy;
+
+		skb_fill_page_desc(it->skb, it->frag, page, 0,
+				   copy + FRAME_HEADER_SIZE);
+		skb_frag_ref(it->skb, it->frag);
+		ss_skb_adjust_data_len(it->skb, copy + FRAME_HEADER_SIZE);
+		++it->frag;
+
+		if (it->frag == MAX_SKB_FRAGS
+		    && (r = tfw_msg_iter_append_skb(it)))
+		{
+			return r;
+		}
+	}
+
+	return 0;
+}
+
+/**
  * Split response into http/2 frames with respect to remote peer MAX_FRAME_SIZE
  * settings. Both HEADERS and DATA frames require framing or peer will reject
  * the message or entire connection.
  *
+ * @resp		- response to be framed.
+ * @stream_id		- HTTP/2 stream id.
  * @h_len		- total length of HTTP headers.
  * @local_response	- response is generated locally by Tempesta,
  *			  all foreign responses represents responses converted
  *			  from h1 to h2 and require some additional processing.
- * @spec_body_framing	- don't use generic framing algorithm for DATA part,
- *			  caller function is responsible for correct framing,
- *			  see below.
+ * @local_body		- locally generated response has a body which not yet
+ *			  added into response and even not addressed by
+ *			  resp->body.
  *
  * WARNING: this function manually inserts fragments containing h2 frame headers
  * (9 bytes each), which are NOT tracked by the @resp handler and cannot be
@@ -4143,17 +4201,14 @@ do {									\
  * message is pushed into network. No stream id modification, no header
  * adjustments are allowed after the call.
  *
- * The only case when message can be modified - special body framing and
- * avoiding generic routine (@spec_body_framing). In this case @resp->body
- * remains unframed an calling function may either update and frame body (but
- * not headers!) or append framed body skbs. @resp->body->data is not referenced
- * in this case and may be NULL, but @resp->body->len MUST represent correct
- * (expected) value since it affect flags in last HEADERS frame header.
+ * The only case when message can be modified - body addition for locally
+ * generated responses, which add body fragment-by-fragment with required
+ * framing information.
  */
-int
+static int
 tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 		   unsigned long h_len, bool local_response,
-		   bool spec_body_framing)
+		   bool local_body)
 {
 	int r;
 	char *data;
@@ -4165,7 +4220,7 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 	TfwMsgIter *iter = &mit->iter;
 	TfwH2Ctx *ctx = tfw_h2_context(resp->req->conn);
 	unsigned long max_sz = ctx->rsettings.max_frame_sz;
-	unsigned char fr_flags = b_len
+	unsigned char fr_flags = (b_len || local_body)
 			? HTTP2_F_END_HEADERS
 			: HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM;
 
@@ -4185,28 +4240,29 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 	memcpy_fast(data, buf, sizeof(buf));
 
 	/*
-	 * First frame header for DATA block. Message iterator is already
-	 * prepared to insert a frame header here.
-	 */
-	if (b_len && !spec_body_framing) {
-		frame_hdr.length = min(max_sz, b_len);
-		frame_hdr.type = HTTP2_DATA;
-		frame_hdr.flags = (frame_hdr.length == b_len)
-				? HTTP2_F_END_STREAM : 0;
-		tfw_h2_pack_frame_header(buf, &frame_hdr);
-
-		r = tfw_h2_msg_rewrite_data(mit, &frame_hdr_str, mit->bnd);
-		if (unlikely(r))
-			return r;
-	}
-
-	/*
 	 * In responses built locally headers fragments are added one by one
 	 * when needed, while forwarded responses may have extra space after
 	 * h1-> h2 transformation, since h2 messages are generally smaller
-	 * than h1 ones.
+	 * than h1 ones. When this function is called, all headers just have
+	 * been added and message iterator points at the end of the last header
+	 * and protected from overwriting body. Use this immediately to put the
+	 * first body hrame header and cut extra data after it. It's possible
+	 * to do in reverse order, but we save a few fragment operations here.
 	 */
 	if (!local_response) {
+		if (b_len) {
+			frame_hdr.length = min(max_sz, b_len);
+			frame_hdr.type = HTTP2_DATA;
+			frame_hdr.flags = (frame_hdr.length == b_len)
+					? HTTP2_F_END_STREAM : 0;
+			tfw_h2_pack_frame_header(buf, &frame_hdr);
+
+			r = tfw_h2_msg_rewrite_data(mit, &frame_hdr_str,
+						    mit->bnd);
+			if (unlikely(r))
+				return r;
+		}
+
 		r = ss_skb_cut_extra_data(iter->skb_head, iter->skb, iter->frag,
 					  mit->curr_ptr, mit->bnd);
 		if (unlikely(r))
@@ -4226,8 +4282,11 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 		__tfw_h2_make_frames(h_len, fr_flags);
 	}
 
+	if (local_response)
+		return 0;
+
 	/* Add more frame headers for DATA block. */
-	if (!spec_body_framing && (b_len > max_sz)) {
+	if (b_len > max_sz) {
 		unsigned long skew = 0;
 
 		iter->skb = resp->body.skb;
@@ -4241,6 +4300,33 @@ tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
 	}
 
 	return 0;
+}
+
+/**
+ * Frame forwarded response.
+ */
+int
+tfw_h2_frame_fwd_resp(TfwHttpResp *resp, unsigned int stream_id,
+		     unsigned long h_len)
+{
+	return tfw_h2_make_frames(resp, stream_id, h_len, false, false);
+}
+
+/**
+ * Frame response generated locally.
+ */
+int
+tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned int stream_id,
+		       unsigned long h_len, const TfwStr *body)
+{
+	int r;
+
+	r = tfw_h2_make_frames(resp, stream_id, h_len, true,
+			       body ? body->len : false);
+	if (r)
+		return r;
+
+	return tfw_h2_append_predefined_body(resp, stream_id, body);
 }
 
 static void
@@ -4621,7 +4707,7 @@ tfw_h2_resp_adjust_fwd(TfwHttpResp *resp)
 	if (unlikely(r))
 		goto clean;
 
-	r = tfw_h2_make_frames(resp, stream_id, mit->acc_len, false, false);
+	r = tfw_h2_frame_fwd_resp(resp, stream_id, mit->acc_len);
 	if (unlikely(r))
 		goto clean;
 
