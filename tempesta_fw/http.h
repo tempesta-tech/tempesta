@@ -685,8 +685,9 @@ unsigned long tfw_http_hdr_split(TfwStr *hdr, TfwStr *name_out, TfwStr *val_out,
 				 bool inplace);
 unsigned long tfw_h2_hdr_size(unsigned long n_len, unsigned long v_len,
 			      unsigned short st_index);
-int tfw_h2_make_frames(TfwHttpResp *resp, unsigned int stream_id,
-		       unsigned long h_len, bool local_response,
-		       bool spec_body_framing);
+int tfw_h2_frame_fwd_resp(TfwHttpResp *resp, unsigned int stream_id,
+			  unsigned long h_len);
+int tfw_h2_frame_local_resp(TfwHttpResp *resp, unsigned int stream_id,
+			    unsigned long h_len, const TfwStr *body);
 
 #endif /* __TFW_HTTP_H__ */
