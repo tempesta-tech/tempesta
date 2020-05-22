@@ -1295,11 +1295,6 @@ this_chunk:
 		if (!it->skb) {
 			if (!(it->skb = ss_skb_alloc(SKB_MAX_HEADER)))
 				return -ENOMEM;
-			/*
-			 * Expanding skb is always used for TLS client
-			 * connections.
-			 */
-			skb_shinfo(it->skb)->tx_flags |= SKBTX_SHARED_FRAG;
 			ss_skb_queue_tail(skb_head, it->skb);
 			it->frag = -1;
 			if (!it->skb_head) {
@@ -1310,6 +1305,7 @@ this_chunk:
 					*start_off = 0;
 				}
 			}
+
 			T_DBG3("message expanded by new skb [%p]\n", it->skb);
 		}
 
@@ -1339,6 +1335,7 @@ this_chunk:
 			 */
 			if (MAX_SKB_FRAGS <= it->frag + 1) {
 				it->skb = NULL;
+				it->frag = -1;
 			}
 			else if (cur_len != f_room || c + 1 < end) {
 				struct page *page = alloc_page(GFP_ATOMIC);
