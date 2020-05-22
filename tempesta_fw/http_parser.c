@@ -1032,6 +1032,16 @@ __FSM_STATE(st_curr) {							\
 __FSM_STATE(RGen_HdrOtherN) {						\
 	__FSM_MATCH_MOVE(token, RGen_HdrOtherN, 0);			\
 	if (likely(*(p + __fsm_sz) == ':')) {				\
+		/*							\
+		 * Header name must contain at least one character, but \
+		 * ':' can be found at the beginning of a new skb or	\
+		 * fragment, it's ok.					\
+		*/							\
+		if (unlikely(!__fsm_sz					\
+			     && TFW_STR_EMPTY(&msg->stream->parser.hdr))) \
+		{							\
+			TFW_PARSER_BLOCK(RGen_HdrOtherN);		\
+		}							\
 		__msg_hdr_chunk_fixup(data, __data_off(p + __fsm_sz));	\
 		parser->_i_st = &&RGen_HdrOtherV;			\
 		p += __fsm_sz;						\
