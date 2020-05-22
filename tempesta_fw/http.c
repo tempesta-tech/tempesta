@@ -5146,6 +5146,29 @@ next_msg:
 	req->jrxtstamp = jiffies;
 
 	/*
+	 * Run frang checks first before any processing happen. Can't start
+	 * the checks earlier, since vhost and specific client is required
+	 * for frang checks.
+	 * TDB: if a request was received in a single skb, the only frang check
+	 * happens here. Looks like http tables are not protected with
+	 * anti-DDoS limits and attacker may stress http tables as long as he
+	 * wants till he gets 403 responses from us. Tempesta can be configured
+	 * to close the connection instead on sending 403 errors, but such
+	 * behaviour is not browser friendly and even may increase request
+	 * rate from browsers during "referer" attacks, since browser usually
+	 * retry failed and unreplied requests.
+	 */
+	r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_MSG, &data_up);
+	T_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
+	/* Don't accept any following requests from the peer. */
+	if (r == TFW_BLOCK) {
+		TFW_INC_STAT_BH(clnt.msgs_filtout);
+		tfw_http_req_parse_block(req, 403,
+			"parsed request has been filtered out");
+		return TFW_BLOCK;
+	}
+
+	/*
 	 * Sticky cookie module must be used before request can reach cache.
 	 * Unauthorised clients mustn't be able to get any resource on
 	 * protected service and stress cache subsystem. The module is also
@@ -5181,16 +5204,6 @@ next_msg:
 		TFW_INC_STAT_BH(clnt.msgs_otherr);
 		tfw_http_req_parse_block(req, 500,
 			"request dropped: internal error in Sticky module");
-		return TFW_BLOCK;
-	}
-
-	r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_MSG, &data_up);
-	T_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
-	/* Don't accept any following requests from the peer. */
-	if (r == TFW_BLOCK) {
-		TFW_INC_STAT_BH(clnt.msgs_filtout);
-		tfw_http_req_parse_block(req, 403,
-			"parsed request has been filtered out");
 		return TFW_BLOCK;
 	}
 
