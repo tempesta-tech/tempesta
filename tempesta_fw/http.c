@@ -337,6 +337,9 @@ static TfwStr http_predef_resps[RESP_NUM] = {
  * 4: Server header,
  * 5: CRLF,
  * 6: Message body.
+ * Message body is empty by default but can be overridden by 'response_body'
+ * directive.
+ *
  * Some position-dependent macros specific to @http_predef_resps
  * are defined below.
  */
