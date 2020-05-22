@@ -1838,23 +1838,7 @@ tfw_cache_purge_method(TfwHttpReq *req)
 }
 
 /**
- * Add page from cache into response. Different strategies are used to
- * avoid extra data copying depending on client connection type:
- * - for http connections - pages are reused in skbs and SKBTX_SHARED_FRAG is
- * set to avoid any data copies.
- * - for https connections - pages are reused in skbs and SKBTX_SHARED_FRAG is
- * set, but in-place crypto operations are not allowed, so data copy happens
- * right before data is pushed into network.
- * - for h2 connections - copying happens on constructing responses from
- * cache, and SKBTX_SHARED_FRAG is left unset allowing in-place crypto
- * operations.
- *
- * Since we can't encrypt shared data in-place we always copy it, so we need
- * reserve some space in cached pages to avoid extra skb fragmentation. Since
- * body fragments are stored in cache by pages with at least cache record
- * header preceding, which is bigger than h2 frame header, it's always possible
- * to fit body fragment and h2 header into a single page. So there is no need
- * to actually reserve any space for h2 frame header.
+ * Add page from cache into response.
  */
 static int
 tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, TfwFrameHdr *frame_hdr,
@@ -1896,6 +1880,24 @@ tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, TfwFrameHdr *frame_hdr,
 /**
  * Build the message body as paged fragments of skb.
  * See do_tcp_sendpages() as reference.
+ *
+ * Different strategies are used to avoid extra data copying depending on
+ * client connection type:
+ * - for http connections - pages are reused in skbs and SKBTX_SHARED_FRAG is
+ * set to avoid any data copies.
+ * - for https connections - pages are reused in skbs and SKBTX_SHARED_FRAG is
+ * set, but in-place crypto operations are not allowed, so data copy happens
+ * right before data is pushed into network.
+ * - for h2 connections - every response has unique frame header, so need to
+ * copy on constructing response body from cache. SKBTX_SHARED_FRAG is left
+ * unset to allow in-place crypto operations.
+ *
+ * Since we can't encrypt shared data in-place we always copy it, so we need
+ * reserve some space in cached pages to avoid extra skb fragmentation. Since
+ * body fragments are stored in cache by pages with at least cache record
+ * header preceding, which is bigger than h2 frame header, it's always possible
+ * to fit body fragment and h2 header into a single page. So there is no need
+ * to actually reserve any space for h2 frame header.
  */
 static int
 tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
@@ -1903,26 +1905,25 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 {
 	int r;
 	TfwFrameHdr frame_hdr = {.stream_id = stream_id, .type = HTTP2_DATA};
+	bool sh_frag = h2 ? false : true;
 
 	if (WARN_ON_ONCE(!it->skb_head))
 		return -EINVAL;
 	/*
 	 * If all skbs/frags are used up (see @tfw_http_msg_expand_data()),
 	 * create new skb with empty frags to reference the cached body;
-	 * otherwise, use next empty frag in current skb. Constructing h2
-	 * responses from cache always imply data copies, for SKBTX_SHARED_FRAG
-	 * skbs, copy will happen twice. If body is relatively small keep
-	 * using existing skb and allow double copy, otherwise allocate a new
-	 * skb even if previous is not fully populated.
+	 * otherwise, use next empty frag in current skb. Create a new skb, if
+	 * TX flags for headers and body differ.
 	 */
 	if (!it->skb || (++it->frag >= MAX_SKB_FRAGS)
-	    || (h2 && (skb_shinfo(it->skb)->tx_flags & SKBTX_SHARED_FRAG)
-		&& body_sz > PAGE_SIZE))
+	    || (sh_frag ^ (skb_shinfo(it->skb)->tx_flags & SKBTX_SHARED_FRAG)))
 	{
 		if  ((r = tfw_msg_iter_append_skb(it)))
 			return r;
-		if (h2)
+		if (!sh_frag)
 			skb_shinfo(it->skb)->tx_flags &= ~SKBTX_SHARED_FRAG;
+		else
+			skb_shinfo(it->skb)->tx_flags |= SKBTX_SHARED_FRAG;
 	}
 	if (WARN_ON_ONCE(it->frag < 0))
 		return -EINVAL;
