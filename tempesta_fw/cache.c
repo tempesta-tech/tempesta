@@ -1932,11 +1932,6 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 
 		off = (unsigned long)p & ~PAGE_MASK;
 		f_size = trec->data + trec->len - p;
-		/*
-		 * The body is stored in native h2 format, with reserved space
-		 * for h2 headers. Skip page fragment if it's too short to store
-		 * header.
-		 */
 		if (f_size) {
 			body_sz -= f_size;
 			r = tfw_cache_add_body_page(it, p, f_size, &frame_hdr,
