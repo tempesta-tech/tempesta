@@ -933,13 +933,22 @@ frang_http_req_process(FrangAcc *ra, TfwConn *conn, TfwFsmData *data,
 	FrangGlobCfg *fg_cfg = NULL;
 	T_FSM_INIT(Frang_Req_0, "frang");
 
-	BUG_ON(!ra);
+	if (WARN_ON_ONCE(!ra))
+		return TFW_BLOCK;
 	/*
-	 * TODO: a NULL-dereference was triggered there for h2 messages,
-	 * need to check.
+	 * If a request is detached from stream before frang callback
+	 * happen, it usually means that a response is already created and bound
+	 * with the request, but the request is taken to further processing in
+	 * upper levels. Or stream is already closed and no processing is
+	 * required, probably because of the errors. Anyway it's suspicious
+	 * that we got here with such a request. The stream objects contains
+	 * parser required for some checks. Probably we know what we're
+	 * doing if a response is already prepared and shouldn't block that
+	 * request. Block the request otherwise, no further processing for
+	 * already closed streams is required.
 	 */
-	BUG_ON(req->stream
-	       && (req != container_of(req->stream->msg, TfwHttpReq, msg)));
+	if (WARN_ON_ONCE(!req->stream))
+		return req->resp ? TFW_PASS : TFW_BLOCK;
 	frang_dbg("check request for client %s, acc=%p\n",
 		  &FRANG_ACC2CLI(ra)->addr, ra);
 
