@@ -1933,15 +1933,20 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 		off = (unsigned long)p & ~PAGE_MASK;
 		f_size = trec->data + trec->len - p;
 		if (f_size) {
+			f_size = min(body_sz, (unsigned long)f_size);
 			body_sz -= f_size;
 			r = tfw_cache_add_body_page(it, p, f_size, &frame_hdr,
 						    h2, !body_sz);
 			if (r)
 				return r;
 		}
-		if (!(trec = tdb_next_rec_chunk(db, trec)))
+		if (!body_sz || !(trec = tdb_next_rec_chunk(db, trec)))
 			break;
-		if (WARN_ON_ONCE(!f_size))
+		/*
+		 * Broken record: body is not fully copied yet, but there is
+		 * no data in the next record part.
+		 */
+		if (WARN_ON_ONCE(!trec->len))
 			return -EINVAL;
 		p = trec->data;
 
