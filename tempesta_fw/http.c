@@ -538,7 +538,6 @@ tfw_h2_prep_redirect(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
 #define S_REDIR_P_03	S_CRLF S_F_SET_COOKIE
 #define S_REDIR_KEEP	S_CRLF S_F_CONNECTION S_V_CONN_KA S_CRLF
 #define S_REDIR_CLOSE	S_CRLF S_F_CONNECTION S_V_CONN_CLOSE S_CRLF
-#define S_REDIR_C_LEN	S_F_CONTENT_LENGTH "0" S_CRLFCRLF
 
 /**
  * The response redirects the client to the same URI as the original request,
@@ -585,14 +584,23 @@ tfw_h1_prep_redirect(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
 		.data = S_REDIR_KEEP, .len = SLEN(S_REDIR_KEEP) };
 	static TfwStr crlf_close = {
 		.data = S_REDIR_CLOSE, .len = SLEN(S_REDIR_CLOSE) };
-	static TfwStr c_len_crlf = {
-		.data = S_REDIR_C_LEN, .len = SLEN(S_REDIR_C_LEN) };
+	TfwStr c_len_crlf = {
+		.chunks = (TfwStr []){
+			{ .data = S_F_CONTENT_LENGTH,
+			  .len = SLEN(S_F_CONTENT_LENGTH) },
+			{ .data = (*this_cpu_ptr(&g_buf) + RESP_BUF_LEN / 2 + 3),
+			  .len = 0 },
+			{ .data = S_CRLFCRLF, .len = SLEN(S_CRLFCRLF) }
+		},
+		.len = SLEN(S_F_CONTENT_LENGTH S_CRLFCRLF),
+		.nchunks = 3
+	};
 	static TfwStr protos[] = {
 		{ .data = S_HTTP, .len = SLEN(S_HTTP) },
 		{ .data = S_HTTPS, .len = SLEN(S_HTTPS) },
 	};
 	TfwStr *proto = &protos[TFW_CONN_PROTO(req->conn) == TFW_FSM_HTTPS];
-	TfwStr host, *rh, *cookie_crlf = &crlf, *r_end;
+	TfwStr host, *rh, *cookie_crlf = &crlf;
 
 	if (status == 302) {
 		rh = &rh_302;
@@ -602,10 +610,10 @@ tfw_h1_prep_redirect(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
 		tfw_ultoa(status, __TFW_STR_CH(&rh_gen, 1)->data, 3);
 		rh = &rh_gen;
 	}
-	if (body)
-		r_end = body;
-	else
-		r_end = &c_len_crlf;
+	__TFW_STR_CH(&c_len_crlf, 1)->len += tfw_ultoa(
+		body ? body->len : 0, __TFW_STR_CH(&c_len_crlf, 1)->data,
+		RESP_BUF_LEN / 2 - 3);
+	c_len_crlf.len += __TFW_STR_CH(&c_len_crlf, 1)->len;
 
 	if (req->host.len)
 		host = req->host;
@@ -625,7 +633,8 @@ tfw_h1_prep_redirect(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
 	data_len += host.len ? host.len + proto->len : 0;
 	data_len += rmark->len;
 	data_len += req->uri_path.len + h_common_2.len + cookie->len;
-	data_len += cookie_crlf->len + r_end->len;
+	data_len += cookie_crlf->len + c_len_crlf.len;
+	data_len += body ? body->len : 0;
 
 	if (tfw_http_msg_setup((TfwHttpMsg *)resp, &it, data_len, 0))
 		return TFW_BLOCK;
@@ -650,7 +659,9 @@ tfw_h1_prep_redirect(TfwHttpResp *resp, unsigned short status, TfwStr *rmark,
 	ret |= tfw_msg_write(&it, &h_common_2);
 	ret |= tfw_msg_write(&it, cookie);
 	ret |= tfw_msg_write(&it, cookie_crlf);
-	ret |= tfw_msg_write(&it, r_end);
+	ret |= tfw_msg_write(&it, &c_len_crlf);
+	if (body)
+		ret |= tfw_msg_write(&it, body);
 
 	return ret;
 }
@@ -6092,69 +6103,65 @@ __tfw_http_msg_body_dup(const char *filename, TfwStr *c_len_hdr, size_t *len,
 			size_t *body_offset)
 {
 	char *body, *b_start, *res = NULL;
-	size_t b_sz, t_sz;
+	size_t b_sz, t_sz = 0;
 	char buff[TFW_ULTOA_BUF_SIZ] = {0};
-	TfwStr *cl_buf = __TFW_STR_CH(c_len_hdr, 1);
+	TfwStr *cl_buf = c_len_hdr ? __TFW_STR_CH(c_len_hdr, 1) : 0;
 
 	body = tfw_cfg_read_file(filename, &b_sz, 0);
 	if (!body) {
 		*len = *body_offset = 0;
 		return NULL;
 	}
-	cl_buf->data = buff;
-	cl_buf->len = tfw_ultoa(b_sz, cl_buf->data, TFW_ULTOA_BUF_SIZ);
-	if (unlikely(!cl_buf->len)) {
-		T_ERR_NL("Can't copy file %s: too big\n", filename);
-		goto err;
+	if (c_len_hdr) {
+		cl_buf->data = buff;
+		cl_buf->len = tfw_ultoa(b_sz, cl_buf->data, TFW_ULTOA_BUF_SIZ);
+		if (unlikely(!cl_buf->len)) {
+			T_ERR_NL("Can't copy file %s: too big\n", filename);
+			goto err;
+		}
+
+		c_len_hdr->len += cl_buf->len;
+		t_sz += c_len_hdr->len;
 	}
 
-	c_len_hdr->len += cl_buf->len;
-	t_sz = c_len_hdr->len + b_sz;
-	res = (char *)__get_free_pages(GFP_KERNEL, get_order(t_sz));
+	t_sz += b_sz;
+	b_start = res = (char *)__get_free_pages(GFP_KERNEL, get_order(t_sz));
 	if (!res) {
 		T_ERR_NL("Can't allocate memory storing file %s as response "
 			 "body\n", filename);
 		goto err_2;
 	}
 
-	tfw_str_to_cstr(c_len_hdr, res, t_sz);
-	b_start = res + c_len_hdr->len;
+	if (c_len_hdr) {
+		tfw_str_to_cstr(c_len_hdr, res, t_sz);
+		b_start += c_len_hdr->len;
+	}
 	memcpy_fast(b_start, body, b_sz);
 
 	*len = t_sz;
 	*body_offset = b_start - res;
 err_2:
-	c_len_hdr->len -= cl_buf->len;
+	if (c_len_hdr)
+		c_len_hdr->len -= cl_buf->len;
 err:
-	cl_buf->data = NULL;
-	cl_buf->len = 0;
 	free_pages((unsigned long)body, get_order(b_sz));
 
 	return res;
 }
 
 /**
- * Copy @filename content to allocated memory as compound of
- * `Content-length' header, crlfcrlf and message body. Memory is allocated
- * via __get_free_pages(), thus free_pages() must be used on cleanup;
+ * Copy @filename content to allocated memory. Memory is allocated
+ * via __get_free_pages(), thus free_pages() must be used on cleanup.
+ * Unlike in @__tfw_http_msg_body_dup() content-length header is not added
+ * to the body.
  * @len		- total length of body data including headers.
  */
 char *
 tfw_http_msg_body_dup(const char *filename, size_t *len)
 {
-	TfwStr c_len_hdr = {
-		.chunks = (TfwStr []){
-			{ .data = S_F_CONTENT_LENGTH,
-			  .len = SLEN(S_F_CONTENT_LENGTH) },
-			{ .data = NULL, .len = 0 },
-			{ .data = S_CRLFCRLF, .len = SLEN(S_CRLFCRLF) },
-		},
-		.len = SLEN(S_F_CONTENT_LENGTH S_CRLFCRLF),
-		.nchunks = 3
-	};
 	size_t b_off;
 
-	return __tfw_http_msg_body_dup(filename, &c_len_hdr, len, &b_off);
+	return __tfw_http_msg_body_dup(filename, NULL, len, &b_off);
 }
 
 
