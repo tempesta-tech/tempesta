@@ -5238,14 +5238,16 @@ next_msg:
 	 * Run frang checks first before any processing happen. Can't start
 	 * the checks earlier, since vhost and specific client is required
 	 * for frang checks.
-	 * TBD: if a request was received in a single skb, the only frang check
-	 * happens here. Looks like http tables are not protected with
-	 * anti-DDoS limits and attacker may stress http tables as long as they
-	 * wants till they gets 403 responses from us. Tempesta can be
-	 * configured to close the connection instead on sending 403 errors, but
-	 * such behaviour is not browser friendly and even may increase request
-	 * rate from browsers during "referer" attacks, since browser usually
-	 * retry failed and unreplied requests.
+	 *
+	 * If a request was received in a single skb, the only frang check
+	 * happens here. At the first sight it seems like http tables are not
+	 * protected with anti-DDoS limits and attackers may stress http tables
+	 * as long as they want till they get 403 responses from us. But
+	 * Tempesta closes connection every time it faces `block` action
+	 * in HTTP table, this causes attackers to open a new connection
+	 * for every new request. Connection rates limits usually much more
+	 * strict than request rates, so this attack path is closed by usual
+	 * frang configuration.
 	 */
 	r = tfw_gfsm_move(&conn->state, TFW_HTTP_FSM_REQ_MSG, &data_up);
 	T_DBG3("TFW_HTTP_FSM_REQ_MSG return code %d\n", r);
