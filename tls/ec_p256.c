@@ -20,7 +20,11 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
+#include "lib/str.h"
+#include "asn1.h"
+#include "bignum_asm.h"
 #include "ecp.h"
+#include "mpool.h"
 
 #define G_BITS		256
 #define G_LIMBS		(G_BITS / BIL)
@@ -755,7 +759,7 @@ ecp256_mul_comb_core(TlsEcpPoint *R, const TlsEcpPoint T[], unsigned char t_len,
  * a vector for SCAs.
  * Shrinking the array items allow to reduce TTLS_CSPOOL_ORDER.
  */
-TlsEcpPoint *
+static TlsEcpPoint *
 ttls_mpool_ecp_create_tmp_T(int n)
 {
 	int i, off;

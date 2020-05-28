@@ -411,8 +411,8 @@ static int x509_get_subject_alt_name(unsigned char **p,
 		if ((tag & TTLS_ASN1_TAG_CLASS_MASK) !=
 				TTLS_ASN1_CONTEXT_SPECIFIC)
 		{
-			return(TTLS_ERR_X509_INVALID_EXTENSIONS +
-		TTLS_ERR_ASN1_UNEXPECTED_TAG);
+			return TTLS_ERR_X509_INVALID_EXTENSIONS
+				+ TTLS_ERR_ASN1_UNEXPECTED_TAG;
 		}
 
 		/* Skip everything but DNS name */
@@ -423,17 +423,14 @@ static int x509_get_subject_alt_name(unsigned char **p,
 		}
 
 		/* Allocate and assign next pointer */
-		if (cur->buf.p != NULL)
-		{
-			if (cur->next != NULL)
-				return(TTLS_ERR_X509_INVALID_EXTENSIONS);
+		if (cur->buf.p) {
+			if (cur->next)
+				return TTLS_ERR_X509_INVALID_EXTENSIONS;
 
 			cur->next = kzalloc(sizeof(ttls_asn1_sequence),
 					    GFP_KERNEL);
-
-			if (cur->next == NULL)
-				return(TTLS_ERR_X509_INVALID_EXTENSIONS +
-			TTLS_ERR_ASN1_ALLOC_FAILED);
+			if (!cur->next)
+				return -ENOMEM;
 
 			cur = cur->next;
 		}

@@ -21,7 +21,9 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
+#include "lib/str.h"
 #include "ecp.h"
+#include "mpool.h"
 
 #define G_BITS		384
 #define G_LIMBS		(G_BITS / BIL)
@@ -558,7 +560,7 @@ ecp384_double_jac(TlsEcpPoint *R, const TlsEcpPoint *P)
 /*
  * Addition: R = P + Q, mixed affine-Jacobian coordinates (GECC 3.22)
  *
- * #TODO #1064: the implementation uses formula [8, "madd-2008-g"] and I'm not
+ * #TODO #1335: the implementation uses formula [8, "madd-2008-g"] and I'm not
  * sure if it's the most efficient one - [9] refernces another formula.
  *
  * The coordinates of Q must be normalized (= affine),
@@ -901,7 +903,7 @@ ecp384_mul_comb_core(TlsEcpPoint *R, const TlsEcpPoint T[], unsigned char t_len,
 	return 0;
 }
 
-TlsEcpPoint *
+static TlsEcpPoint *
 ttls_mpool_ecp_create_tmp_T(int n)
 {
 	int i, off;

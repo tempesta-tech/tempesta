@@ -80,7 +80,7 @@ static int pk_get_ecparams(unsigned char **p, const unsigned char *end,
  *	-- implicitCurve	NULL
  */
 static int
-pk_use_ecparams(const ttls_asn1_buf *params, TlsEcpGrp **grp)
+pk_use_ecparams(const ttls_asn1_buf *params, const TlsEcpGrp **grp)
 {
 	ttls_ecp_group_id grp_id;
 
@@ -504,12 +504,6 @@ pk_parse_key_sec1_der(TlsEcpKeypair *eck, const unsigned char *key,
 			ttls_ecp_keypair_free(eck);
 			return TTLS_ERR_PK_KEY_INVALID_FORMAT + r;
 		}
-	}
-
-	/* Finally check the keys. */
-	if (!pubkey_done && (r = eck->grp->mul_g(&eck->Q, &eck->d, false))) {
-		ttls_ecp_keypair_free(eck);
-		return TTLS_ERR_PK_KEY_INVALID_FORMAT + r;
 	}
 
 	return 0;
