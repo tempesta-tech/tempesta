@@ -2,7 +2,7 @@
  *		Tempesta FW
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -189,6 +189,8 @@ int __hdr_name_cmp(const TfwStr *hdr, const TfwStr *cmp_hdr);
 int __http_hdr_lookup(TfwHttpMsg *hm, const TfwStr *hdr);
 int tfw_h2_msg_rewrite_data(TfwHttpTransIter *mit, const TfwStr *str,
 			    const char *stop);
+
+int tfw_http_msg_insert(TfwMsgIter *it, char *off, const TfwStr *data);
 
 #define TFW_H2_MSG_HDR_ADD(hm, name, val, idx)				\
 	tfw_h2_msg_hdr_add(hm, name, sizeof(name) - 1, val,		\

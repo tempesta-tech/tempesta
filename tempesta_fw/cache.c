@@ -4,7 +4,7 @@
  * HTTP cache (RFC 7234).
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -744,9 +744,7 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 	int r, i;
 	TfwMsgIter *it;
 	TfwHttpResp *resp;
-	TfwFrameHdr frame_hdr;
 	struct sk_buff **skb_head;
-	unsigned char buf[FRAME_HEADER_SIZE];
 	unsigned int stream_id = 0;
 	unsigned long h_len = 0;
 	TdbVRec *trec = &ce->trec;
@@ -805,16 +803,8 @@ tfw_cache_send_304(TfwHttpReq *req, TfwCacheEntry *ce)
 		return;
 	}
 
-	if (h_len > FRAME_MAX_LENGTH)
+	if (tfw_h2_frame_local_resp(resp, stream_id, h_len, NULL))
 		goto err_setup;
-
-	frame_hdr.stream_id = stream_id;
-	frame_hdr.length = h_len;
-	frame_hdr.type = HTTP2_HEADERS;
-	frame_hdr.flags = HTTP2_F_END_HEADERS | HTTP2_F_END_STREAM;
-
-	tfw_h2_pack_frame_header(buf, &frame_hdr);
-	memcpy_fast((*skb_head)->data, buf, sizeof(buf));
 
 	tfw_h2_resp_fwd(resp);
 
@@ -1848,53 +1838,124 @@ tfw_cache_purge_method(TfwHttpReq *req)
 }
 
 /**
- * Build the message body as paged fragments of skb.
- * See do_tcp_sendpages() as reference.
+ * Add page from cache into response.
  */
 static int
-tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p)
+tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, TfwFrameHdr *frame_hdr,
+			bool h2, bool last_frag)
+{
+	int off;
+	struct page *page;
+
+	/*
+	 * @sz is guarantied to be bigger than FRAME_HEADER_SIZE if frame header
+	 * is stored in cache before data. True for first fragment.
+	 */
+	if (h2) {
+		char *new_p;
+		if (!(page = alloc_page(GFP_ATOMIC))) {
+			return -ENOMEM;
+		}
+		new_p = page_address(page);
+		off = 0;
+		frame_hdr->flags = last_frag ? HTTP2_F_END_STREAM : 0;
+		frame_hdr->length = sz;
+		memcpy_fast(new_p + FRAME_HEADER_SIZE, p, sz);
+		sz += FRAME_HEADER_SIZE;
+		tfw_h2_pack_frame_header(new_p, frame_hdr);
+	}
+	else {
+		off = ((unsigned long)p & ~PAGE_MASK);
+		page = virt_to_page(p);
+	}
+
+	skb_fill_page_desc(it->skb, it->frag, page, off, sz);
+	skb_frag_ref(it->skb, it->frag);
+	ss_skb_adjust_data_len(it->skb, sz);
+	++it->frag;
+
+	return 0;
+}
+
+/**
+ * Build the message body as paged fragments of skb.
+ * See do_tcp_sendpages() as reference.
+ *
+ * Different strategies are used to avoid extra data copying depending on
+ * client connection type:
+ * - for http connections - pages are reused in skbs and SKBTX_SHARED_FRAG is
+ * set to avoid any data copies.
+ * - for https connections - pages are reused in skbs and SKBTX_SHARED_FRAG is
+ * set, but in-place crypto operations are not allowed, so data copy happens
+ * right before data is pushed into network.
+ * - for h2 connections - every response has unique frame header, so need to
+ * copy on constructing response body from cache. SKBTX_SHARED_FRAG is left
+ * unset to allow in-place crypto operations.
+ *
+ * Since we can't encrypt shared data in-place we always copy it, so we need
+ * reserve some space in cached pages to avoid extra skb fragmentation. Since
+ * body fragments are stored in cache by pages with at least cache record
+ * header preceding, which is bigger than h2 frame header, it's always possible
+ * to fit body fragment and h2 header into a single page. So there is no need
+ * to actually reserve any space for h2 frame header.
+ */
+static int
+tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
+			  unsigned long body_sz, bool h2, unsigned int stream_id)
 {
 	int r;
+	TfwFrameHdr frame_hdr = {.stream_id = stream_id, .type = HTTP2_DATA};
+	bool sh_frag = h2 ? false : true;
 
 	if (WARN_ON_ONCE(!it->skb_head))
 		return -EINVAL;
 	/*
 	 * If all skbs/frags are used up (see @tfw_http_msg_expand_data()),
 	 * create new skb with empty frags to reference the cached body;
-	 * otherwise, use next empty frag in current skb.
+	 * otherwise, use next empty frag in current skb. Create a new skb, if
+	 * TX flags for headers and body differ.
 	 */
-	if (!it->skb) {
+	if (!it->skb || (++it->frag >= MAX_SKB_FRAGS)
+	    || (sh_frag ^ (skb_shinfo(it->skb)->tx_flags & SKBTX_SHARED_FRAG)))
+	{
 		if  ((r = tfw_msg_iter_append_skb(it)))
 			return r;
-	} else {
-		++it->frag;
-		if (it->frag >= MAX_SKB_FRAGS
-		    && (r = tfw_msg_iter_append_skb(it)))
-			return r;
+		if (!sh_frag)
+			skb_shinfo(it->skb)->tx_flags &= ~SKBTX_SHARED_FRAG;
+		else
+			skb_shinfo(it->skb)->tx_flags |= SKBTX_SHARED_FRAG;
 	}
-	BUG_ON(it->frag < 0);
+	if (WARN_ON_ONCE(it->frag < 0))
+		return -EINVAL;
 
 	while (1) {
 		int off, f_size;
 
-		/* TDB keeps data by pages and we can reuse the pages. */
 		off = (unsigned long)p & ~PAGE_MASK;
 		f_size = trec->data + trec->len - p;
 		if (f_size) {
-			skb_fill_page_desc(it->skb, it->frag, virt_to_page(p),
-					   off, f_size);
-			skb_frag_ref(it->skb, it->frag);
-			ss_skb_adjust_data_len(it->skb, f_size);
-			++it->frag;
+			f_size = min(body_sz, (unsigned long)f_size);
+			body_sz -= f_size;
+			r = tfw_cache_add_body_page(it, p, f_size, &frame_hdr,
+						    h2, !body_sz);
+			if (r)
+				return r;
 		}
-		if (!(trec = tdb_next_rec_chunk(db, trec)))
+		if (!body_sz || !(trec = tdb_next_rec_chunk(db, trec)))
 			break;
-		BUG_ON(trec && !f_size);
+		/*
+		 * Broken record: body is not fully copied yet, but there is
+		 * no data in the next record part.
+		 */
+		if (WARN_ON_ONCE(!trec->len))
+			return -EINVAL;
 		p = trec->data;
 
 		if (it->frag == MAX_SKB_FRAGS
 		    && (r = tfw_msg_iter_append_skb(it)))
+		{
 			return r;
+		}
 	}
 
 	return 0;
@@ -1979,16 +2040,15 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, time_t lifetime,
 		     unsigned int stream_id)
 {
 	int h;
+	TfwStr dummy_body = { 0 };
 	TfwMsgIter *it;
 	TfwHttpResp *resp;
-	char *p, *head_ptr;
+	char *p;
 	TfwHttpTransIter *mit;
-	TfwFrameHdr frame_hdr;
 	TDB *db = node_db();
 	unsigned long h_len = 0;
 	struct sk_buff **skb_head;
 	TdbVRec *trec = &ce->trec;
-	unsigned char buf[FRAME_HEADER_SIZE];
 	TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location, req->vhost,
 						    TFW_VHOST_HDRMOD_RESP);
 	/*
@@ -2074,46 +2134,22 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, time_t lifetime,
 
 	h_len += mit->acc_len;
 
-	if (h_len > FRAME_MAX_LENGTH || ce->body_len > FRAME_MAX_LENGTH)
-		goto free;
-
-	frame_hdr.stream_id = stream_id;
 	/*
-	 * Set header for HTTP/2 DATA frame, if body part of response
-	 * exists.
+	 * Split response to h2 frames. Don't write body with generic function,
+	 * just indicate that we have body for correct framing.
 	 */
-	if (ce->body_len) {
-		TfwStr h_body = {
-			.data = buf,
-			.len = sizeof(buf)
-		};
-
-		frame_hdr.length = ce->body_len;
-		frame_hdr.type = HTTP2_DATA;
-		frame_hdr.flags = HTTP2_F_END_STREAM;
-		tfw_h2_pack_frame_header(buf, &frame_hdr);
-
-		if (tfw_http_msg_expand_data(it, skb_head, &h_body, NULL))
-			goto free;
-	}
-
-	/* Set header for HTTP/2 HEADERS frame. */
-	frame_hdr.length = h_len;
-	frame_hdr.type = HTTP2_HEADERS;
-	frame_hdr.flags = HTTP2_F_END_HEADERS;
-
-	if (!ce->body_len)
-		frame_hdr.flags |= HTTP2_F_END_STREAM;
-
-	head_ptr = (*skb_head)->data;
-	tfw_h2_pack_frame_header(buf, &frame_hdr);
-	memcpy_fast(head_ptr, buf, sizeof(buf));
+	dummy_body.len = ce->body_len;
+	if (tfw_h2_frame_local_resp(resp, stream_id, h_len, &dummy_body))
+		goto free;
+	it->skb = ss_skb_peek_tail(&it->skb_head);
+	it->frag = skb_shinfo(it->skb)->nr_frags - 1;
 
 write_body:
 	/* Fill skb with body from cache for HTTP/2 or HTTP/1.1 response. */
 	BUG_ON(p != TDB_PTR(db->hdr, ce->body));
 	if (ce->body_len) {
-		if (tfw_cache_build_resp_body(db, trec, it, p))
+		if (tfw_cache_build_resp_body(db, trec, it, p, ce->body_len,
+					      TFW_MSG_H2(req), stream_id))
 			goto free;
 		if (!TFW_MSG_H2(req)
 		    && test_bit(TFW_HTTP_B_CHUNKED, resp->flags)
