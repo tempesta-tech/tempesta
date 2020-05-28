@@ -27,7 +27,7 @@ CFLAGS		= -std=gnu89 -DL1_CACHE_BYTES=$(CACHELINE) -mrdrnd -DNR_CPUS=1 \
 		  -Wno-unused-function -Warray-bounds=0 -fno-strict-aliasing \
 		  -I../../ktest -I../.. -I..
 
-TEST_CFLAGS	= -O0 -ggdb3
+TEST_CFLAGS	= -O0 -ggdb3 -DNO_RANDOM
 SPEED_CFLAGS	= -O2 -march=native -mtune=native -DNDEBUG
 
 ifdef DEBUG

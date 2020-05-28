@@ -70,11 +70,11 @@ ecp256_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
 	 *
 	 * pt coordinates must be normalized for our checks.
 	 */
-	if (ttls_mpi_cmp_mpi(&pt->X, &G_P) >= 0
-	    || ttls_mpi_cmp_mpi(&pt->Y, &G_P) >= 0)
+	if (ttls_mpi_cmp_mpi(&pt->X, &G.P) >= 0
+	    || ttls_mpi_cmp_mpi(&pt->Y, &G.P) >= 0)
 	{
 		T_DBG_MPI3("ECP invalid weierstrass public key",
-			   &pt->X, &pt->Y, &G_P);
+			   &pt->X, &pt->Y, &G.P);
 		return -EINVAL;
 	}
 
@@ -93,7 +93,7 @@ ecp256_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
 	MOD_SUB(RHS);
 
 	ecp256_mul_mod(RHS, RHS, &pt->X);
-	ttls_mpi_add_mpi(RHS, RHS, &G_B);
+	ttls_mpi_add_mpi(RHS, RHS, &G.B);
 	MOD_ADD(RHS);
 
 	if (ttls_mpi_cmp_mpi(YY, RHS)) {

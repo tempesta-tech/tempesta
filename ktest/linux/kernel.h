@@ -94,12 +94,12 @@ struct list_head {
 	struct list_head *next, *prev;
 };
 
-/**
- * Build a test with DEBUG to get constant output instead of the random.
- */
 static inline void
 get_random_bytes_arch(void *buf, int nbytes)
 {
+#ifdef NO_RANDOM
+	memset(buf, 0xAA, nbytes);
+#else
 	int failures = 0;
 	unsigned long long *pl;
 
@@ -118,6 +118,7 @@ get_random_bytes_arch(void *buf, int nbytes)
 			BUG_ON(failures++ > 10);
 		memcpy(buf, &l, nbytes);
 	}
+#endif
 }
 
 #define DUMP_PREFIX_OFFSET	0

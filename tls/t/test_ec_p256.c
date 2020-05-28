@@ -177,38 +177,38 @@ ecp_mul(void)
 	EXPECT_FALSE(!grp);
 	EXPECT_EQ(grp->id, TTLS_ECP_DP_SECP256R1);
 	EXPECT_EQ(grp->bits, 256);
-	EXPECT_EQ(G_P.used, 4);
-	EXPECT_EQ(G_P.limbs, 4);
-	EXPECT_EQ(G_P.s, 1);
-	EXPECT_MPI(&G_P, 4, 0xffffffffffffffffUL, 0xffffffffUL,
+	EXPECT_EQ(G.P.used, 4);
+	EXPECT_EQ(G.P.limbs, 4);
+	EXPECT_EQ(G.P.s, 1);
+	EXPECT_MPI(&G.P, 4, 0xffffffffffffffffUL, 0xffffffffUL,
 			    0, 0xffffffff00000001UL);
-	EXPECT_EQ(G_B.limbs, 4);
-	EXPECT_EQ(G_B.s, 1);
-	EXPECT_MPI(&G_B, 4, 0x3bce3c3e27d2604bUL, 0x651d06b0cc53b0f6UL,
+	EXPECT_EQ(G.B.limbs, 4);
+	EXPECT_EQ(G.B.s, 1);
+	EXPECT_MPI(&G.B, 4, 0x3bce3c3e27d2604bUL, 0x651d06b0cc53b0f6UL,
 			    0xb3ebbd55769886bcUL, 0x5ac635d8aa3a93e7);
-	EXPECT_EQ(G_N.limbs, 4);
-	EXPECT_EQ(G_N.s, 1);
-	EXPECT_MPI(&G_N, 4, 0xf3b9cac2fc632551UL, 0xbce6faada7179e84UL,
+	EXPECT_EQ(G.N.limbs, 4);
+	EXPECT_EQ(G.N.s, 1);
+	EXPECT_MPI(&G.N, 4, 0xf3b9cac2fc632551UL, 0xbce6faada7179e84UL,
 			    0xffffffffffffffffUL, 0xffffffff00000000UL);
-	EXPECT_EQ(G_G.X.limbs, 4);
-	EXPECT_EQ(G_G.X.s, 1);
-	EXPECT_MPI(&G_G.X, 4, 0xf4a13945d898c296UL, 0x77037d812deb33a0UL,
+	EXPECT_EQ(G.G.X.limbs, 4);
+	EXPECT_EQ(G.G.X.s, 1);
+	EXPECT_MPI(&G.G.X, 4, 0xf4a13945d898c296UL, 0x77037d812deb33a0UL,
 			      0xf8bce6e563a440f2UL, 0x6b17d1f2e12c4247UL);
-	EXPECT_EQ(G_G.Y.limbs, 4);
-	EXPECT_EQ(G_G.Y.s, 1);
-	EXPECT_MPI(&G_G.Y, 4, 0xcbb6406837bf51f5UL, 0x2bce33576b315eceUL,
+	EXPECT_EQ(G.G.Y.limbs, 4);
+	EXPECT_EQ(G.G.Y.s, 1);
+	EXPECT_MPI(&G.G.Y, 4, 0xcbb6406837bf51f5UL, 0x2bce33576b315eceUL,
 			      0x8ee7eb4a7c0f9e16UL, 0x4fe342e2fe1a7f9bUL);
-	EXPECT_EQ(G_G.Z.used, 1);
-	EXPECT_EQ(G_G.Z.limbs, grp->bits / BIL);
-	EXPECT_EQ(G_G.Z.s, 1);
-	EXPECT_EQ(MPI_P(&G_G.Z)[0], 1);
+	EXPECT_EQ(G.G.Z.used, 1);
+	EXPECT_EQ(G.G.Z.limbs, grp->bits / BIL);
+	EXPECT_EQ(G.G.Z.s, 1);
+	EXPECT_EQ(MPI_P(&G.G.Z)[0], 1);
 
 	/*
 	 * ECP test #1 (constant op_count, base point G).
 	 */
 	/* Do a dummy multiplication first to trigger precomputation */
 	ttls_mpi_lset(m, 2);
-	EXPECT_ZERO(grp->mul(P, m, &G_G, false));
+	EXPECT_ZERO(grp->mul(P, m, &G.G, false));
 	EXPECT_MPI(&P->X, 4, 0xa60b48fc47669978UL, 0xc08969e277f21b35UL,
 			     0x8a52380304b51ac3UL, 0x7cf27b188d034f7eUL);
 	EXPECT_MPI(&P->Y, 4, 0x9e04b79d227873d1UL, 0xba7dade63ce98229UL,
@@ -219,7 +219,7 @@ ecp_mul(void)
 	for (i = 0; i < ARRAY_SIZE(mc); i++) {
 		ttls_mpi_read_binary(m, mc[i].m, 32);
 
-		EXPECT_ZERO(grp->mul(R, m, &G_G, false));
+		EXPECT_ZERO(grp->mul(R, m, &G.G, false));
 		EXPECT_MPI(&R->X, 4, mc[i].Xg[0], mc[i].Xg[1],
 				     mc[i].Xg[2], mc[i].Xg[3]);
 		EXPECT_MPI(&R->Y, 4, mc[i].Yg[0], mc[i].Yg[1],

@@ -32,51 +32,64 @@
 #define G_BITS		254
 #define G_LIMBS		((G_BITS + 7) / BIL)
 
-/* P = 2^255 - 19 */
-static const unsigned long c25519_p[] = {
-	0xffffffffffffffedUL, 0xffffffffffffffffUL,
-	0xffffffffffffffffUL, 0x7fffffffffffffffUL
-};
-static const unsigned long c25519_a[] = {
-	0x1db42UL, 0, 0, 0
-};
-static const unsigned long c25519_gx[] = {
-	0x9UL, 0, 0, 0
-};
-static const unsigned long c25519_gz[] = {
-	0x1UL, 0, 0, 0
-};
+static const struct {
+	unsigned long	c25519_p[G_LIMBS];
+	unsigned long	c25519_a[G_LIMBS];
+	unsigned long	c25519_gx[G_LIMBS];
+	unsigned long	c25519_gz[G_LIMBS];
 
-static const TlsMpi G_P = {
-	.s	= 1,
-	.used	= G_LIMBS,
-	.limbs	= G_LIMBS,
-	._off	= -4 * (short)(G_LIMBS * CIL)
-};
-static const TlsMpi G_A = {
-	.s	= 1,
-	.used	= 1,
-	.limbs	= G_LIMBS,
-	._off	= -3 * (short)(G_LIMBS * CIL) - 1 * (short)sizeof(TlsMpi)
-};
-static const TlsMpi __ALIGN_PLACEHOLDER[2] = {}; // TODO #1335 remove me
-static const TlsEcpPoint G_G = {
-	/*
-	 * Y intentionaly isn't set, since we use x/z coordinates.
-	 * This is used as a marker to identify Montgomery curves -
-	 * see ecp_get_type().
-	 */
-	.X = {
+	TlsMpi		P;
+	TlsMpi		A;
+	TlsMpi		__align_placeholder[2];
+	TlsEcpPoint	G;
+} ____cacheline_aligned __attribute__((packed)) G = {
+	/* P = 2^255 - 19 */
+	.c25519_p = {
+		0xffffffffffffffedUL, 0xffffffffffffffffUL,
+		0xffffffffffffffffUL, 0x7fffffffffffffffUL
+	},
+	.c25519_a = {
+		0x1db42UL, 0, 0, 0
+	},
+	.c25519_gx = {
+		0x9UL, 0, 0, 0
+	},
+	.c25519_gz = {
+		0x1UL, 0, 0, 0
+	},
+	.P = {
 		.s	= 1,
 		.used	= G_LIMBS,
 		.limbs	= G_LIMBS,
-		._off	= -2 * (short)(G_LIMBS * CIL) - 4 * (short)sizeof(TlsMpi)
+		._off	= -4 * (short)(G_LIMBS * CIL)
 	},
-	.Z = {
+	.A = {
 		.s	= 1,
 		.used	= 1,
 		.limbs	= G_LIMBS,
-		._off	= -1 * (short)(G_LIMBS * CIL) - 5 * (short)sizeof(TlsMpi)
+		._off	= -3 * (short)(G_LIMBS * CIL) - 1 * (short)sizeof(TlsMpi)
+	},
+	.__align_placeholder = {},
+	.G = {
+		/*
+		 * Y intentionaly isn't set, since we use x/z coordinates.
+		 * This is used as a marker to identify Montgomery curves -
+		 * see ecp_get_type().
+		 */
+		.X = {
+			.s	= 1,
+			.used	= G_LIMBS,
+			.limbs	= G_LIMBS,
+			._off	= -2 * (short)(G_LIMBS * CIL)
+				  - 4 * (short)sizeof(TlsMpi)
+		},
+		.Z = {
+			.s	= 1,
+			.used	= 1,
+			.limbs	= G_LIMBS,
+			._off	= -1 * (short)(G_LIMBS * CIL)
+				  - 5 * (short)sizeof(TlsMpi)
+		}
 	}
 };
 
@@ -98,7 +111,7 @@ static inline void
 MOD_SUB(TlsMpi *N)
 {
 	while ((N)->s < 0 && ttls_mpi_cmp_int(N, 0))
-		ttls_mpi_add_mpi(N, N, &G_P);
+		ttls_mpi_add_mpi(N, N, &G.P);
 }
 
 /*
@@ -109,8 +122,8 @@ MOD_SUB(TlsMpi *N)
 static inline void
 MOD_ADD(TlsMpi *N)
 {
-	while (ttls_mpi_cmp_mpi(N, &G_P) >= 0)
-		ttls_mpi_sub_abs(N, N, &G_P);
+	while (ttls_mpi_cmp_mpi(N, &G.P) >= 0)
+		ttls_mpi_sub_abs(N, N, &G.P);
 }
 
 /**
@@ -163,11 +176,11 @@ c25519_mul_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 		ecp_mod_p255(X);
 
 	while (X->s < 0 && ttls_mpi_cmp_int(X, 0))
-		ttls_mpi_add_mpi(X, X, &G_P);
+		ttls_mpi_add_mpi(X, X, &G.P);
 
-	while (ttls_mpi_cmp_mpi(X, &G_P) >= 0)
+	while (ttls_mpi_cmp_mpi(X, &G.P) >= 0)
 		/* We known P, N and the result are positive. */
-		ttls_mpi_sub_abs(X, X, &G_P);
+		ttls_mpi_sub_abs(X, X, &G.P);
 }
 
 #define ecp_sqr_mod(X, A)	c25519_mul_mod(X, A, A)
@@ -179,7 +192,7 @@ c25519_mul_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 static int
 ecp_normalize_mxz(TlsEcpPoint *P)
 {
-	MPI_CHK(ttls_mpi_inv_mod(&P->Z, &P->Z, &G_P));
+	MPI_CHK(ttls_mpi_inv_mod(&P->Z, &P->Z, &G.P));
 	c25519_mul_mod(&P->X, &P->X, &P->Z);
 	ttls_mpi_lset(&P->Z, 1);
 
@@ -206,7 +219,7 @@ ecp_randomize_mxz(TlsEcpPoint *P)
 	do {
 		ttls_mpi_fill_random(l, p_size);
 
-		while (ttls_mpi_cmp_mpi(l, &G_P) >= 0)
+		while (ttls_mpi_cmp_mpi(l, &G.P) >= 0)
 			ttls_mpi_shift_r(l, 1);
 
 		if (count++ > 10)
@@ -276,7 +289,7 @@ ecp_double_add_mxz(TlsEcpPoint *R, TlsEcpPoint *S, const TlsEcpPoint *P,
 	ecp_sqr_mod(&S->Z, &S->Z);
 	c25519_mul_mod(&S->Z, &S->Z, d);
 	c25519_mul_mod(&R->X, AA, BB);
-	c25519_mul_mod(&R->Z, &G_A, E);
+	c25519_mul_mod(&R->Z, &G.A, E);
 	ttls_mpi_add_mpi(&R->Z, BB, &R->Z);
 	MOD_ADD(&R->Z);
 	c25519_mul_mod(&R->Z, &R->Z, E);
@@ -344,7 +357,7 @@ ecp_mul_mxz(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P, bool rng)
 static int
 ecp_mul_mxz_g(TlsEcpPoint *R, const TlsMpi *m, bool rnd)
 {
-	return ecp_mul_mxz(R, m, &G_G, rnd);
+	return ecp_mul_mxz(R, m, &G.G, rnd);
 }
 
 /**
