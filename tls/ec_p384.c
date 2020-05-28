@@ -26,72 +26,89 @@
 #define G_BITS		384
 #define G_LIMBS		(G_BITS / BIL)
 
-/*
- * Domain parameters for secp384r1.
- * The constants are in little-endian order to be directly copied into MPIs.
- */
-static const unsigned long secp384r1_p[] = {
-	0xffffffffUL, 0xffffffff00000000UL, 0xfffffffffffffffeUL,
-	0xffffffffffffffffUL, 0xffffffffffffffffUL, 0xffffffffffffffffUL
-};
-static const unsigned long secp384r1_b[] = {
-	0x2a85c8edd3ec2aefUL, 0xc656398d8a2ed19dUL, 0x0314088f5013875aUL,
-	0x181d9c6efe814112UL, 0x988e056be3f82d19UL, 0xb3312fa7e23ee7e4UL
-};
-static const unsigned long secp384r1_gx[] = {
-	0x3a545e3872760ab7UL, 0x5502f25dbf55296cUL, 0x59f741e082542a38UL,
-	0x6e1d3b628ba79b98UL, 0x8eb1c71ef320ad74UL, 0xaa87ca22be8b0537UL
-};
-static const unsigned long secp384r1_gy[] = {
-	0x7a431d7c90ea0e5fUL, 0x0a60b1ce1d7e819dUL, 0xe9da3113b5f0b8c0UL,
-	0xf8f41dbd289a147cUL, 0x5d9e98bf9292dc29UL, 0x3617de4a96262c6fUL
-};
-static const unsigned long secp384r1_n[] = {
-	0xecec196accc52973UL, 0x581a0db248b0a77aUL, 0xc7634d81f4372ddfUL,
-	0xffffffffffffffffUL, 0xffffffffffffffffUL, 0xffffffffffffffffUL
-};
+static const struct {
+	unsigned long	secp384r1_p[G_LIMBS];
+	unsigned long	secp384r1_b[G_LIMBS];
+	unsigned long	secp384r1_n[G_LIMBS];
+	unsigned long	secp384r1_gx[G_LIMBS];
+	unsigned long	secp384r1_gy[G_LIMBS];
+	unsigned long	secp384r1_gz[G_LIMBS];
 
-/* TODO #1335: throw out the MPI and use the arrays directly. */
-static const unsigned long secp384r1_gz[] = {
-	1, 0, 0, 0, 0, 0
-};
-static const TlsMpi G_P = {
-	.s	= 1,
-	.used	= G_LIMBS,
-	.limbs	= G_LIMBS,
-	._off	= -6 * (short)(G_LIMBS * CIL)
-};
-static const TlsMpi G_B = {
-	.s	= 1,
-	.used	= G_LIMBS,
-	.limbs	= G_LIMBS,
-	._off	= -5 * (short)(G_LIMBS * CIL) - (short)sizeof(TlsMpi)
-};
-static const TlsMpi G_N = {
-	.s	= 1,
-	.used	= G_LIMBS,
-	.limbs	= G_LIMBS,
-	._off	= -4 * (short)(G_LIMBS * CIL) - 2 * (short)sizeof(TlsMpi)
-};
-static const TlsMpi __ALIGN_PLACEHOLDER = {}; // TODO #1335 320 bytes alignment
-static const TlsEcpPoint G_G = {
-	.X = {
+	TlsMpi		P;
+	TlsMpi		B;
+	TlsMpi		N;
+	TlsMpi		__align_placeholder;
+	TlsEcpPoint	G;
+} ____cacheline_aligned __attribute__((packed)) G = {
+	/*
+	 * Domain parameters for secp384r1.
+	 * The constants are in little-endian order to be directly
+	 * copied into MPIs.
+	 */
+	.secp384r1_p = {
+		0xffffffffUL, 0xffffffff00000000UL, 0xfffffffffffffffeUL,
+		0xffffffffffffffffUL, 0xffffffffffffffffUL, 0xffffffffffffffffUL
+	},
+	.secp384r1_b = {
+		0x2a85c8edd3ec2aefUL, 0xc656398d8a2ed19dUL, 0x0314088f5013875aUL,
+		0x181d9c6efe814112UL, 0x988e056be3f82d19UL, 0xb3312fa7e23ee7e4UL
+	},
+	.secp384r1_gx = {
+		0x3a545e3872760ab7UL, 0x5502f25dbf55296cUL, 0x59f741e082542a38UL,
+		0x6e1d3b628ba79b98UL, 0x8eb1c71ef320ad74UL, 0xaa87ca22be8b0537UL
+	},
+	.secp384r1_gy = {
+		0x7a431d7c90ea0e5fUL, 0x0a60b1ce1d7e819dUL, 0xe9da3113b5f0b8c0UL,
+		0xf8f41dbd289a147cUL, 0x5d9e98bf9292dc29UL, 0x3617de4a96262c6fUL
+	},
+	.secp384r1_n = {
+		0xecec196accc52973UL, 0x581a0db248b0a77aUL, 0xc7634d81f4372ddfUL,
+		0xffffffffffffffffUL, 0xffffffffffffffffUL, 0xffffffffffffffffUL
+	},
+	.secp384r1_gz = {
+		1, 0, 0, 0, 0, 0
+	},
+	.P = {
 		.s	= 1,
 		.used	= G_LIMBS,
 		.limbs	= G_LIMBS,
-		._off	= -3 * (short)(G_LIMBS * CIL) - 4 * (short)sizeof(TlsMpi)
+		._off	= -6 * (short)(G_LIMBS * CIL)
 	},
-	.Y = {
+	.B = {
 		.s	= 1,
 		.used	= G_LIMBS,
 		.limbs	= G_LIMBS,
-		._off	= -2 * (short)(G_LIMBS * CIL) - 5 * (short)sizeof(TlsMpi)
+		._off	= -5 * (short)(G_LIMBS * CIL) - (short)sizeof(TlsMpi)
 	},
-	.Z = {
+	.N = {
 		.s	= 1,
-		.used	= 1,
+		.used	= G_LIMBS,
 		.limbs	= G_LIMBS,
-		._off	= -1 * (short)(G_LIMBS * CIL) - 6 * (short)sizeof(TlsMpi)
+		._off	= -4 * (short)(G_LIMBS * CIL) - 2 * (short)sizeof(TlsMpi)
+	},
+	.__align_placeholder = {},
+	.G = {
+		.X = {
+			.s	= 1,
+			.used	= G_LIMBS,
+			.limbs	= G_LIMBS,
+			._off	= -3 * (short)(G_LIMBS * CIL)
+				  - 4 * (short)sizeof(TlsMpi)
+		},
+		.Y = {
+			.s	= 1,
+			.used	= G_LIMBS,
+			.limbs	= G_LIMBS,
+			._off	= -2 * (short)(G_LIMBS * CIL)
+				  - 5 * (short)sizeof(TlsMpi)
+		},
+		.Z = {
+			.s	= 1,
+			.used	= 1,
+			.limbs	= G_LIMBS,
+			._off	= -1 * (short)(G_LIMBS * CIL)
+				  - 6 * (short)sizeof(TlsMpi)
+		}
 	}
 };
 
@@ -276,7 +293,7 @@ ecp384_mod(TlsMpi *N)
  */
 #define MOD_SUB(N)							\
 	while ((N)->s < 0 && ttls_mpi_cmp_int(N, 0))			\
-		ttls_mpi_add_mpi(N, N, &G_P)
+		ttls_mpi_add_mpi(N, N, &G.P)
 
 /*
  * Reduce a TlsMpi mod p in-place, to use after ttls_mpi_add_mpi().
@@ -284,8 +301,8 @@ ecp384_mod(TlsMpi *N)
  * a bit faster.
  */
 #define MOD_ADD(N)							\
-	while (ttls_mpi_cmp_mpi(N, &G_P) >= 0)				\
-		ttls_mpi_sub_abs(N, N, &G_P)
+	while (ttls_mpi_cmp_mpi(N, &G.P) >= 0)				\
+		ttls_mpi_sub_abs(N, N, &G.P)
 
 /*
  * For curves in short Weierstrass form, we do all the internal operations in
@@ -314,11 +331,11 @@ ecp384_modp(TlsMpi *N)
 		ecp384_mod(N);
 
 	while (N->s < 0 && ttls_mpi_cmp_int(N, 0))
-		ttls_mpi_add_mpi(N, N, &G_P);
+		ttls_mpi_add_mpi(N, N, &G.P);
 
-	while (ttls_mpi_cmp_mpi(N, &G_P) >= 0)
+	while (ttls_mpi_cmp_mpi(N, &G.P) >= 0)
 		/* We known P, N and the result are positive. */
-		ttls_mpi_sub_abs(N, N, &G_P);
+		ttls_mpi_sub_abs(N, N, &G.P);
 }
 
 static void
@@ -349,7 +366,7 @@ ecp384_normalize_jac(TlsEcpPoint *pt)
 	ZZi = ttls_mpi_alloc_stack_init(G_LIMBS * 2);
 
 	/* X = X / Z^2  mod p */
-	MPI_CHK(ttls_mpi_inv_mod(Zi, &pt->Z, &G_P));
+	MPI_CHK(ttls_mpi_inv_mod(Zi, &pt->Z, &G.P));
 	ecp_sqr_mod(ZZi, Zi);
 	ecp_mul_mod(&pt->X, &pt->X, ZZi);
 
@@ -409,7 +426,7 @@ do {									\
 	}
 
 	/* u = 1 / (Z_0 * ... * Z_n) mod P */
-	TTLS_MPI_CHK(ttls_mpi_inv_mod(u, &c[t_len - 1], &G_P));
+	TTLS_MPI_CHK(ttls_mpi_inv_mod(u, &c[t_len - 1], &G.P));
 
 	for (i = t_len - 1; i >= 0; i--) {
 		/*
@@ -452,7 +469,7 @@ ecp384_safe_invert_jac(TlsEcpPoint *Q, unsigned char inv)
 	TlsMpi *mQY = ttls_mpi_alloc_stack_init(G_LIMBS);
 
 	/* Use the fact that -Q.Y mod P = P - Q.Y unless Q.Y == 0 */
-	ttls_mpi_sub_mpi(mQY, &G_P, &Q->Y);
+	ttls_mpi_sub_mpi(mQY, &G.P, &Q->Y);
 	nonzero = !!ttls_mpi_cmp_int(&Q->Y, 0);
 
 	ttls_mpi_safe_cond_assign(&Q->Y, mQY, inv & nonzero);
@@ -667,7 +684,7 @@ ecp384_randomize_jac(TlsEcpPoint *pt)
 	do {
 		ttls_mpi_fill_random(&l, p_size);
 
-		while (ttls_mpi_cmp_mpi(&l, &G_P) >= 0)
+		while (ttls_mpi_cmp_mpi(&l, &G.P) >= 0)
 			ttls_mpi_shift_r(&l, 1);
 
 		if (count++ > 10)
@@ -959,8 +976,8 @@ ecp384_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P, bool rnd)
 	 * Just adding one avoids upping the cost of the first mul too much,
 	 * and the memory cost too.
 	 */
-	p_eq_g = !ttls_mpi_cmp_mpi(&P->Y, &G_G.Y)
-		 && !ttls_mpi_cmp_mpi(&P->X, &G_G.X);
+	p_eq_g = !ttls_mpi_cmp_mpi(&P->Y, &G.G.Y)
+		 && !ttls_mpi_cmp_mpi(&P->X, &G.G.X);
 	if (p_eq_g) {
 		w++;
 		T = combT_G; /* TODO #1335 we won't change it */
@@ -990,14 +1007,14 @@ ecp384_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P, bool rnd)
 	if (p_eq_g) {
 		if (!T) {
 			/* TODO check consistency of the points. */
-			if (WARN_ON_ONCE(ttls_mpi_get_bit(&G_N, 0) != 1))
+			if (WARN_ON_ONCE(ttls_mpi_get_bit(&G.N, 0) != 1))
 				return -EINVAL;
-			BUILD_BUG_ON(MPI_P(&G_P) != secp384r1_p);
-			BUILD_BUG_ON(MPI_P(&G_B) != secp384r1_b);
-			BUILD_BUG_ON(MPI_P(&G_N) != secp384r1_n);
-			BUILD_BUG_ON(MPI_P(&G_G.X) != secp384r1_gx);
-			BUILD_BUG_ON(MPI_P(&G_G.Y) != secp384r1_gy);
-			BUILD_BUG_ON(MPI_P(&G_G.Z) != secp384r1_gz);
+			BUILD_BUG_ON(MPI_P(&G.P) != G.secp384r1_p);
+			BUILD_BUG_ON(MPI_P(&G.B) != G.secp384r1_b);
+			BUILD_BUG_ON(MPI_P(&G.N) != G.secp384r1_n);
+			BUILD_BUG_ON(MPI_P(&G.G.X) != G.secp384r1_gx);
+			BUILD_BUG_ON(MPI_P(&G.G.Y) != G.secp384r1_gy);
+			BUILD_BUG_ON(MPI_P(&G.G.Z) != G.secp384r1_gz);
 
 			combT_G = ttls_mpool_ecp_create_tmp_T(TTLS_ECP_WINDOW_SIZE);
 			if (!combT_G)
@@ -1015,7 +1032,7 @@ ecp384_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P, bool rnd)
 	 */
 	m_is_odd = (ttls_mpi_get_bit(m, 0) == 1);
 	ttls_mpi_copy(M, m);
-	ttls_mpi_sub_mpi(mm, &G_N, m);
+	ttls_mpi_sub_mpi(mm, &G.N, m);
 	ttls_mpi_safe_cond_assign(M, mm, !m_is_odd);
 
 	/* Go for comb multiplication, R = M * P */
@@ -1033,7 +1050,7 @@ ecp384_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P, bool rnd)
 static int
 ecp384_mul_comb_g(TlsEcpPoint *R, const TlsMpi *m, bool rnd)
 {
-	return ecp384_mul_comb(R, m, &G_G, rnd);
+	return ecp384_mul_comb(R, m, &G.G, rnd);
 }
 
 /**
@@ -1049,7 +1066,7 @@ ecp384_mul_shortcuts(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P)
 	else if (!ttls_mpi_cmp_int(m, -1)) {
 		ttls_ecp_copy(R, P);
 		if (ttls_mpi_cmp_int(&R->Y, 0))
-			ttls_mpi_sub_mpi(&R->Y, &G_P, &R->Y);
+			ttls_mpi_sub_mpi(&R->Y, &G.P, &R->Y);
 	}
 	else {
 		return ecp384_mul_comb(R, m, P, false);
@@ -1077,7 +1094,7 @@ ecp384_muladd(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *Q,
 	mP = ttls_mpool_alloc_stack(sizeof(TlsEcpPoint));
 	ttls_ecp_point_init(mP);
 
-	MPI_CHK(ecp384_mul_shortcuts(mP, m, &G_G));
+	MPI_CHK(ecp384_mul_shortcuts(mP, m, &G.G));
 	MPI_CHK(ecp384_mul_shortcuts(R, n, Q));
 	MPI_CHK(ecp384_add_mixed(R, mP, R));
 	MPI_CHK(ecp384_normalize_jac(R));
@@ -1118,7 +1135,7 @@ ecp384_gen_keypair(TlsMpi *d, TlsEcpPoint *Q)
 		 */
 		if (WARN_ON_ONCE(++count > 10))
 			return TTLS_ERR_ECP_RANDOM_FAILED;
-	} while (!ttls_mpi_cmp_int(d, 0) || ttls_mpi_cmp_mpi(d, &G_N) >= 0);
+	} while (!ttls_mpi_cmp_int(d, 0) || ttls_mpi_cmp_mpi(d, &G.N) >= 0);
 
 	return ecp384_mul_comb_g(Q, d, true);
 }
@@ -1136,8 +1153,8 @@ derive_mpi(TlsMpi *x, const unsigned char *buf, size_t blen)
 	ttls_mpi_read_binary(x, buf, use_size);
 
 	/* While at it, reduce modulo N */
-	if (ttls_mpi_cmp_mpi(x, &G_N) >= 0)
-		ttls_mpi_sub_mpi(x, x, &G_N);
+	if (ttls_mpi_cmp_mpi(x, &G.N) >= 0)
+		ttls_mpi_sub_mpi(x, x, &G.N);
 }
 
 /**
@@ -1181,7 +1198,7 @@ ecp384_ecdsa_sign(const TlsMpi *d, const unsigned char *hash, size_t hlen,
 		key_tries = 0;
 		do {
 			MPI_CHK(ecp384_gen_keypair(k, R));
-			ttls_mpi_mod_mpi(r, &R->X, &G_N);
+			ttls_mpi_mod_mpi(r, &R->X, &G.N);
 
 			if (key_tries++ > 10)
 				return TTLS_ERR_ECP_RANDOM_FAILED;
@@ -1202,16 +1219,16 @@ ecp384_ecdsa_sign(const TlsMpi *d, const unsigned char *hash, size_t hlen,
 			if (++blind_tries > 10)
 				return TTLS_ERR_ECP_RANDOM_FAILED;
 		} while (ttls_mpi_cmp_int(t, 1) < 0
-			 || ttls_mpi_cmp_mpi(t, &G_N) >= 0);
+			 || ttls_mpi_cmp_mpi(t, &G.N) >= 0);
 
 		/* Compute s = (e + r * d) / k = t (e + rd) / (kt) mod n */
 		ttls_mpi_mul_mpi(s, r, d);
 		ttls_mpi_add_mpi(e, e, s);
 		ttls_mpi_mul_mpi(e, e, t);
 		ttls_mpi_mul_mpi(k, k, t);
-		ttls_mpi_inv_mod(s, k, &G_N);
+		ttls_mpi_inv_mod(s, k, &G.N);
 		ttls_mpi_mul_mpi(s, s, e);
-		ttls_mpi_mod_mpi(s, s, &G_N);
+		ttls_mpi_mod_mpi(s, s, &G.N);
 
 		if (sign_tries++ > 10)
 			return TTLS_ERR_ECP_RANDOM_FAILED;
@@ -1250,19 +1267,19 @@ ecp384_ecdsa_verify(const unsigned char *buf, size_t blen, const TlsEcpPoint *Q,
 	ttls_ecp_point_init(R);
 
 	/* Step 1: make sure r and s are in range 1..n-1 */
-	if (ttls_mpi_cmp_int(r, 1) < 0 || ttls_mpi_cmp_mpi(r, &G_N) >= 0
-	    || ttls_mpi_cmp_int(s, 1) < 0 || ttls_mpi_cmp_mpi(s, &G_N) >= 0)
+	if (ttls_mpi_cmp_int(r, 1) < 0 || ttls_mpi_cmp_mpi(r, &G.N) >= 0
+	    || ttls_mpi_cmp_int(s, 1) < 0 || ttls_mpi_cmp_mpi(s, &G.N) >= 0)
 		return TTLS_ERR_ECP_VERIFY_FAILED;
 
 	/* Step 3: derive MPI from hashed message. */
 	derive_mpi(e, buf, blen);
 
 	/* Step 4: u1 = e / s mod n, u2 = r / s mod n */
-	MPI_CHK(ttls_mpi_inv_mod(s_inv, s, &G_N));
+	MPI_CHK(ttls_mpi_inv_mod(s_inv, s, &G.N));
 	ttls_mpi_mul_mpi(u1, e, s_inv);
-	ttls_mpi_mod_mpi(u1, u1, &G_N);
+	ttls_mpi_mod_mpi(u1, u1, &G.N);
 	ttls_mpi_mul_mpi(u2, r, s_inv);
-	ttls_mpi_mod_mpi(u2, u2, &G_N);
+	ttls_mpi_mod_mpi(u2, u2, &G.N);
 
 	/*
 	 * Step 5: R = u1 G + u2 Q
@@ -1278,7 +1295,7 @@ ecp384_ecdsa_verify(const unsigned char *buf, size_t blen, const TlsEcpPoint *Q,
 	 * Step 6: convert xR to an integer (no-op)
 	 * Step 7: reduce xR mod n (gives v)
 	 */
-	ttls_mpi_mod_mpi(&R->X, &R->X, &G_N);
+	ttls_mpi_mod_mpi(&R->X, &R->X, &G.N);
 
 	/* Step 8: check if v (that is, R.X) is equal to r. */
 	return ttls_mpi_cmp_mpi(&R->X, r);

@@ -25,70 +25,86 @@
 #define G_BITS		256
 #define G_LIMBS		(G_BITS / BIL)
 
-/*
- * Domain parameters for secp256r1 (prime256v1) - generalized Mersenne primes.
- */
-static const unsigned long secp256r1_p[] = {
-	0xffffffffffffffffUL, 0xffffffffUL, 0UL, 0xffffffff00000001UL
-};
-static const unsigned long secp256r1_b[] = {
-	0x3bce3c3e27d2604bUL, 0x651d06b0cc53b0f6UL,
-	0xb3ebbd55769886bcUL, 0x5ac635d8aa3a93e7UL
-};
-static const unsigned long secp256r1_n[] = {
-	0xf3b9cac2fc632551UL, 0xbce6faada7179e84UL,
-	0xffffffffffffffffUL, 0xffffffff00000000UL
-};
-static const unsigned long secp256r1_gx[] = {
-	0xf4a13945d898c296UL, 0x77037d812deb33a0UL,
-	0xf8bce6e563a440f2UL, 0x6b17d1f2e12c4247UL
-};
-static const unsigned long secp256r1_gy[] = {
-	0xcbb6406837bf51f5UL, 0x2bce33576b315eceUL,
-	0x8ee7eb4a7c0f9e16UL, 0x4fe342e2fe1a7f9bUL
-};
+static const struct {
+	unsigned long	secp256r1_p[G_LIMBS];
+	unsigned long	secp256r1_b[G_LIMBS];
+	unsigned long	secp256r1_n[G_LIMBS];
+	unsigned long	secp256r1_gx[G_LIMBS];
+	unsigned long	secp256r1_gy[G_LIMBS];
+	unsigned long	secp256r1_gz[G_LIMBS];
 
-/* TODO #1064: throw out the MPI and use the arrays directly. */
-static const unsigned long secp256r1_gz[] = {
-	1, 0, 0, 0
-};
-static const TlsMpi G_P = {
-	.s	= 1,
-	.used	= G_LIMBS,
-	.limbs	= G_LIMBS,
-	._off	= -6 * (short)(G_LIMBS * CIL)
-};
-static const TlsMpi G_B = {
-	.s	= 1,
-	.used	= G_LIMBS,
-	.limbs	= G_LIMBS,
-	._off	= -5 * (short)(G_LIMBS * CIL) - (short)sizeof(TlsMpi)
-};
-static const TlsMpi G_N = {
-	.s	= 1,
-	.used	= G_LIMBS,
-	.limbs	= G_LIMBS,
-	._off	= -4 * (short)(G_LIMBS * CIL) - 2 * (short)sizeof(TlsMpi)
-};
-static const TlsMpi __ALIGN_PLACEHOLDER = {}; // TODO #1064 remove me
-static const TlsEcpPoint G_G = {
-	.X = {
+	TlsMpi		P;
+	TlsMpi		B;
+	TlsMpi		N;
+	TlsMpi		__align_placeholder;
+	TlsEcpPoint	G;
+} ____cacheline_aligned __attribute__((packed)) G = {
+	/*
+	 * Domain parameters for secp256r1 (prime256v1) - generalized Mersenne primes.
+	 */
+	.secp256r1_p = {
+		0xffffffffffffffffUL, 0xffffffffUL, 0UL, 0xffffffff00000001UL
+	},
+	.secp256r1_b = {
+		0x3bce3c3e27d2604bUL, 0x651d06b0cc53b0f6UL,
+		0xb3ebbd55769886bcUL, 0x5ac635d8aa3a93e7UL
+	},
+	.secp256r1_n = {
+		0xf3b9cac2fc632551UL, 0xbce6faada7179e84UL,
+		0xffffffffffffffffUL, 0xffffffff00000000UL
+	},
+	.secp256r1_gx = {
+		0xf4a13945d898c296UL, 0x77037d812deb33a0UL,
+		0xf8bce6e563a440f2UL, 0x6b17d1f2e12c4247UL
+	},
+	.secp256r1_gy = {
+		0xcbb6406837bf51f5UL, 0x2bce33576b315eceUL,
+		0x8ee7eb4a7c0f9e16UL, 0x4fe342e2fe1a7f9bUL
+	},
+	.secp256r1_gz = {
+		1, 0, 0, 0
+	},
+	.P = {
 		.s	= 1,
 		.used	= G_LIMBS,
 		.limbs	= G_LIMBS,
-		._off	= -3 * (short)(G_LIMBS * CIL) - 4 * (short)sizeof(TlsMpi)
+		._off	= -6 * (short)(G_LIMBS * CIL)
 	},
-	.Y = {
+	.B = {
 		.s	= 1,
 		.used	= G_LIMBS,
 		.limbs	= G_LIMBS,
-		._off	= -2 * (short)(G_LIMBS * CIL) - 5 * (short)sizeof(TlsMpi)
+		._off	= -5 * (short)(G_LIMBS * CIL) - (short)sizeof(TlsMpi)
 	},
-	.Z = {
+	.N = {
 		.s	= 1,
-		.used	= 1,
+		.used	= G_LIMBS,
 		.limbs	= G_LIMBS,
-		._off	= -1 * (short)(G_LIMBS * CIL) - 6 * (short)sizeof(TlsMpi)
+		._off	= -4 * (short)(G_LIMBS * CIL) - 2 * (short)sizeof(TlsMpi)
+	},
+	.__align_placeholder = {},
+	.G = {
+		.X = {
+			.s	= 1,
+			.used	= G_LIMBS,
+			.limbs	= G_LIMBS,
+			._off	= -3 * (short)(G_LIMBS * CIL)
+				  - 4 * (short)sizeof(TlsMpi)
+		},
+		.Y = {
+			.s	= 1,
+			.used	= G_LIMBS,
+			.limbs	= G_LIMBS,
+			._off	= -2 * (short)(G_LIMBS * CIL)
+				  - 5 * (short)sizeof(TlsMpi)
+		},
+		.Z = {
+			.s	= 1,
+			.used	= 1,
+			.limbs	= G_LIMBS,
+			._off	= -1 * (short)(G_LIMBS * CIL)
+				  - 6 * (short)sizeof(TlsMpi)
+		}
 	}
 };
 
@@ -115,7 +131,7 @@ static inline void
 MOD_SUB(TlsMpi *N)
 {
 	while ((N)->s < 0 && ttls_mpi_cmp_int(N, 0))
-		ttls_mpi_add_mpi(N, N, &G_P);
+		ttls_mpi_add_mpi(N, N, &G.P);
 }
 
 /*
@@ -126,8 +142,8 @@ MOD_SUB(TlsMpi *N)
 static inline void
 MOD_ADD(TlsMpi *N)
 {
-	while (ttls_mpi_cmp_mpi(N, &G_P) >= 0)
-		ttls_mpi_sub_abs(N, N, &G_P);
+	while (ttls_mpi_cmp_mpi(N, &G.P) >= 0)
+		ttls_mpi_sub_abs(N, N, &G.P);
 }
 
 /*
@@ -188,7 +204,7 @@ ecp256_normalize_jac(TlsEcpPoint *pt)
 	ZZi = ttls_mpi_alloc_stack_init(G_LIMBS * 2);
 
 	/* X = X / Z^2  mod p */
-	MPI_CHK(ttls_mpi_inv_mod(Zi, &pt->Z, &G_P));
+	MPI_CHK(ttls_mpi_inv_mod(Zi, &pt->Z, &G.P));
 	ecp256_sqr_mod(ZZi, Zi);
 	ecp256_mul_mod(&pt->X, &pt->X, ZZi);
 
@@ -248,7 +264,7 @@ do {									\
 	}
 
 	/* u = 1 / (Z_0 * ... * Z_n) mod P */
-	TTLS_MPI_CHK(ttls_mpi_inv_mod(u, &c[t_len - 1], &G_P));
+	TTLS_MPI_CHK(ttls_mpi_inv_mod(u, &c[t_len - 1], &G.P));
 
 	for (i = t_len - 1; i >= 0; i--) {
 		/*
@@ -291,7 +307,7 @@ ecp256_safe_invert_jac(TlsEcpPoint *Q, unsigned char inv)
 	TlsMpi *mQY = ttls_mpi_alloc_stack_init(G_LIMBS);
 
 	/* Use the fact that -Q.Y mod P = P - Q.Y unless Q.Y == 0 */
-	ttls_mpi_sub_mpi(mQY, &G_P, &Q->Y);
+	ttls_mpi_sub_mpi(mQY, &G.P, &Q->Y);
 	nonzero = !!ttls_mpi_cmp_int(&Q->Y, 0);
 
 	ttls_mpi_safe_cond_assign(&Q->Y, mQY, inv & nonzero);
@@ -504,7 +520,7 @@ ecp256_randomize_jac(TlsEcpPoint *pt)
 	do {
 		ttls_mpi_fill_random(&l, p_size);
 
-		while (ttls_mpi_cmp_mpi(&l, &G_P) >= 0)
+		while (ttls_mpi_cmp_mpi(&l, &G.P) >= 0)
 			ttls_mpi_shift_r(&l, 1);
 
 		if (count++ > 10)
@@ -825,8 +841,8 @@ ecp256_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P, bool rnd)
 	 * Just adding one avoids upping the cost of the first mul too much,
 	 * and the memory cost too.
 	 */
-	p_eq_g = !ttls_mpi_cmp_mpi(&P->Y, &G_G.Y)
-		 && !ttls_mpi_cmp_mpi(&P->X, &G_G.X);
+	p_eq_g = !ttls_mpi_cmp_mpi(&P->Y, &G.G.Y)
+		 && !ttls_mpi_cmp_mpi(&P->X, &G.G.X);
 	if (p_eq_g) {
 		w += 3;
 		T = combT_G; /* TODO #1064 we won't change it */
@@ -873,14 +889,14 @@ ecp256_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P, bool rnd)
 		 */
 		if (!T) {
 			/* TODO check consistency of the points. */
-			if (WARN_ON_ONCE(ttls_mpi_get_bit(&G_N, 0) != 1))
+			if (WARN_ON_ONCE(ttls_mpi_get_bit(&G.N, 0) != 1))
 				return -EINVAL;
-			BUILD_BUG_ON(MPI_P(&G_P) != secp256r1_p);
-			BUILD_BUG_ON(MPI_P(&G_B) != secp256r1_b);
-			BUILD_BUG_ON(MPI_P(&G_N) != secp256r1_n);
-			BUILD_BUG_ON(MPI_P(&G_G.X) != secp256r1_gx);
-			BUILD_BUG_ON(MPI_P(&G_G.Y) != secp256r1_gy);
-			BUILD_BUG_ON(MPI_P(&G_G.Z) != secp256r1_gz);
+			BUILD_BUG_ON(MPI_P(&G.P) != G.secp256r1_p);
+			BUILD_BUG_ON(MPI_P(&G.B) != G.secp256r1_b);
+			BUILD_BUG_ON(MPI_P(&G.N) != G.secp256r1_n);
+			BUILD_BUG_ON(MPI_P(&G.G.X) != G.secp256r1_gx);
+			BUILD_BUG_ON(MPI_P(&G.G.Y) != G.secp256r1_gy);
+			BUILD_BUG_ON(MPI_P(&G.G.Z) != G.secp256r1_gz);
 
 			combT_G = ttls_mpool_ecp_create_tmp_T(TTLS_ECP_WINDOW_SIZE);
 			if (!combT_G)
@@ -898,7 +914,7 @@ ecp256_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P, bool rnd)
 	 */
 	m_is_odd = (ttls_mpi_get_bit(m, 0) == 1);
 	ttls_mpi_copy(M, m);
-	ttls_mpi_sub_mpi(mm, &G_N, m);
+	ttls_mpi_sub_mpi(mm, &G.N, m);
 	ttls_mpi_safe_cond_assign(M, mm, !m_is_odd);
 
 	/* Go for comb multiplication, R = M * P */
@@ -919,7 +935,7 @@ ecp256_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P, bool rnd)
 static int
 ecp256_mul_comb_g(TlsEcpPoint *R, const TlsMpi *m, bool rnd)
 {
-	return ecp256_mul_comb(R, m, &G_G, rnd);
+	return ecp256_mul_comb(R, m, &G.G, rnd);
 }
 
 /**
@@ -935,7 +951,7 @@ ecp256_mul_shortcuts(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P)
 	else if (!ttls_mpi_cmp_int(m, -1)) {
 		ttls_ecp_copy(R, P);
 		if (ttls_mpi_cmp_int(&R->Y, 0))
-			ttls_mpi_sub_mpi(&R->Y, &G_P, &R->Y);
+			ttls_mpi_sub_mpi(&R->Y, &G.P, &R->Y);
 	}
 	else {
 		return ecp256_mul_comb(R, m, P, false);
@@ -963,7 +979,7 @@ ecp256_muladd(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *Q,
 	mP = ttls_mpool_alloc_stack(sizeof(TlsEcpPoint));
 	ttls_ecp_point_init(mP);
 
-	MPI_CHK(ecp256_mul_shortcuts(mP, m, &G_G));
+	MPI_CHK(ecp256_mul_shortcuts(mP, m, &G.G));
 	MPI_CHK(ecp256_mul_shortcuts(R, n, Q));
 	MPI_CHK(ecp256_add_mixed(R, mP, R));
 	MPI_CHK(ecp256_normalize_jac(R));
@@ -1004,7 +1020,7 @@ ecp256_gen_keypair(TlsMpi *d, TlsEcpPoint *Q)
 		 */
 		if (WARN_ON_ONCE(++count > 10))
 			return TTLS_ERR_ECP_RANDOM_FAILED;
-	} while (!ttls_mpi_cmp_int(d, 0) || ttls_mpi_cmp_mpi(d, &G_N) >= 0);
+	} while (!ttls_mpi_cmp_int(d, 0) || ttls_mpi_cmp_mpi(d, &G.N) >= 0);
 
 	return ecp256_mul_comb_g(Q, d, true);
 }
@@ -1022,8 +1038,8 @@ derive_mpi(TlsMpi *x, const unsigned char *buf, size_t blen)
 	ttls_mpi_read_binary(x, buf, use_size);
 
 	/* While at it, reduce modulo N */
-	if (ttls_mpi_cmp_mpi(x, &G_N) >= 0)
-		ttls_mpi_sub_mpi(x, x, &G_N);
+	if (ttls_mpi_cmp_mpi(x, &G.N) >= 0)
+		ttls_mpi_sub_mpi(x, x, &G.N);
 }
 
 /**
@@ -1067,7 +1083,7 @@ ecp256_ecdsa_sign(const TlsMpi *d, const unsigned char *hash, size_t hlen,
 		key_tries = 0;
 		do {
 			MPI_CHK(ecp256_gen_keypair(k, R));
-			ttls_mpi_mod_mpi(r, &R->X, &G_N);
+			ttls_mpi_mod_mpi(r, &R->X, &G.N);
 
 			if (key_tries++ > 10)
 				return TTLS_ERR_ECP_RANDOM_FAILED;
@@ -1088,16 +1104,16 @@ ecp256_ecdsa_sign(const TlsMpi *d, const unsigned char *hash, size_t hlen,
 			if (++blind_tries > 10)
 				return TTLS_ERR_ECP_RANDOM_FAILED;
 		} while (ttls_mpi_cmp_int(t, 1) < 0
-			 || ttls_mpi_cmp_mpi(t, &G_N) >= 0);
+			 || ttls_mpi_cmp_mpi(t, &G.N) >= 0);
 
 		/* Compute s = (e + r * d) / k = t (e + rd) / (kt) mod n */
 		ttls_mpi_mul_mpi(s, r, d);
 		ttls_mpi_add_mpi(e, e, s);
 		ttls_mpi_mul_mpi(e, e, t);
 		ttls_mpi_mul_mpi(k, k, t);
-		ttls_mpi_inv_mod(s, k, &G_N);
+		ttls_mpi_inv_mod(s, k, &G.N);
 		ttls_mpi_mul_mpi(s, s, e);
-		ttls_mpi_mod_mpi(s, s, &G_N);
+		ttls_mpi_mod_mpi(s, s, &G.N);
 
 		if (sign_tries++ > 10)
 			return TTLS_ERR_ECP_RANDOM_FAILED;
@@ -1136,19 +1152,19 @@ ecp256_ecdsa_verify(const unsigned char *buf, size_t blen, const TlsEcpPoint *Q,
 	ttls_ecp_point_init(R);
 
 	/* Step 1: make sure r and s are in range 1..n-1 */
-	if (ttls_mpi_cmp_int(r, 1) < 0 || ttls_mpi_cmp_mpi(r, &G_N) >= 0
-	    || ttls_mpi_cmp_int(s, 1) < 0 || ttls_mpi_cmp_mpi(s, &G_N) >= 0)
+	if (ttls_mpi_cmp_int(r, 1) < 0 || ttls_mpi_cmp_mpi(r, &G.N) >= 0
+	    || ttls_mpi_cmp_int(s, 1) < 0 || ttls_mpi_cmp_mpi(s, &G.N) >= 0)
 		return TTLS_ERR_ECP_VERIFY_FAILED;
 
 	/* Step 3: derive MPI from hashed message. */
 	derive_mpi(e, buf, blen);
 
 	/* Step 4: u1 = e / s mod n, u2 = r / s mod n */
-	MPI_CHK(ttls_mpi_inv_mod(s_inv, s, &G_N));
+	MPI_CHK(ttls_mpi_inv_mod(s_inv, s, &G.N));
 	ttls_mpi_mul_mpi(u1, e, s_inv);
-	ttls_mpi_mod_mpi(u1, u1, &G_N);
+	ttls_mpi_mod_mpi(u1, u1, &G.N);
 	ttls_mpi_mul_mpi(u2, r, s_inv);
-	ttls_mpi_mod_mpi(u2, u2, &G_N);
+	ttls_mpi_mod_mpi(u2, u2, &G.N);
 
 	/*
 	 * Step 5: R = u1 G + u2 Q
@@ -1164,7 +1180,7 @@ ecp256_ecdsa_verify(const unsigned char *buf, size_t blen, const TlsEcpPoint *Q,
 	 * Step 6: convert xR to an integer (no-op)
 	 * Step 7: reduce xR mod n (gives v)
 	 */
-	ttls_mpi_mod_mpi(&R->X, &R->X, &G_N);
+	ttls_mpi_mod_mpi(&R->X, &R->X, &G.N);
 
 	/* Step 8: check if v (that is, R.X) is equal to r. */
 	return ttls_mpi_cmp_mpi(&R->X, r);
