@@ -4112,7 +4112,7 @@ do {									\
 
 /**
  * Split response body stored locally. Allocate a new skb and put body there
- * by fragments. Every skb fragment is has size of single page and has frame
+ * by fragments. Every skb fragment has size of single page and has frame
  * header at the beginning. Just like body constructed in
  * @tfw_cache_build_resp_body().
  *
@@ -5238,12 +5238,12 @@ next_msg:
 	 * Run frang checks first before any processing happen. Can't start
 	 * the checks earlier, since vhost and specific client is required
 	 * for frang checks.
-	 * TDB: if a request was received in a single skb, the only frang check
+	 * TBD: if a request was received in a single skb, the only frang check
 	 * happens here. Looks like http tables are not protected with
-	 * anti-DDoS limits and attacker may stress http tables as long as he
-	 * wants till he gets 403 responses from us. Tempesta can be configured
-	 * to close the connection instead on sending 403 errors, but such
-	 * behaviour is not browser friendly and even may increase request
+	 * anti-DDoS limits and attacker may stress http tables as long as they
+	 * wants till they gets 403 responses from us. Tempesta can be
+	 * configured to close the connection instead on sending 403 errors, but
+	 * such behaviour is not browser friendly and even may increase request
 	 * rate from browsers during "referer" attacks, since browser usually
 	 * retry failed and unreplied requests.
 	 */
@@ -6200,7 +6200,7 @@ tfw_http_set_common_body(int status_code, char *new_length, size_t l_size,
  * @len		- total length of body data including headers.
  * @body_offset	- the body offset in result;
  */
-char *
+static char *
 __tfw_http_msg_body_dup(const char *filename, TfwStr *c_len_hdr, size_t *len,
 			size_t *body_offset)
 {
