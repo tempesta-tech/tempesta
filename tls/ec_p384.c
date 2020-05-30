@@ -867,7 +867,7 @@ ecp384_mul_comb_core(TlsEcpPoint *R, const TlsEcpPoint T[], unsigned char t_len,
 	ttls_mpi_alloc(&R->Z, G_LIMBS + 1);
 
 	/*
-	 * We operate with precimputed table which is significantly smaller
+	 * We operate with precomputed table which is significantly smaller
 	 * than L1d cache - for secp384 and w=6:
 	 *
 	 *	(sizeof(ECP)=(3 * 8) + 3 * 48) * (1 << (w - 1)) = 5376

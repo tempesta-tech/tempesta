@@ -191,7 +191,7 @@ main(int argc, char *argv[])
 	}
 
 	bm_ecdsa_sign_p256();
-	bm_ecdhe_srv_p256();
+	//bm_ecdhe_srv_p256();
 
 	ttls_mpool_exit();
 

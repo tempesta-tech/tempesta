@@ -208,7 +208,7 @@ ecp_mul(void)
 	 */
 	/* Do a dummy multiplication first to trigger precomputation */
 	ttls_mpi_lset(m, 2);
-	EXPECT_ZERO(grp->mul(P, m, &G.G, false));
+	EXPECT_ZERO(ecp256_mul_comb_g(P, m, false));
 	EXPECT_MPI(&P->X, 4, 0xa60b48fc47669978UL, 0xc08969e277f21b35UL,
 			     0x8a52380304b51ac3UL, 0x7cf27b188d034f7eUL);
 	EXPECT_MPI(&P->Y, 4, 0x9e04b79d227873d1UL, 0xba7dade63ce98229UL,
@@ -218,13 +218,6 @@ ecp_mul(void)
 
 	for (i = 0; i < ARRAY_SIZE(mc); i++) {
 		ttls_mpi_read_binary(m, mc[i].m, 32);
-
-		EXPECT_ZERO(grp->mul(R, m, &G.G, false));
-		EXPECT_MPI(&R->X, 4, mc[i].Xg[0], mc[i].Xg[1],
-				     mc[i].Xg[2], mc[i].Xg[3]);
-		EXPECT_MPI(&R->Y, 4, mc[i].Yg[0], mc[i].Yg[1],
-				     mc[i].Yg[2], mc[i].Yg[3]);
-		EXPECT_MPI(&R->Z, 1, 1);
 
 		EXPECT_ZERO(ecp256_mul_comb_g(R, m, false));
 		EXPECT_MPI(&R->X, 4, mc[i].Xg[0], mc[i].Xg[1],
