@@ -113,8 +113,8 @@ static const struct {
 };
 
 /* Static precomputed table for the group generator. */
+static TlsEcpPoint *combT_G;
 //static TlsEcpPoint combT_G[TTLS_ECP_WINDOW_SIZE];
-static TlsEcpPoint *combT_G = NULL;
 static DEFINE_PER_CPU(TlsEcpPoint *, combT);
 
 /*
@@ -248,9 +248,6 @@ do {									\
 	int i, ret = 0;
 	unsigned long *p_limbs;
 	TlsMpi *u, *Zi, *ZZi, *c;
-
-	WARN_ON_ONCE(t_len < 2);
-	BUG_ON(t_len > TTLS_ECP_WINDOW_SIZE);
 
 	c = ttls_mpool_alloc_stack((sizeof(TlsMpi) + G_LIMBS * 2 * CIL) * t_len);
 	u = ttls_mpi_alloc_stack_init(G_LIMBS * 2);
@@ -548,9 +545,6 @@ ecp256_randomize_jac(TlsEcpPoint *pt)
 	return 0;
 }
 
-/* d = ceil(n / w) */
-#define COMB_MAX_D	  (TTLS_ECP_MAX_BITS + 1) / 2
-
 /*
  * Compute the representation of m that will be used with our comb method.
  *
@@ -615,11 +609,11 @@ ecp256_comb_fixed(unsigned char x[], size_t d, unsigned char w, const TlsMpi *m)
  * Cost: d(w-1) D + (2^{w-1} - 1) A + 1 N(w-1) + 1 N(2^{w-1} - 1)
  */
 int
-ecp256_precompute_comb(TlsEcpPoint T[], const TlsEcpPoint *P, unsigned char w,
+ecp256_precompute_comb(TlsEcpPoint T[], const TlsEcpPoint *P, size_t w,
 		       size_t d)
 {
 	int i, j, k;
-	TlsEcpPoint *cur, *TT[TTLS_ECP_WINDOW_SIZE];
+	TlsEcpPoint *cur, *TT[1U << (w - 1)];
 
 	/*
 	 * Set T[0] = P and T[2^{i-1}] = 2^{di} P for i = 1 .. w-1
@@ -633,6 +627,8 @@ ecp256_precompute_comb(TlsEcpPoint T[], const TlsEcpPoint *P, unsigned char w,
 		ttls_ecp_copy(cur, T + (i >> 1));
 		for (j = 0; j < d; j++)
 			/*
+			 * cur->Z will be non-1 after the operation.
+			 *
 			 * TODO #1064 use repeated doubling optimization.
 			 * E.g. see sp_256_proj_point_dbl_n_store_avx2_4() and
 			 * sp_256_proj_point_dbl_n_avx2_4() from WolfSSL.
@@ -641,7 +637,7 @@ ecp256_precompute_comb(TlsEcpPoint T[], const TlsEcpPoint *P, unsigned char w,
 
 		TT[k++] = cur;
 	}
-	BUG_ON(!k || k >= TTLS_ECP_WINDOW_ORDER);
+	BUG_ON(!k || k >= (1U << (w - 1)));
 
 	MPI_CHK(ecp256_normalize_jac_many(TT, k));
 
@@ -693,7 +689,7 @@ ecp256_select_comb(TlsEcpPoint *R, const TlsEcpPoint T[], unsigned char t_len,
  * Cost: d A + d D + 1 R
  */
 static int
-ecp256_mul_comb_core(TlsEcpPoint *R, const TlsEcpPoint T[], unsigned char t_len,
+ecp256_mul_comb_core(TlsEcpPoint *R, const TlsEcpPoint T[], size_t t_len,
 		     const unsigned char x[], size_t d, bool rnd)
 {
 	TlsEcpPoint *Txi;
@@ -705,10 +701,10 @@ ecp256_mul_comb_core(TlsEcpPoint *R, const TlsEcpPoint T[], unsigned char t_len,
 	ttls_mpi_alloc(&R->Z, G_LIMBS + 1);
 
 	/*
-	 * We operate with precimputed table which is significantly smaller
-	 * than L1d cache - for secp384 and w=6:
+	 * We operate with precomputed table which is significantly smaller
+	 * than L1d cache - for secp256 and w=7:
 	 *
-	 *	(sizeof(ECP)=(3 * 8) + 3 * 48) * (1 << (w - 1)) = 5376
+	 *	(sizeof(ECP)=(3 * 8) + 3 * 32) * (1 << (w - 1)) = 7680
 	 *
 	 * Also there is no preemption and point doubling and addition
 	 * aren't memory hungry, so once read T resides in L1d cache and
@@ -760,7 +756,7 @@ ecp256_mul_comb_core(TlsEcpPoint *R, const TlsEcpPoint T[], unsigned char t_len,
  * Shrinking the array items allow to reduce TTLS_CSPOOL_ORDER.
  */
 static TlsEcpPoint *
-ttls_mpool_ecp_create_tmp_T(int n)
+ttls_mpool_ecp_create_tmp_T(size_t n)
 {
 	int i, off;
 	TlsEcpPoint *T;
@@ -823,94 +819,37 @@ ttls_mpool_ecp_create_tmp_T(int n)
 static int
 ecp256_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P, bool rnd)
 {
-	unsigned char w, m_is_odd, p_eq_g, pre_len;
-	size_t d = G_LIMBS;
-	TlsEcpPoint *T;
-	TlsMpi *M, *mm;
-	unsigned char k[COMB_MAX_D + 1];
-
-	M = ttls_mpi_alloc_stack_init(d);
-	mm = ttls_mpi_alloc_stack_init(d);
-
 	/*
 	 * Minimize the number of multiplications, that is minimize
 	 * 10 * d * w + 18 * 2^(w-1) + 11 * d + 7 * w, with d = ceil(bits / w)
 	 * (see costs of the various parts, with 1S = 1M).
 	 * TODO #1064 make sure that w size is the best one.
 	 */
-	w = 4; /* TODO #1064: grp->bits == 384 ? 5 : 4; */
+	static const unsigned char W = 4;
+	static const unsigned char W_SZ = 1U << (W - 1);
+	static const size_t D = (G_BITS + W - 1) / W;
+	static const size_t COMB_MAX_D = G_BITS / 2 + 1;
 
-	/*
-	 * If P == G, pre-compute a bit more, since this may be re-used later.
-	 * Just adding one avoids upping the cost of the first mul too much,
-	 * and the memory cost too.
-	 */
-	p_eq_g = !ttls_mpi_cmp_mpi(&P->Y, &G.G.Y)
-		 && !ttls_mpi_cmp_mpi(&P->X, &G.G.X);
-	if (p_eq_g) {
-		w += 3;
-		T = combT_G; /* TODO #1064 we won't change it */
-	} else {
-		T = *this_cpu_ptr(&combT);
-		if (!T) { // #TODO #1064 benchmark - check SINGLE allocation!
-			if (!(T = ttls_mpool_ecp_create_tmp_T(1 << (w - 1))))
-				return -ENOMEM;
-			*this_cpu_ptr(&combT) = T;
-		}
+	unsigned char m_is_odd;
+	TlsEcpPoint *T = *this_cpu_ptr(&combT);
+	TlsMpi *M, *mm;
+	unsigned char k[COMB_MAX_D];
+
+	M = ttls_mpi_alloc_stack_init(G_LIMBS);
+	mm = ttls_mpi_alloc_stack_init(G_LIMBS);
+
+	BUILD_BUG_ON(D >= COMB_MAX_D);
+	// TODO #1064 remove the assertion after tests.
+	WARN_ON_ONCE(!ttls_mpi_cmp_mpi(&P->Y, &G.G.Y)
+		     && !ttls_mpi_cmp_mpi(&P->X, &G.G.X));
+
+	if (!T) {
+		if (!(T = ttls_mpool_ecp_create_tmp_T(W_SZ)))
+			return -ENOMEM;
+		*this_cpu_ptr(&combT) = T;
 	}
-	WARN_ON_ONCE(w > TTLS_ECP_WINDOW_ORDER);
 
-	/* Other sizes that depend on w */
-	pre_len = 1U << (w - 1);
-	if (WARN_ON_ONCE(pre_len > TTLS_ECP_WINDOW_SIZE))
-		return -EINVAL;
-	d = (G_BITS + w - 1) / w;
-	BUG_ON(d > COMB_MAX_D);
-
-	/*
-	 * Compute T if it wasn't precomputed for the case.
-	 * ecp256_precompute_comb() is good with uninitialized T.
-	 *
-	 * TODO #1064: remove this branch after ttls_ecp_mul_g().
-	 */
-	if (p_eq_g) {
-		/*
-		 * Prepare precomputed points to use them in ecp_mul_comb().
-		 *
-		 * TODO #1064 replace the precomputation with static table to
-		 * improve spacial locality.
-		 * Can we precompute more data to save cycles on ecp_mul_comb_core()?
-		 * Probably wNAF should be used here.
-		 * It seems we can use fixed-base comb method with two tables instead
-		 * of the generic comb precomputation...
-		 * see M.Brown, D.Hankerson, J.Lopez, A.Menezes, "Software
-		 * implementation of the NIST elliptic curves over prime fields".
-		 * Fixed-base comb (GECC 3.44) with w=6 requres about 41*A + 21*D
-		 * time which is much larger than OpenSSL's 36*A (like GECC 3.42).
-		 * w=4 gives even worse 59*A + 31*D time.
-		 *
-		 * => ?? 5. AVX2 - 4 points in parallel in OpenSSL - learn more
-		 */
-		if (!T) {
-			/* TODO check consistency of the points. */
-			if (WARN_ON_ONCE(ttls_mpi_get_bit(&G.N, 0) != 1))
-				return -EINVAL;
-			BUILD_BUG_ON(MPI_P(&G.P) != G.secp256r1_p);
-			BUILD_BUG_ON(MPI_P(&G.B) != G.secp256r1_b);
-			BUILD_BUG_ON(MPI_P(&G.N) != G.secp256r1_n);
-			BUILD_BUG_ON(MPI_P(&G.G.X) != G.secp256r1_gx);
-			BUILD_BUG_ON(MPI_P(&G.G.Y) != G.secp256r1_gy);
-			BUILD_BUG_ON(MPI_P(&G.G.Z) != G.secp256r1_gz);
-
-			combT_G = ttls_mpool_ecp_create_tmp_T(TTLS_ECP_WINDOW_SIZE);
-			if (!combT_G)
-				return -ENOMEM;
-			T = combT_G;
-			MPI_CHK(ecp256_precompute_comb(T, P, w, d));
-		}
-	} else {
-		MPI_CHK(ecp256_precompute_comb(T, P, w, d));
-	}
+	MPI_CHK(ecp256_precompute_comb(T, P, W, D));
 
 	/*
 	 * Make sure M is odd (M = m or M = N - m, since N is odd)
@@ -922,8 +861,8 @@ ecp256_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P, bool rnd)
 	ttls_mpi_safe_cond_assign(M, mm, !m_is_odd);
 
 	/* Go for comb multiplication, R = M * P */
-	ecp256_comb_fixed(k, d, w, M);
-	MPI_CHK(ecp256_mul_comb_core(R, T, pre_len, k, d, rnd));
+	ecp256_comb_fixed(k, D, W, M);
+	MPI_CHK(ecp256_mul_comb_core(R, T, W_SZ, k, D, rnd));
 
 	/* Now get m * P from M * P and normalize it. */
 	ecp256_safe_invert_jac(R, !m_is_odd);
@@ -933,13 +872,79 @@ ecp256_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P, bool rnd)
 }
 
 /**
- * TODO #1064: Specialization for R = m * G.
+ * The specialization for R = m * G.
+ *
  * TODO #1064: Do we need coordinates randomization?
  */
 static int
 ecp256_mul_comb_g(TlsEcpPoint *R, const TlsMpi *m, bool rnd)
 {
-	return ecp256_mul_comb(R, m, &G.G, rnd);
+	/*
+	 * Minimize the number of multiplications, that is minimize
+	 * 10 * d * w + 18 * 2^(w-1) + 11 * d + 7 * w, with d = ceil(bits / w)
+	 * (see costs of the various parts, with 1S = 1M).
+	 * TODO #1064 make sure that w=TTLS_ECP_WINDOW_ORDER size is the best one.
+	 */
+	static const size_t W = 7;
+	static const size_t W_SZ = 1U << (W - 1);
+	static const size_t D = (G_BITS + W - 1) / W; // 37
+	static const size_t COMB_MAX_D = G_BITS / 2 + 1;
+
+	unsigned char m_is_odd;
+	TlsMpi *M, *mm;
+	unsigned char k[COMB_MAX_D];
+
+	BUILD_BUG_ON(D >= COMB_MAX_D);
+
+	M = ttls_mpi_alloc_stack_init(G_LIMBS);
+	mm = ttls_mpi_alloc_stack_init(G_LIMBS);
+
+	/*
+	 * Compute T if it wasn't precomputed for the case.
+	 * ecp256_precompute_comb() is good with uninitialized T.
+	 */
+	/*
+	 * Prepare precomputed points to use them in ecp_mul_comb().
+	 *
+	 * TODO #1064 replace the precomputation with static table to
+	 * improve spacial locality.
+	 * Can we precompute more data to save cycles on ecp_mul_comb_core()?
+	 * Probably wNAF should be used here.
+	 * It seems we can use fixed-base comb method with two tables instead
+	 * of the generic comb precomputation...
+	 * see M.Brown, D.Hankerson, J.Lopez, A.Menezes, "Software
+	 * implementation of the NIST elliptic curves over prime fields".
+	 * Fixed-base comb (GECC 3.44) with w=6 requres about 41*A + 21*D
+	 * time which is much larger than OpenSSL's 36*A (like GECC 3.42).
+	 * w=4 gives even worse 59*A + 31*D time.
+	 *
+	 * => ?? 5. AVX2 - 4 points in parallel in OpenSSL - learn more
+	 */
+	if (!combT_G) {
+		if (!(combT_G = ttls_mpool_ecp_create_tmp_T(W_SZ)))
+			return -ENOMEM;
+		MPI_CHK(ecp256_precompute_comb(combT_G, &G.G, W, D));
+	}
+
+	/*
+	 * Make sure M is odd (M = m or M = N - m, since N is odd)
+	 * using the fact that m * P = - (N - m) * P
+	 */
+	m_is_odd = (ttls_mpi_get_bit(m, 0) == 1);
+	ttls_mpi_copy(M, m);
+	ttls_mpi_sub_mpi(mm, &G.N, m);
+	ttls_mpi_safe_cond_assign(M, mm, !m_is_odd);
+
+	/* Go for comb multiplication, R = M * G */
+	ecp256_comb_fixed(k, D, W, M);
+	MPI_CHK(ecp256_mul_comb_core(R, combT_G, W_SZ, k, D, rnd));
+
+	/* Now get m * G from M * G and normalize it. */
+	ecp256_safe_invert_jac(R, !m_is_odd);
+	MPI_CHK(ecp256_normalize_jac(R));
+
+	return 0;
+
 }
 
 /**
@@ -951,17 +956,18 @@ ecp256_mul_shortcuts(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P)
 {
 	if (!ttls_mpi_cmp_int(m, 1)) {
 		ttls_ecp_copy(R, P);
+		return 0;
 	}
-	else if (!ttls_mpi_cmp_int(m, -1)) {
+
+	if (!ttls_mpi_cmp_int(m, -1)) {
 		ttls_ecp_copy(R, P);
 		if (ttls_mpi_cmp_int(&R->Y, 0))
 			ttls_mpi_sub_mpi(&R->Y, &G.P, &R->Y);
-	}
-	else {
-		return ecp256_mul_comb(R, m, P, false);
+		return 0;
 	}
 
-	return 0;
+	return P ? ecp256_mul_comb(R, m, P, false)
+		 : ecp256_mul_comb_g(R, m, false);
 }
 
 /*
@@ -983,7 +989,7 @@ ecp256_muladd(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *Q,
 	mP = ttls_mpool_alloc_stack(sizeof(TlsEcpPoint));
 	ttls_ecp_point_init(mP);
 
-	MPI_CHK(ecp256_mul_shortcuts(mP, m, &G.G));
+	MPI_CHK(ecp256_mul_shortcuts(mP, m, NULL));
 	MPI_CHK(ecp256_mul_shortcuts(R, n, Q));
 	MPI_CHK(ecp256_add_mixed(R, mP, R));
 	MPI_CHK(ecp256_normalize_jac(R));
