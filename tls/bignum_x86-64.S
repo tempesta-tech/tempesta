@@ -71,7 +71,7 @@ ENTRY(mpi_add_x86_64)
 
 	/* Propagate carry to a new X limb if necessary. */
 	jnc	.done
-	cmpq	%rax, %rsi
+	cmpq	%rax, %rsi	/* macro-op fused with jl */
 	jl	.enospc
 	movq	$1, (%rdi, %rax, 8)
 	incq	%rax
@@ -278,14 +278,14 @@ ENTRY(mpi_shift_l_x86_64)
 	movq	-8(%rdi, %rsi, 8), %r8
 	shldq	%cl, %r8, %r11
 	movq	%r11, (%rdi, %rsi, 8)
-	decq	%rsi
+	decq	%rsi	/* macro-op fusion */
 	jz	.shl_last
 
 	/* The main loop with carying bits from less significant limbs. */
 .shl_loop:
 	movq	-8(%rdi, %rsi, 8), %r11
 	shldq	%cl, %r11, (%rdi, %rsi, 8)
-	decq	%rsi
+	decq	%rsi	/* macro-op fusion */
 	jnz	.shl_loop
 
 	/* Shift the less significant limb right in-place. */
@@ -645,7 +645,7 @@ ENTRY_32(ecp_mod_p256_x86_64)
 
 	/* It's faster for small MPIs just to subtract P. */
 	cmpq	$4, %rsi
-	jle	.mod256_fast_sub
+	jle	.mod256_fast_sub	/* macro-op fusion */
 
 	/*
 	 * Load and add the s2 line.
