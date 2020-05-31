@@ -21,10 +21,11 @@ endif
 CACHELINE := $(shell getconf LEVEL1_DCACHE_LINESIZE)
 
 CFLAGS		= -std=gnu89 -DL1_CACHE_BYTES=$(CACHELINE) -mrdrnd -DNR_CPUS=1 \
+		  -fno-pie -no-pie -fno-strict-aliasing \
 		  -Wall -Werror -Wno-sign-compare -Wno-unused-but-set-variable \
-		  -Wno-pointer-sign -Werror=strict-prototypes \
+		  -Wno-pointer-sign -Werror=strict-prototypes -Warray-bounds=0 \
 		  -Werror=incompatible-pointer-types -Wno-unused-const-variable \
-		  -Wno-unused-function -Warray-bounds=0 -fno-strict-aliasing \
+		  -Wno-unused-function \
 		  -I../../ktest -I../.. -I..
 
 TEST_CFLAGS	= -O0 -ggdb3 -DNO_RANDOM
