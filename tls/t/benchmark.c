@@ -34,7 +34,6 @@
 #include "../ec_p256.c"
 #include "../ecp.c"
 #include "../ecdh.c"
-#include "../rsa.c"
 #include "../pk.c"
 #include "../mpool.c"
 
@@ -191,7 +190,7 @@ main(int argc, char *argv[])
 	}
 
 	bm_ecdsa_sign_p256();
-	//bm_ecdhe_srv_p256();
+	bm_ecdhe_srv_p256();
 
 	ttls_mpool_exit();
 

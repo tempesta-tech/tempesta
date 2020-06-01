@@ -191,14 +191,12 @@ c25519_mul_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
  * Normalize Montgomery x/z coordinates: X = X/Z, Z = 1
  * Cost: 1M + 1I
  */
-static int
+static void
 ecp_normalize_mxz(TlsEcpPoint *P)
 {
-	MPI_CHK(ttls_mpi_inv_mod(&P->Z, &P->Z, &G.P));
+	ttls_mpi_inv_mod(&P->Z, &P->Z, &G.P);
 	c25519_mul_mod(&P->X, &P->X, &P->Z);
 	ttls_mpi_lset(&P->Z, 1);
-
-	return 0;
 }
 
 /*
@@ -352,7 +350,9 @@ ecp_mul_mxz(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P, bool rng)
 		MPI_CHK(ttls_mpi_safe_cond_swap(&R->Z, &RP->Z, b));
 	}
 
-	return ecp_normalize_mxz(R);
+	ecp_normalize_mxz(R);
+
+	return 0;
 }
 
 /* TODO #1335 specialize the routine. */

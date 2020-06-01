@@ -43,7 +43,7 @@ ifneq (, $(findstring adx, $(PROC)))
 	CFLAGS += -DADX=1
 endif
 
-TARGETS		= $(subst .c,, $(wildcard test_*.c)) benchmark
+TARGETS		= $(subst .c,, $(wildcard test_*.c)) benchmark tgen_ec256
 ASM-OBJ		= bignum_x86-64.o
 
 all : $(TARGETS)

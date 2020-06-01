@@ -25,7 +25,6 @@
 #include "../asn1.c"
 #include "../ec_p256.c"
 #include "../ecp.c"
-#include "../rsa.c"
 #include "../pk.c"
 #include "../mpool.c"
 

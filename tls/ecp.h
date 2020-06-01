@@ -97,20 +97,6 @@ extern ttls_ecp_group_id ttls_preset_curves[];
  */
 #define TTLS_ECP_DP_MAX	 12
 
-/*
- * Maximum "window" size used for point multiplication.
- * Default: 6. Minimum value: 2. Maximum value: 7.
- *
- * Result is an array of at most TTLS_ECP_WINDOW_SIZE points used for point
- * multiplication. This value is directly tied to EC peak memory usage, so
- * decreasing it by one should roughly cut memory usage by two (if large curves
- * are in use).
- *
- * Reduction in size may reduce speed, but larger curves are impacted first.
- */
-#define TTLS_ECP_WINDOW_ORDER	7
-#define TTLS_ECP_WINDOW_SIZE	(1 << (TTLS_ECP_WINDOW_ORDER - 1))
-
 /**
  * Curve information for use by other modules.
  *

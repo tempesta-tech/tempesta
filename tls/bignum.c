@@ -147,56 +147,6 @@ ttls_mpi_copy_alloc(TlsMpi *X, const TlsMpi *Y, bool need_alloc)
 }
 
 /**
- * Safe conditional assignment X = Y if @assign is 1.
- *
- * This function avoids leaking any information about whether the assignment was
- * done or not (the above code may leak information through branch prediction
- * and/or memory access patterns analysis). Leaking information about the
- * respective sizes of X and Y is ok however.
- */
-void
-ttls_mpi_safe_cond_assign(TlsMpi *X, const TlsMpi *Y, unsigned char assign)
-{
-	static const unsigned short s_masks[2] = {0, 0xffff};
-	static const unsigned long l_masks[2] = {0, 0xffffffffffffffffUL};
-
-	int i;
-	unsigned long *x = MPI_P(X), *y = MPI_P(Y);
-	unsigned short s_mask;
-	unsigned long l_mask;
-
-	BUG_ON(X->limbs < Y->used);
-	BUG_ON(assign > 1);
-
-	s_mask = s_masks[assign];
-	l_mask = l_masks[assign];
-
-	X->s ^= (X->s ^ Y->s) & s_mask;
-	X->used ^= (X->used ^ Y->used) & s_mask;
-
-	/*
-	 * TODO #1064 rewrite specialized versions for 4 and 6 limbs in
-	 * assembly.
-	 */
-	for (i = 0; i + 4 <= Y->used; i += 4) {
-		x[i] ^= (x[i] ^ y[i]) & l_mask;
-		x[i + 1] ^= (x[i + 1] ^ y[i + 1]) & l_mask;
-		x[i + 2] ^= (x[i + 2] ^ y[i + 2]) & l_mask;
-		x[i + 3] ^= (x[i + 3] ^ y[i + 3]) & l_mask;
-	}
-	switch (Y->used - i) {
-	case 3:
-		x[i] ^= (x[i] ^ y[i]) & l_mask;
-		++i;
-	case 2:
-		x[i] ^= (x[i] ^ y[i]) & l_mask;
-		++i;
-	case 1:
-		x[i] ^= (x[i] ^ y[i]) & l_mask;
-	}
-}
-
-/**
  * Conditionally swap X and Y, without leaking information about whether the
  * swap was made or not. Here it is not ok to simply swap the pointers, which
  * would lead to different memory access patterns when X and Y are used
@@ -1387,14 +1337,13 @@ ttls_mpi_gcd(TlsMpi *G, const TlsMpi *A, const TlsMpi *B)
  * Modular inverse: X = A^-1 mod N  (HAC 14.61 / 14.64).
  *
  * Used in RSA, so there quite a few probably large numbers.
+ *
+ * TODO #1064 see big_num_math-denis, chapter 9.
  */
-int
+void
 ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N)
 {
 	TlsMpi *G, *TA, *TU, *U1, *U2, *TB, *TV, *V1, *V2;
-
-	if (ttls_mpi_cmp_int(N, 1) <= 0)
-		return -EINVAL;
 
 	G = ttls_mpool_alloc_stack(sizeof(TlsMpi) * 9
 				   + (N->used * 8 + 4) * CIL);
@@ -1461,6 +1410,4 @@ ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N)
 		ttls_mpi_sub_mpi(V1, V1, N);
 
 	ttls_mpi_copy(X, V1);
-
-	return 0;
 }
