@@ -25,6 +25,20 @@
 #include "ecp.h"
 #include "mpool.h"
 
+/*
+ * Maximum "window" size used for point multiplication.
+ * Default: 6. Minimum value: 2. Maximum value: 7.
+ *
+ * Result is an array of at most TTLS_ECP_WINDOW_SIZE points used for point
+ * multiplication. This value is directly tied to EC peak memory usage, so
+ * decreasing it by one should roughly cut memory usage by two (if large curves
+ * are in use).
+ *
+ * Reduction in size may reduce speed, but larger curves are impacted first.
+ */
+#define TTLS_ECP_WINDOW_ORDER	7
+#define TTLS_ECP_WINDOW_SIZE	(1 << (TTLS_ECP_WINDOW_ORDER - 1))
+
 #define G_BITS		384
 #define G_LIMBS		(G_BITS / BIL)
 
@@ -118,6 +132,42 @@ static const struct {
 //static TlsEcpPoint combT_G[TTLS_ECP_WINDOW_SIZE];
 static TlsEcpPoint *combT_G = NULL;
 static DEFINE_PER_CPU(TlsEcpPoint *, combT);
+
+/**
+ * Safe conditional assignment X = Y if @assign is 1.
+ *
+ * This function avoids leaking any information about whether the assignment was
+ * done or not (the above code may leak information through branch prediction
+ * and/or memory access patterns analysis). Leaking information about the
+ * respective sizes of X and Y is ok however.
+ */
+static void
+ecp384_safe_cond_assign(TlsMpi *X, const TlsMpi *Y, unsigned char assign)
+{
+	static const unsigned short s_masks[2] = {0, 0xffff};
+	static const unsigned long l_masks[2] = {0, 0xffffffffffffffffUL};
+
+	unsigned long *x = MPI_P(X), *y = MPI_P(Y);
+	unsigned short s_mask;
+	unsigned long l_mask;
+
+	BUG_ON(X->used > G_LIMBS || Y->used > G_LIMBS);
+	BUG_ON(X->limbs < Y->used);
+	BUG_ON(assign > 1);
+
+	s_mask = s_masks[assign];
+	l_mask = l_masks[assign];
+
+	X->s ^= (X->s ^ Y->s) & s_mask;
+	X->used ^= (X->used ^ Y->used) & s_mask;
+
+	x[0] ^= (x[0] ^ y[0]) & l_mask;
+	x[1] ^= (x[1] ^ y[1]) & l_mask;
+	x[2] ^= (x[2] ^ y[2]) & l_mask;
+	x[3] ^= (x[3] ^ y[3]) & l_mask;
+	x[4] ^= (x[4] ^ y[4]) & l_mask;
+	x[5] ^= (x[5] ^ y[5]) & l_mask;
+}
 
 /*
  * Fast reduction modulo the primes used by the NIST curves.
@@ -368,7 +418,7 @@ ecp384_normalize_jac(TlsEcpPoint *pt)
 	ZZi = ttls_mpi_alloc_stack_init(G_LIMBS * 2);
 
 	/* X = X / Z^2  mod p */
-	MPI_CHK(ttls_mpi_inv_mod(Zi, &pt->Z, &G.P));
+	ttls_mpi_inv_mod(Zi, &pt->Z, &G.P);
 	ecp_sqr_mod(ZZi, Zi);
 	ecp_mul_mod(&pt->X, &pt->X, ZZi);
 
@@ -393,7 +443,7 @@ ecp384_normalize_jac(TlsEcpPoint *pt)
  *
  * Cost: 1N(t) := 1I + (6t - 3)M + 1S
  */
-static int
+static void
 ecp384_normalize_jac_many(TlsEcpPoint *T[], size_t t_len)
 {
 #define __INIT_C(i)							\
@@ -405,7 +455,7 @@ do {									\
 	p_limbs += n_limbs;						\
 } while (0)
 
-	int i, ret = 0;
+	int i;
 	unsigned long *p_limbs, n_limbs = G_LIMBS * 2;
 	TlsMpi *u, *Zi, *ZZi, *c;
 
@@ -428,7 +478,7 @@ do {									\
 	}
 
 	/* u = 1 / (Z_0 * ... * Z_n) mod P */
-	TTLS_MPI_CHK(ttls_mpi_inv_mod(u, &c[t_len - 1], &G.P));
+	ttls_mpi_inv_mod(u, &c[t_len - 1], &G.P);
 
 	for (i = t_len - 1; i >= 0; i--) {
 		/*
@@ -454,9 +504,7 @@ do {									\
 		ttls_mpi_reset(&T[i]->Z);
 	}
 
-cleanup:
 	ttls_mpi_pool_cleanup_ctx((unsigned long)c, false);
-	return ret;
 #undef __INIT_C
 }
 
@@ -474,7 +522,7 @@ ecp384_safe_invert_jac(TlsEcpPoint *Q, unsigned char inv)
 	ttls_mpi_sub_mpi(mQY, &G.P, &Q->Y);
 	nonzero = !!ttls_mpi_cmp_int(&Q->Y, 0);
 
-	ttls_mpi_safe_cond_assign(&Q->Y, mQY, inv & nonzero);
+	ecp384_safe_cond_assign(&Q->Y, mQY, inv & nonzero);
 }
 
 /**
@@ -805,7 +853,7 @@ ecp384_precompute_comb(TlsEcpPoint T[], const TlsEcpPoint *P,
 	}
 	BUG_ON(!k || k >= TTLS_ECP_WINDOW_ORDER);
 
-	MPI_CHK(ecp384_normalize_jac_many(TT, k));
+	ecp384_normalize_jac_many(TT, k);
 
 	/*
 	 * Compute the remaining ones using the minimal number of additions
@@ -820,7 +868,7 @@ ecp384_precompute_comb(TlsEcpPoint T[], const TlsEcpPoint *P,
 		}
 	}
 
-	MPI_CHK(ecp384_normalize_jac_many(TT, k));
+	ecp384_normalize_jac_many(TT, k);
 
 	return 0;
 }
@@ -840,8 +888,8 @@ ecp384_select_comb(TlsEcpPoint *R, const TlsEcpPoint T[], unsigned char t_len,
 	/* Read the whole table to thwart cache-based timing attacks */
 	for (j = 0; j < t_len; j++) {
 		/* TODO #1335 do specialization to avoid conditions. */
-		ttls_mpi_safe_cond_assign(&R->X, &T[j].X, j == ii);
-		ttls_mpi_safe_cond_assign(&R->Y, &T[j].Y, j == ii);
+		ecp384_safe_cond_assign(&R->X, &T[j].X, j == ii);
+		ecp384_safe_cond_assign(&R->Y, &T[j].Y, j == ii);
 	}
 
 	/* Safely invert result if i is "negative" */
@@ -1035,7 +1083,7 @@ ecp384_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P, bool rnd)
 	m_is_odd = (ttls_mpi_get_bit(m, 0) == 1);
 	ttls_mpi_copy(M, m);
 	ttls_mpi_sub_mpi(mm, &G.N, m);
-	ttls_mpi_safe_cond_assign(M, mm, !m_is_odd);
+	ecp384_safe_cond_assign(M, mm, !m_is_odd);
 
 	/* Go for comb multiplication, R = M * P */
 	ecp384_comb_fixed(k, d, w, M);
@@ -1277,7 +1325,7 @@ ecp384_ecdsa_verify(const unsigned char *buf, size_t blen, const TlsEcpPoint *Q,
 	derive_mpi(e, buf, blen);
 
 	/* Step 4: u1 = e / s mod n, u2 = r / s mod n */
-	MPI_CHK(ttls_mpi_inv_mod(s_inv, s, &G.N));
+	ttls_mpi_inv_mod(s_inv, s, &G.N);
 	ttls_mpi_mul_mpi(u1, e, s_inv);
 	ttls_mpi_mod_mpi(u1, u1, &G.N);
 	ttls_mpi_mul_mpi(u2, r, s_inv);

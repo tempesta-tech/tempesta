@@ -384,7 +384,7 @@ ttls_rsa_deduce_private_exponent(TlsMpi const *P, TlsMpi const *Q,
 	ttls_mpi_div_mpi(K, NULL, K, D);
 
 	/* Compute modular inverse of E in LCM(P-1, Q-1) */
-	MPI_CHK(ttls_mpi_inv_mod(D, E, K));
+	ttls_mpi_inv_mod(D, E, K);
 
 	return 0;
 }
@@ -419,7 +419,7 @@ ttls_rsa_deduce_crt(const TlsMpi *P, const TlsMpi *Q, const TlsMpi *D,
 
 	/* QP = Q^{-1} mod P */
 	if (QP)
-		MPI_CHK(ttls_mpi_inv_mod(QP, Q, P));
+		ttls_mpi_inv_mod(QP, Q, P);
 
 	return 0;
 }

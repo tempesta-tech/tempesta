@@ -151,7 +151,6 @@ void ttls_mpi_read_binary(TlsMpi *X, const unsigned char *buf, size_t buflen);
 int ttls_mpi_write_binary(const TlsMpi *X, unsigned char *buf, size_t buflen);
 void ttls_mpi_fill_random(TlsMpi *X, size_t size);
 
-void ttls_mpi_safe_cond_assign(TlsMpi *X, const TlsMpi *Y, unsigned char assign);
 int ttls_mpi_safe_cond_swap(TlsMpi *X, TlsMpi *Y, unsigned char swap);
 
 void ttls_mpi_lset(TlsMpi *X, long z);
@@ -182,7 +181,7 @@ void ttls_mpi_mod_mpi(TlsMpi *R, const TlsMpi *A, const TlsMpi *B);
 
 int ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E,
 		     const TlsMpi *N, TlsMpi *_RR);
-int ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N);
+void ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N);
 void ttls_mpi_gcd(TlsMpi *G, const TlsMpi *A, const TlsMpi *B);
 
 static inline bool

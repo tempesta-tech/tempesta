@@ -18,10 +18,9 @@
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include "ttls_mocks.h"
-/* mpool.c requires DHM routines. */
 #include "../bignum.c"
 #include "../ciphersuites.c"
-#include "../dhm.c"
+#include "../dhm.c" /* mpool.c requires DHM routines. */
 #include "../asn1.c"
 #include "../ec_p256.c"
 #include "../ecp.c"
