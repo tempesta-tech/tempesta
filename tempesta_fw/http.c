@@ -4165,10 +4165,9 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, unsigned int stream_id,
 		return -EINVAL;
 	len = body->len;
 
-	it->skb = ss_skb_peek_tail(&it->skb_head);
-	it->frag = skb_shinfo(it->skb)->nr_frags - 1;
-	if (!it->skb)
+	if (!(it->skb = ss_skb_peek_tail(&it->skb_head)))
 		return -EINVAL;
+	it->frag = skb_shinfo(it->skb)->nr_frags - 1;
 
 	if ((++it->frag >= MAX_SKB_FRAGS)
 	    || (skb_shinfo(it->skb)->tx_flags & SKBTX_SHARED_FRAG))
