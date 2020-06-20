@@ -2318,6 +2318,11 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
 		/*
 		 * Set additional headers and final CRLF for HTTP/1.1
 		 * response.
+		 *
+		 * If the original message was in chunked encoding, it has been
+		 * removed and chunked trailer headers are stored with arbitrary
+		 * headers. Add content-length header for correct message
+		 * framing.
 		 */
 		if (tfw_http_expand_hbh(resp, ce->resp_status)
 		    || tfw_http_expand_hdr_via(resp)
@@ -2326,6 +2331,8 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, long lifetime,
 			&& tfw_http_expand_stale_warn(resp))
 		    || (!test_bit(TFW_HTTP_B_HDR_DATE, resp->flags)
 			&& tfw_http_expand_hdr_date(resp))
+		    || (test_bit(TFW_HTTP_B_CHUNKED, resp->flags)
+			&& tfw_http_expand_hdr_clen(resp, ce->body_len))
 		    || tfw_http_msg_expand_data(it, skb_head, &g_crlf, NULL))
 		{
 			goto free;
