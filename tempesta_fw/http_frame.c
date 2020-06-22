@@ -39,7 +39,7 @@
 #define WND_INCREMENT_SIZE		4
 #define SETTINGS_KEY_SIZE		2
 #define SETTINGS_VAL_SIZE		4
-#define SREAM_ID_SIZE			4
+#define STREAM_ID_SIZE			4
 #define ERR_CODE_SIZE			4
 
 #define MAX_WND_SIZE			((1U << 31) - 1)
@@ -420,15 +420,15 @@ tfw_h2_send_settings_ack(TfwH2Ctx *ctx)
 static inline int
 tfw_h2_send_goaway(TfwH2Ctx *ctx, TfwH2Err err_code)
 {
-	unsigned char id_buf[SREAM_ID_SIZE];
+	unsigned char id_buf[STREAM_ID_SIZE];
 	unsigned char err_buf[ERR_CODE_SIZE];
 	TfwStr data = {
 		.chunks = (TfwStr []){
 			{},
-			{ .data = id_buf, .len = SREAM_ID_SIZE },
+			{ .data = id_buf, .len = STREAM_ID_SIZE },
 			{ .data = err_buf, .len = ERR_CODE_SIZE }
 		},
-		.len = SREAM_ID_SIZE + ERR_CODE_SIZE,
+		.len = STREAM_ID_SIZE + ERR_CODE_SIZE,
 		.nchunks = 3
 	};
 	TfwFrameHdr hdr = {
@@ -439,8 +439,8 @@ tfw_h2_send_goaway(TfwH2Ctx *ctx, TfwH2Err err_code)
 	};
 
 	WARN_ON_ONCE((unsigned int)(ctx->lstream_id & FRAME_RESERVED_BIT_MASK));
-	BUILD_BUG_ON(SREAM_ID_SIZE != sizeof(unsigned int)
-		     || SREAM_ID_SIZE != sizeof(ctx->lstream_id)
+	BUILD_BUG_ON(STREAM_ID_SIZE != sizeof(unsigned int)
+		     || STREAM_ID_SIZE != sizeof(ctx->lstream_id)
 		     || ERR_CODE_SIZE != sizeof(unsigned int)
 		     || ERR_CODE_SIZE != sizeof(err_code));
 
