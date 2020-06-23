@@ -50,7 +50,7 @@ ttls_ecdh_compute_shared(const TlsEcpGrp *grp, TlsEcpPoint *z,
 	int r;
 
 	/* Compute the shared secret. */
-	if ((r = grp->mul(z, d, Q, true)))
+	if ((r = grp->mul(z, d, Q)))
 		return r;
 
 	return ttls_ecp_is_zero(z) ? -EINVAL : 0;

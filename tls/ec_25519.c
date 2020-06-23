@@ -362,6 +362,16 @@ ecp_mul_mxz_g(TlsEcpPoint *R, const TlsMpi *m, bool rnd)
 	return ecp_mul_mxz(R, m, &G.G, rnd);
 }
 
+/*
+ * TODO #1335 revert the projective coordinates randomization if DPA is
+ * required or remove completely.
+ */
+static int
+ecp_mul_mxz_rnd(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P)
+{
+	return ecp_mul_mxz(R, m, P, false);
+}
+
 /**
  * Generate a keypair with configurable base point: [M225] page 5.
  */
@@ -394,6 +404,6 @@ const TlsEcpGrp CURVE25519_G ____cacheline_aligned = {
 	.id		= TTLS_ECP_DP_CURVE25519,
 	.bits		= G_BITS,
 
-	.mul		= ecp_mul_mxz,
+	.mul		= ecp_mul_mxz_rnd,
 	.gen_keypair	= ec25519_gen_keypair,
 };

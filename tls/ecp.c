@@ -3,36 +3,6 @@
  *
  * Elliptic curves over GF(p): generic functions.
  *
- * References:
- *
- * 1. SEC1 http://www.secg.org/index.php?action=secg,docs_secg
- *
- * 2. GECC = Guide to Elliptic Curve Cryptography - Hankerson, Menezes, Vanstone
- *
- * 3. FIPS 186-3 http://csrc.nist.gov/publications/fips/fips186-3/fips_186-3.pdf
- *
- * 4. RFC 8422 for the related TLS structures and constants
- *
- * 5. [Curve25519] http://cr.yp.to/ecdh/curve25519-20060209.pdf
- *
- * 6. CORON, Jean-S'ebastien. Resistance against differential power analysis
- *    for elliptic curve cryptosystems. In : Cryptographic Hardware and
- *    Embedded Systems. Springer Berlin Heidelberg, 1999. p. 292-302.
- *    <http://link.springer.com/chapter/10.1007/3-540-48059-5_25>
- *
- * 7. HEDABOU, Mustapha, PINEL, Pierre, et B'EN'ETEAU, Lucien. A comb method to
- *    render ECC resistant against Side Channel Attacks. IACR Cryptology
- *    ePrint Archive, 2004, vol. 2004, p. 342.
- *    <http://eprint.iacr.org/2004/342.pdf>
- *
- * 8. Jacobian coordinates for short Weierstrass curves,
- *    http://www.hyperelliptic.org/EFD/g1p/auto-shortw-jacobian.html
- *
- * 9. S.Gueron, V.Krasnov, "Fast prime field elliptic-curve cryptography with
- *    256-bit primes", 2014.
- *
- * 10. NIST: Mathematical routines for the NIST prime elliptic curves, 2010.
- *
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved

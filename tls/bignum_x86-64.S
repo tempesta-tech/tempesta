@@ -372,9 +372,11 @@ ENDPROC(mpi_shift_r_x86_64_4)
  * (https://github.com/wolfSSL/wolfssl/), sp_256_mul_avx2_4(),
  * wolfssl/wolfcrypt/src/sp_x86_64_asm.S .
  *
- * TODO The ADCX instructions are 6-byte instructions with 0x66 length-changing
- * prefix, so we loose several cycles on decoding. Look for better versions of
- * the instruction.
+ * TODO #1335 The ADCX instructions are 6-byte instructions with 0x66
+ * length-changing prefix, so we loose several cycles on decoding. Look for
+ * better versions of the instruction.
+ * TODO #1335 VPMULUDQ can be used to sepeedup the function, see "Speeding up
+ * Elliptic Curve Cryptography on the P-384 Curve" by Hernandez et all, 2016.
  */
 ENTRY_32(mpi_mul_x86_64_4)
 	push	%r12
@@ -622,6 +624,9 @@ ENDPROC(mpi_sqr_x86_64_4)
  * is about x3 faster for p256 than the Barret reduction.
  *
  * TODO align the MPI on a cache line.
+ *
+ * TODO #1064 Use performance improvement strategies from
+ * "Low-Latency Elliptic Curve Scalar Multiplication" by J.W.Bos.
  *
  * %RDI	- pointer to 8 limbs big integer to be reduced.
  * %RSI	- size if the MPI.

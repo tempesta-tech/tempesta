@@ -1,8 +1,36 @@
 /**
  *		Tempesta TLS
  *
- * Elliptic curve NIST secp256r1 (prime256v1, short Weierstrass).
- * See implementation references in ecp.c.
+ * Elliptic curve NIST secp256r1 (prime256v1) over GF(p) in short Weierstrass
+ * form, y^2 = x^3 - 3*x + b.
+ *
+ * References:
+ *
+ * 1. SEC1 http://www.secg.org/index.php?action=secg,docs_secg
+ *
+ * 2. GECC = Guide to Elliptic Curve Cryptography - Hankerson, Menezes, Vanstone
+ *
+ * 3. FIPS 186-3 http://csrc.nist.gov/publications/fips/fips186-3/fips_186-3.pdf
+ *
+ * 4. RFC 8422 for the related TLS structures and constants
+ *
+ * 5. [Curve25519] http://cr.yp.to/ecdh/curve25519-20060209.pdf
+ *
+ * 6. CORON, Jean-S'ebastien. Resistance against differential power analysis
+ *    for elliptic curve cryptosystems. In : Cryptographic Hardware and
+ *    Embedded Systems. Springer Berlin Heidelberg, 1999. p. 292-302.
+ *    <http://link.springer.com/chapter/10.1007/3-540-48059-5_25>
+ *
+ * 7. M.Hedabou, P.Pinel, L.Beneteau, "A comb method to render ECC resistant
+ *    against Side Channel Attacks", 2004.
+ *
+ * 8. Jacobian coordinates for short Weierstrass curves,
+ *    http://www.hyperelliptic.org/EFD/g1p/auto-shortw-jacobian.html
+ *
+ * 9. S.Gueron, V.Krasnov, "Fast prime field elliptic-curve cryptography with
+ *    256-bit primes", 2014.
+ *
+ * 10. NIST: Mathematical routines for the NIST prime elliptic curves, 2010.
  *
  * Copyright (C) 2020 Tempesta Technologies, Inc.
  *
@@ -26,12 +54,17 @@
 #include "ecp.h"
 #include "mpool.h"
 
+/*
+ * We can not use too large windows (W and G_W): 1 additional bit in the window
+ * doubles precomputation time for m * P or memory for m * G, but number of
+ * iterations on D and G_D decreases much slowly.
+ */
 #define G_BITS		256
 #define G_LIMBS		(G_BITS / BIL)
-#define G_W		7			/* m * G window */
+#define G_W		7			/* m * G window bits */
 #define G_W_SZ		(1U << (G_W - 1))	/* m * G window size */
 #define G_D		((G_BITS + G_W - 1) / G_W) // 37
-#define W		4			/* m * P window */
+#define W		4			/* m * P window bits */
 #define W_SZ		(1U << (W - 1))		/* m * P window size */
 #define D		((G_BITS + W - 1) / W)
 
@@ -506,6 +539,8 @@ ecp256_sqr_mod(TlsMpi *X, const TlsMpi *A)
 /*
  * Normalize jacobian coordinates so that Z == 0 || Z == 1  (GECC 3.2.1)
  * Cost: 1N := 1I + 3M + 1S
+ *
+ * TODO #1064: [9] use special form of P for Montgomery friendly modulus.
  */
 static int
 ecp256_normalize_jac(TlsEcpPoint *pt)
@@ -616,15 +651,15 @@ ecp256_safe_invert_jac(TlsEcpPoint *Q, unsigned char inv)
 /**
  * Point doubling R = 2 P, Jacobian coordinates [8, "dbl-1998-cmo-2"].
  *
- * We follow the variable naming fairly closely. The formula variations that
- * trade a MUL for a SQR (plus a few ADDs) aren't useful as our bignum
- * implementation doesn't distinguish squaring.
- *
  * Standard optimizations are applied when curve parameter A is one of {0, -3}.
  *
- * Cost: 1D := 3M + 4S	(A ==  0)
- *	 4M + 4S	(A == -3)
- *	 3M + 6S + 1a	otherwise
+ * Cost: 4M + 4S
+ *
+ * TODO #1064 the cost isn' the best one according to [8].
+ *
+ * TODO #1064 while the doubling should be much faster than addition, in our
+ * case this isn't true since the function uses more heavy calls on MPI copying,
+ * subtraction, shifts and so on.
  */
 static int
 ecp256_double_jac(TlsEcpPoint *R, const TlsEcpPoint *P)
@@ -698,6 +733,7 @@ ecp256_double_jac(TlsEcpPoint *R, const TlsEcpPoint *P)
  *
  * #TODO #1064: the implementation uses formula [8, "madd-2008-g"] and I'm not
  * sure if it's the most efficient one - [9] refernces another formula.
+ * Explore "New Point Addition Formulae for ECCApplications" by Meloni 2007.
  *
  * The coordinates of Q must be normalized (= affine),
  * but those of P don't need to. R is not normalized.
@@ -798,60 +834,18 @@ ecp256_add_mixed(TlsEcpPoint *R, const TlsEcpPoint *P, const TlsEcpPoint *Q)
 }
 
 /*
- * Randomize jacobian coordinates:
- * (X, Y, Z) -> (l^2 X, l^3 Y, l Z) for random l
- * This is sort of the reverse operation of ecp256_normalize_jac().
- *
- * This countermeasure was first suggested in [2]. See also the recommendation
- * for SPA and DPA attacks prevention in J.Coron, "Resistance against
- * Differential Power Analysis for Elliptic Curve Cryptosystems".
- */
-static int
-ecp256_randomize_jac(TlsEcpPoint *pt)
-{
-	TlsMpi l, ll;
-	size_t p_size = G_LIMBS * CIL;
-	int count = 0;
-
-	ttls_mpi_alloca_init(&l, p_size);
-	ttls_mpi_alloca_init(&ll, p_size * 2);
-
-	/* Generate l such that 1 < l < p */
-	do {
-		ttls_mpi_fill_random(&l, p_size);
-
-		while (ttls_mpi_cmp_mpi(&l, &G.P) >= 0)
-			ttls_mpi_shift_r(&l, 1);
-
-		if (count++ > 10)
-			return TTLS_ERR_ECP_RANDOM_FAILED;
-	} while (ttls_mpi_cmp_int(&l, 1) <= 0);
-
-	/* Z = l * Z */
-	if (likely(ttls_mpi_cmp_int(&pt->Z, 1)))
-		ecp256_mul_mod(&pt->Z, &pt->Z, &l);
-	else
-		ttls_mpi_copy_alloc(&pt->Z, &l, false);
-
-	/* X = l^2 * X */
-	ecp256_sqr_mod(&ll, &l);
-	ecp256_mul_mod(&pt->X, &pt->X, &ll);
-
-	/* Y = l^3 * Y */
-	ecp256_mul_mod(&ll, &ll, &l);
-	ecp256_mul_mod(&pt->Y, &pt->Y, &ll);
-
-	return 0;
-}
-
-/*
- * Compute the representation of m that will be used with our comb method.
+ * Recode the secret scalar `m` that will be used with our comb method.
  *
  * The basic comb method is described in GECC 3.44 for example. We use a
  * modified version that provides resistance to SPA by avoiding zero
  * digits in the representation as in [3]. We modify the method further by
  * requiring that all K_i be odd, which has the small cost that our
  * representation uses one more K_i, due to carries.
+ *
+ * References for SCA-resistant recodings:
+ * 1. "A new attack with side channel leakage during exponent recoding
+ *     computations" by Sakai, 2004.
+ * 2. "Exponent recoding and regular exponentiation algorithms" by Joye, 2009.
  *
  * Also, for the sake of compactness, only the seven low-order bits of x[i]
  * are used to represent K_i, and the msb of x[i] encodes the sign (s_i in
@@ -860,9 +854,13 @@ ecp256_randomize_jac(TlsEcpPoint *pt)
  * Calling conventions:
  * - x is an array of size d + 1
  * - w is the size, ie number of teeth, of the comb, and must be between
- *   2 and 7 (in practice, between 2 and TTLS_ECP_WINDOW_ORDER)
+ *   2 and 7
  * - m is the MPI, expected to be odd and such that bitlength(m) <= w * d
  *   (the result will be incorrect if these assumptions are not satisfied)
+ *
+ * TODO #1064 fetch required precomputed points from T (GECC Note 3.46)
+ * (sinle T-pass, multiple x passes, which is sizeof(d)=small.
+ * Use scatter AVX2 instruction to load values from memory?
  */
 static void
 ecp256_comb_fixed(unsigned char x[], size_t d, unsigned char w, const TlsMpi *m)
@@ -906,6 +904,7 @@ ecp256_comb_fixed(unsigned char x[], size_t d, unsigned char w, const TlsMpi *m)
  * T must be able to hold 2^{w - 1} elements
  *
  * Cost: d(w-1) D + (2^{w-1} - 1) A + 1 N(w-1) + 1 N(2^{w-1} - 1)
+ * For w=4,D=4S+4M,A=8M+3S,S=0.8M this gives about 1004*M + 2*I.
  */
 static int
 ecp256_precompute_comb(const TlsEcpPoint *P)
@@ -937,11 +936,10 @@ ecp256_precompute_comb(const TlsEcpPoint *P)
 		ttls_ecp_copy(cur, &T[i >> 1].p);
 		for (j = 0; j < D; j++)
 			/*
-			 * cur->Z will be non-1 after the operation.
-			 *
 			 * TODO #1064 use repeated doubling optimization.
 			 * E.g. see sp_256_proj_point_dbl_n_store_avx2_4() and
 			 * sp_256_proj_point_dbl_n_avx2_4() from WolfSSL.
+			 * See algorithm GECC 3.23.
 			 */
 			MPI_CHK(ecp256_double_jac(cur, cur));
 
@@ -1013,13 +1011,19 @@ ecp256_select_comb(TlsEcpPoint *R, const EcpXY T[], unsigned char t_len,
  * This part is actually common with the basic comb method (GECC 3.44)
  *
  * Cost: d A + d D + 1 R
+ *
+ * For w=4,D=4S+4M,A=8M+3S,S=0.8M this gives about 1126*M, which with the
+ * cost of ecp256_precompute_comb() gives ~2130*M + 2*I, which is ~170-270*M
+ * better than the number for Jacobian cure shapes with 2*I in
+ * "Analysis and optimization of elliptic-curve single-scalar multiplication",
+ * by Bernstein & Lange, 2007.
  */
 static int
-ecp256_mul_comb_core(TlsEcpPoint *R, const EcpXY T[], size_t t_len,
-		     const unsigned char x[], size_t d, bool rnd)
+ecp256_mul_comb_core(TlsEcpPoint *R, const unsigned char x[])
 {
+	const EcpXY *T = *this_cpu_ptr(&combT);
 	TlsEcpPoint *Txi;
-	size_t i;
+	size_t i = D;
 
 	ttls_ecp_point_tmp_alloc_init(Txi, G_LIMBS, G_LIMBS, 0);
 	ttls_mpi_alloc(&R->X, G_LIMBS * 2);
@@ -1032,41 +1036,38 @@ ecp256_mul_comb_core(TlsEcpPoint *R, const EcpXY T[], size_t t_len,
 	 *
 	 *	(sizeof(ECP)=(2 * 32)) * (1 << (w - 1)) = 4096
 	 *
-	 * For w=8 this would be:
-	 *
-	 *	(sizeof(ECP)=(2 * 32)) * (1 << (w - 1)) = 8192
-	 *
 	 * Also there is no preemption and point doubling and addition
 	 * aren't memory hungry, so once read T resides in L1d cache and
 	 * we can address T directly without sacrificing safety against SCAs.
 	 * FIXME in hyperthreading mode an aggressive sibling thread can evict
 	 * the precomputed table.
 	 *
-	 * Start with a non-zero point and randomize its coordinates.
+	 * #TODO in the generic version, which uses much smaller W, the table
+	 * is even smaller, so update the comment and probably use different
+	 * approach.
 	 *
-	 * TODO #1064: only X and Y coordinates are used here.
-	 * TODO #1064: 5. AVX2 - 4 points in parallel in OpenSSL - learn more
+	 * TODO #1064: 5. AVX2 - 4 points in parallel in OpenSSL,
+	 * see ecp_nistz256_avx2_mul_g().
 	 */
-	i = d;
-	ecp256_select_comb(R, T, t_len, x[i]);
+	ecp256_select_comb(R, T, W_SZ, x[i]);
 	ttls_mpi_lset(&R->Z, 1);
-	if (rnd)
-		MPI_CHK(ecp256_randomize_jac(R));
 
 	while (i--) {
 		unsigned char ii = (x[i] & 0x7Fu) >> 1;
 
 		/*
-		 * TODO #1064 use repeated doubling optimization.
-		 * E.g. see sp_256_proj_point_dbl_n_store_avx2_4() and
-		 * sp_256_proj_point_dbl_n_avx2_4() from WolfSSL.
+		 * TODO #1064 use merged doubling-addition formula.
+		 *
+		 * "New Composite Operations and Precomputation Schemefor
+		 * Elliptic Curve Cryptosystems over Prime Fields" by Longa,
+		 * 2008.
 		 */
+
 		MPI_CHK(ecp256_double_jac(R, R));
 
 		Txi->X.s = 1;
 		Txi->X.used = G_LIMBS;
 		memcpy_fast(MPI_P(&Txi->X), &T[ii].x, G_LIMBS * CIL);
-
 		Txi->Y.s = 1;
 		Txi->Y.used = G_LIMBS;
 		memcpy_fast(MPI_P(&Txi->Y), &T[ii].y, G_LIMBS * CIL);
@@ -1082,19 +1083,21 @@ ecp256_mul_comb_core(TlsEcpPoint *R, const EcpXY T[], size_t t_len,
 /*
  * Multiplication R = m * P using the comb method.
  *
+ * It seems integer sub-decomposition, introduced in "Point Multiplication using
+ * Integer Sub-Decompositionfor Elliptic Curve Cryptography" by Ajeena et all,
+ * makes the computation 50% faster, but relatively complex transformation of
+ * `m` is required.
+ *
  * In order to prevent timing attacks, this function executes the exact same
  * sequence of (base field) operations for any valid m. It avoids any if-branch
  * or array index depending on the value of m.
  *
  * If @rng is true, the functions randomizes intermediate results in order to
  * prevent potential timing attacks targeting these results.
+ * TODO #1064: double SCA protection?
  *
- * TODO #1064: This function is used for unknown points only, i.e. the public
- * key Q from the peer in ECDHE exchange, so we see @P only once and there is
- * sense to cache computation results for the scalar (our secret) only.
- *
- * May allocate @R point on the stack, so while the function uses plenty of
- * memory we can't call ttls_mpi_pool_cleanup_ctx() here.
+ * TODO #1064 normalize_jac uses inversions - it seems there are methods avoiding
+ * inversions at all.
  *
  * TODO #1064: why wNAF isn't used? Is comb the most efficient method?
  * It seems WolfSSL's sp_256_ecc_mulmod_win_add_sub_avx2_4() also uses comb,
@@ -1103,7 +1106,7 @@ ecp256_mul_comb_core(TlsEcpPoint *R, const EcpXY T[], size_t t_len,
  * It seems the both OpenSSL and WolfSSL don't use coordinates randomization.
  */
 static int
-ecp256_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P, bool rnd)
+ecp256_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P)
 {
 	/*
 	 * Minimize the number of multiplications, that is minimize
@@ -1135,7 +1138,7 @@ ecp256_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P, bool rnd)
 
 	/* Go for comb multiplication, R = M * P */
 	ecp256_comb_fixed(k, D, W, M);
-	MPI_CHK(ecp256_mul_comb_core(R, *this_cpu_ptr(&combT), W_SZ, k, D, rnd));
+	MPI_CHK(ecp256_mul_comb_core(R, k));
 
 	/* Now get m * P from M * P and normalize it. */
 	ecp256_safe_invert_jac(R, !m_is_odd);
@@ -1145,12 +1148,65 @@ ecp256_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P, bool rnd)
 }
 
 /**
- * The specialization for R = m * G.
- *
- * TODO #1064: Do we need coordinates randomization?
+ * Fixed-base comb method with extended precomputed table (GECC 3.45, 3.47).
+ * This is a m * G specialization of ecp256_mul_comb().
  */
 static int
-ecp256_mul_comb_g(TlsEcpPoint *R, const TlsMpi *m, bool rnd)
+ecp256_mul_comb_core_g(TlsEcpPoint *R, const unsigned char x[])
+{
+	TlsEcpPoint *Txi;
+	size_t i = G_D;
+
+	ttls_ecp_point_tmp_alloc_init(Txi, G_LIMBS, G_LIMBS, 0);
+	ttls_mpi_alloc(&R->X, G_LIMBS * 2);
+	ttls_mpi_alloc(&R->Y, G_LIMBS * 2);
+	ttls_mpi_alloc(&R->Z, G_LIMBS + 1);
+
+	/*
+	 * We operate with precomputed table which is significantly smaller
+	 * than L1d cache - for secp256 and w=7:
+	 *
+	 *	(sizeof(ECP)=(2 * 32)) * (1 << (w - 1)) = 4096
+	 *
+	 * Also there is no preemption and point doubling and addition
+	 * aren't memory hungry, so once read T resides in L1d cache and
+	 * we can address T directly without sacrificing safety against SCAs.
+	 * FIXME in hyperthreading mode an aggressive sibling thread can evict
+	 * the precomputed table.
+	 *
+	 * Start with a non-zero point and randomize its coordinates.
+	 *
+	 * TODO #1064: 5. AVX2 - 4 points in parallel in OpenSSL,
+	 * see ecp_nistz256_avx2_mul_g().
+	 */
+	ecp256_select_comb(R, combT_G, G_W_SZ, x[i]);
+	ttls_mpi_lset(&R->Z, 1);
+
+	while (i--) {
+		unsigned char ii = (x[i] & 0x7Fu) >> 1;
+
+		MPI_CHK(ecp256_double_jac(R, R));
+
+		Txi->X.s = 1;
+		Txi->X.used = G_LIMBS;
+		memcpy_fast(MPI_P(&Txi->X), &combT_G[ii].x, G_LIMBS * CIL);
+		Txi->Y.s = 1;
+		Txi->Y.used = G_LIMBS;
+		memcpy_fast(MPI_P(&Txi->Y), &combT_G[ii].y, G_LIMBS * CIL);
+
+		ecp256_safe_invert_jac(Txi, x[i] >> 7);
+
+		MPI_CHK(ecp256_add_mixed(R, R, Txi));
+	}
+
+	return 0;
+}
+
+/**
+ * The ecp256_mul_comb() specialization for R = m * G.
+ */
+static int
+ecp256_mul_comb_g(TlsEcpPoint *R, const TlsMpi *m)
 {
 	static const size_t COMB_MAX_D = G_BITS / 2 + 1;
 
@@ -1174,7 +1230,7 @@ ecp256_mul_comb_g(TlsEcpPoint *R, const TlsMpi *m, bool rnd)
 
 	/* Go for comb multiplication, R = M * G */
 	ecp256_comb_fixed(k, G_D, G_W, M);
-	MPI_CHK(ecp256_mul_comb_core(R, combT_G, G_W_SZ, k, G_D, rnd));
+	MPI_CHK(ecp256_mul_comb_core_g(R, k));
 
 	/* Now get m * G from M * G and normalize it. */
 	ecp256_safe_invert_jac(R, !m_is_odd);
@@ -1202,8 +1258,8 @@ ecp256_mul_shortcuts(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P)
 		return 0;
 	}
 
-	return P ? ecp256_mul_comb(R, m, P, false)
-		 : ecp256_mul_comb_g(R, m, false);
+	return P ? ecp256_mul_comb(R, m, P)
+		 : ecp256_mul_comb_g(R, m);
 }
 
 /*
@@ -1268,7 +1324,7 @@ ecp256_gen_keypair(TlsMpi *d, TlsEcpPoint *Q)
 			return TTLS_ERR_ECP_RANDOM_FAILED;
 	} while (!ttls_mpi_cmp_int(d, 0) || ttls_mpi_cmp_mpi(d, &G.N) >= 0);
 
-	return ecp256_mul_comb_g(Q, d, true);
+	return ecp256_mul_comb_g(Q, d);
 }
 
 /*
