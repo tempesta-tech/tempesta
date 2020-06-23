@@ -1103,6 +1103,16 @@ ecp384_mul_comb_g(TlsEcpPoint *R, const TlsMpi *m, bool rnd)
 	return ecp384_mul_comb(R, m, &G.G, rnd);
 }
 
+/*
+ * TODO #1335 revert the projective coordinates randomization if DPA is
+ * required or remove completely.
+ */
+static int
+ecp384_mul_comb_rnd(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P)
+{
+	return ecp384_mul_comb(R, m, P, false);
+}
+
 /**
  * R = m * P with shortcuts for m == 1 and m == -1.
  * NOT constant-time - ONLY for short Weierstrass!
@@ -1355,7 +1365,7 @@ const TlsEcpGrp SECP384_G ____cacheline_aligned = {
 	.id		= TTLS_ECP_DP_SECP384R1,
 	.bits		= G_BITS,
 
-	.mul		= ecp384_mul_comb,
+	.mul		= ecp384_mul_comb_rnd,
 	.muladd		= ecp384_muladd,
 	.gen_keypair	= ecp384_gen_keypair,
 	.ecdsa_sign	= ecp384_ecdsa_sign,

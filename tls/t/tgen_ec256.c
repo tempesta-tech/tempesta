@@ -57,15 +57,8 @@ print_T(TmpEcpPoint *T)
  * Prepare precomputed points to use them in ecp_mul_comb().
  *
  * TODO #1064:
- * Can we precompute more data to save cycles on ecp_mul_comb_core()?
- * Probably wNAF should be used here.
- * It seems we can use fixed-base comb method with two tables instead
- * of the generic comb precomputation...
- * see M.Brown, D.Hankerson, J.Lopez, A.Menezes, "Software
- * implementation of the NIST elliptic curves over prime fields".
- * Fixed-base comb (GECC 3.44) with w=7 requres about 36*A + 36*D
- * time which is much larger than OpenSSL's 36*A (like GECC 3.42).
- * w=8 gives 31*A + 31*D time, which is better with D<<A.
+ * Wse fixed-base comb method with V tables, GECC 3.45 & 3.47.
+ * For V=d(37) we should get table similar to WolfSSL and OpenSSL.
  *
  * If i = i_{w-1} ... i_1 is the binary representation of i, then
  * T[i] = i_{w-1} 2^{(w-1)d} P + ... + i_1 2^d P + P
@@ -96,13 +89,6 @@ generate_T(void)
 		cur = &T[i].p;
 		ttls_ecp_copy(cur, &T[i >> 1].p);
 		for (j = 0; j < G_D; j++)
-			/*
-			 * cur->Z will be non-1 after the operation.
-			 *
-			 * TODO #1064 use repeated doubling optimization.
-			 * E.g. see sp_256_proj_point_dbl_n_store_avx2_4() and
-			 * sp_256_proj_point_dbl_n_avx2_4() from WolfSSL.
-			 */
 			ecp256_double_jac(cur, cur);
 
 		TT[k++] = cur;

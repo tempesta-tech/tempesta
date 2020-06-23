@@ -1339,6 +1339,9 @@ ttls_mpi_gcd(TlsMpi *G, const TlsMpi *A, const TlsMpi *B)
  * Used in RSA, so there quite a few probably large numbers.
  *
  * TODO #1064 see big_num_math-denis, chapter 9.
+ * p256 [9]: use Little Fermat theorem and G.P specialization
+ * OpenSSL [9]: 255 Montgomery squares (MSQR) and 13 multiplications (MM)
+ * or 12 MMs if X coordinage only is needed.
  */
 void
 ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N)
