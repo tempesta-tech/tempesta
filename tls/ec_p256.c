@@ -525,7 +525,7 @@ ecp256_sqr_mod(TlsMpi *X, const TlsMpi *A)
 	BUG_ON(X->limbs < G_LIMBS);
 	BUG_ON(A->limbs < G_LIMBS);
 	BUG_ON(A->s < 0);
-	BUG_ON(A->used != G_LIMBS);
+	BUG_ON(A->used > G_LIMBS);
 
 	mpi_sqr_x86_64_4(MPI_P(X), MPI_P(A));
 
@@ -907,7 +907,7 @@ ecp256_comb_fixed(unsigned char x[], size_t d, unsigned char w, const TlsMpi *m)
  * For w=4,D=4S+4M,A=8M+3S,S=0.8M this gives about 1004*M + 2*I.
  */
 static int
-ecp256_precompute_comb(const TlsEcpPoint *P)
+ecp256_precompute_comb(const unsigned long *pXY)
 {
 	int i, j, k;
 	TlsEcpPoint *cur, *TT[W_SZ];
@@ -929,7 +929,13 @@ ecp256_precompute_comb(const TlsEcpPoint *P)
 	 * Set T[0] = P and T[2^{i-1}] = 2^{di} P for i = 1 .. w-1
 	 * (this is not the final value).
 	 */
-	ttls_ecp_copy(&T[0].p, P);
+	T->p.X.s = 1;
+	memcpy_fast(T->x, pXY, G_LIMBS * CIL);
+	mpi_fixup_used(&T->p.X, G_LIMBS);
+	T->p.Y.s = 1;
+	memcpy_fast(T->y, pXY + G_LIMBS, G_LIMBS * CIL);
+	mpi_fixup_used(&T->p.Y, G_LIMBS);
+	ttls_mpi_lset(&T->p.Z, 1);
 
 	for (k = 0, i = 1; i < W_SZ; i <<= 1) {
 		cur = &T[i].p;
@@ -1106,7 +1112,7 @@ ecp256_mul_comb_core(TlsEcpPoint *R, const unsigned char x[])
  * It seems the both OpenSSL and WolfSSL don't use coordinates randomization.
  */
 static int
-ecp256_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P)
+ecp256_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const unsigned long *P)
 {
 	/*
 	 * Minimize the number of multiplications, that is minimize
@@ -1239,33 +1245,10 @@ ecp256_mul_comb_g(TlsEcpPoint *R, const TlsMpi *m)
 	return 0;
 }
 
-/**
- * R = m * P with shortcuts for m == 1 and m == -1.
- * NOT constant-time - ONLY for short Weierstrass!
- */
-static int
-ecp256_mul_shortcuts(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P)
-{
-	if (!ttls_mpi_cmp_int(m, 1)) {
-		ttls_ecp_copy(R, P);
-		return 0;
-	}
-
-	if (!ttls_mpi_cmp_int(m, -1)) {
-		ttls_ecp_copy(R, P);
-		if (ttls_mpi_cmp_int(&R->Y, 0))
-			ttls_mpi_sub_mpi(&R->Y, &G.P, &R->Y);
-		return 0;
-	}
-
-	return P ? ecp256_mul_comb(R, m, P)
-		 : ecp256_mul_comb_g(R, m);
-}
-
 /*
  * Multiplication and addition of two points by integers: R = m * G + n * Q
  * In contrast to ttls_ecp_mul(), this function does not guarantee a constant
- * execution flow and timing - ther is no secret data, so we don't need to care
+ * execution flow and timing - there is no secret data, so we don't need to care
  * about SCAs.
  *
  * TODO #769: The algorithm is naive. The Shamir's trick and/or
@@ -1276,13 +1259,17 @@ static int
 ecp256_muladd(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *Q,
 	      const TlsMpi *n)
 {
-	TlsEcpPoint *mP;
-
-	mP = ttls_mpool_alloc_stack(sizeof(TlsEcpPoint));
+	unsigned long pXY[G_LIMBS * 2];
+	TlsEcpPoint *mP = ttls_mpool_alloc_stack(sizeof(TlsEcpPoint));
 	ttls_ecp_point_init(mP);
 
-	MPI_CHK(ecp256_mul_shortcuts(mP, m, NULL));
-	MPI_CHK(ecp256_mul_shortcuts(R, n, Q));
+	MPI_CHK(ecp256_mul_comb_g(mP, m));
+
+	memcpy_fast(pXY, MPI_P(&Q->X), G_LIMBS * CIL);
+	memcpy_fast(&pXY[G_LIMBS], MPI_P(&Q->Y), G_LIMBS * CIL);
+
+	MPI_CHK(ecp256_mul_comb(R, n, pXY));
+
 	MPI_CHK(ecp256_add_mixed(R, mP, R));
 	MPI_CHK(ecp256_normalize_jac(R));
 

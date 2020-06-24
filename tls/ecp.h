@@ -169,7 +169,7 @@ typedef struct {
 	ttls_ecp_group_id	id;
 	unsigned short		bits;
 
-	int (*mul)(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P);
+	int (*mul)(TlsEcpPoint *R, const TlsMpi *m, const unsigned long *P);
 	int (*muladd)(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *Q,
 		      const TlsMpi *n);
 	int (*gen_keypair)(TlsMpi *d, TlsEcpPoint *Q);
@@ -215,8 +215,6 @@ void ttls_ecp_copy(TlsEcpPoint *P, const TlsEcpPoint *Q);
 
 int ttls_ecp_point_read_binary(const TlsEcpGrp *grp, TlsEcpPoint *P,
 			       const unsigned char *buf, size_t ilen);
-int ttls_ecp_tls_read_point(const TlsEcpGrp *grp, TlsEcpPoint *pt,
-			    const unsigned char **buf, size_t len);
 int ttls_ecp_tls_write_point(const TlsEcpGrp *grp, const TlsEcpPoint *pt,
 			     size_t *olen, unsigned char *buf, size_t blen);
 const TlsEcpGrp *ttls_ecp_tls_read_group(const unsigned char **buf, size_t len);
@@ -228,8 +226,14 @@ const TlsEcpGrp *ttls_ecp_group_lookup(ttls_ecp_group_id id);
 #if defined(DEBUG) && DEBUG == 3
 /* Print data structures containing MPIs on higest debug level only. */
 #define T_DBG_ECP(msg, x)		__log_mpis(2, msg, (x)->X, (x)->Y)
+#define T_DBG_ECP_X(msg, g, x)						\
+do {									\
+	print_hex_dump(KERN_INFO, msg, DUMP_PREFIX_OFFSET, 16, 1, x,	\
+		       BITS_TO_CHARS(g->bits) * 2, true);		\
+} while (0)
 #else
 #define T_DBG_ECP(msg, x)
+#define T_DBG_ECP_X(msg, g, x)
 #endif
 
 static inline void

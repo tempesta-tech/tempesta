@@ -65,6 +65,7 @@ ecp_mul(void)
 	TlsEcpPoint *R, *P;
 	TlsMpi *m;
 	TlsMpiPool *mp;
+	unsigned long pXY[G_LIMBS * 2];
 	/* Exponents especially adapted for secp256r1, 32 bytes in size. */
 	struct {
 		const char	*m;
@@ -229,7 +230,9 @@ ecp_mul(void)
 		 * ECP test #2 (constant op_count, other point).
 		 * We computed P = 2G last time, use it.
 		 */
-		EXPECT_ZERO(grp->mul(R, m, P));
+		memcpy(pXY, MPI_P(&P->X), G_LIMBS * CIL);
+		memcpy(&pXY[G_LIMBS], MPI_P(&P->Y), G_LIMBS * CIL);
+		EXPECT_ZERO(grp->mul(R, m, pXY));
 		EXPECT_MPI(&R->X, 4, mc[i].Xp[0], mc[i].Xp[1],
 				     mc[i].Xp[2], mc[i].Xp[3]);
 		EXPECT_MPI(&R->Y, 4, mc[i].Yp[0], mc[i].Yp[1],

@@ -58,6 +58,7 @@ do {									\
 #define BIL			(CIL << 3)	/* bits in limb */
 #define BIH			(CIL << 2)	/* half limb size */
 #define BMASK			(BIL - 1)
+#define BITS_TO_CHARS(n)	(((n) + 7) / 8)
 #define BITS_TO_LIMBS(n)	(((n) + BIL - 1) >> BSHIFT)
 #define CHARS_TO_LIMBS(n)	(((n) + CIL - 1) >> LSHIFT)
 

@@ -33,6 +33,7 @@ typedef long ktime_t;
 #define unlikely(e)	__builtin_expect((bool)(e), 0)
 
 #define cpu_to_be64(x)	__builtin_bswap64(x)
+#define be64_to_cpu(x)	__builtin_bswap64(x)
 
 #define __percpu
 

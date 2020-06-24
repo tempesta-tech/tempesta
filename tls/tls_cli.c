@@ -1160,7 +1160,8 @@ static int ssl_check_server_ecdh_params(const TlsCtx *ssl)
 	if (ttls_check_curve(ssl, ssl->handshake->ecdh_ctx.grp.id) != 0)
 		return(-1);
 
-	T_DBG_ECP("ECDH serve Qp param", &ssl->handshake->ecdh_ctx.Qp);
+	T_DBG_ECP_X("ECDH serve Qp param", &ssl->handshake->ecdh_ctx->grp,
+		    &ssl->handshake->ecdh_ctx.Qp);
 
 	return 0;
 }
