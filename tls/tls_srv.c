@@ -1668,20 +1668,21 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 	TlsIOCtx *io = &tls->io_in;
 
 	BUG_ON(io->msgtype != TTLS_MSG_HANDSHAKE);
-	if (io->hstype != TTLS_HS_CLIENT_KEY_EXCHANGE) {
+	if (unlikely(io->hstype != TTLS_HS_CLIENT_KEY_EXCHANGE)) {
 		T_DBG("bad client key exchange message type, %u\n", io->hstype);
 		return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE;
 	}
 
 	/*
-	 * TODO #1064 avoid copies even for chunked data. This requires deep
-	 * MPI modifications, so leave the warning for now.
+	 * Read the peer public key - either X,Y coordinates of an EC point
+	 * or G^Y mod P for Diffie-Hellman. The key arrives in the network
+	 * byte order, so we need to reverse the 8-byte limbs. Since the key
+	 * for EC is relatively small (only 64 bytes plus 2 bytes for the
+	 * metadata), it's simple and more efficient to copy the whole key and
+	 * reverse it at once, than to track splitted limbs.
 	 */
 	if (io->rlen + len < io->hslen) {
-		T_WARN("chunked key - fall back to copy"
-		       " (total length %u, chunk length %lu, max copy %d)\n",
-		       io->hslen, len, TTLS_HS_RBUF_SZ);
-		if (io->hslen > TTLS_HS_RBUF_SZ)
+		if (unlikely(io->hslen > TTLS_HS_RBUF_SZ))
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE;
 		memcpy_fast(&tls->hs->key_exchange_tmp[io->rlen], buf, len);
 		*read += len;
@@ -1699,11 +1700,7 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 		 * Previous chunk checksums were computed in ttls_recv().
 		 * Compute the last current chunk checksum here.
 		 *
-		 * TODO #1064 After getting rid of the copy, we can move the
-		 * checksum computation to the end of the function as we
-		 * do this in other places.
-		 *
-		 * The checksum must be update before ttls_derive_keys()
+		 * The checksum must be updated before ttls_derive_keys()
 		 * call because it need the actual checksum, including
 		 * the current record, to process extended master secret
 		 * extension.
@@ -1714,7 +1711,6 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 		p = buf;
 		end = p + io->hslen;
 		*read += end - p;
-		/* TODO see the comment above: must be only one call. */
 		ttls_update_checksum(tls, buf - hh_len, end - p + hh_len);
 	}
 
@@ -1726,8 +1722,8 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 			T_DBG("cannot read ecdh public, %d\n", r);
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_RP;
 		}
-		T_DBG_ECP("ECDH client key exchange EC point",
-			  &tls->hs->ecdh_ctx->Qp);
+		T_DBG_ECP_X("ECDH client key exchange EC point",
+			    &tls->hs->ecdh_ctx->grp, &tls->hs->ecdh_ctx->Qp);
 
 		r = ttls_ecdh_calc_secret(tls->hs->ecdh_ctx, &tls->hs->pmslen,
 					  tls->hs->premaster,

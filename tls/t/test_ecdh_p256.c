@@ -45,24 +45,17 @@ const TlsEcpGrp CURVE25519_G = {};
  * use with other structures such as TlsECDHCtx of TlsEcpKeypair.
  */
 static int
-ecp256_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
+ecp256_check_pubkey(const TlsEcpGrp *grp, const unsigned long *pXY)
 {
-	TlsMpi *YY, *RHS;
+	TlsMpi *YY, *RHS, X, Y;
 
-	/* Must use affine coordinates */
-	if (WARN_ON_ONCE(ttls_mpi_cmp_int(&pt->Z, 1)))
-		return -EINVAL;
+	ttls_mpi_alloca_init(&X, G_LIMBS);
+	memcpy(MPI_P(&X), pXY, G_LIMBS * CIL);
+	mpi_fixup_used(&X, G_LIMBS);
 
-	if (grp->id == TTLS_ECP_DP_CURVE25519) {
-		/*
-		 * Check validity of a public key for Montgomery curves with
-		 * x-only schemes. [Curve25519 p. 5] Just check X is the correct
-		 * number of bytes.
-		 */
-		if (WARN_ON_ONCE(ttls_mpi_size(&pt->X) > (grp->bits + 7) / 8))
-			return -EINVAL;
-		return 0;
-	}
+	ttls_mpi_alloca_init(&Y, G_LIMBS);
+	memcpy(MPI_P(&Y), pXY + G_LIMBS, G_LIMBS * CIL);
+	mpi_fixup_used(&Y, G_LIMBS);
 
 	/*
 	 * Check that an affine point is valid as a public key,
@@ -70,11 +63,8 @@ ecp256_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
 	 *
 	 * pt coordinates must be normalized for our checks.
 	 */
-	if (ttls_mpi_cmp_mpi(&pt->X, &G.P) >= 0
-	    || ttls_mpi_cmp_mpi(&pt->Y, &G.P) >= 0)
-	{
-		T_DBG_MPI3("ECP invalid weierstrass public key",
-			   &pt->X, &pt->Y, &G.P);
+	if (ttls_mpi_cmp_mpi(&X, &G.P) >= 0 || ttls_mpi_cmp_mpi(&Y, &G.P) >= 0) {
+		T_DBG_MPI3("ECP invalid weierstrass public key", &X, &Y, &G.P);
 		return -EINVAL;
 	}
 
@@ -85,14 +75,14 @@ ecp256_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
 	 * YY = Y^2
 	 * RHS = X (X^2 + A) + B = X^3 + A X + B
 	 */
-	ecp256_sqr_mod(YY, &pt->Y);
-	ecp256_sqr_mod(RHS, &pt->X);
+	ecp256_sqr_mod(YY, &Y);
+	ecp256_sqr_mod(RHS, &X);
 
 	/* Special case for A = -3 */
 	ttls_mpi_sub_int(RHS, RHS, 3);
 	MOD_SUB(RHS);
 
-	ecp256_mul_mod(RHS, RHS, &pt->X);
+	ecp256_mul_mod(RHS, RHS, &X);
 	ttls_mpi_add_mpi(RHS, RHS, &G.B);
 	MOD_ADD(RHS);
 
@@ -111,15 +101,15 @@ ecdhe_srv(void)
 	TlsECDHCtx *ctx;
 	TlsMpiPool *mp;
 	unsigned char buf[128] = {0}, pms[TTLS_PREMASTER_SIZE] = {0};
-	const char clnt_buf[66] = "\x41\x04\xCE\xD4\x8B\x4C\x8A\x45"
-				  "\xA2\x08\xF8\x1F\xFD\xAF\xA6\x8C"
-				  "\x75\x21\x19\x95\xC5\x10\xB1\xDB"
-				  "\x19\xA7\x0D\xA2\x9F\x33\x82\x70"
-				  "\x90\xE0\x94\xA3\x0B\xE5\xA4\xB1"
-				  "\xBD\x8A\x9B\x3E\xF3\x2C\x43\x02"
-				  "\x58\x88\x64\x88\x64\x22\xB8\xE6"
-				  "\xE9\x84\x9D\x52\x79\x7C\x9C\x74"
-				  "\x8F\x67";
+	const char clnt_buf[66] = "\x41\x04"
+				  "\xCE\xD4\x8B\x4C\x8A\x45\xA2\x08"
+				  "\xF8\x1F\xFD\xAF\xA6\x8C\x75\x21"
+				  "\x19\x95\xC5\x10\xB1\xDB\x19\xA7"
+				  "\x0D\xA2\x9F\x33\x82\x70\x90\xE0"
+				  "\x94\xA3\x0B\xE5\xA4\xB1\xBD\x8A"
+				  "\x9B\x3E\xF3\x2C\x43\x02\x58\x88"
+				  "\x64\x88\x64\x22\xB8\xE6\xE9\x84"
+				  "\x9D\x52\x79\x7C\x9C\x74\x8F\x67";
 
 	/* ttls_mpool() treats the pool as "handshake" pool. */
 	EXPECT_FALSE(!(mp = ttls_mpi_pool_create(TTLS_MPOOL_ORDER, GFP_KERNEL)));
@@ -149,7 +139,7 @@ ecdhe_srv(void)
 	EXPECT_ZERO(memcmp(buf + 64, "\x82\x94\x70\x6C\x96\x00\x00\x00", 8));
 
 	EXPECT_ZERO(ttls_ecdh_read_public(ctx, clnt_buf, 66));
-	EXPECT_ZERO(ecp256_check_pubkey(ctx->grp, &ctx->Qp));
+	EXPECT_ZERO(ecp256_check_pubkey(ctx->grp, ctx->Qp));
 	EXPECT_ZERO(ttls_ecdh_calc_secret(ctx, &n, pms, TTLS_MPI_MAX_SIZE));
 	EXPECT_TRUE(n == 32);
 	EXPECT_ZERO(memcmp(pms, "\x27\x53\xE1\x88\x57\x89\xB4\xB0", 8));

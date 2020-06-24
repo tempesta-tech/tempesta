@@ -174,7 +174,7 @@ int
 ttls_ecp_point_read_binary(const TlsEcpGrp *grp, TlsEcpPoint *pt,
 			   const unsigned char *buf, size_t ilen)
 {
-	size_t plen = (grp->bits + 7) / 8;
+	size_t plen = BITS_TO_CHARS(grp->bits);
 
 	if (ilen < 1)
 		return TTLS_ERR_ECP_BAD_INPUT_DATA;
@@ -198,37 +198,6 @@ ttls_ecp_point_read_binary(const TlsEcpGrp *grp, TlsEcpPoint *pt,
 	ttls_mpi_lset(&pt->Z, 1);
 
 	return 0;
-}
-
-/**
- * Import a point from a TLS ECPoint record (RFC 8443 5.4)
- *	struct {
- *		opaque point <1..2^8-1>;
- *	} ECPoint;
- */
-int
-ttls_ecp_tls_read_point(const TlsEcpGrp *grp, TlsEcpPoint *pt,
-			const unsigned char **buf, size_t buf_len)
-{
-	unsigned char data_len;
-	const unsigned char *buf_start;
-
-	/*
-	 * We must have at least two bytes (1 for length,
-	 * at least one for data).
-	 */
-	if (buf_len < 2)
-		return TTLS_ERR_ECP_BAD_INPUT_DATA;
-
-	data_len = *(*buf)++;
-	if (data_len < 1 || data_len > buf_len - 1)
-		return TTLS_ERR_ECP_BAD_INPUT_DATA;
-
-	/* Save buffer start for read_binary and update buf. */
-	buf_start = *buf;
-	*buf += data_len;
-
-	return ttls_ecp_point_read_binary(grp, pt, buf_start, data_len);
 }
 
 /**

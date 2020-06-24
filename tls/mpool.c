@@ -220,17 +220,21 @@ ttls_mpi_profile_create_ec(TlsMpiPool *mp, ttls_ecp_group_id ec)
 {
 	size_t n_sz;
 	TlsECDHCtx *ctx;
+	const TlsEcpGrp *g;
 
-	if (!(ctx = ttls_mpool_alloc_data(mp, sizeof(*ctx))))
+	if (unlikely(!(g = ttls_ecp_group_lookup(ec))))
+		return -EINVAL;
+
+	/* Reserve space for the public key point X and Y coordinates. */
+	if (!(ctx = ttls_mpool_alloc_data(mp, sizeof(*ctx)
+					      + BITS_TO_CHARS(g->bits) * 2)))
 		return -ENOMEM;
 
 	/*
 	 * Initialize the context group pointer - it will be copied as is by
 	 * all the cloned MPI profiles, so they will use this group.
 	 */
-	ctx->grp = ttls_ecp_group_lookup(ec);
-	if (unlikely(!ctx->grp))
-		return -EINVAL;
+	ctx->grp = g;
 
 	/* Init the temporary point to be used in ttls_ecdh_compute_shared(). */
 	ttls_ecp_point_init(&ctx->z);

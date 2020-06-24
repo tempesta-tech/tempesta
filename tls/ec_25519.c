@@ -302,20 +302,24 @@ ecp_double_add_mxz(TlsEcpPoint *R, TlsEcpPoint *S, const TlsEcpPoint *P,
  * for curves in Montgomery form.
  */
 static int
-ecp_mul_mxz(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P, bool rng)
+ecp_mul_mxz(TlsEcpPoint *R, const TlsMpi *m, const unsigned long *pX,
+	    const unsigned long *pY, bool rng)
 {
 	size_t i;
 	unsigned char b;
 	TlsEcpPoint *RP;
 	TlsMpi *PX;
 
-	PX = ttls_mpi_alloc_stack_init(0);
-	RP = ttls_mpool_alloc_stack(sizeof(*RP));
-	ttls_ecp_point_init(RP);
+	PX = ttls_mpi_alloc_stack_init(G_LIMBS);
+	memcpy_fast(MPI_P(PX), pX, G_LIMBS << LSHIFT);
+	mpi_fixup_used(PX, G_LIMBS);
 
-	/* Save PX and read from P before writing to R, in case P == R */
-	ttls_mpi_copy(PX, &P->X);
-	ttls_ecp_copy(RP, P);
+	ttls_ecp_point_tmp_alloc_init(RP, G_LIMBS, G_LIMBS, G_LIMBS);
+	memcpy_fast(MPI_P(&RP->X), pX, G_LIMBS * CIL);
+	mpi_fixup_used(&RP->X, G_LIMBS);
+	memcpy_fast(MPI_P(&RP->Y), pY, G_LIMBS * CIL);
+	mpi_fixup_used(&RP->Y, G_LIMBS);
+	ttls_mpi_lset(&RP->Z, 1);
 
 	/* Set R to zero in modified x/z coordinates */
 	ttls_mpi_lset(&R->X, 1);
@@ -359,7 +363,7 @@ ecp_mul_mxz(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P, bool rng)
 static int
 ecp_mul_mxz_g(TlsEcpPoint *R, const TlsMpi *m, bool rnd)
 {
-	return ecp_mul_mxz(R, m, &G.G, rnd);
+	return ecp_mul_mxz(R, m, MPI_P(&G.G.X), MPI_P(&G.G.Y), rnd);
 }
 
 /*
@@ -367,9 +371,9 @@ ecp_mul_mxz_g(TlsEcpPoint *R, const TlsMpi *m, bool rnd)
  * required or remove completely.
  */
 static int
-ecp_mul_mxz_rnd(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P)
+ecp_mul_mxz_rnd(TlsEcpPoint *R, const TlsMpi *m, const unsigned long *P)
 {
-	return ecp_mul_mxz(R, m, P, false);
+	return ecp_mul_mxz(R, m, P, P + G_LIMBS, false);
 }
 
 /**

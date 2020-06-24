@@ -396,7 +396,7 @@ ttls_mpi_dump(const TlsMpi *X, const char *prefix)
 	pr_info("MPI(%pK, p=%pK) %s DUMP: s=%d used=%u limbs=%u off=%d\n",
 		X, MPI_P(X), prefix, X->s, X->used, X->limbs, X->_off);
 	print_hex_dump(KERN_INFO, "    ", DUMP_PREFIX_OFFSET, 16, 1, MPI_P(X),
-		       X->limbs * sizeof(long), true);
+		       X->limbs * CIL, true);
 }
 
 /**

@@ -825,8 +825,8 @@ ecp384_comb_fixed(unsigned char x[], size_t d, unsigned char w, const TlsMpi *m)
  * Cost: d(w-1) D + (2^{w-1} - 1) A + 1 N(w-1) + 1 N(2^{w-1} - 1)
  */
 int
-ecp384_precompute_comb(TlsEcpPoint T[], const TlsEcpPoint *P,
-		    unsigned char w, size_t d)
+ecp384_precompute_comb(TlsEcpPoint T[], const unsigned long *pX,
+		       const unsigned long *pY, unsigned char w, size_t d)
 {
 	int i, j, k;
 	TlsEcpPoint *cur, *TT[TTLS_ECP_WINDOW_SIZE];
@@ -835,7 +835,13 @@ ecp384_precompute_comb(TlsEcpPoint T[], const TlsEcpPoint *P,
 	 * Set T[0] = P and T[2^{i-1}] = 2^{di} P for i = 1 .. w-1
 	 * (this is not the final value).
 	 */
-	ttls_ecp_copy(&T[0], P);
+	T->X.s = 1;
+	memcpy_fast(MPI_P(&T->X), pX, G_LIMBS * CIL);
+	mpi_fixup_used(&T->X, G_LIMBS);
+	T->Y.s = 1;
+	memcpy_fast(MPI_P(&T->Y), pY, G_LIMBS * CIL);
+	mpi_fixup_used(&T->Y, G_LIMBS);
+	ttls_mpi_lset(&T->Z, 1);
 
 	k = 0;
 	for (i = 1; i < (1U << (w - 1)); i <<= 1) {
@@ -1003,7 +1009,8 @@ ttls_mpool_ecp_create_tmp_T(int n)
  * memory we can't call ttls_mpi_pool_cleanup_ctx() here.
  */
 static int
-ecp384_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P, bool rnd)
+ecp384_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const unsigned long *pX,
+		const unsigned long *pY, bool rnd)
 {
 	unsigned char w, m_is_odd, p_eq_g, pre_len;
 	size_t d = G_LIMBS;
@@ -1026,8 +1033,8 @@ ecp384_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P, bool rnd)
 	 * Just adding one avoids upping the cost of the first mul too much,
 	 * and the memory cost too.
 	 */
-	p_eq_g = !ttls_mpi_cmp_mpi(&P->Y, &G.G.Y)
-		 && !ttls_mpi_cmp_mpi(&P->X, &G.G.X);
+	p_eq_g = !memcmp(pY, G.secp384r1_gy, G_LIMBS * CIL)
+		 && !memcmp(pY, G.secp384r1_gx, G_LIMBS * CIL);
 	if (p_eq_g) {
 		w++;
 		T = combT_G; /* TODO #1335 we won't change it */
@@ -1070,10 +1077,10 @@ ecp384_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P, bool rnd)
 			if (!combT_G)
 				return -ENOMEM;
 			T = combT_G;
-			MPI_CHK(ecp384_precompute_comb(T, P, w, d));
+			MPI_CHK(ecp384_precompute_comb(T, pX, pY, w, d));
 		}
 	} else {
-		MPI_CHK(ecp384_precompute_comb(T, P, w, d));
+		MPI_CHK(ecp384_precompute_comb(T, pX, pY, w, d));
 	}
 
 	/*
@@ -1100,7 +1107,7 @@ ecp384_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P, bool rnd)
 static int
 ecp384_mul_comb_g(TlsEcpPoint *R, const TlsMpi *m, bool rnd)
 {
-	return ecp384_mul_comb(R, m, &G.G, rnd);
+	return ecp384_mul_comb(R, m, G.secp384r1_gx, G.secp384r1_gy, rnd);
 }
 
 /*
@@ -1108,9 +1115,9 @@ ecp384_mul_comb_g(TlsEcpPoint *R, const TlsMpi *m, bool rnd)
  * required or remove completely.
  */
 static int
-ecp384_mul_comb_rnd(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P)
+ecp384_mul_comb_rnd(TlsEcpPoint *R, const TlsMpi *m, const unsigned long *P)
 {
-	return ecp384_mul_comb(R, m, P, false);
+	return ecp384_mul_comb(R, m, P, P + G_LIMBS, false);
 }
 
 /**
@@ -1129,7 +1136,7 @@ ecp384_mul_shortcuts(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P)
 			ttls_mpi_sub_mpi(&R->Y, &G.P, &R->Y);
 	}
 	else {
-		return ecp384_mul_comb(R, m, P, false);
+		return ecp384_mul_comb(R, m, MPI_P(&P->X), MPI_P(&P->Y), false);
 	}
 
 	return 0;

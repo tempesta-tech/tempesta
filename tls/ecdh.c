@@ -45,7 +45,7 @@
  */
 static int
 ttls_ecdh_compute_shared(const TlsEcpGrp *grp, TlsEcpPoint *z,
-			 const TlsEcpPoint *Q, const TlsMpi *d)
+			 unsigned long *Q, const TlsMpi *d)
 {
 	int r;
 
@@ -93,6 +93,52 @@ ttls_ecdh_make_params(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
 }
 
 /**
+ * Parse and import the client's public value TlsECDHCtx->Qp.
+ */
+int
+ttls_ecdh_read_public(TlsECDHCtx *ctx, const unsigned char *buf, size_t blen)
+{
+	int i;
+	unsigned char data_len;
+	unsigned long *xp, *yp;
+	const size_t glen = BITS_TO_LIMBS(ctx->grp->bits);
+	const size_t pk_len = glen * CIL * 2;
+
+	/*
+	 * We must have at least two bytes
+	 * (1 for length and at least one for data).
+	 */
+	if (unlikely(blen != 2 && blen != pk_len + 2))
+		return -EINVAL;
+
+	data_len = *buf++;
+	if (unlikely(data_len != 1 && data_len != pk_len + 1))
+		return -EINVAL;
+
+	/* See ttls_ecp_point_read_binary(). */
+	if (unlikely(buf[0] == 0x00)) {
+		if (data_len == 1) {
+			bzero_fast(ctx->Qp, pk_len); /* zero point */
+			return 0;
+		}
+		return -EINVAL;
+	}
+	if (unlikely(buf[0] != 0x04))
+		return TTLS_ERR_ECP_FEATURE_UNAVAILABLE;
+
+	/* Reverse MPIs from network byte order. */
+	buf++;
+	xp = (unsigned long *)buf;
+	yp = (unsigned long *)(buf + glen * CIL);
+	for (i = 0; i < glen; ++i) {
+		ctx->Qp[i] = be64_to_cpu(xp[glen - 1 - i]);
+		ctx->Qp[glen + i] = be64_to_cpu(yp[glen - 1 - i]);
+	}
+
+	return 0;
+}
+
+/**
  * Read the ServerKeyExhange parameters (RFC 8422 5.4)
  *	struct {
  *		ECParameters	curve_params;
@@ -108,10 +154,16 @@ ttls_ecdh_read_params(TlsECDHCtx *ctx, const unsigned char **buf,
 	if (!(ctx->grp = ttls_ecp_tls_read_group(buf, end - *buf)))
 		return -EINVAL;
 
-	if ((r = ttls_ecp_tls_read_point(ctx->grp, &ctx->Qp, buf, end - *buf)))
-		return r;
+	/*
+	 * Import a point from a TLS ECPoint record (RFC 8443 5.4)
+	 *	struct {
+	 *		opaque point <1..2^8-1>;
+	 *	} ECPoint;
+	 */
+	if (!(r = ttls_ecdh_read_public(ctx, *buf, end - *buf)))
+		*buf += end - *buf;
 
-	return 0;
+	return r;
 }
 
 /**
@@ -125,9 +177,13 @@ ttls_ecdh_read_params(TlsECDHCtx *ctx, const unsigned char **buf,
 int
 ttls_ecdh_get_params(TlsECDHCtx *ctx, const TlsEcpKeypair *key)
 {
+	const size_t n = key->Q.X.used * CIL;
+
 	if (!(ctx->grp = ttls_ecp_group_lookup(key->grp->id)))
 		return -EINVAL;
-	ttls_ecp_copy(&ctx->Qp, &key->Q);
+
+	memcpy_fast(ctx->Qp, MPI_P(&key->Q.X), n);
+	memcpy_fast(&ctx->Qp[key->Q.X.used], MPI_P(&key->Q.Y), n);
 
 	return 0;
 }
@@ -148,28 +204,6 @@ ttls_ecdh_make_public(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
 	return ttls_ecp_tls_write_point(ctx->grp, &ctx->Q, olen, buf, blen);
 }
 
-/**
- * Parse and import the client's public value TlsECDHCtx->Qp.
- */
-int
-ttls_ecdh_read_public(TlsECDHCtx *ctx, const unsigned char *buf,
-		      size_t blen)
-{
-	int r;
-	const unsigned char *p = buf;
-
-	if (!ctx)
-		return TTLS_ERR_ECP_BAD_INPUT_DATA;
-
-	if ((r = ttls_ecp_tls_read_point(ctx->grp, &ctx->Qp, &p, blen)))
-		return r;
-
-	if ((size_t)(p - buf) != blen)
-		return TTLS_ERR_ECP_BAD_INPUT_DATA;
-
-	return 0;
-}
-
 /*
  * Derive and export the shared secret
  */
@@ -179,8 +213,7 @@ ttls_ecdh_calc_secret(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
 {
 	int r;
 
-	r = ttls_ecdh_compute_shared(ctx->grp, &ctx->z, &ctx->Qp, &ctx->d);
-	if (r)
+	if ((r = ttls_ecdh_compute_shared(ctx->grp, &ctx->z, ctx->Qp, &ctx->d)))
 		return r;
 
 	if (WARN_ON_ONCE(ttls_mpi_size(&ctx->z.X) > blen))
