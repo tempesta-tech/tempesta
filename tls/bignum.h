@@ -198,6 +198,18 @@ ttls_mpi_copy(TlsMpi *X, const TlsMpi *Y)
 	ttls_mpi_copy_alloc(X, Y, X->limbs < Y->used);
 }
 
+bool
+ttls_mpi_eq_0(const TlsMpi *X)
+{
+	return X->used == 1 && X->s == 1 && MPI_P(X)[0] == 0;
+}
+
+bool
+ttls_mpi_eq_1(const TlsMpi *X)
+{
+	return X->used == 1 && X->s == 1 && MPI_P(X)[0] == 1;
+}
+
 #ifdef DEBUG
 /**
  * There are a lot of MPI operations used around, so Tempesta TLS becomes
