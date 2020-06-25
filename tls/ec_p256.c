@@ -478,7 +478,7 @@ ecp256_safe_cond_assign(TlsMpi *X, const TlsMpi *Y, unsigned char assign)
 static inline void
 MOD_SUB(TlsMpi *N)
 {
-	while ((N)->s < 0 && ttls_mpi_cmp_int(N, 0))
+	while ((N)->s < 0 && !ttls_mpi_eq_0(N))
 		ttls_mpi_add_mpi(N, N, &G.P);
 }
 
@@ -547,7 +547,7 @@ ecp256_normalize_jac(TlsEcpPoint *pt)
 {
 	TlsMpi *Zi, *ZZi;
 
-	if (!ttls_mpi_cmp_int(&pt->Z, 0))
+	if (ttls_mpi_eq_0(&pt->Z))
 		return 0;
 
 	Zi = ttls_mpi_alloc_stack_init(G_LIMBS);
@@ -643,7 +643,7 @@ ecp256_safe_invert_jac(TlsEcpPoint *Q, unsigned char inv)
 
 	/* Use the fact that -Q.Y mod P = P - Q.Y unless Q.Y == 0 */
 	ttls_mpi_sub_mpi(mQY, &G.P, &Q->Y);
-	nonzero = !!ttls_mpi_cmp_int(&Q->Y, 0);
+	nonzero = !ttls_mpi_eq_0(&Q->Y);
 
 	ecp256_safe_cond_assign(&Q->Y, mQY, inv & nonzero);
 }
@@ -651,9 +651,7 @@ ecp256_safe_invert_jac(TlsEcpPoint *Q, unsigned char inv)
 /**
  * Point doubling R = 2 P, Jacobian coordinates [8, "dbl-1998-cmo-2"].
  *
- * Standard optimizations are applied when curve parameter A is one of {0, -3}.
- *
- * Cost: 4M + 4S
+ * Cost: 3M + 3S if P->Z == 0 and 4M + 4S otherwise.
  *
  * TODO #1064 the cost isn' the best one according to [8].
  *
@@ -672,7 +670,7 @@ ecp256_double_jac(TlsEcpPoint *R, const TlsEcpPoint *P)
 	ttls_mpi_alloca_init(&U, G_LIMBS * 2);
 
 	/* M = 3(X + Z^2)(X - Z^2) */
-	if (likely(ttls_mpi_cmp_int(&P->Z, 1)))
+	if (likely(!ttls_mpi_eq_1(&P->Z)))
 		ecp256_sqr_mod(&S, &P->Z);
 	else
 		ttls_mpi_lset(&S, 1);
@@ -714,7 +712,7 @@ ecp256_double_jac(TlsEcpPoint *R, const TlsEcpPoint *P)
 	MOD_SUB(&S);
 
 	/* U = 2 * Y * Z */
-	if (likely(ttls_mpi_cmp_int(&P->Z, 1)))
+	if (likely(!ttls_mpi_eq_1(&P->Z)))
 		ecp256_mul_mod(&U, &P->Y, &P->Z);
 	else
 		ttls_mpi_copy(&U, &P->Y);
@@ -756,17 +754,17 @@ ecp256_add_mixed(TlsEcpPoint *R, const TlsEcpPoint *P, const TlsEcpPoint *Q)
 	TlsMpi T1, T2, T3, T4, X, Y, Z;
 
 	/* Trivial cases: P == 0 or Q == 0 (case 1). */
-	if (!ttls_mpi_cmp_int(&P->Z, 0)) {
+	if (ttls_mpi_eq_0(&P->Z)) {
 		ttls_ecp_copy(R, Q);
 		return 0;
 	}
 	if (!ttls_mpi_empty(&Q->Z)) {
-		if (!ttls_mpi_cmp_int(&Q->Z, 0)) {
+		if (ttls_mpi_eq_0(&Q->Z)) {
 			ttls_ecp_copy(R, P);
 			return 0;
 		}
 		/* Make sure Q coordinates are normalized. */
-		if (ttls_mpi_cmp_int(&Q->Z, 1))
+		if (!ttls_mpi_eq_1(&Q->Z))
 			return -EINVAL;
 	}
 
@@ -778,7 +776,7 @@ ecp256_add_mixed(TlsEcpPoint *R, const TlsEcpPoint *P, const TlsEcpPoint *Q)
 	ttls_mpi_alloca_init(&Y, G_LIMBS * 2);
 	ttls_mpi_alloca_init(&Z, G_LIMBS * 2);
 
-	if (unlikely(!ttls_mpi_cmp_int(&P->Z, 1))) {
+	if (unlikely(ttls_mpi_eq_1(&P->Z))) {
 		/* Relatively rare case, ~1/60. */
 		ttls_mpi_sub_mpi(&T1, &Q->X, &P->X);
 		MOD_SUB(&T1);
@@ -796,14 +794,14 @@ ecp256_add_mixed(TlsEcpPoint *R, const TlsEcpPoint *P, const TlsEcpPoint *Q)
 	}
 
 	/* Special cases (2) and (3) */
-	if (!ttls_mpi_cmp_int(&T1, 0)) {
-		if (!ttls_mpi_cmp_int(&T2, 0))
+	if (ttls_mpi_eq_0(&T1)) {
+		if (ttls_mpi_eq_0(&T2))
 			return ecp256_double_jac(R, P);
 		ttls_ecp_set_zero(R);
 		return 0;
 	}
 
-	if (unlikely(!ttls_mpi_cmp_int(&P->Z, 1)))
+	if (unlikely(ttls_mpi_eq_1(&P->Z)))
 		ttls_mpi_copy_alloc(&Z, &T1, false);
 	else
 		ecp256_mul_mod(&Z, &P->Z, &T1);
@@ -1309,7 +1307,7 @@ ecp256_gen_keypair(TlsMpi *d, TlsEcpPoint *Q)
 		 */
 		if (WARN_ON_ONCE(++count > 10))
 			return TTLS_ERR_ECP_RANDOM_FAILED;
-	} while (!ttls_mpi_cmp_int(d, 0) || ttls_mpi_cmp_mpi(d, &G.N) >= 0);
+	} while (ttls_mpi_eq_0(d) || ttls_mpi_cmp_mpi(d, &G.N) >= 0);
 
 	return ecp256_mul_comb_g(Q, d);
 }
@@ -1376,7 +1374,7 @@ ecp256_ecdsa_sign(const TlsMpi *d, const unsigned char *hash, size_t hlen,
 
 			if (key_tries++ > 10)
 				return TTLS_ERR_ECP_RANDOM_FAILED;
-		} while (!ttls_mpi_cmp_int(r, 0));
+		} while (ttls_mpi_eq_0(r));
 
 		/* Derive MPI from hashed message. */
 		derive_mpi(e, hash, hlen);
@@ -1392,8 +1390,7 @@ ecp256_ecdsa_sign(const TlsMpi *d, const unsigned char *hash, size_t hlen,
 			/* See ttls_ecp_gen_keypair() */
 			if (++blind_tries > 10)
 				return TTLS_ERR_ECP_RANDOM_FAILED;
-		} while (ttls_mpi_cmp_int(t, 1) < 0
-			 || ttls_mpi_cmp_mpi(t, &G.N) >= 0);
+		} while (ttls_mpi_eq_0(t) || ttls_mpi_cmp_mpi(t, &G.N) >= 0);
 
 		/* Compute s = (e + r * d) / k = t (e + rd) / (kt) mod n */
 		ttls_mpi_mul_mpi(s, r, d);
@@ -1406,7 +1403,7 @@ ecp256_ecdsa_sign(const TlsMpi *d, const unsigned char *hash, size_t hlen,
 
 		if (sign_tries++ > 10)
 			return TTLS_ERR_ECP_RANDOM_FAILED;
-	} while (!ttls_mpi_cmp_int(s, 0));
+	} while (ttls_mpi_eq_0(s));
 
 	return ecdsa_signature_to_asn1(r, s, sig, slen);
 }
