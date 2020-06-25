@@ -1,3 +1,22 @@
+tempesta-fw-dkms (0.6.7) stretch; urgency=medium
+
+  * Fix issues when starting Tempesta via systemd (#1420).
+
+ -- Tempesta Technologies, Inc. <info@tempesta-tech.com>  Thu, 25 Jun 2020 20:11:18 +0500
+
+
+tempesta-fw-dkms (0.6.6) stretch; urgency=medium
+
+  * TempestaTLS 0.2 (tight TCP integration, fast handshake FSM)
+  * HTTPtables
+  * Sticky cookie extension for L7 DDoS mitigation
+  * Multiple HTTP limiting extensions
+  * SIMD memory functions
+  * Temporal client accounting
+  * Multiple bugfixes
+
+ -- Tempesta Technologies, Inc. <info@tempesta-tech.com>  Wed, 10 Jun 2020 11:10:28 +0500
+
 tempesta-fw-dkms (0.5.0) stretch; urgency=medium
 
   * Add HTTP health monitoring
