@@ -501,7 +501,7 @@ do {									\
 		 * At the moment Z coordinate stores a garbage, so free it now
 		 * and treat as 1 on subsequent processing.
 		 */
-		ttls_mpi_reset(&T[i]->Z);
+		ttls_mpi_lset(&T[i]->Z, 1);
 	}
 
 	ttls_mpi_pool_cleanup_ctx((unsigned long)c, false);

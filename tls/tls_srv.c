@@ -1482,8 +1482,8 @@ ttls_write_certificate_request(TlsCtx *tls, struct sg_table *sgt,
 		authmode = tls->conf->authmode;
 
 	/*
-	 * TODO estimate size of the message more accurately on configuration
-	 * time.
+	 * TODO #830 estimate size of the message more accurately on
+	 * configuration time.
 	 *
 	 * At least this message, but probably some more, can be assembled on
 	 * configuration time and just serialized to the TCP/IP stack.

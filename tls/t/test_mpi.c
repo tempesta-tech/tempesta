@@ -37,7 +37,6 @@ mpi_alloc_init(void)
 {
 	TlsMpi *A;
 	unsigned long p[7] = { 0x1, 0x2, 0x3, 0x4, 0x5, 0, 0 };
-	unsigned short save_off;
 
 	A = ttls_mpi_alloc_stack_init(0);
 
@@ -48,24 +47,12 @@ mpi_alloc_init(void)
 	EXPECT_ZERO(A->_off);
 	EXPECT_TRUE(A->s == 1);
 
-	/* Nothing bad happens on freeing empty MPI. */
-	ttls_mpi_reset(A);
-	ttls_mpi_init_next(A, 7);
-	ttls_mpi_reset(A);
-	ttls_mpi_reset(A);
-	save_off = A->_off;
-	EXPECT_TRUE(A->s == 0);
-	EXPECT_TRUE(A->used == 0);
-	EXPECT_TRUE(A->limbs == 7);
-	EXPECT_TRUE(A->_off != 0);
-
 	/* Calculate correct @A->used from invalid size assumption. */
 	ttls_mpi_init_next(A, 7);
 	memcpy(MPI_P(A), p, CIL * 7);
 	mpi_fixup_used(A, 7);
 	EXPECT_TRUE(A->used == 5);
 	EXPECT_TRUE(A->limbs == 7);
-	EXPECT_TRUE(A->_off == save_off);
 	EXPECT_TRUE(A->s == 1);
 	EXPECT_TRUE(MPI_P(A)[4] == 5 && MPI_P(A)[5] == 0 && MPI_P(A)[6] == 0);
 
@@ -73,15 +60,7 @@ mpi_alloc_init(void)
 	MPI_P(A)[0] = MPI_P(A)[1] = 1;
 	mpi_fixup_used(A, 2);
 	EXPECT_TRUE(A->used == 2);
-
-	/* Finally free the MPI. */
 	EXPECT_FALSE(ttls_mpi_empty(A));
-	ttls_mpi_reset(A);
-	EXPECT_ZERO(A->used);
-	EXPECT_ZERO(A->s);
-	EXPECT_TRUE(A->limbs == 7);
-	EXPECT_TRUE(A->_off == save_off);
-	EXPECT_TRUE(ttls_mpi_empty(A));
 
 	ttls_mpi_pool_cleanup_ctx((unsigned long)A, false);
 }
@@ -141,8 +120,6 @@ mpi_read_write(void)
 	for (i = 0; i < 118; ++i)
 		EXPECT_ZERO(buf[i]);
 
-	ttls_mpi_reset(&A);
-
 	/* Read 1 byte. */
 	save_off = A._off;
 	ttls_mpi_read_binary(&A, mpi_data, 1);
@@ -153,7 +130,6 @@ mpi_read_write(void)
 	EXPECT_TRUE(A.s == 1);
 
 	/* No reading at all. */
-	ttls_mpi_reset(&A);
 	ttls_mpi_read_binary(&A, mpi_data, 0);
 	EXPECT_ZERO(A.used);
 	EXPECT_ZERO(A.s);

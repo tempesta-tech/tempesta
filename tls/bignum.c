@@ -72,23 +72,6 @@ ttls_mpi_alloc_stack_init(size_t nlimbs)
 	return X;
 }
 
-/**
- * Technically, the function is equal ttls_mpi_init_next(), so the MPI becomes
- * invalid and ttls_mpi_empty() returns true for it. However, if at some
- * point we decide to write something here, we won't request a new memory chunk.
- */
-void
-ttls_mpi_reset(TlsMpi *X)
-{
-	if (unlikely(!X))
-		return;
-
-	if (X->_off) {
-		X->used = 0;
-		X->s = 0;
-	}
-}
-
 void
 ttls_mpi_alloc(TlsMpi *X, size_t nlimbs)
 {
@@ -433,8 +416,12 @@ ttls_mpi_read_binary(TlsMpi *X, const unsigned char *buf, size_t buflen)
 	size_t i = buflen, l = 0, j;
 	size_t const limbs = CHARS_TO_LIMBS(buflen);
 
-	if (unlikely(!buflen))
+	if (unlikely(!buflen)) {
+		/* Reset the MPI. */
+		X->s = 0;
+		X->used = 0;
 		return;
+	}
 	ttls_mpi_alloc(X, limbs);
 
 	X->s = 1;
