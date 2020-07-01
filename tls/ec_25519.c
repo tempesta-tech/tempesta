@@ -324,7 +324,7 @@ ecp_mul_mxz(TlsEcpPoint *R, const TlsMpi *m, const unsigned long *pX,
 	/* Set R to zero in modified x/z coordinates */
 	ttls_mpi_lset(&R->X, 1);
 	ttls_mpi_lset(&R->Z, 0);
-	ttls_mpi_reset(&R->Y);
+	ttls_mpi_lset(&R->Y, 0); /* TODO #1335 reset/free the MPI */
 
 	/* RP.X might be sligtly larger than P, so reduce it */
 	MOD_ADD(&RP->X);
