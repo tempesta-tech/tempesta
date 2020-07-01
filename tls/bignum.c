@@ -1333,15 +1333,9 @@ ttls_mpi_gcd(TlsMpi *G, const TlsMpi *A, const TlsMpi *B)
 void
 ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N)
 {
-	TlsMpi *G, *TA, *TU, *U1, *U2, *TB, *TV, *V1, *V2;
+	TlsMpi *TA, *TU, *U1, *U2, *TB, *TV, *V1, *V2;
 
-	G = ttls_mpool_alloc_stack(sizeof(TlsMpi) * 9
-				   + (N->used * 8 + 4) * CIL);
-	TA = ttls_mpi_init_next(G, 0);
-
-	ttls_mpi_gcd(G, A, N);
-	WARN_ON_ONCE(ttls_mpi_cmp_int(G, 1));
-
+	TA = ttls_mpool_alloc_stack(sizeof(TlsMpi) * 8 + N->used * 8 * CIL);
 	TB = ttls_mpi_init_next(TA, N->used);
 	TU = ttls_mpi_init_next(TB, N->used);
 	TV = ttls_mpi_init_next(TU, N->used);

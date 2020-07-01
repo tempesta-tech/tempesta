@@ -577,20 +577,45 @@ ecp256_add_mixed(TlsEcpPoint *R, const TlsEcpPoint *P, const TlsEcpPoint *Q)
 /*
  * Recode the secret scalar `m` that will be used with our comb method.
  *
+ * Basically, we use the same comb algorithm modification as mbed TLS.
+ *
  * The basic comb method is described in GECC 3.44 for example. We use a
  * modified version that provides resistance to SPA by avoiding zero
  * digits in the representation as in [3]. We modify the method further by
  * requiring that all K_i be odd, which has the small cost that our
- * representation uses one more K_i, due to carries.
+ * representation uses one more K_i, due to carries, but saves on the size of
+ * the precomputed table.
  *
- * References for SCA-resistant recodings:
- * 1. "A new attack with side channel leakage during exponent recoding
- *     computations" by Sakai, 2004.
- * 2. "Exponent recoding and regular exponentiation algorithms" by Joye, 2009.
+ * Summary of the comb method and its modifications:
  *
- * Also, for the sake of compactness, only the seven low-order bits of x[i]
- * are used to represent K_i, and the msb of x[i] encodes the sign (s_i in
- * the paper): it is set if and only if s_i == -1;
+ * - The goal is to compute m*P for some w*d-bit integer m.
+ *
+ * - The basic comb method splits m into the w-bit integers
+ *   x[0] .. x[d-1] where x[i] consists of the bits in m whose
+ *   index has residue i modulo d, and computes m * P as
+ *   S[x[0]] + 2 * S[x[1]] + .. + 2^(d-1) S[x[d-1]], where
+ *   S[i_{w-1} .. i_0] := i_{w-1} 2^{(w-1)d} P + ... + i_1 2^d P + i_0 P.
+ *
+ * - If it happens that, say, x[i+1]=0 (=> S[x[i+1]]=0), one can replace the sum by
+ *   .. + 2^{i-1} S[x[i-1]] - 2^i S[x[i]] + 2^{i+1} S[x[i]] + 2^{i+2} S[x[i+2]] ..,
+ *   thereby successively converting it into a form where all summands
+ *   are nonzero, at the cost of negative summands. This is the basic idea of [3].
+ *
+ * - More generally, even if x[i+1] != 0, we can first transform the sum as
+ *   .. - 2^i S[x[i]] + 2^{i+1} ( S[x[i]] + S[x[i+1]] ) + 2^{i+2} S[x[i+2]] ..,
+ *   and then replace S[x[i]] + S[x[i+1]] = S[x[i] ^ x[i+1]] + 2 S[x[i] & x[i+1]].
+ *   Performing and iterating this procedure for those x[i] that are even
+ *   (keeping track of carry), we can transform the original sum into one of the
+ *   form S[x'[0]] +- 2 S[x'[1]] +- .. +- 2^{d-1} S[x'[d-1]] + 2^d S[x'[d]]
+ *   with all x'[i] odd. It is therefore only necessary to know S at odd indices,
+ *   which is why we are only computing half of it in the first place in
+ *   ecp256_precompute_comb() and accessing it with index abs(i) / 2 in
+ *   ecp256_select_comb().
+ *
+ * - For the sake of compactness, only the seven low-order bits of x[i]
+ *   are used to represent its absolute value (K_i in the paper), and the msb
+ *   of x[i] encodes the sign (s_i in the paper): it is set if and only if
+ *   if s_i == -1;
  *
  * Calling conventions:
  * - x is an array of size d + 1
@@ -895,10 +920,7 @@ ecp256_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const unsigned long *P)
 }
 
 /**
- * Fixed-base comb method with extended precomputed table (GECC 3.44)
- * This is a m * G specialization of ecp256_mul_comb().
- *
- * TODO #1064: use GECC 3.45, 3.47?
+ * Fixed-base comb method with V=d extended precomputed tables (GECC 3.45, 3.47).
  */
 static int
 ecp256_mul_comb_core_g(TlsEcpPoint *R, const unsigned char x[])
@@ -912,18 +934,10 @@ ecp256_mul_comb_core_g(TlsEcpPoint *R, const unsigned char x[])
 	ttls_mpi_alloc(&R->Z, G_LIMBS + 1);
 
 	/*
-	 * We operate with precomputed table which is significantly smaller
-	 * than L1d cache - for secp256 and w=7:
-	 *
-	 *	(sizeof(ECP)=(2 * 32)) * (1 << (w - 1)) = 4096
-	 *
-	 * Also there is no preemption and point doubling and addition
-	 * aren't memory hungry, so once read T resides in L1d cache and
-	 * we can address T directly without sacrificing safety against SCAs.
-	 * FIXME in hyperthreading mode an aggressive sibling thread can evict
-	 * the precomputed table.
-	 *
 	 * Start with a non-zero point and randomize its coordinates.
+	 *
+	 * TODO #1064: now the talbe is more than 150KB, so need to implement
+	 * constant time lookup.
 	 *
 	 * TODO #1064: 5. AVX2 - 4 points in parallel in OpenSSL,
 	 * see ecp_nistz256_avx2_mul_g().
