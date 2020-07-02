@@ -55,8 +55,8 @@ $(AUTOGEN_TARGETS): FORCE
 	touch $(AUTOGEN_TARGETS)
 
 # 1). Build generators.
-$(GENERATORS): % : $(ASM-OBJ) %.o
-	$(CC) $(CFLAGS) -o $@ $^
+$(GENERATORS): % : $(ASM-OBJ) %.c
+	$(CC) $(SPEED_CFLAGS) $(CFLAGS) -o $@ $^
 
 # 2). Generate tables.
 generate_tables: $(AUTOGEN_TARGETS) $(GENERATORS)

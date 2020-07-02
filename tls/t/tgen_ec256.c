@@ -119,7 +119,7 @@ main(int argc, char *argv[])
 	int i;
 	static TmpEcpPoint T[G_W_SZ];
 
-	BUG_ON(ttls_mpool_init());
+	ttls_mpool_init();
 
 	/* Initialize auxiliary EC points. */
 	for (i = 0; i < G_W_SZ; ++i) {
