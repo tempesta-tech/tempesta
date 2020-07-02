@@ -63,7 +63,7 @@
 #define G_LIMBS		(G_BITS / BIL)
 #define G_W		7			/* m * G window bits */
 #define G_W_SZ		(1U << (G_W - 1))	/* m * G window size */
-#define G_D		((G_BITS + G_W - 1) / G_W) // 37
+#define G_D		((G_BITS + G_W - 1) / G_W)
 #define W		4			/* m * P window bits */
 #define W_SZ		(1U << (W - 1))		/* m * P window size */
 #define D		((G_BITS + W - 1) / W)
@@ -242,13 +242,15 @@ MOD_ADD(TlsMpi *N)
  *
  * For multiplication, we'll use a comb method with coutermeasueres against
  * SPA, hence timing attacks.
+ *
+ * TODO #1064: use P256 is Montgomery-friendly [9], so use the OpenSSL
+ * optimization techniques for the prime modulus, see [9]
+ * chapter "3 A Montgomery-friendly modulus".
  */
 
 static void
 ecp256_mul_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 {
-	BUG_ON(X->limbs < G_LIMBS);
-	BUG_ON(A->limbs < G_LIMBS || B->limbs < G_LIMBS);
 	BUG_ON(A->s < 0 || B->s < 0);
 	BUG_ON(A->used != G_LIMBS || B->used != G_LIMBS);
 
@@ -278,11 +280,70 @@ ecp256_sqr_mod(TlsMpi *X, const TlsMpi *A)
 	mpi_fixup_used(X, G_LIMBS);
 }
 
+/**
+ * Modular inverse X = A^-1 mod N , based on binary extended Euclidean algorithm.
+ * The fuction is optimized for always odd @N (GECC 2.22).
+ *
+ * TODO #1064 see big_num_math-denis, chapter 9.
+ * p256 [9]: use Little Fermat theorem and G.P specialization
+ * OpenSSL [9]: 255 Montgomery squares (MSQR) and 13 multiplications (MM)
+ * or 12 MMs if X coordinage only is needed.
+ */
+void
+ecp256_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N, int AK_DBG_line)
+{
+	TlsMpi *U, *V, *X1, *X2;
+
+	U = ttls_mpool_alloc_stack(sizeof(TlsMpi) * 4 + (G_LIMBS * 4 + 2) * CIL);
+	V = ttls_mpi_init_next(U, G_LIMBS);
+	X1 = ttls_mpi_init_next(V, G_LIMBS);
+	X2 = ttls_mpi_init_next(X1, G_LIMBS + 1);
+	ttls_mpi_init_next(X2, G_LIMBS + 1);
+
+	ttls_mpi_copy(U, A);
+	ttls_mpi_copy(V, N);
+	ttls_mpi_lset(X1, 1);
+	ttls_mpi_lset(X2, 0);
+
+loop:
+	while (!(MPI_P(U)[0] & 1)) {
+		ttls_mpi_shift_r(U, 1);
+		if ((MPI_P(X1)[0] & 1))
+			ttls_mpi_add_mpi(X1, X1, N);
+		ttls_mpi_shift_r(X1, 1);
+	}
+
+	while (!(MPI_P(V)[0] & 1)) {
+		ttls_mpi_shift_r(V, 1);
+		if ((MPI_P(X2)[0] & 1))
+			ttls_mpi_add_mpi(X2, X2, N);
+		ttls_mpi_shift_r(X2, 1);
+	}
+
+	if (ttls_mpi_cmp_mpi(U, V) >= 0) {
+		ttls_mpi_sub_mpi(U, U, V);
+		ttls_mpi_sub_mpi(X1, X1, X2);
+	} else {
+		ttls_mpi_sub_mpi(V, V, U);
+		ttls_mpi_sub_mpi(X2, X2, X1);
+	}
+
+	if (ttls_mpi_eq_1(U)) {
+		ttls_mpi_copy(X, X1);
+	}
+	else if (ttls_mpi_eq_1(V)) {
+		ttls_mpi_copy(X, X2);
+	}
+	else {
+		goto loop;
+	}
+
+	while (ttls_mpi_cmp_int(X, 0) < 0)
+		ttls_mpi_add_mpi(X, X, N);
+}
 /*
  * Normalize jacobian coordinates so that Z == 0 || Z == 1  (GECC 3.2.1)
  * Cost: 1N := 1I + 3M + 1S
- *
- * TODO #1064: [9] use special form of P for Montgomery friendly modulus.
  */
 static int
 ecp256_normalize_jac(TlsEcpPoint *pt)
@@ -296,7 +357,7 @@ ecp256_normalize_jac(TlsEcpPoint *pt)
 	ZZi = ttls_mpi_alloc_stack_init(G_LIMBS * 2);
 
 	/* X = X / Z^2  mod p */
-	ttls_mpi_inv_mod(Zi, &pt->Z, &G.P);
+	ecp256_inv_mod(Zi, &pt->Z, &G.P, __LINE__);
 	ecp256_sqr_mod(ZZi, Zi);
 	ecp256_mul_mod(&pt->X, &pt->X, ZZi);
 
@@ -310,13 +371,15 @@ ecp256_normalize_jac(TlsEcpPoint *pt)
 	return 0;
 }
 
+/**
+ * @t_len is very small, log(W_SZ) = W - 1 in run time or log(G_W_SZ) = W_SZ -1
+ * for the G points precomputation.
+ */
 static void
 ecp256_normalize_jac_many(TlsEcpPoint *T[], size_t t_len)
 {
 #define __INIT_C(i)							\
 do {									\
-	c[i].s = 1;							\
-	c[i].used = 0;							\
 	c[i].limbs = G_LIMBS * 2;					\
 	c[i]._off = (unsigned long)p_limbs - (unsigned long)(c + i);	\
 	p_limbs += G_LIMBS * 2;						\
@@ -326,12 +389,14 @@ do {									\
 	unsigned long *p_limbs;
 	TlsMpi *u, *Zi, *ZZi, *c;
 
-	// TODO #1064 move the allocation to the memory profile.
+	/*
+	 * TODO #1064 alloc const sized MPI array on the stack; alloc
+	 * limbs only and throw out the MPI wrapper functions and descriptors.
+	 */
 	c = ttls_mpool_alloc_stack((sizeof(TlsMpi) + G_LIMBS * 2 * CIL) * t_len);
 	u = ttls_mpi_alloc_stack_init(G_LIMBS * 2);
 	Zi = ttls_mpi_alloc_stack_init(G_LIMBS * 2);
 	ZZi = ttls_mpi_alloc_stack_init(G_LIMBS * 2);
-	bzero_fast(c, sizeof(TlsMpi) * t_len);
 	p_limbs = (unsigned long *)&c[t_len];
 
 	/* c[i] = Z_0 * ... * Z_i */
@@ -343,7 +408,7 @@ do {									\
 	}
 
 	/* u = 1 / (Z_0 * ... * Z_n) mod P */
-	ttls_mpi_inv_mod(u, &c[t_len - 1], &G.P);
+	ecp256_inv_mod(u, &c[t_len - 1], &G.P, __LINE__);
 
 	for (i = t_len - 1; i >= 0; i--) {
 		/*
@@ -1154,7 +1219,8 @@ ecp256_ecdsa_sign(const TlsMpi *d, const unsigned char *hash, size_t hlen,
 		ttls_mpi_add_mpi(e, e, s);
 		ttls_mpi_mul_mpi(e, e, t);
 		ttls_mpi_mul_mpi(k, k, t);
-		ttls_mpi_inv_mod(s, k, &G.N); // TODO #1064 hot spot
+		ttls_mpi_mod_mpi(k, k, &G.N);
+		ecp256_inv_mod(s, k, &G.N, __LINE__);
 		ttls_mpi_mul_mpi(s, s, e);
 		ttls_mpi_mod_mpi(s, s, &G.N);
 
@@ -1203,7 +1269,7 @@ ecp256_ecdsa_verify(const unsigned char *buf, size_t blen, const TlsEcpPoint *Q,
 	derive_mpi(e, buf, blen);
 
 	/* Step 4: u1 = e / s mod n, u2 = r / s mod n */
-	ttls_mpi_inv_mod(s_inv, s, &G.N);
+	ecp256_inv_mod(s_inv, s, &G.N, __LINE__);
 	ttls_mpi_mul_mpi(u1, e, s_inv);
 	ttls_mpi_mod_mpi(u1, u1, &G.N);
 	ttls_mpi_mul_mpi(u2, r, s_inv);

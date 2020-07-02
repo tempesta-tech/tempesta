@@ -1036,7 +1036,7 @@ ttls_mpi_mod_mpi(TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 
 	ttls_mpi_div_mpi(NULL, R, A, B);
 
-	while (ttls_mpi_cmp_int(R, 0) < 0)
+	while (unlikely(R->s < 0))
 		ttls_mpi_add_mpi(R, R, B);
 
 	while (ttls_mpi_cmp_mpi(R, B) >= 0)
@@ -1321,23 +1321,19 @@ ttls_mpi_gcd(TlsMpi *G, const TlsMpi *A, const TlsMpi *B)
 }
 
 /**
- * Modular inverse: X = A^-1 mod N  (HAC 14.61 / 14.64).
+ * Modular inverse X = A^-1 mod N , based on binary extended Euclidean algorithm
+ * (HAC 14.61 / 14.64). This is a generic implementation, not optimized for
+ * odd and/or prime moduli.
  *
- * Used in RSA, so there quite a few probably large numbers.
- *
- * TODO #1064 see big_num_math-denis, chapter 9.
- * p256 [9]: use Little Fermat theorem and G.P specialization
- * OpenSSL [9]: 255 Montgomery squares (MSQR) and 13 multiplications (MM)
- * or 12 MMs if X coordinage only is needed.
+ * Used in RSA, so there are quite a few probably large numbers.
  */
 void
 ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N)
 {
-	TlsMpi *TA, *TU, *U1, *U2, *TB, *TV, *V1, *V2;
+	TlsMpi *TA, *TU, *U1, *U2, *TV, *V1, *V2;
 
-	TA = ttls_mpool_alloc_stack(sizeof(TlsMpi) * 8 + N->used * 8 * CIL);
-	TB = ttls_mpi_init_next(TA, N->used);
-	TU = ttls_mpi_init_next(TB, N->used);
+	TA = ttls_mpool_alloc_stack((sizeof(TlsMpi) + N->used) * 7 * CIL);
+	TU = ttls_mpi_init_next(TA, N->used);
 	TV = ttls_mpi_init_next(TU, N->used);
 	U1 = ttls_mpi_init_next(TV, N->used);
 	U2 = ttls_mpi_init_next(U1, N->used + 1);
@@ -1347,7 +1343,6 @@ ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N)
 
 	ttls_mpi_mod_mpi(TA, A, N);
 	ttls_mpi_copy(TU, TA);
-	ttls_mpi_copy(TB, N);
 	ttls_mpi_copy(TV, N);
 
 	ttls_mpi_lset(U1, 1);
@@ -1359,7 +1354,7 @@ ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N)
 		while (!(MPI_P(TU)[0] & 1)) {
 			ttls_mpi_shift_r(TU, 1);
 			if ((MPI_P(U1)[0] & 1) || (MPI_P(U2)[0] & 1)) {
-				ttls_mpi_add_mpi(U1, U1, TB);
+				ttls_mpi_add_mpi(U1, U1, N);
 				ttls_mpi_sub_mpi(U2, U2, TA);
 			}
 			ttls_mpi_shift_r(U1, 1);
@@ -1369,7 +1364,7 @@ ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N)
 		while (!(MPI_P(TV)[0] & 1)) {
 			ttls_mpi_shift_r(TV, 1);
 			if ((MPI_P(V1)[0] & 1) || (MPI_P(V2)[0] & 1)) {
-				ttls_mpi_add_mpi(V1, V1, TB);
+				ttls_mpi_add_mpi(V1, V1, N);
 				ttls_mpi_sub_mpi(V2, V2, TA);
 			}
 			ttls_mpi_shift_r(V1, 1);
@@ -1385,7 +1380,7 @@ ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N)
 			ttls_mpi_sub_mpi(V1, V1, U1);
 			ttls_mpi_sub_mpi(V2, V2, U2);
 		}
-	} while (ttls_mpi_cmp_int(TU, 0));
+	} while (!ttls_mpi_eq_0(TU));
 
 	while (ttls_mpi_cmp_int(V1, 0) < 0)
 		ttls_mpi_add_mpi(V1, V1, N);
