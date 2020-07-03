@@ -284,13 +284,16 @@ ecp256_sqr_mod(TlsMpi *X, const TlsMpi *A)
  * Modular inverse X = A^-1 mod N , based on binary extended Euclidean algorithm.
  * The fuction is optimized for always odd @N (GECC 2.22).
  *
+ * For the secp256 the algorithms typically takes 160-190 iterations, i.e.
+ * 640-760 right shifts and subs/adds.
+ *
  * TODO #1064 see big_num_math-denis, chapter 9.
  * p256 [9]: use Little Fermat theorem and G.P specialization
  * OpenSSL [9]: 255 Montgomery squares (MSQR) and 13 multiplications (MM)
  * or 12 MMs if X coordinage only is needed.
  */
 void
-ecp256_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N, int AK_DBG_line)
+ecp256_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N)
 {
 	TlsMpi *U, *V, *X1, *X2;
 
@@ -306,6 +309,7 @@ ecp256_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N, int AK_DBG_line)
 	ttls_mpi_lset(X2, 0);
 
 loop:
+	// TODO #1064 the 4 shifts can be done in SIMD.
 	while (!(MPI_P(U)[0] & 1)) {
 		ttls_mpi_shift_r(U, 1);
 		if ((MPI_P(X1)[0] & 1))
@@ -341,6 +345,7 @@ loop:
 	while (ttls_mpi_cmp_int(X, 0) < 0)
 		ttls_mpi_add_mpi(X, X, N);
 }
+
 /*
  * Normalize jacobian coordinates so that Z == 0 || Z == 1  (GECC 3.2.1)
  * Cost: 1N := 1I + 3M + 1S
@@ -357,7 +362,7 @@ ecp256_normalize_jac(TlsEcpPoint *pt)
 	ZZi = ttls_mpi_alloc_stack_init(G_LIMBS * 2);
 
 	/* X = X / Z^2  mod p */
-	ecp256_inv_mod(Zi, &pt->Z, &G.P, __LINE__);
+	ecp256_inv_mod(Zi, &pt->Z, &G.P);
 	ecp256_sqr_mod(ZZi, Zi);
 	ecp256_mul_mod(&pt->X, &pt->X, ZZi);
 
@@ -408,7 +413,7 @@ do {									\
 	}
 
 	/* u = 1 / (Z_0 * ... * Z_n) mod P */
-	ecp256_inv_mod(u, &c[t_len - 1], &G.P, __LINE__);
+	ecp256_inv_mod(u, &c[t_len - 1], &G.P);
 
 	for (i = t_len - 1; i >= 0; i--) {
 		/*
@@ -1220,7 +1225,7 @@ ecp256_ecdsa_sign(const TlsMpi *d, const unsigned char *hash, size_t hlen,
 		ttls_mpi_mul_mpi(e, e, t);
 		ttls_mpi_mul_mpi(k, k, t);
 		ttls_mpi_mod_mpi(k, k, &G.N);
-		ecp256_inv_mod(s, k, &G.N, __LINE__);
+		ecp256_inv_mod(s, k, &G.N);
 		ttls_mpi_mul_mpi(s, s, e);
 		ttls_mpi_mod_mpi(s, s, &G.N);
 
@@ -1269,7 +1274,7 @@ ecp256_ecdsa_verify(const unsigned char *buf, size_t blen, const TlsEcpPoint *Q,
 	derive_mpi(e, buf, blen);
 
 	/* Step 4: u1 = e / s mod n, u2 = r / s mod n */
-	ecp256_inv_mod(s_inv, s, &G.N, __LINE__);
+	ecp256_inv_mod(s_inv, s, &G.N);
 	ttls_mpi_mul_mpi(u1, e, s_inv);
 	ttls_mpi_mod_mpi(u1, u1, &G.N);
 	ttls_mpi_mul_mpi(u2, r, s_inv);
