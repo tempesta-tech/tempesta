@@ -147,12 +147,14 @@ typedef struct {
  * @seq_queue	- queue of client's messages in the order they came;
  * @seq_qlock	- lock for accessing @seq_queue;
  * @ret_qlock	- lock for serializing sets of responses;
+ * @timer_lock	- lock for serializing of deleting/modifing keep-alive timer
  */
 typedef struct {
 	TFW_CONN_COMMON;
 	struct list_head	seq_queue;
 	spinlock_t		seq_qlock;
 	spinlock_t		ret_qlock;
+	spinlock_t		timer_lock;
 } TfwCliConn;
 
 /*

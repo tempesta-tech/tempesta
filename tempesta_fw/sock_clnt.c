@@ -80,6 +80,7 @@ tfw_cli_conn_alloc(int type)
 	INIT_LIST_HEAD(&cli_conn->seq_queue);
 	spin_lock_init(&cli_conn->seq_qlock);
 	spin_lock_init(&cli_conn->ret_qlock);
+	spin_lock_init(&cli_conn->timer_lock);
 #ifdef CONFIG_LOCKDEP
 	/*
 	 * The lock is acquired at only one place where there is no conflict
@@ -112,8 +113,6 @@ tfw_cli_conn_free(TfwCliConn *cli_conn)
 void
 tfw_cli_conn_release(TfwCliConn *cli_conn)
 {
-	del_timer_sync(&cli_conn->timer);
-
 	if (likely(cli_conn->sk))
 		tfw_connection_unlink_to_sk((TfwConn *)cli_conn);
 	if (likely(cli_conn->peer))
@@ -128,9 +127,19 @@ tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg)
 	int r;
 
 	r = tfw_connection_send((TfwConn *)cli_conn, msg);
-	mod_timer(&cli_conn->timer,
-		  jiffies +
-		  msecs_to_jiffies((long)tfw_cli_cfg_ka_timeout * 1000));
+
+	/*
+	 * The lock is needed because the timer deletion was moved from release() to
+	 * drop(). While release() is called when there are no other users, there is
+	 * no such luxury with drop() and the connection can still be used due to
+	 * lingering threads.
+	 */
+	spin_lock(&cli_conn->timer_lock);
+	if (timer_pending(&cli_conn->timer))
+		mod_timer(&cli_conn->timer,
+		          jiffies +
+		          msecs_to_jiffies((long)tfw_cli_cfg_ka_timeout * 1000));
+	spin_unlock(&cli_conn->timer_lock);
 
 	if (r)
 		/* Quite usual on system shutdown. */
@@ -234,6 +243,11 @@ tfw_sock_clnt_drop(struct sock *sk)
 
 	T_DBG3("connection lost: close client socket: sk=%p, conn=%p, "
 	       "client=%p\n", sk, conn, conn->peer);
+
+	spin_lock(&((TfwCliConn *)conn)->timer_lock);
+	del_timer_sync(&((TfwCliConn *)conn)->timer);
+	spin_unlock(&((TfwCliConn *)conn)->timer_lock);
+
 	/*
 	 * Withdraw from socket activity. Connection is now closed,
 	 * and Tempesta is not called anymore on events in the socket.
