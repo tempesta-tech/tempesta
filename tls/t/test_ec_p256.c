@@ -245,12 +245,79 @@ ecp_mul(void)
 	ttls_mpi_pool_free(R);
 }
 
+static void
+ecp_inv(void)
+{
+	TlsMpi *A, *X;
+
+	A = ttls_mpi_alloc_stack_init(4);
+	X = ttls_mpi_alloc_stack_init(4);
+
+	ttls_mpi_copy(A, &G.P);
+	ttls_mpi_sub_int(A, A, 1);
+	ecp256_inv_mod(X, A, &G.P);
+	EXPECT_MPI(X, 4, 0xfffffffffffffffeUL, 0xffffffffUL,
+			 0UL, 0xffffffff00000001UL);
+
+	ttls_mpi_copy(A, &G.N);
+	ttls_mpi_sub_int(A, A, 1);
+	ecp256_inv_mod(X, A, &G.N);
+	EXPECT_MPI(X, 4, 0xf3b9cac2fc632550UL, 0xbce6faada7179e84UL,
+			 0xffffffffffffffffUL, 0xffffffff00000000UL);
+
+	ttls_mpi_lset(A, 1);
+	ecp256_inv_mod(X, A, &G.P);
+	EXPECT_MPI(X, 1, 1);
+
+	ecp256_inv_mod(X, A, &G.N);
+	EXPECT_MPI(X, 1, 1);
+
+	ttls_mpi_add_int(A, A, LONG_MAX);
+	ecp256_inv_mod(X, A, &G.P);
+	EXPECT_MPI(X, 4, 0x200000000UL, 0UL, 0xfffffffe00000002UL, 0x1UL);
+
+	ecp256_inv_mod(X, A, &G.N);
+	EXPECT_MPI(X, 4, 0x52483a7dde617e67UL, 0xd7bb2ccbb87235cbUL,
+			 0xbda218b7dc01789dUL, 0x99a39155425de748UL);
+
+	ttls_mpi_add_int(A, A, LONG_MAX);
+	ecp256_inv_mod(X, A, &G.P);
+	EXPECT_MPI(X, 4, 0xfffffffffffffffdUL, 0x1fffffffdUL,
+			 0xfffffffeUL, 0xffffffff00000000UL);
+
+	ecp256_inv_mod(X, A, &G.N);
+	EXPECT_MPI(X, 4, 0x59e3e70f9bf9a3e6UL, 0xfac1e065553149e5UL,
+			 0x2791bfd535e466eUL, 0x1d702a231af70e26UL);
+
+	ttls_mpi_add_int(A, A, LONG_MAX);
+	ttls_mpi_add_int(A, A, LONG_MAX);
+	ecp256_inv_mod(X, A, &G.P);
+	EXPECT_MPI(X, 4, 0x9954071d2477fa15UL, 0xec6ab5536da55163UL,
+			 0x4847238cafc4d9cfUL, 0x65fe0aab50b5ec75UL);
+
+	ecp256_inv_mod(X, A, &G.N);
+	EXPECT_MPI(X, 4, 0xd11600bf3e0b05dbUL, 0x5e27c81f75e59425UL,
+			 0xb6deccbfe7ee2dcfUL, 0xc6f83f8273959285UL);
+
+	ttls_mpi_shift_l(A, 100);
+	ecp256_inv_mod(X, A, &G.P);
+	EXPECT_MPI(X, 4, 0x4918e0ed10e2af6UL, 0x3752de692b5ec74fUL,
+			 0x1f8c9445bdada17bUL, 0x86da5515b2baeb5cUL);
+
+	ecp256_inv_mod(X, A, &G.N);
+	EXPECT_MPI(X, 4, 0xeac6e35f6e2e6ac1UL, 0xff76efdf47c1a0a9UL,
+			 0x152a4e13984f9845UL, 0x510a62612850ec16UL);
+
+	ttls_mpi_pool_cleanup_ctx((unsigned long)A, false);
+}
+
 int
 main(int argc, char *argv[])
 {
 	BUG_ON(ttls_mpool_init());
 
 	ecp_mul();
+	ecp_inv();
 
 	ttls_mpool_exit();
 

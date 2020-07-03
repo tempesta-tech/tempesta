@@ -895,7 +895,7 @@ ttls_int_div_int(unsigned long u1, unsigned long u0, unsigned long d,
 
 /**
  * Division by TlsMpi: A = Q * B + R  (HAC 14.20).
- * Used in RSA, so pretty big MPIs are possible.
+ * Used in RSA only, so pretty big MPIs are possible.
  *
  * @Q - destination MPI for the quotient.
  * @R - destination MPI for the rest value.
@@ -1280,6 +1280,7 @@ cleanup:
 
 /**
  * Greatest common divisor: G = gcd(A, B)  (HAC 14.54)
+ * Used in RSA only.
  */
 void
 ttls_mpi_gcd(TlsMpi *G, const TlsMpi *A, const TlsMpi *B)
