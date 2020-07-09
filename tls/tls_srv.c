@@ -701,7 +701,7 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		BUG_ON(io->rlen >= tls->sess.id_len);
 		n = min_t(int, tls->sess.id_len - io->rlen, buf + len - p);
 		/* The session ID is zeroed on TlsCtx initialization. */
-		memcmp_fast(tls->sess.id + io->rlen, p, n);
+		memcpy_fast(tls->sess.id + io->rlen, p, n);
 		p += n;
 		io->hslen -= n;
 		if (unlikely(io->rlen + n < tls->sess.id_len))
