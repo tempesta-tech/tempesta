@@ -1023,7 +1023,7 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 	if (!tls->peer_conf) {
 		if (ttls_sni_cb(tls, NULL, 0) || !tls->peer_conf) {
 			T_WARN("TLS: server requested by client is not known.\n");
-			return -TTLS_ERR_BAD_HS_CLIENT_HELLO;
+			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
 	}
 	/*
