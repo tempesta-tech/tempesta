@@ -26,6 +26,7 @@
 
 int tfw_tls_set_cert(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce);
 int tfw_tls_set_cert_key(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce);
+int tfw_tls_set_tickets(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce);
 
 int tfw_tls_cert_cfg_finish(TfwVhost *vhost);
 void tfw_tls_cert_clean(TfwVhost *vhost);

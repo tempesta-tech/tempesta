@@ -6,7 +6,7 @@
  * Based on mbed TLS, https://tls.mbed.org.
  *
  * Copyright (C) 2006-2015, ARM Limited, All Rights Reserved
- * Copyright (C) 2015-2018 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,409 +22,631 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#if 0
 
-#include "ssl_ticket.h"
+#include <crypto/aead.h>
+
+#include "ttls.h"
+#include "tls_ticket.h"
+#include "tls_internal.h"
+#include "lib/common.h"
+
+
+typedef struct {
+	const TlsCipherInfo	*cipher_info;
+	const TlsMdInfo		*md_info;
+} TlsTicketsCfg;
+
+static TlsTicketsCfg t_cfg;
+
+#define TTLS_TICKETS_TAG_LEN		8
+
+/* ---- Configuration and Key management                                 ---- */
 
 /*
- * Initialize context
+ * Initialisation vector for session ticket master key. Hardcoded to allow
+ * the same key generation on all Tempesta nodes with the same user
+ * configuration and user secrets
  */
-void ttls_ticket_init(ttls_ticket_context *ctx)
+const char *ticket_secret_key_iv =
+	"u5xBNXmcQwxs9yGfv3IJa0h3QIZujnuf0ISmycYSB4vhfitCMM1phNP9ft3xjEbR";
+/* for ticket symmetric key: */
+const char *ticket_key_sym_iv =
+	"r26bMJcfLdlYyn9wM3xsHrzraeLKQHGCgYkWivTu6UVxw7VxcJQAr63k8Sa6lFUa";
+/* for ticket digest key: */
+const char *ticket_key_md_iv =
+	"Oipxkql04cg2JNHaOeQ6HSdbITjOAQ8cgzl7vIDHis0yiG2lhrIIgqmeAO3v4IaC";
+/* for ticket key name: */
+const char *ticket_key_name_iv =
+	"qolUvqou29yxSwvz2jWTNvk3znIjy25E";
+
+#define SLEN(s)	(sizeof(s) - 1)
+
+static inline unsigned long
+ttls_ticket_get_time(unsigned long lifetime)
 {
-	memset(ctx, 0, sizeof(ttls_ticket_context));
-	spin_lock_init(&ctx->mutex);
+	unsigned long ts = tfw_current_timestamp();
+
+	ts -= ts % lifetime;
+
+	return ts;
 }
 
-#define MAX_KEY_BYTES 32	/* 256 bits */
-
-/*
- * Generate/update a key
- * TODO #1054 use a configuration option to generate the key with the random
- * number generator or on top of shared secret.
- */
-static int ssl_ticket_gen_key(ttls_ticket_context *ctx,
-				   unsigned char index)
+static int
+__ttls_ticket_gen_key(TlsTicketKey *key, unsigned long ts,
+		      const char *secret)
 {
-	int ret;
-	unsigned char buf[MAX_KEY_BYTES];
-	ttls_ticket_key *key = ctx->keys + index;
+	TlsMdCtx md_ctx;
+	int r;
 
-	key->generation_time = (uint32_t) ttls_time();
-
-	ttls_rnd(key->name, sizeof(key->name));
-	ttls_rnd(buf, sizeof(buf));
-
-	/* With GCM and CCM, same context can encrypt & decrypt */
-	ret = ttls_cipher_setkey(&key->ctx, buf, key->ctx.cipher_info->key_len,
-				 TTLS_ENCRYPT);
-
-	bzero_fast(buf, sizeof(buf));
-
-	return ret;
-}
-
-/*
- * Rotate/generate keys if necessary
- */
-static int ssl_ticket_update_keys(ttls_ticket_context *ctx)
-{
-	if (ctx->ticket_lifetime != 0)
-	{
-		uint32_t current_time = (uint32_t) ttls_time();
-		uint32_t key_time = ctx->keys[ctx->active].generation_time;
-
-		if (current_time > key_time &&
-			current_time - key_time < ctx->ticket_lifetime)
-		{
-			return 0;
-		}
-
-		ctx->active = 1 - ctx->active;
-
-		return(ssl_ticket_gen_key(ctx, ctx->active));
+	key->ts = ts;
+	ttls_md_init(&md_ctx);
+	if ((r = ttls_md_setup(&md_ctx, t_cfg.md_info, 1))) {
+		T_ERR_NL("TLS: can't init ");
 	}
-	else
+	r |= ttls_md_hmac_starts(&md_ctx, secret, TTLS_TICKET_KEY_LEN);
+	r |= ttls_md_hmac_update(&md_ctx, ticket_key_sym_iv,
+				 SLEN(ticket_key_sym_iv));
+	r |= ttls_md_hmac_update(&md_ctx, (unsigned char *)&key->ts,
+				 sizeof(key->ts));
+	r |= ttls_md_finish(&md_ctx, key->key);
+
+	r |= ttls_md_hmac_starts(&md_ctx, secret, TTLS_TICKET_KEY_LEN);
+	r |= ttls_md_hmac_update(&md_ctx, ticket_key_md_iv,
+				 SLEN(ticket_key_md_iv));
+	r |= ttls_md_hmac_update(&md_ctx, (unsigned char *)&key->ts,
+				 sizeof(key->ts));
+	r |= ttls_md_finish(&md_ctx, key->md_key);
+	ttls_md_free(&md_ctx);
+
+	/*
+	 * Set key->ts to 0 to indicate that the calculation has failed and
+	 * not try to recalculate the key on every new handshake.
+	 */
+	if (r) {
+		T_WARN("TLS: can't rotate tls key");
+		key->ts = 0;
+		return r;
+	}
+
+	return r;
+}
+
+static inline int
+ttls_ticket_gen_key(TlsTicketKey *key, const char *secret,  unsigned long ts)
+{
+	int r;
+
+	write_lock(&key->lock);
+	r = __ttls_ticket_gen_key(key, ts, secret);
+	write_unlock(&key->lock);
+
+	return r;
+}
+
+static int
+__ttls_ticket_update_keys(TlsTicketPeerCfg *tcfg)
+{
+	unsigned long ts = ttls_ticket_get_time(tcfg->lifetime);
+	TlsTicketKey *act_key = &tcfg->keys[tcfg->active_key];
+	TlsTicketKey *old_key = &tcfg->keys[tcfg->active_key ^ 1];
+	int r;
+
+	read_lock(&act_key->lock);
+	if (unlikely(act_key->ts >= ts)) {
+		read_unlock(&act_key->lock);
 		return 0;
+	}
+	read_unlock(&act_key->lock);
+
+	r = ttls_ticket_gen_key(old_key, tcfg->secret, ts);
+	tcfg->active_key ^= 1;
+
+	return r;
+}
+
+static void
+ttls_ticket_rotate_keys(unsigned long data)
+{
+	TlsTicketPeerCfg *tcfg = (TlsTicketPeerCfg *)data;
+	int r;
+
+	T_DBG("TLS: Rotate keys for ticket configuration [%pK]\n", tcfg);
+	write_lock(&tcfg->key_lock);
+	r = __ttls_ticket_update_keys(tcfg);
+	write_unlock(&tcfg->key_lock);
+	if (r)
+		T_ERR("TLS: Can't rotate keys for ticket configuration [%pK]\n",
+		      tcfg);
+
+	mod_timer(&tcfg->timer,
+		  jiffies + msecs_to_jiffies(tcfg->lifetime * 1000));
 }
 
 /**
- * Setup context for actual use.
+ * Get current key, used for encryption. Caller is responsible to unlock the key.
+ */
+static TlsTicketKey *
+ttls_tickets_key_current_locked(TlsTicketPeerCfg *tcfg)
+{
+	TlsTicketKey *key = NULL;
+
+	read_lock(&tcfg->key_lock);
+
+	if (likely(tcfg->keys[tcfg->active_key].ts)) {
+		key = &tcfg->keys[tcfg->active_key];
+		read_lock(&key->lock);
+	}
+
+	read_unlock(&tcfg->key_lock);
+
+	return key;
+}
+
+/**
+ * Find key by name, used for decryption. Caller is responsible to unlock the key.
+ */
+static TlsTicketKey *
+ttls_tickets_key_search_locked(TlsTicketPeerCfg *tcfg, const char *key_name)
+{
+	TlsTicketKey *key = NULL;
+	int r;
+
+	read_lock(&tcfg->key_lock);
+
+	key = &tcfg->keys[tcfg->active_key];
+	read_lock(&key->lock);
+	r = memcmp_fast(key_name, key->name, TTLS_TICKET_KEY_NAME_LEN);
+	if (!r && key->ts)
+		goto found;
+	read_unlock(&key->lock);
+
+	key = &tcfg->keys[tcfg->active_key ^ 1];
+	read_lock(&key->lock);
+	r = memcmp_fast(key_name, key->name, TTLS_TICKET_KEY_NAME_LEN);
+	if (!r && key->ts)
+		goto found;
+	read_unlock(&key->lock);
+
+	key = NULL;
+
+found:
+	read_unlock(&tcfg->key_lock);
+
+	return key;
+}
+
+/**
+ * Configure Session ticket configuration for selected peer (vhost).
  *
- * TODO #1054: Use strong enough, but fast, cipher, e.g. AES-GCM-256.
- * @lifetime should be configurable, and typically not so large, e.g. 2h.
+ * @cfg			- peer TLS configuration;
+ * @lifetime		- TLS session ticket and key lifetime;
+ * @secret_str		- user-generated secret for session ticket key
+ *			  generation;
+ * @len			- secret length;
+ * @vhost_name		- vhost name or SNI name - string to generate unique
+ *			  key name;
+ * @vn_len		- vhost name length;
+ *
+ * If user didn't provided a secret key, a random key is generated, but in this
+ * case it's not possible to restart the same session on a different Tempesta
+ * node in the same group.
  */
-int ttls_ticket_setup(ttls_ticket_context *ctx, ttls_cipher_type_t cipher,
-	uint32_t lifetime)
+int
+ttls_tickets_configure(TlsPeerCfg *cfg, unsigned long lifetime,
+		       const char *secret_str, size_t len,
+		       const char *vhost_name, size_t vn_len)
 {
-	int ret;
-	const TlsCipherInfo *cipher_info;
+	TlsTicketPeerCfg *tcfg = &cfg->tickets;
+	int i, r;
+	char rand_secret[TTLS_TICKET_KEY_LEN];
+	const char *md_ctx_key = secret_str;
+	size_t md_ctx_key_len = len;
+	TlsMdCtx md_ctx;
+	unsigned long secs;
 
-	ctx->ticket_lifetime = lifetime;
+	tcfg->active_key = 0;
+	tcfg->lifetime = lifetime ? : TTLS_DEFAULT_TICKET_LIFETIME;
+	rwlock_init(&tcfg->key_lock);
 
-	cipher_info = ttls_cipher_info_from_type(cipher);
-	if (cipher_info == NULL)
-		return(TTLS_ERR_BAD_INPUT_DATA);
-
-	if (cipher_info->mode != TTLS_MODE_GCM &&
-		cipher_info->mode != TTLS_MODE_CCM)
-	{
-		return(TTLS_ERR_BAD_INPUT_DATA);
+	ttls_md_init(&md_ctx);
+	if ((r = ttls_md_setup(&md_ctx, t_cfg.md_info, 1))) {
+		T_ERR_NL("TLS: can't init ");
+		goto err;
+	}
+	if (!secret_str || !len) {
+		md_ctx_key_len = sizeof(rand_secret);
+		md_ctx_key = rand_secret;
+		ttls_rnd(rand_secret, sizeof(rand_secret));
+	}
+	r |= ttls_md_hmac_starts(&md_ctx, md_ctx_key, md_ctx_key_len);
+	r |= ttls_md_hmac_update(&md_ctx, ticket_secret_key_iv,
+				 SLEN(ticket_secret_key_iv));
+	r |= ttls_md_hmac_update(&md_ctx, vhost_name, vn_len);
+	r |= ttls_md_finish(&md_ctx, tcfg->secret);
+	if (r) {
+		T_ERR_NL("TLS: can't init ticket secret for vhost '%s'",
+			 vhost_name);
+		goto err;
 	}
 
-	if (cipher_info->key_len > MAX_KEY_BYTES)
-		return(TTLS_ERR_BAD_INPUT_DATA);
+	for (i = 0; i < 2; i++) {
+		unsigned char kn_hash[TTLS_TICKET_KEY_LEN];
+		TlsTicketKey *key = &tcfg->keys[i];
+		unsigned long ts;
 
-	/* TODO set correct auth tag size. */
-	if ((ret = ttls_cipher_setup(&ctx->keys[0].ctx, cipher_info, 16)) ||
-		(ret = ttls_cipher_setup(&ctx->keys[1].ctx, cipher_info, 16)))
-	{
-		return ret;
-	}
-
-	if ((ret = ssl_ticket_gen_key(ctx, 0)) != 0 ||
-		(ret = ssl_ticket_gen_key(ctx, 1)) != 0)
-	{
-		return ret;
-	}
-
-	return 0;
-}
-
-/*
- * Serialize a session in the following format:
- *  0   .   n-1	 session structure, n = sizeof(TlsSess)
- *  n   .   n+2	 peer_cert length = m (0 if no certificate)
- *  n+3 .   n+2+m   peer cert ASN.1
- */
-static int ssl_save_session(const TlsSess *session,
-				 unsigned char *buf, size_t buf_len,
-				 size_t *olen)
-{
-	unsigned char *p = buf;
-	size_t left = buf_len;
-	size_t cert_len;
-
-	if (left < sizeof(TlsSess))
-		return(TTLS_ERR_BUFFER_TOO_SMALL);
-
-	memcpy(p, session, sizeof(TlsSess));
-	p += sizeof(TlsSess);
-	left -= sizeof(TlsSess);
-
-	if (session->peer_cert == NULL)
-		cert_len = 0;
-	else
-		cert_len = session->peer_cert->raw.len;
-
-	if (left < 3 + cert_len)
-		return(TTLS_ERR_BUFFER_TOO_SMALL);
-
-	*p++ = (unsigned char)(cert_len >> 16 & 0xFF);
-	*p++ = (unsigned char)(cert_len >>  8 & 0xFF);
-	*p++ = (unsigned char)(cert_len	   & 0xFF);
-
-	if (session->peer_cert != NULL)
-		memcpy(p, session->peer_cert->raw.p, cert_len);
-
-	p += cert_len;
-
-	*olen = p - buf;
-
-	return 0;
-}
-
-/*
- * Unserialise session, see ssl_save_session()
- */
-static int ssl_load_session(TlsSess *session,
-				 const unsigned char *buf, size_t len)
-{
-	const unsigned char *p = buf;
-	const unsigned char * const end = buf + len;
-	size_t cert_len;
-
-	if (p + sizeof(TlsSess) > end)
-		return(TTLS_ERR_BAD_INPUT_DATA);
-
-	memcpy(session, p, sizeof(TlsSess));
-	p += sizeof(TlsSess);
-
-	if (p + 3 > end)
-		return(TTLS_ERR_BAD_INPUT_DATA);
-
-	cert_len = (p[0] << 16) | (p[1] << 8) | p[2];
-	p += 3;
-
-	if (cert_len == 0)
-	{
-		session->peer_cert = NULL;
-	}
-	else
-	{
-		int ret;
-
-		if (p + cert_len > end)
-			return(TTLS_ERR_BAD_INPUT_DATA);
-
-		session->peer_cert = kmalloc(sizeof(ttls_x509_crt), GFP_ATOMIC);
-
-		if (session->peer_cert == NULL)
-			return(TTLS_ERR_ALLOC_FAILED);
-
-		ttls_x509_crt_init(session->peer_cert);
-
-		if ((ret = ttls_x509_crt_parse_der(session->peer_cert,
-				p, cert_len)) != 0)
-		{
-			ttls_x509_crt_free(session->peer_cert);
-			kfree(session->peer_cert);
-			session->peer_cert = NULL;
-			return ret;
+		rwlock_init(&key->lock);
+		/*
+		 * Make a unique name for the key: mix vhost_name and key number
+		 * and ticket_key_name_iv. We don't need any cryptography safe
+		 * values here. Just something pretty unique, but equal on all
+		 * Tempesta noes with the same configuration. Since vhost name
+		 * is not something really random, anyone can deduce the value
+		 * behind the hash. It's not a problem, we just want to check,
+		 * that we have issued the ticket.
+		 */
+		r = ttls_md_starts(&md_ctx);
+		r |= ttls_md_update(&md_ctx, ticket_key_name_iv,
+				    SLEN(ticket_key_name_iv));
+		r |= ttls_md_update(&md_ctx, (unsigned char *)&i, sizeof(i));
+		r |= ttls_md_update(&md_ctx, vhost_name, vn_len);
+		r |= ttls_md_finish(&md_ctx, kn_hash);
+		if (r) {
+			T_ERR_NL("TLS: can't init ticket key name");
+			goto err;
 		}
-
-		p += cert_len;
-	}
-
-	if (p != end)
-		return(TTLS_ERR_BAD_INPUT_DATA);
-
-	return 0;
-}
-
-/*
- * Create session ticket, with the following structure:
- *
- *	struct {
- *		opaque key_name[4];
- *		opaque iv[12];
- *		opaque encrypted_state<0..2^16-1>;
- *		opaque tag[16];
- *	} ticket;
- *
- * The key_name, iv, and length of encrypted_state are the additional
- * authenticated data.
- */
-int ttls_ticket_write(void *p_ticket,
-				  const TlsSess *session,
-				  unsigned char *start,
-				  const unsigned char *end,
-				  size_t *tlen,
-				  uint32_t *ticket_lifetime)
-{
-	int ret;
-	ttls_ticket_context *ctx = p_ticket;
-	ttls_ticket_key *key;
-	unsigned char *key_name = start;
-	unsigned char *iv = start + 4;
-	unsigned char *state_len_bytes = iv + 12;
-	unsigned char *state = state_len_bytes + 2;
-	unsigned char *tag;
-	size_t clear_len, ciph_len;
-
-	*tlen = 0;
-
-	if (ctx == NULL)
-		return(TTLS_ERR_BAD_INPUT_DATA);
-
-	/* We need at least 4 bytes for key_name, 12 for IV, 2 for len 16 for tag,
-	 * in addition to session itself, that will be checked when writing it. */
-	if (end - start < 4 + 12 + 2 + 16)
-		return(TTLS_ERR_BUFFER_TOO_SMALL);
-
-	spin_lock(&ctx->mutex);
-
-	if ((ret = ssl_ticket_update_keys(ctx)) != 0)
-		goto cleanup;
-
-	key = &ctx->keys[ctx->active];
-
-	*ticket_lifetime = ctx->ticket_lifetime;
-
-	memcpy(key_name, key->name, 4);
-
-	ttls_rnd(iv, 12);
-
-	/* Dump session state */
-	if ((ret = ssl_save_session(session,
-		  state, end - state, &clear_len)) != 0 ||
-		(unsigned long) clear_len > 65535)
-	{
-		 goto cleanup;
-	}
-	state_len_bytes[0] = (clear_len >> 8) & 0xff;
-	state_len_bytes[1] = (clear_len	 ) & 0xff;
-
-	/* Encrypt and authenticate */
-	tag = state + clear_len;
-	/* TODO #1054 replace with linux/crypto as in ttls.c. */
-	if ((ret = ttls_cipher_auth_encrypt(&key->ctx,
-		iv, 12, key_name, 4 + 12 + 2,
-		state, clear_len, state, &ciph_len, tag, 16)) != 0)
-	{
-		goto cleanup;
-	}
-	if (ciph_len != clear_len)
-	{
-		ret = TTLS_ERR_INTERNAL_ERROR;
-		goto cleanup;
-	}
-
-	*tlen = 4 + 12 + 2 + 16 + ciph_len;
-
-cleanup:
-	spin_unlock(&ctx->mutex);
-
-	return ret;
-}
-
-/*
- * Select key based on name
- */
-static ttls_ticket_key *ssl_ticket_select_key(
-		ttls_ticket_context *ctx,
-		const unsigned char name[4])
-{
-	unsigned char i;
-
-	for (i = 0; i < sizeof(ctx->keys) / sizeof(*ctx->keys); i++)
-		if (memcmp(name, ctx->keys[i].name, 4) == 0)
-			return(&ctx->keys[i]);
-
-	return(NULL);
-}
-
-/*
- * Load session ticket (see ttls_ticket_write for structure)
- */
-int ttls_ticket_parse(void *p_ticket,
-				  TlsSess *session,
-				  unsigned char *buf,
-				  size_t len)
-{
-	int ret;
-	ttls_ticket_context *ctx = p_ticket;
-	ttls_ticket_key *key;
-	unsigned char *key_name = buf;
-	unsigned char *iv = buf + 4;
-	unsigned char *enc_len_p = iv + 12;
-	unsigned char *ticket = enc_len_p + 2;
-	unsigned char *tag;
-	size_t enc_len, clear_len;
-
-	if (ctx == NULL)
-		return(TTLS_ERR_BAD_INPUT_DATA);
-
-	/* See ttls_ticket_write() */
-	if (len < 4 + 12 + 2 + 16)
-		return(TTLS_ERR_BAD_INPUT_DATA);
-
-	spin_lock(&ctx->mutex);
-
-	if ((ret = ssl_ticket_update_keys(ctx)) != 0)
-		goto cleanup;
-
-	enc_len = (enc_len_p[0] << 8) | enc_len_p[1];
-	tag = ticket + enc_len;
-
-	if (len != 4 + 12 + 2 + enc_len + 16)
-	{
-		ret = TTLS_ERR_BAD_INPUT_DATA;
-		goto cleanup;
-	}
-
-	/* Select key */
-	if ((key = ssl_ticket_select_key(ctx, key_name)) == NULL)
-	{
-		/* We can't know for sure but this is a likely option unless we're
-		 * under attack - this is only informative anyway */
-		ret = TTLS_ERR_SESSION_TICKET_EXPIRED;
-		goto cleanup;
-	}
-
-	/* Decrypt and authenticate */
-	/* TODO #1054 replace with linux/crypto as in ttls.c. */
-	if ((ret = ttls_cipher_auth_decrypt(&key->ctx, iv, 12,
-		key_name, 4 + 12 + 2, ticket, enc_len,
-		ticket, &clear_len, tag, 16)) != 0)
-	{
-		goto cleanup;
-	}
-	if (clear_len != enc_len)
-	{
-		ret = TTLS_ERR_INTERNAL_ERROR;
-		goto cleanup;
-	}
-
-	/* Actually load session */
-	if ((ret = ssl_load_session(session, ticket, clear_len)) != 0)
-		goto cleanup;
-
-	{
-		/* Check for expiration */
-		time_t current_time = ttls_time();
-
-		if (current_time < session->start ||
-			(uint32_t)(current_time - session->start) > ctx->ticket_lifetime)
-		{
-			ret = TTLS_ERR_SESSION_TICKET_EXPIRED;
-			goto cleanup;
+		memcpy(key->name, kn_hash,
+		       min(sizeof(key->name), sizeof(kn_hash)));
+		/*
+		 * The configuration is just being created or updated,
+		 * create current key, and previous key to allow resuming
+		 * sessions with clients who got the session before
+		 * (re-)configuration or switched from existent Tempesta nodes
+		 * to this fresh new one.
+		 */
+		ts = ttls_ticket_get_time(tcfg->lifetime);
+		if (i)
+			ts -= tcfg->lifetime;
+		if ((r = __ttls_ticket_gen_key(key, ts, tcfg->secret))) {
+			T_ERR_NL("TLS: can't init ticket key value");
+			goto err;
 		}
 	}
 
-cleanup:
-	spin_unlock(&ctx->mutex);
+	setup_timer(&tcfg->timer, ttls_ticket_rotate_keys, (unsigned long)tcfg);
+	secs = tcfg->lifetime - (tfw_current_timestamp() % tcfg->lifetime);
+	mod_timer(&tcfg->timer, jiffies + msecs_to_jiffies(secs * 1000));
 
-	return ret;
+err:
+	ttls_md_free(&md_ctx);
+	return r;
 }
 
-/*
- * Free context
+/**
+ * Clean Session Ticket keys.
+ *
+ * Vhost is unloaded and to be deleted: safe to remove keys. Can be called in
+ * process context.
  */
-void ttls_ticket_free(ttls_ticket_context *ctx)
+int
+ttls_tickets_clean(TlsPeerCfg *cfg)
 {
-	ttls_cipher_free(&ctx->keys[0].ctx);
-	ttls_cipher_free(&ctx->keys[1].ctx);
-	bzero_fast(ctx, sizeof(ttls_ticket_context));
+	TlsTicketPeerCfg *tcfg = &cfg->tickets;
+
+	del_timer_sync(&tcfg->timer);
+	memset(tcfg, 0, sizeof(TlsTicketPeerCfg));
+
+	return 0;
 }
 
-#endif /* TODO #1054 remove me */
+/**
+ * Setup TLS tickets shared context.
+ */
+int
+ttls_tickets_init()
+{
+	int err = TTLS_ERR_BAD_INPUT_DATA;
+
+	t_cfg.cipher_info = ttls_cipher_info_from_type(TTLS_CIPHER_AES_256_GCM);
+
+	if (!t_cfg.cipher_info
+	    || (t_cfg.cipher_info->mode != TTLS_MODE_GCM
+		&& t_cfg.cipher_info->mode != TTLS_MODE_CCM)
+	    || t_cfg.cipher_info->key_len > TTLS_TICKET_KEY_LEN)
+	{
+		return err;
+	}
+
+	t_cfg.md_info = ttls_md_info_from_type(TTLS_MD_SHA256);
+	if (!t_cfg.md_info || !t_cfg.md_info->alg_hmac)
+		return err;
+
+	return 0;
+}
+
+void ttls_tickets_exit()
+{
+	memset(&t_cfg, 0, sizeof(t_cfg));
+}
+
+/* ---- Processing tickets                                               ---- */
+
+typedef struct {
+	TlsSess		sess;
+	size_t		cert_len;
+	char		cert_data[0];
+} __attribute__((packed)) TlsState;
+
+/**
+ * Session ticket structure as recommended by RFC 5077.
+ *
+ * @name		- key id, pseudo random number expected to be unique
+ *			  for every virtual server, depends on SNI value;
+ * @iv			- initialisation vector for crypto operations, unique
+ *			  for every ticket;
+ * @ts			- timestamp for pseudo-random ticket keys generation;
+ * @state		- encrypted ticket payload - saved handshake state;
+ *
+ * Each ticket uses two cryptographic keys: one to protect payload (handshake
+ * state) which contains TLS master key for the connection, the other is used
+ * for cryptographic message digest.
+ *
+ * HMAC is not the part of the structure due to variadic size of the @state.
+ */
+typedef struct {
+	unsigned char	name[TTLS_TICKET_KEY_NAME_LEN];
+	unsigned char	iv[TTLS_MAX_IV_LENGTH];
+	TlsState	state;
+} __attribute__((packed)) TlsTicket;
+
+typedef struct {
+	TlsCipherCtx c_ctx;
+	int tag_len;
+
+	struct aead_request *req;
+} TlSTicketCryptCtx;
+
+static inline size_t
+ttls_ticket_sess_true_size(TlsState *state)
+{
+	return sizeof(TlsState) + state->cert_len;
+}
+
+/**
+ * Serialize a session state
+ */
+static int
+ttls_ticket_sess_save(const TlsSess *sess, TlsState *state, size_t buf_len)
+{
+	if (buf_len < sizeof(TlsState))
+		return TTLS_ERR_BUFFER_TOO_SMALL;
+
+	memcpy_fast(&state->sess, sess, sizeof(TlsSess));
+	state->cert_len = sess->peer_cert ? sess->peer_cert->raw.len : 0;
+
+	if (buf_len < ttls_ticket_sess_true_size(state))
+		return TTLS_ERR_BUFFER_TOO_SMALL;
+
+	if (sess->peer_cert)
+		memcpy_fast(state->cert_data, sess->peer_cert->raw.p,
+			    state->cert_len);
+
+	return 0;
+}
+
+/**
+ * Deserialise session from the ticket, see ttls_ticket_sess_save()
+ */
+static int
+ttls_ticket_sess_load(TlsState *state, size_t len, unsigned long lifetime)
+{
+	long time_pass = ttls_time() - state->sess.start;
+
+	if ((time_pass < 0) || (unsigned long)time_pass > lifetime)
+		return TTLS_ERR_SESSION_TICKET_EXPIRED;
+
+	if (state->cert_len > len)
+		return TTLS_ERR_BAD_INPUT_DATA;
+
+	if (!state->cert_len) {
+		state->sess.peer_cert = NULL;
+	}
+	else {
+		TlsSess *sess = &state->sess;
+		int r;
+
+		sess->peer_cert = kmalloc(sizeof(ttls_x509_crt), GFP_ATOMIC);
+		if (!sess->peer_cert)
+			return TTLS_ERR_ALLOC_FAILED;
+
+		ttls_x509_crt_init(sess->peer_cert);
+		r = ttls_x509_crt_parse_der(sess->peer_cert, state->cert_data,
+					    state->cert_len);
+		if (r) {
+			ttls_x509_crt_free(sess->peer_cert);
+			kfree(sess->peer_cert);
+			sess->peer_cert = NULL;
+			return r;
+		}
+	}
+
+	return 0;
+}
+
+static void
+ttls_ticket_ctx_free(TlSTicketCryptCtx *ctx)
+{
+	if (ctx->req)
+		ttls_aead_req_free(ctx->c_ctx.cipher_ctx, ctx->req);
+	ttls_cipher_free(&ctx->c_ctx);
+}
+
+static int
+ttls_ticket_ctx_init(TlSTicketCryptCtx *ctx, TlsTicket *tik, TlsTicketKey *key)
+{
+	int r;
+	ctx->tag_len = TTLS_TICKETS_TAG_LEN;
+
+	if ((r = ttls_cipher_setup(&ctx->c_ctx, t_cfg.cipher_info, ctx->tag_len)))
+		return r;
+	r = crypto_aead_setkey(ctx->c_ctx.cipher_ctx, key->key, sizeof(key->key));
+	if (r)
+		goto err_key;
+
+	ctx->req = ttls_aead_req_alloc(ctx->c_ctx.cipher_ctx);
+	if (unlikely(!ctx->req))
+		goto err_req;
+
+	aead_request_set_ad(ctx->req, sizeof(TlsTicket) - sizeof(TlsState));
+	aead_request_set_tfm(ctx->req, ctx->c_ctx.cipher_ctx);
+
+	return 0;
+
+err_req:
+err_key:
+	ttls_ticket_ctx_free(ctx);
+
+	return r;
+}
+
+static int
+ttls_ticket_encrypt(TlsTicket *tik, TlsTicketKey *key)
+{
+	TlSTicketCryptCtx ctx = { 0 };
+	size_t crypt_len = ttls_ticket_sess_true_size(&tik->state);
+	struct scatterlist sg;
+	struct sg_table sgt = {
+		.sgl	= &sg,
+		.nents	= 1,
+	};
+	int r;
+
+	memcpy_fast(tik->name, key->name, sizeof(key->name));
+	ttls_rnd(tik->iv, sizeof(tik->iv));
+
+	if ((r = ttls_ticket_ctx_init(&ctx, tik, key)))
+		return r;
+
+	aead_request_set_crypt(ctx.req, sgt.sgl, sgt.sgl, crypt_len, tik->iv);
+
+	sg_init_table(&sg, 1);
+	sg_set_buf(&sg, tik, crypt_len);
+	if ((r = crypto_aead_encrypt(ctx.req)))
+		T_WARN("AEAD encryption failed: %d\n", r);
+
+	ttls_ticket_ctx_free(&ctx);
+
+	return r;
+}
+
+static int
+ttls_ticket_decrypt(TlsTicket *tik, size_t len, TlsTicketKey *key)
+{
+	TlSTicketCryptCtx ctx = { 0 };
+	size_t decrypt_len;
+	struct scatterlist sg;
+	struct sg_table sgt = {
+		.sgl	= &sg,
+		.nents	= 1,
+	};
+	int r;
+
+	if ((r = ttls_ticket_ctx_init(&ctx, tik, key)))
+		return r;
+
+	decrypt_len = len - (sizeof(TlsTicket) - sizeof(TlsState));
+	aead_request_set_crypt(ctx.req, sgt.sgl, sgt.sgl, decrypt_len, tik->iv);
+
+	sg_init_table(&sg, 1);
+	sg_set_buf(&sg, tik, decrypt_len);
+	if ((r = crypto_aead_decrypt(ctx.req)))
+		T_WARN("AEAD decryption failed: %d\n", r);
+
+	ttls_ticket_ctx_free(&ctx);
+
+	return r;
+}
+
+/**
+ * Parse a session ticket as generated by the @ttls_ticket_write() function,
+ * and, if the ticket is authentic and valid, load the session.
+ */
+int
+ttls_ticket_parse(TlsCtx *ctx, unsigned char *buf, size_t len)
+{
+	TlsTicket *tik = (TlsTicket *)buf;
+	TlsTicketPeerCfg *tcfg = &ctx->peer_conf->tickets;
+	TlsTicketKey *key;
+	size_t state_len = len - TTLS_TICKET_KEY_NAME_LEN - TTLS_MAX_IV_LENGTH;
+	TlsSess *recv_sess;
+	int r;
+
+	if (unlikely(!ctx->peer_conf->sess_tickets))
+		return TTLS_ERR_SESSION_TICKET_EXPIRED;
+	if (len < sizeof(TlsTicket))
+		return TTLS_ERR_BUFFER_TOO_SMALL;
+
+	key = ttls_tickets_key_search_locked(tcfg, tik->name);
+	if (unlikely(!key))
+		return TTLS_ERR_SESSION_TICKET_EXPIRED;
+	r = ttls_ticket_decrypt(tik, len, key);
+	read_unlock(&key->lock);
+	if (unlikely(r))
+		return r;
+
+	r = ttls_ticket_sess_load(&tik->state, state_len, tcfg->lifetime);
+	if (unlikely(r)) {
+		bzero_fast(tik, len);
+		return r;
+	}
+
+	/*
+	 * Keep the session ID sent by the client, since we MUST send it back to
+	 * inform them we're accepting the ticket  (RFC 5077 section 3.4)
+	 */
+	recv_sess = &tik->state.sess;
+	recv_sess->id_len = ctx->sess.id_len;
+	memcpy_fast(&recv_sess->id, ctx->sess.id, recv_sess->id_len);
+	memcpy_fast(&ctx->sess, recv_sess, sizeof(TlsSess));
+	/* Zeroize to protect keys, no need to free as we copied the content */
+	bzero_fast(tik, len);
+
+	return 0;
+}
+
+/**
+ * Generate an encrypted and authenticated ticket for the session and write
+ * it to the output buffer.
+ */
+int
+ttls_ticket_write(TlsCtx *ctx, unsigned char *buf,
+		  size_t buf_sz, size_t *tlen,
+		  uint32_t *ticket_lifetime)
+{
+	TlsTicket *tik = (TlsTicket *)buf;
+	TlsTicketPeerCfg *tcfg = &ctx->peer_conf->tickets;
+	TlsTicketKey *key;
+	int r;
+
+	if (unlikely(!ctx->peer_conf->sess_tickets))
+		return TTLS_ERR_SESSION_TICKET_EXPIRED;
+	if (unlikely(buf_sz < sizeof(TlsState)))
+		return TTLS_ERR_BUFFER_TOO_SMALL;
+
+	r = ttls_ticket_sess_save(&ctx->sess, &tik->state, buf_sz);
+	if (unlikely(r))
+		return r;
+	*tlen = sizeof(TlsTicket) + tik->state.cert_len; /* todo: + tag */
+
+	key = ttls_tickets_key_current_locked(tcfg);
+	if (unlikely(!key))
+		return TTLS_ERR_INTERNAL_ERROR;
+	r = ttls_ticket_encrypt(tik, key);
+	*tlen += TTLS_TICKETS_TAG_LEN;
+	read_unlock(&key->lock);
+	if (unlikely(r))
+		return r;
+
+	*ticket_lifetime = tcfg->lifetime;
+
+	return 0;
+}

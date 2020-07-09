@@ -27,6 +27,7 @@
 #include "mpool.h"
 #include "tls_internal.h"
 #include "ttls.h"
+#include "tls_ticket.h"
 
 ttls_sni_cb_t *ttls_sni_cb;
 
@@ -259,25 +260,57 @@ ttls_parse_extended_ms_ext(TlsCtx *tls, const unsigned char *buf, size_t len)
 static int
 ttls_parse_session_ticket_ext(TlsCtx *tls, unsigned char *buf, size_t len)
 {
-	int r;
-	TlsSess session;
-
-	if (!tls->conf->f_ticket_parse || !tls->conf->f_ticket_write)
-		return 0;
-
+	T_DBG("ClientHello: ticket length: %lu\n", len);
 	/* Remember the client asked us to send a new ticket */
 	tls->hs->new_session_ticket = 1;
+	tls->hs->ticket_ctx.t_len = len;
 
-	T_DBG("ClientHello: ticket length: %lu\n", len);
+	return 0;
+}
 
-	if (!len)
+/**
+ * Process TLS session ticket and try to restore ticket from it.
+ *
+ * The first member in the session ticket - key name, and we possibly could make
+ * that name unique and restore SNI from there and parse the ticket as it's
+ * received, but it actually breaks session restore during reconfiguration and
+ * after reconfiguration attempts (which are not always successful).
+ *
+ * E.g. imagine we have 'TNAME-1' and 'TNAME-2' ticket key names for vhost 'VH'
+ * which are the unique. We push them into some database to easily recover
+ * TlsPeerCfg object once a new matching ticket is received. After some time
+ * reconfiguration happens and a new vhost 'VH' wants to register it's keys
+ * 'TNAME-1' and 'TNAME-2'. Only thing we can do - reimplement active/reconfig
+ * keys database as we do for vhosts.
+ *
+ * Even if it's done, we will have two lookups for vhost: first - when we
+ * lookup TlsPeerCfg by key name, and the second time - when we lookup for
+ * SNI<->vhost match. After that we can apply saved session only if it both
+ * vhosts are the same. Not EQUAL in terms of vhost name, or vhost pointer,
+ * but also key names, ticket secrets, vhost names must be equal. It's more
+ * reliable to find matching vhost first and then apply the saved session only
+ * if the vhost can decrypt it.
+ *
+ * If a ticket can't be applied, just ignore it and process full handshake.
+ */
+static int
+ttls_process_session_ticket(TlsCtx *tls)
+{
+	int r;
+	TlSTicketCtx *t_ctx = &tls->hs->ticket_ctx;
+
+	T_DBG("ClientHello: process ticket\n");
+	/*
+	 * If ticket is too big, our buffers are too small to keep it in full,
+	 * don't try to parse incomplete data.
+	 */
+	if (!t_ctx->t_len || t_ctx->t_len > TTLS_TICKET_MAX_SZ
+	    || !tls->peer_conf->sess_tickets)
+	{
 		return 0;
+	}
 
-	/* Failures are ok: just ignore the ticket and proceed. */
-	bzero_fast(&session, sizeof(session));
-	r = tls->conf->f_ticket_parse(tls->conf->p_ticket, &session, buf, len);
-	if (r) {
-		bzero_fast(&session, sizeof(session));
+	if ((r = ttls_ticket_parse(tls, t_ctx->ticket, t_ctx->t_len))) {
 		if (r == TTLS_ERR_INVALID_MAC)
 			T_DBG("ClientHello: ticket is not authentic\n");
 		else if (r == TTLS_ERR_SESSION_TICKET_EXPIRED)
@@ -287,19 +320,7 @@ ttls_parse_session_ticket_ext(TlsCtx *tls, unsigned char *buf, size_t len)
 		return 0;
 	}
 
-	/*
-	 * Keep the session ID sent by the client, since we MUST send it back to
-	 * inform them we're accepting the ticket  (RFC 5077 section 3.4)
-	 */
-	session.id_len = tls->sess.id_len;
-	memcpy_fast(&session.id, tls->sess.id, session.id_len);
-	memcpy_fast(&tls->sess, &session, sizeof(TlsSess));
-
-	/* Zeroize instead of free as we copied the content */
-	bzero_fast(&session, sizeof(TlsSess));
-
 	T_DBG("ClientHello: session successfully restored from ticket\n");
-
 	tls->hs->resume = 1;
 	/* Don't send a new ticket after all, this one is OK */
 	tls->hs->new_session_ticket = 0;
@@ -932,10 +953,16 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 		 * It's too time consumptive to rework the whole API to work w/
 		 * chunked data and it's doubtful how much performance we get if
 		 * we avoid the copies - the extensions are small after all.
+		 *
+		 * Session ticket can't be parsed right away, since it require
+		 * SNI processing first. Save it to unique buffer, which is
+		 * never overwritten by other extensions.
 		 */
 		BUG_ON(io->rlen > ext_sz);
 		n = min_t(int, ext_sz - io->rlen, buf + len - p);
 		/* Save client random (inc. Unix time). */
+		if (unlikely(tls->hs->ext_type == TTLS_TLS_EXT_SESSION_TICKET))
+			tmp = tls->hs->ticket_ctx.ticket;
 		memcpy_fast(tmp + io->rlen, p, n);
 		p += n;
 		if (unlikely(io->rlen + n < ext_sz))
@@ -1026,6 +1053,12 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
 	}
+	/*
+	 * After SNI was processed and we finally know, which server client
+	 * speaks to, we can try to restore session from session ticket.
+	 */
+	if ((r = ttls_process_session_ticket(tls)))
+		return r;
 	/*
 	 * Server TLS configuration is found, match it with client capabilities.
 	 */
@@ -1859,19 +1892,23 @@ ttls_parse_certificate_verify(TlsCtx *tls, unsigned char *buf, size_t len,
 }
 
 static int
-ttls_write_new_session_ticket(TlsCtx *tls, struct sg_table *sgt,
+ttls_write_new_session_ticket(TlsCtx *tls, struct sg_table *_,
 			      unsigned char **in_buf)
 {
 	int r;
 	size_t tlen;
-	uint32_t lifetime;
-	unsigned char *p = *in_buf;
+	uint32_t lifetime = 0;
 	TlsIOCtx *io = &tls->io_out;
-
+	unsigned char *p = *in_buf;
 	/*
-	 * TODO #1054 estimate size of the message more accurately on
-	 * configuration time.
+	 * FIXME: #1054 Don't send the message alone, combine it with
+	 * CHANGE_CIPHER_SPEC and TTLS_HS_FINISHED. For now there are digest
+	 * mismatch errors on client side.
 	 */
+	struct scatterlist sg[1];
+	struct sg_table sgt = { .sgl = sg };
+
+	sg_init_table(sgt.sgl, 1);
 
 	/*
 	 * struct {
@@ -1883,11 +1920,10 @@ ttls_write_new_session_ticket(TlsCtx *tls, struct sg_table *sgt,
 	 * 8  .  9   ticket_len (n)
 	 * 10 .  9+n ticket content
 	 */
-	r = tls->conf->f_ticket_write(tls->conf->p_ticket, &tls->sess, p + 10,
-				      p + TLS_MAX_PAYLOAD_SIZE, &tlen,
-				      &lifetime);
+	r = ttls_ticket_write(tls, p + 10, TLS_MAX_PAYLOAD_SIZE, &tlen,
+			      &lifetime);
 	if (r) {
-		T_DBG("cannot write session ticket, %d\n", r);
+		T_DBG("cannot write session ticket, -%X\n", -r);
 		tlen = 0;
 	}
 	WARN_ON_ONCE(tlen > 502);
@@ -1900,7 +1936,7 @@ ttls_write_new_session_ticket(TlsCtx *tls, struct sg_table *sgt,
 	p[9] = (unsigned char)(tlen & 0xFF);
 
 	io->hslen = 0;
-	io->msglen = 10 + tlen + TTLS_HS_HDR_LEN;
+	io->msglen = 10 + tlen;
 	io->msgtype = TTLS_MSG_HANDSHAKE;
 	io->hstype = TTLS_HS_NEW_SESSION_TICKET;
 	ttls_write_hshdr(TTLS_HS_NEW_SESSION_TICKET, p, 10 + tlen);
@@ -1912,11 +1948,11 @@ ttls_write_new_session_ticket(TlsCtx *tls, struct sg_table *sgt,
 	tls->hs->new_session_ticket = 0;
 
 	*in_buf = p + 10 + tlen;
-	sg_set_buf(&sgt->sgl[sgt->nents++], p, 10 + tlen);
+	sg_set_buf(&sgt.sgl[sgt.nents++], p, 10 + tlen);
 	get_page(virt_to_page(p));
-	__ttls_add_record(tls, sgt, sgt->nents - 1, NULL);
+	__ttls_add_record(tls, &sgt, sgt.nents - 1, NULL);
 
-	return 0;
+	return __ttls_send_record(tls, &sgt, false);
 }
 
 #define CHECK_STATE(n)							\
@@ -2057,6 +2093,7 @@ ttls_handshake_finished(TlsCtx *tls)
 			CHECK_STATE(512);
 		}
 		ttls_write_change_cipher_spec(tls);
+		CHECK_STATE(TLS_HEADER_SIZE + 1);
 		tls->state = TTLS_SERVER_FINISHED;
 		T_FSM_JMP(TTLS_SERVER_FINISHED);
 	}
@@ -2127,7 +2164,11 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 	 *	  ServerHelloDone
 	 */
 	T_FSM_STATE(TTLS_SERVER_HELLO) {
-		return ttls_handshake_server_hello(tls);
+		if ((r = ttls_handshake_server_hello(tls)))
+			return r;
+		if (tls->state == TTLS_SERVER_CHANGE_CIPHER_SPEC)
+			T_FSM_JMP(TTLS_SERVER_CHANGE_CIPHER_SPEC);
+		return r;
 	}
 
 	/*

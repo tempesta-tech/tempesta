@@ -45,6 +45,9 @@
 #include "ttls.h"
 #include "x509_crt.h"
 
+struct aead_request *ttls_aead_req_alloc(struct crypto_aead *tfm);
+void ttls_aead_req_free(struct crypto_aead *tfm, struct aead_request *req);
+
 /* Determine minimum supported version */
 #define TTLS_MIN_MAJOR_VERSION		TTLS_MAJOR_VERSION_3
 #define TTLS_MIN_MINOR_VERSION		TTLS_MINOR_VERSION_3
@@ -139,6 +142,7 @@ typedef struct {
  * @tmp		- buffer to store temporary data between data chunks;
  * @ecdh_ctx	- ECDH key exchange;
  * @dhm_ctx	- DHM key exchange;
+ * @ticket_ctx	- tls session ticket context.
  */
 struct tls_handshake_t {
 	TlsSigHashSet			hash_algs;
@@ -202,6 +206,8 @@ struct tls_handshake_t {
 		TlsECDHCtx		*ecdh_ctx;
 		TlsDHMCtx		*dhm_ctx;
 	};
+
+	TlSTicketCtx			ticket_ctx;
 };
 
 extern int ttls_preset_hashes[];

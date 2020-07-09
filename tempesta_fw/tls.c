@@ -692,10 +692,10 @@ static TfwConnHooks tls_conn_hooks = {
 	.conn_send	= tfw_tls_conn_send,
 };
 
-static const TlsPeerCfg	*
+static TlsPeerCfg *
 tfw_tls_get_if_configured(TfwVhost *vhost)
 {
-	const TlsPeerCfg *cfg;
+	TlsPeerCfg *cfg;
 
 	if (unlikely(!vhost))
 		return false;
@@ -736,7 +736,7 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 {
 	const TfwStr srv_name = {.data = (unsigned char *)data, .len = len};
 	TfwVhost *vhost = NULL;
-	const TlsPeerCfg *peer_cfg;
+	TlsPeerCfg *peer_cfg;
 	TfwCliConn *cli_conn = &container_of(ctx, TfwTlsConn, tls)->cli_conn;
 
 	T_DBG2("%s: server name '%.*s'\n",  __func__, (int)len, data);
