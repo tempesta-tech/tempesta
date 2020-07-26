@@ -16,7 +16,7 @@
  *
  * 5. [Curve25519] http://cr.yp.to/ecdh/curve25519-20060209.pdf
  *
- * 6. CORON, Jean-S'ebastien. Resistance against differential power analysis
+ * 6. Coron, Jean-S'ebastien. Resistance against differential power analysis
  *    for elliptic curve cryptosystems. In : Cryptographic Hardware and
  *    Embedded Systems. Springer Berlin Heidelberg, 1999. p. 292-302.
  *    <http://link.springer.com/chapter/10.1007/3-540-48059-5_25>
@@ -151,6 +151,59 @@ static const struct {
 	}
 };
 
+static const unsigned long P_INV_TBL[12][4] ____cacheline_aligned = {
+	{ 0xdafffffff3000000UL, 0xd40000006dffffffUL,
+	  0x5500000000ffffffUL, 0x38ffffffad000000UL },
+	{ 0xe3ffffff9800000UL, 0xfd3ffffffcc00000UL,
+	  0xf50000000d3fffffUL, 0x80000006bfffffUL },
+	{ 0x20000001cfffffUL, 0x1c00000fe600000UL,
+	  0xff4fffffff100000UL, 0xfeefffff01800000UL },
+	{ 0xffbc0000001c0000UL, 0xffec00000073ffffUL,
+	  0x6fffffffdbffffUL, 0x33ffffffa80000UL },
+	{ 0xcfffffff70000UL, 0xfff8000000070000UL,
+	  0xfffb0000000fffffUL, 0x5ffffffffffffUL },
+	{ 0x1800000017fffUL, 0x1c000fffdc000UL,
+	  0xfffe000000004000UL, 0xfffebfff00028000UL },
+	{ 0xffffb00000005000UL, 0x100000005fffUL,
+	  0x6fffffffc000UL, 0x1fffffffc000UL },
+	{ 0x7fffffff800UL, 0xfffff40000001400UL,
+	  0x40000000fffUL, 0xbfffffff800UL },
+	{ 0x300000000ffUL, 0x100fffffe00UL,
+	  0xfffffd0000000200UL, 0xfffffeff00000300UL },
+	{ 0xffffffc000000080UL, 0x400000003fUL,
+	  0x3fffffffc0UL, 0x0UL },
+	{ 0x0UL, 0xfffffff000000020UL,
+	  0x100000000fUL, 0xffffffff0UL },
+	{ 0x400000000UL, 0x0UL,
+	  0xfffffffc00000004UL, 0x3UL }
+};
+static const unsigned long N_INV_TBL[12][4] ____cacheline_aligned = {
+	{ 0xd3dd171618a3b717UL, 0x3fff681d9923f61UL,
+	  0x6efa45ccec548683UL, 0xbe928d6f19f723f8UL },
+	{ 0xb78c9deaa307dad7UL, 0xc808b9c007d0b5d5UL,
+	  0xcd7cbc7306439253UL, 0xe23c5a7044f2b547UL },
+	{ 0x5f5ddcdb262b9bb2UL, 0x1641c8ba4f5b1641UL,
+	  0xd528811b72891fUL, 0x49bdc6e77c520a7UL },
+	{ 0xd6810951c480022bUL, 0xc4b5ee11ad2ad8d0UL,
+	  0xc5ddc1af11e1c923UL, 0x5e269249a7c46302UL },
+	{ 0xfa2ae5335fb419bdUL, 0x43a48bed3d62277bUL,
+	  0xf758ce8517f6bc78UL, 0x1b68892c42fdb4f5UL },
+	{ 0x80d8ed17f512edf8UL, 0x1b9010e227a474UL,
+	  0x12b4e566c6c6b007UL, 0x8e95a0de2e641f96UL },
+	{ 0x14d2e6919fd355d3UL, 0x699bb05e43f692c5UL,
+	  0xc95eaa2fab3d0d1cUL, 0x1046413f02733be4UL },
+	{ 0xc1c6158bd8367238UL, 0xa32a55bee13d72caUL,
+	  0x1b77eaa9301d001fUL, 0xf2f479842620e3ffUL },
+	{ 0xb61cee7d744e7aa0UL, 0x855e124ad943df2UL,
+	  0xf8b6041e607725d4UL, 0xd06633a905c1e8a7UL },
+	{ 0x728a0e536f91deacUL, 0xf8e1e329a7d18c44UL,
+	  0xfbd3fbe8d1574a5UL, 0x3f9dfb312293c261UL },
+	{ 0xfca78ace2bcb4d5cUL, 0xc8383b74e7dca67fUL,
+	  0x82639ce9ea3c688dUL, 0x8c9440874ab8edc5UL },
+	{ 0xb0d6aa38c05fd77dUL, 0xf28f5ee9c9cccd11UL,
+	  0x7b44316fb802f13bUL, 0x334722ab84bbce90UL }
+};
+
 typedef struct {
 	unsigned long	x[G_LIMBS];
 	unsigned long	y[G_LIMBS];
@@ -220,7 +273,7 @@ ecp256_safe_cond_assign(TlsMpi *X, const TlsMpi *Y, unsigned char assign)
 static inline void
 MOD_SUB(TlsMpi *N)
 {
-	while ((N)->s < 0 && !ttls_mpi_eq_0(N))
+	while (N->s < 0 && !ttls_mpi_eq_0(N))
 		ttls_mpi_add_mpi(N, N, &G.P);
 }
 
@@ -281,73 +334,226 @@ ecp256_sqr_mod(TlsMpi *X, const TlsMpi *A)
 }
 
 /**
- * Modular inverse X = A^-1 mod N , based on binary extended Euclidean algorithm.
- * The fuction is optimized for always odd @N (GECC 2.22).
+ * Modular inverse X = A^-1 mod N.
  *
- * For the secp256 the algorithms typically takes 160-190 iterations, i.e.
- * 640-760 right shifts and subs/adds.
+ * We use modified version of the algorithm by Bernstein and Yang,
+ * "Fast constant-time gcd computation and modular inversion", 2019.
+ * Our version isn't constant time, but much faster: there are 170 in average
+ * less 64-bit division steps and in average 3 less big integer matrices
+ * multiplications. Moreover, we multiply the matrices as they elements grow
+ * closer to 256 bits, so in most cases we get even less number of matrices
+ * multiplications (the math prototype test for the optimized matrices
+ * multiplication is about 8 times faster that the original divide and conquer
+ * algorithm from the paper). The division steps also optimized for tail
+ * zeroes.
  *
- * TODO #1064 see big_num_math-denis, chapter 9.
- * p256 [9]: use Little Fermat theorem and G.P specialization
- * OpenSSL [9]: 255 Montgomery squares (MSQR) and 13 multiplications (MM)
- * or 12 MMs if X coordinage only is needed.
+ * It's worth mentionung that the Little Fermat theorem approach used in
+ * OpenSSL and WolfSSL takes about 255 256-bit integer modular squares and
+ * 12-13 modular multiplications. Our approach uses:
+ * - 72 64-256-bit multiplications in average
+ * - 36 256-bit multiplications in average
+ * - 4 modular reductions in worse case.
+ *
+ * @X must be at least G_LIMBS * 2 in size.
  */
-void
-ecp256_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N)
+static void
+ecp256_inv_mod(TlsMpi *X, const TlsMpi *I, const TlsMpi *N)
 {
-	TlsMpi *U, *V, *X1, *X2;
+	int delta = 1, g0, i, m, n;
+	/* Tau matrices */
+	long *f, *g, fi, gi;
+	TlsMpi *F, *P, *A, *B, *U[3], *V[3], *Q[3], *R[3];
 
-	U = ttls_mpool_alloc_stack(sizeof(TlsMpi) * 4 + (G_LIMBS * 4 + 2) * CIL);
-	V = ttls_mpi_init_next(U, G_LIMBS);
-	X1 = ttls_mpi_init_next(V, G_LIMBS);
-	X2 = ttls_mpi_init_next(X1, G_LIMBS + 1);
-	ttls_mpi_init_next(X2, G_LIMBS + 1);
+	F = ttls_mpool_alloc_stack(sizeof(TlsMpi) * 16
+				   + (G_LIMBS * 18 + 2) * CIL);
+	P = ttls_mpi_init_next(F, G_LIMBS + 1);
+	A = ttls_mpi_init_next(P, G_LIMBS + 1);
+	B = ttls_mpi_init_next(A, G_LIMBS * 2);
+	U[0] = ttls_mpi_init_next(B, G_LIMBS * 2);
+	U[1] = ttls_mpi_init_next(U[0], G_LIMBS);
+	U[2] = ttls_mpi_init_next(U[1], G_LIMBS);
+	V[0] = ttls_mpi_init_next(U[2], G_LIMBS);
+	V[1] = ttls_mpi_init_next(V[0], G_LIMBS);
+	V[2] = ttls_mpi_init_next(V[1], G_LIMBS);
+	Q[0] = ttls_mpi_init_next(V[2], G_LIMBS);
+	Q[1] = ttls_mpi_init_next(Q[0], G_LIMBS);
+	Q[2] = ttls_mpi_init_next(Q[1], G_LIMBS);
+	R[0] = ttls_mpi_init_next(Q[2], G_LIMBS);
+	R[1] = ttls_mpi_init_next(R[0], G_LIMBS);
+	R[2] = ttls_mpi_init_next(R[1], G_LIMBS);
+	ttls_mpi_init_next(R[2], G_LIMBS);
 
-	ttls_mpi_copy(U, A);
-	ttls_mpi_copy(V, N);
-	ttls_mpi_lset(X1, 1);
-	ttls_mpi_lset(X2, 0);
+	ttls_mpi_copy(F, N);
+	ttls_mpi_copy(P, I);
+	f = MPI_P(F);
+	g = MPI_P(P);
 
-loop:
-	// TODO #1064 the 4 shifts can be done in SIMD.
-	while (!(MPI_P(U)[0] & 1)) {
-		ttls_mpi_shift_r(U, 1);
-		if ((MPI_P(X1)[0] & 1))
-			ttls_mpi_add_mpi(X1, X1, N);
-		ttls_mpi_shift_r(X1, 1);
+	for (m = 2, n = 12; n > 0; ) {
+		/* Divsion steps. */
+		long tmp0, tmp1, tmp2, u = 1, v = 0, q = 0, r = 1;
+
+		fi = (F->s * f[0]) & ((1UL << 62) - 1);
+		gi = (P->s * g[0]) & ((1UL << 62) - 1);
+
+		for (i = 0; i < 62; ) {
+			if (!gi) {
+				delta += 62 - i;
+				u <<= 62 - i;
+				v <<= 62 - i;
+				break;
+			}
+			if ((tmp0 = __ffs(gi))) {
+				tmp0 = min_t(long, tmp0, 62 - i);
+				delta += tmp0;
+				gi >>= tmp0;
+				u <<= tmp0;
+				v <<= tmp0;
+				i += tmp0;
+				continue;
+			}
+			if (delta > 0) {
+				delta = -delta;
+				tmp0 = -fi;
+				tmp1 = -u;
+				tmp2 = -v;
+				fi = gi;
+				u = q;
+				v = r;
+				gi = tmp0;
+				q = tmp1;
+				r = tmp2;
+			}
+			delta++;
+			g0 = gi & 1;
+			/* f := g only if g is odd, so f is always odd */
+			gi = (gi >> 1) + (g0 * fi >> 1) + g0;
+			q = q + g0 * u;
+			r = r + g0 * v;
+			u <<= 1;
+			v <<= 1;
+			i++;
+		}
+
+		if (U[m]->used && U[m]->used < G_LIMBS && V[m]->used < G_LIMBS
+		    && Q[m]->used < G_LIMBS && R[m]->used < G_LIMBS)
+		{
+			ttls_mpi_mul_int(A, V[m], u);
+			ttls_mpi_mul_int(B, R[m], v);
+			ttls_mpi_add_mpi(A, A, B);
+
+			ttls_mpi_mul_int(R[m], R[m], r);
+			ttls_mpi_mul_int(B, V[m], q);
+			ttls_mpi_add_mpi(R[m], R[m], B);
+
+			ttls_mpi_copy(V[m], A);
+
+			ttls_mpi_mul_int(A, U[m], u);
+			ttls_mpi_mul_int(B, Q[m], v);
+			ttls_mpi_add_mpi(A, A, B);
+
+			ttls_mpi_mul_int(Q[m], Q[m], r);
+			ttls_mpi_mul_int(B, U[m], q);
+			ttls_mpi_add_mpi(Q[m], Q[m], B);
+
+			ttls_mpi_copy(U[m], A);
+		} else {
+			m -= !!U[m]->used;
+			ttls_mpi_lset(U[m], u);
+			ttls_mpi_lset(V[m], v);
+			ttls_mpi_lset(Q[m], q);
+			ttls_mpi_lset(R[m], r);
+		}
+
+		n--;
+		if (!gi && ttls_mpi_eq_0(P))
+			break;
+
+		/*
+		 * F and P can be negative after the multiplication:
+		 *   F, P = (F * u + P * v) >> 62, (F * q + P * r) >> 62
+		 */
+		ttls_mpi_mul_int(A, F, q);
+		ttls_mpi_mul_int(F, F, u);
+		ttls_mpi_mul_int(B, P, v);
+		ttls_mpi_add_mpi(F, F, B);
+		ttls_mpi_shift_r(F, 62);
+		ttls_mpi_mul_int(P, P, r);
+		ttls_mpi_add_mpi(P, P, A);
+		ttls_mpi_shift_r(P, 62);
 	}
+	BUG_ON(gi);
 
-	while (!(MPI_P(V)[0] & 1)) {
-		ttls_mpi_shift_r(V, 1);
-		if ((MPI_P(X2)[0] & 1))
-			ttls_mpi_add_mpi(X2, X2, N);
-		ttls_mpi_shift_r(X2, 1);
-	}
+	/* Finally, multiply up to 3 256-bit Tau matrices using MODULus. */
+	if (N == &G.N) {
+		if (m == 2) {
+			ttls_mpi_copy(X, V[m]);
+		} else {
+			ttls_mpi_mul_mpi(X, U[m], V[m + 1]);
+			ttls_mpi_mul_mpi(B, V[m], R[m + 1]);
+			ttls_mpi_add_mpi(X, X, B);
+			ttls_mpi_mod_mpi(X, X, &G.N);
 
-	if (ttls_mpi_cmp_mpi(U, V) >= 0) {
-		ttls_mpi_sub_mpi(U, U, V);
-		ttls_mpi_sub_mpi(X1, X1, X2);
+			if (m == 0) {
+				ttls_mpi_mul_mpi(B, U[m], U[m + 1]);
+				ttls_mpi_mul_mpi(A, V[m], Q[m + 1]);
+				ttls_mpi_add_mpi(B, B, A);
+				ttls_mpi_mod_mpi(B, B, &G.N);
+
+				ttls_mpi_mul_mpi(B, B, V[m + 2]);
+				ttls_mpi_mul_mpi(X, X, R[m + 2]);
+				ttls_mpi_add_mpi(X, X, B);
+				ttls_mpi_mod_mpi(X, X, &G.N);
+			}
+		}
+		memcpy_fast(MPI_P(A), N_INV_TBL[n], G_LIMBS * CIL);
+		mpi_fixup_used(A, G_LIMBS);
+		A->s = X->s * F->s;
+		ttls_mpi_mul_mpi(X, X, A);
+		ttls_mpi_mod_mpi(X, X, &G.N);
 	} else {
-		ttls_mpi_sub_mpi(V, V, U);
-		ttls_mpi_sub_mpi(X2, X2, X1);
+		if (m == 2) {
+			ttls_mpi_copy(X, V[m]);
+		} else {
+			ttls_mpi_mul_mpi(X, U[m], V[m + 1]);
+			ttls_mpi_mul_mpi(B, V[m], R[m + 1]);
+			ttls_mpi_add_mpi(X, X, B);
+			bzero_fast(&MPI_P(X)[X->used], (X->limbs - X->used) * CIL);
+			ecp_mod_p256_x86_64(MPI_P(X), X->used);
+			mpi_fixup_used(X, G_LIMBS);
+
+			if (m == 0) {
+				ttls_mpi_mul_mpi(B, U[m], U[m + 1]);
+				ttls_mpi_mul_mpi(A, V[m], Q[m + 1]);
+				ttls_mpi_add_mpi(B, B, A);
+				bzero_fast(&MPI_P(B)[B->used],
+					   (B->limbs - B->used) * CIL);
+				ecp_mod_p256_x86_64(MPI_P(B), B->used);
+				mpi_fixup_used(B, G_LIMBS);
+
+				ttls_mpi_mul_mpi(B, B, V[m + 2]);
+				ttls_mpi_mul_mpi(X, X, R[m + 2]);
+				ttls_mpi_add_mpi(X, X, B);
+				bzero_fast(&MPI_P(X)[X->used],
+					   (X->limbs - X->used) * CIL);
+				ecp_mod_p256_x86_64(MPI_P(X), X->used);
+				mpi_fixup_used(X, G_LIMBS);
+			}
+		}
+		mpi_mul_x86_64_4(MPI_P(X), MPI_P(X), P_INV_TBL[n]);
+		mpi_fixup_used(X, G_LIMBS * 2);
+		ecp_mod_p256_x86_64(MPI_P(X), X->used);
+		mpi_fixup_used(X, G_LIMBS);
+		X->s = X->s * F->s;
+		if (X->s < 0)
+			ttls_mpi_add_mpi(X, X, &G.P);
+		X->s = 1;
 	}
 
-	if (ttls_mpi_eq_1(U)) {
-		ttls_mpi_copy(X, X1);
-	}
-	else if (ttls_mpi_eq_1(V)) {
-		ttls_mpi_copy(X, X2);
-	}
-	else {
-		goto loop;
-	}
-
-	while (ttls_mpi_cmp_int(X, 0) < 0)
-		ttls_mpi_add_mpi(X, X, N);
+	ttls_mpi_pool_cleanup_ctx((unsigned long)F, false);
 }
 
 /*
- * Normalize jacobian coordinates so that Z == 0 || Z == 1  (GECC 3.2.1)
+ * Normalize jacobian coordinates so that Z == 1  (GECC 3.2.1)
  * Cost: 1N := 1I + 3M + 1S
  */
 static int
@@ -358,7 +564,7 @@ ecp256_normalize_jac(TlsEcpPoint *pt)
 	if (ttls_mpi_eq_0(&pt->Z))
 		return 0;
 
-	Zi = ttls_mpi_alloc_stack_init(G_LIMBS);
+	Zi = ttls_mpi_alloc_stack_init(G_LIMBS * 2);
 	ZZi = ttls_mpi_alloc_stack_init(G_LIMBS * 2);
 
 	/* X = X / Z^2  mod p */
@@ -380,7 +586,7 @@ ecp256_normalize_jac(TlsEcpPoint *pt)
  * @t_len is very small, log(W_SZ) = W - 1 in run time or log(G_W_SZ) = W_SZ -1
  * for the G points precomputation.
  */
-static void
+static int
 ecp256_normalize_jac_many(TlsEcpPoint *T[], size_t t_len)
 {
 #define __INIT_C(i)							\
@@ -412,6 +618,10 @@ do {									\
 		ecp256_mul_mod(&c[i], &c[i - 1], &T[i]->Z);
 	}
 
+	/* The modular inversion can not handle zero values. */
+	if (WARN_ON_ONCE(ttls_mpi_eq_0(&c[t_len - 1])))
+		return -EINVAL;
+
 	/* u = 1 / (Z_0 * ... * Z_n) mod P */
 	ecp256_inv_mod(u, &c[t_len - 1], &G.P);
 
@@ -440,6 +650,8 @@ do {									\
 	}
 
 	ttls_mpi_pool_cleanup_ctx((unsigned long)c, false);
+
+	return 0;
 #undef __INIT_C
 }
 
@@ -472,7 +684,7 @@ ecp256_safe_invert_jac(TlsEcpPoint *Q, unsigned char inv)
  * case this isn't true since the function uses more heavy calls on MPI copying,
  * subtraction, shifts and so on.
  */
-static int
+static void
 ecp256_double_jac(TlsEcpPoint *R, const TlsEcpPoint *P)
 {
 	TlsMpi M, S, T, U;
@@ -535,8 +747,6 @@ ecp256_double_jac(TlsEcpPoint *R, const TlsEcpPoint *P)
 	ttls_mpi_copy(&R->X, &T);
 	ttls_mpi_copy(&R->Y, &S);
 	ttls_mpi_copy(&R->Z, &U);
-
-	return 0;
 }
 
 /*
@@ -609,8 +819,9 @@ ecp256_add_mixed(TlsEcpPoint *R, const TlsEcpPoint *P, const TlsEcpPoint *Q)
 	/* Special cases (2) and (3) */
 	if (ttls_mpi_eq_0(&T1)) {
 		if (ttls_mpi_eq_0(&T2))
-			return ecp256_double_jac(R, P);
-		ttls_ecp_set_zero(R);
+			ecp256_double_jac(R, P);
+		else
+			ttls_ecp_set_zero(R);
 		return 0;
 	}
 
@@ -687,16 +898,16 @@ ecp256_add_mixed(TlsEcpPoint *R, const TlsEcpPoint *P, const TlsEcpPoint *Q)
  *   of x[i] encodes the sign (s_i in the paper): it is set if and only if
  *   if s_i == -1;
  *
+ * Note that the function has no branches except the bitlength, so it's constant
+ * time and DPA-resistant. Reference: "A New Attack with Side Channel Leakage
+ * During Exponent Recoding Computations" by Sakai & Sakurai, 2004.
+ *
  * Calling conventions:
  * - x is an array of size d + 1
  * - w is the size, ie number of teeth, of the comb, and must be between
  *   2 and 7
  * - m is the MPI, expected to be odd and such that bitlength(m) <= w * d
  *   (the result will be incorrect if these assumptions are not satisfied)
- *
- * TODO #1064 fetch required precomputed points from T (GECC Note 3.46)
- * (sinle T-pass, multiple x passes, which is sizeof(d)=small.
- * Use scatter AVX2 instruction to load values from memory?
  */
 static void
 ecp256_comb_fixed(unsigned char x[], size_t d, unsigned char w, const TlsMpi *m)
@@ -745,7 +956,7 @@ ecp256_comb_fixed(unsigned char x[], size_t d, unsigned char w, const TlsMpi *m)
 static int
 ecp256_precompute_comb(const unsigned long *pXY)
 {
-	int i, j, k;
+	int r, i, j, k;
 	TlsEcpPoint *cur, *TT[W_SZ];
 	TmpEcpPoint *T = *this_cpu_ptr(&combT_tmp);
 	EcpXY *Txy = *this_cpu_ptr(&combT);
@@ -783,11 +994,12 @@ ecp256_precompute_comb(const unsigned long *pXY)
 			 * sp_256_proj_point_dbl_n_avx2_4() from WolfSSL.
 			 * See algorithm GECC 3.23.
 			 */
-			MPI_CHK(ecp256_double_jac(cur, cur));
+			ecp256_double_jac(cur, cur);
 
 		TT[k++] = cur;
 	}
-	ecp256_normalize_jac_many(TT, k);
+	if ((r = ecp256_normalize_jac_many(TT, k)))
+		return r;
 
 	/*
 	 * Compute the remaining ones using the minimal number of additions
@@ -800,7 +1012,8 @@ ecp256_precompute_comb(const unsigned long *pXY)
 			TT[k++] = &T[i + j].p;
 		}
 	}
-	ecp256_normalize_jac_many(TT, k);
+	if ((r = ecp256_normalize_jac_many(TT, k)))
+		return r;
 
 	for (i = 0; i <= k; i++) {
 		memcpy_fast(Txy[i].x, MPI_P(&T[i].p.X), G_LIMBS * CIL);
@@ -905,7 +1118,7 @@ ecp256_mul_comb_core(TlsEcpPoint *R, const unsigned char x[])
 		 * 2008.
 		 */
 
-		MPI_CHK(ecp256_double_jac(R, R));
+		ecp256_double_jac(R, R);
 
 		Txi->X.s = 1;
 		Txi->X.used = G_LIMBS;
@@ -1006,11 +1219,8 @@ ecp256_mul_comb_core_g(TlsEcpPoint *R, const unsigned char x[])
 	/*
 	 * Start with a non-zero point and randomize its coordinates.
 	 *
-	 * TODO #1064: now the talbe is more than 150KB, so need to implement
-	 * constant time lookup.
-	 *
-	 * TODO #1064: 5. AVX2 - 4 points in parallel in OpenSSL,
-	 * see ecp_nistz256_avx2_mul_g().
+	 * TODO #1064: revert ecp_randomize_jac() - it's only 1S + 3M + R
+	 * (R is for random, very fast).
 	 */
 	ecp256_select_comb(R, combT_G[G_D], G_W_SZ, x[i]);
 	ttls_mpi_lset(&R->Z, 1);
@@ -1196,6 +1406,9 @@ ecp256_ecdsa_sign(const TlsMpi *d, const unsigned char *hash, size_t hlen,
 		/* Generate a suitable ephemeral keypair and set r = xR mod n */
 		key_tries = 0;
 		do {
+			// TODO #1064: use ecp256_mul_comb() directly:
+			// 1. merge random generation in one call
+			// 2. call ecp256_normalize_jac() only for R->X
 			MPI_CHK(ecp256_gen_keypair(k, R));
 			ttls_mpi_mod_mpi(r, &R->X, &G.N);
 
@@ -1259,7 +1472,7 @@ ecp256_ecdsa_verify(const unsigned char *buf, size_t blen, const TlsEcpPoint *Q,
 	TlsEcpPoint *R;
 
 	e = ttls_mpi_alloc_stack_init(G_LIMBS);
-	s_inv = ttls_mpi_alloc_stack_init(G_LIMBS);
+	s_inv = ttls_mpi_alloc_stack_init(G_LIMBS * 2);
 	u1 = ttls_mpi_alloc_stack_init(e->limbs + s_inv->limbs);
 	u2 = ttls_mpi_alloc_stack_init(r->limbs + s_inv->limbs);
 	R = ttls_mpool_alloc_stack(sizeof(*R));
