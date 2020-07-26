@@ -4,8 +4,7 @@
  * The RSA public-key cryptosystem.
  *
  * TODO #1335: The Linux crypt API already has RSA implementation, so probably
- * the stuff below should be just thrown out. Fallback to GPU is necessary
- * however, so maybe not... A careful rethinking is required.
+ * the stuff below should be just thrown out.
  *
  * The following sources were referenced in the design of this implementation
  * of the RSA algorithm:

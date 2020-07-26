@@ -415,6 +415,10 @@ unsigned long ttls_time_debug(void);
 
 #else
 #define ttls_time()		get_seconds()
+/*
+ * CPUs since Intel Ice Lake are safe against SRBDS attack, so we're good
+ * with the hardware random generator.
+ */
 #define ttls_rnd(buf, len)	get_random_bytes_arch(buf, len)
 #endif
 

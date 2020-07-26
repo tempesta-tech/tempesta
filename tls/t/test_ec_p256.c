@@ -251,7 +251,7 @@ ecp_inv(void)
 	TlsMpi *A, *X;
 
 	A = ttls_mpi_alloc_stack_init(4);
-	X = ttls_mpi_alloc_stack_init(4);
+	X = ttls_mpi_alloc_stack_init(8);
 
 	ttls_mpi_copy(A, &G.P);
 	ttls_mpi_sub_int(A, A, 1);

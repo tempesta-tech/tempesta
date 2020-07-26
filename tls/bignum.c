@@ -331,7 +331,7 @@ ttls_mpi_shift_r(TlsMpi *X, size_t count)
 	if (likely(count < 64 && X->used == 4)) {
 		mpi_shift_r_x86_64_4(x, count);
 		X->used -= !x[X->used - 1];
-		return;
+		goto zero_sign;
 	}
 
 	if (!X->used || !x[X->used - 1])
@@ -362,6 +362,9 @@ ttls_mpi_shift_r(TlsMpi *X, size_t count)
 			mpi_shift_r_x86_64(x, X->used, bits);
 		X->used -= !x[X->used - 1];
 	}
+zero_sign:
+	if (X->used == 1 && !x[0])
+		X->s = 1;
 }
 
 #ifdef DEBUG
@@ -639,10 +642,17 @@ ttls_mpi_add_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 	int s = A->s;
 
 	if (s != B->s) {
-		if (ttls_mpi_cmp_abs(A, B) >= 0) {
+		int cmp = ttls_mpi_cmp_abs(A, B);
+		if (cmp == 0) {
+			X->s = 1;
+			X->used = 1;
+			MPI_P(X)[0] = 0;
+		}
+		else if (cmp > 0) {
 			ttls_mpi_sub_abs(X, A, B);
 			X->s = s;
-		} else {
+		}
+		else {
 			ttls_mpi_sub_abs(X, B, A);
 			X->s = -s;
 		}
@@ -661,10 +671,17 @@ ttls_mpi_sub_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 	int s = A->s;
 
 	if (s == B->s) {
-		if (ttls_mpi_cmp_abs(A, B) >= 0) {
+		int cmp = ttls_mpi_cmp_abs(A, B);
+		if (cmp == 0) {
+			X->s = 1;
+			X->used = 1;
+			MPI_P(X)[0] = 0;
+		}
+		else if (cmp > 0) {
 			ttls_mpi_sub_abs(X, A, B);
 			X->s = s;
-		} else {
+		}
+		else {
 			ttls_mpi_sub_abs(X, B, A);
 			X->s = -s;
 		}
@@ -825,6 +842,22 @@ ttls_mpi_mul_uint(TlsMpi *X, const TlsMpi *A, unsigned long b)
 	ttls_mpi_mul_mpi(X, A, &_B);
 }
 
+void
+ttls_mpi_mul_int(TlsMpi *X, const TlsMpi *A, long b)
+{
+	DECLARE_MPI_AUTO(_B, 1);
+
+	if (b >= 0) {
+		_B.s = 1;
+		MPI_P(&_B)[0] = b;
+	} else {
+		_B.s = -1;
+		MPI_P(&_B)[0] = -b;
+	}
+
+	ttls_mpi_mul_mpi(X, A, &_B);
+}
+
 /**
  * Unsigned integer divide - double unsigned long dividend, @u1/@u0,
  * and unsigned long divisor, @d.
@@ -895,7 +928,7 @@ ttls_int_div_int(unsigned long u1, unsigned long u0, unsigned long d,
 
 /**
  * Division by TlsMpi: A = Q * B + R  (HAC 14.20).
- * Used in RSA only, so pretty big MPIs are possible.
+ * Used in RSA, so pretty big MPIs are possible.
  *
  * @Q - destination MPI for the quotient.
  * @R - destination MPI for the rest value.
@@ -1034,6 +1067,15 @@ ttls_mpi_mod_mpi(TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 {
 	BUG_ON(B->s < 0);
 
+	/*
+	 * TODO #1064 since reminder is only used, an optimized algorithm
+	 * might be used. See "Faster Remainder by Direct Computation
+	 * Applications to Compilers and Software Libraries" by Lemire, 2019.
+	 *
+	 * Besides this function, ttls_mpi_div_mpi() is used in RSA only and
+	 * for quotient only, so a more optimized division for quotient only
+	 * probably can be used.
+	 */
 	ttls_mpi_div_mpi(NULL, R, A, B);
 
 	while (unlikely(R->s < 0))

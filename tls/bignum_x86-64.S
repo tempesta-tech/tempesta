@@ -633,8 +633,6 @@ ENDPROC(mpi_sqr_x86_64_4)
  */
 ENTRY_32(ecp_mod_p256_x86_64)
 	pushq	%rbx
-	pushq	%r10
-	pushq	%r11
 	pushq	%r12
 	pushq	%r13
 	pushq	%r14
@@ -801,8 +799,6 @@ ENTRY_32(ecp_mod_p256_x86_64)
 	popq	%r14
 	popq	%r13
 	popq	%r12
-	popq	%r11
-	popq	%r10
 	popq	%rbx
 	ret
 

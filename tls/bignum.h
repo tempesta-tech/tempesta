@@ -73,7 +73,7 @@ do {									\
  * @used	- used limbs;
  * @limbs	- total # of limbs;
  * @_off	- offset of limbs array remote memory. Can be negative for MPIs
- *		  allocated on the stack;
+ *            allocated on the stack;
  *
  * MPI is placed in relatively small areas of memory (PK context pages or
  * per-cpu pages for temporal calculations withing single handshake FSM state),
@@ -176,6 +176,7 @@ void ttls_mpi_sub_int(TlsMpi *X, const TlsMpi *A, long b);
 
 void ttls_mpi_mul_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B);
 void ttls_mpi_mul_uint(TlsMpi *X, const TlsMpi *A, unsigned long b);
+void ttls_mpi_mul_int(TlsMpi *X, const TlsMpi *A, long b);
 void ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B);
 void ttls_mpi_mod_mpi(TlsMpi *R, const TlsMpi *A, const TlsMpi *B);
 
