@@ -271,10 +271,45 @@ ecp256_safe_cond_assign(TlsMpi *X, const TlsMpi *Y, unsigned char assign)
  * N->s < 0 is a very fast test, which fails only if N is 0
  */
 static void
-MOD_SUB(TlsMpi *N)
+ecp256_mod_sub(TlsMpi *X)
 {
-	while (N->s < 0 && !ttls_mpi_eq_0(N))
-		ttls_mpi_add_mpi(N, N, &G.P);
+	unsigned long *x = MPI_P(X);
+
+	BUG_ON(X->used > G_LIMBS);
+	if (X->s > 0)
+		return;
+	BUG_ON(X->used == 1 && !x[0]);
+
+once_more:
+	if (X->used < G_LIMBS) {
+		mpi_sub_x86_64(x, x, G.secp256r1_p, X->used, G_LIMBS);
+		goto done;
+	}
+
+	/* Take advantage of the form of P. */
+	if (x[3] < G.secp256r1_p[3])
+		goto p_minus_x;
+	if (x[3] > G.secp256r1_p[3])
+		goto x_minus_p;
+	if (x[2])
+		goto x_minus_p;
+	if (x[1] < G.secp256r1_p[1])
+		goto p_minus_x;
+	if (x[1] > G.secp256r1_p[1])
+		goto x_minus_p;
+	if (x[0] < G.secp256r1_p[0])
+		goto p_minus_x;
+
+x_minus_p:
+	mpi_sub_x86_64_4_4(x, G.secp256r1_p, x);
+	mpi_fixup_used(X, G_LIMBS);
+	goto once_more;
+
+p_minus_x:
+	mpi_sub_x86_64_4_4(x, x, G.secp256r1_p);
+done:
+	mpi_fixup_used(X, X->used);
+	X->s = 1;
 }
 
 /*
@@ -730,10 +765,82 @@ ecp256_double_jac(TlsEcpPoint *R, const TlsEcpPoint *P)
 		ecp256_sqr_mod(&S, &P->Z);
 	else
 		ttls_mpi_lset(&S, 1);
+	MPI_ADD_X86_64(&T, &P->X, &S);
+	ecp256_mod_add(&T);
+	ttls_mpi_sub_mpi(&U, &P->X, &S);
+	ecp256_mod_sub(&U);
+	ecp256_mul_mod(&S, &T, &U);
+	MPI_SHIFT_L1_X86_64_4(&M, &S);
+	MPI_ADD_X86_64(&M, &M, &S);
+	ecp256_mod_add(&M);
+
+	/* S = 4 * X * Y^2 = X * (2 * Y)^2 */
+	MPI_SHIFT_L1_X86_64_4(&T, &P->Y);
+	ecp256_mod_add(&T);
+	ecp256_sqr_mod(&T, &T);
+	ecp256_mul_mod(&S, &P->X, &T);
+
+	/* U = 8 * Y^4 = ((2 * Y)^2)^2 / 2 */
+	ecp256_sqr_mod(&U, &T);
+	mpi_div2_x86_64_4(MPI_P(&U), MPI_P(&U));
+
+	/* T = M^2 - 2 * S */
+	ecp256_sqr_mod(&T, &M);
+	ttls_mpi_sub_mpi(&T, &T, &S);
+	ecp256_mod_sub(&T);
+	ttls_mpi_sub_mpi(&T, &T, &S);
+	ecp256_mod_sub(&T);
+
+	/* S = M(S - T) - U */
+	ttls_mpi_sub_mpi(&S, &S, &T);
+	ecp256_mod_sub(&S);
+	ecp256_mul_mod(&S, &S, &M);
+	ttls_mpi_sub_mpi(&S, &S, &U);
+	ecp256_mod_sub(&S);
+
+	/* U = 2 * Y * Z */
+	if (likely(!ttls_mpi_eq_1(&P->Z))) {
+		ecp256_mul_mod(&U, &P->Y, &P->Z);
+		MPI_SHIFT_L1_X86_64_4(&U, &U);
+	} else {
+		MPI_SHIFT_L1_X86_64_4(&U, &P->Y);
+	}
+	ecp256_mod_add(&U);
+
+	ttls_mpi_copy(&R->X, &T);
+	ttls_mpi_copy(&R->Y, &S);
+	ttls_mpi_copy(&R->Z, &U);
+}
+#if 0
+/**
+ * Repeated point doubling in Jacobian coordinates (GECC 3.23).
+ */
+static void
+ecp256_double_jac_n(TlsEcpPoint *r, const TlsEcpPoint *p, TlsMpi *tmp)
+{
+	int i;
+	TlsMpi *a = &tmp[0], *b = &tmp[1], *y = &tmp[2], *w = &tmp[3];
+
+	/* Y = 2 * Y */
+	ttls_mpi_shift_l(y, &p->Y, 1);
+	/* W = Z^4 */
+	ecp256_sqr_mod(w, &p->Z);
+	ecp256_sqr_mod(w, w);
+
+	for (i = 0; i < D; ++i) {
+		/* A = 3 * (X^2 - W) */
+		ecp256_double_jac(r, p);
+	}
+
+	/* M = 3(X + Z^2)(X - Z^2) */
+	if (likely(!ttls_mpi_eq_1(&P->Z)))
+		ecp256_sqr_mod(&S, &P->Z);
+	else
+		ttls_mpi_lset(&S, 1);
 	ttls_mpi_add_mpi(&T, &P->X, &S);
 	ecp256_mod_add(&T);
 	ttls_mpi_sub_mpi(&U, &P->X, &S);
-	MOD_SUB(&U);
+	ecp256_mod_sub(&U);
 	ecp256_mul_mod(&S, &T, &U);
 	ttls_mpi_shift_l(&M, &S, 1);
 	ttls_mpi_add_mpi(&M, &M, &S);
@@ -752,30 +859,30 @@ ecp256_double_jac(TlsEcpPoint *R, const TlsEcpPoint *P)
 	/* T = M^2 - 2 * S */
 	ecp256_sqr_mod(&T, &M);
 	ttls_mpi_sub_mpi(&T, &T, &S);
-	MOD_SUB(&T);
+	ecp256_mod_sub(&T);
 	ttls_mpi_sub_mpi(&T, &T, &S);
-	MOD_SUB(&T);
+	ecp256_mod_sub(&T);
 
 	/* S = M(S - T) - U */
 	ttls_mpi_sub_mpi(&S, &S, &T);
-	MOD_SUB(&S);
+	ecp256_mod_sub(&S);
 	ecp256_mul_mod(&S, &S, &M);
 	ttls_mpi_sub_mpi(&S, &S, &U);
-	MOD_SUB(&S);
+	ecp256_mod_sub(&S);
 
 	/* U = 2 * Y * Z */
-	if (likely(!ttls_mpi_eq_1(&P->Z))) {
+	if (likely(!ttls_mpi_eq_1(&P->Z)))
 		ecp256_mul_mod(&U, &P->Y, &P->Z);
-		ttls_mpi_shift_l(&U, &U, 1);
-	} else {
-		ttls_mpi_shift_l(&U, &P->Y, 1);
-	}
+	else
+		ttls_mpi_copy(&U, &P->Y);
+	ttls_mpi_shift_l(&U, &U, 1);
 	ecp256_mod_add(&U);
 
 	ttls_mpi_copy(&R->X, &T);
 	ttls_mpi_copy(&R->Y, &S);
 	ttls_mpi_copy(&R->Z, &U);
 }
+#endif
 
 /*
  * Addition: R = P + Q, mixed affine-Jacobian coordinates (GECC 3.22)
@@ -830,18 +937,18 @@ ecp256_add_mixed(TlsEcpPoint *R, const TlsEcpPoint *P, const TlsEcpPoint *Q)
 	if (unlikely(ttls_mpi_eq_1(&P->Z))) {
 		/* Relatively rare case, ~1/60. */
 		ttls_mpi_sub_mpi(&T1, &Q->X, &P->X);
-		MOD_SUB(&T1);
+		ecp256_mod_sub(&T1);
 		ttls_mpi_sub_mpi(&T2, &Q->Y, &P->Y);
-		MOD_SUB(&T2);
+		ecp256_mod_sub(&T2);
 	} else {
 		ecp256_sqr_mod(&T1, &P->Z);
 		ecp256_mul_mod(&T2, &T1, &P->Z);
 		ecp256_mul_mod(&T1, &T1, &Q->X);
 		ecp256_mul_mod(&T2, &T2, &Q->Y);
 		ttls_mpi_sub_mpi(&T1, &T1, &P->X);
-		MOD_SUB(&T1);
+		ecp256_mod_sub(&T1);
 		ttls_mpi_sub_mpi(&T2, &T2, &P->Y);
-		MOD_SUB(&T2);
+		ecp256_mod_sub(&T2);
 	}
 
 	/* Special cases (2) and (3) */
@@ -864,15 +971,15 @@ ecp256_add_mixed(TlsEcpPoint *R, const TlsEcpPoint *P, const TlsEcpPoint *Q)
 	ecp256_mod_add(&T1);
 	ecp256_sqr_mod(&X, &T2);
 	ttls_mpi_sub_mpi(&X, &X, &T1);
-	MOD_SUB(&X);
+	ecp256_mod_sub(&X);
 	ttls_mpi_sub_mpi(&X, &X, &T4);
-	MOD_SUB(&X);
+	ecp256_mod_sub(&X);
 	ttls_mpi_sub_mpi(&T3, &T3, &X);
-	MOD_SUB(&T3);
+	ecp256_mod_sub(&T3);
 	ecp256_mul_mod(&T3, &T3, &T2);
 	ecp256_mul_mod(&T4, &T4, &P->Y);
 	ttls_mpi_sub_mpi(&Y, &T3, &T4);
-	MOD_SUB(&Y);
+	ecp256_mod_sub(&Y);
 
 	/* Resulting coorinates are twice smaller than the temporary MPIs. */
 	ttls_mpi_copy(&R->X, &X);
@@ -984,6 +1091,7 @@ static int
 ecp256_precompute_comb(const unsigned long *pXY)
 {
 	int r, i, k;
+	TlsMpi tmp[4];
 	TlsEcpPoint *TT[W_SZ];
 	TmpEcpPoint *T = *this_cpu_ptr(&combT_tmp);
 	EcpXY *Txy = *this_cpu_ptr(&combT);
@@ -1011,13 +1119,22 @@ ecp256_precompute_comb(const unsigned long *pXY)
 	mpi_fixup_used(&T->p.Y, G_LIMBS);
 	ttls_mpi_lset(&T->p.Z, 1);
 
+	ttls_mpi_alloca_init(&tmp[0], G_LIMBS * 2);
+	ttls_mpi_alloca_init(&tmp[1], G_LIMBS * 2);
+	ttls_mpi_alloca_init(&tmp[2], G_LIMBS * 2);
+	ttls_mpi_alloca_init(&tmp[3], G_LIMBS * 2);
 	for (k = 0, i = 1; i < W_SZ; i <<= 1) {
+#if 0
+		ecp256_double_jac_n(&T[i].p, &T[i >> 1].p, tmp);
+		TT[k++] = &T[i].p;
+#else
 		TlsEcpPoint *cur =  &T[i].p;
 		int j;
 		ttls_ecp_copy(cur, &T[i >> 1].p);
 		for (j = 0; j < D; j++)
 			ecp256_double_jac(cur, cur);
 		TT[k++] = cur;
+#endif
 	}
 	if ((r = ecp256_normalize_jac_many(TT, k)))
 		return r;
