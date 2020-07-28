@@ -401,8 +401,37 @@ ENTRY(mpi_div2_x86_64_4)
 	movq	%rax, 8(%rdi)
 	movq	%rcx, 16(%rdi)
 	movq	%r8, 24(%rdi)
-	repz retq
+	retq
 ENDPROC(mpi_div2_x86_64_4)
+
+
+/**
+ * X (%RDI) = 3 * A (%RSI), both the MPIs are 4 limbs.
+ * Returns non-zero in %RAX if there was carry to 5th limb and 0 otherwise.
+ */
+ENTRY(mpi_tpl_x86_64_4)
+	movq	(%rsi), %r8
+	movq	8(%rsi), %r9
+	movq	16(%rsi), %r10
+	movq	24(%rsi), %r11
+	xorq	%rax, %rax
+	movq	%r8, (%rdi)
+	movq	%r9, 8(%rdi)
+	movq	%r10, 16(%rdi)
+	movq	%r11, 24(%rdi)
+	addq	%r8, %r8
+	adcq	%r9, %r9
+	adcq	%r10, %r10
+	adcq	%r11, %r11
+	adcq	$0, %rax
+	addq	%r8, (%rdi)
+	adcq	%r9, 8(%rdi)
+	adcq	%r10, 16(%rdi)
+	adcq	%r11, 24(%rdi)
+	adcq	$0, %rax
+	movq	%rax, 32(%rdi)
+	repz retq
+ENDPROC(mpi_tpl_x86_64_4)
 
 
 /**

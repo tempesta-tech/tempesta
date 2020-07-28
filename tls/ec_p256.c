@@ -386,9 +386,8 @@ static void
 ecp256_sqr_mod(TlsMpi *X, const TlsMpi *A)
 {
 	BUG_ON(X->limbs < G_LIMBS);
-	BUG_ON(A->limbs < G_LIMBS);
-	BUG_ON(A->s < 0);
 	BUG_ON(A->used > G_LIMBS);
+	BUG_ON(A->used < G_LIMBS && MPI_P(A)[G_LIMBS - 1]);
 
 	mpi_sqr_x86_64_4(MPI_P(X), MPI_P(A));
 
@@ -755,10 +754,10 @@ ecp256_double_jac(TlsEcpPoint *R, const TlsEcpPoint *P)
 {
 	TlsMpi M, S, T, U;
 
-	ttls_mpi_alloca_init(&M, G_LIMBS * 2);
-	ttls_mpi_alloca_init(&S, G_LIMBS * 2);
-	ttls_mpi_alloca_init(&T, G_LIMBS * 2);
-	ttls_mpi_alloca_init(&U, G_LIMBS * 2);
+	ttls_mpi_alloca_zero(&M, G_LIMBS * 2);
+	ttls_mpi_alloca_zero(&S, G_LIMBS * 2);
+	ttls_mpi_alloca_zero(&T, G_LIMBS * 2);
+	ttls_mpi_alloca_zero(&U, G_LIMBS * 2);
 
 	/* M = 3(X + Z^2)(X - Z^2) */
 	if (likely(!ttls_mpi_eq_1(&P->Z)))
@@ -770,8 +769,7 @@ ecp256_double_jac(TlsEcpPoint *R, const TlsEcpPoint *P)
 	ttls_mpi_sub_mpi(&U, &P->X, &S);
 	ecp256_mod_sub(&U);
 	ecp256_mul_mod(&S, &T, &U);
-	MPI_SHIFT_L1_X86_64_4(&M, &S);
-	MPI_ADD_X86_64(&M, &M, &S);
+	ttls_mpi_tpl_x86_64_4(&M, &S);
 	ecp256_mod_add(&M);
 
 	/* S = 4 * X * Y^2 = X * (2 * Y)^2 */

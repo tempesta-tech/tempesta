@@ -27,6 +27,8 @@
 
 #include <linux/random.h>
 
+#include "bignum_asm.h"
+
 #define TTLS_MPI_CHK(f)							\
 do {									\
 	if (WARN((ret = (f)), #f " returns %d", ret))			\
@@ -140,6 +142,12 @@ do {									\
 	(X)->limbs = ln;						\
 } while (0)
 
+#define ttls_mpi_alloca_zero(X, ln)					\
+do {									\
+	ttls_mpi_alloca_init(X, ln);					\
+	bzero_fast(MPI_P(X), ln * CIL);					\
+} while (0)
+
 TlsMpi *ttls_mpi_alloc_stack_init(size_t nlimbs);
 void ttls_mpi_alloc(TlsMpi *X, size_t nblimbs);
 
@@ -208,6 +216,13 @@ static inline bool
 ttls_mpi_eq_1(const TlsMpi *X)
 {
 	return X->used == 1 && X->s == 1 && MPI_P(X)[0] == 1;
+}
+
+static inline void
+ttls_mpi_tpl_x86_64_4(TlsMpi *X, const TlsMpi *A)
+{
+	mpi_tpl_x86_64_4(MPI_P(X), MPI_P(A));
+	mpi_fixup_used(X, A->used + 1);
 }
 
 #ifdef DEBUG
