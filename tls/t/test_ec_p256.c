@@ -75,14 +75,13 @@ ecp_base_math(void)
 	for (i = 0; i < 1000; ++i) {
 		/* 2 * B * 2 * A^2 = B * (2 * A)^2 */
 		ecp256_sqr_mod(T1, A);
-		ttls_mpi_shift_l(T1, 1);
+		ttls_mpi_shift_l(T1, T1, 1);
 		ecp256_mod_add(T1);
 		ecp256_mul_mod(X1, T1, B);
-		ttls_mpi_shift_l(X1, 1);
+		ttls_mpi_shift_l(X1, X1, 1);
 		ecp256_mod_add(X1);
 
-		ttls_mpi_copy_alloc(T2, A, false);
-		ttls_mpi_shift_l(T2, 1);
+		ttls_mpi_shift_l(T2, A, 1);
 		ecp256_mod_add(T2);
 		ecp256_sqr_mod(T2, T2);
 		ecp256_mul_mod(X2, T2, B);
@@ -91,7 +90,7 @@ ecp_base_math(void)
 
 		/* (2 * A^2)^2 * 2 = ((2 * A)^2)^2 / 2 */
 		ecp256_sqr_mod(X1, T1);
-		ttls_mpi_shift_l(X1, 1);
+		ttls_mpi_shift_l(X1, X1, 1);
 		ecp256_mod_add(X1);
 
 		ecp256_sqr_mod(X2, T2);
@@ -348,7 +347,7 @@ ecp_inv(void)
 	EXPECT_MPI(X, 4, 0xd11600bf3e0b05dbUL, 0x5e27c81f75e59425UL,
 			 0xb6deccbfe7ee2dcfUL, 0xc6f83f8273959285UL);
 
-	ttls_mpi_shift_l(A, 100);
+	ttls_mpi_shift_l(A, A, 100);
 	ecp256_inv_mod(X, A, &G.P);
 	EXPECT_MPI(X, 4, 0x4918e0ed10e2af6UL, 0x3752de692b5ec74fUL,
 			 0x1f8c9445bdada17bUL, 0x86da5515b2baeb5cUL);

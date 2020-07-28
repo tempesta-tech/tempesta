@@ -262,57 +262,64 @@ ENDPROC(mpi_sub_x86_64_2_2)
  * Shift X left for N < 64 bits.
  *
  * %RDI	- pointer to X;
- * %RSI	- size of X (value of X->used for after the shift);
- * %RDX	- N.
+ * %RSI - pointer to the original MPI;
+ * %RDX - size of X (value of X->used for after the shift);
+ * %RCX	- N.
  *
  * TODO #1335 it seems we can throw out the generic-length functions.
  */
 ENTRY(mpi_shift_l_x86_64)
-	movq	%rdx, %rcx
-
 	/*
 	 * Frst iteration with zeroed most significant limb propagating its
 	 * bits to the extra limb.
 	 */
 	xorq	%r11, %r11
-	movq	-8(%rdi, %rsi, 8), %r8
+	movq	-8(%rsi, %rdx, 8), %r8
 	shldq	%cl, %r8, %r11
-	movq	%r11, (%rdi, %rsi, 8)
-	decq	%rsi	/* macro-op fusion */
+	movq	%r11, (%rdi, %rdx, 8)
+	decq	%rdx	/* macro-op fusion */
 	jz	.shl_last
 
 	/* The main loop with carying bits from less significant limbs. */
 .shl_loop:
-	movq	-8(%rdi, %rsi, 8), %r11
-	shldq	%cl, %r11, (%rdi, %rsi, 8)
-	decq	%rsi	/* macro-op fusion */
+	movq	-8(%rsi, %rdx, 8), %r8
+	movq	(%rsi, %rdx, 8), %r11
+	shldq	%cl, %r8, %r11
+	movq	%r11, (%rdi, %rdx, 8)
+	decq	%rdx	/* macro-op fusion */
 	jnz	.shl_loop
 
-	/* Shift the less significant limb right in-place. */
 .shl_last:
-	shlq	%cl, (%rdi)
+	movq	(%rsi), %r11
+	shlq	%cl, %r11
+	movq	%r11, (%rdi)
 	ret
 ENDPROC(mpi_shift_l_x86_64)
 
 /**
  * A specialization of the above for 4 limbs MPI with and extra 5th limb.
  *
- * %RDI	- pointer to X;
- * %RSI	- N bits to shift.
+ * %RDI	- pointer to the resulting MPI;
+ * %RSI - pointer to the original MPI;
+ * %RDX	- N bits to shift.
  */
 ENTRY(mpi_shift_l_x86_64_4)
-	movq	%rsi, %rcx
-	movq	(%rdi), %r8
-	movq	8(%rdi), %r9
-	movq	16(%rdi), %r10
+	movq	%rdx, %rcx
+	movq	24(%rsi), %r11
+	movq	16(%rsi), %r10
 	xorq	%rdx, %rdx
-	movq	24(%rdi), %r11
+	movq	8(%rsi), %r9
+	movq	(%rsi), %r8
 	shldq	%cl, %r11, %rdx
-	shldq	%cl, %r10, 24(%rdi)
-	shldq	%cl, %r9, 16(%rdi)
-	shldq	%cl, %r8, 8(%rdi)
+	shldq	%cl, %r10, %r11
+	shldq	%cl, %r9, %r10
 	movq	%rdx, 32(%rdi)
-	shlq	%cl, (%rdi)
+	movq	%r11, 24(%rdi)
+	shldq	%cl, %r8, %r9
+	shlq	%cl, %r8
+	movq	%r10, 16(%rdi)
+	movq	%r9, 8(%rdi)
+	movq	%r8, (%rdi)
 	ret
 ENDPROC(mpi_shift_l_x86_64_4)
 

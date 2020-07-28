@@ -558,22 +558,21 @@ ecp384_double_jac(TlsEcpPoint *R, const TlsEcpPoint *P)
 	ttls_mpi_sub_mpi(&U, &P->X, &S);
 	MOD_SUB(&U);
 	ecp_mul_mod(&S, &T, &U);
-	ttls_mpi_copy_alloc(&M, &S, false);
-	ttls_mpi_shift_l(&M, 1);
+	ttls_mpi_shift_l(&M, &S, 1);
 	ttls_mpi_add_mpi(&M, &M, &S);
 	MOD_ADD(&M);
 
 	/* S = 4 * X * Y^2 */
 	ecp_sqr_mod(&T, &P->Y);
-	ttls_mpi_shift_l(&T, 1);
+	ttls_mpi_shift_l(&T, &T, 1);
 	MOD_ADD(&T);
 	ecp_mul_mod(&S, &P->X, &T);
-	ttls_mpi_shift_l(&S, 1);
+	ttls_mpi_shift_l(&S, &S, 1);
 	MOD_ADD(&S);
 
 	/* U = 8.Y^4 */
 	ecp_sqr_mod(&U, &T);
-	ttls_mpi_shift_l(&U, 1);
+	ttls_mpi_shift_l(&U, &U, 1);
 	MOD_ADD(&U);
 
 	/* T = M^2 - 2 * S */
@@ -591,11 +590,12 @@ ecp384_double_jac(TlsEcpPoint *R, const TlsEcpPoint *P)
 	MOD_SUB(&S);
 
 	/* U = 2 * Y * Z */
-	if (likely(ttls_mpi_cmp_int(&P->Z, 1)))
+	if (likely(ttls_mpi_cmp_int(&P->Z, 1))) {
 		ecp_mul_mod(&U, &P->Y, &P->Z);
-	else
-		ttls_mpi_copy(&U, &P->Y);
-	ttls_mpi_shift_l(&U, 1);
+		ttls_mpi_shift_l(&U, &U, 1);
+	} else {
+		ttls_mpi_shift_l(&U, &P->Y, 1);
+	}
 	MOD_ADD(&U);
 
 	ttls_mpi_copy(&R->X, &T);
@@ -688,8 +688,7 @@ ecp384_add_mixed(TlsEcpPoint *R, const TlsEcpPoint *P, const TlsEcpPoint *Q)
 	ecp_sqr_mod(&T3, &T1);
 	ecp_mul_mod(&T4, &T3, &T1);
 	ecp_mul_mod(&T3, &T3, &P->X);
-	ttls_mpi_copy_alloc(&T1, &T3, false);
-	ttls_mpi_shift_l(&T1, 1);
+	ttls_mpi_shift_l(&T1, &T3, 1);
 	MOD_ADD(&T1);
 	ecp_sqr_mod(&X, &T2);
 	ttls_mpi_sub_mpi(&X, &X, &T1);

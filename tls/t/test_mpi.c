@@ -300,7 +300,7 @@ mpi_bitop(void)
 	EXPECT_EQ(ttls_mpi_lsb(&A), 0);
 
 	/* No allocation - shift in-place. */
-	ttls_mpi_shift_l(&A, 59);
+	ttls_mpi_shift_l(&A, &A, 59);
 	EXPECT_TRUE(A.used == 10);
 	EXPECT_TRUE(A.limbs == 12);
 	EXPECT_TRUE(MPI_P(&A) == save_ptr);
@@ -313,7 +313,7 @@ mpi_bitop(void)
 	EXPECT_EQ(ttls_mpi_lsb(&A), 59);
 
 	/* Allocated a new limb - data copying. */
-	ttls_mpi_shift_l(&A, 65);
+	ttls_mpi_shift_l(&A, &A, 65);
 	EXPECT_TRUE(A.used == 11);
 	EXPECT_TRUE(A.limbs == 12);
 	EXPECT_TRUE(MPI_P(&A) == save_ptr);
@@ -402,7 +402,7 @@ mpi_mul_div_simple(void)
 				47);
 	ttls_mpi_copy(b, a);
 
-	ttls_mpi_shift_l(a, 11);
+	ttls_mpi_shift_l(a, a, 11);
 	ttls_mpi_mul_uint(b, b, 2048);
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(a, b) == 0);
 	EXPECT_TRUE(a->used == 7);
@@ -503,7 +503,7 @@ mpi_big(void)
 				47);
 	/* Pre-compute RR as R^2 mod N, use V as it's not needed any more. */
 	ttls_mpi_lset(V, 1);
-	ttls_mpi_shift_l(V, N->used * 2 * BIL);
+	ttls_mpi_shift_l(V, V, N->used * 2 * BIL);
 	ttls_mpi_mod_mpi(V, V, N);
 	EXPECT_ZERO(ttls_mpi_exp_mod(X, A, E, N, V));
 	EXPECT_TRUE(ttls_mpi_cmp_mpi(X, U) == 0);
