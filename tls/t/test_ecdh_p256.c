@@ -80,7 +80,7 @@ ecp256_check_pubkey(const TlsEcpGrp *grp, const unsigned long *pXY)
 
 	/* Special case for A = -3 */
 	ttls_mpi_sub_int(RHS, RHS, 3);
-	MOD_SUB(RHS);
+	ecp256_mod_sub(RHS);
 
 	ecp256_mul_mod(RHS, RHS, &X);
 	ttls_mpi_add_mpi(RHS, RHS, &G.B);
