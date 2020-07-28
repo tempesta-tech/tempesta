@@ -106,7 +106,7 @@ ecp256_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
 
 	ecp256_mul_mod(RHS, RHS, &pt->X);
 	ttls_mpi_add_mpi(RHS, RHS, &G.B);
-	MOD_ADD(RHS);
+	ecp256_mod_add(RHS);
 
 	if (ttls_mpi_cmp_mpi(YY, RHS)) {
 		T_DBG_MPI2("ECP invalid weierstrass public key", YY, RHS);

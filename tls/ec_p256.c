@@ -270,7 +270,7 @@ ecp256_safe_cond_assign(TlsMpi *X, const TlsMpi *Y, unsigned char assign)
  * Reduce a TlsMpi mod p in-place, to use after ttls_mpi_sub_mpi
  * N->s < 0 is a very fast test, which fails only if N is 0
  */
-static inline void
+static void
 MOD_SUB(TlsMpi *N)
 {
 	while (N->s < 0 && !ttls_mpi_eq_0(N))
@@ -282,11 +282,39 @@ MOD_SUB(TlsMpi *N)
  * We known P, N and the result are positive, so sub_abs is correct, and
  * a bit faster.
  */
-static inline void
-MOD_ADD(TlsMpi *N)
+static void
+ecp256_mod_add(TlsMpi *X)
 {
-	while (ttls_mpi_cmp_mpi(N, &G.P) >= 0)
-		ttls_mpi_sub_abs(N, N, &G.P);
+	unsigned long *x = MPI_P(X);
+
+	BUG_ON(X->s < 0);
+	BUG_ON(X->used > G_LIMBS + 1);
+
+	if (X->used < G_LIMBS)
+		return;
+
+	if (X->used > G_LIMBS)
+		do {
+			mpi_sub_x86_64_5_4(x, G.secp256r1_p, x);
+		} while (x[G_LIMBS]);
+
+	/* Take advantage of the form of P. */
+	if (x[3] < G.secp256r1_p[3])
+		goto done;
+	if (x[3] > G.secp256r1_p[3])
+		goto sub;
+	if (x[2])
+		goto sub;
+	if (x[1] < G.secp256r1_p[1])
+		goto done;
+	if (x[1] > G.secp256r1_p[1])
+		goto sub;
+	if (x[0] < G.secp256r1_p[0])
+		goto done;
+sub:
+	mpi_sub_x86_64_4_4(x, G.secp256r1_p, x);
+done:
+	mpi_fixup_used(X, G_LIMBS);
 }
 
 /*
@@ -305,7 +333,10 @@ static void
 ecp256_mul_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 {
 	BUG_ON(A->s < 0 || B->s < 0);
-	BUG_ON(A->used != G_LIMBS || B->used != G_LIMBS);
+	BUG_ON(A->used > G_LIMBS || B->used > G_LIMBS);
+	/* Just some sanity check, not 100% accurate. */
+	BUG_ON(A->used < G_LIMBS && MPI_P(A)[G_LIMBS - 1]);
+	BUG_ON(B->used < G_LIMBS && MPI_P(B)[G_LIMBS - 1]);
 
 	mpi_mul_x86_64_4(MPI_P(X), MPI_P(A), MPI_P(B));
 
@@ -700,27 +731,25 @@ ecp256_double_jac(TlsEcpPoint *R, const TlsEcpPoint *P)
 	else
 		ttls_mpi_lset(&S, 1);
 	ttls_mpi_add_mpi(&T, &P->X, &S);
-	MOD_ADD(&T);
+	ecp256_mod_add(&T);
 	ttls_mpi_sub_mpi(&U, &P->X, &S);
 	MOD_SUB(&U);
 	ecp256_mul_mod(&S, &T, &U);
 	ttls_mpi_copy_alloc(&M, &S, false);
 	ttls_mpi_shift_l(&M, 1);
 	ttls_mpi_add_mpi(&M, &M, &S);
-	MOD_ADD(&M);
+	ecp256_mod_add(&M);
 
-	/* S = 4 * X * Y^2 */
-	ecp256_sqr_mod(&T, &P->Y);
+	/* S = 4 * X * Y^2 = X * (2 * Y)^2 */
+	ttls_mpi_copy_alloc(&T, &P->Y, false);
 	ttls_mpi_shift_l(&T, 1);
-	MOD_ADD(&T);
+	ecp256_mod_add(&T);
+	ecp256_sqr_mod(&T, &T);
 	ecp256_mul_mod(&S, &P->X, &T);
-	ttls_mpi_shift_l(&S, 1);
-	MOD_ADD(&S);
 
-	/* U = 8.Y^4 */
+	/* U = 8 * Y^4 = ((2 * Y)^2)^2 / 2 */
 	ecp256_sqr_mod(&U, &T);
-	ttls_mpi_shift_l(&U, 1);
-	MOD_ADD(&U);
+	mpi_div2_x86_64_4(MPI_P(&U), MPI_P(&U));
 
 	/* T = M^2 - 2 * S */
 	ecp256_sqr_mod(&T, &M);
@@ -742,7 +771,7 @@ ecp256_double_jac(TlsEcpPoint *R, const TlsEcpPoint *P)
 	else
 		ttls_mpi_copy(&U, &P->Y);
 	ttls_mpi_shift_l(&U, 1);
-	MOD_ADD(&U);
+	ecp256_mod_add(&U);
 
 	ttls_mpi_copy(&R->X, &T);
 	ttls_mpi_copy(&R->Y, &S);
@@ -834,7 +863,7 @@ ecp256_add_mixed(TlsEcpPoint *R, const TlsEcpPoint *P, const TlsEcpPoint *Q)
 	ecp256_mul_mod(&T3, &T3, &P->X);
 	ttls_mpi_copy_alloc(&T1, &T3, false);
 	ttls_mpi_shift_l(&T1, 1);
-	MOD_ADD(&T1);
+	ecp256_mod_add(&T1);
 	ecp256_sqr_mod(&X, &T2);
 	ttls_mpi_sub_mpi(&X, &X, &T1);
 	MOD_SUB(&X);
@@ -1406,7 +1435,7 @@ ecp256_ecdsa_sign(const TlsMpi *d, const unsigned char *hash, size_t hlen,
 		/* Generate a suitable ephemeral keypair and set r = xR mod n */
 		key_tries = 0;
 		do {
-			// TODO #1064: use ecp256_mul_comb() directly:
+			// TODO #1064: use ecp256_mul_comb_g() directly:
 			// 1. merge random generation in one call
 			// 2. call ecp256_normalize_jac() only for R->X
 			MPI_CHK(ecp256_gen_keypair(k, R));

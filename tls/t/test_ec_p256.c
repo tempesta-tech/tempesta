@@ -58,6 +58,55 @@ __ecp_dump(const TlsEcpPoint *p, const char *prefix)
 #endif
 
 static void
+ecp_base_math(void)
+{
+	int i;
+	TlsMpi *A, *B, *T1, *T2, *X1, *X2;
+
+	EXPECT_FALSE(!(A = ttls_mpi_alloc_stack_init(8)));
+	EXPECT_FALSE(!(B = ttls_mpi_alloc_stack_init(8)));
+	EXPECT_FALSE(!(T1 = ttls_mpi_alloc_stack_init(8)));
+	EXPECT_FALSE(!(T2 = ttls_mpi_alloc_stack_init(8)));
+	EXPECT_FALSE(!(X1 = ttls_mpi_alloc_stack_init(8)));
+	EXPECT_FALSE(!(X2 = ttls_mpi_alloc_stack_init(8)));
+
+	ttls_mpi_lset(A, LONG_MAX);
+	ttls_mpi_lset(B, INT_MAX);
+	for (i = 0; i < 1000; ++i) {
+		/* 2 * B * 2 * A^2 = B * (2 * A)^2 */
+		ecp256_sqr_mod(T1, A);
+		ttls_mpi_shift_l(T1, 1);
+		ecp256_mod_add(T1);
+		ecp256_mul_mod(X1, T1, B);
+		ttls_mpi_shift_l(X1, 1);
+		ecp256_mod_add(X1);
+
+		ttls_mpi_copy_alloc(T2, A, false);
+		ttls_mpi_shift_l(T2, 1);
+		ecp256_mod_add(T2);
+		ecp256_sqr_mod(T2, T2);
+		ecp256_mul_mod(X2, T2, B);
+
+		EXPECT_ZERO(ttls_mpi_cmp_mpi(X1, X2));
+
+		/* (2 * A^2)^2 * 2 = ((2 * A)^2)^2 / 2 */
+		ecp256_sqr_mod(X1, T1);
+		ttls_mpi_shift_l(X1, 1);
+		ecp256_mod_add(X1);
+
+		ecp256_sqr_mod(X2, T2);
+		mpi_div2_x86_64_4(MPI_P(X2), MPI_P(X2));
+
+		EXPECT_ZERO(ttls_mpi_cmp_mpi(X1, X2));
+
+		ecp256_mul_mod(A, A, T1);
+		ecp256_mul_mod(B, B, T2);
+	}
+
+	ttls_mpi_pool_cleanup_ctx(0, false);
+}
+
+static void
 ecp_mul(void)
 {
 	int i;
@@ -316,6 +365,7 @@ main(int argc, char *argv[])
 {
 	BUG_ON(ttls_mpool_init());
 
+	ecp_base_math();
 	ecp_mul();
 	ecp_inv();
 

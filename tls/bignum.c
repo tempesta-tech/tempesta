@@ -276,7 +276,7 @@ ttls_mpi_shift_l(TlsMpi *X, size_t count)
 	size_t limbs, bits, old_used = X->used;
 	unsigned long *x = MPI_P(X);
 
-	if (!count || !X->used || !x[old_used - 1])
+	if (unlikely(!count || !X->used || !x[old_used - 1]))
 		return;
 
 	limbs = count >> BSHIFT;
