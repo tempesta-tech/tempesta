@@ -155,7 +155,7 @@ int ttls_mpi_safe_cond_swap(TlsMpi *X, TlsMpi *Y, unsigned char swap);
 
 void ttls_mpi_lset(TlsMpi *X, long z);
 
-void ttls_mpi_shift_l(TlsMpi *X, size_t count);
+void ttls_mpi_shift_l(TlsMpi *X, const TlsMpi *A, size_t count);
 void ttls_mpi_shift_r(TlsMpi *X, size_t count);
 int ttls_mpi_get_bit(const TlsMpi *X, size_t pos);
 void ttls_mpi_set_bit(TlsMpi *X, size_t pos, unsigned char val);

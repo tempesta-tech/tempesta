@@ -735,14 +735,12 @@ ecp256_double_jac(TlsEcpPoint *R, const TlsEcpPoint *P)
 	ttls_mpi_sub_mpi(&U, &P->X, &S);
 	MOD_SUB(&U);
 	ecp256_mul_mod(&S, &T, &U);
-	ttls_mpi_copy_alloc(&M, &S, false);
-	ttls_mpi_shift_l(&M, 1);
+	ttls_mpi_shift_l(&M, &S, 1);
 	ttls_mpi_add_mpi(&M, &M, &S);
 	ecp256_mod_add(&M);
 
 	/* S = 4 * X * Y^2 = X * (2 * Y)^2 */
-	ttls_mpi_copy_alloc(&T, &P->Y, false);
-	ttls_mpi_shift_l(&T, 1);
+	ttls_mpi_shift_l(&T, &P->Y, 1);
 	ecp256_mod_add(&T);
 	ecp256_sqr_mod(&T, &T);
 	ecp256_mul_mod(&S, &P->X, &T);
@@ -766,11 +764,12 @@ ecp256_double_jac(TlsEcpPoint *R, const TlsEcpPoint *P)
 	MOD_SUB(&S);
 
 	/* U = 2 * Y * Z */
-	if (likely(!ttls_mpi_eq_1(&P->Z)))
+	if (likely(!ttls_mpi_eq_1(&P->Z))) {
 		ecp256_mul_mod(&U, &P->Y, &P->Z);
-	else
-		ttls_mpi_copy(&U, &P->Y);
-	ttls_mpi_shift_l(&U, 1);
+		ttls_mpi_shift_l(&U, &U, 1);
+	} else {
+		ttls_mpi_shift_l(&U, &P->Y, 1);
+	}
 	ecp256_mod_add(&U);
 
 	ttls_mpi_copy(&R->X, &T);
@@ -861,8 +860,7 @@ ecp256_add_mixed(TlsEcpPoint *R, const TlsEcpPoint *P, const TlsEcpPoint *Q)
 	ecp256_sqr_mod(&T3, &T1);
 	ecp256_mul_mod(&T4, &T3, &T1);
 	ecp256_mul_mod(&T3, &T3, &P->X);
-	ttls_mpi_copy_alloc(&T1, &T3, false);
-	ttls_mpi_shift_l(&T1, 1);
+	ttls_mpi_shift_l(&T1, &T3, 1);
 	ecp256_mod_add(&T1);
 	ecp256_sqr_mod(&X, &T2);
 	ttls_mpi_sub_mpi(&X, &X, &T1);
@@ -985,8 +983,8 @@ ecp256_comb_fixed(unsigned char x[], size_t d, unsigned char w, const TlsMpi *m)
 static int
 ecp256_precompute_comb(const unsigned long *pXY)
 {
-	int r, i, j, k;
-	TlsEcpPoint *cur, *TT[W_SZ];
+	int r, i, k;
+	TlsEcpPoint *TT[W_SZ];
 	TmpEcpPoint *T = *this_cpu_ptr(&combT_tmp);
 	EcpXY *Txy = *this_cpu_ptr(&combT);
 
@@ -1014,17 +1012,11 @@ ecp256_precompute_comb(const unsigned long *pXY)
 	ttls_mpi_lset(&T->p.Z, 1);
 
 	for (k = 0, i = 1; i < W_SZ; i <<= 1) {
-		cur = &T[i].p;
+		TlsEcpPoint *cur =  &T[i].p;
+		int j;
 		ttls_ecp_copy(cur, &T[i >> 1].p);
 		for (j = 0; j < D; j++)
-			/*
-			 * TODO #1064 use repeated doubling optimization.
-			 * E.g. see sp_256_proj_point_dbl_n_store_avx2_4() and
-			 * sp_256_proj_point_dbl_n_avx2_4() from WolfSSL.
-			 * See algorithm GECC 3.23.
-			 */
 			ecp256_double_jac(cur, cur);
-
 		TT[k++] = cur;
 	}
 	if ((r = ecp256_normalize_jac_many(TT, k)))
@@ -1035,7 +1027,7 @@ ecp256_precompute_comb(const unsigned long *pXY)
 	 * Be careful to update T[2^l] only after using it!
 	 */
 	for (k = 0, i = 1; i < W_SZ; i <<= 1) {
-		j = i;
+		int j = i;
 		while (j--) {
 			MPI_CHK(ecp256_add_mixed(&T[i + j].p, &T[j].p, &T[i].p));
 			TT[k++] = &T[i + j].p;

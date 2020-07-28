@@ -370,32 +370,33 @@ mpi_sub(void)
 static void
 mpi_shift(void)
 {
-	TlsMpi *X;
+	TlsMpi *X, *Y;
 
 	EXPECT_FALSE(!(X = ttls_mpi_alloc_stack_init(9)));
+	EXPECT_FALSE(!(Y = ttls_mpi_alloc_stack_init(9)));
 
 	ttls_mpi_lset(X, 1);
-	ttls_mpi_shift_l(X, 17);
-	EXPECT_MPI(X, 1, 0x20000);
+	ttls_mpi_shift_l(Y, X, 17);
+	EXPECT_MPI(Y, 1, 0x20000);
 
-	ttls_mpi_shift_r(X, 15);
-	EXPECT_MPI(X, 1, 0x4);
+	ttls_mpi_shift_r(Y, 15);
+	EXPECT_MPI(Y, 1, 0x4);
 
-	ttls_mpi_shift_l(X, 61);
+	ttls_mpi_shift_l(X, Y, 61);
 	EXPECT_MPI(X, 1, 0x8000000000000000);
 
 	ttls_mpi_shift_r(X, 63);
 	EXPECT_MPI(X, 1, 1);
 
-	ttls_mpi_shift_l(X, 64);
-	EXPECT_MPI(X, 2, 0, 1);
+	ttls_mpi_shift_l(Y, X, 64);
+	EXPECT_MPI(Y, 2, 0, 1);
 
-	ttls_mpi_shift_r(X, 64);
-	EXPECT_TRUE(X->used == 1);
-	EXPECT_TRUE(MPI_P(X)[0] == 1);
+	ttls_mpi_shift_r(Y, 64);
+	EXPECT_TRUE(Y->used == 1);
+	EXPECT_TRUE(MPI_P(Y)[0] == 1);
 
-	MPI_P(X)[0] = 0xffffffffffffffffUL;
-	ttls_mpi_shift_l(X, 60);
+	MPI_P(Y)[0] = 0xffffffffffffffffUL;
+	ttls_mpi_shift_l(X, Y, 60);
 	EXPECT_MPI(X, 2, 0xf000000000000000UL, 0x0fffffffffffffffUL);
 
 	X->used = 3;
@@ -403,30 +404,30 @@ mpi_shift(void)
 	ttls_mpi_shift_r(X, 4);
 	EXPECT_MPI(X, 2, 0xff00000000000000UL, 0x80ffffffffffffffUL);
 
-	ttls_mpi_shift_l(X, 320);
-	EXPECT_MPI(X, 7, 0, 0, 0, 0, 0, 0xff00000000000000UL,
+	ttls_mpi_shift_l(Y, X, 320);
+	EXPECT_MPI(Y, 7, 0, 0, 0, 0, 0, 0xff00000000000000UL,
 			 0x80ffffffffffffffUL);
 
-	ttls_mpi_shift_r(X, 256);
+	ttls_mpi_shift_r(Y, 256);
+	EXPECT_MPI(Y, 3, 0, 0xff00000000000000UL, 0x80ffffffffffffffUL);
+
+	ttls_mpi_shift_r(Y, 1);
+	EXPECT_MPI(Y, 3, 0, 0xff80000000000000UL, 0x407fffffffffffffUL);
+
+	ttls_mpi_shift_l(X, Y, 1);
 	EXPECT_MPI(X, 3, 0, 0xff00000000000000UL, 0x80ffffffffffffffUL);
 
-	ttls_mpi_shift_r(X, 1);
-	EXPECT_MPI(X, 3, 0, 0xff80000000000000UL, 0x407fffffffffffffUL);
-
-	ttls_mpi_shift_l(X, 1);
-	EXPECT_MPI(X, 3, 0, 0xff00000000000000UL, 0x80ffffffffffffffUL);
-
-	ttls_mpi_shift_l(X, 257);
-	EXPECT_MPI(X, 8, 0, 0, 0, 0, 0, 0xfe00000000000000UL,
+	ttls_mpi_shift_l(Y, X, 257);
+	EXPECT_MPI(Y, 8, 0, 0, 0, 0, 0, 0xfe00000000000000UL,
 			 0x01ffffffffffffffUL, 1);
 
-	ttls_mpi_shift_r(X, 251);
-	EXPECT_MPI(X, 4, 0, 0xc000000000000000UL, 0x3fffffffffffffffUL, 0x20);
+	ttls_mpi_shift_r(Y, 251);
+	EXPECT_MPI(Y, 4, 0, 0xc000000000000000UL, 0x3fffffffffffffffUL, 0x20);
 
-	ttls_mpi_shift_l(X, 4);
+	ttls_mpi_shift_l(X, Y, 4);
 	EXPECT_MPI(X, 4, 0, 0, 0xfffffffffffffffcUL, 0x203);
 
-	ttls_mpi_shift_l(X, 60);
+	ttls_mpi_shift_l(X, X, 60);
 	EXPECT_MPI(X, 5, 0, 0, 0xc000000000000000UL, 0x3fffffffffffffffUL,
 			 0x20);
 
@@ -434,6 +435,7 @@ mpi_shift(void)
 	EXPECT_MPI(X, 4, 0, 0, 0xff00000000000000UL, 0x80ffffffffffffffUL);
 
 	free(X);
+	free(Y);
 }
 
 static void

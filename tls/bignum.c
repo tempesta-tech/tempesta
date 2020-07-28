@@ -271,12 +271,12 @@ ttls_mpi_size(const TlsMpi *X)
  * so the straightforward 2n algorithm is fine to make the each case simpler.
  */
 void
-ttls_mpi_shift_l(TlsMpi *X, size_t count)
+ttls_mpi_shift_l(TlsMpi *X, const TlsMpi *A, size_t count)
 {
-	size_t limbs, bits, old_used = X->used;
-	unsigned long *x = MPI_P(X);
+	size_t limbs, bits, old_used = A->used;
+	unsigned long *x = MPI_P(X), *a = MPI_P(A);
 
-	if (unlikely(!count || !X->used || !x[old_used - 1]))
+	if (unlikely(!count || !A->used || !a[old_used - 1]))
 		return;
 
 	limbs = count >> BSHIFT;
@@ -291,20 +291,25 @@ ttls_mpi_shift_l(TlsMpi *X, size_t count)
 	 */
 	BUG_ON(X->limbs < old_used + limbs + 1);
 
-	X->used = BITS_TO_LIMBS(ttls_mpi_bitlen(X) + count);
+	X->s = A->s;
+	X->used = BITS_TO_LIMBS(ttls_mpi_bitlen(A) + count);
 
 	/* Shift by count / limb_size. */
 	if (unlikely(limbs > 0)) {
-		memmove(x + limbs, x, old_used * CIL);
+		if (X == A || !bits) {
+			memmove(x + limbs, a, old_used * CIL);
+			a += limbs;
+		}
 		bzero_fast(x, limbs * CIL);
+		x += limbs;
 	}
 
 	/* Shift by count % limb_size. */
 	if (likely(bits > 0)) {
 		if (likely(old_used == 4))
-			mpi_shift_l_x86_64_4(x + limbs, bits);
+			mpi_shift_l_x86_64_4(x, a, bits);
 		else
-			mpi_shift_l_x86_64(x + limbs, old_used, bits);
+			mpi_shift_l_x86_64(x, a, old_used, bits);
 	}
 }
 
@@ -981,8 +986,8 @@ ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 	k = ttls_mpi_bitlen(Y) & BMASK;
 	if (k < BIL - 1) {
 		k = BIL - 1 - k;
-		ttls_mpi_shift_l(X, k);
-		ttls_mpi_shift_l(Y, k);
+		ttls_mpi_shift_l(X, X, k);
+		ttls_mpi_shift_l(Y, Y, k);
 	} else {
 		k = 0;
 	}
@@ -990,7 +995,7 @@ ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 	n = X->used - 1;
 	t = Y->used - 1;
 
-	ttls_mpi_shift_l(Y, BIL * (n - t));
+	ttls_mpi_shift_l(Y, Y, BIL * (n - t));
 	while (ttls_mpi_cmp_mpi(X, Y) >= 0) {
 		MPI_P(Q)[n - t]++;
 		ttls_mpi_sub_mpi(X, X, Y);
@@ -1028,12 +1033,12 @@ ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 		} while (ttls_mpi_cmp_mpi(T1, T2) > 0);
 
 		ttls_mpi_mul_uint(T1, Y, MPI_P(Q)[i - t - 1]);
-		ttls_mpi_shift_l(T1,  BIL * (i - t - 1));
+		ttls_mpi_shift_l(T1, T1, BIL * (i - t - 1));
 		ttls_mpi_sub_mpi(X, X, T1);
 
 		if (ttls_mpi_cmp_int(X, 0) < 0) {
 			ttls_mpi_copy(T1, Y);
-			ttls_mpi_shift_l(T1, BIL * (i - t - 1));
+			ttls_mpi_shift_l(T1, T1, BIL * (i - t - 1));
 			ttls_mpi_add_mpi(X, X, T1);
 			MPI_P(Q)[i - t - 1]--;
 		}
@@ -1221,7 +1226,7 @@ ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E, const TlsMpi *N,
 	if (unlikely(ttls_mpi_empty(RR))) {
 		ttls_mpi_alloc(RR, N->used * 2 + 2);
 		ttls_mpi_lset(RR, 1);
-		ttls_mpi_shift_l(RR, N->used * 2 * BIL);
+		ttls_mpi_shift_l(RR, RR, N->used * 2 * BIL);
 		ttls_mpi_mod_mpi(RR, RR, N);
 	}
 
@@ -1358,9 +1363,10 @@ ttls_mpi_gcd(TlsMpi *G, const TlsMpi *A, const TlsMpi *B)
 		}
 	}
 
-	ttls_mpi_shift_l(&TB, lz);
-
-	ttls_mpi_copy(G, &TB);
+	if (lz)
+		ttls_mpi_shift_l(G, &TB, lz);
+	else
+		ttls_mpi_copy(G, &TB);
 }
 
 /**
