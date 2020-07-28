@@ -365,6 +365,40 @@ ENDPROC(mpi_shift_r_x86_64_4)
 
 
 /**
+ * Divide the 256-bit MPI in %RSI by 2 mod P256 and store in %RDI.
+ * The code is borrowed from WolfSSL, sp_256_div2_4().
+ */
+ENTRY(mpi_div2_x86_64_4)
+	movq	(%rsi), %rdx
+	movq	8(%rsi), %rax
+	movq	16(%rsi), %rcx
+	movq	24(%rsi), %r8
+	movq	$0xffffffff, %r9
+	movq	$0xffffffff00000001, %r10
+	movq	%rdx, %r11
+	andq	$1, %r11
+	negq	%r11
+	andq	%r11, %r9
+	andq	%r11, %r10
+	addq	%r11, %rdx
+	adcq	%r9, %rax
+	adcq	$0, %rcx
+	adcq	%r10, %r8
+	movq	$0, %r11
+	adcq	$0, %r11
+	shrdq	$1, %rax, %rdx
+	shrdq	$1, %rcx, %rax
+	shrdq	$1, %r8, %rcx
+	shrdq	$1, %r11, %r8
+	movq	%rdx, (%rdi)
+	movq	%rax, 8(%rdi)
+	movq	%rcx, 16(%rdi)
+	movq	%r8, 24(%rdi)
+	repz retq
+ENDPROC(mpi_div2_x86_64_4)
+
+
+/**
  * Multiply two 4-limbs MPIs (pointed by %RSI and %RDX correspondingly) and
  * store up to 8 limbs by pointer to result %RDI.
  *
