@@ -776,14 +776,8 @@ ecp256_safe_invert_jac(TlsEcpPoint *Q, unsigned char inv)
 /**
  * Point doubling R = 2 P, Jacobian coordinates [8, "dbl-1998-cmo-2"].
  *
- * Cost: ( 3M + 3S if P->Z == 1 (rarely) and 4M + 4S otherwise)
- *	 + 7A + 5shift(*2)
- *
- * TODO #1064 the cost isn' the best one according to [8].
- *
- * TODO #1064 while the doubling should be much faster than addition, in our
- * case this isn't true since the function uses more heavy calls on MPI copying,
- * subtraction, shifts and so on.
+ * Cost: 2M + 4S + 8A (A is tripling, 2-div, shift), if P->Z == 1 (1/60 cases)
+ *       and 4M + 4S + 10A otherwise.
  */
 static void
 ecp256_double_jac(TlsEcpPoint *R, const TlsEcpPoint *P)
@@ -796,15 +790,19 @@ ecp256_double_jac(TlsEcpPoint *R, const TlsEcpPoint *P)
 	ttls_mpi_alloca_zero(&T, G_LIMBS * 2);
 	ttls_mpi_alloca_zero(&U, G_LIMBS * 2);
 
-	/* M = 3(X + Z^2)(X - Z^2) */
-	if (likely(!ttls_mpi_eq_1(&P->Z)))
+	if (likely(!ttls_mpi_eq_1(&P->Z))) {
+		/* M = 3(X + Z^2)(X - Z^2) */
 		ecp256_sqr_mod(&S, &P->Z);
-	else
-		ecp256_mpi_lset(&S, 1);
-	mpi_add_x86_64_4(&T, &P->X, &S);
-	ecp256_mod_add(&T);
-	ecp256_sub_mod(&U, &P->X, &S);
-	ecp256_mul_mod(&S, &T, &U);
+		mpi_add_x86_64_4(&T, &P->X, &S);
+		ecp256_mod_add(&T);
+		ecp256_sub_mod(&U, &P->X, &S);
+		ecp256_mul_mod(&S, &T, &U);
+	} else {
+		/* M = 3 * (X^2 - 1) */
+		ecp256_sqr_mod(&S, &P->X);
+		BUG_ON(S.used == 1 && !MPI_P(&S)[0]);
+		MPI_P(&S)[0] -= 1;
+	}
 	ttls_mpi_tpl_x86_64_4(&M, &S);
 	ecp256_mod_add(&M);
 
