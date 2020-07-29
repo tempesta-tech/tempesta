@@ -79,8 +79,8 @@ ecp256_check_pubkey(const TlsEcpGrp *grp, const unsigned long *pXY)
 	ecp256_sqr_mod(RHS, &X);
 
 	/* Special case for A = -3 */
-	ttls_mpi_sub_int(RHS, RHS, 3);
-	ecp256_mod_sub(RHS);
+	ttls_mpi_lset(&Y, 3);
+	ecp256_sub_mod(RHS, RHS, &Y);
 
 	ecp256_mul_mod(RHS, RHS, &X);
 	ttls_mpi_add_mpi(RHS, RHS, &G.B);
