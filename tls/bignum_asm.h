@@ -55,18 +55,5 @@ void mpi_sqr_x86_64_4(unsigned long *x, const unsigned long *a);
 
 void ecp_mod_p256_x86_64(unsigned long *x, size_t x_len);
 
-#define MPI_ADD_X86_64(X, A, B)						\
-do {									\
-	(X)->used = mpi_add_x86_64(MPI_P(X), (X)->limbs, MPI_P(B),	\
-				   (B)->used, MPI_P(A), (A)->used);	\
-} while (0)
-
-#define MPI_SHIFT_L1_X86_64_4(X, A)					\
-do {									\
-	unsigned long *a = MPI_P(A);					\
-	(X)->used = (A)->used + !!(a[3] & (1UL << 63));			\
-	mpi_shift_l_x86_64_4(MPI_P(X), a, 1);				\
-} while (0)
-
 #endif /* __BIGNUM_ASM_H__ */
 

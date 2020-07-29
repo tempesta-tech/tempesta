@@ -59,7 +59,7 @@ const TlsEcpGrp CURVE25519_G = {};
 static int
 ecp256_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
 {
-	TlsMpi *YY, *RHS;
+	TlsMpi *A, *YY, *RHS;
 
 	/* Must use affine coordinates */
 	if (WARN_ON_ONCE(ttls_mpi_cmp_int(&pt->Z, 1)))
@@ -90,6 +90,7 @@ ecp256_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
 		return -EINVAL;
 	}
 
+	A = ttls_mpi_alloc_stack_init(grp->bits * 2 / BIL);
 	YY = ttls_mpi_alloc_stack_init(grp->bits * 2 / BIL);
 	RHS = ttls_mpi_alloc_stack_init(grp->bits * 2 / BIL);
 
@@ -101,8 +102,8 @@ ecp256_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
 	ecp256_sqr_mod(RHS, &pt->X);
 
 	/* Special case for A = -3 */
-	ttls_mpi_sub_int(RHS, RHS, 3);
-	ecp256_mod_sub(RHS);
+	ttls_mpi_lset(A, 3);
+	ecp256_sub_mod(RHS, RHS, A);
 
 	ecp256_mul_mod(RHS, RHS, &pt->X);
 	ttls_mpi_add_mpi(RHS, RHS, &G.B);

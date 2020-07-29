@@ -36,7 +36,6 @@
 
 #include "lib/str.h"
 #include "bignum.h"
-#include "bignum_asm.h"
 #include "mpool.h"
 #include "tls_internal.h"
 
@@ -276,7 +275,7 @@ ttls_mpi_shift_l(TlsMpi *X, const TlsMpi *A, size_t count)
 	size_t limbs, bits, old_used = A->used;
 	unsigned long *x = MPI_P(X), *a = MPI_P(A);
 
-	if (unlikely(!count || !A->used || !a[old_used - 1]))
+	if (WARN_ON_ONCE(!count || !old_used))
 		return;
 
 	limbs = count >> BSHIFT;
@@ -1033,12 +1032,14 @@ ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 		} while (ttls_mpi_cmp_mpi(T1, T2) > 0);
 
 		ttls_mpi_mul_uint(T1, Y, MPI_P(Q)[i - t - 1]);
-		ttls_mpi_shift_l(T1, T1, BIL * (i - t - 1));
+		if (i - t - 1)
+			ttls_mpi_shift_l(T1, T1, BIL * (i - t - 1));
 		ttls_mpi_sub_mpi(X, X, T1);
 
 		if (ttls_mpi_cmp_int(X, 0) < 0) {
 			ttls_mpi_copy(T1, Y);
-			ttls_mpi_shift_l(T1, T1, BIL * (i - t - 1));
+			if (i - t - 1)
+				ttls_mpi_shift_l(T1, T1, BIL * (i - t - 1));
 			ttls_mpi_add_mpi(X, X, T1);
 			MPI_P(Q)[i - t - 1]--;
 		}
