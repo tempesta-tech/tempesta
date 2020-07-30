@@ -300,15 +300,18 @@ ttls_process_session_ticket(TlsCtx *tls)
 	TlSTicketCtx *t_ctx = &tls->hs->ticket_ctx;
 
 	T_DBG("ClientHello: process ticket\n");
+
+	/* Tickets are disabled, dont't form and send ticket extension. */
+	if (unlikely(!tls->peer_conf->sess_tickets)) {
+		tls->hs->new_session_ticket = 0;
+		return 0;
+	}
 	/*
 	 * If ticket is too big, our buffers are too small to keep it in full,
 	 * don't try to parse incomplete data.
 	 */
-	if (!t_ctx->t_len || t_ctx->t_len > TTLS_TICKET_MAX_SZ
-	    || !tls->peer_conf->sess_tickets)
-	{
+	if (unlikely(!t_ctx->t_len || t_ctx->t_len > TTLS_TICKET_MAX_SZ))
 		return 0;
-	}
 
 	if ((r = ttls_ticket_parse(tls, t_ctx->ticket, t_ctx->t_len))) {
 		if (r == TTLS_ERR_INVALID_MAC)
