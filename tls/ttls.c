@@ -1731,6 +1731,15 @@ ttls_write_finished(TlsCtx *tls, struct sg_table *sgt, unsigned char **in_buf)
 
 	ttls_write_hshdr(TTLS_HS_FINISHED, msg, TTLS_HS_HDR_LEN + TLS_HASH_LEN);
 	tls->hs->calc_finished(tls, msg + TTLS_HS_HDR_LEN, tls->conf->endpoint);
+	/*
+	 * On abbreviated handshake order of Finished messages are reversed:
+	 * first server sends his Finished message, then client. The last
+	 * recipient adds Finished message from other side into its checksum
+	 * to validate handshake integrity. See ttls_parse_finished() for the
+	 * same effect in full handshake path.
+	 */
+	if (tls->hs->resume)
+		ttls_update_checksum(tls, msg, TTLS_HS_HDR_LEN + TLS_HASH_LEN);
 
 	sg_init_table(&sg, 1);
 	sg_set_buf(&sg, p, TLS_HEADER_SIZE + TTLS_HS_FINISHED_BODY_LEN);
