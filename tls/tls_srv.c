@@ -2233,7 +2233,11 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 	 *	  Finished
 	 */
 	T_FSM_STATE(TTLS_SERVER_CHANGE_CIPHER_SPEC) {
-		if ((r = ttls_handshake_finished(tls)))
+		/*
+		 * On abbreviated handshake we need to wait for more messages
+		 * from client before jumping into the next state.
+		 */
+		if ((r = ttls_handshake_finished(tls)) || tls->hs->resume)
 			return r;
 		T_FSM_NEXT();
 	}
