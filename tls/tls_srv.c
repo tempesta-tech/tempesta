@@ -1151,7 +1151,7 @@ static void
 ttls_write_supported_point_formats_ext(TlsCtx *tls, unsigned char *p,
 				       size_t *olen)
 {
-	if (!tls->hs->cli_exts) {
+	if (!tls->hs->cli_exts || tls->hs->resume) {
 		*olen = 0;
 		return;
 	}
