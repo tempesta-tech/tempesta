@@ -924,3 +924,436 @@ ENTRY_32(ecp_mod_p256_x86_64)
 	popq	%rbx
 	ret
 ENDPROC(ecp_mod_p256_x86_64)
+
+
+/*
+ * The two functions at the below are simple merges of the mudulus reduction
+ * from the above with multiplication and squaring correspondingly.
+ */
+ENTRY_32(mpi_mul_mod_p256_x86_64_4)
+	push	%r12
+	push	%r13
+	push	%r14
+	push	%r15
+	push	%rbx
+
+	movq	%rdx, %rax
+
+	movq	(%rax), %rdx
+	mulxq	(%rsi), %r9, %r10
+	mulxq	16(%rsi), %r11, %r12
+	mulxq	8(%rsi), %rcx, %r8
+	xorq	%rbx, %rbx
+	adcxq	%rcx, %r10
+	movq	24(%rax), %rdx
+	mulxq	8(%rsi), %r13, %r14
+	adcxq	%r8, %r11
+	movq	8(%rax), %rdx
+	mulxq	(%rsi), %rcx, %r8
+	adoxq	%rcx, %r10
+	mulxq	16(%rsi), %rcx, %r15
+	adoxq	%r8, %r11
+	adcxq	%rcx, %r12
+	movq	16(%rax), %rdx
+	mulxq	8(%rsi), %rcx, %r8
+	adcxq	%r15, %r13
+	adoxq	%rcx, %r12
+	adcxq	%rbx, %r14
+	adoxq	%r8, %r13
+	mulxq	(%rsi), %rcx, %r8
+	adoxq	%rbx, %r14
+	xorq	%r15, %r15
+	adcxq	%rcx, %r11
+	movq	8(%rax), %rdx
+	mulxq	8(%rsi), %rdx, %rcx
+	adcxq	%r8, %r12
+	adoxq	%rdx, %r11
+	movq	8(%rax), %rdx
+	adoxq	%rcx, %r12
+	mulxq	24(%rsi), %rcx, %r8
+	adcxq	%rcx, %r13
+	movq	16(%rax), %rdx
+	mulxq	16(%rsi), %rdx, %rcx
+	adcxq	%r8, %r14
+	adoxq	%rdx, %r13
+	movq	24(%rax), %rdx
+	adoxq	%rcx, %r14
+	mulxq	24(%rsi), %rcx, %r8
+	adoxq	%rbx, %r15
+	adcxq	%rcx, %r15
+	mulxq	(%rsi), %rdx, %rcx
+	adcxq	%r8, %rbx
+	xorq	%r8, %r8
+	adcxq	%rdx, %r12
+	movq	(%rax), %rdx
+	adcxq	%rcx, %r13
+	mulxq	24(%rsi), %rdx, %rcx
+	adoxq	%rdx, %r12
+	adoxq	%rcx, %r13
+	movq	24(%rax), %rdx
+	mulxq	16(%rsi), %rdx, %rcx
+	adcxq	%rdx, %r14
+	movq	16(%rax), %rdx
+	adcxq	%rcx, %r15
+	mulxq	24(%rsi), %rcx, %rdx
+	adcxq	%r8, %rbx
+	adoxq	%rcx, %r14
+	adoxq	%rdx, %r15
+	adoxq	%r8, %rbx
+
+	movq	%r13, %rsi
+	movq	%r9, (%rdi)
+	movq	%r10, 8(%rdi)
+	movq	%r11, 16(%rdi)
+	movq	%r12, 24(%rdi)
+	movq	%r13, 32(%rdi)
+	movq	%r14, 40(%rdi)
+	movq	%r15, 48(%rdi)
+	movq	%rbx, 56(%rdi)
+	shrdq	$32, %r14, %rsi
+
+	/* The s3 line, no need to carry on shift. */
+	xorq	%rcx, %rcx
+
+	shrq	$32, %r14
+	movq	2*4(%rdi), %rdx
+	movq	4*4(%rdi), %r8
+	movq	12*4(%rdi), %r12
+	shlq	$32, %r14
+	movq	6*4(%rdi), %r9
+	movq	14*4(%rdi), %r10
+	addq	%r14, %rdx
+	adcq	%r12, %r8
+	adcq	%r10, %r9
+	adcq	$0, %rcx
+	addq	%r14, %rdx
+	adcq	%r12, %r8
+	adcq	%r10, %r9
+	adcq	$0, %rcx
+
+	movl	15*4(%rdi), %eax
+	movq	12*4(%rdi), %r13
+	shrdq	$32, %rbx, %r15
+	shlq	$32, %r13
+	addq	%r13, %rdx
+	adcq	%r15, %r8
+	adcq	%rax, %r9
+	adcq	$0, %rcx
+	addq	%r13, %rdx
+	adcq	%r15, %r8
+	adcq	%rax, %r9
+	adcq	$0, %rcx
+
+	movq	(%rdi), %rbx
+	movq	8*4(%rdi), %r11
+	movl	10*4(%rdi), %eax
+	addq	%r11, %rbx
+	adcq	%rax, %rdx
+	adcq	$0, %r8
+	adcq	%r10, %r9
+	adcq	$0, %rcx
+
+	shrq	$32, %r14
+	shlq	$32, %r15
+	orq	%r15, %r14
+	movl	8*4(%rdi), %eax
+	shrq	$32, %r15
+	shlq	$32, %rax
+	orq	%r15, %rax
+	addq	%rsi, %rbx
+	adcq	%r14, %rdx
+	adcq	%r10, %r8
+	adcq	%rax, %r9
+	adcq	$0, %rcx
+
+	movq	10*4(%rdi), %r13
+	shrq	$32, %rax
+	shlq	$32, %r13
+	orq	%rax, %r13
+	movq	11*4(%rdi), %r14
+	subq	%r14, %rbx
+	sbbq	%r15, %rdx
+	sbbq	$0, %r8
+	sbbq	%r13, %r9
+	sbbq	$0, %rcx
+
+	movl	9*4(%rdi), %eax
+	shlq	$32, %r14
+	orq	%rax, %r14
+	subq	%r12, %rbx
+	sbbq	%r10, %rdx
+	sbbq	$0, %r8
+	sbbq	%r14, %r9
+	sbbq	$0, %rcx
+
+	movq	13*4(%rdi), %r14
+	shldq	$32, %r10, %r13
+	shlq	$32, %r12
+	movq	$0xfffffffffffffffb, %r15
+	subq	%r14, %rbx
+	movq	$0x4ffffffff, %rax
+	sbbq	%r13, %rdx
+	sbbq	%rsi, %r8
+	sbbq	%r12, %r9
+	sbbq	$0, %rcx
+	movq	$0xfffffffb00000005, %r13
+
+	movq	10*4(%rdi), %r11
+	shlq	$32, %r14
+	shlq	$32, %rsi
+	subq	%r10, %rbx
+	sbbq	%rsi, %rdx
+	sbbq	%r11, %r8
+	sbbq	%r14, %r9
+	sbbq	$0, %rcx
+
+	movq	$0xba98765432100, %r10
+	addq	%r15, %rbx
+	adcq	%rax, %rdx
+	adcq	$0, %r8
+	adcq	%r13, %r9
+	adcq	$4, %rcx
+
+	movq	%rcx, %r15
+	shlq	$2, %rcx
+	leaq	__P256x(%rip), %r12
+	shrq	%rcx, %r10
+	subq	24(%r12, %rcx, 8), %rbx
+	sbbq	16(%r12, %rcx, 8), %rdx
+	sbbq	8(%r12, %rcx, 8), %r8
+	andq	$0xf, %r10
+	sbbq	(%r12, %rcx, 8), %r9
+	sbbq	%r10, %r15
+
+	movq	$0xffffffff, %r13
+	movq	$0xffffffff00000001, %r12
+	movq	$0xffffffffffffffff, %r10
+	movq	%rbx, (%rdi)
+	movq	%rdx, 2*4(%rdi)
+	movq	%r8, 4*4(%rdi)
+	movq	%r9, 6*4(%rdi)
+
+	subq	%r10, %rbx
+	sbbq	%r13, %rdx
+	sbbq	$0, %r8
+	sbbq	%r12, %r9
+	sbbq	$0, %r15
+	jb	.mul_mod_p256_done
+
+	movq	%rbx, (%rdi)
+	movq	%rdx, 2*4(%rdi)
+	movq	%r8, 4*4(%rdi)
+	movq	%r9, 6*4(%rdi)
+
+.mul_mod_p256_done:
+	pop	%rbx
+	pop	%r15
+	pop	%r14
+	pop	%r13
+	pop	%r12
+	ret
+ENDPROC(mpi_mul_mod_p256_x86_64_4)
+
+
+ENTRY_32(mpi_sqr_mod_p256_x86_64_4)
+	push	%rbx
+	push	%r12
+	push	%r13
+	push	%r14
+	push	%r15
+
+	movq	(%rsi), %rdx
+	mulxq	8(%rsi), %r9, %r10
+	mulxq	24(%rsi), %r11, %r12
+	movq	16(%rsi), %rdx
+	mulxq	8(%rsi), %rcx, %rbx
+	xorq	%r15, %r15
+	adoxq	%rcx, %r11
+	mulxq	24(%rsi), %r13, %r14
+	adoxq	%rbx, %r12
+	mulxq	(%rsi), %rcx, %rbx
+	adoxq	%r15, %r13
+	adcxq	%rcx, %r10
+	adoxq	%r15, %r14
+	movq	8(%rsi), %rdx
+	mulxq	24(%rsi), %rax, %r8
+	adcxq	%rbx, %r11
+	adcxq	%rax, %r12
+	adcxq	%r8, %r13
+	adcxq	%r15, %r14
+	xorq	%r15, %r15
+	movq	(%rsi), %rdx
+	mulxq	%rdx, %r8, %rax
+	adcxq	%r9, %r9
+	movq	8(%rsi), %rdx
+	mulxq	%rdx, %rcx, %rbx
+	adcxq	%r10, %r10
+	adoxq	%rax, %r9
+	adcxq	%r11, %r11
+	adoxq	%rcx, %r10
+	movq	16(%rsi), %rdx
+	mulxq	%rdx, %rax, %rcx
+	adcxq	%r12, %r12
+	adoxq	%rbx, %r11
+	adcxq	%r13, %r13
+	adoxq	%rax, %r12
+	movq	24(%rsi), %rdx
+	mulxq	%rdx, %rax, %rbx
+	adcxq	%r14, %r14
+	adoxq	%rcx, %r13
+	adcxq	%r15, %r15
+	adoxq	%rax, %r14
+	adoxq	%rbx, %r15
+
+	movq	%r12, %rsi
+	movq	%r8, (%rdi)
+	movq	%r9, 8(%rdi)
+	movq	%r10, 16(%rdi)
+	movq	%r11, 24(%rdi)
+	movq	%r12, 32(%rdi)
+	movq	%r13, 40(%rdi)
+	movq	%r14, 48(%rdi)
+	movq	%r15, 56(%rdi)
+	shrdq	$32, %r13, %rsi
+
+	/* Modular reduction from ecp_mod_p256_x86_64(). */
+	xorq	%rcx, %rcx
+
+	shrq	$32, %r13
+	movq	2*4(%rdi), %rdx
+	movq	4*4(%rdi), %r8
+	movq	12*4(%rdi), %r12
+	shlq	$32, %r13
+	movq	6*4(%rdi), %r9
+	movq	14*4(%rdi), %r10
+	addq	%r13, %rdx
+	adcq	%r12, %r8
+	adcq	%r10, %r9
+	adcq	$0, %rcx
+	addq	%r13, %rdx
+	adcq	%r12, %r8
+	adcq	%r10, %r9
+	adcq	$0, %rcx
+
+	shrdq	$32, %r15, %r14
+	movl	15*4(%rdi), %eax
+	movq	12*4(%rdi), %r11
+	shlq	$32, %r11
+	addq	%r11, %rdx
+	adcq	%r14, %r8
+	adcq	%rax, %r9
+	adcq	$0, %rcx
+	addq	%r11, %rdx
+	adcq	%r14, %r8
+	adcq	%rax, %r9
+	adcq	$0, %rcx
+
+	movq	(%rdi), %rbx
+	movq	8*4(%rdi), %r15
+	movl	10*4(%rdi), %eax
+	addq	%r15, %rbx
+	adcq	%rax, %rdx
+	adcq	$0, %r8
+	adcq	%r10, %r9
+	adcq	$0, %rcx
+
+	shrq	$32, %r13
+	shlq	$32, %r14
+	orq	%r14, %r13
+	movl	8*4(%rdi), %eax
+	shrq	$32, %r14
+	shlq	$32, %rax
+	orq	%r14, %rax
+	addq	%rsi, %rbx
+	adcq	%r13, %rdx
+	adcq	%r10, %r8
+	adcq	%rax, %r9
+	adcq	$0, %rcx
+
+	movq	10*4(%rdi), %r11
+	shrq	$32, %rax
+	shlq	$32, %r11
+	movq	11*4(%rdi), %r13
+	orq	%rax, %r11
+	subq	%r13, %rbx
+	sbbq	%r14, %rdx
+	sbbq	$0, %r8
+	sbbq	%r11, %r9
+	sbbq	$0, %rcx
+
+	movl	9*4(%rdi), %eax
+	shlq	$32, %r13
+	orq	%rax, %r13
+	subq	%r12, %rbx
+	sbbq	%r10, %rdx
+	sbbq	$0, %r8
+	sbbq	%r13, %r9
+	sbbq	$0, %rcx
+
+	movq	13*4(%rdi), %r13
+	shldq	$32, %r10, %r11
+	shlq	$32, %r12
+	movq	$0xfffffffffffffffb, %r15
+	subq	%r13, %rbx
+	movq	$0x4ffffffff, %rax
+	sbbq	%r11, %rdx
+	sbbq	%rsi, %r8
+	sbbq	%r12, %r9
+	sbbq	$0, %rcx
+	movq	$0xfffffffb00000005, %r11
+
+	movq	10*4(%rdi), %r14
+	shlq	$32, %r13
+	shlq	$32, %rsi
+	subq	%r10, %rbx
+	sbbq	%rsi, %rdx
+	sbbq	%r14, %r8
+	sbbq	%r13, %r9
+	sbbq	$0, %rcx
+
+	movq	$0xba98765432100, %r10
+	addq	%r15, %rbx
+	adcq	%rax, %rdx
+	adcq	$0, %r8
+	adcq	%r11, %r9
+	adcq	$4, %rcx
+
+	movq	%rcx, %r15
+	shlq	$2, %rcx
+	leaq	__P256x(%rip), %r12
+	shrq	%rcx, %r10
+	subq	24(%r12, %rcx, 8), %rbx
+	sbbq	16(%r12, %rcx, 8), %rdx
+	sbbq	8(%r12, %rcx, 8), %r8
+	andq	$0xf, %r10
+	sbbq	(%r12, %rcx, 8), %r9
+	sbbq	%r10, %r15
+
+	movq	$0xffffffff, %r11
+	movq	$0xffffffff00000001, %r12
+	movq	$0xffffffffffffffff, %r10
+	movq	%rbx, (%rdi)
+	movq	%rdx, 2*4(%rdi)
+	movq	%r8, 4*4(%rdi)
+	movq	%r9, 6*4(%rdi)
+
+	subq	%r10, %rbx
+	sbbq	%r11, %rdx
+	sbbq	$0, %r8
+	sbbq	%r12, %r9
+	sbbq	$0, %r15
+	jb	.sqr_mod_p256_done
+
+	movq	%rbx, (%rdi)
+	movq	%rdx, 2*4(%rdi)
+	movq	%r8, 4*4(%rdi)
+	movq	%r9, 6*4(%rdi)
+
+.sqr_mod_p256_done:
+	pop	%r15
+	pop	%r14
+	pop	%r13
+	pop	%r12
+	pop	%rbx
+	ret
+ENDPROC(mpi_sqr_mod_p256_x86_64_4)
