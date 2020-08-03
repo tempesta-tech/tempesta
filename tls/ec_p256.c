@@ -401,6 +401,8 @@ done:
  * TODO #1064: use P256 is Montgomery-friendly [9], so use the OpenSSL
  * optimization techniques for the prime modulus, see [9]
  * chapter "3 A Montgomery-friendly modulus".
+ * Probably we can reduce not all operations, since X + nP mod P = X mod P
+ * and the same for all the operations in the field.
  */
 
 static void
@@ -412,12 +414,8 @@ ecp256_mul_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 	BUG_ON(A->used < G_LIMBS && MPI_P(A)[G_LIMBS - 1]);
 	BUG_ON(B->used < G_LIMBS && MPI_P(B)[G_LIMBS - 1]);
 
-	mpi_mul_x86_64_4(MPI_P(X), MPI_P(A), MPI_P(B));
-
-	mpi_fixup_used(X, G_LIMBS * 2);
+	mpi_mul_mod_p256_x86_64_4(MPI_P(X), MPI_P(A), MPI_P(B));
 	X->s = A->s * B->s;
-
-	ecp_mod_p256_x86_64(MPI_P(X));
 	mpi_fixup_used(X, G_LIMBS);
 }
 
@@ -428,12 +426,8 @@ ecp256_sqr_mod(TlsMpi *X, const TlsMpi *A)
 	BUG_ON(A->used > G_LIMBS);
 	BUG_ON(A->used < G_LIMBS && MPI_P(A)[G_LIMBS - 1]);
 
-	mpi_sqr_x86_64_4(MPI_P(X), MPI_P(A));
-
-	mpi_fixup_used(X, G_LIMBS * 2);
+	mpi_sqr_mod_p256_x86_64_4(MPI_P(X), MPI_P(A));
 	X->s = 1;
-
-	ecp_mod_p256_x86_64(MPI_P(X));
 	mpi_fixup_used(X, G_LIMBS);
 }
 
