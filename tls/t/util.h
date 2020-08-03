@@ -35,15 +35,15 @@ do {									\
 static inline void
 __expect_mpi(const char *file, int line, const TlsMpi *m, unsigned short n, ...)
 {
+	int i;
 	va_list args;
 
-	ERROR_ON(file, line, n != m->used);
 	ERROR_ON(file, line, n > m->limbs);
 
 	va_start(args, n);
-	for ( ; n; --n) {
+	for (i = 0; i < n; i++) {
 		unsigned long l = va_arg(args, unsigned long);
-		ERROR_ON(file, line, MPI_P(m)[m->used - n] != l);
+		ERROR_ON(file, line, MPI_P(m)[i] != l);
 	}
 	va_end(args);
 }

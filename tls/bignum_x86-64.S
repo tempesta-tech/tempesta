@@ -70,13 +70,13 @@ ENTRY(mpi_add_x86_64)
 	loop	.add_bigger_loop
 
 	/* Propagate carry to a new X limb if necessary. */
-	jnc	.done
+	jnc	.add_done
 	cmpq	%rax, %rsi	/* macro-op fused with jl */
 	jl	.enospc
 	movq	$1, (%rdi, %rax, 8)
 	incq	%rax
 
-.done:
+.add_done:
 	ret
 .enospc:
 	movq	$-1, %rax
@@ -662,7 +662,7 @@ ENDPROC(mpi_sqr_x86_64_4)
  *
  * , where c i'th is a 32-bit word.
  *
- * In opposite to mbed TLS we process the formula by rows, fully exploiting
+ * In opposite to mbedTLS we process the formula by rows, fully exploiting
  * 64-bit arithmetics and avoid manual carry manipulations. We can not use
  * SIMD as the rows use non-trivial permutations, so SIMD becomes too
  * expensive. The explicit formula coding allows us to not to add or
@@ -689,19 +689,63 @@ ENDPROC(mpi_sqr_x86_64_4)
  * TBD: in total, this is about 65% slower than the Montgomery P-reduction after
  * multiplication, but we don't pay for Montgomery transformations.
  *
- * M.Brown, D.Hankerson, J.Lopez, A.Menezes. "Software implementation of the
- * NIST elliptic curves over prime fields" estimates that this fast reduction
- * is about x3 faster for p256 than the Barret reduction.
- *
  * TODO align the MPI on a cache line.
  *
- * TODO #1064 Use performance improvement strategies from
- * "Low-Latency Elliptic Curve Scalar Multiplication" by J.W.Bos.
- *
  * %RDI	- pointer to 8 limbs big integer to be reduced.
- * %RSI	- size if the MPI.
  */
+.section .rodata
+.align 64
+__P256x:
+	/*
+	 * The most significant limbs go first.
+	 * The carry values give the vector: 0xba98765432100
+	 */
+	/* P * 0 (carry=0) */
+	.quad	0x0000000000000000, 0x0000000000000000
+	.quad	0x0000000000000000, 0x0000000000000000
+	/* P * 1 (carry=0) */
+	.quad	0xffffffff00000001, 0x0000000000000000
+	.quad	0x00000000ffffffff, 0xffffffffffffffff
+	/* P * 2 (carry=1) */
+	.quad	0xfffffffe00000002, 0x0000000000000000
+	.quad	0x00000001ffffffff, 0xfffffffffffffffe
+	/* P * 3 (carry=2) */
+	.quad	0xfffffffd00000003, 0x0000000000000000
+	.quad	0x00000002ffffffff, 0xfffffffffffffffd
+	/* P * 4 (carry=3) */
+	.quad	0xfffffffc00000004, 0x0000000000000000
+	.quad	0x00000003ffffffff, 0xfffffffffffffffc
+	/* P * 5 (carry=4) */
+	.quad	0xfffffffb00000005, 0x0000000000000000
+	.quad	0x00000004ffffffff, 0xfffffffffffffffb
+	/* P * 6 (carry=5) */
+	.quad	0xfffffffa00000006, 0x0000000000000000
+	.quad	0x00000005ffffffff, 0xfffffffffffffffa
+	/* P * 7 (carry=6) */
+	.quad	0xfffffff900000007, 0x0000000000000000
+	.quad	0x00000006ffffffff, 0xfffffffffffffff9
+	/* P * 8 (carry=7) */
+	.quad	0xfffffff800000008, 0x0000000000000000
+	.quad	0x00000007ffffffff, 0xfffffffffffffff8
+	/* P * 9 (carry=8) */
+	.quad	0xfffffff700000009, 0x0000000000000000
+	.quad	0x00000008ffffffff, 0xfffffffffffffff7
+	/* P * 10 (carry=9) */
+	.quad	0xfffffff60000000a, 0x0000000000000000
+	.quad	0x00000009ffffffff, 0xfffffffffffffff6
+	/* P * 11 (carry=10) */
+	.quad	0xfffffff50000000b, 0x0000000000000000
+	.quad	0x0000000affffffff, 0xfffffffffffffff5
+	/* P * 12 (carry=11) */
+	.quad	0xfffffff40000000c, 0x0000000000000000
+	.quad	0x0000000bffffffff, 0xfffffffffffffff4
+.section .text
 ENTRY_32(ecp_mod_p256_x86_64)
+	prefetcht0 (%rdi)
+	prefetcht0 __P256x(%rip)
+	prefetcht0 __P256x+128(%rip)
+	prefetcht0 __P256x+256(%rip)
+
 	pushq	%rbx
 	pushq	%r12
 	pushq	%r13
@@ -710,18 +754,8 @@ ENTRY_32(ecp_mod_p256_x86_64)
 
 	xorq	%rcx, %rcx /* carry register for 5th limb */
 
-	/* Load the base line. */
-	movq	(%rdi), %rbx
-	movq	2*4(%rdi), %rdx
-	movq	4*4(%rdi), %r8
-	movq	6*4(%rdi), %r9
-
-	/* It's faster for small MPIs just to subtract P. */
-	cmpq	$4, %rsi
-	jle	.mod256_fast_sub	/* macro-op fusion */
-
 	/*
-	 * Load and add the s2 line.
+	 * Load and add the base and s2 lines.
 	 * SH{L,R}D have latency ~3 and throughtput 2, whcih is much worse
 	 * than ADC (1 and 1 correspondingly), so use double ADD instead of
 	 * shifting s2 and s3.
@@ -729,9 +763,12 @@ ENTRY_32(ecp_mod_p256_x86_64)
 	 * so we can't use ADCX and ADOX.
 	 */
 	movq	11*4(%rdi), %r11
+	movq	2*4(%rdi), %rdx
+	movq	4*4(%rdi), %r8
 	movq	12*4(%rdi), %r12 /* used in s7 */
-	movq	14*4(%rdi), %r10 /* used in s4, s5, s7, s9 */
 	shlq	$32, %r11	/* c11, 0 - half used in s5*/
+	movq	6*4(%rdi), %r9
+	movq	14*4(%rdi), %r10 /* used in s4, s5, s7, s9 */
 	addq	%r11, %rdx
 	adcq	%r12, %r8
 	adcq	%r10, %r9
@@ -756,6 +793,7 @@ ENTRY_32(ecp_mod_p256_x86_64)
 	adcq	$0, %rcx
 
 	/* Load and add s4. */
+	movq	(%rdi), %rbx
 	movq	8*4(%rdi), %r14 /* half used in s7 */
 	movl	10*4(%rdi), %eax /* 0,c10 */
 	addq	%r14, %rbx
@@ -803,79 +841,86 @@ ENTRY_32(ecp_mod_p256_x86_64)
 
 	/*
 	 * Load and subtract s8.
-	 * It's also the time to start to load P256.
+	 * It's also the time to start to load 4*P256.
 	 */
 	movq	13*4(%rdi), %r11
 	shldq	$32, %r10, %r13	/* c8,c15 */
 	shlq	$32, %r12	/* c12,0 */
-	xorq	%rsi, %rsi	/* P256[1] */
+	movq	$0xfffffffffffffffb, %rsi
 	subq	%r11, %rbx
-	movq	$0xffffffff00000001, %rax /* P256[0] */
+	movq	$0x4ffffffff, %rax
 	sbbq	%r13, %rdx
 	sbbq	%r15, %r8
 	sbbq	%r12, %r9
 	sbbq	$0, %rcx
+	movq	$0xfffffffb00000005, %r13
 
 	/* Load and subtract s9. */
 	movq	10*4(%rdi), %r14
 	shlq	$32, %r11
 	shlq	$32, %r15
 	subq	%r10, %rbx
-	movq	$-1, %r13	/* P256[3] */
 	sbbq	%r15, %rdx
 	sbbq	%r14, %r8
-	movq	$0x00000000ffffffff, %r12 /* P256[2] */
 	sbbq	%r11, %r9
 	sbbq	$0, %rcx
 
 	/*
 	 * Quasi-reduction is done, add/subtract to get final modulo.
-	 * In average only one addition or subtraction is required, but it's
-	 * required to compare the whole MPI (4 limbs and for each of them we
-	 * can jump on less or greater values) against P to know which operation
-	 * we need to do. It's cheaper to subtract P unconditionally on positive
-	 * value and add it back if we get SF in RCX.
+	 * We start with addition of 5 * P256 to guarantee non-negative value
+	 * to carry in RCX with the number greater than P256.
 	 */
-	js	.mod256_add_loop
-.mod256_sub_loop:
-	subq	%r13, %rbx
-	sbbq	%r12, %rdx
-	sbbq	%rsi, %r8
-	sbbq	%rax, %r9
-	sbbq	$0, %rcx
-	jns	.mod256_sub_loop
-	/* We had RCX >= 0, and now we're under 0: add back and return. */
-	addq	%r13, %rbx
-	adcq	%r12, %rdx
-	adcq	%rsi, %r8
-	adcq	%rax, %r9
-	jmp	.mod256_done
+	movq	$0xba98765432100, %r10
+	addq	%rsi, %rbx
+	adcq	%rax, %rdx
+	adcq	$0, %r8
+	adcq	%r13, %r9
+	adcq	$4, %rcx
 
-.mod256_add_loop:
-	/* Negative RCX value w/ overflow, need at least one addition. */
-	addq	%r13, %rbx
-	adcq	%r12, %rdx
-	adcq	%rsi, %r8
-	adcq	%rax, %r9
-	adcq	$0, %rcx
-	jnz	.mod256_add_loop
+	/*
+	 * Next, subtract P256 necessary number of times.
+	 * Subtract the __P256x table carry from the current one.
+	 */
+	movq	%rcx, %rsi
+	shlq	$2, %rcx
+	leaq	__P256x(%rip), %r12
+	shrq	%rcx, %r10
+	subq	24(%r12, %rcx, 8), %rbx
+	sbbq	16(%r12, %rcx, 8), %rdx
+	sbbq	8(%r12, %rcx, 8), %r8
+	andq	$0xf, %r10
+	sbbq	(%r12, %rcx, 8), %r9
+	sbbq	%r10, %rsi
 
-.mod256_done:
+	movq	$0xffffffff, %r13
+	movq	$0xffffffff00000001, %r12
+	movq	$0xffffffffffffffff, %r10
 	movq	%rbx, (%rdi)
 	movq	%rdx, 2*4(%rdi)
 	movq	%r8, 4*4(%rdi)
 	movq	%r9, 6*4(%rdi)
+
+	/*
+	 * Subtract one more P256 in case we have carry and
+	 * the 4 limbs with over P256.
+	 */
+	subq	%r10, %rbx
+	sbbq	%r13, %rdx
+	sbbq	$0, %r8
+	sbbq	%r12, %r9
+	sbbq	$0, %rsi
+	jb	.mod_p256_done
+
+	movq	%rbx, (%rdi)
+	movq	%rdx, 2*4(%rdi)
+	movq	%r8, 4*4(%rdi)
+	movq	%r9, 6*4(%rdi)
+
+.mod_p256_done:
 	popq	%r15
 	popq	%r14
 	popq	%r13
 	popq	%r12
 	popq	%rbx
 	ret
-
-.mod256_fast_sub:
-	movq	$0xffffffff00000001, %rax /* P256[0] */
-	xorq	%rsi, %rsi	/* P256[1] */
-	movq	$0x00000000ffffffff, %r12 /* P256[2] */
-	movq	$-1, %r13	/* P256[3] */
-	jmp .mod256_sub_loop
 ENDPROC(ecp_mod_p256_x86_64)
