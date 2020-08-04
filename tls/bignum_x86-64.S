@@ -920,7 +920,7 @@ ENTRY_32(ecp_mod_p256_x86_64)
 	movq	%rcx, %rsi
 	shlq	$2, %rcx
 	leaq	__P256x(%rip), %r12
-	shrq	%rcx, %r10
+	shrq	%cl, %r10
 	subq	24(%r12, %rcx, 8), %rbx
 	sbbq	16(%r12, %rcx, 8), %rdx
 	sbbq	8(%r12, %rcx, 8), %r8
@@ -1153,7 +1153,7 @@ ENTRY_32(mpi_mul_mod_p256_x86_64_4)
 	movq	%rcx, %r15
 	shlq	$2, %rcx
 	leaq	__P256x(%rip), %r12
-	shrq	%rcx, %r10
+	shrq	%cl, %r10
 	subq	24(%r12, %rcx, 8), %rbx
 	sbbq	16(%r12, %rcx, 8), %rdx
 	sbbq	8(%r12, %rcx, 8), %r8
@@ -1356,7 +1356,7 @@ ENTRY_32(mpi_sqr_mod_p256_x86_64_4)
 	movq	%rcx, %r15
 	shlq	$2, %rcx
 	leaq	__P256x(%rip), %r12
-	shrq	%rcx, %r10
+	shrq	%cl, %r10
 	subq	24(%r12, %rcx, 8), %rbx
 	sbbq	16(%r12, %rcx, 8), %rdx
 	sbbq	8(%r12, %rcx, 8), %r8
