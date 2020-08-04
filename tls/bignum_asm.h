@@ -36,6 +36,8 @@ void mpi_sub_x86_64_2_2(unsigned long *x, const unsigned long *b,
 			const unsigned long *a);
 void mpi_sub_x86_64(unsigned long *x, const unsigned long *b,
 		    const unsigned long *a, size_t b_len, size_t a_len);
+void mpi_sub_mod_p256_x86_64_4(unsigned long *x, const unsigned long *a,
+			       const unsigned long *b);
 
 void mpi_shift_l_x86_64_4(unsigned long *x, const unsigned long *a,
 			  unsigned long bits);

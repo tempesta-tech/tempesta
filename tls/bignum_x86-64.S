@@ -234,6 +234,42 @@ ENTRY(mpi_sub_x86_64_4_4)
 	ret
 ENDPROC(mpi_sub_x86_64_4_4)
 
+/**
+ * Subtract X = A - B mod P256, where A->used >= B->used.
+ *
+ * %RDI	- pointer to X;
+ * %RSI	- pointer to A (can be the same as X);
+ * %RDX	- pointer to B;
+ */
+ENTRY(mpi_sub_mod_p256_x86_64_4)
+	movq	(%rsi), %r8
+	movq	8(%rsi), %r9
+	movq	16(%rsi), %r10
+	movq	24(%rsi), %r11
+
+	movq	$0xffffffff, %rcx
+	movq	$0xffffffff00000001, %rax
+	movq	$0xffffffffffffffff, %rsi
+
+	subq	(%rdx), %r8
+	sbbq	8(%rdx), %r9
+	sbbq	16(%rdx), %r10
+	sbbq	24(%rdx), %r11
+	jnb	.sub_mod_p256_done
+
+	addq	%rsi, %r8
+	adcq	%rcx, %r9
+	adcq	$0, %r10
+	adcq	%rax, %r11
+
+.sub_mod_p256_done:
+	movq	%r8, (%rdi)
+	movq	%r9, 8(%rdi)
+	movq	%r10, 16(%rdi)
+	movq	%r11, 24(%rdi)
+	ret
+ENDPROC(mpi_sub_mod_p256_x86_64_4)
+
 ENTRY(mpi_sub_x86_64_3_3)
 	movq	(%rdx), %r8
 	movq	8(%rdx), %r9
@@ -1153,7 +1189,6 @@ ENTRY_32(mpi_mul_mod_p256_x86_64_4)
 	pop	%r12
 	ret
 ENDPROC(mpi_mul_mod_p256_x86_64_4)
-
 
 ENTRY_32(mpi_sqr_mod_p256_x86_64_4)
 	push	%rbx

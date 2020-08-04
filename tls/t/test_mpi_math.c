@@ -803,6 +803,86 @@ ecp_mod256(void)
 	free(X);
 }
 
+static void
+ecp_sub_mod256(void)
+{
+	TlsMpi *A, *B, *X;
+	unsigned long *a, *b, *x;
+
+	EXPECT_FALSE(!(A = ttls_mpi_alloc_stack_init(4)));
+	EXPECT_FALSE(!(B = ttls_mpi_alloc_stack_init(4)));
+	EXPECT_FALSE(!(X = ttls_mpi_alloc_stack_init(4)));
+
+	ttls_mpi_lset(A, 1);
+	ttls_mpi_lset(B, 1);
+	ttls_mpi_lset(X, 0);
+	A->used = 4;
+	B->used = 4;
+	X->used = 4;
+	a = MPI_P(A);
+	b = MPI_P(B);
+	x = MPI_P(X);
+
+	mpi_sub_mod_p256_x86_64_4(x, a, b);
+	EXPECT_MPI(X, 4, 0, 0, 0, 0);
+
+	MPI_P(A)[0] = 2;
+	mpi_sub_mod_p256_x86_64_4(x, a, b);
+	EXPECT_MPI(X, 4, 1, 0, 0, 0);
+	mpi_sub_mod_p256_x86_64_4(x, b, a);
+	EXPECT_MPI(X, 4, 0xfffffffffffffffeUL, 0x00000000ffffffffUL,
+			 0x0000000000000000UL, 0xffffffff00000001UL);
+
+	MPI_P(A)[0] = 0;
+	mpi_sub_mod_p256_x86_64_4(x, a, b);
+	EXPECT_MPI(X, 4, 0xfffffffffffffffeUL, 0x00000000ffffffffUL,
+			 0x0000000000000000UL, 0xffffffff00000001UL);
+	mpi_sub_mod_p256_x86_64_4(x, b, a);
+	EXPECT_MPI(X, 4, 1, 0, 0, 0);
+
+	MPI_P(B)[0] = 0;
+	mpi_sub_mod_p256_x86_64_4(x, a, b);
+	EXPECT_MPI(X, 4, 0, 0, 0, 0);
+
+	MPI_P(A)[0] = 0xfffffffffffffffeUL;
+	MPI_P(A)[1] = 0xffffffffUL;
+	MPI_P(A)[2] = 0;
+	MPI_P(A)[3] = 0xffffffff00000001UL;
+	mpi_sub_mod_p256_x86_64_4(x, a, b);
+	EXPECT_MPI(X, 4, 0xfffffffffffffffeUL, 0x00000000ffffffffUL,
+			 0x0000000000000000UL, 0xffffffff00000001UL);
+	mpi_sub_mod_p256_x86_64_4(x, b, a);
+	EXPECT_MPI(X, 4, 1, 0, 0, 0);
+
+	MPI_P(B)[0] = 1;
+	mpi_sub_mod_p256_x86_64_4(x, a, b);
+	EXPECT_MPI(X, 4, 0xfffffffffffffffdUL, 0x00000000ffffffffUL,
+			 0x0000000000000000UL, 0xffffffff00000001UL);
+	mpi_sub_mod_p256_x86_64_4(x, b, a);
+	EXPECT_MPI(X, 4, 2, 0, 0, 0);
+
+	MPI_P(B)[0] = 0x81049834a729f046;
+	MPI_P(B)[1] = 0x8e8ccd3064d562a6;
+	MPI_P(B)[2] = 0x9571db50f3374ad4;
+	MPI_P(B)[3] = 0x9ce41a936065fb64;
+	mpi_sub_mod_p256_x86_64_4(x, a, b);
+	EXPECT_MPI(X, 4, 0x7efb67cb58d60fb8UL, 0x717332d09b2a9d59UL,
+			 0x6a8e24af0cc8b52bUL, 0x631be56b9f9a049cUL);
+	mpi_sub_mod_p256_x86_64_4(x, b, a);
+	EXPECT_MPI(X, 4, 0x81049834a729f047UL, 0x8e8ccd3064d562a6UL,
+			 0x9571db50f3374ad4UL, 0x9ce41a936065fb64UL);
+
+	mpi_sub_mod_p256_x86_64_4(x, x, b);
+	EXPECT_MPI(X, 4, 0x0000000000000001UL, 0x0000000000000000UL,
+			 0x0000000000000000UL, 0x0000000000000000UL);
+	mpi_sub_mod_p256_x86_64_4(x, x, a);
+	EXPECT_MPI(X, 4, 2, 0, 0, 0);
+
+	free(A);
+	free(B);
+	free(X);
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -812,6 +892,7 @@ main(int argc, char *argv[])
 	mpi_shift();
 	mpi_elementary();
 	ecp_mod256();
+	ecp_sub_mod256();
 
 	printf("success\n");
 

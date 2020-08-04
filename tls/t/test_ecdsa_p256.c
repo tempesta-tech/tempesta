@@ -90,9 +90,9 @@ ecp256_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
 		return -EINVAL;
 	}
 
-	A = ttls_mpi_alloc_stack_init(grp->bits * 2 / BIL);
-	YY = ttls_mpi_alloc_stack_init(grp->bits * 2 / BIL);
-	RHS = ttls_mpi_alloc_stack_init(grp->bits * 2 / BIL);
+	A = ttls_mpi_alloc_stack_init(G_LIMBS);
+	YY = ttls_mpi_alloc_stack_init(G_LIMBS * 2);
+	RHS = ttls_mpi_alloc_stack_init(G_LIMBS * 2);
 
 	/*
 	 * YY = Y^2
@@ -102,7 +102,7 @@ ecp256_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
 	ecp256_sqr_mod(RHS, &pt->X);
 
 	/* Special case for A = -3 */
-	ttls_mpi_lset(A, 3);
+	ecp256_mpi_lset(A, 3);
 	ecp256_sub_mod(RHS, RHS, A);
 
 	ecp256_mul_mod(RHS, RHS, &pt->X);
