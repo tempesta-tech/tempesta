@@ -876,6 +876,8 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 	TfwHttpReq *req = resp->req;
 	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 
+	tfw_connection_get(req->conn);
+
 	if (tfw_cli_conn_send((TfwCliConn *)req->conn, (TfwMsg *)resp)) {
 		T_DBG("%s: cannot send data to client via HTTP/2\n", __func__);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
@@ -884,6 +886,8 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 	else {
 		TFW_INC_STAT_BH(serv.msgs_forwarded);
 	}
+
+	tfw_connection_put(req->conn);
 
 	tfw_hpack_enc_release(&ctx->hpack, resp->flags);
 
