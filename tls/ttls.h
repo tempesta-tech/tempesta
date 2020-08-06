@@ -368,14 +368,12 @@ typedef struct ttls_key_cert {
  * @ts			- key generation time, round up to minutes or hours,
  *			  depends to key lifetime;
  * @key			- key for TLS ticket opaque part;
- * @md_key		- message digest key;
  * @lock		- usage lock for encrypt and key update operations;
  */
 typedef struct {
 	unsigned char		name[TTLS_TICKET_KEY_NAME_LEN];
 	unsigned long		ts;
 	unsigned char		key[TTLS_TICKET_KEY_LEN];
-	unsigned char		md_key[TTLS_TICKET_KEY_LEN];
 	rwlock_t		lock;
 } TlsTicketKey;
 
