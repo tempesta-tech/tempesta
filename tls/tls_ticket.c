@@ -30,7 +30,10 @@
 #include "tls_internal.h"
 #include "lib/common.h"
 
-
+/*
+ * Ciphers used for key generation and ticket decryption. Cached to avoid
+ * searches in hot path.
+ */
 typedef struct {
 	const TlsCipherInfo	*cipher_info;
 	const TlsMdInfo		*md_info;
@@ -38,23 +41,24 @@ typedef struct {
 
 static TlsTicketsCfg t_cfg;
 
+/* Message tag length fo aead encryption for tickets. Since tickets are rather
+ * short (less than 200 bytes, 8 bytes for tag is enough.
+ */
 #define TTLS_TICKETS_TAG_LEN		8
 
 /* ---- Configuration and Key management                                 ---- */
 
 /*
- * Initialisation vector for session ticket master key. Hardcoded to allow
+ * Initialisation vector for session ticket master key. Hard-coded to allow
  * the same key generation on all Tempesta nodes with the same user
- * configuration and user secrets
+ * configuration and user secrets. It's ok, that attacker may know it,
+ * it's just a value HMAC'ed with a really secret key.
  */
 const char *ticket_secret_key_iv =
 	"u5xBNXmcQwxs9yGfv3IJa0h3QIZujnuf0ISmycYSB4vhfitCMM1phNP9ft3xjEbR";
 /* for ticket symmetric key: */
 const char *ticket_key_sym_iv =
 	"r26bMJcfLdlYyn9wM3xsHrzraeLKQHGCgYkWivTu6UVxw7VxcJQAr63k8Sa6lFUa";
-/* for ticket digest key: */
-const char *ticket_key_md_iv =
-	"Oipxkql04cg2JNHaOeQ6HSdbITjOAQ8cgzl7vIDHis0yiG2lhrIIgqmeAO3v4IaC";
 /* for ticket key name: */
 const char *ticket_key_name_iv =
 	"qolUvqou29yxSwvz2jWTNvk3znIjy25E";
@@ -89,18 +93,11 @@ __ttls_ticket_gen_key(TlsTicketKey *key, unsigned long ts,
 	r |= ttls_md_hmac_update(&md_ctx, (unsigned char *)&key->ts,
 				 sizeof(key->ts));
 	r |= ttls_md_finish(&md_ctx, key->key);
-
-	r |= ttls_md_hmac_starts(&md_ctx, secret, TTLS_TICKET_KEY_LEN);
-	r |= ttls_md_hmac_update(&md_ctx, ticket_key_md_iv,
-				 SLEN(ticket_key_md_iv));
-	r |= ttls_md_hmac_update(&md_ctx, (unsigned char *)&key->ts,
-				 sizeof(key->ts));
-	r |= ttls_md_finish(&md_ctx, key->md_key);
 	ttls_md_free(&md_ctx);
 
 	/*
 	 * Set key->ts to 0 to indicate that the calculation has failed and
-	 * not try to recalculate the key on every new handshake.
+	 * not try to use the key on every new handshake.
 	 */
 	if (r) {
 		T_WARN("TLS: can't rotate tls key");
@@ -350,6 +347,7 @@ ttls_tickets_clean(TlsPeerCfg *cfg)
 	TlsTicketPeerCfg *tcfg = &cfg->tickets;
 
 	del_timer_sync(&tcfg->timer);
+	/* Wipe the keys. */
 	memset(tcfg, 0, sizeof(TlsTicketPeerCfg));
 
 	return 0;
