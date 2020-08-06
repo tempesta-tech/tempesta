@@ -144,10 +144,19 @@ __ttls_ticket_update_keys(TlsTicketPeerCfg *tcfg)
 	return r;
 }
 
+/**
+ * Timer callback for key rotation.
+ *
+ * If multiple TLS nodes shares the same configuration (including secrets)
+ * the callback will be called at the same time (more or less) so all the
+ * nodes will have the same keys at the same time. No need for any external
+ * synchronisation except time.
+ */
 static void
 ttls_ticket_rotate_keys(unsigned long data)
 {
 	TlsTicketPeerCfg *tcfg = (TlsTicketPeerCfg *)data;
+	unsigned long secs;
 	int r;
 
 	T_DBG("TLS: Rotate keys for ticket configuration [%pK]\n", tcfg);
@@ -158,8 +167,16 @@ ttls_ticket_rotate_keys(unsigned long data)
 		T_ERR("TLS: Can't rotate keys for ticket configuration [%pK]\n",
 		      tcfg);
 
-	mod_timer(&tcfg->timer,
-		  jiffies + msecs_to_jiffies(tcfg->lifetime * 1000));
+	/*
+	 * It's not possible to set timer just to
+	 * jiffies + msecs_to_jiffies(tcfg->lifetime * 1000))
+	 * because timers never fire at exact time, they're always a bit late.
+	 * Making plain increments will accumulate and propagate the difference
+	 * and callback will fire at different time on different Tempesta
+	 * nodes. To avoid it need to recalculate timer every time.
+	 */
+	secs = tcfg->lifetime - (tfw_current_timestamp() % tcfg->lifetime);
+	mod_timer(&tcfg->timer, jiffies + msecs_to_jiffies(secs * 1000));
 }
 
 /**
