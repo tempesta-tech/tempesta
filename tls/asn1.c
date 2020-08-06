@@ -31,17 +31,19 @@
 /*
  * ASN.1 DER decoding routines
  */
-int
-ttls_asn1_get_len(unsigned char **p, const unsigned char *end, size_t *len)
+int ttls_asn1_get_len(unsigned char **p,
+				  const unsigned char *end,
+				  size_t *len)
 {
 	if ((end - *p) < 1)
 		return(TTLS_ERR_ASN1_OUT_OF_DATA);
 
-	if ((**p & 0x80) == 0) {
+	if ((**p & 0x80) == 0)
 		*len = *(*p)++;
-	}
-	else {
-		switch(**p & 0x7F) {
+	else
+	{
+		switch(**p & 0x7F)
+		{
 		case 1:
 			if ((end - *p) < 2)
 				return(TTLS_ERR_ASN1_OUT_OF_DATA);
@@ -71,10 +73,8 @@ ttls_asn1_get_len(unsigned char **p, const unsigned char *end, size_t *len)
 			if ((end - *p) < 5)
 				return(TTLS_ERR_ASN1_OUT_OF_DATA);
 
-			*len = ((size_t)(*p)[1] << 24)
-				| ((size_t)(*p)[2] << 16)
-				| ((size_t)(*p)[3] << 8 )
-				| (*p)[4];
+			*len = ((size_t)(*p)[1] << 24) | ((size_t)(*p)[2] << 16) |
+				   ((size_t)(*p)[3] << 8 ) |		   (*p)[4];
 			(*p) += 5;
 			break;
 
@@ -89,9 +89,9 @@ ttls_asn1_get_len(unsigned char **p, const unsigned char *end, size_t *len)
 	return 0;
 }
 
-int
-ttls_asn1_get_tag(unsigned char **p, const unsigned char *end, size_t *len,
-		  int tag)
+int ttls_asn1_get_tag(unsigned char **p,
+				  const unsigned char *end,
+				  size_t *len, int tag)
 {
 	if ((end - *p) < 1)
 		return(TTLS_ERR_ASN1_OUT_OF_DATA);
@@ -104,8 +104,9 @@ ttls_asn1_get_tag(unsigned char **p, const unsigned char *end, size_t *len,
 	return(ttls_asn1_get_len(p, end, len));
 }
 
-int
-ttls_asn1_get_bool(unsigned char **p, const unsigned char *end, int *val)
+int ttls_asn1_get_bool(unsigned char **p,
+				   const unsigned char *end,
+				   int *val)
 {
 	int ret;
 	size_t len;
@@ -122,8 +123,9 @@ ttls_asn1_get_bool(unsigned char **p, const unsigned char *end, int *val)
 	return 0;
 }
 
-int
-ttls_asn1_get_int(unsigned char **p, const unsigned char *end, int *val)
+int ttls_asn1_get_int(unsigned char **p,
+				  const unsigned char *end,
+				  int *val)
 {
 	int ret;
 	size_t len;
@@ -136,7 +138,8 @@ ttls_asn1_get_int(unsigned char **p, const unsigned char *end, int *val)
 
 	*val = 0;
 
-	while (len-- > 0) {
+	while (len-- > 0)
+	{
 		*val = (*val << 8) | **p;
 		(*p)++;
 	}
@@ -160,15 +163,13 @@ ttls_asn1_get_mpi(unsigned char **p, const unsigned char *end, TlsMpi *X)
 	return 0;
 }
 
-int
-ttls_asn1_get_bitstring(unsigned char **p, const unsigned char *end,
+int ttls_asn1_get_bitstring(unsigned char **p, const unsigned char *end,
 			ttls_asn1_bitstring *bs)
 {
 	int ret;
 
 	/* Certificate type is a single byte bitstring */
-	ret = ttls_asn1_get_tag(p, end, &bs->len, TTLS_ASN1_BIT_STRING);
-	if (ret)
+	if ((ret = ttls_asn1_get_tag(p, end, &bs->len, TTLS_ASN1_BIT_STRING)) != 0)
 		return ret;
 
 	/* Check length, subtract one for actual bit string length */
@@ -195,9 +196,8 @@ ttls_asn1_get_bitstring(unsigned char **p, const unsigned char *end,
 /*
  * Get a bit string without unused bits
  */
-int
-ttls_asn1_get_bitstring_null(unsigned char **p, const unsigned char *end,
-			     size_t *len)
+int ttls_asn1_get_bitstring_null(unsigned char **p, const unsigned char *end,
+				 size_t *len)
 {
 	int ret;
 
@@ -213,24 +213,25 @@ ttls_asn1_get_bitstring_null(unsigned char **p, const unsigned char *end,
 /*
  *  Parses and splits an ASN.1 "SEQUENCE OF <tag>"
  */
-int
-ttls_asn1_get_sequence_of(unsigned char **p, const unsigned char *end,
-			  ttls_asn1_sequence *cur, int tag)
+int ttls_asn1_get_sequence_of(unsigned char **p,
+			  const unsigned char *end,
+			  ttls_asn1_sequence *cur,
+			  int tag)
 {
 	int ret;
 	size_t len;
 	ttls_asn1_buf *buf;
 
 	/* Get main sequence tag */
-	ret = ttls_asn1_get_tag(p, end, &len,
-				TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE);
-	if (ret)
+	if ((ret = ttls_asn1_get_tag(p, end, &len,
+			TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE)) != 0)
 		return ret;
 
 	if (*p + len != end)
 		return(TTLS_ERR_ASN1_LENGTH_MISMATCH);
 
-	while (*p < end) {
+	while (*p < end)
+	{
 		buf = &(cur->buf);
 		buf->tag = **p;
 
@@ -241,7 +242,8 @@ ttls_asn1_get_sequence_of(unsigned char **p, const unsigned char *end,
 		*p += buf->len;
 
 		/* Allocate and assign next pointer */
-		if (*p < end) {
+		if (*p < end)
+		{
 			cur->next = kmalloc(sizeof(ttls_asn1_sequence),
 					    GFP_KERNEL);
 
@@ -261,16 +263,15 @@ ttls_asn1_get_sequence_of(unsigned char **p, const unsigned char *end,
 	return 0;
 }
 
-int
-ttls_asn1_get_alg(unsigned char **p, const unsigned char *end,
-		  ttls_asn1_buf *alg, ttls_asn1_buf *params)
+int ttls_asn1_get_alg(unsigned char **p,
+				  const unsigned char *end,
+				  ttls_asn1_buf *alg, ttls_asn1_buf *params)
 {
 	int ret;
 	size_t len;
 
-	ret = ttls_asn1_get_tag(p, end, &len,
-				TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE);
-	if (ret)
+	if ((ret = ttls_asn1_get_tag(p, end, &len,
+			TTLS_ASN1_CONSTRUCTED | TTLS_ASN1_SEQUENCE)) != 0)
 		return ret;
 
 	if ((end - *p) < 1)
@@ -285,7 +286,8 @@ ttls_asn1_get_alg(unsigned char **p, const unsigned char *end,
 	alg->p = *p;
 	*p += alg->len;
 
-	if (*p == end) {
+	if (*p == end)
+	{
 		ttls_bzero_safe(params, sizeof(ttls_asn1_buf));
 		return 0;
 	}
@@ -305,9 +307,9 @@ ttls_asn1_get_alg(unsigned char **p, const unsigned char *end,
 	return 0;
 }
 
-int
-ttls_asn1_get_alg_null(unsigned char **p, const unsigned char *end,
-		       ttls_asn1_buf *alg)
+int ttls_asn1_get_alg_null(unsigned char **p,
+		   const unsigned char *end,
+		   ttls_asn1_buf *alg)
 {
 	int ret;
 	ttls_asn1_buf params;
