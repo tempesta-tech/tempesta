@@ -279,13 +279,13 @@ ttls_parse_session_ticket_ext(TlsCtx *tls, unsigned char *buf, size_t len)
  * E.g. imagine we have 'TNAME-1' and 'TNAME-2' ticket key names for vhost 'VH'
  * which are the unique. We push them into some database to easily recover
  * TlsPeerCfg object once a new matching ticket is received. After some time
- * reconfiguration happens and a new vhost 'VH' wants to register it's keys
+ * reconfiguration happens and a new vhost 'VH' wants to register its keys
  * 'TNAME-1' and 'TNAME-2'. Only thing we can do - reimplement active/reconfig
  * keys database as we do for vhosts.
  *
  * Even if it's done, we will have two lookups for vhost: first - when we
  * lookup TlsPeerCfg by key name, and the second time - when we lookup for
- * SNI<->vhost match. After that we can apply saved session only if it both
+ * SNI<->vhost match. After that we can apply saved session only if its both
  * vhosts are the same. Not EQUAL in terms of vhost name, or vhost pointer,
  * but also key names, ticket secrets, vhost names must be equal. It's more
  * reliable to find matching vhost first and then apply the saved session only
