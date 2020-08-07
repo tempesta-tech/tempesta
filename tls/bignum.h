@@ -242,7 +242,7 @@ mpi_shift_l1_x86_64_4(TlsMpi *X, const TlsMpi *A)
 	X->used = A->used + !!x[4];
 }
 
-#ifdef DEBUG
+#if DBG_TLS
 /**
  * There are a lot of MPI operations used around, so Tempesta TLS becomes
  * unusable if all MPIs are dumped, so following pattern should be used:
@@ -284,6 +284,6 @@ do {									\
 #define T_DBG_MPI4(...)
 #define TTLS_MPI_DUMP_ONCE(...)
 
-#endif /* DEBUG */
+#endif /* DBG_TLS */
 
 #endif

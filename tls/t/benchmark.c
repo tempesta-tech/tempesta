@@ -126,6 +126,10 @@ bm_ecdsa_sign_p256(void)
 	/*
 	 * TODO #1064: move the pregenerated G multiplies out of the loop
 	 * - OpenSSL speed does the same.
+	 *
+	 * The both WolfSSL and OpenSSL benchmark key derivation for ECDH
+	 * and signing for ECDSA only, they do not include ephimeral keys
+	 * generation.
 	 */
 	BENCHMARK("ECDSA sign (nistp256)",
 		r = ctx->grp->ecdsa_sign(&ctx->d, hash, 32, sig, &slen);

@@ -1550,7 +1550,7 @@ static int ssl_parse_certificate_request(TlsCtx *ssl)
 	{
 		size_t sig_alg_len = ((buf[TTLS_HS_HDR_LEN + 1 + n] <<  8)
 		 | (buf[TTLS_HS_HDR_LEN + 2 + n]));
-#if defined(DEBUG) && (DEBUG == 3)
+#if DBG_TLS && (DEBUG == 3)
 		unsigned char* sig_alg = buf + TTLS_HS_HDR_LEN + 3 + n;
 		size_t i;
 
