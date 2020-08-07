@@ -371,7 +371,7 @@ zero_sign:
 		X->s = 1;
 }
 
-#ifdef DEBUG
+#if DBG_TLS
 /**
  * Dump MPI content, including unused limbs, for debugging.
  */
@@ -411,7 +411,7 @@ __log_mpis(size_t n, const char *msg, ...)
 	}
 #endif
 }
-#endif /* DEBUG */
+#endif /* DBG_TLS */
 
 /**
  * Import X from unsigned binary data.

@@ -39,7 +39,7 @@
 
 MODULE_AUTHOR("Tempesta Technologies, Inc");
 MODULE_DESCRIPTION("Tempesta TLS");
-MODULE_VERSION("0.3.1");
+MODULE_VERSION("0.3.2");
 MODULE_LICENSE("GPL");
 
 static DEFINE_PER_CPU(struct aead_request *, g_req) ____cacheline_aligned;
@@ -2722,7 +2722,7 @@ ttls_alpn_ext_eq(const ttls_alpn_proto *proto, const unsigned char *buf,
 	return !memcmp_fast(proto->name, buf, len);
 }
 
-#if defined(DEBUG) && (DEBUG >= 3)
+#if DBG_TLS && (DEBUG >= 3)
 unsigned long
 ttls_time_debug(void)
 {

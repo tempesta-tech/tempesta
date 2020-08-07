@@ -582,7 +582,7 @@ have_ciphersuite:
 	tls->xfrm.ciphersuite_info = ci;
 
 	/* Debugging-only output for testsuite */
-#if defined(DEBUG) && (DEBUG == 3)
+#if DBG_TLS && (DEBUG == 3)
 	{
 		ttls_md_type_t md_alg;
 		ttls_pk_type_t sig_alg = ttls_get_ciphersuite_sig_alg(ci);
@@ -1723,7 +1723,7 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_RP;
 		}
 		T_DBG_ECP_X("ECDH client key exchange EC point",
-			    &tls->hs->ecdh_ctx->grp, &tls->hs->ecdh_ctx->Qp);
+			    tls->hs->ecdh_ctx->grp, &tls->hs->ecdh_ctx->Qp);
 
 		r = ttls_ecdh_calc_secret(tls->hs->ecdh_ctx, &tls->hs->pmslen,
 					  tls->hs->premaster,
