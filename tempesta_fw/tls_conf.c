@@ -271,3 +271,63 @@ tfw_tls_cert_clean(TfwVhost *vhost)
 	}
 	ttls_config_peer_free(&vhost->tls_cfg);
 }
+
+int
+tfw_tls_set_tickets(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	bool enabled = true;
+	const char *secret = NULL;
+	size_t secret_len = 0;
+	unsigned long lifetime = 0;
+	TfwCfgEntry ce_tmp;
+	const char *key, *val;
+	int i, r;
+
+	if ((r = tfw_tls_peer_tls_init(vhost)))
+		return r;
+
+	if (ce->have_children) {
+		T_ERR_NL("%s: nested settings not allowed!\n", cs->name);
+		return -EINVAL;
+	}
+	/*
+	 * Tickets are by default enabled, unless user has switched them off,
+	 * parse enable/disable value first and ignore all attributes.
+	 */
+	ce_tmp = *ce;
+	ce_tmp.attr_n = 0;
+	cs->dest = &enabled;
+	if (tfw_cfg_set_bool(cs, ce))  {
+		T_ERR_NL("%s: can't parse positional values!\n", cs->name);
+		cs->dest = NULL;
+		return -EINVAL;
+	}
+	cs->dest = NULL;
+	if (enabled) {
+		TFW_CFG_ENTRY_FOR_EACH_ATTR(ce, i, key, val) {
+			if (!strcasecmp(key, "secret")) {
+				secret = val;
+				secret_len = strlen(val);
+			} else if (!strcasecmp(key, "lifetime")) {
+				if ((r = tfw_cfg_parse_long(val, &lifetime))) {
+					T_ERR_NL("%s: can't parse '%s' argument!"
+						 "\n", cs->name, key);
+					return r;
+				}
+				if (lifetime > 5 * TTLS_DEFAULT_TICKET_LIFETIME)
+					T_WARN_NL("%s: setting too long ticket"
+						  "lifetime can be insecure, "
+						  "recommended value is %d\n",
+						  cs->name,
+						  TTLS_DEFAULT_TICKET_LIFETIME);
+			} else {
+				T_ERR_NL("%s: unsupported argument: '%s=%s'.\n",
+					 cs->name, key, val);
+				return -EINVAL;
+			}
+		}
+	}
+
+	return ttls_conf_tickets(&vhost->tls_cfg, enabled, lifetime, secret,
+				 secret_len, vhost->name.data, vhost->name.len);
+}
