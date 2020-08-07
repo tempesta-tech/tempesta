@@ -411,8 +411,8 @@ typedef struct {
  * required to know about target SNI first.
  */
 typedef struct {
-	char			ticket[TTLS_TICKET_MAX_SZ];
 	size_t			t_len;
+	char			ticket[TTLS_TICKET_MAX_SZ];
 } TlSTicketCtx;
 
 /**
