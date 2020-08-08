@@ -682,6 +682,32 @@ ENDPROC(mpi_sqr_x86_64_4)
 
 
 /**
+ * Multiply 4-limb MPI in %RSI by a long in %RDX and store the result in %RDI.
+ */
+ENTRY_32(mpi_mul_int_x86_64_4)
+	push	%r12
+	push	%r13
+
+	mulxq	(%rsi), %r8, %r9
+	mulxq	8(%rsi), %r10, %r11
+	mulxq	16(%rsi), %rax, %rcx
+	movq	%r8, (%rdi)
+	mulxq	24(%rsi), %r12, %r13
+	addq	%r10, %r9
+	adcq	%rax, %r11
+	movq	%r9, 8(%rdi)
+	movq	%r11, 16(%rdi)
+	adcq	%rcx, %r12
+	adcq	$0, %r13
+	movq	%r12, 24(%rdi)
+	movq	%r13, 32(%rdi)
+
+	popq	%r13
+	popq	%r12
+	retq
+ENDPROC(mpi_mul_int_x86_64_4)
+
+/**
  * Fast reduction modulo 256 by FIPS 186-3 D.2:
  *
  *	s1 = (c7,  C6,    c5,  C4,    c3,  C2,    c1,  C0 )

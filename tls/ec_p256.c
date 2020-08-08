@@ -394,6 +394,30 @@ __mul_mod_4(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 }
 
 static void
+ecp256_mul_int(TlsMpi *X, const TlsMpi *A, long b)
+{
+	BUG_ON(X->limbs < G_LIMBS + 1);
+
+	if (unlikely(!b)) {
+		ecp256_mpi_lset(X, 0);
+		return;
+	}
+
+	if (b > 0) {
+		X->s = A->s;
+	} else {
+		X->s = -A->s;
+		b = -b;
+	}
+
+	mpi_mul_int_x86_64_4(MPI_P(X), MPI_P(A), b);
+
+	mpi_fixup_used(X, G_LIMBS + 1);
+	if (X->used == 1 && !MPI_P(X)[0])
+		X->s = 1;
+}
+
+static void
 ecp256_mul(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 {
 	mpi_mul_x86_64_4(MPI_P(X), MPI_P(A), MPI_P(B));
@@ -445,7 +469,7 @@ ecp256_inv_mod(TlsMpi *X, const TlsMpi *I, const TlsMpi *N)
 	/* Tau matrices */
 	long *f, *g, fi, gi;
 	TlsMpi *F, *P, *A, *B, *U[3], *V[3], *Q[3], *R[3];
-	static size_t sz = sizeof(TlsMpi) * 16 + (G_LIMBS * 18 + 2) * CIL;
+	static size_t sz = sizeof(TlsMpi) * 16 + (G_LIMBS * 18 + 14) * CIL;
 
 	F = ttls_mpool_alloc_stack(sz);
 	bzero_fast(F, sz);
@@ -453,18 +477,18 @@ ecp256_inv_mod(TlsMpi *X, const TlsMpi *I, const TlsMpi *N)
 	A = ttls_mpi_init_next(P, G_LIMBS + 1);
 	B = ttls_mpi_init_next(A, G_LIMBS * 2);
 	U[0] = ttls_mpi_init_next(B, G_LIMBS * 2);
-	U[1] = ttls_mpi_init_next(U[0], G_LIMBS);
-	U[2] = ttls_mpi_init_next(U[1], G_LIMBS);
-	V[0] = ttls_mpi_init_next(U[2], G_LIMBS);
-	V[1] = ttls_mpi_init_next(V[0], G_LIMBS);
-	V[2] = ttls_mpi_init_next(V[1], G_LIMBS);
-	Q[0] = ttls_mpi_init_next(V[2], G_LIMBS);
-	Q[1] = ttls_mpi_init_next(Q[0], G_LIMBS);
-	Q[2] = ttls_mpi_init_next(Q[1], G_LIMBS);
-	R[0] = ttls_mpi_init_next(Q[2], G_LIMBS);
-	R[1] = ttls_mpi_init_next(R[0], G_LIMBS);
-	R[2] = ttls_mpi_init_next(R[1], G_LIMBS);
-	ttls_mpi_init_next(R[2], G_LIMBS);
+	U[1] = ttls_mpi_init_next(U[0], G_LIMBS + 1);
+	U[2] = ttls_mpi_init_next(U[1], G_LIMBS + 1);
+	V[0] = ttls_mpi_init_next(U[2], G_LIMBS + 1);
+	V[1] = ttls_mpi_init_next(V[0], G_LIMBS + 1);
+	V[2] = ttls_mpi_init_next(V[1], G_LIMBS + 1);
+	Q[0] = ttls_mpi_init_next(V[2], G_LIMBS + 1);
+	Q[1] = ttls_mpi_init_next(Q[0], G_LIMBS + 1);
+	Q[2] = ttls_mpi_init_next(Q[1], G_LIMBS + 1);
+	R[0] = ttls_mpi_init_next(Q[2], G_LIMBS + 1);
+	R[1] = ttls_mpi_init_next(R[0], G_LIMBS + 1);
+	R[2] = ttls_mpi_init_next(R[1], G_LIMBS + 1);
+	ttls_mpi_init_next(R[2], G_LIMBS + 1);
 
 	ecp256_mpi_copy(F, N);
 	ecp256_mpi_copy(P, I);
@@ -523,22 +547,22 @@ ecp256_inv_mod(TlsMpi *X, const TlsMpi *I, const TlsMpi *N)
 			// TODO #1064 use faster multiplication
 			// Revert back to divide & conquer strategy?
 			// We can use nice 128-bit integers then.
-			ttls_mpi_mul_int(A, V[m], u);
-			ttls_mpi_mul_int(B, R[m], v);
+			ecp256_mul_int(A, V[m], u);
+			ecp256_mul_int(B, R[m], v);
 			ttls_mpi_add_mpi(A, A, B);
 
-			ttls_mpi_mul_int(R[m], R[m], r);
-			ttls_mpi_mul_int(B, V[m], q);
+			ecp256_mul_int(R[m], R[m], r);
+			ecp256_mul_int(B, V[m], q);
 			ttls_mpi_add_mpi(R[m], R[m], B);
 
 			ttls_mpi_copy(V[m], A);
 
-			ttls_mpi_mul_int(A, U[m], u);
-			ttls_mpi_mul_int(B, Q[m], v);
+			ecp256_mul_int(A, U[m], u);
+			ecp256_mul_int(B, Q[m], v);
 			ttls_mpi_add_mpi(A, A, B);
 
-			ttls_mpi_mul_int(Q[m], Q[m], r);
-			ttls_mpi_mul_int(B, U[m], q);
+			ecp256_mul_int(Q[m], Q[m], r);
+			ecp256_mul_int(B, U[m], q);
 			ttls_mpi_add_mpi(Q[m], Q[m], B);
 
 			ttls_mpi_copy(U[m], A);
@@ -558,12 +582,14 @@ ecp256_inv_mod(TlsMpi *X, const TlsMpi *I, const TlsMpi *N)
 		 * F and P can be negative after the multiplication:
 		 *   F, P = (F * u + P * v) >> 62, (F * q + P * r) >> 62
 		 */
-		ttls_mpi_mul_int(A, F, q);
-		ttls_mpi_mul_int(F, F, u);
-		ttls_mpi_mul_int(B, P, v);
+		ecp256_mul_int(A, F, q);
+		ecp256_mul_int(F, F, u);
+		ecp256_mul_int(B, P, v);
 		ttls_mpi_add_mpi(F, F, B);
+		BUG_ON(F->limbs > F->used && MPI_P(F)[F->used]);
 		ttls_mpi_shift_r(F, 62);
-		ttls_mpi_mul_int(P, P, r);
+		BUG_ON(F->limbs > F->used && MPI_P(F)[F->used]);
+		ecp256_mul_int(P, P, r);
 		ttls_mpi_add_mpi(P, P, A);
 		ttls_mpi_shift_r(P, 62);
 	}
