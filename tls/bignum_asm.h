@@ -53,6 +53,7 @@ void mpi_tpl_x86_64_4(unsigned long *x, const unsigned long *a);
 
 void mpi_mul_x86_64_4(unsigned long *x, const unsigned long *a,
 		      const unsigned long *b);
+void mpi_mul_int_x86_64_4(unsigned long *x, const unsigned long *a, long b);
 void mpi_sqr_x86_64_4(unsigned long *x, const unsigned long *a);
 
 void mpi_mul_mod_p256_x86_64_4(unsigned long *x, const unsigned long *a,

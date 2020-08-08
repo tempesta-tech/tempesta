@@ -103,6 +103,7 @@ mpi_fixup_used(TlsMpi *X, size_t n)
 	while (n > 1 && !x[n - 1])
 		--n;
 	X->used = n;
+	bzero_fast(x + n, (X->limbs - n) * CIL);
 }
 
 void
@@ -126,6 +127,7 @@ ttls_mpi_copy_alloc(TlsMpi *X, const TlsMpi *Y, bool need_alloc)
 	memcpy_fast(MPI_P(X), MPI_P(Y), Y->used * CIL);
 	X->s = Y->s;
 	X->used = Y->used;
+	bzero_fast(MPI_P(X) + X->used, (X->limbs - X->used) * CIL);
 }
 
 /**
@@ -183,6 +185,7 @@ ttls_mpi_lset(TlsMpi *X, long z)
 		MPI_P(X)[0] = z;
 		X->s = 1;
 	}
+	bzero_fast(MPI_P(X) + 1, (X->limbs - 1) * CIL);
 }
 
 int
@@ -350,7 +353,9 @@ ttls_mpi_shift_r(TlsMpi *X, size_t count)
 	 */
 	if (unlikely(limbs > 0)) {
 		if (limbs >= X->used) {
-			ttls_mpi_lset(X, 0);
+			bzero_fast(x, X->limbs * CIL);
+			X->used = 1;
+			X->s = 1;
 			return;
 		} else {
 			X->used -= limbs;
@@ -369,6 +374,7 @@ ttls_mpi_shift_r(TlsMpi *X, size_t count)
 zero_sign:
 	if (X->used == 1 && !x[0])
 		X->s = 1;
+	bzero_fast(x + X->used, (X->limbs - X->used) * CIL);
 }
 
 #if DBG_TLS
@@ -591,6 +597,7 @@ ttls_mpi_add_abs(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 			   MPI_P(A), A->used);
 	BUG_ON(r <= 0);
 	X->used = r;
+	bzero_fast(MPI_P(X) + r, (X->limbs - r) * CIL);
 
 	/* X should always be positive as a result of unsigned additions. */
 	X->s = 1;
@@ -808,6 +815,11 @@ ttls_mpi_mul_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 	size_t i = A->used, j = B->used;
 	TlsMpi T;
 
+	if (unlikely(ttls_mpi_eq_0(A) || ttls_mpi_eq_0(B))) {
+		ttls_mpi_lset(X, 0);
+		return;
+	}
+
 	if (X == A) {
 		ttls_mpi_alloca_init(&T, A->used);
 		ttls_mpi_copy_alloc(&T, A, false);
@@ -822,7 +834,8 @@ ttls_mpi_mul_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 	}
 	BUG_ON(X->limbs < i + j);
 
-	bzero_fast(MPI_P(X), CIL * (i + j));
+	bzero_fast(MPI_P(X), X->limbs * CIL);
+
 	X->used = i + j;
 
 	for ( ; j > 0; j--)
@@ -830,7 +843,10 @@ ttls_mpi_mul_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 
 	mpi_fixup_used(X, X->used);
 
-	X->s = A->s * B->s;
+	if (X->used == 1 && !MPI_P(X)[0])
+		X->s = 1;
+	else
+		X->s = A->s * B->s;
 }
 
 /*
@@ -842,22 +858,6 @@ ttls_mpi_mul_uint(TlsMpi *X, const TlsMpi *A, unsigned long b)
 	DECLARE_MPI_AUTO(_B, 1);
 	_B.s = 1;
 	MPI_P(&_B)[0] = b;
-
-	ttls_mpi_mul_mpi(X, A, &_B);
-}
-
-void
-ttls_mpi_mul_int(TlsMpi *X, const TlsMpi *A, long b)
-{
-	DECLARE_MPI_AUTO(_B, 1);
-
-	if (b >= 0) {
-		_B.s = 1;
-		MPI_P(&_B)[0] = b;
-	} else {
-		_B.s = -1;
-		MPI_P(&_B)[0] = -b;
-	}
 
 	ttls_mpi_mul_mpi(X, A, &_B);
 }

@@ -184,7 +184,6 @@ void ttls_mpi_sub_int(TlsMpi *X, const TlsMpi *A, long b);
 
 void ttls_mpi_mul_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B);
 void ttls_mpi_mul_uint(TlsMpi *X, const TlsMpi *A, unsigned long b);
-void ttls_mpi_mul_int(TlsMpi *X, const TlsMpi *A, long b);
 void ttls_mpi_div_mpi(TlsMpi *Q, TlsMpi *R, const TlsMpi *A, const TlsMpi *B);
 void ttls_mpi_mod_mpi(TlsMpi *R, const TlsMpi *A, const TlsMpi *B);
 

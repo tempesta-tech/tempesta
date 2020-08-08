@@ -106,6 +106,46 @@ ecp_base_math(void)
 }
 
 static void
+ecp_mul_int_4_5(void)
+{
+	TlsMpi *X = ttls_mpi_alloc_stack_init(5);
+	TlsMpi *A = ttls_mpi_alloc_stack_init(4);
+
+	ecp256_mpi_lset(X, 0);
+	ecp256_mul_int(X, X, 0);
+	EXPECT_EQ(X->s, 1);
+	EXPECT_MPI(X, 1, 0);
+
+	ecp256_mpi_lset(A, LONG_MAX);
+	ecp256_mul_int(X, A, 1);
+	EXPECT_EQ(X->s, 1);
+	EXPECT_MPI(X, 1, LONG_MAX);
+
+	ecp256_mul_int(X, X, 0x293d9ac69f7430dbUL);
+	EXPECT_EQ(X->s, 1);
+	EXPECT_MPI(X, 2, 0x56c26539608bcf25UL, 0x149ecd634fba186dUL);
+
+	ecp256_mul_int(X, X, 0x9e04b79d227873d1UL);
+	EXPECT_EQ(X->s, -1);
+	EXPECT_MPI(X, 3, 0x8cb5460c5c7643cbUL, 0xe9dc8a448dce5f1aUL,
+			 0x7e4695aa1fb3f7fUL);
+
+	ttls_mpi_copy(A, X);
+	ecp256_mul_int(X, A, 0x7fffffffffffffffUL);
+	EXPECT_EQ(X->s, -1);
+	EXPECT_MPI(X, 4, 0xf34ab9f3a389bc35UL, 0x5c7e18c1a06cc2caUL,
+			 0xed09dbc7a4ebf00d, 0x3f234ad50fd9fbfUL);
+
+	ecp256_mul_int(X, X, 0xa60b48fc47669978UL);
+	EXPECT_EQ(X->s, 1);
+	EXPECT_MPI(X, 5, 0x759cb0ce55d61a28UL, 0x306b93f50e6d8f89UL,
+			 0xbceacf62d3f32e70UL, 0xe3f6293e364f98d4UL,
+			 0x162f9fca8b05465UL);
+
+	ttls_mpi_pool_cleanup_ctx(0, false);
+}
+
+static void
 ecp_multi_dbl(void)
 {
 	int i;
@@ -438,6 +478,7 @@ main(int argc, char *argv[])
 	BUG_ON(ttls_mpool_init());
 
 	ecp_base_math();
+	ecp_mul_int_4_5();
 	ecp_multi_dbl();
 	ecp_mul();
 	ecp_inv();
