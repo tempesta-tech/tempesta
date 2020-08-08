@@ -253,20 +253,25 @@ ecp256_mpi_copy(TlsMpi *X, const TlsMpi *A)
 	x[3] = a[3];
 }
 
-void
-ecp256_mpi_lset(TlsMpi *X, long z)
+static void
+ecp256_mpi_lset(unsigned long *x, long z)
 {
-	unsigned long *x = MPI_P(X);
-
-	BUG_ON(X->limbs < G_LIMBS);
-
-	X->s = 1;
-	X->used = 1;
 	x[0] = z;
 	x[1] = 0;
 	x[2] = 0;
 	x[3] = 0;
 }
+
+static void
+ECP256_MPI_LSET(TlsMpi *X, long z)
+{
+	BUG_ON(X->limbs < G_LIMBS);
+
+	X->s = 1;
+	X->used = 1;
+	ecp256_mpi_lset(MPI_P(X), z);
+}
+
 
 /**
  * Safe conditional assignment X = Y if @assign is 1.
@@ -368,29 +373,9 @@ ecp256_sub_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 static void
 ecp256_mul_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
 {
-	BUG_ON(A->s < 0 || B->s < 0);
-	BUG_ON(A->used > G_LIMBS || B->used > G_LIMBS);
-	/* Just some sanity check, not 100% accurate. */
-	BUG_ON(A->used < G_LIMBS && MPI_P(A)[G_LIMBS - 1]);
-	BUG_ON(B->used < G_LIMBS && MPI_P(B)[G_LIMBS - 1]);
-
 	mpi_mul_mod_p256_x86_64_4(MPI_P(X), MPI_P(A), MPI_P(B));
 	X->s = 1;
 	mpi_fixup_used(X, G_LIMBS);
-}
-
-static void
-__mul_mod_4(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
-{
-	BUG_ON(A->s < 0 || B->s < 0);
-	BUG_ON(A->used > G_LIMBS || B->used > G_LIMBS);
-	/* Just some sanity check, not 100% accurate. */
-	BUG_ON(A->used < G_LIMBS && MPI_P(A)[G_LIMBS - 1]);
-	BUG_ON(B->used < G_LIMBS && MPI_P(B)[G_LIMBS - 1]);
-
-	mpi_mul_x86_64_4(MPI_P(X), MPI_P(A), MPI_P(B));
-	X->s = 1;
-	mpi_fixup_used(X, G_LIMBS * 2);
 }
 
 static void
@@ -399,7 +384,7 @@ ecp256_mul_int(TlsMpi *X, const TlsMpi *A, long b)
 	BUG_ON(X->limbs < G_LIMBS + 1);
 
 	if (unlikely(!b)) {
-		ecp256_mpi_lset(X, 0);
+		ECP256_MPI_LSET(X, 0);
 		return;
 	}
 
@@ -668,13 +653,13 @@ ecp256_inv_mod(TlsMpi *X, const TlsMpi *I, const TlsMpi *N)
  * Normalize jacobian coordinates so that Z == 1  (GECC 3.2.1)
  * Cost: 1N := 1I + 3M + 1S
  */
-static int
+static void
 ecp256_normalize_jac(TlsEcpPoint *pt)
 {
 	TlsMpi *Zi, *ZZi;
 
 	if (ttls_mpi_eq_0(&pt->Z))
-		return 0;
+		return;
 
 	Zi = ttls_mpi_alloc_stack_init(G_LIMBS * 2);
 	ZZi = ttls_mpi_alloc_stack_init(G_LIMBS * 2);
@@ -689,9 +674,7 @@ ecp256_normalize_jac(TlsEcpPoint *pt)
 	ecp256_mul_mod(&pt->Y, &pt->Y, Zi);
 
 	/* Z = 1 */
-	ecp256_mpi_lset(&pt->Z, 1);
-
-	return 0;
+	ECP256_MPI_LSET(&pt->Z, 1);
 }
 
 /**
@@ -758,7 +741,7 @@ do {									\
 		 * At the moment Z coordinate stores a garbage, so free
 		 * it now and treat as 1 on subsequent processing.
 		 */
-		ecp256_mpi_lset(&T[i]->Z, 1);
+		ECP256_MPI_LSET(&T[i]->Z, 1);
 	}
 
 	ttls_mpi_pool_cleanup_ctx((unsigned long)c, false);
@@ -794,26 +777,31 @@ static void
 ecp256_double_jac(TlsEcpPoint *R, const TlsEcpPoint *P)
 {
 	TlsMpi M, S, T, U;
+	unsigned long *m, *s, *t, *u;
 
 	// TODO #1064 move out the tmp vars initialization
 	ttls_mpi_alloca_zero(&M, G_LIMBS * 2);
 	ttls_mpi_alloca_zero(&S, G_LIMBS * 2);
 	ttls_mpi_alloca_zero(&T, G_LIMBS * 2);
 	ttls_mpi_alloca_zero(&U, G_LIMBS * 2);
+	m = MPI_P(&M);
+	s = MPI_P(&S);
+	t = MPI_P(&T);
+	u = MPI_P(&U);
 
 	if (likely(!ttls_mpi_eq_1(&P->Z))) {
 		/* M = 3(X + Z^2)(X - Z^2) */
-		ecp256_sqr_mod(&S, &P->Z);
-		mpi_add_x86_64_4(&T, &P->X, &S);
-		ecp256_mod_add(&T);
-		ecp256_sub_mod(&U, &P->X, &S);
-		ecp256_mul_mod(&S, &T, &U);
+		mpi_sqr_mod_p256_x86_64_4(s, MPI_P(&P->Z));
+		mpi_add_mod_p256_x86_64(t, MPI_P(&P->X), s);
+		mpi_sub_mod_p256_x86_64_4(u, MPI_P(&P->X), s);
+		mpi_mul_mod_p256_x86_64_4(s, t, u);
 	} else {
 		/* M = 3 * (X^2 - 1) */
-		ecp256_sqr_mod(&S, &P->X);
-		BUG_ON(S.used == 1 && !MPI_P(&S)[0]);
-		MPI_P(&S)[0] -= 1;
+		mpi_sqr_mod_p256_x86_64_4(s, MPI_P(&P->X));
+		ecp256_mpi_lset(t, 1);
+		mpi_sub_mod_p256_x86_64_4(s, s, t);
 	}
+	S.used = G_LIMBS; // TODO
 	ttls_mpi_tpl_x86_64_4(&M, &S);
 	ecp256_mod_add(&M);
 
@@ -873,8 +861,8 @@ ecp256_double_jac_n(TlsEcpPoint *r, const TlsEcpPoint *p, TlsMpi *tmp[8])
 		ecp256_sqr_mod(w, z);
 		ecp256_sqr_mod(w, w);
 	} else {
-		ecp256_mpi_lset(w, 1);
-		ecp256_mpi_lset(z, 1);
+		ECP256_MPI_LSET(w, 1);
+		ECP256_MPI_LSET(z, 1);
 	}
 
 	for (i = 0; i < D; ++i) {
@@ -1137,7 +1125,7 @@ ecp256_precompute_comb(const unsigned long *pXY)
 	T->p.Y.s = 1;
 	memcpy_fast(T->y, pXY + G_LIMBS, G_LIMBS * CIL);
 	mpi_fixup_used(&T->p.Y, G_LIMBS);
-	ecp256_mpi_lset(&T->p.Z, 1);
+	ECP256_MPI_LSET(&T->p.Z, 1);
 
 	// TODO #1064 move these MPIs (if they're needed) to the memory profile.
 	tmp = ttls_mpool_alloc_stack((sizeof(TlsMpi) + G_LIMBS * 2 * CIL) * 8);
@@ -1259,7 +1247,7 @@ ecp256_mul_comb_core(TlsEcpPoint *R, const unsigned char x[])
 	 * see ecp_nistz256_avx2_mul_g().
 	 */
 	ecp256_select_comb(R, T, W_SZ, x[i]);
-	ecp256_mpi_lset(&R->Z, 1);
+	ECP256_MPI_LSET(&R->Z, 1);
 
 	while (i--) {
 		unsigned char ii = (x[i] & 0x7Fu) >> 1;
@@ -1351,7 +1339,7 @@ ecp256_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const unsigned long *P)
 
 	/* Now get m * P from M * P and normalize it. */
 	ecp256_safe_invert_jac(R, !m_is_odd);
-	MPI_CHK(ecp256_normalize_jac(R));
+	ecp256_normalize_jac(R);
 
 	return 0;
 }
@@ -1377,7 +1365,7 @@ ecp256_mul_comb_core_g(TlsEcpPoint *R, const unsigned char x[])
 	 * (R is for random, very fast).
 	 */
 	ecp256_select_comb(R, combT_G[G_D], G_W_SZ, x[i]);
-	ecp256_mpi_lset(&R->Z, 1);
+	ECP256_MPI_LSET(&R->Z, 1);
 
 	while (i--) {
 		unsigned char ii = (x[i] & 0x7Fu) >> 1;
@@ -1429,7 +1417,7 @@ ecp256_mul_comb_g(TlsEcpPoint *R, const TlsMpi *m)
 
 	/* Now get m * G from M * G and normalize it. */
 	ecp256_safe_invert_jac(R, !m_is_odd);
-	MPI_CHK(ecp256_normalize_jac(R));
+	ecp256_normalize_jac(R);
 
 	return 0;
 }
@@ -1457,10 +1445,10 @@ ecp256_muladd(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *Q,
 	memcpy_fast(pXY, MPI_P(&Q->X), G_LIMBS * CIL);
 	memcpy_fast(&pXY[G_LIMBS], MPI_P(&Q->Y), G_LIMBS * CIL);
 
-	MPI_CHK(ecp256_mul_comb(R, n, pXY));
+	ecp256_mul_comb(R, n, pXY);
 
 	MPI_CHK(ecp256_add_mixed(R, mP, R));
-	MPI_CHK(ecp256_normalize_jac(R));
+	ecp256_normalize_jac(R);
 
 	return 0;
 }
@@ -1587,10 +1575,18 @@ ecp256_ecdsa_sign(const TlsMpi *d, const unsigned char *hash, size_t hlen,
 		} while (ttls_mpi_eq_0(t) || ttls_mpi_cmp_mpi(t, &G.N) >= 0);
 
 		/* Compute s = (e + r * d) / k = t (e + rd) / (kt) mod n */
-		__mul_mod_4(&s, r, d);
+		mpi_mul_x86_64_4(MPI_P(&s), MPI_P(r), MPI_P(d));
+
+		s.s = 1;
+		mpi_fixup_used(&s, G_LIMBS * 2);
 		ttls_mpi_add_mpi(e, e, &s);
+
 		ttls_mpi_mul_mpi(e, e, t);
-		__mul_mod_4(k, k, t);
+
+		mpi_mul_x86_64_4(MPI_P(k), MPI_P(k), MPI_P(t));
+
+		s.s = 1;
+		mpi_fixup_used(k, G_LIMBS * 2);
 		ttls_mpi_mod_mpi(k, k, &G.N);
 		ecp256_inv_mod(&s, k, &G.N);
 		ttls_mpi_mul_mpi(&s, &s, e);

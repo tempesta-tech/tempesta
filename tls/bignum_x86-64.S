@@ -31,6 +31,30 @@
 	.align 32, 0x90 ASM_NL						\
 	name:
 
+
+/**
+ * Compare 4-limbs MPI %RDI with MPI %RSI.
+ */
+ENTRY(mpi_cmp_x86_64_4)
+	movq	$-1, %rdx
+	movq	24(%rdi), %rax
+	subq	24(%rsi), %rax
+	jnz	.cmp_4_done
+	movq	16(%rdi), %rax
+	subq	16(%rsi), %rax
+	jnz	.cmp_4_done
+	movq	8(%rdi), %rax
+	subq	8(%rsi), %rax
+	jnz	.cmp_4_done
+	movq	(%rdi), %rax
+	subq	(%rsi), %rax
+	jnz	.cmp_4_done
+.cmp_4_done:
+	cmovbq	%rdx, %rax
+	retq
+ENDPROC(mpi_cmp_x86_64_4)
+
+
 /**
  * Add X = A + B, where A->used >= B->used.
  *
@@ -82,6 +106,58 @@ ENTRY(mpi_add_x86_64)
 	movq	$-1, %rax
 	ret
 ENDPROC(mpi_add_x86_64)
+
+
+/**
+ * Add X = A + B mod P256
+ *
+ * %RDI - pointer to X
+ * %RSI - pointer to A
+ * %RDX - pointer to B
+ *
+ * All MPIs must be of 4 limbs size.
+ */
+ENTRY(mpi_add_mod_p256_x86_64)
+	pushq	%rbx
+
+	movq	(%rsi), %r8
+	movq	8(%rsi), %r9
+	movq	16(%rsi), %r10
+	movq	24(%rsi), %r11
+
+	xorq	%rcx, %rcx
+	movq	$0xffffffff, %rbx
+	movq	$0xffffffff00000001, %rax
+	movq	$0xffffffffffffffff, %rsi
+
+	addq	(%rdx), %r8
+	adcq	8(%rdx), %r9
+	adcq	16(%rdx), %r10
+	adcq	24(%rdx), %r11
+	adcq	$0, %rcx
+
+	/* Save current, probably completed, result. */
+	movq	%r8, (%rdi)
+	movq	%r9, 8(%rdi)
+	movq	%r10, 16(%rdi)
+	movq	%r11, 24(%rdi)
+
+	subq	%rsi, %r8
+	sbbq	%rbx, %r9
+	sbbq	$0, %r10
+	sbbq	%rax, %r11
+	sbbq	$0, %rcx
+	jc	.add_mod_p256_prev_res
+
+	movq	%r8, (%rdi)
+	movq	%r9, 8(%rdi)
+	movq	%r10, 16(%rdi)
+	movq	%r11, 24(%rdi)
+
+.add_mod_p256_prev_res:
+	popq	%rbx
+	ret
+ENDPROC(mpi_add_mod_p256_x86_64)
 
 
 /**

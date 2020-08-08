@@ -56,14 +56,13 @@ const TlsEcpGrp CURVE25519_G = {};
  * Uses bare components rather than an TlsEcpKeypair structure in order to ease
  * use with other structures such as TlsECDHCtx of TlsEcpKeypair.
  */
-static int
+static void
 ecp256_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
 {
-	TlsMpi *A, *YY, *RHS;
+	unsigned long RHS[G_LIMBS * 2], YY[G_LIMBS * 2], A[G_LIMBS];
 
 	/* Must use affine coordinates */
-	if (WARN_ON_ONCE(ttls_mpi_cmp_int(&pt->Z, 1)))
-		return -EINVAL;
+	BUG_ON(ttls_mpi_cmp_int(&pt->Z, 1));
 
 	if (grp->id == TTLS_ECP_DP_CURVE25519) {
 		/*
@@ -71,9 +70,7 @@ ecp256_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
 		 * x-only schemes. [Curve25519 p. 5] Just check X is the correct
 		 * number of bytes.
 		 */
-		if (WARN_ON_ONCE(ttls_mpi_size(&pt->X) > (grp->bits + 7) / 8))
-			return -EINVAL;
-		return 0;
+		BUG_ON(ttls_mpi_size(&pt->X) > (grp->bits + 7) / 8);
 	}
 
 	/*
@@ -82,39 +79,23 @@ ecp256_check_pubkey(const TlsEcpGrp *grp, const TlsEcpPoint *pt)
 	 *
 	 * pt coordinates must be normalized for our checks.
 	 */
-	if (ttls_mpi_cmp_mpi(&pt->X, &G.P) >= 0
-	    || ttls_mpi_cmp_mpi(&pt->Y, &G.P) >= 0)
-	{
-		T_DBG_MPI3("ECP invalid weierstrass public key",
-			   &pt->X, &pt->Y, &G.P);
-		return -EINVAL;
-	}
-
-	A = ttls_mpi_alloc_stack_init(G_LIMBS);
-	YY = ttls_mpi_alloc_stack_init(G_LIMBS * 2);
-	RHS = ttls_mpi_alloc_stack_init(G_LIMBS * 2);
+	BUG_ON(mpi_cmp_x86_64_4(MPI_P(&pt->X), MPI_P(&G.P)) >= 0
+	       || mpi_cmp_x86_64_4(MPI_P(&pt->Y), MPI_P(&G.P)) >= 0);
 
 	/*
 	 * YY = Y^2
 	 * RHS = X (X^2 + A) + B = X^3 + A X + B
 	 */
-	ecp256_sqr_mod(YY, &pt->Y);
-	ecp256_sqr_mod(RHS, &pt->X);
+	mpi_sqr_mod_p256_x86_64_4(YY, MPI_P(&pt->Y));
+	mpi_sqr_mod_p256_x86_64_4(RHS, MPI_P(&pt->X));
 
 	/* Special case for A = -3 */
 	ecp256_mpi_lset(A, 3);
-	ecp256_sub_mod(RHS, RHS, A);
+	mpi_sub_mod_p256_x86_64_4(RHS, RHS, A);
+	mpi_mul_mod_p256_x86_64_4(RHS, RHS, MPI_P(&pt->X));
+	mpi_add_mod_p256_x86_64(RHS, RHS, MPI_P(&G.B));
 
-	ecp256_mul_mod(RHS, RHS, &pt->X);
-	ttls_mpi_add_mpi(RHS, RHS, &G.B);
-	ecp256_mod_add(RHS);
-
-	if (ttls_mpi_cmp_mpi(YY, RHS)) {
-		T_DBG_MPI2("ECP invalid weierstrass public key", YY, RHS);
-		return -EINVAL;
-	}
-
-	return 0;
+	BUG_ON(mpi_cmp_x86_64_4(YY, RHS));
 }
 
 static void
@@ -143,7 +124,7 @@ ecdsa_sign(void)
 	EXPECT_ZERO(memcmp(sig + 64, "\x09\xA2\x46\xFC\xF7\x14\x2D\x00", 8));
 	EXPECT_ZERO(memcmp(sig + 72, "\x00\x00\x00\x00\x00\x00\x00\x00", 8));
 
-	EXPECT_ZERO(ecp256_check_pubkey(ctx->grp, &ctx->Q));
+	ecp256_check_pubkey(ctx->grp, &ctx->Q);
 	EXPECT_ZERO(ecdsa_verify_wrap(ctx, TTLS_MD_SHA256, hash, 32, sig, slen));
 
 	ttls_mpi_pool_free(ctx);

@@ -44,18 +44,13 @@ const TlsEcpGrp CURVE25519_G = {};
  * Uses bare components rather than an TlsEcpKeypair structure in order to ease
  * use with other structures such as TlsECDHCtx of TlsEcpKeypair.
  */
-static int
+static void
 ecp256_check_pubkey(const TlsEcpGrp *grp, const unsigned long *pXY)
 {
-	TlsMpi *YY, *RHS, X, Y;
+	unsigned long RHS[G_LIMBS * 2], YY[G_LIMBS * 2], X[G_LIMBS], Y[G_LIMBS];
 
-	ttls_mpi_alloca_init(&X, G_LIMBS);
-	memcpy(MPI_P(&X), pXY, G_LIMBS * CIL);
-	mpi_fixup_used(&X, G_LIMBS);
-
-	ttls_mpi_alloca_init(&Y, G_LIMBS);
-	memcpy(MPI_P(&Y), pXY + G_LIMBS, G_LIMBS * CIL);
-	mpi_fixup_used(&Y, G_LIMBS);
+	memcpy(X, pXY, G_LIMBS * CIL);
+	memcpy(Y, pXY + G_LIMBS, G_LIMBS * CIL);
 
 	/*
 	 * Check that an affine point is valid as a public key,
@@ -63,35 +58,23 @@ ecp256_check_pubkey(const TlsEcpGrp *grp, const unsigned long *pXY)
 	 *
 	 * pt coordinates must be normalized for our checks.
 	 */
-	if (ttls_mpi_cmp_mpi(&X, &G.P) >= 0 || ttls_mpi_cmp_mpi(&Y, &G.P) >= 0) {
-		T_DBG_MPI3("ECP invalid weierstrass public key", &X, &Y, &G.P);
-		return -EINVAL;
-	}
-
-	YY = ttls_mpi_alloc_stack_init(G_LIMBS);
-	RHS = ttls_mpi_alloc_stack_init(G_LIMBS * 2);
+	BUG_ON(mpi_cmp_x86_64_4(X, MPI_P(&G.P)) >= 0
+	       || mpi_cmp_x86_64_4(Y, MPI_P(&G.P)) >= 0);
 
 	/*
 	 * YY = Y^2
 	 * RHS = X (X^2 + A) + B = X^3 + A X + B
 	 */
-	ecp256_sqr_mod(YY, &Y);
-	ecp256_sqr_mod(RHS, &X);
+	mpi_sqr_mod_p256_x86_64_4(YY, Y);
+	mpi_sqr_mod_p256_x86_64_4(RHS, X);
 
 	/* Special case for A = -3 */
-	ecp256_mpi_lset(&Y, 3);
-	ecp256_sub_mod(RHS, RHS, &Y);
+	ecp256_mpi_lset(Y, 3);
+	mpi_sub_mod_p256_x86_64_4(RHS, RHS, Y);
+	mpi_mul_mod_p256_x86_64_4(RHS, RHS, X);
+	mpi_add_mod_p256_x86_64(RHS, RHS, MPI_P(&G.B));
 
-	ecp256_mul_mod(RHS, RHS, &X);
-	ttls_mpi_add_mpi(RHS, RHS, &G.B);
-	ecp256_mod_add(RHS);
-
-	if (ttls_mpi_cmp_mpi(YY, RHS)) {
-		T_DBG_MPI2("ECP invalid weierstrass public key", YY, RHS);
-		return -EINVAL;
-	}
-
-	return 0;
+	BUG_ON(mpi_cmp_x86_64_4(YY, RHS));
 }
 
 static void
@@ -139,7 +122,7 @@ ecdhe_srv(void)
 	EXPECT_ZERO(memcmp(buf + 64, "\x82\x94\x70\x6C\x96\x00\x00\x00", 8));
 
 	EXPECT_ZERO(ttls_ecdh_read_public(ctx, clnt_buf, 66));
-	EXPECT_ZERO(ecp256_check_pubkey(ctx->grp, ctx->Qp));
+	ecp256_check_pubkey(ctx->grp, ctx->Qp);
 	EXPECT_ZERO(ttls_ecdh_calc_secret(ctx, &n, pms, TTLS_MPI_MAX_SIZE));
 	EXPECT_TRUE(n == 32);
 	EXPECT_ZERO(memcmp(pms, "\x27\x53\xE1\x88\x57\x89\xB4\xB0", 8));
