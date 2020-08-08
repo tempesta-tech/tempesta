@@ -22,9 +22,13 @@
 #ifndef __BIGNUM_ASM_H__
 #define __BIGNUM_ASM_H__
 
+long mpi_cmp_x86_64_4(unsigned long *a, unsigned long *b);
+
 int mpi_add_x86_64(unsigned long *x, size_t x_len,
 		   const unsigned long *b, size_t b_len,
 		   const unsigned long *a, size_t a_len);
+void mpi_add_mod_p256_x86_64(unsigned long *x, const unsigned long *a,
+			     const unsigned long *b);
 
 void mpi_sub_x86_64_5_4(unsigned long *x, const unsigned long *b,
 			const unsigned long *a);

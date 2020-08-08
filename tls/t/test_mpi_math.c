@@ -168,6 +168,41 @@ mpi_cmp(void)
 }
 
 static void
+mpi_cmp_4(void)
+{
+	unsigned long a[4] = {}, b[4] = {};
+
+	EXPECT_TRUE(mpi_cmp_x86_64_4(a, b) == 0);
+
+	a[0] = 1;
+	EXPECT_TRUE(mpi_cmp_x86_64_4(a, b) > 0);
+
+	b[1] = 1;
+	EXPECT_TRUE(mpi_cmp_x86_64_4(a, b) < 0);
+
+	a[1] = 1;
+	EXPECT_TRUE(mpi_cmp_x86_64_4(a, b) > 0);
+
+	b[0] = 1;
+	EXPECT_TRUE(mpi_cmp_x86_64_4(a, b) == 0);
+
+	b[2] = ULONG_MAX;
+	EXPECT_TRUE(mpi_cmp_x86_64_4(a, b) < 0);
+
+	a[2] = ULONG_MAX;
+	EXPECT_TRUE(mpi_cmp_x86_64_4(a, b) == 0);
+
+	a[3] = LONG_MAX;
+	EXPECT_TRUE(mpi_cmp_x86_64_4(a, b) > 0);
+
+	b[3] = (unsigned long)LONG_MAX + 1;
+	EXPECT_TRUE(mpi_cmp_x86_64_4(a, b) < 0);
+
+	b[2] = b[1] = 0;
+	EXPECT_TRUE(mpi_cmp_x86_64_4(b, a) > 0);
+}
+
+static void
 mpi_add(void)
 {
 	TlsMpi *A, *B;
@@ -883,16 +918,65 @@ ecp_sub_mod256(void)
 	free(X);
 }
 
+static void
+ecp_add_mod256(void)
+{
+	TlsMpi *X;
+	unsigned long a[4], b[4], *x;
+
+	EXPECT_FALSE(!(X = ttls_mpi_alloc_stack_init(4)));
+
+	memset(a, 0, 4 * CIL);
+	memset(b, 0, 4 * CIL);
+	ttls_mpi_lset(X, 0);
+	X->used = 4;
+	x = MPI_P(X);
+
+	mpi_add_mod_p256_x86_64(x, a, b);
+	EXPECT_MPI(X, 4, 0, 0, 0, 0);
+
+	a[0] = 2;
+	mpi_add_mod_p256_x86_64(x, a, b);
+	EXPECT_MPI(X, 4, 2, 0, 0, 0);
+
+	b[1] = ULONG_MAX;
+	mpi_add_mod_p256_x86_64(x, a, b);
+	EXPECT_MPI(X, 4, 2, 0xffffffffffffffffUL, 0, 0);
+
+	a[0] = 1;
+	b[0] = b[2] = b[3] = ULONG_MAX;
+	mpi_add_mod_p256_x86_64(x, a, b);
+	EXPECT_MPI(X, 4, 0x0000000000000001UL, 0xffffffff00000000UL,
+			 0xffffffffffffffffUL, 0x00000000fffffffeUL);
+
+	a[0] = 0;
+	mpi_add_mod_p256_x86_64(x, a, b);
+	EXPECT_MPI(X, 4, 0x0000000000000000UL, 0xffffffff00000000UL,
+			 0xffffffffffffffffUL, 0x00000000fffffffeUL);
+
+	a[0] = b[0] = 0xfffffffffffffffeUL;
+	a[1] = b[1] = 0x00000000ffffffffUL;
+	a[2] = b[2] = 0;
+	a[3] = b[3] = 0xffffffff00000001UL;
+	mpi_add_mod_p256_x86_64(x, a, b);
+	EXPECT_MPI(X, 4, 0xfffffffffffffffd, 0x00000000ffffffff,
+			 0x0000000000000000, 0xffffffff00000001);
+
+	free(X);
+}
+
 int
 main(int argc, char *argv[])
 {
 	mpi_cmp();
+	mpi_cmp_4();
 	mpi_add();
 	mpi_sub();
 	mpi_shift();
 	mpi_elementary();
 	ecp_mod256();
 	ecp_sub_mod256();
+	ecp_add_mod256();
 
 	printf("success\n");
 

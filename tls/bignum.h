@@ -224,14 +224,6 @@ ttls_mpi_tpl_x86_64_4(TlsMpi *X, const TlsMpi *A)
 	mpi_fixup_used(X, A->used + 1);
 }
 
-/* TODO #1064 not 4-limbs optimized, but we have not so many users yet. */
-static void inline
-mpi_add_x86_64_4(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
-{
-	X->used = mpi_add_x86_64(MPI_P(X), X->limbs, MPI_P(B), B->used,
-				 MPI_P(A), A->used);
-}
-
 static void inline
 mpi_shift_l1_x86_64_4(TlsMpi *X, const TlsMpi *A)
 {

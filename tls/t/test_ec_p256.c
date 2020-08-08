@@ -70,8 +70,8 @@ ecp_base_math(void)
 	EXPECT_FALSE(!(X1 = ttls_mpi_alloc_stack_init(8)));
 	EXPECT_FALSE(!(X2 = ttls_mpi_alloc_stack_init(8)));
 
-	ecp256_mpi_lset(A, LONG_MAX);
-	ecp256_mpi_lset(B, INT_MAX);
+	ECP256_MPI_LSET(A, LONG_MAX);
+	ECP256_MPI_LSET(B, INT_MAX);
 	for (i = 0; i < 1000; ++i) {
 		/* 2 * B * 2 * A^2 = B * (2 * A)^2 */
 		ecp256_sqr_mod(T1, A);
@@ -111,12 +111,12 @@ ecp_mul_int_4_5(void)
 	TlsMpi *X = ttls_mpi_alloc_stack_init(5);
 	TlsMpi *A = ttls_mpi_alloc_stack_init(4);
 
-	ecp256_mpi_lset(X, 0);
+	ECP256_MPI_LSET(X, 0);
 	ecp256_mul_int(X, X, 0);
 	EXPECT_EQ(X->s, 1);
 	EXPECT_MPI(X, 1, 0);
 
-	ecp256_mpi_lset(A, LONG_MAX);
+	ECP256_MPI_LSET(A, LONG_MAX);
 	ecp256_mul_int(X, A, 1);
 	EXPECT_EQ(X->s, 1);
 	EXPECT_MPI(X, 1, LONG_MAX);
@@ -368,7 +368,7 @@ ecp_mul(void)
 	 * ECP test #1 (constant op_count, base point G).
 	 */
 	/* Do a dummy multiplication first to trigger precomputation */
-	ecp256_mpi_lset(m, 2);
+	ECP256_MPI_LSET(m, 2);
 	EXPECT_ZERO(ecp256_mul_comb_g(P, m));
 	EXPECT_MPI(&P->X, 4, 0xa60b48fc47669978UL, 0xc08969e277f21b35UL,
 			     0x8a52380304b51ac3UL, 0x7cf27b188d034f7eUL);
@@ -426,7 +426,7 @@ ecp_inv(void)
 	EXPECT_MPI(X, 4, 0xf3b9cac2fc632550UL, 0xbce6faada7179e84UL,
 			 0xffffffffffffffffUL, 0xffffffff00000000UL);
 
-	ecp256_mpi_lset(A, 1);
+	ECP256_MPI_LSET(A, 1);
 	ecp256_inv_mod(X, A, &G.P);
 	EXPECT_MPI(X, 1, 1);
 
