@@ -217,13 +217,6 @@ ttls_mpi_eq_1(const TlsMpi *X)
 	return X->used == 1 && X->s == 1 && MPI_P(X)[0] == 1;
 }
 
-static inline void
-ttls_mpi_tpl_x86_64_4(TlsMpi *X, const TlsMpi *A)
-{
-	mpi_tpl_x86_64_4(MPI_P(X), MPI_P(A));
-	mpi_fixup_used(X, A->used + 1);
-}
-
 static void inline
 mpi_shift_l1_x86_64_4(TlsMpi *X, const TlsMpi *A)
 {
