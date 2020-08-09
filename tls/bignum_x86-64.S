@@ -443,6 +443,42 @@ ENDPROC(mpi_shift_l_x86_64_4)
 
 
 /**
+ * X (%RDI) = A (%RSI) << 1 mod p256, both the MPIs are 4 limbs.
+ * Mostly repeats mpi_add_mod_p256_x86_64().
+ */
+ENTRY(mpi_shift_l1_mod_p256_x86_64)
+	pushq	%rbx
+
+	movq	(%rsi), %r8
+	movq	8(%rsi), %r9
+	movq	16(%rsi), %r10
+	movq	24(%rsi), %r11
+
+	xorq	%rcx, %rcx
+	movq	$0xffffffff, %rbx
+	movq	$0xffffffff00000001, %rax
+	movq	$0xffffffffffffffff, %rsi
+
+	shldq	$1, %r11, %rcx
+	shldq	$1, %r10, %r11
+	shldq	$1, %r9, %r10
+	shldq	$1, %r8, %r9
+	shlq	$1, %r8
+
+	__ADD_TRY_SUB .shl1_mod_p256_prev_res
+
+	movq	%r8, (%rdi)
+	movq	%r9, 8(%rdi)
+	movq	%r10, 16(%rdi)
+	movq	%r11, 24(%rdi)
+
+.shl1_mod_p256_prev_res:
+	popq	%rbx
+	ret
+ENDPROC(mpi_shift_l1_mod_p256_x86_64)
+
+
+/**
  * Shift X right for N < 64 bits.
  *
  * %RDI	- pointer to X;

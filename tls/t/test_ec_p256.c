@@ -87,30 +87,58 @@ ecp_base_math(void)
 	EXPECT_MPI(X1, 4, 0xc8ffdf05b3b8d501UL, 0x3058f52db9314b72UL,
 			  0xb0d710a39462b265UL, 0x36e8bc4706c7f7d5UL);
 
+	mpi_shift_l1_mod_p256_x86_64(MPI_P(X1), MPI_P(B));
+	EXPECT_MPI(X1, 4, 0xfffffffeUL, 0, 0, 0);
+	mpi_shift_l1_mod_p256_x86_64(MPI_P(X1), MPI_P(A));
+	EXPECT_MPI(X1, 4, 0xfffffffffffffffeUL, 0, 0, 0);
+	mpi_shift_l1_mod_p256_x86_64(MPI_P(X1), MPI_P(X1));
+	EXPECT_MPI(X1, 4, 0xfffffffffffffffcUL, 0x1UL, 0, 0);
+
+	ECP256_MPI_LSET(T1, 0);
+	mpi_shift_l1_mod_p256_x86_64(MPI_P(X1), MPI_P(T1));
+	EXPECT_MPI(X1, 4, 0, 0, 0, 0);
+
+	MPI_P(T1)[0] = 0xfffffffffffffffeUL;
+	MPI_P(T1)[1] = 0x00000000ffffffffUL;
+	MPI_P(T1)[2] = 0x0UL;
+	MPI_P(T1)[3] = 0xffffffff00000001UL;
+	mpi_shift_l1_mod_p256_x86_64(MPI_P(X1), MPI_P(T1));
+	EXPECT_MPI(X1, 4, 0xfffffffffffffffdUL, 0x00000000ffffffffUL,
+			  0x0000000000000000UL, 0xffffffff00000001UL);
+
+	mpi_shift_l1_mod_p256_x86_64(MPI_P(X1), MPI_P(X1));
+	EXPECT_MPI(X1, 4, 0xfffffffffffffffbUL, 0x00000000ffffffffUL,
+			  0x0000000000000000UL, 0xffffffff00000001UL);
+
 	for (i = 0; i < 1000; ++i) {
 		/* 2 * B * 2 * A^2 = B * (2 * A)^2 */
 		ecp256_sqr_mod(T1, A);
-		ttls_mpi_shift_l(T1, T1, 1);
-		ecp256_mod_add(T1);
+		mpi_shift_l1_mod_p256_x86_64(MPI_P(T1), MPI_P(T1));
 		ecp256_mul_mod(X1, T1, B);
-		ttls_mpi_shift_l(X1, X1, 1);
-		ecp256_mod_add(X1);
-
-		ttls_mpi_shift_l(T2, A, 1);
-		ecp256_mod_add(T2);
+		mpi_shift_l1_mod_p256_x86_64(MPI_P(X1), MPI_P(X1));
+		mpi_shift_l1_mod_p256_x86_64(MPI_P(T2), MPI_P(A));
 		ecp256_sqr_mod(T2, T2);
 		ecp256_mul_mod(X2, T2, B);
-
 		EXPECT_ZERO(ttls_mpi_cmp_mpi(X1, X2));
 
 		/* (2 * A^2)^2 * 2 = ((2 * A)^2)^2 / 2 */
 		ecp256_sqr_mod(X1, T1);
-		ttls_mpi_shift_l(X1, X1, 1);
-		ecp256_mod_add(X1);
-
+		mpi_shift_l1_mod_p256_x86_64(MPI_P(X1), MPI_P(X1));
 		ecp256_sqr_mod(X2, T2);
 		mpi_div2_x86_64_4(MPI_P(X2), MPI_P(X2));
+		EXPECT_ZERO(ttls_mpi_cmp_mpi(X1, X2));
 
+		/* (3 * B) mpd p256 == (B + B << 1) mod p256*/
+		mpi_tpl_mod_p256_x86_64(MPI_P(X1), MPI_P(B));
+		mpi_shift_l1_mod_p256_x86_64(MPI_P(X2), MPI_P(B));
+		mpi_add_mod_p256_x86_64(MPI_P(X2), MPI_P(X2), MPI_P(B));
+		EXPECT_ZERO(ttls_mpi_cmp_mpi(X1, X2));
+
+		/* (3 * A) mpd p256 == ((A << 1) + (A << 1) - A) mod p256*/
+		mpi_tpl_mod_p256_x86_64(MPI_P(X1), MPI_P(A));
+		mpi_shift_l1_mod_p256_x86_64(MPI_P(X2), MPI_P(A));
+		mpi_add_mod_p256_x86_64(MPI_P(X2), MPI_P(X2), MPI_P(X2));
+		mpi_sub_mod_p256_x86_64_4(MPI_P(X2), MPI_P(X2), MPI_P(A));
 		EXPECT_ZERO(ttls_mpi_cmp_mpi(X1, X2));
 
 		ecp256_mul_mod(A, A, T1);
