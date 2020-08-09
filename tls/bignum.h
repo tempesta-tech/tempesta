@@ -217,15 +217,6 @@ ttls_mpi_eq_1(const TlsMpi *X)
 	return X->used == 1 && X->s == 1 && MPI_P(X)[0] == 1;
 }
 
-static void inline
-mpi_shift_l1_x86_64_4(TlsMpi *X, const TlsMpi *A)
-{
-	unsigned long *x = MPI_P(X);
-
-	mpi_shift_l_x86_64_4(x, MPI_P(A), 1);
-	X->used = A->used + !!x[4];
-}
-
 #if DBG_TLS
 /**
  * There are a lot of MPI operations used around, so Tempesta TLS becomes

@@ -47,6 +47,7 @@ void mpi_shift_l_x86_64_4(unsigned long *x, const unsigned long *a,
 			  unsigned long bits);
 void mpi_shift_l_x86_64(unsigned long *x, const unsigned long *a, size_t x_len,
 			unsigned long bits);
+void mpi_shift_l1_mod_p256_x86_64(unsigned long *x, const unsigned long *a);
 
 void mpi_shift_r_x86_64_4(unsigned long *x, unsigned long bits);
 void mpi_shift_r_x86_64(unsigned long *x, size_t x_len, unsigned long bits);
