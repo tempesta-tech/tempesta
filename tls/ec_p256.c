@@ -802,8 +802,9 @@ ecp256_double_jac(TlsEcpPoint *R, const TlsEcpPoint *P)
 		mpi_sub_mod_p256_x86_64_4(s, s, t);
 	}
 	S.used = G_LIMBS; // TODO
-	ttls_mpi_tpl_x86_64_4(&M, &S);
-	ecp256_mod_add(&M);
+	mpi_tpl_mod_p256_x86_64(m, s);
+	M.used = 4; // TODO
+	M.s = 1;
 
 	/* S = 4 * X * Y^2 = X * (2 * Y)^2 */
 	mpi_shift_l1_x86_64_4(&T, &P->Y);
@@ -869,8 +870,9 @@ ecp256_double_jac_n(TlsEcpPoint *r, const TlsEcpPoint *p, TlsMpi *tmp[8])
 		/* A = 3 * (X^2 - W) */
 		ecp256_sqr_mod(a, x);
 		ecp256_sub_mod(a, a, w);
-		ttls_mpi_tpl_x86_64_4(a, a);
-		ecp256_mod_add(a);
+		mpi_tpl_mod_p256_x86_64(MPI_P(a), MPI_P(a));
+		a->used = 4;
+		a->s = 1;
 		/* B = X * Y^2 */
 		ecp256_sqr_mod(y2, y);
 		ecp256_mul_mod(b, y2, x);

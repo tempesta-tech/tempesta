@@ -108,6 +108,23 @@ ENTRY(mpi_add_x86_64)
 ENDPROC(mpi_add_x86_64)
 
 
+/*
+ * Save current, probably completed, result trying p256 subtraction for
+ * the modular reduction.
+ */
+.macro __ADD_TRY_SUB	L:req
+	movq	%r8, (%rdi)
+	movq	%r9, 8(%rdi)
+	movq	%r10, 16(%rdi)
+	movq	%r11, 24(%rdi)
+	subq	%rsi, %r8
+	sbbq	%rbx, %r9
+	sbbq	$0, %r10
+	sbbq	%rax, %r11
+	sbbq	$0, %rcx
+	jc	\L
+.endm
+
 /**
  * Add X = A + B mod P256
  *
@@ -136,18 +153,7 @@ ENTRY(mpi_add_mod_p256_x86_64)
 	adcq	24(%rdx), %r11
 	adcq	$0, %rcx
 
-	/* Save current, probably completed, result. */
-	movq	%r8, (%rdi)
-	movq	%r9, 8(%rdi)
-	movq	%r10, 16(%rdi)
-	movq	%r11, 24(%rdi)
-
-	subq	%rsi, %r8
-	sbbq	%rbx, %r9
-	sbbq	$0, %r10
-	sbbq	%rax, %r11
-	sbbq	$0, %rcx
-	jc	.add_mod_p256_prev_res
+	__ADD_TRY_SUB .add_mod_p256_prev_res
 
 	movq	%r8, (%rdi)
 	movq	%r9, 8(%rdi)
@@ -518,32 +524,57 @@ ENDPROC(mpi_div2_x86_64_4)
 
 
 /**
- * X (%RDI) = 3 * A (%RSI), both the MPIs are 4 limbs.
- * Returns non-zero in %RAX if there was carry to 5th limb and 0 otherwise.
+ * X (%RDI) = 3 * A (%RSI) mod p256, both the MPIs are 4 limbs.
+ * Mostly repeats mpi_add_mod_p256_x86_64().
  */
-ENTRY(mpi_tpl_x86_64_4)
-	movq	(%rsi), %r8
-	movq	8(%rsi), %r9
-	movq	16(%rsi), %r10
-	movq	24(%rsi), %r11
-	xorq	%rax, %rax
+ENTRY(mpi_tpl_mod_p256_x86_64)
+	pushq	%rbx
+	pushq	%r12
+	pushq	%r13
+	pushq	%r14
+	pushq	%r15
+
+	movq	(%rsi), %r12
+	movq	8(%rsi), %r13
+	movq	16(%rsi), %r14
+	movq	24(%rsi), %r15
+
+	xorq	%rcx, %rcx
+	movq	$0xffffffff, %rbx
+	movq	$0xffffffff00000001, %rax
+	movq	$0xffffffffffffffff, %rsi
+
+	movq	%r12, %r8
+	movq	%r13, %r9
+	movq	%r14, %r10
+	movq	%r15, %r11
+	addq	%r12, %r12
+	adcq	%r13, %r13
+	adcq	%r14, %r14
+	adcq	%r15, %r15
+	adcq	$0, %rcx
+	addq	%r12, %r8
+	adcq	%r13, %r9
+	adcq	%r14, %r10
+	adcq	%r15, %r11
+	adcq	$0, %rcx
+
+	__ADD_TRY_SUB .tpl_mod_p256_prev_res
+	__ADD_TRY_SUB .tpl_mod_p256_prev_res
+
 	movq	%r8, (%rdi)
 	movq	%r9, 8(%rdi)
 	movq	%r10, 16(%rdi)
 	movq	%r11, 24(%rdi)
-	addq	%r8, %r8
-	adcq	%r9, %r9
-	adcq	%r10, %r10
-	adcq	%r11, %r11
-	adcq	$0, %rax
-	addq	%r8, (%rdi)
-	adcq	%r9, 8(%rdi)
-	adcq	%r10, 16(%rdi)
-	adcq	%r11, 24(%rdi)
-	adcq	$0, %rax
-	movq	%rax, 32(%rdi)
-	repz retq
-ENDPROC(mpi_tpl_x86_64_4)
+
+.tpl_mod_p256_prev_res:
+	popq	%r15
+	popq	%r14
+	popq	%r13
+	popq	%r12
+	popq	%rbx
+	retq
+ENDPROC(mpi_tpl_mod_p256_x86_64)
 
 
 /**

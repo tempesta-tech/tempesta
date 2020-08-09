@@ -72,6 +72,21 @@ ecp_base_math(void)
 
 	ECP256_MPI_LSET(A, LONG_MAX);
 	ECP256_MPI_LSET(B, INT_MAX);
+
+	X1->used = 4;
+	mpi_tpl_mod_p256_x86_64(MPI_P(X1), MPI_P(B));
+	EXPECT_MPI(X1, 4, 0x000000017ffffffdUL, 0, 0, 0);
+	mpi_tpl_mod_p256_x86_64(MPI_P(X1), MPI_P(A));
+	EXPECT_MPI(X1, 4, 0x7ffffffffffffffdUL, 1UL, 0, 0);
+
+	MPI_P(T1)[0] = 0xedaa9fac913d9c55UL;
+	MPI_P(T1)[1] = 0x101da70fe865c3d0UL;
+	MPI_P(T1)[2] = 0x3af25ae131763b77UL;
+	MPI_P(T1)[3] = 0xbcf83ec1aced529dUL;
+	mpi_tpl_mod_p256_x86_64(MPI_P(X1), MPI_P(T1));
+	EXPECT_MPI(X1, 4, 0xc8ffdf05b3b8d501UL, 0x3058f52db9314b72UL,
+			  0xb0d710a39462b265UL, 0x36e8bc4706c7f7d5UL);
+
 	for (i = 0; i < 1000; ++i) {
 		/* 2 * B * 2 * A^2 = B * (2 * A)^2 */
 		ecp256_sqr_mod(T1, A);
