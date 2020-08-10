@@ -3,7 +3,7 @@
  *
  * Transport Layer Security (TLS) interfaces to Tempesta TLS.
  *
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -115,8 +115,8 @@ next_msg:
 	r = ss_skb_process(skb, ttls_recv, tls, &tls->io_in.chunks, &parsed);
 	switch (r) {
 	default:
-		T_WARN("Unrecognized TLS receive return code %d, drop packet\n",
-		       r);
+		T_WARN("Unrecognized TLS receive return code -0x%X, drop packet\n",
+		       -r);
 		/* Fall through. */
 	case T_DROP:
 		spin_unlock(&tls->lock);
@@ -692,10 +692,10 @@ static TfwConnHooks tls_conn_hooks = {
 	.conn_send	= tfw_tls_conn_send,
 };
 
-static const TlsPeerCfg	*
+static TlsPeerCfg *
 tfw_tls_get_if_configured(TfwVhost *vhost)
 {
-	const TlsPeerCfg *cfg;
+	TlsPeerCfg *cfg;
 
 	if (unlikely(!vhost))
 		return false;
@@ -736,13 +736,13 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 {
 	const TfwStr srv_name = {.data = (unsigned char *)data, .len = len};
 	TfwVhost *vhost = NULL;
-	const TlsPeerCfg *peer_cfg;
+	TlsPeerCfg *peer_cfg;
 	TfwCliConn *cli_conn = &container_of(ctx, TfwTlsConn, tls)->cli_conn;
 
 	T_DBG2("%s: server name '%.*s'\n",  __func__, (int)len, data);
 
 	if (WARN_ON_ONCE(ctx->peer_conf))
-		return -TTLS_ERR_BAD_HS_CLIENT_HELLO;
+		return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 
 	if (data && len) {
 		vhost = tfw_vhost_lookup(&srv_name);
@@ -750,12 +750,12 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 			SNI_WARN(" '%s' vhost by name, reject connection.\n",
 				 TFW_VH_DFT_NAME);
 			tfw_vhost_put(vhost);
-			return -TTLS_ERR_BAD_HS_CLIENT_HELLO;
+			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
 		if (unlikely(!vhost && !tfw_tls.allow_any_sni)) {
 			SNI_WARN(" unknown server name '%.*s', reject connection.\n",
 				 (int)len, data);
-			return -TTLS_ERR_BAD_HS_CLIENT_HELLO;
+			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
 		}
 	}
 	/*
@@ -765,7 +765,7 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 	if (!vhost)
 		vhost = tfw_vhost_lookup_default();
 	if (unlikely(!vhost))
-		return -TTLS_ERR_CERTIFICATE_REQUIRED;
+		return TTLS_ERR_CERTIFICATE_REQUIRED;
 
 	peer_cfg = tfw_tls_get_if_configured(vhost);
 	ctx->peer_conf = peer_cfg;
@@ -776,7 +776,7 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 		      PR_TFW_STR(&vhost->name));
 	}
 
-	return peer_cfg ? 0 : -TTLS_ERR_CERTIFICATE_REQUIRED;
+	return peer_cfg ? 0 : TTLS_ERR_CERTIFICATE_REQUIRED;
 }
 
 /*
