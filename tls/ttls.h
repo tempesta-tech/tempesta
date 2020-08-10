@@ -27,6 +27,7 @@
 #include <linux/skbuff.h>
 #include <linux/slab.h>
 #include <linux/string.h>
+#include <linux/timer.h>
 #include <net/tls.h>
 
 #include "lib/str.h"
