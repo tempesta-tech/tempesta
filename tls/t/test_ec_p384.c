@@ -1,7 +1,7 @@
 /**
- *	Tempesta kernel emulation unit testing framework.
+ *		Tempesta TLS EC NIST secp384r1 unit test
  *
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -17,24 +17,30 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef __COMPILER_H__
-#define __COMPILER_H__
+#include "ttls_mocks.h"
+/* mpool.c requires DHM routines. */
+#include "../bignum.c"
+#include "../ciphersuites.c"
+#include "../dhm.c"
+#include "../asn1.c"
+#include "../ec_p384.c"
+#include "../ecp.c"
+#include "../mpool.c"
 
-typedef unsigned long u64;
-typedef unsigned int u32;
-typedef unsigned short u16;
-typedef unsigned char u8;
-typedef long ktime_t;
+/* Mock irrelevant groups. */
+const TlsEcpGrp SECP256_G = {};
+const TlsEcpGrp CURVE25519_G = {};
 
-/* asm/types.h */
-#define BITS_PER_LONG	64
+int
+main(int argc, char *argv[])
+{
+	BUG_ON(ttls_mpool_init());
 
-#define likely(e)	__builtin_expect((bool)(e), 1)
-#define unlikely(e)	__builtin_expect((bool)(e), 0)
+	/* TODO #1335 no real tests, just check initialization for now. */
 
-#define cpu_to_be64(x)	__builtin_bswap64(x)
-#define be64_to_cpu(x)	__builtin_bswap64(x)
+	ttls_mpool_exit();
 
-#define __percpu
+	printf("success\n");
 
-#endif /* __COMPILER_H__ */
+	return 0;
+}

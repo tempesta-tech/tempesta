@@ -23,9 +23,13 @@ GCOV_PROFILE := $(TFW_GCOV)
 obj-m = tempesta_tls.o
 
 ttls-srcs = $(wildcard $(obj)/*.c)
-ttls-objs = $(patsubst %.c, %.o, $(ttls-srcs))
-
 ttls-asm-srcs = $(wildcard $(obj)/*.S)
+
+ttls-objs = $(patsubst %.c, %.o, $(ttls-srcs))
 ttls-objs += $(patsubst %.S, %.o, $(ttls-asm-srcs))
 
 tempesta_tls-objs = $(subst $(src)/,,$(ttls-objs))
+
+.PHONY: clean
+clean:
+	rm -f *.autogen.*

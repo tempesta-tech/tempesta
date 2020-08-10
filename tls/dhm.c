@@ -369,7 +369,7 @@ static int dhm_update_blinding(TlsDHMCtx *ctx)
 	while (ttls_mpi_cmp_int(&ctx->Vi, 1) <= 0);
 
 	/* Vf = Vi^-X mod P */
-	TTLS_MPI_CHK(ttls_mpi_inv_mod(&ctx->Vf, &ctx->Vi, &ctx->P));
+	ttls_mpi_inv_mod(&ctx->Vf, &ctx->Vi, &ctx->P);
 	TTLS_MPI_CHK(ttls_mpi_exp_mod(&ctx->Vf, &ctx->Vf, &ctx->X, &ctx->P, &ctx->RP));
 
 cleanup:

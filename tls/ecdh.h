@@ -47,18 +47,15 @@ typedef enum {
  * The ECDH context structure.
  *
  * @rgp			- elliptic curve used;
- * @Q			- public key;
- * @Qp			- value of the public key of the peer;
- * @z			- shared secret, X point is only used
- *			  (see ttls_ecdh_compute_shared());
  * @d			- private key;
+ * @Q			- public key;
+ * @Qp			- the peer X and Y coordinates of the public key point;
  */
 typedef struct {
-	TlsEcpPoint	Q;
-	TlsEcpPoint	Qp;
-	TlsEcpPoint	z;
+	const TlsEcpGrp	*grp;
 	TlsMpi		d;
-	TlsEcpGrp	*grp;
+	TlsEcpPoint	Q;
+	unsigned long	Qp[0];
 } TlsECDHCtx;
 
 int ttls_ecdh_make_params(TlsECDHCtx *ctx, size_t *olen,

@@ -23,6 +23,7 @@
 #include <linux/errno.h>
 #include <stdio.h>
 
+#include "bug.h"
 #include "compiler.h"
 
 #define ARRAY_SIZE(x)   	(sizeof(x) / sizeof(*(x)))
@@ -41,10 +42,10 @@
 
 /* asm/cache.h */
 #ifndef L1_CACHE_BYTES
-#define L1_CACHE_BYTES 64
+#define L1_CACHE_BYTES		64
 #endif
 
-#define SMP_CACHE_BYTES L1_CACHE_BYTES
+#define SMP_CACHE_BYTES		L1_CACHE_BYTES
 #define ____cacheline_aligned __attribute__((__aligned__(SMP_CACHE_BYTES)))
 #define ____cacheline_aligned_in_smp ____cacheline_aligned
 #define __aligned(a)	__attribute__((__aligned__(a)))
@@ -57,21 +58,21 @@
 	void *__mptr = (void *)(ptr);					\
 	((type *)(__mptr - offsetof(type, member))); })
 
-#define __min(t1, t2, min1, min2, x, y) ({		\
-	t1 min1 = (x);					\
-	t2 min2 = (y);					\
-	(void) (&min1 == &min2);			\
+#define __min(t1, t2, min1, min2, x, y) ({				\
+	t1 min1 = (x);							\
+	t2 min2 = (y);							\
+	(void) (&min1 == &min2);					\
 	min1 < min2 ? min1 : min2; })
 
-#define min(x, y)					\
-	__min(typeof(x), typeof(y),			\
-	      __UNIQUE_ID(min1_), __UNIQUE_ID(min2_),	\
+#define min(x, y)							\
+	__min(typeof(x), typeof(y),					\
+	      __UNIQUE_ID(min1_), __UNIQUE_ID(min2_),			\
 	      x, y)
 
-#define __max(t1, t2, max1, max2, x, y) ({		\
-	t1 max1 = (x);					\
-	t2 max2 = (y);					\
-	(void) (&max1 == &max2);			\
+#define __max(t1, t2, max1, max2, x, y) ({				\
+	t1 max1 = (x);							\
+	t2 max2 = (y);							\
+	(void) (&max1 == &max2);					\
 	max1 > max2 ? max1 : max2; })
 
 #define max(x, y)							\
@@ -83,7 +84,6 @@
 #define max_t(type, x, y)						\
 	__max(type, type, (min1_), (min2_), x, y)
 
-
 struct module { /* dummy strut */ };
 
 #define request_module(...)
@@ -94,14 +94,31 @@ struct list_head {
 	struct list_head *next, *prev;
 };
 
-/**
- * Constants instead of the real random bytes make the debugging simpler.
- * Don't use zero as cryptography may check for non-zero values.
- */
 static inline void
 get_random_bytes_arch(void *buf, int nbytes)
 {
+#ifdef NO_RANDOM
 	memset(buf, 0xAA, nbytes);
+#else
+	int failures = 0;
+	unsigned long long *pl;
+
+	while (nbytes > sizeof(long)) {
+		pl = (unsigned long long *)((char *)buf + nbytes - sizeof(long));
+
+		if (__builtin_ia32_rdrand64_step(pl)) {
+			nbytes -= sizeof(long);
+		} else {
+			BUG_ON(failures++ > 10);
+		}
+	}
+	if (nbytes) {
+		unsigned long long l;
+		for (failures = 0; !__builtin_ia32_rdrand64_step(&l); )
+			BUG_ON(failures++ > 10);
+		memcpy(buf, &l, nbytes);
+	}
+#endif
 }
 
 #define DUMP_PREFIX_OFFSET	0
@@ -139,7 +156,10 @@ task_stack_page(void)
 	return r;
 }
 
+#define might_sleep()
 #define current
 #define irq_stack_ptr		task_stack_page()
+
+#define EXPORT_SYMBOL(...)
 
 #endif /* __KERNEL_H__ */

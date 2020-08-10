@@ -354,7 +354,7 @@ ttls_md_info_from_type(ttls_md_type_t md_type)
 	case TTLS_MD_SHA512:
 		return &ttls_sha512_info;
 	default:
-		return NULL;
+		BUG();
 	}
 }
 

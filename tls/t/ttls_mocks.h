@@ -30,6 +30,10 @@
 #define EXPECT_ZERO(c)		BUG_ON((c) != 0)
 #define EXPECT_EQ(c, v)		BUG_ON((c) != (v))
 
+/*
+ * md_* mocks are required for RSA tests.
+ */
+
 void
 ttls_md_init(TlsMdCtx *ctx)
 {
@@ -107,5 +111,50 @@ ttls_oid_get_oid_by_md(ttls_md_type_t md_alg, const char **oid, size_t *olen)
 
 	return 0;
 }
+
+#ifndef RSA_TEST
+size_t
+ttls_rsa_get_len(const TlsRSACtx *ctx)
+{
+	return 0;
+}
+
+void
+ttls_rsa_init(TlsRSACtx *ctx, int padding, int hash_id)
+{
+}
+
+void
+ttls_rsa_free(TlsRSACtx *ctx)
+{
+}
+
+int
+ttls_rsa_rsassa_pss_verify_ext(TlsRSACtx *ctx, ttls_md_type_t md_alg,
+			       unsigned int hashlen,
+			       const unsigned char *hash,
+			       ttls_md_type_t mgf1_hash_id,
+			       int expected_salt_len,
+			       const unsigned char *sig)
+{
+	return 0;
+}
+
+int
+ttls_rsa_pkcs1_verify(TlsRSACtx *ctx, ttls_md_type_t md_alg,
+		      unsigned int hashlen, const unsigned char *hash,
+		      const unsigned char *sig)
+{
+	return 0;
+}
+
+int
+ttls_rsa_pkcs1_sign(TlsRSACtx *ctx, ttls_md_type_t md_alg,
+		    const unsigned char *hash, size_t hashlen,
+		    unsigned char *sig)
+{
+	return 0;
+}
+#endif /* RSA_TEST */
 
 #endif /* __TTLS_MOCKS_H__ */

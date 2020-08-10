@@ -403,7 +403,7 @@ ttls_substate(const TlsCtx *tls)
 	return tls->state & __TTLS_FSM_SUBST_MASK;
 }
 
-#if defined(DEBUG) && DEBUG == 3
+#if DBG_TLS && DEBUG == 3
 /*
  * Make the things repeatable, simple and INSECURE on largest debug level -
  * this helps to debug TLS (thanks to reproducible records payload), but
@@ -421,6 +421,10 @@ unsigned long ttls_time_debug(void);
 
 #else
 #define ttls_time()		get_seconds()
+/*
+ * CPUs since Intel Ice Lake are safe against SRBDS attack, so we're good
+ * with the hardware random generator.
+ */
 #define ttls_rnd(buf, len)	get_random_bytes_arch(buf, len)
 #endif
 

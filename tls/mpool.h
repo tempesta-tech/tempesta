@@ -23,18 +23,17 @@
 #include "tls_internal.h"
 
 #define TTLS_MPOOL_ORDER	1 /* 2 pages for temporary MPIs */
+/* TODO #1064: shrink sizeof T[] items and shrink the pool size. */
+#define TTLS_CSPOOL_ORDER	(TTLS_MPOOL_ORDER + 2)
 
 TlsMpiPool *ttls_mpool(void *addr);
 void *ttls_mpool_alloc_stack(size_t n);
 void *ttls_mpool_alloc_data(TlsMpiPool *mp, size_t n);
-int ttls_mpi_pool_alloc_mpi(TlsMpi *x, size_t n, bool tail);
+int ttls_mpi_pool_alloc_mpi(TlsMpi *x, size_t n);
 TlsMpiPool *ttls_mpi_pool_create(size_t order, gfp_t gfp_mask);
 void ttls_mpi_pool_free(void *ctx);
 int ttls_mpi_profile_clone(TlsCtx *tls);
 void ttls_mpi_pool_cleanup_ctx(unsigned long addr, bool zero);
-void ttls_mpool_shrink_tailtmp(TlsMpiPool *mp, bool fix_refs);
-
-TlsEcpPoint *ttls_mpool_ecp_create_tmp_T(int n, const TlsEcpPoint *P);
 
 int ttls_mpool_init(void);
 void ttls_mpool_exit(void);

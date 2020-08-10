@@ -24,8 +24,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#define BUG_ON(c)	assert(!(c))
-#define BUILD_BUG_ON(c)	assert(!(c))
+#define BUG_ON(c)	assert(unlikely(!(c)))
+#define BUILD_BUG_ON(c)	assert(unlikely(!(c)))
 #define BUG()		abort()
 
 /*

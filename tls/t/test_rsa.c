@@ -17,15 +17,20 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#define RSA_TEST
 #include "ttls_mocks.h"
 /* mpool.c requires ECP and DHM routines. */
 #include "../bignum.c"
 #include "../ciphersuites.c"
 #include "../dhm.c"
 #include "../ecp.c"
-#include "../ecp_curves.c"
 #include "../mpool.c"
 #include "../rsa.c"
+
+/* Mock irrelevant groups. */
+const TlsEcpGrp SECP256_G = {};
+const TlsEcpGrp SECP384_G = {};
+const TlsEcpGrp CURVE25519_G = {};
 
 /*
  * Example RSA-1024 keypair, for test purposes.
@@ -92,7 +97,7 @@ rsa_sign(void)
 	kernel_fpu_begin();
 
 	memcpy(hash, RSA_PT, PT_LEN);
-	EXPECT_ZERO(ttls_rsa_pkcs1_sign(rsa, TTLS_MD_SHA256, hash, sig));
+	EXPECT_ZERO(ttls_rsa_pkcs1_sign(rsa, TTLS_MD_SHA256, hash, PT_LEN, sig));
 	EXPECT_ZERO(ttls_rsa_pkcs1_verify(rsa, TTLS_MD_SHA256, PT_LEN, hash,
 					  sig));
 
