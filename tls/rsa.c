@@ -4,8 +4,7 @@
  * The RSA public-key cryptosystem.
  *
  * TODO #1335: The Linux crypt API already has RSA implementation, so probably
- * the stuff below should be just thrown out. Fallback to GPU is necessary
- * however, so maybe not... A careful rethinking is required.
+ * the stuff below should be just thrown out.
  *
  * The following sources were referenced in the design of this implementation
  * of the RSA algorithm:
@@ -384,7 +383,7 @@ ttls_rsa_deduce_private_exponent(TlsMpi const *P, TlsMpi const *Q,
 	ttls_mpi_div_mpi(K, NULL, K, D);
 
 	/* Compute modular inverse of E in LCM(P-1, Q-1) */
-	MPI_CHK(ttls_mpi_inv_mod(D, E, K));
+	ttls_mpi_inv_mod(D, E, K);
 
 	return 0;
 }
@@ -419,7 +418,7 @@ ttls_rsa_deduce_crt(const TlsMpi *P, const TlsMpi *Q, const TlsMpi *D,
 
 	/* QP = Q^{-1} mod P */
 	if (QP)
-		MPI_CHK(ttls_mpi_inv_mod(QP, Q, P));
+		ttls_mpi_inv_mod(QP, Q, P);
 
 	return 0;
 }
@@ -954,12 +953,13 @@ exit:
  */
 static int
 ttls_rsa_rsassa_pss_sign(TlsRSACtx *ctx, ttls_md_type_t md_alg,
-			 const unsigned char *hash, unsigned char *sig)
+			 const unsigned char *hash, size_t hashlen,
+			 unsigned char *sig)
 {
 	size_t olen;
 	unsigned char *p = sig;
 	unsigned char salt[TTLS_MD_MAX_SIZE];
-	unsigned int hashlen, slen, hlen, offset = 0;
+	unsigned int slen, hlen, offset = 0;
 	int ret;
 	size_t msb;
 	const TlsMdInfo *md_info;
@@ -974,8 +974,6 @@ ttls_rsa_rsassa_pss_sign(TlsRSACtx *ctx, ttls_md_type_t md_alg,
 	md_info = ttls_md_info_from_type(md_alg);
 	if (md_info == NULL)
 		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
-
-	hashlen = ttls_md_get_size(md_info);
 
 	md_info = ttls_md_info_from_type((ttls_md_type_t) ctx->hash_id);
 	if (md_info == NULL)
@@ -1063,23 +1061,15 @@ exit:
  */
 static int
 rsa_rsassa_pkcs1_v15_encode(ttls_md_type_t md_alg, const unsigned char *hash,
-			    size_t dst_len, unsigned char *dst)
+			    size_t hashlen, size_t dst_len, unsigned char *dst)
 {
-	unsigned int hashlen;
 	size_t oid_size  = 0;
 	size_t nb_pad	= dst_len;
 	unsigned char *p = dst;
 	const char *oid  = NULL;
-	const TlsMdInfo *md_info = ttls_md_info_from_type(md_alg);
-
-	/* Are we signing hashed or raw data? */
-	if (md_info == NULL)
-		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	if (ttls_oid_get_oid_by_md(md_alg, &oid, &oid_size) != 0)
 		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
-
-	hashlen = ttls_md_get_size(md_info);
 
 	/*
 	 * Double-check that 8 + hashlen + oid_size can be used as a
@@ -1165,7 +1155,8 @@ rsa_rsassa_pkcs1_v15_encode(ttls_md_type_t md_alg, const unsigned char *hash,
  */
 static int
 ttls_rsa_rsassa_pkcs1_v15_sign(TlsRSACtx *ctx, ttls_md_type_t md_alg,
-			       const unsigned char *hash, unsigned char *sig)
+			       const unsigned char *hash, size_t hashlen,
+			       unsigned char *sig)
 {
 	int ret;
 	unsigned char *sig_try = NULL, *verif = NULL;
@@ -1176,7 +1167,8 @@ ttls_rsa_rsassa_pkcs1_v15_sign(TlsRSACtx *ctx, ttls_md_type_t md_alg,
 	/*
 	 * Prepare PKCS1-v1.5 encoding (padding and hash identifier)
 	 */
-	if ((ret = rsa_rsassa_pkcs1_v15_encode(md_alg, hash, ctx->len, sig)))
+	if ((ret = rsa_rsassa_pkcs1_v15_encode(md_alg, hash, hashlen,
+					       ctx->len, sig)))
 		return ret;
 
 	/* Private key operation
@@ -1215,13 +1207,15 @@ cleanup:
  */
 int
 ttls_rsa_pkcs1_sign(TlsRSACtx *ctx, ttls_md_type_t md_alg,
-		    const unsigned char *hash, unsigned char *sig)
+		    const unsigned char *hash, size_t hashlen,
+		    unsigned char *sig)
 {
 	switch(ctx->padding) {
 	case TTLS_RSA_PKCS_V15:
-		return ttls_rsa_rsassa_pkcs1_v15_sign(ctx, md_alg, hash, sig);
+		return ttls_rsa_rsassa_pkcs1_v15_sign(ctx, md_alg, hash,
+						      hashlen, sig);
 	case TTLS_RSA_PKCS_V21:
-		return ttls_rsa_rsassa_pss_sign(ctx, md_alg, hash, sig);
+		return ttls_rsa_rsassa_pss_sign(ctx, md_alg, hash, hashlen, sig);
 	default:
 		return TTLS_ERR_RSA_INVALID_PADDING;
 	}
@@ -1421,7 +1415,7 @@ ttls_rsa_rsassa_pkcs1_v15_verify(TlsRSACtx *ctx, ttls_md_type_t md_alg,
 		goto cleanup;
 	}
 
-	if ((ret = rsa_rsassa_pkcs1_v15_encode(md_alg, hash, sig_len,
+	if ((ret = rsa_rsassa_pkcs1_v15_encode(md_alg, hash, hashlen, sig_len,
 					       encoded_expected)))
 		goto cleanup;
 

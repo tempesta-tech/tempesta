@@ -22,12 +22,47 @@
 #include <asm/export.h>
 #include <asm/nospec-branch.h>
 
+/*
+ * Use 32-byte alignment instead of common 4-byte to improve micro-op caching
+ * for the functions with many LCPs and/or branches.
+ */
+#define ENTRY_32(name)							\
+	.globl name ASM_NL						\
+	.align 32, 0x90 ASM_NL						\
+	name:
+
+
+/**
+ * Compare 4-limbs MPI %RDI with MPI %RSI.
+ */
+ENTRY(mpi_cmp_x86_64_4)
+	movq	$-1, %rdx
+	movq	24(%rdi), %rax
+	subq	24(%rsi), %rax
+	jnz	.cmp_4_done
+	movq	16(%rdi), %rax
+	subq	16(%rsi), %rax
+	jnz	.cmp_4_done
+	movq	8(%rdi), %rax
+	subq	8(%rsi), %rax
+	jnz	.cmp_4_done
+	movq	(%rdi), %rax
+	subq	(%rsi), %rax
+	jnz	.cmp_4_done
+.cmp_4_done:
+	cmovbq	%rdx, %rax
+	retq
+ENDPROC(mpi_cmp_x86_64_4)
+
+
 /**
  * Add X = A + B, where A->used >= B->used.
  *
  * %RDI and %RSI - pointer to X and X->limbs correspondingly;
  * %RDX and %RCX - pointer to B and B->used correspondingly;
  * %R8 and %R9 - pointer to A and A->used correspondingly.
+ *
+ * TODO #1335 it seems we can throw out the generic-length functions.
  */
 ENTRY(mpi_add_x86_64)
 	subq	%rcx, %r9
@@ -59,18 +94,76 @@ ENTRY(mpi_add_x86_64)
 	loop	.add_bigger_loop
 
 	/* Propagate carry to a new X limb if necessary. */
-	jnc	.done
-	cmpq	%rax, %rsi
+	jnc	.add_done
+	cmpq	%rax, %rsi	/* macro-op fused with jl */
 	jl	.enospc
 	movq	$1, (%rdi, %rax, 8)
 	incq	%rax
 
-.done:
+.add_done:
 	ret
 .enospc:
 	movq	$-1, %rax
 	ret
 ENDPROC(mpi_add_x86_64)
+
+
+/*
+ * Save current, probably completed, result trying p256 subtraction for
+ * the modular reduction.
+ */
+.macro __ADD_TRY_SUB	L:req
+	movq	%r8, (%rdi)
+	movq	%r9, 8(%rdi)
+	movq	%r10, 16(%rdi)
+	movq	%r11, 24(%rdi)
+	subq	%rsi, %r8
+	sbbq	%rbx, %r9
+	sbbq	$0, %r10
+	sbbq	%rax, %r11
+	sbbq	$0, %rcx
+	jc	\L
+.endm
+
+/**
+ * Add X = A + B mod P256
+ *
+ * %RDI - pointer to X
+ * %RSI - pointer to A
+ * %RDX - pointer to B
+ *
+ * All MPIs must be of 4 limbs size.
+ */
+ENTRY(mpi_add_mod_p256_x86_64)
+	pushq	%rbx
+
+	movq	(%rsi), %r8
+	movq	8(%rsi), %r9
+	movq	16(%rsi), %r10
+	movq	24(%rsi), %r11
+
+	xorq	%rcx, %rcx
+	movq	$0xffffffff, %rbx
+	movq	$0xffffffff00000001, %rax
+	movq	$0xffffffffffffffff, %rsi
+
+	addq	(%rdx), %r8
+	adcq	8(%rdx), %r9
+	adcq	16(%rdx), %r10
+	adcq	24(%rdx), %r11
+	adcq	$0, %rcx
+
+	__ADD_TRY_SUB .add_mod_p256_prev_res
+
+	movq	%r8, (%rdi)
+	movq	%r9, 8(%rdi)
+	movq	%r10, 16(%rdi)
+	movq	%r11, 24(%rdi)
+
+.add_mod_p256_prev_res:
+	popq	%rbx
+	ret
+ENDPROC(mpi_add_mod_p256_x86_64)
 
 
 /**
@@ -81,6 +174,8 @@ ENDPROC(mpi_add_x86_64)
  * %RDX	- pointer to A;
  * %RCX	- B->used (used directly for looping);
  * %R8	- A->used.
+ *
+ * TODO #1335 it seems we can throw out the generic-length functions.
  */
 ENTRY(mpi_sub_x86_64)
 	subq	%rcx, %r8
@@ -183,7 +278,8 @@ ENDPROC(mpi_sub_x86_64)
 
 /*
  * Operands size specialized implementations of the function above.
- * TODO Probably there is no case for the function with the new modp.
+ *
+ * TODO #1064 Probably there is no case for the function with the new modp.
  */
 ENTRY(mpi_sub_x86_64_5_4)
 	movq	(%rdx), %r8
@@ -220,6 +316,42 @@ ENTRY(mpi_sub_x86_64_4_4)
 	ret
 ENDPROC(mpi_sub_x86_64_4_4)
 
+/**
+ * Subtract X = A - B mod P256, where A->used >= B->used.
+ *
+ * %RDI	- pointer to X;
+ * %RSI	- pointer to A (can be the same as X);
+ * %RDX	- pointer to B;
+ */
+ENTRY(mpi_sub_mod_p256_x86_64_4)
+	movq	(%rsi), %r8
+	movq	8(%rsi), %r9
+	movq	16(%rsi), %r10
+	movq	24(%rsi), %r11
+
+	movq	$0xffffffff, %rcx
+	movq	$0xffffffff00000001, %rax
+	movq	$0xffffffffffffffff, %rsi
+
+	subq	(%rdx), %r8
+	sbbq	8(%rdx), %r9
+	sbbq	16(%rdx), %r10
+	sbbq	24(%rdx), %r11
+	jnb	.sub_mod_p256_done
+
+	addq	%rsi, %r8
+	adcq	%rcx, %r9
+	adcq	$0, %r10
+	adcq	%rax, %r11
+
+.sub_mod_p256_done:
+	movq	%r8, (%rdi)
+	movq	%r9, 8(%rdi)
+	movq	%r10, 16(%rdi)
+	movq	%r11, 24(%rdi)
+	ret
+ENDPROC(mpi_sub_mod_p256_x86_64_4)
+
 ENTRY(mpi_sub_x86_64_3_3)
 	movq	(%rdx), %r8
 	movq	8(%rdx), %r9
@@ -248,57 +380,102 @@ ENDPROC(mpi_sub_x86_64_2_2)
  * Shift X left for N < 64 bits.
  *
  * %RDI	- pointer to X;
- * %RSI	- size of X (value of X->used for after the shift);
- * %RDX	- N.
+ * %RSI - pointer to the original MPI;
+ * %RDX - size of X (value of X->used for after the shift);
+ * %RCX	- N.
+ *
+ * TODO #1335 it seems we can throw out the generic-length functions.
  */
 ENTRY(mpi_shift_l_x86_64)
-	movq	%rdx, %rcx
-
 	/*
 	 * Frst iteration with zeroed most significant limb propagating its
 	 * bits to the extra limb.
 	 */
 	xorq	%r11, %r11
-	movq	-8(%rdi, %rsi, 8), %r8
+	movq	-8(%rsi, %rdx, 8), %r8
 	shldq	%cl, %r8, %r11
-	movq	%r11, (%rdi, %rsi, 8)
-	decq	%rsi
+	movq	%r11, (%rdi, %rdx, 8)
+	decq	%rdx	/* macro-op fusion */
 	jz	.shl_last
 
 	/* The main loop with carying bits from less significant limbs. */
 .shl_loop:
-	movq	-8(%rdi, %rsi, 8), %r11
-	shldq	%cl, %r11, (%rdi, %rsi, 8)
-	decq	%rsi
+	movq	-8(%rsi, %rdx, 8), %r8
+	movq	(%rsi, %rdx, 8), %r11
+	shldq	%cl, %r8, %r11
+	movq	%r11, (%rdi, %rdx, 8)
+	decq	%rdx	/* macro-op fusion */
 	jnz	.shl_loop
 
-	/* Shift the less significant limb right in-place. */
 .shl_last:
-	shlq	%cl, (%rdi)
+	movq	(%rsi), %r11
+	shlq	%cl, %r11
+	movq	%r11, (%rdi)
 	ret
 ENDPROC(mpi_shift_l_x86_64)
 
 /**
  * A specialization of the above for 4 limbs MPI with and extra 5th limb.
  *
- * %RDI	- pointer to X;
- * %RSI	- N bits to shift.
+ * %RDI	- pointer to the resulting MPI;
+ * %RSI - pointer to the original MPI;
+ * %RDX	- N bits to shift.
  */
 ENTRY(mpi_shift_l_x86_64_4)
-	movq	%rsi, %rcx
-	movq	(%rdi), %r8
-	movq	8(%rdi), %r9
-	movq	16(%rdi), %r10
+	movq	%rdx, %rcx
+	movq	24(%rsi), %r11
+	movq	16(%rsi), %r10
 	xorq	%rdx, %rdx
-	movq	24(%rdi), %r11
+	movq	8(%rsi), %r9
+	movq	(%rsi), %r8
 	shldq	%cl, %r11, %rdx
-	shldq	%cl, %r10, 24(%rdi)
-	shldq	%cl, %r9, 16(%rdi)
-	shldq	%cl, %r8, 8(%rdi)
+	shldq	%cl, %r10, %r11
+	shldq	%cl, %r9, %r10
 	movq	%rdx, 32(%rdi)
-	shlq	%cl, (%rdi)
+	movq	%r11, 24(%rdi)
+	shldq	%cl, %r8, %r9
+	shlq	%cl, %r8
+	movq	%r10, 16(%rdi)
+	movq	%r9, 8(%rdi)
+	movq	%r8, (%rdi)
 	ret
 ENDPROC(mpi_shift_l_x86_64_4)
+
+
+/**
+ * X (%RDI) = A (%RSI) << 1 mod p256, both the MPIs are 4 limbs.
+ * Mostly repeats mpi_add_mod_p256_x86_64().
+ */
+ENTRY(mpi_shift_l1_mod_p256_x86_64)
+	pushq	%rbx
+
+	movq	(%rsi), %r8
+	movq	8(%rsi), %r9
+	movq	16(%rsi), %r10
+	movq	24(%rsi), %r11
+
+	xorq	%rcx, %rcx
+	movq	$0xffffffff, %rbx
+	movq	$0xffffffff00000001, %rax
+	movq	$0xffffffffffffffff, %rsi
+
+	shldq	$1, %r11, %rcx
+	shldq	$1, %r10, %r11
+	shldq	$1, %r9, %r10
+	shldq	$1, %r8, %r9
+	shlq	$1, %r8
+
+	__ADD_TRY_SUB .shl1_mod_p256_prev_res
+
+	movq	%r8, (%rdi)
+	movq	%r9, 8(%rdi)
+	movq	%r10, 16(%rdi)
+	movq	%r11, 24(%rdi)
+
+.shl1_mod_p256_prev_res:
+	popq	%rbx
+	ret
+ENDPROC(mpi_shift_l1_mod_p256_x86_64)
 
 
 /**
@@ -307,6 +484,8 @@ ENDPROC(mpi_shift_l_x86_64_4)
  * %RDI	- pointer to X;
  * %RSI	- size of X (current X->used);
  * %RDX	- N.
+ *
+ * TODO #1335 it seems we can throw out the generic-length functions.
  */
 ENTRY(mpi_shift_r_x86_64)
 	movq	%rdx, %rcx
@@ -347,14 +526,108 @@ ENDPROC(mpi_shift_r_x86_64_4)
 
 
 /**
+ * Divide the 256-bit MPI in %RSI by 2 mod P256 and store in %RDI.
+ * The code is borrowed from WolfSSL, sp_256_div2_4().
+ */
+ENTRY(mpi_div2_x86_64_4)
+	movq	(%rsi), %rdx
+	movq	8(%rsi), %rax
+	movq	16(%rsi), %rcx
+	movq	24(%rsi), %r8
+	movq	$0xffffffff, %r9
+	movq	$0xffffffff00000001, %r10
+	movq	%rdx, %r11
+	andq	$1, %r11
+	negq	%r11
+	andq	%r11, %r9
+	andq	%r11, %r10
+	addq	%r11, %rdx
+	adcq	%r9, %rax
+	adcq	$0, %rcx
+	adcq	%r10, %r8
+	movq	$0, %r11
+	adcq	$0, %r11
+	shrdq	$1, %rax, %rdx
+	shrdq	$1, %rcx, %rax
+	shrdq	$1, %r8, %rcx
+	shrdq	$1, %r11, %r8
+	movq	%rdx, (%rdi)
+	movq	%rax, 8(%rdi)
+	movq	%rcx, 16(%rdi)
+	movq	%r8, 24(%rdi)
+	retq
+ENDPROC(mpi_div2_x86_64_4)
+
+
+/**
+ * X (%RDI) = 3 * A (%RSI) mod p256, both the MPIs are 4 limbs.
+ * Mostly repeats mpi_add_mod_p256_x86_64().
+ */
+ENTRY(mpi_tpl_mod_p256_x86_64)
+	pushq	%rbx
+	pushq	%r12
+	pushq	%r13
+	pushq	%r14
+	pushq	%r15
+
+	movq	(%rsi), %r12
+	movq	8(%rsi), %r13
+	movq	16(%rsi), %r14
+	movq	24(%rsi), %r15
+
+	xorq	%rcx, %rcx
+	movq	$0xffffffff, %rbx
+	movq	$0xffffffff00000001, %rax
+	movq	$0xffffffffffffffff, %rsi
+
+	movq	%r12, %r8
+	movq	%r13, %r9
+	movq	%r14, %r10
+	movq	%r15, %r11
+	addq	%r12, %r12
+	adcq	%r13, %r13
+	adcq	%r14, %r14
+	adcq	%r15, %r15
+	adcq	$0, %rcx
+	addq	%r12, %r8
+	adcq	%r13, %r9
+	adcq	%r14, %r10
+	adcq	%r15, %r11
+	adcq	$0, %rcx
+
+	__ADD_TRY_SUB .tpl_mod_p256_prev_res
+	__ADD_TRY_SUB .tpl_mod_p256_prev_res
+
+	movq	%r8, (%rdi)
+	movq	%r9, 8(%rdi)
+	movq	%r10, 16(%rdi)
+	movq	%r11, 24(%rdi)
+
+.tpl_mod_p256_prev_res:
+	popq	%r15
+	popq	%r14
+	popq	%r13
+	popq	%r12
+	popq	%rbx
+	retq
+ENDPROC(mpi_tpl_mod_p256_x86_64)
+
+
+/**
  * Multiply two 4-limbs MPIs (pointed by %RSI and %RDX correspondingly) and
  * store up to 8 limbs by pointer to result %RDI.
  *
  * The function code is borrowed from WolfSSL library
  * (https://github.com/wolfSSL/wolfssl/), sp_256_mul_avx2_4(),
  * wolfssl/wolfcrypt/src/sp_x86_64_asm.S .
+ *
+ * TODO #1335 The ADCX instructions are 6-byte instructions with 0x66
+ * length-changing prefix, so we loose several cycles on decoding. Look for
+ * better versions of the instruction.
+ * TODO #1335 VPMULUDQ can be used to sepeedup the function, see "Speeding up
+ * Elliptic Curve Cryptography on the P-384 Curve" by Hernandez et all, 2016.
  */
-ENTRY(mpi_mul_x86_64_4)
+ENTRY_32(mpi_mul_x86_64_4)
 	push	%r12
 	push	%r13
 	push	%r14
@@ -469,8 +742,10 @@ ENDPROC(mpi_mul_x86_64_4)
  * double addition and this can be improved with left shift (Algorithm 2) as
  * described in "Speeding up Big-Numbers Squaring" by S.Gueron and V.Krasnov,
  * 2012.
+ *
+ * Use 32-byte alignment instead of common 4-byte to improve micro-op caching.
  */
-ENTRY(mpi_sqr_x86_64_4)
+ENTRY_32(mpi_sqr_x86_64_4)
 	push	%rbx
 	push	%r12
 	push	%r13
@@ -550,6 +825,32 @@ ENDPROC(mpi_sqr_x86_64_4)
 
 
 /**
+ * Multiply 4-limb MPI in %RSI by a long in %RDX and store the result in %RDI.
+ */
+ENTRY_32(mpi_mul_int_x86_64_4)
+	push	%r12
+	push	%r13
+
+	mulxq	(%rsi), %r8, %r9
+	mulxq	8(%rsi), %r10, %r11
+	mulxq	16(%rsi), %rax, %rcx
+	movq	%r8, (%rdi)
+	mulxq	24(%rsi), %r12, %r13
+	addq	%r10, %r9
+	adcq	%rax, %r11
+	movq	%r9, 8(%rdi)
+	movq	%r11, 16(%rdi)
+	adcq	%rcx, %r12
+	adcq	$0, %r13
+	movq	%r12, 24(%rdi)
+	movq	%r13, 32(%rdi)
+
+	popq	%r13
+	popq	%r12
+	retq
+ENDPROC(mpi_mul_int_x86_64_4)
+
+/**
  * Fast reduction modulo 256 by FIPS 186-3 D.2:
  *
  *	s1 = (c7,  C6,    c5,  C4,    c3,  C2,    c1,  C0 )
@@ -566,7 +867,7 @@ ENDPROC(mpi_sqr_x86_64_4)
  *
  * , where c i'th is a 32-bit word.
  *
- * In opposite to mbed TLS we process the formula by rows, fully exploiting
+ * In opposite to mbedTLS we process the formula by rows, fully exploiting
  * 64-bit arithmetics and avoid manual carry manipulations. We can not use
  * SIMD as the rows use non-trivial permutations, so SIMD becomes too
  * expensive. The explicit formula coding allows us to not to add or
@@ -593,19 +894,64 @@ ENDPROC(mpi_sqr_x86_64_4)
  * TBD: in total, this is about 65% slower than the Montgomery P-reduction after
  * multiplication, but we don't pay for Montgomery transformations.
  *
- * M.Brown, D.Hankerson, J.Lopez, A.Menezes. "Software implementation of the
- * NIST elliptic curves over prime fields" estimates that this fast reduction
- * is about x3 faster for p256 than the Barret reduction.
- *
  * TODO align the MPI on a cache line.
  *
  * %RDI	- pointer to 8 limbs big integer to be reduced.
- * %RSI	- size if the MPI.
  */
-ENTRY(ecp_mod_p256_x86_64)
+.section .rodata
+.align 64
+__P256x:
+	/*
+	 * The most significant limbs go first.
+	 * The carry values give the vector: 0xba98765432100
+	 */
+	/* P * 0 (carry=0) */
+	.quad	0x0000000000000000, 0x0000000000000000
+	.quad	0x0000000000000000, 0x0000000000000000
+	/* P * 1 (carry=0) */
+	.quad	0xffffffff00000001, 0x0000000000000000
+	.quad	0x00000000ffffffff, 0xffffffffffffffff
+	/* P * 2 (carry=1) */
+	.quad	0xfffffffe00000002, 0x0000000000000000
+	.quad	0x00000001ffffffff, 0xfffffffffffffffe
+	/* P * 3 (carry=2) */
+	.quad	0xfffffffd00000003, 0x0000000000000000
+	.quad	0x00000002ffffffff, 0xfffffffffffffffd
+	/* P * 4 (carry=3) */
+	.quad	0xfffffffc00000004, 0x0000000000000000
+	.quad	0x00000003ffffffff, 0xfffffffffffffffc
+	/* P * 5 (carry=4) */
+	.quad	0xfffffffb00000005, 0x0000000000000000
+	.quad	0x00000004ffffffff, 0xfffffffffffffffb
+	/* P * 6 (carry=5) */
+	.quad	0xfffffffa00000006, 0x0000000000000000
+	.quad	0x00000005ffffffff, 0xfffffffffffffffa
+	/* P * 7 (carry=6) */
+	.quad	0xfffffff900000007, 0x0000000000000000
+	.quad	0x00000006ffffffff, 0xfffffffffffffff9
+	/* P * 8 (carry=7) */
+	.quad	0xfffffff800000008, 0x0000000000000000
+	.quad	0x00000007ffffffff, 0xfffffffffffffff8
+	/* P * 9 (carry=8) */
+	.quad	0xfffffff700000009, 0x0000000000000000
+	.quad	0x00000008ffffffff, 0xfffffffffffffff7
+	/* P * 10 (carry=9) */
+	.quad	0xfffffff60000000a, 0x0000000000000000
+	.quad	0x00000009ffffffff, 0xfffffffffffffff6
+	/* P * 11 (carry=10) */
+	.quad	0xfffffff50000000b, 0x0000000000000000
+	.quad	0x0000000affffffff, 0xfffffffffffffff5
+	/* P * 12 (carry=11) */
+	.quad	0xfffffff40000000c, 0x0000000000000000
+	.quad	0x0000000bffffffff, 0xfffffffffffffff4
+.section .text
+ENTRY_32(ecp_mod_p256_x86_64)
+	prefetcht0 (%rdi)
+	prefetcht0 __P256x(%rip)
+	prefetcht0 __P256x+128(%rip)
+	prefetcht0 __P256x+256(%rip)
+
 	pushq	%rbx
-	pushq	%r10
-	pushq	%r11
 	pushq	%r12
 	pushq	%r13
 	pushq	%r14
@@ -613,18 +959,8 @@ ENTRY(ecp_mod_p256_x86_64)
 
 	xorq	%rcx, %rcx /* carry register for 5th limb */
 
-	/* Load the base line. */
-	movq	(%rdi), %rbx
-	movq	2*4(%rdi), %rdx
-	movq	4*4(%rdi), %r8
-	movq	6*4(%rdi), %r9
-
-	/* It's faster for small MPIs just to subtract P. */
-	cmpq	$4, %rsi
-	jle	.mod256_fast_sub
-
 	/*
-	 * Load and add the s2 line.
+	 * Load and add the base and s2 lines.
 	 * SH{L,R}D have latency ~3 and throughtput 2, whcih is much worse
 	 * than ADC (1 and 1 correspondingly), so use double ADD instead of
 	 * shifting s2 and s3.
@@ -632,9 +968,12 @@ ENTRY(ecp_mod_p256_x86_64)
 	 * so we can't use ADCX and ADOX.
 	 */
 	movq	11*4(%rdi), %r11
+	movq	2*4(%rdi), %rdx
+	movq	4*4(%rdi), %r8
 	movq	12*4(%rdi), %r12 /* used in s7 */
-	movq	14*4(%rdi), %r10 /* used in s4, s5, s7, s9 */
 	shlq	$32, %r11	/* c11, 0 - half used in s5*/
+	movq	6*4(%rdi), %r9
+	movq	14*4(%rdi), %r10 /* used in s4, s5, s7, s9 */
 	addq	%r11, %rdx
 	adcq	%r12, %r8
 	adcq	%r10, %r9
@@ -659,6 +998,7 @@ ENTRY(ecp_mod_p256_x86_64)
 	adcq	$0, %rcx
 
 	/* Load and add s4. */
+	movq	(%rdi), %rbx
 	movq	8*4(%rdi), %r14 /* half used in s7 */
 	movl	10*4(%rdi), %eax /* 0,c10 */
 	addq	%r14, %rbx
@@ -706,81 +1046,518 @@ ENTRY(ecp_mod_p256_x86_64)
 
 	/*
 	 * Load and subtract s8.
-	 * It's also the time to start to load P256.
+	 * It's also the time to start to load 4*P256.
 	 */
 	movq	13*4(%rdi), %r11
 	shldq	$32, %r10, %r13	/* c8,c15 */
 	shlq	$32, %r12	/* c12,0 */
-	xorq	%rsi, %rsi	/* P256[1] */
+	movq	$0xfffffffffffffffb, %rsi
 	subq	%r11, %rbx
-	movq	$0xffffffff00000001, %rax /* P256[0] */
+	movq	$0x4ffffffff, %rax
 	sbbq	%r13, %rdx
 	sbbq	%r15, %r8
 	sbbq	%r12, %r9
 	sbbq	$0, %rcx
+	movq	$0xfffffffb00000005, %r13
 
 	/* Load and subtract s9. */
 	movq	10*4(%rdi), %r14
 	shlq	$32, %r11
 	shlq	$32, %r15
 	subq	%r10, %rbx
-	movq	$-1, %r13	/* P256[3] */
 	sbbq	%r15, %rdx
 	sbbq	%r14, %r8
-	movq	$0x00000000ffffffff, %r12 /* P256[2] */
 	sbbq	%r11, %r9
 	sbbq	$0, %rcx
 
 	/*
 	 * Quasi-reduction is done, add/subtract to get final modulo.
-	 * In average only one addition or subtraction is required, but it's
-	 * required to compare the whole MPI (4 limbs and for each of them we
-	 * can jump on less or greater values) against P to know which operation
-	 * we need to do. It's cheaper to subtract P unconditionally on positive
-	 * value and add it back if we get SF in RCX.
+	 * We start with addition of 5 * P256 to guarantee non-negative value
+	 * to carry in RCX with the number greater than P256.
 	 */
-	js	.mod256_add_loop
-.mod256_sub_loop:
-	subq	%r13, %rbx
-	sbbq	%r12, %rdx
-	sbbq	%rsi, %r8
-	sbbq	%rax, %r9
-	sbbq	$0, %rcx
-	jns	.mod256_sub_loop
-	/* We had RCX >= 0, and now we're under 0: add back and return. */
-	addq	%r13, %rbx
-	adcq	%r12, %rdx
-	adcq	%rsi, %r8
-	adcq	%rax, %r9
-	jmp	.mod256_done
+	movq	$0xba98765432100, %r10
+	addq	%rsi, %rbx
+	adcq	%rax, %rdx
+	adcq	$0, %r8
+	adcq	%r13, %r9
+	adcq	$4, %rcx
 
-.mod256_add_loop:
-	/* Negative RCX value w/ overflow, need at least one addition. */
-	addq	%r13, %rbx
-	adcq	%r12, %rdx
-	adcq	%rsi, %r8
-	adcq	%rax, %r9
-	adcq	$0, %rcx
-	jnz	.mod256_add_loop
+	/*
+	 * Next, subtract P256 necessary number of times.
+	 * Subtract the __P256x table carry from the current one.
+	 */
+	movq	%rcx, %rsi
+	shlq	$2, %rcx
+	leaq	__P256x(%rip), %r12
+	shrq	%cl, %r10
+	subq	24(%r12, %rcx, 8), %rbx
+	sbbq	16(%r12, %rcx, 8), %rdx
+	sbbq	8(%r12, %rcx, 8), %r8
+	andq	$0xf, %r10
+	sbbq	(%r12, %rcx, 8), %r9
+	sbbq	%r10, %rsi
 
-.mod256_done:
+	movq	$0xffffffff, %r13
+	movq	$0xffffffff00000001, %r12
+	movq	$0xffffffffffffffff, %r10
 	movq	%rbx, (%rdi)
 	movq	%rdx, 2*4(%rdi)
 	movq	%r8, 4*4(%rdi)
 	movq	%r9, 6*4(%rdi)
+
+	/*
+	 * Subtract one more P256 in case we have carry and
+	 * the 4 limbs with over P256.
+	 */
+	subq	%r10, %rbx
+	sbbq	%r13, %rdx
+	sbbq	$0, %r8
+	sbbq	%r12, %r9
+	sbbq	$0, %rsi
+	jb	.mod_p256_done
+
+	movq	%rbx, (%rdi)
+	movq	%rdx, 2*4(%rdi)
+	movq	%r8, 4*4(%rdi)
+	movq	%r9, 6*4(%rdi)
+
+.mod_p256_done:
 	popq	%r15
 	popq	%r14
 	popq	%r13
 	popq	%r12
-	popq	%r11
-	popq	%r10
 	popq	%rbx
 	ret
-
-.mod256_fast_sub:
-	movq	$0xffffffff00000001, %rax /* P256[0] */
-	xorq	%rsi, %rsi	/* P256[1] */
-	movq	$0x00000000ffffffff, %r12 /* P256[2] */
-	movq	$-1, %r13	/* P256[3] */
-	jmp .mod256_sub_loop
 ENDPROC(ecp_mod_p256_x86_64)
+
+
+/*
+ * The two functions at the below are simple merges of the mudulus reduction
+ * from the above with multiplication and squaring correspondingly.
+ */
+ENTRY_32(mpi_mul_mod_p256_x86_64_4)
+	push	%r12
+	push	%r13
+	push	%r14
+	push	%r15
+	push	%rbx
+
+	movq	%rdx, %rax
+
+	movq	(%rax), %rdx
+	mulxq	(%rsi), %r9, %r10
+	mulxq	16(%rsi), %r11, %r12
+	mulxq	8(%rsi), %rcx, %r8
+	xorq	%rbx, %rbx
+	adcxq	%rcx, %r10
+	movq	24(%rax), %rdx
+	mulxq	8(%rsi), %r13, %r14
+	adcxq	%r8, %r11
+	movq	8(%rax), %rdx
+	mulxq	(%rsi), %rcx, %r8
+	adoxq	%rcx, %r10
+	mulxq	16(%rsi), %rcx, %r15
+	adoxq	%r8, %r11
+	adcxq	%rcx, %r12
+	movq	16(%rax), %rdx
+	mulxq	8(%rsi), %rcx, %r8
+	adcxq	%r15, %r13
+	adoxq	%rcx, %r12
+	adcxq	%rbx, %r14
+	adoxq	%r8, %r13
+	mulxq	(%rsi), %rcx, %r8
+	adoxq	%rbx, %r14
+	xorq	%r15, %r15
+	adcxq	%rcx, %r11
+	movq	8(%rax), %rdx
+	mulxq	8(%rsi), %rdx, %rcx
+	adcxq	%r8, %r12
+	adoxq	%rdx, %r11
+	movq	8(%rax), %rdx
+	adoxq	%rcx, %r12
+	mulxq	24(%rsi), %rcx, %r8
+	adcxq	%rcx, %r13
+	movq	16(%rax), %rdx
+	mulxq	16(%rsi), %rdx, %rcx
+	adcxq	%r8, %r14
+	adoxq	%rdx, %r13
+	movq	24(%rax), %rdx
+	adoxq	%rcx, %r14
+	mulxq	24(%rsi), %rcx, %r8
+	adoxq	%rbx, %r15
+	adcxq	%rcx, %r15
+	mulxq	(%rsi), %rdx, %rcx
+	adcxq	%r8, %rbx
+	xorq	%r8, %r8
+	adcxq	%rdx, %r12
+	movq	(%rax), %rdx
+	adcxq	%rcx, %r13
+	mulxq	24(%rsi), %rdx, %rcx
+	adoxq	%rdx, %r12
+	adoxq	%rcx, %r13
+	movq	24(%rax), %rdx
+	mulxq	16(%rsi), %rdx, %rcx
+	adcxq	%rdx, %r14
+	movq	16(%rax), %rdx
+	adcxq	%rcx, %r15
+	mulxq	24(%rsi), %rcx, %rdx
+	adcxq	%r8, %rbx
+	adoxq	%rcx, %r14
+	adoxq	%rdx, %r15
+	adoxq	%r8, %rbx
+
+	movq	%r13, %rsi
+	movq	%r9, (%rdi)
+	movq	%r10, 8(%rdi)
+	movq	%r11, 16(%rdi)
+	movq	%r12, 24(%rdi)
+	movq	%r13, 32(%rdi)
+	movq	%r14, 40(%rdi)
+	movq	%r15, 48(%rdi)
+	movq	%rbx, 56(%rdi)
+	shrdq	$32, %r14, %rsi
+
+	/* The s3 line, no need to carry on shift. */
+	xorq	%rcx, %rcx
+
+	shrq	$32, %r14
+	movq	2*4(%rdi), %rdx
+	movq	4*4(%rdi), %r8
+	movq	12*4(%rdi), %r12
+	shlq	$32, %r14
+	movq	6*4(%rdi), %r9
+	movq	14*4(%rdi), %r10
+	addq	%r14, %rdx
+	adcq	%r12, %r8
+	adcq	%r10, %r9
+	adcq	$0, %rcx
+	addq	%r14, %rdx
+	adcq	%r12, %r8
+	adcq	%r10, %r9
+	adcq	$0, %rcx
+
+	movl	15*4(%rdi), %eax
+	movq	12*4(%rdi), %r13
+	shrdq	$32, %rbx, %r15
+	shlq	$32, %r13
+	addq	%r13, %rdx
+	adcq	%r15, %r8
+	adcq	%rax, %r9
+	adcq	$0, %rcx
+	addq	%r13, %rdx
+	adcq	%r15, %r8
+	adcq	%rax, %r9
+	adcq	$0, %rcx
+
+	movq	(%rdi), %rbx
+	movq	8*4(%rdi), %r11
+	movl	10*4(%rdi), %eax
+	addq	%r11, %rbx
+	adcq	%rax, %rdx
+	adcq	$0, %r8
+	adcq	%r10, %r9
+	adcq	$0, %rcx
+
+	shrq	$32, %r14
+	shlq	$32, %r15
+	orq	%r15, %r14
+	movl	8*4(%rdi), %eax
+	shrq	$32, %r15
+	shlq	$32, %rax
+	orq	%r15, %rax
+	addq	%rsi, %rbx
+	adcq	%r14, %rdx
+	adcq	%r10, %r8
+	adcq	%rax, %r9
+	adcq	$0, %rcx
+
+	movq	10*4(%rdi), %r13
+	shrq	$32, %rax
+	shlq	$32, %r13
+	orq	%rax, %r13
+	movq	11*4(%rdi), %r14
+	subq	%r14, %rbx
+	sbbq	%r15, %rdx
+	sbbq	$0, %r8
+	sbbq	%r13, %r9
+	sbbq	$0, %rcx
+
+	movl	9*4(%rdi), %eax
+	shlq	$32, %r14
+	orq	%rax, %r14
+	subq	%r12, %rbx
+	sbbq	%r10, %rdx
+	sbbq	$0, %r8
+	sbbq	%r14, %r9
+	sbbq	$0, %rcx
+
+	movq	13*4(%rdi), %r14
+	shldq	$32, %r10, %r13
+	shlq	$32, %r12
+	movq	$0xfffffffffffffffb, %r15
+	subq	%r14, %rbx
+	movq	$0x4ffffffff, %rax
+	sbbq	%r13, %rdx
+	sbbq	%rsi, %r8
+	sbbq	%r12, %r9
+	sbbq	$0, %rcx
+	movq	$0xfffffffb00000005, %r13
+
+	movq	10*4(%rdi), %r11
+	shlq	$32, %r14
+	shlq	$32, %rsi
+	subq	%r10, %rbx
+	sbbq	%rsi, %rdx
+	sbbq	%r11, %r8
+	sbbq	%r14, %r9
+	sbbq	$0, %rcx
+
+	movq	$0xba98765432100, %r10
+	addq	%r15, %rbx
+	adcq	%rax, %rdx
+	adcq	$0, %r8
+	adcq	%r13, %r9
+	adcq	$4, %rcx
+
+	movq	%rcx, %r15
+	shlq	$2, %rcx
+	leaq	__P256x(%rip), %r12
+	shrq	%cl, %r10
+	subq	24(%r12, %rcx, 8), %rbx
+	sbbq	16(%r12, %rcx, 8), %rdx
+	sbbq	8(%r12, %rcx, 8), %r8
+	andq	$0xf, %r10
+	sbbq	(%r12, %rcx, 8), %r9
+	sbbq	%r10, %r15
+
+	movq	$0xffffffff, %r13
+	movq	$0xffffffff00000001, %r12
+	movq	$0xffffffffffffffff, %r10
+	movq	%rbx, (%rdi)
+	movq	%rdx, 2*4(%rdi)
+	movq	%r8, 4*4(%rdi)
+	movq	%r9, 6*4(%rdi)
+
+	subq	%r10, %rbx
+	sbbq	%r13, %rdx
+	sbbq	$0, %r8
+	sbbq	%r12, %r9
+	sbbq	$0, %r15
+	jb	.mul_mod_p256_done
+
+	movq	%rbx, (%rdi)
+	movq	%rdx, 2*4(%rdi)
+	movq	%r8, 4*4(%rdi)
+	movq	%r9, 6*4(%rdi)
+
+.mul_mod_p256_done:
+	pop	%rbx
+	pop	%r15
+	pop	%r14
+	pop	%r13
+	pop	%r12
+	ret
+ENDPROC(mpi_mul_mod_p256_x86_64_4)
+
+ENTRY_32(mpi_sqr_mod_p256_x86_64_4)
+	push	%rbx
+	push	%r12
+	push	%r13
+	push	%r14
+	push	%r15
+
+	movq	(%rsi), %rdx
+	mulxq	8(%rsi), %r9, %r10
+	mulxq	24(%rsi), %r11, %r12
+	movq	16(%rsi), %rdx
+	mulxq	8(%rsi), %rcx, %rbx
+	xorq	%r15, %r15
+	adoxq	%rcx, %r11
+	mulxq	24(%rsi), %r13, %r14
+	adoxq	%rbx, %r12
+	mulxq	(%rsi), %rcx, %rbx
+	adoxq	%r15, %r13
+	adcxq	%rcx, %r10
+	adoxq	%r15, %r14
+	movq	8(%rsi), %rdx
+	mulxq	24(%rsi), %rax, %r8
+	adcxq	%rbx, %r11
+	adcxq	%rax, %r12
+	adcxq	%r8, %r13
+	adcxq	%r15, %r14
+	xorq	%r15, %r15
+	movq	(%rsi), %rdx
+	mulxq	%rdx, %r8, %rax
+	adcxq	%r9, %r9
+	movq	8(%rsi), %rdx
+	mulxq	%rdx, %rcx, %rbx
+	adcxq	%r10, %r10
+	adoxq	%rax, %r9
+	adcxq	%r11, %r11
+	adoxq	%rcx, %r10
+	movq	16(%rsi), %rdx
+	mulxq	%rdx, %rax, %rcx
+	adcxq	%r12, %r12
+	adoxq	%rbx, %r11
+	adcxq	%r13, %r13
+	adoxq	%rax, %r12
+	movq	24(%rsi), %rdx
+	mulxq	%rdx, %rax, %rbx
+	adcxq	%r14, %r14
+	adoxq	%rcx, %r13
+	adcxq	%r15, %r15
+	adoxq	%rax, %r14
+	adoxq	%rbx, %r15
+
+	movq	%r12, %rsi
+	movq	%r8, (%rdi)
+	movq	%r9, 8(%rdi)
+	movq	%r10, 16(%rdi)
+	movq	%r11, 24(%rdi)
+	movq	%r12, 32(%rdi)
+	movq	%r13, 40(%rdi)
+	movq	%r14, 48(%rdi)
+	movq	%r15, 56(%rdi)
+	shrdq	$32, %r13, %rsi
+
+	/* Modular reduction from ecp_mod_p256_x86_64(). */
+	xorq	%rcx, %rcx
+
+	shrq	$32, %r13
+	movq	2*4(%rdi), %rdx
+	movq	4*4(%rdi), %r8
+	movq	12*4(%rdi), %r12
+	shlq	$32, %r13
+	movq	6*4(%rdi), %r9
+	movq	14*4(%rdi), %r10
+	addq	%r13, %rdx
+	adcq	%r12, %r8
+	adcq	%r10, %r9
+	adcq	$0, %rcx
+	addq	%r13, %rdx
+	adcq	%r12, %r8
+	adcq	%r10, %r9
+	adcq	$0, %rcx
+
+	shrdq	$32, %r15, %r14
+	movl	15*4(%rdi), %eax
+	movq	12*4(%rdi), %r11
+	shlq	$32, %r11
+	addq	%r11, %rdx
+	adcq	%r14, %r8
+	adcq	%rax, %r9
+	adcq	$0, %rcx
+	addq	%r11, %rdx
+	adcq	%r14, %r8
+	adcq	%rax, %r9
+	adcq	$0, %rcx
+
+	movq	(%rdi), %rbx
+	movq	8*4(%rdi), %r15
+	movl	10*4(%rdi), %eax
+	addq	%r15, %rbx
+	adcq	%rax, %rdx
+	adcq	$0, %r8
+	adcq	%r10, %r9
+	adcq	$0, %rcx
+
+	shrq	$32, %r13
+	shlq	$32, %r14
+	orq	%r14, %r13
+	movl	8*4(%rdi), %eax
+	shrq	$32, %r14
+	shlq	$32, %rax
+	orq	%r14, %rax
+	addq	%rsi, %rbx
+	adcq	%r13, %rdx
+	adcq	%r10, %r8
+	adcq	%rax, %r9
+	adcq	$0, %rcx
+
+	movq	10*4(%rdi), %r11
+	shrq	$32, %rax
+	shlq	$32, %r11
+	movq	11*4(%rdi), %r13
+	orq	%rax, %r11
+	subq	%r13, %rbx
+	sbbq	%r14, %rdx
+	sbbq	$0, %r8
+	sbbq	%r11, %r9
+	sbbq	$0, %rcx
+
+	movl	9*4(%rdi), %eax
+	shlq	$32, %r13
+	orq	%rax, %r13
+	subq	%r12, %rbx
+	sbbq	%r10, %rdx
+	sbbq	$0, %r8
+	sbbq	%r13, %r9
+	sbbq	$0, %rcx
+
+	movq	13*4(%rdi), %r13
+	shldq	$32, %r10, %r11
+	shlq	$32, %r12
+	movq	$0xfffffffffffffffb, %r15
+	subq	%r13, %rbx
+	movq	$0x4ffffffff, %rax
+	sbbq	%r11, %rdx
+	sbbq	%rsi, %r8
+	sbbq	%r12, %r9
+	sbbq	$0, %rcx
+	movq	$0xfffffffb00000005, %r11
+
+	movq	10*4(%rdi), %r14
+	shlq	$32, %r13
+	shlq	$32, %rsi
+	subq	%r10, %rbx
+	sbbq	%rsi, %rdx
+	sbbq	%r14, %r8
+	sbbq	%r13, %r9
+	sbbq	$0, %rcx
+
+	movq	$0xba98765432100, %r10
+	addq	%r15, %rbx
+	adcq	%rax, %rdx
+	adcq	$0, %r8
+	adcq	%r11, %r9
+	adcq	$4, %rcx
+
+	movq	%rcx, %r15
+	shlq	$2, %rcx
+	leaq	__P256x(%rip), %r12
+	shrq	%cl, %r10
+	subq	24(%r12, %rcx, 8), %rbx
+	sbbq	16(%r12, %rcx, 8), %rdx
+	sbbq	8(%r12, %rcx, 8), %r8
+	andq	$0xf, %r10
+	sbbq	(%r12, %rcx, 8), %r9
+	sbbq	%r10, %r15
+
+	movq	$0xffffffff, %r11
+	movq	$0xffffffff00000001, %r12
+	movq	$0xffffffffffffffff, %r10
+	movq	%rbx, (%rdi)
+	movq	%rdx, 2*4(%rdi)
+	movq	%r8, 4*4(%rdi)
+	movq	%r9, 6*4(%rdi)
+
+	subq	%r10, %rbx
+	sbbq	%r11, %rdx
+	sbbq	$0, %r8
+	sbbq	%r12, %r9
+	sbbq	$0, %r15
+	jb	.sqr_mod_p256_done
+
+	movq	%rbx, (%rdi)
+	movq	%rdx, 2*4(%rdi)
+	movq	%r8, 4*4(%rdi)
+	movq	%r9, 6*4(%rdi)
+
+.sqr_mod_p256_done:
+	pop	%r15
+	pop	%r14
+	pop	%r13
+	pop	%r12
+	pop	%rbx
+	ret
+ENDPROC(mpi_sqr_mod_p256_x86_64_4)

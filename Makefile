@@ -97,6 +97,7 @@ ifndef AVX2
 	$(warning WARNING: PLEASE DO NOT USE THE BUILD IN PRODUCTION)
 	$(warning !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!)
 endif
+	$(MAKE) -C tls/t generate_tables
 	$(MAKE) -C tempesta_db
 	$(MAKE) -C $(KERNEL) M=$(shell pwd) modules
 
@@ -109,5 +110,6 @@ test: build
 clean:
 	$(MAKE) -C $(KERNEL) M=$(shell pwd) clean
 	$(MAKE) -C tempesta_db clean
+	$(MAKE) -C tls clean
 	find . \( -name \*~ -o -name \*.orig -o -name \*.symvers \) \
 		-exec rm -f {} \;

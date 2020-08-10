@@ -261,10 +261,6 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 		snprintf(buf, buflen, "ASN1 - Error when trying to determine the length or invalid length");
 	if (use_ret == -(TTLS_ERR_ASN1_LENGTH_MISMATCH))
 		snprintf(buf, buflen, "ASN1 - Actual length differs from expected length");
-	if (use_ret == -(TTLS_ERR_ASN1_INVALID_DATA))
-		snprintf(buf, buflen, "ASN1 - Data is invalid. (not used)");
-	if (use_ret == -(TTLS_ERR_ASN1_ALLOC_FAILED))
-		snprintf(buf, buflen, "ASN1 - Memory allocation failed");
 
 	if (use_ret == -(TTLS_ERR_BASE64_BUFFER_TOO_SMALL))
 		snprintf(buf, buflen, "BASE64 - Output buffer too small");

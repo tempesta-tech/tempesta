@@ -230,7 +230,8 @@ size_t ttls_rsa_get_len(const TlsRSACtx *ctx);
 int ttls_rsa_check_pubkey(TlsRSACtx *ctx);
 
 int ttls_rsa_pkcs1_sign(TlsRSACtx *ctx, ttls_md_type_t md_alg,
-			const unsigned char *hash, unsigned char *sig);
+			const unsigned char *hash, size_t hashlen,
+			unsigned char *sig);
 int ttls_rsa_pkcs1_verify(TlsRSACtx *ctx, ttls_md_type_t md_alg,
 			  unsigned int hashlen, const unsigned char *hash,
 			  const unsigned char *sig);

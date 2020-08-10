@@ -1160,7 +1160,8 @@ static int ssl_check_server_ecdh_params(const TlsCtx *ssl)
 	if (ttls_check_curve(ssl, ssl->handshake->ecdh_ctx.grp.id) != 0)
 		return(-1);
 
-	T_DBG_ECP("ECDH serve Qp param", &ssl->handshake->ecdh_ctx.Qp);
+	T_DBG_ECP_X("ECDH serve Qp param", &ssl->handshake->ecdh_ctx->grp,
+		    &ssl->handshake->ecdh_ctx.Qp);
 
 	return 0;
 }
@@ -1289,6 +1290,9 @@ static int ssl_parse_server_key_exchange(TlsCtx *ssl)
 
 	T_DBG2("=> parse server key exchange\n");
 
+	if ((ret = ssl_get_ecdh_params_from_cert(ssl)))
+		return ret;
+
 	if ((ret = ttls_read_record(ssl)) != 0)
 		return ret;
 
@@ -1346,7 +1350,7 @@ static int ssl_parse_server_key_exchange(TlsCtx *ssl)
 	}
 
 	{
-		size_t sig_len, hashlen;
+		size_t sig_len;
 		unsigned char hash[64];
 		ttls_md_type_t md_alg = TTLS_MD_NONE;
 		ttls_pk_type_t pk_alg = TTLS_PK_NONE;
@@ -1411,9 +1415,8 @@ static int ssl_parse_server_key_exchange(TlsCtx *ssl)
 		if (md_alg != TTLS_MD_NONE)
 		{
 			/* Info from md_alg will be used instead */
-			hashlen = 0;
 			ret = ttls_get_key_exchange_md_tls1_2(ssl, hash, params,
-		  params_len, md_alg);
+							      params_len, md_alg);
 			if (ret != 0)
 				return ret;
 		}
@@ -1423,8 +1426,8 @@ static int ssl_parse_server_key_exchange(TlsCtx *ssl)
 			return(TTLS_ERR_INTERNAL_ERROR);
 		}
 
-		T_DBG3_BUF("parameters hash\n", hash, hashlen != 0 ? hashlen :
-			(unsigned int) (ttls_md_get_size(ttls_md_info_from_type(md_alg))));
+		T_DBG3_BUF("parameters hash\n", hash,
+			   (unsigned int)(ttls_md_get_size(ttls_md_info_from_type(md_alg))));
 
 		if (ssl->session_negotiate->peer_cert == NULL)
 		{
@@ -1446,7 +1449,7 @@ static int ssl_parse_server_key_exchange(TlsCtx *ssl)
 		}
 
 		if ((ret = ttls_pk_verify(&ssl->session_negotiate->peer_cert->pk,
-		   md_alg, hash, hashlen, p, sig_len)) != 0)
+					  md_alg, hash, p, sig_len)))
 		{
 			ttls_send_alert_msg(ssl, TTLS_ALERT_LEVEL_FATAL,
 			TTLS_ALERT_MSG_DECRYPT_ERROR);
@@ -1547,7 +1550,7 @@ static int ssl_parse_certificate_request(TlsCtx *ssl)
 	{
 		size_t sig_alg_len = ((buf[TTLS_HS_HDR_LEN + 1 + n] <<  8)
 		 | (buf[TTLS_HS_HDR_LEN + 2 + n]));
-#if defined(DEBUG) && (DEBUG == 3)
+#if DBG_TLS && (DEBUG == 3)
 		unsigned char* sig_alg = buf + TTLS_HS_HDR_LEN + 3 + n;
 		size_t i;
 
