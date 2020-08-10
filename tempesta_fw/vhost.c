@@ -2081,7 +2081,9 @@ static int
 tfw_cfgop_out_tls_tickets(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	if (tfw_vhosts_reconfig->expl_dflt) {
-		T_ERR_NL("%s: global tls tickets are to be configured "
+		if (ce->dflt_value)
+			return 0;
+		T_ERR_NL("%s: global tls_tickets are to be configured "
 			 "outside of explicit '%s' vhost.\n",
 			 cs->name, TFW_VH_DFT_NAME);
 		return -EINVAL;
