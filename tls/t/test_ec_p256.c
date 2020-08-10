@@ -70,10 +70,11 @@ ecp_base_math(void)
 	EXPECT_FALSE(!(X1 = ttls_mpi_alloc_stack_init(8)));
 	EXPECT_FALSE(!(X2 = ttls_mpi_alloc_stack_init(8)));
 
-	ECP256_MPI_LSET(A, LONG_MAX);
-	ECP256_MPI_LSET(B, INT_MAX);
-
 	X1->used = 4;
+	X2->used = 4;
+	ecp256_lset(MPI_P(A), LONG_MAX);
+	ecp256_lset(MPI_P(B), INT_MAX);
+
 	mpi_tpl_mod_p256_x86_64(MPI_P(X1), MPI_P(B));
 	EXPECT_MPI(X1, 4, 0x000000017ffffffdUL, 0, 0, 0);
 	mpi_tpl_mod_p256_x86_64(MPI_P(X1), MPI_P(A));
@@ -94,7 +95,7 @@ ecp_base_math(void)
 	mpi_shift_l1_mod_p256_x86_64(MPI_P(X1), MPI_P(X1));
 	EXPECT_MPI(X1, 4, 0xfffffffffffffffcUL, 0x1UL, 0, 0);
 
-	ECP256_MPI_LSET(T1, 0);
+	ecp256_lset(MPI_P(T1), 0);
 	mpi_shift_l1_mod_p256_x86_64(MPI_P(X1), MPI_P(T1));
 	EXPECT_MPI(X1, 4, 0, 0, 0, 0);
 
@@ -112,19 +113,19 @@ ecp_base_math(void)
 
 	for (i = 0; i < 1000; ++i) {
 		/* 2 * B * 2 * A^2 = B * (2 * A)^2 */
-		ecp256_sqr_mod(T1, A);
+		mpi_sqr_mod_p256_x86_64_4(MPI_P(T1), MPI_P(A));
 		mpi_shift_l1_mod_p256_x86_64(MPI_P(T1), MPI_P(T1));
-		ecp256_mul_mod(X1, T1, B);
+		mpi_mul_mod_p256_x86_64_4(MPI_P(X1), MPI_P(T1), MPI_P(B));
 		mpi_shift_l1_mod_p256_x86_64(MPI_P(X1), MPI_P(X1));
 		mpi_shift_l1_mod_p256_x86_64(MPI_P(T2), MPI_P(A));
-		ecp256_sqr_mod(T2, T2);
-		ecp256_mul_mod(X2, T2, B);
+		mpi_sqr_mod_p256_x86_64_4(MPI_P(T2), MPI_P(T2));
+		mpi_mul_mod_p256_x86_64_4(MPI_P(X2), MPI_P(T2), MPI_P(B));
 		EXPECT_ZERO(ttls_mpi_cmp_mpi(X1, X2));
 
 		/* (2 * A^2)^2 * 2 = ((2 * A)^2)^2 / 2 */
-		ecp256_sqr_mod(X1, T1);
+		mpi_sqr_mod_p256_x86_64_4(MPI_P(X1), MPI_P(T1));
 		mpi_shift_l1_mod_p256_x86_64(MPI_P(X1), MPI_P(X1));
-		ecp256_sqr_mod(X2, T2);
+		mpi_sqr_mod_p256_x86_64_4(MPI_P(X2), MPI_P(T2));
 		mpi_div2_x86_64_4(MPI_P(X2), MPI_P(X2));
 		EXPECT_ZERO(ttls_mpi_cmp_mpi(X1, X2));
 
@@ -141,8 +142,8 @@ ecp_base_math(void)
 		mpi_sub_mod_p256_x86_64_4(MPI_P(X2), MPI_P(X2), MPI_P(A));
 		EXPECT_ZERO(ttls_mpi_cmp_mpi(X1, X2));
 
-		ecp256_mul_mod(A, A, T1);
-		ecp256_mul_mod(B, B, T2);
+		mpi_mul_mod_p256_x86_64_4(MPI_P(A), MPI_P(A), MPI_P(T1));
+		mpi_mul_mod_p256_x86_64_4(MPI_P(B), MPI_P(B), MPI_P(T2));
 	}
 
 	ttls_mpi_pool_cleanup_ctx(0, false);
@@ -154,12 +155,12 @@ ecp_mul_int_4_5(void)
 	TlsMpi *X = ttls_mpi_alloc_stack_init(5);
 	TlsMpi *A = ttls_mpi_alloc_stack_init(4);
 
-	ECP256_MPI_LSET(X, 0);
+	ecp256_lset(MPI_P(X), 0);
 	ecp256_mul_int(X, X, 0);
 	EXPECT_EQ(X->s, 1);
 	EXPECT_MPI(X, 1, 0);
 
-	ECP256_MPI_LSET(A, LONG_MAX);
+	ecp256_lset(MPI_P(A), LONG_MAX);
 	ecp256_mul_int(X, A, 1);
 	EXPECT_EQ(X->s, 1);
 	EXPECT_MPI(X, 1, LONG_MAX);
@@ -192,73 +193,22 @@ static void
 ecp_multi_dbl(void)
 {
 	int i;
-	TlsMpi *tmp, *t[8];
-	TlsEcpPoint *r1, *r2;
-	static const struct {
-		unsigned long x[G_LIMBS];
-		unsigned long y[G_LIMBS];
-		unsigned long z[G_LIMBS];
-		TlsEcpPoint p;
-	} __attribute__((packed)) P = {
+	Ecp256Point r1, r2;
+	static const Ecp256Point P = {
 		.x = { 0xa60b48fc47669978UL, 0xc08969e277f21b35UL,
 		       0x8a52380304b51ac3UL, 0x7cf27b188d034f7eUL },
 		.y = { 0x9e04b79d227873d1UL, 0xba7dade63ce98229UL,
 		       0x293d9ac69f7430dbUL, 0x7775510db8ed040UL },
 		.z = { 1, 0, 0, 0 },
-		.p = {
-			.X = {
-				.s	= 1,
-				.used	= G_LIMBS,
-				.limbs	= G_LIMBS,
-				._off	= -3 * (short)(G_LIMBS * CIL)
-			},
-			.Y = {
-				.s	= 1,
-				.used	= G_LIMBS,
-				.limbs	= G_LIMBS,
-				._off	= -2 * (short)(G_LIMBS * CIL)
-					  - (short)sizeof(TlsMpi)
-			},
-			.Z = {
-				.s	= 1,
-				.used	= 1,
-				.limbs	= G_LIMBS,
-				._off	= -1 * (short)(G_LIMBS * CIL)
-					  - 2 * (short)sizeof(TlsMpi)
-			}
-		}
 	};
 
-	ttls_ecp_point_tmp_alloc_init(r1, G_LIMBS, G_LIMBS, G_LIMBS);
-	ttls_mpi_alloc(&r1->X, G_LIMBS);
-	ttls_mpi_alloc(&r1->Y, G_LIMBS);
-	ttls_mpi_alloc(&r1->Z, G_LIMBS);
+	ecp256_double_jac_n(&r1, &P);
 
-	ttls_ecp_point_tmp_alloc_init(r2, G_LIMBS, G_LIMBS, G_LIMBS);
-	ttls_mpi_alloc(&r2->X, G_LIMBS);
-	ttls_mpi_alloc(&r2->Y, G_LIMBS);
-	ttls_mpi_alloc(&r2->Z, G_LIMBS);
-
-	tmp = ttls_mpool_alloc_stack((sizeof(TlsMpi) + G_LIMBS * 2 * CIL) * 8);
-	for (i = 0, t[0] = tmp; i < 8; i++) {
-		TlsMpi *tt = ttls_mpi_init_next(t[i], G_LIMBS * 2);
-		if (i < 7)
-			t[i + 1] = tt;
-	}
-
-	ecp256_double_jac_n(r1, &P.p, t);
-
-	ecp256_mpi_copy(&r2->X, &P.p.X);
-	ecp256_mpi_copy(&r2->Y, &P.p.Y);
-	ecp256_mpi_copy(&r2->Z, &P.p.Z);
+	memcpy_fast(&r2, &P, sizeof(r2));
 	for (i = 0; i < D; i++)
-		ecp256_double_jac(r2, r2);
+		ecp256_double_jac(&r2, &r2);
 
-	EXPECT_ZERO(ttls_mpi_cmp_mpi(&r1->X, &r2->X));
-	EXPECT_ZERO(ttls_mpi_cmp_mpi(&r1->Y, &r2->Y));
-	EXPECT_ZERO(ttls_mpi_cmp_mpi(&r1->Z, &r2->Z));
-
-	ttls_mpi_pool_cleanup_ctx((unsigned long)tmp, false);
+	EXPECT_ZERO(memcmp(&r1, &r2, sizeof(r1)));
 }
 
 static void
@@ -267,9 +217,8 @@ ecp_mul(void)
 	int i;
 	const TlsEcpGrp *grp;
 	TlsEcpPoint *R, *P;
-	TlsMpi *m;
-	TlsMpiPool *mp;
 	unsigned long pXY[G_LIMBS * 2];
+	DECLARE_MPI_AUTO(m, G_LIMBS);
 	/* Exponents especially adapted for secp256r1, 32 bytes in size. */
 	struct {
 		const char	*m;
@@ -364,17 +313,8 @@ ecp_mul(void)
 		}
 	};
 
-	/* ttls_mpool() treats the pool as "handshake" pool. */
-	EXPECT_FALSE(!(mp = ttls_mpi_pool_create(TTLS_MPOOL_ORDER, GFP_KERNEL)));
-
-	EXPECT_FALSE(!(R = ttls_mpool_alloc_data(mp, sizeof(*R))));
-	ttls_ecp_point_init(R);
-
-	EXPECT_FALSE(!(P = ttls_mpool_alloc_data(mp, sizeof(*P))));
-	ttls_ecp_point_init(P);
-
-	EXPECT_FALSE(!(m = ttls_mpool_alloc_data(mp, sizeof(*m) + 4 * CIL)));
-	ttls_mpi_init_next(m, 4);
+	ttls_ecp_point_tmp_alloc_init(R, G_LIMBS, G_LIMBS, G_LIMBS);
+	ttls_ecp_point_tmp_alloc_init(P, G_LIMBS, G_LIMBS, G_LIMBS);
 
 	/* Use group from the MPI profile for Secp256r1 PK operations. */
 	grp = &SECP256_G;
@@ -411,8 +351,8 @@ ecp_mul(void)
 	 * ECP test #1 (constant op_count, base point G).
 	 */
 	/* Do a dummy multiplication first to trigger precomputation */
-	ECP256_MPI_LSET(m, 2);
-	EXPECT_ZERO(ecp256_mul_comb_g(P, m));
+	ttls_mpi_lset(&m, 2);
+	ecp256_mul_comb_g(P, &m);
 	EXPECT_MPI(&P->X, 4, 0xa60b48fc47669978UL, 0xc08969e277f21b35UL,
 			     0x8a52380304b51ac3UL, 0x7cf27b188d034f7eUL);
 	EXPECT_MPI(&P->Y, 4, 0x9e04b79d227873d1UL, 0xba7dade63ce98229UL,
@@ -421,9 +361,9 @@ ecp_mul(void)
 	ttls_mpi_pool_cleanup_ctx(0, true);
 
 	for (i = 0; i < ARRAY_SIZE(mc); i++) {
-		ttls_mpi_read_binary(m, mc[i].m, 32);
+		ttls_mpi_read_binary(&m, mc[i].m, 32);
 
-		EXPECT_ZERO(ecp256_mul_comb_g(R, m));
+		ecp256_mul_comb_g(R, &m);
 		EXPECT_MPI(&R->X, 4, mc[i].Xg[0], mc[i].Xg[1],
 				     mc[i].Xg[2], mc[i].Xg[3]);
 		EXPECT_MPI(&R->Y, 4, mc[i].Yg[0], mc[i].Yg[1],
@@ -436,7 +376,7 @@ ecp_mul(void)
 		 */
 		memcpy(pXY, MPI_P(&P->X), G_LIMBS * CIL);
 		memcpy(&pXY[G_LIMBS], MPI_P(&P->Y), G_LIMBS * CIL);
-		EXPECT_ZERO(grp->mul(R, m, pXY));
+		grp->mul(R, &m, pXY);
 		EXPECT_MPI(&R->X, 4, mc[i].Xp[0], mc[i].Xp[1],
 				     mc[i].Xp[2], mc[i].Xp[3]);
 		EXPECT_MPI(&R->Y, 4, mc[i].Yp[0], mc[i].Yp[1],
@@ -445,74 +385,68 @@ ecp_mul(void)
 
 		ttls_mpi_pool_cleanup_ctx(0, false);
 	}
-
-	ttls_mpi_pool_free(R);
 }
 
 static void
 ecp_inv(void)
 {
-	TlsMpi *A, *X;
+	DECLARE_MPI_AUTO(A, G_LIMBS * 2);
+	DECLARE_MPI_AUTO(X, G_LIMBS * 2);
 
-	A = ttls_mpi_alloc_stack_init(4);
-	X = ttls_mpi_alloc_stack_init(8);
+	ttls_mpi_copy(&A, &G.P);
+	ttls_mpi_sub_int(&A, &A, 1);
+	ecp256_inv_mod(&X, &A, &G.P);
+	EXPECT_MPI(&X, 4, 0xfffffffffffffffeUL, 0xffffffffUL,
+			  0UL, 0xffffffff00000001UL);
 
-	ttls_mpi_copy(A, &G.P);
-	ttls_mpi_sub_int(A, A, 1);
-	ecp256_inv_mod(X, A, &G.P);
-	EXPECT_MPI(X, 4, 0xfffffffffffffffeUL, 0xffffffffUL,
-			 0UL, 0xffffffff00000001UL);
+	ttls_mpi_copy(&A, &G.N);
+	ttls_mpi_sub_int(&A, &A, 1);
+	ecp256_inv_mod(&X, &A, &G.N);
+	EXPECT_MPI(&X, 4, 0xf3b9cac2fc632550UL, 0xbce6faada7179e84UL,
+			  0xffffffffffffffffUL, 0xffffffff00000000UL);
 
-	ttls_mpi_copy(A, &G.N);
-	ttls_mpi_sub_int(A, A, 1);
-	ecp256_inv_mod(X, A, &G.N);
-	EXPECT_MPI(X, 4, 0xf3b9cac2fc632550UL, 0xbce6faada7179e84UL,
-			 0xffffffffffffffffUL, 0xffffffff00000000UL);
+	ecp256_lset(MPI_P(&A), 1);
+	ecp256_inv_mod(&X, &A, &G.P);
+	EXPECT_MPI(&X, 1, 1);
 
-	ECP256_MPI_LSET(A, 1);
-	ecp256_inv_mod(X, A, &G.P);
-	EXPECT_MPI(X, 1, 1);
+	ecp256_inv_mod(&X, &A, &G.N);
+	EXPECT_MPI(&X, 1, 1);
 
-	ecp256_inv_mod(X, A, &G.N);
-	EXPECT_MPI(X, 1, 1);
+	ttls_mpi_add_int(&A, &A, LONG_MAX);
+	ecp256_inv_mod(&X, &A, &G.P);
+	EXPECT_MPI(&X, 4, 0x200000000UL, 0UL, 0xfffffffe00000002UL, 0x1UL);
 
-	ttls_mpi_add_int(A, A, LONG_MAX);
-	ecp256_inv_mod(X, A, &G.P);
-	EXPECT_MPI(X, 4, 0x200000000UL, 0UL, 0xfffffffe00000002UL, 0x1UL);
+	ecp256_inv_mod(&X, &A, &G.N);
+	EXPECT_MPI(&X, 4, 0x52483a7dde617e67UL, 0xd7bb2ccbb87235cbUL,
+			  0xbda218b7dc01789dUL, 0x99a39155425de748UL);
 
-	ecp256_inv_mod(X, A, &G.N);
-	EXPECT_MPI(X, 4, 0x52483a7dde617e67UL, 0xd7bb2ccbb87235cbUL,
-			 0xbda218b7dc01789dUL, 0x99a39155425de748UL);
+	ttls_mpi_add_int(&A, &A, LONG_MAX);
+	ecp256_inv_mod(&X, &A, &G.P);
+	EXPECT_MPI(&X, 4, 0xfffffffffffffffdUL, 0x1fffffffdUL,
+			  0xfffffffeUL, 0xffffffff00000000UL);
 
-	ttls_mpi_add_int(A, A, LONG_MAX);
-	ecp256_inv_mod(X, A, &G.P);
-	EXPECT_MPI(X, 4, 0xfffffffffffffffdUL, 0x1fffffffdUL,
-			 0xfffffffeUL, 0xffffffff00000000UL);
+	ecp256_inv_mod(&X, &A, &G.N);
+	EXPECT_MPI(&X, 4, 0x59e3e70f9bf9a3e6UL, 0xfac1e065553149e5UL,
+			  0x2791bfd535e466eUL, 0x1d702a231af70e26UL);
 
-	ecp256_inv_mod(X, A, &G.N);
-	EXPECT_MPI(X, 4, 0x59e3e70f9bf9a3e6UL, 0xfac1e065553149e5UL,
-			 0x2791bfd535e466eUL, 0x1d702a231af70e26UL);
+	ttls_mpi_add_int(&A, &A, LONG_MAX);
+	ttls_mpi_add_int(&A, &A, LONG_MAX);
+	ecp256_inv_mod(&X, &A, &G.P);
+	EXPECT_MPI(&X, 4, 0x9954071d2477fa15UL, 0xec6ab5536da55163UL,
+			  0x4847238cafc4d9cfUL, 0x65fe0aab50b5ec75UL);
 
-	ttls_mpi_add_int(A, A, LONG_MAX);
-	ttls_mpi_add_int(A, A, LONG_MAX);
-	ecp256_inv_mod(X, A, &G.P);
-	EXPECT_MPI(X, 4, 0x9954071d2477fa15UL, 0xec6ab5536da55163UL,
-			 0x4847238cafc4d9cfUL, 0x65fe0aab50b5ec75UL);
+	ecp256_inv_mod(&X, &A, &G.N);
+	EXPECT_MPI(&X, 4, 0xd11600bf3e0b05dbUL, 0x5e27c81f75e59425UL,
+			  0xb6deccbfe7ee2dcfUL, 0xc6f83f8273959285UL);
 
-	ecp256_inv_mod(X, A, &G.N);
-	EXPECT_MPI(X, 4, 0xd11600bf3e0b05dbUL, 0x5e27c81f75e59425UL,
-			 0xb6deccbfe7ee2dcfUL, 0xc6f83f8273959285UL);
+	ttls_mpi_shift_l(&A, &A, 100);
+	ecp256_inv_mod(&X, &A, &G.P);
+	EXPECT_MPI(&X, 4, 0x4918e0ed10e2af6UL, 0x3752de692b5ec74fUL,
+			  0x1f8c9445bdada17bUL, 0x86da5515b2baeb5cUL);
 
-	ttls_mpi_shift_l(A, A, 100);
-	ecp256_inv_mod(X, A, &G.P);
-	EXPECT_MPI(X, 4, 0x4918e0ed10e2af6UL, 0x3752de692b5ec74fUL,
-			 0x1f8c9445bdada17bUL, 0x86da5515b2baeb5cUL);
-
-	ecp256_inv_mod(X, A, &G.N);
-	EXPECT_MPI(X, 4, 0xeac6e35f6e2e6ac1UL, 0xff76efdf47c1a0a9UL,
-			 0x152a4e13984f9845UL, 0x510a62612850ec16UL);
-
-	ttls_mpi_pool_cleanup_ctx((unsigned long)A, false);
+	ecp256_inv_mod(&X, &A, &G.N);
+	EXPECT_MPI(&X, 4, 0xeac6e35f6e2e6ac1UL, 0xff76efdf47c1a0a9UL,
+			  0x152a4e13984f9845UL, 0x510a62612850ec16UL);
 }
 
 int

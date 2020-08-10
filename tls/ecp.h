@@ -169,8 +169,8 @@ typedef struct {
 	ttls_ecp_group_id	id;
 	unsigned short		bits;
 
-	int (*mul)(TlsEcpPoint *R, const TlsMpi *m, const unsigned long *P);
-	int (*muladd)(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *Q,
+	void (*mul)(TlsEcpPoint *R, const TlsMpi *m, const unsigned long *P);
+	void (*muladd)(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *Q,
 		      const TlsMpi *n);
 	int (*gen_keypair)(TlsMpi *d, TlsEcpPoint *Q);
 	int (*ecdsa_sign)(const TlsMpi *d, const unsigned char *hash,

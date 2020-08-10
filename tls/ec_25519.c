@@ -370,10 +370,10 @@ ecp_mul_mxz_g(TlsEcpPoint *R, const TlsMpi *m, bool rnd)
  * TODO #1335 revert the projective coordinates randomization if DPA is
  * required or remove completely.
  */
-static int
+static void
 ecp_mul_mxz_rnd(TlsEcpPoint *R, const TlsMpi *m, const unsigned long *P)
 {
-	return ecp_mul_mxz(R, m, P, P + G_LIMBS, false);
+	ecp_mul_mxz(R, m, P, P + G_LIMBS, false);
 }
 
 /**

@@ -254,16 +254,6 @@ ttls_ecp_tls_write_group(ttls_ecp_group_id gid, size_t *olen,
 	return 0;
 }
 
-int
-ttls_ecp_muladd(const TlsEcpGrp *grp, TlsEcpPoint *R, const TlsMpi *m,
-		const TlsMpi *n, const TlsEcpPoint *Q)
-{
-	if (WARN_ON_ONCE(!grp->muladd))
-		return -EINVAL;
-
-	return grp->muladd(R, m, Q, n);
-}
-
 extern const TlsEcpGrp SECP256_G;
 extern const TlsEcpGrp SECP384_G;
 extern const TlsEcpGrp CURVE25519_G;

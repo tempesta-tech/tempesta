@@ -236,8 +236,6 @@ ttls_mpi_profile_create_ec(TlsMpiPool *mp, ttls_ecp_group_id ec)
 	 */
 	ctx->grp = g;
 
-	/* Init the temporary point to be used in ttls_ecdh_compute_shared(). */
-	ttls_ecp_point_init(&ctx->z);
 	/*
 	 * Allocate memory for the MPIs set in ttls_ecp_gen_keypair()
 	 * called from ttls_ecdh_make_params().
@@ -247,7 +245,6 @@ ttls_mpi_profile_create_ec(TlsMpiPool *mp, ttls_ecp_group_id ec)
 	ttls_mpi_alloc(&ctx->Q.X, n_sz * 2);
 	ttls_mpi_alloc(&ctx->Q.Y, n_sz * 2);
 	ttls_mpi_alloc(&ctx->Q.Z, n_sz * 2);
-	ttls_mpi_alloc(&ctx->z.Z, n_sz * 2);
 
 	return 0;
 }
