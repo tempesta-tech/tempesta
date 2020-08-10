@@ -1113,10 +1113,10 @@ ecp384_mul_comb_g(TlsEcpPoint *R, const TlsMpi *m, bool rnd)
  * TODO #1335 revert the projective coordinates randomization if DPA is
  * required or remove completely.
  */
-static int
+static void
 ecp384_mul_comb_rnd(TlsEcpPoint *R, const TlsMpi *m, const unsigned long *P)
 {
-	return ecp384_mul_comb(R, m, P, P + G_LIMBS, false);
+	ecp384_mul_comb(R, m, P, P + G_LIMBS, false);
 }
 
 /**
@@ -1151,7 +1151,7 @@ ecp384_mul_shortcuts(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *P)
  * multi-exponentiation (Bodo Möller, "Algorithms for multi-exponentiation")
  * should be used. See OpenSSL's ec_wNAF_mul() as the reference.
  */
-static int
+static void
 ecp384_muladd(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *Q,
 	      const TlsMpi *n)
 {
@@ -1160,12 +1160,10 @@ ecp384_muladd(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *Q,
 	mP = ttls_mpool_alloc_stack(sizeof(TlsEcpPoint));
 	ttls_ecp_point_init(mP);
 
-	MPI_CHK(ecp384_mul_shortcuts(mP, m, &G.G));
-	MPI_CHK(ecp384_mul_shortcuts(R, n, Q));
-	MPI_CHK(ecp384_add_mixed(R, mP, R));
-	MPI_CHK(ecp384_normalize_jac(R));
-
-	return 0;
+	ecp384_mul_shortcuts(mP, m, &G.G);
+	ecp384_mul_shortcuts(R, n, Q);
+	ecp384_add_mixed(R, mP, R);
+	ecp384_normalize_jac(R);
 }
 
 /**
@@ -1353,7 +1351,7 @@ ecp384_ecdsa_verify(const unsigned char *buf, size_t blen, const TlsEcpPoint *Q,
 	 * Since we're not using any secret data, no need to pass a RNG to
 	 * ttls_ecp_mul() for countermesures.
 	 */
-	MPI_CHK(ecp384_muladd(R, u1, Q, u2));
+	ecp384_muladd(R, u1, Q, u2);
 	if (ttls_ecp_is_zero(R))
 		return TTLS_ERR_ECP_VERIFY_FAILED;
 

@@ -69,7 +69,7 @@ ecp256_check_pubkey(const TlsEcpGrp *grp, const unsigned long *pXY)
 	mpi_sqr_mod_p256_x86_64_4(RHS, X);
 
 	/* Special case for A = -3 */
-	ecp256_mpi_lset(Y, 3);
+	ecp256_lset(Y, 3);
 	mpi_sub_mod_p256_x86_64_4(RHS, RHS, Y);
 	mpi_mul_mod_p256_x86_64_4(RHS, RHS, X);
 	mpi_add_mod_p256_x86_64(RHS, RHS, MPI_P(&G.B));

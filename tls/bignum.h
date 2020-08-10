@@ -130,6 +130,7 @@ ttls_mpi_init_next(TlsMpi *X, size_t nlimbs)
  * stack allocations by one page to avoid stack overflow (we may need it for
  * other calls). Use paged per-cpu MPI pool if more memory for temporary MPIs
  * is required.
+ * TODO #1335 replace with DECLARE_MPI_AUTO().
  */
 #define ttls_mpi_alloca_init(X, ln)					\
 do {									\
@@ -141,6 +142,17 @@ do {									\
 	(X)->used = 0;							\
 	(X)->limbs = ln;						\
 } while (0)
+
+#define MPI_WRAP(name, array)						\
+	TlsMpi name = { .s = 1, .limbs = ARRAY_SIZE(array),		\
+			.used = ARRAY_SIZE(array)			\
+	};								\
+	name._off = (short)((unsigned long)array - (unsigned long)&name);
+
+/* Can be used for constant MPIs only! */
+#define DECLARE_MPI_AUTO(name, size)					\
+	unsigned long __##name##_p[size];				\
+	MPI_WRAP(name, __##name##_p);
 
 #define ttls_mpi_alloca_zero(X, ln)					\
 do {									\

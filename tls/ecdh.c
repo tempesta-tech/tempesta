@@ -47,11 +47,8 @@ static int
 ttls_ecdh_compute_shared(const TlsEcpGrp *grp, TlsEcpPoint *z,
 			 unsigned long *Q, const TlsMpi *d)
 {
-	int r;
-
 	/* Compute the shared secret. */
-	if ((r = grp->mul(z, d, Q)))
-		return r;
+	grp->mul(z, d, Q);
 
 	return ttls_ecp_is_zero(z) ? -EINVAL : 0;
 }
@@ -212,14 +209,17 @@ ttls_ecdh_calc_secret(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
 		      size_t blen)
 {
 	int r;
+	TlsEcpPoint *z;
 
-	if ((r = ttls_ecdh_compute_shared(ctx->grp, &ctx->z, ctx->Qp, &ctx->d)))
+	ttls_ecp_point_tmp_alloc_init(z, G_LIMBS, G_LIMBS, G_LIMBS);
+
+	if ((r = ttls_ecdh_compute_shared(ctx->grp, z, ctx->Qp, &ctx->d)))
 		return r;
 
-	if (WARN_ON_ONCE(ttls_mpi_size(&ctx->z.X) > blen))
+	if (WARN_ON_ONCE(ttls_mpi_size(&z->X) > blen))
 		return -EINVAL;
 
 	*olen = (ctx->grp->bits + 7) / 8;
 
-	return ttls_mpi_write_binary(&ctx->z.X, buf, *olen);
+	return ttls_mpi_write_binary(&z->X, buf, *olen);
 }

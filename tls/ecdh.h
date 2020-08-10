@@ -49,15 +49,12 @@ typedef enum {
  * @rgp			- elliptic curve used;
  * @d			- private key;
  * @Q			- public key;
- * @z			- shared secret, X point is only used
- *			  (see ttls_ecdh_compute_shared());
  * @Qp			- the peer X and Y coordinates of the public key point;
  */
 typedef struct {
 	const TlsEcpGrp	*grp;
 	TlsMpi		d;
 	TlsEcpPoint	Q;
-	TlsEcpPoint	z;
 	unsigned long	Qp[0];
 } TlsECDHCtx;
 

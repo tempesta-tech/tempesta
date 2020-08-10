@@ -39,12 +39,6 @@
 #include "mpool.h"
 #include "tls_internal.h"
 
-/* Can be used for constant MPIs only! */
-#define DECLARE_MPI_AUTO(name, size)					\
-	TlsMpi name = { .limbs = size, .used = size };			\
-	unsigned long __p[size];					\
-	name._off = (short)((unsigned long)__p - (unsigned long)&name);
-
 /* Maximum sliding window size in bits used for modular exponentiation. */
 #define MPI_W_SZ		6
 
@@ -103,7 +97,6 @@ mpi_fixup_used(TlsMpi *X, size_t n)
 	while (n > 1 && !x[n - 1])
 		--n;
 	X->used = n;
-	bzero_fast(x + n, (X->limbs - n) * CIL);
 }
 
 void
