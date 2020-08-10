@@ -144,15 +144,16 @@ do {									\
 } while (0)
 
 #define MPI_WRAP(name, array)						\
-	TlsMpi name = { .s = 1, .limbs = ARRAY_SIZE(array),		\
-			.used = ARRAY_SIZE(array)			\
-	};								\
-	name._off = (short)((unsigned long)array - (unsigned long)&name);
+	TlsMpi name = {	.s = 1, .limbs = ARRAY_SIZE(array),		\
+			.used = ARRAY_SIZE(array),			\
+			._off = (short)((unsigned long)array		\
+				- (unsigned long)&name)			\
+	}
 
 /* Can be used for constant MPIs only! */
 #define DECLARE_MPI_AUTO(name, size)					\
 	unsigned long __##name##_p[size];				\
-	MPI_WRAP(name, __##name##_p);
+	MPI_WRAP(name, __##name##_p)
 
 #define ttls_mpi_alloca_zero(X, ln)					\
 do {									\

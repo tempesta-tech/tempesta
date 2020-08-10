@@ -209,9 +209,10 @@ ttls_ecdh_calc_secret(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
 		      size_t blen)
 {
 	int r;
+	const size_t nlimbs = (ctx->grp->bits + BIL - 1) / BIL;
 	TlsEcpPoint *z;
 
-	ttls_ecp_point_tmp_alloc_init(z, G_LIMBS, G_LIMBS, G_LIMBS);
+	ttls_ecp_point_tmp_alloc_init(z, nlimbs, nlimbs, nlimbs);
 
 	if ((r = ttls_ecdh_compute_shared(ctx->grp, z, ctx->Qp, &ctx->d)))
 		return r;
