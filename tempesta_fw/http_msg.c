@@ -4,7 +4,7 @@
  * HTTP message manipulation helpers for the protocol processing.
  *
  * Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
- * Copyright (C) 2015-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2015-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1295,11 +1295,6 @@ this_chunk:
 		if (!it->skb) {
 			if (!(it->skb = ss_skb_alloc(SKB_MAX_HEADER)))
 				return -ENOMEM;
-			/*
-			 * Expanding skb is always used for TLS client
-			 * connections.
-			 */
-			skb_shinfo(it->skb)->tx_flags |= SKBTX_SHARED_FRAG;
 			ss_skb_queue_tail(skb_head, it->skb);
 			it->frag = -1;
 			if (!it->skb_head) {
@@ -1310,6 +1305,7 @@ this_chunk:
 					*start_off = 0;
 				}
 			}
+
 			T_DBG3("message expanded by new skb [%p]\n", it->skb);
 		}
 
@@ -1339,6 +1335,7 @@ this_chunk:
 			 */
 			if (MAX_SKB_FRAGS <= it->frag + 1) {
 				it->skb = NULL;
+				it->frag = -1;
 			}
 			else if (cur_len != f_room || c + 1 < end) {
 				struct page *page = alloc_page(GFP_ATOMIC);
@@ -1460,4 +1457,22 @@ this_chunk:
 	}
 
 	return 0;
+}
+
+/**
+ * Insert data from string @data to message at offset defined by message
+ * iterator @it and @off. This function doesn't maintain message structure.
+ * After insertion message iterator will point at the end of fragment right
+ * before the inserted data.
+ */
+int
+tfw_http_msg_insert(TfwMsgIter *it, char *off, const TfwStr *data)
+{
+	int r;
+	TfwStr dst = {};
+
+	if ((r = ss_skb_get_room(it->skb_head, it->skb, off, data->len, &dst)))
+		return r;
+
+	return tfw_strcpy(&dst, data);
 }

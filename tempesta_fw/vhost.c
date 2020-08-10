@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2016-2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2016-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2078,6 +2078,24 @@ tfw_cfgop_in_tls_certificate_key(TfwCfgSpec *cs, TfwCfgEntry *ce)
 }
 
 static int
+tfw_cfgop_out_tls_tickets(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	if (tfw_vhosts_reconfig->expl_dflt) {
+		T_ERR_NL("%s: global tls tickets are to be configured "
+			 "outside of explicit '%s' vhost.\n",
+			 cs->name, TFW_VH_DFT_NAME);
+		return -EINVAL;
+	}
+	return tfw_tls_set_tickets(tfw_vhosts_reconfig->vhost_dflt, cs, ce);
+}
+
+static int
+tfw_cfgop_in_tls_tickets(TfwCfgSpec *cs, TfwCfgEntry *ce)
+{
+	return tfw_tls_set_tickets(tfw_vhost_entry, cs, ce);
+}
+
+static int
 tfw_cfgop_tls_any_sni(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	bool val;
@@ -2824,6 +2842,14 @@ static TfwCfgSpec tfw_vhost_internal_specs[] = {
 		.allow_reconfig = true,
 	},
 	{
+		.name = "tls_tickets",
+		.deflt = "",
+		.handler = tfw_cfgop_in_tls_tickets,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
 		.name = "tls_match_any_server_name",
 		.deflt = "false",
 		.handler = tfw_cfgop_in_tls_any_sni,
@@ -2969,6 +2995,14 @@ static TfwCfgSpec tfw_vhost_specs[] = {
 		.name = "tls_certificate_key",
 		.deflt = NULL,
 		.handler = tfw_cfgop_out_tls_certificate_key,
+		.allow_none = true,
+		.allow_repeat = true,
+		.allow_reconfig = true,
+	},
+	{
+		.name = "tls_tickets",
+		.deflt = "",
+		.handler = tfw_cfgop_out_tls_tickets,
 		.allow_none = true,
 		.allow_repeat = true,
 		.allow_reconfig = true,

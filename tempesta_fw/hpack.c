@@ -3552,7 +3552,6 @@ tfw_hpack_hdr_expand(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 	 * upstairs in this case - in order the header creation to be continued.
 	 *
 	 */
-	c = TFW_STR_CHUNK(hdr, 1);
 	if (!(c = TFW_STR_CHUNK(hdr, 1)))
 		return 0;
 

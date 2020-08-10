@@ -942,6 +942,29 @@ TEST(http_parser, hdr_token_confusion)
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
 			 "Transfer-Encoding: chunkedchunked\r\n"
 			 "\r\n");
+
+	/*
+	 * Headers must contain at least single character, otherwise
+	 * message must be blocked.
+	 */
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 ": methodGET\r\n"
+			 "\r\n");
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 ":methodGET\r\n"
+			 "\r\n");
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\r\n"
+			 ":method GET\r\n"
+			 "\r\n");
+	EXPECT_BLOCK_RESP("HTTP/1.1 200 OK\r\n"
+			 ": methodGET\r\n"
+			 "\r\n");
+	EXPECT_BLOCK_RESP("HTTP/1.1 200 OK\r\n"
+			 ":methodGET\r\n"
+			 "\r\n");
+	EXPECT_BLOCK_RESP("HTTP/1.1 200 OK\r\n"
+			 ":method GET\r\n"
+			 "\r\n");
 }
 
 TEST(http_parser, fills_hdr_tbl_for_req)
