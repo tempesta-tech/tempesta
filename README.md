@@ -11,14 +11,13 @@ load balancer, a web accelerator, a DDoS mitigation system, and a web applicatio
 firewall (WAF).
 
 **Tempesta FW** is the first and only hybrid of a Web accelerator and a multi-layer
-firewall. This unique architecture provides efficient blocking of any malicious traffic
-and outstanding performance of web applications in normal operation. The architecture is
-the result of collecting and application of
-[state-of-the-art research and cutting edge technologies](http://tempesta-tech.com/company#research).
+firewall. This unique architecture provides
+[seamless integration](https://github.com/tempesta-tech/tempesta/wiki/HTTP-tables)
+with the Linux iptables or nftables.
 
-**Tempesta FW** services up to 1.8M HTTP requests per second on the cheapest hardware.
-The benchmark results are open and can be easily proven. Our performance results are
-beyond the reach of other modern web accelerators.
+**Tempesta FW** services up to 1.8M HTTP requests per second on the cheapest hardware,
+which is x3 faster than Nginx or HAProxy. **Tempesta TLS** is about 
+[40-80% faster than Nginx/OpenSSL and provides up to x4 lower latency](https://netdevconf.info/0x14/session.html?talk-performance-study-of-kernel-TLS-handshakes).
 
 
 ## How it works?
