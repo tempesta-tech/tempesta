@@ -2169,6 +2169,9 @@ tfw_vhost_cfgstart(void)
 	tfw_frang_clean(&tfw_frang_vhost_reconfig);
 	tfw_frang_global_clean(&tfw_frang_glob_reconfig);
 
+	tfw_vhost_entry = NULL;
+	tfwcfg_this_location = NULL;
+
 	return 0;
 }
 
