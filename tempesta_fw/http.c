@@ -4954,15 +4954,19 @@ tfw_http_hm_drop_resp(TfwHttpResp *resp)
 static TfwStr
 tfw_http_get_ip_from_xff(TfwHttpReq *req)
 {
-	TfwStr s_xff, s_ip, *c, *end;
+	const TfwStr *s_xff, *c, *end;
+	TfwStr s_ip;
 	unsigned int nchunks;
 
 	/*
 	 * If a client works through a forward proxy, then a proxy can pass it's
 	 * IP address by the first value in X-Forwarded-For
 	 */
-	s_xff = req->h_tbl->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR];
-	s_ip = tfw_str_next_str_val(&s_xff);
+	s_xff = &req->h_tbl->tbl[TFW_HTTP_HDR_X_FORWARDED_FOR];
+	/* Pick only end client address, ignore all proxies between it and us.  */
+	if (TFW_STR_DUP(s_xff))
+		s_xff = __TFW_STR_CH(s_xff, 0);
+	s_ip = tfw_str_next_str_val(s_xff);
 	nchunks = 0;
 	TFW_STR_FOR_EACH_CHUNK(c, &s_ip, end) {
 		if (!(c->flags & TFW_STR_VALUE))
