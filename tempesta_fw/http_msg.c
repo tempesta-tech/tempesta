@@ -527,7 +527,7 @@ tfw_http_msg_hdr_close(TfwHttpMsg *hm)
 			if (WARN_ON_ONCE(!TFW_MSG_H2(hm)
 					 || id != TFW_HTTP_HDR_COOKIE))
 				return TFW_BLOCK;
-		} else {
+		} else if (id != TFW_HTTP_HDR_X_FORWARDED_FOR) {
 			/*
 			 * RFC 7230 3.2.2: duplicate of non-singular special
 			 * header - leave the decision to classification layer.
