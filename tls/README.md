@@ -1,6 +1,6 @@
 # Tempesta TLS
 
-Oroginally **Tempesta TLS** was forked from GPLv2 version of
+Originally **Tempesta TLS** was forked from GPLv2 version of
 [mbed TLS 2.8.0](https://tls.mbed.org/download/start/mbedtls-2.8.0-gpl.tgz).
 However, it was significantly reworked to make the code fast, so at the moment
 only interface code PKI is left from the original mbed TLS code.
