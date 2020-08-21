@@ -2063,6 +2063,8 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, time_t lifetime,
 	resp->version = ce->version;
 	tfw_http_copy_flags(resp->flags, ce->hmflags);
 
+	resp->date = ce->date;
+
 	/* Skip record key until status line. */
 	for (p = TDB_PTR(db->hdr, ce->status);
 	     trec && (unsigned long)(p - trec->data) > trec->len;
