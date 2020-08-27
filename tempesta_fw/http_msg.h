@@ -35,8 +35,6 @@
 #define S_VERSION11		"HTTP/1.1"
 #define S_0			S_VERSION11 " "
 
-#define SLEN(s)			(sizeof(s) - 1)
-
 /*
  * The size of the buffer to store the value for ':status' pseudo-header
  * of HTTP/2-response.
