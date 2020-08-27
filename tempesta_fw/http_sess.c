@@ -659,10 +659,14 @@ tfw_http_sess_check_redir_mark(TfwHttpReq *req, RedirMarkVal *mv)
 	unsigned long tmt = HZ * (unsigned long)req->vhost->cookie->tmt_sec;
 
 	if (tfw_http_redir_mark_get(req, &mark_val)) {
-		if (tfw_http_redir_mark_verify(req, &mark_val, mv)
-		    || ++mv->att_no > max_misses
-		    || (tmt && mv->ts + tmt < jiffies))
-		{
+		int r = tfw_http_redir_mark_verify(req, &mark_val, mv);
+
+		if (!r && tmt && mv->ts + tmt < jiffies) {
+			mv->ts = jiffies;
+			mv->att_no = 0;
+		}
+
+		if (r || ++mv->att_no > max_misses) {
 			tfw_filter_block_ip(&req->conn->peer->addr);
 			return TFW_HTTP_SESS_VIOLATE;
 		}
