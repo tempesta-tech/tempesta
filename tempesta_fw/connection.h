@@ -147,12 +147,14 @@ typedef struct {
  * @seq_queue	- queue of client's messages in the order they came;
  * @seq_qlock	- lock for accessing @seq_queue;
  * @ret_qlock	- lock for serializing sets of responses;
+ * @timer_lock	- lock for serializing of deleting/modifing keep-alive timer
  */
 typedef struct {
 	TFW_CONN_COMMON;
 	struct list_head	seq_queue;
 	spinlock_t		seq_qlock;
 	spinlock_t		ret_qlock;
+	spinlock_t		timer_lock;
 } TfwCliConn;
 
 /*
@@ -340,9 +342,6 @@ tfw_connection_get(TfwConn *conn)
 	atomic_inc(&conn->refcnt);
 }
 
-#define tfw_cli_conn_get(c)	tfw_connection_get((TfwConn *)(c))
-#define tfw_srv_conn_get(c)	tfw_connection_get((TfwConn *)(c))
-
 /**
  * Increment reference counter and return true if @conn is not in
  * failovering process, i.e. @refcnt wasn't less or equal to zero.
@@ -380,7 +379,6 @@ tfw_connection_put(TfwConn *conn)
 		conn->destructor(conn);
 }
 
-#define tfw_cli_conn_put(c)	tfw_connection_put((TfwConn *)(c))
 #define tfw_srv_conn_put(c)	tfw_connection_put((TfwConn *)(c))
 
 static inline void

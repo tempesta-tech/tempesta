@@ -876,6 +876,8 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 	TfwHttpReq *req = resp->req;
 	TfwH2Ctx *ctx = tfw_h2_context(req->conn);
 
+	tfw_connection_get(req->conn);
+
 	if (tfw_cli_conn_send((TfwCliConn *)req->conn, (TfwMsg *)resp)) {
 		T_DBG("%s: cannot send data to client via HTTP/2\n", __func__);
 		TFW_INC_STAT_BH(serv.msgs_otherr);
@@ -884,6 +886,8 @@ tfw_h2_resp_fwd(TfwHttpResp *resp)
 	else {
 		TFW_INC_STAT_BH(serv.msgs_forwarded);
 	}
+
+	tfw_connection_put(req->conn);
 
 	tfw_hpack_enc_release(&ctx->hpack, resp->flags);
 
@@ -1943,6 +1947,10 @@ tfw_http_req_resched(TfwHttpReq *req, TfwServer *srv, struct list_head *eq)
 				       req);
 	}
 	ret = tfw_http_req_fwd(sch_conn, req, eq, true);
+	/*
+	 * Paired with tfw_srv_conn_get_if_live() via sched_srv_conn callback or
+	 * tfw_http_get_srv_conn() which increments the reference counter.
+	 */
 	tfw_srv_conn_put(sch_conn);
 
 	return ret;
@@ -3649,14 +3657,14 @@ tfw_http_resp_fwd(TfwHttpResp *resp)
 	 * processing ret_queue and make the current softirq retry from
 	 * determination of req_retent.
 	 */
-	tfw_cli_conn_get(cli_conn);
+	tfw_connection_get((TfwConn *)(cli_conn));
 	spin_lock_bh(&cli_conn->ret_qlock);
 	spin_unlock_bh(&cli_conn->seq_qlock);
 
 	__tfw_http_resp_fwd(cli_conn, &ret_queue);
 
 	spin_unlock_bh(&cli_conn->ret_qlock);
-	tfw_cli_conn_put(cli_conn);
+	tfw_connection_put((TfwConn *)(cli_conn));
 
 	/* Zap request/responses that were not sent due to an error. */
 	if (!list_empty(&ret_queue)) {
@@ -4838,6 +4846,10 @@ send_500:
 	tfw_http_send_resp(req, 500, "request dropped: processing error");
 	TFW_INC_STAT_BH(clnt.msgs_otherr);
 conn_put:
+	/*
+	 * Paired with tfw_srv_conn_get_if_live() via tfw_http_get_srv_conn() which
+	 * increments the reference counter.
+	 */
 	tfw_srv_conn_put(srv_conn);
 }
 
@@ -6005,6 +6017,10 @@ tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len)
 	tfw_http_req_fwd(srv_conn, req, &equeue, false);
 	tfw_http_req_zap_error(&equeue);
 
+	/*
+	 * Paired with tfw_srv_conn_get_if_live() via sched_srv_conn callback which
+	 * increments the reference counter.
+	 */
 	tfw_srv_conn_put(srv_conn);
 
 	return;
