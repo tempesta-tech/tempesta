@@ -155,16 +155,35 @@ int
 tfw_cfgop_cookie_set_options(TfwStickyCookie *sticky, const char *options)
 {
 	size_t len = strlen(options);
-	if (len + 2 > STICKY_OPT_MAXLEN) {
+	if (sticky->options.len + 2 + len > STICKY_OPT_MAXLEN) {
 		T_ERR_NL("http_sess: too long cookie options length.\n");
 		return -EINVAL;
 	}
-	sticky->options.data = sticky->options_str;
-	sticky->options.len = len + 2;
 
-	sticky->options_str[0] = ';';
-	sticky->options_str[1] = ' ';
-	memcpy(&sticky->options_str[2], options, len);
+	sticky->options_str[sticky->options.len + 0] = ';';
+	sticky->options_str[sticky->options.len + 1] = ' ';
+	memcpy(&sticky->options_str[sticky->options.len + 2], options, len);
+
+	sticky->options.len += len + 2;
+
+	return 0;
+}
+
+int
+tfw_cfgop_cookie_set_path(TfwStickyCookie *sticky, const char *path_val)
+{
+	static const char path[] = "; path=";
+	size_t path_val_len = strlen(path_val);
+	if (sticky->options.len + SLEN(path) + path_val_len > STICKY_OPT_MAXLEN) {
+		T_ERR_NL("http_sess: too long cookie path length.\n");
+		return -EINVAL;
+	}
+
+	memcpy(&sticky->options_str[sticky->options.len], path, SLEN(path));
+	memcpy(&sticky->options_str[sticky->options.len + SLEN(path)], path_val,
+	       path_val_len);
+
+	sticky->options.len += SLEN(path) + path_val_len;
 
 	return 0;
 }
@@ -176,9 +195,12 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	int r;
 	const char *key, *val, *name_val = STICKY_NAME_DEFAULT;
 	TfwStickyCookie *sticky;
+	bool was_path = false;
 
 	BUG_ON(!cur_vhost);
 	sticky = cur_vhost->cookie;
+	sticky->options.data = sticky->options_str;
+	sticky->options.len = 0;
 
 	if (!TFW_STR_EMPTY(&sticky->name)) {
 		T_ERR_NL("http_sess: 'cookie' and 'learn' directives can't be "
@@ -211,11 +233,31 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 					 " attribute: '%s'\n", cs->name, val);
 				return -EINVAL;
 			}
+		} else if (!strcasecmp(key, "path")) {
+			if (tfw_cfgop_cookie_set_path(sticky, val))
+			{
+				T_ERR_NL("%s: invalid value for 'path'"
+					 " attribute: '%s'\n", cs->name, val);
+				return -EINVAL;
+			}
+			was_path = true;
 		} else {
 			T_ERR_NL("%s: unsupported attribute: '%s=%s'.\n",
 				 cs->name, key, val);
 			return -EINVAL;
 		}
+	}
+
+	if (!was_path) {
+		static const char dflt_path[] = "; path=/";
+		if (sticky->options.len + SLEN(dflt_path) > STICKY_OPT_MAXLEN) {
+			T_ERR_NL("http_sess: too long cookie options or path length.\n");
+			return -EINVAL;
+		}
+		memcpy(&sticky->options_str[sticky->options.len], dflt_path,
+		       SLEN(dflt_path));
+
+		sticky->options.len += SLEN(dflt_path);
 	}
 
 	if ((r = __tfw_cfgop_cookie_set_name(sticky, name_val)))
