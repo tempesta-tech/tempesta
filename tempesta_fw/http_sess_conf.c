@@ -597,6 +597,7 @@ TfwCfgSpec tfw_http_sess_specs[] = {
 		.name = "js_challenge",
 		.handler = tfw_cfgop_js_challenge,
 		.allow_none = true,
+		.allow_reconfig = true,
 	},
 	{ 0 }
 };
