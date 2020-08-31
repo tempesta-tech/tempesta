@@ -86,6 +86,31 @@ do {									\
 	printf("ops=%lu time=%lums ops/s=%lu\n", iter, t, iter * 1000 / t); \
 } while (0)
 
+#define UNROLL(F)	F; F; F; F; F; F; F; F; F; F; F; F; F; F; F; F; 
+
+void
+bm_mul_p256(void)
+{
+	unsigned long x[8];
+	unsigned long a[4] = {UINT_MAX, 2, ULONG_MAX, 4};
+	unsigned long b[4] = {ULONG_MAX, 4, UINT_MAX, 2};
+
+	BENCHMARK("256-bit mul_mod",
+		UNROLL(mpi_mul_mod_p256_x86_64_4(x, a, b));
+	);
+}
+
+void
+bm_sqr_p256(void)
+{
+	unsigned long x[8];
+	unsigned long a[4] = {UINT_MAX, 2, ULONG_MAX, 4};
+
+	BENCHMARK("256-bit sqr_mod",
+		UNROLL(mpi_sqr_mod_p256_x86_64_4(x, a));
+	);
+}
+
 void
 bm_ecdsa_sign_p256(void)
 {
@@ -189,6 +214,14 @@ main(int argc, char *argv[])
 		fprintf(stderr, "Cannot initialize crypto memoty pool\n");
 		return 1;
 	}
+
+	/*
+	 * Benchmark multiplication vs squaring - the fundamental ratio
+	 * for calculation price of ECC algorithms. Traditional ration in
+	 * the literature is [0.8, 0.86].
+	 */
+	bm_mul_p256();
+	bm_sqr_p256();
 
 	bm_ecdsa_sign_p256();
 	bm_ecdhe_srv_p256();
