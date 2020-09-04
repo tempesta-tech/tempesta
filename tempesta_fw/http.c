@@ -5603,7 +5603,12 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	data.skb = NULL;
 	data.req = (TfwMsg *)req;
 	data.resp = (TfwMsg *)hmresp;
-	tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG_FWD, &data);
+	if (tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG_FWD, &data)) {
+		tfw_http_conn_msg_free(hmresp);
+		tfw_http_req_block(req, 403, "response blocked: filtered out");
+		TFW_INC_STAT_BH(serv.msgs_filtout);
+		return;
+	}
 
 	/*
 	 * Complete HTTP message has been collected and processed
