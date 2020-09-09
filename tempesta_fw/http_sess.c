@@ -177,10 +177,10 @@ static int
 tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 {
 	unsigned long ts_be64 = cpu_to_be64(sv->ts);
-	TfwStr c_chunks[3], m_chunks[3], cookie = { 0 }, rmark = { 0 };
+	TfwStr c_chunks[3], m_chunks[3], r_chunks[5], cookie = { 0 }, rmark = { 0 };
 	TfwHttpResp *resp;
 	char c_buf[sizeof(*sv) * 2], m_buf[sizeof(*mv) * 2];
-	TfwStr *body = NULL;
+	TfwStr body = { 0 };
 	TfwStickyCookie *sticky;
 	int r;
 
@@ -188,10 +188,6 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 	WARN_ON_ONCE(!list_empty(&req->nip_list));
 	if (WARN_ON_ONCE(!req->vhost))
 		return TFW_HTTP_SESS_FAILURE;
-
-	sticky = req->vhost->cookie;
-	if (sticky->js_challenge)
-		body = &sticky->js_challenge->body;
 
 	/*
 	 * TODO: #598 rate limit requests with invalid cookie value.
@@ -207,6 +203,26 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 	if (mv)
 		tfw_http_redir_mark_prepare(mv, m_buf, sizeof(m_buf), m_chunks,
 					    sizeof(m_chunks), &rmark);
+
+	sticky = req->vhost->cookie;
+	if (sticky->js_challenge) {
+		if (mv) {
+			if (sticky->js_challenge->body.nchunks != 2)
+				return TFW_HTTP_SESS_FAILURE;
+
+			r_chunks[0] = sticky->js_challenge->body.chunks[0];
+			r_chunks[1] = rmark.chunks[0];
+			r_chunks[2] = rmark.chunks[1];
+			r_chunks[3] = rmark.chunks[2];
+			r_chunks[4] = sticky->js_challenge->body.chunks[1];
+			body.chunks = r_chunks;
+			body.len = r_chunks[0].len + rmark.len + r_chunks[4].len;
+			body.nchunks = 5;
+		} else {
+			body = sticky->js_challenge->body;
+		}
+	}
+
 	/*
 	 * Form the cookie as:
 	 *
@@ -236,9 +252,9 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 
 	r = TFW_MSG_H2(req)
 		? tfw_h2_prep_redirect(resp, sticky->redirect_code, &rmark,
-				       &cookie, body)
+				       &cookie, &body)
 		: tfw_h1_prep_redirect(resp, sticky->redirect_code, &rmark,
-				       &cookie, body);
+				       &cookie, &body);
 	if (r) {
 		tfw_http_msg_free((TfwHttpMsg *)resp);
 		return TFW_HTTP_SESS_FAILURE;

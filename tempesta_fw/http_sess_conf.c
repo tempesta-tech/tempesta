@@ -37,6 +37,7 @@ void
 tfw_http_sess_cookie_clean(TfwVhost *vhost)
 {
 	TfwStickyCookie *sticky = vhost->cookie;
+	TfwStr *c;
 
 	if (sticky->shash)
 		crypto_free_shash(sticky->shash);
@@ -44,9 +45,12 @@ tfw_http_sess_cookie_clean(TfwVhost *vhost)
 	if (!sticky->js_challenge)
 		return;
 
-	if (sticky->js_challenge->body.data)
-		free_pages((unsigned long)sticky->js_challenge->body.data,
+	c = TFW_STR_CHUNK(&sticky->js_challenge->body, 0);
+	if (c && c->data) {
+		free_pages((unsigned long)c->data,
 			   get_order(sticky->js_challenge->body.len));
+		kfree(sticky->js_challenge->body.chunks);
+	}
 	kfree(sticky->js_challenge);
 
 	return;
@@ -494,14 +498,34 @@ tfw_cfgop_jsch_set_body(TfwCfgSpec *cs, TfwCfgJsCh *js_ch, const char *script)
 {
 	char *body_data;
 	size_t sz;
+	char *rbegin, *rend, *p;
 
 	body_data = tfw_http_msg_body_dup(script, &sz);
 	if (!body_data)
 		return -ENOMEM;
-	js_ch->body.len = sz;
-	js_ch->body.data = body_data;
+	if ((p = strstr(body_data, "TFW_DONT_CHANGE_NAME"))) {
+		if (!(rbegin = strchr(p, '"') + 1))
+			goto err;
+		if (!(rend = strchr(rbegin, '"')))
+			goto err;
+	} else {
+		goto err;
+	}
+	js_ch->body.chunks = kzalloc(sizeof(TfwStr) * 2, GFP_KERNEL);
+	js_ch->body.chunks[0] = (TfwStr) { .data = body_data,
+	                                   .len = rbegin - body_data};
+	js_ch->body.chunks[1] = (TfwStr) { .data = rend,
+	                                   .len = body_data + sz - rend };
+	js_ch->body.len = js_ch->body.chunks[0].len + js_ch->body.chunks[1].len;
+	js_ch->body.nchunks = 2;
 
 	return 0;
+
+err:
+	T_ERR_NL("%s: can't find TFW_DONT_CHANGE_NAME in JS challenge script\n",
+	         cs->name);
+	free_pages((unsigned long)body_data, get_order(sz));
+	return -EINVAL;
 }
 
 static int

@@ -8,6 +8,10 @@
         </h2>
         <p></p>&nbsp;<p></p>
 
+        <h3 align='center'>
+            Please check that you browser supports JavaScript.
+        </h3>
+
         <script>[% INCLUDE js_challenge.js.tpl %]</script>
     </body>
 </html>
