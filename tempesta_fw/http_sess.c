@@ -47,6 +47,7 @@
 #include "hash.h"
 #include "http_msg.h"
 #include "http_sess.h"
+#include "http_sess_conf.h"
 #include "vhost.h"
 #include "filter.h"
 #include "tdb.h"
@@ -174,7 +175,8 @@ tfw_http_redir_mark_prepare(RedirMarkVal *mv, char *buf, unsigned int buf_len,
 }
 
 static int
-tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
+tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv,
+                               bool jsch_allow)
 {
 	unsigned long ts_be64 = cpu_to_be64(sv->ts);
 	TfwStr c_chunks[3], m_chunks[3], r_chunks[5], cookie = { 0 }, rmark = { 0 };
@@ -182,7 +184,7 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 	char c_buf[sizeof(*sv) * 2], m_buf[sizeof(*mv) * 2];
 	TfwStr body = { 0 };
 	TfwStickyCookie *sticky;
-	int r;
+	int r, code;
 
 	WARN_ON_ONCE(!list_empty(&req->fwd_list));
 	WARN_ON_ONCE(!list_empty(&req->nip_list));
@@ -205,7 +207,7 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 					    sizeof(m_chunks), &rmark);
 
 	sticky = req->vhost->cookie;
-	if (sticky->js_challenge) {
+	if (sticky->js_challenge && jsch_allow) {
 		if (mv) {
 			if (sticky->js_challenge->body.nchunks != 2)
 				return TFW_HTTP_SESS_FAILURE;
@@ -250,11 +252,10 @@ tfw_http_sticky_build_redirect(TfwHttpReq *req, StickyVal *sv, RedirMarkVal *mv)
 		cookie.nchunks++;
 	}
 
+	code = jsch_allow ? sticky->redirect_code: TFW_REDIR_STATUS_CODE_DFLT;
 	r = TFW_MSG_H2(req)
-		? tfw_h2_prep_redirect(resp, sticky->redirect_code, &rmark,
-				       &cookie, &body)
-		: tfw_h1_prep_redirect(resp, sticky->redirect_code, &rmark,
-				       &cookie, &body);
+		? tfw_h2_prep_redirect(resp, code, &rmark, &cookie, &body)
+		: tfw_h1_prep_redirect(resp, code, &rmark, &cookie, &body);
 	if (r) {
 		tfw_http_msg_free((TfwHttpMsg *)resp);
 		return TFW_HTTP_SESS_FAILURE;
@@ -719,7 +720,7 @@ tfw_http_sticky_challenge_start(TfwHttpReq *req, TfwStickyCookie *sticky,
 			return TFW_HTTP_SESS_FAILURE;
 	}
 
-	return tfw_http_sticky_build_redirect(req, sv, mvp);
+	return tfw_http_sticky_build_redirect(req, sv, mvp, true);
 }
 
 /*
@@ -1145,6 +1146,7 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 	TfwStr *c_val = &ctx.cookie_val;
 	TdbRec *rec;
 	TdbGetAllocCtx tdb_ctx = { 0 };
+	TfwStr mark_val = {};
 
 	/*
 	 * If vhost is not known, then request is to be dropped. Don't save the
@@ -1212,6 +1214,9 @@ tfw_http_sess_obtain(TfwHttpReq *req)
 		 * bucket with the session as soon as possible.
 		 */
 		tdb_rec_put(rec);
+
+	if (tfw_http_redir_mark_get(req, &mark_val))
+		return tfw_http_sticky_build_redirect(req, sv, NULL, false);
 
 	return TFW_HTTP_SESS_SUCCESS;
 }
