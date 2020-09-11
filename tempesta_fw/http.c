@@ -5542,7 +5542,7 @@ tfw_http_resp_gfsm(TfwHttpMsg *hmresp, TfwFsmData *data)
 
 error:
 	tfw_http_popreq(hmresp, false);
-	tfw_http_conn_msg_free(hmresp);
+	/* The response is freed by tfw_http_req_block(). */
 	tfw_http_req_block(req, 403, "response blocked: filtered out");
 	TFW_INC_STAT_BH(serv.msgs_filtout);
 	return r;
@@ -5604,7 +5604,7 @@ tfw_http_resp_cache(TfwHttpMsg *hmresp)
 	data.req = (TfwMsg *)req;
 	data.resp = (TfwMsg *)hmresp;
 	if (tfw_gfsm_move(&hmresp->conn->state, TFW_HTTP_FSM_RESP_MSG_FWD, &data)) {
-		tfw_http_conn_msg_free(hmresp);
+		/* The response is freed by tfw_http_req_block(). */
 		tfw_http_req_block(req, 403, "response blocked: filtered out");
 		TFW_INC_STAT_BH(serv.msgs_filtout);
 		return;
@@ -5653,7 +5653,7 @@ tfw_http_resp_terminate(TfwHttpMsg *hm)
 		TfwHttpReq *req = hm->req;
 
 		tfw_http_popreq(hm, false);
-		tfw_http_conn_msg_free(hm);
+		/* The response is freed by tfw_http_req_block(). */
 		tfw_http_req_block(req, 502, "response blocked: filtered out");
 		TFW_INC_STAT_BH(serv.msgs_filtout);
 		return;
@@ -5890,7 +5890,7 @@ bad_msg:
 	 */
 	bad_req = hmresp->req;
 	tfw_http_popreq(hmresp, false);
-	tfw_http_conn_msg_free(hmresp);
+	/* The response is freed by tfw_http_req_block/drop(). */
 	if (filtout)
 		tfw_http_req_block(bad_req, 502,
 				   "response blocked: filtered out");
