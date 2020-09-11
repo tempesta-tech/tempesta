@@ -218,6 +218,8 @@ size_t tfw_ultohex(unsigned long ai, char *buf, unsigned int len);
 /* The chunk contains only WS characters. */
 #define TFW_STR_OWS		0x100
 
+#define SLEN(s)			(sizeof(s) - 1)
+
 /*
  * @ptr		- pointer to string data or array of nested strings;
  * @skb		- socket buffer containing the string data;

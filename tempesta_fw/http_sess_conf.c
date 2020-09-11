@@ -30,13 +30,13 @@ static TfwVhost *cur_vhost;
 #define STICKY_NAME_DEFAULT	"__tfw"
 
 static const unsigned int tfw_cfg_jsch_code_dflt = 503;
-static const unsigned short tfw_cfg_redirect_st_code_dflt = 302;
 #define TFW_CFG_JS_PATH "/etc/tempesta/js_challenge.html"
 
 void
 tfw_http_sess_cookie_clean(TfwVhost *vhost)
 {
 	TfwStickyCookie *sticky = vhost->cookie;
+	TfwStr *c;
 
 	if (sticky->shash)
 		crypto_free_shash(sticky->shash);
@@ -44,9 +44,12 @@ tfw_http_sess_cookie_clean(TfwVhost *vhost)
 	if (!sticky->js_challenge)
 		return;
 
-	if (sticky->js_challenge->body.data)
-		free_pages((unsigned long)sticky->js_challenge->body.data,
+	c = TFW_STR_CHUNK(&sticky->js_challenge->body, 0);
+	if (c && c->data) {
+		free_pages((unsigned long)c->data,
 			   get_order(sticky->js_challenge->body.len));
+		kfree(sticky->js_challenge->body.chunks);
+	}
 	kfree(sticky->js_challenge);
 
 	return;
@@ -112,7 +115,7 @@ tfw_http_sess_cfgop_finish(TfwVhost *vhost, TfwCfgSpec *cs)
 		sticky->enforce = true;
 		sticky->redirect_code = sticky->js_challenge->st_code;
 	} else {
-		sticky->redirect_code = tfw_cfg_redirect_st_code_dflt;
+		sticky->redirect_code = TFW_REDIR_STATUS_CODE_DFLT;
 	}
 
 	cur_vhost = NULL;
@@ -155,16 +158,35 @@ int
 tfw_cfgop_cookie_set_options(TfwStickyCookie *sticky, const char *options)
 {
 	size_t len = strlen(options);
-	if (len + 2 > STICKY_OPT_MAXLEN) {
+	if (sticky->options.len + 2 + len > STICKY_OPT_MAXLEN) {
 		T_ERR_NL("http_sess: too long cookie options length.\n");
 		return -EINVAL;
 	}
-	sticky->options.data = sticky->options_str;
-	sticky->options.len = len + 2;
 
-	sticky->options_str[0] = ';';
-	sticky->options_str[1] = ' ';
-	memcpy(&sticky->options_str[2], options, len);
+	sticky->options_str[sticky->options.len + 0] = ';';
+	sticky->options_str[sticky->options.len + 1] = ' ';
+	memcpy(&sticky->options_str[sticky->options.len + 2], options, len);
+
+	sticky->options.len += len + 2;
+
+	return 0;
+}
+
+int
+tfw_cfgop_cookie_set_path(TfwStickyCookie *sticky, const char *path_val)
+{
+	static const char path[] = "; path=";
+	size_t path_val_len = strlen(path_val);
+	if (sticky->options.len + SLEN(path) + path_val_len > STICKY_OPT_MAXLEN) {
+		T_ERR_NL("http_sess: too long cookie path length.\n");
+		return -EINVAL;
+	}
+
+	memcpy(&sticky->options_str[sticky->options.len], path, SLEN(path));
+	memcpy(&sticky->options_str[sticky->options.len + SLEN(path)], path_val,
+	       path_val_len);
+
+	sticky->options.len += SLEN(path) + path_val_len;
 
 	return 0;
 }
@@ -176,9 +198,12 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	int r;
 	const char *key, *val, *name_val = STICKY_NAME_DEFAULT;
 	TfwStickyCookie *sticky;
+	bool was_path = false;
 
 	BUG_ON(!cur_vhost);
 	sticky = cur_vhost->cookie;
+	sticky->options.data = sticky->options_str;
+	sticky->options.len = 0;
 
 	if (!TFW_STR_EMPTY(&sticky->name)) {
 		T_ERR_NL("http_sess: 'cookie' and 'learn' directives can't be "
@@ -211,11 +236,31 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 					 " attribute: '%s'\n", cs->name, val);
 				return -EINVAL;
 			}
+		} else if (!strcasecmp(key, "path")) {
+			if (tfw_cfgop_cookie_set_path(sticky, val))
+			{
+				T_ERR_NL("%s: invalid value for 'path'"
+					 " attribute: '%s'\n", cs->name, val);
+				return -EINVAL;
+			}
+			was_path = true;
 		} else {
 			T_ERR_NL("%s: unsupported attribute: '%s=%s'.\n",
 				 cs->name, key, val);
 			return -EINVAL;
 		}
+	}
+
+	if (!was_path) {
+		static const char dflt_path[] = "; path=/";
+		if (sticky->options.len + SLEN(dflt_path) > STICKY_OPT_MAXLEN) {
+			T_ERR_NL("http_sess: too long cookie options or path length.\n");
+			return -EINVAL;
+		}
+		memcpy(&sticky->options_str[sticky->options.len], dflt_path,
+		       SLEN(dflt_path));
+
+		sticky->options.len += SLEN(dflt_path);
 	}
 
 	if ((r = __tfw_cfgop_cookie_set_name(sticky, name_val)))
@@ -452,14 +497,34 @@ tfw_cfgop_jsch_set_body(TfwCfgSpec *cs, TfwCfgJsCh *js_ch, const char *script)
 {
 	char *body_data;
 	size_t sz;
+	char *rbegin, *rend, *p;
 
 	body_data = tfw_http_msg_body_dup(script, &sz);
 	if (!body_data)
 		return -ENOMEM;
-	js_ch->body.len = sz;
-	js_ch->body.data = body_data;
+	if ((p = strstr(body_data, "TFW_DONT_CHANGE_NAME"))) {
+		if (!(rbegin = strchr(p, '"') + 1))
+			goto err;
+		if (!(rend = strchr(rbegin, '"')))
+			goto err;
+	} else {
+		goto err;
+	}
+	js_ch->body.chunks = kzalloc(sizeof(TfwStr) * 2, GFP_KERNEL);
+	js_ch->body.chunks[0] = (TfwStr) { .data = body_data,
+	                                   .len = rbegin - body_data};
+	js_ch->body.chunks[1] = (TfwStr) { .data = rend,
+	                                   .len = body_data + sz - rend };
+	js_ch->body.len = js_ch->body.chunks[0].len + js_ch->body.chunks[1].len;
+	js_ch->body.nchunks = 2;
 
 	return 0;
+
+err:
+	T_ERR_NL("%s: can't find TFW_DONT_CHANGE_NAME in JS challenge script\n",
+	         cs->name);
+	free_pages((unsigned long)body_data, get_order(sz));
+	return -EINVAL;
 }
 
 static int
@@ -597,6 +662,7 @@ TfwCfgSpec tfw_http_sess_specs[] = {
 		.name = "js_challenge",
 		.handler = tfw_cfgop_js_challenge,
 		.allow_none = true,
+		.allow_reconfig = true,
 	},
 	{ 0 }
 };
