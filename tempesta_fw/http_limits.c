@@ -1270,12 +1270,11 @@ frang_resp_fwd_process(TfwHttpResp *resp)
 		FrangGlobCfg *fg_cfg = req->vhost->vhost_dflt
 				? req->vhost->vhost_dflt->frang_gconf
 				: req->vhost->frang_gconf;
-		tfw_cli_conn_close_all_sync((TfwClient *)req->conn->peer);
 		if (fg_cfg->ip_block)
 			tfw_filter_block_ip(&FRANG_ACC2CLI(ra)->addr);
 	}
 
-	return TFW_PASS;
+	return r;
 }
 
 static int
