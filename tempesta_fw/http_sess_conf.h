@@ -24,6 +24,8 @@
 #include "cfg.h"
 #include "http_types.h"
 
+#define TFW_REDIR_STATUS_CODE_DFLT 302
+
 extern TfwCfgSpec tfw_http_sess_specs[];
 
 int tfw_http_sess_cfgop_begin(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce);

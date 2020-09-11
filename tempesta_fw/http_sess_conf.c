@@ -30,7 +30,6 @@ static TfwVhost *cur_vhost;
 #define STICKY_NAME_DEFAULT	"__tfw"
 
 static const unsigned int tfw_cfg_jsch_code_dflt = 503;
-static const unsigned short tfw_cfg_redirect_st_code_dflt = 302;
 #define TFW_CFG_JS_PATH "/etc/tempesta/js_challenge.html"
 
 void
@@ -116,7 +115,7 @@ tfw_http_sess_cfgop_finish(TfwVhost *vhost, TfwCfgSpec *cs)
 		sticky->enforce = true;
 		sticky->redirect_code = sticky->js_challenge->st_code;
 	} else {
-		sticky->redirect_code = tfw_cfg_redirect_st_code_dflt;
+		sticky->redirect_code = TFW_REDIR_STATUS_CODE_DFLT;
 	}
 
 	cur_vhost = NULL;
