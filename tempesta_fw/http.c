@@ -5543,7 +5543,7 @@ tfw_http_resp_gfsm(TfwHttpMsg *hmresp, TfwFsmData *data)
 error:
 	tfw_http_popreq(hmresp, false);
 	tfw_http_conn_msg_free(hmresp);
-	tfw_http_req_block(req, 502, "response blocked: filtered out");
+	tfw_http_req_block(req, 403, "response blocked: filtered out");
 	TFW_INC_STAT_BH(serv.msgs_filtout);
 	return r;
 }
