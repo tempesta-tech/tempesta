@@ -1152,23 +1152,22 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, char **p, TdbVRec **trec, TfwStr *hdr,
 		return -ENOMEM;
 	}
 
-	CSTR_MOVE_HDR();
-
 	if (TFW_STR_DUP(hdr)) {
-		CSTR_WRITE_HDR(TFW_STR_DUPLICATE, hdr->nchunks);
 		CSTR_MOVE_HDR();
+		CSTR_WRITE_HDR(TFW_STR_DUPLICATE, hdr->nchunks);
 	}
 
 	TFW_STR_FOR_EACH_DUP(dup, hdr, dup_end) {
-		unsigned int prev_len = ce->hdr_len;
+		unsigned int prev_len;
 
 		if (dupl) {
 			TFW_STR_INIT(&s_nm);
 			TFW_STR_INIT(&s_val);
 			tfw_http_hdr_split(dup, &s_nm, &s_val, true);
 			st_index = dup->hpack_idx;
-			CSTR_MOVE_HDR();
 		}
+		CSTR_MOVE_HDR();
+		prev_len = ce->hdr_len;
 
 		if (st_index) {
 			if (tfw_cache_h2_copy_int(&ce->hdr_len, st_index, 0xF,
