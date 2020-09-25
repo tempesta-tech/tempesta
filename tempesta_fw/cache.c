@@ -723,8 +723,8 @@ tfw_cache_build_resp_hdr(TDB *db, TfwHttpResp *resp, TfwHdrMods *hmods,
 		r = write_actor(db, trec, resp, p, s->len, &dc_iter);
 		if (unlikely(r))
 			break;
-		*acc_len += dc_iter.acc_len;;
 	}
+	*acc_len += dc_iter.acc_len;
 
 	return r;
 }
