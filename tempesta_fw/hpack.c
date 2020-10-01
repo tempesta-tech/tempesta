@@ -2538,6 +2538,7 @@ tfw_hpack_rbtree_ins_rebalance(TfwHPackETbl *__restrict tbl,
 				HPACK_RB_SET_BLACK(uncle);
 				HPACK_RB_SET_RED(gparent);
 				parent = HPACK_NODE_COND(tbl, gparent->parent);
+				new = gparent;
 			}
 			else {
 				if (!HPACK_NODE_EMPTY(parent->right)
@@ -2545,6 +2546,11 @@ tfw_hpack_rbtree_ins_rebalance(TfwHPackETbl *__restrict tbl,
 				{
 					tfw_hpack_rbtree_left_rt(tbl, parent);
 					parent = new;
+					/*
+					 * Don't need `new = HPACK_NODE_COND(tbl, parent->left);`.
+					 * This is the last iteration, because the parent will turn
+					 * black below
+					 */
 				}
 				HPACK_RB_SET_BLACK(parent);
 				HPACK_RB_SET_RED(gparent);
@@ -2558,6 +2564,7 @@ tfw_hpack_rbtree_ins_rebalance(TfwHPackETbl *__restrict tbl,
 				HPACK_RB_SET_BLACK(uncle);
 				HPACK_RB_SET_RED(gparent);
 				parent = HPACK_NODE_COND(tbl, gparent->parent);
+				new = gparent;
 			}
 			else {
 				if (!HPACK_NODE_EMPTY(parent->left)
@@ -2565,6 +2572,11 @@ tfw_hpack_rbtree_ins_rebalance(TfwHPackETbl *__restrict tbl,
 				{
 					tfw_hpack_rbtree_right_rt(tbl, parent);
 					parent = new;
+					/*
+					 * Don't need `new = HPACK_NODE_COND(tbl, parent->right);`.
+					 * This is the last iteration, because the parent will turn
+					 * black below
+					 */
 				}
 				HPACK_RB_SET_BLACK(parent);
 				HPACK_RB_SET_RED(gparent);
