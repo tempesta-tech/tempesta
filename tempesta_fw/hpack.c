@@ -2954,11 +2954,15 @@ tfw_hpack_rbuf_calc(TfwHPackETbl *__restrict tbl, unsigned short new_size,
 
 static inline void
 tfw_hpack_rbuf_commit(TfwHPackETbl *__restrict tbl,
+		      TfwStr *__restrict hdr,
 		      TfwHPackNode *__restrict del_list[],
 		      TfwHPackNodeIter *__restrict place,
 		      TfwHPackETblIter *__restrict iter)
 {
 	int i;
+	bool was_del = false;
+	const TfwHPackNode *node = NULL;
+	TfwHPackETblRes res = HPACK_IDX_ST_NOT_FOUND;
 
 	for (i = 0; i < HPACK_MAX_ENC_EVICTION; ++i) {
 		TfwHPackNode *del_node = del_list[i];
@@ -2966,6 +2970,17 @@ tfw_hpack_rbuf_commit(TfwHPackETbl *__restrict tbl,
 		if (!del_node)
 			break;
 		tfw_hpack_rbtree_erase(tbl, del_node);
+		was_del = true;
+	}
+
+	/*
+	 * If there was a deletion, the place may turn out to be invalid as a result
+	 * of reducing the procedure for deleting a node with two children to
+	 * deleting a node with less than two children.
+	 */
+	if (was_del) {
+		res = tfw_hpack_rbtree_find(tbl, hdr, &node, place);
+		WARN_ON_ONCE(res == HPACK_IDX_ST_FOUND);
 	}
 
 	tfw_hpack_rbtree_add(tbl, iter->last, place);
@@ -3093,7 +3108,7 @@ commit:
 	ptr = tfw_hpack_write(&s_nm, it.last->hdr);
 	tfw_hpack_write(&s_val, ptr);
 
-	tfw_hpack_rbuf_commit(tbl, del_list, place, &it);
+	tfw_hpack_rbuf_commit(tbl, hdr, del_list, place, &it);
 
 	WARN_ON_ONCE(tbl->rb_len > tbl->size);
 
