@@ -1901,6 +1901,19 @@ TEST(hpack, enc_table_rbtree)
 #undef HDR_VALUE_5
 }
 
+#define ADD_NODE(s, n)								\
+do {										\
+	res = tfw_hpack_rbtree_find(tbl, s, &n, &pl);				\
+	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);					\
+	EXPECT_NULL(n);								\
+	EXPECT_OK(tfw_hpack_add_node(tbl, s, &pl, TFW_H2_TRANS_INPLACE));	\
+	bzero_fast(&pl, sizeof(pl));						\
+	res = tfw_hpack_rbtree_find(tbl, s, &n, &pl);				\
+	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);					\
+	EXPECT_NULL(pl.parent);							\
+	EXPECT_NOT_NULL(n);							\
+} while (0)
+
 TEST(hpack, rbtree_ins_rebalance)
 {
 	TfwHPackETbl *tbl;
@@ -1954,19 +1967,6 @@ TEST(hpack, rbtree_ins_rebalance)
 	collect_compound_str(s10, s10_value, 0);
 
 	tbl = &ctx.hpack.enc_tbl;
-
-#define ADD_NODE(s, n)								\
-do {										\
-	res = tfw_hpack_rbtree_find(tbl, s, &n, &pl);				\
-	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);					\
-	EXPECT_NULL(n);								\
-	EXPECT_OK(tfw_hpack_add_node(tbl, s, &pl, TFW_H2_TRANS_INPLACE));	\
-	bzero_fast(&pl, sizeof(pl));						\
-	res = tfw_hpack_rbtree_find(tbl, s, &n, &pl);				\
-	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);					\
-	EXPECT_NULL(pl.parent);							\
-	EXPECT_NOT_NULL(n);							\
-} while (0)
 
 	ADD_NODE(s1, n1);
 	ADD_NODE(s2, n2);
@@ -2068,8 +2068,6 @@ do {										\
 	EXPECT_EQ(HPACK_NODE_COND(tbl, n2->right), n1);
 	EXPECT_NULL(HPACK_NODE_COND(tbl, n1->left));
 	EXPECT_NULL(HPACK_NODE_COND(tbl, n1->right));
-
-#undef ADD_NODE
 }
 
 TEST(hpack, rbtree_del_rebalance)
@@ -2125,19 +2123,6 @@ TEST(hpack, rbtree_del_rebalance)
 	collect_compound_str(s10, s10_value, 0);
 
 	tbl = &ctx.hpack.enc_tbl;
-
-#define ADD_NODE(s, n)								\
-do {										\
-	res = tfw_hpack_rbtree_find(tbl, s, &n, &pl);				\
-	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);					\
-	EXPECT_NULL(n);								\
-	EXPECT_OK(tfw_hpack_add_node(tbl, s, &pl, TFW_H2_TRANS_INPLACE));	\
-	bzero_fast(&pl, sizeof(pl));						\
-	res = tfw_hpack_rbtree_find(tbl, s, &n, &pl);				\
-	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);					\
-	EXPECT_NULL(pl.parent);							\
-	EXPECT_NOT_NULL(n);							\
-} while (0)
 
 	ADD_NODE(s1, n1);
 	ADD_NODE(s2, n2);
@@ -2240,9 +2225,9 @@ do {										\
 	EXPECT_EQ(HPACK_NODE_COND(tbl, n9->right), n10);
 	EXPECT_NULL(HPACK_NODE_COND(tbl, n10->left));
 	EXPECT_NULL(HPACK_NODE_COND(tbl, n10->right));
+}
 
 #undef ADD_NODE
-}
 
 TEST_SUITE(hpack)
 {
