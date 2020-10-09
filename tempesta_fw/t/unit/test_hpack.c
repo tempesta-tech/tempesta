@@ -1901,6 +1901,334 @@ TEST(hpack, enc_table_rbtree)
 #undef HDR_VALUE_5
 }
 
+#define ADD_NODE(s, n)								\
+do {										\
+	res = tfw_hpack_rbtree_find(tbl, s, &n, &pl);				\
+	EXPECT_EQ(res, HPACK_IDX_ST_NOT_FOUND);					\
+	EXPECT_NULL(n);								\
+	EXPECT_OK(tfw_hpack_add_node(tbl, s, &pl, TFW_H2_TRANS_INPLACE));	\
+	bzero_fast(&pl, sizeof(pl));						\
+	res = tfw_hpack_rbtree_find(tbl, s, &n, &pl);				\
+	EXPECT_EQ(res, HPACK_IDX_ST_FOUND);					\
+	EXPECT_NULL(pl.parent);							\
+	EXPECT_NOT_NULL(n);							\
+} while (0)
+
+TEST(hpack, rbtree_ins_rebalance)
+{
+	TfwHPackETbl *tbl;
+	TfwHPackETblRes res;
+	TfwHPackNodeIter pl = {};
+	const TfwHPackNode *n1 = NULL, *n2 = NULL, *n3 = NULL, *n4 = NULL;
+	const TfwHPackNode *n5 = NULL, *n6 = NULL, *n7 = NULL, *n8 = NULL;
+	const TfwHPackNode *n9 = NULL, *n10 = NULL;
+
+	TFW_STR(col, ":");
+	TFW_STR(s1, "80");
+	TFW_STR(s1_value, "80");
+	TFW_STR(s2, "70");
+	TFW_STR(s2_value, "70");
+	TFW_STR(s3, "60");
+	TFW_STR(s3_value, "60");
+	TFW_STR(s4, "50");
+	TFW_STR(s4_value, "50");
+	TFW_STR(s5, "40");
+	TFW_STR(s5_value, "40");
+	TFW_STR(s6, "30");
+	TFW_STR(s6_value, "30");
+	TFW_STR(s7, "20");
+	TFW_STR(s7_value, "20");
+	TFW_STR(s8, "55");
+	TFW_STR(s8_value, "55");
+	TFW_STR(s9, "65");
+	TFW_STR(s9_value, "65");
+	TFW_STR(s10, "67");
+	TFW_STR(s10_value, "67");
+
+	collect_compound_str(s1, col, 0);
+	collect_compound_str(s1, s1_value, 0);
+	collect_compound_str(s2, col, 0);
+	collect_compound_str(s2, s2_value, 0);
+	collect_compound_str(s3, col, 0);
+	collect_compound_str(s3, s3_value, 0);
+	collect_compound_str(s4, col, 0);
+	collect_compound_str(s4, s4_value, 0);
+	collect_compound_str(s5, col, 0);
+	collect_compound_str(s5, s5_value, 0);
+	collect_compound_str(s6, col, 0);
+	collect_compound_str(s6, s6_value, 0);
+	collect_compound_str(s7, col, 0);
+	collect_compound_str(s7, s7_value, 0);
+	collect_compound_str(s8, col, 0);
+	collect_compound_str(s8, s8_value, 0);
+	collect_compound_str(s9, col, 0);
+	collect_compound_str(s9, s9_value, 0);
+	collect_compound_str(s10, col, 0);
+	collect_compound_str(s10, s10_value, 0);
+
+	tbl = &ctx.hpack.enc_tbl;
+
+	ADD_NODE(s1, n1);
+	ADD_NODE(s2, n2);
+	ADD_NODE(s3, n3);
+	ADD_NODE(s4, n4);
+	ADD_NODE(s5, n5);
+	ADD_NODE(s6, n6);
+	ADD_NODE(s7, n7);
+	ADD_NODE(s8, n8);
+	ADD_NODE(s9, n9);
+
+	/*
+	 *                 n2
+	 *              (BLACK)
+	 *               /    \
+	 *              n4     n1
+	 *            (RED)  (BLACK)
+	 *            /    \
+	 *           n6     n3
+	 *        (BLACK) (BLACK)
+	 *         /  \     /  \
+	 *        n7  n5   n8   n9
+	 *     (RED)(RED) (RED)(RED)
+	 */
+
+	ADD_NODE(s10, n10);
+
+	/*
+	 * Add the node n10 as the right child of n9.
+	 * Because parent n9 - red and uncle n8 - red, we make them (n9 and n8)
+	 * black, and grandparent n3 - red.
+	 *                 n2
+	 *              (BLACK)
+	 *               /    \
+	 *              n4     n1
+	 *             (RED)  (BLACK)
+	 *            /     \
+	 *           n6     n3
+	 *        (BLACK)  (RED)
+	 *         /  \     /   \
+	 *        n7  n5   n8    n9
+	 *     (RED)(RED)(BLACK)(BLACK)
+	 *                         \
+	 *                         n10
+	 *                         (RED)
+	 * The grandparent n3 becomes the new current node.
+	 * Then, since the parent n4 of the current node n3 (great-grandparent of
+	 * the original n10) is red, and its uncle n1 is not red, and the node n3 is
+	 * the right child of the left child - we rotate to the left relative to the
+	 * parent n4.
+	 *                 n2
+	 *              (BLACK)
+	 *               /    \
+	 *              n3   n1
+	 *            (RED) (BLACK)
+	 *            /   \
+	 *           n4    n9
+	 *         (RED)  (BLACK)
+	 *        /     \      \
+	 *       n6     n8     n10
+	 *    (BLACK) (BLACK) (RED)
+	 *    /  \
+	 *   n7  n5
+	 *  (RED)(RED)
+	 * The new current node n4 is the left child of the current node n3.
+	 * Because the current node n4 is the left child of the left child, then we
+	 * make the parent n3 black and the grandparent n2 red and rotate to the
+	 * right relative to its grandparent n3.
+	 *                    n3
+	 *                 (BLACK)
+	 *               /         \
+	 *              n4          n2
+	 *            (RED)         (RED)
+	 *            /   \         /   \
+	 *           n6    n8      n9     n1
+	 *        (BLACK)(BLACK) (BLACK) (BLACK)
+	 *         /  \               \
+	 *        n7  n5              n10
+	 *     (RED)(RED)            (RED)
+	 */
+
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n3->left), n4);
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n4->left), n6);
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n6->left), n7);
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n7->left));
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n7->right));
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n6->right), n5);
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n5->left));
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n5->right));
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n4->right), n8);
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n8->left));
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n8->right));
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n3->right), n2);
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n2->left), n9);
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n9->left));
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n9->right), n10);
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n10->left));
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n10->right));
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n2->right), n1);
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n1->left));
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n1->right));
+}
+
+TEST(hpack, rbtree_del_rebalance)
+{
+	TfwHPackETbl *tbl;
+	TfwHPackETblRes res;
+	TfwHPackNodeIter pl = {};
+	const TfwHPackNode *n1 = NULL, *n2 = NULL, *n3 = NULL, *n4 = NULL;
+	const TfwHPackNode *n5 = NULL, *n6 = NULL, *n7 = NULL, *n8 = NULL;
+	const TfwHPackNode *n9 = NULL, *n10 = NULL;
+
+	TFW_STR(col, ":");
+	TFW_STR(s1, "1");
+	TFW_STR(s1_value, "1");
+	TFW_STR(s2, "2");
+	TFW_STR(s2_value, "2");
+	TFW_STR(s3, "3");
+	TFW_STR(s3_value, "3");
+	TFW_STR(s4, "4");
+	TFW_STR(s4_value, "4");
+	TFW_STR(s5, "5");
+	TFW_STR(s5_value, "5");
+	TFW_STR(s6, "6");
+	TFW_STR(s6_value, "6");
+	TFW_STR(s7, "7");
+	TFW_STR(s7_value, "7");
+	TFW_STR(s8, "8");
+	TFW_STR(s8_value, "8");
+	TFW_STR(s9, "9");
+	TFW_STR(s9_value, "9");
+	TFW_STR(s10, "a");
+	TFW_STR(s10_value, "a");
+
+	collect_compound_str(s1, col, 0);
+	collect_compound_str(s1, s1_value, 0);
+	collect_compound_str(s2, col, 0);
+	collect_compound_str(s2, s2_value, 0);
+	collect_compound_str(s3, col, 0);
+	collect_compound_str(s3, s3_value, 0);
+	collect_compound_str(s4, col, 0);
+	collect_compound_str(s4, s4_value, 0);
+	collect_compound_str(s5, col, 0);
+	collect_compound_str(s5, s5_value, 0);
+	collect_compound_str(s6, col, 0);
+	collect_compound_str(s6, s6_value, 0);
+	collect_compound_str(s7, col, 0);
+	collect_compound_str(s7, s7_value, 0);
+	collect_compound_str(s8, col, 0);
+	collect_compound_str(s8, s8_value, 0);
+	collect_compound_str(s9, col, 0);
+	collect_compound_str(s9, s9_value, 0);
+	collect_compound_str(s10, col, 0);
+	collect_compound_str(s10, s10_value, 0);
+
+	tbl = &ctx.hpack.enc_tbl;
+
+	ADD_NODE(s1, n1);
+	ADD_NODE(s2, n2);
+	ADD_NODE(s3, n3);
+	ADD_NODE(s4, n4);
+	ADD_NODE(s5, n5);
+	ADD_NODE(s6, n6);
+	ADD_NODE(s7, n7);
+	ADD_NODE(s8, n8);
+	ADD_NODE(s9, n9);
+	ADD_NODE(s10, n10);
+
+	/*
+	 *                  n4
+	 *                (BLACK)
+	 *               /      \
+	 *              n2        n6
+	 *            (BLACK)    (BLACK)
+	 *            /    \     /      \
+	 *           n1     n3   n5      n8
+	 *        (BLACK) (BLACK)(BLACK)(RED)
+	 *                               /   \
+	 *                              n7    n9
+	 *                           (BLACK)(BLACK)
+	 *                                        \
+	 *                                         n10
+	 *                                        (RED)
+	 */
+
+	tfw_hpack_rbtree_erase(tbl, (TfwHPackNode *)n1);
+	/*
+	 * Erase the node n1.
+	 *
+	 *                   n4
+	 *                 (BLACK)
+	 *               /        \
+	 *              n2         n6
+	 *            (BLACK)      (BLACK)
+	 *                 \      /      \
+	 *                  n3    n5      n8
+	 *               (BLACK)(BLACK)  (RED)
+	 *                               /   \
+	 *                              n7    n9
+	 *                           (BLACK)(BLACK)
+	 *                                        \
+	 *                                         n10
+	 *                                        (RED)
+	 *
+	 * Since there is no red brother and the brother n3 has no children, then we
+	 * make the brother red.
+	 *
+	 *                  n4
+	 *                (BLACK)
+	 *               /       \
+	 *              n2        n6
+	 *            (BLACK)    (BLACK)
+	 *                 \     /      \
+	 *                  n3   n5      n8
+	 *                (RED)(BLACK)   (RED)
+	 *                               /   \
+	 *                              n7    n9
+	 *                           (BLACK)(BLACK)
+	 *                                        \
+	 *                                         n10
+	 *                                        (RED)
+	 *
+	 * The current node n2 is the parent of erased n1.
+	 * Since there is no red brother, the brother n6 has a red right child n8,
+	 * but the current node n2 is a left child, then we assign the color of the
+	 * parent n4 to the brother n6, make the parent n4 black, make the right
+	 * child of the brother n8 black and make a left turn relative to the parent
+	 * n4.
+	 *
+	 *                           n6
+	 *                         (BLACK)
+	 *                        /       \
+	 *                       n4        n8
+	 *                     (BLACK)    (BLACK)
+	 *                       /  \       /   \
+	 *                      n2   n5     n7    n9
+	 *                   (BLACK)(BLACK)(BLACK)(BLACK)
+	 *                       \                  \
+	 *                        n3                n10
+	 *                       (RED)             (RED)
+	 */
+
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n6->left), n4);
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n4->left), n2);
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n2->left));
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n2->right), n3);
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n4->right), n5);
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n5->left));
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n5->right));
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n6->right), n8);
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n8->left), n7);
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n7->left));
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n7->right));
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n8->right), n9);
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n9->left));
+	EXPECT_EQ(HPACK_NODE_COND(tbl, n9->right), n10);
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n10->left));
+	EXPECT_NULL(HPACK_NODE_COND(tbl, n10->right));
+}
+
+#undef ADD_NODE
+
 TEST_SUITE(hpack)
 {
 	TEST_SETUP(test_h2_setup);
@@ -1917,4 +2245,6 @@ TEST_SUITE(hpack)
 	TEST_RUN(hpack, enc_table_hdr_write);
 	TEST_RUN(hpack, enc_table_index);
 	TEST_RUN(hpack, enc_table_rbtree);
+	TEST_RUN(hpack, rbtree_ins_rebalance);
+	TEST_RUN(hpack, rbtree_del_rebalance);
 }
