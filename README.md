@@ -20,6 +20,12 @@ which is x3 faster than Nginx or HAProxy. **Tempesta TLS** is about
 [40-80% faster than Nginx/OpenSSL and provides up to x4 lower latency](https://netdevconf.info/0x14/session.html?talk-performance-study-of-kernel-TLS-handshakes).
 
 
+## Demo
+
+Watch the Tempesta FW demo in the Security Weekly show -
+[Fast And Secure Web](https://securityweekly.com/shows/fast-and-secure-web-alexander-krizhanovsky-psw-669/).
+
+
 ## How it works?
 
 **Tempesta FW** is built into Linux TCP/IP stack for better and more stable
