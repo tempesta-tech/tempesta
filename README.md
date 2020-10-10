@@ -22,8 +22,8 @@ which is x3 faster than Nginx or HAProxy. **Tempesta TLS** is about
 
 ## Demo
 
-Watch the Tempesta FW demo in the Security Weekly show -
-[Fast And Secure Web](https://securityweekly.com/shows/fast-and-secure-web-alexander-krizhanovsky-psw-669/).
+Watch the Tempesta FW **demo** in the Security Weekly show -
+**[Fast And Secure Web](https://securityweekly.com/shows/fast-and-secure-web-alexander-krizhanovsky-psw-669/)**.
 
 
 ## How it works?
