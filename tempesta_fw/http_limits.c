@@ -53,6 +53,8 @@ static struct {
 
 static TfwClassifier __rcu *classifier = NULL;
 
+static atomic64_t inflight_socket_count = ATOMIC64_INIT(0);
+
 /**
  * Shrink client connections hash and/or reduce QoS for blocked clients to
  * lower back-end servers or local system load.
@@ -127,6 +129,8 @@ tfw_classify_conn_estab(struct sock *sk)
 	return TFW_PASS;
 
 ours:
+	atomic64_inc(&inflight_socket_count);
+
 	rcu_read_lock();
 
 	clfr = rcu_dereference(classifier);
@@ -146,6 +150,8 @@ tfw_classify_conn_close(struct sock *sk)
 
 	if (clfr && clfr->classify_conn_close)
 		clfr->classify_conn_close(sk);
+
+	atomic64_dec(&inflight_socket_count);
 }
 
 /**
@@ -1441,6 +1447,9 @@ void
 tfw_http_limits_exit(void)
 {
 	T_DBG("frang exit\n");
+
+	tfw_objects_wait_release(&inflight_socket_count, 10,
+	                         "inflight sockets");
 
 	tfw_http_limits_hooks_remove();
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_RESP);
