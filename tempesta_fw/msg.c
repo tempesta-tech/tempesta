@@ -132,10 +132,18 @@ tfw_msg_iter_move(TfwMsgIter *it, unsigned char **data, unsigned long sz)
 
 		/* Linear skb part. */
 		if (it->frag < 0) {
+			unsigned char *begin = it->skb->data;
+			unsigned char *end = begin + skb_headlen(it->skb);
+			if (unlikely(addr < begin || addr > end))
+				addr = begin;
 			f_sz_rem = skb_headlen(it->skb) + it->skb->data - addr;
 		}
 		else {
 			skb_frag_t *f = &skb_shinfo(it->skb)->frags[it->frag];
+			unsigned char *begin = skb_frag_address(f);
+			unsigned char *end = begin + skb_frag_size(f);
+			if (unlikely(addr < begin || addr > end))
+				addr = begin;
 			f_sz_rem = skb_frag_size(f) +
 				(unsigned char *)skb_frag_address(f) - addr;
 		}
