@@ -2936,6 +2936,7 @@ tfw_http_set_loc_hdrs(TfwHttpMsg *hm, TfwHttpReq *req, bool cache)
 			TfwHttpResp *resp = (TfwHttpResp *)hm;
 			struct sk_buff **skb_head = &resp->msg.skb_head;
 			TfwHttpTransIter *mit = &resp->mit;
+			TfwStr crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
 			/*
 			 * Skip the configured header if we have already
 			 * processed it during cache reading, or if the header
@@ -2946,6 +2947,8 @@ tfw_http_set_loc_hdrs(TfwHttpMsg *hm, TfwHttpReq *req, bool cache)
 
 			r = tfw_http_msg_expand_data(&mit->iter, skb_head,
 						     &h_mdf, NULL);
+			r |= tfw_http_msg_expand_data(&mit->iter, skb_head,
+						     &crlf, NULL);
 		} else {
 			r = tfw_http_msg_hdr_xfrm_str(hm, &h_mdf, d->hid,
 						      d->append);
