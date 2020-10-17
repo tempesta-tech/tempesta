@@ -1834,7 +1834,7 @@ check_name_text:
 			/* All duplicate headers must be skipped by caller. */
 			WARN_ON_ONCE(test_bit(i, mit->found));
 			__set_bit(i, mit->found);
-			if (!TFW_STR_CHUNK(dc_iter->desc->hdr, 2)) {
+			if (!TFW_STR_CHUNK(dc_iter->desc->hdr, 1)) {
 				dc_iter->skip = true;
 				goto out;
 			}
@@ -1915,10 +1915,10 @@ get_value_text:
 			TfwStr n_val = {
 				.chunks = (TfwStr []){
 					{ .data = ", ", .len = 2 },
-					{ .data = __TFW_STR_CH(h, 2)->data,
-					  .len = __TFW_STR_CH(h, 2)->len }
+					{ .data = __TFW_STR_CH(h, 1)->data,
+					  .len = __TFW_STR_CH(h, 1)->len }
 				},
-				.len = __TFW_STR_CH(h, 2)->len + 2,
+				.len = __TFW_STR_CH(h, 1)->len + 2,
 				.nchunks = 2
 			};
 
