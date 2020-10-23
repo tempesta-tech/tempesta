@@ -240,7 +240,8 @@ int ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 
 int ttls_parse_change_cipher_spec(TlsCtx *tls, unsigned char *buf,
 				  size_t len, unsigned int *read);
-void ttls_write_change_cipher_spec(TlsCtx *tls);
+void ttls_write_change_cipher_spec(TlsCtx *tls, struct sg_table *sgt,
+				   unsigned char **in_buf);
 
 int ttls_parse_finished(TlsCtx *tls, unsigned char *buf, size_t len,
 			unsigned int *read);
