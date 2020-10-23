@@ -1670,16 +1670,28 @@ err:
 	return r;
 }
 void
-ttls_write_change_cipher_spec(TlsCtx *tls)
+ttls_write_change_cipher_spec(TlsCtx *tls, struct sg_table *sgt,
+			      unsigned char **in_buf)
 {
-	TlsIOCtx *io = &tls->io_out;
+	/* The ChangeCipherSpec message is added after NewSessionTicket one. */
+	if (unlikely(in_buf)) {
+		ttls_write_hdr(tls, TTLS_MSG_CHANGE_CIPHER_SPEC, 1, *in_buf);
+		get_page(virt_to_page(*in_buf));
+		sg_set_buf(&sgt->sgl[sgt->nents++], *in_buf, TLS_HEADER_SIZE + 1);
+		(*in_buf)[TLS_HEADER_SIZE] = 1;
+		*in_buf += TLS_HEADER_SIZE + 1;
+	}
+	/* The ChangeCipherSpec message is the first one at this step. */
+	else {
+		TlsIOCtx *io = &tls->io_out;
 
-	io->msglen = io->hslen = 1;
-	io->msgtype = TTLS_MSG_CHANGE_CIPHER_SPEC;
-	io->hstype = TTLS_HS_INVALID;
-	io->hs_hdr[0] = 1;
+		io->msglen = io->hslen = 1;
+		io->msgtype = TTLS_MSG_CHANGE_CIPHER_SPEC;
+		io->hstype = TTLS_HS_INVALID;
+		io->hs_hdr[0] = 1;
 
-	__ttls_add_record(tls, NULL, 0, NULL);
+		__ttls_add_record(tls, NULL, 0, NULL);
+	}
 }
 
 int

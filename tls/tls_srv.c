@@ -1887,7 +1887,7 @@ ttls_parse_certificate_verify(TlsCtx *tls, unsigned char *buf, size_t len,
 }
 
 static int
-ttls_write_new_session_ticket(TlsCtx *tls, struct sg_table *_,
+ttls_write_new_session_ticket(TlsCtx *tls, struct sg_table *sgt,
 			      unsigned char **in_buf)
 {
 	int r;
@@ -1895,15 +1895,6 @@ ttls_write_new_session_ticket(TlsCtx *tls, struct sg_table *_,
 	uint32_t lifetime = 0;
 	TlsIOCtx *io = &tls->io_out;
 	unsigned char *p = *in_buf;
-	/*
-	 * FIXME: #1054 Don't send the message alone, combine it with
-	 * CHANGE_CIPHER_SPEC and TTLS_HS_FINISHED. For now there are digest
-	 * mismatch errors on client side.
-	 */
-	struct scatterlist sg[1];
-	struct sg_table sgt = { .sgl = sg };
-
-	sg_init_table(sgt.sgl, 1);
 
 	/*
 	 * struct {
@@ -1943,75 +1934,52 @@ ttls_write_new_session_ticket(TlsCtx *tls, struct sg_table *_,
 	tls->hs->new_session_ticket = 0;
 
 	*in_buf = p + 10 + tlen;
-	sg_set_buf(&sgt.sgl[sgt.nents++], p, 10 + tlen);
+	sg_set_buf(&sgt->sgl[sgt->nents++], p, 10 + tlen);
 	get_page(virt_to_page(p));
-	__ttls_add_record(tls, &sgt, sgt.nents - 1, NULL);
+	__ttls_add_record(tls, sgt, sgt->nents - 1, NULL);
 
-	return __ttls_send_record(tls, &sgt, false);
+	return 0;
 }
 
 #define CHECK_STATE(n)							\
 do {									\
-	WARN_ON_ONCE(p - begin > n);					\
-	if (sgt.nents >= MAX_SKB_FRAGS) {				\
+	WARN_ON_ONCE(*in_buf - begin > n);				\
+	if (sgt->nents >= MAX_SKB_FRAGS) {				\
 		T_WARN("too many frags on ServerHello\n");		\
 		r = -ENOMEM;						\
 		T_FSM_EXIT();						\
 	}								\
-	begin = p;							\
+	begin = *in_buf;						\
 } while (0)
 
 /**
  * Write all the handshake messages on ServerHello state at once.
  */
 static int
-ttls_handshake_server_hello(TlsCtx *tls)
+ttls_handshake_server_hello(TlsCtx *tls, struct sg_table *sgt,
+			    unsigned char **in_buf)
 {
 	int r = 0;
-	unsigned char *p, *begin;
-	struct scatterlist sg[MAX_SKB_FRAGS];
-	struct sg_table sgt = { .sgl = sg };
-	struct page *pg;
+	unsigned char *begin = *in_buf;
 	T_FSM_INIT(tls->state, "TLS Server Handshake (ServerHello)");
-
-	begin = p = pg_skb_alloc(2048, GFP_ATOMIC, NUMA_NO_NODE);
-	if (!p)
-		return -ENOMEM;
-	pg = virt_to_page(p);
-	sg_init_table(sgt.sgl, MAX_SKB_FRAGS);
 
 	T_FSM_START(ttls_state(tls)) {
 	T_FSM_STATE(TTLS_SERVER_HELLO) {
-		if ((r = ttls_write_server_hello(tls, &sgt, &p)))
+		if ((r = ttls_write_server_hello(tls, sgt, in_buf)))
 			T_FSM_EXIT();
 		CHECK_STATE(128);
-		if (tls->state == TTLS_SERVER_CHANGE_CIPHER_SPEC) {
-			/*
-			 * FIXME it seems we broke the FSM state machine
-			 * on TLS session resumption - now we must send
-			 * ServerHello and next ServerChangeCipherSpec
-			 * (need to check this), so we need to exit the sate
-			 * machine for now.
-			 *
-			 * This goto probably fixes the issue and sends the
-			 * both the server messages separately.
-			 *
-			 * TODO #1054 this should be verified and fixed.
-			 * Need to send all the consequent server records
-			 * in one shot.
-			 */
-			goto send_srv_hello;
-		}
+		if (tls->state == TTLS_SERVER_CHANGE_CIPHER_SPEC)
+			return T_OK;
 		T_FSM_NEXT();
 	}
 	T_FSM_STATE(TTLS_SERVER_CERTIFICATE) {
-		if ((r = ttls_write_certificate(tls, &sgt, &p)))
+		if ((r = ttls_write_certificate(tls, sgt, in_buf)))
 			T_FSM_EXIT();
 		CHECK_STATE(128);
 		T_FSM_JMP(TTLS_SERVER_KEY_EXCHANGE);
 	}
 	T_FSM_STATE(TTLS_SERVER_KEY_EXCHANGE) {
-		if ((r = ttls_write_server_key_exchange(tls, &sgt, &p)))
+		if ((r = ttls_write_server_key_exchange(tls, sgt, in_buf)))
 			T_FSM_EXIT();
 		CHECK_STATE(1024);
 		/*
@@ -2022,13 +1990,13 @@ ttls_handshake_server_hello(TlsCtx *tls)
 		T_FSM_JMP(TTLS_SERVER_HELLO_DONE);
 	}
 	T_FSM_STATE(TTLS_CERTIFICATE_REQUEST) {
-		if ((r = ttls_write_certificate_request(tls, &sgt, &p)))
+		if ((r = ttls_write_certificate_request(tls, sgt, in_buf)))
 			T_FSM_EXIT();
 		CHECK_STATE(128);
 		T_FSM_JMP(TTLS_SERVER_HELLO_DONE);
 	}
 	T_FSM_STATE(TTLS_SERVER_HELLO_DONE) {
-		if ((r = ttls_write_server_hello_done(tls, &sgt, &p)))
+		if ((r = ttls_write_server_hello_done(tls, sgt, in_buf)))
 			T_FSM_EXIT();
 		CHECK_STATE(9);
 		if ((tls->hs->sni_authmode == TTLS_VERIFY_UNSET
@@ -2041,21 +2009,10 @@ ttls_handshake_server_hello(TlsCtx *tls)
 		} else {
 			tls->state = TTLS_CLIENT_CERTIFICATE;
 		}
-send_srv_hello:
-		/* All the writers got their frags, so put our reference. */
-		put_page(pg);
-		sg_mark_end(&sgt.sgl[sgt.nents - 1]);
-		/* Exit, enter the FSM on more data from the client. */
-		return __ttls_send_record(tls, &sgt, false);
+		return r;
 	}
 	}
 	T_FSM_FINISH(r, tls->state);
-
-	/* If we exit here, then something went wrong. */
-	BUG_ON(!r);
-	while (sgt.nents)
-		put_page(sg_page(&sg[--sgt.nents]));
-	put_page(pg);
 
 	return r;
 }
@@ -2065,60 +2022,69 @@ send_srv_hello:
  * state at once.
  */
 static int
-ttls_handshake_finished(TlsCtx *tls)
+ttls_handshake_finished(TlsCtx *tls, struct sg_table *sgt,
+			unsigned char **in_buf)
 {
 	int r = 0;
-	unsigned char *p, *begin;
-	struct page *pg;
-	struct scatterlist sg[MAX_SKB_FRAGS];
-	struct sg_table sgt = { .sgl = sg };
+	unsigned char *begin = *in_buf;
 	T_FSM_INIT(tls->state, "TLS Server Handshake (Finish)");
-
-	begin = p = pg_skb_alloc(1024, GFP_ATOMIC, NUMA_NO_NODE);
-	if (!p)
-		return -ENOMEM;
-	pg = virt_to_page(p);
-	sg_init_table(sgt.sgl, MAX_SKB_FRAGS);
 
 	T_FSM_START(ttls_state(tls)) {
 	T_FSM_STATE(TTLS_SERVER_CHANGE_CIPHER_SPEC) {
 		if (tls->hs->new_session_ticket) {
-			if ((r = ttls_write_new_session_ticket(tls, &sgt, &p)))
+			if ((r = ttls_write_new_session_ticket(tls, sgt, in_buf)))
 				T_FSM_EXIT();
 			CHECK_STATE(512);
+			ttls_write_change_cipher_spec(tls, sgt, in_buf);
 		}
-		ttls_write_change_cipher_spec(tls);
+		else if (tls->hs->resume) {
+			ttls_write_change_cipher_spec(tls, sgt, in_buf);
+		}
+		else {
+			ttls_write_change_cipher_spec(tls, NULL, NULL);
+		}
 		CHECK_STATE(TLS_HEADER_SIZE + 1);
 		tls->state = TTLS_SERVER_FINISHED;
 		T_FSM_JMP(TTLS_SERVER_FINISHED);
 	}
 	T_FSM_STATE(TTLS_SERVER_FINISHED) {
-		if ((r = ttls_write_finished(tls, &sgt, &p)))
+		if ((r = ttls_write_finished(tls, sgt, in_buf)))
 			T_FSM_EXIT();
 		CHECK_STATE(TLS_HEADER_SIZE + TTLS_HS_FINISHED_BODY_LEN);
-		/* All the writers got their frags, so put our reference. */
-		put_page(pg);
-		sg_mark_end(&sgt.sgl[sgt.nents - 1]);
-		r = __ttls_send_record(tls, &sgt, false);
-		/*
-		 * In case of session resuming, invert the client and server
-		 * ChangeCipherSpec messages order.
-		 */
-		tls->state = tls->hs->resume
-			     ? TTLS_CLIENT_CHANGE_CIPHER_SPEC
-			     : TTLS_HANDSHAKE_WRAPUP;
-		return r;
+		T_FSM_EXIT();
 	}
 	}
 	T_FSM_FINISH(r, tls->state);
 
-	/* If we exit here, then something went wrong. */
-	BUG_ON(!r);
-	while (sgt.nents)
-		put_page(sg_page(&sg[--sgt.nents]));
-	put_page(pg);
-
 	return r;
+}
+
+static int
+ttls_handshake_init_out_buffers(struct sg_table *sgt, unsigned char **p,
+				struct page **pg)
+{
+	if (*p)
+		return 0;
+
+	*p = pg_skb_alloc(2048, GFP_ATOMIC, NUMA_NO_NODE);
+	if (!*p)
+		return -ENOMEM;
+	sg_init_table(sgt->sgl, MAX_SKB_FRAGS);
+	*pg = virt_to_page(*p);
+
+	return 0;
+}
+
+static int
+ttls_handshake_send_out_buffers(TlsCtx *tls, struct sg_table *sgt,
+				struct page **pg)
+{
+	/* All the writers got their frags, so put our reference. */
+	put_page(*pg);
+	*pg = NULL;
+	sg_mark_end(&sgt->sgl[sgt->nents - 1]);
+	/* Exit, enter the FSM on more data from the client. */
+	return __ttls_send_record(tls, sgt, false);
 }
 
 /**
@@ -2129,6 +2095,14 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 			   size_t hh_len, unsigned int *read)
 {
 	int r = 0;
+	/*
+	 * On session resumption the ChangeCipherSpec is sent right immediately
+	 * after ServerHello. Use shared buffer to send both messages at once.
+	 */
+	struct scatterlist sg[MAX_SKB_FRAGS];
+	struct sg_table sgt = { .sgl = sg };
+	unsigned char *p = NULL;
+	struct page *pg = NULL;
 	T_FSM_INIT(tls->state, "TLS Server Handshake");
 
 	T_DBG("server state: %x\n", tls->state);
@@ -2159,11 +2133,13 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 	 *	  ServerHelloDone
 	 */
 	T_FSM_STATE(TTLS_SERVER_HELLO) {
-		if ((r = ttls_handshake_server_hello(tls)))
-			return r;
-		if (tls->state == TTLS_SERVER_CHANGE_CIPHER_SPEC)
+		if ((r = ttls_handshake_init_out_buffers(&sgt, &p, &pg)))
+			T_FSM_EXIT();
+		r = ttls_handshake_server_hello(tls, &sgt, &p);
+		if (!r && tls->state == TTLS_SERVER_CHANGE_CIPHER_SPEC)
 			T_FSM_JMP(TTLS_SERVER_CHANGE_CIPHER_SPEC);
-		return r;
+		/* tls-> state is set on next step, don't overwrite it. */
+		return ttls_handshake_send_out_buffers(tls, &sgt, &pg);
 	}
 
 	/*
@@ -2229,9 +2205,22 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 		 * On abbreviated handshake we need to wait for more messages
 		 * from client before jumping into the next state.
 		 */
-		if ((r = ttls_handshake_finished(tls)) || tls->hs->resume)
+		if ((r = ttls_handshake_init_out_buffers(&sgt, &p, &pg)))
+			T_FSM_EXIT();
+		if ((r = ttls_handshake_finished(tls, &sgt, &p)))
+			T_FSM_EXIT();
+		if ((r = ttls_handshake_send_out_buffers(tls, &sgt, &pg)))
 			return r;
-		T_FSM_NEXT();
+		/*
+		 * In case of session resuming, invert the client and server
+		 * ChangeCipherSpec messages order.
+		 */
+		if (tls->hs->resume) {
+			tls->state = TTLS_CLIENT_CHANGE_CIPHER_SPEC;
+			return T_OK;
+		}
+		tls->state = TTLS_HANDSHAKE_WRAPUP;
+		/* Fall through. */
 	}
 
 	T_FSM_STATE(TTLS_HANDSHAKE_WRAPUP) {
@@ -2245,6 +2234,12 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 
 	}
 	T_FSM_FINISH(r, tls->state);
+
+	if (unlikely(pg)) {
+		while (sgt.nents)
+			put_page(sg_page(&sg[--sgt.nents]));
+		put_page(pg);
+	}
 
 	return r;
 }
