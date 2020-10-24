@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by
@@ -1834,6 +1834,12 @@ check_name_text:
 			/* All duplicate headers must be skipped by caller. */
 			WARN_ON_ONCE(test_bit(i, mit->found));
 			__set_bit(i, mit->found);
+			/*
+			 * Header modifications format: 0 chunk - header name,
+			 * optional 1st chunk - header value. If the value is
+			 * empty, then the header is about to be removed,
+			 * don't write it.
+			 */
 			if (!TFW_STR_CHUNK(dc_iter->desc->hdr, 1)) {
 				dc_iter->skip = true;
 				goto out;
@@ -1912,6 +1918,10 @@ get_value_text:
 
 		if (dc_iter->desc) {
 			TfwStr *val, *h = dc_iter->desc->hdr;
+			/*
+			 * Header value is stored in chunk 1, see
+			 * tfw_cfgop_mod_hdr_add().
+			 */
 			TfwStr n_val = {
 				.chunks = (TfwStr []){
 					{ .data = ", ", .len = 2 },
