@@ -1462,17 +1462,30 @@ this_chunk:
 /**
  * Insert data from string @data to message at offset defined by message
  * iterator @it and @off. This function doesn't maintain message structure.
- * After insertion message iterator will point at the end of fragment right
- * before the inserted data.
+ * After insertion message iterator and @data will point at the start of
+ * inserted data fragment.
  */
 int
-tfw_http_msg_insert(TfwMsgIter *it, char *off, const TfwStr *data)
+tfw_http_msg_insert(TfwMsgIter *it, char **off, const TfwStr *data)
 {
 	int r;
 	TfwStr dst = {};
 
-	if ((r = ss_skb_get_room(it->skb_head, it->skb, off, data->len, &dst)))
+	if ((r = ss_skb_get_room(it->skb_head, it->skb, *off, data->len, &dst)))
 		return r;
+
+	/*
+	 * @dst is always a plain string. If the @data wasn't inserted into
+	 * current skb fragment, then it was appended to a previous one.
+	 * Insertions into linear part doesn't require iterator updates.
+	 */
+	*off = dst.data;
+	if (it->frag >= 0) {
+		skb_frag_t *f = &skb_shinfo(it->skb)->frags[it->frag];
+		long offset = dst.data - (char *)skb_frag_address(f);
+		if (offset < 0 || offset > skb_frag_size(f))
+			it->frag--;
+	}
 
 	return tfw_strcpy(&dst, data);
 }
