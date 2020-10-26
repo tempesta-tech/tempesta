@@ -2112,7 +2112,7 @@ tfw_cache_build_resp(TfwHttpReq *req, TfwCacheEntry *ce, time_t lifetime,
 		 */
 		if (tfw_http_expand_hbh(resp, ce->resp_status)
 		    || tfw_http_expand_hdr_via(resp)
-		    || tfw_http_set_loc_hdrs((TfwHttpMsg *)resp, req, true)
+		    || tfw_h1_set_loc_hdrs((TfwHttpMsg *)resp, true, true)
 		    || (lifetime > ce->lifetime
 			&& tfw_http_expand_stale_warn(resp))
 		    || (!test_bit(TFW_HTTP_B_HDR_DATE, resp->flags)
