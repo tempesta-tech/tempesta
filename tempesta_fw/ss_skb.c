@@ -1426,7 +1426,7 @@ ss_skb_dump(struct sk_buff *skb)
 
 	for (i = 0; i < si->nr_frags; ++i) {
 		const skb_frag_t *f = &si->frags[i];
-		T_LOG_NL("  frag %d (addr=%p pg_off=%u size=%u pg_ref=%d):\n",
+		T_LOG_NL("  frag %2d (addr=%p pg_off=%-4u size=%-4u pg_ref=%d):\n",
 			 i, skb_frag_address(f), f->page_offset,
 			 skb_frag_size(f), page_ref_count(skb_frag_page(f)));
 		print_hex_dump(KERN_INFO, "    ", DUMP_PREFIX_OFFSET, 16, 1,
