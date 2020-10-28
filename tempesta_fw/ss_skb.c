@@ -858,7 +858,14 @@ ss_skb_get_room(struct sk_buff *skb_head, struct sk_buff *skb, char *pspt,
 	int r = skb_fragment(skb_head, skb, pspt, len, it);
 	if (r == len)
 		return 0;
-	return r;
+	/*
+	 * TODO: skb_fragment() returns a number of processed data, which can
+	 * differ from the requested one: inserted or removed part of data is
+	 * less than requested and the caller has to handle it. Currently
+	 * none of the callers support that, just raise -ENOMEM in that case,
+	 * since the error is passed further.
+	 */
+	return r <= 0 ? r : -ENOMEM;
 }
 
 /**
