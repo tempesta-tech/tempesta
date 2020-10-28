@@ -952,34 +952,6 @@ tfw_http_msg_del_hbh_hdrs(TfwHttpMsg *hm)
 	return 0;
 }
 
-int
-tfw_http_msg_del_eol(struct sk_buff *skb_head, TfwStr *hdr)
-{
-	int r;
-	TfwStr it = {};
-	int eolen = tfw_str_eolen(hdr);
-	TfwStr *last = TFW_STR_LAST(hdr);
-
-	if ((r = skb_next_data(last->skb, last->data + last->len - 1, &it)))
-		return r;
-
-	while (eolen) {
-		char *ptr = it.data;
-		struct sk_buff *skb = it.skb;
-
-		bzero_fast(&it, sizeof(TfwStr));
-		if ((r = skb_fragment(skb_head, skb, ptr, -eolen, &it)))
-			return r;
-
-		if (WARN_ON_ONCE(r > eolen))
-			return -EINVAL;
-
-		eolen -= r;
-	}
-
-	return 0;
-}
-
 /**
  * Modify message body, add string @data to the end of the body (if @append) or
  * to its beginning.
