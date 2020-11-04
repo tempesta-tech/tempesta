@@ -165,6 +165,15 @@ tfw_http_sess_cfg_finish(TfwVhost *vhost)
 	return 0;
 }
 
+void tfw_http_sess_cfgstart(void)
+{
+}
+
+int tfw_http_sess_cfgend(void)
+{
+	return 0;
+}
+
 int
 tfw_cache_process(TfwHttpMsg *msg, tfw_http_cache_cb_t action)
 {

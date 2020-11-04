@@ -32,17 +32,29 @@ static TfwVhost *cur_vhost;
 static const unsigned int tfw_cfg_jsch_code_dflt = 503;
 #define TFW_CFG_JS_PATH "/etc/tempesta/js_challenge.html"
 
-void
-tfw_http_sess_cookie_clean(TfwVhost *vhost)
+struct {
+	TfwStickyCookie		sticky;
+	unsigned long		vhost_flags;
+	int			cookie_set:1,
+				learn_set:1,
+				st_sessions_set:1,
+				lifetime_set:1;
+	char			secret[1024];
+} defaults_override;
+
+static void
+__tfw_http_sess_cookie_clean(TfwStickyCookie *sticky)
 {
-	TfwStickyCookie *sticky = vhost->cookie;
 	TfwStr *c;
 
 	if (sticky->shash)
 		crypto_free_shash(sticky->shash);
 
-	if (!sticky->js_challenge)
+	if (!sticky->js_challenge ||
+	    !refcount_dec_and_test(&sticky->js_challenge->users))
+	{
 		return;
+	}
 
 	c = TFW_STR_CHUNK(&sticky->js_challenge->body, 0);
 	if (c && c->data) {
@@ -51,74 +63,158 @@ tfw_http_sess_cookie_clean(TfwVhost *vhost)
 		kfree(sticky->js_challenge->body.chunks);
 	}
 	kfree(sticky->js_challenge);
-
-	return;
 }
 
-int
-__tfw_http_sess_cfgop_begin(TfwVhost *vhost)
+void
+tfw_http_sess_cookie_clean(TfwVhost *vhost)
 {
-	TfwStickyCookie *sticky = vhost->cookie;
-	int r;
+	return __tfw_http_sess_cookie_clean(vhost->cookie);
+}
 
+static int
+__tfw_http_sess_cfgop_begin(TfwStickyCookie *sticky)
+{
 	sticky->name.data = sticky->name_eq.data = sticky->sticky_name;
-
-	sticky->shash = crypto_alloc_shash("hmac(sha1)", 0, 0);
-	if (IS_ERR(sticky->shash)) {
-		T_ERR_NL("sticky: shash allocation failed\n");
-		r = (int)PTR_ERR(sticky->shash);
-		sticky->shash = NULL;
-		return r;
-	}
+	sticky->options.data = sticky->options_str;
 
 	return 0;
+}
+
+static void
+tfw_http_sess_cfg_defaults_reset(void)
+{
+	__tfw_http_sess_cookie_clean(&defaults_override.sticky);
+	memset(&defaults_override, 0, sizeof(defaults_override));
 }
 
 int
 tfw_http_sess_cfgop_begin(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
+	TfwStickyCookie *sticky;
 	int r;
 
-	if (tfw_vhost_is_default(vhost) && !TFW_STR_EMPTY(&vhost->cookie->name))
-	{
-		T_ERR_NL("http_sess: directive 'sticky' was stated for both "
-			 "explicit 'default' vhost and at top level. Both used "
-			 "to configure 'sticky' for 'default' vhost.\n");
-		return -EINVAL;
+	/*
+	 * 'sticky' directive at top level to override defaults. May appear
+	 * multiple times.
+	 */
+	if (!vhost) {
+		tfw_http_sess_cfg_defaults_reset();
+		sticky = &defaults_override.sticky;
+	}
+	else {
+		sticky = vhost->cookie;
 	}
 
-	if ((r = __tfw_http_sess_cfgop_begin(vhost)))
+	if ((r = __tfw_http_sess_cfgop_begin(sticky)))
 		return r;
 	cur_vhost = vhost;
 
 	return 0;
 }
 
+/**
+ * Inherit default values from the @defaults_override. Applied only to
+ * directives that can't be set up via default values from tfw_http_sess_specs.
+ */
+static int
+tfw_cfgop_sticky_inherit(TfwVhost *vhost)
+{
+	TfwStickyCookie *st;
+	TfwStickyCookie *def_st = &defaults_override.sticky;
+
+	if (!vhost)
+		return 0;
+	st = vhost->cookie;
+
+	if (TFW_STR_EMPTY(&st->name)
+	    && (defaults_override.cookie_set || defaults_override.learn_set))
+	{
+		memcpy(st->sticky_name, def_st->sticky_name, def_st->name_eq.len);
+		st->name.len = def_st->name_eq.len - 1;
+		st->name_eq.len = def_st->name_eq.len;
+		st->name.data = st->name_eq.data = st->sticky_name;
+
+		memcpy(st->options_str, def_st->options_str, def_st->options.len);
+		st->options.len = def_st->options.len;
+		st->options.data = st->options_str;
+
+		st->max_misses = def_st->max_misses;
+		st->tmt_sec = def_st->tmt_sec;
+		st->learn = def_st->learn;
+		st->enforce = def_st->enforce;
+	}
+
+	if (!st->js_challenge && def_st->js_challenge) {
+		/*
+		 * At first sight we can't just copy JSCH settings here, because
+		 * 'cookie' directive can be explicitly defined with a new
+		 * cookie name, while JSCH may be derived inherited from the top
+		 * level `sticky` directive. But this won't work since JSCH
+		 * directive contains name of the file with JSCH code which
+		 * contains cookie name. At this stage we can't modify JS code.
+		 * So the only possible JSCH directive inheritance - only both
+		 * JSCH and 'cookie' directives are inherited.
+		 */
+		st->js_challenge = def_st->js_challenge;
+		refcount_inc(&st->js_challenge->users);
+		T_LOG_NL("http_sess: JavaScript challenge requires enforced "
+			 "sticky cookie mode\n");
+		st->enforce = true;
+		st->redirect_code = st->js_challenge->st_code;
+	}
+	else {
+		st->redirect_code = TFW_REDIR_STATUS_CODE_DFLT;
+	}
+
+	return 0;
+}
+
+/**
+ * Finish processing 'sticky' section.
+ */
 int
 tfw_http_sess_cfgop_finish(TfwVhost *vhost, TfwCfgSpec *cs)
 {
-	TfwStickyCookie *sticky = cur_vhost->cookie;
+	TfwStickyCookie *sticky = vhost ? vhost->cookie
+					: &defaults_override.sticky;
+	int r;
+
+	cur_vhost = NULL;
+
+	/* Inherit sticky options defined at top level. */
+	if ((r = tfw_cfgop_sticky_inherit(vhost))) {
+		T_ERR_NL("http_sess: Can't inherit top-level '%s' directive "
+			 "configuration to vhost '%.*s'\n",
+			 cs->name, PR_TFW_STR(&vhost->name));
+		return r;
+	}
 
 	if (sticky->js_challenge) {
 		if (TFW_STR_EMPTY(&sticky->name)) {
-			T_ERR_NL("JavaScript challenge requires sticky cookies "
-				 "enabled\n");
+			T_ERR_NL("http_sess: JavaScript challenge requires "
+				 "sticky cookies enabled\n");
 			return -EINVAL;
 		}
 		if (sticky->learn) {
-			T_ERR_NL("JavaScript challenge incompatible with learned "
-				 "cookies\n");
+			T_ERR_NL("http_sess: JavaScript challenge incompatible "
+				 "with learned cookies\n");
 			return -EINVAL;
 		}
-		T_LOG_NL("JavaScript challenge requires enforced sticky cookie "
-			 "mode\n");
+		T_LOG_NL("http_sess: JavaScript challenge requires enforced "
+			 "sticky cookie mode\n");
 		sticky->enforce = true;
 		sticky->redirect_code = sticky->js_challenge->st_code;
 	} else {
 		sticky->redirect_code = TFW_REDIR_STATUS_CODE_DFLT;
 	}
 
-	cur_vhost = NULL;
+	/*
+	 * Redirect mark is requested, switch its parser on. Called outside
+	 * tfw_cfgop_cookie_set() to enable only if there is at least one vhost
+	 * using the feature.
+	 */
+	if (sticky->max_misses && vhost)
+		tfw_http_sess_redir_enable();
 
 	return 0;
 }
@@ -133,7 +229,7 @@ tfw_http_sess_cfgop_cleanup(TfwCfgSpec *cs)
 	return;
 }
 
-int
+static int
 __tfw_cfgop_cookie_set_name(TfwStickyCookie *sticky, const char *name)
 {
 	size_t len;
@@ -154,7 +250,7 @@ __tfw_cfgop_cookie_set_name(TfwStickyCookie *sticky, const char *name)
 	return 0;
 }
 
-int
+static int
 tfw_cfgop_cookie_set_options(TfwStickyCookie *sticky, const char *options)
 {
 	size_t len = strlen(options);
@@ -172,7 +268,7 @@ tfw_cfgop_cookie_set_options(TfwStickyCookie *sticky, const char *options)
 	return 0;
 }
 
-int
+static int
 tfw_cfgop_cookie_set_path(TfwStickyCookie *sticky, const char *path_val)
 {
 	static const char path[] = "; path=";
@@ -191,7 +287,7 @@ tfw_cfgop_cookie_set_path(TfwStickyCookie *sticky, const char *path_val)
 	return 0;
 }
 
-int
+static int
 tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	size_t i;
@@ -200,14 +296,17 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	TfwStickyCookie *sticky;
 	bool was_path = false;
 
-	BUG_ON(!cur_vhost);
-	sticky = cur_vhost->cookie;
-	sticky->options.data = sticky->options_str;
-	sticky->options.len = 0;
+	if (!cur_vhost) {
+		sticky = &defaults_override.sticky;
+		defaults_override.cookie_set = 1;
+	}
+	else {
+		sticky = cur_vhost->cookie;
+	}
 
 	if (!TFW_STR_EMPTY(&sticky->name)) {
-		T_ERR_NL("http_sess: 'cookie' and 'learn' directives can't be "
-			 "used at the same time\n");
+		T_ERR_NL("http_sess: 'cookie' and 'learn' directives "
+			 "can't be used at the same time\n");
 		return -EINVAL;
 	}
 
@@ -221,7 +320,6 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 					 " attribute: '%s'\n", cs->name, val);
 				return -EINVAL;
 			}
-			tfw_http_sess_redir_enable();
 		} else if (!strcasecmp(key, "timeout")) {
 			if (tfw_cfg_parse_uint(val, &sticky->tmt_sec))
 			{
@@ -290,7 +388,7 @@ tfw_cfgop_cookie_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	return 0;
 }
 
-int
+static int
 tfw_cfgop_cookie_learn(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	size_t i;
@@ -298,12 +396,17 @@ tfw_cfgop_cookie_learn(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	const char *key, *val, *name_val = NULL;
 	TfwStickyCookie *sticky;
 
-	BUG_ON(!cur_vhost);
-	sticky = cur_vhost->cookie;
+	if (!cur_vhost) {
+		sticky = &defaults_override.sticky;
+		defaults_override.learn_set = 1;
+	}
+	else {
+		sticky = cur_vhost->cookie;
+	}
 
 	if (!TFW_STR_EMPTY(&sticky->name)) {
-		T_ERR_NL("http_sess: 'cookie' and 'learn' directives can't be "
-			 "used at the same time\n");
+		T_ERR_NL("http_sess: 'cookie' and 'learn' directives "
+			 "can't be used at the same time\n");
 		return -EINVAL;
 	}
 
@@ -335,28 +438,33 @@ tfw_cfgop_cookie_learn(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	 * failovering algorithm is also meaningless for the 'learn' mode.
 	 * So enable the only usable stickiness mode.
 	 * */
-	__set_bit(TFW_VHOST_B_STICKY_SESS, &cur_vhost->flags);
+	__set_bit(TFW_VHOST_B_STICKY_SESS, (cur_vhost
+					    ? &cur_vhost->flags
+					    : &defaults_override.vhost_flags));
 
 	return 0;
 }
 
-static inline void
-tfw_cfgop_sticky_sess_inherit(TfwVhost *vhost)
+static void
+tfw_cfgop_sticky_sess_inherit(unsigned long *flags)
 {
 	unsigned long nrs[] = {TFW_VHOST_B_STICKY_SESS,
 			       TFW_VHOST_B_STICKY_SESS_FAILOVER};
 	size_t i;
 
-	BUG_ON(!vhost->vhost_dflt);
 	for (i = 0; i < ARRAY_SIZE(nrs); i++) {
-		if (test_bit(nrs[i], &vhost->vhost_dflt->flags))
-			__set_bit(nrs[i], &vhost->flags);
+		if (test_bit(nrs[i], &defaults_override.vhost_flags))
+			__set_bit(nrs[i], flags);
+		else
+			__clear_bit(nrs[i], flags);
 	}
 }
 
 static inline int
 tfw_cfgop_sticky_sess_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
+	unsigned long *flags;
+
 	if (ce->attr_n) {
 		T_ERR_NL("Arguments may not have the '=' sign\n");
 		return -EINVAL;
@@ -365,18 +473,33 @@ tfw_cfgop_sticky_sess_set(TfwCfgSpec *cs, TfwCfgEntry *ce)
 		T_ERR_NL("Invalid number of arguments: %zu\n", ce->val_n);
 		return -EINVAL;
 	}
-	if (tfw_cfg_is_dflt_value(ce)) {
-		__clear_bit(TFW_VHOST_B_STICKY_SESS, &cur_vhost->flags);
-		__clear_bit(TFW_VHOST_B_STICKY_SESS_FAILOVER,
-			    &cur_vhost->flags);
-	} else if (!ce->val_n) {
-		__set_bit(TFW_VHOST_B_STICKY_SESS, &cur_vhost->flags);
-	} else if (!strcasecmp(ce->vals[0], "allow_failover")) {
-		__set_bit(TFW_VHOST_B_STICKY_SESS, &cur_vhost->flags);
-		__set_bit(TFW_VHOST_B_STICKY_SESS_FAILOVER, &cur_vhost->flags);
+
+	if (cur_vhost) {
+		flags =  &cur_vhost->flags;
 	} else {
-		T_ERR_NL("Unsupported argument: %s\n", ce->vals[0]);
-		return  -EINVAL;
+		flags = &defaults_override.vhost_flags;
+		defaults_override.st_sessions_set = 1;
+	}
+
+	if (!tfw_cfg_is_dflt_value(ce)) {
+		if (!ce->val_n) {
+			__set_bit(TFW_VHOST_B_STICKY_SESS, flags);
+		} else if (!strcasecmp(ce->vals[0], "allow_failover")) {
+			__set_bit(TFW_VHOST_B_STICKY_SESS, flags);
+			__set_bit(TFW_VHOST_B_STICKY_SESS_FAILOVER, flags);
+		} else {
+			T_ERR_NL("Unsupported argument: %s\n", ce->vals[0]);
+			return  -EINVAL;
+		}
+
+		return 0;
+	}
+
+	if (!cur_vhost || !defaults_override.st_sessions_set) {
+		__clear_bit(TFW_VHOST_B_STICKY_SESS, flags);
+		__clear_bit(TFW_VHOST_B_STICKY_SESS_FAILOVER, flags);
+	} else {
+		tfw_cfgop_sticky_sess_inherit(flags);
 	}
 
 	return 0;
@@ -387,6 +510,19 @@ tfw_cfgop_sess_lifetime(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	int r;
 	int int_val = 0;
+	TfwStickyCookie *sticky = cur_vhost ? cur_vhost->cookie
+					    : &defaults_override.sticky;
+
+	if (tfw_cfg_is_dflt_value(ce)) {
+		if (!cur_vhost)
+			return 0;
+		if (defaults_override.lifetime_set) {
+			sticky->sess_lifetime =
+					defaults_override.sticky.sess_lifetime;
+			return 0;
+		}
+
+	}
 
 	cs->dest = &int_val;
 	r = tfw_cfg_set_int(cs, ce);
@@ -397,37 +533,90 @@ tfw_cfgop_sess_lifetime(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	 * "sess_lifetime 0;" means unlimited session lifetime,
 	 * set tfw_cfg_sticky.sess_lifetime to maximum value.
 	*/
-	cur_vhost->cookie->sess_lifetime = int_val ? : UINT_MAX;
+	sticky->sess_lifetime = int_val ? : UINT_MAX;
+
+	if (!cur_vhost)
+		defaults_override.lifetime_set = 1;
 
 	return 0;
 }
 
 static int
+tfw_cfgop_sticky_secret_set(TfwStickyCookie *sticky, const char *secret_str,
+			    unsigned int len)
+{
+	char secret[SHA1_DIGEST_SIZE];
+	const char *secret_buf;
+	int r;
+
+	sticky->shash = crypto_alloc_shash("hmac(sha1)", 0, 0);
+	if (IS_ERR(sticky->shash)) {
+		T_ERR_NL("http_sess: shash allocation failed\n");
+		r = (int)PTR_ERR(sticky->shash);
+		sticky->shash = NULL;
+		return r;
+	}
+
+#ifdef DEBUG
+	if (len != sizeof(sticky->key))
+		T_LOG_NL("http_sess: reduce ley length to %zu bytes\n",
+			 sizeof(sticky->key));
+	len = max(len, sizeof(sticky->key));
+#endif
+	if (!len) {
+		get_random_bytes(secret, sizeof(secret));
+		len = sizeof(secret);
+		secret_buf = secret;
+	}
+	else {
+		secret_buf = secret_str;
+	}
+#ifdef DEBUG
+	memcpy(sicky->key, secret_buf, len);
+#endif
+
+	r = crypto_shash_setkey(sticky->shash, secret_buf, len);
+	if (r)
+		T_ERR_NL("http_sess: can't set shash secret key");
+	memset(secret, 0, sizeof(secret));
+
+	return r;
+}
+
+/**
+ * Configure sticky secret. If default value is given, then inherit secret
+ * string from the @defaults_override.
+ */
+static int
 tfw_cfgop_sticky_secret(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
-	int r;
 	unsigned int len = (unsigned int)strlen(ce->vals[0]);
-	TfwStickyCookie *sticky = cur_vhost->cookie;
+	TfwStickyCookie *sticky;
+	const char *secret = ce->vals[0];
 
 	if (tfw_cfg_check_single_val(ce))
 		return -EINVAL;
-	if (len > STICKY_KEY_HMAC_LEN)
-		return -EINVAL;
 
-	if (len) {
-		memset(sticky->key, 0, STICKY_KEY_HMAC_LEN);
-		memcpy(sticky->key, ce->vals[0], len);
+	if (!cur_vhost) {
+		if (tfw_cfg_is_dflt_value(ce))
+			return 0;
+		sticky = &defaults_override.sticky;
+
+		if (len >= sizeof(defaults_override.secret))
+			T_WARN_NL("http_sess: too long secret string, can't"
+				  "override default random value\n");
+		else
+			strcpy(defaults_override.secret, ce->vals[0]);
 	}
 	else {
-		get_random_bytes(sticky->key, sizeof(sticky->key));
-		len = sizeof(sticky->key);
+		if (tfw_cfg_is_dflt_value(ce)) {
+			secret = defaults_override.secret;
+			len = strlen(secret);
+		}
+		sticky = cur_vhost->cookie;
 	}
 
-	r = crypto_shash_setkey(sticky->shash, sticky->key, len);
-	if (r)
-		return r;
-
-	return 0;
+	return tfw_cfgop_sticky_secret_set(sticky, secret, len);
 }
 
 static inline int
@@ -537,10 +726,9 @@ tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 
 	js_ch = kzalloc(sizeof(TfwCfgJsCh), GFP_KERNEL);
 	if (!js_ch) {
-		T_ERR_NL("%s: can't alloc memory\n", cs->name);
+		T_ERR_NL("%s: can't allocate memory for JS challenge\n", cs->name);
 		return -ENOMEM;
 	}
-	cur_vhost->cookie->js_challenge = js_ch;
 
 	if (ce->val_n > 1) {
 		T_ERR_NL("invalid number of values; 1 possible, got: %zu\n",
@@ -592,7 +780,13 @@ tfw_cfgop_js_challenge(TfwCfgSpec *cs, TfwCfgEntry *ce)
 	if (r)
 		goto err;
 
-	return r;
+	refcount_set(&js_ch->users, 1);
+	if (cur_vhost)
+		cur_vhost->cookie->js_challenge = js_ch;
+	else
+		defaults_override.sticky.js_challenge = js_ch;
+
+	return 0;
 err:
 	kfree(js_ch);
 	cur_vhost->cookie->js_challenge = NULL;
@@ -600,23 +794,69 @@ err:
 	return r;
 }
 
-/*
+/**
  * Initialize cookie options if the @vhost has no explicit 'sticky' section.
  */
 int
 tfw_http_sess_cfg_finish(TfwVhost *vhost)
 {
 	TfwStickyCookie *sticky = vhost->cookie;
+	int r;
 
-	BUG_ON(!sticky);
+	if (WARN_ON_ONCE(!sticky))
+		return -EINVAL;
+	/* 'sticky' section was explicitly defined. */
 	if (!TFW_STR_EMPTY(&sticky->name))
 		return 0;
+	if ((r = __tfw_http_sess_cfgop_begin(sticky)))
+		return r;
+	/* Inherit sticky options defined at top level. */
+	if ((r = tfw_cfgop_sticky_inherit(vhost)))
+		return r;
+	/* See comment in tfw_http_sess_cfgop_finish(). */
+	if (sticky->max_misses)
+		tfw_http_sess_redir_enable();
 	/*
-	 * Init TfwStr to have valid data structures, but don't init anything
-	 * here on purpose: the memory for sticky was zeroed previously.
+	 * tfw_cfgop_sticky_inherit() only setups directives without
+	 * default values in  tfw_http_sess_specs, init others.
 	 */
-	sticky->name.data = sticky->name_eq.data = sticky->sticky_name;
+	if (defaults_override.st_sessions_set) {
+		tfw_cfgop_sticky_sess_inherit(&vhost->flags);
+	}
+	if (!TFW_STR_EMPTY(&sticky->name)) {
+		r = tfw_cfgop_sticky_secret_set(sticky,
+						defaults_override.secret,
+						strlen(defaults_override.secret));
+		if (r)
+			return r;
+	}
+	sticky->sess_lifetime = defaults_override.lifetime_set
+			? defaults_override.sticky.sess_lifetime
+			: UINT_MAX;
 
+
+	return 0;
+}
+
+/**
+ * Setup default settings storage before use: if last configuration has failed,
+ * defaults may contain values from the previous configuration attempt.
+ */
+void
+tfw_http_sess_cfgstart()
+{
+	tfw_http_sess_cfg_defaults_reset();
+}
+
+/**
+ * Overridden default values has some parts that are dynamically allocated.
+ * Need to free them after configuration processing and before shutdown,
+ * since cfgend() hook is not called for failed configurations.
+ */
+int
+tfw_http_sess_cfgend()
+{
+	tfw_http_sess_cfg_defaults_reset();
 	return 0;
 }
 
