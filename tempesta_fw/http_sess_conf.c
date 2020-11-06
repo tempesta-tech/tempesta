@@ -126,41 +126,41 @@ tfw_cfgop_sticky_inherit(TfwVhost *vhost)
 		return 0;
 	st = vhost->cookie;
 
-	if (TFW_STR_EMPTY(&st->name)
-	    && (defaults_override.cookie_set || defaults_override.learn_set))
+	/*
+	 * 'cookie' was explicitly set, no need to inherit anything.
+	 * 'js_challenge' directive can be inherited only if the 'cookie'
+	 * is inherited. If the 'cookie' is explicitly defined in the current
+	 * 'sticky' section, ignore 'js_challenge' defined at top-level.
+	 */
+	if (!TFW_STR_EMPTY(&st->name)
+	    || !(defaults_override.cookie_set || defaults_override.learn_set))
 	{
-		memcpy(st->sticky_name, def_st->sticky_name, def_st->name_eq.len);
-		st->name.len = def_st->name_eq.len - 1;
-		st->name_eq.len = def_st->name_eq.len;
-		st->name.data = st->name_eq.data = st->sticky_name;
-
-		memcpy(st->options_str, def_st->options_str, def_st->options.len);
-		st->options.len = def_st->options.len;
-		st->options.data = st->options_str;
-
-		st->max_misses = def_st->max_misses;
-		st->tmt_sec = def_st->tmt_sec;
-		st->learn = def_st->learn;
-		st->enforce = def_st->enforce;
+		return 0;
 	}
 
+	memcpy(st->sticky_name, def_st->sticky_name, def_st->name_eq.len);
+	st->name.len = def_st->name_eq.len - 1;
+	st->name_eq.len = def_st->name_eq.len;
+	st->name.data = st->name_eq.data = st->sticky_name;
+
+	memcpy(st->options_str, def_st->options_str, def_st->options.len);
+	st->options.len = def_st->options.len;
+	st->options.data = st->options_str;
+
+	st->max_misses = def_st->max_misses;
+	st->tmt_sec = def_st->tmt_sec;
+	st->learn = def_st->learn;
+	st->enforce = def_st->enforce;
+
 	if (!st->js_challenge && def_st->js_challenge) {
-		/*
-		 * At first sight we can't just copy JSCH settings here, because
-		 * 'cookie' directive can be explicitly defined with a new
-		 * cookie name, while JSCH may be derived inherited from the top
-		 * level `sticky` directive. But this won't work since JSCH
-		 * directive contains name of the file with JSCH code which
-		 * contains cookie name. At this stage we can't modify JS code.
-		 * So the only possible JSCH directive inheritance - only both
-		 * JSCH and 'cookie' directives are inherited.
-		 */
 		st->js_challenge = def_st->js_challenge;
 		refcount_inc(&st->js_challenge->users);
-		T_LOG_NL("http_sess: JavaScript challenge requires enforced "
-			 "sticky cookie mode\n");
-		st->enforce = true;
 		st->redirect_code = st->js_challenge->st_code;
+		/*
+		 * Already was checked at tfw_http_sess_cfgop_finish() for
+		 * top-level sticky directive.
+		 */
+		WARN_ON_ONCE(!st->enforce);
 	}
 	else {
 		st->redirect_code = TFW_REDIR_STATUS_CODE_DFLT;
@@ -181,18 +181,11 @@ tfw_http_sess_cfgop_finish(TfwVhost *vhost, TfwCfgSpec *cs)
 
 	cur_vhost = NULL;
 
-	/* Inherit sticky options defined at top level. */
-	if ((r = tfw_cfgop_sticky_inherit(vhost))) {
-		T_ERR_NL("http_sess: Can't inherit top-level '%s' directive "
-			 "configuration to vhost '%.*s'\n",
-			 cs->name, PR_TFW_STR(&vhost->name));
-		return r;
-	}
-
 	if (sticky->js_challenge) {
 		if (TFW_STR_EMPTY(&sticky->name)) {
 			T_ERR_NL("http_sess: JavaScript challenge requires "
-				 "sticky cookies enabled\n");
+				 "sticky cookies enabled and explicitly defined "
+				 "in the same section\n");
 			return -EINVAL;
 		}
 		if (sticky->learn) {
@@ -206,6 +199,14 @@ tfw_http_sess_cfgop_finish(TfwVhost *vhost, TfwCfgSpec *cs)
 		sticky->redirect_code = sticky->js_challenge->st_code;
 	} else {
 		sticky->redirect_code = TFW_REDIR_STATUS_CODE_DFLT;
+	}
+
+	/* Inherit sticky options defined at top level. */
+	if ((r = tfw_cfgop_sticky_inherit(vhost))) {
+		T_ERR_NL("http_sess: Can't inherit top-level '%s' directive "
+			 "configuration to vhost '%.*s'\n",
+			 cs->name, PR_TFW_STR(&vhost->name));
+		return r;
 	}
 
 	/*
@@ -808,8 +809,11 @@ tfw_http_sess_cfg_finish(TfwVhost *vhost)
 	/* 'sticky' section was explicitly defined. */
 	if (!TFW_STR_EMPTY(&sticky->name))
 		return 0;
-	if ((r = __tfw_http_sess_cfgop_begin(sticky)))
+	if (tfw_vhost_is_default(vhost)
+	    && (r = __tfw_http_sess_cfgop_begin(sticky)))
+	{
 		return r;
+	}
 	/* Inherit sticky options defined at top level. */
 	if ((r = tfw_cfgop_sticky_inherit(vhost)))
 		return r;
