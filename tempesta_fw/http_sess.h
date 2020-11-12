@@ -78,6 +78,7 @@
  * @delay_range	- time interval starting after @delay_min for a client to make
  *		  a repeated request, in msecs;
  * @st_code	- status code for response with JS challenge;
+ * @users	- reference counter.
  */
 typedef struct {
 	TfwStr			body;
@@ -85,6 +86,7 @@ typedef struct {
 	unsigned long		delay_limit;
 	unsigned long		delay_range;
 	unsigned short		st_code;
+	refcount_t		users;
 } TfwCfgJsCh;
 
 /**
@@ -92,6 +94,8 @@ typedef struct {
  *
  * @shash		- Secret server value to generate reliable client
  *			  identifiers.
+ * @key			- string representation of secret key for shash,
+ *			  used only for debugging.
  * @name		- name of sticky cookie;
  * @name_eq		- @name plus "=" to make some operations faster;
  * @js_challenge	- JS challenge configuration;
@@ -108,7 +112,9 @@ typedef struct {
  */
 struct tfw_http_cookie_t {
 	struct crypto_shash	*shash;
+#ifdef DEBUG
 	char			key[STICKY_KEY_HMAC_LEN];
+#endif
 	char			sticky_name[STICKY_NAME_MAXLEN + 1];
 	char			options_str[STICKY_OPT_MAXLEN];
 	TfwStr			options;

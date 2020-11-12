@@ -1,7 +1,7 @@
 /**
  *		Tempesta FW
  *
- * Copyright (C) 2019 Tempesta Technologies, Inc.
+ * Copyright (C) 2019-2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,6 +27,9 @@
 #define TFW_REDIR_STATUS_CODE_DFLT 302
 
 extern TfwCfgSpec tfw_http_sess_specs[];
+
+void tfw_http_sess_cfgstart(void);
+int tfw_http_sess_cfgend(void);
 
 int tfw_http_sess_cfgop_begin(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce);
 int tfw_http_sess_cfgop_finish(TfwVhost *vhost, TfwCfgSpec *cs);
