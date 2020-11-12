@@ -368,12 +368,12 @@ tfw_http_sticky_get_req(TfwHttpReq *req, TfwStr *cookie_val)
 #define T_DBG_PRINT_STICKY_COOKIE(addr, ua, sv)				\
 do {									\
 	char abuf[TFW_ADDR_STR_BUF_SIZE] = {0};				\
-	char hbuf[STICKY_KEY_HMAC_LEN * 2] = {0};				\
+	char hbuf[STICKY_KEY_HMAC_LEN * 2] = {0};			\
 	tfw_addr_fmt(addr, TFW_NO_PORT, abuf);				\
-	bin2hex(hbuf, sticky->key, STICKY_KEY_HMAC_LEN);			\
+	bin2hex(hbuf, sticky->key, STICKY_KEY_HMAC_LEN);		\
 	T_DBG("http_sess: calculate sticky cookie for %s,"		\
 	      " ts=%#lx(now=%#lx)...\n", abuf, (sv)->ts, jiffies);	\
-	T_DBG("\t...secret: %.*s\n", (int)STICKY_KEY_HMAC_LEN * 2, hbuf);	\
+	T_DBG("\t...secret: %.*s\n", (int)STICKY_KEY_HMAC_LEN * 2, hbuf); \
 	tfw_str_dprint(ua, "\t...User-Agent");				\
 } while (0)
 #else
@@ -1506,7 +1506,7 @@ err:
 }
 
 static int
-tfw_http_sess_cfgstart(void)
+tfw_http_sess_cfgstart_local(void)
 {
 	redir_mark_enabled_reconfig = false;
 	return 0;
@@ -1578,7 +1578,7 @@ static TfwCfgSpec tfw_http_sess_specs_table[] = {
 
 TfwMod tfw_http_sess_mod = {
 	.name		= "http_sess",
-	.cfgstart	= tfw_http_sess_cfgstart,
+	.cfgstart	= tfw_http_sess_cfgstart_local,
 	.start		= tfw_http_sess_start,
 	.stop		= tfw_http_sess_stop,
 	.specs		= tfw_http_sess_specs_table,
@@ -1595,5 +1595,6 @@ tfw_http_sess_init(void)
 void
 tfw_http_sess_exit(void)
 {
+	tfw_http_sess_cfgend();
 	tfw_mod_unregister(&tfw_http_sess_mod);
 }

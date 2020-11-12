@@ -1501,15 +1501,7 @@ tfw_cfgop_out_sticky_begin(TfwCfgSpec *cs, TfwCfgEntry *ce)
 {
 	BUG_ON(tfw_vhost_entry);
 
-	if (tfw_vhosts_reconfig->expl_dflt) {
-		T_ERR_NL("http_sticky: directive '%s' can't be defined "
-			 "outside of explicit '%s' vhost.\n",
-			 cs->name, TFW_VH_DFT_NAME);
-		return -EINVAL;
-	}
-
-	return tfw_http_sess_cfgop_begin(tfw_vhosts_reconfig->vhost_dflt, cs,
-					 ce);
+	return tfw_http_sess_cfgop_begin(NULL, cs, ce);
 }
 
 static int
@@ -1523,7 +1515,7 @@ static int
 tfw_cfgop_out_sticky_finish(TfwCfgSpec *cs)
 {
 	BUG_ON(tfw_vhost_entry);
-	return tfw_http_sess_cfgop_finish(tfw_vhosts_reconfig->vhost_dflt, cs);
+	return tfw_http_sess_cfgop_finish(NULL, cs);
 }
 
 void
@@ -2172,6 +2164,8 @@ tfw_vhost_cfgstart(void)
 	tfw_vhost_entry = NULL;
 	tfwcfg_this_location = NULL;
 
+	tfw_http_sess_cfgstart();
+
 	return 0;
 }
 
@@ -2180,7 +2174,7 @@ tfw_vhost_cfgend(void)
 {
 	TfwSrvGroup *sg_def;
 	TfwVhost *vh_dflt;
-	int r;
+	int r = 0;
 
 	*tfw_vhosts_reconfig->vhost_dflt->frang_gconf = tfw_frang_glob_reconfig;
 	/*
@@ -2188,7 +2182,7 @@ tfw_vhost_cfgend(void)
 	 * to keep default location policies.
 	 */
 	if (tfw_vhosts_reconfig->expl_dflt)
-		return 0;
+		goto err;
 	/*
 	 * Implicit default vhost is still useful even if it's never used to
 	 * forward the traffic. It stores fallback location providing
@@ -2196,22 +2190,26 @@ tfw_vhost_cfgend(void)
 	 * request is parsed and assigned to any location.
 	 */
 	vh_dflt = tfw_vhosts_reconfig->vhost_dflt;
-	if (tfw_frang_cfg_inherit(vh_dflt->loc_dflt->frang_cfg,
-				  &tfw_frang_vhost_reconfig))
-		return -ENOMEM;
+	r = tfw_frang_cfg_inherit(vh_dflt->loc_dflt->frang_cfg,
+				  &tfw_frang_vhost_reconfig);
+	if (r)
+		goto err;
 	sg_def = tfw_sg_lookup_reconfig(TFW_VH_DFT_NAME, SLEN("default"));
 	vh_dflt->loc_dflt->main_sg = sg_def;
 	tfw_vhost_add(vh_dflt);
 	if ((r = tfw_tls_cert_cfg_finish(vh_dflt)))
-		return r;
+		goto err;
 	if ((r = tfw_http_sess_cfg_finish(vh_dflt)))
-		return r;
+		goto err;
 
 	if (tfw_global.cache_purge && !tfw_global.cache_purge_acl)
 		T_WARN_NL("Directives mismatching: 'cache_purge' directive "
 			  "requires 'cache_purge_acl', but it wasn't "
 			  "provided. 'cache_purge' directive is ignored.\n");
-	return 0;
+
+err:
+	r = tfw_http_sess_cfgend();
+	return r;
 }
 
 static int
@@ -3030,6 +3028,7 @@ static TfwCfgSpec tfw_vhost_specs[] = {
 		},
 		.allow_reconfig = true,
 		.allow_none = true,
+		.allow_repeat = true,
 	},
 	{
 		.name = "location",
