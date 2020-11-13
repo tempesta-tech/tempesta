@@ -1360,9 +1360,10 @@ this_chunk:
 	return 0;
 }
 
-int
-tfw_h2_msg_rewrite_data(TfwHttpTransIter *mit, const TfwStr *str,
-			const char *stop)
+static int
+tfw_h2_msg_rewrite_data_common(TfwHttpTransIter *mit, const TfwStr *str,
+                               const char *stop,
+                               void cpy(void *dest, const void *src, size_t n))
 {
 	const TfwStr *c, *end;
 	TfwMsgIter *it = &mit->iter;
@@ -1417,8 +1418,7 @@ this_chunk:
 
 			return -E2BIG;
 		}
-
-		memcpy_fast(mit->curr_ptr, c->data + c_off, n_copy);
+		cpy(mit->curr_ptr, c->data + c_off, n_copy);
 
 		T_DBG3("%s: acc_len=%lu, n_copy=%u, mit->curr_ptr='%.*s',"
 		       " ptr_diff=%ld\n", __func__, mit->acc_len, n_copy,
@@ -1457,6 +1457,20 @@ this_chunk:
 	}
 
 	return 0;
+}
+
+int
+tfw_h2_msg_rewrite_data(TfwHttpTransIter *mit, const TfwStr *str,
+                        const char *stop)
+{
+	return tfw_h2_msg_rewrite_data_common(mit, str, stop, memcpy_fast);
+}
+
+int
+tfw_h2_msg_rewrite_data_lc(TfwHttpTransIter *mit, const TfwStr *str,
+                           const char *stop)
+{
+	return tfw_h2_msg_rewrite_data_common(mit, str, stop, tfw_cstrtolower);
 }
 
 /**
