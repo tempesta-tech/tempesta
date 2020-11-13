@@ -106,6 +106,17 @@ void tfw_init_custom_ctext_vchar(const unsigned char *a);
 void tfw_init_custom_xff(const unsigned char *a);
 void tfw_init_custom_cookie(const unsigned char *a);
 
+static inline void
+tfw_cstrtolower_wo_avx2(void *dest, const void *src, size_t len)
+{
+	int i;
+	unsigned char *d = dest;
+	const unsigned char *s = src;
+
+	for (i = 0; i < len; ++i)
+		d[i] = tolower(s[i]);
+}
+
 #ifdef AVX2
 /*
  * The functions expect non-ovelapping strings, so use restrict notation in
@@ -152,12 +163,7 @@ tfw_cstricmp_2lc(const char *__restrict s1, const char *__restrict s2,
 static inline void
 tfw_cstrtolower(void *dest, const void *src, size_t len)
 {
-	int i;
-	unsigned char *d = dest;
-	const unsigned char *s = src;
-
-	for (i = 0; i < len; ++i)
-		d[i] = tolower(s[i]);
+	tfw_cstrtolower_wo_avx2(dest, src, len);
 }
 
 static inline int

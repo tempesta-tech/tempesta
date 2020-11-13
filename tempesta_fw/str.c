@@ -718,6 +718,8 @@ tfw_strdup(TfwPool *pool, const TfwStr *src)
 	const TfwStr *s_c, *end;
 	char *data;
 
+	WARN_ON(in_softirq());
+
 	n = (src->nchunks + 1) * sizeof(TfwStr) + src->len;
 	dst = (TfwStr *)tfw_pool_alloc(pool, n);
 	if (!dst)
@@ -731,7 +733,7 @@ tfw_strdup(TfwPool *pool, const TfwStr *src)
 	TFW_STR_FOR_EACH_CHUNK(s_c, src, end) {
 		*d_c = *s_c;
 		d_c->data = data;
-		memcpy_fast(data, s_c->data, s_c->len);
+		memcpy(data, s_c->data, s_c->len);
 		data += s_c->len;
 		++d_c;
 	}
