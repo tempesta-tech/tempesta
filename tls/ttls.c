@@ -1673,8 +1673,11 @@ void
 ttls_write_change_cipher_spec(TlsCtx *tls, struct sg_table *sgt,
 			      unsigned char **in_buf)
 {
-	/* The ChangeCipherSpec message is added after NewSessionTicket one. */
-	if (unlikely(in_buf)) {
+	/*
+	 * The ChangeCipherSpec message is added after another message:
+	 * NewSessionTicket on full handshake or ServerHello on abbreviated one.
+	 */
+	if (likely(in_buf)) {
 		ttls_write_hdr(tls, TTLS_MSG_CHANGE_CIPHER_SPEC, 1, *in_buf);
 		get_page(virt_to_page(*in_buf));
 		sg_set_buf(&sgt->sgl[sgt->nents++], *in_buf, TLS_HEADER_SIZE + 1);

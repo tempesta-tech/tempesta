@@ -2061,12 +2061,16 @@ ttls_handshake_finished(TlsCtx *tls, struct sg_table *sgt,
 
 static int
 ttls_handshake_init_out_buffers(struct sg_table *sgt, unsigned char **p,
-				struct page **pg)
+				struct page **pg, int sz)
 {
+	/*
+	 * The function is called twice during single fsm walk through,
+	 * on first call a page was allocated, on the second - reused.
+	 */
 	if (*p)
 		return 0;
 
-	*p = pg_skb_alloc(2048, GFP_ATOMIC, NUMA_NO_NODE);
+	*p = pg_skb_alloc(sz, GFP_ATOMIC, NUMA_NO_NODE);
 	if (!*p)
 		return -ENOMEM;
 	sg_init_table(sgt->sgl, MAX_SKB_FRAGS);
@@ -2133,7 +2137,7 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 	 *	  ServerHelloDone
 	 */
 	T_FSM_STATE(TTLS_SERVER_HELLO) {
-		if ((r = ttls_handshake_init_out_buffers(&sgt, &p, &pg)))
+		if ((r = ttls_handshake_init_out_buffers(&sgt, &p, &pg, 2048)))
 			T_FSM_EXIT();
 		r = ttls_handshake_server_hello(tls, &sgt, &p);
 		if (!r && tls->state == TTLS_SERVER_CHANGE_CIPHER_SPEC)
@@ -2205,7 +2209,7 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 		 * On abbreviated handshake we need to wait for more messages
 		 * from client before jumping into the next state.
 		 */
-		if ((r = ttls_handshake_init_out_buffers(&sgt, &p, &pg)))
+		if ((r = ttls_handshake_init_out_buffers(&sgt, &p, &pg, 1024)))
 			T_FSM_EXIT();
 		if ((r = ttls_handshake_finished(tls, &sgt, &p)))
 			T_FSM_EXIT();
@@ -2236,6 +2240,7 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 	T_FSM_FINISH(r, tls->state);
 
 	if (unlikely(pg)) {
+		/* If we reached here, then something went wrong. */
 		while (sgt.nents)
 			put_page(sg_page(&sg[--sgt.nents]));
 		put_page(pg);
