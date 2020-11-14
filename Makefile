@@ -111,5 +111,6 @@ clean:
 	$(MAKE) -C $(KERNEL) M=$(shell pwd) clean
 	$(MAKE) -C tempesta_db clean
 	$(MAKE) -C tls clean
+	$(MAKE) -C tls/t clean
 	find . \( -name \*~ -o -name \*.orig -o -name \*.symvers \) \
 		-exec rm -f {} \;
