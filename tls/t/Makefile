@@ -76,6 +76,6 @@ benchmark.o : benchmark.c
 	$(CC) $(SPEED_CFLAGS) $(CFLAGS) -c $< -o $@
 
 clean : FORCE
-	rm -f *.o *~ *.orig $(TARGETS)
+	rm -f *.o *~ *.orig $(TARGETS) $(GENERATORS)
 
 FORCE :
