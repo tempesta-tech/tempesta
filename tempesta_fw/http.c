@@ -2893,15 +2893,25 @@ tfw_http_should_validate_post_req(TfwHttpReq *req)
 	return false;
 }
 
+/**
+ * Add local headers (defined by administrator in configuration file) to http/1
+ * message.
+ *
+ * @hm		- Message to be updated;
+ * @is_resp	- Message represents response, not request;
+ * @from_cache	- The response is created from cache, not applied to requests.
+ */
 int
-tfw_http_set_loc_hdrs(TfwHttpMsg *hm, TfwHttpReq *req, bool cache)
+tfw_h1_set_loc_hdrs(TfwHttpMsg *hm, bool is_resp, bool from_cache)
 {
 	size_t i;
-	bool hm_req = (hm == (TfwHttpMsg *)req);
-	int mod_type = hm_req ? TFW_VHOST_HDRMOD_REQ : TFW_VHOST_HDRMOD_RESP;
+	int mod_type = is_resp ? TFW_VHOST_HDRMOD_RESP : TFW_VHOST_HDRMOD_REQ;
+	TfwHttpReq *req = is_resp ? hm->req : (TfwHttpReq *)hm;
 	TfwHdrMods *h_mods = tfw_vhost_get_hdr_mods(req->location, req->vhost,
 						    mod_type);
-	BUG_ON(hm_req && cache);
+
+	if(WARN_ON_ONCE(!is_resp && from_cache))
+		return -EINVAL;
 	if (!h_mods)
 		return 0;
 
@@ -2932,10 +2942,16 @@ tfw_http_set_loc_hdrs(TfwHttpMsg *hm, TfwHttpReq *req, bool cache)
 		h_mdf.flags = d->hdr->flags;
 		h_mdf.eolen += d->hdr->eolen;
 
-		if (!hm_req && cache) {
+		/*
+		 * A response is built from cache. Response is stored in
+		 * cache optimised for h2 and it's being created
+		 * header-by-header right away.
+		 */
+		if (from_cache) {
 			TfwHttpResp *resp = (TfwHttpResp *)hm;
 			struct sk_buff **skb_head = &resp->msg.skb_head;
 			TfwHttpTransIter *mit = &resp->mit;
+			TfwStr crlf = { .data = S_CRLF, .len = SLEN(S_CRLF) };
 			/*
 			 * Skip the configured header if we have already
 			 * processed it during cache reading, or if the header
@@ -2943,9 +2959,11 @@ tfw_http_set_loc_hdrs(TfwHttpMsg *hm, TfwHttpReq *req, bool cache)
 			 */
 			if (test_bit(i, mit->found) || h_mdf.nchunks < 3)
 				continue;
-
+			/* h_mdf->eolen is ignored, add explicit CRLF. */
 			r = tfw_http_msg_expand_data(&mit->iter, skb_head,
 						     &h_mdf, NULL);
+			r |= tfw_http_msg_expand_data(&mit->iter, skb_head,
+						     &crlf, NULL);
 		} else {
 			r = tfw_http_msg_hdr_xfrm_str(hm, &h_mdf, d->hid,
 						      d->append);
@@ -2988,7 +3006,7 @@ tfw_h1_adjust_req(TfwHttpReq *req)
 	if (r < 0)
 		return r;
 
-	r = tfw_http_set_loc_hdrs(hm, req, false);
+	r = tfw_h1_set_loc_hdrs(hm, false, false);
 	if (r < 0)
 		return r;
 
@@ -3534,7 +3552,7 @@ tfw_http_adjust_resp(TfwHttpResp *resp)
 	if (r < 0)
 		return r;
 
-	r = tfw_http_set_loc_hdrs(hm, req, false);
+	r = tfw_h1_set_loc_hdrs(hm, true, false);
 	if (r < 0)
 		return r;
 

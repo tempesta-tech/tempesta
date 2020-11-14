@@ -66,7 +66,9 @@ typedef struct {
  * Headers modification description.
  *
  * @hdr		- Header string, see @tfw_http_msg_hdr_xfrm_str();
- * @add_hdrs	- Headers to modify;
+ * @hid		- Header index in the header table;
+ * @append	- if set the value is added to the end of an existing header,
+ *		  otherwise the original value is overwritten with given one.
  */
 struct tfw_hdr_mods_desc_t {
 	TfwStr		*hdr;

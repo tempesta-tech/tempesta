@@ -654,7 +654,7 @@ void tfw_http_resp_fwd(TfwHttpResp *resp);
 void tfw_http_resp_build_error(TfwHttpReq *req);
 int tfw_cfgop_parse_http_status(const char *status, int *out);
 void tfw_http_hm_srv_send(TfwServer *srv, char *data, unsigned long len);
-int tfw_http_set_loc_hdrs(TfwHttpMsg *hm, TfwHttpReq *req, bool cache);
+int tfw_h1_set_loc_hdrs(TfwHttpMsg *hm, bool is_resp, bool from_cache);
 int tfw_http_expand_stale_warn(TfwHttpResp *resp);
 int tfw_http_expand_hdr_date(TfwHttpResp *resp);
 int tfw_http_expand_hbh(TfwHttpResp *resp, unsigned short status);
