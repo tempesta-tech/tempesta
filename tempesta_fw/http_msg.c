@@ -42,18 +42,41 @@ tfw_http_msg_make_hdr(TfwPool *pool, const char *name, const char *val)
 {
 	size_t n_len = strlen(name);
 	size_t v_len = val ? strlen(val) : 0;
-	const TfwStr tmp_hdr = {
-		.chunks = (TfwStr []){
-			{ .data = (void *)name,	.len = n_len },
-			{ .data = (void *)val,	.len = v_len,
-			  .flags = TFW_STR_HDR_VALUE},
-		},
-		.len = n_len + v_len,
-		.eolen = 2,
-		.nchunks = (val ? 2 : 1)
-	};
+	size_t n;
+	TfwStr *hdr, *h_c;
+	char *data;
 
-	return tfw_strdup(pool, &tmp_hdr);
+	n = ((val ? 2 : 1) + 1) * sizeof(TfwStr) + n_len + v_len;
+	hdr = (TfwStr *)tfw_pool_alloc(pool, n);
+	if (!hdr)
+		return NULL;
+	TFW_STR_INIT(hdr);
+
+	hdr->len = n_len + v_len;
+	hdr->eolen = 2;
+	hdr->nchunks = (val ? 2 : 1);
+	hdr->chunks = hdr + 1;
+	data = (char *)(TFW_STR_LAST(hdr) + 1);
+
+	h_c = TFW_STR_CHUNK(hdr, 0);
+
+	TFW_STR_INIT(h_c);
+	h_c->data = data;
+	h_c->len = n_len;
+	tfw_cstrtolower_wo_avx2(data, name, n_len);
+
+	if (val) {
+		data += h_c->len;
+		++h_c;
+
+		TFW_STR_INIT(h_c);
+		h_c->data = data;
+		h_c->len = v_len;
+		h_c->flags = TFW_STR_HDR_VALUE;
+		memcpy(data, val, v_len);
+	}
+
+	return hdr;
 }
 
 /**
@@ -1360,9 +1383,10 @@ this_chunk:
 	return 0;
 }
 
-int
-tfw_h2_msg_rewrite_data(TfwHttpTransIter *mit, const TfwStr *str,
-			const char *stop)
+static int
+tfw_h2_msg_rewrite_data_common(TfwHttpTransIter *mit, const TfwStr *str,
+                               const char *stop,
+                               void cpy(void *dest, const void *src, size_t n))
 {
 	const TfwStr *c, *end;
 	TfwMsgIter *it = &mit->iter;
@@ -1417,8 +1441,7 @@ this_chunk:
 
 			return -E2BIG;
 		}
-
-		memcpy_fast(mit->curr_ptr, c->data + c_off, n_copy);
+		cpy(mit->curr_ptr, c->data + c_off, n_copy);
 
 		T_DBG3("%s: acc_len=%lu, n_copy=%u, mit->curr_ptr='%.*s',"
 		       " ptr_diff=%ld\n", __func__, mit->acc_len, n_copy,
@@ -1457,6 +1480,20 @@ this_chunk:
 	}
 
 	return 0;
+}
+
+int
+tfw_h2_msg_rewrite_data(TfwHttpTransIter *mit, const TfwStr *str,
+                        const char *stop)
+{
+	return tfw_h2_msg_rewrite_data_common(mit, str, stop, memcpy_fast);
+}
+
+int
+tfw_h2_msg_rewrite_data_lc(TfwHttpTransIter *mit, const TfwStr *str,
+                           const char *stop)
+{
+	return tfw_h2_msg_rewrite_data_common(mit, str, stop, tfw_cstrtolower);
 }
 
 /**

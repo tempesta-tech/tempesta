@@ -1068,8 +1068,10 @@ do {						\
  * @return number of copied bytes on success and negative value otherwise.
  */
 static int
-tfw_cache_h2_copy_str(unsigned int *acc_len, char **p, TdbVRec **trec,
-		      TfwStr *src, size_t *tot_len)
+tfw_cache_h2_copy_str_common(unsigned int *acc_len, char **p, TdbVRec **trec,
+                             TfwStr *src, size_t *tot_len,
+                             long cache_strcpy(char **p, TdbVRec **trec,
+                                               TfwStr *src, size_t tot_len))
 {
 	long n;
 	TfwStr *c, *end;
@@ -1080,7 +1082,7 @@ tfw_cache_h2_copy_str(unsigned int *acc_len, char **p, TdbVRec **trec,
 		return 0;
 
 	TFW_STR_FOR_EACH_CHUNK(c, src, end) {
-		if ((n = tfw_cache_strcpy(p, trec, c, *tot_len)) < 0) {
+		if ((n = cache_strcpy(p, trec, c, *tot_len)) < 0) {
 			T_ERR("Cache: cannot copy chunk of HTTP/2 string\n");
 			return -ENOMEM;
 		}
@@ -1090,6 +1092,22 @@ tfw_cache_h2_copy_str(unsigned int *acc_len, char **p, TdbVRec **trec,
 	}
 
 	return 0;
+}
+
+static int
+tfw_cache_h2_copy_str(unsigned int *acc_len, char **p, TdbVRec **trec,
+                      TfwStr *src, size_t *tot_len)
+{
+	return tfw_cache_h2_copy_str_common(acc_len, p, trec, src, tot_len,
+	                                    tfw_cache_strcpy);
+}
+
+static int
+tfw_cache_h2_copy_str_lc(unsigned int *acc_len, char **p, TdbVRec **trec,
+                         TfwStr *src, size_t *tot_len)
+{
+	return tfw_cache_h2_copy_str_common(acc_len, p, trec, src, tot_len,
+	                                    tfw_cache_strcpy_lc);
 }
 
 static inline int
@@ -1179,8 +1197,8 @@ tfw_cache_h2_copy_hdr(TfwCacheEntry *ce, char **p, TdbVRec **trec, TfwStr *hdr,
 						  tot_len)
 			    || tfw_cache_h2_copy_int(&ce->hdr_len, s_nm.len,
 						     0x7f, p, trec, tot_len)
-			    || tfw_cache_h2_copy_str(&ce->hdr_len, p, trec,
-						     &s_nm, tot_len))
+			    || tfw_cache_h2_copy_str_lc(&ce->hdr_len, p, trec,
+			                                &s_nm, tot_len))
 				return -ENOMEM;
 		}
 

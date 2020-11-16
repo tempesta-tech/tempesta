@@ -3648,7 +3648,7 @@ tfw_hpack_hdr_inplace(TfwHttpResp *__restrict resp, TfwStr *__restrict hdr,
 
 		bnd = __TFW_STR_CH(&s_val, 0)->data;
 
-		r = tfw_h2_msg_rewrite_data(mit, &s_name, bnd);
+		r = tfw_h2_msg_rewrite_data_lc(mit, &s_name, bnd);
 		if (unlikely(r))
 			return r;
 	} else {
