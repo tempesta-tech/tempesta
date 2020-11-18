@@ -1038,24 +1038,24 @@ __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
 }
 
 int
-__ttls_send_record(TlsCtx *tls, struct sg_table *sgt, bool close)
+__ttls_send_record(TlsCtx *tls, struct sg_table *sgt)
 {
 	int r;
 
-	if ((r = ttls_send_cb(tls, sgt, close)))
+	if ((r = ttls_send_cb(tls, sgt)))
 		T_DBG("TLS send callback error %d\n", r);
 	return r;
 }
 
 static int
-ttls_write_record(TlsCtx *tls, struct sg_table *sgt, bool close)
+ttls_write_record(TlsCtx *tls, struct sg_table *sgt)
 {
 	/* Change __ttls_add_record() call if you need it for handshakes. */
 	WARN_ON_ONCE(tls->io_out.msgtype == TTLS_MSG_HANDSHAKE);
 
 	__ttls_add_record(tls, NULL, 0, NULL);
 
-	return __ttls_send_record(tls, sgt, close);
+	return __ttls_send_record(tls, sgt);
 }
 
 static int
@@ -1336,7 +1336,6 @@ ttls_handle_alert(TlsCtx *tls)
 int
 ttls_send_alert(TlsCtx *tls, unsigned char lvl, unsigned char msg)
 {
-	bool close = false;
 	TlsIOCtx *io = &tls->io_out;
 
 	T_DBG("send alert level=%u message=%u\n", lvl, msg);
@@ -1348,10 +1347,7 @@ ttls_send_alert(TlsCtx *tls, unsigned char lvl, unsigned char msg)
 	io->alert[0] = lvl;
 	io->alert[1] = msg;
 
-	if (msg == TTLS_ALERT_MSG_CLOSE_NOTIFY || lvl == TTLS_ALERT_LEVEL_FATAL)
-		close = true;
-
-	return ttls_write_record(tls, NULL, close);
+	return ttls_write_record(tls, NULL);
 }
 
 int

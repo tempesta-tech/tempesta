@@ -216,7 +216,7 @@ int ttls_derive_keys(TlsCtx *tls);
 
 void __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
 		       unsigned char *hdr_buf);
-int __ttls_send_record(TlsCtx *tls, struct sg_table *sgt, bool close);
+int __ttls_send_record(TlsCtx *tls, struct sg_table *sgt);
 int ttls_sendmsg(TlsCtx *tls, const char *buf, size_t len);
 
 int ttls_parse_certificate(TlsCtx *tls, unsigned char *buf, size_t len,

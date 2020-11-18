@@ -515,6 +515,13 @@ tfw_tls_encrypt(struct sock *sk, struct sk_buff *skb, unsigned int limit)
 	for (p = pages; p < pages_end; ++p)
 		put_page(*p);
 
+	if (type == TTLS_MSG_ALERT &&
+	    (io->alert[1] == TTLS_ALERT_MSG_CLOSE_NOTIFY ||
+	     io->alert[0] == TTLS_ALERT_LEVEL_FATAL))
+	{
+		ss_close(sk, SS_F_SYNC);
+	}
+
 out:
 	if (unlikely(sgt.nents > AUTO_SEGS_N))
 		kfree(sgt.sgl);
@@ -528,7 +535,7 @@ out:
  * initiates a record transmission, e.g. alert or a handshake message.
  */
 static int
-tfw_tls_send(TlsCtx *tls, struct sg_table *sgt, bool close)
+tfw_tls_send(TlsCtx *tls, struct sg_table *sgt)
 {
 	int r, flags = 0;
 	TfwTlsConn *conn = container_of(tls, TfwTlsConn, tls);
@@ -586,10 +593,6 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt, bool close)
 			       sg_virt(sg), sg->length, sg->page_link & 0x3,
 			       skb, skb->len);
 		}
-	}
-	if (close) {
-		flags |= SS_F_CONN_CLOSE;
-		TFW_CONN_TYPE(&conn->cli_conn) |= Conn_Stop;
 	}
 	if (ttls_xfrm_need_encrypt(tls))
 		flags |= SS_SKB_TYPE2F(io->msgtype) | SS_F_ENCRYPT;
