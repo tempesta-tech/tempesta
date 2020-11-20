@@ -524,7 +524,7 @@ err_key:
 }
 
 static int
-ttls_ticket_encrypt(TlsTicket *tik, TlsTicketKey *key)
+ttls_ticket_encrypt(TlsTicket *tik, TlsTicketKey *key, size_t full_enc_len)
 {
 	TlSTicketCryptCtx ctx = { 0 };
 	size_t crypt_len = ttls_ticket_sess_true_size(&tik->state);
@@ -544,7 +544,7 @@ ttls_ticket_encrypt(TlsTicket *tik, TlsTicketKey *key)
 	aead_request_set_crypt(ctx.req, sgt.sgl, sgt.sgl, crypt_len, tik->iv);
 
 	sg_init_table(&sg, 1);
-	sg_set_buf(&sg, tik, crypt_len);
+	sg_set_buf(&sg, tik, full_enc_len);
 	if ((r = crypto_aead_encrypt(ctx.req)))
 		T_WARN("AEAD encryption failed: %d\n", r);
 
@@ -572,7 +572,7 @@ ttls_ticket_decrypt(TlsTicket *tik, size_t len, TlsTicketKey *key)
 	aead_request_set_crypt(ctx.req, sgt.sgl, sgt.sgl, decrypt_len, tik->iv);
 
 	sg_init_table(&sg, 1);
-	sg_set_buf(&sg, tik, decrypt_len);
+	sg_set_buf(&sg, tik, len);
 	if ((r = crypto_aead_decrypt(ctx.req)))
 		T_WARN("AEAD decryption failed: %d\n", r);
 
@@ -650,13 +650,12 @@ ttls_ticket_write(TlsCtx *ctx, unsigned char *buf,
 	r = ttls_ticket_sess_save(&ctx->sess, &tik->state, buf_sz);
 	if (unlikely(r))
 		return r;
-	*tlen = sizeof(TlsTicket) + tik->state.cert_len; /* todo: + tag */
 
 	key = ttls_tickets_key_current_locked(tcfg);
 	if (unlikely(!key))
 		return TTLS_ERR_INTERNAL_ERROR;
-	r = ttls_ticket_encrypt(tik, key);
-	*tlen += TTLS_TICKETS_TAG_LEN;
+	*tlen = sizeof(TlsTicket) + tik->state.cert_len + TTLS_TICKETS_TAG_LEN;
+	r = ttls_ticket_encrypt(tik, key, *tlen);
 	read_unlock(&key->lock);
 	if (unlikely(r))
 		return r;
