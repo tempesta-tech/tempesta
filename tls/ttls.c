@@ -2237,19 +2237,21 @@ ttls_recv(void *tls_data, unsigned char *buf, size_t len, unsigned int *read)
 		return r;
 
 	case TTLS_MSG_APPLICATION_DATA:
+		/*
+		 * Don't allow application data before secured connection is
+		 * established.
+		 */
+		if (unlikely(tls->state != TTLS_HANDSHAKE_OVER)) {
+			T_WARN("TLS context isn't ready after handshake\n");
+			return T_DROP;
+		}
 		break;
 	}
 
 	if (len == 0)
 		return T_POSTPONE;
 
-	/* After the handshake the crypto context must be ready. */
-	if (unlikely(!ttls_xfrm_ready(tls))) {
-		T_WARN("TLS context isn't ready after handshake\n");
-		return T_DROP;
-	}
-
-	/* Encrypted data. */
+	/* Encrypted data, crypto context is guaranteed to be ready here. */
 	if (io->msglen > io->rlen + len) {
 		*read += len;
 		io->rlen += len;
