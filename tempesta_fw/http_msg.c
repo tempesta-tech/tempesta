@@ -24,6 +24,7 @@
 
 #if DBG_HTTP_PARSER == 0
 #undef DEBUG
+#define DEBUG 0
 #endif
 
 #include "lib/str.h"

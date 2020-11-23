@@ -31,6 +31,7 @@
 
 #if DBG_SS == 0
 #undef DEBUG
+#define DEBUG 0
 #endif
 #include "lib/str.h"
 #include "addr.h"
