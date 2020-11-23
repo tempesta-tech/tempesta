@@ -87,6 +87,7 @@
 
 #if DBG_CFG == 0
 #undef DEBUG
+#define DEBUG 0
 #endif
 #include "addr.h"
 #include "cfg.h"

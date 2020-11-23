@@ -26,6 +26,7 @@
 
 #if DBG_APM == 0
 #undef DEBUG
+#define DEBUG 0
 #endif
 #include "lib/str.h"
 #include "apm.h"

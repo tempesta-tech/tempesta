@@ -22,6 +22,7 @@
 
 #if DBG_HTTP_STREAM == 0
 #undef DEBUG
+#define DEBUG 0
 #endif
 #include "http_frame.h"
 

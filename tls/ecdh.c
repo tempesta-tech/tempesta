@@ -222,5 +222,9 @@ ttls_ecdh_calc_secret(TlsECDHCtx *ctx, size_t *olen, unsigned char *buf,
 
 	*olen = (ctx->grp->bits + 7) / 8;
 
-	return ttls_mpi_write_binary(&z->X, buf, *olen);
+	r = ttls_mpi_write_binary(&z->X, buf, *olen);
+
+	T_DBG_MPI1("ECDH client key exchange", &z->X);
+
+	return r;
 }
