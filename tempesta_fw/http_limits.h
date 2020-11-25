@@ -38,7 +38,7 @@
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 #define TFW_CLASSIFIER_ACCSZ	512
 #else
-#define TFW_CLASSIFIER_ACCSZ	256
+#define TFW_CLASSIFIER_ACCSZ	264
 #endif
 
 typedef struct { char _[TFW_CLASSIFIER_ACCSZ]; } TfwClassifierPrvt;
@@ -174,6 +174,10 @@ typedef struct {
  *			  client;
  * @conn_burst		- Allowed connection rate burst;
  * @conn_max		- Maximum number of allowed concurrent connections;
+ * @tls_new_conn_rate	- Maximum new tls connections with full handshakes per
+ *			  second from the same client;
+ * @tls_new_conn_burst	- New tls connections burst;
+ * @tls_uncomplete_rate - Maximum rate of uncompleted tls connections;
  * @http_hchunk_cnt	- Maximum number of chunks in header part;
  * @http_bchunk_cnt	- Maximum number of chunks in body part;
  * @ip_block		- Block clients by IP address if set, if not - just
@@ -189,6 +193,10 @@ struct frang_global_cfg_t {
 	unsigned int		conn_rate;
 	unsigned int		conn_burst;
 	unsigned int		conn_max;
+
+	unsigned int		tls_new_conn_rate;
+	unsigned int		tls_new_conn_burst;
+	unsigned int		tls_uncomplete_rate;
 
 	unsigned int		http_hchunk_cnt;
 	unsigned int		http_bchunk_cnt;

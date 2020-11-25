@@ -249,6 +249,15 @@ tfw_sock_clnt_drop(struct sock *sk)
 	spin_unlock(&((TfwCliConn *)conn)->timer_lock);
 
 	/*
+	 * A TLS connection was lost during handshake processing. Call FSM
+	 * hooks to warn the Frang, since it accounts uncompleted TLS
+	 * handshakes. Can't done it on frang_conn_close() since connection is
+	 * unlinked from socket on that time and can be already destroyed.
+	 */
+	if (TFW_CONN_TLS(conn))
+		tfw_tls_connection_lost(conn);
+
+	/*
 	 * Withdraw from socket activity. Connection is now closed,
 	 * and Tempesta is not called anymore on events in the socket.
 	 * Remove the connection from the list that is kept in @peer.

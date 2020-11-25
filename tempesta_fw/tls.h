@@ -32,8 +32,18 @@
 enum {
 	/* TLS FSM initial state, not hookable. */
 	TFW_TLS_FSM_INIT	= TFW_GFSM_TLS_STATE(0),
-
-	TFW_TLS_FSM_DATA_READY	= TFW_GFSM_TLS_STATE(1),
+	/*
+	 * A TLS Handshake has been completed on a connection. Client could
+	 * either process a new full handshake or resume previous session. The
+	 * state is also reached if the handshake process ended up with the
+	 * error or never reached the final stage.
+	 */
+	TFW_TLS_FSM_HS_DONE	= TFW_GFSM_TLS_STATE(1),
+	/*
+	 * A new portion of data is decrypted and ready to be consumed by the
+	 * upper layers.
+	 */
+	TFW_TLS_FSM_DATA_READY	= TFW_GFSM_TLS_STATE(2),
 
 	TFW_TLS_FSM_DONE	= TFW_GFSM_TLS_STATE(TFW_GFSM_STATE_LAST)
 };

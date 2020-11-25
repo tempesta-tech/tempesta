@@ -31,6 +31,8 @@
 #include "tls_internal.h"
 #include "lib/common.h"
 
+ttls_cli_id_t *ttls_cli_id_cb;
+
 /*
  * Ciphers used for key generation and ticket decryption. Cached to avoid
  * searches in hot path.
@@ -386,8 +388,17 @@ void ttls_tickets_exit()
 
 /* ---- Processing tickets                                               ---- */
 
+/**
+ * Handshake state description to be stored and restored from a TLS ticket.
+ * @sess		- Session data, internal structure is used as is;
+ * @client_hash		- client identifier, depends on IP address, prevents
+ *			  session reuse by different clients;
+ * @cert_len		- client certificate length;
+ * @cert_data		- raw certificate content;
+ */
 typedef struct {
 	TlsSess		sess;
+	unsigned long	client_hash;
 	size_t		cert_len;
 	char		cert_data[0];
 } __attribute__((packed)) TlsState;
@@ -433,14 +444,11 @@ ttls_ticket_sess_true_size(TlsState *state)
 static int
 ttls_ticket_sess_save(const TlsSess *sess, TlsState *state, size_t buf_len)
 {
-	if (buf_len < sizeof(TlsState))
+	if (buf_len < ttls_ticket_sess_true_size(state))
 		return TTLS_ERR_BUFFER_TOO_SMALL;
 
 	memcpy_fast(&state->sess, sess, sizeof(TlsSess));
 	state->cert_len = sess->peer_cert ? sess->peer_cert->raw.len : 0;
-
-	if (buf_len < ttls_ticket_sess_true_size(state))
-		return TTLS_ERR_BUFFER_TOO_SMALL;
 
 	if (sess->peer_cert)
 		memcpy_fast(state->cert_data, sess->peer_cert->raw.p,
@@ -609,6 +617,16 @@ ttls_ticket_parse(TlsCtx *ctx, unsigned char *buf, size_t len)
 	if (unlikely(r))
 		return r;
 
+	/*
+	 * If IP address of the client has changed, ask it to renew the
+	 * handshake. Otherwise a single open TLS session can be copied across
+	 * bots, and all the bots will renew the session. Allowed by OpenSSL,
+	 * acts as restoring session from file cache.
+	 */
+	if (tik->state.client_hash != ttls_cli_id_cb(ctx)) {
+		bzero_fast(tik, len);
+		return TTLS_ERR_SESSION_TICKET_EXPIRED;
+	}
 	r = ttls_ticket_sess_load(&tik->state, state_len, tcfg->lifetime);
 	if (unlikely(r)) {
 		bzero_fast(tik, len);
@@ -651,6 +669,7 @@ ttls_ticket_write(TlsCtx *ctx, unsigned char *buf,
 	r = ttls_ticket_sess_save(&ctx->sess, &tik->state, buf_sz);
 	if (unlikely(r))
 		return r;
+	tik->state.client_hash = ttls_cli_id_cb(ctx);
 
 	key = ttls_tickets_key_current_locked(tcfg);
 	if (unlikely(!key))
