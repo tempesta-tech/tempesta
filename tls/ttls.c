@@ -50,6 +50,8 @@ static DEFINE_PER_CPU(struct aead_request *, g_req) ____cacheline_aligned;
 static struct kmem_cache *ttls_hs_cache = NULL;
 static ttls_send_cb_t *ttls_send_cb;
 extern ttls_sni_cb_t *ttls_sni_cb;
+extern ttls_hs_over_cb_t *ttls_hs_over_cb;
+extern ttls_cli_id_t *ttls_cli_id_cb;
 
 static inline size_t
 ttls_max_ciphertext_len(const TlsXfrm *xfrm)
@@ -233,12 +235,25 @@ ttls_skb_extract_alert(TlsIOCtx *io, TlsXfrm *xfrm)
  * Register I/O callbacks from the underlying network layer.
  */
 void
-ttls_register_callbacks(ttls_send_cb_t *send_cb, ttls_sni_cb_t *sni_cb)
+ttls_register_callbacks(ttls_send_cb_t *send_cb, ttls_sni_cb_t *sni_cb,
+			ttls_hs_over_cb_t *hs_over_cb, ttls_cli_id_t *cli_id_cb)
 {
 	ttls_send_cb = send_cb;
 	ttls_sni_cb = sni_cb;
+	ttls_hs_over_cb = hs_over_cb;
+	ttls_cli_id_cb = cli_id_cb;
 }
 EXPORT_SYMBOL(ttls_register_callbacks);
+
+/**
+ * Returns true if handshake is fully processed.
+ */
+bool
+ttls_hs_done(TlsCtx *tls)
+{
+	return tls->state == TTLS_HANDSHAKE_OVER;
+}
+EXPORT_SYMBOL(ttls_hs_done);
 
 /**
  * Whether TLS context transformation is ready for crypto and we should encrypt

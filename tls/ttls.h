@@ -562,13 +562,23 @@ typedef struct ttls_context {
 
 typedef int ttls_send_cb_t(TlsCtx *tls, struct sg_table *sgt, bool close);
 typedef int ttls_sni_cb_t(TlsCtx *tls, const unsigned char *data, size_t len);
+typedef unsigned long ttls_cli_id_t(TlsCtx *tls);
 
+enum {
+	TTLS_HS_CB_FINISHED_NEW,
+	TTLS_HS_CB_FINISHED_RESUMED,
+	TTLS_HS_CB_UNCOMPLETE,
+};
+typedef int ttls_hs_over_cb_t(TlsCtx *tls, int state);
+
+bool ttls_hs_done(TlsCtx *tls);
 bool ttls_xfrm_ready(TlsCtx *tls);
 bool ttls_xfrm_need_encrypt(TlsCtx *tls);
 void ttls_write_hshdr(unsigned char type, unsigned char *buf,
 		      unsigned short len);
 void *ttls_alloc_crypto_req(unsigned int extra_size, unsigned int *rsz);
-void ttls_register_callbacks(ttls_send_cb_t *send_cb, ttls_sni_cb_t *sni_cb);
+void ttls_register_callbacks(ttls_send_cb_t *send_cb, ttls_sni_cb_t *sni_cb,
+			     ttls_hs_over_cb_t *hs_over_cb, ttls_cli_id_t *cli_id_cb);
 
 const char *ttls_get_ciphersuite_name(const int ciphersuite_id);
 

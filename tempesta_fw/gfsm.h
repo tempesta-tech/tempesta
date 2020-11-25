@@ -88,6 +88,7 @@ enum {
 	/* Security rules enforcement. */
 	TFW_FSM_FRANG_REQ,
 	TFW_FSM_FRANG_RESP,
+	TFW_FSM_FRANG_TLS,
 
 	TFW_FSM_NUM /* Must be <= TFW_GFSM_FSM_N */
 };

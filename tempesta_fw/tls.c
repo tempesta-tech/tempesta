@@ -32,6 +32,7 @@
 #include "http_frame.h"
 #include "tls.h"
 #include "vhost.h"
+#include "lib/hash.h"
 
 /**
  * Global level TLS configuration.
@@ -98,6 +99,31 @@ tfw_tls_purge_io_ctx(TlsIOCtx *io)
 }
 
 static int
+tfw_tls_hs_over(TlsCtx *ctx, int state)
+{
+	TfwCliConn *c = &container_of(ctx, TfwTlsConn, tls)->cli_conn;
+	TfwFsmData data_up = { .req = ERR_PTR(-state)};
+
+	return tfw_gfsm_move(&c->state, TFW_TLS_FSM_HS_DONE, &data_up);
+}
+
+/**
+ * A connection has been lost during handshake processing, warn Frang.
+ * It's relatively cheap to pass SYN cookie and then send previously captured
+ * or randomly forged TLS handshakes. No calculations are required on a client
+ * side then.
+ */
+void
+tfw_tls_connection_lost(TfwConn *conn)
+{
+	TlsCtx *tls = &((TfwTlsConn *)conn)->tls;
+	TfwFsmData data_up = { .req = ERR_PTR(-TTLS_HS_CB_UNCOMPLETE)};
+
+	if (!ttls_hs_done(tls))
+		tfw_gfsm_move(&conn->state, TFW_TLS_FSM_HS_DONE, &data_up);
+}
+
+static int
 tfw_tls_msg_process(void *conn, TfwFsmData *data)
 {
 	int r, parsed;
@@ -125,6 +151,8 @@ next_msg:
 		/* Fall through. */
 	case T_DROP:
 		spin_unlock(&tls->lock);
+		if (!ttls_hs_done(tls))
+			tfw_tls_hs_over(tls, TTLS_HS_CB_UNCOMPLETE);
 		/* The skb is freed in tfw_tls_conn_dtor(). */
 		return r;
 	case T_POSTPONE:
@@ -789,6 +817,13 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 	return peer_cfg ? 0 : TTLS_ERR_CERTIFICATE_REQUIRED;
 }
 
+unsigned long ttls_cli_id(TlsCtx *tls)
+{
+	TfwCliConn *cli_conn = &container_of(tls, TfwTlsConn, tls)->cli_conn;
+
+	return hash_calc((const char *)&cli_conn->peer->addr, sizeof(TfwAddr));
+}
+
 /*
  * ------------------------------------------------------------------------
  *	TLS library configuration
@@ -963,7 +998,8 @@ tfw_tls_init(void)
 	if (r)
 		return -EINVAL;
 
-	ttls_register_callbacks(tfw_tls_send, tfw_tls_sni);
+	ttls_register_callbacks(tfw_tls_send, tfw_tls_sni, tfw_tls_hs_over,
+				ttls_cli_id);
 
 	if ((r = tfw_h2_init()))
 		goto err_h2;
