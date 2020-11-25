@@ -529,7 +529,7 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt, bool close)
 	WARN_ON_ONCE(it.skb->next != io->skb_list
 		     || it.skb->prev != io->skb_list);
 	if (sgt) {
-		int f, i = ++it.frag;
+		int f, i = it.frag + 1;
 		struct sk_buff *skb = it.skb;
 		struct scatterlist *sg;
 

@@ -1886,10 +1886,10 @@ tfw_cache_add_body_page(TfwMsgIter *it, char *p, int sz, TfwFrameHdr *frame_hdr,
 		page = virt_to_page(p);
 	}
 
+	++it->frag;
 	skb_fill_page_desc(it->skb, it->frag, page, off, sz);
 	skb_frag_ref(it->skb, it->frag);
 	ss_skb_adjust_data_len(it->skb, sz);
-	++it->frag;
 
 	return 0;
 }
@@ -1932,7 +1932,7 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 	 * otherwise, use next empty frag in current skb. Create a new skb, if
 	 * TX flags for headers and body differ.
 	 */
-	if (!it->skb || (++it->frag >= MAX_SKB_FRAGS)
+	if (!it->skb || (it->frag + 1 >= MAX_SKB_FRAGS)
 	    || (sh_frag ^ (skb_shinfo(it->skb)->tx_flags & SKBTX_SHARED_FRAG)))
 	{
 		if  ((r = tfw_msg_iter_append_skb(it)))
@@ -1942,8 +1942,6 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 		else
 			skb_shinfo(it->skb)->tx_flags |= SKBTX_SHARED_FRAG;
 	}
-	if (WARN_ON_ONCE(it->frag < 0))
-		return -EINVAL;
 
 	while (1) {
 		int off, f_size;
@@ -1968,7 +1966,7 @@ tfw_cache_build_resp_body(TDB *db, TdbVRec *trec, TfwMsgIter *it, char *p,
 			return -EINVAL;
 		p = trec->data;
 
-		if (it->frag == MAX_SKB_FRAGS
+		if (it->frag + 1 == MAX_SKB_FRAGS
 		    && (r = tfw_msg_iter_append_skb(it)))
 		{
 			return r;
