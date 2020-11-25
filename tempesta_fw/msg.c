@@ -53,7 +53,7 @@ tfw_msg_iter_setup(TfwMsgIter *it, struct sk_buff **skb_head, size_t data_len,
 	if ((r = ss_skb_alloc_data(skb_head, data_len, tx_flags)))
 		return r;
 	it->skb = it->skb_head = *skb_head;
-	it->frag = data_len ? -1 /* first 'frag' is the skb head */ : 0;
+	it->frag = -1;
 
 	BUG_ON(!it->skb);
 
@@ -73,7 +73,7 @@ tfw_msg_iter_append_skb(TfwMsgIter *it)
 	if ((r = ss_skb_alloc_data(&it->skb_head, 0, 0)))
 		return r;
 	it->skb = ss_skb_peek_tail(&it->skb_head);
-	it->frag = 0;
+	it->frag = -1;
 
 	skb_shinfo(it->skb)->tx_flags = skb_shinfo(it->skb->prev)->tx_flags;
 
