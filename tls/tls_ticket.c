@@ -30,6 +30,7 @@
 #include "tls_ticket.h"
 #include "tls_internal.h"
 #include "lib/common.h"
+#include "lib/hash.h"
 
 ttls_cli_id_t *ttls_cli_id_cb;
 
@@ -397,9 +398,9 @@ void ttls_tickets_exit()
  * @cert_data		- raw certificate content;
  */
 typedef struct {
-	TlsSess		sess;
 	unsigned long	client_hash;
 	size_t		cert_len;
+	TlsSess		sess;
 	char		cert_data[0];
 } __attribute__((packed)) TlsState;
 
@@ -438,13 +439,19 @@ ttls_ticket_sess_true_size(TlsState *state)
 	return sizeof(TlsState) + state->cert_len;
 }
 
+static inline size_t
+ttls_ticket_sess_exp_size(const TlsSess *sess)
+{
+	return sizeof(TlsState) + (sess->peer_cert ? sess->peer_cert->raw.len : 0);
+}
+
 /**
  * Serialize a session state
  */
 static int
 ttls_ticket_sess_save(const TlsSess *sess, TlsState *state, size_t buf_len)
 {
-	if (buf_len < ttls_ticket_sess_true_size(state))
+	if (buf_len < ttls_ticket_sess_exp_size(sess))
 		return TTLS_ERR_BUFFER_TOO_SMALL;
 
 	memcpy_fast(&state->sess, sess, sizeof(TlsSess));
@@ -602,6 +609,7 @@ ttls_ticket_parse(TlsCtx *ctx, unsigned char *buf, size_t len)
 	TlsTicketKey *key;
 	size_t state_len = len - TTLS_TICKET_KEY_NAME_LEN - TTLS_MAX_IV_LENGTH;
 	TlsSess *recv_sess;
+	unsigned long cli_hash;
 	int r;
 
 	if (unlikely(!ctx->peer_conf->sess_tickets))
@@ -616,14 +624,21 @@ ttls_ticket_parse(TlsCtx *ctx, unsigned char *buf, size_t len)
 	read_unlock(&key->lock);
 	if (unlikely(r))
 		return r;
-
 	/*
-	 * If IP address of the client has changed, ask it to renew the
-	 * handshake. Otherwise a single open TLS session can be copied across
-	 * bots, and all the bots will renew the session. Allowed by OpenSSL,
-	 * acts as restoring session from file cache.
+	 * RFC 6066 Section 3.
+	 * The client SHOULD
+	 * include the same server_name extension in the session resumption
+	 * request as it did in the full handshake that established the session.
+	 * A server that implements this extension MUST NOT accept the request
+	 * to resume the session if the server_name extension contains a
+	 * different name.
+	 *
+	 * We make the rule more strict and deny passing tickets between clients
+	 * (bots). IP address of a user can be changed time to time (DHCP,
+	 * mobile-to-wifi switches, but this doesn't happen on high rates.
 	 */
-	if (tik->state.client_hash != ttls_cli_id_cb(ctx)) {
+	cli_hash = ttls_cli_id_cb(ctx, ctx->hs->ticket_ctx.sni_hash);
+	if (tik->state.client_hash != cli_hash) {
 		bzero_fast(tik, len);
 		return TTLS_ERR_SESSION_TICKET_EXPIRED;
 	}
@@ -648,6 +663,17 @@ ttls_ticket_parse(TlsCtx *ctx, unsigned char *buf, size_t len)
 }
 
 /**
+ * Add processed server name to hash of server names. Used in TLS session ticket
+ * matching.
+ */
+void
+ttls_hs_add_sni_hash(TlsCtx *tls, const char* data, size_t len)
+{
+	tls->hs->ticket_ctx.sni_hash = len ? hash_calc(data, len) : 0;
+}
+EXPORT_SYMBOL(ttls_hs_add_sni_hash);
+
+/**
  * Generate an encrypted and authenticated ticket for the session and write
  * it to the output buffer.
  */
@@ -661,15 +687,15 @@ ttls_ticket_write(TlsCtx *ctx, unsigned char *buf,
 	TlsTicketKey *key;
 	int r;
 
-	if (unlikely(!ctx->peer_conf->sess_tickets))
-		return TTLS_ERR_SESSION_TICKET_EXPIRED;
-	if (unlikely(buf_sz < sizeof(TlsState)))
-		return TTLS_ERR_BUFFER_TOO_SMALL;
+	if (unlikely(!ctx->peer_conf->sess_tickets)) {
+		*tlen = 0;
+		return 0;
+	}
 
 	r = ttls_ticket_sess_save(&ctx->sess, &tik->state, buf_sz);
 	if (unlikely(r))
 		return r;
-	tik->state.client_hash = ttls_cli_id_cb(ctx);
+	tik->state.client_hash = ttls_cli_id_cb(ctx, ctx->hs->ticket_ctx.sni_hash);
 
 	key = ttls_tickets_key_current_locked(tcfg);
 	if (unlikely(!key))
