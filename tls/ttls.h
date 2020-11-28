@@ -399,12 +399,17 @@ typedef struct {
 } TlsTicketPeerCfg;
 
 /**
- * Tls Session ticket context.
+ * TLS Session ticket context.
  *
  * Unlike other extensions, ticket can't be parsed immediately, instead it's
  * required to know about target SNI first.
+ *
+ * @t_len			- ticket length;
+ * @ticket			- ticket data, sent by client;
+ * @sni_hash			- hash of requested server names;
  */
 typedef struct {
+	unsigned long		sni_hash;
 	size_t			t_len;
 	char			ticket[TTLS_TICKET_MAX_SZ];
 } TlSTicketCtx;
@@ -562,7 +567,7 @@ typedef struct ttls_context {
 
 typedef int ttls_send_cb_t(TlsCtx *tls, struct sg_table *sgt, bool close);
 typedef int ttls_sni_cb_t(TlsCtx *tls, const unsigned char *data, size_t len);
-typedef unsigned long ttls_cli_id_t(TlsCtx *tls);
+typedef unsigned long ttls_cli_id_t(TlsCtx *tls, unsigned long hash);
 
 enum {
 	TTLS_HS_CB_FINISHED_NEW,
@@ -571,6 +576,7 @@ enum {
 };
 typedef int ttls_hs_over_cb_t(TlsCtx *tls, int state);
 
+void ttls_hs_add_sni_hash(TlsCtx *tls, const char* data, size_t len);
 bool ttls_hs_done(TlsCtx *tls);
 bool ttls_xfrm_ready(TlsCtx *tls);
 bool ttls_xfrm_need_encrypt(TlsCtx *tls);

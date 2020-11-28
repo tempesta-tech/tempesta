@@ -251,7 +251,7 @@ tfw_sock_clnt_drop(struct sock *sk)
 	/*
 	 * A TLS connection was lost during handshake processing. Call FSM
 	 * hooks to warn the Frang, since it accounts uncompleted TLS
-	 * handshakes. Can't done it on frang_conn_close() since connection is
+	 * handshakes. Can't be done on frang_conn_close() since connection is
 	 * unlinked from socket on that time and can be already destroyed.
 	 */
 	if (TFW_CONN_TLS(conn))

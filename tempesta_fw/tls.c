@@ -736,7 +736,7 @@ tfw_tls_get_if_configured(TfwVhost *vhost)
 	TlsPeerCfg *cfg;
 
 	if (unlikely(!vhost))
-		return false;
+		return NULL;
 
 	cfg = &vhost->tls_cfg;
 	if (likely(cfg->key_cert))
@@ -807,21 +807,26 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 
 	peer_cfg = tfw_tls_get_if_configured(vhost);
 	ctx->peer_conf = peer_cfg;
-	if (DBG_TLS && peer_cfg) {
+	if (unlikely(!peer_cfg))
+		return TTLS_ERR_CERTIFICATE_REQUIRED;
+
+	if (DBG_TLS) {
 		vhost = tfw_vhost_from_tls_conf(ctx->peer_conf);
 		T_DBG("%s: for server name '%.*s' vhost '%.*s' is chosen\n",
 		      __func__, PR_TFW_STR(&srv_name),
 		      PR_TFW_STR(&vhost->name));
 	}
+	ttls_hs_add_sni_hash(ctx, data, len);
 
-	return peer_cfg ? 0 : TTLS_ERR_CERTIFICATE_REQUIRED;
+	return 0;
 }
 
-unsigned long ttls_cli_id(TlsCtx *tls)
+unsigned long ttls_cli_id(TlsCtx *tls, unsigned long hash)
 {
 	TfwCliConn *cli_conn = &container_of(tls, TfwTlsConn, tls)->cli_conn;
 
-	return hash_calc((const char *)&cli_conn->peer->addr, sizeof(TfwAddr));
+	return hash_calc_update((const char *)&cli_conn->peer->addr,
+				sizeof(TfwAddr), hash);
 }
 
 /*
