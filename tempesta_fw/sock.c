@@ -25,9 +25,9 @@
 #include <net/inet_common.h>
 #include <net/ip6_route.h>
 
-#if DBG_SS == 0
 #undef DEBUG
-#define DEBUG 0
+#if DBG_SS > 0
+#define DEBUG DBG_SS
 #endif
 #include "lib/str.h"
 #include "addr.h"

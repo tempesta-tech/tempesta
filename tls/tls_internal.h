@@ -29,10 +29,10 @@
 #include <asm/fpu/api.h>
 
 /* Affects only TempestaTLS internal debug symbols. */
-#if DBG_TLS == 0
 #undef DEBUG
+#if DBG_TLS > 0
+#define DEBUG DBG_TLS
 #endif
-
 #ifndef BANNER
 #define BANNER	"tls"
 #endif
@@ -40,6 +40,9 @@
 #include "lib/fsm.h"
 #include "lib/log.h"
 #include "lib/str.h"
+
+/* We use DEBUG for lib/log.h only. */
+#undef DEBUG
 
 #include "crypto.h"
 #include "ttls.h"
@@ -404,7 +407,7 @@ ttls_substate(const TlsCtx *tls)
 	return tls->state & __TTLS_FSM_SUBST_MASK;
 }
 
-#if DBG_TLS && DEBUG == 3
+#if DBG_TLS == 3
 /*
  * Make the things repeatable, simple and INSECURE on largest debug level -
  * this helps to debug TLS (thanks to reproducible records payload), but

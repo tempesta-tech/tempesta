@@ -17,9 +17,9 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#if DBG_HTTP_FRAME == 0
 #undef DEBUG
-#define DEBUG 0
+#if DBG_HTTP_FRAME > 0
+#define DEBUG DBG_HTTP_FRAME
 #endif
 
 #include "lib/fsm.h"

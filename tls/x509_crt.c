@@ -813,7 +813,7 @@ ttls_x509_crt_parse_der(ttls_x509_crt *chain, unsigned char *buf, size_t buflen)
 		prev = crt;
 		crt = crt->next;
 	}
-#if DBG_TLS && DEBUG == 3
+#if DBG_TLS == 3
 	print_hex_dump(KERN_INFO, "Binary certificate", DUMP_PREFIX_OFFSET,
 		       16, 1, buf, buflen, true);
 #endif

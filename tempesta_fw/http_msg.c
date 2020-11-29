@@ -22,9 +22,9 @@
  */
 #include <linux/ctype.h>
 
-#if DBG_HTTP_PARSER == 0
 #undef DEBUG
-#define DEBUG 0
+#if DBG_HTTP_PARSER > 0
+#define DEBUG DBG_HTTP_PARSER
 #endif
 
 #include "lib/str.h"

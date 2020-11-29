@@ -85,9 +85,9 @@
 #include <linux/kernel.h>
 #include <linux/moduleparam.h>
 
-#if DBG_CFG == 0
 #undef DEBUG
-#define DEBUG 0
+#if DBG_CFG > 0
+#define DEBUG DBG_CFG
 #endif
 #include "addr.h"
 #include "cfg.h"

@@ -2745,7 +2745,7 @@ ttls_alpn_ext_eq(const ttls_alpn_proto *proto, const unsigned char *buf,
 	return !memcmp_fast(proto->name, buf, len);
 }
 
-#if DBG_TLS && (DEBUG >= 3)
+#if DBG_TLS >= 3
 unsigned long
 ttls_time_debug(void)
 {

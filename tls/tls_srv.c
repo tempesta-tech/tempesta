@@ -606,7 +606,7 @@ have_ciphersuite:
 	tls->xfrm.ciphersuite_info = ci;
 
 	/* Debugging-only output for testsuite */
-#if DBG_TLS && (DEBUG == 3)
+#if DBG_TLS == 3
 	{
 		ttls_md_type_t md_alg;
 		ttls_pk_type_t sig_alg = ttls_get_ciphersuite_sig_alg(ci);
