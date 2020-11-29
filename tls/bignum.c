@@ -397,7 +397,7 @@ void
 __log_mpis(size_t n, const char *msg, ...)
 {
 	T_DBG("%s\n", msg);
-#if DEBUG == 3
+#if DBG_TLS == 3
 	{
 		va_list args;
 

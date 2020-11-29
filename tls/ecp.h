@@ -223,7 +223,7 @@ int ttls_ecp_tls_write_group(ttls_ecp_group_id gid, size_t *olen,
 
 const TlsEcpGrp *ttls_ecp_group_lookup(ttls_ecp_group_id id);
 
-#if DBG_TLS && DEBUG == 3
+#if DBG_TLS == 3
 /* Print data structures containing MPIs on higest debug level only. */
 #define T_DBG_ECP(msg, x)		__log_mpis(2, msg, (x)->X, (x)->Y)
 #define T_DBG_ECP_X(msg, g, x)						\

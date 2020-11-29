@@ -17,10 +17,9 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-
-#if DBG_HPACK == 0
 #undef DEBUG
-#define DEBUG 0
+#if DBG_HPACK > 0
+#define DEBUG DBG_HPACK
 #endif
 
 #include "lib/str.h"
