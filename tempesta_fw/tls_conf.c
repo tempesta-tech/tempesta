@@ -28,7 +28,7 @@
 #define TLS_CONF_CERT_NUM	8
 
 typedef struct {
-	ttls_x509_crt	crt;
+	TlsX509Crt	crt;
 	TlsPkCtx	key;
 	unsigned long	crt_pg_addr;
 	unsigned int	crt_pg_order;

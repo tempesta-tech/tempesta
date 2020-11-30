@@ -288,7 +288,7 @@ struct ttls_alpn_proto {
  *			  from TLS ticket);
  */
 typedef struct {
-	ttls_x509_crt	*peer_cert;
+	TlsX509Crt	*peer_cert;
 	time_t		start;
 	int		etm;
 	uint32_t	verify_result;
@@ -342,9 +342,9 @@ typedef struct {
  * @next		- next certificate in list;
  */
 typedef struct ttls_key_cert {
-	ttls_x509_crt			*cert;
+	TlsX509Crt			*cert;
 	TlsPkCtx			*key;
-	ttls_x509_crt			*ca_chain;
+	TlsX509Crt			*ca_chain;
 	ttls_x509_crl			*ca_crl;
 	struct ttls_key_cert		*next;
 } TlsKeyCert;
@@ -594,8 +594,8 @@ void ttls_conf_authmode(TlsCfg *conf, int authmode);
 
 int ttls_set_session(TlsCtx *ssl, const TlsSess *session);
 
-int ttls_conf_own_cert(TlsPeerCfg *conf, ttls_x509_crt *own_cert,
-		       TlsPkCtx *pk_key, ttls_x509_crt *ca_chain,
+int ttls_conf_own_cert(TlsPeerCfg *conf, TlsX509Crt *own_cert,
+		       TlsPkCtx *pk_key, TlsX509Crt *ca_chain,
 		       ttls_x509_crl *ca_crl);
 int ttls_conf_tickets(TlsPeerCfg *conf, bool enable, unsigned long lifetime,
 		      const char *secret_str, size_t len,

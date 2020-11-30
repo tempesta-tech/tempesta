@@ -1592,7 +1592,7 @@ ttls_write_certificate_request(TlsCtx *tls, struct sg_table *sgt,
 	total_dn_size = 0;
 
 	if (tls->conf->cert_req_ca_list) {
-		const ttls_x509_crt * crt = tls->hs->key_cert->ca_chain;
+		const TlsX509Crt *crt = tls->hs->key_cert->ca_chain;
 
 		while (crt && crt->version) {
 			dn_size = crt->subject_raw.len;
