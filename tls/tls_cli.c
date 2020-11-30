@@ -24,6 +24,7 @@
  */
 #if 0 /* TODO #769 Full TLS proxying */
 
+#include "debug.h"
 #include "ttls.h"
 #include "tls_internal.h"
 
