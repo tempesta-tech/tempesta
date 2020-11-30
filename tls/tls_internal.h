@@ -28,21 +28,8 @@
 #include <linux/types.h>
 #include <asm/fpu/api.h>
 
-/* Affects only TempestaTLS internal debug symbols. */
-#undef DEBUG
-#if DBG_TLS > 0
-#define DEBUG DBG_TLS
-#endif
-#ifndef BANNER
-#define BANNER	"tls"
-#endif
-
 #include "lib/fsm.h"
-#include "lib/log.h"
 #include "lib/str.h"
-
-/* We use DEBUG for lib/log.h only. */
-#undef DEBUG
 
 #include "crypto.h"
 #include "ttls.h"
