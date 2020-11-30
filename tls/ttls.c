@@ -295,7 +295,7 @@ ttls_session_copy(TlsSess *dst, const TlsSess *src)
 	if (src->peer_cert) {
 		int r;
 
-		dst->peer_cert = kmalloc(sizeof(ttls_x509_crt), GFP_ATOMIC);
+		dst->peer_cert = kmalloc(sizeof(TlsX509Crt), GFP_ATOMIC);
 		if (!dst->peer_cert)
 			return -ENOMEM;
 
@@ -1362,7 +1362,7 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 {
 	unsigned int sg_i;
 	size_t n, tot_len = 0;
-	const ttls_x509_crt *crt;
+	const TlsX509Crt *crt;
 	TlsIOCtx *io = &tls->io_out;
 	unsigned char *p = *in_buf;
 
@@ -1532,10 +1532,10 @@ parse:
 		ttls_x509_crt_free(sess->peer_cert);
 		kfree(sess->peer_cert);
 	}
-	sess->peer_cert = kmalloc(sizeof(ttls_x509_crt), GFP_ATOMIC);
+	sess->peer_cert = kmalloc(sizeof(TlsX509Crt), GFP_ATOMIC);
 	if (!sess->peer_cert) {
 		T_DBG("can not allocate a certificate (%lu bytes)\n",
-		      sizeof(ttls_x509_crt));
+		      sizeof(TlsX509Crt));
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				    TTLS_ALERT_MSG_INTERNAL_ERROR);
 		r = TTLS_ERR_ALLOC_FAILED;
@@ -1590,15 +1590,12 @@ parse:
 
 	if (authmode != TTLS_VERIFY_NONE) {
 		const TlsPkCtx *pk = &sess->peer_cert->pk;
-		ttls_x509_crt *ca_chain = tls->hs->key_cert->ca_chain;
+		TlsX509Crt *ca_chain = tls->hs->key_cert->ca_chain;
 		ttls_x509_crl *ca_crl = tls->hs->key_cert->ca_crl;
 
 		/* Main check: verify certificate */
-		r = ttls_x509_crt_verify_with_profile(sess->peer_cert, ca_chain,
-						      ca_crl,
-						      &ttls_x509_crt_profile_suiteb,
-						      tls->hostname,
-						      &sess->verify_result);
+		r = ttls_x509_crt_verify(sess->peer_cert, ca_chain, ca_crl,
+					 tls->hostname, &sess->verify_result);
 		if (r)
 			T_DBG("client cert verification status: %d\n", r);
 
@@ -1927,8 +1924,8 @@ ttls_set_session(TlsCtx *tls, const TlsSess *sess)
  * Called in process context on the startup.
  */
 int
-ttls_conf_own_cert(TlsPeerCfg *conf, ttls_x509_crt *own_cert, TlsPkCtx *pk_key,
-		   ttls_x509_crt *ca_chain, ttls_x509_crl *ca_crl)
+ttls_conf_own_cert(TlsPeerCfg *conf, TlsX509Crt *own_cert, TlsPkCtx *pk_key,
+		   TlsX509Crt *ca_chain, ttls_x509_crl *ca_crl)
 {
 	TlsKeyCert *new;
 
@@ -2651,7 +2648,7 @@ err:
 }
 
 int
-ttls_check_cert_usage(const ttls_x509_crt *cert,
+ttls_check_cert_usage(const TlsX509Crt *cert,
 		      const TlsCiphersuite *ciphersuite, int cert_endpoint,
 		      uint32_t *flags)
 {

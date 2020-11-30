@@ -264,10 +264,18 @@ static int x509_get_entries(unsigned char **p,
 	return 0;
 }
 
-/*
- * Parse one  CRLs in DER format and append it to the chained list
+/**
+ * Parse a DER-encoded CRL and append it to the chained list
+ *
+ * @chain	- points to the start of the chain;
+ * @buf		- buffer holding the CRL data in DER format;
+ * @buflen	- size of the buffer (including the terminating null byte for
+ *		  PEM data);
+ *
+ * Return 0 if successful, or a specific X509 or PEM error code
  */
-int ttls_x509_crl_parse_der(ttls_x509_crl *chain,
+int
+ttls_x509_crl_parse_der(ttls_x509_crl *chain,
 			const unsigned char *buf, size_t buflen)
 {
 	int ret;
@@ -504,7 +512,16 @@ int ttls_x509_crl_parse_der(ttls_x509_crl *chain,
 }
 
 /**
- * Parse one or more CRLs and add them to the chained list.
+ * Parse one or more CRLs and add them to the chained list. Multiple CRLs are
+ * accepted only if using PEM format.
+ *
+ * @chain	- points to the start of the chain;
+ * @buf		- buffer holding the CRL data in PEM or DER format;
+ * @buflen	- size of the buffer (including the terminating null byte for
+ *		  PEM data)
+ *
+ * Return 0 if successful, or a specific X509 or PEM error code.
+ *
  * BEWARE @buf is overwritten by the PEM decoder.
  */
 int
@@ -554,7 +571,7 @@ ttls_x509_crl_parse(ttls_x509_crl *chain, unsigned char *buf, size_t buflen)
 	return ttls_x509_crl_parse_der(chain, buf, buflen);
 }
 
-/*
+/**
  * Initialize a CRL chain
  */
 void ttls_x509_crl_init(ttls_x509_crl *crl)
@@ -562,7 +579,7 @@ void ttls_x509_crl_init(ttls_x509_crl *crl)
 	memset(crl, 0, sizeof(ttls_x509_crl));
 }
 
-/*
+/**
  * Unallocate all CRL data
  */
 void ttls_x509_crl_free(ttls_x509_crl *crl)

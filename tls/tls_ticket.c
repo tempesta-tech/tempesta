@@ -485,7 +485,7 @@ ttls_ticket_sess_load(TlsState *state, size_t len, unsigned long lifetime)
 		TlsSess *sess = &state->sess;
 		int r;
 
-		sess->peer_cert = kmalloc(sizeof(ttls_x509_crt), GFP_ATOMIC);
+		sess->peer_cert = kmalloc(sizeof(TlsX509Crt), GFP_ATOMIC);
 		if (!sess->peer_cert)
 			return TTLS_ERR_ALLOC_FAILED;
 

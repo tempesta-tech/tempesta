@@ -216,7 +216,7 @@ void ttls_strerror(int ret, char *buf, size_t buflen)
 		if (use_ret == -(TTLS_ERR_X509_UNKNOWN_SIG_ALG))
 			snprintf(buf, buflen, "X509 - Signature algorithm (oid) is unsupported");
 		if (use_ret == -(TTLS_ERR_X509_SIG_MISMATCH))
-			snprintf(buf, buflen, "X509 - Signature algorithms do not match. (see \\c ::ttls_x509_crt sig_oid)");
+			snprintf(buf, buflen, "X509 - Signature algorithms do not match. (see \\c ::TlsX509Crt sig_oid)");
 		if (use_ret == -(TTLS_ERR_X509_CERT_VERIFY_FAILED))
 			snprintf(buf, buflen, "X509 - Certificate verification failed, e.g. CRL, CA or signature check failed");
 		if (use_ret == -(TTLS_ERR_X509_CERT_UNKNOWN_FORMAT))
