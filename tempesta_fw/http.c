@@ -4195,7 +4195,7 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, unsigned int stream_id,
 		return -EINVAL;
 	it->frag = skb_shinfo(it->skb)->nr_frags - 1;
 
-	if ((++it->frag >= MAX_SKB_FRAGS)
+	if ((it->frag + 1 >= MAX_SKB_FRAGS)
 	    || (skb_shinfo(it->skb)->tx_flags & SKBTX_SHARED_FRAG))
 	{
 		if  ((r = tfw_msg_iter_append_skb(it)))
@@ -4221,13 +4221,13 @@ tfw_h2_append_predefined_body(TfwHttpResp *resp, unsigned int stream_id,
 		memcpy_fast(p + FRAME_HEADER_SIZE, data, copy);
 		data += copy;
 
+		++it->frag;
 		skb_fill_page_desc(it->skb, it->frag, page, 0,
 				   copy + FRAME_HEADER_SIZE);
 		skb_frag_ref(it->skb, it->frag);
 		ss_skb_adjust_data_len(it->skb, copy + FRAME_HEADER_SIZE);
-		++it->frag;
 
-		if (it->frag == MAX_SKB_FRAGS
+		if (it->frag + 1 == MAX_SKB_FRAGS
 		    && (r = tfw_msg_iter_append_skb(it)))
 		{
 			return r;
