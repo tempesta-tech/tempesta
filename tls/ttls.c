@@ -1487,6 +1487,7 @@ ttls_parse_certificate(TlsCtx *tls, unsigned char *buf, size_t len,
 		io->rlen += n;
 		if (io->rlen == io->hslen)
 			T_FSM_JMP(TTLS_CC_HS_PARSE);
+		tls->state = ttls_state(tls) + TTLS_CC_HS_READ;
 		return T_POSTPONE;
 	}
 	T_FSM_STATE(TTLS_CC_HS_PARSE) {
