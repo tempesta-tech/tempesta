@@ -22,6 +22,7 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
+#include "debug.h"
 #include "lib/str.h"
 #include "ecp.h"
 #include "mpool.h"
@@ -606,7 +607,7 @@ have_ciphersuite:
 	tls->xfrm.ciphersuite_info = ci;
 
 	/* Debugging-only output for testsuite */
-#if DBG_TLS && (DEBUG == 3)
+#if DBG_TLS == 3
 	{
 		ttls_md_type_t md_alg;
 		ttls_pk_type_t sig_alg = ttls_get_ciphersuite_sig_alg(ci);
@@ -1768,7 +1769,6 @@ ttls_parse_client_key_exchange(TlsCtx *tls, unsigned char *buf, size_t len,
 			T_DBG("cannot calculate ecdh secret, %d\n", r);
 			return TTLS_ERR_BAD_HS_CLIENT_KEY_EXCHANGE_CS;
 		}
-		T_DBG_MPI1("ECDH client key exchange", &tls->hs->ecdh_ctx->z.X);
 	}
 	else if (ci->key_exchange == TTLS_KEY_EXCHANGE_DHE_RSA) {
 		if ((r = ttls_parse_client_dh_public(tls, &p, end))) {

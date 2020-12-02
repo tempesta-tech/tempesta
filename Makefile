@@ -32,7 +32,28 @@ TFW_GCOV ?= n
 # Specify the defines below if you need to build Tempesta FW with
 # debugging of the subsystem, e.g. for Tempesta TLS:
 #
-#	$ DEBUG=3 DBG_SS=1 DBG_TLS=1 make clean all
+#	$ DEBUG=1 DBG_SS=2 DBG_TLS=3 make clean all
+#
+# The most debug-output subsystems have their own DBG_* option, but the
+# rest of code prints debug messages solely on DEBUG variable.
+# DEBUG can be undefined to smoothly compile with 3-party code using the
+# same variable.
+#
+# In the example above TLS code is built with the maximum verbosity,
+# sockets code with verbosity 2, and the rest of the code, non having
+# designated debugging options, with the smalles debugging verbosity.
+#
+# You also can just use
+#
+# 	$ DBG_TLS=3 make
+#
+# to build the TLS only subsystem with the maximum debug level.
+#
+# While some C-files having their own debugging options, e.g. sock.c and DBG_SS
+# correspondingly, undefine the DEBUG symbol, unit tests may include several
+# such C-files, so DEBUG will be undefined. If you work with such a test, then
+# store the DEBUG value before the C-file inclusion and restore the value after
+# the inclusion.
 #
 DBG_CFG ?= 0
 DBG_HTTP_PARSER ?= 0

@@ -20,8 +20,9 @@
 
 #include <linux/slab.h>
 
-#if DBG_HTTP_STREAM == 0
 #undef DEBUG
+#if DBG_HTTP_STREAM > 0
+#define DEBUG DBG_HTTP_STREAM
 #endif
 #include "http_frame.h"
 

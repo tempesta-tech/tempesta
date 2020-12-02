@@ -29,10 +29,6 @@
 
 #include "bignum_asm.h"
 
-#if DBG_TLS == 0
-#undef DEBUG
-#endif
-
 #define TTLS_MPI_CHK(f)							\
 do {									\
 	if (WARN((ret = (f)), #f " returns %d", ret))			\

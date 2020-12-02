@@ -24,6 +24,8 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
+#include "debug.h"
+
 #include <linux/types.h>
 #include <asm/fpu/api.h>
 #include <crypto/aead.h>
@@ -2745,7 +2747,7 @@ ttls_alpn_ext_eq(const ttls_alpn_proto *proto, const unsigned char *buf,
 	return !memcmp_fast(proto->name, buf, len);
 }
 
-#if DBG_TLS && (DEBUG >= 3)
+#if DBG_TLS >= 3
 unsigned long
 ttls_time_debug(void)
 {

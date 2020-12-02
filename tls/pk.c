@@ -26,11 +26,12 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
-#include "tls_internal.h"
+#include "debug.h"
 #include "ecp.h"
 #include "mpool.h"
 #include "pk.h"
 #include "rsa.h"
+#include "tls_internal.h"
 
 static int
 rsa_can_do(ttls_pk_type_t type)

@@ -31,6 +31,7 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
+#include "debug.h"
 #include "mpool.h"
 #include "x509_crt.h"
 #include "oid.h"
@@ -813,7 +814,7 @@ ttls_x509_crt_parse_der(ttls_x509_crt *chain, unsigned char *buf, size_t buflen)
 		prev = crt;
 		crt = crt->next;
 	}
-#if DBG_TLS && DEBUG == 3
+#if DBG_TLS == 3
 	print_hex_dump(KERN_INFO, "Binary certificate", DUMP_PREFIX_OFFSET,
 		       16, 1, buf, buflen, true);
 #endif
