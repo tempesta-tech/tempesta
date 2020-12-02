@@ -32,6 +32,8 @@
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
+#include "debug.h"
+
 #include <linux/bitops.h>
 
 #include "lib/str.h"
@@ -397,7 +399,7 @@ void
 __log_mpis(size_t n, const char *msg, ...)
 {
 	T_DBG("%s\n", msg);
-#if DEBUG == 3
+#if DBG_TLS == 3
 	{
 		va_list args;
 

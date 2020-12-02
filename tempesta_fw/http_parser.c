@@ -28,8 +28,9 @@
 #include <linux/frame.h>
 #include <linux/kernel.h>
 
-#if DBG_HTTP_PARSER == 0
 #undef DEBUG
+#if DBG_HTTP_PARSER > 0
+#define DEBUG DBG_HTTP_PARSER
 #endif
 
 #include "gfsm.h"

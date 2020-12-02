@@ -26,7 +26,16 @@
 #include "helpers.h"
 #include "fuzzer.h"
 
+#ifndef DEBUG
+#define NO_DEBUG
+#endif
+
 #include "http_parser.c"
+
+#ifdef NO_DEBUG
+#undef DEBUG
+#endif
+
 #include "http_sess.c"
 /* prevent exporting symbols */
 #include <linux/module.h>

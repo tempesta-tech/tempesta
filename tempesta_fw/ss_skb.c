@@ -29,8 +29,9 @@
 #include <net/tcp.h>
 #include <net/xfrm.h>
 
-#if DBG_SS == 0
 #undef DEBUG
+#if DBG_SS > 0
+#define DEBUG DBG_SS
 #endif
 #include "lib/str.h"
 #include "addr.h"
