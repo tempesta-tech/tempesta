@@ -295,11 +295,9 @@ ttls_session_copy(TlsSess *dst, const TlsSess *src)
 	if (src->peer_cert) {
 		int r;
 
-		dst->peer_cert = kmalloc(sizeof(TlsX509Crt), GFP_ATOMIC);
+		dst->peer_cert = ttls_x509_crt_alloc();
 		if (!dst->peer_cert)
 			return -ENOMEM;
-
-		ttls_x509_crt_init(dst->peer_cert);
 
 		r = ttls_x509_crt_parse_der(dst->peer_cert,
 					    src->peer_cert->raw.p,
@@ -1472,7 +1470,7 @@ ttls_parse_certificate(TlsCtx *tls, unsigned char *buf, size_t len,
 	 * TODO call ttls_update_checksum() for the message as well.
 	 */
 	T_FSM_STATE(TTLS_CC_HS_ALLOC) {
-		pg = alloc_pages(GFP_ATOMIC, 2);
+		pg = alloc_pages(GFP_ATOMIC, get_order(io->hslen));
 		if (!pg)
 			return -ENOMEM;
 		p = (unsigned char *)page_address(pg);
@@ -1529,21 +1527,16 @@ parse:
 	}
 
 	/* In case we tried to reuse a session but it failed */
-	if (sess->peer_cert) {
-		ttls_x509_crt_free(sess->peer_cert);
-		kfree(sess->peer_cert);
-	}
-	sess->peer_cert = kmalloc(sizeof(TlsX509Crt), GFP_ATOMIC);
+	if (sess->peer_cert)
+		ttls_x509_crt_destroy(&sess->peer_cert);
+	sess->peer_cert = ttls_x509_crt_alloc();
 	if (!sess->peer_cert) {
-		T_DBG("can not allocate a certificate (%lu bytes)\n",
-		      sizeof(TlsX509Crt));
+		T_DBG("can not allocate a certificate\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				    TTLS_ALERT_MSG_INTERNAL_ERROR);
 		r = TTLS_ERR_ALLOC_FAILED;
 		goto err;
 	}
-
-	ttls_x509_crt_init(sess->peer_cert);
 
 	for (i += 3; i < io->hslen; i += n) {
 		if (p[i]) {
@@ -1624,7 +1617,7 @@ parse:
 		}
 
 		/*
-		 * ttls_x509_crt_verify_with_profile() is supposed to report a
+		 * ttls_x509_crt_verify() is supposed to report a
 		 * verification failure through TTLS_ERR_X509_CERT_VERIFY_FAILED,
 		 * with details encoded in the verification flags. All other
 		 * kinds of error codes, are treated as fatal and lead to a
@@ -2309,11 +2302,9 @@ ttls_ctx_clear(TlsCtx *tls)
 	ttls_cipher_free(&tls->xfrm.cipher_ctx_enc);
 	ttls_cipher_free(&tls->xfrm.cipher_ctx_dec);
 
-	if (tls->sess.peer_cert) {
+	if (tls->sess.peer_cert)
 		/* #830 check that all the data is freed correctly. */
-		ttls_x509_crt_free(tls->sess.peer_cert);
-		kfree(tls->sess.peer_cert);
-	}
+		ttls_x509_crt_destroy(&tls->sess.peer_cert);
 
 	bzero_fast(tls, sizeof(TlsCtx));
 }
@@ -2788,6 +2779,7 @@ ttls_exit(void)
 
 	ttls_mpool_exit();
 	ttls_tickets_exit();
+	ttls_x509_exit();
 }
 
 static int __init
@@ -2803,7 +2795,8 @@ ttls_init(void)
 
 	if ((r = ttls_crypto_modinit()))
 		goto err_free;
-
+	if ((r = ttls_x509_init()))
+		goto err_free;
 	if ((r = ttls_tickets_init()))
 		goto err_free;
 

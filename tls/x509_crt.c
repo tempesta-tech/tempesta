@@ -38,7 +38,7 @@
 #include "pem.h"
 #include "tls_internal.h"
 
-/* TODO: start unused */
+/* TODO: #830 start of unused definitions. */
 #define TTLS_X509_CRT_VERSION_1			0
 #define TTLS_X509_CRT_VERSION_2			1
 #define TTLS_X509_CRT_VERSION_3			2
@@ -63,9 +63,10 @@ typedef struct ttls_x509write_cert
 	ttls_asn1_named_data *extensions;
 }
 ttls_x509write_cert;
+/* TODO: #830 end unused */
 
-
-/* TODO: end unused */
+/* Use SLAB for frequent certificate allocations on handshake processing. */
+static struct kmem_cache *cert_cache;
 
 /**
  * Build flag from an algorithm/curve identifier (pk, md, ecp)
@@ -139,6 +140,17 @@ const ttls_x509_crt_profile ttls_x509_crt_profile_suiteb =
 	TTLS_X509_ID_FLAG(TTLS_ECP_DP_SECP384R1),
 	0,
 };
+
+/* TODO #830 this will be frequently used in softirq, better to use avx-enabled
+ * function here and in x509_memcasecmp(), x509_string_cmp(). But the same
+ * code is still possible in the process context on loading server certificates.
+ */
+static int x509_memcmp(const void *s1, const void *s2, size_t len)
+{
+	if (in_serving_softirq())
+		return memcmp_fast(s1, s2, len);
+	return memcmp(s1, s2, len);
+}
 
 /**
  * Check md_alg against profile.
@@ -825,10 +837,10 @@ x509_crt_parse_der_core(TlsX509Crt *crt, unsigned char *buf, size_t buflen)
 		return r;
 	}
 	if (crt->sig_oid.len != sig_oid2.len
-	    || memcmp(crt->sig_oid.p, sig_oid2.p, crt->sig_oid.len)
+	    || x509_memcmp(crt->sig_oid.p, sig_oid2.p, crt->sig_oid.len)
 	    || sig_params1.len != sig_params2.len
 	    || (sig_params1.len
-		&& memcmp(sig_params1.p, sig_params2.p, sig_params1.len)))
+		&& x509_memcmp(sig_params1.p, sig_params2.p, sig_params1.len)))
 	{
 		ttls_x509_crt_free(crt);
 		return TTLS_ERR_X509_SIG_MISMATCH;
@@ -870,12 +882,11 @@ ttls_x509_crt_parse_der(TlsX509Crt *chain, unsigned char *buf, size_t buflen)
 
 	/* Add new certificate on the end of the chain if needed. */
 	if (crt->version && !crt->next) {
-		crt->next = kmalloc(sizeof(TlsX509Crt), GFP_ATOMIC);
+		crt->next = ttls_x509_crt_alloc();
 		if (!crt->next)
 			return TTLS_ERR_X509_ALLOC_FAILED;
 
 		prev = crt;
-		ttls_x509_crt_init(crt->next);
 		crt = crt->next;
 	}
 
@@ -883,7 +894,7 @@ ttls_x509_crt_parse_der(TlsX509Crt *chain, unsigned char *buf, size_t buflen)
 		if (prev)
 			prev->next = NULL;
 		if (crt != chain)
-			kfree(crt);
+			kmem_cache_free(cert_cache, crt);
 		return r;
 	}
 
@@ -1084,7 +1095,7 @@ ttls_x509_crt_check_extended_key_usage(const TlsX509Crt *crt,
 		const ttls_x509_buf *cur_oid = &cur->buf;
 
 		if (cur_oid->len == usage_len &&
-		    memcmp(cur_oid->p, usage_oid, usage_len) == 0)
+		    x509_memcmp(cur_oid->p, usage_oid, usage_len) == 0)
 		{
 			return 0;
 		}
@@ -1112,7 +1123,7 @@ ttls_x509_crt_is_revoked(const TlsX509Crt *crt, const ttls_x509_crl *crl)
 	while (cur != NULL && cur->serial.len != 0)
 	{
 		if (crt->serial.len == cur->serial.len &&
-		    memcmp(crt->serial.p, cur->serial.p, crt->serial.len) == 0)
+		    x509_memcmp(crt->serial.p, cur->serial.p, crt->serial.len) == 0)
 		{
 			if (ttls_x509_time_is_past(&cur->revocation_date))
 				return 1;
@@ -1144,7 +1155,7 @@ x509_crt_verifycrl(TlsX509Crt *crt, TlsX509Crt *ca,
 	{
 		if (crl_list->version == 0 ||
 		    crl_list->issuer_raw.len != ca->subject_raw.len ||
-		    memcmp(crl_list->issuer_raw.p, ca->subject_raw.p,
+		    x509_memcmp(crl_list->issuer_raw.p, ca->subject_raw.p,
 			   crl_list->issuer_raw.len) != 0)
 		{
 			crl_list = crl_list->next;
@@ -1217,13 +1228,22 @@ x509_crt_verifycrl(TlsX509Crt *crt, TlsX509Crt *ca,
 }
 
 /*
- * Like memcmp, but case-insensitive and always returns -1 if different
+ * Like memcmp, but case-insensitive and always returns -1 if different.
+ * TODO #830: call tfw_cstricmp() in soft
  */
 static int x509_memcasecmp(const void *s1, const void *s2, size_t len)
 {
 	size_t i;
 	unsigned char diff;
 	const unsigned char *n1 = s1, *n2 = s2;
+
+	/*
+	 * TODO #830
+	 * if (in_serving_softirq() && len > 8(?))
+	 *	return __tfw_stricmp_avx2(s1, s2, len);
+	 * else
+	 *	return strncasecmp(s1, s2, len);
+	 */
 
 	for (i = 0; i < len; i++)
 	{
@@ -1287,7 +1307,7 @@ static int x509_string_cmp(const ttls_x509_buf *a, const ttls_x509_buf *b)
 {
 	if (a->tag == b->tag &&
 	    a->len == b->len &&
-	    memcmp(a->p, b->p, b->len) == 0)
+	    x509_memcmp(a->p, b->p, b->len) == 0)
 	{
 		return 0;
 	}
@@ -1324,7 +1344,7 @@ static int x509_name_cmp(const ttls_x509_name *a, const ttls_x509_name *b)
 		/* type */
 		if (a->oid.tag != b->oid.tag ||
 		    a->oid.len != b->oid.len ||
-		    memcmp(a->oid.p, b->oid.p, b->oid.len) != 0)
+		    x509_memcmp(a->oid.p, b->oid.p, b->oid.len) != 0)
 		{
 			return -1;
 		}
@@ -1372,7 +1392,7 @@ static int x509_crt_check_parent(const TlsX509Crt *child,
 	/* Exception: self-signed end-entity certs that are locally trusted. */
 	if (top && bottom &&
 	    child->raw.len == parent->raw.len &&
-	    memcmp(child->raw.p, parent->raw.p, child->raw.len) == 0)
+	    x509_memcmp(child->raw.p, parent->raw.p, child->raw.len) == 0)
 	{
 		need_ca_bit = 0;
 	}
@@ -1439,7 +1459,7 @@ x509_crt_verify_top(TlsX509Crt *child, TlsX509Crt *trust_ca,
 		 * the same as the trusted CA
 		 */
 		if (child->subject_raw.len == trust_ca->subject_raw.len &&
-		    memcmp(child->subject_raw.p, trust_ca->subject_raw.p,
+		    x509_memcmp(child->subject_raw.p, trust_ca->subject_raw.p,
 			   child->issuer_raw.len) == 0)
 		{
 			check_path_cnt--;
@@ -1488,7 +1508,7 @@ x509_crt_verify_top(TlsX509Crt *child, TlsX509Crt *trust_ca,
 	 */
 	if (trust_ca != NULL &&
 	    (child->subject_raw.len != trust_ca->subject_raw.len ||
-	     memcmp(child->subject_raw.p, trust_ca->subject_raw.p,
+	     x509_memcmp(child->subject_raw.p, trust_ca->subject_raw.p,
 		    child->issuer_raw.len) != 0))
 	{
 		/* Check trusted CA's CRL for the chain's top crt */
@@ -1698,7 +1718,7 @@ ttls_x509_crt_verify_with_profile(TlsX509Crt *crt,
 					break;
 
 				if (cur->buf.len > 2
-				    && !memcmp(cur->buf.p, "*.", 2)
+				    && !x509_memcmp(cur->buf.p, "*.", 2)
 				    && !x509_check_wildcard(cn, &cur->buf))
 					break;
 
@@ -1719,7 +1739,7 @@ ttls_x509_crt_verify_with_profile(TlsX509Crt *crt,
 						break;
 
 					if (name->val.len > 2
-					    && !memcmp(name->val.p, "*.", 2)
+					    && !x509_memcmp(name->val.p, "*.", 2)
 					    && !x509_check_wildcard(cn,
 								    &name->val))
 						break;
@@ -1801,6 +1821,22 @@ exit:
 	return 0;
 }
 
+TlsX509Crt *
+ttls_x509_crt_alloc(void)
+{
+	/*
+	 * Certificates are always manually zerised before deallocation,
+	 * avoid GFP_ZERO flag here.
+	 */
+	TlsX509Crt *crt = kmem_cache_alloc(cert_cache, GFP_ATOMIC);
+	if (crt)
+		ttls_bzero_safe(crt, sizeof(TlsX509Crt));
+	return crt;
+}
+
+/*
+ * Init certificate. Safe for process context.
+ */
 void
 ttls_x509_crt_init(TlsX509Crt *crt)
 {
@@ -1809,7 +1845,8 @@ ttls_x509_crt_init(TlsX509Crt *crt)
 EXPORT_SYMBOL(ttls_x509_crt_init);
 
 /**
- * Unallocate all certificate data.
+ * Unallocate all certificate data. Caller is responsible to deallocate @crt
+ * on its own.
  */
 void
 ttls_x509_crt_free(TlsX509Crt *crt)
@@ -1875,7 +1912,40 @@ ttls_x509_crt_free(TlsX509Crt *crt)
 
 		ttls_bzero_safe(cert_prv, sizeof(TlsX509Crt));
 		if (cert_prv != crt)
-			kfree(cert_prv);
+			kmem_cache_free(cert_cache, cert_prv);
 	} while (cert_cur);
+
 }
 EXPORT_SYMBOL(ttls_x509_crt_free);
+
+void
+ttls_x509_crt_destroy(TlsX509Crt **crt)
+{
+	if (!*crt)
+		return;
+	ttls_x509_crt_free(*crt);
+
+	if ((*crt)->raw.p && (*crt)->raw.len) {
+		__free_pages(virt_to_page((*crt)->raw.p),
+			     get_order((*crt)->raw.len));
+	}
+	ttls_bzero_safe(*crt, sizeof(TlsX509Crt));
+	kmem_cache_free(cert_cache, *crt);
+	*crt = NULL;
+}
+
+int
+ttls_x509_init(void)
+{
+	cert_cache = kmem_cache_create("tls_cert_cache", sizeof(TlsX509Crt),
+				       0, 0, NULL);
+	if (!cert_cache)
+		return -ENOMEM;
+	return 0;
+}
+
+void
+ttls_x509_exit(void)
+{
+	kmem_cache_destroy(cert_cache);
+}
