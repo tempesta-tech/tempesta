@@ -141,8 +141,10 @@ int ttls_x509_crt_check_extended_key_usage(const TlsX509Crt *crt,
 					   const char *usage_oid,
 					   size_t usage_len);
 
+TlsX509Crt *ttls_x509_crt_alloc(void);
 void ttls_x509_crt_init(TlsX509Crt *crt);
 void ttls_x509_crt_free(TlsX509Crt *crt);
+void ttls_x509_crt_destroy(TlsX509Crt **crt);
 
 /**
  * Writes certificate length in exactly TTLS_CERT_LEN_LEN bytes of @buf.
@@ -166,5 +168,8 @@ ttls_x509_crt_page(const TlsX509Crt *crt)
 
 	return (void *)addr;
 }
+
+int ttls_x509_init(void);
+void ttls_x509_exit(void);
 
 #endif /* TTLS_X509_CRT_H */

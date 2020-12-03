@@ -485,17 +485,14 @@ ttls_ticket_sess_load(TlsState *state, size_t len, unsigned long lifetime)
 		TlsSess *sess = &state->sess;
 		int r;
 
-		sess->peer_cert = kmalloc(sizeof(TlsX509Crt), GFP_ATOMIC);
+		sess->peer_cert = ttls_x509_crt_alloc();
 		if (!sess->peer_cert)
 			return TTLS_ERR_ALLOC_FAILED;
 
-		ttls_x509_crt_init(sess->peer_cert);
 		r = ttls_x509_crt_parse_der(sess->peer_cert, state->cert_data,
 					    state->cert_len);
 		if (r) {
-			ttls_x509_crt_free(sess->peer_cert);
-			kfree(sess->peer_cert);
-			sess->peer_cert = NULL;
+			ttls_x509_crt_destroy(&sess->peer_cert);
 			return r;
 		}
 	}
