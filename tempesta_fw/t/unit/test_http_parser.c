@@ -1663,7 +1663,7 @@ TEST(http_parser, accept)
 		"\r\n");
 }
 
-TEST(http_parser, empty_host)
+TEST(http_parser, host)
 {
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Host:\r\n"
@@ -1673,6 +1673,61 @@ TEST(http_parser, empty_host)
 	FOR_REQ("GET / HTTP/1.1\n"
 		"Host:  \n"
 		"\n");
+
+	FOR_REQ("GET / HTTP/1.1\n"
+		"Host:    tempesta-tech.com:443   \n"
+		"\n")
+	{
+		TfwStr *end, *c;
+		TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
+		struct {
+			unsigned int flags;
+			const char *str;
+		} kv[] = {
+			{ 0, "Host:" },
+			{ TFW_STR_OWS, "    " },
+			{ TFW_STR_VALUE, "tempesta-tech.com" },
+			{ 0, ":" },
+			{ TFW_STR_VALUE, "443" },
+			{ 0, "   " },
+		};
+		size_t kv_count = sizeof(kv) / sizeof(kv[0]);
+		int kv_idx;
+
+		EXPECT_TRUE(host->nchunks >= kv_count);
+		EXPECT_EQ(req->host_port, 443);
+
+		kv_idx = 0;
+		c = host->chunks;
+		end = c + host->nchunks;
+		while (c < end) {
+			TfwStr *part_end = c;
+			TfwStr part = {};
+			unsigned int part_flags = c->flags;
+
+			/*
+			 * Chunks with keys and values are marked with special
+			 * flags.
+			 */
+			while (part_end < end && part_end->flags == part_flags)
+				part_end++;
+
+			if (part_end - c > 1) {
+				part.chunks = c;
+				part.nchunks = part_end - c;
+			} else {
+				part = *c;
+			}
+
+			c = part_end;
+
+			EXPECT_TRUE(kv_idx < kv_count);
+			EXPECT_TRUE(tfw_str_eq_cstr(&part, kv[kv_idx].str,
+						    strlen(kv[kv_idx].str), 0));
+			EXPECT_EQ(part_flags, kv[kv_idx].flags);
+			kv_idx++;
+		}
+	}
 }
 
 TEST(http_parser, chunked)
@@ -3295,7 +3350,7 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, ows);
 	TEST_RUN(http_parser, folding);
 	TEST_RUN(http_parser, accept);
-	TEST_RUN(http_parser, empty_host);
+	TEST_RUN(http_parser, host);
 	TEST_RUN(http_parser, chunked);
 	TEST_RUN(http_parser, chunk_size);
 	TEST_RUN(http_parser, cookie);

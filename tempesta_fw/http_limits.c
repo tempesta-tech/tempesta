@@ -39,6 +39,7 @@
 #include "http_msg.h"
 #include "vhost.h"
 #include "log.h"
+#include "hash.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -624,8 +625,10 @@ static int
 frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 {
 	TfwAddr addr;
-	TfwStr field;
-	int ret = TFW_PASS;
+	TfwStr host_hdr_val, host_hdr_trim = { 0 }, host_hdr_name = { 0 }, *c, *end;
+	unsigned long sni_hash = 0;
+	bool got_delim = false;
+	unsigned short port;
 
 	BUG_ON(!req);
 	BUG_ON(!req->h_tbl);
@@ -641,55 +644,75 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	}
 
 	tfw_http_msg_clnthdr_val(req, &req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
-				 TFW_HTTP_HDR_HOST, &field);
-	if (!TFW_STR_EMPTY(&field)) {
-		/* Check that host header is not a IP address. */
-		if (!tfw_addr_pton(&field, &addr)) {
-			frang_msg("Host header field contains IP address",
-				  &FRANG_ACC2CLI(ra)->addr, "\n");
-			return TFW_BLOCK;
+				 TFW_HTTP_HDR_HOST, &host_hdr_val);
+	/* Host can contain whitespaces, trimmed value is required. */
+	host_hdr_name.chunks = host_hdr_trim.chunks = host_hdr_val.chunks;
+	host_hdr_name.flags = host_hdr_trim.flags = host_hdr_val.flags;
+
+	TFW_STR_FOR_EACH_CHUNK(c, &host_hdr_val, end) {
+		if (c->flags & TFW_STR_VALUE) {
+			if (!got_delim) {
+				host_hdr_name.nchunks++;
+				host_hdr_name.len += c->len;
+			}
+			host_hdr_trim.nchunks++;
+			host_hdr_trim.len += c->len;
+		}
+		else if (c->len == 1 && c->data[0] == ':') {
+			got_delim = true;
+			host_hdr_trim.nchunks++;
+			host_hdr_trim.len += c->len;
 		}
 	}
 
-	if (test_bit(TFW_HTTP_B_URI_FULL, req->flags)) {
-		char *hdrhost;
+	if (TFW_STR_EMPTY(&host_hdr_trim)) {
+		/* Host can be empty only if URI has form "/path". */
+		if (test_bit(TFW_HTTP_B_URI_FULL, req->flags))
+			return TFW_PASS;
 
-		/* If host in URI is empty, host header also must be empty. */
-		if (TFW_STR_EMPTY(&field) + TFW_STR_EMPTY(&req->host) == 1) {
-			frang_msg("Host header and URI host mismatch",
-				  &FRANG_ACC2CLI(ra)->addr, "\n");
-			return TFW_BLOCK;
-		}
-
-		hdrhost = tfw_pool_alloc(req->pool, field.len + 1);
-		if (unlikely(!hdrhost)) {
-			T_ERR("Can not allocate memory\n");
-			return TFW_BLOCK;
-		}
-		tfw_str_to_cstr(&field, hdrhost, field.len + 1);
-
-		/*
-		 * If URI has form "http://host:port/path",
-		 * then host header must be equal to host in URI.
-		 */
-		if (!tfw_str_eq_cstr(&req->host, hdrhost, field.len,
-				     TFW_STR_EQ_CASEI))
-		{
-			frang_msg("Host header is not equal to host in URL",
-				  &FRANG_ACC2CLI(ra)->addr, "\n");
-			ret = TFW_BLOCK;
-		}
-
-		tfw_pool_free(req->pool, hdrhost, field.len + 1);
+		frang_msg("Host header is empty", &FRANG_ACC2CLI(ra)->addr, "\n");
+		return TFW_BLOCK;
 	}
-	else if (TFW_STR_EMPTY(&field)) {
-		/* If URI has form "/path", then host is not empty. */
-		frang_msg("Host header is empty",
+
+	/* Check that host header is not a IP address. */
+	if (!tfw_addr_pton(&host_hdr_trim, &addr)) {
+		frang_msg("Host header field contains IP address",
 			  &FRANG_ACC2CLI(ra)->addr, "\n");
-		ret = TFW_BLOCK;
+		return TFW_BLOCK;
+	}
+	/* Check that SNI for TLS connection matches host header. */
+	if (TFW_CONN_TLS(req->conn)) {
+		sni_hash = tfw_tls_context(req->conn)->sni_hash;
+		port = req->host_port ? : 443;
+	}
+	else {
+		port =  req->host_port ? : 80;
+	}
+	if (sni_hash && (tfw_hash_str(&host_hdr_name) != sni_hash)) {
+		frang_msg("host header doesn't match SNI from TLS handshake",
+			  &FRANG_ACC2CLI(ra)->addr, "\n");
+		return TFW_BLOCK;
+	}
+	if (cpu_to_be16(port) != req->conn->peer->addr.sin6_port) {
+		frang_msg("port from host header doesn't match real port",
+			  &FRANG_ACC2CLI(ra)->addr, "\n");
+		return TFW_BLOCK;
 	}
 
-	return ret;
+	if (!test_bit(TFW_HTTP_B_URI_FULL, req->flags))
+		return TFW_PASS;
+
+	/*
+	 * If URI has form "http://host:port/path",
+	 * then host header must be equal to host in URI.
+	 */
+	if (tfw_stricmp(&req->host, &host_hdr_trim)) {
+		frang_msg("Host header is not equal to host in URL",
+			  &FRANG_ACC2CLI(ra)->addr, "\n");
+		return TFW_BLOCK;
+	}
+
+	return TFW_PASS;
 }
 
 /*

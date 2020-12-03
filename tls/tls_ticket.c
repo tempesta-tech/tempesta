@@ -30,7 +30,6 @@
 #include "tls_ticket.h"
 #include "tls_internal.h"
 #include "lib/common.h"
-#include "lib/hash.h"
 
 ttls_cli_id_t *ttls_cli_id_cb;
 
@@ -687,7 +686,7 @@ ttls_ticket_parse(TlsCtx *ctx, unsigned char *buf, size_t len)
 	 * (bots). IP address of a user can be changed time to time (DHCP,
 	 * mobile-to-wifi switches, but this doesn't happen on high rates.
 	 */
-	cli_hash = ttls_cli_id_cb(ctx, ctx->hs->ticket_ctx.sni_hash);
+	cli_hash = ttls_cli_id_cb(ctx, ctx->sni_hash);
 	if (tik->state.client_hash != cli_hash) {
 		bzero_fast(tik, len);
 		return TTLS_ERR_SESSION_TICKET_EXPIRED;
@@ -713,17 +712,6 @@ ttls_ticket_parse(TlsCtx *ctx, unsigned char *buf, size_t len)
 }
 
 /**
- * Add processed server name to hash of server names. Used in TLS session ticket
- * matching.
- */
-void
-ttls_hs_add_sni_hash(TlsCtx *tls, const char* data, size_t len)
-{
-	tls->hs->ticket_ctx.sni_hash = len ? hash_calc(data, len) : 0;
-}
-EXPORT_SYMBOL(ttls_hs_add_sni_hash);
-
-/**
  * Generate an encrypted and authenticated ticket for the session and write
  * it to the output buffer.
  */
@@ -745,7 +733,7 @@ ttls_ticket_write(TlsCtx *ctx, unsigned char *buf,
 	r = ttls_ticket_sess_save(&ctx->sess, &tik->state, buf_sz);
 	if (unlikely(r))
 		return r;
-	tik->state.client_hash = ttls_cli_id_cb(ctx, ctx->hs->ticket_ctx.sni_hash);
+	tik->state.client_hash = ttls_cli_id_cb(ctx, ctx->sni_hash);
 
 	key = ttls_tickets_key_current_locked(tcfg);
 	if (unlikely(!key))
