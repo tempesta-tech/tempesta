@@ -1801,6 +1801,15 @@ ttls_parse_certificate_verify(TlsCtx *tls, unsigned char *buf, size_t len,
 	ttls_md_type_t md_alg;
 	TlsIOCtx *io = &tls->io_in;
 
+	/*
+	 * TODO #830. The timeout between the Certificate Request message and
+	 * Certificate verify is not known and can be extended to infinite by
+	 * constant activity on TLS connections (e.g. by non-critical alerts).
+	 * There can be some concerns that client has actual access to the
+	 * private key, see
+	 * https://www.ndss-symposium.org/wp-content/uploads/2017/09/12_4_1.pdf
+	 */
+
 	BUG_ON(io->msgtype != TTLS_MSG_HANDSHAKE);
 	if (io->hstype != TTLS_HS_CERTIFICATE_VERIFY) {
 		T_DBG("bad certificate verify message\n");

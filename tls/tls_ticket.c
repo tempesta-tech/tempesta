@@ -392,8 +392,9 @@ void ttls_tickets_exit()
 /**
  * Handshake state description to be stored and restored from a TLS ticket.
  * @sess		- Session data, internal structure is used as is;
- * @client_hash		- client identifier, depends on IP address, prevents
- *			  session reuse by different clients;
+ * @client_hash		- client identifier, depends on IP address and requested
+ *			  SNI, prevents session reuse by different clients or
+ *			  different virtual hosts.
  * @cert_len		- client certificate length;
  * @cert_data		- raw certificate content;
  */
@@ -405,7 +406,7 @@ typedef struct {
 } __attribute__((packed)) TlsState;
 
 /**
- * Session ticket structure as recommended by RFC 5077.
+ * Session ticket structure. Recommendations are provided in RFC 5077.
  *
  * @name		- key id, pseudo random number expected to be unique
  *			  for every virtual server, depends on SNI value;
@@ -478,6 +479,44 @@ ttls_ticket_sess_load(TlsState *state, size_t len, unsigned long lifetime)
 	if (state->cert_len > len)
 		return TTLS_ERR_BAD_INPUT_DATA;
 
+	/*
+	 * TODO #830: we can save resources on certificate parsing and
+	 * validating, if the restored session is relatively young or last
+	 * client TLS session was successfully resumed recently. In normal
+	 * conditions a client opens a several TLS connections at once. It makes
+	 * sense to avoid frequent validations of the same certificate,
+	 * especially if it was validated on a full handshake.
+	 *
+	 * Or we can fully bypass certificate-related code in this module
+	 * if ticket lifetime is less that timeout to deliver revoked
+	 * certificates to revoked storage. Alternatively if a lot of
+	 * client certificates keys were revoked, we can force key
+	 * rotation for affected vhosts to invalidate all active tickets
+	 * and check client certificates on full handshakes.
+	 *
+	 * Such optimisations are handy if the only thing required
+	 * from a client certificate is identification. E.g. identify
+	 * client group behind the TLS connections and use a special
+	 * Frang/QoS/Access policies, e.g.
+	 * https://developers.cloudflare.com/access/service-auth/mtls
+	 *
+	 * But when a strict client authentication is required, session
+	 * resumption can't be used at all. The RFC 5246 doesn't allow scenario
+	 * when a client certificate is validated on an abbreviated handshake.
+	 * This doesn't guarantee that client owns and can use the certificate
+	 * he used on a full handshake. E.g. untrusted program may have an
+	 * access to client session cache but not to the private key.
+	 * https://www.ndss-symposium.org/wp-content/uploads/2017/09/12_4_1.pdf
+	 * TLS 1.3 can use Post-Handshake Authentication for that.
+	 *
+	 * Approaches to store certificates inside of tickets a very different.
+	 * Some store only end peer certificate, some restrict depth of a chain
+	 * by 3 certificates, some doesn't store them. Didn't found examples,
+	 * when only required information from the certificate is stored though.
+	 * All of the variants are possible, but our current aims for certificate
+	 * validation are uncertain until #830. For now certificates will be
+	 * stored in tickets with a full chain as recommended in RFC 5077.
+	 */
 	if (!state->cert_len) {
 		state->sess.peer_cert = NULL;
 	}
@@ -508,6 +547,15 @@ ttls_ticket_sess_load(TlsState *state, size_t len, unsigned long lifetime)
 			__free_pages(pg, get_order(state->cert_len));
 			return r;
 		}
+		/*
+		 * TODO #830: validate client certificate: a session is to be
+		 * restored and the certificate was fully checked on a full
+		 * handshake, but the certificate may become outdated, revoked.
+		 * Same can be applied to all certificates in it's chain of
+		 * trust. Most of that is checked during parsing, but extra
+		 * code from  ttls_parse_certificate() and
+		 * ttls_parse_certificate_verify() may be required here.
+		 */
 	}
 
 	return 0;
