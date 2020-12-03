@@ -483,16 +483,29 @@ ttls_ticket_sess_load(TlsState *state, size_t len, unsigned long lifetime)
 	}
 	else {
 		TlsSess *sess = &state->sess;
+		struct page *pg;
 		int r;
 
 		sess->peer_cert = ttls_x509_crt_alloc();
 		if (!sess->peer_cert)
 			return TTLS_ERR_ALLOC_FAILED;
+		/*
+		 * Same as in See ttls_parse_certificate(), we have to copy full
+		 * certificate here, since some structures in TlsX509Crt may
+		 * address it.
+		 */
+		pg = alloc_pages(GFP_ATOMIC, get_order(state->cert_len));
+		if (!pg) {
+			ttls_x509_crt_destroy(&sess->peer_cert);
+			return TTLS_ERR_ALLOC_FAILED;
+		}
+		memcpy_fast(page_address(pg), state->cert_data, state->cert_len);
 
-		r = ttls_x509_crt_parse_der(sess->peer_cert, state->cert_data,
+		r = ttls_x509_crt_parse_der(sess->peer_cert, page_address(pg),
 					    state->cert_len);
 		if (r) {
 			ttls_x509_crt_destroy(&sess->peer_cert);
+			__free_pages(pg, get_order(state->cert_len));
 			return r;
 		}
 	}
