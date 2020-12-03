@@ -112,35 +112,31 @@ __ttls_ticket_gen_key(TlsTicketKey *key, unsigned long ts,
 	return r;
 }
 
-static inline int
-ttls_ticket_gen_key(TlsTicketKey *key, const char *secret,  unsigned long ts)
-{
-	int r;
-
-	write_lock(&key->lock);
-	r = __ttls_ticket_gen_key(key, ts, secret);
-	write_unlock(&key->lock);
-
-	return r;
-}
-
 static int
-__ttls_ticket_update_keys(TlsTicketPeerCfg *tcfg)
+ttls_ticket_update_keys(TlsTicketPeerCfg *tcfg)
 {
 	unsigned long ts = ttls_ticket_get_time(tcfg->lifetime);
-	TlsTicketKey *act_key = &tcfg->keys[tcfg->active_key];
-	TlsTicketKey *old_key = &tcfg->keys[tcfg->active_key ^ 1];
+	TlsTicketKey new_key;
 	int r;
 
-	read_lock(&act_key->lock);
-	if (unlikely(act_key->ts >= ts)) {
-		read_unlock(&act_key->lock);
-		return 0;
-	}
-	read_unlock(&act_key->lock);
+	/* Split key calculation from update to reduce lock time. */
+	r = __ttls_ticket_gen_key(&new_key, ts, tcfg->secret);
+	if (unlikely(r))
+		goto err;
 
-	r = ttls_ticket_gen_key(old_key, tcfg->secret, ts);
-	tcfg->active_key ^= 1;
+	write_lock(&tcfg->key_lock);
+	if (likely(tcfg->keys[tcfg->active_key].ts < ts)) {
+		TlsTicketKey *old_key = &tcfg->keys[tcfg->active_key ^ 1];
+
+		write_lock(&old_key->lock);
+		memcpy_fast(old_key->key, new_key.key, sizeof(new_key.key));
+		write_unlock(&old_key->lock);
+
+		tcfg->active_key ^= 1;
+	}
+	write_unlock(&tcfg->key_lock);
+err:
+	bzero_fast(&new_key, sizeof(TlsTicketKey));
 
 	return r;
 }
@@ -158,13 +154,9 @@ ttls_ticket_rotate_keys(unsigned long data)
 {
 	TlsTicketPeerCfg *tcfg = (TlsTicketPeerCfg *)data;
 	unsigned long secs;
-	int r;
 
 	T_DBG("TLS: Rotate keys for ticket configuration [%pK]\n", tcfg);
-	write_lock(&tcfg->key_lock);
-	r = __ttls_ticket_update_keys(tcfg);
-	write_unlock(&tcfg->key_lock);
-	if (r)
+	if (ttls_ticket_update_keys(tcfg))
 		T_ERR("TLS: Can't rotate keys for ticket configuration [%pK]\n",
 		      tcfg);
 
