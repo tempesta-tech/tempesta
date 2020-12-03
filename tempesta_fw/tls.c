@@ -816,7 +816,8 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 		      __func__, PR_TFW_STR(&srv_name),
 		      PR_TFW_STR(&vhost->name));
 	}
-	ttls_hs_add_sni_hash(ctx, data, len);
+	/* Save processed server name as hash. */
+	ctx->sni_hash = len ? hash_calc(data, len) : 0;
 
 	return 0;
 }

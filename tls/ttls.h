@@ -406,10 +406,8 @@ typedef struct {
  *
  * @t_len			- ticket length;
  * @ticket			- ticket data, sent by client;
- * @sni_hash			- hash of requested server names;
  */
 typedef struct {
-	unsigned long		sni_hash;
 	size_t			t_len;
 	char			ticket[TTLS_TICKET_MAX_SZ];
 } TlSTicketCtx;
@@ -542,6 +540,7 @@ typedef struct tls_handshake_t TlsHandshake;
  * @io_{in,out}	- I/O contexts for ingress and egress messages correspondingly;
  * @sess	- session data;
  * @xfrm	- transform params;
+ * @sni_hash	- hash of requested server names;
  * @nb_zero	-  # of 0-length encrypted messages;
  * @client_auth	- flag for client authentication (client side only);
  * @hostname	- expected peer CN for verification (and SNI if available);
@@ -560,6 +559,7 @@ typedef struct ttls_context {
 	TlsSess			sess;
 	TlsXfrm			xfrm;
 
+	unsigned long		sni_hash;
 	unsigned int		nb_zero;
 	int			client_auth;
 	char			*hostname;

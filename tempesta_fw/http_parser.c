@@ -2497,9 +2497,9 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	__FSM_STATE(Req_I_H_Start) {
 		if (likely(isalnum(c) || c == '.' || c == '-'))
-			__FSM_I_MOVE(Req_I_H);
+			__FSM_I_JMP(Req_I_H);
 		if (likely(c == '['))
-			__FSM_I_MOVE(Req_I_H_v6);
+			__FSM_I_MOVE_fixup(Req_I_H_v6, 1, TFW_STR_VALUE);
 		if (unlikely(IS_CRLFWS(c)))
 			return 0; /* empty Host header */
 		return CSTR_NEQ;
@@ -2507,10 +2507,22 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	__FSM_STATE(Req_I_H) {
 		/* See Req_UriAuthority processing. */
-		if (likely(isalnum(c) || c == '.' || c == '-'))
-			__FSM_I_MOVE(Req_I_H);
+		int match_len = 0;
+		unsigned char *cur = p;
+		while (likely(isalnum(c) || c == '.' || c == '-')) {
+			if (__data_remain(cur)) {
+				match_len++;
+				cur++;
+				c = *cur;
+			}
+			else {
+				break;
+			}
+		}
+		if (match_len)
+			__FSM_I_MOVE_fixup(Req_I_H, match_len, TFW_STR_VALUE);
 		if (c == ':')
-			__FSM_I_MOVE(Req_I_H_Port);
+			__FSM_I_MOVE_fixup(Req_I_H_Port, 1, 0);
 		if (IS_CRLFWS(c))
 			return __data_off(p);
 		return CSTR_NEQ;
@@ -2518,10 +2530,22 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	__FSM_STATE(Req_I_H_v6) {
 		/* See Req_UriAuthorityIPv6 processing. */
-		if (likely(isxdigit(c) || c == ':'))
-			__FSM_I_MOVE(Req_I_H_v6);
+		int match_len = 0;
+		unsigned char *cur = p;
+		while (likely(isxdigit(c) || c == ':')) {
+			if (__data_remain(cur)) {
+				match_len++;
+				cur++;
+				c = *cur;
+			}
+			else {
+				break;
+			}
+		}
+		if (match_len)
+			__FSM_I_MOVE_fixup(Req_I_H_v6, match_len, TFW_STR_VALUE);
 		if (likely(c == ']'))
-			__FSM_I_MOVE(Req_I_H_v6_End);
+			__FSM_I_MOVE_fixup(Req_I_H_v6_End, 1, TFW_STR_VALUE);
 		return CSTR_NEQ;
 	}
 
@@ -2529,14 +2553,18 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 		if (likely(IS_CRLFWS(c)))
 			return __data_off(p);
 		if (likely(c == ':'))
-			__FSM_I_MOVE(Req_I_H_Port);
+			__FSM_I_MOVE_fixup(Req_I_H_Port, 1, 0);
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(Req_I_H_Port) {
 		/* See Req_UriPort processing. */
-		if (likely(isdigit(c)))
-			__FSM_I_MOVE(Req_I_H_Port);
+		if (likely(isdigit(c))) {
+			req->host_port = req->host_port * 10 + c - '0';
+			if (req->host_port > USHRT_MAX)
+				return CSTR_NEQ;
+			__FSM_I_MOVE_fixup(Req_I_H_Port, 1, TFW_STR_VALUE);
+		}
 		if (IS_CRLFWS(c))
 			return __data_off(p);
 		return CSTR_NEQ;
@@ -3970,8 +3998,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				     TFW_HTTP_HDR_CONTENT_TYPE, 0);
 
 	/* 'Host:*OWS' is read, process field-value. */
-	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrHostV, req, __req_parse_host,
-				   TFW_HTTP_HDR_HOST);
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrHostV, req, __req_parse_host,
+				     TFW_HTTP_HDR_HOST, 0);
 
 	/* 'If-None-Match:*OWS' is read, process field-value. */
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrIf_None_MatchV, msg, __parse_etag,
@@ -4418,14 +4446,7 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_TX_AF(Req_HdrH, 'o', Req_HdrHo);
 	__FSM_TX_AF(Req_HdrHo, 's', Req_HdrHos);
 	__FSM_TX_AF(Req_HdrHos, 't', Req_HdrHost);
-	/* NOTE: Allow empty host field-value there. RFC 7230 5.4. */
-	__FSM_STATE(Req_HdrHost, cold) {
-		if (likely(c == ':')) {
-			parser->_i_st = &&Req_HdrHostV;
-			__FSM_MOVE(RGen_LWS);
-		}
-		__FSM_JMP(RGen_HdrOtherN);
-	}
+	__FSM_TX_AF_OWS(Req_HdrHost, Req_HdrHostV);
 
 	/* If-* header processing. */
 	__FSM_TX_AF(Req_HdrI, 'f', Req_HdrIf);
