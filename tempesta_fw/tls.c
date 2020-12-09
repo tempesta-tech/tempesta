@@ -822,7 +822,8 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 	return 0;
 }
 
-unsigned long ttls_cli_id(TlsCtx *tls, unsigned long hash)
+static unsigned long
+ttls_cli_id(TlsCtx *tls, unsigned long hash)
 {
 	TfwCliConn *cli_conn = &container_of(tls, TfwTlsConn, tls)->cli_conn;
 

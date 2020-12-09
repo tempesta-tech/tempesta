@@ -1825,7 +1825,7 @@ TlsX509Crt *
 ttls_x509_crt_alloc(void)
 {
 	/*
-	 * Certificates are always manually zerised before deallocation,
+	 * Certificates are always manually zeroised before deallocation,
 	 * avoid GFP_ZERO flag here.
 	 */
 	TlsX509Crt *crt = kmem_cache_alloc(cert_cache, GFP_ATOMIC);
