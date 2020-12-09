@@ -99,7 +99,7 @@ ttls_write_hshdr(unsigned char type, unsigned char *buf, unsigned short len)
 
 /**
  * Someway TLS AAD is `IV | tls_hdr`, so the function reorders IV and TLS
- * header in @buf, so it can be transmitter to network.
+ * header in @buf, so it can be transmitted to network.
  */
 void
 ttls_aad2hdriv(TlsXfrm *xfrm, unsigned char *buf)
@@ -738,7 +738,7 @@ ttls_derive_keys(TlsCtx *tls)
  * modern kernels.
  */
 static void
-ttls_make_aad(TlsCtx *tls, TlsIOCtx *io, unsigned char *aad_buf)
+ttls_make_aad(const TlsCtx *tls, TlsIOCtx *io, unsigned char *aad_buf)
 {
 	unsigned short elen = ttls_msg2crypt_len(io, &tls->xfrm);
 
@@ -975,9 +975,9 @@ __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
 {
 	TlsIOCtx *io = &tls->io_out;
 
-	T_DBG("write record: type=%d len=%d hslen=%u sgt=%pK/%u sg_i=%d\n",
-	      io->msgtype, io->msglen, io->hslen, sgt, sgt ? sgt->nents : 0,
-	      sg_i);
+	T_DBG("write record: type=%d len=%d hslen=%u sgt=%pK/%u sg_i=%d"
+	      " ready=%d\n", io->msgtype, io->msglen, io->hslen, sgt,
+	      sgt ? sgt->nents : 0, sg_i, ttls_xfrm_ready(tls));
 
 	if (io->msgtype == TTLS_MSG_HANDSHAKE
 	    && io->hstype != TTLS_HS_HELLO_REQUEST
@@ -1016,12 +1016,12 @@ __ttls_add_record(TlsCtx *tls, struct sg_table *sgt, int sg_i,
 
 	/*
 	 * Write TLS header if the record should not be encrypted.
-	 * Otherwise sk_write_xmit() call back does this for us.
+	 * Otherwise tfw_tls_encrypt() -> ttls_aad2hdriv(), called from
+	 * sk_write_xmit(), will do this for us.
 	 */
-	if (!hdr_buf)
-		hdr_buf = io->hdr;
 	if (!ttls_xfrm_ready(tls))
-		ttls_write_hdr(tls, io->msgtype, io->msglen, hdr_buf);
+		ttls_write_hdr(tls, io->msgtype, io->msglen,
+			       hdr_buf ? : io->hdr);
 }
 
 int
@@ -1058,21 +1058,6 @@ ttls_hdr_check(TlsCtx *tls)
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				    TTLS_ALERT_MSG_UNEXPECTED_MESSAGE);
 
-		return T_DROP;
-	}
-	/*
-	 * According to RFC 5246 Appendix E.1, the version in ClientHello is
-	 * typically "{03,00}, the lowest version number supported by
-	 * the client, [or] the value of ClientHello.client_version",
-	 * so the only meaningful check here is the major version
-	 * shouldn't be less than 3.
-	 */
-	if (tls->major < TTLS_MAJOR_VERSION_3) {
-		T_DBG("bad major version %d\n", tls->major);
-		return T_DROP;
-	}
-	if (unlikely(tls->minor > tls->conf->max_minor_ver)) {
-		T_DBG("minor version mismatch %d\n", tls->minor);
 		return T_DROP;
 	}
 	/* Drop unexpected ChangeCipherSpec messages. */
@@ -1141,12 +1126,23 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 	}
 
 	io->msgtype = io->hdr[0];
-	tls->major = io->hdr[1];
-	tls->minor = io->hdr[2];
+	/*
+	 * The only valid major version accordingly to RFC 5246 (TLS 1.2) and
+	 * RFC 8446 (TLS 1.3) is 0x03, so treat any different values as an
+	 * attempt to confuse us and block such records.
+	 *
+	 * However RFC 8446 5.1 and D.2 suggest to tolerate minor versions
+	 * 0x01 for compatibility reasons. In fact OpenSSL may send 0x0301
+	 * with ClientHello. The higher minor version is still 0x03.
+	 */
+	if (unlikely(io->hdr[1] != 3 || io->hdr[2] < 1 || io->hdr[2] > 3)) {
+		T_DBG("bad version %u:%u\n", io->hdr[1], io->hdr[2]);
+		return T_DROP;
+	}
 	io->msglen = ((unsigned short)io->hdr[3] << 8) | io->hdr[4];
 
-	T_DBG3("input rec: type=%d ver=%d:%d msglen=%d read=%u xfrm_ready=%d\n",
-	       io->msgtype, tls->major, tls->minor, io->msglen, *read, ready);
+	T_DBG3("input rec: type=%d ver=%u:%u msglen=%d read=%u xfrm_ready=%d\n",
+	       io->msgtype, io->hdr[1], io->hdr[2], io->msglen, *read, ready);
 
 	if ((r = ttls_hdr_check(tls)))
 		return r;
@@ -2036,6 +2032,10 @@ ttls_get_alpn_protocol(const TlsCtx *tls)
 	return tls->alpn_chosen->name;
 }
 
+/**
+ * TODO #1031 replace conf->{min,max}_minor_ver by the flag whether to
+ * use TLS 1.2 and/or 1.3.
+ */
 void
 ttls_conf_version(TlsCfg *conf, int min_minor, int max_minor)
 {

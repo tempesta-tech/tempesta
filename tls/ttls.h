@@ -109,13 +109,6 @@
 #define TTLS_IV_LEN				8 /* explicit IV size */
 #define TTLS_ALERT_LEN				2
 
-#define TTLS_MAJOR_VERSION_3			3
-#define TTLS_MINOR_VERSION_0			0 /* SSL v3.0 */
-#define TTLS_MINOR_VERSION_1			1 /* TLS v1.0 */
-#define TTLS_MINOR_VERSION_2			2 /* TLS v1.1 */
-#define TTLS_MINOR_VERSION_3			3 /* TLS v1.2 */
-#define TTLS_MINOR_VERSION_4			4 /* TLS v1.3 */
-
 /* Maximum host name defined in RFC 1035. */
 #define TTLS_MAX_HOST_NAME_LEN			255
 
@@ -421,6 +414,7 @@ typedef struct {
  * may have its own settings and limitations.
  *
  * @ciphersuite_list	- Allowed ciphersuites per TLS version;
+ *			  TODO #1031: reduce the list.
  * @tickets		- Session tickets configuration;
  * @key_cert		- Own certificate/key list;
  * @priv		- Private section, used for configuration storing;
@@ -540,10 +534,6 @@ typedef struct tls_handshake_t TlsHandshake;
  * @hs		- params required only during the handshake process;
  * @alpn_chosen	- negotiated protocol;
  * @state	- TLS handshake: current TLS FSM state;
- * @major	- the context TLS major version, currently equal to
- *		  TTLS_MAJOR_VERSION_3;
- * @minor	- currently equal to 3 (TLS 1.2), 4 (TLS 1.3) is possible in
- *		  future;
  * @io_{in,out}	- I/O contexts for ingress and egress messages correspondingly;
  * @sess	- session data;
  * @xfrm	- transform params;
@@ -559,8 +549,6 @@ typedef struct ttls_context {
 	const ttls_alpn_proto	*alpn_chosen;
 
 	unsigned int		state;
-	unsigned char		major;
-	unsigned char		minor;
 
 	TlsIOCtx		io_in;
 	TlsIOCtx		io_out;

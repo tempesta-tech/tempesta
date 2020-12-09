@@ -74,10 +74,6 @@ typedef struct {
 	ttls_cipher_type_t		cipher;
 	ttls_md_type_t			mac;
 	ttls_key_exchange_type_t	key_exchange;
-	int				min_major_ver;
-	int				min_minor_ver;
-	int				max_major_ver;
-	int				max_minor_ver;
 	unsigned char			flags;
 	TlsMpiPool			*mpi_profile[__TTLS_ECP_DP_N - 1];
 } TlsCiphersuite;

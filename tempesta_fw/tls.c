@@ -19,6 +19,11 @@
  * this program; if not, write to the Free Software Foundation, Inc., 59
  * Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#undef DEBUG
+#if DBG_TLS > 0
+#define DEBUG DBG_TLS
+#endif
+
 #include "cfg.h"
 #include "connection.h"
 #include "client.h"
@@ -115,8 +120,8 @@ next_msg:
 	r = ss_skb_process(skb, ttls_recv, tls, &tls->io_in.chunks, &parsed);
 	switch (r) {
 	default:
-		T_WARN("Unrecognized TLS receive return code -0x%X, drop packet\n",
-		       -r);
+		T_DBG("Unrecognized TLS receive return code -0x%X, drop packet\n",
+		      -r);
 		/* Fall through. */
 	case T_DROP:
 		spin_unlock(&tls->lock);
@@ -511,11 +516,16 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt, bool close)
 	 *
 	 * During handshake (!ttls_xfrm_ready(tls)), io may contain several
 	 * consequent records of the same TTLS_MSG_HANDSHAKE type. io, except
-	 * msglen contains length of the last record, describes the first
+	 * msglen containg length of the last record, describes the first
 	 * record.
 	 */
-	str.data = io->hdr;
-	str.len = TLS_HEADER_SIZE + io->hslen;
+	if (ttls_xfrm_ready(tls) && io->msgtype == TTLS_MSG_ALERT) {
+		str.data = io->alert;
+		str.len = io->hslen;
+	} else {
+		str.data = io->hdr;
+		str.len = TLS_HEADER_SIZE + io->hslen;
+	}
 	T_DBG("TLS %lu bytes +%u segments (%u bytes, last msgtype %#x)"
 	      " are to be sent on conn=%pK/sk_write_xmit=%pK ready=%d\n",
 	      str.len, sgt ? sgt->nents : 0, io->msglen, io->msgtype, conn,
