@@ -498,12 +498,7 @@ ttls_ticket_sess_load(TlsState *state, size_t len, unsigned long lifetime)
 
 	/*
 	 * TODO #830: we can save resources on certificate parsing and
-	 * validating, if the restored session is relatively young or last
-	 * client TLS session was successfully resumed recently. In normal
-	 * conditions a client opens a several TLS connections at once. It makes
-	 * sense to avoid frequent validations of the same certificate,
-	 * especially if it was validated on a full handshake.
-	 *
+	 * validating, if the restored session is relatively young.
 	 * Or we can fully bypass certificate-related code in this module
 	 * if ticket lifetime is less that timeout to deliver revoked
 	 * certificates to revoked storage. Alternatively if a lot of
