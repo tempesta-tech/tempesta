@@ -297,7 +297,7 @@ tfw_tls_set_tickets(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 	ce_tmp = *ce;
 	ce_tmp.attr_n = 0;
 	cs->dest = &enabled;
-	if (tfw_cfg_set_bool(cs, ce))  {
+	if (tfw_cfg_set_bool(cs, &ce_tmp)) {
 		T_ERR_NL("%s: can't parse positional values!\n", cs->name);
 		cs->dest = NULL;
 		return -EINVAL;
