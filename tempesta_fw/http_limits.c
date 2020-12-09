@@ -629,6 +629,7 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	unsigned long sni_hash = 0;
 	bool got_delim = false;
 	unsigned short port;
+	unsigned short real_port;
 
 	BUG_ON(!req);
 	BUG_ON(!req->h_tbl);
@@ -693,9 +694,15 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 			  &FRANG_ACC2CLI(ra)->addr, "\n");
 		return TFW_BLOCK;
 	}
-	if (cpu_to_be16(port) != req->conn->peer->addr.sin6_port) {
+	/*
+	 * TfwClient instance can be reused across multiple connections,
+	 * check the port number of the current connection, not the first one.
+	 */
+	real_port = be16_to_cpu(inet_sk(req->conn->sk)->inet_sport);
+	if (port != real_port) {
 		frang_msg("port from host header doesn't match real port",
-			  &FRANG_ACC2CLI(ra)->addr, "\n");
+			  &FRANG_ACC2CLI(ra)->addr, ": %d (%d)\n", port,
+			  real_port);
 		return TFW_BLOCK;
 	}
 
