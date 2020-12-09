@@ -78,35 +78,54 @@ ttls_ticket_get_time(unsigned long lifetime)
 	return ts;
 }
 
+/**
+ * Generate ticket key for given timestamp @ts, using secret @secret.
+ * Result will be saved into @digest. @digest must be able to handle digest
+ * size (256 bits), caller is responsible to cleanup the digest on errors.
+ */
 static int
-__ttls_ticket_gen_key(TlsTicketKey *key, unsigned long ts,
-		      const char *secret)
+__ttls_ticket_gen_key(unsigned long ts, const char *secret, char *digest)
 {
 	TlsMdCtx md_ctx;
 	int r;
 
-	key->ts = ts;
 	ttls_md_init(&md_ctx);
-	if ((r = ttls_md_setup(&md_ctx, t_cfg.md_info, 1))) {
+	if ((r = ttls_md_setup(&md_ctx, t_cfg.md_info, 1)))
 		T_ERR_NL("TLS: can't init ");
-	}
+
 	r |= ttls_md_hmac_starts(&md_ctx, secret, TTLS_TICKET_KEY_LEN);
 	r |= ttls_md_hmac_update(&md_ctx, ticket_key_sym_iv,
 				 SLEN(ticket_key_sym_iv));
-	r |= ttls_md_hmac_update(&md_ctx, (unsigned char *)&key->ts,
-				 sizeof(key->ts));
-	r |= ttls_md_finish(&md_ctx, key->key);
+	r |= ttls_md_hmac_update(&md_ctx, (unsigned char *)&ts, sizeof(ts));
+	r |= ttls_md_finish(&md_ctx, digest);
 	ttls_md_free(&md_ctx);
 
+	return r;
+}
+
+/**
+ * Initialise ticket key for the first time. Called in process context.
+ */
+static int
+ttls_ticket_gen_key(TlsTicketKey *key, unsigned long ts, const char *secret)
+{
+	char digest[SHA256_DIGEST_SIZE];
+	int r;
+
+	r = __ttls_ticket_gen_key(ts, secret, digest);
+	if (unlikely(r))
+		goto err;
+	key->ts = ts;
+	memcpy(key->key, digest, sizeof(key->key));
+
+	return 0;
+err:
 	/*
 	 * Set key->ts to 0 to indicate that the calculation has failed and
 	 * not try to use the key on every new handshake.
 	 */
-	if (r) {
-		T_WARN("TLS: can't rotate tls key");
-		key->ts = 0;
-		return r;
-	}
+	key->ts = 0;
+	memset(&digest, 0, sizeof(digest));
 
 	return r;
 }
@@ -115,27 +134,34 @@ static int
 ttls_ticket_update_keys(TlsTicketPeerCfg *tcfg)
 {
 	unsigned long ts = ttls_ticket_get_time(tcfg->lifetime);
-	TlsTicketKey new_key;
+	char digest[SHA256_DIGEST_SIZE];
 	int r;
 
 	/* Split key calculation from update to reduce lock time. */
-	r = __ttls_ticket_gen_key(&new_key, ts, tcfg->secret);
-	if (unlikely(r))
-		goto err;
+	r = __ttls_ticket_gen_key(ts, tcfg->secret, digest);
+	if (unlikely(r)) {
+		/*
+		 * Set key->ts to 0 to indicate that the calculation has failed
+		 * and not try to use the key on every new handshake.
+		 */
+		bzero_fast(&digest, sizeof(digest));
+		ts = 0;
+	}
 
 	write_lock(&tcfg->key_lock);
 	if (likely(tcfg->keys[tcfg->active_key].ts < ts)) {
 		TlsTicketKey *old_key = &tcfg->keys[tcfg->active_key ^ 1];
 
 		write_lock(&old_key->lock);
-		memcpy_fast(old_key->key, new_key.key, sizeof(new_key.key));
+		old_key->ts = ts;
+		memcpy_fast(old_key->key, digest, sizeof(old_key->key));
 		write_unlock(&old_key->lock);
 
 		tcfg->active_key ^= 1;
 	}
 	write_unlock(&tcfg->key_lock);
-err:
-	bzero_fast(&new_key, sizeof(TlsTicketKey));
+
+	bzero_fast(&digest, sizeof(digest));
 
 	return r;
 }
@@ -315,7 +341,7 @@ ttls_tickets_configure(TlsPeerCfg *cfg, unsigned long lifetime,
 		ts = ttls_ticket_get_time(tcfg->lifetime);
 		if (i)
 			ts -= tcfg->lifetime;
-		if ((r = __ttls_ticket_gen_key(key, ts, tcfg->secret))) {
+		if ((r = ttls_ticket_gen_key(key, ts, tcfg->secret))) {
 			T_ERR_NL("TLS: can't init ticket key value");
 			goto err;
 		}
@@ -356,7 +382,7 @@ ttls_tickets_init()
 {
 	int err = TTLS_ERR_BAD_INPUT_DATA;
 
-	t_cfg.cipher_info = ttls_cipher_info_from_type(TTLS_CIPHER_AES_256_GCM);
+	t_cfg.cipher_info = ttls_cipher_info_from_type(TTLS_CIPHER_AES_128_GCM);
 
 	if (!t_cfg.cipher_info
 	    || (t_cfg.cipher_info->mode != TTLS_MODE_GCM
