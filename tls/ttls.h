@@ -349,7 +349,7 @@ typedef struct ttls_key_cert {
 	struct ttls_key_cert		*next;
 } TlsKeyCert;
 
-#define TTLS_TICKET_KEY_LEN		32 /* 256 bits */
+#define TTLS_TICKET_KEY_LEN		16 /* 128 bits */
 #define TTLS_TICKET_KEY_NAME_LEN	16
 #define TTLS_TICKET_MAX_SZ		512
 
