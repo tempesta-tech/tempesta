@@ -1132,8 +1132,10 @@ ttls_parse_record_hdr(TlsCtx *tls, unsigned char *buf, size_t len,
 	 * attempt to confuse us and block such records.
 	 *
 	 * However RFC 8446 5.1 and D.2 suggest to tolerate minor versions
-	 * 0x01 for compatibility reasons. In fact OpenSSL may send 0x0301
-	 * with ClientHello. The higher minor version is still 0x03.
+	 * 0x01 in ClientHello for compatibility reasons and 5.1 requres to
+	 * ignore the legacy_record_version field in the record header.
+	 * In fact, OpenSSL may send 0x0301 with ClientHello.
+	 * The higher minor version is still 0x03.
 	 */
 	if (unlikely(io->hdr[1] != 3 || io->hdr[2] < 1 || io->hdr[2] > 3)) {
 		T_DBG("bad version %u:%u\n", io->hdr[1], io->hdr[2]);

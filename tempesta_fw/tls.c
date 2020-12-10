@@ -516,7 +516,7 @@ tfw_tls_send(TlsCtx *tls, struct sg_table *sgt, bool close)
 	 *
 	 * During handshake (!ttls_xfrm_ready(tls)), io may contain several
 	 * consequent records of the same TTLS_MSG_HANDSHAKE type. io, except
-	 * msglen containg length of the last record, describes the first
+	 * msglen containing length of the last record, describes the first
 	 * record.
 	 */
 	if (ttls_xfrm_ready(tls) && io->msgtype == TTLS_MSG_ALERT) {
