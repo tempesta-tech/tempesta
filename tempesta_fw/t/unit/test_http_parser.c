@@ -1675,59 +1675,116 @@ TEST(http_parser, host)
 		"\n");
 
 	FOR_REQ("GET / HTTP/1.1\n"
+		"Host:    tempesta-tech.com   \n"
+		"\n")
+	{
+		TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
+		TfwStr h_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = "Host:" , .len = 5 },
+				{ .data = "    " , .len = 4,
+				  .flags = TFW_STR_OWS },
+				{ .data = "tempesta-tech.com" , .len = 17,
+				  .flags = TFW_STR_VALUE },
+			},
+			.len = 26,
+			.nchunks = 3
+		};
+		test_string_split(&h_expected, host);
+
+		EXPECT_EQ(req->host_port, 0);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\n"
 		"Host:    tempesta-tech.com:443   \n"
 		"\n")
 	{
-		TfwStr *end, *c;
 		TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
-		struct {
-			unsigned int flags;
-			const char *str;
-		} kv[] = {
-			{ 0, "Host:" },
-			{ TFW_STR_OWS, "    " },
-			{ TFW_STR_VALUE, "tempesta-tech.com" },
-			{ 0, ":" },
-			{ TFW_STR_VALUE, "443" },
-			{ 0, "   " },
+		TfwStr h_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = "Host:" , .len = 5 },
+				{ .data = "    " , .len = 4,
+				  .flags = TFW_STR_OWS },
+				{ .data = "tempesta-tech.com" , .len = 17,
+				  .flags = TFW_STR_VALUE },
+				{ .data = ":" , .len = 1 },
+				{ .data = "443" , .len = 3,
+				  .flags = TFW_STR_VALUE },
+			},
+			.len = 30,
+			.nchunks = 5
 		};
-		size_t kv_count = sizeof(kv) / sizeof(kv[0]);
-		int kv_idx;
+		test_string_split(&h_expected, host);
 
-		EXPECT_TRUE(host->nchunks >= kv_count);
 		EXPECT_EQ(req->host_port, 443);
-
-		kv_idx = 0;
-		c = host->chunks;
-		end = c + host->nchunks;
-		while (c < end) {
-			TfwStr *part_end = c;
-			TfwStr part = {};
-			unsigned int part_flags = c->flags;
-
-			/*
-			 * Chunks with keys and values are marked with special
-			 * flags.
-			 */
-			while (part_end < end && part_end->flags == part_flags)
-				part_end++;
-
-			if (part_end - c > 1) {
-				part.chunks = c;
-				part.nchunks = part_end - c;
-			} else {
-				part = *c;
-			}
-
-			c = part_end;
-
-			EXPECT_TRUE(kv_idx < kv_count);
-			EXPECT_TRUE(tfw_str_eq_cstr(&part, kv[kv_idx].str,
-						    strlen(kv[kv_idx].str), 0));
-			EXPECT_EQ(part_flags, kv[kv_idx].flags);
-			kv_idx++;
-		}
 	}
+
+	FOR_REQ("GET / HTTP/1.1\n"
+		"Host:    [fd42:5ca1:e3a7::1000]   \n"
+		"\n")
+	{
+		TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
+		TfwStr h_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = "Host:" , .len = 5 },
+				{ .data = "    " , .len = 4,
+				  .flags = TFW_STR_OWS },
+				{ .data = "[fd42:5ca1:e3a7::1000]" , .len = 22,
+				  .flags = TFW_STR_VALUE },
+			},
+			.len = 31,
+			.nchunks = 3
+		};
+		test_string_split(&h_expected, host);
+
+		EXPECT_EQ(req->host_port, 0);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\n"
+		"Host:    [fd42:5ca1:e3a7::1000]:443   \n"
+		"\n")
+	{
+		TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
+		TfwStr h_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = "Host:" , .len = 5 },
+				{ .data = "    " , .len = 4,
+				  .flags = TFW_STR_OWS },
+				{ .data = "[fd42:5ca1:e3a7::1000]" , .len = 22,
+				  .flags = TFW_STR_VALUE },
+				{ .data = ":" , .len = 1 },
+				{ .data = "443" , .len = 3,
+				  .flags = TFW_STR_VALUE },
+			},
+			.len = 35,
+			.nchunks = 5
+		};
+		test_string_split(&h_expected, host);
+
+		EXPECT_EQ(req->host_port, 443);
+	}
+
+	/* Port syntax is broken. */
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\n"
+			 "Host: tempesta-tech.com:443:1\n"
+			 "\n");
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\n"
+			 "Host: [fd42:5ca1:e3a7::1000]:443:1\n"
+			 "\n");
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\n"
+			 "Host: tempesta-tech.com::443\n"
+			 "\n");
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\n"
+			 "Host: tempesta-tech.com 443\n"
+			 "\n");
+
+	/* No braces around IPv6. */
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\n"
+			 "Host: fd42:5ca1:e3a7::1000\n"
+			 "\n");
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\n"
+			 "Host: [fd42:5ca1:e3a7::1000\n"
+			 "\n");
 }
 
 TEST(http_parser, chunked)
