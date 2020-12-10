@@ -427,9 +427,6 @@ u32 tfw_str_crc32_calc(const TfwStr *str);
 #ifdef DEBUG
 void tfw_str_dprint(const TfwStr *str, const char *msg);
 void tfw_dbg_vprint32(const char *prefix, const unsigned char *v);
-#else
-#define tfw_str_dprint(str, msg)
-#define tfw_dbg_vprint32(prefix, v)
 #endif
 
 #endif /* __TFW_STR_H__ */
