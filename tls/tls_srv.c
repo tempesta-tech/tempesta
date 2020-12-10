@@ -32,18 +32,17 @@
 
 ttls_sni_cb_t *ttls_sni_cb;
 
+/**
+ * TLS Fallback Signaling Cipher Suite Value (SCSV), RFC 7507 3.
+ * We support TLS 1.2 and 1.3 version only, so we require ClientHello.version
+ * is equal to 0x0303, which is the same for both of the protocols.
+ */
 static int
 ttls_check_scsvs(TlsCtx *tls, unsigned short cipher_suite)
 {
 	switch (cipher_suite) {
 	case TTLS_FALLBACK_SCSV_VALUE:
 		T_DBG("received FALLBACK_SCSV\n");
-		if (tls->minor < tls->conf->max_minor_ver) {
-			T_DBG("inappropriate fallback\n");
-			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-					TTLS_ALERT_MSG_INAPROPRIATE_FALLBACK);
-			return TTLS_ERR_BAD_HS_CLIENT_HELLO;
-		}
 		break;
 	case TTLS_EMPTY_RENEGOTIATION_INFO:
 		T_DBG("received EMPTY_RENEGOTIATION_INFO_SCSV\n");
@@ -524,14 +523,6 @@ ttls_ciphersuite_match(TlsCtx *tls, int suite_id, const TlsCiphersuite **ci)
 
 	T_DBG("trying ciphersuite: %s\n", suite_info->name);
 
-	if (suite_info->min_minor_ver > tls->minor
-	    || suite_info->max_minor_ver < tls->minor)
-	{
-		T_DBG("ciphersuite mismatch: version (%d-%d to %d)\n",
-		      suite_info->min_minor_ver, suite_info->max_minor_ver,
-		      tls->minor);
-		return 0;
-	}
 	if (ttls_ciphersuite_uses_ec(suite_info) && !tls->hs->curves[0]) {
 		T_DBG("ciphersuite mismatch: no common elliptic curve\n");
 		return 0;
@@ -570,11 +561,12 @@ static int
 ttls_choose_ciphersuite(TlsCtx *tls)
 {
 	int r, i, got_common_suite = 0;
-	const int *ciphersuites = tls->peer_conf->ciphersuite_list[tls->minor];
+	const int *ciphersuites;
 	const TlsCiphersuite *ci = NULL;
 	const unsigned short *cs;
 	unsigned int cs_cnt = tls->hs->cs_total_len / 2;
 
+	ciphersuites = tls->peer_conf->ciphersuite_list[TTLS_MINOR_VERSION_3];
 	for (i = 0; ciphersuites[i] != 0; i++)
 		for (cs = tls->hs->css; cs < tls->hs->css + cs_cnt; cs++) {
 			if (*cs != ciphersuites[i])
@@ -659,30 +651,28 @@ ttls_parse_client_hello(TlsCtx *tls, unsigned char *buf, size_t len,
 	 *	..  .  ..   compression alg. list
 	 *	..  .  ..   extensions length (2 bytes, optional)
 	 *	..  .  ..   extensions (optional)
+	 *
+	 * We support TLS versions 1.2 and 1.3 only and both of them must use
+	 * 0x0303 as the protocol version.
+	 * Validate the versions RFC 8446 Appendix D.
 	 */
 	T_FSM_STATE(TTLS_CH_HS_VER) {
 		BUG_ON(io->rlen >= 2);
-		if (unlikely(io->rlen)) {
-			tls->minor = *p++;
-		}
-		else if (unlikely(buf + len - p == 1)) {
-			tls->major = *p++;
-			T_FSM_EXIT();
-		} else {
-			tls->major = *p++;
-			tls->minor = *p++;
+		if (unlikely(*p++ != 0x03))
+			goto bad_version;
+		if (!io->rlen) { /* frist shot */
+			if (unlikely(p == buf + len))
+				T_FSM_EXIT();
+			if (unlikely(*p++ != 0x03))
+				goto bad_version;
 		}
 		io->hslen -= 2;
-		if (tls->major != TTLS_MAJOR_VERSION_3
-		    || tls->minor != TTLS_MINOR_VERSION_3)
-		{
-			T_DBG("ClientHello: bad version %u:%u\n",
-			      tls->major, tls->minor);
-			ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
-					TTLS_ALERT_MSG_PROTOCOL_VERSION);
-			return TTLS_ERR_BAD_HS_PROTOCOL_VERSION;
-		}
 		TTLS_HS_FSM_MOVE(TTLS_CH_HS_RND);
+bad_version:
+		T_DBG("ClientHello: bad version\n");
+		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
+				TTLS_ALERT_MSG_PROTOCOL_VERSION);
+		return TTLS_ERR_BAD_HS_PROTOCOL_VERSION;
 	}
 
 	T_FSM_STATE(TTLS_CH_HS_RND) {
