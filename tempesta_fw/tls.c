@@ -120,8 +120,8 @@ next_msg:
 	r = ss_skb_process(skb, ttls_recv, tls, &tls->io_in.chunks, &parsed);
 	switch (r) {
 	default:
-		T_DBG("Unrecognized TLS receive return code -0x%X, drop packet\n",
-		      -r);
+		T_WARN("Unrecognized TLS receive return code -0x%X, drop packet\n",
+		       -r);
 		/* Fall through. */
 	case T_DROP:
 		spin_unlock(&tls->lock);
