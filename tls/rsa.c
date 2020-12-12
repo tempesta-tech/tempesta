@@ -111,6 +111,11 @@ __rsa_setup_ctx(TlsRSACtx *ctx)
 		return 0;
 
 	ctx->len = ttls_mpi_size(&ctx->N);
+	if (ctx->len < 128) {
+		T_WARN("Trying to load an RSA key smaller than 1024 bits."
+		       " Please use stronger keys.\n");
+		return -EINVAL;
+	}
 
 	ctx->Vi = __alloc_percpu(sizeof(TlsMpi) + ctx->len * 2,
 				 __alignof__(TlsMpi));
@@ -967,9 +972,6 @@ ttls_rsa_rsassa_pss_sign(TlsRSACtx *ctx, ttls_md_type_t md_alg,
 	const TlsMdInfo *md_info;
 	TlsMdCtx md_ctx;
 
-	if (ctx->padding != TTLS_RSA_PKCS_V21)
-		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
-
 	olen = ctx->len;
 
 	/* Gather length of hash to sign */
@@ -1065,13 +1067,13 @@ static int
 rsa_rsassa_pkcs1_v15_encode(ttls_md_type_t md_alg, const unsigned char *hash,
 			    size_t hashlen, size_t dst_len, unsigned char *dst)
 {
-	size_t oid_size  = 0;
-	size_t nb_pad	= dst_len;
+	size_t oid_size = 0;
+	size_t nb_pad = dst_len;
 	unsigned char *p = dst;
-	const char *oid  = NULL;
+	const char *oid = NULL;
 
-	if (ttls_oid_get_oid_by_md(md_alg, &oid, &oid_size) != 0)
-		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
+	if (ttls_oid_get_oid_by_md(md_alg, &oid, &oid_size))
+		return TTLS_ERR_RSA_BAD_INPUT_DATA;
 
 	/*
 	 * Double-check that 8 + hashlen + oid_size can be used as a
@@ -1093,13 +1095,13 @@ rsa_rsassa_pkcs1_v15_encode(ttls_md_type_t md_alg, const unsigned char *hash,
 	 * - Need oid_size bytes for hash alg OID.
 	 */
 	if (nb_pad < 10 + hashlen + oid_size)
-		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
+		return TTLS_ERR_RSA_BAD_INPUT_DATA;
 	nb_pad -= 10 + hashlen + oid_size;
 
 	/* Need space for signature header and padding delimiter (3 bytes),
 	 * and 8 bytes for the minimal padding */
 	if (nb_pad < 3 + 8)
-		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
+		return TTLS_ERR_RSA_BAD_INPUT_DATA;
 	nb_pad -= 3;
 
 	/* Now nb_pad is the amount of memory to be filled
@@ -1142,10 +1144,9 @@ rsa_rsassa_pkcs1_v15_encode(ttls_md_type_t md_alg, const unsigned char *hash,
 
 	/* Just a sanity-check, should be automatic
 	 * after the initial bounds check. */
-	if (p != dst + dst_len)
-	{
+	if (p != dst + dst_len) {
 		bzero_fast(dst, dst_len);
-		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
+		return TTLS_ERR_RSA_BAD_INPUT_DATA;
 	}
 
 	return 0;
@@ -1162,9 +1163,6 @@ ttls_rsa_rsassa_pkcs1_v15_sign(TlsRSACtx *ctx, ttls_md_type_t md_alg,
 {
 	int ret;
 	unsigned char *sig_try = NULL, *verif = NULL;
-
-	if (ctx->padding != TTLS_RSA_PKCS_V15)
-		return(TTLS_ERR_RSA_BAD_INPUT_DATA);
 
 	/*
 	 * Prepare PKCS1-v1.5 encoding (padding and hash identifier)
@@ -1186,8 +1184,7 @@ ttls_rsa_rsassa_pkcs1_v15_sign(TlsRSACtx *ctx, ttls_md_type_t md_alg,
 	TTLS_MPI_CHK(ttls_rsa_private(ctx, sig, sig_try));
 	TTLS_MPI_CHK(ttls_rsa_public(ctx, sig_try, verif));
 
-	if (ttls_safer_memcmp(verif, sig, ctx->len) != 0)
-	{
+	if (ttls_safer_memcmp(verif, sig, ctx->len)) {
 		ret = TTLS_ERR_RSA_PRIVATE_FAILED;
 		goto cleanup;
 	}
