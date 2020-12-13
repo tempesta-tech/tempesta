@@ -101,7 +101,7 @@ ttls_rsa_init(TlsRSACtx *ctx, int padding, int hash_id)
 static int
 __rsa_setup_ctx(TlsRSACtx *ctx)
 {
-	int cpu, count = 0;
+	int r, cpu;
 
 	/*
 	 * Do nothing if the context is already setup or N or E aren't loaded
@@ -134,6 +134,8 @@ __rsa_setup_ctx(TlsRSACtx *ctx)
 	 * Unblinding value: Vf = random number, invertible mod N.
 	 */
 	for_each_possible_cpu(cpu) {
+		int count = 0;
+
 		TlsMpi *vi = per_cpu_ptr(ctx->Vi, cpu);
 		TlsMpi *vf = per_cpu_ptr(ctx->Vf, cpu);
 
@@ -148,10 +150,16 @@ __rsa_setup_ctx(TlsRSACtx *ctx)
 		} while (ttls_mpi_cmp_int(vi, 1));
 		/* Blinding value: Vi =  Vf^(-e) mod N */
 		ttls_mpi_inv_mod(vi, vf, &ctx->N);
-		ttls_mpi_exp_mod(vi, vi, &ctx->E, &ctx->N, &ctx->RN);
+		if ((r = ttls_mpi_exp_mod(vi, vi, &ctx->E, &ctx->N, &ctx->RN)))
+			goto err;
 	}
 
 	return 0;
+err:
+	free_percpu(ctx->Vf);
+	free_percpu(ctx->Vi);
+
+	return r;
 }
 
 void
