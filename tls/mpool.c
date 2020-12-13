@@ -87,7 +87,7 @@ ttls_mpool(void *addr)
 		goto check;
 	}
 
-	mp = *this_cpu_ptr(&g_tmp_mpool);
+	mp = this_cpu_read(g_tmp_mpool);
 	mp_name = "temporary";
 	if ((unsigned long)mp < a
 	    && a < (unsigned long)mp + (PAGE_SIZE << mp->order))
@@ -143,7 +143,7 @@ ttls_mpi_pool_alloc_mpi(TlsMpi *x, size_t n)
 void *
 ttls_mpool_alloc_stack(size_t n)
 {
-	return ttls_mpool_alloc_data(*this_cpu_ptr(&g_tmp_mpool), n);
+	return ttls_mpool_alloc_data(this_cpu_read(g_tmp_mpool), n);
 }
 
 /**
@@ -158,7 +158,7 @@ ttls_mpool_alloc_stack(size_t n)
 void
 ttls_mpi_pool_cleanup_ctx(unsigned long addr, bool zero)
 {
-	TlsMpiPool *mp = *this_cpu_ptr(&g_tmp_mpool);
+	TlsMpiPool *mp = this_cpu_read(g_tmp_mpool);
 	unsigned long clean_off, m = (unsigned long)mp;
 
 	/* The tail part must be cleaned up with ttls_mpool_shrink_tailtmp(). */
@@ -396,7 +396,7 @@ ttls_mpool_exit(void)
 	TlsMpiPool *mp;
 
 	for_each_possible_cpu(i) {
-		mp = *per_cpu_ptr(&g_tmp_mpool, i);
+		mp = per_cpu(g_tmp_mpool, i);
 		ttls_bzero_safe(MPI_POOL_DATA(mp), mp->curr - sizeof(*mp));
 		free_pages((unsigned long)mp, mp->order);
 	}
