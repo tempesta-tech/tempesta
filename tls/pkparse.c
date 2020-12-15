@@ -259,17 +259,17 @@ ttls_pk_parse_subpubkey(unsigned char **p, const unsigned char *end,
 	 * function failure, ttls_x509_crt_free() in particular.
 	 */
 
-	if (pk_alg == TTLS_PK_RSA)
-	{
+	if (pk_alg == TTLS_PK_RSA) {
 		ret = pk_get_rsapubkey(p, end, ttls_pk_rsa(*pk));
 	}
-	else if (pk_alg == TTLS_PK_ECKEY_DH || pk_alg == TTLS_PK_ECKEY)
-	{
+	else if (pk_alg == TTLS_PK_ECKEY_DH || pk_alg == TTLS_PK_ECKEY) {
 		ret = pk_use_ecparams(&alg_params, &ttls_pk_ec(*pk)->grp);
 		if (ret == 0)
 			ret = pk_get_ecpubkey(p, end, ttls_pk_ec(*pk));
-	} else
+	}
+	else {
 		ret = TTLS_ERR_PK_UNKNOWN_PK_ALG;
+	}
 
 	if (ret == 0 && *p != end)
 		ret = TTLS_ERR_PK_INVALID_PUBKEY
