@@ -1434,4 +1434,6 @@ ttls_mpi_inv_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *N)
 		ttls_mpi_sub_mpi(V1, V1, N);
 
 	ttls_mpi_copy(X, V1);
+
+	ttls_mpi_pool_cleanup_ctx((unsigned long)TA, false);
 }
