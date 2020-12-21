@@ -64,7 +64,7 @@
 #define G_W		7			/* m * G window bits */
 #define G_W_SZ		(1U << (G_W - 1))	/* m * G window size */
 #define G_D		((G_BITS + G_W - 1) / G_W)
-#define W		4			/* m * P window bits */
+#define W		5			/* m * P window bits */
 #define W_SZ		(1U << (W - 1))		/* m * P window size */
 #define D		((G_BITS + W - 1) / W)
 
@@ -814,9 +814,9 @@ ecp256_double_jac_n(Ecp256Point *r, const Ecp256Point *p)
 /*
  * Addition: R = P + Q, mixed affine-Jacobian coordinates (GECC 3.22)
  *
- * #TODO #1064: the implementation uses formula [8, "madd-2008-g"] and I'm not
+ * TODO #1064: the implementation uses formula [8, "madd-2008-g"] and I'm not
  * sure if it's the most efficient one - [9] refernces another formula.
- * Explore "New Point Addition Formulae for ECCApplications" by Meloni 2007.
+ * Explore "New Point Addition Formulae for ECC Applications" by Meloni 2007.
  *
  * The coordinates of Q must be normalized (= affine),
  * but those of P don't need to. R is not normalized.
@@ -990,8 +990,8 @@ ecp256_comb_fixed(unsigned char *__restrict x, size_t d, unsigned char w,
  *
  * T must be able to hold 2^{w - 1} elements
  *
- * Cost: d(w-1) D + (2^{w-1} - 1) A + 1 N(w-1) + 1 N(2^{w-1} - 1)
- * For w=4,D=4S+4M,A=8M+3S,S=0.8M this gives about 1004*M + 2*I.
+ * Cost: ~ 2^{w-1} * (12*M + 9*S) + 2*2^{w-1}*(6*M + S) + 2*I
+ * For w=4,S=0.8M this gives about 262*M + 2*I.
  */
 static void
 ecp256_precompute_comb(const unsigned long *pXY)
@@ -1073,10 +1073,13 @@ ecp256_select_comb(Ecp256Point *r, const EcpXY T[], unsigned char t_len,
  * Cost: d A + d D + 1 R
  *
  * For w=4,D=4S+4M,A=8M+3S,S=0.8M this gives about 1126*M, which with the
- * cost of ecp256_precompute_comb() gives ~2130*M + 2*I, which is ~170-270*M
- * better than the number for Jacobian cure shapes with 2*I in
+ * cost of ecp256_precompute_comb() gives ~1392+ 3*I, which is ~900-1000*M
+ * better than the number for Jacobian cure shapes with 3*I in
  * "Analysis and optimization of elliptic-curve single-scalar multiplication",
  * by Bernstein & Lange, 2007.
+ *
+ * Bigger value for w gives us smaller M total ops in the function, but larger
+ * value for ecp256_double_jac_n(). Current w=4 is the minimum total value.
  */
 static void
 ecp256_mul_comb_core(Ecp256Point *r, const unsigned char x[])
@@ -1087,19 +1090,17 @@ ecp256_mul_comb_core(Ecp256Point *r, const unsigned char x[])
 
 	/*
 	 * We operate with precomputed table which is significantly smaller
-	 * than L1d cache - for secp256 and w=7:
+	 * than L1d cache - for secp256 and w=4:
 	 *
-	 *	(sizeof(ECP)=(2 * 32)) * (1 << (w - 1)) = 4096
+	 *	(sizeof(ECP)=(2 * 32)) * (1 << (w - 1)) = 512
 	 *
+	 * just 8 cache lines, which is 64 times smaller than L1d cache size.
 	 * Also there is no preemption and point doubling and addition
-	 * aren't memory hungry, so once read T resides in L1d cache and
-	 * we can address T directly without sacrificing safety against SCAs.
-	 * FIXME in hyperthreading mode an aggressive sibling thread can evict
-	 * the precomputed table.
-	 *
-	 * #TODO in the generic version, which uses much smaller W, the table
-	 * is even smaller, so update the comment and probably use different
-	 * approach.
+	 * aren't memory hungry, so once being read T resides in L1d cache and
+	 * we can address it directly without sacrificing safety against SCAs.
+	 * Even in hyperthreading mode and keeping L1d cache associativity in
+	 * mind, the probablity for the cache miss is too small to recover the
+	 * secret bits.
 	 *
 	 * TODO #1064: 5. AVX2 - 4 points in parallel in OpenSSL,
 	 * see ecp_nistz256_avx2_mul_g().
@@ -1145,9 +1146,6 @@ ecp256_mul_comb_core(Ecp256Point *r, const unsigned char x[])
  * prevent potential timing attacks targeting these results.
  * TODO #1064: double SCA protection?
  *
- * TODO #1064 normalize_jac uses inversions - it seems there are methods avoiding
- * inversions at all.
- *
  * TODO #1064: why wNAF isn't used? Is comb the most efficient method?
  * It seems WolfSSL's sp_256_ecc_mulmod_win_add_sub_avx2_4() also uses comb,
  * but with d=43 (w=6).
@@ -1158,10 +1156,17 @@ static void
 ecp256_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const unsigned long *P)
 {
 	/*
-	 * Minimize the number of multiplications, that is minimize
-	 * 10 * d * w + 18 * 2^(w-1) + 11 * d + 7 * w, with d = ceil(bits / w)
-	 * (see costs of the various parts, with 1S = 1M).
-	 * TODO #1064 make sure that w size is the best one.
+	 * Minimize the number of multiplications, that is to minimize
+	 * (S = 0.8*M, I = 100*M):
+	 *
+	 *  18 * 2^(w-1) + 14 * (w-1) + 18 * d + 300
+	 *
+	 * The function values for different w:
+	 *
+	 * 1 -> 4926, 2 -> 2654, 3 -> 1948, 4 -> 1638, 5 -> 1580, 6 -> 1720.
+	 *
+	 * TODO #1064 at the moment we have S = 0.9*M and very expensive I,
+	 * so recheck the optimal w value after the optimizations.
 	 */
 	unsigned long M[4], mm[4];
 	unsigned char k[D + 1];
