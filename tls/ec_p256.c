@@ -1077,9 +1077,6 @@ ecp256_select_comb(Ecp256Point *r, const EcpXY T[], unsigned char t_len,
  * better than the number for Jacobian cure shapes with 3*I in
  * "Analysis and optimization of elliptic-curve single-scalar multiplication",
  * by Bernstein & Lange, 2007.
- *
- * Bigger value for w gives us smaller M total ops in the function, but larger
- * value for ecp256_double_jac_n(). Current w=4 is the minimum total value.
  */
 static void
 ecp256_mul_comb_core(Ecp256Point *r, const unsigned char x[])
@@ -1090,11 +1087,11 @@ ecp256_mul_comb_core(Ecp256Point *r, const unsigned char x[])
 
 	/*
 	 * We operate with precomputed table which is significantly smaller
-	 * than L1d cache - for secp256 and w=4:
+	 * than L1d cache - for secp256 and w=5:
 	 *
-	 *	(sizeof(ECP)=(2 * 32)) * (1 << (w - 1)) = 512
+	 *	(sizeof(ECP)=(2 * 32)) * (1 << (w - 1)) = 1024
 	 *
-	 * just 8 cache lines, which is 64 times smaller than L1d cache size.
+	 * just 16 cache lines, which is 32 times smaller than L1d cache size.
 	 * Also there is no preemption and point doubling and addition
 	 * aren't memory hungry, so once being read T resides in L1d cache and
 	 * we can address it directly without sacrificing safety against SCAs.
