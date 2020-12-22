@@ -217,7 +217,7 @@ main(int argc, char *argv[])
 
 	/*
 	 * Benchmark multiplication vs squaring - the fundamental ratio
-	 * for calculation price of ECC algorithms. Traditional ration in
+	 * for calculation price of ECC algorithms. Traditional ratio in
 	 * the literature is [0.8, 0.86].
 	 */
 	bm_mul_p256();
