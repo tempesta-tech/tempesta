@@ -576,7 +576,6 @@ enum {
 };
 typedef int ttls_hs_over_cb_t(TlsCtx *tls, int state);
 
-void ttls_hs_add_sni_hash(TlsCtx *tls, const char* data, size_t len);
 bool ttls_hs_done(TlsCtx *tls);
 bool ttls_xfrm_ready(TlsCtx *tls);
 bool ttls_xfrm_need_encrypt(TlsCtx *tls);

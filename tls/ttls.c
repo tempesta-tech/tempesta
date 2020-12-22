@@ -1527,8 +1527,7 @@ parse:
 	}
 
 	/* In case we tried to reuse a session but it failed */
-	if (sess->peer_cert)
-		ttls_x509_crt_destroy(&sess->peer_cert);
+	ttls_x509_crt_destroy(&sess->peer_cert);
 	sess->peer_cert = ttls_x509_crt_alloc();
 	if (!sess->peer_cert) {
 		T_DBG("can not allocate a certificate\n");
@@ -2302,9 +2301,8 @@ ttls_ctx_clear(TlsCtx *tls)
 	ttls_cipher_free(&tls->xfrm.cipher_ctx_enc);
 	ttls_cipher_free(&tls->xfrm.cipher_ctx_dec);
 
-	if (tls->sess.peer_cert)
-		/* #830 check that all the data is freed correctly. */
-		ttls_x509_crt_destroy(&tls->sess.peer_cert);
+	/* #830 check that all the data is freed correctly. */
+	ttls_x509_crt_destroy(&tls->sess.peer_cert);
 
 	bzero_fast(tls, sizeof(TlsCtx));
 }
