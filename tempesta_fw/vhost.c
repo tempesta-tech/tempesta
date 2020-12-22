@@ -2441,10 +2441,10 @@ static TfwCfgSpec tfw_global_frang_specs[] = {
 		.allow_reconfig = true,
 	},
 	{
-		.name = "tls_uncomplete_rate",
+		.name = "tls_incomplete_connection_rate",
 		.deflt = "0",
 		.handler = tfw_cfgop_frang_glob_set_int,
-		.dest = &tfw_frang_glob_reconfig.tls_uncomplete_rate,
+		.dest = &tfw_frang_glob_reconfig.tls_incomplete_conn_rate,
 		.spec_ext = &(TfwCfgSpecInt) {
 			.range = { 0, INT_MAX },
 		},
@@ -2611,7 +2611,7 @@ static TfwCfgSpec tfw_vhost_frang_specs[] = {
 		.allow_none = true,
 	},
 	{
-		.name = "tls_uncomplete_rate",
+		.name = "tls_incomplete_connection_rate",
 		.handler = tfw_cfgop_frang_glob_in_vhost,
 		.allow_reconfig = true,
 		.allow_none = true,
