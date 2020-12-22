@@ -177,7 +177,7 @@ typedef struct {
  * @tls_new_conn_rate	- Maximum new tls connections with full handshakes per
  *			  second from the same client;
  * @tls_new_conn_burst	- New tls connections burst;
- * @tls_uncomplete_rate - Maximum rate of uncompleted tls connections;
+ * @tls_incomplete_conn_rate - Maximum rate of uncompleted tls connections;
  * @http_hchunk_cnt	- Maximum number of chunks in header part;
  * @http_bchunk_cnt	- Maximum number of chunks in body part;
  * @ip_block		- Block clients by IP address if set, if not - just
@@ -196,7 +196,7 @@ struct frang_global_cfg_t {
 
 	unsigned int		tls_new_conn_rate;
 	unsigned int		tls_new_conn_burst;
-	unsigned int		tls_uncomplete_rate;
+	unsigned int		tls_incomplete_conn_rate;
 
 	unsigned int		http_hchunk_cnt;
 	unsigned int		http_bchunk_cnt;

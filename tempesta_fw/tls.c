@@ -117,7 +117,7 @@ void
 tfw_tls_connection_lost(TfwConn *conn)
 {
 	TlsCtx *tls = &((TfwTlsConn *)conn)->tls;
-	TfwFsmData data_up = { .req = ERR_PTR(-TTLS_HS_CB_UNCOMPLETE)};
+	TfwFsmData data_up = { .req = ERR_PTR(-TTLS_HS_CB_INCOMPLETE)};
 
 	if (!ttls_hs_done(tls))
 		tfw_gfsm_move(&conn->state, TFW_TLS_FSM_HS_DONE, &data_up);
@@ -152,7 +152,7 @@ next_msg:
 	case T_DROP:
 		spin_unlock(&tls->lock);
 		if (!ttls_hs_done(tls))
-			tfw_tls_hs_over(tls, TTLS_HS_CB_UNCOMPLETE);
+			tfw_tls_hs_over(tls, TTLS_HS_CB_INCOMPLETE);
 		/* The skb is freed in tfw_tls_conn_dtor(). */
 		return r;
 	case T_POSTPONE:

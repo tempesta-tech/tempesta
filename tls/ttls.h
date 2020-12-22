@@ -572,7 +572,7 @@ typedef unsigned long ttls_cli_id_t(TlsCtx *tls, unsigned long hash);
 enum {
 	TTLS_HS_CB_FINISHED_NEW,
 	TTLS_HS_CB_FINISHED_RESUMED,
-	TTLS_HS_CB_UNCOMPLETE,
+	TTLS_HS_CB_INCOMPLETE,
 };
 typedef int ttls_hs_over_cb_t(TlsCtx *tls, int state);
 

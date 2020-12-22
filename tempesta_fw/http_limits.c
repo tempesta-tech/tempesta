@@ -203,7 +203,7 @@ typedef struct {
 	unsigned int	conn_new;
 	unsigned int	req;
 	unsigned int	tls_sess_new;
-	unsigned int	tls_sess_uncomplete;
+	unsigned int	tls_sess_incomplete;
 } FrangRates;
 
 /**
@@ -1347,7 +1347,7 @@ static int
 frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 {
 	unsigned long ts = (jiffies * FRANG_FREQ) / HZ;
-	unsigned long sum_new = 0, sum_uncomplete = 0;
+	unsigned long sum_new = 0, sum_incomplete = 0;
 	int i = ts % FRANG_FREQ;
 
 	if (ra->history[i].ts != ts) {
@@ -1362,8 +1362,8 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 		break;
 	case TTLS_HS_CB_FINISHED_RESUMED:
 		break;
-	case TTLS_HS_CB_UNCOMPLETE:
-		ra->history[i].tls_sess_uncomplete++;
+	case TTLS_HS_CB_INCOMPLETE:
+		ra->history[i].tls_sess_incomplete++;
 		break;
 	default:
 		WARN_ONCE(1, "Frang: unknown tls state\n");
@@ -1374,7 +1374,7 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 	for (i = 0; i < FRANG_FREQ; i++)
 		if (ra->history[i].ts + FRANG_FREQ >= ts) {
 			sum_new += ra->history[i].tls_sess_new;
-			sum_uncomplete += ra->history[i].tls_sess_uncomplete;
+			sum_incomplete += ra->history[i].tls_sess_incomplete;
 		}
 
 	switch (hs_state)
@@ -1397,12 +1397,13 @@ frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
 			return TFW_BLOCK;
 		}
 		break;
-	case TTLS_HS_CB_UNCOMPLETE:
-		if (conf->tls_uncomplete_rate
-		    && sum_uncomplete > conf->tls_uncomplete_rate)
+	case TTLS_HS_CB_INCOMPLETE:
+		if (conf->tls_incomplete_conn_rate
+		    && sum_incomplete > conf->tls_incomplete_conn_rate)
 		{
-			frang_limmsg("uncomplete TLS connections rate",
-				     sum_uncomplete, conf->tls_uncomplete_rate,
+			frang_limmsg("incomplete TLS connections rate",
+				     sum_incomplete,
+				     conf->tls_incomplete_conn_rate,
 				     &FRANG_ACC2CLI(ra)->addr);
 			return TFW_BLOCK;
 		}
