@@ -32,6 +32,26 @@
  *
  * 10. NIST: Mathematical routines for the NIST prime elliptic curves, 2010.
  *
+ * #8: There are faster point multiplication methods using point halving and
+ * or multi-base representations for m * P and m * G, see more in:
+ *
+ * 11. I.Abdulwahed et al, "An Algorithm to Enhance Elliptic Curves Scalar
+ *     Multiplication Combining MBNR with Point Halving", 2010.
+ *
+ * 12. G.N.Purohit et al, "Elliptic Curve Point Multiplication Using MBNR and
+ *     Point Halving", 2011.
+ *
+ * 13. J.Taverne et al, "Software implementation of binary elliptic curves:
+ *     impact of the carry-less multiplier on scalar multiplication", 2011.
+ *
+ * 14. m0m1 algorithm in J.-M.Robert et al, "Efficient Fixed Base Exponentiation
+ *     and Scalar Multiplication based on a Multiplicative Splitting Exponent
+ *     Recoding", 2019.
+ *
+ * Some baseline is described in
+ * [15] A.Krizhanovsky, I.Koveshnikov, "Performance study of kernel TLS
+ * handshakes", Netdev 0x14, 2020,
+ *
  * Copyright (C) 2020 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -1225,6 +1245,11 @@ ecp256_mul_comb_core_g(Ecp256Point *r, const unsigned char x[])
 
 /**
  * The ecp256_mul_comb() specialization for R = m * G.
+ *
+ * #8: Explore [14] and N.A.F.Mohamed et al, "Improved Fixed-base Comb Method
+ * for Fast Scalar Multiplication" for more efficient non-constant time fixed
+ * point multiplication - we can use the methods with point randomization.
+ * [15] discussed that the current multi-table comb method isn't bad at all.
  */
 static void
 ecp256_mul_comb_g(TlsEcpPoint *R, const TlsMpi *m)
