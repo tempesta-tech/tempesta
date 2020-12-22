@@ -555,8 +555,15 @@ ttls_ticket_sess_load(TlsState *state, size_t len, unsigned long lifetime)
 		r = ttls_x509_crt_parse_der(sess->peer_cert, page_address(pg),
 					    state->cert_len);
 		if (r) {
+			/*
+			 * TlsX509Crt grabs the memory under parsed certificate
+			 * and stores it in 'raw' member. ttls_x509_crt_destroy
+			 * can free it, but the parsing function may fail before
+			 * the pointer is grabbed.
+			 */
+			if (!sess->peer_cert->raw.p)
+				__free_pages(pg, get_order(state->cert_len));
 			ttls_x509_crt_destroy(&sess->peer_cert);
-			__free_pages(pg, get_order(state->cert_len));
 			return r;
 		}
 		/*
