@@ -29,35 +29,25 @@
 #include "mpool.h"
 #include "ttls.h"
 
-/* Bit large than other pools to be able to store temporary data. */
-#define CS_MP_SZ	(PAGE_SIZE << TTLS_CSPOOL_ORDER)
-
 /*
  * TLS memory profiles for all supported key exchanges.
+ * All the profiles are small enough, so one page (order=0) is enough.
  */
 static union {
 	TlsMpiPool	mp;
-	unsigned char	_[CS_MP_SZ];
-} cs_mp_ecdhe_secp256 __page_aligned_data = {
-	.mp = {
-		.order		= TTLS_CSPOOL_ORDER,
-		.curr		= sizeof(TlsMpiPool),
-	}
-}, cs_mp_ecdhe_secp384 __page_aligned_data = {
-	.mp = {
-		.order		= TTLS_CSPOOL_ORDER,
-		.curr		= sizeof(TlsMpiPool),
-	}
-}, cs_mp_ecdhe_curve25519 __page_aligned_data = {
-	.mp = {
-		.order		= TTLS_CSPOOL_ORDER,
-		.curr		= sizeof(TlsMpiPool),
-	}
-}, cs_mp_dhe __page_aligned_data = {
-	.mp = {
-		.order		= TTLS_CSPOOL_ORDER,
-		.curr		= sizeof(TlsMpiPool),
-	}
+	unsigned char	_[PAGE_SIZE];
+}
+cs_mp_ecdhe_secp256 __page_aligned_data = {
+	.mp = { .curr = sizeof(TlsMpiPool) }
+},
+cs_mp_ecdhe_secp384 __page_aligned_data = {
+	.mp = { .curr = sizeof(TlsMpiPool) }
+},
+cs_mp_ecdhe_curve25519 __page_aligned_data = {
+	.mp = { .curr = sizeof(TlsMpiPool) }
+},
+cs_mp_dhe __page_aligned_data = {
+	.mp = { .curr = sizeof(TlsMpiPool) }
 };
 
 static TlsCiphersuite ciphersuite_definitions[] = {
@@ -148,7 +138,7 @@ static TlsCiphersuite ciphersuite_definitions[] = {
 #define __CS_ADDR_MP(mp_name, x)					\
 do {									\
 	if (x > (unsigned long)&cs_mp_##mp_name				\
-	    && x < (unsigned long)&cs_mp_##mp_name + CS_MP_SZ)		\
+	    && x < (unsigned long)&cs_mp_##mp_name + PAGE_SIZE)		\
 		return &cs_mp_##mp_name.mp;				\
 } while (0)
 
