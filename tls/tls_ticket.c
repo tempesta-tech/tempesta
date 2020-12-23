@@ -141,7 +141,7 @@ ttls_ticket_update_keys(TlsTicketPeerCfg *tcfg)
 	r = __ttls_ticket_gen_key(ts, tcfg->secret, digest);
 	if (unlikely(r)) {
 		/*
-		 * Set key->ts to 0 to indicate that the calculation has failed
+		 * Set ts to 0 to indicate that the calculation has failed
 		 * and not try to use the key on every new handshake.
 		 */
 		bzero_fast(&digest, sizeof(digest));
@@ -149,7 +149,7 @@ ttls_ticket_update_keys(TlsTicketPeerCfg *tcfg)
 	}
 
 	write_lock(&tcfg->key_lock);
-	if (likely(tcfg->keys[tcfg->active_key].ts < ts)) {
+	if (likely(tcfg->keys[tcfg->active_key].ts < ts) || !ts) {
 		TlsTicketKey *old_key = &tcfg->keys[tcfg->active_key ^ 1];
 
 		write_lock(&old_key->lock);
@@ -207,6 +207,10 @@ ttls_tickets_key_current_locked(TlsTicketPeerCfg *tcfg)
 
 	read_lock(&tcfg->key_lock);
 
+	/*
+	 * If key rotation has failed, 'ts' member can be zero. Fail fast to
+	 * avoid decryption attempt with outdated keys.
+	 */
 	if (likely(tcfg->keys[tcfg->active_key].ts)) {
 		key = &tcfg->keys[tcfg->active_key];
 		read_lock(&key->lock);
