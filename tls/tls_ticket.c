@@ -113,19 +113,18 @@ ttls_ticket_gen_key(TlsTicketKey *key, unsigned long ts, const char *secret)
 	int r;
 
 	r = __ttls_ticket_gen_key(ts, secret, digest);
-	if (unlikely(r))
-		goto err;
+	if (unlikely(r)) {
+		/*
+		 * Set ts to 0 to indicate that the calculation has failed
+		 * and not try to use the key on every new handshake.
+		 */
+		ttls_bzero_safe(&digest, sizeof(digest));
+		ts = 0;
+	}
+
 	key->ts = ts;
 	memcpy(key->key, digest, sizeof(key->key));
-
-	return 0;
-err:
-	/*
-	 * Set key->ts to 0 to indicate that the calculation has failed and
-	 * not try to use the key on every new handshake.
-	 */
-	key->ts = 0;
-	memset(&digest, 0, sizeof(digest));
+	ttls_bzero_safe(&digest, sizeof(digest));
 
 	return r;
 }
