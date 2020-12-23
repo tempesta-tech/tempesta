@@ -309,7 +309,7 @@ ttls_tickets_configure(TlsPeerCfg *cfg, unsigned long lifetime,
 	}
 
 	for (i = 0; i < 2; i++) {
-		unsigned char kn_hash[TTLS_TICKET_KEY_LEN];
+		unsigned char kn_hash[SHA256_DIGEST_SIZE];
 		TlsTicketKey *key = &tcfg->keys[i];
 		unsigned long ts;
 
