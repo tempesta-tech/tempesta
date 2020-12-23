@@ -1778,7 +1778,7 @@ TEST(http_parser, host)
 			 "Host: tempesta-tech.com 443\n"
 			 "\n");
 
-	/* No braces around IPv6. */
+	/* No brackets around IPv6. */
 	EXPECT_BLOCK_REQ("GET / HTTP/1.1\n"
 			 "Host: fd42:5ca1:e3a7::1000\n"
 			 "\n");
