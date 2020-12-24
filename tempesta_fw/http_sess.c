@@ -1113,6 +1113,7 @@ tfw_sess_ent_init(TdbRec *rec, void *data)
 		sess->key_len = ctx->cookie_val.len;
 
 		sess->srv_conn = (TfwSrvConn *)ctx->resp->conn;
+		tfw_server_pin_sess((TfwServer *)sess->srv_conn->peer);
 		sess->ts = jiffies;
 	}
 	else {
