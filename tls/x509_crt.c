@@ -1824,13 +1824,8 @@ exit:
 TlsX509Crt *
 ttls_x509_crt_alloc(void)
 {
-	/*
-	 * Certificates are always manually zeroised before deallocation,
-	 * avoid GFP_ZERO flag here.
-	 */
-	TlsX509Crt *crt = kmem_cache_alloc(cert_cache, GFP_ATOMIC);
-	if (crt)
-		ttls_bzero_safe(crt, sizeof(TlsX509Crt));
+	TlsX509Crt *crt = kmem_cache_zalloc(cert_cache, GFP_ATOMIC);
+
 	return crt;
 }
 
