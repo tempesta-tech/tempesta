@@ -1663,7 +1663,7 @@ TEST(http_parser, accept)
 		"\r\n");
 }
 
-TEST(http_parser, empty_host)
+TEST(http_parser, host)
 {
 	FOR_REQ("GET / HTTP/1.1\r\n"
 		"Host:\r\n"
@@ -1673,6 +1673,118 @@ TEST(http_parser, empty_host)
 	FOR_REQ("GET / HTTP/1.1\n"
 		"Host:  \n"
 		"\n");
+
+	FOR_REQ("GET / HTTP/1.1\n"
+		"Host:    tempesta-tech.com   \n"
+		"\n")
+	{
+		TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
+		TfwStr h_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = "Host:" , .len = 5 },
+				{ .data = "    " , .len = 4,
+				  .flags = TFW_STR_OWS },
+				{ .data = "tempesta-tech.com" , .len = 17,
+				  .flags = TFW_STR_VALUE },
+			},
+			.len = 26,
+			.nchunks = 3
+		};
+		test_string_split(&h_expected, host);
+
+		EXPECT_EQ(req->host_port, 0);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\n"
+		"Host:    tempesta-tech.com:443   \n"
+		"\n")
+	{
+		TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
+		TfwStr h_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = "Host:" , .len = 5 },
+				{ .data = "    " , .len = 4,
+				  .flags = TFW_STR_OWS },
+				{ .data = "tempesta-tech.com" , .len = 17,
+				  .flags = TFW_STR_VALUE },
+				{ .data = ":" , .len = 1 },
+				{ .data = "443" , .len = 3,
+				  .flags = TFW_STR_VALUE },
+			},
+			.len = 30,
+			.nchunks = 5
+		};
+		test_string_split(&h_expected, host);
+
+		EXPECT_EQ(req->host_port, 443);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\n"
+		"Host:    [fd42:5ca1:e3a7::1000]   \n"
+		"\n")
+	{
+		TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
+		TfwStr h_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = "Host:" , .len = 5 },
+				{ .data = "    " , .len = 4,
+				  .flags = TFW_STR_OWS },
+				{ .data = "[fd42:5ca1:e3a7::1000]" , .len = 22,
+				  .flags = TFW_STR_VALUE },
+			},
+			.len = 31,
+			.nchunks = 3
+		};
+		test_string_split(&h_expected, host);
+
+		EXPECT_EQ(req->host_port, 0);
+	}
+
+	FOR_REQ("GET / HTTP/1.1\n"
+		"Host:    [fd42:5ca1:e3a7::1000]:443   \n"
+		"\n")
+	{
+		TfwStr *host = &req->h_tbl->tbl[TFW_HTTP_HDR_HOST];
+		TfwStr h_expected = {
+			.chunks = (TfwStr []) {
+				{ .data = "Host:" , .len = 5 },
+				{ .data = "    " , .len = 4,
+				  .flags = TFW_STR_OWS },
+				{ .data = "[fd42:5ca1:e3a7::1000]" , .len = 22,
+				  .flags = TFW_STR_VALUE },
+				{ .data = ":" , .len = 1 },
+				{ .data = "443" , .len = 3,
+				  .flags = TFW_STR_VALUE },
+			},
+			.len = 35,
+			.nchunks = 5
+		};
+		test_string_split(&h_expected, host);
+
+		EXPECT_EQ(req->host_port, 443);
+	}
+
+	/* Port syntax is broken. */
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\n"
+			 "Host: tempesta-tech.com:443:1\n"
+			 "\n");
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\n"
+			 "Host: [fd42:5ca1:e3a7::1000]:443:1\n"
+			 "\n");
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\n"
+			 "Host: tempesta-tech.com::443\n"
+			 "\n");
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\n"
+			 "Host: tempesta-tech.com 443\n"
+			 "\n");
+
+	/* No brackets around IPv6. */
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\n"
+			 "Host: fd42:5ca1:e3a7::1000\n"
+			 "\n");
+	EXPECT_BLOCK_REQ("GET / HTTP/1.1\n"
+			 "Host: [fd42:5ca1:e3a7::1000\n"
+			 "\n");
 }
 
 TEST(http_parser, chunked)
@@ -3295,7 +3407,7 @@ TEST_SUITE(http_parser)
 	TEST_RUN(http_parser, ows);
 	TEST_RUN(http_parser, folding);
 	TEST_RUN(http_parser, accept);
-	TEST_RUN(http_parser, empty_host);
+	TEST_RUN(http_parser, host);
 	TEST_RUN(http_parser, chunked);
 	TEST_RUN(http_parser, chunk_size);
 	TEST_RUN(http_parser, cookie);

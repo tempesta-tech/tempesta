@@ -31,6 +31,8 @@
 #include "tls_internal.h"
 #include "lib/common.h"
 
+ttls_cli_id_t *ttls_cli_id_cb;
+
 /*
  * Ciphers used for key generation and ticket decryption. Cached to avoid
  * searches in hot path.
@@ -76,68 +78,89 @@ ttls_ticket_get_time(unsigned long lifetime)
 	return ts;
 }
 
+/**
+ * Generate ticket key for given timestamp @ts, using secret @secret.
+ * Result will be saved into @digest. @digest must be able to handle digest
+ * size (256 bits), caller is responsible to cleanup the digest on errors.
+ */
 static int
-__ttls_ticket_gen_key(TlsTicketKey *key, unsigned long ts,
-		      const char *secret)
+__ttls_ticket_gen_key(unsigned long ts, const char *secret, char *digest)
 {
 	TlsMdCtx md_ctx;
 	int r;
 
-	key->ts = ts;
 	ttls_md_init(&md_ctx);
-	if ((r = ttls_md_setup(&md_ctx, t_cfg.md_info, 1))) {
+	if ((r = ttls_md_setup(&md_ctx, t_cfg.md_info, 1)))
 		T_ERR_NL("TLS: can't init ");
-	}
+
 	r |= ttls_md_hmac_starts(&md_ctx, secret, TTLS_TICKET_KEY_LEN);
 	r |= ttls_md_hmac_update(&md_ctx, ticket_key_sym_iv,
 				 SLEN(ticket_key_sym_iv));
-	r |= ttls_md_hmac_update(&md_ctx, (unsigned char *)&key->ts,
-				 sizeof(key->ts));
-	r |= ttls_md_finish(&md_ctx, key->key);
+	r |= ttls_md_hmac_update(&md_ctx, (unsigned char *)&ts, sizeof(ts));
+	r |= ttls_md_finish(&md_ctx, digest);
 	ttls_md_free(&md_ctx);
-
-	/*
-	 * Set key->ts to 0 to indicate that the calculation has failed and
-	 * not try to use the key on every new handshake.
-	 */
-	if (r) {
-		T_WARN("TLS: can't rotate tls key");
-		key->ts = 0;
-		return r;
-	}
 
 	return r;
 }
 
-static inline int
-ttls_ticket_gen_key(TlsTicketKey *key, const char *secret,  unsigned long ts)
+/**
+ * Initialise ticket key for the first time. Called in process context.
+ */
+static int
+ttls_ticket_gen_key(TlsTicketKey *key, unsigned long ts, const char *secret)
 {
+	char digest[SHA256_DIGEST_SIZE];
 	int r;
 
-	write_lock(&key->lock);
-	r = __ttls_ticket_gen_key(key, ts, secret);
-	write_unlock(&key->lock);
+	r = __ttls_ticket_gen_key(ts, secret, digest);
+	if (unlikely(r)) {
+		/*
+		 * Set ts to 0 to indicate that the calculation has failed
+		 * and not try to use the key on every new handshake.
+		 */
+		ttls_bzero_safe(&digest, sizeof(digest));
+		ts = 0;
+	}
+
+	key->ts = ts;
+	memcpy(key->key, digest, sizeof(key->key));
+	ttls_bzero_safe(&digest, sizeof(digest));
 
 	return r;
 }
 
 static int
-__ttls_ticket_update_keys(TlsTicketPeerCfg *tcfg)
+ttls_ticket_update_keys(TlsTicketPeerCfg *tcfg)
 {
 	unsigned long ts = ttls_ticket_get_time(tcfg->lifetime);
-	TlsTicketKey *act_key = &tcfg->keys[tcfg->active_key];
-	TlsTicketKey *old_key = &tcfg->keys[tcfg->active_key ^ 1];
+	char digest[SHA256_DIGEST_SIZE];
 	int r;
 
-	read_lock(&act_key->lock);
-	if (unlikely(act_key->ts >= ts)) {
-		read_unlock(&act_key->lock);
-		return 0;
+	/* Split key calculation from update to reduce lock time. */
+	r = __ttls_ticket_gen_key(ts, tcfg->secret, digest);
+	if (unlikely(r)) {
+		/*
+		 * Set ts to 0 to indicate that the calculation has failed
+		 * and not try to use the key on every new handshake.
+		 */
+		bzero_fast(&digest, sizeof(digest));
+		ts = 0;
 	}
-	read_unlock(&act_key->lock);
 
-	r = ttls_ticket_gen_key(old_key, tcfg->secret, ts);
-	tcfg->active_key ^= 1;
+	write_lock(&tcfg->key_lock);
+	if (likely(tcfg->keys[tcfg->active_key].ts < ts) || !ts) {
+		TlsTicketKey *old_key = &tcfg->keys[tcfg->active_key ^ 1];
+
+		write_lock(&old_key->lock);
+		old_key->ts = ts;
+		memcpy_fast(old_key->key, digest, sizeof(old_key->key));
+		write_unlock(&old_key->lock);
+
+		tcfg->active_key ^= 1;
+	}
+	write_unlock(&tcfg->key_lock);
+
+	bzero_fast(&digest, sizeof(digest));
 
 	return r;
 }
@@ -155,13 +178,9 @@ ttls_ticket_rotate_keys(unsigned long data)
 {
 	TlsTicketPeerCfg *tcfg = (TlsTicketPeerCfg *)data;
 	unsigned long secs;
-	int r;
 
 	T_DBG("TLS: Rotate keys for ticket configuration [%pK]\n", tcfg);
-	write_lock(&tcfg->key_lock);
-	r = __ttls_ticket_update_keys(tcfg);
-	write_unlock(&tcfg->key_lock);
-	if (r)
+	if (ttls_ticket_update_keys(tcfg))
 		T_ERR("TLS: Can't rotate keys for ticket configuration [%pK]\n",
 		      tcfg);
 
@@ -187,6 +206,10 @@ ttls_tickets_key_current_locked(TlsTicketPeerCfg *tcfg)
 
 	read_lock(&tcfg->key_lock);
 
+	/*
+	 * If key rotation has failed, 'ts' member can be zero. Fail fast to
+	 * avoid decryption attempt with outdated keys.
+	 */
 	if (likely(tcfg->keys[tcfg->active_key].ts)) {
 		key = &tcfg->keys[tcfg->active_key];
 		read_lock(&key->lock);
@@ -285,7 +308,7 @@ ttls_tickets_configure(TlsPeerCfg *cfg, unsigned long lifetime,
 	}
 
 	for (i = 0; i < 2; i++) {
-		unsigned char kn_hash[TTLS_TICKET_KEY_LEN];
+		unsigned char kn_hash[SHA256_DIGEST_SIZE];
 		TlsTicketKey *key = &tcfg->keys[i];
 		unsigned long ts;
 
@@ -321,7 +344,7 @@ ttls_tickets_configure(TlsPeerCfg *cfg, unsigned long lifetime,
 		ts = ttls_ticket_get_time(tcfg->lifetime);
 		if (i)
 			ts -= tcfg->lifetime;
-		if ((r = __ttls_ticket_gen_key(key, ts, tcfg->secret))) {
+		if ((r = ttls_ticket_gen_key(key, ts, tcfg->secret))) {
 			T_ERR_NL("TLS: can't init ticket key value");
 			goto err;
 		}
@@ -362,7 +385,7 @@ ttls_tickets_init()
 {
 	int err = TTLS_ERR_BAD_INPUT_DATA;
 
-	t_cfg.cipher_info = ttls_cipher_info_from_type(TTLS_CIPHER_AES_256_GCM);
+	t_cfg.cipher_info = ttls_cipher_info_from_type(TTLS_CIPHER_AES_128_GCM);
 
 	if (!t_cfg.cipher_info
 	    || (t_cfg.cipher_info->mode != TTLS_MODE_GCM
@@ -386,14 +409,24 @@ void ttls_tickets_exit()
 
 /* ---- Processing tickets                                               ---- */
 
+/**
+ * Handshake state description to be stored and restored from a TLS ticket.
+ * @sess		- Session data, internal structure is used as is;
+ * @client_hash		- client identifier, depends on IP address and requested
+ *			  SNI, prevents session reuse by different clients or
+ *			  different virtual hosts.
+ * @cert_len		- client certificate length;
+ * @cert_data		- raw certificate content;
+ */
 typedef struct {
-	TlsSess		sess;
+	unsigned long	client_hash;
 	size_t		cert_len;
+	TlsSess		sess;
 	char		cert_data[0];
 } __attribute__((packed)) TlsState;
 
 /**
- * Session ticket structure as recommended by RFC 5077.
+ * Session ticket structure. Recommendations are provided in RFC 5077.
  *
  * @name		- key id, pseudo random number expected to be unique
  *			  for every virtual server, depends on SNI value;
@@ -427,20 +460,23 @@ ttls_ticket_sess_true_size(TlsState *state)
 	return sizeof(TlsState) + state->cert_len;
 }
 
+static inline size_t
+ttls_ticket_sess_exp_size(const TlsSess *sess)
+{
+	return sizeof(TlsState) + (sess->peer_cert ? sess->peer_cert->raw.len : 0);
+}
+
 /**
  * Serialize a session state
  */
 static int
 ttls_ticket_sess_save(const TlsSess *sess, TlsState *state, size_t buf_len)
 {
-	if (buf_len < sizeof(TlsState))
+	if (buf_len < ttls_ticket_sess_exp_size(sess))
 		return TTLS_ERR_BUFFER_TOO_SMALL;
 
 	memcpy_fast(&state->sess, sess, sizeof(TlsSess));
 	state->cert_len = sess->peer_cert ? sess->peer_cert->raw.len : 0;
-
-	if (buf_len < ttls_ticket_sess_true_size(state))
-		return TTLS_ERR_BUFFER_TOO_SMALL;
 
 	if (sess->peer_cert)
 		memcpy_fast(state->cert_data, sess->peer_cert->raw.p,
@@ -463,26 +499,85 @@ ttls_ticket_sess_load(TlsState *state, size_t len, unsigned long lifetime)
 	if (state->cert_len > len)
 		return TTLS_ERR_BAD_INPUT_DATA;
 
+	/*
+	 * TODO #830: we can save resources on certificate parsing and
+	 * validating, if the restored session is relatively young.
+	 * Or we can fully bypass certificate-related code in this module
+	 * if ticket lifetime is less that timeout to deliver revoked
+	 * certificates to revoked storage. Alternatively if a lot of
+	 * client certificates keys were revoked, we can force key
+	 * rotation for affected vhosts to invalidate all active tickets
+	 * and check client certificates on full handshakes.
+	 *
+	 * Such optimisations are handy if the only thing required
+	 * from a client certificate is identification. E.g. identify
+	 * client group behind the TLS connections and use a special
+	 * Frang/QoS/Access policies, e.g.
+	 * https://developers.cloudflare.com/access/service-auth/mtls
+	 *
+	 * But when a strict client authentication is required, session
+	 * resumption can't be used at all. The RFC 5246 doesn't allow scenario
+	 * when a client certificate is validated on an abbreviated handshake.
+	 * This doesn't guarantee that client owns and can use the certificate
+	 * he used on a full handshake. E.g. untrusted program may have an
+	 * access to client session cache but not to the private key.
+	 * https://www.ndss-symposium.org/wp-content/uploads/2017/09/12_4_1.pdf
+	 * TLS 1.3 can use Post-Handshake Authentication for that.
+	 *
+	 * Approaches to store certificates inside of tickets a very different.
+	 * Some store only end peer certificate, some restrict depth of a chain
+	 * by 3 certificates, some doesn't store them. Didn't found examples,
+	 * when only required information from the certificate is stored though.
+	 * All of the variants are possible, but our current aims for certificate
+	 * validation are uncertain until #830. For now certificates will be
+	 * stored in tickets with a full chain as recommended in RFC 5077.
+	 */
 	if (!state->cert_len) {
 		state->sess.peer_cert = NULL;
 	}
 	else {
 		TlsSess *sess = &state->sess;
+		struct page *pg;
 		int r;
 
-		sess->peer_cert = kmalloc(sizeof(ttls_x509_crt), GFP_ATOMIC);
+		sess->peer_cert = ttls_x509_crt_alloc();
 		if (!sess->peer_cert)
 			return TTLS_ERR_ALLOC_FAILED;
+		/*
+		 * Same as in See ttls_parse_certificate(), we have to copy full
+		 * certificate here, since some structures in TlsX509Crt may
+		 * address it.
+		 */
+		pg = alloc_pages(GFP_ATOMIC, get_order(state->cert_len));
+		if (!pg) {
+			ttls_x509_crt_destroy(&sess->peer_cert);
+			return TTLS_ERR_ALLOC_FAILED;
+		}
+		memcpy_fast(page_address(pg), state->cert_data, state->cert_len);
 
-		ttls_x509_crt_init(sess->peer_cert);
-		r = ttls_x509_crt_parse_der(sess->peer_cert, state->cert_data,
+		r = ttls_x509_crt_parse_der(sess->peer_cert, page_address(pg),
 					    state->cert_len);
 		if (r) {
-			ttls_x509_crt_free(sess->peer_cert);
-			kfree(sess->peer_cert);
-			sess->peer_cert = NULL;
+			/*
+			 * TlsX509Crt grabs the memory under parsed certificate
+			 * and stores it in 'raw' member. ttls_x509_crt_destroy
+			 * can free it, but the parsing function may fail before
+			 * the pointer is grabbed.
+			 */
+			if (!sess->peer_cert->raw.p)
+				__free_pages(pg, get_order(state->cert_len));
+			ttls_x509_crt_destroy(&sess->peer_cert);
 			return r;
 		}
+		/*
+		 * TODO #830: validate client certificate: a session is to be
+		 * restored and the certificate was fully checked on a full
+		 * handshake, but the certificate may become outdated, revoked.
+		 * Same can be applied to all certificates in it's chain of
+		 * trust. Most of that is checked during parsing, but extra
+		 * code from  ttls_parse_certificate() and
+		 * ttls_parse_certificate_verify() may be required here.
+		 */
 	}
 
 	return 0;
@@ -594,6 +689,7 @@ ttls_ticket_parse(TlsCtx *ctx, unsigned char *buf, size_t len)
 	TlsTicketKey *key;
 	size_t state_len = len - TTLS_TICKET_KEY_NAME_LEN - TTLS_MAX_IV_LENGTH;
 	TlsSess *recv_sess;
+	unsigned long cli_hash;
 	int r;
 
 	if (unlikely(!ctx->peer_conf->sess_tickets))
@@ -608,7 +704,24 @@ ttls_ticket_parse(TlsCtx *ctx, unsigned char *buf, size_t len)
 	read_unlock(&key->lock);
 	if (unlikely(r))
 		return r;
-
+	/*
+	 * RFC 6066 Section 3.
+	 * The client SHOULD
+	 * include the same server_name extension in the session resumption
+	 * request as it did in the full handshake that established the session.
+	 * A server that implements this extension MUST NOT accept the request
+	 * to resume the session if the server_name extension contains a
+	 * different name.
+	 *
+	 * We make the rule more strict and deny passing tickets between clients
+	 * (bots). IP address of a user can be changed time to time (DHCP,
+	 * mobile-to-wifi switches, but this doesn't happen on high rates.
+	 */
+	cli_hash = ttls_cli_id_cb(ctx, ctx->sni_hash);
+	if (tik->state.client_hash != cli_hash) {
+		bzero_fast(tik, len);
+		return TTLS_ERR_SESSION_TICKET_EXPIRED;
+	}
 	r = ttls_ticket_sess_load(&tik->state, state_len, tcfg->lifetime);
 	if (unlikely(r)) {
 		bzero_fast(tik, len);
@@ -643,14 +756,15 @@ ttls_ticket_write(TlsCtx *ctx, unsigned char *buf,
 	TlsTicketKey *key;
 	int r;
 
-	if (unlikely(!ctx->peer_conf->sess_tickets))
-		return TTLS_ERR_SESSION_TICKET_EXPIRED;
-	if (unlikely(buf_sz < sizeof(TlsState)))
-		return TTLS_ERR_BUFFER_TOO_SMALL;
+	if (unlikely(!ctx->peer_conf->sess_tickets)) {
+		*tlen = 0;
+		return 0;
+	}
 
 	r = ttls_ticket_sess_save(&ctx->sess, &tik->state, buf_sz);
 	if (unlikely(r))
 		return r;
+	tik->state.client_hash = ttls_cli_id_cb(ctx, ctx->sni_hash);
 
 	key = ttls_tickets_key_current_locked(tcfg);
 	if (unlikely(!key))

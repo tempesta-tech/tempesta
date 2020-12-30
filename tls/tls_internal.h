@@ -247,7 +247,7 @@ int ttls_check_sig_hash(const TlsCtx *tls, ttls_md_type_t md);
 int ttls_match_sig_hashes(const TlsCtx *tls);
 void ttls_update_checksum(TlsCtx *tls, const unsigned char *buf, size_t len);
 
-static inline ttls_x509_crt *
+static inline TlsX509Crt *
 ttls_own_cert(TlsCtx *tls)
 {
 	TlsKeyCert *key_cert;
@@ -269,7 +269,7 @@ ttls_own_cert(TlsCtx *tls)
  *
  * Return 0 if everything is OK, -1 if not.
  */
-int ttls_check_cert_usage(const ttls_x509_crt *cert,
+int ttls_check_cert_usage(const TlsX509Crt *cert,
 			  const TlsCiphersuite *ciphersuite,
 			  int cert_endpoint,
 			  uint32_t *flags);

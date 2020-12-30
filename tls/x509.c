@@ -758,6 +758,17 @@ static int x509_check_time(const ttls_x509_time *before, const ttls_x509_time *a
 	return 0;
 }
 
+/**
+ * Check a given ttls_x509_time against the system time and tell if it's in the
+ * past.
+ *
+ * Intended usage is "if (is_past(valid_to)) ERROR". Hence the return value of
+ * 1 if on internal errors.
+ *
+ * @to		- ttls_x509_time to check;
+ *
+ * @return 1 if the given time is in the past or an error occurred, 0 otherwise.
+ */
 int
 ttls_x509_time_is_past(const ttls_x509_time *to)
 {
@@ -768,6 +779,15 @@ ttls_x509_time_is_past(const ttls_x509_time *to)
 	return x509_check_time(&now, to);
 }
 
+/**
+ * heck a given ttls_x509_time against the system time and tell if it's in the
+ * future. Intended usage is "if (is_future(valid_from)) ERROR".
+ * Hence the return value of 1 if on internal errors.
+ *
+ * @from	- ttls_x509_time to check
+ *
+ * @return 1 if the given time is in the future or an error occurred, 0 otherwise.
+ */
 int
 ttls_x509_time_is_future(const ttls_x509_time *from)
 {

@@ -50,6 +50,8 @@ static DEFINE_PER_CPU(struct aead_request *, g_req) ____cacheline_aligned;
 static struct kmem_cache *ttls_hs_cache = NULL;
 static ttls_send_cb_t *ttls_send_cb;
 extern ttls_sni_cb_t *ttls_sni_cb;
+extern ttls_hs_over_cb_t *ttls_hs_over_cb;
+extern ttls_cli_id_t *ttls_cli_id_cb;
 
 static inline size_t
 ttls_max_ciphertext_len(const TlsXfrm *xfrm)
@@ -233,12 +235,25 @@ ttls_skb_extract_alert(TlsIOCtx *io, TlsXfrm *xfrm)
  * Register I/O callbacks from the underlying network layer.
  */
 void
-ttls_register_callbacks(ttls_send_cb_t *send_cb, ttls_sni_cb_t *sni_cb)
+ttls_register_callbacks(ttls_send_cb_t *send_cb, ttls_sni_cb_t *sni_cb,
+			ttls_hs_over_cb_t *hs_over_cb, ttls_cli_id_t *cli_id_cb)
 {
 	ttls_send_cb = send_cb;
 	ttls_sni_cb = sni_cb;
+	ttls_hs_over_cb = hs_over_cb;
+	ttls_cli_id_cb = cli_id_cb;
 }
 EXPORT_SYMBOL(ttls_register_callbacks);
+
+/**
+ * Returns true if handshake is fully processed.
+ */
+bool
+ttls_hs_done(TlsCtx *tls)
+{
+	return tls->state == TTLS_HANDSHAKE_OVER;
+}
+EXPORT_SYMBOL(ttls_hs_done);
 
 /**
  * Whether TLS context transformation is ready for crypto and we should encrypt
@@ -280,11 +295,9 @@ ttls_session_copy(TlsSess *dst, const TlsSess *src)
 	if (src->peer_cert) {
 		int r;
 
-		dst->peer_cert = kmalloc(sizeof(ttls_x509_crt), GFP_ATOMIC);
+		dst->peer_cert = ttls_x509_crt_alloc();
 		if (!dst->peer_cert)
 			return -ENOMEM;
-
-		ttls_x509_crt_init(dst->peer_cert);
 
 		r = ttls_x509_crt_parse_der(dst->peer_cert,
 					    src->peer_cert->raw.p,
@@ -1347,7 +1360,7 @@ ttls_write_certificate(TlsCtx *tls, struct sg_table *sgt,
 {
 	unsigned int sg_i;
 	size_t n, tot_len = 0;
-	const ttls_x509_crt *crt;
+	const TlsX509Crt *crt;
 	TlsIOCtx *io = &tls->io_out;
 	unsigned char *p = *in_buf;
 
@@ -1457,7 +1470,7 @@ ttls_parse_certificate(TlsCtx *tls, unsigned char *buf, size_t len,
 	 * TODO call ttls_update_checksum() for the message as well.
 	 */
 	T_FSM_STATE(TTLS_CC_HS_ALLOC) {
-		pg = alloc_pages(GFP_ATOMIC, 2);
+		pg = alloc_pages(GFP_ATOMIC, get_order(io->hslen));
 		if (!pg)
 			return -ENOMEM;
 		p = (unsigned char *)page_address(pg);
@@ -1472,6 +1485,7 @@ ttls_parse_certificate(TlsCtx *tls, unsigned char *buf, size_t len,
 		io->rlen += n;
 		if (io->rlen == io->hslen)
 			T_FSM_JMP(TTLS_CC_HS_PARSE);
+		tls->state = ttls_state(tls) + TTLS_CC_HS_READ;
 		return T_POSTPONE;
 	}
 	T_FSM_STATE(TTLS_CC_HS_PARSE) {
@@ -1513,21 +1527,15 @@ parse:
 	}
 
 	/* In case we tried to reuse a session but it failed */
-	if (sess->peer_cert) {
-		ttls_x509_crt_free(sess->peer_cert);
-		kfree(sess->peer_cert);
-	}
-	sess->peer_cert = kmalloc(sizeof(ttls_x509_crt), GFP_ATOMIC);
+	ttls_x509_crt_destroy(&sess->peer_cert);
+	sess->peer_cert = ttls_x509_crt_alloc();
 	if (!sess->peer_cert) {
-		T_DBG("can not allocate a certificate (%lu bytes)\n",
-		      sizeof(ttls_x509_crt));
+		T_DBG("can not allocate a certificate\n");
 		ttls_send_alert(tls, TTLS_ALERT_LEVEL_FATAL,
 				    TTLS_ALERT_MSG_INTERNAL_ERROR);
 		r = TTLS_ERR_ALLOC_FAILED;
 		goto err;
 	}
-
-	ttls_x509_crt_init(sess->peer_cert);
 
 	for (i += 3; i < io->hslen; i += n) {
 		if (p[i]) {
@@ -1575,15 +1583,12 @@ parse:
 
 	if (authmode != TTLS_VERIFY_NONE) {
 		const TlsPkCtx *pk = &sess->peer_cert->pk;
-		ttls_x509_crt *ca_chain = tls->hs->key_cert->ca_chain;
+		TlsX509Crt *ca_chain = tls->hs->key_cert->ca_chain;
 		ttls_x509_crl *ca_crl = tls->hs->key_cert->ca_crl;
 
 		/* Main check: verify certificate */
-		r = ttls_x509_crt_verify_with_profile(sess->peer_cert, ca_chain,
-						      ca_crl,
-						      &ttls_x509_crt_profile_suiteb,
-						      tls->hostname,
-						      &sess->verify_result);
+		r = ttls_x509_crt_verify(sess->peer_cert, ca_chain, ca_crl,
+					 tls->hostname, &sess->verify_result);
 		if (r)
 			T_DBG("client cert verification status: %d\n", r);
 
@@ -1611,7 +1616,7 @@ parse:
 		}
 
 		/*
-		 * ttls_x509_crt_verify_with_profile() is supposed to report a
+		 * ttls_x509_crt_verify() is supposed to report a
 		 * verification failure through TTLS_ERR_X509_CERT_VERIFY_FAILED,
 		 * with details encoded in the verification flags. All other
 		 * kinds of error codes, are treated as fatal and lead to a
@@ -1912,8 +1917,8 @@ ttls_set_session(TlsCtx *tls, const TlsSess *sess)
  * Called in process context on the startup.
  */
 int
-ttls_conf_own_cert(TlsPeerCfg *conf, ttls_x509_crt *own_cert, TlsPkCtx *pk_key,
-		   ttls_x509_crt *ca_chain, ttls_x509_crl *ca_crl)
+ttls_conf_own_cert(TlsPeerCfg *conf, TlsX509Crt *own_cert, TlsPkCtx *pk_key,
+		   TlsX509Crt *ca_chain, ttls_x509_crl *ca_crl)
 {
 	TlsKeyCert *new;
 
@@ -2222,19 +2227,21 @@ ttls_recv(void *tls_data, unsigned char *buf, size_t len, unsigned int *read)
 		return r;
 
 	case TTLS_MSG_APPLICATION_DATA:
+		/*
+		 * Don't allow application data before secured connection is
+		 * established.
+		 */
+		if (unlikely(tls->state != TTLS_HANDSHAKE_OVER)) {
+			T_WARN("TLS context isn't ready after handshake\n");
+			return T_DROP;
+		}
 		break;
 	}
 
 	if (len == 0)
 		return T_POSTPONE;
 
-	/* After the handshake the crypto context must be ready. */
-	if (unlikely(!ttls_xfrm_ready(tls))) {
-		T_WARN("TLS context isn't ready after handshake\n");
-		return T_DROP;
-	}
-
-	/* Encrypted data. */
+	/* Encrypted data, crypto context is guaranteed to be ready here. */
 	if (io->msglen > io->rlen + len) {
 		*read += len;
 		io->rlen += len;
@@ -2294,11 +2301,8 @@ ttls_ctx_clear(TlsCtx *tls)
 	ttls_cipher_free(&tls->xfrm.cipher_ctx_enc);
 	ttls_cipher_free(&tls->xfrm.cipher_ctx_dec);
 
-	if (tls->sess.peer_cert) {
-		/* #830 check that all the data is freed correctly. */
-		ttls_x509_crt_free(tls->sess.peer_cert);
-		kfree(tls->sess.peer_cert);
-	}
+	/* #830 check that all the data is freed correctly. */
+	ttls_x509_crt_destroy(&tls->sess.peer_cert);
 
 	bzero_fast(tls, sizeof(TlsCtx));
 }
@@ -2634,7 +2638,7 @@ err:
 }
 
 int
-ttls_check_cert_usage(const ttls_x509_crt *cert,
+ttls_check_cert_usage(const TlsX509Crt *cert,
 		      const TlsCiphersuite *ciphersuite, int cert_endpoint,
 		      uint32_t *flags)
 {
@@ -2773,6 +2777,7 @@ ttls_exit(void)
 
 	ttls_mpool_exit();
 	ttls_tickets_exit();
+	ttls_x509_exit();
 }
 
 static int __init
@@ -2788,7 +2793,8 @@ ttls_init(void)
 
 	if ((r = ttls_crypto_modinit()))
 		goto err_free;
-
+	if ((r = ttls_x509_init()))
+		goto err_free;
 	if ((r = ttls_tickets_init()))
 		goto err_free;
 
