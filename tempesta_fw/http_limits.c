@@ -39,6 +39,7 @@
 #include "http_msg.h"
 #include "vhost.h"
 #include "log.h"
+#include "hash.h"
 
 /*
  * ------------------------------------------------------------------------
@@ -201,6 +202,8 @@ typedef struct {
 	unsigned long	ts;
 	unsigned int	conn_new;
 	unsigned int	req;
+	unsigned int	tls_sess_new;
+	unsigned int	tls_sess_incomplete;
 } FrangRates;
 
 /**
@@ -275,9 +278,8 @@ frang_conn_limit(FrangAcc *ra, FrangGlobCfg *conf)
 	int i = ts % FRANG_FREQ;
 
 	if (ra->history[i].ts != ts) {
+		bzero_fast(&ra->history[i], sizeof(ra->history[i]));
 		ra->history[i].ts = ts;
-		ra->history[i].conn_new = 0;
-		ra->history[i].req = 0;
 	}
 
 	/*
@@ -623,8 +625,11 @@ static int
 frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 {
 	TfwAddr addr;
-	TfwStr field;
-	int ret = TFW_PASS;
+	TfwStr host_hdr_val, host_hdr_trim = { 0 }, host_hdr_name = { 0 }, *c, *end;
+	unsigned long sni_hash = 0;
+	bool got_delim = false;
+	unsigned short port;
+	unsigned short real_port;
 
 	BUG_ON(!req);
 	BUG_ON(!req->h_tbl);
@@ -640,55 +645,81 @@ frang_http_host_check(const TfwHttpReq *req, FrangAcc *ra)
 	}
 
 	tfw_http_msg_clnthdr_val(req, &req->h_tbl->tbl[TFW_HTTP_HDR_HOST],
-				 TFW_HTTP_HDR_HOST, &field);
-	if (!TFW_STR_EMPTY(&field)) {
-		/* Check that host header is not a IP address. */
-		if (!tfw_addr_pton(&field, &addr)) {
-			frang_msg("Host header field contains IP address",
-				  &FRANG_ACC2CLI(ra)->addr, "\n");
-			return TFW_BLOCK;
+				 TFW_HTTP_HDR_HOST, &host_hdr_val);
+	/* Host can contain whitespaces, trimmed value is required. */
+	host_hdr_name.chunks = host_hdr_trim.chunks = host_hdr_val.chunks;
+	host_hdr_name.flags = host_hdr_trim.flags = host_hdr_val.flags;
+
+	TFW_STR_FOR_EACH_CHUNK(c, &host_hdr_val, end) {
+		if (c->flags & TFW_STR_VALUE) {
+			if (!got_delim) {
+				host_hdr_name.nchunks++;
+				host_hdr_name.len += c->len;
+			}
+			host_hdr_trim.nchunks++;
+			host_hdr_trim.len += c->len;
+		}
+		else if (c->len == 1 && c->data[0] == ':') {
+			got_delim = true;
+			host_hdr_trim.nchunks++;
+			host_hdr_trim.len += c->len;
 		}
 	}
 
-	if (test_bit(TFW_HTTP_B_URI_FULL, req->flags)) {
-		char *hdrhost;
+	if (TFW_STR_EMPTY(&host_hdr_trim)) {
+		/* Host can be empty only if URI has form "/path". */
+		if (test_bit(TFW_HTTP_B_URI_FULL, req->flags))
+			return TFW_PASS;
 
-		/* If host in URI is empty, host header also must be empty. */
-		if (TFW_STR_EMPTY(&field) + TFW_STR_EMPTY(&req->host) == 1) {
-			frang_msg("Host header and URI host mismatch",
-				  &FRANG_ACC2CLI(ra)->addr, "\n");
-			return TFW_BLOCK;
-		}
-
-		hdrhost = tfw_pool_alloc(req->pool, field.len + 1);
-		if (unlikely(!hdrhost)) {
-			T_ERR("Can not allocate memory\n");
-			return TFW_BLOCK;
-		}
-		tfw_str_to_cstr(&field, hdrhost, field.len + 1);
-
-		/*
-		 * If URI has form "http://host:port/path",
-		 * then host header must be equal to host in URI.
-		 */
-		if (!tfw_str_eq_cstr(&req->host, hdrhost, field.len,
-				     TFW_STR_EQ_CASEI))
-		{
-			frang_msg("Host header is not equal to host in URL",
-				  &FRANG_ACC2CLI(ra)->addr, "\n");
-			ret = TFW_BLOCK;
-		}
-
-		tfw_pool_free(req->pool, hdrhost, field.len + 1);
+		frang_msg("Host header is empty", &FRANG_ACC2CLI(ra)->addr, "\n");
+		return TFW_BLOCK;
 	}
-	else if (TFW_STR_EMPTY(&field)) {
-		/* If URI has form "/path", then host is not empty. */
-		frang_msg("Host header is empty",
+
+	/* Check that host header is not a IP address. */
+	if (!tfw_addr_pton(&host_hdr_trim, &addr)) {
+		frang_msg("Host header field contains IP address",
 			  &FRANG_ACC2CLI(ra)->addr, "\n");
-		ret = TFW_BLOCK;
+		return TFW_BLOCK;
+	}
+	/* Check that SNI for TLS connection matches host header. */
+	if (TFW_CONN_TLS(req->conn)) {
+		sni_hash = tfw_tls_context(req->conn)->sni_hash;
+		port = req->host_port ? : 443;
+	}
+	else {
+		port =  req->host_port ? : 80;
+	}
+	if (sni_hash && (tfw_hash_str(&host_hdr_name) != sni_hash)) {
+		frang_msg("host header doesn't match SNI from TLS handshake",
+			  &FRANG_ACC2CLI(ra)->addr, "\n");
+		return TFW_BLOCK;
+	}
+	/*
+	 * TfwClient instance can be reused across multiple connections,
+	 * check the port number of the current connection, not the first one.
+	 */
+	real_port = be16_to_cpu(inet_sk(req->conn->sk)->inet_sport);
+	if (port != real_port) {
+		frang_msg("port from host header doesn't match real port",
+			  &FRANG_ACC2CLI(ra)->addr, ": %d (%d)\n", port,
+			  real_port);
+		return TFW_BLOCK;
 	}
 
-	return ret;
+	if (!test_bit(TFW_HTTP_B_URI_FULL, req->flags))
+		return TFW_PASS;
+
+	/*
+	 * If URI has form "http://host:port/path",
+	 * then host header must be equal to host in URI.
+	 */
+	if (tfw_stricmp(&req->host, &host_hdr_trim)) {
+		frang_msg("Host header is not equal to host in URL",
+			  &FRANG_ACC2CLI(ra)->addr, "\n");
+		return TFW_BLOCK;
+	}
+
+	return TFW_PASS;
 }
 
 /*
@@ -727,6 +758,13 @@ enum {
 	TFW_FRANG_RESP_FSM_INIT	= TFW_GFSM_FRANG_RESP_STATE(0),
 	TFW_FRANG_RESP_FSM_FWD	= TFW_GFSM_FRANG_RESP_STATE(1),
 	TFW_FRANG_RESP_FSM_DONE	= TFW_GFSM_FRANG_RESP_STATE(TFW_GFSM_STATE_LAST)
+};
+
+#define TFW_GFSM_FRANG_TLS_STATE(s)					\
+	((TFW_FSM_FRANG_TLS << TFW_GFSM_FSM_SHIFT) | (s))
+enum {
+	TFW_FRANG_TLS_FSM_INIT	= TFW_GFSM_FRANG_TLS_STATE(0),
+	TFW_FRANG_TLS_FSM_DONE	= TFW_GFSM_FRANG_TLS_STATE(TFW_GFSM_STATE_LAST)
 };
 
 #define __FRANG_FSM_MOVE(st)	T_FSM_MOVE(st, if (r) T_FSM_EXIT(); )
@@ -1305,6 +1343,102 @@ frang_resp_handler(void *obj, TfwFsmData *data)
 	return r;
 }
 
+static int
+frang_tls_conn_limit(FrangAcc *ra, FrangGlobCfg *conf, int hs_state)
+{
+	unsigned long ts = (jiffies * FRANG_FREQ) / HZ;
+	unsigned long sum_new = 0, sum_incomplete = 0;
+	int i = ts % FRANG_FREQ;
+
+	if (ra->history[i].ts != ts) {
+		bzero_fast(&ra->history[i], sizeof(ra->history[i]));
+		ra->history[i].ts = ts;
+	}
+
+	switch (hs_state)
+	{
+	case TTLS_HS_CB_FINISHED_NEW:
+		ra->history[i].tls_sess_new++;
+		break;
+	case TTLS_HS_CB_FINISHED_RESUMED:
+		break;
+	case TTLS_HS_CB_INCOMPLETE:
+		ra->history[i].tls_sess_incomplete++;
+		break;
+	default:
+		WARN_ONCE(1, "Frang: unknown tls state\n");
+		return TFW_BLOCK;
+		break;
+	}
+
+	for (i = 0; i < FRANG_FREQ; i++)
+		if (ra->history[i].ts + FRANG_FREQ >= ts) {
+			sum_new += ra->history[i].tls_sess_new;
+			sum_incomplete += ra->history[i].tls_sess_incomplete;
+		}
+
+	switch (hs_state)
+	{
+	case TTLS_HS_CB_FINISHED_NEW:
+		if (conf->tls_new_conn_rate
+		    && sum_new > conf->tls_new_conn_rate)
+		{
+			frang_limmsg("new TLS connections rate", sum_new,
+				     conf->tls_new_conn_rate,
+				     &FRANG_ACC2CLI(ra)->addr);
+			return TFW_BLOCK;
+		}
+		if (conf->tls_new_conn_burst
+		    && sum_new > conf->tls_new_conn_burst)
+		{
+			frang_limmsg("new TLS connections burst", sum_new,
+				     conf->tls_new_conn_burst,
+				     &FRANG_ACC2CLI(ra)->addr);
+			return TFW_BLOCK;
+		}
+		break;
+	case TTLS_HS_CB_INCOMPLETE:
+		if (conf->tls_incomplete_conn_rate
+		    && sum_incomplete > conf->tls_incomplete_conn_rate)
+		{
+			frang_limmsg("incomplete TLS connections rate",
+				     sum_incomplete,
+				     conf->tls_incomplete_conn_rate,
+				     &FRANG_ACC2CLI(ra)->addr);
+			return TFW_BLOCK;
+		}
+		break;
+	default:
+		break;
+	}
+
+	return TFW_PASS;
+}
+
+static int
+frang_tls_handler(void *obj, TfwFsmData *data)
+{
+	TfwCliConn *conn = (TfwCliConn *)obj;
+	FrangAcc *ra = conn->sk->sk_security;
+	int hs_state = -PTR_ERR(data->req);
+	TfwVhost *dflt_vh = tfw_vhost_lookup_default();
+	int r;
+
+	if (WARN_ON_ONCE(!dflt_vh))
+		return TFW_BLOCK;
+
+	spin_lock(&ra->lock);
+
+	r = frang_tls_conn_limit(ra, dflt_vh->frang_gconf, hs_state);
+	if (r == TFW_BLOCK && dflt_vh->frang_gconf->ip_block)
+		tfw_filter_block_ip(&FRANG_ACC2CLI(ra)->addr);
+
+	spin_unlock(&ra->lock);
+	tfw_vhost_put(dflt_vh);
+
+	return r;
+}
+
 static TfwClassifier frang_class_ops = {
 	.name			= "frang",
 	.classify_conn_estab	= frang_conn_new,
@@ -1319,6 +1453,7 @@ static TfwClassifier frang_class_ops = {
 
 typedef struct {
 	int			prio;
+	int			hook_fsm;
 	int			hook_state;
 	int			st0;
 	unsigned short		fsm_id;
@@ -1328,6 +1463,7 @@ typedef struct {
 static FrangGfsmHook frang_gfsm_hooks[] = {
 	{
 		.prio		= -1,
+		.hook_fsm	= TFW_FSM_HTTP,
 		.hook_state	= TFW_HTTP_FSM_REQ_MSG,
 		.fsm_id		= TFW_FSM_FRANG_REQ,
 		.st0		= TFW_FRANG_REQ_FSM_INIT,
@@ -1335,6 +1471,7 @@ static FrangGfsmHook frang_gfsm_hooks[] = {
 	},
 	{
 		.prio		= -1,
+		.hook_fsm	= TFW_FSM_HTTP,
 		.hook_state	= TFW_HTTP_FSM_REQ_CHUNK,
 		.fsm_id		= TFW_FSM_FRANG_REQ,
 		.st0		= TFW_FRANG_REQ_FSM_INIT,
@@ -1342,6 +1479,7 @@ static FrangGfsmHook frang_gfsm_hooks[] = {
 	},
 	{
 		.prio		= -1,
+		.hook_fsm	= TFW_FSM_HTTP,
 		.hook_state	= TFW_HTTP_FSM_RESP_MSG,
 		.fsm_id		= TFW_FSM_FRANG_RESP,
 		.st0		= TFW_FRANG_RESP_FSM_INIT,
@@ -1349,6 +1487,7 @@ static FrangGfsmHook frang_gfsm_hooks[] = {
 	},
 	{
 		.prio		= -1,
+		.hook_fsm	= TFW_FSM_HTTP,
 		.hook_state	= TFW_HTTP_FSM_RESP_CHUNK,
 		.fsm_id		= TFW_FSM_FRANG_RESP,
 		.st0		= TFW_FRANG_RESP_FSM_INIT,
@@ -1356,10 +1495,19 @@ static FrangGfsmHook frang_gfsm_hooks[] = {
 	},
 	{
 		.prio		= -1,
+		.hook_fsm	= TFW_FSM_HTTP,
 		.hook_state	= TFW_HTTP_FSM_RESP_MSG_FWD,
 		.fsm_id		= TFW_FSM_FRANG_RESP,
 		.st0		= TFW_FRANG_RESP_FSM_FWD,
 		.name		= "response_fwd",
+	},
+	{
+		.prio		= -1,
+		.hook_fsm	= TFW_FSM_HTTPS,
+		.hook_state	= TFW_TLS_FSM_HS_DONE,
+		.fsm_id		= TFW_FSM_FRANG_TLS,
+		.st0		= TFW_FRANG_TLS_FSM_INIT,
+		.name		= "tls_hs_done",
 	},
 };
 
@@ -1372,7 +1520,7 @@ tfw_http_limits_hooks_remove(void)
 		FrangGfsmHook *h = &frang_gfsm_hooks[i];
 		if (h->prio == -1)
 			continue;
-		tfw_gfsm_unregister_hook(TFW_FSM_HTTP, h->prio, h->hook_state);
+		tfw_gfsm_unregister_hook(h->hook_fsm, h->prio, h->hook_state);
 		h->prio = -1;
 	}
 }
@@ -1385,7 +1533,7 @@ tfw_http_limits_hooks_register(void)
 	for (i = 0; i < ARRAY_SIZE(frang_gfsm_hooks); i++) {
 		FrangGfsmHook *h = &frang_gfsm_hooks[i];
 
-		h->prio = tfw_gfsm_register_hook(TFW_FSM_HTTP,
+		h->prio = tfw_gfsm_register_hook(h->hook_fsm,
 						 TFW_GFSM_HOOK_PRIORITY_ANY,
 						 h->hook_state, h->fsm_id,
 						 h->st0);
@@ -1421,6 +1569,12 @@ tfw_http_limits_init(void)
 		goto err_fsm_resp;
 	}
 
+	r = tfw_gfsm_register_fsm(TFW_FSM_FRANG_TLS, frang_tls_handler);
+	if (r) {
+		T_ERR_NL("frang: can't register frang tls fsm\n");
+		goto err_fsm_tls;
+	}
+
 	r = tfw_http_limits_hooks_register();
 	if (r)
 		goto err_hooks;
@@ -1428,6 +1582,8 @@ tfw_http_limits_init(void)
 	return 0;
 err_hooks:
 	tfw_http_limits_hooks_remove();
+	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_TLS);
+err_fsm_tls:
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_RESP);
 err_fsm_resp:
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_REQ);
@@ -1443,6 +1599,7 @@ tfw_http_limits_exit(void)
 	T_DBG("frang exit\n");
 
 	tfw_http_limits_hooks_remove();
+	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_TLS);
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_RESP);
 	tfw_gfsm_unregister_fsm(TFW_FSM_FRANG_REQ);
 	tfw_classifier_unregister();

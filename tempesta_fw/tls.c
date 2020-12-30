@@ -32,6 +32,7 @@
 #include "http_frame.h"
 #include "tls.h"
 #include "vhost.h"
+#include "lib/hash.h"
 
 /**
  * Global level TLS configuration.
@@ -98,6 +99,31 @@ tfw_tls_purge_io_ctx(TlsIOCtx *io)
 }
 
 static int
+tfw_tls_hs_over(TlsCtx *ctx, int state)
+{
+	TfwCliConn *c = &container_of(ctx, TfwTlsConn, tls)->cli_conn;
+	TfwFsmData data_up = { .req = ERR_PTR(-state)};
+
+	return tfw_gfsm_move(&c->state, TFW_TLS_FSM_HS_DONE, &data_up);
+}
+
+/**
+ * A connection has been lost during handshake processing, warn Frang.
+ * It's relatively cheap to pass SYN cookie and then send previously captured
+ * or randomly forged TLS handshakes. No calculations are required on a client
+ * side then.
+ */
+void
+tfw_tls_connection_lost(TfwConn *conn)
+{
+	TlsCtx *tls = &((TfwTlsConn *)conn)->tls;
+	TfwFsmData data_up = { .req = ERR_PTR(-TTLS_HS_CB_INCOMPLETE)};
+
+	if (!ttls_hs_done(tls))
+		tfw_gfsm_move(&conn->state, TFW_TLS_FSM_HS_DONE, &data_up);
+}
+
+static int
 tfw_tls_msg_process(void *conn, TfwFsmData *data)
 {
 	int r, parsed;
@@ -125,6 +151,8 @@ next_msg:
 		/* Fall through. */
 	case T_DROP:
 		spin_unlock(&tls->lock);
+		if (!ttls_hs_done(tls))
+			tfw_tls_hs_over(tls, TTLS_HS_CB_INCOMPLETE);
 		/* The skb is freed in tfw_tls_conn_dtor(). */
 		return r;
 	case T_POSTPONE:
@@ -708,7 +736,7 @@ tfw_tls_get_if_configured(TfwVhost *vhost)
 	TlsPeerCfg *cfg;
 
 	if (unlikely(!vhost))
-		return false;
+		return NULL;
 
 	cfg = &vhost->tls_cfg;
 	if (likely(cfg->key_cert))
@@ -779,14 +807,28 @@ tfw_tls_sni(TlsCtx *ctx, const unsigned char *data, size_t len)
 
 	peer_cfg = tfw_tls_get_if_configured(vhost);
 	ctx->peer_conf = peer_cfg;
-	if (DBG_TLS && peer_cfg) {
+	if (unlikely(!peer_cfg))
+		return TTLS_ERR_CERTIFICATE_REQUIRED;
+
+	if (DBG_TLS) {
 		vhost = tfw_vhost_from_tls_conf(ctx->peer_conf);
 		T_DBG("%s: for server name '%.*s' vhost '%.*s' is chosen\n",
 		      __func__, PR_TFW_STR(&srv_name),
 		      PR_TFW_STR(&vhost->name));
 	}
+	/* Save processed server name as hash. */
+	ctx->sni_hash = len ? hash_calc(data, len) : 0;
 
-	return peer_cfg ? 0 : TTLS_ERR_CERTIFICATE_REQUIRED;
+	return 0;
+}
+
+static unsigned long
+ttls_cli_id(TlsCtx *tls, unsigned long hash)
+{
+	TfwCliConn *cli_conn = &container_of(tls, TfwTlsConn, tls)->cli_conn;
+
+	return hash_calc_update((const char *)&cli_conn->peer->addr,
+				sizeof(TfwAddr), hash);
 }
 
 /*
@@ -963,7 +1005,8 @@ tfw_tls_init(void)
 	if (r)
 		return -EINVAL;
 
-	ttls_register_callbacks(tfw_tls_send, tfw_tls_sni);
+	ttls_register_callbacks(tfw_tls_send, tfw_tls_sni, tfw_tls_hs_over,
+				ttls_cli_id);
 
 	if ((r = tfw_h2_init()))
 		goto err_h2;

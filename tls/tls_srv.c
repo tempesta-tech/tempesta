@@ -31,6 +31,7 @@
 #include "tls_ticket.h"
 
 ttls_sni_cb_t *ttls_sni_cb;
+ttls_hs_over_cb_t *ttls_hs_over_cb;
 
 /**
  * TLS Fallback Signaling Cipher Suite Value (SCSV), RFC 7507 3.
@@ -1591,7 +1592,7 @@ ttls_write_certificate_request(TlsCtx *tls, struct sg_table *sgt,
 	total_dn_size = 0;
 
 	if (tls->conf->cert_req_ca_list) {
-		const ttls_x509_crt * crt = tls->hs->key_cert->ca_chain;
+		const TlsX509Crt *crt = tls->hs->key_cert->ca_chain;
 
 		while (crt && crt->version) {
 			dn_size = crt->subject_raw.len;
@@ -1799,6 +1800,15 @@ ttls_parse_certificate_verify(TlsCtx *tls, unsigned char *buf, size_t len,
 	ttls_pk_type_t pk_alg;
 	ttls_md_type_t md_alg;
 	TlsIOCtx *io = &tls->io_in;
+
+	/*
+	 * TODO #830. The timeout between the Certificate Request message and
+	 * Certificate verify is not known and can be extended to infinite by
+	 * constant activity on TLS connections (e.g. by non-critical alerts).
+	 * There can be some concerns that client has actual access to the
+	 * private key, see
+	 * https://www.ndss-symposium.org/wp-content/uploads/2017/09/12_4_1.pdf
+	 */
 
 	BUG_ON(io->msgtype != TTLS_MSG_HANDSHAKE);
 	if (io->hstype != TTLS_HS_CERTIFICATE_VERIFY) {
@@ -2088,7 +2098,7 @@ int
 ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 			   size_t hh_len, unsigned int *read)
 {
-	int r = 0;
+	int r = 0, resumed = 0;
 	/*
 	 * On session resumption the ChangeCipherSpec is sent right immediately
 	 * after ServerHello. Use shared buffer to send both messages at once.
@@ -2097,6 +2107,7 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 	struct sg_table sgt = { .sgl = sg };
 	unsigned char *p = NULL;
 	struct page *pg = NULL;
+
 	T_FSM_INIT(tls->state, "TLS Server Handshake");
 
 	T_DBG("server state: %x\n", tls->state);
@@ -2218,11 +2229,14 @@ ttls_handshake_server_step(TlsCtx *tls, unsigned char *buf, size_t len,
 	}
 
 	T_FSM_STATE(TTLS_HANDSHAKE_WRAPUP) {
+		resumed = tls->hs->resume;
 		ttls_handshake_wrapup(tls);
 		tls->state = TTLS_HANDSHAKE_OVER;
 	}
 	T_FSM_STATE(TTLS_HANDSHAKE_OVER) {
 		WARN_ON_ONCE(r);
+		r = ttls_hs_over_cb(tls, resumed ? TTLS_HS_CB_FINISHED_RESUMED
+						 : TTLS_HS_CB_FINISHED_NEW);
 		T_FSM_EXIT();
 	}
 

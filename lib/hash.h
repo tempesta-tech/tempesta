@@ -39,4 +39,14 @@ hash_calc(const char *data, size_t len)
 	return (crc1 << 32) | crc0;
 }
 
+static inline unsigned long
+hash_calc_update(const char *data, size_t len, unsigned long hash)
+{
+	unsigned long crc0 = hash >> 32, crc1 = hash & 0xFFFFFFFF;
+
+	__hash_calc(&crc0, &crc1, data, len);
+
+	return (crc1 << 32) | crc0;
+}
+
 #endif /* __LIB_HASH_H__ */

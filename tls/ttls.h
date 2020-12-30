@@ -288,7 +288,7 @@ struct ttls_alpn_proto {
  *			  from TLS ticket);
  */
 typedef struct {
-	ttls_x509_crt	*peer_cert;
+	TlsX509Crt	*peer_cert;
 	time_t		start;
 	int		etm;
 	uint32_t	verify_result;
@@ -342,14 +342,14 @@ typedef struct {
  * @next		- next certificate in list;
  */
 typedef struct ttls_key_cert {
-	ttls_x509_crt			*cert;
+	TlsX509Crt			*cert;
 	TlsPkCtx			*key;
-	ttls_x509_crt			*ca_chain;
+	TlsX509Crt			*ca_chain;
 	ttls_x509_crl			*ca_crl;
 	struct ttls_key_cert		*next;
 } TlsKeyCert;
 
-#define TTLS_TICKET_KEY_LEN		32 /* 256 bits */
+#define TTLS_TICKET_KEY_LEN		16 /* 128 bits */
 #define TTLS_TICKET_KEY_NAME_LEN	16
 #define TTLS_TICKET_MAX_SZ		512
 
@@ -399,10 +399,13 @@ typedef struct {
 } TlsTicketPeerCfg;
 
 /**
- * Tls Session ticket context.
+ * TLS Session ticket context.
  *
  * Unlike other extensions, ticket can't be parsed immediately, instead it's
  * required to know about target SNI first.
+ *
+ * @t_len			- ticket length;
+ * @ticket			- ticket data, sent by client;
  */
 typedef struct {
 	size_t			t_len;
@@ -537,6 +540,7 @@ typedef struct tls_handshake_t TlsHandshake;
  * @io_{in,out}	- I/O contexts for ingress and egress messages correspondingly;
  * @sess	- session data;
  * @xfrm	- transform params;
+ * @sni_hash	- hash of requested server names;
  * @nb_zero	-  # of 0-length encrypted messages;
  * @client_auth	- flag for client authentication (client side only);
  * @hostname	- expected peer CN for verification (and SNI if available);
@@ -555,6 +559,7 @@ typedef struct ttls_context {
 	TlsSess			sess;
 	TlsXfrm			xfrm;
 
+	unsigned long		sni_hash;
 	unsigned int		nb_zero;
 	int			client_auth;
 	char			*hostname;
@@ -562,13 +567,23 @@ typedef struct ttls_context {
 
 typedef int ttls_send_cb_t(TlsCtx *tls, struct sg_table *sgt, bool close);
 typedef int ttls_sni_cb_t(TlsCtx *tls, const unsigned char *data, size_t len);
+typedef unsigned long ttls_cli_id_t(TlsCtx *tls, unsigned long hash);
 
+enum {
+	TTLS_HS_CB_FINISHED_NEW,
+	TTLS_HS_CB_FINISHED_RESUMED,
+	TTLS_HS_CB_INCOMPLETE,
+};
+typedef int ttls_hs_over_cb_t(TlsCtx *tls, int state);
+
+bool ttls_hs_done(TlsCtx *tls);
 bool ttls_xfrm_ready(TlsCtx *tls);
 bool ttls_xfrm_need_encrypt(TlsCtx *tls);
 void ttls_write_hshdr(unsigned char type, unsigned char *buf,
 		      unsigned short len);
 void *ttls_alloc_crypto_req(unsigned int extra_size, unsigned int *rsz);
-void ttls_register_callbacks(ttls_send_cb_t *send_cb, ttls_sni_cb_t *sni_cb);
+void ttls_register_callbacks(ttls_send_cb_t *send_cb, ttls_sni_cb_t *sni_cb,
+			     ttls_hs_over_cb_t *hs_over_cb, ttls_cli_id_t *cli_id_cb);
 
 const char *ttls_get_ciphersuite_name(const int ciphersuite_id);
 
@@ -578,8 +593,8 @@ void ttls_conf_authmode(TlsCfg *conf, int authmode);
 
 int ttls_set_session(TlsCtx *ssl, const TlsSess *session);
 
-int ttls_conf_own_cert(TlsPeerCfg *conf, ttls_x509_crt *own_cert,
-		       TlsPkCtx *pk_key, ttls_x509_crt *ca_chain,
+int ttls_conf_own_cert(TlsPeerCfg *conf, TlsX509Crt *own_cert,
+		       TlsPkCtx *pk_key, TlsX509Crt *ca_chain,
 		       ttls_x509_crl *ca_crl);
 int ttls_conf_tickets(TlsPeerCfg *conf, bool enable, unsigned long lifetime,
 		      const char *secret_str, size_t len,

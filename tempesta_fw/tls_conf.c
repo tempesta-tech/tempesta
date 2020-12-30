@@ -28,7 +28,7 @@
 #define TLS_CONF_CERT_NUM	8
 
 typedef struct {
-	ttls_x509_crt	crt;
+	TlsX509Crt	crt;
 	TlsPkCtx	key;
 	unsigned long	crt_pg_addr;
 	unsigned int	crt_pg_order;
@@ -297,7 +297,7 @@ tfw_tls_set_tickets(TfwVhost *vhost, TfwCfgSpec *cs, TfwCfgEntry *ce)
 	ce_tmp = *ce;
 	ce_tmp.attr_n = 0;
 	cs->dest = &enabled;
-	if (tfw_cfg_set_bool(cs, ce))  {
+	if (tfw_cfg_set_bool(cs, &ce_tmp)) {
 		T_ERR_NL("%s: can't parse positional values!\n", cs->name);
 		cs->dest = NULL;
 		return -EINVAL;

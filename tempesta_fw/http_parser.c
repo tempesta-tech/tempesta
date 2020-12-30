@@ -253,23 +253,28 @@ do {									\
 #define __FSM_I_chunk_flags(flag)					\
 	__msg_chunk_flags(flag)
 
-#define __FSM_I_MOVE_BY_REF_n(to, n)					\
+#define __FSM_I_MOVE_BY_REF_n(to, n, flag)				\
 do {									\
 	parser->_i_st = to;						\
 	p += n;								\
 	if (unlikely(__data_off(p) >= len)) {				\
 		/* Close currently parsed field chunk. */		\
 		__msg_hdr_chunk_fixup(data, len);			\
+		if (flag)						\
+			__msg_chunk_flags(flag);			\
 		__FSM_EXIT(TFW_POSTPONE);				\
 	}								\
 	goto *to;							\
 } while (0)
 
 #define __FSM_I_MOVE_n(to, n)						\
-	__FSM_I_MOVE_BY_REF_n(&&to, n)
+	__FSM_I_MOVE_BY_REF_n(&&to, n, 0)
+
+#define __FSM_I_MOVE_n_flag(to, n, flag)				\
+	__FSM_I_MOVE_BY_REF_n(&&to, n, flag)
 
 #define __FSM_I_MOVE_BY_REF(to)						\
-	__FSM_I_MOVE_BY_REF_n(to, 1)
+	__FSM_I_MOVE_BY_REF_n(to, 1, 0)
 
 #define __FSM_I_MOVE(to)		__FSM_I_MOVE_n(to, 1)
 /* The same as __FSM_I_MOVE_n(), but exactly for jumps w/o data moving. */
@@ -804,7 +809,7 @@ mark_trailer_hdr(TfwHttpMsg *hm, TfwStr *hdr)
 		if (chunk->len == sizeof(str) - 1) {			\
 			lambda;						\
 			TRY_STR_INIT();					\
-			__FSM_I_MOVE_BY_REF_n(state, __fsm_n);		\
+			__FSM_I_MOVE_BY_REF_n(state, __fsm_n, 0);	\
 		}							\
 		__msg_hdr_chunk_fixup(data, len);			\
 		finish;							\
@@ -2497,9 +2502,9 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 
 	__FSM_STATE(Req_I_H_Start) {
 		if (likely(isalnum(c) || c == '.' || c == '-'))
-			__FSM_I_MOVE(Req_I_H);
+			__FSM_I_JMP(Req_I_H);
 		if (likely(c == '['))
-			__FSM_I_MOVE(Req_I_H_v6);
+			__FSM_I_MOVE_n_flag(Req_I_H_v6, 1, TFW_STR_VALUE);
 		if (unlikely(IS_CRLFWS(c)))
 			return 0; /* empty Host header */
 		return CSTR_NEQ;
@@ -2508,9 +2513,20 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_H) {
 		/* See Req_UriAuthority processing. */
 		if (likely(isalnum(c) || c == '.' || c == '-'))
-			__FSM_I_MOVE(Req_I_H);
-		if (c == ':')
-			__FSM_I_MOVE(Req_I_H_Port);
+			__FSM_I_MOVE_n_flag(Req_I_H, 1, TFW_STR_VALUE);
+		if (p - data) {
+			__msg_hdr_chunk_fixup(data, (p - data));
+			__msg_chunk_flags(TFW_STR_VALUE);
+		}
+		parser->_i_st = &&Req_I_H_End;
+		goto Req_I_H_End;
+	}
+
+	__FSM_STATE(Req_I_H_End) {
+		if (c == ':') {
+			parser->_acc = 0;
+			__FSM_I_MOVE_fixup(Req_I_H_Port, 1, 0);
+		}
 		if (IS_CRLFWS(c))
 			return __data_off(p);
 		return CSTR_NEQ;
@@ -2519,26 +2535,44 @@ __req_parse_host(TfwHttpReq *req, unsigned char *data, size_t len)
 	__FSM_STATE(Req_I_H_v6) {
 		/* See Req_UriAuthorityIPv6 processing. */
 		if (likely(isxdigit(c) || c == ':'))
-			__FSM_I_MOVE(Req_I_H_v6);
-		if (likely(c == ']'))
-			__FSM_I_MOVE(Req_I_H_v6_End);
-		return CSTR_NEQ;
-	}
-
-	__FSM_STATE(Req_I_H_v6_End) {
-		if (likely(IS_CRLFWS(c)))
-			return __data_off(p);
-		if (likely(c == ':'))
-			__FSM_I_MOVE(Req_I_H_Port);
+			__FSM_I_MOVE_n_flag(Req_I_H_v6, 1, TFW_STR_VALUE);
+		if (likely(c == ']')) {
+			__msg_hdr_chunk_fixup(data, (p - data + 1));
+			__msg_chunk_flags(TFW_STR_VALUE);
+			parser->_i_st = &&Req_I_H_End;
+			p += 1;
+			if (unlikely(__data_off(p) >= len))
+				__FSM_EXIT(TFW_POSTPONE);
+			goto Req_I_H_End;
+		}
 		return CSTR_NEQ;
 	}
 
 	__FSM_STATE(Req_I_H_Port) {
 		/* See Req_UriPort processing. */
-		if (likely(isdigit(c)))
-			__FSM_I_MOVE(Req_I_H_Port);
-		if (IS_CRLFWS(c))
+		if (unlikely(IS_CRLFWS(c))) {
+			if (!req->host_port)
+				/* Header ended before port was parsed. */
+				return CSTR_NEQ;
 			return __data_off(p);
+		}
+		__fsm_sz = __data_remain(p);
+		__fsm_n = __parse_ulong_ws(p, __data_remain(p), &parser->_acc,
+					   USHRT_MAX);
+		switch (__fsm_n) {
+		case CSTR_BADLEN:
+		case CSTR_NEQ:
+			return CSTR_NEQ;
+		case CSTR_POSTPONE:
+			req->host_port = parser->_acc;
+			__FSM_I_MOVE_fixup(Req_I_H_Port, __fsm_sz, TFW_STR_VALUE);
+		default:
+			req->host_port = parser->_acc;
+			parser->_acc = 0;
+			if (!req->host_port)
+				return CSTR_NEQ;
+			__FSM_I_MOVE_fixup(Req_I_H_Port, __fsm_n, TFW_STR_VALUE);
+		}
 		return CSTR_NEQ;
 	}
 
@@ -3970,8 +4004,8 @@ tfw_http_parse_req(void *req_data, unsigned char *data, size_t len,
 				     TFW_HTTP_HDR_CONTENT_TYPE, 0);
 
 	/* 'Host:*OWS' is read, process field-value. */
-	TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrHostV, req, __req_parse_host,
-				   TFW_HTTP_HDR_HOST);
+	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrHostV, req, __req_parse_host,
+				     TFW_HTTP_HDR_HOST, 0);
 
 	/* 'If-None-Match:*OWS' is read, process field-value. */
 	__TFW_HTTP_PARSE_SPECHDR_VAL(Req_HdrIf_None_MatchV, msg, __parse_etag,
@@ -4418,14 +4452,7 @@ Req_Method_1CharStep: __attribute__((cold))
 	__FSM_TX_AF(Req_HdrH, 'o', Req_HdrHo);
 	__FSM_TX_AF(Req_HdrHo, 's', Req_HdrHos);
 	__FSM_TX_AF(Req_HdrHos, 't', Req_HdrHost);
-	/* NOTE: Allow empty host field-value there. RFC 7230 5.4. */
-	__FSM_STATE(Req_HdrHost, cold) {
-		if (likely(c == ':')) {
-			parser->_i_st = &&Req_HdrHostV;
-			__FSM_MOVE(RGen_LWS);
-		}
-		__FSM_JMP(RGen_HdrOtherN);
-	}
+	__FSM_TX_AF_OWS(Req_HdrHost, Req_HdrHostV);
 
 	/* If-* header processing. */
 	__FSM_TX_AF(Req_HdrI, 'f', Req_HdrIf);

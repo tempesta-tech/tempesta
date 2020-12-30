@@ -45,4 +45,6 @@ void tfw_cli_conn_release(TfwCliConn *cli_conn);
 int tfw_cli_conn_send(TfwCliConn *cli_conn, TfwMsg *msg);
 int tfw_cli_conn_close_all_sync(TfwClient *cli);
 
+void tfw_tls_connection_lost(TfwConn *conn);
+
 #endif /* __TFW_CLIENT_H__ */

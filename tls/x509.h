@@ -62,7 +62,7 @@
 #define TTLS_ERR_X509_UNKNOWN_VERSION			-0x2580
 /* Signature algorithm (oid) is unsupported. */
 #define TTLS_ERR_X509_UNKNOWN_SIG_ALG			-0x2600
-/* Signature algorithms do not match. (see \c ::ttls_x509_crt sig_oid) */
+/* Signature algorithms do not match. (see \c ::TlsX509Crt sig_oid) */
 #define TTLS_ERR_X509_SIG_MISMATCH			-0x2680
 /* Certificate verification failed, e.g. CRL, CA or signature check failed. */
 #define TTLS_ERR_X509_CERT_VERIFY_FAILED		-0x2700
@@ -82,38 +82,58 @@
  * \name X509 Verify codes
  */
 /* Reminder: update x509_crt_verify_strings[] in library/x509_crt.c */
-#define TTLS_X509_BADCERT_EXPIRED			 0x01  /**< The certificate validity has expired. */
-#define TTLS_X509_BADCERT_REVOKED			 0x02  /**< The certificate has been revoked (is on a CRL). */
-#define TTLS_X509_BADCERT_CN_MISMATCH		 0x04  /**< The certificate Common Name (CN) does not match with the expected CN. */
-#define TTLS_X509_BADCERT_NOT_TRUSTED		 0x08  /**< The certificate is not correctly signed by the trusted CA. */
-#define TTLS_X509_BADCRL_NOT_TRUSTED		  0x10  /**< The CRL is not correctly signed by the trusted CA. */
-#define TTLS_X509_BADCRL_EXPIRED			  0x20  /**< The CRL is expired. */
-#define TTLS_X509_BADCERT_MISSING			 0x40  /**< Certificate was missing. */
-#define TTLS_X509_BADCERT_SKIP_VERIFY		 0x80  /**< Certificate verification was skipped. */
-#define TTLS_X509_BADCERT_OTHER			 0x0100  /**< Other reason (can be used by verify callback) */
-#define TTLS_X509_BADCERT_FUTURE			0x0200  /**< The certificate validity starts in the future. */
-#define TTLS_X509_BADCRL_FUTURE			 0x0400  /**< The CRL is from the future */
-#define TTLS_X509_BADCERT_KEY_USAGE		 0x0800  /**< Usage does not match the keyUsage extension. */
-#define TTLS_X509_BADCERT_EXT_KEY_USAGE	 0x1000  /**< Usage does not match the extendedKeyUsage extension. */
-#define TTLS_X509_BADCERT_NS_CERT_TYPE	  0x2000  /**< Usage does not match the nsCertType extension. */
-#define TTLS_X509_BADCERT_BAD_MD			0x4000  /**< The certificate is signed with an unacceptable hash. */
-#define TTLS_X509_BADCERT_BAD_PK			0x8000  /**< The certificate is signed with an unacceptable PK alg (eg RSA vs ECDSA). */
-#define TTLS_X509_BADCERT_BAD_KEY		 0x010000  /**< The certificate is signed with an unacceptable key (eg bad curve, RSA too short). */
-#define TTLS_X509_BADCRL_BAD_MD		   0x020000  /**< The CRL is signed with an unacceptable hash. */
-#define TTLS_X509_BADCRL_BAD_PK		   0x040000  /**< The CRL is signed with an unacceptable PK alg (eg RSA vs ECDSA). */
-#define TTLS_X509_BADCRL_BAD_KEY		  0x080000  /**< The CRL is signed with an unacceptable key (eg bad curve, RSA too short). */
+ /* The certificate validity has expired. */
+#define TTLS_X509_BADCERT_EXPIRED			    0x01
+/* The certificate has been revoked (is on a CRL). */
+#define TTLS_X509_BADCERT_REVOKED			    0x02
+/* The certificate Common Name (CN) does not match with the expected CN. */
+#define TTLS_X509_BADCERT_CN_MISMATCH			    0x04
+/* The certificate is not correctly signed by the trusted CA. */
+#define TTLS_X509_BADCERT_NOT_TRUSTED			    0x08
+/* The CRL is not correctly signed by the trusted CA. */
+#define TTLS_X509_BADCRL_NOT_TRUSTED			    0x10
+/* The CRL is expired. */
+#define TTLS_X509_BADCRL_EXPIRED			    0x20
+/* Certificate was missing. */
+#define TTLS_X509_BADCERT_MISSING			    0x40
+/* Certificate verification was skipped. */
+#define TTLS_X509_BADCERT_SKIP_VERIFY			    0x80
+/* Other reason (can be used by verify callback) */
+#define TTLS_X509_BADCERT_OTHER				  0x0100
+/* The certificate validity starts in the future. */
+#define TTLS_X509_BADCERT_FUTURE			  0x0200
+/* The CRL is from the future */
+#define TTLS_X509_BADCRL_FUTURE				  0x0400
+/* Usage does not match the keyUsage extension. */
+#define TTLS_X509_BADCERT_KEY_USAGE			  0x0800
+/* Usage does not match the extendedKeyUsage extension. */
+#define TTLS_X509_BADCERT_EXT_KEY_USAGE			  0x1000
+/* Usage does not match the nsCertType extension. */
+#define TTLS_X509_BADCERT_NS_CERT_TYPE			  0x2000
+/* The certificate is signed with an unacceptable hash. */
+#define TTLS_X509_BADCERT_BAD_MD			  0x4000
+/* The certificate is signed with an unacceptable PK alg (eg RSA vs ECDSA). */
+#define TTLS_X509_BADCERT_BAD_PK			  0x8000
+/* The certificate is signed with an unacceptable key (eg bad curve, RSA too short). */
+#define TTLS_X509_BADCERT_BAD_KEY			0x010000
+/* The CRL is signed with an unacceptable hash. */
+#define TTLS_X509_BADCRL_BAD_MD				0x020000
+/* The CRL is signed with an unacceptable PK alg (eg RSA vs ECDSA). */
+#define TTLS_X509_BADCRL_BAD_PK				0x040000
+/* The CRL is signed with an unacceptable key (eg bad curve, RSA too short). */
+#define TTLS_X509_BADCRL_BAD_KEY			0x080000
 
 /*
  * X.509 v3 Key Usage Extension flags
  */
-#define TTLS_X509_KU_DIGITAL_SIGNATURE			(0x80)  /* bit 0 */
-#define TTLS_X509_KU_NON_REPUDIATION			  (0x40)  /* bit 1 */
-#define TTLS_X509_KU_KEY_ENCIPHERMENT			 (0x20)  /* bit 2 */
-#define TTLS_X509_KU_DATA_ENCIPHERMENT			(0x10)  /* bit 3 */
-#define TTLS_X509_KU_KEY_CERT_SIGN				(0x04)  /* bit 5 */
-#define TTLS_X509_KU_CRL_SIGN		 (0x02)  /* bit 6 */
-#define TTLS_X509_KU_ENCIPHER_ONLY				(0x01)  /* bit 7 */
-#define TTLS_X509_KU_DECIPHER_ONLY			  (0x8000)  /* bit 8 */
+#define TTLS_X509_KU_DIGITAL_SIGNATURE			0x80	/* bit 0 */
+#define TTLS_X509_KU_NON_REPUDIATION			0x40	/* bit 1 */
+#define TTLS_X509_KU_KEY_ENCIPHERMENT			0x20	/* bit 2 */
+#define TTLS_X509_KU_DATA_ENCIPHERMENT			0x10	/* bit 3 */
+#define TTLS_X509_KU_KEY_CERT_SIGN			0x04	/* bit 5 */
+#define TTLS_X509_KU_CRL_SIGN				0x02	/* bit 6 */
+#define TTLS_X509_KU_ENCIPHER_ONLY			0x01	/* bit 7 */
+#define TTLS_X509_KU_DECIPHER_ONLY			0x8000	/* bit 8 */
 
 /*
  * X.509 extension types
@@ -121,32 +141,33 @@
  * Comments refer to the status for using certificates. Status can be
  * different for writing certificates or reading CRLs or CSRs.
  */
-#define TTLS_X509_EXT_AUTHORITY_KEY_IDENTIFIER	(1 << 0)
-#define TTLS_X509_EXT_SUBJECT_KEY_IDENTIFIER	  (1 << 1)
-#define TTLS_X509_EXT_KEY_USAGE				   (1 << 2)
+#define TTLS_X509_EXT_AUTHORITY_KEY_IDENTIFIER		(1 << 0)
+#define TTLS_X509_EXT_SUBJECT_KEY_IDENTIFIER		(1 << 1)
+#define TTLS_X509_EXT_KEY_USAGE				(1 << 2)
 #define TTLS_X509_EXT_CERTIFICATE_POLICIES		(1 << 3)
-#define TTLS_X509_EXT_POLICY_MAPPINGS			 (1 << 4)
-#define TTLS_X509_EXT_SUBJECT_ALT_NAME			(1 << 5)	/* Supported (DNS) */
-#define TTLS_X509_EXT_ISSUER_ALT_NAME			 (1 << 6)
-#define TTLS_X509_EXT_SUBJECT_DIRECTORY_ATTRS	 (1 << 7)
-#define TTLS_X509_EXT_BASIC_CONSTRAINTS		   (1 << 8)	/* Supported */
+#define TTLS_X509_EXT_POLICY_MAPPINGS			(1 << 4)
+#define TTLS_X509_EXT_SUBJECT_ALT_NAME			(1 << 5) /* Supported (DNS) */
+#define TTLS_X509_EXT_ISSUER_ALT_NAME			(1 << 6)
+#define TTLS_X509_EXT_SUBJECT_DIRECTORY_ATTRS		(1 << 7)
+#define TTLS_X509_EXT_BASIC_CONSTRAINTS			(1 << 8) /* Supported */
 #define TTLS_X509_EXT_NAME_CONSTRAINTS			(1 << 9)
-#define TTLS_X509_EXT_POLICY_CONSTRAINTS		  (1 << 10)
-#define TTLS_X509_EXT_EXTENDED_KEY_USAGE		  (1 << 11)
-#define TTLS_X509_EXT_CRL_DISTRIBUTION_POINTS	 (1 << 12)
-#define TTLS_X509_EXT_INIHIBIT_ANYPOLICY		  (1 << 13)
-#define TTLS_X509_EXT_FRESHEST_CRL				(1 << 14)
+#define TTLS_X509_EXT_POLICY_CONSTRAINTS		(1 << 10)
+#define TTLS_X509_EXT_EXTENDED_KEY_USAGE		(1 << 11)
+#define TTLS_X509_EXT_CRL_DISTRIBUTION_POINTS		(1 << 12)
+#define TTLS_X509_EXT_INIHIBIT_ANYPOLICY		(1 << 13)
+#define TTLS_X509_EXT_FRESHEST_CRL			(1 << 14)
 
-#define TTLS_X509_EXT_NS_CERT_TYPE				(1 << 16)
+#define TTLS_X509_EXT_NS_CERT_TYPE			(1 << 16)
 
 /*
  * Storage format identifiers
  * Recognized formats: PEM and DER
  */
-#define TTLS_X509_FORMAT_DER				 1
-#define TTLS_X509_FORMAT_PEM				 2
+#define TTLS_X509_FORMAT_DER				1
+#define TTLS_X509_FORMAT_PEM				2
 
-#define TTLS_X509_MAX_DN_NAME_SIZE		 256 /**< Maximum value size of a DN entry */
+/* Maximum value size of a DN entry */
+#define TTLS_X509_MAX_DN_NAME_SIZE			256
 
 /**
  * \name Structures for parsing X.509 certificates, CRLs and CSRs
@@ -173,40 +194,19 @@ typedef ttls_asn1_named_data ttls_x509_name;
  */
 typedef ttls_asn1_sequence ttls_x509_sequence;
 
-/** Container for date and time (precision in seconds). */
+/**
+ * Container for date and time (precision in seconds).
+ * @year, @mon, @day	- date;
+ * @hour, @min, @sec	- time
+ */
 typedef struct ttls_x509_time
 {
-	int year, mon, day;		 /**< Date. */
-	int hour, min, sec;		 /**< Time. */
-}
-ttls_x509_time;
+	int year, mon, day;
+	int hour, min, sec;
+} ttls_x509_time;
 
-/**
- * \brief		  Check a given ttls_x509_time against the system time
- *				 and tell if it's in the past.
- *
- * \note		   Intended usage is "if (is_past(valid_to)) ERROR".
- *				 Hence the return value of 1 if on internal errors.
- *
- * \param to	   ttls_x509_time to check
- *
- * \return		 1 if the given time is in the past or an error occurred,
- *				 0 otherwise.
- */
+
 int ttls_x509_time_is_past(const ttls_x509_time *to);
-
-/**
- * \brief		  Check a given ttls_x509_time against the system time
- *				 and tell if it's in the future.
- *
- * \note		   Intended usage is "if (is_future(valid_from)) ERROR".
- *				 Hence the return value of 1 if on internal errors.
- *
- * \param from	 ttls_x509_time to check
- *
- * \return		 1 if the given time is in the future or an error
- *			 occurred, 0 otherwise.
- */
 int ttls_x509_time_is_future(const ttls_x509_time *from);
 
 /*
@@ -214,26 +214,26 @@ int ttls_x509_time_is_future(const ttls_x509_time *from);
  * know you do.
  */
 int ttls_x509_get_name(unsigned char **p, const unsigned char *end,
-				   ttls_x509_name *cur);
+		       ttls_x509_name *cur);
 int ttls_x509_get_alg_null(unsigned char **p, const unsigned char *end,
-		   ttls_x509_buf *alg);
+			   ttls_x509_buf *alg);
 int ttls_x509_get_alg(unsigned char **p, const unsigned char *end,
-				  ttls_x509_buf *alg, ttls_x509_buf *params);
+		      ttls_x509_buf *alg, ttls_x509_buf *params);
 int ttls_x509_get_rsassa_pss_params(const ttls_x509_buf *params,
-		ttls_md_type_t *md_alg, ttls_md_type_t *mgf_md,
-		int *salt_len);
+				    ttls_md_type_t *md_alg, ttls_md_type_t *mgf_md,
+				    int *salt_len);
 int ttls_x509_get_sig(unsigned char **p, const unsigned char *end, ttls_x509_buf *sig);
 int ttls_x509_get_sig_alg(const ttls_x509_buf *sig_oid, const ttls_x509_buf *sig_params,
-		  ttls_md_type_t *md_alg, ttls_pk_type_t *pk_alg,
-		  void **sig_opts);
+			  ttls_md_type_t *md_alg, ttls_pk_type_t *pk_alg,
+			  void **sig_opts);
 int ttls_x509_get_time(unsigned char **p, const unsigned char *end,
-				   ttls_x509_time *t);
+		       ttls_x509_time *t);
 int ttls_x509_get_serial(unsigned char **p, const unsigned char *end,
-		 ttls_x509_buf *serial);
+			 ttls_x509_buf *serial);
 int ttls_x509_get_ext(unsigned char **p, const unsigned char *end,
-				  ttls_x509_buf *ext, int tag);
+		      ttls_x509_buf *ext, int tag);
 int ttls_x509_write_sig(unsigned char **p, unsigned char *start,
-		const char *oid, size_t oid_len,
-		unsigned char *sig, size_t size);
+			const char *oid, size_t oid_len,
+			unsigned char *sig, size_t size);
 
 #endif /* x509.h */

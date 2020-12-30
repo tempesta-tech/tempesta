@@ -447,6 +447,7 @@ struct tfw_http_req_t {
 	unsigned long		hash;
 	unsigned int		frang_st;
 	unsigned int		chunk_cnt;
+	unsigned int		host_port;
 	unsigned short		node;
 	unsigned short		retries;
 	unsigned char		method;
