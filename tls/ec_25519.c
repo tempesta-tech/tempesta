@@ -2,6 +2,7 @@
  *		Tempesta TLS
  *
  * Elliptic curve 25519 (Montgomery).
+ * http://cr.yp.to/ecdh/curve25519-20060209.pdf
  *
  * TODO #1335: the slow and incomplete implementation is still based on mbed TLS.
  *

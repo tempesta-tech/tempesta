@@ -799,10 +799,8 @@ __mpi_mul(size_t n, const unsigned long *s, unsigned long *d, unsigned long b)
  *
  * All the arguments may reference the same MPI.
  *
- * TODO #1064 the function is used for squaring which is inefficient, so
- * implement a normal squaring. (Gather statistics how many square calls
- * and for which sizes).
- * See "Speeding up Big-Numbers Squaring", S.Gueron and V.Krasnov, 2012.
+ * TODO #1064 replace the call with a faster implementation for ec_p256
+ * and move this for TODO #1335 for the rest of the calls.
  */
 void
 ttls_mpi_mul_mpi(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
@@ -1106,6 +1104,9 @@ __mpi_montg_init(unsigned long *mm, const TlsMpi *N)
 
 /**
  * Montgomery multiplication: A = A * B * R^-1 mod N  (HAC 14.36).
+ *
+ * TODO #1335: this is used for modular exponentiation only, so repalce it with
+ * an adequate assembly implementation for the RSA handshakes.
  */
 static int
 __mpi_montmul(TlsMpi *A, const TlsMpi *B, const TlsMpi *N, unsigned long mm,

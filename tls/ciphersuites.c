@@ -40,9 +40,6 @@ static union {
 cs_mp_ecdhe_secp256 __page_aligned_data = {
 	.mp = { .curr = sizeof(TlsMpiPool) }
 },
-cs_mp_ecdhe_secp384 __page_aligned_data = {
-	.mp = { .curr = sizeof(TlsMpiPool) }
-},
 cs_mp_ecdhe_curve25519 __page_aligned_data = {
 	.mp = { .curr = sizeof(TlsMpiPool) }
 },
@@ -55,52 +52,44 @@ static TlsCiphersuite ciphersuite_definitions[] = {
 	  "TLS-ECDHE-ECDSA-WITH-AES-128-GCM-SHA256",
 	  TTLS_CIPHER_AES_128_GCM, TTLS_MD_SHA256,
 	  TTLS_KEY_EXCHANGE_ECDHE_ECDSA,
-	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp,
-	       &cs_mp_ecdhe_curve25519.mp } },
+	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 	  "TLS-ECDHE-ECDSA-WITH-AES-256-GCM-SHA384",
 	  TTLS_CIPHER_AES_256_GCM, TTLS_MD_SHA384,
 	  TTLS_KEY_EXCHANGE_ECDHE_ECDSA,
-	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp,
-	       &cs_mp_ecdhe_curve25519.mp } },
+	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CCM,
 	  "TLS-ECDHE-ECDSA-WITH-AES-256-CCM",
 	  TTLS_CIPHER_AES_256_CCM, TTLS_MD_SHA256,
 	  TTLS_KEY_EXCHANGE_ECDHE_ECDSA,
-	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp,
-	       &cs_mp_ecdhe_curve25519.mp } },
+	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8,
 	  "TLS-ECDHE-ECDSA-WITH-AES-256-CCM-8",
 	  TTLS_CIPHER_AES_256_CCM, TTLS_MD_SHA256,
 	  TTLS_KEY_EXCHANGE_ECDHE_ECDSA,
 	  TTLS_CIPHERSUITE_SHORT_TAG,
-	  { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp,
-	    &cs_mp_ecdhe_curve25519.mp } },
+	  { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CCM,
 	  "TLS-ECDHE-ECDSA-WITH-AES-128-CCM",
 	  TTLS_CIPHER_AES_128_CCM, TTLS_MD_SHA256,
 	  TTLS_KEY_EXCHANGE_ECDHE_ECDSA,
-	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp,
-	       &cs_mp_ecdhe_curve25519.mp } },
+	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8,
 	  "TLS-ECDHE-ECDSA-WITH-AES-128-CCM-8",
 	  TTLS_CIPHER_AES_128_CCM, TTLS_MD_SHA256,
 	  TTLS_KEY_EXCHANGE_ECDHE_ECDSA,
 	  TTLS_CIPHERSUITE_SHORT_TAG,
-	  { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp,
-	    &cs_mp_ecdhe_curve25519.mp } },
+	  { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 	  "TLS-ECDHE-RSA-WITH-AES-128-GCM-SHA256",
 	  TTLS_CIPHER_AES_128_GCM, TTLS_MD_SHA256,
 	  TTLS_KEY_EXCHANGE_ECDHE_RSA,
-	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp,
-	       &cs_mp_ecdhe_curve25519.mp } },
+	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 	  "TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384",
 	  TTLS_CIPHER_AES_256_GCM, TTLS_MD_SHA384,
 	  TTLS_KEY_EXCHANGE_ECDHE_RSA,
-	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_secp384.mp,
-	       &cs_mp_ecdhe_curve25519.mp } },
+	  0, { &cs_mp_ecdhe_secp256.mp, &cs_mp_ecdhe_curve25519.mp } },
 	{ TTLS_TLS_DHE_RSA_WITH_AES_256_GCM_SHA384,
 	  "TLS-DHE-RSA-WITH-AES-256-GCM-SHA384",
 	  TTLS_CIPHER_AES_256_GCM, TTLS_MD_SHA384,
@@ -151,7 +140,6 @@ ttls_ciphersuite_addr_mp(void *addr)
 	unsigned long x = (unsigned long)addr;
 
 	__CS_ADDR_MP(ecdhe_secp256, x);
-	__CS_ADDR_MP(ecdhe_secp384, x);
 	__CS_ADDR_MP(dhe, x);
 
 	return NULL;

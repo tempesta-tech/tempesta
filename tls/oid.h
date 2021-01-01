@@ -238,18 +238,6 @@
  *   iso(1) member-body(2) us(840) ansi-X9-62(10045) curves(3) prime(1) 7 } */
 #define TTLS_OID_EC_GRP_SECP256R1		TTLS_OID_ANSI_X9_62 "\x03\x01\x07"
 
-/* secp384r1 OBJECT IDENTIFIER ::= {
- *   iso(1) identified-organization(3) certicom(132) curve(0) 34 } */
-#define TTLS_OID_EC_GRP_SECP384R1		TTLS_OID_CERTICOM "\x00\x22"
-
-/* RFC 5639 4.1
- * ecStdCurvesAndGeneration OBJECT IDENTIFIER::= {iso(1)
- * identified-organization(3) teletrust(36) algorithm(3) signature-
- * algorithm(3) ecSign(2) 8}
- * ellipticCurve OBJECT IDENTIFIER ::= {ecStdCurvesAndGeneration 1}
- * versionOne OBJECT IDENTIFIER ::= {ellipticCurve 1} */
-#define TTLS_OID_EC_BRAINPOOL_V1		 TTLS_OID_TELETRUST "\x03\x03\x02\x08\x01\x01"
-
 /*
  * SEC1 C.1
  *

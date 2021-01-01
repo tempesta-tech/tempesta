@@ -1359,6 +1359,9 @@ ENTRY_32(mpi_mul_mod_p256_x86_64_4)
 	ret
 ENDPROC(mpi_mul_mod_p256_x86_64_4)
 
+/**
+ * TODO #1064: See "Speeding up Big-Numbers Squaring", S.Gueron and V.Krasnov
+ */
 ENTRY_32(mpi_sqr_mod_p256_x86_64_4)
 	push	%rbx
 	push	%r12

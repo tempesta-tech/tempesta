@@ -250,7 +250,7 @@ typedef enum {
 /*
  * Defined as the maximum of:
  * 1. RSA pre-master secret RFC 5246 8.1.1 (48 bytes);
- * 2. Maximum ECP size (48 bytes for 384-bit curve).
+ * 2. Maximum ECP size (32 bytes for 256-bit curve).
  * 3. Maximum MPI size for DHM by RFC 5246 8.1.2.
  */
 #define TTLS_PREMASTER_SIZE	512
