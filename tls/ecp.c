@@ -46,13 +46,11 @@
  */
 static const TlsEcpCurveInfo ecp_supported_curves[] = {
 	{ TTLS_ECP_DP_SECP256R1,	23,	 256,	"secp256r1"},
-	{ TTLS_ECP_DP_SECP384R1,	24,	 384,	"secp384r1"},
 	{ TTLS_ECP_DP_NONE,		0,	 0,	NULL},
 };
 
 ttls_ecp_group_id ttls_preset_curves[] = {
 	TTLS_ECP_DP_SECP256R1,
-	TTLS_ECP_DP_SECP384R1,
 	TTLS_ECP_DP_NONE
 };
 
@@ -257,7 +255,6 @@ ttls_ecp_tls_write_group(ttls_ecp_group_id gid, size_t *olen,
 }
 
 extern const TlsEcpGrp SECP256_G;
-extern const TlsEcpGrp SECP384_G;
 extern const TlsEcpGrp CURVE25519_G;
 
 const TlsEcpGrp *
@@ -266,8 +263,6 @@ ttls_ecp_group_lookup(ttls_ecp_group_id id)
 	switch(id) {
 	case TTLS_ECP_DP_SECP256R1:
 		return &SECP256_G;
-	case TTLS_ECP_DP_SECP384R1:
-		return &SECP384_G;
 	case TTLS_ECP_DP_CURVE25519:
 		return &CURVE25519_G;
 	default:

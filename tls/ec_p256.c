@@ -14,7 +14,8 @@
  *
  * 4. RFC 8422 for the related TLS structures and constants
  *
- * 5. [Curve25519] http://cr.yp.to/ecdh/curve25519-20060209.pdf
+ * 5. J.W.Bos, P.L.Montgomery, "Montgomery Arithmetic from a Software
+ *    Perspective", 2017.
  *
  * 6. Coron, Jean-S'ebastien. Resistance against differential power analysis
  *    for elliptic curve cryptosystems. In : Cryptographic Hardware and
@@ -348,6 +349,9 @@ ecp256_safe_cond_assign(unsigned long *x, unsigned long *y, unsigned char assign
  * chapter "3 A Montgomery-friendly modulus".
  * Probably we can reduce not all operations, since X + nP mod P = X mod P
  * and the same for all the operations in the field.
+ *
+ * See _sp_256_mont_mul_avx2_4() from WolfSSL and
+ * __ecp_nistz256_mul_montx() from OpenSSL.
  */
 
 static void
@@ -420,6 +424,10 @@ ecp256_mul(TlsMpi *X, const TlsMpi *A, const TlsMpi *B)
  * - 4 modular reductions in worse case.
  *
  * @X must be at least G_LIMBS * 2 in size.
+ *
+ * TODO #1064 [5] we can not use the inversion with numbers in Montgormery
+ * representation as is, so need to multiply on R^3 or perform double
+ * reduction or use inversion for normal numbers only.
  */
 static void
 ecp256_inv_mod(TlsMpi *X, const TlsMpi *I, const TlsMpi *N)

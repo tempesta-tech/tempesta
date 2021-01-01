@@ -365,18 +365,13 @@ FN_OID_GET_OID_BY_ATTR1(ttls_oid_get_oid_by_pk_alg, oid_pk_alg_t, oid_pk_alg, tt
  */
 typedef struct {
 	ttls_oid_descriptor_t	descriptor;
-	ttls_ecp_group_id		grp_id;
+	ttls_ecp_group_id	grp_id;
 } oid_ecp_grp_t;
 
-static const oid_ecp_grp_t oid_ecp_grp[] =
-{
+static const oid_ecp_grp_t oid_ecp_grp[] = {
 	{
-		{ ADD_LEN(TTLS_OID_EC_GRP_SECP256R1), "secp256r1",	"secp256r1" },
+		{ ADD_LEN(TTLS_OID_EC_GRP_SECP256R1), "secp256r1", "secp256r1" },
 		TTLS_ECP_DP_SECP256R1,
-	},
-	{
-		{ ADD_LEN(TTLS_OID_EC_GRP_SECP384R1), "secp384r1",	"secp384r1" },
-		TTLS_ECP_DP_SECP384R1,
 	},
 	{
 		{ NULL, 0, NULL, NULL },

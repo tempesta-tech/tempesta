@@ -120,7 +120,6 @@ const ttls_x509_crt_profile ttls_x509_crt_profile_next =
 	0xFFFFFFF, /* Any PK alg	*/
 	/* Curves at or above 128-bit security level */
 	TTLS_X509_ID_FLAG(TTLS_ECP_DP_SECP256R1) |
-	TTLS_X509_ID_FLAG(TTLS_ECP_DP_SECP384R1) |
 	2048,
 };
 
@@ -135,9 +134,8 @@ const ttls_x509_crt_profile ttls_x509_crt_profile_suiteb =
 	/* Only ECDSA */
 	TTLS_X509_ID_FLAG(TTLS_PK_ECDSA) |
 	TTLS_X509_ID_FLAG(TTLS_PK_ECKEY),
-	/* Only NIST P-256 and P-384 */
+	/* Only NIST P-256 */
 	TTLS_X509_ID_FLAG(TTLS_ECP_DP_SECP256R1) |
-	TTLS_X509_ID_FLAG(TTLS_ECP_DP_SECP384R1),
 	0,
 };
 
