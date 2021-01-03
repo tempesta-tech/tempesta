@@ -83,7 +83,7 @@ rsa_sign(void)
 	TlsRSACtx *rsa;
 	unsigned char hash[PT_LEN], sig[KEY_LEN];
 
-	EXPECT_FALSE(!(mp = ttls_mpi_pool_create(TTLS_MPOOL_ORDER, GFP_KERNEL)));
+	EXPECT_FALSE(!(mp = ttls_mpi_pool_create(0, GFP_KERNEL)));
 	EXPECT_FALSE(!(rsa = ttls_mpool_alloc_data(mp, sizeof(TlsRSACtx))));
 	memset(rsa, 0, sizeof(TlsRSACtx));
 	ttls_rsa_init(rsa, TTLS_RSA_PKCS_V15, 0);

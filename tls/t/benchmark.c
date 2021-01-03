@@ -134,7 +134,7 @@ bm_ecdsa_sign_p256(void)
 	size_t slen;
 	char hash[32], sig[80];
 
-	mp = ttls_mpi_pool_create(TTLS_MPOOL_ORDER, GFP_KERNEL);
+	mp = ttls_mpi_pool_create(0, GFP_KERNEL);
 	BUG_ON(!mp);
 	ctx = ttls_mpool_alloc_data(mp, sizeof(*ctx));
 	BUG_ON(!ctx);
@@ -181,7 +181,7 @@ bm_ecdhe_srv_p256(void)
 				  "\xE9\x84\x9D\x52\x79\x7C\x9C\x74"
 				  "\x8F\x67";
 
-	mp = ttls_mpi_pool_create(TTLS_MPOOL_ORDER, GFP_KERNEL);
+	mp = ttls_mpi_pool_create(0, GFP_KERNEL);
 	BUG_ON(!mp);
 
 	/*

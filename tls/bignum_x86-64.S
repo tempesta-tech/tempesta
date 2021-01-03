@@ -322,6 +322,9 @@ ENDPROC(mpi_sub_x86_64_4_4)
  * %RDI	- pointer to X;
  * %RSI	- pointer to A (can be the same as X);
  * %RDX	- pointer to B;
+ *
+ * TODO #1064: use CMOVZ instruction instead of the jump,
+ * see OpenSSL ecp_nistz256_sub(). Do the same with other similar functions.
  */
 ENTRY(mpi_sub_mod_p256_x86_64_4)
 	movq	(%rsi), %r8
