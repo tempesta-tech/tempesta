@@ -1,7 +1,7 @@
 #		Tempesta FW
 #
 # Copyright (C) 2014 NatSys Lab. (info@natsys-lab.com).
-# Copyright (C) 2015-2020 Tempesta Technologies, Inc.
+# Copyright (C) 2015-2021 Tempesta Technologies, Inc.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -68,6 +68,14 @@ TFW_CFLAGS += -DDBG_SS=$(DBG_SS) -DDBG_TLS=$(DBG_TLS) -DDBG_APM=$(DBG_APM)
 TFW_CFLAGS += -DDBG_HTTP_FRAME=$(DBG_HTTP_FRAME)
 TFW_CFLAGS += -DDBG_HTTP_STREAM=$(DBG_HTTP_STREAM)
 TFW_CFLAGS += -DDBG_HPACK=$(DBG_HPACK)
+
+# By default Tempesta TLS randomizes elliptic curve points using RDRAND
+# instruction, which provides high speed random numbers generator.
+# However, if you do not trust your CPU vendor, then use TLS_CONST_TIME
+# to make all the computations constant time to prevent side channel attacks.
+ifdef TLS_CONST_TIME
+	TFW_CFLAGS += -DTLS_CONST_TIME
+endif
 
 PROC = $(shell cat /proc/cpuinfo)
 ARCH = $(shell uname -m)

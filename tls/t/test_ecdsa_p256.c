@@ -106,7 +106,7 @@ ecdsa_sign(void)
 	size_t slen;
 	char hash[32] = {1}, sig[80] = {0};
 
-	EXPECT_FALSE(!(mp = ttls_mpi_pool_create(TTLS_MPOOL_ORDER, GFP_KERNEL)));
+	EXPECT_FALSE(!(mp = ttls_mpi_pool_create(0, GFP_KERNEL)));
 
 	EXPECT_FALSE(!(ctx = ttls_mpool_alloc_data(mp, sizeof(*ctx))));
 

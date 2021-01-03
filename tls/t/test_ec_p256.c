@@ -372,7 +372,7 @@ ecp_mul(void)
 
 		/*
 		 * ECP test #2 (constant op_count, other point).
-		 * We computed P = 2G last time, use it.
+		 * We computed P = m * G last time, use it.
 		 */
 		memcpy(pXY, MPI_P(&P->X), G_LIMBS * CIL);
 		memcpy(&pXY[G_LIMBS], MPI_P(&P->Y), G_LIMBS * CIL);
