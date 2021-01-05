@@ -29,7 +29,6 @@
 #include "util.h"
 
 /* Mock irrelevant groups. */
-const TlsEcpGrp SECP384_G = {};
 const TlsEcpGrp CURVE25519_G = {};
 
 static void

@@ -134,9 +134,6 @@ ecdsa_verify_wrap(void *ctx, ttls_md_type_t md_alg __attribute__((unused)),
 	size_t len;
 	TlsMpi *r, *s;
 
-	if (WARN_ON_ONCE(!eck->grp->ecdsa_verify))
-		return -EINVAL;
-
 	r = ttls_mpi_alloc_stack_init(0);
 	s = ttls_mpi_alloc_stack_init(0);
 

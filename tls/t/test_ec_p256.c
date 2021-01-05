@@ -28,7 +28,6 @@
 #include "util.h"
 
 /* Mock irrelevant groups. */
-const TlsEcpGrp SECP384_G = {};
 const TlsEcpGrp CURVE25519_G = {};
 
 #ifdef DEBUG
@@ -139,7 +138,7 @@ ecp_base_math(void)
 		mpi_tpl_mod_p256_x86_64(MPI_P(X1), MPI_P(A));
 		mpi_shift_l1_mod_p256_x86_64(MPI_P(X2), MPI_P(A));
 		mpi_add_mod_p256_x86_64(MPI_P(X2), MPI_P(X2), MPI_P(X2));
-		mpi_sub_mod_p256_x86_64_4(MPI_P(X2), MPI_P(X2), MPI_P(A));
+		mpi_sub_mod_p256_x86_64(MPI_P(X2), MPI_P(X2), MPI_P(A));
 		EXPECT_ZERO(ttls_mpi_cmp_mpi(X1, X2));
 
 		mpi_mul_mod_p256_x86_64_4(MPI_P(A), MPI_P(A), MPI_P(T1));

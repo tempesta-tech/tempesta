@@ -29,7 +29,6 @@
 
 /* Mock irrelevant groups. */
 const TlsEcpGrp SECP256_G = {};
-const TlsEcpGrp SECP384_G = {};
 const TlsEcpGrp CURVE25519_G = {};
 
 /*
