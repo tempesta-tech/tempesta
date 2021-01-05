@@ -29,7 +29,6 @@
 #include "../mpool.c"
 
 /* Mock irrelevant groups. */
-const TlsEcpGrp SECP384_G = {};
 const TlsEcpGrp CURVE25519_G = {};
 
 static void
@@ -49,6 +48,119 @@ print_T(Ecp256Point *T, int tid)
 			i < G_W_SZ - 1 ? "," : "");
 	}
 	printf("\t}%s\n", tid == G_D ? "" : ",");
+}
+
+static void
+tgen256_double_jac(Ecp256Point *r, const Ecp256Point *p)
+{
+	unsigned long m[4], s[8], t[8], u[8];
+
+	if (likely(!ecp256_mpi_eq_1(p->z))) {
+		/* M = 3(X + Z^2)(X - Z^2) */
+		mpi_sqr_mod_p256_x86_64_4(s, p->z);
+		mpi_add_mod_p256_x86_64(t, p->x, s);
+		mpi_sub_mod_p256_x86_64(u, p->x, s);
+		mpi_mul_mod_p256_x86_64_4(s, t, u);
+	} else {
+		/* M = 3 * (X^2 - 1) */
+		mpi_sqr_mod_p256_x86_64_4(s, p->x);
+		ecp256_lset(t, 1);
+		mpi_sub_mod_p256_x86_64(s, s, t);
+	}
+	mpi_tpl_mod_p256_x86_64(m, s);
+
+	/* S = 4 * X * Y^2 = X * (2 * Y)^2 */
+	mpi_shift_l1_mod_p256_x86_64(t, p->y);
+	mpi_sqr_mod_p256_x86_64_4(t, t);
+	mpi_mul_mod_p256_x86_64_4(s, p->x, t);
+
+	/* U = 8 * Y^4 = ((2 * Y)^2)^2 / 2 */
+	mpi_sqr_mod_p256_x86_64_4(u, t);
+	mpi_div2_x86_64_4(u, u);
+
+	/* T = M^2 - 2 * S */
+	mpi_sqr_mod_p256_x86_64_4(t, m);
+	mpi_sub_mod_p256_x86_64(t, t, s);
+	mpi_sub_mod_p256_x86_64(t, t, s);
+
+	/* S = M(S - T) - U */
+	mpi_sub_mod_p256_x86_64(s, s, t);
+	mpi_mul_mod_p256_x86_64_4(s, s, m);
+	mpi_sub_mod_p256_x86_64(s, s, u);
+
+	/* U = 2 * Y * Z */
+	if (likely(!ecp256_mpi_eq_1(p->z))) {
+		mpi_mul_mod_p256_x86_64_4(u, p->y, p->z);
+		mpi_shift_l1_mod_p256_x86_64(u, u);
+	} else {
+		mpi_shift_l1_mod_p256_x86_64(u, p->y);
+	}
+
+	ecp256_copy(r->x, t);
+	ecp256_copy(r->y, s);
+	ecp256_copy(r->z, u);
+}
+
+static void
+tgen256_add_mixed(Ecp256Point *R, const Ecp256Point *P, const Ecp256Point *Q,
+		 bool no_qz)
+{
+	unsigned long t1[8], t2[8], t3[8], t4[8], x[8], z[8];
+
+	/* Trivial cases: P == 0 or Q == 0 (case 1). */
+	if (ecp256_mpi_eq_0(P->z)) {
+		memcpy(R, Q, sizeof(*R));
+		return;
+	}
+	if (unlikely(!no_qz)) {
+		if (ecp256_mpi_eq_0(Q->z)) {
+			memcpy(R, P, sizeof(*R));
+			return;
+		}
+		/* Make sure Q coordinates are normalized. */
+		WARN_ON_ONCE(!ecp256_mpi_eq_1(Q->z));
+	}
+
+	if (unlikely(ecp256_mpi_eq_1(P->z))) {
+		/* Relatively rare case, ~1/60. */
+		mpi_sub_mod_p256_x86_64(t1, Q->x, P->x);
+		mpi_sub_mod_p256_x86_64(t2, Q->y, P->y);
+	} else {
+		mpi_sqr_mod_p256_x86_64_4(t1, P->z);
+		mpi_mul_mod_p256_x86_64_4(t2, t1, P->z);
+		mpi_mul_mod_p256_x86_64_4(t1, t1, Q->x);
+		mpi_mul_mod_p256_x86_64_4(t2, t2, Q->y);
+		mpi_sub_mod_p256_x86_64(t1, t1, P->x);
+		mpi_sub_mod_p256_x86_64(t2, t2, P->y);
+	}
+
+	/* Special cases (2) and (3) */
+	if (ecp256_mpi_eq_0(t1)) {
+		if (ecp256_mpi_eq_0(t2))
+			tgen256_double_jac(R, P);
+		else
+			ecp256_set_zero(R);
+		return;
+	}
+
+	if (unlikely(ecp256_mpi_eq_1(P->z)))
+		memcpy_fast(z, t1, 4 * CIL);
+	else
+		mpi_mul_mod_p256_x86_64_4(z, P->z, t1);
+	mpi_sqr_mod_p256_x86_64_4(t3, t1);
+	mpi_mul_mod_p256_x86_64_4(t4, t3, t1);
+	mpi_mul_mod_p256_x86_64_4(t3, t3, P->x);
+	mpi_shift_l1_mod_p256_x86_64(t1, t3);
+	mpi_sqr_mod_p256_x86_64_4(x, t2);
+	mpi_sub_mod_p256_x86_64(x, x, t1);
+	mpi_sub_mod_p256_x86_64(x, x, t4);
+	mpi_sub_mod_p256_x86_64(t3, t3, x);
+	mpi_mul_mod_p256_x86_64_4(t3, t3, t2);
+	mpi_mul_mod_p256_x86_64_4(t4, t4, P->y);
+	mpi_sub_mod_p256_x86_64(R->y, t3, t4);
+
+	memcpy_fast(R->x, x, 4 * CIL);
+	memcpy_fast(R->z, z, 4 * CIL);
 }
 
 static int
@@ -137,7 +249,7 @@ generate_T0(Ecp256Point T[G_W_SZ])
 		cur = &T[i];
 		memcpy_fast(cur, &T[i >> 1], sizeof(*cur));
 		for (j = 0; j < G_D; j++)
-			ecp256_double_jac(cur, cur);
+			tgen256_double_jac(cur, cur);
 
 		TT[k++] = cur;
 	}
@@ -150,7 +262,7 @@ generate_T0(Ecp256Point T[G_W_SZ])
 	for (k = 0, i = 1; i < G_W_SZ; i <<= 1) {
 		j = i;
 		while (j--) {
-			ecp256_add_mixed(&T[i + j], &T[j], &T[i], false);
+			tgen256_add_mixed(&T[i + j], &T[j], &T[i], false);
 			TT[k++] = &T[i + j];
 		}
 	}
@@ -169,7 +281,7 @@ generate_Ti(Ecp256Point T[G_W_SZ])
 	Ecp256Point *TT[G_W_SZ];
 
 	for (i = 0; i < G_W_SZ; ++i) {
-		ecp256_double_jac(&T[i], &T[i]);
+		tgen256_double_jac(&T[i], &T[i]);
 		TT[i] = &T[i];
 	}
 	tgen256_normalize_jac_many(TT, G_W_SZ);

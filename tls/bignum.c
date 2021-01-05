@@ -1174,6 +1174,10 @@ __mpi_montred(TlsMpi *A, const TlsMpi *N, unsigned long mm, TlsMpi *T)
  *
  * @RR is used to avoid re-computing R * R mod N across multiple calls,
  * which speeds up things a bit.
+ *
+ * TODO #1335: couple the Montgomery multiplication with Karatsuba's one:
+ * RSA operates with large numbers, so Karatsuba with fallback to 256-bit
+ * schoolbook should be beneficial.
  */
 int
 ttls_mpi_exp_mod(TlsMpi *X, const TlsMpi *A, const TlsMpi *E, const TlsMpi *N,

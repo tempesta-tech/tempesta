@@ -28,7 +28,6 @@
 
 /* Mock irrelevant groups. */
 const TlsEcpGrp SECP256_G = {};
-const TlsEcpGrp SECP384_G = {};
 
 int
 main(int argc, char *argv[])
