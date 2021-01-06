@@ -404,8 +404,15 @@ frang_conn_close(struct sock *sk)
 	BUG_ON(!ra);
 
 	spin_lock(&ra->lock);
-
+#if 0
 	BUG_ON(!ra->conn_curr);
+#else
+	/* TODO #1404 temporal workaround. */
+	if (!ra->conn_curr) {
+		spin_unlock(&ra->lock);
+		return;
+	}
+#endif
 	ra->conn_curr--;
 
 	spin_unlock(&ra->lock);
