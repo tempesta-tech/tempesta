@@ -305,23 +305,22 @@ ecp256_lset(unsigned long *x, long z)
 }
 
 static bool
-ecp256_mpi_eq_1(const unsigned long x[G_LIMBS])
-{
-	return x[0] == 1 && !x[1] && !x[2] && !x[3];
-}
-
-static bool
 ecp256_mpi_eq_0(const unsigned long x[G_LIMBS])
 {
 	return !x[0] && !x[1] && !x[2] && !x[3];
 }
 
-static inline void
-ecp256_set_zero(Ecp256Point *pt)
+/**
+ * Set coordinate Z to 1 in Montgomery form.
+ * Precomputed from ecp256_to_mont() call over {1, 0, 0, 0}.
+ */
+static void
+ecp256_set_mont_1(Ecp256Point *p)
 {
-	ecp256_lset(pt->x, 1);
-	ecp256_lset(pt->y, 1);
-	ecp256_lset(pt->z, 0);
+	p->z[0] = 0x1UL;
+	p->z[1] = 0xffffffff00000000UL;
+	p->z[2] = 0xffffffffffffffffUL;
+	p->z[3] = 0xfffffffe;
 }
 
 /**
@@ -646,7 +645,7 @@ ecp256_inv_mod(TlsMpi *X, const TlsMpi *I, const TlsMpi *N)
  * Cost: 1N := 1I + 3M + 1S
  */
 static void
-ecp256_normalize_jac(Ecp256Point *r)
+ecp256_normalize_jac(Ecp256Point *r, bool norm_mont)
 {
 	unsigned long zzi[8], x[8] = {}, y[8] = {};
 	DECLARE_MPI_AUTO(zi, 8);
@@ -658,16 +657,14 @@ ecp256_normalize_jac(Ecp256Point *r)
 	memset(MPI_P(&zi), 0, 8 * CIL);
 
 	ecp256_mpi_write(&zi, r->z);
-
-	/*
-	 * TODO #1064 we have to normalize the number before inversion for now,
-	 * so now we run slow operations on the number.
-	 */
-	mpi_mont_reduce_p256_x86_64(MPI_P(&zi));
 	ecp256_copy(x, r->x);
-	mpi_mont_reduce_p256_x86_64(x);
 	ecp256_copy(y, r->y);
-	mpi_mont_reduce_p256_x86_64(y);
+
+	if (norm_mont) {
+		mpi_mont_reduce_p256_x86_64(MPI_P(&zi));
+		mpi_mont_reduce_p256_x86_64(x);
+		mpi_mont_reduce_p256_x86_64(y);
+	}
 
 	/* X = X / Z^2  mod p */
 	ecp256_inv_mod(&zi, &zi, &G.P);
@@ -683,33 +680,6 @@ ecp256_normalize_jac(Ecp256Point *r)
 	/* Z = 1 */
 	ecp256_lset(r->z, 1);
 }
-
-static void
-TODO_1064_ecp256_normalize_jac(Ecp256Point *r)
-{
-	unsigned long zzi[8], x[8], y[8];
-	DECLARE_MPI_AUTO(zi, 8);
-
-	if (ecp256_mpi_eq_0(r->z))
-		return;
-
-	ecp256_mpi_write(&zi, r->z);
-
-	/* X = X / Z^2  mod p */
-	ecp256_inv_mod(&zi, &zi, &G.P);
-	mpi_sqr_mod_p256_x86_64_4(zzi, MPI_P(&zi));
-	mpi_mul_mod_p256_x86_64_4(x, r->x, zzi);
-	ecp256_copy(r->x, x);
-
-	/* Y = Y / Z^3  mod p */
-	mpi_mul_mod_p256_x86_64_4(y, r->y, zzi);
-	mpi_mul_mod_p256_x86_64_4(y, y, MPI_P(&zi));
-	ecp256_copy(r->y, y);
-
-	/* Z = 1 */
-	ecp256_lset(r->z, 1);
-}
-
 
 /**
  * Conditional point inversion: Q -> -Q = (Q.X, -Q.Y, Q.Z) without leak.
@@ -766,57 +736,6 @@ ecp256_double_jac(Ecp256Point *r, const Ecp256Point *p)
 	/* U = 2 * Y * Z */
 	mpi_mul_mont_mod_p256_x86_64(u, p->y, p->z);
 	mpi_shift_l1_mod_p256_x86_64(u, u);
-
-	ecp256_copy(r->x, t);
-	ecp256_copy(r->y, s);
-	ecp256_copy(r->z, u);
-}
-
-static void
-TODO_1064_ecp256_double_jac(Ecp256Point *r, const Ecp256Point *p)
-{
-	unsigned long m[4], s[8], t[8], u[8];
-
-	if (likely(!ecp256_mpi_eq_1(p->z))) {
-		/* M = 3(X + Z^2)(X - Z^2) */
-		mpi_sqr_mod_p256_x86_64_4(s, p->z);
-		mpi_add_mod_p256_x86_64(t, p->x, s);
-		mpi_sub_mod_p256_x86_64(u, p->x, s);
-		mpi_mul_mod_p256_x86_64_4(s, t, u);
-	} else {
-		/* M = 3 * (X^2 - 1) */
-		mpi_sqr_mod_p256_x86_64_4(s, p->x);
-		ecp256_lset(t, 1);
-		mpi_sub_mod_p256_x86_64(s, s, t);
-	}
-	mpi_tpl_mod_p256_x86_64(m, s);
-
-	/* S = 4 * X * Y^2 = X * (2 * Y)^2 */
-	mpi_shift_l1_mod_p256_x86_64(t, p->y);
-	mpi_sqr_mod_p256_x86_64_4(t, t);
-	mpi_mul_mod_p256_x86_64_4(s, p->x, t);
-
-	/* U = 8 * Y^4 = ((2 * Y)^2)^2 / 2 */
-	mpi_sqr_mod_p256_x86_64_4(u, t);
-	mpi_div2_x86_64_4(u, u);
-
-	/* T = M^2 - 2 * S */
-	mpi_sqr_mod_p256_x86_64_4(t, m);
-	mpi_sub_mod_p256_x86_64(t, t, s);
-	mpi_sub_mod_p256_x86_64(t, t, s);
-
-	/* S = M(S - T) - U */
-	mpi_sub_mod_p256_x86_64(s, s, t);
-	mpi_mul_mod_p256_x86_64_4(s, s, m);
-	mpi_sub_mod_p256_x86_64(s, s, u);
-
-	/* U = 2 * Y * Z */
-	if (likely(!ecp256_mpi_eq_1(p->z))) {
-		mpi_mul_mod_p256_x86_64_4(u, p->y, p->z);
-		mpi_shift_l1_mod_p256_x86_64(u, u);
-	} else {
-		mpi_shift_l1_mod_p256_x86_64(u, p->y);
-	}
 
 	ecp256_copy(r->x, t);
 	ecp256_copy(r->y, s);
@@ -881,64 +800,22 @@ ecp256_double_jac_n(Ecp256Point *r, const Ecp256Point *p)
  * The coordinates of Q must be normalized (= affine),
  * but those of P don't need to. R is not normalized.
  *
- * Special cases: (1) P or Q is zero, (2) R is zero, (3) P == Q.
- * None of these cases can happen as intermediate step in ecp_mul_comb():
- * - at each step, P, Q and R are multiples of the base point, the factor
- *   being less than its order, so none of them is zero;
- * - Q is an odd multiple of the base point, P an even multiple,
- *   due to the choice of precomputed points in the modified comb method.
- * So branches for these cases do not leak secret information.
- *
- * We accept Q->Z being unset (saving memory in tables) as meaning 1.
- *
  * Cost: 1A := 8M + 3S (same as Chudnovsky-Affine time, GECC 3.2.2).
  */
 static void
-ecp256_add_mixed(Ecp256Point *R, const Ecp256Point *P, const Ecp256Point *Q,
-		 bool no_qz)
+ecp256_add_mixed(Ecp256Point *R, const Ecp256Point *P, const Ecp256Point *Q)
 {
 	unsigned long t1[8], t2[8], t3[8], t4[8], x[8], z[8];
 
-	/* Trivial cases: P == 0 or Q == 0 (case 1). */
-	if (ecp256_mpi_eq_0(P->z)) {
-		memcpy(R, Q, sizeof(*R));
-		return;
-	}
-	if (unlikely(!no_qz)) {
-		if (ecp256_mpi_eq_0(Q->z)) {
-			memcpy(R, P, sizeof(*R));
-			return;
-		}
-		/* Make sure Q coordinates are normalized. */
-		WARN_ON_ONCE(!ecp256_mpi_eq_1(Q->z));
-	}
+	mpi_sqr_mod_p256_x86_64_4(t1, P->z);
+	mpi_mul_mod_p256_x86_64_4(t2, t1, P->z);
+	mpi_mul_mod_p256_x86_64_4(t1, t1, Q->x);
+	mpi_mul_mod_p256_x86_64_4(t2, t2, Q->y);
+	mpi_sub_mod_p256_x86_64(t1, t1, P->x);
+	mpi_sub_mod_p256_x86_64(t2, t2, P->y);
 
-	if (unlikely(ecp256_mpi_eq_1(P->z))) {
-		/* Relatively rare case, ~1/60. */
-		mpi_sub_mod_p256_x86_64(t1, Q->x, P->x);
-		mpi_sub_mod_p256_x86_64(t2, Q->y, P->y);
-	} else {
-		mpi_sqr_mod_p256_x86_64_4(t1, P->z);
-		mpi_mul_mod_p256_x86_64_4(t2, t1, P->z);
-		mpi_mul_mod_p256_x86_64_4(t1, t1, Q->x);
-		mpi_mul_mod_p256_x86_64_4(t2, t2, Q->y);
-		mpi_sub_mod_p256_x86_64(t1, t1, P->x);
-		mpi_sub_mod_p256_x86_64(t2, t2, P->y);
-	}
+	mpi_mul_mod_p256_x86_64_4(z, P->z, t1);
 
-	/* Special cases (2) and (3) */
-	if (ecp256_mpi_eq_0(t1)) {
-		if (ecp256_mpi_eq_0(t2))
-			TODO_1064_ecp256_double_jac(R, P);
-		else
-			ecp256_set_zero(R);
-		return;
-	}
-
-	if (unlikely(ecp256_mpi_eq_1(P->z)))
-		memcpy_fast(z, t1, 4 * CIL);
-	else
-		mpi_mul_mod_p256_x86_64_4(z, P->z, t1);
 	mpi_sqr_mod_p256_x86_64_4(t3, t1);
 	mpi_mul_mod_p256_x86_64_4(t4, t3, t1);
 	mpi_mul_mod_p256_x86_64_4(t3, t3, P->x);
@@ -949,6 +826,7 @@ ecp256_add_mixed(Ecp256Point *R, const Ecp256Point *P, const Ecp256Point *Q,
 	mpi_sub_mod_p256_x86_64(t3, t3, x);
 	mpi_mul_mod_p256_x86_64_4(t3, t3, t2);
 	mpi_mul_mod_p256_x86_64_4(t4, t4, P->y);
+
 	mpi_sub_mod_p256_x86_64(R->y, t3, t4);
 
 	memcpy_fast(R->x, x, 4 * CIL);
@@ -1185,11 +1063,7 @@ ecp256_precompute_comb(const unsigned long *pXY)
 	/* Set T[0] = P and multiply it by Montogmery normalizer mod P256. */
 	ecp256_to_mont(T->x, pXY);
 	ecp256_to_mont(T->y, pXY + G_LIMBS);
-	/* Precomputed from ecp256_to_mont() call over {1, 0, 0, 0}. */
-	T->z[0] = 0x1UL;
-	T->z[1] = 0xffffffff00000000UL;
-	T->z[2] = 0xffffffffffffffffUL;
-	T->z[3] = 0xfffffffe;
+	ecp256_set_mont_1(T);
 
 	/* Set T[2^{i-1}] = 2^{di} P for i = 1 .. w-1 */
 	for (i = 1; i < W_SZ; i <<= 1)
@@ -1387,7 +1261,7 @@ ecp256_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const unsigned long *P)
 
 	/* Now get m * P from M * P and normalize it. */
 	ecp256_safe_invert_jac(&r, !m_is_odd);
-	ecp256_normalize_jac(&r);
+	ecp256_normalize_jac(&r, true);
 
 	ecp256_mpi_write(&R->X, r.x);
 	ecp256_mpi_write(&R->Y, r.y);
@@ -1398,10 +1272,12 @@ ecp256_mul_comb(TlsEcpPoint *R, const TlsMpi *m, const unsigned long *P)
  * Fixed-base comb method with V=d extended precomputed tables (GECC 3.45, 3.47).
  */
 static void
-ecp256_mul_comb_core_g(Ecp256Point *r, const unsigned char x[])
+ecp256_mul_comb_core_g(Ecp256Point *r, const unsigned char k[])
 {
 	Ecp256Point txi;
-	size_t i = G_D;
+	size_t i = G_D - 1;
+	unsigned char ii;
+	unsigned long t1[8], t2[8], t3[8], t4[8], x[8], y[8], z[8];
 
 	/*
 	 * Start with a non-zero point and randomize its coordinates.
@@ -1409,19 +1285,66 @@ ecp256_mul_comb_core_g(Ecp256Point *r, const unsigned char x[])
 	 * TODO #1064: revert ecp_randomize_jac() - it's only 1S + 3M + R
 	 * (R is for random, very fast).
 	 */
-	ecp256_select_comb_g(r, combT_G[G_D], x[i]);
-	ecp256_lset(r->z, 1);
+	ecp256_select_comb_g(r, combT_G[G_D], k[G_D]);
+
+	/*
+	 * Do shorter computations for the first iteration with
+	 * Z coordinate equal 1.
+	 */
+	ii = (k[i] & 0x7Fu) >> 1;
+
+	/* Copy X and Y in one shot. */
+	memcpy(&txi, &combT_G[i][ii], G_LIMBS * CIL * 2);
+	ecp256_set_mont_1(&txi);
+	ecp256_safe_invert_jac(&txi, k[i] >> 7);
+
+	/* ecp256_add_mixed() for P->Z == 1 */
+	// TODO #1064 ecp256_add_mixed(r, r, &txi);  P = r  Q = txi
+	mpi_sub_mod_p256_x86_64(t1, txi.x, r->x);
+	mpi_sub_mod_p256_x86_64(t2, txi.y, r->y);
+	memcpy(z, t1, G_LIMBS * CIL);
+	mpi_sqr_mont_mod_p256_x86_64(t3, t1);
+	mpi_mul_mont_mod_p256_x86_64(t4, t3, t1);
+	mpi_mul_mont_mod_p256_x86_64(t3, t3, r->x);
+	mpi_shift_l1_mod_p256_x86_64(t1, t3);
+	mpi_sqr_mont_mod_p256_x86_64(x, t2);
+	mpi_sub_mod_p256_x86_64(x, x, t1);
+	mpi_sub_mod_p256_x86_64(x, x, t4);
+	mpi_sub_mod_p256_x86_64(t3, t3, x);
+	mpi_mul_mont_mod_p256_x86_64(t3, t3, t2);
+	mpi_mul_mont_mod_p256_x86_64(t4, t4, r->y);
+	mpi_sub_mod_p256_x86_64(y, t3, t4);
 
 	while (i--) {
-		unsigned char ii = (x[i] & 0x7Fu) >> 1;
+		ii = (k[i] & 0x7Fu) >> 1;
+		memcpy(&txi, &combT_G[i][ii], G_LIMBS * CIL * 2);
 
-		/* Copy X and Y in one shot. */
-		memcpy_fast(&txi, &combT_G[i][ii], G_LIMBS * CIL * 2);
+		ecp256_safe_invert_jac(&txi, k[i] >> 7);
 
-		ecp256_safe_invert_jac(&txi, x[i] >> 7);
-
-		ecp256_add_mixed(r, r, &txi, true);
+		// TODO #1064 ecp256_add_mixed(r, r, &txi);
+		mpi_sqr_mont_mod_p256_x86_64(t1, z);
+		mpi_mul_mont_mod_p256_x86_64(t2, t1, z);
+		mpi_mul_mont_mod_p256_x86_64(t1, t1, txi.x);
+		mpi_mul_mont_mod_p256_x86_64(t2, t2, txi.y);
+		mpi_sub_mod_p256_x86_64(t1, t1, x);
+		mpi_sub_mod_p256_x86_64(t2, t2, y);
+		mpi_mul_mont_mod_p256_x86_64(z, z, t1);
+		mpi_sqr_mont_mod_p256_x86_64(t3, t1);
+		mpi_mul_mont_mod_p256_x86_64(t4, t3, t1);
+		mpi_mul_mont_mod_p256_x86_64(t3, t3, x);
+		mpi_shift_l1_mod_p256_x86_64(t1, t3);
+		mpi_sqr_mont_mod_p256_x86_64(x, t2);
+		mpi_sub_mod_p256_x86_64(x, x, t1);
+		mpi_sub_mod_p256_x86_64(x, x, t4);
+		mpi_sub_mod_p256_x86_64(t3, t3, x);
+		mpi_mul_mont_mod_p256_x86_64(t3, t3, t2);
+		mpi_mul_mont_mod_p256_x86_64(t4, t4, y);
+		mpi_sub_mod_p256_x86_64(y, t3, t4);
 	}
+
+	ecp256_copy(r->x, x);
+	ecp256_copy(r->y, y);
+	ecp256_copy(r->z, z);
 }
 
 /**
@@ -1454,7 +1377,7 @@ ecp256_mul_comb_g(TlsEcpPoint *R, const TlsMpi *m)
 
 	/* Now get m * G from M * G and normalize it. */
 	ecp256_safe_invert_jac(&r, !m_is_odd);
-	TODO_1064_ecp256_normalize_jac(&r);
+	ecp256_normalize_jac(&r, true);
 
 	ecp256_mpi_write(&R->X, r.x);
 	ecp256_mpi_write(&R->Y, r.y);
@@ -1495,9 +1418,8 @@ ecp256_muladd(TlsEcpPoint *R, const TlsMpi *m, const TlsEcpPoint *Q,
 	ecp256_mpi_read(r[1].y, &mP->Y);
 	ecp256_mpi_read(r[1].z, &mP->Z);
 
-	// TODO #1064 fix this as well to pass ECDSA test
-	ecp256_add_mixed(&r[0], &r[1], &r[0], true);
-	ecp256_normalize_jac(&r[0]);
+	ecp256_add_mixed(&r[0], &r[1], &r[0]);
+	ecp256_normalize_jac(&r[0], false);
 
 	ecp256_mpi_write(&R->X, r[0].x);
 	ecp256_mpi_write(&R->Y, r[0].y);

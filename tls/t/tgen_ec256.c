@@ -3,7 +3,7 @@
  *
  * Precomputation of the static table for m * G in NIST secp256r1.
  *
- * Copyright (C) 2020 Tempesta Technologies, Inc.
+ * Copyright (C) 2020-2021 Tempesta Technologies, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,6 +31,26 @@
 /* Mock irrelevant groups. */
 const TlsEcpGrp CURVE25519_G = {};
 
+static bool
+tgen256_mpi_eq_1(const unsigned long x[G_LIMBS])
+{
+	return x[0] == 1 && !x[1] && !x[2] && !x[3];
+}
+
+static void
+tgen256_set_zero(Ecp256Point *p)
+{
+	ecp256_lset(p->x, 1);
+	ecp256_lset(p->y, 1);
+	ecp256_lset(p->z, 0);
+}
+
+
+
+/**
+ * Print precomputed table with all the coordinates converted to the
+ * Montgomery form.
+ */
 static void
 print_T(Ecp256Point *T, int tid)
 {
@@ -38,8 +58,10 @@ print_T(Ecp256Point *T, int tid)
 
 	printf("\t{ /*    Table %d    */\n", tid);
 	for (i = 0; i < G_W_SZ; ++i) {
-		unsigned long *x = T[i].x;
-		unsigned long *y = T[i].y;
+		unsigned long x[G_LIMBS], y[G_LIMBS];
+
+		ecp256_to_mont(x, T[i].x);
+		ecp256_to_mont(y, T[i].y);
 
 		printf("\t {{%#16lxUL, %#16lxUL,\n", x[0], x[1]);
 		printf("\t   %#16lxUL, %#16lxUL},\n", x[2], x[3]);
@@ -55,7 +77,7 @@ tgen256_double_jac(Ecp256Point *r, const Ecp256Point *p)
 {
 	unsigned long m[4], s[8], t[8], u[8];
 
-	if (likely(!ecp256_mpi_eq_1(p->z))) {
+	if (likely(!tgen256_mpi_eq_1(p->z))) {
 		/* M = 3(X + Z^2)(X - Z^2) */
 		mpi_sqr_mod_p256_x86_64_4(s, p->z);
 		mpi_add_mod_p256_x86_64(t, p->x, s);
@@ -89,7 +111,7 @@ tgen256_double_jac(Ecp256Point *r, const Ecp256Point *p)
 	mpi_sub_mod_p256_x86_64(s, s, u);
 
 	/* U = 2 * Y * Z */
-	if (likely(!ecp256_mpi_eq_1(p->z))) {
+	if (likely(!tgen256_mpi_eq_1(p->z))) {
 		mpi_mul_mod_p256_x86_64_4(u, p->y, p->z);
 		mpi_shift_l1_mod_p256_x86_64(u, u);
 	} else {
@@ -118,10 +140,10 @@ tgen256_add_mixed(Ecp256Point *R, const Ecp256Point *P, const Ecp256Point *Q,
 			return;
 		}
 		/* Make sure Q coordinates are normalized. */
-		WARN_ON_ONCE(!ecp256_mpi_eq_1(Q->z));
+		WARN_ON_ONCE(!tgen256_mpi_eq_1(Q->z));
 	}
 
-	if (unlikely(ecp256_mpi_eq_1(P->z))) {
+	if (unlikely(tgen256_mpi_eq_1(P->z))) {
 		/* Relatively rare case, ~1/60. */
 		mpi_sub_mod_p256_x86_64(t1, Q->x, P->x);
 		mpi_sub_mod_p256_x86_64(t2, Q->y, P->y);
@@ -139,11 +161,11 @@ tgen256_add_mixed(Ecp256Point *R, const Ecp256Point *P, const Ecp256Point *Q,
 		if (ecp256_mpi_eq_0(t2))
 			tgen256_double_jac(R, P);
 		else
-			ecp256_set_zero(R);
+			tgen256_set_zero(R);
 		return;
 	}
 
-	if (unlikely(ecp256_mpi_eq_1(P->z)))
+	if (unlikely(tgen256_mpi_eq_1(P->z)))
 		memcpy_fast(z, t1, 4 * CIL);
 	else
 		mpi_mul_mod_p256_x86_64_4(z, P->z, t1);
