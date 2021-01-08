@@ -70,7 +70,7 @@ void ecp_mod_p256_x86_64(unsigned long *x);
 void mpi_mul_mont_mod_p256_x86_64(unsigned long *x, const unsigned long *a,
 				  const unsigned long *b);
 void mpi_sqr_mont_mod_p256_x86_64(unsigned long *x, const unsigned long *a);
-void mpi_mont_reduce_p256_x86_64(unsigned long *x);
+void mpi_from_mont_p256_x86_64(unsigned long *x);
 
 #endif /* __BIGNUM_ASM_H__ */
 

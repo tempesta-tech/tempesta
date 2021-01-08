@@ -624,24 +624,32 @@ __to_mont(unsigned long *__restrict r, const unsigned long *__restrict a)
 static void
 mont_basic(void)
 {
-	unsigned long a[8] = {1, 0, 2, 3}, b[4] = {4, 5, 6, 7}, r[8];
-	// TODO #1064 remove zeroing for rm
-	unsigned long am[8] = {}, bm[4] = {}, rm[8] = {};
+	const unsigned long a[8] = {1, 0, 2, 3}, b[4] = {4, 5, 6, 7};
+	unsigned long am[8] = {}, bm[4] = {};
+	unsigned long r[8] = {5}; /* only 4 limbs are used, fill with garbage */
 
 	__to_mont(am, a);
 	__to_mont(bm, b);
 
-	mpi_sqr_mod_p256_x86_64_4(a, a);
-	mpi_mul_mod_p256_x86_64_4(r, a, b);
-
 	mpi_sqr_mont_mod_p256_x86_64(am, am);
-	mpi_mul_mont_mod_p256_x86_64(rm, am, bm);
-	mpi_mont_reduce_p256_x86_64(rm);
+	mpi_mul_mont_mod_p256_x86_64(r, am, bm);
+	mpi_from_mont_p256_x86_64(r);
 
-	EXPECT_EQ(r[0], rm[0]);
-	EXPECT_EQ(r[1], rm[1]);
-	EXPECT_EQ(r[2], rm[2]);
-	EXPECT_EQ(r[3], rm[3]);
+	EXPECT_EQ(r[0], 0x0000008c00000172UL);
+	EXPECT_EQ(r[1], 0xfffffe190000002bUL);
+	EXPECT_EQ(r[2], 0xffffffa1ffffff62UL);
+	EXPECT_EQ(r[3], 0x00000153ffffff8fUL);
+
+	r[0] = 0xf859b3b476e5a4d0UL;
+	r[1] = 0x3f461f4b7a77820cUL;
+	r[2] = 0x97342b748b9333a9UL;
+	r[3] = 0xd249ca4aaf0f531dUL;
+
+	mpi_from_mont_p256_x86_64(r);
+	EXPECT_EQ(r[0], 0x102eb1cc0aaf20aaUL);
+	EXPECT_EQ(r[1], 0x43ea8a401fe365dcUL);
+	EXPECT_EQ(r[2], 0xd35b2054e61f5e5UL);
+	EXPECT_EQ(r[3], 0xd7aac08c0475fb7dUL);
 }
 
 static void

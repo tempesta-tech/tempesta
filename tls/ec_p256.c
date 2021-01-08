@@ -344,23 +344,6 @@ ecp256_safe_cond_assign(unsigned long *x, unsigned long *y, unsigned char assign
 	x[3] ^= (x[3] ^ y[3]) & l_mask;
 }
 
-/*
- * For curves in short Weierstrass form, we do all the internal operations in
- * Jacobian coordinates.
- *
- * For multiplication, we'll use a comb method with coutermeasueres against
- * SPA, hence timing attacks.
- *
- * TODO #1064: use P256 is Montgomery-friendly [9], so use the OpenSSL
- * optimization techniques for the prime modulus, see [9]
- * chapter "3 A Montgomery-friendly modulus".
- * Probably we can reduce not all operations, since X + nP mod P = X mod P
- * and the same for all the operations in the field.
- *
- * See _sp_256_mont_mul_avx2_4() from WolfSSL and
- * __ecp_nistz256_mul_montx() from OpenSSL.
- */
-
 static void
 ecp256_mul_int(TlsMpi *X, const TlsMpi *A, long b)
 {
@@ -650,20 +633,14 @@ ecp256_normalize_jac(Ecp256Point *r, bool norm_mont)
 	unsigned long zzi[8], x[8] = {}, y[8] = {};
 	DECLARE_MPI_AUTO(zi, 8);
 
-	/*
-	 * TODO #1064 mpi_mont_reduce_p256_x86_64() reduces 8 limbs,
-	 * so need to zeroize the MPIs for now.
-	 */
-	memset(MPI_P(&zi), 0, 8 * CIL);
-
 	ecp256_mpi_write(&zi, r->z);
 	ecp256_copy(x, r->x);
 	ecp256_copy(y, r->y);
 
 	if (norm_mont) {
-		mpi_mont_reduce_p256_x86_64(MPI_P(&zi));
-		mpi_mont_reduce_p256_x86_64(x);
-		mpi_mont_reduce_p256_x86_64(y);
+		mpi_from_mont_p256_x86_64(MPI_P(&zi));
+		mpi_from_mont_p256_x86_64(x);
+		mpi_from_mont_p256_x86_64(y);
 	}
 
 	/* X = X / Z^2  mod p */

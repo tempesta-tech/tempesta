@@ -871,56 +871,44 @@ ENTRY_32(mpi_sqr_mont_mod_p256_x86_64)
 	addq	%rbx, %r13
 	adcq	%rax, %r14
 	adcq	%rdx, %r15
-	# Start Reduction
-	# mu = a[0]-a[3] + a[0]-a[2] << 32 << 64 + (a[0] * 2) << 192
-	#    - a[0] << 32 << 192
-	#   + (a[0] * 2) << 192
+	# Start Reduction, see mpi_from_mont_p256_x86_64().
 	movq	%r8, %rax
 	movq	%r11, %rdx
 	addq	%r8, %rdx
 	movq	%r9, %rsi
 	addq	%r8, %rdx
 	movq	%r10, %rbx
-	#   a[0]-a[2] << 32
 	shlq	$32, %r8
 	shldq	$32, %rsi, %r10
 	shldq	$32, %rax, %r9
-	#   - a[0] << 32 << 192
 	subq	%r8, %rdx
-	#   + a[0]-a[2] << 32 << 64
 	addq	%r8, %rsi
 	adcq	%r9, %rbx
 	adcq	%r10, %rdx
-	# a += (mu << 256) - (mu << 224) + (mu << 192) + (mu << 96) - mu
-	#   a += mu << 256
 	xorq	%r8, %r8
 	addq	%rax, %r12
 	adcq	%rsi, %r13
 	adcq	%rbx, %r14
 	adcq	%rdx, %r15
 	sbbq	$0x00, %r8
-	#   a += mu << 192
 	addq	%rax, %r11
 	adcq	%rsi, %r12
 	adcq	%rbx, %r13
 	adcq	%rdx, %r14
 	adcq	$0x00, %r15
 	sbbq	$0x00, %r8
-	# mu <<= 32
 	movq	%rdx, %rcx
 	shldq	$32, %rbx, %rdx
 	shldq	$32, %rsi, %rbx
 	shldq	$32, %rax, %rsi
 	shrq	$32, %rcx
 	shlq	$32, %rax
-	#   a += (mu << 32) << 64
 	addq	%rbx, %r11
 	adcq	%rdx, %r12
 	adcq	%rcx, %r13
 	adcq	$0x00, %r14
 	adcq	$0x00, %r15
 	sbbq	$0x00, %r8
-	#   a -= (mu << 32) << 192
 	subq	%rax, %r11
 	sbbq	%rsi, %r12
 	sbbq	%rbx, %r13
@@ -929,10 +917,7 @@ ENTRY_32(mpi_sqr_mont_mod_p256_x86_64)
 	adcq	$0x00, %r8
 	movq	$0xffffffff, %rax
 	movq	$0xffffffff00000001, %rsi
-	# mask m and sub from result if overflow
-	#  m[0] = -1 & mask = mask
 	andq	%r8, %rax
-	#  m[2] =  0 & mask = 0
 	andq	%r8, %rsi
 	subq	%r8, %r12
 	sbbq	%rax, %r13
@@ -977,99 +962,99 @@ ENTRY_32(mpi_mul_int_x86_64_4)
 ENDPROC(mpi_mul_int_x86_64_4)
 
 /**
- * Reduce the number back to 256 bits using Montgomery reduction.
- * Mostly borrowed from WolfSSL sp_256_mont_reduce_4().
+ * Convert the 4-limbs number in %RDI from Montogomery domain:
+ *   r = a * 2^-256 mod P256
  *
- * TODO #1064: NIST p256 is Montgomery-friendly, so some operations with
- * the parts of the prime can be eliminated.
+ * This is the bit modified tail of WolfSSL sp_256_mont_mul_4(), which uses
+ * the special form of the NIST prime, so we can replace MUL with additions
+ * and shifts.
  */
-ENTRY_32(mpi_mont_reduce_p256_x86_64)
+ENTRY_32(mpi_from_mont_p256_x86_64)
+	pushq	%r12
 	pushq	%r13
 	pushq	%r14
 	pushq	%r15
-	movq	$1, %rcx
-	# i = 0
-	xorq	%r14, %r14
-	movq	$4, %r8
-	movq	%rdi, %r13
-L_mont_loop_4:
-	# mu = a[i] * mp
-	movq	(%r13), %rsi
-	imulq	%rcx, %rsi
-	# a[i+0] += m[0] * mu
-	movq	$0xffffffffffffffff, %rax
-	movq	$0x00000000ffffffff, %r10
-	mulq	%rsi
-	movq	(%r13), %r15
-	addq	%rax, %r15
-	movq	%rdx, %r9
-	movq	%r15, (%r13)
+	pushq	%rbx
+	movq	(%rdi), %r9
+	movq	8(%rdi), %r10
+	movq	16(%rdi), %r11
+	movq	24(%rdi), %r12
+	# mu = a[0]-a[3] + a[0]-a[2] << 32 << 64 + (a[0] * 2) << 192
+	#      - a[0] << 32 << 192
+	#      + (a[0] * 2) << 192
+	movq	%r9, %rax
+	movq	%r12, %rdx
+	addq	%rax, %rdx
+	movq	%r10, %rsi
+	addq	%rax, %rdx
+	movq	%r11, %r8
+	# a[0]-a[2] << 32
+	shlq	$32, %r9
+	shldq	$32, %rsi, %r11
+	shldq	$32, %rax, %r10
+	# - a[0] << 32 << 192
+	subq	%r9, %rdx
+	# + a[0]-a[2] << 32 << 64
+	addq	%r9, %rsi
+	adcq	%r10, %r8
+	adcq	%r11, %rdx
+	# a += (mu << 256) - (mu << 224) + (mu << 192) + (mu << 96) - mu
+	# a += mu << 256
+	xorq	%r9, %r9
+	movq	%rax, %r13
+	movq	%rsi, %r14
+	movq	%r8, %r15
+	movq	%rdx, %rbx
+	# a += mu << 192
+	addq	%rax, %r12
+	adcq	%rsi, %r13
+	adcq	%r8, %r14
+	adcq	%rdx, %r15
+	adcq	$0x00, %rbx
+	sbbq	$0x00, %r9
+	# mu <<= 32
+	movq	%rdx, %rcx
+	shldq	$32, %r8, %rdx
+	shldq	$32, %rsi, %r8
+	shldq	$32, %rax, %rsi
+	shrq	$32, %rcx
+	shlq	$32, %rax
+	# a += (mu << 32) << 64
+	addq	%r8, %r12
+	adcq	%rdx, %r13
+	adcq	%rcx, %r14
+	adcq	$0x00, %r15
+	adcq	$0x00, %rbx
+	sbbq	$0x00, %r9
+	# a -= (mu << 32) << 192
+	subq	%rax, %r12
+	sbbq	%rsi, %r13
+	sbbq	%r8, %r14
+	sbbq	%rdx, %r15
+	sbbq	%rcx, %rbx
 	adcq	$0x00, %r9
-	# a[i+1] += m[1] * mu
-	movq	%r10, %rax
-	mulq	%rsi
-	movq	$0, %r10		# TODO #1064 p256[3]
-	movq	8(%r13), %r15
-	addq	%r9, %rax
-	movq	%rdx, %r11
-	adcq	$0x00, %r11
-	addq	%rax, %r15
-	movq	%r15, 8(%r13)
-	adcq	$0x00, %r11
-	# a[i+2] += m[2] * mu
-	movq	%r10, %rax
-	mulq	%rsi
-	movq	$0xffffffff00000001, %r10
-	movq	16(%r13), %r15
-	addq	%r11, %rax
-	movq	%rdx, %r9
-	adcq	$0x00, %r9
-	addq	%rax, %r15
-	movq	%r15, 16(%r13)
-	adcq	$0x00, %r9
-	# a[i+3] += m[3] * mu
-	movq	%r10, %rax
-	mulq	%rsi
-	movq	24(%r13), %r15
-	addq	%r9, %rax
-	adcq	%r14, %rdx
-	movq	$0x00, %r14
-	adcq	$0x00, %r14
-	addq	%rax, %r15
-	movq	%r15, 24(%r13)
-	adcq	%rdx, 32(%r13)
-	adcq	$0x00, %r14
-	# i += 1
-	addq	$8, %r13
-	decq	%r8
-	jnz	L_mont_loop_4
-	xorq	%rax, %rax
-	movq	32(%rdi), %rdx
-	movq	40(%rdi), %r8
-	movq	48(%rdi), %r15
-	movq	56(%rdi), %r9
-	subq	%r14, %rax
-	movq	$0xffffffffffffffff, %r10
-	movq	$0x00000000ffffffff, %r11
-	movq	$0, %rsi
-	movq	$0xffffffff00000001, %r13
-	andq	%rax, %r10
-	andq	%rax, %r11
-	andq	%rax, %rsi
-	andq	%rax, %r13
-	subq	%r10, %rdx
-	sbbq	%r11, %r8
-	sbbq	%rsi, %r15
-	sbbq	%r13, %r9
-	movq	%rdx, (%rdi)
-	movq	%r8, 8(%rdi)
+	movq	$0xffffffff, %rax
+	movq	$0xffffffff00000001, %rsi
+	# mask m and sub from result if overflow
+	# m[0] = -1 & mask = mask
+	andq	%r9, %rax
+	# m[2] =  0 & mask = 0
+	andq	%r9, %rsi
+	subq	%r9, %r13
+	sbbq	%rax, %r14
+	sbbq	$0x00, %r15
+	sbbq	%rsi, %rbx
+	movq	%r13, (%rdi)
+	movq	%r14, 8(%rdi)
 	movq	%r15, 16(%rdi)
-	movq	%r9, 24(%rdi)
+	movq	%rbx, 24(%rdi)
+	popq	%rbx
 	popq	%r15
 	popq	%r14
 	popq	%r13
+	popq	%r12
 	retq
-ENDPROC(mpi_mont_reduce_p256_x86_64)
+ENDPROC(mpi_from_mont_p256_x86_64)
 
 /**
  * Fast reduction modulo 256 by FIPS 186-3 D.2:
@@ -1111,11 +1096,6 @@ ENDPROC(mpi_mont_reduce_p256_x86_64)
  *
  * In average we need only one addition or subtraction, i.e. N = 1, so a typical
  * subtraction (the most expensive path) costs about 3 jumps and 11 ADC/SBB.
- *
- * TBD: in total, this is about 65% slower than the Montgomery P-reduction after
- * multiplication, but we don't pay for Montgomery transformations.
- *
- * TODO align the MPI on a cache line.
  *
  * %RDI	- pointer to 8 limbs big integer to be reduced.
  */
@@ -1462,56 +1442,44 @@ ENTRY_32(mpi_mul_mont_mod_p256_x86_64)
 	mulq	24(%rsi)
 	addq	%rax, %r15
 	adcq	%rdx, %rbx
-	# Start Reduction
-	# mu = a[0]-a[3] + a[0]-a[2] << 32 << 64 + (a[0] * 2) << 192
-	#    - a[0] << 32 << 192
-	#   + (a[0] * 2) << 192
+	# Start Reduction, see mpi_from_mont_p256_x86_64().
 	movq	%r9, %rax
 	movq	%r12, %rdx
 	addq	%r9, %rdx
 	movq	%r10, %rsi
 	addq	%r9, %rdx
 	movq	%r11, %r8
-	#   a[0]-a[2] << 32
 	shlq	$32, %r9
 	shldq	$32, %rsi, %r11
 	shldq	$32, %rax, %r10
-	#   - a[0] << 32 << 192
 	subq	%r9, %rdx
-	#   + a[0]-a[2] << 32 << 64
 	addq	%r9, %rsi
 	adcq	%r10, %r8
 	adcq	%r11, %rdx
-	# a += (mu << 256) - (mu << 224) + (mu << 192) + (mu << 96) - mu
-	#   a += mu << 256
 	xorq	%r9, %r9
 	addq	%rax, %r13
 	adcq	%rsi, %r14
 	adcq	%r8, %r15
 	adcq	%rdx, %rbx
 	sbbq	$0x00, %r9
-	#   a += mu << 192
 	addq	%rax, %r12
 	adcq	%rsi, %r13
 	adcq	%r8, %r14
 	adcq	%rdx, %r15
 	adcq	$0x00, %rbx
 	sbbq	$0x00, %r9
-	# mu <<= 32
 	movq	%rdx, %rcx
 	shldq	$32, %r8, %rdx
 	shldq	$32, %rsi, %r8
 	shldq	$32, %rax, %rsi
 	shrq	$32, %rcx
 	shlq	$32, %rax
-	#   a += (mu << 32) << 64
 	addq	%r8, %r12
 	adcq	%rdx, %r13
 	adcq	%rcx, %r14
 	adcq	$0x00, %r15
 	adcq	$0x00, %rbx
 	sbbq	$0x00, %r9
-	#   a -= (mu << 32) << 192
 	subq	%rax, %r12
 	sbbq	%rsi, %r13
 	sbbq	%r8, %r14
@@ -1520,10 +1488,7 @@ ENTRY_32(mpi_mul_mont_mod_p256_x86_64)
 	adcq	$0x00, %r9
 	movq	$0xffffffff, %rax
 	movq	$0xffffffff00000001, %rsi
-	# mask m and sub from result if overflow
-	#  m[0] = -1 & mask = mask
 	andq	%r9, %rax
-	#  m[2] =  0 & mask = 0
 	andq	%r9, %rsi
 	subq	%r9, %r13
 	sbbq	%rax, %r14

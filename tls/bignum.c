@@ -1085,7 +1085,8 @@ ttls_mpi_mod_mpi(TlsMpi *R, const TlsMpi *A, const TlsMpi *B)
 }
 
 /**
- * Fast Montgomery initialization (thanks to Tom St Denis).
+ * Fast Montgomery initialization -N^-1 mod 2^256 (256 = 2^8).
+ * (see Tom St Denis, mp_montgomery_setup()).
  */
 static void
 __mpi_montg_init(unsigned long *mm, const TlsMpi *N)
