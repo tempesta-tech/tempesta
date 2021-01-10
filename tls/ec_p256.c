@@ -816,6 +816,15 @@ ecp256_add_mixed(Ecp256Point *R, const Ecp256Point *P, const Ecp256Point *Q)
  * OpenSSL and WolfSSL use the same formula, but the former one avoids extra
  * subtraction to handle almost impossible case of equal points (see
  * ecp_nistz256_point_add()), so we do the same.
+ *
+ * TODO #1335: this function calls pairs of Montogomery squarings and
+ * multiplications, so SIMD can be applied to compute 2 operations in
+ * parallel (see [5] chapter 4.0.1 and references). Another option (e.g.
+ * Algorithm 4 from [5] or "Bipartite Modular Multiplication" by Kaihara) is
+ * to parallelize different phases of single operation computation process
+ * using interleaved Montgomery computation. Also Faz-Hernandez proposed
+ * several approaces in parallel computations of whole doubling and addition
+ * functions.
  */
 static void
 ecp256_add_jac(Ecp256Point *r, const Ecp256Point *p, const Ecp256Point *q)
